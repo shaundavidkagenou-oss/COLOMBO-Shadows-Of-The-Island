@@ -1,0 +1,46 @@
+<!doctype html><html><body style="margin:0;background:#888"><canvas id="c"></canvas>
+<script type="module">
+// Dev check: every seat of a vehicle occupied by adults of varied height, seated with the real seating system.
+// ?type=car|taxi|sedan|van|suv|tuktuk|bike|bus|pbus|lorry  &variant=N  &view=ext|side|front|int|rear|cut|top
+// &full=1 (all seats) or a passenger count, &steer=-1..1. view=cut hides the body shell to expose clipping.
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { buildTextures } from '/src/gfx/Textures.js';
+import { buildMaterials } from '/src/gfx/Materials.js';
+import { createVehicleMesh } from '/src/vehicles/VehicleModels.js';
+import { Character, randomSpec, HEROES } from '/src/actors/Character.js';
+import { seatCharacter } from '/src/actors/Seating.js';
+import '@fontsource/noto-sans-sinhala/600.css'; import '@fontsource/barlow-condensed/600.css';
+await buildTextures('medium'); buildMaterials();
+const q = new URLSearchParams(location.search); const W = +(q.get('w') || 1280), H = +(q.get('h') || 720);
+const r = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true }); r.setSize(W, H); r.toneMapping = THREE.ACESFilmicToneMapping; r.outputColorSpace = THREE.SRGBColorSpace;
+const s = new THREE.Scene(); s.environment = new THREE.PMREMGenerator(r).fromScene(new RoomEnvironment(), 0.04).texture; s.environmentIntensity = 0.6; s.background = new THREE.Color(0x9fb4c8);
+s.add(new THREE.HemisphereLight(0xdde8ff, 0x665544, 1.5)); const d = new THREE.DirectionalLight(0xfff0dd, 2.4); d.position.set(4, 9, 6); s.add(d);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 40), new THREE.MeshStandardMaterial({ color: 0x5a5a5a })); ground.rotation.x = -Math.PI / 2; s.add(ground);
+const type = q.get('type') || 'car'; const variant = +(q.get('variant') || 1); const view = q.get('view') || 'ext';
+const g = createVehicleMesh(type, variant); s.add(g); const veh = { mesh: g };
+const seats = g.userData.seats; const n = q.get('full') === '0' ? 1 : q.get('full') ? +q.get('full') || seats.length : seats.length;
+const heights = [1.86, 1.55, 1.72, 1.64, 1.79, 1.6]; const occ = [];
+seats.slice(0, n).forEach((seat, i) => {
+  const spec = i === 0 && q.get('hero') ? { ...HEROES.kavindu } : randomSpec(4100 + i * 37 + variant * 5, { age: 'adult', sex: i % 3 === 1 ? 'f' : 'm' });
+  spec.height = heights[i % heights.length] * (spec.sex === 'f' ? 0.97 : 1);
+  const ch = new Character(spec); seatCharacter(ch, veh, seat, ['lap', 'phone', 'window'][i % 3]); ch.anim.steer = +(q.get('steer') || 0); ch.anim.update(0.016, 0); occ.push(ch);
+});
+if (view === 'cut') g.traverse((m) => { if (m.isMesh && ['paint', 'glass', 'canvas', 'chrome', 'lights', 'tails', 'ind'].includes(m.name)) m.visible = false; if (m.isGroup && m !== g && !m.isBone && m.parent === g && !m.userData.spin && m.type === 'Group' && m.children.some((c) => c.isMesh && c.material && c.material.transparent)) m.visible = false; });
+const len = g.userData.seats.length && type.match(/bus|lorry/) ? 8 : 4.5; const big = /bus|pbus|lorry/.test(type);
+const cam = new THREE.PerspectiveCamera(40, W / H, 0.05, 200); const ds = seats[0];
+const views = {
+  ext: [[big ? 7 : 4.2, big ? 3.2 : 2.2, big ? 6 : 3.4], [0, big ? 1.6 : 0.9, 0]],
+  side: [[big ? 12 : 6.5, big ? 2.0 : 1.2, 0], [0, big ? 1.8 : 0.9, 0]],
+  front: [[-1.5, big ? 2.6 : 1.5, big ? 10 : 5.5], [0, big ? 1.8 : 0.9, 0]],
+  rear: [[1.2, big ? 3.0 : 1.8, big ? -11 : -5.5], [0, big ? 1.6 : 0.9, 0]],
+  top: [[0.01, big ? 16 : 7, 0], [0, 0, 0]],
+  cut: [[big ? 8 : 4.6, big ? 3.6 : 2.4, big ? 3 : 2.0], [0, big ? 1.5 : 0.8, 0]],
+  int: [[ds.x + 0.25, ds.y + 0.75, ds.z + 0.35], [ds.x + 0.9, ds.y + 0.35, ds.z - 1.6]],
+  drv: [[ds.x, ds.y + 0.78, ds.z + 0.1], [ds.x, ds.y + 0.6, ds.z + 3]],
+};
+const [cp, lk] = views[view] || views.ext; cam.position.set(...cp); cam.lookAt(...lk); if (view === 'int' || view === 'drv') cam.fov = 70; cam.updateProjectionMatrix();
+r.render(s, cam);
+window.__report = occ.map((ch, i) => ({ seat: i, h: ch.spec.height.toFixed(2), lean: ch.anim.seatLean?.toFixed(2), sink: ch.anim.fitSink }));
+window.__ready = true;
+</script></body></html>

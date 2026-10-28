@@ -43,7 +43,7 @@ function loft(mb, secs, col, { capFront = true, capBack = true, noBottom = false
 // Extruded side silhouette with semicircular wheel-arch cut-outs.
 //  top: [[z,y]...] contour from the front-bottom corner over the top to the rear-bottom corner
 //  sill: y of the bottom edge; arches: [[zc, wheelR]]; W: half width; taper(z,y) → half-width factor
-function sideBody(mb, top, sill, arches, W, col, { taper = null, bevel = 0.05 } = {}) {
+function sideBody(mb, top, sill, arches, W, col, { taper = null, bevel = 0.05, openTop = null } = {}) {
   const sh = new THREE.Shape(); const f = top[0], r = top[top.length - 1];
   sh.moveTo(r[0], sill);
   for (const [zc, R] of [...arches].sort((a, b) => a[0] - b[0])) {
@@ -55,6 +55,13 @@ function sideBody(mb, top, sill, arches, W, col, { taper = null, bevel = 0.05 } 
   let g = new THREE.ExtrudeGeometry(sh, { depth, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel * 0.6, bevelOffset: -bevel * 0.6, bevelSegments: 3, curveSegments: 14 });
   g.applyMatrix4(new THREE.Matrix4().set(0, 0, -1, W - bevel, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1));
   g.deleteAttribute('uv'); g.deleteAttribute('normal'); g = mergeVertices(g, 1e-4);
+  if (openTop) { // remove the upward-facing cap over the cabin so occupants are not sliced by it (interior trims line the cabin)
+    const [z0, z1, yMin] = openTop; const P = g.attributes.position, I = g.index.array, keep = []; const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3();
+    for (let t = 0; t < I.length; t += 3) { a.fromBufferAttribute(P, I[t]); b.fromBufferAttribute(P, I[t + 1]); c.fromBufferAttribute(P, I[t + 2]); n.subVectors(c, b).cross(b.clone().sub(a)).normalize();
+      const cz = (a.z + b.z + c.z) / 3, cy = (a.y + b.y + c.y) / 3, cx = Math.abs(a.x + b.x + c.x) / 3; const up = Math.abs(n.y) > 0.8;
+      if (up && cy > yMin && cz > z0 && cz < z1 && cx < W - bevel * 1.2 && Math.min(a.z, b.z, c.z) > z0 - 0.05 && Math.max(a.z, b.z, c.z) < z1 + 0.05) continue; keep.push(I[t], I[t + 1], I[t + 2]); }
+    g.setIndex(keep);
+  }
   if (taper) { const p = g.attributes.position; for (let i = 0; i < p.count; i++) p.setX(i, p.getX(i) * taper(p.getZ(i), p.getY(i))); }
   g.computeVertexNormals(); mb.geometry(g, new THREE.Matrix4(), col); g.dispose();
   // dark wheel-well liners inside the arch tunnels
@@ -181,7 +188,8 @@ function buildModel(type, color, variant) {
     wheelStyle = 1;
     // rear body: extruded side profile with the rear-wheel arches cut out
     sideBody(paint, [[0.28, 0.3], [0.3, 0.56], [0.18, 0.64], [-0.92, 0.64], [-1.0, 0.98], [-1.18, 1.0], [-1.27, 0.9], [-1.29, 0.4]], 0.3, [[-0.85, R]], 0.645, col,
-      { taper: (z, y) => 1 - 0.05 * sstep(-0.95, -1.29, z) - 0.03 * sstep(0.6, 0.96, y), bevel: 0.04 });
+      { taper: (z, y) => 1 - 0.05 * sstep(-0.95, -1.29, z) - 0.03 * sstep(0.6, 0.96, y), bevel: 0.04, openTop: [-0.45, 0.17, 0.5] });
+    for (const sx of [-1, 1]) mb.get('interior').box(sx * 0.6, 0.5, -0.14, 0.025, 0.27, 0.62, { col: C('#2a2a2a') });
     part(paint, unitBox, [0, 0.5, 0.15], [0, 0, 0], [0.3, 0.3, 0.3], C('#1a1a1a')); // driver seat pedestal
     // passenger floor + front cowl / dash fairing
     loft(paint, [[0.25, 0.28, 0.4, 0.6, 0.6, 0.06], [0.5, 0.28, 0.42, 0.5, 0.5, 0.06]], col);
@@ -214,7 +222,11 @@ function buildModel(type, color, variant) {
     // seats + trim stripes
     seat(mb, 0, 0.7, -0.7, 1.12, C('#2a2420'), { back: 0.5, head: false }); seat(mb, 0, 0.68, 0.15, 0.4, C('#2a2420'), { back: 0.18, head: false });
     paint.box(0, 0.36, -0.45, 1.29, 0.03, 1.5, { col: trim, top: false }); paint.box(0, 0.56, -0.35, 1.3, 0.035, 1.1, { col: trim, top: false });
-    seats.push({ x: 0, y: 0.74, z: 0.15, driver: true }, { x: -0.3, y: 0.76, z: -0.7 }, { x: 0.3, y: 0.76, z: -0.7 });
+    mb.get('interior').box(0, 0.36, -0.5, 1.2, 0.03, 1.3, { col: C('#2a2a2a') }); // rear compartment floor mat
+    const bars = [[0.33, 1.06, 0.62], [-0.33, 1.06, 0.62]];
+    seats.push({ x: 0, y: 0.74, z: 0.15, floor: 0.32, fz: 0.42, fx: 0.12, roof: 1.74, lean: 0.1, hands: 'bars', bars, kind: 'drive', driver: true, exit: [-0.98, 0.25] },
+      { x: 0.28, y: 0.76, z: -0.7, floor: 0.375, fz: 0.44, fx: 0.11, roof: 1.74, lean: -0.08, hands: 'lap', kind: 'sit', exit: [1.0, -0.55] },
+      { x: -0.28, y: 0.76, z: -0.7, floor: 0.375, fz: 0.44, fx: 0.11, roof: 1.74, lean: -0.08, hands: 'lap', kind: 'sit', exit: [-1.0, -0.55] });
     return out([[0, R, 1.0, 0.12], [-0.58, R, -0.85, 0.14], [0.58, R, -0.85, 0.14]], [0, 1.06, 0.62]);
   }
 
@@ -232,13 +244,16 @@ function buildModel(type, color, variant) {
       part(mb.get('interior'), unitBox, [0, 0.9, -0.38], [0.08, 0, 0], [0.26, 0.08, 0.6], C('#151515'));
       loft(paint, [[-0.85, 0.7, 0.82, 0.1, 0.08, 0.04], [-0.55, 0.78, 0.86, 0.12, 0.1, 0.04]], col); // tail
     }
-    for (const sx of [-1, 1]) beam(ch, [sx * 0.07, R, 0.72], [sx * 0.07, 1.0, 0.58], 0.035, 0.035, C('#a8acb0'), unitCyl); // fork
+    for (const sx of [-1, 1]) beam(ch, [sx * 0.07, R, 0.72], [sx * 0.07, 1.07, 0.52], 0.035, 0.035, C('#a8acb0'), unitCyl); // fork
     loft(paint, [[0.55, R * 2 + 0.02, R * 2 + 0.05, 0.08, 0.08, 0.02], [0.85, R * 1.7, R * 1.7 + 0.04, 0.08, 0.08, 0.02]], col);
-    beam(ch, [-0.36, 1.06, 0.56], [0.36, 1.06, 0.56], 0.022, 0.022, black, unitCyl); for (const sx of [-1, 1]) { beam(rubber, [sx * 0.3, 1.06, 0.56], [sx * 0.4, 1.06, 0.56], 0.035, 0.035, black, unitCyl); beam(ch, [sx * 0.24, 1.06, 0.56], [sx * 0.3, 1.25, 0.6], 0.012, 0.012, chrome, unitCyl); part(ch, unitSph, [sx * 0.3, 1.27, 0.6], [0, 0, 0], [0.05, 0.035, 0.012], chrome); }
+    beam(ch, [-0.36, 1.13, 0.5], [0.36, 1.13, 0.5], 0.022, 0.022, black, unitCyl); for (const sx of [-1, 1]) { beam(rubber, [sx * 0.3, 1.13, 0.5], [sx * 0.4, 1.13, 0.5], 0.035, 0.035, black, unitCyl); beam(ch, [sx * 0.24, 1.13, 0.5], [sx * 0.3, 1.32, 0.54], 0.012, 0.012, chrome, unitCyl); part(ch, unitSph, [sx * 0.3, 1.27, 0.6], [0, 0, 0], [0.05, 0.035, 0.012], chrome); }
     part(ch, unitCyl, [0, 1.0, 0.7], [Math.PI / 2, 0, 0], [0.09, 0.08, 0.09], scooter ? col : chrome); part(lights, unitCyl, [0, 1.0, 0.745], [Math.PI / 2, 0, 0], [0.075, 0.01, 0.075]);
     tails.box(0, 0.86, -0.9, 0.12, 0.06, 0.04); for (const sx of [-1, 1]) { part(ind, unitSph, [sx * 0.16, 0.98, 0.66], [0, 0, 0], [0.025, 0.025, 0.035]); part(ind, unitSph, [sx * 0.12, 0.82, -0.9], [0, 0, 0], [0.025, 0.025, 0.035]); }
     plateQuad(mb, 0, 0.7, -0.93, 0.12, 0.045, false, variant);
-    seats.push({ x: 0, y: 0.9, z: -0.15, driver: true, ride: true }, { x: 0, y: 0.92, z: -0.5, ride: true });
+    for (const sx of [-1, 1]) { beam(ch, [sx * 0.12, 0.42, -0.4], [sx * 0.26, 0.42, -0.4], 0.025, 0.025, black, unitCyl); if (!scooter) beam(ch, [sx * 0.1, 0.36, 0.06], [sx * 0.24, 0.36, 0.06], 0.025, 0.025, black, unitCyl); } // foot pegs
+    const sy = scooter ? 0.9 : 0.94, bars = [[0.33, 1.13, 0.5], [-0.33, 1.13, 0.5]];
+    seats.push({ x: 0, y: sy, z: -0.08, floor: scooter ? 0.42 : 0.36, fz: scooter ? 0.3 : 0.14, fx: scooter ? 0.12 : 0.2, roof: 9, lean: 0.3, hands: 'bars', bars, kind: 'ride', driver: true, ride: true, exit: [0.75, -0.1] },
+      { x: 0, y: sy + 0.01, z: -0.46, floor: 0.42, fz: 0.06, fx: 0.25, roof: 9, lean: 0.08, hands: 'lap', kind: 'ride', ride: true, exit: [0.75, -0.6] });
     return out([[0, R, 0.7, 0.1], [0, R, -0.68, 0.12]], [0, 1.06, 0.56]);
   }
 
@@ -247,7 +262,7 @@ function buildModel(type, color, variant) {
     const red = type === 'bus'; const sill = 0.42, belt = 1.5, winTop = H - 0.32; const stripe = red ? C('#e8b820') : C(variant % 2 ? '#d43a2a' : '#e8a020');
     const wf = L / 2 - 2.0, wr = -L / 2 + 2.6; wheelStyle = 1;
     sideBody(paint, [[L / 2, 0.45], [L / 2 + 0.02, 1.2], [L / 2 - 0.02, belt], [-L / 2 + 0.04, belt], [-L / 2, 1.3], [-L / 2, 0.45]], sill, [[wf, R], [wr, R]], W, col,
-      { taper: (z, y) => 1 - 0.035 * sstep(L / 2 - 0.4, L / 2, z) - 0.03 * sstep(-L / 2 + 0.4, -L / 2, z), bevel: 0.08 });
+      { taper: (z, y) => 1 - 0.035 * sstep(L / 2 - 0.4, L / 2, z) - 0.03 * sstep(-L / 2 + 0.4, -L / 2, z), bevel: 0.08, openTop: [-L / 2 - 0.2, L / 2 + 0.2, 1.3] });
     // window band (glass) with pillars, roof with rounded edges and hatches
     loft(glass, [[-L / 2 + 0.06, belt, winTop, W - 0.04, W - 0.06, 0.04], [L / 2 - 0.25, belt, winTop, W - 0.04, W - 0.06, 0.04]], C('#fff'), { noBottom: true });
     loft(paint, [[-L / 2 + 0.02, winTop, H, W - 0.02, W - 0.16, 0.24], [L / 2 - 0.2, winTop, H, W - 0.02, W - 0.16, 0.24]], red ? C('#7c1414') : col);
@@ -280,16 +295,19 @@ function buildModel(type, color, variant) {
       part(ch, unitBox, [x + 0.02, 0.5, dz], [0, 0, 0], [0.04, 0.12, 0.9], C('#888'));
     }
     // interior: rows of seats seen through the windows, driver seat + flat steering wheel
-    const I = mb.get('interior'); part(I, unitBox, [0, belt + 0.01, 0], [0, 0, 0], [W * 2 - 0.1, 0.02, L - 0.3], C('#3a3a3a')); for (let z = -L / 2 + 1.2; z < L / 2 - 2.2; z += 0.85) for (const sx of [-1, 1]) { part(I, unitBox, [sx * (W - 0.5), 1.3, z], [0, 0, 0], [0.85, 0.12, 0.45], C(red ? '#3a4a6a' : '#6a2a2a')); part(I, unitBox, [sx * (W - 0.5), 1.62, z - 0.22], [-0.12, 0, 0], [0.85, 0.6, 0.08], C(red ? '#3a4a6a' : '#6a2a2a')); part(I, unitCyl, [sx * (W - 0.12), 1.95, z], [0, 0, 0], [0.02, 0.9, 0.02], C('#b0b4b8')); }
-    part(I, unitBox, [0, 1.05, fz - 0.45], [0, 0, 0], [W * 2 - 0.1, 0.5, 0.5], C('#2a2a2a')); seat(mb, -0.75, 0.95, fz - 1.15, 0.5, C('#2a2a2a'));
-    steering(mb, [-0.75, 1.45, fz - 0.72], 0.24, 0.5); seats.push({ x: -0.75, y: 1.0, z: fz - 1.1, driver: true });
+    const I = mb.get('interior'); I.box(0, 0.9, 0, W * 2 - 0.12, 0.04, L - 0.3, { col: C('#3a3a38') }); for (const sx of [-1, 1]) I.box(sx * (W - 0.07), (0.92 + belt) / 2, 0, 0.03, belt - 0.92, L - 0.3, { col: C('#6a6a66') }); I.box(0, H - 0.12, 0, W * 2 - 0.12, 0.03, L - 0.3, { col: C('#d8d8d0') }); I.box(0, (0.92 + belt) / 2, -L / 2 + 0.2, W * 2 - 0.12, belt - 0.92, 0.03, { col: C('#6a6a66') });
+    const rowZ = [];  for (let z = -L / 2 + 1.2; z < L / 2 - 2.2; z += 0.85) for (const sx of [-1, 1]) { if (sx > 0 && Math.abs(z + 0.6) < 0.7) continue; rowZ.push([sx, z]); part(I, unitBox, [sx * (W - 0.5), 1.3, z], [0, 0, 0], [0.85, 0.12, 0.45], C(red ? '#3a4a6a' : '#6a2a2a')); part(I, unitBox, [sx * (W - 0.5), 1.62, z - 0.22], [-0.12, 0, 0], [0.85, 0.6, 0.08], C(red ? '#3a4a6a' : '#6a2a2a')); part(I, unitCyl, [sx * (W - 0.12), 1.95, z], [0, 0, 0], [0.02, 0.9, 0.02], C('#b0b4b8')); }
+    part(I, unitBox, [0, 1.3, fz - 0.35], [0, 0, 0], [W * 2 - 0.1, 0.3, 0.4], C('#2a2a2a')); I.box(0, 1.0, fz - 0.2, W * 2 - 0.1, 0.2, 0.12, { col: C('#222') }); seat(mb, -0.75, 1.3, fz - 1.2, 0.5, C('#2a2a2a'));
+    const bw = { p: [-0.75, 1.74, fz - 0.66], r: 0.24, tilt: 1.1 }; steering(mb, bw.p, bw.r, bw.tilt);
+    seats.push({ x: -0.75, y: 1.36, z: fz - 1.2, floor: 0.92, fz: 0.56, fx: 0.13, roof: H - 0.14, lean: -0.06, hands: 'wheel', wheel: bw, kind: 'drive', driver: true, exit: [W + 0.6, L / 2 - 1.05] });
+    for (const [sx, z] of rowZ) for (const o of [-0.21, 0.21]) seats.push({ x: sx * (W - 0.5) + o, y: 1.36, z, floor: 0.92, fz: 0.42, fx: 0.11, roof: H - 0.14, lean: -0.05, hands: 'lap', kind: 'sit', bus: true, exit: [W + 0.6, z > 1.2 ? L / 2 - 1.05 : -0.6] });
     return out([[-W + 0.22, R, wf, 0.3], [W - 0.22, R, wf, 0.3], [-W + 0.26, R, wr, 0.46], [W - 0.26, R, wr, 0.46]], [-0.75, 1.45, fz - 0.72], { busDoor: [W + 0.6, L / 2 - 1.05] });
   }
 
   // =============================================================== LORRY (cab-over truck with drop-side bed)
   if (type === 'lorry') {
     const cabL = 1.95; const cz = L / 2 - cabL / 2; const wf = L / 2 - 1.15, wr = -L / 2 + 1.55; wheelStyle = 1;
-    sideBody(paint, [[L / 2, 0.62], [L / 2 + 0.02, 1.75], [L / 2 - 0.04, 1.82], [L / 2 - cabL, 1.82], [L / 2 - cabL, 0.62]], 0.62, [[wf, R]], W, col, { bevel: 0.07 });
+    sideBody(paint, [[L / 2, 0.62], [L / 2 + 0.02, 1.75], [L / 2 - 0.04, 1.82], [L / 2 - cabL, 1.82], [L / 2 - cabL, 0.62]], 0.62, [[wf, R]], W, col, { bevel: 0.07, openTop: [L / 2 - cabL + 0.06, L / 2 - 0.1, 1.2] });
     loft(glass, [[L / 2 - cabL + 0.05, 1.8, 2.62, W - 0.05, W - 0.12, 0.05], [L / 2 - 0.12, 1.8, 2.55, W - 0.06, W - 0.14, 0.05]], C('#fff'), { noBottom: true });
     loft(paint, [[L / 2 - cabL + 0.02, 2.6, 2.86, W - 0.04, W - 0.16, 0.12], [L / 2 - 0.1, 2.55, 2.84, W - 0.06, W - 0.18, 0.12]], col);
     for (const sx of [-1, 1]) { beam(paint, [sx * (W - 0.06), 1.8, L / 2 - 0.1], [sx * (W - 0.1), 2.55, L / 2 - 0.12], 0.08, 0.1, col); beam(paint, [sx * (W - 0.05), 1.8, L / 2 - cabL + 0.6], [sx * (W - 0.1), 2.62, L / 2 - cabL + 0.6], 0.06, 0.08, col); seam(mb, sx * (W + 0.003), [[L / 2 - 0.3, 0.75], [L / 2 - 0.3, 1.78], [L / 2 - cabL + 0.62, 1.78], [L / 2 - cabL + 0.62, 0.75]]); }
@@ -307,9 +325,12 @@ function buildModel(type, color, variant) {
     part(ch, unitCyl, [-W + 0.25, 0.6, 0.4], [Math.PI / 2, 0, 0], [0.22, 0.8, 0.22], C('#a0a4a8'));
     for (const sx of [-1, 1]) { rubber.box(sx * (W - 0.25), 0.35, wr - 0.75, 0.4, 0.45, 0.02, { col: black }); tails.box(sx * (W - 0.2), 0.8, -L / 2 - 0.01, 0.2, 0.15, 0.04); ind.box(sx * (W - 0.42), 0.8, -L / 2 - 0.01, 0.16, 0.12, 0.04); }
     plateQuad(mb, 0, 0.75, -L / 2 - 0.02, 0.22, 0.06, false, variant);
-    const I = mb.get('interior'); part(I, unitBox, [0, 1.75, L / 2 - 0.35], [0, 0, 0], [W * 2 - 0.15, 0.25, 0.35], C('#2a2a2a')); seat(mb, -0.55, 1.15, cz - 0.2, 0.55, C('#3a3a3a')); seat(mb, 0.4, 1.15, cz - 0.2, 0.8, C('#3a3a3a'));
-    steering(mb, [-0.55, 1.75, L / 2 - 0.5], 0.22, 0.6); seats.push({ x: -0.55, y: 1.25, z: cz - 0.2, driver: true });
-    return out([[-W + 0.22, R, wf, 0.3], [W - 0.22, R, wf, 0.3], [-W + 0.26, R, wr, 0.46], [W - 0.26, R, wr, 0.46]], [-0.55, 1.75, L / 2 - 0.5], { busDoor: [W + 0.6, cz] });
+    const I = mb.get('interior'); part(I, unitBox, [0, 1.75, L / 2 - 0.35], [0, 0, 0], [W * 2 - 0.15, 0.25, 0.35], C('#2a2a2a')); seat(mb, -0.55, 1.15, L / 2 - 0.95, 0.55, C('#3a3a3a')); seat(mb, 0.4, 1.15, L / 2 - 0.95, 0.8, C('#3a3a3a'));
+    I.box(0, 0.79, cz, W * 2 - 0.12, 0.04, cabL - 0.1, { col: C('#2a2a2a') }); for (const sx of [-1, 1]) I.box(sx * (W - 0.07), 1.3, cz, 0.03, 1.0, cabL - 0.2, { col: C('#4a4a48') }); I.box(0, 2.56, cz, W * 2 - 0.12, 0.03, cabL - 0.1, { col: C('#bdbdb5') }); I.box(0, 1.7, L / 2 - cabL + 0.06, W * 2 - 0.12, 1.8, 0.03, { col: C('#4a4a48') });
+    const lw = { p: [-0.55, 1.76, L / 2 - 0.6], r: 0.22, tilt: 0.65 }; steering(mb, lw.p, lw.r, lw.tilt);
+    seats.push({ x: -0.55, y: 1.21, z: L / 2 - 0.95, floor: 0.81, fz: 0.5, fx: 0.13, roof: 2.54, lean: -0.1, hands: 'wheel', wheel: lw, kind: 'drive', driver: true, exit: [-W - 0.6, L / 2 - 0.9] },
+      { x: 0.45, y: 1.21, z: L / 2 - 0.95, floor: 0.81, fz: 0.5, fx: 0.13, roof: 2.54, lean: -0.12, hands: 'lap', kind: 'sit', exit: [W + 0.6, L / 2 - 0.9] });
+    return out([[-W + 0.22, R, wf, 0.3], [W - 0.22, R, wf, 0.3], [-W + 0.26, R, wr, 0.46], [W - 0.26, R, wr, 0.46]], [-0.55, 1.76, L / 2 - 0.6], { busDoor: [W + 0.6, cz] });
   }
 
   // =============================================================== CARS, TAXI, VAN, SUV — shared passenger-vehicle builder
@@ -326,7 +347,7 @@ function buildModel(type, color, variant) {
   const k = type === 'taxi' ? 'car' : type; const D = P[k]; const isVan = k === 'van' || k === 'suv';
   const fz = D.top[0][0], rz = D.top[D.top.length - 1][0]; const sill = D.sill;
   const taper = (z, y) => 1 - 0.11 * sstep(fz - 0.45, fz + 0.02, z) - 0.08 * sstep(rz + 0.35, rz - 0.02, z) - (isVan ? 0.02 : 0.045) * sstep(0.75, 1.0, y) - 0.03 * sstep(0.42, 0.3, y);
-  sideBody(paint, D.top, sill, [[D.wf, R], [D.wr, R]], W, col, { taper, bevel: isVan ? 0.06 : 0.07 });
+  sideBody(paint, D.top, sill, [[D.wf, R], [D.wr, R]], W, col, { taper, bevel: isVan ? 0.06 : 0.07, openTop: [D.gh[D.gh.length - 1][0] + 0.03, D.gh[0][0] - 0.03, sill + 0.3] });
   // wheel-well liners (stop see-through above the tyres)
   for (const wz of [D.wf, D.wr]) for (const sx of [-1, 1]) part(rubber, unitCyl, [sx * (W - 0.2), R, wz], [0, 0, Math.PI / 2], [R + 0.06, 0.34, R + 0.06], C('#0c0c0c'));
   // greenhouse: tinted glass loft; half widths follow the tumblehome
@@ -373,15 +394,27 @@ function buildModel(type, color, variant) {
     mirror(mb, sx * gw0, gh[0][1] + 0.08, gh[0][0] - 0.12, sx, col);
   }
   // interior: dashboard, seats, steering wheel (right-hand drive), rear-view mirror
-  const I = mb.get('interior'); const dz = gh[0][0] - 0.15, seatY = isVan ? 0.62 : 0.48; const sz = isVan ? D.door[0] - 0.75 : 0.0;
+  const I = mb.get('interior'); const dz = gh[0][0] - 0.15, seatY = k === 'van' ? 0.6 : k === 'suv' ? 0.64 : k === 'sedan' ? 0.38 : 0.42; const sz = isVan ? D.door[0] - 0.75 : 0.0; const floorY = sill + 0.04;
   part(I, unitBox, [0, gh[0][1] - 0.05, dz - 0.1], [0, 0, 0], [gw0 * 2 - 0.1, 0.22, 0.45], C('#1e1e20'));
-  { const a = gh[0], b = gh[gh.length - 1]; beam(I, [0, a[1] + 0.012, a[0] - 0.02], [0, b[1] + 0.012, b[0] + 0.02], gw0 * 2 - 0.06, 0.02, C('#28282a')); }
+  { // cabin shell seen from inside: floor pan, door trims to the beltline, headliner, firewall, console, parcel shelf
+    const zf = gh[0][0] - 0.05, zr = gh[gh.length - 1][0] + 0.08, trim = C(variant % 2 ? '#2c2c2e' : '#5a5046'); const beltY = Math.min(...gh.map((g) => g[1]));
+    I.box(0, floorY, (zf + zr) / 2, gw0 * 2 - 0.08, 0.03, zf - zr, { col: C('#202022') });
+    for (const sx of [-1, 1]) I.box(sx * (gw0 - 0.045), (floorY + beltY) / 2 + 0.01, (zf + zr) / 2, 0.03, beltY - floorY, zf - zr - 0.04, { col: trim });
+    const roofIn = Math.min(roofF[2], roofR[2]) - 0.035; I.box(0, roofIn, (roofF[0] + roofR[0]) / 2, gw1 * 2 - 0.1, 0.02, roofF[0] - roofR[0], { col: C('#c8c4ba') });
+    I.box(0, (floorY + gh[0][1] - 0.16) / 2, dz + 0.12, gw0 * 2 - 0.1, gh[0][1] - 0.16 - floorY, 0.04, { col: C('#18181a') });
+    I.box(0, floorY + 0.12, (sz + dz - 0.25) / 2, 0.2, 0.22, Math.max(0.2, dz - 0.25 - sz), { col: C('#1c1c1e') });
+    const backZ = (k === 'van' ? -1.4 : sz - 0.9) - 0.3; if (backZ > zr) I.box(0, beltY - 0.02, (backZ + zr) / 2, gw0 * 2 - 0.08, 0.025, backZ - zr, { col: trim });
+  }
   seat(mb, -0.38, seatY, sz, 0.48, C(variant % 2 ? '#2a2a2c' : '#4a4038')); seat(mb, 0.38, seatY, sz, 0.48, C(variant % 2 ? '#2a2a2c' : '#4a4038'));
   if (k !== 'van') seat(mb, 0, seatY, sz - 0.9, W * 1.5, C(variant % 2 ? '#2a2a2c' : '#4a4038'));
   else for (const z of [-0.4, -1.4]) seat(mb, 0, seatY, z, W * 1.6, C('#3a3a3c'));
-  const sw = [-0.38, gh[0][1] + 0.08, dz - 0.38]; steering(mb, sw, 0.18, 1.15);
+  const sw = [-0.38, seatY + 0.55, sz + 0.42]; steering(mb, sw, 0.18, 1.15); const cw = { p: sw, r: 0.18, tilt: 1.15 };
   part(I, unitBox, [0, roofF[2] - 0.1, roofF[0] - 0.1], [0, 0, 0], [0.22, 0.06, 0.02], C('#222'));
-  seats.push({ x: -0.38, y: seatY + 0.02, z: sz, driver: true }, { x: 0.38, y: seatY + 0.02, z: sz }, { x: 0.38, y: seatY + 0.02, z: sz - 0.9 }, { x: -0.38, y: seatY + 0.02, z: sz - 0.9 });
+  { const cy = seatY + 0.06, roofAt = (z) => { for (let i = 1; i < gh.length; i++) { const a = gh[i - 1], b = gh[i]; if (z <= a[0] && z >= b[0]) return lerp(a[2], b[2], (a[0] - z) / (a[0] - b[0] || 1)) - 0.06; } return gh[2][2] - 0.06; };
+    const hw = W + 0.6, mk = (x, z, o = {}) => ({ x, y: cy, z, floor: floorY + 0.015, fz: 0.6, fx: 0.12, roof: roofAt(z), lean: -0.22, hands: 'lap', kind: 'sit', exit: [Math.sign(x) * hw, z + 0.1], ...o });
+    seats.push(mk(-0.38, sz, { driver: true, hands: 'wheel', wheel: cw, kind: 'drive', fz: 0.62 }), mk(0.38, sz, { fz: 0.64 }));
+    if (k === 'van') for (const z of [-0.4, -1.4]) seats.push(mk(0.4, z, { fz: 0.55 }), mk(-0.4, z, { fz: 0.55 }));
+    else seats.push(mk(0.4, sz - 0.9, { fz: 0.52 }), mk(-0.4, sz - 0.9, { fz: 0.52 })); }
   // separately hinged driver door (right side, −x) used by the entry/exit animation
   const [d0, d1] = D.door; const by = gh[0][1] - 0.02; const dx = -(W * taper((d0 + d1) / 2, 0.6) + 0.014);
   const archBack = D.wf - (R + 0.07) - 0.03;
@@ -416,7 +449,7 @@ export function createVehicleMesh(type, seed = 1) {
     cached = { geos, wheels: m.wheels, seats: m.seats, steerWheel: m.steerWheel, doors: m.doors, wheelStyle: m.wheelStyle, busDoor: m.busDoor }; modelCache.set(key, cached);
   }
   const g = new THREE.Group(); const tailMat = M.vtail.clone(); const indMat = M.vind.clone(); byName.vtail = tailMat; byName.vind = indMat;
-  for (const [name, geo] of cached.geos) { const mesh = new THREE.Mesh(geo, byName[name] || MAT.paint); mesh.castShadow = name !== 'glass' && name !== 'vlight' && name !== 'interior'; mesh.receiveShadow = name === 'paint'; if (name === 'glass') mesh.renderOrder = 2; g.add(mesh); }
+  for (const [name, geo] of cached.geos) { const mesh = new THREE.Mesh(geo, byName[name] || MAT.paint); mesh.name = name; mesh.castShadow = name !== 'glass' && name !== 'vlight' && name !== 'interior'; mesh.receiveShadow = name === 'paint'; if (name === 'glass') mesh.renderOrder = 2; g.add(mesh); }
   const wp = wheelParts(T.wheelR, cached.wheels[0][3], cached.wheelStyle);
   const wheels = cached.wheels.map(([x, y, z, w]) => {
     const parts = w === cached.wheels[0][3] ? wp : wheelParts(T.wheelR, w, cached.wheelStyle);

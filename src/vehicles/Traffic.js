@@ -8,6 +8,12 @@ import { VTYPES } from './VehicleModels.js';
 import { RNG } from '../core/rng.js';
 import { clamp, lerp } from '../core/math.js';
 import { Character, randomSpec } from '../actors/Character.js';
+import { seatCharacter } from '../actors/Seating.js';
+
+// passengers per vehicle type: [count, weight] (the driver is always present)
+const PAX = { car: [[0, 5], [1, 3], [2, 1.5], [3, 0.8]], sedan: [[0, 5], [1, 3], [2, 1]], taxi: [[0, 2], [1, 4], [2, 2]], suv: [[0, 3], [1, 3], [2, 2], [3, 1]], van: [[0, 3], [1, 2], [2, 2], [4, 1]],
+  tuktuk: [[0, 3], [1, 4], [2, 3]], bike: [[0, 6], [1, 4]], lorry: [[0, 3], [1, 2]], bus: [[6, 1], [10, 2], [16, 2], [22, 1]], pbus: [[8, 1], [14, 2], [20, 2], [26, 1]] };
+const PAX_NEAR = 90, PAX_FAR = 120, PAX_CAP = 60; // passengers exist only near the player (LOD); total cap
 
 const V0 = [13.5, 12, 9, 6.5];
 const MIX = {
@@ -48,7 +54,7 @@ export class Traffic {
   constructor(scene, collision, events) {
     this.scene = scene; this.collision = collision; this.events = events; this.vehicles = []; this.parked = []; this.rng = new RNG(777);
     this.max = 40; this.simTime = 0; this.res = new Map(); this.driverSpecs = []; for (let i = 0; i < 16; i++) this.driverSpecs.push(randomSpec(5000 + i * 13, { sex: i % 5 === 0 ? 'f' : 'm', age: 'adult' }));
-    this.parkedTimer = 0; this.drivableSegs = L.segments.filter((s) => !s.crossing || s.level <= 2);
+    this.paxCount = 0; this.leaving = []; this.crowd = null; this.parkedTimer = 0; this.drivableSegs = L.segments.filter((s) => !s.crossing || s.level <= 2);
   }
   setDensity(d) { this.max = Math.round(10 + d * 45); }
   all() { return this.parked.length ? this.vehicles.concat(this.parked) : this.vehicles; }
@@ -75,8 +81,46 @@ export class Traffic {
   }
   addDriver(v) {
     const spec = this.driverSpecs[v.id % this.driverSpecs.length]; const ch = new Character(spec); const seat = v.driverSeat();
-    ch.root.position.set(seat.x, seat.y - 0.5, seat.z); ch.anim.set(seat.ride ? 'ride' : 'drive'); ch.anim.actionW = 1; ch.anim.update(0.016, 0); ch.mesh.castShadow = false;
-    v.mesh.add(ch.root); v.driverChar = ch;
+    seatCharacter(ch, v, seat); ch.mesh.castShadow = false; v.driverChar = ch; v.animAcc = 0;
+    // passenger plan: which seats are taken and by whom (created lazily when the vehicle is near the player)
+    const r = new RNG(v.id * 7919 + 13); const free = v.mesh.userData.seats.map((q, i) => i).filter((i) => !v.mesh.userData.seats[i].driver);
+    const n = Math.min(free.length, r.weighted(PAX[v.type] || [[0, 1]])); const plan = [];
+    for (let k = 0; k < n; k++) { const j = Math.floor(r.next() * free.length); const si = free.splice(j, 1)[0]; plan.push({ si, spec: randomSpec(90000 + v.id * 41 + k * 7, { age: 'adult' }), mode: r.weighted([['lap', 5], ['phone', 2], ['window', 2]]) }); }
+    v.paxPlan = plan; v.pax = [];
+  }
+  // create / drop passengers by distance (LOD) and keep their pose animating at a distance-dependent rate
+  updateOccupants(v, dt, focus) {
+    const d = Math.hypot(v.x - focus.x, v.z - focus.z); const seats = v.mesh.userData.seats;
+    if (v.paxPlan && v.paxPlan.length && !v.pax.length && d < PAX_NEAR && this.paxCount + v.paxPlan.length <= PAX_CAP && !v.disembarking) {
+      for (const p of v.paxPlan) { const ch = new Character(p.spec); seatCharacter(ch, v, seats[p.si], p.mode); ch.mesh.castShadow = d < 40; v.pax.push(ch); }
+      this.paxCount += v.pax.length;
+    } else if (v.pax && v.pax.length && d > PAX_FAR && !v.disembarking) this.dropPax(v);
+    // pose update rate: every frame near, 5 Hz mid-range, frozen far away (the seated pose stays valid)
+    const rate = d < 35 ? 0 : d < 90 ? 0.2 : Infinity; v.animAcc = (v.animAcc || 0) + dt; if (v.animAcc < rate) return; const step = v.animAcc; v.animAcc = 0;
+    const steer = v.steer / (v.T.steer || 0.5); const acc = (v.speed - (v.lastSpeed ?? v.speed)) / Math.max(step, 1e-3); v.lastSpeed = v.speed;
+    const upd = (ch) => { const A = ch.anim; A.steer = steer; A.vehSpeed = v.speed; A.brakeLean = clamp(-acc * 0.012, -0.06, 0.08); A.cornerLean = clamp(-steer * v.speed * 0.004, -0.06, 0.06); A.update(Math.min(step, 0.25), 0); };
+    if (v.driverChar) upd(v.driverChar); if (v.pax) for (const ch of v.pax) upd(ch);
+  }
+  dropPax(v) { for (const ch of v.pax) { ch.root.parent?.remove(ch.root); ch.dispose(); } this.paxCount -= v.pax.length; v.pax = []; }
+  // passengers climb out (staged, no teleport): slide from the seat to their door spot while standing up, then walk off
+  disembark(v, reason = 'flee', from = null) {
+    if (!v.pax || !v.pax.length) { v.paxPlan = []; return; } const seats = v.mesh.userData.seats;
+    v.disembarking = v.pax.map((ch, i) => ({ ch, seat: seats[v.paxPlan[i].si], t: -i * 0.35 })); this.paxCount -= v.pax.length; v.pax = []; v.paxPlan = []; v.paxReason = reason; v.paxFrom = from;
+    if (!this.leaving.includes(v)) this.leaving.push(v);
+  }
+  updateDisembark(dt) {
+    for (let i = this.leaving.length - 1; i >= 0; i--) {
+      const v = this.leaving[i]; const list = v.disembarking || [];
+      for (const o of list) {
+        if (o.done) continue; o.t += dt; const A = o.ch.anim; if (o.t < 0) { A.update(dt, 0); continue; }
+        const k = Math.min(1, o.t / 0.9), sm = k * k * (3 - 2 * k); const ex = o.seat.exit || [Math.sign(o.seat.x || 1) * (v.T.wid / 2 + 0.6), o.seat.z];
+        o.ch.root.position.set(lerp(o.seat.x, ex[0], sm), lerp(o.seat.y, 0, Math.min(1, sm * 1.3)), lerp(o.seat.z, ex[1], sm));
+        o.ch.root.rotation.y = lerp(0, Math.atan2(ex[0] - o.seat.x, ex[1] - o.seat.z), Math.min(1, sm * 1.5)); A.sitIn(o.seat, 1 - sm, null); A.update(dt, k > 0.5 ? 1.0 : 0);
+        if (k >= 1) { o.done = true; A.standUp(); v.mesh.updateMatrixWorld(); const wp = new THREE.Vector3(ex[0], 0, ex[1]).applyMatrix4(v.mesh.matrixWorld); v.mesh.remove(o.ch.root);
+          if (this.crowd) this.crowd.adopt(o.ch, wp.x, wp.z, v.yaw + o.ch.root.rotation.y, v.paxReason, v.paxFrom); else o.ch.dispose(); }
+      }
+      if (list.every((o) => o.done)) { v.disembarking = null; this.leaving.splice(i, 1); }
+    }
   }
   extend(v) { // make sure at least line + curve + next line exist
     const ai = v.ai; let last = ai.pieces[ai.pieces.length - 1];
@@ -101,6 +145,9 @@ export class Traffic {
     // spatial bins for following
     const all = this.vehicles; const playerV = player && player.vehicle;
     for (const v of all) this.step(v, dt, all, pedsNear, playerV, player);
+    for (const v of all) if (v.driverChar || (v.pax && v.pax.length)) this.updateOccupants(v, dt, focus);
+    if (playerV && playerV.pax && playerV.pax.length) this.updateOccupants(playerV, dt, focus);
+    this.updateDisembark(dt);
   }
   step(v, dt, all, peds, playerV, player) {
     const ai = v.ai; if (!ai) return; const p = ai.pieces[0];
@@ -151,9 +198,9 @@ export class Traffic {
     const dyaw = Math.atan2(Math.sin(yaw - v.yaw), Math.cos(yaw - v.yaw)); v.steer = clamp(dyaw * 4, -0.6, 0.6);
     v.x = x; v.z = z; v.yaw = yaw; v.y = L.groundY(x, z); v.lights = this.night > 0.4; v.sync(dt);
   }
-  remove(v) { if (v.driverChar) { v.driverChar.dispose(); } v.dispose(); }
+  remove(v) { if (v.driverChar) { v.driverChar.dispose(); } if (v.pax && v.pax.length) this.dropPax(v); v.dispose(); }
   // Hand a vehicle over to the player (car-jack: driver steps out and walks off grumbling)
-  takeOver(v, keepDriver = false) { const i = this.vehicles.indexOf(v); if (i >= 0) this.vehicles.splice(i, 1); const pi = this.parked.indexOf(v); if (pi >= 0) this.parked.splice(pi, 1); const hadDriver = !!v.driverChar; if (v.driverChar && !keepDriver) { v.mesh.remove(v.driverChar.root); v.driverChar.dispose(); v.driverChar = null; } v.ai = null; v.hold = false; v.parked = false; v.keep = true; return hadDriver; }
+  takeOver(v, keepDriver = false) { const i = this.vehicles.indexOf(v); if (i >= 0) this.vehicles.splice(i, 1); const pi = this.parked.indexOf(v); if (pi >= 0) this.parked.splice(pi, 1); const hadDriver = !!v.driverChar; this.disembark(v, 'flee', this.player ? { x: this.player.x, z: this.player.z } : null); if (v.driverChar && !keepDriver) { v.mesh.remove(v.driverChar.root); v.driverChar.dispose(); v.driverChar = null; } v.ai = null; v.hold = false; v.parked = false; v.keep = true; return hadDriver; }
   release(v) { v.parked = true; v.keep = false; v.speed = 0; v.brake = false; this.parked.push(v); }
   updateParked(dt, focus) {
     this.parkedTimer -= dt; if (this.parkedTimer > 0) return; this.parkedTimer = 1.0;

@@ -71,7 +71,7 @@ export class Game {
     this.crowd = new Crowd(this.scene, this.collision, bus);
     for (let i = 0; i < 40; i += 4) { this.crowd.prepareSpecs(4); progress(0.76 + 0.1 * (i / 40), 'People of Colombo'); await tick(); }
     progress(0.86, 'Tuk-tuks, buses and traffic'); await tick();
-    this.traffic = new Traffic(this.scene, this.collision, bus);
+    this.traffic = new Traffic(this.scene, this.collision, bus); this.traffic.crowd = this.crowd;
     this.player = new Player(this.scene, this.camera, this.collision, bus); this.player.crowd = this.crowd;
     this.hud = new HUD(this.ui); this.director = new Director(this); this.story = new Story(this); this.interiors = new Interiors(this); this.weapons = new Weapons(this); this.player.weapons = this.weapons;
     this.applyDensity();
@@ -179,7 +179,7 @@ export class Game {
   rebuildPlayer() {
     const P = this.player; const spec = { ...HEROES.kavindu, top: this.story.state.outfit || HEROES.kavindu.top };
     const old = P.ch; const parent = old.root.parent; const ch = new Character(spec); ch.root.position.copy(old.root.position); ch.root.rotation.copy(old.root.rotation);
-    if (parent) { parent.add(ch.root); parent.remove(old.root); } if (this.weapons) { this.weapons.forceHolster(); this.weapons.attach(ch); } old.dispose(); P.ch = ch; if (P.vehicle) { const seat = P.vehicle.driverSeat(); ch.root.position.set(seat.x, seat.y - 0.5, seat.z); ch.anim.set(seat.ride ? 'ride' : 'drive'); ch.anim.actionW = 1; }
+    if (parent) { parent.add(ch.root); parent.remove(old.root); } if (this.weapons) { this.weapons.forceHolster(); this.weapons.attach(ch); } old.dispose(); P.ch = ch; if (P.vehicle) { const seat = P.vehicle.driverSeat(); ch.root.position.set(seat.x, seat.y, seat.z); ch.root.rotation.set(0, 0, 0); ch.anim.sitIn(seat, 1); ch.anim.update(0.001, 0); }
   }
   setIndoor(v) { this.indoor = v; this.world.root.visible = !v; this.atmos.rain.visible = false; this.hud.mini.classList.toggle('dim', v); }
   // ================================================================= events → audio / HUD
@@ -319,14 +319,14 @@ export class Game {
     let best = null, bd = 2.6; const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
     for (const p of this.crowd.peds) { const dx = p.x - P.x, dz = p.z - P.z; const d = Math.hypot(dx, dz); if (d < bd && (dx * fx + dz * fz) / (d || 1) > 0.2) { bd = d; best = p; } }
     if (best) {
-      if (Input.wasPressed('interact')) { this.crowd.interact(best, 'talk', P); P.ch.anim.set('talk'); setTimeout(() => P.ch.anim.action === 'talk' && P.ch.anim.set(null), 1800); }
-      else if (Input.wasPressed('more')) { this.crowd.interact(best, 'wave', P); P.ch.anim.set('wave'); setTimeout(() => P.ch.anim.action === 'wave' && P.ch.anim.set(null), 1500); }
-      else if (Input.wasPressed('insult')) { this.crowd.interact(best, 'insult', P); P.ch.anim.set('point'); setTimeout(() => P.ch.anim.action === 'point' && P.ch.anim.set(null), 1200); this.hud.subtitle('Kavindu', ['Move, machan!', 'Watch where you\'re going!', 'Nice shirt. Did your grandmother pick it?'][Math.floor(Math.random() * 3)], '', 2); }
-      else if (Input.wasPressed('shove')) { this.crowd.interact(best, 'shove', P); P.ch.anim.set('shove'); setTimeout(() => P.ch.anim.action === 'shove' && P.ch.anim.set(null), 600); }
+      if (Input.wasPressed('interact')) { this.crowd.interact(best, 'talk', P); P.ch.anim.play('talk', 1.8); }
+      else if (Input.wasPressed('more')) { this.crowd.interact(best, 'wave', P); P.ch.anim.play('wave', 1.5); }
+      else if (Input.wasPressed('insult')) { this.crowd.interact(best, 'insult', P); P.ch.anim.play('point', 1.2); this.hud.subtitle('Kavindu', ['Move, machan!', 'Watch where you\'re going!', 'Nice shirt. Did your grandmother pick it?'][Math.floor(Math.random() * 3)], '', 2); }
+      else if (Input.wasPressed('shove')) { this.crowd.interact(best, 'shove', P); P.ch.anim.play('shove', 0.6); }
       return `${key('interact')} Talk · ${key('more')} Wave · ${key('insult')} Insult · ${key('shove')} Shove`;
     }
     // emotes when nobody is around
-    if (Input.wasPressed('more')) { const em = ['wave', 'stretch', 'clap', 'dance', 'look'][Math.floor(Math.random() * 5)]; P.ch.anim.set(em); P.emote = em; setTimeout(() => P.emote === em && (P.ch.anim.set(null), (P.emote = null)), em === 'dance' ? 5000 : 2200); }
+    if (Input.wasPressed('more')) { const em = ['wave', 'stretch', 'clap', 'dance', 'look'][Math.floor(Math.random() * 5)]; P.ch.anim.play(em, em === 'dance' ? 5 : 2.2); P.emote = em; }
     return null;
   }
   interiorName(id) { return { kade: 'Lucky Tea Kade', fathima: 'Fathima Textiles', selvaraj: 'Selvaraj Electronics', bandara: 'Bandara Spice Stores', tailor: 'Ceylon Threads', garage: 'Lanka Auto Care' }[id] || id; }

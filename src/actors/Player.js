@@ -62,7 +62,12 @@ export class Player {
     if (!this.grounded || this.y > g + 0.05) { this.vy -= 13 * dt; this.y += this.vy * dt; if (this.y <= g) { if (!this.grounded && this.vy < -3) this.events.emit('land'); this.y = g; this.vy = 0; this.grounded = true; A.air = 0; } else { this.grounded = false; A.air = 1; } }
     else { this.y = damp(this.y, g, 20, dt); this.grounded = true; A.air = 0; }
     if (this.crouching) A.set('crouch'); else if (A.action === 'crouch') A.set(null);
-    if (this.emote && this.speed > 0.5) { this.emote = null; A.set(null); }
+    if (this.emote && (this.speed > 0.5 || !A.action)) { if (A.action === this.emote) A.set(null); this.emote = null; }
+    // unarmed idle: after standing still a while, an occasional natural fidget (check watch, cross arms, look around…)
+    const calm = this.control && !this.crouching && !A.action && !(this.weapons && this.weapons.drawn) && this.grounded && this.speed < 0.1 && !this.indoorBusy;
+    this.idleT = calm ? (this.idleT || 0) + dt : 0;
+    if (this.idleT > (this.nextFidget ||= 9 + Math.random() * 6)) { const f = ['watch', 'crossarms', 'look', 'hips', 'stretch'][Math.floor(Math.random() * 5)]; A.play(f, f === 'look' ? 3.5 : 3); this.idleT = 0; this.nextFidget = 10 + Math.random() * 10; }
+    if (A.action && ['watch', 'crossarms', 'hips'].includes(A.action) && (this.speed > 0.3 || !this.control)) A.set(null);
     A.update(dt, this.speed, turnRate);
     this.sync();
     if (A.stepped) { A.stepped = false; if (this.grounded && this.speed > 0.5) this.events.emit('footstep', { x: this.x, z: this.z, sprint: this.sprinting }); } // real foot contacts from the gait
@@ -113,22 +118,22 @@ export class Player {
         if (E.t === dt) this.events.emit('npcLineRaw', { who: 'Driver', text: 'Ado! Let go! This is my vehicle!' }); if (E.t > 1.3) next('pull'); break; }
       case 'pull': { // driver is pulled out of the seat and steps away (no teleport swap)
         const d = E.driver; const k = Math.min(1, E.t / 0.9); A.set('shove'); if (d && E.t === dt) { E.handledLine = true; this.events.emit('npcLineRaw', { who: 'Driver', text: "Ado! What are you doing? That's my vehicle!" }); if (d.face) d.face.set('fear', 2); }
-        if (d) { const sx = lerp(seat.x, e.x + e.side * 0.6, k), sz = lerp(seat.z, e.z - 0.5, k); d.root.position.set(sx, lerp(seat.y - 0.5, 0, Math.min(1, k * 1.5)), sz); d.root.rotation.y = lerp(0, faceYawL + Math.PI, k); d.anim.set(k < 0.6 ? 'stumble' : null); d.anim.update(dt, k > 0.5 ? 1.2 : 0, 0); }
+        if (d) { const sx = lerp(seat.x, e.x + e.side * 0.6, k), sz = lerp(seat.z, e.z - 0.5, k); d.root.position.set(sx, lerp(seat.y, 0, Math.min(1, k * 1.5)), sz); d.root.rotation.y = lerp(0, faceYawL + Math.PI, k); d.anim.sitIn(seat, Math.max(0, 1 - k * 1.6)); d.anim.set(k > 0.25 && k < 0.7 ? 'stumble' : null); d.anim.update(dt, k > 0.5 ? 1.2 : 0, 0); if (k >= 1) d.anim.standUp(); }
         A.update(dt, 0, 0); this.sync();
         if (k >= 1) { if (d) { v.mesh.remove(d.root); const wp = this.local(v, e.x + e.side * 0.6, 0, e.z - 0.5); v.driverChar = null; if (this.crowd) this.crowd.adopt(d, wp.x, wp.z, v.yaw + faceYawL + Math.PI, Math.random() < 0.4 ? 'confront' : 'flee', { x: this.x, z: this.z }); else d.dispose(); E.driver = null; } next('sit'); }
         break; }
       case 'board': { const k = Math.min(1, E.t / 0.6); const p = this.local(v, e.x - e.side * 0.9, 0.35 * k, e.z); this.x = lerp(this.x, p.x, k); this.z = lerp(this.z, p.z, k); A.update(dt, 1, 0); this.sync(); if (k >= 1) { if (E.driver) next('pull'); else next('sit'); } break; }
       case 'step': if (E.driver) { E.hadDriver = true; next('pull'); break; } next('sit'); break;
       case 'sit': { // move from the doorway into the seat, turn to face forward, settle into the driving pose
-        if (E.t === dt || !E.parented) { this.scene.remove(this.ch.root); v.mesh.add(this.ch.root); E.parented = true; E.from = this.ch.root.position.clone(); const inv = new THREE.Matrix4().copy(v.mesh.matrixWorld).invert(); E.from = new THREE.Vector3(this.x, this.y, this.z).applyMatrix4(inv); A.set(seat.ride ? 'ride' : 'drive'); A.actionW = 0; }
+        if (E.t === dt || !E.parented) { this.scene.remove(this.ch.root); v.mesh.add(this.ch.root); E.parented = true; E.from = this.ch.root.position.clone(); const inv = new THREE.Matrix4().copy(v.mesh.matrixWorld).invert(); E.from = new THREE.Vector3(this.x, this.y, this.z).applyMatrix4(inv); A.set(null); A.sitIn(seat, 0); }
         const dur = E.kind === 'bike' ? 0.7 : E.kind === 'bus' ? 0.9 : 0.85; const k = Math.min(1, E.t / dur), s = k * k * (3 - 2 * k);
-        const tx = seat.x, ty = seat.y - 0.5, tz = seat.z; this.ch.root.position.set(lerp(E.from.x, tx, s), lerp(E.from.y, ty, Math.min(1, s * 1.4)), lerp(E.from.z, tz, s));
-        this.ch.root.rotation.set(0, lerp(faceYawL, 0, Math.min(1, s * 1.2)), 0); A.actionW = s; A.update(dt, 0, 0);
+        const tx = seat.x, ty = seat.y, tz = seat.z; this.ch.root.position.set(lerp(E.from.x, tx, s), lerp(E.from.y, ty, Math.min(1, s * 1.4)), lerp(E.from.z, tz, s));
+        this.ch.root.rotation.set(0, lerp(faceYawL, 0, Math.min(1, s * 1.2)), 0); A.sitIn(seat, s); A.update(dt, 0, 0);
         if (k >= 1) next(E.door ? 'close' : 'done'); break; }
       case 'close': { const k = Math.min(1, E.t / 0.4); doorAng(1 - k * k); A.update(dt, 0, 0); if (k >= 1) next('done'); break; }
       case 'done': {
-        doorAng(0); this.entry = null; v.hold = false; v.player = true; this.vehicle = v; this.control = true; this.ch.root.position.set(seat.x, seat.y - 0.5, seat.z); this.ch.root.rotation.set(0, 0, 0);
-        this.ch.anim.set(seat.ride ? 'ride' : 'drive'); this.ch.anim.actionW = 1; this.ch.mesh.castShadow = true; v.lights = this.nightLights;
+        doorAng(0); this.entry = null; v.hold = false; v.player = true; this.vehicle = v; this.control = true; this.ch.root.position.set(seat.x, seat.y, seat.z); this.ch.root.rotation.set(0, 0, 0);
+        this.ch.anim.set(null); this.ch.anim.sitIn(seat, 1); this.ch.mesh.castShadow = true; v.lights = this.nightLights;
         this.camYaw = v.yaw + Math.PI; this.events.emit('enterVehicle', { v, hadDriver: E.hadDriver && !E.handledLine }); break; }
     }
   }
@@ -151,11 +156,11 @@ export class Player {
     const doorAng = (k) => { if (X.door) X.door.pivot.rotation.y = X.door.max * k * (side < 0 ? 1 : -1); };
     if (X.stage === 'open') { const k = Math.min(1, X.t / 0.4); doorAng(k); A.update(dt, 0, 0); if (k >= 1) { X.stage = 'out'; X.t = 0; } return; }
     if (X.stage === 'out') { // swing out of the seat to the spot beside the vehicle
-      const k = Math.min(1, X.t / 0.8), s = k * k * (3 - 2 * k); const tx = X.spot.lx, tz = X.spot.lz; A.actionW = 1 - s; if (k > 0.3 && A.action) A.set(null);
-      this.ch.root.position.set(lerp(seat.x, tx, s), lerp(seat.y - 0.5, 0, Math.min(1, s * 1.3)), lerp(seat.z, tz, s)); this.ch.root.rotation.set(0, lerp(0, -side * Math.PI / 2 + Math.PI, s), 0); A.update(dt, k > 0.4 ? 0.8 : 0, 0);
+      const k = Math.min(1, X.t / 0.8), s = k * k * (3 - 2 * k); const tx = X.spot.lx, tz = X.spot.lz; A.sitIn(seat, 1 - s); if (A.action) A.set(null);
+      this.ch.root.position.set(lerp(seat.x, tx, s), lerp(seat.y, 0, Math.min(1, s * 1.3)), lerp(seat.z, tz, s)); this.ch.root.rotation.set(0, lerp(0, -side * Math.PI / 2 + Math.PI, s), 0); A.update(dt, k > 0.4 ? 0.8 : 0, 0);
       if (k >= 1) { // re-parent to the world at the exact same place
         v.mesh.remove(this.ch.root); this.scene.add(this.ch.root); v.player = false; v.speed = 0; v.brake = false; X.traffic.release(v); this.vehicle = null;
-        this.x = X.spot.x; this.z = X.spot.z; this.y = this.collision.groundAt(this.x, this.z, v.y + 0.5, 1); this.yaw = v.yaw - side * Math.PI / 2 + Math.PI; this.sync(); A.set(null);
+        this.x = X.spot.x; this.z = X.spot.z; this.y = this.collision.groundAt(this.x, this.z, v.y + 0.5, 1); this.yaw = v.yaw - side * Math.PI / 2 + Math.PI; this.sync(); A.set(null); A.standUp();
         X.stage = X.door ? 'close' : 'end'; X.t = 0; }
       return; }
     if (X.stage === 'close') { const k = Math.min(1, X.t / 0.35); doorAng(1 - k); A.update(dt, 0, 0); this.sync(); if (k >= 1) { X.stage = 'end'; } return; }
@@ -167,7 +172,7 @@ export class Player {
     const throttle = c ? clamp((Input.isDown('forward') ? 1 : 0) - (Input.isDown('back') ? 1 : 0) + Input.pad.rt - Input.pad.lt, -1, 1) : 0;
     const steer = c ? clamp((Input.isDown('left') ? 1 : 0) - (Input.isDown('right') ? 1 : 0) - Input.pad.lx, -1, 1) : 0;
     v.drive(dt, { throttle, steer, handbrake: c && Input.isDown('jump') }, this.collision, traffic.all());
-    this.ch.anim.steer = v.steer / v.T.steer; this.ch.anim.update(dt, 0);
+    { const A = this.ch.anim; A.steer = v.steer / v.T.steer; const acc = (v.speed - (this.lastVS ?? v.speed)) / Math.max(dt, 1e-3); this.lastVS = v.speed; A.vehSpeed = v.speed; A.brakeLean = damp(A.brakeLean, clamp(-acc * 0.012, -0.06, 0.08), 6, dt); A.cornerLean = clamp(-A.steer * v.speed * 0.004, -0.06, 0.06); A.update(dt, 0); }
     this.x = v.x; this.z = v.z; this.y = v.y; this.yaw = v.yaw;
     if (c && Input.wasPressed('horn')) this.events.emit('horn', v);
     if (c && Input.wasPressed('lights')) { v.lights = !v.lights; this.nightLights = v.lights; }
@@ -189,6 +194,13 @@ export class Player {
       dist = (this.camMode === 1 ? 6.5 : 3.6) * distMul; height = this.crouching ? 1.1 : 1.55; tgt = new THREE.Vector3(this.x, this.y + height, this.z);
       if (this.indoor) dist = Math.min(dist, 2.6);
       if (this.aimCam > 0.001) { const a = this.aimCam; dist = lerp(dist, 1.7 * distMul, a); tgt.y = lerp(tgt.y, this.y + 1.62, a); tgt.x += Math.cos(this.camYaw) * 0.55 * a; tgt.z += -Math.sin(this.camYaw) * 0.55 * a; }
+    }
+    if (this.camMode === 2 && v && !this.entry && !this.exiting) { // interior / cockpit view from the driver's eyes; mouse looks around
+      const h = this.ch.bones.head; h.updateWorldMatrix(true, false); const s = this.ch.spec.height / 1.72;
+      const eye = new THREE.Vector3().setFromMatrixPosition(h.matrixWorld); const yaw = this.camYaw + Math.PI;
+      eye.y += 0.085 * s; eye.x += Math.sin(v.yaw) * 0.13 * s; eye.z += Math.cos(v.yaw) * 0.13 * s; cam.position.copy(eye);
+      const pitch = clamp(this.camPitch - 0.18, -0.6, 0.5); cam.lookAt(eye.x + Math.sin(yaw) * Math.cos(pitch), eye.y - Math.sin(pitch), eye.z + Math.cos(yaw) * Math.cos(pitch));
+      if (Math.abs(cam.fov - 68) > 0.05) { cam.fov = damp(cam.fov, 68, 6, dt); cam.updateProjectionMatrix(); } this.ch.mesh.visible = true; return;
     }
     if (this.camMode === 2 && !v) { // first person
       const h = this.ch.bones.head; h.updateWorldMatrix(true, false); const hp = new THREE.Vector3().setFromMatrixPosition(h.matrixWorld);

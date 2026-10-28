@@ -79,7 +79,7 @@ export class Story {
     for (const l of lines) {
       if (l.choice) { result = await g.hud.choice(l.choice, l.title || ''); if (l.onChoice) await l.onChoice(result); continue; }
       const who = l[0], text = l[1]; const speaker = who === 'Kavindu' ? null : a;
-      if (who === 'Kavindu') { p.ch.anim.set('talk'); setTimeout(() => p.ch.anim.set(null), 1500); }
+      if (who === 'Kavindu') { p.ch.anim.play('talk', 1.5); }
       await D.say(who, text, null, l[2] || '', l[3] || 'en'); void speaker;
     }
     D.end(); return result;

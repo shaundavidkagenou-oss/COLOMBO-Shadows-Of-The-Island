@@ -1,6 +1,7 @@
 // Procedural skinned humans: one SkinnedMesh per person (body + head groups), 19-bone skeleton,
 // Sri Lankan everyday clothing and a procedural animation layer (locomotion, idles, gestures, reactions).
 import * as THREE from 'three';
+import { applySeatPose, seatLocal } from './Seating.js';
 import { TEX, faceAtlas, FACE_FRAMES } from '../gfx/Textures.js';
 import { RNG } from '../core/rng.js';
 import { lerp, clamp, damp } from '../core/math.js';
@@ -408,6 +409,7 @@ export function solveArmIK(b, S, target, q, w = 1) {
   if (q) { arm.updateMatrixWorld(false); fore.updateMatrixWorld(false); const want = _q3.copy(chest.getWorldQuaternion(new THREE.Quaternion())).multiply(q); const foreW = fore.getWorldQuaternion(new THREE.Quaternion()); const loc = foreW.invert().multiply(want); if (w >= 1) hand.quaternion.copy(loc); else hand.quaternion.slerp(loc, w); }
 }
 
+const _ikv = new THREE.Vector3();
 export class Animator {
   constructor(ch) {
     this.ch = ch; this.g = gaitProfile(ch.spec); const s = ch.spec.height / 1.72; this.s = s;
@@ -415,9 +417,17 @@ export class Animator {
     this.cyc = Math.random(); this.t = Math.random() * 100; this.speed = 0; this.action = null; this.actionW = 0; this.prevAction = null;
     this.lean = 0; this.air = 0; this.look = 0; this.crouch = 0; this.drive = 0; this.steer = 0; this.seed = Math.random(); this.locoW = 0; this.hipYs = ch.hipY;
     this.shift = 0; this.shiftTarget = Math.random() < 0.5 ? -1 : 1; this.shiftT = 2 + Math.random() * 6; this.idleLook = 0; this.idleLookT = Math.random() * 4; this.idleLookTarget = 0;
-    this.stepped = false; this.stepFoot = 0; this.runW = 0;
+    this.stepped = false; this.stepFoot = 0; this.runW = 0; this.fadeAct = null; this.fadeW = 0; this.fadeT = 0; this.actionDur = 0;
+    this.seated = null; this.seatL = null; this.seatW = 0; this.seatMode = null; this.seatLook = 0; this.seatLookT = 0; this.vehSpeed = 0; this.brakeLean = 0; this.cornerLean = 0;
   }
-  set(action) { if (action !== this.action) { this.prevAction = this.action; this.action = action; this.actionW = 0; this.actionT = 0; } }
+  // Vehicle seat (see Seating.js). w: blend 0 (standing pose) … 1 (fully seated); entry/exit animations ramp it.
+  sitIn(seat, w = 1, mode = null) { if (seat !== this.seated) { this.seated = seat; this.seatL = seatLocal(seat); this.seatLookT = 0; } this.seatW = w; this.seatMode = mode; }
+  standUp() { this.seated = null; this.seatL = null; this.seatW = 0; this.seatMode = null; }
+  // switching actions cross-fades: the outgoing pose keeps blending out (fadeAct / fadeW) while the new one blends in,
+  // so gestures always ease back to the neutral stance instead of snapping.
+  set(action) { if (action !== this.action) { if (this.action && this.action !== 'crouch' && this.actionW > 0.05) { this.fadeAct = this.action; this.fadeW = this.actionW; this.fadeT = this.actionT || 0; } this.prevAction = this.action; this.action = action; this.actionW = 0; this.actionT = 0; this.actionDur = 0; } }
+  // timed action on simulation time (ends with a smooth fade back to neutral)
+  play(action, dur) { this.set(action); this.actionDur = dur; }
   // one leg's pose at gait phase p (0 = heel strike). Returns world thigh angle (−fwd), knee flex, foot pitch relative to flat, contact.
   leg(p, beta, A, run) {
     const g = this.g;
@@ -433,6 +443,8 @@ export class Animator {
   }
   update(dt, speed, turnRate = 0) {
     const b = this.ch.bones; const g = this.g; const s = this.s; this.t += dt; this.actionT = (this.actionT || 0) + dt;
+    if (this.actionDur && this.actionT > this.actionDur) this.set(null);
+    if (this.fadeW > 0) { this.fadeW = Math.max(0, this.fadeW - dt * 3.2); this.fadeT += dt; if (this.fadeW === 0) this.fadeAct = null; }
     this.speed = damp(this.speed, speed, 12, dt); const sp = Math.max(0, this.speed);
     const run = (this.runW = damp(this.runW, clamp((sp - 2.5) / 2.0, 0, 1), 6, dt)); const w = (this.locoW = damp(this.locoW, smooth01(sp / 0.55), 8, dt));
     // stride and phase
@@ -450,7 +462,7 @@ export class Animator {
     this.idleLook = damp(this.idleLook, this.idleLookTarget * (1 - w * 0.7), 5, dt);
     const A_ = this.action; this.actionW = clamp(this.actionW + dt * 3, 0, 1); const aw = A_ ? this.actionW : 0;
     const crouch = (this.crouch = damp(this.crouch, A_ === 'crouch' ? 1 : 0, 8, dt));
-    const sit = A_ === 'sit' ? aw : 0; const drive = (this.drive = damp(this.drive, A_ === 'drive' ? 1 : 0, 8, dt)); const seatT = Math.max(sit, drive);
+    const sit = A_ === 'sit' ? aw : this.fadeAct === 'sit' ? this.fadeW : 0; const drive = (this.drive = damp(this.drive, A_ === 'drive' ? 1 : 0, 8, dt)); const seatT = Math.max(sit, drive);
     this.lean = damp(this.lean, clamp(-turnRate * sp * 0.03, -0.2, 0.2), 6, dt);
     // pelvis
     const hipPitch = run * 0.1 + crouch * 0.25; const sh = this.shift * (1 - w);
@@ -496,9 +508,11 @@ export class Animator {
     let fL = [-(g.elbow + Math.max(0, sw(pR)) * 0.3 * w + run * 1.25), 0, 0], fR = [-(g.elbow + Math.max(0, sw(pL)) * 0.3 * w + run * 1.25), 0, 0];
     const blend = (cur, tgt, k) => cur.map((v, i) => lerp(v, tgt[i], k));
     const t = this.t, at = this.actionT;
-    if (A_ && aw > 0) {
+    const actIK = [];
+    const applyAct = (act, aw, at) => {
+      const ikT = (S, x, y, z) => actIK.push([S, x * s, y * s, z * s, aw]);
       let tl = null, tr = null, tfl = null, tfr = null, head = null;
-      switch (A_) {
+      switch (act) {
         case 'talk': tr = [-0.4 - Math.sin(t * 3.1) * 0.25, 0.2, -0.2 - Math.sin(t * 2.3) * 0.15]; tfr = [-1.1 - Math.sin(t * 4) * 0.3, 0, 0]; tl = [-0.15, 0, 0.12]; tfl = [-0.5 - Math.max(0, Math.sin(t * 1.7)) * 0.6, 0, 0]; head = Math.sin(t * 0.9) * 0.25; break;
         case 'listen': tl = [0.02, 0, 0.1]; tr = [0.02, 0, -0.1]; tfl = tfr = [-0.35, 0, 0]; head = Math.sin(t * 0.6) * 0.08; b.neck.rotation.x += Math.max(0, Math.sin(t * 2.2)) * 0.08 * aw; break;
         case 'argue': tr = [-0.9 - Math.sin(t * 6) * 0.35, 0, -0.3]; tfr = [-0.9, 0, 0]; tl = [-0.7 - Math.sin(t * 5 + 1) * 0.3, 0, 0.3]; tfl = [-1, 0, 0]; head = Math.sin(t * 3) * 0.15; break;
@@ -532,9 +546,17 @@ export class Animator {
         case 'photo': tr = [-1.25, 0, 0.25]; tl = [-1.25, 0, -0.25]; tfr = tfl = [-1.7, 0, 0]; break;
         case 'shrug': { const k = Math.sin(clamp(at / 1.2, 0, 1) * Math.PI); tr = [-0.3 * k, 0, -0.5 * k]; tl = [-0.3 * k, 0, 0.5 * k]; tfr = tfl = [-1.4 * k, 0, 0]; head = 0.1 * k; break; }
         case 'beckon': tr = [-1.3, 0, -0.15]; tfr = [-1.2 - Math.max(0, Math.sin(t * 6)) * 0.6, 0, 0]; break;
+        case 'alert': { // something happened: weight down, hands up in front, head scanning
+          ikT('L', 0.13, -0.2, 0.26); ikT('R', -0.13, -0.2, 0.26); head = Math.sin(at * 1.6) * 0.55; b.hips.position.y -= 0.035 * s * aw;
+          for (const sd of ['L', 'R']) { b['thigh' + sd].rotation.x -= 0.14 * aw; b['shin' + sd].rotation.x += 0.28 * aw; b['foot' + sd].rotation.x -= 0.14 * aw; } b.spine.rotation.x += 0.08 * aw; break; }
+        case 'crossarms': ikT('L', -0.13, -0.09, 0.15); ikT('R', 0.12, -0.05, 0.19); head = Math.sin(t * 0.4) * 0.2; break; // each hand onto the other upper arm
+        case 'hips': ikT('L', 0.2, -0.28, 0.0); ikT('R', -0.2, -0.28, 0.0); head = Math.sin(t * 0.5) * 0.25; break; // hands on the hip bones, elbows out
+        case 'watch': ikT('L', 0.02, -0.07, 0.27); b.neck.rotation.x += 0.35 * aw; head = 0.15; break; // left wrist raised in front of the chest
       }
       if (tl) aL = blend(aL, tl, aw); if (tr) aR = blend(aR, tr, aw); if (tfl) fL = blend(fL, tfl, aw); if (tfr) fR = blend(fR, tfr, aw); if (head !== null && head !== undefined) b.head.rotation.y = lerp(b.head.rotation.y, head, aw);
-    }
+    };
+    if (this.fadeAct && this.fadeW > 0) applyAct(this.fadeAct, smooth01(this.fadeW), this.fadeT); // eased return to neutral
+    if (A_ && aw > 0) applyAct(A_, aw, at);
     if (this.air > 0) { aL = blend(aL, [-0.6, 0, 0.5], 0.7); aR = blend(aR, [-0.6, 0, -0.5], 0.7); b.thighL.rotation.x = -0.6; b.shinL.rotation.x = 0.9; b.thighR.rotation.x = -0.1; b.shinR.rotation.x = 0.4; b.footL.rotation.x = 0.2; b.footR.rotation.x = 0.1; }
     if (this.armOverride) { const o = this.armOverride; const k = o.w ?? 1; if (o.aL) aL = blend(aL, o.aL, k); if (o.aR) aR = blend(aR, o.aR, k); if (o.fL) fL = blend(fL, o.fL, k); if (o.fR) fR = blend(fR, o.fR, k); }
     R('armL', ...aL); R('armR', ...aR); R('foreL', ...fL); R('foreR', ...fR);
@@ -545,8 +567,11 @@ export class Animator {
       b.chest.rotation.set(lerp(b.chest.rotation.x, -m.pitch * 0.55, k), lerp(b.chest.rotation.y, -(m.twist || 0), k), lerp(b.chest.rotation.z, 0, k));
       b.neck.rotation.x = lerp(b.neck.rotation.x, m.pitch * 0.35, k); b.neck.rotation.y = lerp(b.neck.rotation.y, (m.twist || 0) * 0.6, k); b.head.rotation.y = lerp(b.head.rotation.y, (m.twist || 0) * 0.4, k); b.head.rotation.x = lerp(b.head.rotation.x, (m.headDown || 0), k);
     }
-    if (this.ik) { if (this.ik.R) solveArmIK(b, 'R', this.ik.R, this.ik.qR, this.ik.wR ?? 1); if (this.ik.L) solveArmIK(b, 'L', this.ik.L, this.ik.qL, this.ik.wL ?? 1); }
-    if (A_ === 'ride' && aw > 0) { b.thighL.rotation.set(-1.2, 0, -0.25); b.thighR.rotation.set(-1.2, 0, 0.25); b.shinL.rotation.x = 1.3; b.shinR.rotation.x = 1.3; b.footL.rotation.x = 0; b.footR.rotation.x = 0; b.hips.position.y = this.ch.hipY - 0.15; b.hips.position.x = 0; b.hips.rotation.set(0, 0, 0); }
+    const seated = this.seated && this.seatW > 0;
+    if (!seated && !this.ik) for (const [S, x, y, z, w] of actIK) solveArmIK(b, S, _ikv.set(x, y, z), null, w);
+    if (this.ik && !seated) { if (this.ik.R) solveArmIK(b, 'R', this.ik.R, this.ik.qR, this.ik.wR ?? 1); if (this.ik.L) solveArmIK(b, 'L', this.ik.L, this.ik.qL, this.ik.wL ?? 1); }
+    if (seated) applySeatPose(this, dt);
+    else if (A_ === 'ride' && aw > 0) { b.thighL.rotation.set(-1.2, 0, -0.25); b.thighR.rotation.set(-1.2, 0, 0.25); b.shinL.rotation.x = 1.3; b.shinR.rotation.x = 1.3; b.footL.rotation.x = 0; b.footR.rotation.x = 0; b.hips.position.y = this.ch.hipY - 0.15; b.hips.position.x = 0; b.hips.rotation.set(0, 0, 0); }
     if (this.ch.face) this.ch.face.update(dt);
   }
 }

@@ -14,7 +14,7 @@ for (let i = 0; i < 9; i++) list.push(randomSpec(100 + i * 7));
 const chars = list.map((sp, i) => { const c = new Character(sp); c.root.position.set((i - (list.length - 1) / 2) * 0.75, 0, 0); s.add(c.root); return c; });
 const params = new URLSearchParams(location.search); const mode = params.get('a') || 'idle';
 const acts = { idle: [0, null], walk: [1.4, null], run: [5, null], talk: [0, 'talk'], sit: [0, 'sit'], dance: [0, 'dance'] };
-let t = 0; for (let k = 0; k < 40; k++) { chars.forEach((c, i) => { c.anim.set(acts[mode][1]); c.anim.update(0.033, acts[mode][0]); }); }
+let t = 0; for (let k = 0; k < 40; k++) { chars.forEach((c, i) => { const a = acts[mode] || [0, mode]; c.anim.set(a[1]); c.anim.update(0.033, a[0]); }); }
 if (params.get('side')) chars.forEach((c) => (c.root.rotation.y = Math.PI / 2));
 // ?strip=<hero|index>&sp=1.4 : one character drawn at 10 consecutive moments of its gait (side view) to check stride / contact
 if (params.get('strip')) { chars.forEach((c) => (c.root.visible = false)); const spd = +(params.get('sp') || 1.4); const who = list[+params.get('strip')] || HEROES.kavindu; const n = 10;
@@ -23,5 +23,5 @@ if (params.get('strip')) { chars.forEach((c) => (c.root.visible = false)); const
 // ?faces=1 : close-up row of heads showing every expression frame
 if (params.get('faces')) { const { FACE_FRAMES } = await import('/src/gfx/Textures.js'); chars.forEach((c, i) => { c.root.visible = i < FACE_FRAMES.length; c.root.position.set((i - 4.5) * 0.3, 0, 0); c.face.show(i % FACE_FRAMES.length); c.face.update = () => {}; });
   cam.fov = 9; cam.position.set(0, 1.62, 9); cam.lookAt(0, 1.6, 0); cam.updateProjectionMatrix(); }
-r.render(s, cam); window.done = true;
+r.render(s, cam); window.done = true; window.__ready = true;
 </script></body></html>
