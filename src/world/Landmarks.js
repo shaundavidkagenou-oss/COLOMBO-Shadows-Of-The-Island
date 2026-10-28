@@ -5,6 +5,7 @@ import { MAT } from '../gfx/Materials.js';
 import { TEX } from '../gfx/Textures.js';
 import { LAND_Y, LAKE, STATIONS } from './Layout.js';
 import { RNG } from '../core/rng.js';
+import { buildPoliceHQ } from './PoliceHQ.js';
 
 const C = (hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; };
 const M4 = new THREE.Matrix4();
@@ -422,6 +423,9 @@ export function buildLandmarks() {
       for (let i = -len / 2 + 8; i < len / 2 - 22; i += 6.2) for (let r = -2; r <= 2; r++) { const tiers = rng.int(1, 4); for (let t = 0; t < tiers; t++) box(paint, sx + i, y0 + 9.3 + t * 2.6, z + r * 4.2, 6, 2.5, 4, rng.pick(['#b03a2e', '#2471a3', '#1e8449', '#d4ac0d', '#7d3c98', '#ca6f1e', '#5d6d7e'])); }
     }
   }
+
+  // ------------------------------------------------------------ SRI LANKA POLICE HEADQUARTERS (Kompannaveediya)
+  buildPoliceHQ({ mb, box, coll, label, group, LAND_Y, SANS, SI, TA, columns, anim, C });
 
   // ------------------------------------------------------------ finalize
   const mats = { ...MAT };

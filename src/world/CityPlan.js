@@ -335,6 +335,8 @@ export function generatePlan() {
   for (let k = 0; k < 70; k++) { const x = rng.range(vm[0] + 6, vm[1] - 6), z = rng.range(vm[2] + 6, vm[3] - 6); if (Math.hypot(x - 90, z + 60) > 22) addTree(rng.pick(['rain', 'rain', 'bo', 'palm', 'frangipani']), x, z, rng.range(0.9, 1.4)); }
   for (let k = 0; k < 14; k++) { const a = k / 14 * Math.PI * 2; const x = 90 + Math.cos(a) * 30, z = -60 + Math.sin(a) * 30; addProp('bench', x, z, -a + Math.PI / 2, {}); addPOI('bench', x, z, -a - Math.PI / 2, { seats: 2 }); }
   for (let k = 0; k < 30; k++) addPOI('lawn', rng.range(vm[0] + 8, vm[1] - 8), rng.range(vm[2] + 8, vm[3] - 8), rng.range(0, 6.28), {});
+  // Police Headquarters compound: palms along the fence and by the sign, shade trees on the rear lawn
+  for (const [x, z, t, sc] of [[1, -224.5, 'palm', 1.1], [19, -221, 'palm', 1.0], [26, -224, 'palm', 1.15], [27.5, -215, 'palm', 1.05], [-49.5, -183, 'rain', 1.2], [-38, -180.5, 'palm', 1.0], [-20, -180.5, 'palm', 1.1], [-2, -180.5, 'palm', 0.95], [14, -180.5, 'palm', 1.05], [27.5, -181, 'rain', 1.1], [-49.6, -209, 'palm', 1.0], [5, -216.5, 'frangipani', 1.0], [-26, -216.2, 'frangipani', 0.9]]) addTree(t, x, z, sc);
   // lakeside benches
   for (let k = 0; k < 40; k++) {
     const a = rng.next() * Math.PI * 2; const [cx, cz, rx, rz] = L.LAKE[0]; const x = cx + Math.cos(a) * (rx + 9), z = cz + Math.sin(a) * (rz + 9);

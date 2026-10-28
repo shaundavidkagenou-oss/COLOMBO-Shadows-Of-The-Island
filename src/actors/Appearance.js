@@ -248,3 +248,57 @@ export function lookKey(sp) { return `${sp.preset}|${sp.top}|${sp.skirtCol || sp
 export function isAdultSpec(sp) {
   return sp && sp.age !== 'child' && sp.age !== 'teen' && sp.ageYears >= 18 && sp.height >= 1.45 && !/school/.test(sp.outfit || '') && sp.hair !== 'plaits';
 }
+
+// ------------------------------------------------------------------ Sri Lanka Police uniforms
+// Kept out of the civilian PRESETS pool: police are only created by the police systems. Faces/bodies/hair still come
+// from the adult generator (so officers are as varied as civilians), then the role's uniform replaces the outfit.
+// Reference (public news photos): khaki shirt + trousers, navy peaked cap with badge, round blue shoulder flash, black
+// belt + holster, white whistle cord, pips on the shoulders; traffic: white-topped cap, white gauntlets with red cuffs,
+// white belt and cross strap. The Colombo Special Response Unit (CSRU) is FICTIONAL and its kit is invented.
+export const POLICE_ROLES = {
+  patrol: { label: 'Police constable (patrol)', cap: 'peaked', pips: [0, 1], holster: true },
+  traffic: { label: 'Traffic police officer', cap: 'peaked', capTop: '#f4f4f0', gloves: true, white: true, pips: [0, 1] },
+  staff: { label: 'Police officer (headquarters staff)', cap: null, pips: [1, 2] },
+  admin: { label: 'Police administrative officer', cap: null, pips: [0, 1], card: true },
+  motorcycle: { label: 'Motorcycle patrol officer', cap: 'helmet', holster: true, strap: true, gloves: 'dark', pips: [0, 1] },
+  investigator: { label: 'Police investigator (plain clothes)', plain: true },
+  supervisor: { label: 'Inspector (supervisor)', cap: 'peaked', cord: '#d9b13b', pips: [3, 3], holster: true },
+  csru: { label: 'Colombo Special Response Unit officer (fictional unit)', csru: true },
+  guard: { label: 'Police constable (gate sentry)', cap: 'peaked', pips: [0, 0], holster: true },
+};
+export const POLICE_ROLE_IDS = Object.keys(POLICE_ROLES);
+const KHAKI_TOP = ['#b9a679', '#b3a073', '#c0ad80'], KHAKI_BOTTOM = ['#a8956a', '#a28f63', '#ad9a6e'];
+export function makePoliceAppearance(seed, role = 'patrol', opts = {}) {
+  const R = POLICE_ROLES[role] || POLICE_ROLES.patrol; const r = new RNG(seed * 4111 + 17);
+  const sex = opts.sex || (r.chance(role === 'admin' ? 0.55 : role === 'csru' ? 0.12 : 0.22) ? 'f' : 'm');
+  const band = opts.band || r.weighted([['young', 4], ['adult', 5], ['mature', role === 'supervisor' || role === 'staff' ? 3 : 1]]);
+  const base = makeAppearance(seed, { sex, band, profile: R.plain ? 'office' : undefined, exclude: PRESETS.filter((p) => p.skinSet || p.profile === 'tourist').map((p) => p.id) });
+  const sp = Object.assign({}, base);
+  if (!SKIN_LK.includes(sp.skin)) sp.skin = r.pick(SKIN_LK);
+  if (!HAIR_DARK.includes(sp.hairColor) && !HAIR_PEPPER.includes(sp.hairColor)) sp.hairColor = r.pick(HAIR_DARK);
+  // clear civilian clothing and accessories
+  for (const k of ['skirt', 'skirtCol', 'pattern', 'shorts', 'sleeveless', 'tie', 'inner', 'scarf', 'bag', 'crossbody', 'necklace', 'bangles', 'earrings', 'sunglasses', 'lanyard', 'cap', 'capStyle', 'watch', 'sandals']) delete sp[k];
+  sp.hair = sex === 'f' ? 'bun' : r.pick(['crew', 'short', 'sidepart']); sp.hairline = Math.min(sp.hairline, 0.04);
+  if (sex === 'm') { const fh = r.chance(0.45) ? 'moustache' : 'none'; Object.assign(sp, { facial: fh, beard: false, beardShort: false, goatee: false, moustache: fh === 'moustache' }); }
+  sp.profile = 'police'; sp.preset = 'police_' + role; sp.role = role; sp.label = R.label; sp.police = true;
+  sp.shoes = '#0e0e0e'; sp.sole = '#0a0a0a'; sp.gait = Object.assign({}, sp.gait, { stride: 1.0, arm: 0.85, stoop: 0 });
+  sp.belly = Math.min(sp.belly || 0, 0.25);
+  if (R.plain) { // investigators: plain clothes with a police ID on a lanyard
+    Object.assign(sp, { outfit: 'office', top: r.pick(['#e8ecf2', '#dfe6ee', '#f2efe6', '#cfd8e4', '#e6dccb']), bottom: r.pick(['#2b2e36', '#1e2430', '#3a3f4a']), longSleeve: r.chance(0.6), collar: true, lanyard: '#1d3f94', belt: '#151515', buckle: '#b8bcc2' });
+    if (sex === 'f') Object.assign(sp, { outfit: 'blouse_trousers' });
+  } else if (R.csru) { // fictional tactical unit: dark navy fatigues, cap, vest, boots
+    Object.assign(sp, { outfit: 'security', top: '#1c2433', bottom: '#1a2130', longSleeve: true, collar: true, cap: '#11151d', vest: '#262c35', belt: '#121212', holster: true, pouch: true, patch: '#1d3f94', shoes: '#101010' });
+  } else {
+    const top = r.pick(KHAKI_TOP), bottom = r.pick(KHAKI_BOTTOM);
+    Object.assign(sp, { outfit: 'security', top, bottom, collar: true, longSleeve: false, patch: '#1d3f94', epaulettes: top, pips: r.int(R.pips[0], R.pips[1]), belt: R.white ? '#f4f4f0' : '#151515', buckle: '#c9cdd2' });
+    if (R.cap === 'peaked') Object.assign(sp, { cap: R.capTop || '#1b2233', capStyle: 'peaked', capBand: '#1b2233', capCord: R.cord || null });
+    if (R.cap === 'helmet') Object.assign(sp, { cap: '#f2f2ee', capStyle: 'helmet' });
+    if (R.holster) sp.holster = true;
+    if (R.strap || R.white) sp.strap = R.white ? '#f4f4f0' : '#2a2a2a';
+    if (R.gloves === true) Object.assign(sp, { gloves: '#f4f4f0', cuff: '#c0262d' }); else if (R.gloves === 'dark') Object.assign(sp, { gloves: '#1a1a1a', cuff: '#1a1a1a' });
+    if (role !== 'motorcycle' && role !== 'csru') sp.cord = '#f4f4f0';
+    if (R.card) Object.assign(sp, { lanyard: '#1d3f94' });
+    if (role === 'supervisor') sp.watch = '#c8c8c4';
+  }
+  Object.assign(sp, opts); return sp;
+}

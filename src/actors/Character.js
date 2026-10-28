@@ -190,9 +190,13 @@ export function buildBodyGeometry(sp) {
       sb.loft([{ c: [lerp(a[0], fo[0], 0.4), 1.215 * s, -0.005], rx: 0.056 * w, rz: 0.058 * w, w: W1('arm' + side), col: top }, { c: [lerp(a[0], fo[0], 0.33), 1.27 * s, -0.004], rx: 0.058 * w, rz: 0.06 * w, w: W1('arm' + side), col: top }], 10);
     }
     { const sx = Math.sign(h[0]); const hw = W1('hand' + side); // palm, slightly curled finger block, thumb
-      sb.ellipsoid([h[0], 0.84 * s, 0.006], 0.022, 0.042, 0.04, hw, skin, { lat: 6, lon: 10 });
-      sb.ellipsoid([h[0] - sx * 0.004, 0.79 * s, 0.012], 0.017, 0.038, 0.036, hw, skin, { lat: 6, lon: 10, bumpFn: (x, y, z) => 1 + (y < -0.4 ? 0.04 * Math.sin(z * 18) : 0) });
-      sb.ellipsoid([h[0] - sx * 0.014, 0.818 * s, 0.038], 0.011, 0.026, 0.012, hw, skin, { lat: 4, lon: 6 }); }
+      const hcol = sp.gloves ? C(sp.gloves) : skin; // traffic officers: white gauntlet gloves
+      sb.ellipsoid([h[0], 0.84 * s, 0.006], 0.022, 0.042, 0.04, hw, hcol, { lat: 6, lon: 10 });
+      sb.ellipsoid([h[0] - sx * 0.004, 0.79 * s, 0.012], 0.017, 0.038, 0.036, hw, hcol, { lat: 6, lon: 10, bumpFn: (x, y, z) => 1 + (y < -0.4 ? 0.04 * Math.sin(z * 18) : 0) });
+      sb.ellipsoid([h[0] - sx * 0.014, 0.818 * s, 0.038], 0.011, 0.026, 0.012, hw, hcol, { lat: 4, lon: 6 });
+      if (sp.gloves) { const fw = W1('fore' + side), gc = C(sp.gloves), rc = C(sp.cuff || '#c0262d'); // flared gauntlet cuff with a red band
+        sb.loft([{ c: [h[0], 0.875 * s, 0], rx: 0.032, rz: 0.034, w: fw, col: gc }, { c: [lerp(fo[0], h[0], 0.62), 0.94 * s, -0.002], rx: 0.04, rz: 0.042, w: fw, col: gc }, { c: [lerp(fo[0], h[0], 0.56), 0.955 * s, -0.003], rx: 0.0415, rz: 0.0435, w: fw, col: rc }, { c: [lerp(fo[0], h[0], 0.5), 0.975 * s, -0.003], rx: 0.0425, rz: 0.0445, w: fw, col: rc }, { c: [lerp(fo[0], h[0], 0.46), 0.985 * s, -0.003], rx: 0.0425, rz: 0.0445, w: fw, col: gc }], 10); } }
+    if (sp.patch && side === 'L') { const px = a[0] + 0.054 * w + 0.003; sb.ellipsoid([px, 1.33 * s, 0], 0.004, 0.032, 0.03, W1('armL'), C(sp.patch), { lat: 4, lon: 10 }); sb.ellipsoid([px + 0.002, 1.33 * s, 0], 0.003, 0.016, 0.015, W1('armL'), C('#d9b13b'), { lat: 4, lon: 8 }); } // round shoulder flash
     if (sp.bangles && side === 'L') sb.loft([{ c: [h[0], 0.885 * s, 0], rx: 0.033, rz: 0.035, w: W1('fore' + side), col: C('#d4a640') }, { c: [h[0], 0.9 * s, 0], rx: 0.033, rz: 0.035, w: W1('fore' + side), col: C('#d4a640') }], 8);
   }
   // --- head (separate group so it can take a face texture)
@@ -264,6 +268,17 @@ export function buildBodyGeometry(sp) {
     const cr = Math.max(1.12, hairLift + 0.03);
     if (sp.capStyle === 'skull') sb.ellipsoid([hc[0], hc[1] + 0.036, hc[2] - 0.004], hr[0] * Math.max(1.07, hairLift + 0.02), hr[1] * 0.8, hr[2] * Math.max(1.07, hairLift + 0.02), W1('head'), C(sp.cap), { lat: 6, lon: 16, p0: 0, p1: Math.PI * 0.36 });
     else if (sp.capStyle === 'nurse') { sb.boxPart([0, hc[1] + hr[1] * 0.98, hc[2] + 0.01], 0.11, 0.03, 0.08, W1('head'), C('#ffffff')); sb.boxPart([0, hc[1] + hr[1] * 0.98 + 0.012, hc[2] + 0.052], 0.1, 0.012, 0.006, W1('head'), C('#2a4a8a')); }
+    else if (sp.capStyle === 'peaked') { // police service cap: band, flared crown, black visor, gold badge
+      const br = Math.max(1.075, hairLift + 0.015), top = hc[1] + hr[1] * Math.max(1.0, hairLift) + 0.022, b0 = hc[1] + 0.036, bandC = C(sp.capBand || '#141821'), crownC = C(sp.cap), hw = W1('head');
+      const ring = (y, k, col) => ({ c: [0, y, hc[2] - 0.004 * (k - 1)], rx: hr[0] * k, rz: hr[2] * k, w: hw, col });
+      sb.loft([ring(b0, br, bandC), ring(b0 + 0.042, br + 0.005, bandC), ring(b0 + 0.046, br + 0.01, crownC), ring(top - 0.016, br + 0.22, crownC), ring(top - 0.004, br + 0.2, crownC), ring(top, br + 0.12, crownC)], 16, { capEnd: true });
+      sb.boxPart([0, b0 + 0.006, hc[2] + hr[2] * br + 0.028], 0.16, 0.008, 0.068, hw, C('#08090b')); // visor
+      sb.boxPart([0, b0 + 0.004, hc[2] + hr[2] * br + 0.06], 0.13, 0.006, 0.012, hw, C('#08090b'));
+      sb.boxPart([0, b0 + 0.06, hc[2] + hr[2] * (br + 0.09) + 0.004], 0.036, 0.034, 0.008, hw, C('#d9b13b')); // badge
+      if (sp.capCord) sb.boxPart([0, b0 + 0.022, hc[2] + hr[2] * br + 0.004], 0.15, 0.007, 0.006, hw, C(sp.capCord)); }
+    else if (sp.capStyle === 'helmet') { const hw = W1('head'); // open-face motorcycle helmet with a peak
+      sb.ellipsoid([hc[0], hc[1] + 0.04, hc[2] - 0.01], hr[0] * 1.28, hr[1] * 1.0, hr[2] * 1.24, hw, C(sp.cap), { lat: 8, lon: 16, p0: 0, p1: Math.PI * 0.56 });
+      sb.boxPart([0, hc[1] + 0.052, hc[2] + hr[2] * 1.2 + 0.012], 0.13, 0.008, 0.05, hw, C('#1a1d24')); }
     else { sb.ellipsoid([hc[0], hc[1] + 0.03, hc[2]], hr[0] * cr, hr[1] * 0.85, hr[2] * cr, W1('head'), C(sp.cap), { lat: 6, lon: 14, p0: 0, p1: Math.PI * 0.42 });
       sb.boxPart([0, hc[1] + 0.03 + hr[1] * 0.85 * Math.cos(Math.PI * 0.42) - 0.002, hc[2] + hr[2] * cr * 0.97 + 0.03], 0.15, 0.008, 0.075, W1('head'), C(sp.cap)); } // peak
   }
@@ -279,13 +294,26 @@ export function buildBodyGeometry(sp) {
   }
   if (sp.lanyard) { const lc = C(sp.lanyard); const cz = surfZ(1.2 * s, 0, 1) + 0.007;
     for (const sx of [-1, 1]) band([[sx * 0.058, 1.47 * s, 0.0], [sx * 0.05, 1.41 * s, surfZ(1.41 * s, 0.05, 1) + 0.005], [sx * 0.026, 1.31 * s, surfZ(1.31 * s, 0.026, 1) + 0.005], [sx * 0.006, 1.25 * s, surfZ(1.25 * s, 0, 1) + 0.006]], 0.014, lc, torsoW);
-    sb.boxPart([0, 1.2 * s, cz], 0.056, 0.082, 0.005, W1('chest'), C('#f4f4f0')); sb.boxPart([0, 1.233 * s, cz + 0.001], 0.056, 0.016, 0.005, W1('chest'), lc); }
+    if (sp.lanyardCard !== false) { sb.boxPart([0, 1.2 * s, cz], 0.056, 0.082, 0.005, W1('chest'), C('#f4f4f0')); sb.boxPart([0, 1.233 * s, cz + 0.001], 0.056, 0.016, 0.005, W1('chest'), lc); } }
+  if (sp.cord) band([[0.125 * w, 1.44 * s, 0.0], [0.11 * w, 1.4 * s, surfZ(1.4 * s, 0.11 * w, 1) + 0.005], [0.085 * w, 1.33 * s, surfZ(1.33 * s, 0.085 * w, 1) + 0.006], [0.07 * w, 1.29 * s, surfZ(1.29 * s, 0.07 * w, 1) + 0.006]], 0.01, C(sp.cord), torsoW); // whistle cord: left shoulder to breast pocket
   if (sp.watch) { const h = J.handL; const wc = C(sp.watch);
     sb.loft([{ c: [h[0], 0.893 * s, 0], rx: 0.031, rz: 0.033, w: W1('foreL'), col: C('#1a1a1a') }, { c: [h[0], 0.909 * s, 0], rx: 0.031, rz: 0.033, w: W1('foreL'), col: C('#1a1a1a') }], 10);
     sb.boxPart([h[0] + 0.03, 0.901 * s, 0.0], 0.008, 0.026, 0.026, W1('foreL'), wc); }
   if (sp.earrings) for (const sx of [-1, 1]) sb.ellipsoid([sx * (hr[0] * 1.02 + 0.002), hc[1] - 0.034, hc[2] - 0.006], 0.006, 0.009, 0.006, W1('head'), C('#d4a640'), { lat: 4, lon: 6 });
   if (sp.necklace) sb.loft([{ c: [0, 1.448 * s, 0.008], rx: 0.084, rz: 0.07, w: W1('chest'), col: C('#d4a640') }, { c: [0, 1.456 * s, 0.006], rx: 0.08, rz: 0.066, w: W1('chest'), col: C('#d4a640') }], 14);
-  if (sp.epaulettes) for (const side of ['L', 'R']) { const a = J['arm' + side]; sb.boxPart([a[0] * 0.8, 1.392 * s + 0.047, -0.004], 0.075, 0.008, 0.042, W2('chest', 'arm' + side, 0.4), C(sp.bottom || '#1f2a44')); }
+  if (sp.epaulettes) for (const side of ['L', 'R']) { const a = J['arm' + side]; const ec = C(sp.epaulettes === true ? (sp.bottom || '#1f2a44') : sp.epaulettes); sb.boxPart([a[0] * 0.8, 1.392 * s + 0.047, -0.004], 0.075, 0.008, 0.042, W2('chest', 'arm' + side, 0.4), ec);
+    for (let k = 0; k < (sp.pips || 0); k++) sb.boxPart([a[0] * (0.68 + k * 0.1), 1.392 * s + 0.053, -0.004], 0.012, 0.005, 0.012, W2('chest', 'arm' + side, 0.4), C('#e2bd48')); } // rank pips
+  if (sp.vest) { const vc = C(sp.vest); const idx = [2, 3, 4, 5, 6]; // tactical vest: a shell just outside the shirt from waist to chest, with pouches
+    sb.loft(idx.map((i) => ({ c: [0, tr[i].y * s, 0], rx: tr[i].rx + 0.02, rz: tr[i].rz + 0.022, fz: tr[i].fz, w: tr[i].wgt, col: vc })), 16, { capStart: false, capEnd: false });
+    for (const bx of [-0.07, 0, 0.07]) sb.boxPart([bx * w, 1.1 * s, surfZ(1.1 * s, bx * w, 1) + 0.03], 0.055, 0.07, 0.03, W2('spine', 'chest', 0.3), vc.map((v) => v * 0.8));
+    sb.boxPart([0, 1.3 * s, surfZ(1.3 * s, 0, -1) - 0.024], 0.2 * w, 0.045, 0.004, W1('chest'), C('#e9e9e2')); } // light panel across the back
+  if (sp.belt) { const bc = C(sp.belt); const i0 = tr[1], i1 = tr[2]; const yb = 0.965 * s, t = (0.965 - i0.y) / (i1.y - i0.y); const rx = lerp(i0.rx, i1.rx, t) + 0.009, rz = lerp(i0.rz, i1.rz, t) + 0.009;
+    sb.loft([{ c: [0, yb - 0.022, 0], rx, rz, w: W1('hips'), col: bc }, { c: [0, yb + 0.022, 0], rx, rz, w: W1('hips'), col: bc }], 16, { capStart: false, capEnd: false });
+    sb.boxPart([0, yb, rz + 0.004], 0.05, 0.036, 0.008, W1('hips'), C(sp.buckle || '#c9cdd2'));
+    if (sp.holster) { sb.boxPart([-(rx + 0.012), yb - 0.075, 0.03], 0.04, 0.13, 0.085, W1('hips'), C('#121212')); sb.boxPart([-(rx + 0.006), yb - 0.01, 0.03], 0.02, 0.04, 0.05, W1('hips'), C('#121212')); }
+    if (sp.pouch) sb.boxPart([rx + 0.01, yb - 0.035, 0.05], 0.03, 0.06, 0.05, W1('hips'), C('#121212')); }
+  if (sp.strap) { const sc = C(sp.strap); const ys = [1.45, 1.38, 1.3, 1.22, 1.14, 1.06, 0.99]; // Sam Browne cross strap: right shoulder to left hip, front and back
+    for (const sg of [1, -1]) band(ys.map((y, i) => { const tt = i / (ys.length - 1); const x = lerp(-0.1, 0.13, tt) * w; return i === 0 ? [x, y * s, 0.0] : [x, y * s, surfZ(y * s, x, sg) + sg * (sp.vest ? 0.03 : 0.008)]; }), 0.034, sc, torsoW); }
   return sb.build();
 }
 

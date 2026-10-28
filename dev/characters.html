@@ -30,5 +30,11 @@ if (params.has('presets')) { const { PRESETS } = await import('/src/actors/Appea
   list2.forEach((p, i) => { const c = new Character(randomSpec(+(params.get('seed') || 77) + i * 31, { preset: p.id })); c.root.position.set(i * gap - W / 2, 0, 0); if (params.get('side')) c.root.rotation.y = Math.PI / 2; if (params.get('back')) c.root.rotation.y = Math.PI; s.add(c.root); const a = acts[mode] || [0, mode]; for (let k = 0; k < 40; k++) { c.anim.set(a[1]); c.anim.update(0.033, a[0]); } c.face.update = () => {}; });
   const aspect = r.domElement.width / r.domElement.height; cam.aspect = aspect; const d = (W + gap) / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)) * aspect);
   if (heads) { cam.position.set(0, 1.58, d); cam.lookAt(0, 1.58, 0); } else { cam.position.set(0, 1.0, Math.max(d, 4.6)); cam.lookAt(0, 0.9, 0); } cam.updateProjectionMatrix(); window.__presets = list2.map((p) => p.id); }
+// ?police=1[&heads=1][&side=1][&back=1][&sex=f] : one officer per Sri Lanka Police role (CSRU is a fictional unit)
+if (params.has('police')) { const { POLICE_ROLE_IDS, makePoliceAppearance } = await import('/src/actors/Appearance.js'); chars.forEach((c) => (c.root.visible = false));
+  const heads = params.get('heads'); const gap = heads ? 0.36 : 0.66; const ids = POLICE_ROLE_IDS; const W = (ids.length - 1) * gap;
+  ids.forEach((role, i) => { const o = params.get('sex') ? { sex: params.get('sex') } : {}; const c = new Character(makePoliceAppearance(+(params.get('seed') || 5) + i * 13, role, o)); c.root.position.set(i * gap - W / 2, 0, 0); if (params.get('side')) c.root.rotation.y = Math.PI / 2; if (params.get('back')) c.root.rotation.y = Math.PI; s.add(c.root); for (let k = 0; k < 40; k++) { c.anim.set(null); c.anim.update(0.033, 0); } c.face.update = () => {}; });
+  const aspect = r.domElement.width / r.domElement.height; cam.aspect = aspect; const d = (W + gap) / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)) * aspect);
+  if (heads) { cam.position.set(0, 1.6, d); cam.lookAt(0, 1.6, 0); } else { cam.position.set(0, 1.0, Math.max(d, 4.6)); cam.lookAt(0, 0.9, 0); } cam.updateProjectionMatrix(); window.__presets = ids; }
 r.render(s, cam); window.done = true; window.__ready = true;
 </script></body></html>

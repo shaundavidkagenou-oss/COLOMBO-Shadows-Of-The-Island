@@ -36,6 +36,18 @@ let varied = 0; for (const p of PRESETS) { const a = makeAppearance(11, { preset
 ok(varied >= PRESETS.length - 2, `variation inside presets: ${varied}/${PRESETS.length}`);
 const usedFaces = new Set(); for (const p of PRESETS) for (let k = 0; k < 8; k++) usedFaces.add(makeAppearance(k * 31 + 7, { preset: p.id }).faceV);
 const outfits = new Set(PRESETS.map((p) => p.o)); const modern = PRESETS.filter((p) => !['saree', 'sarong', 'national', 'abaya', 'salwar', 'kurta'].includes(p.o)).reduce((t, p) => t + p.w, 0) / PRESETS.reduce((t, p) => t + p.w, 0);
+// 5. Sri Lanka Police roles: adult, local, uniform kit per role, never part of the civilian pool
+{ const { POLICE_ROLES, POLICE_ROLE_IDS, makePoliceAppearance } = await import('../src/actors/Appearance.js');
+  ok(POLICE_ROLE_IDS.length >= 8, `police roles: ${POLICE_ROLE_IDS.join(', ')}`); ok(!PRESETS.some((p) => p.profile === 'police'), 'police kept out of civilian presets');
+  ok(/fictional/i.test(POLICE_ROLES.csru.label), 'CSRU labelled as a fictional unit');
+  for (const role of POLICE_ROLE_IDS) for (let k = 0; k < 6; k++) { const sp = makePoliceAppearance(70 + k * 13, role, k % 3 === 0 ? { sex: 'f' } : {});
+    ok(isAdultSpec(sp) && sp.police && sp.role === role, `${role}#${k}: adult officer`); ok(!sp.skirt && !sp.scarf && !sp.bag, `${role}#${k}: no civilian clothing leaks`);
+    if (sp.sex === 'f') ok(sp.hair === 'bun', `${role}#${k}: women officers wear a bun`); if (sp.sex === 'm') ok(!sp.beard, `${role}#${k}: clean-shaven or moustache`);
+    if (['patrol', 'traffic', 'supervisor', 'guard'].includes(role)) ok(sp.capStyle === 'peaked' && sp.patch && sp.belt && sp.epaulettes, `${role}#${k}: peaked cap, shoulder flash, belt, epaulettes`);
+    if (role === 'traffic') ok(sp.gloves && sp.strap && sp.cap === '#f4f4f0', `traffic#${k}: white cap, gauntlets, cross strap`);
+    if (role === 'motorcycle') ok(sp.capStyle === 'helmet', `motorcycle#${k}: helmet`); if (role === 'csru') ok(sp.vest && sp.longSleeve, `csru#${k}: vest + long sleeves`); if (role === 'investigator') ok(sp.lanyard && !sp.capStyle, `investigator#${k}: plain clothes + ID`);
+    const g = buildBodyGeometry(sp); const pos = g.attributes.position.array; let finite = true; for (let i = 0; i < pos.length; i++) if (!Number.isFinite(pos[i])) { finite = false; break; } ok(finite, `${role}#${k}: finite geometry`);
+    let maxY = 0; for (let i = 1; i < pos.length; i += 3) maxY = Math.max(maxY, pos[i]); ok(maxY > 1.4 && maxY < 2.15, `${role}#${k}: height incl. headwear ${maxY.toFixed(2)}`); } }
 console.log(out.slice(0, 30).join('\n'));
 console.log(`presets ${PRESETS.length} (distinct ${sigs.size}) · outfit families ${outfits.size} · face variants used ${usedFaces.size}/${FACE_VARIANTS.length} · modern-clothing share of the street mix ${(modern * 100).toFixed(0)}% · min age ${Math.min(...ages)} · avg verts ${(verts / PRESETS.length / 8).toFixed(0)}`);
 console.log(`${checks} checks, ${fails} failures`); process.exit(fails ? 1 : 0);

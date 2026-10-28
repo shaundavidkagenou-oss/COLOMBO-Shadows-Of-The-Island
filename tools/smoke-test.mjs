@@ -82,6 +82,23 @@ await check('Vehicles: every type builds with wheels and seats', async () => {
   return types.join(', ');
 });
 
+await check('Police HQ compound (Kompannaveediya): zone, gate, door, markings', async () => {
+  const { HQ } = await import('../src/world/PoliceHQ.js'); const z = L.zoneAt(-10, -200); assert(z && z.id === 'slpHQ', 'HQ zone missing');
+  assert(!L.segments.some((s) => s.dir === 'v' && Math.abs(s.x0 + 10) < 1 && Math.min(s.z0, s.z1) < -200 && Math.max(s.z0, s.z1) > -200), 'road still runs through the compound');
+  const LM = await import('../src/world/Landmarks.js'); const lm = LM.buildLandmarks(); assert(lm.anim.hqBoom, 'boom barrier'); const inGate = lm.colliders.filter((c) => c.kind !== 'deck' && -10 > c.x0 && -10 < c.x1 && -227 > c.z0 - 0.5 && -227 < c.z1 + 0.5); assert(!inGate.length, 'gate blocked by a collider');
+  const dz = lm.colliders.filter((c) => c.kind !== 'deck' && HQ.door.x > c.x0 && HQ.door.x < c.x1 && HQ.door.z > c.z0 && HQ.door.z < c.z1); assert(!dz.length, 'HQ door point inside a collider');
+  const V = await import('../src/vehicles/VehicleModels.js'); for (const t of ['police', 'policejeep', 'policebike']) { const m = V.createVehicleMesh(t, 3); assert(m.userData.beacons && m.userData.seats.length >= 2, t + ' beacons/seats'); }
+  return `${lm.colliders.length} landmark colliders, gate clear, door clear, police car/jeep/motorcycle with beacons`;
+});
+await check('Police HQ interior: two floors, stairs, rooms, staff', async () => {
+  const { buildHQInterior, HQ_DEF } = await import('../src/world/HQInterior.js'); const { HQ } = await import('../src/world/PoliceHQ.js');
+  const room = buildHQInterior({ scene: new THREE.Scene() }, { id: 'hq', ...HQ.door }); const Y = room.y, H = room.H, cx = HQ.door.x, z1 = HQ.door.z - 200;
+  assert(Math.abs(room.floorAt(cx, z1 - 3, Y) - Y) < 1e-6, 'ground floor'); assert(Math.abs(room.floorAt(cx + 11.7, z1 - 16.6, Y + 3) - (Y + H)) < 0.05, 'stair top reaches first floor');
+  assert(Math.abs(room.floorAt(cx + 11.7, z1 - 13.25, Y + 1.8) - (Y + H / 2)) < 0.05, 'stair midpoint'); assert(room.obsFor(Y).length > 30 && room.obsFor(Y + H).length > 30, 'per-floor obstacles');
+  assert(room.plates.length >= 10 && room.plates.includes('CSRU READY ROOM') && room.plates.includes('OPERATIONS / DISPATCH'), 'door plates'); assert(room.npcs.length >= 25 && room.npcs.every((n) => n.spec.ageYears >= 18), 'adult staff');
+  assert(/artistic interpretation/.test(HQ_DEF.note), 'interior disclaimer');
+  return `${room.npcs.length} people, ${room.plates.length} rooms signed, stairs ${H} m, obstacles ${room.obsFor(Y).length}/${room.obsFor(Y + H).length}`;
+});
 await check('Ambient dialogue is non-empty and subtitled', async () => {
   const { LINES } = await import('../src/story/Lines.js'); let n = 0, si = 0, ta = 0;
   for (const [k, list] of Object.entries(LINES)) { assert(Array.isArray(list) && list.length, k + ' empty'); for (const l of list) { n++; const text = l.si || l.ta || l.en; assert(text && text.trim(), k + ' blank line'); if (l.si || l.ta) assert(l.tr, `${k}: "${text}" has no English subtitle`); if (l.si) si++; if (l.ta) ta++; } }

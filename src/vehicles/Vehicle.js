@@ -13,6 +13,8 @@ export class Vehicle {
     this.radius = this.T.wid * 0.55; this.half = this.T.len / 2;
   }
   get pos() { return { x: this.x, z: this.z }; }
+  // police light bar: alternating blue/red while responding, dark otherwise (no flashing on parked or patrolling units)
+  beacons(on, t = 0) { const b = this.mesh.userData.beacons; if (!b) return; this.beaconsOn = on; const ph = (t * 2.4) % 1, k = (t * 9.6) % 1 < 0.5; b.blue.emissiveIntensity = on ? (ph < 0.5 && k ? 7 : 0.15) : 0; b.red.emissiveIntensity = on ? (ph >= 0.5 && k ? 7 : 0.15) : 0; }
   forward() { return [Math.sin(this.yaw), Math.cos(this.yaw)]; }
   place(x, z, yaw) { this.x = x; this.z = z; this.yaw = yaw; this.y = L.groundY(x, z); this.sync(0); }
   // circles along the length used for collision

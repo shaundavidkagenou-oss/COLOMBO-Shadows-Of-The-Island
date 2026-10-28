@@ -23,6 +23,11 @@ export const VTYPES = {
   bus: { len: 11, wid: 2.5, hgt: 3.15, wheelR: 0.5, maxSpeed: 24, accel: 2.0, mass: 9000, seats: 40, steer: 0.42, sound: 'bus', entry: 'bus', colors: ['#9c1c1c'] },
   pbus: { len: 10.4, wid: 2.45, hgt: 3.1, wheelR: 0.5, maxSpeed: 26, accel: 2.2, mass: 8500, seats: 40, steer: 0.42, sound: 'bus', entry: 'bus', colors: ['#f4f4f2', '#2a5aa8', '#e8e0d0', '#1f7a5a'] },
   lorry: { len: 7.2, wid: 2.3, hgt: 3.0, wheelR: 0.48, maxSpeed: 24, accel: 2.0, mass: 7000, seats: 2, steer: 0.45, sound: 'bus', entry: 'bus', colors: ['#1d4f8a', '#b51f1f', '#e0b420', '#2a6b3a'] },
+  // Sri Lanka Police vehicles (white with blue bands, trilingual POLICE lettering, blue/red beacons). Built on the civilian
+  // body of `base` plus a police kit; never part of random traffic (Traffic.js MIX lists them nowhere).
+  police: { base: 'sedan', police: true, len: 4.5, wid: 1.74, hgt: 1.45, wheelR: 0.32, maxSpeed: 46, accel: 6.4, mass: 1300, seats: 4, steer: 0.52, sound: 'car', entry: 'car', colors: ['#f4f4f2'] },
+  policejeep: { base: 'suv', police: true, len: 4.8, wid: 1.9, hgt: 1.85, wheelR: 0.38, maxSpeed: 44, accel: 6.2, mass: 2150, seats: 5, steer: 0.5, sound: 'van', entry: 'van', colors: ['#f4f4f2'] },
+  policebike: { base: 'bike', police: true, len: 1.95, wid: 0.7, hgt: 1.1, wheelR: 0.3, maxSpeed: 32, accel: 6.8, mass: 175, seats: 2, steer: 0.7, sound: 'bike', entry: 'bike', colors: ['#f4f4f2'] },
   bike: { len: 1.95, wid: 0.7, hgt: 1.1, wheelR: 0.3, maxSpeed: 30, accel: 6.5, mass: 160, seats: 2, steer: 0.7, sound: 'bike', entry: 'bike', colors: ['#151515', '#b51f1f', '#1d3f8a', '#e8e8e4', '#5a6b3a'] },
 };
 // clean private vehicles get clear-coated paint; working vehicles get worn, dirtier paint
@@ -105,6 +110,36 @@ function wheelParts(R, w, style = 0) {
 // ------------------------------------------------------------------ materials
 let mats = null; const routeMats = [];
 const ROUTES = [['138', 'කොටුව', 'FORT'], ['100', 'පිටකොටුව', 'PETTAH'], ['154', 'බොරැල්ල', 'BORELLA']];
+// Door / top-box lettering: POLICE with Sinhala and Tamil (පොලිසිය / பொலிஸ்) on a transparent background.
+let policeMat = null;
+function policeDecalMat() {
+  if (policeMat) return policeMat;
+  const c = document.createElement('canvas'); c.width = 512; c.height = 160; const g = c.getContext('2d'); g.clearRect(0, 0, 512, 160);
+  g.fillStyle = '#1b3f94'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = 'bold 86px "Barlow Condensed", sans-serif'; g.fillText('POLICE', 256, 56, 490);
+  g.font = '600 40px "Noto Sans Sinhala", "Noto Sans Tamil", sans-serif'; g.fillText('පොලිසිය  ·  பொலிஸ்', 256, 126, 490);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return (policeMat = new THREE.MeshStandardMaterial({ map: t, transparent: true, alphaTest: 0.25, roughness: 0.4, polygonOffset: true, polygonOffsetFactor: -2 }));
+}
+// side decal quad readable from outside on either side (x = side offset, z0 < z1)
+function sideDecal(b, sx, x, y0, y1, z0, z1, uv = [0, 0, 1, 1], col = [1, 1, 1]) {
+  if (sx > 0) b.quad([x, y0, z1], [x, y0, z0], [x, y1, z0], [x, y1, z1], uv, col); else b.quad([-x, y0, z0], [-x, y0, z1], [-x, y1, z1], [-x, y1, z0], uv, col);
+}
+function addPoliceKit(m, base, T) {
+  const mb = m.mb, paint = mb.get('paint'), rubber = mb.get('rubber'), dec = mb.get('police'), blue = C('#1b3f94'), W = T.wid / 2;
+  if (base === 'bike') { // white top box with lettering and a beacon, blue tank band
+    paint.box(0, 1.1, -0.84, 0.42, 0.3, 0.34, { col: C('#f4f4f2') }); rubber.box(0, 0.94, -0.84, 0.44, 0.03, 0.36, { col: C('#222') });
+    for (const sx of [-1, 1]) sideDecal(dec, sx, 0.212, 1.0, 1.2, -0.99, -0.69, [0, 0, 1, 1]);
+    dec.quad([0.2, 1.0, -1.012], [-0.2, 1.0, -1.012], [-0.2, 1.2, -1.012], [0.2, 1.2, -1.012], [0, 0, 1, 1], [1, 1, 1]);
+    rubber.box(0, 1.27, -0.84, 0.05, 0.04, 0.05, { col: C('#222') }); mb.get('lbBlue').box(-0.05, 1.32, -0.84, 0.09, 0.07, 0.09, { col: [1, 1, 1] }); mb.get('lbRed').box(0.05, 1.32, -0.84, 0.09, 0.07, 0.09, { col: [1, 1, 1] });
+    for (const sx of [-1, 1]) paint.box(sx * 0.165, 0.76, 0.1, 0.012, 0.05, 0.36, { col: blue });
+    return;
+  }
+  const H = T.hgt, hy = base === 'suv' ? 0.78 : 0.66; // body bands and door lettering
+  for (const sx of [-1, 1]) { const x = W + 0.012; sideDecal(paint, sx, x, hy, hy + 0.07, -1.45, 1.45, [0, 0, 0.1, 0.1], blue); sideDecal(paint, sx, x, hy - 0.1, hy - 0.075, -1.45, 1.45, [0, 0, 0.1, 0.1], blue); sideDecal(dec, sx, x + 0.002, hy - 0.4, hy - 0.12, -0.98, -0.08); } // lettering on the rear doors (the driver door is a separate swinging mesh)
+  const ry = H - (base === 'suv' ? 0.0 : 0.02), rz = base === 'suv' ? -0.2 : -0.35; // roof light bar
+  rubber.box(0, ry + 0.03, rz, 1.15, 0.05, 0.26, { col: C('#1a1a1a') }); mb.get('lbBlue').box(-0.29, ry + 0.1, rz, 0.54, 0.1, 0.22, { col: [1, 1, 1] }); mb.get('lbRed').box(0.29, ry + 0.1, rz, 0.54, 0.1, 0.22, { col: [1, 1, 1] });
+  dec.quad([0.5, 0.62, -T.len / 2 - 0.03], [-0.5, 0.62, -T.len / 2 - 0.03], [-0.5, 0.8, -T.len / 2 - 0.03], [0.5, 0.8, -T.len / 2 - 0.03], [0, 0.5, 1, 1], [1, 1, 1]); // POLICE on the boot
+}
 function routeMat(i) {
   if (routeMats[i]) return routeMats[i];
   const c = document.createElement('canvas'); c.width = 512; c.height = 80; const g = c.getContext('2d');
@@ -137,7 +172,9 @@ export function vehicleMaterials() {
       vlight: new THREE.MeshStandardMaterial({ color: 0xf4f4ee, emissive: 0xfff4dd, emissiveIntensity: 0.2, roughness: 0.1, metalness: 0.2 }),
       vtail: new THREE.MeshStandardMaterial({ color: 0x7a0a0a, emissive: 0xff1a10, emissiveIntensity: 0.15, roughness: 0.25 }),
       vind: new THREE.MeshStandardMaterial({ color: 0xb06a10, emissive: 0xffa020, emissiveIntensity: 0.05, roughness: 0.25 }),
-      plate: plateMaterial(), route0: routeMat(0), route1: routeMat(1), route2: routeMat(2),
+      plate: plateMaterial(), route0: routeMat(0), route1: routeMat(1), route2: routeMat(2), police: policeDecalMat(),
+      lbBlue: new THREE.MeshStandardMaterial({ color: 0x0c1e5a, emissive: 0x2a5cff, emissiveIntensity: 0, roughness: 0.2, transparent: true, opacity: 0.92 }),
+      lbRed: new THREE.MeshStandardMaterial({ color: 0x5a0c0c, emissive: 0xff2020, emissiveIntensity: 0, roughness: 0.2, transparent: true, opacity: 0.92 }),
     };
   }
   return { lightMat: mats.vlight, tailMatBase: mats.vtail, indicatorMat: mats.vind, mats };
@@ -176,6 +213,10 @@ function notchOutline(D, R, sill, by) {
 // ------------------------------------------------------------------ model builders
 const modelCache = new Map();
 function buildModel(type, color, variant) {
+  const TP = VTYPES[type]; if (TP.police) { const m = buildBaseModel(TP.base, color, TP.base === 'bike' ? variant & ~1 : variant); /* police bikes: always the motorcycle body */ addPoliceKit(m, TP.base, TP); return m; }
+  return buildBaseModel(type, color, variant);
+}
+function buildBaseModel(type, color, variant) {
   const T = VTYPES[type]; const mb = new MultiBuilder(); const L = T.len, W = T.wid / 2, H = T.hgt, R = T.wheelR;
   const col = C(color), black = C('#151517'), chrome = C('#c4c8cc'), trimGrey = C('#2a2b2e'); const seats = []; let doors = []; let wheelStyle = variant % 3;
   const paint = mb.get('paint'), rubber = mb.get('rubber'), glass = mb.get('glass'), lights = mb.get('vlight'), tails = mb.get('vtail'), ind = mb.get('vind'), ch = mb.get('chrome');
@@ -423,8 +464,9 @@ function buildModel(type, color, variant) {
 }
 
 // Driver door: own little mesh group on a hinge pivot (front edge) so it can swing open.
-function buildDoor(d, col, matsByName) {
+function buildDoor(d, col, matsByName, stripes = null) {
   const mb = new MultiBuilder(); const len = d.len; const th = 0.05; const P = mb.get('paint');
+  if (stripes) for (const [y, h, sc] of stripes) P.box(-0.0145, y, -len / 2, 0.003, h, len - 0.03, { col: sc }); // police bands continue across the door
   if (d.notch) { const [nz, ny] = d.notch; P.box(0.012, (ny + d.y1) / 2, -len / 2, th, d.y1 - ny, len - 0.02, { col }); P.box(0.012, (d.y0 + ny) / 2, -(nz + len) / 2, th, ny - d.y0, len - nz - 0.02, { col }); }
   else P.box(0.012, (d.y0 + d.y1) / 2, -len / 2, th, d.y1 - d.y0, len - 0.02, { col });
   const g = mb.get('glass'); const xt = d.inset; // window glass leans in with the tumblehome
@@ -442,7 +484,8 @@ export function createVehicleMesh(type, seed = 1) {
   const T = VTYPES[type]; const r = new RNG(seed); const color = r.pick(T.colors); const variant = r.int(0, 3);
   const key = type + color + variant; let cached = modelCache.get(key);
   const { mats: M } = vehicleMaterials(); const worn = WORN.has(type) || (type === 'van' && variant === 3);
-  const byName = { paint: worn ? M.vworn : M.vpaint, glass: M.vglass, chrome: M.vchrome, rubber: M.vrubber, interior: M.vinterior, canvas: M.vcanvas, vlight: M.vlight, vtail: M.vtail, vind: M.vind, plate: M.plate, route0: M.route0, route1: M.route1, route2: M.route2 };
+  const byName = { paint: worn ? M.vworn : M.vpaint, glass: M.vglass, chrome: M.vchrome, rubber: M.vrubber, interior: M.vinterior, canvas: M.vcanvas, vlight: M.vlight, vtail: M.vtail, vind: M.vind, plate: M.plate, route0: M.route0, route1: M.route1, route2: M.route2, police: M.police, lbBlue: M.lbBlue, lbRed: M.lbRed };
+  let beacons = null; if (T.police) { byName.lbBlue = M.lbBlue.clone(); byName.lbRed = M.lbRed.clone(); beacons = { blue: byName.lbBlue, red: byName.lbRed }; } // per vehicle: only responding units flash
   if (!cached) {
     const m = buildModel(type, color, variant); const geos = [];
     for (const [name, b] of m.mb.b) { const g = b.build(); if (!g) continue; if (worn && (name === 'paint' || name === 'canvas')) dirty(g, seed); geos.push([name, g]); }
@@ -458,11 +501,11 @@ export function createVehicleMesh(type, seed = 1) {
     const holder = new THREE.Group(); holder.add(tyre, rim); if (x < 0) holder.rotation.y = Math.PI; spin.add(holder); pivot.add(spin);
     pivot.userData.spin = spin; pivot.userData.front = z > 0; pivot.userData.baseY = y; g.add(pivot); return pivot;
   });
-  let door = null; if (cached.doors && cached.doors[0]) { const d = cached.doors[0]; const pv = buildDoor(d, C(color), byName); g.add(pv); door = { pivot: pv, side: d.side, open: 0, max: 1.15 }; }
+  let door = null; if (cached.doors && cached.doors[0]) { const d = cached.doors[0]; const hy = T.base === 'suv' ? 0.78 : 0.66; const pv = buildDoor(d, C(color), byName, T.police ? [[hy + 0.035, 0.07, C('#1b3f94')], [hy - 0.0875, 0.025, C('#1b3f94')]] : null); g.add(pv); door = { pivot: pv, side: d.side, open: 0, max: 1.15 }; }
   const ds = cached.seats.find((s) => s.driver) || cached.seats[0];
   const side = T.entry === 'bike' ? 1 : -1; const hw = T.wid / 2;
   const entry = cached.busDoor ? { x: cached.busDoor[0], z: cached.busDoor[1], side: 1 } : { x: side * (hw + (T.entry === 'tuk' ? 0.35 : T.entry === 'bike' ? 0.45 : 0.55)), z: door ? cached.doors[0].hinge[1] - cached.doors[0].len * 0.55 : ds.z, side };
-  g.userData = { wheels, tailMat, indMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry };
+  g.userData = { wheels, tailMat, indMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons };
   return g;
 }
 // darken lower panels and add per-vehicle grime variation to working vehicles

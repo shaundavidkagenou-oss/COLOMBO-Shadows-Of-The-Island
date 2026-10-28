@@ -58,7 +58,7 @@ export class Player {
       if (ledge) this.climb = { t: 0, x0: this.x, z0: this.z, y0: this.y, x1: ledge.x, z1: ledge.z, y1: ledge.y };
       else { this.vy = 4.6; this.grounded = false; A.air = 1; this.events.emit('jump'); }
     }
-    const g = this.indoor ? this.indoor.y : this.collision.groundAt(this.x, this.z, this.y, 0.5);
+    const g = this.indoor ? (this.indoor.floorAt ? this.indoor.floorAt(this.x, this.z, this.y) : this.indoor.y) : this.collision.groundAt(this.x, this.z, this.y, 0.5);
     if (!this.grounded || this.y > g + 0.05) { this.vy -= 13 * dt; this.y += this.vy * dt; if (this.y <= g) { if (!this.grounded && this.vy < -3) this.events.emit('land'); this.y = g; this.vy = 0; this.grounded = true; A.air = 0; } else { this.grounded = false; A.air = 1; } }
     else { this.y = damp(this.y, g, 20, dt); this.grounded = true; A.air = 0; }
     if (this.crouching) A.set('crouch'); else if (A.action === 'crouch') A.set(null);
@@ -74,7 +74,7 @@ export class Player {
   }
   resolveIndoor(x, z) {
     const b = this.indoor.bounds, R = 0.3; x = clamp(x, b.x0 + R, b.x1 - R); z = clamp(z, b.z0 + R, b.z1 - R);
-    for (const o of this.indoor.obstacles) { if (x > o.x0 - R && x < o.x1 + R && z > o.z0 - R && z < o.z1 + R) { const dl = x - (o.x0 - R), dr = o.x1 + R - x, dt = z - (o.z0 - R), db = o.z1 + R - z; const m = Math.min(dl, dr, dt, db); if (m === dl) x = o.x0 - R; else if (m === dr) x = o.x1 + R; else if (m === dt) z = o.z0 - R; else z = o.z1 + R; } }
+    for (const o of (this.indoor.obsFor ? this.indoor.obsFor(this.y) : this.indoor.obstacles)) { if (x > o.x0 - R && x < o.x1 + R && z > o.z0 - R && z < o.z1 + R) { const dl = x - (o.x0 - R), dr = o.x1 + R - x, dt = z - (o.z0 - R), db = o.z1 + R - z; const m = Math.min(dl, dr, dt, db); if (m === dl) x = o.x0 - R; else if (m === dr) x = o.x1 + R; else if (m === dt) z = o.z0 - R; else z = o.z1 + R; } }
     return { x, z };
   }
   findLedge() { // something 0.6–1.9 m high directly ahead with space on top
@@ -213,7 +213,7 @@ export class Player {
     const want = new THREE.Vector3(tgt.x + Math.sin(this.camYaw) * cp * dist, tgt.y + spch * dist, tgt.z + Math.cos(this.camYaw) * cp * dist);
     // camera collision
     let t = 1;
-    if (this.indoor) { const b = this.indoor.bounds, top = this.indoor.y + (this.indoor.id === 'garage' ? 4.6 : 2.9); want.x = clamp(want.x, b.x0 + 0.05, b.x1 - 0.05); want.z = clamp(want.z, b.z0 + 0.05, b.z1 - 0.05); want.y = clamp(want.y, this.indoor.y + 0.4, top); }
+    if (this.indoor) { const I = this.indoor, b = I.bounds, top = I.ceilAt ? I.ceilAt(this.y) : I.y + (I.id === 'garage' ? 4.6 : 2.9), fl = I.floorAt ? I.floorAt(this.x, this.z, this.y) : I.y; want.x = clamp(want.x, b.x0 + 0.05, b.x1 - 0.05); want.z = clamp(want.z, b.z0 + 0.05, b.z1 - 0.05); want.y = clamp(want.y, fl + 0.4, Math.max(top, fl + 0.6)); if (I.clampCam) I.clampCam(tgt, want); }
     else {
       t = this.collision.raycast(tgt.x, tgt.y, tgt.z, want.x, want.y, want.z, 0.25);
       if (t < 1) want.lerpVectors(tgt, want, Math.max(0.12, t - 0.05));

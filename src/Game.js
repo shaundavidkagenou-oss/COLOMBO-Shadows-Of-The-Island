@@ -1,4 +1,5 @@
 // Game: boot/loading, presentation flow (intro → montage → menu), the play loop, interactions, save/load.
+import { PoliceHQLife } from './police/PoliceHQLife.js';
 import * as THREE from 'three';
 import { Settings } from './core/Settings.js';
 import { Input } from './core/Input.js';
@@ -25,7 +26,7 @@ import { Story, MISSIONS } from './story/Story.js';
 import { playOpening } from './story/Opening.js';
 import { Weapons } from './combat/Weapons.js';
 
-const VNAMES = { tuktuk: 'Three-wheeler', car: 'Hatchback', sedan: 'Sedan', taxi: 'Taxi', van: 'Van', suv: 'SUV', bus: 'SLTB bus', pbus: 'Private bus', lorry: 'Lorry', bike: 'Motorcycle' };
+const VNAMES = { tuktuk: 'Three-wheeler', car: 'Hatchback', sedan: 'Sedan', taxi: 'Taxi', van: 'Van', suv: 'SUV', bus: 'SLTB bus', pbus: 'Private bus', lorry: 'Lorry', bike: 'Motorcycle', police: 'Police car', policejeep: 'Police jeep', policebike: 'Police motorcycle' };
 const RADIO = [null, { mode: 'radio1', name: 'Radio Lanka Breeze 98.4' }, { mode: 'radio2', name: 'Island Pulse 104.2' }];
 const TEST = new URLSearchParams(location.search).has('test'); // headless testing: allow big timesteps so cinematics finish under software rendering
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -71,7 +72,7 @@ export class Game {
     this.crowd = new Crowd(this.scene, this.collision, bus);
     for (let i = 0; i < 64; i += 8) { this.crowd.prepareSpecs(8); progress(0.76 + 0.1 * (i / 64), 'People of Colombo'); await tick(); }
     progress(0.86, 'Tuk-tuks, buses and traffic'); await tick();
-    this.traffic = new Traffic(this.scene, this.collision, bus); this.traffic.crowd = this.crowd;
+    this.traffic = new Traffic(this.scene, this.collision, bus); this.traffic.crowd = this.crowd; this.hqLife = new PoliceHQLife(this);
     this.player = new Player(this.scene, this.camera, this.collision, bus); this.player.crowd = this.crowd;
     this.hud = new HUD(this.ui); this.director = new Director(this); this.story = new Story(this); this.interiors = new Interiors(this); this.weapons = new Weapons(this); this.player.weapons = this.weapons;
     this.applyDensity();
@@ -181,7 +182,7 @@ export class Game {
     const old = P.ch; const parent = old.root.parent; const ch = new Character(spec); ch.root.position.copy(old.root.position); ch.root.rotation.copy(old.root.rotation);
     if (parent) { parent.add(ch.root); parent.remove(old.root); } if (this.weapons) { this.weapons.forceHolster(); this.weapons.attach(ch); } old.dispose(); P.ch = ch; if (P.vehicle) { const seat = P.vehicle.driverSeat(); ch.root.position.set(seat.x, seat.y, seat.z); ch.root.rotation.set(0, 0, 0); ch.anim.sitIn(seat, 1); ch.anim.update(0.001, 0); }
   }
-  setIndoor(v) { this.indoor = v; this.world.root.visible = !v; this.atmos.rain.visible = false; this.hud.mini.classList.toggle('dim', v); }
+  setIndoor(v) { this.indoor = v; this.world.root.visible = !v; this.atmos.rain.visible = false; this.atmos.indoor = v; this.hud.mini.classList.toggle('dim', v); }
   // ================================================================= events → audio / HUD
   wireEvents() {
     bus.on('footstep', (e) => Audio.footstep(e.sprint, this.atmos.wet > 0.3 && !this.indoor));
@@ -286,7 +287,7 @@ export class Game {
     A.update(dt, fv, cam, dt); setVehicleNight(A.night);
     if (this.indoor) { A.sun.intensity = 0; A.hemi.intensity *= 0.25; A.ambient.intensity = 0.25; this.scene.environmentIntensity = 0.25; A.rain.visible = false; this.renderer.toneMappingExposure = 1; }
     const camDir = new THREE.Vector3(); cam.getWorldDirection(camDir);
-    this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; this.traffic.update(dt, focus, camDir, this.clock, this.crowd.peds, P);
+    this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; this.traffic.update(dt, focus, camDir, this.clock, this.crowd.peds, P); this.hqLife.update(dt);
     this.crowd.update(dt, focus, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: P, hourFactor: this.hourFactor(), hour: A.hour });
     if (P.vehicle && A.night > 0.5 && P.nightLights === undefined) { P.vehicle.lights = true; }
     // story & prompts
@@ -329,7 +330,7 @@ export class Game {
     if (Input.wasPressed('more')) { const em = ['wave', 'stretch', 'clap', 'dance', 'look'][Math.floor(Math.random() * 5)]; P.ch.anim.play(em, em === 'dance' ? 5 : 2.2); P.emote = em; }
     return null;
   }
-  interiorName(id) { return { kade: 'Lucky Tea Kade', fathima: 'Fathima Textiles', selvaraj: 'Selvaraj Electronics', bandara: 'Bandara Spice Stores', tailor: 'Ceylon Threads', garage: 'Lanka Auto Care' }[id] || id; }
+  interiorName(id) { return { kade: 'Lucky Tea Kade', fathima: 'Fathima Textiles', selvaraj: 'Selvaraj Electronics', bandara: 'Bandara Spice Stores', tailor: 'Ceylon Threads', garage: 'Lanka Auto Care', hq: 'Police Headquarters' }[id] || id; }
   miniExtras() {
     const out = []; for (const v of this.traffic.vehicles) out.push({ x: v.x, z: v.z, color: 'rgba(255,255,255,0.55)', r: 1.6 });
     for (const pv of this.story.pursuers) out.push({ x: pv.v ? pv.v.x : pv.x, z: pv.v ? pv.v.z : pv.z, color: '#ff4a3a', r: 3.5 });

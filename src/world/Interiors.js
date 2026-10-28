@@ -5,6 +5,8 @@ import { MAT } from '../gfx/Materials.js';
 import { plan } from './CityPlan.js';
 import { RNG } from '../core/rng.js';
 import { Character, randomSpec, HEROES } from '../actors/Character.js';
+import { buildHQInterior, HQ_DEF } from './HQInterior.js';
+import { HQ } from './PoliceHQ.js';
 
 const Y = -40; const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 const DEFS = {
@@ -21,10 +23,12 @@ export class Interiors {
   setupDoors(roomPos) {
     this.doors = Object.entries(plan.missionShops).map(([id, s]) => ({ id, x: s.x, z: s.z, rot: s.rot, faceIn: s.faceIn }));
     if (roomPos) this.doors.push({ id: 'room', x: roomPos[0], z: roomPos[1], rot: 0, faceIn: Math.PI });
+    this.doors.push({ id: 'hq', x: HQ.door.x, z: HQ.door.z, rot: 0, faceIn: HQ.door.faceIn });
   }
   nearDoor(x, z) { for (const d of this.doors) if (Math.hypot(d.x - x, d.z - z) < 2.2) return d; return null; }
   build(id, door) {
     if (this.built.has(id)) return this.built.get(id);
+    if (id === 'hq') { const room = buildHQInterior(this.g, door); this.built.set(id, room); return room; }
     const D = DEFS[id]; const mb = new MultiBuilder(); const rng = new RNG(id.length * 97 + 5);
     const cx = door.x, cz = door.z - 200; // offset in z so rooms don't overlap the shop's own geometry footprint
     const x0 = cx - D.w / 2, x1 = cx + D.w / 2, z0 = cz - D.d, z1 = cz; const H = id === 'garage' ? 5 : 3.2;
@@ -83,7 +87,7 @@ export class Interiors {
     this.prev = { x: g.player.x, z: g.player.z, yaw: g.player.yaw }; room.g.visible = true; this.current = room;
     if (room.D.keeper && !room.keeperCh) { const spec = room.D.keeper.height ? room.D.keeper : randomSpec(room.D.keeper.seed, room.D.keeper); const ch = new Character(spec); ch.root.position.set(room.keeperPos[0], Y, room.keeperPos[1]); room.g.add(ch.root); room.keeperCh = ch; }
     g.player.indoor = room; g.player.x = room.spawn[0]; g.player.z = room.spawn[1]; g.player.y = Y; g.player.yaw = Math.PI; g.player.camYaw = 0; g.player.sync(); g.player.snapCamera();
-    g.setIndoor(true); await g.hud.fade(0, 0.5); g.hud.notify(room.D.name, '', 'info', 2.5);
+    g.setIndoor(true); await g.hud.fade(0, 0.5); g.hud.notify(room.D.name, room.id === 'hq' && !this.hqNoted ? HQ_DEF.note : '', 'info', room.id === 'hq' && !this.hqNoted ? 6 : 2.5); if (room.id === 'hq') this.hqNoted = true;
     if (room.D.line) setTimeout(() => g.hud.subtitle(room.D.name.split(' ')[0] === 'Lucky' ? 'Siri' : room.D.name, room.D.line, '', 3.5), 600);
   }
   async exit() {
@@ -92,7 +96,7 @@ export class Interiors {
     g.player.teleport(d.x, d.z, d.faceIn + Math.PI); g.setIndoor(false); await g.hud.fade(0, 0.5);
   }
   update(dt) {
-    const r = this.current; if (!r) return null; r.fan.rotation.y += dt * 9; if (r.keeperCh) { const p = this.g.player; r.keeperCh.root.rotation.y = Math.atan2(p.x - r.keeperPos[0], p.z - r.keeperPos[1]); r.keeperCh.anim.update(dt, 0); }
-    const p = this.g.player; if (Math.hypot(p.x - r.spawn[0], p.z - (r.spawn[1] + 0.6)) < 1.3) return 'exit'; return null;
+    const r = this.current; if (!r) return null; if (r.fan) r.fan.rotation.y += dt * 9; if (r.update) r.update(dt, this.g.player); if (r.keeperCh) { const p = this.g.player; r.keeperCh.root.rotation.y = Math.atan2(p.x - r.keeperPos[0], p.z - r.keeperPos[1]); r.keeperCh.anim.update(dt, 0); }
+    const p = this.g.player; if (p.y < r.y + 1 && Math.hypot(p.x - r.spawn[0], p.z - (r.spawn[1] + 0.6)) < 1.3) return 'exit'; return null;
   }
 }
