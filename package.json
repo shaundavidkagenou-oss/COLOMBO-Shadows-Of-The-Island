@@ -8,10 +8,10 @@
     "dev": "vite --host 0.0.0.0 --port 5173",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
-    "test:smoke": "node tools/smoke-test.mjs",
+    "test:smoke": "node tools/smoke-test.mjs && node tools/rail-test.mjs",
     "test:seats": "node tools/seat-ik-test.mjs",
     "test:anim": "node tools/anim-test.mjs",
-    "test": "node tools/seat-ik-test.mjs && node tools/anim-test.mjs && node tools/appearance-test.mjs && node tools/smoke-test.mjs",
+    "test": "node tools/seat-ik-test.mjs && node tools/anim-test.mjs && node tools/appearance-test.mjs && node tools/smoke-test.mjs && node tools/rail-test.mjs",
     "test:appearance": "node tools/appearance-test.mjs"
   },
   "dependencies": {

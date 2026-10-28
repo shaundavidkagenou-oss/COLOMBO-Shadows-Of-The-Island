@@ -53,10 +53,10 @@ export class Vehicle {
     }
     // other vehicles
     if (others) for (const o of others) {
-      if (o === this) continue; const d2 = (o.x - this.x) ** 2 + (o.z - this.z) ** 2; if (d2 > 200) continue;
+      if (o === this) continue; const d2 = (o.x - this.x) ** 2 + (o.z - this.z) ** 2; if (d2 > (8 + (o.T ? o.T.len / 2 : 4)) ** 2) continue;
       for (const a of this.circles()) for (const b of o.circles()) {
         const dx = a[0] - b[0], dz = a[1] - b[1]; const d = Math.hypot(dx, dz), m = this.radius + o.radius;
-        if (d < m && d > 1e-4) { const p = (m - d); const ratio = o.ai || o.parked ? 0.85 : 0.5; this.x += (dx / d) * p * ratio; this.z += (dz / d) * p * ratio; o.bump && o.bump(-(dx / d) * p * (1 - ratio), -(dz / d) * p * (1 - ratio), this); hit = Math.max(hit, p); }
+        if (d < m && d > 1e-4) { const p = (m - d); const ratio = o.immovable ? 1 : o.ai || o.parked ? 0.85 : 0.5; this.x += (dx / d) * p * ratio; this.z += (dz / d) * p * ratio; o.bump && o.bump(-(dx / d) * p * (1 - ratio), -(dz / d) * p * (1 - ratio), this); hit = Math.max(hit, p); }
       }
     }
     if (hit > 0.02) { this.impact(Math.abs(this.speed)); this.speed *= Math.abs(this.speed) > 8 ? -0.25 : 0.6; }

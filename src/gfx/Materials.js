@@ -13,6 +13,7 @@ export function buildMaterials() {
   MAT.kerb = std({ map: TEX.concrete, roughness: 0.85, vertexColors: true });
   MAT.concrete = std({ map: TEX.concrete, roughness: 0.9, vertexColors: true });
   MAT.grass = std({ map: TEX.grass, roughness: 1 });
+  MAT.ballast = std({ map: TEX.ballast, roughness: 1, vertexColors: true });
   MAT.lawn = std({ map: TEX.lawn, roughness: 1 });
   MAT.laterite = std({ map: TEX.laterite, roughness: 1 });
   MAT.sand = std({ map: TEX.sand, roughness: 1 });

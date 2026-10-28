@@ -57,7 +57,7 @@ export class Traffic {
     this.paxCount = 0; this.leaving = []; this.crowd = null; this.parkedTimer = 0; this.drivableSegs = L.segments.filter((s) => !s.crossing || s.level <= 2);
   }
   setDensity(d) { this.max = Math.round(10 + d * 45); }
-  all() { return this.parked.length ? this.vehicles.concat(this.parked) : this.vehicles; }
+  all() { const o = this.obstacles; if (!this.parked.length && !(o && o.length)) return this.vehicles; return o && o.length ? this.vehicles.concat(this.parked, o) : this.vehicles.concat(this.parked); } // obstacles = train cars (solid, not enterable)
   pickType(x, z) { const d = L.districtIdAt(x, z); const night = this.night > 0.6; const mix = MIX[d] || MIX.default; const m = night ? mix.map(([t, w]) => [t, t === 'bus' || t === 'pbus' ? w * 0.4 : w]) : mix; return this.rng.weighted(m); }
   spawn(focus, camDir, forceNear = false) {
     for (let tries = 0; tries < 12; tries++) {
@@ -176,6 +176,7 @@ export class Traffic {
         if (rem < 6 && !busy) this.res.set(node.id, { id: v.id, t: this.simTime });
       }
     } else if (p.type === 'curve') this.res.set(p.node.id, { id: v.id, t: this.simTime });
+    if (this.rail) { const d = this.rail.stopDistance(v); if (d < stopAt) stopAt = d; } // level crossing: lamps flashing / booms down
     // --- IDM
     const nextCurve = p.type === 'line' ? ai.pieces[1] : p; const curveV = nextCurve && nextCurve.type === 'curve' && nextCurve.turn !== 'straight' ? (nextCurve.turn === 'uturn' ? 3 : 6.5) : ai.v0;
     let v0 = ai.v0; if (p.type === 'curve') v0 = curveV; else if (p.len - ai.s < 25) v0 = Math.min(v0, lerp(curveV, ai.v0, (p.len - ai.s) / 25));
@@ -217,6 +218,6 @@ export class Traffic {
       const v = new Vehicle(type, Math.floor(r.next() * 1e6), this.scene); v.place(p.x, p.z, p.yaw); v.parked = true; v.spot = p; this.parked.push(v); this.parkedSet.add(p);
     }
   }
-  nearest(x, z, maxD = 4) { let best = null, bd = maxD * maxD; for (const v of this.all()) { if (v.player) continue; const d = (v.x - x) ** 2 + (v.z - z) ** 2; if (d < bd) { bd = d; best = v; } } return best; }
+  nearest(x, z, maxD = 4) { let best = null, bd = maxD * maxD; for (const v of this.all()) { if (v.player || v.isTrain) continue; const d = (v.x - x) ** 2 + (v.z - z) ** 2; if (d < bd) { bd = d; best = v; } } return best; }
 }
 export { evalPiece, linePiece };

@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
 import { TEX } from '../gfx/Textures.js';
-import { LAND_Y, LAKE, STATIONS } from './Layout.js';
+import { LAND_Y, LAKE, STATIONS, roadAt } from './Layout.js';
 import { RNG } from '../core/rng.js';
 import { buildPoliceHQ } from './PoliceHQ.js';
 
@@ -158,24 +158,24 @@ export function buildLandmarks() {
     for (const [ax, az, bx, bz] of S) { const len = Math.hypot(bx - ax, bz - az); mosq.wall(ax, az, bx, bz, y0, y0 + H, [0, 0, len / 9, 2], [1, 1, 1]); }
     mb.get('roofFlat').hrect(x0, z0, x1, z1, y0 + H, 6, [0.8, 0.76, 0.72]);
     // crenellated striped parapet
-    for (const [ax, az, bx, bz] of S) { const len = Math.hypot(bx - ax, bz - az), n = Math.floor(len / 1.6); for (let k = 0; k < n; k++) { const t = (k + 0.5) / n; str.box(ax + (bx - ax) * t, y0 + H + 0.5, az + (bz - az) * t, 0.9, 1.0, 0.9, { col: [1, 1, 1], uvScale: 1.5 }); } }
+    for (const [ax, az, bx, bz] of S) { const len = Math.hypot(bx - ax, bz - az), n = Math.floor(len / 1.6); for (let k = 0; k < n; k++) { const t = (k + 0.5) / n; str.box(ax + (bx - ax) * t, y0 + H + 0.5, az + (bz - az) * t, 0.9, 1.0, 0.9, { col: [1, 1, 1], uvScale: 5.3 }); /* 16 bands per 5.3 m tile = 33 cm bands like the real façade */ } }
     // pinnacles all along the roofline
-    const pinn = (px, pz, h, r) => { str.cylinder(px, y0 + H, pz, r, r * 0.85, h, 10, { col: [1, 1, 1], uvScale: 1.2 }); lathe(paint, [[r * 1.4, 0], [r * 1.6, r * 1.2], [r, r * 2.6], [0.05, r * 4]], 10, px, y0 + H + h, pz, '#f3eee4'); };
+    const pinn = (px, pz, h, r) => { str.cylinder(px, y0 + H, pz, r, r * 0.85, h, 10, { col: [1, 1, 1], uvScale: 5.3 }); lathe(paint, [[r * 1.4, 0], [r * 1.6, r * 1.2], [r, r * 2.6], [0.05, r * 4]], 10, px, y0 + H + h, pz, '#f3eee4'); };
     for (const [ax, az, bx, bz] of S) { const len = Math.hypot(bx - ax, bz - az), n = Math.floor(len / 3.2); for (let k = 0; k <= n; k++) { const t = k / n; pinn(ax + (bx - ax) * t, az + (bz - az) * t, k === 0 || k === n ? 7 : 3, k === 0 || k === n ? 0.7 : 0.35); } }
     // central clock tower facing 2nd Cross Street (west)
     const tx = 2.5, tz = -877.5;
     for (const [ax, az, bx, bz] of [[tx - 4, tz + 4, tx + 4, tz + 4], [tx + 4, tz + 4, tx + 4, tz - 4], [tx + 4, tz - 4, tx - 4, tz - 4], [tx - 4, tz - 4, tx - 4, tz + 4]]) mosq.wall(ax, az, bx, bz, y0 + H, y0 + H + 9, [0, 0, 0.9, 1], [1, 1, 1]);
     lathe(paint, [[4.6, 0], [5.2, 1.5], [5, 4], [3.2, 7], [0.4, 9.5], [0.1, 11]], 16, tx, y0 + H + 9.5, tz, '#f3eee4');
-    box(str, tx, y0 + H + 9.2, tz, 9, 0.7, 9, '#ffffff', { uv: 1.5 });
+    box(str, tx, y0 + H + 9.2, tz, 9, 0.7, 9, '#ffffff', { uv: 5.3 });
     const clock = label([{ text: '◷', font: '400 200px serif', color: '#1a1a1a' }], tx - 4.05, y0 + H + 5.5, tz, 3.6, 3.6, -Math.PI / 2, { w: 256, h: 256, bg: '#f7f2e6', glow: false });
     void clock;
     // grand entrance arch on the west front
-    box(str, x0 - 0.6, y0 + 5.5, tz, 1.2, 11, 10, '#ffffff', { uv: 1.5 });
+    box(str, x0 - 0.6, y0 + 5.5, tz, 1.2, 11, 10, '#ffffff', { uv: 5.3 });
     box(paint, x0 - 1.25, y0 + 3.4, tz, 0.1, 6.5, 5.5, '#1c2a22');
     for (const dz of [-6, 6]) pinn(x0 - 0.6, tz + dz, 9, 0.75);
     group.userData.mosqueMat = mosqueMat;
     mosqueMat.userData.key = 'mosque'; stripeMat.userData.key = 'stripes';
-    MAT.mosque = mosqueMat; MAT.stripes = stripeMat;
+    MAT.mosque = mosqueMat; MAT.stripes = stripeMat; for (const t of [mt.map, mt.emis, stripeMat.map]) { t.anisotropy = 8; t.needsUpdate = true; } // no shimmer at grazing angles
     coll(x0 - 1.4, x1, z0, z1, H + 3);
   }
 
@@ -249,26 +249,37 @@ export function buildLandmarks() {
   }
 
   // ------------------------------------------------------------ RAILWAY STATIONS
+  // night light pool on a floor (same fading ground-glow material as the street lamps, MAT.pool)
+  const lightPool = (x, z, y, size) => { const h = size / 2; mb.get('pool').hrect(x - h, z - h, x + h, z + h, y, size, null, false, [-(x - h) / size, (z + h) / size]); };
   const station = (x0, x1, z0, z1, towerH, name, si, ta) => {
     const y0 = LAND_Y; facade('colonial', x0, x1, z0, z1, y0, y0 + 8, '#efe0c0'); hip(x0, x1, z0, z1, y0 + 8, 3.5);
     const cx = (x0 + x1) / 2; facade('colonial', cx - 6, cx + 6, z0 - 1, z1 - 4, y0, y0 + towerH, '#f3e6c8'); hip(cx - 6, cx + 6, z0 - 1, z1 - 4, y0 + towerH, 3);
     label([{ text: name, font: SANS(120), color: '#1b2b3a' }, { text: `${si}  ·  ${ta}`, font: SI(74), color: '#1b2b3a' }], cx, y0 + towerH - 2.5, z0 - 1.12, 11, 2.6, Math.PI, { w: 1100, h: 260, bg: '#f8f2de', glow: true });
     for (const [dx, dz] of [[0, -1.15]]) label([{ text: '◷', font: '400 200px serif', color: '#111' }], cx + dx, y0 + towerH - 6, z0 + dz, 2.6, 2.6, Math.PI, { w: 256, h: 256, bg: '#fbf6e8', glow: false });
     // platform + canopy toward the tracks (south)
-    box(conc, cx, LAND_Y + 0.45, -621, x1 - x0 + 40, 0.9, 6.5, '#a9a49a');
-    for (let x = x0 - 18; x <= x1 + 18; x += 8) metal.box(x, LAND_Y + 2.6, -621, 0.2, 3.5, 0.2, { col: C('#2f3b33') });
-    mb.get('corrugated').box(cx, LAND_Y + 4.5, -621, x1 - x0 + 40, 0.12, 7.5, { col: [0.8, 0.85, 0.8], uvScale: 4 });
-    coll(x0, x1, z0, z1, 12); colliders.push({ x0: x0 - 20, x1: x1 + 20, z0: -624.3, z1: -617.7, h: 0.9, kind: 'platform' });
+    // platform face 1.65 m from the track centre (z −612), running back to the station building; yellow safety line
+    const pz0 = -612 - 1.65, pz1 = z1, pzc = (pz0 + pz1) / 2, pd = pz0 - pz1, PH = 1.0;
+    // platform extent: up to 20 m past the building, clipped 1.5 m short of any road that crosses the line here
+    let qa = x0 - 20, qb = x1 + 20; for (let x = cx; x >= x0 - 20; x -= 0.5) if (roadAt(x, -618) || roadAt(x, -628)) { qa = x + 2.0; break; } for (let x = cx; x <= x1 + 20; x += 0.5) if (roadAt(x, -618) || roadAt(x, -628)) { qb = x - 2.0; break; }
+    qa += 2.25; qb -= 2.25; const qc = (qa + qb) / 2, qw = qb - qa; // leave room for the end steps
+    box(conc, qc, LAND_Y + PH / 2, pzc, qw, PH, pd, '#a9a49a'); box(paint, qc, LAND_Y + PH + 0.006, pz0 - 0.55, qw, 0.012, 0.12, '#e8c020');
+    for (let x = qa + 2; x <= qb - 2; x += 8) metal.box(x, LAND_Y + PH + 2.1, pz0 - 4.2, 0.2, 4.2, 0.2, { col: C('#2f3b33') });
+    mb.get('corrugated').box(qc, LAND_Y + PH + 4.3, pz0 - 4.6, qw, 0.12, 8.6, { col: [0.8, 0.85, 0.8], uvScale: 4 });
+    for (let x = qa + 6; x <= qb - 6; x += 8) { mb.get('emissive').box(x, LAND_Y + PH + 4.18, pz0 - 2.2, 1.2, 0.06, 0.1, { col: [1, 0.97, 0.9] }); lightPool(x, pz0 - 2.4, LAND_Y + PH + 0.02, 6); } // fluorescent tubes + their light on the platform at night
+    coll(x0, x1, z0, z1, 12); colliders.push({ x0: qa, x1: qb, z0: pz1, z1: pz0, h: PH, kind: 'platform' });
+    for (const ex of [-1, 1]) for (let k = 0; k < 5; k++) { const sx = ex < 0 ? qa - 0.45 * (k + 0.5) : qb + 0.45 * (k + 0.5), h = PH * (1 - (k + 1) / 6); box(conc, sx, LAND_Y + h / 2, pzc - 3, 0.45, h, pd - 6, '#9f9a90'); colliders.push({ x0: sx - 0.225, x1: sx + 0.225, z0: pzc - 3 - (pd - 6) / 2, z1: pzc - 3 + (pd - 6) / 2, h, kind: 'deck' }); } // steps at both ends
   };
   station(-100, 30, -650, -630, 15, 'COLOMBO FORT', 'කොටුව', 'கோட்டை');
   station(432, 528, -650, -630, 22, 'MARADANA', 'මරදාන', 'மருதானை');
   for (const st of STATIONS.slice(2)) { // small halts
-    const alongZ = st.along === 'z'; const px = alongZ ? st.x + 9 : st.x, pz = alongZ ? st.z : st.z - 9;
-    box(conc, px, LAND_Y + 0.45, pz, alongZ ? 6 : 70, 0.9, alongZ ? 70 : 6, '#a9a49a');
-    mb.get('corrugated').box(px, LAND_Y + 3.6, pz, alongZ ? 5 : 26, 0.12, alongZ ? 26 : 5, { col: [0.85, 0.75, 0.7], uvScale: 4 });
-    for (let k = -2; k <= 2; k++) metal.box(px + (alongZ ? 1.5 : k * 6), LAND_Y + 2.2, pz + (alongZ ? k * 6 : 1.5), 0.18, 2.8, 0.18, { col: C('#3a3a3a') });
-    label([{ text: st.name.toUpperCase(), font: SANS(110), color: '#111' }, { text: `${st.si}  ·  ${st.ta}`, font: SI(70), color: '#111' }], px + (alongZ ? -2.95 : 0), LAND_Y + 2.6, pz + (alongZ ? 0 : -2.95), 6, 1.4, alongZ ? -Math.PI / 2 : Math.PI, { w: 1000, h: 240, bg: '#f2c94c', glow: false });
-    colliders.push({ x0: px - (alongZ ? 3 : 35), x1: px + (alongZ ? 3 : 35), z0: pz - (alongZ ? 35 : 3), z1: pz + (alongZ ? 35 : 3), h: 0.9, kind: 'platform' });
+    const alongZ = st.along === 'z'; const off = 1.65 + 3; const px = alongZ ? st.x + off : st.x, pz = alongZ ? st.z : st.z - off; // face 1.65 m from the track centre
+    box(conc, px, LAND_Y + 0.5, pz, alongZ ? 6 : 110, 1.0, alongZ ? 110 : 6, '#a9a49a'); box(paint, px - (alongZ ? 2.45 : 0), LAND_Y + 1.006, pz + (alongZ ? 0 : 2.45), alongZ ? 0.12 : 110, 0.012, alongZ ? 110 : 0.12, '#e8c020');
+    for (const e of [-1, 1]) for (let k = 0; k < 5; k++) { const d = 55 + 0.45 * (k + 0.5), h = 1.0 * (1 - (k + 1) / 6); const sx = alongZ ? px : px + e * d, sz = alongZ ? pz + e * d : pz; box(conc, sx, LAND_Y + h / 2, sz, alongZ ? 6 : 0.45, h, alongZ ? 0.45 : 6, '#9f9a90'); colliders.push({ x0: sx - (alongZ ? 3 : 0.225), x1: sx + (alongZ ? 3 : 0.225), z0: sz - (alongZ ? 0.225 : 3), z1: sz + (alongZ ? 0.225 : 3), h, kind: 'deck' }); }
+    mb.get('corrugated').box(px + (alongZ ? 0.7 : 0), LAND_Y + 4.1, pz - (alongZ ? 0 : 0.7), alongZ ? 4.6 : 40, 0.12, alongZ ? 40 : 4.6, { col: [0.85, 0.75, 0.7], uvScale: 4 }); // kept clear of the train's loading gauge
+    for (let k = -3; k <= 3; k++) { mb.get('emissive').box(px + (alongZ ? 0.2 : k * 6 + 3), LAND_Y + 3.98, pz + (alongZ ? k * 6 + 3 : -0.2), alongZ ? 0.1 : 1.2, 0.06, alongZ ? 1.2 : 0.1, { col: [1, 0.97, 0.9] }); lightPool(px + (alongZ ? 0 : k * 6 + 3), pz + (alongZ ? k * 6 + 3 : 0), LAND_Y + 1.02, 5.5); } // canopy tubes + light pools
+    for (let k = -3; k <= 3; k++) metal.box(px + (alongZ ? 1.8 : k * 6), LAND_Y + 2.55, pz + (alongZ ? k * 6 : -1.8), 0.18, 3.1, 0.18, { col: C('#3a3a3a') });
+    label([{ text: st.name.toUpperCase(), font: SANS(110), color: '#111' }, { text: `${st.si}  ·  ${st.ta}`, font: SI(70), color: '#111' }], px + (alongZ ? 2.9 : 0), LAND_Y + 2.7, pz + (alongZ ? 0 : -2.9), 6, 1.4, alongZ ? -Math.PI / 2 : 0, { w: 1000, h: 240, bg: '#f2c94c', glow: false });
+    colliders.push({ x0: px - (alongZ ? 3 : 55), x1: px + (alongZ ? 3 : 55), z0: pz - (alongZ ? 55 : 3), z1: pz + (alongZ ? 55 : 3), h: 1.0, kind: 'platform' });
   }
 
   // ------------------------------------------------------------ TOWN HALL (white dome facing the park)

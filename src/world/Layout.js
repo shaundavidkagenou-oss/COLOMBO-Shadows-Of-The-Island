@@ -341,7 +341,10 @@ export function bridgeWalkAt(x, z) {
   }
   return false;
 }
+let groundHook = null; // Railway registers the ballast bed / level-crossing humps here (avoids an import cycle)
+export function setGroundHook(fn) { groundHook = fn; }
 export function groundY(x, z) {
+  if (groundHook) { const h = groundHook(x, z); if (h != null) return h; }
   if (roadAt(x, z)) return ROAD_Y;
   if (isWater(x, z)) return bridgeWalkAt(x, z) ? LAND_Y : -1.2;
   return LAND_Y;

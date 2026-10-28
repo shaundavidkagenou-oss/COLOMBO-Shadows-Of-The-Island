@@ -5,6 +5,7 @@ import { chunkIndex, NCX, NCZ } from './CityPlan.js';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { RNG, hash2 } from '../core/rng.js';
 
+import { buildTrack } from './Railway.js';
 const RY = L.ROAD_Y, LY = L.LAND_Y;
 const WHITE = [0.93, 0.93, 0.9], YELLOW = [0.93, 0.76, 0.12];
 const lotMaterial = (cell) => {
@@ -166,28 +167,8 @@ export function buildGround(progress) {
   }
   progress && progress(0.8);
 
-  // ---------------- railway: ballast, sleepers, rails
-  const R = L.RAIL;
-  for (let i = 0; i < R.length - 1; i++) {
-    const [ax, az] = R[i], [bx, bz] = R[i + 1]; const len = Math.hypot(bx - ax, bz - az); const dx = (bx - ax) / len, dz = (bz - az) / len; const nx = -dz, nz = dx;
-    for (let t = 0; t < len; t += 6) {
-      const t2 = Math.min(len, t + 6); const x0 = ax + dx * t, z0 = az + dz * t, x1 = ax + dx * t2, z1 = az + dz * t2;
-      const mx = (x0 + x1) / 2, mz = (z0 + z1) / 2; if (L.isWater(mx, mz) && !L.inCanal(mz)) continue;
-      const mb = at(mx, mz); const onRoad = !!L.roadAt(mx, mz);
-      const by = onRoad ? RY + 0.02 : LY + 0.22;
-      if (!onRoad) {
-        mb.get('concrete').quad([x0 + nx * 2.2, by, z0 + nz * 2.2], [x0 - nx * 2.2, by, z0 - nz * 2.2], [x1 - nx * 2.2, by, z1 - nz * 2.2], [x1 + nx * 2.2, by, z1 + nz * 2.2], [0, 0, 2, 3], [0.42, 0.4, 0.38]);
-        mb.get('concrete').quad([x0 + nx * 3.0, LY, z0 + nz * 3.0], [x0 + nx * 2.2, by, z0 + nz * 2.2], [x1 + nx * 2.2, by, z1 + nz * 2.2], [x1 + nx * 3.0, LY, z1 + nz * 3.0], [0, 0, 0.5, 3], [0.38, 0.36, 0.34]);
-        mb.get('concrete').quad([x0 - nx * 2.2, by, z0 - nz * 2.2], [x0 - nx * 3.0, LY, z0 - nz * 3.0], [x1 - nx * 3.0, LY, z1 - nz * 3.0], [x1 - nx * 2.2, by, z1 - nz * 2.2], [0, 0, 0.5, 3], [0.38, 0.36, 0.34]);
-        for (let s = t; s < t2; s += 0.75) { const sx = ax + dx * s, sz = az + dz * s; mb.get('concrete').box(sx, by + 0.06, sz, 0.26, 0.12, 2.5, { col: [0.55, 0.52, 0.48], rotY: Math.atan2(dx, dz) + Math.PI / 2, top: true }); }
-      }
-      for (const off of [-0.72, 0.72]) {
-        const yy = by + (onRoad ? 0.0 : 0.16);
-        mb.get('metal').quad([x0 + nx * (off - 0.04), yy + 0.1, z0 + nz * (off - 0.04)], [x0 + nx * (off + 0.04), yy + 0.1, z0 + nz * (off + 0.04)], [x1 + nx * (off + 0.04), yy + 0.1, z1 + nz * (off + 0.04)], [x1 + nx * (off - 0.04), yy + 0.1, z1 + nz * (off - 0.04)], [0, 0, 1, 1], [0.75, 0.72, 0.7]);
-        mb.get('metal').quad([x0 + nx * (off + 0.04), yy, z0 + nz * (off + 0.04)], [x0 + nx * (off + 0.04), yy + 0.1, z0 + nz * (off + 0.04)], [x1 + nx * (off + 0.04), yy + 0.1, z1 + nz * (off + 0.04)], [x1 + nx * (off + 0.04), yy, z1 + nz * (off + 0.04)], [0, 0, 1, 1], [0.35, 0.3, 0.28]);
-      }
-    }
-  }
+  // ---------------- railway: ballast bed, sleepers, broad-gauge rails, level-crossing decks (see Railway.js)
+  buildTrack(at);
   progress && progress(1);
   return chunks;
 }

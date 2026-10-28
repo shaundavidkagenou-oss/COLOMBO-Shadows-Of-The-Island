@@ -132,6 +132,21 @@ function sand(size) {
   speckle(ctx, size, size, size * 60, ['rgba(90,70,40,0.25)', 'rgba(255,250,235,0.2)'], new RNG(41));
   return toTex(c);
 }
+// railway ballast: packed angular crushed granite (≈30–60 mm stones at 1 tile per metre)
+function ballast(size) {
+  const c = canvas(size, size), ctx = c.getContext('2d'), rng = new RNG(77);
+  ctx.fillStyle = '#4a4744'; ctx.fillRect(0, 0, size, size);
+  for (let k = 0; k < 2600; k++) {
+    const x = rng.next() * size, y = rng.next() * size, r = rng.range(6, 15); const n = rng.int(5, 7); const t = rng.int(88, 150), warm = rng.int(-6, 10);
+    for (const [ox, oy] of [[0, 0], [size, 0], [-size, 0], [0, size], [0, -size]]) {
+      if (x + ox < -r || x + ox > size + r || y + oy < -r || y + oy > size + r) continue;
+      ctx.beginPath(); for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2 + rng.next() * 0.6, rr = r * rng.range(0.6, 1.1); const px = x + ox + Math.cos(a) * rr, py = y + oy + Math.sin(a) * rr; i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.closePath();
+      const g = ctx.createLinearGradient(x + ox - r, y + oy - r, x + ox + r, y + oy + r); g.addColorStop(0, `rgb(${t + 28 + warm},${t + 26},${t + 22 - warm})`); g.addColorStop(1, `rgb(${t - 30 + warm},${t - 31},${t - 33 - warm})`);
+      ctx.fillStyle = g; ctx.fill(); ctx.strokeStyle = 'rgba(20,18,16,0.55)'; ctx.lineWidth = 1.2; ctx.stroke();
+    }
+  }
+  return toTex(c);
+}
 function rocks(size) {
   const c = canvas(size, size), ctx = c.getContext('2d'), rng = new RNG(51);
   ctx.fillStyle = '#4c4a46'; ctx.fillRect(0, 0, size, size);
@@ -629,7 +644,7 @@ export async function buildTextures(quality = 'high', progress = () => {}) {
     ['asphalt', () => { const a = asphalt(S); TEX.asphalt = a.map; TEX.asphaltRough = a.rough; }],
     ['pavers', () => { TEX.pavers = pavers(512); TEX.paversGrey = pavers(512, ['#8a8780', '#7d7a73', '#96928a', '#6f6c66'], 6); }],
     ['concrete', () => { TEX.concrete = concrete(512); TEX.roofConcrete = roofConcrete(512); }],
-    ['grass', () => { TEX.grass = grass(512, 21, 0.3); TEX.lawn = grass(512, 22, 0.08); TEX.laterite = laterite(512); TEX.sand = sand(512); TEX.rocks = rocks(512); }],
+    ['grass', () => { TEX.grass = grass(512, 21, 0.3); TEX.lawn = grass(512, 22, 0.08); TEX.laterite = laterite(512); TEX.sand = sand(512); TEX.rocks = rocks(512); TEX.ballast = ballast(512); }],
     ['facades: colonial', () => { TEX.f_colonial = facadeColonial(FW, FH, 201); TEX.f_brick = facadeBrick(FW, FH, 202); }],
     ['facades: modern', () => { TEX.f_glass = facadeGlass(FW, FH, 203); TEX.f_glass2 = facadeGlass(FW, FH, 213, ['#8fa9b0', '#3c5560']); TEX.f_office = facadeOffice(FW, FH, 204); TEX.f_hotel = facadeHotel(FW, FH, 208); }],
     ['facades: shophouses', () => { TEX.f_shop = facadeShophouse(FW, FH, 205); TEX.f_shop2 = facadeShophouse(FW, FH, 215); TEX.f_apartment = facadeApartment(FW, FH, 206); }],

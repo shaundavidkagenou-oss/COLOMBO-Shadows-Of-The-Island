@@ -18,6 +18,7 @@ import { Crowd } from './actors/Crowd.js';
 import { Player } from './actors/Player.js';
 import { Character, HEROES, CAM } from './actors/Character.js';
 import { Traffic } from './vehicles/Traffic.js';
+import { Trains } from './vehicles/Trains.js';
 import { Audio } from './audio/Audio.js';
 import { HUD } from './ui/HUD.js';
 import { Screens, wait } from './ui/Screens.js';
@@ -72,7 +73,9 @@ export class Game {
     this.crowd = new Crowd(this.scene, this.collision, bus);
     for (let i = 0; i < 64; i += 8) { this.crowd.prepareSpecs(8); progress(0.76 + 0.1 * (i / 64), 'People of Colombo'); await tick(); }
     progress(0.86, 'Tuk-tuks, buses and traffic'); await tick();
-    this.traffic = new Traffic(this.scene, this.collision, bus); this.traffic.crowd = this.crowd; this.hqLife = new PoliceHQLife(this);
+    this.traffic = new Traffic(this.scene, this.collision, bus); this.traffic.crowd = this.crowd;
+    this.trains = new Trains(this.scene); this.traffic.obstacles = this.trains.bodies; this.traffic.rail = this.trains; // running trains + level crossings
+    this.hqLife = new PoliceHQLife(this);
     this.player = new Player(this.scene, this.camera, this.collision, bus); this.player.crowd = this.crowd;
     this.hud = new HUD(this.ui); this.director = new Director(this); this.story = new Story(this); this.interiors = new Interiors(this); this.weapons = new Weapons(this); this.player.weapons = this.weapons;
     this.applyDensity();
@@ -260,6 +263,7 @@ export class Game {
     this.world.simTime = this.clock; this.world.update(dt, f, cam, A); A.update(dt, fv, cam, dt); setVehicleNight(A.night);
     const camDir = new THREE.Vector3(); cam.getWorldDirection(camDir);
     this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; this.traffic.update(dt, f, camDir, this.clock, this.crowd.peds, this.ghost);
+    this.trains.update(dt, { focus: f, night: A.night, vehicles: this.traffic.all(), listener: true });
     this.crowd.update(dt, f, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: this.ghost, hourFactor: this.hourFactor(), hour: A.hour });
     Audio.update(dt, { listener: { x: cam.position.x, z: cam.position.z, yaw: Math.atan2(camDir.x, camDir.z) }, night: A.night, rain: A.w.rain, wind: A.w.wind, traffic: this.traffic.vehicles.length, vehicles: [], indoor: false });
   }
@@ -288,6 +292,7 @@ export class Game {
     if (this.indoor) { A.sun.intensity = 0; A.hemi.intensity *= 0.25; A.ambient.intensity = 0.25; this.scene.environmentIntensity = 0.25; A.rain.visible = false; this.renderer.toneMappingExposure = 1; }
     const camDir = new THREE.Vector3(); cam.getWorldDirection(camDir);
     this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; this.traffic.update(dt, focus, camDir, this.clock, this.crowd.peds, P); this.hqLife.update(dt);
+    this.trains.update(dt, { focus, night: A.night, player: this.indoor ? null : P, playerVehicle: P.vehicle || null, vehicles: this.traffic.all(), listener: true });
     this.crowd.update(dt, focus, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: P, hourFactor: this.hourFactor(), hour: A.hour });
     if (P.vehicle && A.night > 0.5 && P.nightLights === undefined) { P.vehicle.lights = true; }
     // story & prompts

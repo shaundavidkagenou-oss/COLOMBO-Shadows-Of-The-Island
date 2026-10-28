@@ -1,4 +1,5 @@
 // Turns the Layout into concrete buildings, props and points of interest, per 200 m chunk.
+import { nearestS } from './Railway.js';
 import { RNG, hash2 } from '../core/rng.js';
 import * as L from './Layout.js';
 import { SIGNS, SHOP_ROWS } from '../gfx/Textures.js';
@@ -44,7 +45,8 @@ function addBuilding(b) {
   return b;
 }
 function addProp(type, x, z, rot = 0, extra = {}) { const p = { type, x, z, rot, ...extra }; plan.props.push(p); addToChunk('props', p, x, z); return p; }
-function addTree(type, x, z, s = 1, extra = {}) { if (L.isWater(x, z) || L.roadAt(x, z)) return; const t = { type, x, z, s, ...extra }; plan.trees.push(t); addToChunk('trees', t, x, z); plan.colliders.push({ x0: x - 0.35 * s, x1: x + 0.35 * s, z0: z - 0.35 * s, z1: z + 0.35 * s, h: 6, kind: 'tree' }); }
+function onRailReserve(x, z) { if (L.distToRail(x, z) < 7.5 || (L.distToRail(x, z) < 15 && nearestS(x, z).d < 7.5)) return true; for (const st of L.STATIONS) { if (st.along === 'x' ? Math.abs(x - st.x) < 95 && z > -633 && z < -610 : Math.abs(z - st.z) < 60 && Math.abs(x - st.x) < 10) return true; } return false; } // track corridor + platforms stay clear
+function addTree(type, x, z, s = 1, extra = {}) { if (L.isWater(x, z) || L.roadAt(x, z) || onRailReserve(x, z)) return; const t = { type, x, z, s, ...extra }; plan.trees.push(t); addToChunk('trees', t, x, z); plan.colliders.push({ x0: x - 0.35 * s, x1: x + 0.35 * s, z0: z - 0.35 * s, z1: z + 0.35 * s, h: 6, kind: 'tree' }); }
 function addPOI(type, x, z, rot, extra = {}) { const p = { type, x, z, rot, used: 0, ...extra }; plan.poi.push(p); addToChunk('poi', p, x, z); return p; }
 function addWall(x0, x1, z0, z1, h, col = '#ece6d8') { const w = { x0, x1, z0, z1, h, col }; plan.walls.push(w); addToChunk('walls', w, (x0 + x1) / 2, (z0 + z1) / 2); plan.colliders.push({ x0, x1, z0, z1, h, kind: 'wall' }); }
 
