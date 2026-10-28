@@ -99,7 +99,7 @@ function genDense(rng, cell, d, kind) {
       awning: market ? r.chance(0.75) : r.chance(0.35), balconies: r.chance(0.5), tanks: r.chance(0.7), roof: r.chance(market ? 0.35 : 0.2) ? 'corrugated' : 'flat', uOff: r.int(0, 3) / 4 });
     if (shop) { const [px, pz] = frontPoint(bld, 1.0); addPOI('shop', px, pz, facingIntoShop(side), { b: bld.id, kind: shop.shopKind }); }
     if (r.chance(0.35)) { const [px, pz] = frontPoint(bld, 0.6); addPOI('door', px, pz, facingIntoShop(side), { b: bld.id }); }
-    if (market && r.chance(0.18)) { const [px, pz, rot] = frontPoint(bld, 2.2); addProp('stall', px, pz, rot, { seed: r.int(0, 999) }); addPOI('vendor', px + Math.sin(rot) * 0.9, pz + Math.cos(rot) * 0.9, rot + Math.PI, {}); }
+    if (market && r.chance(0.18)) { const [px, pz, rot] = frontPoint(bld, 2.2); const stp = addProp('stall', px, pz, rot, { seed: r.int(0, 999) }); { const c = Math.abs(Math.cos(rot)), sn = Math.abs(Math.sin(rot)); const hx = 1.1 * c + 0.62 * sn, hz = 1.1 * sn + 0.62 * c; stp.col = { x0: px - hx, x1: px + hx, z0: pz - hz, z1: pz + hz, h: 2.3, kind: 'stall' }; plan.colliders.push(stp.col); } /* solid table + canopy poles */ addPOI('vendor', px + Math.sin(rot) * 0.9, pz + Math.cos(rot) * 0.9, rot + Math.PI, {}); }
   };
   const opts = { wMin: market ? 4.2 : 5, wMax: market ? 8 : 11, make };
   if (sides.N) frontageStrip(rng, cell, 'N', lx0, lx1, lz0, lz0 + depthN, opts);
@@ -361,6 +361,12 @@ export function generatePlan() {
     best.sign = missionSigns[m]; best.mission = m; best.awning = m !== 'garage'; best.groundRow = { kade: SHOP_ROWS.cafe, fathima: SHOP_ROWS.textile, selvaraj: SHOP_ROWS.electronics, bandara: SHOP_ROWS.produce, tailor: SHOP_ROWS.textile, garage: SHOP_ROWS.gate }[m];
     const [x, z, rot] = frontPoint(best, 1.3); plan.missionShops[m] = { x, z, rot, faceIn: facingIntoShop(best.front), b: best.id, name: SIGNS[missionSigns[m]].en || m };
   }
+  // keep story-shop frontages clear: no pavement stall (or its vendor) blocking the door of a mission shop
+  { const near = (o) => Object.values(plan.missionShops).some((m) => Math.hypot(o.x - m.x, o.z - m.z) < 4.5);
+    const drop = new Set(plan.props.filter((p) => p.type === 'stall' && near(p)));
+    if (drop.size) { const cols = new Set([...drop].map((p) => p.col)); plan.props = plan.props.filter((p) => !drop.has(p)); plan.colliders = plan.colliders.filter((c) => !cols.has(c));
+      for (const ch of plan.byChunk) ch.props = ch.props.filter((p) => !drop.has(p));
+      const dq = (q) => q.type === 'vendor' && !q.cart && near(q); plan.poi = plan.poi.filter((q) => !dq(q)); for (const ch of plan.byChunk) ch.poi = ch.poi.filter((q) => !dq(q)); } }
   plan.stats = { buildings: plan.buildings.length, props: plan.props.length, trees: plan.trees.length, parking: plan.parking.length, poi: plan.poi.length, ms: Math.round(performance.now() - t0) };
   return plan;
 }
