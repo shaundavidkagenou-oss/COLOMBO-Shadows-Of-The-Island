@@ -23,9 +23,11 @@ export async function playOpening(g) {
   d.begin(); Audio.setMusic('intro');
   const skipper = g.bus.on('key', (code) => { if (code === 'Escape' || code === 'Enter') { d.skip = true; hud.clearSubtitle(); } });
   // place Kavindu and Ruwan
-  const kStart = { x: -168, z: MEET.z }; P.teleport(kStart.x, kStart.z, Math.PI / 2); P.ch.anim.set(null);
+  const kStart = { x: MEET.x - 0.95 - 1.25 * 9.3, z: MEET.z }; /* walk ends as the street-level shots end (no static wait) */ P.teleport(kStart.x, kStart.z, Math.PI / 2); P.ch.anim.set(null);
   const ruwan = d.spawnActor('Ruwan', HEROES.ruwan, MEET.x + 0.3, MEET.z + 0.25, -Math.PI / 2);
-  ruwan.anim.set('phone'); const folder = folderMesh(); attach(ruwan, folder); folder.visible = false;
+  ruwan.anim.set('phone'); const folder = folderMesh(); attach(ruwan, folder); folder.visible = false; d.holdUpright(folder, ruwan);
+  // keep Main Street's kerb lane free of parked cars for the SUV drive-by (released when the scene ends)
+  const laneZ = MEET.z - 3.4; g.traffic.reserved = (p) => p.x > MEET.x - 175 && p.x < MEET.x + 80 && Math.abs(p.z - laneZ) < 3; g.traffic.parkedTimer = 0;
   hud.fade(0, 2.2);
   try {
     // 1) over the sea toward the Galle Face skyline
@@ -61,7 +63,8 @@ export async function playOpening(g) {
     folder.visible = true; ruwan.anim.set('interact');
     d.shot({ pos: [C - 0.1, 1.45, MEET.z - 1.9], look: [C, 1.12, MEET.z + 0.1] }, { pos: [C, 1.38, MEET.z - 1.5], look: [C, 1.1, MEET.z + 0.1] }, 4.5);
     await d.say('Ruwan', 'Photos, land records, and an address. Don\'t open it here.', 3.6);
-    attach(P.ch, folder); P.ch.anim.set('interact'); ruwan.anim.set(null); await d.wait(0.9); P.ch.anim.set(null);
+    // hand-over: Kavindu reaches out while Ruwan is still holding it out, the folder changes hands at full reach
+    P.ch.anim.set('interact'); await d.wait(0.55); attach(P.ch, folder); d.holdUpright(folder, P.ch); ruwan.anim.set(null); await d.wait(0.7); P.ch.anim.set(null);
     d.hold(overR.pos, overR.look);
     await d.say('Kavindu', 'Why me?', 1.5);
     d.hold(overK.pos, overK.look);
@@ -74,7 +77,8 @@ export async function playOpening(g) {
     await d.say('Ruwan', 'Meet me tonight at Galle Face. Eight o\'clock, by the food carts.', 3.6);
     await d.say('Ruwan', 'And Kavindu — if you see a black SUV twice, it isn\'t a coincidence.', 3.8);
     // a black SUV crawls past through the puddles; Ruwan watches it, then leaves
-    const lane = MEET.z - 3.4; // westbound (left-hand traffic) lane next to the kerb d.driveBy('suv', [[MEET.x + 70, lane], [MEET.x + 20, lane], [MEET.x - 40, lane], [MEET.x - 160, lane]], 8.5, 31);
+    const lane = MEET.z - 3.4; /* westbound (left-hand traffic) lane next to the kerb */
+    d.driveBy('suv', [[MEET.x + 28, lane], [MEET.x - 40, lane], [MEET.x - 160, lane]], 8.5, 31); // passes the low camera (MEET.x − 6) ~4 s into the 6.5 s shot
     d.face(ruwan, MEET.x + 40, lane);
     await d.shot({ pos: [MEET.x - 6, 0.6, MEET.z - 1.4], look: [MEET.x + 20, 0.8, lane] }, { pos: [MEET.x - 6.5, 0.7, MEET.z - 1.6], look: [MEET.x - 10, 0.9, lane] }, 6.5);
     d.hold(two.pos, two.look);
@@ -86,7 +90,7 @@ export async function playOpening(g) {
     hud.titleCard('<div class="mb-title big">COLOMBO</div><div class="mb-sub">SHADOWS OF THE ISLAND</div>', 4.5);
     await d.shot({ pos: [MEET.x - 1, 7, MEET.z - 10], look: [MEET.x, 1.5, MEET.z] }, { pos: [MEET.x - 1 - 3.6, 2.1, MEET.z + 0.2], look: [MEET.x - 1, 1.55, MEET.z] }, 5, easeOut);
   } finally {
-    skipper();
+    skipper(); g.traffic.reserved = null; d.uprights = [];
     folder.parent && folder.parent.remove(folder);
     d.removeActor('Ruwan'); d.clearVehicles(); P.ch.anim.set(null);
     const p = P.ch.root.position; P.x = p.x; P.z = p.z; P.y = p.y; P.yaw = Math.atan2(1, 0); P.sync();

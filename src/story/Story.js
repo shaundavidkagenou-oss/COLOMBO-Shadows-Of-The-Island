@@ -78,9 +78,8 @@ export class Story {
     let result = null;
     for (const l of lines) {
       if (l.choice) { result = await g.hud.choice(l.choice, l.title || ''); if (l.onChoice) await l.onChoice(result); continue; }
-      const who = l[0], text = l[1]; const speaker = who === 'Kavindu' ? null : a;
-      if (who === 'Kavindu') { p.ch.anim.play('talk', 1.5); }
-      await D.say(who, text, null, l[2] || '', l[3] || 'en'); void speaker;
+      const who = l[0], text = l[1]; const speaker = who === 'Kavindu' ? p.ch : a; // NPC ids ('siri') differ from display names ('Siri')
+      await D.say(who, text, null, l[2] || '', l[3] || 'en', speaker);
     }
     D.end(); return result;
   }

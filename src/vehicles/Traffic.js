@@ -209,7 +209,7 @@ export class Traffic {
     if (!this.parkedSet) this.parkedSet = new Set(); const near = [];
     for (const p of plan.parking) { const d = (p.x - focus.x) ** 2 + (p.z - focus.z) ** 2; if (d < 150 * 150) near.push([d, p]); }
     near.sort((a, b) => a[0] - b[0]);
-    const want = new Set(near.slice(0, 26).map((n) => n[1]));
+    const want = new Set(near.slice(0, 26).map((n) => n[1]).filter((p) => !(this.reserved && this.reserved(p)))); // reserved = kept clear (e.g. a cinematic's driving lane)
     for (const v of this.parked) if (v.spot && !want.has(v.spot) && !v.keep) { v.dispose(); v.dead = true; this.parkedSet.delete(v.spot); }
     this.parked = this.parked.filter((v) => !v.dead);
     for (const p of want) {

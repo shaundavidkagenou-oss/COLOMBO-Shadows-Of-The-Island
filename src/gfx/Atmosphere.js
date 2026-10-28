@@ -123,7 +123,7 @@ export class Atmosphere {
     this.hemi.intensity = lerp(0.55, 0.42, golden) * (1 + this.w.cloud * 0.5) * (1 - this.night * 0.55) + 0.12;
     this.ambient.intensity = this.night * 0.55; this.ambient.color.setRGB(0.35, 0.38, 0.55);
     // fog
-    const fogCol = horizon.clone().lerp(skyTop, 0.35).multiplyScalar(0.8); // aerial perspective: bluish, never white this.scene.fog.color.copy(fogCol);
+    const fogCol = horizon.clone().lerp(skyTop, 0.35).multiplyScalar(0.8); /* aerial perspective: bluish, never white */ this.scene.fog.color.copy(fogCol);
     this.scene.fog.near = this.drawDist * 0.35 * this.w.fog; this.scene.fog.far = this.drawDist * 1.5 * this.w.fog * (1 - this.night * 0.2);
     this.renderer.toneMappingExposure = lerp(0.82, 1.0, golden) * (1 + this.night * 0.22) * (1 + this.w.dark * 0.12);
     // clouds
