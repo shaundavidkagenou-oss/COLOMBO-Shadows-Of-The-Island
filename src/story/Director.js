@@ -20,7 +20,7 @@ export class Director {
     const k = s.ease(clamp((this.time - s.t0) / s.dur, 0, 1)); const P = (a, b) => [lerp(a[0], b[0], k), lerp(a[1], b[1], k), lerp(a[2], b[2], k)];
     const p = P(s.from.pos, s.to.pos), l = P(s.from.look, s.to.look); cam.position.set(p[0], p[1], p[2]); cam.lookAt(l[0], l[1], l[2]);
   }
-  say(who, text, dur = null, tr = '', lang = 'en') { const d = dur ?? Math.max(2.2, text.length * 0.065); if (!this.skip) { this.g.hud.subtitle(who, text, tr, d, lang); Audio.talkBlip(lang); } const a = this.actors.get(who); if (a) { a.anim.set('talk'); setTimeout(() => a.anim.action === 'talk' && a.anim.set(null), d * 900); } return this.wait(d + 0.25); }
+  say(who, text, dur = null, tr = '', lang = 'en') { const d = dur ?? Math.max(2.2, text.length * 0.065); if (!this.skip) { this.g.hud.subtitle(who, text, tr, d, lang); Audio.talkBlip(lang); } const a = this.actors.get(who) || (who === 'Kavindu' ? this.g.player.ch : null); if (a) { a.anim.set('talk'); a.face.talking = true; setTimeout(() => { a.face.talking = false; if (a.anim.action === 'talk') a.anim.set(null); }, d * 900); for (const [n, o] of this.actors) if (o !== a && o.face) { o.face.talking = false; if (Math.random() < 0.5) o.face.set('neutral', 0.1); } } return this.wait(d + 0.25); }
   // actors
   spawnActor(id, spec, x, z, yaw = 0) { const ch = new Character(spec); ch.root.position.set(x, this.g.collision.groundAt(x, z, 1), z); ch.root.rotation.y = yaw; this.g.scene.add(ch.root); ch.id = id; ch.yaw = yaw; this.actors.set(id, ch); return ch; }
   removeActor(id) { const a = this.actors.get(id); if (!a) return; this.g.scene.remove(a.root); a.dispose(); this.actors.delete(id); this.movers = this.movers.filter((m) => m.ch !== a); }

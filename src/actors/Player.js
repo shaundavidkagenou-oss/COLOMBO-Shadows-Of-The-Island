@@ -64,7 +64,7 @@ export class Player {
     if (this.emote && this.speed > 0.5) { this.emote = null; A.set(null); }
     A.update(dt, this.speed, turnRate);
     this.sync();
-    if (this.speed > 0.8 && this.grounded) { this.stepPhase = (this.stepPhase || 0) + dt * this.speed * 0.75; if (this.stepPhase > 1) { this.stepPhase = 0; this.events.emit('footstep', { x: this.x, z: this.z, sprint: this.sprinting }); } }
+    if (A.stepped) { A.stepped = false; if (this.grounded && this.speed > 0.5) this.events.emit('footstep', { x: this.x, z: this.z, sprint: this.sprinting }); } // real foot contacts from the gait
   }
   resolveIndoor(x, z) {
     const b = this.indoor.bounds, R = 0.3; x = clamp(x, b.x0 + R, b.x1 - R); z = clamp(z, b.z0 + R, b.z1 - R);

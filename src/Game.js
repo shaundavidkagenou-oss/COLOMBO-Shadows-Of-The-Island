@@ -15,7 +15,7 @@ import { Interiors } from './world/Interiors.js';
 import * as L from './world/Layout.js';
 import { Crowd } from './actors/Crowd.js';
 import { Player } from './actors/Player.js';
-import { Character, HEROES } from './actors/Character.js';
+import { Character, HEROES, CAM } from './actors/Character.js';
 import { Traffic } from './vehicles/Traffic.js';
 import { Audio } from './audio/Audio.js';
 import { HUD } from './ui/HUD.js';
@@ -195,6 +195,7 @@ export class Game {
       this.hud.subtitle(who, line.si || line.ta || line.en, line.tr || '', 3, lang); Audio.talkBlip(lang);
     });
     bus.on('pedHit', (p) => { Audio.crash(4); });
+    bus.on('pedReport', (e) => { if (this.weapons) this.weapons.report(e); });
   }
   // ================================================================= input
   onKey(code) {
@@ -237,6 +238,7 @@ export class Game {
     try {
       if (this.mode === 'play' && !this.paused) this.updatePlay(dt);
       else if (this.mode === 'menu' || this.mode === 'intro') this.updateAmbient(dt);
+      CAM.copy(this.camera.position);
       if (this.post) { this.post.update(this.atmos); this.post.render(dt); }
     } catch (e) { if (!this._errN || this._errN < 5) console.error(e && e.stack || e); this._errN = (this._errN || 0) + 1; this.lastError = e; }
     Input.endFrame();
