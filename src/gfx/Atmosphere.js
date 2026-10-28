@@ -48,6 +48,7 @@ export class Atmosphere {
     this.weatherTimer = 240; this.drawDist = 1400; this.rng = new RNG(99);
     // sky
     this.sky = new Sky(); this.sky.scale.setScalar(18000); scene.add(this.sky);
+    { const m = this.sky.material; m.uniforms.uSkyGain = { value: 1 }; m.fragmentShader = 'uniform float uSkyGain;\n' + m.fragmentShader.replace('gl_FragColor = vec4( texColor, 1.0 );', 'gl_FragColor = vec4( texColor * uSkyGain, 1.0 );'); m.needsUpdate = true; } // midday Preetham sky is far hotter than the city it lights: scale it so the horizon isn't a white wall
     const u = this.sky.material.uniforms; u.turbidity.value = 6; u.rayleigh.value = 1.6; u.mieCoefficient.value = 0.004; u.mieDirectionalG.value = 0.82;
     // clouds
     this.cloudMat = new THREE.ShaderMaterial({ uniforms: { uTime: { value: 0 }, uCover: { value: 0.3 }, uDark: { value: 0 }, uNight: { value: 0 }, uSunDir: { value: new THREE.Vector3() }, uSunCol: { value: new THREE.Color() }, uSkyCol: { value: new THREE.Color() } }, vertexShader: cloudVert, fragmentShader: cloudFrag, transparent: true, depthWrite: false, side: THREE.BackSide });
@@ -106,11 +107,11 @@ export class Atmosphere {
     const golden = 1 - smoothstep(0.05, 0.35, Math.max(elev, 0));
     const cloudDim = 1 - this.w.cloud * 0.72;
     const u = this.sky.material.uniforms; u.sunPosition.value.copy(this.sunDir).multiplyScalar(1000);
-    u.turbidity.value = lerp(4, 12, this.w.cloud) + golden * 2; u.rayleigh.value = lerp(1.3, 3.2, golden) * (1 - this.w.dark * 0.5) + this.night * 0.0;
-    u.mieCoefficient.value = lerp(0.003, 0.012, golden);
+    u.turbidity.value = lerp(3, 11, this.w.cloud) + golden * 2; u.mieDirectionalG.value = 0.74; u.rayleigh.value = lerp(1.3, 3.2, golden) * (1 - this.w.dark * 0.5) + this.night * 0.0;
+    u.mieCoefficient.value = lerp(0.0018, 0.008, golden); u.uSkyGain.value = lerp(0.58, 1.0, Math.max(golden, this.night)); // tight sun halo: no white-out across the skyline
     const sunCol = new THREE.Color().setRGB(1, lerp(0.95, 0.55, golden), lerp(0.88, 0.32, golden));
     this.sun.color.copy(sunCol);
-    this.sun.intensity = Math.max(0, smoothstep(-0.02, 0.12, elev)) * 3.2 * cloudDim;
+    this.sun.intensity = Math.max(0, smoothstep(-0.02, 0.12, elev)) * 2.7 * cloudDim;
     // moon light at night (kept bright enough for readable night gameplay)
     if (elev < 0) { this.sun.position.copy(focus).addScaledVector(new THREE.Vector3(-0.4, 0.8, -0.3).normalize(), 300); this.sun.color.setRGB(0.6, 0.7, 1.0); this.sun.intensity = 0.32 * this.night * (1 - this.w.cloud * 0.6); }
     else this.sun.position.copy(focus).addScaledVector(this.sunDir, 300);
@@ -119,11 +120,11 @@ export class Atmosphere {
     const skyTop = new THREE.Color().setRGB(0.28, 0.48, 0.82).lerp(new THREE.Color(0.32, 0.36, 0.42), this.w.dark).lerp(new THREE.Color(0.02, 0.04, 0.1), this.night);
     const horizon = new THREE.Color().setRGB(0.75, 0.82, 0.88).lerp(new THREE.Color(1.0, 0.62, 0.38), golden * (1 - this.night) * (1 - this.w.dark)).lerp(new THREE.Color(0.5, 0.52, 0.55), this.w.dark * 0.7).lerp(new THREE.Color(0.06, 0.08, 0.14), this.night);
     this.hemi.color.copy(skyTop).lerp(new THREE.Color(1, 1, 1), 0.35); this.hemi.groundColor.setRGB(0.42, 0.36, 0.3).lerp(new THREE.Color(0.08, 0.07, 0.08), this.night);
-    this.hemi.intensity = lerp(0.9, 0.5, golden) * (1 + this.w.cloud * 0.5) * (1 - this.night * 0.55) + 0.12;
+    this.hemi.intensity = lerp(0.55, 0.42, golden) * (1 + this.w.cloud * 0.5) * (1 - this.night * 0.55) + 0.12;
     this.ambient.intensity = this.night * 0.55; this.ambient.color.setRGB(0.35, 0.38, 0.55);
     // fog
-    const fogCol = horizon.clone().lerp(skyTop, 0.2).multiplyScalar(0.88); this.scene.fog.color.copy(fogCol);
-    this.scene.fog.near = this.drawDist * 0.25 * this.w.fog; this.scene.fog.far = this.drawDist * 1.5 * this.w.fog * (1 - this.night * 0.2);
+    const fogCol = horizon.clone().lerp(skyTop, 0.35).multiplyScalar(0.8); // aerial perspective: bluish, never white this.scene.fog.color.copy(fogCol);
+    this.scene.fog.near = this.drawDist * 0.35 * this.w.fog; this.scene.fog.far = this.drawDist * 1.5 * this.w.fog * (1 - this.night * 0.2);
     this.renderer.toneMappingExposure = lerp(0.82, 1.0, golden) * (1 + this.night * 0.22) * (1 + this.w.dark * 0.12);
     // clouds
     const cu = this.cloudMat.uniforms; cu.uTime.value += dt * (0.5 + this.w.wind); cu.uCover.value = this.w.cloud; cu.uDark.value = this.w.dark; cu.uNight.value = this.night;
@@ -150,7 +151,7 @@ export class Atmosphere {
       this.envGround.material.color.setRGB(0.25, 0.23, 0.2).multiplyScalar(1 - this.night * 0.8);
       const prevFog = this.scene.fog; const old = this.envRT;
       this.envRT = this.pmrem.fromScene(this.envScene, 0.02, 0.1, 200);
-      this.scene.environment = this.envRT.texture; this.scene.environmentIntensity = (1 - this.night * 0.8) * (1 - this.w.dark * 0.4);
+      this.scene.environment = this.envRT.texture; this.scene.environmentIntensity = 0.62 * (1 - this.night * 0.7) * (1 - this.w.dark * 0.3); // sky PMREM is HDR: full strength washed every facade
       if (old) old.dispose(); void prevFog;
     }
   }

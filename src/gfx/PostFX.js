@@ -1,5 +1,6 @@
 // Post-processing: subtle bloom (night lights), optional GTAO, warm tropical colour grade + gentle vignette, SMAA, output.
 import * as THREE from 'three';
+const lerp = (a, b, t) => a + (b - a) * t;
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
@@ -45,7 +46,7 @@ export class PostFX {
   }
   setSize(w, h) { this.composer.setSize(w, h); }
   update(atmos) {
-    if (this.bloom) { this.bloom.strength = 0.08 + atmos.night * 0.28; this.bloom.threshold = 3.2 - atmos.night * 1.5; this.bloom.radius = 0.3; }
+    if (this.bloom) { this.bloom.strength = 0.03 + atmos.night * 0.3; this.bloom.threshold = lerp(7, 1.7, atmos.night); /* daylight: effectively off (no veil); night: lamps and windows glow */ this.bloom.radius = 0.3; }
     const u = this.grade.uniforms; u.uWarm.value = 0.35 + atmos.golden * 0.5 * (1 - atmos.w.dark); u.uSat.value = 1.1 - atmos.w.dark * 0.12; u.uWet.value = atmos.wet; u.uFlash.value = atmos.flash * 0.25;
   }
   render(dt) { if (this.enabled) this.composer.render(dt); else this.r.render(this.scene, this.camera); }

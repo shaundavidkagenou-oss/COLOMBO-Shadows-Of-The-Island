@@ -93,7 +93,8 @@ export class World {
     }
     // landmark animation
     const an = this.landmarks.anim;
-    if (an.lotus && atmos) { an.lotus.opacity = atmos.night * (0.5 + Math.sin(this.t * 0.8) * 0.15); const hue = (0.83 + Math.sin(this.t * 0.05) * 0.12 + 1) % 1; an.lotus.color.setHSL(hue, 0.85, 0.55); an.lotus.visible = atmos.night > 0.02; }
+    if (an.lotusBeacon) an.lotusBeacon.visible = (this.t % 1.6) < 0.5; // aviation obstruction light
+    if (an.lotus && atmos) { an.lotus.opacity = atmos.night * (0.5 + Math.sin(this.t * 0.8) * 0.15); const hue = (0.83 + Math.sin(this.t * 0.05) * 0.12 + 1) % 1; an.lotus.color.setHSL(hue, 0.85, 0.55); an.lotus.visible = atmos.night > 0.02; } if (an.lotusStem && an.lotus) { an.lotusStem.color.copy(an.lotus.color); an.lotusStem.opacity = Math.min(1, an.lotus.opacity * 1.1); an.lotusStem.visible = an.lotus.visible; }
     for (const m of this.landmarks.labels) if (m.emissiveIntensity !== undefined && atmos) m.emissiveIntensity = 0.2 + atmos.night * 0.9;
     // street-lamp point lights near the focus
     if (this.lampLights.length && atmos) {

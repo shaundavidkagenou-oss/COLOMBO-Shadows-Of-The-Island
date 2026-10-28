@@ -59,6 +59,7 @@ function gopuramTexture() { // colourful tiers of sculpted figures (abstracted)
   return texOf(c, true);
 }
 
+const smooth01 = (t) => { t = Math.min(1, Math.max(0, t)); return t * t * (3 - 2 * t); };
 export function buildLandmarks() {
   const group = new THREE.Group(); group.name = 'landmarks';
   const mb = new MultiBuilder(); const colliders = []; const anim = {};
@@ -99,27 +100,48 @@ export function buildLandmarks() {
     // podium: stepped exhibition halls
     box(conc, x, y0 + 4, z, 64, 8, 64, '#e8e4dc'); box(conc, x, y0 + 11, z, 46, 6, 46, '#dcd6cc');
     mb.get('f_glass2').box(x, y0 + 4, z, 64.2, 4, 64.2, { col: [1, 1, 1], uvScale: 12.8, top: false });
-    // lotus-petal plinth around the base
-    for (let k = 0; k < 12; k++) lathe(paint, [[0.1, 0], [6, 1], [8, 4], [6, 7.5], [0.1, 8]], 6, x + Math.cos(k / 12 * 6.283) * 26, y0 + 14, z + Math.sin(k / 12 * 6.283) * 26, '#7fb39e', 0, Math.PI * 2);
-    // shaft (octagonal, pale green)
-    lathe(paint, [[11, 0], [9.5, 40], [8, 100], [6.8, 160], [6.4, 186]], 8, x, y0 + 17, z, '#86b8a4');
-    // bud and petals
-    const by = y0 + 17 + 186;
-    lathe(paint, [[6.4, 0], [13, 5], [19, 13], [21.5, 22], [19, 32], [12, 41], [4.5, 48], [1.6, 52]], 16, x, by, z, '#8b2f78');
+    // ---- stem: 200 m reinforced-concrete shaft (real tower: ~350 m overall — 4-storey podium, ~200 m shaft, 8-floor bud, mast).
+    // Vivid green, flared where it meets the podium, eight shallow vertical flutes, a horizontal panel joint every 4.5 m.
+    const SH = 200, sy = y0 + 17;
+    const R = (h) => { let r = 11 - 4.6 * Math.pow(h / SH, 0.85); if (h < 22) r += 5.5 * Math.pow(1 - h / 22, 2); if (h > 188) r -= 0.7 * smooth01((h - 188) / 12); return r; };
+    {
+      const rows = []; for (let j = 0; j <= SH; j += 9) { if (j > 0) rows.push([j - 0.1, 1]); rows.push([j, 0]); if (j < SH) rows.push([j + 0.1, 1]); for (const f of [1.5, 3, 4.5, 6, 7.5]) if (j + f < SH - 0.2) rows.push([j + f, 0]); } rows.push([SH, 0]); rows.sort((a, b) => a[0] - b[0]);
+      const COLS = 96; const pos = [], col = [], idx = []; const green = new THREE.Color('#3f9a52'), joint = new THREE.Color('#368a48'), lit = new THREE.Color('#4fb262');
+      rows.forEach(([h, kind], ri) => { const r0 = R(h); for (let c = 0; c <= COLS; c++) { const a = (c / COLS) * Math.PI * 2; let g = 0; for (let k = 0; k < 8; k++) { let d = a - (k / 8) * Math.PI * 2 - Math.PI / 8; d = Math.atan2(Math.sin(d), Math.cos(d)); g = Math.max(g, Math.exp(-(d * d) / (0.045 * 0.045))); } const r = r0 * (1 - 0.055 * g); pos.push(x + Math.cos(a) * r, sy + h, z + Math.sin(a) * r); const cc = kind ? joint : green.clone().lerp(lit, 0.25 * (1 - g)).lerp(joint, 0.35 * g); col.push(cc.r, cc.g, cc.b); }
+        if (ri > 0) { const b0 = (ri - 1) * (COLS + 1), b1 = ri * (COLS + 1); for (let c = 0; c < COLS; c++) idx.push(b0 + c, b1 + c, b0 + c + 1, b0 + c + 1, b1 + c, b1 + c + 1); } });
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.setIndex(idx); g.computeVertexNormals();
+      const stem = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.48, metalness: 0.05 })); stem.castShadow = true; stem.receiveShadow = true; stem.name = 'lotus-stem'; group.add(stem);
+      // glazed lift-core window slots on two faces, every 3.3 m (the lifts and stairs run up the shaft)
+      const glass = mb.get('glass'); for (const side of [0, Math.PI]) for (let h = 26; h < SH - 6; h += 3.3) { const r = R(h) * 0.995; const cx = x + Math.cos(side) * r, cz = z + Math.sin(side) * r; glass.box(cx, sy + h, cz, side === 0 ? 0.25 : 0.25, 1.5, 1.3, { col: C('#203038'), uvScale: 2 }); }
+      // podium crown where the stem lands: maintenance ring
+      lathe(conc, [[17.5, 0], [17.5, 1.2], [16.2, 1.6]], 32, x, sy - 0.2, z, '#d8d2c6');
+    }
+    // ---- bud (tower house: observation deck, revolving restaurant) with green sepals cupping its base
+    const by = sy + SH;
+    lathe(paint, [[5.6, -1], [6.4, 0], [13, 5], [19, 13], [21.5, 22], [19, 32], [12, 41], [4.5, 48], [1.6, 52]], 24, x, by, z, '#8b2f78');
+    for (let k = 0; k < 6; k++) { const ph = (k / 6) * Math.PI * 2; lathe(paint, [[5.5, -4], [8.5, 0], [13.6, 4.6], [17.6, 9.5], [19.2, 12.5]], 5, x, by, z, k % 2 ? '#3a8a4b' : '#44a056', ph, (Math.PI * 2 / 6) * 0.9); }
     for (let layer = 0; layer < 2; layer++) for (let k = 0; k < 8; k++) {
       const ph = (k + layer * 0.5) / 8 * Math.PI * 2; const sc = layer ? 0.92 : 1;
-      lathe(paint, [[7 * sc, 1], [15 * sc, 5], [22.5 * sc, 13], [24.5 * sc, 21], [21.5 * sc, 30], [15 * sc, 37]].map(([r, h]) => [r, h + layer * 4]), 4, x, by, z, layer ? '#b44d97' : '#c96aa9', ph, Math.PI * 2 / 8 * 0.86);
+      lathe(paint, [[7 * sc, 1], [15 * sc, 5], [22.5 * sc, 13], [24.5 * sc, 21], [21.5 * sc, 30], [15 * sc, 37]].map(([r, h]) => [r, h + layer * 4]), 6, x, by, z, layer ? '#b44d97' : '#c96aa9', ph, Math.PI * 2 / 8 * 0.86);
     }
     // observation deck band
-    lathe(mb.get('glass'), [[21.8, 0], [22, 5.5]], 24, x, by + 19, z, '#ffffff');
-    // gilded spire
-    metal.cylinder(x, by + 50, z, 1.6, 0.25, 34, 10, { col: C('#d4af37') });
-    coll(x - 32, x + 32, z - 32, z + 32, 14); coll(x - 11, x + 11, z - 11, z + 11, 260);
-    // night LED lighting rings (animated colours)
+    lathe(mb.get('glass'), [[21.8, 0], [22, 5.5]], 32, x, by + 19, z, '#ffffff');
+    // ---- mast: equipment housing, two service platforms, tapering antenna (~80 m) → top ≈ 350 m above the lake
+    const my = by + 50; metal.cylinder(x, my, z, 2.6, 2.0, 7, 16, { col: C('#e6e3dc') });
+    metal.cylinder(x, my + 7, z, 1.55, 1.15, 30, 12, { col: C('#d9d6cf') }); metal.cylinder(x, my + 36, z, 3.2, 3.2, 0.6, 16, { col: C('#bdb9b0') });
+    metal.cylinder(x, my + 37, z, 0.95, 0.55, 24, 10, { col: C('#d9d6cf') }); metal.cylinder(x, my + 60, z, 1.9, 1.9, 0.45, 12, { col: C('#bdb9b0') });
+    metal.cylinder(x, my + 61, z, 0.38, 0.1, 18, 8, { col: C('#cfcbc2') });
+    const avMat = new THREE.MeshBasicMaterial({ color: 0xff2a1a, toneMapped: false }); const avGeo = new THREE.SphereGeometry(0.45, 8, 6);
+    for (const [hy, rr] of [[36.8, 3.2], [60.6, 1.9]]) for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2; const m = new THREE.Mesh(avGeo, avMat); m.position.set(x + Math.cos(a) * rr, my + hy, z + Math.sin(a) * rr); group.add(m); }
+    { const m = new THREE.Mesh(avGeo, avMat); m.position.set(x, my + 79.3, z); group.add(m); anim.lotusBeacon = m; }
+    coll(x - 32, x + 32, z - 32, z + 32, 14); coll(x - 16, x + 16, z - 16, z + 16, 270);
+    // night LED lighting (≈20,000 LEDs on the real bud and stem; animated colours)
     const ledMat = new THREE.MeshBasicMaterial({ color: 0xff40c0, transparent: true, opacity: 0, toneMapped: false, blending: THREE.AdditiveBlending, depthWrite: false });
-    const ledGeo = new THREE.LatheGeometry([[6.6, 0], [13.4, 5], [19.4, 13], [22, 22], [19.4, 32], [12.4, 41], [4.9, 48]].map(([r, h]) => new THREE.Vector2(r + 0.25, h)), 32);
+    const ledGeo = new THREE.LatheGeometry([[7.4, 1], [15.8, 5], [23.4, 13], [25.5, 21], [22.6, 30], [16.4, 38], [9, 45], [2.2, 52]].map(([r, h]) => new THREE.Vector2(r, h)), 48); // just outside the petals so the whole bloom glows
     const led = new THREE.Mesh(ledGeo, ledMat); led.position.set(x, by, z); group.add(led);
-    const stripGeo = new THREE.CylinderGeometry(6.9, 11.4, 186, 8, 1, true); const strip = new THREE.Mesh(stripGeo, ledMat); strip.position.set(x, y0 + 17 + 93, z); strip.scale.set(1.01, 1, 1.01); group.add(strip);
+    const stripPts = []; for (let h = 0; h <= SH; h += 5) stripPts.push(new THREE.Vector2(R(h) + 0.12, h));
+    const lc = document.createElement('canvas'); lc.width = 64; lc.height = 4; const lx = lc.getContext('2d'); lx.fillStyle = '#000'; lx.fillRect(0, 0, 64, 4); lx.fillStyle = '#fff'; lx.fillRect(25, 0, 14, 4); const lt = new THREE.CanvasTexture(lc); lt.wrapS = THREE.RepeatWrapping; lt.repeat.set(48, 1);
+    const stemLed = ledMat.clone(); stemLed.map = lt; const strip = new THREE.Mesh(new THREE.LatheGeometry(stripPts, 96), stemLed); strip.position.set(x, sy, z); group.add(strip); anim.lotusStem = stemLed; // vertical LED lines up the stem
     anim.lotus = ledMat;
     label([{ text: 'COLOMBO LOTUS TOWER', font: SANS(90), color: '#f1e3c2' }, { text: 'කොළඹ නෙළුම් කුළුණ  ·  கொழும்பு தாமரைக் கோபுரம்', font: SI(54), color: '#f1e3c2' }], x - 32.4, y0 + 10.5, z, 34, 6, -Math.PI / 2, { h: 256, w: 1400, bg: null });
   }
