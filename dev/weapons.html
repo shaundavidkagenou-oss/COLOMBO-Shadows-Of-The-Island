@@ -1,0 +1,19 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Weapons lineup</title><style>body{margin:0;background:#222;overflow:hidden}</style></head><body>
+<script type="module">
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { WEAPONS } from '/src/combat/Weapons.js';
+import { buildWeaponModel } from '/src/combat/WeaponModels.js';
+// ?only=<id> shows one weapon large; ?side=1 right side; default: all nine on a bench (pistols front, rifles middle, snipers back)
+const q = new URLSearchParams(location.search);
+const r = new THREE.WebGLRenderer({ antialias: true }); r.setSize(innerWidth, innerHeight); r.toneMapping = THREE.ACESFilmicToneMapping; document.body.appendChild(r.domElement);
+const s = new THREE.Scene(); s.environment = new THREE.PMREMGenerator(r).fromScene(new RoomEnvironment(), 0.04).texture; s.environmentIntensity = 0.7; s.background = new THREE.Color(0x8a96a3);
+s.add(new THREE.HemisphereLight(0xffffff, 0x445566, 0.8)); const sun = new THREE.DirectionalLight(0xffffff, 2.2); sun.position.set(2, 4, 3); s.add(sun);
+const only = q.get('only'); const list = only ? WEAPONS.filter((w) => w.id === only) : WEAPONS;
+list.forEach((d, i) => { const m = buildWeaponModel(d); const row = d.cls === 'pistol' ? 0 : d.cls === 'rifle' ? 1 : 2; const col = only ? 0 : WEAPONS.filter((w) => w.cls === d.cls).indexOf(d);
+  m.rotation.y = q.get('side') ? -Math.PI / 2 : Math.PI / 2; m.position.set(only ? 0 : (col - 1) * (row === 0 ? 0.42 : 1.25), only ? 0 : row * 0.32, only ? 0 : -row * 0.25); s.add(m); });
+const cam = new THREE.PerspectiveCamera(only ? 30 : 38, innerWidth / innerHeight, 0.01, 50);
+if (only) { const d = list[0]; const L = d.cls === 'pistol' ? 0.45 : 1.6; cam.position.set(0, 0.12, L); cam.lookAt(d.cls === 'pistol' ? 0 : 0, 0.04, 0); if (d.cls !== 'pistol') { cam.position.x = -0.25; cam.lookAt(-0.25, 0.04, 0); } }
+else { cam.position.set(0, 0.55, 2.6); cam.lookAt(0, 0.3, -0.2); }
+r.render(s, cam); window.done = true;
+</script></body></html>

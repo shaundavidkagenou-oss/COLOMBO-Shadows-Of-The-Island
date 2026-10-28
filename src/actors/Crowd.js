@@ -121,7 +121,7 @@ export class Crowd {
   // non-graphic hit (weapon): flinch, maybe fall and stay down for a while, then get up and get away
   hitPed(p, dx, dz, power = 1) {
     if (p.state === 'down') { p.timer = Math.max(p.timer, 4); return; }
-    p.hits = (p.hits || 0) + power; p.vx = (p.vx || 0) + dx * 1.5; p.vz = (p.vz || 0) + dz * 1.5;
+    p.knockedByCar = false; p.hits = (p.hits || 0) + power; p.vx = (p.vx || 0) + dx * 1.5; p.vz = (p.vz || 0) + dz * 1.5;
     if (p.hits >= 1.5 || power >= 1.5) { this.react(p, 'down', 7 + this.rng.next() * 5, { yaw: Math.atan2(-dx, -dz) }); p.downT = 0; p.ch.face.set('fear', 6); this.events.emit('pedHit', p); }
     else { this.react(p, 'hit', 0.7); p.ch.anim.set('hit'); p.ch.face.set('fear', 4); this.speak(p, 'scared', 2); }
     this.alarm(p.x, p.z, 30, 3, p);
@@ -190,7 +190,7 @@ export class Crowd {
         case 'recover': { // calm down: walk on briskly, glance back over the shoulder, then back to routine
           p.timer -= dt; const fd = p.fleeDir || [Math.sin(p.yaw), Math.cos(p.yaw)]; tx = p.x + fd[0] * 4; tz = p.z + fd[1] * 4; desired = p.pace * 1.15; p.ch.anim.look = Math.sin(p.rt * 1.3) > 0.6 ? 1.0 : 0;
           if (p.timer <= 0) { if (this.rng.chance(0.25)) this.speak(p, 'recover'); this.endReaction(p); } break; }
-        case 'cower': { p.timer -= dt; desired = 0; if (p.ch.anim.action !== 'cower') p.ch.anim.set('cower'); if (p.timer <= 0) { p.ch.anim.set(null); p.state = 'flee'; p.timer = 3 + this.rng.next() * 3; p.fleeSp = 3 + this.rng.next() * 1.5; if (!p.fleeDir) p.fleeDir = this.spread(Math.sin(p.yaw + Math.PI), Math.cos(p.yaw + Math.PI), 1.2); } break; }
+        case 'cower': { p.timer -= dt; desired = 0; if (p.ch.anim.action !== 'cower' && p.ch.anim.action !== 'handsup') p.ch.anim.set('cower'); if (p.timer <= 0) { p.ch.anim.set(null); p.state = 'flee'; p.timer = 3 + this.rng.next() * 3; p.fleeSp = 3 + this.rng.next() * 1.5; if (!p.fleeDir) p.fleeDir = this.spread(Math.sin(p.yaw + Math.PI), Math.cos(p.yaw + Math.PI), 1.2); } break; }
         case 'watch': { p.timer -= dt; desired = 0; avoid = false; if (p.lookAt) p.yaw = dampAngle(p.yaw, Math.atan2(p.lookAt.x - p.x, p.lookAt.z - p.z), 4, dt); if (p.timer <= 0) { if (p.after === 'flee') { p.after = null; p.state = 'flee'; p.timer = 3 + this.rng.next() * 4; p.fleeSp = 3.5; const ax = p.x - p.lookAt.x, az = p.z - p.lookAt.z, d = Math.hypot(ax, az) || 1; p.fleeDir = this.spread(ax / d, az / d, 1); p.ch.anim.set(null); } else this.endReaction(p); } break; }
         case 'report': { // move a little away, then phone the police
           p.timer -= dt; if (p.rt < 2.2) { const fd = p.fleeDir; tx = p.x + fd[0] * 4; tz = p.z + fd[1] * 4; desired = 3; accel = 5; } else { desired = 0; if (p.ch.anim.action !== 'phone') { p.ch.anim.set('phone'); this.speak(p, 'report', 1, 3); this.events.emit('pedReport', { x: p.x, z: p.z }); } }
@@ -346,6 +346,16 @@ export class Crowd {
       this.alarm(p.x, p.z, 12, 1, p);
     }
     else if (kind === 'photo') { if (this.rng.chance(0.6)) { this.react(p, 'talkPlayer', 3); p.ch.anim.set(this.rng.chance(0.5) ? 'wave' : 'handsup'); face.set('smile', 3); } }
+  }
+  // a weapon is pointed at this pedestrian: hands up and freeze, back away, or run — varied, never a herd
+  threaten(p, src) {
+    if (!p || p.state === 'down' || p.state === 'flee' || p.state === 'cower' || p.threatCd > performance.now()) return; p.threatCd = performance.now() + 2500;
+    const ax = p.x - src.x, az = p.z - src.z, d = Math.hypot(ax, az) || 1; const r = this.rng.next();
+    p.ch.face.set('fear', 4); p.lookAt = { x: src.x, z: src.z };
+    if (r < 0.45) { this.react(p, 'cower', 2.5 + this.rng.next() * 2.5, { after: 'flee', fleeDir: this.spread(ax / d, az / d, 0.6) }); p.ch.anim.set('handsup'); this.speak(p, 'scared', 2, 2.5); }
+    else if (r < 0.8 || d < 4) { this.react(p, 'flee', 5 + this.rng.next() * 4, { fleeDir: this.spread(ax / d, az / d, 0.6), fleeSp: 3.4 + this.rng.next() * 1.4 }); this.speak(p, 'panic', 2); }
+    else { this.react(p, 'report', 6); }
+    this.alarm(p.x, p.z, 9, 1, p);
   }
   // turn an existing character (e.g. a driver pulled out of a vehicle) into a pedestrian with a reaction
   adopt(ch, x, z, yaw, reaction = 'flee', from = null) {

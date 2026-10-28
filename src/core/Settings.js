@@ -6,6 +6,7 @@ export const DEFAULT_BINDINGS = {
   interact: 'KeyE', insult: 'KeyQ', shove: 'KeyG', more: 'KeyT',
   horn: 'KeyH', lights: 'KeyL', camera: 'KeyV', radio: 'KeyR',
   phone: 'KeyP', map: 'KeyM', journal: 'KeyJ',
+  reload: 'KeyR', holster: 'KeyX', weaponWheel: 'Tab',
 };
 export const QUALITY_PRESETS = {
   low:    { pixelRatio: 0.75, shadows: false, shadowRes: 1024, bloom: false, ao: false, drawDist: 650,  crowd: 60,  traffic: 22, detailRadius: 1 },

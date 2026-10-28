@@ -19,7 +19,7 @@ export class Player {
   sync() { this.ch.root.position.set(this.x, this.y, this.z); this.ch.root.rotation.y = this.yaw; }
   update(dt, traffic) {
     const sens = 0.0024 * Settings.get('mouseSens'); const inv = Settings.get('invertY') ? -1 : 1;
-    if (this.control) { this.camYaw -= (Input.mouseDX * sens + Input.pad.rx * dt * 2.6); this.camPitch = clamp(this.camPitch + (Input.mouseDY * sens + Input.pad.ry * dt * 2) * inv, -0.5, 1.2); }
+    if (this.control && !this.lookLock) { const zs = this.scoped ? 1 / this.scoped.zoom : this.aiming ? 0.75 : 1; this.camYaw -= (Input.mouseDX * sens + Input.pad.rx * dt * 2.6) * zs; this.camPitch = clamp(this.camPitch + (Input.mouseDY * sens + Input.pad.ry * dt * 2) * inv * zs, -0.5, 1.2); }
     if (Input.wasPressed('camera') && this.control) this.camMode = (this.camMode + 1) % 3;
     if (this.exiting) this.updateExit(dt); else if (this.entry) this.updateEntry(dt); else if (this.vehicle) this.updateVehicle(dt, traffic); else this.updateFoot(dt, traffic);
     this.updateCamera(dt);
@@ -32,16 +32,17 @@ export class Player {
       A.set('handsup'); A.update(dt, 0); if (k >= 1) { this.climb = null; A.set(null); } this.sync(); return;
     }
     this.crouching = this.control && Input.isDown('crouch');
-    this.sprinting = this.control && Input.isDown('sprint') && mag > 0.3 && this.stamina > 0.05 && !this.crouching;
+    this.sprinting = this.control && Input.isDown('sprint') && mag > 0.3 && this.stamina > 0.05 && !this.crouching && !this.aiming;
     this.stamina = clamp(this.stamina + (this.sprinting ? -dt * 0.09 : dt * 0.15), 0, 1);
-    const maxSp = this.crouching ? 1.4 : this.sprinting ? 6.6 : mag > 0.85 ? 3.4 : 1.5;
+    const maxSp = this.aiming ? (this.scoped ? 0.9 : 1.8) : this.crouching ? 1.4 : this.sprinting ? 6.6 : mag > 0.85 ? 3.4 : 1.5;
     let dirYaw = this.yaw;
     if (mag > 0.05) { const camF = this.camYaw + Math.PI; dirYaw = camF + Math.atan2(-mx, my); }
     const target = mag > 0.05 ? maxSp * Math.max(mag, 0.5) : 0;
     this.speed = damp(this.speed, target, target > this.speed ? 6 : 10, dt);
-    const prevYaw = this.yaw; if (mag > 0.05) this.yaw = dampAngle(this.yaw, dirYaw, this.sprinting ? 7 : 10, dt);
+    const prevYaw = this.yaw; if (this.aiming) this.yaw = dampAngle(this.yaw, this.camYaw + Math.PI, 18, dt); else if (mag > 0.05) this.yaw = dampAngle(this.yaw, dirYaw, this.sprinting ? 7 : 10, dt);
+    const moveYaw = this.aiming && mag > 0.05 ? dirYaw : this.yaw; // strafing while aiming: body faces the aim, feet follow the input
     const turnRate = wrapAngle(this.yaw - prevYaw) / Math.max(dt, 1e-4);
-    let nx = this.x + Math.sin(this.yaw) * this.speed * dt, nz = this.z + Math.cos(this.yaw) * this.speed * dt;
+    let nx = this.x + Math.sin(moveYaw) * this.speed * dt, nz = this.z + Math.cos(moveYaw) * this.speed * dt;
     let r;
     if (this.indoor) r = this.resolveIndoor(nx, nz);
     else {
@@ -174,7 +175,9 @@ export class Player {
   }
   snapCamera() { this.updateCamera(1, true); }
   updateCamera(dt, snap = false) {
-    if (this.cinematic) return; const cam = this.camera; const v = this.vehicle;
+    if (this.cinematic || this.camOverride) return; const cam = this.camera; const v = this.vehicle;
+    if (this.scoped && this.weapons && !v) { this.weapons.scopeCamera(dt); return; }
+    this.aimCam = damp(this.aimCam || 0, this.aiming && !v ? 1 : 0, 10, dt);
     const distMul = Settings.get('cameraDistance');
     let dist, height, tgt;
     if (v) {
@@ -185,6 +188,7 @@ export class Player {
     } else {
       dist = (this.camMode === 1 ? 6.5 : 3.6) * distMul; height = this.crouching ? 1.1 : 1.55; tgt = new THREE.Vector3(this.x, this.y + height, this.z);
       if (this.indoor) dist = Math.min(dist, 2.6);
+      if (this.aimCam > 0.001) { const a = this.aimCam; dist = lerp(dist, 1.7 * distMul, a); tgt.y = lerp(tgt.y, this.y + 1.62, a); tgt.x += Math.cos(this.camYaw) * 0.55 * a; tgt.z += -Math.sin(this.camYaw) * 0.55 * a; }
     }
     if (this.camMode === 2 && !v) { // first person
       const h = this.ch.bones.head; h.updateWorldMatrix(true, false); const hp = new THREE.Vector3().setFromMatrixPosition(h.matrixWorld);

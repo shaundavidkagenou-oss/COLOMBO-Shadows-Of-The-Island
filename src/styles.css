@@ -197,3 +197,48 @@ select { background: #0e1318; color: var(--paper); border: 1px solid rgba(255, 2
 .fps { position: absolute; left: 50%; top: 4px; transform: translateX(-50%); font-family: var(--f-hud); font-size: 12px; color: #9f9; z-index: 60; text-shadow: 0 1px 2px #000; }
 .warn { color: #f0c040; } .fail { color: var(--red); }
 @media (max-width: 900px) { .pause-cols { grid-template-columns: 1fr; } .ctrl-grid { grid-template-columns: 1fr; } .minimap { width: 160px; height: 160px; } .street { left: 200px; } }
+
+/* ---------------------------------------------------------------- weapons HUD */
+.crosshair { --gap: 8px; position: absolute; left: 50%; top: 50%; width: 0; height: 0; transition: opacity 0.15s; }
+.crosshair.hide { opacity: 0; }
+.crosshair i { position: absolute; background: rgba(255, 255, 255, 0.92); box-shadow: 0 0 2px rgba(0, 0, 0, 0.9); }
+.crosshair .ch-t, .crosshair .ch-b { width: 2px; height: 8px; left: -1px; }
+.crosshair .ch-l, .crosshair .ch-r { width: 8px; height: 2px; top: -1px; }
+.crosshair .ch-t { bottom: var(--gap); } .crosshair .ch-b { top: var(--gap); } .crosshair .ch-l { right: var(--gap); } .crosshair .ch-r { left: var(--gap); }
+.crosshair b { position: absolute; left: -1.5px; top: -1.5px; width: 3px; height: 3px; border-radius: 50%; background: #fff; box-shadow: 0 0 2px #000; }
+.crosshair:not(.aim) i { opacity: 0.45; }
+.hitmark { position: absolute; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; }
+.hitmark.on { animation: hitm 0.28s ease-out; }
+.hitmark i { position: absolute; width: 9px; height: 2px; background: #fff; box-shadow: 0 0 2px #000; }
+.hitmark i:nth-child(1) { transform: translate(5px, -9px) rotate(-45deg); } .hitmark i:nth-child(2) { transform: translate(-14px, -9px) rotate(45deg); }
+.hitmark i:nth-child(3) { transform: translate(5px, 7px) rotate(45deg); } .hitmark i:nth-child(4) { transform: translate(-14px, 7px) rotate(-45deg); }
+@keyframes hitm { from { opacity: 1; } to { opacity: 0; } }
+.weap-card { position: absolute; right: 28px; bottom: 30px; min-width: 210px; padding: 10px 14px 10px; background: linear-gradient(90deg, rgba(10, 13, 18, 0), rgba(10, 13, 18, 0.72) 30%); text-align: right; transition: opacity 0.3s; text-shadow: 0 1px 4px #000; }
+.weap-card.hide { opacity: 0; }
+.wc-name { display: flex; align-items: center; justify-content: flex-end; gap: 10px; font-size: 17px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gold2); }
+.wc-name svg { color: rgba(244, 239, 230, 0.85); }
+.wc-ammo { font-size: 34px; font-weight: 600; line-height: 1.1; } .wc-ammo span { font-size: 18px; opacity: 0.7; margin-left: 4px; }
+.weap-card.low .wc-ammo b { color: var(--red); }
+.wc-state { font-size: 13px; letter-spacing: 0.08em; opacity: 0.8; min-height: 16px; }
+.weap-msg { position: absolute; left: 50%; top: 58%; transform: translateX(-50%); font-size: 18px; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0; transition: opacity 0.2s; text-shadow: 0 1px 6px #000; }
+.weap-msg.on { opacity: 1; }
+.heat { position: absolute; right: 28px; top: 112px; display: flex; gap: 8px; align-items: center; font-size: 14px; letter-spacing: 0.18em; color: #9fc3ff; text-shadow: 0 1px 6px #000; animation: heatp 1.4s infinite; }
+.heat b { font-size: 20px; letter-spacing: 0.1em; color: #fff; } .heat.hide { display: none; }
+@keyframes heatp { 50% { color: #ff8a7a; } }
+.scope { position: absolute; inset: 0; opacity: 0; transition: opacity 0.12s; }
+.scope.on { opacity: 1; }
+.sc-ring { position: absolute; inset: 0; background: radial-gradient(circle at 50% 50%, transparent 0, transparent min(36vh, 36vw), rgba(0, 0, 0, 0.55) calc(min(36vh, 36vw) + 2px), #000 calc(min(36vh, 36vw) + 10px)); }
+.sc-h, .sc-v { position: absolute; background: rgba(0, 0, 0, 0.9); }
+.sc-h { left: calc(50% - min(36vh, 36vw)); right: calc(50% - min(36vh, 36vw)); top: 50%; height: 1px; }
+.sc-v { top: calc(50% - min(36vh, 36vw)); bottom: calc(50% - min(36vh, 36vw)); left: 50%; width: 1px; }
+.sc-dot { position: absolute; left: calc(50% - 2px); top: calc(50% - 2px); width: 4px; height: 4px; border-radius: 50%; background: #e0503a; }
+.sc-mils { position: absolute; left: 50%; top: 50%; width: 120px; height: 120px; margin: -60px; background: repeating-linear-gradient(90deg, transparent 0 19px, rgba(0, 0, 0, 0.85) 19px 20px) center / 120px 7px no-repeat, repeating-linear-gradient(0deg, transparent 0 19px, rgba(0, 0, 0, 0.85) 19px 20px) center / 7px 120px no-repeat; }
+.sc-hint { position: absolute; left: 50%; bottom: 6vh; transform: translateX(-50%); font-size: 14px; letter-spacing: 0.1em; color: rgba(244, 239, 230, 0.75); display: flex; align-items: center; gap: 6px; }
+.sc-breath { display: inline-block; width: 90px; height: 5px; background: rgba(255, 255, 255, 0.2); } .sc-breath i { display: block; height: 100%; width: 100%; background: var(--teal); }
+.weap-wheel { position: absolute; inset: 0; background: radial-gradient(circle, rgba(10, 13, 18, 0.55), rgba(10, 13, 18, 0.25) 60%, transparent); opacity: 0; transition: opacity 0.12s; }
+.weap-wheel.on { opacity: 1; }
+.ww-center { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); text-align: center; width: 230px; }
+.ww-name { font-size: 22px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--gold2); } .ww-ammo { font-size: 15px; opacity: 0.85; margin-top: 4px; } .ww-hint { font-size: 12px; opacity: 0.6; margin-top: 10px; }
+.ww-slot { position: absolute; width: 120px; height: 74px; margin: -37px 0 0 -60px; border-radius: 10px; background: rgba(10, 13, 18, 0.72); border: 1px solid rgba(255, 220, 160, 0.18); display: flex; flex-direction: column; align-items: center; justify-content: center; transition: transform 0.1s, border-color 0.1s; color: rgba(244, 239, 230, 0.75); }
+.ww-slot.sel { transform: scale(1.12); border-color: var(--gold); color: #fff; background: rgba(40, 30, 14, 0.85); }
+.ww-label { font-size: 11px; letter-spacing: 0.06em; text-align: center; margin-top: 2px; }

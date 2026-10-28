@@ -219,8 +219,9 @@ export function buildBodyGeometry(sp) {
     }
     if (sp.beard) { // shell that follows the jaw exactly (same centre, radii and jaw shaping as the head), so it can never drift off the face
       const beardBump = (x, y, z) => { const hb = headBump(x, y, z); if (z < -0.3) return hb * 0.93; if (z > 0.72 && y > -0.52 && Math.abs(x) < 0.42) return hb * 0.96; // back of the shell and the lips stay inside the head
+        const line = z < 0.05 ? -0.18 : -0.18 - 0.36 * Math.min(1, (z - 0.05) / 0.55); if (y > line + 0.04 * Math.sin(x * 9) && !(z > 0.8 && Math.abs(x) < 0.3 && y < -0.38)) return hb * 0.94; // beard line: sideburns → cheek → jaw (no mask over the cheeks)
         return hb * (1.03 + 0.012 * Math.max(0, -y - 0.6)) + 0.004 * Math.sin(x * 40 + z * 23); };
-      sb.ellipsoid(hc, hr[0], hr[1], hr[2], W1('head'), hair, { lat: 9, lon: 22, p0: Math.PI * 0.57, p1: Math.PI * 0.985, bumpFn: beardBump });
+      const beardC = hair.map((v, i) => v * 0.82 + skin[i] * 0.18); sb.ellipsoid(hc, hr[0], hr[1], hr[2], W1('head'), beardC, { lat: 12, lon: 26, p0: Math.PI * 0.54, p1: Math.PI * 0.985, bumpFn: beardBump });
       sb.ellipsoid([0, hc[1] - 0.04, hc[2] + hr[2] * 0.93], 0.032, 0.009, 0.012, W1('head'), hair, { lat: 4, lon: 8 });
     }
     if (sp.moustache) sb.ellipsoid([0, hc[1] - 0.042, hc[2] + hr[2] - 0.016], 0.03, 0.008, 0.012, W1('head'), hair, { lat: 4, lon: 8 });
@@ -386,6 +387,27 @@ export function gaitProfile(sp) {
     toeOut: r.range(0.03, 0.12) + (elder ? 0.06 : 0), lag: r.range(0.02, 0.07), idleRate: r.range(0.7, 1.4),
   };
 }
+// ------------------------------------------------------------------ two-bone arm IK (used for weapons)
+// target: point in CHEST space; q: optional hand orientation in chest space; w: blend with the animated pose.
+const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _v4 = new THREE.Vector3(), _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _m1 = new THREE.Matrix4();
+export function solveArmIK(b, S, target, q, w = 1) {
+  const arm = b['arm' + S], fore = b['fore' + S], hand = b['hand' + S], chest = b.chest, par = arm.parent;
+  chest.updateWorldMatrix(true, false); par.updateWorldMatrix(false, false);
+  const tw = _v1.copy(target).applyMatrix4(chest.matrixWorld); const tp = par.worldToLocal(tw).sub(arm.position); // target relative to the shoulder, parent space
+  const u1 = fore.position, u2 = hand.position; const L1 = u1.length(), L2 = u2.length();
+  const d = clamp(tp.length(), Math.abs(L1 - L2) + 1e-3, L1 + L2 - 1e-3);
+  const cosE = clamp((L1 * L1 + L2 * L2 - d * d) / (2 * L1 * L2), -1, 1); const flex = Math.PI - Math.acos(cosE);
+  const foreQ = _q1.setFromAxisAngle(_v2.set(1, 0, 0), -flex);
+  const h = _v3.copy(u2).applyQuaternion(foreQ).add(u1); // hand in arm space at zero shoulder rotation
+  const armQ = _q2.setFromUnitVectors(_v4.copy(h).normalize(), _v2.copy(tp).normalize());
+  // swivel about the shoulder→hand axis so the elbow points down and out (natural), not up
+  const axis = _v2.copy(tp).normalize(); const e = _v4.copy(u1).applyQuaternion(armQ); const pole = _v3.set(S === 'R' ? -0.45 : 0.45, -1, -0.15);
+  e.addScaledVector(axis, -e.dot(axis)); pole.addScaledVector(axis, -pole.dot(axis));
+  if (e.lengthSq() > 1e-8 && pole.lengthSq() > 1e-8) { e.normalize(); pole.normalize(); const ang = Math.atan2(_m1.identity() && new THREE.Vector3().crossVectors(e, pole).dot(axis), e.dot(pole)); armQ.premultiply(_q3.setFromAxisAngle(axis, ang)); }
+  if (w >= 1) { arm.quaternion.copy(armQ); fore.quaternion.copy(foreQ); } else { arm.quaternion.slerp(armQ, w); fore.quaternion.slerp(foreQ, w); }
+  if (q) { arm.updateMatrixWorld(false); fore.updateMatrixWorld(false); const want = _q3.copy(chest.getWorldQuaternion(new THREE.Quaternion())).multiply(q); const foreW = fore.getWorldQuaternion(new THREE.Quaternion()); const loc = foreW.invert().multiply(want); if (w >= 1) hand.quaternion.copy(loc); else hand.quaternion.slerp(loc, w); }
+}
+
 export class Animator {
   constructor(ch) {
     this.ch = ch; this.g = gaitProfile(ch.spec); const s = ch.spec.height / 1.72; this.s = s;
@@ -518,6 +540,12 @@ export class Animator {
     R('armL', ...aL); R('armR', ...aR); R('foreL', ...fL); R('foreR', ...fR);
     R('handL', 0.12 + run * 0.1, 0, 0.05); R('handR', 0.12 + run * 0.1, 0, -0.05);
     if (this.handOverride) { const o = this.handOverride; if (o.L) b.handL.rotation.set(...o.L); if (o.R) b.handR.rotation.set(...o.R); }
+    if (this.aim) { // weapon stance: torso pitch follows the aim, chest bladed so the support shoulder leads; walk twist removed
+      const m = this.aim; const k = m.w ?? 1; b.spine.rotation.y = lerp(b.spine.rotation.y, 0, k); b.spine.rotation.x = lerp(b.spine.rotation.x, -m.pitch * 0.45, k); b.spine.rotation.z = lerp(b.spine.rotation.z, 0, k);
+      b.chest.rotation.set(lerp(b.chest.rotation.x, -m.pitch * 0.55, k), lerp(b.chest.rotation.y, -(m.twist || 0), k), lerp(b.chest.rotation.z, 0, k));
+      b.neck.rotation.x = lerp(b.neck.rotation.x, m.pitch * 0.35, k); b.neck.rotation.y = lerp(b.neck.rotation.y, (m.twist || 0) * 0.6, k); b.head.rotation.y = lerp(b.head.rotation.y, (m.twist || 0) * 0.4, k); b.head.rotation.x = lerp(b.head.rotation.x, (m.headDown || 0), k);
+    }
+    if (this.ik) { if (this.ik.R) solveArmIK(b, 'R', this.ik.R, this.ik.qR, this.ik.wR ?? 1); if (this.ik.L) solveArmIK(b, 'L', this.ik.L, this.ik.qL, this.ik.wL ?? 1); }
     if (A_ === 'ride' && aw > 0) { b.thighL.rotation.set(-1.2, 0, -0.25); b.thighR.rotation.set(-1.2, 0, 0.25); b.shinL.rotation.x = 1.3; b.shinR.rotation.x = 1.3; b.footL.rotation.x = 0; b.footR.rotation.x = 0; b.hips.position.y = this.ch.hipY - 0.15; b.hips.position.x = 0; b.hips.rotation.set(0, 0, 0); }
     if (this.ch.face) this.ch.face.update(dt);
   }
