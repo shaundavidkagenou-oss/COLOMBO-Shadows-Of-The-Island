@@ -144,17 +144,21 @@ export function buildDetail(b, multi) {
           multi.get('awning').quad([pa[0] + s.n[0] * d, yB - 0.25, pa[1] + s.n[1] * d], [pb[0] + s.n[0] * d, yB - 0.25, pb[1] + s.n[1] * d], [pb[0] + s.n[0] * d, yB, pb[1] + s.n[1] * d], [pa[0] + s.n[0] * d, yB, pa[1] + s.n[1] * d], [0, 0, 2, 0.2], c.map((v) => v * 0.8));
         }
       }
-      const signIdx = b.sign != null ? (k === 0 ? b.sign : b.sign + k * 5 + b.id) : null;
-      if (signIdx != null) {
-        const uv = signUV(signIdx); const ys0 = y0 + GROUND_H - 0.55, ys1 = ys0 + Math.min(1.2, (s.len / n) * 0.26);
-        const o = 0.14; const qa = along(s, t0 + 0.06), qb = along(s, t1 - 0.06);
-        multi.get('signs').quad([qa[0] + s.n[0] * o, ys0, qa[1] + s.n[1] * o], [qb[0] + s.n[0] * o, ys0, qb[1] + s.n[1] * o], [qb[0] + s.n[0] * o, ys1, qb[1] + s.n[1] * o], [qa[0] + s.n[0] * o, ys1, qa[1] + s.n[1] * o], uv);
-        conc.box((qa[0] + qb[0]) / 2 + s.n[0] * 0.07, (ys0 + ys1) / 2, (qa[1] + qb[1]) / 2 + s.n[1] * 0.07, Math.hypot(qb[0] - qa[0], qb[1] - qa[1]) + 0.1, ys1 - ys0 + 0.1, 0.12, { col: [0.2, 0.2, 0.2], rotY: r });
-      }
+    }
+    // planned signage: one business per building (two on wide frontages), each sign centred over its own frontage at the
+    // atlas' true 4:1 aspect (never stretched), on a dark mounting board just above the awning line
+    const signs = b.sign == null || rng.chance(0.15) ? 0 : s.len >= 16 ? 2 : 1;
+    for (let k = 0; k < signs; k++) {
+      const idx = k === 0 ? b.sign : b.sign + 7 + (b.id % 5); const half = s.len / signs; const room = half - 0.8; if (room < 1.6) continue;
+      const hS = Math.min(1.15, room / 4), wS = hS * 4; const tc = (k + 0.5) / signs; const dt = (wS / 2) / s.len;
+      const qa = along(s, tc - dt), qb = along(s, tc + dt); const ys0 = y0 + GROUND_H - 0.5, ys1 = ys0 + hS; const o = 0.14; const uv = signUV(idx);
+      multi.get('signs').quad([qa[0] + s.n[0] * o, ys0, qa[1] + s.n[1] * o], [qb[0] + s.n[0] * o, ys0, qb[1] + s.n[1] * o], [qb[0] + s.n[0] * o, ys1, qb[1] + s.n[1] * o], [qa[0] + s.n[0] * o, ys1, qa[1] + s.n[1] * o], uv);
+      conc.box((qa[0] + qb[0]) / 2 + s.n[0] * 0.07, (ys0 + ys1) / 2, (qa[1] + qb[1]) / 2 + s.n[1] * 0.07, wS + 0.12, hS + 0.12, 0.12, { col: [0.2, 0.2, 0.2], rotY: r });
+      b.signIdx = b.signIdx ?? idx;
     }
     // projecting vertical sign on some market buildings
-    if (b.district === 'pettah' && rng.chance(0.35) && b.floors >= 2) {
-      const p = along(s, rng.chance(0.5) ? 0.08 : 0.92); const uv = signUV(rng.int(0, 63)); const yb = y0 + GROUND_H + 0.6, yt = yb + 1.0;
+    if (b.district === 'pettah' && b.signIdx != null && rng.chance(0.12) && b.floors >= 2) { // blade sign repeats the same business
+      const p = along(s, rng.chance(0.5) ? 0.08 : 0.92); const uv = signUV(b.signIdx); const yb = y0 + GROUND_H + 0.6, yt = yb + 0.65; // 2.6 m × 0.65 m = the atlas' 4:1
       const tx = -s.n[1], tz = s.n[0]; // tangent direction
       const ox = p[0] + s.n[0] * 0.15, oz = p[1] + s.n[1] * 0.15;
       // two faces (each reads correctly from its own side) around a thin dark frame, plus a wall bracket
