@@ -213,6 +213,7 @@ export class Weapons {
       const cx = o.x + d.x * t - p.x, cz = o.z + d.z * t - p.z; const down = p.state === 'down'; const rad = down ? 0.5 : 0.3; if (cx * cx + cz * cz > rad * rad) continue;
       const y = o.y + d.y * t - (p.y || 0); if (y < 0.05 || y > (down ? 0.45 : (p.ch.spec.height || 1.7) + 0.05)) continue; best = { t, kind: 'ped', p, y };
     }
+    if (this.g.police) for (const p of this.g.police.foot) { const rx = p.x - o.x, rz = p.z - o.z; const dh = Math.hypot(d.x, d.z) || 1e-6; const t = (rx * d.x + rz * d.z) / (dh * dh); if (t < skipNear || t > best.t) continue; const cx = o.x + d.x * t - p.x, cz = o.z + d.z * t - p.z; if (cx * cx + cz * cz > 0.09) continue; const y = o.y + d.y * t - (p.y || 0); if (y < 0.05 || y > (p.mode === 'down' ? 0.45 : 1.8)) continue; best = { t, kind: 'officer', p, y }; }
     const vs = this.g.traffic.all();
     for (const v of vs) { if (Math.abs(v.x - o.x) > range || Math.abs(v.z - o.z) > range) continue; for (const [cx, cz] of v.circles()) { const rx = cx - o.x, ry = v.y + 0.9 - o.y, rz = cz - o.z; const t = rx * d.x + ry * d.y + rz * d.z; if (t < skipNear || t > best.t) continue; const qx = o.x + d.x * t - cx, qy = o.y + d.y * t - (v.y + 0.9), qz = o.z + d.z * t - cz; const rr = v.radius * 0.95; const dd = qx * qx + qy * qy * 1.8 + qz * qz; if (dd < rr * rr) { const back = Math.sqrt(rr * rr - dd); best = { t: Math.max(skipNear, t - back), kind: 'vehicle', v }; } } }
     best.point = o.clone().addScaledVector(d, best.t); return best;
@@ -230,19 +231,21 @@ export class Weapons {
     P.camPitch = clamp(P.camPitch - def.recoil * (0.85 + Math.random() * 0.3), -0.5, 1.2); P.camYaw += def.recoil * 0.35 * (Math.random() * 2 - 1); P.shake = Math.max(P.shake || 0, def.cls === 'sniper' ? 0.25 : 0.08);
     this.gunSound(def, P.x, P.z); this.flash(mz, dir, def); if (!def.cycle) this.ejectShell(); this.tracer(mz, hit.point, def);
     if (hit.kind === 'ped') { const p = hit.p; this.g.crowd.hitPed(p, dir.x, dir.z, def.dmg); this.puff(hit.point, 0x8a8478, 3); this.hitMarker(); }
+    else if (hit.kind === 'officer') { this.g.police.officerHit(hit.p, dir.x, dir.z); this.puff(hit.point, 0x8a8478, 3); this.hitMarker(); } // non-graphic: stagger / down-and-recover
     else if (hit.kind === 'vehicle') { this.sparks(hit.point, dir); Audio.tone(2400 + Math.random() * 1500, 0.07, { type: 'triangle', vol: 0.05 }); const v = hit.v; if (v.ai) v.ai.bumped = 2.5; this.g.crowd.alarm(v.x, v.z, 25, 2, null); }
     else if (hit.kind === 'world' || hit.kind === 'ground') { this.puff(hit.point, hit.kind === 'ground' ? 0x6d6a64 : 0xb5ab9a, 5); this.decal(hit.point, dir, hit.kind); }
     this.shotAlarm -= 1; if (this.shotAlarm <= 0) { this.shotAlarm = 3; this.g.crowd.alarm(P.x, P.z, def.loud, 2, null); }
     this.g.crowd.alarm(hit.point.x, hit.point.z, 10, 2, null);
-    this.heat = Math.min(5, this.heat + 0.05); this.heatT = 0; this.lastShot = { x: P.x, z: P.z, t: performance.now() };
+    if (this.g.police) this.g.police.gunfire(P.x, P.z); else { this.heat = Math.min(5, this.heat + 0.05); this.heatT = 0; } this.lastShot = { x: P.x, z: P.z, t: performance.now() };
     if (this.onShot) this.onShot(def, hit);
   }
   report(e) { // a witness phoned the police (several calls about the same incident only count once every few seconds)
+    if (this.g.police) return this.g.police.report(e); // the police response system owns the wanted level
     const now = performance.now(); if (this._repT && now - this._repT < 6000) { this.heatT = 0; return; } this._repT = now;
     const before = Math.floor(this.heat); this.heat = Math.min(5, this.heat + 1); this.heatT = 0;
     if (Math.floor(this.heat) > before) this.g.hud.notify('Police alerted', 'A witness reported you. Lie low — heat fades if you stay out of trouble.', 'warn', 3.2);
   }
-  heatUpdate(dt) { this.heatT += dt; if (this.heatT > 25 && this.heat > 0) this.heat = Math.max(0, this.heat - dt * 0.05); }
+  heatUpdate(dt) { if (this.g.police) return; this.heatT += dt; if (this.heatT > 25 && this.heat > 0) this.heat = Math.max(0, this.heat - dt * 0.05); }
 
   // ------------------------------------------------------------------ sound
   gunSound(def, x, z) {
@@ -305,7 +308,7 @@ export class Weapons {
     this.el.card = el('weap-card hide', root, '<div class="wc-name"></div><div class="wc-ammo"><b></b><span></span></div><div class="wc-state"></div>');
     this.el.scope = el('scope', root, '<div class="sc-ring"></div><div class="sc-h"></div><div class="sc-v"></div><div class="sc-dot"></div><div class="sc-mils"></div><div class="sc-hint">Hold <kbd>Shift</kbd> to steady · breath <span class="sc-breath"><i></i></span></div>');
     this.el.breath = this.el.scope.querySelector('.sc-breath i');
-    this.el.heat = el('heat hide', root, '<span>POLICE</span><b></b>');
+    this.el.heat = el('heat hide', root, '<span>POLICE</span><b></b><i></i>'); this.el.heatLabel = this.el.heat.querySelector('i');
     this.el.wheel = el('weap-wheel', root, '<div class="ww-center"><div class="ww-name"></div><div class="ww-ammo"></div><div class="ww-hint">Move the mouse · release <kbd>Tab</kbd></div></div>');
     this.el.slots = WEAPONS.map((d, i) => { const a = (i / 9) * Math.PI * 2 - Math.PI / 2; const s = el('ww-slot ' + d.cls, this.el.wheel, `<div class="ww-icon">${this.icon(d)}</div><div class="ww-label">${i + 1} · ${d.name}</div>`); s.style.left = `calc(50% + ${Math.cos(a) * 190}px)`; s.style.top = `calc(50% + ${Math.sin(a) * 190}px)`; return s; });
     this.el.msg = el('weap-msg', root);
@@ -323,7 +326,8 @@ export class Weapons {
     if (on) { const gap = 6 + (d.spread + this.bloom) * (this.P.speed > 0.6 ? 1.7 : 1) * 900 * (this.aimW > 0.5 ? 1 : 1.8); this.el.cross.style.setProperty('--gap', gap.toFixed(1) + 'px'); }
     if (on || this._cardT > 0) { this._cardT = (this._cardT || 0) - dt; const i = this.cur >= 0 ? this.cur : this.sel; const iv = this.inv[i]; const dd = WEAPONS[i]; this.el.card.querySelector('.wc-ammo b').textContent = iv.mag; this.el.card.querySelector('.wc-ammo span').textContent = '/ ' + iv.reserve; this.el.card.querySelector('.wc-state').textContent = this.state === 'reload' ? 'Reloading…' : this.cycleT >= 0 ? 'Working the bolt…' : this.state === 'none' ? `Holstered · ${dd.cls === 'pistol' ? 'hip holster' : 'back sling'}` : iv.mag === 0 ? (iv.reserve ? 'Empty — R to reload' : 'Out of ammunition') : ''; this.el.card.classList.toggle('low', iv.mag <= Math.ceil(dd.mag * 0.25)); this.el.card.classList.remove('hide'); }
     else this.el.card.classList.add('hide');
-    const h = Math.ceil(this.heat - 0.01); this.el.heat.classList.toggle('hide', h <= 0); if (h > 0) this.el.heat.querySelector('b').textContent = '★'.repeat(h) + '☆'.repeat(5 - h);
+    const pi = this.g.police ? this.g.police.hudInfo() : null; const h = pi ? pi.level : Math.ceil(this.heat - 0.01); const lab = pi ? pi.label : '';
+    this.el.heat.classList.toggle('hide', h <= 0 && !lab); this.el.heat.querySelector('b').textContent = h > 0 ? '★'.repeat(h) + '☆'.repeat(5 - h) : ''; this.el.heatLabel.textContent = lab; this.el.heat.classList.toggle('calm', h <= 0);
   }
   wheelUpdate() {
     if (!this.wheelOpen) { this.wheelOpen = true; this.wheelX = 0; this.wheelY = 0; this.wheelSel = this.cur >= 0 ? this.cur : this.sel; this.el.wheel.classList.add('on'); this.P.lookLock = true; this.g.timeSlow = 0.3; }
@@ -335,7 +339,7 @@ export class Weapons {
   wheelClose(apply) { if (!this.wheelOpen) return; this.wheelOpen = false; this.el.wheel.classList.remove('on'); this.P.lookLock = false; this.g.timeSlow = 1; if (apply && this.wheelSel >= 0) this.select(this.wheelSel); }
 
   // ------------------------------------------------------------------ save / load
-  save() { return { inv: this.inv.map((v) => [v.mag, v.reserve]), sel: this.sel, heat: this.heat }; }
+  save() { return { inv: this.inv.map((v) => [v.mag, v.reserve]), sel: this.sel, heat: this.g.police ? this.g.police.level : this.heat }; }
   load(s) { if (!s) return; this.forceHolster(); (s.inv || []).forEach((v, i) => { if (this.inv[i]) { this.inv[i].mag = v[0]; this.inv[i].reserve = v[1]; } }); this.sel = s.sel || 0; this.heat = s.heat || 0; this.showHolstered(); }
   refill() { this.inv.forEach((v, i) => { v.mag = WEAPONS[i].mag; v.reserve = WEAPONS[i].reserve; }); }
 }

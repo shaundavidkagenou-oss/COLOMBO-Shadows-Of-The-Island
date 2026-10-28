@@ -1,5 +1,6 @@
 // Game: boot/loading, presentation flow (intro → montage → menu), the play loop, interactions, save/load.
 import { PoliceHQLife } from './police/PoliceHQLife.js';
+import { PoliceResponse } from './police/PoliceResponse.js';
 import * as THREE from 'three';
 import { Settings } from './core/Settings.js';
 import { Input } from './core/Input.js';
@@ -77,7 +78,7 @@ export class Game {
     this.trains = new Trains(this.scene); this.traffic.obstacles = this.trains.bodies; this.traffic.rail = this.trains; // running trains + level crossings
     this.hqLife = new PoliceHQLife(this);
     this.player = new Player(this.scene, this.camera, this.collision, bus); this.player.crowd = this.crowd;
-    this.hud = new HUD(this.ui); this.director = new Director(this); this.story = new Story(this); this.interiors = new Interiors(this); this.weapons = new Weapons(this); this.player.weapons = this.weapons;
+    this.hud = new HUD(this.ui); this.director = new Director(this); this.story = new Story(this); this.interiors = new Interiors(this); this.weapons = new Weapons(this); this.player.weapons = this.weapons; this.police = new PoliceResponse(this);
     this.applyDensity();
     progress(0.9, 'Lighting'); await tick();
     this.post = new PostFX(this.renderer, this.scene, this.camera); this.post.build({ bloom: Settings.preset.bloom, ao: Settings.preset.ao });
@@ -157,9 +158,10 @@ export class Game {
   }
   async startLoaded(slot) {
     const d = SaveSystem.read(slot); if (!d) return this.menuLoop();
-    this.story.restore(d.story); this.atmos.restore(d.atmos); this.clock = d.clock || 0; this.rebuildPlayer(); this.weapons.load(d.weapons);
+    this.story.restore(d.story); this.atmos.restore(d.atmos); this.clock = d.clock || 0; this.rebuildPlayer(); this.weapons.load(d.weapons); this.pendingWanted = d.police ? d.police.level : d.weapons ? d.weapons.heat : 0;
     const p = d.player || { x: L.PLACES.meeting.x, z: L.PLACES.meeting.z, yaw: 0 }; this.world.warm(p.x, p.z); this.player.teleport(p.x, p.z, p.yaw);
     this.player.cinematic = false; this.player.control = true; this.mode = 'play'; this.paused = false; this.hud.show(true); this.director.active = false;
+    if (this.pendingWanted) { this.police.restore(this.pendingWanted); this.pendingWanted = 0; }
     this.story.setupWorldActivities(); this.setupRoomDoor();
     const m = this.story.state.mission; if (m.id && m.stage > 0) this.story.startMission(m.id, m.stage); else if (m.id === 'm0') this.story.startMission('m0', 0); else this.story.offerNext();
     for (let i = 0; i < 30; i++) this.updatePlay(0.033, true);
@@ -172,7 +174,7 @@ export class Game {
     const P = this.player; let pos = { x: P.x, z: P.z, yaw: P.yaw };
     if (this.interiors.current) { const d = this.interiors.current.door; pos = { x: d.x, z: d.z, yaw: d.faceIn + Math.PI }; } else if (P.vehicle) { const e = P.vehicle.exitPoint(-1); pos = { x: e.x, z: e.z, yaw: P.vehicle.yaw }; }
     const m = MISSIONS.find((q) => q.id === this.story.state.mission.id);
-    SaveSystem.write(slot, { story: this.story.serialize(), atmos: this.atmos.serialize(), player: pos, weapons: this.weapons.save(), clock: this.clock, missionTitle: m ? m.title : 'Free roam', timeString: `Day ${this.atmos.day} · ${this.atmos.timeString}` });
+    SaveSystem.write(slot, { story: this.story.serialize(), atmos: this.atmos.serialize(), player: pos, weapons: this.weapons.save(), police: this.police.save(), clock: this.clock, missionTitle: m ? m.title : 'Free roam', timeString: `Day ${this.atmos.day} · ${this.atmos.timeString}` });
   }
   async restUntil(hour) {
     const P = this.player; P.control = false; await this.hud.fade(1, 0.8); let dh = hour - this.atmos.hour; if (dh < 0) dh += 24; this.atmos.advance(dh * 60);
@@ -201,7 +203,8 @@ export class Game {
       this.hud.subtitle(who, line.si || line.ta || line.en, line.tr || '', 3, lang); Audio.talkBlip(lang);
     });
     bus.on('pedHit', (p) => { if (p && p.knockedByCar) Audio.crash(4); });
-    bus.on('pedReport', (e) => { if (this.weapons) this.weapons.report(e); });
+    bus.on('pedReport', (e) => { if (this.police) this.police.report(e); });
+    bus.on('pedHit', (p) => { const P = this.player; if (!this.police || !p || this.mode !== 'play') return; const src = P.vehicle || P; if (Math.hypot(p.x - src.x, p.z - src.z) > 10) return; if (p.knockedByCar) { if (P.vehicle) this.police.crime(p.x, p.z, 'vehicle'); } else this.police.crime(p.x, p.z, 'assault'); }); // only incidents the player caused
   }
   // ================================================================= input
   onKey(code) {
@@ -291,19 +294,19 @@ export class Game {
     A.update(dt, fv, cam, dt); setVehicleNight(A.night);
     if (this.indoor) { A.sun.intensity = 0; A.hemi.intensity *= 0.25; A.ambient.intensity = 0.25; this.scene.environmentIntensity = 0.25; A.rain.visible = false; this.renderer.toneMappingExposure = 1; }
     const camDir = new THREE.Vector3(); cam.getWorldDirection(camDir);
-    this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; this.traffic.update(dt, focus, camDir, this.clock, this.crowd.peds, P); this.hqLife.update(dt);
+    this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; this.traffic.update(dt, focus, camDir, this.clock, this.police.foot.length ? this.crowd.peds.concat(this.police.foot) : this.crowd.peds, P); this.hqLife.update(dt); if (!warmOnly) this.police.update(dt);
     this.trains.update(dt, { focus, night: A.night, player: this.indoor ? null : P, playerVehicle: P.vehicle || null, vehicles: this.traffic.all(), listener: true });
     this.crowd.update(dt, focus, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: P, hourFactor: this.hourFactor(), hour: A.hour });
     if (P.vehicle && A.night > 0.5 && P.nightLights === undefined) { P.vehicle.lights = true; }
     // story & prompts
     const storyPrompt = D.active ? null : this.story.update(dt);
-    this.hud.prompt(D.active || this.photo ? '' : storyPrompt || localPrompt || '');
+    this.hud.prompt(D.active || this.photo ? '' : storyPrompt || this.police.prompt || localPrompt || '');
     // music
     this.musicT = (this.musicT || 0) - dt;
     if (this.musicT <= 0) { this.musicT = 1; if (!(Audio.musicMode === 'chase' && this.story.pursuers.length) && !D.active) { let m = A.night > 0.5 ? 'night' : 'explore'; if (this.story.guards.length) m = 'tension'; if (this.story.pursuers.length) m = 'chase'; if (P.vehicle && this.radio) m = RADIO[this.radio].mode; if (this.indoor) m = 'none'; Audio.setMusic(m); } }
     // HUD
     const v = P.vehicle; const dist = L.districtAt(P.x, P.z);
-    this.hud.update({ time: A.timeString, money: this.story.state.money, district: this.indoor ? this.interiors.current.D.name : dist ? dist.name.split(' · ')[0] : '', street: this.indoor ? '' : L.roadNameAt(P.x, P.z) || '', x: P.x, z: P.z, camYaw: this.photo ? this.photoYaw + Math.PI : P.camYaw, stamina: P.stamina, vehicle: v, vehicleName: v ? VNAMES[v.type] || v.type : '', radio: v && this.radio ? `♪ ${RADIO[this.radio].name}` : '', camera: cam, projector: (x, y, z) => this.project(x, y, z), fps: this.fps, draws: this.renderer.info.render.calls, extras: this.miniExtras() });
+    this.hud.update({ time: A.timeString, money: this.story.state.money, district: this.indoor ? this.interiors.current.D.name : dist ? dist.name.split(' · ')[0] : '', street: this.indoor ? '' : L.roadNameAt(P.x, P.z) || '', x: P.x, z: P.z, camYaw: this.photo ? this.photoYaw + Math.PI : P.camYaw, stamina: P.stamina, vehicle: v, vehicleName: v ? VNAMES[v.type] || v.type : '', radio: v && this.radio ? `♪ ${RADIO[this.radio].name}` : '', camera: cam, police: this.police.hudInfo(), projector: (x, y, z) => this.project(x, y, z), fps: this.fps, draws: this.renderer.info.render.calls, extras: this.miniExtras() });
     // audio
     const near = v ? [v] : []; for (const o of this.traffic.vehicles) { if (near.length >= 6) break; if (Math.hypot(o.x - P.x, o.z - P.z) < 45) near.push(o); }
     Audio.update(dt, { listener: { x: P.x, z: P.z, yaw: P.camYaw + Math.PI }, night: A.night, rain: A.w.rain, wind: A.w.wind, traffic: this.traffic.vehicles.length, vehicles: near, indoor: this.indoor });

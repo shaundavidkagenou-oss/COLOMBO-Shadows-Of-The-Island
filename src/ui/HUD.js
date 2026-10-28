@@ -63,6 +63,12 @@ export class HUD {
     g.save(); g.clearRect(0, 0, S, S); g.beginPath(); g.arc(S / 2, S / 2, S / 2 - 2, 0, 7); g.clip();
     g.translate(S / 2, S / 2); g.rotate(yaw + Math.PI); g.scale(zoom, zoom); g.translate(-this.X(px), -this.Z(pz)); g.drawImage(this.base, 0, 0); g.restore();
     const toMini = (x, z) => { const dx = (x - px) * MAP_SCALE * zoom, dz = (z - pz) * MAP_SCALE * zoom; const a = yaw + Math.PI; const rx = dx * Math.cos(a) - dz * Math.sin(a), rz = dx * Math.sin(a) + dz * Math.cos(a); return [S / 2 + rx, S / 2 + rz]; };
+    const pol = this.police; if (pol) { // search area (pulsing ring) and police units (flashing red/blue while responding)
+      const now = performance.now() / 1000;
+      if (pol.search) { const [x, y] = toMini(pol.search.x, pol.search.z); const r = pol.search.r * MAP_SCALE * zoom; g.save(); g.beginPath(); g.arc(S / 2, S / 2, S / 2 - 2, 0, 7); g.clip(); g.fillStyle = `rgba(70,130,255,${0.13 + 0.06 * Math.sin(now * 3)})`; g.strokeStyle = 'rgba(120,170,255,0.85)'; g.lineWidth = 2; g.setLineDash([6, 4]); g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); g.stroke(); g.setLineDash([]); g.restore(); }
+      for (const u of pol.units) { let [x, y] = toMini(u.x, u.z); const dx = x - S / 2, dy = y - S / 2, d = Math.hypot(dx, dy), R = S / 2 - 9; if (d > R) { if (!u.lights) continue; x = S / 2 + dx / d * R; y = S / 2 + dy / d * R; }
+        g.fillStyle = u.lights ? ((now * 3) % 1 < 0.5 ? '#ff3b3b' : '#3b7bff') : '#a9c8ff'; g.strokeStyle = '#000'; g.lineWidth = 1.5; g.beginPath(); g.rect(x - 4, y - 4, 8, 8); g.fill(); g.stroke(); }
+    }
     for (const e of extras) { const [x, y] = toMini(e.x, e.z); if ((x - S / 2) ** 2 + (y - S / 2) ** 2 > (S / 2 - 8) ** 2) continue; g.fillStyle = e.color; g.beginPath(); g.arc(x, y, e.r || 2.5, 0, 7); g.fill(); }
     for (const b of this.blips) {
       let [x, y] = toMini(b.x, b.z); const dx = x - S / 2, dy = y - S / 2, d = Math.hypot(dx, dy), R = S / 2 - 10; let edge = false; if (d > R) { x = S / 2 + dx / d * R; y = S / 2 + dy / d * R; edge = true; }
@@ -91,6 +97,10 @@ export class HUD {
     g.fillStyle = '#0d1c24'; g.fillRect(0, 0, c.width, c.height);
     g.save(); g.translate(c.width / 2, c.height / 2); g.scale(z, z); g.translate(-this.X(this.bm.x), -this.Z(this.bm.z)); g.drawImage(this.base, 0, 0);
     for (const b of this.blips) { g.fillStyle = { objective: '#ffb020', mission: '#f4efe6', side: '#5ac8a8', stamp: '#d8a0ff', photo: '#7ab8ff', shop: '#9ad06a' }[b.kind] || '#fff'; g.beginPath(); g.arc(this.X(b.x), this.Z(b.z), 7 / z, 0, 7); g.fill(); if (b.label) { g.font = `${13 / z}px Manrope`; g.fillText(b.label, this.X(b.x) + 9 / z, this.Z(b.z) + 4 / z); } }
+    const pol = this.police; if (pol) { // police search area + units on the big map
+      if (pol.search) { g.fillStyle = 'rgba(70,130,255,0.16)'; g.strokeStyle = 'rgba(120,170,255,0.9)'; g.lineWidth = 2 / z; g.setLineDash([8 / z, 5 / z]); g.beginPath(); g.arc(this.X(pol.search.x), this.Z(pol.search.z), pol.search.r * MAP_SCALE, 0, 7); g.fill(); g.stroke(); g.setLineDash([]); }
+      for (const u of pol.units) { g.fillStyle = u.lights ? '#ff3b3b' : '#a9c8ff'; g.fillRect(this.X(u.x) - 5 / z, this.Z(u.z) - 5 / z, 10 / z, 10 / z); }
+    }
     if (this.player) { g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.lineWidth = 2 / z; g.beginPath(); g.arc(this.X(this.player[0]), this.Z(this.player[1]), 8 / z, 0, 7); g.fill(); g.stroke(); }
     g.restore();
     g.fillStyle = '#f4efe6'; g.font = '600 28px "Cormorant Garamond", serif'; g.fillText('Colombo', 30, 50);
@@ -126,7 +136,7 @@ export class HUD {
   update(st) {
     this.clock.textContent = st.time; this.money.textContent = `Rs. ${st.money.toLocaleString('en-LK')}`;
     this.district.textContent = st.district || ''; this.street.textContent = st.street || ''; this.street.classList.toggle('show', !!st.street);
-    this.drawMini(st.x, st.z, st.camYaw - Math.PI, st.extras);
+    this.police = st.police || null; this.drawMini(st.x, st.z, st.camYaw - Math.PI, st.extras);
     this.stamina.style.opacity = st.stamina < 0.98 && !st.vehicle ? 1 : 0; this.staminaBar.style.width = `${st.stamina * 100}%`;
     if (st.vehicle) { this.veh.classList.remove('hidden'); this.vehSpeed.innerHTML = `${Math.round(Math.abs(st.vehicle.speed) * 3.6)}<small>km/h</small>`; this.vehName.textContent = st.vehicleName; this.radioEl.textContent = st.radio || ''; } else this.veh.classList.add('hidden');
     if (this.objective) { const d = Math.hypot(this.objective.x - st.x, this.objective.z - st.z); this.objDist.textContent = d > 30 ? `${d > 1000 ? (d / 1000).toFixed(1) + ' km' : Math.round(d) + ' m'}` : ''; } else this.objDist.textContent = '';

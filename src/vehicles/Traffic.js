@@ -54,7 +54,7 @@ export class Traffic {
   constructor(scene, collision, events) {
     this.scene = scene; this.collision = collision; this.events = events; this.vehicles = []; this.parked = []; this.rng = new RNG(777);
     this.max = 40; this.simTime = 0; this.res = new Map(); this.driverSpecs = []; for (let i = 0; i < 16; i++) this.driverSpecs.push(randomSpec(5000 + i * 13, { sex: i % 5 === 0 ? 'f' : 'm', age: 'adult' }));
-    this.paxCount = 0; this.leaving = []; this.crowd = null; this.parkedTimer = 0; this.drivableSegs = L.segments.filter((s) => !s.crossing || s.level <= 2);
+    this.paxCount = 0; this.leaving = []; this.crowd = null; this.parkedTimer = 0; this.drivableSegs = L.segments.filter((s) => !s.crossing || s.level <= 2); this.drivable = new Set(this.drivableSegs); this.emergency = [];
   }
   setDensity(d) { this.max = Math.round(10 + d * 45); }
   all() { const o = this.obstacles; if (!this.parked.length && !(o && o.length)) return this.vehicles; return o && o.length ? this.vehicles.concat(this.parked, o) : this.vehicles.concat(this.parked); } // obstacles = train cars (solid, not enterable)
@@ -94,7 +94,7 @@ export class Traffic {
     if (v.paxPlan && v.paxPlan.length && !v.pax.length && d < PAX_NEAR && this.paxCount + v.paxPlan.length <= PAX_CAP && !v.disembarking) {
       for (const p of v.paxPlan) { const ch = new Character(p.spec); seatCharacter(ch, v, seats[p.si], p.mode); ch.mesh.castShadow = d < 40; v.pax.push(ch); }
       this.paxCount += v.pax.length;
-    } else if (v.pax && v.pax.length && d > PAX_FAR && !v.disembarking) this.dropPax(v);
+    } else if (v.pax && v.pax.length && d > PAX_FAR && !v.disembarking && !v.police) this.dropPax(v);
     // pose update rate: every frame near, 5 Hz mid-range, frozen far away (the seated pose stays valid)
     const rate = d < 35 ? 0 : d < 90 ? 0.2 : Infinity; v.animAcc = (v.animAcc || 0) + dt; if (v.animAcc < rate) return; const step = v.animAcc; v.animAcc = 0;
     const steer = v.steer / (v.T.steer || 0.5); const acc = (v.speed - (v.lastSpeed ?? v.speed)) / Math.max(step, 1e-3); v.lastSpeed = v.speed;
@@ -128,11 +128,13 @@ export class Traffic {
       if (last.type === 'line') {
         const node = last.to; let opts = node.segs.filter((s) => s !== last.seg && !(s.level >= 3 && (v.type === 'bus' || v.type === 'pbus' || v.type === 'lorry')));
         opts = opts.filter((s) => { const o = otherEnd(s, node); return o.x > L.BOUNDS.minX + 10 && o.x < L.BOUNDS.maxX - 10 && o.z > L.BOUNDS.minZ + 10 && o.z < L.BOUNDS.maxZ - 10; });
-        let next;
-        if (!opts.length) next = last.seg; else next = this.rng.weighted(opts.map((s) => [s, (s.dir === last.seg.dir ? 2.2 : 1) * (s.level <= last.seg.level ? 1.3 : 0.7)]));
+        let next = null;
+        if (ai.route && ai.route.length) { const want = ai.route[0]; next = node.segs.find((s) => otherEnd(s, node) === want && this.drivable.has(s)) || null; if (next) ai.route.shift(); else ai.route = null; } // planned route (police units)
+        if (next) {} else if (!opts.length) next = last.seg; else next = this.rng.weighted(opts.map((s) => [s, (s.dir === last.seg.dir ? 2.2 : 1) * (s.level <= last.seg.level ? 1.3 : 0.7)]));
         const to = otherEnd(next, node); const lanes = next.level <= 1 ? 2 : 1; const lane = Math.min(lanes - 1, last.lane);
         const nl = linePiece(next, node, to, lane);
         ai.pieces.push(curvePiece(last, nl, node)); ai.pieces.push(nl); last = nl;
+        if (ai.goal && !ai.goal.piece && nl.seg === ai.goal.seg && nl.from === ai.goal.from) ai.goal.piece = nl;
       } else break;
     }
   }
@@ -143,14 +145,14 @@ export class Traffic {
     let budget = 2; while (this.vehicles.length < this.max && budget-- > 0) this.spawn(focus, camDir, this.vehicles.length < this.max * 0.4);
     this.updateParked(dt, focus);
     // spatial bins for following
-    const all = this.vehicles; const playerV = player && player.vehicle;
+    const all = this.vehicles; const playerV = player && player.vehicle; this.emergency = all.filter((v) => v.ai && v.ai.emergency && v.beaconsOn);
     for (const v of all) this.step(v, dt, all, pedsNear, playerV, player);
     for (const v of all) if (v.driverChar || (v.pax && v.pax.length)) this.updateOccupants(v, dt, focus);
     if (playerV && playerV.pax && playerV.pax.length) this.updateOccupants(playerV, dt, focus);
     this.updateDisembark(dt);
   }
   step(v, dt, all, peds, playerV, player) {
-    const ai = v.ai; if (!ai) return; const p = ai.pieces[0];
+    const ai = v.ai; if (!ai) return; if (ai.stopped) { v.speed = 0; v.brake = true; return; } const p = ai.pieces[0]; // stopped = crew out of a police unit (handbrake on, nobody at the wheel)
     const [fx, fz] = [Math.sin(v.yaw), Math.cos(v.yaw)];
     // --- leader gap
     let gap = 60, leadV = 0; if (v.hold) gap = -1; // player is getting in: brake to a stop
@@ -158,7 +160,18 @@ export class Traffic {
       const rx = ox - v.x, rz = oz - v.z; const along = rx * fx + rz * fz; if (along <= 0 || along > 45) return;
       const lat = Math.abs(rx * fz - rz * fx); if (lat > latTol) return; const g = along - v.half - len; if (g < gap) { gap = g; leadV = ov; }
     };
-    for (const o of all) { if (o === v) continue; if (Math.abs(o.x - v.x) > 45 || Math.abs(o.z - v.z) > 45) continue; const ofx = Math.sin(o.yaw), ofz = Math.cos(o.yaw); const sameDir = ofx * fx + ofz * fz; consider(o.x, o.z, Math.max(0, o.speed * sameDir), o.half, sameDir > 0.3 ? 1.7 : 1.2); }
+    let leadCiv = false; for (const o of all) { if (o === v) continue; if (Math.abs(o.x - v.x) > 45 || Math.abs(o.z - v.z) > 45) continue; const ofx = Math.sin(o.yaw), ofz = Math.cos(o.yaw); const sameDir = ofx * fx + ofz * fz; const g0 = gap; consider(o.x, o.z, Math.max(0, o.speed * sameDir), o.half, sameDir > 0.3 ? 1.7 : 1.2); if (gap < g0) leadCiv = !o.isTrain && !(o.ai && o.ai.emergency) && sameDir > 0.3; }
+    // emergency unit (lights on): overtake slow traffic through the centre of the road; civilians ahead pull over and slow down
+    const em = ai.emergency && v.beaconsOn; ai.lat = ai.lat || 0; let latWant = 0;
+    if (em) {
+      if (leadCiv && gap < 22) ai.overT = 2.5; else ai.overT = Math.max(0, (ai.overT || 0) - dt);
+      if (ai.overT > 0 || Math.abs(ai.lat) > 0.5) { const bx = v.x - fz * ai.lat, bz = v.z + fx * ai.lat; let blocked = false; for (const o of all) { if (o === v || (o.ai && o.ai.emergency)) continue; const rx = o.x - bx, rz = o.z - bz; const al = rx * fx + rz * fz; if (al < -7 || al > 14) continue; if (Math.abs(rx * fz - rz * fx) < 1.7) { blocked = true; break; } } if (blocked) ai.overT = Math.max(ai.overT, 0.6); }
+      latWant = ai.overT > 0 ? -(p.type === 'line' && p.seg.level >= 2 ? 2.6 : 3.3) : 0;
+    } else if (this.emergency.length) {
+      for (const e of this.emergency) { if (e === v) continue; const rx = v.x - e.x, rz = v.z - e.z; const efx = Math.sin(e.yaw), efz = Math.cos(e.yaw); const al = rx * efx + rz * efz; if (al > 0 && al < 38 && Math.abs(rx * efz - rz * efx) < 2.6 && efx * fx + efz * fz > 0.5) { ai.yieldT = 2.5; break; } }
+    }
+    if (ai.yieldT > 0) { ai.yieldT -= dt; latWant = 0.9; }
+    ai.lat += clamp(latWant - ai.lat, -2.2 * dt, 2.2 * dt);
     if (playerV) consider(playerV.x, playerV.z, Math.max(0, playerV.speed * (Math.sin(playerV.yaw) * fx + Math.cos(playerV.yaw) * fz)), playerV.half, 1.9);
     else if (player) consider(player.x, player.z, 0, 0.4, 1.9);
     if (peds) for (const q of peds) consider(q.x, q.z, 0, 0.4, q.crossing ? 2.6 : 1.4);
@@ -166,7 +179,8 @@ export class Traffic {
     let stopAt = Infinity;
     if (p.type === 'line') {
       const rem = p.len - ai.s; const node = p.to; const next = ai.pieces[1];
-      if (node.signal && node.hwH > 0 && node.hwV > 0) {
+      if (em) {} // responding units with lights on proceed through signals and junctions (slowed by the curve speed)
+      else if (node.signal && node.hwH > 0 && node.hwV > 0) {
         const st = L.signalState(node, p.seg.dir, this.simTime);
         if (st === 'red' || (st === 'yellow' && rem > v.speed * 1.2 + 4)) stopAt = rem - 0.5;
       } else if (next && next.type === 'curve' && node.segs.length >= 3) {
@@ -176,11 +190,13 @@ export class Traffic {
         if (rem < 6 && !busy) this.res.set(node.id, { id: v.id, t: this.simTime });
       }
     } else if (p.type === 'curve') this.res.set(p.node.id, { id: v.id, t: this.simTime });
-    if (this.rail) { const d = this.rail.stopDistance(v); if (d < stopAt) stopAt = d; } // level crossing: lamps flashing / booms down
+    if (this.rail) { const d = this.rail.stopDistance(v); if (d < stopAt) stopAt = d; }
+    if (ai.goal && ai.goal.piece) { const k = ai.pieces.indexOf(ai.goal.piece); if (k >= 0) { let dist = -ai.s; for (let q = 0; q < k; q++) dist += ai.pieces[q].len; dist += ai.goal.s; ai.goal.dist = dist; if (dist < stopAt && !ai.goal.soft) stopAt = Math.max(-1, dist); } } // soft goal = moving target (pursuit): steer there without braking for it // level crossing: lamps flashing / booms down
     // --- IDM
     const nextCurve = p.type === 'line' ? ai.pieces[1] : p; const curveV = nextCurve && nextCurve.type === 'curve' && nextCurve.turn !== 'straight' ? (nextCurve.turn === 'uturn' ? 3 : 6.5) : ai.v0;
     let v0 = ai.v0; if (p.type === 'curve') v0 = curveV; else if (p.len - ai.s < 25) v0 = Math.min(v0, lerp(curveV, ai.v0, (p.len - ai.s) / 25));
     if (this.weatherRain) v0 *= 1 - this.weatherRain * 0.2;
+    if (ai.yieldT > 0) v0 = Math.min(v0, 2.5);
     const s0 = 2.2, T = 1.2 / ai.aggressive, a = v.T.accel * 0.8, b = 3.5; const sp = v.speed;
     const g2 = Math.min(gap, stopAt); const lv = stopAt < gap ? 0 : leadV;
     const sStar = s0 + Math.max(0, sp * T + (sp * (sp - lv)) / (2 * Math.sqrt(a * b)));
@@ -191,13 +207,13 @@ export class Traffic {
     // horn when blocked by something other than a red light
     ai.honkCd -= dt;
     if (v.speed < 0.5 && gap < 8 && stopAt === Infinity) { ai.stuck += dt; if (ai.stuck > 2.5 / ai.aggressive && ai.honkCd <= 0) { ai.honkCd = 3 + this.rng.next() * 4; this.events.emit('horn', v); } } else ai.stuck = Math.max(0, ai.stuck - dt);
-    if (ai.stuck > 25) { v.keep = false; this.remove(v); this.vehicles.splice(this.vehicles.indexOf(v), 1); return; } // hopelessly stuck → recycle out of view
+    if (ai.stuck > 25 && !v.police) { v.keep = false; this.remove(v); this.vehicles.splice(this.vehicles.indexOf(v), 1); return; } // hopelessly stuck → recycle out of view
     // --- advance along pieces
     ai.s += v.speed * dt;
     while (ai.s > ai.pieces[0].len) { ai.s -= ai.pieces[0].len; ai.pieces.shift(); this.extend(v); }
     const [x, z, yaw] = evalPiece(ai.pieces[0], ai.s);
     const dyaw = Math.atan2(Math.sin(yaw - v.yaw), Math.cos(yaw - v.yaw)); v.steer = clamp(dyaw * 4, -0.6, 0.6);
-    v.x = x; v.z = z; v.yaw = yaw; v.y = L.groundY(x, z); v.lights = this.night > 0.4; v.sync(dt);
+    const lx = Math.cos(yaw) * ai.lat, lz = -Math.sin(yaw) * ai.lat; v.x = x + lx; v.z = z + lz; v.yaw = yaw; v.y = L.groundY(v.x, v.z); v.lights = this.night > 0.4; v.sync(dt);
   }
   remove(v) { if (v.driverChar) { v.driverChar.dispose(); } if (v.pax && v.pax.length) this.dropPax(v); v.dispose(); }
   // Hand a vehicle over to the player (car-jack: driver steps out and walks off grumbling)
@@ -220,4 +236,4 @@ export class Traffic {
   }
   nearest(x, z, maxD = 4) { let best = null, bd = maxD * maxD; for (const v of this.all()) { if (v.player || v.isTrain) continue; const d = (v.x - x) ** 2 + (v.z - z) ** 2; if (d < bd) { bd = d; best = v; } } return best; }
 }
-export { evalPiece, linePiece };
+export { evalPiece, linePiece, curvePiece, otherEnd, segNodes, laneOffset };

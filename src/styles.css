@@ -136,8 +136,8 @@ select { background: #0e1318; color: var(--paper); border: 1px solid rgba(255, 2
 .street { position: absolute; left: 262px; bottom: 34px; font-size: 18px; letter-spacing: 0.08em; opacity: 0; transition: opacity 0.5s; text-shadow: 0 1px 6px #000; color: var(--paper); }
 .street.show { opacity: 0.9; }
 .hud-info { position: absolute; right: 28px; top: 24px; text-align: right; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8); }
-.clock { font-size: 30px; font-weight: 600; letter-spacing: 0.06em; }
-.money { font-size: 20px; color: var(--teal); font-weight: 600; letter-spacing: 0.05em; }
+.clock { font-size: 30px; font-weight: 600; letter-spacing: 0.06em; text-shadow: 0 0 8px rgba(0,0,0,0.85), 0 1px 2px #000; }
+.money { font-size: 20px; color: var(--teal); font-weight: 700; letter-spacing: 0.05em; text-shadow: 0 0 8px rgba(0,0,0,0.9), 0 1px 2px #000, 0 0 2px #000; }
 .objective { position: absolute; left: 28px; top: 24px; max-width: 420px; padding: 10px 16px 12px; border-left: 3px solid var(--gold); background: linear-gradient(90deg, rgba(8, 10, 14, 0.75), rgba(8, 10, 14, 0)); opacity: 0; transform: translateX(-10px); transition: opacity 0.4s, transform 0.4s; }
 .objective.show { opacity: 1; transform: none; }
 .obj-title { font-size: 13px; letter-spacing: 0.25em; text-transform: uppercase; color: var(--gold2); font-weight: 700; }
@@ -224,6 +224,8 @@ select { background: #0e1318; color: var(--paper); border: 1px solid rgba(255, 2
 .weap-msg.on { opacity: 1; }
 .heat { position: absolute; right: 28px; top: 112px; display: flex; gap: 8px; align-items: center; font-size: 14px; letter-spacing: 0.18em; color: #9fc3ff; text-shadow: 0 1px 6px #000; animation: heatp 1.4s infinite; }
 .heat b { font-size: 20px; letter-spacing: 0.1em; color: #fff; } .heat.hide { display: none; }
+.heat { flex-wrap: wrap; justify-content: flex-end; max-width: 260px; background: linear-gradient(90deg, rgba(8,12,18,0) 0%, rgba(8,12,18,0.55) 22%, rgba(8,12,18,0.62) 100%); padding: 5px 10px 5px 26px; border-radius: 4px; row-gap: 2px; } .heat i { flex-basis: 100%; text-align: right; font-style: normal; font-size: 12px; letter-spacing: 0.22em; color: #ffd36a; font-weight: 700; }
+.heat.calm { animation: none; color: #9ad06a; } .heat.calm i { color: #9ad06a; }
 @keyframes heatp { 50% { color: #ff8a7a; } }
 .scope { position: absolute; inset: 0; opacity: 0; transition: opacity 0.12s; }
 .scope.on { opacity: 1; }

@@ -66,8 +66,9 @@ export class Player {
     // unarmed idle: after standing still a while, an occasional natural fidget (check watch, cross arms, look around…)
     const calm = this.control && !this.crouching && !A.action && !(this.weapons && this.weapons.drawn) && this.grounded && this.speed < 0.1 && !this.indoorBusy;
     this.idleT = calm ? (this.idleT || 0) + dt : 0;
+    if (this.policeStop) this.idleT = 0; // no casual fidgets while an officer is speaking to you
     if (this.idleT > (this.nextFidget ||= 9 + Math.random() * 6)) { const f = ['watch', 'crossarms', 'look', 'hips', 'stretch'][Math.floor(Math.random() * 5)]; A.play(f, f === 'look' ? 3.5 : 3); this.idleT = 0; this.nextFidget = 10 + Math.random() * 10; }
-    if (A.action && ['watch', 'crossarms', 'hips'].includes(A.action) && (this.speed > 0.3 || !this.control)) A.set(null);
+    if (A.action && ['watch', 'crossarms', 'hips', 'stretch', 'look'].includes(A.action) && (this.speed > 0.3 || !this.control || this.policeStop)) A.set(null);
     A.update(dt, this.speed, turnRate);
     this.sync();
     if (A.stepped) { A.stepped = false; if (this.grounded && this.speed > 0.5) this.events.emit('footstep', { x: this.x, z: this.z, sprint: this.sprinting }); } // real foot contacts from the gait
