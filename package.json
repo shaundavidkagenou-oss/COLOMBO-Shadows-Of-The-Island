@@ -11,7 +11,8 @@
     "test:smoke": "node tools/smoke-test.mjs",
     "test:seats": "node tools/seat-ik-test.mjs",
     "test:anim": "node tools/anim-test.mjs",
-    "test": "node tools/seat-ik-test.mjs && node tools/anim-test.mjs && node tools/smoke-test.mjs"
+    "test": "node tools/seat-ik-test.mjs && node tools/anim-test.mjs && node tools/appearance-test.mjs && node tools/smoke-test.mjs",
+    "test:appearance": "node tools/appearance-test.mjs"
   },
   "dependencies": {
     "@fontsource/barlow-condensed": "^5.3.0",

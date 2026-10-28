@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import * as L from '../world/Layout.js';
 import { plan } from '../world/CityPlan.js';
 import { Character, randomSpec } from './Character.js';
+import { PRESETS, lookKey, profileActivity } from './Appearance.js';
 import { RNG } from '../core/rng.js';
 import { clamp, lerp, dampAngle, wrapAngle } from '../core/math.js';
 import { LINES, pick } from '../story/Lines.js';
@@ -17,7 +18,19 @@ export class Crowd {
     this.mainComp = this.largestComponent();
   }
   key(x, z) { return Math.floor(x / 40) * 1000 + Math.floor(z / 40); }
-  prepareSpecs(n = 40) { for (let i = 0; i < n; i++) { const sp = randomSpec(9000 + i * 17); this.specs.push(sp); new Character(sp).dispose(); } } // pre-build geometry
+  // pre-built pool: one person of every adult preset first (so every type appears), then extra seeded variations
+  prepareSpecs(n = 8) { for (let i = 0; i < n; i++) { const k = this.specs.length; const sp = randomSpec(9000 + k * 17, k < PRESETS.length ? { preset: PRESETS[k].id } : {}); this.specs.push(sp); new Character(sp).dispose(); } }
+  // who walks here now: profile activity for the hour (office rush, morning joggers, daytime tourists, few people late at night),
+  // and never the same preset/look as someone within 25 m, so there are no side-by-side clones
+  pickSpec(x, z) {
+    const h = this.hour ?? 12;
+    for (let k = 0; k < 14; k++) {
+      const sp = this.specs[Math.floor(this.rng.next() * this.specs.length)]; if (this.rng.next() > profileActivity(sp.profile, h)) continue;
+      const lk = lookKey(sp); if (this.peds.some((q) => (q.sp.preset === sp.preset || lookKey(q.sp) === lk) && Math.hypot(q.x - x, q.z - z) < 25)) continue;
+      return sp;
+    }
+    return null;
+  }
   largestComponent() { // spawn only on the main connected component so peds never get trapped
     const comp = new Int32Array(L.pedNodes.length).fill(-1); let best = -1, bestN = 0, c = 0;
     for (const n of L.pedNodes) { if (comp[n.id] >= 0) continue; const st = [n.id]; comp[n.id] = c; let cnt = 0; while (st.length) { const id = st.pop(); cnt++; for (const e of L.pedNodes[id].edges) { const E = L.pedEdges[e]; const o = E.a === id ? E.b : E.a; if (comp[o] < 0) { comp[o] = c; st.push(o); } } } if (cnt > bestN) { bestN = cnt; best = c; } c++; }
@@ -39,10 +52,9 @@ export class Crowd {
       const n = cand[Math.floor(this.rng.next() * cand.length)];
       const d = Math.hypot(n.x - focus.x, n.z - focus.z); if (d > (near ? 70 : 130) || d < (near ? 8 : 40)) continue;
       if (!near && camDir && d < 90) { const dot = ((n.x - focus.x) * camDir.x + (n.z - focus.z) * camDir.z) / d; if (dot > 0.55) continue; }
-      const nightF = this.night || 0; const sp = this.specs[Math.floor(this.rng.next() * this.specs.length)];
-      if (nightF > 0.7 && (sp.age === 'child' || sp.outfit === 'school_girl' || sp.outfit === 'school_boy') && this.rng.chance(0.85)) continue;
+      const sp = this.pickSpec(n.x, n.z); if (!sp) continue;
       const ch = new Character(sp); this.scene.add(ch.root);
-      const p = { ch, x: n.x + this.rng.range(-1, 1), z: n.z + this.rng.range(-1, 1), yaw: this.rng.range(-3, 3), speed: 0, state: 'walk', node: n.id, target: null, edge: null, lat: this.rng.range(-0.6, 0.6), pace: this.rng.range(1.15, 1.5) * (sp.age === 'elder' ? 0.75 : sp.age === 'child' ? 1.05 : 1), timer: 0, act: null, react: 0, mood: 0, talkCd: 0, umbrella: this.rng.chance(0.5), crossing: false, id: this.rng.next(), sp, temper: this.rng.next(), vx: 0, vz: 0, stuckT: 0, stuckN: 0 };
+      const p = { ch, x: n.x + this.rng.range(-1, 1), z: n.z + this.rng.range(-1, 1), yaw: this.rng.range(-3, 3), speed: 0, state: 'walk', node: n.id, target: null, edge: null, lat: this.rng.range(-0.6, 0.6), pace: this.rng.range(1.15, 1.5) * (sp.age === 'elder' ? 0.75 : 1), timer: 0, act: null, react: 0, mood: 0, talkCd: 0, umbrella: this.rng.chance(0.5), crossing: false, id: this.rng.next(), sp, temper: this.rng.next(), vx: 0, vz: 0, stuckT: 0, stuckN: 0 };
       this.pickNext(p); this.peds.push(p); this.place(p); return p;
     }
   }
@@ -96,10 +108,10 @@ export class Crowd {
   }
   witness(p, w) {
     if (w.sev === 0) return; // just a glance (handled where it was queued)
-    const r = this.rng; const awayX = p.x - w.x, awayZ = p.z - w.z; const dd = Math.hypot(awayX, awayZ) || 1; const fearful = p.sp.age === 'child' || p.sp.age === 'elder' || p.temper < 0.3;
+    const r = this.rng; const awayX = p.x - w.x, awayZ = p.z - w.z; const dd = Math.hypot(awayX, awayZ) || 1; const fearful = p.sp.age === 'elder' || p.temper < 0.3;
     if (w.sev === 1) {
       if (!this.isRoutine(p.state)) return;
-      const k = r.weighted([['look', 5], ['watch', 3], ['film', p.sp.age === 'teen' || p.sp.age === 'adult' ? 1 : 0], ['comment', 1.5], ['avoid', 1.5]]);
+      const k = r.weighted([['look', 5], ['watch', 3], ['film', p.sp.age === 'adult' ? (p.sp.band === 'young' ? 1.6 : 0.8) : 0], ['comment', 1.5], ['avoid', 1.5]]);
       p.ch.face.set(r.chance(0.5) ? 'surprise' : 'concern', 1.8);
       if (k === 'look') { p.lookT = 1.5 + r.next() * 2; p.lookAtPt = { x: w.x, z: w.z }; }
       else if (k === 'watch' || k === 'film') { this.react(p, 'watch', 3 + r.next() * 4, { lookAt: { x: w.x, z: w.z } }); if (k === 'film') p.ch.anim.set('photo'); else if (r.chance(0.3)) this.speak(p, 'witness'); p.ch.face.mood = 'concern'; }
@@ -127,7 +139,7 @@ export class Crowd {
     this.alarm(p.x, p.z, 30, 3, p);
   }
   update(dt, focus, camDir, ctx) {
-    this.t += dt; this.frame++; this.simTime = ctx.simTime; this.vehicles = ctx.vehicles; this.rain = ctx.rain > 0.4; this.night = ctx.night;
+    this.t += dt; this.frame++; this.simTime = ctx.simTime; this.vehicles = ctx.vehicles; this.rain = ctx.rain > 0.4; this.night = ctx.night; this.hour = ctx.hour ?? this.hour;
     const player = ctx.player; this.camDir = camDir; this.focus = focus;
     // spawn / despawn (despawn only far away / out of view)
     for (let i = this.peds.length - 1; i >= 0; i--) { const p = this.peds[i]; if ((Math.hypot(p.x - focus.x, p.z - focus.z) > 165 && !p.keep) || p.recycle) { this.despawn(p); this.peds.splice(i, 1); } }
@@ -201,15 +213,15 @@ export class Crowd {
           const fall = clamp(p.downT / 0.55, 0, 1), rise = clamp(1 - p.timer / 0.9, 0, 1); const k = fall * (1 - rise);
           p.ch.mesh.rotation.x = -1.45 * (k * k * (3 - 2 * k)); p.ch.mesh.position.y = 0.12 * k;
           if (p.timer <= 0) { p.ch.mesh.rotation.x = 0; p.ch.mesh.position.y = 0; p.hits = 0; p.downT = 0;
-            if (p.knockedByCar && p.temper > 0.55 && p.sp.age !== 'child' && this.rng.chance(0.6)) { this.react(p, 'confront', 3.5); p.ch.anim.set('argue'); p.ch.face.set('angry', 4); this.speak(p, 'annoyed', 1); }
+            if (p.knockedByCar && p.temper > 0.55 && this.rng.chance(0.6)) { this.react(p, 'confront', 3.5); p.ch.anim.set('argue'); p.ch.face.set('angry', 4); this.speak(p, 'annoyed', 1); }
             else { p.state = 'flee'; p.timer = 3 + this.rng.next() * 3; p.fleeSp = 2.6 + this.rng.next(); const ax = p.x - player.x, az = p.z - player.z, d = Math.hypot(ax, az) || 1; p.fleeDir = this.spread(ax / d, az / d, 0.8); this.speak(p, 'scared', 1); }
             p.knockedByCar = false; }
           break; }
         case 'stumble': { // shoved: momentum carries them, arms flail; then a temper-dependent response
           p.timer -= dt; desired = 0; accel = 4; avoid = false;
           if (p.timer <= 0) {
-            const r = this.rng; const kid = p.sp.age === 'child', old = p.sp.age === 'elder';
-            const k = r.weighted([['confront', kid ? 0 : p.temper * 4], ['complain', 2.5], ['flee', kid || old ? 3 : (1 - p.temper) * 2], ['report', old ? 1.5 : 0.6], ['shrug', 1.2]]);
+            const r = this.rng; const old = p.sp.age === 'elder';
+            const k = r.weighted([['confront', old ? p.temper * 1.5 : p.temper * 4], ['complain', 2.5], ['flee', old ? 3 : (1 - p.temper) * 2], ['report', old ? 1.5 : 0.6], ['shrug', 1.2]]);
             if (k === 'confront') { this.react(p, 'confront', 3 + r.next() * 2.5); p.ch.anim.set(r.chance(0.5) ? 'argue' : 'point'); p.ch.face.set('angry', 5); p.ch.face.mood = 'angry'; this.speak(p, 'shoved', 1, 2.5); }
             else if (k === 'complain') { this.react(p, 'complain', 3.5 + r.next() * 2); p.ch.face.set('concern', 4); this.speak(p, 'annoyed', 1); }
             else if (k === 'flee') { const ax = p.x - player.x, az = p.z - player.z, d = Math.hypot(ax, az) || 1; this.react(p, 'flee', 2.5 + r.next() * 2, { fleeDir: this.spread(ax / d, az / d, 0.6), fleeSp: 3 + r.next() }); p.ch.face.set('fear', 3); this.speak(p, 'scared', 1); }
@@ -339,7 +351,7 @@ export class Crowd {
     const face = p.ch.face; p.talkCd = 0;
     if (kind === 'talk') { this.react(p, 'talkPlayer', 4); p.ch.anim.set('talk'); face.set('smile', 1.5); this.speak(p, this.rng.chance(0.3) ? 'directions' : 'greet', 1, 2.5); }
     else if (kind === 'wave') { this.react(p, 'talkPlayer', 2.5); p.ch.anim.set('wave'); face.set('smile', 2.5); this.speak(p, 'greet', 1); }
-    else if (kind === 'insult') { if (this.rng.chance(0.6) && p.sp.age !== 'child' && p.sp.age !== 'elder') { this.react(p, 'argue', 4); p.ch.anim.set('argue'); face.set('angry', 4); this.speak(p, 'annoyed', 1, 2.5); } else { const ax = p.x - player.x, az = p.z - player.z, d = Math.hypot(ax, az) || 1; this.react(p, 'flee', 3, { fleeDir: this.spread(ax / d, az / d, 0.5), fleeSp: 2.6 }); face.set('fear', 2); this.speak(p, 'scared', 1); } }
+    else if (kind === 'insult') { if (this.rng.chance(0.6) && p.sp.age !== 'elder') { this.react(p, 'argue', 4); p.ch.anim.set('argue'); face.set('angry', 4); this.speak(p, 'annoyed', 1, 2.5); } else { const ax = p.x - player.x, az = p.z - player.z, d = Math.hypot(ax, az) || 1; this.react(p, 'flee', 3, { fleeDir: this.spread(ax / d, az / d, 0.5), fleeSp: 2.6 }); face.set('fear', 2); this.speak(p, 'scared', 1); } }
     else if (kind === 'shove') {
       const dx = p.x - player.x, dz = p.z - player.z, d = Math.hypot(dx, dz) || 1;
       this.react(p, 'stumble', 0.75 + this.rng.next() * 0.35); p.vx = dx / d * 2.4; p.vz = dz / d * 2.4; p.ch.anim.set('stumble'); face.set('surprise', 1.2);

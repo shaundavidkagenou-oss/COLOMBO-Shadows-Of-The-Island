@@ -69,7 +69,7 @@ export class Game {
     this.atmos.listeners.thunder = () => Audio.thunder(Math.random() * 0.7);
     progress(0.76, 'People of Colombo'); await tick();
     this.crowd = new Crowd(this.scene, this.collision, bus);
-    for (let i = 0; i < 40; i += 4) { this.crowd.prepareSpecs(4); progress(0.76 + 0.1 * (i / 40), 'People of Colombo'); await tick(); }
+    for (let i = 0; i < 64; i += 8) { this.crowd.prepareSpecs(8); progress(0.76 + 0.1 * (i / 64), 'People of Colombo'); await tick(); }
     progress(0.86, 'Tuk-tuks, buses and traffic'); await tick();
     this.traffic = new Traffic(this.scene, this.collision, bus); this.traffic.crowd = this.crowd;
     this.player = new Player(this.scene, this.camera, this.collision, bus); this.player.crowd = this.crowd;
@@ -193,7 +193,7 @@ export class Game {
     bus.on('exitVehicle', () => { Audio.ui('door'); if (this.radio) { this.radio = 0; } });
     bus.on('npcLine', ({ ped, line, prio }) => {
       if (!Settings.get('subtitles') && prio < 1) return; const P = this.player; const d = Math.hypot(ped.x - P.x, ped.z - P.z); if (d > (prio ? 16 : 9) || this.director.active || this.indoor) return;
-      if ((this.hud.subUntil || 0) > performance.now() && (!prio || this.story.running)) return; const lang = line.si ? 'si' : line.ta ? 'ta' : 'en'; const who = ped.sp?.sex === 'f' ? (ped.sp.age === 'child' ? 'Girl' : ped.sp.age === 'elder' ? 'Aunty' : 'Woman') : (ped.sp?.age === 'child' ? 'Boy' : ped.sp?.age === 'elder' ? 'Uncle' : 'Man');
+      if ((this.hud.subUntil || 0) > performance.now() && (!prio || this.story.running)) return; const lang = line.si ? 'si' : line.ta ? 'ta' : 'en'; const who = ped.sp?.profile === 'tourist' ? 'Tourist' : ped.sp?.sex === 'f' ? (ped.sp.age === 'elder' ? 'Aunty' : 'Woman') : (ped.sp?.age === 'elder' ? 'Uncle' : 'Man');
       this.hud.subtitle(who, line.si || line.ta || line.en, line.tr || '', 3, lang); Audio.talkBlip(lang);
     });
     bus.on('pedHit', (p) => { if (p && p.knockedByCar) Audio.crash(4); });
@@ -259,7 +259,7 @@ export class Game {
     this.world.simTime = this.clock; this.world.update(dt, f, cam, A); A.update(dt, fv, cam, dt); setVehicleNight(A.night);
     const camDir = new THREE.Vector3(); cam.getWorldDirection(camDir);
     this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; this.traffic.update(dt, f, camDir, this.clock, this.crowd.peds, this.ghost);
-    this.crowd.update(dt, f, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: this.ghost, hourFactor: this.hourFactor() });
+    this.crowd.update(dt, f, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: this.ghost, hourFactor: this.hourFactor(), hour: A.hour });
     Audio.update(dt, { listener: { x: cam.position.x, z: cam.position.z, yaw: Math.atan2(camDir.x, camDir.z) }, night: A.night, rain: A.w.rain, wind: A.w.wind, traffic: this.traffic.vehicles.length, vehicles: [], indoor: false });
   }
   hourFactor() { const h = this.atmos.hour; if (h < 5) return 0.25; if (h < 7) return 0.55; if (h < 19) return 1; if (h < 22) return 0.8; return 0.45; }
@@ -287,7 +287,7 @@ export class Game {
     if (this.indoor) { A.sun.intensity = 0; A.hemi.intensity *= 0.25; A.ambient.intensity = 0.25; this.scene.environmentIntensity = 0.25; A.rain.visible = false; this.renderer.toneMappingExposure = 1; }
     const camDir = new THREE.Vector3(); cam.getWorldDirection(camDir);
     this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; this.traffic.update(dt, focus, camDir, this.clock, this.crowd.peds, P);
-    this.crowd.update(dt, focus, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: P, hourFactor: this.hourFactor() });
+    this.crowd.update(dt, focus, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: P, hourFactor: this.hourFactor(), hour: A.hour });
     if (P.vehicle && A.night > 0.5 && P.nightLights === undefined) { P.vehicle.lights = true; }
     // story & prompts
     const storyPrompt = D.active ? null : this.story.update(dt);

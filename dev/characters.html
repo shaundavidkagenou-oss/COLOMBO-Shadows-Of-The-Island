@@ -23,5 +23,12 @@ if (params.get('strip')) { chars.forEach((c) => (c.root.visible = false)); const
 // ?faces=1 : close-up row of heads showing every expression frame
 if (params.get('faces')) { const { FACE_FRAMES } = await import('/src/gfx/Textures.js'); chars.forEach((c, i) => { c.root.visible = i < FACE_FRAMES.length; c.root.position.set((i - 4.5) * 0.3, 0, 0); c.face.show(i % FACE_FRAMES.length); c.face.update = () => {}; });
   cam.fov = 9; cam.position.set(0, 1.62, 9); cam.lookAt(0, 1.6, 0); cam.updateProjectionMatrix(); }
+// ?presets=<page>&per=12[&heads=1][&side=1] : every adult preset from Appearance.js, one generated person each (seed varies with &seed=)
+if (params.has('presets')) { const { PRESETS } = await import('/src/actors/Appearance.js'); chars.forEach((c) => (c.root.visible = false));
+  const per = +(params.get('per') || 12), pg = +params.get('presets'), heads = params.get('heads'); const list2 = PRESETS.slice(pg * per, pg * per + per);
+  const gap = heads ? 0.34 : 0.62; const W = (list2.length - 1) * gap;
+  list2.forEach((p, i) => { const c = new Character(randomSpec(+(params.get('seed') || 77) + i * 31, { preset: p.id })); c.root.position.set(i * gap - W / 2, 0, 0); if (params.get('side')) c.root.rotation.y = Math.PI / 2; if (params.get('back')) c.root.rotation.y = Math.PI; s.add(c.root); const a = acts[mode] || [0, mode]; for (let k = 0; k < 40; k++) { c.anim.set(a[1]); c.anim.update(0.033, a[0]); } c.face.update = () => {}; });
+  const aspect = r.domElement.width / r.domElement.height; cam.aspect = aspect; const d = (W + gap) / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)) * aspect);
+  if (heads) { cam.position.set(0, 1.58, d); cam.lookAt(0, 1.58, 0); } else { cam.position.set(0, 1.0, Math.max(d, 4.6)); cam.lookAt(0, 0.9, 0); } cam.updateProjectionMatrix(); window.__presets = list2.map((p) => p.id); }
 r.render(s, cam); window.done = true; window.__ready = true;
 </script></body></html>

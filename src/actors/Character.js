@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { applySeatPose, seatLocal } from './Seating.js';
 import { TEX, faceAtlas, FACE_FRAMES } from '../gfx/Textures.js';
 import { RNG } from '../core/rng.js';
+import { makeAppearance, FACE_VARIANTS } from './Appearance.js';
 import { lerp, clamp, damp } from '../core/math.js';
 
 export const BONES = ['hips', 'spine', 'chest', 'neck', 'head', 'shL', 'armL', 'foreL', 'handL', 'shR', 'armR', 'foreR', 'handR', 'thighL', 'shinL', 'footL', 'thighR', 'shinR', 'footR'];
@@ -113,6 +114,9 @@ export function buildBodyGeometry(sp) {
     { y: 1.47, rx: 0.062, rz: 0.06, wgt: W2('chest', 'neck', 0.5), col: sp.collar ? top : skin },
     { y: 1.55, rx: 0.05, rz: 0.05, wgt: W1('neck'), col: skin },
   ];
+  const bel = sp.belly || 0; if (bel) [[2, 0.03, 0.02], [3, 0.045, 0.032], [4, 0.022, 0.012]].forEach(([i, dz, df]) => { tr[i].rz += bel * dz * w; tr[i].fz = (tr[i].fz || 0) + bel * df; tr[i].rx += bel * 0.012 * w; });
+  // torso surface (front/back z at height y and offset x) so straps, lanyards and bags sit on the clothes, never inside
+  const surfZ = (y, x, sgn) => { let k = 0; while (k < tr.length - 2 && tr[k + 1].y * s < y) k++; const a = tr[k], b2 = tr[k + 1]; const t = clamp((y / s - a.y) / (b2.y - a.y), 0, 1); const rx = lerp(a.rx, b2.rx, t), rz = lerp(a.rz, b2.rz, t), fz = lerp(a.fz || 0, b2.fz || 0, t); const q = clamp(Math.abs(x) / rx, 0, 0.98); return sgn * rz * Math.sqrt(1 - q * q) + (sgn > 0 ? fz : 0); };
   const jacket = o === 'jacket';
   sb.loft(tr.map((r) => ({ c: [0, r.y * s, 0], rx: r.rx, rz: r.rz, fz: r.fz, w: r.wgt, col: r.col })), 16, {
     capStart: true,
@@ -136,16 +140,16 @@ export function buildBodyGeometry(sp) {
     // shoe / sandal
     const sandal = sp.sandals; const fc = sandal ? skin : shoe;
     sb.ellipsoid([ft[0], 0.05 * s, 0.045], 0.044, 0.042, 0.118, W1('foot' + side), fc, { lat: 7, lon: 12, bumpFn: (x, y, z) => (y < -0.2 ? 0.98 : 1) * (z > 0.6 ? 0.97 : 1) });
-    if (sandal) { sb.boxPart([ft[0], 0.008, 0.05], 0.1, 0.016, 0.27, W1('foot' + side), shoe); sb.boxPart([ft[0], 0.05 * s, 0.09], 0.092, 0.012, 0.03, W1('foot' + side), shoe); }
-    else sb.boxPart([ft[0], 0.011, 0.047], 0.094, 0.022, 0.262, W1('foot' + side), C(sp.shoes === '#e8e8e4' ? '#d8d8d4' : '#1a1512'));
+    if (sandal) { sb.boxPart([ft[0], 0.008, 0.05], 0.1, 0.016, 0.27, W1('foot' + side), C(sp.sole || sp.shoes || '#2a2420')); sb.boxPart([ft[0], 0.05 * s, 0.09], 0.092, 0.012, 0.03, W1('foot' + side), shoe); }
+    else sb.boxPart([ft[0], 0.011, 0.046], sp.sole ? 0.084 : 0.094, 0.022, sp.sole ? 0.24 : 0.262, W1('foot' + side), C(sp.sole || (sp.shoes === '#e8e8e4' ? '#d8d8d4' : '#1a1512')));
     void sx;
   }
   // --- skirt / sarong / saree / frock (cone from waist to hem, weighted mostly to hips)
   if (skirtLen) {
-    const hemY = skirtLen === 'ankle' ? 0.1 : skirtLen === 'mid' ? 0.32 : 0.48; const topY = o === 'saree' ? 0.93 : o === 'salwar' ? 1.2 : 0.97;
+    const hemY = skirtLen === 'ankle' ? 0.1 : skirtLen === 'mid' ? 0.32 : 0.48; const topY = o === 'saree' ? 0.93 : o === 'salwar' || o === 'kurti' || o === 'abaya' ? 1.2 : o === 'kurta' ? 1.02 : 0.97;
     const region = sp.pattern ?? 0; const N = 7; const rings = [];
     for (let i = 0; i < N; i++) {
-      const t = i / (N - 1), y = lerp(topY, hemY, t) * s; const flare = o === 'sarong' ? 0.02 : o === 'frock' || o === 'school_girl' ? 0.09 : 0.05;
+      const t = i / (N - 1), y = lerp(topY, hemY, t) * s; const flare = o === 'sarong' ? 0.02 : o === 'frock' ? 0.09 : o === 'skirt_top' ? 0.07 : o === 'abaya' ? 0.04 : 0.05;
       const rx = lerp(0.17 * w, 0.17 * w + flare + (skirtLen === 'ankle' ? 0.02 : 0), Math.pow(t, 0.8)), rz = lerp(0.12 * w, 0.13 * w + flare * 0.8, t);
       const legW = clamp((t - 0.25) * 0.6, 0, 0.45); // hem follows legs a little
       rings.push({ c: [0, y, 0.005], rx: rx + (y > 0.9 * s ? 0.005 : 0), rz, w: legW > 0 ? [[B.hips, 1 - legW], [B.thighL, legW / 2], [B.thighR, legW / 2]] : W1('hips'), col: C(sp.skirtCol || sp.bottom) });
@@ -193,43 +197,95 @@ export function buildBodyGeometry(sp) {
   }
   // --- head (separate group so it can take a face texture)
   const hc = [0, 1.635 * s, 0.015 * s];
-  const hr = f ? [0.083, 0.11, 0.098] : [0.088, 0.115, 0.102];
-  const headBump = (x, y, z) => 1 + (z > 0.5 && y < -0.2 ? -0.06 * (z - 0.5) : 0) + (y < -0.55 ? -0.08 * (-y - 0.55) * 2 : 0);
+  const HD = sp.head || {}; const jaw = HD.jaw ?? 1, chin = HD.chin ?? 0, cheek = HD.cheek ?? 0;
+  const hr = (f ? [0.083, 0.11, 0.098] : [0.088, 0.115, 0.102]).map((v, i) => v * [HD.w ?? 1, HD.h ?? 1, HD.d ?? 1][i]);
+  // jaw width (lower half, sides), chin projection (front-bottom) and cheekbones (front-mid sides) all vary per person
+  const headBump = (x, y, z) => 1 + (z > 0.5 && y < -0.2 ? -0.06 * (z - 0.5) : 0) + (y < -0.55 ? -0.08 * (-y - 0.55) * 2 : 0)
+    + (y < -0.15 ? (jaw - 1) * Math.min(1, (-y - 0.15) * 2.2) * Math.abs(x) * 1.3 : 0) + (z > 0.55 && y < -0.6 ? chin * 0.05 * Math.min(1, (z - 0.55) * 3) * Math.min(1, (-y - 0.6) * 4) : 0)
+    + (z > 0.2 && y > -0.4 && y < 0.1 ? cheek * 0.022 * Math.abs(x) * (1 - Math.abs(y + 0.15) * 4) : 0);
   sb.ellipsoid(hc, hr[0], hr[1], hr[2], W1('head'), skin, { lat: 16, lon: 24, faceUV: true, target: sb.headIdx, bumpFn: headBump });
   // nose + ears
-  sb.ellipsoid([0, hc[1] - 0.012, hc[2] + hr[2] - 0.004], 0.016, 0.026, 0.022, W1('head'), skin, { lat: 5, lon: 8, p0: 0.3 });
-  for (const sx of [-1, 1]) sb.ellipsoid([sx * hr[0], hc[1], hc[2] - 0.01], 0.012, 0.03, 0.02, W1('head'), skin, { lat: 4, lon: 6 });
+  { const nz = HD.nose || [1, 1, 1]; sb.ellipsoid([0, hc[1] - 0.012 - (nz[1] - 1) * 0.012, hc[2] + hr[2] - 0.004], 0.016 * nz[0], 0.026 * nz[1], 0.022 * nz[2], W1('head'), skin, { lat: 5, lon: 8, p0: 0.3 }); }
+  if (sp.hair !== 'hijab') { const es = HD.ear ?? 1; for (const sx of [-1, 1]) sb.ellipsoid([sx * hr[0], hc[1], hc[2] - 0.01], 0.012 * es, 0.03 * es, 0.02 * es, W1('head'), skin, { lat: 4, lon: 6 }); }
   // hair
-  const hs = sp.hair;
-  if (hs !== 'bald') {
-    const capCol = (x, y, z) => hair; const lift = hs === 'wavy' ? 1.1 : hs === 'grey' ? 1.04 : 1.06;
-    // hairline: high on the forehead, down past the temples to the ears, lower at the nape; below it the cap tucks inside the head
-    const hairline = (x, z) => { const fr = smooth01((z + 0.1) / 0.75); return lerp(-0.25, f ? 0.4 : 0.5, fr) - (f ? 0.06 * Math.max(0, 1 - Math.abs(x) * 4) * 0 : 0) + (f && z > 0.6 ? 0.04 * Math.cos(x * 9) : 0); };
-    const bump = (x, y, z) => (y < hairline(x, z) ? 0.9 / lift : 1) * (hs === 'wavy' ? 1 + 0.04 * Math.sin(x * 14) * Math.cos(z * 11) : 1);
-    // cap covers top/back; front hairline higher
-    sb.ellipsoid([hc[0], hc[1] + 0.012, hc[2] - 0.006], hr[0] * lift, hr[1] * 1.02, hr[2] * lift, W1('head'), capCol, { lat: 9, lon: 18, p0: 0, p1: Math.PI * (f ? 0.6 : 0.52), bumpFn: bump });
+  const hs = sp.hair; let hairLift = 1;
+  const backZ = (y, half) => Math.min(hc[2] - hr[2] * 0.75, surfZ(y, 0, -1) - half - 0.008); // hair hanging down the back stays outside the clothes
+  if (hs === 'hijab') { // head scarf: a shell over the head (open around the face), wrapped under the chin and draped over the shoulders
+    const sc = C(sp.scarf || '#2a2a3a'); hairLift = 1.14;
+    // oval face opening (forehead to just under the lower lip, cheek to cheek); inside it the shell sinks below the skin
+    const open = (x, y, z) => z > 0.25 && (x / 0.66) ** 2 + ((y + 0.1) / 0.58) ** 2 < 1;
+    sb.ellipsoid([hc[0], hc[1] + 0.008, hc[2] - 0.004], hr[0] * 1.14, hr[1] * 1.08, hr[2] * 1.1, W1('head'), sc, { lat: 22, lon: 34, p0: 0, p1: Math.PI * 0.86, bumpFn: (x, y, z) => (open(x, y, z) ? 0.84 : 1) * headBump(x, y, z) });
+    // wrap: starts inside the head shell, closes under the chin and around the neck, then drapes over the shoulders
+    sb.loft([
+      { c: [0, hc[1] - hr[1] * 0.45, hc[2] - 0.03], rx: hr[0] * 0.95, rz: hr[2] * 0.8, w: W1('head'), col: sc }, // hidden inside the head/shell
+      { c: [0, hc[1] - hr[1] * 1.06, hc[2] - 0.012], rx: hr[0] * 0.82, rz: hr[2] * 0.82, w: W2('head', 'neck', 0.35), col: sc }, // under the chin
+      { c: [0, 1.5 * s, 0.004], rx: 0.1 * w + 0.014, rz: 0.1, w: W2('neck', 'chest', 0.5), col: sc },
+      { c: [0, 1.44 * s, 0.0], rx: (f ? 0.15 : 0.175) * w + 0.014, rz: 0.1 * w + 0.024, w: W1('chest'), col: sc },
+      { c: [0, 1.37 * s, 0.006], rx: (f ? 0.168 : 0.19) * w + 0.018, rz: 0.11 * w + 0.032, w: W1('chest'), col: sc },
+    ], 20, { capEnd: false });
+  } else if (hs !== 'bald') {
+    const lift = { wavy: 1.1, grey: 1.04, crew: 1.025, curly: 1.13, quiff: 1.05, sidepart: 1.07, receding: 1.04, balding: 1.035, bob: 1.1, short_f: 1.07, shoulder: 1.07 }[hs] || 1.06; hairLift = lift;
+    const hl = sp.hairline || 0; const rec = hs === 'receding' ? 0.12 : hs === 'balding' ? 0.16 : 0;
+    // hairline: high on the forehead, down past the temples to the ears, lower at the nape; below it the cap tucks inside the head.
+    // receding / balding raise it at the temples (M-shape); a bob comes down the sides to the jaw.
+    const hairline = (x, z) => { const fr = smooth01((z + 0.1) / 0.75); return lerp(-0.25, f ? 0.4 : 0.5, fr) + (hl + rec) * fr + rec * 1.4 * Math.abs(x) * fr + (f && z > 0.6 ? 0.04 * Math.cos(x * 9) : 0) - (hs === 'bob' && z < 0.5 ? 0.42 * smooth01((Math.abs(x) - 0.5) * 4) : 0); };
+    const tex = (x, y, z) => hs === 'wavy' ? 1 + 0.04 * Math.sin(x * 14) * Math.cos(z * 11) : hs === 'curly' ? 1 + 0.05 * Math.abs(Math.sin(x * 21) * Math.sin(y * 17) * Math.sin(z * 19)) : hs === 'quiff' ? 1 + (y > 0.45 && z > -0.1 ? 0.07 * smooth01((y - 0.45) * 3) * smooth01((z + 0.1) * 2) : 0) : hs === 'sidepart' ? (Math.abs(x - 0.32) < 0.035 && y > 0.4 ? 0.975 : x < 0.32 ? 1.012 : 1) : 1;
+    const bump = (x, y, z) => (y < hairline(x, z) ? 0.9 / lift : hs === 'balding' && y > 0.6 && z > -0.5 ? 0.9 / lift : 1) * tex(x, y, z);
+    const p1 = Math.PI * (f ? (hs === 'bob' ? 0.7 : 0.6) : 0.52);
+    sb.ellipsoid([hc[0], hc[1] + 0.012, hc[2] - 0.006], hr[0] * lift, hr[1] * 1.02, hr[2] * lift, W1('head'), hair, { lat: hs === 'curly' ? 12 : 9, lon: hs === 'curly' ? 24 : 18, p0: 0, p1, bumpFn: bump });
     if (f || hs === 'long') {
-      // back hair panel down the back
-      const len = hs === 'bun' ? 0 : hs === 'plaits' ? 0 : hs === 'long' ? 0.4 : 0.18;
-      if (len > 0) sb.loft([0, 1, 2, 3].map((i) => { const t = i / 3; return { c: [0, (hc[1] - 0.02 - t * len) , hc[2] - hr[2] * 0.75 - t * 0.02], rx: lerp(hr[0] * 1.02, 0.06, t), rz: lerp(0.06, 0.025, t), w: t > 0.45 ? W2('neck', 'chest', 0.6) : W1('head'), col: hair }; }), 10, { capEnd: false, capStart: true });
+      const len = { long: 0.4, shoulder: 0.2, bob: 0.06 }[hs] ?? 0; // bun / ponytail / braid / short styles have no loose back panel
+      if (len > 0) sb.loft([0, 1, 2, 3].map((i) => { const t = i / 3; const y = hc[1] - 0.02 - t * len; const rz = lerp(0.06, hs === 'bob' ? 0.05 : 0.025, t); return { c: [0, y, t < 0.3 ? hc[2] - hr[2] * 0.75 : backZ(y, rz)], rx: lerp(hr[0] * 1.02, hs === 'bob' ? hr[0] : 0.06, t), rz, w: t > 0.45 ? W2('neck', 'chest', 0.6) : W1('head'), col: hair }; }), 10, { capEnd: false, capStart: true });
       if (hs === 'bun') sb.ellipsoid([0, hc[1] - 0.03, hc[2] - hr[2] - 0.03], 0.05, 0.045, 0.045, W1('head'), hair, { lat: 6, lon: 8 });
-      if (hs === 'plaits') for (const sx of [-1, 1]) { // two plaits with ribbons (school style)
-        sb.loft([0, 1, 2, 3, 4].map((i) => { const t = i / 4; return { c: [sx * (0.06 + t * 0.02), hc[1] - 0.04 - t * 0.28, hc[2] - 0.07 + t * 0.03], rx: 0.022 - t * 0.006, rz: 0.022 - t * 0.006, w: t > 0.4 ? W2('neck', 'chest', 0.7) : W1('head'), col: hair }; }), 6);
-        sb.ellipsoid([sx * 0.08, hc[1] - 0.33, hc[2] - 0.045], 0.028, 0.02, 0.012, W1('chest'), C(sp.ribbon || '#1d3f8a'), { lat: 4, lon: 6 });
+      if (hs === 'ponytail') { // tie at the crown, tail falling down the back of the head and neck
+        sb.ellipsoid([0, hc[1] + 0.02, hc[2] - hr[2] * lift - 0.012], 0.03, 0.03, 0.028, W1('head'), hair, { lat: 5, lon: 8 });
+        sb.loft([0, 1, 2, 3, 4].map((i) => { const t = i / 4; const y = hc[1] + 0.01 - t * 0.24; const r0 = lerp(0.03, 0.014, t); return { c: [0, y, Math.min(hc[2] - hr[2] * lift - 0.03 + t * 0.02, backZ(y, r0))], rx: r0, rz: r0, w: t > 0.55 ? W2('neck', 'chest', 0.5) : W1('head'), col: hair }; }), 7, { capEnd: true });
       }
+      if (hs === 'braid') sb.loft([0, 1, 2, 3, 4, 5].map((i) => { const t = i / 5; const y = hc[1] - 0.04 - t * 0.36; const r0 = lerp(0.03, 0.016, t); return { c: [0, y, Math.min(hc[2] - hr[2] * 0.88, backZ(y, r0))], rx: r0 * 1.15, rz: r0, w: t > 0.4 ? W2('neck', 'chest', 0.7) : W1('head'), col: hair }; }), 7, { capEnd: true });
     }
-    if (sp.beard) { // shell that follows the jaw exactly (same centre, radii and jaw shaping as the head), so it can never drift off the face
-      const beardBump = (x, y, z) => { const hb = headBump(x, y, z); if (z < -0.3) return hb * 0.93; if (z > 0.72 && y > -0.52 && Math.abs(x) < 0.42) return hb * 0.96; // back of the shell and the lips stay inside the head
-        const line = z < 0.05 ? -0.18 : -0.18 - 0.36 * Math.min(1, (z - 0.05) / 0.55); if (y > line + 0.04 * Math.sin(x * 9) && !(z > 0.8 && Math.abs(x) < 0.3 && y < -0.38)) return hb * 0.94; // beard line: sideburns → cheek → jaw (no mask over the cheeks)
-        return hb * (1.03 + 0.012 * Math.max(0, -y - 0.6)) + 0.004 * Math.sin(x * 40 + z * 23); };
-      const beardC = hair.map((v, i) => v * 0.82 + skin[i] * 0.18); sb.ellipsoid(hc, hr[0], hr[1], hr[2], W1('head'), beardC, { lat: 12, lon: 26, p0: Math.PI * 0.54, p1: Math.PI * 0.985, bumpFn: beardBump });
-      sb.ellipsoid([0, hc[1] - 0.04, hc[2] + hr[2] * 0.93], 0.032, 0.009, 0.012, W1('head'), hair, { lat: 4, lon: 8 });
-    }
-    if (sp.moustache) sb.ellipsoid([0, hc[1] - 0.042, hc[2] + hr[2] - 0.016], 0.03, 0.008, 0.012, W1('head'), hair, { lat: 4, lon: 8 });
   }
+  // facial hair: beard shells follow the jaw exactly (same centre, radii and jaw shaping as the head), so they cannot drift off the face
+  if (sp.beard || sp.goatee) {
+    const thick = sp.goatee ? 1.03 : sp.beardShort ? 1.016 : 1.03;
+    const beardBump = (x, y, z) => { const hb = headBump(x, y, z); if (z < -0.3) return hb * 0.93; if (z > 0.72 && y > -0.52 && Math.abs(x) < 0.42) return hb * 0.96; // back of the shell and the lips stay inside the head
+      if (sp.goatee) return z > 0.55 && Math.abs(x) < 0.34 && y < -0.56 ? hb * thick : hb * 0.94; // chin patch only
+      const line = z < 0.05 ? -0.18 : -0.18 - 0.36 * Math.min(1, (z - 0.05) / 0.55); if (y > line + 0.04 * Math.sin(x * 9) && !(z > 0.8 && Math.abs(x) < 0.3 && y < -0.38)) return hb * 0.94; // beard line: sideburns → cheek → jaw
+      return hb * (thick + (sp.beardShort ? 0.004 : 0.012) * Math.max(0, -y - 0.6)) + 0.004 * Math.sin(x * 40 + z * 23); };
+    const beardC = hair.map((v, i) => v * 0.82 + skin[i] * 0.18); sb.ellipsoid(hc, hr[0], hr[1], hr[2], W1('head'), beardC, { lat: 12, lon: 26, p0: Math.PI * 0.54, p1: Math.PI * 0.985, bumpFn: beardBump });
+    if (!sp.goatee) sb.ellipsoid([0, hc[1] - 0.04, hc[2] + hr[2] * 0.93], 0.032, 0.009, 0.012, W1('head'), hair, { lat: 4, lon: 8 });
+  }
+  if (sp.moustache) sb.ellipsoid([0, hc[1] - 0.042, hc[2] + hr[2] - 0.016], 0.03, 0.008, 0.012, W1('head'), hair, { lat: 4, lon: 8 });
   if (sp.glasses) { const gz = hc[2] + hr[2] - 0.006, gy = hc[1] + 0.006; for (const sx of [-1, 1]) { sb.boxPart([sx * 0.034, gy + 0.012, gz], 0.038, 0.004, 0.004, W1('head'), C('#1a1a1a')); sb.boxPart([sx * 0.034, gy - 0.01, gz - 0.001], 0.034, 0.003, 0.004, W1('head'), C('#1a1a1a')); sb.boxPart([sx * 0.053, gy + 0.001, gz - 0.002], 0.003, 0.022, 0.004, W1('head'), C('#1a1a1a')); } sb.boxPart([0, gy + 0.008, gz + 0.002], 0.016, 0.003, 0.004, W1('head'), C('#1a1a1a')); }
-  if (sp.cap) sb.ellipsoid([hc[0], hc[1] + 0.03, hc[2]], hr[0] * 1.12, hr[1] * 0.85, hr[2] * 1.12, W1('head'), C(sp.cap), { lat: 6, lon: 14, p0: 0, p1: Math.PI * 0.42 });
-  if (sp.bag) sb.boxPart([0, 1.22 * s, -0.16 * w], 0.28, 0.36, 0.12, W1('chest'), C(sp.bag));
+  // ---- accessories (each placed on the clothing surface or the head shell so nothing sinks into the body)
+  const band = (pts, width, col, wgtFn) => { sb.strip(pts.map((p, i) => { const nx = pts[Math.min(i + 1, pts.length - 1)], pv = pts[Math.max(i - 1, 0)]; const d = new THREE.Vector3(nx[0] - pv[0], nx[1] - pv[1], nx[2] - pv[2]).normalize(); const out = new THREE.Vector3(p[0], 0, p[2]).normalize(); const side = new THREE.Vector3().crossVectors(d, out).normalize(); return { c: p, side: [side.x, side.y, side.z], out: [out.x, out.y, out.z], w: wgtFn(p[1]) }; }), width, (q) => q.out, null, col, 0); };
+  const torsoW = (y) => (y > 1.3 * s ? W1('chest') : y > 1.1 * s ? W2('spine', 'chest', 0.5) : W1('hips'));
+  if (sp.sunglasses) { const gz = hc[2] + hr[2] - 0.003, gy = hc[1] + 0.005, k = C('#0d0f12'); for (const sx of [-1, 1]) { sb.boxPart([sx * 0.034, gy, gz], 0.042, 0.026, 0.005, W1('head'), k); sb.boxPart([sx * (hr[0] + 0.001), gy + 0.008, hc[2] + hr[2] * 0.35], 0.004, 0.005, hr[2] * 1.15, W1('head'), k); } sb.boxPart([0, gy + 0.009, gz + 0.001], 0.03, 0.005, 0.005, W1('head'), k); }
+  if (sp.cap) {
+    const cr = Math.max(1.12, hairLift + 0.03);
+    if (sp.capStyle === 'skull') sb.ellipsoid([hc[0], hc[1] + 0.036, hc[2] - 0.004], hr[0] * Math.max(1.07, hairLift + 0.02), hr[1] * 0.8, hr[2] * Math.max(1.07, hairLift + 0.02), W1('head'), C(sp.cap), { lat: 6, lon: 16, p0: 0, p1: Math.PI * 0.36 });
+    else if (sp.capStyle === 'nurse') { sb.boxPart([0, hc[1] + hr[1] * 0.98, hc[2] + 0.01], 0.11, 0.03, 0.08, W1('head'), C('#ffffff')); sb.boxPart([0, hc[1] + hr[1] * 0.98 + 0.012, hc[2] + 0.052], 0.1, 0.012, 0.006, W1('head'), C('#2a4a8a')); }
+    else { sb.ellipsoid([hc[0], hc[1] + 0.03, hc[2]], hr[0] * cr, hr[1] * 0.85, hr[2] * cr, W1('head'), C(sp.cap), { lat: 6, lon: 14, p0: 0, p1: Math.PI * 0.42 });
+      sb.boxPart([0, hc[1] + 0.03 + hr[1] * 0.85 * Math.cos(Math.PI * 0.42) - 0.002, hc[2] + hr[2] * cr * 0.97 + 0.03], 0.15, 0.008, 0.075, W1('head'), C(sp.cap)); } // peak
+  }
+  if (sp.bag) { // backpack with shoulder straps
+    const bz = surfZ(1.22 * s, 0, -1) - 0.062; sb.boxPart([0, 1.2 * s, bz], 0.28 * w, 0.36, 0.12, W1('chest'), C(sp.bag)); sb.boxPart([0, 1.08 * s, bz - 0.065], 0.22 * w, 0.12, 0.02, W1('chest'), C(sp.bag).map((v) => v * 0.8));
+    for (const sx of [-1, 1]) band([1.46, 1.4, 1.32, 1.24, 1.16].map((y, i) => { const x = sx * (0.085 + i * 0.012) * w; return i === 0 ? [x, y * s, 0.0] : [x, y * s, surfZ(y * s, x, 1) + 0.006]; }), 0.036, C(sp.bag).map((v) => v * 0.7), torsoW);
+  }
+  if (sp.crossbody) { // strap from the left shoulder across the chest to a small bag at the right hip (front) and across the back
+    const sc = C(sp.crossbody).map((v) => v * 0.8); const ys = [1.45, 1.38, 1.3, 1.22, 1.14, 1.06];
+    band(ys.map((y, i) => { const t = i / (ys.length - 1); const x = lerp(0.1, -0.13, t) * w; return i === 0 ? [x, y * s, 0.0] : [x, y * s, surfZ(y * s, x, 1) + 0.007]; }), 0.026, sc, torsoW);
+    band(ys.map((y, i) => { const t = i / (ys.length - 1); const x = lerp(0.1, -0.13, t) * w; return i === 0 ? [x, y * s, 0.0] : [x, y * s, surfZ(y * s, x, -1) - 0.007]; }), 0.026, sc, torsoW);
+    const bx = -0.13 * w; sb.boxPart([bx, 1.0 * s, surfZ(1.0 * s, bx, 1) + 0.03], 0.15, 0.12, 0.05, W1('hips'), C(sp.crossbody));
+  }
+  if (sp.lanyard) { const lc = C(sp.lanyard); const cz = surfZ(1.2 * s, 0, 1) + 0.007;
+    for (const sx of [-1, 1]) band([[sx * 0.058, 1.47 * s, 0.0], [sx * 0.05, 1.41 * s, surfZ(1.41 * s, 0.05, 1) + 0.005], [sx * 0.026, 1.31 * s, surfZ(1.31 * s, 0.026, 1) + 0.005], [sx * 0.006, 1.25 * s, surfZ(1.25 * s, 0, 1) + 0.006]], 0.014, lc, torsoW);
+    sb.boxPart([0, 1.2 * s, cz], 0.056, 0.082, 0.005, W1('chest'), C('#f4f4f0')); sb.boxPart([0, 1.233 * s, cz + 0.001], 0.056, 0.016, 0.005, W1('chest'), lc); }
+  if (sp.watch) { const h = J.handL; const wc = C(sp.watch);
+    sb.loft([{ c: [h[0], 0.893 * s, 0], rx: 0.031, rz: 0.033, w: W1('foreL'), col: C('#1a1a1a') }, { c: [h[0], 0.909 * s, 0], rx: 0.031, rz: 0.033, w: W1('foreL'), col: C('#1a1a1a') }], 10);
+    sb.boxPart([h[0] + 0.03, 0.901 * s, 0.0], 0.008, 0.026, 0.026, W1('foreL'), wc); }
+  if (sp.earrings) for (const sx of [-1, 1]) sb.ellipsoid([sx * (hr[0] * 1.02 + 0.002), hc[1] - 0.034, hc[2] - 0.006], 0.006, 0.009, 0.006, W1('head'), C('#d4a640'), { lat: 4, lon: 6 });
+  if (sp.necklace) sb.loft([{ c: [0, 1.448 * s, 0.008], rx: 0.084, rz: 0.07, w: W1('chest'), col: C('#d4a640') }, { c: [0, 1.456 * s, 0.006], rx: 0.08, rz: 0.066, w: W1('chest'), col: C('#d4a640') }], 14);
+  if (sp.epaulettes) for (const side of ['L', 'R']) { const a = J['arm' + side]; sb.boxPart([a[0] * 0.8, 1.392 * s + 0.047, -0.004], 0.075, 0.008, 0.042, W2('chest', 'arm' + side, 0.4), C(sp.bottom || '#1f2a44')); }
   return sb.build();
 }
 
@@ -265,44 +321,8 @@ const SKINS = ['#8d5a3b', '#9b6644', '#7a4a2e', '#a8734f', '#6b4128', '#b07c56',
 const SHIRTS = ['#f2f2ee', '#dfe8f2', '#3b5f8c', '#7c2f2f', '#2f6b4f', '#c9a227', '#555b66', '#e4d3b5', '#8a5aa8', '#d96c3b', '#1f2a3a', '#b8c4a8'];
 const TROUSERS = ['#2b2e36', '#3a3f4a', '#4a4036', '#1e2430', '#6b6355', '#384a63', '#2a2a2a'];
 const SAREE = ['#b0233a', '#e07b1a', '#1b6b6b', '#6a2a7a', '#c72f6c', '#2c4f9e', '#d4a12a', '#0f7a4a', '#8c1c2c', '#e65a8a'];
-const HAIR_F = ['long', 'bun', 'long', 'bun', 'plaits'];
-export function randomSpec(seed, opts = {}) {
-  const r = new RNG(seed); const sex = opts.sex || (r.chance(0.5) ? 'f' : 'm');
-  const age = opts.age || r.weighted([['adult', 6], ['elder', 1.4], ['teen', 1.2], ['child', 0.7]]);
-  const f = sex === 'f';
-  const sp = { seed, sex, age, skin: r.pick(SKINS), build: r.range(0.92, 1.12), height: f ? r.range(1.52, 1.66) : r.range(1.62, 1.8), shoes: r.pick(['#2a2420', '#3b2a1e', '#151515', '#6b5440']) };
-  if (age === 'child') { sp.height = r.range(1.15, 1.35); sp.build = 0.9; }
-  if (age === 'teen') sp.height *= 0.95;
-  sp.hairColor = age === 'elder' ? r.pick(['#8a8a86', '#c8c6c0', '#5a5650']) : r.pick(['#120d0a', '#1c140e', '#0b0908', '#2a1c12']);
-  const school = (age === 'child' || age === 'teen') && r.chance(0.65);
-  if (f) {
-    sp.hair = school ? 'plaits' : age === 'elder' ? 'bun' : r.pick(HAIR_F); sp.bangles = r.chance(0.4); sp.sandals = r.chance(0.6);
-    if (school) Object.assign(sp, { outfit: 'school_girl', top: '#f6f6f2', bottom: '#f6f6f2', skirt: 'mid', skirtCol: '#f4f4f0', shoes: '#151515', ribbon: r.pick(['#1d3f8a', '#8a1d2a', '#14532d']), collar: true, sandals: false, bag: '#2a3550' });
-    else {
-      const o = age === 'elder' ? r.weighted([['saree', 5], ['salwar', 1]]) : r.weighted([['saree', 3], ['salwar', 2.5], ['frock', 1.6], ['tee_jeans', 1.8], ['office_f', 1.2]]);
-      const sc = r.pick(SAREE);
-      if (o === 'saree') Object.assign(sp, { outfit: 'saree', top: r.chance(0.5) ? sc : r.pick(SAREE), skirt: 'ankle', skirtCol: sc, pattern: r.chance(0.7) ? 1 : 2, bottom: sc });
-      else if (o === 'salwar') Object.assign(sp, { outfit: 'salwar', top: sc, skirt: 'knee', skirtCol: sc, bottom: r.pick(['#f2efe6', '#1d1d24', sc]), pattern: r.chance(0.5) ? 2 : 0, longSleeve: r.chance(0.5) });
-      else if (o === 'frock') Object.assign(sp, { outfit: 'frock', top: sc, skirt: r.chance(0.5) ? 'mid' : 'knee', skirtCol: sc, bottom: sp.skin, pattern: r.chance(0.5) ? 2 : 0 });
-      else if (o === 'office_f') Object.assign(sp, { outfit: 'office_f', top: r.pick(['#f2f2ee', '#e8d8e8', '#d8e4f0']), bottom: '#2b2e36', skirt: 'mid', skirtCol: r.pick(['#2b2e36', '#3a2f2a']), longSleeve: r.chance(0.5), bag: '#5a3a2a', glasses: r.chance(0.2) });
-      else Object.assign(sp, { outfit: 'tee_jeans', top: r.pick(SHIRTS), bottom: r.pick(['#2c3e5c', '#35486b', '#1f2a3a']), sandals: false, shoes: '#e8e8e4' });
-    }
-  } else {
-    sp.hair = age === 'elder' ? r.pick(['grey', 'bald', 'short']) : r.pick(['short', 'short', 'wavy']);
-    sp.moustache = (age === 'adult' || age === 'elder') && r.chance(0.45); sp.beard = age !== 'child' && age !== 'teen' && !sp.moustache && r.chance(0.25);
-    sp.glasses = age !== 'child' && r.chance(0.15); sp.sandals = r.chance(0.5);
-    if (school) Object.assign(sp, { outfit: 'school_boy', top: '#f6f6f2', bottom: '#f2f2ee', shorts: age === 'child', collar: true, bag: '#2a3550', shoes: '#151515', sandals: false });
-    else {
-      const o = age === 'elder' ? r.weighted([['national', 2], ['sarong', 2], ['shirt', 2]]) : r.weighted([['shirt', 4], ['tee', 2.5], ['office', 2], ['sarong', 1.6], ['worker', 1.2]]);
-      if (o === 'national') Object.assign(sp, { outfit: 'national', top: '#f6f4ee', bottom: '#f6f4ee', skirt: 'ankle', skirtCol: '#f4f2ea', longSleeve: true, collar: true, sandals: true });
-      else if (o === 'sarong') Object.assign(sp, { outfit: 'sarong', top: r.pick(SHIRTS), skirt: 'ankle', skirtCol: r.pick(['#3b5f8c', '#7c2f2f', '#2f6b4f', '#4a3f6b', '#6b5a3a']), pattern: r.chance(0.6) ? 3 : 2, bottom: '#333', sandals: true });
-      else if (o === 'office') Object.assign(sp, { outfit: 'office', top: r.pick(['#f2f2ee', '#dfe8f2', '#e8eef4', '#f0e6d8']), bottom: r.pick(TROUSERS), longSleeve: true, collar: true, tie: r.chance(0.35) ? r.pick(['#7c2f2f', '#1f2a5a', '#2f4f3f']) : null, sandals: false, bag: r.chance(0.3) ? '#2a2420' : null });
-      else if (o === 'worker') Object.assign(sp, { outfit: 'worker', top: r.pick(['#d96c3b', '#c9a227', '#5a6b3a', '#7a7a72']), bottom: r.pick(TROUSERS), sleeveless: r.chance(0.4), cap: r.chance(0.3) ? r.pick(['#c9a227', '#1f2a3a', '#7c2f2f']) : null, sandals: true });
-      else Object.assign(sp, { outfit: o, top: r.pick(SHIRTS), bottom: r.pick(o === 'tee' ? ['#2c3e5c', '#35486b', '#6b6355'] : TROUSERS), collar: o === 'shirt', longSleeve: o === 'shirt' && r.chance(0.3), cap: o === 'tee' && r.chance(0.2) ? r.pick(['#1f2a3a', '#7c2f2f', '#eee']) : null });
-    }
-  }
-  return Object.assign(sp, opts);
-}
+// Adults only (18+): every civilian comes from the preset generator in Appearance.js (46 presets, seeded variation).
+export function randomSpec(seed, opts = {}) { return makeAppearance(seed, opts); }
 export const HEROES = {
   kavindu: { seed: 1, sex: 'm', age: 'adult', skin: '#8d5a3b', build: 1.04, height: 1.76, outfit: 'jacket', top: '#3c4536', inner: '#7d8286', bottom: '#2c3a52', shoes: '#3a2a20', longSleeve: true, hair: 'wavy', hairColor: '#110c09', beard: true, sandals: false, collar: true },
   ruwan: { seed: 2, sex: 'm', age: 'adult', skin: '#7a4a2e', build: 1.1, height: 1.71, outfit: 'shirt', top: '#6d3b2c', bottom: '#3a3f4a', shoes: '#151515', hair: 'short', hairColor: '#0d0a08', moustache: true, collar: true, sandals: false },
@@ -321,8 +341,9 @@ export class Character {
     this.spec = spec; const key = JSON.stringify(spec); const skelKey = `${spec.sex}|${spec.height.toFixed(3)}|${spec.build.toFixed(3)}`;
     let geo = geoCache.get(key); if (!geo) { geo = buildBodyGeometry(spec); geoCache.set(key, geo); }
     const { bones, skeleton } = makeSkeleton(spec, skelKey);
-    const stub = spec.beard ? 0.9 : spec.sex === 'm' && spec.age === 'adult' ? 0.35 : 0; const fkey = `${spec.sex}|${stub}|${spec.seed % 2}`;
-    const faceMat = getFaceMaterial(fkey, { female: spec.sex === 'f', stubble: stub, seed: spec.seed % 2, lips: spec.sex === 'f' ? '#8a3a3a' : '#7a4a40' });
+    const fv = spec.faceV != null ? FACE_VARIANTS[spec.faceV] : null; let faceMat;
+    if (fv) faceMat = getFaceMaterial(`v${spec.faceV}`, { female: spec.sex === 'f', stubble: fv.stubble || 0, seed: spec.faceV, lips: fv.lips, size: 192, v: fv });
+    else { const stub = spec.beard ? 0.9 : spec.sex === 'm' && spec.age === 'adult' ? 0.35 : 0; faceMat = getFaceMaterial(`${spec.sex}|${stub}|${spec.seed % 2}`, { female: spec.sex === 'f', stubble: stub, seed: spec.seed % 2, lips: spec.sex === 'f' ? '#8a3a3a' : '#7a4a40' }); }
     this.face = new FaceRig(this, faceMat);
     this.mesh = new THREE.SkinnedMesh(geo, [getBodyMaterial(), this.face.mat]);
     this.mesh.add(bones[0]); this.mesh.bind(skeleton); this.mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.9, 0), 1.3); this.mesh.castShadow = true; this.mesh.receiveShadow = false; this.mesh.frustumCulled = true;
@@ -373,20 +394,24 @@ export class FaceRig {
 // state: speed (m/s), action (null|'sit'|'talk'|'phone'|'wave'|'dance'|'stretch'|'look'|'cower'|'argue'|'stumble'|'jump'|'drive'|'crouch'|'shove'|'point'|'clap'|'browse'|'umbrella'|...), turn rate (rad/s)
 export function gaitProfile(sp) {
   const r = new RNG((sp.seed || 1) * 977 + 13); const f = sp.sex === 'f'; const age = sp.age || 'adult';
-  const elder = age === 'elder', child = age === 'child', teen = age === 'teen';
-  return {
-    stride: (elder ? 0.84 : child ? 0.92 : 1) * r.range(0.93, 1.07) * (sp.skirt === 'ankle' ? 0.88 : 1),
+  const elder = age === 'elder', young = sp.band === 'young'; const G = sp.gait || {};
+  const g = {
+    stride: (elder ? 0.84 : 1) * r.range(0.93, 1.07) * (sp.skirt === 'ankle' ? 0.88 : 1),
     arm: (elder ? 0.55 : f ? 0.8 : 1) * r.range(0.7, 1.3) * (sp.bag ? 0.8 : 1),
     elbow: r.range(0.12, 0.34) + (elder ? 0.15 : 0),
     armOut: 0.07 + (sp.build - 1) * 0.3 + r.range(0, 0.04),
-    bounce: (child ? 1.3 : elder ? 0.65 : 1) * r.range(0.8, 1.2),
+    bounce: (elder ? 0.65 : young ? 1.08 : 1) * r.range(0.8, 1.2),
     sway: (f ? 1.45 : 1) * r.range(0.7, 1.3),
     pelvis: (f ? 1.25 : 1) * r.range(0.8, 1.2),
     stoop: elder ? r.range(0.1, 0.22) : r.range(-0.03, 0.05),
     headDown: r.range(-0.04, 0.07) + (elder ? 0.08 : 0),
-    knee: r.range(0.85, 1.15), swagger: !f && (teen || age === 'adult') ? r.range(0, 1) : 0,
+    knee: r.range(0.85, 1.15), swagger: !f && !elder ? r.range(0, young ? 1 : 0.6) : 0,
     toeOut: r.range(0.03, 0.12) + (elder ? 0.06 : 0), lag: r.range(0.02, 0.07), idleRate: r.range(0.7, 1.4),
   };
+  for (const k of ['stride', 'arm', 'bounce', 'sway']) if (G[k]) g[k] *= G[k];
+  if (G.stoop) g.stoop += G.stoop, g.headDown += G.stoop * 0.5; if (G.swagger) g.swagger = Math.max(g.swagger, G.swagger);
+  if (sp.belly) g.armOut += sp.belly * 0.05;
+  return g;
 }
 // ------------------------------------------------------------------ two-bone arm IK (used for weapons)
 // target: point in CHEST space; q: optional hand orientation in chest space; w: blend with the animated pose.
