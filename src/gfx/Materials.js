@@ -34,6 +34,9 @@ export function buildMaterials() {
   MAT.metal = std({ roughness: 0.45, metalness: 0.85, vertexColors: true });
   // window panes over painted/interior-mapped glass: black albedo + additive blend = pure Fresnel reflection on top
   MAT.winGlass = std({ color: 0x000000, roughness: 0.06, metalness: 0, envMapIntensity: 2.4, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
+  MAT.foliage = MAT.leavesBright || std({ map: TEX.leavesBright, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9, vertexColors: true });
+  MAT.soil = std({ map: TEX.laterite, color: 0x5e4a3c, roughness: 1 });
+  MAT.hedge = std({ map: TEX.hedge, roughness: 0.95, vertexColors: true });
   MAT.glass = std({ color: 0x9fb8c0, roughness: 0.08, metalness: 0.9, envMapIntensity: 1.5, transparent: true, opacity: 0.55 });
   MAT.emissive = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
   MAT.lampHead = new THREE.MeshStandardMaterial({ color: 0x222222, emissive: 0xffd9a0, emissiveIntensity: 0, roughness: 0.5 });

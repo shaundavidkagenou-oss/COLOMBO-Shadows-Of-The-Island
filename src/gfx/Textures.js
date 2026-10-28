@@ -112,6 +112,17 @@ function grass(size, seed = 21, worn = 0.25) {
   ctx.globalAlpha = 1;
   return toTex(c);
 }
+function hedgeTex(size) { // clipped hedge: dense overlapping small leaves with depth shading and a few gaps
+  const c = canvas(size, size), ctx = c.getContext('2d'), rng = new RNG(71);
+  ctx.fillStyle = '#1d3514'; ctx.fillRect(0, 0, size, size);
+  for (let k = 0; k < size * 9; k++) {
+    const x = rng.next() * size, y = rng.next() * size, l = rng.range(3, 6.5), a = rng.next() * Math.PI * 2, t = rng.next();
+    const g = Math.round(70 + t * 70), r = Math.round(30 + t * 40), b = Math.round(18 + t * 22);
+    ctx.fillStyle = `rgb(${r},${g},${b})`; ctx.save(); ctx.translate(x, y); ctx.rotate(a); ctx.beginPath(); ctx.ellipse(0, 0, l, l * 0.45, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,220,0.12)'; ctx.fillRect(-l * 0.8, -0.4, l * 1.6, 0.8); ctx.restore();
+  }
+  return toTex(c);
+}
 function laterite(size) { // red Sri Lankan soil mixed with grass
   const c = canvas(size, size), ctx = c.getContext('2d');
   const img = ctx.createImageData(size, size);
@@ -654,7 +665,7 @@ export async function buildTextures(quality = 'high', progress = () => {}) {
     ['asphalt', () => { const a = asphalt(S); TEX.asphalt = a.map; TEX.asphaltRough = a.rough; }],
     ['pavers', () => { TEX.pavers = pavers(512); TEX.paversGrey = pavers(512, ['#8a8780', '#7d7a73', '#96928a', '#6f6c66'], 6); }],
     ['concrete', () => { TEX.concrete = concrete(512); TEX.roofConcrete = roofConcrete(512); }],
-    ['grass', () => { TEX.grass = grass(512, 21, 0.3); TEX.lawn = grass(512, 22, 0.08); TEX.laterite = laterite(512); TEX.sand = sand(512); TEX.rocks = rocks(512); TEX.ballast = ballast(512); }],
+    ['grass', () => { TEX.grass = grass(512, 21, 0.3); TEX.lawn = grass(512, 22, 0.08); TEX.laterite = laterite(512); TEX.hedge = hedgeTex(256); TEX.sand = sand(512); TEX.rocks = rocks(512); TEX.ballast = ballast(512); }],
     ['facades: colonial', () => { TEX.f_colonial = facadeColonial(FW, FH, 201); TEX.f_brick = facadeBrick(FW, FH, 202); }],
     ['facades: modern', () => { TEX.f_glass = facadeGlass(FW, FH, 203); TEX.f_glass2 = facadeGlass(FW, FH, 213, ['#8fa9b0', '#3c5560']); TEX.f_office = facadeOffice(FW, FH, 204); TEX.f_hotel = facadeHotel(FW, FH, 208); }],
     ['facades: shophouses', () => { TEX.f_shop = facadeShophouse(FW, FH, 205); TEX.f_shop2 = facadeShophouse(FW, FH, 215); TEX.f_apartment = facadeApartment(FW, FH, 206); }],

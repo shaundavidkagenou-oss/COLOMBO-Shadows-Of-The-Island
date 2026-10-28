@@ -9,6 +9,8 @@ import { buildLandmarks } from './Landmarks.js';
 import { buildPropGeometries, buildPropsForChunk, updateSignals, initGlowTexture } from './Props.js';
 import { buildTreeGeometries, buildTreesForChunk, windUniform } from './Vegetation.js';
 import { buildWater, WaterReflection } from './Water.js';
+import { buildParks } from './Parks.js';
+import { GrassField, upgradeGroundGrass } from './Grass.js';
 import { Collision } from './Collision.js';
 import * as L from './Layout.js';
 import { RNG } from '../core/rng.js';
@@ -45,6 +47,9 @@ export class World {
       this.root.add(c.group); this.chunks.push(c);
       if (idx % 6 === 0) { progress(0.3 + 0.55 * idx / (NCX * NCZ), 'Building districts'); await tick(); }
     }
+    this.parks = buildParks(MAT); this.root.add(this.parks);
+    upgradeGroundGrass(MAT.grass, 0.8); upgradeGroundGrass(MAT.lawn, 0.3);
+    this.grass = new GrassField(this, this.collision); this.grass.setQuality(this.quality || 'high'); this.root.add(this.grass.mesh);
     progress(0.86, 'Filling the ocean and Beira Lake'); await tick();
     this.water = buildWater(); this.root.add(this.water); this.waterRefl = new WaterReflection(this.water);
     progress(0.9, 'Outer suburbs'); await tick();
@@ -93,6 +98,7 @@ export class World {
       if (d < this.windowRadius) { if (!c.win && budget > 0) { budget--; this.buildWindowsFor(c); } else if (c.win) c.win.visible = true; }
       else if (c.win) { c.win.visible = false; if (d > this.windowRadius + 120) this.disposeWindows(c); }
     }
+    if (this.grass) this.grass.update(dt, focus, atmos ? atmos.w.wind : 0.3);
     // landmark animation
     const an = this.landmarks.anim;
     if (an.lotusBeacon) an.lotusBeacon.visible = (this.t % 1.6) < 0.5; // aviation obstruction light
@@ -134,6 +140,6 @@ export class World {
     for (let i = 0; i < need.length; i++) { const c = need[i]; if (!c.detail) this.buildDetailFor(c); if (!c.win && points.some(([x, z]) => Math.hypot(c.cx - x, c.cz - z) - CHUNK * 0.7 < this.windowRadius)) this.buildWindowsFor(c); progress((i + 1) / need.length); if (i % 2 === 1) await new Promise((r) => requestAnimationFrame(r)); }
     progress(1); return need.length;
   }
-  setQuality(q) { const s = q === 'low' ? 0.6 : q === 'medium' ? 0.8 : q === 'ultra' ? 1.25 : 1; this.detailRadius = 330 * s; this.windowRadius = q === 'low' ? 0 : q === 'medium' ? 90 : q === 'ultra' ? 210 : 150; this.propRadius = 430 * s; this.treeRadius = 520 * s; }
+  setQuality(q) { this.quality = q; if (this.grass) this.grass.setQuality(q); const s = q === 'low' ? 0.6 : q === 'medium' ? 0.8 : q === 'ultra' ? 1.25 : 1; this.detailRadius = 330 * s; this.windowRadius = q === 'low' ? 0 : q === 'medium' ? 90 : q === 'ultra' ? 210 : 150; this.propRadius = 430 * s; this.treeRadius = 520 * s; }
 }
 export { plan };
