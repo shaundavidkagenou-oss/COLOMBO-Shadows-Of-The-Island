@@ -68,7 +68,7 @@ export async function playOpening(g) {
     await d.say('Ruwan', 'Because nobody here knows your face any more. And because you never could leave things alone.', 4.6);
     // weather turns
     if (!d.skip) { A.flash = 1; Audio.thunder(0.2); } A.forceWeather('rain'); A.w.rain = Math.max(A.w.rain, 0.55); A.w.cloud = Math.max(A.w.cloud, 0.85);
-    d.shot({ pos: [MEET.x + 0.5, 1.3, MEET.z - 5], look: [MEET.x + 0.5, 9, MEET.z + 6] }, { pos: [MEET.x + 0.5, 1.4, MEET.z - 4.6], look: [MEET.x + 0.5, 2.0, MEET.z] }, 3);
+    d.shot({ pos: [MEET.x + 0.5, 1.3, MEET.z - 5], look: [MEET.x + 0.5, 5, MEET.z + 6] }, { pos: [MEET.x + 0.5, 1.4, MEET.z - 4.6], look: [MEET.x + 0.5, 2.0, MEET.z] }, 3);
     await d.wait(2.4);
     d.hold(two.pos, two.look);
     await d.say('Ruwan', 'Meet me tonight at Galle Face. Eight o\'clock, by the food carts.', 3.6);
