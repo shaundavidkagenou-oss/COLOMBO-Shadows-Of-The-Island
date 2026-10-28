@@ -116,6 +116,12 @@ export class World {
   disposeDetail(c) { c.group.remove(c.detail); c.detail.traverse((m) => m.geometry && m.geometry.dispose()); c.detail = null; }
   // Force detail around a point (used before cinematics / after teleport)
   warm(x, z) { for (const c of this.chunks) if (!c.detail && Math.hypot(c.cx - x, c.cz - z) - CHUNK * 0.7 < this.detailRadius) this.buildDetailFor(c); }
+  // same as warm(), one chunk per frame with progress (used by the enter-game loading screen)
+  async warmAsync(points, progress = () => {}) {
+    const need = this.chunks.filter((c) => !c.detail && points.some(([x, z]) => Math.hypot(c.cx - x, c.cz - z) - CHUNK * 0.7 < this.detailRadius));
+    for (let i = 0; i < need.length; i++) { if (!need[i].detail) this.buildDetailFor(need[i]); progress((i + 1) / need.length); if (i % 2 === 1) await new Promise((r) => requestAnimationFrame(r)); }
+    progress(1); return need.length;
+  }
   setQuality(q) { const s = q === 'low' ? 0.6 : q === 'medium' ? 0.8 : q === 'ultra' ? 1.25 : 1; this.detailRadius = 330 * s; this.propRadius = 430 * s; this.treeRadius = 520 * s; }
 }
 export { plan };

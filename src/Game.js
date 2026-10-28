@@ -23,6 +23,7 @@ import { Trains } from './vehicles/Trains.js';
 import { Audio } from './audio/Audio.js';
 import { HUD } from './ui/HUD.js';
 import { Screens, wait } from './ui/Screens.js';
+import { enterGameLoading } from './ui/LoadingScreen.js';
 import { Director } from './story/Director.js';
 import { Story, MISSIONS } from './story/Story.js';
 import { playOpening } from './story/Opening.js';
@@ -145,9 +146,19 @@ export class Game {
       this.mode = 'menu'; this.player.cinematic = true; this.hud.show(false); this.atmos.hour = 17.4; this.atmos.setWeather('cloudy', true); this.atmos.wet = 0; this.menuT = 0;
       Audio.setMusic('menu'); this.hud.fade(0, 1.2);
       const r = await this.screens.mainMenu();
-      if (r.action === 'new') { await this.hud.fade(1, 0.8); return this.newGame(); }
-      if (r.action === 'load') { await this.hud.fade(1, 0.8); return this.startLoaded(r.slot); }
+      if (r.action === 'new') { await this.enterLoading([[-128, -891.8], [-560, -330]]); return this.newGame(); }
+      if (r.action === 'load') { const d = SaveSystem.read(r.slot); const p = d && d.player; await this.enterLoading(p ? [[p.x, p.z]] : [[L.PLACES.meeting.x, L.PLACES.meeting.z]]); return this.startLoaded(r.slot); }
     }
+  }
+  // Enter-game loading screen: real streaming / shader / GPU-upload work around the spawn point(s), studio branding on top
+  async enterLoading(points) {
+    Audio.setMusic('none'); Audio.riser(5);
+    await enterGameLoading(this.ui, [
+      { label: 'Streaming Colombo districts', run: (pr) => this.world.warmAsync(points, pr) },
+      { label: 'Compiling shaders', run: async (pr) => { this.camera.position.set(points[0][0], 3, points[0][1] + 6); this.camera.lookAt(points[0][0], 1.5, points[0][1]); this.camera.updateMatrixWorld(); try { if (this.renderer.compileAsync) await Promise.race([this.renderer.compileAsync(this.scene, this.camera), wait(8000)]); else this.renderer.compile(this.scene, this.camera); } catch (e) { console.warn('compile', e); } pr(1); } },
+      { label: 'Waking the city', run: async (pr) => { for (let i = 0; i < 4; i++) { this.camera.rotation.y += Math.PI / 2; this.camera.updateMatrixWorld(); this.renderer.render(this.scene, this.camera); pr((i + 1) / 4); await new Promise((r) => requestAnimationFrame(r)); } } },
+    ], { minMs: TEST ? 1500 : 6200, onFlash: () => Audio.boom() });
+    this.hud.fade(1, 0); await new Promise((r) => requestAnimationFrame(r));
   }
   async newGame() {
     this.story.state = Story.freshState(); this.clock = 0; this.mode = 'play'; this.paused = false; this.rebuildPlayer();
