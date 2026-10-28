@@ -179,7 +179,7 @@ export function vehicleMaterials() {
   }
   return { lightMat: mats.vlight, tailMatBase: mats.vtail, indicatorMat: mats.vind, mats };
 }
-export function setVehicleNight(n) { vehicleMaterials(); mats.vlight.emissiveIntensity = 0.2 + n * 3.0; mats.vtail.emissiveIntensity = 0.15 + n * 1.4; }
+export function setVehicleNight(n) { vehicleMaterials(); mats.vlight.emissiveIntensity = 0.2 + n * 3.0; mats.vtail.emissiveIntensity = 0.08 + n * 0.5; }
 
 function plateQuad(mb, cx, cy, z, hw, hh, front, variant) {
   const row = (front ? 4 : 0) + (variant % 4); const v0 = 1 - (row + 1) / 8 + 0.004, v1 = 1 - row / 8 - 0.004; const pm = mb.get('plate');

@@ -280,7 +280,7 @@ export class Crowd {
         }
       }
       // vehicles: steer around and never overlap (moving or parked)
-      if (p.state !== 'down') for (const v of vnear) { if (Math.abs(v.x - p.x) > 7 || Math.abs(v.z - p.z) > 7) continue; for (const [cx, cz] of v.circles()) { const dx = p.x - cx, dz = p.z - cz; const d = Math.hypot(dx, dz), m = v.radius + 0.3; if (d < m + 0.8 && d > 1e-4 && desired > 0) { const k = (m + 0.8 - d) / 0.8; dvx += dx / d * k * 1.6; dvz += dz / d * k * 1.6; } if (d < m && d > 1e-4) { p.x = cx + dx / d * m; p.z = cz + dz / d * m; } } }
+      if (p.state !== 'down') for (const v of vnear) { if (Math.abs(v.x - p.x) > 7 || Math.abs(v.z - p.z) > 7) continue; for (const [cx, cz] of v.circles()) { const dx = p.x - cx, dz = p.z - cz; const d = Math.hypot(dx, dz), m = v.radius + 0.3; if (d < m + 0.8 && d > 1e-4 && desired > 0) { const k = (m + 0.8 - d) / 0.8; dvx += dx / d * k * 1.6; dvz += dz / d * k * 1.6; } } const q = v.pushOut(p.x, p.z, 0.3); if (q) { p.x = q.x; p.z = q.z; } }
       if (p.stuckSide > 0) { p.stuckSide -= dt; dvx = p.sideDir[0] * 1.0; dvz = p.sideDir[1] * 1.0; }
       // smoothed acceleration (people do not change velocity instantly)
       const dsx = dvx - p.vx, dsz = dvz - p.vz; const dl = Math.hypot(dsx, dsz); const curSp = Math.hypot(p.vx, p.vz), tgtSp = Math.hypot(dvx, dvz);

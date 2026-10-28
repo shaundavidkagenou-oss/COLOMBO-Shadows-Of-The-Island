@@ -50,7 +50,7 @@ export class Player {
       r = this.collision.resolveCircle(nx, nz, 0.32, this.y, 0.45, 1.75);
     }
     // auto-avoid other vehicles physically
-    if (traffic && !this.indoor) for (const v of traffic.all()) { if (Math.abs(v.x - r.x) > 8 || Math.abs(v.z - r.z) > 8) continue; for (const [cx, cz] of v.circles()) { const dx = r.x - cx, dz = r.z - cz; const d = Math.hypot(dx, dz), m = v.radius + 0.32; if (d < m && d > 1e-4) { r.x = cx + dx / d * m; r.z = cz + dz / d * m; } } }
+    if (traffic && !this.indoor) for (const v of traffic.all()) { if (Math.abs(v.x - r.x) > 8 || Math.abs(v.z - r.z) > 8) continue; const q = v.pushOut(r.x, r.z, 0.32); if (q) { r.x = q.x; r.z = q.z; } } // solid body box (parked cars, buses, bikes)
     this.x = r.x; this.z = r.z;
     // jump / climb
     if (this.control && Input.wasPressed('jump') && this.grounded) {

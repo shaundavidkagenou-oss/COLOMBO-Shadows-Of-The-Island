@@ -26,20 +26,24 @@ const sm = (k) => { k = clamp(k, 0, 1); return k * k * (3 - 2 * k); };
 const seg = (k, a, b) => clamp((k - a) / (b - a), 0, 1);
 const _m = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _e = new THREE.Euler();
 const qE = (x, y, z) => new THREE.Quaternion().setFromEuler(new THREE.Euler(x, y, z));
-const Q_GRIP = qE(0.25, 0, Math.PI / 2), Q_SUP_R = qE(0.1, 0, -Math.PI / 2), Q_SUP_P = qE(-0.5, 0.3, -Math.PI / 2);
+const Q_GRIP = qE(-0.8, 0, 0), /* firing hand: palm on the grip side, fingers wrap down-forward, thumb up along the frame (rest frame: fingers −y, palm inward, thumb +z) */ Q_SUP_R = qE(0.1, 0, -Math.PI / 2), Q_SUP_P = qE(-0.5, 0.3, -Math.PI / 2);
 
 // hold poses in "body space at the chest" (chest frame with the stance twist removed). Rifles/snipers: the support point is
 // placed at a reachable spot and the rest of the weapon follows, so long and short guns both sit right in the hands.
+// right-shoulder pocket in body space (character faces +z, its right side is −x); tuned with tools in dev (see weapon pose test)
+const POCKET = new THREE.Vector3(-0.11, 0.1, 0.07);
+// low ready for long guns: pivot muzzle-down about the shoulder pocket (no cross-body yaw → the stock can't swing through the chest)
+function lowReady(ud) { const rot = [0.6, 0.06, 0.18]; const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(rot[0], rot[1], rot[2], 'YXZ')); const butt = new THREE.Vector3(POCKET.x - 0.02, POCKET.y - 0.03, POCKET.z); const back = new THREE.Vector3(0, 0, ud.buttZ).applyQuaternion(q); return { pos: butt.sub(back), rot }; }
 function aimPose(def, ud) {
   if (def.cls === 'pistol') return { pos: new THREE.Vector3(-0.03, 0.2, 0.44), twist: 0.12 }; // arms extended, sights at eye line
-  const sup = ud.support; const wantSup = new THREE.Vector3(-0.05, 0.1, 0.44); // stock in the shoulder pocket, sight line near the eye
-  return { pos: new THREE.Vector3(wantSup.x - sup.x, wantSup.y - sup.y, wantSup.z - sup.z), twist: 0.38 };
+  // long guns: the butt (rearmost point of the model) sits IN FRONT of the right shoulder, never inside the torso
+  const sup = ud.support; return { pos: new THREE.Vector3(POCKET.x, POCKET.y - sup.y, POCKET.z - ud.buttZ), twist: 0.5 }; // bladed stance: left shoulder forward
 }
 
 export class Weapons {
   constructor(game) {
     this.g = game; this.P = game.player; this.inv = WEAPONS.map((d) => ({ mag: d.mag, reserve: d.reserve, owned: true }));
-    this.models = WEAPONS.map((d) => buildWeaponModel(d)); this.cur = -1; this.sel = 0; this.state = 'none'; this.t = 0; this.next = -1;
+    this.models = WEAPONS.map((d) => buildWeaponModel(d)); for (const m of this.models) { m.updateMatrixWorld(true); m.userData.buttZ = new THREE.Box3().setFromObject(m).min.z; } // rear end of the stock (grip-origin space) this.cur = -1; this.sel = 0; this.state = 'none'; this.t = 0; this.next = -1;
     this.aimW = 0; this.bloom = 0; this.cool = 0; this.recoil = 0; this.recoilYaw = 0; this.quickAim = 0; this.scoped = false; this.breath = 1; this.heat = 0; this.heatT = 0; this.shotAlarm = 0; this.threatT = 0;
     this.wheelOpen = false; this.wheelSel = -1; this.wheelX = 0; this.wheelY = 0; this.cycleT = -1; this.reloadMagOut = false;
     this.holsterP = new THREE.Group(); this.holsterR = new THREE.Group(); // hip holster (hips bone) and back sling (chest bone)
@@ -61,7 +65,8 @@ export class Weapons {
   slotMatrixInChest(i, out) { const b = this.P.ch.bones; const slot = WEAPONS[i].cls === 'pistol' ? this.holsterP : this.holsterR; b.chest.updateWorldMatrix(true, false); slot.updateWorldMatrix(true, false); return out.copy(b.chest.matrixWorld).invert().multiply(slot.matrixWorld); }
   select(i) {
     if (i < 0 || i > 8 || !this.inv[i].owned) return; if (this.state === 'reload') this.abortReload();
-    if (this.cur === i && this.state !== 'holster') return;
+    if (this.state === 'holster') { this.next = i; this.hudWeapon(i); return; } // already putting one away: retarget, never restart the animation
+    if (this.cur === i) return;
     if (this.drawn) { this.next = i; this.setState('holster'); } else { this.sel = i; this.cur = i; this.setState('equip'); }
     this.hudWeapon(i);
   }
@@ -82,9 +87,10 @@ export class Weapons {
     if (Input.isDown('weaponWheel')) this.wheelUpdate(); else if (this.wheelOpen) this.wheelClose(true);
     if (!this.wheelOpen) {
       for (let i = 0; i < 9; i++) if (Input.keyPressed('Digit' + (i + 1)) || Input.keyPressed('Numpad' + (i + 1))) this.select(i);
-      if (Input.wheel && !this.scoped) { const base = this.cur >= 0 ? this.cur : this.sel; this.select((base + (Input.wheel > 0 ? 1 : 8)) % 9); }
-      if (Input.pad.buttons[15] && !Input.pad.prev[15]) this.select(((this.cur >= 0 ? this.cur : this.sel) + 1) % 9);
-      if (Input.pad.buttons[14] && !Input.pad.prev[14]) this.select(((this.cur >= 0 ? this.cur : this.sel) + 8) % 9);
+      // mouse wheel / d-pad: step a pending target through OWNED weapons; commit once the wheel settles (fast scrolling = one clean switch)
+      const step = Input.wheel && !this.scoped ? (Input.wheel > 0 ? 1 : -1) : Input.pad.buttons[15] && !Input.pad.prev[15] ? 1 : Input.pad.buttons[14] && !Input.pad.prev[14] ? -1 : 0;
+      if (step) { const from = this.scrollTarget ?? (this.state === 'holster' && this.next >= 0 ? this.next : this.cur >= 0 ? this.cur : this.sel); let j = from; for (let k = 0; k < 9; k++) { j = (j + step + 9) % 9; if (this.inv[j].owned) break; } this.scrollTarget = j; this.scrollT = 0.2; this.hudWeapon(j); }
+      if (this.scrollTarget != null) { this.scrollT -= dt; if (this.scrollT <= 0) { const j = this.scrollTarget; this.scrollTarget = null; this.select(j); } }
       if (Input.wasPressed('holster') || (Input.pad.buttons[12] && !Input.pad.prev[12] && this.drawn)) { if (this.drawn) this.holster(); else this.select(this.sel); }
     }
     let def = this.def;
@@ -133,7 +139,7 @@ export class Weapons {
     // body space → chest space: undo the stance twist so the weapon points straight ahead of the body
     const twist = A.aim.twist; const toChest = _m2.makeRotationY(twist);
     // ready (low) pose and aim pose
-    const low = def.cls === 'pistol' ? { pos: new THREE.Vector3(-0.1, -0.12, 0.3), rot: [0.75, 0.1, 0] } : { pos: new THREE.Vector3(ap.pos.x + 0.02, ap.pos.y - 0.12, ap.pos.z - 0.12), rot: [0.55, 0.35, 0.25] };
+    const low = def.cls === 'pistol' ? { pos: new THREE.Vector3(-0.1, -0.12, 0.3), rot: [0.75, 0.1, 0] } : lowReady(ud);
     let pos = new THREE.Vector3().lerpVectors(low.pos, ap.pos, aw); let rx = lerp(low.rot[0], 0, aw), ry = lerp(low.rot[1], 0, aw), rz = lerp(low.rot[2], 0, aw);
     if (P.sprinting && this.aimW < 0.1) { rx += 0.25; ry += twoHand ? 0.35 : 0; pos.y -= 0.03; }
     // recoil kick
@@ -174,6 +180,10 @@ export class Weapons {
     const wQ = new THREE.Quaternion().setFromRotationMatrix(chestM);
     const grip = new THREE.Vector3(0, 0, 0).applyMatrix4(chestM); let qR = wQ.clone().multiply(Q_GRIP);
     let sup = ud.support.clone().applyMatrix4(chestM); let qL = wQ.clone().multiply(twoHand ? Q_SUP_R : Q_SUP_P);
+    if (twoHand) { // support hand: slide back along the forend to the furthest point the left arm can really reach (no floating hand)
+      const b = P.ch.bones; b.shL.updateMatrix(); const sh = b.armL.position.clone().applyMatrix4(b.shL.matrix); const armMax = (b.foreL.position.length() + b.handL.position.length()) * 0.98 + 0.05;
+      const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(wQ); let slide = 0; for (let it = 0; it < 6 && slide < 0.24; it++) { const d = sup.distanceTo(sh); if (d <= armMax) break; slide = Math.min(0.24, slide + (d - armMax) * 1.05); sup = ud.support.clone().applyMatrix4(chestM).addScaledVector(dir, -slide); }
+      this._supSlide = slide; }
     const pouchChest = new THREE.Vector3(0.12, -0.36, 0.08).applyMatrix4(toChest);
     if (supTarget === 'pouch') { sup = sup.clone().lerp(pouchChest, this._supK); }
     else if (supTarget === 'well') { const well = ud.magWell.clone().applyMatrix4(chestM); const from = pouchChest; sup = from.clone().lerp(well, this._supK); // fresh magazine travels in the hand

@@ -31,13 +31,13 @@ class SkinBuilder {
         const x = r.c[0] + ca * r.rx, z = r.c[2] + sa * r.rz + front, y = r.c[1];
         const nrm = new THREE.Vector3(ca / r.rx, 0, sa / (r.rz + Math.abs(front) * 0.5)).normalize();
         const col = colFn ? colFn(ri, a, r) : r.col;
-        this.v([x, y, z], [nrm.x, nrm.y, nrm.z], col, [ru + ((k / seg) * uvRep % 1) * 0.5 * 0.999, rv + (ri / Math.max(1, rings.length - 1)) * 0.5 * 0.999], r.w);
+        this.v([x, y, z], [nrm.x, nrm.y, nrm.z], col, [ru + ((k / seg) * uvRep % 1) * 0.5 * 0.999, rv + (ri / Math.max(1, rings.length - 1)) * 0.5 * 0.999], typeof r.w === 'function' ? r.w(ca, sa) : r.w); /* r.w may be per-vertex: (cos, sin) of the ring angle */
       }
     });
     const W = seg + 1;
     const down = rings[rings.length - 1].c[1] < rings[0].c[1]; // rings built top→bottom (arms, legs, skirts) need the opposite winding
     for (let ri = 0; ri < rings.length - 1; ri++) for (let k = 0; k < seg; k++) { const a = base + ri * W + k, b = a + 1, c = a + W, d = c + 1; if (down) target.push(a, b, c, b, d, c); else target.push(a, c, b, b, c, d); }
-    const cap = (ri, up) => { const r = rings[ri]; const ctr = this.v(r.c, [0, up ? 1 : -1, 0], colFn ? colFn(ri, 0, r) : r.col, [ru, rv], r.w); for (let k = 0; k < seg; k++) { const a = base + ri * W + k; if (up !== down) target.push(ctr, a + 1, a); else target.push(ctr, a, a + 1); } };
+    const cap = (ri, up) => { const r = rings[ri]; const ctr = this.v(r.c, [0, up ? 1 : -1, 0], colFn ? colFn(ri, 0, r) : r.col, [ru, rv], typeof r.w === 'function' ? r.w(0, 0) : r.w); for (let k = 0; k < seg; k++) { const a = base + ri * W + k; if (up !== down) target.push(ctr, a + 1, a); else target.push(ctr, a, a + 1); } };
     if (capStart) cap(0, false); if (capEnd) cap(rings.length - 1, true);
   }
   ellipsoid(c, rx, ry, rz, w, col, { lat = 10, lon = 14, p0 = 0, p1 = Math.PI, faceUV = false, target = this.idx, region = 0, bumpFn = null } = {}) {
@@ -151,8 +151,12 @@ export function buildBodyGeometry(sp) {
     for (let i = 0; i < N; i++) {
       const t = i / (N - 1), y = lerp(topY, hemY, t) * s; const flare = o === 'sarong' ? 0.02 : o === 'frock' ? 0.09 : o === 'skirt_top' ? 0.07 : o === 'abaya' ? 0.04 : 0.05;
       const rx = lerp(0.17 * w, 0.17 * w + flare + (skirtLen === 'ankle' ? 0.02 : 0), Math.pow(t, 0.8)), rz = lerp(0.12 * w, 0.13 * w + flare * 0.8, t);
-      const legW = clamp((t - 0.25) * 0.6, 0, 0.45); // hem follows legs a little
-      rings.push({ c: [0, y, 0.005], rx: rx + (y > 0.9 * s ? 0.005 : 0), rz, w: legW > 0 ? [[B.hips, 1 - legW], [B.thighL, legW / 2], [B.thighR, legW / 2]] : W1('hips'), col: C(sp.skirtCol || sp.bottom) });
+      // per-vertex skinning: each side of the garment follows the leg under it (stronger toward the hem), so a striding knee
+      // pushes the cloth forward instead of poking through it; below the knee, long garments also follow the shins.
+      const follow = smooth01((t - 0.12) / 0.75) * (skirtLen === 'ankle' ? 0.8 : 0.85); const below = skirtLen === 'ankle' ? clamp((0.5 * s - y) / (0.4 * s), 0, 1) * 0.45 : 0;
+      const wFn = follow <= 0 ? W1('hips') : (ca) => { const sL = smooth01((ca + 0.55) / 1.1); const k = follow; const shinK = below; // ca > 0 → character's left (+x)
+        const out = [[B.hips, 1 - k]]; const add = (side, f) => { if (f <= 1e-4) return; out.push([B['thigh' + side], k * f * (1 - shinK)]); if (shinK > 0) out.push([B['shin' + side], k * f * shinK]); }; add('L', sL); add('R', 1 - sL); return out.sort((p, q) => q[1] - p[1]).slice(0, 4); };
+      rings.push({ c: [0, y, 0.005], rx: rx + (y > 0.9 * s ? 0.005 : 0), rz, w: wFn, col: C(sp.skirtCol || sp.bottom) });
     }
     sb.loft(rings, 18, { region, uvRep: 2 });
   }
@@ -527,15 +531,33 @@ export class Animator {
     const idleKn = (side) => { const loaded = side === 0 ? sh > 0 : sh < 0; return 0.04 + (loaded ? 0 : 0.16 * Math.abs(sh)); };
     const legs = [lL, lR].map((l, i) => {
       let thW = lerp(idleTh(i), l.th, w) - crouch * 1.1; let kn = lerp(idleKn(i), l.knee + 0.04, w) + crouch * 1.9;
-      return { thW, kn, foot: l.foot * w, contact: l.contact || w < 0.5 };
+      return { thW, kn, foot: l.foot * w, contact: l.contact || w < 0.5, u: l.contact ? l.u : -1 };
     });
     // solve hip height from the planted leg(s): hips must sit where the stance foot touches the ground
     const need = (l) => this.ankle + this.a * Math.cos(l.thW) + this.b * Math.cos(l.thW + l.kn) + 0.02 * s;
-    let hy = Infinity; for (const l of legs) if (l.contact) hy = Math.min(hy, need(l));
-    if (hy === Infinity) hy = Math.max(need(legs[0]), need(legs[1])) + 0.035 * run * g.bounce; // flight phase
-    hy = this.ch.hipY + (hy - this.ch.hipY) * lerp(1, g.bounce, 0.5);
+    this.legState = legs; // read by tools/anim-test (stance phase per leg)
+    // the push-off foot pivots on its toes: its ankle rises with the heel instead of dragging the hips down
+    const heel = (l) => (l.u > 0.66 ? 0.13 * s * Math.sin(Math.max(0, l.foot)) : 0);
+    // support weight: ramps in after heel strike, out before toe-off → hip height is continuous through every contact change
+    const supW = (l) => (!l.contact ? 0 : l.u < 0 ? 1 : smooth01(l.u / 0.18) * (1 - smooth01((l.u - 0.78) / 0.22)) + 1e-4);
+    let W = 0, acc = 0; for (const l of legs) { const ws = supW(l); W += ws; acc += ws * (need(l) + heel(l)); }
+    const flight = Math.max(need(legs[0]), need(legs[1])) + 0.035 * run * g.bounce;
+    let hy = W > 1e-3 ? lerp(flight, acc / W, smooth01(W / 0.35)) : flight;
+    // a rigid pendulum bobs ~9 cm per step; people flatten it with stance-knee flexion → keep a fraction around a slow average
+    if (this.hyAvg === undefined || dt > 0.2) this.hyAvg = hy; this.hyAvg = damp(this.hyAvg, hy, 1.6, dt);
+    const hyWalk = this.hyAvg + (hy - this.hyAvg) * 0.32 * g.bounce;
+    // running: lowest at each mid-stance (the knee absorbs the landing), highest in flight — a smooth periodic bob, two per cycle
+    const hyRun = this.hyAvg - 0.012 * s - 0.03 * s * g.bounce * Math.cos(2 * Math.PI * (2 * pL - beta));
+    hy = lerp(hyWalk, hyRun, run);
     hy = lerp(hy, this.ch.hipY - 0.45, seatT);
     this.hipYs = dt > 0.2 ? hy : damp(this.hipYs, hy, 30, dt);
+    // planted legs: two-bone IK so each stance ankle lands exactly on the ground under the actual hips (no sinking / floating feet)
+    if (seatT < 0.999) for (const l of legs) { if (!l.contact) continue;
+      const xf = -(this.a * Math.sin(l.thW) + this.b * Math.sin(l.thW + l.kn)); const yv = this.hipYs - this.ankle - 0.02 * s - heel(l);
+      const d = clamp(Math.hypot(xf, yv), Math.abs(this.a - this.b) + 1e-3, this.a + this.b - 1e-3);
+      const kn = Math.PI - Math.acos(clamp((this.a * this.a + this.b * this.b - d * d) / (2 * this.a * this.b), -1, 1));
+      const th = Math.atan2(-xf, yv) - Math.acos(clamp((this.a * this.a + d * d - this.b * this.b) / (2 * this.a * d), -1, 1));
+      const k = 1 - seatT; l.thW = lerp(l.thW, th, k); l.kn = lerp(l.kn, kn, k); }
     b.hips.position.y = this.hipYs; b.hips.position.x = (swayPh * 0.02 * g.sway * (1 - run) * w + sh * 0.028) * s;
     b.hips.rotation.set(hipPitch, pelvisYaw, hipRoll);
     const R = (bone, x, y, z) => b[bone].rotation.set(x, y, z);

@@ -18,7 +18,7 @@ let t = 0; for (let k = 0; k < 40; k++) { chars.forEach((c, i) => { const a = ac
 if (params.get('side')) chars.forEach((c) => (c.root.rotation.y = Math.PI / 2));
 // ?strip=<hero|index>&sp=1.4 : one character drawn at 10 consecutive moments of its gait (side view) to check stride / contact
 if (params.get('strip')) { chars.forEach((c) => (c.root.visible = false)); const spd = +(params.get('sp') || 1.4); const who = list[+params.get('strip')] || HEROES.kavindu; const n = 10;
-  for (let i = 0; i < n; i++) { const c = new Character(who); c.root.rotation.y = Math.PI / 2; c.root.position.set(-4.5 + i * 1.0, 0, 0); s.add(c.root); c.anim.cyc = 0; for (let k = 0; k < 60; k++) c.anim.update(1 / 60, spd); c.anim.cyc = i / n; c.anim.update(1e-4, spd); }
+  for (let i = 0; i < n; i++) { const c = new Character(who); c.root.rotation.y = Math.PI / 2; c.root.position.set(-4.5 + i * 1.0, 0, 0); s.add(c.root); for (let k = 0; k < 120; k++) c.anim.update(1 / 60, spd); let guard = 0; while (Math.abs(c.anim.cyc - i / n) > 0.012 && guard++ < 600) c.anim.update(1 / 240, spd); } /* simulated continuously up to each phase (hip smoothing + stance IK active) */
   const g = new THREE.GridHelper(12, 48, 0x333333, 0x666666); s.add(g); }
 // ?faces=1 : close-up row of heads showing every expression frame
 if (params.get('faces')) { const { FACE_FRAMES } = await import('/src/gfx/Textures.js'); chars.forEach((c, i) => { c.root.visible = i < FACE_FRAMES.length; c.root.position.set((i - 4.5) * 0.3, 0, 0); c.face.show(i % FACE_FRAMES.length); c.face.update = () => {}; });

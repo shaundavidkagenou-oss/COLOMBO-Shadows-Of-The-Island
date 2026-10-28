@@ -18,7 +18,7 @@ export class Vehicle {
   forward() { return [Math.sin(this.yaw), Math.cos(this.yaw)]; }
   place(x, z, yaw) { this.x = x; this.z = z; this.yaw = yaw; this.y = L.groundY(x, z); this.sync(0); }
   // circles along the length used for collision
-  circles() { const [fx, fz] = this.forward(); const n = this.T.len > 6 ? 3 : 2; const out = []; for (let i = 0; i < n; i++) { const t = n === 1 ? 0 : (i / (n - 1) - 0.5) * (this.T.len - this.T.wid); out.push([this.x + fx * t, this.z + fz * t]); } return out; }
+  circles() { const [fx, fz] = this.forward(); const n = Math.max(2, Math.ceil((this.T.len - this.T.wid) / (this.T.wid * 0.7)) + 1); /* overlapping circles: no gaps along the body */ const out = []; for (let i = 0; i < n; i++) { const t = n === 1 ? 0 : (i / (n - 1) - 0.5) * (this.T.len - this.T.wid); out.push([this.x + fx * t, this.z + fz * t]); } return out; }
   // Player physics. input: {throttle (-1..1), steer (-1..1), handbrake}
   drive(dt, input, collision, others) {
     const T = this.T; const fwd = input.throttle; const sp = this.speed;
@@ -31,7 +31,10 @@ export class Vehicle {
     this.speed += acc * dt; this.brake = (fwd < 0 && sp > 0.5) || input.handbrake;
     const steerMax = T.steer * lerp(1, 0.35, clamp(Math.abs(sp) / T.maxSpeed, 0, 1));
     this.steer = damp(this.steer, input.steer * steerMax, 6, dt);
-    const wb = T.len * 0.62; const yawRate = (this.speed * Math.tan(this.steer)) / wb;
+    const wb = T.len * 0.62; let yawRate = (this.speed * Math.tan(this.steer)) / wb;
+    // tyre grip limit: lateral acceleration v·ω can't exceed ~1.2 g (cars) / ~0.95 g (two-wheelers) — stops twitchy high-speed spins
+    const aMax = (T.entry === 'bike' ? 9.3 : T.mass > 3000 ? 6.5 : 11.5) * (input.handbrake ? 1.4 : 1); const yrMax = aMax / Math.max(Math.abs(this.speed), 1);
+    if (Math.abs(yawRate) > yrMax) yawRate = Math.sign(yawRate) * yrMax;
     // drift: with handbrake the rear slides (lateral velocity persists)
     const grip = input.handbrake ? 1.2 : 7;
     this.lat = damp(this.lat + yawRate * Math.abs(this.speed) * dt * (input.handbrake ? 0.3 : 0.02), 0, grip, dt);
@@ -57,9 +60,28 @@ export class Vehicle {
       }
     }
     if (hit > 0.02) { this.impact(Math.abs(this.speed)); this.speed *= Math.abs(this.speed) > 8 ? -0.25 : 0.6; }
-    this.y = damp(this.y, L.groundY(this.x, this.z), 12, dt);
-    this.pitch = damp(this.pitch, -acc * 0.004, 5, dt); this.roll = damp(this.roll, -yawRate * this.speed * 0.006 * (this.type === 'bike' ? -6 : 1), 5, dt);
+    this.groundY = damp(this.groundY ?? L.groundY(this.x, this.z), L.groundY(this.x, this.z), 12, dt);
+    // body attitude: cars pitch/roll a little on their suspension; two-wheelers lean into the turn about the tyre contact patch
+    const latA = yawRate * this.speed; const twoWheel = this.T.entry === 'bike';
+    this.pitch = damp(this.pitch, clamp(-acc * 0.004, -0.05, 0.05), 5, dt);
+    this.roll = damp(this.roll, twoWheel ? clamp(Math.atan2(latA, 9.81) * 0.85, -0.55, 0.55) : clamp(-latA * 0.006, -0.06, 0.06), twoWheel ? 4 : 5, dt);
+    // the attitude rotates about the origin at road level → lift the body so the low side never sinks into the road
+    const lift = twoWheel ? 0 : (this.T.wid / 2) * Math.abs(Math.sin(this.roll)) + (this.T.len / 2) * Math.abs(Math.sin(this.pitch));
+    this.y = this.groundY + lift;
     this.sync(dt);
+  }
+  // push a walker's circle (radius r) out of this vehicle's body box (oriented rectangle); returns null if clear
+  pushOut(px, pz, r) {
+    const [fx, fz] = this.forward(); const dx = px - this.x, dz = pz - this.z;
+    const lz = dx * fx + dz * fz, lx = dx * fz - dz * fx; // local: lz along the body, lx across
+    const hl = this.T.len / 2, hw = this.T.wid / 2;
+    const cx = Math.max(-hw, Math.min(hw, lx)), cz = Math.max(-hl, Math.min(hl, lz));
+    let ox = lx - cx, oz = lz - cz; let d = Math.hypot(ox, oz);
+    if (d >= r) return null;
+    let nlx, nlz;
+    if (d > 1e-4) { nlx = cx + ox / d * r; nlz = cz + oz / d * r; }
+    else { const ex = hw - Math.abs(lx), ez = hl - Math.abs(lz); if (ex < ez) { nlx = Math.sign(lx || 1) * (hw + r); nlz = lz; } else { nlx = lx; nlz = Math.sign(lz || 1) * (hl + r); } } // centre inside: leave by the nearest side
+    return { x: this.x + nlx * fz + nlz * fx, z: this.z - nlx * fx + nlz * fz };
   }
   impact(v) { if (v > 4) { this.damage = Math.min(1, this.damage + v * 0.004); this.lastImpact = { v, t: performance.now() }; } }
   bump(dx, dz) { if (this.parked) { this.x += dx * 0.3; this.z += dz * 0.3; this.sync(0); } else if (this.ai) { this.ai.bumped = 2.5; } }
@@ -67,7 +89,7 @@ export class Vehicle {
     const m = this.mesh; m.position.set(this.x, this.y, this.z); m.rotation.set(this.pitch, this.yaw, this.roll, 'YXZ');
     this.wheelRot += (this.speed * dt) / this.T.wheelR;
     for (const w of m.userData.wheels) { w.userData.spin.rotation.x = this.wheelRot; if (w.userData.front) w.rotation.y = this.steer; }
-    const tm = m.userData.tailMat; const want = this.brake ? 3.2 : this.lights ? 1.4 : 0.15; if (tm.emissiveIntensity !== want) tm.emissiveIntensity = want;
+    const tm = m.userData.tailMat; const want = this.brake ? 1.5 : this.lights ? 0.55 : 0.08; // tail lamps: readable, not blinding (bloom) if (tm.emissiveIntensity !== want) tm.emissiveIntensity = want;
   }
   driverSeat() { const s = this.mesh.userData.seats.find((q) => q.driver) || this.mesh.userData.seats[0]; return s; }
   seatWorld(seat) { const v = new THREE.Vector3(seat.x, seat.y, seat.z); this.mesh.updateMatrixWorld(); return v.applyMatrix4(this.mesh.matrixWorld); }
