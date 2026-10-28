@@ -16,8 +16,21 @@ const smooth01 = (x) => { const t = clamp(x, 0, 1); return t * t * (3 - 2 * t); 
 // atlas regions for fabric patterns: 0 plain weave, 1 saree, 2 batik, 3 plaid
 const REGION = [[0, 0.5], [0.5, 0.5], [0, 0], [0.5, 0]];
 
+// Adult female bust profile across the front of a torso ring (ca = cos of the ring angle, i.e. normalised x; front = sa > 0):
+// two soft volumes at about ±45 % of the half-width, bridged by the garment in the middle (clothed, no cleavage detail)
+const bustShape = (ca, sa) => (sa <= 0 ? 0 : Math.sqrt(sa) * (0.75 * (Math.exp(-(((ca - 0.45) / 0.28) ** 2)) + Math.exp(-(((ca + 0.45) / 0.28) ** 2))) + 0.55 * Math.exp(-((ca / 0.5) ** 2))));
+const frontOf = (r, ca, sa) => (sa > 0 ? sa * (r.fz || 0) + (r.bust ? r.bust * bustShape(ca, sa) : 0) : sa * (r.bz || 0));
+const ringPt = (r, a) => { const ca = Math.cos(a), sa = Math.sin(a); return [r.c[0] + ca * r.rx, r.c[1], r.c[2] + sa * r.rz + frontOf(r, ca, sa)]; };
+// surface normal from the actual shaped surface (ring tangent × vertical tangent through the neighbouring rings)
+function shapedNormal(rings, ri, a) {
+  const r = rings[ri], e = 0.02; const p0 = ringPt(r, a - e), p1 = ringPt(r, a + e);
+  const rp = rings[Math.max(0, ri - 1)], rn = rings[Math.min(rings.length - 1, ri + 1)]; const q0 = ringPt(rp, a), q1 = ringPt(rn, a);
+  const ta = new THREE.Vector3(p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]), ty = new THREE.Vector3(q1[0] - q0[0], q1[1] - q0[1], q1[2] - q0[2]);
+  if (ty.lengthSq() < 1e-10) ty.set(0, 1, 0);
+  const n = new THREE.Vector3().crossVectors(ta, ty).normalize(); if (n.x * Math.cos(a) + n.z * Math.sin(a) < 0) n.negate(); return n;
+}
 class SkinBuilder {
-  constructor() { this.pos = []; this.nor = []; this.col = []; this.uv = []; this.si = []; this.sw = []; this.idx = []; this.headIdx = []; }
+  constructor() { this.pos = []; this.nor = []; this.col = []; this.uv = []; this.si = []; this.sw = []; this.idx = []; this.headIdx = []; this.hairIdx = []; }
   get n() { return this.pos.length / 3; }
   v(p, nrm, c, uv, w) { this.pos.push(p[0], p[1], p[2]); this.nor.push(nrm[0], nrm[1], nrm[2]); this.col.push(c[0], c[1], c[2]); this.uv.push(uv[0], uv[1]); const s = [0, 0, 0, 0], ww = [0, 0, 0, 0]; w.slice(0, 4).forEach(([b, x], i) => { s[i] = b; ww[i] = x; }); const t = ww[0] + ww[1] + ww[2] + ww[3] || 1; this.si.push(...s); this.sw.push(ww[0] / t, ww[1] / t, ww[2] / t, ww[3] / t); return this.n - 1; }
   // Loft of elliptical rings. rings: [{c:[x,y,z], rx, rz, w:[[bone,weight]..], col, fz?(front bulge)}]
@@ -27,9 +40,10 @@ class SkinBuilder {
     rings.forEach((r, ri) => {
       for (let k = 0; k <= seg; k++) {
         const a = (k / seg) * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
-        const front = sa > 0 ? sa * (r.fz || 0) : sa * (r.bz || 0);
+        const front = frontOf(r, ca, sa);
         const x = r.c[0] + ca * r.rx, z = r.c[2] + sa * r.rz + front, y = r.c[1];
-        const nrm = new THREE.Vector3(ca / r.rx, 0, sa / (r.rz + Math.abs(front) * 0.5)).normalize();
+        let nrm = new THREE.Vector3(ca / r.rx, 0, sa / (r.rz + Math.abs(front) * 0.5)).normalize();
+        if (r.bust || (rings[ri - 1] && rings[ri - 1].bust) || (rings[ri + 1] && rings[ri + 1].bust)) nrm = shapedNormal(rings, ri, a);
         const col = colFn ? colFn(ri, a, r) : r.col;
         this.v([x, y, z], [nrm.x, nrm.y, nrm.z], col, [ru + ((k / seg) * uvRep % 1) * 0.5 * 0.999, rv + (ri / Math.max(1, rings.length - 1)) * 0.5 * 0.999], typeof r.w === 'function' ? r.w(ca, sa) : r.w); /* r.w may be per-vertex: (cos, sin) of the ring angle */
       }
@@ -75,7 +89,7 @@ class SkinBuilder {
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
     g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(this.si, 4)); g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(this.sw, 4));
-    g.setIndex([...this.idx, ...this.headIdx]); g.addGroup(0, this.idx.length, 0); g.addGroup(this.idx.length, this.headIdx.length, 1);
+    g.setIndex([...this.idx, ...this.headIdx, ...this.hairIdx]); g.addGroup(0, this.idx.length, 0); g.addGroup(this.idx.length, this.headIdx.length, 1); g.addGroup(this.idx.length + this.headIdx.length, this.hairIdx.length, 2);
     g.computeBoundingSphere(); g.boundingSphere.radius = 1.4; g.boundingSphere.center.set(0, 0.9, 0);
     return g;
   }
@@ -102,14 +116,16 @@ export function buildBodyGeometry(sp) {
   const W1 = (b) => [[B[b], 1]]; const W2 = (a, b, t) => [[B[a], 1 - t], [B[b], t]];
   const midriff = o === 'saree';
   // --- torso (hips → neck)
+  // natural variation in adult female figure (seeded, spec override `bust`), slightly lower/softer with age
+  const bf = f ? (sp.bust ?? (0.82 + 0.36 * ((((Math.sin((sp.seed || 1) * 47.13) * 43758.5453) % 1) + 1) % 1))) * (sp.age === 'elder' ? 0.9 : 1) : 0;
   const tr = [
     { y: 0.84, rx: (f ? 0.17 : 0.158) * w, rz: (f ? 0.112 : 0.102) * w, wgt: W1('hips'), col: bottom },
     { y: 0.95, rx: (f ? 0.172 : 0.16) * w, rz: (f ? 0.115 : 0.105) * w, wgt: W1('hips'), col: bottom },
     { y: 1.02, rx: (f ? 0.14 : 0.15) * w, rz: (f ? 0.095 : 0.1) * w, wgt: W2('hips', 'spine', 0.6), col: midriff ? skin : top },
-    { y: 1.12, rx: (f ? 0.13 : 0.155) * w, rz: (f ? 0.09 : 0.1) * w, wgt: W2('spine', 'chest', 0.3), col: midriff ? skin : top },
-    { y: 1.24, rx: (f ? 0.145 : 0.17) * w, rz: (f ? 0.1 : 0.11) * w, fz: f ? 0.035 : 0.01, wgt: W2('spine', 'chest', 0.8), col: top },
-    { y: 1.33, rx: (f ? 0.15 : 0.18) * w, rz: (f ? 0.1 : 0.11) * w, fz: f ? 0.03 : 0.012, wgt: W1('chest'), col: top },
-    { y: 1.40, rx: (f ? 0.145 : 0.172) * w, rz: 0.09 * w, wgt: W1('chest'), col: top },
+    { y: 1.12, rx: (f ? 0.13 : 0.155) * w, rz: (f ? 0.09 : 0.1) * w, bust: f ? 0.004 * bf : 0, wgt: W2('spine', 'chest', 0.3), col: midriff ? skin : top },
+    { y: 1.24, rx: (f ? 0.145 : 0.17) * w, rz: (f ? 0.1 : 0.11) * w, fz: f ? 0.012 : 0.01, bust: f ? 0.033 * bf : 0, wgt: W2('spine', 'chest', 0.8), col: top },
+    { y: 1.33, rx: (f ? 0.15 : 0.18) * w, rz: (f ? 0.1 : 0.11) * w, fz: f ? 0.012 : 0.012, bust: f ? 0.026 * bf : 0, wgt: W1('chest'), col: top },
+    { y: 1.40, rx: (f ? 0.145 : 0.172) * w, rz: 0.09 * w, bust: f ? 0.005 * bf : 0, wgt: W1('chest'), col: top },
     { y: 1.435, rx: (f ? 0.115 : 0.14) * w, rz: 0.075 * w, wgt: W1('chest'), col: top },
     { y: 1.455, rx: 0.075, rz: 0.06, wgt: W1('chest'), col: top },
     { y: 1.47, rx: 0.062, rz: 0.06, wgt: W2('chest', 'neck', 0.5), col: sp.collar ? top : skin },
@@ -117,9 +133,9 @@ export function buildBodyGeometry(sp) {
   ];
   const bel = sp.belly || 0; if (bel) [[2, 0.03, 0.02], [3, 0.045, 0.032], [4, 0.022, 0.012]].forEach(([i, dz, df]) => { tr[i].rz += bel * dz * w; tr[i].fz = (tr[i].fz || 0) + bel * df; tr[i].rx += bel * 0.012 * w; });
   // torso surface (front/back z at height y and offset x) so straps, lanyards and bags sit on the clothes, never inside
-  const surfZ = (y, x, sgn) => { let k = 0; while (k < tr.length - 2 && tr[k + 1].y * s < y) k++; const a = tr[k], b2 = tr[k + 1]; const t = clamp((y / s - a.y) / (b2.y - a.y), 0, 1); const rx = lerp(a.rx, b2.rx, t), rz = lerp(a.rz, b2.rz, t), fz = lerp(a.fz || 0, b2.fz || 0, t); const q = clamp(Math.abs(x) / rx, 0, 0.98); return sgn * rz * Math.sqrt(1 - q * q) + (sgn > 0 ? fz : 0); };
+  const surfZ = (y, x, sgn) => { let k = 0; while (k < tr.length - 2 && tr[k + 1].y * s < y) k++; const a = tr[k], b2 = tr[k + 1]; const t = clamp((y / s - a.y) / (b2.y - a.y), 0, 1); const rx = lerp(a.rx, b2.rx, t), rz = lerp(a.rz, b2.rz, t), fz = lerp(a.fz || 0, b2.fz || 0, t), bu = lerp(a.bust || 0, b2.bust || 0, t); const q = clamp(Math.abs(x) / rx, 0, 0.98); const sa = Math.sqrt(1 - q * q); return sgn * rz * sa + (sgn > 0 ? fz * sa + bu * bustShape(clamp(x / rx, -1, 1), sa) : 0); };
   const jacket = o === 'jacket';
-  sb.loft(tr.map((r) => ({ c: [0, r.y * s, 0], rx: r.rx, rz: r.rz, fz: r.fz, w: r.wgt, col: r.col })), 16, {
+  sb.loft(tr.map((r) => ({ c: [0, r.y * s, 0], rx: r.rx, rz: r.rz, fz: r.fz, bust: r.bust, w: r.wgt, col: r.col })), f ? 28 : 16, {
     capStart: true,
     colFn: jacket ? (ri, a, r) => { const fr = Math.sin(a); return ri >= 2 && ri <= 6 && fr > 0.93 ? C(sp.inner || '#6b6f72') : r.col; } : sp.tie ? (ri, a, r) => (ri >= 3 && ri <= 6 && Math.sin(a) > 0.97 ? C(sp.tie) : r.col) : null,
   });
@@ -243,19 +259,51 @@ export function buildBodyGeometry(sp) {
     // hairline: high on the forehead, down past the temples to the ears, lower at the nape; below it the cap tucks inside the head.
     // receding / balding raise it at the temples (M-shape); a bob comes down the sides to the jaw.
     const hairline = (x, z) => { const fr = smooth01((z + 0.1) / 0.75); return lerp(-0.25, f ? 0.4 : 0.5, fr) + (hl + rec) * fr + rec * 1.4 * Math.abs(x) * fr + (f && z > 0.6 ? 0.04 * Math.cos(x * 9) : 0) - (hs === 'bob' && z < 0.5 ? 0.42 * smooth01((Math.abs(x) - 0.5) * 4) : 0); };
-    const tex = (x, y, z) => hs === 'wavy' ? 1 + 0.04 * Math.sin(x * 14) * Math.cos(z * 11) : hs === 'curly' ? 1 + 0.05 * Math.abs(Math.sin(x * 21) * Math.sin(y * 17) * Math.sin(z * 19)) : hs === 'quiff' ? 1 + (y > 0.45 && z > -0.1 ? 0.07 * smooth01((y - 0.45) * 3) * smooth01((z + 0.1) * 2) : 0) : hs === 'sidepart' ? (Math.abs(x - 0.32) < 0.035 && y > 0.4 ? 0.975 : x < 0.32 ? 1.012 : 1) : 1;
+    // strand-scale relief on top of the style shape: fine combed grooves running crown → hairline (all styles), so the
+    // silhouette and the shading break up like real hair instead of a smooth helmet
+    const grooves = (x, y, z) => { const ph = Math.atan2(x, z); return 1 + 0.006 * Math.sin(ph * 46 + y * 5) + 0.004 * Math.sin(ph * 97 - y * 9); };
+    const tex = (x, y, z) => grooves(x, y, z) * (hs === 'wavy' ? 1 + 0.04 * Math.sin(x * 14) * Math.cos(z * 11) : hs === 'curly' ? 1 + 0.05 * Math.abs(Math.sin(x * 21) * Math.sin(y * 17) * Math.sin(z * 19)) + 0.02 * Math.sin(x * 47) * Math.sin(z * 43) : hs === 'quiff' ? 1 + (y > 0.45 && z > -0.1 ? 0.07 * smooth01((y - 0.45) * 3) * smooth01((z + 0.1) * 2) : 0) : hs === 'sidepart' ? (Math.abs(x - 0.32) < 0.035 && y > 0.4 ? 0.975 : x < 0.32 ? 1.012 : 1) : 1);
     const bump = (x, y, z) => (y < hairline(x, z) ? 0.9 / lift : hs === 'balding' && y > 0.6 && z > -0.5 ? 0.9 / lift : 1) * tex(x, y, z);
-    const p1 = Math.PI * (f ? (hs === 'bob' ? 0.7 : 0.6) : 0.52);
-    sb.ellipsoid([hc[0], hc[1] + 0.012, hc[2] - 0.006], hr[0] * lift, hr[1] * 1.02, hr[2] * lift, W1('head'), hair, { lat: hs === 'curly' ? 12 : 9, lon: hs === 'curly' ? 24 : 18, p0: 0, p1, bumpFn: bump });
+    const p1 = Math.PI * (f ? (hs === 'bob' ? 0.7 : 0.6) : 0.52); const H = sb.hairIdx;
+    sb.ellipsoid([hc[0], hc[1] + 0.012, hc[2] - 0.006], hr[0] * lift, hr[1] * 1.02, hr[2] * lift, W1('head'), hair, { lat: hs === 'curly' ? 22 : 18, lon: hs === 'curly' ? 44 : 36, p0: 0, p1, bumpFn: bump, target: H });
+    if (!f && hs !== 'balding') for (const sx of [-1, 1]) sb.ellipsoid([sx * hr[0] * 0.97, hc[1] - 0.012, hc[2] + 0.014], 0.007, 0.026, 0.014, W1('head'), hair, { lat: 4, lon: 6, target: H }); // sideburns
+    const hv = (j) => { const k = 0.9 + 0.2 * (((Math.sin(j * 12.9898 + (sp.seed || 1) * 78.233) * 43758.5453) % 1 + 1) % 1); return hair.map((v) => Math.min(1, v * k + 0.004)); };
+    const hashN = (j) => (((Math.sin(j * 91.7 + (sp.seed || 1) * 13.1) * 43758.5453) % 1) + 1) % 1;
     if (f || hs === 'long') {
       const len = { long: 0.4, shoulder: 0.2, bob: 0.06 }[hs] ?? 0; // bun / ponytail / braid / short styles have no loose back panel
-      if (len > 0) sb.loft([0, 1, 2, 3].map((i) => { const t = i / 3; const y = hc[1] - 0.02 - t * len; const rz = lerp(0.06, hs === 'bob' ? 0.05 : 0.025, t); return { c: [0, y, t < 0.3 ? hc[2] - hr[2] * 0.75 : backZ(y, rz)], rx: lerp(hr[0] * 1.02, hs === 'bob' ? hr[0] : 0.06, t), rz, w: t > 0.45 ? W2('neck', 'chest', 0.6) : W1('head'), col: hair }; }), 10, { capEnd: false, capStart: true });
-      if (hs === 'bun') sb.ellipsoid([0, hc[1] - 0.03, hc[2] - hr[2] - 0.03], 0.05, 0.045, 0.045, W1('head'), hair, { lat: 6, lon: 8 });
-      if (hs === 'ponytail') { // tie at the crown, tail falling down the back of the head and neck
-        sb.ellipsoid([0, hc[1] + 0.02, hc[2] - hr[2] * lift - 0.012], 0.03, 0.03, 0.028, W1('head'), hair, { lat: 5, lon: 8 });
-        sb.loft([0, 1, 2, 3, 4].map((i) => { const t = i / 4; const y = hc[1] + 0.01 - t * 0.24; const r0 = lerp(0.03, 0.014, t); return { c: [0, y, Math.min(hc[2] - hr[2] * lift - 0.03 + t * 0.02, backZ(y, r0))], rx: r0, rz: r0, w: t > 0.55 ? W2('neck', 'chest', 0.5) : W1('head'), col: hair }; }), 7, { capEnd: true });
+      // under-layer panel (closes any gap between locks) …
+      if (len > 0) sb.loft([0, 1, 2, 3].map((i) => { const t = i / 3; const y = hc[1] - 0.02 - t * len * 0.92; const rz = lerp(0.06, hs === 'bob' ? 0.05 : 0.025, t); return { c: [0, y, t < 0.3 ? hc[2] - hr[2] * 0.75 : backZ(y, rz)], rx: lerp(hr[0] * 1.0, hs === 'bob' ? hr[0] * 0.97 : 0.055, t), rz, w: t > 0.45 ? W2('neck', 'chest', 0.6) : W1('head'), col: hair.map((v) => v * 0.8) }; }), 12, { capEnd: false, capStart: true, target: H });
+      // … under separate tapered locks of uneven length, slightly wavy, that form a layered, strand-like hem
+      if (len > 0) {
+        const n = hs === 'bob' ? 11 : 9;
+        for (let j = 0; j < n; j++) {
+          const u = j / (n - 1) * 2 - 1, lj = len * (0.84 + 0.22 * hashN(j)) + (hs === 'bob' ? 0.02 : 0), ph = hashN(j + 17) * 6.28;
+          sb.loft([0, 1, 2, 3, 4, 5].map((i) => { const t = i / 5; const y = hc[1] - 0.03 - t * lj; const env = lerp(hr[0] * 0.98, hs === 'bob' ? hr[0] * 0.95 : 0.062, Math.min(1, t * (len > 0.1 ? 1.15 : 1))); const rz = lerp(0.018, 0.007, t);
+            const zb = t < 0.25 ? hc[2] - hr[2] * 0.82 : (hs === 'bob' ? Math.min(hc[2] - hr[2] * 0.75 - 0.006, backZ(y, rz)) - 0.004 * (1 - Math.abs(u)) : backZ(y, rz) - 0.006 - 0.004 * hashN(j + 3));
+            return { c: [u * env * 0.85 + Math.sin(t * 3.2 + ph) * 0.006, y, zb], rx: lerp(0.034, 0.005, t * t), rz, w: t > 0.45 ? W2('neck', 'chest', 0.6) : W1('head'), col: hv(j) }; }), 7, { capEnd: true, target: H });
+        }
+        if (hs === 'long' || hs === 'shoulder') for (const sx of [-1, 1]) { // face-framing side locks, hanging just outside the cheek over the ear
+          const sl = hs === 'long' ? 0.17 : 0.13;
+          sb.loft([0, 1, 2, 3, 4].map((i) => { const t = i / 4; const y = hc[1] + 0.01 - t * sl; return { c: [sx * (hr[0] * 1.03 + 0.008 + t * 0.006), y, hc[2] + hr[2] * lerp(0.1, -0.15, t)], rx: lerp(0.012, 0.004, t), rz: lerp(0.03, 0.008, t * t), w: W1('head'), col: hv(sx + 40) }; }), 6, { capEnd: true, target: H });
+        }
       }
-      if (hs === 'braid') sb.loft([0, 1, 2, 3, 4, 5].map((i) => { const t = i / 5; const y = hc[1] - 0.04 - t * 0.36; const r0 = lerp(0.03, 0.016, t); return { c: [0, y, Math.min(hc[2] - hr[2] * 0.88, backZ(y, r0))], rx: r0 * 1.15, rz: r0, w: t > 0.4 ? W2('neck', 'chest', 0.7) : W1('head'), col: hair }; }), 7, { capEnd: true });
+      if (hs === 'bun') { // twisted bun: core + wrapped coil + hair tie
+        sb.ellipsoid([0, hc[1] - 0.025, hc[2] - hr[2] - 0.035], 0.052, 0.046, 0.042, W1('head'), hair, { lat: 10, lon: 16, target: H, bumpFn: (x, y, z) => 1 + 0.05 * Math.sin(Math.atan2(x, y) * 3 + z * 6) });
+        sb.ellipsoid([0, hc[1] - 0.025, hc[2] - hr[2] - 0.012], 0.058, 0.05, 0.02, W1('head'), C('#151312'), { lat: 4, lon: 12 });
+      }
+      if (hs === 'ponytail') { // tie at the crown, full tail of three twisted strands falling down the back of the head and neck
+        sb.ellipsoid([0, hc[1] + 0.02, hc[2] - hr[2] * lift - 0.012], 0.032, 0.03, 0.03, W1('head'), hair, { lat: 6, lon: 10, target: H });
+        sb.ellipsoid([0, hc[1] + 0.012, hc[2] - hr[2] * lift - 0.03], 0.022, 0.022, 0.012, W1('head'), C('#1a1a1c'), { lat: 4, lon: 8 }); // hair tie
+        for (let j = 0; j < 3; j++) sb.loft([0, 1, 2, 3, 4, 5].map((i) => { const t = i / 5; const y = hc[1] + 0.01 - t * 0.25 * (0.92 + 0.08 * j); const r0 = lerp(0.02, 0.006, t); const a = j * 2.1 + t * 2.4;
+          return { c: [Math.cos(a) * 0.01 * (1 - t * 0.5), y, Math.min(hc[2] - hr[2] * lift - 0.03 + t * 0.02, backZ(y, r0)) + Math.sin(a) * 0.006], rx: r0, rz: r0 * 0.9, w: t > 0.55 ? W2('neck', 'chest', 0.5) : W1('head'), col: hv(j + 60) }; }), 7, { capEnd: true, target: H });
+      }
+      if (hs === 'braid') { // three-strand braid: alternating overlapping sections + a tie and loose tuft at the end
+        const nb = 17, yb0 = hc[1] - 0.05;
+        sb.loft([0, 1, 2, 3, 4].map((i) => { const t = i / 4; const y = yb0 - t * 0.34; const r0 = lerp(0.022, 0.012, t); return { c: [0, y, Math.min(hc[2] - hr[2] * 0.88, backZ(y, r0))], rx: r0, rz: r0 * 0.8, w: t > 0.4 ? W2('neck', 'chest', 0.7) : W1('head'), col: hair.map((v) => v * 0.7) }; }), 8, { target: H }); // core
+        for (let i = 0; i < nb; i++) { const t = i / (nb - 1); const y = yb0 - t * 0.33; const r0 = lerp(0.026, 0.015, t); const side = i % 2 ? 1 : -1;
+          sb.ellipsoid([side * r0 * 0.42, y, Math.min(hc[2] - hr[2] * 0.88, backZ(y, r0)) - 0.002], r0 * 0.95, 0.03 * (1 - t * 0.3), r0 * 0.85, t > 0.4 ? W2('neck', 'chest', 0.7) : W1('head'), hv(i + 80), { lat: 6, lon: 10, target: H }); }
+        const ye = hc[1] - 0.05 - 0.35; sb.loft([0, 1, 2].map((i) => { const t = i / 2; const y = ye - t * 0.05; return { c: [0, y, backZ(y, 0.01)], rx: lerp(0.01, 0.016, t), rz: 0.01, w: W2('neck', 'chest', 0.7), col: hair }; }), 6, { capEnd: true, target: H });
+      }
     }
   }
   // facial hair: beard shells follow the jaw exactly (same centre, radii and jaw shaping as the head), so they cannot drift off the face
@@ -314,7 +362,7 @@ export function buildBodyGeometry(sp) {
   if (sp.epaulettes) for (const side of ['L', 'R']) { const a = J['arm' + side]; const ec = C(sp.epaulettes === true ? (sp.bottom || '#1f2a44') : sp.epaulettes); sb.boxPart([a[0] * 0.8, 1.392 * s + 0.047, -0.004], 0.075, 0.008, 0.042, W2('chest', 'arm' + side, 0.4), ec);
     for (let k = 0; k < (sp.pips || 0); k++) sb.boxPart([a[0] * (0.68 + k * 0.1), 1.392 * s + 0.053, -0.004], 0.012, 0.005, 0.012, W2('chest', 'arm' + side, 0.4), C('#e2bd48')); } // rank pips
   if (sp.vest) { const vc = C(sp.vest); const idx = [2, 3, 4, 5, 6]; // tactical vest: a shell just outside the shirt from waist to chest, with pouches
-    sb.loft(idx.map((i) => ({ c: [0, tr[i].y * s, 0], rx: tr[i].rx + 0.02, rz: tr[i].rz + 0.022, fz: tr[i].fz, w: tr[i].wgt, col: vc })), 16, { capStart: false, capEnd: false });
+    sb.loft(idx.map((i) => ({ c: [0, tr[i].y * s, 0], rx: tr[i].rx + 0.02, rz: tr[i].rz + 0.022, fz: tr[i].fz, bust: tr[i].bust, w: tr[i].wgt, col: vc })), f ? 28 : 16, { capStart: false, capEnd: false });
     for (const bx of [-0.07, 0, 0.07]) sb.boxPart([bx * w, 1.1 * s, surfZ(1.1 * s, bx * w, 1) + 0.03], 0.055, 0.07, 0.03, W2('spine', 'chest', 0.3), vc.map((v) => v * 0.8));
     sb.boxPart([0, 1.3 * s, surfZ(1.3 * s, 0, -1) - 0.024], 0.2 * w, 0.045, 0.004, W1('chest'), C('#e9e9e2')); } // light panel across the back
   if (sp.belt) { const bc = C(sp.belt); const i0 = tr[1], i1 = tr[2]; const yb = 0.965 * s, t = (0.965 - i0.y) / (i1.y - i0.y); const rx = lerp(i0.rx, i1.rx, t) + 0.009, rz = lerp(i0.rz, i1.rz, t) + 0.009;
@@ -337,6 +385,38 @@ function fabricAtlas() {
   src.forEach((t, i) => { if (t && t.image) g.drawImage(t.image, at[i][0], at[i][1], 256, 256); else { g.fillStyle = '#eee'; g.fillRect(at[i][0], at[i][1], 256, 256); } });
   // hand/skin/box parts use (0.01,0.51) → plain region top-left; keep it neutral
   atlasTex = new THREE.CanvasTexture(c); atlasTex.colorSpace = THREE.SRGBColorSpace; atlasTex.anisotropy = 4; return atlasTex;
+}
+// Hair: strand-direction (Kajiya–Kay) dual-lobe highlights — a bright, tight primary sheen and a broader, hair-tinted
+// secondary one — plus fine procedural strand variation, all computed along the crown→tips flow, so black/brown/grey hair
+// reads as hair (glossy bands that move with the light) rather than painted plastic.
+let hairMat = null;
+export function getHairMaterial() {
+  if (hairMat) return hairMat;
+  hairMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0 });
+  hairMat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vHP;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvHP = position;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vHP;')
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        float hph = atan(vHP.x, vHP.z);
+        float strand = 0.5 + 0.25 * sin(hph * 160.0 + sin(hph * 23.0) * 2.0 + vHP.y * 30.0) + 0.25 * sin(hph * 411.0 - vHP.y * 55.0);
+        diffuseColor.rgb *= 0.8 + 0.32 * strand;`)
+      .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+        #if NUM_DIR_LIGHTS > 0
+        {
+          vec3 Lh = directionalLights[0].direction; vec3 Vh = normalize(vViewPosition);
+          vec3 dn = normalize((viewMatrix * vec4(0.0, -1.0, 0.0, 0.0)).xyz);
+          vec3 Th = dn - normal * dot(dn, normal); Th = length(Th) > 1e-3 ? normalize(Th) : vec3(0.0, 1.0, 0.0);
+          float sh1 = (strand - 0.5) * 0.18;
+          vec3 T1 = normalize(Th + normal * (0.10 + sh1)), T2 = normalize(Th - normal * (0.16 - sh1));
+          vec3 Hh = normalize(Lh + Vh);
+          float d1 = dot(T1, Hh), d2 = dot(T2, Hh);
+          float s1 = pow(sqrt(max(0.0, 1.0 - d1 * d1)), 260.0), s2 = pow(sqrt(max(0.0, 1.0 - d2 * d2)), 40.0);
+          float lit = smoothstep(-0.1, 0.35, dot(normal, Lh));
+          reflectedLight.directSpecular += directionalLights[0].color * lit * (s1 * 0.045 + s2 * 0.12 * (diffuseColor.rgb * 2.0 + 0.012)) * (0.7 + 0.6 * strand);
+        }
+        #endif`);
+  };
+  return hairMat;
 }
 export function getBodyMaterial() { if (!bodyMat) bodyMat = new THREE.MeshStandardMaterial({ map: fabricAtlas(), vertexColors: true, roughness: 0.85 }); return bodyMat; }
 export function getFaceMaterial(key, opts) {
@@ -383,7 +463,7 @@ export class Character {
     if (fv) faceMat = getFaceMaterial(`v${spec.faceV}`, { female: spec.sex === 'f', stubble: fv.stubble || 0, seed: spec.faceV, lips: fv.lips, size: 192, v: fv });
     else { const stub = spec.beard ? 0.9 : spec.sex === 'm' && spec.age === 'adult' ? 0.35 : 0; faceMat = getFaceMaterial(`${spec.sex}|${stub}|${spec.seed % 2}`, { female: spec.sex === 'f', stubble: stub, seed: spec.seed % 2, lips: spec.sex === 'f' ? '#8a3a3a' : '#7a4a40' }); }
     this.face = new FaceRig(this, faceMat);
-    this.mesh = new THREE.SkinnedMesh(geo, [getBodyMaterial(), this.face.mat]);
+    this.mesh = new THREE.SkinnedMesh(geo, [getBodyMaterial(), this.face.mat, getHairMaterial()]);
     this.mesh.add(bones[0]); this.mesh.bind(skeleton); this.mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.9, 0), 1.3); this.mesh.castShadow = true; this.mesh.receiveShadow = false; this.mesh.frustumCulled = true;
     this.root = new THREE.Group(); this.root.add(this.mesh);
     this.bones = Object.fromEntries(BONES.map((n, i) => [n, bones[i]])); this.hipY = bones[0].position.y;
