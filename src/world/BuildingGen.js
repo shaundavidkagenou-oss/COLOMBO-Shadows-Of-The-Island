@@ -92,6 +92,21 @@ export function buildBase(b, multi) {
     const th = t.floors * FLOOR_H; const tfac = multi.get('f_' + t.style); const tc = col(t.color || '#fff');
     for (const s of sides(tx0, tx1, tz0, tz1)) facadeWall(tfac, s, yTop, yTop + th, 0, yTop, tc);
     multi.get('roofFlat').hrect(tx0, tz0, tx1, tz1, yTop + th, 6, roofCol);
+    { // rooftop services: parapet, lift overrun, plant units, tanks, antenna (seeded per building)
+      const ry = yTop + th, w = tx1 - tx0, d = tz1 - tz0, cx = (tx0 + tx1) / 2, cz = (tz0 + tz1) / 2, cc = multi.get('concrete'), mt = multi.get('metal');
+      const rr = new RNG(9100 + (b.id || 0) * 7); const pc = [0.72, 0.73, 0.74];
+      cc.box(cx, ry + 0.55, tz0 + 0.15, w, 1.1, 0.3, { col: pc, uvScale: 3 }); cc.box(cx, ry + 0.55, tz1 - 0.15, w, 1.1, 0.3, { col: pc, uvScale: 3 });
+      cc.box(tx0 + 0.15, ry + 0.55, cz, 0.3, 1.1, d, { col: pc, uvScale: 3 }); cc.box(tx1 - 0.15, ry + 0.55, cz, 0.3, 1.1, d, { col: pc, uvScale: 3 });
+      if (!t.crown) {
+        const lw = Math.min(8, w * 0.3), ld = Math.min(6, d * 0.25), lx = cx + rr.range(-0.15, 0.15) * w, lz = cz + rr.range(-0.15, 0.15) * d;
+        cc.box(lx, ry + 2.2, lz, lw, 4.4, ld, { col: [0.8, 0.8, 0.79], uvScale: 3 }); // lift/stair overrun
+        const nu = 2 + Math.floor(rr.next() * 4);
+        for (let k = 0; k < nu; k++) { const ux = tx0 + 2.5 + rr.next() * (w - 5), uz = tz0 + 2.5 + rr.next() * (d - 5); if (Math.abs(ux - lx) < lw / 2 + 2 && Math.abs(uz - lz) < ld / 2 + 2) continue;
+          mt.box(ux, ry + 0.9, uz, 2.6, 1.8, 1.6, { col: [0.62, 0.64, 0.66] }); mt.cylinder(ux - 0.6, ry + 1.8, uz, 0.5, 0.5, 0.12, 14, { col: [0.2, 0.2, 0.22] }); mt.cylinder(ux + 0.6, ry + 1.8, uz, 0.5, 0.5, 0.12, 14, { col: [0.2, 0.2, 0.22] }); }
+        if (rr.chance(0.7)) { const kx = tx0 + 2 + rr.next() * (w - 4); mt.cylinder(kx, ry, tz1 - 2.5, 1.1, 1.1, 2.4, 16, { col: [0.85, 0.85, 0.83] }); mt.cylinder(kx + 2.6, ry, tz1 - 2.5, 1.1, 1.1, 2.4, 16, { col: [0.85, 0.85, 0.83] }); }
+        if (rr.chance(0.6)) mt.cylinder(lx, ry + 4.4, lz, 0.08, 0.05, 9 + rr.next() * 8, 6, { col: [0.5, 0.5, 0.52] }); // antenna
+      }
+    }
     if (t.crown) { const ci = Math.min(tx1 - tx0, tz1 - tz0) * 0.2; multi.get('concrete').box((tx0 + tx1) / 2, yTop + th + 2, (tz0 + tz1) / 2, tx1 - tx0 - ci, 4, tz1 - tz0 - ci, { col: [0.85, 0.86, 0.88], uvScale: 4 }); }
   }
 }
