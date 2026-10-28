@@ -141,7 +141,7 @@ export class Atmosphere {
     // shared material + water state
     updateMaterials(this.night, this.indoor ? 0 : this.wet, this.hour); // shared materials stay dry indoors (wet roughness/env reflections made ceiling blotches)
     waterUniforms.uSunDir.value.copy(this.sunDir); waterUniforms.uSunColor.value.copy(sunCol); waterUniforms.uSkyTop.value.copy(skyTop); waterUniforms.uSkyHorizon.value.copy(horizon);
-    waterUniforms.uNight.value = this.night; waterUniforms.uRain.value = this.w.rain; waterUniforms.uCloud.value = this.w.cloud; waterUniforms.uTime.value += dt;
+    waterUniforms.uNight.value = this.night; waterUniforms.uRain.value = this.w.rain; waterUniforms.uCloud.value = this.w.cloud; waterUniforms.uWind.value = this.w.wind ?? 0.3; waterUniforms.uTime.value += dt;
     this.horizon = horizon; this.skyTop = skyTop; this.golden = golden;
     this.updateRain(dt, camera);
     // environment map refresh

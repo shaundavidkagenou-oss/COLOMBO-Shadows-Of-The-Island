@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { RNG } from '../core/rng.js';
 import { fbm, vnoise } from '../core/noise.js';
 
+export const FACADE_WINDOWS = {};
 export const TEX = {};
 let maxAniso = 4;
 export function setAniso(a) { maxAniso = a; }
@@ -163,8 +164,13 @@ function facadeBase(W, H) {
   const a = albedo.getContext('2d'), e = emis.getContext('2d'), r = rm.getContext('2d');
   e.fillStyle = '#000'; e.fillRect(0, 0, W, H);
   r.fillStyle = 'rgb(255,235,0)'; r.fillRect(0, 0, W, H); // rough wall, not metal
-  return { albedo, emis, rm, a, e, r };
+  _win = []; _win.W = W; _win.H = H;
+  return { albedo, emis, rm, a, e, r, windows: _win };
 }
+// Every painted window is also recorded (tile-normalised, v up) so BuildingGen can dress the same openings with real 3D
+// joinery (reveals, sills, frames, glazing bars, glass panes, security grills) that line up exactly with the texture.
+let _win = [];
+function recWin(x, y, w, h, kind, o = {}) { _win.push({ u0: x / _win.W, u1: (x + w) / _win.W, v0: 1 - (y + h) / _win.H, v1: 1 - y / _win.H, kind, ...o }); }
 function windowLights(e, rng, x, y, w, h, p = 0.45) {
   if (rng.next() > p) return;
   const col = rng.pick(LIT); const g = e.createLinearGradient(0, y, 0, y + h);
@@ -189,8 +195,9 @@ function facadeColonial(W, H, seed) {
       a.fillStyle = '#d9cdb3'; a.beginPath(); a.moveTo(wx - 6, wy + wh + 4); a.lineTo(wx - 6, wy + ww * 0.5); a.arc(wx + ww / 2, wy + ww * 0.5, ww / 2 + 6, Math.PI, 0); a.lineTo(wx + ww + 6, wy + wh + 4); a.fill();
       a.save(); a.beginPath(); a.moveTo(wx, wy + wh); a.lineTo(wx, wy + ww * 0.5); a.arc(wx + ww / 2, wy + ww * 0.5, ww / 2, Math.PI, 0); a.lineTo(wx + ww, wy + wh); a.closePath(); a.clip();
       const shut = rng.next();
+      recWin(wx, wy, ww, wh, shut < 0.45 ? 'shutter' : 'sash', { arch: (wy + ww * 0.5 - wy) / wh, frame: '#efe6d2', bar: 0.45 });
       if (shut < 0.45) { // green louvred shutters
-        a.fillStyle = rng.pick(['#2f5d45', '#3a6b52', '#5b4632', '#29495e']); a.fillRect(wx, wy, ww, wh);
+        a.fillStyle = rng.pick(['#2f5d45', '#3a6b52', '#5b4632', '#29495e']); a.fillRect(wx, wy, ww, wh); _win[_win.length - 1].shut = a.fillStyle;
         a.fillStyle = 'rgba(0,0,0,0.28)'; for (let ly = wy + 4; ly < wy + wh; ly += 5) a.fillRect(wx, ly, ww, 1.5);
         a.fillStyle = 'rgba(0,0,0,0.5)'; a.fillRect(wx + ww / 2 - 1, wy, 2, wh);
         r.fillStyle = 'rgb(255,200,0)';
@@ -216,7 +223,7 @@ function facadeBrick(W, H, seed) {
   for (let fl = 0; fl < 2; fl++) for (let b = 0; b < 4; b++) {
     const x0 = b * bw, y0 = fl * fh; const ww = bw * 0.48, wh = fh * 0.6, wx = x0 + (bw - ww) / 2, wy = y0 + fh * 0.2;
     a.fillStyle = '#efe7d6'; a.fillRect(wx - 7, wy - 12, ww + 14, wh + 22); a.fillRect(x0, y0 + fh - 8, bw, 8);
-    glassGrad(a, wx, wy, ww, wh); a.strokeStyle = '#f4efe4'; a.lineWidth = 3; a.strokeRect(wx, wy, ww, wh);
+    recWin(wx, wy, ww, wh, 'sash', { frame: '#f4efe4', bar: 0 }); glassGrad(a, wx, wy, ww, wh); a.strokeStyle = '#f4efe4'; a.lineWidth = 3; a.strokeRect(wx, wy, ww, wh);
     a.beginPath(); a.moveTo(wx + ww / 2, wy); a.lineTo(wx + ww / 2, wy + wh); a.stroke();
     r.fillStyle = 'rgb(255,50,0)'; r.fillRect(wx, wy, ww, wh); windowLights(e, rng, wx, wy, ww, wh, 0.55);
   }
@@ -264,8 +271,9 @@ function facadeShophouse(W, H, seed) {
     const x0 = b * bw, y0 = fl * fh; const type = rng.next();
     const ww = bw * rng.range(0.42, 0.6), wh = fh * rng.range(0.42, 0.55), wx = x0 + (bw - ww) / 2, wy = y0 + fh * 0.22;
     a.fillStyle = 'rgba(0,0,0,0.10)'; a.fillRect(wx - 5, wy - 5, ww + 10, wh + 10);
+    recWin(wx, wy, ww, wh, type < 0.2 ? 'shutter' : 'grill', { frame: '#d8d8d2', bar: 0.5 });
     if (type < 0.2) { // closed wooden shutters
-      a.fillStyle = rng.pick(['#6b4a2e', '#3f5f6e', '#4f6b3c', '#8a5a3a']); a.fillRect(wx, wy, ww, wh);
+      a.fillStyle = rng.pick(['#6b4a2e', '#3f5f6e', '#4f6b3c', '#8a5a3a']); a.fillRect(wx, wy, ww, wh); _win[_win.length - 1].shut = a.fillStyle;
       a.fillStyle = 'rgba(0,0,0,0.3)'; a.fillRect(wx + ww / 2 - 1, wy, 2, wh);
     } else {
       glassGrad(a, wx, wy, ww, wh, '#3a4448', '#121719'); r.fillStyle = 'rgb(255,60,0)'; r.fillRect(wx, wy, ww, wh);
@@ -292,6 +300,7 @@ function facadeApartment(W, H, seed) {
   for (let fl = 0; fl < 2; fl++) for (let b = 0; b < 4; b++) {
     const x0 = b * bw, y0 = fl * fh;
     if (b % 2 === 0) { // balcony with door
+      recWin(x0 + bw * 0.2, y0 + fh * 0.15, bw * 0.6, fh * 0.75, 'door', { frame: '#e9e9e6', bar: -1 });
       glassGrad(a, x0 + bw * 0.2, y0 + fh * 0.15, bw * 0.6, fh * 0.75, '#3c474b', '#111618'); r.fillStyle = 'rgb(255,60,0)'; r.fillRect(x0 + bw * 0.2, y0 + fh * 0.15, bw * 0.6, fh * 0.75);
       windowLights(e, rng, x0 + bw * 0.2, y0 + fh * 0.15, bw * 0.6, fh * 0.75, 0.5);
       a.fillStyle = '#d7d2c7'; a.fillRect(x0 + 2, y0 + fh * 0.6, bw - 4, fh * 0.35);
@@ -299,6 +308,7 @@ function facadeApartment(W, H, seed) {
       if (rng.chance(0.5)) for (let k = 0; k < 4; k++) { a.fillStyle = rng.pick(['#c33', '#36c', '#ec3', '#fff', '#3a3', '#c6c']); a.fillRect(x0 + 6 + k * 14, y0 + fh * 0.48, 10, rng.range(12, 22)); } // laundry
     } else {
       const ww = bw * 0.5, wh = fh * 0.45, wx = x0 + bw * 0.25, wy = y0 + fh * 0.25;
+      recWin(wx, wy, ww, wh, 'sash', { frame: '#f4f4f2', bar: -1 });
       glassGrad(a, wx, wy, ww, wh); r.fillStyle = 'rgb(255,60,0)'; r.fillRect(wx, wy, ww, wh); windowLights(e, rng, wx, wy, ww, wh, 0.5);
       a.strokeStyle = '#fafafa'; a.lineWidth = 2; a.strokeRect(wx, wy, ww, wh);
     }
@@ -313,7 +323,7 @@ function facadeVilla(W, H, seed) {
   const bw = W / 4, fh = H / 2;
   for (let fl = 0; fl < 2; fl++) for (let b = 0; b < 4; b++) {
     const x0 = b * bw, y0 = fl * fh; const ww = bw * 0.55, wh = fh * 0.55, wx = x0 + (bw - ww) / 2, wy = y0 + fh * 0.2;
-    a.fillStyle = '#5a3a22'; a.fillRect(wx - 4, wy - 4, ww + 8, wh + 8);
+    recWin(wx, wy, ww, wh, 'sash', { frame: '#5a3a22', bar: 1 / 3 }); a.fillStyle = '#5a3a22'; a.fillRect(wx - 4, wy - 4, ww + 8, wh + 8);
     glassGrad(a, wx, wy, ww, wh, '#4a5458', '#1a1f22'); r.fillStyle = 'rgb(255,50,0)'; r.fillRect(wx, wy, ww, wh);
     windowLights(e, rng, wx, wy, ww, wh, 0.4);
     a.strokeStyle = '#5a3a22'; a.lineWidth = 3; a.beginPath(); a.moveTo(wx + ww / 2, wy); a.lineTo(wx + ww / 2, wy + wh); a.moveTo(wx, wy + wh / 3); a.lineTo(wx + ww, wy + wh / 3); a.stroke();
@@ -667,7 +677,7 @@ export async function buildTextures(quality = 'high', progress = () => {}) {
   }
   // facade wrappers → textures
   for (const k of Object.keys(TEX)) if (k.startsWith('f_') && TEX[k].albedo) {
-    const f = TEX[k]; TEX[k] = { map: toTex(f.albedo), emissive: toTex(f.emis), rm: toTex(f.rm, { srgb: false }) };
+    const f = TEX[k]; TEX[k] = { map: toTex(f.albedo), emissive: toTex(f.emis), rm: toTex(f.rm, { srgb: false }) }; FACADE_WINDOWS[k] = f.windows;
   }
   progress(1, 'textures ready');
   return TEX;

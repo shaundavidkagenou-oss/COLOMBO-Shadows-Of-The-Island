@@ -4,11 +4,11 @@ import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
 import { generatePlan, plan, NCX, NCZ, CHUNK, chunkCenter } from './CityPlan.js';
 import { buildGround } from './GroundBuilder.js';
-import { buildBase, buildDetail, buildWall } from './BuildingGen.js';
+import { buildBase, buildDetail, buildWall, buildWindows } from './BuildingGen.js';
 import { buildLandmarks } from './Landmarks.js';
 import { buildPropGeometries, buildPropsForChunk, updateSignals, initGlowTexture } from './Props.js';
 import { buildTreeGeometries, buildTreesForChunk, windUniform } from './Vegetation.js';
-import { buildWater } from './Water.js';
+import { buildWater, WaterReflection } from './Water.js';
 import { Collision } from './Collision.js';
 import * as L from './Layout.js';
 import { RNG } from '../core/rng.js';
@@ -19,7 +19,7 @@ export class World {
   constructor(scene) {
     this.scene = scene; this.root = new THREE.Group(); this.root.name = 'world'; scene.add(this.root);
     this.collision = new Collision(); this.chunks = []; this.detailQueue = []; this.signalTimer = 0; this.t = 0;
-    this.detailRadius = 330; this.propRadius = 430; this.treeRadius = 520;
+    this.detailRadius = 330; this.windowRadius = 150; this.propRadius = 430; this.treeRadius = 520;
     this.lampLights = [];
   }
   async build(progress = () => {}, quality = 'high') {
@@ -46,7 +46,7 @@ export class World {
       if (idx % 6 === 0) { progress(0.3 + 0.55 * idx / (NCX * NCZ), 'Building districts'); await tick(); }
     }
     progress(0.86, 'Filling the ocean and Beira Lake'); await tick();
-    this.water = buildWater(); this.root.add(this.water);
+    this.water = buildWater(); this.root.add(this.water); this.waterRefl = new WaterReflection(this.water);
     progress(0.9, 'Outer suburbs'); await tick();
     this.buildOuterRing();
     // point-light pool for nearby street lamps at night (fixed count to avoid shader recompiles)
@@ -90,6 +90,8 @@ export class World {
         if (!c.detail && budget > 0) { budget--; this.buildDetailFor(c); }
         else if (c.detail) c.detail.visible = true;
       } else if (c.detail) { c.detail.visible = false; if (d > this.detailRadius + 300) this.disposeDetail(c); }
+      if (d < this.windowRadius) { if (!c.win && budget > 0) { budget--; this.buildWindowsFor(c); } else if (c.win) c.win.visible = true; }
+      else if (c.win) { c.win.visible = false; if (d > this.windowRadius + 120) this.disposeWindows(c); }
     }
     // landmark animation
     const an = this.landmarks.anim;
@@ -113,15 +115,25 @@ export class World {
     const g = new THREE.Group(); for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) g.add(m);
     c.detail = g; c.group.add(g);
   }
+  // near tier: 3D window joinery + reflective panes (see BuildingGen.buildWindows)
+  buildWindowsFor(c) {
+    const ch = plan.byChunk[c.idx]; const solid = new MultiBuilder(), glass = new MultiBuilder();
+    for (const b of ch.buildings) buildWindows(b, solid, glass);
+    const g = new THREE.Group(); g.name = 'windows' + c.idx;
+    for (const m of solid.toMeshes(MAT, { cast: false, receive: true })) g.add(m);
+    for (const m of glass.toMeshes(MAT, { cast: false, receive: false })) { m.renderOrder = 2; g.add(m); }
+    c.win = g; c.group.add(g);
+  }
+  disposeWindows(c) { c.group.remove(c.win); c.win.traverse((m) => m.geometry && m.geometry.dispose()); c.win = null; }
   disposeDetail(c) { c.group.remove(c.detail); c.detail.traverse((m) => m.geometry && m.geometry.dispose()); c.detail = null; }
   // Force detail around a point (used before cinematics / after teleport)
-  warm(x, z) { for (const c of this.chunks) if (!c.detail && Math.hypot(c.cx - x, c.cz - z) - CHUNK * 0.7 < this.detailRadius) this.buildDetailFor(c); }
+  warm(x, z) { for (const c of this.chunks) { const d = Math.hypot(c.cx - x, c.cz - z) - CHUNK * 0.7; if (!c.detail && d < this.detailRadius) this.buildDetailFor(c); if (!c.win && d < this.windowRadius) this.buildWindowsFor(c); } }
   // same as warm(), one chunk per frame with progress (used by the enter-game loading screen)
   async warmAsync(points, progress = () => {}) {
     const need = this.chunks.filter((c) => !c.detail && points.some(([x, z]) => Math.hypot(c.cx - x, c.cz - z) - CHUNK * 0.7 < this.detailRadius));
-    for (let i = 0; i < need.length; i++) { if (!need[i].detail) this.buildDetailFor(need[i]); progress((i + 1) / need.length); if (i % 2 === 1) await new Promise((r) => requestAnimationFrame(r)); }
+    for (let i = 0; i < need.length; i++) { const c = need[i]; if (!c.detail) this.buildDetailFor(c); if (!c.win && points.some(([x, z]) => Math.hypot(c.cx - x, c.cz - z) - CHUNK * 0.7 < this.windowRadius)) this.buildWindowsFor(c); progress((i + 1) / need.length); if (i % 2 === 1) await new Promise((r) => requestAnimationFrame(r)); }
     progress(1); return need.length;
   }
-  setQuality(q) { const s = q === 'low' ? 0.6 : q === 'medium' ? 0.8 : q === 'ultra' ? 1.25 : 1; this.detailRadius = 330 * s; this.propRadius = 430 * s; this.treeRadius = 520 * s; }
+  setQuality(q) { const s = q === 'low' ? 0.6 : q === 'medium' ? 0.8 : q === 'ultra' ? 1.25 : 1; this.detailRadius = 330 * s; this.windowRadius = q === 'low' ? 0 : q === 'medium' ? 90 : q === 'ultra' ? 210 : 150; this.propRadius = 430 * s; this.treeRadius = 520 * s; }
 }
 export { plan };

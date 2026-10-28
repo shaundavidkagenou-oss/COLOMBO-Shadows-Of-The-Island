@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { RNG } from '../core/rng.js';
 import { LAND_Y } from './Layout.js';
 import { FLOOR_H, GROUND_H } from './CityPlan.js';
-import { SIGN_COLS, SIGN_ROWS, SIGNS } from '../gfx/Textures.js';
+import { SIGN_COLS, SIGN_ROWS, SIGNS, FACADE_WINDOWS } from '../gfx/Textures.js';
 
 const BAY = 3.2;
 const col = (hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; };
@@ -194,7 +194,17 @@ export function buildDetail(b, multi) {
       if (yb > yTop - 1) continue;
       const w = Math.min(BAY * 0.9, s.len / bays - 0.3), d = 0.95;
       conc.box(p[0] + s.n[0] * d / 2, yb, p[1] + s.n[1] * d / 2, w, 0.16, d, { col: darker, rotY: r, bottom: true });
-      multi.get('metal').box(p[0] + s.n[0] * d, yb + 0.5, p[1] + s.n[1] * d, w, 0.9, 0.05, { col: [0.18, 0.18, 0.18], rotY: r });
+      // balustrade: a rendered parapet wall or a painted steel railing (top/bottom rail + balusters), front and both returns
+      const tx = -s.n[1], tz = s.n[0]; const solidWall = rng.chance(0.4);
+      const side = (along, depth, len, rot) => [p[0] + tx * along + s.n[0] * depth, p[1] + tz * along + s.n[1] * depth, len, rot];
+      const runs = [side(0, d - 0.03, w, r), side(-w / 2 + 0.03, d / 2, d, r + Math.PI / 2), side(w / 2 - 0.03, d / 2, d, r + Math.PI / 2)];
+      for (const [qx, qz, len, rot] of runs) {
+        if (solidWall) { conc.box(qx, yb + 0.53, qz, len, 0.9, 0.1, { col: paint.map((v) => v * 0.97), rotY: rot, uvScale: 2 }); continue; }
+        const rc = [0.12, 0.12, 0.12], mt = multi.get('metal');
+        mt.box(qx, yb + 1.0, qz, len, 0.05, 0.06, { col: rc, rotY: rot, bottom: true }); mt.box(qx, yb + 0.16, qz, len, 0.04, 0.04, { col: rc, rotY: rot });
+        const nb = Math.max(2, Math.round(len / 0.2)), cr = Math.cos(rot), sr = Math.sin(rot);
+        for (let k = 0; k <= nb; k++) { const o = -len / 2 + (k / nb) * len; mt.box(qx + o * cr, yb + 0.58, qz - o * sr, 0.022, 0.82, 0.022, { col: rc, top: false }); }
+      }
       if (rng.chance(0.15)) multi.get('paint').box(p[0] + s.n[0] * (d - 0.2), yb + 0.5, p[1] + s.n[1] * (d - 0.2), 0.4, 0.6, 0.3, { col: col(rng.pick(['#3a7d44', '#9b2d20', '#e0b030'])), rotY: r }); // potted plant/box
     }
   }
@@ -232,4 +242,85 @@ export function buildWall(w, multi) {
   const c = col(w.col); const conc = multi.get('concrete');
   conc.box((w.x0 + w.x1) / 2, LAND_Y + w.h / 2, (w.z0 + w.z1) / 2, w.x1 - w.x0, w.h, w.z1 - w.z0, { col: c, uvScale: 2 });
   conc.box((w.x0 + w.x1) / 2, LAND_Y + w.h + 0.05, (w.z0 + w.z1) / 2, w.x1 - w.x0 + 0.08, 0.1, w.z1 - w.z0 + 0.12, { col: c.map((v) => v * 0.85), uvScale: 2 });
+}
+
+// ----------------------------------------------------------------------------- window dressing (near LOD)
+// Real 3D joinery on every painted opening of a facade, placed from the exact rectangles the facade painter recorded
+// (FACADE_WINDOWS) through the same UV mapping as facadeWall(), so geometry and texture line up:
+//  • a projecting reveal (jambs + head) so the glazing reads as set ~13 cm back into the wall, with a deeper sill below;
+//  • a slim frame + glazing bars in the joinery colour the texture uses (white sash, dark timber, aluminium);
+//  • a glass pane with physically based Fresnel reflection of the sky/city (additive, so the parallax interior and the
+//    night-time room lights behind it stay visible), louvred slats on shuttered openings and steel security grills on
+//    shophouses. Only openings up to ~10 floors are dressed — that is what is seen up close; higher floors keep the
+//    texture + interior mapping, which already reads correctly at that distance.
+const WIN_MAX_Y = 34;
+function dressFacade(solid, glass, s, y0, y1, uOff, vStart, key, paint) {
+  const wins = FACADE_WINDOWS[key]; if (!wins || !wins.length || s.len < 1.5) return 0;
+  const TW = 4 * BAY, TH = 2 * FLOOR_H; const r = Math.atan2(s.n[0], s.n[1]);
+  const dx = (s.b[0] - s.a[0]) / s.len, dz = (s.b[1] - s.a[1]) / s.len, nx = s.n[0], nz = s.n[1];
+  const top = Math.min(y1, LAND_Y + WIN_MAX_Y); if (top <= y0 + 0.5) return 0;
+  const iu0 = Math.floor(uOff), iu1 = Math.ceil(uOff + s.len / TW), iv0 = Math.floor((y0 - vStart) / TH), iv1 = Math.ceil((top - vStart) / TH);
+  const surr = paint.map((v) => v * 0.9), sillC = paint.map((v) => v * 0.97);
+  const conc = solid.get('concrete'), join = solid.get('paint'), met = solid.get('metal'), gl = glass.get('winGlass');
+  const grillC = [0.06, 0.06, 0.065]; let n = 0;
+  for (let iu = iu0; iu < iu1; iu++) for (let iv = iv0; iv < iv1; iv++) for (const w of wins) {
+    const d0 = (iu + w.u0 - uOff) * TW, d1 = (iu + w.u1 - uOff) * TW; if (d0 < 0.3 || d1 > s.len - 0.3) continue;
+    const ya = vStart + (iv + w.v0) * TH, yb = vStart + (iv + w.v1) * TH; if (ya < y0 + 0.08 || yb > top - 0.08) continue;
+    const W = d1 - d0, H = yb - ya, dm = (d0 + d1) / 2; n++;
+    const P = (along, out) => [s.a[0] + dx * (dm + along) + nx * out, s.a[1] + dz * (dm + along) + nz * out];
+    const B = (mb, along, y, out, sx, sy, sz, c, o = {}) => { const p = P(along, out); mb.box(p[0], y, p[1], sx, sy, sz, { col: c, rotY: r, uvScale: 1.5, ...o }); };
+    const fc = col(w.frame || '#e8e8e4'); const e = 0.085, dep = 0.13;
+    const spring = w.arch ? yb - H * w.arch : yb; // arched heads: straight reveal up to the springing line
+    // reveal: jambs + head (the inner faces are what make the opening read as recessed)
+    B(conc, -(W / 2 + e / 2), (ya + spring) / 2, dep / 2, e, spring - ya, dep, surr);
+    B(conc, W / 2 + e / 2, (ya + spring) / 2, dep / 2, e, spring - ya, dep, surr);
+    if (w.arch) { B(conc, 0, yb + 0.11, dep / 2 + 0.01, 0.2, 0.26, dep + 0.02, surr, { bottom: true }); // keystone
+      for (const sg of [-1, 1]) B(conc, sg * (W / 2 + e / 2), spring + 0.05, dep / 2 + 0.015, e + 0.06, 0.1, dep + 0.03, surr, { bottom: true }); } // imposts
+    else B(conc, 0, yb + e / 2, dep / 2, W + 2 * e, e, dep, surr, { bottom: true });
+    // sill: deeper and wider, with a drip edge underneath
+    B(conc, 0, ya - 0.045, dep / 2 + 0.05, W + 2 * e + 0.16, 0.09, dep + 0.1, sillC, { bottom: true });
+    const gTop = w.arch ? spring : yb;
+    if (w.kind === 'shutter') { // louvred timber shutters: angled slats catch the light like real louvres
+      const sc = col(w.shut || '#3a6b52'), sd = sc.map((v) => v * 0.55); const step = 0.1;
+      for (let y = ya + 0.04; y + step <= gTop - 0.02; y += step) {
+        const a0 = P(-W / 2, 0.07), a1 = P(W / 2, 0.07), b0 = P(-W / 2, 0.02), b1 = P(W / 2, 0.02);
+        join.quad([a0[0], y, a0[1]], [a1[0], y, a1[1]], [b1[0], y + step * 0.92, b1[1]], [b0[0], y + step * 0.92, b0[1]], [0, 0, 1, 1], sc);
+        join.quad([b0[0], y + step * 0.92, b0[1]], [b1[0], y + step * 0.92, b1[1]], [a1[0], y + step, a1[1]], [a0[0], y + step, a0[1]], [0, 0, 1, 1], sd);
+      }
+      B(join, 0, (ya + gTop) / 2, 0.05, 0.05, gTop - ya, 0.05, sd); // meeting stile
+      B(join, -W / 2 + 0.025, (ya + gTop) / 2, 0.05, 0.05, gTop - ya, 0.06, sc); B(join, W / 2 - 0.025, (ya + gTop) / 2, 0.05, 0.05, gTop - ya, 0.06, sc);
+      continue;
+    }
+    // frame (flush inside the reveal) + glazing bars
+    const fw = 0.05, fd = 0.05, fo = 0.03;
+    B(join, 0, ya + fw / 2, fo, W, fw, fd, fc); B(join, 0, gTop - fw / 2, fo, W, fw, fd, fc, { bottom: true });
+    B(join, -W / 2 + fw / 2, (ya + gTop) / 2, fo, fw, gTop - ya, fd, fc); B(join, W / 2 - fw / 2, (ya + gTop) / 2, fo, fw, gTop - ya, fd, fc);
+    if (W > 0.75) B(join, 0, (ya + gTop) / 2, fo, 0.04, gTop - ya - fw * 2, 0.045, fc);
+    if (w.bar > 0) { const yt = yb - H * w.bar; if (yt > ya + 0.2 && yt < gTop - 0.1) B(join, 0, yt, fo, W - fw * 2, 0.04, 0.045, fc, { bottom: true }); }
+    // glass pane (just proud of the painted glass so it never z-fights)
+    const g0 = P(-W / 2 + fw, 0.012), g1 = P(W / 2 - fw, 0.012);
+    gl.quad([g0[0], ya + fw, g0[1]], [g1[0], ya + fw, g1[1]], [g1[0], gTop - fw, g1[1]], [g0[0], gTop - fw, g0[1]], [0, 0, 1, 1]);
+    if (w.kind === 'grill') { // steel security grill in front of the glass (Colombo shophouse standard)
+      const nb = Math.max(3, Math.round(W / 0.14));
+      for (let k = 1; k < nb; k++) B(met, -W / 2 + (k / nb) * W, (ya + yb) / 2, 0.085, 0.018, H, 0.018, grillC, { top: false });
+      for (const fy of [0.08, 0.5, 0.92]) B(met, 0, ya + H * fy, 0.085, W, 0.02, 0.02, grillC);
+    }
+  }
+  return n;
+}
+export function buildWindows(b, solid, glass) {
+  const paint = col(b.color || '#ffffff'); const y0 = LAND_Y, yTop = y0 + b.h; const hasGround = b.groundRow != null; const key = 'f_' + b.style;
+  let n = 0;
+  for (const s of sides(b.x0, b.x1, b.z0, b.z1)) {
+    if (s.len < 0.1) continue;
+    if (hasGround) {
+      if (s.id !== b.front) n += dressFacade(solid, glass, s, y0, y0 + GROUND_H, b.uOff || 0, y0 + GROUND_H - 2 * FLOOR_H, key, paint);
+      n += dressFacade(solid, glass, s, y0 + GROUND_H, yTop, b.uOff || 0, y0 + GROUND_H, key, paint);
+    } else n += dressFacade(solid, glass, s, y0, yTop, b.uOff || 0, y0, key, paint);
+  }
+  if (b.tower) {
+    const t = b.tower, i = t.inset; const th = t.floors * FLOOR_H;
+    for (const s of sides(b.x0 + i, b.x1 - i, b.z0 + i, b.z1 - i)) n += dressFacade(solid, glass, s, yTop, yTop + th, 0, yTop, 'f_' + t.style, col(t.color || '#fff'));
+  }
+  return n;
 }
