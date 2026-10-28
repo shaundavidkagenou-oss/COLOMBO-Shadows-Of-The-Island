@@ -21,6 +21,16 @@ export class MeshBuilder {
     else this.quad([x0, y, z0], [x1, y, z0], [x1, y, z1], [x0, y, z1], [u0, v0, u1, v1], col);
     return this;
   }
+  // horizontal convex polygon facing up, pts = [[x,z],...]; world-space uv like hrect (used for clipped shoreline paving)
+  hpoly(pts, y, uvScale = 1, col) {
+    if (pts.length < 3) return this;
+    let area = 0; for (let i = 0; i < pts.length; i++) { const a = pts[i], b = pts[(i + 1) % pts.length]; area += a[0] * b[1] - b[0] * a[1]; }
+    const P = area > 0 ? [pts[0], ...pts.slice(1).reverse()] : pts; // up-facing winding; pts[0] stays the fan origin (star-shaped polys)
+    const base = this.vcount;
+    for (const [x, z] of P) this.vert(x, y, z, 0, 1, 0, x / uvScale, -z / uvScale, col);
+    for (let i = 1; i < P.length - 1; i++) this.idx.push(base, base + i, base + i + 1);
+    return this;
+  }
   // vertical wall from (x0,z0) to (x1,z1), outward normal on the right-hand side when walking a→b viewed from above (CCW footprint => outward)
   wall(x0, z0, x1, z1, y0, y1, uv, col) { return this.quad([x0, y0, z0], [x1, y0, z1], [x1, y1, z1], [x0, y1, z0], uv, col); }
   // axis-aligned box; uvMode 'world' tiles every `uvScale` metres

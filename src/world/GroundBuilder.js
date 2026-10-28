@@ -13,6 +13,18 @@ const lotMaterial = (cell) => {
   const st = L.DISTRICTS[cell.district].style;
   return { villa: 'lawn', residential: 'laterite', lake: 'lawn', green: 'grass', port: 'concrete' }[st] || 'concrete';
 };
+// Sutherland–Hodgman clip of a small polygon against land (= !isWater), boundary found by bisection.
+function clipLand(pts) {
+  const land = pts.map(([x, z]) => !L.isWater(x, z));
+  if (land.every(Boolean)) return pts; if (!land.some(Boolean)) return [];
+  const out = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length], la = land[i], lb = land[(i + 1) % pts.length];
+    if (la) out.push(a);
+    if (la !== lb) { let lo = 0, hi = 1; for (let k = 0; k < 14; k++) { const m = (lo + hi) / 2; const l = !L.isWater(a[0] + (b[0] - a[0]) * m, a[1] + (b[1] - a[1]) * m); if (l === la) lo = m; else hi = m; } const m = (lo + hi) / 2; out.push([a[0] + (b[0] - a[0]) * m, a[1] + (b[1] - a[1]) * m]); }
+  }
+  return out;
+}
 const kerbStriped = (seg, x, z) => { const d = L.districtIdAt(x, z); return seg.level <= 1 && ['fort', 'gftowers', 'gfgreen', 'pettah', 'kollupitiya', 'beira'].includes(d); };
 
 export function buildGround(progress) {
@@ -49,29 +61,45 @@ export function buildGround(progress) {
     const [lx0, lx1, lz0, lz1] = c.land; if (lx1 - lx0 < 0.5 || lz1 - lz0 < 0.5) continue;
     const walkMat = ['fort', 'gftowers', 'cinnamon', 'kollupitiya'].includes(c.district) ? 'walkGrey' : 'walk';
     const wT = c.T ? c.T.walk : 0, wB = c.B ? c.B.walk : 0, wL = c.L ? c.L.walk : 0, wR = c.R ? c.R.walk : 0;
+    let rTL = 0, rTR = 0, rBL = 0, rBR = 0; const K = mb.get('kerb');
     if (!c.partial) {
       const W = mb.get(walkMat);
-      if (wT) W.hrect(lx0, lz0, lx1, lz0 + wT, LY, 2);
-      if (wB) W.hrect(lx0, lz1 - wB, lx1, lz1, LY, 2);
+      // rounded kerb corners where two roads meet (radius limited by both footpaths)
+      const rad = (a, b) => (a && b ? Math.min(a, b, 3.2) * 0.92 : 0);
+      rTL = rad(c.T && wT, c.L && wL); rTR = rad(c.T && wT, c.R && wR); rBL = rad(c.B && wB, c.L && wL); rBR = rad(c.B && wB, c.R && wR);
+      if (wT) { W.hrect(lx0 + rTL, lz0, lx1 - rTR, lz0 + wT, LY, 2); if (rTL) W.hrect(lx0, lz0 + rTL, lx0 + rTL, lz0 + wT, LY, 2); if (rTR) W.hrect(lx1 - rTR, lz0 + rTR, lx1, lz0 + wT, LY, 2); }
+      if (wB) { W.hrect(lx0 + rBL, lz1 - wB, lx1 - rBR, lz1, LY, 2); if (rBL) W.hrect(lx0, lz1 - wB, lx0 + rBL, lz1 - rBL, LY, 2); if (rBR) W.hrect(lx1 - rBR, lz1 - wB, lx1, lz1 - rBR, LY, 2); }
+      const corner = (ox, oz, sx, sz, r) => { // quarter-disc paving + asphalt fill + curved kerb
+        if (!r) return; const cx = ox + sx * r, cz = oz + sz * r, N = 8, arc = [];
+        for (let k = 0; k <= N; k++) { const t = (k / N) * Math.PI / 2; arc.push([cx - sx * r * Math.cos(t), cz - sz * r * Math.sin(t)]); }
+        W.hpoly([[cx, cz], ...arc], LY, 2); mb.get('road').hpoly([[ox, oz], ...arc], L.ROAD_Y, 10);
+        for (let k = 0; k < N; k++) { const a = arc[k], b = arc[k + 1]; const kc = [0.78, 0.77, 0.74];
+          K.wall(a[0], a[1], b[0], b[1], RY - 0.02, LY, [0, 0, 0.4, 0.1], kc); K.wall(b[0], b[1], a[0], a[1], RY - 0.02, LY, [0, 0, 0.4, 0.1], kc); }
+      };
+      corner(lx0, lz0, 1, 1, rTL); corner(lx1, lz0, -1, 1, rTR); corner(lx0, lz1, 1, -1, rBL); corner(lx1, lz1, -1, -1, rBR);
       if (wL) W.hrect(lx0, lz0 + wT, lx0 + wL, lz1 - wB, LY, 2);
       if (wR) W.hrect(lx1 - wR, lz0 + wT, lx1, lz1 - wB, LY, 2);
       const g = mb.get(lotMat); const [a, b, cc, d] = [lx0 + wL, lx1 - wR, lz0 + wT, lz1 - wB];
       if (b > a && d > cc) g.hrect(a, cc, b, d, LY, lotMat === 'concrete' ? 6 : 8, lotMat === 'concrete' ? [0.82, 0.8, 0.76] : null);
     } else {
       // partial: grid-sample and drop water quads; shoreline walls hide the steps
+      // tiles straddling the shore are clipped exactly against the water boundary (bisection on isWater),
+      // so lake/coast paving follows the true curve instead of a 2.5 m staircase.
       const step = 2.5; const W = mb.get(walkMat), g = mb.get(lotMat), sand = mb.get('rocks');
       for (let x = lx0; x < lx1 - 0.01; x += step) for (let z = lz0; z < lz1 - 0.01; z += step) {
-        const x2 = Math.min(lx1, x + step), z2 = Math.min(lz1, z + step); const qx = (x + x2) / 2, qz = (z + z2) / 2;
-        if (L.isWater(qx, qz)) continue;
+        const x2 = Math.min(lx1, x + step), z2 = Math.min(lz1, z + step);
+        const poly = clipLand([[x, z], [x2, z], [x2, z2], [x, z2]]); if (poly.length < 3) continue;
+        let qx = 0, qz = 0; for (const p of poly) { qx += p[0]; qz += p[1]; } qx /= poly.length; qz /= poly.length;
+        const full = poly.length === 4 && poly[0][0] === x && poly[2][0] === x2;
         const inWalk = (wT && qz < lz0 + wT) || (wB && qz > lz1 - wB) || (wL && qx < lx0 + wL) || (wR && qx > lx1 - wR);
         const promenade = c.district === 'gfgreen' && qx < L.coastX(qz) + 13;
         const shore = !promenade && L.isSea(qx - 9, qz) && qz > -240;
         const target = inWalk || promenade ? W : shore ? sand : g;
-        target.hrect(x, z, x2, z2, LY, target === W ? 2 : 8, target === g && lotMat === 'concrete' ? [0.82, 0.8, 0.76] : (target === sand ? [0.9, 0.88, 0.85] : null));
+        const tc = target === g && lotMat === 'concrete' ? [0.82, 0.8, 0.76] : (target === sand ? [0.9, 0.88, 0.85] : null);
+        if (full) target.hrect(x, z, x2, z2, LY, target === W ? 2 : 8, tc); else target.hpoly(poly, LY, target === W ? 2 : 8, tc);
       }
     }
-    // kerbs facing roads
-    const K = mb.get('kerb');
+    // kerbs facing roads (shortened where a corner is rounded)
     const kerb = (x0, z0, x1, z1, seg) => {
       const len = Math.hypot(x1 - x0, z1 - z0); if (len < 0.1) return;
       const striped = kerbStriped(seg, (x0 + x1) / 2, (z0 + z1) / 2);
@@ -84,10 +112,10 @@ export function buildGround(progress) {
       }
     };
     // walls oriented so the face points toward the road (CCW rules of MeshBuilder.wall)
-    if (c.T) kerb(lx1, lz0, lx0, lz0, c.T);
-    if (c.B) kerb(lx0, lz1, lx1, lz1, c.B);
-    if (c.L) kerb(lx0, lz0, lx0, lz1, c.L);
-    if (c.R) kerb(lx1, lz1, lx1, lz0, c.R);
+    if (c.T) kerb(lx1 - rTR, lz0, lx0 + rTL, lz0, c.T);
+    if (c.B) kerb(lx0 + rBL, lz1, lx1 - rBR, lz1, c.B);
+    if (c.L) kerb(lx0, lz0 + rTL, lx0, lz1 - rBL, c.L);
+    if (c.R) kerb(lx1, lz1 - rBR, lx1, lz0 + rTR, c.R);
   }
   progress && progress(0.6);
 
@@ -119,8 +147,13 @@ export function buildGround(progress) {
       if (inside) continue;
       const mb = at(mid[0], mid[1]);
       mb.get('concrete').quad([p1[0], -1.6, p1[1]], [p0[0], -1.6, p0[1]], [p0[0], LY + 0.3, p0[1]], [p1[0], LY + 0.3, p1[1]], [0, 0, 1.5, 1], [0.74, 0.72, 0.68]);
+      mb.get('concrete').quad([p0[0], -1.6, p0[1]], [p1[0], -1.6, p1[1]], [p1[0], LY + 0.3, p1[1]], [p0[0], LY + 0.3, p0[1]], [0, 0, 1.5, 1], [0.74, 0.72, 0.68]); // lake-facing side
       const ox = Math.cos((a0 + a1) / 2), oz = Math.sin((a0 + a1) / 2);
-      mb.get('concrete').quad([p1[0], LY + 0.3, p1[1]], [p0[0], LY + 0.3, p0[1]], [p0[0] + ox * 0.9, LY + 0.3, p0[1] + oz * 0.9], [p1[0] + ox * 0.9, LY + 0.3, p1[1] + oz * 0.9], [0, 0, 1.5, 0.3], [0.82, 0.8, 0.76]);
+      { const cq = [[p1[0], LY + 0.3, p1[1]], [p0[0], LY + 0.3, p0[1]], [p0[0] + ox * 0.9, LY + 0.3, p0[1] + oz * 0.9], [p1[0] + ox * 0.9, LY + 0.3, p1[1] + oz * 0.9]];
+        mb.get('concrete').quad(cq[0], cq[1], cq[2], cq[3], [0, 0, 1.5, 0.3], [0.82, 0.8, 0.76]); mb.get('concrete').quad(cq[3], cq[2], cq[1], cq[0], [0, 0, 1.5, 0.3], [0.82, 0.8, 0.76]);
+        // coping's inner riser down to the paving so the 0.15 m step reads as a kerb
+        mb.get('concrete').quad([p0[0] + ox * 0.9, LY, p0[1] + oz * 0.9], [p1[0] + ox * 0.9, LY, p1[1] + oz * 0.9], [p1[0] + ox * 0.9, LY + 0.3, p1[1] + oz * 0.9], [p0[0] + ox * 0.9, LY + 0.3, p0[1] + oz * 0.9], [0, 0, 1.5, 0.1], [0.78, 0.76, 0.72]);
+        mb.get('concrete').quad([p1[0] + ox * 0.9, LY, p1[1] + oz * 0.9], [p0[0] + ox * 0.9, LY, p0[1] + oz * 0.9], [p0[0] + ox * 0.9, LY + 0.3, p0[1] + oz * 0.9], [p1[0] + ox * 0.9, LY + 0.3, p1[1] + oz * 0.9], [0, 0, 1.5, 0.1], [0.78, 0.76, 0.72]); }
       if (k % 2 === 0) mb.get('metal').box(p0[0] + ox * 0.4, LY + 0.85, p0[1] + oz * 0.4, 0.08, 1.0, 0.08, { col: [0.25, 0.27, 0.25] });
       mb.get('metal').quad([p1[0] + ox * 0.4, LY + 1.25, p1[1] + oz * 0.4], [p0[0] + ox * 0.4, LY + 1.25, p0[1] + oz * 0.4], [p0[0] + ox * 0.4, LY + 1.33, p0[1] + oz * 0.4], [p1[0] + ox * 0.4, LY + 1.33, p1[1] + oz * 0.4], [0, 0, 1, 1], [0.25, 0.27, 0.25]);
     }
