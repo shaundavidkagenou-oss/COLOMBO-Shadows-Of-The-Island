@@ -71,5 +71,5 @@ export class Vehicle {
   seatWorld(seat) { const v = new THREE.Vector3(seat.x, seat.y, seat.z); this.mesh.updateMatrixWorld(); return v.applyMatrix4(this.mesh.matrixWorld); }
   // exit point on the driver's side (right-hand drive → right side = −x local)
   exitPoint(s = -1) { const [fx, fz] = this.forward(); const off = this.T.wid / 2 + 0.7; return { x: this.x + fz * s * off, z: this.z - fx * s * off }; } // local +x in world = (fz, -fx)
-  dispose() { this.scene.remove(this.mesh); this.mesh.userData.tailMat.dispose(); }
+  dispose() { this.scene.remove(this.mesh); this.mesh.userData.tailMat.dispose(); this.mesh.userData.indMat?.dispose(); }
 }
