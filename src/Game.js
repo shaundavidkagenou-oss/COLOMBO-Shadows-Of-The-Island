@@ -71,7 +71,7 @@ export class Game {
     for (let i = 0; i < 40; i += 4) { this.crowd.prepareSpecs(4); progress(0.76 + 0.1 * (i / 40), 'People of Colombo'); await tick(); }
     progress(0.86, 'Tuk-tuks, buses and traffic'); await tick();
     this.traffic = new Traffic(this.scene, this.collision, bus);
-    this.player = new Player(this.scene, this.camera, this.collision, bus);
+    this.player = new Player(this.scene, this.camera, this.collision, bus); this.player.crowd = this.crowd;
     this.hud = new HUD(this.ui); this.director = new Director(this); this.story = new Story(this); this.interiors = new Interiors(this);
     this.applyDensity();
     progress(0.9, 'Lighting'); await tick();
@@ -188,6 +188,7 @@ export class Game {
     bus.on('crash', (v) => Audio.crash(v));
     bus.on('land', () => Audio.footstep(true, false));
     bus.on('enterVehicle', ({ v, hadDriver }) => { if (hadDriver) this.hud.subtitle('Driver', 'Ado! What are you doing? That\'s my vehicle!', '', 2.8); this.hud.notify(VNAMES[v.type] || 'Vehicle', `${this.hud.key('enter')} exit · ${this.hud.key('horn')} horn · ${this.hud.key('lights')} lights · ${this.hud.key('radio')} radio`, 'info', 3.5); Audio.ui('door'); });
+    bus.on('npcLineRaw', ({ who, text }) => this.hud.subtitle(who, text, '', 2.4));
     bus.on('exitVehicle', () => { Audio.ui('door'); if (this.radio) { this.radio = 0; } });
     bus.on('npcLine', ({ ped, line, prio }) => {
       if (!Settings.get('subtitles') && prio < 1) return; const P = this.player; const d = Math.hypot(ped.x - P.x, ped.z - P.z); if (d > (prio ? 16 : 9) || this.director.active || this.indoor) return;
@@ -305,6 +306,7 @@ export class Game {
     const P = this.player; const I = this.interiors; const key = (a) => this.hud.key(a);
     if (I.current && I.current.id === 'room') { const b = I.current.bounds; if (Math.hypot(P.x - (b.x0 + 1.2), P.z - (b.z0 + 1.6)) < 1.8 && !this.story.running) { const h = this.atmos.hour; const to = h >= 6 && h < 17 ? 19.75 : 8; if (Input.wasPressed('interact')) this.restUntil(to); return `${key('interact')} Sleep until ${to === 8 ? '8:00 AM' : '7:45 PM'}`; } }
     if (I.current) { const r = I.update(this.dt); if (r === 'exit') { if (Input.wasPressed('enter')) I.exit(); return `${key('enter')} Leave ${I.current.D.name}`; } return null; }
+    if (P.entry || P.exiting) return null;
     if (P.vehicle) { if (Input.wasPressed('enter')) { if (!P.exitVehicle(this.traffic)) this.hud.notify('Slow down', 'Stop the vehicle to get out.', 'info', 1.5); } return null; }
     const door = I.nearDoor(P.x, P.z);
     const veh = this.traffic.nearest(P.x, P.z, 3.4);

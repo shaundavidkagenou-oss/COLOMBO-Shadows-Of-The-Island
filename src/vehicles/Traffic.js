@@ -106,7 +106,7 @@ export class Traffic {
     const ai = v.ai; if (!ai) return; const p = ai.pieces[0];
     const [fx, fz] = [Math.sin(v.yaw), Math.cos(v.yaw)];
     // --- leader gap
-    let gap = 60, leadV = 0;
+    let gap = 60, leadV = 0; if (v.hold) gap = -1; // player is getting in: brake to a stop
     const consider = (ox, oz, ov, len, latTol) => {
       const rx = ox - v.x, rz = oz - v.z; const along = rx * fx + rz * fz; if (along <= 0 || along > 45) return;
       const lat = Math.abs(rx * fz - rz * fx); if (lat > latTol) return; const g = along - v.half - len; if (g < gap) { gap = g; leadV = ov; }
@@ -153,7 +153,7 @@ export class Traffic {
   }
   remove(v) { if (v.driverChar) { v.driverChar.dispose(); } v.dispose(); }
   // Hand a vehicle over to the player (car-jack: driver steps out and walks off grumbling)
-  takeOver(v) { const i = this.vehicles.indexOf(v); if (i >= 0) this.vehicles.splice(i, 1); const pi = this.parked.indexOf(v); if (pi >= 0) this.parked.splice(pi, 1); const hadDriver = !!v.driverChar; if (v.driverChar) { v.mesh.remove(v.driverChar.root); v.driverChar.dispose(); v.driverChar = null; } v.ai = null; v.parked = false; v.keep = true; return hadDriver; }
+  takeOver(v, keepDriver = false) { const i = this.vehicles.indexOf(v); if (i >= 0) this.vehicles.splice(i, 1); const pi = this.parked.indexOf(v); if (pi >= 0) this.parked.splice(pi, 1); const hadDriver = !!v.driverChar; if (v.driverChar && !keepDriver) { v.mesh.remove(v.driverChar.root); v.driverChar.dispose(); v.driverChar = null; } v.ai = null; v.hold = false; v.parked = false; v.keep = true; return hadDriver; }
   release(v) { v.parked = true; v.keep = false; v.speed = 0; v.brake = false; this.parked.push(v); }
   updateParked(dt, focus) {
     this.parkedTimer -= dt; if (this.parkedTimer > 0) return; this.parkedTimer = 1.0;

@@ -347,6 +347,16 @@ export class Crowd {
     }
     else if (kind === 'photo') { if (this.rng.chance(0.6)) { this.react(p, 'talkPlayer', 3); p.ch.anim.set(this.rng.chance(0.5) ? 'wave' : 'handsup'); face.set('smile', 3); } }
   }
+  // turn an existing character (e.g. a driver pulled out of a vehicle) into a pedestrian with a reaction
+  adopt(ch, x, z, yaw, reaction = 'flee', from = null) {
+    this.scene.add(ch.root); ch.root.position.set(x, this.collision.groundAt(x, z, 0.5), z); ch.root.rotation.set(0, yaw, 0); ch.anim.set(null); ch.mesh.castShadow = true;
+    const sp = ch.spec; const p = { ch, x, z, yaw, speed: 0, state: 'walk', node: 0, target: { x, z }, edge: null, lat: 0, pace: 1.3, timer: 0, act: null, react: 0, mood: 0, talkCd: 0, umbrella: false, crossing: false, id: this.rng.next(), sp, temper: reaction === 'confront' ? 0.9 : 0.3, vx: 0, vz: 0, stuckT: 0, stuckN: 0 };
+    this.returnToGraph(p); this.peds.push(p); p.y = ch.root.position.y;
+    const ax = from ? x - from.x : -Math.sin(yaw), az = from ? z - from.z : -Math.cos(yaw), d = Math.hypot(ax, az) || 1;
+    if (reaction === 'confront') { this.react(p, 'confront', 4); p.ch.anim.set('argue'); ch.face.set('angry', 4); this.speak(p, 'shoved', 2, 2.5); }
+    else { this.react(p, 'flee', 4 + this.rng.next() * 3, { fleeDir: this.spread(ax / d, az / d, 0.5), fleeSp: 3.2 }); ch.face.set('fear', 3); this.speak(p, 'scared', 2); }
+    this.alarm(x, z, 14, 1, p); return p;
+  }
   despawn(p) { if (p.poi) p.poi.used = Math.max(0, p.poi.used - 1); this.scene.remove(p.ch.root); p.ch.dispose(); }
   clear() { for (const p of this.peds) this.despawn(p); this.peds = []; }
 }
