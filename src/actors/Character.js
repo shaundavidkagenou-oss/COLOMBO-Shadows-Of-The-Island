@@ -1,7 +1,7 @@
 // Procedural skinned humans: one SkinnedMesh per person (body + head groups), 19-bone skeleton,
 // Sri Lankan everyday clothing and a procedural animation layer (locomotion, idles, gestures, reactions).
 import * as THREE from 'three';
-import { TEX, faceTexture } from '../gfx/Textures.js';
+import { TEX, faceAtlas, FACE_FRAMES } from '../gfx/Textures.js';
 import { RNG } from '../core/rng.js';
 import { lerp, clamp, damp } from '../core/math.js';
 
@@ -10,6 +10,7 @@ const B = Object.fromEntries(BONES.map((n, i) => [n, i]));
 const PARENT = { hips: null, spine: 'hips', chest: 'spine', neck: 'chest', head: 'neck', shL: 'chest', armL: 'shL', foreL: 'armL', handL: 'foreL', shR: 'chest', armR: 'shR', foreR: 'armR', handR: 'foreR', thighL: 'hips', shinL: 'thighL', footL: 'shinL', thighR: 'hips', shinR: 'thighR', footR: 'shinR' };
 
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
+const smooth01 = (x) => { const t = clamp(x, 0, 1); return t * t * (3 - 2 * t); };
 // atlas regions for fabric patterns: 0 plain weave, 1 saree, 2 batik, 3 plaid
 const REGION = [[0, 0.5], [0.5, 0.5], [0, 0], [0.5, 0]];
 
@@ -99,8 +100,8 @@ export function buildBodyGeometry(sp) {
   const midriff = o === 'saree';
   // --- torso (hips → neck)
   const tr = [
-    { y: 0.86, rx: (f ? 0.165 : 0.15) * w, rz: (f ? 0.11 : 0.1) * w, wgt: W1('hips'), col: bottom },
-    { y: 0.95, rx: (f ? 0.17 : 0.155) * w, rz: (f ? 0.115 : 0.105) * w, wgt: W1('hips'), col: bottom },
+    { y: 0.84, rx: (f ? 0.17 : 0.158) * w, rz: (f ? 0.112 : 0.102) * w, wgt: W1('hips'), col: bottom },
+    { y: 0.95, rx: (f ? 0.172 : 0.16) * w, rz: (f ? 0.115 : 0.105) * w, wgt: W1('hips'), col: bottom },
     { y: 1.02, rx: (f ? 0.14 : 0.15) * w, rz: (f ? 0.095 : 0.1) * w, wgt: W2('hips', 'spine', 0.6), col: midriff ? skin : top },
     { y: 1.12, rx: (f ? 0.13 : 0.155) * w, rz: (f ? 0.09 : 0.1) * w, wgt: W2('spine', 'chest', 0.3), col: midriff ? skin : top },
     { y: 1.24, rx: (f ? 0.145 : 0.17) * w, rz: (f ? 0.1 : 0.11) * w, fz: f ? 0.035 : 0.01, wgt: W2('spine', 'chest', 0.8), col: top },
@@ -121,7 +122,8 @@ export function buildBodyGeometry(sp) {
     const th = J['thigh' + side], sh = J['shin' + side], ft = J['foot' + side]; const sx = Math.sign(th[0]);
     const shorts = sp.shorts; const legCol = (y) => (shorts && y < 0.62 * s ? skin : skirtLen === 'ankle' && y < 0.2 ? skin : bottom);
     const lr = [
-      { c: [th[0] * 0.95, 0.9 * s, 0], rx: 0.085 * w, rz: 0.09 * w, w: W2('hips', 'thigh' + side, 0.6) },
+      { c: [th[0] * 0.82, 0.9 * s, 0], rx: 0.078 * w, rz: 0.088 * w, w: W2('hips', 'thigh' + side, 0.6) },
+      { c: [th[0] * 0.92, 0.84 * s, 0], rx: 0.08 * w, rz: 0.086 * w, w: W2('hips', 'thigh' + side, 0.85) },
       { c: [th[0], 0.78 * s, 0], rx: 0.075 * w, rz: 0.08 * w, w: W1('thigh' + side) },
       { c: [lerp(th[0], sh[0], 0.85), 0.55 * s, 0.005], rx: 0.055 * w, rz: 0.06 * w, w: W2('thigh' + side, 'shin' + side, 0.3) },
       { c: [sh[0], 0.47 * s, 0.005], rx: 0.05 * w, rz: 0.055 * w, w: W2('thigh' + side, 'shin' + side, 0.75) },
@@ -132,8 +134,9 @@ export function buildBodyGeometry(sp) {
     sb.loft(lr.map((r) => ({ ...r, col: legCol(r.c[1]) })), 10);
     // shoe / sandal
     const sandal = sp.sandals; const fc = sandal ? skin : shoe;
-    sb.ellipsoid([ft[0], 0.045 * s, 0.045], 0.045, 0.045, 0.12, W1('foot' + side), fc, { lat: 6, lon: 10 });
-    if (sandal) sb.boxPart([ft[0], 0.008, 0.05], 0.1, 0.016, 0.27, W1('foot' + side), shoe);
+    sb.ellipsoid([ft[0], 0.05 * s, 0.045], 0.044, 0.042, 0.118, W1('foot' + side), fc, { lat: 7, lon: 12, bumpFn: (x, y, z) => (y < -0.2 ? 0.98 : 1) * (z > 0.6 ? 0.97 : 1) });
+    if (sandal) { sb.boxPart([ft[0], 0.008, 0.05], 0.1, 0.016, 0.27, W1('foot' + side), shoe); sb.boxPart([ft[0], 0.05 * s, 0.09], 0.092, 0.012, 0.03, W1('foot' + side), shoe); }
+    else sb.boxPart([ft[0], 0.011, 0.047], 0.094, 0.022, 0.262, W1('foot' + side), C(sp.shoes === '#e8e8e4' ? '#d8d8d4' : '#1a1512'));
     void sx;
   }
   // --- skirt / sarong / saree / frock (cone from waist to hem, weighted mostly to hips)
@@ -177,17 +180,21 @@ export function buildBodyGeometry(sp) {
       { c: [h[0], 0.89 * s, 0], rx: 0.028, rz: 0.03, w: W1('fore' + side) },
     ];
     sb.loft(ar.map((r) => ({ ...r, col: colAt(r.c[1]) })), 10, { capEnd: false });
-    sb.ellipsoid([a[0] * 0.86, 1.4 * s, -0.004], 0.056 * w, 0.05, 0.06 * w, sp.sleeveless ? W2('chest', 'arm' + side, 0.5) : W2('chest', 'arm' + side, 0.5), sp.sleeveless ? skin : top, { lat: 7, lon: 10 });
+    sb.ellipsoid([a[0] * 0.84, 1.392 * s, -0.004], 0.05 * w, 0.044, 0.056 * w, sp.sleeveless ? W2('chest', 'arm' + side, 0.5) : W2('chest', 'arm' + side, 0.5), sp.sleeveless ? skin : top, { lat: 7, lon: 10 });
     if (!longSleeve && !sp.sleeveless) { // sleeve hem flare
       sb.loft([{ c: [lerp(a[0], fo[0], 0.4), 1.215 * s, -0.005], rx: 0.056 * w, rz: 0.058 * w, w: W1('arm' + side), col: top }, { c: [lerp(a[0], fo[0], 0.33), 1.27 * s, -0.004], rx: 0.058 * w, rz: 0.06 * w, w: W1('arm' + side), col: top }], 10);
     }
-    sb.ellipsoid([h[0], 0.82 * s, 0.01], 0.032, 0.07, 0.045, W1('hand' + side), skin, { lat: 6, lon: 8 });
+    { const sx = Math.sign(h[0]); const hw = W1('hand' + side); // palm, slightly curled finger block, thumb
+      sb.ellipsoid([h[0], 0.84 * s, 0.006], 0.022, 0.042, 0.04, hw, skin, { lat: 6, lon: 10 });
+      sb.ellipsoid([h[0] - sx * 0.004, 0.79 * s, 0.012], 0.017, 0.038, 0.036, hw, skin, { lat: 6, lon: 10, bumpFn: (x, y, z) => 1 + (y < -0.4 ? 0.04 * Math.sin(z * 18) : 0) });
+      sb.ellipsoid([h[0] - sx * 0.014, 0.818 * s, 0.038], 0.011, 0.026, 0.012, hw, skin, { lat: 4, lon: 6 }); }
     if (sp.bangles && side === 'L') sb.loft([{ c: [h[0], 0.885 * s, 0], rx: 0.033, rz: 0.035, w: W1('fore' + side), col: C('#d4a640') }, { c: [h[0], 0.9 * s, 0], rx: 0.033, rz: 0.035, w: W1('fore' + side), col: C('#d4a640') }], 8);
   }
   // --- head (separate group so it can take a face texture)
   const hc = [0, 1.635 * s, 0.015 * s];
   const hr = f ? [0.083, 0.11, 0.098] : [0.088, 0.115, 0.102];
-  sb.ellipsoid(hc, hr[0], hr[1], hr[2], W1('head'), skin, { lat: 16, lon: 24, faceUV: true, target: sb.headIdx, bumpFn: (x, y, z) => 1 + (z > 0.5 && y < -0.2 ? -0.06 * (z - 0.5) : 0) + (y < -0.55 ? -0.08 * (-y - 0.55) * 2 : 0) });
+  const headBump = (x, y, z) => 1 + (z > 0.5 && y < -0.2 ? -0.06 * (z - 0.5) : 0) + (y < -0.55 ? -0.08 * (-y - 0.55) * 2 : 0);
+  sb.ellipsoid(hc, hr[0], hr[1], hr[2], W1('head'), skin, { lat: 16, lon: 24, faceUV: true, target: sb.headIdx, bumpFn: headBump });
   // nose + ears
   sb.ellipsoid([0, hc[1] - 0.012, hc[2] + hr[2] - 0.004], 0.016, 0.026, 0.022, W1('head'), skin, { lat: 5, lon: 8, p0: 0.3 });
   for (const sx of [-1, 1]) sb.ellipsoid([sx * hr[0], hc[1], hc[2] - 0.01], 0.012, 0.03, 0.02, W1('head'), skin, { lat: 4, lon: 6 });
@@ -195,7 +202,9 @@ export function buildBodyGeometry(sp) {
   const hs = sp.hair;
   if (hs !== 'bald') {
     const capCol = (x, y, z) => hair; const lift = hs === 'wavy' ? 1.1 : hs === 'grey' ? 1.04 : 1.06;
-    const bump = (x, y, z) => (hs === 'wavy' ? 1 + 0.04 * Math.sin(x * 14) * Math.cos(z * 11) : 1) * (z > 0.35 && y < 0.45 ? 0.98 : 1);
+    // hairline: high on the forehead, down past the temples to the ears, lower at the nape; below it the cap tucks inside the head
+    const hairline = (x, z) => { const fr = smooth01((z + 0.1) / 0.75); return lerp(-0.25, f ? 0.4 : 0.5, fr) - (f ? 0.06 * Math.max(0, 1 - Math.abs(x) * 4) * 0 : 0) + (f && z > 0.6 ? 0.04 * Math.cos(x * 9) : 0); };
+    const bump = (x, y, z) => (y < hairline(x, z) ? 0.9 / lift : 1) * (hs === 'wavy' ? 1 + 0.04 * Math.sin(x * 14) * Math.cos(z * 11) : 1);
     // cap covers top/back; front hairline higher
     sb.ellipsoid([hc[0], hc[1] + 0.012, hc[2] - 0.006], hr[0] * lift, hr[1] * 1.02, hr[2] * lift, W1('head'), capCol, { lat: 9, lon: 18, p0: 0, p1: Math.PI * (f ? 0.6 : 0.52), bumpFn: bump });
     if (f || hs === 'long') {
@@ -208,7 +217,12 @@ export function buildBodyGeometry(sp) {
         sb.ellipsoid([sx * 0.08, hc[1] - 0.33, hc[2] - 0.045], 0.028, 0.02, 0.012, W1('chest'), C(sp.ribbon || '#1d3f8a'), { lat: 4, lon: 6 });
       }
     }
-    if (sp.beard) sb.ellipsoid([hc[0], hc[1] - 0.06, hc[2] + 0.02], hr[0] * 0.98, hr[1] * 0.62, hr[2] * 0.98, W1('head'), hair, { lat: 6, lon: 14, p0: Math.PI * 0.55, p1: Math.PI * 0.95, bumpFn: (x, y, z) => (z < -0.1 ? 0.9 : 1.04) });
+    if (sp.beard) { // shell that follows the jaw exactly (same centre, radii and jaw shaping as the head), so it can never drift off the face
+      const beardBump = (x, y, z) => { const hb = headBump(x, y, z); if (z < -0.3) return hb * 0.93; if (z > 0.72 && y > -0.52 && Math.abs(x) < 0.42) return hb * 0.96; // back of the shell and the lips stay inside the head
+        return hb * (1.03 + 0.012 * Math.max(0, -y - 0.6)) + 0.004 * Math.sin(x * 40 + z * 23); };
+      sb.ellipsoid(hc, hr[0], hr[1], hr[2], W1('head'), hair, { lat: 9, lon: 22, p0: Math.PI * 0.57, p1: Math.PI * 0.985, bumpFn: beardBump });
+      sb.ellipsoid([0, hc[1] - 0.04, hc[2] + hr[2] * 0.93], 0.032, 0.009, 0.012, W1('head'), hair, { lat: 4, lon: 8 });
+    }
     if (sp.moustache) sb.ellipsoid([0, hc[1] - 0.042, hc[2] + hr[2] - 0.016], 0.03, 0.008, 0.012, W1('head'), hair, { lat: 4, lon: 8 });
   }
   if (sp.glasses) { const gz = hc[2] + hr[2] - 0.006, gy = hc[1] + 0.006; for (const sx of [-1, 1]) { sb.boxPart([sx * 0.034, gy + 0.012, gz], 0.038, 0.004, 0.004, W1('head'), C('#1a1a1a')); sb.boxPart([sx * 0.034, gy - 0.01, gz - 0.001], 0.034, 0.003, 0.004, W1('head'), C('#1a1a1a')); sb.boxPart([sx * 0.053, gy + 0.001, gz - 0.002], 0.003, 0.022, 0.004, W1('head'), C('#1a1a1a')); } sb.boxPart([0, gy + 0.008, gz + 0.002], 0.016, 0.003, 0.004, W1('head'), C('#1a1a1a')); }
@@ -230,7 +244,7 @@ function fabricAtlas() {
 }
 export function getBodyMaterial() { if (!bodyMat) bodyMat = new THREE.MeshStandardMaterial({ map: fabricAtlas(), vertexColors: true, roughness: 0.85 }); return bodyMat; }
 export function getFaceMaterial(key, opts) {
-  if (!faceMats.has(key)) faceMats.set(key, new THREE.MeshStandardMaterial({ map: faceTexture(opts), vertexColors: true, roughness: 0.65 }));
+  if (!faceMats.has(key)) faceMats.set(key, new THREE.MeshStandardMaterial({ map: faceAtlas(opts), vertexColors: true, roughness: 0.62 }));
   return faceMats.get(key);
 }
 
@@ -305,57 +319,166 @@ export class Character {
     this.spec = spec; const key = JSON.stringify(spec); const skelKey = `${spec.sex}|${spec.height.toFixed(3)}|${spec.build.toFixed(3)}`;
     let geo = geoCache.get(key); if (!geo) { geo = buildBodyGeometry(spec); geoCache.set(key, geo); }
     const { bones, skeleton } = makeSkeleton(spec, skelKey);
-    const fkey = `${spec.sex}|${spec.beard ? 1 : 0}|${spec.seed % 4}`;
-    const faceMat = getFaceMaterial(fkey, { female: spec.sex === 'f', stubble: spec.beard ? 0.9 : spec.sex === 'm' && spec.age === 'adult' ? 0.35 : 0, seed: spec.seed % 4, lips: spec.sex === 'f' ? '#8a3a3a' : '#7a4a40' });
-    this.mesh = new THREE.SkinnedMesh(geo, [getBodyMaterial(), faceMat]);
+    const stub = spec.beard ? 0.9 : spec.sex === 'm' && spec.age === 'adult' ? 0.35 : 0; const fkey = `${spec.sex}|${stub}|${spec.seed % 2}`;
+    const faceMat = getFaceMaterial(fkey, { female: spec.sex === 'f', stubble: stub, seed: spec.seed % 2, lips: spec.sex === 'f' ? '#8a3a3a' : '#7a4a40' });
+    this.face = new FaceRig(this, faceMat);
+    this.mesh = new THREE.SkinnedMesh(geo, [getBodyMaterial(), this.face.mat]);
     this.mesh.add(bones[0]); this.mesh.bind(skeleton); this.mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.9, 0), 1.3); this.mesh.castShadow = true; this.mesh.receiveShadow = false; this.mesh.frustumCulled = true;
     this.root = new THREE.Group(); this.root.add(this.mesh);
     this.bones = Object.fromEntries(BONES.map((n, i) => [n, bones[i]])); this.hipY = bones[0].position.y;
     this.anim = new Animator(this);
   }
-  dispose() { this.mesh.skeleton.dispose(); }
+  dispose() { this.mesh.skeleton.dispose(); this.face.dispose(); }
+  // convenience for gameplay code: expression for a while, or talking on/off
+  express(name, dur = 2.5) { this.face.set(name, dur); }
+}
+
+// ------------------------------------------------------------------ facial animation
+// Each character owns a material clone whose map is a clone of the shared expression atlas (the GPU image is shared;
+// only the UV offset differs). Blinks are random per person (never in sync), talking flaps the mouth, expressions are
+// timed, idle eyes glance around. Beyond ~28 m faces stop updating (LOD) since the detail is not visible.
+export const CAM = new THREE.Vector3(); // set every frame by the game
+const FIDX = Object.fromEntries(FACE_FRAMES.map((n, i) => [n, i]));
+export class FaceRig {
+  constructor(ch, base) {
+    this.ch = ch; this.mat = base.clone(); this.mat.map = base.map.clone(); this.frame = -1;
+    this.expr = 'neutral'; this.exprT = 0; this.mood = 'neutral'; this.blinkT = 0.5 + Math.random() * 4; this.blink = 0; this.talking = false; this.flapT = 0; this.flap = 0; this.glanceT = 2 + Math.random() * 5; this.glance = null;
+    this.show(0);
+  }
+  set(name, dur = 2.5) { if (!(name in FIDX)) return; this.expr = name; this.exprT = dur; if (name === 'surprise' || name === 'fear') this.blinkT = Math.max(this.blinkT, 1.2); }
+  show(i) { if (i === this.frame) return; this.frame = i; this.mat.map.offset.y = 1 - (i + 1) / FACE_FRAMES.length; }
+  update(dt) {
+    const e = this.ch.root.matrixWorld.elements; const d2 = (e[12] - CAM.x) ** 2 + (e[13] - CAM.y) ** 2 + (e[14] - CAM.z) ** 2;
+    if (d2 > 28 * 28 && CAM.lengthSq() > 0) { if (this.frame !== 0 && this.frame !== FIDX[this.mood]) this.show(FIDX[this.mood] || 0); return; }
+    if (this.exprT > 0) { this.exprT -= dt; if (this.exprT <= 0) this.expr = this.mood; }
+    this.blinkT -= dt; if (this.blinkT < 0) { this.blink = 0.13; this.blinkT = 2 + Math.random() * 4.5 + (Math.random() < 0.15 ? -1.6 : 0); } // occasional double blink
+    if (this.blink > 0) this.blink -= dt;
+    this.glanceT -= dt; if (this.glanceT < 0) { this.glance = this.glance ? null : Math.random() < 0.5 ? 'lookL' : 'lookR'; this.glanceT = this.glance ? 0.5 + Math.random() * 1.2 : 2.5 + Math.random() * 6; }
+    let f = this.expr;
+    if (this.talking) { this.flapT -= dt; if (this.flapT < 0) { this.flap = this.flap ? 0 : 1; this.flapT = (this.flap ? 0.08 : 0.06) + Math.random() * 0.12; } f = this.flap ? 'talk' : this.expr === 'talk' ? 'neutral' : this.expr; }
+    else if (f === 'neutral' && this.glance) f = this.glance;
+    if (this.blink > 0 && f !== 'surprise') f = 'blink';
+    this.show(FIDX[f] ?? 0);
+  }
+  dispose() { this.mat.map.dispose(); this.mat.dispose(); }
 }
 
 // ------------------------------------------------------------------ procedural animator
-// state: speed (m/s), action (null|'sit'|'talk'|'phone'|'wave'|'dance'|'stretch'|'look'|'cower'|'argue'|'stumble'|'jump'|'drive'|'crouch'|'shove'|'point'|'clap'|'browse'|'umbrella'), turn rate
+// Locomotion is distance-driven: the gait cycle advances by distance travelled / stride length, the planted foot moves
+// back at exactly the body speed (no foot sliding), and the hip height is solved from the planted leg(s) so feet neither
+// sink nor float. Each character has a gait profile (stride, cadence, arm swing, bounce, posture...) derived from age,
+// sex, build and a per-person seed, so people walk differently rather than just at different speeds.
+// state: speed (m/s), action (null|'sit'|'talk'|'phone'|'wave'|'dance'|'stretch'|'look'|'cower'|'argue'|'stumble'|'jump'|'drive'|'crouch'|'shove'|'point'|'clap'|'browse'|'umbrella'|...), turn rate (rad/s)
+export function gaitProfile(sp) {
+  const r = new RNG((sp.seed || 1) * 977 + 13); const f = sp.sex === 'f'; const age = sp.age || 'adult';
+  const elder = age === 'elder', child = age === 'child', teen = age === 'teen';
+  return {
+    stride: (elder ? 0.84 : child ? 0.92 : 1) * r.range(0.93, 1.07) * (sp.skirt === 'ankle' ? 0.88 : 1),
+    arm: (elder ? 0.55 : f ? 0.8 : 1) * r.range(0.7, 1.3) * (sp.bag ? 0.8 : 1),
+    elbow: r.range(0.12, 0.34) + (elder ? 0.15 : 0),
+    armOut: 0.07 + (sp.build - 1) * 0.3 + r.range(0, 0.04),
+    bounce: (child ? 1.3 : elder ? 0.65 : 1) * r.range(0.8, 1.2),
+    sway: (f ? 1.45 : 1) * r.range(0.7, 1.3),
+    pelvis: (f ? 1.25 : 1) * r.range(0.8, 1.2),
+    stoop: elder ? r.range(0.1, 0.22) : r.range(-0.03, 0.05),
+    headDown: r.range(-0.04, 0.07) + (elder ? 0.08 : 0),
+    knee: r.range(0.85, 1.15), swagger: !f && (teen || age === 'adult') ? r.range(0, 1) : 0,
+    toeOut: r.range(0.03, 0.12) + (elder ? 0.06 : 0), lag: r.range(0.02, 0.07), idleRate: r.range(0.7, 1.4),
+  };
+}
 export class Animator {
-  constructor(ch) { this.ch = ch; this.phase = Math.random() * 10; this.t = Math.random() * 100; this.speed = 0; this.action = null; this.actionW = 0; this.prevAction = null; this.lean = 0; this.air = 0; this.look = 0; this.crouch = 0; this.drive = 0; this.steer = 0; this.seed = Math.random(); }
+  constructor(ch) {
+    this.ch = ch; this.g = gaitProfile(ch.spec); const s = ch.spec.height / 1.72; this.s = s;
+    this.a = 0.43 * s; this.b = 0.415 * s; this.ankle = 0.085 * s; // thigh / shin lengths, ankle height
+    this.cyc = Math.random(); this.t = Math.random() * 100; this.speed = 0; this.action = null; this.actionW = 0; this.prevAction = null;
+    this.lean = 0; this.air = 0; this.look = 0; this.crouch = 0; this.drive = 0; this.steer = 0; this.seed = Math.random(); this.locoW = 0; this.hipYs = ch.hipY;
+    this.shift = 0; this.shiftTarget = Math.random() < 0.5 ? -1 : 1; this.shiftT = 2 + Math.random() * 6; this.idleLook = 0; this.idleLookT = Math.random() * 4; this.idleLookTarget = 0;
+    this.stepped = false; this.stepFoot = 0; this.runW = 0;
+  }
   set(action) { if (action !== this.action) { this.prevAction = this.action; this.action = action; this.actionW = 0; this.actionT = 0; } }
+  // one leg's pose at gait phase p (0 = heel strike). Returns world thigh angle (−fwd), knee flex, foot pitch relative to flat, contact.
+  leg(p, beta, A, run) {
+    const g = this.g;
+    if (p < beta) {
+      const u = p / beta; const fwd = 1 - 2 * u; // linear sweep → planted foot moves back at body speed
+      const knee = (0.14 * (1 - run) + 0.55 * run) * Math.sin(u * Math.PI) + (1 - run) * 0.38 * smooth01((u - 0.72) / 0.28);
+      const foot = u < 0.14 ? -0.28 * (1 - u / 0.14) * (1 - run * 0.6) : u > 0.66 ? 0.5 * smooth01((u - 0.66) / 0.34) : 0;
+      return { th: -fwd * A, knee, foot, contact: true, u };
+    }
+    const u = (p - beta) / (1 - beta); const fwd = -Math.cos(u * Math.PI) + run * 0.25 * Math.sin(u * Math.PI);
+    const knee = lerp(0.82, 1.95, run) * g.knee * Math.sin(Math.PI * clamp(u * 1.25, 0, 1)) + (1 - run) * 0.38 * (1 - smooth01(u / 0.2));
+    return { th: -fwd * A, knee, foot: lerp(0.35, -0.12, smooth01(u * 1.3)), contact: false, u };
+  }
   update(dt, speed, turnRate = 0) {
-    const b = this.ch.bones; this.t += dt; this.actionT = (this.actionT || 0) + dt; this.speed = damp(this.speed, speed, 10, dt);
-    const sp = this.speed; const run = clamp((sp - 2.2) / 2.5, 0, 1); const walk = clamp(sp / 1.2, 0, 1);
-    const freq = sp < 0.05 ? 0 : lerp(1.75, 2.75, run) * (sp < 1.4 ? Math.max(0.7, sp / 1.4) : 1) / (this.ch.spec.height / 1.72);
-    this.phase += dt * freq * Math.PI * 2 * 0.5;
-    const ph = this.phase; const s = Math.sin(ph), c = Math.cos(ph);
-    this.actionW = clamp(this.actionW + dt * 3, 0, 1); this.lean = damp(this.lean, clamp(turnRate * sp * 0.04, -0.25, 0.25), 6, dt);
-    const A = this.action; const aw = A ? this.actionW : 0; const crouch = (this.crouch = damp(this.crouch, A === 'crouch' ? 1 : 0, 8, dt));
-    const sit = A === 'sit' ? aw : 0; const drive = (this.drive = damp(this.drive, A === 'drive' ? 1 : 0, 8, dt));
-    const breathe = Math.sin(this.t * 1.6 + this.seed * 6) * 0.015;
-    const legAmp = lerp(0.45, 0.85, run) * walk, armAmp = lerp(0.35, 0.9, run) * walk, knee = lerp(0.55, 1.4, run) * walk;
+    const b = this.ch.bones; const g = this.g; const s = this.s; this.t += dt; this.actionT = (this.actionT || 0) + dt;
+    this.speed = damp(this.speed, speed, 12, dt); const sp = Math.max(0, this.speed);
+    const run = (this.runW = damp(this.runW, clamp((sp - 2.5) / 2.0, 0, 1), 6, dt)); const w = (this.locoW = damp(this.locoW, smooth01(sp / 0.55), 8, dt));
+    // stride and phase
+    const stepLen = Math.min((0.36 + 0.3 * sp) * s * g.stride, (1.15 + 0.45 * run) * s); const cycleLen = 2 * stepLen; const beta = lerp(0.6, 0.36, run);
+    const prev = this.cyc; this.cyc = (this.cyc + (sp * dt) / cycleLen) % 1;
+    const L = this.a + this.b; const roll = lerp(0.17, 0.08, run) * s; // foot roll-over contributes stance travel
+    const A = Math.asin(clamp((beta * cycleLen - roll) / (2 * L), 0.02, 0.62));
+    const pL = this.cyc, pR = (this.cyc + 0.5) % 1;
+    if (w > 0.4 && sp > 0.3) { if (pL < prev) { this.stepped = true; this.stepFoot = 0; } else if ((pR < 0.5) !== ((prev + 0.5) % 1 < 0.5) && pR < 0.5) { this.stepped = true; this.stepFoot = 1; } }
+    const lL = this.leg(pL, beta, A, run), lR = this.leg(pR, beta, A, run);
+    // idle weight shift (switch every few seconds), idle look-around
+    this.shiftT -= dt * g.idleRate; if (this.shiftT < 0) { this.shiftTarget = -this.shiftTarget * (Math.random() < 0.8 ? 1 : 0.3); this.shiftT = 3 + Math.random() * 6; }
+    this.shift = damp(this.shift, this.shiftTarget, 1.6, dt);
+    this.idleLookT -= dt; if (this.idleLookT < 0) { this.idleLookTarget = Math.random() < 0.4 ? 0 : (Math.random() - 0.5) * 1.1; this.idleLookT = 1.5 + Math.random() * 4; }
+    this.idleLook = damp(this.idleLook, this.idleLookTarget * (1 - w * 0.7), 5, dt);
+    const A_ = this.action; this.actionW = clamp(this.actionW + dt * 3, 0, 1); const aw = A_ ? this.actionW : 0;
+    const crouch = (this.crouch = damp(this.crouch, A_ === 'crouch' ? 1 : 0, 8, dt));
+    const sit = A_ === 'sit' ? aw : 0; const drive = (this.drive = damp(this.drive, A_ === 'drive' ? 1 : 0, 8, dt)); const seatT = Math.max(sit, drive);
+    this.lean = damp(this.lean, clamp(-turnRate * sp * 0.03, -0.2, 0.2), 6, dt);
+    // pelvis
+    const hipPitch = run * 0.1 + crouch * 0.25; const sh = this.shift * (1 - w);
+    const pelvisYaw = -(Math.cos(2 * Math.PI * pL) * 0.085 * g.pelvis * (1 - run * 0.4)) * w;
+    const swayPh = Math.cos(2 * Math.PI * (pL - beta / 2));
+    const hipRoll = this.lean + (swayPh * 0.045 * g.sway * (1 - run) * w) + sh * 0.035;
+    // legs: idle pose has the loaded leg straight and the other relaxed
+    const idleTh = (side) => { const loaded = side === 0 ? sh > 0 : sh < 0; return loaded ? 0.02 : -0.06 * Math.abs(sh); };
+    const idleKn = (side) => { const loaded = side === 0 ? sh > 0 : sh < 0; return 0.04 + (loaded ? 0 : 0.16 * Math.abs(sh)); };
+    const legs = [lL, lR].map((l, i) => {
+      let thW = lerp(idleTh(i), l.th, w) - crouch * 1.1; let kn = lerp(idleKn(i), l.knee + 0.04, w) + crouch * 1.9;
+      return { thW, kn, foot: l.foot * w, contact: l.contact || w < 0.5 };
+    });
+    // solve hip height from the planted leg(s): hips must sit where the stance foot touches the ground
+    const need = (l) => this.ankle + this.a * Math.cos(l.thW) + this.b * Math.cos(l.thW + l.kn) + 0.02 * s;
+    let hy = Infinity; for (const l of legs) if (l.contact) hy = Math.min(hy, need(l));
+    if (hy === Infinity) hy = Math.max(need(legs[0]), need(legs[1])) + 0.035 * run * g.bounce; // flight phase
+    hy = this.ch.hipY + (hy - this.ch.hipY) * lerp(1, g.bounce, 0.5);
+    hy = lerp(hy, this.ch.hipY - 0.45, seatT);
+    this.hipYs = dt > 0.2 ? hy : damp(this.hipYs, hy, 30, dt);
+    b.hips.position.y = this.hipYs; b.hips.position.x = (swayPh * 0.02 * g.sway * (1 - run) * w + sh * 0.028) * s;
+    b.hips.rotation.set(hipPitch, pelvisYaw, hipRoll);
     const R = (bone, x, y, z) => b[bone].rotation.set(x, y, z);
-    // legs
-    const legL = -s * legAmp, legR = s * legAmp;
-    const kneeL = Math.max(0, -c) * knee + 0.05 * walk, kneeR = Math.max(0, c) * knee + 0.05 * walk;
-    const seatT = Math.max(sit, drive);
-    R('thighL', lerp(legL - crouch * 1.1, -1.45, seatT), 0, lerp(0, -0.06, seatT)); R('thighR', lerp(legR - crouch * 1.1, -1.45, seatT), 0, lerp(0, 0.06, seatT));
-    R('shinL', lerp(kneeL + crouch * 1.9, 1.45, seatT), 0, 0); R('shinR', lerp(kneeR + crouch * 1.9, 1.45, seatT), 0, 0);
-    R('footL', lerp(-kneeL * 0.25 + (legL > 0 ? legL * 0.3 : 0) - crouch * 0.6, 0, seatT), 0, 0); R('footR', lerp(-kneeR * 0.25 + (legR > 0 ? legR * 0.3 : 0) - crouch * 0.6, 0, seatT), 0, 0);
-    // hips bob + sway
-    const bob = (Math.abs(Math.cos(ph)) - 0.5) * lerp(0.03, 0.07, run) * walk;
-    b.hips.position.y = this.ch.hipY + bob - crouch * 0.38 - seatT * 0.45 + (this.air > 0 ? 0 : 0);
-    b.hips.rotation.set(run * 0.12 + crouch * 0.25, s * 0.12 * walk, this.lean);
-    R('spine', breathe + run * 0.08 + crouch * 0.2, -s * 0.15 * walk, -this.lean * 0.5);
-    R('chest', breathe * 0.5, -s * 0.12 * walk, 0);
-    R('neck', -run * 0.1 - crouch * 0.2, 0, 0); R('head', 0, this.look * 0.6, 0);
-    // arms
-    let aL = [s * armAmp + 0.04, 0, 0.08 + run * 0.08], aR = [-s * armAmp + 0.04, 0, -0.08 - run * 0.08];
-    let fL = [-(0.15 + run * 1.2 + walk * 0.1), 0, 0], fR = [-(0.15 + run * 1.2 + walk * 0.1), 0, 0];
-    const blend = (cur, tgt, w) => cur.map((v, i) => lerp(v, tgt[i], w));
+    legs.forEach((l, i) => {
+      const sd = i === 0 ? 'L' : 'R', sx = i === 0 ? 1 : -1;
+      const th = lerp(l.thW - hipPitch, -1.45, seatT), kn = lerp(l.kn, 1.45, seatT);
+      const foot = lerp(-(l.thW + l.kn) + l.foot - crouch * 0.0, 0, seatT);
+      R('thigh' + sd, th, sx * g.toeOut * 0.5, lerp(-hipRoll * 0.9, -sx * 0.06, seatT)); R('shin' + sd, kn, 0, 0); R('foot' + sd, foot, 0, 0);
+    });
+    // spine, chest: counter-rotation against the pelvis, posture, breathing
+    const breathe = Math.sin(this.t * (1.5 + run * 2) + this.seed * 6) * (0.012 + run * 0.01);
+    const spineYaw = -pelvisYaw * 0.7, chestYaw = -pelvisYaw * 1.05;
+    R('spine', breathe + g.stoop + run * 0.12 + crouch * 0.2 - hipPitch * 0.4, spineYaw, -hipRoll * 0.55);
+    R('chest', breathe * 0.6 + g.stoop * 0.5, chestYaw, -hipRoll * 0.35 + Math.sin(2 * Math.PI * pL) * 0.03 * g.swagger * w);
+    // head: stabilised against the trunk, plus look/idle look
+    const trunkYaw = pelvisYaw + spineYaw + chestYaw;
+    R('neck', -g.stoop * 0.8 + g.headDown - run * 0.12 - crouch * 0.2, -trunkYaw * 0.5, hipRoll * 0.3);
+    R('head', -(this.hipYs - this.ch.hipY) * 0.6, this.look * 0.6 + this.idleLook * 0.5 - trunkYaw * 0.4, hipRoll * 0.3);
+    // arms: pendulum swing opposite to the legs, slightly lagging, bigger forward than back
+    const armAmp = (0.1 + 0.2 * clamp(sp / 1.6, 0, 1) + run * 0.6) * g.arm * w;
+    const sw = (p) => { const v = Math.cos(2 * Math.PI * (p - g.lag)); return v > 0 ? v : v * 0.75; };
+    let aL = [-sw(pR) * armAmp + 0.03, 0, g.armOut + run * 0.08 + sh * 0.02], aR = [-sw(pL) * armAmp + 0.03, 0, -g.armOut - run * 0.08 + sh * 0.02];
+    let fL = [-(g.elbow + Math.max(0, sw(pR)) * 0.3 * w + run * 1.25), 0, 0], fR = [-(g.elbow + Math.max(0, sw(pL)) * 0.3 * w + run * 1.25), 0, 0];
+    const blend = (cur, tgt, k) => cur.map((v, i) => lerp(v, tgt[i], k));
     const t = this.t, at = this.actionT;
-    if (A && aw > 0) {
+    if (A_ && aw > 0) {
       let tl = null, tr = null, tfl = null, tfr = null, head = null;
-      switch (A) {
+      switch (A_) {
         case 'talk': tr = [-0.4 - Math.sin(t * 3.1) * 0.25, 0.2, -0.2 - Math.sin(t * 2.3) * 0.15]; tfr = [-1.1 - Math.sin(t * 4) * 0.3, 0, 0]; tl = [-0.15, 0, 0.12]; tfl = [-0.5 - Math.max(0, Math.sin(t * 1.7)) * 0.6, 0, 0]; head = Math.sin(t * 0.9) * 0.25; break;
+        case 'listen': tl = [0.02, 0, 0.1]; tr = [0.02, 0, -0.1]; tfl = tfr = [-0.35, 0, 0]; head = Math.sin(t * 0.6) * 0.08; b.neck.rotation.x += Math.max(0, Math.sin(t * 2.2)) * 0.08 * aw; break;
         case 'argue': tr = [-0.9 - Math.sin(t * 6) * 0.35, 0, -0.3]; tfr = [-0.9, 0, 0]; tl = [-0.7 - Math.sin(t * 5 + 1) * 0.3, 0, 0.3]; tfl = [-1, 0, 0]; head = Math.sin(t * 3) * 0.15; break;
         case 'phone': tr = [-0.35, 0, -0.55]; tfr = [-2.35, 0.4, 0]; tl = [0.05, 0, 0.1]; tfl = [-0.2, 0, 0]; head = 0.15; break;
         case 'text': tr = [-0.45, 0, -0.15]; tfr = [-1.35, 0, 0]; tl = [-0.45, 0, 0.15]; tfl = [-1.35, 0, 0]; b.neck.rotation.x += 0.45 * aw; break;
@@ -367,7 +490,14 @@ export class Animator {
         case 'look': head = Math.sin(at * 0.7) * 0.9; tl = [0.05, 0, 0.12]; tr = [0.05, 0, -0.12]; break;
         case 'cower': tr = [-2.2, 0, 0.6]; tl = [-2.2, 0, -0.6]; tfr = tfl = [-2.3, 0, 0]; b.spine.rotation.x += 0.45 * aw; b.neck.rotation.x += 0.4 * aw; break;
         case 'handsup': tr = [-2.9, 0, -0.35]; tl = [-2.9, 0, 0.35]; tfr = tfl = [-0.4, 0, 0]; break;
-        case 'stumble': { const k = Math.max(0, 1 - at * 1.5); b.spine.rotation.x -= 0.5 * k; tr = [-1.2 * k, 0, -1.2 * k]; tl = [-1.2 * k, 0, 1.2 * k]; break; }
+        case 'stumble': { // knocked off balance: torso whips back, arms fling out, a recovery step, then regain posture
+          const k = Math.max(0, 1 - at * 1.4), k2 = Math.sin(clamp(at / 0.7, 0, 1) * Math.PI);
+          b.spine.rotation.x -= 0.45 * k; b.chest.rotation.x -= 0.15 * k; b.neck.rotation.x += 0.25 * k; b.hips.rotation.z += Math.sin(at * 9) * 0.06 * k;
+          b.thighR.rotation.x -= 0.45 * k2; b.shinR.rotation.x += 0.5 * k2; b.hips.position.y -= 0.04 * k2;
+          tr = [-1.3 * k, 0, -1.1 * k]; tl = [-1.1 * k, 0, 1.3 * k]; tfr = tfl = [-0.4, 0, 0]; head = Math.sin(at * 7) * 0.2 * k; break; }
+        case 'flinch': { const k = Math.max(0, 1 - at * 2.2); b.spine.rotation.x += 0.25 * k; b.neck.rotation.x += 0.3 * k; tr = [-1.6 * k, 0, 0.4 * k]; tl = [-1.6 * k, 0, -0.4 * k]; tfr = tfl = [-1.8 * k, 0, 0]; break; }
+        case 'hit': { const k = Math.max(0, 1 - at * 1.6); b.spine.rotation.x -= 0.35 * k; b.chest.rotation.y += 0.3 * k; tr = [-0.6 * k, 0, -0.8 * k]; tl = [-0.4 * k, 0, 0.9 * k]; break; }
+        case 'down': { b.hips.position.y = lerp(b.hips.position.y, 0.16 * s, aw); b.hips.rotation.x = lerp(b.hips.rotation.x, -1.45, aw); for (const sd of ['L', 'R']) { b['thigh' + sd].rotation.x = lerp(b['thigh' + sd].rotation.x, 0.05, aw); b['shin' + sd].rotation.x = lerp(b['shin' + sd].rotation.x, 0.2, aw); b['foot' + sd].rotation.x = lerp(b['foot' + sd].rotation.x, -0.2, aw); } tr = [-0.4, 0, -0.7]; tl = [-0.3, 0, 0.8]; tfr = tfl = [-0.3, 0, 0]; break; }
         case 'shove': { const k = Math.sin(clamp(at / 0.4, 0, 1) * Math.PI); tr = [-1.5 * k, 0, 0.1]; tl = [-1.5 * k, 0, -0.1]; tfr = tfl = [-0.6 + 0.5 * k, 0, 0]; b.spine.rotation.x += 0.2 * k; break; }
         case 'browse': tr = [-0.75, 0, 0.1]; tfr = [-0.9 + Math.sin(t * 1.3) * 0.2, 0, 0]; head = Math.sin(t * 0.5) * 0.4; b.neck.rotation.x += 0.25 * aw; break;
         case 'umbrella': tr = [-0.6, 0, -0.1]; tfr = [-1.8, 0, 0]; break;
@@ -378,12 +508,17 @@ export class Animator {
         case 'interact': tr = [-1.2, 0, -0.1]; tfr = [-0.4, 0, 0]; break;
         case 'pray': tr = [-0.75, 0, 0.55]; tl = [-0.75, 0, -0.55]; tfr = tfl = [-1.9, 0, 0]; b.neck.rotation.x += 0.2 * aw; break;
         case 'photo': tr = [-1.25, 0, 0.25]; tl = [-1.25, 0, -0.25]; tfr = tfl = [-1.7, 0, 0]; break;
+        case 'shrug': { const k = Math.sin(clamp(at / 1.2, 0, 1) * Math.PI); tr = [-0.3 * k, 0, -0.5 * k]; tl = [-0.3 * k, 0, 0.5 * k]; tfr = tfl = [-1.4 * k, 0, 0]; head = 0.1 * k; break; }
+        case 'beckon': tr = [-1.3, 0, -0.15]; tfr = [-1.2 - Math.max(0, Math.sin(t * 6)) * 0.6, 0, 0]; break;
       }
       if (tl) aL = blend(aL, tl, aw); if (tr) aR = blend(aR, tr, aw); if (tfl) fL = blend(fL, tfl, aw); if (tfr) fR = blend(fR, tfr, aw); if (head !== null && head !== undefined) b.head.rotation.y = lerp(b.head.rotation.y, head, aw);
     }
-    if (this.air > 0) { aL = blend(aL, [-0.6, 0, 0.5], 0.7); aR = blend(aR, [-0.6, 0, -0.5], 0.7); b.thighL.rotation.x = -0.6; b.shinL.rotation.x = 0.9; b.thighR.rotation.x = -0.1; b.shinR.rotation.x = 0.4; }
+    if (this.air > 0) { aL = blend(aL, [-0.6, 0, 0.5], 0.7); aR = blend(aR, [-0.6, 0, -0.5], 0.7); b.thighL.rotation.x = -0.6; b.shinL.rotation.x = 0.9; b.thighR.rotation.x = -0.1; b.shinR.rotation.x = 0.4; b.footL.rotation.x = 0.2; b.footR.rotation.x = 0.1; }
+    if (this.armOverride) { const o = this.armOverride; const k = o.w ?? 1; if (o.aL) aL = blend(aL, o.aL, k); if (o.aR) aR = blend(aR, o.aR, k); if (o.fL) fL = blend(fL, o.fL, k); if (o.fR) fR = blend(fR, o.fR, k); }
     R('armL', ...aL); R('armR', ...aR); R('foreL', ...fL); R('foreR', ...fR);
-    R('handL', 0, 0, 0); R('handR', 0, 0, 0);
-    if (A === 'ride' && aw > 0) { b.thighL.rotation.set(-1.2, 0, -0.25); b.thighR.rotation.set(-1.2, 0, 0.25); b.shinL.rotation.x = 1.3; b.shinR.rotation.x = 1.3; b.hips.position.y = this.ch.hipY - 0.15; }
+    R('handL', 0.12 + run * 0.1, 0, 0.05); R('handR', 0.12 + run * 0.1, 0, -0.05);
+    if (this.handOverride) { const o = this.handOverride; if (o.L) b.handL.rotation.set(...o.L); if (o.R) b.handR.rotation.set(...o.R); }
+    if (A_ === 'ride' && aw > 0) { b.thighL.rotation.set(-1.2, 0, -0.25); b.thighR.rotation.set(-1.2, 0, 0.25); b.shinL.rotation.x = 1.3; b.shinR.rotation.x = 1.3; b.footL.rotation.x = 0; b.footR.rotation.x = 0; b.hips.position.y = this.ch.hipY - 0.15; b.hips.position.x = 0; b.hips.rotation.set(0, 0, 0); }
+    if (this.ch.face) this.ch.face.update(dt);
   }
 }

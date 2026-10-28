@@ -16,5 +16,12 @@ const params = new URLSearchParams(location.search); const mode = params.get('a'
 const acts = { idle: [0, null], walk: [1.4, null], run: [5, null], talk: [0, 'talk'], sit: [0, 'sit'], dance: [0, 'dance'] };
 let t = 0; for (let k = 0; k < 40; k++) { chars.forEach((c, i) => { c.anim.set(acts[mode][1]); c.anim.update(0.033, acts[mode][0]); }); }
 if (params.get('side')) chars.forEach((c) => (c.root.rotation.y = Math.PI / 2));
+// ?strip=<hero|index>&sp=1.4 : one character drawn at 10 consecutive moments of its gait (side view) to check stride / contact
+if (params.get('strip')) { chars.forEach((c) => (c.root.visible = false)); const spd = +(params.get('sp') || 1.4); const who = list[+params.get('strip')] || HEROES.kavindu; const n = 10;
+  for (let i = 0; i < n; i++) { const c = new Character(who); c.root.rotation.y = Math.PI / 2; c.root.position.set(-4.5 + i * 1.0, 0, 0); s.add(c.root); c.anim.cyc = 0; for (let k = 0; k < 60; k++) c.anim.update(1 / 60, spd); c.anim.cyc = i / n; c.anim.update(1e-4, spd); }
+  const g = new THREE.GridHelper(12, 48, 0x333333, 0x666666); s.add(g); }
+// ?faces=1 : close-up row of heads showing every expression frame
+if (params.get('faces')) { const { FACE_FRAMES } = await import('/src/gfx/Textures.js'); chars.forEach((c, i) => { c.root.visible = i < FACE_FRAMES.length; c.root.position.set((i - 4.5) * 0.3, 0, 0); c.face.show(i % FACE_FRAMES.length); c.face.update = () => {}; });
+  cam.fov = 9; cam.position.set(0, 1.62, 9); cam.lookAt(0, 1.6, 0); cam.updateProjectionMatrix(); }
 r.render(s, cam); window.done = true;
 </script></body></html>
