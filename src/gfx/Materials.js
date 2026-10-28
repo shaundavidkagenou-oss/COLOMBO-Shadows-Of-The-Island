@@ -1,6 +1,7 @@
 // Shared materials. Time of day (night factor) and rain (wetness) drive emissive and roughness.
 import * as THREE from 'three';
 import { TEX } from './Textures.js';
+import { applyInteriorMapping, INTERIOR } from './InteriorMapping.js';
 export const MAT = {};
 const facadeKeys = ['colonial', 'brick', 'glass', 'glass2', 'office', 'hotel', 'shop', 'shop2', 'apartment', 'villa', 'warehouse'];
 const wetTargets = [];
@@ -19,7 +20,8 @@ export function buildMaterials() {
   MAT.marking = std({ color: 0xf2f2ea, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, vertexColors: true });
   for (const k of facadeKeys) {
     const f = TEX['f_' + k];
-    MAT['f_' + k] = std({ map: f.map, emissiveMap: f.emissive, emissive: 0xffffff, emissiveIntensity: 0, roughnessMap: f.rm, metalnessMap: f.rm, roughness: 1, metalness: k.startsWith('glass') ? 1 : 1, vertexColors: true, envMapIntensity: k.startsWith('glass') ? 1.4 : 0.8 });
+    MAT['f_' + k] = std({ map: f.map, emissiveMap: f.emissive, emissive: 0xffffff, emissiveIntensity: 0, roughnessMap: f.rm, metalnessMap: f.rm, roughness: 1, metalness: k.startsWith('glass') ? 1 : 1, vertexColors: true, envMapIntensity: k.startsWith('glass') ? 1.0 : 0.8 });
+    applyInteriorMapping(MAT['f_' + k]); // windows show parallax rooms with depth
   }
   MAT.shops = std({ map: TEX.shops.map, emissiveMap: TEX.shops.emissive, emissive: 0xffffff, emissiveIntensity: 0.15, roughness: 0.8 });
   MAT.signs = std({ map: TEX.signs.map, emissiveMap: TEX.signs.emissive, emissive: 0xffffff, emissiveIntensity: 0.05, roughness: 0.6, side: THREE.DoubleSide });
@@ -46,6 +48,7 @@ const _dry = new THREE.Color(1, 1, 1), _wet = new THREE.Color(0.62, 0.62, 0.64);
 export function updateMaterials(night, wet, t) {
   const n = night;
   for (const k of facadeKeys) MAT['f_' + k].emissiveIntensity = n * 1.25;
+  INTERIOR.uIntDay.value = (1 - n) * 0.24; INTERIOR.uIntNight.value = n * 0.8;
   MAT.shops.emissiveIntensity = 0.12 + n * 0.75;
   MAT.signs.emissiveIntensity = 0.04 + n * 1.3;
   MAT.lampHead.emissiveIntensity = n * 3.0;
