@@ -1,0 +1,24 @@
+{
+  "name": "colombo-shadows-of-the-island",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "COLOMBO: Shadows of the Island — an open-world action-adventure by Shaun David Studios",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "test:smoke": "node tools/smoke-test.mjs"
+  },
+  "dependencies": {
+    "@fontsource/barlow-condensed": "^5.3.0",
+    "@fontsource/cormorant-garamond": "^5.3.0",
+    "@fontsource/manrope": "^5.3.0",
+    "@fontsource/noto-sans-sinhala": "5.3.0",
+    "@fontsource/noto-sans-tamil": "5.3.0",
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "vite": "8.3.5"
+  }
+}

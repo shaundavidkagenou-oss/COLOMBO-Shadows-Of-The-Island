@@ -1,0 +1,20 @@
+<!doctype html><html><body style="margin:0;background:#888"><canvas id="c"></canvas>
+<script type="module">
+import * as THREE from 'three';
+import { buildTextures } from '/src/gfx/Textures.js';
+import { Character, randomSpec, HEROES } from '/src/actors/Character.js';
+await buildTextures('medium');
+const params0 = new URLSearchParams(location.search);
+const r = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true }); r.setSize(1400, 700); r.toneMapping = THREE.ACESFilmicToneMapping;
+const s = new THREE.Scene(); s.background = new THREE.Color(0x9fb4c8);
+s.add(new THREE.HemisphereLight(0xdde8ff, 0x665544, 1.4)); const d = new THREE.DirectionalLight(0xfff0dd, 2.5); d.position.set(3, 6, 5); s.add(d);
+const cam = new THREE.PerspectiveCamera(30, 2, 0.1, 100); cam.position.set(0, 1.4, 11); cam.lookAt(0, 1.0, 0); if (params0.get('close')) { cam.fov = 12; cam.position.set(-3.1, 1.6, 6); cam.lookAt(-3.1, 1.35, 0); cam.updateProjectionMatrix(); }
+const list = [HEROES.kavindu, HEROES.ruwan, HEROES.fathima, HEROES.selvaraj, HEROES.anjali];
+for (let i = 0; i < 9; i++) list.push(randomSpec(100 + i * 7));
+const chars = list.map((sp, i) => { const c = new Character(sp); c.root.position.set((i - (list.length - 1) / 2) * 0.75, 0, 0); s.add(c.root); return c; });
+const params = new URLSearchParams(location.search); const mode = params.get('a') || 'idle';
+const acts = { idle: [0, null], walk: [1.4, null], run: [5, null], talk: [0, 'talk'], sit: [0, 'sit'], dance: [0, 'dance'] };
+let t = 0; for (let k = 0; k < 40; k++) { chars.forEach((c, i) => { c.anim.set(acts[mode][1]); c.anim.update(0.033, acts[mode][0]); }); }
+if (params.get('side')) chars.forEach((c) => (c.root.rotation.y = Math.PI / 2));
+r.render(s, cam); window.done = true;
+</script></body></html>
