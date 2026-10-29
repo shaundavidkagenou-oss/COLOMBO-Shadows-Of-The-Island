@@ -149,6 +149,7 @@ export class Traffic {
     }
   }
   update(dt, focus, camDir, simTime, pedsNear, player) {
+    this.fN = (this.fN | 0) + 1;
     this.simTime = simTime; this.player = player;
     // spawn / despawn
     for (let i = this.vehicles.length - 1; i >= 0; i--) { const v = this.vehicles[i]; const d = Math.hypot(v.x - focus.x, v.z - focus.z); if (d > 330 && !v.keep) { this.remove(v); this.vehicles.splice(i, 1); } }
@@ -181,18 +182,26 @@ export class Traffic {
       for (const e of this.emergency) { if (e === v) continue; const rx = v.x - e.x, rz = v.z - e.z; const efx = Math.sin(e.yaw), efz = Math.cos(e.yaw); const al = rx * efx + rz * efz; if (al > 0 && al < 38 && Math.abs(rx * efz - rz * efx) < 2.6 && efx * fx + efz * fz > 0.5) { ai.yieldT = 2.5; break; } }
     }
     if (ai.yieldT > 0) { ai.yieldT -= dt; latWant = 0.9; }
+    // kerb-parked cars stick into narrow lanes: pull out toward the centre line to pass them when the oncoming side is clear, otherwise wait behind
+    if (!em && !(ai.yieldT > 0)) { let need = 0, pk = null; const w2 = v.T.wid / 2;
+      for (const o of this.parked) { if (o.dead) continue; const rx = o.x - v.x, rz = o.z - v.z; if (Math.abs(rx) > 30 || Math.abs(rz) > 30) continue; const al = rx * fx + rz * fz; if (al < -(v.half + o.half) || al > 26) continue;
+        const lt0 = rx * fz - rz * fx + ai.lat; if (lt0 <= 0 || lt0 > 4.5) continue; const n = w2 + o.T.wid / 2 + 0.35 - lt0; if (n > need) { need = n; pk = o; } }
+      if (pk) { let blocked = need > 2.6; if (!blocked) for (const o of all) { if (o === v) continue; const rx = o.x - v.x, rz = o.z - v.z; const al = rx * fx + rz * fz; if (al < -5 || al > 32) continue; const lo = rx * fz - rz * fx + ai.lat; if (lo < 0 && lo > -need - w2 - o.T.wid / 2 - 0.3 && (Math.sin(o.yaw) * fx + Math.cos(o.yaw) * fz) < 0.3) { blocked = true; break; } }
+        if (blocked && Math.abs(ai.lat) < need * 0.6) consider(pk.x, pk.z, 0, pk.half, 4.5); else latWant = Math.min(latWant, -need); }
+    }
     ai.lat += clamp(latWant - ai.lat, -2.2 * dt, 2.2 * dt);
     // --- footprint conflicts (junctions, turning across another lane): predict both bodies 0.4–1.2 s ahead; if they would touch,
     // give way to whoever is already in the way, comes from the right (left-hand traffic), or is the emergency unit. A short timeout
     // prevents four-way deadlocks (the yielder creeps on and the others' own checks then hold them).
-    if (!em && !this.noConflict) { let conf = Infinity; const myS = Math.max(v.speed, 2.5);
-      for (const o of all) { if (o === v || o.isTrain || o.parked || o.dead) continue; const rx = o.x - v.x, rz = o.z - v.z; if (Math.abs(rx) > 16 || Math.abs(rz) > 16) continue;
+    if (!em && !this.noConflict) { let conf = Infinity; const myS = Math.max(v.speed, 2.5); const fresh = ((this.fN | 0) + v.id) % 2 === 0; if (!fresh) conf = ai.conf ?? Infinity; /* recomputed on alternate frames */
+      if (fresh) for (const o of all) { if (o === v || o.isTrain || o.parked || o.dead) continue; const rx = o.x - v.x, rz = o.z - v.z; if (Math.abs(rx) > 16 || Math.abs(rz) > 16) continue;
         const along = rx * fx + rz * fz; if (along < 0) continue; const ofx = Math.sin(o.yaw), ofz = Math.cos(o.yaw); if (ofx * fx + ofz * fz > 0.85 && Math.abs(rx * fz - rz * fx) < 1.7) continue; // same lane: the leader gap handles it
         for (const t of [0.4, 0.8, 1.2]) { const os = o.speed * t, ms = myS * t;
           if (obbHit(v.x + fx * ms, v.z + fz * ms, v.yaw, v.T.wid / 2 + 0.25, v.half + 0.3, o.x + ofx * os, o.z + ofz * os, o.yaw, o.T.wid / 2 + 0.25, o.half + 0.3)) {
             const right = (rx * fz - rz * fx) < 0; /* oncoming traffic: only the vehicle turning across it gives way */ const oEm = o.ai && o.ai.emergency && o.beaconsOn; const inWay = obbHit(v.x + fx * 1.5, v.z + fz * 1.5, v.yaw, v.T.wid / 2, v.half, o.x, o.z, o.yaw, o.T.wid / 2, o.half);
             if (inWay || oEm || o === playerV || (right && (ofx * fx + ofz * fz > -0.5 || p.type === 'curve')) || (!o.ai && o.speed < 0.5)) conf = Math.min(conf, Math.max(0.3, along - v.half - o.half));
             break; } } }
+      if (fresh) ai.conf = conf;
       if (conf < Infinity) { ai.confT = (ai.confT || 0) + dt; if (ai.confT < 4) { if (conf < gap) { gap = conf; leadV = 0; } } else if (ai.confT > 5.5) ai.confT = 0; } else ai.confT = 0;
     }
     if (playerV) consider(playerV.x, playerV.z, Math.max(0, playerV.speed * (Math.sin(playerV.yaw) * fx + Math.cos(playerV.yaw) * fz)), playerV.half, 1.9);
