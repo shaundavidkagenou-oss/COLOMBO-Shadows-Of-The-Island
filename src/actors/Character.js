@@ -8,9 +8,9 @@ import { RNG } from '../core/rng.js';
 import { makeAppearance, FACE_VARIANTS } from './Appearance.js';
 import { lerp, clamp, damp } from '../core/math.js';
 
-export const BONES = ['hips', 'spine', 'chest', 'neck', 'head', 'shL', 'armL', 'foreL', 'handL', 'shR', 'armR', 'foreR', 'handR', 'thighL', 'shinL', 'footL', 'thighR', 'shinR', 'footR', 'skirtF', 'skirtB'];
+export const BONES = ['hips', 'spine', 'chest', 'neck', 'head', 'shL', 'armL', 'foreL', 'handL', 'shR', 'armR', 'foreR', 'handR', 'thighL', 'shinL', 'footL', 'thighR', 'shinR', 'footR', 'skirtF', 'skirtB', 'skirtF2', 'skirtB2'];
 const B = Object.fromEntries(BONES.map((n, i) => [n, i]));
-const PARENT = { hips: null, spine: 'hips', chest: 'spine', neck: 'chest', head: 'neck', shL: 'chest', armL: 'shL', foreL: 'armL', handL: 'foreL', shR: 'chest', armR: 'shR', foreR: 'armR', handR: 'foreR', thighL: 'hips', shinL: 'thighL', footL: 'shinL', thighR: 'hips', shinR: 'thighR', footR: 'shinR', skirtF: 'hips', skirtB: 'hips' };
+const PARENT = { hips: null, spine: 'hips', chest: 'spine', neck: 'chest', head: 'neck', shL: 'chest', armL: 'shL', foreL: 'armL', handL: 'foreL', shR: 'chest', armR: 'shR', foreR: 'armR', handR: 'foreR', thighL: 'hips', shinL: 'thighL', footL: 'shinL', thighR: 'hips', shinR: 'thighR', footR: 'shinR', skirtF: 'hips', skirtB: 'hips', skirtF2: 'skirtF', skirtB2: 'skirtB' };
 
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 const smooth01 = (x) => { const t = clamp(x, 0, 1); return t * t * (3 - 2 * t); };
@@ -105,7 +105,10 @@ function joints(sp) {
     thighL: [0.095 * s * wide, 0.93 * s, 0], shinL: [0.1 * s * wide, 0.5 * s, 0.005 * s], footL: [0.1 * s * wide, 0.085 * s, -0.01 * s],
   };
   for (const k of ['shL', 'armL', 'foreL', 'handL', 'thighL', 'shinL', 'footL']) { const r = k.replace('L', 'R'); j[r] = [-j[k][0], j[k][1], j[k][2]]; }
-  j.skirtF = [0, 0.93 * s, 0]; j.skirtB = [0, 0.93 * s, 0]; // garment hinges at hip-joint height (see Animator.driveSkirt)
+  // garment hinges at hip-joint height ON the front / back cloth surface (a panel hangs from the waistband, so rotating it
+  // swings the cloth forward / back instead of levering it up around the body axis) — see Animator.driveSkirt
+  j.skirtF = [0, 0.93 * s, 0.12 * wide]; j.skirtB = [0, 0.93 * s, -0.12 * wide];
+  j.skirtF2 = [0, 0.5 * s, 0.15 * wide]; j.skirtB2 = [0, 0.5 * s, -0.15 * wide]; // knee-line hinges: the lower panels bend to follow the shins
   return j;
 }
 
@@ -141,6 +144,7 @@ export function buildBodyGeometry(sp) {
     colFn: jacket ? (ri, a, r) => { const fr = Math.sin(a); return ri >= 2 && ri <= 6 && fr > 0.93 ? C(sp.inner || '#6b6f72') : r.col; } : sp.tie ? (ri, a, r) => (ri >= 3 && ri <= 6 && Math.sin(a) > 0.97 ? C(sp.tie) : r.col) : null,
   });
   // --- legs
+  const parts = { legs: [], skirt: null, skirtSeg: 18 }; // vertex ranges (used by tools/clothing-test.mjs)
   for (const side of ['L', 'R']) {
     const th = J['thigh' + side], sh = J['shin' + side], ft = J['foot' + side]; const sx = Math.sign(th[0]);
     const shorts = sp.shorts; const legCol = (y) => (shorts && y < 0.62 * s ? skin : skirtLen === 'ankle' && y < 0.2 ? skin : bottom);
@@ -154,7 +158,7 @@ export function buildBodyGeometry(sp) {
       { c: [ft[0], 0.14 * s, -0.01], rx: 0.037, rz: 0.04, w: W1('shin' + side) },
       { c: [ft[0], 0.09 * s, -0.01], rx: 0.035, rz: 0.038, w: W2('shin' + side, 'foot' + side, 0.6) },
     ];
-    sb.loft(lr.map((r) => ({ ...r, col: legCol(r.c[1]) })), 10);
+    const l0 = sb.n; sb.loft(lr.map((r) => ({ ...r, col: legCol(r.c[1]) })), 10); parts.legs.push([l0, sb.n]);
     // shoe / sandal
     const sandal = sp.sandals; const fc = sandal ? skin : shoe;
     sb.ellipsoid([ft[0], 0.05 * s, 0.045], 0.044, 0.042, 0.118, W1('foot' + side), fc, { lat: 7, lon: 12, bumpFn: (x, y, z) => (y < -0.2 ? 0.98 : 1) * (z > 0.6 ? 0.97 : 1) });
@@ -165,23 +169,28 @@ export function buildBodyGeometry(sp) {
   // --- skirt / sarong / saree / frock (cone from waist to hem, weighted mostly to hips)
   if (skirtLen) {
     const hemY = skirtLen === 'ankle' ? 0.1 : skirtLen === 'mid' ? 0.32 : 0.48; const topY = o === 'saree' ? 0.93 : o === 'salwar' || o === 'kurti' || o === 'abaya' ? 1.2 : o === 'kurta' ? 1.02 : 0.97;
-    const region = sp.pattern ?? 0; const N = 7; const rings = [];
+    const region = sp.pattern ?? 0; const N = Math.max(7, Math.ceil((topY - hemY) / 0.07) + 1); const rings = []; // ~7 cm ring spacing so the hip-hinge zone is resolved on long tunics too
     for (let i = 0; i < N; i++) {
-      const t = i / (N - 1), y = lerp(topY, hemY, t) * s; const flare = o === 'sarong' ? 0.02 : o === 'frock' ? 0.09 : o === 'skirt_top' ? 0.07 : o === 'abaya' ? 0.04 : 0.05;
-      const rx = lerp(0.17 * w, 0.17 * w + flare + (skirtLen === 'ankle' ? 0.02 : 0), Math.pow(t, 0.8)), rz = lerp(0.12 * w, 0.13 * w + flare * 0.8, t);
+      const t = i / (N - 1), y = lerp(topY, hemY, t) * s; const flare = o === 'sarong' ? 0.045 : o === 'frock' ? 0.09 : o === 'skirt_top' ? 0.07 : o === 'abaya' ? 0.065 : 0.05; // a sarong is a ~2 m cloth tube folded at the waist: loose at the hem
+      const ease = Math.sin(clamp((0.97 * s - y) / (0.3 * s), 0, 1) * Math.PI / 2); // cloth stands off the hips/thighs (real garments are not skin-tight there)
+      const rx = lerp(0.17 * w, 0.17 * w + flare + (skirtLen === 'ankle' ? 0.02 : 0), Math.pow(t, 0.8)) + 0.012 * w * ease, rz = lerp(0.12 * w, 0.13 * w + flare * 0.8, t) + 0.03 * w * ease;
       // per-vertex skinning: each side of the garment follows the leg under it (stronger toward the hem), so a striding knee
       // pushes the cloth forward instead of poking through it; below the knee, long garments also follow the shins.
       // front panel → skirtF (hinged to the most forward part of either leg), back panel → skirtB (most rearward part),
       // sides → the thigh underneath. The animator drives skirtF/B every frame from the leg pose, so a striding knee or a
       // trailing shin always stays inside the cloth instead of poking out through the front or back of the garment.
-      const follow = smooth01((t - 0.06) / 0.6);
+      const follow = t <= 0 ? 0 : smooth01((0.95 * s - y) / (0.1 * s)); // 0 above the garment hinge (hip-joint height), full leg-follow just below it // follows the legs from just below the waistband (thigh swing starts right under the hips)
+      // upper panel (hip → knee line) follows the thighs; below the knee line the lower panel follows the shins
+      const kk = smooth01((0.56 * s - y) / (0.12 * s));
       const wFn = follow <= 0 ? W1('hips') : (ca, sa) => { const sL = smooth01((ca + 0.55) / 1.1); const k = follow; // ca > 0 → character's left (+x), sa > 0 → front
         const fF = smooth01((sa - 0.15) / 0.75), fB = smooth01((-sa - 0.15) / 0.75), side = 1 - fF - fB;
-        const out = [[B.hips, 1 - k]]; if (fF > 1e-4) out.push([B.skirtF, k * fF]); if (fB > 1e-4) out.push([B.skirtB, k * fB]);
-        if (side * sL > 1e-4) out.push([B.thighL, k * side * sL]); if (side * (1 - sL) > 1e-4) out.push([B.thighR, k * side * (1 - sL)]); return out.sort((p, q) => q[1] - p[1]).slice(0, 4); };
+        const out = [[B.hips, 1 - k]]; const add = (bn, x) => { if (x > 1e-4) out.push([bn, x]); };
+        add(B.skirtF, k * fF * (1 - kk)); add(B.skirtF2, k * fF * kk); add(B.skirtB, k * fB * (1 - kk)); add(B.skirtB2, k * fB * kk);
+        add(B.thighL, k * side * sL); add(B.thighR, k * side * (1 - sL));
+        return out.sort((p, q) => q[1] - p[1]).slice(0, 4); };
       rings.push({ c: [0, y, 0.005], rx: rx + (y > 0.9 * s ? 0.005 : 0), rz, w: wFn, col: C(sp.skirtCol || sp.bottom) });
     }
-    sb.loft(rings, 18, { region, uvRep: 2 });
+    const k0 = sb.n; sb.loft(rings, 18, { region, uvRep: 2 }); parts.skirt = [k0, sb.n];
   }
   // --- saree pallu: across the front from right hip over the left shoulder, hanging down the back
   if (o === 'saree' || o === 'salwar') {
@@ -373,7 +382,7 @@ export function buildBodyGeometry(sp) {
     if (sp.pouch) sb.boxPart([rx + 0.01, yb - 0.035, 0.05], 0.03, 0.06, 0.05, W1('hips'), C('#121212')); }
   if (sp.strap) { const sc = C(sp.strap); const ys = [1.45, 1.38, 1.3, 1.22, 1.14, 1.06, 0.99]; // Sam Browne cross strap: right shoulder to left hip, front and back
     for (const sg of [1, -1]) band(ys.map((y, i) => { const tt = i / (ys.length - 1); const x = lerp(-0.1, 0.13, tt) * w; return i === 0 ? [x, y * s, 0.0] : [x, y * s, surfZ(y * s, x, sg) + sg * (sp.vest ? 0.03 : 0.008)]; }), 0.034, sc, torsoW); }
-  return sb.build();
+  const geo = sb.build(); geo.userData.parts = parts; return geo;
 }
 
 // ------------------------------------------------------------------ shared materials
@@ -525,8 +534,8 @@ export function gaitProfile(sp) {
     pelvis: (f ? 1.25 : 1) * r.range(0.8, 1.2),
     stoop: elder ? r.range(0.1, 0.22) : r.range(-0.03, 0.05),
     headDown: r.range(-0.04, 0.07) + (elder ? 0.08 : 0),
-    knee: r.range(0.85, 1.15), swagger: !f && !elder ? r.range(0, young ? 1 : 0.6) : 0,
-    toeOut: r.range(0.03, 0.12) + (elder ? 0.06 : 0), lag: r.range(0.02, 0.07), idleRate: r.range(0.7, 1.4),
+    knee: r.range(0.85, 1.15) * (sp.skirt === 'ankle' ? 0.72 : 1), /* ankle-length saree / sarong / abaya: short, low-heel-lift steps */ swagger: !f && !elder ? r.range(0, young ? 1 : 0.6) : 0,
+    runKnee: sp.skirt === 'ankle' ? 0.6 : 1, /* a wrapped ankle-length garment restricts the running heel kick */ toeOut: r.range(0.03, 0.12) + (elder ? 0.06 : 0), lag: r.range(0.02, 0.07), idleRate: r.range(0.7, 1.4),
   };
   for (const k of ['stride', 'arm', 'bounce', 'sway']) if (G[k]) g[k] *= G[k];
   if (G.stoop) g.stoop += G.stoop, g.headDown += G.stoop * 0.5; if (G.swagger) g.swagger = Math.max(g.swagger, G.swagger);
@@ -583,7 +592,7 @@ export class Animator {
       return { th: -fwd * A, knee, foot, contact: true, u };
     }
     const u = (p - beta) / (1 - beta); const fwd = -Math.cos(u * Math.PI) + run * 0.25 * Math.sin(u * Math.PI);
-    const knee = lerp(0.82, 1.95, run) * g.knee * Math.sin(Math.PI * clamp(u * 1.25, 0, 1)) + (1 - run) * 0.38 * (1 - smooth01(u / 0.2));
+    const knee = lerp(0.82, 1.95 * (g.runKnee || 1), run) * g.knee * Math.sin(Math.PI * clamp(u * 1.25, 0, 1)) + (1 - run) * 0.38 * (1 - smooth01(u / 0.2));
     return { th: -fwd * A, knee, foot: lerp(0.35, -0.12, smooth01(u * 1.3)), contact: false, u };
   }
   update(dt, speed, turnRate = 0) {
@@ -741,10 +750,22 @@ export class Animator {
   // Garment hinges: angle (about the hip x axis, −forward) of each leg's knee and ankle in hip space; skirtF takes the most
   // forward of them, skirtB the most rearward, so the front and back panels of skirts / sarongs / sarees tent over the legs.
   driveSkirt() {
-    const b = this.ch.bones; if (!b.skirtF) return; const A = this.a, Bn = this.b; let fwd = Infinity, back = -Infinity; const sk = this.ch.spec.skirt; const dS = clamp((0.93 - (sk === 'ankle' ? 0.1 : sk === 'mid' ? 0.32 : 0.5)) * this.s - A, 0, Bn); // length of shin inside the garment (shorter hems only need to clear the thighs)
+    const b = this.ch.bones; if (!b.skirtF) return; const A = this.a, Bn = this.b; let fwd = Infinity, back = -Infinity, uF = Infinity, uB = -Infinity; const ank = []; const sk = this.ch.spec.skirt; const dS = clamp((0.93 - (sk === 'ankle' ? 0.1 : sk === 'mid' ? 0.32 : 0.5)) * this.s - A, 0, Bn); // length of shin inside the garment (shorter hems only need to clear the thighs)
     for (const sd of ['L', 'R']) { const th = b['thigh' + sd].rotation.x, kn = b['shin' + sd].rotation.x;
       const kz = -Math.sin(th) * A, ky = -Math.cos(th) * A; const az = kz - Math.sin(th + kn) * dS, ay = ky - Math.cos(th + kn) * dS;
-      const ph = Math.atan2(-az, -ay); fwd = Math.min(fwd, th, ph); back = Math.max(back, th, ph); }
-    b.skirtF.rotation.set(fwd * 1.04, 0, 0); b.skirtB.rotation.set(back * 1.04, 0, 0);
+      const ph = Math.atan2(-az, -ay); fwd = Math.min(fwd, th, ph); back = Math.max(back, th, ph); uF = Math.min(uF, th); uB = Math.max(uB, th);
+      const tp = b['thigh' + sd].position; ank.push([tp.y + ay, tp.z + az]); }
+    // upper panels track the most forward / rearward thigh; the knee-line hinge adds the rest so the lower panels reach the
+    // shins (a swinging heel lifts only the lower back panel instead of levering the whole panel up off the other thigh)
+    b.skirtF.rotation.set(uF * 1.04, 0, 0); b.skirtB.rotation.set(uB * 1.04, 0, 0);
+    if (b.skirtF2) {
+      if (dS > 0.05) { // long garments: aim each lower panel from its (already swung) knee-line hinge at the ankles, plus cloth clearance
+        const h2 = (P1, P2, u) => { const c = Math.cos(u), sn = Math.sin(u); return [P1.y + P2.y * c - P2.z * sn, P1.z + P2.y * sn + P2.z * c]; };
+        const uf = uF * 1.04, ub = uB * 1.04, hf = h2(b.skirtF.position, b.skirtF2.position, uf), hb = h2(b.skirtB.position, b.skirtB2.position, ub); let lf = uf, lb = ub;
+        for (const [y, z] of ank) { let af = Math.atan2(-(z - hf[1]), -(y - hf[0])), ab = Math.atan2(-(z - hb[1]), -(y - hb[0])); if (af > 1.6) af -= 2 * Math.PI; if (ab < -1.6) ab += 2 * Math.PI; // heel above the hinge: keep the angle continuous past ±π
+          lf = Math.min(lf, af - 0.15); lb = Math.max(lb, ab + 0.15); }
+        b.skirtF2.rotation.set(clamp(lf - uf, -1.3, 0), 0, 0); b.skirtB2.rotation.set(clamp(lb - ub, 0, 1.3), 0, 0);
+      } else { b.skirtF2.rotation.set((fwd - uF) * 1.04, 0, 0); b.skirtB2.rotation.set((back - uB) * 1.04, 0, 0); }
+    }
   }
 }
