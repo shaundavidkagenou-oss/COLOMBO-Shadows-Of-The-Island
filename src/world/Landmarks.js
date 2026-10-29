@@ -6,6 +6,7 @@ import { TEX } from '../gfx/Textures.js';
 import { LAND_Y, LAKE, STATIONS, roadAt } from './Layout.js';
 import { RNG } from '../core/rng.js';
 import { buildPoliceHQ } from './PoliceHQ.js';
+import { buildJohnsSchool } from './JohnsSchool.js';
 
 const C = (hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; };
 const M4 = new THREE.Matrix4();
@@ -437,6 +438,7 @@ export function buildLandmarks() {
 
   // ------------------------------------------------------------ SRI LANKA POLICE HEADQUARTERS (Kompannaveediya)
   buildPoliceHQ({ mb, box, coll, label, group, LAND_Y, SANS, SI, TA, columns, anim, C });
+  buildJohnsSchool({ mb, box, coll, label, group, LAND_Y, SANS, SI, TA, EN, hip, anim, C });
 
   // ------------------------------------------------------------ finalize
   const mats = { ...MAT };

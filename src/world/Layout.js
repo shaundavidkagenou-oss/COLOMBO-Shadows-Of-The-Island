@@ -101,6 +101,7 @@ export const ZONES = [
   { id: 'mosque', name: 'Jami Ul-Alfar Mosque', rect: [-5, 31, -891, -864], blockRoads: false, kind: 'landmark' },
   { id: 'clocktower', name: 'Fort Clock Tower', rect: [-392, -378, -924, -906], blockRoads: false, kind: 'landmark' },
   { id: 'lighthouse', name: 'Colombo Lighthouse', rect: [-515, -485, -790, -740], blockRoads: false, kind: 'landmark' },
+  { id: 'johns', name: "Johns Private Girls' School", rect: [248, 340, 328, 388], blockRoads: false, kind: 'landmark' }, // fictional school, Horton Place
   { id: 'containers', name: 'Container Terminal', rect: [-480, 230, -1180, -1000], blockRoads: false, kind: 'port' },
 ];
 export function zoneAt(x, z, pad = 0) {
@@ -426,6 +427,7 @@ export const PLACES = {
   hospital:      { x: 660, z: -160, name: 'National Hospital' },
   police:        { x: -310, z: 45, name: 'Kollupitiya Police Station' },
   policeHQ2:     { x: -10, z: -231.5, name: 'Police Headquarters' },
+  johns:         { x: 271, z: 327.8, name: "Johns Private Girls' School" },
   warehouse:     { x: -120, z: -40, name: 'Union Place warehouse' },
   port:          { x: -100, z: -1060, name: 'Port of Colombo' },
   stlucia:       { x: 360, z: -1070, name: "St. Lucia's Cathedral" },

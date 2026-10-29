@@ -10,7 +10,7 @@ const RY = L.ROAD_Y, LY = L.LAND_Y;
 const WHITE = [0.93, 0.93, 0.9], YELLOW = [0.93, 0.76, 0.12];
 const lotMaterial = (cell) => {
   const zn = L.zoneAt(cell.cx, cell.cz);
-  if (zn) { if (['vmpark', 'museum', 'townhall', 'slpHQ'].includes(zn.id)) return 'lawn'; if (zn.id === 'gangaramaya' || zn.id === 'kovil') return 'sand'; return 'concrete'; }
+  if (zn) { if (['vmpark', 'museum', 'townhall', 'slpHQ', 'johns'].includes(zn.id)) return 'lawn'; if (zn.id === 'gangaramaya' || zn.id === 'kovil') return 'sand'; return 'concrete'; }
   const st = L.DISTRICTS[cell.district].style;
   return { villa: 'lawn', residential: 'laterite', lake: 'lawn', green: 'grass', port: 'concrete' }[st] || 'concrete';
 };

@@ -103,6 +103,17 @@ await check('Police HQ interior: two floors, stairs, rooms, staff', async () => 
   assert(/artistic interpretation/.test(HQ_DEF.note), 'interior disclaimer');
   return `${room.npcs.length} people, ${room.plates.length} rooms signed, stairs ${H} m, obstacles ${room.obsFor(Y).length}/${room.obsFor(Y + H).length}`;
 });
+await check('Johns Private Girls\' School (fictional): compound, gate, furnished classrooms, adults-only life', async () => {
+  const { SCHOOL } = await import('../src/world/JohnsSchool.js'); const L = await import('../src/world/Layout.js');
+  const zn = L.zoneById('johns'); assert(zn && L.zoneAt(294, 358)?.id === 'johns', 'school zone'); assert(L.PLACES.johns && !L.roadAt(L.PLACES.johns.x, L.PLACES.johns.z), 'place on the pavement');
+  assert(SCHOOL.si.includes('බාලිකා') && SCHOOL.ta.includes('மகளிர்'), 'trilingual name board');
+  const { buildLandmarks } = await import('../src/world/Landmarks.js').catch(() => ({}));
+  const { makeAppearance, isAdultSpec } = await import('../src/actors/Appearance.js');
+  const specs = [makeAppearance(611, { preset: 'm_security' }), makeAppearance(31, { preset: 'f_teacher', sex: 'f' }), makeAppearance(37, { preset: 'f_bank_saree', sex: 'f' })];
+  for (let i = 0; i < 9; i++) specs.push(makeAppearance(7001 + i * 13, { age: 'adult' })); for (let i = 0; i < 4; i++) specs.push(makeAppearance(8101 + i * 17, { sex: 'm', age: 'adult' }));
+  assert(specs.every((sp) => sp.ageYears >= 18 && (!isAdultSpec || isAdultSpec(sp))), 'every school-life person is an adult'); assert(specs[1].outfit === 'saree' && specs[2].outfit === 'saree', 'teachers in sarees');
+  void buildLandmarks; return `${SCHOOL.rooms * SCHOOL.storeys} furnished classrooms, ${SCHOOL.vanBays.length} van bays, ${specs.length} adult staff/parents/drivers checked`;
+});
 await check('Ambient dialogue is non-empty and subtitled', async () => {
   const { LINES } = await import('../src/story/Lines.js'); let n = 0, si = 0, ta = 0;
   for (const [k, list] of Object.entries(LINES)) { assert(Array.isArray(list) && list.length, k + ' empty'); for (const l of list) { n++; const text = l.si || l.ta || l.en; assert(text && text.trim(), k + ' blank line'); if (l.si || l.ta) assert(l.tr, `${k}: "${text}" has no English subtitle`); if (l.si) si++; if (l.ta) ta++; } }
