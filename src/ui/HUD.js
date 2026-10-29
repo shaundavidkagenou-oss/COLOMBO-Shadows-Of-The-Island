@@ -104,26 +104,28 @@ export class HUD {
   setupBigMap() {
     const V = this.mapView; let drag = null, moved = 0; this.mapView.districtLabels = this.districtLabels;
     const open = () => !this.bigMap.classList.contains('hidden');
-    this.bigC.addEventListener('mousedown', (e) => { if (e.button === 0) { drag = [e.clientX, e.clientY]; moved = 0; } });
-    addEventListener('mouseup', () => (drag = null));
+    let lastMv = 0;
+    this.bigC.addEventListener('mousedown', (e) => { if (e.button === 0) { drag = [e.clientX, e.clientY]; moved = 0; V.dragging = true; V.vel = [0, 0]; V.anchor = null; lastMv = performance.now(); this.bigC.style.cursor = 'grabbing'; } });
+    addEventListener('mouseup', () => { if (drag) { if (performance.now() - lastMv > 90) V.vel = [0, 0]; } drag = null; V.dragging = false; this.bigC.style.cursor = ''; });
     addEventListener('mousemove', (e) => {
       if (!open()) return;
-      if (drag) { V.cx -= (e.clientX - drag[0]) / V.zoom; V.cz -= (e.clientY - drag[1]) / V.zoom; moved += Math.abs(e.clientX - drag[0]) + Math.abs(e.clientY - drag[1]); drag = [e.clientX, e.clientY]; }
+      if (drag) { const dx = (e.clientX - drag[0]) / V.zoom, dz = (e.clientY - drag[1]) / V.zoom; V.cx -= dx; V.cz -= dz; const now = performance.now(), dtm = Math.max(8, now - lastMv) / 1000; lastMv = now;
+        V.vel = [V.vel[0] * 0.6 + (-dx / dtm) * 0.4, V.vel[1] * 0.6 + (-dz / dtm) * 0.4]; moved += Math.abs(e.clientX - drag[0]) + Math.abs(e.clientY - drag[1]); drag = [e.clientX, e.clientY]; }
       this.mouse = [e.clientX, e.clientY]; this.updateMapHover();
     });
-    this.bigC.addEventListener('wheel', (e) => { const r = this.bigC.getBoundingClientRect(); const mx = e.clientX - r.left, my = e.clientY - r.top; const wx = V.wx(mx), wz = V.wz(my);
-      V.zoom = Math.min(4, Math.max(0.18, V.zoom * (e.deltaY > 0 ? 0.86 : 1.16))); V.cx = wx - (mx - V.W / 2) / V.zoom; V.cz = wz - (my - V.H / 2) / V.zoom; }, { passive: true });
+    this.bigC.addEventListener('wheel', (e) => { const r = this.bigC.getBoundingClientRect(); V.zoomTo(V.tZoom * (e.deltaY > 0 ? 0.8 : 1.25), e.clientX - r.left, e.clientY - r.top); }, { passive: true });
     const setAt = (e) => { const r = this.bigC.getBoundingClientRect(); this.setWaypoint(V.wx(e.clientX - r.left), V.wz(e.clientY - r.top)); };
     this.bigC.addEventListener('contextmenu', (e) => { e.preventDefault(); setAt(e); });
     this.bigC.addEventListener('dblclick', (e) => setAt(e));
     addEventListener('keydown', (e) => {
       if (!open()) return; const step = 60 / V.zoom;
-      if (e.code === 'KeyW' || e.code === 'ArrowUp') V.cz -= step; else if (e.code === 'KeyS' || e.code === 'ArrowDown') V.cz += step;
-      else if (e.code === 'KeyA' || e.code === 'ArrowLeft') V.cx -= step; else if (e.code === 'KeyD' || e.code === 'ArrowRight') V.cx += step;
-      else if (e.code === 'Equal' || e.code === 'NumpadAdd') V.zoom = Math.min(4, V.zoom * 1.25); else if (e.code === 'Minus' || e.code === 'NumpadSubtract') V.zoom = Math.max(0.18, V.zoom / 1.25);
+      if (e.code === 'KeyW' || e.code === 'ArrowUp') V.vel[1] = -step * 4.5; else if (e.code === 'KeyS' || e.code === 'ArrowDown') V.vel[1] = step * 4.5;
+      else if (e.code === 'KeyA' || e.code === 'ArrowLeft') V.vel[0] = -step * 4.5; else if (e.code === 'KeyD' || e.code === 'ArrowRight') V.vel[0] = step * 4.5;
+      else if (e.code === 'Equal' || e.code === 'NumpadAdd') V.zoomTo(V.tZoom * 1.3); else if (e.code === 'Minus' || e.code === 'NumpadSubtract') V.zoomTo(V.tZoom / 1.3);
+      else if (e.code === 'KeyV') this.setMapStyle(V.style === 'satellite' ? 'atlas' : 'satellite');
       else if (e.code === 'Enter' || e.code === 'NumpadEnter') this.setWaypoint(V.cx, V.cz);
       else if (e.code === 'Backspace' || e.code === 'Delete') this.clearWaypoint(true);
-      else if (e.code === 'KeyC' && this.player) { V.cx = this.player[0]; V.cz = this.player[1]; }
+      else if (e.code === 'KeyC' && this.player) { V.anchor = null; V.vel = [(this.player[0] - V.cx) * 4.5, (this.player[1] - V.cz) * 4.5]; } // glide back to the player
       else return; e.preventDefault();
     });
   }
@@ -134,8 +136,12 @@ export class HUD {
       const row = el('label', 'bm-row', this.bmLegend); const cv = el('canvas', '', row); cv.width = cv.height = 26; drawIcon(cv.getContext('2d'), icon, 13, 13, 8);
       const cb = el('input', '', row); cb.type = 'checkbox'; cb.checked = true; cb.addEventListener('change', () => (this.mapView.filters[k] = cb.checked)); el('span', '', row, label);
     }
+    const sw = el('div', 'bm-style', this.bmLegend); this.styleBtns = {};
+    for (const [k, label] of [['satellite', 'Satellite'], ['atlas', 'Atlas']]) { const b = el('button', 'bm-sbtn', sw, label); b.addEventListener('click', () => this.setMapStyle(k)); this.styleBtns[k] = b; }
+    this.setMapStyle(this.mapView.style);
     el('div', 'bm-roads', this.bmLegend, '<i style="background:#efc75e"></i>Main road <i style="background:#e6e1d4"></i>Road <i style="background:#8e8a80"></i>Lane <i class="rail"></i>Railway');
   }
+  setMapStyle(k) { this.mapView.style = k; for (const [n, b] of Object.entries(this.styleBtns || {})) b.classList.toggle('on', n === k); }
   setWaypoint(x, z) {
     this.waypoint = { x, z }; this.addBlip('waypoint', x, z, 'waypoint', 'Waypoint'); this.gps.set(x, z, 'waypoint'); Audio.ui('click');
     const r = this.gps.route || null; this.notify('Waypoint set', L.roadNameAt(x, z) || L.districtAt(x, z)?.name.split(' · ')[0] || '', 'info', 2.5); return r;
@@ -149,13 +155,16 @@ export class HUD {
   }
   toggleBigMap(v, px, pz) {
     const show = v ?? this.bigMap.classList.contains('hidden'); this.bigMap.classList.toggle('hidden', !show);
-    if (show) { this.mapView.cx = px; this.mapView.cz = pz; if (this.mapView.zoom < 0.35) this.mapView.zoom = 0.6; this.player = [px, pz]; const loop = () => { if (this.bigMap.classList.contains('hidden')) return; this.drawBig(); requestAnimationFrame(loop); }; loop(); }
+    if (show) { this.mapView.t = performance.now() / 1000; this.mapView.open(px, pz); this.player = [px, pz]; this.bigMap.classList.remove('opening'); void this.bigMap.offsetWidth; this.bigMap.classList.add('opening');
+      let last = performance.now(); const loop = () => { if (this.bigMap.classList.contains('hidden')) return; const now = performance.now(); const dt = Math.min(0.1, (now - last) / 1000); last = now; this.mapView.t = now / 1000; this.mapView.step(dt);
+        if (this.satellite && this.mapView.style === 'satellite') this.satellite.pump(this.mapView.satReady < 1 ? 22 : 10); this.drawBig(); requestAnimationFrame(loop); }; loop(); }
     return show;
   }
   drawBig() {
     const c = this.bigC; if (c.width !== innerWidth || c.height !== innerHeight) { c.width = innerWidth; c.height = innerHeight; } const g = c.getContext('2d');
-    this.mapView.t = performance.now() / 1000;
+    this.mapView.sat = this.satellite || null;
     this.mapView.draw(g, c.width, c.height, { police: this.police, route: this.gps.route, routeColor: this.gps.target && this.gps.target.kind === 'objective' ? '#ffb020' : '#33d4c0', blips: this.blips, player: this.player ? [this.player[0], this.player[1], this.playerYaw || 0] : null });
+    const sr = this.mapView.satReady ?? 1; if (this.mapView.style === 'satellite' && sr < 1) { const w = 220, x = c.width / 2 - w / 2, y = 74; g.fillStyle = 'rgba(8,10,14,0.75)'; g.fillRect(x - 10, y - 18, w + 20, 34); g.fillStyle = 'rgba(255,255,255,0.15)'; g.fillRect(x, y + 6, w, 3); g.fillStyle = '#e8a33a'; g.fillRect(x, y + 6, w * sr, 3); g.fillStyle = '#e8e4da'; g.font = '600 12px "Barlow Condensed", sans-serif'; g.textAlign = 'center'; g.fillText(`UPDATING SATELLITE IMAGERY ${Math.round(sr * 100)}%`, c.width / 2, y - 2); }
     const t = this.gps.target; if (t && this.player) { const d = this.gps.remaining(this.player[0], this.player[1]); this.bmWay.classList.add('show'); this.bmWay.innerHTML = `<b>${t.kind === 'objective' ? 'OBJECTIVE ROUTE' : 'WAYPOINT'}</b><span>${fmtDist(d)} by road · ~${Math.max(1, Math.round(d / 1000 / 28 * 60))} min drive · ${Math.max(1, Math.round(d / 1000 / 4.8 * 60))} min walk</span><span class="bm-to">${L.roadNameAt(t.x, t.z) || L.districtAt(t.x, t.z)?.name.split(' · ')[0] || ''}</span>`; } else { this.bmWay.classList.remove('show'); this.bmWay.innerHTML = ''; }
     if (this.mouse) this.updateMapHover();
   }

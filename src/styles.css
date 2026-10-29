@@ -330,3 +330,16 @@ select { background: #0e1318; color: var(--paper); border: 1px solid rgba(255, 2
 .enterload.out { opacity: 0; transition: opacity 0.85s ease; }
 @media (max-width: 720px) { .enterload .el-foot { grid-template-columns: 1fr; } .enterload .el-tip { display: none; } }
 @media (prefers-reduced-motion: reduce) { .enterload *, .enterload *::before { animation: none !important; } }
+/* map: style switch + open animation */
+.bm-style { display: flex; gap: 6px; margin: 10px 0 4px; }
+.bm-sbtn { flex: 1; padding: 5px 0; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.18); color: #c9cdd2; font-family: var(--f-hud); font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; border-radius: 2px; transition: background 0.2s, color 0.2s, border-color 0.2s; }
+.bm-sbtn:hover { background: rgba(255, 255, 255, 0.12); }
+.bm-sbtn.on { background: var(--gold); border-color: var(--gold); color: #111; }
+.bigmap.opening canvas { animation: bmOpen 0.42s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.bigmap.opening .bm-legend { animation: bmSlideR 0.5s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.bigmap.opening .bm-title { animation: bmSlideL 0.5s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.bigmap.opening .bigmap-help { animation: bmFade 0.7s ease; }
+@keyframes bmOpen { from { opacity: 0; filter: blur(6px) brightness(1.4); } to { opacity: 1; filter: none; } }
+@keyframes bmSlideR { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: none; } }
+@keyframes bmSlideL { from { opacity: 0; transform: translateX(-40px); } to { opacity: 1; transform: none; } }
+@keyframes bmFade { from { opacity: 0; } to { opacity: 1; } }

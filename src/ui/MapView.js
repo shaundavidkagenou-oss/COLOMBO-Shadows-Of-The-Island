@@ -8,6 +8,7 @@
 //           railway with stations, cased roads by class with street names along them, landmark/shop/mission/police/
 //           collectible icons with a filterable legend, hover read-out (district, street, blip name), scale bar and
 //           compass, smooth zoom at the cursor, keyboard/mouse pan, and waypoint placement with the route drawn on it.
+import { SAT } from './Satellite.js';
 import * as L from '../world/Layout.js';
 import { plan } from '../world/CityPlan.js';
 import { PATH_SEGS, PATH_RINGS, PLAZAS, BEDS, HEDGES } from '../world/Parks.js';
@@ -101,10 +102,48 @@ export const MAP_POI = [
 // ----------------------------------------------------------------------------- map renderer
 const ROAD_FILL = ['#efc75e', '#e6e1d4', '#b9b4a8', '#8e8a80'], ROAD_CASE = ['#4a3a14', '#2a2a28', '#24241f', '#20201c'];
 export class MapView {
-  constructor() { this.cx = 0; this.cz = -300; this.zoom = 0.5; this.filters = { missions: true, services: true, landmarks: true, collect: true, activities: true, transit: true }; this.t = 0; this._icons = []; }
+  constructor() { this.cx = 0; this.cz = -300; this.zoom = 0.5; this.tZoom = 0.5; this.vel = [0, 0]; this.anchor = null; this.style = 'satellite'; this.sat = null; this.hoverB = null; this.lastT = 0; this.openT = -9; this.filters = { missions: true, services: true, landmarks: true, collect: true, activities: true, transit: true }; this.t = 0; this._icons = []; }
   // world → screen
   sx(x) { return (x - this.cx) * this.zoom + this.W / 2; } sy(z) { return (z - this.cz) * this.zoom + this.H / 2; }
   wx(px) { return (px - this.W / 2) / this.zoom + this.cx; } wz(py) { return (py - this.H / 2) / this.zoom + this.cz; }
+  // eased zoom (anchored under the cursor), drag inertia
+  zoomTo(z, mx, my) { this.tZoom = Math.min(4, Math.max(0.18, z)); this.anchor = mx === undefined ? null : { mx, my, wx: this.wx(mx), wz: this.wz(my) }; }
+  open(px, pz) { this.cx = px; this.cz = pz; if (this.tZoom < 0.35) this.tZoom = 0.6; this.zoom = this.tZoom * 2.4; this.anchor = null; this.vel = [0, 0]; this.openT = this.t; }
+  step(dt) {
+    const k = 1 - Math.exp(-dt * 11); const z0 = this.zoom; this.zoom += (this.tZoom - this.zoom) * k; if (Math.abs(this.zoom - this.tZoom) < 1e-4) this.zoom = this.tZoom;
+    if (this.anchor && z0 !== this.zoom) { const a = this.anchor; this.cx = a.wx - (a.mx - this.W / 2) / this.zoom; this.cz = a.wz - (a.my - this.H / 2) / this.zoom; }
+    if (!this.dragging) { this.cx += this.vel[0] * dt; this.cz += this.vel[1] * dt; const f = Math.exp(-dt * 4.5); this.vel[0] *= f; this.vel[1] *= f; if (Math.hypot(...this.vel) < 2) this.vel = [0, 0]; }
+  }
+  // satellite tiles for the view; returns fraction ready
+  drawSatellite(g, x0, x1, z0, z1) {
+    const S = this.sat; if (!S) return 1; S.beginFrame(); const z = this.zoom; let need = 0, have = 0; const now = performance.now();
+    const levels = z > 1.15 ? [0, 1] : [0];
+    for (const l of levels) {
+      const size = SAT.sizes[l]; const i0 = Math.max(0, Math.floor((x0 - SAT.x0) / size)), i1 = Math.min(S.cols(l) - 1, Math.floor((x1 - SAT.x0) / size));
+      const j0 = Math.max(0, Math.floor((z0 - SAT.z0) / size)), j1 = Math.min(S.rows(l) - 1, Math.floor((z1 - SAT.z0) / size));
+      for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+        const tx = SAT.x0 + (i + 0.5) * size, tz = SAT.z0 + (j + 0.5) * size; const t = S.get(l, i, j, Math.hypot(tx - this.cx, tz - this.cz)); need++;
+        if (!t) continue; have++; g.globalAlpha = Math.min(1, (now - t.born) / 380); g.drawImage(t.c, this.sx(t.x0), this.sy(t.z0), size * z + 0.75, size * z + 0.75);
+      }
+    }
+    g.globalAlpha = 1; return need ? have / need : 1;
+  }
+  // moving cloud shadows and sea glints over the imagery (subtle: the map should feel alive, not busy)
+  drawAtmos(g, W, H) {
+    const z = this.zoom, t = this.t;
+    if (!this._cloud) { const c = document.createElement('canvas'); c.width = c.height = 512; const q = c.getContext('2d'); let s = 7; const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+      for (let n = 0; n < 26; n++) { const x = rnd() * 512, y = rnd() * 512, r = 30 + rnd() * 90; for (const [ox, oy] of [[0, 0], [512, 0], [-512, 0], [0, 512], [0, -512]]) { const gr = q.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r); gr.addColorStop(0, 'rgba(0,0,0,0.5)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); q.fillStyle = gr; q.fillRect(x + ox - r, y + oy - r, r * 2, r * 2); } }
+      this._cloud = c;
+      const w = document.createElement('canvas'); w.width = w.height = 256; const wq = w.getContext('2d'); for (let n = 0; n < 140; n++) { const x = rnd() * 256, y = rnd() * 256, l = 3 + rnd() * 9; wq.strokeStyle = `rgba(255,255,255,${0.25 + rnd() * 0.5})`; wq.lineWidth = 1; wq.beginPath(); wq.moveTo(x, y); wq.lineTo(x + l, y + l * 0.15); wq.stroke(); }
+      this._glint = w; }
+    // sea glints: clipped to the ocean west of the coast, drifting with the swell
+    const zs = this.wz(-40), ze = this.wz(H + 40); g.save(); g.beginPath(); g.moveTo(-10, -40); for (let q = zs; q <= ze; q += Math.max(6, 8 / z)) g.lineTo(this.sx(L.coastX(q)) - 6 * z, this.sy(q)); g.lineTo(-10, H + 40); g.closePath(); g.clip();
+    g.globalAlpha = 0.16 + 0.06 * Math.sin(t * 1.3); const S = 256 * Math.max(0.6, Math.min(2, z)); const ox = ((-this.cx * z - t * 9) % S + S) % S, oy = ((-this.cz * z + t * 4) % S + S) % S;
+    for (let x = ox - S; x < W; x += S) for (let y = oy - S; y < H; y += S) g.drawImage(this._glint, x, y, S, S); g.restore();
+    // cloud shadows (world-anchored, drifting north-east with the monsoon wind)
+    const CS = 1400 * z; const cx = (((-this.cx - t * 7) * z) % CS + CS) % CS, cy = (((-this.cz + t * 3) * z) % CS + CS) % CS; g.globalAlpha = 0.22;
+    for (let x = cx - CS; x < W; x += CS) for (let y = cy - CS; y < H; y += CS) g.drawImage(this._cloud, x, y, CS, CS); g.globalAlpha = 1;
+  }
   draw(g, W, H, st) {
     this.W = W; this.H = H; const z = this.zoom; const X = (x) => this.sx(x), Y = (v) => this.sy(v);
     const x0 = this.wx(0) - 20, x1 = this.wx(W) + 20, z0 = this.wz(0) - 20, z1 = this.wz(H) + 20;
@@ -155,6 +194,8 @@ export class MapView {
         if (z > 1.1) { g.strokeStyle = 'rgba(0,0,0,0.45)'; g.lineWidth = 1; g.strokeRect(X(b.x0) + 0.5, Y(b.z0) + 0.5, (b.x1 - b.x0) * z - 1, (b.z1 - b.z0) * z - 1); } }
       g.fillStyle = 'rgba(54,96,48,0.85)'; for (const t of plan.trees) { if (t.x < x0 || t.x > x1 || t.z < z0 || t.z > z1) continue; g.beginPath(); g.arc(X(t.x), Y(t.z), Math.max(1.2, 2.6 * t.s * z), 0, 7); g.fill(); }
     }
+    // satellite imagery over the vector base (the vector map shows through until tiles stream in)
+    if (this.style === 'satellite' && this.sat) { this.satReady = this.drawSatellite(g, x0, x1, z0, z1); this.drawAtmos(g, W, H); g.fillStyle = 'rgba(6,10,16,0.10)'; g.fillRect(0, 0, W, H); } else this.satReady = 1;
     // stations
     for (const stn of L.STATIONS || []) if (this.filters.transit) { this._icons.push({ x: stn.x, z: stn.z, kind: 'station', label: `${stn.name} station` }); }
     // street names
@@ -183,7 +224,9 @@ export class MapView {
     }
     // icons (blips + POI + stations), filtered
     const icons = [...MAP_POI, ...this._icons.splice(0), ...st.blips]; this.hoverables = [];
-    for (const b of icons) { const sty = BLIP_STYLE[b.kind]; if (sty && !this.filters[sty.cat]) continue; const px = X(b.x), py = Y(b.z); if (px < -20 || px > W + 20 || py < -20 || py > H + 20) continue; drawIcon(g, b.kind, px, py, b.kind === 'waypoint' || b.kind === 'objective' ? 10 : 8.5); this.hoverables.push({ px, py, b }); if (b.label && (z > 0.8 || b.kind === 'mission')) { g.font = '600 12px Manrope, sans-serif'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.lineWidth = 3; g.strokeStyle = 'rgba(8,10,12,0.85)'; g.strokeText(b.label, px + 14, py); g.fillStyle = '#f2eee6'; g.fillText(b.label, px + 14, py); } }
+    for (const b of icons) { const sty = BLIP_STYLE[b.kind]; if (sty && !this.filters[sty.cat]) continue; const px = X(b.x), py = Y(b.z); if (px < -20 || px > W + 20 || py < -20 || py > H + 20) continue; const big = b.kind === 'waypoint' || b.kind === 'objective' || b.kind === 'mission'; let bob = 0;
+      if (big) { const ph = (this.t * 0.8 + Math.abs(b.x * 0.013 + b.z * 0.007)) % 1; const col = b.kind === 'objective' ? '255,176,32' : b.kind === 'waypoint' ? '200,120,255' : '255,255,255'; g.strokeStyle = `rgba(${col},${(1 - ph) * 0.85})`; g.lineWidth = 2.5 * (1 - ph) + 0.5; g.beginPath(); g.arc(px, py, 11 + ph * 24, 0, 7); g.stroke(); if (b.kind === 'waypoint') bob = -Math.abs(Math.sin(this.t * 3.2)) * 4; }
+      const hov = this.hoverB === b; drawIcon(g, b.kind, px, py + bob, (big ? 10 : 8.5) * (hov ? 1.3 : 1) * (0.85 + 0.15 * Math.min(1, (this.t - this.openT) / 0.5))); this.hoverables.push({ px, py, b }); if (b.label && (z > 0.8 || b.kind === 'mission')) { g.font = '600 12px Manrope, sans-serif'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.lineWidth = 3; g.strokeStyle = 'rgba(8,10,12,0.85)'; g.strokeText(b.label, px + 14, py); g.fillStyle = '#f2eee6'; g.fillText(b.label, px + 14, py); } }
     // player
     if (st.player) { const [px, pz, yaw] = st.player; g.save(); g.translate(X(px), Y(pz)); g.rotate(yaw); g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.lineWidth = 2; g.beginPath(); g.moveTo(0, -11); g.lineTo(8, 8); g.lineTo(0, 4); g.lineTo(-8, 8); g.closePath(); g.stroke(); g.fill(); g.restore();
       g.strokeStyle = `rgba(255,255,255,${0.5 - (this.t % 1.5) / 3})`; g.lineWidth = 2; g.beginPath(); g.arc(X(px), Y(pz), 12 + (this.t % 1.5) * 14, 0, 7); g.stroke(); }
@@ -193,5 +236,5 @@ export class MapView {
     g.fillStyle = '#f2eee6'; g.font = '600 12px "Barlow Condensed", sans-serif'; g.textAlign = 'left'; g.fillText(m >= 1000 ? `${m / 1000} km` : `${m} m`, bx, by - 12);
     g.save(); g.translate(W - 60, H - 64); g.fillStyle = 'rgba(8,10,14,0.7)'; g.beginPath(); g.arc(0, 0, 24, 0, 7); g.fill(); g.fillStyle = '#e8a33a'; g.beginPath(); g.moveTo(0, -18); g.lineTo(6, 0); g.lineTo(-6, 0); g.fill(); g.fillStyle = '#c9d4dc'; g.beginPath(); g.moveTo(0, 18); g.lineTo(6, 0); g.lineTo(-6, 0); g.fill(); g.fillStyle = '#fff'; g.font = 'bold 11px "Barlow Condensed"'; g.textAlign = 'center'; g.fillText('N', 0, -26 + 2); g.restore();
   }
-  hover(px, py) { let best = null, bd = 16; for (const h of this.hoverables || []) { const d = Math.hypot(h.px - px, h.py - py); if (d < bd) { bd = d; best = h.b; } } return best; }
+  hover(px, py) { let best = null, bd = 16; for (const h of this.hoverables || []) { const d = Math.hypot(h.px - px, h.py - py); if (d < bd) { bd = d; best = h.b; } } this.hoverB = best; return best; }
 }

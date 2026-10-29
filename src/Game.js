@@ -24,6 +24,7 @@ import { Traffic } from './vehicles/Traffic.js';
 import { Trains } from './vehicles/Trains.js';
 import { Audio } from './audio/Audio.js';
 import { HUD } from './ui/HUD.js';
+import { Satellite } from './ui/Satellite.js';
 import { Screens, wait } from './ui/Screens.js';
 import { enterGameLoading } from './ui/LoadingScreen.js';
 import { Director } from './story/Director.js';
@@ -81,7 +82,7 @@ export class Game {
     this.trains = new Trains(this.scene); this.traffic.obstacles = this.trains.bodies; this.traffic.rail = this.trains; // running trains + level crossings
     this.hqLife = new PoliceHQLife(this);
     this.player = new Player(this.scene, this.camera, this.collision, bus); this.player.crowd = this.crowd;
-    this.hud = new HUD(this.ui); this.director = new Director(this); this.story = new Story(this); this.interiors = new Interiors(this); this.weapons = new Weapons(this); this.player.weapons = this.weapons; this.police = new PoliceResponse(this);
+    this.hud = new HUD(this.ui); this.hud.satellite = new Satellite(this); this.director = new Director(this); this.story = new Story(this); this.interiors = new Interiors(this); this.weapons = new Weapons(this); this.player.weapons = this.weapons; this.police = new PoliceResponse(this);
     this.applyDensity();
     progress(0.9, 'Lighting'); await tick();
     this.post = new PostFX(this.renderer, this.scene, this.camera); this.post.build({ bloom: Settings.preset.bloom, ao: Settings.preset.ao });
@@ -263,10 +264,12 @@ export class Game {
     this.fps = lerp(this.fps, 1 / Math.max(raw, 1e-3), 0.05);
     Input.pollGamepad();
     try {
-      if (this.mode === 'play' && !this.paused) this.updatePlay(dt);
+      const mapOpen = this.mode === 'play' && this.hud.bigMapOpen; // the pause map freezes the world (and the hidden 3D view is not drawn)
+      if (mapOpen) { if (Input.wasPressed('map')) this.toggleMap(false); }
+      else if (this.mode === 'play' && !this.paused) this.updatePlay(dt);
       else if (this.mode === 'menu' || this.mode === 'intro') this.updateAmbient(dt);
       CAM.copy(this.camera.position); updateVehicleLOD(this.camera);
-      if (this.post) { if (this.world && this.world.waterRefl) { const q = Settings.get('quality'); this.world.waterRefl.scale = q === 'ultra' ? 0.6 : 0.45; this.world.waterRefl.update(this.renderer, this.scene, this.camera, (q === 'high' || q === 'ultra') && !this.indoor); } this.post.update(this.atmos); this.post.render(dt); }
+      if (this.post && !mapOpen) { if (this.world && this.world.waterRefl) { const q = Settings.get('quality'); this.world.waterRefl.scale = q === 'ultra' ? 0.6 : 0.45; this.world.waterRefl.update(this.renderer, this.scene, this.camera, (q === 'high' || q === 'ultra') && !this.indoor); } this.post.update(this.atmos); this.post.render(dt); }
     } catch (e) { if (!this._errN || this._errN < 5) console.error(e && e.stack || e); this._errN = (this._errN || 0) + 1; this.lastError = e; }
     Input.endFrame();
   }
