@@ -51,12 +51,12 @@ export function heroJoints(sp, J) {
 
 // spring chains: bones in order, tip offset of the last bone (bind, model axes), behaviour
 const CHAINS = [
-  { bones: ['flapL1', 'flapL2'], tip: [0, -0.075, 0.003], front: true, k: 0.16, damp: 0.12, g: 0.55 },
-  { bones: ['flapR1', 'flapR2'], tip: [0, -0.075, 0.003], front: true, k: 0.16, damp: 0.12, g: 0.55 },
-  { bones: ['hemB1'], tip: [0, -0.09, -0.004], back: true, k: 0.22, damp: 0.14, g: 0.5 },
-  { bones: ['strapA1', 'strapA2'], tip: [0, -0.07, 0], front: true, k: 0.06, damp: 0.07, g: 1 },
-  { bones: ['strapB1', 'strapB2'], tip: [0, -0.07, 0], front: true, k: 0.06, damp: 0.07, g: 1 },
-  { bones: ['fob1', 'fob2'], tip: [0.002, -0.04, 0], front: true, k: 0.03, damp: 0.05, g: 1 },
+  { bones: ['flapL1', 'flapL2'], tip: [0, -0.075, 0.003], front: true, k: 0.26, damp: 0.16, g: 0.55, max: 0.32 },
+  { bones: ['flapR1', 'flapR2'], tip: [0, -0.075, 0.003], front: true, k: 0.26, damp: 0.16, g: 0.55, max: 0.32 },
+  { bones: ['hemB1'], tip: [0, -0.09, -0.004], back: true, k: 0.28, damp: 0.16, g: 0.5, max: 0.28 },
+  { bones: ['strapA1', 'strapA2'], tip: [0, -0.07, 0], front: true, k: 0.06, damp: 0.07, g: 1, max: 0.9 },
+  { bones: ['strapB1', 'strapB2'], tip: [0, -0.07, 0], front: true, k: 0.06, damp: 0.07, g: 1, max: 0.9 },
+  { bones: ['fob1', 'fob2'], tip: [0.002, -0.04, 0], front: true, k: 0.03, damp: 0.05, g: 1, max: 1.1 },
 ];
 
 // ------------------------------------------------------------------ hand poses
@@ -140,7 +140,8 @@ export class HeroRig {
         // keep the segment length, then aim the bone at the particle
         const d = p.clone().sub(origin); const L = c.len[i]; if (d.lengthSq() < 1e-10) continue; d.setLength(L); p.copy(origin).add(d);
         const parQ = par.getWorldQuaternion(_q2); const dirLocal = d.applyQuaternion(parQ.invert()).normalize();
-        bn.quaternion.setFromUnitVectors(_v.copy(c.off[i]).normalize(), dirLocal); bn.updateWorldMatrix(false, false);
+        bn.quaternion.setFromUnitVectors(_v.copy(c.off[i]).normalize(), dirLocal); const ang = 2 * Math.acos(Math.min(1, Math.abs(bn.quaternion.w))); if (c.max && ang > c.max) bn.quaternion.slerp(qIdent, 1 - c.max / ang); // swing limit (stiff shirt cotton vs loose straps)
+        bn.updateWorldMatrix(false, false); if (c.max && ang > c.max) p.copy(_v.copy(c.off[i]).applyMatrix4(bn.matrixWorld)); // keep the particle consistent with the clamped bone
       }
       c.init = false;
     }
@@ -236,7 +237,7 @@ export function faceNormals() {
   const vnoise = (x, y) => { const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi; const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf); return lerp(lerp(hash(xi, yi), hash(xi + 1, yi), u), lerp(hash(xi, yi + 1), hash(xi + 1, yi + 1), u), v); };
   const line = (d, w) => Math.exp(-(d * d) / (w * w)); // soft groove profile
   const fold = (u, v, u0, v0, u1, v1, w) => { const dx = u1 - u0, dy = v1 - v0; const t = clamp(((u - u0) * dx + (v - v0) * dy) / (dx * dx + dy * dy), 0, 1); const px = u0 + dx * t, py = v0 + dy * t; return line(Math.hypot(u - px, (v - py) * 0.5), w) * Math.sin(t * Math.PI) ** 0.6; };
-  const base = (u, v) => { let h = (vnoise(u * 900, v * 450) - 0.5) * 0.35 + (vnoise(u * 2200, v * 1100) - 0.5) * 0.2; // pores (two octaves)
+  const base = (u, v) => { let h = (vnoise(u * 170, v * 85) - 0.5) * 0.05 + (vnoise(u * 60, v * 30) - 0.5) * 0.06; // faint skin texture at a frequency the 512px map can resolve (finer 'pores' alias into a crumpled look)
     for (const sx of [-1, 1]) h -= 0.35 * fold(u, v, 0.75 + sx * 0.02, 0.43, 0.75 + sx * 0.042, 0.335, 0.004); // soft nasolabial folds
     return h; };
   const wrink = (u, v) => { let h = 0;
@@ -245,5 +246,5 @@ export function faceNormals() {
       h -= 1.0 * fold(u, v, 0.75 + sx * 0.019, 0.44, 0.75 + sx * 0.046, 0.325, 0.0045); // nasolabial folds deepen
       for (let k = -1; k <= 1; k++) h -= 0.8 * fold(u, v, 0.75 + sx * 0.066, 0.51 + k * 0.012, 0.75 + sx * 0.085, 0.51 + k * 0.028, 0.0022); } // crow's feet
     return h; };
-  FN = { base: make(base, 14), wrinkle: make(wrink, 22) }; return FN;
+  FN = { base: make(base, 6), wrinkle: make(wrink, 22) }; return FN;
 }
