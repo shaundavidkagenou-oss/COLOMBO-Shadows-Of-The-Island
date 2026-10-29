@@ -16,7 +16,7 @@ export class Crowd {
     this.scene = scene; this.collision = collision; this.events = events; this.peds = []; this.rng = new RNG(31337); this.max = 70; this.t = 0;
     this.specs = []; this.poiGrid = new Map(); this.frame = 0;
     for (const p of plan.poi) { const k = this.key(p.x, p.z); let a = this.poiGrid.get(k); if (!a) this.poiGrid.set(k, (a = [])); a.push(p); }
-    this.mainComp = this.largestComponent();
+    this.graphFix = this.repairGraph(); this.mainComp = this.largestComponent();
   }
   key(x, z) { return Math.floor(x / 40) * 1000 + Math.floor(z / 40); }
   // pre-built pool: one person of every adult preset first (so every type appears), then extra seeded variations
@@ -31,6 +31,19 @@ export class Crowd {
       return sp;
     }
     return null;
+  }
+  // The walk graph is laid out from the street plan before props exist: move nodes that ended up inside a tree / kiosk / monument
+  // out to free ground, and drop links that run straight through solid objects (people would otherwise walk into them).
+  repairGraph() {
+    const C = this.collision; if (!C || !C.query) return null; let moved = 0, cut = 0;
+    const solid = (x, z, r, small) => { for (const c of C.query(x - r, z - r, x + r, z + r)) { if (c.kind === 'deck' || c.kind === 'platform' || c.walkUnder) continue; const b = c.y0 || 0; if (b + c.h <= 0.6 || b > 1.9) continue; if (!small && (c.kind === 'tree' || c.kind === 'pole')) continue; if (x > c.x0 - r && x < c.x1 + r && z > c.z0 - r && z < c.z1 + r) return c; } return null; };
+    for (const n of L.pedNodes) { if (!solid(n.x, n.z, 0.3, true)) continue; for (let k = 0; k < 4; k++) { const r = C.resolveCircle(n.x, n.z, 0.45, L.groundY(n.x, n.z), 0.3); n.x = r.x; n.z = r.z; if (!r.hit) break; } moved++; }
+    for (const E of L.pedEdges) {
+      const a = L.pedNodes[E.a], b = L.pedNodes[E.b]; if (E.type === 'cross') continue; const len = Math.hypot(b.x - a.x, b.z - a.z), n = Math.max(2, Math.ceil(len / 0.4)); let hit = false;
+      for (let i = 1; i < n && !hit; i++) { const t = i / n; if (solid(a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t, 0.12, false)) hit = true; }
+      if (hit && a.edges.length > 1 && b.edges.length > 1) { a.edges = a.edges.filter((e) => e !== E.id); b.edges = b.edges.filter((e) => e !== E.id); E.blocked = true; cut++; }
+    }
+    return { moved, cut };
   }
   largestComponent() { // spawn only on the main connected component so peds never get trapped
     const comp = new Int32Array(L.pedNodes.length).fill(-1); let best = -1, bestN = 0, c = 0;
@@ -56,6 +69,7 @@ export class Crowd {
       const sp = this.pickSpec(n.x, n.z); if (!sp) continue;
       const ch = new Character(sp); this.scene.add(ch.root);
       const p = { ch, x: n.x + this.rng.range(-1, 1), z: n.z + this.rng.range(-1, 1), yaw: this.rng.range(-3, 3), speed: 0, state: 'walk', node: n.id, target: null, edge: null, lat: this.rng.range(-0.6, 0.6), pace: this.rng.range(1.15, 1.5) * (sp.age === 'elder' ? 0.75 : 1), timer: 0, act: null, react: 0, mood: 0, talkCd: 0, umbrella: this.rng.chance(0.5), crossing: false, id: this.rng.next(), sp, temper: this.rng.next(), vx: 0, vz: 0, stuckT: 0, stuckN: 0 };
+      if (this.collision.blocked(p.x, p.z, 0.3)) { p.x = n.x; p.z = n.z; } // jitter never puts anyone inside a kiosk / tree / wall
       ch.crowdPed = p; this.pickNext(p); this.peds.push(p); this.place(p); return p;
     }
   }
@@ -294,8 +308,9 @@ export class Crowd {
       const sp = Math.hypot(p.vx, p.vz); const prevYaw = p.yaw;
       if (sp > 0.05) { const turnK = p.state === 'flee' || p.state === 'dodge' ? 9 : 5; if (p.state !== 'down' && p.state !== 'stumble') p.yaw = dampAngle(p.yaw, Math.atan2(p.vx, p.vz), turnK * clamp(sp, 0.4, 1.5), dt); }
       const ox = p.x, oz = p.z; p.x += p.vx * dt; p.z += p.vz * dt;
-      // collision every frame near the camera, every 2nd at mid range, every 4th far
-      if (sp > 0.02 && (lod === 1 || (this.frame + (p.id * 10 | 0)) % (lod === 2 ? 2 : 4) === 0)) { const r = this.collision.resolveCircle(p.x, p.z, 0.28, p.y || 0.15, 0.3); if (r.hit) { const cx = r.x - p.x, cz = r.z - p.z, cl = Math.hypot(cx, cz); if (cl > 1e-4) { const vn = (p.vx * cx + p.vz * cz) / cl; if (vn < 0) { p.vx -= cx / cl * vn; p.vz -= cz / cl * vn; } } } p.x = r.x; p.z = r.z; }
+      // collision every frame near the camera; farther away whenever the person has moved 0.1 m
+      p.mv = (p.mv || 0) + sp * dt; // distance since the last collision pass: far people are resolved every 0.1 m walked, so they can never tunnel into a trunk or wall
+      if (sp > 0.02 && (lod === 1 || p.mv > 0.1)) { p.mv = 0; const r = this.collision.resolveCircle(p.x, p.z, 0.28, p.y || 0.15, 0.3); if (r.hit) { const cx = r.x - p.x, cz = r.z - p.z, cl = Math.hypot(cx, cz); if (cl > 1e-4) { const vn = (p.vx * cx + p.vz * cz) / cl; if (vn < 0) { p.vx -= cx / cl * vn; p.vz -= cz / cl * vn; } } } p.x = r.x; p.z = r.z; }
       if (lod < 3 && p.state !== 'down') { // bodies are solid: never pass through another person
         const q = separate(fixed, p.x, p.z, p.y || 0.15, 0.27, p.ch, 0); if (q.hit) { const r2 = this.collision.resolveCircle(q.x, q.z, 0.28, p.y || 0.15, 0.3); p.x = r2.x; p.z = r2.z; p.vx *= 0.5; p.vz *= 0.5; }
         if (lod === 1 && p.state !== 'idle') { const gi = Math.floor(p.x / 2), gj = Math.floor(p.z / 2); for (let i = gi - 1; i <= gi + 1; i++) for (let j = gj - 1; j <= gj + 1; j++) { const a = grid.get(i * 10000 + j); if (!a) continue; for (const o of a) { if (o === p || o.state === 'down') continue; const dx = p.x - o.x, dz = p.z - o.z, d2 = dx * dx + dz * dz; if (d2 < 0.2916 && d2 > 1e-8) { const d = Math.sqrt(d2), k = (0.54 - d) * 0.5; p.x += dx / d * k; p.z += dz / d * k; if (o.state !== 'idle') { o.x -= dx / d * k; o.z -= dz / d * k; } } } } }

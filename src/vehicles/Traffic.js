@@ -50,6 +50,16 @@ function evalPiece(p, s) {
   return [x, z, Math.atan2(tx, tz)];
 }
 
+// 2D oriented-box overlap (separating axes); hw/hl = half width / half length, yaw 0 faces +z
+function obbHit(ax, az, ay, ahw, ahl, bx, bz, by, bhw, bhl) {
+  const a1 = [Math.sin(ay), Math.cos(ay)], b1 = [Math.sin(by), Math.cos(by)], dx = bx - ax, dz = bz - az;
+  for (const n of [a1, [a1[1], -a1[0]], b1, [b1[1], -b1[0]]]) {
+    const ra = Math.abs(a1[0] * n[0] + a1[1] * n[1]) * ahl + Math.abs(a1[1] * n[0] - a1[0] * n[1]) * ahw;
+    const rb = Math.abs(b1[0] * n[0] + b1[1] * n[1]) * bhl + Math.abs(b1[1] * n[0] - b1[0] * n[1]) * bhw;
+    if (Math.abs(dx * n[0] + dz * n[1]) > ra + rb) return false;
+  }
+  return true;
+}
 export class Traffic {
   constructor(scene, collision, events) {
     this.scene = scene; this.collision = collision; this.events = events; this.vehicles = []; this.parked = []; this.rng = new RNG(777);
@@ -172,6 +182,19 @@ export class Traffic {
     }
     if (ai.yieldT > 0) { ai.yieldT -= dt; latWant = 0.9; }
     ai.lat += clamp(latWant - ai.lat, -2.2 * dt, 2.2 * dt);
+    // --- footprint conflicts (junctions, turning across another lane): predict both bodies 0.4–1.2 s ahead; if they would touch,
+    // give way to whoever is already in the way, comes from the right (left-hand traffic), or is the emergency unit. A short timeout
+    // prevents four-way deadlocks (the yielder creeps on and the others' own checks then hold them).
+    if (!em && !this.noConflict) { let conf = Infinity; const myS = Math.max(v.speed, 2.5);
+      for (const o of all) { if (o === v || o.isTrain || o.parked || o.dead) continue; const rx = o.x - v.x, rz = o.z - v.z; if (Math.abs(rx) > 16 || Math.abs(rz) > 16) continue;
+        const along = rx * fx + rz * fz; if (along < 0) continue; const ofx = Math.sin(o.yaw), ofz = Math.cos(o.yaw); if (ofx * fx + ofz * fz > 0.85 && Math.abs(rx * fz - rz * fx) < 1.7) continue; // same lane: the leader gap handles it
+        for (const t of [0.4, 0.8, 1.2]) { const os = o.speed * t, ms = myS * t;
+          if (obbHit(v.x + fx * ms, v.z + fz * ms, v.yaw, v.T.wid / 2 + 0.25, v.half + 0.3, o.x + ofx * os, o.z + ofz * os, o.yaw, o.T.wid / 2 + 0.25, o.half + 0.3)) {
+            const right = (rx * fz - rz * fx) < 0; /* oncoming traffic: only the vehicle turning across it gives way */ const oEm = o.ai && o.ai.emergency && o.beaconsOn; const inWay = obbHit(v.x + fx * 1.5, v.z + fz * 1.5, v.yaw, v.T.wid / 2, v.half, o.x, o.z, o.yaw, o.T.wid / 2, o.half);
+            if (inWay || oEm || o === playerV || (right && (ofx * fx + ofz * fz > -0.5 || p.type === 'curve')) || (!o.ai && o.speed < 0.5)) conf = Math.min(conf, Math.max(0.3, along - v.half - o.half));
+            break; } } }
+      if (conf < Infinity) { ai.confT = (ai.confT || 0) + dt; if (ai.confT < 4) { if (conf < gap) { gap = conf; leadV = 0; } } else if (ai.confT > 5.5) ai.confT = 0; } else ai.confT = 0;
+    }
     if (playerV) consider(playerV.x, playerV.z, Math.max(0, playerV.speed * (Math.sin(playerV.yaw) * fx + Math.cos(playerV.yaw) * fz)), playerV.half, 1.9);
     else if (player) consider(player.x, player.z, 0, 0.4, 1.9);
     if (peds) for (const q of peds) consider(q.x, q.z, 0, 0.4, q.crossing ? 2.6 : 1.4);
