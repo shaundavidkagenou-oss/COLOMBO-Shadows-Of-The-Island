@@ -374,6 +374,7 @@ export class Story {
     if (this.stampMeshes) this.stampMeshes.forEach((m, i) => { if (!m) return; m.rotation.y += dt * 2; m.position.y = 1.1 + Math.sin(this.g.clock * 2 + i) * 0.1; if (Math.hypot(p.x - m.position.x, p.z - m.position.z) < 1.6) { this.g.scene.remove(m); this.stampMeshes[i] = null; this.state.stamps.push(i); this.hud.removeBlip('stamp' + i); this.hud.notify('Old Ceylon Stamp', `${this.state.stamps.length} / ${STAMPS.length} found`, 'collect', 4); this.pay(250); if (this.state.stamps.length === STAMPS.length) this.pay(10000, 'Complete stamp collection!'); } });
     // prompts for shops and activities (only when not in a mission conversation)
     if (this.side) { this.side.update(dt); return; }
+    if (this.g.phone?.open || this.g.health?.busy) { this.sidePrompt = null; return; } // E confirms inside the phone: never buy/start things behind it
     const S = plan.missionShops; let pr = null;
     if (!pv && S.kade && Math.hypot(p.x - S.kade.x, p.z - S.kade.z) < 3 && this.running !== 'm0') { pr = `${this.hud.key('interact')} Plain tea & rotti (Rs. 150) · ${this.hud.key('more')} Delivery job`; if (Input.wasPressed('interact')) this.buyFood(); if (Input.wasPressed('more')) this.startDelivery(); }
     if (!pv && S.tailor && Math.hypot(p.x - S.tailor.x, p.z - S.tailor.z) < 3) { pr = `${this.hud.key('interact')} New jacket colour (Rs. 2,000)`; if (Input.wasPressed('interact')) this.buyOutfit(); }

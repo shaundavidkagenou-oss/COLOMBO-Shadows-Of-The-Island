@@ -109,7 +109,7 @@ export class Interiors {
     this.doorK = (this.doorK || 0) + Math.sign(want - (this.doorK || 0)) * Math.min(Math.abs(want - (this.doorK || 0)), dt / 0.7);
     const leaves = g.world?.landmarks?.anim?.hqDoors; if (leaves) { const e = (1 - Math.cos(this.doorK * Math.PI)) / 2; for (const lf of leaves) lf.position.x = lf.userData.home + lf.userData.dir * lf.userData.w * 0.95 * e; }
     // hand-over between the world and the room model
-    if (P.indoor === r) { if (P.z < r.front - 0.05 || P.vehicle) P.indoor = null; }
+    if (P.indoor === r) { if (P.z < r.front - 0.05 || P.vehicle || P.z > r.front + r.depth + 1 || P.x < r.bounds.x0 - 1 || P.x > r.bounds.x1 + 1 || P.y < r.y - 1.5) P.indoor = null; } // any exit (door, or a teleport: arrest, hospital) releases the room model
     else if (!P.indoor && !P.vehicle && !this.current && P.z > r.front + 0.3 && P.z < r.front + r.depth && P.x > r.bounds.x0 && P.x < r.bounds.x1 && P.y > r.y - 0.6 && P.y < r.y + 2 * r.H) P.indoor = r;
     // how "inside" the camera is: drives the light blend in Game (eased so stepping through the door is a smooth adaptation)
     const tk = P.indoor === r ? Math.min(1, Math.max(0, (P.z - r.front + 0.3) / 3.5)) : 0; this.seamK = (this.seamK || 0) + (tk - (this.seamK || 0)) * Math.min(1, dt * 2.5);

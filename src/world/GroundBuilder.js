@@ -179,7 +179,7 @@ export function buildGround(progress) {
 // stop zones where traffic queues at junctions, asphalt repair patches, cast-iron manhole covers, kerb-side drain gratings
 // and road studs along the median line of dual carriageways.
 function roadWear(mb, s, dir, a, b, n0, n1) {
-  const len = b - a; if (len < 6) return;
+  const len = b - a; if (len < 6 || s.crossing) return; // level crossings keep their own deck surface
   const T = mb.get('roadTint'), M = mb.get('metal'), P = mb.get('paint'); const r = new RNG(9300 + s.id * 17);
   const cx = s.x0, cz = s.z0; const y = RY + 0.003;
   // rect in road space: t along [t0,t1], lateral [o0,o1]

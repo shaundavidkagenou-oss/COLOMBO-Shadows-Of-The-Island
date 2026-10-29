@@ -305,6 +305,7 @@ export class Game {
   updatePlay(dt, warmOnly = false) {
     this.dt = dt; this.clock += dt; const P = this.player, A = this.atmos, cam = this.camera, D = this.director;
     if (!D.active) A.advance(dt / Settings.get('timeScale'));
+    if (this.phone.open && (D.active || this.health.busy)) this.phone.toggle(false); // cutscene / hospital: put the phone away
     const busy = D.active || this.photo || this.hud.bigMapOpen || this.paused || this.phone.open || this.health.busy;
     // global actions
     if (!D.active && !warmOnly) {

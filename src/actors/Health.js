@@ -48,6 +48,8 @@ export class Health {
     await this.wait(ambulance ? 0.2 : 1.2); await g.hud.fade(1, 0.9);
     if (P.vehicle) { const veh = P.vehicle; veh.speed = 0; veh.mesh.remove(P.ch.root); g.scene.add(P.ch.root); veh.player = false; P.vehicle = null; P.exiting = null; P.entry = null; P.ch.anim.standUp(); g.traffic.release(veh); }
     if (g.police && g.police.level > 0) { for (const u of g.police.units.slice()) g.police.removeUnit(u); g.police.level = 0; g.police.stop = null; g.police.search = null; g.police.incident = null; g.police.lastSeen = null; g.police.setState('patrol'); }
+    if (g.interiors.current) { const room = g.interiors.current; room.g.visible = false; g.interiors.current = null; g.setIndoor(false); } // shop/flat interior: leave it
+    P.indoor = null;
     g.atmos.advance(HOSPITAL.hours * 60);
     const [hx, hz] = S.safeSpot(L.PLACES.hospital.x, L.PLACES.hospital.z); P.teleport(hx, hz, Math.PI); P.ch.anim.set(null); g.world.warm(hx, hz);
     this.hp = 100; P.stamina = 1; this.lastHurt = -99;
