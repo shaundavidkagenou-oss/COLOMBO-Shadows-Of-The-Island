@@ -451,6 +451,6 @@ export function buildLandmarks() {
 
   // ------------------------------------------------------------ finalize
   const mats = { ...MAT };
-  for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) group.add(m);
+  for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) { if (m.name === 'pool' || m.name === 'emissive' || m.name === 'lampHead') { m.castShadow = false; if (m.name === 'pool') m.receiveShadow = false; } group.add(m); }
   return { group, colliders, anim, labels };
 }

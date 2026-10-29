@@ -291,6 +291,20 @@ export function buildDetail(b, multi) {
     for (const t of [0.5 - 1.9 / s.len, 0.5 + 1.9 / s.len]) { const p = along(s, t); conc.cylinder(p[0] + s.n[0] * 2.6, y0, p[1] + s.n[1] * 2.6, 0.16, 0.16, 2.8, 8, { col: paint, caps: false }); }
     conc.box(mid[0] + s.n[0] * 1.4, y0 + 0.1, mid[1] + s.n[1] * 1.4, 4.4, 0.2, 3, { col: [0.75, 0.7, 0.65], rotY: r });
   }
+  // house lights at night (most Colombo homes leave the front light on): a ceiling bulb under the porch, or a bracket lamp
+  // over the front door, with the warm light it throws on the wall and the ground. Night-driven emissive (MAT.lampHead)
+  // and additive light pools (MAT.pool) — the same materials as the street lamps, so they fade in at dusk with them.
+  if (b.style === 'villa' && front.len >= 4 && rng.chance(0.8)) {
+    const s = front, r = rotOf(s), n = s.n, m = along(s, 0.5); const lamp = multi.get('lampHead'), pool = multi.get('pool');
+    const ux = (s.b[0] - s.a[0]) / s.len, uz = (s.b[1] - s.a[1]) / s.len; const flip = (-uz * n[0] + ux * n[1]) < 0; // quad winding so the wash faces outwards
+    const gp = (x, z, y, size) => { const h = size / 2; pool.hrect(x - h, z - h, x + h, z + h, y, size, null, false, [-(x - h) / size, (z + h) / size]); };
+    const wash = (yc, w, h) => { const ox = m[0] + n[0] * 0.035, oz = m[1] + n[1] * 0.035; const A = [ox - ux * w / 2, yc - h / 2, oz - uz * w / 2], B2 = [ox + ux * w / 2, yc - h / 2, oz + uz * w / 2];
+      const C2 = [B2[0], yc + h / 2, B2[2]], D = [A[0], yc + h / 2, A[2]]; if (flip) pool.quad(B2, A, D, C2); else pool.quad(A, B2, C2, D); };
+    if (b.porch) { const px = m[0] + n[0] * 1.4, pz = m[1] + n[1] * 1.4;
+      lamp.box(px, y0 + 2.76, pz, 0.2, 0.07, 0.2, { rotY: r, bottom: true }); gp(px, pz, y0 + 0.215, 3.6); gp(m[0] + n[0] * 3.7, m[1] + n[1] * 3.7, y0 + 0.025, 3.0); wash(y0 + 1.9, 3.6, 2.4); }
+    else { lamp.box(m[0] + n[0] * 0.12, y0 + 2.45, m[1] + n[1] * 0.12, 0.14, 0.2, 0.14, { rotY: r, bottom: true }); multi.get('metal').box(m[0] + n[0] * 0.06, y0 + 2.6, m[1] + n[1] * 0.06, 0.05, 0.05, 0.12, { col: [0.12, 0.12, 0.12], rotY: r });
+      wash(y0 + 2.05, 2.6, 2.6); gp(m[0] + n[0] * 1.3, m[1] + n[1] * 1.3, y0 + 0.025, 3.2); }
+  }
 }
 export function buildWall(w, multi) {
   const c = col(w.col); const conc = multi.get('concrete');

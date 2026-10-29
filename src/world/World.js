@@ -124,7 +124,7 @@ export class World {
   buildDetailFor(c) {
     const ch = plan.byChunk[c.idx]; const mb = new MultiBuilder();
     for (const b of ch.buildings) buildDetail(b, mb);
-    const g = new THREE.Group(); for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) g.add(m);
+    const g = new THREE.Group(); for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) { if (m.name === 'pool' || m.name === 'lampHead') { m.castShadow = false; m.receiveShadow = false; } g.add(m); }
     c.detail = g; c.group.add(g); refreshStatic(c.group);
   }
   // near tier: 3D window joinery + reflective panes (see BuildingGen.buildWindows)

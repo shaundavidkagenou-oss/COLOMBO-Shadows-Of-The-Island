@@ -187,5 +187,24 @@ export function buildJohnsSchool({ mb, box, coll, label, group, LAND_Y, SANS, SI
     label([{ text: 'CANTEEN', font: SANS(120), color: '#ffffff' }], cx, y0 + 2.45, kz0 + 0.33, 2.4, 0.4, Math.PI, { w: 640, h: 110, bg: MAROON, glow: false }); coll(kx0, kx1, kz0 + 0.2, kz1, y0 + 2.8); }
   for (const [x0, x1] of [[271, 303.6], [308.4, 313.6], [324.4, 336]]) { hedge.box((x0 + x1) / 2, y0 + 0.45, 341.6, x1 - x0, 0.9, 0.7, { col: C('#3f7d3a') }); coll(x0, x1, 341.25, 341.95, y0 + 0.9); }
   for (const [x, z] of [[283, 345], [297, 345], [283, 365.5], [297, 365.5]]) { box(soil, x, y0 + 0.1, z, 2.4, 0.2, 1.0, '#5a3d2a'); for (let k = 0; k < 3; k++) leaves.box(x - 0.8 + k * 0.8, y0 + 0.4, z, 0.55, 0.45, 0.55, { col: C(['#c0392b', '#f1c40f', '#e67e22'][k]) }); }
+  // ------------------------------------------------------------ night lighting
+  // Corridor tube lights over the classroom doors (every bay on the ground floor, every other bay upstairs — what a
+  // school leaves on overnight), lanterns on the gate pillars, a bulb over the security hut door and its lit window.
+  // Fittings: 'emissive' tubes (white by day, bright at night) and 'lampHead' lanterns/bulbs (dark by day, glow at night);
+  // the light they throw: additive night-only pools on floors and washes on walls (MAT.pool, as the street lamps).
+  { const pool = mb.get('pool'), tube = mb.get('emissive'), lampH = mb.get('lampHead');
+    const gp = (x, z, y, size) => { const h = size / 2; pool.hrect(x - h, z - h, x + h, z + h, y, size, null, false, [-(x - h) / size, (z + h) / size]); };
+    const washZ = (x, z, yc, w, h, facing) => { const A = [x - w / 2, yc - h / 2, z], B2 = [x + w / 2, yc - h / 2, z], C2 = [x + w / 2, yc + h / 2, z], D = [x - w / 2, yc + h / 2, z]; if (facing < 0) pool.quad(B2, A, D, C2); else pool.quad(A, B2, C2, D); };
+    for (let f = 0; f < S.storeys; f++) for (let k = 0; k <= NR; k++) { if (f > 0 && k % 2) continue; const x = mx0 + k * RW + RW / 2 - (k === NR ? 0.8 : 0); const yb = yF(f);
+      tube.box(x, yb + 2.62, zc - 0.06, 1.22, 0.05, 0.05, { col: [1, 0.98, 0.94] }); metal.box(x, yb + 2.62, zc - 0.025, 1.3, 0.07, 0.03, { col: C('#d8d8d4') });
+      gp(x, mz0 + 1.25, yb + (f ? 0.012 : 0.31), 3.4); washZ(x, zc - 0.02, yb + 1.9, 3.2, 2.0, -1); }
+    for (const px of [G.x0 - 0.35, G.x1 + 0.35]) { // bracket lanterns on the street face of the gate pillars (below the name arch)
+      const lz = wz0 - 0.35 - 0.2; lampH.box(px, y0 + 3.2, lz, 0.22, 0.32, 0.22, { bottom: true }); for (const [ex, ez] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) metal.box(px + ex * 0.12, y0 + 3.2, lz + ez * 0.12, 0.03, 0.36, 0.03, { col: C(IRON) });
+      metal.box(px, y0 + 3.4, lz, 0.32, 0.05, 0.32, { col: C(IRON) }); metal.box(px, y0 + 3.48, wz0 - 0.35 - 0.1, 0.05, 0.05, 0.22, { col: C(IRON) });
+      gp(px, wz0 - 2.4, y0 + 0.03, 6.0); }
+    for (const px of [G.x0 - 0.35, G.x1 + 0.35]) gp(px, wz0 + 2.4, y0 + 0.03, 4.0); // drive side, from the hut and corridor spill
+    const [hx0, hx1, hz0, hz1] = S.hut; // hut: bulb over the door, lit window (panel between the dark backing and the glass)
+    lampH.box(hx1 + 0.1, y0 + 2.32, hz1 - 0.6, 0.12, 0.12, 0.12, { bottom: true }); gp(hx1 + 1.2, hz1 - 0.6, y0 + 0.03, 3.4);
+    lampH.box((hx0 + hx1) / 2, y0 + 1.55, hz0 - 0.011, 1.5, 0.8, 0.004); gp((hx0 + hx1) / 2, hz0 - 1.3, y0 + 0.03, 2.6); }
   return { top };
 }

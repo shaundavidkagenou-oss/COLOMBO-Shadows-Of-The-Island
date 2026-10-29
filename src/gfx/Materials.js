@@ -1,7 +1,7 @@
 // Shared materials. Time of day (night factor) and rain (wetness) drive emissive and roughness.
 import * as THREE from 'three';
 import { TEX } from './Textures.js';
-import { applyInteriorMapping, INTERIOR } from './InteriorMapping.js';
+import { applyInteriorMapping, INTERIOR, occupancy } from './InteriorMapping.js';
 export const MAT = {};
 const facadeKeys = ['colonial', 'brick', 'glass', 'glass2', 'office', 'hotel', 'shop', 'shop2', 'apartment', 'villa', 'warehouse'];
 const wetTargets = [];
@@ -28,6 +28,17 @@ export function buildMaterials() {
     applyInteriorMapping(MAT['f_' + k]); // windows show parallax rooms with depth
   }
   MAT.shops = std({ map: TEX.shops.map, emissiveMap: TEX.shops.emissive, emissive: 0xffffff, emissiveIntensity: 0.15, roughness: 0.8 });
+  // after closing time shop fronts are behind galvanised corrugated roller shutters
+  MAT.shops.onBeforeCompile = (sh) => { sh.uniforms.uShut = SHOP_SHUT;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vSWPos;').replace('#include <project_vertex>', '#include <project_vertex>\nvSWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vSWPos; uniform float uShut;')
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      { float shut = uShut; // (no per-shop id in the shader: a world-cell hash would split one shop front, so every shop closes)
+        if (shut > 0.001) { float rib = 0.82 + 0.18 * smoothstep(0.35, 0.5, abs(fract(vSWPos.y / 0.075) - 0.5));
+          vec3 sc = vec3(0.52, 0.54, 0.55);
+          float grime = mix(0.78, 1.0, smoothstep(0.0, 1.6, vSWPos.y - floor(vSWPos.y / 50.0) * 50.0));
+          diffuseColor.rgb = mix(diffuseColor.rgb, sc * rib * grime, shut); totalEmissiveRadiance *= 1.0 - shut; } }`); };
+  MAT.shops.customProgramCacheKey = () => 'shops-shutter-v2';
   MAT.signs = std({ map: TEX.signs.map, emissiveMap: TEX.signs.emissive, emissive: 0xffffff, emissiveIntensity: 0.05, roughness: 0.6, side: THREE.DoubleSide });
   MAT.roofTiles = std({ map: TEX.roofTiles, roughness: 0.85, vertexColors: true });
   MAT.roofFlat = std({ map: TEX.roofConcrete, roughness: 0.95, vertexColors: true });
@@ -56,14 +67,20 @@ export function buildMaterials() {
   wetTargets.push([MAT.road, 1.0, 0.18], [MAT.roadTint, 0.95, 0.14], [MAT.walk, 0.9, 0.35], [MAT.walkGrey, 0.9, 0.35], [MAT.kerb, 0.85, 0.4], [MAT.concrete, 0.9, 0.45], [MAT.roofFlat, 0.95, 0.5]);
   return MAT;
 }
+const SHOP_SHUT = { value: 0 };
 const _dry = new THREE.Color(1, 1, 1), _wet = new THREE.Color(0.62, 0.62, 0.64);
 export function updateMaterials(night, wet, t) {
   const n = night;
   for (const k of facadeKeys) MAT['f_' + k].emissiveIntensity = n * 1.25;
-  INTERIOR.uIntDay.value = (1 - n) * 0.24; INTERIOR.uIntNight.value = n * 0.8;
-  MAT.shops.emissiveIntensity = 0.12 + n * 0.75;
-  MAT.signs.emissiveIntensity = 0.04 + n * 1.3;
+  INTERIOR.uIntDay.value = (1 - n) * 0.24; INTERIOR.uIntNight.value = n * 0.8; INTERIOR.uOcc.value = occupancy(t ?? 21); INTERIOR.uITime.value = performance.now() / 1000;
+  // shop fronts are lit while trading (until ~9 pm, shutters down by 10:30) and dark until early morning; illuminated
+  // signboards stay on but many are switched off after midnight
+  const h = t ?? 12, open = h >= 21 ? Math.max(0, 1 - (h - 21) / 1.5) : h < 6.5 ? 0 : Math.min(1, (h - 6.5) / 0.75), late = h >= 0.5 && h < 5.5 ? 0.45 : 1;
+  MAT.shops.emissiveIntensity = (0.12 + n * 0.75) * (0.15 + 0.85 * open);
+  SHOP_SHUT.value = 1 - open;
+  MAT.signs.emissiveIntensity = 0.04 + n * 1.3 * late;
   MAT.lampHead.emissiveIntensity = n * 3.0;
+  if (MAT.winGlass) MAT.winGlass.envMapIntensity = 2.4 * (1 - 0.85 * n); // a dark night sky barely reflects: panes show the room behind (lit or dark) instead of a uniform sky sheen
   MAT.pool.opacity = n * 0.55;
   MAT.glow.opacity = n * 0.9;
   for (const [m, dryR, wetR] of wetTargets) { m.roughness = dryR + (wetR - dryR) * wet; m.color.copy(_dry).lerp(_wet, wet * 0.8); m.envMapIntensity = 0.6 + wet * 1.6; }
