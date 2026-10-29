@@ -161,12 +161,21 @@ function plateMaterial() {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
   return new THREE.MeshStandardMaterial({ map: t, roughness: 0.45, metalness: 0.1 });
 }
+// Lamp lenses emit only from surfaces facing the lamp's direction (+z = forward for headlights, −z for tail / reverse
+// lamps): the emissive boxes no longer glow from behind / through the cabin and rear glass.
+function directionalLamp(mat, dir) {
+  mat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vLampDir;').replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>\n  vLampDir = objectNormal.z * ${dir.toFixed(1)};`);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vLampDir;').replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n  totalEmissiveRadiance *= smoothstep( 0.3, 0.8, vLampDir );');
+  };
+  mat.customProgramCacheKey = () => 'lamp' + dir;
+}
 export function vehicleMaterials() {
   if (!mats) {
     mats = {
       vpaint: new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.25, clearcoat: 1, clearcoatRoughness: 0.07, envMapIntensity: 1.0 }),
       vworn: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.15, envMapIntensity: 0.7 }),
-      vglass: new THREE.MeshStandardMaterial({ color: 0x10171c, roughness: 0.06, metalness: 0.1, transparent: true, opacity: 0.74, envMapIntensity: 0.8, depthWrite: false, side: THREE.DoubleSide }),
+      vglass: new THREE.MeshPhysicalMaterial({ color: 0x0c1215, roughness: 0.1, metalness: 0.0, specularIntensity: 0.38, transparent: true, opacity: 0.8, envMapIntensity: 0.5, depthWrite: false, side: THREE.DoubleSide }), // tinted automotive glass: weak Fresnel so sloped rear screens never read as white glowing panels against the sky
       vchrome: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.22, metalness: 0.8, envMapIntensity: 1.2 }),
       vrim: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.3, envMapIntensity: 1.0, side: THREE.DoubleSide }),
       vrubber: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0.0, side: THREE.DoubleSide }),
@@ -522,6 +531,7 @@ export function createVehicleMesh(type, seed = 1) {
     cached = { geos, dgeos, wheels: m.wheels, seats: m.seats, steerWheel: m.steerWheel, doors: m.doors, wheelStyle: m.wheelStyle, busDoor: m.busDoor }; modelCache.set(key, cached);
   }
   const g = new THREE.Group(); const tailMat = M.vtail.clone(); const indMat = M.vind.clone(); const headMat = M.vlight.clone(); const revMat = M.vrev.clone(); byName.vtail = tailMat; byName.vind = indMat; byName.vlight = headMat; byName.vrev = revMat; headMat.emissiveIntensity = 0.04; tailMat.emissiveIntensity = 0.03; revMat.emissiveIntensity = 0; // per vehicle (start dark): each car's own lamps
+  directionalLamp(headMat, 1); directionalLamp(tailMat, -1); directionalLamp(revMat, -1); // lamps glow only from the lens face (seen through the cabin glass from the other end they stay dark)
   for (const [name, geo] of cached.geos) { const mesh = new THREE.Mesh(geo, byName[name] || MAT.paint); mesh.name = name; mesh.castShadow = name !== 'glass' && name !== 'vlight' && name !== 'interior'; mesh.receiveShadow = name === 'paint'; if (name === 'glass') mesh.renderOrder = 2; g.add(mesh); }
   const det = new THREE.Group(); det.name = 'detail'; det.visible = false; byName.lens = M.vlens; byName.vrefl = M.vrefl;
   for (const [name, geo] of cached.dgeos) { const mesh = new THREE.Mesh(geo, byName[name] || M.vchrome); mesh.name = name; mesh.castShadow = false; mesh.receiveShadow = name === 'paint'; if (name === 'glass' || name === 'lens') mesh.renderOrder = 2; mesh.matrixAutoUpdate = false; det.add(mesh); }

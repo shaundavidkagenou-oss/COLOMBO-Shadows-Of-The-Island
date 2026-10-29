@@ -23,6 +23,24 @@ export const SCHOOL = {
 export function buildJohnsSchool({ mb, box, coll, label, group, LAND_Y, SANS, SI, TA, EN, hip, anim, C }) {
   const S = SCHOOL, y0 = LAND_Y; const conc = mb.get('concrete'), paint = mb.get('paint'), metal = mb.get('metal'), glass = mb.get('glass'), hedge = mb.get('hedge'), road = mb.get('road'), walkG = mb.get('walkGrey'), mark = mb.get('marking'), soil = mb.get('soil'), leaves = mb.get('leaves'), corr = mb.get('corrugated');
   const CREAM = '#efe7d3', MAROON = '#7a1f2b', GOLD = '#c9a13b', WOOD = '#6b4a2a', DARKWOOD = '#4e3320', GREEN = '#2f5d3a', REDOX = '#9a3b2c', IRON = '#1d1d1f';
+  const TRIM = '#f6f1e4';
+  // joinery on a wall facing +x / −x at wall-face x = wx (nx = ±1): a closed panelled door in a moulded frame, and a
+  // recessed glazed window with frame, glazing bar and sill. Every layer has its own depth (no coplanar faces → no flicker).
+  const doorOnX = (wx, nx, z, yb, w = 1.1, h = 2.1) => {
+    const o = (d) => wx + nx * d;
+    box(paint, o(0.006), yb + h / 2, z, 0.012, h, w, '#2a1d14'); // shadowed reveal behind the leaf
+    for (const s2 of [-1, 1]) box(paint, o(0.03), yb + (h + 0.08) / 2, z + s2 * (w / 2 + 0.05), 0.06, h + 0.08, 0.1, TRIM); box(paint, o(0.03), yb + h + 0.09, z, 0.06, 0.1, w + 0.2, TRIM); // architrave
+    box(paint, o(0.022), yb + h / 2, z, 0.035, h - 0.02, w - 0.03, DARKWOOD); // leaf
+    for (const [py, ph] of [[0.55, 0.8], [1.5, 0.95]]) for (const s2 of [-1, 1]) box(paint, o(0.045), yb + py, z + s2 * (w / 4 - 0.01), 0.012, ph, w / 2 - 0.16, WOOD); // raised panels
+    box(metal, o(0.06), yb + 1.0, z - (w / 2 - 0.1), 0.03, 0.03, 0.12, GOLD); box(metal, o(0.05), yb + 0.98, z - (w / 2 - 0.1), 0.012, 0.12, 0.05, GOLD); // brass lever + escutcheon
+  };
+  const windowOnX = (wx, nx, z, yc, w = 1.0, h = 1.3) => {
+    const o = (d) => wx + nx * d;
+    box(paint, o(0.004), yc, z, 0.008, h, w, '#1f2a2e'); // dark room behind the glass
+    box(glass, o(0.02), yc, z, 0.01, h - 0.04, w - 0.04, '#ffffff');
+    for (const s2 of [-1, 1]) box(paint, o(0.035), yc, z + s2 * (w / 2 + 0.03), 0.05, h + 0.06, 0.06, TRIM); for (const s2 of [-1, 1]) box(paint, o(0.035), yc + s2 * (h / 2 + 0.03), z, 0.05, 0.06, w + 0.12, TRIM);
+    box(paint, o(0.032), yc, z, 0.03, h - 0.04, 0.035, TRIM); box(paint, o(0.07), yc - h / 2 - 0.07, z, 0.12, 0.05, w + 0.24, TRIM); // glazing bar, sill
+  };
   const [wx0, wx1, wz0, wz1] = S.wall;
 
   // ------------------------------------------------------------ ground: drive, paths, court
@@ -62,8 +80,8 @@ export function buildJohnsSchool({ mb, box, coll, label, group, LAND_Y, SANS, SI
   }
   // guard hut
   { const [hx0, hx1, hz0, hz1] = S.hut, cx = (hx0 + hx1) / 2, cz = (hz0 + hz1) / 2, w = hx1 - hx0, d = hz1 - hz0;
-    box(paint, cx, y0 + 1.25, cz, w, 2.5, d, CREAM); box(paint, cx, y0 + 2.6, cz, w + 0.5, 0.2, d + 0.5, MAROON, { bottom: true }); box(glass, hx1 + 0.01, y0 + 1.55, cz + 0.4, 0.04, 0.9, 1.2, '#ffffff'); box(glass, cx, y0 + 1.55, hz0 - 0.01, 1.6, 0.9, 0.04, '#ffffff');
-    box(paint, hx1 + 0.02, y0 + 1.05, hz1 - 0.6, 0.05, 2.1, 0.9, DARKWOOD); coll(hx0, hx1, hz0, hz1, y0 + 2.7);
+    box(paint, cx, y0 + 1.25, cz, w, 2.5, d, CREAM); box(paint, cx, y0 + 2.6, cz, w + 0.5, 0.2, d + 0.5, MAROON, { bottom: true }); windowOnX(hx1, 1, cz - 0.5, y0 + 1.55, 0.9, 0.9); box(paint, cx, y0 + 1.55, hz0 - 0.004, 1.6, 0.9, 0.008, '#1f2a2e'); box(glass, cx, y0 + 1.55, hz0 - 0.02, 1.56, 0.86, 0.01, '#ffffff'); for (const s2 of [-1, 1]) box(paint, cx + s2 * 0.83, y0 + 1.55, hz0 - 0.035, 0.06, 0.96, 0.05, TRIM); for (const s2 of [-1, 1]) box(paint, cx, y0 + 1.55 + s2 * 0.48, hz0 - 0.035, 1.72, 0.06, 0.05, TRIM); // hut windows (side + gate-facing)
+    doorOnX(hx1, 1, hz1 - 0.6, y0, 0.85, 2.05); coll(hx0, hx1, hz0, hz1, y0 + 2.7);
     label([{ text: 'SECURITY', font: SANS(110), color: '#ffffff' }], cx, y0 + 2.25, hz0 - 0.03, 1.6, 0.3, Math.PI, { w: 512, h: 96, bg: MAROON, glow: false }); }
 
   // ------------------------------------------------------------ main classroom block (three storeys, arcaded corridors)
@@ -86,7 +104,9 @@ export function buildJohnsSchool({ mb, box, coll, label, group, LAND_Y, SANS, SI
     for (let k = 0; k < NR; k++) { const x0 = mx0 + k * RW; front.push({ a: x0 + 1.0, b: x0 + 2.8, lo: 0.9, hi: 2.3 }, { a: x0 + 3.5, b: x0 + 5.3, lo: 0.9, hi: 2.3 }, { a: x0 + 6.3, b: x0 + 7.4, lo: 0, hi: 2.2 }); back.push({ a: x0 + 1.2, b: x0 + 3.4, lo: 0.9, hi: 2.4 }, { a: x0 + 4.6, b: x0 + 6.8, lo: 0.9, hi: 2.4 }); }
     const sx0 = mx0 + NR * RW; front.push({ a: sx0 + 1.0, b: sx0 + 3.4, lo: 0, hi: 2.4 }); back.push({ a: sx0 + 2.2, b: sx0 + 5.8, lo: 1.2, hi: 2.6 });
     wallX(paint, mx0, mx1, zc + 0.1, 0.2, yb, h, front, CREAM); wallX(paint, mx0, mx1, mz1 - 0.1, 0.2, yb, h, back, CREAM);
-    for (const o of front) { if (o.lo > 0) bars(o.a, o.b, zc + 0.1, yb, o.lo, o.hi); else if (o.b - o.a < 2) box(paint, o.a + 0.04, yb + 1.05, zc + 0.75, 0.05, 2.1, 1.05, DARKWOOD); /* door leaf standing open against the inside wall */ else bars(o.a, o.b, zc + 0.1, yb, 0.02, o.hi); /* stairwell grille, locked */ }
+    for (const o of front) { if (o.lo > 0) bars(o.a, o.b, zc + 0.1, yb, o.lo, o.hi); else if (o.b - o.a < 2) { const zf = zc; for (const xx of [o.a - 0.05, o.b + 0.05]) box(paint, xx, yb + 1.15, zf - 0.03, 0.1, 2.3, 0.06, TRIM); box(paint, (o.a + o.b) / 2, yb + 2.25, zf - 0.03, o.b - o.a + 0.2, 0.1, 0.06, TRIM); /* architrave */
+      const lw = o.b - o.a - 0.04; box(paint, o.a + 0.04, yb + 1.05, zc + 0.2 + lw / 2, 0.04, 2.08, lw, DARKWOOD); for (const sx2 of [-1, 1]) for (const [py, ph] of [[0.55, 0.8], [1.5, 0.95]]) box(paint, o.a + 0.04 + sx2 * 0.026, yb + py, zc + 0.2 + lw / 2, 0.012, ph, lw - 0.24, WOOD); /* leaf hinged open at 90° against the classroom wall, panelled both sides */
+      box(metal, o.a + 0.1, yb + 1.0, zc + 0.2 + lw - 0.1, 0.06, 0.03, 0.03, GOLD); } else bars(o.a, o.b, zc + 0.1, yb, 0.02, o.hi); /* stairwell grille, locked */ }
     for (const o of back) { bars(o.a, o.b, mz1 - 0.1, yb, o.lo, o.hi); const sh = (o.b - o.a) / 2; for (const [x, s2] of [[o.a - sh / 2 - 0.02, -1], [o.b + sh / 2 + 0.02, 1]]) box(paint, x, yb + (o.lo + o.hi) / 2, mz1 + 0.03, sh, o.hi - o.lo, 0.04, GREEN); void 0; }
     for (let k = 1; k <= NR; k++) box(paint, mx0 + k * RW, yb + h / 2, (zc + mz1) / 2, 0.2, h, mz1 - zc, CREAM); // dividing walls
     for (const x of [mx0 + 0.1, mx1 - 0.1]) box(paint, x, yb + h / 2, (zc + mz1) / 2, 0.2, h, mz1 - zc, CREAM); // end walls
@@ -121,9 +141,9 @@ export function buildJohnsSchool({ mb, box, coll, label, group, LAND_Y, SANS, SI
     hip(ax0 - 0.2, ax1 + 2.6, az0, az1, y0 + P + H2, 2.6, '#b5532e'); box(paint, ax1 + 1.2, y0 + P + FH - 0.12, cz, 2.4, 0.24, az1 - az0, '#ece6d6', { bottom: true }); box(paint, ax1 + 1.2, y0 + P + 2 * FH - 0.06, cz, 2.6, 0.12, az1 - az0, '#ece6d6', { bottom: true });
     for (let k = 0; k < 6; k++) { const z = az0 + 0.3 + (k / 5) * (az1 - az0 - 0.6); box(paint, ax1 + 2.2, y0 + P + FH / 2, z, 0.3, FH, 0.3, '#f3ecda'); box(paint, ax1 + 2.2, y0 + P + FH + FH / 2, z, 0.3, FH, 0.3, '#f3ecda'); coll(ax1 + 2.05, ax1 + 2.35, z - 0.15, z + 0.15, y0 + 4); }
     box(paint, ax1 + 2.2, y0 + P + FH + 0.5, cz, 0.16, 1.0, az1 - az0, '#f3ecda'); box(paint, ax1 + 2.2, y0 + P + FH + 1.03, cz, 0.26, 0.07, az1 - az0, MAROON);
-    [["PRINCIPAL'S OFFICE", 347.5], ['STAFF ROOM', 356.5], ['LIBRARY', 365.5]].forEach(([t, z]) => { box(paint, ax1 + 0.03, y0 + P + 1.1, z, 0.05, 2.2, 1.3, DARKWOOD); label([{ text: t, font: SANS(80), color: '#ffffff' }], ax1 + 0.06, y0 + P + 2.55, z, 1.5, 0.26, Math.PI / 2, { w: 768, h: 130, bg: MAROON, glow: false }); });
-    for (let f = 0; f < 2; f++) for (const z of [344.8, 351.6, 353.4, 360.6, 362.4, 368.2]) { box(glass, ax1 + 0.02, y0 + P + f * FH + 1.6, z, 0.04, 1.3, 1.0, '#ffffff'); for (const s2 of [-1, 1]) box(paint, ax1 + 0.04, y0 + P + f * FH + 1.6, z + s2 * 0.78, 0.04, 1.3, 0.5, GREEN); }
-    for (let f = 0; f < 2; f++) for (let z = az0 + 2; z < az1 - 1; z += 3.2) { box(glass, ax0 - 0.02, y0 + P + f * FH + 1.6, z, 0.04, 1.3, 1.0, '#ffffff'); for (const s2 of [-1, 1]) box(paint, ax0 - 0.04, y0 + P + f * FH + 1.6, z + s2 * 0.78, 0.04, 1.3, 0.5, GREEN); }
+    [["PRINCIPAL'S OFFICE", 347.5], ['STAFF ROOM', 356.5], ['LIBRARY', 365.5]].forEach(([t, z]) => { doorOnX(ax1, 1, z, y0 + P, 1.2, 2.15); label([{ text: t, font: SANS(80), color: '#ffffff' }], ax1 + 0.06, y0 + P + 2.55, z, 1.5, 0.26, Math.PI / 2, { w: 768, h: 130, bg: MAROON, glow: false }); });
+    for (let f = 0; f < 2; f++) for (const z of [344.8, 351.6, 353.4, 360.6, 362.4, 368.2]) { windowOnX(ax1, 1, z, y0 + P + f * FH + 1.6); for (const s2 of [-1, 1]) box(paint, ax1 + 0.03, y0 + P + f * FH + 1.6, z + s2 * 0.83, 0.03, 1.3, 0.5, GREEN); }
+    for (let f = 0; f < 2; f++) for (let z = az0 + 2; z < az1 - 1; z += 3.2) { windowOnX(ax0, -1, z, y0 + P + f * FH + 1.6); for (const s2 of [-1, 1]) box(paint, ax0 - 0.03, y0 + P + f * FH + 1.6, z + s2 * 0.83, 0.03, 1.3, 0.5, GREEN); }
     for (const [x, z] of [[ax1 + 3.2, 346], [ax1 + 3.2, 352], [ax1 + 3.2, 360]]) { box(soil, x, y0 + 0.12, z, 1.0, 0.24, 3.4, '#5a3d2a'); for (let k = 0; k < 4; k++) leaves.box(x, y0 + 0.45, z - 1.2 + k * 0.8, 0.6, 0.5, 0.6, { col: C(k % 2 ? '#3f7d3a' : '#4f8f3c') }); } }
 
   // ------------------------------------------------------------ assembly hall (open sides, Calicut-tile roof, stage, brass oil lamp)

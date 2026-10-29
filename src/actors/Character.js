@@ -85,7 +85,7 @@ class SkinBuilder {
     const cx = (a1[1] - a0[1]) * (b0[2] - a0[2]) - (a1[2] - a0[2]) * (b0[1] - a0[1]), cy = (a1[2] - a0[2]) * (b0[0] - a0[0]) - (a1[0] - a0[0]) * (b0[2] - a0[2]), cz = (a1[0] - a0[0]) * (b0[1] - a0[1]) - (a1[1] - a0[1]) * (b0[0] - a0[0]);
     const flip = cx * n0[0] + cy * n0[1] + cz * n0[2] < 0;
     for (const side of [1, -1]) { const base = this.n;
-      for (let r = 0; r < R; r++) for (let c = 0; c < Cn; c++) { const n = N[r][c]; const l = Math.hypot(n[0], n[1], n[2]) || 1; const q = P[r][c]; const o = side > 0 ? 0 : -0.0015; this.v([q[0] + n[0] / l * o, q[1] + n[1] / l * o, q[2] + n[2] / l * o], [side * n[0] / l, side * n[1] / l, side * n[2] / l], side > 0 ? col : colBack, [0.01, 0.51], Wr[r]); }
+      for (let r = 0; r < R; r++) for (let c = 0; c < Cn; c++) { const n = N[r][c]; const l = Math.hypot(n[0], n[1], n[2]) || 1; const q = P[r][c]; const o = side > 0 ? 0 : -0.0015; this.v([q[0] + n[0] / l * o, q[1] + n[1] / l * o, q[2] + n[2] / l * o], [side * n[0] / l, side * n[1] / l, side * n[2] / l], side > 0 ? col : colBack, [0.01, 0.51], Array.isArray(Wr[r][0][0]) ? Wr[r][c] : Wr[r]); }
       for (let r = 0; r < R - 1; r++) for (let c = 0; c < Cn - 1; c++) { const a = base + r * Cn + c, b = a + 1, cc = a + Cn, d = cc + 1; if ((side > 0) !== flip) this.idx.push(a, cc, b, b, cc, d); else this.idx.push(a, b, cc, b, d, cc); } }
   }
   // flat strip following a path of points (for saree pallu, shawls, ties)
@@ -147,7 +147,7 @@ export function buildBodyGeometry(sp) {
     { y: 1.47, rx: 0.062, rz: 0.06, wgt: W2('chest', 'neck', 0.5), col: sp.collar ? top : skin },
     { y: 1.55, rx: 0.05, rz: 0.05, wgt: W1('neck'), col: skin },
   ];
-  if (HQ) tr.unshift({ y: 0.79, rx: 0.118 * w, rz: 0.084 * w, wgt: W1('hips'), col: bottom }); /* rounded seat between the thighs instead of a flat cap */
+  if (HQ) { tr[0].rz = (f ? 0.1 : 0.093) * w; tr.unshift({ y: 0.79, rx: 0.114 * w, rz: 0.072 * w, wgt: W1('hips'), col: bottom }); } /* rounded seat between the thighs; the front of the pelvis no longer stands proud of the thighs like an apron */ /* rounded seat between the thighs instead of a flat cap */
   const RO = HQ ? 1 : 0;
   const bel = sp.belly || 0; if (bel) [[2, 0.03, 0.02], [3, 0.045, 0.032], [4, 0.022, 0.012]].forEach(([i0, dz, df]) => { const i = i0 + RO; tr[i].rz += bel * dz * w; tr[i].fz = (tr[i].fz || 0) + bel * df; tr[i].rx += bel * 0.012 * w; });
   // torso surface (front/back z at height y and offset x) so straps, lanyards and bags sit on the clothes, never inside
@@ -243,7 +243,7 @@ export function buildBodyGeometry(sp) {
     const upW = HQ ? W2('arm' + side, 'armTwist' + side, 0.3) : W1('arm' + side); // mid upper arm: shared by the arm ring and the sleeve hem so they never shear apart
     if (HQ) { ar[3].w = upW; ar[5].w = W2('fore' + side, 'foreTwist' + side, 0.5); ar[6].w = W1('foreTwist' + side); } // twist bones spread limb roll along the skin
     sb.loft(ar.map((r) => ({ ...r, col: colAt(r.c[1]) })), HQ ? 20 : 10, { capEnd: false });
-    sb.ellipsoid([a[0] * 0.84, 1.392 * s, -0.004], (HQ ? 0.047 : 0.05) * w, HQ ? 0.042 : 0.044, (HQ ? 0.053 : 0.056) * w, sp.sleeveless ? W2('chest', 'arm' + side, 0.5) : W2('chest', 'arm' + side, 0.5), sp.sleeveless ? skin : top, { lat: HQ ? 12 : 7, lon: HQ ? 18 : 10 });
+    sb.ellipsoid([a[0] * (HQ ? 0.88 : 0.84), (HQ ? 1.372 : 1.392) * s, -0.004], (HQ ? 0.05 : 0.05) * w, HQ ? 0.036 : 0.044, (HQ ? 0.054 : 0.056) * w, sp.sleeveless ? W2('chest', 'arm' + side, 0.5) : W2('chest', 'arm' + side, 0.5), sp.sleeveless ? skin : top, { lat: HQ ? 12 : 7, lon: HQ ? 18 : 10 });
     if (!longSleeve && !sp.sleeveless) { // sleeve hem flare
       sb.loft([{ c: [lerp(a[0], fo[0], 0.4), 1.215 * s, -0.005], rx: 0.056 * w, rz: 0.058 * w, w: upW, col: top }, { c: [lerp(a[0], fo[0], 0.33), 1.27 * s, -0.004], rx: 0.058 * w, rz: 0.06 * w, w: upW, col: top }], HQ ? 20 : 10); // same segment count as the arm, so the hem doesn't saw-tooth through it
     }
@@ -403,14 +403,17 @@ export function buildBodyGeometry(sp) {
       const pl = top.map((v) => Math.min(1, v * 1.12)); for (const sx of [-1, 1]) vstrip(0, 1.05 * s, 1.425 * s, 0.014, pl, 1, (y) => sx * rxAt(y) * 0.39); // plackets
       for (let k = 0; k < 5; k++) { const y = (1.1 + k * 0.068) * s; const x = rxAt(y) * 0.39; sb.boxPart([x, y, surfZ(y, x, 1) + 0.004], 0.008, 0.008, 0.004, tw(y), C('#e6dfd0')); } // buttons
       hstrip(1.3 * s, 0.05 * w, 0.118 * w, 0.05, dark(top, 0.9)); // chest pocket
-      sb.loft([{ c: [0, 1.437 * s, -0.006], rx: 0.1 * w, rz: 0.086 * w, w: W1('chest'), col: dark(top, 0.92) }, { c: [0, 1.478 * s, -0.012], rx: 0.084, rz: 0.078, w: W2('chest', 'neck', 0.4), col: dark(top, 0.92) }], 32, { colFn: (ri, a, r) => (Math.sin(a) > 0.86 ? C(sp.inner || '#e8e4da') : r.col) }); // camp collar, open at the throat
-      const lowZ = (y, x) => surfZ(Math.max(y, 0.985 * s), x, 1);
-      for (const sx of [-1, 1]) { const S = sx > 0 ? 'L' : 'R'; const ys = [1.1, 1.045, 0.99, 0.935, 0.885]; const P = [], N = [], Wr = [];
-        ys.forEach((yy, ri) => { const y = yy * s; const rx = rxAt(Math.max(y, 0.985 * s)); const row = [], nr = []; for (let ci = 0; ci < 4; ci++) { const q = lerp(0.37, 0.86, ci / 3); const x = sx * rx * q; row.push([x, y, lowZ(y, x) + 0.006 + ri * 0.0045 + ci * 0.001]); nr.push([sx * q * 0.7, 0, 1]); } P.push(row); N.push(nr);
-          Wr.push(ri === 0 ? tw(y) : ri === 1 ? W2('spine', 'flap' + S + '1', 0.5) : ri === 2 ? W1('flap' + S + '1') : ri === 3 ? W2('flap' + S + '1', 'flap' + S + '2', 0.5) : W1('flap' + S + '2')); });
+      sb.loft([{ c: [0, 1.428 * s, -0.004], rx: 0.112 * w, rz: 0.094 * w, w: W1('chest'), col: dark(top, 0.92) }, { c: [0, 1.462 * s, -0.008], rx: 0.074, rz: 0.07, w: W2('chest', 'neck', 0.3), col: dark(top, 0.92) }], 32, { colFn: (ri, a, r) => (Math.sin(a) > 0.86 ? C(sp.inner || '#e8e4da') : r.col) }); // camp collar, open at the throat
+      // untucked shirt tail: one continuous double-sided tube wrapped round the sides and back (front left open between
+      // the plackets), hugging the hips with a slight flare. Front edges ride the flap bones, the back the hem bone, the
+      // sides stay on the hips, so it swings a little without ever leaving the body as a separate board.
+      { const ys = [1.02, 0.99, 0.96, 0.935, 0.915]; const open = 0.4, NC = 30; const P = [], N = [], Wr = [];
+        ys.forEach((yy, ri) => { const y = yy * s; const yr = Math.max(y, 0.95 * s); const rx = rxAt(yr) + 0.009 + ri * 0.0035, rz = rzAt(yr) + 0.011 + ri * 0.0035; const row = [], nr = [], wr = [];
+          for (let ci = 0; ci <= NC; ci++) { const a = Math.PI / 2 + open + (ci / NC) * (2 * Math.PI - 2 * open); const ca = Math.cos(a), sa = Math.sin(a); row.push([ca * rx, y, sa * rz]); nr.push([ca / rx, 0, sa / rz]);
+            const tgt = sa >= 0 ? (ca > 0 ? 'flapL' : 'flapR') + (ri >= 3 ? 2 : 1) : 'hemB1'; const k = smooth01((Math.abs(sa) - 0.3) / 0.45) * [0, 0.35, 0.7, 0.9, 1][ri];
+            wr.push(ri === 0 ? tw(y) : k > 0.001 ? W2('hips', tgt, k) : W1('hips')); }
+          P.push(row); N.push(nr); Wr.push(wr); });
         sb.grid(P, N, Wr, top, dark(top, 0.62)); }
-      { const ys = [1.04, 0.99, 0.94, 0.895]; const P = [], N = [], Wr = []; ys.forEach((yy, ri) => { const y = yy * s; const rx = rxAt(Math.max(y, 0.985 * s)); const row = [], nr = []; for (let ci = 0; ci < 7; ci++) { const q = lerp(-0.88, 0.88, ci / 6); const x = rx * q; row.push([x, y, surfZ(Math.max(y, 0.985 * s), x, -1) - 0.006 - ri * 0.004]); nr.push([q * 0.7, 0, -1]); } P.push(row); N.push(nr); Wr.push(ri === 0 ? tw(y) : ri === 1 ? W2('spine', 'hemB1', 0.5) : W1('hemB1')); });
-        sb.grid(P, N, Wr, top, dark(top, 0.62)); } // untucked back hem
     }
     if (sp.kit === 'tactical') { // Shashika: vest (accessories pass) + two loose strap ends with buckles, thigh cargo pockets
       const vz = (y, x) => surfZ(y, x, 1) + 0.026; const sc = C('#1d201b');
