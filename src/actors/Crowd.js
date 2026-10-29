@@ -115,6 +115,7 @@ export class Crowd {
   // A disturbance at (x,z): sev 1 = scuffle/shouting, 2 = gunfire, 3 = someone hit nearby. Each witness reacts after its
   // own delay and picks its own response; panic directions are spread so the crowd scatters rather than herding.
   alarm(x, z, r, sev, src = null) {
+    for (const f of this.alarmHooks || []) f(x, z, r, sev);
     for (const p of this.peds) {
       if (p.state === 'down' || p === src) continue; const d = Math.hypot(p.x - x, p.z - z); if (d > r) continue;
       const delay = 0.15 + this.rng.next() * (sev >= 2 ? 0.7 : 1.3) + d * 0.04;

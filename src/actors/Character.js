@@ -698,6 +698,13 @@ export class Animator {
         case 'phone': tr = [-0.35, 0, -0.55]; tfr = [-2.35, 0.4, 0]; tl = [0.05, 0, 0.1]; tfl = [-0.2, 0, 0]; head = 0.15; break;
         case 'text': tr = [-0.45, 0, -0.15]; tfr = [-1.35, 0, 0]; tl = [-0.45, 0, 0.15]; tfl = [-1.35, 0, 0]; b.neck.rotation.x += 0.45 * aw; break;
         case 'wave': tr = [-2.6 + Math.sin(t * 8) * 0.08, 0, -0.35 - Math.sin(t * 8) * 0.25]; tfr = [-0.5, 0, 0]; break;
+        // cricket: batting stance (both hands on the handle, bat down by the back foot) and a swing driven by this.swing
+        // (0 → 1: back-lift, downswing through the line of the ball, follow-through over the left shoulder; <0 = stance)
+        case 'bat': { const ph = this.swing ?? -1; let lift = 0.15, thr = 0, tw = 0.25;
+          if (ph >= 0) { if (ph < 0.35) { const k = ph / 0.35; lift = 0.15 + k * 1.2; tw = 0.25 + k * 0.45; } else { const k = Math.min(1, (ph - 0.35) / 0.45); lift = 1.35 - k * 1.6; thr = k; tw = 0.7 - k * 1.6; if (ph > 0.8) lift = -0.25 + (ph - 0.8) * 9; } }
+          tr = [-0.75 - lift * 0.6, 0.3, 0.42 + lift * 0.1]; tl = [-0.85 - lift * 0.55, -0.3, -0.42 - thr * 0.1]; tfr = [-0.7 + lift * 0.2, 0, 0]; tfl = [-0.55 + lift * 0.2, 0, 0];
+          b.spine.rotation.y += tw * aw; b.spine.rotation.x += 0.18 * aw; head = -tw * 0.6; break; }
+        case 'bowl': { const k = Math.min(1, at / 0.55); const a = k * 4.4; tr = [-a, 0, -0.12]; tfr = [-0.15, 0, 0]; tl = [-2.6 + k * 2.4, 0, 0.25]; tfl = [-0.3, 0, 0]; b.spine.rotation.x += (k > 0.6 ? (k - 0.6) * 0.9 : -0.15) * aw; break; }
         case 'point': tr = [-1.5, 0, -0.15]; tfr = [-0.1, 0, 0]; head = -0.2; break;
         case 'signal': { // traffic point duty: one palm held out towards the stopped approach, the other arm beckons the moving one (sigSide: +1 right waves, −1 left, 0 all stop)
           const sd = this.sigSide || 0, k = Math.max(0, Math.sin(t * 3.4)); const stopL = [-0.22, 0, 1.42], stopR = [-0.22, 0, -1.42]; // stop: arm out to the side, palm out

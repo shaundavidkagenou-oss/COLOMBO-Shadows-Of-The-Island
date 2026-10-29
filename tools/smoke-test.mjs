@@ -156,5 +156,13 @@ await check('Health, hospital, wallet ledger and versioned saves (v1 → v2 migr
   return `damage/fall/strike/regen ok, save v${SAVE_VERSION}`;
 });
 
+await check('Galle Face Green evening tennis-ball cricket: clear pitch site, adult players only', async () => {
+  const { StreetCricket } = await import('../src/actors/StreetCricket.js'); const L = await import('../src/world/Layout.js');
+  const C = new StreetCricket({ crowd: null, atmos: { hour: 10 }, player: { x: 0, z: 0 }, collision: { groundAt: () => 0.15 } }); const s = C.site;
+  assert(s && L.districtAt(s.x, s.z)?.name === 'Galle Face Green', 'site on the Green'); assert(!L.roadAt(s.x, s.z) && !L.isWater(s.x, s.z), 'site clear');
+  const { makeAppearance, isAdultSpec } = await import('../src/actors/Appearance.js'); for (let i = 0; i < 20; i++) assert(isAdultSpec(makeAppearance(7101 + i * 3, { sex: i % 5 ? 'm' : 'f', age: 'adult' })), 'adult spec');
+  return `pitch at (${s.x}, ${s.z})`;
+});
+
 console.log('\nCOLOMBO: SHADOWS OF THE ISLAND — smoke test\n' + results.join('\n') + `\n\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

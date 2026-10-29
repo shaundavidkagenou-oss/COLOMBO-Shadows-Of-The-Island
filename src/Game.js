@@ -4,6 +4,7 @@ import { PoliceHQLife } from './police/PoliceHQLife.js';
 import { PoliceResponse } from './police/PoliceResponse.js';
 import { TrafficDuty } from './police/TrafficDuty.js';
 import { Health } from './actors/Health.js';
+import { StreetCricket } from './actors/StreetCricket.js';
 import { Phone } from './ui/Phone.js';
 import { SchoolLife } from './actors/SchoolLife.js';
 import * as THREE from 'three';
@@ -88,6 +89,7 @@ export class Game {
     this.hqLife = new PoliceHQLife(this);
     this.trafficDuty = new TrafficDuty(this);
     this.schoolLife = new SchoolLife(this);
+    this.cricket = new StreetCricket(this);
     this.player = new Player(this.scene, this.camera, this.collision, bus); this.player.crowd = this.crowd;
     this.hud = new HUD(this.ui); this.hud.satellite = new Satellite(this); this.director = new Director(this); this.story = new Story(this); this.interiors = new Interiors(this); this.weapons = new Weapons(this); this.player.weapons = this.weapons; this.police = new PoliceResponse(this);
     this.health = new Health(this); this.phone = new Phone(this, this.hud.root);
@@ -331,7 +333,7 @@ export class Game {
     if (this.indoor) { A.sun.intensity = 0; A.hemi.intensity *= 0.25; A.ambient.intensity = 0.25; this.scene.environmentIntensity = 0.25; A.rain.visible = false; this.renderer.toneMappingExposure = 1; }
     const camDir = new THREE.Vector3(); cam.getWorldDirection(camDir);
     if (this.indoor) this.hideOutdoor(); // anything spawned since entering (police units etc.) stays hidden too
-    if (!this.indoor) this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; if (!this.indoor) this.traffic.update(dt, focus, camDir, this.clock, this.police.foot.length ? this.crowd.peds.concat(this.police.foot) : this.crowd.peds, P); this.hqLife.update(dt); if (!this.indoor) { this.trafficDuty.update(dt); this.schoolLife.update(dt); } if (!warmOnly) this.police.update(dt);
+    if (!this.indoor) this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; if (!this.indoor) this.traffic.update(dt, focus, camDir, this.clock, this.police.foot.length ? this.crowd.peds.concat(this.police.foot) : this.crowd.peds, P); this.hqLife.update(dt); if (!this.indoor) { this.trafficDuty.update(dt); this.schoolLife.update(dt); this.cricket.update(dt); } if (!warmOnly) this.police.update(dt);
     if (!this.indoor) this.trains.update(dt, { focus, night: A.night, player: this.indoor ? null : P, playerVehicle: P.vehicle || null, vehicles: this.traffic.all(), listener: true });
     if (!this.indoor) this.crowd.update(dt, focus, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: P, hourFactor: this.hourFactor(), hour: A.hour, bodies: this.bodies });
     if (P.vehicle && A.night > 0.5 && P.nightLights === undefined) { P.vehicle.lights = true; }
