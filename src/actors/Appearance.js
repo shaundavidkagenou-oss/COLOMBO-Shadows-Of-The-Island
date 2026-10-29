@@ -290,7 +290,7 @@ export function makePoliceAppearance(seed, role = 'patrol', opts = {}) {
     Object.assign(sp, { outfit: 'security', top: '#1c2433', bottom: '#1a2130', longSleeve: true, collar: true, cap: '#11151d', vest: '#262c35', belt: '#121212', holster: true, pouch: true, patch: '#1d3f94', shoes: '#101010' });
   } else {
     const top = r.pick(KHAKI_TOP), bottom = r.pick(KHAKI_BOTTOM);
-    Object.assign(sp, { outfit: 'security', top, bottom, collar: true, longSleeve: false, patch: '#1d3f94', epaulettes: top, pips: r.int(R.pips[0], R.pips[1]), belt: R.white ? '#f4f4f0' : '#151515', buckle: '#c9cdd2' });
+    Object.assign(sp, { outfit: 'security', top, bottom, collar: true, longSleeve: false, patch: '#1d3f94', uniformShirt: true, epaulettes: top, pips: r.int(R.pips[0], R.pips[1]), belt: R.white ? '#f4f4f0' : '#151515', buckle: '#c9cdd2' });
     if (R.cap === 'peaked') Object.assign(sp, { cap: R.capTop || '#1b2233', capStyle: 'peaked', capBand: '#1b2233', capCord: R.cord || null });
     if (R.cap === 'helmet') Object.assign(sp, { cap: '#f2f2ee', capStyle: 'helmet' });
     if (R.holster) sp.holster = true;

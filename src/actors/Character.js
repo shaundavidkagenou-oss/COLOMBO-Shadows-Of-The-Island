@@ -364,6 +364,13 @@ export function buildBodyGeometry(sp) {
     for (const sx of [-1, 1]) band([[sx * 0.058, 1.47 * s, 0.0], [sx * 0.05, 1.41 * s, surfZ(1.41 * s, 0.05, 1) + 0.005], [sx * 0.026, 1.31 * s, surfZ(1.31 * s, 0.026, 1) + 0.005], [sx * 0.006, 1.25 * s, surfZ(1.25 * s, 0, 1) + 0.006]], 0.014, lc, torsoW);
     if (sp.lanyardCard !== false) { sb.boxPart([0, 1.2 * s, cz], 0.056, 0.082, 0.005, W1('chest'), C('#f4f4f0')); sb.boxPart([0, 1.233 * s, cz + 0.001], 0.056, 0.016, 0.005, W1('chest'), lc); } }
   if (sp.cord) band([[0.125 * w, 1.44 * s, 0.0], [0.11 * w, 1.4 * s, surfZ(1.4 * s, 0.11 * w, 1) + 0.005], [0.085 * w, 1.33 * s, surfZ(1.33 * s, 0.085 * w, 1) + 0.006], [0.07 * w, 1.29 * s, surfZ(1.29 * s, 0.07 * w, 1) + 0.006]], 0.01, C(sp.cord), torsoW); // whistle cord: left shoulder to breast pocket
+  if (sp.uniformShirt) { // service shirt details (photo refs): two breast pockets with buttoned flaps, front button placket, name plate over the right pocket
+    const pc = C(sp.top).map((v) => v * 0.93), fc = C(sp.top).map((v) => v * 0.84), btn = C('#b89a52'), wc = W1('chest');
+    for (const sx of [-1, 1]) { const x = sx * 0.074 * w, y = 1.295 * s, z = surfZ(y, x, 1); sb.boxPart([x, y, z + 0.003], 0.066, 0.078, 0.005, wc, pc);
+      const yf = y + 0.04, zf = surfZ(yf, x, 1); sb.boxPart([x, yf, zf + 0.006], 0.07, 0.022, 0.006, wc, fc); sb.boxPart([x, yf - 0.004, zf + 0.01], 0.011, 0.011, 0.004, wc, btn); }
+    for (let k = 0; k < 5; k++) { const y = (1.42 - k * 0.095) * s; sb.boxPart([0, y, surfZ(y, 0, 1) + 0.004], 0.011, 0.011, 0.004, k < 2 ? wc : W2('spine', 'chest', 0.4), btn); }
+    { const x = -0.074 * w, y = 1.372 * s, z = surfZ(y, x, 1); sb.boxPart([x, y, z + 0.005], 0.062, 0.015, 0.004, wc, C('#141414')); sb.boxPart([x, y, z + 0.008], 0.046, 0.005, 0.002, wc, C('#e8e8e4')); }
+  }
   if (sp.watch) { const h = J.handL; const wc = C(sp.watch);
     sb.loft([{ c: [h[0], 0.893 * s, 0], rx: 0.031, rz: 0.033, w: W1('foreL'), col: C('#1a1a1a') }, { c: [h[0], 0.909 * s, 0], rx: 0.031, rz: 0.033, w: W1('foreL'), col: C('#1a1a1a') }], 10);
     sb.boxPart([h[0] + 0.03, 0.901 * s, 0.0], 0.008, 0.026, 0.026, W1('foreL'), wc); }
@@ -692,6 +699,11 @@ export class Animator {
         case 'text': tr = [-0.45, 0, -0.15]; tfr = [-1.35, 0, 0]; tl = [-0.45, 0, 0.15]; tfl = [-1.35, 0, 0]; b.neck.rotation.x += 0.45 * aw; break;
         case 'wave': tr = [-2.6 + Math.sin(t * 8) * 0.08, 0, -0.35 - Math.sin(t * 8) * 0.25]; tfr = [-0.5, 0, 0]; break;
         case 'point': tr = [-1.5, 0, -0.15]; tfr = [-0.1, 0, 0]; head = -0.2; break;
+        case 'signal': { // traffic point duty: one palm held out towards the stopped approach, the other arm beckons the moving one (sigSide: +1 right waves, −1 left, 0 all stop)
+          const sd = this.sigSide || 0, k = Math.max(0, Math.sin(t * 3.4)); const stopL = [-0.22, 0, 1.42], stopR = [-0.22, 0, -1.42]; // stop: arm out to the side, palm out
+          if (sd > 0) { tr = [-1.3, 0, -0.3]; tfr = [-0.2 - k * 1.5, 0, 0]; tl = stopL; tfl = [-0.12, 0, 0]; head = -0.45; } // beckon: forward, forearm sweeping in
+          else if (sd < 0) { tl = [-1.3, 0, 0.3]; tfl = [-0.2 - k * 1.5, 0, 0]; tr = stopR; tfr = [-0.12, 0, 0]; head = 0.45; }
+          else { tl = [-2.75, 0, 0.25]; tfl = [-0.25, 0, 0]; tr = stopR; tfr = [-0.12, 0, 0]; head = Math.sin(at * 0.6) * 0.5; } break; } // all-red: left hand raised, right out
         case 'clap': tr = [-0.8, 0, 0.35]; tl = [-0.8, 0, -0.35]; tfr = tfl = [-1.2 - Math.abs(Math.sin(t * 9)) * 0.25, 0, 0]; break;
         case 'stretch': { const k = Math.sin(at * 1.2) * 0.5 + 0.5; tr = [-2.9 * k, 0, -0.2]; tl = [-2.9 * k, 0, 0.2]; tfr = tfl = [-0.2, 0, 0]; b.spine.rotation.x -= 0.15 * k * aw; break; }
         case 'dance': { const k = Math.sin(t * 7); tr = [-1.2 + k * 0.6, 0, -0.6 - k * 0.3]; tl = [-1.2 - k * 0.6, 0, 0.6 - k * 0.3]; tfr = tfl = [-1.4, 0, 0]; b.hips.rotation.y += Math.sin(t * 3.5) * 0.35 * aw; b.hips.position.y -= Math.abs(k) * 0.05 * aw; b.hips.rotation.z += Math.sin(t * 3.5) * 0.08 * aw; head = Math.sin(t * 3.5) * 0.2; break; }
