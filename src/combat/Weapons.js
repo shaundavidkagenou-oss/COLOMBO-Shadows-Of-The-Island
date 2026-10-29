@@ -1,4 +1,4 @@
-// Nine-weapon system for Kavindu: inventory, wheel, draw/holster, aim (over-the-shoulder / scope), fire, recoil, reload,
+// Nine-weapon system for Dineth: inventory, wheel, draw/holster, aim (over-the-shoulder / scope), fire, recoil, reload,
 // effects, hit detection and the non-graphic reactions it triggers in the crowd. Hands are placed on each weapon by
 // two-bone IK (Animator.ik) using the grip/support points exposed by the model, so every animation keeps both hands on it.
 import * as THREE from 'three';

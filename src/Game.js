@@ -207,9 +207,18 @@ export class Game {
   }
   async playEnding(kind, state) { this.player.control = false; await this.hud.fade(1, 1.2); this.hud.show(false); Input.releaseLock(); this.ignoreUnlock = true; await this.screens.ending(kind, state); this.ignoreUnlock = false; this.hud.show(true); await this.hud.fade(0, 1); this.player.control = true; Input.requestLock(this.canvas); this.autosave(); }
   rebuildPlayer() {
-    const P = this.player; const spec = { ...HEROES.kavindu, top: this.story.state.outfit || HEROES.kavindu.top };
+    const P = this.player; const spec = { ...HEROES.dineth, top: this.story.state.outfit || HEROES.dineth.top };
     const old = P.ch; const parent = old.root.parent; const ch = new Character(spec); ch.root.position.copy(old.root.position); ch.root.rotation.copy(old.root.rotation);
     if (parent) { parent.add(ch.root); parent.remove(old.root); } if (this.weapons) { this.weapons.forceHolster(); this.weapons.attach(ch); } old.dispose(); P.ch = ch; if (P.vehicle) { const seat = P.vehicle.driverSeat(); ch.root.position.set(seat.x, seat.y, seat.z); ch.root.rotation.set(0, 0, 0); ch.anim.sitIn(seat, 1); ch.anim.update(0.001, 0); }
+  }
+  // protagonist skin / clothing layer: rain soaks skin and clothes outdoors (not inside vehicles or interiors) and dries
+  // slowly; sweat builds with exertion, faster in the midday heat and humid monsoon air, and fades at rest
+  heroSkin(dt) {
+    const A = this.atmos; const chars = this.squad ? this.squad.members.map((m) => m.ch) : [this.player.ch];
+    for (const ch of chars) { const U = ch && ch.heroU; if (!U) continue; const P = this.player; const inVeh = ch === P.ch ? !!P.vehicle : !!ch.inVehicle;
+      const rain = this.indoor || inVeh ? 0 : A.w.rain || 0; const wet = U.uWet.value; U.uWet.value = clamp(wet + (rain > 0.2 ? dt * 0.06 * rain : -dt * (this.indoor || inVeh ? 0.012 : 0.004)), 0, 1);
+      const spd = ch.anim ? ch.anim.speed || 0 : 0; const heat = A.night ? 0.4 : 0.6 + 0.4 * Math.max(0, 1 - Math.abs(A.hour - 13) / 4); const humid = 0.8 + 0.4 * Math.min(1, A.w.rain + (A.weather === 'overcast' ? 0.3 : 0));
+      const exert = spd > 4.5 ? 1 : spd > 2.2 ? 0.35 : 0; const sw = U.uSweat.value; U.uSweat.value = clamp(sw + (exert * heat * humid * 0.02 - (exert ? 0 : 0.006)) * dt * (this.indoor ? 0.6 : 1) * 1, 0, 1); }
   }
   setIndoor(v) { this.indoor = v; this.world.root.visible = !v; this.atmos.rain.visible = false; this.atmos.indoor = v; this.hud.mini.classList.toggle('dim', v); if (v) this.hideOutdoor(); else this.showOutdoor(); }
   // FPS: while inside an interior nothing of the street is visible, so street traffic, crowd, trains and other
@@ -317,6 +326,7 @@ export class Game {
       if (P.vehicle && Input.wasPressed('radio')) { this.radio = (this.radio + 1) % RADIO.length; this.hud.notify('Radio', RADIO[this.radio] ? RADIO[this.radio].name : 'Off', 'info', 1.6); }
     }
     if (!warmOnly) this.weapons.update(dt, !busy && P.control && !P.cinematic && !this.indoor);
+    if (!warmOnly) this.heroSkin(dt);
     this.bodies = gatherBodies(this.scene); P.bodies = this.bodies;
     if (this.photo) this.updatePhoto(dt);
     else if (!D.active) P.update(dt, this.traffic);
@@ -370,7 +380,7 @@ export class Game {
     if (best) {
       if (Input.wasPressed('interact')) { this.crowd.interact(best, 'talk', P); P.ch.anim.play('talk', 1.8); }
       else if (Input.wasPressed('more')) { this.crowd.interact(best, 'wave', P); P.ch.anim.play('wave', 1.5); }
-      else if (Input.wasPressed('insult')) { this.crowd.interact(best, 'insult', P); P.ch.anim.play('point', 1.2); this.hud.subtitle('Kavindu', ['Move, machan!', 'Watch where you\'re going!', 'Nice shirt. Did your grandmother pick it?'][Math.floor(Math.random() * 3)], '', 2); }
+      else if (Input.wasPressed('insult')) { this.crowd.interact(best, 'insult', P); P.ch.anim.play('point', 1.2); this.hud.subtitle('Dineth', ['Move, machan!', 'Watch where you\'re going!', 'Nice shirt. Did your grandmother pick it?'][Math.floor(Math.random() * 3)], '', 2); }
       else if (Input.wasPressed('shove')) { this.crowd.interact(best, 'shove', P); P.ch.anim.play('shove', 0.6); }
       return `${key('interact')} Talk · ${key('more')} Wave · ${key('insult')} Insult · ${key('shove')} Shove`;
     }

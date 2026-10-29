@@ -421,7 +421,7 @@ export const PLACES = {
   vmpark:        { x: 90, z: -60, name: 'Viharamahadevi Park' },
   fortStation:   { x: -35, z: -645, name: 'Fort Railway Station' },
   clockTower:    { x: -385, z: -903, name: 'Fort Clock Tower' },
-  slaveFlat:     { x: -150, z: -150, name: "Kavindu's room, Slave Island" },
+  slaveFlat:     { x: -150, z: -150, name: "Dineth's room, Slave Island" },
   garage:        { x: 455, z: -790, name: 'Lanka Auto Care, Maradana' },
   tailor:        { x: -305, z: 470, name: 'Ceylon Threads, Bambalapitiya' },
   hospital:      { x: 660, z: -160, name: 'National Hospital' },

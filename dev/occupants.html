@@ -22,7 +22,7 @@ const g = createVehicleMesh(type, variant); s.add(g); const veh = { mesh: g };
 const seats = g.userData.seats; const n = q.get('full') === '0' ? 1 : q.get('full') ? +q.get('full') || seats.length : seats.length;
 const heights = [1.86, 1.55, 1.72, 1.64, 1.79, 1.6]; const occ = [];
 seats.slice(0, n).forEach((seat, i) => {
-  const spec = i === 0 && q.get('hero') ? { ...HEROES.kavindu } : randomSpec(4100 + i * 37 + variant * 5, { age: 'adult', sex: i % 3 === 1 ? 'f' : 'm' });
+  const spec = i === 0 && q.get('hero') ? { ...HEROES.dineth } : randomSpec(4100 + i * 37 + variant * 5, { age: 'adult', sex: i % 3 === 1 ? 'f' : 'm' });
   spec.height = heights[i % heights.length] * (spec.sex === 'f' ? 0.97 : 1);
   const ch = new Character(spec); seatCharacter(ch, veh, seat, ['lap', 'phone', 'window'][i % 3]); ch.anim.steer = +(q.get('steer') || 0); ch.anim.update(0.016, 0); occ.push(ch);
 });

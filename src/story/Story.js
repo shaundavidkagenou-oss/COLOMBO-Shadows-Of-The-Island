@@ -79,7 +79,7 @@ export class Story {
     let result = null;
     for (const l of lines) {
       if (l.choice) { result = await g.hud.choice(l.choice, l.title || ''); if (l.onChoice) await l.onChoice(result); continue; }
-      const who = l[0], text = l[1]; const speaker = who === 'Kavindu' ? p.ch : a; // NPC ids ('siri') differ from display names ('Siri')
+      const who = l[0], text = l[1]; const speaker = who === 'Dineth' ? p.ch : a; // NPC ids ('siri') differ from display names ('Siri')
       await D.say(who, text, null, l[2] || '', l[3] || 'en', speaker);
     }
     D.end(); return result;
@@ -139,10 +139,10 @@ export class Story {
         await this.goto(kade, 'The Meeting', 'Get out of the rain — head to Lucky Tea Kade', { radius: 4 });
         const [x, z] = [kade.x + Math.sin(kade.faceIn) * 0.2, kade.z + Math.cos(kade.faceIn) * 0.2];
         await this.talk('siri', 'Siri', [
-          ['Siri', 'Kavindu? Aiyo, look at you! Seven years and not one postcard.'],
-          ['Kavindu', 'Uncle Siri. You still make the best plain tea in Pettah?'],
+          ['Siri', 'Dineth? Aiyo, look at you! Seven years and not one postcard.'],
+          ['Dineth', 'Uncle Siri. You still make the best plain tea in Pettah?'],
           ['Siri', 'Best and cheapest. For now. They sent me the letter too, you know. Sell or else.'],
-          ['Kavindu', 'Ruwan told me. Who is behind it?'],
+          ['Dineth', 'Ruwan told me. Who is behind it?'],
           ['Siri', 'Nobody says the name loudly. Go home, rest. Your old room in Slave Island is still there — I kept paying the lock.'],
           ['Siri', 'Here, take some money. And take a tuk. You will melt in this rain.'],
         ], { spec: randomSpec(4242, { sex: 'm', age: 'elder', outfit: 'shirt', top: '#f2f2ee' }), x, z, yaw: kade.rot + Math.PI });
@@ -168,7 +168,7 @@ export class Story {
         const [x, z] = this.safeSpot(P.gfKade.x + 4, P.gfKade.z);
         await this.talk('ruwan', 'Ruwan', [
           ['Ruwan', 'You came. Good. Sit, eat something. Isso vadai — you look like you missed it.'],
-          ['Kavindu', 'I opened the folder. Land deeds, eviction notices... and a company name. Harbour Crest Developments.'],
+          ['Dineth', 'I opened the folder. Land deeds, eviction notices... and a company name. Harbour Crest Developments.'],
           ['Ruwan', 'On paper they are building a luxury tower. In reality they are buying the whole street for nothing, by scaring people.'],
           ['Ruwan', 'Three shopkeepers kept copies of everything: Mrs. Fathima, Mr. Selvaraj and Uncle Bandara. They trust me. They will trust you.'],
           { choice: ['"I\'ll help. For the street."', '"What do I get out of it?"'], onChoice: async (i) => { if (i === 0) this.rel('ruwan', 8); else { this.rel('ruwan', -5); await this.g.director.say('Ruwan', 'You get your city back, machan. That\'s the deal.'); } } },
@@ -190,7 +190,7 @@ export class Story {
         await this.talk('fathima', 'Mrs. Fathima', [
           ['Mrs. Fathima', 'Ruwan\'s friend? Come, come inside the doorway, the rain will ruin the fabric.'],
           ['Mrs. Fathima', 'My father opened this shop in 1971. Last month a man came with a lawyer and a price. A joke of a price.'],
-          ['Kavindu', 'Did you keep the letter?'],
+          ['Dineth', 'Did you keep the letter?'],
           ['Mrs. Fathima', 'I kept everything. Here — the eviction notice. Look at the stamp. That office closed years ago.'],
           { choice: ['"We will stop them. I promise."', '"I can\'t promise anything, but I\'ll try."'], onChoice: async (i) => this.rel('fathima', i === 0 ? 6 : 3) },
         ], { spec: HEROES.fathima, ...f });
@@ -202,7 +202,7 @@ export class Story {
           ['Mr. Selvaraj', 'வணக்கம், தம்பி.', 'Hello, young man.', 'ta'],
           ['Mr. Selvaraj', 'They didn\'t only send letters. They cut my power three times. Then a man offered to "fix" it — if I signed.'],
           ['Mr. Selvaraj', 'I recorded him on one of these old phones. Electronics shop, after all.'],
-          ['Kavindu', 'You\'re a genius, uncle.'],
+          ['Dineth', 'You\'re a genius, uncle.'],
           ['Mr. Selvaraj', 'A careful old man. Take the memory card. And bring it back with good news.'],
         ], { spec: HEROES.selvaraj, ...s });
         this.hud.notify('Evidence', 'Recorded threat (memory card)', 'collect', 4); this.state.flags.ev2 = true;
@@ -259,7 +259,7 @@ export class Story {
         this.g.atmos.forceWeather('rain');
         const [x, z] = this.safeSpot(P.police.x + 6, P.police.z + 12);
         await this.talk('anjali', 'Anjali Fernando', [
-          ['Anjali Fernando', 'You\'re Kavindu. Ruwan says you have the ledger. I\'m Anjali — I write for the Sunday paper.'],
+          ['Anjali Fernando', 'You\'re Dineth. Ruwan says you have the ledger. I\'m Anjali — I write for the Sunday paper.'],
           ['Anjali Fernando', 'If this goes to print tonight, nobody can bury it. But the presses close at midnight and the files are with my source in Bambalapitiya.'],
           ['Anjali Fernando', 'Ceylon Threads, the tailor on Galle Road. Collect the envelope and bring everything to the Town Hall steps. Fast.'],
           { choice: ['"Consider it done."', '"Why should I trust a journalist?"'], onChoice: async (i) => { this.rel('anjali', i === 0 ? 6 : -3); if (i === 1) await this.g.director.say('Anjali Fernando', 'Because I\'m the only one in this city who wants to be sued by Harbour Crest.'); } },
@@ -285,8 +285,8 @@ export class Story {
         const l = P.lotus; const [x, z] = this.safeSpot(l.x - 30, l.z + 60);
         await this.goto({ x, z }, 'Lotus Tower', 'Go to the Lotus Tower', { radius: 8 });
         await this.talk('dilan', 'Dilan Wickramaratne', [
-          ['Dilan Wickramaratne', 'Kavindu Jayasekara. The boy who left. Do you know how many jobs my tower will create?'],
-          ['Kavindu', 'You forged deeds and threatened old shopkeepers. That\'s not development.'],
+          ['Dilan Wickramaratne', 'Dineth Jayasekara. The boy who left. Do you know how many jobs my tower will create?'],
+          ['Dineth', 'You forged deeds and threatened old shopkeepers. That\'s not development.'],
           ['Dilan Wickramaratne', 'That\'s Colombo, my friend. Everyone signs eventually. I can make it worth your while — a flat with a sea view.'],
           ['Dilan Wickramaratne', 'Or Nalin can make sure you leave the island again. Decide.'],
           { title: 'What do you do with the evidence?', choice: ['Publish everything with Anjali', 'Take it to the police', 'Make Dilan return the shops — and keep quiet'], onChoice: async (i) => { this.state.ending = ['press', 'police', 'deal'][i]; } },

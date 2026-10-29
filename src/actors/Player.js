@@ -1,4 +1,4 @@
-// Kavindu: on-foot controller (walk/jog/sprint/crouch/jump/climb), vehicle enter/exit, and the third-person camera.
+// Dineth: on-foot controller (walk/jog/sprint/crouch/jump/climb), vehicle enter/exit, and the third-person camera.
 import { separate } from './Bodies.js';
 import * as THREE from 'three';
 import { Character, HEROES } from './Character.js';
@@ -10,7 +10,7 @@ import * as L from '../world/Layout.js';
 export class Player {
   constructor(scene, camera, collision, events) {
     this.scene = scene; this.camera = camera; this.collision = collision; this.events = events;
-    this.ch = new Character(HEROES.kavindu); scene.add(this.ch.root);
+    this.ch = new Character(HEROES.dineth); scene.add(this.ch.root);
     this.x = 0; this.z = 0; this.y = 0.15; this.vy = 0; this.yaw = 0; this.speed = 0; this.grounded = true; this.vehicle = null; this.sprinting = false; this.crouching = false; this.stamina = 1;
     this.camYaw = 0; this.camPitch = 0.18; this.camDist = 4.2; this.camPos = new THREE.Vector3(); this.camMode = 0; this.control = true; this.climb = null; this.transition = null;
     this.camTarget = new THREE.Vector3(); this.lookAhead = 0; this.shake = 0; this.fpYaw = 0;

@@ -24,7 +24,7 @@ export class Director {
   after(sec, fn) { this.timers.push({ t: this.time + sec, fn }); }
   // the character speaking a line: explicit actor, a registered actor by id or (case-insensitive) display name, or the player
   speakerFor(who, actor) {
-    if (actor) return actor; if (this.actors.has(who)) return this.actors.get(who); if (who === 'Kavindu') return this.g.player.ch;
+    if (actor) return actor; if (this.actors.has(who)) return this.actors.get(who); if (who === 'Dineth') return this.g.player.ch;
     const k = String(who).toLowerCase().replace(/^(mr|mrs|uncle|aunty)\.?\s+/, ''); for (const [id, a] of this.actors) if (id.toLowerCase() === k || id.toLowerCase() === String(who).toLowerCase()) return a; return null;
   }
   say(who, text, dur = null, tr = '', lang = 'en', actor = null) {
@@ -63,7 +63,7 @@ export class Director {
     }
     for (const [id, a] of this.actors) if (!this.movers.some((m) => m.ch === a)) a.anim.update(dt, 0);
     // the player is not updated by Player.update() while a scene is directed: keep their animation alive here
-    // (otherwise Kavindu freezes in whatever pose the last frame left — e.g. mid-stride — for the whole conversation)
+    // (otherwise Dineth freezes in whatever pose the last frame left — e.g. mid-stride — for the whole conversation)
     if (this.active) { const pc = this.g.player.ch; if (pc && !this.movers.some((m) => m.ch === pc) && ![...this.actors.values()].includes(pc)) pc.anim.update(dt, 0, 0); }
     this.applyUprights();
     for (const v of this.scriptedVehicles || []) {

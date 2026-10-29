@@ -1,4 +1,4 @@
-// Walk-in interiors for story shops and Kavindu's room. Built beneath the street (y = -40) and entered through a fade.
+// Walk-in interiors for story shops and Dineth's room. Built beneath the street (y = -40) and entered through a fade.
 import * as THREE from 'three';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
@@ -16,7 +16,7 @@ const DEFS = {
   bandara: { name: 'Bandara Spice Stores', w: 7, d: 10, wall: '#e0c890', floor: '#7a5a3a', keeper: HEROES.bandara, line: 'Cinnamon, cardamom, goraka. The real thing, not supermarket dust.' },
   tailor: { name: 'Ceylon Threads', w: 6, d: 9, wall: '#d8d0e0', floor: '#5a4a5a', keeper: { seed: 611, sex: 'f', age: 'adult', outfit: 'saree', top: '#6a2a7a', skirt: 'ankle', skirtCol: '#6a2a7a', pattern: 1, hair: 'bun' }, line: 'A new jacket? I can have it ready before the rain stops.' },
   garage: { name: 'Lanka Auto Care', w: 12, d: 14, wall: '#9aa0a6', floor: '#4a4a4a', keeper: { seed: 733, sex: 'm', age: 'adult', outfit: 'worker', top: '#5a6b3a', cap: '#1f2a3a' }, line: 'Engine, brakes, paint. Tuk or Benz, same care.' },
-  room: { name: "Kavindu's room", w: 5, d: 6, wall: '#c8d0c0', floor: '#7a6a5a', keeper: null, line: '' },
+  room: { name: "Dineth's room", w: 5, d: 6, wall: '#c8d0c0', floor: '#7a6a5a', keeper: null, line: '' },
 };
 export class Interiors {
   constructor(game) { this.g = game; this.current = null; this.built = new Map(); this.doors = []; this.fan = null; }

@@ -22,7 +22,7 @@ export async function playOpening(g) {
   g.world.warm(MEET.x, MEET.z); g.world.warm(-560, -330);
   d.begin(); Audio.setMusic('intro');
   const skipper = g.bus.on('key', (code) => { if (code === 'Escape' || code === 'Enter') { d.skip = true; hud.clearSubtitle(); } });
-  // place Kavindu and Ruwan
+  // place Dineth and Ruwan
   const kStart = { x: MEET.x - 0.95 - 1.25 * 9.3, z: MEET.z }; /* walk ends as the street-level shots end (no static wait) */ P.teleport(kStart.x, kStart.z, Math.PI / 2); P.ch.anim.set(null);
   const ruwan = d.spawnActor('Ruwan', HEROES.ruwan, MEET.x + 0.3, MEET.z + 0.25, -Math.PI / 2);
   ruwan.anim.set('phone'); const folder = folderMesh(); attach(ruwan, folder); folder.visible = false; d.holdUpright(folder, ruwan);
@@ -37,7 +37,7 @@ export async function playOpening(g) {
     await d.shot({ pos: [-40, 75, -790], look: [-120, 5, -900] }, { pos: [-108, 50, -858], look: [-135, 2, -896] }, 6);
     // 3) the skyline and Lotus Tower under a heavy sky
     await d.shot({ pos: [150, 45, -640], look: [305, 120, -480] }, { pos: [190, 40, -650], look: [305, 140, -480] }, 5);
-    // 4) street level: Kavindu walks along Main Street
+    // 4) street level: Dineth walks along Main Street
     const walk = d.walkTo(P.ch, MEET.x - 0.95, MEET.z, 1.25);
     d.follow(P.ch, [-3.8, 1.8, -1.9], [1.5, 1.4, 0]);
     await d.wait(5.5);
@@ -51,22 +51,22 @@ export async function playOpening(g) {
     d.hold(two.pos, two.look);
     await d.say('Ruwan', 'You really picked the worst day to come back, machan.', 3.4);
     d.hold(overR.pos, overR.look);
-    await d.say('Kavindu', 'Seven years, Ruwan. I was hoping for "welcome home."', 3.2);
+    await d.say('Dineth', 'Seven years, Ruwan. I was hoping for "welcome home."', 3.2);
     d.hold(overK.pos, overK.look);
     await d.say('Ruwan', 'Welcome home. Now listen. Main Street — the tea kade, Fathima\'s shop, Uncle Bandara\'s spice store. Someone wants all of it.', 5.2);
     await d.say('Ruwan', 'Not buying. Pressuring. Lawyers in the morning, black SUVs at night, signatures nobody remembers giving.', 5);
     d.hold(overR.pos, overR.look);
-    await d.say('Kavindu', 'Who?', 1.4);
+    await d.say('Dineth', 'Who?', 1.4);
     d.hold(overK.pos, overK.look);
     await d.say('Ruwan', 'A company called Harbour Crest Developments. That\'s all anyone will say out loud.', 4);
     // the folder
     folder.visible = true; ruwan.anim.set('interact');
     d.shot({ pos: [C - 0.1, 1.45, MEET.z - 1.9], look: [C, 1.12, MEET.z + 0.1] }, { pos: [C, 1.38, MEET.z - 1.5], look: [C, 1.1, MEET.z + 0.1] }, 4.5);
     await d.say('Ruwan', 'Photos, land records, and an address. Don\'t open it here.', 3.6);
-    // hand-over: Kavindu reaches out while Ruwan is still holding it out, the folder changes hands at full reach
+    // hand-over: Dineth reaches out while Ruwan is still holding it out, the folder changes hands at full reach
     P.ch.anim.set('interact'); await d.wait(0.55); attach(P.ch, folder); d.holdUpright(folder, P.ch); ruwan.anim.set(null); await d.wait(0.7); P.ch.anim.set(null);
     d.hold(overR.pos, overR.look);
-    await d.say('Kavindu', 'Why me?', 1.5);
+    await d.say('Dineth', 'Why me?', 1.5);
     d.hold(overK.pos, overK.look);
     await d.say('Ruwan', 'Because nobody here knows your face any more. And because you never could leave things alone.', 4.6);
     // weather turns
@@ -75,18 +75,18 @@ export async function playOpening(g) {
     await d.wait(2.4);
     d.hold(two.pos, two.look);
     await d.say('Ruwan', 'Meet me tonight at Galle Face. Eight o\'clock, by the food carts.', 3.6);
-    await d.say('Ruwan', 'And Kavindu — if you see a black SUV twice, it isn\'t a coincidence.', 3.8);
+    await d.say('Ruwan', 'And Dineth — if you see a black SUV twice, it isn\'t a coincidence.', 3.8);
     // a black SUV crawls past through the puddles; Ruwan watches it, then leaves
     const lane = MEET.z - 3.4; /* westbound (left-hand traffic) lane next to the kerb */
     d.driveBy('suv', [[MEET.x + 28, lane], [MEET.x - 40, lane], [MEET.x - 160, lane]], 8.5, 31); // passes the low camera (MEET.x − 6) ~4 s into the 6.5 s shot
     d.face(ruwan, MEET.x + 40, lane);
     await d.shot({ pos: [MEET.x - 6, 0.6, MEET.z - 1.4], look: [MEET.x + 20, 0.8, lane] }, { pos: [MEET.x - 6.5, 0.7, MEET.z - 1.6], look: [MEET.x - 10, 0.9, lane] }, 6.5);
     d.hold(two.pos, two.look);
-    await d.say('Kavindu', 'Ruwan—', 1.1);
+    await d.say('Dineth', 'Ruwan—', 1.1);
     d.walkTo(ruwan, MEET.x + 14, MEET.z + 0.6, 1.5);
     await d.say('Ruwan', 'Eight o\'clock. Don\'t be late.', 2.4);
     await d.shot({ pos: [MEET.x - 3.5, 1.7, MEET.z - 1.3], look: [MEET.x + 8, 1.4, MEET.z] }, { pos: [MEET.x - 3.8, 1.75, MEET.z - 1.5], look: [MEET.x + 14, 1.5, MEET.z] }, 4);
-    // title card over the rainy street, then the camera settles behind Kavindu
+    // title card over the rainy street, then the camera settles behind Dineth
     hud.titleCard('<div class="mb-title big">COLOMBO</div><div class="mb-sub">SHADOWS OF THE ISLAND</div>', 4.5);
     await d.shot({ pos: [MEET.x - 1, 7, MEET.z - 10], look: [MEET.x, 1.5, MEET.z] }, { pos: [MEET.x - 1 - 3.6, 2.1, MEET.z + 0.2], look: [MEET.x - 1, 1.55, MEET.z] }, 5, easeOut);
   } finally {

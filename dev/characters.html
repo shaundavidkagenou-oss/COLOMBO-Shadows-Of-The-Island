@@ -9,7 +9,7 @@ const r = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antial
 const s = new THREE.Scene(); s.background = new THREE.Color(0x9fb4c8);
 s.add(new THREE.HemisphereLight(0xdde8ff, 0x665544, 1.4)); const d = new THREE.DirectionalLight(0xfff0dd, 2.5); d.position.set(3, 6, 5); s.add(d);
 const cam = new THREE.PerspectiveCamera(30, 2, 0.1, 100); cam.position.set(0, 1.4, 11); cam.lookAt(0, 1.0, 0); if (params0.get('close')) { cam.fov = 12; cam.position.set(-3.1, 1.6, 6); cam.lookAt(-3.1, 1.35, 0); cam.updateProjectionMatrix(); }
-const list = [HEROES.kavindu, HEROES.ruwan, HEROES.fathima, HEROES.selvaraj, HEROES.anjali];
+const list = [HEROES.dineth, HEROES.shashika, HEROES.david, HEROES.ruwan, HEROES.fathima, HEROES.selvaraj, HEROES.anjali];
 for (let i = 0; i < 9; i++) list.push(randomSpec(100 + i * 7));
 const chars = list.map((sp, i) => { const c = new Character(sp); c.root.position.set((i - (list.length - 1) / 2) * 0.75, 0, 0); s.add(c.root); return c; });
 const params = new URLSearchParams(location.search); const mode = params.get('a') || 'idle';
@@ -17,7 +17,7 @@ const acts = { idle: [0, null], walk: [1.4, null], run: [5, null], talk: [0, 'ta
 let t = 0; for (let k = 0; k < 40; k++) { chars.forEach((c, i) => { const a = acts[mode] || [0, mode]; c.anim.set(a[1]); c.anim.update(0.033, a[0]); }); }
 if (params.get('side')) chars.forEach((c) => (c.root.rotation.y = Math.PI / 2));
 // ?strip=<hero|index>&sp=1.4 : one character drawn at 10 consecutive moments of its gait (side view) to check stride / contact
-if (params.get('strip')) { chars.forEach((c) => (c.root.visible = false)); const spd = +(params.get('sp') || 1.4); const who = list[+params.get('strip')] || HEROES.kavindu; const n = 10;
+if (params.get('strip')) { chars.forEach((c) => (c.root.visible = false)); const spd = +(params.get('sp') || 1.4); const who = list[+params.get('strip')] || HEROES.dineth; const n = 10;
   for (let i = 0; i < n; i++) { const c = new Character(who); c.root.rotation.y = Math.PI / 2; c.root.position.set(-4.5 + i * 1.0, 0, 0); s.add(c.root); for (let k = 0; k < 120; k++) c.anim.update(1 / 60, spd); let guard = 0; while (Math.abs(c.anim.cyc - i / n) > 0.012 && guard++ < 600) c.anim.update(1 / 240, spd); } /* simulated continuously up to each phase (hip smoothing + stance IK active) */
   const g = new THREE.GridHelper(12, 48, 0x333333, 0x666666); s.add(g); }
 // ?faces=1 : close-up row of heads showing every expression frame
