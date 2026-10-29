@@ -141,5 +141,20 @@ if (!process.argv.includes('--no-build')) await check('Production build (vite bu
   assert(r.status === 0, (r.stderr || r.stdout).split('\n').slice(-6).join(' | ')); assert(existsSync(new URL('../dist/index.html', import.meta.url)), 'dist/index.html missing'); return 'dist/ ok';
 });
 
+await check('Health, hospital, wallet ledger and versioned saves (v1 → v2 migration)', async () => {
+  const { migrate, SAVE_VERSION } = await import('../src/core/SaveSystem.js');
+  const m = migrate({ version: 1, savedAt: 1, story: { money: 777 } }); assert(SAVE_VERSION === 2 && m.version === 2 && m.migratedFrom === 1 && m.story.health === 100 && Array.isArray(m.story.ledger) && Array.isArray(m.story.msgs), 'v1 migrated');
+  assert(migrate({ version: 2, story: { health: 40, ledger: [1] } }).story.health === 40, 'v2 untouched');
+  const { Health, HOSPITAL } = await import('../src/actors/Health.js');
+  const ev = {}; const P = { events: { on: (k, f) => (ev[k] = f) }, stamina: 1 }; const notes = [];
+  const g = { player: P, clock: 0, mode: 'play', director: { active: false }, story: { state: { health: 100, money: 5000 } }, hud: { hurt() {}, notify: (...a) => notes.push(a) } };
+  const H = new Health(g); H.damage(30, 'test'); assert(Math.abs(H.hp - 70) < 1e-6, 'damage');
+  P.lastLandVy = -12; ev.land(); assert(H.hp < 70 && H.stats.falls === 1, 'fall damage from a ~5.5 m drop'); P.lastLandVy = -5; const h1 = H.hp; ev.land(); assert(H.hp === h1, 'no damage from a small hop');
+  ev.hitByVehicle(9); assert(H.stats.hits === 1, 'vehicle strike');
+  H.hp = 20; g.clock = 5; H.lastHurt = 0; H.update(1); assert(H.hp === 20, 'no regen while recently hurt'); g.clock = 20; for (let i = 0; i < 100; i++) H.update(1); assert(Math.abs(H.hp - 60) < 1e-6, 'regen caps at 60');
+  assert(HOSPITAL.medicines === 1500 && HOSPITAL.ambulanceMedicines < HOSPITAL.medicines, 'pharmacy charges');
+  return `damage/fall/strike/regen ok, save v${SAVE_VERSION}`;
+});
+
 console.log('\nCOLOMBO: SHADOWS OF THE ISLAND — smoke test\n' + results.join('\n') + `\n\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

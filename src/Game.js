@@ -3,6 +3,8 @@ import { gatherBodies } from './actors/Bodies.js';
 import { PoliceHQLife } from './police/PoliceHQLife.js';
 import { PoliceResponse } from './police/PoliceResponse.js';
 import { TrafficDuty } from './police/TrafficDuty.js';
+import { Health } from './actors/Health.js';
+import { Phone } from './ui/Phone.js';
 import { SchoolLife } from './actors/SchoolLife.js';
 import * as THREE from 'three';
 import { Settings } from './core/Settings.js';
@@ -88,6 +90,7 @@ export class Game {
     this.schoolLife = new SchoolLife(this);
     this.player = new Player(this.scene, this.camera, this.collision, bus); this.player.crowd = this.crowd;
     this.hud = new HUD(this.ui); this.hud.satellite = new Satellite(this); this.director = new Director(this); this.story = new Story(this); this.interiors = new Interiors(this); this.weapons = new Weapons(this); this.player.weapons = this.weapons; this.police = new PoliceResponse(this);
+    this.health = new Health(this); this.phone = new Phone(this, this.hud.root);
     this.applyDensity();
     progress(0.9, 'Lighting'); await tick();
     this.post = new PostFX(this.renderer, this.scene, this.camera); this.post.build({ bloom: Settings.preset.bloom, ao: Settings.preset.ao });
@@ -233,7 +236,7 @@ export class Game {
   // ================================================================= input
   onKey(code) {
     if (this.mode !== 'play' || this.paused) return;
-    if (code === 'Escape') { if (this.photo) this.togglePhoto(false); else if (this.hud.bigMapOpen) this.toggleMap(false); else if (!this.director.active) this.openPause(); }
+    if (code === 'Escape') { if (this.phone?.open) this.phone.toggle(false); else if (this.photo) this.togglePhoto(false); else if (this.hud.bigMapOpen) this.toggleMap(false); else if (!this.director.active) this.openPause(); }
   }
   async openPause() {
     if (this.paused || this.director.active) return; this.paused = true; Input.releaseLock(); Audio.ui('click');
@@ -300,11 +303,13 @@ export class Game {
   updatePlay(dt, warmOnly = false) {
     this.dt = dt; this.clock += dt; const P = this.player, A = this.atmos, cam = this.camera, D = this.director;
     if (!D.active) A.advance(dt / Settings.get('timeScale'));
-    const busy = D.active || this.photo || this.hud.bigMapOpen || this.paused;
+    const busy = D.active || this.photo || this.hud.bigMapOpen || this.paused || this.phone.open || this.health.busy;
     // global actions
     if (!D.active && !warmOnly) {
-      if (Input.wasPressed('map') && !this.photo) this.toggleMap();
-      if (Input.wasPressed('phone') && !this.hud.bigMapOpen) this.togglePhoto();
+      if (Input.wasPressed('map') && !this.photo) { if (this.phone.open) this.phone.toggle(false); this.toggleMap(); }
+      if (Input.wasPressed('phone') && !this.hud.bigMapOpen) { if (this.photo) this.togglePhoto(false); else this.phone.toggle(); }
+      else this.phone.update();
+      if (this.mode === 'play') this.health.update(dt);
       if (Input.wasPressed('journal')) this.openPause();
       if (P.vehicle && Input.wasPressed('radio')) { this.radio = (this.radio + 1) % RADIO.length; this.hud.notify('Radio', RADIO[this.radio] ? RADIO[this.radio].name : 'Off', 'info', 1.6); }
     }
@@ -338,7 +343,7 @@ export class Game {
     if (this.musicT <= 0) { this.musicT = 1; if (!(Audio.musicMode === 'chase' && this.story.pursuers.length) && !D.active) { let m = A.night > 0.5 ? 'night' : 'explore'; if (this.story.guards.length) m = 'tension'; if (this.story.pursuers.length) m = 'chase'; if (P.vehicle && this.radio) m = RADIO[this.radio].mode; if (this.indoor) m = 'none'; Audio.setMusic(m); } }
     // HUD
     const v = P.vehicle; const dist = L.districtAt(P.x, P.z);
-    this.hud.update({ time: A.timeString, money: this.story.state.money, district: this.indoor ? this.interiors.current.D.name : this.seamK > 0.5 ? this.interiors.hq.D.name : dist ? dist.name.split(' · ')[0] : '', street: this.indoor ? '' : L.roadNameAt(P.x, P.z) || '', x: P.x, z: P.z, camYaw: this.photo ? this.photoYaw + Math.PI : P.camYaw, stamina: P.stamina, vehicle: v, vehicleName: v ? VNAMES[v.type] || v.type : '', radio: v && this.radio ? `♪ ${RADIO[this.radio].name}` : '', camera: cam, police: this.police.hudInfo(), projector: (x, y, z) => this.project(x, y, z), fps: this.fps, draws: this.renderer.info.render.calls, extras: this.miniExtras(), indoor: !!this.indoor });
+    this.hud.update({ health: this.health.hp, healthBusy: this.health.busy, time: A.timeString, money: this.story.state.money, district: this.indoor ? this.interiors.current.D.name : this.seamK > 0.5 ? this.interiors.hq.D.name : dist ? dist.name.split(' · ')[0] : '', street: this.indoor ? '' : L.roadNameAt(P.x, P.z) || '', x: P.x, z: P.z, camYaw: this.photo ? this.photoYaw + Math.PI : P.camYaw, stamina: P.stamina, vehicle: v, vehicleName: v ? VNAMES[v.type] || v.type : '', radio: v && this.radio ? `♪ ${RADIO[this.radio].name}` : '', camera: cam, police: this.police.hudInfo(), projector: (x, y, z) => this.project(x, y, z), fps: this.fps, draws: this.renderer.info.render.calls, extras: this.miniExtras(), indoor: !!this.indoor });
     // audio
     const near = v ? [v] : []; for (const o of this.traffic.vehicles) { if (near.length >= 6) break; if (Math.hypot(o.x - P.x, o.z - P.z) < 45) near.push(o); }
     Audio.update(dt, { listener: { x: P.x, z: P.z, yaw: P.camYaw + Math.PI }, night: A.night, rain: A.w.rain, wind: A.w.wind, traffic: this.traffic.vehicles.length, vehicles: near, indoor: this.indoor || this.seamK > 0.6 });

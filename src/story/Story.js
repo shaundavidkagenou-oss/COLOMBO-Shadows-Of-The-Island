@@ -2,7 +2,8 @@
 import * as THREE from 'three';
 import * as L from '../world/Layout.js';
 import { plan } from '../world/CityPlan.js';
-import { HEROES, randomSpec } from '../actors/Character.js';
+import { HEROES, randomSpec, Character } from '../actors/Character.js';
+import { seatCharacter } from '../actors/Seating.js';
 import { Vehicle } from '../vehicles/Vehicle.js';
 import { Input } from '../core/Input.js';
 import { Audio } from '../audio/Audio.js';
@@ -39,7 +40,7 @@ export class Story {
   constructor(game) {
     this.g = game; this.state = Story.freshState(); this.conds = []; this.npcs = new Map(); this.running = null; this.side = null; this.talkTarget = null; this.photoTargets = []; this.pursuers = []; this.guards = [];
   }
-  static freshState() { return { money: 2500, mission: { id: 'm0', stage: 0 }, done: [], rel: { ruwan: 50, fathima: 50, selvaraj: 50, bandara: 50, anjali: 50 }, stamps: [], photos: [], trials: {}, flags: {}, stats: { taxi: 0, deliveries: 0 }, ending: null, outfit: null }; }
+  static freshState() { return { money: 2500, mission: { id: 'm0', stage: 0 }, done: [], rel: { ruwan: 50, fathima: 50, selvaraj: 50, bandara: 50, anjali: 50 }, stamps: [], photos: [], trials: {}, flags: {}, stats: { taxi: 0, deliveries: 0 }, ending: null, outfit: null, health: 100, ledger: [], msgs: [] }; }
   get hud() { return this.g.hud; }
   // ------------------------------------------------------------ primitives
   until(fn) { return new Promise((res, rej) => this.conds.push({ fn, res, rej, token: this.token })); }
@@ -85,12 +86,14 @@ export class Story {
   }
   photoTarget(t, label) { this.photoTargets.push({ ...t, label }); return this.until(() => t.done); }
   rel(who, d) { this.state.rel[who] = clamp(this.state.rel[who] + d, 0, 100); if (d) this.hud.notify(`${who[0].toUpperCase() + who.slice(1)} ${d > 0 ? 'appreciated that' : 'will remember that'}`, `Relationship ${d > 0 ? '+' : ''}${d}`, d > 0 ? 'success' : 'info', 3); }
-  pay(n, why) { this.state.money += n; if (n) this.hud.notify(`${n > 0 ? '+' : '−'} Rs. ${Math.abs(n).toLocaleString('en-LK')}`, why || '', n > 0 ? 'success' : 'info', 3); }
+  message(from, text) { const M = this.state.msgs || (this.state.msgs = []); const A = this.g.atmos; M.unshift({ from, text, when: A ? `Day ${A.day} ${A.timeString}` : '' }); if (M.length > 30) M.length = 30; }
+  pay(n, why) { this.state.money += n; if (n) { const A = this.g.atmos; const L2 = this.state.ledger || (this.state.ledger = []); L2.unshift({ n, why: why || (n > 0 ? 'Income' : 'Payment'), bal: this.state.money, when: A ? `Day ${A.day} ${A.timeString}` : '' }); if (L2.length > 60) L2.length = 60; } if (n) this.hud.notify(`${n > 0 ? '+' : '−'} Rs. ${Math.abs(n).toLocaleString('en-LK')}`, why || '', n > 0 ? 'success' : 'info', 3); }
   cleanupStage() { for (const id of [...this.npcs.keys()]) this.removeNPC(id); this.photoTargets = []; this.clearPursuers(); this.clearGuards(); this.hud.setTimer(null); this.hud.clearBlips('m:'); if (this.follow) { this.g.traffic.remove(this.follow); this.follow = null; } this.g.director.clearVehicles(); }
   // ------------------------------------------------------------ mission runner
   async startMission(id, stage = 0) {
     this.cancelAll(); this.token = {}; const def = MISSIONS.find((m) => m.id === id); if (!def) return;
     this.state.mission = { id, stage }; const stages = this['stages_' + id](); this.running = id;
+    if (stage === 0) this.message(def.giver || 'Mission', `${def.title}: ${def.desc}`);
     if (stage === 0 && id !== 'm0') await this.hud.missionBanner('MISSION', def.title, def.desc);
     try {
       for (let s = stage; s < stages.length; s++) { this.state.mission.stage = s; if (s > stage) this.g.autosave(); await stages[s](); }
@@ -377,21 +380,22 @@ export class Story {
     if (pv && S.garage && Math.hypot(p.x - S.garage.x, p.z - S.garage.z) < 8) { pr = `${this.hud.key('interact')} Repair vehicle (Rs. 800)`; if (Input.wasPressed('interact')) { if (this.state.money >= 800) { this.pay(-800, 'Repairs'); pv.damage = 0; this.hud.notify('Vehicle repaired'); } else this.hud.notify('Not enough money'); } }
     if (pv && pv.type === 'tuktuk' && !this.running) { pr = pr || `${this.hud.key('more')} Start tuk-tuk taxi job`; if (Input.wasPressed('more')) this.startTaxi(); }
     for (const t of TRIALS) if (pv && Math.hypot(p.x - t.pts[0][0], p.z - t.pts[0][1]) < 10 && !this.running) { pr = `${this.hud.key('more')} Start time trial: ${t.name}`; if (Input.wasPressed('more')) this.startTrial(t); }
-    for (const sp of PHOTO_SPOTS) if (!this.state.photos.includes(sp.id) && Math.hypot(p.x - sp.view[0], p.z - sp.view[1]) < 40 && !pv) pr = pr || `Photo spot: ${sp.name} — open the camera with ${this.hud.key('phone')}`;
+    for (const sp of PHOTO_SPOTS) if (!this.state.photos.includes(sp.id) && Math.hypot(p.x - sp.view[0], p.z - sp.view[1]) < 40 && !pv) pr = pr || `Photo spot: ${sp.name} — open the phone (${this.hud.key('phone')}) → Camera`;
     if (this.startPoint && !this.running) { const s = this.startPoint; if (Math.hypot(p.x - s.x, p.z - s.z) < 8) { pr = `${this.hud.key('interact')} Start mission: ${MISSIONS.find((m) => m.id === s.id).title}`; if (Input.wasPressed('interact')) { this.hud.removeBlip('start'); this.startPoint = null; this.startMission(s.id, this.state.mission.stage || 0); } } }
     if (pr || !this.talkTarget) this.sidePrompt = pr; else this.sidePrompt = null;
   }
-  buyFood() { if (this.state.money < 150) { this.hud.notify('Not enough money'); return; } this.pay(-150, 'Plain tea & rotti'); this.g.player.stamina = 1; this.hud.subtitle('Siri', 'Fresh rotti, extra pol sambol. On the house next time, maybe!', '', 3); }
+  buyFood() { if (this.state.money < 150) { this.hud.notify('Not enough money'); return; } this.pay(-150, 'Plain tea & rotti'); this.g.player.stamina = 1; this.g.health?.heal(25); this.hud.subtitle('Siri', 'Fresh rotti, extra pol sambol. On the house next time, maybe!', '', 3); }
   buyOutfit() { if (this.state.money < 2000) { this.hud.notify('Not enough money'); return; } this.pay(-2000, 'Ceylon Threads'); const cols = ['#3c4536', '#5a2a2a', '#1f2a3a', '#6b5a3a', '#2a2a2a', '#3a5a6b']; const i = (cols.indexOf(this.state.outfit || '#3c4536') + 1) % cols.length; this.state.outfit = cols[i]; this.g.rebuildPlayer(); this.hud.notify('New jacket', 'Looking sharp, machan.'); }
   // taxi: pick a pedestrian-side spot nearby, then a destination 400-900 m away
   startTaxi() {
     const rng = new RNG(Math.floor(this.g.clock * 1000)); const p = this.g.player; const pick = (min, max) => { for (let k = 0; k < 200; k++) { const n = L.pedNodes[Math.floor(rng.next() * L.pedNodes.length)]; const d = Math.hypot(n.x - p.x, n.z - p.z); if (d > min && d < max) return n; } return null; };
-    const a = pick(80, 260), b = pick(450, 1000); if (!a || !b) return; let stage = 0, passenger = null, left = 0, fare = Math.round(Math.hypot(a.x - b.x, a.z - b.z) * 1.6 / 10) * 10 + 150;
+    const a = pick(80, 260), b = pick(450, 1000); if (!a || !b) return; const spec = randomSpec(Math.floor(rng.next() * 1e5), { age: 'adult' }); let rider = null; let stage = 0, passenger = null, left = 0, fare = Math.round(Math.hypot(a.x - b.x, a.z - b.z) * 1.6 / 10) * 10 + 150;
     this.hud.notify('Tuk-tuk taxi', 'A fare is waiting. Pick them up!', 'info', 4); this.hud.setObjective('Taxi', 'Pick up the passenger', a);
     this.side = { update: (dt) => {
-      const pv = this.g.player.vehicle; if (!pv) { this.hud.notify('Taxi job cancelled'); this.endSide(); if (passenger) this.removeNPC('fare'); return; }
-      if (stage === 0) { if (!passenger) passenger = this.spawnNPC('fare', randomSpec(Math.floor(rng.next() * 1e5)), a.x, a.z, 0); passenger.anim.set('wave'); if (Math.hypot(pv.x - a.x, pv.z - a.z) < 7 && Math.abs(pv.speed) < 1.5) { stage = 1; this.removeNPC('fare'); passenger = true; left = Math.max(60, Math.hypot(a.x - b.x, a.z - b.z) / 7); this.hud.setObjective('Taxi', `Drive to ${L.districtAt(b.x, b.z).name.split(' · ')[0]}`, b); this.hud.subtitle('Passenger', 'Machan, quickly please — I\'m already late!', '', 3); } }
-      else { left -= dt; this.hud.setTimer(left); if (Math.hypot(pv.x - b.x, pv.z - b.z) < 9 && Math.abs(pv.speed) < 1.5) { const tip = left > 0 ? Math.round(fare * 0.3) : 0; this.pay(fare + tip, tip ? 'Fare + tip' : 'Fare'); this.state.stats.taxi++; this.hud.subtitle('Passenger', tip ? 'ස්තූතියි! Super driving.' : 'Finally. Thanks anyway.', tip ? 'Thank you!' : '', 3); this.endSide(); } }
+      const pv = this.g.player.vehicle; if (!pv) { this.hud.notify('Taxi job cancelled', rider ? 'Your passenger got out and walked off.' : ''); this.endSide(); this.removeNPC('fare'); if (rider) { const T = this.g.traffic; T.paxCount++; const vv = rider.v; vv.pax = [rider.ch]; vv.paxPlan = [{ si: rider.si }]; T.disembark(vv, 'calm'); rider = null; } return; }
+      if (rider) rider.ch.anim.update(dt, 0);
+      if (stage === 0) { if (!passenger) passenger = this.spawnNPC('fare', spec, a.x, a.z, 0); passenger.anim.set('wave'); if (Math.hypot(pv.x - a.x, pv.z - a.z) < 7 && Math.abs(pv.speed) < 1.5) { stage = 1; this.removeNPC('fare'); passenger = true; { const seats = pv.mesh.userData.seats; const si = seats.findIndex((q) => !q.driver && !(pv.pax || []).some((c) => c.seat === q)); if (si >= 0) { const ch = new Character(spec); seatCharacter(ch, pv, seats[si], 'phone'); rider = { ch, si, v: pv }; } } left = Math.max(60, Math.hypot(a.x - b.x, a.z - b.z) / 7); this.hud.setObjective('Taxi', `Drive to ${L.districtAt(b.x, b.z).name.split(' · ')[0]}`, b); this.hud.subtitle('Passenger', 'Machan, quickly please — I\'m already late!', '', 3); } }
+      else { left -= dt; this.hud.setTimer(left); if (Math.hypot(pv.x - b.x, pv.z - b.z) < 9 && Math.abs(pv.speed) < 1.5) { const tip = left > 0 ? Math.round(fare * 0.3) : 0; this.pay(fare + tip, tip ? `Tuk-tuk fare Rs. ${fare.toLocaleString('en-LK')} + tip Rs. ${tip.toLocaleString('en-LK')}` : `Tuk-tuk fare (late — no tip)`); this.state.stats.taxi++; if (rider) { const T = this.g.traffic; T.paxCount++; const vv = rider.v; vv.pax = [rider.ch]; vv.paxPlan = [{ si: rider.si }]; T.disembark(vv, 'calm'); rider = null; } this.hud.subtitle('Passenger', tip ? 'ස්තූතියි! Super driving.' : 'Finally. Thanks anyway.', tip ? 'Thank you!' : '', 3); this.endSide(); } }
     } };
   }
   startDelivery() {

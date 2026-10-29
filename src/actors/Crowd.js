@@ -400,6 +400,7 @@ export class Crowd {
     ch.crowdPed = p; this.returnToGraph(p); this.peds.push(p); p.y = ch.root.position.y;
     const ax = from ? x - from.x : -Math.sin(yaw), az = from ? z - from.z : -Math.cos(yaw), d = Math.hypot(ax, az) || 1;
     if (reaction === 'confront') { this.react(p, 'confront', 4); p.ch.anim.set('argue'); ch.face.set('angry', 4); this.speak(p, 'shoved', 2, 2.5); }
+    else if (reaction === 'calm') return p; // e.g. a taxi fare stepping out at their destination: just walks on
     else { this.react(p, 'flee', 4 + this.rng.next() * 3, { fleeDir: this.spread(ax / d, az / d, 0.5), fleeSp: 3.2 }); ch.face.set('fear', 3); this.speak(p, 'scared', 2); }
     this.alarm(x, z, 14, 1, p); return p;
   }

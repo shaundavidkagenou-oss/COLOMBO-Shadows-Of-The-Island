@@ -19,7 +19,9 @@ export class HUD {
     this.notes = el('div', 'notes', this.root); this.promptEl = el('div', 'prompt', this.root);
     this.subs = el('div', 'subtitles', root); this.choiceEl = el('div', 'choices hidden', root);
     this.timerEl = el('div', 'mtimer hidden', this.root); this.veh = el('div', 'vehicle-info hidden', this.root); this.vehSpeed = el('div', 'veh-speed', this.veh); this.vehName = el('div', 'veh-name', this.veh); this.radioEl = el('div', 'veh-radio', this.veh);
-    this.stamina = el('div', 'stamina', this.root); this.staminaBar = el('div', '', this.stamina);
+    this.vitals = el('div', 'vitals', this.root); this.hp = el('div', 'vit hp', this.vitals); this.hpBar = el('i', '', this.hp); this.hpGhost = el('b', '', this.hp);
+    this.stamina = el('div', 'vit st', this.vitals); this.staminaBar = el('i', '', this.stamina);
+    this.hurtEl = el('div', 'hurt-fx', root); this._hpShown = 100;
     this.marker = el('div', 'world-marker hidden', this.root, '<div class="wm-dot"></div><div class="wm-d"></div>');
     this.fadeEl = el('div', 'fade', root); this.cine = el('div', 'cine-bars hidden', root, '<div></div><div></div>');
     this.title = el('div', 'title-card hidden', root); this.photoUI = el('div', 'photo-ui hidden', root, '<div class="pf"></div><div class="ph-hint">Click to take a photo · Esc/P to close</div>');
@@ -195,6 +197,8 @@ export class HUD {
   bars(on) { this.cine.classList.toggle('hidden', !on); }
   titleCard(html, dur = 4) { return new Promise((r) => { this.title.innerHTML = html; this.title.classList.remove('hidden'); this.title.classList.add('show'); setTimeout(() => { this.title.classList.remove('show'); setTimeout(() => { this.title.classList.add('hidden'); r(); }, 900); }, dur * 1000); }); }
   missionBanner(top, title, sub = '') { return this.titleCard(`<div class="mb-top">${top}</div><div class="mb-title">${title}</div>${sub ? `<div class="mb-sub">${sub}</div>` : ''}`, 3.2); }
+  // non-graphic damage feedback: a short red flash at the screen edges (strength k 0..1)
+  hurt(k = 0.5) { const e = this.hurtEl; e.style.setProperty('--k', (0.35 + k * 0.65).toFixed(2)); e.classList.remove('on'); void e.offsetWidth; e.classList.add('on'); }
   // ---------- per-frame
   update(st) {
     this.clock.textContent = st.time; this.money.textContent = `Rs. ${st.money.toLocaleString('en-LK')}`;
@@ -209,7 +213,8 @@ export class HUD {
       const t = this.gps.target; if (t && this.gps.route) { this.gpsEl.className = 'gps-info show' + (t.kind === 'objective' ? ' obj' : ''); this.gpsEl.innerHTML = `<b>${t.kind === 'objective' ? 'GPS · OBJECTIVE' : 'GPS · WAYPOINT'}</b> ${fmtDist(this.gps.remaining(st.x, st.z))}`; } else this.gpsEl.className = 'gps-info';
     }
     this.drawMini(st.x, st.z, st.camYaw - Math.PI, st.extras);
-    this.stamina.style.opacity = st.stamina < 0.98 && !st.vehicle ? 1 : 0; this.staminaBar.style.width = `${st.stamina * 100}%`;
+    this.stamina.style.opacity = st.stamina < 0.98 && !st.vehicle ? 1 : 0.35; this.staminaBar.style.width = `${st.stamina * 100}%`;
+    if (st.health != null) { const hp = st.health; this.hpBar.style.width = `${hp}%`; this._hpShown += (hp - this._hpShown) * (hp < this._hpShown ? 0.04 : 1); this.hpGhost.style.width = `${this._hpShown}%`; this.hp.classList.toggle('low', hp < 30); this.hurtEl.classList.toggle('low', hp < 25 && !st.healthBusy); }
     if (st.vehicle) { this.veh.classList.remove('hidden'); this.vehSpeed.innerHTML = `${Math.round(Math.abs(st.vehicle.speed) * 3.6)}<small>km/h</small>`; this.vehName.textContent = st.vehicleName; this.radioEl.textContent = st.radio || ''; } else this.veh.classList.add('hidden');
     if (this.objective) { const d = Math.hypot(this.objective.x - st.x, this.objective.z - st.z); this.objDist.textContent = d > 30 ? `${d > 1000 ? (d / 1000).toFixed(1) + ' km' : Math.round(d) + ' m'}` : ''; } else this.objDist.textContent = '';
     // world-space objective marker

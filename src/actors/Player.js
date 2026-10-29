@@ -26,6 +26,7 @@ export class Player {
     this.updateCamera(dt);
   }
   updateFoot(dt, traffic) {
+    if (this.hitCd > 0) this.hitCd -= dt;
     const A = this.ch.anim; let mx = this.control ? Input.moveX : 0, my = this.control ? Input.moveY : 0; const mag = Math.min(1, Math.hypot(mx, my));
     if (this.climb) { // ledge climb: lerp up and over
       const c = this.climb; c.t += dt / 0.9; const k = Math.min(1, c.t);
@@ -52,7 +53,7 @@ export class Player {
       r = this.collision.resolveCircle(nx, nz, 0.32, this.y, 0.45, 1.75);
     }
     // auto-avoid other vehicles physically
-    if (traffic && !this.indoor) for (const v of traffic.all()) { const lim = 3 + (v.T ? v.T.len / 2 : 5); if (Math.abs(v.x - r.x) > lim || Math.abs(v.z - r.z) > lim) continue; const q = v.pushOut(r.x, r.z, 0.32); if (q) { r.x = q.x; r.z = q.z; } } // solid body box (parked cars, buses, bikes)
+    if (traffic && !this.indoor) for (const v of traffic.all()) { const lim = 3 + (v.T ? v.T.len / 2 : 5); if (Math.abs(v.x - r.x) > lim || Math.abs(v.z - r.z) > lim) continue; const q = v.pushOut(r.x, r.z, 0.32); if (q) { r.x = q.x; r.z = q.z; if (Math.abs(v.speed) > 3.2 && !(this.hitCd > 0)) { this.hitCd = 1.5; this.ch.anim.play('stumble', 1.1); this.events.emit('hitByVehicle', Math.abs(v.speed), v); } } } // solid body box (parked cars, buses, bikes)
     this.x = r.x; this.z = r.z;
     // jump / climb
     if (this.control && Input.wasPressed('jump') && this.grounded) {
@@ -61,7 +62,7 @@ export class Player {
       else { this.vy = 4.6; this.grounded = false; A.air = 1; this.events.emit('jump'); }
     }
     const g = this.indoor ? (this.indoor.floorAt ? this.indoor.floorAt(this.x, this.z, this.y) : this.indoor.y) : this.collision.groundAt(this.x, this.z, this.y, 0.5);
-    if (!this.grounded || this.y > g + 0.05) { this.vy -= 13 * dt; this.y += this.vy * dt; if (this.y <= g) { if (!this.grounded && this.vy < -3) this.events.emit('land'); this.y = g; this.vy = 0; this.grounded = true; A.air = 0; } else { this.grounded = false; A.air = 1; } }
+    if (!this.grounded || this.y > g + 0.05) { this.vy -= 13 * dt; this.y += this.vy * dt; if (this.y <= g) { if (!this.grounded && this.vy < -3) { this.lastLandVy = this.vy; this.events.emit('land'); } this.y = g; this.vy = 0; this.grounded = true; A.air = 0; } else { this.grounded = false; A.air = 1; } }
     else { this.y = damp(this.y, g, 20, dt); this.grounded = true; A.air = 0; }
     if (this.crouching) A.set('crouch'); else if (A.action === 'crouch') A.set(null);
     if (this.emote && (this.speed > 0.5 || !A.action)) { if (A.action === this.emote) A.set(null); this.emote = null; }
