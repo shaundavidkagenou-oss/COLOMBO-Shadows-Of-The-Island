@@ -18,7 +18,7 @@ import { buildMaterials } from './gfx/Materials.js';
 import { Atmosphere } from './gfx/Atmosphere.js';
 import { PostFX } from './gfx/PostFX.js';
 import { setVehicleNight } from './vehicles/VehicleModels.js';
-import { updateVehicleLOD } from './vehicles/Vehicle.js';
+import { updateVehicleLOD, setHeadPoolNight } from './vehicles/Vehicle.js';
 import { World } from './world/World.js';
 import { Interiors } from './world/Interiors.js';
 import * as L from './world/Layout.js';
@@ -294,7 +294,7 @@ export class Game {
     if (this.montageHour) { const m = this.montageHour; A.hour = lerp(m.from, m.to, clamp((this.director.time - m.t0) / m.dur, 0, 1)); }
     this.director.update(dt);
     const f = this.focus || { x: cam.position.x, z: cam.position.z }; const fv = new THREE.Vector3(f.x, 0, f.z);
-    this.world.simTime = this.clock; this.world.update(dt, f, cam, A); A.update(dt, fv, cam, dt); setVehicleNight(A.night);
+    this.world.simTime = this.clock; this.world.update(dt, f, cam, A); A.update(dt, fv, cam, dt); setVehicleNight(A.night); setHeadPoolNight(A.night);
     const camDir = new THREE.Vector3(); cam.getWorldDirection(camDir);
     this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; this.traffic.update(dt, f, camDir, this.clock, this.crowd.peds, this.ghost);
     this.trains.update(dt, { focus: f, night: A.night, vehicles: this.traffic.all(), listener: true });
@@ -326,7 +326,7 @@ export class Game {
     if (!busy && !warmOnly && P.control) localPrompt = this.updateInteractions(dt);
     const focus = { x: P.x, z: P.z }; const fv = new THREE.Vector3(P.x, P.y, P.z);
     this.world.simTime = this.clock; this.world.update(dt, focus, cam, A);
-    A.update(dt, fv, cam, dt); setVehicleNight(A.night);
+    A.update(dt, fv, cam, dt); setVehicleNight(A.night); setHeadPoolNight(A.night);
     // walk-in Police HQ: smooth outdoor → indoor light adaptation while the city keeps running outside
     const sk = this.indoor || warmOnly ? 0 : this.interiors.updateSeamless(dt); this.seamK = sk;
     if (!this.indoor && A.envBase !== undefined) this.scene.environmentIntensity = A.envBase * (1 - 0.55 * sk);

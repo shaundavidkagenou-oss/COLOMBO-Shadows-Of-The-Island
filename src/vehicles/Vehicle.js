@@ -15,9 +15,11 @@ function headPool() {
     g.addColorStop(0, 'rgba(255,255,255,0.75)'); g.addColorStop(0.45, 'rgba(255,255,255,0.32)'); g.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(-32, -40, 64, 80); x.restore(); }
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
   const geo = new THREE.PlaneGeometry(1, 1); geo.rotateX(-Math.PI / 2); geo.translate(0, 0, 0.5); /* canvas top (lamp end) = v 1 = z 0, at the bumper */
-  const mat = new THREE.MeshBasicMaterial({ map: tex, color: 0xfff0d6, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: true, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+  const mat = new THREE.MeshBasicMaterial({ map: tex, color: 0xfff0d6, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: true, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
   return (HEAD_POOL = { geo, mat });
 }
+// strength follows darkness: invisible in daylight (lights on in rain), a modest throw at dusk, full at night
+export function setHeadPoolNight(n) { const hp = headPool(); const k = Math.min(1, Math.max(0, (n - 0.25) / 0.6)); hp.mat.opacity = 0.42 * k * k * (3 - 2 * k); }
 // Near-LOD switch for the high-detail kit (VehicleDetail.js): detail group + hi-res wheels within ud.lodR of the camera.
 export const LIVE_VEHICLES = globalThis.__liveVehicles || (globalThis.__liveVehicles = new Set()); // global so dev hot-reloads share one registry
 export function setVehicleLOD(ud, near) { if (ud.lodNear === near) return; ud.lodNear = near; ud.detail.visible = near; for (const w of ud.wheels) { const u = w.userData; u.lo.visible = !near; u.hi.visible = near; if (u.cal) u.cal.visible = near; } }
@@ -113,7 +115,7 @@ export class Vehicle {
     const wantH = this.lights && occupied ? 2.6 : 0.04; if (hm && hm.emissiveIntensity !== wantH) hm.emissiveIntensity = wantH;
     const beam = this.lights && occupied && !this.T.rail;
     if (beam && !ud.headPool) { const hp = headPool(); const bike = this.T.entry === 'bike'; const p = new THREE.Mesh(hp.geo, hp.mat); p.name = 'headPool';
-      p.position.set(0, 0.07, this.T.len / 2 - 0.1); p.scale.set(bike ? 2.4 : Math.max(2.6, this.T.wid * 1.5), 1, bike ? 8 : 11); p.renderOrder = 2; p.castShadow = p.receiveShadow = false; m.add(p); ud.headPool = p; }
+      p.position.set(0, 0.07, this.T.len / 2 - 0.1); p.scale.set(bike ? 2.4 : Math.max(2.6, this.T.wid * 1.5), 1, bike ? 8 : 11); p.renderOrder = -1; /* before glass: seen through a windscreen it is tinted like everything else behind the glass */ p.castShadow = p.receiveShadow = false; m.add(p); ud.headPool = p; }
     if (ud.headPool && ud.headPool.visible !== beam) ud.headPool.visible = beam;
     const wantR = occupied && this.speed < -0.3 ? 1.3 : 0; if (rm && rm.emissiveIntensity !== wantR) rm.emissiveIntensity = wantR;
   }

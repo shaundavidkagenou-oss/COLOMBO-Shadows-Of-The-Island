@@ -102,6 +102,8 @@ export function buildLandmarks() {
     // podium: stepped exhibition halls
     box(conc, x, y0 + 4, z, 64, 8, 64, '#e8e4dc'); box(conc, x, y0 + 11, z, 46, 6, 46, '#dcd6cc');
     mb.get('f_glass2').box(x, y0 + 4, z, 64.2, 4, 64.2, { col: [1, 1, 1], uvScale: 12.8, top: false });
+    mb.get('f_glass2').box(x, y0 + 11, z, 46.2, 3.2, 46.2, { col: [0.82, 0.86, 0.9], uvScale: 9.2, top: false }); // upper exhibition hall glazing (4-storey podium)
+    for (let k = -3; k <= 3; k++) for (const sgn of [-1, 1]) { metal.box(x + k * 9, y0 + 4, z + sgn * 32.15, 0.35, 4.2, 0.35, { col: C('#bdb9b0') }); metal.box(x + sgn * 32.15, y0 + 4, z + k * 9, 0.35, 4.2, 0.35, { col: C('#bdb9b0') }); }
     // ---- stem: 200 m reinforced-concrete shaft (real tower: ~350 m overall — 4-storey podium, ~200 m shaft, 8-floor bud, mast).
     // Vivid green, flared where it meets the podium, eight shallow vertical flutes, a horizontal panel joint every 4.5 m.
     const SH = 200, sy = y0 + 17;
@@ -121,13 +123,20 @@ export function buildLandmarks() {
     // ---- bud (tower house: observation deck, revolving restaurant) with green sepals cupping its base
     const by = sy + SH;
     lathe(paint, [[5.6, -1], [6.4, 0], [13, 5], [19, 13], [21.5, 22], [19, 32], [12, 41], [4.5, 48], [1.6, 52]], 24, x, by, z, '#8b2f78');
-    for (let k = 0; k < 6; k++) { const ph = (k / 6) * Math.PI * 2; lathe(paint, [[5.5, -4], [8.5, 0], [13.6, 4.6], [17.6, 9.5], [19.2, 12.5]], 5, x, by, z, k % 2 ? '#3a8a4b' : '#44a056', ph, (Math.PI * 2 / 6) * 0.9); }
+    // shell(): a petal/sepal with real thickness — outer skin + inward-facing inner skin (reversed profile) + a rim strip, so no edge or gap is ever see-through
+    const shell = (pts, seg, col, colIn, ph, len, t) => { lathe(paint, pts, seg, x, by, z, col, ph, len); const inner = pts.map(([r, h]) => [Math.max(0.2, r - t), h]).reverse(); lathe(paint, inner, seg, x, by, z, colIn, ph, len); const [r1, h1] = pts[pts.length - 1]; lathe(paint, [[r1, h1], [Math.max(0.2, r1 - t), h1]], seg, x, by, z, colIn, ph, len);
+      for (const a of [ph, ph + len]) { const ca = Math.sin(a), sa = -Math.cos(a); /* LatheGeometry: x = r·sinφ, z = r·cosφ */ for (let i = 0; i < pts.length - 1; i++) { const [ra, ha] = pts[i], [rb, hb] = pts[i + 1]; const P0 = [x + ca * ra, by + ha, z - sa * ra], P1 = [x + ca * rb, by + hb, z - sa * rb], P2 = [x + ca * (rb - t), by + hb, z - sa * (rb - t)], P3 = [x + ca * (ra - t), by + ha, z - sa * (ra - t)]; paint.quad(P0, P1, P2, P3, [0, 0, 1, 1], C(colIn)); paint.quad(P3, P2, P1, P0, [0, 0, 1, 1], C(colIn)); } } };
+    for (let k = 0; k < 6; k++) { const ph = (k / 6) * Math.PI * 2; shell([[5.5, -4], [7.2, -1.6], [8.5, 0], [11, 2.2], [13.6, 4.6], [15.8, 7], [17.6, 9.5], [18.7, 11.2], [19.4, 12.9]], 9, k % 2 ? '#3a8a4b' : '#44a056', '#2f7a40', ph, (Math.PI * 2 / 6) * 0.9, 0.45); }
     for (let layer = 0; layer < 2; layer++) for (let k = 0; k < 8; k++) {
       const ph = (k + layer * 0.5) / 8 * Math.PI * 2; const sc = layer ? 0.92 : 1;
-      lathe(paint, [[7 * sc, 1], [15 * sc, 5], [22.5 * sc, 13], [24.5 * sc, 21], [21.5 * sc, 30], [15 * sc, 37]].map(([r, h]) => [r, h + layer * 4]), 6, x, by, z, layer ? '#b44d97' : '#c96aa9', ph, Math.PI * 2 / 8 * 0.86);
+      shell([[7, 1], [11.2, 2.7], [15, 5], [19.2, 8.6], [22.5, 13], [24, 17], [24.5, 21], [23.6, 25.6], [21.5, 30], [18.6, 33.8], [15, 37], [13.4, 38.3]].map(([r, h]) => [r * sc, h + layer * 4]), 10, layer ? '#b44d97' : '#c96aa9', '#7a2a66', ph, Math.PI * 2 / 8 * 0.86, 0.5);
     }
     // observation deck band
-    lathe(mb.get('glass'), [[21.8, 0], [22, 5.5]], 32, x, by + 19, z, '#ffffff');
+    lathe(mb.get('glass'), [[21.8, 0], [22, 5.5]], 48, x, by + 19, z, '#ffffff');
+    // deck mullions every 7.5° and the slab edges of the observation deck + revolving-restaurant floors (seen through the petal gaps)
+    for (let k = 0; k < 48; k++) { const a = k / 48 * Math.PI * 2; metal.box(x + Math.cos(a) * 22.05, by + 21.75, z + Math.sin(a) * 22.05, 0.18, 5.5, 0.18, { col: C('#cfcac0') }); }
+    lathe(conc, [[22.4, 0], [22.4, 0.6], [21.6, 0.6]], 48, x, by + 18.4, z, '#e4dfd6'); lathe(conc, [[22.4, 0], [22.4, 0.6], [21.6, 0.6]], 48, x, by + 24.5, z, '#e4dfd6');
+    lathe(mb.get('glass'), [[20.6, 0], [19.6, 4.2]], 48, x, by + 25.1, z, '#ffffff'); lathe(conc, [[20.9, 0], [20.9, 0.5], [19.4, 0.5]], 48, x, by + 29.3, z, '#e4dfd6');
     // ---- mast: equipment housing, two service platforms, tapering antenna (~80 m) → top ≈ 350 m above the lake
     const my = by + 50; metal.cylinder(x, my, z, 2.6, 2.0, 7, 16, { col: C('#e6e3dc') });
     metal.cylinder(x, my + 7, z, 1.55, 1.15, 30, 12, { col: C('#d9d6cf') }); metal.cylinder(x, my + 36, z, 3.2, 3.2, 0.6, 16, { col: C('#bdb9b0') });

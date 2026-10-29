@@ -263,6 +263,7 @@ export class Crowd {
       if (this.rain && (p.state === 'walk' || p.state === 'toPoi')) { if (p.umbrella) { p.umbrellaOpen = true; if (p.ch.anim.action !== 'umbrella') p.ch.anim.set('umbrella'); } else if (this.rng.chance(dt * 0.15)) { const sh = this.nearPOIs(p.x, p.z, 25).find((q) => q.type === 'busStop' || q.type === 'shop' || q.type === 'door'); if (sh) { p.state = 'shelter'; p.target = { x: sh.x, z: sh.z }; p.timer = 40; p.ch.face.set('concern', 2); } } }
       else if ((!this.rain || !this.isRoutine(p.state)) && p.umbrellaOpen) { p.umbrellaOpen = false; if (p.ch.anim.action === 'umbrella') p.ch.anim.set(null); }
       if (p.umbrellaOpen && !p.umbrellaMesh) { p.umbrellaMesh = umbrellaMesh(p.id); p.ch.bones.handR.add(p.umbrellaMesh); } else if (!p.umbrellaOpen && p.umbrellaMesh) { p.umbrellaMesh.parent.remove(p.umbrellaMesh); p.umbrellaMesh = null; }
+      if (p.umbrellaMesh) { /* the canopy only exists in the raised-arm pose: if another action took the arms (talk, phone, reaction), re-raise when free or hide it, never float it */ if (p.umbrellaOpen && p.ch.anim.action == null) p.ch.anim.set('umbrella'); p.umbrellaMesh.visible = p.ch.anim.action === 'umbrella'; }
       // --- player proximity: staggered glances, annoyance at sprinting past (per-ped delays, no setTimeout)
       const pd = Math.hypot(player.x - p.x, player.z - p.z);
       if (!pv && pd < 3.5 && this.isRoutine(p.state) && p.react <= 0) {
