@@ -367,6 +367,7 @@ export class Game {
   updateInteractions() {
     const P = this.player; const I = this.interiors; const key = (a) => this.hud.key(a);
     if (I.current && I.current.id === 'room') { const b = I.current.bounds; if (Math.hypot(P.x - (b.x0 + 1.2), P.z - (b.z0 + 1.6)) < 1.8 && !this.story.running) { const h = this.atmos.hour; const to = h >= 6 && h < 17 ? 19.75 : 8; if (Input.wasPressed('interact')) this.restUntil(to); return `${key('interact')} Sleep until ${to === 8 ? '8:00 AM' : '7:45 PM'}`; } }
+    { const gp = this.schoolLife.guard?.interact(P, key); if (gp) return gp; } // Johns school night watchman
     if (I.current) { const r = I.update(this.dt); if (r === 'exit') { if (Input.wasPressed('enter')) I.exit(); return `${key('enter')} Leave ${I.current.D.name}`; } return null; }
     if (P.entry || P.exiting) return null;
     if (P.vehicle) { if (Input.wasPressed('enter')) { if (!P.exitVehicle(this.traffic)) this.hud.notify('Slow down', 'Stop the vehicle to get out.', 'info', 1.5); } return null; }

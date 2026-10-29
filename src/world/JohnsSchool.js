@@ -83,6 +83,18 @@ export function buildJohnsSchool({ mb, box, coll, label, group, LAND_Y, SANS, SI
     box(paint, cx, y0 + 1.25, cz, w, 2.5, d, CREAM); box(paint, cx, y0 + 2.6, cz, w + 0.5, 0.2, d + 0.5, MAROON, { bottom: true }); windowOnX(hx1, 1, cz - 0.5, y0 + 1.55, 0.9, 0.9); box(paint, cx, y0 + 1.55, hz0 - 0.004, 1.6, 0.9, 0.008, '#1f2a2e'); box(glass, cx, y0 + 1.55, hz0 - 0.02, 1.56, 0.86, 0.01, '#ffffff'); for (const s2 of [-1, 1]) box(paint, cx + s2 * 0.83, y0 + 1.55, hz0 - 0.035, 0.06, 0.96, 0.05, TRIM); for (const s2 of [-1, 1]) box(paint, cx, y0 + 1.55 + s2 * 0.48, hz0 - 0.035, 1.72, 0.06, 0.05, TRIM); // hut windows (side + gate-facing)
     doorOnX(hx1, 1, hz1 - 0.6, y0, 0.85, 2.05); coll(hx0, hx1, hz0, hz1, y0 + 2.7);
     label([{ text: 'SECURITY', font: SANS(110), color: '#ffffff' }], cx, y0 + 2.25, hz0 - 0.03, 1.6, 0.3, Math.PI, { w: 512, h: 96, bg: MAROON, glow: false }); }
+  { // the watchman's blue plastic chair beside the hut (SchoolGuard.CHAIR: seat top 0.44 m, facing the road)
+    const chx = 261.5, chz = 335.2, PL = '#2c5aa0'; box(paint, chx, y0 + 0.42, chz, 0.46, 0.04, 0.44, PL);
+    for (const ex of [-0.2, 0.2]) for (const ez of [-0.18, 0.18]) box(paint, chx + ex, y0 + 0.2, chz + ez, 0.035, 0.4, 0.035, PL);
+    box(paint, chx, y0 + 0.68, chz + 0.215, 0.46, 0.44, 0.03, PL); for (const ex of [-0.21, 0.21]) box(paint, chx + ex, y0 + 0.6, chz, 0.035, 0.03, 0.4, PL);
+    coll(chx - 0.24, chx + 0.24, chz - 0.23, chz + 0.24, y0 + 0.9); }
+  { // pedestrian wicket: one iron leaf hinged at the wall end, swings inwards (SchoolLife opens it; locked at night)
+    const w = Wk.x1 - Wk.x0, gb = new MultiBuilder(), b = gb.get('metal'), g = new THREE.Group();
+    for (const y of [0.15, 1.0, 1.85]) b.box(w / 2, y, 0, w, 0.07, 0.06, { col: C(IRON) });
+    for (const x of [0.03, w - 0.03]) b.box(x, 1.0, 0, 0.05, 1.95, 0.05, { col: C(IRON) });
+    for (let x = 0.12; x < w - 0.06; x += 0.14) { b.box(x, 1.0, 0, 0.025, 1.9, 0.025, { col: C(IRON) }); b.box(x, 1.97, 0, 0.04, 0.08, 0.04, { col: C(GOLD) }); }
+    for (const m of gb.toMeshes(MAT, { cast: true, receive: true })) g.add(m);
+    g.position.set(Wk.x0, y0, wz0 + 0.18); group.add(g); anim.schoolWicket = g; coll(Wk.x0, Wk.x1, wz0 - 0.15, wz0 + 0.3, y0 + 2.0, { id: 'schoolWicket' }); }
 
   // ------------------------------------------------------------ main classroom block (three storeys, arcaded corridors)
   const [mx0, mx1, mz0, mz1] = S.main, FH = S.FH, P = S.plinth, zc = mz0 + S.corridor, NR = S.rooms, RW = S.roomW; const yF = (f) => y0 + P + f * FH; const top = yF(S.storeys);

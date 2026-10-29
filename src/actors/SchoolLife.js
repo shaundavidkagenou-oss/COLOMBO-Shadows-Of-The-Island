@@ -11,6 +11,7 @@ import { linePiece, evalPiece } from '../vehicles/Traffic.js';
 import { clamp } from '../core/math.js';
 import * as L from '../world/Layout.js';
 import { SCHOOL } from '../world/JohnsSchool.js';
+import { SchoolGuard, isNight, inCompound } from './SchoolGuard.js';
 
 const CX = 294, CZ = 358, NEAR = 230, FAR = 290;
 const hm = (h, m) => h + m / 60;
@@ -23,7 +24,7 @@ function schoolSign() { if (signMat) return signMat; const c = document.createEl
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; signMat = new THREE.MeshStandardMaterial({ map: t, roughness: 0.7 }); return signMat; }
 
 export class SchoolLife {
-  constructor(game) { this.g = game; this.active = false; this.people = []; this.vans = []; this.gate = 0; this.lastHour = null; this.stats = { departed: 0, handovers: 0 }; this.log = []; this.done = new Set(); }
+  constructor(game) { this.g = game; this.active = false; this.people = []; this.vans = []; this.gate = 0; this.lastHour = null; this.stats = { departed: 0, handovers: 0 }; this.log = []; this.done = new Set(); this.wicket = 1; this.guard = new SchoolGuard(this); }
   note(s) { this.log.push(`${this.g.atmos.timeString || ''} ${s}`); if (this.log.length > 40) this.log.shift(); }
   inView(x, z) { if (this.fresh) return false; /* first pass after the player arrives: everything may be placed */ const P = this.g.player, cam = this.g.camera; const d = Math.hypot(x - P.x, z - P.z); if (d > 75) return false; const v = new THREE.Vector3(); cam.getWorldDirection(v); return ((x - cam.position.x) * v.x + (z - cam.position.z) * v.z) / (Math.hypot(x - cam.position.x, z - cam.position.z) || 1) > 0.35; }
   groundAt(x, z) { const c = this.g.collision; return c && c.groundAt ? c.groundAt(x, z, 1.2, 0.6) : L.groundY(x, z); }
@@ -38,7 +39,14 @@ export class SchoolLife {
     this.gate = clamp(this.gate + Math.sign(want - this.gate) * dt / 2.4, 0, 1); const e = (1 - Math.cos(this.gate * Math.PI)) / 2;
     const an = g.world?.landmarks?.anim || {}; if (an.schoolGate) { an.schoolGate[0].rotation.y = -e * Math.PI / 2; an.schoolGate[1].rotation.y = e * Math.PI / 2; }
     if (this.gateColl === undefined) this.gateColl = (g.collision?.list || []).find((c) => c.id === 'schoolGate') || null; if (this.gateColl) this.gateColl.h = this.gate > 0.5 ? 0 : 2.15;
-    if (!this.active) return;
+    // pedestrian wicket: open by day; at night only for someone the watchman let in, or from the inside (see SchoolGuard)
+    const wk = this.guard.wicketOpen(P, h) ? 1 : 0; this.wicket = clamp(this.wicket + Math.sign(wk - this.wicket) * dt / 1.1, 0, 1); const ew = (1 - Math.cos(this.wicket * Math.PI)) / 2;
+    if (an.schoolWicket) an.schoolWicket.rotation.y = -ew * Math.PI / 2;
+    if (this.wkColl === undefined) this.wkColl = (g.collision?.list || []).find((c) => c.id === 'schoolWicket') || null; if (this.wkColl) this.wkColl.h = this.wicket > 0.6 ? 0 : 2.15;
+    if (!this.active) { if (this.guard.present) this.guard.despawn(); return; }
+    this.guard.update(dt, h, P);
+    // daytime visitors are greeted by the day guard and asked to sign the book
+    const ins = inCompound(P.x, P.z) && !P.vehicle; if (ins && this.wasIn === false && !isNight(h) && this.has('guard') && this.greetDay !== g.atmos.day && !g.director.active) { this.greetDay = g.atmos.day; g.hud.subtitle('Security', 'Good day. Visitors please sign the book at the security hut.', '', 3.2); } this.wasIn = ins;
     this.schedule(h);
     for (const p of this.people) this.updatePerson(p, dt, P, h);
     this.people = this.people.filter((p) => !p.gone);
@@ -60,6 +68,7 @@ export class SchoolLife {
     const P = this.g.player;
     // guard
     if (h >= 6 && h < 19 && !this.has('guard') && !this.inView(261.0, 333.6)) this.addPerson('guard', makeAppearance(611, { preset: 'm_security' }), 261.0, 333.6, Math.PI / 2, 'look');
+    else if (isNight(h)) { const dg = this.people.find((q) => q.key === 'guard'); if (dg && !this.inView(dg.x, dg.z)) this.remove(dg); } // day guard off duty; the night watchman takes over
     // teachers and principal
     const staffOn = h >= STAFF[0] && h < STAFF[1], atGate = h >= AT_GATE[0] && h < AT_GATE[1];
     for (const s of this.staffDefs()) { const p = this.people.find((q) => q.key === s.key);
@@ -117,5 +126,5 @@ export class SchoolLife {
     v.keep = false; o.gone = true; this.stats.departed++; }
   // ---------------------------------------------------------------- streaming
   spawn() { this.active = true; this.fresh = true; this.gateColl = undefined; this.note('spawn'); }
-  despawn() { for (const p of this.people) this.remove(p); this.people = []; const T = this.g.traffic; for (const o of this.vans) { const i = T.parked.indexOf(o.v); if (i >= 0) T.parked.splice(i, 1); if (o.v.driverChar) { o.v.driverChar.root.parent?.remove(o.v.driverChar.root); o.v.driverChar.dispose(); } o.v.dispose(); } this.vans = []; this.active = false; this.note('despawn'); }
+  despawn() { this.guard.despawn(); for (const p of this.people) this.remove(p); this.people = []; const T = this.g.traffic; for (const o of this.vans) { const i = T.parked.indexOf(o.v); if (i >= 0) T.parked.splice(i, 1); if (o.v.driverChar) { o.v.driverChar.root.parent?.remove(o.v.driverChar.root); o.v.driverChar.dispose(); } o.v.dispose(); } this.vans = []; this.active = false; this.note('despawn'); }
 }
