@@ -178,7 +178,8 @@ export class Crowd {
       if (pv && Math.abs(pv.speed) > 4) {
         const dx = p.x - pv.x, dz = p.z - pv.z; const d = Math.hypot(dx, dz); const fx = Math.sin(pv.yaw), fz = Math.cos(pv.yaw);
         const along = dx * fx + dz * fz, lat = Math.abs(dx * fz - dz * fx);
-        if (d < pv.half + 0.6 && lat < pv.T.wid / 2 + 0.3) { this.knock(p, fx * Math.sign(pv.speed), fz * Math.sign(pv.speed), Math.abs(pv.speed)); }
+        const sgn = Math.sign(pv.speed), sweep = Math.abs(pv.speed) * dt + 0.45; /* swept box: the bumper's travel this frame, so 30 m/s can't skip a person */
+        if (p.state !== 'down' && lat < pv.T.wid / 2 + 0.32 && along * sgn > -pv.half - 0.2 && along * sgn < pv.half + sweep) { this.knock(p, fx * sgn, fz * sgn, Math.abs(pv.speed), (dx * fz - dz * fx) / (pv.T.wid / 2 + 0.32)); pv.speed *= 0.86; /* ~80 kg against ~1.2 t: the car loses a little speed */ }
         else if (along > 0 && along < 14 && lat < 3.2 && p.state !== 'down' && p.state !== 'flee' && p.state !== 'dodge') { const side = (dx * fz - dz * fx) > 0 ? 1 : -1; this.react(p, 'dodge', 0.9 + this.rng.next() * 0.5, { dodge: [fz * side, -fx * side] }); p.ch.anim.set(this.rng.chance(0.35) ? 'cower' : null); p.ch.face.set('fear', 2.5); this.speak(p, 'scared', 1); this.events.emit('pedPanic', p); }
       }
       p.rt = (p.rt || 0) + dt;
@@ -230,8 +231,10 @@ export class Crowd {
         case 'down': { // fall (mesh tips over), lie still, then get up and stagger away — no injury detail
           p.timer -= dt; p.downT = (p.downT || 0) + dt; desired = 0; avoid = false;
           const fall = clamp(p.downT / 0.55, 0, 1), rise = clamp(1 - p.timer / 0.9, 0, 1); const k = fall * (1 - rise);
-          p.ch.mesh.rotation.x = -1.45 * (k * k * (3 - 2 * k)); p.ch.mesh.position.y = 0.12 * k;
-          if (p.timer <= 0) { p.ch.mesh.rotation.x = 0; p.ch.mesh.position.y = 0; p.hits = 0; p.downT = 0;
+          if (p.airVy !== undefined && (p.airY > 0 || p.airVy > 0)) { p.airVy -= 9.81 * dt; p.airY = Math.max(0, (p.airY || 0) + p.airVy * dt); if (p.airY === 0) { p.airVy = undefined; p.vx *= 0.55; p.vz *= 0.55; } } /* thrown: ballistic arc, momentum lost on landing */
+          else { const sl = Math.hypot(p.vx, p.vz); if (sl > 1e-3) { const f = Math.max(0, sl - 7 * dt) / sl; p.vx *= f; p.vz *= f; } } /* sliding along the ground: friction */
+          p.ch.mesh.rotation.x = -1.45 * (k * k * (3 - 2 * k)); p.ch.mesh.position.y = 0.12 * k + (p.airY || 0);
+          if (p.timer <= 0) { p.ch.mesh.rotation.x = 0; p.ch.mesh.position.y = 0; p.hits = 0; p.downT = 0; p.airY = 0; p.airVy = undefined;
             if (p.knockedByCar && p.temper > 0.55 && this.rng.chance(0.6)) { this.react(p, 'confront', 3.5); p.ch.anim.set('argue'); p.ch.face.set('angry', 4); this.speak(p, 'annoyed', 1); }
             else { p.state = 'flee'; p.timer = 3 + this.rng.next() * 3; p.fleeSp = 2.6 + this.rng.next(); const ax = p.x - player.x, az = p.z - player.z, d = Math.hypot(ax, az) || 1; p.fleeDir = this.spread(ax / d, az / d, 0.8); this.speak(p, 'scared', 1); }
             p.knockedByCar = false; }
@@ -301,7 +304,8 @@ export class Crowd {
         }
       }
       // vehicles: steer around and never overlap (moving or parked)
-      if (p.state !== 'down') for (const v of vnear) { const lim = 2 + (v.T ? v.T.len / 2 : 5); if (Math.abs(v.x - p.x) > lim || Math.abs(v.z - p.z) > lim) continue; for (const [cx, cz] of v.circles()) { const dx = p.x - cx, dz = p.z - cz; const d = Math.hypot(dx, dz), m = v.radius + 0.3; if (d < m + 0.8 && d > 1e-4 && desired > 0) { const k = (m + 0.8 - d) / 0.8; dvx += dx / d * k * 1.6; dvz += dz / d * k * 1.6; } } const q = v.pushOut(p.x, p.z, 0.3); if (q) { p.x = q.x; p.z = q.z; } }
+      for (const v of vnear) { if (p.state === 'down') { /* a fallen person is still solid: slide them out of any footprint (never through the car), carried sideways by a moving car */ const q = v.pushOut(p.x, p.z, 0.45); if (q) { const ex = q.x - p.x, ez = q.z - p.z, el = Math.hypot(ex, ez) || 1; p.x = q.x; p.z = q.z; const vs = Math.abs(v.speed || 0); if (vs > 1) { p.vx += ex / el * Math.min(4, vs * 0.3); p.vz += ez / el * Math.min(4, vs * 0.3); } } continue; } const lim = 2 + (v.T ? v.T.len / 2 : 5); if (Math.abs(v.x - p.x) > lim || Math.abs(v.z - p.z) > lim) continue; for (const [cx, cz] of v.circles()) { const dx = p.x - cx, dz = p.z - cz; const d = Math.hypot(dx, dz), m = v.radius + 0.3; if (d < m + 0.8 && d > 1e-4 && desired > 0) { const k = (m + 0.8 - d) / 0.8; dvx += dx / d * k * 1.6; dvz += dz / d * k * 1.6; } } const q = v.pushOut(p.x, p.z, 0.3); if (q) { p.x = q.x; p.z = q.z; } }
+      if (p.state === 'down') { dvx = p.vx; dvz = p.vz; } /* knocked: momentum + the down-state friction/arc only */
       if (p.stuckSide > 0) { p.stuckSide -= dt; dvx = p.sideDir[0] * 1.0; dvz = p.sideDir[1] * 1.0; }
       // smoothed acceleration (people do not change velocity instantly)
       const dsx = dvx - p.vx, dsz = dvz - p.vz; const dl = Math.hypot(dsx, dsz); const curSp = Math.hypot(p.vx, p.vz), tgtSp = Math.hypot(dvx, dvz);
@@ -366,9 +370,11 @@ export class Crowd {
     for (const [, n] of cand.slice(0, 8)) { let ok = true; for (const t of [0.33, 0.66]) if (this.collision.blocked(lerp(p.x, n.x, t), lerp(p.z, n.z, t), 0.25)) { ok = false; break; } if (ok && (!needClear || Math.hypot(n.x - p.x, n.z - p.z) > 0.8)) { best = n; break; } }
     if (best) { p.node = best.id; p.nextNode = best.id; p.target = { x: best.x, z: best.z }; p.state = 'walk'; p.edge = null; }
   }
-  knock(p, fx, fz, speed) {
+  knock(p, fx, fz, speed, offset = 0) {
     if (p.state === 'down') return; this.react(p, 'down', 2.4 + Math.min(3, speed * 0.2), { yaw: Math.atan2(-fx, -fz) }); p.downT = 0; p.knockedByCar = true;
-    p.vx = fx * Math.min(5, speed * 0.4); p.vz = fz * Math.min(5, speed * 0.4); p.ch.face.set('fear', 4);
+    // impulse: thrown ahead slightly faster than the car (so it can't run over them), deflected to the side they were struck on, and lifted at speed
+    const side = Math.max(-1, Math.min(1, offset || (Math.random() - 0.5))); const fwd = Math.min(16, speed * 1.08 + 1), lat = (0.25 + 0.35 * Math.abs(side)) * Math.min(9, speed * 0.5) * (side >= 0 ? 1 : -1);
+    p.vx = fx * fwd + fz * lat; p.vz = fz * fwd - fx * lat; p.airY = 0; p.airVy = speed > 6 ? Math.min(5.5, speed * 0.22) : undefined; p.ch.face.set('fear', 4);
     this.events.emit('pedHit', p); this.speak(p, 'scared', 2); this.alarm(p.x, p.z, 14, 1, p);
   }
   // ---- player-initiated interactions

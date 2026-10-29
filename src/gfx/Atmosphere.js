@@ -75,8 +75,20 @@ export class Atmosphere {
     // rain streaks
     this.rainCount = 7000; const rg = new THREE.BufferGeometry(); const rp = new Float32Array(this.rainCount * 6); this.rainSeeds = new Float32Array(this.rainCount * 3);
     for (let i = 0; i < this.rainCount; i++) { this.rainSeeds[i * 3] = r.next(); this.rainSeeds[i * 3 + 1] = r.next(); this.rainSeeds[i * 3 + 2] = r.next(); }
-    rg.setAttribute('position', new THREE.BufferAttribute(rp, 3));
-    this.rain = new THREE.LineSegments(rg, new THREE.LineBasicMaterial({ color: 0xaab4c0, transparent: true, opacity: 0.0, depthWrite: false, fog: true }));
+    // GPU rain: the streak geometry is static (per-vertex seeds); the vertex shader does the same fall/wrap/wind maths the CPU loop used to do every frame — no per-frame 7000-drop loop or 168 KB buffer upload
+    const aEnd = new Float32Array(this.rainCount * 2), aIdx = new Float32Array(this.rainCount * 2);
+    for (let i = 0; i < this.rainCount; i++) { for (let e = 0; e < 2; e++) { rp[i * 6 + e * 3] = this.rainSeeds[i * 3]; rp[i * 6 + e * 3 + 1] = this.rainSeeds[i * 3 + 1]; rp[i * 6 + e * 3 + 2] = this.rainSeeds[i * 3 + 2]; aEnd[i * 2 + e] = e; aIdx[i * 2 + e] = i; } }
+    rg.setAttribute('position', new THREE.BufferAttribute(rp, 3)); rg.setAttribute('aEnd', new THREE.BufferAttribute(aEnd, 1)); rg.setAttribute('aIdx', new THREE.BufferAttribute(aIdx, 1));
+    const rmat = new THREE.LineBasicMaterial({ color: 0xaab4c0, transparent: true, opacity: 0.0, depthWrite: false, fog: true });
+    this.rainU = { uRT: { value: 0 }, uRCam: { value: new THREE.Vector3() }, uRWind: { value: 0 }, uRN: { value: 0 } };
+    rmat.onBeforeCompile = (sh) => { Object.assign(sh.uniforms, this.rainU);
+      sh.vertexShader = 'uniform float uRT; uniform vec3 uRCam; uniform float uRWind; uniform float uRN; attribute float aEnd; attribute float aIdx;\n' + sh.vertexShader.replace('#include <begin_vertex>', `
+        vec3 transformed; { const float W = 46.0, H = 26.0; vec3 sd = position;
+          float fall = mod(sd.y * H - uRT * (17.0 + sd.z * 5.0), H);
+          float x = uRCam.x + sd.x * W - W * 0.5, z = uRCam.z + sd.z * W - W * 0.5, y = uRCam.y - 8.0 + fall;
+          transformed = vec3(x - uRWind * 0.08 * aEnd, y + 0.6 * aEnd, z - uRWind * 0.03 * aEnd);
+          if (aIdx >= uRN) transformed = vec3(0.0, -999.0, 0.0); }`); };
+    this.rain = new THREE.LineSegments(rg, rmat);
     this.rain.frustumCulled = false; scene.add(this.rain);
     this.flash = 0; this.listeners = { thunder: null };
     this.sunDir = new THREE.Vector3(); this.night = 0;
@@ -158,17 +170,8 @@ export class Atmosphere {
   updateRain(dt, camera) {
     const amt = this.w.rain; this.rain.visible = amt > 0.02; this.rain.material.opacity = 0.18 + amt * 0.25;
     if (!this.rain.visible) return;
-    const n = Math.floor(this.rainCount * amt); const pos = this.rain.geometry.attributes.position.array; const cp = camera.position;
-    const t = performance.now() * 0.001; const W = 46, H = 26; const wind = this.w.wind * 0.6;
-    for (let i = 0; i < this.rainCount; i++) {
-      const o = i * 6;
-      if (i >= n) { pos[o] = pos[o + 3] = 0; pos[o + 1] = pos[o + 4] = -999; pos[o + 2] = pos[o + 5] = 0; continue; }
-      const sx = this.rainSeeds[i * 3], sy = this.rainSeeds[i * 3 + 1], sz = this.rainSeeds[i * 3 + 2];
-      const fall = ((sy * H - t * (17 + sz * 5)) % H + H) % H;
-      const x = cp.x + ((sx * W + cp.x * 0) % W) - W / 2, z = cp.z + ((sz * W) % W) - W / 2, y = cp.y - 8 + fall;
-      pos[o] = x; pos[o + 1] = y; pos[o + 2] = z; pos[o + 3] = x - wind * 0.08; pos[o + 4] = y + 0.6; pos[o + 5] = z - wind * 0.03;
-    }
-    this.rain.geometry.attributes.position.needsUpdate = true;
+    const U = this.rainU; U.uRN.value = Math.floor(this.rainCount * amt); U.uRCam.value.copy(camera.position); U.uRWind.value = this.w.wind * 0.6;
+    U.uRT.value = (performance.now() * 0.001) % 1000; /* wrapped so float precision in the shader never degrades over a long session */
   }
   serialize() { return { hour: this.hour, day: this.day, weather: this.target }; }
   restore(s) { if (!s) return; this.hour = s.hour; this.day = s.day || 1; this.setWeather(s.weather || 'clear', true); }

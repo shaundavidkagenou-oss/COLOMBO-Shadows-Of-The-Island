@@ -66,7 +66,7 @@ export class HUD {
     g.font = '600 13px "Barlow Condensed", sans-serif'; g.textAlign = 'center';
     const lbl = (x, z, t, col = '#f4efe6') => { g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillText(t, X(x) + 1, Z(z) + 1); g.fillStyle = col; g.fillText(t, X(x), Z(z)); };
     for (const [id, x, z] of this.districtLabels) lbl(x, z, L.DISTRICTS[id].name.split(' · ')[0].toUpperCase(), '#c9d4dc');
-    for (const k of ['lotus', 'mosque', 'gfHotel', 'fortStation', 'museum', 'townhall', 'seema', 'clockTower', 'stlucia', 'port', 'hospital']) { const p = L.PLACES[k]; g.fillStyle = '#e07b39'; g.beginPath(); g.arc(X(p.x), Z(p.z), 3, 0, 7); g.fill(); }
+    for (const k of ['lotus', 'mosque', 'gfHotel', 'fortStation', 'museum', 'townhall', 'seema', 'clockTower', 'stlucia', 'port', 'hospital', 'johns']) { const p = L.PLACES[k]; g.fillStyle = '#e07b39'; g.beginPath(); g.arc(X(p.x), Z(p.z), 3, 0, 7); g.fill(); }
     this.X = X; this.Z = Z;
   }
   addBlip(id, x, z, kind = 'objective', label = '') { this.removeBlip(id); const b = { id, x, z, kind, label }; this.blips.push(b); return b; }

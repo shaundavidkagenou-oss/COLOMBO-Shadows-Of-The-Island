@@ -66,7 +66,7 @@ export const BLIP_STYLE = {
   enemy: { col: '#ff4a3a', cat: 'missions', name: 'Target' }, waypoint: { col: '#33d4c0', cat: 'missions', name: 'Waypoint' },
   landmark: { col: '#e8a33a', cat: 'landmarks', name: 'Landmark' }, police: { col: '#5b8cff', cat: 'services', name: 'Police' },
   hospital: { col: '#ff5a5a', cat: 'services', name: 'Hospital' }, station: { col: '#d9c7a0', cat: 'transit', name: 'Railway station' },
-  worship: { col: '#f2d27a', cat: 'landmarks', name: 'Place of worship' }, home: { col: '#7fd6ff', cat: 'services', name: 'Safehouse' },
+  worship: { col: '#f2d27a', cat: 'landmarks', name: 'Place of worship' }, school: { col: '#9fd3a8', cat: 'landmarks', name: 'School' }, home: { col: '#7fd6ff', cat: 'services', name: 'Safehouse' },
 };
 export function drawIcon(g, kind, x, y, r = 9) {
   const st = BLIP_STYLE[kind] || { col: '#fff' }; g.save(); g.translate(x, y);
@@ -85,6 +85,7 @@ export function drawIcon(g, kind, x, y, r = 9) {
     case 'waypoint': g.moveTo(-3 * k, 5 * k); g.lineTo(-3 * k, -5 * k); g.stroke(); g.beginPath(); g.moveTo(-3 * k, -5 * k); g.lineTo(5 * k, -2.5 * k); g.lineTo(-3 * k, 0); g.closePath(); g.fill(); break;
     case 'landmark': g.arc(0, -1.2 * k, 3.2 * k, 0, 7); g.fill(); g.beginPath(); g.moveTo(-2.6 * k, 0); g.lineTo(0, 5 * k); g.lineTo(2.6 * k, 0); g.fill(); break;
     case 'police': g.moveTo(0, -5 * k); g.lineTo(4.5 * k, -3 * k); g.lineTo(3.5 * k, 2 * k); g.lineTo(0, 5 * k); g.lineTo(-3.5 * k, 2 * k); g.lineTo(-4.5 * k, -3 * k); g.closePath(); g.fill(); break;
+    case 'school': g.moveTo(-5.5 * k, -1 * k); g.lineTo(0, -4.5 * k); g.lineTo(5.5 * k, -1 * k); g.lineTo(0, 2.5 * k); g.closePath(); g.fill(); g.beginPath(); g.moveTo(-3 * k, 0.6 * k); g.lineTo(-3 * k, 3.6 * k); g.quadraticCurveTo(0, 5.6 * k, 3 * k, 3.6 * k); g.lineTo(3 * k, 0.6 * k); g.lineTo(0, 2.5 * k); g.closePath(); g.fill(); break; /* mortarboard */
     case 'hospital': g.rect(-1.5 * k, -5 * k, 3 * k, 10 * k); g.rect(-5 * k, -1.5 * k, 10 * k, 3 * k); g.fill(); break;
     case 'station': g.rect(-4 * k, -4.5 * k, 8 * k, 7 * k); g.fill(); g.fillStyle = 'rgba(8,10,14,0.9)'; g.fillRect(-2.8 * k, -3.2 * k, 5.6 * k, 2.4 * k); g.fillStyle = st.col; g.beginPath(); g.moveTo(-3 * k, 3 * k); g.lineTo(-4.5 * k, 5.5 * k); g.moveTo(3 * k, 3 * k); g.lineTo(4.5 * k, 5.5 * k); g.stroke(); break;
     case 'worship': g.moveTo(-4.5 * k, 4 * k); g.lineTo(4.5 * k, 4 * k); g.lineTo(4.5 * k, 1 * k); g.quadraticCurveTo(0, -7 * k, -4.5 * k, 1 * k); g.closePath(); g.fill(); break;
@@ -96,7 +97,7 @@ export function drawIcon(g, kind, x, y, r = 9) {
 // fixed map points of interest (always shown, filterable)
 export const MAP_POI = [
   ['lotus', 'landmark'], ['gfHotel', 'landmark'], ['museum', 'landmark'], ['townhall', 'landmark'], ['vmpark', 'landmark'], ['clockTower', 'landmark'], ['seema', 'worship'],
-  ['mosque', 'worship'], ['stlucia', 'worship'], ['port', 'landmark'], ['hospital', 'hospital'], ['police', 'police'], ['policeHQ2', 'police'], ['slaveFlat', 'home'],
+  ['mosque', 'worship'], ['stlucia', 'worship'], ['port', 'landmark'], ['hospital', 'hospital'], ['police', 'police'], ['policeHQ2', 'police'], ['slaveFlat', 'home'], ['johns', 'school'],
 ].map(([k, kind]) => ({ x: L.PLACES[k].x, z: L.PLACES[k].z, kind, label: L.PLACES[k].name }));
 
 // ----------------------------------------------------------------------------- map renderer

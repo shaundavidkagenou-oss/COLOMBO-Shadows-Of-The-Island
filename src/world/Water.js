@@ -12,6 +12,7 @@
 //  * surf: breaking foam bands rolling in to the seawall, crest foam, rain rings; night dims the body but the reflected
 //    city lights stay bright.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { TEX } from '../gfx/Textures.js';
 import { LAKE, CANALS } from './Layout.js';
 
@@ -25,6 +26,7 @@ export const waterUniforms = {
 const COAST_GLSL = /* glsl */`float coastX(float z) { if (z < -660.0) return -515.0 + 3.0 * sin(z / 40.0); return -520.0 + 5.0 * sin(z / 95.0) + 3.0 * sin(z / 31.0); }`;
 const vert = /* glsl */`
   uniform float uTime; uniform float uWaves; uniform float uWind; uniform float uFoamCoast;
+  uniform vec4 uBounds;
   varying vec3 vWorld; varying vec3 vNormalW; varying float vHeight; varying float vCrest;
   #include <fog_pars_vertex>
   ${COAST_GLSL}
@@ -43,6 +45,7 @@ const vert = /* glsl */`
       float sea = uWaves * (0.55 + 1.1 * uWind);                        // calm morning … monsoon storm
       float shore = uFoamCoast > 0.0 ? smoothstep(2.0, 40.0, coastX(wp.z) - wp.x) : 1.0; // waves die against the seawall
       float a = sea * mix(0.35, 1.0, shore);
+      float edge = min(min(wp.x - uBounds.x, uBounds.y - wp.x), min(wp.z - uBounds.z, uBounds.w - wp.z)); a *= smoothstep(10.0, 120.0, edge); // flat at the mesh border: meets the flat far-ocean / harbour planes without seams
       gerstner(wp.xz, normalize(vec2(1.0, 0.22)), 0.42 * a, 61.0, 0.55, d, tang, bino, jac);
       gerstner(wp.xz, normalize(vec2(0.92, -0.38)), 0.26 * a, 33.0, 0.6, d, tang, bino, jac);
       gerstner(wp.xz, normalize(vec2(0.97, 0.55)), 0.17 * a, 19.0, 0.65, d, tang, bino, jac);
@@ -96,8 +99,14 @@ const frag = /* glsl */`
     if (uReflOn > 0.5) {
       vec4 rc = uReflMat * vec4(vWorld.x, uReflH, vWorld.z, 1.0); vec2 ruv = rc.xy / rc.w;
       ruv += (N.xz - vNormalW.xz * 0.4) * (0.085 / (1.0 + camD * 0.01)) * (0.7 + rough * 0.5);
-      vec3 pr = texture2D(uRefl, clamp(ruv, vec2(0.002), vec2(0.998))).rgb;
-      refl = pr;
+      // soft 4-tap read (rough water never holds a razor-sharp mirror image)
+      vec2 bo = vec2(0.0035, 0.0025) * (0.6 + rough);
+      vec3 pr = (texture2D(uRefl, clamp(ruv + bo, vec2(0.002), vec2(0.998))).rgb + texture2D(uRefl, clamp(ruv - bo, vec2(0.002), vec2(0.998))).rgb
+               + texture2D(uRefl, clamp(ruv + vec2(-bo.x, bo.y), vec2(0.002), vec2(0.998))).rgb + texture2D(uRefl, clamp(ruv + vec2(bo.x, -bo.y), vec2(0.002), vec2(0.998))).rgb) * 0.25;
+      // never smear the edge row: outside the mirror view fall back to the sky reflection; churned surf at the seawall holds no clear image
+      vec2 eg = smoothstep(vec2(-0.01), vec2(0.07), ruv) * smoothstep(vec2(1.01), vec2(0.93), ruv);
+      float surfK = uFoamCoast > 0.0 ? 1.0 - 0.7 * smoothstep(60.0, 6.0, coastX(vWorld.z) - vWorld.x) : 1.0;
+      refl = mix(sky, pr, eg.x * eg.y * surfK);
     }
     // ---- water body: absorption by depth, view-dependent; sub-surface glow through backlit crests
     float depth = depthAt(p) + max(vHeight, -1.0) * 0.6;
@@ -136,7 +145,7 @@ const frag = /* glsl */`
   }`;
 function waterMat(opts) {
   return new THREE.ShaderMaterial({
-    uniforms: { ...THREE.UniformsLib.fog, ...waterUniforms, uWaves: { value: opts.waves || 0 }, uShallow: { value: new THREE.Color(opts.shallow) }, uDeep: { value: new THREE.Color(opts.deep) }, uScatter: { value: new THREE.Color(opts.scatter || '#3fb7a4') }, uFoamCoast: { value: opts.foam || 0 }, uRough: { value: opts.rough ?? 1 }, uLakeOn: { value: opts.lake ? 1 : 0 }, uSurfaceH: { value: opts.h ?? 0 } },
+    uniforms: { ...THREE.UniformsLib.fog, ...waterUniforms, uWaves: { value: opts.waves || 0 }, uBounds: { value: new THREE.Vector4(-1e6, 1e6, -1e6, 1e6) }, uShallow: { value: new THREE.Color(opts.shallow) }, uDeep: { value: new THREE.Color(opts.deep) }, uScatter: { value: new THREE.Color(opts.scatter || '#3fb7a4') }, uFoamCoast: { value: opts.foam || 0 }, uRough: { value: opts.rough ?? 1 }, uLakeOn: { value: opts.lake ? 1 : 0 }, uSurfaceH: { value: opts.h ?? 0 } },
     vertexShader: vert, fragmentShader: frag, fog: true,
   });
 }
@@ -189,12 +198,18 @@ export function buildWater() {
   const group = new THREE.Group(); group.name = 'water';
   // near-shore ocean with real swell geometry (5 m grid)
   const ocean = new THREE.Mesh(new THREE.PlaneGeometry(1400, 3200, 280, 640).rotateX(-Math.PI / 2), waterMat({ waves: 1, shallow: '#2d9a98', deep: '#0a3550', scatter: '#45c2b0', foam: 1, rough: 1.0 }));
-  ocean.position.set(-1180, -0.9, 100); group.add(ocean);
+  ocean.position.set(-1180, -0.9, 100); group.add(ocean); ocean.material.uniforms.uBounds.value.set(-1880, -480, -1500, 1700);
+  // flat planes get a hole where the swell mesh is: its troughs (up to ~2-3 m in a monsoon) used to dip below them and the flat plane showed through as dark blotches
+  const OH = [-1880 + 4, -480 - 4, -1500 + 4, 1700 - 4];
+  const holed = (x0, x1, z0, z1, y) => { const sh = new THREE.Shape([new THREE.Vector2(x0, -z0), new THREE.Vector2(x1, -z0), new THREE.Vector2(x1, -z1), new THREE.Vector2(x0, -z1)]); const hx0 = Math.max(OH[0], x0), hx1 = Math.min(OH[1], x1), hz0 = Math.max(OH[2], z0), hz1 = Math.min(OH[3], z1);
+    if (hx1 > hx0 && hz1 > hz0) { if (hx0 > x0 && hx1 < x1 && hz0 > z0 && hz1 < z1) sh.holes.push(new THREE.Path([new THREE.Vector2(hx0, -hz0), new THREE.Vector2(hx0, -hz1), new THREE.Vector2(hx1, -hz1), new THREE.Vector2(hx1, -hz0)])); else return null; }
+    const g = new THREE.ShapeGeometry(sh); g.rotateX(-Math.PI / 2); g.translate(0, y, 0); return g; };
+  const harbourGeo = (() => { /* the ocean rect overlaps the harbour's south-west corner: split the harbour so that strip is left to the swell mesh */ const parts = [[-2000, -1880 + 4, -4200, -1200], [-1880 + 4, -480 - 4, -4200, -1500 + 4], [-480 - 4, 2000, -4200, -1200]].map(([a0, a1, b0, b1]) => { const g = new THREE.PlaneGeometry(a1 - a0, b1 - b0).rotateX(-Math.PI / 2); g.translate((a0 + a1) / 2, -0.95, (b0 + b1) / 2); return g; }); return mergeGeometries(parts); })();
   // far ocean (flat, to the horizon)
-  const far = new THREE.Mesh(new THREE.PlaneGeometry(30000, 30000, 1, 1).rotateX(-Math.PI / 2), waterMat({ waves: 0, shallow: '#0d3f5a', deep: '#0a3550', rough: 0.7 }));
-  far.position.set(-14000, -1.0, 0); far.renderOrder = -1; group.add(far);
-  const harbour = new THREE.Mesh(new THREE.PlaneGeometry(4000, 3000, 1, 1).rotateX(-Math.PI / 2), waterMat({ waves: 0, shallow: '#1f6670', deep: '#0f3444', scatter: '#2f8f86', rough: 0.75 }));
-  harbour.position.set(0, -0.95, -2700); group.add(harbour);
+  const far = new THREE.Mesh(holed(-29000, 1000, -15000, 15000, -1.0), waterMat({ waves: 0, shallow: '#0d3f5a', deep: '#0a3550', rough: 0.7 }));
+  far.renderOrder = -1; group.add(far);
+  const harbour = new THREE.Mesh(harbourGeo, waterMat({ waves: 0, shallow: '#1f6670', deep: '#0f3444', scatter: '#2f8f86', rough: 0.75 }));
+  group.add(harbour);
   // Beira Lake (algae-green, calm, mirror-like)
   let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; for (const [cx, cz, rx, rz] of LAKE) { x0 = Math.min(x0, cx - rx); x1 = Math.max(x1, cx + rx); z0 = Math.min(z0, cz - rz); z1 = Math.max(z1, cz + rz); }
   const lake = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0 + 10, z1 - z0 + 10).rotateX(-Math.PI / 2), waterMat({ shallow: '#5d7a45', deep: '#1c3a2c', scatter: '#6f9a4a', rough: 0.62, lake: true }));

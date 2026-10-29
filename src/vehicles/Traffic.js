@@ -158,11 +158,13 @@ export class Traffic {
     // spatial bins for following
     const all = this.vehicles; const playerV = player && player.vehicle; this.emergency = all.filter((v) => v.ai && v.ai.emergency && v.beaconsOn);
     for (const v of all) this.step(v, dt, all, pedsNear, playerV, player);
+    for (const v of this.parked) if (v.free) this.stepFree(v, dt);
     for (const v of all) if (v.driverChar || (v.pax && v.pax.length)) this.updateOccupants(v, dt, focus);
     if (playerV && playerV.pax && playerV.pax.length) this.updateOccupants(playerV, dt, focus);
     this.updateDisembark(dt);
   }
   step(v, dt, all, peds, playerV, player) {
+    if (v.free) { this.stepFree(v, dt); return; }
     const ai = v.ai; if (!ai) return; if (ai.stopped) { v.speed = 0; v.brake = true; return; } const p = ai.pieces[0]; // stopped = crew out of a police unit (handbrake on, nobody at the wheel)
     const [fx, fz] = [Math.sin(v.yaw), Math.cos(v.yaw)];
     // --- leader gap
@@ -245,7 +247,25 @@ export class Traffic {
     while (ai.s > ai.pieces[0].len) { ai.s -= ai.pieces[0].len; ai.pieces.shift(); this.extend(v); }
     const [x, z, yaw] = evalPiece(ai.pieces[0], ai.s);
     const dyaw = Math.atan2(Math.sin(yaw - v.yaw), Math.cos(yaw - v.yaw)); v.steer = clamp(dyaw * 4, -0.6, 0.6);
-    const lx = Math.cos(yaw) * ai.lat, lz = -Math.sin(yaw) * ai.lat; v.x = x + lx; v.z = z + lz; v.yaw = yaw; v.y = L.groundY(v.x, v.z); v.lights = this.night > 0.4; v.sync(dt);
+    const lx = Math.cos(yaw) * ai.lat, lz = -Math.sin(yaw) * ai.lat; v.x = x + lx; v.z = z + lz; v.yaw = yaw;
+    if (ai.kx !== undefined) { const e = Math.exp(-1.1 * dt); ai.kx *= e; ai.kz *= e; ai.kyaw *= e; v.x += ai.kx; v.z += ai.kz; v.yaw += ai.kyaw; if (Math.abs(ai.kx) + Math.abs(ai.kz) + Math.abs(ai.kyaw) < 0.02) ai.kx = ai.kz = ai.kyaw = undefined; } /* after a knock: ease back into the lane instead of snapping */
+    v.y = L.groundY(v.x, v.z); v.lights = this.night > 0.4; v.sync(dt);
+  }
+  // a car knocked out of its lane by a collision: slides with tyre friction, spins down, bounces off walls; then the driver collects themselves and eases back into the lane
+  stepFree(v, dt) {
+    const f = v.free; const sp = Math.hypot(f.vx, f.vz); const dec = 7.5 * dt; /* locked/scrubbing tyres ≈ 0.75 g */
+    if (sp > dec) { f.vx -= f.vx / sp * dec; f.vz -= f.vz / sp * dec; } else { f.vx = 0; f.vz = 0; }
+    f.spin *= Math.exp(-2.6 * dt); if (Math.abs(f.spin) < 0.03) f.spin = 0;
+    v.x += f.vx * dt; v.z += f.vz * dt; v.yaw += f.spin * dt; v.speed = 0; v.brake = true;
+    for (const [cx, cz] of v.circles()) { const r = this.collision.resolveCircle(cx, cz, v.radius, v.y, 0.25, 2, { vehicle: true }); if (r.hit) { const dx = r.x - cx, dz = r.z - cz, dl = Math.hypot(dx, dz) || 1; v.x += dx; v.z += dz; const vn = (f.vx * dx + f.vz * dz) / dl; if (vn < 0) { f.vx -= dx / dl * vn * 1.2; f.vz -= dz / dl * vn * 1.2; v.impact(-vn); } } }
+    v.y = L.groundY(v.x, v.z); v.sync(dt);
+    if (Math.hypot(f.vx, f.vz) < 0.15 && f.spin === 0) f.rest += dt; else f.rest = 0;
+    if (f.rest < 1.2 + Math.min(5, f.sev * 0.35)) return;
+    const ai = v.ai; if (!ai) { v.free = null; return; } /* parked car: stays where it was pushed */
+    // re-anchor on the lane: nearest arc-length on the current piece; the offset decays smoothly in step()
+    const pc = ai.pieces[0]; let bestS = ai.s, bd = Infinity; for (let s2 = Math.max(0, ai.s - 12); s2 <= Math.min(pc.len, ai.s + 12); s2 += 0.5) { const [x, z] = evalPiece(pc, s2); const d = (x - v.x) ** 2 + (z - v.z) ** 2; if (d < bd) { bd = d; bestS = s2; } }
+    if (bd > 36) { const P = this.player; if (P && Math.hypot(P.x - v.x, P.z - v.z) > 90) { this.remove(v); const i = this.vehicles.indexOf(v); if (i >= 0) this.vehicles.splice(i, 1); } return; } /* thrown far off the road: stays as a stalled car until you are well away */
+    ai.s = bestS; const [x, z, yaw] = evalPiece(pc, bestS); const lx = Math.cos(yaw) * ai.lat, lz = -Math.sin(yaw) * ai.lat; ai.kx = v.x - (x + lx); ai.kz = v.z - (z + lz); ai.kyaw = Math.atan2(Math.sin(v.yaw - yaw), Math.cos(v.yaw - yaw)); v.free = null; ai.bumped = 1;
   }
   remove(v) { if (v.driverChar) { v.driverChar.dispose(); } if (v.pax && v.pax.length) this.dropPax(v); v.dispose(); }
   // Hand a vehicle over to the player (car-jack: driver steps out and walks off grumbling)

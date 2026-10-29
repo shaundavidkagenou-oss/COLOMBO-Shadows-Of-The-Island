@@ -63,22 +63,32 @@ export class Vehicle {
     // water: block like a wall
     if (L.isWater(nx, nz) && !L.bridgeWalkAt(nx, nz) && !L.roadAt(nx, nz)) { nx = this.x; nz = this.z; this.impact(Math.abs(this.speed)); this.speed *= -0.2; }
     this.x = nx; this.z = nz;
-    // static collisions via circles
-    let hit = 0;
-    const cs = this.circles();
-    for (let k = 0; k < cs.length; k++) {
-      const [cx, cz] = cs[k]; const r = collision.resolveCircle(cx, cz, this.radius, this.y, 0.25, 2, { vehicle: true });
-      if (r.hit) { const dx = r.x - cx, dz = r.z - cz; this.x += dx; this.z += dz; hit = Math.max(hit, Math.hypot(dx, dz)); }
-    }
-    // other vehicles
+    // ---- collisions: impulse response (restitution + tangential friction + yaw spin from off-centre contacts), mass-weighted against other vehicles
+    const m1 = T.mass || 1100, I1 = (T.len * T.len + T.wid * T.wid) / 12; const nC = Math.max(2, Math.ceil((T.len - T.wid) / (T.wid * 0.7)) + 1); const tOf = (k) => (k / (nC - 1) - 0.5) * (T.len - T.wid);
+    let V = [fx * this.speed + rx * this.lat, fz * this.speed + rz * this.lat]; let maxJ = 0; this.spin = this.spin || 0;
+    const applyImpulse = (nx_, nz_, jv, t, mu) => { /* jv = velocity change along the normal (m/s) applied at body offset t */ const vtx = V[0] - nx_ * (V[0] * nx_ + V[1] * nz_), vtz = V[1] - nz_ * (V[0] * nx_ + V[1] * nz_); const vt = Math.hypot(vtx, vtz);
+      V[0] += nx_ * jv; V[1] += nz_ * jv; if (vt > 1e-3) { const f = Math.min(1, mu * jv / vt); V[0] -= vtx * f; V[1] -= vtz * f; } /* scraping friction slows the slide along the obstacle */
+      this.spin = clamp(this.spin + 0.45 * jv * t * (nx_ * rx + nz_ * rz) / I1 * 0.25, -2.4, 2.4); maxJ = Math.max(maxJ, jv); };
+    // static world: gather the deepest push per circle → one combined normal, contact at the deepest circle
+    let sx = 0, sz = 0, best = 0, bestT = 0; const cs = this.circles();
+    for (let k = 0; k < cs.length; k++) { const [cx, cz] = cs[k]; const r = collision.resolveCircle(cx, cz, this.radius, this.y, 0.25, 2, { vehicle: true }); if (r.hit) { const dx = r.x - cx, dz = r.z - cz, dl = Math.hypot(dx, dz); this.x += dx; this.z += dz; sx += dx; sz += dz; if (dl > best) { best = dl; bestT = tOf(k); } } }
+    if (best > 0.005) { const sl = Math.hypot(sx, sz) || 1, nx_ = sx / sl, nz_ = sz / sl; const vn = V[0] * nx_ + V[1] * nz_; if (vn < 0) applyImpulse(nx_, nz_, -(1 + 0.18) * vn, bestT, 0.35); }
+    // other vehicles: relative velocity along the contact normal, impulse split by mass; the other car is shoved (leaves its lane, slides, spins)
     if (others) for (const o of others) {
       if (o === this) continue; const d2 = (o.x - this.x) ** 2 + (o.z - this.z) ** 2; if (d2 > (8 + (o.T ? o.T.len / 2 : 4)) ** 2) continue;
-      for (const a of this.circles()) for (const b of o.circles()) {
-        const dx = a[0] - b[0], dz = a[1] - b[1]; const d = Math.hypot(dx, dz), m = this.radius + o.radius;
-        if (d < m && d > 1e-4) { const p = (m - d); const ratio = o.immovable ? 1 : o.ai || o.parked ? 0.85 : 0.5; this.x += (dx / d) * p * ratio; this.z += (dz / d) * p * ratio; o.bump && o.bump(-(dx / d) * p * (1 - ratio), -(dz / d) * p * (1 - ratio), this); hit = Math.max(hit, p); }
-      }
+      let px = 0, pz = 0, deep = 0, ta = 0, tb = 0; const oc = o.circles(); const ca = this.circles(); const no = oc.length;
+      for (let i = 0; i < ca.length; i++) for (let j = 0; j < no; j++) { const dx = ca[i][0] - oc[j][0], dz = ca[i][1] - oc[j][1]; const d = Math.hypot(dx, dz), m = this.radius + o.radius; if (d < m && d > 1e-4) { const pen = m - d; px += dx / d * pen; pz += dz / d * pen; if (pen > deep) { deep = pen; ta = tOf(i); tb = o.T ? ((j / Math.max(1, no - 1)) - 0.5) * (o.T.len - o.T.wid) : 0; } } }
+      if (deep <= 0.005) continue; const pl = Math.hypot(px, pz) || 1, nx_ = px / pl, nz_ = pz / pl;
+      const m2 = o.immovable ? Infinity : (o.T && o.T.mass) || 1100; const ratio = o.immovable ? 1 : m2 / (m1 + m2); this.x += nx_ * deep * ratio; this.z += nz_ * deep * ratio;
+      if (!o.immovable && o.parked && !o.free) { o.x -= nx_ * deep * (1 - ratio); o.z -= nz_ * deep * (1 - ratio); o.sync(0); }
+      const ofw = o.forward ? o.forward() : [0, 0]; const Vo = o.free ? [o.free.vx, o.free.vz] : [ofw[0] * (o.speed || 0), ofw[1] * (o.speed || 0)];
+      const vn = (V[0] - Vo[0]) * nx_ + (V[1] - Vo[1]) * nz_;
+      if (vn < 0) { const J = -(1 + 0.22) * vn / (1 / m1 + (o.immovable ? 0 : 1 / m2)); applyImpulse(nx_, nz_, J / m1, ta, 0.25);
+        if (!o.immovable && o.shove) { const dv2 = J / m2; const orx = ofw[1], orz = -ofw[0]; const I2 = o.T ? (o.T.len ** 2 + o.T.wid ** 2) / 12 : 2; o.shove(-nx_ * dv2, -nz_ * dv2, clamp(0.45 * dv2 * tb * (-nx_ * orx - nz_ * orz) / I2 * 0.25, -2.4, 2.4), this); } }
+      else if (o.bump) o.bump(0, 0, this);
     }
-    if (hit > 0.02) { this.impact(Math.abs(this.speed)); this.speed *= Math.abs(this.speed) > 8 ? -0.25 : 0.6; }
+    if (maxJ > 0.05) { this.speed = V[0] * fx + V[1] * fz; this.lat = V[0] * rx + V[1] * rz; this.impact(maxJ * 1.25); } /* damage + camera shake scale with the normal (closing) speed: a graze is light, a head-on is heavy */
+    this.yaw = wrapAngle(this.yaw + this.spin * dt); this.spin *= Math.exp(-3.2 * dt); /* tyres scrub the spin off */
     this.groundY = damp(this.groundY ?? L.groundY(this.x, this.z), L.groundY(this.x, this.z), 12, dt);
     // body attitude: cars pitch/roll a little on their suspension; two-wheelers lean into the turn about the tyre contact patch
     const latA = yawRate * this.speed; const twoWheel = this.T.entry === 'bike';
@@ -103,6 +113,8 @@ export class Vehicle {
     return { x: this.x + nlx * fz + nlz * fx, z: this.z - nlx * fx + nlz * fz };
   }
   impact(v) { if (v > 4) { this.damage = Math.min(1, this.damage + v * 0.004); this.lastImpact = { v, t: performance.now() }; } }
+  // impulse from a collision (AI / parked): leave the lane and slide freely until the energy is gone (Traffic.stepFree)
+  shove(dvx, dvz, dspin = 0) { if (this.player || this.immovable) return; const dv = Math.hypot(dvx, dvz); if (dv < 0.6 && !this.free) { this.bump(0, 0); return; } const [fx, fz] = this.forward(); const f = this.free || (this.free = { vx: fx * (this.speed || 0), vz: fz * (this.speed || 0), spin: 0, rest: 0, sev: 0 }); f.vx += dvx; f.vz += dvz; f.spin = clamp(f.spin + dspin, -2.4, 2.4); f.sev = Math.max(f.sev, dv); f.rest = 0; this.speed = 0; this.brake = true; if (this.ai) this.ai.bumped = 2.5; this.impact(dv * 1.25); }
   bump(dx, dz) { if (this.parked) { this.x += dx * 0.3; this.z += dz * 0.3; this.sync(0); } else if (this.ai) { this.ai.bumped = 2.5; } }
   sync(dt) {
     const m = this.mesh; m.position.set(this.x, this.y, this.z); m.rotation.set(this.pitch, this.yaw, this.roll, 'YXZ');
