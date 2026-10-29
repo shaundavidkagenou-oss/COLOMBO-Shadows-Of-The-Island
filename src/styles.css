@@ -193,7 +193,30 @@ select { background: #0e1318; color: var(--paper); border: 1px solid rgba(255, 2
 .photo-ui.flash { background: rgba(255, 255, 255, 0.85); }
 .bigmap { position: absolute; inset: 0; z-index: 22; background: #0d1c24; pointer-events: auto; }
 .bigmap canvas { width: 100%; height: 100%; display: block; cursor: grab; }
-.bigmap-help { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); font-family: var(--f-hud); letter-spacing: 0.18em; text-transform: uppercase; font-size: 13px; color: var(--muted); }
+.bigmap-help { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 7px 16px; background: rgba(8, 10, 14, 0.72); border-radius: 3px; font-family: var(--f-hud); letter-spacing: 0.08em; font-size: 13px; color: #c9cdd2; white-space: nowrap; pointer-events: none; }
+.bigmap-help kbd, .bm-legend kbd { font-family: var(--f-hud); font-size: 11px; padding: 1px 5px; margin: 0 1px; border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 3px; color: #fff; }
+.bm-title { position: absolute; left: 0; top: 0; padding: 26px 60px 22px 32px; min-width: 380px; pointer-events: none; text-shadow: 0 2px 8px #000; background: radial-gradient(ellipse at 0 0, rgba(6, 9, 12, 0.88) 0%, rgba(6, 9, 12, 0.6) 55%, rgba(6, 9, 12, 0) 80%); }
+.bm-city { font-family: var(--f-title); font-weight: 700; font-size: 44px; letter-spacing: 0.22em; line-height: 1; color: var(--paper); }
+.bm-sub { font-size: 15px; letter-spacing: 0.12em; color: var(--gold2); margin-top: 4px; }
+.bm-where { margin-top: 10px; font-family: var(--f-hud); font-size: 16px; letter-spacing: 0.06em; color: #e6e2da; min-height: 20px; }
+.bm-where b { color: #9fe0b4; font-weight: 600; }
+.bm-legend { position: absolute; right: 26px; top: 26px; width: 270px; padding: 12px 14px 12px; background: rgba(8, 10, 14, 0.8); border-top: 3px solid var(--gold); font-family: var(--f-hud); font-size: 14px; color: #dcd8d0; }
+.bm-lh { letter-spacing: 0.3em; font-size: 12px; color: var(--gold2); margin-bottom: 6px; }
+.bm-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; user-select: none; }
+.bm-row canvas { width: 22px; height: 22px; }
+.bm-row input { accent-color: #33d4c0; margin: 0; }
+.bm-roads { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.1); font-size: 12px; line-height: 1.9; color: #b8b4ac; }
+.bm-roads i { display: inline-block; width: 14px; height: 5px; margin: 0 4px 2px 6px; vertical-align: middle; border-radius: 2px; }
+.bm-roads i:first-child { margin-left: 0; }
+.bm-roads i.rail { background: repeating-linear-gradient(90deg, #a89070 0 4px, #55493d 4px 8px); }
+.bm-way { position: absolute; right: 26px; bottom: 70px; width: 270px; padding: 10px 14px; background: rgba(8, 10, 14, 0.8); border-left: 3px solid #33d4c0; font-family: var(--f-hud); display: none; flex-direction: column; gap: 3px; }
+.bm-way.show { display: flex; }
+.bm-way b { letter-spacing: 0.22em; font-size: 12px; color: #33d4c0; font-weight: 600; }
+.bm-way span { font-size: 14px; color: #e6e2da; } .bm-way .bm-to { color: #a8a49c; font-size: 13px; }
+.bm-tip { position: fixed; left: 0; top: 0; padding: 6px 10px; background: rgba(8, 10, 14, 0.9); border: 1px solid rgba(255, 255, 255, 0.15); font-family: var(--f-hud); pointer-events: none; display: flex; flex-direction: column; z-index: 3; }
+.bm-tip b { font-size: 15px; color: #fff; font-weight: 600; } .bm-tip span { font-size: 12px; color: #b8b4ac; letter-spacing: 0.05em; }
+.gps-info { position: absolute; left: 262px; bottom: 60px; padding: 3px 10px 4px; background: rgba(8, 10, 14, 0.62); border-radius: 2px; font-family: var(--f-hud); font-size: 16px; letter-spacing: 0.06em; color: var(--paper); text-shadow: 0 1px 6px #000; opacity: 0; transition: opacity 0.4s; }
+.gps-info.show { opacity: 1; } .gps-info b { font-size: 12px; letter-spacing: 0.22em; color: #33d4c0; margin-right: 6px; font-weight: 600; } .gps-info.obj b { color: var(--gold2); }
 .fps { position: absolute; left: 50%; top: 4px; transform: translateX(-50%); font-family: var(--f-hud); font-size: 12px; color: #9f9; z-index: 60; text-shadow: 0 1px 2px #000; }
 .warn { color: #f0c040; } .fail { color: var(--red); }
 @media (max-width: 900px) { .pause-cols { grid-template-columns: 1fr; } .ctrl-grid { grid-template-columns: 1fr; } .minimap { width: 160px; height: 160px; } .street { left: 200px; } }
