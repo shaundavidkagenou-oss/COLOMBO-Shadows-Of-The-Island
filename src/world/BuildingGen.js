@@ -68,6 +68,29 @@ function gableRoof(mb, x0, x1, z0, z1, y, rise, color, alongX = true) {
   }
 }
 
+// quad with per-vertex colours, wound so it faces `want` (a direction vector)
+function gquad(mb, P, C, want) {
+  const [a, b, , d] = P; const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = d[0] - a[0], vy = d[1] - a[1], vz = d[2] - a[2];
+  let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+  let idx = [0, 1, 2, 3]; if (nx * want[0] + ny * want[1] + nz * want[2] < 0) { idx = [0, 3, 2, 1]; nx = -nx; ny = -ny; nz = -nz; }
+  const l = Math.hypot(nx, ny, nz) || 1; const v = idx.map((k) => mb.vert(P[k][0], P[k][1], P[k][2], nx / l, ny / l, nz / l, 0, 0, C[k]));
+  mb.idx.push(v[0], v[1], v[2], v[0], v[2], v[3]);
+}
+// Contact ambient occlusion where a building meets the ground: a gradient band up the bottom 1.5 m of each wall and a
+// matching falloff on the paving beside it. Multiplied (MAT.ao), so it reads as real occlusion on every quality preset.
+const AO_H = [0, 0.25, 0.7, 1.5], AO_C = [0.56, 0.76, 0.92, 1];
+function contactAO(mb, s, y0) {
+  const ox = s.n[0] * 0.012, oz = s.n[1] * 0.012; const g = (v) => [v, v, v]; const want = [s.n[0], 0, s.n[1]];
+  for (let k = 0; k < 3; k++) {
+    const ya = y0 + AO_H[k], yb = y0 + AO_H[k + 1];
+    gquad(mb, [[s.a[0] + ox, ya, s.a[1] + oz], [s.b[0] + ox, ya, s.b[1] + oz], [s.b[0] + ox, yb, s.b[1] + oz], [s.a[0] + ox, yb, s.a[1] + oz]], [g(AO_C[k]), g(AO_C[k]), g(AO_C[k + 1]), g(AO_C[k + 1])], want);
+  }
+  const W = [0, 0.35, 1.1], WC = [0.6, 0.84, 1], yy = y0 + 0.014;
+  for (let k = 0; k < 2; k++) {
+    const pa = (w) => [s.a[0] + s.n[0] * w, yy, s.a[1] + s.n[1] * w], pb = (w) => [s.b[0] + s.n[0] * w, yy, s.b[1] + s.n[1] * w];
+    gquad(mb, [pa(W[k]), pb(W[k]), pb(W[k + 1]), pa(W[k + 1])], [g(WC[k]), g(WC[k]), g(WC[k + 1]), g(WC[k + 1])], [0, 1, 0]);
+  }
+}
 export function buildBase(b, multi) {
   const paint = col(b.color || '#ffffff');
   const fac = multi.get('f_' + b.style);
@@ -80,6 +103,7 @@ export function buildBase(b, multi) {
       else facadeWall(fac, s, y0, y0 + GROUND_H, b.uOff || 0, y0 + GROUND_H - 2 * FLOOR_H, paint);
       facadeWall(fac, s, y0 + GROUND_H, yTop, b.uOff || 0, y0 + GROUND_H, paint);
     } else facadeWall(fac, s, y0, yTop, b.uOff || 0, y0, paint);
+    contactAO(multi.get('ao'), s, y0);
   }
   // roof
   const roofCol = [0.78, 0.76, 0.72];
@@ -229,6 +253,36 @@ export function buildDetail(b, multi) {
     }
     if (b.floors >= 3 && (b.x1 - b.x0) > 6 && (b.z1 - b.z0) > 6) conc.box(b.x0 + 2, yTop + 1.3, b.z0 + 2, 2.6, 2.6, 2.6, { col: darker, uvScale: 3 });
     if (rng.chance(0.3)) { const dx = rng.range(b.x0 + 1, b.x1 - 1), dz = rng.range(b.z0 + 1, b.z1 - 1); multi.get('paint').cylinder(dx, yTop + 0.9, dz, 0.45, 0.05, 0.25, 10, { col: [0.85, 0.85, 0.85] }); multi.get('metal').box(dx, yTop + 0.45, dz, 0.06, 0.9, 0.06, { col: [0.4, 0.4, 0.4] }); }
+  }
+  // building fabric: rendered plinth course, rainwater downpipes (PVC grey or painted black/cast iron on heritage),
+  // eave gutters on tiled roofs, and a CEB electricity meter box beside the entrance
+  {
+    const shopFront = b.groundRow != null; const pc = paint.map((v) => v * 0.62 + 0.08); const heritage = b.style === 'colonial' || b.style === 'brick'; const curtain = /^glass/.test(b.style) || ((b.style === 'office' || b.style === 'hotel') && b.floors > 6);
+    const pipeCol = heritage ? [0.12, 0.12, 0.13] : rng.chance(0.5) ? [0.72, 0.72, 0.7] : [0.42, 0.44, 0.46]; const pm = multi.get('paint');
+    for (const s of sd) {
+      if (s.len < 1.5) continue; const r = rotOf(s); const mid = along(s, 0.5);
+      if (!(shopFront && s.id === b.front)) conc.box(mid[0] + s.n[0] * 0.035, y0 + 0.24, mid[1] + s.n[1] * 0.035, s.len + 0.07, 0.48, 0.07, { col: pc, uvScale: 2, rotY: r });
+    }
+    const tiled = b.roof === 'tile'; const ov = tiled ? 0.7 : 0;
+    const pipeSides = curtain ? [] : sd.filter((s) => s.len >= 5 && (s.id === b.front || s.id === sd[(sd.indexOf(front) + 2) % 4].id));
+    for (const s of pipeSides) for (const t of [0.6 / s.len, 1 - 0.6 / s.len]) {
+      if (s.len < 9 && t > 0.5) continue; // narrow frontages get a single pipe
+      const p = along(s, t); const px = p[0] + s.n[0] * 0.11, pz = p[1] + s.n[1] * 0.11; const top = tiled ? yTop - 0.3 : yTop + 0.2;
+      pm.cylinder(px, y0 + 0.05, pz, 0.055, 0.055, top - y0 - 0.05, 8, { col: pipeCol, caps: false });
+      pm.cylinder(px, y0 + 0.02, pz, 0.075, 0.06, 0.1, 8, { col: pipeCol }); // shoe
+      for (let yb = y0 + 1.8; yb < top - 0.5; yb += 2.2) pm.cylinder(px, yb, pz, 0.068, 0.068, 0.05, 8, { col: pipeCol }); // wall brackets
+      if (tiled) { const dx = s.n[0] * (ov - 0.05), dz = s.n[1] * (ov - 0.05); pm.box(px + dx / 2, top + 0.12, pz + dz / 2, Math.abs(dx) + 0.1, 0.1, Math.abs(dz) + 0.1, { col: pipeCol }); }
+      else pm.box(px - s.n[0] * 0.05, top + 0.05, pz - s.n[1] * 0.05, 0.16, 0.12, 0.16, { col: pipeCol }); // parapet outlet
+    }
+    if (tiled) for (const s of sd) { // half-round gutter hung along each eave
+      const mid = along(s, 0.5); const r = rotOf(s);
+      pm.box(mid[0] + s.n[0] * (ov + 0.05), yTop - 0.06, mid[1] + s.n[1] * (ov + 0.05), s.len + ov * 2 + 0.1, 0.13, 0.14, { col: pipeCol, rotY: r, bottom: true });
+    }
+    if (!shopFront && front.len >= 4) { const p = along(front, rng.chance(0.5) ? 0.22 : 0.78); const r = rotOf(front);
+      pm.box(p[0] + front.n[0] * 0.09, y0 + 1.55, p[1] + front.n[1] * 0.09, 0.34, 0.46, 0.16, { col: [0.78, 0.78, 0.74], rotY: r, bottom: true });
+      pm.box(p[0] + front.n[0] * 0.175, y0 + 1.62, p[1] + front.n[1] * 0.175, 0.14, 0.1, 0.01, { col: [0.15, 0.2, 0.22], rotY: r }); // meter window
+      pm.cylinder(p[0] + front.n[0] * 0.09, y0 + 1.78, p[1] + front.n[1] * 0.09, 0.018, 0.018, yTop - y0 - 1.8, 5, { col: [0.1, 0.1, 0.1], caps: false }); // service cable up the wall
+    }
   }
   // villa porch
   if (b.porch) {

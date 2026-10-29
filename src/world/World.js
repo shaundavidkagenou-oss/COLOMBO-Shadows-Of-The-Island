@@ -30,7 +30,7 @@ export class World {
   async build(progress = () => {}, quality = 'high') {
     progress(0.0, 'Planning Colombo'); await tick();
     generatePlan();
-    this.collision.addAll(plan.colliders);
+    this.plan = plan; this.collision.addAll(plan.colliders);
     progress(0.08, 'Laying roads and pavements'); await tick();
     const ground = buildGround(() => {});
     progress(0.2, 'Raising landmarks'); await tick();
@@ -43,7 +43,7 @@ export class World {
       c.group.name = 'chunk' + idx;
       const gm = ground[idx]; if (gm) for (const m of gm.toMeshes(MAT, { cast: false, receive: true })) c.group.add(m);
       const mb = new MultiBuilder(); for (const b of ch.buildings) buildBase(b, mb); for (const w of ch.walls || []) buildWall(w, mb);
-      for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) c.group.add(m);
+      for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) { if (m.name === 'ao') { m.castShadow = false; m.receiveShadow = false; m.renderOrder = 1; } c.group.add(m); }
       c.props = buildPropsForChunk(ch); c.props.visible = false; c.group.add(c.props);
       c.trees = buildTreesForChunk(ch); if (c.trees) { c.trees.visible = false; c.group.add(c.trees); }
       c.lamps = c.props.userData.lamps || [];

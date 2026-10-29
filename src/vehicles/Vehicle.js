@@ -5,6 +5,19 @@ import { clamp, lerp, damp, wrapAngle } from '../core/math.js';
 import * as L from '../world/Layout.js';
 
 let NEXT_ID = 1;
+// Headlight throw on the road: an additive ground decal in front of any vehicle whose headlights are on (never on parked
+// or unattended vehicles). Texture = two beam lobes, brightest a few metres ahead of each lamp, soft cut-off at the far end.
+let HEAD_POOL = null;
+function headPool() {
+  if (HEAD_POOL) return HEAD_POOL;
+  const c = document.createElement('canvas'); c.width = 64; c.height = 128; const x = c.getContext('2d');
+  for (const lx of [20, 44]) { x.save(); x.translate(lx, 30); x.scale(1, 3.2); const g = x.createRadialGradient(0, 0, 0, 0, 0, 22);
+    g.addColorStop(0, 'rgba(255,255,255,0.75)'); g.addColorStop(0.45, 'rgba(255,255,255,0.32)'); g.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(-32, -40, 64, 80); x.restore(); }
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const geo = new THREE.PlaneGeometry(1, 1); geo.rotateX(-Math.PI / 2); geo.translate(0, 0, 0.5); /* canvas top (lamp end) = v 1 = z 0, at the bumper */
+  const mat = new THREE.MeshBasicMaterial({ map: tex, color: 0xfff0d6, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: true, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+  return (HEAD_POOL = { geo, mat });
+}
 // Near-LOD switch for the high-detail kit (VehicleDetail.js): detail group + hi-res wheels within ud.lodR of the camera.
 export const LIVE_VEHICLES = globalThis.__liveVehicles || (globalThis.__liveVehicles = new Set()); // global so dev hot-reloads share one registry
 export function setVehicleLOD(ud, near) { if (ud.lodNear === near) return; ud.lodNear = near; ud.detail.visible = near; for (const w of ud.wheels) { const u = w.userData; u.lo.visible = !near; u.hi.visible = near; if (u.cal) u.cal.visible = near; } }
@@ -98,6 +111,10 @@ export class Vehicle {
     const ud = m.userData, tm = ud.tailMat, hm = ud.headMat, rm = ud.revMat; const occupied = !this.parked || this.player;
     const wantT = !occupied ? 0.03 : this.brake ? (this.lights ? 2.2 : 1.6) : this.lights ? 0.9 : 0.05; if (tm && tm.emissiveIntensity !== wantT) tm.emissiveIntensity = wantT;
     const wantH = this.lights && occupied ? 2.6 : 0.04; if (hm && hm.emissiveIntensity !== wantH) hm.emissiveIntensity = wantH;
+    const beam = this.lights && occupied && !this.T.rail;
+    if (beam && !ud.headPool) { const hp = headPool(); const bike = this.T.entry === 'bike'; const p = new THREE.Mesh(hp.geo, hp.mat); p.name = 'headPool';
+      p.position.set(0, 0.07, this.T.len / 2 - 0.1); p.scale.set(bike ? 2.4 : Math.max(2.6, this.T.wid * 1.5), 1, bike ? 8 : 11); p.renderOrder = 2; p.castShadow = p.receiveShadow = false; m.add(p); ud.headPool = p; }
+    if (ud.headPool && ud.headPool.visible !== beam) ud.headPool.visible = beam;
     const wantR = occupied && this.speed < -0.3 ? 1.3 : 0; if (rm && rm.emissiveIntensity !== wantR) rm.emissiveIntensity = wantR;
   }
   driverSeat() { const s = this.mesh.userData.seats.find((q) => q.driver) || this.mesh.userData.seats[0]; return s; }

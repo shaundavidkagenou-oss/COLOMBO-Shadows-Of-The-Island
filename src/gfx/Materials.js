@@ -8,6 +8,9 @@ const wetTargets = [];
 export function buildMaterials() {
   const std = (o) => new THREE.MeshStandardMaterial(o);
   MAT.road = std({ map: TEX.asphalt, roughnessMap: TEX.asphaltRough, roughness: 1, metalness: 0, color: 0xffffff });
+  // same asphalt + same world-space UVs as MAT.road, but vertex-tinted: wheel-path polish, oil-stained stop zones and
+  // repair patches are real overlay geometry on the carriageway (tone changes only, texture stays continuous)
+  MAT.roadTint = std({ map: TEX.asphalt, roughnessMap: TEX.asphaltRough, roughness: 1, metalness: 0, vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
   MAT.walk = std({ map: TEX.pavers, roughness: 0.9, color: 0xffffff });
   MAT.walkGrey = std({ map: TEX.paversGrey, roughness: 0.9 });
   MAT.kerb = std({ map: TEX.concrete, roughness: 0.85, vertexColors: true });
@@ -45,9 +48,12 @@ export function buildMaterials() {
   MAT.leavesBright = std({ map: TEX.leavesBright, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9, vertexColors: true });
   MAT.palm = std({ map: TEX.palm, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85, vertexColors: true });
   MAT.bark = std({ color: 0x6b5a48, roughness: 1, vertexColors: true });
+  // baked contact occlusion: gradient geometry at wall bases / along their footings, multiplied over what is already drawn
+  // (darkens only, never lightens; no fog so distant facades are not tinted)
+  MAT.ao = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.MultiplyBlending, premultipliedAlpha: true, depthWrite: false, fog: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   MAT.pool = new THREE.MeshBasicMaterial({ map: TEX.pool, color: 0xffc98a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
   MAT.glow = new THREE.SpriteMaterial({ map: TEX.glow, color: 0xffd7a0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0 });
-  wetTargets.push([MAT.road, 1.0, 0.18], [MAT.walk, 0.9, 0.35], [MAT.walkGrey, 0.9, 0.35], [MAT.kerb, 0.85, 0.4], [MAT.concrete, 0.9, 0.45], [MAT.roofFlat, 0.95, 0.5]);
+  wetTargets.push([MAT.road, 1.0, 0.18], [MAT.roadTint, 0.95, 0.14], [MAT.walk, 0.9, 0.35], [MAT.walkGrey, 0.9, 0.35], [MAT.kerb, 0.85, 0.4], [MAT.concrete, 0.9, 0.45], [MAT.roofFlat, 0.95, 0.5]);
   return MAT;
 }
 const _dry = new THREE.Color(1, 1, 1), _wet = new THREE.Color(0.62, 0.62, 0.64);

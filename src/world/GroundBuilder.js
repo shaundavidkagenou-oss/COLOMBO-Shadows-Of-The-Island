@@ -7,7 +7,7 @@ import { RNG, hash2 } from '../core/rng.js';
 
 import { buildTrack } from './Railway.js';
 const RY = L.ROAD_Y, LY = L.LAND_Y;
-const WHITE = [0.93, 0.93, 0.9], YELLOW = [0.93, 0.76, 0.12];
+const WHITE0 = [0.93, 0.93, 0.9], YELLOW0 = [0.93, 0.76, 0.12]; const WHITE = WHITE0, YELLOW = YELLOW0;
 const lotMaterial = (cell) => {
   const zn = L.zoneAt(cell.cx, cell.cz);
   if (zn) { if (['vmpark', 'museum', 'townhall', 'slpHQ', 'johns'].includes(zn.id)) return 'lawn'; if (zn.id === 'gangaramaya' || zn.id === 'kovil') return 'sand'; return 'concrete'; }
@@ -41,12 +41,14 @@ export function buildGround(progress) {
       const za = s.z0 + n0.hwH, zb = s.z1 - n1.hwH; if (zb <= za) continue;
       road.hrect(s.x0 - s.hw, za, s.x0 + s.hw, zb, RY, 10);
       markings(mk, s, 'v', za, zb, n0, n1);
+      roadWear(mb, s, 'v', za, zb, n0, n1);
       if (s.bridge) bridge(mb, s, 'v');
     } else {
       const n0 = L.nodeAt(s.i, s.j), n1 = L.nodeAt(s.i + 1, s.j);
       const xa = s.x0 + n0.hwV, xb = s.x1 - n1.hwV; if (xb <= xa) continue;
       road.hrect(xa, s.z0 - s.hw, xb, s.z0 + s.hw, RY, 10);
       markings(mk, s, 'h', xa, xb, n0, n1);
+      roadWear(mb, s, 'h', xa, xb, n0, n1);
     }
   }
   for (const n of L.nodes) if (n.segs.length) {
@@ -173,8 +175,54 @@ export function buildGround(progress) {
   return chunks;
 }
 
+// Real carriageway wear, deterministic per segment (seeded by id): darker polished wheel paths in every lane, oil-stained
+// stop zones where traffic queues at junctions, asphalt repair patches, cast-iron manhole covers, kerb-side drain gratings
+// and road studs along the median line of dual carriageways.
+function roadWear(mb, s, dir, a, b, n0, n1) {
+  const len = b - a; if (len < 6) return;
+  const T = mb.get('roadTint'), M = mb.get('metal'), P = mb.get('paint'); const r = new RNG(9300 + s.id * 17);
+  const cx = s.x0, cz = s.z0; const y = RY + 0.003;
+  // rect in road space: t along [t0,t1], lateral [o0,o1]
+  const rect = (t0, t1, o0, o1, yy, col) => { t0 = Math.max(0, t0); t1 = Math.min(len, t1); if (t1 - t0 < 0.05) return;
+    if (dir === 'v') T.hrect(cx + o0, a + t0, cx + o1, a + t1, yy, 10, col); else T.hrect(a + t0, cz + o0, a + t1, cz + o1, yy, 10, col); };
+  const lanes = []; if (s.level <= 1) { for (let o = 1.8; o < s.hw - 1.1; o += 3.2) lanes.push(o); } else lanes.push(s.level === 2 ? s.hw * 0.5 : s.hw * 0.48);
+  const age = r.range(0.76, 0.85); // older roads polish darker
+  for (const sg of [-1, 1]) for (const lo of lanes) for (const w of [-0.78, 0.78]) {
+    const o = sg * lo + w; if (Math.abs(o) > s.hw - 0.3) continue;
+    rect(0, len, o - 0.42, o + 0.42, y, [0.91, 0.91, 0.91]); rect(0, len, o - 0.22, o + 0.22, y + 0.002, [age, age, age]);
+  }
+  // queued-traffic oil zone before each stop line (approach lane is on the left of travel)
+  const cw = 3.4, gap = 0.8; const j0 = n0.segs.length >= 3 && s.level <= 2 && !s.crossing, j1 = n1.segs.length >= 3 && s.level <= 2 && !s.crossing;
+  const lane0 = lanes[0];
+  if (j1) { const st = len - gap - cw - 0.9, o = (dir === 'v' ? 1 : -1) * lane0; rect(st - 11, st - 0.8, o - 0.55, o + 0.55, y + 0.003, [0.72, 0.71, 0.7]); rect(st - 6, st - 1.4, o - 0.3, o + 0.3, y + 0.004, [0.58, 0.57, 0.56]); }
+  if (j0) { const st = gap + cw + 0.9, o = (dir === 'v' ? -1 : 1) * lane0; rect(st + 0.8, st + 11, o - 0.55, o + 0.55, y + 0.003, [0.72, 0.71, 0.7]); rect(st + 1.4, st + 6, o - 0.3, o + 0.3, y + 0.004, [0.58, 0.57, 0.56]); }
+  // repair patches: fresh black cut-and-fill or old faded grey squares, some trench reinstatements across a lane
+  const np = Math.floor(len / 45 + r.next() * 2.2);
+  for (let k = 0; k < np; k++) {
+    const t = r.range(4, len - 4), o = r.range(-s.hw + 0.8, s.hw - 0.8), fresh = r.chance(0.45), tone = fresh ? r.range(0.62, 0.72) : r.range(1.08, 1.18);
+    if (r.chance(0.25)) { const side = o < 0 ? -1 : 1; rect(t, t + r.range(0.6, 0.9), side < 0 ? -s.hw + 0.3 : 0.2, side < 0 ? -0.2 : s.hw - 0.3, y + 0.005, [tone, tone, tone * 0.98]); }
+    else { const wl = r.range(1.0, 3.6), wo = r.range(0.7, 2.2); rect(t, t + wl, o - wo / 2, o + wo / 2, y + 0.005, [tone, tone, tone * 0.98]); }
+  }
+  // manhole covers (cast iron in a concrete collar) near lane centres
+  for (let t = r.range(10, 30); t < len - 6; t += r.range(38, 70)) {
+    const o = (r.chance(0.5) ? -1 : 1) * (lanes[Math.floor(r.next() * lanes.length)] + r.range(-0.5, 0.5)); if (Math.abs(o) > s.hw - 0.8) continue;
+    const [x, z] = dir === 'v' ? [cx + o, a + t] : [a + t, cz + o];
+    P.cylinder(x, RY - 0.01, z, 0.46, 0.44, 0.022, 16, { col: [0.5, 0.49, 0.47] }); M.cylinder(x, RY - 0.01, z, 0.33, 0.33, 0.03, 16, { col: [0.2, 0.19, 0.18] });
+  }
+  // kerb-side drain gratings (both edges): dark sump with cast bars
+  if (s.level <= 2 && !s.bridge) for (let t = r.range(6, 16); t < len - 3; t += r.range(18, 28)) for (const sg of [-1, 1]) {
+    const o = sg * (s.hw - 0.24); const [x, z] = dir === 'v' ? [cx + o, a + t] : [a + t, cz + o];
+    const along = dir === 'v'; P.box(x, RY + 0.003, z, along ? 0.36 : 0.95, 0.006, along ? 0.95 : 0.36, { col: [0.05, 0.05, 0.05] });
+    for (let q = -3; q <= 3; q++) { const d = q * 0.12; M.box(along ? x : x + d, RY + 0.011, along ? z + d : z, along ? 0.34 : 0.035, 0.012, along ? 0.035 : 0.34, { col: [0.24, 0.23, 0.22] }); }
+  }
+  // road studs on the double centre line (dual carriageways), with a little reflective face toward each direction
+  if (s.level === 0) for (let t = 4; t < len - 2; t += 9) { const [x, z] = dir === 'v' ? [cx, a + t] : [a + t, cz]; P.box(x, RY + 0.015, z, dir === 'v' ? 0.1 : 0.14, 0.03, dir === 'v' ? 0.14 : 0.1, { col: [0.85, 0.82, 0.6] }); }
+}
 function markings(mk, s, dir, a, b, n0, n1) {
   const cx = s.x0, cz = s.z0; const len = b - a; if (len < 2) return;
+  // paint age varies per road: most lines are fresh, about a third are visibly worn toward the asphalt grey
+  const fr = new RNG(7700 + s.id * 31); const fade = fr.next() < 0.35 ? fr.range(0.22, 0.45) : fr.range(0, 0.1);
+  const mix = (c) => c.map((v, k) => v + ([0.36, 0.36, 0.37][k] - v) * fade); const WHITE = mix(WHITE0), YELLOW = mix(YELLOW0);
   const strip = (off, t0, t1, w, col) => { // along-road strip at lateral offset
     if (dir === 'v') mk.hrect(cx + off - w / 2, a + t0, cx + off + w / 2, a + t1, RY + 0.012, 1, col);
     else mk.hrect(a + t0, cz + off - w / 2, a + t1, cz + off + w / 2, RY + 0.012, 1, col);
