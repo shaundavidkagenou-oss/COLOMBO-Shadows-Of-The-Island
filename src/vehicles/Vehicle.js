@@ -5,9 +5,13 @@ import { clamp, lerp, damp, wrapAngle } from '../core/math.js';
 import * as L from '../world/Layout.js';
 
 let NEXT_ID = 1;
+// Near-LOD switch for the high-detail kit (VehicleDetail.js): detail group + hi-res wheels within ud.lodR of the camera.
+export const LIVE_VEHICLES = globalThis.__liveVehicles || (globalThis.__liveVehicles = new Set()); // global so dev hot-reloads share one registry
+export function setVehicleLOD(ud, near) { if (ud.lodNear === near) return; ud.lodNear = near; ud.detail.visible = near; for (const w of ud.wheels) { const u = w.userData; u.lo.visible = !near; u.hi.visible = near; if (u.cal) u.cal.visible = near; } }
+export function updateVehicleLOD(cam) { const cx = cam.position.x, cy = cam.position.y, cz = cam.position.z; for (const v of LIVE_VEHICLES) { const m = v.mesh, ud = m.userData; if (!ud.detail) continue; const r = ud.lodR, d2 = (m.position.x - cx) ** 2 + (m.position.y - cy) ** 2 + (m.position.z - cz) ** 2; setVehicleLOD(ud, d2 < (ud.lodNear ? (r + 5) * (r + 5) : r * r) && m.visible !== false); } }
 export class Vehicle {
   constructor(type, seed, scene) {
-    this.id = NEXT_ID++; this.type = type; this.T = VTYPES[type]; this.mesh = createVehicleMesh(type, seed); scene.add(this.mesh); this.scene = scene;
+    this.id = NEXT_ID++; this.type = type; this.T = VTYPES[type]; this.mesh = createVehicleMesh(type, seed); scene.add(this.mesh); this.scene = scene; LIVE_VEHICLES.add(this);
     this.x = 0; this.z = 0; this.y = 0; this.yaw = 0; this.speed = 0; this.steer = 0; this.lat = 0; this.wheelRot = 0; this.pitch = 0; this.roll = 0;
     this.brake = false; this.lights = false; this.driver = null; this.player = false; this.ai = null; this.parked = false; this.horn = 0; this.damage = 0; this.health = 100;
     this.radius = this.T.wid * 0.55; this.half = this.T.len / 2;
@@ -100,5 +104,5 @@ export class Vehicle {
   seatWorld(seat) { const v = new THREE.Vector3(seat.x, seat.y, seat.z); this.mesh.updateMatrixWorld(); return v.applyMatrix4(this.mesh.matrixWorld); }
   // exit point on the driver's side (right-hand drive → right side = −x local)
   exitPoint(s = -1) { const [fx, fz] = this.forward(); const off = this.T.wid / 2 + 0.7; return { x: this.x + fz * s * off, z: this.z - fx * s * off }; } // local +x in world = (fz, -fx)
-  dispose() { this.scene.remove(this.mesh); const ud = this.mesh.userData; ud.tailMat.dispose(); ud.indMat?.dispose(); ud.headMat?.dispose(); ud.revMat?.dispose(); }
+  dispose() { LIVE_VEHICLES.delete(this); this.scene.remove(this.mesh); const ud = this.mesh.userData; ud.tailMat.dispose(); ud.indMat?.dispose(); ud.headMat?.dispose(); ud.revMat?.dispose(); }
 }

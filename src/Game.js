@@ -1,4 +1,5 @@
 // Game: boot/loading, presentation flow (intro → montage → menu), the play loop, interactions, save/load.
+import { gatherBodies } from './actors/Bodies.js';
 import { PoliceHQLife } from './police/PoliceHQLife.js';
 import { PoliceResponse } from './police/PoliceResponse.js';
 import * as THREE from 'three';
@@ -12,6 +13,7 @@ import { buildMaterials } from './gfx/Materials.js';
 import { Atmosphere } from './gfx/Atmosphere.js';
 import { PostFX } from './gfx/PostFX.js';
 import { setVehicleNight } from './vehicles/VehicleModels.js';
+import { updateVehicleLOD } from './vehicles/Vehicle.js';
 import { World } from './world/World.js';
 import { Interiors } from './world/Interiors.js';
 import * as L from './world/Layout.js';
@@ -198,7 +200,12 @@ export class Game {
     const old = P.ch; const parent = old.root.parent; const ch = new Character(spec); ch.root.position.copy(old.root.position); ch.root.rotation.copy(old.root.rotation);
     if (parent) { parent.add(ch.root); parent.remove(old.root); } if (this.weapons) { this.weapons.forceHolster(); this.weapons.attach(ch); } old.dispose(); P.ch = ch; if (P.vehicle) { const seat = P.vehicle.driverSeat(); ch.root.position.set(seat.x, seat.y, seat.z); ch.root.rotation.set(0, 0, 0); ch.anim.sitIn(seat, 1); ch.anim.update(0.001, 0); }
   }
-  setIndoor(v) { this.indoor = v; this.world.root.visible = !v; this.atmos.rain.visible = false; this.atmos.indoor = v; this.hud.mini.classList.toggle('dim', v); }
+  setIndoor(v) { this.indoor = v; this.world.root.visible = !v; this.atmos.rain.visible = false; this.atmos.indoor = v; this.hud.mini.classList.toggle('dim', v); if (v) this.hideOutdoor(); else this.showOutdoor(); }
+  // FPS: while inside an interior nothing of the street is visible, so street traffic, crowd, trains and other
+  // outdoor objects are hidden (not drawn, not shadow-cast) and their simulation pauses; restored on exit.
+  isOutdoorObj(c) { if (c.isLight || c.isCamera || c === this.player.ch.root || c.name === 'hq-interior' || c.userData.interior) return false; for (const r of this.interiors.built.values()) if (r.g === c) return false; return c.position.y > -15; }
+  hideOutdoor() { if (!this._hiddenOut) this._hiddenOut = []; for (const c of this.scene.children) if (c.visible && this.isOutdoorObj(c)) { c.visible = false; this._hiddenOut.push(c); } }
+  showOutdoor() { for (const c of this._hiddenOut || []) c.visible = true; this._hiddenOut = []; }
   // ================================================================= events → audio / HUD
   wireEvents() {
     bus.on('footstep', (e) => Audio.footstep(e.sprint, this.atmos.wet > 0.3 && !this.indoor));
@@ -258,7 +265,7 @@ export class Game {
     try {
       if (this.mode === 'play' && !this.paused) this.updatePlay(dt);
       else if (this.mode === 'menu' || this.mode === 'intro') this.updateAmbient(dt);
-      CAM.copy(this.camera.position);
+      CAM.copy(this.camera.position); updateVehicleLOD(this.camera);
       if (this.post) { if (this.world && this.world.waterRefl) { const q = Settings.get('quality'); this.world.waterRefl.scale = q === 'ultra' ? 0.6 : 0.45; this.world.waterRefl.update(this.renderer, this.scene, this.camera, (q === 'high' || q === 'ultra') && !this.indoor); } this.post.update(this.atmos); this.post.render(dt); }
     } catch (e) { if (!this._errN || this._errN < 5) console.error(e && e.stack || e); this._errN = (this._errN || 0) + 1; this.lastError = e; }
     Input.endFrame();
@@ -294,6 +301,7 @@ export class Game {
       if (P.vehicle && Input.wasPressed('radio')) { this.radio = (this.radio + 1) % RADIO.length; this.hud.notify('Radio', RADIO[this.radio] ? RADIO[this.radio].name : 'Off', 'info', 1.6); }
     }
     if (!warmOnly) this.weapons.update(dt, !busy && P.control && !P.cinematic && !this.indoor);
+    this.bodies = gatherBodies(this.scene); P.bodies = this.bodies;
     if (this.photo) this.updatePhoto(dt);
     else if (!D.active) P.update(dt, this.traffic);
     D.update(dt);
@@ -305,9 +313,10 @@ export class Game {
     A.update(dt, fv, cam, dt); setVehicleNight(A.night);
     if (this.indoor) { A.sun.intensity = 0; A.hemi.intensity *= 0.25; A.ambient.intensity = 0.25; this.scene.environmentIntensity = 0.25; A.rain.visible = false; this.renderer.toneMappingExposure = 1; }
     const camDir = new THREE.Vector3(); cam.getWorldDirection(camDir);
-    this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; this.traffic.update(dt, focus, camDir, this.clock, this.police.foot.length ? this.crowd.peds.concat(this.police.foot) : this.crowd.peds, P); this.hqLife.update(dt); if (!warmOnly) this.police.update(dt);
-    this.trains.update(dt, { focus, night: A.night, player: this.indoor ? null : P, playerVehicle: P.vehicle || null, vehicles: this.traffic.all(), listener: true });
-    this.crowd.update(dt, focus, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: P, hourFactor: this.hourFactor(), hour: A.hour });
+    if (this.indoor) this.hideOutdoor(); // anything spawned since entering (police units etc.) stays hidden too
+    if (!this.indoor) this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; if (!this.indoor) this.traffic.update(dt, focus, camDir, this.clock, this.police.foot.length ? this.crowd.peds.concat(this.police.foot) : this.crowd.peds, P); this.hqLife.update(dt); if (!warmOnly) this.police.update(dt);
+    if (!this.indoor) this.trains.update(dt, { focus, night: A.night, player: this.indoor ? null : P, playerVehicle: P.vehicle || null, vehicles: this.traffic.all(), listener: true });
+    if (!this.indoor) this.crowd.update(dt, focus, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: P, hourFactor: this.hourFactor(), hour: A.hour, bodies: this.bodies });
     if (P.vehicle && A.night > 0.5 && P.nightLights === undefined) { P.vehicle.lights = true; }
     // story & prompts
     const storyPrompt = D.active ? null : this.story.update(dt);

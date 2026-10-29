@@ -17,6 +17,9 @@ import { RNG } from '../core/rng.js';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
+// static subtree: compute world matrices once, then skip it in the per-frame scene.updateMatrixWorld traversal
+function freezeStatic(g) { if (!g) return; g.updateMatrixWorld(true); g.traverse((o) => { o.matrixAutoUpdate = false; }); g.updateMatrixWorld = function (force) { if (this.userData.mwDirty || force === 'static') { this.userData.mwDirty = false; THREE.Object3D.prototype.updateMatrixWorld.call(this, true); } }; }
+function refreshStatic(g) { g.traverse((o) => { o.matrixAutoUpdate = false; }); g.userData.mwDirty = true; }
 export class World {
   constructor(scene) {
     this.scene = scene; this.root = new THREE.Group(); this.root.name = 'world'; scene.add(this.root);
@@ -57,6 +60,9 @@ export class World {
     // point-light pool for nearby street lamps at night (fixed count to avoid shader recompiles)
     const nLights = quality === 'low' ? 0 : quality === 'medium' ? 3 : 5;
     for (let i = 0; i < nLights; i++) { const p = new THREE.PointLight(0xffc98a, 0, 28, 1.6); p.castShadow = false; this.scene.add(p); this.lampLights.push(p); }
+    // FPS: the city geometry never moves, so its ~9k scene nodes are frozen — matrices are computed once here instead of
+    // every frame (updateMatrixWorld skips these subtrees). Visual output is identical.
+    for (const c of this.chunks) freezeStatic(c.group); freezeStatic(this.parks); freezeStatic(this.outer);
     progress(1, 'City ready');
   }
   // Low-detail skyline beyond the playable bounds (Dehiwala, Rajagiriya, Kelaniya) so the horizon isn't empty.
@@ -119,7 +125,7 @@ export class World {
     const ch = plan.byChunk[c.idx]; const mb = new MultiBuilder();
     for (const b of ch.buildings) buildDetail(b, mb);
     const g = new THREE.Group(); for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) g.add(m);
-    c.detail = g; c.group.add(g);
+    c.detail = g; c.group.add(g); refreshStatic(c.group);
   }
   // near tier: 3D window joinery + reflective panes (see BuildingGen.buildWindows)
   buildWindowsFor(c) {
@@ -128,7 +134,7 @@ export class World {
     const g = new THREE.Group(); g.name = 'windows' + c.idx;
     for (const m of solid.toMeshes(MAT, { cast: false, receive: true })) g.add(m);
     for (const m of glass.toMeshes(MAT, { cast: false, receive: false })) { m.renderOrder = 2; g.add(m); }
-    c.win = g; c.group.add(g);
+    c.win = g; c.group.add(g); refreshStatic(c.group);
   }
   disposeWindows(c) { c.group.remove(c.win); c.win.traverse((m) => m.geometry && m.geometry.dispose()); c.win = null; }
   disposeDetail(c) { c.group.remove(c.detail); c.detail.traverse((m) => m.geometry && m.geometry.dispose()); c.detail = null; }

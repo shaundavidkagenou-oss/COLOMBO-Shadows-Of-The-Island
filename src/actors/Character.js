@@ -1,6 +1,7 @@
 // Procedural skinned humans: one SkinnedMesh per person (body + head groups), 19-bone skeleton,
 // Sri Lankan everyday clothing and a procedural animation layer (locomotion, idles, gestures, reactions).
 import * as THREE from 'three';
+import { LIVE } from './Bodies.js';
 import { applySeatPose, seatLocal } from './Seating.js';
 import { TEX, faceAtlas, FACE_FRAMES } from '../gfx/Textures.js';
 import { RNG } from '../core/rng.js';
@@ -468,8 +469,9 @@ export class Character {
     this.root = new THREE.Group(); this.root.add(this.mesh);
     this.bones = Object.fromEntries(BONES.map((n, i) => [n, bones[i]])); this.hipY = bones[0].position.y;
     this.anim = new Animator(this);
+    LIVE.add(this);
   }
-  dispose() { this.mesh.skeleton.dispose(); this.face.dispose(); }
+  dispose() { LIVE.delete(this); this.mesh.skeleton.dispose(); this.face.dispose(); }
   // convenience for gameplay code: expression for a while, or talking on/off
   express(name, dur = 2.5) { this.face.set(name, dur); }
 }

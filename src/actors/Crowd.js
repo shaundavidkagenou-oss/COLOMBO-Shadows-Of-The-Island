@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import * as L from '../world/Layout.js';
 import { plan } from '../world/CityPlan.js';
 import { Character, randomSpec } from './Character.js';
+import { separate } from './Bodies.js';
 import { PRESETS, lookKey, profileActivity } from './Appearance.js';
 import { RNG } from '../core/rng.js';
 import { clamp, lerp, dampAngle, wrapAngle } from '../core/math.js';
@@ -55,7 +56,7 @@ export class Crowd {
       const sp = this.pickSpec(n.x, n.z); if (!sp) continue;
       const ch = new Character(sp); this.scene.add(ch.root);
       const p = { ch, x: n.x + this.rng.range(-1, 1), z: n.z + this.rng.range(-1, 1), yaw: this.rng.range(-3, 3), speed: 0, state: 'walk', node: n.id, target: null, edge: null, lat: this.rng.range(-0.6, 0.6), pace: this.rng.range(1.15, 1.5) * (sp.age === 'elder' ? 0.75 : 1), timer: 0, act: null, react: 0, mood: 0, talkCd: 0, umbrella: this.rng.chance(0.5), crossing: false, id: this.rng.next(), sp, temper: this.rng.next(), vx: 0, vz: 0, stuckT: 0, stuckN: 0 };
-      this.pickNext(p); this.peds.push(p); this.place(p); return p;
+      ch.crowdPed = p; this.pickNext(p); this.peds.push(p); this.place(p); return p;
     }
   }
   place(p) { p.y = this.collision.groundAt(p.x, p.z, 0.2); p.ch.root.position.set(p.x, p.y, p.z); p.ch.root.rotation.y = p.yaw; }
@@ -148,6 +149,9 @@ export class Crowd {
     // neighbour grid (2 m cells)
     const grid = new Map(); for (const p of this.peds) { const k = Math.floor(p.x / 2) * 10000 + Math.floor(p.z / 2); let a = grid.get(k); if (!a) grid.set(k, (a = [])); a.push(p); }
     const pv = player.vehicle;
+    // non-crowd people on foot (player, police, HQ staff, mission & cutscene actors): steer around them and never overlap
+    const fixed = (ctx.bodies || []).filter((b) => !b.ped && Math.abs(b.x - focus.x) < 90 && Math.abs(b.z - focus.z) < 90);
+    const allB = ctx.bodies || [];
     // nearby vehicles (incl. parked) as obstacles
     const vnear = []; for (const v of this.vehicles || []) if (Math.abs(v.x - focus.x) < 80 && Math.abs(v.z - focus.z) < 80) vnear.push(v); if (pv) vnear.push(pv);
     for (const p of this.peds) {
@@ -272,6 +276,7 @@ export class Crowd {
         };
         for (let i = gi - 2; i <= gi + 2; i++) for (let j = gj - 2; j <= gj + 2; j++) { const a = grid.get(i * 10000 + j); if (!a) continue; for (const o of a) if (o !== p) consider(o, o.x, o.z, o.vx || 0, o.vz || 0, 0.75); }
         if (!pv) consider(player, player.x, player.z, Math.sin(player.yaw) * (player.speed || 0), Math.cos(player.yaw) * (player.speed || 0), 0.85);
+        for (const b of fixed) if (b.ch !== player.ch && Math.abs(b.x - p.x) < 4.5 && Math.abs(b.z - p.z) < 4.5) consider(b.ch, b.x, b.z, 0, 0, 0.8);
         dvx = dvx * slow + lx * side * desired * 0.8; dvz = dvz * slow + lz * side * desired * 0.8;
         // wall feeler: probe ahead; if solid, steer to the freer side
         if (lod === 1 || (this.frame + (p.id * 13 | 0)) % 3 === 0) {
@@ -291,6 +296,10 @@ export class Crowd {
       const ox = p.x, oz = p.z; p.x += p.vx * dt; p.z += p.vz * dt;
       // collision every frame near the camera, every 2nd at mid range, every 4th far
       if (sp > 0.02 && (lod === 1 || (this.frame + (p.id * 10 | 0)) % (lod === 2 ? 2 : 4) === 0)) { const r = this.collision.resolveCircle(p.x, p.z, 0.28, p.y || 0.15, 0.3); if (r.hit) { const cx = r.x - p.x, cz = r.z - p.z, cl = Math.hypot(cx, cz); if (cl > 1e-4) { const vn = (p.vx * cx + p.vz * cz) / cl; if (vn < 0) { p.vx -= cx / cl * vn; p.vz -= cz / cl * vn; } } } p.x = r.x; p.z = r.z; }
+      if (lod < 3 && p.state !== 'down') { // bodies are solid: never pass through another person
+        const q = separate(fixed, p.x, p.z, p.y || 0.15, 0.27, p.ch, 0); if (q.hit) { const r2 = this.collision.resolveCircle(q.x, q.z, 0.28, p.y || 0.15, 0.3); p.x = r2.x; p.z = r2.z; p.vx *= 0.5; p.vz *= 0.5; }
+        if (lod === 1 && p.state !== 'idle') { const gi = Math.floor(p.x / 2), gj = Math.floor(p.z / 2); for (let i = gi - 1; i <= gi + 1; i++) for (let j = gj - 1; j <= gj + 1; j++) { const a = grid.get(i * 10000 + j); if (!a) continue; for (const o of a) { if (o === p || o.state === 'down') continue; const dx = p.x - o.x, dz = p.z - o.z, d2 = dx * dx + dz * dz; if (d2 < 0.2916 && d2 > 1e-8) { const d = Math.sqrt(d2), k = (0.54 - d) * 0.5; p.x += dx / d * k; p.z += dz / d * k; if (o.state !== 'idle') { o.x -= dx / d * k; o.z -= dz / d * k; } } } } }
+      }
       const moved = Math.hypot(p.x - ox, p.z - oz) / Math.max(dt, 1e-4); p.speed = moved;
       // --- stuck detection & staged recovery: sidestep → rejoin graph → new route → (off-screen only) recycle
       if (desired > 0.3 && p.state !== 'confront') {
@@ -373,13 +382,13 @@ export class Crowd {
   adopt(ch, x, z, yaw, reaction = 'flee', from = null) {
     this.scene.add(ch.root); ch.root.position.set(x, this.collision.groundAt(x, z, 0.5), z); ch.root.rotation.set(0, yaw, 0); ch.anim.set(null); ch.mesh.castShadow = true;
     const sp = ch.spec; const p = { ch, x, z, yaw, speed: 0, state: 'walk', node: 0, target: { x, z }, edge: null, lat: 0, pace: 1.3, timer: 0, act: null, react: 0, mood: 0, talkCd: 0, umbrella: false, crossing: false, id: this.rng.next(), sp, temper: reaction === 'confront' ? 0.9 : 0.3, vx: 0, vz: 0, stuckT: 0, stuckN: 0 };
-    this.returnToGraph(p); this.peds.push(p); p.y = ch.root.position.y;
+    ch.crowdPed = p; this.returnToGraph(p); this.peds.push(p); p.y = ch.root.position.y;
     const ax = from ? x - from.x : -Math.sin(yaw), az = from ? z - from.z : -Math.cos(yaw), d = Math.hypot(ax, az) || 1;
     if (reaction === 'confront') { this.react(p, 'confront', 4); p.ch.anim.set('argue'); ch.face.set('angry', 4); this.speak(p, 'shoved', 2, 2.5); }
     else { this.react(p, 'flee', 4 + this.rng.next() * 3, { fleeDir: this.spread(ax / d, az / d, 0.5), fleeSp: 3.2 }); ch.face.set('fear', 3); this.speak(p, 'scared', 2); }
     this.alarm(x, z, 14, 1, p); return p;
   }
-  despawn(p) { if (p.poi) p.poi.used = Math.max(0, p.poi.used - 1); this.scene.remove(p.ch.root); p.ch.dispose(); }
+  despawn(p) { p.ch.crowdPed = null; if (p.poi) p.poi.used = Math.max(0, p.poi.used - 1); this.scene.remove(p.ch.root); p.ch.dispose(); }
   clear() { for (const p of this.peds) this.despawn(p); this.peds = []; }
 }
 let umbrellaGeos = null;

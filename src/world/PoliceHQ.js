@@ -72,7 +72,17 @@ export function buildPoliceHQ({ mb, box, coll, label, group, LAND_Y, SANS, SI, T
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
     const pivot = new THREE.Group(); pivot.position.set(B.x, y0 + 0.95, B.z); const arm = new THREE.Mesh(new THREE.BoxGeometry(B.len, 0.1, 0.1), new THREE.MeshStandardMaterial({ map: t, roughness: 0.5 })); arm.position.x = B.len / 2 + 0.15; arm.castShadow = true; pivot.add(arm);
     const tip = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.5, 0.08), new THREE.MeshStandardMaterial({ color: 0x333333 })); tip.position.set(B.len + 0.1, -0.22, 0); pivot.add(tip);
-    group.add(pivot); anim.hqBoom = pivot; }
+    group.add(pivot); anim.hqBoom = pivot;
+    coll(B.x + 0.25, B.x + B.len + 0.2, B.z - 0.12, B.z + 0.12, 1.05, { kind: 'barrier', id: 'hqBoom' }); } // solid while the arm is down (PoliceHQLife lifts it for anyone approaching)
+  { // pedestrian wicket gate: a hinged railing leaf that swings inwards when someone walks up to it
+    const hx = Wk.x - Wk.w / 2 + 0.06, lw = Wk.w - 0.12; const leaf = new THREE.Group(); leaf.position.set(hx, y0, fz0);
+    const rm = new THREE.MeshStandardMaterial({ color: RAIL, roughness: 0.45, metalness: 0.6 });
+    const bar = (x, y, w, h, d) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), rm); m.position.set(x, y, 0); m.castShadow = true; leaf.add(m); };
+    bar(lw / 2, 0.12, lw, 0.06, 0.05); bar(lw / 2, 1.0, lw, 0.05, 0.05); bar(lw / 2, 1.9, lw, 0.06, 0.05); bar(0.03, 1.0, 0.06, 1.85, 0.06); bar(lw - 0.03, 1.0, 0.06, 1.85, 0.06);
+    for (let k = 1; k < 9; k++) bar(k * lw / 9, 1.0, 0.025, 1.78, 0.025);
+    const latch = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.14, 0.09), new THREE.MeshStandardMaterial({ color: 0xb8a24a, metalness: 0.8, roughness: 0.35 })); latch.position.set(lw - 0.1, 1.05, 0); leaf.add(latch);
+    group.add(leaf); anim.hqWicket = leaf; coll(Wk.x - Wk.w / 2, Wk.x + Wk.w / 2, fz0 - 0.1, fz0 + 0.1, 2.0, { kind: 'barrier', id: 'hqWicket' });
+  }
 
   // ---------------------------------------------------------------- main building
   const [bx0, bx1, bz0, bz1] = HQ.building; const top = y0 + HQ.storeys * 3.3;

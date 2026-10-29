@@ -21,12 +21,33 @@ export class PoliceHQLife {
     const g = this.g; if (g.indoor) return; const f = this.focus(); const d = Math.hypot(f.x - C0.x, f.z - C0.z);
     if (!this.active && d < NEAR) this.spawn(); else if (this.active && d > FAR && !this.depart) this.despawn();
     // boom barrier animation (also closes again when the HQ is not simulated)
-    this.boom = clamp(this.boom + Math.sign(this.boomWant - this.boom) * dt / 2.2, 0, 1); const arm = g.world?.landmarks?.anim?.hqBoom || this.boomPivot();
-    if (arm) arm.rotation.z = (1 - Math.cos(this.boom * Math.PI)) / 2 * 1.45;
+    this.updateGates(dt, f, d);
     if (!this.active) return;
     for (const p of this.people) this.updatePerson(p, dt, f);
     this.pushPlayer();
     if (this.depart) this.updateDepart(dt); else { this.nextDepart -= dt; if (this.nextDepart <= 0 && d < 170) this.startDepart(); }
+  }
+  // Boom barrier + pedestrian wicket: open automatically for anyone (player, NPC, vehicle) approaching, close behind them.
+  // While closed both are solid colliders; once open far enough the collider drops so people/vehicles pass.
+  updateGates(dt, f, d) {
+    const g = this.g; const an = g.world?.landmarks?.anim || {};
+    if (!this.gateColl) { this.gateColl = {}; for (const c of g.collision?.list || []) if (c.id === 'hqBoom' || c.id === 'hqWicket') this.gateColl[c.id] = c; }
+    let wantB = this.departBoom ? 1 : 0, wantW = 0;
+    if (d < 120) {
+      // vehicles: a lead point ahead of the bonnet anywhere in the approach lanes; people: only when actually stepping up to the
+      // boom line (pedestrians walking along the pavement in front of the gate must not keep it open — they use the wicket)
+      const nearV = (x, z) => { if (Math.abs(x + 10) < 4.6 && z > -236 && z < -216) { wantB = 1; this.lastTrig = ['veh', x, z]; } };
+      const near = (x, z) => { if (Math.abs(x + 10) < 4.4 && z > -228.0 && z < -221.8) { wantB = 1; this.lastTrig = ['body', x, z]; } if (Math.abs(x - HQ.wicket.x) < 1.4 && Math.abs(z - HQ.rect[2]) < 1.8) wantW = 1; };
+      for (const b of g.bodies || []) if (!b.ch.noGate && !(b.ped && !b.ped.police)) near(b.x, b.z); // civilians in the street crowd never open the compound gates
+      const vs = g.traffic?.all() || []; const pv = g.player?.vehicle; const list = pv && !vs.includes(pv) ? vs.concat([pv]) : vs; // the player's own vehicle is not in the traffic lists
+      for (const v of list) { if (Math.abs(v.x + 10) < 6 && v.z > -240 && v.z < -214) { const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw); if (Math.abs(v.speed) > 0.3 || v.player || v === pv) nearV(v.x + fx * Math.sign(v.speed || 1) * 3, v.z + fz * Math.sign(v.speed || 1) * 3); } }
+    }
+    this.holdB = wantB ? 2.0 : Math.max(0, (this.holdB || 0) - dt); this.holdW = wantW ? 1.2 : Math.max(0, (this.holdW || 0) - dt);
+    this.boomWant = this.holdB > 0 ? 1 : 0;
+    this.boom = clamp(this.boom + Math.sign(this.boomWant - this.boom) * dt / 1.6, 0, 1); const arm = an.hqBoom || this.boomPivot();
+    if (arm) arm.rotation.z = (1 - Math.cos(this.boom * Math.PI)) / 2 * 1.45;
+    this.wicket = clamp((this.wicket || 0) + (this.holdW > 0 ? 1 : -1) * dt / 0.9, 0, 1); if (an.hqWicket) an.hqWicket.rotation.y = -(1 - Math.cos(this.wicket * Math.PI)) / 2 * 1.5;
+    const cb = this.gateColl.hqBoom, cw = this.gateColl.hqWicket; if (cb) cb.h = this.boom > 0.55 ? 0 : 1.05; if (cw) cw.h = this.wicket > 0.6 ? 0 : 2.0;
   }
   boomPivot() { if (this._boom !== undefined) return this._boom; let found = null; this.g.scene.traverse((o) => { if (!found && o.isGroup && o.children.length === 2 && Math.abs(o.position.x - HQ.boom.x) < 0.01 && Math.abs(o.position.z - HQ.boom.z) < 0.01) found = o; }); return (this._boom = found); }
   // ------------------------------------------------------------------ spawn / despawn (LOD)
@@ -45,9 +66,9 @@ export class PoliceHQLife {
     const T = this.g.traffic;
     for (const v of this.vehicles) { if (v.player || T.vehicles.includes(v)) { v.keep = false; continue; } const i = T.parked.indexOf(v); if (i >= 0) T.parked.splice(i, 1); if (v.driverChar) v.driverChar.dispose(); v.dispose(); }
     for (const p of this.people) { p.ch.root.parent?.remove(p.ch.root); p.ch.dispose(); }
-    this.vehicles = []; this.people = []; this.active = false; this.boomWant = 0;
+    this.vehicles = []; this.people = []; this.active = false; this.departBoom = 0;
   }
-  addPerson(spec, x, z, yaw, o = {}) { const ch = new Character(spec); ch.root.position.set(x, L.groundY(x, z), z); ch.root.rotation.y = yaw; this.g.scene.add(ch.root); if (o.idle) ch.anim.set(o.idle); const p = Object.assign({ ch, x, z, yaw, acc: 0 }, o); this.people.push(p); return p; }
+  addPerson(spec, x, z, yaw, o = {}) { const ch = new Character(spec); ch.root.position.set(x, L.groundY(x, z), z); ch.root.rotation.y = yaw; this.g.scene.add(ch.root); if (o.idle) ch.anim.set(o.idle); const p = Object.assign({ ch, x, z, yaw, acc: 0 }, o); if (!o.path) ch.noGate = true; /* posted guards / chatting staff stand beside the gate: they must not hold it open */ this.people.push(p); return p; }
   updatePerson(p, dt, f) {
     let speed = 0;
     if (p.path) { // walk the polyline back and forth with a short pause at either end
@@ -94,7 +115,7 @@ export class PoliceHQLife {
       return; }
     if (D.stage === 'ride') {
       const tgt = D.route[D.wp]; const dx = tgt[0] - bike.x, dz = tgt[1] - bike.z, dd = Math.hypot(dx, dz);
-      const atBoom = bike.z > -226.8 && bike.z < -219 && Math.abs(bike.x + 10) < 3; if (bike.z < -219.5 && bike.z > -229) this.boomWant = 1; if (bike.z < -230.5) this.boomWant = 0;
+      const atBoom = bike.z > -226.8 && bike.z < -219 && Math.abs(bike.x + 10) < 3; if (bike.z < -219.5 && bike.z > -229) this.departBoom = 1; if (bike.z < -230.5) this.departBoom = 0;
       let vWant = D.wp < 2 ? 2.5 : 4.2; if (atBoom && this.boom < 0.9 && bike.z > -224) vWant = Math.min(vWant, Math.max(0, (bike.z + 224.2) * 1.2)); if (D.wp >= D.route.length - 2) vWant = 5;
       // simple pure-pursuit: steer towards the next waypoint, slow for sharp turns
       const want = Math.atan2(dx, dz); const err = angDiff(want, bike.yaw); vWant *= 1 - Math.min(0.6, Math.abs(err) * 0.5);
@@ -120,7 +141,7 @@ export class PoliceHQLife {
   abortDepart(why) {
     const D = this.depart; this.note('depart aborted: ' + why);
     for (const p of [D.rider, D.pillion]) if (!p.mounted) { p.walkTo = null; p.idle = 'look'; p.ch.anim.set('look'); }
-    this.depart = null; this.nextDepart = 120; this.boomWant = 0;
+    this.depart = null; this.nextDepart = 120; this.departBoom = 0;
   }
   note(s) { this.log.push(`${(this.g.clock || 0).toFixed(1)} ${s}`); if (this.log.length > 40) this.log.shift(); }
 }

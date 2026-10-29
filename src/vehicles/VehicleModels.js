@@ -7,6 +7,7 @@
 // hinged driver door used by the entry/exit animation.
 import * as THREE from 'three';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { carDetail, tukDetail, bikeDetail, heavyDetail, hiWheelParts } from './VehicleDetail.js';
 import { MeshBuilder, MultiBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
 import { RNG } from '../core/rng.js';
@@ -89,6 +90,8 @@ function beam(mb, a, b, tx, tz, col, geo = unitBox) {
 }
 function part(mb, geo, pos, rot = [0, 0, 0], scale = [1, 1, 1], col) { _ma.compose(_va.set(...pos), _q.setFromEuler(new THREE.Euler(...rot)), _s.set(...scale)); mb.geometry(geo, _ma, col); }
 const torus = new THREE.TorusGeometry(1, 0.11, 8, 24);
+const KIT = { beam, part, C, unitBox, unitCyl };
+const linerCyl = new THREE.CylinderGeometry(1, 1, 1, 20, 1, true, -0.08, Math.PI + 0.16); // upper arc only (after the 90° z-turn, theta 0..π is the top half)
 
 // ------------------------------------------------------------------ wheels
 const wheelCache = new Map();
@@ -173,6 +176,8 @@ export function vehicleMaterials() {
       vlight: new THREE.MeshStandardMaterial({ color: 0xf4f4ee, emissive: 0xfff4dd, emissiveIntensity: 0.2, roughness: 0.1, metalness: 0.2 }),
       vtail: new THREE.MeshStandardMaterial({ color: 0x7a0a0a, emissive: 0xff1a10, emissiveIntensity: 0.15, roughness: 0.25 }),
       vrev: new THREE.MeshStandardMaterial({ color: 0xd8d8d4, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.15, metalness: 0.1 }), // reverse lamp lens: lit only while reversing
+      vlens: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.03, metalness: 0.0, transparent: true, opacity: 0.16, envMapIntensity: 1.6, depthWrite: false }), // clear lamp covers
+      vrefl: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.12, metalness: 0.95, envMapIntensity: 1.4, side: THREE.DoubleSide }), // reflector bowls / rings
       vind: new THREE.MeshStandardMaterial({ color: 0xb06a10, emissive: 0xffa020, emissiveIntensity: 0.05, roughness: 0.25 }),
       plate: plateMaterial(), route0: routeMat(0), route1: routeMat(1), route2: routeMat(2), police: policeDecalMat(),
       lbBlue: new THREE.MeshStandardMaterial({ color: 0x0c1e5a, emissive: 0x2a5cff, emissiveIntensity: 0, roughness: 0.2, transparent: true, opacity: 0.92 }),
@@ -219,11 +224,11 @@ function buildModel(type, color, variant) {
   return buildBaseModel(type, color, variant);
 }
 function buildBaseModel(type, color, variant) {
-  const T = VTYPES[type]; const mb = new MultiBuilder(); const L = T.len, W = T.wid / 2, H = T.hgt, R = T.wheelR;
+  const T = VTYPES[type]; const mb = new MultiBuilder(); const dm = new MultiBuilder(); const L = T.len, W = T.wid / 2, H = T.hgt, R = T.wheelR;
   const col = C(color), black = C('#151517'), chrome = C('#c4c8cc'), trimGrey = C('#2a2b2e'); const seats = []; let doors = []; let wheelStyle = variant % 3;
   const paint = mb.get('paint'), rubber = mb.get('rubber'), glass = mb.get('glass'), lights = mb.get('vlight'), tails = mb.get('vtail'), ind = mb.get('vind'), ch = mb.get('chrome');
   liners = rubber;
-  const out = (wheels, steerWheel, extra = {}) => ({ mb, wheels, seats, steerWheel, doors, wheelStyle, ...extra });
+  const out = (wheels, steerWheel, extra = {}) => ({ mb, dm, wheels, seats, steerWheel, doors, wheelStyle, ...extra });
 
   // =============================================================== TUK-TUK (Bajaj RE style three-wheeler)
   if (type === 'tuktuk') {
@@ -270,6 +275,7 @@ function buildBaseModel(type, color, variant) {
     seats.push({ x: 0, y: 0.74, z: 0.15, floor: 0.32, fz: 0.42, fx: 0.12, roof: 1.74, lean: 0.1, hands: 'bars', bars, kind: 'drive', driver: true, exit: [-0.98, 0.25] },
       { x: 0.28, y: 0.76, z: -0.7, floor: 0.375, fz: 0.44, fx: 0.11, roof: 1.74, lean: -0.08, hands: 'lap', kind: 'sit', exit: [1.0, -0.55] },
       { x: -0.28, y: 0.76, z: -0.7, floor: 0.375, fz: 0.44, fx: 0.11, roof: 1.74, lean: -0.08, hands: 'lap', kind: 'sit', exit: [-1.0, -0.55] });
+    tukDetail(dm, KIT, { R, col, variant });
     return out([[0, R, 1.0, 0.12], [-0.58, R, -0.85, 0.14], [0.58, R, -0.85, 0.14]], [0, 1.06, 0.62]);
   }
 
@@ -297,6 +303,7 @@ function buildBaseModel(type, color, variant) {
     const sy = scooter ? 0.9 : 0.94, bars = [[0.33, 1.13, 0.5], [-0.33, 1.13, 0.5]];
     seats.push({ x: 0, y: sy, z: -0.08, floor: scooter ? 0.42 : 0.36, fz: scooter ? 0.3 : 0.14, fx: scooter ? 0.12 : 0.2, roof: 9, lean: 0.3, hands: 'bars', bars, kind: 'ride', driver: true, ride: true, exit: [0.75, -0.1] },
       { x: 0, y: sy + 0.01, z: -0.46, floor: 0.42, fz: 0.06, fx: 0.25, roof: 9, lean: 0.08, hands: 'lap', kind: 'ride', ride: true, exit: [0.75, -0.6] });
+    bikeDetail(dm, KIT, { R, col, scooter });
     return out([[0, R, 0.7, 0.1], [0, R, -0.68, 0.12]], [0, 1.06, 0.56]);
   }
 
@@ -344,6 +351,7 @@ function buildBaseModel(type, color, variant) {
     const bw = { p: [-0.75, 1.74, fz - 0.66], r: 0.24, tilt: 1.1 }; steering(mb, bw.p, bw.r, bw.tilt);
     seats.push({ x: -0.75, y: 1.36, z: fz - 1.2, floor: 0.92, fz: 0.56, fx: 0.13, roof: H - 0.14, lean: -0.06, hands: 'wheel', wheel: bw, kind: 'drive', driver: true, exit: [W + 0.6, L / 2 - 1.05] });
     for (const [sx, z] of rowZ) for (const o of [-0.21, 0.21]) seats.push({ x: sx * (W - 0.5) + o, y: 1.36, z, floor: 0.92, fz: 0.42, fx: 0.11, roof: H - 0.14, lean: -0.05, hands: 'lap', kind: 'sit', bus: true, exit: [W + 0.6, z > 1.2 ? L / 2 - 1.05 : -0.6] });
+    heavyDetail(dm, KIT, { L, W, H, R, kind: 'bus', belt, winTop, wf, wr });
     return out([[-W + 0.22, R, wf, 0.3], [W - 0.22, R, wf, 0.3], [-W + 0.26, R, wr, 0.46], [W - 0.26, R, wr, 0.46]], [-0.75, 1.45, fz - 0.72], { busDoor: [W + 0.6, L / 2 - 1.05] });
   }
 
@@ -373,6 +381,7 @@ function buildBaseModel(type, color, variant) {
     const lw = { p: [-0.55, 1.76, L / 2 - 0.6], r: 0.22, tilt: 0.65 }; steering(mb, lw.p, lw.r, lw.tilt);
     seats.push({ x: -0.55, y: 1.21, z: L / 2 - 0.95, floor: 0.81, fz: 0.5, fx: 0.13, roof: 2.54, lean: -0.1, hands: 'wheel', wheel: lw, kind: 'drive', driver: true, exit: [-W - 0.6, L / 2 - 0.9] },
       { x: 0.45, y: 1.21, z: L / 2 - 0.95, floor: 0.81, fz: 0.5, fx: 0.13, roof: 2.54, lean: -0.12, hands: 'lap', kind: 'sit', exit: [W + 0.6, L / 2 - 0.9] });
+    heavyDetail(dm, KIT, { L, W, H, R, kind: 'lorry', belt: 1.8, winTop: 2.6, wf, wr });
     return out([[-W + 0.22, R, wf, 0.3], [W - 0.22, R, wf, 0.3], [-W + 0.26, R, wr, 0.46], [W - 0.26, R, wr, 0.46]], [-0.55, 1.76, L / 2 - 0.6], { busDoor: [W + 0.6, cz] });
   }
 
@@ -392,7 +401,7 @@ function buildBaseModel(type, color, variant) {
   const taper = (z, y) => 1 - 0.11 * sstep(fz - 0.45, fz + 0.02, z) - 0.08 * sstep(rz + 0.35, rz - 0.02, z) - (isVan ? 0.02 : 0.045) * sstep(0.75, 1.0, y) - 0.03 * sstep(0.42, 0.3, y);
   sideBody(paint, D.top, sill, [[D.wf, R], [D.wr, R]], W, col, { taper, bevel: isVan ? 0.06 : 0.07, openTop: [D.gh[D.gh.length - 1][0] + 0.03, D.gh[0][0] - 0.03, sill + 0.3] });
   // wheel-well liners (stop see-through above the tyres)
-  for (const wz of [D.wf, D.wr]) for (const sx of [-1, 1]) part(rubber, unitCyl, [sx * (W - 0.2), R, wz], [0, 0, Math.PI / 2], [R + 0.06, 0.34, R + 0.06], C('#0c0c0c'));
+  for (const wz of [D.wf, D.wr]) for (const sx of [-1, 1]) part(rubber, linerCyl, [sx * (W - 0.24), R, wz], [0, 0, Math.PI / 2], [R + 0.06, 0.3, R + 0.06], C('#0c0c0c')); // open sleeve: no end caps covering the wheel face
   // greenhouse: tinted glass loft; half widths follow the tumblehome
   const gw0 = W * 0.9, gw1 = W * (isVan ? 0.86 : 0.76);
   // the driver-door window is cut out of the greenhouse (−x side between the door edges) and rebuilt on the door itself,
@@ -476,6 +485,7 @@ function buildBaseModel(type, color, variant) {
     if (nt) { q(d0 - 0.02, d1 + 0.02, nt[1], by - 0.01, jam); q(nt[0], d1 + 0.02, y0 + 0.01, nt[1], jam); } else q(d0 - 0.02, d1 + 0.02, y0 + 0.01, by - 0.01, jam);
     I.box(ax + 0.03, y0 + 0.04, (d0 + d1) / 2, 0.06, 0.03, d0 - d1 - 0.1, { col: C('#3a3b3e') }); // scuff plate on the sill
   }
+  carDetail(dm, KIT, { W, R, D, k, type, fz, rz, taper, gw0, gw1, fy, hy, nw, ty, sill, isVan, col, gh, roofF, roofR, seatY, sz, dz, floorY, variant });
   return out([[-W + 0.15, R, D.wf, 0.21], [W - 0.15, R, D.wf, 0.21], [-W + 0.15, R, D.wr, 0.21], [W - 0.15, R, D.wr, 0.21]], sw);
 }
 
@@ -508,23 +518,30 @@ export function createVehicleMesh(type, seed = 1) {
   if (!cached) {
     const m = buildModel(type, color, variant); const geos = [];
     for (const [name, b] of m.mb.b) { const g = b.build(); if (!g) continue; if (worn && (name === 'paint' || name === 'canvas')) dirty(g, seed); geos.push([name, g]); }
-    cached = { geos, wheels: m.wheels, seats: m.seats, steerWheel: m.steerWheel, doors: m.doors, wheelStyle: m.wheelStyle, busDoor: m.busDoor }; modelCache.set(key, cached);
+    const dgeos = []; for (const [name, b] of m.dm.b) { const g2 = b.build(); if (g2) dgeos.push([name, g2]); }
+    cached = { geos, dgeos, wheels: m.wheels, seats: m.seats, steerWheel: m.steerWheel, doors: m.doors, wheelStyle: m.wheelStyle, busDoor: m.busDoor }; modelCache.set(key, cached);
   }
   const g = new THREE.Group(); const tailMat = M.vtail.clone(); const indMat = M.vind.clone(); const headMat = M.vlight.clone(); const revMat = M.vrev.clone(); byName.vtail = tailMat; byName.vind = indMat; byName.vlight = headMat; byName.vrev = revMat; headMat.emissiveIntensity = 0.04; tailMat.emissiveIntensity = 0.03; revMat.emissiveIntensity = 0; // per vehicle (start dark): each car's own lamps
   for (const [name, geo] of cached.geos) { const mesh = new THREE.Mesh(geo, byName[name] || MAT.paint); mesh.name = name; mesh.castShadow = name !== 'glass' && name !== 'vlight' && name !== 'interior'; mesh.receiveShadow = name === 'paint'; if (name === 'glass') mesh.renderOrder = 2; g.add(mesh); }
+  const det = new THREE.Group(); det.name = 'detail'; det.visible = false; byName.lens = M.vlens; byName.vrefl = M.vrefl;
+  for (const [name, geo] of cached.dgeos) { const mesh = new THREE.Mesh(geo, byName[name] || M.vchrome); mesh.name = name; mesh.castShadow = false; mesh.receiveShadow = name === 'paint'; if (name === 'glass' || name === 'lens') mesh.renderOrder = 2; mesh.matrixAutoUpdate = false; det.add(mesh); }
+  g.add(det); const base = T.base || type; const wkind = base === 'bike' ? 'bike' : (base === 'bus' || base === 'pbus' || base === 'lorry') ? 'heavy' : 'car';
   const wp = wheelParts(T.wheelR, cached.wheels[0][3], cached.wheelStyle);
   const wheels = cached.wheels.map(([x, y, z, w]) => {
     const parts = w === cached.wheels[0][3] ? wp : wheelParts(T.wheelR, w, cached.wheelStyle);
     const pivot = new THREE.Group(); pivot.position.set(x, y, z); const spin = new THREE.Group();
     const tyre = new THREE.Mesh(parts.tyre, M.vtyre); const rim = new THREE.Mesh(parts.rim, M.vrim); tyre.castShadow = true;
     const holder = new THREE.Group(); holder.add(tyre, rim); if (x < 0) holder.rotation.y = Math.PI; spin.add(holder); pivot.add(spin);
+    const hp = hiWheelParts(T.wheelR, w, cached.wheelStyle, wkind, KIT); const hi = new THREE.Group(); const t2 = new THREE.Mesh(hp.tyre, M.vtyre); t2.castShadow = true; hi.add(t2, new THREE.Mesh(hp.rim, M.vrim)); if (x < 0) hi.rotation.y = Math.PI; hi.visible = false; spin.add(hi);
+    let cal = null; if (hp.caliper) { cal = new THREE.Mesh(hp.caliper, M.vrim); if (x < 0) cal.rotation.y = Math.PI; cal.visible = false; pivot.add(cal); }
+    pivot.userData.lo = holder; pivot.userData.hi = hi; pivot.userData.cal = cal;
     pivot.userData.spin = spin; pivot.userData.front = z > 0; pivot.userData.baseY = y; g.add(pivot); return pivot;
   });
   let door = null; if (cached.doors && cached.doors[0]) { const d = cached.doors[0]; const hy = T.base === 'suv' ? 0.78 : 0.66; const pv = buildDoor(d, C(color), byName, T.police ? [[hy + 0.035, 0.07, C('#1b3f94')], [hy - 0.0875, 0.025, C('#1b3f94')]] : null); g.add(pv); door = { pivot: pv, side: d.side, open: 0, max: 1.15 }; }
   const ds = cached.seats.find((s) => s.driver) || cached.seats[0];
   const side = T.entry === 'bike' ? 1 : -1; const hw = T.wid / 2;
   const entry = cached.busDoor ? { x: cached.busDoor[0], z: cached.busDoor[1], side: 1 } : { x: side * (hw + (T.entry === 'tuk' ? 0.35 : T.entry === 'bike' ? 0.45 : 0.55)), z: door ? cached.doors[0].hinge[1] - cached.doors[0].len * 0.55 : ds.z, side };
-  g.userData = { wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons };
+  g.userData = { detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons };
   return g;
 }
 // darken lower panels and add per-vehicle grime variation to working vehicles

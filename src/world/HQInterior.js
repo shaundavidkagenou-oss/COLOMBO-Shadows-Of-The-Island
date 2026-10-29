@@ -13,6 +13,7 @@ export const HQ_DEF = { name: 'Police Headquarters', note: 'Interior is an artis
 const Y = -40, H = 3.6, W = 34, D = 18;
 // stairs: straight flight on the east side, rising towards the back of the building (local u/v metres)
 const ST = { u0: 10.5, u1: 13, v0: 10, v1: 16.5 };
+const SLAB = 0.25; // first-floor slab thickness (ground-floor ceiling sits this far below the upper floor surface)
 
 function canvasMat(w, h, draw, basic = true) {
   const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d'); draw(g, w, h);
@@ -51,9 +52,11 @@ export function buildHQInterior(game, door) {
   conc.hrect(x0, z0, x1, z1, Y, 1.0, C(TILE)); conc.hrect(X(-6), Z(7), X(6), Z(0), Y + 0.005, 1.0, C('#cfc7b8')); // lobby inlay
   for (let u = -16.5; u <= 16.5; u += 1.5) bx(paint, u, Y + 0.004, 8.25, 0.03, 0.004, 2.5, TILE2); // corridor tile joints
   const slab = [[-W / 2, ST.u0, 0, D], [ST.u1, W / 2, 0, D], [ST.u0, ST.u1, 0, ST.v0 - 0.0], [ST.u0, ST.u1, ST.v1, D]];
-  for (const [ua, ub, va, vb] of slab) { conc.hrect(X(ua), Z(vb), X(ub), Z(va), FY(1), 1.0, C(TILE)); paint.hrect(X(ua), Z(vb), X(ub), Z(va), FY(1) - 0.02, 1, C('#f4f1ea'), true); }
+  for (const [ua, ub, va, vb] of slab) { conc.hrect(X(ua), Z(vb), X(ub), Z(va), FY(1), 1.0, C(TILE)); paint.hrect(X(ua), Z(vb), X(ub), Z(va), FY(1) - SLAB, 1, C('#f4f1ea'), true); }
+  // stairwell opening: close the slab edges so the 25 cm floor thickness reads solid (feet upstairs can never show through)
+  bx(paint, (ST.u0 + ST.u1) / 2, FY(1) - SLAB / 2, ST.v0, ST.u1 - ST.u0, SLAB, 0.04, '#e9e5dc'); for (const u of [ST.u0, ST.u1]) bx(paint, u, FY(1) - SLAB / 2, (ST.v0 + ST.v1) / 2, 0.04, SLAB, ST.v1 - ST.v0, '#e9e5dc');
   paint.hrect(x0, z0, x1, z1, FY(2), 1, C('#f4f1ea'), true);
-  for (let f = 0; f < 2; f++) for (let u = -14; u <= 14; u += 4) for (const v of [3.5, 8.25, 13.75]) { if (f === 0 && u >= 10 && v > 9 && v < 17) continue; const m = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.04, 0.16), new THREE.MeshBasicMaterial({ color: 0xffffff })); m.position.set(X(u), FY(f + 1) - 0.04, Z(v)); g.add(m); } // tube lights
+  for (let f = 0; f < 2; f++) for (let u = -14; u <= 14; u += 4) for (const v of [3.5, 8.25, 13.75]) { if (f === 0 && u >= 10 && v > 9 && v < 17) continue; const m = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.04, 0.16), new THREE.MeshBasicMaterial({ color: 0xffffff })); m.position.set(X(u), FY(f + 1) - (f === 0 ? SLAB : 0) - 0.04, Z(v)); g.add(m); } // tube lights
 
   // ---------------------------------------------------------------- outer walls with windows (both floors)
   for (let f = 0; f < 2; f++) {
@@ -185,7 +188,7 @@ export function buildHQInterior(game, door) {
     floorIndex(y) { return y > Y + H * 0.5 ? 1 : 0; },
     floorAt(x, z, y) { const u = x - cx, v = z1 - z; if (u > ST.u0 - 0.05 && u < ST.u1 + 0.05 && v >= ST.v0 && v <= ST.v1) return Y + ((v - ST.v0) / (ST.v1 - ST.v0)) * H; if (u > ST.u0 - 0.05 && u < ST.u1 + 0.05 && v > ST.v1) return Y + H; return y > Y + H * 0.5 ? Y + H : Y; },
     obsFor(y) { return obs[this.floorIndex(y)]; },
-    ceilAt(y) { return FY(this.floorIndex(y) + 1) - 0.3; },
+    ceilAt(y) { const f = this.floorIndex(y); return FY(f + 1) - (f === 0 ? SLAB : 0) - 0.3; },
     // pull the camera in front of the first wall between the player and the desired camera position
     clampCam(from, to) { const ob2 = obs[this.floorIndex(from.y - 1.4)], n = 14; let last = 0; const R = 0.14;
       for (let k = 1; k <= n; k++) { const t = k / n; const x = from.x + (to.x - from.x) * t, z = from.z + (to.z - from.z) * t; let hit = false; const y = from.y + (to.y - from.y) * t; for (const o of ob2) if (y < o.top + 0.08 && x > o.x0 - R && x < o.x1 + R && z > o.z0 - R && z < o.z1 + R) { hit = true; break; } if (hit) break; last = t; }
