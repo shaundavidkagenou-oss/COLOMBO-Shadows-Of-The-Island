@@ -23,12 +23,12 @@ export class Interiors {
   setupDoors(roomPos) {
     this.doors = Object.entries(plan.missionShops).map(([id, s]) => ({ id, x: s.x, z: s.z, rot: s.rot, faceIn: s.faceIn }));
     if (roomPos) this.doors.push({ id: 'room', x: roomPos[0], z: roomPos[1], rot: 0, faceIn: Math.PI });
-    this.doors.push({ id: 'hq', x: HQ.door.x, z: HQ.door.z, rot: 0, faceIn: HQ.door.faceIn });
+    // the Police HQ has no door prompt: it is walked into through its automatic doors (see updateSeamless)
   }
   nearDoor(x, z) { for (const d of this.doors) if (Math.hypot(d.x - x, d.z - z) < 2.2) return d; return null; }
   build(id, door) {
     if (this.built.has(id)) return this.built.get(id);
-    if (id === 'hq') { const room = buildHQInterior(this.g, door); this.built.set(id, room); return room; }
+    if (id === 'hq') { const room = buildHQInterior(this.g, door || { id: 'hq', ...HQ.door }, HQ.interior); this.built.set(id, room); return room; }
     const D = DEFS[id]; const mb = new MultiBuilder(); const rng = new RNG(id.length * 97 + 5);
     const cx = door.x, cz = door.z - 200; // offset in z so rooms don't overlap the shop's own geometry footprint
     const x0 = cx - D.w / 2, x1 = cx + D.w / 2, z0 = cz - D.d, z1 = cz; const H = id === 'garage' ? 5 : 3.2;
@@ -94,6 +94,26 @@ export class Interiors {
     const g = this.g; const room = this.current; if (!room) return; await g.hud.fade(1, 0.5);
     room.g.visible = false; this.current = null; g.player.indoor = null; const d = room.door; // door point already sits on the pavement in front of the shop
     g.player.teleport(d.x, d.z, d.faceIn + Math.PI); g.setIndoor(false); await g.hud.fade(0, 0.5);
+  }
+  // ------------------------------------------------ walk-in Police HQ (no fade, no teleport, no button)
+  // The interior lives inside the real building. Walking through the doorway hands the player to the room's floor/obstacle model
+  // (stairs, two storeys, camera clamp) while the city keeps running outside; walking back out hands control back to the world.
+  updateSeamless(dt) {
+    const g = this.g, P = g.player; const r = this.hq || (this.hq = this.build('hq'));
+    const d = Math.hypot(P.x - HQ.interior.x, P.z - (r.front + r.depth / 2));
+    r.g.visible = !this.current && d < 150; // enclosed by the shell: only drawn when it could be seen through the doors/windows
+    if (r.g.visible && d < 70) r.update(dt, P);
+    // automatic doors: open for the player (on foot) and anyone walking up to them
+    const ex = HQ.interior.x, ez = r.front - 0.2; let want = !P.vehicle && Math.abs(P.x - ex) < 3 && Math.abs(P.z - ez) < 3.4 ? 1 : 0;
+    if (!want) for (const p of g.hqLife?.people || []) if (p.ch?.root && Math.abs(p.ch.root.position.x - ex) < 2.6 && Math.abs(p.ch.root.position.z - ez) < 2.8) { want = 1; break; }
+    this.doorK = (this.doorK || 0) + Math.sign(want - (this.doorK || 0)) * Math.min(Math.abs(want - (this.doorK || 0)), dt / 0.7);
+    const leaves = g.world?.landmarks?.anim?.hqDoors; if (leaves) { const e = (1 - Math.cos(this.doorK * Math.PI)) / 2; for (const lf of leaves) lf.position.x = lf.userData.home + lf.userData.dir * lf.userData.w * 0.95 * e; }
+    // hand-over between the world and the room model
+    if (P.indoor === r) { if (P.z < r.front - 0.05 || P.vehicle) P.indoor = null; }
+    else if (!P.indoor && !P.vehicle && !this.current && P.z > r.front + 0.3 && P.z < r.front + r.depth && P.x > r.bounds.x0 && P.x < r.bounds.x1 && P.y > r.y - 0.6 && P.y < r.y + 2 * r.H) P.indoor = r;
+    // how "inside" the camera is: drives the light blend in Game (eased so stepping through the door is a smooth adaptation)
+    const tk = P.indoor === r ? Math.min(1, Math.max(0, (P.z - r.front + 0.3) / 3.5)) : 0; this.seamK = (this.seamK || 0) + (tk - (this.seamK || 0)) * Math.min(1, dt * 2.5);
+    return this.seamK;
   }
   update(dt) {
     const r = this.current; if (!r) return null; if (r.fan) r.fan.rotation.y += dt * 9; if (r.update) r.update(dt, this.g.player); if (r.keeperCh) { const p = this.g.player; r.keeperCh.root.rotation.y = Math.atan2(p.x - r.keeperPos[0], p.z - r.keeperPos[1]); r.keeperCh.anim.update(dt, 0); }

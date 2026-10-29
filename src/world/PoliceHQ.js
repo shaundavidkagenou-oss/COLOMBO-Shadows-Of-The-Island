@@ -12,6 +12,8 @@ export const HQ = {
   wicket: { x: -3.2, w: 1.8 }, // pedestrian gate next to it
   building: [-40, 18, -205, -183], storeys: 5,
   door: { x: -11, z: -207.6, faceIn: 0 }, // in front of the portico steps; interior entered from here
+  // walk-in interior (no loading, no button): ground floor sits on the plinth (LAND_Y 0.15 + 0.9 + 2 cm), front wall just inside the facade
+  interior: { x: -11, z: -204.85, y: 1.07 }, entrance: { x0: -13, x1: -9, h: 2.3 } /* top stays under the first-floor band */,
   booth: { x: -18, z: -223 },
   boom: { x: -14.6, z: -225.4, len: 8.4 }, // pivot; arm swings over the gate lane towards +x
   carBays: [-48, -44.8, -41.6, -38.4, -35.2, -32].map((x, i) => ({ x, z: -222.2, yaw: 0, type: i === 2 ? 'policejeep' : 'police' })),
@@ -87,7 +89,16 @@ export function buildPoliceHQ({ mb, box, coll, label, group, LAND_Y, SANS, SI, T
   // ---------------------------------------------------------------- main building
   const [bx0, bx1, bz0, bz1] = HQ.building; const top = y0 + HQ.storeys * 3.3;
   box(conc, (bx0 + bx1) / 2, y0 + 0.45, (bz0 + bz1) / 2, bx1 - bx0 + 0.8, 0.9, bz1 - bz0 + 0.8, '#bfb6a6', { uv: 4 }); // plinth
-  mb.get('f_office').box((bx0 + bx1) / 2, (y0 + 0.9 + top) / 2, (bz0 + bz1) / 2, bx1 - bx0, top - y0 - 0.9, bz1 - bz0, { col: C('#efe9dc'), uvScale: 12.8, top: false });
+  { // facade shell (same texture mapping as a box) with a real opening for the main entrance
+    const fo = mb.get('f_office'), col = C('#efe9dc'), S = 12.8, yb = y0 + 0.9, E = HQ.entrance, yd = yb + E.h; const U = (x) => (bx1 - x) / S, V = (y) => (y - yb) / S;
+    const front = (xa, xb, ya, yt) => fo.quad([xa, ya, bz0], [xb, ya, bz0], [xb, yt, bz0], [xa, yt, bz0], [U(xa), V(ya), U(xb), V(yt)], col); // runs +x → −x (faces −z)
+    front(bx1, E.x1, yb, top); front(E.x0, bx0, yb, top); front(E.x1, E.x0, yd, top);
+    fo.quad([bx0, yb, bz1], [bx1, yb, bz1], [bx1, top, bz1], [bx0, top, bz1], [0, 0, (bx1 - bx0) / S, (top - yb) / S], col);
+    fo.quad([bx1, yb, bz1], [bx1, yb, bz0], [bx1, top, bz0], [bx1, top, bz1], [0, 0, (bz1 - bz0) / S, (top - yb) / S], col);
+    fo.quad([bx0, yb, bz0], [bx0, yb, bz1], [bx0, top, bz1], [bx0, top, bz0], [0, 0, (bz1 - bz0) / S, (top - yb) / S], col);
+    // reveal of the opening (wall thickness) and a dark frame
+    box(paint, E.x0 - 0.06, yb + E.h / 2, bz0 + 0.16, 0.12, E.h, 0.32, '#2a2a2a'); box(paint, E.x1 + 0.06, yb + E.h / 2, bz0 + 0.16, 0.12, E.h, 0.32, '#2a2a2a'); box(paint, (E.x0 + E.x1) / 2, yd + 0.06, bz0 + 0.16, E.x1 - E.x0 + 0.24, 0.12, 0.32, '#2a2a2a');
+  }
   mb.get('roofFlat').hrect(bx0, bz0, bx1, bz1, top, 6, [0.75, 0.73, 0.7]);
   box(conc, (bx0 + bx1) / 2, top + 0.45, bz0 + 0.12, bx1 - bx0 + 0.3, 0.9, 0.24, '#e4ddcc'); box(conc, (bx0 + bx1) / 2, top + 0.45, bz1 - 0.12, bx1 - bx0 + 0.3, 0.9, 0.24, '#e4ddcc'); // parapet
   box(conc, bx0 + 0.12, top + 0.45, (bz0 + bz1) / 2, 0.24, 0.9, bz1 - bz0, '#e4ddcc'); box(conc, bx1 - 0.12, top + 0.45, (bz0 + bz1) / 2, 0.24, 0.9, bz1 - bz0, '#e4ddcc');
@@ -96,13 +107,24 @@ export function buildPoliceHQ({ mb, box, coll, label, group, LAND_Y, SANS, SI, T
   paint.cylinder(10, top, -188, 1.2, 1.2, 2.2, 14, { col: C('#2c3e50') }); // water tank
   { const mx = 12, mz = -199; for (let k = 0; k < 4; k++) { const h = top + k * 4; for (const [dx, dz] of [[-0.4, -0.4], [0.4, -0.4], [0.4, 0.4], [-0.4, 0.4]]) metal.box(mx + dx * (1 - k * 0.15), h + 2, mz + dz * (1 - k * 0.15), 0.06, 4, 0.06, { col: C('#c8ccd0') }); metal.box(mx, h + 4, mz, 0.9 - k * 0.12, 0.05, 0.9 - k * 0.12, { col: C('#c8ccd0') }); }
     paint.box(mx, top + 16.6, mz, 0.12, 0.3, 0.12, { col: C('#c0262d') }); anim.hqMast = { x: mx, y: top + 16.8, z: mz }; } // radio mast with an aviation light
-  coll(bx0 - 0.4, bx1 + 0.4, bz0 - 0.4, bz1 + 0.4, top + 1);
+  { // shell walls (the inside is the walk-in interior) + the entrance threshold on the plinth
+    const E = HQ.entrance, T = 0.7; coll(bx0 - 0.4, E.x0, bz0 - 0.4, bz0 + T, top + 1); coll(E.x1, bx1 + 0.4, bz0 - 0.4, bz0 + T, top + 1);
+    coll(bx0 - 0.4, bx1 + 0.4, bz1 - T, bz1 + 0.4, top + 1); coll(bx0 - 0.4, bx0 + T, bz0, bz1, top + 1); coll(bx1 - T, bx1 + 0.4, bz0, bz1, top + 1);
+    coll(E.x0, E.x1, bz0 - 0.45, bz0 + T, y0 + 0.9, { kind: 'deck' });
+  }
 
   // portico: canopy over the drop-off, columns, steps, glass doors
   const px = HQ.door.x; box(conc, px, y0 + 4.6, -208.5, 16, 0.4, 7, '#f3efe6', { uv: 3 }); box(paint, px, y0 + 4.6, -212.02, 16.1, 0.42, 0.06, '#1d3a7a');
   columns(px - 7.2, -211.5, px + 7.2, -211.5, 4, y0, 4.2, 0.32, '#f3efe6'); for (const cx of [px - 7.2, px - 2.4, px + 2.4, px + 7.2]) coll(cx - 0.35, cx + 0.35, -211.85, -211.15, 4.4, { kind: 'pole' });
   for (let k = 0; k < 3; k++) { const hh = 0.3 * (k + 1), zf = -205.4 - (3 - k) * 0.5, w = 9 - k * 0.6; box(conc, px, y0 + hh / 2, (zf - 205.4) / 2, w, hh, -205.4 - zf, '#d8d2c6', { uv: 2 }); coll(px - w / 2, px + w / 2, zf, -205.4, y0 + hh, { kind: 'deck' }); } // three 30 cm steps up to the plinth
-  box(glass, px, y0 + 2.25, -205.04, 4.2, 2.7, 0.06, '#ffffff'); box(paint, px, y0 + 3.7, -205.06, 4.6, 0.2, 0.08, '#2a2a2a'); for (const dx of [-2.2, 0, 2.2]) box(paint, px + dx, y0 + 2.25, -205.07, 0.1, 2.9, 0.08, '#2a2a2a');
+  { // automatic sliding glass doors (PoliceHQLife opens them for anyone walking up)
+    const E = HQ.entrance, w = (E.x1 - E.x0) / 2, gm = new THREE.MeshStandardMaterial({ color: 0xa9c4d2, transparent: true, opacity: 0.32, roughness: 0.05, metalness: 0.2, depthWrite: false }), fm = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.4, metalness: 0.6 });
+    const leaves = []; for (const sd of [-1, 1]) { const lf = new THREE.Group(); const pane = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.06, E.h - 0.12), gm); pane.position.y = E.h / 2; lf.add(pane);
+      for (const [x, y, sw, sh] of [[0, 0.04, w, 0.08], [0, E.h - 0.04, w, 0.08], [-(w / 2) + 0.03, E.h / 2, 0.06, E.h], [w / 2 - 0.03, E.h / 2, 0.06, E.h]]) { const f = new THREE.Mesh(new THREE.BoxGeometry(sw, sh, 0.05), fm); f.position.set(x, y, 0); lf.add(f); }
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.9, 0.04), new THREE.MeshStandardMaterial({ color: 0xc8ccd0, metalness: 0.9, roughness: 0.25 })); bar.position.set(-sd * (w / 2 - 0.15), 1.05, -0.05); lf.add(bar);
+      lf.position.set(px + sd * w / 2, y0 + 0.9, bz0 + 0.05); lf.userData.home = px + sd * w / 2; lf.userData.dir = sd; lf.userData.w = w; group.add(lf); leaves.push(lf); }
+    anim.hqDoors = leaves; // (the blue first-floor band above acts as the door header)
+  }
   // signage: trilingual name board above the portico + badge disc
   label([{ text: 'ශ්‍රී ලංකා පොලිසිය  ·  இலங்கை பொலிஸ்', font: SI(54), color: '#f1d27a' }, { text: 'POLICE HEADQUARTERS', font: SANS(118), color: '#ffffff' }, { text: 'පොලිස් මූලස්ථානය  ·  பொலிஸ் தலைமையகம்', font: SI(60), color: '#ffffff' }], px, y0 + 6.3, -205.12, 15, 2.6, Math.PI, { w: 1536, h: 300, bg: '#1d3a7a', border: '#d9b13b' });
   { const c = document.createElement('canvas'); c.width = c.height = 256; const g2 = c.getContext('2d'); g2.fillStyle = '#d9b13b'; g2.beginPath(); g2.arc(128, 128, 124, 0, 7); g2.fill(); g2.fillStyle = '#1d3a7a'; g2.beginPath(); g2.arc(128, 128, 104, 0, 7); g2.fill();

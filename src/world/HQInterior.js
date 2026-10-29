@@ -1,4 +1,6 @@
-// Police Headquarters interior: two furnished floors joined by a staircase, built below the street like the other interiors.
+// Police Headquarters interior: two furnished floors joined by a staircase, built INSIDE the HQ building so it is entered on foot
+// through the automatic doors (no loading screen, no button). Geometry is authored in a local frame (front-centre of the floor at the
+// origin, rooms towards −z) and the group is turned 180° and placed at HQ.interior, so the entrance faces the portico.
 // The room plan is INVENTED for the game (an artistic interpretation) — it is not the real building's layout.
 // Room interface (shared with Interiors.js): { id, D, g, bounds, obstacles, spawn, y, door } plus multi-floor hooks used by
 // Player.js: floorAt(x, z, y), obsFor(y), ceilAt(y), clampCam(from, to) and update(dt, player).
@@ -10,7 +12,7 @@ import { makeAppearance, makePoliceAppearance } from '../actors/Appearance.js';
 
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 export const HQ_DEF = { name: 'Police Headquarters', note: 'Interior is an artistic interpretation for the game, not the real building layout.' };
-const Y = -40, H = 3.6, W = 34, D = 18;
+const Y = 0, H = 3.6, W = 34, D = 18; // Y: local floor level (the group is placed at the world floor height)
 // stairs: straight flight on the east side, rising towards the back of the building (local u/v metres)
 const ST = { u0: 10.5, u1: 13, v0: 10, v1: 16.5 };
 const SLAB = 0.25; // first-floor slab thickness (ground-floor ceiling sits this far below the upper floor surface)
@@ -26,8 +28,9 @@ function plateMat(text, sub = '') {
     if (sub) { g.font = '600 32px "Barlow Condensed", sans-serif'; g.fillStyle = '#f1d27a'; g.fillText(sub, w / 2, 98, w - 30); } }, false);
 }
 
-export function buildHQInterior(game, door) {
-  const cx = door.x, z1 = door.z - 200, z0 = z1 - D, x0 = cx - W / 2, x1 = cx + W / 2;
+export function buildHQInterior(game, door, place) {
+  const cx = 0, z1 = 0, z0 = z1 - D, x0 = cx - W / 2, x1 = cx + W / 2; // local frame
+  const PX = place.x, PZ = place.z, PY = place.y; const WX = (u) => PX - u, WZ = (v) => PZ + v, WFY = (f) => PY + f * H; // world frame
   const X = (u) => cx + u, Z = (v) => z1 - v; const FY = (f) => Y + f * H;
   const mb = new MultiBuilder(); const paint = mb.get('paint'), conc = mb.get('concrete'), glass = mb.get('glass'), emis = mb.get('emissive'), metal = mb.get('metal');
   const g = new THREE.Group(); g.name = 'hq-interior';
@@ -60,12 +63,12 @@ export function buildHQInterior(game, door) {
 
   // ---------------------------------------------------------------- outer walls with windows (both floors)
   for (let f = 0; f < 2; f++) {
-    wallU(f, 0, -W / 2, W / 2, f === 0 ? [[-0.95, 0.95]] : []); wallU(f, D, -W / 2, W / 2); wallV(f, -W / 2, 0, D); wallV(f, W / 2, 0, D);
-    for (let u = -15; u <= 15; u += 3.4) { if (f === 0 && Math.abs(u) < 2) continue; for (const v of [0.09, D - 0.09]) { if (f === 0 && v > 1 && u < -3.5) continue; // no windows behind the dispatch screen wall
+    wallU(f, 0, -W / 2, W / 2, f === 0 ? [[-2, 2]] : []); wallU(f, D, -W / 2, W / 2); wallV(f, -W / 2, 0, D); wallV(f, W / 2, 0, D);
+    for (let u = -15; u <= 15; u += 3.4) { if (f === 0 && Math.abs(u) < 3) continue; for (const v of [0.09, D - 0.09]) { if (f === 0 && v > 1 && u < -3.5) continue; // no windows behind the dispatch screen wall
  bx(emis, u, FY(f) + 1.75, v, 1.6, 1.3, 0.02, '#b9d2e6'); bx(paint, u, FY(f) + 1.08, v, 1.75, 0.06, 0.08, '#e8e2d6'); for (const k of [-0.27, 0.27]) bx(paint, u + k, FY(f) + 1.75, v, 0.04, 1.3, 0.035, '#f4f1ea'); } }
     for (const v of [2.5, 5.5, 12.5, 15.5]) for (const u of [-W / 2 + 0.09, W / 2 - 0.09]) bx(emis, u, FY(f) + 1.75, v, 0.02, 1.3, 1.6, '#b9d2e6');
   }
-  bx(glass, -0.48, Y + 1.15, 0, 0.9, 2.2, 0.05, '#ffffff'); bx(glass, 0.48, Y + 1.15, -0.25, 0.9, 2.2, 0.05, '#ffffff'); // glass entrance doors (one standing open)
+  // (the entrance doors are the facade's automatic sliding doors — see PoliceHQ.js)
 
   // ---------------------------------------------------------------- GROUND FLOOR
   // corridor walls: front rooms behind v = 7, back rooms behind v = 9.5
@@ -152,10 +155,12 @@ export function buildHQInterior(game, door) {
   block(1, 16.4, 0.45, 12.0, 0.5, 0.9, 0.5, '#2a6db0'); bx(paint, 16.88, FY(1) + 1.7, 14.5, 0.04, 1.0, 1.8, '#b08a5a');
 
   // ---------------------------------------------------------------- meshes and lights
-  for (const m of mb.toMeshes(MAT, { cast: false, receive: true })) g.add(m);
-  g.add(new THREE.HemisphereLight(0xfff6ea, 0x8a8478, 1.1));
+  for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) g.add(m); // casting: ceilings keep the sun out (the facade's flat roof is a single upward face)
+  // (no hemisphere light here: it would light the whole city — Interiors blends the global light towards indoor levels instead)
   for (const [u, v, f] of [[0, 3.5, 0], [-11, 13, 0], [8, 8.25, 0], [-10, 3.5, 1], [3, 8.25, 1], [-9, 13.5, 1]]) { const l = new THREE.PointLight(0xfff1dc, 14, 16, 1.6); l.position.set(X(u), FY(f) + H - 0.5, Z(v)); g.add(l); }
-  g.visible = false; game.scene.add(g);
+  g.position.set(PX, PY, PZ); g.rotation.y = Math.PI; g.visible = false; game.scene.add(g); g.updateMatrixWorld(true);
+  // obstacles to world space (x → PX − x, z → PZ − z under the 180° turn)
+  const wobs = obs.map((L) => L.map((o) => ({ x0: PX - o.x1, x1: PX - o.x0, z0: PZ - o.z1, z1: PZ - o.z0, top: o.top + PY })));
 
   // ---------------------------------------------------------------- people
   const npcs = []; let sd = 7100;
@@ -182,15 +187,15 @@ export function buildHQInterior(game, door) {
 
   // ---------------------------------------------------------------- room object
   const room = {
-    id: 'hq', D: HQ_DEF, g, fan: null, y: Y, door, H, plates, npcs, multiFloor: true,
-    bounds: { x0: x0 + 0.25, x1: x1 - 0.25, z0: z0 + 0.25, z1: z1 - 0.25 }, obstacles: obs[0], obsByFloor: obs,
-    spawn: [cx, z1 - 1.2], keeperPos: null,
-    floorIndex(y) { return y > Y + H * 0.5 ? 1 : 0; },
-    floorAt(x, z, y) { const u = x - cx, v = z1 - z; if (u > ST.u0 - 0.05 && u < ST.u1 + 0.05 && v >= ST.v0 && v <= ST.v1) return Y + ((v - ST.v0) / (ST.v1 - ST.v0)) * H; if (u > ST.u0 - 0.05 && u < ST.u1 + 0.05 && v > ST.v1) return Y + H; return y > Y + H * 0.5 ? Y + H : Y; },
-    obsFor(y) { return obs[this.floorIndex(y)]; },
-    ceilAt(y) { const f = this.floorIndex(y); return FY(f + 1) - (f === 0 ? SLAB : 0) - 0.3; },
+    id: 'hq', D: HQ_DEF, g, fan: null, y: PY, door, H, plates, npcs, multiFloor: true, seamless: true, front: PZ, gap: [PX - 2, PX + 2], depth: D,
+    bounds: { x0: PX - W / 2 + 0.25, x1: PX + W / 2 - 0.25, z0: PZ + 0.25, z1: PZ + D - 0.25 }, obstacles: wobs[0], obsByFloor: wobs,
+    spawn: [PX, PZ + 1.2], keeperPos: null,
+    floorIndex(y) { return y > PY + H * 0.5 ? 1 : 0; },
+    floorAt(x, z, y) { const u = PX - x, v = z - PZ; if (u > ST.u0 - 0.05 && u < ST.u1 + 0.05 && v >= ST.v0 && v <= ST.v1) return PY + ((v - ST.v0) / (ST.v1 - ST.v0)) * H; if (u > ST.u0 - 0.05 && u < ST.u1 + 0.05 && v > ST.v1) return PY + H; return y > PY + H * 0.5 ? PY + H : PY; },
+    obsFor(y) { return wobs[this.floorIndex(y)]; },
+    ceilAt(y) { const f = this.floorIndex(y); return WFY(f + 1) - (f === 0 ? SLAB : 0) - 0.3; },
     // pull the camera in front of the first wall between the player and the desired camera position
-    clampCam(from, to) { const ob2 = obs[this.floorIndex(from.y - 1.4)], n = 14; let last = 0; const R = 0.14;
+    clampCam(from, to) { const ob2 = wobs[this.floorIndex(from.y - 1.4)], n = 14; let last = 0; const R = 0.14;
       for (let k = 1; k <= n; k++) { const t = k / n; const x = from.x + (to.x - from.x) * t, z = from.z + (to.z - from.z) * t; let hit = false; const y = from.y + (to.y - from.y) * t; for (const o of ob2) if (y < o.top + 0.08 && x > o.x0 - R && x < o.x1 + R && z > o.z0 - R && z < o.z1 + R) { hit = true; break; } if (hit) break; last = t; }
       if (last < 1) { to.x = from.x + (to.x - from.x) * last; to.z = from.z + (to.z - from.z) * last; to.y = from.y + (to.y - from.y) * last; } return to; },
     // ambient animation: walkers patrol the corridors, everyone else idles / talks / types; people near the player turn to look
@@ -199,7 +204,7 @@ export function buildHQInterior(game, door) {
         if (n.walk) { const w = n.walk; if (n.dir === undefined) n.dir = 1; const tgt = n.dir > 0 ? w.b : w.a; const cur = w.axis === 'u' ? n.u : n.v; const d = tgt - cur;
           if (Math.abs(d) < 0.1) { n.pause = (n.pause || 0) + dt; if (n.pause > 2.5) { n.pause = 0; n.dir *= -1; } } else { const st = Math.sign(d) * Math.min(Math.abs(d), w.sp * dt); if (w.axis === 'u') n.u += st; else n.v += st; speed = w.sp; n.ch.root.rotation.y = w.axis === 'u' ? (d > 0 ? Math.PI / 2 : -Math.PI / 2) : d > 0 ? Math.PI : 0; }
           n.ch.root.position.set(X(n.u), FY(n.f), Z(n.v)); }
-        else if (!n.action && p && Math.abs(p.y - FY(n.f)) < 1.5 && Math.hypot(p.x - X(n.u), p.z - Z(n.v)) < 3.2) { const want = Math.atan2(p.x - X(n.u), p.z - Z(n.v)); let dd = want - n.ch.root.rotation.y; dd = Math.atan2(Math.sin(dd), Math.cos(dd)); n.ch.root.rotation.y += dd * Math.min(1, dt * 3); }
+        else if (!n.action && p && Math.abs(p.y - WFY(n.f)) < 1.5 && Math.hypot(p.x - WX(n.u), p.z - WZ(n.v)) < 3.2) { const want = Math.atan2(p.x - WX(n.u), p.z - WZ(n.v)) - Math.PI; /* local yaw under the 180° turn */ let dd = want - n.ch.root.rotation.y; dd = Math.atan2(Math.sin(dd), Math.cos(dd)); n.ch.root.rotation.y += dd * Math.min(1, dt * 3); }
         n.ch.anim.update(dt, speed); }
     },
     dispose() { for (const n of npcs) n.ch.dispose && n.ch.dispose(); },

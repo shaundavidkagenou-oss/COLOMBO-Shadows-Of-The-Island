@@ -76,7 +76,7 @@ export class Player {
     if (A.stepped) { A.stepped = false; if (this.grounded && this.speed > 0.5) this.events.emit('footstep', { x: this.x, z: this.z, sprint: this.sprinting }); } // real foot contacts from the gait
   }
   resolveIndoor(x, z) {
-    const b = this.indoor.bounds, R = 0.3; x = clamp(x, b.x0 + R, b.x1 - R); z = clamp(z, b.z0 + R, b.z1 - R);
+    const b = this.indoor.bounds, R = 0.3, gp = this.indoor.gap; const out = gp && x > gp[0] + R && x < gp[1] - R && z < b.z0 + 1.2; /* walk-in room: the doorway is open to the street */ x = clamp(x, out ? gp[0] + R : b.x0 + R, out ? gp[1] - R : b.x1 - R); z = clamp(z, out ? b.z0 - 2 : b.z0 + R, b.z1 - R);
     for (const o of (this.indoor.obsFor ? this.indoor.obsFor(this.y) : this.indoor.obstacles)) { if (x > o.x0 - R && x < o.x1 + R && z > o.z0 - R && z < o.z1 + R) { const dl = x - (o.x0 - R), dr = o.x1 + R - x, dt = z - (o.z0 - R), db = o.z1 + R - z; const m = Math.min(dl, dr, dt, db); if (m === dl) x = o.x0 - R; else if (m === dr) x = o.x1 + R; else if (m === dt) z = o.z0 - R; else z = o.z1 + R; } }
     return { x, z };
   }
@@ -216,7 +216,7 @@ export class Player {
     const want = new THREE.Vector3(tgt.x + Math.sin(this.camYaw) * cp * dist, tgt.y + spch * dist, tgt.z + Math.cos(this.camYaw) * cp * dist);
     // camera collision
     let t = 1;
-    if (this.indoor) { const I = this.indoor, b = I.bounds, top = I.ceilAt ? I.ceilAt(this.y) : I.y + (I.id === 'garage' ? 4.6 : 2.9), fl = I.floorAt ? I.floorAt(this.x, this.z, this.y) : I.y; want.x = clamp(want.x, b.x0 + 0.05, b.x1 - 0.05); want.z = clamp(want.z, b.z0 + 0.05, b.z1 - 0.05); want.y = clamp(want.y, fl + 0.4, Math.max(top, fl + 0.6)); if (I.clampCam) I.clampCam(tgt, want); }
+    if (this.indoor) { const I = this.indoor, b = I.bounds, top = I.ceilAt ? I.ceilAt(this.y) : I.y + (I.id === 'garage' ? 4.6 : 2.9), fl = I.floorAt ? I.floorAt(this.x, this.z, this.y) : I.y; want.x = clamp(want.x, b.x0 + 0.05, b.x1 - 0.05); want.z = clamp(want.z, I.gap && this.z < b.z0 + 4 ? b.z0 - 4 : b.z0 + 0.05, b.z1 - 0.05); want.y = clamp(want.y, fl + 0.4, Math.max(top, fl + 0.6)); if (I.clampCam) I.clampCam(tgt, want); }
     else {
       t = this.collision.raycast(tgt.x, tgt.y, tgt.z, want.x, want.y, want.z, 0.25);
       if (t < 1) want.lerpVectors(tgt, want, Math.max(0.12, t - 0.05));

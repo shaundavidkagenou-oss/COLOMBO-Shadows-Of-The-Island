@@ -92,9 +92,13 @@ await check('Police HQ compound (Kompannaveediya): zone, gate, door, markings', 
 });
 await check('Police HQ interior: two floors, stairs, rooms, staff', async () => {
   const { buildHQInterior, HQ_DEF } = await import('../src/world/HQInterior.js'); const { HQ } = await import('../src/world/PoliceHQ.js');
-  const room = buildHQInterior({ scene: new THREE.Scene() }, { id: 'hq', ...HQ.door }); const Y = room.y, H = room.H, cx = HQ.door.x, z1 = HQ.door.z - 200;
-  assert(Math.abs(room.floorAt(cx, z1 - 3, Y) - Y) < 1e-6, 'ground floor'); assert(Math.abs(room.floorAt(cx + 11.7, z1 - 16.6, Y + 3) - (Y + H)) < 0.05, 'stair top reaches first floor');
-  assert(Math.abs(room.floorAt(cx + 11.7, z1 - 13.25, Y + 1.8) - (Y + H / 2)) < 0.05, 'stair midpoint'); assert(room.obsFor(Y).length > 30 && room.obsFor(Y + H).length > 30, 'per-floor obstacles');
+  const room = buildHQInterior({ scene: new THREE.Scene() }, { id: 'hq', ...HQ.door }, HQ.interior); const Y = room.y, H = room.H, PX = HQ.interior.x, PZ = HQ.interior.z;
+  // walk-in: built inside the real building (world floor = plinth top), local (u, v) maps to world (PX − u, PZ + v)
+  assert(Math.abs(Y - HQ.interior.y) < 1e-6 && room.seamless && room.gap[1] - room.gap[0] >= 3.5, 'walk-in interior in the building');
+  assert(room.bounds.x0 > -40 && room.bounds.x1 < 18 && room.bounds.z0 > -205 && room.bounds.z1 < -183, 'interior inside the HQ footprint');
+  assert(Math.abs(room.floorAt(PX, PZ + 3, Y) - Y) < 1e-6, 'ground floor'); assert(Math.abs(room.floorAt(PX - 11.7, PZ + 16.6, Y + 3) - (Y + H)) < 0.05, 'stair top reaches first floor');
+  assert(Math.abs(room.floorAt(PX - 11.7, PZ + 13.25, Y + 1.8) - (Y + H / 2)) < 0.05, 'stair midpoint');
+  const inObs = (x, z, y) => room.obsFor(y).some((o) => x > o.x0 && x < o.x1 && z > o.z0 && z < o.z1); assert(!inObs(PX, PZ + 0.02, Y) && !inObs(PX, PZ + 1.5, Y), 'doorway is open'); assert(inObs(PX + 4, PZ + 0.02, Y), 'front wall either side of the doorway'); assert(room.obsFor(Y).length > 30 && room.obsFor(Y + H).length > 30, 'per-floor obstacles');
   assert(room.plates.length >= 10 && room.plates.includes('CSRU READY ROOM') && room.plates.includes('OPERATIONS / DISPATCH'), 'door plates'); assert(room.npcs.length >= 25 && room.npcs.every((n) => n.spec.ageYears >= 18), 'adult staff');
   assert(/artistic interpretation/.test(HQ_DEF.note), 'interior disclaimer');
   return `${room.npcs.length} people, ${room.plates.length} rooms signed, stairs ${H} m, obstacles ${room.obsFor(Y).length}/${room.obsFor(Y + H).length}`;

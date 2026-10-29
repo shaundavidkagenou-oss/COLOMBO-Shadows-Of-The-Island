@@ -151,7 +151,7 @@ export class Atmosphere {
       this.envGround.material.color.setRGB(0.25, 0.23, 0.2).multiplyScalar(1 - this.night * 0.8);
       const prevFog = this.scene.fog; const old = this.envRT;
       this.envRT = this.pmrem.fromScene(this.envScene, 0.02, 0.1, 200);
-      this.scene.environment = this.envRT.texture; this.scene.environmentIntensity = 0.62 * (1 - this.night * 0.7) * (1 - this.w.dark * 0.3); // sky PMREM is HDR: full strength washed every facade
+      this.scene.environment = this.envRT.texture; this.envBase = this.scene.environmentIntensity = 0.62 * (1 - this.night * 0.7) * (1 - this.w.dark * 0.3); // sky PMREM is HDR: full strength washed every facade
       if (old) old.dispose(); void prevFog;
     }
   }
