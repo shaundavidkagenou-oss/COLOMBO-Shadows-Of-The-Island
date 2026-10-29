@@ -12,24 +12,35 @@ export class Screens {
   constructor(root, game) { this.root = root; this.g = game; this.stack = []; }
   // ---------------------------------------------------------------- studio intro + loading
   async studioIntro(loadFn) {
-    const s = el('div', 'screen studio', this.root);
-    const dust = el('canvas', 'dust', s); const light = el('div', 'studio-light', s);
-    const logoWrap = el('div', 'logo-wrap', s); const img = el('img', 'logo', logoWrap); img.src = LOGO; img.alt = 'Shaun David Studios logo'; img.draggable = false;
-    const name = el('div', 'studio-name', s, 'SHAUN DAVID STUDIOS'); const pres = el('div', 'studio-presents', s, 'presents');
-    const bar = el('div', 'load', s, '<div class="load-bar"><i></i></div><div class="load-text">Preparing</div>');
-    const startHint = el('button', 'click-start', s, 'Click to begin'); 
-    // particles
-    const ctx = dust.getContext('2d'); const parts = Array.from({ length: 140 }, () => ({ x: Math.random(), y: Math.random(), z: Math.random(), vx: (Math.random() - 0.5) * 0.0004, vy: -Math.random() * 0.0006 - 0.0001 }));
-    let alive = true, glow = 0; const draw = () => { if (!alive) return; dust.width = innerWidth; dust.height = innerHeight; ctx.clearRect(0, 0, dust.width, dust.height); for (const p of parts) { p.x += p.vx; p.y += p.vy; if (p.y < -0.05) { p.y = 1.05; p.x = Math.random(); } const r = 0.6 + p.z * 1.8; const dx = p.x - 0.5, dy = p.y - 0.45; const near = Math.max(0, 1 - Math.hypot(dx, dy) * 2.2); ctx.fillStyle = `rgba(255,${200 + p.z * 40},${150 + p.z * 60},${(0.08 + p.z * 0.25) * (0.3 + near * glow)})`; ctx.beginPath(); ctx.arc(p.x * dust.width, p.y * dust.height, r, 0, 7); ctx.fill(); } requestAnimationFrame(draw); }; draw();
-    // wait for a user gesture so audio can start (browser autoplay rules)
-    await new Promise((r) => { startHint.onclick = () => { Audio.init(); r(); }; addEventListener('keydown', function k() { removeEventListener('keydown', k); Audio.init(); r(); }); });
-    startHint.remove(); Audio.boom(); await wait(1200);
-    s.classList.add('reveal'); glow = 1; await wait(600); Audio.riser(2.5);
-    // genuine loading runs while the logo is shown
-    const fill = bar.querySelector('i'), txt = bar.querySelector('.load-text'); bar.classList.add('show');
-    await loadFn((p, label) => { fill.style.width = `${Math.round(p * 100)}%`; txt.textContent = `${label} · ${Math.round(p * 100)}%`; });
-    txt.textContent = 'Ready'; name.classList.add('show'); pres.classList.add('show'); await wait(2200);
-    s.classList.add('out'); await wait(1200); alive = false; s.remove();
+    // 1) the ENTER GAME gate in index.html (static, on screen before this bundle loaded) — its click is the audio gesture
+    const gate = document.getElementById('gate');
+    if (gate) { if (!window.__sdsEntered) await new Promise((r) => addEventListener('sds-enter', r, { once: true })); }
+    else { const b = el('button', 'click-start', this.root, 'Enter game'); await new Promise((r) => { b.onclick = r; }); b.remove(); }
+    Audio.init();
+    // 2) Shaun David Studios: everything below animates with transform / opacity only, so it stays smooth on the
+    // compositor even while the world build blocks the main thread
+    const s = el('div', 'screen studio2', this.root);
+    s.innerHTML = `<div class="s2-bars"><i></i><i></i></div>
+      <div class="s2-rays"></div><div class="s2-core"></div><div class="s2-seam"></div><div class="s2-shock"></div>
+      <div class="s2-embers">${Array.from({ length: 46 }, (_, i) => `<i style="left:${(Math.random() * 100).toFixed(1)}%;--d:${(5 + Math.random() * 7).toFixed(2)}s;--dl:-${(Math.random() * 12).toFixed(2)}s;--x:${((Math.random() - 0.5) * 18).toFixed(1)}vw;--s:${(0.5 + Math.random() * 1.4).toFixed(2)}"></i>`).join('')}</div>
+      <div class="s2-emblem"><div class="s2-glow"></div><img class="s2-logo" alt="Shaun David Studios logo" draggable="false"></div>
+      <div class="s2-name"><span>SHAUN DAVID STUDIOS</span></div><div class="s2-pres">P R E S E N T S</div>
+      <div class="s2-load"><div class="s2-row"><span class="s2-label">Initialising</span><span class="s2-pct">00</span></div><div class="s2-track"><i></i><b></b></div><div class="s2-tip"></div></div>
+      <div class="s2-grain"></div><div class="s2-vig"></div><div class="s2-flash"></div>`;
+    s.querySelector('.s2-logo').src = LOGO;
+    if (gate) { gate.classList.add('gone'); setTimeout(() => gate.remove(), 900); }
+    await wait(350); s.classList.add('ignite'); Audio.boom(); await wait(900);
+    s.classList.add('reveal'); Audio.riser(2.6); await wait(900);
+    // 3) genuine loading while the emblem burns
+    const fill = s.querySelector('.s2-track i'), head = s.querySelector('.s2-track b'), lab = s.querySelector('.s2-label'), pct = s.querySelector('.s2-pct'), tip = s.querySelector('.s2-tip');
+    const tips = ['Left-hand traffic — keep left on Colombo roads', 'Three operatives, one city: switch with Z (hold for the squad card)', 'Tuk-tuks fit through gaps that cars cannot', 'Night falls fast in the tropics — around 6:30 pm', 'The monsoon makes roads slick: brake early'];
+    let ti = 0; tip.textContent = tips[0]; const tipT = setInterval(() => { ti = (ti + 1) % tips.length; tip.classList.remove('on'); void tip.offsetWidth; tip.textContent = tips[ti]; tip.classList.add('on'); }, 3800); tip.classList.add('on');
+    s.classList.add('loading');
+    await loadFn((p, label) => { const k = Math.max(0, Math.min(1, p)); fill.style.transform = `scaleX(${k})`; head.style.transform = `translateX(${(k * 100).toFixed(2)}%)`; pct.textContent = String(Math.round(k * 100)).padStart(2, '0'); if (label) lab.textContent = label; });
+    clearInterval(tipT); lab.textContent = 'Ready'; pct.textContent = '100'; fill.style.transform = 'scaleX(1)';
+    s.classList.add('named'); await wait(2400);
+    // 4) out: flash and push into the emblem
+    s.classList.add('out'); Audio.boom(); await wait(1300); s.remove();
   }
   caption(lines, dur = 3) { const c = el('div', 'montage-cap', this.root, lines); requestAnimationFrame(() => c.classList.add('show')); setTimeout(() => c.classList.remove('show'), dur * 1000 - 700); setTimeout(() => c.remove(), dur * 1000); }
   async gameTitle(dur = 4.5) {

@@ -109,6 +109,7 @@ export class Game {
   async boot() {
     const next = JSON.parse(sessionStorage.getItem('colombo.next') || 'null'); sessionStorage.removeItem('colombo.next');
     if (next) { // returning from an in-game "load" or "quit to menu": short loading screen, no studio intro
+      document.getElementById('gate')?.remove(); // the entry gate is only for a fresh start
       const s = document.createElement('div'); s.className = 'screen quickload'; s.innerHTML = '<div class="gt-main small">COLOMBO</div><div class="load show"><div class="load-bar"><i></i></div><div class="load-text"></div></div>'; this.ui.appendChild(s);
       const fill = s.querySelector('i'), txt = s.querySelector('.load-text');
       await this.load((p, l) => { fill.style.width = `${Math.round(p * 100)}%`; txt.textContent = `${l} · ${Math.round(p * 100)}%`; });

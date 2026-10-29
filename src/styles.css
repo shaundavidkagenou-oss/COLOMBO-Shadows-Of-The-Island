@@ -432,3 +432,65 @@ select { background: #0e1318; color: var(--paper); border: 1px solid rgba(255, 2
 .egi.done .egi-main { transform: scale(3.2); filter: blur(10px); opacity: 0; transition: transform 0.75s cubic-bezier(0.7, 0, 0.84, 0), filter 0.6s ease, opacity 0.6s ease; }
 .egi.out { opacity: 0; transition: opacity 0.75s ease; }
 @media (prefers-reduced-motion: reduce) { .egi .egi-grain, .egi.s3 .egi-main::before, .egi.s3 .egi-main::after, .egi.s3 .egi-main span::after { animation: none; } }
+
+/* ---------------------------------------------------------------- Shaun David Studios loading sequence (v2)
+   The official logo is shown untouched (no inversion / recolouring / distortion): black line-art multiplied over a
+   white-hot backlight, so the strokes stand out as a silhouette against the light and the white paper melts into the
+   glow. All motion is transform / opacity → compositor-driven and smooth while the world builds. */
+.studio2 { position: absolute; inset: 0; background: #000; overflow: hidden; z-index: 50; }
+.studio2 .s2-bars i { position: absolute; left: 0; right: 0; height: 11vh; background: #000; z-index: 6; transition: transform 1.2s cubic-bezier(.7,0,.2,1); }
+.studio2 .s2-bars i:first-child { top: 0; transform: translateY(-100%); } .studio2 .s2-bars i:last-child { bottom: 0; transform: translateY(100%); }
+.studio2.reveal .s2-bars i { transform: none; }
+.studio2 .s2-seam { position: absolute; left: 0; right: 0; top: 46%; height: 2px; margin-top: -1px; background: linear-gradient(90deg, transparent, #fff3d6 30%, #fff 50%, #fff3d6 70%, transparent); box-shadow: 0 0 24px 6px rgba(255,190,110,.75), 0 0 80px 20px rgba(232,140,40,.35); transform: scaleX(0); opacity: 0; }
+.studio2.ignite .s2-seam { animation: s2seam 1.5s cubic-bezier(.2,.8,.2,1) forwards; }
+@keyframes s2seam { 0% { transform: scaleX(0) scaleY(1); opacity: 1; } 35% { transform: scaleX(1) scaleY(1); opacity: 1; } 60% { transform: scaleX(1) scaleY(30); opacity: .55; } 100% { transform: scaleX(1) scaleY(90); opacity: 0; } }
+.studio2 .s2-shock { position: absolute; left: 50%; top: 46%; width: 30vmin; height: 30vmin; margin: -15vmin 0 0 -15vmin; border-radius: 50%; border: 2px solid rgba(255,214,150,.8); box-shadow: 0 0 40px rgba(255,170,80,.6), inset 0 0 40px rgba(255,170,80,.4); opacity: 0; }
+.studio2.reveal .s2-shock { animation: s2shock 1.4s cubic-bezier(.1,.7,.3,1) forwards; }
+@keyframes s2shock { from { transform: scale(.2); opacity: 1; } to { transform: scale(7); opacity: 0; } }
+.studio2 .s2-core { position: absolute; left: 50%; top: 46%; width: 120vmin; height: 120vmin; margin: -60vmin 0 0 -60vmin; border-radius: 50%; background: radial-gradient(circle, rgba(255,250,240,1) 0%, rgba(255,232,196,.95) 12%, rgba(255,176,90,.55) 26%, rgba(170,80,20,.22) 42%, transparent 64%); transform: scale(0); opacity: 0; transition: transform 1.6s cubic-bezier(.15,.8,.2,1), opacity 1.2s; }
+.studio2.reveal .s2-core { transform: scale(1); opacity: 1; animation: s2breath 3.6s ease-in-out 1.6s infinite alternate; }
+@keyframes s2breath { from { transform: scale(1); opacity: 1; } to { transform: scale(1.05); opacity: .9; } }
+.studio2 .s2-rays { position: absolute; left: 50%; top: 46%; width: 150vmax; height: 150vmax; margin: -75vmax 0 0 -75vmax; background: repeating-conic-gradient(from 0deg, rgba(255,190,110,.10) 0deg 3deg, transparent 3deg 14deg); -webkit-mask: radial-gradient(circle, #000 0%, transparent 55%); mask: radial-gradient(circle, #000 0%, transparent 55%); opacity: 0; transition: opacity 2s; }
+.studio2.reveal .s2-rays { opacity: 1; animation: s2spin 60s linear infinite; }
+@keyframes s2spin { to { transform: rotate(360deg); } }
+.studio2 .s2-emblem { position: absolute; left: 50%; top: 46%; width: min(40vmin, 400px); aspect-ratio: 432 / 443; transform: translate(-50%, -50%) scale(.82); opacity: 0; filter: blur(10px); transition: transform 2.4s cubic-bezier(.15,.8,.2,1), opacity 1s, filter 1.4s; }
+.studio2.reveal .s2-emblem { transform: translate(-50%, -50%) scale(1); opacity: 1; filter: none; }
+.studio2 .s2-glow { position: absolute; inset: -18%; border-radius: 50%; background: radial-gradient(circle, #fffaf2 0%, #fff1dc 46%, #ffd9a0 60%, rgba(255,190,110,0) 72%); }
+.studio2 .s2-logo { position: relative; width: 100%; height: 100%; display: block; mix-blend-mode: multiply; -webkit-mask: radial-gradient(circle, #000 64%, transparent 71%); mask: radial-gradient(circle, #000 64%, transparent 71%); }
+.studio2 .s2-embers i { position: absolute; bottom: -4vh; width: 3px; height: 3px; border-radius: 50%; background: #ffcf7a; box-shadow: 0 0 6px 2px rgba(255,150,60,.8); opacity: 0; transform: scale(var(--s)); animation: s2ember var(--d) linear var(--dl) infinite; animation-play-state: paused; }
+.studio2.reveal .s2-embers i { animation-play-state: running; }
+@keyframes s2ember { 0% { transform: translate3d(0, 0, 0) scale(var(--s)); opacity: 0; } 10% { opacity: .95; } 70% { opacity: .6; } 100% { transform: translate3d(var(--x), -110vh, 0) scale(calc(var(--s) * .3)); opacity: 0; } }
+.studio2 .s2-name { position: absolute; left: 0; right: 0; top: calc(46% + min(23vmin, 230px)); text-align: center; opacity: 0; transform: translateY(14px); transition: opacity 1.4s, transform 1.6s cubic-bezier(.2,.8,.2,1); z-index: 3; }
+.studio2 .s2-name span { position: relative; display: inline-block; font-family: var(--f-title); font-weight: 700; font-size: clamp(22px, 3.6vw, 46px); letter-spacing: .34em; padding-left: .34em; background: linear-gradient(180deg, #fff8ea 0%, #f0d29a 45%, #a57a40 55%, #f6dcaa 100%); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 0 18px rgba(255,170,80,.35)); }
+.studio2 .s2-name span::after { content: 'SHAUN DAVID STUDIOS'; position: absolute; inset: 0; padding-left: .34em; background: linear-gradient(105deg, transparent 42%, #fff 50%, transparent 58%); background-size: 260% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: gglint2 4.2s ease-in-out .6s infinite; }
+@keyframes gglint2 { 0% { background-position: 130% 0; } 40%, 100% { background-position: -130% 0; } }
+.studio2.reveal .s2-name { opacity: 1; transform: none; transition-delay: .5s; }
+.studio2 .s2-pres { position: absolute; left: 0; right: 0; top: calc(46% + min(23vmin, 230px) + clamp(40px, 5.6vw, 70px)); text-align: center; font-family: var(--f-hud); font-weight: 600; font-size: clamp(11px, 1.1vw, 14px); letter-spacing: .5em; color: rgba(232,163,58,.85); opacity: 0; transition: opacity 1.2s; z-index: 3; }
+.studio2.named .s2-pres { opacity: 1; }
+.studio2 .s2-load { position: absolute; left: 50%; bottom: calc(11vh + 3.2vh); width: min(560px, 76vw); transform: translateX(-50%); opacity: 0; transition: opacity .8s; z-index: 7; }
+.studio2.loading .s2-load { opacity: 1; }
+.studio2 .s2-row { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 9px; font-family: var(--f-hud); text-transform: uppercase; }
+.studio2 .s2-label { font-size: 13px; letter-spacing: .26em; color: rgba(244,239,230,.7); }
+.studio2 .s2-pct { font-size: 30px; font-weight: 700; letter-spacing: .06em; line-height: 1; color: #ffcf7a; font-variant-numeric: tabular-nums; text-shadow: 0 0 14px rgba(255,170,80,.5); }
+.studio2 .s2-pct::after { content: '%'; font-size: 14px; margin-left: 3px; color: rgba(255,207,122,.6); }
+.studio2 .s2-track { position: relative; height: 2px; background: rgba(255,255,255,.1); }
+.studio2 .s2-track i { position: absolute; inset: 0; background: linear-gradient(90deg, #6b4316, #e8a33a 70%, #fff1cf); transform-origin: left; transform: scaleX(0); transition: transform .35s ease-out; }
+.studio2 .s2-track b { position: absolute; left: 0; top: 0; width: 100%; height: 100%; transform: translateX(0); transition: transform .35s ease-out; pointer-events: none; }
+.studio2 .s2-track b::after { content: ''; position: absolute; left: -3px; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: #fff6df; box-shadow: 0 0 10px 3px rgba(255,190,110,.9), 0 0 30px 8px rgba(232,140,40,.5); }
+.studio2 .s2-tip { margin-top: 12px; text-align: center; font-family: var(--f-hud); font-size: 13px; letter-spacing: .12em; color: rgba(244,239,230,.45); opacity: 0; }
+.studio2 .s2-tip.on { animation: s2tip 3.8s ease both; }
+@keyframes s2tip { 0% { opacity: 0; transform: translateY(4px); } 12%, 85% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+.studio2 .s2-grain { position: absolute; inset: -50%; opacity: .07; z-index: 5; pointer-events: none; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); animation: s2grain .5s steps(4) infinite; }
+@keyframes s2grain { 0% { transform: translate(0, 0); } 25% { transform: translate(-4%, 3%); } 50% { transform: translate(3%, -2%); } 75% { transform: translate(-2%, -4%); } 100% { transform: translate(0, 0); } }
+.studio2 .s2-vig { position: absolute; inset: 0; z-index: 4; pointer-events: none; background: radial-gradient(ellipse at 50% 46%, transparent 40%, rgba(0,0,0,.9) 100%); }
+.studio2 .s2-flash { position: absolute; inset: 0; z-index: 8; background: #fff6e4; opacity: 0; pointer-events: none; }
+.studio2.out .s2-flash { animation: s2flash 1.3s ease forwards; }
+@keyframes s2flash { 0% { opacity: 0; } 18% { opacity: .95; } 100% { opacity: 0; } }
+.studio2.out .s2-emblem { transform: translate(-50%, -50%) scale(3.2); opacity: 0; filter: blur(14px); transition: transform 1.3s cubic-bezier(.6,0,.4,1), opacity 1s .2s, filter 1s; }
+.studio2.out .s2-name, .studio2.out .s2-pres, .studio2.out .s2-load { opacity: 0; transition: opacity .5s; }
+.studio2.out { animation: s2fade 1.3s ease forwards; }
+@keyframes s2fade { 0%, 60% { background: #000; opacity: 1; } 100% { opacity: 0; } }
+.studio2.ignite { animation: s2shake .5s ease 0.05s; }
+@keyframes s2shake { 0%, 100% { transform: none; } 20% { transform: translate(3px, -2px); } 40% { transform: translate(-3px, 2px); } 60% { transform: translate(2px, 1px); } 80% { transform: translate(-1px, -1px); } }
+.studio2.ignite.out { animation: s2fade 1.3s ease forwards; }
+.studio2.named .s2-load { opacity: 0; transition: opacity .6s; }
