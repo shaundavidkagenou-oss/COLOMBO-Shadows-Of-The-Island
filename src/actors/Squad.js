@@ -323,7 +323,10 @@ export class Squad {
     if (m.repathT <= 0) { m.repathT = 0.3; m.tx = gx; m.tz = gz;
       if (!this.clearLine(m.x, m.z, m.y, gx, gz) || col.blocked(gx, gz, 0.3)) { const c = this.crumbs; let found = false;
         for (let i = c.length - 1, n = 0; i >= 0 && n < 50; i--, n++) { const q = c[i]; if (Math.hypot(q.x - m.x, q.z - m.z) > 30) continue; if (this.clearLine(m.x, m.z, m.y, q.x, q.z)) { m.tx = q.x; m.tz = q.z; found = true; break; } }
-        if (!found && col.blocked(gx, gz, 0.3)) { m.tx = P.x; m.tz = P.z; } } }
+        if (!found && col.blocked(gx, gz, 0.3)) { // slot inside a wall: nearest free spot ~1.8 m around the leader (never walk into them)
+          let got = false; const side = k === 0 ? -1 : 1; for (const da of [2.4, 3.9, 1.6, 3.14, 0.9]) { const an = P_yaw + Math.PI + (da - Math.PI) * side * -1, x = P.x + Math.sin(an) * 1.8, z = P.z + Math.cos(an) * 1.8;
+            if (!col.blocked(x, z, 0.3) && this.clearLine(P.x, P.z, P.y, x, z) && !this.followers.some((o) => o !== m && Math.hypot(o.tx - x, o.tz - z) < 0.9)) { m.tx = x; m.tz = z; got = true; break; } }
+          if (!got) { const dl = Math.hypot(m.x - P.x, m.z - P.z); if (dl < 3) { m.tx = m.x; m.tz = m.z; } else { m.tx = P.x; m.tz = P.z; } } } } }
     if (m.sideT > 0) { m.sideT -= dt; m.tx = m.x + Math.cos(m.yaw) * 2 * m.sideDir; m.tz = m.z - Math.sin(m.yaw) * 2 * m.sideDir; }
     const d = Math.hypot(m.tx - m.x, m.tz - m.z); const hold = m.mode === 'hold';
     // pace: match the leader, close the gap when behind, ease in on arrival

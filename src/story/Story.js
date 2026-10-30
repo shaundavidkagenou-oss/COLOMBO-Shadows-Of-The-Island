@@ -166,7 +166,10 @@ export class Story {
       async () => { // Ruwan called in two old friends: the squad assembles at the door
         const [rx, rz] = this.state.flags.room; const sq = this.g.squad; const p = this.g.player;
         if (this.state.flags.squad && sq && sq.unlocked) return; if (sq && !sq.unlocked) sq.unlock(false);
-        const fy = Math.atan2(p.x - rx, p.z - rz); const off = (a, d) => this.safeSpot(rx + Math.sin(fy + a) * d, rz + Math.cos(fy + a) * d);
+        // meet on open pavement near the door (room for the two-shot camera), not against the wall
+        let gx = rx, gz = rz; search: for (const r of [2, 3.5, 5, 7, 9]) for (let k = 0; k < 16; k++) { const an = (k / 16) * Math.PI * 2, x = rx + Math.sin(an) * r, z = rz + Math.cos(an) * r; if (!this.g.collision.blocked(x, z, 2.6) && !L.roadAt(x, z)) { gx = x; gz = z; break search; } }
+        if (Math.hypot(p.x - gx, p.z - gz) > 0.5) { await this.hud.fade(1, 0.35); p.teleport(gx, gz, Math.atan2(rx - gx, rz - gz)); this.hud.fade(0, 0.6); }
+        const fy = p.yaw; const off = (a, d) => this.safeSpot(gx + Math.sin(fy + a) * d, gz + Math.cos(fy + a) * d);
         const [sx, sz] = off(0.5, 1.6), [dx, dz] = off(-0.6, 1.8);
         const sh = sq ? sq.placeAt('shashika', sx, sz, fy) : null; sq && sq.placeAt('david', dx, dz, fy);
         if (sh) await this.conversation(sh, [
