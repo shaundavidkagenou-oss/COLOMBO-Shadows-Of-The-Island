@@ -49,7 +49,7 @@ export class Game {
     this.root = root; this.bus = bus; this.clock = 0; this.dt = 0; this.mode = 'boot'; this.paused = false; this.radio = 0; this.autosaveT = 0; this.fps = 60; this.indoor = false;
     this.ghost = { x: 1e7, z: 1e7, y: 0, yaw: 0, speed: 0, vehicle: null, crouching: false, sprinting: false, ch: null, isGhost: true }; // stand-in player for menu/intro simulation
     const preset = Settings.preset;
-    this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', stencil: false });
+    this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', stencil: false, reversedDepthBuffer: true }); // reversed-Z + float depth (PostFX target): uniform depth precision near and far, so windows, signs, glass and paving never z-fight (falls back to standard depth without EXT_clip_control)
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * preset.pixelRatio * Settings.get('resolutionScale'));
     this.renderer.setSize(innerWidth, innerHeight); this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1;
@@ -93,7 +93,7 @@ export class Game {
     this.schoolLife = new SchoolLife(this);
     this.cricket = new StreetCricket(this);
     this.player = new Player(this.scene, this.camera, this.collision, bus); this.player.crowd = this.crowd;
-    this.hud = new HUD(this.ui); this.hud.satellite = new Satellite(this); this.director = new Director(this); this.story = new Story(this); this.interiors = new Interiors(this); this.weapons = new Weapons(this); this.player.weapons = this.weapons; this.squad = new Squad(this); this.police = new PoliceResponse(this);
+    this.hud = new HUD(this.ui); this.hud.canSeeUnit = (u) => this.canSeeUnit(u); this.hud.mapExtras = () => this.miniExtras(); this.hud.satellite = new Satellite(this); this.director = new Director(this); this.story = new Story(this); this.interiors = new Interiors(this); this.weapons = new Weapons(this); this.player.weapons = this.weapons; this.squad = new Squad(this); this.police = new PoliceResponse(this);
     this.health = new Health(this); this.phone = new Phone(this, this.hud.root);
     this.applyDensity();
     progress(0.9, 'Lighting'); await tick();
@@ -354,6 +354,7 @@ export class Game {
     if (!this.indoor) this.trains.update(dt, { focus, night: A.night, player: this.indoor ? null : P, playerVehicle: P.vehicle || null, vehicles: this.traffic.all(), listener: true });
     if (!this.indoor) this.crowd.update(dt, focus, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: P, hourFactor: this.hourFactor(), hour: A.hour, bodies: this.bodies });
     if (P.vehicle && A.night > 0.5 && P.nightLights === undefined) { P.vehicle.lights = true; }
+    this.updateSight(dt);
     // story & prompts
     const storyPrompt = D.active ? null : this.story.update(dt);
     this.hud.prompt(D.active || this.photo ? '' : storyPrompt || this.police.prompt || localPrompt || '');
@@ -373,7 +374,8 @@ export class Game {
     const P = this.player; const I = this.interiors; const key = (a) => this.hud.key(a);
     if (I.current && I.current.id === 'room') { const b = I.current.bounds; if (Math.hypot(P.x - (b.x0 + 1.2), P.z - (b.z0 + 1.6)) < 1.8 && !this.story.running) { const h = this.atmos.hour; const to = h >= 6 && h < 17 ? 19.75 : 8; if (Input.wasPressed('interact')) this.restUntil(to); return `${key('interact')} Sleep until ${to === 8 ? '8:00 AM' : '7:45 PM'}`; } }
     { const gp = this.schoolLife.guard?.interact(P, key); if (gp) return gp; } // Johns school night watchman
-    if (I.current) { const r = I.update(this.dt); if (r === 'exit') { if (Input.wasPressed('enter')) I.exit(); return `${key('enter')} Leave ${I.current.D.name}`; } return null; }
+    if (I.current) { const r = I.update(this.dt); if (r === 'exit') { if (Input.wasPressed('enter')) I.exit(); return `${key('enter')} Leave ${I.current.D.name}`; } return I.current.prompt || null; }
+    if (I.hq && P.indoor === I.hq && I.hq.prompt) { if (I.hq.oic?.near && Input.wasPressed('interact')) I.hq.oic.open = !I.hq.oic.open; return I.hq.prompt; } // seamless HQ: the OIC door
     if (P.entry || P.exiting) return null;
     if (P.vehicle) { if (Input.wasPressed('enter')) { if (!P.exitVehicle(this.traffic)) this.hud.notify('Slow down', 'Stop the vehicle to get out.', 'info', 1.5); } return null; }
     const door = I.nearDoor(P.x, P.z);
@@ -396,8 +398,30 @@ export class Game {
     return null;
   }
   interiorName(id) { return { kade: 'Lucky Tea Kade', fathima: 'Fathima Textiles', selvaraj: 'Selvaraj Electronics', bandara: 'Bandara Spice Stores', tailor: 'Ceylon Threads', garage: 'Lanka Auto Care', hq: 'Police Headquarters' }[id] || id; }
+  // what the player can actually see: vehicles / people / police units within range and not hidden behind a building or wall.
+  // Only these get (small) marks on the minimap and the full map — the map is not a tracker of every NPC and car in the city.
+  lineOfSight(ax, az, bx, bz) {
+    const d = Math.hypot(bx - ax, bz - az), n = Math.ceil(d / 2.5);
+    for (let k = 1; k < n; k++) { const t = k / n, x = ax + (bx - ax) * t, z = az + (bz - az) * t;
+      for (const c of this.collision.query(x - 0.05, z - 0.05, x + 0.05, z + 0.05)) { if (c.kind === 'tree' || c.kind === 'pole' || c.kind === 'deck' || c.kind === 'platform' || (c.y0 || 0) + c.h < 2.4 || (c.y0 || 0) > 3) continue; if (x > c.x0 && x < c.x1 && z > c.z0 && z < c.z1) return false; } }
+    return true;
+  }
+  updateSight(dt) {
+    this.sightT = (this.sightT || 0) - dt; if (this.sightT > 0 && this.sight) return; this.sightT = 0.3;
+    const P = this.player, src = P.vehicle || P, R = 70; const S = { veh: [], peds: [], units: new Set() };
+    if (!this.indoor && P.indoor == null) {
+      const see = (o) => { const d = Math.hypot(o.x - src.x, o.z - src.z); return d < R && (d < 6 || this.lineOfSight(src.x, src.z, o.x, o.z)); };
+      for (const v of this.traffic.all()) if (v !== P.vehicle && v.x !== undefined && see(v)) S.veh.push(v);
+      for (const p of this.crowd.peds || []) if (see(p)) S.peds.push(p);
+      for (const u of this.police?.units || []) if (see(u)) S.units.add(u);
+    }
+    this.sight = S;
+  }
+  canSeeUnit(u) { const S = this.sight; if (S && S.units.has(u)) return true; const P = this.player, src = P.vehicle || P; return !!u.lights && Math.hypot(u.x - src.x, u.z - src.z) < 150; } // responding units are heard (siren)
   miniExtras() {
-    const out = []; for (const v of this.traffic.vehicles) out.push({ x: v.x, z: v.z, color: 'rgba(255,255,255,0.55)', r: 1.6 });
+    const out = []; const S = this.sight || { veh: [], peds: [] };
+    for (const v of S.veh) out.push({ x: v.x, z: v.z, color: 'rgba(255,255,255,0.6)', r: 1.3 });
+    for (const p of S.peds) out.push({ x: p.x, z: p.z, color: 'rgba(255,226,160,0.65)', r: 0.8 });
     for (const pv of this.story.pursuers) out.push({ x: pv.v ? pv.v.x : pv.x, z: pv.v ? pv.v.z : pv.z, color: '#ff4a3a', r: 3.5 });
     return out;
   }

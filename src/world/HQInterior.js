@@ -75,7 +75,7 @@ export function buildHQInterior(game, door, place) {
   wallU(0, 7, -W / 2, W / 2, [[-10.5, -9.5], [-1.5, 1.5], [7.8, 8.8], [13.6, 14.6]]); wallU(0, 9.5, -W / 2, ST.u0 - 0.1, [[-8.2, -7.2], [3, 4]]);
   wallV(0, -6, 0, 7); wallV(0, 6, 0, 7); wallV(0, 11, 0, 7); wallV(0, -3, 9.5, D); wallV(0, ST.u0 - 0.1, 9.5, D);
   plate(0, 'RECORDS', -10, 7, true); plate(0, 'DUTY OFFICER', 8.3, 7, true); plate(0, 'STORE', 14.1, 7, true); plate(0, 'OPERATIONS / DISPATCH', -7.7, 9.5, false); plate(0, "OFFICERS' MESS", 3.5, 9.5, false);
-  leaf(0, -9.0 + 0.5, 7.5, false); leaf(0, 9.3, 7.5, false); leaf(0, 15.1, 7.5, false); leaf(0, -6.7, 9.0, false); leaf(0, 4.5, 9.0, false);
+  // (open doorways: the only interior door in the building is the Officer-in-Charge's, upstairs)
   // lobby: reception counter, waiting chairs, notice board, sign
   block(0, 3.4, 0.55, 4.8, 4.4, 1.1, 0.7, '#6b4a2a'); bx(paint, 3.4, Y + 1.12, 4.7, 4.6, 0.05, 0.9, '#d8cbb0'); bx(paint, 1.2, Y + 0.55, 6.0, 0.7, 1.1, 2.1, '#6b4a2a'); ob(0, 0.85, 1.55, 4.9, 7);
   bx(paint, 2.3, Y + 1.36, 5.0, 0.45, 0.32, 0.05, '#1a1a1a'); bx(emis, 2.3, Y + 1.36, 4.97, 0.4, 0.26, 0.01, '#6fa8dc'); bx(paint, 2.3, Y + 1.16, 5.1, 0.08, 0.1, 0.08, '#1a1a1a'); // PC on the counter
@@ -88,7 +88,7 @@ export function buildHQInterior(game, door, place) {
   for (const v of [2.0, 3.6]) for (const u of [-5.2, -4.6, -4.0, -3.4]) chairF(0, u, v, 'u+');
   chairF(0, 2.2, 5.85, 'v-');
   { bx(paint, -3.8, Y + 1.7, 0.12, 2.6, 1.3, 0.04, '#b08a5a'); const notes = ['#f4f4f0', '#f1d27a', '#cfe0f0', '#f4c6c6', '#f4f4f0', '#d8f0d0']; for (let k = 0; k < 9; k++) bx(paint, -4.8 + (k % 3) * 0.95 + (k * 0.07) % 0.2, Y + 1.25 + Math.floor(k / 3) * 0.4, 0.15, 0.55, 0.32, 0.01, notes[k % notes.length]);
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.36), plateMat('POLICE EMERGENCY 119')); m.position.set(X(-1.9), Y + 1.75, Z(0.15)); m.rotation.y = Math.PI; g.add(m); }
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.36), plateMat('POLICE EMERGENCY 119')); m.position.set(X(-3.8), Y + 2.62, Z(0.15)); /* on solid wall above the notice board (it used to hang across the entrance opening, u -2..2) */ m.rotation.y = Math.PI; g.add(m); }
   { const m = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.5), plateMat('PUBLIC WAITING AREA')); m.position.set(X(-5.9), Y + 2.6, Z(2.8)); m.rotation.y = Math.PI / 2; g.add(m); }
   bx(paint, -5.6, Y + 0.45, 5.9, 0.5, 0.9, 0.5, '#2a6db0'); bx(paint, -5.6, Y + 1.05, 5.9, 0.3, 0.4, 0.3, '#cfe6f5'); ob(0, -5.85, -5.35, 5.65, 6.15); // water dispenser
   for (const [u, v] of [[-5.5, 0.6], [5.5, 0.6]]) { paint.cylinder(X(u), Y, Z(v), 0.25, 0.2, 0.5, 10, { col: C('#8a5a3a') }); mb.get('leaves').box(X(u), Y + 0.85, Z(v), 0.6, 0.7, 0.6, { col: C('#3f7a34') }); ob(0, u - 0.3, u + 0.3, v - 0.3, v + 0.3); }
@@ -128,7 +128,13 @@ export function buildHQInterior(game, door, place) {
   wallU(1, 7, -W / 2, W / 2, [[-6.2, -5.2], [3.0, 4.0], [12.0, 13.0]]); wallU(1, 9.5, -W / 2, ST.u0 - 0.6, [[-8.2, -7.2], [3, 4]]);
   wallV(1, -3, 0, 7); wallV(1, 9, 0, 7); wallV(1, -3, 9.5, D); wallV(1, ST.u0 - 0.6, 9.5, D);
   plate(1, 'BRIEFING ROOM', -5.7, 7, true); plate(1, 'INVESTIGATIONS', 3.5, 7, true); plate(1, 'OFFICER IN CHARGE', 12.5, 7, true); plate(1, 'CSRU READY ROOM', -7.7, 9.5, false, 'Colombo Special Response Unit'); plate(1, 'MEETING ROOM', 3.5, 9.5, false);
-  leaf(1, -4.7, 7.5, false); leaf(1, 4.5, 7.5, false); leaf(1, 13.5, 7.5, false); leaf(1, -6.7, 9.0, false); leaf(1, 4.5, 9.0, false);
+  // Officer-in-Charge: the one real door — hinged at u 12, swings into the office; interact to open / close it
+  const oic = { u0: 12, u1: 13, v: 7, k: 0, open: false, inside: false };
+  { const hinge = new THREE.Group(); hinge.position.set(X(oic.u0), FY(1), Z(oic.v));
+    const wood = new THREE.MeshStandardMaterial({ color: 0x7a5434, roughness: 0.6 }), brass = new THREE.MeshStandardMaterial({ color: 0xc9a54a, roughness: 0.3, metalness: 0.8 });
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(0.98, 2.16, 0.045), wood); slab.position.set(0.5, 1.09, 0); hinge.add(slab);
+    for (const s of [-1, 1]) { const h = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.14), brass); h.position.set(0.88, 1.02, 0); h.scale.z = 1; hinge.add(h); const k = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), brass); k.position.set(0.88, 1.02, s * 0.075); hinge.add(k); }
+    for (const m of hinge.children) { m.castShadow = true; m.receiveShadow = true; } g.add(hinge); oic.hinge = hinge; }
   // stairwell railing (open towards the landing at the top of the flight)
   { const f = 1, ry = FY(1); const rail = (u0, u1, v0, v1) => { bx(metal, (u0 + u1) / 2, ry + 1.0, (v0 + v1) / 2, Math.max(0.06, u1 - u0), 0.06, Math.max(0.06, v1 - v0), '#6b4a2a'); const L2 = Math.max(u1 - u0, v1 - v0); for (let t = 0; t <= L2; t += 0.6) bx(metal, u0 + (u1 > u0 + 0.1 ? t : 0), ry + 0.5, v0 + (v1 > v0 + 0.1 ? t : 0), 0.04, 1.0, 0.04, '#3a3f46'); ob(f, u0 - 0.08, u1 + 0.08, v0 - 0.08, v1 + 0.08); };
     rail(ST.u0 - 0.06, ST.u0 - 0.06, ST.v0, ST.v1); rail(ST.u1 + 0.06, ST.u1 + 0.06, ST.v0, ST.v1); rail(ST.u0 - 0.06, ST.u1 + 0.06, ST.v0 - 0.06, ST.v0 - 0.06); }
@@ -162,6 +168,8 @@ export function buildHQInterior(game, door, place) {
   g.position.set(PX, PY, PZ); g.rotation.y = Math.PI; g.visible = false; game.scene.add(g); g.updateMatrixWorld(true);
   // obstacles to world space (x → PX − x, z → PZ − z under the 180° turn)
   const wobs = obs.map((L) => L.map((o) => ({ x0: PX - o.x1, x1: PX - o.x0, z0: PZ - o.z1, z1: PZ - o.z0, top: o.top + PY })));
+  // the closed OIC door blocks its doorway (the obstacle is parked far away while the door stands open)
+  oic.obs = { x0: WX(oic.u1), x1: WX(oic.u0), z0: WZ(oic.v - 0.06), z1: WZ(oic.v + 0.06), top: WFY(1) + 2.2 }; oic.closedBox = { ...oic.obs }; wobs[1].push(oic.obs);
 
   // ---------------------------------------------------------------- people
   const npcs = []; let sd = 7100;
@@ -200,7 +208,22 @@ export function buildHQInterior(game, door, place) {
       for (let k = 1; k <= n; k++) { const t = k / n; const x = from.x + (to.x - from.x) * t, z = from.z + (to.z - from.z) * t; let hit = false; const y = from.y + (to.y - from.y) * t; for (const o of ob2) if (y < o.top + 0.08 && x > o.x0 - R && x < o.x1 + R && z > o.z0 - R && z < o.z1 + R) { hit = true; break; } if (hit) break; last = t; }
       if (last < 1) { to.x = from.x + (to.x - from.x) * last; to.z = from.z + (to.z - from.z) * last; to.y = from.y + (to.y - from.y) * last; } return to; },
     // ambient animation: walkers patrol the corridors, everyone else idles / talks / types; people near the player turn to look
+    prompt: '',
+    oic,
     update(dt, p) {
+      this.prompt = '';
+      if (p) { // OIC door: interact within reach on the first floor toggles it; it swings over ~0.8 s
+        const up = Math.abs(p.y - WFY(1)) < 1.2, pu = PX - p.x, pv = p.z - PZ;
+        const near = up && pu > oic.u0 - 0.9 && pu < oic.u1 + 0.9 && Math.abs(pv - oic.v) < 1.6;
+        oic.near = near && !p.vehicle; if (oic.near) this.prompt = `${game.hud?.key ? game.hud.key('interact') : 'E'} ${oic.open ? 'Close' : 'Open'} door — Officer in Charge`; // Game toggles oic.open on the interact key
+        // entering the OIC office (u 9–17, v 0–7 upstairs) is trespassing in a restricted office: 3 wanted stars, once per entry
+        const inside = up && pu > 9.1 && pu < 16.9 && pv > 0.1 && pv < 6.85;
+        if (inside && !oic.inside) { const pol = game.police; if (pol) { const need = 3 - pol.level; if (need > 0) pol.addHeat(need, 'entering the Officer-in-Charge\'s office', 'Officers saw you walk into a restricted office.'); pol.incident = { x: p.x, z: p.z, t: pol.t }; if (pol.spotted) pol.spotted(); } }
+        oic.inside = inside;
+      }
+      { const want = oic.open ? 1 : 0; oic.k += Math.sign(want - oic.k) * Math.min(Math.abs(want - oic.k), dt / 0.8); const e = oic.k * oic.k * (3 - 2 * oic.k);
+        oic.hinge.rotation.y = -e * Math.PI * 0.5; // local +x (the leaf) turns towards local +z = into the office (v < 7)
+        const blocked = oic.k < 0.85; if (blocked) Object.assign(oic.obs, oic.closedBox); else { oic.obs.x0 = oic.obs.x1 = 1e9; } }
       for (const n of npcs) { n.t += dt; let speed = 0;
         if (n.walk) { const w = n.walk; if (n.dir === undefined) n.dir = 1; const tgt = n.dir > 0 ? w.b : w.a; const cur = w.axis === 'u' ? n.u : n.v; const d = tgt - cur;
           if (Math.abs(d) < 0.1) { n.pause = (n.pause || 0) + dt; if (n.pause > 2.5) { n.pause = 0; n.dir *= -1; } } else { const st = Math.sign(d) * Math.min(Math.abs(d), w.sp * dt); if (w.axis === 'u') n.u += st; else n.v += st; speed = w.sp; n.ch.root.rotation.y = w.axis === 'u' ? (d > 0 ? Math.PI / 2 : -Math.PI / 2) : d > 0 ? Math.PI : 0; }

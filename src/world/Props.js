@@ -28,7 +28,7 @@ export function buildPropGeometries() {
   // traffic signal pole (heads are separate dynamic lamps)
   { const p = new MeshBuilder(); p.cylinder(0, 0, 0, 0.1, 0.09, 3.2, 8, { col: C('#2b2d2b') });
     p.box(0, 2.85, 0.18, 0.34, 1.0, 0.24, { col: C('#151515') }); p.box(0.18, 2.85, 0, 0.24, 1.0, 0.34, { col: C('#151515') });
-    for (const [x, z] of [[0, 0.31], [0.31, 0]]) p.box(x, 2.85, z, x ? 0.02 : 0.4, 1.1, z ? 0.02 : 0.4, { col: C('#e8c21a') });
+    for (const [x, z] of [[0, 0.3075], [0.3075, 0]]) p.box(x, 2.85, z, x ? 0.015 : 0.4, 1.1, z ? 0.015 : 0.4, { col: C('#e8c21a') }); // backboard face at 0.315: lamps float 1.8 cm in front (no coplanar flicker)
     GEO.signal = [part(p, MAT.metal)]; }
   // bus halt shelter
   { const busSign = canvasTex(512, 160, (a, w, h) => { a.fillStyle = '#0e5e35'; a.fillRect(0, 0, w, h); a.fillStyle = '#fff'; a.textAlign = 'center'; a.textBaseline = 'middle'; a.font = '700 54px "Barlow Condensed", sans-serif'; a.fillText('BUS HALT', w / 2, 40); a.font = '700 34px "Noto Sans Sinhala", sans-serif'; a.fillText('බස් නැවතුම', w * 0.28, 115); a.font = '700 30px "Noto Sans Tamil", sans-serif'; a.fillText('பஸ் தரிப்பு', w * 0.74, 115); });
@@ -38,7 +38,10 @@ export function buildPropGeometries() {
     const s = new MeshBuilder(); s.quad([-1.1, 2.62, 0.92], [1.1, 2.62, 0.92], [1.1, 3.3, 0.92], [-1.1, 3.3, 0.92], [0, 0, 1, 1]);
     GEO.busStop = [part(p, MAT.paint), part(s, MAT.busSign)]; }
   // bench
-  { const p = new MeshBuilder(); for (let k = 0; k < 4; k++) p.box(0, 0.46 + (k > 2 ? 0.3 : 0), -0.18 + k * 0.12 + (k > 2 ? 0.0 : 0), 1.8, 0.05, 0.1, { col: C('#7a5532') }); p.box(0, 0.75, -0.24, 1.8, 0.35, 0.05, { col: C('#7a5532') }); for (const x of [-0.75, 0.75]) p.box(x, 0.23, 0, 0.12, 0.46, 0.5, { col: C('#9a958a') });
+  { const p = new MeshBuilder(); // seat faces local +z: three seat slats centred on the origin (sitters' hips land on z = 0), backrest behind (−z)
+    for (let k = 0; k < 3; k++) p.box(0, 0.44, -0.15 + k * 0.15, 1.8, 0.05, 0.12, { col: C('#7a5532'), bottom: true });
+    for (const y of [0.62, 0.8]) p.box(0, y, -0.25, 1.8, 0.11, 0.04, { col: C('#7a5532'), bottom: true });
+    for (const x of [-0.75, 0.75]) { p.box(x, 0.21, 0, 0.12, 0.42, 0.5, { col: C('#9a958a') }); p.box(x, 0.66, -0.25, 0.08, 0.5, 0.06, { col: C('#9a958a') }); }
     GEO.bench = [part(p, MAT.paint)]; }
   // pedestrian railing (yellow/black)
   { const p = new MeshBuilder(); for (let k = 0; k < 6; k++) p.box(-1.25 + k * 0.5, 0.95, 0, 0.5, 0.08, 0.06, { col: k % 2 ? C('#111') : C('#e8c21a') }); p.box(-1.45, 0.5, 0, 0.07, 1.0, 0.07, { col: C('#222') }); p.box(0, 0.55, 0, 2.9, 0.05, 0.04, { col: C('#d8b818') });
@@ -97,7 +100,7 @@ export function buildPropsForChunk(chunk) {
     sigs.forEach((p, i) => {
       // head A faces local +z (axis 'v' traffic), head B faces local +x (axis 'h' traffic)
       for (let h = 0; h < 2; h++) for (let k = 0; k < 3; k++) {
-        const local = h === 0 ? new THREE.Vector3(0, 3.18 - k * 0.32, 0.32) : new THREE.Vector3(0.32, 3.18 - k * 0.32, 0);
+        const local = h === 0 ? new THREE.Vector3(0, 3.18 - k * 0.32, 0.333) : new THREE.Vector3(0.333, 3.18 - k * 0.32, 0);
         local.applyAxisAngle(new THREE.Vector3(0, 1, 0), p.rot); _p.set(p.x + local.x, LAND_Y + local.y, p.z + local.z);
         _q.setFromEuler(_e.set(0, p.rot + (h === 0 ? 0 : Math.PI / 2), 0)); _m.compose(_p, _q, _s.set(1, 1, 1)); mesh.setMatrixAt(i * 6 + h * 3 + k, _m); mesh.setColorAt(i * 6 + h * 3 + k, _c.set(0x111111));
       }

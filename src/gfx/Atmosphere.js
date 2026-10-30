@@ -6,7 +6,11 @@ import { updateMaterials } from './Materials.js';
 import { waterUniforms } from '../world/Water.js';
 import { RNG } from '../core/rng.js';
 
-const cloudVert = `varying vec3 vDir; void main(){ vDir = normalize((modelMatrix * vec4(position,1.0)).xyz - cameraPosition); vec4 p = projectionMatrix * viewMatrix * modelMatrix * vec4(position,1.0); gl_Position = p.xyww; }`;
+const cloudVert = `varying vec3 vDir; void main(){ vDir = normalize((modelMatrix * vec4(position,1.0)).xyz - cameraPosition); vec4 p = projectionMatrix * viewMatrix * modelMatrix * vec4(position,1.0); gl_Position = p.xyww;
+#ifdef USE_REVERSED_DEPTH_BUFFER
+ gl_Position.z = 0.0;
+#endif
+ }`; // on the far plane (reversed-Z: far = 0)
 const cloudFrag = `
   uniform float uTime, uCover, uDark, uNight; uniform vec3 uSunDir, uSunCol, uSkyCol;
   varying vec3 vDir;
@@ -48,7 +52,7 @@ export class Atmosphere {
     this.weatherTimer = 240; this.drawDist = 1400; this.rng = new RNG(99);
     // sky
     this.sky = new Sky(); this.sky.scale.setScalar(18000); scene.add(this.sky);
-    { const m = this.sky.material; m.uniforms.uSkyGain = { value: 1 }; m.fragmentShader = 'uniform float uSkyGain;\n' + m.fragmentShader.replace('gl_FragColor = vec4( texColor, 1.0 );', 'gl_FragColor = vec4( texColor * uSkyGain, 1.0 );'); m.needsUpdate = true; } // midday Preetham sky is far hotter than the city it lights: scale it so the horizon isn't a white wall
+    { const m = this.sky.material; m.uniforms.uSkyGain = { value: 1 }; m.vertexShader = m.vertexShader.replace('gl_Position.z = gl_Position.w; // set z to camera.far', '#ifdef USE_REVERSED_DEPTH_BUFFER\n gl_Position.z = 0.0;\n#else\n gl_Position.z = gl_Position.w;\n#endif'); m.fragmentShader = 'uniform float uSkyGain;\n' + m.fragmentShader.replace('gl_FragColor = vec4( texColor, 1.0 );', 'gl_FragColor = vec4( texColor * uSkyGain, 1.0 );'); m.needsUpdate = true; } // midday Preetham sky is far hotter than the city it lights: scale it so the horizon isn't a white wall
     const u = this.sky.material.uniforms; u.turbidity.value = 6; u.rayleigh.value = 1.6; u.mieCoefficient.value = 0.004; u.mieDirectionalG.value = 0.82;
     // clouds
     this.cloudMat = new THREE.ShaderMaterial({ uniforms: { uTime: { value: 0 }, uCover: { value: 0.3 }, uDark: { value: 0 }, uNight: { value: 0 }, uSunDir: { value: new THREE.Vector3() }, uSunCol: { value: new THREE.Color() }, uSkyCol: { value: new THREE.Color() } }, vertexShader: cloudVert, fragmentShader: cloudFrag, transparent: true, depthWrite: false, side: THREE.BackSide });

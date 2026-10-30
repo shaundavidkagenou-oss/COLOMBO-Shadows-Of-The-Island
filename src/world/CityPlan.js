@@ -48,7 +48,7 @@ function addBuilding(b) {
 function addProp(type, x, z, rot = 0, extra = {}) { const p = { type, x, z, rot, ...extra }; plan.props.push(p); addToChunk('props', p, x, z); return p; }
 function onRailReserve(x, z) { if (L.distToRail(x, z) < 7.5 || (L.distToRail(x, z) < 15 && nearestS(x, z).d < 7.5)) return true; for (const st of L.STATIONS) { if (st.along === 'x' ? Math.abs(x - st.x) < 95 && z > -633 && z < -610 : Math.abs(z - st.z) < 60 && Math.abs(x - st.x) < 10) return true; } return false; } // track corridor + platforms stay clear
 const inSchool = (x, z) => x > 247 && x < 341 && z > 328.5 && z < 388; // Johns school compound builds its own grounds
-function addTree(type, x, z, s = 1, extra = {}) { if (L.isWater(x, z) || L.roadAt(x, z) || onRailReserve(x, z) || inSchool(x, z)) return; const t = { type, x, z, s, ...extra }; plan.trees.push(t); addToChunk('trees', t, x, z); plan.colliders.push({ x0: x - 0.35 * s, x1: x + 0.35 * s, z0: z - 0.35 * s, z1: z + 0.35 * s, h: 6, kind: 'tree' }); }
+function addTree(type, x, z, s = 1, extra = {}) { if (L.isWater(x, z) || L.roadAt(x, z) || onRailReserve(x, z) || inSchool(x, z)) return; const t = { type, x, z, s, ...extra }; plan.trees.push(t); addToChunk('trees', t, x, z); t.col = { x0: x - 0.35 * s, x1: x + 0.35 * s, z0: z - 0.35 * s, z1: z + 0.35 * s, h: 6, kind: 'tree' }; plan.colliders.push(t.col); }
 function addPOI(type, x, z, rot, extra = {}) { const p = { type, x, z, rot, used: 0, ...extra }; plan.poi.push(p); addToChunk('poi', p, x, z); return p; }
 function addWall(x0, x1, z0, z1, h, col = '#ece6d8') { if (inSchool((x0 + x1) / 2, (z0 + z1) / 2)) return; const w = { x0, x1, z0, z1, h, col }; plan.walls.push(w); addToChunk('walls', w, (x0 + x1) / 2, (z0 + z1) / 2); plan.colliders.push({ x0, x1, z0, z1, h, kind: 'wall' }); }
 
@@ -336,14 +336,14 @@ export function generatePlan() {
   // Galle Face Green: promenade palms, benches, food carts
   for (let z = -640; z < -250; z += 14) {
     const cx = L.coastX(z) + 16; addTree('palm', cx + rng.range(-1, 1), z, rng.range(0.9, 1.25));
-    if (Math.floor(z / 14) % 2 === 0) { addProp('bench', cx + 3, z + 7, -Math.PI / 2, {}); addPOI('bench', cx + 3.3, z + 7, -Math.PI / 2, { seats: 2 }); }
+    if (Math.floor(z / 14) % 2 === 0) { addProp('bench', cx + 3, z + 7, -Math.PI / 2, {}); addPOI('bench', cx + 3, z + 7, -Math.PI / 2, { seats: 2 }); }
   }
   for (let k = 0; k < 9; k++) { const z = -400 + k * 16, x = L.coastX(z) + 24; addProp('foodcart', x, z, -Math.PI / 2, { seed: k }); addPOI('vendor', x + 1.4, z, -Math.PI / 2, { cart: true }); plan.colliders.push({ x0: x - 1.1, x1: x + 1.1, z0: z - 1.6, z1: z + 1.6, h: 2.2, kind: 'cart' }); }
   for (let k = 0; k < 40; k++) addPOI('lawn', rng.range(-490, -425), rng.range(-640, -260), rng.range(0, 6.28), {});
   // parks: Viharamahadevi
   const vm = [PARK.x0, PARK.x1, PARK.z0, PARK.z1]; // the lawn itself (zone rect minus boundary roads + pavements)
   for (let k = 0; k < 70; k++) { const x = rng.range(vm[0] + 6, vm[1] - 6), z = rng.range(vm[2] + 6, vm[3] - 6); if (Math.hypot(x - 90, z + 60) > 22 && !onParkFeature(x, z, 2.2)) addTree(rng.pick(['rain', 'rain', 'bo', 'palm', 'frangipani']), x, z, rng.range(0.9, 1.4)); }
-  for (let k = 0; k < 14; k++) { const a = k / 14 * Math.PI * 2; const x = 90 + Math.cos(a) * 30, z = -60 + Math.sin(a) * 30; addProp('bench', x, z, -a + Math.PI / 2, {}); addPOI('bench', x, z, -a - Math.PI / 2, { seats: 2 }); }
+  for (let k = 0; k < 14; k++) { const a = k / 14 * Math.PI * 2; const x = 90 + Math.cos(a) * 30, z = -60 + Math.sin(a) * 30; addProp('bench', x, z, -a - Math.PI / 2, {}); addPOI('bench', x, z, -a - Math.PI / 2, { seats: 2 }); /* seat faces the fountain; sitters use the same facing */ }
   for (let k = 0; k < 30; k++) { const x = rng.range(vm[0] + 8, vm[1] - 8), z = rng.range(vm[2] + 8, vm[3] - 8); if (!onParkFeature(x, z, 1)) addPOI('lawn', x, z, rng.range(0, 6.28), {}); }
   // landscaping (Parks.js): hedges + flower-bed rims collide, heritage lamps light the paths at night
   plan.colliders.push(...parkColliders());
@@ -378,6 +378,35 @@ export function generatePlan() {
     if (drop.size) { const cols = new Set([...drop].map((p) => p.col)); plan.props = plan.props.filter((p) => !drop.has(p)); plan.colliders = plan.colliders.filter((c) => !cols.has(c));
       for (const ch of plan.byChunk) ch.props = ch.props.filter((p) => !drop.has(p));
       const dq = (q) => q.type === 'vendor' && !q.cart && near(q); plan.poi = plan.poi.filter((q) => !dq(q)); for (const ch of plan.byChunk) ch.poi = ch.poi.filter((q) => !dq(q)); } }
+  // no tree may grow inside (or through) a building. Garden/back-lot trees planted against a wall are moved out to 1.6 m
+  // from it (crown no longer pushes through the facade); if there is no free spot they are dropped. Around the landmark
+  // buildings with walk-in interiors (Police HQ, Galle Face Hotel) the whole crown must stay outside the walls.
+  { const SOLID = [[-40, 18, -205, -183], [-467.5, -414, -240, -205]]; // PoliceHQ.HQ.building, Landmarks Galle Face Hotel
+    const R = (b) => (b._r ||= [b.x0, b.x1, b.z0, b.z1]);
+    const gapAt = (x, z, r) => Math.hypot(Math.max(r[0] - x, 0, x - r[1]), Math.max(r[2] - z, 0, z - r[3]));
+    const MIN = 1.6; const near = (x, z) => { const out = []; const [cx, cz] = chunkCoord(x, z); // buildings are filed by centre: scan the 3x3 chunk block
+      for (let j = cz - 1; j <= cz + 1; j++) for (let i = cx - 1; i <= cx + 1; i++) { if (i < 0 || j < 0 || i >= NCX || j >= NCZ) continue;
+        for (const b of plan.byChunk[j * NCX + i].buildings) if (x > b.x0 - 4 && x < b.x1 + 4 && z > b.z0 - 4 && z < b.z1 + 4) out.push(R(b)); }
+      return out; };
+    const clear = (x, z, t) => near(x, z).every((r) => gapAt(x, z, r) >= MIN - 1e-6) && !SOLID.some((r) => gapAt(x, z, r) < 3.6 * (t.s || 1));
+    const free = (x, z, t) => clear(x, z, t) && !L.isWater(x, z) && !L.roadAt(x, z) && !onRailReserve(x, z);
+    const drop = new Set(); let moved = 0;
+    for (const t of plan.trees) {
+      if (clear(t.x, t.z, t)) continue; // (addTree already rejected water / road / rail spots)
+      if (SOLID.some((r) => gapAt(t.x, t.z, r) < 3.6 * (t.s || 1))) { drop.add(t); continue; }
+      let ok = null; // try pushing straight out of the nearest wall, then the 8 compass directions, in growing steps
+      const r0 = near(t.x, t.z).sort((a, b) => gapAt(t.x, t.z, a) - gapAt(t.x, t.z, b))[0];
+      const dirs = []; if (r0) { const cx = Math.max(r0[0], Math.min(t.x, r0[1])), cz = Math.max(r0[2], Math.min(t.z, r0[3])); let dx = t.x - cx, dz = t.z - cz; if (Math.hypot(dx, dz) < 1e-3) { const m = Math.min(t.x - r0[0], r0[1] - t.x, t.z - r0[2], r0[3] - t.z); dx = m === t.x - r0[0] ? -1 : m === r0[1] - t.x ? 1 : 0; dz = dx ? 0 : (m === t.z - r0[2] ? -1 : 1); } const l = Math.hypot(dx, dz); dirs.push([dx / l, dz / l]); }
+      for (let k = 0; k < 8; k++) dirs.push([Math.cos(k * Math.PI / 4), Math.sin(k * Math.PI / 4)]);
+      for (let step = 0.4; step <= 4.01 && !ok; step += 0.4) for (const [dx, dz] of dirs) { const x = t.x + dx * step, z = t.z + dz * step; if (free(x, z, t)) { ok = [x, z]; break; } }
+      if (!ok) { drop.add(t); continue; }
+      const c0 = chunkIndex(t.x, t.z), dx = ok[0] - t.x, dz = ok[1] - t.z; t.x = ok[0]; t.z = ok[1]; moved++;
+      if (t.col) { t.col.x0 += dx; t.col.x1 += dx; t.col.z0 += dz; t.col.z1 += dz; }
+      const c1 = chunkIndex(t.x, t.z); if (c1 !== c0) { if (c0 >= 0) plan.byChunk[c0].trees = plan.byChunk[c0].trees.filter((q) => q !== t); if (c1 >= 0) plan.byChunk[c1].trees.push(t); }
+    }
+    if (drop.size) { const cols = new Set([...drop].map((t) => t.col)); plan.trees = plan.trees.filter((t) => !drop.has(t)); plan.colliders = plan.colliders.filter((c) => !cols.has(c));
+      for (const ch of plan.byChunk) ch.trees = ch.trees.filter((t) => !drop.has(t)); }
+    plan.treeFix = { moved, dropped: drop.size }; }
   plan.stats = { buildings: plan.buildings.length, props: plan.props.length, trees: plan.trees.length, parking: plan.parking.length, poi: plan.poi.length, ms: Math.round(performance.now() - t0) };
   return plan;
 }

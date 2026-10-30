@@ -430,7 +430,7 @@ export const PLACES = {
   mosque:        { x: 6, z: -880, name: 'Jami Ul-Alfar Mosque' },
   gfPromenade:   { x: -508, z: -450, name: 'Galle Face Promenade' },
   gfKade:        { x: -492, z: -330, name: 'Galle Face food carts' },
-  gfHotel:       { x: -440, z: -205, name: 'Galle Face Hotel' },
+  gfHotel:       { x: -440, z: -222, name: 'Galle Face Hotel' },
   lotus:         { x: 305, z: -480, name: 'Lotus Tower' },
   seema:         { x: -112, z: -300, name: 'Seema Malaka' },
   museum:        { x: 90, z: 110, name: 'National Museum' },

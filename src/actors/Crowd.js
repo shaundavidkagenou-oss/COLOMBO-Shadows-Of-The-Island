@@ -77,8 +77,14 @@ export class Crowd {
   pickNext(p) {
     // chance to visit a POI near the current node
     if (this.rng.chance(0.28)) {
-      const pois = this.nearPOIs(p.x, p.z, 30).filter((q) => q.used < (q.type === 'chat' ? 3 : q.type === 'busStop' ? 5 : 1) && (q.type !== 'lawn' || !this.rain));
-      if (pois.length) { const q = this.rng.pick(pois); q.used++; p.poi = q; p.target = { x: q.x + this.rng.range(-0.4, 0.4), z: q.z + this.rng.range(-0.4, 0.4) }; p.state = 'toPoi'; return; }
+      const pois = this.nearPOIs(p.x, p.z, 30).filter((q) => q.used < (q.type === 'chat' ? 3 : q.type === 'busStop' ? 5 : q.type === 'bench' ? (q.seats || 1) : 1) && (q.type !== 'lawn' || !this.rain));
+      if (pois.length) { const q = this.rng.pick(pois); q.used++; p.poi = q; p.target = { x: q.x + this.rng.range(-0.4, 0.4), z: q.z + this.rng.range(-0.4, 0.4) };
+        if (q.type === 'bench') { // a real seat: one of the bench's places along its length, never a random spot in front of / inside the backrest
+          const n = q.seats || 1; q.slots ||= []; let si = 0; while (si < n - 1 && q.slots[si] && q.slots[si].poi === q && q.slots[si] !== p) si++; q.slots[si] = p;
+          const off = n > 1 ? (si - (n - 1) / 2) * 0.85 : 0, c = Math.cos(q.rot || 0), sn = Math.sin(q.rot || 0);
+          p.seat = { x: q.x + c * off, z: q.z - sn * off }; p.target = { x: p.seat.x + sn * 0.55, z: p.seat.z + c * 0.55 }; // walk up to the front of the seat, then sit back onto it
+        }
+        p.state = 'toPoi'; return; }
     }
     const n = L.pedNodes[p.node]; if (!n || !n.edges.length) { p.state = 'idle'; p.timer = 5; return; }
     let opts = n.edges.filter((e) => e !== p.lastEdge); if (!opts.length) opts = n.edges;
@@ -203,6 +209,7 @@ export class Crowd {
         }
         case 'idle': {
           p.timer -= dt; desired = 0; avoid = false; if (p.poi) p.yaw = dampAngle(p.yaw, p.poi.rot ?? p.yaw, 4, dt);
+          if (p.slideTo) { const dx = p.slideTo.x - p.x, dz = p.slideTo.z - p.z, l = Math.hypot(dx, dz), st = Math.min(l, dt * 0.9); if (l > 0.01) { p.x += dx / l * st; p.z += dz / l * st; } else p.slideTo = null; } // settle back onto the seat while sitting down
           if (p.lookAt) { p.yaw = dampAngle(p.yaw, Math.atan2(p.lookAt.x - p.x, p.lookAt.z - p.z), 3, dt); }
           if (p.poi && p.poi.type === 'busStop' && this.rng.chance(dt * 0.01)) this.speak(p, 'bus');
           if (p.poi && p.poi.type === 'chat') { // turn-taking: one talks (gestures, mouth), the other listens (nods), eye contact
@@ -211,7 +218,7 @@ export class Crowd {
             if (p.speaking && this.rng.chance(dt * 0.03) && dist < 25) this.speak(p, 'chat');
           }
           if (p.poi && p.poi.type === 'vendor' && this.rng.chance(dt * 0.03) && dist < 20) { this.speak(p, 'vendor'); p.ch.face.set('smile', 2); }
-          if (p.timer <= 0) { if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; } p.lookAt = null; p.ch.anim.set(null); p.ch.face.talking = false; p.act = null; p.sit = false; p.speaking = false; this.pickNext(p); }
+          if (p.timer <= 0) { if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; } p.lookAt = null; p.ch.anim.set(null); p.ch.face.talking = false; p.act = null; p.sit = false; p.slideTo = null; p.speaking = false; this.pickNext(p); }
           break;
         }
         case 'shelter': { p.timer -= dt; desired = Math.hypot(p.target.x - p.x, p.target.z - p.z) > 0.6 ? 2.6 : 0; tx = p.target.x; tz = p.target.z; if (desired === 0 && p.ch.anim.action !== 'phone' && p.ch.anim.action !== 'look') p.ch.anim.set(this.rng.chance(0.5) ? 'phone' : 'look'); if (!this.rain || p.timer <= 0) { p.ch.anim.set(null); p.state = 'walk'; this.returnToGraph(p); } break; }
@@ -350,12 +357,12 @@ export class Crowd {
     const q = p.poi; p.state = 'idle'; p.timer = this.rng.range(8, 30); p.yaw = q.rot ?? p.yaw;
     const A = p.ch.anim;
     switch (q.type) {
-      case 'bench': A.set('sit'); p.sit = true; p.timer = this.rng.range(15, 45); break;
+      case 'bench': A.set('sit'); p.sit = true; p.timer = this.rng.range(15, 45); if (p.seat) p.slideTo = p.seat; p.seat = null; break;
       case 'shop': A.set(this.rng.chance(0.6) ? 'browse' : 'look'); break;
       case 'vendor': A.set(q.cart ? 'talk' : 'browse'); p.timer = q.cart ? 120 : 15; break;
       case 'busStop': A.set(this.rng.weighted([['phone', 2], ['text', 2], ['look', 2], [null, 2]])); p.timer = this.rng.range(20, 60); break;
       case 'chat': A.set('talk'); p.timer = this.rng.range(15, 40); { const others = this.peds.filter((o) => o !== p && o.poi === q); if (others.length) p.lookAt = others[0]; } break;
-      case 'lawn': A.set(this.rng.weighted([['stretch', 1], ['sit', 2], ['phone', 1], ['photo', 0.6], ['dance', 0.3]])); p.sit = A.action === 'sit'; break;
+      case 'lawn': A.set(this.rng.weighted([['stretch', 1], ['sitGround', 2], ['phone', 1], ['photo', 0.6], ['dance', 0.3]])); p.sit = A.action === 'sitGround'; break; // on the grass people sit ON the ground (no invisible chair)
       case 'door': A.set(null); p.timer = 2; this.enterBuilding(p); break;
       default: A.set(this.rng.weighted(IDLE_ACTS));
     }

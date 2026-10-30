@@ -177,13 +177,18 @@ export class WaterReflection {
     cam.position.set(cp.x, 2 * H - cp.y, cp.z); cam.quaternion.identity();
     const fwd = this._v.set(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(this._wq)); const tgt = new THREE.Vector3(cp.x + fwd.x, 2 * H - (cp.y + fwd.y), cp.z + fwd.z);
     cam.up.set(0, 1, 0).applyQuaternion(camera.getWorldQuaternion(this._wq)); cam.up.y = -cam.up.y; // camera up, reflected across the plane
-    cam.lookAt(tgt); cam.far = Math.min(camera.far, 2600); cam.updateProjectionMatrix(); cam.updateMatrixWorld();
+    cam.lookAt(tgt); cam.far = Math.min(camera.far, 2600); const rev = !!renderer.state?.buffers?.depth?.getReversed?.(); cam._reversedDepth = rev; cam.updateProjectionMatrix(); cam.updateMatrixWorld();
     const tm = waterUniforms.uReflMat.value; tm.set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1); tm.multiply(cam.projectionMatrix).multiply(cam.matrixWorldInverse);
     // oblique clip plane (Lengyel) so geometry below the water line is not reflected
     this._p.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, H, 0)).applyMatrix4(cam.matrixWorldInverse);
     const c = this._c.set(this._p.normal.x, this._p.normal.y, this._p.normal.z, this._p.constant - 0.05); const pm = cam.projectionMatrix, q = this._q;
-    q.x = (Math.sign(c.x) + pm.elements[8]) / pm.elements[0]; q.y = (Math.sign(c.y) + pm.elements[9]) / pm.elements[5]; q.z = -1; q.w = (1 + pm.elements[10]) / pm.elements[14];
-    c.multiplyScalar(2 / c.dot(q)); pm.elements[2] = c.x; pm.elements[6] = c.y; pm.elements[10] = c.z + 1; pm.elements[14] = c.w;
+    if (!rev) { // OpenGL depth range: near plane z = −w (Lengyel)
+      q.x = (Math.sign(c.x) + pm.elements[8]) / pm.elements[0]; q.y = (Math.sign(c.y) + pm.elements[9]) / pm.elements[5]; q.z = -1; q.w = (1 + pm.elements[10]) / pm.elements[14];
+      c.multiplyScalar(2 / c.dot(q)); pm.elements[2] = c.x; pm.elements[6] = c.y; pm.elements[10] = c.z + 1; pm.elements[14] = c.w;
+    } else { // reversed-Z [0,1]: near plane z = w, far plane z = 0 → new z row M3' = M4 − a·C, with the far plane through the far corner Q
+      q.set(Math.sign(c.x), Math.sign(c.y), 0, 1).applyMatrix4(this._m.copy(pm).invert());
+      const a = -q.z / c.dot(q); pm.elements[2] = -a * c.x; pm.elements[6] = -a * c.y; pm.elements[10] = -1 - a * c.z; pm.elements[14] = -a * c.w;
+    }
     // render (water hidden, shadows reused, no post)
     const prevRT = renderer.getRenderTarget(), prevShadow = renderer.shadowMap.autoUpdate, prevXR = renderer.xr.enabled; const vis = this.group.visible;
     this.group.visible = false; renderer.shadowMap.autoUpdate = false; renderer.xr.enabled = false;

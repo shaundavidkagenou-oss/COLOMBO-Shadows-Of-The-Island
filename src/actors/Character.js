@@ -877,6 +877,7 @@ export class Animator {
     const A_ = this.action; this.actionW = clamp(this.actionW + dt * 3, 0, 1); const aw = A_ ? this.actionW : 0;
     const crouch = (this.crouch = damp(this.crouch, A_ === 'crouch' || A_ === 'cover' ? 1 : 0, A_ === 'rise' ? 3.2 : 8, dt));
     const sit = A_ === 'sit' ? aw : this.fadeAct === 'sit' ? this.fadeW : 0; const drive = (this.drive = damp(this.drive, A_ === 'drive' ? 1 : 0, 8, dt)); const seatT = Math.max(sit, drive);
+    const gT = A_ === 'sitGround' ? aw : this.fadeAct === 'sitGround' ? this.fadeW : 0; // sitting on the grass (no seat): hips on the ground, knees up, feet flat
     this.lean = damp(this.lean, clamp(-turnRate * sp * 0.03, -0.2, 0.2), 6, dt);
     // pelvis
     const hipPitch = run * 0.1 + crouch * 0.25; const sh = this.shift * (1 - w);
@@ -907,22 +908,26 @@ export class Animator {
     const hyRun = this.hyAvg - 0.012 * s - 0.03 * s * g.bounce * Math.cos(2 * Math.PI * (2 * pL - beta));
     hy = lerp(hyWalk, hyRun, run);
     hy = lerp(hy, this.ch.hipY - 0.45, seatT);
+    hy = lerp(hy, 0.12 * s, gT);
     this.hipYs = dt > 0.2 ? hy : damp(this.hipYs, hy, 30, dt);
     // planted legs: two-bone IK so each stance ankle lands exactly on the ground under the actual hips (no sinking / floating feet)
-    if (seatT < 0.999) for (const l of legs) { if (!l.contact) continue;
+    const ikOff = Math.max(seatT, gT); if (ikOff < 0.999) for (const l of legs) { if (!l.contact) continue;
       const xf = -(this.a * Math.sin(l.thW) + this.b * Math.sin(l.thW + l.kn)); const yv = this.hipYs - this.ankle - 0.02 * s - heel(l);
       const d = clamp(Math.hypot(xf, yv), Math.abs(this.a - this.b) + 1e-3, this.a + this.b - 1e-3);
       const kn = Math.PI - Math.acos(clamp((this.a * this.a + this.b * this.b - d * d) / (2 * this.a * this.b), -1, 1));
       const th = Math.atan2(-xf, yv) - Math.acos(clamp((this.a * this.a + d * d - this.b * this.b) / (2 * this.a * d), -1, 1));
-      const k = 1 - seatT; l.thW = lerp(l.thW, th, k); l.kn = lerp(l.kn, kn, k); }
+      const k = 1 - ikOff; l.thW = lerp(l.thW, th, k); l.kn = lerp(l.kn, kn, k); }
     b.hips.position.y = this.hipYs; b.hips.position.x = (swayPh * 0.02 * g.sway * (1 - run) * w + sh * 0.028) * s;
     b.hips.rotation.set(hipPitch, pelvisYaw, hipRoll);
     const R = (bone, x, y, z) => b[bone].rotation.set(x, y, z);
     legs.forEach((l, i) => {
       const sd = i === 0 ? 'L' : 'R', sx = i === 0 ? 1 : -1;
-      const th = lerp(l.thW - hipPitch, -1.45, seatT), kn = lerp(l.kn, 1.45, seatT);
-      const foot = lerp(-(l.thW + l.kn) + l.foot - crouch * 0.0, 0, seatT);
-      R('thigh' + sd, th, sx * g.toeOut * 0.5, lerp(-hipRoll * 0.9, -sx * 0.06, seatT)); R('shin' + sd, kn, 0, 0); R('foot' + sd, foot, 0, 0);
+      let th = lerp(l.thW - hipPitch, -1.45, seatT), kn = lerp(l.kn, 1.45, seatT);
+      let foot = lerp(-(l.thW + l.kn) + l.foot - crouch * 0.0, 0, seatT);
+      if (gT > 0) { // ground sit: thigh up at ~47° above horizontal, shin solved so the sole rests flat on the ground in front
+        const gth = -2.4, kneeY = 0.12 * s - this.a * Math.cos(gth), phi = Math.acos(clamp((kneeY - this.ankle - 0.02 * s) / this.b, -1, 1));
+        th = lerp(th, gth, gT); kn = lerp(kn, -phi - gth, gT); foot = lerp(foot, phi, gT); }
+      R('thigh' + sd, th, sx * g.toeOut * 0.5, lerp(lerp(-hipRoll * 0.9, -sx * 0.06, seatT), -sx * 0.2, gT)); R('shin' + sd, kn, 0, 0); R('foot' + sd, foot, 0, 0);
     });
     // spine, chest: counter-rotation against the pelvis, posture, breathing
     const breathe = Math.sin(this.t * (1.5 + run * 2) + this.seed * 6) * (0.012 + run * 0.01);
@@ -932,7 +937,7 @@ export class Animator {
     // head: stabilised against the trunk, plus look/idle look
     const trunkYaw = pelvisYaw + spineYaw + chestYaw;
     R('neck', -g.stoop * 0.8 + g.headDown - run * 0.12 - crouch * 0.2, -trunkYaw * 0.5, hipRoll * 0.3);
-    R('head', -(this.hipYs - this.ch.hipY) * 0.6, this.look * 0.6 + this.idleLook * 0.5 - trunkYaw * 0.4, hipRoll * 0.3);
+    R('head', -(this.hipYs - this.ch.hipY + gT * (this.ch.hipY - 0.45 - 0.12 * s)) * 0.6, this.look * 0.6 + this.idleLook * 0.5 - trunkYaw * 0.4, hipRoll * 0.3);
     // arms: pendulum swing opposite to the legs, slightly lagging, bigger forward than back
     const armAmp = (0.1 + 0.2 * clamp(sp / 1.6, 0, 1) + run * 0.6) * g.arm * w;
     const sw = (p) => { const v = Math.cos(2 * Math.PI * (p - g.lag)); return v > 0 ? v : v * 0.75; };
@@ -982,6 +987,7 @@ export class Animator {
         case 'browse': tr = [-0.75, 0, 0.1]; tfr = [-0.9 + Math.sin(t * 1.3) * 0.2, 0, 0]; head = Math.sin(t * 0.5) * 0.4; b.neck.rotation.x += 0.25 * aw; break;
         case 'umbrella': tr = [-0.6, 0, -0.1]; tfr = [-1.8, 0, 0]; break;
         case 'sit': tl = [-0.3, 0, 0.1]; tr = [-0.3, 0, -0.1]; tfl = tfr = [-0.9, 0, 0]; break;
+        case 'sitGround': tl = [-0.62, 0, 0.2]; tr = [-0.62, 0, -0.2]; tfl = tfr = [-0.75, 0, 0]; b.spine.rotation.x += 0.12 * aw; break; // forearms resting on the raised knees
         case 'drive': tl = [-1.05 + this.steer * 0.25, 0, 0.25]; tr = [-1.05 - this.steer * 0.25, 0, -0.25]; tfl = tfr = [-0.6, 0, 0]; break;
         case 'ride': tl = [-1.15, 0, 0.3]; tr = [-1.15, 0, -0.3]; tfl = tfr = [-0.35, 0, 0]; break;
         case 'carry': tl = [-0.6, 0, 0.15]; tr = [-0.6, 0, -0.15]; tfl = tfr = [-1.3, 0, 0]; break;

@@ -26,7 +26,7 @@ const PHOTO_SPOTS = [
   { id: 'lotus', name: 'Lotus Tower', x: 305, y: 120, z: -480, view: [230, -560] },
   { id: 'mosque', name: 'Jami Ul-Alfar Mosque', x: 13, y: 14, z: -877, view: [-20, -905] },
   { id: 'clock', name: 'Fort Clock Tower', x: -385, y: 18, z: -915, view: [-400, -880] },
-  { id: 'gfhotel', name: 'Galle Face Hotel', x: -440, y: 12, z: -205, view: [-470, -280] },
+  { id: 'gfhotel', name: 'Galle Face Hotel', x: -440, y: 12, z: -222, view: [-470, -280] },
   { id: 'townhall', name: 'Town Hall', x: 246, y: 20, z: -30, view: [246, -110] },
   { id: 'seema', name: 'Seema Malaka', x: -112, y: 4, z: -300, view: [-150, -340] },
   { id: 'lighthouse', name: 'Colombo Lighthouse', x: -500, y: 18, z: -765, view: [-470, -700] },

@@ -66,7 +66,7 @@ export function buildLandmarks() {
   const group = new THREE.Group(); group.name = 'landmarks';
   const mb = new MultiBuilder(); const colliders = []; const anim = {};
   const conc = mb.get('concrete'), paint = mb.get('paint'), metal = mb.get('metal');
-  const box = (b, cx, cy, cz, sx, sy, sz, col, o = {}) => b.box(cx, cy, cz, sx, sy, sz, { col: C(col), uvScale: o.uv || 3, ...o });
+  const box = (b, cx, cy, cz, sx, sy, sz, col, o = {}) => b.box(cx, cy, cz, sx, sy, sz, { col: C(col), uvScale: o.uv || 3, bottom: true, ...o }); // closed boxes: canopies, lintels and slabs stay solid when seen from below
   const coll = (x0, x1, z0, z1, h, extra = {}) => colliders.push({ x0, x1, z0, z1, h, kind: 'landmark', ...extra });
   const lathe = (b, pts, seg, x, y, z, col, phiStart = 0, phiLen = Math.PI * 2) => { const g = new THREE.LatheGeometry(pts.map(([r, h]) => new THREE.Vector2(r, h)), seg, phiStart, phiLen); M4.makeTranslation(x, y, z); b.geometry(g, M4, C(col)); g.dispose(); };
   const facade = (style, x0, x1, z0, z1, y0, y1, col, uOff = 0) => {
@@ -205,7 +205,7 @@ export function buildLandmarks() {
 
   // ------------------------------------------------------------ GALLE FACE HOTEL
   {
-    const x0 = -465, x1 = -414, z0 = -232, z1 = -178, y0 = LAND_Y;
+    const x0 = -465, x1 = -414, z0 = -240, z1 = -205, y0 = LAND_Y; // south wing stops short of the coastal railway curve (track reserve ±7.5 m at z ≈ -190…-196)
     facade('colonial', x0, x1, z0, z1, y0, y0 + 15, '#f7f3ea');
     hip(x0, x1, z0, z1, y0 + 15, 7);
     columns(x0 - 2.5, z0 + 3, x0 - 2.5, z1 - 3, 14, y0, 4, 0.35, '#ffffff');

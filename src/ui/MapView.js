@@ -212,7 +212,8 @@ export class MapView {
     // police search area + units
     const pol = st.police; if (pol) {
       if (pol.search) { g.fillStyle = 'rgba(70,130,255,0.16)'; g.strokeStyle = 'rgba(120,170,255,0.9)'; g.lineWidth = 2; g.setLineDash([8, 5]); g.beginPath(); g.arc(X(pol.search.x), Y(pol.search.z), pol.search.r * z, 0, 7); g.fill(); g.stroke(); g.setLineDash([]); }
-      for (const u of pol.units) { g.fillStyle = u.lights ? ((this.t * 3) % 1 < 0.5 ? '#ff3b3b' : '#3b7bff') : '#a9c8ff'; g.fillRect(X(u.x) - 5, Y(u.z) - 5, 10, 10); }
+      for (const u of pol.units) { if (st.seeUnit && !st.seeUnit(u)) continue; g.fillStyle = u.lights ? ((this.t * 3) % 1 < 0.5 ? '#ff3b3b' : '#3b7bff') : '#a9c8ff'; g.fillRect(X(u.x) - 5, Y(u.z) - 5, 10, 10); } // only units in sight (or responding within earshot)
+      for (const e of st.extras || []) { g.fillStyle = e.color; g.beginPath(); g.arc(X(e.x), Y(e.z), Math.max(1.2, (e.r || 2) * 0.8), 0, 7); g.fill(); } // tiny marks: people / vehicles the player can see
     }
     // GPS route
     const r = st.route; if (r && r.pts) {

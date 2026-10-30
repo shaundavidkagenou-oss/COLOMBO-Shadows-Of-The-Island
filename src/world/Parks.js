@@ -90,23 +90,33 @@ export function buildParks(MAT) {
   const strip = (m, ax, az, bx, bz, w, yy, uv = 2) => { // flat ribbon a→b, with round caps so joints never gap
     const l = Math.hypot(bx - ax, bz - az), nx = -(bz - az) / l * w / 2, nz = (bx - ax) / l * w / 2;
     mb.get(m).quad([ax + nx, yy, az + nz], [bx + nx, yy, bz + nz], [bx - nx, yy, bz - nz], [ax - nx, yy, az - nz], [0, 0, l / uv, w / uv]);
-    for (const [cx, cz] of [[ax, az], [bx, bz]]) mb.get(m).hpoly(ringPoly(cx, cz, w / 2, 14), yy - 0.002, uv);
+    for (const [cx, cz] of [[ax, az], [bx, bz]]) mb.get(m).hpoly(ringPoly(cx, cz, w / 2, 14), yy - 0.003, uv); // caps stay between this layer and the one below
   };
+  // every path class has its own layer, 1 cm apart, so crossings never share a plane (no z-fighting where walks overlap):
+  // perimeter walk < diagonals < avenues/spokes < promenade ring < fountain plaza
+  const layerOf = (i) => (i < 8 ? y + 0.01 : i < 12 ? y - 0.01 : y);
+  const Y_RING = y + 0.02, Y_PLAZA = y + 0.03;
+  // kerbs/edging are cut wherever another walk crosses them (no kerb stubs lying across a path)
+  const crossed = (x, z, self) => PATH_SEGS.some((s, i) => i !== self && segDist(x, z, s[0], s[1], s[2], s[3]) < s[4] / 2 + 0.12)
+    || (self !== 'ring' && PATH_RINGS.some(([cx, cz, r, w]) => Math.abs(Math.hypot(x - cx, z - cz) - r) < w / 2 + 0.2)) || PLAZAS.some(([cx, cz, r]) => Math.hypot(x - cx, z - cz) < r + 0.1);
+  const kerbRun = (ax, az, bx, bz, self) => { const l = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.ceil(l / 0.5)); let s0 = null;
+    for (let k = 0; k <= n; k++) { const t = k / n, x = ax + (bx - ax) * t, z = az + (bz - az) * t, free = k < n && !crossed(x, z, self);
+      if (free && s0 === null) s0 = t; if ((!free || k === n) && s0 !== null) { const t1 = free ? 1 : Math.max(s0, t - 0.5 / l); if ((t1 - s0) * l > 0.3) kerb(ax + (bx - ax) * s0, az + (bz - az) * s0, ax + (bx - ax) * t1, az + (bz - az) * t1); s0 = null; } } };
   const kerb = (ax, az, bx, bz) => { const l = Math.hypot(bx - ax, bz - az); mb.get('kerb').box((ax + bx) / 2, LAND_Y + 0.04, (az + bz) / 2, l, 0.08, 0.12, { col: edge, rotY: Math.atan2(bz - az, bx - ax) * -1 + 0, uvScale: 1 }); };
-  for (const [ax, az, bx, bz, w, m] of PATH_SEGS) {
-    strip(m, ax, az, bx, bz, w, y);
-    if (w >= 4) { const l = Math.hypot(bx - ax, bz - az), nx = -(bz - az) / l * (w / 2 + 0.06), nz = (bx - ax) / l * (w / 2 + 0.06); kerb(ax + nx, az + nz, bx + nx, bz + nz); kerb(ax - nx, az - nz, bx - nx, bz - nz); }
-  }
+  PATH_SEGS.forEach(([ax, az, bx, bz, w, m], i) => {
+    strip(m, ax, az, bx, bz, w, layerOf(i));
+    if (w >= 4) { const l = Math.hypot(bx - ax, bz - az), nx = -(bz - az) / l * (w / 2 + 0.06), nz = (bx - ax) / l * (w / 2 + 0.06); kerbRun(ax + nx, az + nz, bx + nx, bz + nz, i); kerbRun(ax - nx, az - nz, bx - nx, bz - nz, i); }
+  });
   for (const [cx, cz, r, w] of PATH_RINGS) { // annulus + edging on both sides
     const n = 72;
     for (let k = 0; k < n; k++) {
       const a0 = k / n * Math.PI * 2, a1 = (k + 1) / n * Math.PI * 2, ri = r - w / 2, ro = r + w / 2;
-      const P = (a, rr) => [cx + Math.cos(a) * rr, y + 0.004, cz + Math.sin(a) * rr];
+      const P = (a, rr) => [cx + Math.cos(a) * rr, Y_RING, cz + Math.sin(a) * rr];
       mb.get('walkGrey').quad(P(a0, ri), P(a1, ri), P(a1, ro), P(a0, ro), [a0 * r / 2, 0, a1 * r / 2, w / 2]);
-      for (const rr of [ri - 0.06, ro + 0.06]) { const p0 = P(a0, rr), p1 = P(a1, rr); kerb(p0[0], p0[2], p1[0], p1[2]); }
+      for (const rr of [ri - 0.06, ro + 0.06]) { const p0 = P(a0, rr), p1 = P(a1, rr); kerbRun(p0[0], p0[2], p1[0], p1[2], 'ring'); } // open where avenues, spokes and diagonals join
     }
   }
-  for (const [cx, cz, r] of PLAZAS) mb.get('walk').hpoly(ringPoly(cx, cz, r, 64), y + 0.006, 2);
+  for (const [cx, cz, r] of PLAZAS) mb.get('walk').hpoly(ringPoly(cx, cz, r, 64), Y_PLAZA, 2);
   for (const s of WORN_SEGS) strip('laterite', s[0], s[1], s[2], s[3], s[4], LAND_Y + 0.02, 3);
   // raised flower beds: concrete rim, dark soil, foliage cards and blossoms (canna, marigold, salvia, periwinkle)
   const FL = [[0.85, 0.12, 0.1], [0.95, 0.55, 0.05], [0.95, 0.82, 0.15], [0.62, 0.15, 0.55], [0.95, 0.95, 0.92], [0.85, 0.25, 0.45]];
