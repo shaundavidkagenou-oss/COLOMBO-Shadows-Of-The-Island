@@ -225,7 +225,7 @@ export function buildHeroHead(sp, bi) {
       // lips: deeper mauve-brown, upper lip darker than the lower, sharp-ish vermilion border
       const lm = sstep(0.42, 0.74, M.lips[i]); if (lm > 0) { const upper = p[1] > my; col = mix3(col, mul3(skinC, upper ? [0.74, 0.57, 0.53] : [0.84, 0.64, 0.6]), lm); rough = lerp(rough, 0.62, lm); }
       // inside the mouth
-      if ((M.lips[i] > 0.25 || n[2] < -0.1) && p[2] < lipZ - 0.007 && Math.abs(p[0]) < 0.028 && Math.abs(p[1] - my) < 0.02) { /* inner lip / back-facing only: the cheeks at the corners also curve behind the lip plane */ const dd = sstep(lipZ - 0.007, lipZ - 0.02, p[2]); col = mix3(col, [0.16, 0.045, 0.045], dd); rough = 0.4; }
+      if ((M.lips[i] > 0.25 || n[2] < -0.1) && p[2] < lipZ - 0.007 && p[2] > lipZ - 0.045 && Math.abs(p[0]) < 0.028 && Math.abs(p[1] - my) < 0.02) { /* inner lip / back-facing only: the cheeks at the corners also curve behind the lip plane */ const dd = sstep(lipZ - 0.007, lipZ - 0.02, p[2]); col = mix3(col, [0.16, 0.045, 0.045], dd); rough = 0.4; }
       // shaved beard shadow, eyebrow skin, scalp under the hair
       const bm = beardMask(i); if (stubble > 0 && bm > 0) col = mix3(col, mul3(hairC, [1.6, 1.5, 1.5]).map((v, k) => v * 0.5 + col[k] * 0.5), bm * stubble);
       const mm = sp.moustache ? moustacheMask(i) : 0; if (mm > 0) col = mix3(col, hairC, mm * 0.6);
@@ -273,7 +273,8 @@ export function buildHeroHead(sp, bi) {
       const tan = nrm([sx * 1, (browPath(Math.min(1, t + 0.05)).y - browPath(Math.max(0, t - 0.05)).y) / 0.0047, 0]);
       const dir2 = nrm(addv(scl([sx * 0.25, 1, 0], 1 - sstep(0.05, 0.3, t)), scl(addv(tan, [0, -b * 0.7, 0]), sstep(0.05, 0.3, t))));
       const len = (t < 0.15 ? 0.0052 : 0.0075) * (0.8 + 0.4 * hash(j, 3, sx));
-      const pts = [s0]; for (let k = 1; k <= 2; k++) { const q = surf(x + dir2[0] * len * k / 2, y + dir2[1] * len * k / 2); pts.push(q || pts[k - 1]); }
+      const pts = [s0]; for (let k = 1; k <= 2; k++) { const q = surf(x + dir2[0] * len * k / 2, y + dir2[1] * len * k / 2); pts.push(q && Math.hypot(...sub(q.p, pts[k - 1].p)) < len * 0.9 ? q : pts[k - 1]); } /* grazing ray at the tail can land far away: keep the strand short */
+      if (Math.hypot(...sub(pts[2].p, s0.p)) < len * 0.25) continue;
       const lift = [0.00025, 0.0006, 0.0004]; const wid = [0.00034, 0.00022, 0.00008]; const shade = 0.75 + 0.5 * hash(j, 4, sx);
       const base = A.count; for (let k = 0; k < 3; k++) { const q = pts[k]; const fwd = nrm(k < 2 ? sub(pts[k + 1].p, q.p) : sub(q.p, pts[k - 1].p)); const side = nrm(crs(q.n, fwd)); const c = addv(q.p, scl(q.n, lift[k]));
         const col = browC.map((v) => v * shade * (k === 0 ? 0.85 : 1)); for (const sgn of [-1, 1]) A.add(addv(c, scl(side, sgn * wid[k])), q.n, [0, 0], col, s0.a, { flow: fwd, rough: 1 }); }
@@ -293,7 +294,7 @@ export function buildHeroHead(sp, bi) {
       const ix = []; for (let t = 0; t < faces.length; t += 3) ix.push(map.get(faces[t]), map.get(faces[t + 1]), map.get(faces[t + 2]));
       // normals of the displaced shell itself (the skin normals would shade the hair mass as if it were the scalp)
       const acc = new Map(); for (let t = 0; t < ix.length; t += 3) { const [a, b, c] = [ix[t], ix[t + 1], ix[t + 2]]; const pa = A.p.slice(a * 3, a * 3 + 3), pb = A.p.slice(b * 3, b * 3 + 3), pc = A.p.slice(c * 3, c * 3 + 3); const fn = crs(sub(pb, pa), sub(pc, pa)); for (const v of [a, b, c]) { const q = acc.get(v) || [0, 0, 0]; acc.set(v, addv(q, fn)); } }
-      for (const [v, q] of acc) { const n = nrm(q); A.n[v * 3] = n[0]; A.n[v * 3 + 1] = n[1]; A.n[v * 3 + 2] = n[2]; }
+      for (const [v, q] of acc) { const a0 = A.anchor[v]; const w = sstep(0.05, 0.6, mk[a0]); const sn = nv(a0); const n = nrm(addv(scl(nrm(q), w), scl(sn, 1 - w))); A.n[v * 3] = n[0]; A.n[v * 3 + 1] = n[1]; A.n[v * 3 + 2] = n[2]; } // edge of the shell keeps the skin normal so it shades like the skin it fades into
       out.push(ix); }
     return out; };
   const groups = []; // [material key, indices]

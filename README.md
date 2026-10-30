@@ -2,7 +2,7 @@
 
 A third-person open-world action-adventure set in a compressed but recognisable Colombo, Sri Lanka, by **Shaun David Studios**.
 
-It runs in the browser on Three.js and Vite. Everything in the world is procedural and original: the city, characters, vehicles, weapons, textures and audio. No third-party game assets are used. The studio logo (`public/assets/brand/sds-logo.jpg`) is the official brand asset and is shown unaltered.
+It runs in the browser on Three.js and Vite. Everything in the world is procedural and original: the city, characters, vehicles, weapons, textures and audio. No third-party game assets are used. The three protagonists' head meshes (shape, eyelids, lips, ears, teeth, expression morphs) are baked from the [MakeHuman / MPFB2](https://github.com/makehumancommunity/mpfb2) base mesh and targets, which are released under CC0 1.0. Only the CC0 data is used, not MPFB's GPL code: see `tools/mh/` (`npm run`-free scripts: `node tools/mh/fetch-makehuman.mjs` then `node tools/mh/bake-hero-heads.mjs` regenerate `src/actors/heroHeadData.js`). The studio logo (`public/assets/brand/sds-logo.jpg`) is the official brand asset and is shown unaltered.
 
 ## Run it
 
