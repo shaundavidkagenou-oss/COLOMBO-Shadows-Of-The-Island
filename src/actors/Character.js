@@ -9,7 +9,7 @@ import { RNG } from '../core/rng.js';
 import { makeAppearance, FACE_VARIANTS } from './Appearance.js';
 import { lerp, clamp, damp } from '../core/math.js';
 import { HERO_EXTRA, HERO_PARENT, heroJoints, fingerLayout, HeroRig, heroUniforms, patchHeroMaterial, faceNormals } from './HeroRig.js';
-import { hasHeroHead, heroHeadFit, buildHeroHead, headMaterials, buildEyeball, EXPR_MORPHS, morphIndex, HEAD_MORPHS } from './HeroHead.js';
+import { hasHeroHead, heroHeadFit, buildHeroHead, headMaterials, iblScale, buildEyeball, EXPR_MORPHS, morphIndex, HEAD_MORPHS } from './HeroHead.js';
 
 export const BONES = ['hips', 'spine', 'chest', 'neck', 'head', 'shL', 'armL', 'foreL', 'handL', 'shR', 'armR', 'foreR', 'handR', 'thighL', 'shinL', 'footL', 'thighR', 'shinR', 'footR', 'skirtF', 'skirtB', 'skirtF2', 'skirtB2'];
 const B = Object.fromEntries([...BONES, ...HERO_EXTRA].map((n, i) => [n, i])); // protagonist-only bones are appended after the shared 23, so crowd indices are unchanged
@@ -76,6 +76,20 @@ class SkinBuilder {
     const W = lon + 1;
     for (let i = 0; i < lat; i++) for (let k = 0; k < lon; k++) { const a = base + i * W + k, b = a + 1, cc = a + W, d = cc + 1; target.push(a, b, cc, b, d, cc); }
   }
+  // closed parametric surface fn(u, v) → [x, y, z] (u ∈ [0,1] along, v ∈ [0,1] around); normals from the surface itself,
+  // oriented away from ctr(u); winding chosen per quad so it always faces along the normal
+  param(Nu, Nv, fn, wFn, colFn, ctr) {
+    const base = this.n, e = 1e-3; const sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; const crs3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    for (let i = 0; i <= Nu; i++) { const u = i / Nu; for (let j = 0; j <= Nv; j++) { const v = j / Nv; const p = fn(u, v); const uu = clamp(u, 0.012, 0.988);
+      let n = crs3(sub3(fn(uu + e, v), fn(uu - e, v)), sub3(fn(uu, v + e), fn(uu, v - e))); const l = Math.hypot(n[0], n[1], n[2]) || 1; n = n.map((x) => x / l);
+      const c = ctr(clamp(u, 0.15, 0.85)); /* end rings collapse onto the axis: orient them against an interior point */ if ((p[0] - c[0]) * n[0] + (p[1] - c[1]) * n[1] + (p[2] - c[2]) * n[2] < 0) n = n.map((x) => -x);
+      this.v(p, n, colFn(u, v, p), [0.01, 0.51], wFn(p)); } }
+    const W = Nv + 1, P = this.pos, N = this.nor;
+    for (let i = 0; i < Nu; i++) for (let j = 0; j < Nv; j++) { const a = base + i * W + j, b = a + 1, c = a + W, d = c + 1;
+      const f = crs3(sub3([P[c * 3], P[c * 3 + 1], P[c * 3 + 2]], [P[a * 3], P[a * 3 + 1], P[a * 3 + 2]]), sub3([P[b * 3], P[b * 3 + 1], P[b * 3 + 2]], [P[a * 3], P[a * 3 + 1], P[a * 3 + 2]]));
+      const q = (N[a * 3] + N[d * 3]) * f[0] + (N[a * 3 + 1] + N[d * 3 + 1]) * f[1] + (N[a * 3 + 2] + N[d * 3 + 2]) * f[2];
+      if (q >= 0) this.idx.push(a, c, b, b, c, d); else this.idx.push(a, b, c, b, d, c); }
+  }
   boxPart(c, sx, sy, sz, w, col, target = this.idx) {
     const hx = sx / 2, hy = sy / 2, hz = sz / 2; const F = [[[1, 0, 0], [[hx, -hy, hz], [hx, -hy, -hz], [hx, hy, -hz], [hx, hy, hz]]], [[-1, 0, 0], [[-hx, -hy, -hz], [-hx, -hy, hz], [-hx, hy, hz], [-hx, hy, -hz]]], [[0, 1, 0], [[-hx, hy, hz], [hx, hy, hz], [hx, hy, -hz], [-hx, hy, -hz]]], [[0, -1, 0], [[-hx, -hy, -hz], [hx, -hy, -hz], [hx, -hy, hz], [-hx, -hy, hz]]], [[0, 0, 1], [[-hx, -hy, hz], [hx, -hy, hz], [hx, hy, hz], [-hx, hy, hz]]], [[0, 0, -1], [[hx, -hy, -hz], [-hx, -hy, -hz], [-hx, hy, -hz], [hx, hy, -hz]]]];
     for (const [n, q] of F) { const i = q.map((p) => this.v([c[0] + p[0], c[1] + p[1], c[2] + p[2]], n, col, [0.01, 0.51], w)); target.push(i[0], i[1], i[2], i[0], i[2], i[3]); }
@@ -125,6 +139,63 @@ function joints(sp) {
 }
 
 // ------------------------------------------------------------------ outfit-driven geometry
+// ---- protagonist footwear: a real shoe last (heel counter, waist, ball, toe box, toe spring) on a bevelled sole.
+// kinds: 'sneaker' (Dineth: canvas/leather trainer, cupsole), 'oxford' (David: leather lace-up, stacked heel, toe-cap seam),
+// 'boot' (Shashika: tactical boot with lug sole; the shaft is the existing boot loft above it).
+const _ss = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const _tab = (T, u) => { if (u <= T[0][0]) return T[0][1]; for (let i = 1; i < T.length; i++) if (u <= T[i][0]) { const a = T[i - 1], b = T[i]; return lerp(a[1], b[1], (u - a[0]) / (b[0] - a[0])); } return T[T.length - 1][1]; };
+const _sp = (x, e) => Math.sign(x) * Math.pow(Math.abs(x), e);
+export function heroShoe(sb, ft, side, sp, W1, W2, shoe) {
+  const kind = sp.boots ? 'boot' : sp.sole ? 'sneaker' : 'oxford';
+  const L = kind === 'boot' ? 0.276 : kind === 'sneaker' ? 0.272 : 0.268, z0 = 0.046 - L / 2 - 0.004;
+  const med = -Math.sign(ft[0]) || 1; // towards the body centre (big-toe side)
+  const cap = (u) => Math.sqrt(Math.max(0, 1 - Math.pow(Math.abs(2 * u - 1), u > 0.5 ? 3.2 : 6))); // rounder toe than heel
+  const wk = kind === 'boot' ? 1.07 : kind === 'sneaker' ? 1.04 : 0.98;
+  const halfW = (u) => _tab([[0, 0.031], [0.18, 0.036], [0.35, 0.037], [0.5, 0.04], [0.7, 0.046], [0.85, 0.045], [1, 0.035]], u) * wk;
+  const Ht = { oxford: [[0, 0.064], [0.12, 0.072], [0.3, 0.078], [0.45, 0.07], [0.62, 0.049], [0.78, 0.034], [0.92, 0.029], [1, 0.024]],
+    sneaker: [[0, 0.07], [0.1, 0.079], [0.3, 0.084], [0.45, 0.077], [0.62, 0.056], [0.78, 0.043], [0.92, 0.037], [1, 0.03]],
+    boot: [[0, 0.1], [0.3, 0.102], [0.45, 0.088], [0.62, 0.062], [0.78, 0.047], [0.92, 0.04], [1, 0.032]] }[kind];
+  const H = (u) => _tab(Ht, u) * (u > 0.5 ? Math.pow(cap(u), 0.35) : 1);
+  const spring = (u) => (kind === 'oxford' ? 0.012 : 0.016) * _ss(0.78, 1, u) ** 2;
+  const tS = (u) => (kind === 'oxford' ? lerp(0.027, 0.011, _ss(0.24, 0.3, u)) : kind === 'sneaker' ? lerp(0.031, 0.024, _ss(0.3, 0.75, u)) : lerp(0.035, 0.03, _ss(0.3, 0.75, u)));
+  const yB = (u) => spring(u) + (kind === 'oxford' ? 0.007 * _ss(0.28, 0.33, u) * _ss(0.6, 0.52, u) : 0); // oxford: waist of the sole lifts off the ground between heel block and tread
+  const yS = (u) => spring(u) + tS(u);
+  const xc = (u) => ft[0] + med * 0.006 * _ss(0.55, 1, u) - med * 0.002 * _ss(0.4, 0, u);
+  const zOf = (u) => z0 + u * L;
+  const wf = (p) => { const t = smooth01((p[2] - 0.098) / 0.04); return t > 0.001 ? W2('foot' + side, 'toe' + side, t) : W1('foot' + side); };
+  const C3 = (h) => C(h);
+  const up = shoe, dk = shoe.map((v) => v * 0.62);
+  const soleC = C3(sp.sole || (kind === 'boot' ? '#16130f' : kind === 'oxford' ? '#1b1410' : '#cfcac0'));
+  // upper
+  sb.param(40, 28, (u, v) => { const a = v * Math.PI * 2, c = Math.cos(a), sn = Math.sin(a); const w = halfW(u) * cap(u);
+    const top = Math.max(0, sn); const x = xc(u) + w * _sp(c, 0.8) * (1 - 0.16 * Math.pow(top, 1.5));
+    const y = sn >= 0 ? yS(u) + H(u) * _sp(sn, 0.85) : yS(u) - 0.004 * -sn; return [x, y, zOf(u)]; },
+  wf, (u, v, p) => { const a = v * Math.PI * 2, sn = Math.sin(a), c = Math.cos(a); const hgt = (p[1] - yS(u)) / Math.max(1e-4, H(u)); let col = up;
+    if (hgt < 0.08) col = dk; // welt / stitch line where the upper meets the sole
+    if (kind === 'oxford') { if (Math.abs(u - 0.79) < 0.012 && sn > 0.15) col = up.map((x) => x * 0.55); // toe-cap seam
+      if (u < 0.3 && sn > 0.2 && Math.abs(c) > 0.3) col = up.map((x) => x * 0.88); // quarter panel
+      if (u > 0.4 && u < 0.64 && sn > 0.82) col = up.map((x) => x * 0.7); } // facing / eyestay
+    if (kind === 'sneaker') { if (u < 0.14 && sn > 0.45) col = C3('#8c9198'); // heel tab
+      else if (u > 0.82 && hgt < 0.45) col = up.map((x) => x * 0.93); // toe bumper
+      else if (u > 0.36 && u < 0.66 && sn > 0.78) col = up.map((x) => x * 0.9); // eyestay
+      else if (u > 0.18 && u < 0.6 && hgt < 0.55 && Math.abs(c) > 0.4) col = up.map((x) => x * 0.96); }
+    if (kind === 'boot') { if (u > 0.83 && hgt < 0.4) col = C3('#2b2723'); // rubber toe rand
+      if (u > 0.3 && u < 0.66 && sn > 0.8) col = up.map((x) => x * 0.75); }
+    return col; }, (u) => [xc(u), yS(u) + H(u) * 0.35, zOf(u)]);
+  // sole (rounded-box section that follows the plan outline; slightly wider than the upper)
+  sb.param(40, 24, (u, v) => { const a = v * Math.PI * 2, c = Math.cos(a), sn = Math.sin(a); const w = (halfW(u) + 0.004) * cap(u);
+    const y0 = yB(u), y1 = yS(u) + 0.002; return [xc(u) + w * _sp(c, 0.3), (y0 + y1) / 2 + (y1 - y0) / 2 * _sp(sn, 0.3), zOf(u) + (u < 0.02 ? -0.002 : 0)]; },
+  wf, (u, v) => { const sn = Math.sin(v * Math.PI * 2); let col = soleC; if (sn < -0.6) col = soleC.map((x) => x * (kind === 'sneaker' ? 0.62 : 0.7)); // tread
+    else if (kind === 'oxford' && u < 0.27 && sn < 0.5) col = C3('#3a2618'); // stacked leather heel
+    else if (kind === 'boot' && sn < 0.2 && Math.floor(u * 22) % 2 === 0) col = soleC.map((x) => x * 0.6); // lugs
+    return col; }, (u) => [xc(u), (yB(u) + yS(u)) / 2, zOf(u)]);
+  // laces over the throat (+ a tongue under them)
+  const lace = C3(kind === 'sneaker' ? '#f1efe9' : kind === 'boot' ? '#2a251f' : '#0c0b0a');
+  const [u0, u1, nL] = kind === 'boot' ? [0.3, 0.64, 7] : kind === 'sneaker' ? [0.38, 0.64, 5] : [0.44, 0.62, 4];
+  const tongueC = kind === 'sneaker' ? up.map((x) => x * 0.97) : up.map((x) => x * 0.82);
+  { const ut = Math.min(u0 + 0.02, 0.4); sb.boxPart([xc(ut), yS(ut) + H(ut) + 0.004, zOf(ut) + 0.01], 0.03, 0.008, 0.03, wf([0, 0, zOf(ut)]), tongueC); }
+  for (let k = 0; k < nL; k++) { const u = lerp(u0, u1, k / (nL - 1)); const y = yS(u) + H(u) + 0.0025; sb.boxPart([xc(u), y, zOf(u)], 0.03 - k * 0.0012, 0.0035, 0.0045, wf([0, y, zOf(u)]), lace); }
+}
 export function buildBodyGeometry(sp) {
   const sb = new SkinBuilder(); const J = joints(sp); const s = sp.height / 1.72, w = sp.build, f = sp.sex === 'f';
   const skin = C(sp.skin), top = C(sp.top), bottom = C(sp.bottom), shoe = C(sp.shoes || '#2a2420'), hair = C(sp.hairColor || '#15100c');
@@ -179,14 +250,14 @@ export function buildBodyGeometry(sp) {
     ];
     const l0 = sb.n; sb.loft(lr.map((r) => ({ ...r, col: legCol(r.c[1]) })), HQ ? 20 : 10); parts.legs.push([l0, sb.n]);
     // shoe / sandal
-    const sandal = sp.sandals; const fc = sandal ? skin : shoe;
-    sb.ellipsoid([ft[0], 0.05 * s, 0.045], 0.044, 0.042, 0.118, HQ ? (sy, sx2, sz) => { const t = smooth01((sz - 0.42) / 0.35); return t > 0.001 ? W2('foot' + side, 'toe' + side, t) : W1('foot' + side); } : W1('foot' + side), fc, { lat: HQ ? 12 : 7, lon: HQ ? 22 : 12, bumpFn: (x, y, z) => (y < -0.2 ? 0.98 : 1) * (z > 0.6 ? 0.97 : 1) });
+    const sandal = sp.sandals; const fc = sandal ? skin : shoe; const heroFeet = HQ && sp.hero && !sandal;
+    if (heroFeet) heroShoe(sb, ft, side, sp, W1, W2, shoe); else sb.ellipsoid([ft[0], 0.05 * s, 0.045], 0.044, 0.042, 0.118, HQ ? (sy, sx2, sz) => { const t = smooth01((sz - 0.42) / 0.35); return t > 0.001 ? W2('foot' + side, 'toe' + side, t) : W1('foot' + side); } : W1('foot' + side), fc, { lat: HQ ? 12 : 7, lon: HQ ? 22 : 12, bumpFn: (x, y, z) => (y < -0.2 ? 0.98 : 1) * (z > 0.6 ? 0.97 : 1) });
     if (sandal) { sb.boxPart([ft[0], 0.008, 0.05], 0.1, 0.016, 0.27, W1('foot' + side), C(sp.sole || sp.shoes || '#2a2420')); sb.boxPart([ft[0], 0.05 * s, 0.09], 0.092, 0.012, 0.03, W1('foot' + side), shoe); }
-    else if (HQ) { const sw = sp.sole ? 0.084 : 0.094, sl = sp.sole ? 0.24 : 0.262, z0 = 0.046 - sl / 2, z1 = 0.046 + sl / 2, zt = 0.118, sc = C(sp.sole || (sp.shoes === '#e8e8e4' ? '#d8d8d4' : '#1a1512')); sb.boxPart([ft[0], 0.011, (z0 + zt) / 2], sw, 0.022, zt - z0, W1('foot' + side), sc); sb.boxPart([ft[0], 0.011, (zt + z1) / 2], sw, 0.022, z1 - zt, W1('toe' + side), sc); } // sole hinges at the ball of the foot
+    else if (heroFeet) { /* sole is part of heroShoe */ } else if (HQ) { const sw = sp.sole ? 0.084 : 0.094, sl = sp.sole ? 0.24 : 0.262, z0 = 0.046 - sl / 2, z1 = 0.046 + sl / 2, zt = 0.118, sc = C(sp.sole || (sp.shoes === '#e8e8e4' ? '#d8d8d4' : '#1a1512')); sb.boxPart([ft[0], 0.011, (z0 + zt) / 2], sw, 0.022, zt - z0, W1('foot' + side), sc); sb.boxPart([ft[0], 0.011, (zt + z1) / 2], sw, 0.022, z1 - zt, W1('toe' + side), sc); } // sole hinges at the ball of the foot
     else sb.boxPart([ft[0], 0.011, 0.046], sp.sole ? 0.084 : 0.094, 0.022, sp.sole ? 0.24 : 0.262, W1('foot' + side), C(sp.sole || (sp.shoes === '#e8e8e4' ? '#d8d8d4' : '#1a1512')));
     if (HQ && !sandal) { const fw = W1('foot' + side); const lace = shoe.map((v) => v * 0.45); // laces across the instep, tongue, trouser hem break over the shoe
-      for (let k = 0; k < 4; k++) { const z = 0.05 + k * 0.019; const yTop = 0.05 * s + 0.042 * Math.sqrt(Math.max(0, 1 - ((z - 0.045) / 0.118) ** 2)) * 0.98; sb.boxPart([ft[0], yTop + 0.002, z], 0.034 - k * 0.002, 0.004, 0.005, fw, lace); }
-      sb.boxPart([ft[0], 0.05 * s + 0.044, 0.035], 0.03, 0.006, 0.03, fw, shoe.map((v) => v * 0.85));
+      if (!heroFeet) for (let k = 0; k < 4; k++) { const z = 0.05 + k * 0.019; const yTop = 0.05 * s + 0.042 * Math.sqrt(Math.max(0, 1 - ((z - 0.045) / 0.118) ** 2)) * 0.98; sb.boxPart([ft[0], yTop + 0.002, z], 0.034 - k * 0.002, 0.004, 0.005, fw, lace); }
+      if (!heroFeet) sb.boxPart([ft[0], 0.05 * s + 0.044, 0.035], 0.03, 0.006, 0.03, fw, shoe.map((v) => v * 0.85));
       if (sp.boots) sb.loft([{ c: [ft[0], 0.205 * s, -0.008], rx: 0.045, rz: 0.049, w: W1('shin' + side), col: shoe }, { c: [ft[0], 0.15 * s, -0.008], rx: 0.046, rz: 0.051, w: W2('shin' + side, 'foot' + side, 0.4), col: shoe }, { c: [ft[0], 0.085 * s, 0.0], rx: 0.048, rz: 0.062, w: W1('foot' + side), col: shoe }], 20); // boot shaft (trousers tucked in)
       else sb.loft([{ c: [ft[0], 0.125 * s, -0.008], rx: 0.044, rz: 0.047, w: W1('shin' + side), col: bottom.map((v) => v * 0.85) }, { c: [ft[0], 0.105 * s, -0.004], rx: 0.047, rz: 0.054, w: W2('shin' + side, 'foot' + side, 0.5), col: bottom.map((v) => v * 0.85) }], 20); }
     void sx;
@@ -611,7 +682,7 @@ export class Character {
     if (spec.hero) { // protagonists: own material instances with DQ skinning, subsurface skin, wetness / sweat, expression normals
       if (!geo.attributes.aSkin) geo.setAttribute('aSkin', new THREE.Float32BufferAttribute(skinMask(geo, spec), 1));
       this.heroU = heroUniforms(); const hb = getHairMaterial(); const fn = faceNormals();
-      const body = getBodyMaterial().clone(); patchHeroMaterial(body, 'body', this.heroU);
+      const body = getBodyMaterial().clone(); patchHeroMaterial(body, 'body', this.heroU); iblScale(body, 0.55, 1.0, 0.5);
       const fm = this.face.mat; if (fn.base) { fm.normalMap = fn.base; fm.normalScale = new THREE.Vector2(0.35, -0.35); } patchHeroMaterial(fm, 'face', this.heroU);
       const hm = hb.clone(); patchHeroMaterial(hm, 'hair', this.heroU, hb.onBeforeCompile); mats = [body, fm, hm]; this.heroMats = [body, hm];
     }
@@ -629,7 +700,7 @@ export class Character {
     const sp = this.spec; const key = [sp.mh, sp.height, sp.skin, sp.hair, sp.hairColor, !!sp.beard, !!sp.moustache, !!sp.glasses, sp.hairline || 0].join('|');
     let H = headCache.get(key); if (!H) { H = buildHeroHead(sp, { head: B.head, neck: B.neck, chest: B.chest }); headCache.set(key, H); }
     const mats = headMaterials(sp, H, this.heroU);
-    const m = new THREE.SkinnedMesh(H.geometry, mats); m.name = 'heroHead';
+    const m = new THREE.SkinnedMesh(H.geometry, mats); m.name = 'heroHead'; m.userData.keys = H.keys;
     this.mesh.add(m); m.bind(skeleton, this.mesh.bindMatrix); m.castShadow = true; m.receiveShadow = false; m.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.9, 0), 1.3);
     this.head = m; this.headMats = mats; const hb = this.bones.head; const jh = joints(sp).head;
     this.eyes = H.eyes.map((e) => { const piv = new THREE.Object3D(); piv.position.set(e.pos[0] - jh[0], e.pos[1] - jh[1], e.pos[2] - jh[2]); piv.add(buildEyeball(e.r)); hb.add(piv); return piv; });

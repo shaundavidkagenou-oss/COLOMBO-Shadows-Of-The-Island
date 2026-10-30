@@ -38,7 +38,7 @@ for (const id of ['dineth', 'shashika', 'david']) {
   for (const n of ['toeL', 'toeR', 'foreTwistL', 'foreTwistR', 'armTwistL', 'armTwistR']) ok(used.has(m.skeleton.bones.findIndex((b) => b.name === n)), `${id}: ${n} skins nothing`);
   const dyn = { dineth: ['flapL1', 'flapL2', 'flapR1', 'flapR2', 'hemB1'], shashika: ['strapA1', 'strapA2', 'strapB1', 'strapB2'], david: ['fob1', 'fob2'] }[id];
   for (const n of dyn) ok(used.has(m.skeleton.bones.findIndex((b) => b.name === n)), `${id}: dynamic bone ${n} skins nothing`);
-  ok(!!g.attributes.aSkin, `${id}: aSkin attribute`); const sk = g.attributes.aSkin.array.reduce((a, b) => a + b, 0) / pos.count; ok(sk > 0.05 && sk < 0.8, `${id}: skin fraction ${sk.toFixed(2)}`);
+  ok(!!g.attributes.aSkin, `${id}: aSkin attribute`); const sk = g.attributes.aSkin.array.reduce((a, b) => a + b, 0) / pos.count; const minSk = ch.head && ch.head.name === 'heroHead' && sp.longSleeve && sp.tacGloves ? 0 : 0.05; /* head + neck live in the separate MakeHuman head mesh; sleeves + gloves cover the rest */ ok(sk >= minSk && sk < 0.8, `${id}: skin fraction ${sk.toFixed(2)}`);
 
   // shader patch: run onBeforeCompile on three's real standard shader and check each replacement landed
   if (id === 'dineth') for (const [mat, kind] of [[m.material[0], 'body'], [m.material[1], 'face'], [m.material[2], 'hair']]) {

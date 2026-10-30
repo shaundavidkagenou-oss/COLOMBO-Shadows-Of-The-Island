@@ -112,7 +112,7 @@ const KK_GLSL = `
 // Per-material image-based-light scale. three r186 replaces material.envMapIntensity with scene.environmentIntensity
 // whenever the material has no envMap of its own, so the scale has to live in the shader. The bright HDR sky
 // otherwise turns near-black hair blue; the reflection is also partly desaturated (hair/skin scatter it).
-function iblScale(m, spec, diff, desat = 0.5) {
+export function iblScale(m, spec, diff, desat = 0.5) {
   const prev = m.onBeforeCompile, prevKey = m.customProgramCacheKey;
   m.onBeforeCompile = function (sh, r) { if (prev) prev.call(this, sh, r);
     sh.fragmentShader = sh.fragmentShader.replace('#include <lights_fragment_maps>', `#include <lights_fragment_maps>
@@ -301,7 +301,7 @@ export function buildHeroHead(sp, bi) {
   // facial hair
   if (sp.beard) {
     const flowB = (i, n) => tangentize(addv([0, -1, 0], [0, 0, pv(i)[1] < L.chin[1] + 0.02 ? 0.6 : 0.2]), n);
-    const colB = (i, m, li) => (li === 0 ? mix3(skinC, hairC, 0.25 + 0.4 * m) : mul3(hairC, [1 + li * 0.1 + hash(i, li) * 0.3, 1 + li * 0.08 + hash(i, li) * 0.25, 1 + li * 0.08 + hash(i, li) * 0.22]));
+    const colB = (i, m, li) => (li === 0 ? mix3(A.c.slice(i * 3, i * 3 + 3), hairC, (0.3 + 0.4 * m) * sstep(0.05, 0.7, m)) : mul3(hairC, [1 + li * 0.1 + hash(i, li) * 0.3, 1 + li * 0.08 + hash(i, li) * 0.25, 1 + li * 0.08 + hash(i, li) * 0.22]));
     const mk = (i) => Math.max(beardMask(i), moustacheMask(i) * 0.95);
     const L5 = shell(mk, [0.0004, 0.0012, 0.0021, 0.003, 0.0039], colB, flowB, { lean: 0.5, layerOf: (li) => (li === 0 ? 0.0 : 0.25 + li * 0.17) });
     groups.push(['beardBase', L5[0]], ['fur', [].concat(...L5.slice(1))]);
