@@ -30,7 +30,14 @@ export class Vehicle {
     this.x = 0; this.z = 0; this.y = 0; this.yaw = 0; this.speed = 0; this.steer = 0; this.lat = 0; this.wheelRot = 0; this.pitch = 0; this.roll = 0;
     this.brake = false; this.lights = false; this.driver = null; this.player = false; this.ai = null; this.parked = false; this.horn = 0; this.damage = 0; this.health = 100;
     this.radius = this.T.wid * 0.55; this.half = this.T.len / 2;
+    this.sus = { r: 0, rv: 0, h: 0, hv: 0 }; this.load = 0; // body on its springs: r = roll (+ = driver side down), h = sink (m)
   }
+  // suspension: under-damped springs (~1.6 Hz, like a family car) toward the static sag of the current load
+  settle(dt) { if (!(dt > 0) || this.T.entry === 'bike' || this.T.rail) return; const S = this.sus, h = Math.min(dt, 1 / 30), k = 100, c = 6;
+    const heavy = this.T.mass > 4000 ? 0.25 : 1; const r0 = this.load * 0.009 * heavy, h0 = this.load * 0.012 * heavy;
+    S.rv += (-k * (S.r - r0) - c * S.rv) * h; S.r += S.rv * h; S.hv += (-k * (S.h - h0) - c * S.hv) * h; S.h += S.hv * h; }
+  // a door shutting: s = closing speed (normalised door travel per second)
+  slam(s) { const S = this.sus; const k = Math.min(1, s / 4) * (this.T.mass > 4000 ? 0.2 : 1); S.rv += 0.07 * k; S.hv += 0.05 * k; }
   get pos() { return { x: this.x, z: this.z }; }
   // police light bar: alternating blue/red while responding, dark otherwise (no flashing on parked or patrolling units)
   beacons(on, t = 0) { const b = this.mesh.userData.beacons; if (!b) return; this.beaconsOn = on; const ph = (t * 2.4) % 1, k = (t * 9.6) % 1 < 0.5; b.blue.emissiveIntensity = on ? (ph < 0.5 && k ? 7 : 0.15) : 0; b.red.emissiveIntensity = on ? (ph >= 0.5 && k ? 7 : 0.15) : 0; }
@@ -117,9 +124,10 @@ export class Vehicle {
   shove(dvx, dvz, dspin = 0) { if (this.player || this.immovable) return; const dv = Math.hypot(dvx, dvz); if (dv < 0.6 && !this.free) { this.bump(0, 0); return; } const [fx, fz] = this.forward(); const f = this.free || (this.free = { vx: fx * (this.speed || 0), vz: fz * (this.speed || 0), spin: 0, rest: 0, sev: 0 }); f.vx += dvx; f.vz += dvz; f.spin = clamp(f.spin + dspin, -2.4, 2.4); f.sev = Math.max(f.sev, dv); f.rest = 0; this.speed = 0; this.brake = true; if (this.ai) this.ai.bumped = 2.5; this.impact(dv * 1.25); }
   bump(dx, dz) { if (this.parked) { this.x += dx * 0.3; this.z += dz * 0.3; this.sync(0); } else if (this.ai) { this.ai.bumped = 2.5; } }
   sync(dt) {
-    const m = this.mesh; m.position.set(this.x, this.y, this.z); m.rotation.set(this.pitch, this.yaw, this.roll, 'YXZ');
+    this.settle(dt); const S = this.sus; const sr = Math.sin(S.r);
+    const m = this.mesh; m.position.set(this.x, this.y - S.h, this.z); m.rotation.set(this.pitch, this.yaw, this.roll + S.r, 'YXZ');
     this.wheelRot += (this.speed * dt) / this.T.wheelR;
-    for (const w of m.userData.wheels) { w.userData.spin.rotation.x = this.wheelRot; if (w.userData.front) w.rotation.y = this.steer; }
+    for (const w of m.userData.wheels) { w.userData.spin.rotation.x = this.wheelRot; if (w.userData.front) w.rotation.y = this.steer; if (w.userData.baseY !== undefined) w.position.y = w.userData.baseY + S.h - w.position.x * sr; } // body moves on the springs, tyres stay on the road
     // lamps (per vehicle): headlights only when this vehicle has its lights on; tails red at night, brighter when braking;
     // reverse lamps only while reversing; parked/unattended vehicles are dark
     const ud = m.userData, tm = ud.tailMat, hm = ud.headMat, rm = ud.revMat; const occupied = !this.parked || this.player;

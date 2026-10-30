@@ -236,7 +236,8 @@ export class Game {
     bus.on('land', () => Audio.footstep(true, false));
     bus.on('enterVehicle', ({ v, hadDriver }) => { if (hadDriver) this.hud.subtitle('Driver', 'Ado! What are you doing? That\'s my vehicle!', '', 2.8); this.hud.notify(VNAMES[v.type] || 'Vehicle', `${this.hud.key('enter')} exit · ${this.hud.key('horn')} horn · ${this.hud.key('lights')} lights · ${this.hud.key('radio')} radio`, 'info', 3.5); Audio.ui('door'); });
     bus.on('npcLineRaw', ({ who, text }) => this.hud.subtitle(who, text, '', 2.4));
-    bus.on('exitVehicle', () => { Audio.ui('door'); if (this.radio) { this.radio = 0; } });
+    bus.on('exitVehicle', () => { if (this.radio) { this.radio = 0; } });
+    bus.on('doorOpen', () => Audio.doorOpen()); bus.on('doorSlam', ({ s }) => Audio.doorSlam(s));
     bus.on('npcLine', ({ ped, line, prio }) => {
       if (!Settings.get('subtitles') && prio < 1) return; const P = this.player; const d = Math.hypot(ped.x - P.x, ped.z - P.z); if (d > (prio ? 16 : 9) || this.director.active || this.indoor) return;
       if ((this.hud.subUntil || 0) > performance.now() && (!prio || this.story.running)) return; const lang = line.si ? 'si' : line.ta ? 'ta' : 'en'; const who = ped.sp?.profile === 'tourist' ? 'Tourist' : ped.sp?.sex === 'f' ? (ped.sp.age === 'elder' ? 'Aunty' : 'Woman') : (ped.sp?.age === 'elder' ? 'Uncle' : 'Man');

@@ -168,6 +168,11 @@ R is context-separated. Weapons are always holstered in a vehicle, and the radio
 **Characters (`src/actors/`):** a procedural skeleton with an animator providing gait blending, two-bone arm IK and a face rig (blinks, gaze, expressions, speech). The crowd has sidewalk routing, crossings, avoidance, stuck recovery, and staged reactions that recover back to the routine.
 
 **Vehicles (`src/vehicles/`):** full bodywork with interiors, lights and door pivots, plus staged entry/exit.
+- **Driver door (cars, taxis, sedans, SUVs, vans, police cars/jeeps):** the body side is cut open around the door (`sideBody` `cut`). The cap is clipped around the door rectangles, notched around the front arch on vans, and the shoulder over the door is removed. Painted jamb walls line the opening.
+- The door's outer skin is the exact piece of body surface that was removed (same taper and rounded shoulder, smooth normals), with 5 mm shut lines. It has edge faces, a belt weatherstrip, an inner door card with armrest, pull handle and speaker, its own handle and key cylinder, window glass and rain visor, and the police bands or taxi stripe.
+- Nothing of the door is left on the body when it swings open. `tools/door-test.mjs` (part of `npm test`) checks this, along with flushness, swing clearance and a clear doorway, for every type and colour.
+- **Door motion:** a damped spring. Opening pops off the latch, swings out and bounces lightly on the check strap. Closing accelerates into the latch and slams, with a thump and latch sound scaled by closing speed. A resisting driver produces a smooth tug-of-war, not a jitter.
+- **Suspension:** the body sits on under-damped springs (`Vehicle.settle`, about 1.6 Hz). The driver's side settles about 1 cm when someone sits in and rises back on exit. A door slam rocks the body. The wheels counter-move so the tyres stay on the road.
 
 **Weapons (`src/combat/`):** `WeaponModels.js` holds the models; `Weapons.js` handles the logic, aiming, reloads, effects, reactions and heat.
 
@@ -179,7 +184,7 @@ These were observed during testing.
 
 **Characters:**
 - They are procedural meshes rather than scanned or sculpted models. Up close they are stylised: blocky torso, simplified hands and hair.
-- Vehicle doors open on pivots, but door apertures are not cut into the body shell.
+- Only the driver's door is a real opening door. The passenger and rear doors (and the van's sliding door) are still shut lines and handles on the body, and occupants on those sides get in and out without opening them.
 
 **Police and combat:**
 - Weapons are disabled indoors.
