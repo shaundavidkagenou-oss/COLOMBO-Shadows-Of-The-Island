@@ -13,12 +13,13 @@ import { clamp, dampAngle } from '../core/math.js';
 class Cancel extends Error {}
 const P = L.PLACES;
 export const MISSIONS = [
-  { id: 'm0', title: 'The Meeting', giver: 'Ruwan', desc: 'Back in Colombo after seven years. Ruwan has something to show you.' },
-  { id: 'm1', title: 'Galle Face After Dark', giver: 'Ruwan', desc: 'Meet Ruwan by the food carts on Galle Face Green at night.' },
-  { id: 'm2', title: 'Paper Trail', giver: 'Ruwan', desc: 'Talk to the Pettah shopkeepers who received the letters.' },
-  { id: 'm3', title: 'The Courier', giver: 'Ruwan', desc: 'Follow the Harbour Crest courier and find out where the papers go.' },
-  { id: 'm4', title: 'Rain Run', giver: 'Anjali Fernando', desc: 'Get the evidence to Anjali before the presses close.' },
-  { id: 'm5', title: 'Lotus Tower', giver: 'Dilan Wickramaratne', desc: 'Dilan wants to meet. On top of the city.' },
+  // lead = the protagonist who starts (and, outside free-switch stages, plays) the mission
+  { id: 'm0', title: 'The Meeting', giver: 'Ruwan', lead: 'dineth', desc: 'Dineth is back in Colombo after seven years. Ruwan has something to show him — and has called in two old friends.' },
+  { id: 'm1', title: 'Galle Face After Dark', giver: 'Ruwan', lead: 'dineth', desc: 'Meet Ruwan by the food carts on Galle Face Green at night. Shashika and David stay close.' },
+  { id: 'm2', title: 'Paper Trail', giver: 'Ruwan', lead: 'dineth', desc: 'Talk to the Pettah shopkeepers who received the letters, then get eyes on the company they name.' },
+  { id: 'm3', title: 'The Courier', giver: 'Ruwan', lead: 'david', desc: 'David tails the Harbour Crest courier van and finds out where the papers go.' },
+  { id: 'm4', title: 'Rain Run', giver: 'Anjali Fernando', lead: 'shashika', desc: 'Shashika gets the evidence across a flooded city to Anjali before the presses close.' },
+  { id: 'm5', title: 'Lotus Tower', giver: 'Dilan Wickramaratne', lead: 'dineth', desc: 'Dilan wants to meet Dineth on top of the city. All three of you go.' },
 ];
 const STAMPS = [[-60, -930], [-300, -860], [-470, -600], [-520, -380], [280, -450], [-130, -330], [110, 60], [250, -110], [-150, -160], [460, -760], [380, -1050], [-90, -1060], [-330, 300], [-340, 700], [-380, 1120], [660, 140], [620, -240], [40, -820], [-420, -940], [740, 230]];
 const PHOTO_SPOTS = [
@@ -79,7 +80,7 @@ export class Story {
     let result = null;
     for (const l of lines) {
       if (l.choice) { result = await g.hud.choice(l.choice, l.title || ''); if (l.onChoice) await l.onChoice(result); continue; }
-      const who = l[0], text = l[1]; const speaker = who === 'Dineth' ? p.ch : a; // NPC ids ('siri') differ from display names ('Siri')
+      const who = l[0], text = l[1]; const sm = g.squad && g.squad.members.find((q) => q.def.name === who); const speaker = sm && sm.ch ? sm.ch : who === 'Dineth' ? p.ch : a; // NPC ids ('siri') differ from display names ('Siri')
       await D.say(who, text, null, l[2] || '', l[3] || 'en', speaker);
     }
     D.end(); return result;
@@ -89,6 +90,14 @@ export class Story {
   message(from, text) { const M = this.state.msgs || (this.state.msgs = []); const A = this.g.atmos; M.unshift({ from, text, when: A ? `Day ${A.day} ${A.timeString}` : '' }); if (M.length > 30) M.length = 30; }
   pay(n, why) { this.state.money += n; if (n) { const A = this.g.atmos; const L2 = this.state.ledger || (this.state.ledger = []); L2.unshift({ n, why: why || (n > 0 ? 'Income' : 'Payment'), bal: this.state.money, when: A ? `Day ${A.day} ${A.timeString}` : '' }); if (L2.length > 60) L2.length = 60; } if (n) this.hud.notify(`${n > 0 ? '+' : '−'} Rs. ${Math.abs(n).toLocaleString('en-LK')}`, why || '', n > 0 ? 'success' : 'info', 3); }
   cleanupStage() { for (const id of [...this.npcs.keys()]) this.removeNPC(id); this.photoTargets = []; this.clearPursuers(); this.clearGuards(); this.hud.setTimer(null); this.hud.clearBlips('m:'); if (this.follow) { this.g.traffic.remove(this.follow); this.follow = null; } this.g.director.clearVehicles(); }
+  // ------------------------------------------------------------ squad: mission leads and free-switch stages
+  leadFor(id) { const d = MISSIONS.find((m) => m.id === id); return d && d.lead ? d.lead : 'dineth'; }
+  leadName(id) { const l = this.leadFor(id); return l[0].toUpperCase() + l.slice(1); }
+  freeSwitch(on, note = null) { this.allowSwitch = on; if (on && note && this.g.squad && this.g.squad.unlocked) this.hud.notify('Squad', note, 'info', 6); }
+  ensureLead(id) { // a stage that the lead must play: hand control back to them (a real transition when possible)
+    const sq = this.g.squad; if (!sq || !sq.unlocked) return; const lead = this.leadFor(id); if (sq.activeId === lead) return; const i = sq.members.findIndex((m) => m.def.id === lead);
+    this.hud.notify('Squad', `${sq.members[i].def.name} takes point for this part.`, 'info', 4); const P = this.g.player; if (!P.vehicle && !this.g.indoor && !this.g.director.active) sq.startSwitch(i); else sq.switchInstant(i);
+  }
   // ------------------------------------------------------------ mission runner
   async startMission(id, stage = 0) {
     this.cancelAll(); this.token = {}; const def = MISSIONS.find((m) => m.id === id); if (!def) return;
@@ -96,10 +105,11 @@ export class Story {
     if (stage === 0) this.message(def.giver || 'Mission', `${def.title}: ${def.desc}`);
     if (stage === 0 && id !== 'm0') await this.hud.missionBanner('MISSION', def.title, def.desc);
     try {
-      for (let s = stage; s < stages.length; s++) { this.state.mission.stage = s; if (s > stage) this.g.autosave(); await stages[s](); }
+      for (let s = stage; s < stages.length; s++) { this.state.mission.stage = s; if (s > stage) this.g.autosave(); this.allowSwitch = false; if (!(stages[s].free)) this.ensureLead(id); await stages[s](); }
+      this.allowSwitch = false;
       this.complete(id);
     } catch (e) {
-      if (e instanceof Cancel) return;
+      this.allowSwitch = false; if (e instanceof Cancel) return;
       if (e && e.failReason) { await this.failMission(id, e.failReason); return; }
       console.error(e);
     }
@@ -153,6 +163,26 @@ export class Story {
         const [rx, rz] = this.safeSpot(P.slaveFlat.x, P.slaveFlat.z); this.state.flags.room = [rx, rz];
         await this.goto({ x: rx, z: rz }, 'The Meeting', "Go to your old room in Slave Island", { radius: 5 });
       },
+      async () => { // Ruwan called in two old friends: the squad assembles at the door
+        const [rx, rz] = this.state.flags.room; const sq = this.g.squad; const p = this.g.player;
+        if (this.state.flags.squad && sq && sq.unlocked) return; if (sq && !sq.unlocked) sq.unlock(false);
+        const fy = Math.atan2(p.x - rx, p.z - rz); const off = (a, d) => this.safeSpot(rx + Math.sin(fy + a) * d, rz + Math.cos(fy + a) * d);
+        const [sx, sz] = off(0.5, 1.6), [dx, dz] = off(-0.6, 1.8);
+        const sh = sq ? sq.placeAt('shashika', sx, sz, fy) : null; sq && sq.placeAt('david', dx, dz, fy);
+        if (sh) await this.conversation(sh, [
+          ['Shashika', 'Machan! Seven years and you walk in looking like a wet cat.'],
+          ['Dineth', 'Shashika? Ruwan said he had called someone. I didn\'t think he meant my cousin.'],
+          ['Shashika', 'He called both of us. This is David — David Rodrigo. Telecom engineer, national rifle team, and he fixes my phone for free.'],
+          ['David', 'Only when he stops dropping it in the harbour. Good to finally meet you, Dineth. Ruwan showed us the folder.'],
+          ['Dineth', 'Then you know what Harbour Crest is doing to Pettah.'],
+          ['David', 'I know their paperwork is too clean. Stamps from offices that closed years ago. Shell companies. Somebody is very organised.'],
+          ['Shashika', 'And organised people hire security. That is my side of the business — I know half the guards at the port.'],
+          { choice: ['"Then we do this together."', '"I can handle it alone."'], onChoice: async (i) => { if (i === 1) await this.g.director.say('Shashika', 'Alone you will end up in Beira Lake. We stay together.', null, '', 'en', sq.memberById('shashika').ch); } },
+          ['David', 'Rest first. Ruwan wants you at Galle Face tonight. We will be close.'],
+        ]);
+        this.state.flags.squad = true;
+        this.hud.notify('Squad assembled', `Switch protagonist: tap <kbd>Z</kbd> for the next one, hold <kbd>Z</kbd> for the squad selector, or <kbd>F1</kbd> Dineth · <kbd>F2</kbd> Shashika · <kbd>F3</kbd> David. The other two follow on their own, ride with you and can hold a position (hold <kbd>Z</kbd>, then <kbd>E</kbd>).`, 'info', 14);
+      },
       async () => {
         const [rx, rz] = this.state.flags.room; this.hud.setObjective('The Meeting', `Rest until evening (${this.hud.key('interact')} at the door)`, { x: rx, z: rz });
         await this.until(() => { const p = this.g.player; if (Math.hypot(p.x - rx, p.z - rz) < 3 && !p.vehicle) { this.hud.prompt(`${this.hud.key('interact')} Rest until 7:45 PM`); return Input.wasPressed('interact'); } return false; });
@@ -173,6 +203,7 @@ export class Story {
           ['Ruwan', 'Three shopkeepers kept copies of everything: Mrs. Fathima, Mr. Selvaraj and Uncle Bandara. They trust me. They will trust you.'],
           { choice: ['"I\'ll help. For the street."', '"What do I get out of it?"'], onChoice: async (i) => { if (i === 0) this.rel('ruwan', 8); else { this.rel('ruwan', -5); await this.g.director.say('Ruwan', 'You get your city back, machan. That\'s the deal.'); } } },
           ['Ruwan', 'Careful. Someone has been watching me all evening. Black SUV, near the hotel.'],
+          ...(this.g.squad && this.g.squad.unlocked ? [['Shashika', 'I saw it on Galle Road too. Dineth — go. We keep up.']] : []),
         ], { spec: HEROES.ruwan, x, z, yaw: -Math.PI / 2 });
       },
       async () => {
@@ -218,7 +249,7 @@ export class Story {
         this.hud.notify('Evidence', 'Payment receipt — Sapphire Logistics', 'collect', 4); this.state.flags.ev3 = true;
       },
       async () => {
-        const w = P.warehouse; const t = { x: w.x, y: 6, z: w.z, done: false };
+        const w = P.warehouse; const t = { x: w.x, y: 6, z: w.z, done: false }; this.freeSwitch(true, 'Free switching: any of you can take the photo — David has the steadiest hands.');
         await this.goto(w, 'Paper Trail', 'Photograph the Sapphire Logistics warehouse at Union Place', { radius: 45 });
         this.hud.setObjective('Paper Trail', `Take a photo of the warehouse (${this.hud.key('phone')} camera)`, w); await this.photoTarget(t, 'warehouse');
       },
@@ -231,7 +262,9 @@ export class Story {
         const [x, z] = this.safeSpot(P.warehouse.x - 25, P.warehouse.z - 10);
         await this.talk('ruwan', 'Ruwan', [
           ['Ruwan', 'That warehouse never sleeps. Every night a white van leaves for the port with document boxes.'],
-          ['Ruwan', 'Follow it. Stay back — if the driver sees you, it\'s over. I\'ll find you a ride.'],
+          ['Ruwan', 'David, this one is yours. Dineth says you can follow a signal through half of Colombo.'],
+          ['David', 'A van is easier than a signal. Vans don\'t hop between towers. I just stay three cars back.'],
+          ['Ruwan', 'Stay back — if the driver sees you, it\'s over. I found you a ride.'],
         ], { spec: HEROES.ruwan, x, z, yaw: 0 });
         this.removeNPC('ruwan');
         const pt = this.safeRoadSpot(x, z); const v = new Vehicle('tuktuk', 31, this.g.scene); v.place(pt[0], pt[1], pt[2]); this.g.traffic.release(v); v.keep = true;
@@ -241,14 +274,14 @@ export class Story {
       },
       async () => { await this.followVehicle('van', [[-120, -40], [-280, -40], [-280, -240], [-280, -660], [-280, -900], [-150, -900], [-150, -1000], [-100, -1040]], 'Follow the courier van — don\'t get too close'); },
       async () => {
-        this.hud.notify('Sneak', `Crouch with ${this.hud.key('crouch')}. Stay out of the guards\' sight.`, 'info', 6);
+        this.hud.notify('Sneak', `Crouch with ${this.hud.key('crouch')}. Stay out of the guards\' sight. Your squad-mates crouch with you.`, 'info', 6); this.freeSwitch(true, 'Free switching: send whoever you like into the yard — or leave someone holding the gate (hold Z, then E).');
         const tgt = { x: -95, y: 1.5, z: -1080, done: false };
         this.spawnGuards([[[-130, -1070], [-60, -1070]], [[-110, -1100], [-110, -1050]], [[-70, -1095], [-140, -1095]]]);
         this.hud.setObjective('The Courier', 'Sneak into the yard and photograph the shipping ledger', tgt);
         await this.photoTarget(tgt, 'ledger');
         this.clearGuards(); this.hud.notify('Evidence', 'Shipping ledger: deeds sent offshore', 'collect', 4); this.state.flags.ev4 = true;
       },
-      async () => { this.hud.notify('Spotted!', 'Nalin "Gold" Fonseka\'s men are on to you. Get out of the port!', 'warn', 5); await this.escape(2, 'Escape the port', { dist: 180, hold: 8, timeLimit: 180 }); },
+      Object.assign(async () => { this.freeSwitch(true); this.hud.notify('Spotted!', 'Nalin "Gold" Fonseka\'s men are on to you. Get out of the port!', 'warn', 5); await this.escape(2, 'Escape the port', { dist: 180, hold: 8, timeLimit: 180 }); }, { free: true }),
     ];
   }
   // ------------------------------------------------------------ M4
@@ -259,7 +292,8 @@ export class Story {
         this.g.atmos.forceWeather('rain');
         const [x, z] = this.safeSpot(P.police.x + 6, P.police.z + 12);
         await this.talk('anjali', 'Anjali Fernando', [
-          ['Anjali Fernando', 'You\'re Dineth. Ruwan says you have the ledger. I\'m Anjali — I write for the Sunday paper.'],
+          ['Anjali Fernando', 'You must be Shashika. Dineth says if anyone can get through Colombo in this rain, it\'s you. I\'m Anjali — I write for the Sunday paper.'],
+          ['Shashika', 'Dineth says too much. David has the ledger copied three times. What do you need?'],
           ['Anjali Fernando', 'If this goes to print tonight, nobody can bury it. But the presses close at midnight and the files are with my source in Bambalapitiya.'],
           ['Anjali Fernando', 'Ceylon Threads, the tailor on Galle Road. Collect the envelope and bring everything to the Town Hall steps. Fast.'],
           { choice: ['"Consider it done."', '"Why should I trust a journalist?"'], onChoice: async (i) => { this.rel('anjali', i === 0 ? 6 : -3); if (i === 1) await this.g.director.say('Anjali Fernando', 'Because I\'m the only one in this city who wants to be sued by Harbour Crest.'); } },
@@ -296,10 +330,11 @@ export class Story {
       async () => {
         if (this.state.ending === 'deal') { this.hud.notify('Dilan', 'The deeds will be returned. Nalin is not happy.', 'info', 5); }
         else { this.hud.notify('Nalin "Gold" Fonseka', 'His men are coming for the evidence. Get to Galle Face!', 'warn', 5); this.spawnPursuers(3); }
+        this.freeSwitch(true, 'Free switching: all three of you are in this.');
         await this.goto(P.gfPromenade, 'Lotus Tower', this.state.ending === 'deal' ? 'Meet Ruwan at Galle Face Promenade' : 'Reach Galle Face Promenade with the evidence', { radius: 14, time: this.state.ending === 'deal' ? null : 200 });
         this.clearPursuers();
       },
-      async () => { await this.g.playEnding(this.state.ending, this.state); },
+      Object.assign(async () => { await this.g.playEnding(this.state.ending, this.state); }, { free: true }),
     ];
   }
   // ------------------------------------------------------------ chase / follow / stealth helpers
@@ -382,11 +417,11 @@ export class Story {
     if (pv && pv.type === 'tuktuk' && !this.running) { pr = pr || `${this.hud.key('more')} Start tuk-tuk taxi job`; if (Input.wasPressed('more')) this.startTaxi(); }
     for (const t of TRIALS) if (pv && Math.hypot(p.x - t.pts[0][0], p.z - t.pts[0][1]) < 10 && !this.running) { pr = `${this.hud.key('more')} Start time trial: ${t.name}`; if (Input.wasPressed('more')) this.startTrial(t); }
     for (const sp of PHOTO_SPOTS) if (!this.state.photos.includes(sp.id) && Math.hypot(p.x - sp.view[0], p.z - sp.view[1]) < 40 && !pv) pr = pr || `Photo spot: ${sp.name} — open the phone (${this.hud.key('phone')}) → Camera`;
-    if (this.startPoint && !this.running) { const s = this.startPoint; if (Math.hypot(p.x - s.x, p.z - s.z) < 8) { pr = `${this.hud.key('interact')} Start mission: ${MISSIONS.find((m) => m.id === s.id).title}`; if (Input.wasPressed('interact')) { this.hud.removeBlip('start'); this.startPoint = null; this.startMission(s.id, this.state.mission.stage || 0); } } }
+    if (this.startPoint && !this.running) { const s = this.startPoint; if (Math.hypot(p.x - s.x, p.z - s.z) < 8) { const sq = this.g.squad, lead = this.leadFor(s.id), md = sq && sq.memberById(lead); if (sq && sq.unlocked && sq.activeId !== lead) { pr = `${md.def.name} leads this mission — switch with <kbd>${md.def.key}</kbd> or <kbd>Z</kbd>`; } else { pr = `${this.hud.key('interact')} Start mission: ${MISSIONS.find((m) => m.id === s.id).title}`; } if (pr.includes('Start mission') && Input.wasPressed('interact')) { this.hud.removeBlip('start'); this.startPoint = null; this.startMission(s.id, this.state.mission.stage || 0); } } }
     if (pr || !this.talkTarget) this.sidePrompt = pr; else this.sidePrompt = null;
   }
   buyFood() { if (this.state.money < 150) { this.hud.notify('Not enough money'); return; } this.pay(-150, 'Plain tea & rotti'); this.g.player.stamina = 1; this.g.health?.heal(25); this.hud.subtitle('Siri', 'Fresh rotti, extra pol sambol. On the house next time, maybe!', '', 3); }
-  buyOutfit() { if (this.state.money < 2000) { this.hud.notify('Not enough money'); return; } this.pay(-2000, 'Ceylon Threads'); const cols = ['#3c4536', '#5a2a2a', '#1f2a3a', '#6b5a3a', '#2a2a2a', '#3a5a6b']; const i = (cols.indexOf(this.state.outfit || '#3c4536') + 1) % cols.length; this.state.outfit = cols[i]; this.g.rebuildPlayer(); this.hud.notify('New jacket', 'Looking sharp, machan.'); }
+  buyOutfit() { if (this.state.money < 2000) { this.hud.notify('Not enough money'); return; } this.pay(-2000, 'Ceylon Threads'); const cols = ['#3c4536', '#5a2a2a', '#1f2a3a', '#6b5a3a', '#2a2a2a', '#3a5a6b']; const fits = this.state.outfits || (this.state.outfits = {}); const who = this.g.squad ? this.g.squad.activeId : 'dineth'; const i = (cols.indexOf(fits[who] || '#3c4536') + 1) % cols.length; fits[who] = cols[i]; this.g.rebuildPlayer(); this.hud.notify('New jacket', 'Looking sharp, machan.'); }
   // taxi: pick a pedestrian-side spot nearby, then a destination 400-900 m away
   startTaxi() {
     const rng = new RNG(Math.floor(this.g.clock * 1000)); const p = this.g.player; const pick = (min, max) => { for (let k = 0; k < 200; k++) { const n = L.pedNodes[Math.floor(rng.next() * L.pedNodes.length)]; const d = Math.hypot(n.x - p.x, n.z - p.z); if (d > min && d < max) return n; } return null; };

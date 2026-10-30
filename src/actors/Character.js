@@ -752,7 +752,7 @@ export class Animator {
     this.idleLookT -= dt; if (this.idleLookT < 0) { this.idleLookTarget = Math.random() < 0.4 ? 0 : (Math.random() - 0.5) * 1.1; this.idleLookT = 1.5 + Math.random() * 4; }
     this.idleLook = damp(this.idleLook, this.idleLookTarget * (1 - w * 0.7), 5, dt);
     const A_ = this.action; this.actionW = clamp(this.actionW + dt * 3, 0, 1); const aw = A_ ? this.actionW : 0;
-    const crouch = (this.crouch = damp(this.crouch, A_ === 'crouch' ? 1 : 0, 8, dt));
+    const crouch = (this.crouch = damp(this.crouch, A_ === 'crouch' || A_ === 'cover' ? 1 : 0, A_ === 'rise' ? 3.2 : 8, dt));
     const sit = A_ === 'sit' ? aw : this.fadeAct === 'sit' ? this.fadeW : 0; const drive = (this.drive = damp(this.drive, A_ === 'drive' ? 1 : 0, 8, dt)); const seatT = Math.max(sit, drive);
     this.lean = damp(this.lean, clamp(-turnRate * sp * 0.03, -0.2, 0.2), 6, dt);
     // pelvis
@@ -873,6 +873,16 @@ export class Animator {
         case 'crossarms': ikT('L', -0.13, -0.09, 0.15); ikT('R', 0.12, -0.05, 0.19); head = Math.sin(t * 0.4) * 0.2; break; // each hand onto the other upper arm
         case 'hips': ikT('L', 0.2, -0.28, 0.0); ikT('R', -0.2, -0.28, 0.0); head = Math.sin(t * 0.5) * 0.25; break; // hands on the hip bones, elbows out
         case 'watch': ikT('L', 0.02, -0.07, 0.27); b.neck.rotation.x += 0.35 * aw; head = 0.15; break; // left wrist raised in front of the chest
+        // ---- squad switch: departure moves
+        case 'comms': { const tap = Math.max(0, Math.sin(at * 11)) * (at > 0.35 && at < 0.95 ? 1 : 0); ikT('L', 0.03, -0.06, 0.28); ikT('R', -0.015, -0.035 + tap * 0.012, 0.29 - tap * 0.008); b.neck.rotation.x += 0.38 * aw; head = 0.12; break; } // wrist pad: raise, two taps, glance down
+        case 'glance': { const k = Math.sin(clamp(at / 1.0, 0, 1) * Math.PI); head = 1.15 * k; b.chest.rotation.y += 0.32 * k * aw; b.neck.rotation.y += 0.25 * k * aw; tl = [-1.75 * k, 0, 0.15]; tfl = [-0.15, 0, 0]; break; } // look back over the shoulder, left arm signals "moving up"
+        case 'cover': { b.spine.rotation.x += 0.22 * aw; ikT('L', 0.12, -0.18, 0.24); ikT('R', -0.12, -0.2, 0.22); head = Math.sin(at * 1.3) * 0.6; break; } // low behind cover, hands ready, scanning
+        // ---- squad switch: takeover moves
+        case 'gloves': { const sw = at < 0.5; const k = Math.sin(clamp((at % 0.5) / 0.5, 0, 1) * Math.PI); // tug the left cuff, then the right
+          if (sw) { ikT('L', 0.05, -0.2, 0.25); ikT('R', 0.03 - k * 0.05, -0.19, 0.26); } else { ikT('R', -0.05, -0.2, 0.25); ikT('L', -0.03 + k * 0.05, -0.19, 0.26); } b.neck.rotation.x += 0.3 * aw; break; }
+        case 'straps': { const k = Math.sin(clamp(at / 0.8, 0, 1) * Math.PI); ikT('L', 0.1, 0.03 - k * 0.07, 0.15); ikT('R', -0.1, 0.03 - k * 0.07, 0.15); b.neck.rotation.z += Math.sin(clamp(at / 0.9, 0, 1) * Math.PI * 2) * 0.12 * aw; b.spine.rotation.x -= 0.05 * k * aw; break; } // tug the vest straps down, roll the neck
+        case 'glasses': { const k = Math.sin(clamp(at / 0.9, 0, 1) * Math.PI); ikT('R', -0.02, 0.17 + k * 0.1, 0.17); b.neck.rotation.x -= 0.06 * k * aw; head = -0.05; break; } // push the glasses up the bridge
+        case 'rise': { const k = Math.max(0, 1 - at / 0.55); ikT('R', -0.12, -0.32 - 0.06 * k, 0.26); b.spine.rotation.x += 0.25 * k * aw; break; } // push off the knee and stand
       }
       if (tl) aL = blend(aL, tl, aw); if (tr) aR = blend(aR, tr, aw); if (tfl) fL = blend(fL, tfl, aw); if (tfr) fR = blend(fR, tfr, aw); if (head !== null && head !== undefined) b.head.rotation.y = lerp(b.head.rotation.y, head, aw);
     };

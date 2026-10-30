@@ -57,7 +57,7 @@ function pistol(def) {
   S.build(slide); g.add(slide);
   // magazine (drops out of the grip on reload)
   const mag = new THREE.Group(); const Mg = new Parts(); Mg.add(m.metal, box(0.022 * k, 0.095 * k, 0.034 * k, 0, -0.012, -0.01, -0.27)); Mg.add(m.poly, box(0.032 * k, 0.01, 0.05 * k, 0, -0.064 * k, -0.025 * k, -0.27)); Mg.build(mag); g.add(mag);
-  g.userData = { muzzle: new THREE.Vector3(0, bore, front + 0.006), support: new THREE.Vector3(0.024, -0.03, 0.004), magWell: new THREE.Vector3(0, -0.075, -0.03), rack: new THREE.Vector3(0, bore + 0.02, front - L + 0.02), mag, slide, eject: new THREE.Vector3(-0.02, bore + 0.01, front - L * 0.45), stockZ: 0 };
+  g.userData = { muzzle: new THREE.Vector3(0, bore, front + 0.006), support: new THREE.Vector3(0.024, -0.03, 0.004), magWell: new THREE.Vector3(0, -0.075, -0.03), rack: new THREE.Vector3(0, bore + 0.02, front - L + 0.02), mag, slide, eject: new THREE.Vector3(-0.02, bore + 0.01, front - L * 0.45), stockZ: 0, sight: new THREE.Vector3(0, bore + 0.018 * k + 0.0045, front - L + 0.012) }; // sight: top of the rear notch, on the line to the front post
   return g;
 }
 

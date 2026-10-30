@@ -22,10 +22,12 @@ function facadeWall(mb, s, y0, y1, uOff, vStart, color) {
   const v0 = (y0 - vStart) / (2 * FLOOR_H), v1 = (y1 - vStart) / (2 * FLOOR_H);
   mb.wall(s.a[0], s.a[1], s.b[0], s.b[1], y0, y1, [u0, v0, u1, v1], color);
 }
-function shopWall(mb, s, y0, y1, row, colIdx) {
+function shopWall(mb, s, y0, y1, row, colIdx, bid = 0) {
   const n = Math.max(1, Math.round(s.len / 5));
   const v0 = 1 - (row + 1) / 8 + 0.002, v1 = 1 - row / 8 - 0.002;
-  const u0 = colIdx / 4, u1 = colIdx / 4 + n / 4;
+  // + a whole number of atlas widths per building (the atlas repeats, so it samples the same) → floor(u·4) is a unique
+  // id for every shop unit, used by the night shader (each shop keeps its own hours and shutter)
+  const K = 1 + (bid % 97); const u0 = K + colIdx / 4, u1 = K + colIdx / 4 + n / 4;
   mb.wall(s.a[0], s.a[1], s.b[0], s.b[1], y0, y1, [u0, v0, u1, v1], [1, 1, 1]);
 }
 function hipRoof(mb, x0, x1, z0, z1, y, rise, overhang, color) {
@@ -99,7 +101,7 @@ export function buildBase(b, multi) {
     if (s.len < 0.1) continue;
     const front = s.id === b.front;
     if (hasGround) {
-      if (front) shopWall(multi.get('shops'), s, y0, y0 + GROUND_H, b.groundRow, b.groundCol || 0);
+      if (front) shopWall(multi.get('shops'), s, y0, y0 + GROUND_H, b.groundRow, b.groundCol || 0, b.id || 0);
       else facadeWall(fac, s, y0, y0 + GROUND_H, b.uOff || 0, y0 + GROUND_H - 2 * FLOOR_H, paint);
       facadeWall(fac, s, y0 + GROUND_H, yTop, b.uOff || 0, y0 + GROUND_H, paint);
     } else facadeWall(fac, s, y0, yTop, b.uOff || 0, y0, paint);

@@ -28,17 +28,27 @@ export function buildMaterials() {
     applyInteriorMapping(MAT['f_' + k]); // windows show parallax rooms with depth
   }
   MAT.shops = std({ map: TEX.shops.map, emissiveMap: TEX.shops.emissive, emissive: 0xffffff, emissiveIntensity: 0.15, roughness: 0.8 });
-  // after closing time shop fronts are behind galvanised corrugated roller shutters
+  // after closing time each shop unit pulls down its own roller shutter (galvanised or painted; ~14% trade late)
   MAT.shops.onBeforeCompile = (sh) => { sh.uniforms.uShut = SHOP_SHUT;
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vSWPos;').replace('#include <project_vertex>', '#include <project_vertex>\nvSWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vSWPos; uniform float uShut;')
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-      { float shut = uShut; // (no per-shop id in the shader: a world-cell hash would split one shop front, so every shop closes)
-        if (shut > 0.001) { float rib = 0.82 + 0.18 * smoothstep(0.35, 0.5, abs(fract(vSWPos.y / 0.075) - 0.5));
-          vec3 sc = vec3(0.52, 0.54, 0.55);
-          float grime = mix(0.78, 1.0, smoothstep(0.0, 1.6, vSWPos.y - floor(vSWPos.y / 50.0) * 50.0));
-          diffuseColor.rgb = mix(diffuseColor.rgb, sc * rib * grime, shut); totalEmissiveRadiance *= 1.0 - shut; } }`); };
-  MAT.shops.customProgramCacheKey = () => 'shops-shutter-v2';
+      { float cellU = floor(vMapUv.x * 4.0 + 0.0005); float hs = fract(sin(cellU * 12.9898 + 4.1) * 43758.5453); // one id per shop unit
+        float late = step(0.86, hs); float shut = uShut * (1.0 - late); // ~14% (pharmacies, kades, bakeries) trade late
+        if (shut > 0.001) {
+          float lu = fract(vMapUv.x * 4.0), lv = fract(vMapUv.y * 8.0); // position inside this shop's front (0..1)
+          float ry = vSWPos.y / 0.1; float fw = fwidth(ry); float ribRaw = 0.78 + 0.22 * smoothstep(0.3, 0.5, abs(fract(ry) - 0.5));
+          float rib = mix(ribRaw, 0.9, smoothstep(0.25, 0.7, fw)); // slats resolve up close, average out far away (no shimmer)
+          vec3 sc = hs < 0.5 ? vec3(0.55, 0.57, 0.58) : hs < 0.64 ? vec3(0.2, 0.36, 0.27) : hs < 0.76 ? vec3(0.22, 0.31, 0.46) : vec3(0.47, 0.2, 0.16);
+          vec3 col = sc * rib;
+          col *= 0.86 + 0.14 * smoothstep(0.0, 0.5, lv); // grime and splash marks towards the pavement
+          col *= 1.0 - 0.12 * smoothstep(0.6, 1.0, fract(sin(floor(lu * 23.0) * 78.233 + cellU) * 4375.85)) * (1.0 - lv); // streaks
+          float housing = smoothstep(0.86, 0.875, lv); col = mix(col, sc * 0.55, housing); // roller box at the top
+          col = mix(col, vec3(0.09), max(step(lu, 0.025), step(0.975, lu))); // steel guide rails at both sides
+          col = mix(col, vec3(0.12), step(lv, 0.04)); // bottom bar
+          col = mix(col, vec3(0.05), step(0.47, lu) * step(lu, 0.53) * step(0.045, lv) * step(lv, 0.09)); // padlock / hasp
+          diffuseColor.rgb = mix(diffuseColor.rgb, col, shut); totalEmissiveRadiance *= 1.0 - shut; } }`); };
+  MAT.shops.customProgramCacheKey = () => 'shops-shutter-v3';
   MAT.signs = std({ map: TEX.signs.map, emissiveMap: TEX.signs.emissive, emissive: 0xffffff, emissiveIntensity: 0.05, roughness: 0.6, side: THREE.DoubleSide });
   MAT.roofTiles = std({ map: TEX.roofTiles, roughness: 0.85, vertexColors: true });
   MAT.roofFlat = std({ map: TEX.roofConcrete, roughness: 0.95, vertexColors: true });
@@ -76,7 +86,7 @@ export function updateMaterials(night, wet, t) {
   // shop fronts are lit while trading (until ~9 pm, shutters down by 10:30) and dark until early morning; illuminated
   // signboards stay on but many are switched off after midnight
   const h = t ?? 12, open = h >= 21 ? Math.max(0, 1 - (h - 21) / 1.5) : h < 6.5 ? 0 : Math.min(1, (h - 6.5) / 0.75), late = h >= 0.5 && h < 5.5 ? 0.45 : 1;
-  MAT.shops.emissiveIntensity = (0.12 + n * 0.75) * (0.15 + 0.85 * open);
+  MAT.shops.emissiveIntensity = 0.12 + n * 0.75; // closed shops go dark in the shader (per shop), late traders stay lit
   SHOP_SHUT.value = 1 - open;
   MAT.signs.emissiveIntensity = 0.04 + n * 1.3 * late;
   MAT.lampHead.emissiveIntensity = n * 3.0;

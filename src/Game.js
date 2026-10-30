@@ -37,6 +37,7 @@ import { Director } from './story/Director.js';
 import { Story, MISSIONS } from './story/Story.js';
 import { playOpening } from './story/Opening.js';
 import { Weapons } from './combat/Weapons.js';
+import { Squad } from './actors/Squad.js';
 
 const VNAMES = { tuktuk: 'Three-wheeler', car: 'Hatchback', sedan: 'Sedan', taxi: 'Taxi', van: 'Van', suv: 'SUV', bus: 'SLTB bus', pbus: 'Private bus', lorry: 'Lorry', bike: 'Motorcycle', police: 'Police car', policejeep: 'Police jeep', policebike: 'Police motorcycle' };
 const RADIO = [null, { mode: 'radio1', name: 'Radio Lanka Breeze 98.4' }, { mode: 'radio2', name: 'Island Pulse 104.2' }];
@@ -91,7 +92,7 @@ export class Game {
     this.schoolLife = new SchoolLife(this);
     this.cricket = new StreetCricket(this);
     this.player = new Player(this.scene, this.camera, this.collision, bus); this.player.crowd = this.crowd;
-    this.hud = new HUD(this.ui); this.hud.satellite = new Satellite(this); this.director = new Director(this); this.story = new Story(this); this.interiors = new Interiors(this); this.weapons = new Weapons(this); this.player.weapons = this.weapons; this.police = new PoliceResponse(this);
+    this.hud = new HUD(this.ui); this.hud.satellite = new Satellite(this); this.director = new Director(this); this.story = new Story(this); this.interiors = new Interiors(this); this.weapons = new Weapons(this); this.player.weapons = this.weapons; this.squad = new Squad(this); this.police = new PoliceResponse(this);
     this.health = new Health(this); this.phone = new Phone(this, this.hud.root);
     this.applyDensity();
     progress(0.9, 'Lighting'); await tick();
@@ -175,7 +176,7 @@ export class Game {
     this.hud.fade(1, 0); await new Promise((r) => requestAnimationFrame(r));
   }
   async newGame() {
-    this.story.state = Story.freshState(); this.clock = 0; this.mode = 'play'; this.paused = false; this.rebuildPlayer();
+    this.story.state = Story.freshState(); this.clock = 0; this.mode = 'play'; this.paused = false; this.squad.reset(); this.rebuildPlayer();
     this.hud.clearBlips(''); this.focus = null; this.setupRoomDoor();
     await playOpening(this);
     Input.requestLock(this.canvas);
@@ -183,8 +184,8 @@ export class Game {
   }
   async startLoaded(slot) {
     const d = SaveSystem.read(slot); if (!d) return this.menuLoop();
-    this.story.restore(d.story); this.atmos.restore(d.atmos); this.clock = d.clock || 0; this.rebuildPlayer(); this.weapons.load(d.weapons); this.pendingWanted = d.police ? d.police.level : d.weapons ? d.weapons.heat : 0;
-    const p = d.player || { x: L.PLACES.meeting.x, z: L.PLACES.meeting.z, yaw: 0 }; this.world.warm(p.x, p.z); this.player.teleport(p.x, p.z, p.yaw);
+    this.story.restore(d.story); this.atmos.restore(d.atmos); this.clock = d.clock || 0; this.squad.load(d.squad); this.rebuildPlayer(); this.weapons.load(d.weapons); this.squad.load(d.squad); this.pendingWanted = d.police ? d.police.level : d.weapons ? d.weapons.heat : 0;
+    const p = d.player || { x: L.PLACES.meeting.x, z: L.PLACES.meeting.z, yaw: 0 }; this.world.warm(p.x, p.z); this.player.teleport(p.x, p.z, p.yaw); this.squad.regroup();
     this.player.cinematic = false; this.player.control = true; this.mode = 'play'; this.paused = false; this.hud.show(true); this.director.active = false;
     if (this.pendingWanted) { this.police.restore(this.pendingWanted); this.pendingWanted = 0; }
     this.story.setupWorldActivities(); this.setupRoomDoor();
@@ -199,7 +200,7 @@ export class Game {
     const P = this.player; let pos = { x: P.x, z: P.z, yaw: P.yaw };
     if (this.interiors.current) { const d = this.interiors.current.door; pos = { x: d.x, z: d.z, yaw: d.faceIn + Math.PI }; } else if (P.vehicle) { const e = P.vehicle.exitPoint(-1); pos = { x: e.x, z: e.z, yaw: P.vehicle.yaw }; }
     const m = MISSIONS.find((q) => q.id === this.story.state.mission.id);
-    SaveSystem.write(slot, { story: this.story.serialize(), atmos: this.atmos.serialize(), player: pos, weapons: this.weapons.save(), police: this.police.save(), clock: this.clock, missionTitle: m ? m.title : 'Free roam', timeString: `Day ${this.atmos.day} · ${this.atmos.timeString}` });
+    SaveSystem.write(slot, { story: this.story.serialize(), atmos: this.atmos.serialize(), player: pos, weapons: this.weapons.save(), squad: this.squad.save(), police: this.police.save(), clock: this.clock, missionTitle: m ? m.title : 'Free roam', timeString: `Day ${this.atmos.day} · ${this.atmos.timeString}` });
   }
   async restUntil(hour) {
     const P = this.player; P.control = false; await this.hud.fade(1, 0.8); let dh = hour - this.atmos.hour; if (dh < 0) dh += 24; this.atmos.advance(dh * 60);
@@ -208,9 +209,9 @@ export class Game {
   }
   async playEnding(kind, state) { this.player.control = false; await this.hud.fade(1, 1.2); this.hud.show(false); Input.releaseLock(); this.ignoreUnlock = true; await this.screens.ending(kind, state); this.ignoreUnlock = false; this.hud.show(true); await this.hud.fade(0, 1); this.player.control = true; Input.requestLock(this.canvas); this.autosave(); }
   rebuildPlayer() {
-    const P = this.player; const spec = { ...HEROES.dineth, top: this.story.state.outfit || HEROES.dineth.top };
+    const P = this.player; const id = this.squad ? this.squad.activeId : 'dineth'; const fits = this.story.state.outfits || {}; const spec = { ...HEROES[id], top: fits[id] || HEROES[id].top };
     const old = P.ch; const parent = old.root.parent; const ch = new Character(spec); ch.root.position.copy(old.root.position); ch.root.rotation.copy(old.root.rotation);
-    if (parent) { parent.add(ch.root); parent.remove(old.root); } if (this.weapons) { this.weapons.forceHolster(); this.weapons.attach(ch); } old.dispose(); P.ch = ch; if (P.vehicle) { const seat = P.vehicle.driverSeat(); ch.root.position.set(seat.x, seat.y, seat.z); ch.root.rotation.set(0, 0, 0); ch.anim.sitIn(seat, 1); ch.anim.update(0.001, 0); }
+    if (parent) { parent.add(ch.root); parent.remove(old.root); } if (this.weapons) { this.weapons.forceHolster(); this.weapons.attach(ch); } old.dispose(); P.ch = ch; if (this.squad) this.squad.replaceChar(id, ch); if (P.vehicle) { const seat = P.vehicle.driverSeat(); ch.root.position.set(seat.x, seat.y, seat.z); ch.root.rotation.set(0, 0, 0); ch.anim.sitIn(seat, 1); ch.anim.update(0.001, 0); }
   }
   // protagonist skin / clothing layer: rain soaks skin and clothes outdoors (not inside vehicles or interiors) and dries
   // slowly; sweat builds with exertion, faster in the midday heat and humid monsoon air, and fades at rest
@@ -286,7 +287,7 @@ export class Game {
     try {
       const mapOpen = this.mode === 'play' && this.hud.bigMapOpen; // the pause map freezes the world (and the hidden 3D view is not drawn)
       if (mapOpen) { if (Input.wasPressed('map')) this.toggleMap(false); }
-      else if (this.mode === 'play' && !this.paused) this.updatePlay(dt);
+      else if (this.mode === 'play' && !this.paused) this.updatePlay(dt * (this.timeSlow || 1)); // weapon wheel / squad selector slow time
       else if (this.mode === 'menu' || this.mode === 'intro') this.updateAmbient(dt);
       CAM.copy(this.camera.position); updateVehicleLOD(this.camera);
       if (this.post && !mapOpen) { if (this.world && this.world.waterRefl) { const q = Settings.get('quality'); this.world.waterRefl.scale = q === 'ultra' ? 0.6 : 0.45; this.world.waterRefl.update(this.renderer, this.scene, this.camera, (q === 'high' || q === 'ultra') && !this.indoor); } this.post.update(this.atmos); this.post.render(dt); }
@@ -331,6 +332,7 @@ export class Game {
     this.bodies = gatherBodies(this.scene); P.bodies = this.bodies;
     if (this.photo) this.updatePhoto(dt);
     else if (!D.active) P.update(dt, this.traffic);
+    this.squad.update(dt, busy || warmOnly || !!this.photo);
     D.update(dt);
     // interactions on foot / vehicle
     let localPrompt = null;
@@ -345,7 +347,7 @@ export class Game {
     if (this.indoor) { A.sun.intensity = 0; A.hemi.intensity *= 0.25; A.ambient.intensity = 0.25; this.scene.environmentIntensity = 0.25; A.rain.visible = false; this.renderer.toneMappingExposure = 1; }
     const camDir = new THREE.Vector3(); cam.getWorldDirection(camDir);
     if (this.indoor) this.hideOutdoor(); // anything spawned since entering (police units etc.) stays hidden too
-    if (!this.indoor) this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; if (!this.indoor) this.traffic.update(dt, focus, camDir, this.clock, this.police.foot.length ? this.crowd.peds.concat(this.police.foot) : this.crowd.peds, P); this.hqLife.update(dt); if (!this.indoor) { this.trafficDuty.update(dt); this.schoolLife.update(dt); this.cricket.update(dt); } if (!warmOnly) this.police.update(dt);
+    if (!this.indoor) this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; if (!this.indoor) this.traffic.update(dt, focus, camDir, this.clock, this.police.foot.length || this.squad.proxies.length ? this.crowd.peds.concat(this.police.foot, this.squad.proxies) : this.crowd.peds, P); this.hqLife.update(dt); if (!this.indoor) { this.trafficDuty.update(dt); this.schoolLife.update(dt); this.cricket.update(dt); } if (!warmOnly) this.police.update(dt);
     if (!this.indoor) this.trains.update(dt, { focus, night: A.night, player: this.indoor ? null : P, playerVehicle: P.vehicle || null, vehicles: this.traffic.all(), listener: true });
     if (!this.indoor) this.crowd.update(dt, focus, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: P, hourFactor: this.hourFactor(), hour: A.hour, bodies: this.bodies });
     if (P.vehicle && A.night > 0.5 && P.nightLights === undefined) { P.vehicle.lights = true; }
@@ -382,7 +384,7 @@ export class Game {
     if (best) {
       if (Input.wasPressed('interact')) { this.crowd.interact(best, 'talk', P); P.ch.anim.play('talk', 1.8); }
       else if (Input.wasPressed('more')) { this.crowd.interact(best, 'wave', P); P.ch.anim.play('wave', 1.5); }
-      else if (Input.wasPressed('insult')) { this.crowd.interact(best, 'insult', P); P.ch.anim.play('point', 1.2); this.hud.subtitle('Dineth', ['Move, machan!', 'Watch where you\'re going!', 'Nice shirt. Did your grandmother pick it?'][Math.floor(Math.random() * 3)], '', 2); }
+      else if (Input.wasPressed('insult')) { this.crowd.interact(best, 'insult', P); P.ch.anim.play('point', 1.2); this.hud.subtitle(this.squad.activeMember.def.name, ['Move, machan!', 'Watch where you\'re going!', 'Nice shirt. Did your grandmother pick it?'][Math.floor(Math.random() * 3)], '', 2); }
       else if (Input.wasPressed('shove')) { this.crowd.interact(best, 'shove', P); P.ch.anim.play('shove', 0.6); }
       return `${key('interact')} Talk · ${key('more')} Wave · ${key('insult')} Insult · ${key('shove')} Shove`;
     }

@@ -24,7 +24,7 @@ export class Director {
   after(sec, fn) { this.timers.push({ t: this.time + sec, fn }); }
   // the character speaking a line: explicit actor, a registered actor by id or (case-insensitive) display name, or the player
   speakerFor(who, actor) {
-    if (actor) return actor; if (this.actors.has(who)) return this.actors.get(who); if (who === 'Dineth') return this.g.player.ch;
+    if (actor) return actor; if (this.actors.has(who)) return this.actors.get(who); const sq = this.g.squad; if (sq) { const m = sq.members.find((q) => q.def.name === who); if (m && m.ch) return m.ch; } if (who === 'Dineth') return this.g.player.ch;
     const k = String(who).toLowerCase().replace(/^(mr|mrs|uncle|aunty)\.?\s+/, ''); for (const [id, a] of this.actors) if (id.toLowerCase() === k || id.toLowerCase() === String(who).toLowerCase()) return a; return null;
   }
   say(who, text, dur = null, tr = '', lang = 'en', actor = null) {

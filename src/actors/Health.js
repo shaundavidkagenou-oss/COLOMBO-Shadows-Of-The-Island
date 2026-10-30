@@ -25,6 +25,7 @@ export class Health {
   set hp(v) { this.g.story.state.health = Math.max(0, Math.min(100, v)); }
   damage(n, cause) {
     const g = this.g; if (this.busy || !(n > 0) || g.director.active || g.mode !== 'play') return;
+    n *= (g.player && g.player.perk && g.player.perk.armor) || 1; // Shashika's plate carrier takes some of it
     this.hp = this.hp - n; this.lastHurt = g.clock; this.stats.lastCause = cause; g.hud.hurt?.(Math.min(1, n / 40));
     if (this.hp <= 0) this.hospitalise(cause);
   }

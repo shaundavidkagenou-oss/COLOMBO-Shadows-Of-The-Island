@@ -494,3 +494,31 @@ select { background: #0e1318; color: var(--paper); border: 1px solid rgba(255, 2
 @keyframes s2shake { 0%, 100% { transform: none; } 20% { transform: translate(3px, -2px); } 40% { transform: translate(-3px, 2px); } 60% { transform: translate(2px, 1px); } 80% { transform: translate(-1px, -1px); } }
 .studio2.ignite.out { animation: s2fade 1.3s ease forwards; }
 .studio2.named .s2-load { opacity: 0; transition: opacity .6s; }
+
+/* ---------------------------------------------------------------- squad (switching): mini indicator, selector strip, messages */
+.sq-mini { position: absolute; left: 28px; bottom: 262px; display: flex; gap: 6px; transition: opacity 0.3s ease; }
+.sq-mini.hide { opacity: 0; pointer-events: none; }
+.sq-m { position: relative; width: 30px; height: 30px; border: 1px solid rgba(255, 255, 255, 0.22); background: rgba(8, 11, 16, 0.62); clip-path: polygon(0 0, 100% 0, 100% 72%, 76% 100%, 0 100%); display: grid; place-items: center; font-family: var(--f-hud); font-weight: 700; font-size: 13px; color: rgba(255, 255, 255, 0.55); }
+.sq-m.active { border-color: var(--acc); color: #fff; background: color-mix(in srgb, var(--acc) 30%, rgba(8, 11, 16, 0.72)); }
+.sq-m i { position: absolute; left: 3px; bottom: 3px; height: 2px; background: var(--acc); max-width: calc(100% - 6px); }
+.sq-strip { position: absolute; left: 50%; bottom: 34px; transform: translate(-50%, 14px); display: flex; gap: 10px; align-items: stretch; opacity: 0; pointer-events: none; transition: opacity 0.18s ease, transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.sq-strip.on { opacity: 1; transform: translate(-50%, 0); }
+.sq-card { position: relative; width: 210px; display: flex; gap: 10px; align-items: center; padding: 8px 12px 8px 8px; background: linear-gradient(100deg, rgba(8, 11, 16, 0.86), rgba(8, 11, 16, 0.6)); border: 1px solid rgba(255, 255, 255, 0.12); border-left: 3px solid var(--acc); clip-path: polygon(0 0, 100% 0, 100% 78%, 93% 100%, 0 100%); transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease; }
+.sq-card.active { background: linear-gradient(100deg, color-mix(in srgb, var(--acc) 34%, rgba(8, 11, 16, 0.9)), rgba(8, 11, 16, 0.66)); }
+.sq-card.pick { transform: translateY(-8px); border-color: rgba(255, 255, 255, 0.55); border-left-color: var(--acc); box-shadow: 0 0 0 1px var(--acc) inset; }
+.sq-card.no { opacity: 0.55; }
+.sq-por { position: relative; width: 54px; height: 54px; flex: none; overflow: hidden; background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--acc) 45%, #20262e), #0b0e13 75%); clip-path: polygon(0 0, 100% 0, 100% 80%, 80% 100%, 0 100%); }
+.sq-por img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; }
+.sq-por b { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--f-title); font-size: 26px; color: rgba(255, 255, 255, 0.8); }
+.sq-card.has-img .sq-por img { opacity: 1; }
+.sq-card.has-img .sq-por b { display: none; }
+.sq-txt { min-width: 0; flex: 1; }
+.sq-name { font-family: var(--f-hud); font-weight: 700; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sq-role { font-family: var(--f-hud); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--acc); margin-top: 1px; }
+.sq-hp { height: 3px; background: rgba(255, 255, 255, 0.12); margin: 5px 0 4px; }
+.sq-hp i { display: block; height: 100%; background: linear-gradient(90deg, #d9ffe4, #7fd59a); }
+.sq-st { font-size: 11px; color: rgba(255, 255, 255, 0.7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sq-card kbd { position: absolute; top: 6px; right: 8px; font-size: 10px; }
+.sq-hint { position: absolute; left: 50%; bottom: calc(100% + 10px); transform: translateX(-50%); white-space: nowrap; font-family: var(--f-hud); font-size: 11px; letter-spacing: 0.08em; color: rgba(255, 255, 255, 0.78); text-shadow: 0 1px 3px #000; }
+.sq-msg { position: absolute; left: 50%; bottom: 196px; transform: translate(-50%, 6px); padding: 6px 16px; background: rgba(8, 11, 16, 0.78); border-left: 3px solid var(--gold2); font-family: var(--f-hud); font-size: 13px; letter-spacing: 0.06em; color: #fff; opacity: 0; transition: opacity 0.2s ease, transform 0.2s ease; pointer-events: none; }
+.sq-msg.on { opacity: 1; transform: translate(-50%, 0); }

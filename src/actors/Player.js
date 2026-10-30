@@ -35,13 +35,14 @@ export class Player {
     }
     this.crouching = this.control && Input.isDown('crouch');
     this.sprinting = this.control && Input.isDown('sprint') && mag > 0.3 && this.stamina > 0.05 && !this.crouching && !this.aiming;
-    this.stamina = clamp(this.stamina + (this.sprinting ? -dt * 0.09 : dt * 0.15), 0, 1);
-    const maxSp = this.aiming ? (this.scoped ? 0.9 : 1.8) : this.crouching ? 1.4 : this.sprinting ? 6.6 : mag > 0.85 ? 3.4 : 1.5;
+    const pk = this.perk || { speed: 1, stamina: 1 }; // squad member: Dineth runs faster and longer, Shashika is heavier
+    this.stamina = clamp(this.stamina + (this.sprinting ? -dt * 0.09 / pk.stamina : dt * 0.15), 0, 1);
+    const maxSp = (this.aiming ? (this.scoped ? 0.9 : 1.8) : this.crouching ? 1.4 : this.sprinting ? 6.6 : mag > 0.85 ? 3.4 : 1.5) * (this.aiming ? 1 : pk.speed);
     let dirYaw = this.yaw;
     if (mag > 0.05) { const camF = this.camYaw + Math.PI; dirYaw = camF + Math.atan2(-mx, my); }
     const target = mag > 0.05 ? maxSp * Math.max(mag, 0.5) : 0;
     this.speed = damp(this.speed, target, target > this.speed ? 6 : 10, dt);
-    const prevYaw = this.yaw; if (this.aiming) this.yaw = dampAngle(this.yaw, this.camYaw + Math.PI, 18, dt); else if (mag > 0.05) this.yaw = dampAngle(this.yaw, dirYaw, this.sprinting ? 7 : 10, dt);
+    const prevYaw = this.yaw; const fpArmed = this.camMode === 2 && this.weapons && this.weapons.drawn; if (this.aiming || fpArmed) this.yaw = dampAngle(this.yaw, this.camYaw + Math.PI, this.camMode === 2 ? 40 : 18, dt); /* first person with a weapon up: the body (and the weapon) face the view */ else if (mag > 0.05) this.yaw = dampAngle(this.yaw, dirYaw, this.sprinting ? 7 : 10, dt);
     const moveYaw = this.aiming && mag > 0.05 ? dirYaw : this.yaw; // strafing while aiming: body faces the aim, feet follow the input
     const turnRate = wrapAngle(this.yaw - prevYaw) / Math.max(dt, 1e-4);
     let nx = this.x + Math.sin(moveYaw) * this.speed * dt, nz = this.z + Math.cos(moveYaw) * this.speed * dt;
@@ -206,12 +207,19 @@ export class Player {
       const pitch = clamp(this.camPitch - 0.18, -0.6, 0.5); cam.lookAt(eye.x + Math.sin(yaw) * Math.cos(pitch), eye.y - Math.sin(pitch), eye.z + Math.cos(yaw) * Math.cos(pitch));
       if (Math.abs(cam.fov - 68) > 0.05) { cam.fov = damp(cam.fov, 68, 6, dt); cam.updateProjectionMatrix(); } this.ch.mesh.visible = true; return;
     }
-    if (this.camMode === 2 && !v) { // first person
-      const h = this.ch.bones.head; h.updateWorldMatrix(true, false); const hp = new THREE.Vector3().setFromMatrixPosition(h.matrixWorld);
-      cam.position.copy(hp).add(new THREE.Vector3(Math.sin(this.camYaw + Math.PI) * 0.12, 0.05, Math.cos(this.camYaw + Math.PI) * 0.12));
-      cam.lookAt(cam.position.x + Math.sin(this.camYaw + Math.PI) * Math.cos(this.camPitch), cam.position.y - Math.sin(this.camPitch), cam.position.z + Math.cos(this.camYaw + Math.PI) * Math.cos(this.camPitch));
-      this.ch.mesh.visible = false; return;
+    if (this.camMode === 2 && !v) { // first person: true body awareness — the real body, arms and weapon stay visible, only the head collapses
+      const b = this.ch.bones, h = b.head; b.neck.updateWorldMatrix(true, false); h.scale.setScalar(0.001); this.fpHead = h; h.updateWorldMatrix(false, false);
+      const s = this.ch.spec.height / 1.72; const hp = new THREE.Vector3().setFromMatrixPosition(h.matrixWorld); const yaw = this.camYaw + Math.PI;
+      const eye = hp.add(new THREE.Vector3(Math.sin(yaw) * 0.1 * s, 0.075 * s, Math.cos(yaw) * 0.1 * s));
+      const look = new THREE.Vector3(Math.sin(yaw) * Math.cos(this.camPitch), -Math.sin(this.camPitch), Math.cos(yaw) * Math.cos(this.camPitch));
+      const ads = this.weapons && this.weapons.fpSight ? this.weapons.fpSight() : null; // aim down the real sights of the weapon in the hands
+      if (ads && ads.w > 0.001) { eye.lerp(ads.eye, ads.w); look.lerp(ads.dir, ads.w).normalize(); }
+      cam.position.copy(eye); cam.lookAt(eye.x + look.x, eye.y + look.y, eye.z + look.z);
+      if (this.shake > 0 && Settings.get('cameraShake')) { cam.rotateX((Math.random() - 0.5) * this.shake * 0.02); cam.rotateY((Math.random() - 0.5) * this.shake * 0.02); this.shake = Math.max(0, this.shake - dt * 2.5); }
+      const fovW = Settings.get('fov') - (ads ? ads.w * (ads.zoom || 8) : 0); if (Math.abs(cam.fov - fovW) > 0.05 || cam.near !== 0.07) { cam.fov = damp(cam.fov, fovW, 10, dt); cam.near = 0.07; cam.updateProjectionMatrix(); }
+      this.ch.mesh.visible = true; return;
     }
+    if (this.fpHead) { this.fpHead.scale.setScalar(1); this.fpHead = null; } if (cam.near !== 0.25) { cam.near = 0.25; cam.updateProjectionMatrix(); }
     this.ch.mesh.visible = true;
     const cp = Math.cos(this.camPitch), spch = Math.sin(this.camPitch);
     const want = new THREE.Vector3(tgt.x + Math.sin(this.camYaw) * cp * dist, tgt.y + spch * dist, tgt.z + Math.cos(this.camYaw) * cp * dist);

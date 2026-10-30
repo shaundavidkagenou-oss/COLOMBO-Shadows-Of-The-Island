@@ -9,7 +9,7 @@ class InputSystem {
     this.pad = { lx: 0, ly: 0, rx: 0, ry: 0, lt: 0, rt: 0, buttons: [], prev: [] };
     addEventListener('keydown', (e) => {
       if (this.capture) { e.preventDefault(); const c = this.capture; this.capture = null; c(e.code); return; }
-      if (['Space', 'Tab', 'ArrowUp', 'ArrowDown'].includes(e.code) && document.activeElement === document.body) e.preventDefault();
+      if (['Space', 'Tab', 'ArrowUp', 'ArrowDown'].includes(e.code) && document.activeElement === document.body) e.preventDefault(); if (e.code === 'F1' || e.code === 'F2' || e.code === 'F3') e.preventDefault(); // squad switch keys (not browser help / search)
       if (!this.down.has(e.code)) this.pressed.add(e.code);
       this.down.add(e.code); bus.emit('key', e.code);
     });
@@ -31,7 +31,7 @@ class InputSystem {
   }
   wasPressed(action) { return this.pressed.has(this.code(action)) || this.padPressed(action); }
   keyPressed(code) { return this.pressed.has(code); }
-  padMap(action) { return { jump: 0, enter: 3, interact: 2, insult: 1, sprint: 10, crouch: 11, horn: 10, camera: 8, map: 8, more: 4, shove: 5, phone: 12 }[action]; }
+  padMap(action) { return { jump: 0, enter: 3, interact: 2, insult: 1, sprint: 10, crouch: 11, horn: 10, camera: 8, map: 8, shove: 5, phone: 12 } /* LB (4) = squad switch (tap next / hold selector) */[action]; }
   padDown(action) { const b = this.padMap(action); return b !== undefined && !!this.pad.buttons[b]; }
   padPressed(action) { const b = this.padMap(action); return b !== undefined && !!this.pad.buttons[b] && !this.pad.prev[b]; }
   // Movement axes (-1..1)
