@@ -349,7 +349,7 @@ export class Squad {
     m.speed = damp(m.speed, mb.speed, mb.speed > m.speed ? 5 : 8, dt); const prev = m.yaw; if (m.speed > 0.1) m.yaw = dampAngle(m.yaw, mb.yaw, m.speed > 4 ? 7 : 9, dt);
     let nx = m.x + Math.sin(m.yaw) * m.speed * dt, nz = m.z + Math.cos(m.yaw) * m.speed * dt;
     if (bodies.length) { const q = separate(bodies, nx, nz, m.y, 0.32, m.ch, 0.5); if (q.hit) { nx = q.x; nz = q.z; } }
-    if (!col.walkableWater(nx, nz, m.y)) { nx = m.x; nz = m.z; m.speed *= 0.5; }
+    if (!col.walkableWater(nx, nz, m.y) && col.walkableWater(m.x, m.z, m.y)) { nx = m.x; nz = m.z; m.speed *= 0.5; }
     const r = col.resolveCircle(nx, nz, 0.32, m.y, 0.45, 1.75); nx = r.x; nz = r.z;
     const tr = g.traffic; if (tr) for (const v of tr.all()) { const lim = 3 + (v.T ? v.T.len / 2 : 5); if (Math.abs(v.x - nx) > lim || Math.abs(v.z - nz) > lim) continue; const q = v.pushOut(nx, nz, 0.32); if (q) { nx = q.x; nz = q.z; } }
     m.x = nx; m.z = nz; const gy = col.groundAt(m.x, m.z, m.y + 0.5, 0.6); m.y = Math.abs(gy - m.y) > 1.2 ? gy : damp(m.y, gy, 18, dt);

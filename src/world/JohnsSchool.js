@@ -63,7 +63,7 @@ export function buildJohnsSchool({ mb, box, coll, label, group, LAND_Y, SANS, SI
   const wallSeg = (x0, x1, z0, z1) => { box(paint, (x0 + x1) / 2, y0 + 0.95, (z0 + z1) / 2, x1 - x0, 1.9, z1 - z0, CREAM); box(paint, (x0 + x1) / 2, y0 + 1.95, (z0 + z1) / 2, x1 - x0 + 0.08, 0.1, z1 - z0 + 0.08, MAROON); coll(x0, x1, z0, z1, y0 + 2.05); };
   const T = 0.25, G = S.gate, Wk = S.wicket;
   wallSeg(wx0, G.x0 - 0.35, wz0 - T / 2, wz0 + T / 2); wallSeg(G.x1 + 0.7, Wk.x0, wz0 - T / 2, wz0 + T / 2); wallSeg(Wk.x1 + 0.35, wx1, wz0 - T / 2, wz0 + T / 2);
-  wallSeg(wx0, wx1, wz1 - T / 2, wz1 + T / 2); wallSeg(wx0 - T / 2, wx0 + T / 2, wz0, wz1); wallSeg(wx1 - T / 2, wx1 + T / 2, wz0, wz1);
+  wallSeg(wx0, wx1, wz1 - T / 2, wz1 + T / 2); wallSeg(wx0 - T / 2, wx0 + T / 2, wz0 - T / 2, wz1 + T / 2); wallSeg(wx1 - T / 2, wx1 + T / 2, wz0 - T / 2, wz1 + T / 2); /* side walls run past the corners: no notches */
   for (let x = wx0 + 8; x < wx1 - 4; x += 8) if (x < G.x0 - 1 || x > Wk.x1 + 1) box(paint, x, y0 + 1.05, wz0, 0.45, 2.1, 0.45, CREAM); // wall piers
   const pillar = (x, h) => { box(paint, x, y0 + h / 2, wz0, 0.7, h, 0.7, CREAM); box(paint, x, y0 + h + 0.08, wz0, 0.86, 0.16, 0.86, MAROON); coll(x - 0.35, x + 0.35, wz0 - 0.35, wz0 + 0.35, y0 + h); };
   pillar(G.x0 - 0.35, 4.0); pillar(G.x1 + 0.35, 4.0); pillar(Wk.x1 + 0.35, 2.4);

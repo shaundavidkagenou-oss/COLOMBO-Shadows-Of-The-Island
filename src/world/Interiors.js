@@ -108,6 +108,9 @@ export class Interiors {
     if (!want) for (const p of g.hqLife?.people || []) if (p.ch?.root && Math.abs(p.ch.root.position.x - ex) < 2.6 && Math.abs(p.ch.root.position.z - ez) < 2.8) { want = 1; break; }
     this.doorK = (this.doorK || 0) + Math.sign(want - (this.doorK || 0)) * Math.min(Math.abs(want - (this.doorK || 0)), dt / 0.7);
     const leaves = g.world?.landmarks?.anim?.hqDoors; if (leaves) { const e = (1 - Math.cos(this.doorK * Math.PI)) / 2; for (const lf of leaves) lf.position.x = lf.userData.home + lf.userData.dir * lf.userData.w * 0.95 * e; }
+    // closed / half-open glass is solid: the opening only becomes passable once the leaves have slid ~70 % clear
+    if (this.hqDoorColl === undefined) this.hqDoorColl = (g.collision?.list || []).find((c) => c.id === 'hqDoors') || null;
+    if (this.hqDoorColl) { const c = this.hqDoorColl; if (c.hFull === undefined) c.hFull = c.h; c.h = this.doorK > 0.7 ? 0 : c.hFull; }
     // hand-over between the world and the room model
     if (P.indoor === r) { if (P.z < r.front - 0.05 || P.vehicle || P.z > r.front + r.depth + 1 || P.x < r.bounds.x0 - 1 || P.x > r.bounds.x1 + 1 || P.y < r.y - 1.5) P.indoor = null; } // any exit (door, or a teleport: arrest, hospital) releases the room model
     else if (!P.indoor && !P.vehicle && !this.current && P.z > r.front + 0.3 && P.z < r.front + r.depth && P.x > r.bounds.x0 && P.x < r.bounds.x1 && P.y > r.y - 0.6 && P.y < r.y + 2 * r.H) P.indoor = r;

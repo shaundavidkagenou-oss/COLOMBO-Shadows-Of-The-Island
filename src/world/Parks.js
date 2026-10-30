@@ -3,18 +3,22 @@
 // desire-line footpaths across Galle Face Green. The path/hedge description lives here so CityPlan (tree, bench, lamp and
 // collider placement), the grass blade field (no blades on paths or beds) and the renderer all agree.
 import * as THREE from 'three';
-import { LAND_Y } from './Layout.js';
+import { LAND_Y, cellAt } from './Layout.js';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { RNG } from '../core/rng.js';
 
-const VM = { cx: 90, cz: -60, x0: -10, x1: 190, z0: -170, z1: 40 };
+// The park's real lawn = the zone rectangle minus the boundary roads and their pavements (Ananda Coomaraswamy Mw. on the
+// south, Green Path on the west): every path, hedge, bed, lamp and tree is laid out inside these bounds, never on a road.
+const ZONE = { x0: -10, x1: 190, z0: -170, z1: 40 };
+const lotEdge = (x, z, k, fb) => { const c = cellAt(x, z); return c ? c.lot[k] : fb; };
+const VM = { cx: 90, cz: -60, x0: lotEdge(ZONE.x0 + 0.5, -60, 0, ZONE.x0), x1: lotEdge(ZONE.x1 - 0.5, -60, 1, ZONE.x1), z0: lotEdge(90, ZONE.z0 + 0.5, 2, ZONE.z0), z1: lotEdge(90, ZONE.z1 - 0.5, 3, ZONE.z1) };
 const IN = 7; // perimeter walk inset from the park edge
 export const PARK = VM;
 // straight paths: [ax, az, bx, bz, width, material]
 export const PATH_SEGS = [
   // axial avenues from the promenade ring to the four gates
-  [VM.cx + 28.7, VM.cz, VM.x1 + 0.5, VM.cz, 4.2, 'walkGrey'], [VM.x0 - 0.5, VM.cz, VM.cx - 28.7, VM.cz, 4.2, 'walkGrey'],
-  [VM.cx, VM.z0 - 0.5, VM.cx, VM.cz - 28.7, 4.2, 'walkGrey'], [VM.cx, VM.cz + 28.7, VM.cx, VM.z1 + 0.5, 4.2, 'walkGrey'],
+  [VM.cx + 28.7, VM.cz, VM.x1 - 0.05, VM.cz, 4.2, 'walkGrey'], [VM.x0 + 0.05, VM.cz, VM.cx - 28.7, VM.cz, 4.2, 'walkGrey'],
+  [VM.cx, VM.z0 + 0.05, VM.cx, VM.cz - 28.7, 4.2, 'walkGrey'], [VM.cx, VM.cz + 28.7, VM.cx, VM.z1 - 0.05, 4.2, 'walkGrey'],
   // spokes from the fountain plaza to the ring
   [VM.cx + 15, VM.cz, VM.cx + 25.3, VM.cz, 3, 'walkGrey'], [VM.cx - 25.3, VM.cz, VM.cx - 15, VM.cz, 3, 'walkGrey'],
   [VM.cx, VM.cz - 25.3, VM.cx, VM.cz - 15, 3, 'walkGrey'], [VM.cx, VM.cz + 15, VM.cx, VM.cz + 25.3, 3, 'walkGrey'],

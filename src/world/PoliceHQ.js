@@ -53,7 +53,7 @@ export function buildPoliceHQ({ mb, box, coll, label, group, LAND_Y, SANS, SI, T
     const np = Math.max(1, Math.round(len / 3.6)); for (let k = 0; k <= np; k++) { const t = k / np; box(conc, ax + (bx - ax) * t, y0 + 1.15, az + (bz - az) * t, 0.46, 2.3, 0.46, WALLC, { uv: 2 }); }
     coll(Math.min(ax, bx) - 0.2, Math.max(ax, bx) + 0.2, Math.min(az, bz) - 0.2, Math.max(az, bz) + 0.2, 2.3, { kind: 'wall' });
   };
-  fence(fx0, fz0, G.x - G.w / 2 - 0.6, fz0); fence(G.x + G.w / 2 + 0.6, fz0, Wk.x - Wk.w / 2 - 0.3, fz0); fence(Wk.x + Wk.w / 2 + 0.3, fz0, fx1, fz0);
+  fence(fx0, fz0, G.x - G.w / 2 - 0.6, fz0); fence(G.x + G.w / 2 + 0.6, fz0, Wk.x - Wk.w / 2 - 0.2, fz0); fence(Wk.x + Wk.w / 2 + 0.2, fz0, fx1, fz0); /* end pillars meet the wicket leaf frame */
   fence(fx0, fz1, fx1, fz1); fence(fx0, fz0, fx0, fz1); fence(fx1, fz0, fx1, fz1);
   for (const gx of [G.x - G.w / 2 - 0.6, G.x + G.w / 2 + 0.6]) { // gate pillars with lamps
     box(conc, gx, y0 + 1.5, fz0, 1.0, 3.0, 1.0, '#dcd5c6', { uv: 2 }); box(conc, gx, y0 + 3.05, fz0, 1.2, 0.12, 1.2, '#bdb4a2');
@@ -124,12 +124,15 @@ export function buildPoliceHQ({ mb, box, coll, label, group, LAND_Y, SANS, SI, T
       const bar = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.9, 0.04), new THREE.MeshStandardMaterial({ color: 0xc8ccd0, metalness: 0.9, roughness: 0.25 })); bar.position.set(-sd * (w / 2 - 0.15), 1.05, -0.05); lf.add(bar);
       lf.position.set(px + sd * w / 2, y0 + 0.9, bz0 + 0.05); lf.userData.home = px + sd * w / 2; lf.userData.dir = sd; lf.userData.w = w; group.add(lf); leaves.push(lf); }
     anim.hqDoors = leaves; // (the blue first-floor band above acts as the door header)
+    // the closed leaves are solid glass: a barrier across the opening that Interiors drops only once the doors have slid open
+    coll(E.x0, E.x1, bz0 - 0.04, bz0 + 0.14, y0 + 0.9 + E.h, { kind: 'barrier', id: 'hqDoors' });
   }
   // signage: trilingual name board above the portico + badge disc
-  label([{ text: 'ශ්‍රී ලංකා පොලිසිය  ·  இலங்கை பொலிஸ்', font: SI(54), color: '#f1d27a' }, { text: 'POLICE HEADQUARTERS', font: SANS(118), color: '#ffffff' }, { text: 'පොලිස් මූලස්ථානය  ·  பொலிஸ் தலைமையகம்', font: SI(60), color: '#ffffff' }], px, y0 + 6.3, -205.12, 15, 2.6, Math.PI, { w: 1536, h: 300, bg: '#1d3a7a', border: '#d9b13b' });
+  label([{ text: 'ශ්‍රී ලංකා පොලිසිය  ·  இலங்கை பொலிஸ்', font: SI(54), color: '#f1d27a' }, { text: 'POLICE HEADQUARTERS', font: SANS(118), color: '#ffffff' }, { text: 'පොලිස් මූලස්ථානය  ·  பொலிஸ் தலைமையகம்', font: SI(60), color: '#ffffff' }], px, y0 + 6.3, -205.275, 15, 2.6, Math.PI, { w: 1536, h: 300, bg: '#1d3a7a', border: '#d9b13b' });
+  box(paint, px, y0 + 6.3, -205.21, 15.2, 2.8, 0.1, '#14295a'); // fascia backing: the board stands proud of the blue floor band (no band across the lettering)
   { const c = document.createElement('canvas'); c.width = c.height = 256; const g2 = c.getContext('2d'); g2.fillStyle = '#d9b13b'; g2.beginPath(); g2.arc(128, 128, 124, 0, 7); g2.fill(); g2.fillStyle = '#1d3a7a'; g2.beginPath(); g2.arc(128, 128, 104, 0, 7); g2.fill();
     g2.fillStyle = '#d9b13b'; g2.beginPath(); for (let k = 0; k < 16; k++) { const a = (k / 16) * Math.PI * 2 - Math.PI / 2, r = k % 2 ? 36 : 82; g2.lineTo(128 + Math.cos(a) * r, 128 + Math.sin(a) * r); } g2.fill(); // generic star badge (not the official crest)
-    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; const m = new THREE.Mesh(new THREE.CircleGeometry(1.1, 32), new THREE.MeshStandardMaterial({ map: t, roughness: 0.5, metalness: 0.2 })); m.position.set(px, y0 + 9.3, -205.1); m.rotation.y = Math.PI; group.add(m); }
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; const m = new THREE.Mesh(new THREE.CircleGeometry(1.1, 32), new THREE.MeshStandardMaterial({ map: t, roughness: 0.5, metalness: 0.2 })); m.position.set(px, y0 + 9.0, -205.24); m.rotation.y = Math.PI; group.add(m); const rim = new THREE.Mesh(new THREE.CylinderGeometry(1.17, 1.17, 0.07, 40), new THREE.MeshStandardMaterial({ color: 0x14295a, roughness: 0.5, metalness: 0.3 })); rim.rotation.x = Math.PI / 2; rim.position.set(px, y0 + 9.0, -205.2); group.add(rim); }
 
   // ---------------------------------------------------------------- motorcycle shed (west strip) + car-park lighting
   { const x0 = -51.2, x1 = -44.2, z0 = -204.2, z1 = -190.6; for (const [x, z] of [[x0 + 0.2, z0 + 0.2], [x1 - 0.2, z0 + 0.2], [x0 + 0.2, z1 - 0.2], [x1 - 0.2, z1 - 0.2]]) { metal.box(x, y0 + 1.4, z, 0.12, 2.8, 0.12, { col: C('#5a6068') }); coll(x - 0.1, x + 0.1, z - 0.1, z + 0.1, 2.8, { kind: 'pole' }); }
@@ -143,7 +146,7 @@ export function buildPoliceHQ({ mb, box, coll, label, group, LAND_Y, SANS, SI, T
     const cols = ['#d6304a', '#f2b632', '#f2f2ee', '#e86a1c', '#b8327a']; let k = seed; for (let i = 0; i < w / 0.35; i++) for (let j = 0; j < d / 0.35; j++) { k = (k * 9301 + 49297) % 233280; leaves.box(x - w / 2 + 0.18 + i * 0.35, y0 + 0.42, z - d / 2 + 0.18 + j * 0.35, 0.22, 0.22, 0.22, { col: C(k % 3 ? '#4f8a3a' : cols[k % cols.length]) }); } coll(x - w / 2 - 0.1, x + w / 2 + 0.1, z - d / 2 - 0.1, z + d / 2 + 0.1, 0.8, { kind: 'low' }); };
   bed(px - 12, -207.4, 5, 1.2, 3); bed(px + 12, -207.4, 5, 1.2, 7); bed(4, -223.2, 3.4, 1.4, 11); bed(-26, -216.2, 2.4, 2.4, 5);
   { const mx = 12, mz = -224.6; box(conc, mx, y0 + 0.2, mz, 11, 0.4, 1.6, '#b9b09e', { uv: 3 }); box(conc, mx, y0 + 1.2, mz, 10, 1.8, 0.7, '#e9e2d2', { uv: 3 }); box(paint, mx, y0 + 2.16, mz, 10.2, 0.12, 0.8, '#1d3a7a'); coll(mx - 5.5, mx + 5.5, mz - 0.8, mz + 0.8, 2.2);
-    label([{ text: 'ශ්‍රී ලංකා පොලිසිය', font: SI(70), color: '#1d3a7a' }, { text: 'SRI LANKA POLICE HEADQUARTERS', font: SANS(96), color: '#1d3a7a' }, { text: 'இலங்கை பொலிஸ் தலைமையகம்', font: TA(64), color: '#1d3a7a' }], mx, y0 + 1.22, mz - 0.37, 9.4, 1.55, Math.PI, { w: 1536, h: 260, bg: '#f5f1e6' }); }
+    label([{ text: 'ශ්‍රී ලංකා පොලිසිය', font: SI(70), color: '#1d3a7a' }, { text: 'SRI LANKA POLICE HEADQUARTERS', font: SANS(84), color: '#1d3a7a' }, { text: 'இலங்கை பொலிஸ் தலைமையகம்', font: TA(64), color: '#1d3a7a' }], mx, y0 + 1.22, mz - 0.37, 9.4, 1.55, Math.PI, { w: 1536, h: 260, bg: '#f5f1e6' }); }
   // HQ name on Union Place facing the street (small plate on the fence by the gate)
-  label([{ text: 'POLICE HEADQUARTERS', font: SANS(100), color: '#ffffff' }, { text: 'පොලිස් මූලස්ථානය  ·  பொலிஸ் தலைமையகம்', font: SI(56), color: '#ffffff' }], G.x - G.w / 2 - 0.6, y0 + 2.2, fz0 - 0.52, 0.95, 0.45, Math.PI, { w: 512, h: 240, bg: '#1d3a7a' });
+  label([{ text: 'POLICE HEADQUARTERS', font: SANS(92), color: '#ffffff' }, { text: 'පොලිස් මූලස්ථානය', font: SI(78), color: '#ffffff' }, { text: 'பொலிஸ் தலைமையகம்', font: TA(70), color: '#ffffff' }], G.x - G.w / 2 - 0.6, y0 + 2.15, fz0 - 0.53, 0.95, 0.62, Math.PI, { w: 1024, h: 668, bg: '#1d3a7a', border: '#d9b13b' });
 }

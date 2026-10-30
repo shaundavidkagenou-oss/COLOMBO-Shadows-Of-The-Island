@@ -2,7 +2,7 @@
 import { nearestS } from './Railway.js';
 import { RNG, hash2 } from '../core/rng.js';
 import * as L from './Layout.js';
-import { onParkFeature, parkColliders, parkLamps } from './Parks.js';
+import { onParkFeature, parkColliders, parkLamps, PARK } from './Parks.js';
 import { SIGNS, SHOP_ROWS } from '../gfx/Textures.js';
 
 export const CHUNK = 200;
@@ -172,7 +172,7 @@ function genVilla(rng, cell, residential = false) {
   const depth = Math.min(residential ? 22 : 34, D / (cell.T && cell.B ? 2 : 1));
   const wallCol = rng.pick(['#ece6d8', '#f2efe6', '#e2d8c4', '#d8d0c0']);
   for (const side of sideList) {
-    let t = 0;
+    let t = 0, lastB = null; // lastB: x of the previous plot's east side wall (shared boundary → one wall, not two)
     while (t < W - 8) {
       let w = rng.range(plotW[0], plotW[1]); if (W - t - w < plotW[0]) w = W - t;
       const a = lx0 + t, b = lx0 + t + w; t += w;
@@ -186,10 +186,16 @@ function genVilla(rng, cell, residential = false) {
         groundRow: null, roof: apt ? 'flat' : rng.chance(residential ? 0.6 : 0.85) ? 'tile' : 'flat', tanks: residential, balconies: apt, porch: !apt && rng.chance(0.6), uOff: rng.int(0, 3) / 4 });
       // compound wall along road with a gate gap
       const wz = side === 'N' ? c + 0.15 : d - 0.15; const gate = a + w * rng.range(0.3, 0.7);
-      addWall(a + 0.1, gate - 2, wz - 0.12, wz + 0.12, residential ? 1.6 : 2.0, wallCol);
-      addWall(gate + 2, b - 0.1, wz - 0.12, wz + 0.12, residential ? 1.6 : 2.0, wallCol);
-      addProp('gate', gate, wz, side === 'N' ? 0 : Math.PI, { w: 4 });
-      addPOI('door', gate, side === 'N' ? wz - 1.2 : wz + 1.2, side === 'N' ? 0 : Math.PI, {});
+      // closed compound: front wall (gate gap), side walls on the plot lines and a back wall — every run meets the next one
+      const wh = residential ? 1.6 : 2.0, wb = side === 'N' ? d - 0.15 : c + 0.15, zlo = Math.min(wz, wb) - 0.12, zhi = Math.max(wz, wb) + 0.12;
+      addWall(a, gate - 2, wz - 0.12, wz + 0.12, wh, wallCol);
+      addWall(gate + 2, b, wz - 0.12, wz + 0.12, wh, wallCol);
+      addWall(a, b, wb - 0.12, wb + 0.12, wh, wallCol);
+      if (lastB === null || Math.abs(lastB - a) > 0.01) addWall(a - 0.12, a + 0.12, zlo, zhi, wh, wallCol);
+      addWall(b - 0.12, b + 0.12, zlo, zhi, wh, wallCol); lastB = b;
+      if (!inSchool(gate, wz)) { addProp('gate', gate, wz, side === 'N' ? 0 : Math.PI, { w: 4 });
+      plan.colliders.push({ x0: gate - 2.28, x1: gate + 2.28, z0: wz - 0.18, z1: wz + 0.18, h: 2.2, kind: 'wall' }); // closed iron gate + its two pillars are solid
+      addPOI('door', gate, side === 'N' ? wz - 1.2 : wz + 1.2, side === 'N' ? 0 : Math.PI, {}); }
       // garden trees
       const ntrees = residential ? rng.int(0, 2) : rng.int(1, 4);
       for (let k = 0; k < ntrees; k++) {
@@ -335,7 +341,7 @@ export function generatePlan() {
   for (let k = 0; k < 9; k++) { const z = -400 + k * 16, x = L.coastX(z) + 24; addProp('foodcart', x, z, -Math.PI / 2, { seed: k }); addPOI('vendor', x + 1.4, z, -Math.PI / 2, { cart: true }); plan.colliders.push({ x0: x - 1.1, x1: x + 1.1, z0: z - 1.6, z1: z + 1.6, h: 2.2, kind: 'cart' }); }
   for (let k = 0; k < 40; k++) addPOI('lawn', rng.range(-490, -425), rng.range(-640, -260), rng.range(0, 6.28), {});
   // parks: Viharamahadevi
-  const vm = L.zoneById('vmpark').rect;
+  const vm = [PARK.x0, PARK.x1, PARK.z0, PARK.z1]; // the lawn itself (zone rect minus boundary roads + pavements)
   for (let k = 0; k < 70; k++) { const x = rng.range(vm[0] + 6, vm[1] - 6), z = rng.range(vm[2] + 6, vm[3] - 6); if (Math.hypot(x - 90, z + 60) > 22 && !onParkFeature(x, z, 2.2)) addTree(rng.pick(['rain', 'rain', 'bo', 'palm', 'frangipani']), x, z, rng.range(0.9, 1.4)); }
   for (let k = 0; k < 14; k++) { const a = k / 14 * Math.PI * 2; const x = 90 + Math.cos(a) * 30, z = -60 + Math.sin(a) * 30; addProp('bench', x, z, -a + Math.PI / 2, {}); addPOI('bench', x, z, -a - Math.PI / 2, { seats: 2 }); }
   for (let k = 0; k < 30; k++) { const x = rng.range(vm[0] + 8, vm[1] - 8), z = rng.range(vm[2] + 8, vm[3] - 8); if (!onParkFeature(x, z, 1)) addPOI('lawn', x, z, rng.range(0, 6.28), {}); }

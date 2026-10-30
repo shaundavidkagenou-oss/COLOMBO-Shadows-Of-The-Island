@@ -51,7 +51,7 @@ export class Player {
     if (this.bodies && this.bodies.length) { const q = separate(this.bodies, nx, nz, this.y, 0.32, this.ch, 0.55); if (q.hit) { nx = q.x; nz = q.z; this.speed *= 0.92; } } // people are solid; crowd peds get nudged aside
     if (this.indoor) r = this.resolveIndoor(nx, nz);
     else {
-      if (!this.collision.walkableWater(nx, nz, this.y)) { nx = this.x; nz = this.z; this.speed *= 0.5; }
+      if (!this.collision.walkableWater(nx, nz, this.y) && this.collision.walkableWater(this.x, this.z, this.y)) { nx = this.x; nz = this.z; this.speed *= 0.5; }
       r = this.collision.resolveCircle(nx, nz, 0.32, this.y, 0.45, 1.75);
     }
     // auto-avoid other vehicles physically

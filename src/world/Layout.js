@@ -348,7 +348,24 @@ export function groundY(x, z) {
   if (groundHook) { const h = groundHook(x, z); if (h != null) return h; }
   if (roadAt(x, z)) return ROAD_Y;
   if (isWater(x, z)) return bridgeWalkAt(x, z) ? LAND_Y : -1.2;
+  const cp = copingAt(x, z); if (cp != null) return cp;
   return LAND_Y;
+}
+// Raised copings along the water (built in GroundBuilder): feet stand ON them instead of sinking into the concrete.
+//  * Beira Lake embankment: 0.9 m wide coping, top LAND_Y + 0.3, just outside the lake ellipses
+//  * seawall (z −1000…1370, not the harbour): 0.6 m coping on the land side of the coast line, top LAND_Y + 0.55
+export const SEAWALL_Z = [-1000, 1370];
+export function copingAt(x, z) {
+  if (inLake(x, z, 0.9) && !inLake(x, z)) return LAND_Y + 0.3;
+  if (z >= SEAWALL_Z[0] && z < SEAWALL_Z[1]) { const c = coastX(z); if (x >= c && x < c + 0.6 && !inHarbour(x, z)) return LAND_Y + 0.55; }
+  return null;
+}
+// The railings along the water are solid: the lake railing stands 0.4 m out on the coping, the Galle Face promenade
+// railing 0.4 m in from the seawall edge. True where a walker's centre would be inside / beyond the railing line.
+export function beyondRailing(x, z, r = 0.3) {
+  if (inLake(x, z, 0.4 + r) && !inLake(x, z)) return true;
+  if (z >= -655 && z < -245 && x >= coastX(z) && x < coastX(z) + 0.4 + r) return true;
+  return false;
 }
 export function roadNameAt(x, z) {
   const r = roadAt(x, z); if (!r) return null;

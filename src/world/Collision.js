@@ -33,8 +33,8 @@ export class Collision {
     }
     return g;
   }
-  walkableWater(x, z, y) { // water blocks unless a deck/bridge is underfoot
-    if (!L.isWater(x, z)) return true;
+  walkableWater(x, z, y) { // water (and the railings along it) blocks unless a deck/bridge is underfoot
+    if (!L.isWater(x, z)) { if (!L.beyondRailing(x, z)) return true; for (const c of this.query(x, z, x, z)) if (SURFACE.has(c.kind) && x >= c.x0 && x <= c.x1 && z >= c.z0 && z <= c.z1) return true; return false; }
     if (L.bridgeWalkAt(x, z)) return true;
     for (const c of this.query(x, z, x, z)) if (SURFACE.has(c.kind) && x >= c.x0 && x <= c.x1 && z >= c.z0 && z <= c.z1) return true;
     return false;
