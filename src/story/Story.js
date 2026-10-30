@@ -14,12 +14,12 @@ class Cancel extends Error {}
 const P = L.PLACES;
 export const MISSIONS = [
   // lead = the protagonist who starts (and, outside free-switch stages, plays) the mission
-  { id: 'm0', title: 'The Meeting', giver: 'Ruwan', lead: 'dineth', desc: 'Dineth is back in Colombo after seven years. Ruwan has something to show him — and has called in two old friends.' },
-  { id: 'm1', title: 'Galle Face After Dark', giver: 'Ruwan', lead: 'dineth', desc: 'Meet Ruwan by the food carts on Galle Face Green at night. Shashika and David stay close.' },
-  { id: 'm2', title: 'Paper Trail', giver: 'Ruwan', lead: 'dineth', desc: 'Talk to the Pettah shopkeepers who received the letters, then get eyes on the company they name.' },
-  { id: 'm3', title: 'The Courier', giver: 'Ruwan', lead: 'david', desc: 'David tails the Harbour Crest courier van and finds out where the papers go.' },
-  { id: 'm4', title: 'Rain Run', giver: 'Anjali Fernando', lead: 'shashika', desc: 'Shashika gets the evidence across a flooded city to Anjali before the presses close.' },
-  { id: 'm5', title: 'Lotus Tower', giver: 'Dilan Wickramaratne', lead: 'dineth', desc: 'Dilan wants to meet Dineth on top of the city. All three of you go.' },
+  { id: 'm0', squad: true, title: 'The Meeting', giver: 'Ruwan', lead: 'dineth', desc: 'Dineth is back in Colombo after seven years. Ruwan has something to show him — and has called in two old friends.' },
+  { id: 'm1', squad: true, title: 'Galle Face After Dark', giver: 'Ruwan', lead: 'dineth', desc: 'Meet Ruwan by the food carts on Galle Face Green at night. Shashika and David stay close.' },
+  { id: 'm2', squad: true, title: 'Paper Trail', giver: 'Ruwan', lead: 'dineth', desc: 'Talk to the Pettah shopkeepers who received the letters, then get eyes on the company they name.' },
+  { id: 'm3', squad: true, title: 'The Courier', giver: 'Ruwan', lead: 'david', desc: 'David tails the Harbour Crest courier van and finds out where the papers go.' },
+  { id: 'm4', squad: false, title: 'Rain Run', giver: 'Anjali Fernando', lead: 'shashika', desc: 'Shashika gets the evidence across a flooded city to Anjali before the presses close.' },
+  { id: 'm5', squad: true, title: 'Lotus Tower', giver: 'Dilan Wickramaratne', lead: 'dineth', desc: 'Dilan wants to meet Dineth on top of the city. All three of you go.' },
 ];
 const STAMPS = [[-60, -930], [-300, -860], [-470, -600], [-520, -380], [280, -450], [-130, -330], [110, 60], [250, -110], [-150, -160], [460, -760], [380, -1050], [-90, -1060], [-330, 300], [-340, 700], [-380, 1120], [660, 140], [620, -240], [40, -820], [-420, -940], [740, 230]];
 const PHOTO_SPOTS = [
@@ -91,6 +91,7 @@ export class Story {
   pay(n, why) { this.state.money += n; if (n) { const A = this.g.atmos; const L2 = this.state.ledger || (this.state.ledger = []); L2.unshift({ n, why: why || (n > 0 ? 'Income' : 'Payment'), bal: this.state.money, when: A ? `Day ${A.day} ${A.timeString}` : '' }); if (L2.length > 60) L2.length = 60; } if (n) this.hud.notify(`${n > 0 ? '+' : '−'} Rs. ${Math.abs(n).toLocaleString('en-LK')}`, why || '', n > 0 ? 'success' : 'info', 3); }
   cleanupStage() { for (const id of [...this.npcs.keys()]) this.removeNPC(id); this.photoTargets = []; this.clearPursuers(); this.clearGuards(); this.hud.setTimer(null); this.hud.clearBlips('m:'); if (this.follow) { this.g.traffic.remove(this.follow); this.follow = null; } this.g.director.clearVehicles(); }
   // ------------------------------------------------------------ squad: mission leads and free-switch stages
+  squadFor(id) { const d = MISSIONS.find((m) => m.id === id); return !!(d && d.squad && this.state.flags.squad); } // the other two come along only on these missions
   leadFor(id) { const d = MISSIONS.find((m) => m.id === id); return d && d.lead ? d.lead : 'dineth'; }
   leadName(id) { const l = this.leadFor(id); return l[0].toUpperCase() + l.slice(1); }
   freeSwitch(on, note = null) { this.allowSwitch = on; if (on && note && this.g.squad && this.g.squad.unlocked) this.hud.notify('Squad', note, 'info', 6); }
@@ -184,7 +185,7 @@ export class Story {
           ['David', 'Rest first. Ruwan wants you at Galle Face tonight. We will be close.'],
         ]);
         this.state.flags.squad = true;
-        this.hud.notify('Squad assembled', `Switch protagonist: tap <kbd>Z</kbd> for the next one, hold <kbd>Z</kbd> for the squad selector, or <kbd>F1</kbd> Dineth · <kbd>F2</kbd> Shashika · <kbd>F3</kbd> David. The other two follow on their own, ride with you and can hold a position (hold <kbd>Z</kbd>, then <kbd>E</kbd>).`, 'info', 14);
+        this.hud.notify('Squad assembled', `Switch protagonist: tap <kbd>Z</kbd> for the next one, hold <kbd>Z</kbd> for the squad selector, or <kbd>F1</kbd> Dineth · <kbd>F2</kbd> Shashika · <kbd>F3</kbd> David. On missions that need all three, the other two come along on their own and ride with you; the rest of the time each gets on with his own life — Dineth drives his three-wheeler, Shashika works at Lanka Auto Care, David runs his repair stall in Pettah. You can switch while driving, but not while the police are after you.`, 'info', 14);
       },
       async () => {
         const [rx, rz] = this.state.flags.room; this.hud.setObjective('The Meeting', `Rest until evening (${this.hud.key('interact')} at the door)`, { x: rx, z: rz });
@@ -270,14 +271,14 @@ export class Story {
           ['Ruwan', 'Stay back — if the driver sees you, it\'s over. I found you a ride.'],
         ], { spec: HEROES.ruwan, x, z, yaw: 0 });
         this.removeNPC('ruwan');
-        const pt = this.safeRoadSpot(x, z); const v = new Vehicle('tuktuk', 31, this.g.scene); v.place(pt[0], pt[1], pt[2]); this.g.traffic.release(v); v.keep = true;
+        const pt = this.safeRoadSpot(x, z); const v = new Vehicle('tuktuk', 31, this.g.scene); v.place(pt[0], pt[1], pt[2]); this.g.traffic.release(v, false); v.keep = true;
         this.hud.addBlip('m:ride', pt[0], pt[1], 'side');
         await this.goto({ x: pt[0], z: pt[1] }, 'The Courier', 'Get in the tuk-tuk Ruwan arranged', { radius: 3 });
         await this.until(() => !!this.g.player.vehicle);
       },
       async () => { await this.followVehicle('van', [[-120, -40], [-280, -40], [-280, -240], [-280, -660], [-280, -900], [-150, -900], [-150, -1000], [-100, -1040]], 'Follow the courier van — don\'t get too close'); },
       async () => {
-        this.hud.notify('Sneak', `Crouch with ${this.hud.key('crouch')}. Stay out of the guards\' sight. Your squad-mates crouch with you.`, 'info', 6); this.freeSwitch(true, 'Free switching: send whoever you like into the yard — or leave someone holding the gate (hold Z, then E).');
+        this.hud.notify('Sneak', `Crouch with ${this.hud.key('crouch')}. Stay out of the guards\' sight. Your squad-mates crouch with you.`, 'info', 6); this.freeSwitch(true, 'Free switching: send whoever you like into the yard — whoever you leave stays in cover by the gate.');
         const tgt = { x: -95, y: 1.5, z: -1080, done: false };
         this.spawnGuards([[[-130, -1070], [-60, -1070]], [[-110, -1100], [-110, -1050]], [[-70, -1095], [-140, -1095]]]);
         this.hud.setObjective('The Courier', 'Sneak into the yard and photograph the shipping ledger', tgt);

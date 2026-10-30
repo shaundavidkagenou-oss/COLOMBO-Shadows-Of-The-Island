@@ -16,6 +16,7 @@ import * as THREE from 'three';
 import { Character, HEROES } from './Character.js';
 import { separate } from './Bodies.js';
 import { seatCharacter } from './Seating.js';
+import { SquadLife } from './SquadLife.js';
 import { Input } from '../core/Input.js';
 import { Settings } from '../core/Settings.js';
 import { clamp, lerp, damp, dampAngle, wrapAngle } from '../core/math.js';
@@ -63,7 +64,7 @@ export function switchBlock(c) {
   if (c.cutscene) return 'Not during a cutscene';
   if (c.dialogue) return 'Finish the conversation first';
   if (c.indoor) return 'Not indoors';
-  if (c.vehicle) return 'Get out of the vehicle first';
+  if (c.wanted) return 'Not while the police are after you — lose them first';
   if (c.entering) return 'Not while getting in or out';
   if (c.climbing || c.airborne) return 'Land first';
   if (c.hospital) return 'Not right now';
@@ -86,8 +87,10 @@ export class Squad {
     this.g = game; this.unlocked = false; this.active = 0; this.crumbs = []; this.tr = null; this.sel = { open: false, i: 0, t: 0 }; this.zDown = 0; this.padDown = 0; this.msgT = 0;
     this.members = SQUAD_DEFS.map((def) => ({ def, ch: null, x: 0, z: 0, y: 0, yaw: 0, speed: 0, hp: 100, inv: freshInventory(def), sel: WEAPONS.findIndex((w) => w.id === def.loadout[0]), mode: 'follow', hold: null, mom: null, vehicle: null, seat: null, stuckT: 0, lastX: 0, lastZ: 0, progT: 0, repathT: 0, tx: 0, tz: 0, wasDrawn: false, crouched: false, idleT: 0, exitDelay: 0, hidden: false, wantSprint: false }));
     this.members[0].ch = game.player.ch; this.proxies = [];
-    this.portraits = {}; this.hudInit();
+    this.portraits = {}; this.hudInit(); this.life = new SquadLife(this); this.wasOn = null;
   }
+  // squad-mates follow only during the missions that bring the three together; otherwise each lives his own life
+  squadOn() { const st = this.g.story; return !!(st && st.running && st.squadFor && st.squadFor(st.running)); }
   get activeMember() { return this.members[this.active]; }
   get activeId() { return this.members[this.active].def.id; }
   get followers() { return this.members.filter((m, i) => i !== this.active); }
@@ -109,7 +112,7 @@ export class Squad {
   replaceChar(id, ch) { const m = this.memberById(id); if (m) { m.ch = ch; ch.squadId = id; } if (this.unlocked) this.renderPortraits(); }
   save() {
     this.storeActive(this.activeMember, true);
-    const members = {}; for (const m of this.members) members[m.def.id] = { x: +m.x.toFixed(2), z: +m.z.toFixed(2), yaw: +m.yaw.toFixed(3), hp: Math.round(m.hp), inv: m.inv.map((v) => [v.mag, v.reserve, v.owned ? 1 : 0]), sel: m.sel, mode: m.mode === 'hold' ? 'hold' : 'follow', hold: m.hold };
+    const members = {}; for (const m of this.members) members[m.def.id] = { x: +m.x.toFixed(2), z: +m.z.toFixed(2), yaw: +m.yaw.toFixed(3), hp: Math.round(m.hp), inv: m.inv.map((v) => [v.mag, v.reserve, v.owned ? 1 : 0]), sel: m.sel, mode: m.mode === 'hold' ? 'hold' : 'follow', hold: m.mode === 'hold' ? m.hold : null };
     return { v: 1, unlocked: this.unlocked, active: this.activeId, members };
   }
   load(s) {
@@ -121,21 +124,38 @@ export class Squad {
     this.g.story.state.health = this.activeMember.hp;
     if (!s.unlocked) { this.el.mini.classList.add('hide'); }
   }
+  // switch a squad-mate between his own life and following (mission start / end)
+  setLife(m, life) {
+    if (life) { if (m.mode === 'life') return; m.mode = 'life'; m.hold = null; m.coverT = 0; m.life = { t: 0, spot: 0, next: 0, act: null }; m.ch.anim.set(null); return; } // walks off; back at work once out of sight
+    if (m.mode !== 'life') return; this.life.leave(m); m.mode = 'follow'; m.hidden = false; this.placeNear(m, true);
+  }
   // after the player has been placed (load / respawn): bring squad-mates that are far away to the leader
-  regroup(force = false) { const P = this.g.player; this.crumbs = [{ x: P.x, z: P.z, y: P.y }]; if (!this.unlocked) return; for (const m of this.followers) { if (m.vehicle) this.disembark(m, true); if (force || m.mode !== 'hold' || Math.hypot(m.x - P.x, m.z - P.z) > 400) { if (force) { m.mode = 'follow'; m.hold = null; } this.placeNear(m, false); } else this.syncFollower(m); } }
+  regroup(force = false) { const P = this.g.player; this.crumbs = [{ x: P.x, z: P.z, y: P.y }]; if (!this.unlocked) return; this.wasOn = this.squadOn(); if (!this.wasOn) { for (const m of this.followers) { if (m.vehicle) this.disembark(m, true); this.life.leave(m); m.mode = 'life'; this.life.atWork(m); } return; } for (const m of this.followers) if (m.mode === 'life') { this.life.leave(m); m.mode = 'follow'; } for (const m of this.followers) { if (m.vehicle) this.disembark(m, true); if (force || m.mode !== 'hold' || Math.hypot(m.x - P.x, m.z - P.z) > 400) { if (force) { m.mode = 'follow'; m.hold = null; } this.placeNear(m, false); } else this.syncFollower(m); } }
   // ------------------------------------------------------------------ active <-> follower data
   storeActive(m, keepWeapons = false) {
     const P = this.g.player, W = this.g.weapons; m.x = P.x; m.z = P.z; m.y = P.y; m.yaw = P.yaw; m.speed = P.speed; m.crouched = !!P.crouching;
     m.hp = this.g.story.state.health ?? 100; m.inv = W.inv; m.sel = W.sel; if (!keepWeapons) m.wasDrawn = W.drawn;
   }
-  loadActive(m) {
+  loadActive(m, opts = {}) {
     const g = this.g, P = g.player, W = g.weapons; const old = P.ch;
     if (P.fpHead) { P.fpHead.scale.setScalar(1); P.fpHead = null; } // first person collapses the active head: give it back
     P.ch = m.ch; P.x = m.x; P.z = m.z; P.y = m.y; P.yaw = m.yaw; P.vy = 0; P.speed = m.speed; P.grounded = true; P.climb = null; P.crouching = false; P.idleT = 0; P.emote = null; P.hitCd = 0;
-    P.perk = m.def; if (m.ch.root.parent !== g.scene) { m.ch.root.parent?.remove(m.ch.root); g.scene.add(m.ch.root); } m.ch.root.visible = true; m.ch.mesh.visible = true;
+    P.perk = m.def; const inV = opts.swap || opts.drive; if (!inV && m.ch.root.parent !== g.scene) { m.ch.root.parent?.remove(m.ch.root); g.scene.add(m.ch.root); } m.ch.root.visible = true; m.ch.mesh.visible = true; m.hidden = false;
     W.forceHolster(); W.inv = m.inv; W.sel = m.sel; W.attach(m.ch); W.showHolstered();
     if (old && old !== m.ch) { old.anim.ik = null; old.anim.aim = null; }
-    g.story.state.health = m.hp; P.sync();
+    g.story.state.health = m.hp;
+    // arriving in a vehicle: at the wheel of his own three-wheeler, or taking the driver's seat from a passenger seat
+    let v = null; if (opts.drive) { v = opts.drive; g.traffic.takeOver(v, true); if (v.driverChar === m.ch) v.driverChar = null; v.squad = null; v.onRemove = null; if (m.life) { m.life.v = null; m.life.drive = null; } }
+    if (opts.swap) { v = opts.swap.v; const from = opts.swap.from, ps = m.seat; m.vehicle = null; m.seat = null; from.vehicle = v; from.seat = ps; from.exitDelay = 0.6; seatCharacter(from.ch, v, ps); from.ch.mesh.castShadow = false; }
+    if (v) { const seat = v.driverSeat(); seatCharacter(m.ch, v, seat); m.ch.mesh.castShadow = true; v.keep = true; v.player = true; v.hold = false; v.left = null; P.vehicle = v; P.entry = null; P.exiting = null; P.x = v.x; P.z = v.z; P.y = v.y; P.yaw = v.yaw; P.camYaw = v.yaw + Math.PI; P.control = true; return; }
+    P.sync();
+  }
+  // switching away while driving: the departing character keeps the vehicle and drives on (his own life), or — during a
+  // squad mission / with no road under it — stops, parks it and gets out to follow the new lead
+  handOff(from, v) {
+    const P = this.g.player; P.vehicle = null; P.entry = null; P.exiting = null; v.player = false;
+    if (!this.squadOn()) { from.mode = 'life'; if (this.life.takeWheel(from, v)) { from.vehicle = null; return 'drive'; } }
+    v.speed = 0; this.g.traffic.release(v); from.vehicle = v; from.seat = v.driverSeat(); this.disembark(from, true); return 'out';
   }
   // used by load / reset: swap without any transition
   switchInstant(i, silent = false) {
@@ -149,7 +169,7 @@ export class Squad {
   blockFor(i) {
     const g = this.g, P = g.player, st = g.story; const target = this.members[i]; const lead = this.missionLead();
     return switchBlock({ locked: !this.unlocked, transitioning: !!this.tr, cutscene: g.director.active, dialogue: (g.hud.choiceEl && !g.hud.choiceEl.classList.contains('hidden')) || g.director.active, indoor: !!g.indoor || !!g.interiors.current,
-      vehicle: !!P.vehicle, entering: !!(P.entry || P.exiting), climbing: !!P.climb, airborne: !P.grounded && P.y - g.collision.groundAt(P.x, P.z, P.y, 0.5) > 0.4, hospital: g.health.busy,
+      wanted: !!(g.police && g.police.level > 0), entering: !!(P.entry || P.exiting), climbing: !!P.climb, airborne: !P.grounded && P.y - g.collision.groundAt(P.x, P.z, P.y, 0.5) > 0.4, hospital: g.health.busy,
       missionLead: lead && lead !== target.def.id ? SQUAD_DEFS.find((d) => d.id === lead).name : null, targetAway: target.mode === 'away' && !target.vehicle ? target.def.name : null });
   }
   request(i) {
@@ -173,13 +193,18 @@ export class Squad {
     // camera start
     const A = cam.position.clone(); const fwd = new THREE.Vector3(); cam.getWorldDirection(fwd);
     // swap: the departing character becomes a squad-mate immediately (keeps moving), the new one takes the controller
-    this.storeActive(from); const mom = { t: 4, dur: 4, yaw: P.yaw, speed: P.speed };
-    this.active = i; this.loadActive(to);
-    from.mode = from.mode === 'hold' ? 'hold' : 'follow'; from.mom = mom; from.vehicle = null; from.repathT = 0; from.progT = 0; from.lastX = from.x; from.lastZ = from.z;
-    if (dep === 'cover') { from.mode = 'hold'; from.hold = [from.x, from.z]; from.coverT = 1e9; } // stays in cover, holding that spot
-    if (dep === 'coverBrief') from.coverT = 1.6;
-    from.ch.anim.play(dep === 'comms' || dep === 'glance' ? dep : 'cover', dep === 'cover' ? 1e9 : dep === 'coverBrief' ? 1.6 : dep === 'glance' ? 1.1 : 1.3);
-    to.mode = 'follow'; to.hold = null; to.mom = null;
+    this.storeActive(from); const mom = { t: 4, dur: 4, yaw: P.yaw, speed: P.speed }; const on = this.squadOn();
+    const veh = P.vehicle; const swap = !!veh && to.vehicle === veh; let handed = null;
+    from.mode = on ? (from.mode === 'hold' ? 'hold' : 'follow') : 'life'; if (from.mode === 'life') from.life = from.life && (from.life.v || from.life.drive) ? from.life : { t: 0, spot: 0, next: 0, act: null };
+    if (veh && !swap) handed = this.handOff(from, veh);
+    let drive = null; if (!swap && to.mode === 'life') { drive = to.life && (to.life.v || to.life.drive); if (!drive && this.life.job(to).kind === 'tuk' && to.hidden) drive = this.life.spawnTuk(to, true); }
+    this.active = i; this.loadActive(to, { swap: swap ? { v: veh, from } : null, drive });
+    from.mom = mom; if (!swap && handed !== 'drive' && handed !== 'out') from.vehicle = null; from.repathT = 0; from.progT = 0; from.lastX = from.x; from.lastZ = from.z;
+    const seated = swap || handed === 'drive';
+    if (on && !seated && dep === 'cover') { from.mode = 'hold'; from.hold = [from.x, from.z]; from.coverT = 1e9; } // stays in cover, holding that spot
+    if (on && !seated && dep === 'coverBrief') from.coverT = 1.6;
+    if (!seated) from.ch.anim.play(dep === 'comms' || dep === 'glance' ? dep : on ? 'cover' : 'comms', dep === 'cover' && on ? 1e9 : dep === 'coverBrief' ? 1.6 : dep === 'glance' ? 1.1 : 1.3);
+    to.mode = 'follow'; to.hold = null; to.mom = null; to.life = null;
     P.control = false; P.camOverride = true; P.speed = 0;
     // camera end pose: where the follow camera wants to be behind the new character, keeping the current yaw
     P.camOverride = false; P.updateCamera(1, true); const B = cam.position.clone(); cam.position.copy(A); cam.lookAt(A.clone().add(fwd)); P.camOverride = true;
@@ -231,7 +256,7 @@ export class Squad {
     const threat = (g.police && g.police.level > 0) || g.story.guards.length || g.story.pursuers.length;
     T.armed = (to.wasDrawn || threat) && g.weapons.arrivalCheck ? g.weapons.arrivalCheck(to.def) : false;
     T.arrive = T.armed ? to.def.armedArrive : T.rise ? 'rise' : to.def.arrive;
-    if (!T.armed) P.ch.anim.play(T.arrive, T.arrive === 'rise' ? 0.8 : 1.05);
+    if (P.vehicle) { T.armed = false; T.arrive = null; } else if (!T.armed) P.ch.anim.play(T.arrive, T.arrive === 'rise' ? 0.8 : 1.05);
     T.phase = 'arrive'; T.t = 0; T.adur = T.armed ? 0.95 : T.arrive === 'rise' ? 0.8 : 1.0; this.setFX(0, 0, 0);
     to.crouched = false; this.hudRefresh();
   }
@@ -245,8 +270,9 @@ export class Squad {
     this.handleInput(dt, busy);
     this.updateTransition(dt);
     const bodies = g.bodies || [];
-    this.followers.forEach((m, k) => { try { this.updateFollower(m, dt, k, bodies); } catch (e) { if (!this._fe) { console.error(e); this._fe = 1; } } });
-    this.proxies = this.followers.filter((m) => !m.vehicle && !m.hidden && m.ch.root.parent).map((m) => ({ x: m.x, z: m.z, crossing: m.speed > 0.5 }));
+    const on = this.squadOn(); if (on !== this.wasOn) { this.wasOn = on; for (const m of this.followers) this.setLife(m, !on); }
+    this.followers.forEach((m, k) => { try { if (m.mode === 'life') this.life.update(m, dt, k, bodies); else this.updateFollower(m, dt, k, bodies); } catch (e) { if (!this._fe) { console.error(e); this._fe = 1; } } });
+    this.proxies = this.followers.filter((m) => !m.vehicle && !m.hidden && m.ch.root.parent === this.g.scene).map((m) => ({ x: m.x, z: m.z, crossing: m.speed > 0.5 }));
     this.hudUpdate(dt);
   }
   trail(P) { if (P.vehicle || this.g.indoor) return; const c = this.crumbs; const l = c[c.length - 1]; if (!l || Math.hypot(P.x - l.x, P.z - l.z) > 0.8) { c.push({ x: P.x, z: P.z, y: P.y }); if (c.length > 160) c.shift(); } }
@@ -254,14 +280,13 @@ export class Squad {
     const g = this.g; if (busy && !this.sel.open) return;
     // direct: F1–F3
     for (let i = 0; i < 3; i++) if (Input.keyPressed('F' + (i + 1))) { this.closeSelector(false); this.request(i); }
-    // Z: tap = next squad-mate, hold = selector (time slows; A/D, mouse or wheel to choose, E = hold/follow, release to switch)
+    // Z: tap = next squad-mate, hold = selector (time slows; A/D, mouse or wheel to choose, release to switch). Squad-mates take no orders.
     const zHeld = Input.down.has('KeyZ') || !!Input.pad.buttons[4]; // Z / gamepad LB
     if (zHeld) { this.zDown += dt / Math.max(0.05, g.timeSlow || 1); if (this.zDown > 0.24 && !this.sel.open) this.openSelector(); }
     else if (this.zDown > 0) { const tap = this.zDown <= 0.24 && !this.sel.open; this.zDown = 0; if (tap) { this.request(this.nextAvailable()); } else if (this.sel.open) this.closeSelector(true); }
     if (this.sel.open) {
       const S = this.sel; S.acc = (S.acc || 0) + Input.mouseDX * 0.02 + Input.pad.lx * dt * 6; const step = Input.keyPressed('KeyD') || Input.keyPressed('ArrowRight') || Input.wheel > 0 || S.acc > 1 ? 1 : Input.keyPressed('KeyA') || Input.keyPressed('ArrowLeft') || Input.wheel < 0 || S.acc < -1 ? -1 : 0;
       if (step) { S.i = (S.i + step + 3) % 3; S.acc = 0; Audio.ui && Audio.ui('click'); this.hudRefresh(); }
-      if (Input.keyPressed('KeyE') && S.i !== this.active) { const m = this.members[S.i]; if (m.mode === 'hold') { m.mode = 'follow'; m.hold = null; this.flash(`${m.def.name}: on you`); } else { m.mode = 'hold'; m.hold = [m.x, m.z]; this.flash(`${m.def.name}: holding position`); } this.hudRefresh(); }
       if (Input.keyPressed('Escape')) this.closeSelector(false);
     }
   }
@@ -366,6 +391,7 @@ export class Squad {
   showStrip(sec) { this.el.strip.classList.add('on'); this.stripT = sec; }
   status(m, i) {
     const P = this.g.player; if (i === this.active) return 'You';
+    if (m.mode === 'life') { const d = Math.round(Math.hypot(m.x - P.x, m.z - P.z)); return `${this.life.label(m)} · ${d < 1000 ? d + ' m' : (d / 1000).toFixed(1) + ' km'}`; }
     if (m.vehicle) return 'Passenger'; if (m.mode === 'away') return 'Catching up'; const d = Math.round(Math.hypot(m.x - P.x, m.z - P.z));
     return `${m.mode === 'hold' ? 'Holding' : m.speed > 0.4 ? 'Moving up' : 'With you'} · ${d} m`;
   }
@@ -376,7 +402,7 @@ export class Squad {
       const img = c.querySelector('img'); if (this.portraits[m.def.id] && img.src !== this.portraits[m.def.id]) { img.src = this.portraits[m.def.id]; c.classList.add('has-img'); }
       const mm = this.el.minis[i]; mm.classList.toggle('active', i === this.active); mm.querySelector('i').style.width = `${clamp(hp, 0, 100)}%`; });
     const k = (a) => this.g.hud.key ? this.g.hud.key(a) : a;
-    this.el.hint.innerHTML = this.sel.open ? `<kbd>A</kbd><kbd>D</kbd> choose · <kbd>E</kbd> hold / follow · release <kbd>Z</kbd> to switch` : `<kbd>Z</kbd> next · hold <kbd>Z</kbd> squad · <kbd>F1</kbd>–<kbd>F3</kbd>`;
+    this.el.hint.innerHTML = this.sel.open ? `<kbd>A</kbd><kbd>D</kbd> choose · release <kbd>Z</kbd> to switch` : `<kbd>Z</kbd> next · hold <kbd>Z</kbd> squad · <kbd>F1</kbd>–<kbd>F3</kbd>`;
     void k;
   }
   hudUpdate(dt) { this.hudT = (this.hudT || 0) - dt; if (this.hudT <= 0) { this.hudT = 0.25; this.hudRefresh(); } if (this.stripT > 0 && !this.sel.open) { this.stripT -= dt; if (this.stripT <= 0) this.el.strip.classList.remove('on'); } }

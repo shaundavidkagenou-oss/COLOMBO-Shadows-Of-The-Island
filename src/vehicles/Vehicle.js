@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { createVehicleMesh, VTYPES } from './VehicleModels.js';
 import { clamp, lerp, damp, wrapAngle } from '../core/math.js';
 import * as L from '../world/Layout.js';
+import { LEAN, syncStand } from './Kickstand.js';
 
 let NEXT_ID = 1;
 // Headlight throw on the road: an additive ground decal in front of any vehicle whose headlights are on (never on parked
@@ -65,7 +66,7 @@ export class HeadlightRig {
 export class Vehicle {
   constructor(type, seed, scene) {
     this.id = NEXT_ID++; this.type = type; this.T = VTYPES[type]; this.mesh = createVehicleMesh(type, seed); scene.add(this.mesh); this.scene = scene; LIVE_VEHICLES.add(this);
-    this.x = 0; this.z = 0; this.y = 0; this.yaw = 0; this.speed = 0; this.steer = 0; this.lat = 0; this.wheelRot = 0; this.pitch = 0; this.roll = 0;
+    this.x = 0; this.z = 0; this.y = 0; this.yaw = 0; this.speed = 0; this.steer = 0; this.lat = 0; this.wheelRot = 0; this.pitch = 0; this.roll = 0; this.stand = 0; this.leanK = 0; /* two-wheelers: side stand down / resting on it (Kickstand.js) */
     this.brake = false; this.lights = false; this.driver = null; this.player = false; this.ai = null; this.parked = false; this.horn = 0; this.damage = 0; this.health = 100;
     this.radius = this.T.wid * 0.55; this.half = this.T.len / 2;
     this.sus = { r: 0, rv: 0, h: 0, hv: 0 }; this.load = 0; // body on its springs: r = roll (+ = driver side down), h = sink (m)
@@ -136,7 +137,7 @@ export class Vehicle {
     this.yaw = wrapAngle(this.yaw + this.spin * dt); this.spin *= Math.exp(-3.2 * dt); /* tyres scrub the spin off */
     this.groundY = damp(this.groundY ?? L.groundY(this.x, this.z), L.groundY(this.x, this.z), 12, dt);
     // body attitude: cars pitch/roll a little on their suspension; two-wheelers lean into the turn about the tyre contact patch
-    const latA = yawRate * this.speed; const twoWheel = this.T.entry === 'bike';
+    const latA = yawRate * this.speed; const twoWheel = this.T.entry === 'bike'; if (twoWheel && Math.abs(this.speed) > 0.3) { this.stand = 0; this.leanK = 0; } // never ridden on the stand
     this.pitch = damp(this.pitch, clamp(-acc * 0.004, -0.05, 0.05), 5, dt);
     this.roll = damp(this.roll, twoWheel ? clamp(Math.atan2(latA, 9.81) * 0.85, -0.55, 0.55) : clamp(-latA * 0.006, -0.06, 0.06), twoWheel ? 4 : 5, dt);
     // the attitude rotates about the origin at road level → lift the body so the low side never sinks into the road
@@ -163,7 +164,7 @@ export class Vehicle {
   bump(dx, dz) { if (this.parked) { this.x += dx * 0.3; this.z += dz * 0.3; this.sync(0); } else if (this.ai) { this.ai.bumped = 2.5; } }
   sync(dt) {
     this.settle(dt); const S = this.sus; const sr = Math.sin(S.r);
-    const m = this.mesh; m.position.set(this.x, this.y - S.h, this.z); m.rotation.set(this.pitch, this.yaw, this.roll + S.r, 'YXZ');
+    const m = this.mesh; m.position.set(this.x, this.y - S.h, this.z); const sp = m.userData.stand; m.rotation.set(this.pitch, this.yaw, this.roll + S.r - (sp ? LEAN * this.leanK : 0), 'YXZ'); if (sp) syncStand(sp, this.stand);
     this.wheelRot += (this.speed * dt) / this.T.wheelR;
     for (const w of m.userData.wheels) { w.userData.spin.rotation.x = this.wheelRot; if (w.userData.front) w.rotation.y = this.steer; if (w.userData.baseY !== undefined) w.position.y = w.userData.baseY + S.h - w.position.x * sr; } // body moves on the springs, tyres stay on the road
     // lamps (per vehicle): headlights only when this vehicle has its lights on; tails red at night, brighter when braking;
@@ -181,5 +182,5 @@ export class Vehicle {
   seatWorld(seat) { const v = new THREE.Vector3(seat.x, seat.y, seat.z); this.mesh.updateMatrixWorld(); return v.applyMatrix4(this.mesh.matrixWorld); }
   // exit point on the driver's side (right-hand drive → right side = −x local)
   exitPoint(s = -1) { const [fx, fz] = this.forward(); const off = this.T.wid / 2 + 0.7; return { x: this.x + fz * s * off, z: this.z - fx * s * off }; } // local +x in world = (fz, -fx)
-  dispose() { LIVE_VEHICLES.delete(this); this.scene.remove(this.mesh); const ud = this.mesh.userData; ud.tailMat.dispose(); ud.indMat?.dispose(); ud.headMat?.dispose(); ud.revMat?.dispose(); }
+  dispose() { this.disposed = true; LIVE_VEHICLES.delete(this); this.scene.remove(this.mesh); const ud = this.mesh.userData; ud.tailMat.dispose(); ud.indMat?.dispose(); ud.headMat?.dispose(); ud.revMat?.dispose(); }
 }

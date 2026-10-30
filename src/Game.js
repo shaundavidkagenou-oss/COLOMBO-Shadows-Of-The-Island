@@ -39,7 +39,7 @@ import { playOpening } from './story/Opening.js';
 import { Weapons } from './combat/Weapons.js';
 import { Squad } from './actors/Squad.js';
 
-const VNAMES = { tuktuk: 'Three-wheeler', car: 'Hatchback', sedan: 'Sedan', taxi: 'Taxi', van: 'Van', suv: 'SUV', bus: 'SLTB bus', pbus: 'Private bus', lorry: 'Lorry', bike: 'Motorcycle', police: 'Police car', policejeep: 'Police jeep', policebike: 'Police motorcycle' };
+const VNAMES = { tuktuk: 'Three-wheeler', car: 'Hatchback', sedan: 'Sedan', taxi: 'Taxi', van: 'Van', suv: 'SUV', bus: 'SLTB bus', pbus: 'Private bus', lorry: 'Lorry', tow: 'Tow truck', bike: 'Motorcycle', police: 'Police car', policejeep: 'Police jeep', policebike: 'Police motorcycle' };
 const RADIO = [null, { mode: 'radio1', name: 'Radio Lanka Breeze 98.4' }, { mode: 'radio2', name: 'Island Pulse 104.2' }];
 const TEST = new URLSearchParams(location.search).has('test'); // headless testing: allow big timesteps so cinematics finish under software rendering
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -235,6 +235,7 @@ export class Game {
     bus.on('horn', (v) => Audio.horn(v.type, v.x, v.z));
     bus.on('crash', (v) => Audio.crash(v));
     bus.on('land', () => Audio.footstep(true, false));
+    bus.on('towed', (v) => this.hud.notify('Vehicle towed', `Your ${VNAMES[v.type] || 'vehicle'} was left unattended for 5 minutes and a CMC tow truck has taken it away.`, 'info', 5));
     bus.on('enterVehicle', ({ v, hadDriver }) => { if (hadDriver) this.hud.subtitle('Driver', 'Ado! What are you doing? That\'s my vehicle!', '', 2.8); this.hud.notify(VNAMES[v.type] || 'Vehicle', `${this.hud.key('enter')} exit · ${this.hud.key('horn')} horn · ${this.hud.key('lights')} lights · ${this.hud.key('radio')} radio`, 'info', 3.5); Audio.ui('door'); });
     bus.on('npcLineRaw', ({ who, text }) => this.hud.subtitle(who, text, '', 2.4));
     bus.on('exitVehicle', () => { if (this.radio) { this.radio = 0; } });

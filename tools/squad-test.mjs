@@ -37,7 +37,7 @@ for (const yaw of [0, 1, -2.5]) { const fx = Math.sin(yaw), fz = Math.cos(yaw); 
   ok(s0[0] * fx + s0[1] * fz < -1 && s1[0] * fx + s1[1] * fz < -1, `slots behind (yaw ${yaw})`); const rx = Math.cos(yaw), rz = -Math.sin(yaw); ok(Math.sign(s0[0] * rx + s0[1] * rz) !== Math.sign(s1[0] * rx + s1[1] * rz), `slots on both sides (yaw ${yaw})`); }
 // refusals
 ok(S.switchBlock({}) === null, 'free switch allowed'); ok(S.switchBlock({ locked: true }) === 'Squad not assembled yet', 'locked');
-ok(/leads this mission/.test(S.switchBlock({ missionLead: 'David' })), 'mission lead'); ok(/vehicle/.test(S.switchBlock({ vehicle: true })), 'vehicle'); ok(/conversation/.test(S.switchBlock({ dialogue: true })), 'dialogue');
+ok(/leads this mission/.test(S.switchBlock({ missionLead: 'David' })), 'mission lead'); ok(S.switchBlock({ vehicle: true }) === null, 'switching inside a vehicle is allowed'); ok(/police/.test(S.switchBlock({ wanted: true })), 'no switching while wanted'); ok(/conversation/.test(S.switchBlock({ dialogue: true })), 'dialogue');
 // momentum: starts on the departing heading/speed, ends on the AI's
 const m0 = S.momentumBlend({ t: 4, dur: 4, yaw: 1, speed: 5 }, 0, 1), m1 = S.momentumBlend({ t: 0, dur: 4, yaw: 1, speed: 5 }, 0, 1), mh = S.momentumBlend({ t: 2, dur: 4, yaw: 1, speed: 5 }, 0, 1);
 ok(Math.abs(m0.yaw - 1) < 1e-9 && m0.speed === 5 && m1.yaw === 0 && m1.speed === 1 && mh.speed > 1 && mh.speed < 5, 'momentum carries over and blends out');
@@ -46,6 +46,8 @@ ok(SAVE_VERSION === 3, 'save v3'); const v3 = migrate({ version: 2, story: { don
 ok(v3.squad.unlocked && v3.squad.active === 'dineth' && v3.squad.members.dineth.inv.filter((q) => q[2]).length === 2 && v3.squad.members.dineth.sel === 1, 'v2 → v3: Dineth with his own loadout');
 // mission leads
 const { MISSIONS } = await import('../src/story/Story.js').catch(() => ({}));
-if (MISSIONS) { const list = Array.isArray(MISSIONS) ? MISSIONS : Object.values(MISSIONS); ok(list.length >= 6 && list.every((m) => S.SQUAD_IDS.includes(m.lead)), 'every mission names a squad lead'); ok(new Set(list.map((m) => m.lead)).size === 3, 'each protagonist leads at least one mission'); }
+if (MISSIONS) { const list = Array.isArray(MISSIONS) ? MISSIONS : Object.values(MISSIONS); ok(list.length >= 6 && list.every((m) => S.SQUAD_IDS.includes(m.lead)), 'every mission names a squad lead'); ok(new Set(list.map((m) => m.lead)).size === 3, 'each protagonist leads at least one mission'); ok(list.filter((m) => m.squad).length >= 3 && list.some((m) => m.squad === false), 'only some missions bring the squad along'); }
 else ok(false, 'Story.js MISSIONS export');
+{ const { JOBS } = await import('../src/actors/SquadLife.js'); ok(S.SQUAD_IDS.every((id) => JOBS[id] && JOBS[id].label), 'every protagonist has his own job'); ok(JOBS.dineth.kind === 'tuk', 'Dineth drives a three-wheeler'); }
+{ const src = (await import('node:fs')).readFileSync(new URL('../src/actors/Squad.js', import.meta.url), 'utf8'); ok(!/holding position|hold \/ follow/.test(src), 'no hold / follow orders'); }
 console.log(`squad: ${n} checks, ${fails} failed`); if (fails) process.exit(1);

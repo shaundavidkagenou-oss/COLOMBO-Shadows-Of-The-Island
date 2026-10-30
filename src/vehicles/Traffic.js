@@ -9,10 +9,12 @@ import { RNG } from '../core/rng.js';
 import { clamp, lerp } from '../core/math.js';
 import { Character, randomSpec } from '../actors/Character.js';
 import { seatCharacter } from '../actors/Seating.js';
+import { parkOnStand } from './Kickstand.js';
 
 // passengers per vehicle type: [count, weight] (the driver is always present)
 const PAX = { car: [[0, 5], [1, 3], [2, 1.5], [3, 0.8]], sedan: [[0, 5], [1, 3], [2, 1]], taxi: [[0, 2], [1, 4], [2, 2]], suv: [[0, 3], [1, 3], [2, 2], [3, 1]], van: [[0, 3], [1, 2], [2, 2], [4, 1]],
   tuktuk: [[0, 3], [1, 4], [2, 3]], bike: [[0, 6], [1, 4]], lorry: [[0, 3], [1, 2]], bus: [[6, 1], [10, 2], [16, 2], [22, 1]], pbus: [[8, 1], [14, 2], [20, 2], [26, 1]] };
+export const TOW_DIST = 150, TOW_TIME = 300; // a vehicle the player left behind is towed after 5 min with the player beyond 150 m
 const PAX_NEAR = 90, PAX_FAR = 120, PAX_CAP = 60; // passengers exist only near the player (LOD); total cap
 
 const V0 = [13.5, 12, 9, 6.5];
@@ -158,6 +160,7 @@ export class Traffic {
     // spatial bins for following
     const all = this.vehicles; const playerV = player && player.vehicle; this.emergency = all.filter((v) => v.ai && v.ai.emergency && v.beaconsOn);
     for (const v of all) this.step(v, dt, all, pedsNear, playerV, player);
+    for (const v of all) if (v.towing) this.hitch(v);
     for (const v of this.parked) if (v.free) this.stepFree(v, dt);
     for (const v of all) if (v.driverChar || (v.pax && v.pax.length)) this.updateOccupants(v, dt, focus);
     if (playerV && playerV.pax && playerV.pax.length) this.updateOccupants(playerV, dt, focus);
@@ -267,12 +270,42 @@ export class Traffic {
     if (bd > 36) { const P = this.player; if (P && Math.hypot(P.x - v.x, P.z - v.z) > 90) { this.remove(v); const i = this.vehicles.indexOf(v); if (i >= 0) this.vehicles.splice(i, 1); } return; } /* thrown far off the road: stays as a stalled car until you are well away */
     ai.s = bestS; const [x, z, yaw] = evalPiece(pc, bestS); const lx = Math.cos(yaw) * ai.lat, lz = -Math.sin(yaw) * ai.lat; ai.kx = v.x - (x + lx); ai.kz = v.z - (z + lz); ai.kyaw = Math.atan2(Math.sin(v.yaw - yaw), Math.cos(v.yaw - yaw)); v.free = null; ai.bumped = 1;
   }
-  remove(v) { if (v.driverChar) { v.driverChar.dispose(); } if (v.pax && v.pax.length) this.dropPax(v); v.dispose(); }
+  remove(v) { if (v.towing) { v.towing.dispose(); v.towing = null; } if (v.squad && v.driverChar) { v.mesh.remove(v.driverChar.root); v.driverChar = null; const m = v.squad; v.squad = null; if (v.onRemove) v.onRemove(m); } /* a squad-mate at the wheel is never disposed */ if (v.driverChar) { v.driverChar.dispose(); } if (v.pax && v.pax.length) this.dropPax(v); v.dispose(); }
   // Hand a vehicle over to the player (car-jack: driver steps out and walks off grumbling)
-  takeOver(v, keepDriver = false) { const i = this.vehicles.indexOf(v); if (i >= 0) this.vehicles.splice(i, 1); const pi = this.parked.indexOf(v); if (pi >= 0) this.parked.splice(pi, 1); const hadDriver = !!v.driverChar; this.disembark(v, 'flee', this.player ? { x: this.player.x, z: this.player.z } : null); if (v.driverChar && !keepDriver) { v.mesh.remove(v.driverChar.root); v.driverChar.dispose(); v.driverChar = null; } v.ai = null; v.hold = false; v.parked = false; v.keep = true; return hadDriver; }
-  release(v) { v.parked = true; v.keep = false; v.speed = 0; v.brake = false; this.parked.push(v); }
+  takeOver(v, keepDriver = false) { const i = this.vehicles.indexOf(v); if (i >= 0) this.vehicles.splice(i, 1); const pi = this.parked.indexOf(v); if (pi >= 0) this.parked.splice(pi, 1); const hadDriver = !!v.driverChar; this.disembark(v, 'flee', this.player ? { x: this.player.x, z: this.player.z } : null); if (v.driverChar && !keepDriver) { v.mesh.remove(v.driverChar.root); v.driverChar.dispose(); v.driverChar = null; } v.ai = null; v.hold = false; v.parked = false; v.keep = true; v.left = null; if (v.spot) { this.parkedSet && this.parkedSet.delete(v.spot); v.spot = null; } return hadDriver; }
+  // the player got out / was taken out of a vehicle: it stays exactly where it was left (never culled by distance); with
+  // `tow` it is towed once the player has been more than TOW_DIST away for TOW_TIME seconds (coming back resets the clock)
+  release(v, tow = true) { parkOnStand(v); v.parked = true; v.keep = true; v.speed = 0; v.brake = false; v.left = tow ? { away: 0 } : null; if (v.spot) { this.parkedSet && this.parkedSet.delete(v.spot); v.spot = null; } if (!this.parked.includes(v)) this.parked.push(v); }
+  // a municipal tow truck pulls up on the nearest lane in front of the vehicle, wheel-lifts it and drives off with it
+  // put any vehicle under lane-following AI on the nearest drivable lane heading the way it faces (null if no road within maxD)
+  laneNear(x, z, yaw, maxD = 40) {
+    let best = null, bd = Infinity; for (const seg of this.drivableSegs) { if (seg.crossing) continue; const [a, b] = segNodes(seg); const dx = b.x - a.x, dz = b.z - a.z, l2 = dx * dx + dz * dz || 1; const t = clamp(((x - a.x) * dx + (z - a.z) * dz) / l2, 0, 1); const d = (a.x + dx * t - x) ** 2 + (a.z + dz * t - z) ** 2; if (d < bd) { bd = d; best = seg; } }
+    if (!best || bd > maxD * maxD) return null; const [a, b] = segNodes(best); const fwd = (b.x - a.x) * Math.sin(yaw) + (b.z - a.z) * Math.cos(yaw) >= 0; const piece = linePiece(best, fwd ? a : b, fwd ? b : a, 0);
+    const s = clamp((x - piece.p0[0]) * piece.d[0] + (z - piece.p0[1]) * piece.d[1], 0.5, piece.len - 0.5); return { piece, s, seg: best };
+  }
+  adoptAI(v, ln, { place = true, v0 = null, route = null } = {}) {
+    if (!ln) return false; const T = VTYPES[v.type]; if (place) { const [x, z, yaw] = evalPiece(ln.piece, ln.s); v.place(x, z, yaw); }
+    v.ai = { pieces: [ln.piece], s: ln.s, v0: v0 ?? Math.min(V0[ln.seg.level], T.maxSpeed * 0.42) * this.rng.range(0.92, 1.08), stuck: 0, honkCd: 0, bumped: 0, aggressive: v.type === 'tuktuk' ? 1.3 : 1, lat: 0, route: route ? route.slice() : null };
+    v.parked = false; v.player = false; v.hold = false; v.free = null; v.stand = 0; v.leanK = 0; this.extend(v); const pi = this.parked.indexOf(v); if (pi >= 0) this.parked.splice(pi, 1); if (!this.vehicles.includes(v)) this.vehicles.push(v); return true;
+  }
+  // a municipal tow truck pulls up on the nearest lane in front of the vehicle, wheel-lifts it and drives off with it
+  tow(v) {
+    const i = this.parked.indexOf(v); if (i >= 0) this.parked.splice(i, 1); v.left = null; v.parked = false; v.free = null;
+    const T = new Vehicle('tow', 4100 + (v.id % 97), this.scene); const ln = this.laneNear(v.x, v.z, v.yaw);
+    if (ln) { ln.s = clamp(ln.s + T.T.len / 2 + 3, 0.5, ln.piece.len - 0.5); this.adoptAI(T, ln, { v0: Math.min(V0[ln.seg.level], 9) }); T.speed = 0; this.addDriver(T); }
+    else T.place(v.x + Math.sin(v.yaw) * 7, v.z + Math.cos(v.yaw) * 7, v.yaw); /* no lane nearby: the truck takes it straight from where it stands */
+    T.towing = v; v.towedBy = T; v.keep = true; if (!this.vehicles.includes(T)) this.vehicles.push(T); this.hitch(T); this.events.emit('towed', v);
+    if (!ln) { this.remove(T); const k = this.vehicles.indexOf(T); if (k >= 0) this.vehicles.splice(k, 1); }
+  }
+  // wheel-lift: the towed vehicle's front axle sits in the cradle behind the truck, nose up, rear wheels rolling on the road
+  hitch(T) {
+    const c = T.towing; if (!c) return; const ws = c.mesh.userData.wheels || []; let fa = c.T.len * 0.3, ra = -c.T.len * 0.3; if (ws.length) { fa = Math.max(...ws.map((w) => w.position.z)); ra = Math.min(...ws.map((w) => w.position.z)); }
+    const wb = Math.max(0.8, fa - ra), a = Math.asin(Math.min(0.5, 0.36 / wb)); const zc = -(T.T.len / 2 + 0.85) - fa * Math.cos(a);
+    const fx = Math.sin(T.yaw), fz = Math.cos(T.yaw); c.x = T.x + fx * zc; c.z = T.z + fz * zc; c.yaw = T.yaw; c.pitch = -a; c.roll = 0; c.speed = T.speed; c.y = L.groundY(c.x, c.z) - ra * Math.sin(a); c.sync(0);
+  }
   updateParked(dt, focus) {
-    this.parkedTimer -= dt; if (this.parkedTimer > 0) return; this.parkedTimer = 1.0;
+    this.parkedTimer -= dt; if (this.parkedTimer > 0) return; const tick = 1.0 - this.parkedTimer; this.parkedTimer = 1.0;
+    for (const v of this.parked.slice()) if (v.left) { if (Math.hypot(v.x - focus.x, v.z - focus.z) > TOW_DIST) v.left.away += tick; else v.left.away = 0; if (v.left.away >= TOW_TIME) this.tow(v); }
     for (let i = this.parked.length - 1; i >= 0; i--) { const v = this.parked[i]; if (Math.hypot(v.x - focus.x, v.z - focus.z) > 200 && !v.keep) { v.dispose(); this.parked.splice(i, 1); } }
     if (!this.parkedSet) this.parkedSet = new Set(); const near = [];
     for (const p of plan.parking) { const d = (p.x - focus.x) ** 2 + (p.z - focus.z) ** 2; if (d < 150 * 150) near.push([d, p]); }
@@ -283,9 +316,9 @@ export class Traffic {
     for (const p of want) {
       if (this.parkedSet.has(p)) continue; const r = new RNG(Math.floor(p.x * 31 + p.z * 17));
       const type = r.weighted([['car', 4], ['tuktuk', 3], ['van', 2], ['sedan', 1.5], ['bike', 2], ['taxi', 0.6]]);
-      const v = new Vehicle(type, Math.floor(r.next() * 1e6), this.scene); v.place(p.x, p.z, p.yaw); v.parked = true; v.spot = p; this.parked.push(v); this.parkedSet.add(p);
+      const v = new Vehicle(type, Math.floor(r.next() * 1e6), this.scene); parkOnStand(v); v.place(p.x, p.z, p.yaw); v.parked = true; v.spot = p; this.parked.push(v); this.parkedSet.add(p);
     }
   }
-  nearest(x, z, maxD = 4) { let best = null, bd = maxD * maxD; for (const v of this.all()) { if (v.player || v.isTrain) continue; const d = (v.x - x) ** 2 + (v.z - z) ** 2; if (d < bd) { bd = d; best = v; } } return best; }
+  nearest(x, z, maxD = 4) { let best = null, bd = maxD * maxD; for (const v of this.all()) { if (v.player || v.isTrain || v.squad || v.towedBy) continue; const d = (v.x - x) ** 2 + (v.z - z) ** 2; if (d < bd) { bd = d; best = v; } } return best; }
 }
 export { evalPiece, linePiece, curvePiece, otherEnd, segNodes, laneOffset };

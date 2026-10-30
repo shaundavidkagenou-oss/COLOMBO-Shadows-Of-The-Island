@@ -6,6 +6,7 @@ import { Input } from '../core/Input.js';
 import { Settings } from '../core/Settings.js';
 import { clamp, lerp, damp, dampAngle, wrapAngle } from '../core/math.js';
 import * as L from '../world/Layout.js';
+import { kickUp, kickDown, isTwoWheel, KICK_UP, KICK_DOWN } from '../vehicles/Kickstand.js';
 const _feet = new THREE.Vector3();
 
 export class Player {
@@ -161,7 +162,8 @@ export class Player {
         const dur = E.kind === 'bike' ? 0.7 : E.kind === 'bus' ? 0.9 : 0.85; const k = Math.min(1, E.t / dur), s = k * k * (3 - 2 * k);
         const tx = seat.x, ty = seat.y, tz = seat.z; this.ch.root.position.set(lerp(E.from.x, tx, s), lerp(E.from.y, ty, Math.min(1, s * 1.4)), lerp(E.from.z, tz, s));
         this.ch.root.rotation.set(0, lerp(faceYawL, 0, Math.min(1, s * 1.2)), 0); A.sitIn(seat, s); A.update(dt, 0, 0); this.keepFeetAbove(v, seat);
-        if (k >= 1) next(E.door ? 'close' : 'done'); break; }
+        if (k >= 1) next(E.door ? 'close' : E.kind === 'bike' && ((v.stand || 0) > 0.01 || (v.leanK || 0) > 0.01) ? 'kick' : 'done'); break; }
+      case 'kick': { const k = Math.min(1, E.t / KICK_UP); kickUp(v, this.ch, seat, k); A.sitIn(seat, 1); A.update(dt, 0, 0); if (k >= 1) next('done'); break; } // pull the bike upright, boot the side stand up
       case 'close': { const ev = door(-0.35, 6.5, 0.9); A.update(dt, 0, 0); if (ev === 'latched' || E.t > 1.2) next('done'); break; } // pulled shut from inside: it swings in and slams on the latch
       case 'done': {
         doorAng(0); this.entry = null; v.hold = false; v.player = true; this.vehicle = v; this.control = true; this.ch.root.position.set(seat.x, seat.y, seat.z); this.ch.root.rotation.set(0, 0, 0);
@@ -180,13 +182,14 @@ export class Player {
   exitVehicle(traffic) {
     const v = this.vehicle; if (!v || Math.abs(v.speed) > 3 || this.exiting) return false;
     const spot = this.exitSpot(v); const ud = v.mesh.userData; const sameSide = Math.sign(spot.lx) === Math.sign((ud.entry || { x: -1 }).x);
-    this.exiting = { v, traffic, spot, t: 0, stage: ud.door && sameSide ? 'open' : 'out', door: sameSide ? ud.door : null, side: Math.sign(spot.lx) || -1 };
+    this.exiting = { v, traffic, spot, t: 0, stage: isTwoWheel(v) && !((v.stand || 0) > 0.99 && (v.leanK || 0) > 0.99) ? 'kick' : ud.door && sameSide ? 'open' : 'out', door: sameSide ? ud.door : null, side: Math.sign(spot.lx) || -1 };
     this.control = false; v.speed = 0; v.brake = true; return true;
   }
   updateExit(dt) {
     const X = this.exiting; const v = X.v; X.t += dt; const A = this.ch.anim; const seat = v.driverSeat(); const side = X.side;
     const doorAng = (k) => { if (X.door) { X.door.ang = k; X.door.vel = 0; X.door.pivot.rotation.y = X.door.max * k * (side < 0 ? 1 : -1); } };
     const door = (target, w, z) => this.driveDoor(v, X.door, side, target, dt, w, z); if (X.stage !== 'end') v.sync(dt); // the vehicle is not stepped while getting out
+    if (X.stage === 'kick') { const k = Math.min(1, X.t / KICK_DOWN); v.speed = 0; kickDown(v, this.ch, seat, k); A.update(dt, 0, 0); if (k >= 1) { X.stage = 'out'; X.t = 0; } return; } // boot the side stand down, lean the bike onto it
     if (X.stage === 'open') { if (X.t === dt) { doorAng(0); this.events.emit('doorOpen', { v }); } if (X.t < 0.12) door(0.07, 14, 1); else door(1, 9, 0.62); A.update(dt, 0, 0); if ((X.t > 0.4 && X.door.ang > 0.88) || X.t > 1) { X.stage = 'out'; X.t = 0; } return; }
     if (X.stage === 'out') { // swing out of the seat to the spot beside the vehicle
       const k = Math.min(1, X.t / 0.8), s = k * k * (3 - 2 * k); const tx = X.spot.lx, tz = X.spot.lz; A.sitIn(seat, 1 - s); if (A.action) A.set(null); if (X.door) door(1, 9, 0.62); v.load = Math.max(0, 1 - k * 1.6); // weight off the seat: the body rises back

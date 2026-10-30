@@ -11,6 +11,7 @@ import { carDetail, tukDetail, bikeDetail, heavyDetail, hiWheelParts } from './V
 import { MeshBuilder, MultiBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
 import { RNG } from '../core/rng.js';
+import { standMeshes } from './Kickstand.js';
 
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 const lerp = (a, b, t) => a + (b - a) * t; const sstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -29,10 +30,12 @@ export const VTYPES = {
   police: { base: 'sedan', police: true, len: 4.5, wid: 1.74, hgt: 1.45, wheelR: 0.32, maxSpeed: 46, accel: 6.4, mass: 1300, seats: 4, steer: 0.52, sound: 'car', entry: 'car', colors: ['#f4f4f2'] },
   policejeep: { base: 'suv', police: true, len: 4.8, wid: 1.9, hgt: 1.85, wheelR: 0.38, maxSpeed: 44, accel: 6.2, mass: 2150, seats: 5, steer: 0.5, sound: 'van', entry: 'van', colors: ['#f4f4f2'] },
   policebike: { base: 'bike', police: true, len: 1.95, wid: 0.7, hgt: 1.1, wheelR: 0.3, maxSpeed: 32, accel: 6.8, mass: 175, seats: 2, steer: 0.7, sound: 'bike', entry: 'bike', colors: ['#f4f4f2'] },
+  // municipal wrecker on the lorry cab: equipment deck, boom and winch, rear wheel-lift; only appears to tow a vehicle the player abandoned
+  tow: { base: 'lorry', tow: true, len: 7.2, wid: 2.3, hgt: 3.0, wheelR: 0.48, maxSpeed: 24, accel: 2.0, mass: 6500, seats: 2, steer: 0.45, sound: 'bus', entry: 'bus', colors: ['#e0b420', '#f2f2f0'] },
   bike: { len: 1.95, wid: 0.7, hgt: 1.1, wheelR: 0.3, maxSpeed: 30, accel: 6.5, mass: 160, seats: 2, steer: 0.7, sound: 'bike', entry: 'bike', colors: ['#151515', '#b51f1f', '#1d3f8a', '#e8e8e4', '#5a6b3a'] },
 };
 // clean private vehicles get clear-coated paint; working vehicles get worn, dirtier paint
-const WORN = new Set(['tuktuk', 'taxi', 'bus', 'pbus', 'lorry']);
+const WORN = new Set(['tuktuk', 'taxi', 'bus', 'pbus', 'lorry', 'tow']);
 
 // lofted body from cross-sections [z, y0, y1, halfW0 (bottom), halfW1 (top), round]
 // loft cross-section ring (10 points, counter-clockwise from the bottom-left); points 6..9 + 0 form the −x side
@@ -252,9 +255,10 @@ function notchOutline(D, R, sill, by) {
 const modelCache = new Map();
 function buildModel(type, color, variant) {
   const TP = VTYPES[type]; if (TP.police) { const m = buildBaseModel(TP.base, color, TP.base === 'bike' ? variant & ~1 : variant); /* police bikes: always the motorcycle body */ addPoliceKit(m, TP.base, TP); return m; }
+  if (TP.tow) return buildBaseModel(TP.base, color, variant, { tow: true });
   return buildBaseModel(type, color, variant);
 }
-function buildBaseModel(type, color, variant) {
+function buildBaseModel(type, color, variant, opts = {}) {
   const T = VTYPES[type]; const mb = new MultiBuilder(); const dm = new MultiBuilder(); const L = T.len, W = T.wid / 2, H = T.hgt, R = T.wheelR;
   const col = C(color), black = C('#151517'), chrome = C('#c4c8cc'), trimGrey = C('#2a2b2e'); const seats = []; let doors = []; let wheelStyle = variant % 3;
   const paint = mb.get('paint'), rubber = mb.get('rubber'), glass = mb.get('glass'), lights = mb.get('vlight'), tails = mb.get('vtail'), ind = mb.get('vind'), ch = mb.get('chrome');
@@ -390,7 +394,7 @@ function buildBaseModel(type, color, variant) {
   if (type === 'lorry') {
     const cabL = 1.95; const cz = L / 2 - cabL / 2; const wf = L / 2 - 1.15, wr = -L / 2 + 1.55; wheelStyle = 1;
     sideBody(paint, [[L / 2, 0.62], [L / 2 + 0.02, 1.75], [L / 2 - 0.04, 1.82], [L / 2 - cabL, 1.82], [L / 2 - cabL, 0.62]], 0.62, [[wf, R]], W, col, { bevel: 0.07, openTop: [L / 2 - cabL + 0.06, L / 2 - 0.1, 1.2] });
-    loft(glass, [[L / 2 - cabL + 0.05, 1.8, 2.62, W - 0.05, W - 0.12, 0.05], [L / 2 - 0.12, 1.8, 2.55, W - 0.06, W - 0.14, 0.05]], C('#fff'), { noBottom: true });
+    loft(glass, [[L / 2 - cabL + 0.05, 1.8, 2.66, W - 0.05, W - 0.12, 0.05], [L / 2 - 0.12, 1.8, 2.6, W - 0.06, W - 0.14, 0.05]], C('#fff'), { noBottom: true });
     loft(paint, [[L / 2 - cabL + 0.02, 2.6, 2.86, W - 0.04, W - 0.16, 0.12], [L / 2 - 0.1, 2.55, 2.84, W - 0.06, W - 0.18, 0.12]], col);
     for (const sx of [-1, 1]) { beam(paint, [sx * (W - 0.06), 1.8, L / 2 - 0.1], [sx * (W - 0.1), 2.55, L / 2 - 0.12], 0.08, 0.1, col); beam(paint, [sx * (W - 0.05), 1.8, L / 2 - cabL + 0.6], [sx * (W - 0.1), 2.62, L / 2 - cabL + 0.6], 0.06, 0.08, col); seam(mb, sx * (W + 0.003), [[L / 2 - 0.3, 0.75], [L / 2 - 0.3, 1.78], [L / 2 - cabL + 0.62, 1.78], [L / 2 - cabL + 0.62, 0.75]]); }
     glass.quad([-W + 0.1, 1.85, L / 2 + 0.025], [W - 0.1, 1.85, L / 2 + 0.025], [W - 0.12, 2.52, L / 2 - 0.1], [-W + 0.12, 2.52, L / 2 - 0.1], [0, 0, 1, 1], C('#fff'));
@@ -399,11 +403,24 @@ function buildBaseModel(type, color, variant) {
     rubber.box(0, 0.62, L / 2 + 0.07, W * 2 + 0.04, 0.26, 0.14, { col: C('#2a2a2a') }); plateQuad(mb, 0, 0.62, L / 2 + 0.145, 0.22, 0.06, true, variant);
     // chassis, bed, drop sides with planks, tarp, fuel tank, mudflaps, spare
     rubber.box(0, 0.62, -cabL / 2 + 0.1, 1.0, 0.22, L - cabL + 0.2, { col: C('#1d1d1d') });
+    if (opts.tow) { // wrecker body instead of the cargo bed
+      const steel = C('#3a3c40'), yel = col;
+      paint.box(0, 0.88, -0.5, W * 2 - 0.1, 0.1, 4.2, { col: steel }); // equipment deck
+      for (const sx of [-1, 1]) { paint.box(sx * (W - 0.28), 1.18, 0.85, 0.52, 0.5, 1.3, { col: yel }); ch.box(sx * (W - 0.02), 1.3, 0.85, 0.01, 0.03, 1.1, { col: C('#888') }); } // lockers
+      for (const sx of [-1, 1]) beam(paint, [sx * 0.62, 0.95, -0.9], [sx * 0.12, 2.75, -2.3], 0.09, 0.09, yel); // A-frame
+      beam(paint, [0, 1.15, -0.2], [0, 2.95, -3.05], 0.2, 0.16, yel); // boom
+      part(ch, unitCyl, [0, 1.15, -0.55], [0, 0, Math.PI / 2], [0.16, 0.7, 0.16], C('#2a2a2a')); // winch drum
+      beam(ch, [0, 2.95, -3.05], [0, 1.25, -3.35], 0.012, 0.012, C('#1a1a1a'), unitCyl); ch.box(0, 1.2, -3.35, 0.06, 0.12, 0.04, { col: C('#555') }); // cable + hook
+      rubber.box(0, 0.52, -L / 2 - 0.35, 0.24, 0.14, 1.0, { col: C('#2a2a2a') }); rubber.box(0, 0.42, -L / 2 - 0.85, 1.7, 0.1, 0.16, { col: C('#2a2a2a') }); // wheel-lift arm + crossbar
+      for (const sx of [-1, 1]) { rubber.box(sx * 0.72, 0.42, -L / 2 - 0.85, 0.08, 0.1, 0.5, { col: C('#2a2a2a') }); for (let i = 0; i < 4; i++) paint.box(sx * (W - 0.03), 1.0 + i * 0.12, -L / 2 + 0.35 + i * 0.001, 0.05, 0.06, 0.5, { col: i % 2 ? C('#b51f1f') : C('#f2f2f0') }); } // forks; chevrons on the tail posts
+      paint.box(0, 1.0, -L / 2 + 0.05, W * 2, 0.22, 0.05, { col: steel }); // tail beam
+    } else {
     paint.box(0, 0.86, -cabL / 2, W * 2, 0.12, L - cabL - 0.1, { col: C('#3a2a1e') });
     const side = C(variant % 2 ? '#c49a3a' : '#3a5a8a'); const bedL = L - cabL - 0.1, bz = -cabL / 2;
     for (const sx of [-1, 1]) { for (let i = 0; i < 4; i++) paint.box(sx * (W - 0.03), 1.04 + i * 0.25, bz, 0.05, 0.22, bedL, { col: side }); for (let z = bz - bedL / 2 + 0.3; z < bz + bedL / 2; z += 1.0) ch.box(sx * (W - 0.0), 1.42, z, 0.03, 0.95, 0.06, { col: C('#555') }); }
     for (let i = 0; i < 4; i++) paint.box(0, 1.04 + i * 0.25, -L / 2 + 0.05, W * 2, 0.22, 0.05, { col: side });
     loft(mb.get('canvas'), [[-L / 2 + 0.05, 1.95, 2.35, W, W - 0.2, 0.3], [L / 2 - cabL - 0.05, 1.95, 2.4, W, W - 0.2, 0.3]], C('#2f5a3a'));
+    }
     part(ch, unitCyl, [-W + 0.25, 0.6, 0.4], [Math.PI / 2, 0, 0], [0.22, 0.8, 0.22], C('#a0a4a8'));
     for (const sx of [-1, 1]) { rubber.box(sx * (W - 0.25), 0.35, wr - 0.75, 0.4, 0.45, 0.02, { col: black }); tails.box(sx * (W - 0.2), 0.8, -L / 2 - 0.01, 0.2, 0.15, 0.04); ind.box(sx * (W - 0.42), 0.8, -L / 2 - 0.01, 0.16, 0.12, 0.04); }
     plateQuad(mb, 0, 0.75, -L / 2 - 0.02, 0.22, 0.06, false, variant);
@@ -626,7 +643,8 @@ export function createVehicleMesh(type, seed = 1) {
   const ds = cached.seats.find((s) => s.driver) || cached.seats[0];
   const side = T.entry === 'bike' ? 1 : -1; const hw = T.wid / 2;
   const entry = cached.busDoor ? { x: cached.busDoor[0], z: cached.busDoor[1], side: 1 } : { x: side * (hw + (T.entry === 'tuk' ? 0.35 : T.entry === 'bike' ? 0.45 : 0.55)), z: door ? cached.doors[0].hinge[1] - cached.doors[0].len * 0.55 : ds.z, side };
-  g.userData = { detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons };
+  const stand = base === 'bike' ? standMeshes(M.vrim) : null; if (stand) g.add(stand); // animated side stand (Kickstand.js)
+  g.userData = { stand, detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons };
   return g;
 }
 // darken lower panels and add per-vehicle grime variation to working vehicles

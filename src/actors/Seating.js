@@ -20,7 +20,7 @@ import { clamp, lerp, damp } from '../core/math.js';
 import { solveArmIK } from './Character.js';
 
 const _e = new THREE.Euler(), _q = new THREE.Quaternion(), _qh = new THREE.Quaternion(), _qt = new THREE.Quaternion(), _qs = new THREE.Quaternion(), _qw = new THREE.Quaternion();
-const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _k = new THREE.Vector3();
+const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _k = new THREE.Vector3(), _fo = new THREE.Vector3();
 
 // Pure leg solver (exported for the unit test). Inputs in root space: hip joint H, ankle target F, link lengths a, b.
 // Returns { gamma (splay about +z), theta (forward swing of the thigh from straight down), knee (flexion) }.
@@ -100,6 +100,7 @@ function poseSeat(A, dt, w, fitting = false) {
     _v.copy(tb.position).applyQuaternion(_qh).add(_w.set(0, hipUp, hipZ)); // hip joint, root space
     const F = _k.set(sx * (S.fx ?? 0.13), S.floorRel + ankle, S.fz ?? 0.55);
     if (S.footStagger && sd === 'R') F.z += S.footStagger;
+    const fo = sd === 'L' ? A.footOverL : null; if (fo && fo.w > 0) F.lerp(_fo.set(fo.x, fo.y + ankle, fo.z), Math.min(1, fo.w)); // kickstand: the left boot on the stand's tang
     const L = solveLeg(_v, F, a, bl);
     _e.set(-L.theta, 0, L.gamma, 'ZXY'); _qw.setFromEuler(_e); // world (root-space) thigh orientation
     _qt.copy(_qh).invert().multiply(_qw); tb.quaternion.slerp(_qt, w); // local = hips⁻¹ · world

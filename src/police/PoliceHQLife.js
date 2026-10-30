@@ -7,6 +7,7 @@ import * as L from '../world/Layout.js';
 import { HQ } from '../world/PoliceHQ.js';
 import { Vehicle } from '../vehicles/Vehicle.js';
 import { linePiece } from '../vehicles/Traffic.js';
+import { parkOnStand, kickUp, kickDown, KICK_UP, KICK_DOWN } from '../vehicles/Kickstand.js';
 import { Character } from '../actors/Character.js';
 import { makePoliceAppearance } from '../actors/Appearance.js';
 import { clamp, lerp } from '../core/math.js';
@@ -15,7 +16,7 @@ const C0 = { x: -11, z: -205 }; const NEAR = 230, FAR = 290;
 const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
 
 export class PoliceHQLife {
-  constructor(game) { this.g = game; this.active = false; this.vehicles = []; this.people = []; this.depart = null; this.nextDepart = 35; this.boom = 0; this.boomWant = 0; this.seed = 1; this.log = []; this.stats = { departures: 0, handovers: 0 }; }
+  constructor(game) { this.g = game; this.active = false; this.vehicles = []; this.people = []; this.depart = null; this.nextDepart = 35; this.boom = 0; this.boomWant = 0; this.seed = 1; this.log = []; this.stats = { departures: 0, handovers: 0, arrivals: 0 }; this.arrivals = []; }
   focus() { const P = this.g.player; return P.vehicle ? { x: P.vehicle.x, z: P.vehicle.z } : { x: P.x, z: P.z }; }
   update(dt) {
     const g = this.g; if (g.indoor) return; const f = this.focus(); const d = Math.hypot(f.x - C0.x, f.z - C0.z);
@@ -25,6 +26,7 @@ export class PoliceHQLife {
     if (!this.active) return;
     for (const p of this.people) this.updatePerson(p, dt, f);
     this.pushPlayer();
+    if (this.arrivals.length) this.updateArrivals(dt);
     if (this.depart) this.updateDepart(dt); else { this.nextDepart -= dt; if (this.nextDepart <= 0 && d < 170) this.startDepart(); }
   }
   // Boom barrier + pedestrian wicket: open automatically for anyone (player, NPC, vehicle) approaching, close behind them.
@@ -51,7 +53,7 @@ export class PoliceHQLife {
   }
   boomPivot() { if (this._boom !== undefined) return this._boom; let found = null; this.g.scene.traverse((o) => { if (!found && o.isGroup && o.children.length === 2 && Math.abs(o.position.x - HQ.boom.x) < 0.01 && Math.abs(o.position.z - HQ.boom.z) < 0.01) found = o; }); return (this._boom = found); }
   // ------------------------------------------------------------------ spawn / despawn (LOD)
-  addVehicle(type, b, seed) { const v = new Vehicle(type, seed, this.g.scene); v.place(b.x, b.z, b.yaw); v.parked = true; v.keep = true; v.hq = true; v.bay = b; this.g.traffic.parked.push(v); this.vehicles.push(v); return v; }
+  addVehicle(type, b, seed) { const v = new Vehicle(type, seed, this.g.scene); parkOnStand(v); v.place(b.x, b.z, b.yaw); v.parked = true; v.keep = true; v.hq = true; v.bay = b; this.g.traffic.parked.push(v); this.vehicles.push(v); return v; }
   spawn() {
     this.active = true; let s = 900;
     for (const b of HQ.carBays) this.addVehicle(b.type, b, s++);
@@ -64,6 +66,7 @@ export class PoliceHQLife {
   }
   despawn() {
     const T = this.g.traffic;
+    for (const a of this.arrivals) { if (this.vehicles.includes(a.v)) continue; const i = T.parked.indexOf(a.v); if (i >= 0) T.parked.splice(i, 1); if (a.ch && !this.people.some((p) => p.ch === a.ch)) a.ch.dispose(); a.v.driverChar = null; if (!a.v.player) a.v.dispose(); } this.arrivals = [];
     for (const v of this.vehicles) { if (v.player || T.vehicles.includes(v)) { v.keep = false; continue; } const i = T.parked.indexOf(v); if (i >= 0) T.parked.splice(i, 1); if (v.driverChar) v.driverChar.dispose(); v.dispose(); }
     for (const p of this.people) { p.ch.root.parent?.remove(p.ch.root); p.ch.dispose(); }
     this.vehicles = []; this.people = []; this.active = false; this.departBoom = 0;
@@ -111,8 +114,9 @@ export class PoliceHQLife {
     if (D.stage === 'mount') { const k1 = clamp(D.t / 1.0, 0, 1), k2 = clamp((D.t - 0.6) / 1.0, 0, 1); this.mount(D.rider, seats[0], bike, k1); this.mount(D.pillion, seats[1], bike, k2); D.rider.ch.anim.update(dt, 0); D.pillion.ch.anim.update(dt, 0);
       if (k2 >= 1) { bike.driverChar = D.rider.ch; bike.pax = [D.pillion.ch]; bike.paxPlan = [{ si: 1, spec: D.pillion.ch.spec, mode: 'lap' }]; T.paxCount += 1; this.people = this.people.filter((p) => p !== D.rider && p !== D.pillion);
         const b = bike.bay; D.route = [[b.x + 3.2, b.z], [-43.2, -207.8], [-34, -212.6], [-22, -213.8], [-13, -215.2], [-10.2, -218], [-10, -222.6], [-10, -229.2], [-11.2, -232.4]]; /* around the building corner, north of the portico columns */ D.hand = this.handoverPiece(); if (D.hand) D.route.push([D.hand.p0[0], D.hand.p0[1]]);
-        D.stage = 'ride'; D.t = 0; D.wp = 0; bike.parked = false; this.note('depart: riding to gate'); }
+        D.stage = 'kick'; D.t = 0; D.wp = 0; this.note('depart: kickstand up'); }
       return; }
+    if (D.stage === 'kick') { const k = clamp(D.t / KICK_UP, 0, 1); kickUp(bike, D.rider.ch, seats[0], k); bike.sync(dt); D.rider.ch.anim.update(dt, 0); D.pillion.ch.anim.update(dt, 0); if (k >= 1) { D.stage = 'ride'; D.t = 0; bike.parked = false; this.note('depart: riding to gate'); } return; }
     if (D.stage === 'ride') {
       const tgt = D.route[D.wp]; const dx = tgt[0] - bike.x, dz = tgt[1] - bike.z, dd = Math.hypot(dx, dz);
       const atBoom = bike.z > -226.8 && bike.z < -219 && Math.abs(bike.x + 10) < 3; if (bike.z < -219.5 && bike.z > -229) this.departBoom = 1; if (bike.z < -230.5) this.departBoom = 0;
@@ -125,6 +129,44 @@ export class PoliceHQLife {
       if (dd < (D.wp >= D.route.length - 1 ? 0.6 : 1.4)) { D.wp++; if (D.wp >= D.route.length) this.handover(); }
       if (D.t > 120) this.abortDepart('ride timeout');
     }
+  }
+  // ------------------------------------------------------------------ arrivals (traffic officers back from point duty)
+  // takes a motorcycle off the road at the Union Place junction: ride in through the gate (waits for the boom), park front-in
+  // in a free motorcycle bay, side stand down, climb off, walk to the portico and into the building
+  arrive(v) {
+    if (!this.active || this.arrivals.length >= 2 || !v.driverChar) return false; const T = this.g.traffic;
+    const used = new Set(this.vehicles.map((x) => x.bay)); for (const a of this.arrivals) used.add(a.bay); const bay = HQ.bikeBays.find((b) => !used.has(b)) || null;
+    const i = T.vehicles.indexOf(v); if (i >= 0) T.vehicles.splice(i, 1); if (!T.parked.includes(v)) T.parked.push(v); // stays solid + opens the boom
+    v.ai = null; v.keep = true; v.hq = true; v.hqArrive = true; v.parked = false; v.duty = null;
+    const route = [[-10.6, -233.6], [-10, -229.2], [-10, -222.6], [-10.2, -218], [-13, -215.2], [-22, -213.8], [-34, -212.6], [-43.2, -207.8]].concat(bay ? [[bay.x + 3.2, bay.z], [bay.x + 0.3, bay.z]] : [[-28, -214.4]]);
+    this.arrivals.push({ v, ch: v.driverChar, bay, route, wp: 0, stage: 'ride', t: 0 }); this.stats.arrivals++; this.note('arrival: officer riding in'); return true;
+  }
+  updateArrivals(dt) {
+    const T = this.g.traffic;
+    for (const a of this.arrivals.slice()) { const v = a.v, seat = v.mesh.userData.seats[0]; a.t += dt;
+      if (v.player || v.disposed) { this.arrivals = this.arrivals.filter((x) => x !== a); continue; }
+      if (a.stage === 'ride') {
+        const tgt = a.route[a.wp]; const dx = tgt[0] - v.x, dz = tgt[1] - v.z, dd = Math.hypot(dx, dz); const last = a.wp >= a.route.length - 1;
+        let vWant = last ? Math.min(1.6, dd * 1.5) : a.wp >= a.route.length - 3 ? 2.2 : 4.0; if (v.z < -226 && v.z > -232 && this.boom < 0.9) vWant = Math.min(vWant, Math.max(0, (-227.4 - v.z) * 1.2));
+        const err = angDiff(Math.atan2(dx, dz), v.yaw); vWant *= 1 - Math.min(0.6, Math.abs(err) * 0.5);
+        v.speed = lerp(v.speed, vWant, 1 - Math.exp(-dt * 2.4)); v.yaw += clamp(err, -1, 1) * Math.min(1.8, 0.4 + v.speed * 0.5) * dt; v.steer = clamp(err * 1.4, -0.6, 0.6);
+        v.x += Math.sin(v.yaw) * v.speed * dt; v.z += Math.cos(v.yaw) * v.speed * dt; v.y = L.groundY(v.x, v.z); v.lights = this.g.atmos?.night > 0.4; v.sync(dt);
+        const A = a.ch.anim; A.steer = v.steer / 0.7; A.vehSpeed = v.speed; A.update(dt, 0);
+        if (dd < (last ? 0.25 : 1.3)) { a.wp++; if (a.wp >= a.route.length || a.t > 90) { v.speed = 0; v.steer = 0; a.stage = 'kick'; a.t = 0; } }
+        continue;
+      }
+      if (a.stage === 'kick') { const k = clamp(a.t / KICK_DOWN, 0, 1); kickDown(v, a.ch, seat, k); a.ch.anim.update(dt, 0); v.sync(dt); if (k >= 1) { a.stage = 'off'; a.t = 0; a.ex = seat.exit || [0.75, seat.z]; } continue; }
+      if (a.stage === 'off') { // reverse of mount(): seat → exit spot beside the stand side
+        const k = clamp(a.t / 0.9, 0, 1), sm = k * k * (3 - 2 * k); const ch = a.ch; ch.root.position.set(lerp(seat.x, a.ex[0], sm), lerp(seat.y, 0, Math.min(1, sm * 1.3)), lerp(seat.z, a.ex[1], sm));
+        ch.root.rotation.y = lerp(0, Math.atan2(a.ex[0] - seat.x, a.ex[1] - seat.z), Math.min(1, sm * 1.5)); ch.anim.sitIn(seat, 1 - sm); ch.anim.update(dt, k > 0.5 ? 1 : 0);
+        if (k >= 1) { ch.anim.standUp(); v.mesh.updateMatrixWorld(); const w = new THREE.Vector3(a.ex[0], 0, a.ex[1]).applyMatrix4(v.mesh.matrixWorld); v.mesh.remove(ch.root); this.g.scene.add(ch.root); v.driverChar = null;
+          v.parked = true; v.speed = 0; v.bay = a.bay; v.hqArrive = false; this.vehicles.push(v);
+          const p = { ch, x: w.x, z: w.z, yaw: v.yaw + Math.PI / 2, acc: 0, walkTo: [[-43.4, -207.2], [-36, -208.6], [-20, -208.6], [-11, -207.4], [-11, -205.6]], wk: 0, sp: 1.4, goesIn: true }; this.people.push(p); a.p = p; a.stage = 'walk'; a.t = 0; }
+        continue;
+      }
+      if (a.stage === 'walk') { if (a.p.arrived || a.t > 80) { this.people = this.people.filter((q) => q !== a.p); a.p.ch.root.parent?.remove(a.p.ch.root); a.p.ch.dispose(); this.arrivals = this.arrivals.filter((x) => x !== a); this.note('arrival: officer went inside'); } }
+    }
+    void T;
   }
   // the westbound kerb lane of Union Place, starting at the old 2nd Cross junction
   handoverPiece() {

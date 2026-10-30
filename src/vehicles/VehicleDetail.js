@@ -202,7 +202,7 @@ export function bikeDetail(dm, K, c) {
   for (const sx of [-1, 1]) for (let i = 0; i < 4; i++) { const t = 0.12 + i * 0.05; part(rub, ringZ, [sx * 0.07, lerp(R, 1.07, t), lerp(0.72, 0.52, t)], [Math.PI / 2 - 0.25, 0, 0], [0.042, 0.042, 0.06], black); }
   part(rub, unitBox, [-0.1, R + R * 0.3, 0.6], [0, 0, 0], [0.03, 0.08, 0.06], C('#2a2a2c')); // front caliper
   pnt.box(0, R * 2 + 0.01, -0.8, 0.12, 0.012, 0.25, { col: col }); rub.box(0, 0.62, -0.92, 0.26, 0.012, 0.08, { col: black });
-  beam(chr, [-0.12, 0.3, 0.0], [-0.22, 0.03, 0.08], 0.02, 0.02, C('#2a2a2a'), unitCyl);
+  // (the side stand is a separate animated part on the left: Kickstand.js)
   part(lens, unitBox, [0, 0.86, -0.922], [0, 0, 0], [0.13, 0.07, 0.004]);
 }
 
@@ -232,7 +232,7 @@ export function heavyDetail(dm, K, c) {
   if (kind === 'lorry') {
     rub.box(0, 2.68, fz + 0.06, W * 2 - 0.1, 0.06, 0.2, { col: C('#1a1a1a') }); // sun visor
     for (const sx of [-1, 1]) { rub.box(sx * (W - 0.12), 0.45, fz - 0.95, 0.26, 0.03, 0.3, { col: C('#2a2a2a') }); rub.box(sx * (W - 0.12), 0.25, fz - 0.95, 0.26, 0.03, 0.3, { col: C('#2a2a2a') }); } // cab steps
-    beam(chr, [-W + 0.15, 0.7, fz - 2.05], [-W + 0.15, 3.0, fz - 2.05], 0.06, 0.06, chrome, unitCyl); part(rub, discZ, [-W + 0.15, 3.0, fz - 2.05], [Math.PI / 2, 0, 0], [0.05, 0.05, 0.004], C('#050505')); // exhaust stack
+    beam(chr, [-W - 0.09, 0.7, fz - 2.08], [-W - 0.09, 3.0, fz - 2.08], 0.06, 0.06, chrome, unitCyl); part(rub, discZ, [-W - 0.09, 3.0, fz - 2.08], [Math.PI / 2, 0, 0], [0.05, 0.05, 0.004], C('#050505')); for (const y of [1.3, 2.2]) rub.box(-W - 0.03, y, fz - 2.08, 0.1, 0.05, 0.05, { col: C('#1a1a1a') }); // exhaust stack: outboard, behind the cab (clear of the bed and its tarp)
     for (const dx of [-0.15, 0.15]) part(chr, unitCyl, [dx, 2.92, fz - 0.6], [Math.PI / 2, 0, 0], [0.04, 0.32, 0.04], chrome); // air horns
     rub.box(W - 0.3, 0.5, 0.2, 0.42, 0.3, 0.5, { col: C('#151515') }); // battery box
     for (let z = rz + 0.4; z < fz - 2.1; z += 0.5) for (const sx of [-1, 1]) part(chr, unitBox, [sx * (W + 0.01), 0.92, z], [0, 0, 0], [0.02, 0.04, 0.04], C('#555')); // rope hooks
