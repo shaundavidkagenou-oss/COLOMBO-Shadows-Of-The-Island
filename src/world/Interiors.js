@@ -116,6 +116,9 @@ export class Interiors {
     else if (!P.indoor && !P.vehicle && !this.current && P.z > r.front + 0.3 && P.z < r.front + r.depth && P.x > r.bounds.x0 && P.x < r.bounds.x1 && P.y > r.y - 0.6 && P.y < r.y + 2 * r.H) P.indoor = r;
     // how "inside" the camera is: drives the light blend in Game (eased so stepping through the door is a smooth adaptation)
     const tk = P.indoor === r ? Math.min(1, Math.max(0, (P.z - r.front + 0.3) / 3.5)) : 0; this.seamK = (this.seamK || 0) + (tk - (this.seamK || 0)) * Math.min(1, dt * 2.5);
+    // ceiling lights: point lights have no shadows, so from outside their reach is clamped to the nearest wall (the facade and
+    // compound are not lit through the walls); once inside they light the whole floor
+    if (r.lights) { const k = this.seamK; for (const l of r.lights) { const dw = Math.max(1.5, (l.userData.wallD || 16) + 0.3); l.distance = dw + (16 - dw) * k; l.intensity = 14 * (0.55 + 0.45 * k); } }
     return this.seamK;
   }
   update(dt) {

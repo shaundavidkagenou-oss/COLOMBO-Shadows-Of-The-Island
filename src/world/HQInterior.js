@@ -156,8 +156,9 @@ export function buildHQInterior(game, door, place) {
 
   // ---------------------------------------------------------------- meshes and lights
   for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) g.add(m); // casting: ceilings keep the sun out (the facade's flat roof is a single upward face)
+  const lights = []; // ceiling lights; Interiors clamps their reach to the walls while the player is outside (no light through the facade)
   // (no hemisphere light here: it would light the whole city — Interiors blends the global light towards indoor levels instead)
-  for (const [u, v, f] of [[0, 3.5, 0], [-11, 13, 0], [8, 8.25, 0], [-10, 3.5, 1], [3, 8.25, 1], [-9, 13.5, 1]]) { const l = new THREE.PointLight(0xfff1dc, 14, 16, 1.6); l.position.set(X(u), FY(f) + H - 0.5, Z(v)); g.add(l); }
+  for (const [u, v, f] of [[0, 3.5, 0], [-11, 13, 0], [8, 8.25, 0], [-10, 3.5, 1], [3, 8.25, 1], [-9, 13.5, 1]]) { const l = new THREE.PointLight(0xfff1dc, 14, 16, 1.6); l.position.set(X(u), FY(f) + H - 0.5, Z(v)); l.userData.wallD = Math.min(v, D - v, W / 2 - Math.abs(u)); g.add(l); lights.push(l); }
   g.position.set(PX, PY, PZ); g.rotation.y = Math.PI; g.visible = false; game.scene.add(g); g.updateMatrixWorld(true);
   // obstacles to world space (x → PX − x, z → PZ − z under the 180° turn)
   const wobs = obs.map((L) => L.map((o) => ({ x0: PX - o.x1, x1: PX - o.x0, z0: PZ - o.z1, z1: PZ - o.z0, top: o.top + PY })));
@@ -187,7 +188,7 @@ export function buildHQInterior(game, door, place) {
 
   // ---------------------------------------------------------------- room object
   const room = {
-    id: 'hq', D: HQ_DEF, g, fan: null, y: PY, door, H, plates, npcs, multiFloor: true, seamless: true, front: PZ, gap: [PX - 2, PX + 2], depth: D,
+    id: 'hq', D: HQ_DEF, g, fan: null, y: PY, door, H, plates, npcs, lights, multiFloor: true, seamless: true, front: PZ, gap: [PX - 2, PX + 2], depth: D,
     bounds: { x0: PX - W / 2 + 0.25, x1: PX + W / 2 - 0.25, z0: PZ + 0.25, z1: PZ + D - 0.25 }, obstacles: wobs[0], obsByFloor: wobs,
     spawn: [PX, PZ + 1.2], keeperPos: null,
     floorIndex(y) { return y > PY + H * 0.5 ? 1 : 0; },

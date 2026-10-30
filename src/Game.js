@@ -291,7 +291,7 @@ export class Game {
       if (mapOpen) { if (Input.wasPressed('map')) this.toggleMap(false); }
       else if (this.mode === 'play' && !this.paused) this.updatePlay(dt * (this.timeSlow || 1)); // weapon wheel / squad selector slow time
       else if (this.mode === 'menu' || this.mode === 'intro') this.updateAmbient(dt);
-      CAM.copy(this.camera.position); updateVehicleLOD(this.camera); if (this.headRig && this.atmos) this.headRig.update(this.camera, this.player && this.player.vehicle, this.atmos.night, this.indoor);
+      CAM.copy(this.camera.position); updateVehicleLOD(this.camera); if (this.headRig && this.atmos) this.headRig.update(this.camera, this.player && this.player.vehicle, this.atmos.night, this.indoor ? 1 : (this.seamK || 0));
       if (this.post && !mapOpen) { if (this.world && this.world.waterRefl) { const q = Settings.get('quality'); this.world.waterRefl.scale = q === 'ultra' ? 0.6 : 0.45; this.world.waterRefl.update(this.renderer, this.scene, this.camera, (q === 'high' || q === 'ultra') && !this.indoor); } this.post.update(this.atmos); this.post.render(dt); }
     } catch (e) { if (!this._errN || this._errN < 5) console.error(e && e.stack || e); this._errN = (this._errN || 0) + 1; this.lastError = e; }
     Input.endFrame();
@@ -340,7 +340,7 @@ export class Game {
     let localPrompt = null;
     if (!busy && !warmOnly && P.control) localPrompt = this.updateInteractions(dt);
     const focus = { x: P.x, z: P.z }; const fv = new THREE.Vector3(P.x, P.y, P.z);
-    this.world.simTime = this.clock; this.world.update(dt, focus, cam, A);
+    this.world.simTime = this.clock; this.world.indoorK = this.indoor ? 1 : (this.seamK || 0); this.world.update(dt, focus, cam, A);
     A.update(dt, fv, cam, dt); setVehicleNight(A.night); setHeadPoolNight(A.night);
     // walk-in Police HQ: smooth outdoor → indoor light adaptation while the city keeps running outside
     const sk = this.indoor || warmOnly ? 0 : this.interiors.updateSeamless(dt); this.seamK = sk;

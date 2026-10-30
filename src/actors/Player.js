@@ -6,6 +6,7 @@ import { Input } from '../core/Input.js';
 import { Settings } from '../core/Settings.js';
 import { clamp, lerp, damp, dampAngle, wrapAngle } from '../core/math.js';
 import * as L from '../world/Layout.js';
+const _feet = new THREE.Vector3();
 
 export class Player {
   constructor(scene, camera, collision, events) {
@@ -112,6 +113,16 @@ export class Player {
     if (door.ang < 0) { const s = -door.vel; door.ang = 0; door.vel = 0; ev = 'latched'; if (s > 0.6) { v.slam(s); this.events.emit('doorSlam', { v, s }); } }
     door.pivot.rotation.y = door.max * door.ang * (side < 0 ? 1 : -1); return ev;
   }
+  // During the seat ↔ standing blends the legs fold while the root travels, which used to drop the feet through the cabin
+  // floor (and the road). Raise the root just enough that neither sole is below the surface under it: the floor pan /
+  // footboard (seat.floor) inside the vehicle's footprint, the road (vehicle-local 0) outside it.
+  keepFeetAbove(v, seat) {
+    if (seat.ride) return; const ch = this.ch, r = ch.root, bones = ch.bones || {}; const fl = bones.footL, fr = bones.footR; if (!fl || !fr || !ch.mesh.skeleton) return;
+    if (ch._soleH === undefined) { const sk = ch.mesh.skeleton, i = sk.bones.indexOf(fl); ch._soleH = i >= 0 ? new THREE.Matrix4().copy(sk.boneInverses[i]).invert().elements[13] : 0.08; } // ankle height above the sole (bind pose)
+    r.updateMatrixWorld(true); v.mesh.updateMatrixWorld(); const hw = v.T.wid / 2 - 0.1, hl = v.T.len / 2 - 0.15; const floor = seat.floor !== undefined ? seat.floor : seat.y - 0.3;
+    let need = 0; for (const b of [fl, fr]) { b.getWorldPosition(_feet); v.mesh.worldToLocal(_feet); const under = Math.abs(_feet.x) < hw && Math.abs(_feet.z) < hl ? floor : 0; need = Math.max(need, under - (_feet.y - ch._soleH * 0.85)); }
+    if (need > 0.002) { r.position.y += need; r.updateMatrixWorld(true); }
+  }
   local(v, x, y, z) { v.mesh.updateMatrixWorld(); return new THREE.Vector3(x, y, z).applyMatrix4(v.mesh.matrixWorld); }
   updateEntry(dt) {
     const E = this.entry; const v = E.v; const A = this.ch.anim; E.t += dt; E.total += dt; const e = E.e; const seat = v.driverSeat();
@@ -146,7 +157,7 @@ export class Player {
         if (E.t === dt || !E.parented) { this.scene.remove(this.ch.root); v.mesh.add(this.ch.root); E.parented = true; E.from = this.ch.root.position.clone(); const inv = new THREE.Matrix4().copy(v.mesh.matrixWorld).invert(); E.from = new THREE.Vector3(this.x, this.y, this.z).applyMatrix4(inv); A.set(null); A.sitIn(seat, 0); }
         const dur = E.kind === 'bike' ? 0.7 : E.kind === 'bus' ? 0.9 : 0.85; const k = Math.min(1, E.t / dur), s = k * k * (3 - 2 * k);
         const tx = seat.x, ty = seat.y, tz = seat.z; this.ch.root.position.set(lerp(E.from.x, tx, s), lerp(E.from.y, ty, Math.min(1, s * 1.4)), lerp(E.from.z, tz, s));
-        this.ch.root.rotation.set(0, lerp(faceYawL, 0, Math.min(1, s * 1.2)), 0); A.sitIn(seat, s); A.update(dt, 0, 0);
+        this.ch.root.rotation.set(0, lerp(faceYawL, 0, Math.min(1, s * 1.2)), 0); A.sitIn(seat, s); A.update(dt, 0, 0); this.keepFeetAbove(v, seat);
         if (k >= 1) next(E.door ? 'close' : 'done'); break; }
       case 'close': { const ev = door(-0.35, 6.5, 0.9); A.update(dt, 0, 0); if (ev === 'latched' || E.t > 1.2) next('done'); break; } // pulled shut from inside: it swings in and slams on the latch
       case 'done': {
@@ -176,7 +187,7 @@ export class Player {
     if (X.stage === 'open') { if (X.t === dt) { doorAng(0); this.events.emit('doorOpen', { v }); } if (X.t < 0.12) door(0.07, 14, 1); else door(1, 9, 0.62); A.update(dt, 0, 0); if ((X.t > 0.4 && X.door.ang > 0.88) || X.t > 1) { X.stage = 'out'; X.t = 0; } return; }
     if (X.stage === 'out') { // swing out of the seat to the spot beside the vehicle
       const k = Math.min(1, X.t / 0.8), s = k * k * (3 - 2 * k); const tx = X.spot.lx, tz = X.spot.lz; A.sitIn(seat, 1 - s); if (A.action) A.set(null); if (X.door) door(1, 9, 0.62); v.load = Math.max(0, 1 - k * 1.6); // weight off the seat: the body rises back
-      this.ch.root.position.set(lerp(seat.x, tx, s), lerp(seat.y, 0, Math.min(1, s * 1.3)), lerp(seat.z, tz, s)); this.ch.root.rotation.set(0, lerp(0, -side * Math.PI / 2 + Math.PI, s), 0); A.update(dt, k > 0.4 ? 0.8 : 0, 0);
+      this.ch.root.position.set(lerp(seat.x, tx, s), lerp(seat.y, 0, Math.min(1, s * 1.3)), lerp(seat.z, tz, s)); this.ch.root.rotation.set(0, lerp(0, -side * Math.PI / 2 + Math.PI, s), 0); A.update(dt, k > 0.4 ? 0.8 : 0, 0); this.keepFeetAbove(v, seat);
       if (k >= 1) { // re-parent to the world at the exact same place
         v.mesh.remove(this.ch.root); this.scene.add(this.ch.root); v.player = false; v.speed = 0; v.brake = false; X.traffic.release(v); this.vehicle = null;
         this.x = X.spot.x; this.z = X.spot.z; this.y = this.collision.groundAt(this.x, this.z, v.y + 0.5, 1); this.yaw = v.yaw - side * Math.PI / 2 + Math.PI; this.sync(); A.set(null); A.standUp();

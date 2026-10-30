@@ -94,7 +94,7 @@ export function buildLandmarks() {
   };
   const labels = [];
   const label = (lines, x, y, z, w, h, rotY, o) => { const m = labelMesh(labelMaterial(lines, o), x, y, z, w, h, rotY); group.add(m); labels.push(m.material); return m; };
-  const EN = (px) => `700 ${px}px "Cormorant Garamond", serif`, SANS = (px) => `700 ${px}px "Barlow Condensed", sans-serif`, SI = (px) => `700 ${px}px "Noto Sans Sinhala", sans-serif`, TA = (px) => `700 ${px}px "Noto Sans Tamil", sans-serif`;
+  const EN = (px) => `700 ${px}px "Cormorant Garamond", serif`, SANS = (px) => `700 ${px}px "Barlow Condensed", sans-serif`, SI = (px) => `700 ${px}px "Noto Sans Sinhala", "Noto Sans Tamil", sans-serif`, TA = (px) => `700 ${px}px "Noto Sans Tamil", sans-serif`;
 
   // ------------------------------------------------------------ LOTUS TOWER (Nelum Kuluna)
   {

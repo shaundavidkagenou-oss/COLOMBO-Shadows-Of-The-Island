@@ -59,7 +59,19 @@ export function heroHeadFit(sp) {
   // the ragged neck opening is closed by a vertical skirt down to a level cut inside the shirt (cutY); 'section' is the
   // cross-section of that skirt, which the torso / collar rings wrap
   const cutY = Math.min(b0, 1.462 * s) - 0.004; const section = { cz: (bz0 + bz1) / 2, rx: bx, rz: (bz1 - bz0) / 2 };
-  const f = { k, o, T, L, neckAt, eyeL: T(L.eyeL), eyeR: T(L.eyeR), eyeRad: L.eyeR_ * k * 0.93, bottom: o[1] + k * L.neck.y, bottomMin: b0, bottomMax: b1, cutY, section };
+  // the real neck is not an ellipse (throat, sternocleidomastoids bulge on the diagonals): scale the section so it encloses
+  // every neck vertex in the band a collar covers (cutY … cutY + 6 cm) — collars built on it never let skin poke through
+  let encl = 1; { const P = D.pos; for (let i = 0; i < S.N; i++) { if (S.part[i] !== 0 || P[i * 3 + 1] > L.chin[1] - 0.005) continue; const py = o[1] + k * P[i * 3 + 1]; if (py < cutY || py > cutY + 0.06) continue;
+    const ex = (k * P[i * 3]) / section.rx, ez = (o[2] + k * P[i * 3 + 2] - section.cz) / section.rz; encl = Math.max(encl, Math.hypot(ex, ez)); } }
+  section.encl = Math.min(encl, 1.35);
+  // collar ellipse: fitted to the real neck over the whole height a collar can reach (cutY … cutY + 8 cm): its own centre
+  // (the throat sits forward of the ragged opening), its own extents, then grown until every vertex in the band is inside
+  const collarAt = (y1) => { const P = D.pos; let xm = section.rx, z0 = section.cz - section.rz, z1 = section.cz + section.rz; const pts = []; // the skirt (section) is always inside
+    for (let i = 0; i < S.N; i++) { if (S.part[i] !== 0 || P[i * 3 + 1] > L.chin[1] - 0.005) continue; const py = o[1] + k * P[i * 3 + 1]; if (py < cutY || py > y1) continue; const px = k * P[i * 3], pz = o[2] + k * P[i * 3 + 2]; xm = Math.max(xm, Math.abs(px)); z0 = Math.min(z0, pz); z1 = Math.max(z1, pz); pts.push(px, pz); }
+    const c = { cz: (z0 + z1) / 2, rx: Math.max(xm, section.rx), rz: Math.max((z1 - z0) / 2, section.rz) }; let e = 1; for (let j = 0; j < pts.length; j += 2) e = Math.max(e, Math.hypot(pts[j] / c.rx, (pts[j + 1] - c.cz) / c.rz));
+    c.rx *= e; c.rz *= e; return c; };
+  const collar = collarAt(cutY + 0.08);
+  const f = { k, o, T, L, neckAt, eyeL: T(L.eyeL), eyeR: T(L.eyeR), eyeRad: L.eyeR_ * k * 0.93, bottom: o[1] + k * L.neck.y, bottomMin: b0, bottomMax: b1, cutY, section, collar, collarAt };
   FITS.set(key, f); return f;
 }
 

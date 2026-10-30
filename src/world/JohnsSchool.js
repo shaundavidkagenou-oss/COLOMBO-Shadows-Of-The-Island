@@ -54,7 +54,9 @@ export function buildJohnsSchool({ mb, box, coll, label, group, LAND_Y, SANS, SI
     const t = (cx1 - cx0) / 3; ln(cx0 + t, cz0, cx0 + t, cz1); ln(cx0 + 2 * t, cz0, cx0 + 2 * t, cz1);
     const cz = (cz0 + cz1) / 2; mark.cylinder((cx0 + cx1) / 2, y0 + 0.03, cz, 0.45, 0.45, 0.01, 16, { col: C('#ffffff') });
     for (const [gx, sd] of [[cx0, 1], [cx1, -1]]) { // goal semicircles and posts
-      for (let k = 0; k < 14; k++) { const a0 = -Math.PI / 2 + (k / 14) * Math.PI, a1 = -Math.PI / 2 + ((k + 1) / 14) * Math.PI, r = 4.2; ln(gx + sd * Math.cos(a0) * r, cz + Math.sin(a0) * r, gx + sd * Math.cos(a1) * r, cz + Math.sin(a1) * r); }
+      { const r = 4.2, hw = 0.03, N = 48, yy = y0 + 0.04, P = (a, rr) => [gx + sd * Math.cos(a) * rr, cz + Math.sin(a) * rr]; // smooth painted arc (a continuous ribbon, not stepped blocks)
+        for (let k = 0; k < N; k++) { const a0 = -Math.PI / 2 + (k / N) * Math.PI, a1 = -Math.PI / 2 + ((k + 1) / N) * Math.PI; const [ax, az] = P(a0, r), [bx, bz] = P(a1, r); const l = Math.hypot(bx - ax, bz - az), nx = -(bz - az) / l * hw, nz = (bx - ax) / l * hw;
+          mark.quad([ax + nx, yy, az + nz], [bx + nx, yy, bz + nz], [bx - nx, yy, bz - nz], [ax - nx, yy, az - nz], [0, 0, 1, 1], C('#ffffff')); } }
       metal.cylinder(gx, y0, cz, 0.05, 0.05, 3.05, 8, { col: C('#d8d8d4') }); for (let k = 0; k < 10; k++) { const a = (k / 10) * Math.PI * 2; box(metal, gx + sd * (0.24 + Math.cos(a) * 0.19), y0 + 3.0, cz + Math.sin(a) * 0.19, 0.03, 0.02, 0.13, '#c0392b'); }
       coll(gx - 0.08, gx + 0.08, cz - 0.08, cz + 0.08, y0 + 3.05, { kind: 'pole' }); }
     for (const bz of [cz0 - 2.2, cz1 + 2.2]) { box(paint, (cx0 + cx1) / 2, y0 + 0.42, bz, 6, 0.06, 0.4, WOOD); for (const dx of [-2.6, 0, 2.6]) box(conc, (cx0 + cx1) / 2 + dx, y0 + 0.2, bz, 0.12, 0.4, 0.36, '#b9b2a4'); coll((cx0 + cx1) / 2 - 3, (cx0 + cx1) / 2 + 3, bz - 0.2, bz + 0.2, y0 + 0.46); } }

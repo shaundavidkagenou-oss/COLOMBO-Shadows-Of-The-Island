@@ -158,7 +158,8 @@ export function buildGround(progress) {
         mb.get('concrete').quad([p0[0] + ox * 0.9, LY, p0[1] + oz * 0.9], [p1[0] + ox * 0.9, LY, p1[1] + oz * 0.9], [p1[0] + ox * 0.9, LY + 0.3, p1[1] + oz * 0.9], [p0[0] + ox * 0.9, LY + 0.3, p0[1] + oz * 0.9], [0, 0, 1.5, 0.1], [0.78, 0.76, 0.72]);
         mb.get('concrete').quad([p1[0] + ox * 0.9, LY, p1[1] + oz * 0.9], [p0[0] + ox * 0.9, LY, p0[1] + oz * 0.9], [p0[0] + ox * 0.9, LY + 0.3, p0[1] + oz * 0.9], [p1[0] + ox * 0.9, LY + 0.3, p1[1] + oz * 0.9], [0, 0, 1.5, 0.1], [0.78, 0.76, 0.72]); }
       if (k % 2 === 0) mb.get('metal').box(p0[0] + ox * 0.4, LY + 0.85, p0[1] + oz * 0.4, 0.08, 1.0, 0.08, { col: [0.25, 0.27, 0.25] });
-      mb.get('metal').quad([p1[0] + ox * 0.4, LY + 1.25, p1[1] + oz * 0.4], [p0[0] + ox * 0.4, LY + 1.25, p0[1] + oz * 0.4], [p0[0] + ox * 0.4, LY + 1.33, p0[1] + oz * 0.4], [p1[0] + ox * 0.4, LY + 1.33, p1[1] + oz * 0.4], [0, 0, 1, 1], [0.25, 0.27, 0.25]);
+      { const ax = p0[0] + ox * 0.4, az = p0[1] + oz * 0.4, bx = p1[0] + ox * 0.4, bz = p1[1] + oz * 0.4, l = Math.hypot(bx - ax, bz - az) + 0.06, ry = -Math.atan2(bz - az, bx - ax); // solid top + mid rails (visible from both sides)
+        mb.get('metal').box((ax + bx) / 2, LY + 1.29, (az + bz) / 2, l, 0.07, 0.06, { col: [0.25, 0.27, 0.25], rotY: ry }); mb.get('metal').box((ax + bx) / 2, LY + 0.82, (az + bz) / 2, l, 0.05, 0.04, { col: [0.25, 0.27, 0.25], rotY: ry }); }
     }
   }
   // canals

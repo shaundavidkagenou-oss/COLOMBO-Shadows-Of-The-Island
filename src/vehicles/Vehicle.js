@@ -33,15 +33,16 @@ export class HeadlightRig {
   constructor(scene, { count = 4, shadows = true, shadowRes = 1024 } = {}) {
     this.spots = [];
     for (let i = 0; i < count; i++) {
-      const s = new THREE.SpotLight(0xfff0d8, 0, 60, 0.5, 0.6, 1.5); s.name = 'headBeam' + i; s.castShadow = !!shadows && i === 0;
-      if (s.castShadow) { s.shadow.mapSize.set(shadowRes, shadowRes); s.shadow.camera.near = 0.3; s.shadow.camera.far = 60; s.shadow.bias = -0.0005; s.shadow.normalBias = 0.04; }
+      const s = new THREE.SpotLight(0xfff0d8, 0, 60, 0.5, 0.6, 1.5); s.name = 'headBeam' + i; s.castShadow = !!shadows; // every pooled beam is stopped by walls (no light through the school / compound walls)
+      if (s.castShadow) { const r = i === 0 ? shadowRes : Math.max(512, shadowRes / 2); s.shadow.mapSize.set(r, r); s.shadow.autoUpdate = false; s.shadow.camera.near = 0.3; s.shadow.camera.far = 60; s.shadow.bias = -0.0005; s.shadow.normalBias = 0.04; }
       s.position.set(0, -500, 0); s.target.position.set(0, -501, 0); scene.add(s); scene.add(s.target); this.spots.push(s);
     }
     this.assigned = []; this._p = new THREE.Vector3(); this._d = new THREE.Vector3();
   }
   static lampY(T) { return T.entry === 'bike' ? 1.0 : Math.min(1.0, 0.3 + T.hgt * 0.22); }
-  update(cam, playerVeh, night, indoor = false) {
-    const k = indoor ? 0 : clamp((night - 0.2) / 0.55, 0, 1); const cd = cam.getWorldDirection(this._d); const cx = cam.position.x, cz = cam.position.z;
+  update(cam, playerVeh, night, indoor = 0) {
+    const kin = typeof indoor === 'number' ? clamp(indoor, 0, 1) : indoor ? 1 : 0; // how far inside a building the camera is
+    const k = clamp((night - 0.2) / 0.55, 0, 1) * (1 - kin); const cd = cam.getWorldDirection(this._d); const cx = cam.position.x, cz = cam.position.z;
     const cand = [];
     if (k > 0) for (const v of LIVE_VEHICLES) {
       if (!v.mesh.parent || v.mesh.visible === false || v.T.rail || !v.lights || (v.parked && !v.player)) continue;
@@ -53,7 +54,8 @@ export class HeadlightRig {
     for (const v of this.assigned) if (v.mesh.userData) v.mesh.userData.realBeam = false;
     this.assigned = [];
     this.spots.forEach((s, i) => { const c = cand[i];
-      if (!c) { if (s.intensity !== 0) s.intensity = 0; return; }
+      if (!c) { if (s.intensity !== 0) s.intensity = 0; s.shadow.autoUpdate = false; return; }
+      if (s.castShadow) s.shadow.autoUpdate = true; // shadow maps only re-render for beams that are actually lit
       const v = c[1], T = v.T, m = v.mesh; m.updateMatrixWorld(); const y = HeadlightRig.lampY(T), bike = T.entry === 'bike';
       s.position.copy(this._p.set(0, y, T.len / 2 + 0.12).applyMatrix4(m.matrixWorld)); s.target.position.copy(this._p.set(0, y - 0.95, T.len / 2 + 22).applyMatrix4(m.matrixWorld)); s.target.updateMatrixWorld();
       s.angle = bike ? 0.42 : 0.52; s.intensity = (bike ? 55 : 95) * k * (v.damage > 0.85 ? 0.3 : 1);

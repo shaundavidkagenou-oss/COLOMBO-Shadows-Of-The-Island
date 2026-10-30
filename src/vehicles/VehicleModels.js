@@ -170,7 +170,7 @@ function routeMat(i) {
   if (routeMats[i]) return routeMats[i];
   const c = document.createElement('canvas'); c.width = 512; c.height = 80; const g = c.getContext('2d');
   g.fillStyle = '#0c0c0c'; g.fillRect(0, 0, 512, 80); g.fillStyle = '#ffb020'; g.font = 'bold 54px "Barlow Condensed", sans-serif'; g.textBaseline = 'middle'; g.fillText(ROUTES[i][0], 14, 42);
-  g.font = '600 40px "Noto Sans Sinhala", sans-serif'; g.fillText(ROUTES[i][1], 120, 42); g.font = 'bold 40px "Barlow Condensed", sans-serif'; g.textAlign = 'right'; g.fillText(ROUTES[i][2], 500, 42);
+  g.font = '600 40px "Noto Sans Sinhala", "Noto Sans Tamil", sans-serif'; g.fillText(ROUTES[i][1], 120, 42); g.font = 'bold 40px "Barlow Condensed", sans-serif'; g.textAlign = 'right'; g.fillText(ROUTES[i][2], 500, 42);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
   return (routeMats[i] = new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.5, roughness: 0.4 }));
 }
@@ -274,7 +274,7 @@ function buildBaseModel(type, color, variant) {
     loft(paint, [[0.25, 0.28, 0.4, 0.6, 0.6, 0.06], [0.5, 0.28, 0.42, 0.5, 0.5, 0.06]], col);
     loft(paint, [[0.38, 0.28, 1.04, 0.5, 0.44, 0.12], [0.75, 0.29, 1.02, 0.42, 0.36, 0.14], [1.02, 0.32, 0.92, 0.28, 0.24, 0.14], [1.2, 0.4, 0.66, 0.15, 0.12, 0.08]], col);
     // rounded canopy with canvas valance; frame tubes
-    loft(ds, [[-1.3, 1.42, 1.8, 0.665, 0.5, 0.22], [-1.18, 1.4, 1.83, 0.67, 0.53, 0.22], [0.8, 1.4, 1.82, 0.67, 0.53, 0.22], [0.95, 1.46, 1.75, 0.64, 0.5, 0.16]], hood);
+    loft(ds, [[-1.3, 1.42, 1.8, 0.665, 0.5, 0.22], [-1.18, 1.4, 1.83, 0.67, 0.53, 0.22], [0.8, 1.4, 1.82, 0.67, 0.53, 0.22], [0.95, 1.46, 1.75, 0.64, 0.5, 0.16]], hood, { noBottom: true }); // an open canvas shell (roof + side valances): the ceiling is the roof itself (~1.8 m), not a slab at 1.4 m that heads went into
     for (const [x, z] of [[-0.6, -1.22], [0.6, -1.22], [-0.55, 0.86], [0.55, 0.86]]) beam(ch, [x, 0.95, z], [x * 0.98, 1.42, z], 0.035, 0.035, C('#3a3a3c'), unitCyl);
     for (const sx of [-1, 1]) beam(ch, [sx * 0.6, 0.64, 0.22], [sx * 0.6, 1.42, 0.22], 0.025, 0.025, chrome, unitCyl); // grab poles
     // rear canvas with window

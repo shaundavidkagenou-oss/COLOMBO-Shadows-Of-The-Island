@@ -204,7 +204,9 @@ export function buildBodyGeometry(sp) {
   const midriff = o === 'saree';
   const HQ = !!sp.hero; // protagonist: high-detail build (more tessellation, articulated fingers, sculpted nose/ears, garment construction details)
   const MH = HQ && hasHeroHead(sp); const NK = MH ? heroHeadFit(sp) : null; // protagonist with an anatomical head (HeroHead.js): no procedural head / hair / facial hair here
-  const neckRing = (y, m) => ({ c: [0, y, NK.section.cz], rx: NK.section.rx + m, rz: NK.section.rz + m }); // a ring wrapping the hero's neck section with margin m
+  const neckRing = (y, m) => { const C0 = y > 0.5 ? NK.collarAt(y + 0.012) : NK.collar; return { c: [0, y, C0.cz], rx: C0.rx + m, rz: C0.rz + m }; }; // a ring wrapping the hero's real neck (fitted collar ellipse, HeroHead.js) with margin m
+  // grow a ring {rx, rz, cz} so it contains the neck collar ellipse with margin m (front, back and sides), keeping its own shape where it is already bigger
+  const encloseNeck = (r, m, y) => { const C0 = NK.collarAt(y + 0.012), cz = r.cz || 0; const fr = Math.max(cz + r.rz, C0.cz + C0.rz + m), bk = Math.min(cz - r.rz, C0.cz - C0.rz - m); r.cz = (fr + bk) / 2; r.rz = (fr - bk) / 2; r.rx = Math.max(r.rx, C0.rx + m); return r; };
   // --- torso (hips → neck)
   // natural variation in adult female figure (seeded, spec override `bust`), slightly lower/softer with age
   const bf = f ? (sp.bust ?? (0.82 + 0.36 * ((((Math.sin((sp.seed || 1) * 47.13) * 43758.5453) % 1) + 1) % 1))) * (sp.age === 'elder' ? 0.9 : 1) : 0;
@@ -221,8 +223,11 @@ export function buildBodyGeometry(sp) {
     { y: 1.47, rx: 0.062, rz: 0.06, wgt: W2('chest', 'neck', 0.5), col: sp.collar ? top : skin },
     { y: 1.55, rx: 0.05, rz: 0.05, wgt: W1('neck'), col: skin },
   ];
-  if (MH) { const a = tr[tr.length - 2], b = tr[tr.length - 1]; const yTop = Math.max(NK.cutY + 0.03, 1.5 * s); const r0 = neckRing(0, 0.006); // collar wraps the real neck; its top sits above the level cut so no skin gap shows
-    Object.assign(a, { rx: Math.max(a.rx, r0.rx + 0.004), rz: Math.max(a.rz, r0.rz + 0.004), cz: r0.c[2] }); Object.assign(b, { y: yTop / s, rx: r0.rx, rz: r0.rz, cz: r0.c[2], wgt: W2('chest', 'neck', 0.7), col: sp.collar ? top : skin }); }
+  if (MH) { const a = tr[tr.length - 2], b = tr[tr.length - 1]; const open = sp.kit === 'openShirt'; const yTop = open ? NK.cutY + 0.034 : Math.max(NK.cutY + 0.03, 1.5 * s); const r0 = neckRing(yTop, 0.006); // collar wraps the real neck; its top sits above the level cut so no skin gap shows
+    Object.assign(a, { rx: r0.rx + 0.004, rz: r0.rz + 0.004, cz: r0.c[2] }); Object.assign(b, { y: yTop / s, rx: r0.rx, rz: r0.rz, cz: r0.c[2], wgt: W2('chest', 'neck', 0.7), col: open ? C(sp.inner || '#e8e4da') : sp.collar ? top : skin }); // open shirt: the tee's crew neck hugs the neck inside the open collar (no tall shirt-coloured ring)
+    if (open) a.col = C(sp.inner || '#e8e4da');
+    // every ring that reaches the neck band contains the real neck (the throat sits forward of the ragged opening and used to poke through)
+    for (let i = 0; i < tr.length - 2; i++) if (tr[i].y * s > NK.cutY - 0.03) encloseNeck(tr[i], 0.012, Math.max(tr[i].y * s, NK.cutY + 0.01)); }
   if (HQ) { tr[0].rz = (f ? 0.1 : 0.093) * w; tr.unshift({ y: 0.79, rx: 0.114 * w, rz: 0.072 * w, wgt: W1('hips'), col: bottom }); } /* rounded seat between the thighs; the front of the pelvis no longer stands proud of the thighs like an apron */ /* rounded seat between the thighs instead of a flat cap */
   const RO = HQ ? 1 : 0;
   const bel = sp.belly || 0; if (bel) [[2, 0.03, 0.02], [3, 0.045, 0.032], [4, 0.022, 0.012]].forEach(([i0, dz, df]) => { const i = i0 + RO; tr[i].rz += bel * dz * w; tr[i].fz = (tr[i].fz || 0) + bel * df; tr[i].rx += bel * 0.012 * w; });
@@ -473,13 +478,13 @@ export function buildBodyGeometry(sp) {
       for (const sx of [-1, 1]) { hstrip(1.315 * s, sx * 0.055 * w, sx * 0.125 * w, 0.02, dark(top, 0.78)); hstrip(1.1 * s, sx * 0.07 * w, sx * 0.135 * w, 0.009, dark(top, 0.55)); } // chest pocket flaps, hand-warmer welts
       hstrip(1.36 * s, -0.15 * w, 0.15 * w, 0.005, dark(top, 0.7), -1); // back yoke seam
       band(1.018 * s, 1.05 * s, 0.004, dark(top, 0.8), W1('hips'), (ri, a, r) => (Math.sin(a) > 0.93 ? C(sp.inner || '#6b6f72') : r.col)); // hem band (open at the front)
-      sb.loft([{ c: [0, 1.437 * s, -0.004], rx: 0.094 * w, rz: 0.082 * w, w: W1('chest'), col: dark(top, 0.88) }, MH ? { ...neckRing(Math.max(NK.cutY + 0.045, 1.5 * s), 0.009), w: W2('chest', 'neck', 0.6), col: dark(top, 0.88) } : { c: [0, 1.5 * s, -0.008], rx: 0.07, rz: 0.066, w: W2('chest', 'neck', 0.5), col: dark(top, 0.88) }], 32); // stand collar
+      sb.loft([MH ? (() => { const r = encloseNeck({ rx: 0.094 * w, rz: 0.082 * w, cz: -0.004 }, 0.016, Math.max(1.437 * s, NK.cutY + 0.01)); return { c: [0, 1.437 * s, r.cz], rx: r.rx, rz: r.rz, w: W1('chest'), col: dark(top, 0.88) }; })() : { c: [0, 1.437 * s, -0.004], rx: 0.094 * w, rz: 0.082 * w, w: W1('chest'), col: dark(top, 0.88) }, MH ? { ...neckRing(Math.max(NK.cutY + 0.045, 1.5 * s), 0.009), w: W2('chest', 'neck', 0.6), col: dark(top, 0.88) } : { c: [0, 1.5 * s, -0.008], rx: 0.07, rz: 0.066, w: W2('chest', 'neck', 0.5), col: dark(top, 0.88) }], 32); // stand collar
     }
     if (sp.kit === 'openShirt') { // Dineth: unbuttoned short-sleeve shirt over a tee — the loose front panels and back hem swing (flap / hem bones)
       const pl = top.map((v) => Math.min(1, v * 1.12)); for (const sx of [-1, 1]) vstrip(0, 1.05 * s, 1.425 * s, 0.014, pl, 1, (y) => sx * rxAt(y) * 0.39); // plackets
       for (let k = 0; k < 5; k++) { const y = (1.1 + k * 0.068) * s; const x = rxAt(y) * 0.39; sb.boxPart([x, y, surfZ(y, x, 1) + 0.004], 0.008, 0.008, 0.004, tw(y), C('#e6dfd0')); } // buttons
       hstrip(1.3 * s, 0.05 * w, 0.118 * w, 0.05, dark(top, 0.9)); // chest pocket
-      sb.loft([{ c: [0, 1.428 * s, -0.004], rx: 0.112 * w, rz: 0.094 * w, w: W1('chest'), col: dark(top, 0.92) }, MH ? { ...neckRing(Math.max(NK.cutY + 0.032, 1.462 * s), 0.011), w: W2('chest', 'neck', 0.4), col: dark(top, 0.92) } : { c: [0, 1.462 * s, -0.008], rx: 0.074, rz: 0.07, w: W2('chest', 'neck', 0.3), col: dark(top, 0.92) }], 32, { colFn: (ri, a, r) => (Math.sin(a) > 0.86 ? C(sp.inner || '#e8e4da') : r.col) }); // camp collar, open at the throat
+      sb.loft([MH ? (() => { const r = encloseNeck({ rx: 0.112 * w, rz: 0.094 * w, cz: -0.004 }, 0.018, Math.max(1.428 * s, NK.cutY + 0.01)); return { c: [0, 1.428 * s, r.cz], rx: r.rx, rz: r.rz, w: W1('chest'), col: dark(top, 0.92) }; })() : { c: [0, 1.428 * s, -0.004], rx: 0.112 * w, rz: 0.094 * w, w: W1('chest'), col: dark(top, 0.92) }, MH ? { ...neckRing(NK.cutY + 0.044, 0.013), w: W2('chest', 'neck', 0.4), col: dark(top, 0.92) } : { c: [0, 1.462 * s, -0.008], rx: 0.074, rz: 0.07, w: W2('chest', 'neck', 0.3), col: dark(top, 0.92) }], 32, { colFn: (ri, a, r) => (Math.sin(a) > 0.86 ? C(sp.inner || '#e8e4da') : r.col) }); // camp collar, open at the throat
       // untucked shirt tail: one continuous double-sided tube wrapped round the sides and back (front left open between
       // the plackets), hugging the hips with a slight flare. Front edges ride the flap bones, the back the hem bone, the
       // sides stay on the hips, so it swings a little without ever leaving the body as a separate board.
@@ -574,8 +579,21 @@ export function buildBodyGeometry(sp) {
     sb.boxPart([0, yb, rz + 0.004], 0.05, 0.036, 0.008, W1('hips'), C(sp.buckle || '#c9cdd2'));
     if (sp.holster) { sb.boxPart([-(rx + 0.012), yb - 0.075, 0.03], 0.04, 0.13, 0.085, W1('hips'), C('#121212')); sb.boxPart([-(rx + 0.006), yb - 0.01, 0.03], 0.02, 0.04, 0.05, W1('hips'), C('#121212')); }
     if (sp.pouch) sb.boxPart([rx + 0.01, yb - 0.035, 0.05], 0.03, 0.06, 0.05, W1('hips'), C('#121212')); }
-  if (sp.strap) { const sc = C(sp.strap); const ys = [1.45, 1.38, 1.3, 1.22, 1.14, 1.06, 0.99]; // Sam Browne cross strap: right shoulder to left hip, front and back
-    for (const sg of [1, -1]) band(ys.map((y, i) => { const tt = i / (ys.length - 1); const x = lerp(-0.1, 0.13, tt) * w; return i === 0 ? [x, y * s, 0.0] : [x, y * s, surfZ(y * s, x, sg) + sg * (sp.vest ? 0.03 : 0.008)]; }), 0.034, sc, torsoW); }
+  if (sp.strap) { // Sam Browne cross strap: ONE continuous band, left hip → up the chest → over the right shoulder → down the back → left hip.
+    // It lies on the torso clear of the shirt details (pocket flaps / buttons stand up to 12 mm), and over the shoulder its
+    // surface normal points up (the old version met at a point inside the trapezius and twisted there).
+    const sc = C(sp.strap); const offF = sp.vest ? 0.03 : 0.017, offB = sp.vest ? 0.03 : 0.012;
+    const ring = (y) => { let k = 0; while (k < tr.length - 2 && tr[k + 1].y * s < y) k++; const a = tr[k], b2 = tr[k + 1]; const t = clamp((y / s - a.y) / (b2.y - a.y), 0, 1); return { rx: lerp(a.rx, b2.rx, t), rz: lerp(a.rz, b2.rz, t), cz: lerp(a.cz || 0, b2.cz || 0, t) }; };
+    const xAt = (y) => lerp(-0.095, 0.13, clamp((1.45 - y / s) / 0.46, 0, 1)) * w; const x0 = xAt(1.45 * s);
+    let topY = 1.40 * s; for (let y = 1.56 * s; y > 1.36 * s; y -= 0.002) if (ring(y).rx >= Math.abs(x0) + 0.004) { topY = y; break; } // shoulder-top height under the strap
+    const P = [], ysF = [0.99, 1.06, 1.14, 1.22, 1.3, 1.37];
+    const bodyPt = (y, sg) => { const x = xAt(y * s), r = ring(y * s), q = clamp(Math.abs(x) / r.rx, 0, 0.98), sa = Math.sqrt(1 - q * q); const z = surfZ(y * s, x, sg) + sg * (sg > 0 ? offF : offB); return { c: [x, y * s, z], out: new THREE.Vector3(x / r.rx * 0.6, 0, sg * sa).normalize() }; };
+    for (const y of ysF) P.push(bodyPt(y, 1));
+    const rT = ring(topY - 0.02); const zF = rT.cz + rT.rz * 0.72, zB = rT.cz - rT.rz * 0.72;
+    for (const [z, up, fw] of [[zF + offF * 0.7, 0.55, 0.85], [zF * 0.45, 0.9, 0.45], [rT.cz, 1, 0], [zB * 0.45, 0.9, -0.45], [zB - offB * 0.7, 0.55, -0.85]]) P.push({ c: [x0, topY + 0.012 - 0.02 * (1 - up), z], out: new THREE.Vector3(0, up, fw).normalize() });
+    for (const y of [...ysF].reverse()) P.push(bodyPt(y, -1));
+    sb.strip(P.map((p, i) => { const a = P[Math.max(0, i - 1)].c, b = P[Math.min(P.length - 1, i + 1)].c; const d = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]).normalize(); const side = new THREE.Vector3().crossVectors(d, p.out).normalize();
+      return { c: p.c, side: [side.x, side.y, side.z], out: [p.out.x, p.out.y, p.out.z], w: p.c[1] > 1.3 * s ? W1('chest') : torsoW(p.c[1]) }; }), 0.034, (q) => q.out, null, sc, 0); }
   const geo = sb.build(); geo.userData.parts = parts; return geo;
 }
 

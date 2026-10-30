@@ -117,7 +117,7 @@ export class World {
         const near = []; const ci = this.chunks;
         for (const c of ci) { if (Math.abs(c.cx - fx) > 300 || Math.abs(c.cz - fz) > 300) continue; for (const p of c.lamps) { const d2 = (p[0] - fx) ** 2 + (p[2] - fz) ** 2; if (d2 < 120 * 120) near.push([d2, p]); } }
         near.sort((a, b) => a[0] - b[0]);
-        this.lampLights.forEach((l, i) => { const n = near[i]; if (n) { l.position.set(n[1][0], n[1][1] - 0.4, n[1][2]); l.intensity = atmos.night * 30; } else l.intensity = 0; });
+        this.lampLights.forEach((l, i) => { const n = near[i]; if (n) { l.position.set(n[1][0], n[1][1] - 0.4, n[1][2]); l.intensity = atmos.night * 30 * (1 - (this.indoorK || 0)); } else l.intensity = 0; }); // inside a building the street lamps' light no longer passes through its walls
       } else this.lampLights.forEach((l) => (l.intensity = 0));
     }
   }

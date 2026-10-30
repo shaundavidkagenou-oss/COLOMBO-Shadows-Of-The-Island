@@ -483,7 +483,7 @@ function signAtlas(cw = 512) {
     a.fillStyle = s.fg; a.textAlign = 'center'; a.textBaseline = 'middle';
     a.font = `700 ${Math.floor(ch * 0.36)}px "Barlow Condensed", "Manrope", sans-serif`;
     a.fillText(s.en.toUpperCase(), x + cw / 2, y + ch * 0.36, cw * 0.92);
-    a.font = `600 ${Math.floor(ch * 0.2)}px "Noto Sans Sinhala", sans-serif`;
+    a.font = `600 ${Math.floor(ch * 0.2)}px "Noto Sans Sinhala", "Noto Sans Tamil", sans-serif`;
     a.fillText(s.si, x + cw * 0.3, y + ch * 0.74, cw * 0.42);
     a.font = `600 ${Math.floor(ch * 0.17)}px "Noto Sans Tamil", sans-serif`;
     a.fillText(s.ta, x + cw * 0.72, y + ch * 0.74, cw * 0.42);
