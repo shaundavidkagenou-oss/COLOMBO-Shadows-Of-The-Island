@@ -46,7 +46,7 @@ function loft(mb, secs, col, { capFront = true, capBack = true, noBottom = false
   for (let i = 0; i < rings.length - 1; i++) for (let k = noBottom ? 1 : 0; k < n; k++) { if (skip && skip(i, k)) continue; const a = rings[i][k], b = rings[i][(k + 1) % n], c = rings[i + 1][(k + 1) % n], d = rings[i + 1][k]; tmp.quad(a, b, c, d, [0, 0, 1, 1], col); }
   // smooth-shaded sides (pressed panels), flat caps
   let g = tmp.build(); if (g) { g.deleteAttribute('normal'); g.deleteAttribute('uv'); g = mergeVertices(g, 1e-5); g.computeVertexNormals(); mb.geometry(g, new THREE.Matrix4()); g.dispose(); }
-  const cap = (r, front) => { const ctr = r.reduce((s, p) => [s[0] + p[0] / n, s[1] + p[1] / n, s[2] + p[2] / n], [0, 0, 0]); for (let k = 0; k < n; k++) { const a = r[k], b = r[(k + 1) % n]; if (front) mb.quad(ctr, b, a, ctr, [0, 0, 1, 1], col); else mb.quad(ctr, a, b, ctr, [0, 0, 1, 1], col); } };
+  const cap = (r, front) => { const ctr = r.reduce((s, p) => [s[0] + p[0] / n, s[1] + p[1] / n, s[2] + p[2] / n], [0, 0, 0]); for (let k = 0; k < n; k++) { const a = r[k], b = r[(k + 1) % n]; if (front) mb.quad(ctr, a, b, ctr, [0, 0, 1, 1], col); else mb.quad(ctr, b, a, ctr, [0, 0, 1, 1], col); } }; // rings run counter-clockwise seen from +z: the front cap (last ring) faces +z, the back cap −z
   if (capBack) cap(rings[0], false); if (capFront) cap(rings[rings.length - 1], true);
 }
 
@@ -274,9 +274,19 @@ function buildBaseModel(type, color, variant, opts = {}) {
       { taper: (z, y) => 1 - 0.05 * sstep(-0.95, -1.29, z) - 0.03 * sstep(0.6, 0.96, y), bevel: 0.04, openTop: [-0.45, 0.17, 0.5] });
     for (const sx of [-1, 1]) mb.get('interior').box(sx * 0.6, 0.5, -0.14, 0.025, 0.27, 0.62, { col: C('#2a2a2a') });
     part(paint, unitBox, [0, 0.5, 0.15], [0, 0, 0], [0.3, 0.3, 0.3], C('#1a1a1a')); // driver seat pedestal
-    // passenger floor + front cowl / dash fairing
-    loft(paint, [[0.25, 0.28, 0.4, 0.6, 0.6, 0.06], [0.5, 0.28, 0.42, 0.5, 0.5, 0.06]], col);
-    loft(paint, [[0.38, 0.28, 1.04, 0.5, 0.44, 0.12], [0.75, 0.29, 1.02, 0.42, 0.36, 0.14], [1.02, 0.32, 0.92, 0.28, 0.24, 0.14], [1.2, 0.4, 0.66, 0.15, 0.12, 0.08]], col);
+    // Bajaj-RE-style front: driver's footboard; a tall front shield as wide as the cab at the windscreen base, rounded face,
+    // sitting above the front wheel + mudguard; lower skirts either side of the wheel; footwell wings wrapping the driver's legs
+    loft(paint, [[0.18, 0.27, 0.35, 0.6, 0.6, 0.03], [0.62, 0.27, 0.35, 0.56, 0.56, 0.03], [0.72, 0.28, 0.35, 0.44, 0.44, 0.03]], col);
+    loft(paint, [[0.62, 0.55, 1.04, 0.5, 0.6, 0.1], [1.04, 0.55, 1.05, 0.5, 0.6, 0.12], [1.14, 0.56, 1.035, 0.48, 0.57, 0.12], [1.2, 0.58, 1.0, 0.44, 0.52, 0.1], [1.225, 0.61, 0.96, 0.38, 0.46, 0.07]], col); // broad, nearly flat face with rounded edges
+    for (const sx of [-1, 1]) {
+      paint.box(sx * 0.41, 0.45, 0.88, 0.18, 0.3, 0.52, { col }); // lower skirt beside the front wheel, flush with the shield side
+      const lw = paint; lw.box(sx * 0.585, 0.46, 0.43, 0.03, 0.34, 0.42, { col }); // footwell wing
+      ch.box(sx * 0.585, 0.635, 0.43, 0.04, 0.02, 0.43, { col: chrome }); // chrome edge on the wing
+    }
+    for (const sx of [-1, 1]) for (const [a, b] of [[[sx * 0.56, 1.045, 0.64], [sx * 0.56, 1.045, 0.98]], [[sx * 0.56, 1.045, 0.98], [sx * 0.4, 0.98, 1.16]]]) beam(ch, a, b, 0.012, 0.012, chrome, unitCyl); // chrome trim along the shield top
+    beam(ch, [0, 0.9, 1.215], [0, 1.02, 1.17], 0.016, 0.016, chrome, unitCyl); // centre nose strip above the lamp
+    // chrome front guard bar (a common Sri Lankan fitment) around the shield's lower edge
+    beam(ch, [-0.44, 0.5, 1.27], [0.44, 0.5, 1.27], 0.022, 0.022, chrome, unitCyl); for (const sx of [-1, 1]) beam(ch, [sx * 0.44, 0.5, 1.27], [sx * 0.46, 0.6, 1.15], 0.02, 0.02, chrome, unitCyl);
     // rounded canopy with canvas valance; frame tubes
     loft(ds, [[-1.3, 1.42, 1.8, 0.665, 0.5, 0.22], [-1.18, 1.4, 1.83, 0.67, 0.53, 0.22], [0.8, 1.4, 1.82, 0.67, 0.53, 0.22], [0.95, 1.46, 1.75, 0.64, 0.5, 0.16]], hood, { noBottom: true }); // an open canvas shell (roof + side valances): the ceiling is the roof itself (~1.8 m), not a slab at 1.4 m that heads went into
     for (const [x, z] of [[-0.6, -1.22], [0.6, -1.22], [-0.55, 0.86], [0.55, 0.86]]) beam(ch, [x, 0.95, z], [x * 0.98, 1.42, z], 0.035, 0.035, C('#3a3a3c'), unitCyl);
@@ -293,15 +303,15 @@ function buildBaseModel(type, color, variant, opts = {}) {
     if (variant !== 1) part(paint, unitBox, [0, 1.49, 0.9], [0.25, 0, 0], [1.08, 0.1, 0.03], trim);
     for (const sx of [-1, 1]) { beam(ch, [sx * 0.42, 1.0, 1.0], [sx * 0.55, 1.22, 1.0], 0.015, 0.015, chrome, unitCyl); part(paint, unitSph, [sx * 0.57, 1.26, 1.0], [0, 0, 0], [0.06, 0.045, 0.02], black); }
     // headlamp in chrome bezel on the cowl, indicators, tail lamps, plates
-    part(ch, unitCyl, [0, 0.88, 1.08], [Math.PI / 2, 0, 0], [0.085, 0.09, 0.085], chrome); part(lights, unitCyl, [0, 0.88, 1.125], [Math.PI / 2, 0, 0], [0.072, 0.012, 0.072]);
-    for (const sx of [-1, 1]) { part(ind, unitSph, [sx * 0.24, 0.98, 0.98], [0, 0, 0], [0.03, 0.03, 0.03]); tails.box(sx * 0.5, 0.72, -1.265, 0.09, 0.2, 0.03); ind.box(sx * 0.5, 0.6, -1.265, 0.09, 0.05, 0.03); rubber.box(sx * 0.58, 0.2, -1.1, 0.17, 0.26, 0.015, { col: black }); }
+    part(ch, unitCyl, [0, 0.79, 1.225], [Math.PI / 2, 0, 0], [0.1, 0.06, 0.1], chrome); part(lights, unitCyl, [0, 0.79, 1.257], [Math.PI / 2, 0, 0], [0.083, 0.012, 0.083]); // big round headlamp in a chrome bezel, centre of the shield
+    for (const sx of [-1, 1]) { part(ind, unitSph, [sx * 0.39, 0.94, 1.222], [0, 0, 0], [0.042, 0.036, 0.03]); tails.box(sx * 0.5, 0.72, -1.265, 0.09, 0.2, 0.03); ind.box(sx * 0.5, 0.6, -1.265, 0.09, 0.05, 0.03); rubber.box(sx * 0.58, 0.2, -1.1, 0.17, 0.26, 0.015, { col: black }); }
     beam(ch, [-0.58, 0.36, -1.33], [0.58, 0.36, -1.33], 0.045, 0.045, chrome, unitCyl); for (const sx of [-1, 1]) beam(ch, [sx * 0.5, 0.36, -1.33], [sx * 0.5, 0.36, -1.24], 0.03, 0.03, chrome);
-    plateQuad(mb, 0, 0.55, -1.27, 0.17, 0.06, false, variant); plateQuad(mb, 0, 0.5, 1.215, 0.11, 0.042, true, variant);
+    plateQuad(mb, 0, 0.55, -1.27, 0.17, 0.06, false, variant); plateQuad(mb, 0, 0.652, 1.237, 0.11, 0.042, true, variant); // front plate low on the shield face, under the headlamp
     // front fork + mudguard + handlebar with grips + speedo
     beam(ch, [0, R, 1.0], [0, 0.85, 0.92], 0.05, 0.05, C('#2a2a2a'), unitCyl);
     loft(paint, [[0.78, R * 2 + 0.02, R * 2 + 0.06, 0.09, 0.09, 0.02], [1.0, R * 2 + 0.06, R * 2 + 0.1, 0.09, 0.09, 0.02], [1.22, R * 1.6, R * 1.6 + 0.04, 0.09, 0.09, 0.02]], col);
     beam(ch, [-0.32, 1.06, 0.62], [0.32, 1.06, 0.62], 0.025, 0.025, chrome, unitCyl); for (const sx of [-1, 1]) beam(rubber, [sx * 0.28, 1.06, 0.62], [sx * 0.38, 1.06, 0.62], 0.04, 0.04, black, unitCyl);
-    part(mb.get('interior'), unitCyl, [0, 1.06, 0.72], [-1.1, 0, 0], [0.06, 0.03, 0.06], C('#202020'));
+    part(mb.get('interior'), unitCyl, [0, 1.1, 0.6], [-1.1, 0, 0], [0.06, 0.03, 0.06], C('#202020')); beam(ch, [0, 1.06, 0.62], [0, 0.98, 0.7], 0.03, 0.03, C('#2a2a2a'), unitCyl); // speedo + steering column into the shield
     // seats + trim stripes
     seat(mb, 0, 0.7, -0.7, 1.12, C('#2a2420'), { back: 0.5, head: false }); seat(mb, 0, 0.68, 0.15, 0.4, C('#2a2420'), { back: 0.18, head: false });
     paint.box(0, 0.36, -0.45, 1.29, 0.03, 1.5, { col: trim, top: false }); paint.box(0, 0.56, -0.35, 1.3, 0.035, 1.1, { col: trim, top: false });

@@ -151,9 +151,9 @@ export function tukDetail(dm, K, c) {
   const rub = dm.get('rubber'), chr = dm.get('chrome'), refl = dm.get('vrefl'), lens = dm.get('lens'), head = dm.get('vlight'), tail = dm.get('vtail'), I = dm.get('interior'), pnt = dm.get('paint'), cv = dm.get('canvas');
   const chrome = C('#cfd3d7'), black = C('#0e0e10');
   // headlamp internals
-  part(head, cupGeo, [0, 0.88, 1.146], [0, 0, 0], [0.066, 0.066, 0.022]); part(head, sphLo, [0, 0.88, 1.138], [0, 0, 0], [0.013, 0.013, 0.013]); part(lens, discZ, [0, 0.88, 1.149], [0, 0, 0], [0.072, 0.072, 0.004]); part(chr, ringZ, [0, 0.88, 1.147], [0, 0, 0], [0.08, 0.08, 0.08], chrome);
+  part(head, cupGeo, [0, 0.79, 1.259], [0, 0, 0], [0.066, 0.066, 0.022]); part(head, sphLo, [0, 0.79, 1.251], [0, 0, 0], [0.013, 0.013, 0.013]); part(lens, discZ, [0, 0.79, 1.262], [0, 0, 0], [0.072, 0.072, 0.004]); part(chr, ringZ, [0, 0.79, 1.260], [0, 0, 0], [0.08, 0.08, 0.08], chrome);
   // horn under the lamp, front fork springs, mudguard stays
-  part(rub, discZ, [0.0, 0.7, 1.12], [0, 0, 0], [0.045, 0.045, 0.03], C('#1a1a1a'));
+  part(rub, discZ, [0.27, 0.69, 1.224], [0, 0, 0], [0.045, 0.045, 0.03], C('#1a1a1a'));
   for (let i = 0; i < 7; i++) part(chr, ringZ, [0, R + 0.18 + i * 0.035, 1.0 - i * 0.005], [Math.PI / 2, 0, 0], [0.04, 0.04, 0.08], C('#3a3a3c'));
   for (const sx of [-1, 1]) beam(chr, [sx * 0.08, R + 0.02, 1.0], [sx * 0.08, R * 2 + 0.05, 0.95], 0.012, 0.012, C('#2a2a2a'), unitCyl);
   // decorative fringe along the canopy front edge (common Colombo three-wheeler styling)
