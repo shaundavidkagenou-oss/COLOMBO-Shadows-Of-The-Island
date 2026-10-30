@@ -294,9 +294,13 @@ function genStreetProps(seg, rng) {
   }
   // parking spots on local streets
   if (seg.level >= 1 && seg.level <= 2) {
-    for (let t = 14; t < len - 12; t += rng.range(9, 16)) {
+    // keep clear of the junction box, the zebra crossing (0.8–4.2 m past the junction edge), the stop line and a car length beyond
+    const n0 = horizontal ? L.nodeAt(seg.i, seg.j) : L.nodeAt(seg.i, seg.j), n1 = horizontal ? L.nodeAt(seg.i + 1, seg.j) : L.nodeAt(seg.i, seg.j + 1);
+    const e0 = (horizontal ? n0?.hwV : n0?.hwH) ?? 8, e1 = (horizontal ? n1?.hwV : n1?.hwH) ?? 8; const clear0 = e0 + 4.2 + 1.5 + 3.4, clear1 = len - (e1 + 4.2 + 1.5 + 3.4);
+    for (let t = Math.max(14, clear0); t < Math.min(len - 12, clear1); t += rng.range(9, 16)) {
       if (!rng.chance(0.45)) continue; const side = rng.chance(0.5) ? -1 : 1; // left-hand kerb parking
       const off = seg.hw - 1.3; const [x, z] = horizontal ? [seg.x0 + t, seg.z0 + side * off] : [seg.x0 + side * off, seg.z0 + t];
+      if (L.distToRail(x, z) < 14) continue; // never on or beside a level crossing
       const heading = horizontal ? (side > 0 ? 1 : -1) : (side < 0 ? 1 : -1); // drive direction consistent with left-hand traffic
       const yaw = horizontal ? (heading > 0 ? Math.PI / 2 : -Math.PI / 2) : (heading > 0 ? 0 : Math.PI);
       plan.parking.push({ x, z, yaw, seg: seg.id, district: d });

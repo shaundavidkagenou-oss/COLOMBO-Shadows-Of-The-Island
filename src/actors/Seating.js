@@ -132,6 +132,18 @@ function poseSeat(A, dt, w, fitting = false) {
   R('handL', grip ? 0.25 : 0.1, 0, grip ? -0.3 : 0.15); R('handR', grip ? 0.25 : 0.1, 0, grip ? 0.3 : -0.15);
 }
 
+// Getting out of a seat (and, run backwards, getting in) in two phases so nobody passes through the bodywork or the roof:
+// a) still seated, slide across the cushion to the door sill at seat height (turning towards the opening);
+// b) step out through the opening to the exit spot while standing up. Ride seats (bikes) are a single sweep.
+// Returns vehicle-local root position, the seated-pose weight and the two phase parameters.
+export function doorPath(seat, ex, k, hw) {
+  const sm = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+  if (seat.ride || seat.kind === 'ride') { const s = sm(k); return { x: lerp(seat.x, ex[0], s), y: lerp(seat.y, 0, Math.min(1, s * 1.3)), z: lerp(seat.z, ex[1], s), sitW: 1 - s, a: s, b: s }; }
+  const side = Math.sign(ex[0] - seat.x) || 1; const sill = Math.abs(seat.x) < hw - 0.14 ? side * (hw - 0.14) : seat.x;
+  const a = sm(k / 0.4), b = sm((k - 0.4) / 0.6), hb = sm((k - 0.4) / 0.32), st = sm((k - 0.62) / 0.38); // out through the opening first, stand up once clear of it
+  return { x: lerp(lerp(seat.x, sill, a), ex[0], hb), y: lerp(seat.y, 0, st), z: lerp(seat.z, ex[1], hb), sitW: 1 - st, a, b };
+}
+
 // Put a character into a seat of a vehicle mesh (parented, so it follows the vehicle with no per-frame snapping).
 export function seatCharacter(ch, vehicle, seat, mode = null) {
   if (ch.root.parent !== vehicle.mesh) { ch.root.parent?.remove(ch.root); vehicle.mesh.add(ch.root); }

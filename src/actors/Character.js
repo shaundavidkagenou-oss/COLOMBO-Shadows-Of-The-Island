@@ -1031,6 +1031,7 @@ export class Animator {
     if (!seated && !this.ik) for (const [S, x, y, z, w] of actIK) solveArmIK(b, S, _ikv.set(x, y, z), null, w);
     if (this.ik && !seated) { if (this.ik.R) solveArmIK(b, 'R', this.ik.R, this.ik.qR, this.ik.wR ?? 1); if (this.ik.L) solveArmIK(b, 'L', this.ik.L, this.ik.qL, this.ik.wL ?? 1); }
     if (seated) applySeatPose(this, dt);
+    if (this.duck > 0.001) { const d = Math.min(1, this.duck); b.spine.rotation.x += 0.42 * d; b.chest.rotation.x += 0.22 * d; b.neck.rotation.x += 0.32 * d; } // ducking under a low roof line while getting in / out
     else if (A_ === 'ride' && aw > 0) { b.thighL.rotation.set(-1.2, 0, -0.25); b.thighR.rotation.set(-1.2, 0, 0.25); b.shinL.rotation.x = 1.3; b.shinR.rotation.x = 1.3; b.footL.rotation.x = 0; b.footR.rotation.x = 0; b.hips.position.y = this.ch.hipY - 0.15; b.hips.position.x = 0; b.hips.rotation.set(0, 0, 0); }
     this.driveSkirt();
     if (this.ch.face) this.ch.face.update(dt);

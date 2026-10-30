@@ -8,7 +8,7 @@ import { VTYPES } from './VehicleModels.js';
 import { RNG } from '../core/rng.js';
 import { clamp, lerp } from '../core/math.js';
 import { Character, randomSpec } from '../actors/Character.js';
-import { seatCharacter } from '../actors/Seating.js';
+import { seatCharacter, doorPath } from '../actors/Seating.js';
 import { parkOnStand } from './Kickstand.js';
 
 // passengers per vehicle type: [count, weight] (the driver is always present)
@@ -126,8 +126,8 @@ export class Traffic {
       for (const o of list) {
         if (o.done) continue; o.t += dt; const A = o.ch.anim; if (o.t < 0) { A.update(dt, 0); continue; }
         const k = Math.min(1, o.t / 0.9), sm = k * k * (3 - 2 * k); const ex = o.seat.exit || [Math.sign(o.seat.x || 1) * (v.T.wid / 2 + 0.6), o.seat.z];
-        o.ch.root.position.set(lerp(o.seat.x, ex[0], sm), lerp(o.seat.y, 0, Math.min(1, sm * 1.3)), lerp(o.seat.z, ex[1], sm));
-        o.ch.root.rotation.y = lerp(0, Math.atan2(ex[0] - o.seat.x, ex[1] - o.seat.z), Math.min(1, sm * 1.5)); A.sitIn(o.seat, 1 - sm, null); A.update(dt, k > 0.5 ? 1.0 : 0);
+        const dp = doorPath(o.seat, ex, k, v.T.wid / 2); o.ch.root.position.set(dp.x, dp.y, dp.z); void sm;
+        o.ch.root.rotation.y = lerp(0, Math.atan2(ex[0] - o.seat.x, ex[1] - o.seat.z), Math.min(1, dp.a + dp.b)); A.sitIn(o.seat, Math.max(0.001, dp.sitW), null); A.duck = (o.seat.roof ?? 9) < 2.4 ? Math.min(1, (1 - dp.b) * 1.6) * Math.min(1, dp.a * 2.5) : 0; if (k >= 1) A.duck = 0; A.update(dt, k > 0.5 ? 1.0 : 0);
         if (k >= 1) { o.done = true; A.standUp(); v.mesh.updateMatrixWorld(); const wp = new THREE.Vector3(ex[0], 0, ex[1]).applyMatrix4(v.mesh.matrixWorld); v.mesh.remove(o.ch.root);
           if (this.crowd) this.crowd.adopt(o.ch, wp.x, wp.z, v.yaw + o.ch.root.rotation.y, v.paxReason, v.paxFrom); else o.ch.dispose(); }
       }
@@ -189,8 +189,14 @@ export class Traffic {
     if (ai.yieldT > 0) { ai.yieldT -= dt; latWant = 0.9; }
     // kerb-parked cars stick into narrow lanes: pull out toward the centre line to pass them when the oncoming side is clear, otherwise wait behind
     if (!em && !(ai.yieldT > 0)) { let need = 0, pk = null; const w2 = v.T.wid / 2;
-      for (const o of this.parked) { if (o.dead) continue; const rx = o.x - v.x, rz = o.z - v.z; if (Math.abs(rx) > 30 || Math.abs(rz) > 30) continue; const al = rx * fx + rz * fz; if (al < -(v.half + o.half) || al > 26) continue;
-        const lt0 = rx * fz - rz * fx + ai.lat; if (lt0 <= 0 || lt0 > 4.5) continue; const n = w2 + o.T.wid / 2 + 0.35 - lt0; if (n > need) { need = n; pk = o; } }
+      // every parked / abandoned vehicle by its real (rotated) footprint: kerb-side ones are passed by pulling out, anything else
+      // standing in the lane (a car the player left in the road, one knocked askew) is waited behind — never driven through
+      for (const o of this.parked) { if (o.dead || o.disposed || o.towedBy) continue; const rx = o.x - v.x, rz = o.z - v.z; if (Math.abs(rx) > 30 || Math.abs(rz) > 30) continue;
+        const ofx = Math.sin(o.yaw), ofz = Math.cos(o.yaw), ohl = o.T.len / 2, ohw = o.T.wid / 2; let lmin = 1e9, lmax = -1e9, amin = 1e9, amax = -1e9;
+        for (let c = 0; c < 4; c++) { const cl = c & 1 ? ohl : -ohl, cw = c & 2 ? ohw : -ohw; const qx = rx + ofx * cl + ofz * cw, qz = rz + ofz * cl - ofx * cw; const al = qx * fx + qz * fz, lt = qx * fz - qz * fx + ai.lat; if (al < amin) amin = al; if (al > amax) amax = al; if (lt < lmin) lmin = lt; if (lt > lmax) lmax = lt; }
+        if (amax < -v.half || amin > 26) continue; if (lmax < -(w2 + 0.3) || lmin > w2 + 0.35) continue; // clear of our path
+        if (lmin + lmax > 0.2) { const n = w2 + 0.35 - lmin; if (n > need) { need = n; pk = o; } }
+        else if (amin > v.half * 0.3) { const g = amin - v.half; if (g < gap) { gap = g; leadV = 0; } } }
       if (pk) { let blocked = need > 2.6; if (!blocked) for (const o of all) { if (o === v) continue; const rx = o.x - v.x, rz = o.z - v.z; const al = rx * fx + rz * fz; if (al < -5 || al > 32) continue; const lo = rx * fz - rz * fx + ai.lat; if (lo < 0 && lo > -need - w2 - o.T.wid / 2 - 0.3 && (Math.sin(o.yaw) * fx + Math.cos(o.yaw) * fz) < 0.3) { blocked = true; break; } }
         if (blocked && Math.abs(ai.lat) < need * 0.6) consider(pk.x, pk.z, 0, pk.half, 4.5); else latWant = Math.min(latWant, -need); }
     }
