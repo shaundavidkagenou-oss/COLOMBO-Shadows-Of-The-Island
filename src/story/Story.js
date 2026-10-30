@@ -242,7 +242,7 @@ export class Story {
         const b = near(S.bandara); await this.goto(S.bandara, 'Paper Trail', 'Visit Uncle Bandara at Bandara Spice Stores', { radius: 6 });
         await this.talk('bandara', 'Uncle Bandara', [
           ['Uncle Bandara', 'ආයුබෝවන්, putha. Ruwan said you would come.', 'Ayubowan (greetings), son.', 'en'],
-          ['Uncle Bandara', 'I signed. God forgive me, I signed. They said my grandson\'s school fees would be... taken care of.'],
+          ['Uncle Bandara', 'I signed. God forgive me, I signed. They said the debt on my lorry would just... go away. That was the price of my name.'],
           ['Uncle Bandara', 'But I kept the receipt they gave me. Harbour Crest. And a second company name — Sapphire Logistics. Union Place.'],
           { title: 'Uncle Bandara is ashamed.', choice: ['"Your name stays out of this."', '"People need to hear your story, uncle."'], onChoice: async (i) => { this.state.flags.bandaraPublic = i === 1; this.rel('bandara', i === 0 ? 8 : -2); if (i === 1) await this.g.director.say('Uncle Bandara', 'Maybe you are right. Maybe it is time somebody stopped being afraid.'); } },
         ], { spec: HEROES.bandara, ...b });

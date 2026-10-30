@@ -109,10 +109,11 @@ await check('Johns Private Girls\' School (fictional): compound, gate, furnished
   assert(SCHOOL.si.includes('බාලිකා') && SCHOOL.ta.includes('மகளிர்'), 'trilingual name board');
   const { buildLandmarks } = await import('../src/world/Landmarks.js').catch(() => ({}));
   const { makeAppearance, isAdultSpec } = await import('../src/actors/Appearance.js');
-  const specs = [makeAppearance(611, { preset: 'm_security' }), makeAppearance(31, { preset: 'f_teacher', sex: 'f' }), makeAppearance(37, { preset: 'f_bank_saree', sex: 'f' })];
+  const specs = [makeAppearance(611, { preset: 'm_security' }), makeAppearance(31, { preset: 'f_teacher', sex: 'f' }), makeAppearance(37, { preset: 'f_bank_saree', sex: 'f' }), makeAppearance(61, { preset: 'f_professional', sex: 'f' }), makeAppearance(67, { preset: 'f_nurse', sex: 'f' }), makeAppearance(71, { preset: 'f_kurti', sex: 'f' }), makeAppearance(53, { preset: 'f_teacher', sex: 'f', band: 'mature' })];
   for (let i = 0; i < 9; i++) specs.push(makeAppearance(7001 + i * 13, { age: 'adult' })); for (let i = 0; i < 4; i++) specs.push(makeAppearance(8101 + i * 17, { sex: 'm', age: 'adult' }));
+  const women = specs.filter((sp) => sp.sex === 'f').length; assert(women >= 6, 'adult women on the staff and among the parents (' + women + ')');
   assert(specs.every((sp) => sp.ageYears >= 18 && (!isAdultSpec || isAdultSpec(sp))), 'every school-life person is an adult'); assert(specs[1].outfit === 'saree' && specs[2].outfit === 'saree', 'teachers in sarees');
-  void buildLandmarks; return `${SCHOOL.rooms * SCHOOL.storeys} furnished classrooms, ${SCHOOL.vanBays.length} van bays, ${specs.length} adult staff/parents/drivers checked`;
+  void buildLandmarks; return `${SCHOOL.rooms * SCHOOL.storeys} furnished classrooms, ${SCHOOL.vanBays.length} van bays, ${specs.length} adult staff/parents/drivers checked (${specs.filter((sp) => sp.sex === 'f').length} women)`;
 });
 await check('Ambient dialogue is non-empty and subtitled', async () => {
   const { LINES } = await import('../src/story/Lines.js'); let n = 0, si = 0, ta = 0;

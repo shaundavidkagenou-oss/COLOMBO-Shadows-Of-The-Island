@@ -1,5 +1,5 @@
 // Life around Johns Private Girls' School (fictional) — adults only. A security guard at the gate hut, teachers in
-// sarees and the principal (corridor rounds, chatting on the office veranda), and the 1:30 pm dismissal: the iron gates
+// sarees and kurtas, the principal, the office clerk and the sick-room nurse (corridor rounds, chatting on the office veranda), and the 1:30 pm dismissal: the iron gates
 // swing open, teachers and the principal stand at the gate, parents wait on the Horton Place pavement, and school vans
 // ("SCHOOL SERVICE" boards) wait on the inner drive, then leave one by one through the gate and join the westbound
 // kerb lane of Horton Place as normal traffic. People and vans only appear when the player is not looking at the spot.
@@ -62,6 +62,11 @@ export class SchoolLife {
     { key: 'tB', spec: { preset: 'f_bank_saree', sex: 'f' }, seed: 37, home: { x: 267.4, z: 351.2, yaw: 0, act: 'talk' }, gate: { x: 272.4, z: 333.0, yaw: Math.PI, act: 'talk' } },
     { key: 'tC', spec: { preset: 'f_teacher', sex: 'f' }, seed: 43, home: { x: 267.4, z: 352.6, yaw: Math.PI, act: 'listen' }, gate: { x: 274.6, z: 333.4, yaw: Math.PI, act: 'look' } },
     { key: 'pr', spec: { preset: 'f_teacher', sex: 'f', band: 'mature' }, seed: 53, home: { x: 267.3, z: 347.5, yaw: Math.PI / 2, act: 'look' }, gate: { x: 271.2, z: 334.6, yaw: Math.PI, act: 'listen' } },
+    // more adult women on the staff: the school office clerk and the sick-room nurse stay at their posts during dismissal;
+    // a fourth teacher joins gate duty
+    { key: 'of', spec: { preset: 'f_professional', sex: 'f' }, seed: 61, home: { x: 267.3, z: 345.2, yaw: Math.PI / 2, act: 'phone' }, gate: { x: 267.3, z: 345.2, yaw: Math.PI / 2, act: 'phone' } },
+    { key: 'nr', spec: { preset: 'f_nurse', sex: 'f' }, seed: 67, home: { x: 267.4, z: 349.4, yaw: Math.PI / 2, act: 'look' }, gate: { x: 267.4, z: 349.4, yaw: Math.PI / 2, act: 'look' } },
+    { key: 'tD', spec: { preset: 'f_kurti', sex: 'f' }, seed: 71, home: { x: 267.4, z: 354.0, yaw: Math.PI, act: 'talk' }, gate: { x: 276.8, z: 333.2, yaw: Math.PI, act: 'look' } },
   ]; }
   parentSpots() { return [[258, 328.4, 0, 'phone'], [260.4, 328.0, Math.PI / 2, 'talk'], [261.6, 328.0, -Math.PI / 2, 'listen'], [264.2, 328.6, 0, 'look'], [280.2, 328.3, 0, 'text'], [283, 328.0, Math.PI / 2, 'talk'], [284.2, 328.0, -Math.PI / 2, 'talk'], [288, 328.5, 0, 'phone'], [291.2, 328.2, 0, 'look']]; }
   schedule(h) {
