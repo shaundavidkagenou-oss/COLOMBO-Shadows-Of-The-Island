@@ -362,9 +362,11 @@ export function copingAt(x, z) {
 }
 // The railings along the water are solid: the lake railing stands 0.4 m out on the coping, the Galle Face promenade
 // railing 0.4 m in from the seawall edge. True where a walker's centre would be inside / beyond the railing line.
+export const PROMENADE_END = -160; // Galle Face promenade + seawall railing run from the Fort end (z -655) down to here
 export function beyondRailing(x, z, r = 0.3) {
   if (inLake(x, z, 0.4 + r) && !inLake(x, z)) return true;
-  if (z >= -655 && z < -245 && x >= coastX(z) && x < coastX(z) + 0.4 + r) return true;
+  if (z >= -655 && z < PROMENADE_END && x >= coastX(z) && x < coastX(z) + 0.4 + r) return true;
+  if (Math.abs(z - PROMENADE_END) < 0.05 + r && x >= coastX(z) && x < coastX(z) + 13 + r) return true; // the return railing at the promenade's south end
   return false;
 }
 export function roadNameAt(x, z) {

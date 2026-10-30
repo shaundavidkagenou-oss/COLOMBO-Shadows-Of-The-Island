@@ -188,18 +188,18 @@ export function buildDetail(b, multi) {
     }
     // planned signage: one business per building (two on wide frontages), each sign centred over its own frontage at the
     // atlas' true 4:1 aspect (never stretched), on a dark mounting board just above the awning line
-    const signs = b.sign == null || rng.chance(0.15) ? 0 : s.len >= 16 ? 2 : 1;
+    const signs = b.sign == null || rng.chance(0.15) ? 0 : s.len >= 16 ? 2 : 1; b._signSpans = [];
     for (let k = 0; k < signs; k++) {
       const idx = k === 0 ? b.sign : b.sign + 7 + (b.id % 5); const half = s.len / signs; const room = half - 0.8; if (room < 1.6) continue;
       const hS = Math.min(1.15, room / 4), wS = hS * 4; const tc = (k + 0.5) / signs; const dt = (wS / 2) / s.len;
       const qa = along(s, tc - dt), qb = along(s, tc + dt); const ys0 = y0 + GROUND_H - 0.5, ys1 = ys0 + hS; const o = 0.14; const uv = signUV(idx);
       multi.get('signs').quad([qa[0] + s.n[0] * o, ys0, qa[1] + s.n[1] * o], [qb[0] + s.n[0] * o, ys0, qb[1] + s.n[1] * o], [qb[0] + s.n[0] * o, ys1, qb[1] + s.n[1] * o], [qa[0] + s.n[0] * o, ys1, qa[1] + s.n[1] * o], uv);
       conc.box((qa[0] + qb[0]) / 2 + s.n[0] * 0.07, (ys0 + ys1) / 2, (qa[1] + qb[1]) / 2 + s.n[1] * 0.07, wS + 0.12, hS + 0.12, 0.12, { col: [0.2, 0.2, 0.2], rotY: r });
-      b.signIdx = b.signIdx ?? idx;
+      b.signIdx = b.signIdx ?? idx; (b._signSpans ||= []).push([(tc - dt) * s.len - 0.1, (tc + dt) * s.len + 0.1]);
     }
     // projecting vertical sign on some market buildings
     if (b.district === 'pettah' && b.signIdx != null && rng.chance(0.12) && b.floors >= 2) { // blade sign repeats the same business
-      const p = along(s, rng.chance(0.5) ? 0.08 : 0.92); const uv = signUV(b.signIdx); const yb = y0 + GROUND_H + 0.6, yt = yb + 0.65; // 2.6 m × 0.65 m = the atlas' 4:1
+      const edge = Math.min(0.5, 0.12 / s.len), p = along(s, rng.chance(0.5) ? edge : 1 - edge); const uv = signUV(b.signIdx); /* on the pier at the building edge: clear of every window reveal and balcony */ const yb = y0 + GROUND_H + 0.6, yt = yb + 0.65; // 2.6 m × 0.65 m = the atlas' 4:1
       const tx = -s.n[1], tz = s.n[0]; // tangent direction
       const ox = p[0] + s.n[0] * 0.15, oz = p[1] + s.n[1] * 0.15;
       // two faces (each reads correctly from its own side) around a thin dark frame, plus a wall bracket
@@ -216,6 +216,7 @@ export function buildDetail(b, multi) {
     const startF = b.groundRow != null ? 1 : 1;
     for (let f = startF; f < b.floors; f++) for (let k = 0; k < bays; k++) {
       if ((k + f) % 2 && !rng.chance(0.3)) continue;
+      if (f === startF && b._signSpans) { const c0 = (k + 0.5) / bays * s.len, hw = Math.min(BAY * 0.9, s.len / bays - 0.3) / 2; if (b._signSpans.some(([a1, b1]) => c0 + hw > a1 && c0 - hw < b1)) continue; } // no balcony slab through the shop sign below it
       const p = along(s, (k + 0.5) / bays); const yb = y0 + (b.groundRow != null ? GROUND_H : 0) + (f - (b.groundRow != null ? 1 : 0)) * FLOOR_H + 0.05;
       if (yb > yTop - 1) continue;
       const w = Math.min(BAY * 0.9, s.len / bays - 0.3), d = 0.95;

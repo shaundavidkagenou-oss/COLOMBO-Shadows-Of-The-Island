@@ -26,6 +26,7 @@ function clipLand(pts) {
   }
   return out;
 }
+const clipX = (poly, xl, keepLeft) => { const out = []; for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length]; const ia = keepLeft ? a[0] <= xl : a[0] >= xl, ib = keepLeft ? b[0] <= xl : b[0] >= xl; if (ia) out.push(a); if (ia !== ib) { const t = (xl - a[0]) / (b[0] - a[0]); out.push([xl, a[1] + (b[1] - a[1]) * t]); } } return out; }; // polygon ∩ half-plane x ≤ xl (or ≥)
 const kerbStriped = (seg, x, z) => { const d = L.districtIdAt(x, z); return seg.level <= 1 && ['fort', 'gftowers', 'gfgreen', 'pettah', 'kollupitiya', 'beira'].includes(d); };
 
 export function buildGround(progress) {
@@ -95,7 +96,13 @@ export function buildGround(progress) {
         let qx = 0, qz = 0; for (const p of poly) { qx += p[0]; qz += p[1]; } qx /= poly.length; qz /= poly.length;
         const full = poly.length === 4 && poly[0][0] === x && poly[2][0] === x2;
         const inWalk = (wT && qz < lz0 + wT) || (wB && qz > lz1 - wB) || (wL && qx < lx0 + wL) || (wR && qx > lx1 - wR);
-        const promenade = c.district === 'gfgreen' && qx < L.coastX(qz) + 13;
+        // Galle Face promenade: 13 m of paving behind the seawall from the Fort end down to z -160, where the coastal railway
+        // meets the shore. Cells straddling its inland edge are split along the curve (no 2.5 m zig-zag of brick and grass).
+        const promZone = (c.district === 'gfgreen' || (qz >= -240 && qz < L.PROMENADE_END)) && qz < L.PROMENADE_END, xl = L.coastX((z + z2) / 2) + 13;
+        const paint = (pl, tgt) => { if (pl.length < 3) return; const tc = tgt === g && lotMat === 'concrete' ? [0.82, 0.8, 0.76] : (tgt === sand ? [0.9, 0.88, 0.85] : null); tgt.hpoly(pl, LY, tgt === W ? 2 : 8, tc); };
+        if (promZone && x < xl && x2 > xl) { // split cell: promenade west of the edge, the lot's own ground east of it
+          paint(clipX(poly, xl, true), W); paint(clipX(poly, xl, false), inWalk ? W : g); continue; }
+        const promenade = promZone && qx < xl;
         const shore = !promenade && L.isSea(qx - 9, qz) && qz > -240;
         const target = inWalk || promenade ? W : shore ? sand : g;
         const tc = target === g && lotMat === 'concrete' ? [0.82, 0.8, 0.76] : (target === sand ? [0.9, 0.88, 0.85] : null);
@@ -135,7 +142,11 @@ export function buildGround(progress) {
     }
   }
   // promenade railing along Galle Face
-  for (let z = -655; z < -245; z += 2.5) { const x = L.coastX(z) + 0.4; const mb = at(x + 10, z); mb.get('metal').box(x, LY + 1.05, z, 0.08, 1.0, 0.08, { col: [0.2, 0.2, 0.2] }); mb.get('metal').box(x, LY + 1.5, z + 1.25, 0.06, 0.06, 2.5, { col: [0.25, 0.25, 0.25] }); }
+  for (let z = -655; z < L.PROMENADE_END - 0.01; z += 2.5) { const x = L.coastX(z) + 0.4, xn = L.coastX(z + 2.5) + 0.4; const mb = at(x + 10, z); mb.get('metal').box(x, LY + 1.05, z, 0.08, 1.0, 0.08, { col: [0.2, 0.2, 0.2] });
+    for (const yy of [1.5, 1.0]) mb.get('metal').box((x + xn) / 2, LY + yy, z + 1.25, 0.06, 0.06, Math.hypot(2.5, xn - x), { col: [0.25, 0.25, 0.25], rotY: Math.atan2(xn - x, 2.5) }); } // follows the seawall curve, two rails
+  { const z = L.PROMENADE_END, xa = L.coastX(z) + 0.4, xb = L.coastX(z) + 13; const mb = at(xa + 10, z); // end of the promenade: the railing returns inland, closing it off from the railway shore
+    for (let x = xa; x <= xb + 0.01; x += 2.5) mb.get('metal').box(x, LY + 1.05, z, 0.08, 1.0, 0.08, { col: [0.2, 0.2, 0.2] });
+    for (const yy of [1.5, 1.0]) mb.get('metal').box((xa + xb) / 2, LY + yy, z, xb - xa, 0.06, 0.06, { col: [0.25, 0.25, 0.25] }); }
   // harbour quay walls
   for (let x = L.coastX(-1180); x < 230; x += 4) { const mb = at(x, -1170); mb.get('concrete').quad([x + 4, -2.5, -1180], [x, -2.5, -1180], [x, LY + 0.4, -1180], [x + 4, LY + 0.4, -1180], [0, 0, 2, 1.4], [0.6, 0.6, 0.58]); if (Math.floor(x / 4) % 5 === 0) mb.get('metal').cylinder(x, LY, -1181, 0.25, 0.2, 0.6, 8, { col: [0.15, 0.15, 0.15] }); }
   for (let z = -1300; z < -1180; z += 4) { const mb = at(235, z); mb.get('concrete').quad([230, -2.5, z], [230, -2.5, z + 4], [230, LY + 0.4, z + 4], [230, LY + 0.4, z], [0, 0, 2, 1.4], [0.6, 0.6, 0.58]); }
