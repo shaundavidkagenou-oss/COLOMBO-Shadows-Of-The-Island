@@ -9,7 +9,12 @@ export class MeshBuilder {
   // quad from 4 corners (counter-clockwise when seen from the front), uv = [u0,v0,u1,v1]
   quad(a, b, c, d, uv = [0, 0, 1, 1], col) {
     const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = d[0] - a[0], vy = d[1] - a[1], vz = d[2] - a[2];
-    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx; const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx; let l = Math.hypot(nx, ny, nz);
+    if (l < 1e-12) { // degenerate edge pair (triangle written as a quad with a repeated corner, e.g. fan caps): use the diagonals (c−a)×(d−b), same orientation
+      const px = c[0] - a[0], py = c[1] - a[1], pz = c[2] - a[2], qx = d[0] - b[0], qy = d[1] - b[1], qz = d[2] - b[2];
+      nx = py * qz - pz * qy; ny = pz * qx - px * qz; nz = px * qy - py * qx; l = Math.hypot(nx, ny, nz); }
+    if (l < 1e-12) { nx = 0; ny = 1; nz = 0; l = 1; } // fully degenerate (zero area): any unit normal, never (0,0,0) — that shades as NaN
+    nx /= l; ny /= l; nz /= l;
     const i0 = this.vert(a[0], a[1], a[2], nx, ny, nz, uv[0], uv[1], col), i1 = this.vert(b[0], b[1], b[2], nx, ny, nz, uv[2], uv[1], col);
     const i2 = this.vert(c[0], c[1], c[2], nx, ny, nz, uv[2], uv[3], col), i3 = this.vert(d[0], d[1], d[2], nx, ny, nz, uv[0], uv[3], col);
     this.idx.push(i0, i1, i2, i0, i2, i3); return this;

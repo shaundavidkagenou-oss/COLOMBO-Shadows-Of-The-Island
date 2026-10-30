@@ -24,6 +24,42 @@ export function setHeadPoolNight(n) { const hp = headPool(); const k = Math.min(
 export const LIVE_VEHICLES = globalThis.__liveVehicles || (globalThis.__liveVehicles = new Set()); // global so dev hot-reloads share one registry
 export function setVehicleLOD(ud, near) { if (ud.lodNear === near) return; ud.lodNear = near; ud.detail.visible = near; for (const w of ud.wheels) { const u = w.userData; u.lo.visible = !near; u.hi.visible = near; if (u.cal) u.cal.visible = near; } }
 export function updateVehicleLOD(cam) { const cx = cam.position.x, cy = cam.position.y, cz = cam.position.z; for (const v of LIVE_VEHICLES) { const m = v.mesh, ud = m.userData; if (!ud.detail) continue; const r = ud.lodR, d2 = (m.position.x - cx) ** 2 + (m.position.y - cy) ** 2 + (m.position.z - cz) ** 2; setVehicleLOD(ud, d2 < (ud.lodNear ? (r + 5) * (r + 5) : r * r) && m.visible !== false); } }
+// ---- real headlight beams. A fixed pool of SpotLights is created once at load (light counts never change, so no shader
+// recompiles); every frame they are handed to the vehicles whose lights matter most: the player's own vehicle first (that
+// beam casts shadows: kerbs, poles, people and cars throw real shadows ahead of you), then the nearest lit vehicles that
+// can be seen. Low-beam aim (a couple of degrees down), warm-white halogen/LED colour, soft cut-off at the beam edge.
+// Vehicles without a pooled light (far away) keep the cheap road decal.
+export class HeadlightRig {
+  constructor(scene, { count = 4, shadows = true, shadowRes = 1024 } = {}) {
+    this.spots = [];
+    for (let i = 0; i < count; i++) {
+      const s = new THREE.SpotLight(0xfff0d8, 0, 60, 0.5, 0.6, 1.5); s.name = 'headBeam' + i; s.castShadow = !!shadows && i === 0;
+      if (s.castShadow) { s.shadow.mapSize.set(shadowRes, shadowRes); s.shadow.camera.near = 0.3; s.shadow.camera.far = 60; s.shadow.bias = -0.0005; s.shadow.normalBias = 0.04; }
+      s.position.set(0, -500, 0); s.target.position.set(0, -501, 0); scene.add(s); scene.add(s.target); this.spots.push(s);
+    }
+    this.assigned = []; this._p = new THREE.Vector3(); this._d = new THREE.Vector3();
+  }
+  static lampY(T) { return T.entry === 'bike' ? 1.0 : Math.min(1.0, 0.3 + T.hgt * 0.22); }
+  update(cam, playerVeh, night, indoor = false) {
+    const k = indoor ? 0 : clamp((night - 0.2) / 0.55, 0, 1); const cd = cam.getWorldDirection(this._d); const cx = cam.position.x, cz = cam.position.z;
+    const cand = [];
+    if (k > 0) for (const v of LIVE_VEHICLES) {
+      if (!v.mesh.parent || v.mesh.visible === false || v.T.rail || !v.lights || (v.parked && !v.player)) continue;
+      const dx = v.x - cx, dz = v.z - cz, d = Math.hypot(dx, dz); if (d > 140) continue;
+      const ahead = (dx * cd.x + dz * cd.z) / Math.max(d, 1e-3); if (v !== playerVeh && d > 25 && ahead < 0.2) continue; // behind / beside the view: its beam can't be seen
+      cand.push([v === playerVeh ? -1 : d, v]);
+    }
+    cand.sort((a, b) => a[0] - b[0]);
+    for (const v of this.assigned) if (v.mesh.userData) v.mesh.userData.realBeam = false;
+    this.assigned = [];
+    this.spots.forEach((s, i) => { const c = cand[i];
+      if (!c) { if (s.intensity !== 0) s.intensity = 0; return; }
+      const v = c[1], T = v.T, m = v.mesh; m.updateMatrixWorld(); const y = HeadlightRig.lampY(T), bike = T.entry === 'bike';
+      s.position.copy(this._p.set(0, y, T.len / 2 + 0.12).applyMatrix4(m.matrixWorld)); s.target.position.copy(this._p.set(0, y - 0.95, T.len / 2 + 22).applyMatrix4(m.matrixWorld)); s.target.updateMatrixWorld();
+      s.angle = bike ? 0.42 : 0.52; s.intensity = (bike ? 55 : 95) * k * (v.damage > 0.85 ? 0.3 : 1);
+      m.userData.realBeam = true; if (m.userData.headPool) m.userData.headPool.visible = false; this.assigned.push(v); });
+  }
+}
 export class Vehicle {
   constructor(type, seed, scene) {
     this.id = NEXT_ID++; this.type = type; this.T = VTYPES[type]; this.mesh = createVehicleMesh(type, seed); scene.add(this.mesh); this.scene = scene; LIVE_VEHICLES.add(this);
@@ -136,7 +172,7 @@ export class Vehicle {
     const beam = this.lights && occupied && !this.T.rail;
     if (beam && !ud.headPool) { const hp = headPool(); const bike = this.T.entry === 'bike'; const p = new THREE.Mesh(hp.geo, hp.mat); p.name = 'headPool';
       p.position.set(0, 0.07, this.T.len / 2 - 0.1); p.scale.set(bike ? 2.4 : Math.max(2.6, this.T.wid * 1.5), 1, bike ? 8 : 11); p.renderOrder = -1; /* before glass: seen through a windscreen it is tinted like everything else behind the glass */ p.castShadow = p.receiveShadow = false; m.add(p); ud.headPool = p; }
-    if (ud.headPool && ud.headPool.visible !== beam) ud.headPool.visible = beam;
+    const decal = beam && !ud.realBeam; if (ud.headPool && ud.headPool.visible !== decal) ud.headPool.visible = decal; // a pooled real beam replaces the decal
     const wantR = occupied && this.speed < -0.3 ? 1.3 : 0; if (rm && rm.emissiveIntensity !== wantR) rm.emissiveIntensity = wantR;
   }
   driverSeat() { const s = this.mesh.userData.seats.find((q) => q.driver) || this.mesh.userData.seats[0]; return s; }
