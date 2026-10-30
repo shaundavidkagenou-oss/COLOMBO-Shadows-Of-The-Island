@@ -1,0 +1,22 @@
+<!doctype html><html><body style="margin:0;background:#888"><canvas id="c"></canvas>
+<script type="module">
+// Dev lineup of every vehicle type (?night=1, ?back=1 to view from behind)
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { buildTextures } from '/src/gfx/Textures.js';
+import { buildMaterials } from '/src/gfx/Materials.js';
+import { createVehicleMesh, VTYPES, setVehicleNight } from '/src/vehicles/VehicleModels.js';
+import '@fontsource/noto-sans-sinhala/600.css'; import '@fontsource/barlow-condensed/600.css';
+await Promise.all(['600 32px "Noto Sans Sinhala"', '600 32px "Barlow Condensed"'].map((f) => document.fonts.load(f, 'අආ Aa')));
+await buildTextures('medium'); buildMaterials();
+const q = new URLSearchParams(location.search);
+const r = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true }); r.setSize(1400, 700); r.toneMapping = THREE.ACESFilmicToneMapping; r.outputColorSpace = THREE.SRGBColorSpace;
+const s = new THREE.Scene(); s.environment = new THREE.PMREMGenerator(r).fromScene(new RoomEnvironment(), 0.04).texture; s.environmentIntensity = q.get('night') ? 0.05 : 0.6; s.background = new THREE.Color(q.get('night') ? 0x0a1020 : 0x9fb4c8);
+s.add(new THREE.HemisphereLight(0xdde8ff, 0x665544, q.get('night') ? 0.2 : 1.4)); const d = new THREE.DirectionalLight(0xfff0dd, q.get('night') ? 0.1 : 2.5); d.position.set(5, 8, 6); s.add(d);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 40), new THREE.MeshStandardMaterial({ color: 0x555555 })); ground.rotation.x = -Math.PI / 2; s.add(ground);
+setVehicleNight(q.get('night') ? 1 : 0);
+const types = (q.get("only") || Object.keys(VTYPES).join(",")).split(","); let x = -20;
+for (const t of types) { const m = createVehicleMesh(t, +(q.get("seed") || 3) + types.indexOf(t)); const len = VTYPES[t].len; m.rotation.y = q.get('ry') ? +q.get('ry') : q.get('back') ? Math.PI * 0.75 : Math.PI * 0.25; if (q.get('beacons') && m.userData.beacons) { m.userData.beacons.blue.emissiveIntensity = 6; m.userData.beacons.red.emissiveIntensity = 0.15; } if (q.get('door')) m.userData.door && (m.userData.door.pivot.rotation.y = 1.1); m.position.set(x + 2, 0, (types.indexOf(t) % 2) * 6 - 3); x += Math.max(4.2, len * 0.75); if (types.length === 1) m.position.set(0, 0, 0); s.add(m); }
+const cam = new THREE.PerspectiveCamera(35, 2, 0.1, 200); const cp = (q.get("cam") || "0,9,26").split(",").map(Number); cam.position.set(...cp); cam.lookAt(+(q.get("lx") || 0), 0.8, 0);
+r.render(s, cam); window.done = true;
+</script></body></html>

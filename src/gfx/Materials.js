@@ -1,0 +1,97 @@
+// Shared materials. Time of day (night factor) and rain (wetness) drive emissive and roughness.
+import * as THREE from 'three';
+import { TEX } from './Textures.js';
+import { applyInteriorMapping, INTERIOR, occupancy } from './InteriorMapping.js';
+export const MAT = {};
+const facadeKeys = ['colonial', 'brick', 'glass', 'glass2', 'office', 'hotel', 'shop', 'shop2', 'apartment', 'villa', 'warehouse'];
+const wetTargets = [];
+export function buildMaterials() {
+  const std = (o) => new THREE.MeshStandardMaterial(o);
+  MAT.road = std({ map: TEX.asphalt, roughnessMap: TEX.asphaltRough, roughness: 1, metalness: 0, color: 0xffffff });
+  // same asphalt + same world-space UVs as MAT.road, but vertex-tinted: wheel-path polish, oil-stained stop zones and
+  // repair patches are real overlay geometry on the carriageway (tone changes only, texture stays continuous)
+  MAT.roadTint = std({ map: TEX.asphalt, roughnessMap: TEX.asphaltRough, roughness: 1, metalness: 0, vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+  MAT.walk = std({ map: TEX.pavers, roughness: 0.9, color: 0xffffff });
+  MAT.walkGrey = std({ map: TEX.paversGrey, roughness: 0.9 });
+  MAT.kerb = std({ map: TEX.concrete, roughness: 0.85, vertexColors: true });
+  MAT.concrete = std({ map: TEX.concrete, roughness: 0.9, vertexColors: true });
+  MAT.grass = std({ map: TEX.grass, roughness: 1 });
+  MAT.ballast = std({ map: TEX.ballast, roughness: 1, vertexColors: true });
+  MAT.lawn = std({ map: TEX.lawn, roughness: 1 });
+  MAT.laterite = std({ map: TEX.laterite, roughness: 1 });
+  MAT.sand = std({ map: TEX.sand, roughness: 1 });
+  MAT.rocks = std({ map: TEX.rocks, roughness: 0.95, vertexColors: true });
+  MAT.marking = std({ color: 0xf2f2ea, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, vertexColors: true });
+  for (const k of facadeKeys) {
+    const f = TEX['f_' + k];
+    MAT['f_' + k] = std({ map: f.map, emissiveMap: f.emissive, emissive: 0xffffff, emissiveIntensity: 0, roughnessMap: f.rm, metalnessMap: f.rm, roughness: 1, metalness: k.startsWith('glass') ? 1 : 1, vertexColors: true, envMapIntensity: k.startsWith('glass') ? 1.0 : 0.8 });
+    applyInteriorMapping(MAT['f_' + k]); // windows show parallax rooms with depth
+  }
+  MAT.shops = std({ map: TEX.shops.map, emissiveMap: TEX.shops.emissive, emissive: 0xffffff, emissiveIntensity: 0.15, roughness: 0.8 });
+  // after closing time each shop unit pulls down its own roller shutter (galvanised or painted; ~14% trade late)
+  MAT.shops.onBeforeCompile = (sh) => { sh.uniforms.uShut = SHOP_SHUT;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vSWPos;').replace('#include <project_vertex>', '#include <project_vertex>\nvSWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vSWPos; uniform float uShut;')
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      { float cellU = floor(vMapUv.x * 4.0 + 0.0005); float hs = fract(sin(cellU * 12.9898 + 4.1) * 43758.5453); // one id per shop unit
+        float late = step(0.86, hs); float shut = uShut * (1.0 - late); // ~14% (pharmacies, kades, bakeries) trade late
+        if (shut > 0.001) {
+          float lu = fract(vMapUv.x * 4.0), lv = fract(vMapUv.y * 8.0); // position inside this shop's front (0..1)
+          float ry = vSWPos.y / 0.1; float fw = fwidth(ry); float ribRaw = 0.78 + 0.22 * smoothstep(0.3, 0.5, abs(fract(ry) - 0.5));
+          float rib = mix(ribRaw, 0.9, smoothstep(0.25, 0.7, fw)); // slats resolve up close, average out far away (no shimmer)
+          vec3 sc = hs < 0.5 ? vec3(0.55, 0.57, 0.58) : hs < 0.64 ? vec3(0.2, 0.36, 0.27) : hs < 0.76 ? vec3(0.22, 0.31, 0.46) : vec3(0.47, 0.2, 0.16);
+          vec3 col = sc * rib;
+          col *= 0.86 + 0.14 * smoothstep(0.0, 0.5, lv); // grime and splash marks towards the pavement
+          col *= 1.0 - 0.12 * smoothstep(0.6, 1.0, fract(sin(floor(lu * 23.0) * 78.233 + cellU) * 4375.85)) * (1.0 - lv); // streaks
+          float housing = smoothstep(0.86, 0.875, lv); col = mix(col, sc * 0.55, housing); // roller box at the top
+          col = mix(col, vec3(0.09), max(step(lu, 0.025), step(0.975, lu))); // steel guide rails at both sides
+          col = mix(col, vec3(0.12), step(lv, 0.04)); // bottom bar
+          col = mix(col, vec3(0.05), step(0.47, lu) * step(lu, 0.53) * step(0.045, lv) * step(lv, 0.09)); // padlock / hasp
+          diffuseColor.rgb = mix(diffuseColor.rgb, col, shut); totalEmissiveRadiance *= 1.0 - shut; } }`); };
+  MAT.shops.customProgramCacheKey = () => 'shops-shutter-v3';
+  MAT.signs = std({ map: TEX.signs.map, emissiveMap: TEX.signs.emissive, emissive: 0xffffff, emissiveIntensity: 0.05, roughness: 0.6, side: THREE.DoubleSide });
+  MAT.roofTiles = std({ map: TEX.roofTiles, roughness: 0.85, vertexColors: true });
+  MAT.roofFlat = std({ map: TEX.roofConcrete, roughness: 0.95, vertexColors: true });
+  MAT.corrugated = std({ map: TEX.corrugated, roughness: 0.6, metalness: 0.4, vertexColors: true, side: THREE.DoubleSide });
+  MAT.paint = std({ roughness: 0.75, vertexColors: true });       // generic vertex-coloured props
+  MAT.paintDS = std({ roughness: 0.8, vertexColors: true, side: THREE.DoubleSide });
+  MAT.metal = std({ roughness: 0.45, metalness: 0.85, vertexColors: true });
+  // window panes over painted/interior-mapped glass: black albedo + additive blend = pure Fresnel reflection on top
+  MAT.winGlass = std({ color: 0x000000, roughness: 0.06, metalness: 0, envMapIntensity: 2.4, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
+  MAT.foliage = MAT.leavesBright || std({ map: TEX.leavesBright, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9, vertexColors: true });
+  MAT.soil = std({ map: TEX.laterite, color: 0x5e4a3c, roughness: 1 });
+  MAT.hedge = std({ map: TEX.hedge, roughness: 0.95, vertexColors: true });
+  MAT.glass = std({ color: 0x9fb8c0, roughness: 0.08, metalness: 0.9, envMapIntensity: 1.5, transparent: true, opacity: 0.55 });
+  MAT.emissive = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
+  MAT.lampHead = new THREE.MeshStandardMaterial({ color: 0x222222, emissive: 0xffd9a0, emissiveIntensity: 0, roughness: 0.5 });
+  MAT.awning = std({ roughness: 0.8, vertexColors: true, side: THREE.DoubleSide, map: TEX.weave });
+  MAT.leaves = std({ map: TEX.leaves, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9, vertexColors: true });
+  MAT.leavesBright = std({ map: TEX.leavesBright, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9, vertexColors: true });
+  MAT.palm = std({ map: TEX.palm, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85, vertexColors: true });
+  MAT.bark = std({ color: 0x6b5a48, roughness: 1, vertexColors: true });
+  // baked contact occlusion: gradient geometry at wall bases / along their footings, multiplied over what is already drawn
+  // (darkens only, never lightens; no fog so distant facades are not tinted)
+  MAT.ao = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.MultiplyBlending, premultipliedAlpha: true, depthWrite: false, fog: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  MAT.pool = new THREE.MeshBasicMaterial({ map: TEX.pool, color: 0xffc98a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+  MAT.glow = new THREE.SpriteMaterial({ map: TEX.glow, color: 0xffd7a0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0 });
+  wetTargets.push([MAT.road, 1.0, 0.18], [MAT.roadTint, 0.95, 0.14], [MAT.walk, 0.9, 0.35], [MAT.walkGrey, 0.9, 0.35], [MAT.kerb, 0.85, 0.4], [MAT.concrete, 0.9, 0.45], [MAT.roofFlat, 0.95, 0.5]);
+  return MAT;
+}
+const SHOP_SHUT = { value: 0 };
+const _dry = new THREE.Color(1, 1, 1), _wet = new THREE.Color(0.62, 0.62, 0.64);
+export function updateMaterials(night, wet, t) {
+  const n = night;
+  for (const k of facadeKeys) MAT['f_' + k].emissiveIntensity = n * 1.25;
+  INTERIOR.uIntDay.value = (1 - n) * 0.24; INTERIOR.uIntNight.value = n * 0.8; INTERIOR.uOcc.value = occupancy(t ?? 21); INTERIOR.uITime.value = performance.now() / 1000;
+  // shop fronts are lit while trading (until ~9 pm, shutters down by 10:30) and dark until early morning; illuminated
+  // signboards stay on but many are switched off after midnight
+  const h = t ?? 12, open = h >= 21 ? Math.max(0, 1 - (h - 21) / 1.5) : h < 6.5 ? 0 : Math.min(1, (h - 6.5) / 0.75), late = h >= 0.5 && h < 5.5 ? 0.45 : 1;
+  MAT.shops.emissiveIntensity = 0.12 + n * 0.75; // closed shops go dark in the shader (per shop), late traders stay lit
+  SHOP_SHUT.value = 1 - open;
+  MAT.signs.emissiveIntensity = 0.04 + n * 1.3 * late;
+  MAT.lampHead.emissiveIntensity = n * 3.0;
+  if (MAT.winGlass) MAT.winGlass.envMapIntensity = 2.4 * (1 - 0.85 * n); // a dark night sky barely reflects: panes show the room behind (lit or dark) instead of a uniform sky sheen
+  MAT.pool.opacity = n * 0.55;
+  MAT.glow.opacity = n * 0.9;
+  for (const [m, dryR, wetR] of wetTargets) { m.roughness = dryR + (wetR - dryR) * wet; m.color.copy(_dry).lerp(_wet, wet * 0.8); m.envMapIntensity = 0.6 + wet * 1.6; }
+}

@@ -1,0 +1,11 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Loading screen preview</title></head>
+<body><div id="app"><div class="ui-root" id="ui"></div></div>
+<script type="module">
+  // Dev preview of the enter-game loading screen (not part of the production build): /dev/headless/loading.html
+  import '@fontsource/cormorant-garamond/600.css'; import '@fontsource/barlow-condensed/700.css'; import '@fontsource/manrope/400.css';
+  import '/src/styles.css'; import { enterGameLoading } from '/src/ui/LoadingScreen.js';
+  const fake = (ms) => (pr) => new Promise((r) => { const t0 = performance.now(); const id = setInterval(() => { const k = (performance.now() - t0) / ms; pr(k); if (k >= 1) { clearInterval(id); r(); } }, 50); });
+  const run = () => enterGameLoading(document.getElementById('ui'), [{ label: 'Streaming Colombo districts', run: fake(3000) }, { label: 'Compiling shaders', run: fake(2000) }, { label: 'Waking the city', run: fake(1000) }], { minMs: +(new URLSearchParams(location.search).get('ms') || 8000) }).then(() => { window.__done = true; if (!location.search.includes('once')) setTimeout(run, 800); });
+  run();
+</script></body></html>
