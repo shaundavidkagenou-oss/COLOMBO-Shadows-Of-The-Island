@@ -54,4 +54,19 @@ ok(!slew.touched, `AI never drives through a car slewed across its lane (closest
 const kerb = scenario('kerb', (pk, x, z, yaw, fx, fz) => pk.place(x + fz * 1.0, z - fx * 1.0, yaw)); // pushed 1 m toward the kerb (left)
 ok(!kerb.touched, `AI does not clip a kerb-parked car (closest ${kerb.minGap.toFixed(1)} m)`);
 ok(kerb.passed, 'AI pulls out and passes the kerb-parked car');
+// ---- 3. vehicles against tree trunks / poles: the rectangular body stops at the trunk at any lateral offset (no sinking in)
+{ const { Collision } = await import('../src/world/Collision.js'); let worst = 0, at = '';
+  for (const type of ['car', 'tuktuk', 'van', 'lorry']) for (const off of [0, 0.35, 0.6, 0.8]) {
+    const col = new Collision(); const tx = 0, tz = 30; col.add({ x0: tx - 0.35, x1: tx + 0.35, z0: tz - 0.35, z1: tz + 0.35, h: 6, kind: 'tree' });
+    const v = new Vehicle(type, 21, new THREE.Scene()); const w = v.T.wid / 2; v.place(tx + off * w, 10, 0); v.speed = 14;
+    for (let i = 0; i < 120; i++) { v.drive(1 / 60, { throttle: 1, steer: 0, handbrake: false, brake: 0 }, col, []);
+      const dx = tx - v.x, dz = tz - v.z, fx = Math.sin(v.yaw), fz = Math.cos(v.yaw); const lx = dx * fz - dz * fx, lz = dx * fx + dz * fz;
+      const pen = Math.min(v.T.wid / 2 + 0.35 - Math.abs(lx), v.T.len / 2 + 0.35 - Math.abs(lz)); if (pen > worst) { worst = pen; at = `${type} offset ${off}`; } } }
+  ok(worst < 0.12, `vehicles do not sink into tree trunks (deepest ${worst.toFixed(2)} m${at ? ' — ' + at : ''})`); }
+// ---- 4. headlight light-pool decal stops at a tree trunk in front of the car (it has no shadow of its own)
+{ const { Collision } = await import('../src/world/Collision.js'); const { HeadlightRig } = await import('../src/vehicles/Vehicle.js');
+  const rig = new HeadlightRig(new THREE.Scene(), { count: 1, shadows: false }); rig.collision = new Collision(); const v = new Vehicle('car', 31, new THREE.Scene()); v.place(500, 500, 0);
+  const hp = { visible: true, scale: { z: 11 }, userData: {} }; rig.clipPool(v, hp); ok(Math.abs(hp.scale.z - 11) < 1e-6, `open road: full 11 m light pool (${hp.scale.z.toFixed(2)})`);
+  const front = 500 + v.T.len / 2; rig.collision.add({ x0: 500.2 - 0.35, x1: 500.2 + 0.35, z0: front + 5 - 0.35, z1: front + 5 + 0.35, h: 6, kind: 'tree' }); rig.clipPool(v, hp);
+  ok(hp.scale.z > 4.2 && hp.scale.z < 4.8, `trunk 5 m ahead: light pool ends at the trunk (${hp.scale.z.toFixed(2)} m)`); }
 console.log(`park test: ${pass + fail} checks, ${fail} failed`); process.exit(fail ? 1 : 0);

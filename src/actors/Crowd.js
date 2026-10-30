@@ -320,7 +320,11 @@ export class Crowd {
       if (dl > maxDv) { p.vx += dsx / dl * maxDv; p.vz += dsz / dl * maxDv; } else { p.vx = dvx; p.vz = dvz; }
       const sp = Math.hypot(p.vx, p.vz); const prevYaw = p.yaw;
       if (sp > 0.05) { const turnK = p.state === 'flee' || p.state === 'dodge' ? 9 : 5; if (p.state !== 'down' && p.state !== 'stumble') p.yaw = dampAngle(p.yaw, Math.atan2(p.vx, p.vz), turnK * clamp(sp, 0.4, 1.5), dt); }
-      const ox = p.x, oz = p.z; p.x += p.vx * dt; p.z += p.vz * dt;
+      const ox = p.x, oz = p.z;
+      if (p.state === 'down' && sp * dt > 0.09) { // thrown by a vehicle: sub-step so a fast body can't tunnel through a wall, and walls absorb the impact
+        const n = Math.min(16, Math.ceil(sp * dt / 0.09)); for (let k = 0; k < n; k++) { p.x += p.vx * dt / n; p.z += p.vz * dt / n; const r = this.collision.resolveCircle(p.x, p.z, 0.3, p.y || 0.15, 0.3);
+          if (r.hit) { const cx = r.x - p.x, cz = r.z - p.z, cl = Math.hypot(cx, cz); if (cl > 1e-4) { const vn = (p.vx * cx + p.vz * cz) / cl; if (vn < 0) { p.vx -= cx / cl * vn * 1.2; p.vz -= cz / cl * vn * 1.2; p.vx *= 0.45; p.vz *= 0.45; if (p.airVy > 0) p.airVy = 0; } } p.x = r.x; p.z = r.z; } }
+        p.mv = 0; } else { p.x += p.vx * dt; p.z += p.vz * dt; }
       // collision every frame near the camera; farther away whenever the person has moved 0.1 m
       p.mv = (p.mv || 0) + sp * dt; // distance since the last collision pass: far people are resolved every 0.1 m walked, so they can never tunnel into a trunk or wall
       if (sp > 0.02 && (lod === 1 || p.mv > 0.1)) { p.mv = 0; const r = this.collision.resolveCircle(p.x, p.z, 0.28, p.y || 0.15, 0.3); if (r.hit) { const cx = r.x - p.x, cz = r.z - p.z, cl = Math.hypot(cx, cz); if (cl > 1e-4) { const vn = (p.vx * cx + p.vz * cz) / cl; if (vn < 0) { p.vx -= cx / cl * vn; p.vz -= cz / cl * vn; } } } p.x = r.x; p.z = r.z; }
@@ -380,8 +384,8 @@ export class Crowd {
   knock(p, fx, fz, speed, offset = 0) {
     if (p.state === 'down') return; this.react(p, 'down', 2.4 + Math.min(3, speed * 0.2), { yaw: Math.atan2(-fx, -fz) }); p.downT = 0; p.knockedByCar = true;
     // impulse: thrown ahead slightly faster than the car (so it can't run over them), deflected to the side they were struck on, and lifted at speed
-    const side = Math.max(-1, Math.min(1, offset || (Math.random() - 0.5))); const fwd = Math.min(16, speed * 1.08 + 1), lat = (0.25 + 0.35 * Math.abs(side)) * Math.min(9, speed * 0.5) * (side >= 0 ? 1 : -1);
-    p.vx = fx * fwd + fz * lat; p.vz = fz * fwd - fx * lat; p.airY = 0; p.airVy = speed > 6 ? Math.min(5.5, speed * 0.22) : undefined; p.ch.face.set('fear', 4);
+    const side = Math.max(-1, Math.min(1, offset || (Math.random() - 0.5))); const fwd = Math.min(12, speed * 1.0 + 1), lat = (0.25 + 0.35 * Math.abs(side)) * Math.min(9, speed * 0.5) * (side >= 0 ? 1 : -1);
+    p.vx = fx * fwd + fz * lat; p.vz = fz * fwd - fx * lat; p.airY = 0; p.airVy = speed > 6 ? Math.min(4.2, speed * 0.18) : undefined; p.ch.face.set('fear', 4);
     this.events.emit('pedHit', p); this.speak(p, 'scared', 2); this.alarm(p.x, p.z, 14, 1, p);
   }
   // ---- player-initiated interactions

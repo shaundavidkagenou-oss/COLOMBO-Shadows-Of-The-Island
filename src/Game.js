@@ -82,6 +82,7 @@ export class Game {
     this.atmos = new Atmosphere(this.scene, this.renderer); this.atmos.drawDist = Settings.preset.drawDist; this.atmos.sun.castShadow = Settings.preset.shadows; this.atmos.sun.shadow.mapSize.set(Settings.preset.shadowRes, Settings.preset.shadowRes);
     this.atmos.listeners.thunder = () => Audio.thunder(Math.random() * 0.7);
     this.headRig = new HeadlightRig(this.scene, { count: Settings.get('quality') === 'low' ? 2 : 4, shadows: Settings.preset.shadows, shadowRes: Settings.get('quality') === 'ultra' ? 2048 : 1024 }); // real headlight beams (pool created once at load)
+    this.headRig.collision = this.collision; // headlight light-pool decals stop at trunks, poles and walls
     progress(0.76, 'People of Colombo'); await tick();
     this.crowd = new Crowd(this.scene, this.collision, bus);
     for (let i = 0; i < 64; i += 8) { this.crowd.prepareSpecs(8); progress(0.76 + 0.1 * (i / 64), 'People of Colombo'); await tick(); }

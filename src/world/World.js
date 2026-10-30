@@ -10,6 +10,7 @@ import { buildPropGeometries, buildPropsForChunk, updateSignals, initGlowTexture
 import { buildTreeGeometries, buildTreesForChunk, windUniform } from './Vegetation.js';
 import { buildWater, WaterReflection } from './Water.js';
 import { buildParks } from './Parks.js';
+import { ROAD_Y } from './Layout.js';
 import { GrassField, upgradeGroundGrass } from './Grass.js';
 import { Collision } from './Collision.js';
 import * as L from './Layout.js';
@@ -58,8 +59,14 @@ export class World {
     progress(0.9, 'Outer suburbs'); await tick();
     this.buildOuterRing();
     // point-light pool for nearby street lamps at night (fixed count to avoid shader recompiles)
-    const nLights = quality === 'low' ? 0 : quality === 'medium' ? 3 : 5;
-    for (let i = 0; i < nLights; i++) { const p = new THREE.PointLight(0xffc98a, 0, 28, 1.6); p.castShadow = false; this.scene.add(p); this.lampLights.push(p); }
+    // Street lamps near the camera are real lights: a downward spotlight (the lamp's optic throws light onto the road and
+    // pavement, not sideways through walls) that lights people, cars and kerbs; on high/ultra the two nearest also cast real
+    // shadows. That lamp's painted light-pool decal is hidden while it has a real light; distant lamps keep the decal as LOD.
+    // Fixed count, created once (no shader recompiles); assignments fade over a quarter second instead of popping.
+    const nLights = quality === 'low' ? 3 : quality === 'medium' ? 6 : quality === 'ultra' ? 10 : 8; const shadowed = quality === 'high' || quality === 'ultra' ? 2 : 0;
+    for (let i = 0; i < nLights; i++) { const p = new THREE.SpotLight(0xffc98a, 0, 30, 1.05, 0.55, 1.6); p.castShadow = i < shadowed;
+      if (p.castShadow) { p.shadow.mapSize.set(512, 512); p.shadow.camera.near = 0.5; p.shadow.camera.far = 30; p.shadow.bias = -0.0008; p.shadow.normalBias = 0.05; p.shadow.autoUpdate = true; p.shadow.needsUpdate = true; }
+      p.position.set(0, -600, 0); p.target.position.set(0, -601, 0); this.scene.add(p); this.scene.add(p.target); p.userData.lamp = null; p.userData.k = 0; this.lampLights.push(p); }
     // FPS: the city geometry never moves, so its ~9k scene nodes are frozen — matrices are computed once here instead of
     // every frame (updateMatrixWorld skips these subtrees). Visual output is identical.
     for (const c of this.chunks) freezeStatic(c.group); freezeStatic(this.parks); freezeStatic(this.outer);
@@ -114,11 +121,12 @@ export class World {
     if (this.lampLights.length && atmos) {
       const on = atmos.night > 0.3;
       if (on) {
-        const near = []; const ci = this.chunks;
-        for (const c of ci) { if (Math.abs(c.cx - fx) > 300 || Math.abs(c.cz - fz) > 300) continue; for (const p of c.lamps) { const d2 = (p[0] - fx) ** 2 + (p[2] - fz) ** 2; if (d2 < 120 * 120) near.push([d2, p]); } }
-        near.sort((a, b) => a[0] - b[0]);
-        this.lampLights.forEach((l, i) => { const n = near[i]; if (n) { l.position.set(n[1][0], n[1][1] - 0.4, n[1][2]); l.intensity = atmos.night * 30 * (1 - (this.indoorK || 0)); } else l.intensity = 0; }); // inside a building the street lamps' light no longer passes through its walls
-      } else this.lampLights.forEach((l) => (l.intensity = 0));
+        const near = []; const ci = this.chunks; const cd = camera ? camera.getWorldDirection(this._lampDir || (this._lampDir = new THREE.Vector3())) : null;
+        for (const c of ci) { if (Math.abs(c.cx - fx) > 300 || Math.abs(c.cz - fz) > 300) continue; for (const p of c.lamps) { const dx = p[0] - fx, dz = p[2] - fz, d2 = dx * dx + dz * dz; if (d2 > 110 * 110) continue;
+          const inView = !cd || d2 < 400 || (dx * cd.x + dz * cd.z) / Math.sqrt(d2) > 0.35; near.push([d2 * (inView ? 1 : 3), p]); } }
+        near.sort((a, b) => a[0] - b[0]); const want = new Set(near.slice(0, this.lampLights.length).map((n) => n[1]));
+        this.lampFade(dt, want, atmos.night * 34 * (1 - (this.indoorK || 0))); // inside a building the street lamps' light no longer passes through its walls
+      } else this.lampFade(dt, new Set(), 0);
     }
   }
   buildDetailFor(c) {
@@ -145,6 +153,17 @@ export class World {
     const need = this.chunks.filter((c) => !c.detail && points.some(([x, z]) => Math.hypot(c.cx - x, c.cz - z) - CHUNK * 0.7 < this.detailRadius));
     for (let i = 0; i < need.length; i++) { const c = need[i]; if (!c.detail) this.buildDetailFor(c); if (!c.win && points.some(([x, z]) => Math.hypot(c.cx - x, c.cz - z) - CHUNK * 0.7 < this.windowRadius)) this.buildWindowsFor(c); progress((i + 1) / need.length); if (i % 2 === 1) await new Promise((r) => requestAnimationFrame(r)); }
     progress(1); return need.length;
+  }
+  // hand real lights to the wanted lamps: lights on lamps no longer wanted fade out and are freed (decal restored), free lights
+  // fade in on newly wanted lamps (decal hidden); lamps that stay wanted keep their light (no flicker from re-sorting)
+  lampFade(dt, want, base) {
+    const lit = new Set(); const _m = this._lampM || (this._lampM = new THREE.Matrix4());
+    const decal = (lamp, on) => { const [x, , z, mesh, i] = lamp; if (!mesh) return; if (on) _m.makeTranslation(x, ROAD_Y + 0.03, z); else _m.makeScale(0, 0, 0); mesh.setMatrixAt(i, _m); mesh.instanceMatrix.needsUpdate = true; };
+    for (const l of this.lampLights) { const u = l.userData; if (!u.lamp) continue;
+      if (want.has(u.lamp) && base > 0) { u.k = Math.min(1, u.k + dt * 4); lit.add(u.lamp); } else { u.k -= dt * 4; if (u.k <= 0) { decal(u.lamp, true); u.lamp = null; u.k = 0; } else lit.add(u.lamp); } }
+    for (const lamp of want) { if (lit.has(lamp) || base <= 0) continue; const l = this.lampLights.find((q) => !q.userData.lamp); if (!l) break;
+      l.userData.lamp = lamp; l.userData.k = 0; decal(lamp, false); l.position.set(lamp[0], lamp[1] - 0.4, lamp[2]); l.target.position.set(lamp[0], ROAD_Y, lamp[2] + 0.001); l.target.updateMatrixWorld(); lit.add(lamp); }
+    for (const l of this.lampLights) { const u = l.userData; const I = u.lamp ? base * u.k : 0; if (l.intensity !== I) l.intensity = I; }
   }
   setQuality(q) { this.quality = q; if (this.grass) this.grass.setQuality(q); const s = q === 'low' ? 0.6 : q === 'medium' ? 0.8 : q === 'ultra' ? 1.25 : 1; this.detailRadius = 330 * s; this.windowRadius = q === 'low' ? 0 : q === 'medium' ? 90 : q === 'ultra' ? 210 : 150; this.propRadius = 430 * s; this.treeRadius = 520 * s; }
 }

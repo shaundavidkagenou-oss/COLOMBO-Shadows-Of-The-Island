@@ -146,7 +146,7 @@ export function buildPropsForChunk(chunk) {
     pools.computeBoundingSphere(); group.add(pools);
     const pts = new THREE.BufferGeometry(); pts.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     const glow = new THREE.Points(pts, GLOW_MAT); group.add(glow);
-    group.userData.lamps = lamps.map((p, i) => [pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]]);
+    group.userData.lamps = lamps.map((p, i) => [pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2], pools, i]); // [x, y, z, pool decal mesh, instance] — the decal is hidden while a real light is on the lamp
   }
   return group;
 }

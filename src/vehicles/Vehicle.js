@@ -40,6 +40,16 @@ export class HeadlightRig {
     }
     this.assigned = []; this._p = new THREE.Vector3(); this._d = new THREE.Vector3();
   }
+  clipPool(v, hp) {
+    const T = v.T, bike = T.entry === 'bike', full = bike ? 8 : 11; const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw), rx = fz, rz = -fx; const hw = bike ? 1.0 : Math.max(1.3, T.wid * 0.75);
+    const bx = v.x + fx * T.len / 2, bz = v.z + fz * T.len / 2; const ex = bx + fx * full, ez = bz + fz * full; let free = full;
+    const near = this.collision.query(Math.min(bx, ex) - hw, Math.min(bz, ez) - hw, Math.max(bx, ex) + hw, Math.max(bz, ez) + hw);
+    for (let q = 0; q < near.length; q++) { const c = near[q]; if (!(c.h > 0.5) || (c.y0 ?? 0) > v.y + 1.2 || c.kind === 'deck' || c.kind === 'platform') continue;
+      let amin = 1e9, lmin = 1e9, lmax = -1e9; for (let n = 0; n < 4; n++) { const px = (n & 1 ? c.x1 : c.x0) - bx, pz = (n & 2 ? c.z1 : c.z0) - bz; const al = px * fx + pz * fz, lt = px * rx + pz * rz; if (al < amin) amin = al; if (lt < lmin) lmin = lt; if (lt > lmax) lmax = lt; }
+      if (lmax < -hw || lmin > hw || amin > free) continue; free = Math.max(0.5, amin); }
+    for (const o of LIVE_VEHICLES) { if (o === v || !o.mesh.parent) continue; const dx = o.x - bx, dz = o.z - bz; const al = dx * fx + dz * fz - (o.half || 2); if (al < 0.3 || al > free) continue; if (Math.abs(dx * rx + dz * rz) < hw + (o.T.wid / 2)) free = Math.max(0.5, al); }
+    const sz = hp.userData.baseZ ?? (hp.userData.baseZ = hp.scale.z); hp.scale.z = sz * Math.min(1, free / full);
+  }
   static lampY(T) { return T.entry === 'bike' ? 1.0 : Math.min(1.0, 0.3 + T.hgt * 0.22); }
   update(cam, playerVeh, night, indoor = 0) {
     const kin = typeof indoor === 'number' ? clamp(indoor, 0, 1) : indoor ? 1 : 0; // how far inside a building the camera is
@@ -52,6 +62,9 @@ export class HeadlightRig {
       cand.push([v === playerVeh ? -1 : d, v]);
     }
     cand.sort((a, b) => a[0] - b[0]);
+    // the painted light pool of vehicles without a pooled beam has no shadows: clip it at the first solid thing in the beam corridor
+    // (tree trunk, pole, wall, parked car body) so no light lands on the road behind it. Re-checked a third of the vehicles per frame.
+    this._f = (this._f || 0) + 1; if (k > 0 && this.collision) for (const v of LIVE_VEHICLES) { const hp = v.mesh.userData.headPool; if (!hp || !hp.visible || (v.id + this._f) % 3) continue; this.clipPool(v, hp); }
     for (const v of this.assigned) if (v.mesh.userData) v.mesh.userData.realBeam = false;
     this.assigned = [];
     this.spots.forEach((s, i) => { const c = cand[i];
@@ -118,6 +131,14 @@ export class Vehicle {
     // static world: gather the deepest push per circle → one combined normal, contact at the deepest circle
     let sx = 0, sz = 0, best = 0, bestT = 0; const cs = this.circles();
     for (let k = 0; k < cs.length; k++) { const [cx, cz] = cs[k]; const r = collision.resolveCircle(cx, cz, this.radius, this.y, 0.25, 2, { vehicle: true }); if (r.hit) { const dx = r.x - cx, dz = r.z - cz, dl = Math.hypot(dx, dz); this.x += dx; this.z += dz; sx += dx; sz += dz; if (dl > best) { best = dl; bestT = tOf(k); } } }
+    // thin static obstacles (tree trunks, lamp / signal poles, bollards) against the true rectangular body: the circle chain rounds the
+    // corners off, which let a trunk sink up to half the car's width into the bonnet before anything touched
+    { const hw = T.wid / 2, hl = T.len / 2, ext = hl + 1; const near = collision.query(this.x - ext, this.z - ext, this.x + ext, this.z + ext);
+      for (let q = 0; q < near.length; q++) { const c = near[q]; if (!(c.h > 0.4) || c.x1 - c.x0 > 1.6 || c.z1 - c.z0 > 1.6) continue; if ((c.y0 ?? 0) > this.y + 1.6 || (c.y0 ?? 0) + c.h < this.y + 0.25) continue; if (c.kind === 'deck' || c.kind === 'platform') continue;
+        const cx = (c.x0 + c.x1) / 2, cz = (c.z0 + c.z1) / 2, cr = Math.max(c.x1 - c.x0, c.z1 - c.z0) / 2; const dx = cx - this.x, dz = cz - this.z; const lx = dx * rx + dz * rz, lz = dx * fx + dz * fz;
+        const px = hw + cr - Math.abs(lx), pz = hl + cr - Math.abs(lz); if (px <= 0 || pz <= 0) continue;
+        let mx, mz, pen; if (px < pz) { pen = px; const sg = lx > 0 ? -1 : 1; mx = rx * sg; mz = rz * sg; } else { pen = pz; const sg = lz > 0 ? -1 : 1; mx = fx * sg; mz = fz * sg; }
+        this.x += mx * pen; this.z += mz * pen; sx += mx * pen; sz += mz * pen; if (pen > best) { best = pen; bestT = clamp(lz, -hl, hl); } } }
     if (best > 0.005) { const sl = Math.hypot(sx, sz) || 1, nx_ = sx / sl, nz_ = sz / sl; const vn = V[0] * nx_ + V[1] * nz_; if (vn < 0) applyImpulse(nx_, nz_, -(1 + 0.18) * vn, bestT, 0.35); }
     // other vehicles: relative velocity along the contact normal, impulse split by mass; the other car is shoved (leaves its lane, slides, spins)
     if (others) for (const o of others) {
