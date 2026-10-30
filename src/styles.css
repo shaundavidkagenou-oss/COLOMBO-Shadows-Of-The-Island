@@ -501,8 +501,9 @@ select { background: #0e1318; color: var(--paper); border: 1px solid rgba(255, 2
 .sq-m { position: relative; width: 30px; height: 30px; border: 1px solid rgba(255, 255, 255, 0.22); background: rgba(8, 11, 16, 0.62); clip-path: polygon(0 0, 100% 0, 100% 72%, 76% 100%, 0 100%); display: grid; place-items: center; font-family: var(--f-hud); font-weight: 700; font-size: 13px; color: rgba(255, 255, 255, 0.55); }
 .sq-m.active { border-color: var(--acc); color: #fff; background: color-mix(in srgb, var(--acc) 30%, rgba(8, 11, 16, 0.72)); }
 .sq-m i { position: absolute; left: 3px; bottom: 3px; height: 2px; background: var(--acc); max-width: calc(100% - 6px); }
-.sq-strip { position: absolute; left: 50%; bottom: 34px; transform: translate(-50%, 14px); display: flex; gap: 10px; align-items: stretch; opacity: 0; pointer-events: none; transition: opacity 0.18s ease, transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }
-.sq-strip.on { opacity: 1; transform: translate(-50%, 0); }
+.sq-strip { position: absolute; left: max(calc(50% - 325px), 270px); bottom: 34px; transform: translateY(14px); display: flex; gap: 10px; align-items: stretch; opacity: 0; pointer-events: none; transition: opacity 0.18s ease, transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.sq-strip.on { opacity: 1; transform: translateY(0); }
+@media (max-width: 1180px) { .sq-card { width: 172px; } .sq-role { letter-spacing: 0.06em; } }
 .sq-card { position: relative; width: 210px; display: flex; gap: 10px; align-items: center; padding: 8px 12px 8px 8px; background: linear-gradient(100deg, rgba(8, 11, 16, 0.86), rgba(8, 11, 16, 0.6)); border: 1px solid rgba(255, 255, 255, 0.12); border-left: 3px solid var(--acc); clip-path: polygon(0 0, 100% 0, 100% 78%, 93% 100%, 0 100%); transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease; }
 .sq-card.active { background: linear-gradient(100deg, color-mix(in srgb, var(--acc) 34%, rgba(8, 11, 16, 0.9)), rgba(8, 11, 16, 0.66)); }
 .sq-card.pick { transform: translateY(-8px); border-color: rgba(255, 255, 255, 0.55); border-left-color: var(--acc); box-shadow: 0 0 0 1px var(--acc) inset; }

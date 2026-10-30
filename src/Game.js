@@ -123,7 +123,7 @@ export class Game {
     if (quick) { // test shortcuts: ?test&quick=new (opening cinematic) | ?test&quick=play (skip opening, free play at Main Street)
       await this.load((p, l) => { window.__progress = [p, l]; });
       if (quick === 'new') return this.newGame();
-      this.story.state = Story.freshState(); this.mode = 'play'; this.atmos.hour = 17; this.setupRoomDoor(); this.world.warm(-140, -892); this.player.teleport(-140, -891.8, Math.PI / 2);
+      this.story.state = Story.freshState(); this.squad.reset(); this.mode = 'play'; this.atmos.hour = 17; this.setupRoomDoor(); this.world.warm(-140, -892); this.player.teleport(-140, -891.8, Math.PI / 2);
       this.player.cinematic = false; this.player.control = true; this.hud.show(true); this.hud.fade(0, 0.3); this.story.setupWorldActivities(); this.story.startMission('m0', 0); return;
     }
     await this.screens.studioIntro((p) => this.load(p));

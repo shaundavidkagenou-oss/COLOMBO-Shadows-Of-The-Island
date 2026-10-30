@@ -183,6 +183,9 @@ export class Player {
     if (c && Input.wasPressed('lights')) { v.lights = !v.lights; this.nightLights = v.lights; }
     if (v.lastImpact && performance.now() - v.lastImpact.t < 50) { this.shake = Math.min(1, v.lastImpact.v / 20); this.events.emit('crash', v.lastImpact.v); v.lastImpact = null; }
   }
+  // first-person eye (between the eyes, from the head bone) and view direction, world space
+  fpEyeLook(eye, look) { const h = this.ch.bones.head; h.updateWorldMatrix(true, false); const s = this.ch.spec.height / 1.72; const yaw = this.camYaw + Math.PI;
+    eye.setFromMatrixPosition(h.matrixWorld).add(new THREE.Vector3(Math.sin(yaw) * 0.1 * s, 0.075 * s, Math.cos(yaw) * 0.1 * s)); look.set(Math.sin(yaw) * Math.cos(this.camPitch), -Math.sin(this.camPitch), Math.cos(yaw) * Math.cos(this.camPitch)); return eye; }
   snapCamera() { this.updateCamera(1, true); }
   updateCamera(dt, snap = false) {
     if (this.cinematic || this.camOverride) return; const cam = this.camera; const v = this.vehicle;
@@ -209,11 +212,8 @@ export class Player {
     }
     if (this.camMode === 2 && !v) { // first person: true body awareness — the real body, arms and weapon stay visible, only the head collapses
       const b = this.ch.bones, h = b.head; b.neck.updateWorldMatrix(true, false); h.scale.setScalar(0.001); this.fpHead = h; h.updateWorldMatrix(false, false);
-      const s = this.ch.spec.height / 1.72; const hp = new THREE.Vector3().setFromMatrixPosition(h.matrixWorld); const yaw = this.camYaw + Math.PI;
-      const eye = hp.add(new THREE.Vector3(Math.sin(yaw) * 0.1 * s, 0.075 * s, Math.cos(yaw) * 0.1 * s));
-      const look = new THREE.Vector3(Math.sin(yaw) * Math.cos(this.camPitch), -Math.sin(this.camPitch), Math.cos(yaw) * Math.cos(this.camPitch));
-      const ads = this.weapons && this.weapons.fpSight ? this.weapons.fpSight() : null; // aim down the real sights of the weapon in the hands
-      if (ads && ads.w > 0.001) { eye.lerp(ads.eye, ads.w); look.lerp(ads.dir, ads.w).normalize(); }
+      const eye = new THREE.Vector3(), look = new THREE.Vector3(); this.fpEyeLook(eye, look); // the weapon is placed on this view line (Weapons.pose), so ADS lines up the real sights
+      const ads = this.weapons && this.weapons.drawn ? { w: this.weapons.fpAds || 0, zoom: this.weapons.def && this.weapons.def.cls === 'pistol' ? 6 : 10 } : null;
       cam.position.copy(eye); cam.lookAt(eye.x + look.x, eye.y + look.y, eye.z + look.z);
       if (this.shake > 0 && Settings.get('cameraShake')) { cam.rotateX((Math.random() - 0.5) * this.shake * 0.02); cam.rotateY((Math.random() - 0.5) * this.shake * 0.02); this.shake = Math.max(0, this.shake - dt * 2.5); }
       const fovW = Settings.get('fov') - (ads ? ads.w * (ads.zoom || 8) : 0); if (Math.abs(cam.fov - fovW) > 0.05 || cam.near !== 0.07) { cam.fov = damp(cam.fov, fovW, 10, dt); cam.near = 0.07; cam.updateProjectionMatrix(); }

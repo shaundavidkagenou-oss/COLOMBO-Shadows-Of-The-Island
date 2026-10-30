@@ -27,7 +27,7 @@ const seg = (k, a, b) => clamp((k - a) / (b - a), 0, 1);
 // ADS easing: cubic Bezier (0.3, 0, 0.15, 1) — quick to leave the low ready, soft settle onto the sights
 const adsEase = (x) => { x = clamp(x, 0, 1); let t = x; for (let i = 0; i < 6; i++) { const u = 1 - t; const bx = 3 * u * u * t * 0.3 + 3 * u * t * t * 0.15 + t * t * t; const dx = 3 * u * u * 0.3 + 6 * u * t * (0.15 - 0.3) + 3 * t * t * (1 - 0.15); if (Math.abs(dx) < 1e-5) break; t = clamp(t - (bx - x) / dx, 0, 1); } const u = 1 - t; return 3 * u * t * t + t * t * t; };
 const TRIGGER_PULL = [0.6, 1.08, 1.18, 1.24, 1.2]; // index finger through the trigger break, held for one shot
-const _m = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _e = new THREE.Euler();
+const _m = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _m3 = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _e = new THREE.Euler();
 const qE = (x, y, z) => new THREE.Quaternion().setFromEuler(new THREE.Euler(x, y, z));
 const Q_GRIP = qE(-0.8, 0, 0), /* firing hand: palm on the grip side, fingers wrap down-forward, thumb up along the frame (rest frame: fingers −y, palm inward, thumb +z) */ Q_SUP_R = qE(0.1, 0, -Math.PI / 2), Q_SUP_P = qE(-0.5, 0.3, -Math.PI / 2);
 
@@ -71,7 +71,7 @@ export class Weapons {
   }
   slotMatrixInChest(i, out) { const b = this.P.ch.bones; const slot = WEAPONS[i].cls === 'pistol' ? this.holsterP : this.holsterR; b.chest.updateWorldMatrix(true, false); slot.updateWorldMatrix(true, false); return out.copy(b.chest.matrixWorld).invert().multiply(slot.matrixWorld); }
   select(i) {
-    if (i < 0 || i > 8 || !this.inv[i].owned) return; if (this.state === 'reload') this.abortReload();
+    if (!(i >= 0 && i <= 8) || !this.inv[i] || !this.inv[i].owned) return; if (this.state === 'reload') this.abortReload();
     if (this.state === 'holster') { this.next = i; this.hudWeapon(i); return; } // already putting one away: retarget, never restart the animation
     if (this.cur === i) return;
     if (this.drawn) { this.next = i; this.setState('holster'); } else { this.sel = i; this.cur = i; this.setState('equip'); }
@@ -145,7 +145,7 @@ export class Weapons {
     }
     let def = this.def;
     const aimHeld = !this.wheelOpen && (Input.mouseButtons.has(2) || Input.pad.lt > 0.4); const fireHeld = !this.wheelOpen && (Input.mouseButtons.has(0) || Input.pad.rt > 0.4); const firePressed = !this.wheelOpen && (Input.mousePressed.has(0) || (Input.pad.rt > 0.4 && !this._rtPrev)); this._rtPrev = Input.pad.rt > 0.4;
-    if (!this.drawn && firePressed && !P.sprinting && this.inv[this.sel].owned && Settings.get('fireDraws') !== false) { /* first click draws the weapon */ this.select(this.sel); }
+    if (!this.drawn && firePressed && !P.sprinting && this.inv[this.sel] && this.inv[this.sel].owned && Settings.get('fireDraws') !== false) { /* first click draws the weapon */ this.select(this.sel); }
     this.t += dt; this.cool = Math.max(0, this.cool - dt); this.bloom = Math.max(0, this.bloom - dt * (def && def.cls === 'sniper' ? 0.02 : 0.06)); this.recoil = Math.max(0, this.recoil - dt * 9 * (this.recoil + 0.02)); this.quickAim = Math.max(0, this.quickAim - dt);
     if (this.state === 'equip' && this.t >= def.equip) this.setState('ready');
     if (this.state === 'check' && this.t >= 0.9 && this.cycleT < 0) this.setState('ready'); this.trigT = Math.max(0, this.trigT - dt);
@@ -196,6 +196,7 @@ export class Weapons {
     const awp = Math.max(aw, P.camMode === 2 && !P.sprinting && this.state !== 'equip' && this.state !== 'holster' ? 0.55 : 0); const u0 = 1 - awp;
     const ctrl = low.pos.clone().lerp(ap.pos, 0.5).add(def.cls === 'pistol' ? new THREE.Vector3(0.02, 0.05, -0.06) : new THREE.Vector3(0.01, 0.06, -0.02));
     let pos = new THREE.Vector3().addScaledVector(low.pos, u0 * u0).addScaledVector(ctrl, 2 * u0 * awp).addScaledVector(ap.pos, awp * awp); let rx = lerp(low.rot[0], 0, awp), ry = lerp(low.rot[1], 0, awp), rz = lerp(low.rot[2], 0, awp);
+    const base = [pos.clone(), rx, ry, rz]; // pose before sprint / spring / reload offsets (first person anchors this one)
     if (P.sprinting && this.aimW < 0.1) { rx += 0.25; ry += twoHand ? 0.35 : 0; pos.y -= 0.03; }
     // recoil kick
     pos.add(this.spr.p); rx += this.spr.r.x; ry += this.spr.r.y; rz += this.spr.r.z; // springs: recoil impulse, look sway, gait bob, breathing
@@ -232,6 +233,15 @@ export class Weapons {
     const wq = new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz, 'YXZ'));
     const body = new THREE.Matrix4().compose(pos, wq, new THREE.Vector3(1, 1, 1)); this._weaponBody = body;
     let chestM = new THREE.Matrix4().multiplyMatrices(toChest, body);
+    if (P.camMode === 2 && !P.vehicle && ud.sight && P.fpEyeLook) { // first person: put the base pose's sight on the eye's view line — lower right at the hip,
+      // dead centre when aiming — and keep every offset (recoil springs, sway, sprint, reload) as a deviation from it
+      const cb = P.ch.bones.chest; cb.updateWorldMatrix(true, false); const inv = _m3.copy(cb.matrixWorld).invert(); const eye = new THREE.Vector3(), look = new THREE.Vector3(); P.fpEyeLook(eye, look);
+      eye.applyMatrix4(inv); look.transformDirection(inv); const upL = new THREE.Vector3(0, 1, 0).transformDirection(inv); const right = new THREE.Vector3().crossVectors(look, upL).normalize(); const up = new THREE.Vector3().crossVectors(right, look).normalize();
+      const baseM = new THREE.Matrix4().multiplyMatrices(toChest, new THREE.Matrix4().compose(base[0], new THREE.Quaternion().setFromEuler(new THREE.Euler(base[1], base[2], base[3], 'YXZ')), new THREE.Vector3(1, 1, 1)));
+      const bs = ud.sight.clone().applyMatrix4(baseM); const bd = new THREE.Vector3(0, 0, 1).transformDirection(baseM); const hip = 1 - sm(this.aimW) * (this.aimHeld ? 1 : 0.6);
+      const relief = def.cls === 'pistol' ? 0.36 : def.cls === 'sniper' ? 0.2 : 0.18; const T = eye.clone().addScaledVector(look, relief + 0.06 * hip).addScaledVector(right, 0.085 * hip).addScaledVector(up, -0.07 * hip);
+      const q = new THREE.Quaternion().setFromUnitVectors(bd, look); const D = new THREE.Matrix4().makeTranslation(T.x, T.y, T.z).multiply(new THREE.Matrix4().makeRotationFromQuaternion(q)).multiply(new THREE.Matrix4().makeTranslation(-bs.x, -bs.y, -bs.z));
+      chestM = D.multiply(chestM); }
     // draw / holster: blend between the holster slot and the hands
     let handOnly = 0; // 0 = weapon in hand pose, 1 = weapon still in holster (hand reaching)
     if (this.state === 'equip' || this.state === 'holster') {
