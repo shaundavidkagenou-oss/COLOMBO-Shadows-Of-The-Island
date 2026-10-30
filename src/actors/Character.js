@@ -9,6 +9,7 @@ import { RNG } from '../core/rng.js';
 import { makeAppearance, FACE_VARIANTS } from './Appearance.js';
 import { lerp, clamp, damp } from '../core/math.js';
 import { HERO_EXTRA, HERO_PARENT, heroJoints, fingerLayout, HeroRig, heroUniforms, patchHeroMaterial, faceNormals } from './HeroRig.js';
+import { hasHeroHead, heroHeadFit, buildHeroHead, headMaterials, buildEyeball, EXPR_MORPHS, morphIndex, HEAD_MORPHS } from './HeroHead.js';
 
 export const BONES = ['hips', 'spine', 'chest', 'neck', 'head', 'shL', 'armL', 'foreL', 'handL', 'shR', 'armR', 'foreR', 'handR', 'thighL', 'shinL', 'footL', 'thighR', 'shinR', 'footR', 'skirtF', 'skirtB', 'skirtF2', 'skirtB2'];
 const B = Object.fromEntries([...BONES, ...HERO_EXTRA].map((n, i) => [n, i])); // protagonist-only bones are appended after the shared 23, so crowd indices are unchanged
@@ -131,6 +132,8 @@ export function buildBodyGeometry(sp) {
   const W1 = (b) => [[B[b], 1]]; const W2 = (a, b, t) => [[B[a], 1 - t], [B[b], t]];
   const midriff = o === 'saree';
   const HQ = !!sp.hero; // protagonist: high-detail build (more tessellation, articulated fingers, sculpted nose/ears, garment construction details)
+  const MH = HQ && hasHeroHead(sp); const NK = MH ? heroHeadFit(sp) : null; // protagonist with an anatomical head (HeroHead.js): no procedural head / hair / facial hair here
+  const neckRing = (y, m) => ({ c: [0, y, NK.section.cz], rx: NK.section.rx + m, rz: NK.section.rz + m }); // a ring wrapping the hero's neck section with margin m
   // --- torso (hips → neck)
   // natural variation in adult female figure (seeded, spec override `bust`), slightly lower/softer with age
   const bf = f ? (sp.bust ?? (0.82 + 0.36 * ((((Math.sin((sp.seed || 1) * 47.13) * 43758.5453) % 1) + 1) % 1))) * (sp.age === 'elder' ? 0.9 : 1) : 0;
@@ -147,13 +150,15 @@ export function buildBodyGeometry(sp) {
     { y: 1.47, rx: 0.062, rz: 0.06, wgt: W2('chest', 'neck', 0.5), col: sp.collar ? top : skin },
     { y: 1.55, rx: 0.05, rz: 0.05, wgt: W1('neck'), col: skin },
   ];
+  if (MH) { const a = tr[tr.length - 2], b = tr[tr.length - 1]; const yTop = Math.max(NK.cutY + 0.03, 1.5 * s); const r0 = neckRing(0, 0.006); // collar wraps the real neck; its top sits above the level cut so no skin gap shows
+    Object.assign(a, { rx: Math.max(a.rx, r0.rx + 0.004), rz: Math.max(a.rz, r0.rz + 0.004), cz: r0.c[2] }); Object.assign(b, { y: yTop / s, rx: r0.rx, rz: r0.rz, cz: r0.c[2], wgt: W2('chest', 'neck', 0.7), col: sp.collar ? top : skin }); }
   if (HQ) { tr[0].rz = (f ? 0.1 : 0.093) * w; tr.unshift({ y: 0.79, rx: 0.114 * w, rz: 0.072 * w, wgt: W1('hips'), col: bottom }); } /* rounded seat between the thighs; the front of the pelvis no longer stands proud of the thighs like an apron */ /* rounded seat between the thighs instead of a flat cap */
   const RO = HQ ? 1 : 0;
   const bel = sp.belly || 0; if (bel) [[2, 0.03, 0.02], [3, 0.045, 0.032], [4, 0.022, 0.012]].forEach(([i0, dz, df]) => { const i = i0 + RO; tr[i].rz += bel * dz * w; tr[i].fz = (tr[i].fz || 0) + bel * df; tr[i].rx += bel * 0.012 * w; });
   // torso surface (front/back z at height y and offset x) so straps, lanyards and bags sit on the clothes, never inside
   const surfZ = (y, x, sgn) => { let k = 0; while (k < tr.length - 2 && tr[k + 1].y * s < y) k++; const a = tr[k], b2 = tr[k + 1]; const t = clamp((y / s - a.y) / (b2.y - a.y), 0, 1); const rx = lerp(a.rx, b2.rx, t), rz = lerp(a.rz, b2.rz, t), fz = lerp(a.fz || 0, b2.fz || 0, t), bu = lerp(a.bust || 0, b2.bust || 0, t); const q = clamp(Math.abs(x) / rx, 0, 0.98); const sa = Math.sqrt(1 - q * q); return sgn * rz * sa + (sgn > 0 ? fz * sa + bu * bustShape(clamp(x / rx, -1, 1), sa) : 0); };
   const jacket = o === 'jacket';
-  sb.loft(tr.map((r) => ({ c: [0, r.y * s, 0], rx: r.rx, rz: r.rz, fz: r.fz, bust: r.bust, w: r.wgt, col: r.col })), HQ ? 40 : f ? 28 : 16, {
+  sb.loft(tr.map((r) => ({ c: [0, r.y * s, r.cz || 0], rx: r.rx, rz: r.rz, fz: r.fz, bust: r.bust, w: r.wgt, col: r.col })), HQ ? 40 : f ? 28 : 16, {
     capStart: true,
     colFn: jacket ? (ri, a, r) => { const fr = Math.sin(a); return ri >= 2 + RO && ri <= 6 + RO && fr > 0.93 ? C(sp.inner || '#6b6f72') : r.col; } : sp.tie ? (ri, a, r) => (ri >= 3 + RO && ri <= 6 + RO && Math.sin(a) > 0.97 ? C(sp.tie) : r.col) : null,
   });
@@ -280,14 +285,14 @@ export function buildBodyGeometry(sp) {
   const headBump = (x, y, z) => 1 + (z > 0.5 && y < -0.2 ? -0.06 * (z - 0.5) : 0) + (y < -0.55 ? -0.08 * (-y - 0.55) * 2 : 0)
     + (y < -0.15 ? (jaw - 1) * Math.min(1, (-y - 0.15) * 2.2) * Math.abs(x) * 1.3 : 0) + (z > 0.55 && y < -0.6 ? chin * 0.05 * Math.min(1, (z - 0.55) * 3) * Math.min(1, (-y - 0.6) * 4) : 0)
     + (z > 0.2 && y > -0.4 && y < 0.1 ? cheek * 0.022 * Math.abs(x) * (1 - Math.abs(y + 0.15) * 4) : 0);
-  sb.ellipsoid(hc, hr[0], hr[1], hr[2], W1('head'), skin, { lat: HQ ? 26 : 16, lon: HQ ? 40 : 24, faceUV: true, target: sb.headIdx, bumpFn: headBump });
+  if (!MH) sb.ellipsoid(hc, hr[0], hr[1], hr[2], W1('head'), skin, { lat: HQ ? 26 : 16, lon: HQ ? 40 : 24, faceUV: true, target: sb.headIdx, bumpFn: headBump });
   // nose + ears
-  if (HQ) { const nz = HD.nose || [1, 1, 1]; const fz = hc[2] + hr[2]; const dk = skin.map((v) => v * 0.9); // nose: bridge, rounded tip, nostril wings
+  if (MH) { /* anatomical nose: HeroHead.js */ } else if (HQ) { const nz = HD.nose || [1, 1, 1]; const fz = hc[2] + hr[2]; const dk = skin.map((v) => v * 0.9); // nose: bridge, rounded tip, nostril wings
     sb.ellipsoid([0, hc[1] - 0.006 - (nz[1] - 1) * 0.008, fz - 0.007], 0.0125 * nz[0], 0.031 * nz[1], 0.0155 * nz[2], W1('head'), skin, { lat: 12, lon: 16, bumpFn: (x, y, z) => (0.62 + 0.38 * (1 - y) * 0.5) * (Math.abs(x) > 0.3 ? 1 : 1) }); // wedge: narrow bridge, wider base
     sb.ellipsoid([0, hc[1] - 0.024 - (nz[1] - 1) * 0.012, fz + 0.0035], 0.0098 * nz[0], 0.0094, 0.0098 * nz[2], W1('head'), skin, { lat: 8, lon: 12 });
     for (const sx of [-1, 1]) sb.ellipsoid([sx * 0.0102 * nz[0], hc[1] - 0.0275 - (nz[1] - 1) * 0.012, fz - 0.0035], 0.0064, 0.0058, 0.0072, W1('head'), dk, { lat: 6, lon: 10 }); }
   else { const nz = HD.nose || [1, 1, 1]; sb.ellipsoid([0, hc[1] - 0.012 - (nz[1] - 1) * 0.012, hc[2] + hr[2] - 0.004], 0.016 * nz[0], 0.026 * nz[1], 0.022 * nz[2], W1('head'), skin, { lat: 5, lon: 8, p0: 0.3 }); }
-  if (sp.hair !== 'hijab' && HQ) { const es = HD.ear ?? 1; const inner = skin.map((v) => v * 0.86); for (const sx of [-1, 1]) { // ear: helix rim, concha hollow, lobe
+  if (MH) { /* anatomical ears: HeroHead.js */ } else if (sp.hair !== 'hijab' && HQ) { const es = HD.ear ?? 1; const inner = skin.map((v) => v * 0.86); for (const sx of [-1, 1]) { // ear: helix rim, concha hollow, lobe
       sb.ellipsoid([sx * (hr[0] + 0.001), hc[1] + 0.002, hc[2] - 0.013], 0.0095 * es, 0.031 * es, 0.021 * es, W1('head'), skin, { lat: 10, lon: 14 });
       sb.ellipsoid([sx * (hr[0] + 0.0065), hc[1] - 0.001, hc[2] - 0.009], 0.0022 * es, 0.016 * es, 0.0105 * es, W1('head'), inner, { lat: 6, lon: 10 });
       sb.ellipsoid([sx * (hr[0] + 0.0005), hc[1] - 0.029 * es, hc[2] - 0.008], 0.0075 * es, 0.0105 * es, 0.0085 * es, W1('head'), skin, { lat: 6, lon: 10 }); } }
@@ -295,7 +300,7 @@ export function buildBodyGeometry(sp) {
   // hair
   const hs = sp.hair; let hairLift = 1;
   const backZ = (y, half) => Math.min(hc[2] - hr[2] * 0.75, surfZ(y, 0, -1) - half - 0.008); // hair hanging down the back stays outside the clothes
-  if (hs === 'hijab') { // head scarf: a shell over the head (open around the face), wrapped under the chin and draped over the shoulders
+  if (MH) { /* scalp-fitted hair: HeroHead.js */ } else if (hs === 'hijab') { // head scarf: a shell over the head (open around the face), wrapped under the chin and draped over the shoulders
     const sc = C(sp.scarf || '#2a2a3a'); hairLift = 1.14;
     // oval face opening (forehead to just under the lower lip, cheek to cheek); inside it the shell sinks below the skin
     const open = (x, y, z) => z > 0.25 && (x / 0.66) ** 2 + ((y + 0.1) / 0.58) ** 2 < 1;
@@ -362,7 +367,7 @@ export function buildBodyGeometry(sp) {
     }
   }
   // facial hair: beard shells follow the jaw exactly (same centre, radii and jaw shaping as the head), so they cannot drift off the face
-  if (sp.beard || sp.goatee) {
+  if (!MH && (sp.beard || sp.goatee)) {
     const thick = sp.goatee ? 1.03 : sp.beardShort ? 1.016 : 1.03;
     const ssf = (a, b, v) => { const t = clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
     const beardSoft = (x, y, z) => { const hb = headBump(x, y, z); // hero: same beard regions as below, but blended with smooth masks so the beard edge follows a clean contour instead of the mesh grid
@@ -380,9 +385,9 @@ export function buildBodyGeometry(sp) {
       for (const sx of [-1, 1]) sb.ellipsoid([sx * 0.021, hc[1] - 0.045, hc[2] + hr[2] * 0.895], 0.0125, 0.0085, 0.0095, W1('head'), mc, { lat: 8, lon: 12, bumpFn: strands }); }
     else if (!sp.goatee) sb.ellipsoid([0, hc[1] - 0.04, hc[2] + hr[2] * 0.93], 0.032, 0.009, 0.012, W1('head'), hair, { lat: 4, lon: 8 });
   }
-  if (sp.moustache && HQ) { const mc = hair.map((v, i) => v * 0.9 + skin[i] * 0.1); const strands = (x, y, z) => 1 + 0.05 * Math.sin(x * 37) * (y < 0 ? 1 : 0.4); sb.ellipsoid([0, hc[1] - 0.041, hc[2] + hr[2] - 0.015], 0.024, 0.0072, 0.0105, W1('head'), mc, { lat: 8, lon: 16, bumpFn: strands }); for (const sx of [-1, 1]) sb.ellipsoid([sx * 0.021, hc[1] - 0.045, hc[2] + hr[2] - 0.02], 0.011, 0.0068, 0.009, W1('head'), mc, { lat: 8, lon: 12, bumpFn: strands }); }
-  else if (sp.moustache) sb.ellipsoid([0, hc[1] - 0.042, hc[2] + hr[2] - 0.016], 0.03, 0.008, 0.012, W1('head'), hair, { lat: 4, lon: 8 });
-  if (sp.glasses) { const gz = hc[2] + hr[2] - 0.006, gy = hc[1] + 0.006; for (const sx of [-1, 1]) { sb.boxPart([sx * 0.034, gy + 0.012, gz], 0.038, 0.004, 0.004, W1('head'), C('#1a1a1a')); sb.boxPart([sx * 0.034, gy - 0.01, gz - 0.001], 0.034, 0.003, 0.004, W1('head'), C('#1a1a1a')); sb.boxPart([sx * 0.053, gy + 0.001, gz - 0.002], 0.003, 0.022, 0.004, W1('head'), C('#1a1a1a')); } sb.boxPart([0, gy + 0.008, gz + 0.002], 0.016, 0.003, 0.004, W1('head'), C('#1a1a1a')); }
+  if (sp.moustache && HQ && !MH) { const mc = hair.map((v, i) => v * 0.9 + skin[i] * 0.1); const strands = (x, y, z) => 1 + 0.05 * Math.sin(x * 37) * (y < 0 ? 1 : 0.4); sb.ellipsoid([0, hc[1] - 0.041, hc[2] + hr[2] - 0.015], 0.024, 0.0072, 0.0105, W1('head'), mc, { lat: 8, lon: 16, bumpFn: strands }); for (const sx of [-1, 1]) sb.ellipsoid([sx * 0.021, hc[1] - 0.045, hc[2] + hr[2] - 0.02], 0.011, 0.0068, 0.009, W1('head'), mc, { lat: 8, lon: 12, bumpFn: strands }); }
+  else if (sp.moustache && !MH) sb.ellipsoid([0, hc[1] - 0.042, hc[2] + hr[2] - 0.016], 0.03, 0.008, 0.012, W1('head'), hair, { lat: 4, lon: 8 });
+  if (sp.glasses && !MH) { const gz = hc[2] + hr[2] - 0.006, gy = hc[1] + 0.006; for (const sx of [-1, 1]) { sb.boxPart([sx * 0.034, gy + 0.012, gz], 0.038, 0.004, 0.004, W1('head'), C('#1a1a1a')); sb.boxPart([sx * 0.034, gy - 0.01, gz - 0.001], 0.034, 0.003, 0.004, W1('head'), C('#1a1a1a')); sb.boxPart([sx * 0.053, gy + 0.001, gz - 0.002], 0.003, 0.022, 0.004, W1('head'), C('#1a1a1a')); } sb.boxPart([0, gy + 0.008, gz + 0.002], 0.016, 0.003, 0.004, W1('head'), C('#1a1a1a')); }
   // ---- garment construction (hero only): seams, tapes, pockets, belt — flat strips laid on the cloth surface, skinned like the torso
   if (HQ) {
     const tw = (y) => (y / s < 0.99 ? W1('hips') : y / s < 1.2 ? W2('spine', 'chest', 0.3) : W1('chest'));
@@ -397,13 +402,13 @@ export function buildBodyGeometry(sp) {
       for (const sx of [-1, 1]) { hstrip(1.315 * s, sx * 0.055 * w, sx * 0.125 * w, 0.02, dark(top, 0.78)); hstrip(1.1 * s, sx * 0.07 * w, sx * 0.135 * w, 0.009, dark(top, 0.55)); } // chest pocket flaps, hand-warmer welts
       hstrip(1.36 * s, -0.15 * w, 0.15 * w, 0.005, dark(top, 0.7), -1); // back yoke seam
       band(1.018 * s, 1.05 * s, 0.004, dark(top, 0.8), W1('hips'), (ri, a, r) => (Math.sin(a) > 0.93 ? C(sp.inner || '#6b6f72') : r.col)); // hem band (open at the front)
-      sb.loft([{ c: [0, 1.437 * s, -0.004], rx: 0.094 * w, rz: 0.082 * w, w: W1('chest'), col: dark(top, 0.88) }, { c: [0, 1.5 * s, -0.008], rx: 0.07, rz: 0.066, w: W2('chest', 'neck', 0.5), col: dark(top, 0.88) }], 32); // stand collar
+      sb.loft([{ c: [0, 1.437 * s, -0.004], rx: 0.094 * w, rz: 0.082 * w, w: W1('chest'), col: dark(top, 0.88) }, MH ? { ...neckRing(Math.max(NK.cutY + 0.045, 1.5 * s), 0.009), w: W2('chest', 'neck', 0.6), col: dark(top, 0.88) } : { c: [0, 1.5 * s, -0.008], rx: 0.07, rz: 0.066, w: W2('chest', 'neck', 0.5), col: dark(top, 0.88) }], 32); // stand collar
     }
     if (sp.kit === 'openShirt') { // Dineth: unbuttoned short-sleeve shirt over a tee — the loose front panels and back hem swing (flap / hem bones)
       const pl = top.map((v) => Math.min(1, v * 1.12)); for (const sx of [-1, 1]) vstrip(0, 1.05 * s, 1.425 * s, 0.014, pl, 1, (y) => sx * rxAt(y) * 0.39); // plackets
       for (let k = 0; k < 5; k++) { const y = (1.1 + k * 0.068) * s; const x = rxAt(y) * 0.39; sb.boxPart([x, y, surfZ(y, x, 1) + 0.004], 0.008, 0.008, 0.004, tw(y), C('#e6dfd0')); } // buttons
       hstrip(1.3 * s, 0.05 * w, 0.118 * w, 0.05, dark(top, 0.9)); // chest pocket
-      sb.loft([{ c: [0, 1.428 * s, -0.004], rx: 0.112 * w, rz: 0.094 * w, w: W1('chest'), col: dark(top, 0.92) }, { c: [0, 1.462 * s, -0.008], rx: 0.074, rz: 0.07, w: W2('chest', 'neck', 0.3), col: dark(top, 0.92) }], 32, { colFn: (ri, a, r) => (Math.sin(a) > 0.86 ? C(sp.inner || '#e8e4da') : r.col) }); // camp collar, open at the throat
+      sb.loft([{ c: [0, 1.428 * s, -0.004], rx: 0.112 * w, rz: 0.094 * w, w: W1('chest'), col: dark(top, 0.92) }, MH ? { ...neckRing(Math.max(NK.cutY + 0.032, 1.462 * s), 0.011), w: W2('chest', 'neck', 0.4), col: dark(top, 0.92) } : { c: [0, 1.462 * s, -0.008], rx: 0.074, rz: 0.07, w: W2('chest', 'neck', 0.3), col: dark(top, 0.92) }], 32, { colFn: (ri, a, r) => (Math.sin(a) > 0.86 ? C(sp.inner || '#e8e4da') : r.col) }); // camp collar, open at the throat
       // untucked shirt tail: one continuous double-sided tube wrapped round the sides and back (front left open between
       // the plackets), hugging the hips with a slight flare. Front edges ride the flap bones, the back the hem bone, the
       // sides stay on the hips, so it swings a little without ever leaving the body as a separate board.
@@ -572,9 +577,9 @@ const SAREE = ['#b0233a', '#e07b1a', '#1b6b6b', '#6a2a7a', '#c72f6c', '#2c4f9e',
 export function randomSpec(seed, opts = {}) { return makeAppearance(seed, opts); }
 export const HEROES = {
   // the three playable protagonists (high-detail build + 70-bone rig)
-  dineth: { seed: 11, hero: true, kit: 'openShirt', sex: 'm', age: 'adult', skin: '#8a5636', build: 0.98, height: 1.74, outfit: 'jacket', top: '#7b2d26', inner: '#ece7dc', bottom: '#28303d', shoes: '#e4e1da', sole: '#cfcac0', longSleeve: false, hair: 'quiff', hairColor: '#0f0b08', collar: true, sandals: false },
-  shashika: { seed: 12, hero: true, kit: 'tactical', sex: 'm', age: 'adult', skin: '#6b4228', build: 1.18, height: 1.8, outfit: 'shirt', top: '#4b5240', bottom: '#5b5745', shoes: '#1f1b17', boots: true, longSleeve: true, vest: '#2b2e27', strap: '#1b1c19', tacGloves: '#1c1c1a', hair: 'crew', hairColor: '#0c0a08', beard: true, beardShort: true, collar: true, sandals: false },
-  david: { seed: 13, hero: true, kit: 'waistcoat', sex: 'm', age: 'adult', skin: '#94613f', build: 0.95, height: 1.78, outfit: 'shirt', top: '#cfdae6', bottom: '#2d2f33', shoes: '#121212', longSleeve: true, waist: '#3a3d44', hair: 'sidepart', hairColor: '#120d0a', glasses: true, moustache: true, collar: true, sandals: false },
+  dineth: { seed: 11, hero: true, mh: 'dineth', kit: 'openShirt', sex: 'm', age: 'adult', skin: '#8a5636', build: 0.98, height: 1.74, outfit: 'jacket', top: '#7b2d26', inner: '#ece7dc', bottom: '#28303d', shoes: '#e4e1da', sole: '#cfcac0', longSleeve: false, hair: 'quiff', hairColor: '#0f0b08', collar: true, sandals: false },
+  shashika: { seed: 12, hero: true, mh: 'shashika', kit: 'tactical', sex: 'm', age: 'adult', skin: '#6b4228', build: 1.18, height: 1.8, outfit: 'shirt', top: '#4b5240', bottom: '#5b5745', shoes: '#1f1b17', boots: true, longSleeve: true, vest: '#2b2e27', strap: '#1b1c19', tacGloves: '#1c1c1a', hair: 'crew', hairColor: '#0c0a08', beard: true, beardShort: true, collar: true, sandals: false },
+  david: { seed: 13, hero: true, mh: 'david', kit: 'waistcoat', sex: 'm', age: 'adult', skin: '#94613f', build: 0.95, height: 1.78, outfit: 'shirt', top: '#cfdae6', bottom: '#2d2f33', shoes: '#121212', longSleeve: true, waist: '#3a3d44', hair: 'sidepart', hairColor: '#120d0a', glasses: true, moustache: true, collar: true, sandals: false },
   ruwan: { seed: 2, sex: 'm', age: 'adult', skin: '#7a4a2e', build: 1.1, height: 1.71, outfit: 'shirt', top: '#6d3b2c', bottom: '#3a3f4a', shoes: '#151515', hair: 'short', hairColor: '#0d0a08', moustache: true, collar: true, sandals: false },
   fathima: { seed: 3, sex: 'f', age: 'adult', skin: '#a8734f', build: 1.05, height: 1.58, outfit: 'salwar', top: '#1b6b6b', skirt: 'knee', skirtCol: '#1b6b6b', bottom: '#f2efe6', pattern: 2, hair: 'bun', hairColor: '#1c140e', longSleeve: true, sandals: true },
   selvaraj: { seed: 4, sex: 'm', age: 'elder', skin: '#5e3a24', build: 1.08, height: 1.68, outfit: 'shirt', top: '#f2f2ee', bottom: '#4a4036', hair: 'grey', hairColor: '#b8b6b0', moustache: true, glasses: true, collar: true, sandals: true },
@@ -585,7 +590,7 @@ export const HEROES = {
 };
 
 // ------------------------------------------------------------------ Character instance
-const geoCache = new Map();
+const geoCache = new Map(); const headCache = new Map();
 // 1 for skin vertices (exact skin colour, plus every head-group vertex), 0 for clothing — drives the subsurface / sweat terms
 function skinMask(geo, spec) {
   const col = geo.attributes.color, n = col.count, out = new Float32Array(n); const sk = C(spec.skin);
@@ -614,10 +619,24 @@ export class Character {
     this.mesh.add(bones[0]); this.mesh.bind(skeleton); this.mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.9, 0), 1.3); this.mesh.castShadow = true; this.mesh.receiveShadow = false; this.mesh.frustumCulled = true;
     this.root = new THREE.Group(); this.root.add(this.mesh);
     this.bones = Object.fromEntries(bones.map((b) => [b.name, b])); this.hipY = bones[0].position.y;
+    if (spec.hero && hasHeroHead(spec)) this.attachHeroHead(skeleton);
     this.anim = new Animator(this); if (spec.hero) this.rig = new HeroRig(this);
     LIVE.add(this);
   }
-  dispose() { LIVE.delete(this); this.mesh.skeleton.dispose(); this.face.dispose(); if (this.heroMats) for (const m of this.heroMats) m.dispose(); }
+  // protagonist head (HeroHead.js): a second SkinnedMesh on the same skeleton (child of the body mesh, so visibility,
+  // falls and the first-person head hide all apply), eyeballs + glasses as rigid children of the head bone
+  attachHeroHead(skeleton) {
+    const sp = this.spec; const key = [sp.mh, sp.height, sp.skin, sp.hair, sp.hairColor, !!sp.beard, !!sp.moustache, !!sp.glasses, sp.hairline || 0].join('|');
+    let H = headCache.get(key); if (!H) { H = buildHeroHead(sp, { head: B.head, neck: B.neck, chest: B.chest }); headCache.set(key, H); }
+    const mats = headMaterials(sp, H, this.heroU);
+    const m = new THREE.SkinnedMesh(H.geometry, mats); m.name = 'heroHead';
+    this.mesh.add(m); m.bind(skeleton, this.mesh.bindMatrix); m.castShadow = true; m.receiveShadow = false; m.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.9, 0), 1.3);
+    this.head = m; this.headMats = mats; const hb = this.bones.head; const jh = joints(sp).head;
+    this.eyes = H.eyes.map((e) => { const piv = new THREE.Object3D(); piv.position.set(e.pos[0] - jh[0], e.pos[1] - jh[1], e.pos[2] - jh[2]); piv.add(buildEyeball(e.r)); hb.add(piv); return piv; });
+    if (H.glasses) { const gl = H.glasses.clone(); gl.position.set(H.fit.o[0] - jh[0], H.fit.o[1] - jh[1], H.fit.o[2] - jh[2]); hb.add(gl); this.glasses = gl; }
+    this.face.attachMorphs(m, this.eyes);
+  }
+  dispose() { LIVE.delete(this); this.mesh.skeleton.dispose(); this.face.dispose(); if (this.heroMats) for (const m of this.heroMats) m.dispose(); if (this.headMats) for (const m of this.headMats) m.dispose(); }
   // convenience for gameplay code: expression for a while, or talking on/off
   express(name, dur = 2.5) { this.face.set(name, dur); }
 }
@@ -634,6 +653,20 @@ export class FaceRig {
     this.expr = 'neutral'; this.exprT = 0; this.mood = 'neutral'; this.blinkT = 0.5 + Math.random() * 4; this.blink = 0; this.talking = false; this.flapT = 0; this.flap = 0; this.glanceT = 2 + Math.random() * 5; this.glance = null;
     this.show(0);
   }
+  // protagonists: drive the head's expression morphs and eyeballs instead of atlas frames
+  attachMorphs(mesh, eyes) { this.morph = mesh; this.eyes = eyes; this.mw = new Float32Array(HEAD_MORPHS.length); this.mt = new Float32Array(HEAD_MORPHS.length); this.gaze = [0, 0]; this.sacc = [0, 0]; this.saccT = 0.5; this.flapAmp = 0.5; }
+  drive(dt, f) {
+    const t = this.mt; t.fill(0); const base = this.expr === 'talk' || this.expr === 'blink' || this.expr === 'lookL' || this.expr === 'lookR' ? 'neutral' : this.expr;
+    const ex = EXPR_MORPHS[base] || {}; for (const k in ex) t[morphIndex(k)] = ex[k];
+    const jaw = morphIndex('jaw'); if (this.talking) { t[jaw] = Math.max(t[jaw], this.flap ? 0.16 + 0.24 * this.flapAmp : 0.025); t[morphIndex('stretch')] += this.flap ? 0.08 * this.flapAmp : 0; t[morphIndex('pucker')] += this.flap ? 0 : 0.12 * this.flapAmp; }
+    let b = this.blink > 0 ? Math.sin(Math.PI * clamp(1 - this.blink / 0.13, 0, 1)) : 0; if (base === 'surprise') b = 0; if (this.expr === 'blink') b = 1;
+    const bl = morphIndex('blinkL'), br = morphIndex('blinkR'); t[bl] = Math.max(t[bl], b); t[br] = Math.max(t[br], b);
+    const W = this.mw, inf = this.morph.morphTargetInfluences; for (let i = 0; i < W.length; i++) { const rate = i === bl || i === br ? 70 : i === jaw ? 30 : 10; W[i] += (t[i] - W[i]) * (1 - Math.exp(-rate * dt)); inf[i] = W[i]; }
+    this.saccT -= dt; if (this.saccT < 0) { this.sacc = [(Math.random() - 0.5) * 0.09, (Math.random() - 0.5) * 0.05]; this.saccT = 0.35 + Math.random() * 1.8; } // micro-saccades
+    const gy = (f === 'lookL' ? 0.34 : f === 'lookR' ? -0.34 : 0) + this.sacc[0], gp = this.sacc[1] + b * 0.18 + (base === 'concern' || base === 'pain' ? 0.06 : 0);
+    const k = 1 - Math.exp(-28 * dt); this.gaze[0] += (gy - this.gaze[0]) * k; this.gaze[1] += (gp - this.gaze[1]) * k;
+    for (const e of this.eyes) e.rotation.set(this.gaze[1], this.gaze[0], 0);
+  }
   set(name, dur = 2.5) { if (!(name in FIDX)) return; this.expr = name; this.exprT = dur; if (name === 'surprise' || name === 'fear') this.blinkT = Math.max(this.blinkT, 1.2); }
   show(i) { if (i === this.frame) return; this.frame = i; this.mat.map.offset.y = 1 - (i + 1) / FACE_FRAMES.length; }
   update(dt) {
@@ -644,8 +677,9 @@ export class FaceRig {
     if (this.blink > 0) this.blink -= dt;
     this.glanceT -= dt; if (this.glanceT < 0) { this.glance = this.glance ? null : Math.random() < 0.5 ? 'lookL' : 'lookR'; this.glanceT = this.glance ? 0.5 + Math.random() * 1.2 : 2.5 + Math.random() * 6; }
     let f = this.expr;
-    if (this.talking) { this.flapT -= dt; if (this.flapT < 0) { this.flap = this.flap ? 0 : 1; this.flapT = (this.flap ? 0.08 : 0.06) + Math.random() * 0.12; } f = this.flap ? 'talk' : this.expr === 'talk' ? 'neutral' : this.expr; }
+    if (this.talking) { this.flapT -= dt; if (this.flapT < 0) { this.flap = this.flap ? 0 : 1; this.flapAmp = Math.random(); this.flapT = (this.flap ? 0.08 : 0.06) + Math.random() * 0.12; } f = this.flap ? 'talk' : this.expr === 'talk' ? 'neutral' : this.expr; }
     else if (f === 'neutral' && this.glance) f = this.glance;
+    if (this.morph) this.drive(dt, f);
     if (this.blink > 0 && f !== 'surprise') f = 'blink';
     this.show(FIDX[f] ?? 0);
   }
