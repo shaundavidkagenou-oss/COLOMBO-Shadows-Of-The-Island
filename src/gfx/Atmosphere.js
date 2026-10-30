@@ -58,7 +58,8 @@ export class Atmosphere {
     // orange by temperature, a faint Milky Way band, soft round point profiles, horizon extinction + city light pollution
     // (Colombo washes out the faint stars low in the sky), scintillation that is stronger near the horizon. The sphere turns
     // about the celestial pole (Colombo, 6.9° N: ~7° above the northern horizon, game north = −z) as the night goes on.
-    { const r = new RNG(5), N = 7000, P = new Float32Array(N * 3), Bf = new Float32Array(N), Cf = new Float32Array(N * 3), Sd = new Float32Array(N);
+    const r = new RNG(5); for (let i = 0; i < 5000; i++) r.next(); // the rain seeds below keep their original sequence (the old star loop drew 5000)
+    { const r = new RNG(1205), N = 7000, P = new Float32Array(N * 3), Bf = new Float32Array(N), Cf = new Float32Array(N * 3), Sd = new Float32Array(N);
       const gp = new THREE.Vector3(0.38, 0.62, -0.69).normalize(), ga = new THREE.Vector3().crossVectors(gp, new THREE.Vector3(1, 0, 0)).normalize(), gb = new THREE.Vector3().crossVectors(gp, ga); // galactic plane basis
       const v = new THREE.Vector3(), gauss = () => { let t = 0; for (let k = 0; k < 4; k++) t += r.next(); return (t - 2) / 0.577; };
       for (let i = 0; i < N; i++) {
