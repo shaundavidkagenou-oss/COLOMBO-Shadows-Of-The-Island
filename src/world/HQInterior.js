@@ -4,6 +4,7 @@
 // The room plan is INVENTED for the game (an artistic interpretation) — it is not the real building's layout.
 // Room interface (shared with Interiors.js): { id, D, g, bounds, obstacles, spawn, y, door } plus multi-floor hooks used by
 // Player.js: floorAt(x, z, y), obsFor(y), ceilAt(y), clampCam(from, to) and update(dt, player).
+import { routine } from '../actors/Routine.js';
 import * as THREE from 'three';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
@@ -228,6 +229,7 @@ export function buildHQInterior(game, door, place) {
         if (n.walk) { const w = n.walk; if (n.dir === undefined) n.dir = 1; const tgt = n.dir > 0 ? w.b : w.a; const cur = w.axis === 'u' ? n.u : n.v; const d = tgt - cur;
           if (Math.abs(d) < 0.1) { n.pause = (n.pause || 0) + dt; if (n.pause > 2.5) { n.pause = 0; n.dir *= -1; } } else { const st = Math.sign(d) * Math.min(Math.abs(d), w.sp * dt); if (w.axis === 'u') n.u += st; else n.v += st; speed = w.sp; n.ch.root.rotation.y = w.axis === 'u' ? (d > 0 ? Math.PI / 2 : -Math.PI / 2) : d > 0 ? Math.PI : 0; }
           n.ch.root.position.set(X(n.u), FY(n.f), Z(n.v)); }
+        else if (n.action === 'sit' || n.action === 'talk' || n.action === 'phone' || n.action === 'look') routine(n, n.ch, dt, n.action === 'sit' ? 'desk' : n.action === 'talk' ? 'chat' : n.action === 'phone' ? 'phone' : 'stand'); // keep their place, vary what they do
         else if (!n.action && p && Math.abs(p.y - WFY(n.f)) < 1.5 && Math.hypot(p.x - WX(n.u), p.z - WZ(n.v)) < 3.2) { const want = Math.atan2(p.x - WX(n.u), p.z - WZ(n.v)) - Math.PI; /* local yaw under the 180° turn */ let dd = want - n.ch.root.rotation.y; dd = Math.atan2(Math.sin(dd), Math.cos(dd)); n.ch.root.rotation.y += dd * Math.min(1, dt * 3); }
         n.ch.anim.update(dt, speed); }
     },

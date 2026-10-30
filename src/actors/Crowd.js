@@ -1,5 +1,6 @@
 // Pedestrian simulation: sidewalk graph navigation, signalised crossings, points of interest (shops, benches, bus stops,
 // vendors, chats), random idle animations, groups, rain behaviour, vehicle avoidance, and reactions to the player.
+import { routine } from './Routine.js';
 import * as THREE from 'three';
 import * as L from '../world/Layout.js';
 import { plan } from '../world/CityPlan.js';
@@ -218,6 +219,7 @@ export class Crowd {
             if (p.speaking && this.rng.chance(dt * 0.03) && dist < 25) this.speak(p, 'chat');
           }
           if (p.poi && p.poi.type === 'vendor' && this.rng.chance(dt * 0.03) && dist < 20) { this.speak(p, 'vendor'); p.ch.face.set('smile', 2); }
+          if (p.poi && p.poi.type === 'vendor' && p.poi.cart && lod < 3) routine(p, p.ch, dt, 'vendor', () => this.rng.next()); // a cart vendor serves, calls out, waits — not one frozen pose for two minutes
           if (p.timer <= 0) { if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; } p.lookAt = null; p.ch.anim.set(null); p.ch.face.talking = false; p.act = null; p.sit = false; p.slideTo = null; p.speaking = false; this.pickNext(p); }
           break;
         }

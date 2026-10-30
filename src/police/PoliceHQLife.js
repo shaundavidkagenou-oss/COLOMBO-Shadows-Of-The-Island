@@ -2,6 +2,7 @@
 // gate, the car park and the portico, and a periodic motorcycle departure — two officers walk out of the building, mount a
 // police motorcycle (rider + seated pillion), ride through the gate while the boom lifts and join Union Place traffic.
 // Everything is simulated in place (no teleporting vehicles onto the road). Spawned only while the player is nearby (LOD).
+import { routine } from '../actors/Routine.js';
 import * as THREE from 'three';
 import * as L from '../world/Layout.js';
 import { HQ } from '../world/PoliceHQ.js';
@@ -80,6 +81,7 @@ export class PoliceHQLife {
         else { const st = Math.min(dd, p.sp * dt); p.x += (dx / dd) * st; p.z += (dz / dd) * st; speed = p.sp; const want = Math.atan2(dx, dz); p.yaw += angDiff(want, p.yaw) * Math.min(1, dt * 6); } }
       p.ch.root.position.set(p.x, L.groundY(p.x, p.z), p.z); p.ch.root.rotation.y = p.yaw;
     } else if (p.guard) { const P = this.g.player; const dd = Math.hypot(P.x - p.x, P.z - p.z); if (dd < 6 && !P.vehicle) { const want = Math.atan2(P.x - p.x, P.z - p.z); p.ch.root.rotation.y += angDiff(want, p.ch.root.rotation.y) * Math.min(1, dt * 2.5); } else p.ch.root.rotation.y += angDiff(p.yaw, p.ch.root.rotation.y) * Math.min(1, dt * 1.5); }
+    if (!p.path && !p.walkTo && !p.mounted && !p.goesIn && (p.guard || p.idle)) routine(p, p.ch, dt, p.guard ? 'guard' : p.idle === 'talk' ? 'chat' : p.idle === 'phone' ? 'phone' : 'stand');
     if (p.walkTo) speed = this.stepWalker(p, dt);
     // animation LOD: every frame close by, 6 Hz further out
     const d = Math.hypot(f.x - p.x, f.z - p.z); p.acc += dt; const rate = d < 45 ? 0 : d < 120 ? 0.16 : 0.5; if (p.acc >= rate) { p.ch.anim.update(Math.min(p.acc, 0.25), speed); p.acc = 0; }
