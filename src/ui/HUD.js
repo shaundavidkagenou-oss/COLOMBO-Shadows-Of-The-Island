@@ -89,7 +89,7 @@ export class HUD {
     }
     for (const e of extras) { const [x, y] = toMini(e.x, e.z); if ((x - S / 2) ** 2 + (y - S / 2) ** 2 > (S / 2 - 8) ** 2) continue; g.fillStyle = e.color; g.beginPath(); g.arc(x, y, e.r || 2.5, 0, 7); g.fill(); }
     for (const b of this.blips) {
-      let [x, y] = toMini(b.x, b.z); const dx = x - S / 2, dy = y - S / 2, d = Math.hypot(dx, dy), R = S / 2 - 10; let edge = false; if (d > R) { x = S / 2 + dx / d * R; y = S / 2 + dy / d * R; edge = true; }
+      let [x, y] = toMini(b.x, b.z); const dx = x - S / 2, dy = y - S / 2, d = Math.hypot(dx, dy), R = S / 2 - 10; let edge = false; if (d > R && !(b.kind === 'objective' || b.kind === 'mission' || b.kind === 'waypoint' || b.kind === 'enemy')) continue; /* only story/route markers sit on the rim: collectibles, photo spots, shops show once in range (full map shows all) */ if (d > R) { x = S / 2 + dx / d * R; y = S / 2 + dy / d * R; edge = true; }
       if (b.kind === 'waypoint') { drawIcon(g, 'waypoint', x, y, edge ? 5 : 6.5); continue; }
       g.fillStyle = { objective: '#ffb020', mission: '#f4efe6', side: '#5ac8a8', stamp: '#d8a0ff', photo: '#7ab8ff', shop: '#9ad06a', enemy: '#ff4a3a' }[b.kind] || '#fff';
       g.strokeStyle = '#000'; g.lineWidth = 2; g.beginPath();
