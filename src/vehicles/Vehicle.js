@@ -34,7 +34,7 @@ export class HeadlightRig {
     this.spots = [];
     for (let i = 0; i < count; i++) {
       const s = new THREE.SpotLight(0xfff0d8, 0, 60, 0.5, 0.6, 1.5); s.name = 'headBeam' + i; s.castShadow = !!shadows; // every pooled beam is stopped by walls (no light through the school / compound walls)
-      if (s.castShadow) { const r = i === 0 ? shadowRes : Math.max(512, shadowRes / 2); s.shadow.mapSize.set(r, r); s.shadow.autoUpdate = false; s.shadow.camera.near = 0.3; s.shadow.camera.far = 60; s.shadow.bias = -0.0005; s.shadow.normalBias = 0.04; }
+      if (s.castShadow) { const r = i === 0 ? shadowRes : Math.max(512, shadowRes / 2); s.shadow.mapSize.set(r, r); s.shadow.autoUpdate = false; s.shadow.needsUpdate = true; /* one initial render allocates the depth map: a shadow-casting light whose map never existed leaves an unbound shadow sampler and every lit draw call is rejected */ s.shadow.camera.near = 0.3; s.shadow.camera.far = 60; s.shadow.bias = -0.0005; s.shadow.normalBias = 0.04; }
       s.position.set(0, -500, 0); s.target.position.set(0, -501, 0); scene.add(s); scene.add(s.target); this.spots.push(s);
     }
     this.assigned = []; this._p = new THREE.Vector3(); this._d = new THREE.Vector3();
