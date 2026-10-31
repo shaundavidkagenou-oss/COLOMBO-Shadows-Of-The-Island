@@ -1,6 +1,6 @@
 // Tropical trees: coconut palms, rain trees (mara), mango, jak, bo and frangipani (araliya).
 import * as THREE from 'three';
-import { MeshBuilder } from '../gfx/MeshBuilder.js';
+import { MeshBuilder, skipLampShadow } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
 import { LAND_Y } from './Layout.js';
 import { RNG } from '../core/rng.js';
@@ -99,7 +99,7 @@ export function buildTreesForChunk(chunk) {
     const def = TREES[type]; const rng = new RNG(list.length * 31 + type.length);
     const tm = new THREE.InstancedMesh(def.trunk, MAT.bark, list.length), cm = new THREE.InstancedMesh(def.crown, def.crownMat, list.length);
     list.forEach((t, i) => { _p.set(t.x, LAND_Y - 0.05, t.z); _q.setFromEuler(_e.set(0, rng.next() * Math.PI * 2, 0)); _s.set(t.s, t.s * rng.range(0.9, 1.1), t.s); _m.compose(_p, _q, _s); tm.setMatrixAt(i, _m); cm.setMatrixAt(i, _m); });
-    tm.castShadow = cm.castShadow = true; tm.receiveShadow = cm.receiveShadow = true; tm.computeBoundingSphere(); cm.computeBoundingSphere();
+    skipLampShadow(cm); tm.castShadow = cm.castShadow = true; tm.receiveShadow = cm.receiveShadow = true; tm.computeBoundingSphere(); cm.computeBoundingSphere();
     group.add(tm, cm);
   }
   return group;

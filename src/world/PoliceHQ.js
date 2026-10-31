@@ -97,7 +97,9 @@ export function buildPoliceHQ({ mb, box, coll, label, group, LAND_Y, SANS, SI, T
     fo.quad([bx1, yb, bz1], [bx1, yb, bz0], [bx1, top, bz0], [bx1, top, bz1], [0, 0, (bz1 - bz0) / S, (top - yb) / S], col);
     fo.quad([bx0, yb, bz0], [bx0, yb, bz1], [bx0, top, bz1], [bx0, top, bz0], [0, 0, (bz1 - bz0) / S, (top - yb) / S], col);
     // reveal of the opening (wall thickness) and a dark frame
-    box(paint, E.x0 - 0.06, yb + E.h / 2, bz0 + 0.16, 0.12, E.h, 0.32, '#2a2a2a'); box(paint, E.x1 + 0.06, yb + E.h / 2, bz0 + 0.16, 0.12, E.h, 0.32, '#2a2a2a'); box(paint, (E.x0 + E.x1) / 2, yd + 0.06, bz0 + 0.16, E.x1 - E.x0 + 0.24, 0.12, 0.32, '#2a2a2a');
+    // (front faces stand 2 cm proud of the facade: flush with it they overlapped the facade edge in the same plane and z-fought —
+    // the flickering, ragged door surround)
+    box(paint, E.x0 - 0.06, yb + E.h / 2, bz0 + 0.15, 0.12, E.h, 0.34, '#2a2a2a'); box(paint, E.x1 + 0.06, yb + E.h / 2, bz0 + 0.15, 0.12, E.h, 0.34, '#2a2a2a'); box(paint, (E.x0 + E.x1) / 2, yd + 0.06, bz0 + 0.15, E.x1 - E.x0 + 0.24, 0.12, 0.34, '#2a2a2a');
   }
   mb.get('roofFlat').hrect(bx0, bz0, bx1, bz1, top, 6, [0.75, 0.73, 0.7]);
   box(conc, (bx0 + bx1) / 2, top + 0.45, bz0 + 0.12, bx1 - bx0 + 0.3, 0.9, 0.24, '#e4ddcc'); box(conc, (bx0 + bx1) / 2, top + 0.45, bz1 - 0.12, bx1 - bx0 + 0.3, 0.9, 0.24, '#e4ddcc'); // parapet

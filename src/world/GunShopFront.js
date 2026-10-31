@@ -31,7 +31,8 @@ export function buildGunShopFront(shop, building) {
   paint.box(0, top - 0.02, 0.15, w, 0.03, 0.3, { col: trim }); // brass line under the box
   // door: steel frame, glass, push bar, threshold step
   for (const s of [-1, 1]) paint.box(s * (doorW / 2 + 0.04), top / 2, 0.06, 0.08, top, 0.12, { col: frame });
-  glass.box(0, top / 2 + 0.02, 0.02, doorW, top - 0.08, 0.03); metal.box(0, 1.05, 0.06, doorW * 0.7, 0.04, 0.05, { col: C('#c8c8c4') });
+  paint.box(0, top / 2, 0.006, doorW, top, 0.012, { col: C('#141516') }); // dark lobby behind the door glass (hides the generic shopfront texture of the facade)
+  glass.box(0, top / 2 + 0.02, 0.03, doorW, top - 0.08, 0.02); metal.box(0, 1.05, 0.06, doorW * 0.7, 0.04, 0.05, { col: C('#c8c8c4') });
   paint.box(0, 0.06, 0.25, doorW + 0.3, 0.12, 0.5, { col: C('#555652') });
   // display windows (one each side of the door) projecting `bay` from the wall
   const colliders = []; const models = [['carbine', 'bolt'], ['assault', 'semi']];
@@ -43,7 +44,7 @@ export function buildGunShopFront(shop, building) {
     for (const e of [a, b]) paint.box(s * e, (sill + top) / 2, bay / 2 + 0.02, 0.05, top - sill, bay, { col: frame });
     glass.box(cx, (sill + top) / 2, bay + 0.02, ww - 0.04, top - sill - 0.04, 0.02);
     emis.box(cx, top - 0.06, bay * 0.6, ww - 0.12, 0.015, 0.03, { col: [1.0, 0.92, 0.78] }); // display strip light
-    for (let x = cx - ww / 2 + 0.08; x < cx + ww / 2 - 0.04; x += 0.13) metal.box(x, (sill + top) / 2, bay + 0.09, 0.022, top - sill, 0.022, { col: C('#3c3f42') }); // grille
+    for (let x = cx - ww / 2 + 0.12; x < cx + ww / 2 - 0.06; x += 0.24) metal.box(x, (sill + top) / 2, bay + 0.09, 0.022, top - sill, 0.022, { col: C('#3c3f42') }); // grille
     for (const y of [sill + 0.05, top - 0.05, (sill + top) / 2]) metal.box(cx, y, bay + 0.09, ww, 0.03, 0.03, { col: C('#3c3f42') });
     models[s < 0 ? 0 : 1].forEach((id, k) => { const def = WEAPONS.find((q) => q.id === id); if (!def) return; const m = buildWeaponModel(def); m.rotation.set(0, -Math.PI / 2, 0); m.scale.setScalar(1.05); m.position.set(cx + 0.15, top - 0.5 - k * 0.72, 0.1); g.add(m);
       metal.box(cx - 0.25, top - 0.6 - k * 0.72, 0.05, 0.03, 0.08, 0.08, { col: C('#8a8d90') }); metal.box(cx + 0.45, top - 0.6 - k * 0.72, 0.05, 0.03, 0.08, 0.08, { col: C('#8a8d90') }); });

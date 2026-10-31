@@ -71,10 +71,10 @@ export function buildGunShopInterior(game, door) {
   // ---- shopkeeper's side: slat wall with long guns, pistol board, safe
   const slatZ = z0 + 0.06; paint.box(cx, Y + 1.75, slatZ, D.w - 0.6, 2.5, 0.06, { col: C('#262a2c') });
   for (let y = Y + 0.6; y < Y + 3.0; y += 0.15) metal.box(cx, y, slatZ + 0.04, D.w - 0.7, 0.02, 0.02, { col: C('#4a4f52') });
-  { const t = labelTex(1024, 128, (a, w, h) => { a.fillStyle = '#121212'; a.fillRect(0, 0, w, h); a.strokeStyle = '#c9a54e'; a.lineWidth = 4; a.strokeRect(8, 8, w - 16, h - 16);
-      a.fillStyle = '#e8c76a'; a.textAlign = 'center'; a.textBaseline = 'middle'; a.font = '700 70px "Barlow Condensed", sans-serif'; a.fillText('CEYLON ARMS CO.', w / 2 - 120, h / 2 + 3);
-      a.font = '600 30px "Manrope", sans-serif'; a.fillStyle = '#d8d2c2'; a.fillText('LICENSED FIREARMS DEALER', w / 2 + 300, h / 2 + 2); });
-    const m = plane(t, 4.2, 0.52, { emissive: 0.55 }); m.position.set(cx, Y + 3.08, slatZ + 0.06); g.add(m); }
+  { const t = labelTex(1024, 176, (a, w, h) => { a.fillStyle = '#121212'; a.fillRect(0, 0, w, h); a.strokeStyle = '#c9a54e'; a.lineWidth = 4; a.strokeRect(8, 8, w - 16, h - 16);
+      a.fillStyle = '#e8c76a'; a.textAlign = 'center'; a.textBaseline = 'middle'; a.font = '700 78px "Barlow Condensed", sans-serif'; a.fillText('CEYLON ARMS CO.', w / 2, 66); // name over the trade line (they ran into each other side by side)
+      a.fillStyle = '#c9a54e'; a.fillRect(w / 2 - 260, 108, 520, 2); a.font = '600 28px "Manrope", sans-serif'; a.fillStyle = '#d8d2c2'; a.fillText('LICENSED FIREARMS DEALER  ·  COLOMBO 10', w / 2, 138); });
+    const m = plane(t, 3.6, 0.62, { emissive: 0.55 }); m.position.set(cx, Y + 3.04, slatZ + 0.06); g.add(m); }
   // racked long guns: two rows of three, barrels pointing left, each with a price tag
   const longs = ['carbine', 'assault', 'battle', 'bolt', 'semi', 'precision'];
   longs.forEach((id, k) => {
@@ -99,7 +99,10 @@ export function buildGunShopInterior(game, door) {
 
   // ---- left wall: ammunition shelving (three bays) — boxes colour-coded by class, labelled per row
   const shX = x0 + 0.3, shZ0 = z0 + 4.6, shZ1 = z1 - 2.0, shL = shZ1 - shZ0, shC = (shZ0 + shZ1) / 2;
-  metal.box(shX, Y + 1.1, shC, 0.5, 2.2, shL, { col: C('#30353a') }); ob(shX, shC, 0.55, shL);
+  // open steel shelving: back panel, uprights between three bays, top — the boxes sit on the shelves in plain view
+  metal.box(shX - 0.23, Y + 1.1, shC, 0.04, 2.2, shL, { col: C('#30353a') }); metal.box(shX, Y + 2.19, shC, 0.5, 0.03, shL, { col: C('#3a3f44') });
+  for (let k = 0; k <= 3; k++) metal.box(shX, Y + 1.1, shZ0 + k * shL / 3, 0.5, 2.2, 0.04, { col: C('#2a2e32') });
+  ob(shX, shC, 0.55, shL);
   const rowCols = [['#b8892c', '#c9a040'], ['#6b7d3a', '#57693a'], ['#8a2a1e', '#a0402a'], ['#2d4f6b', '#3a6080']];
   for (let r = 0; r < 4; r++) { const y = Y + 0.3 + r * 0.5; metal.box(shX + 0.02, y - 0.02, shC, 0.5, 0.03, shL, { col: C('#5a5f64') });
     for (let z = shZ0 + 0.14; z < shZ1 - 0.1; z += 0.2) { const n = rng.int(1, 3); for (let s = 0; s < n; s++) paint.box(shX + 0.12 - s * 0.03, y + 0.06 + s * 0.12, z, 0.24, 0.11, 0.16, { col: C(rng.pick(rowCols[r])) }); } }
@@ -138,7 +141,7 @@ export function buildGunShopInterior(game, door) {
   for (let i = 0; i < 6; i++) { const x = x0 + 1.3 + i * (D.w - 2.6) / 5; metal.cylinder(x, Y + H - 0.28, z0 + 1.6, 0.05, 0.06, 0.24, 10, { col: C('#1a1a1a') }); emis.box(x, Y + H - 0.285, z0 + 1.55, 0.07, 0.01, 0.07, { col: [1.0, 0.92, 0.78] }); }
 
   for (const m of mb.toMeshes(MAT, { cast: false, receive: true })) g.add(m);
-  const main = new THREE.PointLight(0xfff3e2, 20, 16, 1.4); main.position.set(cx, Y + H - 0.5, cz - D.d / 2 + 1); g.add(main);
+  const main = new THREE.PointLight(0xfff3e2, 17, 16, 1.4); main.position.set(cx, Y + H - 0.95, cz - D.d / 2 + 1); /* lower and a touch softer: no blown-out hotspot on the ceiling */ g.add(main);
   const wallL = new THREE.PointLight(0xffe2b8, 9, 7, 1.6); wallL.position.set(cx, Y + 2.6, z0 + 1.5); g.add(wallL);
   const doorL = new THREE.PointLight(0xffe8cc, 6, 9, 1.5); doorL.position.set(cx, Y + 2.2, z1 - 1.6); g.add(doorL);
   g.visible = false; game.scene.add(g);

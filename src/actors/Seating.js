@@ -144,6 +144,18 @@ export function doorPath(seat, ex, k, hw) {
   return { x: lerp(lerp(seat.x, sill, a), ex[0], hb), y: lerp(seat.y, 0, st), z: lerp(seat.z, ex[1], hb), sitW: 1 - st, a, b };
 }
 
+// Getting into a seat through a side door / opening. u: 0 = standing at ex (outside the vehicle) → 1 = seated. A short step
+// toward the opening first, then the hips travel to the sill WHILE the body lowers (never seated in mid-air outside the
+// vehicle), ducking under the roof rail at the opening, then a slide across onto the cushion while turning to face forward.
+// Getting out plays it backwards (u = 1 → 0). turn: 0 = still facing the opening, 1 = facing forward. duck: 0..1 head dip.
+export function seatPath(seat, ex, u, hw) {
+  const sm = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+  if (seat.ride || seat.kind === 'ride') { const d = doorPath(seat, ex, 1 - u, hw); return { x: d.x, y: d.y, z: d.z, sitW: d.sitW, turn: sm(u), duck: 0 }; }
+  const side = Math.sign(ex[0] - seat.x) || 1; const sill = Math.abs(seat.x) < hw - 0.14 ? side * (hw - 0.14) : seat.x;
+  const a = sm(u / 0.55), b = sm((u - 0.5) / 0.5); const sitW = 0.8 * sm((u - 0.12) / 0.48) + 0.2 * b;
+  return { x: lerp(lerp(ex[0], sill, a), seat.x, b), y: seat.y * sitW, z: lerp(ex[1], seat.z, a), sitW, turn: b, duck: sm((u - 0.15) / 0.3) * (1 - b) };
+}
+
 // Put a character into a seat of a vehicle mesh (parented, so it follows the vehicle with no per-frame snapping).
 export function seatCharacter(ch, vehicle, seat, mode = null) {
   if (ch.root.parent !== vehicle.mesh) { ch.root.parent?.remove(ch.root); vehicle.mesh.add(ch.root); }

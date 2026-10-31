@@ -100,7 +100,20 @@ export class MultiBuilder {
     for (const [name, mb] of this.b) {
       const g = mb.build(); if (!g) continue; const mat = materials[name]; if (!mat) { console.warn('missing material', name); continue; }
       const m = new THREE.Mesh(g, mat); m.castShadow = opts.cast ?? true; m.receiveShadow = opts.receive ?? true; m.matrixAutoUpdate = false; m.updateMatrix(); m.name = name; out.push(m);
+      if (FOLIAGE.has(name)) skipLampShadow(m); // alpha-cut leaves: no coarse street-lamp shadows (see skipLampShadow)
     }
     return out;
   }
+}
+
+// Alpha-cut foliage (tree crowns, leaf cards) is left out of the street-lamp / headlight shadow maps (shadow cameras tagged
+// userData.noFoliage). Those maps are 512 px over a wide cone: leaf cut-outs became a coarse blocky maze that swam as the crowns
+// swayed — on shiny facade glass it read as flickering static. Trunks, people, vehicles and props still cast lamp shadows, and
+// the sun / moon shadow keeps the foliage. The object is skipped only inside those shadow passes (count / draw range 0, restored
+// straight after), so it renders normally everywhere else.
+export const FOLIAGE = new Set(['leaves', 'leavesBright', 'palm', 'foliage']);
+export function skipLampShadow(o) {
+  o.onBeforeShadow = (r, ob, cam, sc, geo) => { if (!sc.userData.noFoliage) return; if (ob.isInstancedMesh) { ob._skipN = ob.count; ob.count = 0; } else { ob._skipN = geo.drawRange.count; geo.drawRange.count = 0; } };
+  o.onAfterShadow = (r, ob, cam, sc, geo) => { if (ob._skipN === undefined) return; if (ob.isInstancedMesh) ob.count = ob._skipN; else geo.drawRange.count = ob._skipN; ob._skipN = undefined; };
+  return o;
 }
