@@ -26,7 +26,7 @@ export class Collision {
   }
   // Height of walkable ground at (x,z) for something whose feet are at y (decks above feet+step are ignored).
   groundAt(x, z, y = 0, step = 0.6) {
-    let g = L.groundY(x, z);
+    let g = L.surfaceY(x, z); // terrain or the paving laid on it
     for (const c of this.query(x, z, x, z)) {
       if (x < c.x0 || x > c.x1 || z < c.z0 || z > c.z1) continue;
       if (SURFACE.has(c.kind) || c.h <= step + 0.05) { const top = c.y0 !== undefined ? c.y0 + c.h : c.h; if (top <= y + step && top > g) g = top; }

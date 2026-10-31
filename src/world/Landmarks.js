@@ -7,6 +7,7 @@ import { LAND_Y, LAKE, STATIONS, roadAt } from './Layout.js';
 import { RNG } from '../core/rng.js';
 import { buildPoliceHQ } from './PoliceHQ.js';
 import { buildJohnsSchool } from './JohnsSchool.js';
+import { discColliders } from './Parks.js';
 
 const C = (hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; };
 const M4 = new THREE.Matrix4();
@@ -328,7 +329,7 @@ export function buildLandmarks() {
     lathe(conc, [[1.6, 0], [1.4, 2.5], [3.5, 2.8], [3.3, 3.1], [0.6, 3.1], [0.5, 4.5], [1.6, 4.7], [0.2, 5]], 16, cx, y0, cz, '#e6e2d8');
     const fw = new THREE.Mesh(new THREE.CircleGeometry(10.6, 40), new THREE.MeshStandardMaterial({ color: 0x3f6f7a, roughness: 0.05, metalness: 0.3 }));
     fw.rotation.x = -Math.PI / 2; fw.position.set(cx, y0 + 0.5, cz); group.add(fw);
-    coll(cx - 11, cx + 11, cz - 11, cz + 11, 0.8);
+    for (const c of discColliders(cx, cz, 11.25, 0.8, 'landmark')) colliders.push(c); // round basin: solid to its rim, no square corners sticking out onto the plaza
   }
 
   // ------------------------------------------------------------ GANGARAMAYA & SEEMA MALAKA

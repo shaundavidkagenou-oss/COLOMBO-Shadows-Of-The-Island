@@ -75,7 +75,7 @@ export class Birds {
     if (sp === 'parakeet') { const zn = L.zoneAt ? L.zoneAt(x, z) : null; return (zn && /park|garden|green/i.test(zn.kind || zn.type || zn.name || '')) || /cinnamon|havelock/.test(L.districtIdAt(x, z) || ''); }
     return true;
   }
-  groundSpot(x, z) { const C = this.g.collision; if (L.isWater(x, z) || L.roadAt(x, z) || C.blocked(x, z, 0.25)) return null; const gy = L.groundY(x, z), cy = C.groundAt ? C.groundAt(x, z, gy + 0.5) : gy; if (!(Math.abs(cy - gy) < 0.3)) return null; const y = Math.max(cy, gy); /* same surface the walking code uses */ return { x, y, z, kind: 'ground' }; }
+  groundSpot(x, z) { const C = this.g.collision; if (L.isWater(x, z) || L.roadAt(x, z) || C.blocked(x, z, 0.25)) return null; const gy = L.surfaceY(x, z), cy = C.groundAt ? C.groundAt(x, z, gy + 0.5) : gy; if (!(Math.abs(cy - gy) < 0.3)) return null; const y = Math.max(cy, gy); /* same surface the walking code uses */ return { x, y, z, kind: 'ground' }; }
   perchSpot(sp, cx, cz, R) {
     const opts = [];
     if (sp !== 'pigeon') for (const t of plan.trees) { if (Math.abs(t.x - cx) > R || Math.abs(t.z - cz) > R) continue; if (sp === 'parakeet' || Math.random() < 0.5) opts.push(() => { const top = this.treeTop[t.type] || 9; return { x: t.x + rnd(-0.6, 0.6), y: L.LAND_Y + top * t.s * (t.sy || 1) * 0.97, z: t.z + rnd(-0.6, 0.6), kind: 'tree' }; }); }
@@ -165,7 +165,7 @@ export class Birds {
         if (this.groundSpot(nx, nz) && (b.act !== 'hop' || Math.sin(b.t * 9) > 0)) { b.x = nx; b.z = nz; moving = sp; } else b.wyaw = b.yaw + Math.PI * rnd(0.6, 1.4);
       }
       b.walkPh += moving * dt * (b.sp === 'pigeon' ? 14 : 10);
-      const ground = b.state === 'perch' ? b.spot.y : L.groundY(b.x, b.z); const hop = b.act === 'hop' && moving ? Math.max(0, Math.sin(b.t * 9)) * 0.05 : 0;
+      const ground = b.state === 'perch' ? b.spot.y : L.surfaceY(b.x, b.z); /* on top of paving / kerbs, never sunk into them */ const hop = b.act === 'hop' && moving ? Math.max(0, Math.sin(b.t * 9)) * 0.05 : 0;
       b.y = ground + S.stand + hop - (b.act === 'peck' ? 0.006 : 0); b.pitch = S.pitch + (b.act === 'peck' ? 0.35 * Math.max(0, Math.sin(b.t * 5)) : 0);
       // head: pigeons bob (hold-thrust) while walking; pecking dips; looking turns
       const pk = b.act === 'peck' ? Math.max(0, Math.sin(b.t * 5)) : 0; const bob = S.bob && moving ? ((b.walkPh % 1) < 0.5 ? -0.012 : 0.014) : 0;
@@ -186,7 +186,7 @@ export class Birds {
       const final = dh < 14 && G.kind !== 'away'; const ty = final ? G.y + S.stand + dh * 0.32 : G.cruise; b.vy += ((ty - b.y) * 1.2 - b.vy) * Math.min(1, dt * 2.5);
       const tSp = final ? Math.max(2.2, dh * 0.75) : S.cruise; b.speed += (tSp - b.speed) * Math.min(1, dt * 1.5);
       b.x += Math.sin(b.yaw) * b.speed * dt; b.z += Math.cos(b.yaw) * b.speed * dt; b.y += b.vy * dt; b.pitch = -b.vy * 0.06;
-      { const gf = L.groundY(b.x, b.z) + S.stand + 0.25; if (b.y < gf) { b.y = gf; b.vy = Math.max(0, b.vy); } } /* never skim through raised ground (promenade, kerbs) */
+      { const gf = L.surfaceY(b.x, b.z) + S.stand + 0.25; if (b.y < gf) { b.y = gf; b.vy = Math.max(0, b.vy); } } /* never skim through raised ground (promenade, kerbs) */
       // flap / glide: crows alternate flap bouts with glides, parakeets flap almost constantly (with brief closed-wing bounds)
       const gl = S.glide; const cyc = (b.t * 0.35 + b.ph * 0.1) % 1; const gliding = !final && b.vy < 0.8 && cyc < gl; if (gliding) { b.flapPose = { flap: b.sp === 'crow' ? 0.12 : 0.05, flapOut: 0.05, sweep: 0.08, sweepOut: 0.12 }; b.spread = Math.min(1, b.spread + dt * 4); }
       else { b.ph = (b.ph + dt * S.flapHz * (final ? 1.25 : 1)) % 1; b.flapPose = flapPose(b.sp, b.ph, final ? 1.1 : 0.9); b.spread = 1; }

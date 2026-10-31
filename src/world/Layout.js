@@ -369,6 +369,10 @@ export function bridgeWalkAt(x, z) {
   }
   return false;
 }
+let surfHook = null; // Parks registers its raised paving (paths / ring / plaza / kerbs sit 2–8 cm above the lawn mesh)
+export function setSurfaceHook(fn) { surfHook = fn; }
+// top of whatever hard surface is underfoot: the terrain, or paving laid on it — what feet (people, birds) stand on
+export function surfaceY(x, z) { const g = groundY(x, z); if (!surfHook) return g; const s = surfHook(x, z); return s > g ? s : g; }
 let groundHook = null; // Railway registers the ballast bed / level-crossing humps here (avoids an import cycle)
 export function setGroundHook(fn) { groundHook = fn; }
 export function groundY(x, z) {

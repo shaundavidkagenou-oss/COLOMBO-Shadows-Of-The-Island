@@ -51,4 +51,16 @@ birds.scare(player.x, player.z, 50); for (let i = 0; i < 20; i++) birds.update(0
 // night: fewer, roosting
 g.atmos.night = 1; for (let i = 0; i < 20 * 30; i++) birds.update(0.05); ok(birds.birds.length <= n0, `fewer birds at night (${birds.birds.length} vs ${n0})`);
 g.indoor = true; birds.update(0.05); ok(!birds.root.visible, 'hidden indoors');
+// ---- Viharamahadevi Park: birds stand on the paving (plaza / ring / paths / kerbs sit above the lawn), never sunk into it,
+// never inside the fountain basin or a raised flower bed's concrete rim
+{ { const { MAT } = await import('../src/gfx/Materials.js'); for (const k of ['paint', 'metal', 'concrete', 'road', 'ballast']) MAT[k] ??= new THREE.MeshStandardMaterial({ vertexColors: true }); }
+  const { buildLandmarks } = await import('../src/world/Landmarks.js'); col.addAll(buildLandmarks().colliders); // what World adds: the fountain basin etc.
+  const P2 = { x: 90, z: -38, y: L.LAND_Y, speed: 0, vehicle: null }; const cam2 = new THREE.PerspectiveCamera(); cam2.position.set(90, 5, -30); cam2.lookAt(90, 0, -60);
+  const g2 = { scene: new THREE.Scene(), camera: cam2, collision: col, player: P2, atmos: { night: 0, w: { rain: 0 } }, traffic: { vehicles: [] }, indoor: false }; const B2 = new B.Birds(g2);
+  let sunk = 0, inSolid = 0, samples = 0, worst = 0; const { BEDS } = await import('../src/world/Parks.js');
+  for (let i = 0; i < 60 * 20; i++) { B2.update(0.05); if (i % 4) continue;
+    for (const b of B2.birds) { if (b.state !== 'ground') continue; if (Math.hypot(b.x - 90, b.z + 60) > 80) continue; samples++; const feet = b.y - b.S.stand; const sy = L.surfaceY(b.x, b.z); if (feet < sy - 0.012) { sunk++; worst = Math.max(worst, sy - feet); }
+      if (Math.hypot(b.x - 90, b.z + 60) < 11.3 || BEDS.some(([x, z, r]) => Math.hypot(b.x - x, b.z - z) < r + 0.15)) inSolid++; } }
+  ok(samples > 50, `birds on the ground in Viharamahadevi Park (${samples} samples)`); ok(sunk === 0, `park birds stand on the paving, not sunk into it (${sunk} sunk, worst ${(worst * 100).toFixed(1)} cm)`);
+  ok(inSolid === 0, `no bird inside the fountain basin or a flower-bed rim (${inSolid})`); }
 console.log(`birds: ${pass} passed, ${fail} failed · stats ${JSON.stringify(birds.stats)}`); process.exit(fail ? 1 : 0);

@@ -3,7 +3,7 @@
 // desire-line footpaths across Galle Face Green. The path/hedge description lives here so CityPlan (tree, bench, lamp and
 // collider placement), the grass blade field (no blades on paths or beds) and the renderer all agree.
 import * as THREE from 'three';
-import { LAND_Y, cellAt } from './Layout.js';
+import { LAND_Y, cellAt, setSurfaceHook } from './Layout.js';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { RNG } from '../core/rng.js';
 import { FlowerBeds } from './Flowers.js';
@@ -72,9 +72,27 @@ export function onParkFeature(x, z, m = 0) {
 export function parkColliders() {
   const out = [];
   for (const [ax, az, bx, bz] of HEDGES) out.push({ x0: Math.min(ax, bx) - 0.5, x1: Math.max(ax, bx) + 0.5, z0: Math.min(az, bz) - 0.5, z1: Math.max(az, bz) + 0.5, h: 1.05, kind: 'hedge' });
-  for (const [x, z, r] of BEDS) out.push({ x0: x - r * 0.8, x1: x + r * 0.8, z0: z - r * 0.8, z1: z + r * 0.8, h: 0.3, kind: 'bed' });
+  for (const [x, z, r] of BEDS) out.push(...discColliders(x, z, r + 0.15, 0.6, 'bed')); // the whole raised bed to its outer rim (nobody stands in the concrete or walks through the flowers)
   return out;
 }
+// a round solid as thin strips that never stick out past the circle (no invisible wall beyond a round rim), covering it fully
+export function discColliders(cx, cz, r, h, kind, dz = 0.4) { const out = []; const n = Math.ceil((2 * r) / dz);
+  for (let k = 0; k < n; k++) { const z0 = -r + k * (2 * r) / n, z1 = z0 + (2 * r) / n; const far = Math.max(Math.abs(z0), Math.abs(z1)); const hw = Math.sqrt(Math.max(0, r * r - far * far)); const near = Math.min(Math.abs(z0), Math.abs(z1)) * (z0 < 0 && z1 > 0 ? 0 : 1);
+    const w = Math.max(hw, Math.min(Math.sqrt(Math.max(0, r * r - near * near)), Math.sqrt(Math.max(0, (r + 0.05) ** 2 - far * far)))); /* as wide as the circle allows: corners ≤ 5 cm outside the rim */ if (w > 0.02) out.push({ x0: cx - w, x1: cx + w, z0: cz + z0, z1: cz + z1, h, kind }); }
+  return out; }
+// paving heights (match buildParks): perimeter walk / avenues / diagonals, promenade ring, fountain plaza, kerbs, worn laterite paths
+const PAVE_Y = LAND_Y + 0.03;
+export function parkSurfaceY(x, z) {
+  let best = -Infinity;
+  if (x > VM.x0 - 1 && x < VM.x1 + 1 && z > VM.z0 - 1 && z < VM.z1 + 1) {
+    for (const [cx, cz, r] of PLAZAS) if (Math.hypot(x - cx, z - cz) < r) best = Math.max(best, PAVE_Y + 0.03);
+    for (const [cx, cz, r, w] of PATH_RINGS) { const d = Math.abs(Math.hypot(x - cx, z - cz) - r); if (d < w / 2) best = Math.max(best, PAVE_Y + 0.02); else if (d < w / 2 + 0.12) best = Math.max(best, LAND_Y + 0.08); }
+    PATH_SEGS.forEach((sg, i) => { const d = segDist(x, z, sg[0], sg[1], sg[2], sg[3]); const ly = i < 8 ? PAVE_Y + 0.01 : i < 12 ? PAVE_Y - 0.01 : PAVE_Y; if (d < sg[4] / 2 + 0.01) best = Math.max(best, ly); else if (sg[4] >= 4 && d < sg[4] / 2 + 0.12) best = Math.max(best, LAND_Y + 0.08); });
+  }
+  for (const sg of WORN_SEGS) if (segDist(x, z, sg[0], sg[1], sg[2], sg[3]) < sg[4] / 2) best = Math.max(best, LAND_Y + 0.02);
+  return best;
+}
+setSurfaceHook(parkSurfaceY);
 export function parkLamps() {
   const out = [];
   for (let k = 0; k < 8; k++) { const a = (k + 0.5) / 8 * Math.PI * 2; out.push([VM.cx + Math.cos(a) * 22, VM.cz + Math.sin(a) * 22, -a]); }
