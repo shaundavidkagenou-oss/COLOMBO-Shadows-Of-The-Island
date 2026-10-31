@@ -8,7 +8,7 @@ const L = await import('../src/world/Layout.js');
 const R = await import('../src/world/Railway.js');
 const { Trains, TRAIN_LEN, CAR_LEN, CAR_GAP, speedLimitAt } = await import('../src/vehicles/Trains.js');
 
-let pass = 0, fail = 0; const ok = (c, msg) => { if (c) pass++; else { fail++; console.log('FAIL', msg); } };
+let pass = 0, fail = 0; const ok = (c, msg) => { if (c) { pass++; if (process.env.V) console.log('ok  ', msg); } else { fail++; console.log('FAIL', msg); } };
 
 // ---- path
 let minR = 1e9, dev = 0; const P = R.PATH;
@@ -80,6 +80,31 @@ fakeCar.z = c.z + 30; ok(T.stopDistance(fakeCar) === Infinity, 'AI past the cros
   const T3 = new Trains(new THREE.Scene(), { count: 2 }); let minSep = 1e9;
   for (let i = 0; i < 12000; i++) { T3.update(0.1, { vehicles: [] }); const [a, b] = T3.trains; const sep = a.sLow < b.sLow ? b.sLow - (a.sLow + TRAIN_LEN) : a.sLow - (b.sLow + TRAIN_LEN); minSep = Math.min(minSep, sep); }
   ok(minSep > 2, `two trains on the single line never collide (min separation ${minSep.toFixed(1)} m)`);
+}
+// level-crossing booms: a car crashing through a lowered boom swings it up smoothly (no snap), the arm never passes
+// through the car, it settles back down afterwards, and it rests steadily on a vehicle stopped under it
+{
+  const T4 = new Trains(new THREE.Scene(), { count: 1 }); let maxJump = 0, through = 0, settled = 0, restJit = 0, restAng = 0, raised = 0;
+  for (const c of T4.crossings) {
+    const sd = c.sides[0]; const UP = Math.PI / 2 * 0.95; for (let i = 0; i < 400; i++) T4.stepBoom(sd, 1, [], 1 / 60);
+    // car approaching along the road, aimed at the middle of the arm, at 10 m/s
+    const mx = sd.px + sd.bdx * sd.len * 0.5, mz = sd.pz + sd.bdz * sd.len * 0.5; const dx = sd.bdz, dz = -sd.bdx; // across the arm
+    const car = { x: mx - dx * 12, z: mz - dz * 12, y: 0.15, yaw: Math.atan2(dx, dz), speed: 10, T: { len: 4.2, wid: 1.75, hgt: 1.5 } };
+    let prev = sd.arm.rotation.z, top = 0;
+    for (let i = 0; i < 60 * 12; i++) { if (i < 60 * 2.4) { car.x += dx * 10 / 60; car.z += dz * 10 / 60; } else car.speed = 0; if (i === 60 * 2.4) { car.x += dx * 30; car.z += dz * 30; } // drives through, then away
+      T4.stepBoom(sd, 1, [car], 1 / 60); const a = sd.arm.rotation.z; maxJump = Math.max(maxJump, Math.abs(a - prev)); prev = a; top = Math.max(top, a);
+      if (a < T4.armClearance(sd, car) - 1e-6) through++; }
+    if (top > 0.4) raised++; if (sd.arm.rotation.z < 0.01) settled++;
+    // a car parked under the lowered arm: the arm lies on its roof, steady
+    const pk = { x: mx, z: mz, y: 0.15, yaw: Math.atan2(dx, dz), speed: 0, T: { len: 4.2, wid: 1.75, hgt: 1.5 } };
+    for (let i = 0; i < 600; i++) T4.stepBoom(sd, 1, [pk], 1 / 60); const a0 = sd.arm.rotation.z;
+    for (let i = 0; i < 60; i++) { T4.stepBoom(sd, 1, [pk], 1 / 60); restJit = Math.max(restJit, Math.abs(sd.arm.rotation.z - a0)); }
+    restAng = Math.max(restAng, Math.abs(a0 - T4.armClearance(sd, pk)));
+  }
+  const n = T4.crossings.length;
+  ok(raised === n, `a car crashing a lowered boom swings it up (${raised}/${n})`); ok(maxJump < 0.3, `boom arm never snaps (max step ${maxJump.toFixed(3)} rad/frame)`);
+  ok(through === 0, `boom arm never passes through the car (${through} frames)`); ok(settled === n, `boom settles back down after the car (${settled}/${n})`);
+  ok(restJit < 1e-4 && restAng < 1e-3, `boom rests steadily on a car parked under it (jitter ${restJit.toExponential(1)}, gap ${restAng.toExponential(1)})`);
 }
 console.log(`metrics: min radius ${minR.toFixed(1)} m, corridor deviation ${dev.toFixed(2)} m, crossings ${R.CROSSINGS.length}, top speed ${maxV.toFixed(1)} m/s, crossing passes ${passes}, min car-end gap ${minEnd.toFixed(2)} m`);
 console.log(`rail: ${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);
