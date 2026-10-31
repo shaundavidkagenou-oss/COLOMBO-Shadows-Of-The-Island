@@ -18,6 +18,17 @@ import { evalPiece, segNodes, otherEnd } from '../vehicles/Traffic.js';
 
 export const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
 export const CHASE_SPEED = [0, 0, 1.05, 1.1, 1.16, 1.22]; // × the suspect's speed headroom (police cars carry more power)
+// lane speed of a pursuing unit at 3★+: at the suspect it cruises at the level's base speed; the farther behind it is, the
+// more it exceeds the suspect's speed (up to 150 km/h) so a straight-line sprint never simply leaves the police behind
+export function catchUpSpeed(stars, suspectSpeed, dist, base) {
+  const gap = clamp((dist - 50) / 80, 0, 1), k = stars >= 5 ? 1.15 : stars >= 4 ? 1.1 : 1.04;
+  return Math.min(42, Math.max(base, lerp(base, suspectSpeed * k + 3, gap)));
+}
+// a unit hopelessly far behind (> 380 m away, > 200 m behind along the suspect's heading, out of view) is recycled
+export function straggler(v, tg, dist, inView) {
+  if (!tg.v || dist <= 380 || inView) return false; const fx = Math.sin(tg.v.yaw), fz = Math.cos(tg.v.yaw);
+  return (v.x - tg.x) * fx + (v.z - tg.z) * fz < -200;
+}
 
 // --------------------------------------------------------------- aim point for one unit (pure; tested)
 // P: suspect vehicle {x,z,yaw,speed,half,T:{wid}}, v: police vehicle; returns { x, z, speed, contact }

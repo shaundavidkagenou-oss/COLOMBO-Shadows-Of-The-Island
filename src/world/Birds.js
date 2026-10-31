@@ -75,7 +75,7 @@ export class Birds {
     if (sp === 'parakeet') { const zn = L.zoneAt ? L.zoneAt(x, z) : null; return (zn && /park|garden|green/i.test(zn.kind || zn.type || zn.name || '')) || /cinnamon|havelock/.test(L.districtIdAt(x, z) || ''); }
     return true;
   }
-  groundSpot(x, z) { const C = this.g.collision; if (L.isWater(x, z) || L.roadAt(x, z) || C.blocked(x, z, 0.25)) return null; const y = C.groundAt ? C.groundAt(x, z, L.LAND_Y + 0.5) : L.groundY(x, z); if (!(Math.abs(y - L.groundY(x, z)) < 0.6)) return null; return { x, y, z, kind: 'ground' }; }
+  groundSpot(x, z) { const C = this.g.collision; if (L.isWater(x, z) || L.roadAt(x, z) || C.blocked(x, z, 0.25)) return null; const gy = L.groundY(x, z), cy = C.groundAt ? C.groundAt(x, z, gy + 0.5) : gy; if (!(Math.abs(cy - gy) < 0.3)) return null; const y = Math.max(cy, gy); /* same surface the walking code uses */ return { x, y, z, kind: 'ground' }; }
   perchSpot(sp, cx, cz, R) {
     const opts = [];
     if (sp !== 'pigeon') for (const t of plan.trees) { if (Math.abs(t.x - cx) > R || Math.abs(t.z - cz) > R) continue; if (sp === 'parakeet' || Math.random() < 0.5) opts.push(() => { const top = this.treeTop[t.type] || 9; return { x: t.x + rnd(-0.6, 0.6), y: L.LAND_Y + top * t.s * (t.sy || 1) * 0.97, z: t.z + rnd(-0.6, 0.6), kind: 'tree' }; }); }
@@ -108,7 +108,17 @@ export class Birds {
     const S = SPECIES[sp]; const b = { sp, S, x: spot.x, z: spot.z, y: spot.y + S.stand, yaw: spot.yaw ?? Math.random() * Math.PI * 2, pitch: S.pitch, roll: 0, state: spot.kind === 'ground' ? 'ground' : 'perch', spot, t: rnd(0, 5), act: 'idle', actT: rnd(0.5, 3), ph: Math.random(), walkPh: 0, head: { yaw: 0, pitch: S.headPitch, fwd: 0 }, vx: 0, vy: 0, vz: 0, speed: 0, spread: 0, tuck: 0, leave: rnd(20, 70), goal: null, alarm: 0 };
     this.birds.push(b); this.stats.spawned++; return b;
   }
-  scare(x, z, r) { for (const b of this.birds) if (Math.hypot(b.x - x, b.z - z) < r && (b.state === 'ground' || b.state === 'perch')) { b.alarm = Math.max(b.alarm, 0.01 + Math.random() * 0.35); b.from = { x, z }; } }
+  scare(x, z, r) {
+    for (const b of this.birds) {
+      if (Math.hypot(b.x - x, b.z - z) < r && (b.state === 'ground' || b.state === 'perch')) { b.alarm = Math.max(b.alarm, 0.01 + Math.random() * 0.35); b.from = { x, z }; continue; }
+      const G = b.goal; if ((b.state === 'land' || b.state === 'fly') && G && G.kind !== 'away' && Math.hypot(G.x - x, G.z - z) < r) { // abort a landing near the shot
+        let ng = null; for (let k = 0; k < 4 && !ng; k++) { const c = this.pickGoal(b); if (c && Math.hypot(c.x - x, c.z - z) >= r) ng = c; }
+        const a = Math.atan2(b.x - x, b.z - z); b.goal = ng || { x: b.x + Math.sin(a) * 80, z: b.z + Math.cos(a) * 80, y: L.LAND_Y + 14, cruise: L.LAND_Y + 18, kind: 'away' };
+        if (b.state === 'land') { b.state = 'fly'; b.t = 0; b.vy = Math.max(b.vy || 0, 2); b.speed = Math.max(b.speed || 0, 3); }
+      }
+    }
+  }
+  seen(p) { const c = this.g.camera; if (!c || !c.getWorldDirection) return false; const d = c.getWorldDirection(this._v || (this._v = new THREE.Vector3())); const dx = p.x - c.position.x, dz = p.z - c.position.z, l = Math.hypot(dx, dz) || 1; return l < 220 && (dx * d.x + dz * d.z) / l > 0.3; }
   // ---------------------------------------------------------------- update
   update(dt) {
     const g = this.g; this.t += dt; const P = g.player; const indoor = !!g.indoor; this.root.visible = !indoor; if (indoor) return;
@@ -176,11 +186,12 @@ export class Birds {
       const final = dh < 14 && G.kind !== 'away'; const ty = final ? G.y + S.stand + dh * 0.32 : G.cruise; b.vy += ((ty - b.y) * 1.2 - b.vy) * Math.min(1, dt * 2.5);
       const tSp = final ? Math.max(2.2, dh * 0.75) : S.cruise; b.speed += (tSp - b.speed) * Math.min(1, dt * 1.5);
       b.x += Math.sin(b.yaw) * b.speed * dt; b.z += Math.cos(b.yaw) * b.speed * dt; b.y += b.vy * dt; b.pitch = -b.vy * 0.06;
+      { const gf = L.groundY(b.x, b.z) + S.stand + 0.25; if (b.y < gf) { b.y = gf; b.vy = Math.max(0, b.vy); } } /* never skim through raised ground (promenade, kerbs) */
       // flap / glide: crows alternate flap bouts with glides, parakeets flap almost constantly (with brief closed-wing bounds)
       const gl = S.glide; const cyc = (b.t * 0.35 + b.ph * 0.1) % 1; const gliding = !final && b.vy < 0.8 && cyc < gl; if (gliding) { b.flapPose = { flap: b.sp === 'crow' ? 0.12 : 0.05, flapOut: 0.05, sweep: 0.08, sweepOut: 0.12 }; b.spread = Math.min(1, b.spread + dt * 4); }
       else { b.ph = (b.ph + dt * S.flapHz * (final ? 1.25 : 1)) % 1; b.flapPose = flapPose(b.sp, b.ph, final ? 1.1 : 0.9); b.spread = 1; }
       b.tuck = final && dh < 5 ? Math.max(0, b.tuck - dt * 3) : 1; b.head.pitch += (0.05 - b.head.pitch) * Math.min(1, dt * 6); b.head.yaw = 0; b.head.fwd = 0;
-      if (G.kind === 'away' && dh < 8) { b.state = 'gone'; }
+      if (G.kind === 'away' && dh < 8) { if (this.seen(b)) { G.x += Math.sin(b.yaw) * 60; G.z += Math.cos(b.yaw) * 60; } else b.state = 'gone'; } /* never vanish on screen */
       if (final && dh < 0.6 && Math.abs(b.y - (G.y + S.stand)) < 0.5) { b.state = 'land'; b.t = 0; }
       if (b.t > 25) { b.goal = this.pickGoal(b) || b.goal; b.t = 0; }
       return;

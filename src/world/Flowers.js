@@ -5,7 +5,7 @@
 // bed crosses a distance band, and the plants sway on the same wind clock as the trees.
 import * as THREE from 'three';
 import { RNG } from '../core/rng.js';
-import { windUniform } from './Vegetation.js';
+import { windUniform } from './Wind.js';
 
 const lin = (hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; }; // sRGB hex → linear vertex colour
 const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];

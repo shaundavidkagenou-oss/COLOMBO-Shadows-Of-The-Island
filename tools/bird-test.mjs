@@ -36,7 +36,7 @@ const birds = new B.Birds(g);
 for (let i = 0; i < 20 * 30; i++) birds.update(0.05);
 const n0 = birds.birds.length; const bySp = (s) => birds.birds.filter((b) => b.sp === s).length;
 ok(bySp('pigeon') >= 12, `pigeons flock at Galle Face (${bySp('pigeon')})`); ok(bySp('crow') >= 8, `crows around (${bySp('crow')})`);
-let under = 0, inside = 0; const chk = () => { for (const b of birds.birds) { const gy = L.groundY(b.x, b.z); if (b.y < gy + 0.03) under++; if ((b.state === 'ground') && col.blocked(b.x, b.z, 0.05)) inside++; } };
+let under = 0, inside = 0; const chk = () => { for (const b of birds.birds) { const gy = L.groundY(b.x, b.z); if (b.y < gy + 0.03) { under++; if (process.env.DBG) console.log("under", b.sp, b.state, b.y.toFixed(3), gy.toFixed(3), b.x.toFixed(1), b.z.toFixed(1), (b.vy||0).toFixed(2)); } if ((b.state === 'ground') && col.blocked(b.x, b.z, 0.05)) inside++; } };
 chk();
 // walk the player through the flock: birds near the path take off, fly, and land again elsewhere
 const t0 = birds.stats.takeoffs; let flying = 0;

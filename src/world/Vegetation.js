@@ -7,7 +7,8 @@ import { RNG } from '../core/rng.js';
 import { treeShapes } from './TreeShapes.js';
 
 export const TREES = {}; // exported for the crown-clearance table check (tools/tree-test.mjs)
-export const windUniform = { value: 0 };
+import { windUniform } from './Wind.js';
+export { windUniform };
 function addWind(mat, amp) {
   mat.onBeforeCompile = (sh) => {
     sh.uniforms.uWind = windUniform;

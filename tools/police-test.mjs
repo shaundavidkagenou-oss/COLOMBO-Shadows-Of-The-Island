@@ -108,6 +108,11 @@ const PU = await import('../src/police/Pursuit.js');
   ok(sites > tries * 0.4, `roadblock site found ahead on most roads (${sites}/${tries})`); ok(badSite === 0, `every roadblock site is on the road ahead of the suspect (${badSite} bad)`);
   const st = { x: 10, z: 10, yaw: 0, len: 4, depth: 0.42 }; const car = mk(10, 10 + 1.6, 0, 10, false); ok(PU.overStrip(st, car), 'spike strip: front wheels on the strip → puncture'); car.z = 16; ok(!PU.overStrip(st, car), 'spike strip: clear 6 m away');
   const l1 = PU.radioLine('heading', { road: 'Galle Road', dir: PU.compass(Math.PI), vtype: 'tuktuk' }); ok(/three-wheeler heading north on Galle Road/.test(l1.en), `radio: "${l1.en}"`);
+  { const s5 = PU.catchUpSpeed(5, 33, 400, 28), s5n = PU.catchUpSpeed(5, 33, 30, 28), s3 = PU.catchUpSpeed(3, 20, 300, 23);
+    ok(s5 > 33 * 1.1 && s5 <= 42 && s5n === 28 && s3 > 20, `3★+ catch-up: 5★ unit 400 m behind a 33 m/s car drives ${s5.toFixed(1)} m/s; at the bumper ${s5n} m/s; 3★ ${s3.toFixed(1)} m/s`);
+    const tg = { x: 0, z: 0, v: { yaw: 0 } };
+    ok(PU.straggler({ x: 0, z: -500 }, tg, 500, false) && !PU.straggler({ x: 0, z: -500 }, tg, 500, true) && !PU.straggler({ x: 0, z: 500 }, tg, 500, false) && !PU.straggler({ x: 0, z: -300 }, tg, 300, false),
+      'stragglers recycled only when far behind and out of view (never units ahead or on screen)'); }
   { const lf = PU.radioLine('heading', { road: 'Galle Road', dir: 0, vtype: 'foot' }); ok(/suspect on foot, heading/.test(lf.en) && !/vehicle/.test(lf.en), `radio (on foot): "${lf.en}"`); }
   const l2 = PU.radioLine('heading', { road: 'Galle Road', dir: PU.compass(Math.PI / 2), alt: true }); ok(l2.si.includes('නැගෙනහිර') && /east/.test(l2.tr), 'radio: Sinhala line with translation');
 }
