@@ -805,7 +805,7 @@ export function gaitProfile(sp) {
 // ------------------------------------------------------------------ two-bone arm IK (used for weapons)
 // target: point in CHEST space; q: optional hand orientation in chest space; w: blend with the animated pose.
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _v4 = new THREE.Vector3(), _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _m1 = new THREE.Matrix4();
-export function solveArmIK(b, S, target, q, w = 1) {
+export function solveArmIK(b, S, target, q, w = 1, poleDir = null) { // poleDir: preferred elbow direction (parent space), default down and out
   const arm = b['arm' + S], fore = b['fore' + S], hand = b['hand' + S], chest = b.chest, par = arm.parent;
   chest.updateWorldMatrix(true, false); par.updateWorldMatrix(false, false);
   const tw = _v1.copy(target).applyMatrix4(chest.matrixWorld); const tp = par.worldToLocal(tw).sub(arm.position); // target relative to the shoulder, parent space
@@ -816,7 +816,7 @@ export function solveArmIK(b, S, target, q, w = 1) {
   const h = _v3.copy(u2).applyQuaternion(foreQ).add(u1); // hand in arm space at zero shoulder rotation
   const armQ = _q2.setFromUnitVectors(_v4.copy(h).normalize(), _v2.copy(tp).normalize());
   // swivel about the shoulder→hand axis so the elbow points down and out (natural), not up
-  const axis = _v2.copy(tp).normalize(); const e = _v4.copy(u1).applyQuaternion(armQ); const pole = _v3.set(S === 'R' ? -0.45 : 0.45, -1, -0.15);
+  const axis = _v2.copy(tp).normalize(); const e = _v4.copy(u1).applyQuaternion(armQ); const pole = poleDir ? _v3.copy(poleDir) : _v3.set(S === 'R' ? -0.45 : 0.45, -1, -0.15);
   e.addScaledVector(axis, -e.dot(axis)); pole.addScaledVector(axis, -pole.dot(axis));
   if (e.lengthSq() > 1e-8 && pole.lengthSq() > 1e-8) { e.normalize(); pole.normalize(); const ang = Math.atan2(_m1.identity() && new THREE.Vector3().crossVectors(e, pole).dot(axis), e.dot(pole)); armQ.premultiply(_q3.setFromAxisAngle(axis, ang)); }
   if (w >= 1) { arm.quaternion.copy(armQ); fore.quaternion.copy(foreQ); } else { arm.quaternion.slerp(armQ, w); fore.quaternion.slerp(foreQ, w); }
@@ -824,6 +824,10 @@ export function solveArmIK(b, S, target, q, w = 1) {
 }
 
 const _ikv = new THREE.Vector3();
+// chest-local wrist targets (×height/1.72) for the phone poses: [x,y,z] for a call; [rx,ry,rz, lx,ly,lz] for texting
+export const PHONE_T = [-0.12, 0.235, 0.085], TEXT_T = [-0.04, -0.1, 0.27, 0.03, -0.1, 0.27];
+export const PHONE_POLE = new THREE.Vector3(-0.3, -0.75, 0.6); // on a call the elbow hangs forward and down in front of the chest, not out like a wing
+export const HAND_TW = { phone: [0, 1.2, 0, 0, 0, 0], text: [-0.35, -1.5, 0, 0, 0, 0] }; // [R x,y,z, L x,y,z] added to the hand rotations
 export class Animator {
   constructor(ch) {
     this.ch = ch; this.g = gaitProfile(ch.spec); const s = ch.spec.height / 1.72; this.s = s;
@@ -937,7 +941,8 @@ export class Animator {
     // head: stabilised against the trunk, plus look/idle look
     const trunkYaw = pelvisYaw + spineYaw + chestYaw;
     R('neck', -g.stoop * 0.8 + g.headDown - run * 0.12 - crouch * 0.2, -trunkYaw * 0.5, hipRoll * 0.3);
-    R('head', -(this.hipYs - this.ch.hipY + gT * (this.ch.hipY - 0.45 - 0.12 * s)) * 0.6, this.look * 0.6 + this.idleLook * 0.5 - trunkYaw * 0.4, hipRoll * 0.3);
+    const onCall = this.action === 'phone' ? 1 - 0.85 * this.actionW : 1; /* phone at the ear: the head stays with the hand (no free look-around) */
+    R('head', -(this.hipYs - this.ch.hipY + gT * (this.ch.hipY - 0.45 - 0.12 * s)) * 0.6 * onCall, (this.look * 0.6 + this.idleLook * 0.5 - trunkYaw * 0.4) * onCall, hipRoll * 0.3 * onCall);
     // arms: pendulum swing opposite to the legs, slightly lagging, bigger forward than back
     const armAmp = (0.1 + 0.2 * clamp(sp / 1.6, 0, 1) + run * 0.6) * g.arm * w;
     const sw = (p) => { const v = Math.cos(2 * Math.PI * (p - g.lag)); return v > 0 ? v : v * 0.75; };
@@ -947,14 +952,14 @@ export class Animator {
     const t = this.t, at = this.actionT;
     const actIK = [];
     const applyAct = (act, aw, at) => {
-      const ikT = (S, x, y, z) => actIK.push([S, x * s, y * s, z * s, aw]);
+      const ikT = (S, x, y, z, pole) => actIK.push([S, x * s, y * s, z * s, aw, pole]);
       let tl = null, tr = null, tfl = null, tfr = null, head = null;
       switch (act) {
         case 'talk': tr = [-0.4 - Math.sin(t * 3.1) * 0.25, 0.2, -0.2 - Math.sin(t * 2.3) * 0.15]; tfr = [-1.1 - Math.sin(t * 4) * 0.3, 0, 0]; tl = [-0.15, 0, 0.12]; tfl = [-0.5 - Math.max(0, Math.sin(t * 1.7)) * 0.6, 0, 0]; head = Math.sin(t * 0.9) * 0.25; break;
         case 'listen': tl = [0.02, 0, 0.1]; tr = [0.02, 0, -0.1]; tfl = tfr = [-0.35, 0, 0]; head = Math.sin(t * 0.6) * 0.08; b.neck.rotation.x += Math.max(0, Math.sin(t * 2.2)) * 0.08 * aw; break;
         case 'argue': tr = [-0.9 - Math.sin(t * 6) * 0.35, 0, -0.3]; tfr = [-0.9, 0, 0]; tl = [-0.7 - Math.sin(t * 5 + 1) * 0.3, 0, 0.3]; tfl = [-1, 0, 0]; head = Math.sin(t * 3) * 0.15; break;
-        case 'phone': tr = [-0.35, 0, -0.55]; tfr = [-2.35, 0.4, 0]; tl = [0.05, 0, 0.1]; tfl = [-0.2, 0, 0]; head = 0.15; break;
-        case 'text': tr = [-0.45, 0, -0.15]; tfr = [-1.35, 0, 0]; tl = [-0.45, 0, 0.15]; tfl = [-1.35, 0, 0]; b.neck.rotation.x += 0.45 * aw; break;
+        case 'phone': { const P = this.phoneT || PHONE_T, j = this.phoneAdj; ikT('R', P[0] + (j ? j.x : 0), P[1] + (j ? j.y : 0), P[2] + (j ? j.z : 0), PHONE_POLE); tl = [0.05, 0, 0.1]; tfl = [-0.2, 0, 0]; head = 0.12; this._twA = 'phone'; this._twW = Math.max(this._twW || 0, aw); break; } // phone held against the right ear (IK: wrist under the jaw)
+        case 'text': { const P = this.textT || TEXT_T; ikT('R', P[0], P[1], P[2]); ikT('L', P[3], P[4], P[5]); b.neck.rotation.x += 0.5 * aw; b.spine.rotation.x += 0.05 * aw; this._twA = 'text'; this._twW = Math.max(this._twW || 0, aw); break; } // phone in front of the chest, the other hand cradling it, head bowed
         case 'type': tr = [-0.62, 0, -0.2]; tl = [-0.62, 0, 0.2]; tfr = [-0.95 + Math.sin(t * 13 + 1) * 0.05, 0, 0]; tfl = [-0.95 + Math.sin(t * 11) * 0.05, 0, 0]; b.neck.rotation.x += 0.28 * aw; break; // at a desk keyboard
         case 'wave': tr = [-2.6 + Math.sin(t * 8) * 0.08, 0, -0.35 - Math.sin(t * 8) * 0.25]; tfr = [-0.5, 0, 0]; break;
         // cricket: batting stance (both hands on the handle, bat down by the back foot) and a swing driven by this.swing
@@ -1025,7 +1030,12 @@ export class Animator {
           ikT('R', lerp(-0.2, mx, e), lerp(-0.29, my, e), lerp(0.1, mz, e)); if (this.smokeLight > 0) { const l = clamp(this.smokeLight, 0, 1); ikT('L', lerp(0.16, 0.02, l), lerp(-0.28, 0.17, l), lerp(0.08, 0.19, l)); }
           head = -0.1 * e; b.neck.rotation.x -= 0.04 * e * aw; break; }
         case 'paper': { // newspaper held open in both hands (prop on the chest bone); paperFlip 0..1 turns a page right → left
-          const f = clamp(this.paperFlip ?? 0, 0, 1), fl = Math.sin(f * Math.PI); ikT('L', 0.255, -0.075, 0.3); ikT('R', lerp(-0.255, 0.17, f), -0.075 + fl * 0.05, 0.3 + fl * 0.09);
+          // paperFlip 0..1: the right hand carries the page edge over (lets go at 62 % and the page falls on); 1..2: the hand comes back low
+          const u = clamp(this.paperFlip ?? 0, 0, 2), sm3 = (k) => k * k * (3 - 2 * k); let rx = -0.215, ry = -0.075, rz = 0.3;
+          const edge = (e) => { const bb = -0.22 + e * (Math.PI + 0.48); return [-0.273 * Math.cos(bb) * 0.79, 0.3 + (0.28 * Math.sin(bb) + 0.061) * 0.6]; };
+          if (u > 0 && u < 1) { const e = Math.min(sm3(u), 0.62); [rx, rz] = edge(e); ry = -0.075 + Math.sin(Math.min(1, e / 0.62) * Math.PI * 0.5) * 0.06; }
+          else if (u >= 1 && u < 2) { const k = sm3(u - 1); const [hx, hz] = edge(0.62); rx = lerp(hx, -0.215, k); rz = lerp(hz, 0.3, k); ry = lerp(-0.015, -0.075, k) - Math.sin(k * Math.PI) * 0.03; }
+          ikT('L', 0.215, -0.075, 0.3); ikT('R', rx, ry, rz);
           b.neck.rotation.x += 0.28 * aw; head = Math.sin(t * 0.35) * 0.08; break; }
         case 'cuffed': ikT('L', 0.07, -0.3, -0.12); ikT('R', -0.07, -0.3, -0.12); b.neck.rotation.x += 0.18 * aw; b.chest.rotation.x += 0.05 * aw; break; // hands behind the back
         case 'guard': { const sw = Math.sin(t * 2.3 + this.seed * 5) * 0.015; ikT('L', 0.1, 0.12 + sw, 0.27); ikT('R', -0.11, 0.09 - sw, 0.23); b.spine.rotation.x += 0.12 * aw; b.neck.rotation.x += 0.1 * aw; break; } // fists up
@@ -1040,6 +1050,7 @@ export class Animator {
     if (this.armOverride) { const o = this.armOverride; const k = o.w ?? 1; if (o.aL) aL = blend(aL, o.aL, k); if (o.aR) aR = blend(aR, o.aR, k); if (o.fL) fL = blend(fL, o.fL, k); if (o.fR) fR = blend(fR, o.fR, k); }
     R('armL', ...aL); R('armR', ...aR); R('foreL', ...fL); R('foreR', ...fR);
     R('handL', 0.12 + run * 0.1, 0, 0.05); R('handR', 0.12 + run * 0.1, 0, -0.05);
+    if (this._twW) { const T = HAND_TW[this._twA], k = this._twW; b.handR.rotation.x += T[0] * k; b.handR.rotation.y += T[1] * k; b.handR.rotation.z += T[2] * k; b.handL.rotation.x += T[3] * k; b.handL.rotation.y += T[4] * k; b.handL.rotation.z += T[5] * k; this._twW = 0; } /* phone poses: wrist bend / forearm twist so the screen faces the ear or the eyes */
     if (this.handOverride) { const o = this.handOverride; if (o.L) b.handL.rotation.set(...o.L); if (o.R) b.handR.rotation.set(...o.R); }
     if (this.aim) { // weapon stance: torso pitch follows the aim, chest bladed so the support shoulder leads; walk twist removed
       const m = this.aim; const k = m.w ?? 1; b.spine.rotation.y = lerp(b.spine.rotation.y, 0, k); b.spine.rotation.x = lerp(b.spine.rotation.x, -m.pitch * 0.45, k); b.spine.rotation.z = lerp(b.spine.rotation.z, 0, k);
@@ -1047,7 +1058,7 @@ export class Animator {
       b.neck.rotation.x = lerp(b.neck.rotation.x, m.pitch * 0.35, k); b.neck.rotation.y = lerp(b.neck.rotation.y, (m.twist || 0) * 0.6, k); b.head.rotation.y = lerp(b.head.rotation.y, (m.twist || 0) * 0.4, k); b.head.rotation.x = lerp(b.head.rotation.x, (m.headDown || 0), k);
     }
     const seated = this.seated && this.seatW > 0;
-    if (!seated && !this.ik) for (const [S, x, y, z, w] of actIK) solveArmIK(b, S, _ikv.set(x, y, z), null, w);
+    if (!seated && !this.ik) for (const [S, x, y, z, w, pole] of actIK) solveArmIK(b, S, _ikv.set(x, y, z), null, w, pole);
     if (this.ik && !seated) { if (this.ik.R) solveArmIK(b, 'R', this.ik.R, this.ik.qR, this.ik.wR ?? 1); if (this.ik.L) solveArmIK(b, 'L', this.ik.L, this.ik.qL, this.ik.wL ?? 1); }
     if (seated) applySeatPose(this, dt);
     if (this.nearLean && !seated) { const l = this.nearLean; b.spine.rotation.x += l.s || 0; b.chest.rotation.x += l.c || 0; b.neck.rotation.x += l.p || 0; b.head.rotation.z += l.r || 0; b.head.rotation.y += l.y || 0; } // StreetLife: leaning in for a hug / kiss

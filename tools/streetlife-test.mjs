@@ -17,7 +17,7 @@ const C = new Crowd(scene, col, { emit() {}, on() {} }); C.prepareSpecs(40); C.m
 const camDir = { x: 0, z: 1 };
 
 // ---------------------------------------------------------------- 1. ambient activities
-const life = C.life; const lip = [], kissD = [], chestD = []; let paperOk = 0, paperN = 0, phoneOk = 0, phoneN = 0, holdN = 0, smokeAtLips = 0;
+const life = C.life; const headD = []; const lip = [], kissD = [], chestD = []; const grip = [], callX = [], callFace = [], callUp = [], textFace = []; let paperOk = 0, paperN = 0, phoneOk = 0, phoneN = 0, holdN = 0, smokeAtLips = 0;
 const props = new Set();
 for (const S of [{ x: -128, z: -880 }, { x: -60, z: -80 }, { x: 150, z: -300 }]) {
   C.clear(); life.coupleCd = 5; life.fightCd = 1e9; const focus = { x: S.x, z: S.z };
@@ -29,8 +29,11 @@ for (const S of [{ x: -128, z: -880 }, { x: -60, z: -80 }, { x: 150, z: -300 }])
       if (p.cig && (A.smokeK || 0) > 0.97 && !(A.smokeLight > 0.02) && p.scene && p.scene.phase === 'drag') { smokeAtLips++; p.cig.updateWorldMatrix(true, false); const tip = p.cig.localToWorld(new THREE.Vector3(0.041, 0, 0)); lip.push(tip.distanceTo(life.mouthWorld(p, new THREE.Vector3()))); }
       if (p.paper && A.action === 'paper' && !(A.paperFlip > 0)) { paperN++; const hl = p.ch.bones.handL.getWorldPosition(new THREE.Vector3()), hr = p.ch.bones.handR.getWorldPosition(new THREE.Vector3()); const pp = p.paper.getWorldPosition(new THREE.Vector3());
         const w = hl.distanceTo(hr); if (w > 0.4 && w < 0.62 && hl.distanceTo(pp) < 0.42 && hr.distanceTo(pp) < 0.42) paperOk++; }
-      if (p.phone) { phoneN++; if (p.phone.parent === p.ch.bones.handR) phoneOk++; }
-      if (p.scene && p.scene.kind === 'couple' && p.scene.cp.a === p && p.scene.cp.phase === 'kiss' && p.scene.cp.t > 1.0 && p.scene.cp.t < 1.8) { const o = p.scene.cp.b; kissD.push(p.ch.bones.head.getWorldPosition(new THREE.Vector3()).distanceTo(o.ch.bones.head.getWorldPosition(new THREE.Vector3())));
+      if (p.phone) { phoneN++; if (p.phone.parent === p.ch.bones.handR || (p.phone.parent === p.ch.bones.head && p.ch.anim.action === 'phone')) phoneOk++; const A = p.ch.anim; p.ch.root.updateMatrixWorld(true);
+        const hd = p.ch.bones.head, c = p.phone.getWorldPosition(new THREE.Vector3()), nW = new THREE.Vector3(1, 0, 0).transformDirection(p.phone.matrixWorld);
+        if (A.action === 'phone' && A.actionW > 0.97 && A.phoneAdj) { const hl = hd.worldToLocal(c.clone()), hw = -life.phoneSpot(p, new THREE.Vector3()).x - 0.006; callX.push(-hl.x - hw); callFace.push(nW.dot(hd.getWorldPosition(new THREE.Vector3()).sub(c).normalize())); callUp.push(hl.y); { const gd = p.ch.bones.handR.localToWorld(new THREE.Vector3(0.024, -0.078, 0.008)).distanceTo(c); if ((A.actionT || 0) > 1) grip.push(gd); } }
+        if (A.action === 'text' && A.actionW > 0.97) { const eye = new THREE.Vector3(0, 0.07, 0.07).applyMatrix4(hd.matrixWorld); textFace.push(nW.dot(eye.sub(c).normalize())); } }
+      if (p.scene && p.scene.kind === 'couple' && p.scene.cp.a === p && p.scene.cp.phase === 'kiss' && p.scene.cp.t > 1.0 && p.scene.cp.t < 1.8) { const o = p.scene.cp.b; kissD.push(life.mouthWorld(p, new THREE.Vector3()).distanceTo(life.mouthWorld(o, new THREE.Vector3()))); headD.push(p.ch.bones.head.getWorldPosition(new THREE.Vector3()).distanceTo(o.ch.bones.head.getWorldPosition(new THREE.Vector3())));
         chestD.push(p.ch.bones.chest.getWorldPosition(new THREE.Vector3()).distanceTo(o.ch.bones.chest.getWorldPosition(new THREE.Vector3()))); }
     } }
 }
@@ -51,24 +54,30 @@ for (const S of [{ x: -128, z: -880 }, { x: -60, z: -80 }, { x: 150, z: -300 }])
       if (p.cig && (A.smokeK || 0) > 0.97 && !(A.smokeLight > 0.02) && p.scene && p.scene.phase === 'drag') { p.cig.updateWorldMatrix(true, false); const tip = p.cig.localToWorld(new THREE.Vector3(0.041, 0, 0)); lip.push(tip.distanceTo(life.mouthWorld(p, new THREE.Vector3()))); }
       if (p.paper && A.action === 'paper' && !(A.paperFlip > 0) && p.scene && p.scene.phase === 'read') { paperN++; const hl = p.ch.bones.handL.getWorldPosition(new THREE.Vector3()), hr = p.ch.bones.handR.getWorldPosition(new THREE.Vector3()); const pp = p.paper.getWorldPosition(new THREE.Vector3());
         const w = hl.distanceTo(hr); if (w > 0.4 && w < 0.62 && hl.distanceTo(pp) < 0.42 && hr.distanceTo(pp) < 0.42) paperOk++; else if (paperN - paperOk < 3) console.log('paper hands', w.toFixed(2), hl.distanceTo(pp).toFixed(2), hr.distanceTo(pp).toFixed(2)); }
-      if (p.phone) { phoneN++; if (p.phone.parent === p.ch.bones.handR) phoneOk++; }
+      if (p.phone) { phoneN++; if (p.phone.parent === p.ch.bones.handR || (p.phone.parent === p.ch.bones.head && p.ch.anim.action === 'phone')) phoneOk++; const A = p.ch.anim; p.ch.root.updateMatrixWorld(true);
+        const hd = p.ch.bones.head, c = p.phone.getWorldPosition(new THREE.Vector3()), nW = new THREE.Vector3(1, 0, 0).transformDirection(p.phone.matrixWorld);
+        if (A.action === 'phone' && A.actionW > 0.97 && A.phoneAdj) { const hl = hd.worldToLocal(c.clone()), hw = -life.phoneSpot(p, new THREE.Vector3()).x - 0.006; callX.push(-hl.x - hw); callFace.push(nW.dot(hd.getWorldPosition(new THREE.Vector3()).sub(c).normalize())); callUp.push(hl.y); { const gd = p.ch.bones.handR.localToWorld(new THREE.Vector3(0.024, -0.078, 0.008)).distanceTo(c); if ((A.actionT || 0) > 1) grip.push(gd); } }
+        if (A.action === 'text' && A.actionW > 0.97) { const eye = new THREE.Vector3(0, 0.07, 0.07).applyMatrix4(hd.matrixWorld); textFace.push(nW.dot(eye.sub(c).normalize())); } }
       if (p.holdFor) holdN++;
       if (process.env.DBG && p.scene && p.scene.kind === 'couple' && p.scene.cp.a === p && p.scene.cp.phase !== 'meet' && p.scene.cp.phase !== 'talk' && i % 5 === 0) { const o = p.scene.cp.b; console.log('K', p.scene.cp.phase, p.scene.cp.t.toFixed(2), JSON.stringify(p.ch.anim.nearLean), JSON.stringify(p.ch.anim.holdL), JSON.stringify(o.ch.anim.holdL), p.ch.bones.head.getWorldPosition(new THREE.Vector3()).toArray().map((x) => x.toFixed(2)).join(','), p.x.toFixed(2), o.x.toFixed(2), p.scene.cp.lean); }
-      if (p.scene && p.scene.kind === 'couple' && p.scene.cp.a === p && p.scene.cp.phase === 'kiss' && p.scene.cp.t > 1.0 && p.scene.cp.t < 1.8) { const o = p.scene.cp.b; kissD.push(p.ch.bones.head.getWorldPosition(new THREE.Vector3()).distanceTo(o.ch.bones.head.getWorldPosition(new THREE.Vector3())));
+      if (p.scene && p.scene.kind === 'couple' && p.scene.cp.a === p && p.scene.cp.phase === 'kiss' && p.scene.cp.t > 1.0 && p.scene.cp.t < 1.8) { const o = p.scene.cp.b; kissD.push(life.mouthWorld(p, new THREE.Vector3()).distanceTo(life.mouthWorld(o, new THREE.Vector3()))); headD.push(p.ch.bones.head.getWorldPosition(new THREE.Vector3()).distanceTo(o.ch.bones.head.getWorldPosition(new THREE.Vector3())));
         chestD.push(p.ch.bones.chest.getWorldPosition(new THREE.Vector3()).distanceTo(o.ch.bones.chest.getWorldPosition(new THREE.Vector3()))); }
     } }
   console.log('forced couple phases seen', life.stats.kiss, 'couple state', a.state, a.scene && a.scene.kind, b.scene && b.scene.kind);
 }
 const st = life.stats; const mean = (a) => a.reduce((s, x) => s + x, 0) / Math.max(1, a.length); const max = (a) => a.reduce((m, x) => Math.max(m, x), 0); const min = (a) => a.reduce((m, x) => Math.min(m, x), 9);
 console.log('activities', JSON.stringify(st));
-console.log(`lips: n ${lip.length} mean ${(mean(lip) * 100).toFixed(1)} cm max ${(max(lip) * 100).toFixed(1)} cm · paper ${paperOk}/${paperN} · phone ${phoneOk}/${phoneN} · hand-in-hand samples ${holdN} · kiss head dist ${kissD.length ? (min(kissD) * 100).toFixed(0) + '–' + (max(kissD) * 100).toFixed(0) + ' cm' : '-'} chest ${chestD.length ? (min(chestD) * 100).toFixed(0) + ' cm min' : '-'}`);
+console.log(`lips: n ${lip.length} mean ${(mean(lip) * 100).toFixed(1)} cm max ${(max(lip) * 100).toFixed(1)} cm · paper ${paperOk}/${paperN} · phone ${phoneOk}/${phoneN} · hand-in-hand samples ${holdN} · kiss mouth gap ${kissD.length ? (min(kissD) * 100).toFixed(0) + '–' + (max(kissD) * 100).toFixed(0) + ' cm' : '-'} chest ${chestD.length ? (min(chestD) * 100).toFixed(0) + ' cm min' : '-'}`);
 ok(st.smoke >= 3 && st.paper >= 3 && st.call >= 2, `people smoke (${st.smoke}), read the paper (${st.paper}), take calls (${st.call})`);
 ok(st.couple >= 2 && st.kiss >= 1 && holdN > 50, `couples walk hand in hand and kiss (${st.couple} couples, ${st.kiss} kisses, ${holdN} hand-in-hand samples)`);
 ok(props.has('cig') && props.has('paper') && props.has('phone'), `props appear (${[...props].join(', ')})`);
 ok(lip.length > 20 && mean(lip) < 0.02 && max(lip) < 0.04, `cigarette filter at the lips on a drag (mean ${(mean(lip) * 100).toFixed(1)} cm, max ${(max(lip) * 100).toFixed(1)} cm)`);
 ok(paperN > 50 && paperOk >= paperN * 0.97, `newspaper held open in both hands (${paperOk}/${paperN})`);
+console.log(`call: phone beside the head ${callX.length ? (min(callX) * 100).toFixed(1) + '…' + (max(callX) * 100).toFixed(1) : '-'} cm outside the skull, screen→head ${callFace.length ? min(callFace).toFixed(2) : '-'} min, height ${callUp.length ? (min(callUp) * 100).toFixed(0) + '…' + (max(callUp) * 100).toFixed(0) : '-'} cm; hand grip ${grip.length ? (mean(grip) * 100).toFixed(1) + ' mean / ' + (max(grip) * 100).toFixed(1) + ' max' : '-'} cm; texting screen→eyes ${textFace.length ? min(textFace).toFixed(2) : '-'} min (n ${textFace.length})`);
+ok(callX.length > 20 && min(callX) > 0.0 && max(callX) < 0.025 && min(callFace) > 0.6 && min(callUp) > -0.06 && max(callUp) < 0.04 && mean(grip) < 0.025 && max(grip) < 0.06, `on a call the phone is against the ear (outside the head, screen to the face, ear height) and in the hand`);
+ok(!textFace.length || min(textFace) > 0.7, `texting: the screen faces the eyes`);
 ok(phoneN > 50 && phoneOk === phoneN, `phone in the right hand on calls / texting (${phoneOk}/${phoneN})`);
-ok(kissD.length > 3 && min(kissD) > 0.15 && max(kissD) < 0.26, `kiss: heads meet without passing through (${(min(kissD) * 100).toFixed(0)}–${(max(kissD) * 100).toFixed(0)} cm head to head)`);
+ok(kissD.length > 3 && max(kissD) < 0.05 && min(headD) > 0.16, `kiss: the lips meet (mouth gap ≤ ${(max(kissD) * 100).toFixed(1)} cm) and the heads don't pass through each other (centres ≥ ${(min(headD) * 100).toFixed(0)} cm)`);
 ok(chestD.length > 3 && min(chestD) > 0.2, `kiss / hug: bodies close but not inside each other (chest to chest ≥ ${(min(chestD) * 100).toFixed(0)} cm)`);
 // no leftovers: props removed when people stop
 const stray = C.peds.filter((p) => (p.cig && !(p.scene && p.scene.kind === 'smoke')) || (p.paper && !(p.scene && p.scene.kind === 'paper') && !p.benchRead) || (p.phone && !['phone', 'text'].includes(p.ch.anim.action)));

@@ -10,6 +10,8 @@ import * as L from '../world/Layout.js';
 import { clamp, lerp, dampAngle, wrapAngle } from '../core/math.js';
 
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _q = new THREE.Quaternion();
+const _v4 = new THREE.Vector3(), _q2 = new THREE.Quaternion(), _s = new THREE.Vector3(), _s2 = new THREE.Vector3(), _m = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _ax = new THREE.Vector3(1, 0, 0);
+const PHONE_IN_HAND = new THREE.Vector3(0.024, -0.078, 0.008), PHONE_EAR_ROT = Math.atan2(0.6, -0.8); // in the palm; at the ear: screen to the cheek, bottom towards the mouth
 const sm = (k) => { k = clamp(k, 0, 1); return k * k * (3 - 2 * k); };
 const PAGE_W = 0.28, PAGE_H = 0.4, PAGE_V = 0.22; // newspaper leaf size (m) and the V the two leaves make toward the reader
 
@@ -25,12 +27,13 @@ function pageTex(kind) {
     const ink = '#232323', rule = (x, y, ww) => { g.fillStyle = 'rgba(40,40,40,0.55)'; g.fillRect(x, y, ww, 2); };
     const cols = (x0, y0, x1, y1, n) => { const cw = (x1 - x0 - (n - 1) * 8) / n; for (let c = 0; c < n; c++) for (let y = y0; y < y1; y += 6) rule(x0 + c * (cw + 8), y, cw * (y % 42 === 0 ? 0.7 : 1)); };
     g.fillStyle = ink; g.textAlign = 'center';
+    const fit = (txt, px, y, max = w - 22) => { let f = px; do { g.font = `bold ${f}px Georgia, serif`; f--; } while (g.measureText(txt).width > max && f > 8); g.fillText(txt, w / 2, y); };
     if (kind === 'front') {
-      g.font = 'bold 27px Georgia, serif'; g.fillText('THE CEYLON LANTERN', w / 2, 36); g.fillRect(12, 46, w - 24, 2); g.font = '10px Georgia, serif'; g.fillText('COLOMBO  ·  DAILY  ·  Rs. 70', w / 2, 60); g.fillRect(12, 66, w - 24, 1);
-      g.font = 'bold 21px Georgia, serif'; g.fillText('MONSOON RAINS RETURN', w / 2, 94); g.fillText('TO THE WEST COAST', w / 2, 118);
+      fit('THE CEYLON LANTERN', 27, 36); g.fillRect(12, 46, w - 24, 2); g.font = '10px Georgia, serif'; g.fillText('COLOMBO  ·  DAILY  ·  Rs. 70', w / 2, 60); g.fillRect(12, 66, w - 24, 1);
+      fit('MONSOON RAINS RETURN', 21, 94); fit('TO THE WEST COAST', 21, 118);
       g.fillStyle = '#7d7a72'; g.fillRect(14, 130, 130, 92); g.fillStyle = '#9b978d'; g.fillRect(20, 136, 118, 54); cols(152, 132, w - 14, 222, 1); cols(14, 232, w - 14, h - 14, 3);
     } else {
-      g.font = 'bold 18px Georgia, serif'; g.fillText(kind === 'sport' ? 'LIONS CLINCH THE SERIES' : 'PORT CITY WORKS', w / 2, 30); g.fillText(kind === 'sport' ? 'IN A THRILLING FINISH' : 'MOVE TO NEXT PHASE', w / 2, 52);
+      fit(kind === 'sport' ? 'LIONS CLINCH THE SERIES' : 'PORT CITY WORKS', 18, 30); fit(kind === 'sport' ? 'IN A THRILLING FINISH' : 'MOVE TO NEXT PHASE', 18, 52);
       g.fillStyle = '#88857c'; g.fillRect(w - 128, 66, 114, 80); cols(14, 68, w - 140, 146, 2); cols(14, 158, w - 14, h - 60, 3); g.fillStyle = '#8f8b81'; g.fillRect(14, h - 52, w - 28, 38);
     }
   });
@@ -58,10 +61,10 @@ function cigarette() {
   const R = res(); const g = new THREE.Group(); g.add(new THREE.Mesh(R.cigPaper, R.white), new THREE.Mesh(R.cigFilter, R.filter));
   const emb = new THREE.MeshBasicMaterial({ color: 0x2a2a2a }); const tip = new THREE.Mesh(R.cigTip, emb); g.add(tip); g.userData.ember = emb;
   const fl = new THREE.Mesh(R.flameGeo, R.flame); fl.position.set(-0.05, 0.0, 0); fl.visible = false; g.add(fl); g.userData.flame = fl;
-  g.position.set(0.0, -0.088, 0.012); // between the index and middle fingers (hand space: −y along the fingers, +x palm side)
+  g.position.set(0.018, -0.112, 0.01); // between the index and middle fingers (hand space: −y along the fingers, +x palm side)
   return g;
 }
-function phoneProp() { const R = res(); const g = new THREE.Group(); g.add(new THREE.Mesh(R.phoneBody, R.phoneMat), new THREE.Mesh(R.phoneScreen, R.screenMat)); g.position.set(0.024, -0.078, 0.008); return g; }
+function phoneProp() { const R = res(); const g = new THREE.Group(); g.add(new THREE.Mesh(R.phoneBody, R.phoneMat), new THREE.Mesh(R.phoneScreen, R.screenMat)); g.position.copy(PHONE_IN_HAND); return g; }
 function newspaper() {
   const R = res(); const g = new THREE.Group(); g.position.set(0, -0.035, 0.335); // chest space, in front of the reader
   const leaf = (sideX, inner, outer) => { const h = new THREE.Group(); const a = new THREE.Mesh(R.leafGeo, inner), b = new THREE.Mesh(R.leafGeo, outer);
@@ -160,9 +163,23 @@ export class StreetLife {
       const err = m.distanceTo(tip); this.stats.lipErr = err; chestTarget(p.ch, m, m); chestTarget(p.ch, tip, tip); const a = A.smokeAdj || (A.smokeAdj = new THREE.Vector3());
       a.addScaledVector(m.sub(tip), 0.6); a.clampScalar(-0.14, 0.14);
     }
+    if (p.phone && A.action === 'phone') this.postPhone(p); else if (p.phone && p.phone.parent !== p.ch.bones.handR) this.backToHand(p);
     if (S && S.kind === 'couple') this.postCouple(p);
     if (p.holdFor) this.postHold(p);
   }
+  // on a call the phone lies against the ear: closed loop on the phone centre → beside the head (half width + 6 mm), a bit forward
+  phoneSpot(p, out) { const sp = p.ch.spec, hw = (sp.sex === 'f' ? 0.083 : 0.088) * ((sp.head && sp.head.w) ?? 1); return out.set(-(hw + 0.006), 0.03, 0.025); } /* centre between the ear (top end) and the corner of the mouth (bottom end) */
+  postPhone(p) { // the phone rests against the ear (head space) and the hand's IK chases its grip point; during the blend-in it glides hand → ear
+    const A = p.ch.anim, h = p.ch.bones.head, hand = p.ch.bones.handR, ph = p.phone; h.updateWorldMatrix(true, false); hand.updateWorldMatrix(true, false);
+    _m.compose(_v3.copy(PHONE_IN_HAND), _q.identity(), _s.set(1, 1, 1)).premultiply(hand.matrixWorld).decompose(_v, _q, _s); // where the phone would be in the hand
+    _m2.compose(this.phoneSpot(p, _v2), _q2.setFromAxisAngle(_ax, PHONE_EAR_ROT), _s2.set(1, 1, 1)).premultiply(h.matrixWorld).decompose(_v2, _q2, _s2); // at the ear
+    this.stats.phoneErr = _v.distanceTo(_v2); const w = sm((A.actionW - 0.5) / 0.4);
+    const a = A.phoneAdj || (A.phoneAdj = new THREE.Vector3()); { const g = _v3.copy(_v2), c = _v4.copy(_v); chestTarget(p.ch, g, g); chestTarget(p.ch, c, c); a.addScaledVector(g.sub(c), 0.7); a.clampScalar(-0.2, 0.2); }
+    if (ph.parent !== h) h.add(ph);
+    _v.lerp(_v2, w); _q.slerp(_q2, w); _m.compose(_v, _q, _s); _m.premultiply(_m2.copy(h.matrixWorld).invert()); _m.decompose(ph.position, ph.quaternion, ph.scale);
+  }
+  backToHand(p) { const ph = p.phone; p.ch.bones.handR.add(ph); ph.position.copy(PHONE_IN_HAND); ph.quaternion.identity(); ph.scale.set(1, 1, 1); }
+
   // newspaper: unfold, read (head scanning down the columns), turn a page every so often, fold it and move on
   stepPaper(p, S, dt) {
     const A = p.ch.anim; if (S.phase === 'begin') { if (S.pt > 0.3 && !p.paper) { p.paper = newspaper(); p.paper.scale.set(0.4, 1, 1); p.ch.bones.chest.add(p.paper); A.set('paper'); } if (p.paper) p.paper.scale.x = lerp(0.4, 1, sm((S.pt - 0.3) / 0.6)); if (S.pt > 0.9) { S.phase = 'read'; S.pt = 0; S.next = 7 + this.rng.next() * 8; } return; }
@@ -190,7 +207,7 @@ export class StreetLife {
   }
   // ---------------------------------------------------------------- couples
   spawnCouple(ctx) {
-    const C = this.C, r = this.rng, f = C.focus; if (!f) return false; const specs = C.specs.filter((s) => s.age !== 'elder'); const m = specs.filter((s) => s.sex === 'm'), w = specs.filter((s) => s.sex === 'f'); if (!m.length || !w.length) return false;
+    const C = this.C, r = this.rng, f = C.focus; if (!f) return false; const specs = C.specs.filter((s) => s.age !== 'elder' && !s.cap); /* a cap brim would hit the partner's face in a kiss */ const m = specs.filter((s) => s.sex === 'm'), w = specs.filter((s) => s.sex === 'f'); if (!m.length || !w.length) return false;
     const cand = C.nodesNear(f.x, f.z, 120).filter((n) => { const d = Math.hypot(n.x - f.x, n.z - f.z); return d > 45 && d < 110 && !C.visible({ x: n.x, z: n.z }); }); if (!cand.length) return false;
     const n = r.pick(cand); // a place to go together: a lawn or a bench, reachable on foot
     const spots = C.nearPOIs(n.x, n.z, 160).filter((q) => (q.type === 'lawn' || q.type === 'bench') && C.poiNode(q) !== null && C.comp[C.poiNode(q)] === C.mainComp); if (!spots.length) return false;
@@ -234,7 +251,7 @@ export class StreetLife {
     p.faceYaw = d < 0.6 || cp.phase !== 'meet' ? Math.atan2(other.x - p.x, other.z - p.z) : undefined;
     const A = p.ch.anim; if (cp.phase === 'talk') { if (!['talk', 'listen'].includes(A.action)) A.set(p === cp.a ? 'talk' : 'listen'); p.chatT = (p.chatT ?? 2) - dt; if (p.chatT <= 0) { p.chatT = 2 + this.rng.next() * 3; A.set(A.action === 'talk' ? 'listen' : 'talk'); p.ch.face.talking = A.action === 'talk'; if (A.action === 'listen' && this.rng.chance(0.5)) p.ch.face.set('smile', 2); } }
     else if (cp.phase !== 'meet') { if (A.action !== 'hold') A.set('hold'); p.ch.face.set('smile', 0.5); }
-    return { desired: d > 0.04 ? Math.min(0.9, d * 2.5) : 0, tx, tz, avoid: false, accel: 3 };
+    return { desired: d > (cp.phase === 'meet' ? 0.04 : 0.015) ? Math.min(0.9, d * 2.5) : 0, tx, tz, avoid: false, accel: 3 }; /* close in to the embrace spacing (a 4 cm stop each left kisses 7 cm apart) */
   }
   postCouple(p) { // embrace: arms around the partner; kiss: heads lean in until the faces meet (tilted to opposite sides)
     const S = p.scene, cp = S.cp, A = p.ch.anim; const other = cp.a === p ? cp.b : cp.a; const ph = cp.phase;
@@ -244,11 +261,13 @@ export class StreetLife {
     A.holdL = chestTarget(p.ch, ob.chest.localToWorld(_v.set(-w, hi * s - 0.05 * s, back)), A.holdL || new THREE.Vector3());
     A.holdR = chestTarget(p.ch, ob.chest.localToWorld(_v.set(w, hi * s - 0.05 * s, back)), A.holdR || new THREE.Vector3());
     const kiss = ph === 'kiss' ? sm(cp.t / 0.7) * (1 - sm((cp.t - 1.9) / 0.6)) : 0;
-    if (lead) { // closed loop on the head-to-head distance during the kiss (both lean; the taller one bends more)
-      const ha = p.ch.bones.head, hb = other.ch.bones.head; ha.updateWorldMatrix(true, false); hb.updateWorldMatrix(true, false); const pa = ha.getWorldPosition(_v2), pb = hb.getWorldPosition(_v3);
-      const dist = pa.distanceTo(pb); cp.lean = kiss > 0.02 ? clamp((cp.lean || 0) + (dist - 0.205) * 1.2 * kiss, 0, 0.55) : Math.max(0, (cp.lean || 0) - 0.02); /* only the kiss closes the gap; otherwise ease back upright */ cp.dh = pa.y - pb.y; cp.headD = dist; }
-    const taller = (lead ? cp.dh : -cp.dh) > 0; const l = cp.lean || 0; const hd = Math.abs(cp.dh || 0);
-    A.nearLean = { s: 0.05 + l * 0.15, c: l * 0.1, p: l * (taller ? 0.75 + Math.min(0.6, hd * 4) : 0.45) - (taller ? 0 : Math.min(0.25, hd * 2.5)) * kiss, r: (lead ? 0.2 : -0.2) * kiss };
+    if (lead) { // closed loop on the MOUTHS: v brings them level (taller bends down, shorter tilts up), f closes the gap
+      const ma = this.mouthWorld(p, _v2), mb = this.mouthWorld(other, _v3); const dy = ma.y - mb.y, dh = Math.hypot(ma.x - mb.x, ma.z - mb.z);
+      cp.tall ??= cp.a.ch.spec.height >= cp.b.ch.spec.height ? 'a' : 'b'; const want = kiss > 0.02; const dyT = cp.tall === 'a' ? dy : -dy; /* role fixed once: re-deciding each frame flipped it on overshoot and v ran away */
+      cp.v = clamp((cp.v || 0) + (want ? dyT * 1.5 * kiss : -0.02), 0, 0.8); cp.f = clamp((cp.f || 0) + (want ? (dh - 0.03) * 1.2 * kiss : -0.02), 0, 0.65); cp.mouthD = ma.distanceTo(mb); }
+    const tall = (cp.tall === 'a') === lead; const v = cp.v || 0, f = cp.f || 0;
+    const hugHead = ph === 'hug' || ph === 'hold' ? 1 : 0; // in the embrace the shorter one rests the head to one side, the taller looks down
+    A.nearLean = { s: 0.07 + f * 0.25, c: 0.03 + f * 0.1, p: (tall ? v * 0.45 + 0.12 * hugHead : -v * 0.85) + f * 0.25, r: (lead ? 0.18 : -0.18) * kiss + (tall ? 0 : 0.14 * hugHead), y: tall ? 0 : 0.45 * hugHead * (1 - kiss) };
   }
   endCouple(cp, broken) {
     this.couples = this.couples.filter((c) => c !== cp); for (const o of [cp.a, cp.b]) { if (!o || !o.ch) continue; const A = o.ch.anim; A.nearLean = null; A.holdL = A.holdR = null; if (A.action === 'hold' || A.action === 'talk' || A.action === 'listen') A.set(null); o.faceYaw = undefined; o.ch.face.talking = false; }
@@ -324,3 +343,4 @@ export class StreetLife {
   }
   clear() { this.smoke.clear(); this.fights = []; this.couples = []; }
 }
+export { cigarette, newspaper, phoneProp, chestTarget }; // dev/streetlife.html poses them directly
