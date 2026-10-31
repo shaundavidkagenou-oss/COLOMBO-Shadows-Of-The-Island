@@ -22,12 +22,14 @@ import { PostFX } from './gfx/PostFX.js';
 import { setVehicleNight } from './vehicles/VehicleModels.js';
 import { CATALOG, displayName } from './vehicles/VehicleCatalog.js';
 import { updateVehicleLOD, setHeadPoolNight, Vehicle, HeadlightRig } from './vehicles/Vehicle.js';
+import { FlashlightRig } from './police/Firefight.js';
 import { World } from './world/World.js';
 import { Interiors } from './world/Interiors.js';
 import * as L from './world/Layout.js';
 import { Crowd } from './actors/Crowd.js';
 import { Player } from './actors/Player.js';
 import { Character, HEROES, CAM } from './actors/Character.js';
+import { makePoliceAppearance } from './actors/Appearance.js';
 import { Traffic } from './vehicles/Traffic.js';
 import { Trains } from './vehicles/Trains.js';
 import { Audio } from './audio/Audio.js';
@@ -86,6 +88,7 @@ export class Game {
     progress(0.73, 'Sky, sea and monsoon'); await tick();
     this.atmos = new Atmosphere(this.scene, this.renderer); this.atmos.drawDist = Settings.preset.drawDist; this.atmos.sun.castShadow = Settings.preset.shadows; this.atmos.sun.shadow.mapSize.set(Settings.preset.shadowRes, Settings.preset.shadowRes);
     this.atmos.listeners.thunder = () => Audio.thunder(Math.random() * 0.7);
+    this.flashRig = new FlashlightRig(this.scene, { count: Settings.get('quality') === 'low' ? 1 : 3 }); // police hand torches at night (pool created once)
     this.headRig = new HeadlightRig(this.scene, { count: Settings.get('quality') === 'low' ? 2 : 4, shadows: Settings.preset.shadows, shadowRes: Settings.get('quality') === 'ultra' ? 2048 : 1024 }); // real headlight beams (pool created once at load)
     this.headRig.collision = this.collision; // headlight light-pool decals stop at trunks, poles and walls
     progress(0.76, 'People of Colombo'); await tick();
@@ -110,7 +113,7 @@ export class Game {
     this.world.warm(-500, -400); this.world.update(0.016, { x: -500, z: -400 }, this.camera, this.atmos);
     try { if (this.renderer.compileAsync) await Promise.race([this.renderer.compileAsync(this.scene, this.camera), wait(15000)]); else this.renderer.compile(this.scene, this.camera); } catch (e) { console.warn('compile', e); }
     this.wireEvents();
-    if (TEST) { window.__Input = Input; window.__L = L; window.__Vehicle = Vehicle; window.__THREE = THREE; this.stepSim = async (n, dt = 0.05, keys = []) => { for (const k of keys) Input.down.add(k); for (let i = 0; i < n; i++) { this.updatePlay(dt); if (i === 0) Input.pressed.clear(); for (let j = 0; j < 12; j++) await null; /* let story/director promise chains advance like real frames */ } for (const k of keys) Input.down.delete(k); return { x: this.player.x, z: this.player.z, y: this.player.y, v: this.player.vehicle && this.player.vehicle.type, speed: this.player.vehicle ? this.player.vehicle.speed : this.player.speed }; }; }
+    if (TEST) { window.__Input = Input; window.__L = L; window.__Vehicle = Vehicle; window.__Character = Character; window.__makePoliceAppearance = makePoliceAppearance; window.__THREE = THREE; this.stepSim = async (n, dt = 0.05, keys = []) => { for (const k of keys) Input.down.add(k); for (let i = 0; i < n; i++) { this.updatePlay(dt); if (i === 0) Input.pressed.clear(); for (let j = 0; j < 12; j++) await null; /* let story/director promise chains advance like real frames */ } for (const k of keys) Input.down.delete(k); return { x: this.player.x, z: this.player.z, y: this.player.y, v: this.player.vehicle && this.player.vehicle.type, speed: this.player.vehicle ? this.player.vehicle.speed : this.player.speed }; }; }
     progress(1, 'Colombo is ready');
     this.last = performance.now(); this.mode = 'intro'; this.loop();
   }

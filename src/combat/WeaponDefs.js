@@ -10,3 +10,5 @@ export const WEAPONS = [
   { id: 'semi', name: 'Semi-Auto Sniper', cls: 'sniper', mag: 10, reserve: 50, rof: 2.4, auto: false, dmg: 1.6, spread: 0.0015, bloom: 0.003, recoil: 0.05, reload: 2.6, range: 500, equip: 0.85, loud: 130, zoom: 4, sway: 1.2, snd: { crack: 1400, body: 65, dur: 0.26, vol: 0.78, tail: 1.0 } },
   { id: 'precision', name: 'Precision Sniper', cls: 'sniper', mag: 7, reserve: 35, rof: 1.1, auto: false, dmg: 2.5, spread: 0.0005, bloom: 0, recoil: 0.06, reload: 3.0, range: 800, equip: 0.95, loud: 140, zoom: 7, sway: 0.55, cycle: 0.7, snd: { crack: 1100, body: 50, dur: 0.36, vol: 0.9, tail: 1.5 } },
 ];
+// Police-only: the T-56 service rifle carried by Sri Lanka Police response officers (Firefight.js). Not sold to the player.
+export const POLICE_T56 = { id: 't56', name: 'T-56 service rifle', cls: 'rifle', mag: 30, rof: 10, auto: true, burst: [2, 4], dmg: 16, range: 160, loud: 100, reload: 2.6, snd: { crack: 1500, body: 82, dur: 0.17, vol: 0.62, tail: 0.6 } };

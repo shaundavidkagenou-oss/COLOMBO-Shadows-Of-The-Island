@@ -1,0 +1,55 @@
+<!doctype html><html><body style="margin:0;background:#888"><canvas id="c"></canvas>
+<script type="module">
+// Police pose check: arrest / tackle / cuffing body poses (Character animator) and the officers' T-56 rifle and torch poses
+// (the real Firefight.pose / torch / placeTorch code). ?shot=all|kneel|cuffstand|prone|dive|land|tackled|collapse|ready|aim|hide|peek|torch|rifletorch
+// &yaw=deg &d=dist &night=1 (dark scene + FlashlightRig beams)  &w= &h=
+import * as THREE from 'three';
+import { buildTextures } from '/src/gfx/Textures.js';
+import { Character, randomSpec } from '/src/actors/Character.js';
+import { makePoliceAppearance } from '/src/actors/Appearance.js';
+import { Firefight, FlashlightRig } from '/src/police/Firefight.js';
+await buildTextures('medium');
+const q = new URLSearchParams(location.search); const W = +(q.get('w') || 1280), H = +(q.get('h') || 720); const NIGHT = q.get('night') === '1';
+const r = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true }); r.setSize(W, H); r.toneMapping = THREE.ACESFilmicToneMapping; r.outputColorSpace = THREE.SRGBColorSpace; r.shadowMap.enabled = true;
+const s = new THREE.Scene(); s.background = new THREE.Color(NIGHT ? 0x0b1020 : 0x9fb4c8);
+s.add(new THREE.HemisphereLight(NIGHT ? 0x34405e : 0xdde8ff, NIGHT ? 0x141210 : 0x665544, NIGHT ? 0.35 : 1.3)); const d = new THREE.DirectionalLight(NIGHT ? 0x8ea0d0 : 0xfff0dd, NIGHT ? 0.25 : 2.4); d.position.set(3, 6, 5); d.castShadow = true; s.add(d);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ color: 0x8d8a83, roughness: 0.95 })); ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; s.add(ground);
+const cam = new THREE.PerspectiveCamera(30, W / H, 0.05, 100);
+const rig = NIGHT ? new FlashlightRig(s, { count: 3 }) : null;
+const suspect = (seed) => { for (let k = 0; k < 200; k++) { const sp = randomSpec(seed + k * 13); if (sp.sex === 'm' && sp.age !== 'elder') return sp; } return randomSpec(seed); };
+const person = (spec, x, z, yaw) => { const ch = new Character(spec); ch.root.position.set(x, 0, z); ch.root.rotation.y = yaw; ch.root.traverse((m) => { if (m.isMesh) m.castShadow = true; }); s.add(ch.root); return ch; };
+const P = { x: 0, z: 30, y: 0, crouching: false, vehicle: null, speed: 0 }; const col = { raycast: () => 1, blocked: () => false, groundAt: () => 0 };
+const mkFF = (stars, state, night) => new Firefight({ g: { camera: cam, player: P, atmos: { night, w: { rain: 0 } }, collision: col, indoor: false, scene: s, flashRig: null }, foot: [], stars: () => stars, T: null, t: 0, state, stats: {}, note() {}, carAt: () => false, lastSeen: null, seenT: 0 });
+const ff4 = mkFF(4, 'pursuing', 0), ffT = mkFF(2, 'searching', 1), ffRT = mkFF(4, 'searching', 1);
+const officer = (seed, x, z, yaw, ff) => { const ch = person(makePoliceAppearance(7000 + seed * 13, 'patrol'), x, z, yaw); const o = { ch, mode: 'foot', x, z, y: 0, yaw, t: 0, hits: 0, acc: 0 }; if (ff) ff.arm(o); return o; };
+const G = {}; const sources = [];
+// timed action: advance to actionT = at, then freeze
+const timed = (ch, act, at) => { ch.anim.set(act); let t = 0; return () => { if (t < at) { const st = Math.min(1 / 30, at - t); ch.anim.update(st, 0); t += st; } }; };
+// 1. kneeling, hands on head / cuffed behind, officer cuffing from behind
+{ const a = person(suspect(11), -9, 0, 0); a.anim.set('kneel'); G.kneel = { at: [-9, 0], h: 0.9, tick: () => a.anim.update(1 / 30, 0) }; }
+{ const a = person(suspect(21), -6.5, 0, 0); a.anim.set('kneelCuffed'); const o = officer(1, -6.5, -0.62, 0, null); o.ch.anim.set('cuffStand');
+  G.cuffstand = { at: [-6.5, -0.3], h: 0.75, side: true, tick: () => { a.anim.update(1 / 30, 0); o.ch.anim.update(1 / 30, 0); } }; }
+// 2. face down, officer kneeling beside cuffing
+{ const a = person(suspect(31), -3.5, 0, 0); a.anim.set('prone'); const hips = () => a.bones.hips.getWorldPosition(new THREE.Vector3()); const o = officer(2, -3.5 + 0.4, 0, -Math.PI / 2, null); o.ch.anim.set('cuffKneel');
+  G.prone = { at: [-3.3, 0], h: 0.5, tick: () => { a.anim.update(1 / 30, 0); o.ch.anim.update(1 / 30, 0); void hips; } }; }
+// 3. the tackle: mid-dive / landed; the suspect going down; collapse after being shot
+{ const o = officer(3, -0.5, 0, Math.PI / 2, null); G.dive = { at: [-0.5, 0], h: 0.8, side: true, tick: timed(o.ch, 'tackle', 0.36) }; }
+{ const o = officer(4, 1.5, 0, Math.PI / 2, null); G.land = { at: [1.8, 0], h: 0.4, side: true, tick: timed(o.ch, 'tackle', 0.9) }; }
+{ const a = person(suspect(41), 3.8, 0, Math.PI / 2); G.tackled = { at: [4.3, 0], h: 0.5, side: true, tick: timed(a, 'tackled', 1.4) }; }
+{ const a = person(suspect(51), 6.3, 0, Math.PI / 2); G.collapse = { at: [6.6, 0], h: 0.5, side: true, tick: timed(a, 'collapse', 2.2) }; }
+// 4. rifle: low ready / aiming / hidden in cover / rising to fire
+const rifleGroup = (name, x, cb, act, sees) => { const o = officer(10 + x, x, 4, 0, ff4); o.cb = { mag: 30, reloadT: -1, aimT: 1, ...cb }; o.sees = sees; if (act) o.ch.anim.set(act);
+  G[name] = { at: [x, 4], h: act === 'cover' ? 0.95 : 1.3, rifle: true, tick: () => { ff4.pose(o, 1 / 30); o.ch.anim.update(1 / 30, 0); } }; };
+rifleGroup('ready', -6, { st: 'advance' }, null, false); rifleGroup('aim', -3, { st: 'open' }, null, true); rifleGroup('hide', 0, { st: 'cover', phase: 'hide' }, 'cover', false); rifleGroup('peek', 3, { st: 'cover', phase: 'peek' }, null, true);
+// 5. night search: hand torch (below 4★) / rifle-mounted torch (4★+)
+{ const o = officer(30, 6, 4, 0.2, null); o.sees = false; G.torch = { at: [6, 4], h: 1.35, tick: () => { ffT.torch(o, 1 / 30); o.ch.anim.update(1 / 30, 0); ffT.placeTorch(o); } , src: () => ffT } ; }
+{ const o = officer(31, 9, 4, -0.2, ffRT); o.sees = false; o.cb = { st: 'advance', mag: 30, reloadT: -1, aimT: 0 }; G.rifletorch = { at: [9, 4], h: 1.35, rifle: true, tick: () => { ffRT.torch(o, 1 / 30); ffRT.pose(o, 1 / 30); o.ch.anim.update(1 / 30, 0); ffRT.placeTorch(o); }, src: () => ffRT }; }
+for (let k = 0; k < 90; k++) { ffT.sources = []; ffRT.sources = []; for (const g of Object.values(G)) g.tick(); }
+s.updateMatrixWorld(true);
+const shot = q.get('shot') || 'all';
+if (shot === 'all') { cam.fov = 34; cam.position.set(0, 4.2, 17); cam.lookAt(0, 0.6, 2); }
+else { const g = G[shot]; const yaw = (+(q.get('yaw') || (g.side ? 90 : 25))) * Math.PI / 180; const dist = +(q.get('d') || 2.6); cam.fov = 28; cam.position.set(g.at[0] + Math.sin(yaw) * dist, g.h + 0.25, g.at[1] + Math.cos(yaw) * dist); cam.lookAt(g.at[0], g.h, g.at[1]); }
+cam.updateProjectionMatrix();
+if (rig) { const src = [...(ffT.sources || []), ...(ffRT.sources || [])]; rig.update(cam, src, 1, col); window.torches = src.length; }
+r.render(s, cam); window.done = true;
+</script></body></html>

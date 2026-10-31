@@ -805,6 +805,8 @@ export function gaitProfile(sp) {
 // ------------------------------------------------------------------ two-bone arm IK (used for weapons)
 // target: point in CHEST space; q: optional hand orientation in chest space; w: blend with the animated pose.
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _v4 = new THREE.Vector3(), _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _m1 = new THREE.Matrix4();
+const BODY_POSES = new Set(['kneel', 'kneelCuffed', 'prone', 'tackled', 'collapse', 'tackle', 'cuffKneel']);
+const seg01 = (t, a, b) => Math.min(1, Math.max(0, (t - a) / (b - a)));
 export function solveArmIK(b, S, target, q, w = 1, poleDir = null) { // poleDir: preferred elbow direction (parent space), default down and out
   const arm = b['arm' + S], fore = b['fore' + S], hand = b['hand' + S], chest = b.chest, par = arm.parent;
   chest.updateWorldMatrix(true, false); par.updateWorldMatrix(false, false);
@@ -879,7 +881,7 @@ export class Animator {
     this.idleLookT -= dt; if (this.idleLookT < 0) { this.idleLookTarget = Math.random() < 0.4 ? 0 : (Math.random() - 0.5) * 1.1; this.idleLookT = 1.5 + Math.random() * 4; }
     this.idleLook = damp(this.idleLook, this.idleLookTarget * (1 - w * 0.7), 5, dt);
     const A_ = this.action; this.actionW = clamp(this.actionW + dt * 3, 0, 1); const aw = A_ ? this.actionW : 0;
-    const crouch = (this.crouch = damp(this.crouch, A_ === 'crouch' || A_ === 'cover' ? 1 : 0, A_ === 'rise' ? 3.2 : 8, dt));
+    const crouch = (this.crouch = damp(this.crouch, A_ === 'crouch' || A_ === 'cover' ? 1 : A_ === 'cuffStand' ? 0.7 : 0, A_ === 'rise' ? 3.2 : 8, dt));
     const sit = this.seated && A_ !== 'rise' ? 1 : A_ === 'sit' ? aw : this.fadeAct === 'sit' ? this.fadeW : 0; /* seated (desk staff): legs/hips stay seated while the upper body types, phones, talks */ const drive = (this.drive = damp(this.drive, A_ === 'drive' ? 1 : 0, 8, dt)); const seatT = Math.max(sit, drive);
     const gT = A_ === 'sitGround' ? aw : this.fadeAct === 'sitGround' ? this.fadeW : 0; // sitting on the grass (no seat): hips on the ground, knees up, feet flat
     this.lean = damp(this.lean, clamp(-turnRate * sp * 0.03, -0.2, 0.2), 6, dt);
@@ -1041,6 +1043,19 @@ export class Animator {
         case 'guard': { const sw = Math.sin(t * 2.3 + this.seed * 5) * 0.015; ikT('L', 0.1, 0.12 + sw, 0.27); ikT('R', -0.11, 0.09 - sw, 0.23); b.spine.rotation.x += 0.12 * aw; b.neck.rotation.x += 0.1 * aw; break; } // fists up
         case 'hold': if (this.holdL) ikT('L', this.holdL.x, this.holdL.y, this.holdL.z); if (this.holdR) ikT('R', this.holdR.x, this.holdR.y, this.holdR.z); break; // hands on a partner / a suspect's arm (targets set each frame)
         case 'rise': { const k = Math.max(0, 1 - at / 0.55); ikT('R', -0.12, -0.32 - 0.06 * k, 0.26); b.spine.rotation.x += 0.25 * k * aw; break; } // push off the knee and stand
+        // ---- arrests / police (legs + hips in bodyPose(); arms here)
+        case 'kneel': ikT('L', 0.1, 0.36, -0.03); ikT('R', -0.1, 0.36, -0.03); head = 0; b.neck.rotation.x += 0.12 * aw; break; // on both knees, fingers laced on the head
+        case 'kneelCuffed': case 'prone': ikT('L', 0.07, -0.3, -0.12); ikT('R', -0.07, -0.3, -0.12); head = act === 'prone' ? 1.05 : 0; b.neck.rotation.x += (act === 'prone' ? -0.35 : 0.25) * aw; break; // hands cuffed behind the back (prone: head turned to the side)
+        case 'tackled': case 'collapse': { // falling forward: arms fling, then brace; (tackled) hands are pulled behind the back once down
+          const fall = act === 'tackled' ? seg01(at, 0.12, 0.6) : seg01(at, 0.45, 1.05); const brace = Math.sin(clamp(fall * 1.3, 0, 1) * Math.PI * 0.5);
+          tr = [-0.6 - 1.5 * brace, 0, -0.5 + 0.15 * brace]; tl = [-0.6 - 1.5 * brace, 0, 0.5 - 0.15 * brace]; tfr = tfl = [-0.9 + 0.5 * brace, 0, 0];
+          if (act === 'tackled') { const k = seg01(at, 1.1, 1.7); if (k > 0) { actIK.push(['L', 0.07 * s, -0.3 * s, -0.12 * s, aw * k]); actIK.push(['R', -0.07 * s, -0.3 * s, -0.12 * s, aw * k]); } }
+          head = act === 'tackled' ? 1.05 * seg01(at, 0.6, 1.0) : 0.9 * seg01(at, 1.0, 1.4); b.neck.rotation.x -= 0.35 * fall * aw; break; }
+        case 'tackle': { const reach = seg01(at, 0.1, 0.3), land = seg01(at, 0.55, 0.85); // officer's dive: arms shoot forward (overhead in the body frame), wrap down on landing
+          tr = [-0.8 - 2.0 * reach + 0.9 * land, 0, -0.35 + 0.2 * land]; tl = [-0.8 - 2.0 * reach + 0.9 * land, 0, 0.35 - 0.2 * land]; tfr = tfl = [-0.3 - 0.8 * land, 0, 0]; b.neck.rotation.x -= 0.6 * reach * aw; break; }
+        case 'cuffKneel': ikT('L', 0.1, -0.25, 0.46); ikT('R', -0.06, -0.27, 0.45); b.spine.rotation.x += 0.5 * aw; b.neck.rotation.x -= 0.25 * aw; head = 0; break; // one knee down beside a prone suspect, hands on their wrists
+        case 'torch': { const sw = this.torchSweep || 0; ikT('R', -0.13 + sw * 0.16, 0.05, 0.34); tl = [0.05, 0, 0.12]; head = sw * 0.85; break; } // hand torch held out at chest height, sweeping with the eyes
+        case 'cuffStand': ikT('L', 0.07, -0.1, 0.56); ikT('R', -0.08, -0.12, 0.55); b.spine.rotation.x += 0.35 * aw; b.neck.rotation.x -= 0.05 * aw; head = 0; break; // standing behind a kneeling suspect, cuffing
       }
       if (tl) aL = blend(aL, tl, aw); if (tr) aR = blend(aR, tr, aw); if (tfl) fL = blend(fL, tfl, aw); if (tfr) fR = blend(fR, tfr, aw); if (head !== null && head !== undefined) b.head.rotation.y = lerp(b.head.rotation.y, head, aw);
     };
@@ -1060,6 +1075,7 @@ export class Animator {
     const seated = this.seated && this.seatW > 0;
     if (!seated && !this.ik) for (const [S, x, y, z, w, pole] of actIK) solveArmIK(b, S, _ikv.set(x, y, z), null, w, pole);
     if (this.ik && !seated) { if (this.ik.R) solveArmIK(b, 'R', this.ik.R, this.ik.qR, this.ik.wR ?? 1); if (this.ik.L) solveArmIK(b, 'L', this.ik.L, this.ik.qL, this.ik.wL ?? 1); }
+    if (!seated) { if (this.fadeAct && this.fadeW > 0 && BODY_POSES.has(this.fadeAct)) this.bodyPose(this.fadeAct, smooth01(this.fadeW), this.fadeT); if (A_ && aw > 0 && BODY_POSES.has(A_)) this.bodyPose(A_, aw, at); }
     if (seated) applySeatPose(this, dt);
     if (this.nearLean && !seated) { const l = this.nearLean; b.spine.rotation.x += l.s || 0; b.chest.rotation.x += l.c || 0; b.neck.rotation.x += l.p || 0; b.head.rotation.z += l.r || 0; b.head.rotation.y += l.y || 0; } // StreetLife: leaning in for a hug / kiss
     if (this.duck > 0.001) { const d = Math.min(1, this.duck); b.spine.rotation.x += 0.42 * d; b.chest.rotation.x += 0.22 * d; b.neck.rotation.x += 0.32 * d; } // ducking under a low roof line while getting in / out
@@ -1067,6 +1083,32 @@ export class Animator {
     this.driveSkirt();
     if (this.ch.face) this.ch.face.update(dt);
     if (this.ch.rig) this.ch.rig.update(dt); // protagonists: fingers, twist / toe bones, expression wrinkles, cloth springs
+  }
+  // Whole-body poses for arrests / police work (kneeling, prone, falls, the officer's tackle dive). Hips height / pitch and
+  // the legs are blended from the locomotion pose by w; dynamic ones are driven by the action time t. Hip pitch +x lays the
+  // body face down (torso → +z), so a fall forward keeps the feet near where the person stood (hips slide forward).
+  bodyPose(act, w, t) {
+    const b = this.ch.bones, s = this.s, A = this.a, Bn = this.b; const L = (bone, ax, v) => { bone.rotation[ax] = lerp(bone.rotation[ax], v, w); };
+    const legs = (thL, shL, ftL, thR, shR, ftR) => { L(b.thighL, 'x', thL); L(b.shinL, 'x', shL); L(b.footL, 'x', ftL); L(b.thighR, 'x', thR); L(b.shinR, 'x', shR); L(b.footR, 'x', ftR); b.thighL.rotation.z = lerp(b.thighL.rotation.z, 0, w); b.thighR.rotation.z = lerp(b.thighR.rotation.z, 0, w); b.thighL.rotation.y = lerp(b.thighL.rotation.y, 0, w); b.thighR.rotation.y = lerp(b.thighR.rotation.y, 0, w); };
+    const hips = (y, pitch, z = 0) => { b.hips.position.y = lerp(b.hips.position.y, y, w); b.hips.position.z = lerp(b.hips.position.z, z, w); b.hips.position.x = lerp(b.hips.position.x, 0, w); b.hips.rotation.x = lerp(b.hips.rotation.x, pitch, w); b.hips.rotation.y = lerp(b.hips.rotation.y, 0, w); b.hips.rotation.z = lerp(b.hips.rotation.z, 0, w); };
+    const kneelY = A * 0.99 + 0.06 * s, proneY = 0.13 * s, proneZ = 0.42 * s, stand = this.ch.hipY;
+    const kneelLegs = () => legs(-0.08, 1.62, 0.75, -0.08, 1.62, 0.75), proneLegs = () => legs(0.06, 0.14, 0.95, 0.02, 0.22, 0.95);
+    if (act === 'kneel' || act === 'kneelCuffed') { hips(kneelY, 0.04); kneelLegs(); b.spine.rotation.x = lerp(b.spine.rotation.x, 0.02, w); }
+    else if (act === 'prone') { hips(proneY, 1.48, proneZ); proneLegs(); }
+    else if (act === 'tackled' || act === 'collapse') {
+      const buckle = act === 'collapse' ? smooth01(seg01(t, 0, 0.45)) : 0; const fall = smooth01(act === 'tackled' ? seg01(t, 0.12, 0.6) : seg01(t, 0.45, 1.05));
+      const whip = act === 'tackled' ? Math.sin(seg01(t, 0, 0.2) * Math.PI) : 0; const bounce = Math.sin(seg01(t, act === 'tackled' ? 0.6 : 1.05, act === 'tackled' ? 0.8 : 1.25) * Math.PI) * 0.03 * s;
+      const y0 = lerp(stand, kneelY, buckle); hips(lerp(y0, proneY, fall) + bounce, lerp(-0.25 * whip + 0.2 * buckle, 1.48, fall), lerp(0, proneZ, fall));
+      legs(lerp(-0.08 * buckle, 0.06, fall), lerp(1.62 * buckle + 0.3 * whip, 0.14, fall), lerp(0.75 * buckle, 0.95, fall), lerp(-0.08 * buckle - 0.5 * whip, 0.02, fall), lerp(1.62 * buckle + 0.6 * whip, 0.22, fall), lerp(0.75 * buckle, 0.95, fall));
+      b.spine.rotation.x = lerp(b.spine.rotation.x, lerp(0.35 * buckle - 0.3 * whip, 0.02, fall), w);
+    }
+    else if (act === 'tackle') { // wind-up crouch → horizontal dive → land face down
+      const wind = Math.sin(seg01(t, 0, 0.22) * Math.PI * 0.5) * (1 - seg01(t, 0.22, 0.35)), dive = smooth01(seg01(t, 0.18, 0.5)), land = smooth01(seg01(t, 0.5, 0.82));
+      const y = lerp(lerp(stand - 0.18 * s * wind, 0.42 * s, dive), proneY, land); hips(y, lerp(0.35 * wind, 1.3, dive) + 0.18 * land, lerp(0, 0.2 * s, dive) + 0.25 * s * land);
+      legs(lerp(-0.7 * wind, 0.25, dive), lerp(1.0 * wind, 0.1, dive), 0.9 * dive, lerp(-0.2 * wind, 0.35, dive), lerp(0.6 * wind, 0.2, dive), 0.9 * dive);
+      b.spine.rotation.x = lerp(b.spine.rotation.x, 0.4 * wind, w);
+    }
+    else if (act === 'cuffKneel') { hips(kneelY - 0.03 * s, 0.35); legs(0.27, 1.62, 0.75, 0.27, 1.62, 0.75); } // both knees down close beside the suspect, hinged forward at the hips (thighs kept vertical)
   }
   // Garment hinges: angle (about the hip x axis, −forward) of each leg's knee and ankle in hip space; skirtF takes the most
   // forward of them, skirtB the most rearward, so the front and back panels of skirts / sarongs / sarees tent over the legs.

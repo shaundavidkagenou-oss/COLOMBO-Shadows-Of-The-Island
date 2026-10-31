@@ -315,7 +315,7 @@ export class Weapons {
       const cx = o.x + d.x * t - p.x, cz = o.z + d.z * t - p.z; const down = p.state === 'down'; const rad = down ? 0.5 : 0.3; if (cx * cx + cz * cz > rad * rad) continue;
       const y = o.y + d.y * t - (p.y || 0); if (y < 0.05 || y > (down ? 0.45 : (p.ch.spec.height || 1.7) + 0.05)) continue; best = { t, kind: 'ped', p, y };
     }
-    if (this.g.police) for (const p of this.g.police.foot) { const rx = p.x - o.x, rz = p.z - o.z; const dh = Math.hypot(d.x, d.z) || 1e-6; const t = (rx * d.x + rz * d.z) / (dh * dh); if (t < skipNear || t > best.t) continue; const cx = o.x + d.x * t - p.x, cz = o.z + d.z * t - p.z; if (cx * cx + cz * cz > 0.09) continue; const y = o.y + d.y * t - (p.y || 0); if (y < 0.05 || y > (p.mode === 'down' ? 0.45 : 1.8)) continue; best = { t, kind: 'officer', p, y }; }
+    if (this.g.police) for (const p of this.g.police.foot) { const rx = p.x - o.x, rz = p.z - o.z; const dh = Math.hypot(d.x, d.z) || 1e-6; const t = (rx * d.x + rz * d.z) / (dh * dh); if (t < skipNear || t > best.t) continue; const cx = o.x + d.x * t - p.x, cz = o.z + d.z * t - p.z; if (cx * cx + cz * cz > 0.09) continue; const y = o.y + d.y * t - (p.y || 0); if (y < 0.05 || y > (p.mode === 'down' ? 0.45 : 1.8 - 0.65 * ((p.ch && p.ch.anim && p.ch.anim.crouch) || 0))) continue; best = { t, kind: 'officer', p, y }; } // an officer crouched in cover presents less
     const vs = this.g.traffic.all();
     for (const v of vs) { if (Math.abs(v.x - o.x) > range || Math.abs(v.z - o.z) > range) continue; for (const [cx, cz] of v.circles()) { const rx = cx - o.x, ry = v.y + 0.9 - o.y, rz = cz - o.z; const t = rx * d.x + ry * d.y + rz * d.z; if (t < skipNear || t > best.t) continue; const qx = o.x + d.x * t - cx, qy = o.y + d.y * t - (v.y + 0.9), qz = o.z + d.z * t - cz; const rr = v.radius * 0.95; const dd = qx * qx + qy * qy * 1.8 + qz * qz; if (dd < rr * rr) { const back = Math.sqrt(rr * rr - dd); best = { t: Math.max(skipNear, t - back), kind: 'vehicle', v }; } } }
     best.point = o.clone().addScaledVector(d, best.t); return best;
@@ -343,7 +343,7 @@ export class Weapons {
     this.shotAlarm -= 1; if (this.shotAlarm <= 0) { this.shotAlarm = 3; this.g.crowd.alarm(P.x, P.z, def.loud, 2, null); }
     this.g.crowd.alarm(hit.point.x, hit.point.z, 10, 2, null);
     this.g.birds?.scare(P.x, P.z, 50); // every bird nearby goes up at a gunshot
-    if (this.g.police) this.g.police.gunfire(P.x, P.z); else { this.heat = Math.min(5, this.heat + 0.05); this.heatT = 0; } this.lastShot = { x: P.x, z: P.z, t: performance.now() };
+    if (this.g.police) this.g.police.gunfire(P.x, P.z, hit.point); else { this.heat = Math.min(5, this.heat + 0.05); this.heatT = 0; } this.lastShot = { x: P.x, z: P.z, t: performance.now() };
     if (this.onShot) this.onShot(def, hit);
   }
   report(e) { // a witness phoned the police (several calls about the same incident only count once every few seconds)
