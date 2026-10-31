@@ -556,6 +556,12 @@ select { background: #0e1318; color: var(--paper); border: 1px solid rgba(255, 2
 .gs-own, .gs-lock, .gs-cnt { font: 700 10px/1 var(--f-hud); letter-spacing: 0.14em; padding: 4px 6px; border-radius: 4px; }
 .gs-own { color: #7fd0a0; background: rgba(127, 208, 160, 0.12); } .gs-lock { color: #c9a06a; background: rgba(201, 160, 106, 0.1); } .gs-cnt { color: var(--muted); background: rgba(255, 255, 255, 0.05); }
 .gs-det { padding: 18px 28px 22px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.gs-list, .gs-det { scrollbar-width: none; -ms-overflow-style: none; overscroll-behavior: contain; } /* no browser scrollbar inside the shop: edge fades show there is more */
+.gs-list::-webkit-scrollbar, .gs-det::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.gs-list.fade-bot, .gs-det.fade-bot { -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 34px), transparent); mask-image: linear-gradient(180deg, #000 calc(100% - 34px), transparent); }
+.gs-list.fade-top, .gs-det.fade-top { -webkit-mask-image: linear-gradient(180deg, transparent, #000 26px); mask-image: linear-gradient(180deg, transparent, #000 26px); }
+.gs-list.fade-top.fade-bot, .gs-det.fade-top.fade-bot { -webkit-mask-image: linear-gradient(180deg, transparent, #000 26px, #000 calc(100% - 34px), transparent); mask-image: linear-gradient(180deg, transparent, #000 26px, #000 calc(100% - 34px), transparent); }
+.gs-panel, .gs-body { overflow: hidden; }
 .gs-det > * { flex-shrink: 0; } /* the preview used to collapse to 0 px when the column overflowed */
 .gs-pv { position: relative; height: clamp(96px, 19vh, 190px); border-radius: 10px; background: radial-gradient(ellipse at 50% 60%, rgba(255, 240, 210, 0.09), rgba(0, 0, 0, 0) 70%), repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 22px), #15171a; border: 1px solid rgba(255, 255, 255, 0.05); display: grid; place-items: center; overflow: hidden; }
 .gs-pv img { max-width: 100%; max-height: 100%; filter: drop-shadow(0 12px 14px rgba(0, 0, 0, 0.55)); }

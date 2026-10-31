@@ -101,20 +101,22 @@ export class Vehicle {
   drive(dt, input, collision, others) {
     const T = this.T; const fwd = input.throttle; const sp = this.speed;
     let acc = 0;
-    if (fwd > 0) acc = sp < -0.5 ? 12 : T.accel * fwd * (1 - Math.max(0, sp) / T.maxSpeed);
+    const flat = this.flat ? 1 : 0, top = T.maxSpeed * (flat ? 0.5 : 1); // punctured tyres (police spike strip): half the top speed, weak traction
+    if (fwd > 0) acc = sp < -0.5 ? 12 : T.accel * (flat ? 0.6 : 1) * fwd * (1 - Math.max(0, sp) / top);
     else if (fwd < 0) acc = sp > 0.5 ? -12 : T.accel * 0.5 * fwd * (1 - Math.max(0, -sp) / (T.maxSpeed * 0.3));
     else acc = -Math.sign(sp) * Math.min(Math.abs(sp) / dt, 1.5);
     if (input.handbrake) acc -= Math.sign(sp) * Math.min(Math.abs(sp) / dt, 9);
     acc -= sp * Math.abs(sp) * 0.0012 * (T.mass > 3000 ? 2 : 1);
     this.speed += acc * dt; this.brake = (fwd < 0 && sp > 0.5) || input.handbrake;
     const steerMax = T.steer * lerp(1, 0.35, clamp(Math.abs(sp) / T.maxSpeed, 0, 1));
-    this.steer = damp(this.steer, input.steer * steerMax, 6, dt);
+    this.steer = damp(this.steer, input.steer * steerMax + (flat ? Math.sin(performance.now() * 0.0071) * 0.05 * clamp(Math.abs(sp) / 8, 0, 1) : 0), 6, dt); // flats pull and wobble
     const wb = T.len * 0.62; let yawRate = (this.speed * Math.tan(this.steer)) / wb;
     // tyre grip limit: lateral acceleration v·ω can't exceed ~1.2 g (cars) / ~0.95 g (two-wheelers) — stops twitchy high-speed spins
     const aMax = (T.entry === 'bike' ? 9.3 : T.mass > 3000 ? 6.5 : 11.5) * (input.handbrake ? 1.4 : 1); const yrMax = aMax / Math.max(Math.abs(this.speed), 1);
     if (Math.abs(yawRate) > yrMax) yawRate = Math.sign(yawRate) * yrMax;
     // drift: with handbrake the rear slides (lateral velocity persists)
-    const grip = input.handbrake ? 1.2 : 7;
+    const pit = this.pitT > 0; if (pit) this.pitT -= dt; // spun by a police PIT: the rear has broken away, little lateral grip for a moment
+    const grip = input.handbrake || pit ? 1.2 : flat ? 3.5 : 7;
     this.lat = damp(this.lat + yawRate * Math.abs(this.speed) * dt * (input.handbrake ? 0.3 : 0.02), 0, grip, dt);
     this.yaw = wrapAngle(this.yaw + yawRate * dt * (input.handbrake ? 1.25 : 1));
     const [fx, fz] = this.forward(); const rx = fz, rz = -fx; // left normal (dz,-dx)
@@ -155,7 +157,7 @@ export class Vehicle {
       else if (o.bump) o.bump(0, 0, this);
     }
     if (maxJ > 0.05) { this.speed = V[0] * fx + V[1] * fz; this.lat = V[0] * rx + V[1] * rz; this.impact(maxJ * 1.25); } /* damage + camera shake scale with the normal (closing) speed: a graze is light, a head-on is heavy */
-    this.yaw = wrapAngle(this.yaw + this.spin * dt); this.spin *= Math.exp(-3.2 * dt); /* tyres scrub the spin off */
+    this.yaw = wrapAngle(this.yaw + this.spin * dt); this.spin *= Math.exp(-(pit ? 0.9 : 3.2) * dt); /* tyres scrub the spin off */
     this.groundY = damp(this.groundY ?? L.groundY(this.x, this.z), L.groundY(this.x, this.z), 12, dt);
     // body attitude: cars pitch/roll a little on their suspension; two-wheelers lean into the turn about the tyre contact patch
     const latA = yawRate * this.speed; const twoWheel = this.T.entry === 'bike'; if (twoWheel && Math.abs(this.speed) > 0.3) { this.stand = 0; this.leanK = 0; } // never ridden on the stand

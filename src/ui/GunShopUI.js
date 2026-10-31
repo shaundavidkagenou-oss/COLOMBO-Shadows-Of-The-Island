@@ -93,11 +93,18 @@ export class GunShopUI {
         <p class="gs-blurb">${it.blurb}</p>${it.kind === 'weapon' ? `<div class="gs-stats">${bars}</div>` : ''}${facts}
         <div class="gs-buyrow"><div class="gs-status${q.ok ? ' ok' : ''}">${status}</div><button class="gs-buy" data-act="buy" ${q.ok ? '' : 'disabled'}>${it.kind === 'weapon' ? (s.owned ? 'Owned' : 'Buy weapon') : 'Buy rounds'}</button></div>
         ${this.flash ? `<div class="gs-flash${this.flash.bad ? ' bad' : ''}">${this.flash.msg}</div>` : ''}`; }
+    const oldList = this.root.querySelector('.gs-list'), oldDet = this.root.querySelector('.gs-det'); const keep = { list: oldList ? oldList.scrollTop : 0, det: oldDet && this._detKey === `${this.cat}:${this.row}` ? oldDet.scrollTop : 0 }; this._detKey = `${this.cat}:${this.row}`;
     this.root.innerHTML = `<div class="gs-panel">
       <header class="gs-head"><div class="gs-brand"><div class="gs-logo">CA</div><div><h1>${SHOP_NAME}</h1><div class="gs-sub">Licensed firearms dealer · Maradana, Colombo 10</div></div></div>
         <div class="gs-who"><div><small>Buying for</small><b>${this.member}</b></div><div><small>Cash</small><b class="gs-cash">${rs(c.money)}</b></div><button class="gs-x" data-act="close" title="Leave">✕</button></div></header>
       <nav class="gs-tabs">${tabs}</nav>
       <div class="gs-body"><div class="gs-list">${rows}</div><section class="gs-det">${det}</section></div>
       <footer class="gs-foot"><span><kbd>←</kbd><kbd>→</kbd> Category</span><span><kbd>↑</kbd><kbd>↓</kbd> Item</span><span><kbd>Enter</kbd> Buy</span><span><kbd>Esc</kbd> Leave</span><span class="gs-note">Weapons belong to the character who buys them. Purchases appear in the phone's bank ledger.</span></footer></div>`;
+    // the menu is rebuilt on every change: keep the list where it was, keep the selected row in view, and show an in-theme
+    // edge fade (instead of the browser's scrollbar, which is hidden in styles.css) wherever there is more to scroll to
+    const lst = this.root.querySelector('.gs-list'), dt = this.root.querySelector('.gs-det');
+    if (lst) { lst.scrollTop = keep.list; const on = lst.querySelector('.gs-row.on'); if (on) { const top = on.offsetTop - lst.offsetTop, bot = top + on.offsetHeight; if (top < lst.scrollTop + 8) lst.scrollTop = top - 8; else if (bot > lst.scrollTop + lst.clientHeight - 8) lst.scrollTop = bot - lst.clientHeight + 8; } }
+    if (dt) dt.scrollTop = keep.det;
+    for (const el of [lst, dt]) { if (!el) continue; const fade = () => { el.classList.toggle('fade-top', el.scrollTop > 2); el.classList.toggle('fade-bot', el.scrollTop + el.clientHeight < el.scrollHeight - 2); }; el.addEventListener('scroll', fade, { passive: true }); fade(); }
   }
 }

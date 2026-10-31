@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
-import { generatePlan, plan, NCX, NCZ, CHUNK, chunkCenter } from './CityPlan.js';
+import { generatePlan, plan, NCX, NCZ, CHUNK, chunkCenter, refitTreeCrowns, landmarkTreeBoxes } from './CityPlan.js';
 import { buildGround } from './GroundBuilder.js';
 import { buildBase, buildDetail, buildWall, buildWindows, frontColumns } from './BuildingGen.js';
 import { buildLandmarks } from './Landmarks.js';
@@ -39,6 +39,9 @@ export class World {
     progress(0.2, 'Raising landmarks'); await tick();
     const lm = buildLandmarks(); this.landmarks = lm; this.root.add(lm.group); this.collision.addAll(lm.colliders);
     if (plan.missionShops.gunshop) { const s = plan.missionShops.gunshop; const f = buildGunShopFront(s, plan.buildings.find((b) => b.id === s.b)); this.root.add(f.group); this.collision.addAll(f.colliders); } // Ceylon Arms Co. shopfront
+    { // second crown-clearance pass against the landmark buildings (they only exist now): no leaves inside them either
+      const boxes = landmarkTreeBoxes(this.collision.list.filter((c) => c.kind === 'landmark')); const r = refitTreeCrowns(boxes);
+      if (r.changed.size) { this.collision.remove((c) => r.changed.has(c)); this.collision.addAll(r.keep); } }
     progress(0.3, 'Street furniture and trees'); await tick();
     buildPropGeometries(); buildTreeGeometries(); initGlowTexture();
     for (let idx = 0; idx < NCX * NCZ; idx++) {

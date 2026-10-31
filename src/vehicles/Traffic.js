@@ -10,6 +10,7 @@ import { clamp, lerp } from '../core/math.js';
 import { Character, randomSpec } from '../actors/Character.js';
 import { seatCharacter, doorPath } from '../actors/Seating.js';
 import { parkOnStand } from './Kickstand.js';
+import { stepChase } from '../police/Pursuit.js';
 
 // passengers per vehicle type: [count, weight] (the driver is always present)
 const PAX = { car: [[0, 5], [1, 3], [2, 1.5], [3, 0.8]], sedan: [[0, 5], [1, 3], [2, 1]], taxi: [[0, 2], [1, 4], [2, 2]], suv: [[0, 3], [1, 3], [2, 2], [3, 1]], van: [[0, 3], [1, 2], [2, 2], [4, 1]],
@@ -168,7 +169,7 @@ export class Traffic {
   }
   step(v, dt, all, peds, playerV, player) {
     if (v.free) { this.stepFree(v, dt); return; }
-    const ai = v.ai; if (!ai) return; if (ai.stopped) { v.speed = 0; v.brake = true; return; } const p = ai.pieces[0]; // stopped = crew out of a police unit (handbrake on, nobody at the wheel)
+    const ai = v.ai; if (!ai) return; if (ai.stopped) { v.speed = 0; v.brake = true; return; } if (ai.chase) { stepChase(this, v, dt, all); return; } /* police intercept mode (Pursuit.js) */ const p = ai.pieces[0]; // stopped = crew out of a police unit (handbrake on, nobody at the wheel)
     const [fx, fz] = [Math.sin(v.yaw), Math.cos(v.yaw)];
     // --- leader gap
     let gap = 60, leadV = 0; if (v.hold) gap = -1; // player is getting in: brake to a stop
@@ -269,6 +270,7 @@ export class Traffic {
     for (const [cx, cz] of v.circles()) { const r = this.collision.resolveCircle(cx, cz, v.radius, v.y, 0.25, 2, { vehicle: true }); if (r.hit) { const dx = r.x - cx, dz = r.z - cz, dl = Math.hypot(dx, dz) || 1; v.x += dx; v.z += dz; const vn = (f.vx * dx + f.vz * dz) / dl; if (vn < 0) { f.vx -= dx / dl * vn * 1.2; f.vz -= dz / dl * vn * 1.2; v.impact(-vn); } } }
     v.y = L.groundY(v.x, v.z); v.sync(dt);
     if (Math.hypot(f.vx, f.vz) < 0.15 && f.spin === 0) f.rest += dt; else f.rest = 0;
+    if (v.ai && v.ai.chase && f.rest > 0.45 + Math.min(1.5, f.sev * 0.1)) { v.free = null; v.speed = 0; return; } // a pursuing unit knocked aside: straight back into the chase
     if (f.rest < 1.2 + Math.min(5, f.sev * 0.35)) return;
     const ai = v.ai; if (!ai) { v.free = null; return; } /* parked car: stays where it was pushed */
     // re-anchor on the lane: nearest arc-length on the current piece; the offset decays smoothly in step()

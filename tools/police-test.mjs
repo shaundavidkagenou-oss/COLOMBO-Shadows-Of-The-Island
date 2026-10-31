@@ -10,7 +10,8 @@ const L = await import('../src/world/Layout.js');
 const { Traffic, linePiece, segNodes, otherEnd } = await import('../src/vehicles/Traffic.js');
 const PR = await import('../src/police/PoliceResponse.js');
 
-let pass = 0, fail = 0; const ok = (c, msg) => { if (c) pass++; else { fail++; console.log('FAIL', msg); } };
+let pass = 0, fail = 0; const ok = (c, msg) => { if (c) pass++; else { fail++; console.log('FAIL', msg); } if (process.env.VERB) console.log('  ', c ? 'ok ' : 'NO ', msg); };
+const VERB = process.env.VERB;
 let seed = 12345; const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
 const events = { emit() {}, on() {} };
 const T = new Traffic(new THREE.Scene(), { blocked: () => false }, events);
@@ -68,7 +69,7 @@ ok(offRoad <= 2, `units stay on the road surface while driving (off-road samples
 }
 
 // ---- 4. state machine bookkeeping (no world): decay ladder, fines and arrest never below zero
-ok(PR.UNITS_FOR[1] === 1 && PR.UNITS_FOR[3] === 3 && PR.UNITS_FOR[5] === 4, 'units per level 1/2/3/4/4');
+ok(PR.UNITS_FOR.join() === '0,1,3,5,6,8', `units per level 1/3/5/6/8 (${PR.UNITS_FOR.slice(1).join('/')})`); ok(PR.CHASE_V0.every((v, i) => i === 0 || v >= PR.CHASE_V0[i - 1]), 'faster units at higher levels'); ok(PR.LOSE_AFTER(5) > PR.LOSE_AFTER(1), 'harder to lose at higher levels');
 ok(PR.ARREST_FINE.every((f, i) => i === 0 || f >= PR.FINE_ON_SPOT), 'arrest fines ≥ on-the-spot fine');
 {
   const g = { ...fakeGame, story: { state: { money: 1200 }, pay(n) { this.state.money += n; } } }; const p = new PR.PoliceResponse(g);
@@ -80,7 +81,34 @@ ok(PR.ARREST_FINE.every((f, i) => i === 0 || f >= PR.FINE_ON_SPOT), 'arrest fine
   const p = new PR.PoliceResponse(g); p.spawnUnit = () => null; p.level = 3; p.beginSearch(0, 0); const t0 = p.search.t0; let t = 0; const seen = [3];
   while (p.level > 0 && t < 600) { p.updateGlobal(0.5); t += 0.5; if (p.stars() !== seen[seen.length - 1]) seen.push(p.stars()); }
   ok(seen.join('') === '3210', `search decays one star at a time (${seen.join('→')})`); ok(p.state === 'return' || p.state === 'patrol', `stand-down after the last star (state ${p.state})`);
-  ok(t0 === 28 + 3 * 12 && t > 100, `search timer scales with level (3★ ${t0}s, total ${t}s)`); ok(notes.includes('Police standing down'), 'stand-down notification');
+  ok(t0 === PR.SEARCH_TIME(3) && t0 > 64 && t > 140, `search timer scales with level (3★ ${t0}s, total ${t}s)`); ok(notes.includes('Police standing down'), 'stand-down notification');
+}
+// ---- 5. intercept driving (Pursuit.js): tail / PIT / block against a suspect fleeing down a long straight
+const PU = await import('../src/police/Pursuit.js');
+{
+  T.collision.resolveCircle = (x, z) => ({ x, z, hit: false });
+  const circ = function () { const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw); return [-1.4, 0, 1.4].map((t) => [this.x + fx * t, this.z + fz * t]); };
+  const mk = (x, z, yaw, speed, police) => ({ x, z, y: 0, yaw, speed, half: 2.25, radius: 0.96, T: { len: 4.5, wid: 1.74, accel: 6.4, maxSpeed: 46, mass: 1300 }, police, circles: circ, impact() {}, sync() {}, forward() { return [Math.sin(this.yaw), Math.cos(this.yaw)]; }, ai: { chase: null } });
+  const run = (role, stars, secs) => {
+    const P = mk(0, 0, 0, 18, false); const v = mk(-2, -45, 0, 14, true); v.ai.chase = { role, ax: 0, az: 0, speed: 0, blockT: 0, boost: 1.1, pitCd: 0 }; let pit = false, tPit = -1, minGap = 1e9, contactEarly = false, best = null, hits = 0, wasTouch = false, maxClose = 0;
+    for (let i = 0; i < secs * 20; i++) { const dt = 0.05; P.z += P.speed * dt; const a = PU.chaseAim(role, P, v, stars, i * dt); Object.assign(v.ai.chase, { ax: a.x, az: a.z, speed: a.speed, contact: a.contact }); PU.stepChase(T, v, dt, [P, v]);
+      const touch = PR.PoliceResponse.prototype.touching(v, P); if (touch && !wasTouch) { hits++; maxClose = Math.max(maxClose, v.speed - P.speed); } wasTouch = touch; if (touch && role === 'tail') { v.z = Math.min(v.z, P.z - 4.55); v.speed = Math.min(v.speed, P.speed); } /* the player's car body stops it (Vehicle.drive) */ if (touch && !a.contact) contactEarly = true; if (role === 'pit' && a.contact && a.along < 0 && touch && !pit) { pit = true; tPit = i * dt; PU.applyPit(P, v, a.lat >= 0 ? 1 : -1); }
+      const al = (v.z - P.z); minGap = Math.min(minGap, Math.hypot(v.x - P.x, v.z - P.z)); best = { al, lat: v.x - P.x, gap: Math.hypot(v.x - P.x, v.z - P.z) }; }
+    return { P, v, pit, tPit, minGap, contactEarly, end: best, hits, maxClose };
+  };
+  const tail = run('tail', 3, 14); ok(tail.end.al < 0 && tail.end.gap < 12 && !tail.contactEarly, `tail: closes from 45 m to the bumper and sits behind without contact (gap ${tail.end.gap.toFixed(1)} m)`);
+  const ram = run('tail', 4, 14); ok(ram.hits >= 2 && ram.maxClose > 3, `4★ tail rams the rear repeatedly (${ram.hits} hits, up to ${ram.maxClose.toFixed(1)} m/s closing)`);
+  const pit = run('pit', 3, 20); ok(pit.pit && pit.tPit < 16, `PIT: draws level with the rear quarter and makes contact (${pit.tPit.toFixed(1)} s)`); ok(Math.abs(pit.P.spin) > 1.4 && pit.P.pitT > 0, `PIT spins the suspect car (spin ${pit.P.spin?.toFixed(2)} rad/s)`);
+  const blk = run('block', 3, 25); ok(blk.end.al > 4 && Math.abs(blk.end.lat) < 3.5, `block: overtakes and ends up ahead on the suspect's line (ahead ${blk.end.al.toFixed(1)} m, offset ${blk.end.lat.toFixed(1)} m)`);
+  // roadblock sites: on the road, ahead of the suspect, 150–240 m along the network
+  let sites = 0, tries = 0, badSite = 0;
+  for (let k = 0; k < 80; k++) { const seg = T.drivableSegs[Math.floor(rnd() * T.drivableSegs.length)]; if (seg.level >= 3) continue; tries++; const t = 0.2 + rnd() * 0.6; const x = seg.x0 + (seg.x1 - seg.x0) * t, z = seg.z0 + (seg.z1 - seg.z0) * t; const yaw = Math.atan2(seg.x1 - seg.x0, seg.z1 - seg.z0) + (rnd() < 0.5 ? Math.PI : 0);
+    const S = PU.roadblockSite({ x, z, yaw }, () => PR.nearestRoad(T.drivableSegs, x, z), T.drivable, 150, 240); if (!S) continue; sites++; const d = Math.hypot(S.x - x, S.z - z); const ahead = (S.x - x) * Math.sin(yaw) + (S.z - z) * Math.cos(yaw);
+    if (!L.roadAt(S.x, S.z) || d > 250 || d < 40 || ahead < 0) { badSite++; if (process.env.DBG) console.log('site', x, z, S, d, ahead); } }
+  ok(sites > tries * 0.4, `roadblock site found ahead on most roads (${sites}/${tries})`); ok(badSite === 0, `every roadblock site is on the road ahead of the suspect (${badSite} bad)`);
+  const st = { x: 10, z: 10, yaw: 0, len: 4, depth: 0.42 }; const car = mk(10, 10 + 1.6, 0, 10, false); ok(PU.overStrip(st, car), 'spike strip: front wheels on the strip → puncture'); car.z = 16; ok(!PU.overStrip(st, car), 'spike strip: clear 6 m away');
+  const l1 = PU.radioLine('heading', { road: 'Galle Road', dir: PU.compass(Math.PI), vtype: 'tuktuk' }); ok(/three-wheeler heading north on Galle Road/.test(l1.en), `radio: "${l1.en}"`);
+  const l2 = PU.radioLine('heading', { road: 'Galle Road', dir: PU.compass(Math.PI / 2), alt: true }); ok(l2.si.includes('නැගෙනහිර') && /east/.test(l2.tr), 'radio: Sinhala line with translation');
 }
 console.log(`metrics: ${routes} routes (worst ${worst.toFixed(2)}× optimal), ${arrived}/${trips} unit trips arrived (max stop error ${maxErr.toFixed(1)} m)`);
 console.log(`police: ${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

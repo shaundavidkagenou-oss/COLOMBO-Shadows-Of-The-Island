@@ -21,9 +21,13 @@ import { makePoliceAppearance } from '../actors/Appearance.js';
 import { seatCharacter } from '../actors/Seating.js';
 import { Audio } from '../audio/Audio.js';
 import { clamp, lerp } from '../core/math.js';
+import { chaseAim, rejoinLane, applyPit, roadblockSite, makeSpikeStrip, overStrip, radioLine, compass } from './Pursuit.js';
 
 const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
-export const UNITS_FOR = [0, 1, 2, 3, 4, 4];
+export const UNITS_FOR = [0, 1, 3, 5, 6, 8];
+export const CHASE_V0 = [9, 12, 19, 23, 26, 28]; // lane cruising speed by level (m/s)
+export const LOSE_AFTER = (stars) => 5 + stars * 1.5; // seconds out of every unit's sight before a pursuit becomes a search
+export const SEARCH_TIME = (lv) => 32 + lv * 16;
 export const FINE_ON_SPOT = 2500;
 export const ARREST_FINE = [0, 2500, 5000, 10000, 20000, 30000];
 export const HOLD_HOURS = [0, 1, 2, 4, 6, 8];
@@ -65,7 +69,8 @@ export class PoliceResponse {
     this.g = game; this.level = 0; this.state = 'patrol'; this.units = []; this.incident = null; this.lastSeen = null; this.search = null;
     this.stateT = 0; this.seenT = 99; this.repT = -99; this.crimeT = -99; this.spawnCd = 0; this.patrolCd = 20; this.seed = 1; this.busy = false; this.prompt = '';
     this.foot = []; this.log = []; this.stats = { reports: 0, dispatched: 0, sightings: 0, fines: 0, arrests: 0, searches: 0, decays: 0, standDowns: 0, maxUnits: 0, spawnMinDist: Infinity };
-    this.reason = 'disturbance'; this.stop = null; this.t = 0; this.siren = null; this.waits = [];
+    this.reason = 'disturbance'; this.stop = null; this.t = 0; this.siren = null; this.waits = []; this.radioCd = 4; this.radioN = 0; this.blockCd = 12;
+    Object.assign(this.stats, { intercepts: 0, pits: 0, roadblocks: 0, spikes: 0, flats: 0 });
   }
   get T() { return this.g.traffic; }
   stars() { return Math.ceil(this.level - 0.01); }
@@ -93,7 +98,7 @@ export class PoliceResponse {
     if (this.state === 'patrol' || this.state === 'return') { if (!this.incident) { const P = this.g.player; this.incident = { x: P.x + (Math.random() * 2 - 1) * 12, z: P.z + (Math.random() * 2 - 1) * 12, t: this.t }; } this.setState('detected'); this.detectT = 3 + Math.random() * 3; }
     else if (this.state === 'searching' && this.incident) { this.beginSearch(this.incident.x, this.incident.z); }
   }
-  spotted() { const tg = this.target(); this.lastSeen = { x: tg.x, z: tg.z, t: this.t }; this.seenT = 0; if (this.state !== 'pursuing') { this.stats.sightings++; this.setState('pursuing'); for (const u of this.units) if (u.v && u.task !== 'leave' && !u.v.player) { u.v.ai.v0 = [9, 12, 18, 20, 21, 22][this.stars()]; u.planT = 0; } this.g.hud.notify('Spotted by police', this.stars() >= 2 ? 'Units are closing in. Break line of sight to lose them.' : 'An officer wants to speak to you. Stand still to comply, or run.', 'warn', 3.2); } }
+  spotted() { const tg = this.target(); this.lastSeen = { x: tg.x, z: tg.z, t: this.t }; this.seenT = 0; if (this.state !== 'pursuing') { this.stats.sightings++; this.setState('pursuing'); for (const u of this.units) if (u.v && u.task !== 'leave' && !u.v.player) { u.v.ai.v0 = CHASE_V0[this.stars()]; u.planT = 0; } this.g.hud.notify('Spotted by police', this.stars() >= 2 ? 'Units are closing in. Break line of sight to lose them.' : 'An officer wants to speak to you. Stand still to comply, or run.', 'warn', 3.2); } }
 
   // ------------------------------------------------------------------ main update
   update(dt) {
@@ -102,6 +107,7 @@ export class PoliceResponse {
     this.foot = []; for (const u of this.units) for (const o of u.officers) if (o.mode === 'foot' || o.mode === 'down' || o.mode === 'return') this.foot.push(o);
     this.updateGlobal(dt);
     for (const u of this.units.slice()) this.updateUnit(u, dt);
+    this.updateRoadblocks(dt); this.updateRadio(dt);
     this.updateStop(dt); this.g.player.policeStop = !!this.stop; this.pushPlayer(); this.updateSiren(dt, false);
     this.stats.maxUnits = Math.max(this.stats.maxUnits, this.units.filter((u) => !u.patrol).length);
   }
@@ -123,12 +129,12 @@ export class PoliceResponse {
         break; }
       case 'pursuing': {
         if (active.length < want) this.topUp(want, this.lastSeen);
-        if (this.seenT > 6) { const P = this.g.player; const ls = this.lastSeen || { x: P.x, z: P.z }; this.g.hud.notify('Out of sight', 'The police lost visual contact and are searching the area. Stay out of the search zone.', 'info', 3); this.say(this.foot[0], 'search', 'Officer'); this.beginSearch(ls.x, ls.z, true); }
+        if (this.seenT > LOSE_AFTER(this.stars())) { const P = this.g.player; const ls = this.lastSeen || { x: P.x, z: P.z }; this.g.hud.notify('Out of sight', 'The police lost visual contact and are searching the area. Stay out of the search zone.', 'info', 3); this.say(this.foot[0], 'search', 'Officer'); this.beginSearch(ls.x, ls.z, true); }
         break; }
       case 'searching': {
         if (active.length < want) this.topUp(want, this.search);
         const P = this.g.player; const out = Math.hypot(P.x - this.search.x, P.z - this.search.z) > this.search.r + 15;
-        this.search.t -= dt * (out ? 1.6 : 1) * (this.g.indoor ? 1.3 : 1); this.search.r = Math.min(this.search.r0 * 1.6, this.search.r + dt * 0.6);
+        this.search.t -= dt * (out ? 1.35 : 1) * (this.g.indoor ? 1.3 : 1); this.search.r = Math.min(this.search.r0 * 1.6, this.search.r + dt * 0.6);
         if (this.search.t <= 0) {
           const before = this.stars(); this.level = Math.max(0, before - 1); this.stats.decays++; this.note(`search expired: ${before}→${this.stars()}`);
           if (this.level <= 0) this.standDown('The police have stopped looking for you.');
@@ -145,12 +151,12 @@ export class PoliceResponse {
     this.topUp(UNITS_FOR[lv], inc);
     this.g.hud.notify(lv >= 2 ? 'Police responding' : 'Police investigating', lv >= 2 ? 'Units with sirens are on the way to where you were reported.' : 'A patrol car is coming to check the reported location.', 'warn', 3.2);
   }
-  topUp(want, pt) { this.spawnCd -= this.g.dt || 0.05; if (this.spawnCd > 0 || !pt) return; const active = this.units.filter((u) => u.task !== 'leave' && !u.patrol); if (active.length >= want) return; const u = this.spawnUnit({ jeep: this.stars() >= 3 && active.length === 1 }); if (u) { this.spawnCd = 1.5; this.assign(u, 'drive', pt); } else this.spawnCd = 0.5; }
+  topUp(want, pt) { this.spawnCd -= this.g.dt || 0.05; if (this.spawnCd > 0 || !pt) return; const active = this.units.filter((u) => u.task !== 'leave' && !u.patrol); if (active.length >= want) return; const lv = this.stars(); const ahead = lv >= 3 && this.state === 'pursuing' && active.length % 2 === 1; const u = this.spawnUnit({ jeep: lv >= 3 && active.length % 3 === 1, ahead }) || (ahead ? this.spawnUnit({}) : null); if (u) { this.spawnCd = lv >= 4 ? 0.7 : lv >= 3 ? 1 : 1.5; this.assign(u, 'drive', pt); } else this.spawnCd = 0.5; }
   beginSearch(x, z, fromSight = false) {
-    const lv = Math.max(1, this.stars()); const r0 = 45 + lv * 15; const P = this.g.player;
+    const lv = Math.max(1, this.stars()); const r0 = 50 + lv * 18; const P = this.g.player;
     // the search centre is the last known position pushed along the suspect's heading — not the live position
     let cx = x, cz = z; if (fromSight) { const h = P.vehicle ? P.vehicle.yaw : P.yaw; cx += Math.sin(h) * 15; cz += Math.cos(h) * 15; }
-    this.search = { x: cx, z: cz, r: r0, r0, t: 28 + lv * 12, t0: 28 + lv * 12 }; this.stats.searches++; this.setState('searching');
+    this.search = { x: cx, z: cz, r: r0, r0, t: SEARCH_TIME(lv), t0: SEARCH_TIME(lv) }; this.stats.searches++; this.setState('searching');
     for (const u of this.units) if (u.task !== 'leave' && !u.patrol) { u.searchFoot = !u.searchedOnce; this.searchNext(u); }
   }
   standDown(msg) {
@@ -165,8 +171,8 @@ export class PoliceResponse {
     const g = this.g; if (g.indoor) return false; const tg = this.target(); const P = g.player; const A = g.atmos;
     const env = (1 - 0.35 * (A ? A.night : 0)) * (1 - 0.15 * (A && A.w ? A.w.rain : 0)) * (P.crouching && !P.vehicle ? 0.7 : 1) * (tg.v ? 1.25 : 1) * mult;
     const eyes = [];
-    if (u.v && u.officers.some((o) => o.mode === 'seated')) eyes.push({ x: u.v.x, y: u.v.y + 1.3, z: u.v.z, R: (40 + this.stars() * 4) * env, fov: -1 });
-    for (const o of u.officers) if (o.mode === 'foot') eyes.push({ x: o.x, y: o.y + 1.6, z: o.z, R: (32 + this.stars() * 3) * env, fov: -0.35, yaw: o.yaw });
+    if (u.v && u.officers.some((o) => o.mode === 'seated')) eyes.push({ x: u.v.x, y: u.v.y + 1.3, z: u.v.z, R: (46 + this.stars() * 7) * env, fov: -1 });
+    for (const o of u.officers) if (o.mode === 'foot') eyes.push({ x: o.x, y: o.y + 1.6, z: o.z, R: (34 + this.stars() * 4) * env, fov: -0.35, yaw: o.yaw });
     for (const e of eyes) {
       const dx = tg.x - e.x, dz = tg.z - e.z, d = Math.hypot(dx, dz); if (d > e.R) continue;
       if (e.fov > -1 && d > 10) { const c = (Math.sin(e.yaw) * dx + Math.cos(e.yaw) * dz) / d; if (c < e.fov) continue; }
@@ -176,17 +182,25 @@ export class PoliceResponse {
   }
 
   // ------------------------------------------------------------------ units
-  spawnUnit({ patrol = false, jeep = false } = {}) {
+  spawnUnit({ patrol = false, jeep = false, ahead = false, at = null } = {}) {
     const g = this.g, T = this.T, P = g.player; const f = this.target(); const cam = g.camera; const cd = new THREE.Vector3(); cam.getWorldDirection(cd);
+    if (at) { const ln = T.laneNear(at.x, at.z, at.yaw, 40); return ln ? this.makeUnit(at.x, at.z, at.yaw, ln.piece, ln.s, false, jeep) : null; } // placed (roadblock)
     for (let tries = 0; tries < 40; tries++) {
       const seg = T.drivableSegs[Math.floor(Math.random() * T.drivableSegs.length)]; if (seg.level >= 3) continue;
       const mx = (seg.x0 + seg.x1) / 2, mz = (seg.z0 + seg.z1) / 2; const d = Math.hypot(mx - f.x, mz - f.z);
-      if (d < 150 || d > 280) continue; if (d < 240 && ((mx - cam.position.x) * cd.x + (mz - cam.position.z) * cd.z) / Math.hypot(mx - cam.position.x, mz - cam.position.z) > 0.25) continue; // out of view
+      const hy = f.v ? f.v.yaw : P.yaw; const lo = ahead ? 170 : 150, hi = ahead ? 310 : 280; if (d < lo || d > hi) continue; if (ahead && ((mx - f.x) * Math.sin(hy) + (mz - f.z) * Math.cos(hy)) < d * 0.55) continue; // intercepting units come from ahead
+      if (d < 240 && ((mx - cam.position.x) * cd.x + (mz - cam.position.z) * cd.z) / Math.hypot(mx - cam.position.x, mz - cam.position.z) > 0.25 && !(ahead && g.collision.raycast && g.collision.raycast(cam.position.x, cam.position.y, cam.position.z, mx, 1.6, mz, 0.1) < 0.97)) continue; // out of view (or hidden behind buildings)
       const [a, b] = segNodes(seg); const toward = Math.hypot(a.x - f.x, a.z - f.z) < Math.hypot(b.x - f.x, b.z - f.z); const from = toward ? b : a, to = toward ? a : b;
       const lane = seg.level <= 1 ? 1 : 0; const piece = linePiece(seg, from, to, lane); const s = piece.len * (0.2 + Math.random() * 0.4);
       const x = lerp(piece.p0[0], piece.p1[0], s / piece.len), z = lerp(piece.p0[1], piece.p1[1], s / piece.len); if (Math.hypot(x - P.x, z - P.z) < 140) continue;
       if (T.vehicles.some((v) => (v.x - x) ** 2 + (v.z - z) ** 2 < 15 * 15)) continue;
-      const type = jeep ? 'policejeep' : 'police'; const v = new Vehicle(type, 3000 + this.seed * 7, g.scene); v.place(x, z, Math.atan2(piece.d[0], piece.d[1]));
+      return this.makeUnit(x, z, Math.atan2(piece.d[0], piece.d[1]), piece, s, patrol, jeep);
+    }
+    return null;
+  }
+  makeUnit(x, z, yaw, piece, s, patrol, jeep) {
+    const g = this.g, T = this.T, P = g.player; {
+      const type = jeep ? 'policejeep' : 'police'; const v = new Vehicle(type, 3000 + this.seed * 7, g.scene); v.place(x, z, yaw);
       v.keep = true; v.ai = { pieces: [piece], s, v0: patrol ? 9 : 11, stuck: 0, honkCd: 99, bumped: 0, aggressive: 1.2, emergency: true }; T.extend(v);
       const u = { id: this.seed++, v, officers: [], task: patrol ? 'patrol' : 'idle', patrol, arrived: false, footT: 0, stuckT: 0, planT: 0, goalPt: null, enterT: 0 };
       v.police = u; const seats = v.mesh.userData.seats; const di = seats.findIndex((q) => q.driver); const pi = seats.map((q, i) => i).filter((i) => i !== di).sort((i, j) => Math.abs(seats[i].z - seats[di].z) - Math.abs(seats[j].z - seats[di].z))[0];
@@ -203,7 +217,7 @@ export class PoliceResponse {
     u.arrived = false; u.stuckT = 0; u.goalPt = pt ? { x: pt.x, z: pt.z } : null; u.planT = 0;
     if (u.v && !this.allSeated(u)) { u.task = 'mount'; for (const o of u.officers) if (o.mode === 'foot') { o.mode = 'return'; o.goal = null; } return; } // drive on once everyone is back in
     u.task = task;
-    if (u.v && !u.v.player) { u.v.ai.stopped = false; u.v.ai.v0 = [9, 12, 18, 20, 21, 22][this.stars()]; if (pt && this.allSeated(u)) this.plan(u, pt.x, pt.z); }
+    if (u.v && !u.v.player) { u.v.ai.stopped = false; u.v.ai.v0 = CHASE_V0[this.stars()]; if (pt && this.allSeated(u)) this.plan(u, pt.x, pt.z); }
   }
   allSeated(u) { return u.officers.every((o) => o.mode === 'seated' || o.mode === 'down'); }
   plan(u, gx, gz, soft = false) {
@@ -219,12 +233,13 @@ export class PoliceResponse {
     return true;
   }
   leave(u) {
-    if (u.task === 'leave') return; u.task = 'leave'; u.leaveT = 0; u.patrol = false;
+    if (u.task === 'leave') return; const wasBlock = u.task === 'block'; u.task = 'leave'; u.leaveT = 0; u.patrol = false; this.dropStrip(u);
+    if (u.v && !u.v.player && (u.v.ai.chase || wasBlock)) rejoinLane(this.T, u.v, 80);
     if (u.v && !u.v.player) { u.v.ai.route = null; u.v.ai.goal = null; u.v.ai.v0 = 10; u.v.ai.stopped = !this.allSeated(u); u.v.beacons(false); }
     for (const o of u.officers) if (o.mode === 'foot') o.goal = null; this.note(`unit ${u.id} leaving`);
   }
   removeUnit(u) {
-    const T = this.T; for (const o of u.officers) { if (o.mode !== 'seated') { o.ch.root.parent?.remove(o.ch.root); o.ch.dispose(); } }
+    const T = this.T; this.dropStrip(u); for (const o of u.officers) { if (o.mode !== 'seated') { o.ch.root.parent?.remove(o.ch.root); o.ch.dispose(); } }
     if (u.v && !u.v.player) { const i = T.vehicles.indexOf(u.v); if (i >= 0) T.vehicles.splice(i, 1); const pi = T.parked.indexOf(u.v); if (pi >= 0) T.parked.splice(pi, 1); this.syncSeated(u); T.remove(u.v); }
     else if (u.v) { u.v.police = null; }
     this.units = this.units.filter((q) => q !== u); this.note(`unit ${u.id} removed`);
@@ -245,6 +260,8 @@ export class PoliceResponse {
     if (!u.v) { if (u.officers.every((o) => o.mode !== 'foot' && o.mode !== 'down')) this.removeUnit(u); else if (this.state !== 'pursuing' && this.stateT > 20) this.leave(u); return; }
     const ai = v.ai; const dToT = Math.hypot(v.x - tg.x, v.z - tg.z);
     if (u.patrol) { if (dToT > 360) this.removeUnit(u); return; }
+    if (u.task === 'block') { u.blockT = (u.blockT || 0) + dt; if ((dToT > 170 && !this.inView(v)) || u.blockT > 90 || (this.state !== 'pursuing' && u.blockT > 25) || this.level <= 0) this.leave(u); return; }
+    if (u.task === 'drive' && this.updateIntercept(u, dt, tg, dToT)) return;
     if (u.task === 'drive') {
       const st = this.state; u.planT -= dt;
       if (st === 'pursuing' && u.planT <= 0) { // chase: aim ~2.5 s ahead of a moving suspect (soft goal, no braking); hard stop only once they have stopped
@@ -277,7 +294,7 @@ export class PoliceResponse {
   afterMount(u) {
     const st = this.state; if (this.level <= 0) { this.leave(u); return; }
     if (st === 'searching') { if (u.goalPt) this.assign(u, 'drive', u.goalPt); else this.searchNext(u); }
-    else if (st === 'pursuing') { u.task = 'drive'; u.planT = 0; u.goalPt = null; if (u.v) { u.v.ai.stopped = false; u.v.ai.v0 = [9, 12, 18, 20, 21, 22][this.stars()]; } }
+    else if (st === 'pursuing') { u.task = 'drive'; u.planT = 0; u.goalPt = null; if (u.v) { u.v.ai.stopped = false; u.v.ai.v0 = CHASE_V0[this.stars()]; } }
     else this.assign(u, 'drive', u.goalPt || this.incident || this.target());
   }
   dismount(u, why) {
@@ -286,6 +303,64 @@ export class PoliceResponse {
   }
   recall(u) { if (u.task === 'mount' || !u.v) return; u.task = 'mount'; for (const o of u.officers) if (o.mode === 'foot') { o.mode = 'return'; o.goal = null; } }
   inView(p) { if (!p) return false; const cam = this.g.camera; const cd = new THREE.Vector3(); cam.getWorldDirection(cd); const dx = p.x - cam.position.x, dz = p.z - cam.position.z; const d = Math.hypot(dx, dz) || 1; return (dx * cd.x + dz * cd.z) / d > 0.35 && d < 260; }
+
+  // ------------------------------------------------------------------ intercept driving (Pursuit.js): off the lane, straight at the suspect
+  // Engages at 2★+ when a unit is within 75 m, every officer is aboard and the suspect's moving vehicle is in sight. Roles
+  // rotate between units (tail / pit / block, tail only at 2★). Returns true while the unit is intercepting.
+  updateIntercept(u, dt, tg, d) {
+    const v = u.v, ai = v.ai, lv = this.stars(); const P = tg.v;
+    const can = this.state === 'pursuing' && lv >= 2 && !!P && this.allSeated(u) && !v.free && !ai.stopped;
+    if (!ai.chase) {
+      if (!can || this.seenT > 1 || d > 75 || Math.abs(P.speed) < 2.5) return false;
+      const busy = this.units.filter((q) => q.v && q.v.ai && q.v.ai.chase).map((q) => q.v.ai.chase.role);
+      const role = lv < 3 ? 'tail' : ['pit', 'block', 'tail'].find((r) => !busy.includes(r)) || (u.id % 2 ? 'pit' : 'tail');
+      ai.chase = { role, ax: v.x, az: v.z, speed: v.speed, blockT: 0, boost: [1, 1, 1.02, 1.06, 1.1, 1.14][lv], t: 0, pitCd: 1.5, stop: false, contact: false };
+      ai.route = null; ai.goal = null; this.stats.intercepts++; this.note(`unit ${u.id} intercepting (${role})`);
+      if (lv >= 3) this.radio(role === 'pit' ? 'pit' : role === 'block' ? 'block' : 'ram', u);
+    }
+    const ch = ai.chase; ch.t += dt; ch.pitCd -= dt;
+    if (!can || this.seenT > 2.5 || d > 120 || ch.blockT > 2.5) { // lost them / wedged: back to the road network and the routed chase
+      if (rejoinLane(this.T, v)) { u.planT = 0; u.goalPt = null; u.stuckT = 0; this.note(`unit ${u.id} back on the road`); return false; }
+      const nr = nearestRoad(this.T.drivableSegs, v.x, v.z); if (nr) { ch.ax = nr.px; ch.az = nr.pz; ch.speed = 6; ch.stop = false; ch.blockT = 0; } return true;
+    }
+    if (this.seenT > 0.6 && this.lastSeen) { ch.ax = this.lastSeen.x; ch.az = this.lastSeen.z; ch.speed = Math.max(10, Math.abs(P.speed)); ch.stop = false; return true; } // momentarily out of sight: drive to where they were
+    const aim = chaseAim(ch.role, P, v, lv, ch.t); ch.ax = aim.x; ch.az = aim.z; ch.speed = aim.speed; ch.contact = aim.contact;
+    ch.stop = Math.abs(P.speed) < 1.5 && d < 18; // suspect stopped: pull up beside them, crew out
+    if (ch.stop && v.speed < 1) { this.dismount(u, 'chase'); this.say(u.officers[0], 'chase', 'Officer'); return true; }
+    if (ch.role === 'pit' && aim.contact && aim.along < 0 && ch.pitCd <= 0 && Math.abs(P.speed) > 6 && this.touching(v, P)) {
+      applyPit(P, v, aim.lat >= 0 ? 1 : -1); ch.pitCd = 7; this.stats.pits++; this.note(`unit ${u.id} PIT`); this.radio('spun', u, true);
+    }
+    return true;
+  }
+  touching(a, b) { for (const p of a.circles()) for (const q of b.circles()) if (Math.hypot(p[0] - q[0], p[1] - q[1]) < a.radius + b.radius + 0.35) return true; return false; }
+
+  // ------------------------------------------------------------------ roadblocks (4★+) and spike strips (5★)
+  updateRoadblocks(dt) {
+    this.blockCd -= dt; const tg = this.target(); const lv = this.stars();
+    for (const u of this.units) if (u.strip && tg.v && !tg.v.flat && overStrip(u.strip, tg.v)) { tg.v.flat = true; tg.v.impact(7); this.stats.flats++; this.note('suspect tyres punctured'); this.g.hud.notify('Tyres punctured', 'You drove over a police spike strip — the car is slow and hard to control now. Switch vehicles to get away.', 'warn', 4); this.radio('flat', u, true); }
+    if (this.state !== 'pursuing' || lv < 4 || !tg.v || Math.abs(tg.v.speed) < 8 || this.seenT > 2 || this.blockCd > 0 || this.g.indoor) return;
+    if (this.units.filter((u) => u.task === 'block').length >= (lv >= 5 ? 4 : 2)) return;
+    this.blockCd = 6; const site = roadblockSite(tg.v, () => nearestRoad(this.T.drivableSegs, tg.x, tg.z), this.T.drivable, 150, 240); if (!site) return;
+    const cam = this.g.camera.position; if (Math.hypot(site.x - cam.x, site.z - cam.z) < 130) return;
+    if (this.T.all().some((o) => !o.player && Math.hypot(o.x - site.x, o.z - site.z) < 12)) return; // never spawn on top of traffic
+    const fx = Math.sin(site.yaw), fz = Math.cos(site.yaw), rx = fz, rz = -fx; const hw = site.hw; const spikes = lv >= 5;
+    // two cars broadside; with spikes they leave a tempting gap on one side and the strip lies across it, nearer the suspect
+    const offs = spikes ? [-hw * 0.55, hw * 0.05] : [-hw * 0.48, hw * 0.48]; const made = [];
+    offs.forEach((o, k) => { const x = site.x + rx * o + fx * (k ? 1.6 : -0.4), z = site.z + rz * o + fz * (k ? 1.6 : -0.4); const u = this.spawnUnit({ at: { x, z, yaw: site.yaw + Math.PI / 2 + (k ? 0.22 : -0.22) }, jeep: lv >= 5 && k === 1 }); if (u) made.push(u); });
+    if (!made.length) return; this.blockCd = 35; this.stats.roadblocks++;
+    for (const u of made) { u.task = 'block'; u.blockT = 0; u.patrol = false; const v = u.v; v.speed = 0; v.ai.stopped = true; u.officers.forEach((o, i) => { o.mode = 'exit'; o.t = -i * 0.4 - 0.5; }); this.syncSeated(u); }
+    if (spikes) { const gap0 = hw * 0.05 + 2.6, gap1 = hw + 0.4; const c = (gap0 + gap1) / 2, len = Math.max(2.5, gap1 - gap0); const x = site.x + rx * c + fx * 7, z = site.z + rz * c + fz * 7; const st = makeSpikeStrip(x, z, site.yaw, len); this.g.scene.add(st.mesh); made[made.length - 1].strip = st; this.stats.spikes++; }
+    const road = L.roadNameAt(site.x, site.z) || 'the road ahead'; this.note(`roadblock on ${road}${spikes ? ' + spike strip' : ''}`); this.radio(spikes ? 'spikes' : 'roadblock', made[0], true, { road });
+  }
+  dropStrip(u) { if (u.strip) { u.strip.mesh.parent?.remove(u.strip.mesh); u.strip = null; } }
+
+  // ------------------------------------------------------------------ radio chatter (subtitled; real street names and compass direction)
+  radio(kind, u, force = false, extra = {}) {
+    if (!force && this.radioCd > 0) return; const tg = this.target(); const P = this.g.player; const h = tg.v ? (tg.v.speed >= 0 ? tg.v.yaw : tg.v.yaw + Math.PI) : P.yaw;
+    const l = radioLine(kind, { road: L.roadNameAt(tg.x, tg.z), dir: compass(h), vtype: tg.v ? tg.v.type : 'foot', unit: u ? u.id : 1, alt: this.radioN % 3 === 2, ...extra }); if (!l.en && !l.si) return;
+    this.radioN++; this.radioCd = 7 + Math.random() * 4; const lang = l.si ? 'si' : 'en'; this.g.hud.subtitle(kind === 'heading' || kind === 'roadblock' || kind === 'spikes' || kind === 'lost' ? 'Police radio · Control' : `Police radio · Unit ${u ? u.id : 1}`, l.si || l.en, l.tr || '', 3, lang); Audio.radioBlip?.();
+  }
+  updateRadio(dt) { this.radioCd -= dt; if (this.state === 'pursuing' && this.stars() >= 2 && this.seenT < 1.5 && this.radioCd <= 0) this.radio('heading'); }
 
   // ------------------------------------------------------------------ officers
   exitWorld(o, v) { v.mesh.updateMatrixWorld(); const e = o.seat.exit || [Math.sign(o.seat.x || 1) * (v.T.wid / 2 + 0.6), o.seat.z]; const w = new THREE.Vector3(e[0], 0, e[1]).applyMatrix4(v.mesh.matrixWorld); return [w.x, w.z, e]; }
@@ -317,10 +392,11 @@ export class PoliceResponse {
         if (dd < 0.35) { o.retT = 0; o.ch.root.parent?.remove(o.ch.root); v.mesh.add(o.ch.root); o.ex = ex; o.t = 0; o.mode = 'enter'; A.set(null); return; } }
       this.animOfficer(o, dt, speed); return;
     }
+    if (u.task === 'block' && dP > 22) { o.yaw += angDiff(Math.atan2(tg.x - o.x, tg.z - o.z), o.yaw) * Math.min(1, dt * 4); const want = dP < 70 ? 'point' : null; if (A.action !== want) A.set(want); this.animOfficer(o, dt, 0); return; } // roadblock: hold the line
     const chasing = st === 'pursuing' && (this.seenT < 3 || dP < 25);
     if (chasing) {
       const stopMode = this.stars() <= 1; const want = stopMode ? 1.5 : 0.7; const run = !stopMode || (this.stop && this.stop.fled);
-      if (dP > want) speed = this.moveTo(o, tg.x, tg.z, run ? 5.7 : dP > 8 ? 3.2 : 1.6, dt); else { o.yaw += angDiff(Math.atan2(tg.x - o.x, tg.z - o.z), o.yaw) * Math.min(1, dt * 6); }
+      if (dP > want) speed = this.moveTo(o, tg.x, tg.z, run ? [5.7, 5.7, 6.1, 6.5, 6.8, 7.0][this.stars()] : dP > 8 ? 3.2 : 1.6, dt); else { o.yaw += angDiff(Math.atan2(tg.x - o.x, tg.z - o.z), o.yaw) * Math.min(1, dt * 6); }
       if (stopMode && dP < 5 && !this.stop) this.beginStop(o);
       if (!stopMode && dP < (tg.v ? 0.7 : 1.4) && (!tg.v || Math.abs(tg.v.speed) < 1)) { o.grab = (o.grab || 0) + dt; if (o.grab > (tg.v ? 1.6 : 0.9)) { this.arrest(o); return; } } else o.grab = Math.max(0, (o.grab || 0) - dt);
       if (A.action && A.action !== 'talk' && A.action !== 'point') A.set(null); if (stopMode && dP < 4 && A.action !== 'point' && A.action !== 'talk') A.set('point');
@@ -396,7 +472,7 @@ export class PoliceResponse {
     if (!this.siren) { const o1 = c.createOscillator(), o2 = c.createOscillator(); o1.type = 'square'; o2.type = 'sawtooth'; const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1100; f.Q.value = 0.8; const gn = c.createGain(); gn.gain.value = 0; const pan = c.createStereoPanner ? c.createStereoPanner() : null; o1.connect(f); o2.connect(f); f.connect(gn); if (pan) { gn.connect(pan); pan.connect(Audio.bus.sfx); } else gn.connect(Audio.bus.sfx); o1.start(); o2.start(); this.siren = { o1, o2, gn, pan, ph: 0 }; }
     const S = this.siren; let best = null, bd = 1e9; if (!mute && this.stars() >= 2) for (const u of this.units) { if (!u.v || u.task === 'leave' || u.patrol) continue; const d = Math.hypot(u.v.x - this.g.camera.position.x, u.v.z - this.g.camera.position.z); if (d < bd) { bd = d; best = u.v; } }
     const now = c.currentTime; let gain = 0, pan = 0; if (best) { const [gg, pp] = Audio.spatial(best.x, best.z, 90); gain = 0.07 * gg * (this.g.indoor ? 0.3 : 1); pan = pp; }
-    S.ph += dt; const k = 0.5 - 0.5 * Math.cos((S.ph / 3.4) * Math.PI * 2); const fq = 620 + 760 * k;
+    const yelp = best && bd < 45 && this.state === 'pursuing'; S.ph += dt; const k = 0.5 - 0.5 * Math.cos((S.ph / (yelp ? 0.36 : 3.4)) * Math.PI * 2); const fq = yelp ? 820 + 620 * k : 620 + 760 * k; // wail → yelp up close
     S.o1.frequency.setTargetAtTime(fq, now, 0.03); S.o2.frequency.setTargetAtTime(fq * 1.005, now, 0.03); S.gn.gain.setTargetAtTime(gain, now, 0.15); if (S.pan) S.pan.pan.setTargetAtTime(pan, now, 0.1);
   }
 
