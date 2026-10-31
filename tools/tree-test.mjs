@@ -29,5 +29,12 @@ for (const t of plan.trees) {
 // trunks never in a road, the water or a building
 for (const t of plan.trees) ok(!vols.some((v) => t.x > v[0] + 0.2 && t.x < v[1] - 0.2 && t.z > v[2] + 0.2 && t.z < v[3] - 0.2), `trunk inside a building at (${t.x.toFixed(1)}, ${t.z.toFixed(1)})`);
 const f = plan.crownFix, g = plan.crownFixLandmarks;
+// bark is single-sided: a trunk / limb with an open end or a gap between sections shows as a see-through hole. Every edge of
+// the trunk mesh above ground must be shared by exactly two triangles (only the buried root ring, 25 cm down, may be open).
+for (const [k, d] of Object.entries(S)) { const g = d.trunk, p = g.attributes.position, ix = (t) => (g.index ? g.index.getX(t) : t); const tris = (g.index ? g.index.count : p.count) / 3;
+  const key = (i) => `${p.getX(i).toFixed(4)},${p.getY(i).toFixed(4)},${p.getZ(i).toFixed(4)}`; const E = new Map();
+  for (let t = 0; t < tris; t++) { const v = [key(ix(t * 3)), key(ix(t * 3 + 1)), key(ix(t * 3 + 2))]; for (let e = 0; e < 3; e++) { const a = v[e], b = v[(e + 1) % 3]; if (a === b) continue; const kk = a < b ? a + '|' + b : b + '|' + a; E.set(kk, (E.get(kk) || 0) + 1); } }
+  let open = 0; for (const [kk, c] of E) if (c !== 2 && Math.max(...kk.split('|').map((q) => +q.split(',')[1])) > -0.1) open++;
+  ok(open === 0, `${k}: bark is watertight above ground (${open} open / non-manifold edges)`); }
 console.log(`trees: ${pass} passed, ${fail} failed · ${checked} trees clear (${n0} before the landmark pass) · fixed vs buildings: turned ${f.turned}, pruned ${f.pruned}, smaller ${f.shrunk}, species ${f.swapped || 0}, moved ${f.moved}, removed ${f.dropped} · vs landmarks: moved ${g.moved}, removed ${g.dropped}`);
 process.exit(fail ? 1 : 0);

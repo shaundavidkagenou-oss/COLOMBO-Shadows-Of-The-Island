@@ -20,23 +20,39 @@ function canopy(mb, cx, cy, cz, rx, ry, rz, cards, size, rng, tint = [1, 1, 1], 
     mb.nor[i * 3] = x / l; mb.nor[i * 3 + 1] = y / l; mb.nor[i * 3 + 2] = z / l;
   }
 }
-function trunk(mb, h, r0, r1, bend, rng, col = [0.42, 0.35, 0.28]) {
-  const seg = 6; let x = 0, z = 0; const dir = rng.next() * Math.PI * 2;
-  for (let k = 0; k < seg; k++) {
-    const y0 = (k / seg) * h, y1 = ((k + 1) / seg) * h; const ra = r0 + (r1 - r0) * (k / seg), rb = r0 + (r1 - r0) * ((k + 1) / seg);
-    const nx = x + Math.cos(dir) * bend * ((k + 1) / seg) ** 2 - Math.cos(dir) * bend * (k / seg) ** 2, nz = z + Math.sin(dir) * bend * ((k + 1) / seg) ** 2 - Math.sin(dir) * bend * (k / seg) ** 2;
-    const g = new THREE.CylinderGeometry(rb, ra, y1 - y0, 7, 1, true); const m = new THREE.Matrix4();
-    const mid = new THREE.Vector3((x + nx) / 2, (y0 + y1) / 2, (z + nz) / 2); const up = new THREE.Vector3(nx - x, y1 - y0, nz - z).normalize();
-    m.compose(mid, new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), up), new THREE.Vector3(1, 1, 1));
-    mb.geometry(g, m, col); g.dispose(); x = nx; z = nz;
-  }
-  return [x, h, z];
+// One continuous, closed tube along a centre line (parallel-transport frames): every ring is shared by the neighbouring
+// sections, so a bent trunk has no wedge gaps at its joints; the base flares into the ground and the top / limb tip is capped
+// with a short dome — no open ends to see through into the hollow inside (single-sided bark shows those as holes).
+function tubeGeo(pts, radii, sides, { capEnd = true, capStart = false, vLen = 1 } = {}) {
+  const n = pts.length, pos = [], nor = [], uv = [], idx = []; const T = [], N = [], B = [];
+  for (let i = 0; i < n; i++) { const a = pts[Math.max(0, i - 1)], b = pts[Math.min(n - 1, i + 1)]; T.push(b.clone().sub(a).normalize()); }
+  { const t = T[0]; const h = Math.abs(t.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0); N.push(h.sub(t.clone().multiplyScalar(h.dot(t))).normalize()); }
+  for (let i = 1; i < n; i++) { const v = N[i - 1].clone(); v.sub(T[i].clone().multiplyScalar(v.dot(T[i]))); if (v.lengthSq() < 1e-10) v.copy(N[i - 1]); N.push(v.normalize()); }
+  for (let i = 0; i < n; i++) B.push(T[i].clone().cross(N[i]));
+  let acc = 0; const _d = new THREE.Vector3();
+  for (let i = 0; i < n; i++) { if (i) acc += pts[i].distanceTo(pts[i - 1]); const dr = (radii[Math.min(n - 1, i + 1)] - radii[Math.max(0, i - 1)]) / Math.max(1e-4, pts[Math.min(n - 1, i + 1)].distanceTo(pts[Math.max(0, i - 1)]));
+    for (let k = 0; k <= sides; k++) { const an = (k / sides) * Math.PI * 2; _d.copy(N[i]).multiplyScalar(Math.cos(an)).addScaledVector(B[i], Math.sin(an));
+      const p = pts[i].clone().addScaledVector(_d, radii[i]); pos.push(p.x, p.y, p.z); const q = _d.clone().addScaledVector(T[i], -dr).normalize(); nor.push(q.x, q.y, q.z); uv.push(k / sides, acc / vLen); } }
+  const R = sides + 1; for (let i = 0; i < n - 1; i++) for (let k = 0; k < sides; k++) { const a = i * R + k, b = a + 1, c = a + R, d = c + 1; idx.push(a, b, c, b, d, c); } // outward (CCW seen from outside)
+  const cap = (i, sgn, dome) => { const t = T[i].clone().multiplyScalar(sgn); const tip = pts[i].clone().addScaledVector(t, radii[i] * dome); const c0 = pos.length / 3;
+    pos.push(tip.x, tip.y, tip.z); nor.push(t.x, t.y, t.z); uv.push(0.5, acc / vLen); const base = pos.length / 3;
+    for (let k = 0; k <= sides; k++) { const v = i * R + k; pos.push(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]); const q = new THREE.Vector3(nor[v * 3], nor[v * 3 + 1], nor[v * 3 + 2]).add(t).normalize(); nor.push(q.x, q.y, q.z); uv.push(k / sides, acc / vLen); }
+    for (let k = 0; k < sides; k++) { if (sgn > 0) idx.push(c0, base + k, base + k + 1); else idx.push(c0, base + k + 1, base + k); } };
+  if (capEnd) cap(n - 1, 1, 0.55); if (capStart) cap(0, -1, 0.3);
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); return g;
 }
+function trunk(mb, h, r0, r1, bend, rng, col = [0.42, 0.35, 0.28]) {
+  const seg = 12; const dir = rng.next() * Math.PI * 2; const pts = [], radii = [];
+  pts.push(new THREE.Vector3(0, -0.25, 0)); radii.push(r0 * 1.32); // buried root flare: the trunk meets the ground solidly
+  for (let k = 0; k <= seg; k++) { const u = k / seg; pts.push(new THREE.Vector3(Math.cos(dir) * bend * u * u, u * h, Math.sin(dir) * bend * u * u)); radii.push((r0 + (r1 - r0) * u) * (1 + 0.28 * Math.max(0, 1 - u * 7) ** 2)); }
+  const g = tubeGeo(pts, radii, 9, { capEnd: true, vLen: h / 6 }); mb.geometry(g, new THREE.Matrix4(), col); g.dispose();
+  return [Math.cos(dir) * bend, h, Math.sin(dir) * bend];
+}
+// a limb grows out of the trunk: it starts inside the trunk axis (no seam at the fork), curves gently upward and ends in a capped tip
 function limb(mb, from, to, r0, r1, col = [0.4, 0.33, 0.27]) {
-  const a = new THREE.Vector3(...from), b = new THREE.Vector3(...to); const len = a.distanceTo(b);
-  const g = new THREE.CylinderGeometry(r1, r0, len, 6, 1, true); const m = new THREE.Matrix4();
-  m.compose(a.clone().add(b).multiplyScalar(0.5), new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize()), new THREE.Vector3(1, 1, 1));
-  mb.geometry(g, m, col); g.dispose();
+  const a = new THREE.Vector3(...from), b = new THREE.Vector3(...to); const d = b.clone().sub(a); const start = a.clone().add(new THREE.Vector3(0, -0.35, 0)); // on the trunk axis, inside the trunk
+  const pts = [], radii = []; const n = 6; for (let k = 0; k <= n; k++) { const u = k / n; const p = start.clone().lerp(b, u); p.y += Math.sin(u * Math.PI) * d.length() * 0.06; pts.push(p); radii.push(r0 + (r1 - r0) * u); }
+  const g = tubeGeo(pts, radii, 7, { capEnd: true, capStart: true, vLen: Math.max(0.5, d.length() / 2) }); mb.geometry(g, new THREE.Matrix4(), col); g.dispose();
 }
 let S = null;
 // {type: {trunk, crown, mat}} — built once, deterministic (RNG 707)
