@@ -15,10 +15,78 @@ const IDLE_ACTS = [['phone', 3], ['text', 3], ['look', 2], ['stretch', 0.6], ['t
 export class Crowd {
   constructor(scene, collision, events) {
     this.scene = scene; this.collision = collision; this.events = events; this.peds = []; this.rng = new RNG(31337); this.max = 70; this.t = 0;
-    this.specs = []; this.poiGrid = new Map(); this.frame = 0;
+    this.specs = []; this.poiGrid = new Map(); this.frame = 0; this.stats = { goals: 0, planned: 0, fallback: 0, reversals: 0 };
     for (const p of plan.poi) { const k = this.key(p.x, p.z); let a = this.poiGrid.get(k); if (!a) this.poiGrid.set(k, (a = [])); a.push(p); }
-    this.graphFix = this.repairGraph(); this.mainComp = this.largestComponent();
+    this.graphFix = this.repairGraph(); this.mainComp = this.largestComponent(); this.prepCrossings();
   }
+  // Which road crossings people use: a painted zebra (main / secondary roads at junctions), a signalised junction, or a
+  // minor lane (no markings in real Colombo either). Junction corners on main roads without a zebra (bends, level
+  // crossings) are avoided by the route planner. Each crossing gets its kerb points ON the zebra stripes.
+  prepCrossings() {
+    const C = this.collision;
+    for (const E of L.pedEdges) {
+      if (E.type !== 'cross') continue; const sg = L.segments[E.seg], n = L.nodes[E.node]; const a = L.pedNodes[E.a], b = L.pedNodes[E.b];
+      E.zebra = !!(sg && n && sg.level <= 2 && !sg.crossing && n.segs.length >= 3); E.minor = !!(sg && sg.level >= 3); E.signal = !!(n && n.signal);
+      E.allowed = E.zebra || E.minor || E.signal; const hw = (sg ? sg.hw : 4) + 0.75;
+      const mk = (x, z, ax, az) => { for (const k of [0, 0.5, -0.5, 1, -1, 1.4, -1.4]) { const q = { x: x + ax * k, z: z + az * k }; if (!C || !C.blocked || !C.blocked(q.x, q.z, 0.22)) return q; } return { x, z }; };
+      if (E.axis === 'v') { const sz = Math.sign((a.z + b.z) / 2 - n.z) || 1; const z = E.zebra ? n.z + sz * (n.hwH + 2.5) : (a.z + b.z) / 2; E.along = [0, 1];
+        E.kerb = { [E.a]: mk(n.x + Math.sign(a.x - n.x) * hw, z, 0, sz), [E.b]: mk(n.x + Math.sign(b.x - n.x) * hw, z, 0, sz) }; }
+      else { const sx = Math.sign((a.x + b.x) / 2 - n.x) || 1; const x = E.zebra ? n.x + sx * (n.hwV + 2.5) : (a.x + b.x) / 2; E.along = [1, 0];
+        E.kerb = { [E.a]: mk(x, n.z + Math.sign(a.z - n.z) * hw, sx, 0), [E.b]: mk(x, n.z + Math.sign(b.z - n.z) * hw, sx, 0) }; }
+    }
+  }
+  // true when the straight line a→b runs over a carriageway (people only step onto the road at a crossing)
+  crossesRoad(ax, az, bx, bz) { const d = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.ceil(d / 0.7)); for (let i = 0; i <= n; i++) { const t = i / n; if (L.roadAt(ax + (bx - ax) * t, az + (bz - az) * t)) return true; } return false; }
+  // A* over the sidewalk graph: sidewalks cost their length, allowed crossings a little extra (waiting), crossings with
+  // no zebra are effectively forbidden. Returns the list of edge ids, or null.
+  route(from, goal) {
+    if (from === goal) return []; const N = L.pedNodes, E = L.pedEdges, G = N[goal]; const g = new Map([[from, 0]]), prev = new Map(), closed = new Set();
+    const h = (n) => Math.hypot(n.x - G.x, n.z - G.z); const heap = [[h(N[from]), from]];
+    const push = (it) => { heap.push(it); let i = heap.length - 1; while (i > 0) { const pi = (i - 1) >> 1; if (heap[pi][0] <= heap[i][0]) break; [heap[pi], heap[i]] = [heap[i], heap[pi]]; i = pi; } };
+    const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
+    let it = 0; while (heap.length && it++ < 8000) { const [, id] = pop(); if (id === goal) break; if (closed.has(id)) continue; closed.add(id); const gi = g.get(id);
+      for (const eid of N[id].edges) { const e = E[eid]; if (e.blocked) continue; const o = e.a === id ? e.b : e.a; if (closed.has(o)) continue; const c = e.type === 'cross' ? e.len + (e.allowed ? 8 : 900) : e.len; const ng = gi + c; if (ng < (g.get(o) ?? Infinity)) { g.set(o, ng); prev.set(o, eid); push([ng + h(N[o]), o]); } } }
+    if (!prev.has(goal)) return null; const out = []; let id = goal; while (id !== from) { const eid = prev.get(id); out.push(eid); const e = E[eid]; id = e.a === id ? e.b : e.a; }
+    out.reverse(); out.cost = g.get(goal); return out;
+  }
+  // graph node from which a point of interest is reached on foot without stepping onto a road (cached per POI)
+  poiNode(q) {
+    if (q._node !== undefined) return q._node; q._node = null; if (L.roadAt(q.x, q.z)) return null;
+    const cand = []; const i0 = Math.floor((q.x - 40) / 40), i1 = Math.floor((q.x + 40) / 40), j0 = Math.floor((q.z - 40) / 40), j1 = Math.floor((q.z + 40) / 40); this.nodesNear(q.x, q.z, 40);
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) for (const n of this.nodeGrid.get(i * 1000 + j) || []) { const d = Math.hypot(n.x - q.x, n.z - q.z); if (d < 40) cand.push([d, n]); }
+    cand.sort((a, b) => a[0] - b[0]); for (const [, n] of cand.slice(0, 10)) if (!this.crossesRoad(n.x, n.z, q.x, q.z)) { q._node = n.id; break; }
+    return q._node;
+  }
+  poiCap(q) { return q.type === 'chat' ? 3 : q.type === 'busStop' ? 5 : q.type === 'bench' ? (q.seats || 1) : 1; }
+  // Where this person is going: an errand (shop, vendor, bus stop, bench, lawn, a chat, a building door) or a destination
+  // further along the street that keeps their general heading. The whole walk is planned in advance (route()).
+  chooseGoal(p) {
+    const r = this.rng, here = L.pedNodes[p.node]; if (!here) return false;
+    if (p.heading === undefined) p.heading = r.range(-Math.PI, Math.PI);
+    for (let k = 0; k < 6; k++) {
+      let goal = null, poi = null;
+      if (!p.jog && r.chance(0.6)) { const pois = this.nearPOIs(here.x, here.z, 150).filter((q) => q.used < this.poiCap(q) && (q.type !== 'lawn' || !this.rain) && Math.hypot(q.x - here.x, q.z - here.z) > 6); if (pois.length) { const q = r.pick(pois); const nn = this.poiNode(q); if (nn !== null && this.comp[nn] === this.mainComp) { goal = nn; poi = q; } } }
+      if (goal === null) { const hx = Math.sin(p.heading), hz = Math.cos(p.heading); let best = null, bs = -Infinity; const span = p.jog ? [90, 260] : [60, 220];
+        for (let t = 0; t < 14; t++) { const a = p.heading + r.range(-1.2, 1.2), d = r.range(span[0], span[1]); const x = here.x + Math.sin(a) * d, z = here.z + Math.cos(a) * d; const n = this.nearestNode(x, z); if (!n || n.id === p.node) continue; const sc = ((n.x - here.x) * hx + (n.z - here.z) * hz) / (Math.hypot(n.x - here.x, n.z - here.z) || 1) + r.next() * 0.3; if (sc > bs) { bs = sc; best = n; } }
+        if (best) goal = best.id; }
+      if (goal === null) continue; const path = this.route(p.node, goal); if (!path || path.cost > 800 || (path.length && path[0] === p.lastEdge)) { p.heading += r.range(1, 2.5); continue; } // never straight back the way they came (after a stop they may turn round: lastEdge is cleared)
+      p.route = path; p.goalPoi = poi; p.goalNode = goal; this.stats.goals++; return true;
+    }
+    return false;
+  }
+  nearestNode(x, z) { let best = null, bd = Infinity; const i = Math.floor(x / 40), j = Math.floor(z / 40); this.nodesNear(x, z, 40); for (let a = i - 1; a <= i + 1; a++) for (let b = j - 1; b <= j + 1; b++) for (const n of this.nodeGrid.get(a * 1000 + b) || []) { const d = (n.x - x) ** 2 + (n.z - z) ** 2; if (d < bd) { bd = d; best = n; } } return best; }
+  // arrived next to the point of interest the walk was planned for: claim a place there (or plan something else)
+  beginPoi(p, q) {
+    p.goalPoi = null; if (q.used >= this.poiCap(q) || (q.type === 'lawn' && this.rain)) return false;
+    q.used++; p.poi = q; p.target = { x: q.x + this.rng.range(-0.4, 0.4), z: q.z + this.rng.range(-0.4, 0.4) };
+    if (q.type === 'bench') { // a real seat: one of the bench's places along its length, never a random spot in front of / inside the backrest
+      const n = q.seats || 1; q.slots ||= []; let si = 0; while (si < n - 1 && q.slots[si] && q.slots[si].poi === q && q.slots[si] !== p) si++; q.slots[si] = p;
+      const off = n > 1 ? (si - (n - 1) / 2) * 0.85 : 0, c = Math.cos(q.rot || 0), sn = Math.sin(q.rot || 0);
+      p.seat = { x: q.x + c * off, z: q.z - sn * off }; p.target = { x: p.seat.x + sn * 0.55, z: p.seat.z + c * 0.55 }; // walk up to the front of the seat, then sit back onto it
+    }
+    p.state = 'toPoi'; p.via = null; p.toKerb = false; return true;
+  }
+
   key(x, z) { return Math.floor(x / 40) * 1000 + Math.floor(z / 40); }
   // pre-built pool: one person of every adult preset first (so every type appears), then extra seeded variations
   prepareSpecs(n = 8) { for (let i = 0; i < n; i++) { const k = this.specs.length; const sp = randomSpec(9000 + k * 17, k < PRESETS.length ? { preset: PRESETS[k].id } : {}); this.specs.push(sp); new Character(sp).dispose(); } }
@@ -70,30 +138,30 @@ export class Crowd {
       const sp = this.pickSpec(n.x, n.z); if (!sp) continue;
       const ch = new Character(sp); this.scene.add(ch.root);
       const p = { ch, x: n.x + this.rng.range(-1, 1), z: n.z + this.rng.range(-1, 1), yaw: this.rng.range(-3, 3), speed: 0, state: 'walk', node: n.id, target: null, edge: null, lat: this.rng.range(-0.6, 0.6), pace: this.rng.range(1.15, 1.5) * (sp.age === 'elder' ? 0.75 : 1), timer: 0, act: null, react: 0, mood: 0, talkCd: 0, umbrella: this.rng.chance(0.5), crossing: false, id: this.rng.next(), sp, temper: this.rng.next(), vx: 0, vz: 0, stuckT: 0, stuckN: 0 };
-      if (this.collision.blocked(p.x, p.z, 0.3)) { p.x = n.x; p.z = n.z; } // jitter never puts anyone inside a kiosk / tree / wall
+      if (this.collision.blocked(p.x, p.z, 0.3) || L.roadAt(p.x, p.z)) { p.x = n.x; p.z = n.z; } // jitter never puts anyone inside a kiosk / tree / wall
       ch.crowdPed = p; this.pickNext(p); this.peds.push(p); this.place(p); return p;
     }
   }
   place(p) { p.y = this.collision.groundAt(p.x, p.z, 0.2); p.ch.root.position.set(p.x, p.y, p.z); p.ch.root.rotation.y = p.yaw; }
   pickNext(p) {
-    // chance to visit a POI near the current node
-    if (this.rng.chance(0.28)) {
-      const pois = this.nearPOIs(p.x, p.z, 30).filter((q) => q.used < (q.type === 'chat' ? 3 : q.type === 'busStop' ? 5 : q.type === 'bench' ? (q.seats || 1) : 1) && (q.type !== 'lawn' || !this.rain));
-      if (pois.length) { const q = this.rng.pick(pois); q.used++; p.poi = q; p.target = { x: q.x + this.rng.range(-0.4, 0.4), z: q.z + this.rng.range(-0.4, 0.4) };
-        if (q.type === 'bench') { // a real seat: one of the bench's places along its length, never a random spot in front of / inside the backrest
-          const n = q.seats || 1; q.slots ||= []; let si = 0; while (si < n - 1 && q.slots[si] && q.slots[si].poi === q && q.slots[si] !== p) si++; q.slots[si] = p;
-          const off = n > 1 ? (si - (n - 1) / 2) * 0.85 : 0, c = Math.cos(q.rot || 0), sn = Math.sin(q.rot || 0);
-          p.seat = { x: q.x + c * off, z: q.z - sn * off }; p.target = { x: p.seat.x + sn * 0.55, z: p.seat.z + c * 0.55 }; // walk up to the front of the seat, then sit back onto it
-        }
-        p.state = 'toPoi'; return; }
-    }
+    p.via = null; p.toKerb = false;
+    if (p.goalPoi && (!p.route || !p.route.length)) { if (this.beginPoi(p, p.goalPoi)) return; }
+    if (!p.route || !p.route.length) { p.goalPoi = null; if (!this.chooseGoal(p)) p.route = null; else if (!p.route.length && p.goalPoi && this.beginPoi(p, p.goalPoi)) return; }
     const n = L.pedNodes[p.node]; if (!n || !n.edges.length) { p.state = 'idle'; p.timer = 5; return; }
-    let opts = n.edges.filter((e) => e !== p.lastEdge); if (!opts.length) opts = n.edges;
-    const e = L.pedEdges[this.rng.pick(opts)]; const o = e.a === n.id ? e.b : e.a; const on = L.pedNodes[o];
+    let e = null;
+    if (p.route && p.route.length) { const eid = p.route.shift(); const c = L.pedEdges[eid]; if (c && (c.a === n.id || c.b === n.id)) e = c; else p.route = null; }
+    if (!e) { // no plan (isolated corner): one step along a sidewalk, never straight back and never over an unmarked main road
+      let opts = n.edges.filter((id) => id !== p.lastEdge && (L.pedEdges[id].type !== 'cross' || L.pedEdges[id].allowed)); if (!opts.length) opts = n.edges.filter((id) => L.pedEdges[id].type !== 'cross' || L.pedEdges[id].allowed); if (!opts.length) opts = n.edges;
+      e = L.pedEdges[this.rng.pick(opts)]; this.stats.fallback++; } else this.stats.planned++;
+    if (e.id === p.lastEdge) this.stats.reversals++;
+    const o = e.a === n.id ? e.b : e.a; const on = L.pedNodes[o];
     p.edge = e; p.lastEdge = e.id; p.nextNode = o; const dx = on.x - n.x, dz = on.z - n.z, len = Math.hypot(dx, dz) || 1;
-    const lat = e.type === 'cross' ? p.lat * 0.5 : p.lat * Math.min(1, (n.walkW || 2) * 0.35);
-    p.target = { x: on.x + (dz / len) * lat, z: on.z - (dx / len) * lat };
-    if (e.type === 'cross') { p.state = 'waitCross'; p.timer = 0; } else p.state = 'walk';
+    if (e.type === 'cross' && e.kerb) { // walk to the kerb ON the zebra, wait there, cross along the stripes, then on to the far corner
+      const k0 = e.kerb[n.id], k1 = e.kerb[o]; const off = clamp(p.lat, -0.6, 0.6) * (e.zebra ? 1.6 : 0.6); const ox = e.along[0] * off, oz = e.along[1] * off;
+      const C = this.collision, free = (k) => { const q = { x: k.x + ox, z: k.z + oz }; return C.blocked(q.x, q.z, 0.25) || L.roadAt(q.x, q.z) ? { x: k.x, z: k.z } : q; };
+      p.target = free(k0); p.via = [free(k1), { x: on.x, z: on.z }]; p.toKerb = true; p.state = 'walk'; e.used = (e.used || 0) + 1; return; }
+    const lat = p.lat * Math.min(1, (n.walkW || 2) * 0.35);
+    p.target = { x: on.x + (dz / len) * lat, z: on.z - (dx / len) * lat }; p.state = 'walk';
   }
   canCross(p) {
     const e = p.edge; const node = L.nodes[e.node]; if (node && node.signal) return L.pedSignal(node, e.axis, this.simTime);
@@ -108,13 +176,13 @@ export class Crowd {
   // restored afterwards (or the ped rejoins the walk graph if it ended up elsewhere), so nobody stays stuck reacting.
   isRoutine(st) { return st === 'walk' || st === 'toPoi' || st === 'waitCross' || st === 'idle' || st === 'shelter'; }
   react(p, state, timer, extra = {}) {
-    if (this.isRoutine(p.state)) p.routine = { state: p.state, target: p.target, node: p.node, nextNode: p.nextNode, edge: p.edge, poi: p.poi, x: p.x, z: p.z, timer: p.timer };
+    if (this.isRoutine(p.state)) p.routine = { state: p.state, target: p.target, node: p.node, nextNode: p.nextNode, edge: p.edge, poi: p.poi, x: p.x, z: p.z, timer: p.timer, via: p.via, toKerb: p.toKerb, route: p.route, goalPoi: p.goalPoi, crossing: p.crossing };
     if (p.sit) { p.sit = false; }
     p.state = state; p.timer = timer; p.rt = 0; Object.assign(p, extra); p.ch.anim.set(null);
   }
   endReaction(p) {
     const r = p.routine; p.routine = null; p.ch.anim.set(null); p.act = null; p.lookAt = null; p.ch.face.mood = 'neutral'; p.ch.face.talking = false; p.lookT = 0;
-    if (r && Math.hypot(r.x - p.x, r.z - p.z) < 4 && r.state !== 'idle') { p.state = r.state === 'shelter' ? 'walk' : r.state; p.target = r.target; p.node = r.node; p.nextNode = r.nextNode; p.edge = r.edge; p.poi = r.state === 'toPoi' ? r.poi : null; if (r.poi && r.state !== 'toPoi') r.poi.used = Math.max(0, r.poi.used - 1); if (p.state === 'waitCross') p.timer = 0; }
+    if (r && Math.hypot(r.x - p.x, r.z - p.z) < 4 && r.state !== 'idle') { p.state = r.state === 'shelter' ? 'walk' : r.state; p.target = r.target; p.node = r.node; p.nextNode = r.nextNode; p.edge = r.edge; p.via = r.via; p.toKerb = r.toKerb; p.route = r.route; p.goalPoi = r.goalPoi; p.crossing = r.crossing; p.poi = r.state === 'toPoi' ? r.poi : null; if (r.poi && r.state !== 'toPoi') r.poi.used = Math.max(0, r.poi.used - 1); if (p.state === 'waitCross') p.timer = 0; }
     else { if (r && r.poi) r.poi.used = Math.max(0, r.poi.used - 1); p.poi = null; this.returnToGraph(p); }
     p.stuckN = 0; p.stuckT = 0;
   }
@@ -192,20 +260,25 @@ export class Crowd {
       p.rt = (p.rt || 0) + dt;
       switch (p.state) {
         case 'walk': case 'toPoi': {
+          if (p.crossing && (!p.via || !p.via.length) && !L.roadAt(p.x, p.z)) p.crossing = false; // stepped up onto the far kerb
           tx = p.target.x; tz = p.target.z; desired = p.pace * (this.rain && !p.umbrellaOpen ? 1.35 : 1);
           if (p.act && p.ch.anim.action !== p.act) p.ch.anim.set(p.act);
           const d = Math.hypot(tx - p.x, tz - p.z);
           if (d < 1.4) desired *= clamp(d / 1.4, 0.45, 1); // ease in to targets
-          if (d < 0.6 || (p.state === 'toPoi' && d < 1.6 && p.stuckT > 0.6)) {
+          p.nearT = d < 1.5 ? (p.nearT || 0) + dt : 0; // circling a waypoint (turn rate vs speed): count it as reached instead of orbiting
+          if (d < 0.6 || (p.state === 'toPoi' && d < 1.6 && p.stuckT > 0.6) || (p.state === 'walk' && p.nearT > 1.2 && !p.crossing && !L.roadAt(tx, tz))) { p.nearT = 0;
             p.stuckN = 0; if (p.state === 'toPoi') this.startPoi(p);
+            else if (p.toKerb) { p.toKerb = false; p.state = 'waitCross'; p.timer = 0; } // at the kerb on the zebra: wait for a gap / the green man
+            else if (p.via && p.via.length) { p.target = p.via.shift(); } // reached the far kerb (crossing ends once off the carriageway, below)
             else { p.node = p.nextNode; p.crossing = false; this.pickNext(p); }
           }
           break;
         }
         case 'waitCross': {
-          const n = L.pedNodes[p.node]; tx = n.x; tz = n.z; desired = Math.hypot(tx - p.x, tz - p.z) > 0.5 ? p.pace : 0; p.timer += dt;
-          if (desired === 0) { const on = L.pedNodes[p.nextNode]; p.yaw = dampAngle(p.yaw, Math.atan2(on.x - p.x, on.z - p.z), 4, dt); if (p.timer > 4 && !p.ch.anim.action && this.rng.chance(0.01)) p.ch.anim.set('text'); }
-          if (this.canCross(p) && p.timer > 0.4 + p.id) { p.state = 'walk'; p.crossing = true; p.ch.anim.set(null); }
+          const kp = p.target || L.pedNodes[p.node]; tx = kp.x; tz = kp.z; desired = Math.hypot(tx - p.x, tz - p.z) > 0.5 ? p.pace * 0.6 : 0; p.timer += dt;
+          const far = (p.via && p.via[0]) || L.pedNodes[p.nextNode];
+          if (desired === 0) { p.yaw = dampAngle(p.yaw, Math.atan2(far.x - p.x, far.z - p.z), 4, dt); if (p.timer > 4 && !p.ch.anim.action && this.rng.chance(0.01)) p.ch.anim.set('text'); }
+          if (p.edge && p.edge.type === 'cross' && p.timer > 0.4 + p.id && this.canCross(p)) { p.state = 'walk'; p.crossing = true; if (p.ch.anim.action === 'text') p.ch.anim.set(null); if (p.via && p.via.length) p.target = p.via.shift(); }
           break;
         }
         case 'idle': {
@@ -220,7 +293,7 @@ export class Crowd {
           }
           if (p.poi && p.poi.type === 'vendor' && this.rng.chance(dt * 0.03) && dist < 20) { this.speak(p, 'vendor'); p.ch.face.set('smile', 2); }
           if (p.poi && p.poi.type === 'vendor' && p.poi.cart && lod < 3) routine(p, p.ch, dt, 'vendor', () => this.rng.next()); // a cart vendor serves, calls out, waits — not one frozen pose for two minutes
-          if (p.timer <= 0) { if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; } p.lookAt = null; p.ch.anim.set(null); p.ch.face.talking = false; p.act = null; p.sit = false; p.slideTo = null; p.speaking = false; this.pickNext(p); }
+          if (p.timer <= 0) { p.lastEdge = null; if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; } p.lookAt = null; p.ch.anim.set(null); p.ch.face.talking = false; p.act = null; p.sit = false; p.slideTo = null; p.speaking = false; this.pickNext(p); }
           break;
         }
         case 'shelter': { p.timer -= dt; desired = Math.hypot(p.target.x - p.x, p.target.z - p.z) > 0.6 ? 2.6 : 0; tx = p.target.x; tz = p.target.z; if (desired === 0 && p.ch.anim.action !== 'phone' && p.ch.anim.action !== 'look') p.ch.anim.set(this.rng.chance(0.5) ? 'phone' : 'look'); if (!this.rain || p.timer <= 0) { p.ch.anim.set(null); p.state = 'walk'; this.returnToGraph(p); } break; }
@@ -273,7 +346,7 @@ export class Crowd {
         case 'talkPlayer': { desired = 0; avoid = false; p.yaw = dampAngle(p.yaw, Math.atan2(player.x - p.x, player.z - p.z), 5, dt); p.ch.anim.look = 0; p.timer -= dt; if (p.timer <= 0) this.endReaction(p); break; }
       }
       // rain: umbrella or shelter
-      if (this.rain && (p.state === 'walk' || p.state === 'toPoi')) { if (p.umbrella) { p.umbrellaOpen = true; if (p.ch.anim.action !== 'umbrella') p.ch.anim.set('umbrella'); } else if (this.rng.chance(dt * 0.15)) { const sh = this.nearPOIs(p.x, p.z, 25).find((q) => q.type === 'busStop' || q.type === 'shop' || q.type === 'door'); if (sh) { p.state = 'shelter'; p.target = { x: sh.x, z: sh.z }; p.timer = 40; p.ch.face.set('concern', 2); } } }
+      if (this.rain && (p.state === 'walk' || p.state === 'toPoi')) { if (p.umbrella) { p.umbrellaOpen = true; if (p.ch.anim.action !== 'umbrella') p.ch.anim.set('umbrella'); } else if (this.rng.chance(dt * 0.15)) { const sh = this.nearPOIs(p.x, p.z, 25).find((q) => (q.type === 'busStop' || q.type === 'shop' || q.type === 'door') && !this.crossesRoad(p.x, p.z, q.x, q.z)); if (sh) { p.state = 'shelter'; p.target = { x: sh.x, z: sh.z }; p.timer = 40; p.ch.face.set('concern', 2); } } }
       else if ((!this.rain || !this.isRoutine(p.state)) && p.umbrellaOpen) { p.umbrellaOpen = false; if (p.ch.anim.action === 'umbrella') p.ch.anim.set(null); }
       if (p.umbrellaOpen && !p.umbrellaMesh) { p.umbrellaMesh = umbrellaMesh(p.id); p.ch.bones.handR.add(p.umbrellaMesh); } else if (!p.umbrellaOpen && p.umbrellaMesh) { p.umbrellaMesh.parent.remove(p.umbrellaMesh); p.umbrellaMesh = null; }
       if (p.umbrellaMesh) { /* the canopy only exists in the raised-arm pose: if another action took the arms (talk, phone, reaction), re-raise when free or hide it, never float it */ if (p.umbrellaOpen && p.ch.anim.action == null) p.ch.anim.set('umbrella'); p.umbrellaMesh.visible = p.ch.anim.action === 'umbrella'; }
@@ -333,8 +406,10 @@ export class Crowd {
       if (sp > 0.02 && (lod === 1 || p.mv > 0.1)) { p.mv = 0; const r = this.collision.resolveCircle(p.x, p.z, 0.28, p.y || 0.15, 0.3); if (r.hit) { const cx = r.x - p.x, cz = r.z - p.z, cl = Math.hypot(cx, cz); if (cl > 1e-4) { const vn = (p.vx * cx + p.vz * cz) / cl; if (vn < 0) { p.vx -= cx / cl * vn; p.vz -= cz / cl * vn; } } } p.x = r.x; p.z = r.z; }
       if (lod < 3 && p.state !== 'down') { // bodies are solid: never pass through another person
         const q = separate(fixed, p.x, p.z, p.y || 0.15, 0.27, p.ch, 0); if (q.hit) { const r2 = this.collision.resolveCircle(q.x, q.z, 0.28, p.y || 0.15, 0.3); p.x = r2.x; p.z = r2.z; p.vx *= 0.5; p.vz *= 0.5; }
-        if (lod === 1 && p.state !== 'idle') { const gi = Math.floor(p.x / 2), gj = Math.floor(p.z / 2); for (let i = gi - 1; i <= gi + 1; i++) for (let j = gj - 1; j <= gj + 1; j++) { const a = grid.get(i * 10000 + j); if (!a) continue; for (const o of a) { if (o === p || o.state === 'down') continue; const dx = p.x - o.x, dz = p.z - o.z, d2 = dx * dx + dz * dz; if (d2 < 0.2916 && d2 > 1e-8) { const d = Math.sqrt(d2), k = (0.54 - d) * 0.5; p.x += dx / d * k; p.z += dz / d * k; if (o.state !== 'idle') { o.x -= dx / d * k; o.z -= dz / d * k; } } } } }
+        if (lod === 1 && p.state !== 'idle') { const gi = Math.floor(p.x / 2), gj = Math.floor(p.z / 2); for (let i = gi - 1; i <= gi + 1; i++) for (let j = gj - 1; j <= gj + 1; j++) { const a = grid.get(i * 10000 + j); if (!a) continue; for (const o of a) { if (o === p || o.state === 'down') continue; const dx = p.x - o.x, dz = p.z - o.z, d2 = dx * dx + dz * dz; if (d2 < 0.2916 && d2 > 1e-8) { const d = Math.sqrt(d2), k = (0.54 - d) * 0.5; p.x += dx / d * k; p.z += dz / d * k; if (o.state !== 'idle' && (o.crossing || !L.roadAt(o.x - dx / d * k, o.z - dz / d * k))) { o.x -= dx / d * k; o.z -= dz / d * k; } } } } }
       }
+      // the kerb is a hard edge for anyone not crossing: crowding at a crossing or side-stepping never pushes people onto the road
+      if (!p.crossing && this.isRoutine(p.state) && L.roadAt(p.x, p.z) && !L.roadAt(ox, oz)) { p.x = ox; p.z = oz; p.vx *= 0.3; p.vz *= 0.3; }
       const moved = Math.hypot(p.x - ox, p.z - oz) / Math.max(dt, 1e-4); p.speed = moved;
       // --- stuck detection & staged recovery: sidestep → rejoin graph → new route → (off-screen only) recycle
       if (desired > 0.3 && p.state !== 'confront') {
@@ -381,8 +456,8 @@ export class Crowd {
     const cand = []; for (const n of this.nodesNear(p.x, p.z, 60)) { const d = (n.x - p.x) ** 2 + (n.z - p.z) ** 2; cand.push([d, n]); }
     if (!cand.length) for (const n of L.pedNodes) if (this.comp[n.id] === this.mainComp) cand.push([(n.x - p.x) ** 2 + (n.z - p.z) ** 2, n]);
     cand.sort((a, b) => a[0] - b[0]); let best = cand[0] && cand[0][1];
-    for (const [, n] of cand.slice(0, 8)) { let ok = true; for (const t of [0.33, 0.66]) if (this.collision.blocked(lerp(p.x, n.x, t), lerp(p.z, n.z, t), 0.25)) { ok = false; break; } if (ok && (!needClear || Math.hypot(n.x - p.x, n.z - p.z) > 0.8)) { best = n; break; } }
-    if (best) { p.node = best.id; p.nextNode = best.id; p.target = { x: best.x, z: best.z }; p.state = 'walk'; p.edge = null; }
+    const onRoad = !!L.roadAt(p.x, p.z); for (const [, n] of cand.slice(0, 12)) { let ok = onRoad || !this.crossesRoad(p.x, p.z, n.x, n.z); if (ok) for (const t of [0.33, 0.66]) if (this.collision.blocked(lerp(p.x, n.x, t), lerp(p.z, n.z, t), 0.25)) { ok = false; break; } if (ok && (!needClear || Math.hypot(n.x - p.x, n.z - p.z) > 0.8)) { best = n; break; } }
+    if (best) { p.node = best.id; p.nextNode = best.id; p.target = { x: best.x, z: best.z }; p.state = 'walk'; p.edge = null; p.via = null; p.toKerb = false; p.route = null; p.goalPoi = null; p.crossing = onRoad; }
   }
   // a punch from the player (fists): non-graphic — they stagger back off balance; a third blow in quick succession puts them on the
   // ground for a few seconds. Bystanders notice (alarm) and the stumble ends in a temper-dependent response, weighted towards
