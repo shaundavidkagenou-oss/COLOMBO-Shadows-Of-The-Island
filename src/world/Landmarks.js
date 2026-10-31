@@ -106,7 +106,7 @@ export function buildLandmarks() {
     for (let k = -3; k <= 3; k++) for (const sgn of [-1, 1]) { metal.box(x + k * 9, y0 + 4, z + sgn * 32.15, 0.35, 4.2, 0.35, { col: C('#bdb9b0') }); metal.box(x + sgn * 32.15, y0 + 4, z + k * 9, 0.35, 4.2, 0.35, { col: C('#bdb9b0') }); }
     // ---- stem: 200 m reinforced-concrete shaft (real tower: ~350 m overall — 4-storey podium, ~200 m shaft, 8-floor bud, mast).
     // Vivid green, flared where it meets the podium, eight shallow vertical flutes, a horizontal panel joint every 4.5 m.
-    const SH = 200, sy = y0 + 17;
+    const SH = 200, sy = y0 + 14; // stem lands ON the upper podium roof (y0 + 8 + 6): it used to start at +17, leaving a 3 m see-through gap
     const R = (h) => { let r = 11 - 4.6 * Math.pow(h / SH, 0.85); if (h < 22) r += 5.5 * Math.pow(1 - h / 22, 2); if (h > 188) r -= 0.7 * smooth01((h - 188) / 12); return r; };
     {
       const rows = []; for (let j = 0; j <= SH; j += 9) { if (j > 0) rows.push([j - 0.1, 1]); rows.push([j, 0]); if (j < SH) rows.push([j + 0.1, 1]); for (const f of [1.5, 3, 4.5, 6, 7.5]) if (j + f < SH - 0.2) rows.push([j + f, 0]); } rows.push([SH, 0]); rows.sort((a, b) => a[0] - b[0]);

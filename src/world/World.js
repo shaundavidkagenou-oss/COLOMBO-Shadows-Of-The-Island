@@ -60,7 +60,7 @@ export class World {
     progress(0.86, 'Filling the ocean and Beira Lake'); await tick();
     this.water = buildWater(); this.root.add(this.water); this.waterRefl = new WaterReflection(this.water);
     progress(0.9, 'Outer suburbs'); await tick();
-    this.buildOuterRing();
+    this.buildOuterRing(); this.buildBoundary();
     // point-light pool for nearby street lamps at night (fixed count to avoid shader recompiles)
     // Street lamps near the camera are real lights: a downward spotlight (the lamp's optic throws light onto the road and
     // pavement, not sideways through walls) that lights people, cars and kerbs; on high/ultra the two nearest also cast real
@@ -74,6 +74,52 @@ export class World {
     // every frame (updateMatrixWorld skips these subtrees). Visual output is identical.
     for (const c of this.chunks) freezeStatic(c.group); freezeStatic(this.parks); freezeStatic(this.outer);
     progress(1, 'City ready');
+  }
+  // The edge of the playable map is a solid, visible boundary — never an invisible wall at the end of a street.
+  // Streets no longer run into the edge (Layout drops those segments, so they end in T-junctions with the perimeter
+  // roads), and the edge blocks stop EDGE_SETBACK short of it. In that gap:
+  //  * east (x = maxX): a plastered compound wall with pillars and coping, 3 m high, behind the last row of buildings;
+  //  * north (z = minZ, east of the harbour): a concrete quay face down to the water and a seafront parapet;
+  //  * south: the far embankment wall of the Dehiwala Canal (the real city boundary), rising out of the water.
+  // Each one's collider sits in front of the old bounds clamp, so the player is always stopped by something visible.
+  // Both railway lines run off the edge past their terminus stations: they end at buffer stops in front of the wall.
+  buildBoundary() {
+    const mb = new MultiBuilder(); const conc = mb.get('concrete'); const metal = mb.get('metal'); const B = L.BOUNDS, LY = L.LAND_Y;
+    const C = (hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; };
+    const plaster = C('#e2dccb'), grime = C('#8f897c'), cap = C('#c9c2b1'), quay = C('#9a968c');
+    const colliders = [];
+    // a wall run along x (dir 'x') or z (dir 'z'); y from yb to LY + h; split into 40 m pieces for the collision grid
+    const run = (dir, a0, a1, c0, c1, h, yb = LY, outer = null) => {
+      const t = c1 - c0, cc = (c0 + c1) / 2, len = a1 - a0, ac = (a0 + a1) / 2, top = LY + h;
+      const bx = (al, l, y, hh, tt, col) => dir === 'x' ? conc.box(al, y, cc, l, hh, tt, { col, uvScale: 2 }) : conc.box(cc, y, al, tt, hh, l, { col, uvScale: 2 });
+      bx(ac, len, (yb + top) / 2, top - yb, t, plaster);
+      bx(ac, len, LY + 0.2, 0.4, t + 0.04, grime); // splash band at the foot, 2 cm proud each side
+      bx(ac, len + 0.06, top + 0.05, 0.1, t + 0.14, cap); // coping
+      for (let a = a0; a <= a1 + 0.01; a += 5) bx(Math.min(a1 - 0.25, Math.max(a0 + 0.25, a)), 0.5, (Math.max(yb, LY) + top + 0.18) / 2, top + 0.18 - Math.max(yb, LY), t + 0.16, plaster); // pillars every 5 m
+      for (let a = a0; a < a1; a += 40) { const b = Math.min(a1, a + 40); const o = outer || [c0, c1]; colliders.push(dir === 'x' ? { x0: a, x1: b, z0: o[0], z1: o[1], h: top, kind: 'wall', id: 'boundary' } : { x0: o[0], x1: o[1], z0: a, z1: b, h: top, kind: 'wall', id: 'boundary' }); }
+    };
+    const ex0 = B.maxX - L.EDGE_SETBACK + 0.05, ex1 = ex0 + 0.4; // east wall line
+    const nz1 = B.minZ + L.EDGE_SETBACK - 0.05, nz0 = nz1 - 0.4; // north parapet line
+    const canal = L.CANALS[L.CANALS.length - 1]; const sz0 = canal.z1 - 2.6, sz1 = sz0 + 0.4; // south: inside the canal's far edge
+    // east: on land from the north parapet to the canal, then rising out of the canal bed across it
+    run('z', nz0, canal.z0, ex0, ex1, 3.0, LY, [ex0, B.maxX + 1]);
+    run('z', canal.z0, sz1, ex0, ex1, 3.0, -2.6, [ex0, B.maxX + 1]);
+    // north: quay face from the harbour quay (x 230) to the east wall + a 1.15 m seafront parapet
+    for (let x = 230; x < ex0; x += 4) { const x1 = Math.min(ex0, x + 4); conc.quad([x1, -2.6, B.minZ], [x, -2.6, B.minZ], [x, LY, B.minZ], [x1, LY, B.minZ], [0, 0, (x1 - x) / 4, 0.8], quay); } // wound to face −z (the water)
+    run('x', 230, ex0, nz0, nz1, 1.15, LY, [B.minZ - 1, nz1]);
+    // south: the canal's far embankment wall, from the coast to the east wall
+    const sx0 = L.coastX(canal.z1) + 1; run('x', sx0, ex1, sz0, sz1, 2.4, -2.6, [sz0, B.maxZ + 1]);
+    // buffer stops where the two lines meet the boundary (trains terminate at Maradana / Wellawatte, well short of them)
+    const buffer = (x, z, yaw) => { const cs = Math.cos(yaw), sn = Math.sin(yaw); const P = (u, v) => [x + u * cs + v * sn, z - u * sn + v * cs];
+      for (const v of [-0.75, 0.75]) { const [px, pz] = P(0, v); metal.box(px, LY + 0.55, pz, 0.25, 1.1, 0.25, { col: C('#3a3d40') }); }
+      const [bxx, bzz] = P(0, 0); const along = Math.abs(cs) > 0.5; metal.box(bxx, LY + 0.95, bzz, along ? 0.3 : 2.4, 0.32, along ? 2.4 : 0.3, { col: C('#c8302a') });
+      for (const v of [-0.6, 0, 0.6]) { const [qx, qz] = P(-0.16, v); metal.box(qx, LY + 0.95, qz, along ? 0.02 : 0.3, 0.33, along ? 0.3 : 0.02, { col: C('#f2f0ea') }); }
+      colliders.push({ x0: bxx - 1.3, x1: bxx + 1.3, z0: bzz - 1.3, z1: bzz + 1.3, h: LY + 1.15, kind: 'wall' }); };
+    const railEast = L.RAIL[L.RAIL.length - 1], railSouth = L.RAIL[0];
+    if (railEast[0] >= B.maxX - 1) buffer(ex0 - 4, railEast[1], 0);
+    if (railSouth[1] >= B.maxZ - 1) buffer(railSouth[0], sz0 - 4, -Math.PI / 2);
+    const g = new THREE.Group(); g.name = 'boundary'; for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) g.add(m); this.boundary = g; this.root.add(g);
+    this.collision.addAll(colliders);
   }
   // Low-detail skyline beyond the playable bounds (Dehiwala, Rajagiriya, Kelaniya) so the horizon isn't empty.
   buildOuterRing() {
