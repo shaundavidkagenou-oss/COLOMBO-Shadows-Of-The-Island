@@ -1019,6 +1019,17 @@ export class Animator {
           if (sw) { ikT('L', 0.05, -0.2, 0.25); ikT('R', 0.03 - k * 0.05, -0.19, 0.26); } else { ikT('R', -0.05, -0.2, 0.25); ikT('L', -0.03 + k * 0.05, -0.19, 0.26); } b.neck.rotation.x += 0.3 * aw; break; }
         case 'straps': { const k = Math.sin(clamp(at / 0.8, 0, 1) * Math.PI); ikT('L', 0.1, 0.03 - k * 0.07, 0.15); ikT('R', -0.1, 0.03 - k * 0.07, 0.15); b.neck.rotation.z += Math.sin(clamp(at / 0.9, 0, 1) * Math.PI * 2) * 0.12 * aw; b.spine.rotation.x -= 0.05 * k * aw; break; } // tug the vest straps down, roll the neck
         case 'glasses': { const k = Math.sin(clamp(at / 0.9, 0, 1) * Math.PI); ikT('R', -0.02, 0.17 + k * 0.1, 0.17); b.neck.rotation.x -= 0.06 * k * aw; head = -0.05; break; } // push the glasses up the bridge
+        // ---- street life (StreetLife.js drives the parameters; targets are chest-space, unscaled)
+        case 'smoke': { // cigarette: relaxed hand at the hip ↔ filter at the lips (smokeK 0..1); smokeAdj = per-person lip correction
+          const k = clamp(this.smokeK ?? 0, 0, 1), e = k * k * (3 - 2 * k), a = this.smokeAdj; const mx = -0.05 + (a ? a.x : 0), my = 0.2 + (a ? a.y : 0), mz = 0.17 + (a ? a.z : 0);
+          ikT('R', lerp(-0.2, mx, e), lerp(-0.29, my, e), lerp(0.1, mz, e)); if (this.smokeLight > 0) { const l = clamp(this.smokeLight, 0, 1); ikT('L', lerp(0.16, 0.02, l), lerp(-0.28, 0.17, l), lerp(0.08, 0.19, l)); }
+          head = -0.1 * e; b.neck.rotation.x -= 0.04 * e * aw; break; }
+        case 'paper': { // newspaper held open in both hands (prop on the chest bone); paperFlip 0..1 turns a page right → left
+          const f = clamp(this.paperFlip ?? 0, 0, 1), fl = Math.sin(f * Math.PI); ikT('L', 0.255, -0.075, 0.3); ikT('R', lerp(-0.255, 0.17, f), -0.075 + fl * 0.05, 0.3 + fl * 0.09);
+          b.neck.rotation.x += 0.28 * aw; head = Math.sin(t * 0.35) * 0.08; break; }
+        case 'cuffed': ikT('L', 0.07, -0.3, -0.12); ikT('R', -0.07, -0.3, -0.12); b.neck.rotation.x += 0.18 * aw; b.chest.rotation.x += 0.05 * aw; break; // hands behind the back
+        case 'guard': { const sw = Math.sin(t * 2.3 + this.seed * 5) * 0.015; ikT('L', 0.1, 0.12 + sw, 0.27); ikT('R', -0.11, 0.09 - sw, 0.23); b.spine.rotation.x += 0.12 * aw; b.neck.rotation.x += 0.1 * aw; break; } // fists up
+        case 'hold': if (this.holdL) ikT('L', this.holdL.x, this.holdL.y, this.holdL.z); if (this.holdR) ikT('R', this.holdR.x, this.holdR.y, this.holdR.z); break; // hands on a partner / a suspect's arm (targets set each frame)
         case 'rise': { const k = Math.max(0, 1 - at / 0.55); ikT('R', -0.12, -0.32 - 0.06 * k, 0.26); b.spine.rotation.x += 0.25 * k * aw; break; } // push off the knee and stand
       }
       if (tl) aL = blend(aL, tl, aw); if (tr) aR = blend(aR, tr, aw); if (tfl) fL = blend(fL, tfl, aw); if (tfr) fR = blend(fR, tfr, aw); if (head !== null && head !== undefined) b.head.rotation.y = lerp(b.head.rotation.y, head, aw);
@@ -1039,6 +1050,7 @@ export class Animator {
     if (!seated && !this.ik) for (const [S, x, y, z, w] of actIK) solveArmIK(b, S, _ikv.set(x, y, z), null, w);
     if (this.ik && !seated) { if (this.ik.R) solveArmIK(b, 'R', this.ik.R, this.ik.qR, this.ik.wR ?? 1); if (this.ik.L) solveArmIK(b, 'L', this.ik.L, this.ik.qL, this.ik.wL ?? 1); }
     if (seated) applySeatPose(this, dt);
+    if (this.nearLean && !seated) { const l = this.nearLean; b.spine.rotation.x += l.s || 0; b.chest.rotation.x += l.c || 0; b.neck.rotation.x += l.p || 0; b.head.rotation.z += l.r || 0; b.head.rotation.y += l.y || 0; } // StreetLife: leaning in for a hug / kiss
     if (this.duck > 0.001) { const d = Math.min(1, this.duck); b.spine.rotation.x += 0.42 * d; b.chest.rotation.x += 0.22 * d; b.neck.rotation.x += 0.32 * d; } // ducking under a low roof line while getting in / out
     else if (A_ === 'ride' && aw > 0) { b.thighL.rotation.set(-1.2, 0, -0.25); b.thighR.rotation.set(-1.2, 0, 0.25); b.shinL.rotation.x = 1.3; b.shinR.rotation.x = 1.3; b.footL.rotation.x = 0; b.footR.rotation.x = 0; b.hips.position.y = this.ch.hipY - 0.15; b.hips.position.x = 0; b.hips.rotation.set(0, 0, 0); }
     this.driveSkirt();

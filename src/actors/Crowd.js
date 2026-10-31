@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import * as L from '../world/Layout.js';
 import { plan } from '../world/CityPlan.js';
 import { Character, randomSpec } from './Character.js';
+import { StreetLife } from './StreetLife.js';
 import { separate } from './Bodies.js';
 import { PRESETS, lookKey, profileActivity } from './Appearance.js';
 import { RNG } from '../core/rng.js';
@@ -14,10 +15,10 @@ import { LINES, pick } from '../story/Lines.js';
 const IDLE_ACTS = [['phone', 3], ['text', 3], ['look', 2], ['stretch', 0.6], ['talk', 1], ['dance', 0.35], ['wave', 0.6], ['clap', 0.25], [null, 4]];
 export class Crowd {
   constructor(scene, collision, events) {
-    this.scene = scene; this.collision = collision; this.events = events; this.peds = []; this.rng = new RNG(31337); this.max = 70; this.t = 0;
+    this.scene = scene; this.collision = collision; this.events = events; this.peds = []; this.rng = new RNG(31337); this.max = 70; this.t = 0; this.police = null;
     this.specs = []; this.poiGrid = new Map(); this.frame = 0; this.stats = { goals: 0, planned: 0, fallback: 0, reversals: 0 };
     for (const p of plan.poi) { const k = this.key(p.x, p.z); let a = this.poiGrid.get(k); if (!a) this.poiGrid.set(k, (a = [])); a.push(p); }
-    this.graphFix = this.repairGraph(); this.mainComp = this.largestComponent(); this.prepCrossings();
+    this.graphFix = this.repairGraph(); this.mainComp = this.largestComponent(); this.prepCrossings(); this.life = new StreetLife(this);
   }
   // Which road crossings people use: a painted zebra (main / secondary roads at junctions), a signalised junction, or a
   // minor lane (no markings in real Colombo either). Junction corners on main roads without a zebra (bends, level
@@ -136,15 +137,27 @@ export class Crowd {
       const d = Math.hypot(n.x - focus.x, n.z - focus.z); if (d > (near ? 70 : 130) || d < (near ? 8 : 40)) continue;
       if (!near && camDir && d < 90) { const dot = ((n.x - focus.x) * camDir.x + (n.z - focus.z) * camDir.z) / d; if (dot > 0.55) continue; }
       const sp = this.pickSpec(n.x, n.z); if (!sp) continue;
-      const ch = new Character(sp); this.scene.add(ch.root);
-      const p = { ch, x: n.x + this.rng.range(-1, 1), z: n.z + this.rng.range(-1, 1), yaw: this.rng.range(-3, 3), speed: 0, state: 'walk', node: n.id, target: null, edge: null, lat: this.rng.range(-0.6, 0.6), pace: this.rng.range(1.15, 1.5) * (sp.age === 'elder' ? 0.75 : 1), timer: 0, act: null, react: 0, mood: 0, talkCd: 0, umbrella: this.rng.chance(0.5), crossing: false, id: this.rng.next(), sp, temper: this.rng.next(), vx: 0, vz: 0, stuckT: 0, stuckN: 0 };
-      if (this.collision.blocked(p.x, p.z, 0.3) || L.roadAt(p.x, p.z)) { p.x = n.x; p.z = n.z; } // jitter never puts anyone inside a kiosk / tree / wall
-      ch.crowdPed = p; this.pickNext(p); this.peds.push(p); this.place(p); return p;
+      const p = this.makePed(sp, n.x + this.rng.range(-1, 1), n.z + this.rng.range(-1, 1), n.id); this.pickNext(p); return p;
     }
   }
+  // one crowd pedestrian at (x,z) on walk-graph node nodeId (also used by StreetLife for couples); caller picks the route
+  makePed(sp, x, z, nodeId) {
+    const n = L.pedNodes[nodeId]; const ch = new Character(sp); this.scene.add(ch.root);
+    const p = { ch, x, z, yaw: this.rng.range(-3, 3), speed: 0, state: 'walk', node: nodeId, target: null, edge: null, lat: this.rng.range(-0.6, 0.6), pace: this.rng.range(1.15, 1.5) * (sp.age === 'elder' ? 0.75 : 1), timer: 0, act: null, react: 0, mood: 0, talkCd: 0, umbrella: this.rng.chance(0.5), crossing: false, id: this.rng.next(), sp, temper: this.rng.next(), vx: 0, vz: 0, stuckT: 0, stuckN: 0 };
+    if (this.collision.blocked(p.x, p.z, 0.3) || L.roadAt(p.x, p.z)) { p.x = n.x; p.z = n.z; } // jitter never puts anyone inside a kiosk / tree / wall
+    // runners: early morning and late afternoon along the roads and the park (Galle Face, Viharamahadevi)
+    const h = this.hour ?? 12, jogK = (h >= 5 && h < 9) || (h >= 16 && h < 19) ? 0.09 : h >= 9 && h < 22 ? 0.015 : 0;
+    if (sp.age !== 'elder' && !this.rain && this.rng.chance(jogK)) { p.jog = true; p.pace = this.rng.range(2.6, 3.2); p.umbrella = false; this.life.stats.jog++; }
+    ch.crowdPed = p; this.peds.push(p); this.place(p); return p;
+  }
+  // hand a person over to another system (police arrest): no longer updated or despawned by the crowd, not disposed
+  release(p) { const i = this.peds.indexOf(p); if (i >= 0) this.peds.splice(i, 1); this.life.forget(p); if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; } p.ch.crowdPed = null; p.ch.anim.nearLean = null; p.ch.anim.holdL = p.ch.anim.holdR = null; }
+  remove(p) { const i = this.peds.indexOf(p); if (i >= 0) this.peds.splice(i, 1); this.despawn(p); }
   place(p) { p.y = this.collision.groundAt(p.x, p.z, 0.2); p.ch.root.position.set(p.x, p.y, p.z); p.ch.root.rotation.y = p.yaw; }
   pickNext(p) {
     p.via = null; p.toKerb = false;
+    if (p.coupleSpot && (!p.route || !p.route.length) && this.life.coupleArrive(p)) return;
+    if (this.life && p.state === 'walk' && !p.crossing && p.route && p.route.length > 1 && this.rng.chance(0.15) && this.life.maybeStop(p)) return;
     if (p.goalPoi && (!p.route || !p.route.length)) { if (this.beginPoi(p, p.goalPoi)) return; }
     if (!p.route || !p.route.length) { p.goalPoi = null; if (!this.chooseGoal(p)) p.route = null; else if (!p.route.length && p.goalPoi && this.beginPoi(p, p.goalPoi)) return; }
     const n = L.pedNodes[p.node]; if (!n || !n.edges.length) { p.state = 'idle'; p.timer = 5; return; }
@@ -176,6 +189,7 @@ export class Crowd {
   // restored afterwards (or the ped rejoins the walk graph if it ended up elsewhere), so nobody stays stuck reacting.
   isRoutine(st) { return st === 'walk' || st === 'toPoi' || st === 'waitCross' || st === 'idle' || st === 'shelter'; }
   react(p, state, timer, extra = {}) {
+    if (p.scene || p.benchRead) { this.life.interrupt(p); if (p.state === 'scene') p.state = 'walk'; }
     if (this.isRoutine(p.state)) p.routine = { state: p.state, target: p.target, node: p.node, nextNode: p.nextNode, edge: p.edge, poi: p.poi, x: p.x, z: p.z, timer: p.timer, via: p.via, toKerb: p.toKerb, route: p.route, goalPoi: p.goalPoi, crossing: p.crossing };
     if (p.sit) { p.sit = false; }
     p.state = state; p.timer = timer; p.rt = 0; Object.assign(p, extra); p.ch.anim.set(null);
@@ -231,7 +245,8 @@ export class Crowd {
   }
   update(dt, focus, camDir, ctx) {
     this.t += dt; this.frame++; this.simTime = ctx.simTime; this.vehicles = ctx.vehicles; this.rain = ctx.rain > 0.4; this.night = ctx.night; this.hour = ctx.hour ?? this.hour;
-    const player = ctx.player; this.camDir = camDir; this.focus = focus;
+    const player = ctx.player; this.camDir = camDir; this.focus = focus; if (ctx.police !== undefined) this.police = ctx.police;
+    this.life.update(dt, ctx);
     // spawn / despawn (despawn only far away / out of view)
     for (let i = this.peds.length - 1; i >= 0; i--) { const p = this.peds[i]; if ((Math.hypot(p.x - focus.x, p.z - focus.z) > 165 && !p.keep) || p.recycle) { this.despawn(p); this.peds.splice(i, 1); } }
     const want = Math.round(this.max * (ctx.hourFactor ?? 1) * (this.rain ? 0.65 : 1));
@@ -277,12 +292,12 @@ export class Crowd {
         case 'waitCross': {
           const kp = p.target || L.pedNodes[p.node]; tx = kp.x; tz = kp.z; desired = Math.hypot(tx - p.x, tz - p.z) > 0.5 ? p.pace * 0.6 : 0; p.timer += dt;
           const far = (p.via && p.via[0]) || L.pedNodes[p.nextNode];
-          if (desired === 0) { p.yaw = dampAngle(p.yaw, Math.atan2(far.x - p.x, far.z - p.z), 4, dt); if (p.timer > 4 && !p.ch.anim.action && this.rng.chance(0.01)) p.ch.anim.set('text'); }
-          if (p.edge && p.edge.type === 'cross' && p.timer > 0.4 + p.id && this.canCross(p)) { p.state = 'walk'; p.crossing = true; if (p.ch.anim.action === 'text') p.ch.anim.set(null); if (p.via && p.via.length) p.target = p.via.shift(); }
+          if (desired === 0) { p.yaw = dampAngle(p.yaw, Math.atan2(far.x - p.x, far.z - p.z), 4, dt); if (p.jog) { if (p.ch.anim.action !== 'hips') p.ch.anim.set('hips'); } else if (p.timer > 4 && !p.ch.anim.action && this.rng.chance(0.01)) p.ch.anim.set('text'); }
+          if (p.edge && p.edge.type === 'cross' && p.timer > 0.4 + p.id && this.canCross(p)) { p.state = 'walk'; p.crossing = true; if (p.ch.anim.action === 'text' || p.ch.anim.action === 'hips') p.ch.anim.set(null); if (p.via && p.via.length) p.target = p.via.shift(); }
           break;
         }
         case 'idle': {
-          p.timer -= dt; desired = 0; avoid = false; if (p.poi) p.yaw = dampAngle(p.yaw, p.poi.rot ?? p.yaw, 4, dt);
+          p.timer -= dt; desired = 0; avoid = false; if (p.poi) p.yaw = dampAngle(p.yaw, p.poi.rot ?? p.yaw, 4, dt); if (p.benchRead) this.life.benchStep(p, dt);
           if (p.slideTo) { const dx = p.slideTo.x - p.x, dz = p.slideTo.z - p.z, l = Math.hypot(dx, dz), st = Math.min(l, dt * 0.9); if (l > 0.01) { p.x += dx / l * st; p.z += dz / l * st; } else p.slideTo = null; } // settle back onto the seat while sitting down
           if (p.lookAt) { p.yaw = dampAngle(p.yaw, Math.atan2(p.lookAt.x - p.x, p.lookAt.z - p.z), 3, dt); }
           if (p.poi && p.poi.type === 'busStop' && this.rng.chance(dt * 0.01)) this.speak(p, 'bus');
@@ -293,10 +308,11 @@ export class Crowd {
           }
           if (p.poi && p.poi.type === 'vendor' && this.rng.chance(dt * 0.03) && dist < 20) { this.speak(p, 'vendor'); p.ch.face.set('smile', 2); }
           if (p.poi && p.poi.type === 'vendor' && p.poi.cart && lod < 3) routine(p, p.ch, dt, 'vendor', () => this.rng.next()); // a cart vendor serves, calls out, waits — not one frozen pose for two minutes
-          if (p.timer <= 0) { p.lastEdge = null; if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; } p.lookAt = null; p.ch.anim.set(null); p.ch.face.talking = false; p.act = null; p.sit = false; p.slideTo = null; p.speaking = false; this.pickNext(p); }
+          if (p.timer <= 0 && !p.benchRead) { p.lastEdge = null; if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; } p.lookAt = null; p.ch.anim.set(null); p.ch.face.talking = false; p.act = null; p.sit = false; p.slideTo = null; p.speaking = false; this.pickNext(p); }
           break;
         }
         case 'shelter': { p.timer -= dt; desired = Math.hypot(p.target.x - p.x, p.target.z - p.z) > 0.6 ? 2.6 : 0; tx = p.target.x; tz = p.target.z; if (desired === 0 && p.ch.anim.action !== 'phone' && p.ch.anim.action !== 'look') p.ch.anim.set(this.rng.chance(0.5) ? 'phone' : 'look'); if (!this.rain || p.timer <= 0) { p.ch.anim.set(null); p.state = 'walk'; this.returnToGraph(p); } break; }
+        case 'scene': { const r = this.life.step(p, dt, ctx); desired = r.desired || 0; if (r.tx !== undefined && r.tx !== null) { tx = r.tx; tz = r.tz; } avoid = r.avoid ?? false; if (r.accel) accel = r.accel; break; } // StreetLife activity
         // ---- reactions
         case 'dodge': { p.timer -= dt; tx = p.x + p.dodge[0] * 3; tz = p.z + p.dodge[1] * 3; desired = 4.2; accel = 9; avoid = false; if (p.timer <= 0) { if (this.rng.chance(0.35)) { p.state = 'flee'; p.timer = 2 + this.rng.next() * 2; p.fleeDir = this.spread(p.dodge[0], p.dodge[1], 0.6); p.fleeSp = 3; p.ch.anim.set(null); } else this.endReaction(p); } break; }
         case 'flee': { p.timer -= dt; const fd = p.fleeDir || (() => { const ax = p.x - player.x, az = p.z - player.z, d = Math.hypot(ax, az) || 1; return [ax / d, az / d]; })(); tx = p.x + fd[0] * 5; tz = p.z + fd[1] * 5; desired = p.fleeSp || 4; accel = 6;
@@ -376,7 +392,7 @@ export class Crowd {
             const sameDir = (ovx * dir[0] + ovz * dir[1]); if (ahead < 1.3 && Math.abs(lat) < 0.55) { slow = Math.min(slow, sameDir > 0.2 ? clamp(sameDir / desired, 0.2, 1) : clamp((d - 0.55) / 0.9, 0, 1)); if (slow < 0.35) blockedBy = o; } }
           if (d < rad * 0.9) { dvx -= rx / d * (rad * 0.9 - d) * 2.5; dvz -= rz / d * (rad * 0.9 - d) * 2.5; }
         };
-        for (let i = gi - 2; i <= gi + 2; i++) for (let j = gj - 2; j <= gj + 2; j++) { const a = grid.get(i * 10000 + j); if (!a) continue; for (const o of a) if (o !== p) consider(o, o.x, o.z, o.vx || 0, o.vz || 0, 0.75); }
+        for (let i = gi - 2; i <= gi + 2; i++) for (let j = gj - 2; j <= gj + 2; j++) { const a = grid.get(i * 10000 + j); if (!a) continue; for (const o of a) if (o !== p && o !== p.partner) consider(o, o.x, o.z, o.vx || 0, o.vz || 0, 0.75); } /* a couple walks side by side: never yield to each other */
         if (!pv) consider(player, player.x, player.z, Math.sin(player.yaw) * (player.speed || 0), Math.cos(player.yaw) * (player.speed || 0), 0.85);
         for (const b of fixed) if (b.ch !== player.ch && Math.abs(b.x - p.x) < 4.5 && Math.abs(b.z - p.z) < 4.5) consider(b.ch, b.x, b.z, 0, 0, 0.8);
         dvx = dvx * slow + lx * side * desired * 0.8; dvz = dvz * slow + lz * side * desired * 0.8;
@@ -395,7 +411,8 @@ export class Crowd {
       const maxDv = (tgtSp < curSp ? Math.max(accel, 3.5) : accel) * dt * (lod === 1 ? 1 : 1);
       if (dl > maxDv) { p.vx += dsx / dl * maxDv; p.vz += dsz / dl * maxDv; } else { p.vx = dvx; p.vz = dvz; }
       const sp = Math.hypot(p.vx, p.vz); const prevYaw = p.yaw;
-      if (sp > 0.05) { const turnK = p.state === 'flee' || p.state === 'dodge' ? 9 : 5; if (p.state !== 'down' && p.state !== 'stumble') p.yaw = dampAngle(p.yaw, Math.atan2(p.vx, p.vz), turnK * clamp(sp, 0.4, 1.5), dt); }
+      if (p.state === 'scene' && p.faceYaw !== undefined) p.yaw = dampAngle(p.yaw, p.faceYaw, 6, dt);
+      else if (sp > 0.05) { const turnK = p.state === 'flee' || p.state === 'dodge' ? 9 : 5; if (p.state !== 'down' && p.state !== 'stumble') p.yaw = dampAngle(p.yaw, Math.atan2(p.vx, p.vz), turnK * clamp(sp, 0.4, 1.5), dt); }
       const ox = p.x, oz = p.z;
       if (p.state === 'down' && sp * dt > 0.09) { // thrown by a vehicle: sub-step so a fast body can't tunnel through a wall, and walls absorb the impact
         const n = Math.min(16, Math.ceil(sp * dt / 0.09)); for (let k = 0; k < n; k++) { p.x += p.vx * dt / n; p.z += p.vz * dt / n; const r = this.collision.resolveCircle(p.x, p.z, 0.3, p.y || 0.15, 0.3);
@@ -406,10 +423,11 @@ export class Crowd {
       if (sp > 0.02 && (lod === 1 || p.mv > 0.1)) { p.mv = 0; const r = this.collision.resolveCircle(p.x, p.z, 0.28, p.y || 0.15, 0.3); if (r.hit) { const cx = r.x - p.x, cz = r.z - p.z, cl = Math.hypot(cx, cz); if (cl > 1e-4) { const vn = (p.vx * cx + p.vz * cz) / cl; if (vn < 0) { p.vx -= cx / cl * vn; p.vz -= cz / cl * vn; } } } p.x = r.x; p.z = r.z; }
       if (lod < 3 && p.state !== 'down') { // bodies are solid: never pass through another person
         const q = separate(fixed, p.x, p.z, p.y || 0.15, 0.27, p.ch, 0); if (q.hit) { const r2 = this.collision.resolveCircle(q.x, q.z, 0.28, p.y || 0.15, 0.3); p.x = r2.x; p.z = r2.z; p.vx *= 0.5; p.vz *= 0.5; }
-        if (lod === 1 && p.state !== 'idle') { const gi = Math.floor(p.x / 2), gj = Math.floor(p.z / 2); for (let i = gi - 1; i <= gi + 1; i++) for (let j = gj - 1; j <= gj + 1; j++) { const a = grid.get(i * 10000 + j); if (!a) continue; for (const o of a) { if (o === p || o.state === 'down') continue; const dx = p.x - o.x, dz = p.z - o.z, d2 = dx * dx + dz * dz; if (d2 < 0.2916 && d2 > 1e-8) { const d = Math.sqrt(d2), k = (0.54 - d) * 0.5; p.x += dx / d * k; p.z += dz / d * k; if (o.state !== 'idle' && (o.crossing || !L.roadAt(o.x - dx / d * k, o.z - dz / d * k))) { o.x -= dx / d * k; o.z -= dz / d * k; } } } } }
+        if (lod === 1 && p.state !== 'idle') { const gi = Math.floor(p.x / 2), gj = Math.floor(p.z / 2); for (let i = gi - 1; i <= gi + 1; i++) for (let j = gj - 1; j <= gj + 1; j++) { const a = grid.get(i * 10000 + j); if (!a) continue; for (const o of a) { if (o === p || o.state === 'down' || (o === p.partner && p.state === 'scene' && o.state === 'scene')) continue; const dx = p.x - o.x, dz = p.z - o.z, d2 = dx * dx + dz * dz; if (d2 < 0.2916 && d2 > 1e-8) { const d = Math.sqrt(d2), k = (0.54 - d) * 0.5; p.x += dx / d * k; p.z += dz / d * k; if (o.state !== 'idle' && (o.crossing || !L.roadAt(o.x - dx / d * k, o.z - dz / d * k))) { o.x -= dx / d * k; o.z -= dz / d * k; } } } } }
       }
       // the kerb is a hard edge for anyone not crossing: crowding at a crossing or side-stepping never pushes people onto the road
-      if (!p.crossing && this.isRoutine(p.state) && L.roadAt(p.x, p.z) && !L.roadAt(ox, oz)) { p.x = ox; p.z = oz; p.vx *= 0.3; p.vz *= 0.3; }
+      const calm = p.state === 'scene' || p.state === 'recover' || p.state === 'complain' || p.state === 'watch' || (p.state === 'flee' && (p.fleeSp || 0) < 2.6); // walking away from a scuffle is not a panic: they keep to the pavement
+      if (!p.crossing && (this.isRoutine(p.state) || calm) && L.roadAt(p.x, p.z) && !L.roadAt(ox, oz)) { p.x = ox; p.z = oz; p.vx *= 0.3; p.vz *= 0.3; }
       const moved = Math.hypot(p.x - ox, p.z - oz) / Math.max(dt, 1e-4); p.speed = moved;
       // --- stuck detection & staged recovery: sidestep → rejoin graph → new route → (off-screen only) recycle
       if (desired > 0.3 && p.state !== 'confront') {
@@ -418,25 +436,27 @@ export class Crowd {
         if (p.stuckT > 1.3) {
           p.stuckT = 0; p.stuckN = (p.stuckN || 0) + 1; const fx = Math.sin(p.yaw), fz = Math.cos(p.yaw);
           if (p.stuckN === 1) { const sL = !this.collision.blocked(p.x + fz * 0.8, p.z - fx * 0.8, 0.25); p.sideDir = sL ? [fz, -fx] : [-fz, fx]; p.stuckSide = 0.8; }
+          else if (p.stuckN === 2 && p.state === 'scene') { /* activity: next stage gives it up */ }
           else if (p.stuckN === 2) { if (p.state === 'toPoi' && p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; } this.returnToGraph(p, true); }
-          else if (p.stuckN === 3) { if (this.isRoutine(p.state)) { this.pickNext(p); } else this.endReaction(p); }
+          else if (p.stuckN === 3) { if (p.state === 'scene' && p.scene && p.scene.kind === 'follow') p.stuckN = 0; else if (p.state === 'scene') { this.life.interrupt(p); p.state = 'walk'; this.returnToGraph(p); } else if (this.isRoutine(p.state)) { this.pickNext(p); } else this.endReaction(p); }
           else { const vis = this.visible(p); if (!vis && !p.keep) p.recycle = true; else { p.stuckN = 1; this.returnToGraph(p, true); } }
         }
       } else p.stuckT = 0;
       // idle animation variety while walking (phone/texting walkers)
-      if (p.state === 'walk' && !p.act && this.rng.chance(dt * 0.01)) p.act = this.rng.chance(0.5) ? 'text' : 'phone';
+      if (p.state === 'walk' && !p.act && !p.jog && !p.holdFor && this.rng.chance(dt * 0.01)) p.act = this.rng.chance(0.5) ? 'text' : 'phone';
       if (p.state === 'walk' && p.act && this.rng.chance(dt * 0.05)) { p.act = null; p.ch.anim.set(null); }
       // animate (lower rate when far); pass the real turn rate for lean
       const turnRate = wrapAngle(p.yaw - prevYaw) / Math.max(dt, 1e-4);
-      if (lod === 1 || (this.frame + (p.id * 7 | 0)) % lod === 0) p.ch.anim.update(dt * (lod === 1 ? 1 : lod), p.state === 'down' ? 0 : sp, lod === 1 ? turnRate : 0);
+      const posed = lod === 1 || (this.frame + (p.id * 7 | 0)) % lod === 0; if (posed) p.ch.anim.update(dt * (lod === 1 ? 1 : lod), p.state === 'down' ? 0 : sp, lod === 1 ? turnRate : 0);
       p.y = lod === 1 ? this.collision.groundAt(p.x, p.z, (p.y || 0.15)) : (p.y || 0.15);
       p.ch.root.position.set(p.x, p.y, p.z); p.ch.root.rotation.y = p.yaw;
+      this.life.props(p, lod); if (posed && lod < 3) this.life.post(p); // hand/lip contact corrections need this frame's pose
       p.ch.mesh.castShadow = dist < 45;
     }
   }
   visible(p) { const f = this.focus, c = this.camDir; const dx = p.x - f.x, dz = p.z - f.z, d = Math.hypot(dx, dz); if (d > 60) return false; if (!c) return true; return (dx * c.x + dz * c.z) / (d || 1) > 0.2 || d < 12; }
   startPoi(p) {
-    const q = p.poi; p.state = 'idle'; p.timer = this.rng.range(8, 30); p.yaw = q.rot ?? p.yaw;
+    const q = p.poi; if (this.life.atPoi(p, q)) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; return; } p.state = 'idle'; p.timer = this.rng.range(8, 30); p.yaw = q.rot ?? p.yaw;
     const A = p.ch.anim;
     switch (q.type) {
       case 'bench': A.set('sit'); p.sit = true; p.timer = this.rng.range(15, 45); if (p.seat) p.slideTo = p.seat; p.seat = null; break;
@@ -512,8 +532,8 @@ export class Crowd {
     else { this.react(p, 'flee', 4 + this.rng.next() * 3, { fleeDir: this.spread(ax / d, az / d, 0.5), fleeSp: 3.2 }); ch.face.set('fear', 3); this.speak(p, 'scared', 2); }
     this.alarm(x, z, 14, 1, p); return p;
   }
-  despawn(p) { p.ch.crowdPed = null; if (p.poi) p.poi.used = Math.max(0, p.poi.used - 1); this.scene.remove(p.ch.root); p.ch.dispose(); }
-  clear() { for (const p of this.peds) this.despawn(p); this.peds = []; }
+  despawn(p) { this.life.forget(p); p.ch.crowdPed = null; if (p.poi) p.poi.used = Math.max(0, p.poi.used - 1); this.scene.remove(p.ch.root); p.ch.dispose(); }
+  clear() { for (const p of this.peds) this.despawn(p); this.peds = []; this.life.clear(); }
 }
 let umbrellaGeos = null;
 function umbrellaMesh(seed) {

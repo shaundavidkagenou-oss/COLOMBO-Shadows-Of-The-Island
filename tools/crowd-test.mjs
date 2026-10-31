@@ -10,7 +10,7 @@ const L = await import('../src/world/Layout.js');
 const { Crowd } = await import('../src/actors/Crowd.js'); const { Collision } = await import('../src/world/Collision.js');
 let pass = 0, fail = 0; const ok = (c, m) => { if (c) { pass++; if (process.env.V) console.log('ok  ', m); } else { fail++; console.log('FAIL', m); } };
 const col = new Collision(); col.addAll(CP.plan.colliders);
-const C = new Crowd(new THREE.Scene(), col, { emit() {}, on() {} }); C.prepareSpecs(10); C.max = 60;
+const C = new Crowd(new THREE.Scene(), col, { emit() {}, on() {} }); C.prepareSpecs(40); C.max = 60;
 const REACT = new Set(['flee', 'dodge', 'recover', 'cower', 'down', 'stumble', 'confront', 'complain', 'hit', 'report', 'watch', 'argue', 'talkPlayer', 'shrugOff']);
 const spots = [{ x: -128, z: -880 }, { x: -300, z: -300 }, { x: 150, z: -300 }];
 let zebraN = 0, zebraOff = 0, samples = 0, onRoad = 0, roadBad = 0, crossN = 0, crossOff = 0, crossNoZebra = 0, reversals = 0, legs = 0; const badEx = [];
@@ -37,4 +37,4 @@ ok(zebraN > 500 && zebraOff <= zebraN * 0.01, `crossing on the zebra stripes (${
 ok(st.planned > 20 * Math.max(1, st.fallback), `walks are planned routes, not random wandering (${st.planned} planned steps, ${st.fallback} unplanned)`);
 ok(st.reversals <= st.planned * 0.002, `nobody paces back and forth (${st.reversals} immediate reversals)`);
 ok(roadBad <= samples * 0.0005, `nobody walks on a carriageway outside a crossing (${roadBad} of ${samples} samples)`);
-console.log(`crowd: ${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);
+console.log("life", JSON.stringify(C.life.stats)); console.log(`crowd: ${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);
