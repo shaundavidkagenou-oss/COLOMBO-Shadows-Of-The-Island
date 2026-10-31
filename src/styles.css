@@ -600,3 +600,21 @@ select { background: #0e1318; color: var(--paper); border: 1px solid rgba(255, 2
 .dbg-it:hover { background: rgba(255, 255, 255, 0.05); } .dbg-it.on { background: rgba(127, 208, 160, 0.2); color: #fff; }
 .dbg-it em { font-style: normal; color: #7fd0a0; font-weight: 600; }
 .dbg-mf { padding: 8px 14px; font-size: 12px; letter-spacing: 0.06em; color: var(--muted); border-top: 1px solid rgba(255, 255, 255, 0.06); }
+
+/* ---------------------------------------------------------------- gun shop: clickable inside the HUD layer
+   (.hud * disables pointer events for the overlay; the shop, like the phone, has to opt back in) */
+.hud .gs, .hud .gs * { pointer-events: auto; }
+.hud .gs.hidden, .hud .gs.hidden * { pointer-events: none; }
+.hud .dbg-menu, .hud .dbg-menu *, .hud .dbg-con, .hud .dbg-con * { pointer-events: auto; }
+.hud .dbg-menu.hidden, .hud .dbg-menu.hidden *, .hud .dbg-con.hidden, .hud .dbg-con.hidden * { pointer-events: none; }
+
+/* ---------------------------------------------------------------- game cursor (original SVG; hidden while the mouse is captured)
+   arrow: warm white with a gold edge · interactive: gold with a soft glow · text fields keep the text caret */
+:root { --cur: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2732%27 height=%2732%27 viewBox=%270 0 32 32%27%3E%3Cdefs%3E%3Cfilter id=%27s%27 x=%27-30%25%27 y=%27-30%25%27 width=%27160%25%27 height=%27160%25%27%3E%3CfeDropShadow dx=%270.8%27 dy=%271.2%27 stdDeviation=%270.9%27 flood-color=%27%23000%27 flood-opacity=%270.55%27/%3E%3C/filter%3E%3C/defs%3E%3Cpath filter=%27url%28%23s%29%27 d=%27M3 2 L3 24.5 L8.8 19 L12.6 27.8 L16.9 26 L13.1 17.4 L21 17.4 Z%27 fill=%27%23f4efe6%27 stroke=%27%230b0c0e%27 stroke-width=%271.5%27 stroke-linejoin=%27round%27/%3E%3Cpath d=%27M5 7 L5 19.6 L8.9 15.9%27 fill=%27none%27 stroke=%27%23d9b25a%27 stroke-width=%271.3%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27/%3E%3C/svg%3E") 3 2, auto; --cur-hot: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2732%27 height=%2732%27 viewBox=%270 0 32 32%27%3E%3Cdefs%3E%3Cfilter id=%27s%27 x=%27-30%25%27 y=%27-30%25%27 width=%27160%25%27 height=%27160%25%27%3E%3CfeDropShadow dx=%270.8%27 dy=%271.2%27 stdDeviation=%270.9%27 flood-color=%27%23000%27 flood-opacity=%270.55%27/%3E%3C/filter%3E%3C/defs%3E%3Cpath d=%27M3 2 L3 24.5 L8.8 19 L12.6 27.8 L16.9 26 L13.1 17.4 L21 17.4 Z%27 fill=%27none%27 stroke=%27%23e8a33a%27 stroke-opacity=%270.35%27 stroke-width=%274%27 stroke-linejoin=%27round%27/%3E%3Cpath filter=%27url%28%23s%29%27 d=%27M3 2 L3 24.5 L8.8 19 L12.6 27.8 L16.9 26 L13.1 17.4 L21 17.4 Z%27 fill=%27%23e8a33a%27 stroke=%27%230b0c0e%27 stroke-width=%271.5%27 stroke-linejoin=%27round%27/%3E%3Cpath d=%27M5 7 L5 19.6 L8.9 15.9%27 fill=%27none%27 stroke=%27%23fff3d6%27 stroke-width=%271.3%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27/%3E%3C/svg%3E") 3 2, pointer; }
+html, body, body * { cursor: var(--cur); }
+button, a[href], label, select, summary, [data-act], [role="button"], input[type="range"], input[type="checkbox"], input[type="radio"],
+.menu-btn, .slot, .tabs button, .bind, .choices button, .click-start, .gs-row, .gs-tab, .gs-x, .gs-buy, .ph-app, .ph-row, .bm-row, .bm-sbtn { cursor: var(--cur-hot) !important; }
+button:disabled, .menu-btn:disabled, .slot:disabled, [data-act][disabled] { cursor: var(--cur) !important; }
+input[type="text"], input:not([type]), textarea { cursor: text !important; }
+.bigmap canvas { cursor: grab !important; } .bigmap canvas:active { cursor: grabbing !important; }
+.enterload, .egi { cursor: progress !important; }

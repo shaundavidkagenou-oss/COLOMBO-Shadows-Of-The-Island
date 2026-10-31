@@ -69,7 +69,7 @@ export class Game {
     addEventListener('resize', () => this.resize());
     bus.on('settings', (k) => this.applySettings(k));
     this.canvas.addEventListener('click', () => { if (this.mode === 'play' && !this.paused) Input.requestLock(this.canvas); });
-    bus.on('pointerlock', (locked) => { if (!locked && this.mode === 'play' && !this.paused && !this.photo && !this.hud.bigMapOpen && !this.director.active && !this.ignoreUnlock) this.openPause(); });
+    bus.on('pointerlock', (locked) => { if (!locked && this.mode === 'play' && !this.paused && !this.photo && !this.hud.bigMapOpen && !this.director.active && !this.ignoreUnlock && !this.gunShop?.open && !this.debugCon?.menuOpen && !this.debugCon?.open) this.openPause(); });
     bus.on('key', (code) => this.onKey(code));
   }
   // ================================================================= loading (genuine progress)

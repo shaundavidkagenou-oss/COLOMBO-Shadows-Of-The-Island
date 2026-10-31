@@ -20,7 +20,8 @@ export class GunShopUI {
     root.addEventListener('click', (e) => {
       const t = e.target.closest('[data-act]'); if (!t) return; const a = t.dataset.act;
       if (a === 'cat') { this.cat = +t.dataset.i; this.row = 0; Audio.ui('click'); this.render(); }
-      else if (a === 'item') { this.row = +t.dataset.i; Audio.ui('click'); this.render(); }
+      else if (a === 'item') { const i = +t.dataset.i, now = performance.now(); const dbl = this._lastPick && this._lastPick.i === i && this._lastPick.cat === this.cat && now - this._lastPick.t < 450; this._lastPick = dbl ? null : { i, cat: this.cat, t: now };
+        if (dbl) { this.row = i; this.buy(); } else { this.row = i; Audio.ui('click'); this.render(); } } /* click selects, double-click buys */
       else if (a === 'buy') this.buy();
       else if (a === 'close') this.toggle(false);
     });
@@ -32,7 +33,7 @@ export class GunShopUI {
     const g = this.g, P = g.player; if (v === this.open) return; this.open = v; this.root.classList.toggle('hidden', !v);
     if (v) { this.prevControl = P.control; P.control = false; Input.releaseLock(); this.flash = null; if (!this.previews) this.makePreviews(); this.render(); Audio.ui('click');
       if ((g.police?.level || 0) > 0) g.hud.subtitle(SHOP_NAME, 'Not today. Come back when the police are not looking for you.', '', 3.5); }
-    else { P.control = this.prevControl ?? true; Audio.ui('click'); }
+    else { P.control = this.prevControl ?? true; Audio.ui('click'); Input.mousePressed.clear(); Input.mouseButtons.clear(); Input.wheel = 0; g.ignoreUnlock = true; Input.requestLock(g.canvas); setTimeout(() => (g.ignoreUnlock = false), 300); } /* the click that closed the shop must not become a punch/shot */
   }
   update() {
     if (!this.open) return; const k = (c) => Input.keyPressed(c); const n = this.list.length;
@@ -99,7 +100,7 @@ export class GunShopUI {
         <div class="gs-who"><div><small>Buying for</small><b>${this.member}</b></div><div><small>Cash</small><b class="gs-cash">${rs(c.money)}</b></div><button class="gs-x" data-act="close" title="Leave">✕</button></div></header>
       <nav class="gs-tabs">${tabs}</nav>
       <div class="gs-body"><div class="gs-list">${rows}</div><section class="gs-det">${det}</section></div>
-      <footer class="gs-foot"><span><kbd>←</kbd><kbd>→</kbd> Category</span><span><kbd>↑</kbd><kbd>↓</kbd> Item</span><span><kbd>Enter</kbd> Buy</span><span><kbd>Esc</kbd> Leave</span><span class="gs-note">Weapons belong to the character who buys them. Purchases appear in the phone's bank ledger.</span></footer></div>`;
+      <footer class="gs-foot"><span><kbd>←</kbd><kbd>→</kbd> Category</span><span><kbd>↑</kbd><kbd>↓</kbd> Item</span><span><kbd>Enter</kbd> Buy</span><span><kbd>Esc</kbd> Leave</span><span><kbd>Click</kbd> Select · <kbd>Double-click</kbd> Buy</span><span class="gs-note">Weapons belong to the character who buys them. Purchases appear in the phone's bank ledger.</span></footer></div>`;
     // the menu is rebuilt on every change: keep the list where it was, keep the selected row in view, and show an in-theme
     // edge fade (instead of the browser's scrollbar, which is hidden in styles.css) wherever there is more to scroll to
     const lst = this.root.querySelector('.gs-list'), dt = this.root.querySelector('.gs-det');
