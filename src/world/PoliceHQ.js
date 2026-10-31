@@ -27,7 +27,7 @@ export const HQ = {
 };
 
 export function buildPoliceHQ({ mb, box, coll, label, group, LAND_Y, SANS, SI, TA, columns, anim, C }) {
-  const y0 = LAND_Y; const conc = mb.get('concrete'), paint = mb.get('paint'), metal = mb.get('metal'), glass = mb.get('glass'), leaves = mb.get('leaves');
+  const y0 = LAND_Y; const conc = mb.get('concrete'), paint = mb.get('paint'), metal = mb.get('metal'), glass = mb.get('glass'), leaves = mb.get('hedge'); // clipped hedges / bed planting: solid leaf-textured blocks (the alpha-cut tree-crown material read as loose floating leaves)
   const [fx0, fx1, fz0, fz1] = HQ.rect; const G = HQ.gate, Wk = HQ.wicket;
   // ---------------------------------------------------------------- paving (asphalt drive + car parks, light walkways)
   const ASPH = '#56585b', PAVE = '#cbc5ba';
@@ -53,7 +53,7 @@ export function buildPoliceHQ({ mb, box, coll, label, group, LAND_Y, SANS, SI, T
     const np = Math.max(1, Math.round(len / 3.6)); for (let k = 0; k <= np; k++) { const t = k / np; box(conc, ax + (bx - ax) * t, y0 + 1.15, az + (bz - az) * t, 0.46, 2.3, 0.46, WALLC, { uv: 2 }); }
     coll(Math.min(ax, bx) - 0.2, Math.max(ax, bx) + 0.2, Math.min(az, bz) - 0.2, Math.max(az, bz) + 0.2, 2.3, { kind: 'wall' });
   };
-  fence(fx0, fz0, G.x - G.w / 2 - 0.6, fz0); fence(G.x + G.w / 2 + 0.6, fz0, Wk.x - Wk.w / 2 - 0.3, fz0); fence(Wk.x + Wk.w / 2 + 0.3, fz0, fx1, fz0);
+  fence(fx0, fz0, G.x - G.w / 2 - 0.6, fz0); fence(G.x + G.w / 2 + 0.6, fz0, Wk.x - Wk.w / 2 - 0.2, fz0); fence(Wk.x + Wk.w / 2 + 0.2, fz0, fx1, fz0); /* end pillars meet the wicket leaf frame */
   fence(fx0, fz1, fx1, fz1); fence(fx0, fz0, fx0, fz1); fence(fx1, fz0, fx1, fz1);
   for (const gx of [G.x - G.w / 2 - 0.6, G.x + G.w / 2 + 0.6]) { // gate pillars with lamps
     box(conc, gx, y0 + 1.5, fz0, 1.0, 3.0, 1.0, '#dcd5c6', { uv: 2 }); box(conc, gx, y0 + 3.05, fz0, 1.2, 0.12, 1.2, '#bdb4a2');
@@ -83,7 +83,7 @@ export function buildPoliceHQ({ mb, box, coll, label, group, LAND_Y, SANS, SI, T
     bar(lw / 2, 0.12, lw, 0.06, 0.05); bar(lw / 2, 1.0, lw, 0.05, 0.05); bar(lw / 2, 1.9, lw, 0.06, 0.05); bar(0.03, 1.0, 0.06, 1.85, 0.06); bar(lw - 0.03, 1.0, 0.06, 1.85, 0.06);
     for (let k = 1; k < 9; k++) bar(k * lw / 9, 1.0, 0.025, 1.78, 0.025);
     const latch = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.14, 0.09), new THREE.MeshStandardMaterial({ color: 0xb8a24a, metalness: 0.8, roughness: 0.35 })); latch.position.set(lw - 0.1, 1.05, 0); leaf.add(latch);
-    group.add(leaf); anim.hqWicket = leaf; coll(Wk.x - Wk.w / 2, Wk.x + Wk.w / 2, fz0 - 0.1, fz0 + 0.1, 2.0, { kind: 'barrier', id: 'hqWicket' });
+    group.add(leaf); anim.hqWicket = leaf; coll(Wk.x - Wk.w / 2, Wk.x + Wk.w / 2, fz0 - 0.1, fz0 + 0.1, 2.0, { kind: 'barrier', id: 'hqWicket' }); coll(hx - 0.06, hx + 0.16, fz0 + 0.1, fz0 + lw, 0, { kind: 'barrier', id: 'hqWicketOpen' }); /* the leaf where it rests when open (PoliceHQLife raises it) */
   }
 
   // ---------------------------------------------------------------- main building
@@ -97,7 +97,9 @@ export function buildPoliceHQ({ mb, box, coll, label, group, LAND_Y, SANS, SI, T
     fo.quad([bx1, yb, bz1], [bx1, yb, bz0], [bx1, top, bz0], [bx1, top, bz1], [0, 0, (bz1 - bz0) / S, (top - yb) / S], col);
     fo.quad([bx0, yb, bz0], [bx0, yb, bz1], [bx0, top, bz1], [bx0, top, bz0], [0, 0, (bz1 - bz0) / S, (top - yb) / S], col);
     // reveal of the opening (wall thickness) and a dark frame
-    box(paint, E.x0 - 0.06, yb + E.h / 2, bz0 + 0.16, 0.12, E.h, 0.32, '#2a2a2a'); box(paint, E.x1 + 0.06, yb + E.h / 2, bz0 + 0.16, 0.12, E.h, 0.32, '#2a2a2a'); box(paint, (E.x0 + E.x1) / 2, yd + 0.06, bz0 + 0.16, E.x1 - E.x0 + 0.24, 0.12, 0.32, '#2a2a2a');
+    // (front faces stand 2 cm proud of the facade: flush with it they overlapped the facade edge in the same plane and z-fought —
+    // the flickering, ragged door surround)
+    box(paint, E.x0 - 0.06, yb + E.h / 2, bz0 + 0.15, 0.12, E.h, 0.34, '#2a2a2a'); box(paint, E.x1 + 0.06, yb + E.h / 2, bz0 + 0.15, 0.12, E.h, 0.34, '#2a2a2a'); box(paint, (E.x0 + E.x1) / 2, yd + 0.06, bz0 + 0.15, E.x1 - E.x0 + 0.24, 0.12, 0.34, '#2a2a2a');
   }
   mb.get('roofFlat').hrect(bx0, bz0, bx1, bz1, top, 6, [0.75, 0.73, 0.7]);
   box(conc, (bx0 + bx1) / 2, top + 0.45, bz0 + 0.12, bx1 - bx0 + 0.3, 0.9, 0.24, '#e4ddcc'); box(conc, (bx0 + bx1) / 2, top + 0.45, bz1 - 0.12, bx1 - bx0 + 0.3, 0.9, 0.24, '#e4ddcc'); // parapet
@@ -119,31 +121,35 @@ export function buildPoliceHQ({ mb, box, coll, label, group, LAND_Y, SANS, SI, T
   for (let k = 0; k < 3; k++) { const hh = 0.3 * (k + 1), zf = -205.4 - (3 - k) * 0.5, w = 9 - k * 0.6; box(conc, px, y0 + hh / 2, (zf - 205.4) / 2, w, hh, -205.4 - zf, '#d8d2c6', { uv: 2 }); coll(px - w / 2, px + w / 2, zf, -205.4, y0 + hh, { kind: 'deck' }); } // three 30 cm steps up to the plinth
   { // automatic sliding glass doors (PoliceHQLife opens them for anyone walking up)
     const E = HQ.entrance, w = (E.x1 - E.x0) / 2, gm = new THREE.MeshStandardMaterial({ color: 0xa9c4d2, transparent: true, opacity: 0.32, roughness: 0.05, metalness: 0.2, depthWrite: false }), fm = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.4, metalness: 0.6 });
-    const leaves = []; for (const sd of [-1, 1]) { const lf = new THREE.Group(); const pane = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.06, E.h - 0.12), gm); pane.position.y = E.h / 2; lf.add(pane);
+    const leaves = []; for (const sd of [-1, 1]) { const lf = new THREE.Group(); const pane = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.06, E.h - 0.12), gm); pane.position.y = E.h / 2; pane.renderOrder = 2; lf.add(pane); // fixed draw order: never swaps with the facade glass behind (no flicker)
       for (const [x, y, sw, sh] of [[0, 0.04, w, 0.08], [0, E.h - 0.04, w, 0.08], [-(w / 2) + 0.03, E.h / 2, 0.06, E.h], [w / 2 - 0.03, E.h / 2, 0.06, E.h]]) { const f = new THREE.Mesh(new THREE.BoxGeometry(sw, sh, 0.05), fm); f.position.set(x, y, 0); lf.add(f); }
       const bar = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.9, 0.04), new THREE.MeshStandardMaterial({ color: 0xc8ccd0, metalness: 0.9, roughness: 0.25 })); bar.position.set(-sd * (w / 2 - 0.15), 1.05, -0.05); lf.add(bar);
       lf.position.set(px + sd * w / 2, y0 + 0.9, bz0 + 0.05); lf.userData.home = px + sd * w / 2; lf.userData.dir = sd; lf.userData.w = w; group.add(lf); leaves.push(lf); }
     anim.hqDoors = leaves; // (the blue first-floor band above acts as the door header)
+    // the closed leaves are solid glass: a barrier across the opening that Interiors drops only once the doors have slid open
+    coll(E.x0, E.x1, bz0 - 0.04, bz0 + 0.14, y0 + 0.9 + E.h, { kind: 'barrier', id: 'hqDoors' });
   }
   // signage: trilingual name board above the portico + badge disc
-  label([{ text: 'ශ්‍රී ලංකා පොලිසිය  ·  இலங்கை பொலிஸ்', font: SI(54), color: '#f1d27a' }, { text: 'POLICE HEADQUARTERS', font: SANS(118), color: '#ffffff' }, { text: 'පොලිස් මූලස්ථානය  ·  பொலிஸ் தலைமையகம்', font: SI(60), color: '#ffffff' }], px, y0 + 6.3, -205.12, 15, 2.6, Math.PI, { w: 1536, h: 300, bg: '#1d3a7a', border: '#d9b13b' });
+  label([{ text: 'ශ්‍රී ලංකා පොලිසිය  ·  இலங்கை பொலிஸ்', font: SI(54), color: '#f1d27a' }, { text: 'POLICE HEADQUARTERS', font: SANS(118), color: '#ffffff' }, { text: 'පොලිස් මූලස්ථානය  ·  பொலிஸ் தலைமையகம்', font: SI(60), color: '#ffffff' }], px, y0 + 7.6, -205.275, 15, 2.6, Math.PI, { w: 1536, h: 300, bg: '#1d3a7a', border: '#d9b13b' });
+  box(paint, px, y0 + 7.6, -205.21, 15.2, 2.8, 0.1, '#14295a'); // fascia backing: the board stands proud of the blue floor band (no band across the lettering), high enough that the portico canopy never hides its lower lines from the street
   { const c = document.createElement('canvas'); c.width = c.height = 256; const g2 = c.getContext('2d'); g2.fillStyle = '#d9b13b'; g2.beginPath(); g2.arc(128, 128, 124, 0, 7); g2.fill(); g2.fillStyle = '#1d3a7a'; g2.beginPath(); g2.arc(128, 128, 104, 0, 7); g2.fill();
     g2.fillStyle = '#d9b13b'; g2.beginPath(); for (let k = 0; k < 16; k++) { const a = (k / 16) * Math.PI * 2 - Math.PI / 2, r = k % 2 ? 36 : 82; g2.lineTo(128 + Math.cos(a) * r, 128 + Math.sin(a) * r); } g2.fill(); // generic star badge (not the official crest)
-    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; const m = new THREE.Mesh(new THREE.CircleGeometry(1.1, 32), new THREE.MeshStandardMaterial({ map: t, roughness: 0.5, metalness: 0.2 })); m.position.set(px, y0 + 9.3, -205.1); m.rotation.y = Math.PI; group.add(m); }
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; const m = new THREE.Mesh(new THREE.CircleGeometry(1.1, 32), new THREE.MeshStandardMaterial({ map: t, roughness: 0.5, metalness: 0.2 })); m.position.set(px, y0 + 10.5, -205.24); m.rotation.y = Math.PI; group.add(m); const rim = new THREE.Mesh(new THREE.CylinderGeometry(1.17, 1.17, 0.07, 40), new THREE.MeshStandardMaterial({ color: 0x14295a, roughness: 0.5, metalness: 0.3 })); rim.rotation.x = Math.PI / 2; rim.position.set(px, y0 + 10.5, -205.2); group.add(rim); }
 
   // ---------------------------------------------------------------- motorcycle shed (west strip) + car-park lighting
   { const x0 = -51.2, x1 = -44.2, z0 = -204.2, z1 = -190.6; for (const [x, z] of [[x0 + 0.2, z0 + 0.2], [x1 - 0.2, z0 + 0.2], [x0 + 0.2, z1 - 0.2], [x1 - 0.2, z1 - 0.2]]) { metal.box(x, y0 + 1.4, z, 0.12, 2.8, 0.12, { col: C('#5a6068') }); coll(x - 0.1, x + 0.1, z - 0.1, z + 0.1, 2.8, { kind: 'pole' }); }
-    mb.get('corrugated').box((x0 + x1) / 2, y0 + 2.86, (z0 + z1) / 2, x1 - x0 + 0.6, 0.08, z1 - z0 + 0.6, { col: C('#9aa4ac'), uvScale: 2 }); box(paint, x1 + 0.1, y0 + 2.7, (z0 + z1) / 2, 0.1, 0.3, z1 - z0 + 0.6, '#1d3a7a'); }
-  for (const [x, z] of [[-40, -226], [-24, -226], [26, -210], [26, -182], [-50, -186]]) { metal.cylinder(x, y0, z, 0.08, 0.06, 6, 8, { col: C('#4a4f55') }); paint.box(x, y0 + 6, z, 0.6, 0.12, 0.3, { col: C('#fff4d6') }); coll(x - 0.12, x + 0.12, z - 0.12, z + 0.12, 6, { kind: 'pole' }); }
+    mb.get('corrugated').box((x0 + x1) / 2, y0 + 2.86, (z0 + z1) / 2, x1 - x0 + 0.6, 0.08, z1 - z0 + 0.6, { col: C('#9aa4ac'), uvScale: 2, bottom: true }); box(paint, x1 + 0.1, y0 + 2.7, (z0 + z1) / 2, 0.1, 0.3, z1 - z0 + 0.6, '#1d3a7a'); }
+  for (const [x, z] of [[-40, -226], [-24, -226], [26, -210], [26, -182], [-50, -186]]) { metal.cylinder(x, y0, z, 0.08, 0.06, 6, 8, { col: C('#4a4f55') }); paint.box(x, y0 + 6, z, 0.6, 0.12, 0.3, { col: C('#fff4d6'), bottom: true }); coll(x - 0.12, x + 0.12, z - 0.12, z + 0.12, 6, { kind: 'pole' }); }
 
   // ---------------------------------------------------------------- landscaping: hedges, beds, sign monument
   const hedge = (x0, x1, z0, z1, h = 0.9) => { leaves.box((x0 + x1) / 2, y0 + h / 2, (z0 + z1) / 2, x1 - x0, h, z1 - z0, { col: C('#3f7a34'), uvScale: 2 }); coll(x0, x1, z0, z1, h, { kind: 'low' }); };
-  hedge(bx0, px - 5, -206.2, -205.6); hedge(px + 5, bx1, -206.2, -205.6); hedge(-5, 29, -212.4, -211.8, 0.7); hedge(-51, -6.2, -226.5, -226.0, 0.6);
+  hedge(bx0, px - 5, -206.2, -205.6); hedge(px + 5, bx1, -206.2, -205.6); hedge(0, 10, -212.4, -211.8, 0.7); hedge(14, 24, -212.4, -211.8, 0.7); // forecourt edge: gaps by the east column, mid-lawn and at the east lane so the lawn is walkable
+  hedge(-51, -15.6, -226.5, -226.0, 0.6); // inside the front fence, west of the gate only (it used to run straight across the gate lane and stop every vehicle)
   const bed = (x, z, w, d, seed) => { box(conc, x, y0 + 0.15, z, w + 0.2, 0.3, d + 0.2, '#bdb4a2'); box(conc, x, y0 + 0.31, z, w, 0.04, d, '#4a3424');
     const cols = ['#d6304a', '#f2b632', '#f2f2ee', '#e86a1c', '#b8327a']; let k = seed; for (let i = 0; i < w / 0.35; i++) for (let j = 0; j < d / 0.35; j++) { k = (k * 9301 + 49297) % 233280; leaves.box(x - w / 2 + 0.18 + i * 0.35, y0 + 0.42, z - d / 2 + 0.18 + j * 0.35, 0.22, 0.22, 0.22, { col: C(k % 3 ? '#4f8a3a' : cols[k % cols.length]) }); } coll(x - w / 2 - 0.1, x + w / 2 + 0.1, z - d / 2 - 0.1, z + d / 2 + 0.1, 0.8, { kind: 'low' }); };
   bed(px - 12, -207.4, 5, 1.2, 3); bed(px + 12, -207.4, 5, 1.2, 7); bed(4, -223.2, 3.4, 1.4, 11); bed(-26, -216.2, 2.4, 2.4, 5);
   { const mx = 12, mz = -224.6; box(conc, mx, y0 + 0.2, mz, 11, 0.4, 1.6, '#b9b09e', { uv: 3 }); box(conc, mx, y0 + 1.2, mz, 10, 1.8, 0.7, '#e9e2d2', { uv: 3 }); box(paint, mx, y0 + 2.16, mz, 10.2, 0.12, 0.8, '#1d3a7a'); coll(mx - 5.5, mx + 5.5, mz - 0.8, mz + 0.8, 2.2);
-    label([{ text: 'ශ්‍රී ලංකා පොලිසිය', font: SI(70), color: '#1d3a7a' }, { text: 'SRI LANKA POLICE HEADQUARTERS', font: SANS(96), color: '#1d3a7a' }, { text: 'இலங்கை பொலிஸ் தலைமையகம்', font: TA(64), color: '#1d3a7a' }], mx, y0 + 1.22, mz - 0.37, 9.4, 1.55, Math.PI, { w: 1536, h: 260, bg: '#f5f1e6' }); }
+    label([{ text: 'ශ්‍රී ලංකා පොලිසිය', font: SI(70), color: '#1d3a7a' }, { text: 'SRI LANKA POLICE HEADQUARTERS', font: SANS(84), color: '#1d3a7a' }, { text: 'இலங்கை பொலிஸ் தலைமையகம்', font: TA(64), color: '#1d3a7a' }], mx, y0 + 1.22, mz - 0.37, 9.4, 1.55, Math.PI, { w: 1536, h: 260, bg: '#f5f1e6' }); }
   // HQ name on Union Place facing the street (small plate on the fence by the gate)
-  label([{ text: 'POLICE HEADQUARTERS', font: SANS(100), color: '#ffffff' }, { text: 'පොලිස් මූලස්ථානය  ·  பொலிஸ் தலைமையகம்', font: SI(56), color: '#ffffff' }], G.x - G.w / 2 - 0.6, y0 + 2.2, fz0 - 0.52, 0.95, 0.45, Math.PI, { w: 512, h: 240, bg: '#1d3a7a' });
+  label([{ text: 'POLICE HEADQUARTERS', font: SANS(92), color: '#ffffff' }, { text: 'පොලිස් මූලස්ථානය', font: SI(78), color: '#ffffff' }, { text: 'பொலிஸ் தலைமையகம்', font: TA(70), color: '#ffffff' }], G.x - G.w / 2 - 0.6, y0 + 2.15, fz0 - 0.53, 0.95, 0.62, Math.PI, { w: 1024, h: 668, bg: '#1d3a7a', border: '#d9b13b' });
 }

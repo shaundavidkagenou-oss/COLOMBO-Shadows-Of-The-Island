@@ -10,17 +10,8 @@ import { buildWeaponModel, weaponMaterials } from './WeaponModels.js';
 import * as L from '../world/Layout.js';
 
 // cls: pistol | rifle | sniper. rof = rounds/second; spread in radians; recoil = camera kick (rad); dmg: 1.5+ incapacitates in one hit
-export const WEAPONS = [
-  { id: 'compact', name: 'Compact Pistol', cls: 'pistol', size: 0.86, mag: 10, reserve: 60, rof: 5.5, auto: false, dmg: 0.6, spread: 0.012, bloom: 0.012, recoil: 0.018, reload: 1.25, range: 60, equip: 0.42, loud: 45, snd: { crack: 3200, body: 170, dur: 0.1, vol: 0.4, tail: 0.25 } },
-  { id: 'service', name: 'Service Pistol', cls: 'pistol', size: 1.0, mag: 15, reserve: 90, rof: 4.5, auto: false, dmg: 0.75, spread: 0.009, bloom: 0.011, recoil: 0.024, reload: 1.4, range: 70, equip: 0.45, loud: 55, snd: { crack: 2700, body: 140, dur: 0.12, vol: 0.48, tail: 0.3 } },
-  { id: 'heavy', name: 'Heavy Pistol', cls: 'pistol', size: 1.12, mag: 8, reserve: 48, rof: 2.6, auto: false, dmg: 1.2, spread: 0.008, bloom: 0.02, recoil: 0.055, reload: 1.7, range: 80, equip: 0.5, loud: 70, snd: { crack: 1900, body: 95, dur: 0.18, vol: 0.62, tail: 0.45 } },
-  { id: 'carbine', name: 'Carbine Rifle', cls: 'rifle', mag: 30, reserve: 180, rof: 11, auto: true, dmg: 0.6, spread: 0.006, bloom: 0.004, recoil: 0.012, reload: 2.1, range: 160, equip: 0.7, loud: 90, snd: { crack: 2300, body: 110, dur: 0.14, vol: 0.55, tail: 0.5 } },
-  { id: 'assault', name: 'Assault Rifle', cls: 'rifle', mag: 30, reserve: 180, rof: 9.5, auto: true, dmg: 0.75, spread: 0.008, bloom: 0.006, recoil: 0.017, reload: 2.4, range: 150, equip: 0.75, loud: 95, snd: { crack: 1800, body: 90, dur: 0.16, vol: 0.6, tail: 0.55 } },
-  { id: 'battle', name: 'Battle Rifle', cls: 'rifle', mag: 20, reserve: 120, rof: 6, auto: true, dmg: 1.05, spread: 0.005, bloom: 0.009, recoil: 0.03, reload: 2.6, range: 200, equip: 0.8, loud: 110, snd: { crack: 1500, body: 75, dur: 0.2, vol: 0.7, tail: 0.7 } },
-  { id: 'bolt', name: 'Bolt-Action Sniper', cls: 'sniper', mag: 5, reserve: 30, rof: 0.75, auto: false, dmg: 3, spread: 0.0008, bloom: 0, recoil: 0.07, reload: 2.9, range: 600, equip: 0.9, loud: 140, zoom: 5, sway: 1, cycle: 0.95, snd: { crack: 1200, body: 55, dur: 0.32, vol: 0.85, tail: 1.3 } },
-  { id: 'semi', name: 'Semi-Auto Sniper', cls: 'sniper', mag: 10, reserve: 50, rof: 2.4, auto: false, dmg: 1.6, spread: 0.0015, bloom: 0.003, recoil: 0.05, reload: 2.6, range: 500, equip: 0.85, loud: 130, zoom: 4, sway: 1.2, snd: { crack: 1400, body: 65, dur: 0.26, vol: 0.78, tail: 1.0 } },
-  { id: 'precision', name: 'Precision Sniper', cls: 'sniper', mag: 7, reserve: 35, rof: 1.1, auto: false, dmg: 2.5, spread: 0.0005, bloom: 0, recoil: 0.06, reload: 3.0, range: 800, equip: 0.95, loud: 140, zoom: 7, sway: 0.55, cycle: 0.7, snd: { crack: 1100, body: 50, dur: 0.36, vol: 0.9, tail: 1.5 } },
-];
+import { WEAPONS } from './WeaponDefs.js';
+export { WEAPONS };
 
 const sm = (k) => { k = clamp(k, 0, 1); return k * k * (3 - 2 * k); };
 const seg = (k, a, b) => clamp((k - a) / (b - a), 0, 1);
@@ -55,7 +46,11 @@ export class Weapons {
     this.lastCamYaw = null; this.lastCamPitch = 0; this.slideLock = false; this.reloadKind = null; this.reloadDur = 1; this.trigT = 0; this.fpAds = 0; this.aimHeld = false;
     this.holsterP = new THREE.Group(); this.holsterR = new THREE.Group(); // hip holster (hips bone) and back sling (chest bone)
     this.holsterP.position.set(-0.2, -0.06, 0.03); this.holsterP.rotation.set(Math.PI / 2 - 0.15, 0, 0.1);
-    this.holsterR.position.set(0.02, 0.06, -0.17); this.holsterR.rotation.set(-Math.PI / 2 + 0.25, Math.PI, 0.75);
+    { // back sling: diagonal across the back, muzzle up behind the right shoulder (−x is the right side), stock towards the left hip;
+      // the rifle lies flat (its side against the back) 0.21 m behind the chest bone so it clears the shoulder blades and seat
+      const b = new THREE.Vector3(-0.5, 0.866, 0), xw = new THREE.Vector3(0, 0, 1), yw = new THREE.Vector3().crossVectors(b, xw);
+      this.holsterR.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(xw, yw, b));
+      this.holsterR.position.set(0.125, -0.32, -0.21); } // grip; the rifle's middle (≈0.25 m up the barrel) lands on the spine
     this.inHand = new THREE.Group(); this.inHand.matrixAutoUpdate = false; this.attach(this.P.ch);
     for (const m of this.models) m.visible = false;
     this.fxInit(); this.hudInit(); this.showHolstered();
@@ -67,15 +62,30 @@ export class Weapons {
 
   // ------------------------------------------------------------------ helpers
   showHolstered() { // the selected weapon rides in its holster/sling when not in the hands
-    for (let i = 0; i < 9; i++) { const m = this.models[i]; if (i === this.sel && this.state === 'none') { const slot = WEAPONS[i].cls === 'pistol' ? this.holsterP : this.holsterR; if (m.parent !== slot) slot.add(m); m.position.set(0, 0, 0); m.quaternion.identity(); m.visible = true; m.matrixAutoUpdate = true; } else if (i !== this.cur || this.state === 'none') { if (i !== this.sel) m.visible = false; } }
+    for (let i = 0; i < 9; i++) { const m = this.models[i]; if (i === this.sel && this.state === 'none' && this.inv[i] && this.inv[i].owned) { const slot = WEAPONS[i].cls === 'pistol' ? this.holsterP : this.holsterR; if (m.parent !== slot) slot.add(m); m.position.set(0, 0, 0); m.quaternion.identity(); m.visible = true; m.matrixAutoUpdate = true; } else if (i !== this.cur || this.state === 'none') { if (i !== this.sel) m.visible = false; } }
   }
   slotMatrixInChest(i, out) { const b = this.P.ch.bones; const slot = WEAPONS[i].cls === 'pistol' ? this.holsterP : this.holsterR; b.chest.updateWorldMatrix(true, false); slot.updateWorldMatrix(true, false); return out.copy(b.chest.matrixWorld).invert().multiply(slot.matrixWorld); }
   select(i) {
-    if (!(i >= 0 && i <= 8) || !this.inv[i] || !this.inv[i].owned) return; if (this.state === 'reload') this.abortReload();
+    if (!(i >= 0 && i <= 8) || !this.inv[i] || !this.inv[i].owned) { if (i >= 0 && i <= 8 && this.inv[i]) this.hudFlash(`${WEAPONS[i].name} not owned — buy it at a gun shop`); return; } this._toFists = false; if (this.state === 'reload') this.abortReload();
     if (this.state === 'holster') { this.next = i; this.hudWeapon(i); return; } // already putting one away: retarget, never restart the animation
     if (this.cur === i) return;
     if (this.drawn) { this.next = i; this.setState('holster'); } else { this.sel = i; this.cur = i; this.setState('equip'); }
     this.hudWeapon(i);
+  }
+  // fists (every character, always available): put any weapon away and fight unarmed. sel = −1 means fists.
+  selectFists() { this.scrollTarget = null; if (this.drawn) { this._toFists = true; this.holster(); } else { this.sel = -1; this._toFists = false; this.showHolstered(); } this.hudWeapon(-1); }
+  get fistsReady() { return !this.drawn && this.state === 'none' && (this.sel < 0 || !this.inv[this.sel] || !this.inv[this.sel].owned); }
+  punch() {
+    const P = this.P; this.punchSide = -(this.punchSide || -1); this.punchCd = 0.42; this.punchT = 0.12; this.punches = (this.punches || 0) + 1;
+    if (!P.speed || P.speed < 0.5) P.yaw = wrapAngle(P.camYaw + Math.PI); // throw it where the camera looks
+    P.ch.anim.punchSide = this.punchSide; P.ch.anim.play('punch', 0.38); Audio.noise(0.09, { f: 700, q: 0.9, vol: 0.05, when: 0 });
+  }
+  punchHit() { // short reach in front of the shoulders; the nearest standing pedestrian in that cone takes it
+    const P = this.P, C = this.g.crowd; if (!C || !C.peds) return null; const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw); let best = null, bd = 1.5;
+    for (const p of C.peds) { if (p.state === 'down' || !p.ch) continue; const dx = p.x - P.x, dz = p.z - P.z, d = Math.hypot(dx, dz); if (d > bd || d < 0.05) continue; if ((dx * fx + dz * fz) / d < 0.5) continue; if (Math.abs((p.y || 0) - (P.y || 0)) > 0.9) continue; best = p; bd = d; }
+    if (!best) return null;
+    if (C.punched(best, P)) { this.landed = (this.landed || 0) + 1; Audio.noise(0.06, { f: 260, q: 1.4, vol: 0.12, when: 0 }); P.shake = Math.max(P.shake || 0, 0.15); if (this.g.police) this.g.police.crime(best.x, best.z, 'assault'); }
+    return best;
   }
   holster() { if (this.drawn && this.state !== 'holster') { this.next = -1; if (this.state === 'reload') this.abortReload(); this.setState('holster'); } }
   setState(s) { const prev = this.state; this.state = s; this.t = 0; if (s === 'holster' || s === 'none') this.wantReload = false;
@@ -136,11 +146,13 @@ export class Weapons {
     // ---- selection: wheel (hold Tab), number keys, mouse wheel, gamepad d-pad
     if (Input.isDown('weaponWheel')) this.wheelUpdate(); else if (this.wheelOpen) this.wheelClose(true);
     if (!this.wheelOpen) {
-      for (let i = 0; i < 9; i++) if (Input.keyPressed('Digit' + (i + 1)) || Input.keyPressed('Numpad' + (i + 1))) this.select(i);
+      const dbgPad = this.g.debug && this.g.debug.menuEnabled; // Numpad2 opens the debug menu once it is enabled
+      for (let i = 0; i < 9; i++) if (Input.keyPressed('Digit' + (i + 1)) || (Input.keyPressed('Numpad' + (i + 1)) && !(dbgPad && i === 1))) this.select(i);
+      if (Input.keyPressed('Digit0') || Input.keyPressed('Numpad0')) this.selectFists();
       // mouse wheel / d-pad: step a pending target through OWNED weapons; commit once the wheel settles (fast scrolling = one clean switch)
       const step = Input.wheel && !this.scoped ? (Input.wheel > 0 ? 1 : -1) : Input.pad.buttons[15] && !Input.pad.prev[15] ? 1 : Input.pad.buttons[14] && !Input.pad.prev[14] ? -1 : 0;
-      if (step) { const from = this.scrollTarget ?? (this.state === 'holster' && this.next >= 0 ? this.next : this.cur >= 0 ? this.cur : this.sel); let j = from; for (let k = 0; k < 9; k++) { j = (j + step + 9) % 9; if (this.inv[j].owned) break; } this.scrollTarget = j; this.scrollT = 0.2; this.hudWeapon(j); }
-      if (this.scrollTarget != null) { this.scrollT -= dt; if (this.scrollT <= 0) { const j = this.scrollTarget; this.scrollTarget = null; this.select(j); } }
+      if (step) { const ring = [-1, ...WEAPONS.map((_, k) => k).filter((k) => this.inv[k].owned)]; /* fists + owned weapons */ const from = this.scrollTarget ?? (this.state === 'holster' && this.next >= 0 ? this.next : this.cur >= 0 ? this.cur : this.sel); const at = Math.max(0, ring.indexOf(from)); const j = ring[(at + step + ring.length) % ring.length]; this.scrollTarget = j; this.scrollT = 0.2; this.hudWeapon(j); }
+      if (this.scrollTarget != null) { this.scrollT -= dt; if (this.scrollT <= 0) { const j = this.scrollTarget; this.scrollTarget = null; if (j < 0) this.selectFists(); else this.select(j); } }
       if (Input.wasPressed('holster') || (Input.pad.buttons[12] && !Input.pad.prev[12] && this.drawn)) { if (this.drawn) this.holster(); else this.select(this.sel); }
     }
     let def = this.def;
@@ -149,7 +161,10 @@ export class Weapons {
     this.t += dt; this.cool = Math.max(0, this.cool - dt); this.bloom = Math.max(0, this.bloom - dt * (def && def.cls === 'sniper' ? 0.02 : 0.06)); this.recoil = Math.max(0, this.recoil - dt * 9 * (this.recoil + 0.02)); this.quickAim = Math.max(0, this.quickAim - dt);
     if (this.state === 'equip' && this.t >= def.equip) this.setState('ready');
     if (this.state === 'check' && this.t >= 0.9 && this.cycleT < 0) this.setState('ready'); this.trigT = Math.max(0, this.trigT - dt);
-    if (this.state === 'holster' && this.t >= def.equip * 0.85) { this.models[this.cur].visible = false; const n = this.next; this.cur = -1; this.state = 'none'; A.ik = null; A.aim = null; if (n >= 0) { this.sel = n; this.cur = n; this.setState('equip'); } this.showHolstered(); }
+    if (this.state === 'holster' && this.t >= def.equip * 0.85) { this.models[this.cur].visible = false; const n = this.next; this.cur = -1; this.state = 'none'; A.ik = null; A.aim = null; if (n >= 0) { this.sel = n; this.cur = n; this.setState('equip'); } if (this._toFists) { this.sel = -1; this._toFists = false; } this.showHolstered(); }
+    // ---- fists
+    this.punchCd = Math.max(0, (this.punchCd || 0) - dt); if (this.punchT > 0) { this.punchT -= dt; if (this.punchT <= 0) this.punchHit(); }
+    if (firePressed && this.fistsReady && !P.sprinting && !P.crouching && this.punchCd <= 0) this.punch();
     if (this.state === 'reload' && this.t >= this.reloadDur) { const iv = this.inv[this.cur]; const take = Math.min(def.mag + (this.reloadKind === 'tactical' ? 1 : 0) - iv.mag, iv.reserve); this.slideLock = false; /* tactical: the chambered round stays (+1) */ iv.mag += take; iv.reserve -= take; this.reloadMagOut = false; this.setState('ready'); }
     def = this.def;
     if (!def) { P.aiming = false; this.setScope(false); this.hudUpdate(dt); this.fxUpdate(dt); return; }
@@ -167,7 +182,7 @@ export class Weapons {
       const trig = def.auto ? fireHeld : firePressed;
       if (trig && this.aimW < 0.8) { this.quickAim = 0.5; }
       else if (trig && this.cool <= 0) {
-        if (iv.mag > 0) { this.fire(def); iv.mag--; this.cool = 1 / def.rof; if (def.cycle && iv.mag > 0) this.cycleT = 0; if (iv.mag === 0 && iv.reserve > 0 && Settings.get('autoReload') !== false) { this.autoReloadT = 0.35; } }
+        if (iv.mag > 0) { this.fire(def); if (!this.g.debug?.infAmmo) iv.mag--; this.cool = 1 / def.rof; if (def.cycle && iv.mag > 0) this.cycleT = 0; if (iv.mag === 0 && iv.reserve > 0 && Settings.get('autoReload') !== false) { this.autoReloadT = 0.35; } }
         else if (firePressed) { Audio.tone(1800, 0.03, { type: 'square', vol: 0.06 }); this.cool = 0.25; if (iv.reserve > 0) { this.setState('reload'); this.reloadSnd(def); } else this.hudFlash('No ammunition'); }
       }
       if (fireHeld || aimHeld) this.quickAim = Math.max(this.quickAim, aimHeld ? 0 : 0.6);
@@ -327,6 +342,7 @@ export class Weapons {
     else if (hit.kind === 'world' || hit.kind === 'ground') { this.puff(hit.point, hit.kind === 'ground' ? 0x6d6a64 : 0xb5ab9a, 5); this.decal(hit.point, dir, hit.kind); }
     this.shotAlarm -= 1; if (this.shotAlarm <= 0) { this.shotAlarm = 3; this.g.crowd.alarm(P.x, P.z, def.loud, 2, null); }
     this.g.crowd.alarm(hit.point.x, hit.point.z, 10, 2, null);
+    this.g.birds?.scare(P.x, P.z, 50); // every bird nearby goes up at a gunshot
     if (this.g.police) this.g.police.gunfire(P.x, P.z); else { this.heat = Math.min(5, this.heat + 0.05); this.heatT = 0; } this.lastShot = { x: P.x, z: P.z, t: performance.now() };
     if (this.onShot) this.onShot(def, hit);
   }
@@ -402,7 +418,7 @@ export class Weapons {
     this.el.scope = el('scope', root, '<div class="sc-ring"></div><div class="sc-h"></div><div class="sc-v"></div><div class="sc-dot"></div><div class="sc-mils"></div><div class="sc-hint">Hold <kbd>Shift</kbd> to steady · breath <span class="sc-breath"><i></i></span></div>');
     this.el.breath = this.el.scope.querySelector('.sc-breath i');
     this.el.heat = el('heat hide', root, '<span>POLICE</span><b></b><i></i>'); this.el.heatLabel = this.el.heat.querySelector('i');
-    this.el.wheel = el('weap-wheel', root, '<div class="ww-center"><div class="ww-name"></div><div class="ww-ammo"></div><div class="ww-hint">Move the mouse · release <kbd>Tab</kbd></div></div>');
+    this.el.wheel = el('weap-wheel', root, '<div class="ww-center"><div class="ww-name"></div><div class="ww-ammo"></div><div class="ww-hint">Move the mouse · centre = fists · release <kbd>Tab</kbd></div></div>');
     this.el.slots = WEAPONS.map((d, i) => { const a = (i / 9) * Math.PI * 2 - Math.PI / 2; const s = el('ww-slot ' + d.cls, this.el.wheel, `<div class="ww-icon">${this.icon(d)}</div><div class="ww-label">${i + 1} · ${d.name}</div>`); s.style.left = `calc(50% + ${Math.cos(a) * 190}px)`; s.style.top = `calc(50% + ${Math.sin(a) * 190}px)`; return s; });
     this.el.msg = el('weap-msg', root);
   }
@@ -410,29 +426,31 @@ export class Weapons {
     const P = { pistol: 'M6 14h34v6H22l-2 12h-8l2-12H6z', rifle: 'M2 14h14v-3h40v3h8v4H52l-2 4h-6l-2 8h-6l1-8H24l-2 6H10l2-6H2z', sniper: 'M2 15h12v-2h26V9h12v4h18v3H44l-2 3h-5l-2 9h-6l2-9H22l-2 5H8l2-5H2z' }[d.cls];
     return `<svg viewBox="0 0 72 36" width="${d.cls === 'pistol' ? 48 : 86}" height="36"><path d="${P}" fill="currentColor"/></svg>`;
   }
-  hudWeapon(i) { const d = WEAPONS[i]; this.el.card.querySelector('.wc-name').innerHTML = `${this.icon(d)}<span>${d.name}</span>`; this.el.card.classList.remove('hide'); this._cardT = 4; }
+  hudWeapon(i) { const d = WEAPONS[i]; this.el.card.querySelector('.wc-name').innerHTML = d ? `${this.icon(d)}<span>${d.name}</span>` : `${this.fistIcon()}<span>Fists</span>`; this.el.card.classList.remove('hide'); this._cardT = 4; }
+  fistIcon() { return '<svg viewBox="0 0 36 36" width="34" height="34"><path d="M9 15c0-2 1.5-3 3-3s3 1 3 3v-2c0-2 1.5-3 3-3s3 1 3 3v1c0-2 1.5-3 3-3s3 1 3 3v8c0 5-4 9-9 9h-2c-4 0-7-3-7-7v-4c0-1.5 1-2.5 2.5-2.5H9z" fill="currentColor"/></svg>'; }
   hudFlash(t) { this.el.msg.textContent = t; this.el.msg.classList.add('on'); clearTimeout(this._msgT); this._msgT = setTimeout(() => this.el.msg.classList.remove('on'), 1400); }
   hitMarker() { this.el.hit.classList.remove('on'); void this.el.hit.offsetWidth; this.el.hit.classList.add('on'); Audio.tone(1400, 0.04, { type: 'triangle', vol: 0.04 }); }
   hudUpdate(dt) {
     const d = this.def; const on = !!d && this.drawn;
     this.el.cross.classList.toggle('hide', !on || this.scoped); this.el.cross.classList.toggle('aim', this.aimW > 0.5);
     if (on) { const gap = 6 + (d.spread + this.bloom) * (this.P.speed > 0.6 ? 1.7 : 1) * 900 * (this.aimW > 0.5 ? 1 : 1.8); this.el.cross.style.setProperty('--gap', gap.toFixed(1) + 'px'); }
-    if (on || this._cardT > 0) { this._cardT = (this._cardT || 0) - dt; const i = this.cur >= 0 ? this.cur : this.sel; const iv = this.inv[i]; const dd = WEAPONS[i]; this.el.card.querySelector('.wc-ammo b').textContent = iv.mag; this.el.card.querySelector('.wc-ammo span').textContent = '/ ' + iv.reserve; this.el.card.querySelector('.wc-state').textContent = this.state === 'reload' ? (this.reloadKind === 'tactical' ? 'Tactical reload…' : 'Empty reload…') : this.state === 'check' ? 'Weapon check…' : this.cycleT >= 0 ? 'Working the bolt…' : this.state === 'none' ? `Holstered · ${dd.cls === 'pistol' ? 'hip holster' : 'back sling'}` : iv.mag === 0 ? (iv.reserve ? 'Empty — R to reload' : 'Out of ammunition') : ''; this.el.card.classList.toggle('low', iv.mag <= Math.ceil(dd.mag * 0.25)); this.el.card.classList.remove('hide'); }
+    if (!on && this._cardT > 0 && !WEAPONS[this.cur >= 0 ? this.cur : this.sel]) { this._cardT -= dt; this.el.card.querySelector('.wc-ammo b').textContent = ''; this.el.card.querySelector('.wc-ammo span').textContent = ''; this.el.card.querySelector('.wc-state').textContent = 'Unarmed · click to punch'; this.el.card.classList.remove('hide'); }
+    else if (on || this._cardT > 0) { this._cardT = (this._cardT || 0) - dt; const i = this.cur >= 0 ? this.cur : this.sel; const iv = this.inv[i]; const dd = WEAPONS[i]; this.el.card.querySelector('.wc-ammo b').textContent = iv.mag; this.el.card.querySelector('.wc-ammo span').textContent = '/ ' + iv.reserve; this.el.card.querySelector('.wc-state').textContent = this.state === 'reload' ? (this.reloadKind === 'tactical' ? 'Tactical reload…' : 'Empty reload…') : this.state === 'check' ? 'Weapon check…' : this.cycleT >= 0 ? 'Working the bolt…' : this.state === 'none' ? `Holstered · ${dd.cls === 'pistol' ? 'hip holster' : 'back sling'}` : iv.mag === 0 ? (iv.reserve ? 'Empty — R to reload' : 'Out of ammunition') : ''; this.el.card.classList.toggle('low', iv.mag <= Math.ceil(dd.mag * 0.25)); this.el.card.classList.remove('hide'); }
     else this.el.card.classList.add('hide');
     const pi = this.g.police ? this.g.police.hudInfo() : null; const h = pi ? pi.level : Math.ceil(this.heat - 0.01); const lab = pi ? pi.label : '';
     this.el.heat.classList.toggle('hide', h <= 0 && !lab); this.el.heat.querySelector('b').textContent = h > 0 ? '★'.repeat(h) + '☆'.repeat(5 - h) : ''; this.el.heatLabel.textContent = lab; this.el.heat.classList.toggle('calm', h <= 0);
   }
   wheelUpdate() {
-    if (!this.wheelOpen) { this.wheelOpen = true; this.wheelX = 0; this.wheelY = 0; this.wheelSel = this.cur >= 0 ? this.cur : this.sel; this.el.wheel.classList.add('on'); this.P.lookLock = true; this.g.timeSlow = 0.3; }
+    if (!this.wheelOpen) { this.wheelOpen = true; this.wheelX = 0; this.wheelY = 0; this.wheelMoved = false; this.wheelSel = this.cur >= 0 ? this.cur : this.sel; for (let i = 0; i < 9; i++) this.el.slots[i].classList.toggle('locked', !this.inv[i].owned); this.el.wheel.classList.add('on'); this.P.lookLock = true; this.g.timeSlow = 0.3; }
     this.wheelX += Input.mouseDX + Input.pad.rx * 12; this.wheelY += Input.mouseDY + Input.pad.ry * 12; const r = Math.hypot(this.wheelX, this.wheelY); if (r > 120) { this.wheelX *= 120 / r; this.wheelY *= 120 / r; }
-    if (r > 30) { let a = Math.atan2(this.wheelY, this.wheelX) + Math.PI / 2; if (a < 0) a += Math.PI * 2; this.wheelSel = Math.round(a / (Math.PI * 2 / 9)) % 9; }
+    if (r > 30) { this.wheelMoved = true; let a = Math.atan2(this.wheelY, this.wheelX) + Math.PI / 2; if (a < 0) a += Math.PI * 2; this.wheelSel = Math.round(a / (Math.PI * 2 / 9)) % 9; } else if (this.wheelMoved && r < 18) this.wheelSel = -1; // back to the centre: fists
     for (let i = 0; i < 9; i++) this.el.slots[i].classList.toggle('sel', i === this.wheelSel);
-    const d = WEAPONS[this.wheelSel], iv = this.inv[this.wheelSel]; this.el.wheel.querySelector('.ww-name').textContent = d.name; this.el.wheel.querySelector('.ww-ammo').textContent = `${iv.mag} / ${iv.reserve} · ${d.auto ? 'automatic' : d.cycle ? 'bolt / manual' : 'semi-automatic'}`;
+    const d = WEAPONS[this.wheelSel], iv = this.inv[this.wheelSel]; this.el.wheel.querySelector('.ww-name').textContent = d ? d.name : 'Fists'; this.el.wheel.querySelector('.ww-ammo').textContent = !d ? 'Unarmed · click to punch' : !iv.owned ? 'Not owned · buy it at a gun shop' : `${iv.mag} / ${iv.reserve} · ${d.auto ? 'automatic' : d.cycle ? 'bolt / manual' : 'semi-automatic'}`;
   }
-  wheelClose(apply) { if (!this.wheelOpen) return; this.wheelOpen = false; this.el.wheel.classList.remove('on'); this.P.lookLock = false; this.g.timeSlow = 1; if (apply && this.wheelSel >= 0) this.select(this.wheelSel); }
+  wheelClose(apply) { if (!this.wheelOpen) return; this.wheelOpen = false; this.el.wheel.classList.remove('on'); this.P.lookLock = false; this.g.timeSlow = 1; if (apply) { if (this.wheelSel >= 0) this.select(this.wheelSel); else if (this.wheelSel === -1) this.selectFists(); } }
 
   // ------------------------------------------------------------------ save / load
   save() { return { inv: this.inv.map((v) => [v.mag, v.reserve]), sel: this.sel, heat: this.g.police ? this.g.police.level : this.heat }; }
-  load(s) { if (!s) return; this.forceHolster(); (s.inv || []).forEach((v, i) => { if (this.inv[i]) { this.inv[i].mag = v[0]; this.inv[i].reserve = v[1]; } }); this.sel = s.sel || 0; this.heat = s.heat || 0; this.showHolstered(); }
+  load(s) { if (!s) return; this.forceHolster(); (s.inv || []).forEach((v, i) => { if (this.inv[i]) { this.inv[i].mag = v[0]; this.inv[i].reserve = v[1]; } }); this.sel = s.sel ?? 0; if (this.sel >= 0 && !(this.inv[this.sel] && this.inv[this.sel].owned)) this.sel = -1; this.heat = s.heat || 0; this.showHolstered(); }
   refill() { this.inv.forEach((v, i) => { v.mag = WEAPONS[i].mag; v.reserve = WEAPONS[i].reserve; }); }
 }

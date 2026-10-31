@@ -7,6 +7,7 @@ import { RNG } from '../core/rng.js';
 import { Character, randomSpec, HEROES } from '../actors/Character.js';
 import { buildHQInterior, HQ_DEF } from './HQInterior.js';
 import { HQ } from './PoliceHQ.js';
+import { buildGunShopInterior } from './GunShop.js';
 
 const Y = -40; const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 const DEFS = {
@@ -29,6 +30,7 @@ export class Interiors {
   build(id, door) {
     if (this.built.has(id)) return this.built.get(id);
     if (id === 'hq') { const room = buildHQInterior(this.g, door || { id: 'hq', ...HQ.door }, HQ.interior); this.built.set(id, room); return room; }
+    if (id === 'gunshop') { const room = buildGunShopInterior(this.g, door); this.built.set(id, room); return room; }
     const D = DEFS[id]; const mb = new MultiBuilder(); const rng = new RNG(id.length * 97 + 5);
     const cx = door.x, cz = door.z - 200; // offset in z so rooms don't overlap the shop's own geometry footprint
     const x0 = cx - D.w / 2, x1 = cx + D.w / 2, z0 = cz - D.d, z1 = cz; const H = id === 'garage' ? 5 : 3.2;
@@ -108,11 +110,17 @@ export class Interiors {
     if (!want) for (const p of g.hqLife?.people || []) if (p.ch?.root && Math.abs(p.ch.root.position.x - ex) < 2.6 && Math.abs(p.ch.root.position.z - ez) < 2.8) { want = 1; break; }
     this.doorK = (this.doorK || 0) + Math.sign(want - (this.doorK || 0)) * Math.min(Math.abs(want - (this.doorK || 0)), dt / 0.7);
     const leaves = g.world?.landmarks?.anim?.hqDoors; if (leaves) { const e = (1 - Math.cos(this.doorK * Math.PI)) / 2; for (const lf of leaves) lf.position.x = lf.userData.home + lf.userData.dir * lf.userData.w * 0.95 * e; }
+    // closed / half-open glass is solid: the opening only becomes passable once the leaves have slid ~70 % clear
+    if (this.hqDoorColl === undefined) this.hqDoorColl = (g.collision?.list || []).find((c) => c.id === 'hqDoors') || null;
+    if (this.hqDoorColl) { const c = this.hqDoorColl; if (c.hFull === undefined) c.hFull = c.h; c.h = this.doorK > 0.7 ? 0 : c.hFull; }
     // hand-over between the world and the room model
     if (P.indoor === r) { if (P.z < r.front - 0.05 || P.vehicle || P.z > r.front + r.depth + 1 || P.x < r.bounds.x0 - 1 || P.x > r.bounds.x1 + 1 || P.y < r.y - 1.5) P.indoor = null; } // any exit (door, or a teleport: arrest, hospital) releases the room model
     else if (!P.indoor && !P.vehicle && !this.current && P.z > r.front + 0.3 && P.z < r.front + r.depth && P.x > r.bounds.x0 && P.x < r.bounds.x1 && P.y > r.y - 0.6 && P.y < r.y + 2 * r.H) P.indoor = r;
     // how "inside" the camera is: drives the light blend in Game (eased so stepping through the door is a smooth adaptation)
     const tk = P.indoor === r ? Math.min(1, Math.max(0, (P.z - r.front + 0.3) / 3.5)) : 0; this.seamK = (this.seamK || 0) + (tk - (this.seamK || 0)) * Math.min(1, dt * 2.5);
+    // ceiling lights: point lights have no shadows, so from outside their reach is clamped to the nearest wall (the facade and
+    // compound are not lit through the walls); once inside they light the whole floor
+    if (r.lights) { const k = this.seamK; for (const l of r.lights) { const dw = Math.max(1.5, (l.userData.wallD || 16) + 0.3); l.distance = dw + (16 - dw) * k; l.intensity = 14 * (0.55 + 0.45 * k); } }
     return this.seamK;
   }
   update(dt) {

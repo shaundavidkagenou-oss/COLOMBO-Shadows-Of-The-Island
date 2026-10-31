@@ -5,6 +5,7 @@
 import { RNG, hash2 } from '../core/rng.js';
 
 export const BOUNDS = { minX: -560, maxX: 900, minZ: -1300, maxZ: 1400 };
+export const EDGE_SETBACK = 2.7; // blocks on the east / north map edge stop this far short of it; the boundary wall / parapet sits in the gap
 export const ROAD_Y = 0.02, LAND_Y = 0.15;
 export const ROAD_W = [18, 12, 9, 6.5];
 export const WALK_W = [4.5, 3.5, 2.6, 1.8];
@@ -215,6 +216,7 @@ export const NX = XS.length, NZ = ZS.length;
 function spanAt(line, t) { for (const s of line.spans) if (t >= s.min && t < s.max) return s; return null; }
 
 // ---------------------------------------------------------------- the road graph
+const rejected = new Map(); // 'v<i>,<j>' / 'h<i>,<j>' → why a grid segment was left out
 export const segments = []; // {id, dir:'v'|'h', i, j, level, w, hw, name, x0,z0,x1,z1, crossing, bridge}
 export const vseg = []; // vseg[i][j] : x=XS[i], z from ZS[j] to ZS[j+1]
 export const hseg = []; // hseg[i][j] : z=ZS[j], x from XS[i] to XS[i+1]
@@ -222,7 +224,7 @@ export const hseg = []; // hseg[i][j] : z=ZS[j], x from XS[i] to XS[i+1]
 function segAllowed(x0, z0, x1, z1, level) {
   const mx = (x0 + x1) / 2, mz = (z0 + z1) / 2;
   const dist = districtAt(mx, mz);
-  if (level > 0 && level > dist.maxLevel) return { ok: false };
+  if (level > 0 && level > dist.maxLevel) return { ok: false, why: 'level' };
   if (dist === DISTRICTS.gfgreen) return { ok: false };
   let crossing = false, bridge = false;
   const len = Math.hypot(x1 - x0, z1 - z0); const n = Math.max(2, Math.ceil(len / 3));
@@ -244,10 +246,11 @@ for (let i = 0; i < NX; i++) {
     const sp = spanAt(XS[i], (z0 + z1) / 2);
     vseg[i][j] = null;
     if (!sp || x < BOUNDS.minX + 5 || x > BOUNDS.maxX - 5) continue;
+    if (z0 <= BOUNDS.minZ + 5 || z1 >= BOUNDS.maxZ - 5) continue; // never run a street into the map edge (it used to stop at an invisible wall)
     const r = segAllowed(x, z0, x, z1, sp.level);
-    if (!r.ok) continue;
-    const s = { id: segments.length, dir: 'v', i, j, level: sp.level, w: ROAD_W[sp.level], hw: ROAD_W[sp.level] / 2, walk: WALK_W[sp.level], name: sp.name, x0: x, z0, x1: x, z1, crossing: r.crossing, bridge: r.bridge };
-    segments.push(s); vseg[i][j] = s;
+    if (!r.ok) { if (r.why) rejected.set(`v${i},${j}`, r.why); continue; }
+    const s = { id: -1, dir: 'v', i, j, level: sp.level, w: ROAD_W[sp.level], hw: ROAD_W[sp.level] / 2, walk: WALK_W[sp.level], name: sp.name, x0: x, z0, x1: x, z1, crossing: r.crossing, bridge: r.bridge };
+    vseg[i][j] = s;
   }
 }
 for (let i = 0; i < NX - 1; i++) {
@@ -257,11 +260,33 @@ for (let i = 0; i < NX - 1; i++) {
     const sp = spanAt(ZS[j], (x0 + x1) / 2);
     hseg[i][j] = null;
     if (!sp || z < BOUNDS.minZ + 5 || z > BOUNDS.maxZ - 5) continue;
+    if (x0 <= BOUNDS.minX + 5 || x1 >= BOUNDS.maxX - 5) continue; // never run a street into the map edge
     const r = segAllowed(x0, z, x1, z, sp.level);
-    if (!r.ok) continue;
-    const s = { id: segments.length, dir: 'h', i, j, level: sp.level, w: ROAD_W[sp.level], hw: ROAD_W[sp.level] / 2, walk: WALK_W[sp.level], name: sp.name, x0, z0: z, x1, z1: z, crossing: r.crossing, bridge: r.bridge };
-    segments.push(s); hseg[i][j] = s;
+    if (!r.ok) { if (r.why) rejected.set(`h${i},${j}`, r.why); continue; }
+    const s = { id: -1, dir: 'h', i, j, level: sp.level, w: ROAD_W[sp.level], hw: ROAD_W[sp.level] / 2, walk: WALK_W[sp.level], name: sp.name, x0, z0: z, x1, z1: z, crossing: r.crossing, bridge: r.bridge };
+    hseg[i][j] = s;
   }
+}
+// Dead-end stubs: where a minor street meets a district that doesn't allow streets that small (e.g. lanes reaching
+// Cinnamon Gardens), the street used to stop dead against the next block's buildings. Prune such stubs back to the
+// last junction (repeatedly, so a chain of stubs goes too). Dead ends at the sea, the lake, the railway or a park/landmark
+// edge are kept: those end at an open, visible boundary.
+{
+  const degSegs = (i, j) => [vseg[i]?.[j - 1], vseg[i]?.[j], hseg[i - 1]?.[j], hseg[i]?.[j]].filter(Boolean);
+  for (let pass = 0; pass < 8; pass++) {
+    let changed = false;
+    for (let i = 0; i < NX; i++) for (let j = 0; j < NZ; j++) {
+      const ss = degSegs(i, j); if (ss.length !== 1) continue; const s = ss[0];
+      const key = s.dir === 'v' ? `v${i},${s.j === j ? j - 1 : j}` : `h${s.i === i ? i - 1 : i},${j}`;
+      const far = s.dir === 'v' ? degSegs(i, s.j === j ? j + 1 : j - 1) : degSegs(s.i === i ? i + 1 : i - 1, j); // an isolated piece of road (dead at both ends) goes too
+      if (rejected.get(key) !== 'level' && far.length !== 1) continue;
+      if (s.dir === 'v') { vseg[s.i][s.j] = null; rejected.set(`v${s.i},${s.j}`, 'level'); } else { hseg[s.i][s.j] = null; rejected.set(`h${s.i},${s.j}`, 'level'); }
+      changed = true;
+    }
+    if (!changed) break;
+  }
+  for (let i = 0; i < NX; i++) for (let j = 0; j < NZ - 1; j++) { const s = vseg[i][j]; if (s) { s.id = segments.length; segments.push(s); } }
+  for (let i = 0; i < NX - 1; i++) for (let j = 0; j < NZ; j++) { const s = hseg[i][j]; if (s) { s.id = segments.length; segments.push(s); } }
 }
 export function getV(i, j) { return (vseg[i] && vseg[i][j]) || null; }
 export function getH(i, j) { return (hseg[i] && hseg[i][j]) || null; }
@@ -302,6 +327,8 @@ for (let i = 0; i < NX - 1; i++) for (let j = 0; j < NZ - 1; j++) {
   const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
   const L = getV(i, j), R = getV(i + 1, j), T = getH(i, j), B = getH(i, j + 1);
   const land = [x0 + (L ? L.hw : 0), x1 - (R ? R.hw : 0), z0 + (T ? T.hw : 0), z1 - (B ? B.hw : 0)];
+  if (!R && x1 >= BOUNDS.maxX) land[1] = Math.min(land[1], BOUNDS.maxX - EDGE_SETBACK); // edge blocks back onto the boundary wall (World.buildBoundary)
+  if (!T && z0 <= BOUNDS.minZ) land[2] = Math.max(land[2], BOUNDS.minZ + EDGE_SETBACK); // …and onto the north seafront parapet
   const lot = [land[0] + (L ? L.walk : 0), land[1] - (R ? R.walk : 0), land[2] + (T ? T.walk : 0), land[3] - (B ? B.walk : 0)];
   let waterSamples = 0;
   for (let a = 0; a <= 4; a++) for (let b = 0; b <= 4; b++) if (isWater(x0 + (x1 - x0) * a / 4, z0 + (z1 - z0) * b / 4)) waterSamples++;
@@ -342,13 +369,36 @@ export function bridgeWalkAt(x, z) {
   }
   return false;
 }
+let surfHook = null; // Parks registers its raised paving (paths / ring / plaza / kerbs sit 2–8 cm above the lawn mesh)
+export function setSurfaceHook(fn) { surfHook = fn; }
+// top of whatever hard surface is underfoot: the terrain, or paving laid on it — what feet (people, birds) stand on
+export function surfaceY(x, z) { const g = groundY(x, z); if (!surfHook) return g; const s = surfHook(x, z); return s > g ? s : g; }
 let groundHook = null; // Railway registers the ballast bed / level-crossing humps here (avoids an import cycle)
 export function setGroundHook(fn) { groundHook = fn; }
 export function groundY(x, z) {
   if (groundHook) { const h = groundHook(x, z); if (h != null) return h; }
   if (roadAt(x, z)) return ROAD_Y;
   if (isWater(x, z)) return bridgeWalkAt(x, z) ? LAND_Y : -1.2;
+  const cp = copingAt(x, z); if (cp != null) return cp;
   return LAND_Y;
+}
+// Raised copings along the water (built in GroundBuilder): feet stand ON them instead of sinking into the concrete.
+//  * Beira Lake embankment: 0.9 m wide coping, top LAND_Y + 0.3, just outside the lake ellipses
+//  * seawall (z −1000…1370, not the harbour): 0.6 m coping on the land side of the coast line, top LAND_Y + 0.55
+export const SEAWALL_Z = [-1000, 1370];
+export function copingAt(x, z) {
+  if (inLake(x, z, 0.9) && !inLake(x, z)) return LAND_Y + 0.3;
+  if (z >= SEAWALL_Z[0] && z < SEAWALL_Z[1]) { const c = coastX(z); if (x >= c && x < c + 0.6 && !inHarbour(x, z)) return LAND_Y + 0.55; }
+  return null;
+}
+// The railings along the water are solid: the lake railing stands 0.4 m out on the coping, the Galle Face promenade
+// railing 0.4 m in from the seawall edge. True where a walker's centre would be inside / beyond the railing line.
+export const PROMENADE_END = -160; // Galle Face promenade + seawall railing run from the Fort end (z -655) down to here
+export function beyondRailing(x, z, r = 0.3) {
+  if (inLake(x, z, 0.4 + r) && !inLake(x, z)) return true;
+  if (z >= -655 && z < PROMENADE_END && x >= coastX(z) && x < coastX(z) + 0.4 + r) return true;
+  if (Math.abs(z - PROMENADE_END) < 0.05 + r && x >= coastX(z) && x < coastX(z) + 13 + r) return true; // the return railing at the promenade's south end
+  return false;
 }
 export function roadNameAt(x, z) {
   const r = roadAt(x, z); if (!r) return null;
@@ -413,7 +463,7 @@ export const PLACES = {
   mosque:        { x: 6, z: -880, name: 'Jami Ul-Alfar Mosque' },
   gfPromenade:   { x: -508, z: -450, name: 'Galle Face Promenade' },
   gfKade:        { x: -492, z: -330, name: 'Galle Face food carts' },
-  gfHotel:       { x: -440, z: -205, name: 'Galle Face Hotel' },
+  gfHotel:       { x: -440, z: -222, name: 'Galle Face Hotel' },
   lotus:         { x: 305, z: -480, name: 'Lotus Tower' },
   seema:         { x: -112, z: -300, name: 'Seema Malaka' },
   museum:        { x: 90, z: 110, name: 'National Museum' },
@@ -423,6 +473,7 @@ export const PLACES = {
   clockTower:    { x: -385, z: -903, name: 'Fort Clock Tower' },
   slaveFlat:     { x: -150, z: -150, name: "Dineth's room, Slave Island" },
   garage:        { x: 455, z: -790, name: 'Lanka Auto Care, Maradana' },
+  gunshop:       { x: 380, z: -700, name: 'Ceylon Arms Co., Maradana' },
   tailor:        { x: -305, z: 470, name: 'Ceylon Threads, Bambalapitiya' },
   hospital:      { x: 660, z: -160, name: 'National Hospital' },
   police:        { x: -310, z: 45, name: 'Kollupitiya Police Station' },

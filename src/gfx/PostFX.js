@@ -26,7 +26,7 @@ const SanitizeShader = {
   uniforms: { tDiffuse: { value: null } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
   fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv;
-    void main(){ vec4 c = texture2D(tDiffuse, vUv); if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0, 0.0, 0.0, 1.0); gl_FragColor = vec4(min(c.rgb, vec3(40.0)), c.a); }`,
+    void main(){ vec4 c = texture2D(tDiffuse, vUv); /* comparisons are false for NaN and fail for Inf; unlike isnan() they are not folded away by fast-math drivers */ if (any(isnan(c)) || any(isinf(c)) || !all(lessThan(abs(c), vec4(65000.0)))) c = vec4(0.0, 0.0, 0.0, 1.0); gl_FragColor = vec4(min(c.rgb, vec3(40.0)), c.a); }`,
 };
 // Squad-switch transit: radial motion blur toward the screen centre, chromatic aberration growing to the edges, and for
 // jump-cuts a short signal glitch (row tearing, RGB split, scanlines). Disabled (zero cost) whenever all three are 0.
@@ -53,7 +53,7 @@ export class PostFX {
   }
   build(preset = { bloom: true, ao: false }) {
     const r = this.r, size = r.getSize(new THREE.Vector2()); const pr = r.getPixelRatio();
-    const rt = new THREE.WebGLRenderTarget(size.x * pr, size.y * pr, { type: THREE.HalfFloatType, samples: 0 });
+    const rt = new THREE.WebGLRenderTarget(size.x * pr, size.y * pr, { type: THREE.HalfFloatType, samples: 0, depthTexture: new THREE.DepthTexture(size.x * pr, size.y * pr, THREE.FloatType) }); // 32-bit float depth: with the reversed-Z renderer this removes distance z-fighting
     this.composer = new EffectComposer(r, rt);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.composer.addPass(new ShaderPass(SanitizeShader));

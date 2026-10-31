@@ -14,6 +14,9 @@ import { onParkFeature } from './Parks.js';
 import { TEX } from '../gfx/Textures.js';
 
 const CELL = 0.5, N = CHUNK / CELL;
+// materials of hard / non-lawn ground: grass never grows through these where they lie on the lawn
+const PAVE = new Set(['road', 'roadTint', 'walk', 'walkGrey', 'kerb', 'concrete', 'ballast', 'laterite', 'sand', 'rocks', 'marking', 'soil', 'paint', 'paintDS', 'metal', 'roofFlat']);
+const PROBES = [[0.5, 0.5], [0.05, 0.05], [0.95, 0.05], [0.05, 0.95], [0.95, 0.95]];
 const grassUniforms = { uGTime: { value: 0 }, uGWind: { value: 0.3 } };
 
 function bladeClump() {
@@ -106,6 +109,25 @@ export class GrassField {
         }
       }
     }
+    // cut out paved overlays lying on the lawn (courts, drives, plazas, path slabs, markings, soil beds…): any up-facing
+    // non-vegetation triangle from the chunk meshes or the landmark meshes just above the lawn surface
+    const cutTri = (ax, ay, az, bx, by, bz, cx, cy, cz) => {
+      const det = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz); if (Math.abs(det) < 1e-6) return;
+      const gx0 = Math.max(0, Math.floor((Math.min(ax, bx, cx) - ox) / CELL)), gx1 = Math.min(N - 1, Math.floor((Math.max(ax, bx, cx) - ox) / CELL));
+      const gz0 = Math.max(0, Math.floor((Math.min(az, bz, cz) - oz) / CELL)), gz1 = Math.min(N - 1, Math.floor((Math.max(az, bz, cz) - oz) / CELL)); if (gx0 > gx1 || gz0 > gz1) return;
+      for (let gz = gz0; gz <= gz1; gz++) for (let gx = gx0; gx <= gx1; gx++) { const k = gz * N + gx; if (!m.a[k]) continue;
+        // test the cell centre and its four corners: a slab edge cuts the whole cell (no blades poking through the border)
+        for (const [ex, ez] of PROBES) { const x = ox + (gx + ex) * CELL, z = oz + (gz + ez) * CELL;
+          const l1 = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / det, l2 = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / det, l3 = 1 - l1 - l2;
+          if (l1 < -1e-4 || l2 < -1e-4 || l3 < -1e-4) continue; const y = ay * l1 + by * l2 + cy * l3; if (y > m.y[k] - 0.08 && y < m.y[k] + 0.6) { m.a[k] = 0; break; } } } };
+    const cutMesh = (P, I, x0, z0, x1, z1) => { const nt = I ? I.length / 3 : P.length / 9;
+      for (let t = 0; t < nt; t++) { const i0 = I ? I[t * 3] : t * 3, i1 = I ? I[t * 3 + 1] : t * 3 + 1, i2 = I ? I[t * 3 + 2] : t * 3 + 2;
+        const ax = P[i0 * 3], ay = P[i0 * 3 + 1], az = P[i0 * 3 + 2], bx = P[i1 * 3], by = P[i1 * 3 + 1], bz = P[i1 * 3 + 2], cx = P[i2 * 3], cy = P[i2 * 3 + 1], cz = P[i2 * 3 + 2];
+        if (Math.max(ax, bx, cx) < x0 || Math.min(ax, bx, cx) > x1 || Math.max(az, bz, cz) < z0 || Math.min(az, bz, cz) > z1) continue;
+        const ux = bx - ax, uy = by - ay, uz = bz - az, vx = cx - ax, vy = cy - ay, vz = cz - az; const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+        if (ny <= 0.85 * Math.hypot(nx, ny, nz)) continue; cutTri(ax, ay, az, bx, by, bz, cx, cy, cz); } };
+    for (const ch of near) for (const mesh of ch.group.children) { if (!mesh.isMesh || !PAVE.has(mesh.name)) continue; const ga = mesh.geometry; cutMesh(ga.attributes.position.array, ga.index && ga.index.array, ox, oz, ox + CHUNK, oz + CHUNK); }
+    for (const tri of this.landmarkPaving(idx)) cutTri(...tri);
     // cut out buildings, walls, props, trunks, hedges…
     for (const c of this.collision.query(ox, oz, ox + CHUNK, oz + CHUNK)) {
       if (c.kind === 'deck' || c.kind === 'platform' || c.kind === 'water') continue;
@@ -115,13 +137,25 @@ export class GrassField {
     }
     for (let k = 0; k < N * N; k++) if (m.a[k]) {
       const x = ox + ((k % N) + 0.5) * CELL, z = oz + (Math.floor(k / N) + 0.5) * CELL;
-      if (onParkFeature(x, z, 0.15) || L.isWater(x, z) || L.roadAt(x, z)) { m.a[k] = 0; continue; }
+      if (onParkFeature(x, z, 0.15) || L.isWater(x, z) || L.roadAt(x, z) || L.copingAt(x, z) != null || L.copingAt(x + 0.3, z) != null || L.copingAt(x - 0.3, z) != null) { m.a[k] = 0; continue; }
       // greenness → density (bare soil / worn patches grow little)
       const r = m.r[k], g = m.g[k], b = m.b[k]; const green = (g - Math.max(r, b)) / Math.max(1, g);
       m.a[k] = Math.max(0, Math.min(255, Math.round((green - 0.05) * 1000)));
     }
     if (this.masks.size > 12) this.masks.delete(this.masks.keys().next().value);
     this.masks.set(idx, m); return m;
+  }
+  // up-facing paving triangles of the (city-wide, merged) landmark meshes, bucketed by chunk once
+  landmarkPaving(idx) {
+    if (!this.lmPave) { this.lmPave = new Map(); const lm = this.world.landmarks; const root = lm && lm.group;
+      if (root) root.traverse((mesh) => { if (!mesh.isMesh || !PAVE.has(mesh.name)) return; const ga = mesh.geometry, P = ga.attributes.position.array, I = ga.index && ga.index.array; const nt = I ? I.length / 3 : P.length / 9;
+        for (let t = 0; t < nt; t++) { const i0 = I ? I[t * 3] : t * 3, i1 = I ? I[t * 3 + 1] : t * 3 + 1, i2 = I ? I[t * 3 + 2] : t * 3 + 2;
+          const ax = P[i0 * 3], ay = P[i0 * 3 + 1], az = P[i0 * 3 + 2], bx = P[i1 * 3], by = P[i1 * 3 + 1], bz = P[i1 * 3 + 2], cx = P[i2 * 3], cy = P[i2 * 3 + 1], cz = P[i2 * 3 + 2];
+          const ux = bx - ax, uy = by - ay, uz = bz - az, vx = cx - ax, vy = cy - ay, vz = cz - az; const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+          if (ny <= 0.85 * Math.hypot(nx, ny, nz) || Math.max(ay, by, cy) > 30) continue;
+          const ci0 = Math.floor((Math.min(ax, bx, cx) - L.BOUNDS.minX) / CHUNK), ci1 = Math.floor((Math.max(ax, bx, cx) - L.BOUNDS.minX) / CHUNK), cj0 = Math.floor((Math.min(az, bz, cz) - L.BOUNDS.minZ) / CHUNK), cj1 = Math.floor((Math.max(az, bz, cz) - L.BOUNDS.minZ) / CHUNK);
+          for (let cj = Math.max(0, cj0); cj <= Math.min(NCZ - 1, cj1); cj++) for (let ci = Math.max(0, ci0); ci <= Math.min(NCX - 1, ci1); ci++) { const k = cj * NCX + ci; let a = this.lmPave.get(k); if (!a) this.lmPave.set(k, (a = [])); a.push([ax, ay, az, bx, by, bz, cx, cy, cz]); } } }); }
+    return this.lmPave.get(idx) || [];
   }
   sample(x, z) {
     const ci = Math.floor((x - L.BOUNDS.minX) / CHUNK), cj = Math.floor((z - L.BOUNDS.minZ) / CHUNK); if (ci < 0 || cj < 0 || ci >= NCX || cj >= NCZ) return null;

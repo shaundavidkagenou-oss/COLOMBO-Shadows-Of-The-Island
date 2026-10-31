@@ -30,12 +30,13 @@ const loc = (o, rot, lx, ly, lz) => { _v.set(lx, ly, lz).applyEuler(_e.set(...ro
 export function carDetail(dm, K, c) {
   const { beam, part, C, unitBox, unitCyl } = K;
   const { W, R, D, k, type, fz, rz, taper, gw0, gw1, fy, hy, nw, ty, sill, isVan, col, gh, roofF, roofR, seatY, sz, dz, floorY, variant } = c;
+  const ST = c.style || null; const X0 = c.sx0 ?? 0.38; const visors = c.visors ?? (!isVan || k === 'suv'); // styled catalogue models draw their own lamps / grille / bumpers (VehicleStyle.js)
   const rub = dm.get('rubber'), chr = dm.get('chrome'), refl = dm.get('vrefl'), lens = dm.get('lens'), head = dm.get('vlight'), tail = dm.get('vtail'), ind = dm.get('vind'), pnt = dm.get('paint'), I = dm.get('interior'), gl = dm.get('glass');
   const black = C('#0e0e10'), dark = C('#1b1c1e'), chrome = C('#cfd3d7'), satin = C('#8d9196'), amber = C('#c87a14'), red = C('#8a1010');
   const xAt = (z, y) => W * taper(z, y);
   // ---- headlamps: housing interior, two reflector bowls, projector lens, bulbs, DRL strip, clear lens cover, black surround
   const rot = [-0.5, 0, 0];
-  for (const sx of [-1, 1]) {
+  for (const sx of ST ? [] : [-1, 1]) {
     const o = [sx * (nw - 0.18), (fy + hy) / 2 + 0.005, fz - 0.05];
     part(rub, unitBox, loc(o, rot, 0, 0, 0.056), rot, [0.33, 0.11, 0.004], C('#2a2c30')); // dark housing back plate
     for (const [lx, r] of [[sx * 0.085, 0.043], [-sx * 0.06, 0.038]]) {
@@ -52,11 +53,14 @@ export function carDetail(dm, K, c) {
   }
   // ---- grille: chrome surround, slats, mesh bars, badge
   const gy0 = D.top[1][1] + 0.015, gy1 = fy - 0.005, gx = nw * 0.45, gz = fz + 0.024;
+  if (!ST) {
   for (const [a, b] of [[[-gx, gy0], [gx, gy0]], [[-gx, gy1], [gx, gy1]], [[-gx, gy0], [-gx, gy1]], [[gx, gy0], [gx, gy1]]]) beam(chr, [a[0], a[1], gz], [b[0], b[1], gz], 0.014, 0.014, chrome);
   for (let x = -gx + 0.05; x < gx - 0.02; x += 0.055) beam(rub, [x, gy0 + 0.006, gz - 0.006], [x, gy1 - 0.006, gz - 0.006], 0.007, 0.018, dark);
   part(chr, discZ, [0, (gy0 + gy1) / 2, gz + 0.012], [0, 0, 0], [0.06, 0.038, 0.012], chrome); part(rub, discZ, [0, (gy0 + gy1) / 2, gz + 0.019], [0, 0, 0], [0.046, 0.026, 0.002], C('#1d2a44')); // badge (plain oval, no brand)
   // ---- front bumper: lower intake with slats, fog lamps, tow-eye cover, plate frame, splitter lip
+  }
   const bz = fz + 0.061, iy = sill + 0.045;
+  if (!ST) {
   rub.box(0, iy, bz, nw * 1.1, 0.055, 0.004, { col: C('#070708') });
   for (let i = 0; i < 2; i++) rub.box(0, iy - 0.012 + i * 0.024, bz + 0.004, nw * 1.08, 0.006, 0.006, { col: C('#2a2b2e') });
   for (let x = -nw * 0.52; x <= nw * 0.52; x += 0.07) rub.box(x, iy, bz + 0.004, 0.006, 0.05, 0.006, { col: C('#2a2b2e') });
@@ -64,6 +68,7 @@ export function carDetail(dm, K, c) {
   part(rub, discZ, [0.42, sill + 0.09, bz + 0.002], [0, 0, 0], [0.025, 0.018, 0.004], C('#232427'));
   for (const [a, b] of [[[-0.205, -0.062], [0.205, -0.062]], [[-0.205, 0.062], [0.205, 0.062]], [[-0.205, -0.062], [-0.205, 0.062]], [[0.205, -0.062], [0.205, 0.062]]]) beam(rub, [a[0], sill + 0.13 + a[1], fz + 0.067], [b[0], sill + 0.13 + b[1], fz + 0.067], 0.012, 0.006, black);
   rub.box(0, sill + 0.012, fz + 0.03, nw * 1.9, 0.014, 0.06, { col: black });
+  }
   // ---- bonnet shut lines + washer nozzles; wiper arms, blades, spines and pivot caps
   const bf = D.top[3], bb = D.top[4];
   beam(rub, [-(xAt(bf[0] - 0.03, bf[1]) - 0.06), bf[1] + 0.004, bf[0] - 0.03], [xAt(bf[0] - 0.03, bf[1]) - 0.06, bf[1] + 0.004, bf[0] - 0.03], 0.005, 0.004, black);
@@ -85,13 +90,13 @@ export function carDetail(dm, K, c) {
   const doorsZ = [[D.door[0], D.door[1]]]; if (D.rearDoor) doorsZ.push([D.rearDoor[0], D.rearDoor[1]]);
   for (const sx of [-1, 1]) {
     // rain visors over the side windows (dark smoked acrylic), very common on Colombo cars
-    if (!isVan || k === 'suv') for (const [z0, z1] of doorsZ) { if (sx < 0 && z0 === D.door[0]) continue; /* the swinging driver door carries its own visor */ const ry = (z) => { for (let i = 1; i < gh.length; i++) { const A = gh[i - 1], B = gh[i]; if (z <= A[0] && z >= B[0]) return lerp(A[2], B[2], (A[0] - z) / (A[0] - B[0] || 1)); } return gh[1][2]; };
+    if (visors) for (const [z0, z1] of doorsZ) { if (sx < 0 && z0 === D.door[0]) continue; /* the swinging driver door carries its own visor */ const ry = (z) => { for (let i = 1; i < gh.length; i++) { const A = gh[i - 1], B = gh[i]; if (z <= A[0] && z >= B[0]) return lerp(A[2], B[2], (A[0] - z) / (A[0] - B[0] || 1)); } return gh[1][2]; };
       beam(gl, [sx * (gw1 + 0.035), ry(z0 - 0.04) - 0.05, z0 - 0.04], [sx * (gw1 + 0.035), ry(z1 + 0.03) - 0.05, z1 + 0.03], 0.006, 0.065, C('#fff')); }
     // door-handle recesses + key cylinder on the front doors; inner-belt chrome strip
     for (const [, d1] of doorsZ) { if (sx < 0 && d1 === D.door[1]) continue; const x = sx * (xAt(d1 + 0.18, belt - 0.12) + 0.004); rub.box(x, belt - 0.12, d1 + 0.18, 0.006, 0.05, 0.17, { col: C('#0c0c0d') }); }
     if (sx > 0) part(chr, discX, [sx * (xAt(D.door[1] + 0.32, belt - 0.12) + 0.008), belt - 0.12, D.door[1] + 0.32], [0, 0, 0], [0.006, 0.014, 0.014], chrome);
     { const gA = [gh[0][0] - 0.05, belt + 0.012], gB = [gh[gh.length - 1][0] + 0.12, gh[gh.length - 1][1] + 0.012], bp = (z) => [sx * (gw0 + 0.012), lerp(gA[1], gB[1], (gA[0] - z) / (gA[0] - gB[0])), z];
-      if (sx > 0) beam(chr, bp(gA[0]), bp(gB[0]), 0.008, 0.012, satin); else { beam(chr, bp(gA[0]), bp(D.door[0]), 0.008, 0.012, satin); beam(chr, bp(D.door[1]), bp(gB[0]), 0.008, 0.012, satin); } } // inner-belt strip (not across the driver door)
+      if (sx > 0) beam(chr, bp(gA[0]), bp(gB[0]), 0.008, 0.012, satin); else { if (gA[0] - D.door[0] > 0.04) beam(chr, bp(gA[0]), bp(D.door[0] + 0.012), 0.008, 0.012, satin); beam(chr, bp(D.door[1] - 0.012), bp(gB[0]), 0.008, 0.012, satin); } /* stops short of the door shut lines */ } // inner-belt strip (not across the driver door)
     // mirror: aerodynamic cap + repeater + mirror glass bezel
     const mx = sx * gw0, my = gh[0][1] + 0.08, mz = gh[0][0] - 0.12;
     part(pnt, sphLo, [mx + sx * 0.18, my + 0.02, mz - 0.01], [0, sx * 0.12, 0], [0.072, 0.048, 0.05], col);
@@ -104,9 +109,9 @@ export function carDetail(dm, K, c) {
     beam(rub, [sx * (xAt(0, sill) - 0.01), sill - 0.015, D.wr + R + 0.12], [sx * (xAt(0, sill) - 0.01), sill - 0.015, D.wf - R - 0.12], 0.04, 0.04, C('#1e1f22'));
   }
   // fuel flap on the kerb side (left = +x) rear quarter
-  { const z = D.wr + R + 0.25, y = 0.8, x = xAt(z, y) + 0.006; part(rub, ringX, [x, y, z], [0, 0, 0], [0.004, 0.075, 0.075], C('#111')); part(pnt, discX, [x + 0.002, y, z], [0, 0, 0], [0.004, 0.07, 0.07], col); }
+  { const z = D.wr + R + 0.25, y = ST ? gh[0][1] - 0.22 : 0.8, x = xAt(z, y) + 0.006; part(rub, ringX, [x, y, z], [0, 0, 0], [0.004, 0.075, 0.075], C('#111')); part(pnt, discX, [x + 0.002, y, z], [0, 0, 0], [0.004, 0.07, 0.07], col); }
   // ---- rear: lamp segmentation + lens covers, third brake light, reflectors, garnish, wiper, exhaust tip, diffuser
-  for (const sx of [-1, 1]) {
+  for (const sx of ST ? [] : [-1, 1]) {
     const tx = sx * (W * 0.86 - 0.14), tz = rz - 0.038;
     for (const dx of [-0.065, 0.055]) { part(refl, ringZ, [tx + dx, ty + 0.012, tz], [0, Math.PI, 0], [0.04, 0.04, 0.04], C('#d0b0b0')); part(tail, discZ, [tx + dx, ty + 0.012, tz + 0.004], [0, 0, 0], [0.026, 0.026, 0.004]); }
     beam(rub, [tx - 0.13, ty - 0.035, tz - 0.001], [tx + 0.13, ty - 0.035, tz - 0.001], 0.006, 0.006, C('#2a0606'));
@@ -115,8 +120,8 @@ export function carDetail(dm, K, c) {
     part(rub, unitBox, [sx * (W * 0.8), sill + 0.13, rz - 0.065], [0, 0, 0], [0.09, 0.025, 0.006], red); // red reflector (unlit)
   }
   { const n = gh.length - 1; tail.box(0, roofR[2] - 0.035, roofR[0] - 0.005, 0.34, 0.025, 0.02); rub.box(0, roofR[2] - 0.035, roofR[0] + 0.004, 0.38, 0.04, 0.012, { col: black });
-    chr.box(0, ty - 0.11, rz - 0.04, 0.55, 0.028, 0.012, { col: chrome });
-    if (k === 'car' || isVan) { const p = [0, gh[n][1] + 0.1, gh[n][0] + 0.02]; beam(rub, p, [-0.32, gh[n][1] + 0.38, gh[n][0] + 0.06], 0.008, 0.008, C('#151515')); part(rub, unitCyl, p, [Math.PI / 2, 0, 0], [0.02, 0.03, 0.02], C('#151515')); } }
+    if (!ST) chr.box(0, ty - 0.11, rz - 0.04, 0.55, 0.028, 0.012, { col: chrome });
+    if ((k === 'car' || isVan) && k !== 'pickup') { const p = [0, gh[n][1] + 0.1, gh[n][0] + 0.02]; beam(rub, p, [-0.32, gh[n][1] + 0.38, gh[n][0] + 0.06], 0.008, 0.008, C('#151515')); part(rub, unitCyl, p, [Math.PI / 2, 0, 0], [0.02, 0.03, 0.02], C('#151515')); } }
   part(rub, discZ, [0.45, sill - 0.02, rz - 0.042], [0, 0, 0], [0.026, 0.026, 0.006], C('#050505')); // exhaust tip bore
   for (let i = -3; i <= 3; i++) rub.box(i * 0.12, sill - 0.01, rz + 0.03, 0.01, 0.05, 0.12, { col: black }); // diffuser fins
   // ---- underbody: floor pan, sump, tank, exhaust run, suspension arms and struts
@@ -126,21 +131,21 @@ export function carDetail(dm, K, c) {
   for (const sx of [-1, 1]) for (const wz of [D.wf, D.wr]) { beam(rub, [sx * 0.35, R - 0.06, wz - 0.12], [sx * (W - 0.28), R - 0.02, wz], 0.04, 0.035, C('#2b2b2e')); beam(rub, [sx * (W - 0.32), R + 0.05, wz], [sx * (W - 0.36), R + 0.48, wz - 0.04], 0.05, 0.05, C('#3a3b3e'), unitCyl); }
   // ---- cabin detail
   const dashY = gh[0][1] + 0.06, dz2 = dz - 0.1;
-  I.box(-0.38, dashY + 0.025, dz2 - 0.08, 0.36, 0.05, 0.16, { col: C('#161617') }); // binnacle hood
-  for (const dx of [-0.085, 0.085]) { part(I, discZ, [-0.38 + dx, dashY - 0.02, dz2 - 0.155], [0, 0, 0], [0.048, 0.048, 0.01], C('#0a0a0b')); part(chr, ringZ, [-0.38 + dx, dashY - 0.02, dz2 - 0.162], [0, 0, 0], [0.05, 0.05, 0.05], satin); part(I, unitBox, [-0.38 + dx, dashY - 0.01, dz2 - 0.163], [0, 0, dx > 0 ? 0.6 : -0.9], [0.004, 0.04, 0.002], C('#d84a20')); }
+  I.box(-X0, dashY + 0.025, dz2 - 0.08, 0.36, 0.05, 0.16, { col: C('#161617') }); // binnacle hood
+  for (const dx of [-0.085, 0.085]) { part(I, discZ, [-X0 + dx, dashY - 0.02, dz2 - 0.155], [0, 0, 0], [0.048, 0.048, 0.01], C('#0a0a0b')); part(chr, ringZ, [-X0 + dx, dashY - 0.02, dz2 - 0.162], [0, 0, 0], [0.05, 0.05, 0.05], satin); part(I, unitBox, [-X0 + dx, dashY - 0.01, dz2 - 0.163], [0, 0, dx > 0 ? 0.6 : -0.9], [0.004, 0.04, 0.002], C('#d84a20')); }
   gl.box(0.02, dashY - 0.06, dz2 - 0.23, 0.2, 0.12, 0.01, { col: C('#fff') }); I.box(0.02, dashY - 0.06, dz2 - 0.223, 0.22, 0.14, 0.01, { col: C('#0d0d0e') }); // centre screen
-  for (const x of [-0.62, -0.14, 0.18, 0.62]) { part(chr, ringZ, [x, dashY - 0.035, dz2 - 0.228], [0, 0, 0], [0.032, 0.032, 0.05], satin); part(I, discZ, [x, dashY - 0.035, dz2 - 0.226], [0, 0, 0], [0.03, 0.03, 0.004], C('#0a0a0a')); }
+  for (const x of [-0.62, -0.14, 0.18, 0.62].map((v) => v * Math.min(1, (gw0 - 0.1) / 0.62))) { part(chr, ringZ, [x, dashY - 0.035, dz2 - 0.228], [0, 0, 0], [0.032, 0.032, 0.05], satin); part(I, discZ, [x, dashY - 0.035, dz2 - 0.226], [0, 0, 0], [0.03, 0.03, 0.004], C('#0a0a0a')); }
   for (let i = 0; i < 6; i++) I.box(-0.06 + (i % 3) * 0.08, dashY - 0.17 - Math.floor(i / 3) * 0.035, dz2 - 0.222, 0.05, 0.022, 0.01, { col: C('#2b2c2f') }); // climate buttons
   I.box(0.42, dashY - 0.1, dz2 - 0.222, 0.36, 0.004, 0.006, { col: C('#0a0a0a') }); // glovebox shut line
   const gz2 = sz + 0.28; beam(I, [0, floorY + 0.24, gz2], [0, floorY + 0.38, gz2 - 0.03], 0.016, 0.016, C('#101010'), unitCyl); part(I, sphLo, [0, floorY + 0.4, gz2 - 0.03], [0, 0, 0], [0.032, 0.03, 0.036], C('#1a1a1a'));
   beam(I, [0.09, floorY + 0.24, sz - 0.02], [0.09, floorY + 0.3, sz + 0.2], 0.03, 0.03, C('#141414'));
-  for (const [x, w] of [[-0.52, 0.06], [-0.4, 0.08], [-0.27, 0.06]]) part(I, unitBox, [x, floorY + 0.11, dz2 - 0.02], [-0.6, 0, 0], [w, 0.09, 0.015], C('#2a2a2c')); // clutch / brake / accelerator
+  for (const [x, w] of [[-0.52, 0.06], [-0.4, 0.08], [-0.27, 0.06]]) part(I, unitBox, [x + 0.38 - X0, floorY + 0.11, dz2 - 0.02], [-0.6, 0, 0], [w, 0.09, 0.015], C('#2a2a2c')); // clutch / brake / accelerator
   for (const sx of [-1, 1]) {
     I.box(sx * 0.33, roofF[2] - 0.065, roofF[0] - 0.13, 0.34, 0.016, 0.15, { col: C('#bdb8ac') }); // sun visors
     beam(I, [sx * (gw0 - 0.06), roofF[2] - 0.13, D.pillarsB + 0.02], [sx * 0.2, seatY + 0.08, sz - 0.1], 0.045, 0.008, C('#151515')); // seat belt
     I.box(sx * (gw1 - 0.06), roofF[2] - 0.1, (roofF[0] + roofR[0]) / 2, 0.025, 0.025, 0.2, { col: C('#9c978c') }); // grab handle
-    for (const dx of [-0.07, 0.07]) beam(chr, [sx * 0.38 + dx, seatY + 0.57, sz - 0.31], [sx * 0.38 + dx, seatY + 0.66, sz - 0.33], 0.008, 0.008, satin, unitCyl); // headrest posts
-    I.box(sx * 0.38, floorY + 0.018, sz + 0.42, 0.42, 0.006, 0.36, { col: C('#151515') }); // floor mats
+    for (const dx of [-0.07, 0.07]) beam(chr, [sx * X0 + dx, seatY + 0.57, sz - 0.31], [sx * X0 + dx, seatY + 0.66, sz - 0.33], 0.008, 0.008, satin, unitCyl); // headrest posts
+    I.box(sx * X0, floorY + 0.018, sz + 0.42, 0.42, 0.006, 0.36, { col: C('#151515') }); // floor mats
   }
   I.box(0, roofF[2] - 0.06, roofF[0] - 0.28, 0.16, 0.02, 0.07, { col: C('#9c978c') }); // dome lamp housing
 }
@@ -151,9 +156,9 @@ export function tukDetail(dm, K, c) {
   const rub = dm.get('rubber'), chr = dm.get('chrome'), refl = dm.get('vrefl'), lens = dm.get('lens'), head = dm.get('vlight'), tail = dm.get('vtail'), I = dm.get('interior'), pnt = dm.get('paint'), cv = dm.get('canvas');
   const chrome = C('#cfd3d7'), black = C('#0e0e10');
   // headlamp internals
-  part(head, cupGeo, [0, 0.88, 1.146], [0, 0, 0], [0.066, 0.066, 0.022]); part(head, sphLo, [0, 0.88, 1.138], [0, 0, 0], [0.013, 0.013, 0.013]); part(lens, discZ, [0, 0.88, 1.149], [0, 0, 0], [0.072, 0.072, 0.004]); part(chr, ringZ, [0, 0.88, 1.147], [0, 0, 0], [0.08, 0.08, 0.08], chrome);
+  part(head, cupGeo, [0, 0.79, 1.259], [0, 0, 0], [0.066, 0.066, 0.022]); part(head, sphLo, [0, 0.79, 1.251], [0, 0, 0], [0.013, 0.013, 0.013]); part(lens, discZ, [0, 0.79, 1.262], [0, 0, 0], [0.072, 0.072, 0.004]); part(chr, ringZ, [0, 0.79, 1.260], [0, 0, 0], [0.08, 0.08, 0.08], chrome);
   // horn under the lamp, front fork springs, mudguard stays
-  part(rub, discZ, [0.0, 0.7, 1.12], [0, 0, 0], [0.045, 0.045, 0.03], C('#1a1a1a'));
+  part(rub, discZ, [0.27, 0.69, 1.224], [0, 0, 0], [0.045, 0.045, 0.03], C('#1a1a1a'));
   for (let i = 0; i < 7; i++) part(chr, ringZ, [0, R + 0.18 + i * 0.035, 1.0 - i * 0.005], [Math.PI / 2, 0, 0], [0.04, 0.04, 0.08], C('#3a3a3c'));
   for (const sx of [-1, 1]) beam(chr, [sx * 0.08, R + 0.02, 1.0], [sx * 0.08, R * 2 + 0.05, 0.95], 0.012, 0.012, C('#2a2a2a'), unitCyl);
   // decorative fringe along the canopy front edge (common Colombo three-wheeler styling)
@@ -202,7 +207,7 @@ export function bikeDetail(dm, K, c) {
   for (const sx of [-1, 1]) for (let i = 0; i < 4; i++) { const t = 0.12 + i * 0.05; part(rub, ringZ, [sx * 0.07, lerp(R, 1.07, t), lerp(0.72, 0.52, t)], [Math.PI / 2 - 0.25, 0, 0], [0.042, 0.042, 0.06], black); }
   part(rub, unitBox, [-0.1, R + R * 0.3, 0.6], [0, 0, 0], [0.03, 0.08, 0.06], C('#2a2a2c')); // front caliper
   pnt.box(0, R * 2 + 0.01, -0.8, 0.12, 0.012, 0.25, { col: col }); rub.box(0, 0.62, -0.92, 0.26, 0.012, 0.08, { col: black });
-  beam(chr, [-0.12, 0.3, 0.0], [-0.22, 0.03, 0.08], 0.02, 0.02, C('#2a2a2a'), unitCyl);
+  // (the side stand is a separate animated part on the left: Kickstand.js)
   part(lens, unitBox, [0, 0.86, -0.922], [0, 0, 0], [0.13, 0.07, 0.004]);
 }
 
@@ -232,7 +237,7 @@ export function heavyDetail(dm, K, c) {
   if (kind === 'lorry') {
     rub.box(0, 2.68, fz + 0.06, W * 2 - 0.1, 0.06, 0.2, { col: C('#1a1a1a') }); // sun visor
     for (const sx of [-1, 1]) { rub.box(sx * (W - 0.12), 0.45, fz - 0.95, 0.26, 0.03, 0.3, { col: C('#2a2a2a') }); rub.box(sx * (W - 0.12), 0.25, fz - 0.95, 0.26, 0.03, 0.3, { col: C('#2a2a2a') }); } // cab steps
-    beam(chr, [-W + 0.15, 0.7, fz - 2.05], [-W + 0.15, 3.0, fz - 2.05], 0.06, 0.06, chrome, unitCyl); part(rub, discZ, [-W + 0.15, 3.0, fz - 2.05], [Math.PI / 2, 0, 0], [0.05, 0.05, 0.004], C('#050505')); // exhaust stack
+    beam(chr, [-W - 0.09, 0.7, fz - 2.08], [-W - 0.09, 3.0, fz - 2.08], 0.06, 0.06, chrome, unitCyl); part(rub, discZ, [-W - 0.09, 3.0, fz - 2.08], [Math.PI / 2, 0, 0], [0.05, 0.05, 0.004], C('#050505')); for (const y of [1.3, 2.2]) rub.box(-W - 0.03, y, fz - 2.08, 0.1, 0.05, 0.05, { col: C('#1a1a1a') }); // exhaust stack: outboard, behind the cab (clear of the bed and its tarp)
     for (const dx of [-0.15, 0.15]) part(chr, unitCyl, [dx, 2.92, fz - 0.6], [Math.PI / 2, 0, 0], [0.04, 0.32, 0.04], chrome); // air horns
     rub.box(W - 0.3, 0.5, 0.2, 0.42, 0.3, 0.5, { col: C('#151515') }); // battery box
     for (let z = rz + 0.4; z < fz - 2.1; z += 0.5) for (const sx of [-1, 1]) part(chr, unitBox, [sx * (W + 0.01), 0.92, z], [0, 0, 0], [0.02, 0.04, 0.04], C('#555')); // rope hooks

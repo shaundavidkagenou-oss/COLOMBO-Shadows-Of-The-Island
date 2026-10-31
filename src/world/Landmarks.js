@@ -7,6 +7,7 @@ import { LAND_Y, LAKE, STATIONS, roadAt } from './Layout.js';
 import { RNG } from '../core/rng.js';
 import { buildPoliceHQ } from './PoliceHQ.js';
 import { buildJohnsSchool } from './JohnsSchool.js';
+import { discColliders } from './Parks.js';
 
 const C = (hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; };
 const M4 = new THREE.Matrix4();
@@ -66,7 +67,7 @@ export function buildLandmarks() {
   const group = new THREE.Group(); group.name = 'landmarks';
   const mb = new MultiBuilder(); const colliders = []; const anim = {};
   const conc = mb.get('concrete'), paint = mb.get('paint'), metal = mb.get('metal');
-  const box = (b, cx, cy, cz, sx, sy, sz, col, o = {}) => b.box(cx, cy, cz, sx, sy, sz, { col: C(col), uvScale: o.uv || 3, ...o });
+  const box = (b, cx, cy, cz, sx, sy, sz, col, o = {}) => b.box(cx, cy, cz, sx, sy, sz, { col: C(col), uvScale: o.uv || 3, bottom: true, ...o }); // closed boxes: canopies, lintels and slabs stay solid when seen from below
   const coll = (x0, x1, z0, z1, h, extra = {}) => colliders.push({ x0, x1, z0, z1, h, kind: 'landmark', ...extra });
   const lathe = (b, pts, seg, x, y, z, col, phiStart = 0, phiLen = Math.PI * 2) => { const g = new THREE.LatheGeometry(pts.map(([r, h]) => new THREE.Vector2(r, h)), seg, phiStart, phiLen); M4.makeTranslation(x, y, z); b.geometry(g, M4, C(col)); g.dispose(); };
   const facade = (style, x0, x1, z0, z1, y0, y1, col, uOff = 0) => {
@@ -94,7 +95,7 @@ export function buildLandmarks() {
   };
   const labels = [];
   const label = (lines, x, y, z, w, h, rotY, o) => { const m = labelMesh(labelMaterial(lines, o), x, y, z, w, h, rotY); group.add(m); labels.push(m.material); return m; };
-  const EN = (px) => `700 ${px}px "Cormorant Garamond", serif`, SANS = (px) => `700 ${px}px "Barlow Condensed", sans-serif`, SI = (px) => `700 ${px}px "Noto Sans Sinhala", sans-serif`, TA = (px) => `700 ${px}px "Noto Sans Tamil", sans-serif`;
+  const EN = (px) => `700 ${px}px "Cormorant Garamond", serif`, SANS = (px) => `700 ${px}px "Barlow Condensed", sans-serif`, SI = (px) => `700 ${px}px "Noto Sans Sinhala", "Noto Sans Tamil", sans-serif`, TA = (px) => `700 ${px}px "Noto Sans Tamil", sans-serif`;
 
   // ------------------------------------------------------------ LOTUS TOWER (Nelum Kuluna)
   {
@@ -106,7 +107,7 @@ export function buildLandmarks() {
     for (let k = -3; k <= 3; k++) for (const sgn of [-1, 1]) { metal.box(x + k * 9, y0 + 4, z + sgn * 32.15, 0.35, 4.2, 0.35, { col: C('#bdb9b0') }); metal.box(x + sgn * 32.15, y0 + 4, z + k * 9, 0.35, 4.2, 0.35, { col: C('#bdb9b0') }); }
     // ---- stem: 200 m reinforced-concrete shaft (real tower: ~350 m overall — 4-storey podium, ~200 m shaft, 8-floor bud, mast).
     // Vivid green, flared where it meets the podium, eight shallow vertical flutes, a horizontal panel joint every 4.5 m.
-    const SH = 200, sy = y0 + 17;
+    const SH = 200, sy = y0 + 14; // stem lands ON the upper podium roof (y0 + 8 + 6): it used to start at +17, leaving a 3 m see-through gap
     const R = (h) => { let r = 11 - 4.6 * Math.pow(h / SH, 0.85); if (h < 22) r += 5.5 * Math.pow(1 - h / 22, 2); if (h > 188) r -= 0.7 * smooth01((h - 188) / 12); return r; };
     {
       const rows = []; for (let j = 0; j <= SH; j += 9) { if (j > 0) rows.push([j - 0.1, 1]); rows.push([j, 0]); if (j < SH) rows.push([j + 0.1, 1]); for (const f of [1.5, 3, 4.5, 6, 7.5]) if (j + f < SH - 0.2) rows.push([j + f, 0]); } rows.push([SH, 0]); rows.sort((a, b) => a[0] - b[0]);
@@ -205,7 +206,7 @@ export function buildLandmarks() {
 
   // ------------------------------------------------------------ GALLE FACE HOTEL
   {
-    const x0 = -465, x1 = -414, z0 = -232, z1 = -178, y0 = LAND_Y;
+    const x0 = -465, x1 = -414, z0 = -240, z1 = -205, y0 = LAND_Y; // south wing stops short of the coastal railway curve (track reserve ±7.5 m at z ≈ -190…-196)
     facade('colonial', x0, x1, z0, z1, y0, y0 + 15, '#f7f3ea');
     hip(x0, x1, z0, z1, y0 + 15, 7);
     columns(x0 - 2.5, z0 + 3, x0 - 2.5, z1 - 3, 14, y0, 4, 0.35, '#ffffff');
@@ -328,7 +329,7 @@ export function buildLandmarks() {
     lathe(conc, [[1.6, 0], [1.4, 2.5], [3.5, 2.8], [3.3, 3.1], [0.6, 3.1], [0.5, 4.5], [1.6, 4.7], [0.2, 5]], 16, cx, y0, cz, '#e6e2d8');
     const fw = new THREE.Mesh(new THREE.CircleGeometry(10.6, 40), new THREE.MeshStandardMaterial({ color: 0x3f6f7a, roughness: 0.05, metalness: 0.3 }));
     fw.rotation.x = -Math.PI / 2; fw.position.set(cx, y0 + 0.5, cz); group.add(fw);
-    coll(cx - 11, cx + 11, cz - 11, cz + 11, 0.8);
+    for (const c of discColliders(cx, cz, 11.25, 0.8, 'landmark')) colliders.push(c); // round basin: solid to its rim, no square corners sticking out onto the plaza
   }
 
   // ------------------------------------------------------------ GANGARAMAYA & SEEMA MALAKA

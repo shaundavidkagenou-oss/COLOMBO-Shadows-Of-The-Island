@@ -46,7 +46,7 @@ export class Satellite {
     st.water = { dir: waterUniforms.uSunDir.value.clone(), col: waterUniforms.uSunColor.value.clone(), night: waterUniforms.uNight.value, rain: waterUniforms.uRain.value, cloud: waterUniforms.uCloud.value, refl: waterUniforms.uReflOn.value };
     st.vp = new THREE.Vector4(); R.getViewport(st.vp); st.sc = new THREE.Vector4(); R.getScissor(st.sc); st.scT = R.getScissorTest(); st.rt = R.getRenderTarget();
     const hide = (o) => { if (o && o.visible) { o.visible = false; st.vis.push(o); } };
-    hide(A.sky); hide(A.clouds); hide(A.stars); hide(A.moon); hide(A.rain);
+    hide(A.sky); hide(A.clouds); hide(A.stars); hide(A.moon); hide(A.moonHalo); hide(A.rain);
     for (const c of S.children) {
       if (c.isPointLight || c.isSpotLight) { st.lights.push([c, c.intensity]); c.intensity = 0; continue; }
       if (c.children && c.children.some((m) => m.isSkinnedMesh)) hide(c); // people

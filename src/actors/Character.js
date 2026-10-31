@@ -204,7 +204,9 @@ export function buildBodyGeometry(sp) {
   const midriff = o === 'saree';
   const HQ = !!sp.hero; // protagonist: high-detail build (more tessellation, articulated fingers, sculpted nose/ears, garment construction details)
   const MH = HQ && hasHeroHead(sp); const NK = MH ? heroHeadFit(sp) : null; // protagonist with an anatomical head (HeroHead.js): no procedural head / hair / facial hair here
-  const neckRing = (y, m) => ({ c: [0, y, NK.section.cz], rx: NK.section.rx + m, rz: NK.section.rz + m }); // a ring wrapping the hero's neck section with margin m
+  const neckRing = (y, m) => { const C0 = y > 0.5 ? NK.collarAt(y + 0.012) : NK.collar; return { c: [0, y, C0.cz], rx: C0.rx + m, rz: C0.rz + m }; }; // a ring wrapping the hero's real neck (fitted collar ellipse, HeroHead.js) with margin m
+  // grow a ring {rx, rz, cz} so it contains the neck collar ellipse with margin m (front, back and sides), keeping its own shape where it is already bigger
+  const encloseNeck = (r, m, y) => { const C0 = NK.collarAt(y + 0.012), cz = r.cz || 0; const fr = Math.max(cz + r.rz, C0.cz + C0.rz + m), bk = Math.min(cz - r.rz, C0.cz - C0.rz - m); r.cz = (fr + bk) / 2; r.rz = (fr - bk) / 2; r.rx = Math.max(r.rx, C0.rx + m); return r; };
   // --- torso (hips → neck)
   // natural variation in adult female figure (seeded, spec override `bust`), slightly lower/softer with age
   const bf = f ? (sp.bust ?? (0.82 + 0.36 * ((((Math.sin((sp.seed || 1) * 47.13) * 43758.5453) % 1) + 1) % 1))) * (sp.age === 'elder' ? 0.9 : 1) : 0;
@@ -221,8 +223,11 @@ export function buildBodyGeometry(sp) {
     { y: 1.47, rx: 0.062, rz: 0.06, wgt: W2('chest', 'neck', 0.5), col: sp.collar ? top : skin },
     { y: 1.55, rx: 0.05, rz: 0.05, wgt: W1('neck'), col: skin },
   ];
-  if (MH) { const a = tr[tr.length - 2], b = tr[tr.length - 1]; const yTop = Math.max(NK.cutY + 0.03, 1.5 * s); const r0 = neckRing(0, 0.006); // collar wraps the real neck; its top sits above the level cut so no skin gap shows
-    Object.assign(a, { rx: Math.max(a.rx, r0.rx + 0.004), rz: Math.max(a.rz, r0.rz + 0.004), cz: r0.c[2] }); Object.assign(b, { y: yTop / s, rx: r0.rx, rz: r0.rz, cz: r0.c[2], wgt: W2('chest', 'neck', 0.7), col: sp.collar ? top : skin }); }
+  if (MH) { const a = tr[tr.length - 2], b = tr[tr.length - 1]; const open = sp.kit === 'openShirt'; const yTop = open ? NK.cutY + 0.034 : Math.max(NK.cutY + 0.03, 1.5 * s); const r0 = neckRing(yTop, 0.006); // collar wraps the real neck; its top sits above the level cut so no skin gap shows
+    Object.assign(a, { rx: r0.rx + 0.004, rz: r0.rz + 0.004, cz: r0.c[2] }); Object.assign(b, { y: yTop / s, rx: r0.rx, rz: r0.rz, cz: r0.c[2], wgt: W2('chest', 'neck', 0.7), col: open ? C(sp.inner || '#e8e4da') : sp.collar ? top : skin }); // open shirt: the tee's crew neck hugs the neck inside the open collar (no tall shirt-coloured ring)
+    if (open) a.col = C(sp.inner || '#e8e4da');
+    // every ring that reaches the neck band contains the real neck (the throat sits forward of the ragged opening and used to poke through)
+    for (let i = 0; i < tr.length - 2; i++) if (tr[i].y * s > NK.cutY - 0.03) encloseNeck(tr[i], 0.012, Math.max(tr[i].y * s, NK.cutY + 0.01)); }
   if (HQ) { tr[0].rz = (f ? 0.1 : 0.093) * w; tr.unshift({ y: 0.79, rx: 0.114 * w, rz: 0.072 * w, wgt: W1('hips'), col: bottom }); } /* rounded seat between the thighs; the front of the pelvis no longer stands proud of the thighs like an apron */ /* rounded seat between the thighs instead of a flat cap */
   const RO = HQ ? 1 : 0;
   const bel = sp.belly || 0; if (bel) [[2, 0.03, 0.02], [3, 0.045, 0.032], [4, 0.022, 0.012]].forEach(([i0, dz, df]) => { const i = i0 + RO; tr[i].rz += bel * dz * w; tr[i].fz = (tr[i].fz || 0) + bel * df; tr[i].rx += bel * 0.012 * w; });
@@ -473,13 +478,13 @@ export function buildBodyGeometry(sp) {
       for (const sx of [-1, 1]) { hstrip(1.315 * s, sx * 0.055 * w, sx * 0.125 * w, 0.02, dark(top, 0.78)); hstrip(1.1 * s, sx * 0.07 * w, sx * 0.135 * w, 0.009, dark(top, 0.55)); } // chest pocket flaps, hand-warmer welts
       hstrip(1.36 * s, -0.15 * w, 0.15 * w, 0.005, dark(top, 0.7), -1); // back yoke seam
       band(1.018 * s, 1.05 * s, 0.004, dark(top, 0.8), W1('hips'), (ri, a, r) => (Math.sin(a) > 0.93 ? C(sp.inner || '#6b6f72') : r.col)); // hem band (open at the front)
-      sb.loft([{ c: [0, 1.437 * s, -0.004], rx: 0.094 * w, rz: 0.082 * w, w: W1('chest'), col: dark(top, 0.88) }, MH ? { ...neckRing(Math.max(NK.cutY + 0.045, 1.5 * s), 0.009), w: W2('chest', 'neck', 0.6), col: dark(top, 0.88) } : { c: [0, 1.5 * s, -0.008], rx: 0.07, rz: 0.066, w: W2('chest', 'neck', 0.5), col: dark(top, 0.88) }], 32); // stand collar
+      sb.loft([MH ? (() => { const r = encloseNeck({ rx: 0.094 * w, rz: 0.082 * w, cz: -0.004 }, 0.016, Math.max(1.437 * s, NK.cutY + 0.01)); return { c: [0, 1.437 * s, r.cz], rx: r.rx, rz: r.rz, w: W1('chest'), col: dark(top, 0.88) }; })() : { c: [0, 1.437 * s, -0.004], rx: 0.094 * w, rz: 0.082 * w, w: W1('chest'), col: dark(top, 0.88) }, MH ? { ...neckRing(Math.max(NK.cutY + 0.045, 1.5 * s), 0.009), w: W2('chest', 'neck', 0.6), col: dark(top, 0.88) } : { c: [0, 1.5 * s, -0.008], rx: 0.07, rz: 0.066, w: W2('chest', 'neck', 0.5), col: dark(top, 0.88) }], 32); // stand collar
     }
     if (sp.kit === 'openShirt') { // Dineth: unbuttoned short-sleeve shirt over a tee — the loose front panels and back hem swing (flap / hem bones)
       const pl = top.map((v) => Math.min(1, v * 1.12)); for (const sx of [-1, 1]) vstrip(0, 1.05 * s, 1.425 * s, 0.014, pl, 1, (y) => sx * rxAt(y) * 0.39); // plackets
       for (let k = 0; k < 5; k++) { const y = (1.1 + k * 0.068) * s; const x = rxAt(y) * 0.39; sb.boxPart([x, y, surfZ(y, x, 1) + 0.004], 0.008, 0.008, 0.004, tw(y), C('#e6dfd0')); } // buttons
       hstrip(1.3 * s, 0.05 * w, 0.118 * w, 0.05, dark(top, 0.9)); // chest pocket
-      sb.loft([{ c: [0, 1.428 * s, -0.004], rx: 0.112 * w, rz: 0.094 * w, w: W1('chest'), col: dark(top, 0.92) }, MH ? { ...neckRing(Math.max(NK.cutY + 0.032, 1.462 * s), 0.011), w: W2('chest', 'neck', 0.4), col: dark(top, 0.92) } : { c: [0, 1.462 * s, -0.008], rx: 0.074, rz: 0.07, w: W2('chest', 'neck', 0.3), col: dark(top, 0.92) }], 32, { colFn: (ri, a, r) => (Math.sin(a) > 0.86 ? C(sp.inner || '#e8e4da') : r.col) }); // camp collar, open at the throat
+      sb.loft([MH ? (() => { const r = encloseNeck({ rx: 0.112 * w, rz: 0.094 * w, cz: -0.004 }, 0.018, Math.max(1.428 * s, NK.cutY + 0.01)); return { c: [0, 1.428 * s, r.cz], rx: r.rx, rz: r.rz, w: W1('chest'), col: dark(top, 0.92) }; })() : { c: [0, 1.428 * s, -0.004], rx: 0.112 * w, rz: 0.094 * w, w: W1('chest'), col: dark(top, 0.92) }, MH ? { ...neckRing(NK.cutY + 0.044, 0.013), w: W2('chest', 'neck', 0.4), col: dark(top, 0.92) } : { c: [0, 1.462 * s, -0.008], rx: 0.074, rz: 0.07, w: W2('chest', 'neck', 0.3), col: dark(top, 0.92) }], 32, { colFn: (ri, a, r) => (Math.sin(a) > 0.86 ? C(sp.inner || '#e8e4da') : r.col) }); // camp collar, open at the throat
       // untucked shirt tail: one continuous double-sided tube wrapped round the sides and back (front left open between
       // the plackets), hugging the hips with a slight flare. Front edges ride the flap bones, the back the hem bone, the
       // sides stay on the hips, so it swings a little without ever leaving the body as a separate board.
@@ -574,8 +579,21 @@ export function buildBodyGeometry(sp) {
     sb.boxPart([0, yb, rz + 0.004], 0.05, 0.036, 0.008, W1('hips'), C(sp.buckle || '#c9cdd2'));
     if (sp.holster) { sb.boxPart([-(rx + 0.012), yb - 0.075, 0.03], 0.04, 0.13, 0.085, W1('hips'), C('#121212')); sb.boxPart([-(rx + 0.006), yb - 0.01, 0.03], 0.02, 0.04, 0.05, W1('hips'), C('#121212')); }
     if (sp.pouch) sb.boxPart([rx + 0.01, yb - 0.035, 0.05], 0.03, 0.06, 0.05, W1('hips'), C('#121212')); }
-  if (sp.strap) { const sc = C(sp.strap); const ys = [1.45, 1.38, 1.3, 1.22, 1.14, 1.06, 0.99]; // Sam Browne cross strap: right shoulder to left hip, front and back
-    for (const sg of [1, -1]) band(ys.map((y, i) => { const tt = i / (ys.length - 1); const x = lerp(-0.1, 0.13, tt) * w; return i === 0 ? [x, y * s, 0.0] : [x, y * s, surfZ(y * s, x, sg) + sg * (sp.vest ? 0.03 : 0.008)]; }), 0.034, sc, torsoW); }
+  if (sp.strap) { // Sam Browne cross strap: ONE continuous band, left hip → up the chest → over the right shoulder → down the back → left hip.
+    // It lies on the torso clear of the shirt details (pocket flaps / buttons stand up to 12 mm), and over the shoulder its
+    // surface normal points up (the old version met at a point inside the trapezius and twisted there).
+    const sc = C(sp.strap); const offF = sp.vest ? 0.03 : 0.017, offB = sp.vest ? 0.03 : 0.012;
+    const ring = (y) => { let k = 0; while (k < tr.length - 2 && tr[k + 1].y * s < y) k++; const a = tr[k], b2 = tr[k + 1]; const t = clamp((y / s - a.y) / (b2.y - a.y), 0, 1); return { rx: lerp(a.rx, b2.rx, t), rz: lerp(a.rz, b2.rz, t), cz: lerp(a.cz || 0, b2.cz || 0, t) }; };
+    const xAt = (y) => lerp(-0.095, 0.13, clamp((1.45 - y / s) / 0.46, 0, 1)) * w; const x0 = xAt(1.45 * s);
+    let topY = 1.40 * s; for (let y = 1.56 * s; y > 1.36 * s; y -= 0.002) if (ring(y).rx >= Math.abs(x0) + 0.004) { topY = y; break; } // shoulder-top height under the strap
+    const P = [], ysF = [0.99, 1.06, 1.14, 1.22, 1.3, 1.37];
+    const bodyPt = (y, sg) => { const x = xAt(y * s), r = ring(y * s), q = clamp(Math.abs(x) / r.rx, 0, 0.98), sa = Math.sqrt(1 - q * q); const z = surfZ(y * s, x, sg) + sg * (sg > 0 ? offF : offB); return { c: [x, y * s, z], out: new THREE.Vector3(x / r.rx * 0.6, 0, sg * sa).normalize() }; };
+    for (const y of ysF) P.push(bodyPt(y, 1));
+    const rT = ring(topY - 0.02); const zF = rT.cz + rT.rz * 0.72, zB = rT.cz - rT.rz * 0.72;
+    for (const [z, up, fw] of [[zF + offF * 0.7, 0.55, 0.85], [zF * 0.45, 0.9, 0.45], [rT.cz, 1, 0], [zB * 0.45, 0.9, -0.45], [zB - offB * 0.7, 0.55, -0.85]]) P.push({ c: [x0, topY + 0.012 - 0.02 * (1 - up), z], out: new THREE.Vector3(0, up, fw).normalize() });
+    for (const y of [...ysF].reverse()) P.push(bodyPt(y, -1));
+    sb.strip(P.map((p, i) => { const a = P[Math.max(0, i - 1)].c, b = P[Math.min(P.length - 1, i + 1)].c; const d = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]).normalize(); const side = new THREE.Vector3().crossVectors(d, p.out).normalize();
+      return { c: p.c, side: [side.x, side.y, side.z], out: [p.out.x, p.out.y, p.out.z], w: p.c[1] > 1.3 * s ? W1('chest') : torsoW(p.c[1]) }; }), 0.034, (q) => q.out, null, sc, 0); }
   const geo = sb.build(); geo.userData.parts = parts; return geo;
 }
 
@@ -787,7 +805,7 @@ export function gaitProfile(sp) {
 // ------------------------------------------------------------------ two-bone arm IK (used for weapons)
 // target: point in CHEST space; q: optional hand orientation in chest space; w: blend with the animated pose.
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _v4 = new THREE.Vector3(), _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _m1 = new THREE.Matrix4();
-export function solveArmIK(b, S, target, q, w = 1) {
+export function solveArmIK(b, S, target, q, w = 1, poleDir = null) { // poleDir: preferred elbow direction (parent space), default down and out
   const arm = b['arm' + S], fore = b['fore' + S], hand = b['hand' + S], chest = b.chest, par = arm.parent;
   chest.updateWorldMatrix(true, false); par.updateWorldMatrix(false, false);
   const tw = _v1.copy(target).applyMatrix4(chest.matrixWorld); const tp = par.worldToLocal(tw).sub(arm.position); // target relative to the shoulder, parent space
@@ -798,7 +816,7 @@ export function solveArmIK(b, S, target, q, w = 1) {
   const h = _v3.copy(u2).applyQuaternion(foreQ).add(u1); // hand in arm space at zero shoulder rotation
   const armQ = _q2.setFromUnitVectors(_v4.copy(h).normalize(), _v2.copy(tp).normalize());
   // swivel about the shoulder→hand axis so the elbow points down and out (natural), not up
-  const axis = _v2.copy(tp).normalize(); const e = _v4.copy(u1).applyQuaternion(armQ); const pole = _v3.set(S === 'R' ? -0.45 : 0.45, -1, -0.15);
+  const axis = _v2.copy(tp).normalize(); const e = _v4.copy(u1).applyQuaternion(armQ); const pole = poleDir ? _v3.copy(poleDir) : _v3.set(S === 'R' ? -0.45 : 0.45, -1, -0.15);
   e.addScaledVector(axis, -e.dot(axis)); pole.addScaledVector(axis, -pole.dot(axis));
   if (e.lengthSq() > 1e-8 && pole.lengthSq() > 1e-8) { e.normalize(); pole.normalize(); const ang = Math.atan2(_m1.identity() && new THREE.Vector3().crossVectors(e, pole).dot(axis), e.dot(pole)); armQ.premultiply(_q3.setFromAxisAngle(axis, ang)); }
   if (w >= 1) { arm.quaternion.copy(armQ); fore.quaternion.copy(foreQ); } else { arm.quaternion.slerp(armQ, w); fore.quaternion.slerp(foreQ, w); }
@@ -806,6 +824,10 @@ export function solveArmIK(b, S, target, q, w = 1) {
 }
 
 const _ikv = new THREE.Vector3();
+// chest-local wrist targets (×height/1.72) for the phone poses: [x,y,z] for a call; [rx,ry,rz, lx,ly,lz] for texting
+export const PHONE_T = [-0.12, 0.235, 0.085], TEXT_T = [-0.04, -0.1, 0.27, 0.03, -0.1, 0.27];
+export const PHONE_POLE = new THREE.Vector3(-0.3, -0.75, 0.6); // on a call the elbow hangs forward and down in front of the chest, not out like a wing
+export const HAND_TW = { phone: [0, 1.2, 0, 0, 0, 0], text: [-0.35, -1.5, 0, 0, 0, 0] }; // [R x,y,z, L x,y,z] added to the hand rotations
 export class Animator {
   constructor(ch) {
     this.ch = ch; this.g = gaitProfile(ch.spec); const s = ch.spec.height / 1.72; this.s = s;
@@ -858,7 +880,8 @@ export class Animator {
     this.idleLook = damp(this.idleLook, this.idleLookTarget * (1 - w * 0.7), 5, dt);
     const A_ = this.action; this.actionW = clamp(this.actionW + dt * 3, 0, 1); const aw = A_ ? this.actionW : 0;
     const crouch = (this.crouch = damp(this.crouch, A_ === 'crouch' || A_ === 'cover' ? 1 : 0, A_ === 'rise' ? 3.2 : 8, dt));
-    const sit = A_ === 'sit' ? aw : this.fadeAct === 'sit' ? this.fadeW : 0; const drive = (this.drive = damp(this.drive, A_ === 'drive' ? 1 : 0, 8, dt)); const seatT = Math.max(sit, drive);
+    const sit = this.seated && A_ !== 'rise' ? 1 : A_ === 'sit' ? aw : this.fadeAct === 'sit' ? this.fadeW : 0; /* seated (desk staff): legs/hips stay seated while the upper body types, phones, talks */ const drive = (this.drive = damp(this.drive, A_ === 'drive' ? 1 : 0, 8, dt)); const seatT = Math.max(sit, drive);
+    const gT = A_ === 'sitGround' ? aw : this.fadeAct === 'sitGround' ? this.fadeW : 0; // sitting on the grass (no seat): hips on the ground, knees up, feet flat
     this.lean = damp(this.lean, clamp(-turnRate * sp * 0.03, -0.2, 0.2), 6, dt);
     // pelvis
     const hipPitch = run * 0.1 + crouch * 0.25; const sh = this.shift * (1 - w);
@@ -889,22 +912,26 @@ export class Animator {
     const hyRun = this.hyAvg - 0.012 * s - 0.03 * s * g.bounce * Math.cos(2 * Math.PI * (2 * pL - beta));
     hy = lerp(hyWalk, hyRun, run);
     hy = lerp(hy, this.ch.hipY - 0.45, seatT);
+    hy = lerp(hy, 0.12 * s, gT);
     this.hipYs = dt > 0.2 ? hy : damp(this.hipYs, hy, 30, dt);
     // planted legs: two-bone IK so each stance ankle lands exactly on the ground under the actual hips (no sinking / floating feet)
-    if (seatT < 0.999) for (const l of legs) { if (!l.contact) continue;
+    const ikOff = Math.max(seatT, gT); if (ikOff < 0.999) for (const l of legs) { if (!l.contact) continue;
       const xf = -(this.a * Math.sin(l.thW) + this.b * Math.sin(l.thW + l.kn)); const yv = this.hipYs - this.ankle - 0.02 * s - heel(l);
       const d = clamp(Math.hypot(xf, yv), Math.abs(this.a - this.b) + 1e-3, this.a + this.b - 1e-3);
       const kn = Math.PI - Math.acos(clamp((this.a * this.a + this.b * this.b - d * d) / (2 * this.a * this.b), -1, 1));
       const th = Math.atan2(-xf, yv) - Math.acos(clamp((this.a * this.a + d * d - this.b * this.b) / (2 * this.a * d), -1, 1));
-      const k = 1 - seatT; l.thW = lerp(l.thW, th, k); l.kn = lerp(l.kn, kn, k); }
+      const k = 1 - ikOff; l.thW = lerp(l.thW, th, k); l.kn = lerp(l.kn, kn, k); }
     b.hips.position.y = this.hipYs; b.hips.position.x = (swayPh * 0.02 * g.sway * (1 - run) * w + sh * 0.028) * s;
     b.hips.rotation.set(hipPitch, pelvisYaw, hipRoll);
     const R = (bone, x, y, z) => b[bone].rotation.set(x, y, z);
     legs.forEach((l, i) => {
       const sd = i === 0 ? 'L' : 'R', sx = i === 0 ? 1 : -1;
-      const th = lerp(l.thW - hipPitch, -1.45, seatT), kn = lerp(l.kn, 1.45, seatT);
-      const foot = lerp(-(l.thW + l.kn) + l.foot - crouch * 0.0, 0, seatT);
-      R('thigh' + sd, th, sx * g.toeOut * 0.5, lerp(-hipRoll * 0.9, -sx * 0.06, seatT)); R('shin' + sd, kn, 0, 0); R('foot' + sd, foot, 0, 0);
+      let th = lerp(l.thW - hipPitch, -1.45, seatT), kn = lerp(l.kn, 1.45, seatT);
+      let foot = lerp(-(l.thW + l.kn) + l.foot - crouch * 0.0, 0, seatT);
+      if (gT > 0) { // ground sit: thigh up at ~47° above horizontal, shin solved so the sole rests flat on the ground in front
+        const gth = -2.4, kneeY = 0.12 * s - this.a * Math.cos(gth), phi = Math.acos(clamp((kneeY - this.ankle - 0.02 * s) / this.b, -1, 1));
+        th = lerp(th, gth, gT); kn = lerp(kn, -phi - gth, gT); foot = lerp(foot, phi, gT); }
+      R('thigh' + sd, th, sx * g.toeOut * 0.5, lerp(lerp(-hipRoll * 0.9, -sx * 0.06, seatT), -sx * 0.2, gT)); R('shin' + sd, kn, 0, 0); R('foot' + sd, foot, 0, 0);
     });
     // spine, chest: counter-rotation against the pelvis, posture, breathing
     const breathe = Math.sin(this.t * (1.5 + run * 2) + this.seed * 6) * (0.012 + run * 0.01);
@@ -914,7 +941,8 @@ export class Animator {
     // head: stabilised against the trunk, plus look/idle look
     const trunkYaw = pelvisYaw + spineYaw + chestYaw;
     R('neck', -g.stoop * 0.8 + g.headDown - run * 0.12 - crouch * 0.2, -trunkYaw * 0.5, hipRoll * 0.3);
-    R('head', -(this.hipYs - this.ch.hipY) * 0.6, this.look * 0.6 + this.idleLook * 0.5 - trunkYaw * 0.4, hipRoll * 0.3);
+    const onCall = this.action === 'phone' ? 1 - 0.85 * this.actionW : 1; /* phone at the ear: the head stays with the hand (no free look-around) */
+    R('head', -(this.hipYs - this.ch.hipY + gT * (this.ch.hipY - 0.45 - 0.12 * s)) * 0.6 * onCall, (this.look * 0.6 + this.idleLook * 0.5 - trunkYaw * 0.4) * onCall, hipRoll * 0.3 * onCall);
     // arms: pendulum swing opposite to the legs, slightly lagging, bigger forward than back
     const armAmp = (0.1 + 0.2 * clamp(sp / 1.6, 0, 1) + run * 0.6) * g.arm * w;
     const sw = (p) => { const v = Math.cos(2 * Math.PI * (p - g.lag)); return v > 0 ? v : v * 0.75; };
@@ -924,14 +952,15 @@ export class Animator {
     const t = this.t, at = this.actionT;
     const actIK = [];
     const applyAct = (act, aw, at) => {
-      const ikT = (S, x, y, z) => actIK.push([S, x * s, y * s, z * s, aw]);
+      const ikT = (S, x, y, z, pole) => actIK.push([S, x * s, y * s, z * s, aw, pole]);
       let tl = null, tr = null, tfl = null, tfr = null, head = null;
       switch (act) {
         case 'talk': tr = [-0.4 - Math.sin(t * 3.1) * 0.25, 0.2, -0.2 - Math.sin(t * 2.3) * 0.15]; tfr = [-1.1 - Math.sin(t * 4) * 0.3, 0, 0]; tl = [-0.15, 0, 0.12]; tfl = [-0.5 - Math.max(0, Math.sin(t * 1.7)) * 0.6, 0, 0]; head = Math.sin(t * 0.9) * 0.25; break;
         case 'listen': tl = [0.02, 0, 0.1]; tr = [0.02, 0, -0.1]; tfl = tfr = [-0.35, 0, 0]; head = Math.sin(t * 0.6) * 0.08; b.neck.rotation.x += Math.max(0, Math.sin(t * 2.2)) * 0.08 * aw; break;
         case 'argue': tr = [-0.9 - Math.sin(t * 6) * 0.35, 0, -0.3]; tfr = [-0.9, 0, 0]; tl = [-0.7 - Math.sin(t * 5 + 1) * 0.3, 0, 0.3]; tfl = [-1, 0, 0]; head = Math.sin(t * 3) * 0.15; break;
-        case 'phone': tr = [-0.35, 0, -0.55]; tfr = [-2.35, 0.4, 0]; tl = [0.05, 0, 0.1]; tfl = [-0.2, 0, 0]; head = 0.15; break;
-        case 'text': tr = [-0.45, 0, -0.15]; tfr = [-1.35, 0, 0]; tl = [-0.45, 0, 0.15]; tfl = [-1.35, 0, 0]; b.neck.rotation.x += 0.45 * aw; break;
+        case 'phone': { const P = this.phoneT || PHONE_T, j = this.phoneAdj; ikT('R', P[0] + (j ? j.x : 0), P[1] + (j ? j.y : 0), P[2] + (j ? j.z : 0), PHONE_POLE); tl = [0.05, 0, 0.1]; tfl = [-0.2, 0, 0]; head = 0.12; this._twA = 'phone'; this._twW = Math.max(this._twW || 0, aw); break; } // phone held against the right ear (IK: wrist under the jaw)
+        case 'text': { const P = this.textT || TEXT_T; ikT('R', P[0], P[1], P[2]); ikT('L', P[3], P[4], P[5]); b.neck.rotation.x += 0.5 * aw; b.spine.rotation.x += 0.05 * aw; this._twA = 'text'; this._twW = Math.max(this._twW || 0, aw); break; } // phone in front of the chest, the other hand cradling it, head bowed
+        case 'type': tr = [-0.62, 0, -0.2]; tl = [-0.62, 0, 0.2]; tfr = [-0.95 + Math.sin(t * 13 + 1) * 0.05, 0, 0]; tfl = [-0.95 + Math.sin(t * 11) * 0.05, 0, 0]; b.neck.rotation.x += 0.28 * aw; break; // at a desk keyboard
         case 'wave': tr = [-2.6 + Math.sin(t * 8) * 0.08, 0, -0.35 - Math.sin(t * 8) * 0.25]; tfr = [-0.5, 0, 0]; break;
         // cricket: batting stance (both hands on the handle, bat down by the back foot) and a swing driven by this.swing
         // (0 → 1: back-lift, downswing through the line of the ball, follow-through over the left shoulder; <0 = stance)
@@ -960,10 +989,18 @@ export class Animator {
         case 'flinch': { const k = Math.max(0, 1 - at * 2.2); b.spine.rotation.x += 0.25 * k; b.neck.rotation.x += 0.3 * k; tr = [-1.6 * k, 0, 0.4 * k]; tl = [-1.6 * k, 0, -0.4 * k]; tfr = tfl = [-1.8 * k, 0, 0]; break; }
         case 'hit': { const k = Math.max(0, 1 - at * 1.6); b.spine.rotation.x -= 0.35 * k; b.chest.rotation.y += 0.3 * k; tr = [-0.6 * k, 0, -0.8 * k]; tl = [-0.4 * k, 0, 0.9 * k]; break; }
         case 'down': { b.hips.position.y = lerp(b.hips.position.y, 0.16 * s, aw); b.hips.rotation.x = lerp(b.hips.rotation.x, -1.45, aw); for (const sd of ['L', 'R']) { b['thigh' + sd].rotation.x = lerp(b['thigh' + sd].rotation.x, 0.05, aw); b['shin' + sd].rotation.x = lerp(b['shin' + sd].rotation.x, 0.2, aw); b['foot' + sd].rotation.x = lerp(b['foot' + sd].rotation.x, -0.2, aw); } tr = [-0.4, 0, -0.7]; tl = [-0.3, 0, 0.8]; tfr = tfl = [-0.3, 0, 0]; break; }
+        case 'punch': { // fists: guard up, one hand snaps out (jab / cross alternate via punchSide), the chest turns into it, back to guard
+          const sd = this.punchSide || 1, k = Math.sin(clamp(at / 0.34, 0, 1) * Math.PI) ** 0.7; const gU = [-0.75, 0, 0], gF = -2.15;
+          const ext = [-1.5, 0, 0], eF = -0.12; const lerp3 = (a, b, w) => [a[0] + (b[0] - a[0]) * w, a[1] + (b[1] - a[1]) * w, a[2] + (b[2] - a[2]) * w];
+          const pr = sd > 0 ? k : 0, pl = sd < 0 ? k : 0;
+          tr = lerp3([gU[0], 0, -0.32], [ext[0], 0, 0.12], pr); tfr = [gF + (eF - gF) * pr, 0, 0];
+          tl = lerp3([gU[0], 0, 0.32], [ext[0], 0, -0.12], pl); tfl = [gF + (eF - gF) * pl, 0, 0];
+          b.chest.rotation.y += (sd > 0 ? 0.38 : -0.38) * k * aw; b.spine.rotation.x += 0.12 * aw; b.neck.rotation.x += 0.08 * aw; head = (sd > 0 ? -0.25 : 0.25) * k; break; }
         case 'shove': { const k = Math.sin(clamp(at / 0.4, 0, 1) * Math.PI); tr = [-1.5 * k, 0, 0.1]; tl = [-1.5 * k, 0, -0.1]; tfr = tfl = [-0.6 + 0.5 * k, 0, 0]; b.spine.rotation.x += 0.2 * k; break; }
         case 'browse': tr = [-0.75, 0, 0.1]; tfr = [-0.9 + Math.sin(t * 1.3) * 0.2, 0, 0]; head = Math.sin(t * 0.5) * 0.4; b.neck.rotation.x += 0.25 * aw; break;
         case 'umbrella': tr = [-0.6, 0, -0.1]; tfr = [-1.8, 0, 0]; break;
         case 'sit': tl = [-0.3, 0, 0.1]; tr = [-0.3, 0, -0.1]; tfl = tfr = [-0.9, 0, 0]; break;
+        case 'sitGround': tl = [-0.62, 0, 0.2]; tr = [-0.62, 0, -0.2]; tfl = tfr = [-0.75, 0, 0]; b.spine.rotation.x += 0.12 * aw; break; // forearms resting on the raised knees
         case 'drive': tl = [-1.05 + this.steer * 0.25, 0, 0.25]; tr = [-1.05 - this.steer * 0.25, 0, -0.25]; tfl = tfr = [-0.6, 0, 0]; break;
         case 'ride': tl = [-1.15, 0, 0.3]; tr = [-1.15, 0, -0.3]; tfl = tfr = [-0.35, 0, 0]; break;
         case 'carry': tl = [-0.6, 0, 0.15]; tr = [-0.6, 0, -0.15]; tfl = tfr = [-1.3, 0, 0]; break;
@@ -987,6 +1024,22 @@ export class Animator {
           if (sw) { ikT('L', 0.05, -0.2, 0.25); ikT('R', 0.03 - k * 0.05, -0.19, 0.26); } else { ikT('R', -0.05, -0.2, 0.25); ikT('L', -0.03 + k * 0.05, -0.19, 0.26); } b.neck.rotation.x += 0.3 * aw; break; }
         case 'straps': { const k = Math.sin(clamp(at / 0.8, 0, 1) * Math.PI); ikT('L', 0.1, 0.03 - k * 0.07, 0.15); ikT('R', -0.1, 0.03 - k * 0.07, 0.15); b.neck.rotation.z += Math.sin(clamp(at / 0.9, 0, 1) * Math.PI * 2) * 0.12 * aw; b.spine.rotation.x -= 0.05 * k * aw; break; } // tug the vest straps down, roll the neck
         case 'glasses': { const k = Math.sin(clamp(at / 0.9, 0, 1) * Math.PI); ikT('R', -0.02, 0.17 + k * 0.1, 0.17); b.neck.rotation.x -= 0.06 * k * aw; head = -0.05; break; } // push the glasses up the bridge
+        // ---- street life (StreetLife.js drives the parameters; targets are chest-space, unscaled)
+        case 'smoke': { // cigarette: relaxed hand at the hip ↔ filter at the lips (smokeK 0..1); smokeAdj = per-person lip correction
+          const k = clamp(this.smokeK ?? 0, 0, 1), e = k * k * (3 - 2 * k), a = this.smokeAdj; const mx = -0.05 + (a ? a.x : 0), my = 0.2 + (a ? a.y : 0), mz = 0.17 + (a ? a.z : 0);
+          ikT('R', lerp(-0.2, mx, e), lerp(-0.29, my, e), lerp(0.1, mz, e)); if (this.smokeLight > 0) { const l = clamp(this.smokeLight, 0, 1); ikT('L', lerp(0.16, 0.02, l), lerp(-0.28, 0.17, l), lerp(0.08, 0.19, l)); }
+          head = -0.1 * e; b.neck.rotation.x -= 0.04 * e * aw; break; }
+        case 'paper': { // newspaper held open in both hands (prop on the chest bone); paperFlip 0..1 turns a page right → left
+          // paperFlip 0..1: the right hand carries the page edge over (lets go at 62 % and the page falls on); 1..2: the hand comes back low
+          const u = clamp(this.paperFlip ?? 0, 0, 2), sm3 = (k) => k * k * (3 - 2 * k); let rx = -0.215, ry = -0.075, rz = 0.3;
+          const edge = (e) => { const bb = -0.22 + e * (Math.PI + 0.48); return [-0.273 * Math.cos(bb) * 0.79, 0.3 + (0.28 * Math.sin(bb) + 0.061) * 0.6]; };
+          if (u > 0 && u < 1) { const e = Math.min(sm3(u), 0.62); [rx, rz] = edge(e); ry = -0.075 + Math.sin(Math.min(1, e / 0.62) * Math.PI * 0.5) * 0.06; }
+          else if (u >= 1 && u < 2) { const k = sm3(u - 1); const [hx, hz] = edge(0.62); rx = lerp(hx, -0.215, k); rz = lerp(hz, 0.3, k); ry = lerp(-0.015, -0.075, k) - Math.sin(k * Math.PI) * 0.03; }
+          ikT('L', 0.215, -0.075, 0.3); ikT('R', rx, ry, rz);
+          b.neck.rotation.x += 0.28 * aw; head = Math.sin(t * 0.35) * 0.08; break; }
+        case 'cuffed': ikT('L', 0.07, -0.3, -0.12); ikT('R', -0.07, -0.3, -0.12); b.neck.rotation.x += 0.18 * aw; b.chest.rotation.x += 0.05 * aw; break; // hands behind the back
+        case 'guard': { const sw = Math.sin(t * 2.3 + this.seed * 5) * 0.015; ikT('L', 0.1, 0.12 + sw, 0.27); ikT('R', -0.11, 0.09 - sw, 0.23); b.spine.rotation.x += 0.12 * aw; b.neck.rotation.x += 0.1 * aw; break; } // fists up
+        case 'hold': if (this.holdL) ikT('L', this.holdL.x, this.holdL.y, this.holdL.z); if (this.holdR) ikT('R', this.holdR.x, this.holdR.y, this.holdR.z); break; // hands on a partner / a suspect's arm (targets set each frame)
         case 'rise': { const k = Math.max(0, 1 - at / 0.55); ikT('R', -0.12, -0.32 - 0.06 * k, 0.26); b.spine.rotation.x += 0.25 * k * aw; break; } // push off the knee and stand
       }
       if (tl) aL = blend(aL, tl, aw); if (tr) aR = blend(aR, tr, aw); if (tfl) fL = blend(fL, tfl, aw); if (tfr) fR = blend(fR, tfr, aw); if (head !== null && head !== undefined) b.head.rotation.y = lerp(b.head.rotation.y, head, aw);
@@ -997,6 +1050,7 @@ export class Animator {
     if (this.armOverride) { const o = this.armOverride; const k = o.w ?? 1; if (o.aL) aL = blend(aL, o.aL, k); if (o.aR) aR = blend(aR, o.aR, k); if (o.fL) fL = blend(fL, o.fL, k); if (o.fR) fR = blend(fR, o.fR, k); }
     R('armL', ...aL); R('armR', ...aR); R('foreL', ...fL); R('foreR', ...fR);
     R('handL', 0.12 + run * 0.1, 0, 0.05); R('handR', 0.12 + run * 0.1, 0, -0.05);
+    if (this._twW) { const T = HAND_TW[this._twA], k = this._twW; b.handR.rotation.x += T[0] * k; b.handR.rotation.y += T[1] * k; b.handR.rotation.z += T[2] * k; b.handL.rotation.x += T[3] * k; b.handL.rotation.y += T[4] * k; b.handL.rotation.z += T[5] * k; this._twW = 0; } /* phone poses: wrist bend / forearm twist so the screen faces the ear or the eyes */
     if (this.handOverride) { const o = this.handOverride; if (o.L) b.handL.rotation.set(...o.L); if (o.R) b.handR.rotation.set(...o.R); }
     if (this.aim) { // weapon stance: torso pitch follows the aim, chest bladed so the support shoulder leads; walk twist removed
       const m = this.aim; const k = m.w ?? 1; b.spine.rotation.y = lerp(b.spine.rotation.y, 0, k); b.spine.rotation.x = lerp(b.spine.rotation.x, -m.pitch * 0.45, k); b.spine.rotation.z = lerp(b.spine.rotation.z, 0, k);
@@ -1004,9 +1058,11 @@ export class Animator {
       b.neck.rotation.x = lerp(b.neck.rotation.x, m.pitch * 0.35, k); b.neck.rotation.y = lerp(b.neck.rotation.y, (m.twist || 0) * 0.6, k); b.head.rotation.y = lerp(b.head.rotation.y, (m.twist || 0) * 0.4, k); b.head.rotation.x = lerp(b.head.rotation.x, (m.headDown || 0), k);
     }
     const seated = this.seated && this.seatW > 0;
-    if (!seated && !this.ik) for (const [S, x, y, z, w] of actIK) solveArmIK(b, S, _ikv.set(x, y, z), null, w);
+    if (!seated && !this.ik) for (const [S, x, y, z, w, pole] of actIK) solveArmIK(b, S, _ikv.set(x, y, z), null, w, pole);
     if (this.ik && !seated) { if (this.ik.R) solveArmIK(b, 'R', this.ik.R, this.ik.qR, this.ik.wR ?? 1); if (this.ik.L) solveArmIK(b, 'L', this.ik.L, this.ik.qL, this.ik.wL ?? 1); }
     if (seated) applySeatPose(this, dt);
+    if (this.nearLean && !seated) { const l = this.nearLean; b.spine.rotation.x += l.s || 0; b.chest.rotation.x += l.c || 0; b.neck.rotation.x += l.p || 0; b.head.rotation.z += l.r || 0; b.head.rotation.y += l.y || 0; } // StreetLife: leaning in for a hug / kiss
+    if (this.duck > 0.001) { const d = Math.min(1, this.duck); b.spine.rotation.x += 0.42 * d; b.chest.rotation.x += 0.22 * d; b.neck.rotation.x += 0.32 * d; } // ducking under a low roof line while getting in / out
     else if (A_ === 'ride' && aw > 0) { b.thighL.rotation.set(-1.2, 0, -0.25); b.thighR.rotation.set(-1.2, 0, 0.25); b.shinL.rotation.x = 1.3; b.shinR.rotation.x = 1.3; b.footL.rotation.x = 0; b.footR.rotation.x = 0; b.hips.position.y = this.ch.hipY - 0.15; b.hips.position.x = 0; b.hips.rotation.set(0, 0, 0); }
     this.driveSkirt();
     if (this.ch.face) this.ch.face.update(dt);

@@ -32,7 +32,8 @@ uniform float uIntDay;
 uniform float uIntNight;
 uniform float uOcc;
 uniform float uITime;
-float iHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+// sine-free hash (stable for large inputs on every GPU: sin(x * 43758) amplifies tiny float differences into per-pixel noise)
+float iHash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float iBox(vec2 p, vec2 lo, vec2 hi) { vec2 s = step(lo, p) * step(p, hi); return s.x * s.y; }
 `;
 // Runs after <emissivemap_fragment>: roughnessFactor / metalnessFactor / diffuseColor are known and
@@ -41,8 +42,10 @@ const FRAG_BODY = /* glsl */`
 #ifdef USE_MAP
 {
   vec3 Nw = normalize(vIWN);
+  vec2 nq = floor(Nw.xz * 2.0 + 0.5);                 // facade orientation, exact (-1/0/1) for the axis-aligned walls
+  vec2 wq = floor((vIWPos.xz - nq * 0.8) / 97.0);      // block id from a point 0.8 m inside the wall: never flips across the face
   { // painted window lights (non-glazed openings, distant LOD) obey the same per-room occupancy as the mapped rooms
-    vec2 pc = floor(vec2(vMapUv.x * 2.0, vMapUv.y * 2.0)); vec2 ps = pc + floor(vIWPos.xz / 97.0) * 13.1 + Nw.xz * 7.3; float plh = iHash(ps + 31.0);
+    vec2 pc = floor(vec2(vMapUv.x * 2.0, vMapUv.y * 2.0)); vec2 ps = pc + wq * 13.1 + nq * 7.3; float plh = iHash(ps + 31.0);
     totalEmissiveRadiance *= step(1.0 - uOcc, plh) * mix(0.62, 1.0, fract(plh * 7.13)); }
   float gm = (1.0 - smoothstep(0.2, 0.3, roughnessFactor)) * step(abs(Nw.y), 0.3);
   if (gm > 0.001) {
@@ -55,7 +58,8 @@ const FRAG_BODY = /* glsl */`
     vec3 dl = vec3(dot(dw, T), dw.y, max(dot(dw, -Nw), 0.02));    // local ray: along wall, up, into building
     vec2 p = vec2(vMapUv.x * ${(4 * BAY).toFixed(3)}, vMapUv.y * ${(2 * FLOOR_H).toFixed(3)});
     vec2 cell = floor(p / vec2(RW, FH));
-    vec2 seed = cell + floor(vIWPos.xz / 97.0) * 13.1 + Nw.xz * 7.3;
+    float fw = max(fwidth(p.x), fwidth(p.y));           // metres per pixel: fine detail fades out before it can alias
+    vec2 seed = cell + wq * 13.1 + nq * 7.3;
     float h1 = iHash(seed), h2 = iHash(seed + 3.7), h3 = iHash(seed + 9.1), h4 = iHash(seed + 17.3);
     vec2 lo = cell * vec2(RW, FH), hi = lo + vec2(RW, FH);
     float depth = mix(4.0, 8.5, h1);
@@ -90,7 +94,7 @@ const FRAG_BODY = /* glsl */`
         col = vec3(0.86, 0.86, 0.84);
         vec2 q = vec2(fract(rl.x / (RW * 0.5)), fract(hp.z / 2.4));
         float panel = iBox(q, vec2(0.25, 0.3), vec2(0.75, 0.7));
-        col = mix(col * 0.85, vec3(1.0), panel * 0.3);
+        col = mix(col * 0.85, vec3(1.0), mix(panel, 0.25, smoothstep(0.15, 0.5, fw)) * 0.3);
       }
     } else {                                           // side walls (partition to neighbouring room)
       col = wallC * 0.72;
@@ -123,14 +127,19 @@ const FRAG_BODY = /* glsl */`
     // blinds, or fabric curtains that glow in their own colour when the room behind is lit
     vec2 gp = p - lo;
     float blind = step(0.55, h3) * step(FH * (1.0 - mix(0.25, 0.85, h1)), gp.y);
-    float slats = 0.85 + 0.15 * step(0.5, fract(gp.y * 9.0));
+    float slats = mix(0.85 + 0.15 * step(0.5, fract(gp.y * 9.0)), 0.925, smoothstep(0.03, 0.09, fw));
     vec3 blindC = (h2 < 0.5 ? vec3(0.86, 0.83, 0.74) : vec3(0.62, 0.58, 0.5)) * slats;
     vec3 back = kind < 0.9 ? lamp * 0.95 : vec3(0.35, 0.45, 0.8) * flick;
     interior = mix(interior, blindC * (vec3(0.8) * uIntDay + back * uIntNight * lit), blind);
     float cur = step(0.3, h3) * (1.0 - step(0.55, h3)) * step(mix(0.0, 1.1, h1 * h1), abs(gp.x - RW * 0.5));
     vec3 curC = h4 < 0.2 ? vec3(0.55, 0.13, 0.12) : h4 < 0.4 ? vec3(0.82, 0.62, 0.22) : h4 < 0.6 ? vec3(0.16, 0.46, 0.46) : h4 < 0.8 ? vec3(0.86, 0.8, 0.66) : vec3(0.8, 0.46, 0.5);
-    float folds = 0.72 + 0.28 * sin(gp.x * 15.0 + h2 * 6.0);
+    float folds = mix(0.72 + 0.28 * sin(gp.x * 15.0 + h2 * 6.0), 0.86, smoothstep(0.08, 0.3, fw));
     interior = mix(interior, curC * folds * (vec3(0.55) * uIntDay + back * 0.75 * uIntNight * lit + vec3(0.01)), cur);
+    // distance LOD: once a room shrinks to a few pixels its random finish / lit-or-dark state is just noise (shimmering speckle on far
+    // towers) — blend to the average room: average finish under daylight plus the clock's share of lit rooms at night
+    float lod = smoothstep(0.6, 2.0, fw);
+    if (lod > 0.0) { vec3 avgC = vec3(0.6, 0.58, 0.54) * 0.62; vec3 avgL = vec3(0.92, 0.94, 0.96) * uIntDay + vec3(1.0, 0.9, 0.78) * 0.9 * uIntNight * uOcc + vec3(0.012);
+      interior = mix(interior, avgC * avgL * tint, lod); }
     // fresnel: grazing views show reflection, face-on views show the room
     float fres = 0.04 + 0.96 * pow(1.0 - dl.z, 5.0);
     totalEmissiveRadiance = mix(totalEmissiveRadiance, interior * (1.0 - fres * 0.85), gm);
@@ -150,7 +159,7 @@ export function applyInteriorMapping(mat) {
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + FRAG_DECL)
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + FRAG_BODY);
   };
-  mat.customProgramCacheKey = () => 'interior-v5';
+  mat.customProgramCacheKey = () => 'interior-v7';
   return mat;
 }
 

@@ -17,6 +17,6 @@ const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 40), new THREE.MeshSta
 setVehicleNight(q.get('night') ? 1 : 0);
 const types = (q.get("only") || Object.keys(VTYPES).join(",")).split(","); let x = -20;
 for (const t of types) { const m = createVehicleMesh(t, +(q.get("seed") || 3) + types.indexOf(t)); const len = VTYPES[t].len; m.rotation.y = q.get('ry') ? +q.get('ry') : q.get('back') ? Math.PI * 0.75 : Math.PI * 0.25; if (q.get('beacons') && m.userData.beacons) { m.userData.beacons.blue.emissiveIntensity = 6; m.userData.beacons.red.emissiveIntensity = 0.15; } if (q.get('door')) m.userData.door && (m.userData.door.pivot.rotation.y = 1.1); m.position.set(x + 2, 0, (types.indexOf(t) % 2) * 6 - 3); x += Math.max(4.2, len * 0.75); if (types.length === 1) m.position.set(0, 0, 0); s.add(m); }
-const cam = new THREE.PerspectiveCamera(35, 2, 0.1, 200); const cp = (q.get("cam") || "0,9,26").split(",").map(Number); cam.position.set(...cp); cam.lookAt(+(q.get("lx") || 0), 0.8, 0);
+const cam = new THREE.PerspectiveCamera(35, 2, 0.1, 200); const cp = (q.get("cam") || "0,9,26").split(",").map(Number); cam.position.set(...cp); cam.lookAt(+(q.get("lx") || 0), +(q.get("ly") || 0.8), +(q.get("lz") || 0));
 r.render(s, cam); window.done = true;
 </script></body></html>

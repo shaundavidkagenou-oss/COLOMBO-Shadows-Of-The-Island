@@ -17,6 +17,21 @@ function sides(x0, x1, z0, z1) {
     { id: 'W', a: [x0, z0], b: [x0, z1], n: [-1, 0], len: z1 - z0 },
   ];
 }
+// Free-standing front columns (world x, z, radius): villa porch columns and Fort arcade columns. The meshes in buildDetail
+// and the colliders registered by World both come from here, so every column you can see is solid.
+function frontSide(b) { const sd = sides(b.x0, b.x1, b.z0, b.z1); return sd.find((q) => q.id === b.front) || sd[0]; }
+export function porchPillars(b) {
+  if (!b.porch) return [];
+  const s = frontSide(b);
+  return [0.5 - 1.9 / s.len, 0.5 + 1.9 / s.len].map((t) => [s.a[0] + (s.b[0] - s.a[0]) * t + s.n[0] * 2.6, s.a[1] + (s.b[1] - s.a[1]) * t + s.n[1] * 2.6, 0.16]);
+}
+export function colonnadeColumns(b) {
+  if (!b.colonnade) return [];
+  const s = frontSide(b), n = Math.max(2, Math.floor(s.len / 4)), out = [];
+  for (let k = 0; k <= n; k++) out.push([s.a[0] + (s.b[0] - s.a[0]) * k / n + s.n[0] * 0.6, s.a[1] + (s.b[1] - s.a[1]) * k / n + s.n[1] * 0.6, 0.32]);
+  return out;
+}
+export const frontColumns = (b) => porchPillars(b).concat(colonnadeColumns(b));
 function facadeWall(mb, s, y0, y1, uOff, vStart, color) {
   const u0 = uOff, u1 = uOff + s.len / (4 * BAY);
   const v0 = (y0 - vStart) / (2 * FLOOR_H), v1 = (y1 - vStart) / (2 * FLOOR_H);
@@ -170,7 +185,7 @@ export function buildDetail(b, multi) {
   }
   if (b.colonnade) { // Fort arcades
     const s = front, n = Math.max(2, Math.floor(s.len / 4)); const r = rotOf(s);
-    for (let k = 0; k <= n; k++) { const p = along(s, k / n); conc.cylinder(p[0] + s.n[0] * 0.6, y0, p[1] + s.n[1] * 0.6, 0.32, 0.28, GROUND_H, 10, { col: paint, caps: false }); }
+    for (const [px, pz] of colonnadeColumns(b)) conc.cylinder(px, y0, pz, 0.32, 0.28, GROUND_H, 10, { col: paint, caps: false }); // solid (World)
     const mid = along(s, 0.5); conc.box(mid[0] + s.n[0] * 0.6, y0 + GROUND_H + 0.2, mid[1] + s.n[1] * 0.6, s.len + 0.8, 0.4, 1.6, { col: paint, rotY: r, uvScale: 3, bottom: true });
   }
   // storefront dressing: awnings + trilingual signs
@@ -188,18 +203,18 @@ export function buildDetail(b, multi) {
     }
     // planned signage: one business per building (two on wide frontages), each sign centred over its own frontage at the
     // atlas' true 4:1 aspect (never stretched), on a dark mounting board just above the awning line
-    const signs = b.sign == null || rng.chance(0.15) ? 0 : s.len >= 16 ? 2 : 1;
+    const signs = b.sign == null || rng.chance(0.15) ? 0 : s.len >= 16 ? 2 : 1; b._signSpans = [];
     for (let k = 0; k < signs; k++) {
       const idx = k === 0 ? b.sign : b.sign + 7 + (b.id % 5); const half = s.len / signs; const room = half - 0.8; if (room < 1.6) continue;
       const hS = Math.min(1.15, room / 4), wS = hS * 4; const tc = (k + 0.5) / signs; const dt = (wS / 2) / s.len;
       const qa = along(s, tc - dt), qb = along(s, tc + dt); const ys0 = y0 + GROUND_H - 0.5, ys1 = ys0 + hS; const o = 0.14; const uv = signUV(idx);
       multi.get('signs').quad([qa[0] + s.n[0] * o, ys0, qa[1] + s.n[1] * o], [qb[0] + s.n[0] * o, ys0, qb[1] + s.n[1] * o], [qb[0] + s.n[0] * o, ys1, qb[1] + s.n[1] * o], [qa[0] + s.n[0] * o, ys1, qa[1] + s.n[1] * o], uv);
       conc.box((qa[0] + qb[0]) / 2 + s.n[0] * 0.07, (ys0 + ys1) / 2, (qa[1] + qb[1]) / 2 + s.n[1] * 0.07, wS + 0.12, hS + 0.12, 0.12, { col: [0.2, 0.2, 0.2], rotY: r });
-      b.signIdx = b.signIdx ?? idx;
+      b.signIdx = b.signIdx ?? idx; (b._signSpans ||= []).push([(tc - dt) * s.len - 0.1, (tc + dt) * s.len + 0.1]);
     }
     // projecting vertical sign on some market buildings
     if (b.district === 'pettah' && b.signIdx != null && rng.chance(0.12) && b.floors >= 2) { // blade sign repeats the same business
-      const p = along(s, rng.chance(0.5) ? 0.08 : 0.92); const uv = signUV(b.signIdx); const yb = y0 + GROUND_H + 0.6, yt = yb + 0.65; // 2.6 m × 0.65 m = the atlas' 4:1
+      const edge = Math.min(0.5, 0.12 / s.len), p = along(s, rng.chance(0.5) ? edge : 1 - edge); const uv = signUV(b.signIdx); /* on the pier at the building edge: clear of every window reveal and balcony */ const yb = y0 + GROUND_H + 0.6, yt = yb + 0.65; // 2.6 m × 0.65 m = the atlas' 4:1
       const tx = -s.n[1], tz = s.n[0]; // tangent direction
       const ox = p[0] + s.n[0] * 0.15, oz = p[1] + s.n[1] * 0.15;
       // two faces (each reads correctly from its own side) around a thin dark frame, plus a wall bracket
@@ -216,6 +231,7 @@ export function buildDetail(b, multi) {
     const startF = b.groundRow != null ? 1 : 1;
     for (let f = startF; f < b.floors; f++) for (let k = 0; k < bays; k++) {
       if ((k + f) % 2 && !rng.chance(0.3)) continue;
+      if (f === startF && b._signSpans) { const c0 = (k + 0.5) / bays * s.len, hw = Math.min(BAY * 0.9, s.len / bays - 0.3) / 2; if (b._signSpans.some(([a1, b1]) => c0 + hw > a1 && c0 - hw < b1)) continue; } // no balcony slab through the shop sign below it
       const p = along(s, (k + 0.5) / bays); const yb = y0 + (b.groundRow != null ? GROUND_H : 0) + (f - (b.groundRow != null ? 1 : 0)) * FLOOR_H + 0.05;
       if (yb > yTop - 1) continue;
       const w = Math.min(BAY * 0.9, s.len / bays - 0.3), d = 0.95;
@@ -290,7 +306,7 @@ export function buildDetail(b, multi) {
   if (b.porch) {
     const s = front; const mid = along(s, 0.5); const r = rotOf(s);
     conc.box(mid[0] + s.n[0] * 1.4, y0 + 2.9, mid[1] + s.n[1] * 1.4, 4.2, 0.2, 2.8, { col: paint, rotY: r, bottom: true });
-    for (const t of [0.5 - 1.9 / s.len, 0.5 + 1.9 / s.len]) { const p = along(s, t); conc.cylinder(p[0] + s.n[0] * 2.6, y0, p[1] + s.n[1] * 2.6, 0.16, 0.16, 2.8, 8, { col: paint, caps: false }); }
+    for (const [px, pz] of porchPillars(b)) conc.cylinder(px, y0, pz, 0.16, 0.16, 2.8, 8, { col: paint, caps: false }); // solid: World registers porchPillars() as colliders
     conc.box(mid[0] + s.n[0] * 1.4, y0 + 0.1, mid[1] + s.n[1] * 1.4, 4.4, 0.2, 3, { col: [0.75, 0.7, 0.65], rotY: r });
   }
   // house lights at night (most Colombo homes leave the front light on): a ceiling bulb under the porch, or a bracket lamp

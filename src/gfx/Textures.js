@@ -467,6 +467,7 @@ export const SIGNS = [
   { en: 'Vasantham Cafe', si: 'තේ කඩේ', ta: 'தேநீர்க் கடை', bg: '#0e6251', fg: '#fdfefe', kind: 'cafe' },
   { en: 'Ceylon Threads', si: 'රෙදි සාප්පුව', ta: 'ஜவுளி', bg: '#17202a', fg: '#e5be72', kind: 'textile', mission: 'tailor' },
   { en: 'Lanka Auto Care', si: 'ගරාජය', ta: 'கராஜ்', bg: '#1c2833', fg: '#f39c12', kind: 'shutter', mission: 'garage' },
+  { en: 'Ceylon Arms Co.', si: 'ගිනි අවි', ta: 'துப்பாக்கிக் கடை', bg: '#141414', fg: '#d9b25a', kind: 'shutter', mission: 'gunshop' },
 ];
 function signAtlas(cw = 512) {
   const ch = cw / 4, W = cw * SIGN_COLS, H = ch * SIGN_ROWS;
@@ -483,7 +484,7 @@ function signAtlas(cw = 512) {
     a.fillStyle = s.fg; a.textAlign = 'center'; a.textBaseline = 'middle';
     a.font = `700 ${Math.floor(ch * 0.36)}px "Barlow Condensed", "Manrope", sans-serif`;
     a.fillText(s.en.toUpperCase(), x + cw / 2, y + ch * 0.36, cw * 0.92);
-    a.font = `600 ${Math.floor(ch * 0.2)}px "Noto Sans Sinhala", sans-serif`;
+    a.font = `600 ${Math.floor(ch * 0.2)}px "Noto Sans Sinhala", "Noto Sans Tamil", sans-serif`;
     a.fillText(s.si, x + cw * 0.3, y + ch * 0.74, cw * 0.42);
     a.font = `600 ${Math.floor(ch * 0.17)}px "Noto Sans Tamil", sans-serif`;
     a.fillText(s.ta, x + cw * 0.72, y + ch * 0.74, cw * 0.42);

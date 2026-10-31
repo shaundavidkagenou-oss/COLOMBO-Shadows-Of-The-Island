@@ -18,6 +18,7 @@ import { makeAppearance } from './Appearance.js';
 import { Input } from '../core/Input.js';
 import { clamp } from '../core/math.js';
 import { SCHOOL } from '../world/JohnsSchool.js';
+import { Settings } from '../core/Settings.js';
 
 const NAME = 'Watchman';
 const W = SCHOOL.wall, G = SCHOOL.gate, WK = SCHOOL.wicket;
@@ -39,7 +40,8 @@ export class SchoolGuard {
     this.life = life; this.g = life.g; this.ch = null; this.mode = 'off'; this.night = null; this.strikes = 0; this.permit = false; this.wasInside = false;
     this.calledOut = false; this.leaveT = -1; this.snoreT = 0; this.awakeNight = null; this.t = 0; this.wp = 0; this.pause = 0; this.aim = new THREE.Vector3(0, 0, 1); this.log = [];
     // the torch: created once at load (adding a light later would recompile every material) and kept dark by day
-    const L = (this.light = new THREE.SpotLight(0xfff0d6, 0, 26, 0.3, 0.55, 1.5)); L.castShadow = false; this.g.scene.add(L); this.g.scene.add(L.target);
+    const L = (this.light = new THREE.SpotLight(0xfff0d6, 0, 26, 0.3, 0.55, 1.5)); L.castShadow = !!Settings.preset.shadows; if (L.castShadow) { L.shadow.mapSize.set(512, 512); L.shadow.autoUpdate = false; L.shadow.needsUpdate = true; /* allocate the map once (see HeadlightRig) */ L.shadow.camera.near = 0.2; L.shadow.camera.far = 26; L.shadow.bias = -0.0006; L.shadow.normalBias = 0.03; L.shadow.autoUpdate = false; } // the beam stops at walls (it used to light the classrooms through them)
+    this.g.scene.add(L); this.g.scene.add(L.target);
     const body = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.019, 0.2, 10).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x1d1f22, roughness: 0.45, metalness: 0.6 }));
     const lens = new THREE.Mesh(new THREE.CircleGeometry(0.02, 14), new THREE.MeshBasicMaterial({ color: 0xfff4dc })); lens.position.z = 0.101; body.add(lens); this.lens = lens;
     // faint volumetric beam: additive cone, bright at the lens, fading along its length and towards its silhouette
@@ -129,7 +131,7 @@ export class SchoolGuard {
   sees(P) { const dx = P.x - this.x, dz = P.z - this.z, d = Math.hypot(dx, dz); if (d > 16) return false; if (d > 3.2) { const f = this.aim; const c = (dx * f.x + dz * f.z) / (d * Math.hypot(f.x, f.z) || 1); if (c < Math.cos(0.5)) return false; }
     const col = this.g.collision; return !col?.raycast || col.raycast(this.x, 1.5, this.z, P.x, 1.5, P.z, 0.1) >= 0.98; }
   torchUpdate(P) {
-    const on = !!this.ch && this.mode !== 'sleep' && this.g.atmos.night > 0.25 && !this.g.indoor; this.torch.visible = on; this.light.intensity = on ? 60 : 0; if (!on) return;
+    const on = !!this.ch && this.mode !== 'sleep' && this.g.atmos.night > 0.25 && !this.g.indoor; this.torch.visible = on; this.light.intensity = on ? 60 : 0; this.light.shadow.autoUpdate = on && this.light.castShadow; if (!on) return;
     const b = this.ch.bones; const hp = b.handR.getWorldPosition(new THREE.Vector3()); const fwd = new THREE.Vector3(Math.sin(this.yaw), 0, Math.cos(this.yaw));
     let tgt; const facing = this.mode === 'post' || this.mode === 'confront' || this.mode === 'talk';
     if (facing) tgt = new THREE.Vector3(P.x, (P.y || 0) + (this.mode === 'talk' ? 0.45 : 1.05), P.z);

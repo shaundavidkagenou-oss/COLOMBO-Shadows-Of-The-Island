@@ -6,7 +6,11 @@ import { updateMaterials } from './Materials.js';
 import { waterUniforms } from '../world/Water.js';
 import { RNG } from '../core/rng.js';
 
-const cloudVert = `varying vec3 vDir; void main(){ vDir = normalize((modelMatrix * vec4(position,1.0)).xyz - cameraPosition); vec4 p = projectionMatrix * viewMatrix * modelMatrix * vec4(position,1.0); gl_Position = p.xyww; }`;
+const cloudVert = `varying vec3 vDir; void main(){ vDir = normalize((modelMatrix * vec4(position,1.0)).xyz - cameraPosition); vec4 p = projectionMatrix * viewMatrix * modelMatrix * vec4(position,1.0); gl_Position = p.xyww;
+#ifdef USE_REVERSED_DEPTH_BUFFER
+ gl_Position.z = 0.0;
+#endif
+ }`; // on the far plane (reversed-Z: far = 0)
 const cloudFrag = `
   uniform float uTime, uCover, uDark, uNight; uniform vec3 uSunDir, uSunCol, uSkyCol;
   varying vec3 vDir;
@@ -48,17 +52,53 @@ export class Atmosphere {
     this.weatherTimer = 240; this.drawDist = 1400; this.rng = new RNG(99);
     // sky
     this.sky = new Sky(); this.sky.scale.setScalar(18000); scene.add(this.sky);
-    { const m = this.sky.material; m.uniforms.uSkyGain = { value: 1 }; m.fragmentShader = 'uniform float uSkyGain;\n' + m.fragmentShader.replace('gl_FragColor = vec4( texColor, 1.0 );', 'gl_FragColor = vec4( texColor * uSkyGain, 1.0 );'); m.needsUpdate = true; } // midday Preetham sky is far hotter than the city it lights: scale it so the horizon isn't a white wall
+    { const m = this.sky.material; m.uniforms.uSkyGain = { value: 1 }; m.vertexShader = m.vertexShader.replace('gl_Position.z = gl_Position.w; // set z to camera.far', '#ifdef USE_REVERSED_DEPTH_BUFFER\n gl_Position.z = 0.0;\n#else\n gl_Position.z = gl_Position.w;\n#endif'); m.fragmentShader = 'uniform float uSkyGain;\n' + m.fragmentShader.replace('gl_FragColor = vec4( texColor, 1.0 );', 'gl_FragColor = vec4( texColor * uSkyGain, 1.0 );'); m.needsUpdate = true; } // midday Preetham sky is far hotter than the city it lights: scale it so the horizon isn't a white wall
     const u = this.sky.material.uniforms; u.turbidity.value = 6; u.rayleigh.value = 1.6; u.mieCoefficient.value = 0.004; u.mieDirectionalG.value = 0.82;
     // clouds
     this.cloudMat = new THREE.ShaderMaterial({ uniforms: { uTime: { value: 0 }, uCover: { value: 0.3 }, uDark: { value: 0 }, uNight: { value: 0 }, uSunDir: { value: new THREE.Vector3() }, uSunCol: { value: new THREE.Color() }, uSkyCol: { value: new THREE.Color() } }, vertexShader: cloudVert, fragmentShader: cloudFrag, transparent: true, depthWrite: false, side: THREE.BackSide });
     this.clouds = new THREE.Mesh(new THREE.SphereGeometry(9000, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2), this.cloudMat); this.clouds.renderOrder = -1; this.clouds.frustumCulled = false; scene.add(this.clouds);
     // stars
-    const sp = []; const r = new RNG(5); for (let i = 0; i < 2500; i++) { const a = r.next() * Math.PI * 2, b = Math.acos(r.next() * 0.95); sp.push(Math.sin(b) * Math.cos(a) * 9500, Math.cos(b) * 9500, Math.sin(b) * Math.sin(a) * 9500); }
-    const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
-    this.starMat = new THREE.PointsMaterial({ size: 1.6, sizeAttenuation: false, color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, fog: false });
-    this.stars = new THREE.Points(sg, this.starMat); this.stars.frustumCulled = false; scene.add(this.stars);
-    this.moon = new THREE.Mesh(new THREE.CircleGeometry(160, 32), new THREE.MeshBasicMaterial({ color: 0xf4f1e6, transparent: true, opacity: 0, fog: false, depthWrite: false })); scene.add(this.moon);
+    // A full celestial sphere: magnitudes follow the real star-count law (many faint, few bright), colours from blue-white to
+    // orange by temperature, a faint Milky Way band, soft round point profiles, horizon extinction + city light pollution
+    // (Colombo washes out the faint stars low in the sky), scintillation that is stronger near the horizon. The sphere turns
+    // about the celestial pole (Colombo, 6.9° N: ~7° above the northern horizon, game north = −z) as the night goes on.
+    const r = new RNG(5); for (let i = 0; i < 5000; i++) r.next(); // the rain seeds below keep their original sequence (the old star loop drew 5000)
+    { const r = new RNG(1205), N = 7000, P = new Float32Array(N * 3), Bf = new Float32Array(N), Cf = new Float32Array(N * 3), Sd = new Float32Array(N);
+      const gp = new THREE.Vector3(0.38, 0.62, -0.69).normalize(), ga = new THREE.Vector3().crossVectors(gp, new THREE.Vector3(1, 0, 0)).normalize(), gb = new THREE.Vector3().crossVectors(gp, ga); // galactic plane basis
+      const v = new THREE.Vector3(), gauss = () => { let t = 0; for (let k = 0; k < 4; k++) t += r.next(); return (t - 2) / 0.577; };
+      for (let i = 0; i < N; i++) {
+        const mw = i < N * 0.3; // Milky Way share: faint stars hugging the galactic plane
+        if (mw) { const a = r.next() * Math.PI * 2, lat = gauss() * 0.11; v.copy(ga).multiplyScalar(Math.cos(a) * Math.cos(lat)).addScaledVector(gb, Math.sin(a) * Math.cos(lat)).addScaledVector(gp, Math.sin(lat)); }
+        else { const z = r.next() * 2 - 1, a = r.next() * Math.PI * 2, q = Math.sqrt(1 - z * z); v.set(q * Math.cos(a), z, q * Math.sin(a)); }
+        v.normalize().multiplyScalar(9500); P.set([v.x, v.y, v.z], i * 3);
+        const m = Math.max(-1.4, 6.6 + Math.log10(r.next() * 0.9999 + 1e-4) / 0.5) + (mw ? 0.8 : 0); // N(<m) ∝ 10^(0.5 m)
+        Bf[i] = Math.min(3.2, Math.pow(10, -0.4 * (m - 5.6)) * 0.09); // relative flux (magnitude 5.6 ≈ the faintest visible in the city)
+        const bv = Math.min(1.8, Math.max(-0.3, 0.55 + gauss() * 0.42)); // colour index B−V
+        const c = bv < 0.3 ? [lerp(0.66, 1, (bv + 0.3) / 0.6), lerp(0.78, 1, (bv + 0.3) / 0.6), 1] : bv < 0.9 ? [1, lerp(1, 0.9, (bv - 0.3) / 0.6), lerp(1, 0.74, (bv - 0.3) / 0.6)] : [1, lerp(0.9, 0.72, (bv - 0.9) / 0.9), lerp(0.74, 0.46, (bv - 0.9) / 0.9)];
+        Cf.set(c, i * 3); Sd[i] = r.next();
+      }
+      const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.BufferAttribute(P, 3)); sg.setAttribute('aFlux', new THREE.BufferAttribute(Bf, 1)); sg.setAttribute('aCol', new THREE.BufferAttribute(Cf, 3)); sg.setAttribute('aSeed', new THREE.BufferAttribute(Sd, 1));
+      this.starMat = new THREE.ShaderMaterial({ uniforms: { uOpacity: { value: 0 }, uTime: { value: 0 }, uPix: { value: 1 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+        vertexShader: `attribute float aFlux; attribute vec3 aCol; attribute float aSeed; uniform float uOpacity, uTime, uPix; varying vec3 vC; varying float vCore;
+          void main() { vec4 wp = modelMatrix * vec4(position, 1.0); vec3 d = normalize(wp.xyz - cameraPosition); float el = d.y;
+            float ext = smoothstep(-0.01, 0.12 + 0.45 / (1.0 + aFlux * 6.0), el); // extinction + light pollution: faint stars vanish low down
+            float tw = 1.0 + (0.18 + 0.5 * (1.0 - smoothstep(0.05, 0.7, el))) * sin(uTime * (7.0 + aSeed * 9.0) + aSeed * 61.0) * sin(uTime * (2.3 + aSeed * 3.0) + aSeed * 17.0);
+            float b = aFlux * ext * tw * uOpacity; vC = aCol * b; vCore = clamp(aFlux, 0.0, 1.0);
+            gl_PointSize = (1.6 + 2.4 * sqrt(clamp(aFlux, 0.0, 3.2))) * uPix; gl_Position = projectionMatrix * viewMatrix * wp; if (b < 0.004) gl_Position = vec4(2.0, 2.0, 2.0, 1.0); }`,
+        fragmentShader: `varying vec3 vC; varying float vCore; void main() { vec2 q = gl_PointCoord - 0.5; float r2 = dot(q, q) * 4.0; if (r2 > 1.0) discard;
+            float a = exp(-r2 * 5.5) + 0.12 * vCore * exp(-r2 * 1.6); gl_FragColor = vec4(vC * a, 1.0); }` });
+      this.stars = new THREE.Points(sg, this.starMat); this.stars.frustumCulled = false; this.stars.renderOrder = -2; scene.add(this.stars);
+      this.starPole = new THREE.Vector3(0, Math.sin(6.93 * Math.PI / 180), -Math.cos(6.93 * Math.PI / 180)); }
+    // moon: shaded disc (maria, craters, limb darkening) + a soft halo
+    { const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d'); const rr = new RNG(31);
+      const grd = g.createRadialGradient(118, 116, 10, 128, 128, 124); grd.addColorStop(0, '#fbf8ee'); grd.addColorStop(0.8, '#e9e4d6'); grd.addColorStop(1, '#bdb6a4'); g.fillStyle = grd; g.beginPath(); g.arc(128, 128, 124, 0, Math.PI * 2); g.fill();
+      g.save(); g.beginPath(); g.arc(128, 128, 124, 0, Math.PI * 2); g.clip();
+      for (const [x, y, rx, ry, a] of [[96, 92, 34, 26, 0.2], [140, 78, 26, 20, 0.17], [150, 120, 30, 24, 0.19], [104, 140, 22, 30, 0.15], [170, 150, 18, 14, 0.13], [74, 118, 16, 22, 0.12]]) { g.fillStyle = `rgba(110,106,96,${a})`; g.beginPath(); g.ellipse(x, y, rx, ry, rr.next() * 3, 0, Math.PI * 2); g.fill(); } // maria
+      for (let k = 0; k < 40; k++) { const x = 20 + rr.next() * 216, y = 20 + rr.next() * 216, cr = 2 + rr.next() * 6; g.strokeStyle = 'rgba(255,255,250,0.18)'; g.lineWidth = 1; g.beginPath(); g.arc(x, y, cr, 0, Math.PI * 2); g.stroke(); g.fillStyle = 'rgba(90,86,78,0.1)'; g.beginPath(); g.arc(x + 0.8, y + 0.8, cr * 0.8, 0, Math.PI * 2); g.fill(); }
+      g.restore(); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+      this.moon = new THREE.Mesh(new THREE.CircleGeometry(150, 48), new THREE.MeshBasicMaterial({ map: t, transparent: true, opacity: 0, fog: false, depthWrite: false })); this.moon.renderOrder = -1; scene.add(this.moon);
+      const hc = document.createElement('canvas'); hc.width = hc.height = 128; const hg = hc.getContext('2d'); const hgr = hg.createRadialGradient(64, 64, 14, 64, 64, 64); hgr.addColorStop(0, 'rgba(255,250,235,0.55)'); hgr.addColorStop(0.35, 'rgba(220,226,240,0.16)'); hgr.addColorStop(1, 'rgba(200,210,235,0)'); hg.fillStyle = hgr; hg.fillRect(0, 0, 128, 128);
+      const ht = new THREE.CanvasTexture(hc); ht.colorSpace = THREE.SRGBColorSpace; this.moonHalo = new THREE.Mesh(new THREE.PlaneGeometry(1300, 1300), new THREE.MeshBasicMaterial({ map: ht, transparent: true, opacity: 0, fog: false, depthWrite: false, blending: THREE.AdditiveBlending })); this.moonHalo.renderOrder = -1; scene.add(this.moonHalo); }
     // lights
     this.sun = new THREE.DirectionalLight(0xffffff, 3); this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048); const sc = this.sun.shadow.camera; sc.left = -80; sc.right = 80; sc.top = 80; sc.bottom = -80; sc.near = 1; sc.far = 600;
@@ -71,6 +111,10 @@ export class Atmosphere {
     const envSky = new Sky(); envSky.material = this.sky.material; envSky.scale.setScalar(80); this.envScene.add(envSky);
     const envClouds = new THREE.Mesh(new THREE.SphereGeometry(60, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), this.cloudMat); this.envScene.add(envClouds);
     this.envGround = new THREE.Mesh(new THREE.CircleGeometry(80, 16).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x2c2a26 })); this.envGround.position.y = -2; this.envScene.add(this.envGround);
+    // surroundings band (buildings, tree line) up to ~9° above the horizon: grazing reflections — the silhouette edges of fence
+    // bars, dark clothing, car flanks, where Fresnel reflectance goes to ~100 % — pick up a muted city tone instead of bright
+    // cyan horizon haze (which rendered as 1-px cyan fringes on every dark edge in daylight)
+    this.envSkyline = new THREE.Mesh(new THREE.CylinderGeometry(60, 60, 11.5, 48, 1, true), new THREE.MeshBasicMaterial({ color: 0x4a4c46, side: THREE.BackSide })); this.envSkyline.position.y = 3.6; this.envScene.add(this.envSkyline);
     this.envTimer = 0; this.envRT = null; this.lastEnvHour = -99;
     // rain streaks
     this.rainCount = 7000; const rg = new THREE.BufferGeometry(); const rp = new Float32Array(this.rainCount * 6); this.rainSeeds = new Float32Array(this.rainCount * 3);
@@ -142,9 +186,11 @@ export class Atmosphere {
     const cu = this.cloudMat.uniforms; cu.uTime.value += dt * (0.5 + this.w.wind); cu.uCover.value = this.w.cloud; cu.uDark.value = this.w.dark; cu.uNight.value = this.night;
     cu.uSunDir.value.copy(elev > -0.1 ? this.sunDir : new THREE.Vector3(0, 1, 0)); cu.uSunCol.value.copy(sunCol); cu.uSkyCol.value.copy(horizon);
     this.clouds.position.copy(camera.position); this.stars.position.copy(camera.position);
-    this.starMat.opacity = this.night * (1 - this.w.cloud) * 0.9;
+    { const su = this.starMat.uniforms; su.uOpacity.value = this.night * Math.pow(1 - this.w.cloud, 1.5) * (1 - this.w.dark * 0.8); su.uTime.value += dt; su.uPix.value = this.renderer.getPixelRatio ? this.renderer.getPixelRatio() : 1;
+      this.stars.quaternion.setFromAxisAngle(this.starPole, -((this.day || 0) * 0.0172 + this.hour / 24) * Math.PI * 2); } // sidereal turn through the night
     const moonDir = new THREE.Vector3(-this.sunDir.x, Math.max(0.25, -this.sunDir.y), -0.3).normalize();
     this.moon.position.copy(camera.position).addScaledVector(moonDir, 9000); this.moon.lookAt(camera.position); this.moon.material.opacity = this.night * (1 - this.w.cloud * 0.8);
+    this.moonHalo.position.copy(camera.position).addScaledVector(moonDir, 9010); this.moonHalo.lookAt(camera.position); this.moonHalo.material.opacity = this.night * (1 - this.w.cloud * 0.6) * 0.7;
     this.sky.visible = true;
     // lightning
     if (this.w.rain > 0.85 && Math.random() < dt * 0.06) { this.flash = 1; this.listeners.thunder && this.listeners.thunder(); }
@@ -161,6 +207,7 @@ export class Atmosphere {
     if (this.envTimer <= 0 || Math.abs(this.hour - this.lastEnvHour) > 0.4) {
       this.envTimer = 12; this.lastEnvHour = this.hour;
       this.envGround.material.color.setRGB(0.25, 0.23, 0.2).multiplyScalar(1 - this.night * 0.8);
+      this.envSkyline.material.color.setRGB(0.3, 0.31, 0.28).multiplyScalar((1 - this.night * 0.85) * (1 - this.w.dark * 0.35));
       const prevFog = this.scene.fog; const old = this.envRT;
       this.envRT = this.pmrem.fromScene(this.envScene, 0.02, 0.1, 200);
       this.scene.environment = this.envRT.texture; this.envBase = this.scene.environmentIntensity = 0.62 * (1 - this.night * 0.7) * (1 - this.w.dark * 0.3); // sky PMREM is HDR: full strength washed every facade

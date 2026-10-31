@@ -20,7 +20,7 @@ import { clamp, lerp, damp } from '../core/math.js';
 import { solveArmIK } from './Character.js';
 
 const _e = new THREE.Euler(), _q = new THREE.Quaternion(), _qh = new THREE.Quaternion(), _qt = new THREE.Quaternion(), _qs = new THREE.Quaternion(), _qw = new THREE.Quaternion();
-const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _k = new THREE.Vector3();
+const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _k = new THREE.Vector3(), _fo = new THREE.Vector3();
 
 // Pure leg solver (exported for the unit test). Inputs in root space: hip joint H, ankle target F, link lengths a, b.
 // Returns { gamma (splay about +z), theta (forward swing of the thigh from straight down), knee (flexion) }.
@@ -57,13 +57,23 @@ export function applySeatPose(A, dt) {
 function fitSeat(A) {
   const S = A.seatL; const b = A.ch.bones; const bl = Object.values(b); const s = A.s;
   bl.forEach((x, i) => { (_saveQ[i] ||= new THREE.Quaternion()).copy(x.quaternion); }); _saveP.copy(b.hips.position);
-  A.fitLean = S.lean ?? -0.12; A.fitSink = 0; A.seatFitFor = S; const lim = S.kind === 'ride' ? 0.5 : 0.75;
-  for (let it = 0; it < 14; it++) {
-    poseSeat(A, 0, 1, true); A.ch.root.updateWorldMatrix(true, true);
+  // The roof is sampled where the HEAD ends up, not above the hips: under a sloping (fastback / hatch) roof a deeper
+  // recline moves the head back under LOWER roof, so recline angles are searched on both sides of the seat's natural
+  // lean (closest first) and the first that clears wins; failing that, a little cushion sink, then the best margin.
+  const lean0 = S.lean ?? -0.12; A.seatFitFor = S; const lim = S.kind === 'ride' ? 0.5 : 0.75; const k = S.roofSlope || 0;
+  const leans = [lean0]; for (let d = 0.06; d < 0.8; d += 0.06) { const back = lean0 > 0.02 ? lean0 + d : lean0 - d, up = lean0 > 0.02 ? lean0 - d : lean0 + d; if (Math.abs(back) <= lim) leans.push(back); if (k > 0.02 && d <= 0.2 && (lean0 > 0.02 ? up >= 0.02 : up <= -0.04)) leans.push(up); }
+  // a tall passenger under a low roof slouches: hips slide forward on the cushion as the back reclines, so the head drops
+  // without moving back under the falling roof line (drivers only a little — knees must stay clear of the wheel)
+  const slides = S.kind === 'ride' ? [0] : S.driver ? [0, 0.04] : [0, 0.04, 0.08, 0.12];
+  let best = null;
+  outer: for (const sink of [0, 0.015, 0.03]) for (const slide of slides) for (const lean of leans) {
+    A.fitLean = lean; A.fitSink = sink; A.fitSlide = slide; poseSeat(A, 0, 1, true); A.ch.root.updateWorldMatrix(true, true);
     _v.setFromMatrixPosition(b.head.matrixWorld); A.ch.root.worldToLocal(_v); const crown = _v.y + 0.2 * s + 0.02;
-    A.fitCrown = crown; if (crown <= S.roofRel - 0.03) break;
-    if (Math.abs(A.fitLean) < lim) A.fitLean += A.fitLean > 0.02 ? 0.06 : -0.06; else if (A.fitSink < 0.045) A.fitSink += 0.015; else break;
+    const margin = S.roofRel + k * _v.z - 0.03 - crown; // roof height over the crown's own z
+    if (!best || margin > best.margin + 0.004) best = { lean, sink, slide, margin, crown };
+    if (margin >= 0) { best = { lean, sink, slide, margin, crown }; break outer; }
   }
+  A.fitLean = best.lean; A.fitSink = best.sink; A.fitSlide = best.slide; A.fitCrown = best.crown;
   bl.forEach((x, i) => x.quaternion.copy(_saveQ[i])); b.hips.position.copy(_saveP);
 }
 function poseSeat(A, dt, w, fitting = false) {
@@ -74,7 +84,7 @@ function poseSeat(A, dt, w, fitting = false) {
   const hipUp = thighR - b.thighL.position.y - 0.012 - (A.fitSink || 0);
   const lean = A.fitLean ?? S.lean ?? -0.12; A.seatLean = lean;
   const bounce = S.kind === 'ride' || fitting ? 0 : Math.sin(A.t * 13.0 + A.seed * 9) * 0.004 * clamp(A.vehSpeed / 10, 0, 1);
-  const hipZ = S.hipZ ?? -0.03;
+  const hipZ = (S.hipZ ?? -0.03) + (A.fitSlide || 0);
   b.hips.position.set(lerp(b.hips.position.x, 0, w), lerp(b.hips.position.y, hipUp + bounce, w), lerp(b.hips.position.z, hipZ, w));
   _e.set(lean + (A.brakeLean || 0), 0, A.cornerLean || 0, 'XYZ'); _qh.setFromEuler(_e); b.hips.quaternion.slerp(_qh, w);
   if (!fitting) { // ---- look-around: drivers watch the road with mirror / shoulder checks, passengers look about or out of the window
@@ -100,6 +110,7 @@ function poseSeat(A, dt, w, fitting = false) {
     _v.copy(tb.position).applyQuaternion(_qh).add(_w.set(0, hipUp, hipZ)); // hip joint, root space
     const F = _k.set(sx * (S.fx ?? 0.13), S.floorRel + ankle, S.fz ?? 0.55);
     if (S.footStagger && sd === 'R') F.z += S.footStagger;
+    const fo = sd === 'L' ? A.footOverL : null; if (fo && fo.w > 0) F.lerp(_fo.set(fo.x, fo.y + ankle, fo.z), Math.min(1, fo.w)); // kickstand: the left boot on the stand's tang
     const L = solveLeg(_v, F, a, bl);
     _e.set(-L.theta, 0, L.gamma, 'ZXY'); _qw.setFromEuler(_e); // world (root-space) thigh orientation
     _qt.copy(_qh).invert().multiply(_qw); tb.quaternion.slerp(_qt, w); // local = hips⁻¹ · world
@@ -129,6 +140,30 @@ function poseSeat(A, dt, w, fitting = false) {
   solveArmIK(b, 'L', tL, null, w); solveArmIK(b, 'R', tR, null, w);
   const grip = S.hands === 'wheel' || S.hands === 'bars';
   R('handL', grip ? 0.25 : 0.1, 0, grip ? -0.3 : 0.15); R('handR', grip ? 0.25 : 0.1, 0, grip ? 0.3 : -0.15);
+}
+
+// Getting out of a seat (and, run backwards, getting in) in two phases so nobody passes through the bodywork or the roof:
+// a) still seated, slide across the cushion to the door sill at seat height (turning towards the opening);
+// b) step out through the opening to the exit spot while standing up. Ride seats (bikes) are a single sweep.
+// Returns vehicle-local root position, the seated-pose weight and the two phase parameters.
+export function doorPath(seat, ex, k, hw) {
+  const sm = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+  if (seat.ride || seat.kind === 'ride') { const s = sm(k); return { x: lerp(seat.x, ex[0], s), y: lerp(seat.y, 0, Math.min(1, s * 1.3)), z: lerp(seat.z, ex[1], s), sitW: 1 - s, a: s, b: s }; }
+  const side = Math.sign(ex[0] - seat.x) || 1; const sill = Math.abs(seat.x) < hw - 0.14 ? side * (hw - 0.14) : seat.x;
+  const a = sm(k / 0.4), b = sm((k - 0.4) / 0.6), hb = sm((k - 0.4) / 0.32), st = sm((k - 0.62) / 0.38); // out through the opening first, stand up once clear of it
+  return { x: lerp(lerp(seat.x, sill, a), ex[0], hb), y: lerp(seat.y, 0, st), z: lerp(seat.z, ex[1], hb), sitW: 1 - st, a, b };
+}
+
+// Getting into a seat through a side door / opening. u: 0 = standing at ex (outside the vehicle) → 1 = seated. A short step
+// toward the opening first, then the hips travel to the sill WHILE the body lowers (never seated in mid-air outside the
+// vehicle), ducking under the roof rail at the opening, then a slide across onto the cushion while turning to face forward.
+// Getting out plays it backwards (u = 1 → 0). turn: 0 = still facing the opening, 1 = facing forward. duck: 0..1 head dip.
+export function seatPath(seat, ex, u, hw) {
+  const sm = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+  if (seat.ride || seat.kind === 'ride') { const d = doorPath(seat, ex, 1 - u, hw); return { x: d.x, y: d.y, z: d.z, sitW: d.sitW, turn: sm(u), duck: 0 }; }
+  const side = Math.sign(ex[0] - seat.x) || 1; const sill = Math.abs(seat.x) < hw - 0.14 ? side * (hw - 0.14) : seat.x;
+  const a = sm(u / 0.55), b = sm((u - 0.5) / 0.5); const sitW = 0.8 * sm((u - 0.12) / 0.48) + 0.2 * b;
+  return { x: lerp(lerp(ex[0], sill, a), seat.x, b), y: seat.y * sitW, z: lerp(ex[1], seat.z, a), sitW, turn: b, duck: sm((u - 0.15) / 0.3) * (1 - b) };
 }
 
 // Put a character into a seat of a vehicle mesh (parented, so it follows the vehicle with no per-frame snapping).

@@ -16,7 +16,13 @@ import { SchoolGuard, isNight, inCompound } from './SchoolGuard.js';
 const CX = 294, CZ = 358, NEAR = 230, FAR = 290;
 const hm = (h, m) => h + m / 60;
 export const DISMISSAL = hm(13, 30);
-const GATE_OPEN = [hm(12, 44), hm(14, 12)], STAFF = [7, 15.5], AT_GATE = [hm(13, 20), hm(14, 8)];
+const GATE_OPEN = [[hm(7, 0), hm(7, 58)], [hm(12, 44), hm(14, 12)]], STAFF = [7, 15.5], AT_GATE = [[hm(7, 12), hm(7, 50)], [hm(13, 20), hm(14, 8)]];
+const inWin = (h, W) => W.some(([a, b]) => h >= a && h < b);
+// the school run: parents' cars pull up at the Horton Place kerb (westbound kerb lane, either side of the gate) around the
+// 7:30 drop-off and the 1:30 pick-up, wait with the driver at the wheel, then pull out — the kerb lane narrows and traffic queues
+export const SCHOOL_RUN = [[hm(7, 8), hm(7, 52)], [hm(13, 12), hm(13, 58)]];
+const KERB = [244, 248.8, 253.6, 258.4, 280.6, 285.4, 290.2, 295], KERB_Z = 326.35, LANE_Z = 325.1;
+const PARENT_CARS = ['ezra', 'pixa', 'ventra', 'mizu', 'tora', 'solace']; // typical school-run cars (catalogue models, all ≤ 4.6 m for the 4.8 m kerb bays)
 const SPINE = 268.9; // walking line inside the compound (gate path), clear of columns
 let signMat = null;
 function schoolSign() { if (signMat) return signMat; const c = document.createElement('canvas'); c.width = 512; c.height = 96; const x = c.getContext('2d');
@@ -33,16 +39,19 @@ export class SchoolLife {
     if (!this.active && d < NEAR) this.spawn(); else if (this.active && d > FAR && !this.vans.some((v) => v.drive)) this.despawn();
     if (this.lastHour != null && this.lastHour < DISMISSAL && h >= DISMISSAL && h < DISMISSAL + 0.5 && d < 170) g.hud.notify(SCHOOL.name, '1:30 pm — school is over. Teachers see everyone off at the gate; parents and school vans gather on Horton Place.', 'info', 5);
     if (this.lastHour != null && h < this.lastHour - 12) this.done.clear(); // new day
+    if (this.lastHour != null && this.lastHour < hm(7, 25) && h >= hm(7, 25) && h < hm(7, 50) && d < 170) g.hud.notify(SCHOOL.name, '7:30 am — the school run: the gates are open, staff greet arrivals and parents\' cars and school vans crowd the Horton Place kerb.', 'info', 5);
     this.lastHour = h;
     // gates
-    const want = (h >= GATE_OPEN[0] && h < GATE_OPEN[1]) || this.vans.some((v) => v.drive) ? 1 : 0;
+    const want = inWin(h, GATE_OPEN) || this.vanDriving() ? 1 : 0;
     this.gate = clamp(this.gate + Math.sign(want - this.gate) * dt / 2.4, 0, 1); const e = (1 - Math.cos(this.gate * Math.PI)) / 2;
     const an = g.world?.landmarks?.anim || {}; if (an.schoolGate) { an.schoolGate[0].rotation.y = -e * Math.PI / 2; an.schoolGate[1].rotation.y = e * Math.PI / 2; }
     if (this.gateColl === undefined) this.gateColl = (g.collision?.list || []).find((c) => c.id === 'schoolGate') || null; if (this.gateColl) this.gateColl.h = this.gate > 0.5 ? 0 : 2.15;
+    if (this.gateOpenColl === undefined) this.gateOpenColl = (g.collision?.list || []).filter((c) => c.id === 'schoolGateOpenL' || c.id === 'schoolGateOpenR'); for (const c of this.gateOpenColl) c.h = this.gate > 0.5 ? 2.15 : 0; // swung-open leaves are solid where they rest
     // pedestrian wicket: open by day; at night only for someone the watchman let in, or from the inside (see SchoolGuard)
     const wk = this.guard.wicketOpen(P, h) ? 1 : 0; this.wicket = clamp(this.wicket + Math.sign(wk - this.wicket) * dt / 1.1, 0, 1); const ew = (1 - Math.cos(this.wicket * Math.PI)) / 2;
     if (an.schoolWicket) an.schoolWicket.rotation.y = -ew * Math.PI / 2;
     if (this.wkColl === undefined) this.wkColl = (g.collision?.list || []).find((c) => c.id === 'schoolWicket') || null; if (this.wkColl) this.wkColl.h = this.wicket > 0.6 ? 0 : 2.15;
+    if (this.wkOpenColl === undefined) this.wkOpenColl = (g.collision?.list || []).find((c) => c.id === 'schoolWicketOpen') || null; if (this.wkOpenColl) this.wkOpenColl.h = this.wicket > 0.6 ? 2.15 : 0;
     if (!this.active) { if (this.guard.present) this.guard.despawn(); return; }
     this.guard.update(dt, h, P);
     // daytime visitors are greeted by the day guard and asked to sign the book
@@ -56,6 +65,7 @@ export class SchoolLife {
   // ---------------------------------------------------------------- cast
   addPerson(key, spec, x, z, yaw, act, extra = {}) { const ch = new Character(spec); const p = Object.assign({ key, ch, x, z, yaw, act, acc: 0, path: null, sp: 1.25 }, extra); ch.root.rotation.y = yaw; if (act) ch.anim.set(act); this.g.scene.add(ch.root); this.place(p); this.people.push(p); for (let k = 0; k < 20; k++) ch.anim.update(0.05, 0); return p; }
   place(p) { p.ch.root.position.set(p.x, this.groundAt(p.x, p.z), p.z); }
+  vanDriving() { return this.vans.some((q) => q.drive && !q.kerb); } // school vans using the gate (parents' kerb cars never do)
   has(key) { return this.people.some((p) => p.key === key) || this.vans.some((v) => v.key === key); }
   staffDefs() { return [
     { key: 'tA', spec: { preset: 'f_teacher', sex: 'f' }, seed: 31, home: { x: 300, z: 371.4, yaw: -Math.PI / 2, act: null, patrol: [257, 322] }, gate: { x: 269.6, z: 333.2, yaw: Math.PI, act: 'look' } },
@@ -75,7 +85,7 @@ export class SchoolLife {
     if (h >= 6 && h < 19 && !this.has('guard') && !this.inView(261.0, 333.6)) this.addPerson('guard', makeAppearance(611, { preset: 'm_security' }), 261.0, 333.6, Math.PI / 2, 'look');
     else if (isNight(h)) { const dg = this.people.find((q) => q.key === 'guard'); if (dg && !this.inView(dg.x, dg.z)) this.remove(dg); } // day guard off duty; the night watchman takes over
     // teachers and principal
-    const staffOn = h >= STAFF[0] && h < STAFF[1], atGate = h >= AT_GATE[0] && h < AT_GATE[1];
+    const staffOn = h >= STAFF[0] && h < STAFF[1], atGate = inWin(h, AT_GATE);
     for (const s of this.staffDefs()) { const p = this.people.find((q) => q.key === s.key);
       if (!p && staffOn) { const post = atGate ? s.gate : s.home; if (!this.inView(post.x, post.z)) { const np = this.addPerson(s.key, makeAppearance(s.seed, s.spec), post.x, post.z, post.yaw, post.act, { def: s, state: atGate ? 'gate' : 'home', patrol: atGate ? null : s.home.patrol, sp: 1.15 }); np.pause = 2; } }
       else if (p && !staffOn) { if (!p.leaving) { p.leaving = true; this.walk(p, [[SPINE, p.z], [SPINE, 333.5], [271, 331.5], [271, 328.2], [200, 328.2]], null); } }
@@ -91,8 +101,14 @@ export class SchoolLife {
     // (arriving while the player is around: they drive in from Horton Place through the gate; otherwise they are already parked)
     SCHOOL.vanBays.forEach(([bx, bz], i) => { const key = 'van' + i, arr = hm(12, 46) + i * 2.5 / 60, dep = hm(13, 44) + i * 4 / 60;
       if (h >= arr && h < dep && !this.done.has(key) && !this.has(key)) { const near = Math.hypot(P.x - CX, P.z - CZ) < 160;
-        if (!this.fresh && near && h < hm(13, 25) && this.gate > 0.9 && !this.vans.some((q) => q.drive)) this.arriveVan(key, i, bx, bz); else if (!this.inView(bx, bz)) this.addVan(key, i, bx, bz); }
-      const v = this.vans.find((q) => q.key === key); if (v && !v.drive && !v.arriving && h >= dep && this.gate > 0.9 && !this.vans.some((q) => q.drive)) this.departVan(v); });
+        if (!this.fresh && near && h < hm(13, 25) && this.gate > 0.9 && !this.vanDriving()) this.arriveVan(key, i, bx, bz); else if (!this.inView(bx, bz)) this.addVan(key, i, bx, bz); }
+      const v = this.vans.find((q) => q.key === key); if (v && !v.drive && !v.arriving && h >= dep && this.gate > 0.9 && !this.vanDriving()) this.departVan(v); });
+    // morning drop-off: the same vans drive in 7:02 →, stop at the bays, and leave again 7:34 → (the girls themselves are not shown)
+    SCHOOL.vanBays.forEach(([bx, bz], i) => { const key = 'mvan' + i, arr = hm(7, 2) + i * 2.5 / 60, dep = hm(7, 34) + i * 3 / 60;
+      if (h >= arr && h < dep && !this.done.has(key) && !this.has(key)) { const near = Math.hypot(P.x - CX, P.z - CZ) < 160;
+        if (!this.fresh && near && h < hm(7, 26) && this.gate > 0.9 && !this.vanDriving()) this.arriveVan(key, i, bx, bz); else if (!this.inView(bx, bz)) this.addVan(key, i, bx, bz); }
+      const v = this.vans.find((q) => q.key === key); if (v && !v.drive && !v.arriving && h >= dep && this.gate > 0.9 && !this.vanDriving()) this.departVan(v); });
+    this.kerbRun(h, P);
     this.fresh = false;
   }
   walk(p, pts, post) { p.path = pts.map(([x, z]) => [x, z]); p.post = post; p.ch.anim.set(null); }
@@ -115,6 +131,20 @@ export class SchoolLife {
     o.drive = { wp: 0, sp: 3, route: [[300, 325.0], [279, 325.0], [273.8, 326.4], [271.8, 329.8], [272.6, 333.4], [276.5, 336.2], [280, 337], [bx, bz]], end: 'park' }; this.vans.push(o); this.note(`${key} arriving`); }
   departVan(o) { const T = this.g.traffic, v = o.v; if (o.drv) this.remove(o.drv); T.addDriver(v); this.done.add(o.key);
     o.drive = { wp: 0, sp: 0, route: [[318, 337], [322.5, 335.6], [323, 333.2], [319, 332.5], [300, 332.5], [278, 332.5], [273.5, 332.0], [271.2, 329.8], [270.4, 327.6], [267.5, 325.6]], end: 'traffic' }; this.note(`${o.key} leaving`); }
+  // ---------------------------------------------------------------- parents' cars at the kerb (school run)
+  kerbRun(h, P) {
+    const on = inWin(h, SCHOOL_RUN); this.kerbCd = (this.kerbCd ?? 0) - (this.g.dt || 0.05);
+    for (const o of this.vans) if (o.kerb && !o.drive && o.stopT !== undefined && (o.stopT -= this.g.dt || 0.05) <= 0) { o.stopT = undefined; o.drive = { wp: 0, sp: 0, route: [[o.v.x - 5, LANE_Z + 0.4], [o.v.x - 11, LANE_Z]], end: 'traffic' }; this.note(`${o.key} pulling out`); }
+    if (!on || this.kerbCd > 0) return; this.kerbCd = 5 + Math.random() * 6;
+    const used = new Set(this.vans.filter((o) => o.kerb).map((o) => o.spot)); const free = KERB.map((x, i) => i).filter((i) => !used.has(i)); if (!free.length) return;
+    const i = free[Math.floor(Math.random() * free.length)], x = KERB[i]; const n = (this.kerbN = (this.kerbN || 0) + 1); const key = 'kerb' + n;
+    const T = this.g.traffic; const busy = (bx, bz, r) => T.all().some((v) => Math.hypot(v.x - bx, v.z - bz) < r);
+    const type = PARENT_CARS[n % PARENT_CARS.length];
+    if (!this.fresh && Math.hypot(P.x - x, P.z - KERB_Z) < 150 && !this.inView(x + 34, LANE_Z) && !busy(x + 34, LANE_Z, 9)) { // drives in along the kerb lane and pulls over
+      const v = this.makeCar(type, n, x + 34, LANE_Z); T.addDriver(v); this.vans.push({ key, v, i: n, kerb: true, spot: i, drive: { wp: 0, sp: 4, route: [[x + 8, LANE_Z + 0.3], [x, KERB_Z]], end: 'kerb' } }); this.note(`${key} pulling in`); }
+    else if (!this.inView(x, KERB_Z) && !busy(x, KERB_Z, 4.5)) { const v = this.makeCar(type, n, x, KERB_Z); T.addDriver(v); this.vans.push({ key, v, i: n, kerb: true, spot: i, drive: null, stopT: 20 + Math.random() * 30 }); this.note(`${key} waiting at the kerb`); }
+  }
+  makeCar(type, n, x, z) { const v = new Vehicle(type, 7700 + n * 389, this.g.scene); v.place(x, z, -Math.PI / 2); v.parked = true; v.keep = true; v.school = true; this.g.traffic.parked.push(v); return v; }
   handPiece() { const near = (x, z) => L.nodes.find((n) => n && Math.abs(n.x - x) < 1 && Math.abs(n.z - z) < 1); const from = near(300, 320), to = near(240, 320); if (!from || !to) return null;
     const seg = L.segments.find((s) => s.dir === 'h' && Math.abs(s.z0 - 320) < 1 && Math.min(s.x0, s.x1) <= 241 && Math.max(s.x0, s.x1) >= 299); if (!seg) return null; return linePiece(seg, from, to, 1); }
   updateVan(o, dt, h) {
@@ -122,7 +152,7 @@ export class SchoolLife {
     const D = o.drive, [tx, tz] = D.route[D.wp]; const dx = tx - v.x, dz = tz - v.z, dd = Math.hypot(dx, dz);
     const want = Math.atan2(dx, dz); let a = want - v.yaw; a = Math.atan2(Math.sin(a), Math.cos(a)); const turn = Math.abs(a);
     const road = D.end === 'park' && D.wp < 2; D.sp = Math.min(D.sp + dt * (road ? 3 : 1.6), turn > 0.5 ? 2.2 : road ? 7.5 : 3.6); if (road && D.wp === 1 && dd < 14) D.sp = Math.min(D.sp, 2.4 + dd * 0.35); /* slow for the left turn into the gate */ v.yaw += clamp(a, -dt * 1.5, dt * 1.5); v.x += Math.sin(v.yaw) * D.sp * dt; v.z += Math.cos(v.yaw) * D.sp * dt; v.speed = D.sp; v.steer = clamp(a, -0.5, 0.5); v.place(v.x, v.z, v.yaw);
-    if (dd < (D.wp === D.route.length - 1 && D.end === 'park' ? 0.35 : 1.0)) { D.wp++; if (D.wp >= D.route.length) { if (D.end === 'park') { o.drive = null; o.arriving = false; v.speed = 0; v.steer = 0; v.place(o.bay[0], o.bay[1], Math.PI / 2); if (v.driverChar) { v.driverChar.root.parent?.remove(v.driverChar.root); v.driverChar.dispose(); v.driverChar = null; } this.standDriver(o); this.note(`${o.key} parked`); } else this.handover(o); } }
+    if (dd < (D.wp === D.route.length - 1 && D.end === 'park' ? 0.35 : 1.0)) { D.wp++; if (D.wp >= D.route.length) { if (D.end === 'kerb') { o.drive = null; v.speed = 0; v.steer = 0; v.place(v.x, v.z, -Math.PI / 2); o.stopT = 20 + Math.random() * 30; this.note(`${o.key} stopped at the kerb`); } else if (D.end === 'park') { o.drive = null; o.arriving = false; v.speed = 0; v.steer = 0; v.place(o.bay[0], o.bay[1], Math.PI / 2); if (v.driverChar) { v.driverChar.root.parent?.remove(v.driverChar.root); v.driverChar.dispose(); v.driverChar = null; } this.standDriver(o); this.note(`${o.key} parked`); } else this.handover(o); } }
   }
   handover(o) { const T = this.g.traffic, v = o.v; const pi = T.parked.indexOf(v); if (pi >= 0) T.parked.splice(pi, 1); const piece = this.handPiece();
     if (piece) { let best = 0, bd = 1e9; for (let s = 0; s <= piece.len; s += 0.5) { const [x, z] = evalPiece(piece, s); const dd = Math.hypot(x - v.x, z - v.z); if (dd < bd) { bd = dd; best = s; } }
