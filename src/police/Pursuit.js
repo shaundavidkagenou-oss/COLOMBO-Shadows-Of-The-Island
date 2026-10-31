@@ -84,11 +84,11 @@ export function stepChase(T, v, dt, all) {
   v.y = L.groundY(v.x, v.z); v.lights = T.night > 0.4; v.sync(dt);
 }
 
-// put a unit that was in intercept mode back on the nearest lane (smooth offset easing, see Traffic.step kx/kz/kyaw)
+// put a unit that was in intercept mode back on the nearest lane (it steers back onto the lane: Traffic.driveRejoin)
 export function rejoinLane(T, v, maxD = 60) {
   const ln = T.laneNear(v.x, v.z, v.yaw, maxD); if (!ln) return false; const ai = v.ai;
   ai.chase = null; ai.pieces = [ln.piece]; ai.s = ln.s; ai.route = null; ai.goal = null; ai.lat = 0; ai.bumped = 0; ai.stuck = 0;
-  const [x, z, yaw] = evalPiece(ln.piece, ln.s); ai.kx = v.x - x; ai.kz = v.z - z; ai.kyaw = angDiff(v.yaw, yaw); T.extend(v); return true;
+  ai.rejoin = true; ai.hdg = 0; T.extend(v); return true; /* drives back onto the lane (Traffic.driveRejoin), never slid over */
 }
 
 // --------------------------------------------------------------- PIT contact: the suspect car's rear is pushed out → it spins

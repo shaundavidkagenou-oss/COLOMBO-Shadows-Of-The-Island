@@ -40,23 +40,57 @@ function linePiece(seg, from, to, lane) {
   const p0 = [from.x + dx * c0 + nx * off, from.z + dz * c0 + nz * off], p1 = [to.x - dx * c1 + nx * off, to.z - dz * c1 + nz * off];
   return { type: 'line', seg, from, to, lane, p0, p1, d: [dx, dz], len: Math.max(0.1, Math.hypot(p1[0] - p0[0], p1[1] - p0[1])) };
 }
-function curvePiece(a, b, node) {
+// junction connector. Turns and straight-throughs are cubic Béziers whose end tangents run exactly along both lanes (no yaw
+// snap, lane shifts become a gentle S); a U-turn is a 'light-bulb' turn (swing out, wide arc, back in) sampled as a polyline.
+function curvePiece(a, b, node, rMin = 3.6) {
   const p0 = a.p1, p1 = b.p0, d0 = a.d, d1 = b.d; let c;
   const den = d0[0] * d1[1] - d0[1] * d1[0];
-  if (Math.abs(den) < 1e-3) c = [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2];
-  else { const t = ((p1[0] - p0[0]) * d1[1] - (p1[1] - p0[1]) * d1[0]) / den; c = [p0[0] + d0[0] * t, p0[1] + d0[1] * t]; }
-  let len = 0, px = p0[0], pz = p0[1]; for (let k = 1; k <= 8; k++) { const t = k / 8, u = 1 - t; const x = u * u * p0[0] + 2 * u * t * c[0] + t * t * p1[0], z = u * u * p0[1] + 2 * u * t * c[1] + t * t * p1[1]; len += Math.hypot(x - px, z - pz); px = x; pz = z; }
   const turn = Math.abs(den) > 0.5 ? (den > 0 ? 'right' : 'left') : d0[0] * d1[0] + d0[1] * d1[1] < 0 ? 'uturn' : 'straight';
-  return { type: 'curve', p0, p1, c, len: Math.max(0.1, len), node, turn };
+  if (turn === 'uturn') return uturnPiece(p0, p1, d0, node, rMin);
+  let c1, c2;
+  if (turn !== 'straight') { const t = ((p1[0] - p0[0]) * d1[1] - (p1[1] - p0[1]) * d1[0]) / den; c = [p0[0] + d0[0] * t, p0[1] + d0[1] * t];
+    c1 = [p0[0] + (c[0] - p0[0]) * 2 / 3, p0[1] + (c[1] - p0[1]) * 2 / 3]; c2 = [p1[0] + (c[0] - p1[0]) * 2 / 3, p1[1] + (c[1] - p1[1]) * 2 / 3]; }
+  else { const m = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) / 3; c1 = [p0[0] + d0[0] * m, p0[1] + d0[1] * m]; c2 = [p1[0] - d1[0] * m, p1[1] - d1[1] * m]; }
+  const P = { type: 'curve', p0, p1, c1, c2, d0, len: 1, node, turn }; let len = 0, [px, pz] = p0; const tab = [0];
+  for (let k = 1; k <= 32; k++) { const [x, z] = bez(P, k / 32); len += Math.hypot(x - px, z - pz); px = x; pz = z; tab.push(len); }
+  P.tab = tab; P.len = Math.max(0.1, len); return P; // tab: arc length at t = k/32 → evaluated by distance, so ground speed = wheel speed
+}
+function bez(p, t) { const u = 1 - t, a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, d = t * t * t; return [a * p.p0[0] + b * p.c1[0] + c * p.c2[0] + d * p.p1[0], a * p.p0[1] + b * p.c1[1] + c * p.c2[1] + d * p.p1[1]]; }
+// how far before the lane end a U-turn must begin so the bulb stays inside the road end
+function uturnBack(gap, rMin) { const R = Math.max(gap / 2, rMin); const ca = Math.min(1, (gap + 2 * R) / (4 * R)); return R * (1 + 2 * Math.sqrt(1 - ca * ca)) + 0.3; }
+function uturnPiece(p0, p1, f, node, rMin) {
+  if (!(rMin > 0)) rMin = 3.6;
+  const dx = p1[0] - p0[0], dz = p1[1] - p0[1]; const al = dx * f[0] + dz * f[1]; let ux = dx - f[0] * al, uz = dz - f[1] * al; const g = Math.hypot(ux, uz) || 0.01; ux /= g; uz /= g;
+  const R = Math.max(g / 2, rMin), ca = Math.min(1, (g + 2 * R) / (4 * R)), A = Math.acos(ca); const L = R * (Math.PI + 4 * A);
+  // three arcs: away by A (κ −1/R), round by π + 2A (κ +1/R), away by A (κ −1/R); local x toward p1, y forward
+  const segs = [[A, -1], [Math.PI + 2 * A, 1], [A, -1]]; const pts = []; const N = Math.max(24, Math.ceil(L / 0.35));
+  for (let k = 0; k <= N; k++) { let s = (k / N) * L, x = 0, y = 0, th = 0;
+    for (const [ang, sg] of segs) { const sl = Math.min(s, ang * R); const th1 = th + sg * sl / R;
+      if (sg > 0) { x += R * (Math.cos(th) - Math.cos(th1)); y += R * (Math.sin(th1) - Math.sin(th)); } else { x += R * (Math.cos(th1) - Math.cos(th)); y += -R * (Math.sin(th1) - Math.sin(th)); }
+      th = th1; s -= sl; if (s <= 1e-9) break; }
+    const wx = p0[0] + f[0] * y + ux * x, wz = p0[1] + f[1] * y + uz * x; const hx = f[0] * Math.cos(th) + ux * Math.sin(th), hz = f[1] * Math.cos(th) + uz * Math.sin(th); pts.push([wx, wz, Math.atan2(hx, hz)]); }
+  const cum = [0]; for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]));
+  return { type: 'curve', poly: pts, cum, p0, p1: [pts[pts.length - 1][0], pts[pts.length - 1][1]], d0: f, len: Math.max(0.1, cum[cum.length - 1]), node, turn: 'uturn' };
 }
 function evalPiece(p, s) {
-  const t = clamp(s / p.len, 0, 1);
+  let t = clamp(s / p.len, 0, 1);
   if (p.type === 'line') return [lerp(p.p0[0], p.p1[0], t), lerp(p.p0[1], p.p1[1], t), Math.atan2(p.d[0], p.d[1])];
-  const u = 1 - t; const x = u * u * p.p0[0] + 2 * u * t * p.c[0] + t * t * p.p1[0], z = u * u * p.p0[1] + 2 * u * t * p.c[1] + t * t * p.p1[1];
-  const tx = 2 * u * (p.c[0] - p.p0[0]) + 2 * t * (p.p1[0] - p.c[0]), tz = 2 * u * (p.c[1] - p.p0[1]) + 2 * t * (p.p1[1] - p.c[1]);
+  if (p.poly) { const c = p.cum, q = clamp(s, 0, p.len); let lo = 0, hi = c.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (c[m] <= q) lo = m; else hi = m; }
+    const a = p.poly[lo], b = p.poly[hi], k = (q - c[lo]) / Math.max(1e-6, c[hi] - c[lo]); return [lerp(a[0], b[0], k), lerp(a[1], b[1], k), a[2] + Math.atan2(Math.sin(b[2] - a[2]), Math.cos(b[2] - a[2])) * k]; }
+  if (p.tab) { const c = p.tab, q = clamp(s, 0, c[c.length - 1]); let lo = 0, hi = c.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (c[m] <= q) lo = m; else hi = m; } t = (lo + (q - c[lo]) / Math.max(1e-9, c[hi] - c[lo])) / (c.length - 1); }
+  const [x, z] = bez(p, t); const u = 1 - t;
+  let tx = 3 * u * u * (p.c1[0] - p.p0[0]) + 6 * u * t * (p.c2[0] - p.c1[0]) + 3 * t * t * (p.p1[0] - p.c2[0]), tz = 3 * u * u * (p.c1[1] - p.p0[1]) + 6 * u * t * (p.c2[1] - p.c1[1]) + 3 * t * t * (p.p1[1] - p.c2[1]);
+  if (tx * tx + tz * tz < 1e-8) { tx = p.d0[0]; tz = p.d0[1]; } // degenerate (a zero-length straight-through): keep the lane heading
   return [x, z, Math.atan2(tx, tz)];
 }
 
+const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+// arc-length on a piece nearest to (x, z), searched around s0 (curves) / closed form (lines)
+function projectS(p, x, z, s0) {
+  if (p.type === 'line') return (x - p.p0[0]) * p.d[0] + (z - p.p0[1]) * p.d[1];
+  let best = s0, bd = Infinity; for (let s = Math.max(0, s0 - 3); s <= Math.min(p.len, s0 + 8); s += 0.25) { const [px, pz] = evalPiece(p, s); const d = (px - x) ** 2 + (pz - z) ** 2; if (d < bd) { bd = d; best = s; } }
+  return best;
+}
 // 2D oriented-box overlap (separating axes); hw/hl = half width / half length, yaw 0 faces +z
 function obbHit(ax, az, ay, ahw, ahl, bx, bz, by, bhw, bhl) {
   const a1 = [Math.sin(ay), Math.cos(ay)], b1 = [Math.sin(by), Math.cos(by)], dx = bx - ax, dz = bz - az;
@@ -149,8 +183,11 @@ export class Traffic {
         if (ai.route && ai.route.length) { const want = ai.route[0]; next = node.segs.find((s) => otherEnd(s, node) === want && this.drivable.has(s)) || null; if (next) ai.route.shift(); else ai.route = null; } // planned route (police units)
         if (next) {} else if (!opts.length) next = last.seg; else next = this.rng.weighted(opts.map((s) => [s, (s.dir === last.seg.dir ? 2.2 : 1) * (s.level <= last.seg.level ? 1.3 : 0.7)]));
         const to = otherEnd(next, node); const lanes = next.level <= 1 ? 2 : 1; const lane = Math.min(lanes - 1, last.lane);
-        const nl = linePiece(next, node, to, lane);
-        ai.pieces.push(curvePiece(last, nl, node)); ai.pieces.push(nl); last = nl;
+        const nl = linePiece(next, node, to, lane); const rMin = Math.max(3.4, ((v.T && v.T.len) || 4.5) * 0.85); // turning circle of this vehicle
+        if (nl.d[0] * last.d[0] + nl.d[1] * last.d[1] < -0.5) { // U-turn (dead end): begin it early enough that the bulb stays inside the road end
+          let back = uturnBack(Math.hypot(nl.p0[0] - last.p1[0], nl.p0[1] - last.p1[1]), rMin); back = Math.max(0, Math.min(back, last.len - (last === ai.pieces[0] ? ai.s + 0.5 : 1), nl.len - 1));
+          if (back > 0) { last.p1 = [last.p1[0] - last.d[0] * back, last.p1[1] - last.d[1] * back]; last.len -= back; nl.p0 = [nl.p0[0] + nl.d[0] * back, nl.p0[1] + nl.d[1] * back]; nl.len -= back; } }
+        ai.pieces.push(curvePiece(last, nl, node, rMin)); ai.pieces.push(nl); last = nl;
         if (ai.goal && !ai.goal.piece && nl.seg === ai.goal.seg && nl.from === ai.goal.from) ai.goal.piece = nl;
       } else break;
     }
@@ -174,7 +211,7 @@ export class Traffic {
   step(v, dt, all, peds, playerV, player) {
     if (v.free) { this.stepFree(v, dt); return; }
     const ai = v.ai; if (!ai) return; if (ai.stopped) { v.speed = 0; v.brake = true; return; } if (ai.chase) { stepChase(this, v, dt, all); return; } /* police intercept mode (Pursuit.js) */ const p = ai.pieces[0]; // stopped = crew out of a police unit (handbrake on, nobody at the wheel)
-    const [fx, fz] = [Math.sin(v.yaw), Math.cos(v.yaw)];
+    const by = ai.rejoin ? v.yaw : v.yaw - (ai.hdg || 0); const [fx, fz] = [Math.sin(by), Math.cos(by)]; // lane direction (the body's lane-change yaw must not swing what counts as ahead / beside)
     // --- leader gap
     let gap = 60, leadV = 0; if (v.hold) gap = -1; // player is getting in: brake to a stop
     const consider = (ox, oz, ov, len, latTol) => {
@@ -189,7 +226,7 @@ export class Traffic {
       if (ai.overT > 0 || Math.abs(ai.lat) > 0.5) { const bx = v.x - fz * ai.lat, bz = v.z + fx * ai.lat; let blocked = false; for (const o of all) { if (o === v || (o.ai && o.ai.emergency)) continue; const rx = o.x - bx, rz = o.z - bz; const al = rx * fx + rz * fz; if (al < -7 || al > 14) continue; if (Math.abs(rx * fz - rz * fx) < 1.7) { blocked = true; break; } } if (blocked) ai.overT = Math.max(ai.overT, 0.6); }
       latWant = ai.overT > 0 ? -(p.type === 'line' && p.seg.level >= 2 ? 2.6 : 3.3) : 0;
     } else if (this.emergency.length) {
-      for (const e of this.emergency) { if (e === v) continue; const rx = v.x - e.x, rz = v.z - e.z; const efx = Math.sin(e.yaw), efz = Math.cos(e.yaw); const al = rx * efx + rz * efz; if (al > 0 && al < 38 && Math.abs(rx * efz - rz * efx) < 2.6 && efx * fx + efz * fz > 0.5) { ai.yieldT = 2.5; break; } }
+      for (const e of this.emergency) { if (e === v) continue; const rx = v.x - e.x, rz = v.z - e.z; const ey = e.yaw - ((e.ai && !e.ai.rejoin && e.ai.hdg) || 0), efx = Math.sin(ey), efz = Math.cos(ey); /* its lane direction, not the overtaking angle */ const al = rx * efx + rz * efz; if (al > 0 && al < 38 && Math.abs(rx * efz - rz * efx) < 2.6 && efx * fx + efz * fz > 0.5) { ai.yieldT = 2.5; break; } }
     }
     if (ai.yieldT > 0) { ai.yieldT -= dt; latWant = 0.9; }
     // kerb-parked cars stick into narrow lanes: pull out toward the centre line to pass them when the oncoming side is clear, otherwise wait behind
@@ -199,13 +236,13 @@ export class Traffic {
       for (const o of this.parked) { if (o.dead || o.disposed || o.towedBy) continue; const rx = o.x - v.x, rz = o.z - v.z; if (Math.abs(rx) > 30 || Math.abs(rz) > 30) continue;
         const ofx = Math.sin(o.yaw), ofz = Math.cos(o.yaw), ohl = o.T.len / 2, ohw = o.T.wid / 2; let lmin = 1e9, lmax = -1e9, amin = 1e9, amax = -1e9;
         for (let c = 0; c < 4; c++) { const cl = c & 1 ? ohl : -ohl, cw = c & 2 ? ohw : -ohw; const qx = rx + ofx * cl + ofz * cw, qz = rz + ofz * cl - ofx * cw; const al = qx * fx + qz * fz, lt = qx * fz - qz * fx + ai.lat; if (al < amin) amin = al; if (al > amax) amax = al; if (lt < lmin) lmin = lt; if (lt > lmax) lmax = lt; }
-        if (amax < -v.half || amin > 26) continue; if (lmax < -(w2 + 0.3) || lmin > w2 + 0.35) continue; // clear of our path
+        if (amax < -v.half - 2.5 || amin > 26) continue; /* stay out until 2.5 m past it before steering back in (the body yaws, so the tail would swing into it) */ if (lmax < -(w2 + 0.3) || lmin > w2 + 0.35) continue; // clear of our path
         if (lmin + lmax > 0.2) { const n = w2 + 0.35 - lmin; if (n > need) { need = n; pk = o; } }
         else if (amin > v.half * 0.3) { const g = amin - v.half; if (g < gap) { gap = g; leadV = 0; } } }
       if (pk) { let blocked = need > 2.6; if (!blocked) for (const o of all) { if (o === v) continue; const rx = o.x - v.x, rz = o.z - v.z; const al = rx * fx + rz * fz; if (al < -5 || al > 32) continue; const lo = rx * fz - rz * fx + ai.lat; if (lo < 0 && lo > -need - w2 - o.T.wid / 2 - 0.3 && (Math.sin(o.yaw) * fx + Math.cos(o.yaw) * fz) < 0.3) { blocked = true; break; } }
-        if (blocked && Math.abs(ai.lat) < need * 0.6) consider(pk.x, pk.z, 0, pk.half, 4.5); else latWant = Math.min(latWant, -need); }
+        if (blocked && Math.abs(ai.lat) < need * 0.6) consider(pk.x, pk.z, 0, pk.half + Math.min(2.5, need * 1.4), 4.5); /* wait with room to steer out round it */ else { latWant = Math.min(latWant, -need); if (need + ai.lat > 0.15) ai.creep = 1; } }
     }
-    ai.lat += clamp(latWant - ai.lat, -2.2 * dt, 2.2 * dt);
+    ai.latWant = latWant; /* applied kinematically below (heading angle → sideways drift), never as a slide */
     // --- footprint conflicts (junctions, turning across another lane): predict both bodies 0.4–1.2 s ahead; if they would touch,
     // give way to whoever is already in the way, comes from the right (left-hand traffic), or is the emergency unit. A short timeout
     // prevents four-way deadlocks (the yielder creeps on and the others' own checks then hold them).
@@ -245,6 +282,8 @@ export class Traffic {
     let v0 = ai.v0; if (p.type === 'curve') v0 = curveV; else if (p.len - ai.s < 25) v0 = Math.min(v0, lerp(curveV, ai.v0, (p.len - ai.s) / 25));
     if (this.weatherRain) v0 *= 1 - this.weatherRain * 0.2;
     if (ai.yieldT > 0) v0 = Math.min(v0, 2.5);
+    if (ai.creep) { v0 = Math.min(v0, 4); ai.creep = 0; } /* still steering out round a parked car */
+    if (ai.rejoin) v0 = Math.min(v0, Math.abs(ai.rjErr || 0) > 0.5 ? 3.5 : 7.5);
     const s0 = 2.2, T = 1.2 / ai.aggressive, a = v.T.accel * 0.8, b = 3.5; const sp = v.speed;
     const g2 = Math.min(gap, stopAt); const lv = stopAt < gap ? 0 : leadV;
     const sStar = s0 + Math.max(0, sp * T + (sp * (sp - lv)) / (2 * Math.sqrt(a * b)));
@@ -257,12 +296,37 @@ export class Traffic {
     if (v.speed < 0.5 && gap < 8 && stopAt === Infinity) { ai.stuck += dt; if (ai.stuck > 2.5 / ai.aggressive && ai.honkCd <= 0) { ai.honkCd = 3 + this.rng.next() * 4; this.events.emit('horn', v); } } else ai.stuck = Math.max(0, ai.stuck - dt);
     if (ai.stuck > 25 && !v.police) { v.keep = false; this.remove(v); this.vehicles.splice(this.vehicles.indexOf(v), 1); return; } // hopelessly stuck → recycle out of view
     // --- advance along pieces
-    ai.s += v.speed * dt;
+    if (ai.rejoin) { this.driveRejoin(v, dt); return; }
+    // lateral offset (pulling out round a parked car, over for an emergency unit) as real kinematics: the state is the body's
+    // heading angle to the lane (ai.hdg); it turns only while rolling (bicycle-model steering rate) and the sideways drift is
+    // speed·sin(angle) — so position and heading always agree: no crabbing, no turning on the spot
+    { const sp = v.speed, lw = ai.latWant ?? 0; ai.hdg = ai.hdg || 0; const vdes = clamp((lw - ai.lat) * 1.1, -2.2, 2.2);
+      const want = Math.abs(lw - ai.lat) < 0.01 && Math.abs(ai.hdg) < 0.002 ? 0 : Math.asin(clamp(vdes / Math.max(sp, 0.5), -0.5, 0.5));
+      const yr = Math.min((sp * Math.tan(0.6)) / Math.max(1.2, v.T.len * 0.62), 3.5 / Math.max(sp, 0.5)) * dt; const h0 = ai.hdg; ai.hdg += clamp(want - ai.hdg, -yr, yr); // steering lock and ~0.35 g of grip
+      const hm = (h0 + ai.hdg) / 2; ai.lat += sp * Math.sin(hm) * dt; ai.s += sp * Math.cos(hm) * dt; }
     while (ai.s > ai.pieces[0].len) { ai.s -= ai.pieces[0].len; ai.pieces.shift(); this.extend(v); }
     const [x, z, yaw] = evalPiece(ai.pieces[0], ai.s);
-    const dyaw = Math.atan2(Math.sin(yaw - v.yaw), Math.cos(yaw - v.yaw)); v.steer = clamp(dyaw * 4, -0.6, 0.6);
-    const lx = Math.cos(yaw) * ai.lat, lz = -Math.sin(yaw) * ai.lat; v.x = x + lx; v.z = z + lz; v.yaw = yaw;
-    if (ai.kx !== undefined) { const e = Math.exp(-1.1 * dt); ai.kx *= e; ai.kz *= e; ai.kyaw *= e; v.x += ai.kx; v.z += ai.kz; v.yaw += ai.kyaw; if (Math.abs(ai.kx) + Math.abs(ai.kz) + Math.abs(ai.kyaw) < 0.02) ai.kx = ai.kz = ai.kyaw = undefined; } /* after a knock: ease back into the lane instead of snapping */
+    // body heading = direction of travel: lane heading + the lateral angle, corrected for an offset on a curve (the offset path
+    // is longer/shorter by (1 − κ·lat)); exact, so a car never moves sideways relative to its own nose
+    let kap = 0; if (ai.lat && ai.pieces[0].type === 'curve') { const pc = ai.pieces[0], a = evalPiece(pc, Math.max(0, ai.s - 0.25)), b = evalPiece(pc, Math.min(pc.len, ai.s + 0.25)); kap = wrapA(b[2] - a[2]) / Math.max(0.05, Math.min(pc.len, ai.s + 0.25) - Math.max(0, ai.s - 0.25)); }
+    const hy = wrapA(yaw + Math.atan2(Math.sin(ai.hdg), Math.cos(ai.hdg) * Math.max(0.2, 1 - kap * ai.lat)));
+    const dyaw = wrapA(hy - v.yaw); v.steer = clamp(dyaw * 4, -0.6, 0.6);
+    const lx = Math.cos(yaw) * ai.lat, lz = -Math.sin(yaw) * ai.lat; v.x = x + lx; v.z = z + lz; v.yaw = hy;
+    v.y = L.groundY(v.x, v.z); v.lights = this.night > 0.4; v.sync(dt);
+  }
+  // back into the lane after a knock / a chase: the car steers toward a point ahead on its lane (bicycle-model turn rate,
+  // walls are solid) instead of being slid over; once nearly aligned the small remainder is handed to the lateral offset
+  driveRejoin(v, dt) {
+    const ai = v.ai; let pc = ai.pieces[0]; ai.s = Math.max(0, projectS(pc, v.x, v.z, ai.s));
+    while (ai.s > pc.len) { ai.s -= pc.len; ai.pieces.shift(); this.extend(v); pc = ai.pieces[0]; ai.s = Math.max(0, projectS(pc, v.x, v.z, ai.s)); }
+    let s = ai.s + Math.max(4.5, v.speed * 0.9 + 3), k = 0; while (k < ai.pieces.length - 1 && s > ai.pieces[k].len) { s -= ai.pieces[k].len; k++; }
+    const [tx, tz] = evalPiece(ai.pieces[k], s); const dyaw = wrapA(Math.atan2(tx - v.x, tz - v.z) - v.yaw); ai.rjErr = dyaw;
+    const maxYr = Math.min((v.speed * Math.tan(0.55)) / Math.max(1.2, v.T.len * 0.62), 4 / Math.max(v.speed, 0.5)); const y0 = v.yaw; v.yaw = wrapA(v.yaw + clamp(dyaw * 2.5, -maxYr, maxYr) * dt); v.steer = clamp(dyaw * 3, -0.6, 0.6);
+    const ym = y0 + wrapA(v.yaw - y0) / 2; v.x += Math.sin(ym) * v.speed * dt; v.z += Math.cos(ym) * v.speed * dt;
+    for (const [cx, cz] of v.circles()) { const r = this.collision.resolveCircle(cx, cz, v.radius, v.y, 0.25, 2, { vehicle: true }); if (r.hit) { v.x += r.x - cx; v.z += r.z - cz; } }
+    ai.s = Math.max(0, projectS(pc, v.x, v.z, ai.s)); while (ai.s > pc.len && ai.pieces.length > 1) { ai.s -= pc.len; ai.pieces.shift(); this.extend(v); pc = ai.pieces[0]; ai.s = Math.max(0, projectS(pc, v.x, v.z, ai.s)); } // where it is now, after this frame's move
+    const [lx, lz, lyaw] = evalPiece(pc, Math.min(ai.s, pc.len)); const ye = wrapA(v.yaw - lyaw); const lat = (v.x - lx) * Math.cos(lyaw) - (v.z - lz) * Math.sin(lyaw);
+    if (Math.abs(lat) < 0.6 && Math.abs(ye) < 0.15 && Math.abs((v.x - lx) * Math.sin(lyaw) + (v.z - lz) * Math.cos(lyaw)) < 0.3) { ai.rejoin = false; ai.lat = lat; ai.hdg = ye; } // aligned: lane-following takes over seamlessly
     v.y = L.groundY(v.x, v.z); v.lights = this.night > 0.4; v.sync(dt);
   }
   // a car knocked out of its lane by a collision: slides with tyre friction, spins down, bounces off walls; then the driver collects themselves and eases back into the lane
@@ -280,7 +344,7 @@ export class Traffic {
     // re-anchor on the lane: nearest arc-length on the current piece; the offset decays smoothly in step()
     const pc = ai.pieces[0]; let bestS = ai.s, bd = Infinity; for (let s2 = Math.max(0, ai.s - 12); s2 <= Math.min(pc.len, ai.s + 12); s2 += 0.5) { const [x, z] = evalPiece(pc, s2); const d = (x - v.x) ** 2 + (z - v.z) ** 2; if (d < bd) { bd = d; bestS = s2; } }
     if (bd > 36) { const P = this.player; if (P && Math.hypot(P.x - v.x, P.z - v.z) > 90) { this.remove(v); const i = this.vehicles.indexOf(v); if (i >= 0) this.vehicles.splice(i, 1); } return; } /* thrown far off the road: stays as a stalled car until you are well away */
-    ai.s = bestS; const [x, z, yaw] = evalPiece(pc, bestS); const lx = Math.cos(yaw) * ai.lat, lz = -Math.sin(yaw) * ai.lat; ai.kx = v.x - (x + lx); ai.kz = v.z - (z + lz); ai.kyaw = Math.atan2(Math.sin(v.yaw - yaw), Math.cos(v.yaw - yaw)); v.free = null; ai.bumped = 1;
+    ai.s = bestS; ai.lat = 0; ai.hdg = 0; ai.rejoin = true; v.free = null; ai.bumped = 1; /* drives back into the lane (driveRejoin) */
   }
   remove(v) { if (v.towing) { v.towing.dispose(); v.towing = null; } if (v.squad && v.driverChar) { v.mesh.remove(v.driverChar.root); v.driverChar = null; const m = v.squad; v.squad = null; if (v.onRemove) v.onRemove(m); } /* a squad-mate at the wheel is never disposed */ if (v.driverChar) { v.driverChar.dispose(); } if (v.pax && v.pax.length) this.dropPax(v); v.dispose(); }
   // Hand a vehicle over to the player (car-jack: driver steps out and walks off grumbling)
