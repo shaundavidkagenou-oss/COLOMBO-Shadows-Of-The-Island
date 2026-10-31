@@ -164,6 +164,7 @@ export class World {
       else if (c.win) { c.win.visible = false; if (d > this.windowRadius + 120) this.disposeWindows(c); }
     }
     if (this.grass) this.grass.update(dt, focus, atmos ? atmos.w.wind : 0.3);
+    if (this.parks && this.parks.userData.flowers && camera) this.parks.userData.flowers.update(camera.position);
     // landmark animation
     const an = this.landmarks.anim;
     if (an.lotusBeacon) an.lotusBeacon.visible = (this.t % 1.6) < 0.5; // aviation obstruction light
@@ -220,6 +221,6 @@ export class World {
       l.userData.lamp = lamp; l.userData.k = 0; decal(lamp, false); l.position.set(lamp[0], lamp[1] - 0.4, lamp[2]); l.target.position.set(lamp[0], ROAD_Y, lamp[2] + 0.001); l.target.updateMatrixWorld(); lit.add(lamp); }
     for (const l of this.lampLights) { const u = l.userData; const I = u.lamp ? base * u.k : 0; if (l.intensity !== I) l.intensity = I; }
   }
-  setQuality(q) { this.quality = q; if (this.grass) this.grass.setQuality(q); const s = q === 'low' ? 0.6 : q === 'medium' ? 0.8 : q === 'ultra' ? 1.25 : 1; this.detailRadius = 330 * s; this.windowRadius = q === 'low' ? 0 : q === 'medium' ? 90 : q === 'ultra' ? 210 : 150; this.propRadius = 430 * s; this.treeRadius = 520 * s; }
+  setQuality(q) { this.quality = q; if (this.grass) this.grass.setQuality(q); if (this.parks && this.parks.userData.flowers) this.parks.userData.flowers.setQuality(q); const s = q === 'low' ? 0.6 : q === 'medium' ? 0.8 : q === 'ultra' ? 1.25 : 1; this.detailRadius = 330 * s; this.windowRadius = q === 'low' ? 0 : q === 'medium' ? 90 : q === 'ultra' ? 210 : 150; this.propRadius = 430 * s; this.treeRadius = 520 * s; }
 }
 export { plan };

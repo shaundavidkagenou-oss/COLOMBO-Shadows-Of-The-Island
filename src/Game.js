@@ -40,6 +40,7 @@ import { Story, MISSIONS } from './story/Story.js';
 import { playOpening } from './story/Opening.js';
 import { Weapons } from './combat/Weapons.js';
 import { Squad } from './actors/Squad.js';
+import { Birds } from './world/Birds.js';
 
 const VNAMES = { tuktuk: 'Three-wheeler', car: 'Hatchback', sedan: 'Sedan', taxi: 'Taxi', van: 'Van', suv: 'SUV', bus: 'SLTB bus', pbus: 'Private bus', lorry: 'Lorry', tow: 'Tow truck', bike: 'Motorcycle', police: 'Police car', policejeep: 'Police jeep', policebike: 'Police motorcycle' };
 const RADIO = [null, { mode: 'radio1', name: 'Radio Lanka Breeze 98.4' }, { mode: 'radio2', name: 'Island Pulse 104.2' }];
@@ -95,6 +96,7 @@ export class Game {
     this.trafficDuty = new TrafficDuty(this);
     this.schoolLife = new SchoolLife(this);
     this.cricket = new StreetCricket(this);
+    this.birds = new Birds(this); // house crows, rock pigeons, rose-ringed parakeets
     this.player = new Player(this.scene, this.camera, this.collision, bus); this.player.crowd = this.crowd;
     this.hud = new HUD(this.ui); this.hud.canSeeUnit = (u) => this.canSeeUnit(u); this.hud.mapExtras = () => this.miniExtras(); this.hud.satellite = new Satellite(this); this.director = new Director(this); this.story = new Story(this); this.interiors = new Interiors(this); this.weapons = new Weapons(this); this.player.weapons = this.weapons; this.squad = new Squad(this); this.police = new PoliceResponse(this);
     this.health = new Health(this); this.phone = new Phone(this, this.hud.root); this.gunShop = new GunShopUI(this, this.hud.root); this.debug = newDebugState(); this.debugCon = new DebugConsole(this, this.hud.root);
@@ -361,6 +363,7 @@ export class Game {
     if (!this.indoor) this.trains.update(dt, { focus, night: A.night, player: this.indoor ? null : P, playerVehicle: P.vehicle || null, vehicles: this.traffic.all(), listener: true });
     if (!this.indoor) this.crowd.update(dt, focus, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: P, hourFactor: this.hourFactor(), hour: A.hour, bodies: this.bodies });
     if (P.vehicle && A.night > 0.5 && P.nightLights === undefined) { P.vehicle.lights = true; }
+    if (this.birds) this.birds.update(dt);
     this.updateSight(dt);
     // story & prompts
     const storyPrompt = D.active ? null : this.story.update(dt);

@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { LAND_Y, cellAt } from './Layout.js';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { RNG } from '../core/rng.js';
+import { FlowerBeds } from './Flowers.js';
 
 // The park's real lawn = the zone rectangle minus the boundary roads and their pavements (Ananda Coomaraswamy Mw. on the
 // south, Green Path on the west): every path, hedge, bed, lamp and tree is laid out inside these bounds, never on a road.
@@ -118,23 +119,13 @@ export function buildParks(MAT) {
   }
   for (const [cx, cz, r] of PLAZAS) mb.get('walk').hpoly(ringPoly(cx, cz, r, 64), Y_PLAZA, 2);
   for (const s of WORN_SEGS) strip('laterite', s[0], s[1], s[2], s[3], s[4], LAND_Y + 0.02, 3);
-  // raised flower beds: concrete rim, dark soil, foliage cards and blossoms (canna, marigold, salvia, periwinkle)
-  const FL = [[0.85, 0.12, 0.1], [0.95, 0.55, 0.05], [0.95, 0.82, 0.15], [0.62, 0.15, 0.55], [0.95, 0.95, 0.92], [0.85, 0.25, 0.45]];
+  // raised flower beds: concrete rim and dark soil; the plants are modelled in Flowers.js
   for (const [x, z, r] of BEDS) {
     mb.get('concrete').cylinder(x, LAND_Y, z, r + 0.15, r + 0.15, 0.32, 28, { col: [0.86, 0.85, 0.82], caps: false });
     mb.get('concrete').cylinder(x, LAND_Y, z, r, r, 0.32, 28, { col: [0.8, 0.79, 0.76], caps: false });
     { const p = ringPoly(x, z, r + 0.15, 28), q = ringPoly(x, z, r, 28); for (let k = 0; k < 28; k++) { const a = p[k], b = p[(k + 1) % 28], c = q[(k + 1) % 28], d = q[k]; mb.get('concrete').quad([a[0], LAND_Y + 0.32, a[1]], [b[0], LAND_Y + 0.32, b[1]], [c[0], LAND_Y + 0.32, c[1]], [d[0], LAND_Y + 0.32, d[1]], [0, 0, 1, 0.1], [0.88, 0.87, 0.84]); } }
     mb.get('soil').hpoly(ringPoly(x, z, r, 28), LAND_Y + 0.26, 1.5);
-    const fc = [rng.pick(FL), rng.pick(FL)]; const n = Math.round(r * r * 9);
-    for (let k = 0; k < n; k++) {
-      const a = rng.next() * Math.PI * 2, rr = Math.sqrt(rng.next()) * (r - 0.25), px = x + Math.cos(a) * rr, pz = z + Math.sin(a) * rr;
-      const h = rng.range(0.28, 0.5) * (1.15 - rr / r * 0.4), ry = rng.next() * Math.PI, s = rng.range(0.22, 0.34), yb = LAND_Y + 0.26;
-      for (const o of [0, Math.PI / 2]) { const cx = Math.cos(ry + o) * s, cz = Math.sin(ry + o) * s;
-        mb.get('foliage').quad([px - cx, yb, pz - cz], [px + cx, yb, pz + cz], [px + cx, yb + h, pz + cz], [px - cx, yb + h, pz - cz], [0, 0, 1, 1], [0.75, 0.95, 0.7]); }
-      const c = fc[k % 2], bs = rng.range(0.07, 0.11); // blossom cluster: two small crossed petals above the foliage
-      for (const o of [0, Math.PI / 2]) { const cx = Math.cos(ry + o + 0.4) * bs, cz = Math.sin(ry + o + 0.4) * bs;
-        mb.get('paintDS').quad([px - cx, yb + h - 0.02, pz - cz], [px + cx, yb + h - 0.02, pz + cz], [px + cx, yb + h + bs * 1.6, pz + cz], [px - cx, yb + h + bs * 1.6, pz - cz], [0, 0, 1, 1], c); }
-    }
+    /* plants: real 3D canna / marigold / salvia / periwinkle from Flowers.js (instanced, LOD) — added below */
   }
   // clipped hedges (Murraya / ixora type): rounded top, leaf-textured
   for (const [ax, az, bx, bz] of HEDGES) {
@@ -144,5 +135,6 @@ export function buildParks(MAT) {
   }
   const g = new THREE.Group(); g.name = 'parks';
   for (const m of mb.toMeshes(MAT, { cast: false, receive: true })) { if (m.name === 'hedge' || m.name === 'foliage') m.castShadow = true; g.add(m); }
+  const flowers = new FlowerBeds(BEDS, LAND_Y + 0.26); g.add(flowers.group); g.userData.flowers = flowers;
   return g;
 }

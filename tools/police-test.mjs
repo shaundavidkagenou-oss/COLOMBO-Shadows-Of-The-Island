@@ -108,6 +108,7 @@ const PU = await import('../src/police/Pursuit.js');
   ok(sites > tries * 0.4, `roadblock site found ahead on most roads (${sites}/${tries})`); ok(badSite === 0, `every roadblock site is on the road ahead of the suspect (${badSite} bad)`);
   const st = { x: 10, z: 10, yaw: 0, len: 4, depth: 0.42 }; const car = mk(10, 10 + 1.6, 0, 10, false); ok(PU.overStrip(st, car), 'spike strip: front wheels on the strip → puncture'); car.z = 16; ok(!PU.overStrip(st, car), 'spike strip: clear 6 m away');
   const l1 = PU.radioLine('heading', { road: 'Galle Road', dir: PU.compass(Math.PI), vtype: 'tuktuk' }); ok(/three-wheeler heading north on Galle Road/.test(l1.en), `radio: "${l1.en}"`);
+  { const lf = PU.radioLine('heading', { road: 'Galle Road', dir: 0, vtype: 'foot' }); ok(/suspect on foot, heading/.test(lf.en) && !/vehicle/.test(lf.en), `radio (on foot): "${lf.en}"`); }
   const l2 = PU.radioLine('heading', { road: 'Galle Road', dir: PU.compass(Math.PI / 2), alt: true }); ok(l2.si.includes('නැගෙනහිර') && /east/.test(l2.tr), 'radio: Sinhala line with translation');
 }
 console.log(`metrics: ${routes} routes (worst ${worst.toFixed(2)}× optimal), ${arrived}/${trips} unit trips arrived (max stop error ${maxErr.toFixed(1)} m)`);

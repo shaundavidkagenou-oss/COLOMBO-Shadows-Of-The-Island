@@ -342,6 +342,7 @@ export class Weapons {
     else if (hit.kind === 'world' || hit.kind === 'ground') { this.puff(hit.point, hit.kind === 'ground' ? 0x6d6a64 : 0xb5ab9a, 5); this.decal(hit.point, dir, hit.kind); }
     this.shotAlarm -= 1; if (this.shotAlarm <= 0) { this.shotAlarm = 3; this.g.crowd.alarm(P.x, P.z, def.loud, 2, null); }
     this.g.crowd.alarm(hit.point.x, hit.point.z, 10, 2, null);
+    this.g.birds?.scare(P.x, P.z, 50); // every bird nearby goes up at a gunshot
     if (this.g.police) this.g.police.gunfire(P.x, P.z); else { this.heat = Math.min(5, this.heat + 0.05); this.heatT = 0; } this.lastShot = { x: P.x, z: P.z, t: performance.now() };
     if (this.onShot) this.onShot(def, hit);
   }

@@ -132,7 +132,7 @@ export function compass(yaw) { const fx = Math.sin(yaw), fz = Math.cos(yaw); ret
 export function radioLine(kind, ctx) {
   const road = ctx.road || 'the area'; const d = ctx.dir ?? 0; const veh = VEH[ctx.vtype] || 'vehicle'; const n = ctx.unit || 1;
   switch (kind) {
-    case 'heading': return ctx.alt ? { si: `සැකකරු ${road} දිගේ ${DIR_SI[d]} දෙසට යනවා.`, tr: `Suspect going ${DIR_EN[d]} on ${road}.` } : { en: `Control to all units — suspect ${veh} heading ${DIR_EN[d]} on ${road}.` };
+    case 'heading': return ctx.alt ? { si: `සැකකරු ${road} දිගේ ${DIR_SI[d]} දෙසට යනවා.`, tr: `Suspect going ${DIR_EN[d]} on ${road}.` } : { en: ctx.vtype === 'foot' ? `Control to all units — suspect on foot, heading ${DIR_EN[d]} on ${road}.` : `Control to all units — suspect ${veh} heading ${DIR_EN[d]} on ${road}.` };
     case 'pit': return { en: `Unit ${n}, you are clear for a PIT. Take him out.` };
     case 'ram': return { en: `Unit ${n}, box him in. Do not let him get away.` };
     case 'block': return { en: `Unit ${n}, get ahead of him and cut him off.` };
