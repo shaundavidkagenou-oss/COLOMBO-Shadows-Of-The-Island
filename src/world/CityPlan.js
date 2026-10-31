@@ -368,12 +368,12 @@ export function generatePlan() {
   }
   // story shops: give the nearest suitable shophouse the mission sign and record a frontage point
   plan.missionShops = {}; const taken = new Set();
-  const WANT = { kade: [-78, -893], fathima: [-40, -905], selvaraj: [-175, -905], bandara: [-110, -868], tailor: [L.PLACES.tailor.x, L.PLACES.tailor.z], garage: [L.PLACES.garage.x, L.PLACES.garage.z] };
+  const WANT = { kade: [-78, -893], fathima: [-40, -905], selvaraj: [-175, -905], bandara: [-110, -868], tailor: [L.PLACES.tailor.x, L.PLACES.tailor.z], garage: [L.PLACES.garage.x, L.PLACES.garage.z], gunshop: [L.PLACES.gunshop.x, L.PLACES.gunshop.z] };
   for (const [m, [tx, tz]] of Object.entries(WANT)) {
     let best = null, bd = 1e12;
     for (const b of plan.buildings) { if (taken.has(b) || !b.front || b.groundRow === undefined || b.totalH > 40) continue; const [fx, fz] = frontPoint(b, 1.2); const d = (fx - tx) ** 2 + (fz - tz) ** 2; if (d < bd) { bd = d; best = b; } }
     if (!best) continue; taken.add(best);
-    best.sign = missionSigns[m]; best.mission = m; best.awning = m !== 'garage'; best.groundRow = { kade: SHOP_ROWS.cafe, fathima: SHOP_ROWS.textile, selvaraj: SHOP_ROWS.electronics, bandara: SHOP_ROWS.produce, tailor: SHOP_ROWS.textile, garage: SHOP_ROWS.gate }[m];
+    best.sign = missionSigns[m]; best.mission = m; best.awning = m !== 'garage' && m !== 'gunshop'; best.groundRow = { kade: SHOP_ROWS.cafe, fathima: SHOP_ROWS.textile, selvaraj: SHOP_ROWS.electronics, bandara: SHOP_ROWS.produce, tailor: SHOP_ROWS.textile, garage: SHOP_ROWS.gate, gunshop: SHOP_ROWS.electronics }[m];
     const [x, z, rot] = frontPoint(best, 1.3); plan.missionShops[m] = { x, z, rot, faceIn: facingIntoShop(best.front), b: best.id, name: SIGNS[missionSigns[m]].en || m };
   }
   // keep story-shop frontages clear: no pavement stall (or its vendor) blocking the door of a mission shop

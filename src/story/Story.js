@@ -404,7 +404,7 @@ export class Story {
     STAMPS.forEach(([x, z], i) => { if (!this.state.stamps.includes(i)) { const [sx, sz] = this.safeSpot(x, z); STAMPS[i] = [sx, sz]; this.hud.addBlip('stamp' + i, sx, sz, 'stamp'); } });
     PHOTO_SPOTS.forEach((s) => { if (!this.state.photos.includes(s.id)) this.hud.addBlip('photo' + s.id, s.view[0], s.view[1], 'photo'); });
     TRIALS.forEach((t) => this.hud.addBlip('trial' + t.id, t.pts[0][0], t.pts[0][1], 'side', t.name));
-    const S = plan.missionShops; if (S.kade) this.hud.addBlip('shop_kade', S.kade.x, S.kade.z, 'shop', 'Tea Kade'); if (S.garage) this.hud.addBlip('shop_garage', S.garage.x, S.garage.z, 'shop', 'Garage'); if (S.tailor) this.hud.addBlip('shop_tailor', S.tailor.x, S.tailor.z, 'shop', 'Tailor');
+    const S = plan.missionShops; if (S.kade) this.hud.addBlip('shop_kade', S.kade.x, S.kade.z, 'shop', 'Tea Kade'); if (S.garage) this.hud.addBlip('shop_garage', S.garage.x, S.garage.z, 'shop', 'Garage'); if (S.tailor) this.hud.addBlip('shop_tailor', S.tailor.x, S.tailor.z, 'shop', 'Tailor'); if (S.gunshop) this.hud.addBlip('shop_gunshop', S.gunshop.x, S.gunshop.z, 'shop', 'Gun shop · Ceylon Arms Co.');
     this.stampMeshes = STAMPS.map(([x, z], i) => { if (this.state.stamps.includes(i)) return null; const m = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.4, 0.02), new THREE.MeshStandardMaterial({ color: 0xd8a0ff, emissive: 0x9a50ff, emissiveIntensity: 0.8 })); m.position.set(x, 1.1, z); this.g.scene.add(m); return m; });
   }
   updateSide(dt) {

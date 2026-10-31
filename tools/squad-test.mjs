@@ -17,12 +17,13 @@ let fails = 0, n = 0; const ok = (c, msg) => { n++; if (!c) { fails++; console.l
 ok(S.SQUAD_IDS.join() === 'dineth,shashika,david', 'three protagonists in order');
 for (const d of S.SQUAD_DEFS) {
   ok(HEROES[d.id], `${d.id} has a hero spec`); ok(['F1', 'F2', 'F3'].includes(d.key), `${d.id} key`);
-  ok(d.loadout.every((id) => WEAPONS.some((w) => w.id === id)) && d.loadout.includes(d.primary), `${d.id} loadout uses real weapons`);
+  ok(d.loadout.every((id) => WEAPONS.some((w) => w.id === id)) && WEAPONS.some((w) => w.id === d.primary), `${d.id} loadout uses real weapons`);
   const inv = S.freshInventory(d); ok(inv.length === 9 && inv.filter((v) => v.owned).length === d.loadout.length, `${d.id} inventory`);
   ok(d.speed > 0.8 && d.speed < 1.2 && d.armor > 0.5 && d.armor <= 1 && d.steady > 0.3 && d.steady <= 1, `${d.id} perks in range`);
 }
 ok(HEROES.shashika.sex === 'm', 'Shashika is male');
-const all = S.SQUAD_DEFS.flatMap((d) => d.loadout); ok(new Set(all).size === 9 && all.length === 9, 'the nine weapons are split between the three, no duplicates');
+const kit = Object.fromEntries(S.SQUAD_DEFS.map((d) => [d.id, d.loadout.join()])); ok(kit.dineth === 'service' && kit.shashika === '' && kit.david === '', 'starting kits: only Dineth has a weapon (service pistol); Shashika and David start unarmed');
+{ const sh = S.SQUAD_DEFS.find((d) => d.id === 'shashika'); const inv = S.freshInventory(sh); ok(inv.every((v) => !v.owned) && WEAPONS.findIndex((w) => w.id === sh.loadout[0]) === -1, 'an unarmed member starts on fists (sel -1)'); }
 // transit
 const A = new THREE.Vector3(0, 2, 0), B = new THREE.Vector3(40, 2, 10); const [p1, p2, lift] = S.transitControls(A, B);
 ok(lift > 0.5 && lift <= 30 && p1.y > A.y && p2.y > B.y, 'transit arcs upward');
@@ -42,8 +43,13 @@ ok(/leads this mission/.test(S.switchBlock({ missionLead: 'David' })), 'mission 
 const m0 = S.momentumBlend({ t: 4, dur: 4, yaw: 1, speed: 5 }, 0, 1), m1 = S.momentumBlend({ t: 0, dur: 4, yaw: 1, speed: 5 }, 0, 1), mh = S.momentumBlend({ t: 2, dur: 4, yaw: 1, speed: 5 }, 0, 1);
 ok(Math.abs(m0.yaw - 1) < 1e-9 && m0.speed === 5 && m1.yaw === 0 && m1.speed === 1 && mh.speed > 1 && mh.speed < 5, 'momentum carries over and blends out');
 // save migration
-ok(SAVE_VERSION === 3, 'save v3'); const v3 = migrate({ version: 2, story: { done: ['m0', 'm1'], health: 70 }, weapons: { inv: WEAPONS.map((w, i) => [i, 10 * i]), sel: 0 } });
-ok(v3.squad.unlocked && v3.squad.active === 'dineth' && v3.squad.members.dineth.inv.filter((q) => q[2]).length === 2 && v3.squad.members.dineth.sel === 1, 'v2 → v3: Dineth with his own loadout');
+ok(SAVE_VERSION === 4, 'save v4'); const v3 = migrate({ version: 2, story: { done: ['m0', 'm1'], health: 70 }, weapons: { inv: WEAPONS.map((w, i) => [i, 10 * i]), sel: 0 } });
+ok(v3.squad.unlocked && v3.squad.active === 'dineth' && v3.squad.members.dineth.inv.filter((q) => q[2]).length === 1 && v3.squad.members.dineth.inv[1][2] === 1 && v3.squad.members.dineth.sel === 1 && v3.version === 4, 'v2 → v4: Dineth keeps only his service pistol');
+{ const own = (ids) => WEAPONS.map((w, i) => [i + 1, 5 * i, ids.includes(i) ? 1 : 0]);
+  const m = migrate({ version: 3, story: { done: ['m0'] }, weapons: { inv: WEAPONS.map(() => [1, 2]), sel: 4 }, squad: { v: 1, unlocked: true, active: 'shashika', members: { dineth: { inv: own([1, 3]), sel: 3 }, shashika: { inv: own([2, 4, 5]), sel: 4 }, david: { inv: own([0, 6, 7, 8]), sel: 6 } } } });
+  const M = m.squad.members; ok(M.dineth.inv.filter((q) => q[2]).length === 1 && M.dineth.inv[1][2] === 1 && M.dineth.sel === 1, 'v3 → v4: Dineth keeps only the service pistol');
+  ok(M.shashika.inv.every((q) => !q[2]) && M.david.inv.every((q) => !q[2]) && M.shashika.sel === -1 && M.david.sel === -1, 'v3 → v4: Shashika and David start over unarmed (fists)');
+  ok(M.shashika.inv[4][0] === 5 && M.shashika.inv[4][1] === 20 && m.weapons.sel === -1 && m.version === 4, 'v3 → v4: ammo counts kept, active weapon reset'); }
 // mission leads
 const { MISSIONS } = await import('../src/story/Story.js').catch(() => ({}));
 if (MISSIONS) { const list = Array.isArray(MISSIONS) ? MISSIONS : Object.values(MISSIONS); ok(list.length >= 6 && list.every((m) => S.SQUAD_IDS.includes(m.lead)), 'every mission names a squad lead'); ok(new Set(list.map((m) => m.lead)).size === 3, 'each protagonist leads at least one mission'); ok(list.filter((m) => m.squad).length >= 3 && list.some((m) => m.squad === false), 'only some missions bring the squad along'); }

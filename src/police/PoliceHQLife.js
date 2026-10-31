@@ -34,7 +34,7 @@ export class PoliceHQLife {
   // While closed both are solid colliders; once open far enough the collider drops so people/vehicles pass.
   updateGates(dt, f, d) {
     const g = this.g; const an = g.world?.landmarks?.anim || {};
-    if (!this.gateColl) { this.gateColl = {}; for (const c of g.collision?.list || []) if (c.id === 'hqBoom' || c.id === 'hqWicket') this.gateColl[c.id] = c; }
+    if (!this.gateColl) { this.gateColl = {}; for (const c of g.collision?.list || []) if (c.id === 'hqBoom' || c.id === 'hqWicket' || c.id === 'hqWicketOpen') this.gateColl[c.id] = c; }
     let wantB = this.departBoom ? 1 : 0, wantW = 0;
     if (d < 120) {
       // vehicles: a lead point ahead of the bonnet anywhere in the approach lanes; people: only when actually stepping up to the
@@ -50,7 +50,7 @@ export class PoliceHQLife {
     this.boom = clamp(this.boom + Math.sign(this.boomWant - this.boom) * dt / 1.6, 0, 1); const arm = an.hqBoom || this.boomPivot();
     if (arm) arm.rotation.z = (1 - Math.cos(this.boom * Math.PI)) / 2 * 1.45;
     this.wicket = clamp((this.wicket || 0) + (this.holdW > 0 ? 1 : -1) * dt / 0.9, 0, 1); if (an.hqWicket) an.hqWicket.rotation.y = -(1 - Math.cos(this.wicket * Math.PI)) / 2 * 1.5;
-    const cb = this.gateColl.hqBoom, cw = this.gateColl.hqWicket; if (cb) cb.h = this.boom > 0.55 ? 0 : 1.05; if (cw) cw.h = this.wicket > 0.6 ? 0 : 2.0;
+    const cb = this.gateColl.hqBoom, cw = this.gateColl.hqWicket; if (cb) cb.h = this.boom > 0.55 ? 0 : 1.05; if (cw) cw.h = this.wicket > 0.6 ? 0 : 2.0; if (this.gateColl.hqWicketOpen) this.gateColl.hqWicketOpen.h = this.wicket > 0.6 ? 2.0 : 0;
   }
   boomPivot() { if (this._boom !== undefined) return this._boom; let found = null; this.g.scene.traverse((o) => { if (!found && o.isGroup && o.children.length === 2 && Math.abs(o.position.x - HQ.boom.x) < 0.01 && Math.abs(o.position.z - HQ.boom.z) < 0.01) found = o; }); return (this._boom = found); }
   // ------------------------------------------------------------------ spawn / despawn (LOD)

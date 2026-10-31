@@ -111,6 +111,10 @@ export class Atmosphere {
     const envSky = new Sky(); envSky.material = this.sky.material; envSky.scale.setScalar(80); this.envScene.add(envSky);
     const envClouds = new THREE.Mesh(new THREE.SphereGeometry(60, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), this.cloudMat); this.envScene.add(envClouds);
     this.envGround = new THREE.Mesh(new THREE.CircleGeometry(80, 16).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x2c2a26 })); this.envGround.position.y = -2; this.envScene.add(this.envGround);
+    // surroundings band (buildings, tree line) up to ~9° above the horizon: grazing reflections — the silhouette edges of fence
+    // bars, dark clothing, car flanks, where Fresnel reflectance goes to ~100 % — pick up a muted city tone instead of bright
+    // cyan horizon haze (which rendered as 1-px cyan fringes on every dark edge in daylight)
+    this.envSkyline = new THREE.Mesh(new THREE.CylinderGeometry(60, 60, 11.5, 48, 1, true), new THREE.MeshBasicMaterial({ color: 0x4a4c46, side: THREE.BackSide })); this.envSkyline.position.y = 3.6; this.envScene.add(this.envSkyline);
     this.envTimer = 0; this.envRT = null; this.lastEnvHour = -99;
     // rain streaks
     this.rainCount = 7000; const rg = new THREE.BufferGeometry(); const rp = new Float32Array(this.rainCount * 6); this.rainSeeds = new Float32Array(this.rainCount * 3);
@@ -203,6 +207,7 @@ export class Atmosphere {
     if (this.envTimer <= 0 || Math.abs(this.hour - this.lastEnvHour) > 0.4) {
       this.envTimer = 12; this.lastEnvHour = this.hour;
       this.envGround.material.color.setRGB(0.25, 0.23, 0.2).multiplyScalar(1 - this.night * 0.8);
+      this.envSkyline.material.color.setRGB(0.3, 0.31, 0.28).multiplyScalar((1 - this.night * 0.85) * (1 - this.w.dark * 0.35));
       const prevFog = this.scene.fog; const old = this.envRT;
       this.envRT = this.pmrem.fromScene(this.envScene, 0.02, 0.1, 200);
       this.scene.environment = this.envRT.texture; this.envBase = this.scene.environmentIntensity = 0.62 * (1 - this.night * 0.7) * (1 - this.w.dark * 0.3); // sky PMREM is HDR: full strength washed every facade

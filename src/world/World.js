@@ -4,7 +4,7 @@ import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
 import { generatePlan, plan, NCX, NCZ, CHUNK, chunkCenter } from './CityPlan.js';
 import { buildGround } from './GroundBuilder.js';
-import { buildBase, buildDetail, buildWall, buildWindows } from './BuildingGen.js';
+import { buildBase, buildDetail, buildWall, buildWindows, frontColumns } from './BuildingGen.js';
 import { buildLandmarks } from './Landmarks.js';
 import { buildPropGeometries, buildPropsForChunk, updateSignals, initGlowTexture } from './Props.js';
 import { buildTreeGeometries, buildTreesForChunk, windUniform } from './Vegetation.js';
@@ -13,6 +13,7 @@ import { buildParks } from './Parks.js';
 import { ROAD_Y } from './Layout.js';
 import { GrassField, upgradeGroundGrass } from './Grass.js';
 import { Collision } from './Collision.js';
+import { buildGunShopFront } from './GunShopFront.js';
 import * as L from './Layout.js';
 import { RNG } from '../core/rng.js';
 
@@ -32,10 +33,12 @@ export class World {
     progress(0.0, 'Planning Colombo'); await tick();
     generatePlan();
     this.plan = plan; this.collision.addAll(plan.colliders);
+    for (const b of plan.buildings) for (const [px, pz, r] of frontColumns(b)) this.collision.add({ x0: px - r - 0.01, x1: px + r + 0.01, z0: pz - r - 0.01, z1: pz + r + 0.01, h: L.LAND_Y + (b.colonnade ? 4.4 : 2.9), kind: 'pole' }); // villa porch + Fort arcade columns
     progress(0.08, 'Laying roads and pavements'); await tick();
     const ground = buildGround(() => {});
     progress(0.2, 'Raising landmarks'); await tick();
     const lm = buildLandmarks(); this.landmarks = lm; this.root.add(lm.group); this.collision.addAll(lm.colliders);
+    if (plan.missionShops.gunshop) { const s = plan.missionShops.gunshop; const f = buildGunShopFront(s, plan.buildings.find((b) => b.id === s.b)); this.root.add(f.group); this.collision.addAll(f.colliders); } // Ceylon Arms Co. shopfront
     progress(0.3, 'Street furniture and trees'); await tick();
     buildPropGeometries(); buildTreeGeometries(); initGlowTexture();
     for (let idx = 0; idx < NCX * NCZ; idx++) {
@@ -145,6 +148,9 @@ export class World {
     c.win = g; c.group.add(g); refreshStatic(c.group);
   }
   disposeWindows(c) { c.group.remove(c.win); c.win.traverse((m) => m.geometry && m.geometry.dispose()); c.win = null; }
+  // after a long jump (teleport / fast travel) release streamed chunk geometry well outside the new streaming radii at once,
+  // instead of keeping it until the 630 m hysteresis — keeps memory flat when jumping across the city
+  trim(x, z) { let n = 0; for (const c of this.chunks) { const d = Math.max(0, Math.hypot(c.cx - x, c.cz - z) - CHUNK * 0.7); if (c.detail && d > this.detailRadius + 60) { this.disposeDetail(c); n++; } if (c.win && d > this.windowRadius + 40) { this.disposeWindows(c); n++; } } return n; }
   disposeDetail(c) { c.group.remove(c.detail); c.detail.traverse((m) => m.geometry && m.geometry.dispose()); c.detail = null; }
   // Force detail around a point (used before cinematics / after teleport)
   warm(x, z) { for (const c of this.chunks) { const d = Math.hypot(c.cx - x, c.cz - z) - CHUNK * 0.7; if (!c.detail && d < this.detailRadius) this.buildDetailFor(c); if (!c.win && d < this.windowRadius) this.buildWindowsFor(c); } }

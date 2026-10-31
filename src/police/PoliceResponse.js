@@ -86,6 +86,7 @@ export class PoliceResponse {
     if (this.t - this.crimeT < 4) return; for (const u of this.units) { if (this.unitSees(u, kind === 'gunfire' ? 1.6 : 1)) { this.crimeT = this.t; this.incident = { x, z, t: this.t }; this.addHeat(1, this.reason, 'A police officer saw it happen.'); this.spotted(); return; } }
   }
   addHeat(n, reason, why = null, quiet = false) {
+    if (this.g.debug?.noWanted) return; // debug cheat
     const before = this.stars(); this.level = Math.min(5, this.level + n); const after = this.stars(); if (after <= before) return;
     this.note(`wanted ${before}→${after} (${reason})`);
     if (!quiet || after !== before) this.g.hud.notify(after === 1 ? 'Police alerted' : 'Wanted level raised', `${why ? why + ' ' : ''}${'★'.repeat(after)} — ${reason}. Lie low out of sight and the search will be scaled down.`, 'warn', 4);

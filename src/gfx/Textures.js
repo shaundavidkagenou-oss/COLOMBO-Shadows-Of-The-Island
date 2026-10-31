@@ -467,6 +467,7 @@ export const SIGNS = [
   { en: 'Vasantham Cafe', si: 'තේ කඩේ', ta: 'தேநீர்க் கடை', bg: '#0e6251', fg: '#fdfefe', kind: 'cafe' },
   { en: 'Ceylon Threads', si: 'රෙදි සාප්පුව', ta: 'ஜவுளி', bg: '#17202a', fg: '#e5be72', kind: 'textile', mission: 'tailor' },
   { en: 'Lanka Auto Care', si: 'ගරාජය', ta: 'கராஜ்', bg: '#1c2833', fg: '#f39c12', kind: 'shutter', mission: 'garage' },
+  { en: 'Ceylon Arms Co.', si: 'ගිනි අවි', ta: 'துப்பாக்கிக் கடை', bg: '#141414', fg: '#d9b25a', kind: 'shutter', mission: 'gunshop' },
 ];
 function signAtlas(cw = 512) {
   const ch = cw / 4, W = cw * SIGN_COLS, H = ch * SIGN_ROWS;

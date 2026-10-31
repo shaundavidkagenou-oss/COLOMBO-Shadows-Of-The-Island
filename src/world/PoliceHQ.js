@@ -83,7 +83,7 @@ export function buildPoliceHQ({ mb, box, coll, label, group, LAND_Y, SANS, SI, T
     bar(lw / 2, 0.12, lw, 0.06, 0.05); bar(lw / 2, 1.0, lw, 0.05, 0.05); bar(lw / 2, 1.9, lw, 0.06, 0.05); bar(0.03, 1.0, 0.06, 1.85, 0.06); bar(lw - 0.03, 1.0, 0.06, 1.85, 0.06);
     for (let k = 1; k < 9; k++) bar(k * lw / 9, 1.0, 0.025, 1.78, 0.025);
     const latch = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.14, 0.09), new THREE.MeshStandardMaterial({ color: 0xb8a24a, metalness: 0.8, roughness: 0.35 })); latch.position.set(lw - 0.1, 1.05, 0); leaf.add(latch);
-    group.add(leaf); anim.hqWicket = leaf; coll(Wk.x - Wk.w / 2, Wk.x + Wk.w / 2, fz0 - 0.1, fz0 + 0.1, 2.0, { kind: 'barrier', id: 'hqWicket' });
+    group.add(leaf); anim.hqWicket = leaf; coll(Wk.x - Wk.w / 2, Wk.x + Wk.w / 2, fz0 - 0.1, fz0 + 0.1, 2.0, { kind: 'barrier', id: 'hqWicket' }); coll(hx - 0.06, hx + 0.16, fz0 + 0.1, fz0 + lw, 0, { kind: 'barrier', id: 'hqWicketOpen' }); /* the leaf where it rests when open (PoliceHQLife raises it) */
   }
 
   // ---------------------------------------------------------------- main building

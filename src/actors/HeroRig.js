@@ -88,7 +88,7 @@ export class HeroRig {
     if (A.seated && A.seatW > 0.5) return A.action === 'drive' || A.drive > 0.5 ? 'wheel' : 'relax';
     if (act === 'point' && S === 'R') return 'point'; if (act === 'handsup' || act === 'signal' || act === 'stretch' || act === 'shrug') return 'open';
     if (act === 'phone' && S === 'R') return 'phone'; if (act === 'text') return 'phone'; if (act === 'umbrella' && S === 'R') return 'fist';
-    if (act === 'argue' || act === 'shove') return 'open'; if (act === 'cower' || act === 'flinch') return 'fist'; if (act === 'gloves') return 'glove';
+    if (act === 'argue' || act === 'shove') return 'open'; if (act === 'cower' || act === 'flinch' || act === 'punch') return 'fist'; if (act === 'gloves') return 'glove';
     if (act === 'crossarms' || act === 'hips') return 'support'; if (act === 'comms') return S === 'R' ? 'point' : 'relax'; if (act === 'glance' && S === 'L') return 'open'; if (act === 'straps') return 'fist'; if (act === 'glasses' && S === 'R') return 'pinch'; if (act === 'cover') return 'support'; return null;
   }
   update(dt) {

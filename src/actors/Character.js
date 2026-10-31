@@ -984,6 +984,13 @@ export class Animator {
         case 'flinch': { const k = Math.max(0, 1 - at * 2.2); b.spine.rotation.x += 0.25 * k; b.neck.rotation.x += 0.3 * k; tr = [-1.6 * k, 0, 0.4 * k]; tl = [-1.6 * k, 0, -0.4 * k]; tfr = tfl = [-1.8 * k, 0, 0]; break; }
         case 'hit': { const k = Math.max(0, 1 - at * 1.6); b.spine.rotation.x -= 0.35 * k; b.chest.rotation.y += 0.3 * k; tr = [-0.6 * k, 0, -0.8 * k]; tl = [-0.4 * k, 0, 0.9 * k]; break; }
         case 'down': { b.hips.position.y = lerp(b.hips.position.y, 0.16 * s, aw); b.hips.rotation.x = lerp(b.hips.rotation.x, -1.45, aw); for (const sd of ['L', 'R']) { b['thigh' + sd].rotation.x = lerp(b['thigh' + sd].rotation.x, 0.05, aw); b['shin' + sd].rotation.x = lerp(b['shin' + sd].rotation.x, 0.2, aw); b['foot' + sd].rotation.x = lerp(b['foot' + sd].rotation.x, -0.2, aw); } tr = [-0.4, 0, -0.7]; tl = [-0.3, 0, 0.8]; tfr = tfl = [-0.3, 0, 0]; break; }
+        case 'punch': { // fists: guard up, one hand snaps out (jab / cross alternate via punchSide), the chest turns into it, back to guard
+          const sd = this.punchSide || 1, k = Math.sin(clamp(at / 0.34, 0, 1) * Math.PI) ** 0.7; const gU = [-0.75, 0, 0], gF = -2.15;
+          const ext = [-1.5, 0, 0], eF = -0.12; const lerp3 = (a, b, w) => [a[0] + (b[0] - a[0]) * w, a[1] + (b[1] - a[1]) * w, a[2] + (b[2] - a[2]) * w];
+          const pr = sd > 0 ? k : 0, pl = sd < 0 ? k : 0;
+          tr = lerp3([gU[0], 0, -0.32], [ext[0], 0, 0.12], pr); tfr = [gF + (eF - gF) * pr, 0, 0];
+          tl = lerp3([gU[0], 0, 0.32], [ext[0], 0, -0.12], pl); tfl = [gF + (eF - gF) * pl, 0, 0];
+          b.chest.rotation.y += (sd > 0 ? 0.38 : -0.38) * k * aw; b.spine.rotation.x += 0.12 * aw; b.neck.rotation.x += 0.08 * aw; head = (sd > 0 ? -0.25 : 0.25) * k; break; }
         case 'shove': { const k = Math.sin(clamp(at / 0.4, 0, 1) * Math.PI); tr = [-1.5 * k, 0, 0.1]; tl = [-1.5 * k, 0, -0.1]; tfr = tfl = [-0.6 + 0.5 * k, 0, 0]; b.spine.rotation.x += 0.2 * k; break; }
         case 'browse': tr = [-0.75, 0, 0.1]; tfr = [-0.9 + Math.sin(t * 1.3) * 0.2, 0, 0]; head = Math.sin(t * 0.5) * 0.4; b.neck.rotation.x += 0.25 * aw; break;
         case 'umbrella': tr = [-0.6, 0, -0.1]; tfr = [-1.8, 0, 0]; break;

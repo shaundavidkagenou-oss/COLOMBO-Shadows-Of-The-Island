@@ -17,6 +17,21 @@ function sides(x0, x1, z0, z1) {
     { id: 'W', a: [x0, z0], b: [x0, z1], n: [-1, 0], len: z1 - z0 },
   ];
 }
+// Free-standing front columns (world x, z, radius): villa porch columns and Fort arcade columns. The meshes in buildDetail
+// and the colliders registered by World both come from here, so every column you can see is solid.
+function frontSide(b) { const sd = sides(b.x0, b.x1, b.z0, b.z1); return sd.find((q) => q.id === b.front) || sd[0]; }
+export function porchPillars(b) {
+  if (!b.porch) return [];
+  const s = frontSide(b);
+  return [0.5 - 1.9 / s.len, 0.5 + 1.9 / s.len].map((t) => [s.a[0] + (s.b[0] - s.a[0]) * t + s.n[0] * 2.6, s.a[1] + (s.b[1] - s.a[1]) * t + s.n[1] * 2.6, 0.16]);
+}
+export function colonnadeColumns(b) {
+  if (!b.colonnade) return [];
+  const s = frontSide(b), n = Math.max(2, Math.floor(s.len / 4)), out = [];
+  for (let k = 0; k <= n; k++) out.push([s.a[0] + (s.b[0] - s.a[0]) * k / n + s.n[0] * 0.6, s.a[1] + (s.b[1] - s.a[1]) * k / n + s.n[1] * 0.6, 0.32]);
+  return out;
+}
+export const frontColumns = (b) => porchPillars(b).concat(colonnadeColumns(b));
 function facadeWall(mb, s, y0, y1, uOff, vStart, color) {
   const u0 = uOff, u1 = uOff + s.len / (4 * BAY);
   const v0 = (y0 - vStart) / (2 * FLOOR_H), v1 = (y1 - vStart) / (2 * FLOOR_H);
@@ -170,7 +185,7 @@ export function buildDetail(b, multi) {
   }
   if (b.colonnade) { // Fort arcades
     const s = front, n = Math.max(2, Math.floor(s.len / 4)); const r = rotOf(s);
-    for (let k = 0; k <= n; k++) { const p = along(s, k / n); conc.cylinder(p[0] + s.n[0] * 0.6, y0, p[1] + s.n[1] * 0.6, 0.32, 0.28, GROUND_H, 10, { col: paint, caps: false }); }
+    for (const [px, pz] of colonnadeColumns(b)) conc.cylinder(px, y0, pz, 0.32, 0.28, GROUND_H, 10, { col: paint, caps: false }); // solid (World)
     const mid = along(s, 0.5); conc.box(mid[0] + s.n[0] * 0.6, y0 + GROUND_H + 0.2, mid[1] + s.n[1] * 0.6, s.len + 0.8, 0.4, 1.6, { col: paint, rotY: r, uvScale: 3, bottom: true });
   }
   // storefront dressing: awnings + trilingual signs
@@ -291,7 +306,7 @@ export function buildDetail(b, multi) {
   if (b.porch) {
     const s = front; const mid = along(s, 0.5); const r = rotOf(s);
     conc.box(mid[0] + s.n[0] * 1.4, y0 + 2.9, mid[1] + s.n[1] * 1.4, 4.2, 0.2, 2.8, { col: paint, rotY: r, bottom: true });
-    for (const t of [0.5 - 1.9 / s.len, 0.5 + 1.9 / s.len]) { const p = along(s, t); conc.cylinder(p[0] + s.n[0] * 2.6, y0, p[1] + s.n[1] * 2.6, 0.16, 0.16, 2.8, 8, { col: paint, caps: false }); }
+    for (const [px, pz] of porchPillars(b)) conc.cylinder(px, y0, pz, 0.16, 0.16, 2.8, 8, { col: paint, caps: false }); // solid: World registers porchPillars() as colliders
     conc.box(mid[0] + s.n[0] * 1.4, y0 + 0.1, mid[1] + s.n[1] * 1.4, 4.4, 0.2, 3, { col: [0.75, 0.7, 0.65], rotY: r });
   }
   // house lights at night (most Colombo homes leave the front light on): a ceiling bulb under the porch, or a bracket lamp

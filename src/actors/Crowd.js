@@ -252,7 +252,8 @@ export class Crowd {
           p.timer -= dt; desired = 0; accel = 4; avoid = false;
           if (p.timer <= 0) {
             const r = this.rng; const old = p.sp.age === 'elder';
-            const k = r.weighted([['confront', old ? p.temper * 1.5 : p.temper * 4], ['complain', 2.5], ['flee', old ? 3 : (1 - p.temper) * 2], ['report', old ? 1.5 : 0.6], ['shrug', 1.2]]);
+            const k = p.punched ? r.weighted([['confront', old ? 0.2 : p.temper * 1.6], ['complain', 0.8], ['flee', 3], ['report', 1.6]]) // punched: mostly get away / call it in
+              : r.weighted([['confront', old ? p.temper * 1.5 : p.temper * 4], ['complain', 2.5], ['flee', old ? 3 : (1 - p.temper) * 2], ['report', old ? 1.5 : 0.6], ['shrug', 1.2]]); p.punched = false;
             if (k === 'confront') { this.react(p, 'confront', 3 + r.next() * 2.5); p.ch.anim.set(r.chance(0.5) ? 'argue' : 'point'); p.ch.face.set('angry', 5); p.ch.face.mood = 'angry'; this.speak(p, 'shoved', 1, 2.5); }
             else if (k === 'complain') { this.react(p, 'complain', 3.5 + r.next() * 2); p.ch.face.set('concern', 4); this.speak(p, 'annoyed', 1); }
             else if (k === 'flee') { const ax = p.x - player.x, az = p.z - player.z, d = Math.hypot(ax, az) || 1; this.react(p, 'flee', 2.5 + r.next() * 2, { fleeDir: this.spread(ax / d, az / d, 0.6), fleeSp: 3 + r.next() }); p.ch.face.set('fear', 3); this.speak(p, 'scared', 1); }
@@ -382,6 +383,17 @@ export class Crowd {
     cand.sort((a, b) => a[0] - b[0]); let best = cand[0] && cand[0][1];
     for (const [, n] of cand.slice(0, 8)) { let ok = true; for (const t of [0.33, 0.66]) if (this.collision.blocked(lerp(p.x, n.x, t), lerp(p.z, n.z, t), 0.25)) { ok = false; break; } if (ok && (!needClear || Math.hypot(n.x - p.x, n.z - p.z) > 0.8)) { best = n; break; } }
     if (best) { p.node = best.id; p.nextNode = best.id; p.target = { x: best.x, z: best.z }; p.state = 'walk'; p.edge = null; }
+  }
+  // a punch from the player (fists): non-graphic — they stagger back off balance; a third blow in quick succession puts them on the
+  // ground for a few seconds. Bystanders notice (alarm) and the stumble ends in a temper-dependent response, weighted towards
+  // fleeing / reporting it. Returns true when it landed.
+  punched(p, src) {
+    if (!p || p.state === 'down') return false; const now = performance.now();
+    if (!p.punchAt || now - p.punchAt > 6000) p.punchN = 0; p.punchAt = now; p.punchN = (p.punchN || 0) + 1;
+    const dx = p.x - src.x, dz = p.z - src.z, d = Math.hypot(dx, dz) || 1; p.knockedByCar = false; p.lookAt = { x: src.x, z: src.z };
+    if (p.punchN >= 3) { this.react(p, 'down', 4 + this.rng.next() * 3, { yaw: Math.atan2(-dx, -dz) }); p.downT = 0; p.vx = dx / d * 1.4; p.vz = dz / d * 1.4; p.ch.face.set('fear', 6); p.punchN = 0; }
+    else { this.react(p, 'stumble', 0.65 + this.rng.next() * 0.3, { punched: true }); p.vx = dx / d * 2.0; p.vz = dz / d * 2.0; p.ch.anim.set(this.rng.chance(0.5) ? 'hit' : 'stumble'); p.ch.face.set('fear', 2.5); this.speak(p, 'scared', 2); }
+    this.events.emit('pedPunched', p); this.alarm(p.x, p.z, 18, 2, p); return true;
   }
   knock(p, fx, fz, speed, offset = 0) {
     if (p.state === 'down') return; this.react(p, 'down', 2.4 + Math.min(3, speed * 0.2), { yaw: Math.atan2(-fx, -fz) }); p.downT = 0; p.knockedByCar = true;

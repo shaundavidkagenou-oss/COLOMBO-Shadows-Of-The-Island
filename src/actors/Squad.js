@@ -25,12 +25,14 @@ import { WEAPONS } from '../combat/Weapons.js';
 
 export const SQUAD_DEFS = [
   { id: 'dineth', name: 'Dineth', full: 'Dineth Jayasekara', role: 'Agile · Streetwise', accent: '#e3a24a', key: 'F1',
-    loadout: ['service', 'carbine'], primary: 'carbine', speed: 1.06, stamina: 1.3, armor: 1, steady: 1, arrive: 'gloves', armedArrive: 'rack', idle: ['look', 'hips', 'watch'] },
+    loadout: ['service'], primary: 'service', speed: 1.06, stamina: 1.3, armor: 1, steady: 1, arrive: 'gloves', armedArrive: 'rack', idle: ['look', 'hips', 'watch'] },
   { id: 'shashika', name: 'Shashika', full: 'Shashika Wijesinghe', role: 'Tactical · Heavy', accent: '#9fb06e', key: 'F2',
-    loadout: ['heavy', 'assault', 'battle'], primary: 'assault', speed: 0.95, stamina: 0.9, armor: 0.7, steady: 0.85, arrive: 'straps', armedArrive: 'rack', idle: ['crossarms', 'look', 'hips'] },
+    loadout: [], primary: 'assault', speed: 0.95, stamina: 0.9, armor: 0.7, steady: 0.85, arrive: 'straps', armedArrive: 'rack', idle: ['crossarms', 'look', 'hips'] },
   { id: 'david', name: 'David', full: 'David Rodrigo', role: 'Precision · Technical', accent: '#6fa8dc', key: 'F3',
-    loadout: ['compact', 'bolt', 'semi', 'precision'], primary: 'bolt', speed: 1.0, stamina: 1.0, armor: 1, steady: 0.55, arrive: 'glasses', armedArrive: 'chamber', idle: ['watch', 'text', 'look'] },
+    loadout: [], primary: 'bolt', speed: 1.0, stamina: 1.0, armor: 1, steady: 0.55, arrive: 'glasses', armedArrive: 'chamber', idle: ['watch', 'text', 'look'] },
 ];
+// Starting kit: only Dineth carries a weapon (his service pistol). Shashika and David start unarmed (fists) and buy what they
+// want at a gun shop; `primary` is only a preference for the switch-in weapon check once they own it.
 export const SQUAD_IDS = SQUAD_DEFS.map((d) => d.id);
 
 // ------------------------------------------------------------------------------------------------ pure helpers

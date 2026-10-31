@@ -206,12 +206,12 @@ function roadWear(mb, s, dir, a, b, n0, n1) {
   // queued-traffic oil zone before each stop line (approach lane is on the left of travel)
   const cw = 3.4, gap = 0.8; const j0 = n0.segs.length >= 3 && s.level <= 2 && !s.crossing, j1 = n1.segs.length >= 3 && s.level <= 2 && !s.crossing;
   const lane0 = lanes[0];
-  if (j1) { const st = len - gap - cw - 0.9, o = (dir === 'v' ? 1 : -1) * lane0; rect(st - 11, st - 0.8, o - 0.55, o + 0.55, y + 0.003, [0.72, 0.71, 0.7]); rect(st - 6, st - 1.4, o - 0.3, o + 0.3, y + 0.004, [0.58, 0.57, 0.56]); }
-  if (j0) { const st = gap + cw + 0.9, o = (dir === 'v' ? -1 : 1) * lane0; rect(st + 0.8, st + 11, o - 0.55, o + 0.55, y + 0.003, [0.72, 0.71, 0.7]); rect(st + 1.4, st + 6, o - 0.3, o + 0.3, y + 0.004, [0.58, 0.57, 0.56]); }
+  if (j1) { const st = len - gap - cw - 0.9, o = (dir === 'v' ? 1 : -1) * lane0; rect(st - 11, st - 0.8, o - 0.55, o + 0.55, y + 0.003, [0.72, 0.71, 0.7]); rect(st - 6, st - 1.4, o - 0.3, o + 0.3, y + 0.004, [0.66, 0.65, 0.64]); }
+  if (j0) { const st = gap + cw + 0.9, o = (dir === 'v' ? -1 : 1) * lane0; rect(st + 0.8, st + 11, o - 0.55, o + 0.55, y + 0.003, [0.72, 0.71, 0.7]); rect(st + 1.4, st + 6, o - 0.3, o + 0.3, y + 0.004, [0.66, 0.65, 0.64]); }
   // repair patches: fresh black cut-and-fill or old faded grey squares, some trench reinstatements across a lane
   const np = Math.floor(len / 45 + r.next() * 2.2);
   for (let k = 0; k < np; k++) {
-    const t = r.range(4, len - 4), o = r.range(-s.hw + 0.8, s.hw - 0.8), fresh = r.chance(0.45), tone = fresh ? r.range(0.62, 0.72) : r.range(1.08, 1.18);
+    const t = r.range(4, len - 4), o = r.range(-s.hw + 0.8, s.hw - 0.8), fresh = r.chance(0.45), tone = fresh ? r.range(0.8, 0.87) : r.range(1.05, 1.11); // subtle: deep-black squares read as holes at night
     if (r.chance(0.25)) { const side = o < 0 ? -1 : 1; rect(t, t + r.range(0.6, 0.9), side < 0 ? -s.hw + 0.3 : 0.2, side < 0 ? -0.2 : s.hw - 0.3, y + 0.005, [tone, tone, tone * 0.98]); }
     else { const wl = r.range(1.0, 3.6), wo = r.range(0.7, 2.2); rect(t, t + wl, o - wo / 2, o + wo / 2, y + 0.005, [tone, tone, tone * 0.98]); }
   }

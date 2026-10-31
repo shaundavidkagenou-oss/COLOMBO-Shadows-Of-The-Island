@@ -257,7 +257,7 @@ export class Player {
       const fovW = Settings.get('fov') - (ads ? ads.w * (ads.zoom || 8) : 0); if (Math.abs(cam.fov - fovW) > 0.05 || cam.near !== 0.07) { cam.fov = damp(cam.fov, fovW, 10, dt); cam.near = 0.07; cam.updateProjectionMatrix(); }
       this.ch.mesh.visible = true; return;
     }
-    if (this.fpHead) { this.fpHead.scale.setScalar(1); this.fpHead = null; } if (cam.near !== 0.25) { cam.near = 0.25; cam.updateProjectionMatrix(); }
+    if (this.fpHead) { this.fpHead.scale.setScalar(1); this.fpHead = null; }
     this.ch.mesh.visible = true;
     const cp = Math.cos(this.camPitch), spch = Math.sin(this.camPitch);
     const want = new THREE.Vector3(tgt.x + Math.sin(this.camYaw) * cp * dist, tgt.y + spch * dist, tgt.z + Math.cos(this.camYaw) * cp * dist);
@@ -265,11 +265,14 @@ export class Player {
     let t = 1;
     if (this.indoor) { const I = this.indoor, b = I.bounds, top = I.ceilAt ? I.ceilAt(this.y) : I.y + (I.id === 'garage' ? 4.6 : 2.9), fl = I.floorAt ? I.floorAt(this.x, this.z, this.y) : I.y; want.x = clamp(want.x, b.x0 + 0.05, b.x1 - 0.05); want.z = clamp(want.z, I.gap && this.z < b.z0 + 4 ? b.z0 - 4 : b.z0 + 0.05, b.z1 - 0.05); want.y = clamp(want.y, fl + 0.4, Math.max(top, fl + 0.6)); if (I.clampCam) I.clampCam(tgt, want); }
     else {
-      t = this.collision.raycast(tgt.x, tgt.y, tgt.z, want.x, want.y, want.z, 0.25);
-      if (t < 1) want.lerpVectors(tgt, want, Math.max(0.12, t - 0.05));
+      // pad 0.35 + a further 0.3 m back along the ray: the near plane's corners (0.25 m out, ~0.4 m wide) must stay out of the
+      // wall, or its inside shows (floating copings, see-through pillars). Low walls (> 1.3 m) count too, benches don't.
+      t = this.collision.raycast(tgt.x, tgt.y, tgt.z, want.x, want.y, want.z, 0.35, false, L.LAND_Y + 1.3);
+      if (t < 1) want.lerpVectors(tgt, want, Math.max(0.04, t - 0.3 / Math.max(dist, 0.5)));
       const gy = L.groundY(want.x, want.z) + 0.3; if (want.y < gy) want.y = gy;
     }
     if (snap) this.camPos.copy(want); else this.camPos.lerp(want, 1 - Math.exp(-dt * (t < 1 ? 25 : 12)));
+    { const nr = t < 1 || this.indoor ? 0.08 : 0.25; if (cam.near !== nr) { cam.near = nr; cam.updateProjectionMatrix(); } } // pressed against a wall or indoors: a short near plane can't cut into the geometry
     cam.position.copy(this.camPos);
     if (this.shake > 0 && Settings.get('cameraShake')) { cam.position.x += (Math.random() - 0.5) * this.shake * 0.3; cam.position.y += (Math.random() - 0.5) * this.shake * 0.3; this.shake = Math.max(0, this.shake - dt * 2.5); }
     cam.lookAt(tgt);

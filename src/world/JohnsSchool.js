@@ -79,6 +79,8 @@ export function buildJohnsSchool({ mb, box, coll, label, group, LAND_Y, SANS, SI
     const leaves2 = []; for (const sd of [1, -1]) { const g = new THREE.Group(), gb = new MultiBuilder(); mkLeaf(gb, sd); for (const m of gb.toMeshes(MAT, { cast: true, receive: true })) g.add(m);
       g.position.set(sd > 0 ? G.x0 : G.x1, y0, wz0 + 0.18); group.add(g); leaves2.push(g); }
     anim.schoolGate = leaves2; coll(G.x0, G.x1, wz0 - 0.15, wz0 + 0.3, y0 + 2.0, { id: 'schoolGate' });
+    // the open leaves (swung 90° inwards, lying along x = G.x0 / G.x1) are solid too: SchoolLife raises these as the gate opens
+    coll(G.x0 - 0.06, G.x0 + 0.1, wz0 + 0.15, wz0 + 0.2 + w, 0, { id: 'schoolGateOpenL' }); coll(G.x1 - 0.1, G.x1 + 0.06, wz0 + 0.15, wz0 + 0.2 + w, 0, { id: 'schoolGateOpenR' });
   }
   // guard hut
   { const [hx0, hx1, hz0, hz1] = S.hut, cx = (hx0 + hx1) / 2, cz = (hz0 + hz1) / 2, w = hx1 - hx0, d = hz1 - hz0;
@@ -96,7 +98,7 @@ export function buildJohnsSchool({ mb, box, coll, label, group, LAND_Y, SANS, SI
     for (const x of [0.03, w - 0.03]) b.box(x, 1.0, 0, 0.05, 1.95, 0.05, { col: C(IRON) });
     for (let x = 0.12; x < w - 0.06; x += 0.14) { b.box(x, 1.0, 0, 0.025, 1.9, 0.025, { col: C(IRON) }); b.box(x, 1.97, 0, 0.04, 0.08, 0.04, { col: C(GOLD) }); }
     for (const m of gb.toMeshes(MAT, { cast: true, receive: true })) g.add(m);
-    g.position.set(Wk.x0, y0, wz0 + 0.18); group.add(g); anim.schoolWicket = g; coll(Wk.x0, Wk.x1, wz0 - 0.15, wz0 + 0.3, y0 + 2.0, { id: 'schoolWicket' }); }
+    g.position.set(Wk.x0, y0, wz0 + 0.18); group.add(g); anim.schoolWicket = g; coll(Wk.x0, Wk.x1, wz0 - 0.15, wz0 + 0.3, y0 + 2.0, { id: 'schoolWicket' }); coll(Wk.x0 - 0.06, Wk.x0 + 0.1, wz0 + 0.15, wz0 + 0.2 + w, 0, { id: 'schoolWicketOpen' }); }
 
   // ------------------------------------------------------------ main classroom block (three storeys, arcaded corridors)
   const [mx0, mx1, mz0, mz1] = S.main, FH = S.FH, P = S.plinth, zc = mz0 + S.corridor, NR = S.rooms, RW = S.roomW; const yF = (f) => y0 + P + f * FH; const top = yF(S.storeys);
@@ -109,14 +111,18 @@ export function buildJohnsSchool({ mb, box, coll, label, group, LAND_Y, SANS, SI
     for (const o of ops) { if (o.a > x) box(b, (x + o.a) / 2, yb + h / 2, z, o.a - x, h, th, col); if (o.lo > 0) box(b, (o.a + o.b) / 2, yb + o.lo / 2, z, o.b - o.a, o.lo, th, col); if (o.hi < h) box(b, (o.a + o.b) / 2, yb + (o.hi + h) / 2, z, o.b - o.a, h - o.hi, th, col); x = o.b; }
     if (xb > x) box(b, (x + xb) / 2, yb + h / 2, z, xb - x, h, th, col); };
   const bars = (a, b, z, yb, lo, hi) => { for (let x = a + 0.1; x < b - 0.05; x += 0.15) box(metal, x, yb + (lo + hi) / 2, z, 0.022, hi - lo, 0.022, '#2b3a30'); box(metal, (a + b) / 2, yb + (lo + hi) / 2, z, b - a, 0.03, 0.03, '#2b3a30'); };
+  // corridor-side openings of the classroom wall (two barred windows + a door per room, the stairwell gate) — also used to keep the
+  // lamp washes on solid wall
+  const frontOpenings = () => { const o = []; for (let k = 0; k < NR; k++) { const x0 = mx0 + k * RW; o.push({ a: x0 + 1.0, b: x0 + 2.8, lo: 0.9, hi: 2.3 }, { a: x0 + 3.5, b: x0 + 5.3, lo: 0.9, hi: 2.3 }, { a: x0 + 6.3, b: x0 + 7.4, lo: 0, hi: 2.2 }); }
+    const sx0 = mx0 + NR * RW; o.push({ a: sx0 + 1.0, b: sx0 + 3.4, lo: 0, hi: 2.4 }); return o; };
   const nCol = 21; const colX = (k) => mx0 + 0.2 + (k / (nCol - 1)) * (mx1 - mx0 - 0.4);
   for (let f = 0; f < S.storeys; f++) { const yb = yF(f), h = FH - 0.24;
     for (let k = 0; k < nCol; k++) { box(paint, colX(k), yb + h / 2, mz0 + 0.22, 0.34, h, 0.34, '#f3ecda'); if (f === 0) coll(colX(k) - 0.18, colX(k) + 0.18, mz0 + 0.04, mz0 + 0.4, top); }
     if (f > 0) { box(paint, (mx0 + mx1) / 2, yb + 0.5, mz0 + 0.1, mx1 - mx0, 1.0, 0.16, '#f3ecda'); box(paint, (mx0 + mx1) / 2, yb + 1.03, mz0 + 0.1, mx1 - mx0 + 0.1, 0.07, 0.26, MAROON); }
     // classroom front wall (corridor side): two barred windows and a door per room; the last bay is the stairwell
-    const front = [], back = [];
-    for (let k = 0; k < NR; k++) { const x0 = mx0 + k * RW; front.push({ a: x0 + 1.0, b: x0 + 2.8, lo: 0.9, hi: 2.3 }, { a: x0 + 3.5, b: x0 + 5.3, lo: 0.9, hi: 2.3 }, { a: x0 + 6.3, b: x0 + 7.4, lo: 0, hi: 2.2 }); back.push({ a: x0 + 1.2, b: x0 + 3.4, lo: 0.9, hi: 2.4 }, { a: x0 + 4.6, b: x0 + 6.8, lo: 0.9, hi: 2.4 }); }
-    const sx0 = mx0 + NR * RW; front.push({ a: sx0 + 1.0, b: sx0 + 3.4, lo: 0, hi: 2.4 }); back.push({ a: sx0 + 2.2, b: sx0 + 5.8, lo: 1.2, hi: 2.6 });
+    const front = frontOpenings(), back = [];
+    for (let k = 0; k < NR; k++) { const x0 = mx0 + k * RW; back.push({ a: x0 + 1.2, b: x0 + 3.4, lo: 0.9, hi: 2.4 }, { a: x0 + 4.6, b: x0 + 6.8, lo: 0.9, hi: 2.4 }); }
+    const sx0 = mx0 + NR * RW; back.push({ a: sx0 + 2.2, b: sx0 + 5.8, lo: 1.2, hi: 2.6 });
     wallX(paint, mx0, mx1, zc + 0.1, 0.2, yb, h, front, CREAM); wallX(paint, mx0, mx1, mz1 - 0.1, 0.2, yb, h, back, CREAM);
     for (const o of front) { if (o.lo > 0) bars(o.a, o.b, zc + 0.1, yb, o.lo, o.hi); else if (o.b - o.a < 2) { const zf = zc; for (const xx of [o.a - 0.05, o.b + 0.05]) box(paint, xx, yb + 1.15, zf - 0.03, 0.1, 2.3, 0.06, TRIM); box(paint, (o.a + o.b) / 2, yb + 2.25, zf - 0.03, o.b - o.a + 0.2, 0.1, 0.06, TRIM); /* architrave */
       const lw = o.b - o.a - 0.04; box(paint, o.a + 0.04, yb + 1.05, zc + 0.2 + lw / 2, 0.04, 2.08, lw, DARKWOOD); for (const sx2 of [-1, 1]) for (const [py, ph] of [[0.55, 0.8], [1.5, 0.95]]) box(paint, o.a + 0.04 + sx2 * 0.026, yb + py, zc + 0.2 + lw / 2, 0.012, ph, lw - 0.24, WOOD); /* leaf hinged open at 90° against the classroom wall, panelled both sides */
@@ -196,10 +202,21 @@ export function buildJohnsSchool({ mb, box, coll, label, group, LAND_Y, SANS, SI
   // the light they throw: additive night-only pools on floors and washes on walls (MAT.pool, as the street lamps).
   { const pool = mb.get('pool'), tube = mb.get('emissive'), lampH = mb.get('lampHead');
     const gp = (x, z, y, size) => { const h = size / 2; pool.hrect(x - h, z - h, x + h, z + h, y, size, null, false, [-(x - h) / size, (z + h) / size]); };
-    const washZ = (x, z, yc, w, h, facing) => { const A = [x - w / 2, yc - h / 2, z], B2 = [x + w / 2, yc - h / 2, z], C2 = [x + w / 2, yc + h / 2, z], D = [x - w / 2, yc + h / 2, z]; if (facing < 0) pool.quad(B2, A, D, C2); else pool.quad(A, B2, C2, D); };
+    // wall wash: the radial falloff texture centred on the fitting, cut to the solid wall between ceiling and floor — no light
+    // patch may hang across a window or door opening (ops: {a, b, lo, hi} relative to the floor level yb)
+    const washZ = (x, z, yc, w, h, facing, yb = 0, ops = [], yTop = Infinity) => { const xa = x - w / 2, xb = x + w / 2, ya = yc - h / 2, yt = Math.min(yc + h / 2, yTop);
+      const hit = ops.filter((o) => o.b > xa && o.a < xb); const xs = [...new Set([xa, xb, ...hit.flatMap((o) => [o.a, o.b]).filter((v) => v > xa && v < xb)])].sort((p, q) => p - q);
+      const ys = [...new Set([ya, yt, ...hit.flatMap((o) => [yb + o.lo, yb + o.hi]).filter((v) => v > ya && v < yt)])].sort((p, q) => p - q);
+      const U = (vx) => (vx - xa) / w, V = (vy) => (vy - ya) / h;
+      for (let i = 0; i + 1 < xs.length; i++) for (let j = 0; j + 1 < ys.length; j++) { const x0 = xs[i], x1 = xs[i + 1], y0w = ys[j], y1w = ys[j + 1], mx = (x0 + x1) / 2, my = (y0w + y1w) / 2;
+        if (hit.some((o) => mx > o.a && mx < o.b && my > yb + o.lo && my < yb + o.hi)) continue; // opening: no wall to light
+        const A = [x0, y0w, z], B2 = [x1, y0w, z], C2 = [x1, y1w, z], D = [x0, y1w, z];
+        if (facing < 0) pool.quad(B2, A, D, C2, [U(x1), V(y0w), U(x0), V(y1w)]); else pool.quad(A, B2, C2, D, [U(x0), V(y0w), U(x1), V(y1w)]); } };
+    const fOps = frontOpenings();
     for (let f = 0; f < S.storeys; f++) for (let k = 0; k <= NR; k++) { if (f > 0 && k % 2) continue; const x = mx0 + k * RW + RW / 2 - (k === NR ? 0.8 : 0); const yb = yF(f);
       tube.box(x, yb + 2.62, zc - 0.06, 1.22, 0.05, 0.05, { col: [1, 0.98, 0.94] }); metal.box(x, yb + 2.62, zc - 0.025, 1.3, 0.07, 0.03, { col: C('#d8d8d4') });
-      gp(x, mz0 + 1.25, yb + (f ? 0.012 : 0.31), 3.4); washZ(x, zc - 0.02, yb + 1.9, 3.2, 2.0, -1); }
+      { const hs = 1.7, z0p = mz0 + 0.42, z1p = zc - 0.02, zm = mz0 + 1.25; pool.hrect(x - hs, z0p, x + hs, z1p, yb + 0.012, 3.4, null, false, [-(x - hs) / 3.4, (zm + hs) / 3.4]); } // floor pool ON the red-oxide floor, between the column line and the wall
+      washZ(x, zc - 0.02, yb + 2.45, 3.6, 2.6, -1, yb, fOps, yb + FH - 0.26); }
     for (const px of [G.x0 - 0.35, G.x1 + 0.35]) { // bracket lanterns on the street face of the gate pillars (below the name arch)
       const lz = wz0 - 0.35 - 0.2; lampH.box(px, y0 + 3.2, lz, 0.22, 0.32, 0.22, { bottom: true }); for (const [ex, ez] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) metal.box(px + ex * 0.12, y0 + 3.2, lz + ez * 0.12, 0.03, 0.36, 0.03, { col: C(IRON) });
       metal.box(px, y0 + 3.4, lz, 0.32, 0.05, 0.32, { col: C(IRON) }); metal.box(px, y0 + 3.48, wz0 - 0.35 - 0.1, 0.05, 0.05, 0.22, { col: C(IRON) });
