@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { MeshBuilder } from '../gfx/MeshBuilder.js';
 import { BRANDS, CATALOG } from './VehicleCatalog.js';
 
-const lerp = (a, b, t) => a + (b - a) * t; const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t; const sstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); }; const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const hex = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 
 // ------------------------------------------------------------------------------------------------ badge atlas
@@ -236,11 +236,11 @@ function extras(X, K) {
   // snorkel on the right-hand (driver, −x) front wing, up the A-pillar
   if (v(S.snorkel)) { const x = -(W + 0.045), cz = gh[0][0], yb = gh[0][1] - 0.12, yt = roofF[2] - 0.08; beam3(rub, [x, yb, cz + 0.28], [x, yb + 0.03, cz - 0.02], 0.07, 0.07, black, G.cyl); beam3(rub, [x, yb, cz - 0.02], [x, yt, lerp(cz, roofF[0], 0.85)], 0.075, 0.075, black, G.cyl); part3(rub, G.box, [x, yt + 0.04, lerp(cz, roofF[0], 0.85) + 0.05], [0, 0, 0], [0.11, 0.1, 0.17], black); }
   // fender flares / lower cladding
-  if (S.flares || S.cladding) { const fl = S.flares === 'body' ? col : black; for (const sx of [-1, 1]) for (const wz of [X.wf, X.wr]) { const x = sx * (sideX(wz, R + 0.2) - 0.004); const m = new THREE.Matrix4().compose(_p.set(x, R, wz), _q.identity(), _s.set(S.cladding && !S.flares ? 0.4 : 0.62, R + 0.1, R + 0.1)); (S.flares === 'body' ? paint : rub).geometry(arcGeo, m, fl); } }
-  if (S.cladding) for (const sx of [-1, 1]) part3(rub, G.box, [sx * (sideX(0, sill + 0.06) + 0.008), sill + 0.06, (X.wf + X.wr) / 2], [0, 0, 0], [0.02, 0.1, X.wf - X.wr - 2 * R - 0.25], black);
+  if (S.flares || S.cladding) { const fl = S.flares === 'body' ? col : black; for (const sx of [-1, 1]) for (const wz of [X.wf, X.wr]) { const x = sx * (sideX(wz, R + 0.2) - 0.004); const rr = wz === X.wf ? (R + 0.095) / 1.075 : R + 0.1; /* front flare ends at the door opening (arch cut + 3 cm), never over the door */ const m = new THREE.Matrix4().compose(_p.set(x, R, wz), _q.identity(), _s.set(S.cladding && !S.flares ? 0.4 : 0.62, rr, rr)); (S.flares === 'body' ? paint : rub).geometry(arcGeo, m, fl); } }
+  if (S.cladding) for (const sx of [-1, 1]) part3(rub, G.box, [sx * (sideX(0, sill + 0.03) + 0.008), sill + 0.028, (X.wf + X.wr) / 2], [0, 0, 0], [0.02, 0.05, X.wf - X.wr - 2 * R - 0.25], black); /* rocker cladding below the door shut line */
   if (S.skid) { part3(ch, G.box, [0, sill + 0.03, X.fz + 0.01], [0.3, 0, 0], [0.7, 0.05, 0.06], hex('#a8acb0')); part3(ch, G.box, [0, sill + 0.03, X.rz - 0.01], [-0.3, 0, 0], [0.7, 0.05, 0.06], hex('#a8acb0')); }
   // chrome belt line / D-pillar kink
-  if (S.chromeBelt) for (const sx of [-1, 1]) { const a = gh[0], b = gh[gh.length - 1]; const pts = sx > 0 ? [[a[0], b[0]]] : [[a[0], D.door[0]], [D.door[1], b[0]]]; for (const [za, zb] of pts) beam3(ch, [sx * (gw0 + 0.014), lerp(a[1], b[1], (a[0] - za) / (a[0] - b[0])) + 0.006, za], [sx * (gw0 + 0.014), lerp(a[1], b[1], (a[0] - zb) / (a[0] - b[0])) + 0.006, zb], 0.012, 0.02, chrome); }
+  if (S.chromeBelt) for (const sx of [-1, 1]) { const a = gh[0], b = gh[gh.length - 1]; const pts = sx > 0 ? [[a[0], b[0]]] : [...(a[0] - D.door[0] > 0.04 ? [[a[0], D.door[0] + 0.012]] : []), [D.door[1] - 0.012, b[0]]]; /* stops short of the driver-door shut lines */ for (const [za, zb] of pts) beam3(ch, [sx * (gw0 + 0.014), lerp(a[1], b[1], (a[0] - za) / (a[0] - b[0])) + 0.006, za], [sx * (gw0 + 0.014), lerp(a[1], b[1], (a[0] - zb) / (a[0] - b[0])) + 0.006, zb], 0.012, 0.02, chrome); }
   if (S.kink) for (const sx of [-1, 1]) { const b = gh[gh.length - 1], rr = gh[gh.length - 2]; beam3(ch, [sx * (gw0 + 0.01), b[1] + 0.01, rr[0] + 0.35], [sx * (gw0 - 0.005), b[1] + 0.13, rr[0] - 0.02], 0.02, 0.03, chrome); }
   // whip antenna on the kerb-side wing
   if (S.antenna) { const z = gh[0][0] + 0.12, x = sideX(z, gh[0][1]) - 0.06; beam3(ch, [x, gh[0][1] - 0.02, z], [x - 0.02, gh[0][1] + 0.8, z - 0.25], 0.006, 0.006, hex('#2a2a2a'), G.cyl); }
@@ -248,9 +248,17 @@ function extras(X, K) {
   if (S.rubStrip) for (const sx of [-1, 1]) { const y = sill + 0.3, za = X.wr + R + 0.1, zb = X.wf - R - 0.1; const segs = sx > 0 ? [[za, zb]] : [[za, D.door[1] - 0.01], [D.door[0] + 0.01, zb]]; for (const [z0, z1] of segs) if (z1 > z0) part3(rub, G.box, [sx * (sideX((z0 + z1) / 2, y) + 0.008), y, (z0 + z1) / 2], [0, 0, 0], [0.02, 0.04, z1 - z0], black); }
   // classic separate wings with the headlamps in their noses
   if (S.fenders) for (const sx of [-1, 1]) {
-    const fb = new MeshBuilder(); const yT = tp[3][1] + 0.02; const zf = X.fz - 0.02, zb = X.wf - R - 0.35; const secs = [[zb - 0.1, sill + 0.05, sill + 0.12, 0.05, 0.04, 0.03], [zb, sill + 0.02, R + 0.18, 0.1, 0.08, 0.06], [X.wf, R - 0.02, yT, 0.13, 0.1, 0.09], [zf - 0.12, R - 0.02, yT, 0.12, 0.1, 0.09], [zf, R + 0.02, yT - 0.05, 0.09, 0.07, 0.07]];
-    loftLocal(fb, secs, col); const g = fb.build(); const xc = sx * (sideX(X.wf, R + 0.2) - 0.08); paint.geometry(g, new THREE.Matrix4().makeTranslation(xc, 0, 0));
-    const rb = new MeshBuilder(); const zr0 = X.wr + R + 0.3, zr1 = X.wr - R - 0.25; loftLocal(rb, [[zr1, sill + 0.02, R + 0.15, 0.08, 0.06, 0.05], [X.wr - 0.2, R - 0.05, R + 0.42, 0.11, 0.09, 0.08], [X.wr + 0.2, R - 0.05, R + 0.42, 0.11, 0.09, 0.08], [zr0, sill + 0.05, R + 0.2, 0.06, 0.05, 0.04]], col); paint.geometry(rb.build(), new THREE.Matrix4().makeTranslation(sx * (sideX(X.wr, R + 0.2) - 0.07), 0, 0));
+    // classic separate wings: smooth lofts whose lower edge follows the wheel opening and whose crown swells over the wheel
+    const wing = (z0, z1, wz, yTop, yTail0, yTail1, wMax, n = 13) => { const ra = R + 0.06, secs = [];
+      for (let i = 0; i <= n; i++) { const u = i / n, z = lerp(z0, z1, u), dz = z - wz;
+        const yb = Math.abs(dz) < ra ? R + Math.sqrt(ra * ra - dz * dz) : dz < 0 ? sill + 0.02 : R * 0.9; // under-edge: arch over the tyre, valance behind / ahead of it
+        const rise = sstep(0, 0.35, u), fall = 1 - 0.55 * sstep(0.82, 1, u); const yt = Math.max(yb + 0.05, lerp(yTail0, yTop, rise) * fall + (1 - fall) * yTail1);
+        const w = wMax * (0.35 + 0.65 * Math.sin(Math.PI * Math.min(1, u * 1.15 + 0.05)) ** 0.6); secs.push([z, yb, yt, w, w * 0.78, Math.min(0.09, w * 0.7)]); }
+      return secs; };
+    const fb = new MeshBuilder(); const yT = tp[3][1] + 0.02; const zf = X.fz - 0.02, zb = Math.max(X.wf - R - 0.35, D.door[0] + 0.09); /* the wing ends at the door's leading edge */
+    loftLocal(fb, wing(zb - 0.06, zf, X.wf, yT, sill + 0.14, yT - 0.12, 0.135), col); const g = fb.build(); const xc = sx * (sideX(X.wf, R + 0.2) - 0.08); paint.geometry(g, new THREE.Matrix4().makeTranslation(xc, 0, 0));
+    const rb = new MeshBuilder(); const zr0 = D.rearDoor ? Math.min(X.wr + R + 0.3, D.rearDoor[1] - 0.02) : X.wr + R + 0.3, zr1 = X.wr - R - 0.25;
+    loftLocal(rb, wing(zr1, zr0, X.wr, R + 0.42, sill + 0.12, sill + 0.16, 0.11), col); paint.geometry(rb.build(), new THREE.Matrix4().makeTranslation(sx * (sideX(X.wr, R + 0.2) - 0.07), 0, 0));
     const hz = zf + 0.005, hy2 = yT - 0.1; part3(mb.get('vlight'), G.disc, [xc, hy2, hz], [0, 0, 0], [0.075, 0.075, 0.04]); part3(ch, G.ring, [xc, hy2, hz + 0.01], [0, 0, 0], [0.08, 0.08, 0.15], chrome); part3(mb.get('vind'), G.disc, [xc * 0.72, hy2 - 0.14, hz - 0.02], [0, 0, 0], [0.03, 0.03, 0.03]);
   }
   if (S.splitScreen) { const a = gh[0], b = gh[2]; beam3(rub, [0, a[2] - 0.01, a[0] - 0.01], [0, b[2] - 0.01, b[0] + 0.01], 0.03, 0.03, col); }

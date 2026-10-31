@@ -96,7 +96,7 @@ export function carDetail(dm, K, c) {
     for (const [, d1] of doorsZ) { if (sx < 0 && d1 === D.door[1]) continue; const x = sx * (xAt(d1 + 0.18, belt - 0.12) + 0.004); rub.box(x, belt - 0.12, d1 + 0.18, 0.006, 0.05, 0.17, { col: C('#0c0c0d') }); }
     if (sx > 0) part(chr, discX, [sx * (xAt(D.door[1] + 0.32, belt - 0.12) + 0.008), belt - 0.12, D.door[1] + 0.32], [0, 0, 0], [0.006, 0.014, 0.014], chrome);
     { const gA = [gh[0][0] - 0.05, belt + 0.012], gB = [gh[gh.length - 1][0] + 0.12, gh[gh.length - 1][1] + 0.012], bp = (z) => [sx * (gw0 + 0.012), lerp(gA[1], gB[1], (gA[0] - z) / (gA[0] - gB[0])), z];
-      if (sx > 0) beam(chr, bp(gA[0]), bp(gB[0]), 0.008, 0.012, satin); else { beam(chr, bp(gA[0]), bp(D.door[0]), 0.008, 0.012, satin); beam(chr, bp(D.door[1]), bp(gB[0]), 0.008, 0.012, satin); } } // inner-belt strip (not across the driver door)
+      if (sx > 0) beam(chr, bp(gA[0]), bp(gB[0]), 0.008, 0.012, satin); else { if (gA[0] - D.door[0] > 0.04) beam(chr, bp(gA[0]), bp(D.door[0] + 0.012), 0.008, 0.012, satin); beam(chr, bp(D.door[1] - 0.012), bp(gB[0]), 0.008, 0.012, satin); } /* stops short of the door shut lines */ } // inner-belt strip (not across the driver door)
     // mirror: aerodynamic cap + repeater + mirror glass bezel
     const mx = sx * gw0, my = gh[0][1] + 0.08, mz = gh[0][0] - 0.12;
     part(pnt, sphLo, [mx + sx * 0.18, my + 0.02, mz - 0.01], [0, sx * 0.12, 0], [0.072, 0.048, 0.05], col);

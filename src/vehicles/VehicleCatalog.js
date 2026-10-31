@@ -78,7 +78,7 @@ add('varuna', { brand: 'daikan', name: 'Varuna', cls: 'SUV', fam: 'suv', ref: 'l
   len: 4.9, wid: 1.875, hgt: 1.87, wheelR: 0.385, maxSpeed: 45, accel: 6.3, mass: 2250, seats: 5, steer: 0.5, colors: ['#f1f1ec', '#b9bdc2', '#141517', '#5a5e63', '#2a3a4e'],
   b: { L: 4.9, sill: 0.45, fo: 0.82, wb: 2.78, bump: 0.72, fy: 0.82, hd: 0.1, hy: 1.08, cd: 1.3, cy: 1.12, wd: 1.72, roof: 1.85, rd: 0.18, roofR: 1.83, bd: 0.05, by: 1.2, gy1: 1.76, ty: 1.0, tm: 0.6, door: [1.1, 0.05], rearDoor: [0.02, -0.68] },
   cab: { seatY: 0.68, rows: [[-0.62, 3]] },
-  S: { head: { t: 'swept', w: 0.34, h: 0.16, x: 0.18, wrap: 0.16 }, grille: { t: 'hbars', w: 0.48, chrome: true, n: 3, vbar: true }, lower: { t: 'mesh', w: 0.45, h: 0.1 }, tail: { t: 'vertical', w: 0.12, h: 0.42, up: 0.3 }, rails: true, step: true, spare: 'cover', flares: 'body', wheels: [2, 0] } });
+  S: { head: { t: 'swept', w: 0.34, h: 0.16, x: 0.18, wrap: 0.16 }, grille: { t: 'hbars', w: 0.48, chrome: true, n: 3, vbar: true }, lower: { t: 'mesh', w: 0.45, h: 0.1 }, tail: { t: 'vertical', w: 0.12, h: 0.42, up: 0.3 }, rails: true, step: true, spare: 'cover', wheels: [2, 0] } }); // arches blended into the body (no separate flares)
 add('warden', { brand: 'bristen', name: 'Warden 110', cls: '4x4 wagon', fam: 'suv', ref: 'classic flat-panel long-wheelbase British 4x4 (110 station wagon)',
   len: 4.6, wid: 1.79, hgt: 2.0, wheelR: 0.4, maxSpeed: 36, accel: 4.4, mass: 2100, seats: 5, steer: 0.48, colors: ['#3b4a35', '#ecebe5', '#6d7173', '#b9a98a', '#2c3e57'],
   b: { L: 4.6, sill: 0.52, fo: 0.72, wb: 2.794, bump: 0.6, fy: 0.74, fyd: 0.02, hd: 0.03, hy: 1.12, cd: 1.15, cy: 1.22, wd: 1.25, roof: 1.98, bow: 0.0, rd: 0.04, bd: 0.03, by: 1.24, gy1: 1.92, ty: 1.2, tm: 0.72, rb: 0.01, nb: 0.0, door: [1.06, 0.22], rearDoor: [0.19, -0.56] },
@@ -220,7 +220,7 @@ add('wren', { brand: 'bristen', name: 'Wren', cls: 'classic', fam: 'sedan', ref:
   S: { head: { t: 'round', r: 0.085, x: 0.0, fender: true }, grille: { t: 'classic', w: 0.3 }, bumper: 'chrome', tail: { t: 'round', r: 0.05 }, fenders: true, splitScreen: true, antenna: false, whitewall: true, noVisor: true, wheels: [1] } });
 add('praetor', { brand: 'strelau', name: 'Praetor', cls: 'executive saloon', fam: 'sedan', ref: 'German-style executive saloon with twin-lamp face (E-segment)',
   len: 4.87, wid: 1.85, hgt: 1.47, wheelR: 0.33, maxSpeed: 50, accel: 7.2, mass: 1700, seats: 5, steer: 0.5, colors: ['#151517', '#c3c7cb', '#f1f1ec', '#1c2a44', '#55595e'],
-  b: { L: 4.87, sill: 0.3, fo: 0.84, wb: 2.874, bump: 0.54, fy: 0.64, hd: 0.18, hy: 0.76, cd: 1.4, cy: 0.9, wd: 1.98, roof: 1.47, rd: 1.45, roofR: 1.44, bd: 0.98, by: 1.0, gy1: 1.02, td: 0.1, ty: 0.99, tm: 0.64, door: [1.03, -0.02], rearDoor: [-0.05, -0.88] },
+  b: { L: 4.87, sill: 0.3, fo: 0.84, wb: 2.874, bump: 0.54, fy: 0.64, hd: 0.18, hy: 0.76, cd: 1.4, cy: 0.9, wd: 1.98, roof: 1.47, rd: 1.45, roofR: 1.44, bd: 0.98, by: 1.0, gy1: 1.02, td: 0.1, ty: 0.99, tm: 0.64, door: [0.92, -0.02], rearDoor: [-0.05, -0.88] },
   cab: { seatY: 0.39, rows: [[-0.9, 3]] },
   S: { head: { t: 'quad', w: 0.17, h: 0.12, x: 0.12, wrap: 0.1 }, grille: { t: 'hbars', w: 0.34, chrome: true, n: 3, frame: true, emblemBig: true }, lower: { t: 'mesh', w: 0.6, h: 0.1 }, tail: { t: 'wrap', w: 0.34, h: 0.13, deck: true }, chromeBelt: true, wheels: [0, 2] } });
 add('arco', { brand: 'kensei', name: 'Arco', cls: 'saloon', fam: 'sedan', ref: '8th-generation arched cab-forward compact saloon',

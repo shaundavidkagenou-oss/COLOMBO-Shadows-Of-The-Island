@@ -515,7 +515,7 @@ function buildBaseModel(type, color, variant, opts = {}) {
     seats.push({ x: -sx0, y: seatY + 0.06, z: sz, floor: tr.floor + 0.015, fz: 0.55, fx: 0.12, roof: rf, lean: -0.18, hands: 'wheel', wheel: whl, kind: 'drive', driver: true, exit: [-W - 0.6, sz] },
       { x: sx0, y: seatY + 0.06, z: sz, floor: tr.floor + 0.015, fz: 0.57, fx: 0.12, roof: rf, lean: -0.2, hands: 'lap', kind: 'sit', exit: [W + 0.6, sz] });
     const rw = tr.dual ? 0.44 : 0.2, rx = tr.dual ? dW - 0.24 : dW - 0.15;
-    return out([[-cw + 0.17, R, wf, 0.2], [cw - 0.17, R, wf, 0.2], [-rx, R, wr, rw], [rx, R, wr, rw]], sw, { busDoor: [W + 0.6, sz] });
+    return out([[-cw + 0.17, R, wf, 0.2], [cw - 0.17, R, wf, 0.2], [-rx, R, wr, rw], [rx, R, wr, rw]], sw, { busDoor: [-(W + 0.6), sz + 0.1] }); // driver climbs in on the driver's (right, −x) side
   }
 
   // =============================================================== CARS, TAXI, VAN, SUV — shared passenger-vehicle builder
@@ -574,7 +574,7 @@ function buildBaseModel(type, color, variant, opts = {}) {
     for (let i = 0; i < 2; i++) beam(paint, top(i), top(i + 1), 0.06, 0.06, pilCol);
     const nL = gh.length - 1; beam(paint, top(nL - 1), top(nL), isVan ? 0.07 : 0.1, 0.07, pilCol);
     beam(paint, [sx * gw0 * 0.94, gh[nL][1] + 0.02, gh[nL][0] + 0.1], top(nL), isVan ? 0.05 : 0.1, 0.07, pilCol);
-    beam(paint, [sx * gw0, gh[0][1] + 0.02, D.pillarsB], [sx * (gw1 + 0.005), roofF[2] - 0.01, D.pillarsB - 0.03], 0.05, 0.1, C('#111'));
+    { const yT = D.winTop ? Math.min(roofF[2] - 0.01, D.winTop - 0.005) : roofF[2] - 0.01; beam(paint, [sx * gw0, gh[0][1] + 0.02, D.pillarsB], [sx * (gw1 + 0.005), yT, D.pillarsB - 0.03], 0.05, 0.1, C('#111')); } /* high-roof vans: the black pillar stops at the glass, not in the painted band */
     { const gL = gh[gh.length - 1], rl = (z) => [sx * (gw0 + 0.005), lerp(gh[0][1], gL[1], (gh[0][0] - z) / (gh[0][0] - gL[0])) + 0.005, z]; // outer belt weatherstrip (the driver door carries its own piece)
       if (sx > 0) beam(rubber, rl(gh[0][0]), rl(gL[0]), 0.012, 0.025, C('#111')); else { beam(rubber, rl(gh[0][0]), rl(D.door[0]), 0.012, 0.025, C('#111')); beam(rubber, rl(D.door[1]), rl(gL[0]), 0.012, 0.025, C('#111')); } }
     if (!SP && k === 'van') for (const z of [-0.9, -1.8]) beam(paint, [sx * gw0, 1.1, z], [sx * gw1, 1.93, z], 0.04, 0.08, col);
@@ -706,7 +706,7 @@ function buildDoorGeos(d, col, stripes = null) {
     const zk = S.zR + 0.315, xk = S.skinPt(zk, y)[0]; ch.box(xk - 0.004, y, zk, 0.006, 0.026, 0.026, { col: C('#c4c8cc') }); }
   // inside: armrest with pull cup, interior handle, speaker grille low at the front
   { const zm = (S.zF + S.zR) / 2, ya = S.seatY + 0.22; I.box(S.xc + 0.035, ya, zm - 0.05, 0.07, 0.05, Math.min(0.55, (S.zF - S.zR) * 0.6), { col: S.trim.map((v) => v * 0.75) });
-    ch.box(S.xc + 0.012, ya + 0.14, S.zF - 0.24, 0.015, 0.03, 0.09, { col: C('#9aa0a6') }); const lo = S.rects[0]; I.box(S.xc + 0.006, lo[2] + 0.16, lo[1] - 0.17, 0.012, 0.14, 0.16, { col: C('#141416') }); } // speaker on the lower panel (ahead of it a notched door has the wheel arch)
+    ch.box(S.xc + 0.012, ya + 0.14, S.zF - 0.24, 0.015, 0.03, 0.09, { col: C('#9aa0a6') }); const lo = S.rects.reduce((m, r) => (r[1] - r[0] > m[1] - m[0] ? r : m)); if (lo[1] - lo[0] > 0.3) I.box(S.xc + 0.006, lo[2] + 0.16, Math.max(lo[0] + 0.1, lo[1] - 0.17), 0.012, 0.14, 0.16, { col: C('#141416') }); } /* speaker on the widest panel section, always inside the door (a notched door can have a sliver of panel under the notch) */ // speaker on the lower panel (ahead of it a notched door has the wheel arch)
   // window: the same glass surface that was cut out of the greenhouse, framed in rubber; rain visor over it
   { const G = d.glass; const gl = mb.get('glass');
     for (let i = 0; i < G.length - 1; i++) for (const k of [7, 8, 9]) { const a = G[i][k], b = G[i][(k + 1) % 10], c = G[i + 1][(k + 1) % 10], e = G[i + 1][k]; gl.quad(a, b, c, e, [0, 0, 1, 1], C('#fff')); }
@@ -753,13 +753,13 @@ export function createVehicleMesh(type, seed = 1) {
     pivot.userData.lo = holder; pivot.userData.hi = hi; pivot.userData.cal = cal;
     pivot.userData.spin = spin; pivot.userData.front = z > 0; pivot.userData.baseY = y; g.add(pivot); return pivot;
   });
-  let door = null; if (cached.doors && cached.doors[0]) { const d = cached.doors[0]; const hy = T.base === 'suv' ? 0.78 : 0.66; if (!cached.doorGeos) cached.doorGeos = buildDoorGeos(d, C(color), T.police ? [[hy + 0.035, 0.07, C('#1b3f94')], [hy - 0.0875, 0.025, C('#1b3f94')]] : type === 'taxi' ? [[0.62, 0.08, C('#111'), 0.009]] : null); /* police bands / taxi stripe continue across the door */ const pv = doorPivot(d, cached.doorGeos, byName); g.add(pv); door = { pivot: pv, side: d.side, open: 0, max: 1.15, ang: 0, vel: 0 }; }
+  let door = null; if (cached.doors && cached.doors[0]) { const d = cached.doors[0]; const hy = T.base === 'suv' ? 0.78 : 0.66; if (!cached.doorGeos) cached.doorGeos = buildDoorGeos(d, C(color), T.police ? [[hy + 0.035, 0.07, C('#1b3f94')], [hy - 0.0875, 0.025, C('#1b3f94')]] : type === 'taxi' ? [[0.62, 0.08, C('#111'), 0.009]] : null); /* police bands / taxi stripe continue across the door */ const pv = doorPivot(d, cached.doorGeos, byName); g.add(pv); door = { pivot: pv, side: d.side, open: 0, max: 1.15, ang: 0, vel: 0, rects: d.spec && d.spec.rects }; }
   const ds = cached.seats.find((s) => s.driver) || cached.seats[0];
   const side = T.entry === 'bike' ? 1 : -1; const hw = T.wid / 2;
   // hinged door: stand just outside the door's swing arc, a little behind its rear edge (radius len + 0.3 from the hinge, 40° back
   // from the body side) so the opening door passes in front of the body and the way in runs behind the opened panel
   const dR = door ? cached.doors[0].len + 0.3 : 0;
-  const entry = cached.busDoor ? { x: cached.busDoor[0], z: cached.busDoor[1], side: 1 } : door ? { x: side * (hw + dR * Math.sin(0.7)), z: cached.doors[0].hinge[1] - dR * Math.cos(0.7), side } : { x: side * (hw + (T.entry === 'tuk' ? 0.35 : T.entry === 'bike' ? 0.45 : 0.55)), z: ds.z, side };
+  const entry = cached.busDoor ? { x: cached.busDoor[0], z: cached.busDoor[1], side: cached.busDoor[0] < 0 ? -1 : 1 } : door ? { x: side * (hw + dR * Math.sin(0.7)), z: cached.doors[0].hinge[1] - dR * Math.cos(0.7), side } : { x: side * (hw + (T.entry === 'tuk' ? 0.35 : T.entry === 'bike' ? 0.45 : 0.55)), z: ds.z, side };
   const stand = base === 'bike' ? standMeshes(M.vrim) : null; if (stand) g.add(stand); // animated side stand (Kickstand.js)
   g.userData = { stand, detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons };
   return g;
