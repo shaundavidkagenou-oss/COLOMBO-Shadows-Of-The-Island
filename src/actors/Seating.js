@@ -57,13 +57,23 @@ export function applySeatPose(A, dt) {
 function fitSeat(A) {
   const S = A.seatL; const b = A.ch.bones; const bl = Object.values(b); const s = A.s;
   bl.forEach((x, i) => { (_saveQ[i] ||= new THREE.Quaternion()).copy(x.quaternion); }); _saveP.copy(b.hips.position);
-  A.fitLean = S.lean ?? -0.12; A.fitSink = 0; A.seatFitFor = S; const lim = S.kind === 'ride' ? 0.5 : 0.75;
-  for (let it = 0; it < 14; it++) {
-    poseSeat(A, 0, 1, true); A.ch.root.updateWorldMatrix(true, true);
+  // The roof is sampled where the HEAD ends up, not above the hips: under a sloping (fastback / hatch) roof a deeper
+  // recline moves the head back under LOWER roof, so recline angles are searched on both sides of the seat's natural
+  // lean (closest first) and the first that clears wins; failing that, a little cushion sink, then the best margin.
+  const lean0 = S.lean ?? -0.12; A.seatFitFor = S; const lim = S.kind === 'ride' ? 0.5 : 0.75; const k = S.roofSlope || 0;
+  const leans = [lean0]; for (let d = 0.06; d < 0.8; d += 0.06) { const back = lean0 > 0.02 ? lean0 + d : lean0 - d, up = lean0 > 0.02 ? lean0 - d : lean0 + d; if (Math.abs(back) <= lim) leans.push(back); if (k > 0.02 && d <= 0.2 && (lean0 > 0.02 ? up >= 0.02 : up <= -0.04)) leans.push(up); }
+  // a tall passenger under a low roof slouches: hips slide forward on the cushion as the back reclines, so the head drops
+  // without moving back under the falling roof line (drivers only a little — knees must stay clear of the wheel)
+  const slides = S.kind === 'ride' ? [0] : S.driver ? [0, 0.04] : [0, 0.04, 0.08, 0.12];
+  let best = null;
+  outer: for (const sink of [0, 0.015, 0.03]) for (const slide of slides) for (const lean of leans) {
+    A.fitLean = lean; A.fitSink = sink; A.fitSlide = slide; poseSeat(A, 0, 1, true); A.ch.root.updateWorldMatrix(true, true);
     _v.setFromMatrixPosition(b.head.matrixWorld); A.ch.root.worldToLocal(_v); const crown = _v.y + 0.2 * s + 0.02;
-    A.fitCrown = crown; if (crown <= S.roofRel - 0.03) break;
-    if (Math.abs(A.fitLean) < lim) A.fitLean += A.fitLean > 0.02 ? 0.06 : -0.06; else if (A.fitSink < 0.045) A.fitSink += 0.015; else break;
+    const margin = S.roofRel + k * _v.z - 0.03 - crown; // roof height over the crown's own z
+    if (!best || margin > best.margin + 0.004) best = { lean, sink, slide, margin, crown };
+    if (margin >= 0) { best = { lean, sink, slide, margin, crown }; break outer; }
   }
+  A.fitLean = best.lean; A.fitSink = best.sink; A.fitSlide = best.slide; A.fitCrown = best.crown;
   bl.forEach((x, i) => x.quaternion.copy(_saveQ[i])); b.hips.position.copy(_saveP);
 }
 function poseSeat(A, dt, w, fitting = false) {
@@ -74,7 +84,7 @@ function poseSeat(A, dt, w, fitting = false) {
   const hipUp = thighR - b.thighL.position.y - 0.012 - (A.fitSink || 0);
   const lean = A.fitLean ?? S.lean ?? -0.12; A.seatLean = lean;
   const bounce = S.kind === 'ride' || fitting ? 0 : Math.sin(A.t * 13.0 + A.seed * 9) * 0.004 * clamp(A.vehSpeed / 10, 0, 1);
-  const hipZ = S.hipZ ?? -0.03;
+  const hipZ = (S.hipZ ?? -0.03) + (A.fitSlide || 0);
   b.hips.position.set(lerp(b.hips.position.x, 0, w), lerp(b.hips.position.y, hipUp + bounce, w), lerp(b.hips.position.z, hipZ, w));
   _e.set(lean + (A.brakeLean || 0), 0, A.cornerLean || 0, 'XYZ'); _qh.setFromEuler(_e); b.hips.quaternion.slerp(_qh, w);
   if (!fitting) { // ---- look-around: drivers watch the road with mirror / shoulder checks, passengers look about or out of the window

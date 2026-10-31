@@ -15,6 +15,7 @@ import * as THREE from 'three';
 import * as L from '../world/Layout.js';
 import { clamp, lerp } from '../core/math.js';
 import { evalPiece, segNodes, otherEnd } from '../vehicles/Traffic.js';
+import { vehicleClass } from '../vehicles/VehicleCatalog.js';
 
 export const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
 export const CHASE_SPEED = [0, 0, 1.05, 1.1, 1.16, 1.22]; // × the suspect's speed headroom (police cars carry more power)
@@ -141,7 +142,7 @@ const VEH = { tuktuk: 'three-wheeler', car: 'hatchback', sedan: 'sedan', taxi: '
 // compass heading of a direction (map north = −z, east = +x)
 export function compass(yaw) { const fx = Math.sin(yaw), fz = Math.cos(yaw); return Math.abs(fx) > Math.abs(fz) ? (fx > 0 ? 1 : 3) : (fz < 0 ? 0 : 2); }
 export function radioLine(kind, ctx) {
-  const road = ctx.road || 'the area'; const d = ctx.dir ?? 0; const veh = VEH[ctx.vtype] || 'vehicle'; const n = ctx.unit || 1;
+  const road = ctx.road || 'the area'; const d = ctx.dir ?? 0; const veh = VEH[ctx.vtype] || vehicleClass(ctx.vtype) || 'vehicle'; const n = ctx.unit || 1;
   switch (kind) {
     case 'heading': return ctx.alt ? { si: `සැකකරු ${road} දිගේ ${DIR_SI[d]} දෙසට යනවා.`, tr: `Suspect going ${DIR_EN[d]} on ${road}.` } : { en: ctx.vtype === 'foot' ? `Control to all units — suspect on foot, heading ${DIR_EN[d]} on ${road}.` : `Control to all units — suspect ${veh} heading ${DIR_EN[d]} on ${road}.` };
     case 'pit': return { en: `Unit ${n}, you are clear for a PIT. Take him out.` };

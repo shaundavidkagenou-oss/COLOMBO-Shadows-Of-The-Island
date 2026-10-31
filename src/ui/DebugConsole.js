@@ -14,9 +14,11 @@ import { PLACES } from '../world/Layout.js';
 import { HEROES, Character } from '../actors/Character.js';
 import { Vehicle } from '../vehicles/Vehicle.js';
 import { VTYPES } from '../vehicles/VehicleModels.js';
+import { SUV_IDS, OTHER_IDS, displayName } from '../vehicles/VehicleCatalog.js';
 
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const VEH = ['tuktuk', 'car', 'sedan', 'taxi', 'van', 'suv', 'bike', 'bus', 'lorry'].filter((t) => VTYPES[t]);
+const CAT_VEH = [...SUV_IDS, ...OTHER_IDS]; // the 40 catalogue models (fictional makes)
 const MODELS = ['dineth', 'shashika', 'david', 'ruwan', 'fathima', 'selvaraj', 'bandara', 'anjali'].filter((k) => HEROES[k]);
 const fmtH = (h) => `${String(Math.floor(h) % 24).padStart(2, '0')}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}`;
 
@@ -57,7 +59,7 @@ export class DebugConsole {
     try {
       switch (c) {
         case 'help': ['debug.menu true|false — enable the debug menu (open it with Numpad 2)', 'time <0-24> · freeze [on|off]', `weather <${Object.keys(WEATHER).join('|')}>`, 'money <amount>', 'god [on|off] · ammo [on|off] (infinite) · nowanted [on|off]',
-          `give <all|${WEAPONS.map((w) => w.id).join('|')}>`, 'tp <place> | tp <x> <z> | tp waypoint · places', `spawn ped [n] · spawn car [${VEH.join('|')}]`, `model <${MODELS.join('|')}|civilian|reset>`, 'dress [outfit] — re-dress pedestrians within 35 m · outfits', 'heal · clear · close'].forEach((s) => this.print('  ' + s)); break;
+          `give <all|${WEAPONS.map((w) => w.id).join('|')}>`, 'tp <place> | tp <x> <z> | tp waypoint · places', `spawn ped [n] · spawn car [${VEH.join('|')}|<catalogue id>]`, 'cars — list the 40 catalogue vehicles (ids for spawn car)', `model <${MODELS.join('|')}|civilian|reset>`, 'dress [outfit] — re-dress pedestrians within 35 m · outfits', 'heal · clear · close'].forEach((s) => this.print('  ' + s)); break;
         case 'debug.menu': this.D.menuEnabled = on(a[0], this.D.menuEnabled); if (!this.D.menuEnabled) this.toggleMenu(false); this.print(`debug menu ${this.D.menuEnabled ? 'ENABLED — press Numpad 2 to open it' : 'disabled'}`, 'ok'); break;
         case 'time': this.setTime(+a[0]); break;
         case 'freeze': this.D.freezeTime = on(a[0], this.D.freezeTime); this.print(`clock ${this.D.freezeTime ? 'frozen' : 'running'}`, 'ok'); break;
@@ -69,6 +71,7 @@ export class DebugConsole {
         case 'give': this.give(a[0] || 'all'); break;
         case 'places': this.print('  ' + Object.keys(PLACES).join(', ')); break;
         case 'tp': if (a[0] === 'waypoint') this.tpWaypoint(); else if (a.length >= 2 && !isNaN(+a[0])) this.teleport(+a[0], +a[1], `${a[0]}, ${a[1]}`); else { const p = PLACES[a[0]]; if (!p) throw new Error('unknown place — type places'); this.teleport(p.x, p.z, p.name); } break;
+        case 'cars': for (const [h, ids] of [['SUVs', SUV_IDS], ['cars, vans & trucks', OTHER_IDS]]) { this.print(h + ':', 'ok'); for (let i = 0; i < ids.length; i += 4) this.print(ids.slice(i, i + 4).map((v) => `${v} (${displayName(v, VTYPES[v])})`).join(' · ')); } break;
         case 'spawn': if (a[0] === 'ped') this.spawnPeds(+a[1] || 5); else if (a[0] === 'car' || a[0] === 'vehicle') this.spawnCar(a[1] || 'car'); else throw new Error('spawn ped [n] | spawn car [type]'); break;
         case 'model': this.model(a[0] || 'reset'); break;
         case 'dress': this.dress(a[0]); break;
@@ -101,10 +104,10 @@ export class DebugConsole {
     this.say(`${k} pedestrian${k === 1 ? '' : 's'} spawned nearby`);
   }
   spawnCar(type) {
-    if (!VTYPES[type]) throw new Error('vehicle: ' + VEH.join(', ')); const g = this.g, P = g.player; if (P.vehicle || g.interiors.current) throw new Error('on foot, outdoors only');
+    if (!VTYPES[type]) throw new Error('vehicle: ' + VEH.join(', ') + ' · catalogue: ' + CAT_VEH.join(', ')); const g = this.g, P = g.player; if (P.vehicle || g.interiors.current) throw new Error('on foot, outdoors only');
     let best = null; for (const d of [5, 6.5, 8]) for (let k = 0; k < 8 && !best; k++) { const a = P.yaw + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.5; const x = P.x + Math.sin(a) * d, z = P.z + Math.cos(a) * d; if (!g.collision.blocked(x, z, 1.6)) best = [x, z]; }
     if (!best) throw new Error('no free space here'); const v = new Vehicle(type, Math.floor(Math.random() * 1e6), g.scene); v.place(best[0], best[1], P.yaw + Math.PI / 2); g.traffic.release(v, false);
-    this.say(`${type} spawned`);
+    this.say(`${VTYPES[type].catalog ? displayName(type, VTYPES[type]) : type} spawned`);
   }
   model(id) {
     const g = this.g; if (id === 'reset') this.D.playerSpec = null; else if (id === 'civilian') { const sp = g.crowd.specs[Math.floor(Math.random() * g.crowd.specs.length)]; this.D.playerSpec = { ...sp }; }
@@ -152,6 +155,8 @@ export class DebugConsole {
       { label: 'Spawn', sub: () => ({ title: 'Spawn', items: [
         { label: 'Spawn 5 pedestrians', act: () => this.spawnPeds(5) }, { label: 'Spawn 15 pedestrians', act: () => this.spawnPeds(15) },
         ...VEH.map((v) => ({ label: 'Spawn ' + v, act: () => this.spawnCar(v) })),
+        { label: 'SUVs (10)', sub: () => ({ title: 'Spawn SUV', items: SUV_IDS.map((v) => ({ label: `${displayName(v, VTYPES[v])} · ${VTYPES[v].cls}`, act: () => this.spawnCar(v) })) }) },
+        { label: 'Cars, vans & trucks (30)', sub: () => ({ title: 'Spawn vehicle', items: OTHER_IDS.map((v) => ({ label: `${displayName(v, VTYPES[v])} · ${VTYPES[v].cls}`, act: () => this.spawnCar(v) })) }) },
       ] }) },
       { label: 'Pedestrian clothing', sub: () => ({ title: 'Re-dress pedestrians (35 m)', items: [{ label: 'Random outfits', act: () => this.dress() }, ...this.outfits().map((o) => ({ label: o, act: () => this.dress(o) }))] }) },
       { label: 'Teleport', sub: () => ({ title: 'Teleport', items: [{ label: 'To map waypoint', act: () => this.tpWaypoint() }, ...Object.values(PLACES).map((p) => ({ label: p.name, act: () => this.teleport(p.x, p.z, p.name) }))] }) },

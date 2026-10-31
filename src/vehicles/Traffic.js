@@ -5,6 +5,7 @@ import * as L from '../world/Layout.js';
 import { plan } from '../world/CityPlan.js';
 import { Vehicle } from './Vehicle.js';
 import { VTYPES } from './VehicleModels.js';
+import { TRAFFIC_W, PARKED_W, NO_LANES } from './VehicleCatalog.js';
 import { RNG } from '../core/rng.js';
 import { clamp, lerp } from '../core/math.js';
 import { Character, randomSpec } from '../actors/Character.js';
@@ -19,10 +20,13 @@ export const TOW_DIST = 150, TOW_TIME = 300; // a vehicle the player left behind
 const PAX_NEAR = 90, PAX_FAR = 120, PAX_CAP = 60; // passengers exist only near the player (LOD); total cap
 
 const V0 = [13.5, 12, 9, 6.5];
+const CAT_W = Object.fromEntries(Object.entries(TRAFFIC_W).map(([k, o]) => [k, Object.entries(o)]));
+const PARKED_LIST = Object.entries(PARKED_W);
 const MIX = {
-  default: [['tuktuk', 34], ['car', 22], ['sedan', 6], ['van', 10], ['bike', 12], ['bus', 5], ['pbus', 4], ['lorry', 3], ['taxi', 4]],
-  port: [['lorry', 30], ['van', 15], ['tuktuk', 20], ['car', 15], ['bike', 10], ['bus', 3]],
-  cinnamon: [['car', 30], ['sedan', 18], ['van', 12], ['tuktuk', 22], ['bike', 8], ['suv', 4], ['taxi', 6]],
+  // 'cat' = one of the 40 catalogue models (fictional makes), picked by the district's own catalogue weights
+  default: [['tuktuk', 34], ['car', 7], ['sedan', 3], ['van', 6], ['bike', 12], ['bus', 5], ['pbus', 4], ['lorry', 3], ['taxi', 4], ['cat', 22]],
+  port: [['lorry', 26], ['van', 8], ['tuktuk', 20], ['car', 5], ['bike', 10], ['bus', 3], ['cat', 24]],
+  cinnamon: [['car', 9], ['sedan', 5], ['van', 7], ['tuktuk', 22], ['bike', 8], ['suv', 2], ['taxi', 6], ['cat', 41]],
 };
 
 function laneOffset(seg, lane) { return seg.level <= 1 ? 1.8 + lane * 3.2 : seg.level === 2 ? seg.hw * 0.5 : seg.hw * 0.48; }
@@ -71,7 +75,7 @@ export class Traffic {
   }
   setDensity(d) { this.max = Math.round(10 + d * 45); }
   all() { const o = this.obstacles; if (!this.parked.length && !(o && o.length)) return this.vehicles; return o && o.length ? this.vehicles.concat(this.parked, o) : this.vehicles.concat(this.parked); } // obstacles = train cars (solid, not enterable)
-  pickType(x, z) { const d = L.districtIdAt(x, z); const night = this.night > 0.6; const mix = MIX[d] || MIX.default; const m = night ? mix.map(([t, w]) => [t, t === 'bus' || t === 'pbus' ? w * 0.4 : w]) : mix; return this.rng.weighted(m); }
+  pickType(x, z) { const d = L.districtIdAt(x, z); const night = this.night > 0.6; const mix = MIX[d] || MIX.default; const m = night ? mix.map(([t, w]) => [t, t === 'bus' || t === 'pbus' ? w * 0.4 : w]) : mix; const t = this.rng.weighted(m); return t === 'cat' ? this.rng.weighted(CAT_W[d] || CAT_W.default) : t; }
   spawn(focus, camDir, forceNear = false) {
     for (let tries = 0; tries < 12; tries++) {
       const seg = this.drivableSegs[Math.floor(this.rng.next() * this.drivableSegs.length)];
@@ -81,7 +85,7 @@ export class Traffic {
       if (!forceNear && d < 160 && camDir) { const dot = ((mx - focus.x) * camDir.x + (mz - focus.z) * camDir.z) / d; if (dot > 0.5) continue; }
       const [a, b] = segNodes(seg); const fwd = this.rng.chance(0.5); const from = fwd ? a : b, to = fwd ? b : a;
       const lanes = seg.level <= 1 ? 2 : 1; const lane = Math.floor(this.rng.next() * lanes);
-      const type = this.pickType(mx, mz); if (seg.level >= 3 && (type === 'bus' || type === 'pbus' || type === 'lorry')) continue;
+      const type = this.pickType(mx, mz); if (seg.level >= 3 && (type === 'bus' || type === 'pbus' || type === 'lorry' || NO_LANES.has(type))) continue;
       const piece = linePiece(seg, from, to, lane); const s = this.rng.range(0, piece.len * 0.8);
       const [x, z, yaw] = evalPiece(piece, s);
       if (this.vehicles.some((v) => (v.x - x) ** 2 + (v.z - z) ** 2 < 14 * 14)) continue;
@@ -139,7 +143,7 @@ export class Traffic {
     const ai = v.ai; let last = ai.pieces[ai.pieces.length - 1];
     while (ai.pieces.length < 3) {
       if (last.type === 'line') {
-        const node = last.to; let opts = node.segs.filter((s) => s !== last.seg && !(s.level >= 3 && (v.type === 'bus' || v.type === 'pbus' || v.type === 'lorry')));
+        const node = last.to; let opts = node.segs.filter((s) => s !== last.seg && !(s.level >= 3 && (v.type === 'bus' || v.type === 'pbus' || v.type === 'lorry' || NO_LANES.has(v.type))));
         opts = opts.filter((s) => { const o = otherEnd(s, node); return o.x > L.BOUNDS.minX + 10 && o.x < L.BOUNDS.maxX - 10 && o.z > L.BOUNDS.minZ + 10 && o.z < L.BOUNDS.maxZ - 10; });
         let next = null;
         if (ai.route && ai.route.length) { const want = ai.route[0]; next = node.segs.find((s) => otherEnd(s, node) === want && this.drivable.has(s)) || null; if (next) ai.route.shift(); else ai.route = null; } // planned route (police units)
@@ -323,7 +327,7 @@ export class Traffic {
     this.parked = this.parked.filter((v) => !v.dead);
     for (const p of want) {
       if (this.parkedSet.has(p)) continue; const r = new RNG(Math.floor(p.x * 31 + p.z * 17));
-      const type = r.weighted([['car', 4], ['tuktuk', 3], ['van', 2], ['sedan', 1.5], ['bike', 2], ['taxi', 0.6]]);
+      let type = r.weighted([['car', 1.5], ['tuktuk', 3], ['van', 0.8], ['sedan', 0.6], ['bike', 2], ['taxi', 0.6], ['cat', 7]]); if (type === 'cat') type = r.weighted(PARKED_LIST);
       const v = new Vehicle(type, Math.floor(r.next() * 1e6), this.scene); parkOnStand(v); v.place(p.x, p.z, p.yaw); v.parked = true; v.spot = p; this.parked.push(v); this.parkedSet.add(p);
     }
   }

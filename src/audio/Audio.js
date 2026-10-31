@@ -3,6 +3,8 @@ import { Settings } from '../core/Settings.js';
 import { bus } from '../core/Events.js';
 import { clamp, lerp } from '../core/math.js';
 import * as L from '../world/Layout.js';
+import { CATALOG, isHeavy } from '../vehicles/VehicleCatalog.js';
+const DIESEL = new Set(['van', 'suv', 'policejeep', ...Object.keys(CATALOG).filter((k) => CATALOG[k].sound === 'van')]);
 
 class AudioEngine {
   constructor() { this.ctx = null; this.ready = false; this.engines = []; this.musicMode = 'none'; this.nextNote = 0; this.step = 0; this.radio = 0; }
@@ -47,7 +49,7 @@ class AudioEngine {
   horn(type, x, z) {
     const [g, pan] = this.spatial(x, z, 60); if (g < 0.02) return; const v = 0.25 * g;
     if (type === 'tuktuk' || type === 'bike') { this.tone(1150, 0.18, { type: 'square', vol: v * 0.5, pan }); this.tone(1220, 0.16, { type: 'square', vol: v * 0.3, pan, when: 0.22 }); }
-    else if (type === 'bus' || type === 'pbus' || type === 'lorry') { for (const f of [233, 294, 349]) this.tone(f, 0.9, { type: 'sawtooth', vol: v * 0.35, pan, attack: 0.04 }); }
+    else if (isHeavy(type)) { for (const f of [233, 294, 349]) this.tone(f, 0.9, { type: 'sawtooth', vol: v * 0.35, pan, attack: 0.04 }); }
     else { this.tone(420, 0.35, { type: 'square', vol: v * 0.4, pan }); this.tone(520, 0.35, { type: 'square', vol: v * 0.3, pan }); }
   }
   crash(v) { this.noise(0.5, { f: 600, q: 0.7, vol: clamp(v / 20, 0.1, 0.6), type: 'lowpass', buf: this.brownBuf }); this.noise(0.25, { f: 3000, q: 1, vol: clamp(v / 40, 0.05, 0.3), when: 0.02 }); for (let i = 0; i < 4; i++) this.tone(2000 + Math.random() * 3000, 0.15, { type: 'triangle', vol: 0.03, when: 0.05 + i * 0.04 }); }
@@ -94,7 +96,8 @@ class AudioEngine {
       const sp = Math.abs(v.speed); const k = v.type; let base, fc, vol;
       if (k === 'tuktuk') { base = 38 + sp * 5; fc = 900 + sp * 60; vol = 0.11; e.lfo.frequency.value = base * 0.5; }
       else if (k === 'bike') { base = 55 + sp * 7; fc = 1400 + sp * 40; vol = 0.09; e.lfo.frequency.value = base * 0.5; }
-      else if (k === 'bus' || k === 'pbus' || k === 'lorry') { base = 28 + sp * 2.2; fc = 300 + sp * 20; vol = 0.16; e.lfo.frequency.value = 9; }
+      else if (isHeavy(k)) { base = 28 + sp * 2.2; fc = 300 + sp * 20; vol = 0.16; e.lfo.frequency.value = 9; }
+      else if (DIESEL.has(k)) { base = 29 + sp * 2.8; fc = 340 + sp * 28; vol = 0.1; e.lfo.frequency.value = 7.5; } // diesel SUVs, vans, pickups
       else { base = 32 + sp * 3.2; fc = 380 + sp * 35; vol = 0.08; e.lfo.frequency.value = 6; }
       const gearSp = v.player ? ((sp % 9) / 9) * 0.6 + 0.6 : 1; e.o.frequency.setTargetAtTime(base * gearSp, t, 0.08); e.o2.frequency.setTargetAtTime(base * gearSp * 0.5, t, 0.08); e.f.frequency.setTargetAtTime(fc, t, 0.1);
       const [g, pan] = v.player ? [1, 0] : this.spatial(v.x, v.z, 20); e.g.gain.setTargetAtTime(vol * g * (v.player ? 1.2 : 0.8) * (st.indoor ? 0.2 : 1), t, 0.1); e.p.pan.setTargetAtTime(pan, t, 0.1);

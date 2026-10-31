@@ -22,7 +22,7 @@ const inWin = (h, W) => W.some(([a, b]) => h >= a && h < b);
 // 7:30 drop-off and the 1:30 pick-up, wait with the driver at the wheel, then pull out — the kerb lane narrows and traffic queues
 export const SCHOOL_RUN = [[hm(7, 8), hm(7, 52)], [hm(13, 12), hm(13, 58)]];
 const KERB = [244, 248.8, 253.6, 258.4, 280.6, 285.4, 290.2, 295], KERB_Z = 326.35, LANE_Z = 325.1;
-const PARENT_CARS = ['car', 'sedan', 'suv', 'car', 'van', 'sedan'];
+const PARENT_CARS = ['ezra', 'pixa', 'ventra', 'mizu', 'tora', 'solace']; // typical school-run cars (catalogue models, all ≤ 4.6 m for the 4.8 m kerb bays)
 const SPINE = 268.9; // walking line inside the compound (gate path), clear of columns
 let signMat = null;
 function schoolSign() { if (signMat) return signMat; const c = document.createElement('canvas'); c.width = 512; c.height = 96; const x = c.getContext('2d');

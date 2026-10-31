@@ -59,7 +59,7 @@ export class PoliceHQLife {
     this.active = true; let s = 900;
     for (const b of HQ.carBays) this.addVehicle(b.type, b, s++);
     HQ.bikeBays.forEach((b, i) => { if (i < 7) this.addVehicle('policebike', b, 40 + i * 2); }); // seed parity keeps the motorcycle body (not the scooter)
-    HQ.staffBays.forEach((b, i) => this.addVehicle(['car', 'sedan', 'suv', 'car'][i], b, 7300 + i * 11));
+    HQ.staffBays.forEach((b, i) => this.addVehicle(['ventra', 'solace', 'ezra', 'pixa'][i], b, 7300 + i * 11));
     HQ.guards.forEach((q, i) => this.addPerson(makePoliceAppearance(300 + i * 7, 'guard'), q.x, q.z, q.yaw, { idle: i === 2 ? 'look' : null, guard: true }));
     HQ.walks.forEach((w, i) => this.addPerson(makePoliceAppearance(400 + i * 13, ['staff', 'admin', 'patrol'][i]), w[0][0], w[0][1], 0, { path: w, sp: 1.25 + i * 0.07, k: 0, dir: 1, t: i * 3 }));
     this.addPerson(makePoliceAppearance(512, 'traffic'), -21.4, -210.4, Math.PI / 2, { idle: 'talk' }); this.addPerson(makePoliceAppearance(519, 'patrol', { sex: 'f' }), -20.2, -210.4, -Math.PI / 2, { idle: 'talk' });

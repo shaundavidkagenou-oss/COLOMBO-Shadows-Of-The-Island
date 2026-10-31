@@ -20,6 +20,7 @@ import { buildMaterials } from './gfx/Materials.js';
 import { Atmosphere } from './gfx/Atmosphere.js';
 import { PostFX } from './gfx/PostFX.js';
 import { setVehicleNight } from './vehicles/VehicleModels.js';
+import { CATALOG, displayName } from './vehicles/VehicleCatalog.js';
 import { updateVehicleLOD, setHeadPoolNight, Vehicle, HeadlightRig } from './vehicles/Vehicle.js';
 import { World } from './world/World.js';
 import { Interiors } from './world/Interiors.js';
@@ -43,6 +44,7 @@ import { Squad } from './actors/Squad.js';
 import { Birds } from './world/Birds.js';
 
 const VNAMES = { tuktuk: 'Three-wheeler', car: 'Hatchback', sedan: 'Sedan', taxi: 'Taxi', van: 'Van', suv: 'SUV', bus: 'SLTB bus', pbus: 'Private bus', lorry: 'Lorry', tow: 'Tow truck', bike: 'Motorcycle', police: 'Police car', policejeep: 'Police jeep', policebike: 'Police motorcycle' };
+for (const [id, T] of Object.entries(CATALOG)) VNAMES[id] = displayName(id, T); // fictional make + model, e.g. "HOSHIDA Kaizan"
 const RADIO = [null, { mode: 'radio1', name: 'Radio Lanka Breeze 98.4' }, { mode: 'radio2', name: 'Island Pulse 104.2' }];
 const TEST = new URLSearchParams(location.search).has('test'); // headless testing: allow big timesteps so cinematics finish under software rendering
 const tick = () => new Promise((r) => setTimeout(r, 0));
