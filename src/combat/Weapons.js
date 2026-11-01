@@ -338,6 +338,7 @@ export class Weapons {
     if (o.y + d.y * best.t < this.groundY(o.x + d.x * best.t, o.z + d.z * best.t)) { // hits the street before anything else
       const tg = d.y < -1e-4 ? (this.groundY(o.x, o.z) - o.y) / d.y : best.t; if (tg > 0 && tg < best.t) best = { t: tg, kind: 'ground' }; }
     for (const p of this.g.crowd.peds) {
+      if (p.ch.rag) { if (Math.abs(p.x - o.x) < best.t + 2 && Math.abs(p.z - o.z) < best.t + 2) { const h = p.ch.rag.rayHit(o, d, best.t); if (h && h.t >= skipNear) best = { t: h.t, kind: 'ped', p, y: h.at.y - (p.y || 0) }; } continue; } // a body on the ground: its actual limbs
       const rx = p.x - o.x, rz = p.z - o.z; const dh = Math.hypot(d.x, d.z) || 1e-6; const t = (rx * d.x + rz * d.z) / (dh * dh); if (t < skipNear || t > best.t) continue;
       const cx = o.x + d.x * t - p.x, cz = o.z + d.z * t - p.z; const down = p.state === 'down'; const rad = down ? 0.5 : 0.3; if (cx * cx + cz * cz > rad * rad) continue;
       const y = o.y + d.y * t - (p.y || 0); if (y < 0.05 || y > (down ? 0.45 : (p.ch.spec.height || 1.7) + 0.05)) continue; best = { t, kind: 'ped', p, y };
@@ -363,8 +364,8 @@ export class Weapons {
       this.spr.pv.z -= (cls === 'pistol' ? 0.55 : cls === 'sniper' ? 1.1 : 0.7) * st; this.spr.pv.y += 0.12 * st; this.spr.rv.x -= (cls === 'pistol' ? 9 : cls === 'sniper' ? 7 : 4.5) * st; this.spr.rv.y += (Math.random() * 2 - 1) * 1.6 * st; this.spr.rv.z += (Math.random() * 2 - 1) * 1.2 * st;
       this.trigT = 0.07; if (this.inv[this.cur].mag <= 1 && cls !== 'sniper') this.slideLock = true; } P.shake = Math.max(P.shake || 0, def.cls === 'sniper' ? 0.25 : 0.08);
     this.gunSound(def, P.x, P.z); this.flash(mz, dir, def); if (!def.cycle) this.ejectShell(); this.tracer(mz, hit.point, def);
-    if (hit.kind === 'ped') { const p = hit.p; this.g.crowd.hitPed(p, dir.x, dir.z, def.dmg); this.puff(hit.point, 0x8a8478, 3); this.hitMarker(); }
-    else if (hit.kind === 'officer') { this.g.police.officerHit(hit.p, dir.x, dir.z); this.puff(hit.point, 0x8a8478, 3); this.hitMarker(); } // non-graphic: stagger / down-and-recover
+    if (hit.kind === 'ped') { const p = hit.p; this.g.crowd.hitPed(p, dir.x, dir.z, def.dmg, hit.point); if (!(this.g.blood && this.g.blood.spray(hit.point, dir, def.dmg))) this.puff(hit.point, 0x8a8478, 3); this.hitMarker(); }
+    else if (hit.kind === 'officer') { this.g.police.officerHit(hit.p, dir.x, dir.z); if (!(this.g.blood && this.g.blood.spray(hit.point, dir, def.dmg))) this.puff(hit.point, 0x8a8478, 3); this.hitMarker(); } // stagger / down-and-recover
     else if (hit.kind === 'vehicle') { this.sparks(hit.point, dir); Audio.tone(2400 + Math.random() * 1500, 0.07, { type: 'triangle', vol: 0.05 }); const v = hit.v; if (v.ai) v.ai.bumped = 2.5; this.g.crowd.alarm(v.x, v.z, 25, 2, null); }
     else if (hit.kind === 'world' || hit.kind === 'ground') { this.puff(hit.point, hit.kind === 'ground' ? 0x6d6a64 : 0xb5ab9a, 5); this.decal(hit.point, dir, hit.kind); }
     this.shotAlarm -= 1; if (this.shotAlarm <= 0) { this.shotAlarm = 3; this.g.crowd.alarm(P.x, P.z, def.loud, 2, null); }

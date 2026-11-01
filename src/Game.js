@@ -44,6 +44,8 @@ import { playOpening } from './story/Opening.js';
 import { Weapons } from './combat/Weapons.js';
 import { Squad } from './actors/Squad.js';
 import { Birds } from './world/Birds.js';
+import { RagdollWorld } from './actors/Ragdoll.js';
+import { Blood } from './gfx/Blood.js';
 
 const VNAMES = { tuktuk: 'Three-wheeler', car: 'Hatchback', sedan: 'Sedan', taxi: 'Taxi', van: 'Van', suv: 'SUV', bus: 'SLTB bus', pbus: 'Private bus', lorry: 'Lorry', tow: 'Tow truck', bike: 'Motorcycle', police: 'Police car', policejeep: 'Police jeep', policebike: 'Police motorcycle' };
 for (const [id, T] of Object.entries(CATALOG)) VNAMES[id] = displayName(id, T); // fictional make + model, e.g. "HOSHIDA Kaizan"
@@ -93,6 +95,8 @@ export class Game {
     this.headRig.collision = this.collision; // headlight light-pool decals stop at trunks, poles and walls
     progress(0.76, 'People of Colombo'); await tick();
     this.crowd = new Crowd(this.scene, this.collision, bus);
+    this.ragdolls = new RagdollWorld(this.collision); this.crowd.ragdolls = this.ragdolls; // dead NPCs go limp: verlet ragdolls (src/actors/Ragdoll.js)
+    this.blood = new Blood(this.scene, this.collision); this.crowd.blood = this.blood; // impact spray, splats, pools (Settings → Blood effects)
     { const N = this.crowd.specTarget(); for (let i = 0; i < N; i += 8) { this.crowd.prepareSpecs(Math.min(8, N - i)); progress(0.76 + 0.1 * (i / N), 'People of Colombo'); await tick(); } }
     progress(0.86, 'Tuk-tuks, buses and traffic'); await tick();
     this.traffic = new Traffic(this.scene, this.collision, bus); this.traffic.crowd = this.crowd;
@@ -296,6 +300,7 @@ export class Game {
   // ================================================================= per-frame
   loop() {
     requestAnimationFrame(() => this.loop());
+    if (this.noRender) return; // headless tests (TEST mode): step the sim with stepSim() without paying for frames
     const now = performance.now(); const raw = (now - this.last) / 1000; this.last = now; const dt = Math.min(TEST ? 0.5 : 0.05, Math.max(0.0005, raw));
     this.fps = lerp(this.fps, 1 / Math.max(raw, 1e-3), 0.05);
     Input.pollGamepad();
@@ -370,6 +375,7 @@ export class Game {
     if (!this.indoor) this.trains.update(dt, { focus, night: A.night, player: this.indoor ? null : P, playerVehicle: P.vehicle || null, vehicles: this.traffic.all(), listener: true });
     if (!this.indoor) this.crowd.update(dt, focus, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: P, armed: !!(this.weapons && this.weapons.drawn), hourFactor: this.hourFactor(), hour: A.hour, bodies: this.bodies, police: this.police });
     if (P.vehicle && A.night > 0.5 && P.nightLights === undefined) { P.vehicle.lights = true; }
+    if (!this.indoor) this.ragdolls.update(dt, this.traffic.all()); this.blood.update(dt);
     if (this.birds) this.birds.update(dt);
     this.updateSight(dt);
     // story & prompts

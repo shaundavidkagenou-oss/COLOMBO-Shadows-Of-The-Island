@@ -22,12 +22,13 @@ import * as L from '../world/Layout.js';
 import { Vehicle } from '../vehicles/Vehicle.js';
 import { linePiece, segNodes, otherEnd } from '../vehicles/Traffic.js';
 import { Character } from '../actors/Character.js';
-import { makePoliceAppearance } from '../actors/Appearance.js';
+import { makeMedicAppearance, makePoliceAppearance } from '../actors/Appearance.js';
 import { seatCharacter } from '../actors/Seating.js';
 import { Audio } from '../audio/Audio.js';
 import { clamp, lerp } from '../core/math.js';
 import { FootNav } from './FootNav.js';
 import { Firefight } from './Firefight.js';
+import { EMS } from './EMS.js';
 import { BustedCinematic } from './Busted.js';
 import { HOSPITAL } from '../actors/Health.js';
 import { chaseAim, rejoinLane, applyPit, roadblockSite, makeSpikeStrip, overStrip, radioLine, compass, catchUpSpeed, straggler } from './Pursuit.js';
@@ -48,6 +49,9 @@ const LINES = {
   search: [{ en: 'Control, suspect lost. Searching the area.' }, { en: 'Check the lanes behind the shops.' }],
   breakup: [{ si: 'නවත්වන්න! පොලිසිය!', tr: 'Stop that! Police!' }, { en: 'Police! Break it up, both of you!' }],
   cuff: [{ si: 'දෙන්නම පොලිසියට එන්න.', tr: 'Both of you, come to the station.' }, { en: "Hands behind your back. You're both coming with us." }],
+  arrest: [{ si: 'නවතින්න! පොලිසිය! අත් උස්සන්න!', tr: 'Stop! Police! Hands up!' }, { en: 'Police! Stop right there — hands where I can see them!' }],
+  cuff1: [{ si: 'ඔයාව අත්අඩංගුවට ගන්නවා.', tr: 'You are under arrest.' }, { en: "You're under arrest for assault. Hands behind your back." }],
+  waitUp: [{ si: 'නැගිටින්න. හෙමින්.', tr: 'Get up. Slowly.' }, { en: 'Stay down… now get up, slowly.' }],
 };
 
 // ------------------------------------------------------------------ road graph helpers (pure; unit-tested in tools/police-test.mjs)
@@ -82,7 +86,7 @@ export class PoliceResponse {
     this.foot = []; this.civil = []; this.log = []; this.stats = { reports: 0, dispatched: 0, sightings: 0, fines: 0, arrests: 0, searches: 0, decays: 0, standDowns: 0, maxUnits: 0, spawnMinDist: Infinity };
     this.reason = 'disturbance'; this.stop = null; this.t = 0; this.siren = null; this.waits = []; this.radioCd = 4; this.radioN = 0; this.blockCd = 12;
     Object.assign(this.stats, { intercepts: 0, pits: 0, roadblocks: 0, spikes: 0, flats: 0, recycled: 0, tackles: 0, tackleHits: 0, busted: { grab: 0, tackle: 0, shot: 0 } });
-    this.ff = new Firefight(this); this.cine = null; this.bodies = []; this.nav = new FootNav(this.g.collision, () => this.T.all());
+    this.ff = new Firefight(this); this.ems = new EMS(this); this.cine = null; this.bodies = []; this.nav = new FootNav(this.g.collision, () => this.T.all());
   }
   get T() { return this.g.traffic; }
   stars() { return Math.ceil(this.level - 0.01); }
@@ -122,6 +126,7 @@ export class PoliceResponse {
     this.updateGlobal(dt);
     for (const u of this.units.slice()) this.updateUnit(u, dt);
     for (const u of this.civil.slice()) this.updateCivil(u, dt);
+    this.ems.update(dt);
     this.updateRoadblocks(dt); this.updateRadio(dt);
     this.updateStop(dt); this.g.player.policeStop = !!this.stop; this.pushPlayer(); this.updateSiren(dt, false);
     this.stats.maxUnits = Math.max(this.stats.maxUnits, this.units.filter((u) => !u.patrol).length);
@@ -201,29 +206,33 @@ export class PoliceResponse {
   }
 
   // ------------------------------------------------------------------ units
-  spawnUnit({ patrol = false, jeep = false, ahead = false, at = null } = {}) {
+  spawnUnit({ patrol = false, jeep = false, ahead = false, at = null, ems = false, near = false } = {}) {
     const g = this.g, T = this.T, P = g.player; const f = this.target(); const cam = g.camera; const cd = new THREE.Vector3(); cam.getWorldDirection(cd);
-    if (at) { const ln = T.laneNear(at.x, at.z, at.yaw, 40); return ln ? this.makeUnit(at.x, at.z, at.yaw, ln.piece, ln.s, false, jeep) : null; } // placed (roadblock)
-    for (let tries = 0; tries < 40; tries++) {
-      const seg = T.drivableSegs[Math.floor(Math.random() * T.drivableSegs.length)]; if (seg.level >= 3) continue;
+    if (at) { const ln = T.laneNear(at.x, at.z, at.yaw, 40); return ln ? this.makeUnit(at.x, at.z, at.yaw, ln.piece, ln.s, false, jeep, ems) : null; } // placed (roadblock / test)
+    const lo = ahead ? 170 : near ? 90 : 150, hi = ahead ? 310 : near ? 170 : 280; // near: answering the player's own 119 call
+    const cand = T.drivableSegs.filter((sg) => { if (sg.level >= 3) return false; const ex = sg.x1 - sg.x0, ez = sg.z1 - sg.z0, l2 = ex * ex + ez * ez || 1; const t = Math.max(0, Math.min(1, ((f.x - sg.x0) * ex + (f.z - sg.z0) * ez) / l2)); // roads that pass through the distance band
+      return Math.hypot(sg.x0 + ex * t - f.x, sg.z0 + ez * t - f.z) <= hi && Math.max(Math.hypot(sg.x0 - f.x, sg.z0 - f.z), Math.hypot(sg.x1 - f.x, sg.z1 - f.z)) >= lo; });
+    for (let tries = 0; tries < 80 && cand.length; tries++) {
+      const seg = cand[Math.floor(Math.random() * cand.length)];
       const mx = (seg.x0 + seg.x1) / 2, mz = (seg.z0 + seg.z1) / 2; const d = Math.hypot(mx - f.x, mz - f.z);
-      const hy = f.v ? f.v.yaw : P.yaw; const lo = ahead ? 170 : 150, hi = ahead ? 310 : 280; if (d < lo || d > hi) continue; if (ahead && ((mx - f.x) * Math.sin(hy) + (mz - f.z) * Math.cos(hy)) < d * 0.55) continue; // intercepting units come from ahead
-      if (d < 240 && ((mx - cam.position.x) * cd.x + (mz - cam.position.z) * cd.z) / Math.hypot(mx - cam.position.x, mz - cam.position.z) > 0.25 && !(ahead && g.collision.raycast && g.collision.raycast(cam.position.x, cam.position.y, cam.position.z, mx, 1.6, mz, 0.1) < 0.97)) continue; // out of view (or hidden behind buildings)
+      const hy = f.v ? f.v.yaw : P.yaw; if (ahead && ((mx - f.x) * Math.sin(hy) + (mz - f.z) * Math.cos(hy)) < d * 0.55) continue; // intercepting units come from ahead
       const [a, b] = segNodes(seg); const toward = Math.hypot(a.x - f.x, a.z - f.z) < Math.hypot(b.x - f.x, b.z - f.z); const from = toward ? b : a, to = toward ? a : b;
-      const lane = seg.level <= 1 ? 1 : 0; const piece = linePiece(seg, from, to, lane); const s = piece.len * (0.2 + Math.random() * 0.4);
-      const x = lerp(piece.p0[0], piece.p1[0], s / piece.len), z = lerp(piece.p0[1], piece.p1[1], s / piece.len); if (Math.hypot(x - P.x, z - P.z) < 140) continue;
+      const lane = seg.level <= 1 ? 1 : 0; const piece = linePiece(seg, from, to, lane); let s = 0, x = 0, z = 0, ok = false; // the spawn point itself (not the segment's midpoint) must be in range: long roads run far past it
+      for (let k = 0; k < 6 && !ok; k++) { s = piece.len * (0.1 + Math.random() * 0.8); x = lerp(piece.p0[0], piece.p1[0], s / piece.len); z = lerp(piece.p0[1], piece.p1[1], s / piece.len); const dd = Math.hypot(x - f.x, z - f.z); ok = dd >= lo && dd <= hi; }
+      if (!ok || Math.hypot(x - P.x, z - P.z) < (near ? 85 : 140)) continue;
+      if (Math.hypot(x - f.x, z - f.z) < 240 && ((x - cam.position.x) * cd.x + (z - cam.position.z) * cd.z) / Math.hypot(x - cam.position.x, z - cam.position.z) > 0.25 && !(g.collision.raycast && g.collision.raycast(cam.position.x, cam.position.y, cam.position.z, x, 1.6, z, 0.1) < 0.97)) continue; // the car itself appears out of view (or behind buildings)
       if (T.vehicles.some((v) => (v.x - x) ** 2 + (v.z - z) ** 2 < 15 * 15)) continue;
-      return this.makeUnit(x, z, Math.atan2(piece.d[0], piece.d[1]), piece, s, patrol, jeep);
+      return this.makeUnit(x, z, Math.atan2(piece.d[0], piece.d[1]), piece, s, patrol, jeep, ems);
     }
     return null;
   }
-  makeUnit(x, z, yaw, piece, s, patrol, jeep) {
+  makeUnit(x, z, yaw, piece, s, patrol, jeep, ems = false) {
     const g = this.g, T = this.T, P = g.player; {
-      const type = jeep ? 'policejeep' : 'police'; const v = new Vehicle(type, 3000 + this.seed * 7, g.scene); v.place(x, z, yaw);
+      const type = ems ? 'ambulance' : jeep ? 'policejeep' : 'police'; const v = new Vehicle(type, 3000 + this.seed * 7, g.scene); v.place(x, z, yaw);
       v.keep = true; v.ai = { pieces: [piece], s, v0: patrol ? 9 : 11, stuck: 0, honkCd: 99, bumped: 0, aggressive: 1.2, emergency: true }; T.extend(v);
       const u = { id: this.seed++, v, officers: [], task: patrol ? 'patrol' : 'idle', patrol, arrived: false, footT: 0, stuckT: 0, planT: 0, goalPt: null, enterT: 0 };
       v.police = u; const seats = v.mesh.userData.seats; const di = seats.findIndex((q) => q.driver); const pi = seats.map((q, i) => i).filter((i) => i !== di).sort((i, j) => Math.abs(seats[i].z - seats[di].z) - Math.abs(seats[j].z - seats[di].z))[0];
-      for (const [k, si] of [[0, di], [1, pi]]) { if (si === undefined || si < 0) continue; const ch = new Character(makePoliceAppearance(7000 + u.id * 13 + k * 5, 'patrol', k === 1 && u.id % 3 === 0 ? { sex: 'f' } : {})); seatCharacter(ch, v, seats[si]); ch.mesh.castShadow = false; const off = { ch, unit: u, seat: seats[si], si, mode: 'seated', x, z, y: v.y, yaw: v.yaw, t: 0, hits: 0, acc: 0 }; this.ff.arm(off); u.officers.push(off); } // every officer carries a T-56 (slung; hidden while seated)
+      for (const [k, si] of [[0, di], [1, pi]]) { if (si === undefined || si < 0) continue; const ch = new Character(ems ? makeMedicAppearance(9100 + u.id * 17 + k * 7) : makePoliceAppearance(7000 + u.id * 13 + k * 5, 'patrol', k === 1 && u.id % 3 === 0 ? { sex: 'f' } : {})); seatCharacter(ch, v, seats[si]); ch.mesh.castShadow = false; const off = { ch, unit: u, seat: seats[si], si, mode: 'seated', x, z, y: v.y, yaw: v.yaw, t: 0, hits: 0, acc: 0 }; if (ems) { off.medic = true; off.noTorch = true; } else this.ff.arm(off); u.officers.push(off); } // every officer carries a T-56 (slung; hidden while seated)
       this.syncSeated(u); v.paxPlan = []; T.vehicles.push(v); this.units.push(u);
       const dp = Math.hypot(x - P.x, z - P.z); this.stats.spawnMinDist = Math.min(this.stats.spawnMinDist, dp); this.note(`unit ${u.id} (${type}${patrol ? ', patrol' : ''}) spawned ${dp.toFixed(0)} m away`);
       return u;
@@ -418,6 +427,7 @@ export class PoliceResponse {
         if (dd < 0.35) { o.retT = 0; o.ch.root.parent?.remove(o.ch.root); v.mesh.add(o.ch.root); o.ex = ex; o.t = 0; o.mode = 'enter'; A.set(null); return; } }
       this.animOfficer(o, dt, speed); return;
     }
+    if (u.ems && o.mode === 'foot') { this.ems.medic(o, u, dt); return; } // 1990 ambulance crew (EMS.js)
     if (u.civil && o.mode === 'foot') { this.civilOfficer(o, u, dt); return; }
     if (o.tackle) { this.updateTackle(o, u, dt); return; }
     o.tackleCd = Math.max(0, (o.tackleCd || 0) - dt);
@@ -446,12 +456,45 @@ export class PoliceResponse {
   // ---- civil calls (no wanted level): a bystander reports a street fight; one patrol car comes with its lights on, the
   // officers break it up, handcuff the people involved, walk them to the back seats and drive away. These units are kept
   // apart from the wanted-level units (this.civil), so dispatch / pursuit logic never touches them.
-  civilCall(inc) {
-    if (this.level > 0 || this.state === 'pursuing' || this.g.director.active || this.busy || this.civil.length) return null;
-    const u = this.spawnUnit(); if (!u) return null; this.units = this.units.filter((q) => q !== u); this.civil.push(u);
+  civilCall(inc, force = false) {
+    if (this.level > 0 || this.state === 'pursuing' || this.g.director.active || this.busy || (this.civil.length && !force)) return null;
+    const u = this.spawnUnit({ near: !!(inc.F && inc.F.player) }) || this.spawnUnit(); if (!u) return null; this.units = this.units.filter((q) => q !== u); this.civil.push(u);
     u.civil = inc; u.task = 'civil'; u.cphase = 'drive'; u.prisoners = []; u.ct = 0; u.v.ai.v0 = 13;
     if (!this.plan(u, inc.x, inc.z)) { this.removeCivil(u); return null; }
     this.stats.civil = (this.stats.civil || 0) + 1; this.note(`unit ${u.id} civil call (${inc.kind})`); return u;
+  }
+  // ---- 119 from the player's phone (Phone → Contacts). Police: the person who is fighting / has just punched the player
+  // is arrested and driven away (a civil unit with a one-person incident); failing that, a street fight nearby is reported.
+  emergencyCall(kind) { return kind === 'ambulance' ? this.ems.call() : this.policeCall(); }
+  assailant(r = 60) { const C = this.g.crowd, P = this.g.player; if (!C) return { live: null, dead: null }; let live = null, dead = null, bl = r, bd = r;
+    for (const p of C.peds) { const recent = p.state === 'fight' || (p.foughtT !== undefined && C.t - p.foughtT < 90); if (!recent || p.reported119) continue; const d = Math.hypot(p.x - P.x, p.z - P.z); if (p.dead) { if (d < bd) { bd = d; dead = p; } } else if (d < bl) { bl = d; live = p; } }
+    return { live, dead }; }
+  policeCall() {
+    const g = this.g, C = g.crowd, P = g.player; const R = (ok, msg) => ({ ok, title: 'Police 119', msg });
+    if (this.level > 0) return R(false, 'The police are already looking for YOU — no separate unit is sent.');
+    if (g.indoor) return R(false, 'Go outside so the patrol car can find you.');
+    if (g.director.active || this.busy) return R(false, 'All units are committed right now. Try again shortly.');
+    if (this.civil.some((u) => u.civil && u.civil.F && u.civil.F.player)) return R(false, 'A patrol car is already on its way to you.');
+    const { live, dead } = this.assailant();
+    if (!live) {
+      if (dead) return R(false, 'The person who attacked you is not moving. Call 119 again and ask for an ambulance.');
+      const SL = C && C.life; const F = SL && SL.fights && SL.fights.find((f) => !f.unit && !f.handed && Math.hypot(f.x - P.x, f.z - P.z) < 60);
+      if (F) { const u = this.civilCall({ x: F.x, z: F.z, kind: 'fight', F, road: L.roadNameAt ? L.roadNameAt(F.x, F.z) : '' }, true); if (u) { F.unit = u; F.called = true; return R(true, `A patrol car is coming to break up the fight on ${L.roadNameAt?.(F.x, F.z) || 'your street'}.`); } return R(false, 'No patrol car can reach you right now — try again in a moment.'); }
+      return R(false, 'There is nobody attacking you nearby, so no unit is sent. (Calling 119 without cause is an offence.)');
+    }
+    const p = live; const crowd = C;
+    const life = { handOver: (F) => { F.handed = true; const a = F.a; a.keep = false; a.ch.anim.fightOn(false); a.ch.anim.block?.(false); a.ch.mesh.rotation.set(0, 0, 0); a.ch.mesh.position.set(0, 0, 0); crowd.release(a); this.stats.assaultArrests = (this.stats.assaultArrests || 0) + 1; },
+      endFight: (F, why) => { F.ended = true; F.why = why; if (F.a) { F.a.keep = false; F.a.reported119 = false; } } };
+    const F = { a: p, b: null, kind: 'assault', player: true, life, x: p.x, z: p.z }; p.keep = true; p.reported119 = true;
+    const u = this.civilCall({ x: p.x, z: p.z, kind: 'assault', F, road: L.roadNameAt ? L.roadNameAt(p.x, p.z) : '' }, true);
+    if (!u) { p.keep = false; p.reported119 = false; return R(false, 'No patrol car can reach you right now — try again in a moment.'); }
+    F.unit = u; this.note(`119: assault on the player reported, unit ${u.id}`);
+    const st = this.nearestStation(); return R(true, `A patrol car from ${st.name.replace(', Kompannaveediya', '')} is on its way for the man who attacked you. Keep your distance.`);
+  }
+  checkAssault(u, F) { // the suspect died / vanished before the arrest
+    if (F.handed || F.ended || !F.a) return; const a = F.a; const C = this.g.crowd;
+    if (a.dead) { F.life.endFight(F, 'dead'); this.g.hud.notify('Police 119', 'The suspect is down and not moving — no arrest. Call 119 for an ambulance.', 'info', 5); }
+    else if (C && !C.peds.includes(a)) F.life.endFight(F, 'gone');
   }
   nearPlayer(x, z, r = 35) { const P = this.g.player; return Math.hypot(P.x - x, P.z - z) < r; }
   updateCivil(u, dt) {
@@ -460,9 +503,9 @@ export class PoliceResponse {
     v.beacons(u.cphase !== 'leave', this.t); v.lights = g.atmos ? g.atmos.night > 0.4 : false;
     for (const o of u.officers) this.updateOfficer(o, u, dt);
     for (const q of u.prisoners) this.updatePrisoner(q, u, dt);
-    const F = inc.F;
+    const F = inc.F; if (F && F.player) this.checkAssault(u, F);
     if (u.cphase === 'drive') {
-      const ai = v.ai; if (F && !F.handed && !F.ended && F.a) { inc.x = (F.a.x + F.b.x) / 2; inc.z = (F.a.z + F.b.z) / 2; }
+      const ai = v.ai; if (F && !F.handed && !F.ended && F.a) { const b2 = F.b || F.a; inc.x = (F.a.x + b2.x) / 2; inc.z = (F.a.z + b2.z) / 2; }
       const gd = ai.goal && ai.goal.piece && ai.goal.dist !== undefined ? ai.goal.dist : Infinity; const near = Math.hypot(v.x - inc.x, v.z - inc.z);
       if (v.speed < 0.3 && gd > 5) u.stuckT += dt; else u.stuckT = 0;
       if ((gd < 5 && v.speed < 0.6) || (near < 16 && v.speed < 0.6) || (u.stuckT > 6 && near < 40)) { u.cphase = 'scene'; u.sceneT = 0; this.dismount(u, 'civil'); u.task = 'civil'; }
@@ -492,9 +535,11 @@ export class PoliceResponse {
   civilOfficer(o, u, dt) {
     const A = o.ch.anim, inc = u.civil, F = inc.F, k = u.officers.indexOf(o); let speed = 0;
     if (F && !F.handed && !F.ended && F.a) { // still fighting: go in; within a few metres shout, and both stop with their hands up
-      const tgt = k === 0 ? F.a : F.b; const d = Math.hypot(tgt.x - o.x, tgt.z - o.z);
-      if (d > 8.5) speed = this.moveTo(o, tgt.x, tgt.z, d > 15 ? 3.4 : 2.2, dt);
-      else { F.stopped = true; if (this.nearPlayer(o.x, o.z)) this.say(o, 'breakup', 'Police officer'); this.takePrisoners(u, F); }
+      const tgt = k === 0 ? F.a : (F.b || F.a); const d = Math.hypot(tgt.x - o.x, tgt.z - o.z);
+      const ko = F.player && tgt.state === 'down' && !tgt.dead; // knocked out: stand over them until they come round, then arrest
+      if (d > (ko ? 1.8 : 8.5)) speed = this.moveTo(o, tgt.x, tgt.z, d > 15 ? 3.4 : 2.2, dt);
+      else if (ko) { o.yaw += angDiff(Math.atan2(tgt.x - o.x, tgt.z - o.z), o.yaw) * Math.min(1, dt * 5); if (!F.saidWait && k === 0) { F.saidWait = true; if (this.nearPlayer(o.x, o.z)) this.say(o, 'waitUp', 'Police officer'); } }
+      else { F.stopped = true; if (this.nearPlayer(o.x, o.z)) this.say(o, F.player ? 'arrest' : 'breakup', 'Police officer'); this.takePrisoners(u, F); }
       if (A.action !== (speed ? null : 'point')) A.set(speed ? null : 'point'); this.animOfficer(o, dt, speed); return;
     }
     const q = u.prisoners.find((p) => p.officer === o);
@@ -504,7 +549,7 @@ export class PoliceResponse {
     if (q.mode === 'held') { // walk round behind them; they turn their back; handcuffs
       const bx = q.x - Math.sin(q.yaw) * 0.62, bz = q.z - Math.cos(q.yaw) * 0.62; const d = Math.hypot(bx - o.x, bz - o.z);
       if (d > 0.25 && !(d < 0.5 && o.blockedT > 0.4)) { speed = this.moveTo(o, bx, bz, d > 6 ? 2.6 : 1.3, dt); if (A.action) A.set(null); }
-      else { o.yaw += angDiff(Math.atan2(q.x - o.x, q.z - o.z), o.yaw) * Math.min(1, dt * 6); q.mode = 'cuffing'; q.t = 0; A.set('interact'); if (u.officers[0] === o && this.nearPlayer(o.x, o.z)) this.say(o, 'cuff', 'Police officer'); }
+      else { o.yaw += angDiff(Math.atan2(q.x - o.x, q.z - o.z), o.yaw) * Math.min(1, dt * 6); q.mode = 'cuffing'; q.t = 0; A.set('interact'); if (u.officers[0] === o && this.nearPlayer(o.x, o.z)) this.say(o, u.prisoners.length === 1 ? 'cuff1' : 'cuff', 'Police officer'); }
       this.animOfficer(o, dt, speed); return; }
     if (q.mode === 'cuffing') { o.yaw += angDiff(Math.atan2(q.x - o.x, q.z - o.z), o.yaw) * Math.min(1, dt * 6); if (A.action !== 'interact') A.set('interact'); this.animOfficer(o, dt, 0); return; }
     if (q.mode === 'escort') { // walk them to their door, a hand on the upper arm
@@ -524,7 +569,7 @@ export class PoliceResponse {
   takePrisoners(u, F) { // the two people leave the crowd and are handled here until they are in the car
     if (F.handed) return; const v = u.v, seats = v.mesh.userData.seats; const used = new Set(u.officers.map((o) => o.si));
     const free = seats.map((q, i) => i).filter((i) => !used.has(i) && !seats[i].driver).sort((i, j) => seats[i].z - seats[j].z); // rear seats first
-    const ppl = [F.a, F.b]; if (F.life) F.life.handOver(F); else F.handed = true; const taken = new Set();
+    const ppl = [F.a, F.b].filter(Boolean); if (F.life) F.life.handOver(F); else F.handed = true; const taken = new Set();
     ppl.forEach((p, k) => { const o = u.officers[k] || u.officers[0]; const side = Math.sign(o.seat.x || 1); // the back seat on the escorting officer's side: nobody walks round the car
       const si = free.find((i) => !taken.has(i) && Math.sign(seats[i].x || 1) === side) ?? free.find((i) => !taken.has(i)) ?? free[0]; taken.add(si);
       u.prisoners.push({ ch: p.ch, x: p.x, z: p.z, y: p.y || 0.15, yaw: p.yaw, mode: 'held', seat: seats[si], si, officer: o, t: 0, acc: 0, hits: 0 }); p.ch.anim.set('handsup'); p.ch.face.mood = 'concern'; });
@@ -593,14 +638,15 @@ export class PoliceResponse {
   officerHit(o, dx, dz) { // non-graphic: the first round staggers; a second puts the officer down for good
     if (o.mode !== 'foot' && o.mode !== 'down') return; if (o.tackle) { o.tackle = null; } o.hits = (o.hits || 0) + 1; this.reason = 'assaulting a police officer'; this.ff.onOfficerHit(o);
     this.incident = { x: this.g.player.x, z: this.g.player.z, t: this.t }; this.addHeat(1, this.reason, 'You attacked an officer.'); this.spotted();
-    if (o.hits >= 2) this.killOfficer(o); else { o.x += dx * 0.35; o.z += dz * 0.35; o.ch.face?.set?.('fear', 2); }
+    if (o.hits >= 2) this.killOfficer(o, dx, dz); else { o.x += dx * 0.35; o.z += dz * 0.35; o.ch.face?.set?.('fear', 2); }
   }
   // incapacitated: the body stays where it fell (it no longer belongs to the unit, so a unit driving off or being removed
   // never makes it vanish in view) and is cleared away later, unseen. A unit with nobody left leaves its car parked.
-  killOfficer(o) {
+  killOfficer(o, dx = 0, dz = 0) {
     if (o.dead) return; o.dead = true; o.mode = 'dead'; o.tackle = null; o.cuffing = false; o.torchOn = false; if (o.torchM) o.torchM.visible = false;
     o.ch.anim.ik = null; o.ch.anim.aim = null; o.ch.anim.set('down'); o.ch.face?.set?.('blink', 1e9); this.ff.disarm?.(o);
     const u = o.unit; if (u) u.officers = u.officers.filter((q) => q !== o);
+    const R = this.g.ragdolls; if (R && o.ch.root.parent && !o.ch.rag) R.add(o.ch, { vel: [dx * 1.8, 0, dz * 1.8] }); // goes limp (ragdoll)
     this.bodies.push({ o, ch: o.ch, x: o.x, z: o.z, t: 0 }); this.stats.officersDown = (this.stats.officersDown || 0) + 1; this.note('officer down (incapacitated)');
     if (u && !u.officers.length) this.abandonUnit(u);
   }
@@ -611,9 +657,11 @@ export class PoliceResponse {
     this.units = this.units.filter((q) => q !== u); this.civil = this.civil.filter((q) => q !== u); this.note(`unit ${u.id} has nobody left — car left where it stopped`);
   }
   updateBodies(dt) {
-    for (const b of this.bodies) { b.t += dt; if (b.t < 2.5) { b.o.ch.anim.update(dt, 0); this.placeOfficer(b.o); } }
+    for (const b of this.bodies) { b.t += dt; const r = b.ch.rag;
+      if (r) { if (!r.kin) { const P = r.pelvis(); b.x = b.o.x = P.x; b.z = b.o.z = P.z; } if (!b.pooled && this.g.blood && (r.asleep || b.t > 3)) { b.pooled = true; const P = r.pelvis(), C = r.part('chest'); this.g.blood.pool(P.x * 0.45 + C.x * 0.55, P.z * 0.45 + C.z * 0.55, 1.0 + Math.random() * 0.4, P.y); } }
+      else if (b.t < 2.5) { b.o.ch.anim.update(dt, 0); this.placeOfficer(b.o); } }
     const tg = this.target(); const gone = this.bodies.filter((b) => b.t > 150 && !this.inView(b) && Math.hypot(b.x - tg.x, b.z - tg.z) > 35 || Math.hypot(b.x - tg.x, b.z - tg.z) > 260);
-    for (const b of gone) { b.ch.root.parent?.remove(b.ch.root); b.ch.dispose(); } if (gone.length) this.bodies = this.bodies.filter((b) => !gone.includes(b));
+    for (const b of gone) { if (b.ch.rag) { this.g.ragdolls?.remove(b.ch.rag); b.ch.rag = null; } b.ch.root.parent?.remove(b.ch.root); b.ch.dispose(); } if (gone.length) this.bodies = this.bodies.filter((b) => !gone.includes(b));
   }
   pushPlayer() { const P = this.g.player; if (P.vehicle) return; for (const o of this.foot) { const dx = P.x - o.x, dz = P.z - o.z, d = Math.hypot(dx, dz); if (d < 0.55 && d > 1e-3) { P.x = o.x + (dx / d) * 0.55; P.z = o.z + (dz / d) * 0.55; } } }
   say(o, kind, who) { const arr = LINES[kind]; if (!arr) return; const l = arr[Math.floor(Math.random() * arr.length)]; const lang = l.si ? 'si' : l.ta ? 'ta' : 'en'; this.g.hud.subtitle(who || 'Police officer', l.si || l.ta || l.en, l.tr || '', 2.6, lang); Audio.talkBlip?.(lang); }

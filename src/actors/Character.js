@@ -923,7 +923,7 @@ export function gaitProfile(sp) {
 // ------------------------------------------------------------------ two-bone arm IK (used for weapons)
 // target: point in CHEST space; q: optional hand orientation in chest space; w: blend with the animated pose.
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _v4 = new THREE.Vector3(), _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _m1 = new THREE.Matrix4();
-const BODY_POSES = new Set(['kneel', 'kneelCuffed', 'prone', 'tackled', 'collapse', 'tackle', 'cuffKneel']);
+const BODY_POSES = new Set(['kneel', 'kneelCuffed', 'prone', 'tackled', 'collapse', 'tackle', 'cuffKneel', 'medKneel', 'medLift']);
 const seg01 = (t, a, b) => Math.min(1, Math.max(0, (t - a) / (b - a)));
 export function solveArmIK(b, S, target, q, w = 1, poleDir = null) { // poleDir: preferred elbow direction (parent space), default down and out
   const arm = b['arm' + S], fore = b['fore' + S], hand = b['hand' + S], chest = b.chest, par = arm.parent;
@@ -986,6 +986,7 @@ export class Animator {
     return { th: -fwd * A, knee, foot: lerp(0.35, -0.12, smooth01(u * 1.3)), contact: false, u };
   }
   update(dt, speed, turnRate = 0) {
+    if (this.ch.rag) return; // a ragdoll (Ragdoll.js) owns the bones
     const b = this.ch.bones; const g = this.g; const s = this.s; this.t += dt; this.actionT = (this.actionT || 0) + dt;
     if (this.actionDur && this.actionT > this.actionDur) this.set(null);
     if (this.fadeW > 0) { this.fadeW = Math.max(0, this.fadeW - dt * 3.2); this.fadeT += dt; if (this.fadeW === 0) this.fadeAct = null; }
@@ -1179,6 +1180,9 @@ export class Animator {
           tr = [-0.8 - 2.0 * reach + 0.9 * land, 0, -0.35 + 0.2 * land]; tl = [-0.8 - 2.0 * reach + 0.9 * land, 0, 0.35 - 0.2 * land]; tfr = tfl = [-0.3 - 0.8 * land, 0, 0]; b.neck.rotation.x -= 0.6 * reach * aw; break; }
         case 'cuffKneel': ikT('L', 0.1, -0.25, 0.46); ikT('R', -0.06, -0.27, 0.45); b.spine.rotation.x += 0.5 * aw; b.neck.rotation.x -= 0.25 * aw; head = 0; break; // one knee down beside a prone suspect, hands on their wrists
         case 'torch': { const sw = this.torchSweep || 0; ikT('R', -0.13 + sw * 0.16, 0.05, 0.34); tl = [0.05, 0, 0.12]; head = sw * 0.85; break; } // hand torch held out at chest height, sweeping with the eyes
+        // ---- paramedics (EMS.js): hands on world points (holdL / holdR, chest space, set every frame); medShake: head shake
+        case 'medKneel': case 'medLift': case 'medCarry': { if (this.holdL) ikT('L', this.holdL.x, this.holdL.y, this.holdL.z, this.holdPoleL); else { tl = [-0.35, 0, 0.15]; tfl = [-0.9, 0, 0]; } if (this.holdR) ikT('R', this.holdR.x, this.holdR.y, this.holdR.z, this.holdPoleR); else { tr = [-0.35, 0, -0.15]; tfr = [-0.9, 0, 0]; }
+          b.neck.rotation.x += (this.medLook ?? 0.35) * aw; head = this.medShake ? Math.sin(at * 7.5) * 0.38 * this.medShake : (this.medTurn || 0); break; }
         case 'cuffStand': ikT('L', 0.07, -0.1, 0.56); ikT('R', -0.08, -0.12, 0.55); b.spine.rotation.x += 0.35 * aw; b.neck.rotation.x -= 0.05 * aw; head = 0; break; // standing behind a kneeling suspect, cuffing
       }
       if (tl) aL = blend(aL, tl, aw); if (tr) aR = blend(aR, tr, aw); if (tfl) fL = blend(fL, tfl, aw); if (tfr) fR = blend(fR, tfr, aw); if (head !== null && head !== undefined) b.head.rotation.y = lerp(b.head.rotation.y, head, aw);
@@ -1201,6 +1205,7 @@ export class Animator {
     if (this.ik && !seated) { if (this.ik.R) solveArmIK(b, 'R', this.ik.R, this.ik.qR, this.ik.wR ?? 1); if (this.ik.L) solveArmIK(b, 'L', this.ik.L, this.ik.qL, this.ik.wL ?? 1); }
     if (this.fight) applyFight(this, dt, solveArmIK, seated);
     if (!seated) { if (this.fadeAct && this.fadeW > 0 && BODY_POSES.has(this.fadeAct)) this.bodyPose(this.fadeAct, smooth01(this.fadeW), this.fadeT); if (A_ && aw > 0 && BODY_POSES.has(A_)) this.bodyPose(A_, aw, at); }
+    if (!seated && (A_ === 'medKneel' || A_ === 'medLift' || A_ === 'medCarry') && aw > 0.05) for (const S of ['L', 'R']) { const W = this['holdW' + S]; if (!W) continue; b.chest.updateWorldMatrix(true, false); _ikv.copy(W); b.chest.worldToLocal(_ikv); solveArmIK(b, S, _ikv, null, aw, this['holdPole' + S] || null); } // EMS: hands exactly on world points (patient's chest / neck, stretcher handles), solved after the body pose
     if (seated) applySeatPose(this, dt);
     if (this.nearLean && !seated) { const l = this.nearLean; b.spine.rotation.x += l.s || 0; b.chest.rotation.x += l.c || 0; b.neck.rotation.x += l.p || 0; b.head.rotation.z += l.r || 0; b.head.rotation.y += l.y || 0; } // StreetLife: leaning in for a hug / kiss
     if (this.duck > 0.001) { const d = Math.min(1, this.duck); b.spine.rotation.x += 0.42 * d; b.chest.rotation.x += 0.22 * d; b.neck.rotation.x += 0.32 * d; } // ducking under a low roof line while getting in / out
@@ -1233,6 +1238,8 @@ export class Animator {
       legs(lerp(-0.7 * wind, 0.25, dive), lerp(1.0 * wind, 0.1, dive), 0.9 * dive, lerp(-0.2 * wind, 0.35, dive), lerp(0.6 * wind, 0.2, dive), 0.9 * dive);
       b.spine.rotation.x = lerp(b.spine.rotation.x, 0.4 * wind, w);
     }
+    else if (act === 'medKneel') { const ln = this.medLean ?? 0.2; hips(kneelY - 0.03 * s - 0.04 * s * Math.max(0, ln - 0.3), 0.22 + ln * 0.5); legs(0.3, 1.62, 0.75, 0.3, 1.62, 0.75); b.spine.rotation.x = lerp(b.spine.rotation.x, ln * 0.55, w); b.chest.rotation.x = lerp(b.chest.rotation.x, ln * 0.3, w); } // both knees down beside a patient; medLean: CPR rocks from the hips over locked arms
+    else if (act === 'medLift') { const up = this.medUp ?? 0; hips(lerp(kneelY - 0.03 * s, stand * 0.96, up), lerp(0.5, 0.18, up)); legs(lerp(0.3, -0.12, up), lerp(1.62, 0.22, up), lerp(0.75, 0.05, up), lerp(0.3, -0.12, up), lerp(1.62, 0.22, up), lerp(0.75, 0.05, up)); b.spine.rotation.x = lerp(b.spine.rotation.x, lerp(0.35, 0.2, up), w); } // lifting from kneeling to standing (medUp 0 → 1)
     else if (act === 'cuffKneel') { hips(kneelY - 0.03 * s, 0.35); legs(0.27, 1.62, 0.75, 0.27, 1.62, 0.75); } // both knees down close beside the suspect, hinged forward at the hips (thighs kept vertical)
   }
   // Garment hinges: angle (about the hip x axis, −forward) of each leg's knee and ankle in hip space; skirtF takes the most

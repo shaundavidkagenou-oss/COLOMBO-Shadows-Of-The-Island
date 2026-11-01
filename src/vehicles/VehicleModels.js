@@ -12,6 +12,7 @@ import { MeshBuilder, MultiBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
 import { RNG } from '../core/rng.js';
 import { standMeshes } from './Kickstand.js';
+import { addAmbulanceKit, ambDecalMat, buildAmbRear, AMB_GREEN } from './AmbulanceKit.js';
 import { CATALOG } from './VehicleCatalog.js';
 import { styleVehicle, badgeMaterial, badgeText, placeEmblem } from './VehicleStyle.js';
 
@@ -32,6 +33,9 @@ export const VTYPES = {
   police: { base: 'sedan', police: true, len: 4.5, wid: 1.74, hgt: 1.45, wheelR: 0.32, maxSpeed: 46, accel: 6.4, mass: 1300, seats: 4, steer: 0.52, sound: 'car', entry: 'car', colors: ['#f4f4f2'] },
   policejeep: { base: 'suv', police: true, len: 4.8, wid: 1.9, hgt: 1.85, wheelR: 0.38, maxSpeed: 44, accel: 6.2, mass: 2150, seats: 5, steer: 0.5, sound: 'van', entry: 'van', colors: ['#f4f4f2'] },
   policebike: { base: 'bike', police: true, len: 1.95, wid: 0.7, hgt: 1.1, wheelR: 0.3, maxSpeed: 32, accel: 6.8, mass: 175, seats: 2, steer: 0.7, sound: 'bike', entry: 'bike', colors: ['#f4f4f2'] },
+  // national free pre-hospital ambulance (hotline 1990): white high-roof van, green livery, Star of Life, trilingual lettering,
+  // red/blue beacons, twin rear doors (AmbulanceKit.js). Unbadged; only appears when the player calls 119 → ambulance.
+  ambulance: { base: 'van', ambulance: true, len: 4.7, wid: 1.72, hgt: 2.0, wheelR: 0.33, maxSpeed: 38, accel: 5.0, mass: 2100, seats: 8, steer: 0.5, sound: 'van', entry: 'van', colors: ['#f4f4f2'] },
   // municipal wrecker on the lorry cab: equipment deck, boom and winch, rear wheel-lift; only appears to tow a vehicle the player abandoned
   tow: { base: 'lorry', tow: true, len: 7.2, wid: 2.3, hgt: 3.0, wheelR: 0.48, maxSpeed: 24, accel: 2.0, mass: 6500, seats: 2, steer: 0.45, sound: 'bus', entry: 'bus', colors: ['#e0b420', '#f2f2f0'] },
   bike: { len: 1.95, wid: 0.7, hgt: 1.1, wheelR: 0.3, maxSpeed: 30, accel: 6.5, mass: 160, seats: 2, steer: 0.7, sound: 'bike', entry: 'bike', colors: ['#151515', '#b51f1f', '#1d3f8a', '#e8e8e4', '#5a6b3a'] },
@@ -217,7 +221,7 @@ export function vehicleMaterials() {
       vlens: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.03, metalness: 0.0, transparent: true, opacity: 0.16, envMapIntensity: 1.6, depthWrite: false }), // clear lamp covers
       vrefl: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.12, metalness: 0.95, envMapIntensity: 1.4, side: THREE.DoubleSide }), // reflector bowls / rings
       vind: new THREE.MeshStandardMaterial({ color: 0xb06a10, emissive: 0xffa020, emissiveIntensity: 0.05, roughness: 0.25 }),
-      badge: badgeMaterial(), plate: plateMaterial(), route0: routeMat(0), route1: routeMat(1), route2: routeMat(2), police: policeDecalMat(),
+      badge: badgeMaterial(), plate: plateMaterial(), route0: routeMat(0), route1: routeMat(1), route2: routeMat(2), police: policeDecalMat(), amb: ambDecalMat(),
       lbBlue: new THREE.MeshStandardMaterial({ color: 0x0c1e5a, emissive: 0x2a5cff, emissiveIntensity: 0, roughness: 0.2, transparent: true, opacity: 0.92 }),
       lbRed: new THREE.MeshStandardMaterial({ color: 0x5a0c0c, emissive: 0xff2020, emissiveIntensity: 0, roughness: 0.2, transparent: true, opacity: 0.92 }),
     };
@@ -259,6 +263,7 @@ function notchOutline(D, R, sill, by) {
 const modelCache = new Map();
 function buildModel(type, color, variant) {
   const TP = VTYPES[type]; if (TP.police) { const m = buildBaseModel(TP.base, color, TP.base === 'bike' ? variant & ~1 : variant); /* police bikes: always the motorcycle body */ addPoliceKit(m, TP.base, TP); return m; }
+  if (TP.ambulance) { const m = buildBaseModel(TP.base, color, variant & ~3, { amb: true }); addAmbulanceKit(m, TP); return m; } // plain (not worn) body
   if (TP.tow) return buildBaseModel(TP.base, color, variant, { tow: true });
   return buildBaseModel(type, color, variant);
 }
@@ -597,8 +602,8 @@ function buildBaseModel(type, color, variant, opts = {}) {
   }
   rubber.box(0, sill + 0.1, fz + 0.02, nw * 2 + 0.06, 0.16, 0.08, { col: type === 'suv' ? C('#2a2a2a') : trimGrey }); plateQuad(mb, 0, sill + 0.13, fz + 0.065, 0.19, 0.05, true, variant);
   // rear: tail clusters, reverse lights, indicators, rear glass trim, bumper, plate, exhaust
-  for (const sx of [-1, 1]) { tails.box(sx * (W * 0.86 - 0.14), ty, rz - 0.01, 0.26, 0.15, 0.05); mb.get('vrev').box(sx * (W * 0.86 - 0.34), ty - 0.02, rz - 0.012, 0.12, 0.08, 0.04); ind.box(sx * (W * 0.86 - 0.04), ty, rz - 0.012, 0.06, 0.15, 0.04); }
-  rubber.box(0, sill + 0.1, rz - 0.02, W * 1.8, 0.17, 0.08, { col: trimGrey }); plateQuad(mb, 0, ty - 0.2, rz - 0.04, 0.2, 0.055, false, variant);
+  if (!opts.amb) for (const sx of [-1, 1]) { tails.box(sx * (W * 0.86 - 0.14), ty, rz - 0.01, 0.26, 0.15, 0.05); mb.get('vrev').box(sx * (W * 0.86 - 0.34), ty - 0.02, rz - 0.012, 0.12, 0.08, 0.04); ind.box(sx * (W * 0.86 - 0.04), ty, rz - 0.012, 0.06, 0.15, 0.04); }
+  rubber.box(0, sill + 0.1, rz - 0.02, W * 1.8, 0.17, 0.08, { col: trimGrey }); plateQuad(mb, 0, opts.amb ? 0.43 : ty - 0.2, opts.amb ? rz - 0.065 : rz - 0.04, 0.2, 0.055, false, variant); // ambulance: on the bumper below the twin rear doors
   }
   part(ch, unitCyl, [0.45, sill - 0.02, rz + 0.05], [Math.PI / 2, 0, 0], [0.035, 0.18, 0.035], C('#8a8d90'));
   if (!S && k === 'suv') { part(rubber, unitCyl, [0, 1.0, rz - 0.13], [Math.PI / 2, 0, 0], [0.36, 0.24, 0.36], C('#151515')); part(paint, unitCyl, [0, 1.0, rz - 0.255], [Math.PI / 2, 0, 0], [0.3, 0.02, 0.3], col); for (const sx of [-1, 1]) beam(ch, [sx * (gw1 - 0.06), roofF[2] + 0.06, roofF[0] - 0.1], [sx * (gw1 - 0.06), roofF[2] + 0.06, roofR[0] + 0.1], 0.03, 0.04, C('#2a2a2a')); }
@@ -743,11 +748,11 @@ export function warmModel(type, seed = 1) { if (VTYPES[type]) ensureModel(type, 
 export function createVehicleMesh(type, seed = 1) {
   const { T, color, variant, worn, cached } = ensureModel(type, seed);
   const { mats: M } = vehicleMaterials();
-  const byName = { paint: worn ? M.vworn : M.vpaint, glass: M.vglass, chrome: M.vchrome, rubber: M.vrubber, interior: M.vinterior, canvas: M.vcanvas, vlight: M.vlight, vtail: M.vtail, vind: M.vind, plate: M.plate, badge: M.badge, route0: M.route0, route1: M.route1, route2: M.route2, police: M.police, lbBlue: M.lbBlue, lbRed: M.lbRed };
-  let beacons = null; if (T.police) { byName.lbBlue = M.lbBlue.clone(); byName.lbRed = M.lbRed.clone(); beacons = { blue: byName.lbBlue, red: byName.lbRed }; } // per vehicle: only responding units flash
+  const byName = { paint: worn ? M.vworn : M.vpaint, glass: M.vglass, chrome: M.vchrome, rubber: M.vrubber, interior: M.vinterior, canvas: M.vcanvas, vlight: M.vlight, vtail: M.vtail, vind: M.vind, plate: M.plate, badge: M.badge, route0: M.route0, route1: M.route1, route2: M.route2, police: M.police, amb: M.amb, lbBlue: M.lbBlue, lbRed: M.lbRed };
+  let beacons = null; if (T.police || T.ambulance) { byName.lbBlue = M.lbBlue.clone(); byName.lbRed = M.lbRed.clone(); beacons = { blue: byName.lbBlue, red: byName.lbRed }; } // per vehicle: only responding units flash
   const g = new THREE.Group(); const tailMat = M.vtail.clone(); const indMat = M.vind.clone(); const headMat = M.vlight.clone(); const revMat = M.vrev.clone(); byName.vtail = tailMat; byName.vind = indMat; byName.vlight = headMat; byName.vrev = revMat; headMat.emissiveIntensity = 0.04; tailMat.emissiveIntensity = 0.03; revMat.emissiveIntensity = 0; // per vehicle (start dark): each car's own lamps
   directionalLamp(headMat, 1); directionalLamp(tailMat, -1); directionalLamp(revMat, -1); // lamps glow only from the lens face (seen through the cabin glass from the other end they stay dark)
-  for (const [name, geo] of cached.geos) { const mesh = new THREE.Mesh(geo, byName[name] || MAT.paint); mesh.name = name; mesh.castShadow = name !== 'glass' && name !== 'vlight' && name !== 'interior' && name !== 'badge'; mesh.receiveShadow = name === 'paint'; if (name === 'glass') mesh.renderOrder = 2; g.add(mesh); }
+  for (const [name, geo] of cached.geos) { const mesh = new THREE.Mesh(geo, byName[name] || MAT.paint); mesh.name = name; mesh.castShadow = name !== 'glass' && name !== 'vlight' && name !== 'interior' && name !== 'badge' && name !== 'amb'; mesh.receiveShadow = name === 'paint'; if (name === 'glass') mesh.renderOrder = 2; g.add(mesh); }
   const det = new THREE.Group(); det.name = 'detail'; det.visible = false; byName.lens = M.vlens; byName.vrefl = M.vrefl;
   for (const [name, geo] of cached.dgeos) { const mesh = new THREE.Mesh(geo, byName[name] || M.vchrome); mesh.name = name; mesh.castShadow = false; mesh.receiveShadow = name === 'paint'; if (name === 'glass' || name === 'lens') mesh.renderOrder = 2; mesh.matrixAutoUpdate = false; det.add(mesh); }
   g.add(det); const base = T.base || type; const wkind = base === 'bike' ? 'bike' : (base === 'bus' || base === 'pbus' || base === 'lorry' || T.family === 'truck') ? 'heavy' : 'car';
@@ -762,15 +767,16 @@ export function createVehicleMesh(type, seed = 1) {
     pivot.userData.lo = holder; pivot.userData.hi = hi; pivot.userData.cal = cal;
     pivot.userData.spin = spin; pivot.userData.front = z > 0; pivot.userData.baseY = y; g.add(pivot); return pivot;
   });
-  let door = null; if (cached.doors && cached.doors[0]) { const d = cached.doors[0]; const hy = T.base === 'suv' ? 0.78 : 0.66; if (!cached.doorGeos) cached.doorGeos = buildDoorGeos(d, C(color), T.police ? [[hy + 0.035, 0.07, C('#1b3f94')], [hy - 0.0875, 0.025, C('#1b3f94')]] : type === 'taxi' ? [[0.62, 0.08, C('#111'), 0.009]] : null); /* police bands / taxi stripe continue across the door */ const pv = doorPivot(d, cached.doorGeos, byName); g.add(pv); door = { pivot: pv, side: d.side, open: 0, max: 1.15, ang: 0, vel: 0, rects: d.spec && d.spec.rects }; }
+  let door = null; if (cached.doors && cached.doors[0]) { const d = cached.doors[0]; const hy = T.base === 'suv' ? 0.78 : 0.66; if (!cached.doorGeos) cached.doorGeos = buildDoorGeos(d, C(color), T.police ? [[hy + 0.035, 0.07, C('#1b3f94')], [hy - 0.0875, 0.025, C('#1b3f94')]] : T.ambulance ? [[0.71, 0.12, C(AMB_GREEN)], [0.57, 0.025, C(AMB_GREEN)]] : type === 'taxi' ? [[0.62, 0.08, C('#111'), 0.009]] : null); /* police bands / taxi stripe continue across the door */ const pv = doorPivot(d, cached.doorGeos, byName); g.add(pv); door = { pivot: pv, side: d.side, open: 0, max: 1.15, ang: 0, vel: 0, rects: d.spec && d.spec.rects }; }
   const ds = cached.seats.find((s) => s.driver) || cached.seats[0];
   const side = T.entry === 'bike' ? 1 : -1; const hw = T.wid / 2;
   // hinged door: stand just outside the door's swing arc, a little behind its rear edge (radius len + 0.3 from the hinge, 40° back
   // from the body side) so the opening door passes in front of the body and the way in runs behind the opened panel
   const dR = door ? cached.doors[0].len + 0.3 : 0;
   const entry = cached.busDoor ? { x: cached.busDoor[0], z: cached.busDoor[1], side: cached.busDoor[0] < 0 ? -1 : 1 } : door ? { x: side * (hw + dR * Math.sin(0.7)), z: cached.doors[0].hinge[1] - dR * Math.cos(0.7), side } : { x: side * (hw + (T.entry === 'tuk' ? 0.35 : T.entry === 'bike' ? 0.45 : 0.55)), z: ds.z, side };
+  const rear = T.ambulance ? buildAmbRear() : null; if (rear) g.add(rear.group); // twin rear doors + lit cabin (opened by the medics)
   const stand = base === 'bike' ? standMeshes(M.vrim) : null; if (stand) g.add(stand); // animated side stand (Kickstand.js)
-  g.userData = { stand, detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons };
+  g.userData = { stand, detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons, rear };
   return g;
 }
 // darken lower panels and add per-vehicle grime variation to working vehicles

@@ -230,7 +230,7 @@ export class Firefight {
   effects(o, mz, dir, hit) {
     const g = this.g, W = g.weapons; const def = POLICE_T56;
     if (o.rifle) { const f = o.rifle.userData.flash; if (f) { f.visible = true; f.rotation.z = Math.random() * 3; f.scale.setScalar(0.85 + Math.random() * 0.35); o.rp.flashT = 0.05; } }
-    if (W && W.fx) { W.tracer(mz, hit.point, def); if (hit.kind === 'vehicle') W.sparks(hit.point, dir); else if (hit.kind === 'world' || hit.kind === 'ground') { W.puff(hit.point, hit.kind === 'ground' ? 0x6d6a64 : 0xb5ab9a, 4); W.decal(hit.point, dir, hit.kind); } else if (hit.kind === 'player') W.puff(hit.point, 0x8a8478, 2); }
+    if (W && W.fx) { W.tracer(mz, hit.point, def); if (hit.kind === 'vehicle') W.sparks(hit.point, dir); else if (hit.kind === 'world' || hit.kind === 'ground') { W.puff(hit.point, hit.kind === 'ground' ? 0x6d6a64 : 0xb5ab9a, 4); W.decal(hit.point, dir, hit.kind); } else if (hit.kind === 'player' && !(g.blood && g.blood.spray(hit.point, dir, 0.6))) W.puff(hit.point, 0x8a8478, 2); }
     if (Audio.ctx && Audio.spatial) { const [gn, pan] = Audio.spatial(mz.x, mz.z, 70); const s = def.snd; const v = s.vol * Math.max(0.12, gn);
       Audio.noise(s.dur, { f: s.crack, q: 0.6, vol: v, type: 'lowpass', attack: 0.001, pan }); Audio.tone(s.body * 2.2, s.dur * 1.3, { type: 'sine', vol: v * 0.5, attack: 0.002, glide: s.body * 0.6, pan });
       Audio.noise(s.tail, { f: 480, q: 0.5, type: 'lowpass', vol: v * 0.3, attack: 0.02, when: 0.03 + Math.min(0.25, Math.hypot(mz.x - g.player.x, mz.z - g.player.z) / 340), buf: Audio.brownBuf, pan }); }
@@ -289,7 +289,7 @@ export class Firefight {
   torch(o, dt) {
     const A = o.ch.anim, st = this.p.state, cb = o.cb; const n = this.night(); const rifleUp = !!(o.rifle && o.rp && o.rp.draw > 0.5);
     const searching = st === 'searching' || st === 'investigating' || st === 'responding' || (st === 'pursuing' && !o.sees) || (cb && cb.st === 'advance');
-    const want = n > 0.45 && o.mode === 'foot' && searching && !o.tackle && !o.cuffing && !this.g.indoor && !(cb && (cb.st === 'cover' || cb.st === 'toCover' || cb.st === 'close'));
+    const want = !o.noTorch && n > 0.45 && o.mode === 'foot' && searching && !o.tackle && !o.cuffing && !this.g.indoor && !(cb && (cb.st === 'cover' || cb.st === 'toCover' || cb.st === 'close'));
     if (want && !o.torchOn) this.stats.torchesLit++; o.torchOn = want;
     if (o.rifle) o.rifle.userData.torch.visible = want && rifleUp;
     o.sweepT = (o.sweepT || Math.random() * 9) + dt; o.sweep = Math.sin(o.sweepT * 0.75) * 0.5 + Math.sin(o.sweepT * 1.9) * 0.08;

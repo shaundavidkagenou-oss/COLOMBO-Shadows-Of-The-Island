@@ -244,11 +244,12 @@ export class Crowd {
   }
   spread(x, z, a) { const t = (this.rng.next() - 0.5) * 2 * a; const c = Math.cos(t), s = Math.sin(t); return [x * c - z * s, x * s + z * c]; }
   // non-graphic hit (weapon): flinch, maybe fall and stay down for a while, then get up and get away
-  hitPed(p, dx, dz, power = 1) {
+  hitPed(p, dx, dz, power = 1, at = null) {
+    if (p.ch.rag) { p.ch.rag.impulse(dx * 2.4 * power, 0.25 * power, dz * 2.4 * power, at); return; } // a body: the round shoves the limp limbs
     if (p.state === 'down') { if (!p.dead) { p.hits = (p.hits || 0) + power; if (p.hits >= 1.2) this.kill(p); else p.timer = Math.max(p.timer, 4); } return; }
     p.knockedByCar = false; p.hits = (p.hits || 0) + power; p.vx = (p.vx || 0) + dx * 1.5; p.vz = (p.vz || 0) + dz * 1.5;
     // shot hard enough (one heavy round, or two light ones): they collapse and do NOT get up again (non-graphic)
-    if (p.hits >= 1.2) { this.react(p, 'down', 1e9, { yaw: Math.atan2(-dx, -dz) }, true); p.downT = 0; this.kill(p); this.events.emit('pedHit', p); }
+    if (p.hits >= 1.2) { this.react(p, 'down', 1e9, { yaw: Math.atan2(-dx, -dz) }, true); p.downT = 0; this.kill(p); if (p.ch.rag) p.ch.rag.impulse(dx * 1.6 * power, 0, dz * 1.6 * power, at); this.events.emit('pedHit', p); }
     else { this.react(p, 'hit', 0.7); p.ch.anim.set('hit'); p.ch.face.set('fear', 4); this.speak(p, 'scared', 2); }
     this.alarm(p.x, p.z, 30, 3, p);
   }
@@ -282,6 +283,7 @@ export class Crowd {
         if (p.state !== 'down' && lat < pv.T.wid / 2 + 0.32 && along * sgn > -pv.half - 0.2 && along * sgn < pv.half + sweep) { this.knock(p, fx * sgn, fz * sgn, Math.abs(pv.speed), (dx * fz - dz * fx) / (pv.T.wid / 2 + 0.32)); pv.speed *= 0.86; /* ~80 kg against ~1.2 t: the car loses a little speed */ }
         else if (along > 0 && along < 14 && lat < 3.2 && p.state !== 'down' && p.state !== 'flee' && p.state !== 'dodge') { const side = (dx * fz - dz * fx) > 0 ? 1 : -1; this.react(p, 'dodge', 0.9 + this.rng.next() * 0.5, { dodge: [fz * side, -fx * side] }); p.ch.anim.set(this.rng.chance(0.35) ? 'cower' : null); p.ch.face.set('fear', 2.5); this.speak(p, 'scared', 1); this.events.emit('pedPanic', p); }
       }
+      if (p.ch.rag) { this.ragPed(p, dt, focus, dist); continue; } // a dead body: the ragdoll owns the skeleton (src/actors/Ragdoll.js)
       p.rt = (p.rt || 0) + dt;
       switch (p.state) {
         case 'walk': case 'toPoi': {
@@ -337,7 +339,7 @@ export class Crowd {
           if (p.timer <= 0) this.endReaction(p); break; }
         case 'hit': { p.timer -= dt; desired = 0; if (p.timer <= 0) { p.state = 'flee'; p.timer = 5 + this.rng.next() * 4; p.fleeSp = 3 + this.rng.next(); const ax = p.x - player.x, az = p.z - player.z, d = Math.hypot(ax, az) || 1; p.fleeDir = this.spread(ax / d, az / d, 0.7); p.ch.anim.set(null); } break; }
         case 'down': { // fall (mesh tips over), lie still, then get up and stagger away — no injury detail
-          p.timer -= dt; p.downT = (p.downT || 0) + dt; desired = 0; avoid = false; if (p.dead) { p.timer = 1e9; p.deadT = (p.deadT || 0) + dt; }
+          p.timer -= dt; p.downT = (p.downT || 0) + dt; desired = 0; avoid = false; if (p.dead) { p.timer = 1e9; p.deadT = (p.deadT || 0) + dt; } else if (p.awaitMedic) p.timer = Math.max(p.timer, 1); // an ambulance is coming: they stay out cold until the crew wakes them
           if (lod === 1 || (this.frame + p.id) % 4 === 0) this.fitBody(p, dt * (lod === 1 ? 1 : 4), p.downT < 0.05);
           if (p.dead && p.deadT > 150 && !this.visible(p) && Math.hypot(p.x - focus.x, p.z - focus.z) > 35) p.recycle = true; /* cleared away unseen */
           const fall = clamp(p.downT / 0.55, 0, 1), rise = p.dead ? 0 : clamp(1 - p.timer / 0.9, 0, 1); const k = fall * (1 - rise);
@@ -367,7 +369,7 @@ export class Crowd {
           if (d > 1.5 && d < 6) { tx = player.x; tz = player.z; desired = 1.1; } if (d > 9) p.timer = Math.min(p.timer, 0.3);
           if (p.timer <= 0) { p.ch.face.mood = 'neutral'; this.endReaction(p); } break; }
         case 'fight': { // squared up with the player: close the distance, circle, throw short combinations, cover up; quit when beaten / the player leaves / pulls a gun
-          p.timer -= dt; avoid = false; accel = 7; const A = p.ch.anim; const Fs = A.fight; const dx = player.x - p.x, dz = player.z - p.z, d = Math.hypot(dx, dz) || 1;
+          p.timer -= dt; p.foughtT = this.t; /* foughtT: the player's 119 call can name them (PoliceResponse.assailant) */ avoid = false; accel = 7; const A = p.ch.anim; const Fs = A.fight; const dx = player.x - p.x, dz = player.z - p.z, d = Math.hypot(dx, dz) || 1;
           p.yaw = dampAngle(p.yaw, Math.atan2(dx, dz), 9, dt); p.lookT = 0; A.look = 0;
           const away = pv || d > 13 || player.indoor || player.dead; p.fgone = away ? (p.fgone || 0) + dt : 0;
           if (this.playerArmed && d < 25) { this.react(p, 'flee', 5 + this.rng.next() * 3, { fleeDir: this.spread(-dx / d, -dz / d, 0.5), fleeSp: 3.4 }); p.ch.face.set('fear', 4); this.speak(p, 'scared', 1); p.fighter = false; break; }
@@ -495,6 +497,14 @@ export class Crowd {
       p.ch.mesh.castShadow = dist < 45;
     }
   }
+  // a ragdolled body: follows its pelvis, bleeds into a pool once it has settled, and is cleared away unseen much later
+  ragPed(p, dt, focus, dist) {
+    const r = p.ch.rag; p.deadT = (p.deadT || 0) + dt; p.downT = (p.downT || 0) + dt; p.timer = 1e9; p.state = 'down'; p.vx = p.vz = 0;
+    if (!r.kin) { const P = r.pelvis(); p.x = P.x; p.z = P.z; p.y = p.ch.root.position.y; p.yaw = p.ch.root.rotation.y; }
+    if (this.blood && !p.pooled && !r.kin && (r.asleep || p.deadT > 3) && !p.noPool) { p.pooled = true; const P = r.pelvis(), C = r.part('chest'); this.blood.pool(P.x * 0.45 + C.x * 0.55, P.z * 0.45 + C.z * 0.55, 0.9 + Math.random() * 0.5, P.y); }
+    if (p.deadT > 150 && !p.keep && !p.awaitMedic && !this.visible(p) && dist > 35) p.recycle = true; /* cleared away unseen */
+    p.ch.mesh.castShadow = dist < 45;
+  }
   visible(p) { const f = this.focus, c = this.camDir; const dx = p.x - f.x, dz = p.z - f.z, d = Math.hypot(dx, dz); if (d > 60) return false; if (!c) return true; return (dx * c.x + dz * c.z) / (d || 1) > 0.2 || d < 12; }
   startPoi(p) {
     const q = p.poi; if (this.life.atPoi(p, q)) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; return; } p.state = 'idle'; p.timer = this.rng.range(8, 30); p.yaw = q.rot ?? p.yaw;
@@ -567,6 +577,8 @@ export class Crowd {
   kill(p) {
     if (p.dead) return; if (p.state !== 'down') { this.react(p, 'down', 1e9, {}, true); p.downT = 0; } // whoever calls kill(), the body is on the ground (never a 'dead' ped that walks on)
     p.dead = true; p.deadT = 0; p.timer = 1e9; p.pending = null; p.knockedByCar = false; p.talkFor = 0; p.ch.face.talking = false;
+    const f = this.focus; if (this.ragdolls && !p.ch.rag && p.ch.root.parent && (!f || Math.hypot(p.x - f.x, p.z - f.z) < 90)) { // goes limp: ragdoll with the momentum it had (thrown by a car, pushed by a round)
+      this.ragdolls.add(p.ch, { vel: [p.vx || 0, p.airVy || 0, p.vz || 0] }); p.airVy = undefined; p.airY = 0; p.vx = p.vz = 0; p.ch.anim.set(null); }
     if (p.ch.face.set) p.ch.face.set('blink', 1e9); if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; }
     if (p.partner && p.partner.partner === p) p.partner.partner = null; p.partner = null; this.stats && (this.stats.killed = (this.stats.killed || 0) + 1);
   }
@@ -613,7 +625,7 @@ export class Crowd {
     else { this.react(p, 'flee', 4 + this.rng.next() * 3, { fleeDir: this.spread(ax / d, az / d, 0.5), fleeSp: 3.2 }); ch.face.set('fear', 3); this.speak(p, 'scared', 2); }
     this.alarm(x, z, 14, 1, p); return p;
   }
-  despawn(p) { this.life.forget(p); p.ch.crowdPed = null; if (p.poi) p.poi.used = Math.max(0, p.poi.used - 1); this.scene.remove(p.ch.root); p.ch.dispose(); }
+  despawn(p) { if (p.ch.rag && this.ragdolls) { this.ragdolls.remove(p.ch.rag); p.ch.rag = null; } this.life.forget(p); p.ch.crowdPed = null; if (p.poi) p.poi.used = Math.max(0, p.poi.used - 1); this.scene.remove(p.ch.root); p.ch.dispose(); }
   clear() { for (const p of this.peds) this.despawn(p); this.peds = []; this.life.clear(); }
 }
 let umbrellaGeos = null;

@@ -364,3 +364,20 @@ export function makePoliceAppearance(seed, role = 'patrol', opts = {}) {
   }
   Object.assign(sp, opts); return sp;
 }
+// Ambulance crew (EMT) of the free national pre-hospital service: green two-piece work uniform (the service's livery
+// colour), white sleeve patch, black belt and boots, blue nitrile gloves. Adults only; no rank insignia, no weapons.
+export function makeMedicAppearance(seed, opts = {}) {
+  const r = new RNG(seed * 5197 + 29); const sex = opts.sex || (r.chance(0.3) ? 'f' : 'm'); const band = opts.band || r.weighted([['young', 4], ['adult', 5], ['mature', 1]]);
+  const base = makeAppearance(seed, { sex, band, exclude: PRESETS.filter((p) => p.skinSet || p.profile === 'tourist').map((p) => p.id) });
+  const sp = Object.assign({}, base);
+  if (!SKIN_LK.includes(sp.skin)) sp.skin = r.pick(SKIN_LK);
+  if (!HAIR_DARK.includes(sp.hairColor) && !HAIR_PEPPER.includes(sp.hairColor)) sp.hairColor = r.pick(HAIR_DARK);
+  for (const k of ['skirt', 'skirtCol', 'pattern', 'shorts', 'sleeveless', 'tie', 'inner', 'scarf', 'bag', 'crossbody', 'necklace', 'bangles', 'earrings', 'sunglasses', 'lanyard', 'cap', 'capStyle', 'watch', 'sandals', 'hiVis', 'apron', 'towel', 'shawl', 'hood', 'headband', 'glasses']) delete sp[k];
+  sp.hair = sex === 'f' ? 'bun' : r.pick(['crew', 'short', 'sidepart']); sp.hairline = Math.min(sp.hairline, 0.04);
+  if (sex === 'm') { const fh = r.chance(0.35) ? 'moustache' : 'none'; Object.assign(sp, { facial: fh, beard: false, beardShort: false, goatee: false, moustache: fh === 'moustache' }); }
+  const green = r.pick(['#1d6b3a', '#1f7240', '#216a3c']);
+  Object.assign(sp, { profile: 'medic', preset: 'medic', role: 'medic', label: 'Ambulance crew (EMT)', medic: true, outfit: 'security', top: green, bottom: '#173d27', collar: true, longSleeve: false, patch: '#f2f2ee', epaulettes: green,
+    belt: '#121212', buckle: '#b8bcc2', shoes: '#101010', sole: '#0a0a0a', gloves: '#3d72d6', cuff: '#3d72d6', lanyard: '#1f8a3c' });
+  sp.gait = Object.assign({}, sp.gait, { stride: 1.0, arm: 0.9, stoop: 0 }); sp.belly = Math.min(sp.belly || 0, 0.25);
+  Object.assign(sp, opts); return sp;
+}

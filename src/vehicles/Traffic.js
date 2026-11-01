@@ -390,7 +390,7 @@ export class Traffic {
   // loading screen: one look of every vehicle type (so traffic always has a built look to fall back on) and the parked
   // vehicles around the spawn point(s) - otherwise the first seconds of play build them, 10-40 ms per first-time model
   async warmModels(points, pr = () => {}) {
-    const jobs = this.streetTypes().map((t, i) => [t, 1009 + i * 7919]); for (let k = 1; k <= 12; k++) for (const t of ['police', 'policejeep']) if (VTYPES[t]) jobs.push([t, 3000 + k * 7]); // police units use seed 3000 + 7 * unit id (PoliceResponse.makeUnit)
+    const jobs = this.streetTypes().map((t, i) => [t, 1009 + i * 7919]); for (let k = 1; k <= 12; k++) for (const t of ['police', 'policejeep', 'ambulance']) if (VTYPES[t]) jobs.push([t, 3000 + k * 7]); // police / ambulance units use seed 3000 + 7 * unit id (PoliceResponse.makeUnit)
     for (const [x, z] of points || []) { const near = plan.parking.map((p) => [(p.x - x) ** 2 + (p.z - z) ** 2, p]).filter((n) => n[0] < 150 * 150).sort((a, b) => a[0] - b[0]).slice(0, 26); for (const [, p] of near) { const l = this.parkedLook(p); jobs.push([l.type, l.seed]); } }
     let t0 = performance.now();
     for (let i = 0; i < jobs.length; i++) { const [t, sd] = jobs[i]; try { warmModel(t, sd); this.noteLook(t, sd); } catch (e) { console.warn('warm vehicle', t, e); } pr((i + 1) / jobs.length); if (performance.now() - t0 > 30) { await new Promise((r) => setTimeout(r, 0)); t0 = performance.now(); } }

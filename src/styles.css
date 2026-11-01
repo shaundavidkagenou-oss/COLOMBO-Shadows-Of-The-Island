@@ -226,7 +226,7 @@ select { background: #0e1318; color: var(--paper); border: 1px solid rgba(255, 2
 .photo-ui { position: absolute; inset: 0; z-index: 18; pointer-events: none; }
 .photo-ui .pf { position: absolute; inset: 6vh 6vw; border: 1px solid rgba(255, 255, 255, 0.5); }
 .photo-ui .pf::before, .photo-ui .pf::after { content: ''; position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px; border: 1px solid rgba(255, 255, 255, 0.7); border-radius: 50%; }
-.ph-hint { position: absolute; left: 50%; bottom: 3vh; transform: translateX(-50%); font-family: var(--f-hud); letter-spacing: 0.15em; text-transform: uppercase; font-size: 13px; text-shadow: 0 1px 4px #000; }
+.photo-ui .ph-hint { position: absolute; left: 50%; bottom: 3vh; transform: translateX(-50%); font-family: var(--f-hud); letter-spacing: 0.15em; text-transform: uppercase; font-size: 13px; text-shadow: 0 1px 4px #000; }
 .photo-ui.flash { background: rgba(255, 255, 255, 0.85); }
 .bigmap { position: absolute; inset: 0; z-index: 22; background: #0d1c24; pointer-events: auto; }
 .bigmap canvas { width: 100%; height: 100%; display: block; cursor: grab; }
@@ -666,3 +666,12 @@ input[type="text"], input:not([type]), textarea { cursor: text !important; }
 .busted .bz-skip { position: absolute; right: 2.4vw; top: 4.6vh; font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(244,239,230,0.55); opacity: 0; transition: opacity 0.6s; z-index: 2; }
 .busted.skip .bz-skip { opacity: 1; } .busted.black .bz-skip { opacity: 0; }
 .busted.out { opacity: 0; transition: opacity 0.6s ease; }
+
+/* phone: 119 call screen */
+.ph-call { text-align: center; padding: 14px 6px 10px; }
+.ph-call-n { font-size: 17px; font-weight: 700; letter-spacing: 0.5px; }
+.ph-call-s { opacity: 0.6; font-size: 11px; margin-top: 6px; }
+.ph-call-ring { font-size: 34px; margin-top: 14px; animation: phRing 1.1s ease-in-out infinite; }
+.ph-call-q { margin: 12px 4px 8px; font-size: 12px; line-height: 1.45; background: rgba(255, 255, 255, 0.07); border-radius: 10px; padding: 9px 10px; }
+.ph-call-q.ok { border-left: 3px solid #5fbf6a; } .ph-call-q.no { border-left: 3px solid #e0a040; }
+@keyframes phRing { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(-14deg); } 40% { transform: rotate(12deg); } 60% { transform: rotate(-8deg); } }
