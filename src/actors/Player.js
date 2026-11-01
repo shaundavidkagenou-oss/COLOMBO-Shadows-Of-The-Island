@@ -35,16 +35,17 @@ export class Player {
   updateFoot(dt, traffic) {
     if (this.hitCd > 0) this.hitCd -= dt;
     const A = this.ch.anim; let mx = this.control ? Input.moveX : 0, my = this.control ? Input.moveY : 0; const mag = Math.min(1, Math.hypot(mx, my));
+    if (this.drunk > 0.02 && mag > 0.05) { const t = performance.now() / 1000, k = this.drunk; const a = (Math.sin(t * 0.83) * 0.55 + Math.sin(t * 2.1 + 1) * 0.22) * k; const c = Math.cos(a), s_ = Math.sin(a); const nx = mx * c - my * s_, ny = mx * s_ + my * c; mx = nx; my = ny; } /* drunk: the path weaves (Drunk.js) */
     if (this.climb) { // ledge climb: lerp up and over
       const c = this.climb; c.t += dt / 0.9; const k = Math.min(1, c.t);
       this.y = lerp(c.y0, c.y1, Math.min(1, k * 1.6)); this.x = lerp(c.x0, c.x1, Math.max(0, (k - 0.4) / 0.6)); this.z = lerp(c.z0, c.z1, Math.max(0, (k - 0.4) / 0.6));
       A.set('handsup'); A.update(dt, 0); if (k >= 1) { this.climb = null; A.set(null); } this.sync(); return;
     }
     this.crouching = this.control && Input.isDown('crouch');
-    this.sprinting = this.control && Input.isDown('sprint') && mag > 0.3 && this.stamina > 0.05 && !this.crouching && !this.aiming;
+    this.sprinting = this.control && Input.isDown('sprint') && mag > 0.3 && this.stamina > 0.05 && !this.crouching && !this.aiming && !(this.drunk > 0.75);
     const pk = this.perk || { speed: 1, stamina: 1 }; // squad member: Dineth runs faster and longer, Shashika is heavier
     this.stamina = clamp(this.stamina + (this.sprinting ? -dt * 0.09 / pk.stamina : dt * 0.15), 0, 1);
-    const maxSp = (this.aiming ? (this.scoped ? 0.9 : 1.8) : this.crouching ? 1.4 : this.sprinting ? 6.6 : mag > 0.85 ? 3.4 : 1.5) * (this.aiming ? 1 : pk.speed);
+    const maxSp = (this.aiming ? (this.scoped ? 0.9 : 1.8) : this.crouching ? 1.4 : this.sprinting ? 6.6 : mag > 0.85 ? 3.4 : 1.5) * (this.aiming ? 1 : pk.speed) * (1 - 0.22 * (this.drunk || 0));
     let dirYaw = this.yaw;
     if (mag > 0.05) { const camF = this.camYaw + Math.PI; dirYaw = camF + Math.atan2(-mx, my); }
     const target = mag > 0.05 ? maxSp * Math.max(mag, 0.5) : 0;
@@ -213,7 +214,7 @@ export class Player {
   updateVehicle(dt, traffic) {
     const v = this.vehicle; const c = this.control;
     const throttle = c ? clamp((Input.isDown('forward') ? 1 : 0) - (Input.isDown('back') ? 1 : 0) + Input.pad.rt - Input.pad.lt, -1, 1) : 0;
-    const steer = c ? clamp((Input.isDown('left') ? 1 : 0) - (Input.isDown('right') ? 1 : 0) - Input.pad.lx, -1, 1) : 0;
+    const dk = this.drunk || 0, tt = performance.now() / 1000; const steer = c ? clamp((Input.isDown('left') ? 1 : 0) - (Input.isDown('right') ? 1 : 0) - Input.pad.lx + (dk > 0.02 ? (Math.sin(tt * 0.7) * 0.32 + Math.sin(tt * 1.9 + 2) * 0.14) * dk : 0), -1, 1) : 0; /* drunk: the wheel drifts */
     v.drive(dt, { throttle, steer, handbrake: c && Input.isDown('jump') }, this.collision, traffic.all());
     { const A = this.ch.anim; A.steer = v.steer / v.T.steer; const acc = (v.speed - (this.lastVS ?? v.speed)) / Math.max(dt, 1e-3); this.lastVS = v.speed; A.vehSpeed = v.speed; A.brakeLean = damp(A.brakeLean, clamp(-acc * 0.012, -0.06, 0.08), 6, dt); A.cornerLean = clamp(-A.steer * v.speed * 0.004, -0.06, 0.06); A.update(dt, 0); }
     this.x = v.x; this.z = v.z; this.y = v.y; this.yaw = v.yaw;
@@ -254,6 +255,7 @@ export class Player {
       const ads = this.weapons && this.weapons.drawn ? { w: this.weapons.fpAds || 0, zoom: this.weapons.def && this.weapons.def.cls === 'pistol' ? 6 : 10 } : null;
       cam.position.copy(eye); cam.lookAt(eye.x + look.x, eye.y + look.y, eye.z + look.z);
       if (this.shake > 0 && Settings.get('cameraShake')) { cam.rotateX((Math.random() - 0.5) * this.shake * 0.02); cam.rotateY((Math.random() - 0.5) * this.shake * 0.02); this.shake = Math.max(0, this.shake - dt * 2.5); }
+      if (this.camFx) { cam.rotateZ(this.camFx.roll || 0); cam.rotateX(this.camFx.pitch || 0); cam.rotateY(this.camFx.yaw || 0); } // drunk sway
       const fovW = Settings.get('fov') - (ads ? ads.w * (ads.zoom || 8) : 0); if (Math.abs(cam.fov - fovW) > 0.05 || cam.near !== 0.07) { cam.fov = damp(cam.fov, fovW, 10, dt); cam.near = 0.07; cam.updateProjectionMatrix(); }
       this.ch.mesh.visible = true; return;
     }
@@ -276,6 +278,7 @@ export class Player {
     cam.position.copy(this.camPos);
     if (this.shake > 0 && Settings.get('cameraShake')) { cam.position.x += (Math.random() - 0.5) * this.shake * 0.3; cam.position.y += (Math.random() - 0.5) * this.shake * 0.3; this.shake = Math.max(0, this.shake - dt * 2.5); }
     cam.lookAt(tgt);
+    if (this.camFx) { cam.rotateZ(this.camFx.roll || 0); cam.rotateX(this.camFx.pitch || 0); cam.rotateY(this.camFx.yaw || 0); } // drunk sway (Drunk.js)
     if (v) { const spd = Math.abs(v.speed); const f = Settings.get('fov') + Math.min(12, spd * 0.35); if (Math.abs(cam.fov - f) > 0.05) { cam.fov = damp(cam.fov, f, 3, dt); cam.updateProjectionMatrix(); } }
     else if (Math.abs(cam.fov - Settings.get('fov')) > 0.05) { cam.fov = damp(cam.fov, Settings.get('fov'), 3, dt); cam.updateProjectionMatrix(); }
   }

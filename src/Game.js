@@ -48,6 +48,8 @@ import { RagdollWorld } from './actors/Ragdoll.js';
 import { Blood } from './gfx/Blood.js';
 import { Explosions } from './gfx/Explosions.js';
 import { Grenades } from './combat/Grenades.js';
+import { Drunk } from './actors/Drunk.js';
+import { HERO_ROOMS } from './world/HeroRooms.js';
 
 const VNAMES = { tuktuk: 'Three-wheeler', car: 'Hatchback', sedan: 'Sedan', taxi: 'Taxi', van: 'Van', suv: 'SUV', bus: 'SLTB bus', pbus: 'Private bus', lorry: 'Lorry', tow: 'Tow truck', bike: 'Motorcycle', police: 'Police car', policejeep: 'Police jeep', policebike: 'Police motorcycle' };
 for (const [id, T] of Object.entries(CATALOG)) VNAMES[id] = displayName(id, T); // fictional make + model, e.g. "HOSHIDA Kaizan"
@@ -116,6 +118,7 @@ export class Game {
     progress(0.9, 'Lighting'); await tick();
     this.post = new PostFX(this.renderer, this.scene, this.camera); this.post.build({ bloom: Settings.preset.bloom, ao: Settings.preset.ao });
     this.explosions = new Explosions(this); this.grenades = new Grenades(this); // throwables (key B) + cinematic blasts
+    this.drunk = new Drunk(this); // vodka in the hero rooms (HeroRooms.js)
     this.atmos.update(0.016, new THREE.Vector3(-300, 0, -500), this.camera, 0);
     progress(0.93, 'Compiling shaders'); await tick();
     this.world.warm(-500, -400); this.world.update(0.016, { x: -500, z: -400 }, this.camera, this.atmos);
@@ -353,7 +356,7 @@ export class Game {
       if (Input.wasPressed('journal') && !this.gunShop.open) this.openPause();
       if (P.vehicle && Input.wasPressed('radio')) { this.radio = (this.radio + 1) % RADIO.length; this.hud.notify('Radio', RADIO[this.radio] ? RADIO[this.radio].name : 'Off', 'info', 1.6); }
     }
-    if (!warmOnly) { const can = !busy && P.control && !P.cinematic && !this.indoor; this.weapons.update(dt, can && !this.grenades.lockWeapons); this.grenades.update(dt, can); }
+    if (!warmOnly) { const can = !busy && P.control && !P.cinematic && !this.indoor; this.weapons.update(dt, can && !this.grenades.lockWeapons); this.grenades.update(dt, can); this.drunk.update(dt); if (this.interiors.current?.tick) this.interiors.current.tick(dt, P); }
     this.explosions.update(dt);
     if (!warmOnly) this.heroSkin(dt);
     this.bodies = gatherBodies(this.scene); P.bodies = this.bodies;
@@ -387,7 +390,7 @@ export class Game {
     this.hud.prompt(D.active || this.photo ? '' : storyPrompt || this.police.prompt || localPrompt || '');
     // music
     this.musicT = (this.musicT || 0) - dt;
-    if (this.musicT <= 0) { this.musicT = 1; if (!(Audio.musicMode === 'chase' && this.story.pursuers.length) && !D.active) { let m = A.night > 0.5 ? 'night' : 'explore'; if (this.story.guards.length) m = 'tension'; if (this.story.pursuers.length) m = 'chase'; if (P.vehicle && this.radio) m = RADIO[this.radio].mode; if (this.indoor) m = 'none'; Audio.setMusic(m); } }
+    if (this.musicT <= 0) { this.musicT = 1; if (!(Audio.musicMode === 'chase' && this.story.pursuers.length) && !D.active) { let m = A.night > 0.5 ? 'night' : 'explore'; if (this.story.guards.length) m = 'tension'; if (this.story.pursuers.length) m = 'chase'; if (P.vehicle && this.radio) m = RADIO[this.radio].mode; if (this.indoor) m = this.interiors.current?.musicMode || 'none'; Audio.setMusic(m); } }
     // HUD
     const v = P.vehicle; const dist = L.districtAt(P.x, P.z);
     this.hud.update({ health: this.health.hp, healthBusy: this.health.busy, time: A.timeString, money: this.story.state.money, district: this.indoor ? this.interiors.current.D.name : this.seamK > 0.5 ? this.interiors.hq.D.name : dist ? dist.name.split(' · ')[0] : '', street: this.indoor ? '' : L.roadNameAt(P.x, P.z) || '', x: P.x, z: P.z, camYaw: this.photo ? this.photoYaw + Math.PI : P.camYaw, stamina: P.stamina, vehicle: v, vehicleName: v ? VNAMES[v.type] || v.type : '', radio: v && this.radio ? `♪ ${RADIO[this.radio].name}` : '', camera: cam, police: this.police.hudInfo(), projector: (x, y, z) => this.project(x, y, z), fps: this.fps, draws: this.renderer.info.render.calls, extras: this.miniExtras(), indoor: !!this.indoor });
@@ -399,16 +402,16 @@ export class Game {
   }
   updateInteractions() {
     const P = this.player; const I = this.interiors; const key = (a) => this.hud.key(a);
-    if (I.current && I.current.id === 'room') { const b = I.current.bounds; if (Math.hypot(P.x - (b.x0 + 1.2), P.z - (b.z0 + 1.6)) < 1.8 && !this.story.running) { const h = this.atmos.hour; const to = h >= 6 && h < 17 ? 19.75 : 8; if (Input.wasPressed('interact')) this.restUntil(to); return `${key('interact')} Sleep until ${to === 8 ? '8:00 AM' : '7:45 PM'}`; } }
+    if (I.current && I.current.id === 'room' && !I.current.hero) { const b = I.current.bounds; if (Math.hypot(P.x - (b.x0 + 1.2), P.z - (b.z0 + 1.6)) < 1.8 && !this.story.running) { const h = this.atmos.hour; const to = h >= 6 && h < 17 ? 19.75 : 8; if (Input.wasPressed('interact')) this.restUntil(to); return `${key('interact')} Sleep until ${to === 8 ? '8:00 AM' : '7:45 PM'}`; } }
     { const gp = this.schoolLife.guard?.interact(P, key); if (gp) return gp; } // Johns school night watchman
     if (I.current && I.current.nearCounter && I.current.prompt && Input.wasPressed('interact')) { this.gunShop.toggle(true); return null; } // gun shop counter
-    if (I.current) { const r = I.update(this.dt); if (r === 'exit') { if (Input.wasPressed('enter')) I.exit(); return `${key('enter')} Leave ${I.current.D.name}`; } return I.current.prompt || null; }
+    if (I.current) { const r = I.update(this.dt); if (r === 'exit' && !this.player.indoorBusy) { if (Input.wasPressed('enter')) I.exit(); return `${key('enter')} Leave ${I.current.D.name}` + (I.current.hero && I.current.prompt ? ` · ${I.current.prompt}` : ''); } return I.current.prompt || null; }
     if (I.hq && P.indoor === I.hq && I.hq.prompt) { if (I.hq.oic?.near && Input.wasPressed('interact')) I.hq.oic.open = !I.hq.oic.open; return I.hq.prompt; } // seamless HQ: the OIC door
     if (P.entry || P.exiting) return null;
     if (P.vehicle) { if (Input.wasPressed('enter')) { if (!P.exitVehicle(this.traffic)) this.hud.notify('Slow down', 'Stop the vehicle to get out.', 'info', 1.5); } return null; }
     const door = I.nearDoor(P.x, P.z);
     const veh = this.traffic.nearest(P.x, P.z, 3.4);
-    if (door && (!veh || Math.hypot(door.x - P.x, door.z - P.z) < 1.6)) { const name = door.id === 'room' ? 'your room' : this.interiorName(door.id); if (Input.wasPressed('enter')) I.enter(door); return `${key('enter')} Enter ${name}`; }
+    if (door && (!veh || Math.hypot(door.x - P.x, door.z - P.z) < 1.6)) { const H = HERO_ROOMS[door.id]; const me = this.squad?.activeMember?.def?.id || 'dineth'; if (H && door.owner && door.owner !== me) return `${H.name} · locked (switch to ${H.name.split("'")[0]})`; const name = H ? 'your room' : this.interiorName(door.id); if (Input.wasPressed('enter')) I.enter(door); return `${key('enter')} Enter ${name}`; }
     if (veh) { if (Input.wasPressed('enter')) P.enterVehicle(veh, this.traffic); return `${key('enter')} ${veh.driverChar ? 'Take' : 'Get in'} ${VNAMES[veh.type] || 'vehicle'}`; }
     if (this.weapons && this.weapons.drawn) return null; // armed: no small talk (holster with X)
     // pedestrians: nearest in front within 2.6 m
@@ -450,6 +453,7 @@ export class Game {
     const out = []; const S = this.sight || { veh: [], peds: [] };
     for (const v of S.veh) out.push({ x: v.x, z: v.z, color: 'rgba(255,255,255,0.6)', r: 1.3 });
     for (const p of S.peds) out.push({ x: p.x, z: p.z, color: 'rgba(255,226,160,0.65)', r: 0.8 });
+    { const me = this.squad?.activeMember?.def?.id; const hd = (this.interiors.doors || []).find((d) => d.owner === me && HERO_ROOMS[d.id]); if (hd && !this.indoor) out.push({ x: hd.x, z: hd.z, color: '#7fd1ff', r: 2.6 }); } // your room
     for (const pv of this.story.pursuers) out.push({ x: pv.v ? pv.v.x : pv.x, z: pv.v ? pv.v.z : pv.z, color: '#ff4a3a', r: 3.5 });
     return out;
   }

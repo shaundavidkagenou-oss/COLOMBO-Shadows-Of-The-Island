@@ -451,6 +451,7 @@ export const EXPR_MORPHS = {
   concern: { browInner: 0.75, frown: 0.3, press: 0.2 },
   angry: { browDown: 0.95, squint: 0.4, sneer: 0.35, press: 0.45, frown: 0.2 },
   pain: { browDown: 0.5, browInner: 0.6, squint: 0.7, stretch: 0.5, sneer: 0.3 },
+  wince: { browDown: 0.75, browInner: 0.35, squint: 0.85, sneer: 0.5, press: 0.55, stretch: 0.2 }, // after a shot of spirits
   lookL: {}, lookR: {},
 };
 export function morphIndex(name) { return MI[name]; }

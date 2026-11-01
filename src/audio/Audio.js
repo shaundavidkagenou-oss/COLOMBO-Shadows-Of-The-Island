@@ -76,9 +76,14 @@ class AudioEngine {
   // ears ringing after a blast close by: everything muffled (low-pass sweep) with a high whine, recovering over a few seconds
   concuss(k) {
     if (!this.ready || !(k > 0.02)) return; const c = this.ctx, t = c.currentTime; const f = this.lp.frequency; const lo = 22000 * Math.pow(0.02, k);
-    f.cancelScheduledValues(t); f.setValueAtTime(Math.max(lo, 300), t); f.exponentialRampToValueAtTime(Math.max(lo, 300) * 1.3, t + 0.6 + 1.5 * k); f.exponentialRampToValueAtTime(22000, t + 1.4 + 4 * k);
+    f.cancelScheduledValues(t); f.setValueAtTime(Math.max(lo, 300), t); f.exponentialRampToValueAtTime(Math.max(lo, 300) * 1.3, t + 0.6 + 1.5 * k); f.exponentialRampToValueAtTime(this.lpBase || 22000, t + 1.4 + 4 * k);
     const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = 3600 + Math.random() * 600; const g2 = c.createGain(); this.env(g2, t, 0.04, 0.05 * k, 1.2 + 3 * k); o.connect(g2); g2.connect(this.master); o.start(t); o.stop(t + 1.4 + 3 * k);
   }
+  // drunk: the world goes slightly woolly (k 0..1); a concussion ramps back to this base
+  setMuffle(k) { if (!this.ready) return; const base = 22000 * Math.pow(0.12, Math.max(0, Math.min(1, k))); if (Math.abs(base - (this.lpBase || 22000)) < 40) return; this.lpBase = base; const t = this.ctx.currentTime; const f = this.lp.frequency; if (f.value > 21000 || Math.abs(f.value - base) < 6000) f.setTargetAtTime(base, t, 0.4); }
+  // radio / TV in a room: music through a small speaker (band-limited) instead of full range
+  speaker(on) { if (!this.ready) return; if (!this.spk) { const c = this.ctx; this.spkHP = c.createBiquadFilter(); this.spkHP.type = 'highpass'; this.spkHP.frequency.value = 20; this.spkLP = c.createBiquadFilter(); this.spkLP.type = 'lowpass'; this.spkLP.frequency.value = 22000; this.bus.music.disconnect(); this.bus.music.connect(this.spkHP); this.spkHP.connect(this.spkLP); this.spkLP.connect(this.out); this.spk = true; }
+    const t = this.ctx.currentTime; this.spkHP.frequency.setTargetAtTime(on ? 170 : 20, t, 0.05); this.spkLP.frequency.setTargetAtTime(on ? 5200 : 22000, t, 0.05); }
   boom() { this.tone(42, 3.5, { type: 'sine', vol: 0.55, attack: 0.6, glide: 30 }); this.noise(4, { f: 90, q: 0.5, type: 'lowpass', vol: 0.3, attack: 1.2, buf: this.brownBuf }); }
   riser(dur = 3) { if (!this.ready) return; this.noise(dur, { f: 400, q: 2, vol: 0.12, attack: dur * 0.9 }); this.tone(110, dur, { type: 'sawtooth', vol: 0.03, attack: dur * 0.9, glide: 440 }); }
   trainHorn(x, z) { const [g, pan] = this.spatial(x, z, 400); if (g < 0.02) return; for (const f of [311, 370]) this.tone(f, 1.6, { type: 'sawtooth', vol: 0.12 * g, pan, attack: 0.1, verb: true }); }

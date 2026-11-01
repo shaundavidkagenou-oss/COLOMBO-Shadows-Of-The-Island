@@ -871,7 +871,7 @@ export class FaceRig {
     if (this.eyes) for (const e of this.eyes) e.rotation.set(this.gaze[1], this.gaze[0], 0);
     else if (this.lookI) { inf[this.lookI[0]] = clamp(this.gaze[0] / 0.34, 0, 1.2); inf[this.lookI[1]] = clamp(-this.gaze[0] / 0.34, 0, 1.2); }
   }
-  set(name, dur = 2.5) { if (!(name in FIDX)) return; this.expr = name; this.exprT = dur; if (name === 'surprise' || name === 'fear') this.blinkT = Math.max(this.blinkT, 1.2); }
+  set(name, dur = 2.5) { if (!(name in FIDX) && !(this.morph && name in EXPR_MORPHS)) return; /* morph faces (protagonists) also have pain / wince */ this.expr = name; this.exprT = dur; if (name === 'surprise' || name === 'fear') this.blinkT = Math.max(this.blinkT, 1.2); }
   show(i) { if (i === this.frame || !this.mat) return; this.frame = i; this.mat.map.offset.y = 1 - (i + 1) / FACE_FRAMES.length; }
   update(dt) {
     if (this.npc && this.morph.castShadow !== this.ch.mesh.castShadow) this.morph.castShadow = this.ch.mesh.castShadow; // crowd shadow LOD (Crowd.js) covers the head too
@@ -1210,6 +1210,7 @@ export class Animator {
     if (this.nearLean && !seated) { const l = this.nearLean; b.spine.rotation.x += l.s || 0; b.chest.rotation.x += l.c || 0; b.neck.rotation.x += l.p || 0; b.head.rotation.z += l.r || 0; b.head.rotation.y += l.y || 0; } // StreetLife: leaning in for a hug / kiss
     if (this.duck > 0.001) { const d = Math.min(1, this.duck); b.spine.rotation.x += 0.42 * d; b.chest.rotation.x += 0.22 * d; b.neck.rotation.x += 0.32 * d; } // ducking under a low roof line while getting in / out
     else if (A_ === 'ride' && aw > 0) { b.thighL.rotation.set(-1.2, 0, -0.25); b.thighR.rotation.set(-1.2, 0, 0.25); b.shinL.rotation.x = 1.3; b.shinR.rotation.x = 1.3; b.footL.rotation.x = 0; b.footR.rotation.x = 0; b.hips.position.y = this.ch.hipY - 0.15; b.hips.position.x = 0; b.hips.rotation.set(0, 0, 0); }
+    if (this.drunkSway > 0.01 && !seated) { const k = this.drunkSway, t = this.t; const sw = Math.sin(t * 1.15) * 0.07 * k + Math.sin(t * 2.7) * 0.025 * k; b.spine.rotation.z += sw; b.chest.rotation.z += sw * 0.6; b.neck.rotation.z -= sw * 0.8; b.head.rotation.z += Math.sin(t * 0.9 + 1) * 0.06 * k; b.head.rotation.x += 0.07 * k + Math.sin(t * 1.3) * 0.03 * k; b.hips.position.x += Math.sin(t * 1.15) * 0.03 * k * s; } // drunk: the body sways, the head lolls (Drunk.js)
     if (this.postPose) this.postPose(b, dt, seated); // full-body overrides layered last (grenade throw, drinking): see combat/Grenades.js, world/HeroRooms.js
     this.driveSkirt();
     if (this.ch.face) this.ch.face.update(dt);

@@ -8,6 +8,7 @@ import { Character, randomSpec, HEROES } from '../actors/Character.js';
 import { buildHQInterior, HQ_DEF } from './HQInterior.js';
 import { HQ } from './PoliceHQ.js';
 import { buildGunShopInterior } from './GunShop.js';
+import { buildHeroRoom, isHeroRoom, heroDoorSpots } from './HeroRooms.js';
 
 const Y = -40; const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 const DEFS = {
@@ -23,7 +24,8 @@ export class Interiors {
   constructor(game) { this.g = game; this.current = null; this.built = new Map(); this.doors = []; this.fan = null; }
   setupDoors(roomPos) {
     this.doors = Object.entries(plan.missionShops).map(([id, s]) => ({ id, x: s.x, z: s.z, rot: s.rot, faceIn: s.faceIn }));
-    if (roomPos) this.doors.push({ id: 'room', x: roomPos[0], z: roomPos[1], rot: 0, faceIn: Math.PI });
+    if (roomPos) this.doors.push({ id: 'room', owner: 'dineth', x: roomPos[0], z: roomPos[1], rot: 0, faceIn: Math.PI });
+    try { for (const d of heroDoorSpots(this.g)) this.doors.push(d); } catch (e) { console.warn('hero room doors', e); } // Shashika's + David's rooms (HeroRooms.js)
     // the Police HQ has no door prompt: it is walked into through its automatic doors (see updateSeamless)
   }
   nearDoor(x, z) { for (const d of this.doors) if (Math.hypot(d.x - x, d.z - z) < 2.2) return d; return null; }
@@ -31,6 +33,7 @@ export class Interiors {
     if (this.built.has(id)) return this.built.get(id);
     if (id === 'hq') { const room = buildHQInterior(this.g, door || { id: 'hq', ...HQ.door }, HQ.interior); this.built.set(id, room); return room; }
     if (id === 'gunshop') { const room = buildGunShopInterior(this.g, door); this.built.set(id, room); return room; }
+    if (isHeroRoom(id)) { const room = buildHeroRoom(this.g, id, door); this.built.set(id, room); return room; }
     const D = DEFS[id]; const mb = new MultiBuilder(); const rng = new RNG(id.length * 97 + 5);
     const cx = door.x, cz = door.z - 200; // offset in z so rooms don't overlap the shop's own geometry footprint
     const x0 = cx - D.w / 2, x1 = cx + D.w / 2, z0 = cz - D.d, z1 = cz; const H = id === 'garage' ? 5 : 3.2;
@@ -90,10 +93,11 @@ export class Interiors {
     if (room.D.keeper && !room.keeperCh) { const spec = room.D.keeper.height ? room.D.keeper : randomSpec(room.D.keeper.seed, room.D.keeper); const ch = new Character(spec); ch.root.position.set(room.keeperPos[0], Y, room.keeperPos[1]); room.g.add(ch.root); room.keeperCh = ch; }
     g.player.indoor = room; g.player.x = room.spawn[0]; g.player.z = room.spawn[1]; g.player.y = Y; g.player.yaw = Math.PI; g.player.camYaw = 0; g.player.sync(); g.player.snapCamera();
     g.setIndoor(true); await g.hud.fade(0, 0.5); g.hud.notify(room.D.name, room.id === 'hq' && !this.hqNoted ? HQ_DEF.note : '', 'info', room.id === 'hq' && !this.hqNoted ? 6 : 2.5); if (room.id === 'hq') this.hqNoted = true;
+    if (room.onEnter) room.onEnter();
     if (room.D.line) setTimeout(() => g.hud.subtitle(room.D.name.split(' ')[0] === 'Lucky' ? 'Siri' : room.D.name, room.D.line, '', 3.5), 600);
   }
   async exit() {
-    const g = this.g; const room = this.current; if (!room) return; await g.hud.fade(1, 0.5);
+    const g = this.g; const room = this.current; if (!room) return; if (room.onExit) room.onExit(); await g.hud.fade(1, 0.5);
     room.g.visible = false; this.current = null; g.player.indoor = null; const d = room.door; // door point already sits on the pavement in front of the shop
     g.player.teleport(d.x, d.z, d.faceIn + Math.PI); g.setIndoor(false); await g.hud.fade(0, 0.5);
   }
@@ -124,7 +128,7 @@ export class Interiors {
     return this.seamK;
   }
   update(dt) {
-    const r = this.current; if (!r) return null; if (r.fan) r.fan.rotation.y += dt * 9; if (r.update) r.update(dt, this.g.player); if (r.keeperCh) { const p = this.g.player; r.keeperCh.root.rotation.y = Math.atan2(p.x - r.keeperPos[0], p.z - r.keeperPos[1]); r.keeperCh.anim.update(dt, 0); }
+    const r = this.current; if (!r) return null; if (r.fan && !r.hero) r.fan.rotation.y += dt * 9; if (r.update) r.update(dt, this.g.player); if (r.keeperCh) { const p = this.g.player; r.keeperCh.root.rotation.y = Math.atan2(p.x - r.keeperPos[0], p.z - r.keeperPos[1]); r.keeperCh.anim.update(dt, 0); }
     const p = this.g.player; if (p.y < r.y + 1 && Math.hypot(p.x - r.spawn[0], p.z - (r.spawn[1] + 0.6)) < 1.3) return 'exit'; return null;
   }
 }
