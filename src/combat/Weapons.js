@@ -11,6 +11,7 @@ import * as L from '../world/Layout.js';
 
 // cls: pistol | rifle | sniper. rof = rounds/second; spread in radians; recoil = camera kick (rad); dmg: 1.5+ incapacitates in one hit
 import { WEAPONS } from './WeaponDefs.js';
+import { MOVES as FIGHT_MOVES, COMBO } from '../actors/Boxing.js';
 export { WEAPONS };
 
 const sm = (k) => { k = clamp(k, 0, 1); return k * k * (3 - 2 * k); };
@@ -75,17 +76,43 @@ export class Weapons {
   // fists (every character, always available): put any weapon away and fight unarmed. sel = −1 means fists.
   selectFists() { this.scrollTarget = null; if (this.drawn) { this._toFists = true; this.holster(); } else { this.sel = -1; this._toFists = false; this.showHolstered(); } this.hudWeapon(-1); }
   get fistsReady() { return !this.drawn && this.state === 'none' && (this.sel < 0 || !this.inv[this.sel] || !this.inv[this.sel].owned); }
+  // fists: boxing combinations (Boxing.js) — repeated presses inside the window chain jab → cross → lead hook → uppercut.
+  // Soft lock: the nearest person within 2.4 m in front of the camera (someone squaring up with you first); the throw
+  // turns to them and steps in to range. Hold aim (RMB / LT) to cover up.
   punch() {
-    const P = this.P; this.punchSide = -(this.punchSide || -1); this.punchCd = 0.42; this.punchT = 0.12; this.punches = (this.punches || 0) + 1;
-    if (!P.speed || P.speed < 0.5) P.yaw = wrapAngle(P.camYaw + Math.PI); // throw it where the camera looks
-    P.ch.anim.punchSide = this.punchSide; P.ch.anim.play('punch', 0.38); Audio.noise(0.09, { f: 700, q: 0.9, vol: 0.05, when: 0 });
+    const P = this.P, C = this.g.crowd; this.comboI = this.comboT > 0 ? ((this.comboI ?? -1) + 1) % COMBO.length : 0; const move = COMBO[this.comboI]; const M = FIGHT_MOVES[move];
+    this.curMove = move; this.comboT = M.dur + 0.38; this.punchCd = M.dur * 0.74; this.punchT = M.hit; this.punches = (this.punches || 0) + 1; this.fightT = 4;
+    const ay = P.speed > 0.5 ? P.yaw : wrapAngle(P.camYaw + Math.PI); const fx = Math.sin(ay), fz = Math.cos(ay); let best = null, bs = -1;
+    if (C && C.peds) for (const p of C.peds) { if (p.state === 'down' || p.dead || !p.ch) continue; const dx = p.x - P.x, dz = p.z - P.z, d = Math.hypot(dx, dz); if (d > 2.4 || d < 0.05 || Math.abs((p.y || 0) - (P.y || 0)) > 0.9) continue;
+      const c = (dx * fx + dz * fz) / d; if (c < 0.35) continue; const sc = c * 2 - d + (p.state === 'fight' ? 1.5 : 0); if (sc > bs) { bs = sc; best = p; } }
+    this.lock = best; P.yaw = best ? Math.atan2(best.x - P.x, best.z - P.z) : ay;
+    if (best && C.incoming) C.incoming(best);
+    P.ch.anim.strike(move); Audio.noise(0.09, { f: move === 'jab' ? 900 : 650, q: 0.9, vol: 0.05, when: 0 });
   }
-  punchHit() { // short reach in front of the shoulders; the nearest standing pedestrian in that cone takes it
-    const P = this.P, C = this.g.crowd; if (!C || !C.peds) return null; const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw); let best = null, bd = 1.5;
-    for (const p of C.peds) { if (p.state === 'down' || !p.ch) continue; const dx = p.x - P.x, dz = p.z - P.z, d = Math.hypot(dx, dz); if (d > bd || d < 0.05) continue; if ((dx * fx + dz * fz) / d < 0.5) continue; if (Math.abs((p.y || 0) - (P.y || 0)) > 0.9) continue; best = p; bd = d; }
+  punchHit() { // the locked target if still in reach and in front, else the nearest standing person in the cone of this technique
+    const P = this.P, C = this.g.crowd; if (!C || !C.peds) return null; const M = FIGHT_MOVES[this.curMove] || FIGHT_MOVES.jab; const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
+    const ok = (p) => { if (!p || p.state === 'down' || p.dead || !p.ch) return -1; const dx = p.x - P.x, dz = p.z - P.z, d = Math.hypot(dx, dz); if (d > M.reach || d < 0.05) return -1; if ((dx * fx + dz * fz) / d < 0.55) return -1; if (Math.abs((p.y || 0) - (P.y || 0)) > 0.9) return -1; return d; };
+    let best = ok(this.lock) >= 0 ? this.lock : null; if (!best) { let bd = 1e9; for (const p of C.peds) { const d = ok(p); if (d >= 0 && d < bd) { bd = d; best = p; } } }
     if (!best) return null;
-    if (C.punched(best, P)) { this.landed = (this.landed || 0) + 1; Audio.noise(0.06, { f: 260, q: 1.4, vol: 0.12, when: 0 }); P.shake = Math.max(P.shake || 0, 0.15); if (this.g.police) this.g.police.crime(best.x, best.z, 'assault'); }
+    if (C.punched(best, P, this.curMove)) { this.landed = (this.landed || 0) + 1; Audio.noise(0.06, { f: 230 + (M.dmg > 20 ? -40 : 30), q: 1.4, vol: 0.13, when: 0 }); P.shake = Math.max(P.shake || 0, M.dmg > 20 ? 0.18 : 0.12); if (this.g.police) this.g.police.crime(best.x, best.z, 'assault'); }
     return best;
+  }
+  // per frame (fists): stance on while fighting, block, step in to the locked target during the throw
+  fistsUpdate(dt, aimHeld) {
+    const P = this.P, A = P.ch.anim, C = this.g.crowd; this.comboT = Math.max(0, (this.comboT || 0) - dt); this.fightT = Math.max(0, (this.fightT || 0) - dt);
+    const able = this.fistsReady && !P.vehicle && !P.sprinting && !P.climb && !P.swimming && !P.indoorSeat && !P.busy;
+    this.engageCd = (this.engageCd || 0) - dt; if (this.engageCd <= 0 && C && C.peds) { this.engageCd = 0.3; this.engaged = C.peds.some((p) => p.state === 'fight' && Math.hypot(p.x - P.x, p.z - P.z) < 5); }
+    this.blocking = able && aimHeld; A.block(this.blocking); if (this.blocking || this.engaged) this.fightT = Math.max(this.fightT, 1);
+    A.fightOn(able && this.fightT > 0); if (!able && A.fight && A.fight.w > 0 && (P.vehicle || P.climb)) A.fightOn(false, true);
+    const L = this.lock; if (L && this.punchT > 0 && able && !L.dead && L.state !== 'down') { const dx = L.x - P.x, dz = L.z - P.z, d = Math.hypot(dx, dz); const want = (FIGHT_MOVES[this.curMove] || FIGHT_MOVES.jab).reach - 0.3;
+      if (d > want && d < 2.6) { const st = Math.min(d - want, 3.2 * dt); const nx = P.x + dx / d * st, nz = P.z + dz / d * st; const col = this.g.collision; const r = col && col.resolveCircle ? col.resolveCircle(nx, nz, 0.32, P.y, 0.45, 1.75) : { x: nx, z: nz }; P.x = r.x; P.z = r.z; } }
+  }
+  // a street fighter's punch landed on the player (Crowd.onStrike): covered up → a quarter, non-graphic reaction
+  struckBy(p, move, M) {
+    const P = this.P; if (P.vehicle) return; const fy = Math.atan2(p.x - P.x, p.z - P.z); const covering = this.blocking && Math.cos(wrapAngle(fy - P.yaw)) > 0.6;
+    const dmg = ({ jab: 3, cross: 5, hook: 6, upper: 7 }[move] || 4) * (covering ? 0.25 : 1); if (this.g.health) this.g.health.damage(dmg, 'street fight');
+    P.ch.anim.takeHit(covering ? 'block' : M.react, M.dir || 1, (M.pow || 1) * 0.8); P.shake = Math.max(P.shake || 0, covering ? 0.06 : 0.2); this.fightT = Math.max(this.fightT || 0, 3);
+    Audio.noise(0.06, { f: covering ? 380 : 240, q: 1.3, vol: 0.12, when: 0 }); this.hitsTaken = (this.hitsTaken || 0) + 1;
   }
   holster() { if (this.drawn && this.state !== 'holster') { this.next = -1; if (this.state === 'reload') this.abortReload(); this.setState('holster'); } }
   setState(s) { const prev = this.state; this.state = s; this.t = 0; if (s === 'holster' || s === 'none') this.wantReload = false;
@@ -163,7 +190,7 @@ export class Weapons {
     if (this.state === 'check' && this.t >= 0.9 && this.cycleT < 0) this.setState('ready'); this.trigT = Math.max(0, this.trigT - dt);
     if (this.state === 'holster' && this.t >= def.equip * 0.85) { this.models[this.cur].visible = false; const n = this.next; this.cur = -1; this.state = 'none'; A.ik = null; A.aim = null; if (n >= 0) { this.sel = n; this.cur = n; this.setState('equip'); } if (this._toFists) { this.sel = -1; this._toFists = false; } this.showHolstered(); }
     // ---- fists
-    this.punchCd = Math.max(0, (this.punchCd || 0) - dt); if (this.punchT > 0) { this.punchT -= dt; if (this.punchT <= 0) this.punchHit(); }
+    this.punchCd = Math.max(0, (this.punchCd || 0) - dt); if (this.punchT > 0) { this.punchT -= dt; if (this.punchT <= 0) this.punchHit(); } this.fistsUpdate(dt, aimHeld);
     if (firePressed && this.fistsReady && !P.sprinting && !P.crouching && this.punchCd <= 0) this.punch();
     if (this.state === 'reload' && this.t >= this.reloadDur) { const iv = this.inv[this.cur]; const take = Math.min(def.mag + (this.reloadKind === 'tactical' ? 1 : 0) - iv.mag, iv.reserve); this.slideLock = false; /* tactical: the chambered round stays (+1) */ iv.mag += take; iv.reserve -= take; this.reloadMagOut = false; this.setState('ready'); }
     def = this.def;

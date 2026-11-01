@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import * as L from '../world/Layout.js';
 import { clamp, lerp, dampAngle, wrapAngle } from '../core/math.js';
+import { MOVES as FIGHT_MOVES } from './Boxing.js';
 
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _q = new THREE.Quaternion();
 const _v4 = new THREE.Vector3(), _q2 = new THREE.Quaternion(), _s = new THREE.Vector3(), _s2 = new THREE.Vector3(), _m = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _ax = new THREE.Vector3(1, 0, 0);
@@ -298,16 +299,16 @@ export class StreetLife {
     if (F.phase === 'shove') { if (S.side === 1) { F.t += dt; if (F.t < 0.1) A.set('shove'); if (F.t > 0.3 && !F.shoved) { F.shoved = true; o.ch.anim.set('stumble'); o.vx = -dx / d * 2.0; o.vz = -dz / d * 2.0; } if (F.t > 1.6) { F.phase = 'brawl'; F.t = 0; F.next = 0.8; } } return { desired: 0 }; }
     if (F.phase === 'brawl') { // guard up, close in; one throws, the other takes it (or covers up) and is pushed back a step; pauses to circle
       if (S.side === 0) { F.t += dt; F.hitT += dt; F.alarmT -= dt; if (F.alarmT <= 0) { F.alarmT = 9; this.C.alarm(F.x, F.z, 28, 1, F.a); }
-        if (F.hitT > F.next) { F.hitT = 0; F.next = 1.1 + r.next() * 1.6; const att = r.chance(0.5) ? F.a : F.b, def = att === F.a ? F.b : F.a; att.ch.anim.punchSide = r.chance(0.5) ? 1 : -1; att.ch.anim.set('punch'); att.ch.anim.actionT = 0; F.pending = { def, t: 0.2, att, block: r.chance(0.35) }; }
-        if (F.pending) { F.pending.t -= dt; if (F.pending.t <= 0) { const { def, att, block } = F.pending; F.pending = null; const ex = def.x - att.x, ez = def.z - att.z, el = Math.hypot(ex, ez) || 1; def.ch.anim.set(block ? 'cover' : 'hit'); def.ch.anim.actionT = 0; def.vx = ex / el * (block ? 0.8 : 1.6); def.vz = ez / el * (block ? 0.8 : 1.6); if (!block && r.chance(0.3)) this.C.speak(def, 'scared', 0, 1.2); } }
+        if (F.hitT > F.next) { F.hitT = 0; F.next = 1.1 + r.next() * 1.6; const att = r.chance(0.5) ? F.a : F.b, def = att === F.a ? F.b : F.a; const mv = r.weighted([['jab', 3], ['cross', 2], ['hook', 2], ['upper', 1]]); att.ch.anim.strike(mv); F.pending = { def, t: FIGHT_MOVES[mv].hit, att, mv, block: r.chance(0.35) }; if (F.pending.block) def.ch.anim.block(true); }
+        if (F.pending) { F.pending.t -= dt; if (F.pending.t <= 0) { const { def, att, block, mv } = F.pending; F.pending = null; const ex = def.x - att.x, ez = def.z - att.z, el = Math.hypot(ex, ez) || 1; const M = FIGHT_MOVES[mv]; def.ch.anim.takeHit(block ? 'block' : M.react, M.dir || 1, M.pow || 1); def.ch.anim.block(false); def.vx = ex / el * (block ? 0.8 : 1.6); def.vz = ez / el * (block ? 0.8 : 1.6); if (!block && r.chance(0.3)) this.C.speak(def, 'scared', 0, 1.2); } }
         if (F.t > F.dur && (!F.unit || F.t > F.dur + 60)) { this.endFight(F, 'tired'); return { desired: 0 }; } }
-      const busy = ['punch', 'hit', 'cover', 'stumble'].includes(A.action) && A.actionT < 0.55; if (!busy && A.action !== 'guard') A.set('guard'); p.ch.face.mood = 'angry';
+      if (A.action && A.action !== 'stumble') A.set(null); A.fightOn(true); const Fs = A.fight; const busy = !!(Fs.move || (Fs.react && Fs.rt < 0.5) || (A.action === 'stumble' && A.actionT < 0.55)); p.ch.face.mood = 'angry';
       const want = 1.05; if (busy) return { desired: 0 };
       return d > want + 0.2 ? { desired: 0.9, tx: o.x, tz: o.z, avoid: false, accel: 3 } : d < want - 0.25 ? { desired: 0.6, tx: p.x - dx / d, tz: p.z - dz / d, avoid: false } : { desired: 0 }; }
     return { desired: 0 };
   }
   endFight(F, why) {
-    F.ended = true; F.why = why; this.fights = this.fights.filter((f) => f !== F); for (const p of [F.a, F.b]) { if (!p || F.handed) continue; if (!p.scene || p.scene.F !== F) continue; p.scene = null; p.keep = false; p.faceYaw = undefined; p.ch.anim.set(null); p.ch.face.mood = 'neutral';
+    F.ended = true; F.why = why; this.fights = this.fights.filter((f) => f !== F); for (const p of [F.a, F.b]) { if (!p || F.handed) continue; if (!p.scene || p.scene.F !== F) continue; p.scene = null; p.keep = false; p.faceYaw = undefined; p.ch.anim.set(null); p.ch.anim.fightOn(false); p.ch.face.mood = 'neutral';
       if (this.C.peds.includes(p)) { const o = p === F.a ? F.b : F.a; const ax = p.x - o.x, az = p.z - o.z, d = Math.hypot(ax, az) || 1; if (p.state === 'scene') p.state = 'walk'; this.C.react(p, 'recover', 4 + this.rng.next() * 2, { fleeDir: [ax / d, az / d] }); } }
   }
   // per-frame scheduling: fights get reported and policed, couples appear, the smoke drifts

@@ -76,12 +76,21 @@ export class Birds {
     return true;
   }
   groundSpot(x, z) { const C = this.g.collision; if (L.isWater(x, z) || L.roadAt(x, z) || C.blocked(x, z, 0.25)) return null; const gy = L.surfaceY(x, z), cy = C.groundAt ? C.groundAt(x, z, gy + 0.5) : gy; if (!(Math.abs(cy - gy) < 0.3)) return null; const y = Math.max(cy, gy); /* same surface the walking code uses */ return { x, y, z, kind: 'ground' }; }
+  // perch candidates by 24 m cell (keyed by each tree / wall / building centre) - perchSpot used to scan the whole city's
+  // trees, walls and buildings on every call (up to 10 calls per bird per goal), which showed up as frame spikes
+  near(kind, cx, cz, R) {
+    if (!this._pidx) { const S = 24, mk = (list, fx, fz) => { const m = new Map(); for (const o of list || []) { const k = Math.floor(fx(o) / S) * 4096 + Math.floor(fz(o) / S); let a = m.get(k); if (!a) m.set(k, (a = [])); a.push(o); } return m; };
+      this._pidx = { S, trees: mk(plan.trees, (t) => t.x, (t) => t.z), walls: mk(plan.walls, (w) => (w.x0 + w.x1) / 2, (w) => (w.z0 + w.z1) / 2), buildings: mk(plan.buildings, (b) => (b.x0 + b.x1) / 2, (b) => (b.z0 + b.z1) / 2) }; }
+    const I = this._pidx, m = I[kind], out = this._pnear || (this._pnear = []); out.length = 0;
+    for (let i = Math.floor((cx - R) / I.S); i <= Math.floor((cx + R) / I.S); i++) for (let j = Math.floor((cz - R) / I.S); j <= Math.floor((cz + R) / I.S); j++) { const a = m.get(i * 4096 + j); if (a) for (const o of a) out.push(o); }
+    return out;
+  }
   perchSpot(sp, cx, cz, R) {
     const opts = [];
-    if (sp !== 'pigeon') for (const t of plan.trees) { if (Math.abs(t.x - cx) > R || Math.abs(t.z - cz) > R) continue; if (sp === 'parakeet' || Math.random() < 0.5) opts.push(() => { const top = this.treeTop[t.type] || 9; return { x: t.x + rnd(-0.6, 0.6), y: L.LAND_Y + top * t.s * (t.sy || 1) * 0.97, z: t.z + rnd(-0.6, 0.6), kind: 'tree' }; }); }
+    if (sp !== 'pigeon') for (const t of this.near('trees', cx, cz, R).slice()) { if (Math.abs(t.x - cx) > R || Math.abs(t.z - cz) > R) continue; if (sp === 'parakeet' || Math.random() < 0.5) opts.push(() => { const top = this.treeTop[t.type] || 9; return { x: t.x + rnd(-0.6, 0.6), y: L.LAND_Y + top * t.s * (t.sy || 1) * 0.97, z: t.z + rnd(-0.6, 0.6), kind: 'tree' }; }); }
     if (sp !== 'parakeet') {
-      for (const w of plan.walls || []) { if (Math.abs((w.x0 + w.x1) / 2 - cx) > R || Math.abs((w.z0 + w.z1) / 2 - cz) > R) continue; opts.push(() => { const along = w.x1 - w.x0 > w.z1 - w.z0; const x = along ? rnd(w.x0 + 0.3, w.x1 - 0.3) : (w.x0 + w.x1) / 2, z = along ? (w.z0 + w.z1) / 2 : rnd(w.z0 + 0.3, w.z1 - 0.3); return { x, y: L.LAND_Y + w.h + 0.1, z, kind: 'wall', yaw: along ? (Math.random() < 0.5 ? Math.PI / 2 : -Math.PI / 2) : (Math.random() < 0.5 ? 0 : Math.PI) }; }); }
-      for (const b of plan.buildings) { if (b.roof === 'tile' || Math.abs((b.x0 + b.x1) / 2 - cx) > R || Math.abs((b.z0 + b.z1) / 2 - cz) > R || b.h > 22) continue; opts.push(() => { const e = Math.floor(Math.random() * 4); const th = 0.125; const x = e < 2 ? rnd(b.x0 + 0.5, b.x1 - 0.5) : e === 2 ? b.x0 + th : b.x1 - th, z = e >= 2 ? rnd(b.z0 + 0.5, b.z1 - 0.5) : e === 0 ? b.z0 + th : b.z1 - th; return { x, y: L.LAND_Y + b.h + (b.style === 'villa' ? 0.5 : 0.9), z, kind: 'roof', yaw: [Math.PI, 0, -Math.PI / 2, Math.PI / 2][e] }; }); }
+      for (const w of this.near('walls', cx, cz, R).slice()) { if (Math.abs((w.x0 + w.x1) / 2 - cx) > R || Math.abs((w.z0 + w.z1) / 2 - cz) > R) continue; opts.push(() => { const along = w.x1 - w.x0 > w.z1 - w.z0; const x = along ? rnd(w.x0 + 0.3, w.x1 - 0.3) : (w.x0 + w.x1) / 2, z = along ? (w.z0 + w.z1) / 2 : rnd(w.z0 + 0.3, w.z1 - 0.3); return { x, y: L.LAND_Y + w.h + 0.1, z, kind: 'wall', yaw: along ? (Math.random() < 0.5 ? Math.PI / 2 : -Math.PI / 2) : (Math.random() < 0.5 ? 0 : Math.PI) }; }); }
+      for (const b of this.near('buildings', cx, cz, R).slice()) { if (b.roof === 'tile' || Math.abs((b.x0 + b.x1) / 2 - cx) > R || Math.abs((b.z0 + b.z1) / 2 - cz) > R || b.h > 22) continue; opts.push(() => { const e = Math.floor(Math.random() * 4); const th = 0.125; const x = e < 2 ? rnd(b.x0 + 0.5, b.x1 - 0.5) : e === 2 ? b.x0 + th : b.x1 - th, z = e >= 2 ? rnd(b.z0 + 0.5, b.z1 - 0.5) : e === 0 ? b.z0 + th : b.z1 - th; return { x, y: L.LAND_Y + b.h + (b.style === 'villa' ? 0.5 : 0.9), z, kind: 'roof', yaw: [Math.PI, 0, -Math.PI / 2, Math.PI / 2][e] }; }); }
     }
     if (!opts.length) return null; return opts[Math.floor(Math.random() * opts.length)]();
   }

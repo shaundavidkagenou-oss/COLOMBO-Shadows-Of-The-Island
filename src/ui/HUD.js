@@ -9,6 +9,10 @@ import { Gps, MapView, drawIcon, BLIP_STYLE } from './MapView.js';
 const el = (tag, cls, parent, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; if (parent) parent.appendChild(e); return e; };
 const MAP_SCALE = 1.0; // px per metre in the base map canvas
 const fmtDist = (d) => (d >= 1000 ? `${(d / 1000).toFixed(1)} km` : `${Math.round(d / 10) * 10} m`);
+// DOM writes only when the value changed: rewriting identical text / styles every frame still invalidates style + layout
+const setTxt = (el, v) => { if (el._t !== v) { el._t = v; el.textContent = v; } };
+const setHtml = (el, v) => { if (el._h !== v) { el._h = v; el.innerHTML = v; } };
+const setStyle = (el, k, v) => { const c = el._s || (el._s = {}); if (c[k] !== v) { c[k] = v; el.style[k] = v; } };
 export class HUD {
   constructor(root) {
     this.root = el('div', 'hud hidden', root);
@@ -201,8 +205,8 @@ export class HUD {
   hurt(k = 0.5) { const e = this.hurtEl; e.style.setProperty('--k', (0.35 + k * 0.65).toFixed(2)); e.classList.remove('on'); void e.offsetWidth; e.classList.add('on'); }
   // ---------- per-frame
   update(st) {
-    this.clock.textContent = st.time; this.money.textContent = `Rs. ${st.money.toLocaleString('en-LK')}`;
-    this.district.textContent = st.district || ''; this.street.textContent = st.street || ''; this.street.classList.toggle('show', !!st.street);
+    setTxt(this.clock, st.time); setTxt(this.money, `Rs. ${st.money.toLocaleString('en-LK')}`);
+    setTxt(this.district, st.district || ''); setTxt(this.street, st.street || ''); this.street.classList.toggle('show', !!st.street);
     this.police = st.police || null; this.player = [st.x, st.z]; this.playerYaw = -(st.camYaw - Math.PI) + Math.PI;
     if (!this.baseHasBuildings && plan.buildings.length) this.buildBaseMap();
     { // GPS: player waypoint first, otherwise the mission objective
@@ -210,20 +214,20 @@ export class HUD {
       if (this.waypoint) { if (Math.hypot(this.waypoint.x - st.x, this.waypoint.z - st.z) < 18) { this.clearWaypoint(); this.notify('Waypoint reached', '', 'success', 2.5); } }
       if (!this.waypoint) { const o = this.objective; if (o && Math.hypot(o.x - st.x, o.z - st.z) > 45 && !st.indoor) { const t = this.gps.target; if (!t || t.kind !== 'objective' || Math.hypot(t.x - o.x, t.z - o.z) > 25) this.gps.set(o.x, o.z, 'objective'); } else if (this.gps.target) this.gps.clear(); }
       if (st.indoor) this.gps.route = null; else this.gps.update(dt, st.x, st.z);
-      const t = this.gps.target; if (t && this.gps.route) { this.gpsEl.className = 'gps-info show' + (t.kind === 'objective' ? ' obj' : ''); this.gpsEl.innerHTML = `<b>${t.kind === 'objective' ? 'GPS · OBJECTIVE' : 'GPS · WAYPOINT'}</b> ${fmtDist(this.gps.remaining(st.x, st.z))}`; } else this.gpsEl.className = 'gps-info';
+      const t = this.gps.target; if (t && this.gps.route) { this.gpsEl.className = 'gps-info show' + (t.kind === 'objective' ? ' obj' : ''); setHtml(this.gpsEl, `<b>${t.kind === 'objective' ? 'GPS · OBJECTIVE' : 'GPS · WAYPOINT'}</b> ${fmtDist(this.gps.remaining(st.x, st.z))}`); } else this.gpsEl.className = 'gps-info';
     }
     this.drawMini(st.x, st.z, st.camYaw - Math.PI, st.extras);
-    this.stamina.style.opacity = st.stamina < 0.98 && !st.vehicle ? 1 : 0.35; this.staminaBar.style.width = `${st.stamina * 100}%`;
-    if (st.health != null) { const hp = st.health; this.hpBar.style.width = `${hp}%`; this._hpShown += (hp - this._hpShown) * (hp < this._hpShown ? 0.04 : 1); this.hpGhost.style.width = `${this._hpShown}%`; this.hp.classList.toggle('low', hp < 30); this.hurtEl.classList.toggle('low', hp < 25 && !st.healthBusy); }
-    if (st.vehicle) { this.veh.classList.remove('hidden'); this.vehSpeed.innerHTML = `${Math.round(Math.abs(st.vehicle.speed) * 3.6)}<small>km/h</small>`; this.vehName.textContent = st.vehicleName; this.radioEl.textContent = st.radio || ''; } else this.veh.classList.add('hidden');
-    if (this.objective) { const d = Math.hypot(this.objective.x - st.x, this.objective.z - st.z); this.objDist.textContent = d > 30 ? `${d > 1000 ? (d / 1000).toFixed(1) + ' km' : Math.round(d) + ' m'}` : ''; } else this.objDist.textContent = '';
+    setStyle(this.stamina, 'opacity', st.stamina < 0.98 && !st.vehicle ? 1 : 0.35); setStyle(this.staminaBar, 'width', `${st.stamina * 100}%`);
+    if (st.health != null) { const hp = st.health; setStyle(this.hpBar, 'width', `${hp}%`); this._hpShown += (hp - this._hpShown) * (hp < this._hpShown ? 0.04 : 1); setStyle(this.hpGhost, 'width', `${this._hpShown}%`); this.hp.classList.toggle('low', hp < 30); this.hurtEl.classList.toggle('low', hp < 25 && !st.healthBusy); }
+    if (st.vehicle) { this.veh.classList.remove('hidden'); setHtml(this.vehSpeed, `${Math.round(Math.abs(st.vehicle.speed) * 3.6)}<small>km/h</small>`); setTxt(this.vehName, st.vehicleName); setTxt(this.radioEl, st.radio || ''); } else this.veh.classList.add('hidden');
+    if (this.objective) { const d = Math.hypot(this.objective.x - st.x, this.objective.z - st.z); setTxt(this.objDist, d > 30 ? `${d > 1000 ? (d / 1000).toFixed(1) + ' km' : Math.round(d) + ' m'}` : ''); } else setTxt(this.objDist, '');
     // world-space objective marker
     const mk = this.objective || (this.waypoint && { x: this.waypoint.x, z: this.waypoint.z, y: L.groundY(this.waypoint.x, this.waypoint.z) });
     if (mk && st.camera) {
       const v = st.projector(mk.x, (mk.y ?? 0) + 2.2, mk.z);
       const d = Math.hypot(mk.x - st.x, mk.z - st.z);
-      if (v && d > 4) { this.marker.classList.remove('hidden'); this.marker.style.transform = `translate(${v[0]}px, ${v[1]}px)`; this.marker.querySelector('.wm-d').textContent = `${Math.round(d)} m`; } else this.marker.classList.add('hidden');
+      if (v && d > 4) { this.marker.classList.remove('hidden'); setStyle(this.marker, 'transform', `translate(${v[0]}px, ${v[1]}px)`); setTxt(this.marker.querySelector('.wm-d'), `${Math.round(d)} m`); } else this.marker.classList.add('hidden');
     } else this.marker.classList.add('hidden');
-    if (Settings.get('showFps')) { this.fps.classList.remove('hidden'); this.fps.textContent = `${st.fps.toFixed(0)} fps · ${st.draws} draws`; } else this.fps.classList.add('hidden');
+    if (Settings.get('showFps')) { this.fps.classList.remove('hidden'); setTxt(this.fps, `${st.fps.toFixed(0)} fps · ${st.draws} draws`); } else this.fps.classList.add('hidden');
   }
 }

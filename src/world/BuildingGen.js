@@ -340,7 +340,7 @@ export function buildWall(w, multi) {
 //    shophouses. Only openings up to ~10 floors are dressed — that is what is seen up close; higher floors keep the
 //    texture + interior mapping, which already reads correctly at that distance.
 const WIN_MAX_Y = 34;
-function dressFacade(solid, glass, s, y0, y1, uOff, vStart, key, paint) {
+function dressFacade(solid, glass, s, y0, y1, uOff, vStart, key, paint, cols = null) { // cols = [iu from, iu to): a slice of the facade (streaming)
   const wins = FACADE_WINDOWS[key]; if (!wins || !wins.length || s.len < 1.5) return 0;
   const TW = 4 * BAY, TH = 2 * FLOOR_H; const r = Math.atan2(s.n[0], s.n[1]);
   const dx = (s.b[0] - s.a[0]) / s.len, dz = (s.b[1] - s.a[1]) / s.len, nx = s.n[0], nz = s.n[1];
@@ -349,7 +349,7 @@ function dressFacade(solid, glass, s, y0, y1, uOff, vStart, key, paint) {
   const surr = paint.map((v) => v * 0.9), sillC = paint.map((v) => v * 0.97);
   const conc = solid.get('concrete'), join = solid.get('paint'), met = solid.get('metal'), gl = glass.get('winGlass');
   const grillC = [0.06, 0.06, 0.065]; let n = 0;
-  for (let iu = iu0; iu < iu1; iu++) for (let iv = iv0; iv < iv1; iv++) for (const w of wins) {
+  for (let iu = cols ? Math.max(iu0, cols[0]) : iu0, iuE = cols ? Math.min(iu1, cols[1]) : iu1; iu < iuE; iu++) for (let iv = iv0; iv < iv1; iv++) for (const w of wins) {
     const d0 = (iu + w.u0 - uOff) * TW, d1 = (iu + w.u1 - uOff) * TW; if (d0 < 0.3 || d1 > s.len - 0.3) continue;
     const ya = vStart + (iv + w.v0) * TH, yb = vStart + (iv + w.v1) * TH; if (ya < y0 + 0.08 || yb > top - 0.08) continue;
     const W = d1 - d0, H = yb - ya, dm = (d0 + d1) / 2; n++;
@@ -394,6 +394,25 @@ function dressFacade(solid, glass, s, y0, y1, uOff, vStart, key, paint) {
   }
   return n;
 }
+// The same work as one ordered list of facade tasks, so streaming can spread a building over several frames
+// (a large shop-house row is thousands of 3D window frames: up to ~130 ms for one building in a single call).
+export function windowTasks(b, solid, glass) {
+  const paint = col(b.color || '#ffffff'); const y0 = LAND_Y, yTop = y0 + b.h; const hasGround = b.groundRow != null; const key = 'f_' + b.style;
+  const T = []; const F = (...a) => { const s = a[2], uOff = a[5]; const i0 = Math.floor(uOff), i1 = Math.ceil(uOff + s.len / (4 * BAY)); for (let k = i0; k < i1; k++) T.push(() => dressFacade(...a, [k, k + 1])); }; // one 4-bay column per task
+  for (const s of sides(b.x0, b.x1, b.z0, b.z1)) {
+    if (s.len < 0.1) continue;
+    if (hasGround) {
+      if (s.id !== b.front) F(solid, glass, s, y0, y0 + GROUND_H, b.uOff || 0, y0 + GROUND_H - 2 * FLOOR_H, key, paint);
+      F(solid, glass, s, y0 + GROUND_H, yTop, b.uOff || 0, y0 + GROUND_H, key, paint);
+    } else F(solid, glass, s, y0, yTop, b.uOff || 0, y0, key, paint);
+  }
+  if (b.tower) {
+    const t = b.tower, i = t.inset; const th = t.floors * FLOOR_H;
+    for (const s of sides(b.x0 + i, b.x1 - i, b.z0 + i, b.z1 - i)) F(solid, glass, s, yTop, yTop + th, 0, yTop, 'f_' + t.style, col(t.color || '#fff'));
+  }
+  return T;
+}
+// one-shot build (warm / loading); identical output to running windowTasks() in order (tools/stream-test.mjs)
 export function buildWindows(b, solid, glass) {
   const paint = col(b.color || '#ffffff'); const y0 = LAND_Y, yTop = y0 + b.h; const hasGround = b.groundRow != null; const key = 'f_' + b.style;
   let n = 0;

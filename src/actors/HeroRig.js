@@ -86,6 +86,7 @@ export class HeroRig {
   autoPose(S) {
     const A = this.ch.anim; const act = A.action;
     if (A.seated && A.seatW > 0.5) return A.action === 'drive' || A.drive > 0.5 ? 'wheel' : 'relax';
+    if (A.fight && A.fight.w > 0.3) return 'fist';
     if (act === 'point' && S === 'R') return 'point'; if (act === 'handsup' || act === 'signal' || act === 'stretch' || act === 'shrug') return 'open';
     if (act === 'phone' && S === 'R') return 'phone'; if (act === 'text') return 'phone'; if (act === 'umbrella' && S === 'R') return 'fist';
     if (act === 'argue' || act === 'shove') return 'open'; if (act === 'cower' || act === 'flinch' || act === 'punch') return 'fist'; if (act === 'gloves') return 'glove';

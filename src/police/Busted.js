@@ -127,10 +127,31 @@ export class BustedCinematic {
     // gameplay camera → first shot: a quick whip
     if (rT < 0.45) { const k = sm(rT / 0.45); pos.lerp(this.cam0.pos, 1 - k); }
     // keep the lens out of walls: pull in towards the subject
-    const t = col.raycast(look.x, look.y, look.z, pos.x, pos.y, pos.z, 0.25, false, 1.0); if (t < 1) pos.lerpVectors(look, pos, Math.max(0.15, t * 0.9)); pos.y = Math.max(pos.y, (col.groundAt ? col.groundAt(pos.x, pos.z, pos.y) : 0) + 0.2);
+    // (1) colliders every frame, (2) the rendered geometry ~12×/s — balconies, canopies, eaves, upper floors and trees have no
+    // colliders, so the lens used to pass through them (worst on the crane). Pull in at once; ease back out slowly.
+    const tc = col.raycast(look.x, look.y, look.z, pos.x, pos.y, pos.z, 0.25, false, 1.0); const tcol = tc < 1 ? Math.max(0.12, tc * 0.9) : 1;
+    this.visCd = (this.visCd || 0) - real; if (this.visCd <= 0) { this.visCd = 0.08; this.visT = this.visualClear(look, pos); }
+    const want = Math.min(tcol, this.visT ?? 1); this.occK = want < (this.occK ?? 1) ? want : lerp(this.occK ?? 1, want, Math.min(1, real * 2.5));
+    if (this.occK < 0.999) pos.lerpVectors(look, pos, this.occK); pos.y = Math.max(pos.y, (col.groundAt ? col.groundAt(pos.x, pos.z, pos.y) : 0) + 0.2);
     if (this.shakeT !== undefined) { this.shakeT += real; const s = 0.07 * Math.exp(-this.shakeT * 5); pos.x += Math.sin(rT * 71) * s; pos.y += Math.sin(rT * 53 + 1) * s; pos.z += Math.sin(rT * 61 + 2) * s; }
     cam.position.copy(pos); cam.lookAt(look); if (Math.abs(cam.fov - fov) > 0.01) { cam.fov = fov; cam.updateProjectionMatrix(); }
     this.camPos = pos; this.camLook = look;
+  }
+  // world meshes near the arrest (collected once): the candidates for the visual occlusion test
+  nearMeshes() {
+    if (this._near) return this._near; const out = []; const root = this.g.world && this.g.world.root, P = this.g.player; this._near = out; if (!root || !root.traverse) return out;
+    const sph = new THREE.Sphere(); root.updateMatrixWorld(true);
+    root.traverse((m) => { if (!m.isMesh || m.visible === false || !m.geometry) return; let bs;
+      if (m.isInstancedMesh) { if (!m.boundingSphere && m.computeBoundingSphere) m.computeBoundingSphere(); bs = m.boundingSphere; } else { if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere(); bs = m.geometry.boundingSphere; }
+      if (!bs) return; sph.copy(bs).applyMatrix4(m.matrixWorld); if (Math.hypot(sph.center.x - P.x, sph.center.z - P.z) < sph.radius + 20) out.push(m); });
+    return out;
+  }
+  // fraction of the subject→lens segment that is clear of rendered geometry (with a 0.35 m margin), 1 = fully clear
+  visualClear(look, pos) {
+    try { const list = this.nearMeshes(); if (!list.length) return 1; const d = pos.clone().sub(look); const L = d.length(); if (L < 0.3) return 1;
+      const R = this._ray || (this._ray = new THREE.Raycaster()); R.set(look, d.divideScalar(L)); R.far = L + 0.35;
+      const hit = R.intersectObjects(list, false).find((h) => h.distance > 0.15); if (!hit) return 1; return clamp((hit.distance - 0.35) / L, 0.1, 1);
+    } catch (e) { return 1; }
   }
   // crane direction: the first of eight bearings whose whole rise (low → 8.5 m up) has a clear view of the suspect through
   // the real scene geometry (shop canopies, balconies and trees are not colliders, so the collision ray alone cannot tell)

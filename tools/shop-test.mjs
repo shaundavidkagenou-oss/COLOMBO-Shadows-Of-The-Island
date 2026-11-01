@@ -1,5 +1,5 @@
 // Gun shop + fists test (Node, headless): Ceylon Arms Co. catalogue and purchase rules (combat/Shop.js), the debug-state
-// defaults, and the pedestrian reaction to punches (Crowd.punched: stumble, third punch in a row knocks down, never through walls).
+// defaults, and the pedestrian reaction to punches (Crowd.punched: a non-fighter stumbles back, never through walls; heavy blows empty the KO meter and knock down; some men square up).
 import './node-dom-stub.mjs';
 import * as THREE from 'three';
 globalThis.localStorage ??= { getItem: () => null, setItem: () => {}, removeItem: () => {} };
@@ -44,11 +44,15 @@ const { Crowd } = await import('../src/actors/Crowd.js'); const { Collision } = 
   const focus = { x: X, z: Z }; const ctx = { simTime: 0, vehicles: [], player: { x: X - 30, z: Z, vehicle: null, ch: null }, bodies: [], hourFactor: 1, hour: 12 }; const dt = 1 / 60;
   for (let i = 0; i < 40 && !C.peds.length; i++) C.update(dt, focus, [0, 1], ctx);
   const p = C.peds[0]; if (!p) ok(false, 'ped spawned'); else {
-    p.x = X; p.z = Z; p.y = 0.15; p.keep = true; const src = { x: X - 0.9, z: Z };
+    p.x = X; p.z = Z; p.y = 0.15; p.keep = true; p.fighter = false; /* this one does not fight back (see Crowd.willFight) */ const src = { x: X - 0.9, z: Z };
     ok(C.punched(p, src) && p.state === 'stumble' && ev.includes('pedPunched'), 'first punch: the pedestrian stumbles back (event emitted)');
     let maxX = -1e9; for (let i = 0; i < 1.5 / dt; i++) { C.update(dt, focus, [0, 1], ctx); maxX = Math.max(maxX, p.x); }
     ok(maxX > X + 0.2 && maxX < X + 1.2 - 0.2, `pushed away from the puncher but not through the wall (max x ${(maxX - X).toFixed(2)})`);
-    p.x = X; p.z = Z; C.punched(p, src); ok(p.state === 'stumble', 'second punch: stumble'); C.punched(p, src); ok(p.state === 'down', 'third punch within 6 s: knocked down');
+    p.x = X; p.z = Z; C.punched(p, src, 'cross'); ok(p.state === 'stumble', 'second punch: stumble');
+    let n = 0; while (p.state !== 'down' && n < 8) { C.punched(p, src, 'upper'); n++; } ok(p.state === 'down' && n <= 4, `heavy blows in quick succession knock down (${n} uppercuts after jab + cross)`);
     ok(C.punched(p, src) === false, 'no further punches register on someone already down');
+    // a man who fights back squares up instead of stumbling
+    const q = C.makePed(C.specs[0], X - 3, Z + 4, C.peds[0].node ?? 0); q.x = X - 3; q.z = Z + 4; q.keep = true; q.sp = Object.assign({}, q.sp, { sex: 'm', age: 'adult', band: 'adult' }); q.fighter = true; C.peds.push(q);
+    ok(C.punched(q, { x: X - 3.9, z: Z + 4 }) && q.state === 'fight', 'a man who fights back squares up (fight state)');
   } }
 console.log(`shop: ${pass + fail} checks, ${fail} failed`); process.exit(fail ? 1 : 0);

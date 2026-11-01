@@ -724,18 +724,27 @@ function doorPivot(d, geos, matsByName) {
 }
 
 // Returns a THREE.Group with .userData {wheels, tailMat, seats, type, color, steerWheel, door, entry}
-export function createVehicleMesh(type, seed = 1) {
+// is this (type, seed) look already built? (traffic spreads first-time model builds out so they never stack up in one frame)
+export function modelCached(type, seed = 1) { const T = VTYPES[type]; if (!T) return true; const r = new RNG(seed); const color = r.pick(T.colors); const variant = r.int(0, 3); return modelCache.has(type + color + variant); }
+// the shared (cached) geometry for a look: built once per type + colour + variant
+function ensureModel(type, seed) {
   const T = VTYPES[type]; const r = new RNG(seed); const color = r.pick(T.colors); const variant = r.int(0, 3);
-  const key = type + color + variant; let cached = modelCache.get(key);
-  const { mats: M } = vehicleMaterials(); const worn = WORN.has(type) || (type === 'van' && variant === 3);
-  const byName = { paint: worn ? M.vworn : M.vpaint, glass: M.vglass, chrome: M.vchrome, rubber: M.vrubber, interior: M.vinterior, canvas: M.vcanvas, vlight: M.vlight, vtail: M.vtail, vind: M.vind, plate: M.plate, badge: M.badge, route0: M.route0, route1: M.route1, route2: M.route2, police: M.police, lbBlue: M.lbBlue, lbRed: M.lbRed };
-  let beacons = null; if (T.police) { byName.lbBlue = M.lbBlue.clone(); byName.lbRed = M.lbRed.clone(); beacons = { blue: byName.lbBlue, red: byName.lbRed }; } // per vehicle: only responding units flash
+  const key = type + color + variant; let cached = modelCache.get(key); const worn = WORN.has(type) || (type === 'van' && variant === 3);
   if (!cached) {
     const m = buildModel(type, color, variant); const geos = [];
     for (const [name, b] of m.mb.b) { const g = b.build(); if (!g) continue; if (worn && (name === 'paint' || name === 'canvas')) dirty(g, seed); geos.push([name, g]); }
     const dgeos = []; for (const [name, b] of m.dm.b) { const g2 = b.build(); if (g2) dgeos.push([name, g2]); }
     cached = { geos, dgeos, wheels: m.wheels, seats: m.seats, steerWheel: m.steerWheel, doors: m.doors, wheelStyle: m.wheelStyle, busDoor: m.busDoor }; modelCache.set(key, cached);
   }
+  return { T, color, variant, worn, cached };
+}
+// loading screen: build a look's geometry ahead of time (no meshes / materials are created)
+export function warmModel(type, seed = 1) { if (VTYPES[type]) ensureModel(type, seed); }
+export function createVehicleMesh(type, seed = 1) {
+  const { T, color, variant, worn, cached } = ensureModel(type, seed);
+  const { mats: M } = vehicleMaterials();
+  const byName = { paint: worn ? M.vworn : M.vpaint, glass: M.vglass, chrome: M.vchrome, rubber: M.vrubber, interior: M.vinterior, canvas: M.vcanvas, vlight: M.vlight, vtail: M.vtail, vind: M.vind, plate: M.plate, badge: M.badge, route0: M.route0, route1: M.route1, route2: M.route2, police: M.police, lbBlue: M.lbBlue, lbRed: M.lbRed };
+  let beacons = null; if (T.police) { byName.lbBlue = M.lbBlue.clone(); byName.lbRed = M.lbRed.clone(); beacons = { blue: byName.lbBlue, red: byName.lbRed }; } // per vehicle: only responding units flash
   const g = new THREE.Group(); const tailMat = M.vtail.clone(); const indMat = M.vind.clone(); const headMat = M.vlight.clone(); const revMat = M.vrev.clone(); byName.vtail = tailMat; byName.vind = indMat; byName.vlight = headMat; byName.vrev = revMat; headMat.emissiveIntensity = 0.04; tailMat.emissiveIntensity = 0.03; revMat.emissiveIntensity = 0; // per vehicle (start dark): each car's own lamps
   directionalLamp(headMat, 1); directionalLamp(tailMat, -1); directionalLamp(revMat, -1); // lamps glow only from the lens face (seen through the cabin glass from the other end they stay dark)
   for (const [name, geo] of cached.geos) { const mesh = new THREE.Mesh(geo, byName[name] || MAT.paint); mesh.name = name; mesh.castShadow = name !== 'glass' && name !== 'vlight' && name !== 'interior' && name !== 'badge'; mesh.receiveShadow = name === 'paint'; if (name === 'glass') mesh.renderOrder = 2; g.add(mesh); }

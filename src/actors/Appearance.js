@@ -69,6 +69,16 @@ const P = {
   slipper: ['#1f3a7a', '#151515', '#2a6a4a', '#8a1d2a', '#3a3a42'],
   cap: ['#1f2a3a', '#7c2f2f', '#eeeeea', '#2f6b4f', '#c9a227'],
   bag: ['#2a2420', '#5a3a2a', '#1d1d22', '#3a4a5a', '#6b2a3a', '#8a6a4a'],
+  // new wardrobe (Update: 40 more people)
+  hiVis: ['#e8f53a', '#ff7a1a', '#d4ef3a', '#ff9a2a'],
+  apron: ['#f2f2ee', '#2a2e3a', '#8a2a2a', '#2f5a8a', '#e8d8b8', '#3a5a3a', '#c8c0b0'],
+  towel: ['#f2f2ee', '#d8c8a8', '#c84a3a', '#3a6a9a', '#e8d070', '#7a9a6a', '#e0b8b0'],
+  shawl: ['#f2e6d0', '#c72f6c', '#e07b1a', '#2c4f9e', '#0f7a4a', '#d4a12a', '#e8e0f0', '#8c1c2c', '#f4f0e6'],
+  hoodie: ['#2a2e36', '#5a5f6a', '#7c2f2f', '#1f3a5a', '#3a5a3a', '#c8c4bc', '#1d1d22', '#8a6a9a'],
+  jersey: ['#1f4fa8', '#123a7a', '#2a6ad8', '#f2c21a', '#1a4a9a'],
+  bucket: ['#c8b896', '#2a3a2a', '#1d1d22', '#6a7a5a', '#e8e4da', '#1f3a7a'],
+  straw: ['#d8c27a', '#cdb46a', '#e2cf90', '#c8a85a'],
+  headband: ['#1d1d22', '#c8323a', '#2a6ad8', '#f2f2ee', '#2f8a5a'],
 };
 
 // skin group, hair group, preset table. w = relative frequency in the street crowd.
@@ -123,6 +133,48 @@ export const PRESETS = [
   { id: 'f_security', label: 'Private security officer', sex: 'f', band: 'adult', profile: 'security', w: 1, o: 'security', hair: ['bun'], acc: { cap: 1, watch: 0.6 }, ft: 'formal' },
   { id: 'f_professional', label: 'Senior professional', sex: 'f', band: 'mature', profile: 'office', w: 1.5, o: 'blouse_trousers', hair: ['bob', 'short_f'], acc: { glasses: 0.8, watch: 0.9, necklace: 0.6, crossbody: 0.5 }, ft: 'formal', hairCol: 'pepper' },
   { id: 'f_fitness', label: 'Morning walker', sex: 'f', band: 'young', profile: 'fitness', w: 1, o: 'tee_jeans', bottom: 'track', hair: ['ponytail'], acc: { watch: 0.9 }, ft: 'sneaker', gait: { stride: 1.06, bounce: 1.15 } },
+  // ---------------- 40 more people (wider wardrobe: hi-vis vests, aprons, shoulder towels, shawls / dupattas, hoodies,
+  // bucket and straw hats, sports headbands, cricket jerseys) — all adults
+  { id: 'm_cmc_cleaner', label: 'Municipal cleaner', sex: 'm', band: 'adult', profile: 'worker', w: 1.2, o: 'worker', hair: ['crew', 'short'], fh: ['moustache', 'stubble'], acc: { hiVis: 1, cap: 0.5 }, ft: 'slipper' },
+  { id: 'm_road_crew', label: 'Road works crew', sex: 'm', band: 'young', profile: 'worker', w: 1, o: 'worker', hair: ['crew'], fh: ['none', 'stubble'], acc: { hiVis: 1, cap: 0.6, towel: 0.4 }, ft: 'sneaker', b: [1.0, 1.15] },
+  { id: 'm_parking', label: 'Parking attendant', sex: 'm', band: 'mature', profile: 'worker', w: 1, o: 'shirt', hair: ['short', 'receding'], fh: ['moustache'], acc: { hiVis: 1, cap: 0.7, crossbody: 0.8 }, ft: 'sandal', hairCol: 'pepper' },
+  { id: 'm_kottu_cook', label: 'Kottu cook', sex: 'm', band: 'adult', profile: 'vendor', w: 1.2, o: 'tee', hair: ['crew', 'short'], fh: ['moustache', 'stubble'], acc: { apron: 1 }, ft: 'slipper', belly: [0.1, 0.6] },
+  { id: 'm_fish_seller', label: 'Fish seller', sex: 'm', band: 'mature', profile: 'vendor', w: 1, o: 'sarong', topPal: 'tee', hair: ['short', 'balding'], fh: ['moustache', 'stubble'], acc: { apron: 1, towel: 0.5 }, ft: 'slipper', hairCol: 'pepper' },
+  { id: 'm_baker', label: 'Bakery worker', sex: 'm', band: 'young', profile: 'shopkeeper', w: 1, o: 'tee', bottom: 'chinos', hair: ['crew', 'quiff'], fh: ['none', 'stubble'], acc: { apron: 1, cap: 0.4 }, ft: 'sneaker' },
+  { id: 'm_cart_puller', label: 'Pettah cart puller', sex: 'm', band: 'adult', profile: 'worker', w: 1, o: 'sarong', sleeveless: true, topPal: 'tee', hair: ['crew', 'short'], fh: ['stubble'], acc: { towel: 1 }, ft: 'slipper', b: [1.0, 1.15] },
+  { id: 'm_mason', label: 'Mason', sex: 'm', band: 'mature', profile: 'worker', w: 1, o: 'worker', hair: ['short', 'receding'], fh: ['moustache', 'stubble'], acc: { towel: 0.8, straw: 0.3, cap: 0.3 }, ft: 'slipper' },
+  { id: 'm_veg_seller', label: 'Vegetable seller', sex: 'm', band: 'mature', profile: 'vendor', w: 1, o: 'sarong', topPal: 'shirt', hair: ['short', 'balding'], fh: ['moustache'], acc: { straw: 0.7, towel: 0.4 }, ft: 'slipper' },
+  { id: 'm_hoodie', label: 'Young man (hoodie)', sex: 'm', band: 'young', profile: 'student', w: 1.5, o: 'hoodie', hair: ['quiff', 'curly', 'crew'], fh: ['none', 'stubble'], acc: { backpack: 0.4, watch: 0.3 }, ft: 'sneaker', gait: { swagger: 0.5 } },
+  { id: 'm_gym', label: 'Gym-goer', sex: 'm', band: 'young', profile: 'fitness', w: 1, o: 'tee', sleeveless: 0.6, bottom: 'track', hair: ['crew', 'quiff'], fh: ['none', 'trim'], acc: { headband: 0.35, watch: 0.8, crossbody: 0.3 }, ft: 'sneaker', b: [1.04, 1.16] },
+  { id: 'm_cricket_fan', label: 'Cricket fan', sex: 'm', band: 'young', profile: 'shopper', w: 1.2, o: 'tee', topPal: 'jersey', bottom: 'jeans', hair: ['crew', 'curly'], fh: ['none', 'stubble'], acc: { bucket: 0.6, sunglasses: 0.3 }, ft: 'sneaker' },
+  { id: 'm_fisherman', label: 'Fisherman (Mutwal)', sex: 'm', band: 'adult', profile: 'worker', w: 0.8, o: 'sarong', topPal: 'tee', hair: ['short', 'crew'], fh: ['stubble', 'moustache'], acc: { towel: 0.6, bucket: 0.3 }, ft: 'slipper', b: [0.98, 1.12] },
+  { id: 'm_it_dev', label: 'IT professional', sex: 'm', band: 'young', profile: 'office', w: 1.5, o: 'polo', bottom: 'chinos', hair: ['quiff', 'sidepart', 'crew'], fh: ['none', 'trim'], acc: { lanyard: 0.8, backpack: 0.7, glasses: 0.4, watch: 0.6 }, ft: 'sneaker' },
+  { id: 'm_doctor', label: 'Doctor (off duty)', sex: 'm', band: 'mature', profile: 'medical', w: 0.8, o: 'office', hair: ['sidepart', 'receding'], fh: ['none', 'moustache'], acc: { lanyard: 0.6, glasses: 0.5, watch: 1 }, ft: 'formal', hairCol: 'pepper' },
+  { id: 'm_elder_kurta', label: 'Elder (kurta and cap)', sex: 'm', band: 'senior', profile: 'retiree', w: 0.8, o: 'kurta', topPal: 'shirtLight', hair: ['grey', 'bald'], fh: ['full', 'trim'], acc: { prayerCap: 0.8, glasses: 0.5 }, ft: 'sandal' },
+  { id: 'm_wholesaler', label: 'Wholesale trader', sex: 'm', band: 'adult', profile: 'shopkeeper', w: 1, o: 'shirt', hair: ['short', 'sidepart'], fh: ['moustache', 'trim'], acc: { towel: 0.5, watch: 0.7 }, ft: 'sandal', belly: [0.2, 0.7] },
+  { id: 'm_tuk_young', label: 'Three-wheeler driver (young)', sex: 'm', band: 'young', profile: 'driver', w: 1, o: 'tee', bottom: 'jeans', hair: ['quiff', 'crew'], fh: ['stubble', 'none'], acc: { cap: 0.5, crossbody: 0.4 }, ft: 'slipper' },
+  { id: 'm_backpacker', label: 'Backpacker', sex: 'm', band: 'young', profile: 'tourist', w: 0.5, skinSet: 'eu', o: 'tee', shorts: true, hair: ['short', 'curly'], fh: ['stubble', 'trim'], acc: { backpack: 1, bucket: 0.5, sunglasses: 0.6 }, ft: 'sneaker', hairCol: 'eu', faceV: [18] },
+  { id: 'm_tourist_in', label: 'Tourist (South India)', sex: 'm', band: 'adult', profile: 'tourist', w: 0.6, o: 'shirt', hair: ['sidepart', 'short'], fh: ['moustache', 'none'], acc: { sunglasses: 0.4, crossbody: 0.6, watch: 0.6 }, ft: 'sandal' },
+  { id: 'm_mechanic', label: 'Mechanic', sex: 'm', band: 'adult', profile: 'worker', w: 1, o: 'worker', topPal: 'worker', hair: ['crew', 'short'], fh: ['stubble', 'moustache'], acc: { towel: 0.5, cap: 0.4, watch: 0.4 }, ft: 'slipper', b: [0.98, 1.14] },
+  { id: 'm_jacket_casual', label: 'Casual (zip hoodie, older)', sex: 'm', band: 'adult', profile: 'shopper', w: 0.8, o: 'hoodie', bottom: 'track', hair: ['short', 'receding'], fh: ['moustache', 'stubble'], acc: { watch: 0.6, cap: 0.3 }, ft: 'sneaker', belly: [0, 0.5] },
+  { id: 'f_cmc_cleaner', label: 'Municipal cleaner', sex: 'f', band: 'mature', profile: 'worker', w: 1, o: 'frock', long: true, hair: ['bun'], acc: { hiVis: 1, straw: 0.25 }, ft: 'slipper', hairCol: 'pepper' },
+  { id: 'f_food_stall', label: 'Food stall cook', sex: 'f', band: 'adult', profile: 'vendor', w: 1, o: 'frock', hair: ['bun', 'braid'], acc: { apron: 1, bangles: 0.5 }, ft: 'slipper', belly: [0.1, 0.5] },
+  { id: 'f_bakery', label: 'Bakery assistant', sex: 'f', band: 'young', profile: 'shopkeeper', w: 1, o: 'tee_jeans', hair: ['ponytail', 'bun'], acc: { apron: 1, cap: 0.4 }, ft: 'sneaker' },
+  { id: 'f_salwar_dupatta', label: 'Shopper (salwar and dupatta)', sex: 'f', band: 'young', profile: 'shopper', w: 1.5, o: 'salwar', hair: ['long', 'braid'], acc: { shawl: 1, bangles: 0.6, earrings: 0.7 }, ft: 'sandal' },
+  { id: 'f_kurti_dupatta', label: 'Office worker (kurti and dupatta)', sex: 'f', band: 'adult', profile: 'office', w: 1.5, o: 'kurti', hair: ['bun', 'braid', 'long'], acc: { shawl: 0.8, lanyard: 0.5, watch: 0.6 }, ft: 'sandal' },
+  { id: 'f_hoodie', label: 'Young woman (hoodie)', sex: 'f', band: 'young', profile: 'student', w: 1.2, o: 'hoodie', hair: ['ponytail', 'long', 'bob'], acc: { backpack: 0.6, earrings: 0.4 }, ft: 'sneaker' },
+  { id: 'f_gym', label: 'Gym-goer', sex: 'f', band: 'young', profile: 'fitness', w: 0.8, o: 'tee_jeans', bottom: 'track', hair: ['ponytail'], acc: { headband: 0.5, watch: 0.8, crossbody: 0.3 }, ft: 'sneaker', gait: { stride: 1.05, bounce: 1.1 } },
+  { id: 'f_market_hat', label: 'Market shopper (sun hat)', sex: 'f', band: 'mature', profile: 'shopper', w: 1, o: 'frock', long: true, hair: ['bun', 'short_f'], acc: { straw: 0.6, crossbody: 0.5, bangles: 0.5 }, ft: 'slipper' },
+  { id: 'f_fish_vendor', label: 'Fish vendor', sex: 'f', band: 'mature', profile: 'vendor', w: 0.8, o: 'saree', hair: ['bun'], acc: { apron: 0.8, bangles: 0.4 }, ft: 'slipper', belly: [0.1, 0.5] },
+  { id: 'f_doctor', label: 'Doctor (off duty)', sex: 'f', band: 'adult', profile: 'medical', w: 0.8, o: 'blouse_trousers', hair: ['bun', 'ponytail'], acc: { lanyard: 0.7, glasses: 0.5, watch: 0.9 }, ft: 'formal' },
+  { id: 'f_it', label: 'IT professional', sex: 'f', band: 'young', profile: 'office', w: 1.2, o: 'tee_jeans', hair: ['shoulder', 'ponytail', 'bob'], acc: { lanyard: 0.7, backpack: 0.6, glasses: 0.3 }, ft: 'sneaker' },
+  { id: 'f_cricket_fan', label: 'Cricket fan', sex: 'f', band: 'young', profile: 'shopper', w: 1, o: 'tee_jeans', topPal: 'jersey', hair: ['ponytail', 'long'], acc: { bucket: 0.5, sunglasses: 0.4 }, ft: 'sneaker' },
+  { id: 'f_backpacker', label: 'Backpacker', sex: 'f', band: 'young', profile: 'tourist', w: 0.5, skinSet: 'eu', o: 'tee_jeans', shorts: true, hair: ['ponytail', 'bob'], acc: { backpack: 1, bucket: 0.5, sunglasses: 0.7 }, ft: 'sneaker', hairCol: 'eu', faceV: [7] },
+  { id: 'f_homemaker', label: 'Homemaker (saree)', sex: 'f', band: 'adult', profile: 'resident', w: 1.2, o: 'saree', hair: ['bun', 'braid'], acc: { earrings: 0.8, bangles: 0.8, necklace: 0.5 }, ft: 'sandal' },
+  { id: 'f_hijab_office', label: 'Office worker (hijab)', sex: 'f', band: 'adult', profile: 'office', w: 1, o: 'blouse_trousers', hair: ['hijab'], acc: { lanyard: 0.5, crossbody: 0.5, watch: 0.5 }, ft: 'formal' },
+  { id: 'f_road_flagger', label: 'Road works flagger', sex: 'f', band: 'adult', profile: 'worker', w: 0.6, o: 'blouse_trousers', hair: ['bun', 'ponytail'], acc: { hiVis: 1, straw: 0.4 }, ft: 'sneaker' },
+  { id: 'f_grandmother_shawl', label: 'Grandmother (shawl)', sex: 'f', band: 'senior', profile: 'retiree', w: 1, o: 'frock', long: true, hair: ['bun', 'short_f'], acc: { shawl: 0.8, glasses: 0.5 }, ft: 'slipper', hairCol: 'grey' },
+  { id: 'f_flower_seller', label: 'Flower seller', sex: 'f', band: 'mature', profile: 'vendor', w: 0.8, o: 'saree', hair: ['bun'], acc: { apron: 0.4, straw: 0.3, bangles: 0.6 }, ft: 'slipper', hairCol: 'pepper' },
   { id: 'f_garment', label: 'Garment worker', sex: 'f', band: 'young', profile: 'worker', w: 2, o: 'frock', hair: ['braid', 'long'], acc: { crossbody: 0.6, earrings: 0.5 }, ft: 'slipper' },
 ];
 export const PRESET_IDS = PRESETS.map((p) => p.id);
@@ -175,7 +227,7 @@ export function makeAppearance(seed, opts = {}) {
   const o = pr.o; const top = (pal) => r.pick(P[pal || pr.topPal || 'shirt']);
   const lower = () => (pr.bottom === 'jeans' ? r.pick(P.jeans) : pr.bottom === 'chinos' ? r.pick(P.chinos) : pr.bottom === 'track' ? r.pick(TRACK) : pr.shorts ? r.pick(P.shorts) : r.pick(P.trousers));
   if (o === 'office') Object.assign(sp, { outfit: 'office', top: top('shirtLight'), bottom: r.pick(P.trousers), longSleeve: r.chance(0.75), collar: true, tie: chance(r, pr.acc?.tie) ? r.pick(['#7c2f2f', '#1f2a5a', '#2f4f3f', '#5a3a6a', '#8a6a2a']) : null });
-  else if (o === 'tee') Object.assign(sp, { outfit: 'tee', top: top('tee'), bottom: lower(), shorts: !!pr.shorts });
+  else if (o === 'tee') Object.assign(sp, { outfit: 'tee', top: top(pr.topPal || 'tee'), bottom: lower(), shorts: !!pr.shorts });
   else if (o === 'polo') Object.assign(sp, { outfit: 'polo', top: top('polo'), bottom: lower(), collar: true, shorts: !!pr.shorts });
   else if (o === 'shirt') Object.assign(sp, { outfit: 'shirt', top: top('shirt'), bottom: r.pick(P.trousers), collar: true, longSleeve: r.chance(0.3) });
   else if (o === 'kurta') { const c = top('shirtLight'); Object.assign(sp, { outfit: 'kurta', top: c, bottom: r.chance(0.5) ? c : r.pick(P.trousers), skirt: 'knee', skirtCol: c, longSleeve: true, collar: true }); }
@@ -183,6 +235,7 @@ export function makeAppearance(seed, opts = {}) {
   else if (o === 'worker') Object.assign(sp, { outfit: 'worker', top: r.pick(P.worker), bottom: r.pick(P.trousers), sleeveless: chance(r, pr.sleeveless) });
   else if (o === 'security') Object.assign(sp, { outfit: 'security', top: r.pick(['#a8bcd4', '#c8d4e4', '#9aaabb']), bottom: '#1f2a44', longSleeve: false, collar: true, cap: '#1f2a44', epaulettes: true });
   else if (o === 'national') Object.assign(sp, { outfit: 'national', top: '#f6f4ee', bottom: '#f6f4ee', skirt: 'ankle', skirtCol: '#f4f2ea', longSleeve: true, collar: true });
+  else if (o === 'hoodie') Object.assign(sp, { outfit: 'jacket', top: r.pick(P.hoodie), inner: top('tee'), bottom: pr.bottom === 'track' ? r.pick(TRACK) : r.pick(P.jeans), longSleeve: true, collar: false, hood: true });
   else if (o === 'jacket') Object.assign(sp, { outfit: 'jacket', top: r.pick(['#2b2e36', '#1e2430', '#3a3f4a', '#4a4036']), inner: top('shirtLight'), bottom: r.pick(P.trousers), longSleeve: true, collar: true });
   else if (o === 'blouse_trousers') Object.assign(sp, { outfit: 'blouse_trousers', top: top('blouse'), bottom: r.pick(['#2b2e36', '#1e2430', '#3a3f4a', '#4a4036', '#6b6355']), longSleeve: r.chance(0.4), collar: r.chance(0.5) });
   else if (o === 'office_f') Object.assign(sp, { outfit: 'office_f', top: top('blouse'), bottom: '#2b2e36', skirt: 'mid', skirtCol: r.pick(['#2b2e36', '#3a2f2a', '#1e2430', '#4a3a4a']), longSleeve: r.chance(0.5) });
@@ -192,7 +245,7 @@ export function makeAppearance(seed, opts = {}) {
   else if (o === 'abaya') { const c = r.pick(P.abaya); Object.assign(sp, { outfit: 'abaya', top: c, bottom: c, skirt: 'ankle', skirtCol: c, longSleeve: true }); }
   else if (o === 'frock') { const c = pr.uniform || r.pick(P.dress); Object.assign(sp, { outfit: 'frock', top: c, skirt: pr.long ? 'ankle' : r.chance(0.5) ? 'mid' : 'knee', skirtCol: c, bottom: sp.skin, pattern: pr.uniform ? 0 : r.chance(0.5) ? 2 : 0, collar: !!pr.uniform }); if (pr.uniform) sp.skirt = 'mid'; }
   else if (o === 'skirt_top') Object.assign(sp, { outfit: 'skirt_top', top: top('tee'), skirt: r.chance(0.5) ? 'knee' : 'mid', skirtCol: r.pick(['#2c3e5c', '#1d1d24', '#c8b896', '#8a2a3a', '#3a6a5a']), bottom: sp.skin, pattern: 0 });
-  else if (o === 'tee_jeans') Object.assign(sp, { outfit: 'tee_jeans', top: top('tee'), bottom: pr.bottom === 'track' ? r.pick(TRACK) : pr.shorts ? r.pick(P.shorts) : r.pick(P.jeans), shorts: !!pr.shorts });
+  else if (o === 'tee_jeans') Object.assign(sp, { outfit: 'tee_jeans', top: top(pr.topPal || 'tee'), bottom: pr.bottom === 'track' ? r.pick(TRACK) : pr.shorts ? r.pick(P.shorts) : r.pick(P.jeans), shorts: !!pr.shorts });
   if (sp.hair === 'hijab') sp.scarf = o === 'abaya' ? r.pick(P.abaya.concat(P.scarf.slice(0, 3))) : r.pick(P.scarf);
   // ---- footwear
   if (pr.ft === 'sneaker') { sp.shoes = r.pick(P.sneaker); sp.sole = '#e6e6e2'; }
@@ -213,11 +266,20 @@ export function makeAppearance(seed, opts = {}) {
   if (chance(r, A.cap) && !sp.cap && sp.hair !== 'hijab') sp.cap = r.pick(P.cap);
   if (chance(r, A.prayerCap)) sp.cap = '#f2f2ee', sp.capStyle = 'skull';
   if (chance(r, A.nurseCap)) sp.cap = '#ffffff', sp.capStyle = 'nurse';
+  if (chance(r, A.hiVis)) sp.hiVis = r.pick(P.hiVis);
+  if (chance(r, A.apron)) { const c = r.pick(P.apron); if (!['saree', 'salwar', 'abaya'].includes(sp.outfit)) sp.apron = c; } // a bib apron would clash with a pallu / dupatta / abaya
+  if (chance(r, A.towel) && !sp.bag) { sp.towel = r.pick(P.towel); if (sp.apron) delete sp.towel; else { /* must read against the shirt: a red cloth on a red tee disappears */
+    const rgb = (h) => [1, 3, 5].map((i) => parseInt(String(h).slice(i, i + 2), 16) || 0), near = (a, b) => { const p = rgb(a), q = rgb(b); return Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) + Math.abs(p[2] - q[2]) < 150; };
+    for (let k = 1; k < P.towel.length && near(sp.towel, sp.top); k++) sp.towel = P.towel[(P.towel.indexOf(sp.towel) + 3) % P.towel.length]; } }
+  if (chance(r, A.shawl) && !sp.crossbody && !sp.towel && !sp.apron) { sp.shawl = r.pick(P.shawl.filter((c) => c !== sp.top)); }
+  if (chance(r, A.headband) && sp.hair !== 'hijab' && !sp.cap) sp.headband = r.pick(P.headband);
+  if (chance(r, A.bucket) && !sp.cap && sp.hair !== 'hijab') { sp.cap = r.pick(P.bucket); sp.capStyle = 'bucket'; }
+  if (chance(r, A.straw) && !sp.cap && sp.hair !== 'hijab') { sp.cap = r.pick(P.straw); sp.capStyle = 'straw'; }
   // ---- overrides (story NPCs, keepers, drivers). If the outfit is forced to a different family, drop fields that
   // belonged to the preset's outfit so they cannot leak (e.g. a skirt under a forced shirt).
   const o2 = Object.assign({}, opts); delete o2.preset; delete o2.profile; delete o2.exclude; delete o2.band;
   if (o2.age === 'child' || o2.age === 'teen') o2.age = 'adult';
-  if (o2.outfit && o2.outfit !== sp.outfit) { for (const k of ['skirt', 'skirtCol', 'pattern', 'shorts', 'sleeveless', 'tie', 'inner', 'epaulettes', 'scarf', 'collar', 'longSleeve']) delete sp[k]; if (sp.hair === 'hijab') sp.hair = f ? 'bun' : 'short'; }
+  if (o2.outfit && o2.outfit !== sp.outfit) { for (const k of ['skirt', 'skirtCol', 'pattern', 'shorts', 'sleeveless', 'tie', 'inner', 'epaulettes', 'scarf', 'collar', 'longSleeve', 'hood', 'apron', 'hiVis']) delete sp[k]; if (sp.hair === 'hijab') sp.hair = f ? 'bun' : 'short'; }
   Object.assign(sp, o2);
   if (sp.age === 'elder' && sp.band !== 'senior') { sp.band = 'senior'; sp.ageYears = Math.max(sp.ageYears, 65); }
   if (!(sp.ageYears >= 18)) sp.ageYears = 18 + (Math.abs(seed) % 30);
@@ -277,7 +339,7 @@ export function makePoliceAppearance(seed, role = 'patrol', opts = {}) {
   if (!SKIN_LK.includes(sp.skin)) sp.skin = r.pick(SKIN_LK);
   if (!HAIR_DARK.includes(sp.hairColor) && !HAIR_PEPPER.includes(sp.hairColor)) sp.hairColor = r.pick(HAIR_DARK);
   // clear civilian clothing and accessories
-  for (const k of ['skirt', 'skirtCol', 'pattern', 'shorts', 'sleeveless', 'tie', 'inner', 'scarf', 'bag', 'crossbody', 'necklace', 'bangles', 'earrings', 'sunglasses', 'lanyard', 'cap', 'capStyle', 'watch', 'sandals']) delete sp[k];
+  for (const k of ['skirt', 'skirtCol', 'pattern', 'shorts', 'sleeveless', 'tie', 'inner', 'scarf', 'bag', 'crossbody', 'necklace', 'bangles', 'earrings', 'sunglasses', 'lanyard', 'cap', 'capStyle', 'watch', 'sandals', 'hiVis', 'apron', 'towel', 'shawl', 'hood', 'headband']) delete sp[k];
   sp.hair = sex === 'f' ? 'bun' : r.pick(['crew', 'short', 'sidepart']); sp.hairline = Math.min(sp.hairline, 0.04);
   if (sex === 'm') { const fh = r.chance(0.45) ? 'moustache' : 'none'; Object.assign(sp, { facial: fh, beard: false, beardShort: false, goatee: false, moustache: fh === 'moustache' }); }
   sp.profile = 'police'; sp.preset = 'police_' + role; sp.role = role; sp.label = R.label; sp.police = true;

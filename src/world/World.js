@@ -1,10 +1,10 @@
 // Builds and streams the static city: ground, buildings (base + streamed detail), landmarks, props, trees, water.
 import * as THREE from 'three';
-import { MultiBuilder } from '../gfx/MeshBuilder.js';
+import { MultiBuilder, SliceBuild, meshFor } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
 import { generatePlan, plan, NCX, NCZ, CHUNK, chunkCenter, refitTreeCrowns, landmarkTreeBoxes } from './CityPlan.js';
 import { buildGround } from './GroundBuilder.js';
-import { buildBase, buildDetail, buildWall, buildWindows, frontColumns } from './BuildingGen.js';
+import { buildBase, buildDetail, buildWall, buildWindows, windowTasks, frontColumns } from './BuildingGen.js';
 import { buildLandmarks } from './Landmarks.js';
 import { buildPropGeometries, buildPropsForChunk, updateSignals, initGlowTexture } from './Props.js';
 import { buildTreeGeometries, buildTreesForChunk, windUniform } from './Vegetation.js';
@@ -26,7 +26,7 @@ export class World {
   constructor(scene) {
     this.scene = scene; this.root = new THREE.Group(); this.root.name = 'world'; scene.add(this.root);
     this.collision = new Collision(); this.chunks = []; this.detailQueue = []; this.signalTimer = 0; this.t = 0;
-    this.detailRadius = 330; this.windowRadius = 150; this.propRadius = 430; this.treeRadius = 520;
+    this.detailRadius = 330; this.job = null; this.wjob = null; this.jobBudgetMs = 2.5; this.windowRadius = 150; this.propRadius = 430; this.treeRadius = 520;
     this.lampLights = [];
   }
   async build(progress = () => {}, quality = 'high') {
@@ -157,12 +157,14 @@ export class World {
       c.props.visible = d < this.propRadius;
       if (c.trees) c.trees.visible = d < this.treeRadius;
       if (d < this.detailRadius) {
-        if (!c.detail && budget > 0) { budget--; this.buildDetailFor(c); }
+        if (!c.detail && budget > 0 && !this.job) { budget--; this.startDetailJob(c); } /* built over several frames: see stepDetailJob */
         else if (c.detail) c.detail.visible = true;
       } else if (c.detail) { c.detail.visible = false; if (d > this.detailRadius + 300) this.disposeDetail(c); }
-      if (d < this.windowRadius) { if (!c.win && budget > 0) { budget--; this.buildWindowsFor(c); } else if (c.win) c.win.visible = true; }
+      if (d < this.windowRadius) { if (!c.win && budget > 0 && !this.wjob) { budget--; this.wjob = this.newJob(c, 'win'); } else if (c.win) c.win.visible = true; } /* window joinery: also built over several frames */
       else if (c.win) { c.win.visible = false; if (d > this.windowRadius + 120) this.disposeWindows(c); }
     }
+    if (this.job) this.stepDetailJob(this.jobBudgetMs);
+    if (this.wjob) this.stepWinJob(this.jobBudgetMs);
     if (this.grass) this.grass.update(dt, focus, atmos ? atmos.w.wind : 0.3);
     if (this.parks && this.parks.userData.flowers && camera) this.parks.userData.flowers.update(camera.position);
     // landmark animation
@@ -182,20 +184,47 @@ export class World {
       } else this.lampFade(dt, new Set(), 0);
     }
   }
+  // Streaming without frame hitches: a dense chunk (Pettah / Fort: ~200 buildings) took 100-250 ms to build in one frame.
+  // The job builds a few buildings per frame within a time budget, then merges one material per frame. Every building
+  // seeds its own RNG, so the result is identical to the one-shot build (same meshes, same order) - only spread out.
+  startDetailJob(c) { this.job = this.newJob(c, 'detail'); }
+  newJob(c, kind) { return { c, kind, i: 0, B: kind === 'detail' ? [new MultiBuilder()] : [new MultiBuilder(), new MultiBuilder()], q: null, meshes: [] }; }
+  stepDetailJob(budgetMs = 3) { const done = this.stepJob(this.job, budgetMs); if (done) this.job = null; return done; }
+  stepWinJob(budgetMs = 3) { const done = this.stepJob(this.wjob, budgetMs); if (done) this.wjob = null; return done; }
+  // advance a streaming job; true when finished (result attached to the chunk)
+  stepJob(J, budgetMs) {
+    if (!J) return true; const t0 = performance.now(); const bs = plan.byChunk[J.c.idx].buildings; const det = J.kind === 'detail';
+    while (J.i < bs.length || (J.tasks && J.tasks.length)) { // generate: one building (detail) / one facade (windows) at a time
+      if (det) buildDetail(bs[J.i++], J.B[0]); else { if (!J.tasks || !J.tasks.length) J.tasks = windowTasks(bs[J.i++], J.B[0], J.B[1]); const t = J.tasks.shift(); if (t) t(); }
+      if (performance.now() - t0 > budgetMs) return false; }
+    if (!J.q) { J.q = []; J.B.forEach((mb, k) => { for (const name of mb.b.keys()) J.q.push([k, name]); }); }
+    while (J.q.length || J.sb) { // merge: one material at a time, large ones in slices
+      if (!J.sb) { const [k, name] = J.q.shift(); J.sb = new SliceBuild(J.B[k].b.get(name)); J.sk = k; J.sn = name; }
+      if (!J.sb.step(t0, budgetMs)) return false;
+      const g = J.sb.geometry(), k = J.sk; J.sb = null;
+      if (g) { const m = meshFor(J.sn, g, MAT, det ? { cast: true, receive: true } : k === 0 ? { cast: false, receive: true } : { cast: false, receive: false }); if (m) { if (!det && k === 1) m.renderOrder = 2; J.meshes.push(m); } }
+      if ((J.q.length || J.sb) && performance.now() - t0 > budgetMs) return false; }
+    const c = J.c; if (det ? c.detail : c.win) { for (const m of J.meshes) m.geometry.dispose(); return true; } // built meanwhile by warm()
+    if (det) this.finishDetail(c, J.meshes); else this.finishWindows(c, J.meshes); return true;
+  }
+  finishWindows(c, meshes) { const g = new THREE.Group(); g.name = 'windows' + c.idx; for (const m of meshes) g.add(m); c.win = g; c.group.add(g); refreshStatic(c.group); }
+  finishDetail(c, meshes) {
+    const g = new THREE.Group(); for (const m of meshes) { if (m.name === 'pool' || m.name === 'lampHead') { m.castShadow = false; m.receiveShadow = false; } g.add(m); }
+    c.detail = g; c.group.add(g); refreshStatic(c.group);
+  }
   buildDetailFor(c) {
+    if (this.job && this.job.c === c) { this.stepDetailJob(Infinity); if (c.detail) return; }
     const ch = plan.byChunk[c.idx]; const mb = new MultiBuilder();
     for (const b of ch.buildings) buildDetail(b, mb);
-    const g = new THREE.Group(); for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) { if (m.name === 'pool' || m.name === 'lampHead') { m.castShadow = false; m.receiveShadow = false; } g.add(m); }
-    c.detail = g; c.group.add(g); refreshStatic(c.group);
+    this.finishDetail(c, mb.toMeshes(MAT, { cast: true, receive: true }));
   }
   // near tier: 3D window joinery + reflective panes (see BuildingGen.buildWindows)
   buildWindowsFor(c) {
+    if (this.wjob && this.wjob.c === c) { this.stepWinJob(Infinity); if (c.win) return; }
     const ch = plan.byChunk[c.idx]; const solid = new MultiBuilder(), glass = new MultiBuilder();
     for (const b of ch.buildings) buildWindows(b, solid, glass);
-    const g = new THREE.Group(); g.name = 'windows' + c.idx;
-    for (const m of solid.toMeshes(MAT, { cast: false, receive: true })) g.add(m);
-    for (const m of glass.toMeshes(MAT, { cast: false, receive: false })) { m.renderOrder = 2; g.add(m); }
-    c.win = g; c.group.add(g); refreshStatic(c.group);
+    const meshes = [...solid.toMeshes(MAT, { cast: false, receive: true })]; for (const m of glass.toMeshes(MAT, { cast: false, receive: false })) { m.renderOrder = 2; meshes.push(m); }
+    this.finishWindows(c, meshes);
   }
   disposeWindows(c) { c.group.remove(c.win); c.win.traverse((m) => m.geometry && m.geometry.dispose()); c.win = null; }
   // after a long jump (teleport / fast travel) release streamed chunk geometry well outside the new streaming radii at once,

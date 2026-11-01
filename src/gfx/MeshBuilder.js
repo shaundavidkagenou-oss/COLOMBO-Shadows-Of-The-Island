@@ -97,12 +97,38 @@ export class MultiBuilder {
   get(name) { if (!this.b.has(name)) this.b.set(name, new MeshBuilder()); return this.b.get(name); }
   toMeshes(materials, opts = {}) {
     const out = [];
-    for (const [name, mb] of this.b) {
-      const g = mb.build(); if (!g) continue; const mat = materials[name]; if (!mat) { console.warn('missing material', name); continue; }
-      const m = new THREE.Mesh(g, mat); m.castShadow = opts.cast ?? true; m.receiveShadow = opts.receive ?? true; m.matrixAutoUpdate = false; m.updateMatrix(); m.name = name; out.push(m);
-      if (FOLIAGE.has(name)) skipLampShadow(m); // alpha-cut leaves: no coarse street-lamp shadows (see skipLampShadow)
-    }
+    for (const [name, mb] of this.b) { const g = mb.build(); if (!g) continue; const m = meshFor(name, g, materials, opts); if (m) out.push(m); }
     return out;
+  }
+}
+export function meshFor(name, g, materials, opts = {}) {
+  const mat = materials[name]; if (!mat) { console.warn('missing material', name); return null; }
+  const m = new THREE.Mesh(g, mat); m.castShadow = opts.cast ?? true; m.receiveShadow = opts.receive ?? true; m.matrixAutoUpdate = false; m.updateMatrix(); m.name = name;
+  if (FOLIAGE.has(name)) skipLampShadow(m); // alpha-cut leaves: no coarse street-lamp shadows (see skipLampShadow)
+  return m;
+}
+// MeshBuilder.build() done in slices (identical geometry): a chunk's window frames can be ~1M vertices in ONE material,
+// and converting that in one go stalled a frame for 100-250 ms. step() copies until the time budget runs out.
+export class SliceBuild {
+  constructor(mb) { this.mb = mb; const n = mb.pos.length; this.empty = !n; this.a = 0; this.o = 0;
+    this.arr = n ? [[mb.pos, new Float32Array(n)], [mb.nor, new Float32Array(mb.nor.length)], [mb.uv, new Float32Array(mb.uv.length)], [mb.col, new Float32Array(mb.col.length)], [mb.idx, mb.vcount > 65535 ? new Uint32Array(mb.idx.length) : new Uint16Array(mb.idx.length)]] : []; }
+  step(t0, budgetMs) {
+    while (this.a < this.arr.length) { const [src, dst] = this.arr[this.a]; const end = Math.min(src.length, this.o + 131072); for (let i = this.o; i < end; i++) dst[i] = src[i]; this.o = end; if (end >= src.length) { this.a++; this.o = 0; } if (performance.now() - t0 > budgetMs) return false; }
+    // bounding box, then bounding sphere (the same values computeBoundingBox / computeBoundingSphere give), also in slices
+    if (this.empty) return true; const P = this.arr[0][1];
+    if (!this.bb) this.bb = { i: 0, mn: [Infinity, Infinity, Infinity], mx: [-Infinity, -Infinity, -Infinity], r2: 0, j: 0, c: null };
+    const B = this.bb;
+    while (B.i < P.length) { const end = Math.min(P.length, B.i + 196608); for (let i = B.i; i < end; i += 3) { const x = P[i], y = P[i + 1], z = P[i + 2]; if (x < B.mn[0]) B.mn[0] = x; if (y < B.mn[1]) B.mn[1] = y; if (z < B.mn[2]) B.mn[2] = z; if (x > B.mx[0]) B.mx[0] = x; if (y > B.mx[1]) B.mx[1] = y; if (z > B.mx[2]) B.mx[2] = z; } B.i = end; if (performance.now() - t0 > budgetMs) return false; }
+    if (!B.c) B.c = new THREE.Box3(new THREE.Vector3(...B.mn), new THREE.Vector3(...B.mx)).getCenter(new THREE.Vector3());
+    while (B.j < P.length) { const end = Math.min(P.length, B.j + 196608), c = B.c; for (let i = B.j; i < end; i += 3) { const dx = P[i] - c.x, dy = P[i + 1] - c.y, dz = P[i + 2] - c.z, d = dx * dx + dy * dy + dz * dz; if (d > B.r2) B.r2 = d; } B.j = end; if (performance.now() - t0 > budgetMs) return false; }
+    return true;
+  }
+  geometry() {
+    if (this.empty) return null; const A = this.arr.map((x) => x[1]); const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(A[0], 3)); g.setAttribute('normal', new THREE.BufferAttribute(A[1], 3)); g.setAttribute('uv', new THREE.BufferAttribute(A[2], 2)); g.setAttribute('color', new THREE.BufferAttribute(A[3], 3));
+    g.setIndex(new THREE.BufferAttribute(A[4], 1)); const B = this.bb;
+    if (B && B.c && B.j >= A[0].length) { g.boundingBox = new THREE.Box3(new THREE.Vector3(...B.mn), new THREE.Vector3(...B.mx)); g.boundingSphere = new THREE.Sphere(B.c.clone(), Math.sqrt(B.r2)); } else { g.computeBoundingSphere(); g.computeBoundingBox(); }
+    return g;
   }
 }
 

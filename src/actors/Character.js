@@ -2,6 +2,7 @@
 // protagonists: fingers, twist, toe and secondary-motion bones — see HeroRig.js),
 // Sri Lankan everyday clothing and a procedural animation layer (locomotion, idles, gestures, reactions).
 import * as THREE from 'three';
+import { applyFight, fightState, MOVES as FIGHT_MOVES } from './Boxing.js';
 import { LIVE } from './Bodies.js';
 import { applySeatPose, seatLocal } from './Seating.js';
 import { TEX, faceAtlas, FACE_FRAMES } from '../gfx/Textures.js';
@@ -268,11 +269,12 @@ export function buildBodyGeometry(sp) {
     void sx;
   }
   // --- skirt / sarong / saree / frock (cone from waist to hem, weighted mostly to hips)
+  let skirtProf = null;
   if (skirtLen) {
     const hemY = skirtLen === 'ankle' ? 0.1 : skirtLen === 'mid' ? 0.32 : 0.48; const topY = o === 'saree' ? 0.93 : o === 'salwar' || o === 'kurti' || o === 'abaya' ? 1.2 : o === 'kurta' ? 1.02 : 0.97;
     const region = sp.pattern ?? 0; const N = Math.max(7, Math.ceil((topY - hemY) / 0.07) + 1); const rings = []; // ~7 cm ring spacing so the hip-hinge zone is resolved on long tunics too
     for (let i = 0; i < N; i++) {
-      const t = i / (N - 1), y = lerp(topY, hemY, t) * s; const flare = o === 'sarong' ? 0.045 : o === 'frock' ? 0.09 : o === 'skirt_top' ? 0.07 : o === 'abaya' ? 0.065 : 0.05; // a sarong is a ~2 m cloth tube folded at the waist: loose at the hem
+      const t = i / (N - 1), y = lerp(topY, hemY, t) * s; const flare = o === 'sarong' ? 0.045 : o === 'frock' ? 0.09 : o === 'skirt_top' ? 0.07 : o === 'abaya' ? 0.065 : o === 'office_f' ? 0.065 : 0.05; /* office skirt: a slight A-line so a long stride (running) stays inside it */ // a sarong is a ~2 m cloth tube folded at the waist: loose at the hem
       const ease = Math.sin(clamp((0.97 * s - y) / (0.3 * s), 0, 1) * Math.PI / 2); // cloth stands off the hips/thighs (real garments are not skin-tight there)
       const rx = lerp(0.17 * w, 0.17 * w + flare + (skirtLen === 'ankle' ? 0.02 : 0), Math.pow(t, 0.8)) + 0.012 * w * ease, rz = lerp(0.12 * w, 0.13 * w + flare * 0.8, t) + 0.03 * w * ease;
       // per-vertex skinning: each side of the garment follows the leg under it (stronger toward the hem), so a striding knee
@@ -291,7 +293,7 @@ export function buildBodyGeometry(sp) {
         return out.sort((p, q) => q[1] - p[1]).slice(0, 4); };
       rings.push({ c: [0, y, 0.005], rx: rx + (y > 0.9 * s ? 0.005 : 0), rz, w: wFn, col: C(sp.skirtCol || sp.bottom) });
     }
-    const k0 = sb.n; sb.loft(rings, 18, { region, uvRep: 2 }); parts.skirt = [k0, sb.n];
+    const k0 = sb.n; sb.loft(rings, 18, { region, uvRep: 2 }); parts.skirt = [k0, sb.n]; skirtProf = rings.map((r) => [r.c[1], r.c[2] + r.rz]); // front surface (apron over a skirt)
   }
   // --- saree pallu: across the front from right hip over the left shoulder, hanging down the back
   if (o === 'saree' || o === 'salwar') {
@@ -539,6 +541,12 @@ export function buildBodyGeometry(sp) {
     else if (sp.capStyle === 'helmet') { const hw = W1('head'); // open-face motorcycle helmet with a peak
       sb.ellipsoid([hc[0], hc[1] + 0.04, hc[2] - 0.01], hr[0] * 1.28, hr[1] * 1.0, hr[2] * 1.24, hw, C(sp.cap), { lat: 8, lon: 16, p0: 0, p1: Math.PI * 0.56 });
       sb.boxPart([0, hc[1] + 0.052, hc[2] + hr[2] * 1.2 + 0.012], 0.13, 0.008, 0.05, hw, C('#1a1d24')); }
+    else if (sp.capStyle === 'bucket' || sp.capStyle === 'straw') { // cotton bucket hat (soft sloping brim) / woven straw sun hat (wide brim, dark band)
+      const hw = W1('head'), st = sp.capStyle === 'straw', br = Math.max(1.09, hairLift + 0.03), b0 = hc[1] + 0.03, top = hc[1] + hr[1] * Math.max(1.0, hairLift) + (st ? 0.045 : 0.03);
+      const cc = C(sp.cap), bandC = st ? C(sp.capBand || '#4a2e1c') : cc.map((v) => v * 0.88), ring = (y, k, col) => ({ c: [0, y, hc[2] - 0.004], rx: hr[0] * k, rz: hr[2] * k, w: hw, col });
+      const kOut = st ? 2.05 : 1.48, yOut = b0 - (st ? 0.022 : 0.04), uc = cc.map((v) => v * 0.8);
+      sb.loft([ring(yOut, kOut, cc), ring(b0 - 0.004, br * (st ? 1.9 : 1.32), cc), ring(b0, br, bandC), ring(b0 + 0.03, br + 0.008, bandC), ring(top - 0.022, br - 0.03, cc), ring(top, br - 0.3, cc)], 18, { capEnd: true });
+      sb.loft([ring(b0 - 0.01, br * (st ? 1.9 : 1.32), uc), ring(yOut - 0.006, kOut, uc)], 18, { capStart: false, capEnd: false }); } // brim underside (faces down)
     else { sb.ellipsoid([hc[0], hc[1] + 0.03, hc[2]], hr[0] * cr, hr[1] * 0.85, hr[2] * cr, W1('head'), C(sp.cap), { lat: 6, lon: 14, p0: 0, p1: Math.PI * 0.42 });
       sb.boxPart([0, hc[1] + 0.03 + hr[1] * 0.85 * Math.cos(Math.PI * 0.42) - 0.002, hc[2] + hr[2] * cr * 0.97 + 0.03], 0.15, 0.008, 0.075, W1('head'), C(sp.cap)); } // peak
   }
@@ -574,6 +582,43 @@ export function buildBodyGeometry(sp) {
     sb.loft(idx.map((i) => ({ c: [0, tr[i].y * s, 0], rx: tr[i].rx + 0.02, rz: tr[i].rz + 0.022, fz: tr[i].fz, bust: tr[i].bust, w: tr[i].wgt, col: vc })), f ? 28 : 16, { capStart: false, capEnd: false });
     for (const bx of [-0.07, 0, 0.07]) sb.boxPart([bx * w, 1.1 * s, surfZ(1.1 * s, bx * w, 1) + 0.03], 0.055, 0.07, 0.03, W2('spine', 'chest', 0.3), vc.map((v) => v * 0.8));
     if (!sp.hero) sb.boxPart([0, 1.3 * s, surfZ(1.3 * s, 0, -1) - 0.024], 0.2 * w, 0.045, 0.004, W1('chest'), C('#e9e9e2')); } // light panel across the back (police)
+  // ---- everyday wardrobe extras: hi-vis vest, apron, shoulder towel, shawl / dupatta, hood, sports headband
+  const ringAt = (y) => { let k = 0; while (k < tr.length - 2 && tr[k + 1].y * s < y) k++; const a2 = tr[k], b2 = tr[k + 1]; const t = clamp((y / s - a2.y) / (b2.y - a2.y), 0, 1); return { rx: lerp(a2.rx, b2.rx, t), rz: lerp(a2.rz, b2.rz, t), fz: lerp(a2.fz || 0, b2.fz || 0, t), bust: lerp(a2.bust || 0, b2.bust || 0, t), cz: lerp(a2.cz || 0, b2.cz || 0, t), w: t < 0.5 ? a2.wgt : b2.wgt }; };
+  const hoop = (y, h, dr, col) => { const R0 = ringAt(y - h / 2), R1 = ringAt(y + h / 2); sb.loft([R0, R1].map((R, i) => ({ c: [0, y + (i ? h / 2 : -h / 2), R.cz], rx: R.rx + dr, rz: R.rz + dr * 1.1, fz: R.fz, bust: R.bust, w: R.w, col })), f ? 28 : 16, { capStart: false, capEnd: false }); };
+  if (sp.hiVis) { // reflective safety vest (municipal cleaners, road crews, parking attendants): fluorescent shell over the top, two silver bands
+    const vc = C(sp.hiVis), rc = C('#d6dad6'); const idx = [2, 3, 4, 5, 6].map((i) => i + RO);
+    sb.loft(idx.map((i) => ({ c: [0, tr[i].y * s, tr[i].cz || 0], rx: tr[i].rx + 0.011, rz: tr[i].rz + 0.013, fz: tr[i].fz, bust: tr[i].bust, w: tr[i].wgt, col: vc })), f ? 28 : 16, { capStart: false, capEnd: false });
+    hoop(1.06 * s, 0.034, 0.016, rc); hoop(1.2 * s, 0.034, 0.016, rc); }
+  if (sp.apron) { // bib apron: panel on the chest, neck strap, waist tie; the skirt of it hangs from the waist on the skirt hinge (follows the forward thigh)
+    const ac = C(sp.apron), tc = ac.map((v) => v * 0.78); const zf = (y) => Math.max(surfZ(y, 0, 1), surfZ(y, 0.075 * w, 1), surfZ(y, -0.075 * w, 1)) + 0.007;
+    /* bib and skirt are continuous cloth ribbons (stacked slabs stepped visibly over a flared sarong / skirt) */
+    const rib = (pts, width) => sb.strip(pts.map(([y, z, wt]) => ({ c: [0, y, z], side: [1, 0, 0], out: [0, 0, 1], w: wt })), width, (q) => q.out, null, ac, 0);
+    rib([1.3, 1.25, 1.2, 1.15, 1.1, 1.05, 0.99].map((y) => [y * s, zf(y * s), torsoW(y * s)]), 0.2 * w);
+    hoop(0.975 * s, 0.026, 0.008, tc); const zh = zf(0.96 * s) + 0.004;
+    const skirtAt = (y) => { if (!skirtProf) return -1; for (let i = 0; i < skirtProf.length - 1; i++) { const [y0, z0] = skirtProf[i], [y1, z1] = skirtProf[i + 1]; if (y <= y0 && y >= y1) return z0 + (z1 - z0) * (y0 - y) / (y0 - y1 || 1); } return skirtProf[skirtProf.length - 1][1]; };
+    rib([0, 1, 2, 3, 4, 5, 6, 7].map((k) => { const yy = (0.965 - k * 0.055) * s, t = clamp(k / 3, 0, 1); return [yy, Math.max(zh + 0.003 * k, skirtAt(yy) + 0.012), W2('hips', 'skirtF', t)]; }), 0.27 * w);
+    sb.boxPart([0, 0.578 * s, Math.max(zh + 0.021, skirtAt(0.578 * s) + 0.012)], 0.27 * w, 0.012, 0.004, W1('skirtF'), tc); // hem
+    for (const sx of [-1, 1]) band([[sx * 0.1 * w, 1.3 * s, zf(1.3 * s)], [sx * 0.085 * w, 1.38 * s, surfZ(1.38 * s, sx * 0.085 * w, 1) + 0.006], [sx * 0.065, 1.45 * s, surfZ(1.45 * s, sx * 0.065, 1) + 0.004], [sx * 0.05, 1.49 * s, 0.0]], 0.016, tc, torsoW); }
+  // cloth lying on the torso: each strip point sits on the surface and the strip is oriented by the real surface normal
+  // (slope of the torso cross-section there), so a wide drape lies flat on the chest instead of half sinking into it
+  const drape = (sg, pts, width, col) => { const path = pts.map(([x, y], i) => { const e = 0.006, f = surfZ(y, x, sg), df = (surfZ(y, x + e, sg) - surfZ(y, x - e, sg)) / (2 * e);
+      const n = new THREE.Vector3(-df * sg, 0, sg).normalize(); return { x, y, c: [x + n.x * 0.011, y, f + n.z * 0.011], n }; });
+    sb.strip(path.map((p, i) => { const a = path[Math.max(0, i - 1)], b = path[Math.min(path.length - 1, i + 1)]; const d = new THREE.Vector3(b.c[0] - a.c[0], b.c[1] - a.c[1], b.c[2] - a.c[2]).normalize(); const side = new THREE.Vector3().crossVectors(d, p.n).normalize();
+      return { c: p.c, side: [side.x, side.y, side.z], out: [p.n.x, p.n.y, p.n.z], w: torsoW(p.y) }; }), width, (q) => q.out, null, col, 0); };
+  // short piece across the top of the shoulder joining the front and back halves of a drape
+  const shoulderBridge = (x, width, col) => { const y = 1.418 * s, zf = surfZ(y, x, 1), zb = surfZ(y, x, -1); sb.boxPart([x, y + 0.008, (zf + zb) / 2], width, 0.016, zf - zb + 0.018, W1('chest'), col); };
+  if (sp.towel) { // towel / cloth over the left shoulder (labourers, porters, traders): hangs to mid-chest in front and down the back
+    const tc = C(sp.towel), x0 = 0.1 * w; const ys = [1.42, 1.37, 1.31, 1.25, 1.19, 1.13];
+    drape(1, ys.map((y, i) => [x0 - i * 0.003, y * s]), 0.11, tc); drape(-1, ys.map((y, i) => [x0 - i * 0.003, y * s]), 0.11, tc.map((v) => v * 0.94)); shoulderBridge(x0, 0.11, tc);
+    for (const sg of [1, -1]) drape(sg, [[x0 - 0.016, 1.14 * s], [x0 - 0.016, 1.125 * s]], 0.112, tc.map((v) => v * 0.78)); } // woven hem stripe
+  if (sp.shawl) { // shawl / dupatta: wide drape from the left shoulder across the chest to the right hip, and down the back
+    const sc = C(sp.shawl); const ys = [1.42, 1.36, 1.29, 1.21, 1.13, 1.05, 0.98];
+    for (const sg of [1, -1]) drape(sg, ys.map((y, i) => [lerp(0.095, -0.14, i / (ys.length - 1)) * w, y * s]), 0.15, sg > 0 ? sc : sc.map((v) => v * 0.92));
+    shoulderBridge(0.095 * w, 0.15, sc); }
+  if (sp.hood) { // hoodie: the hood gathered behind the neck, drawstrings at the front
+    const hcol = C(sp.top).map((v) => v * 0.9), yh = 1.43 * s; sb.ellipsoid([0, yh, surfZ(yh, 0, -1) - 0.03], 0.12 * w, 0.075, 0.055, W2('chest', 'neck', 0.35), hcol, { lat: 6, lon: 12 });
+    for (const sx of [-1, 1]) sb.boxPart([sx * 0.035, 1.34 * s, surfZ(1.34 * s, sx * 0.035, 1) + 0.006], 0.008, 0.13, 0.006, W1('chest'), C('#e8e6e0')); }
+  if (sp.headband) { const hw = W1('head'), k = Math.max(1.06, hairLift + 0.012), y = hc[1] + 0.045; sb.loft([{ c: [0, y - 0.016, hc[2]], rx: hr[0] * k, rz: hr[2] * k, w: hw, col: C(sp.headband) }, { c: [0, y + 0.016, hc[2] - 0.003], rx: hr[0] * k * 0.99, rz: hr[2] * k * 0.99, w: hw, col: C(sp.headband) }], 16, { capStart: false, capEnd: false }); }
   if (sp.belt) { const bc = C(sp.belt); const i0 = tr[1 + RO], i1 = tr[2 + RO]; const yb = 0.965 * s, t = (0.965 - i0.y) / (i1.y - i0.y); const rx = lerp(i0.rx, i1.rx, t) + 0.009, rz = lerp(i0.rz, i1.rz, t) + 0.009;
     sb.loft([{ c: [0, yb - 0.022, 0], rx, rz, w: W1('hips'), col: bc }, { c: [0, yb + 0.022, 0], rx, rz, w: W1('hips'), col: bc }], 16, { capStart: false, capEnd: false });
     sb.boxPart([0, yb, rz + 0.004], 0.05, 0.036, 0.008, W1('hips'), C(sp.buckle || '#c9cdd2'));
@@ -662,7 +707,7 @@ const SKINS = ['#8d5a3b', '#9b6644', '#7a4a2e', '#a8734f', '#6b4128', '#b07c56',
 const SHIRTS = ['#f2f2ee', '#dfe8f2', '#3b5f8c', '#7c2f2f', '#2f6b4f', '#c9a227', '#555b66', '#e4d3b5', '#8a5aa8', '#d96c3b', '#1f2a3a', '#b8c4a8'];
 const TROUSERS = ['#2b2e36', '#3a3f4a', '#4a4036', '#1e2430', '#6b6355', '#384a63', '#2a2a2a'];
 const SAREE = ['#b0233a', '#e07b1a', '#1b6b6b', '#6a2a7a', '#c72f6c', '#2c4f9e', '#d4a12a', '#0f7a4a', '#8c1c2c', '#e65a8a'];
-// Adults only (18+): every civilian comes from the preset generator in Appearance.js (46 presets, seeded variation).
+// Adults only (18+): every civilian comes from the preset generator in Appearance.js (87 presets, seeded variation).
 export function randomSpec(seed, opts = {}) { return makeAppearance(seed, opts); }
 export const HEROES = {
   // the three playable protagonists (high-detail build + 70-bone rig)
@@ -772,7 +817,9 @@ export class FaceRig {
     if (this.blink > 0 && f !== 'surprise') f = 'blink';
     this.show(FIDX[f] ?? 0);
   }
-  dispose() { this.mat.map.dispose(); this.mat.dispose(); }
+  // the map clone shares its GPU image with every face of the same variant (~25 atlases in the whole game). Disposing it freed
+  // that image when the last such face despawned, and the next spawn re-uploaded 384x1920 px mid-game (a frame stall); kept resident.
+  dispose() { this.mat.dispose(); }
 }
 
 // ------------------------------------------------------------------ procedural animator
@@ -848,6 +895,12 @@ export class Animator {
   set(action) { if (action !== this.action) { if (this.action && this.action !== 'crouch' && this.actionW > 0.05) { this.fadeAct = this.action; this.fadeW = this.actionW; this.fadeT = this.actionT || 0; } this.prevAction = this.action; this.action = action; this.actionW = 0; this.actionT = 0; this.actionDur = 0; } }
   // timed action on simulation time (ends with a smooth fade back to neutral)
   play(action, dur) { this.set(action); this.actionDur = dur; }
+  // unarmed combat layer (Boxing.js): stance on/off, strike ('jab' | 'cross' | 'hook' | 'upper'), hit reaction, high block
+  fightOn(on, now = false) { const F = fightState(this); F.on = on; if (!on && now) { F.w = 0; F.move = null; F.blk = 0; F.blockOn = false; } }
+  strike(move) { if (!FIGHT_MOVES[move]) return; const F = fightState(this); F.on = true; F.move = move; F.mt = 0; F.react = null; if (this.action && this.action !== 'crouch') this.set(null); }
+  takeHit(kind, dir = 1, pow = 1) { const F = fightState(this); F.react = kind; F.rt = 0; F.rdir = dir; F.rpow = pow; if (kind !== 'block') F.move = null; }
+  block(on) { fightState(this).blockOn = on; }
+  get fighting() { return !!(this.fight && this.fight.w > 0.05); }
   // one leg's pose at gait phase p (0 = heel strike). Returns world thigh angle (−fwd), knee flex, foot pitch relative to flat, contact.
   leg(p, beta, A, run) {
     const g = this.g;
@@ -1075,6 +1128,7 @@ export class Animator {
     const seated = this.seated && this.seatW > 0;
     if (!seated && !this.ik) for (const [S, x, y, z, w, pole] of actIK) solveArmIK(b, S, _ikv.set(x, y, z), null, w, pole);
     if (this.ik && !seated) { if (this.ik.R) solveArmIK(b, 'R', this.ik.R, this.ik.qR, this.ik.wR ?? 1); if (this.ik.L) solveArmIK(b, 'L', this.ik.L, this.ik.qL, this.ik.wL ?? 1); }
+    if (this.fight) applyFight(this, dt, solveArmIK, seated);
     if (!seated) { if (this.fadeAct && this.fadeW > 0 && BODY_POSES.has(this.fadeAct)) this.bodyPose(this.fadeAct, smooth01(this.fadeW), this.fadeT); if (A_ && aw > 0 && BODY_POSES.has(A_)) this.bodyPose(A_, aw, at); }
     if (seated) applySeatPose(this, dt);
     if (this.nearLean && !seated) { const l = this.nearLean; b.spine.rotation.x += l.s || 0; b.chest.rotation.x += l.c || 0; b.neck.rotation.x += l.p || 0; b.head.rotation.z += l.r || 0; b.head.rotation.y += l.y || 0; } // StreetLife: leaning in for a hug / kiss

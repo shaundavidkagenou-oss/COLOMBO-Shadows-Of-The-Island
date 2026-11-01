@@ -26,6 +26,7 @@ import { makePoliceAppearance } from '../actors/Appearance.js';
 import { seatCharacter } from '../actors/Seating.js';
 import { Audio } from '../audio/Audio.js';
 import { clamp, lerp } from '../core/math.js';
+import { FootNav } from './FootNav.js';
 import { Firefight } from './Firefight.js';
 import { BustedCinematic } from './Busted.js';
 import { HOSPITAL } from '../actors/Health.js';
@@ -81,7 +82,7 @@ export class PoliceResponse {
     this.foot = []; this.civil = []; this.log = []; this.stats = { reports: 0, dispatched: 0, sightings: 0, fines: 0, arrests: 0, searches: 0, decays: 0, standDowns: 0, maxUnits: 0, spawnMinDist: Infinity };
     this.reason = 'disturbance'; this.stop = null; this.t = 0; this.siren = null; this.waits = []; this.radioCd = 4; this.radioN = 0; this.blockCd = 12;
     Object.assign(this.stats, { intercepts: 0, pits: 0, roadblocks: 0, spikes: 0, flats: 0, recycled: 0, tackles: 0, tackleHits: 0, busted: { grab: 0, tackle: 0, shot: 0 } });
-    this.ff = new Firefight(this); this.cine = null;
+    this.ff = new Firefight(this); this.cine = null; this.bodies = []; this.nav = new FootNav(this.g.collision, () => this.T.all());
   }
   get T() { return this.g.traffic; }
   stars() { return Math.ceil(this.level - 0.01); }
@@ -114,6 +115,7 @@ export class PoliceResponse {
   // ------------------------------------------------------------------ main update
   update(dt) {
     const g = this.g; this.t += dt; this.stateT += dt; this.prompt = ''; this.tickWaits();
+    if (this.bodies.length) this.updateBodies(dt);
     if (this.cine) { this.cine.update(dt); this.updateSiren(dt, false); this.ff.update(dt); return; } // BUSTED sequence owns the officers and the camera
     if (g.director.active || this.busy) { this.updateSiren(dt, true); this.ff.update(dt); return; }
     this.foot = []; for (const u of this.units.concat(this.civil)) for (const o of u.officers) if (o.mode === 'foot' || o.mode === 'down' || o.mode === 'return') this.foot.push(o);
@@ -402,6 +404,7 @@ export class PoliceResponse {
       A.sitIn(o.seat, sm, null); A.update(dt, 0); if (k >= 1) { seatCharacter(o.ch, v, o.seat); o.mode = 'seated'; this.syncSeated(u); }
       return;
     }
+    if (o.vault) { this.stepVault(o, dt); return; }
     if (o.mode === 'down') { o.downT -= dt; if (o.downT <= 0) { o.mode = 'foot'; A.set(null); o.hits = 0; } this.animOfficer(o, dt, 0); return; }
     // on foot
     const tg = this.target(); const P = g.player; const st = this.state; const dP = this.distTo(o, tg);
@@ -547,20 +550,68 @@ export class PoliceResponse {
     const front = lp.z < hl + 0.7 ? [Math.sign(lp.x) * (hw + 0.8), hl + 1.0] : [sd * (hw + 0.8), hl + 1.0]; const w = new THREE.Vector3(front[0], 0, front[1]).applyMatrix4(v.mesh.matrixWorld); return [w.x, w.z];
   }
   walkAway(o, dt) { if (!o.goal) { const a = Math.random() * Math.PI * 2; o.goal = { x: o.x + Math.cos(a) * 60, z: o.z + Math.sin(a) * 60 }; } return this.moveTo(o, o.goal.x, o.goal.z, 1.5, dt); }
+  // walk towards (tx,tz): straight when the way is clear, otherwise along an A* path (FootNav) that goes round walls and
+  // cars and climbs low compound walls. Speed is smoothed and the side-step keeps its side, so officers never jitter.
   moveTo(o, tx, tz, sp, dt) {
-    const col = this.g.collision; const dx = tx - o.x, dz = tz - o.z, d = Math.hypot(dx, dz); if (d < 0.05) return 0; const want = Math.atan2(dx, dz); const step = Math.min(d, sp * dt);
+    if (o.vault) { this.stepVault(o, dt); return 0; }
+    const col = this.g.collision; const d0 = Math.hypot(tx - o.x, tz - o.z); if (d0 < 0.05) return 0;
+    let wx = tx, wz = tz; const N = this.nav;
+    o.losT = (o.losT || 0) - dt;
+    if (o.losT <= 0) { o.losT = 0.3 + Math.random() * 0.1; o.direct = d0 < 0.6 || N.lineClear(o.x, o.z, tx, tz, N.nearCars(Math.min(o.x, tx) - 3, Math.min(o.z, tz) - 3, Math.max(o.x, tx) + 3, Math.max(o.z, tz) + 3)); if (o.direct) N.stats.direct++; }
+    if (!o.direct) {
+      const P = o.path; const stale = !P || Math.hypot(P.gx - tx, P.gz - tz) > 1.5 || this.t - P.t > (P.reached ? 2 : 4) || (o.blockedT || 0) > 0.6;
+      if (stale && this.navT !== this.t) { this.navT = this.t; o.path = N.plan(o.x, o.z, tx, tz); o.path.t = this.t; o.path.i = 0; o.blockedT = 0; } // at most one search per frame for the whole force (no frame spikes)
+      const Q = o.path || { pts: [{ x: tx, z: tz }], i: 0, reached: true, ex: tx, ez: tz }; while (Q.i < Q.pts.length - 1 && Math.hypot(Q.pts[Q.i].x - o.x, Q.pts[Q.i].z - o.z) < (Q.pts[Q.i].vault ? 0.45 : 0.5)) { const w = Q.pts[Q.i]; if (w.vault) { this.startVault(o, w); Q.i++; return 0; } Q.i++; }
+      const w = Q.pts[Math.min(Q.i, Q.pts.length - 1)]; if (w) { wx = w.x; wz = w.z; }
+      if (!Q.reached && Q.i >= Q.pts.length - 1 && Math.hypot(Q.ex - o.x, Q.ez - o.z) < 0.6) { // as close as anyone on foot can get: hold here, facing the goal
+        o.navHold = true; o.curSp = 0; o.yaw += angDiff(Math.atan2(tx - o.x, tz - o.z), o.yaw) * Math.min(1, dt * 5); this.placeOfficer(o); return 0; }
+    } else o.path = null;
+    o.navHold = false;
+    const dx = wx - o.x, dz = wz - o.z, d = Math.hypot(dx, dz); if (d < 0.02) return 0; const want = Math.atan2(dx, dz);
+    o.curSp = (o.curSp || 0) + clamp(sp - (o.curSp || 0), -10 * dt, 7 * dt); const v = Math.max(0.6, o.curSp); const step = Math.min(d, v * dt);
     const stuckIn = col.blocked(o.x, o.z, 0.2) || this.carAt(o.x, o.z); // e.g. a door spot beside a parked car: walk out of it
-    for (const off of [0, 0.45, -0.45, 0.9, -0.9, 1.5, -1.5, 2.2, -2.2]) { const a = want + off; const nx = o.x + Math.sin(a) * step, nz = o.z + Math.cos(a) * step; if (!stuckIn && (col.blocked(nx, nz, 0.28) || this.carAt(nx, nz))) continue;
-      o.x = nx; o.z = nz; o.y = col.groundAt(nx, nz, o.y + 0.45); o.yaw += angDiff(a, o.yaw) * Math.min(1, dt * 8); o.blockedT = 0; this.placeOfficer(o); return sp; }
-    o.blockedT = (o.blockedT || 0) + dt; return 0;
+    const side = o.lastSide || 1; // keep the side-step on the same side as last time (no frame-to-frame flip-flop)
+    for (const off of [0, 0.45 * side, -0.45 * side, 0.9 * side, -0.9 * side, 1.5 * side, -1.5 * side, 2.2 * side, -2.2 * side]) { const a = want + off; const nx = o.x + Math.sin(a) * step, nz = o.z + Math.cos(a) * step; if (!stuckIn && (col.blocked(nx, nz, 0.28) || this.carAt(nx, nz))) continue;
+      if (off) o.lastSide = Math.sign(off); o.x = nx; o.z = nz; o.y = col.groundAt(nx, nz, o.y + 0.45); o.yaw += angDiff(a, o.yaw) * Math.min(1, dt * 8); o.blockedT = Math.max(0, (o.blockedT || 0) - dt); this.placeOfficer(o); return v; }
+    o.curSp *= 0.5; o.blockedT = (o.blockedT || 0) + dt; o.losT = 0; o.direct = false; return 0;
+  }
+  // climbing a low wall (as the player can): up onto the top, over, and down the other side — about a second
+  startVault(o, w) { const V = w.vault; const g = this.g; o.vault = { t: 0, x0: o.x, z0: o.z, y0: o.y, x1: V.x, z1: V.z, y1: g.collision.groundAt(V.x, V.z, (V.top || o.y + 1.6) + 0.2), top: Math.max(o.y + 0.6, V.top || o.y + 1.6), yaw: Math.atan2(V.x - o.x, V.z - o.z), f: -1 }; o.ch.anim.set('handsup'); this.stats.vaults = (this.stats.vaults || 0) + 1; }
+  stepVault(o, dt) {
+    const V = o.vault; if (!V || V.f === this.t) return; V.f = this.t; V.t += dt / 1.05; const k = Math.min(1, V.t);
+    const up = Math.min(1, k / 0.45), hz = k < 0.35 ? 0.25 * (k / 0.35) : k < 0.75 ? 0.25 + 0.6 * ((k - 0.35) / 0.4) : 0.85 + 0.15 * ((k - 0.75) / 0.25);
+    const y = k < 0.6 ? lerp(V.y0, V.top + 0.02, up * up * (3 - 2 * up)) : lerp(V.top + 0.02, V.y1, Math.min(1, ((k - 0.6) / 0.4) ** 1.6));
+    o.x = lerp(V.x0, V.x1, hz); o.z = lerp(V.z0, V.z1, hz); o.y = y; o.yaw += angDiff(V.yaw, o.yaw) * Math.min(1, dt * 10);
+    const A = o.ch.anim; if (k > 0.62 && A.action === 'handsup') A.set(null); this.ff.pose?.(o, dt); A.update(dt, 0); this.placeOfficer(o);
+    if (k >= 1) { o.vault = null; o.y = V.y1; o.curSp = 1.5; o.losT = 0; this.placeOfficer(o); }
   }
   carAt(x, z) { for (const v of this.T.all()) { if (Math.abs(v.x - x) > 6 || Math.abs(v.z - z) > 6) continue; const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw); const rx = x - v.x, rz = z - v.z; if (Math.abs(rx * fx + rz * fz) < v.half + 0.15 && Math.abs(rx * fz - rz * fx) < (v.T.wid || 1.7) / 2 + 0.2) return true; } return false; }
   placeOfficer(o) { o.ch.root.position.set(o.x, o.y, o.z); o.ch.root.rotation.y = o.yaw; }
-  animOfficer(o, dt, speed) { const tg = this.target(); const d = Math.hypot(tg.x - o.x, tg.z - o.z); o.acc += dt; const rate = d < 50 ? 0 : d < 120 ? 0.12 : 0.4; this.ff.torch(o, dt); this.ff.pose(o, dt); if (o.acc >= rate) { o.ch.anim.update(Math.min(o.acc, 0.25), speed); o.acc = 0; } this.placeOfficer(o); this.ff.placeTorch(o); }
-  officerHit(o, dx, dz) { // non-graphic: the officer staggers; repeated hits put them down for a while (they recover)
+  animOfficer(o, dt, speed) { const tg = this.target(); const d = Math.hypot(tg.x - o.x, tg.z - o.z); o.acc += dt; const rate = d < 50 ? 0 : d < 120 ? 0.12 : 0.4; this.ff.torch(o, dt); this.ff.pose(o, dt); o.animSp = (o.animSp || 0) + (speed - (o.animSp || 0)) * Math.min(1, dt * (speed > (o.animSp || 0) ? 9 : 6)); if (speed === 0 && o.animSp < 0.25) o.animSp = 0; /* gait speed eased: a single blocked step no longer snaps the walk cycle to a stand */ if (o.acc >= rate) { o.ch.anim.update(Math.min(o.acc, 0.25), o.animSp); o.acc = 0; } this.placeOfficer(o); this.ff.placeTorch(o); }
+  officerHit(o, dx, dz) { // non-graphic: the first round staggers; a second puts the officer down for good
     if (o.mode !== 'foot' && o.mode !== 'down') return; if (o.tackle) { o.tackle = null; } o.hits = (o.hits || 0) + 1; this.reason = 'assaulting a police officer'; this.ff.onOfficerHit(o);
     this.incident = { x: this.g.player.x, z: this.g.player.z, t: this.t }; this.addHeat(1, this.reason, 'You attacked an officer.'); this.spotted();
-    if (o.hits >= 2 && o.mode !== 'down') { o.mode = 'down'; o.downT = 25; o.ch.anim.set('down'); this.note('officer down (will recover)'); } else { o.x += dx * 0.35; o.z += dz * 0.35; o.ch.face?.set?.('fear', 2); }
+    if (o.hits >= 2) this.killOfficer(o); else { o.x += dx * 0.35; o.z += dz * 0.35; o.ch.face?.set?.('fear', 2); }
+  }
+  // incapacitated: the body stays where it fell (it no longer belongs to the unit, so a unit driving off or being removed
+  // never makes it vanish in view) and is cleared away later, unseen. A unit with nobody left leaves its car parked.
+  killOfficer(o) {
+    if (o.dead) return; o.dead = true; o.mode = 'dead'; o.tackle = null; o.cuffing = false; o.torchOn = false; if (o.torchM) o.torchM.visible = false;
+    o.ch.anim.ik = null; o.ch.anim.aim = null; o.ch.anim.set('down'); o.ch.face?.set?.('blink', 1e9); this.ff.disarm?.(o);
+    const u = o.unit; if (u) u.officers = u.officers.filter((q) => q !== o);
+    this.bodies.push({ o, ch: o.ch, x: o.x, z: o.z, t: 0 }); this.stats.officersDown = (this.stats.officersDown || 0) + 1; this.note('officer down (incapacitated)');
+    if (u && !u.officers.length) this.abandonUnit(u);
+  }
+  abandonUnit(u) {
+    const T = this.T; this.dropStrip(u); const v = u.v;
+    if (v && !v.player) { const i = T.vehicles.indexOf(v); if (i >= 0) T.vehicles.splice(i, 1); v.ai = null; v.speed = 0; v.police = null; v.driverChar = null; T.release(v, true); }
+    else if (v) v.police = null;
+    this.units = this.units.filter((q) => q !== u); this.civil = this.civil.filter((q) => q !== u); this.note(`unit ${u.id} has nobody left — car left where it stopped`);
+  }
+  updateBodies(dt) {
+    for (const b of this.bodies) { b.t += dt; if (b.t < 2.5) { b.o.ch.anim.update(dt, 0); this.placeOfficer(b.o); } }
+    const tg = this.target(); const gone = this.bodies.filter((b) => b.t > 150 && !this.inView(b) && Math.hypot(b.x - tg.x, b.z - tg.z) > 35 || Math.hypot(b.x - tg.x, b.z - tg.z) > 260);
+    for (const b of gone) { b.ch.root.parent?.remove(b.ch.root); b.ch.dispose(); } if (gone.length) this.bodies = this.bodies.filter((b) => !gone.includes(b));
   }
   pushPlayer() { const P = this.g.player; if (P.vehicle) return; for (const o of this.foot) { const dx = P.x - o.x, dz = P.z - o.z, d = Math.hypot(dx, dz); if (d < 0.55 && d > 1e-3) { P.x = o.x + (dx / d) * 0.55; P.z = o.z + (dz / d) * 0.55; } } }
   say(o, kind, who) { const arr = LINES[kind]; if (!arr) return; const l = arr[Math.floor(Math.random() * arr.length)]; const lang = l.si ? 'si' : l.ta ? 'ta' : 'en'; this.g.hud.subtitle(who || 'Police officer', l.si || l.ta || l.en, l.tr || '', 2.6, lang); Audio.talkBlip?.(lang); }

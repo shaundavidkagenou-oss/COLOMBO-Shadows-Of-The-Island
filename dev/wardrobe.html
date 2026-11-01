@@ -1,0 +1,21 @@
+<!doctype html><html><body style="margin:0;background:#888"><canvas id="c"></canvas>
+<script type="module">
+// The 40 newer presets (wider wardrobe), 10 per row. ?row=0..3  &yaw=deg (turn everyone)  &walk=1 (mid-stride)  &w= &h=
+import * as THREE from 'three';
+import { buildTextures } from '/src/gfx/Textures.js';
+import { Character } from '/src/actors/Character.js';
+import { PRESETS, makeAppearance } from '/src/actors/Appearance.js';
+await buildTextures('medium');
+const q = new URLSearchParams(location.search); const W = +(q.get('w') || 1600), H = +(q.get('h') || 640); const row = +(q.get('row') || 0); const yaw = (q.has('yaw') ? +q.get('yaw') : 20) * Math.PI / 180;
+const r = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true }); r.setSize(W, H); r.toneMapping = THREE.ACESFilmicToneMapping; r.outputColorSpace = THREE.SRGBColorSpace;
+const s = new THREE.Scene(); s.background = new THREE.Color(0x9fb4c8); s.add(new THREE.HemisphereLight(0xdde8ff, 0x665544, 1.35)); const d = new THREE.DirectionalLight(0xfff0dd, 2.4); d.position.set(3, 6, 6); s.add(d);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ color: 0x8d8a83, roughness: 0.95 })); ground.rotation.x = -Math.PI / 2; s.add(ground);
+const NEW = PRESETS.slice(PRESETS.findIndex((p) => p.id === 'm_cmc_cleaner'), PRESETS.findIndex((p) => p.id === 'f_garment'));
+const extras = (sp) => ['hiVis', 'apron', 'towel', 'shawl', 'hood', 'headband'].filter((k) => sp[k]).length + (sp.capStyle === 'bucket' || sp.capStyle === 'straw' ? 1 : 0);
+const pick = (pr) => { let best = null, bs = -1; for (let k = 1; k < 60; k++) { const sp = makeAppearance(k * 31 + 7, { preset: pr.id }); const sc = extras(sp) * 10 + (sp.cap ? 1 : 0); if (sc > bs) { bs = sc; best = sp; } } return best; };
+const list = q.get('id') ? PRESETS.filter((p) => p.id === q.get('id')) : NEW.slice(row * 10, row * 10 + 10); window.labels = [];
+list.forEach((pr, i) => { const sp = pick(pr); const ch = new Character(sp); ch.root.position.set(q.get('id') ? 0 : (i - 4.5) * 1.15, 0, 0); ch.root.rotation.y = yaw; s.add(ch.root);
+  if (q.get('walk')) for (let k = 0; k < 37; k++) ch.anim.update(1 / 60, 1.4); else for (let k = 0; k < 30; k++) ch.anim.update(1 / 30, 0); window.labels.push(pr.id); });
+const cx = +(q.get('cx') || 0), fov = +(q.get('fov') || 24), cd = +(q.get('cd') || 15.5); const cam = new THREE.PerspectiveCamera(fov, W / H, 0.1, 100); cam.position.set(cx, 1.3, cd); cam.lookAt(cx, fov < 15 ? 1.05 : 0.95, 0); cam.updateProjectionMatrix();
+s.updateMatrixWorld(true); if (q.get('id')) { const bb = new THREE.Box3().setFromObject(s.children[s.children.length - 1]); const c = bb.getCenter(new THREE.Vector3()); console.log('bbox', JSON.stringify(bb)); cam.position.set(c.x, 1.3, cd); cam.lookAt(c.x, 1.1, 0); } r.render(s, cam); console.log(window.labels.join(' | ')); window.done = true;
+</script></body></html>

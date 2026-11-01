@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import * as L from '../world/Layout.js';
 import { plan } from '../world/CityPlan.js';
 import { Character, randomSpec } from './Character.js';
+import { MOVES as FIGHT_MOVES } from './Boxing.js';
 import { StreetLife } from './StreetLife.js';
 import { separate } from './Bodies.js';
 import { PRESETS, lookKey, profileActivity } from './Appearance.js';
@@ -90,6 +91,8 @@ export class Crowd {
 
   key(x, z) { return Math.floor(x / 40) * 1000 + Math.floor(z / 40); }
   // pre-built pool: one person of every adult preset first (so every type appears), then extra seeded variations
+  // spec pool size: one person per preset (so every outfit in the wardrobe appears) plus random extras
+  specTarget() { return PRESETS.length + 8; }
   prepareSpecs(n = 8) { for (let i = 0; i < n; i++) { const k = this.specs.length; const sp = randomSpec(9000 + k * 17, k < PRESETS.length ? { preset: PRESETS[k].id } : {}); this.specs.push(sp); new Character(sp).dispose(); } }
   // who walks here now: profile activity for the hour (office rush, morning joggers, daytime tourists, few people late at night),
   // and never the same preset/look as someone within 25 m, so there are no side-by-side clones
@@ -188,10 +191,15 @@ export class Crowd {
   // Routine states: walk, toPoi, waitCross, idle, shelter. Reaction states overlay them; the routine is saved and
   // restored afterwards (or the ped rejoins the walk graph if it ended up elsewhere), so nobody stays stuck reacting.
   isRoutine(st) { return st === 'walk' || st === 'toPoi' || st === 'waitCross' || st === 'idle' || st === 'shelter'; }
-  react(p, state, timer, extra = {}) {
+  react(p, state, timer, extra = {}, force = false) {
+    // someone lying on the ground (knocked down, or dead) is never pulled into another reaction mid-fall — only the down
+    // state's own get-up hands them on (force). This was the 'runs away while still lying flat' glitch.
+    if (p.state === 'down' && state !== 'down' && !force) return;
+    if (p.dead && !force) return;
     if (p.scene || p.benchRead) { this.life.interrupt(p); if (p.state === 'scene') p.state = 'walk'; }
     if (this.isRoutine(p.state)) p.routine = { state: p.state, target: p.target, node: p.node, nextNode: p.nextNode, edge: p.edge, poi: p.poi, x: p.x, z: p.z, timer: p.timer, via: p.via, toKerb: p.toKerb, route: p.route, goalPoi: p.goalPoi, crossing: p.crossing };
     if (p.sit) { p.sit = false; }
+    if (p.ch.anim.fight && state !== 'fight') p.ch.anim.fightOn(false, state === 'down');
     p.state = state; p.timer = timer; p.rt = 0; Object.assign(p, extra); p.ch.anim.set(null);
   }
   endReaction(p) {
@@ -237,22 +245,24 @@ export class Crowd {
   spread(x, z, a) { const t = (this.rng.next() - 0.5) * 2 * a; const c = Math.cos(t), s = Math.sin(t); return [x * c - z * s, x * s + z * c]; }
   // non-graphic hit (weapon): flinch, maybe fall and stay down for a while, then get up and get away
   hitPed(p, dx, dz, power = 1) {
-    if (p.state === 'down') { p.timer = Math.max(p.timer, 4); return; }
+    if (p.state === 'down') { if (!p.dead) { p.hits = (p.hits || 0) + power; if (p.hits >= 1.2) this.kill(p); else p.timer = Math.max(p.timer, 4); } return; }
     p.knockedByCar = false; p.hits = (p.hits || 0) + power; p.vx = (p.vx || 0) + dx * 1.5; p.vz = (p.vz || 0) + dz * 1.5;
-    if (p.hits >= 1.5 || power >= 1.5) { this.react(p, 'down', 7 + this.rng.next() * 5, { yaw: Math.atan2(-dx, -dz) }); p.downT = 0; p.ch.face.set('fear', 6); this.events.emit('pedHit', p); }
+    // shot hard enough (one heavy round, or two light ones): they collapse and do NOT get up again (non-graphic)
+    if (p.hits >= 1.2) { this.react(p, 'down', 1e9, { yaw: Math.atan2(-dx, -dz) }, true); p.downT = 0; this.kill(p); this.events.emit('pedHit', p); }
     else { this.react(p, 'hit', 0.7); p.ch.anim.set('hit'); p.ch.face.set('fear', 4); this.speak(p, 'scared', 2); }
     this.alarm(p.x, p.z, 30, 3, p);
   }
   update(dt, focus, camDir, ctx) {
     this.t += dt; this.frame++; this.simTime = ctx.simTime; this.vehicles = ctx.vehicles; this.rain = ctx.rain > 0.4; this.night = ctx.night; this.hour = ctx.hour ?? this.hour;
-    const player = ctx.player; this.camDir = camDir; this.focus = focus; if (ctx.police !== undefined) this.police = ctx.police;
+    const player = ctx.player; this.camDir = camDir; this.focus = focus; this.playerArmed = !!ctx.armed; if (ctx.police !== undefined) this.police = ctx.police;
     this.life.update(dt, ctx);
     // spawn / despawn (despawn only far away / out of view)
     for (let i = this.peds.length - 1; i >= 0; i--) { const p = this.peds[i]; if ((Math.hypot(p.x - focus.x, p.z - focus.z) > 165 && !p.keep) || p.recycle) { this.despawn(p); this.peds.splice(i, 1); } }
     const want = Math.round(this.max * (ctx.hourFactor ?? 1) * (this.rain ? 0.65 : 1));
-    let budget = 2; while (this.peds.length < want && budget-- > 0) this.spawn(focus, camDir, this.peds.length < want * 0.5);
+    let budget = this.peds.length < want * 0.5 ? 2 : 1; /* one Character build per frame unless the street is badly under-populated */ while (this.peds.length < want && budget-- > 0) this.spawn(focus, camDir, this.peds.length < want * 0.5);
     // neighbour grid (2 m cells)
-    const grid = new Map(); for (const p of this.peds) { const k = Math.floor(p.x / 2) * 10000 + Math.floor(p.z / 2); let a = grid.get(k); if (!a) grid.set(k, (a = [])); a.push(p); }
+    /* neighbour grid reused across frames (no per-frame Map + arrays for the GC); emptied cells are dropped every ~10 s */
+    const grid = this._grid || (this._grid = new Map()); if (this.frame % 600 === 0) grid.clear(); else for (const a of grid.values()) a.length = 0; for (const p of this.peds) { const k = Math.floor(p.x / 2) * 10000 + Math.floor(p.z / 2); let a = grid.get(k); if (!a) grid.set(k, (a = [])); a.push(p); }
     const pv = player.vehicle;
     // non-crowd people on foot (player, police, HQ staff, mission & cutscene actors): steer around them and never overlap
     const fixed = (ctx.bodies || []).filter((b) => !b.ped && Math.abs(b.x - focus.x) < 90 && Math.abs(b.z - focus.z) < 90);
@@ -262,7 +272,7 @@ export class Crowd {
     for (const p of this.peds) {
       const dist = Math.hypot(p.x - focus.x, p.z - focus.z); const lod = dist > 70 ? 3 : dist > 40 ? 2 : 1;
       p.talkCd -= dt; p.react -= dt; if (p.talkFor > 0) { p.talkFor -= dt; if (p.talkFor <= 0 && !['talk', 'argue', 'phone'].includes(p.ch.anim.action)) p.ch.face.talking = false; }
-      if (p.pending) { p.pending.t -= dt; if (p.pending.t <= 0) { const w = p.pending; p.pending = null; this.witness(p, w); } }
+      if (p.pending) { p.pending.t -= dt; if (p.pending.t <= 0) { const w = p.pending; p.pending = null; if (p.state !== 'down') this.witness(p, w); } }
       let desired = 0; let tx = null, tz = null; let accel = 2.5; let avoid = true;
       // --- threats: player vehicle approaching fast
       if (pv && Math.abs(pv.speed) > 4) {
@@ -327,13 +337,15 @@ export class Crowd {
           if (p.timer <= 0) this.endReaction(p); break; }
         case 'hit': { p.timer -= dt; desired = 0; if (p.timer <= 0) { p.state = 'flee'; p.timer = 5 + this.rng.next() * 4; p.fleeSp = 3 + this.rng.next(); const ax = p.x - player.x, az = p.z - player.z, d = Math.hypot(ax, az) || 1; p.fleeDir = this.spread(ax / d, az / d, 0.7); p.ch.anim.set(null); } break; }
         case 'down': { // fall (mesh tips over), lie still, then get up and stagger away — no injury detail
-          p.timer -= dt; p.downT = (p.downT || 0) + dt; desired = 0; avoid = false;
-          const fall = clamp(p.downT / 0.55, 0, 1), rise = clamp(1 - p.timer / 0.9, 0, 1); const k = fall * (1 - rise);
+          p.timer -= dt; p.downT = (p.downT || 0) + dt; desired = 0; avoid = false; if (p.dead) { p.timer = 1e9; p.deadT = (p.deadT || 0) + dt; }
+          if (lod === 1 || (this.frame + p.id) % 4 === 0) this.fitBody(p, dt * (lod === 1 ? 1 : 4), p.downT < 0.05);
+          if (p.dead && p.deadT > 150 && !this.visible(p) && Math.hypot(p.x - focus.x, p.z - focus.z) > 35) p.recycle = true; /* cleared away unseen */
+          const fall = clamp(p.downT / 0.55, 0, 1), rise = p.dead ? 0 : clamp(1 - p.timer / 0.9, 0, 1); const k = fall * (1 - rise);
           if (p.airVy !== undefined && (p.airY > 0 || p.airVy > 0)) { p.airVy -= 9.81 * dt; p.airY = Math.max(0, (p.airY || 0) + p.airVy * dt); if (p.airY === 0) { p.airVy = undefined; p.vx *= 0.55; p.vz *= 0.55; } } /* thrown: ballistic arc, momentum lost on landing */
           else { const sl = Math.hypot(p.vx, p.vz); if (sl > 1e-3) { const f = Math.max(0, sl - 7 * dt) / sl; p.vx *= f; p.vz *= f; } } /* sliding along the ground: friction */
           p.ch.mesh.rotation.x = -1.45 * (k * k * (3 - 2 * k)); p.ch.mesh.position.y = 0.12 * k + (p.airY || 0);
           if (p.timer <= 0) { p.ch.mesh.rotation.x = 0; p.ch.mesh.position.y = 0; p.hits = 0; p.downT = 0; p.airY = 0; p.airVy = undefined;
-            if (p.knockedByCar && p.temper > 0.55 && this.rng.chance(0.6)) { this.react(p, 'confront', 3.5); p.ch.anim.set('argue'); p.ch.face.set('angry', 4); this.speak(p, 'annoyed', 1); }
+            if (p.knockedByCar && p.temper > 0.55 && this.rng.chance(0.6)) { this.react(p, 'confront', 3.5, {}, true); p.ch.anim.set('argue'); p.ch.face.set('angry', 4); this.speak(p, 'annoyed', 1); }
             else { p.state = 'flee'; p.timer = 3 + this.rng.next() * 3; p.fleeSp = 2.6 + this.rng.next(); const ax = p.x - player.x, az = p.z - player.z, d = Math.hypot(ax, az) || 1; p.fleeDir = this.spread(ax / d, az / d, 0.8); this.speak(p, 'scared', 1); }
             p.knockedByCar = false; }
           break; }
@@ -354,6 +366,28 @@ export class Crowd {
           p.timer -= dt; const dx = player.x - p.x, dz = player.z - p.z, d = Math.hypot(dx, dz); p.yaw = dampAngle(p.yaw, Math.atan2(dx, dz), 5, dt); avoid = false;
           if (d > 1.5 && d < 6) { tx = player.x; tz = player.z; desired = 1.1; } if (d > 9) p.timer = Math.min(p.timer, 0.3);
           if (p.timer <= 0) { p.ch.face.mood = 'neutral'; this.endReaction(p); } break; }
+        case 'fight': { // squared up with the player: close the distance, circle, throw short combinations, cover up; quit when beaten / the player leaves / pulls a gun
+          p.timer -= dt; avoid = false; accel = 7; const A = p.ch.anim; const Fs = A.fight; const dx = player.x - p.x, dz = player.z - p.z, d = Math.hypot(dx, dz) || 1;
+          p.yaw = dampAngle(p.yaw, Math.atan2(dx, dz), 9, dt); p.lookT = 0; A.look = 0;
+          const away = pv || d > 13 || player.indoor || player.dead; p.fgone = away ? (p.fgone || 0) + dt : 0;
+          if (this.playerArmed && d < 25) { this.react(p, 'flee', 5 + this.rng.next() * 3, { fleeDir: this.spread(-dx / d, -dz / d, 0.5), fleeSp: 3.4 }); p.ch.face.set('fear', 4); this.speak(p, 'scared', 1); p.fighter = false; break; }
+          if (p.ko < 22) { this.react(p, 'flee', 5 + this.rng.next() * 3, { fleeDir: this.spread(-dx / d, -dz / d, 0.6), fleeSp: 3 }); p.ch.face.set('fear', 4); this.speak(p, 'scared', 1); p.fightLost = true; break; }
+          if (p.fgone > 2.5 || p.timer <= 0) { this.react(p, 'complain', 3 + this.rng.next() * 2); p.ch.face.set('angry', 3); this.speak(p, 'annoyed', 1); break; }
+          A.fightOn(true); if (A.action) A.set(null); p.fcd -= dt; p.fstun -= dt; p.fblock -= dt; if (p.fblock <= 0 && Fs.blockOn) A.block(false);
+          // footwork
+          if (p.fstun > 0) desired = 0;
+          else if (d > 1.25) { tx = player.x; tz = player.z; desired = d > 3.5 ? 3.0 : 1.3; }
+          else if (d < 0.75) { tx = p.x - dx / d; tz = p.z - dz / d; desired = 0.9; }
+          else { p.fsideT = (p.fsideT || 0) - dt; if (p.fsideT <= 0) { p.fsideT = 1.2 + this.rng.next() * 1.8; p.fside = this.rng.chance(0.5) ? 1 : -1; if (this.rng.chance(0.25)) p.fside = 0; }
+            const sd = p.fside || 0; if (sd && !Fs.move) { tx = p.x - dz / d * sd; tz = p.z + dx / d * sd; desired = 0.4; } }
+          // combinations
+          if (!Fs.move && p.fstun <= 0 && p.fcd <= 0 && d < 1.4 && !pv) {
+            if (!p.fq || !p.fq.length) p.fq = this.rng.weighted([[['jab'], 2], [['jab', 'cross'], 3], [['jab', 'cross', 'hook'], 1.5], [['cross', 'hook'], 1.2], [['jab', 'upper'], 1], [['hook'], 0.8]]).slice();
+            const m = p.fq.shift(); A.strike(m); A.block(false); p.fblock = 0; p.fmove = m; p.fhit = false; p.fcd = p.fq.length ? FIGHT_MOVES[m].dur * 0.82 : 0.9 + this.rng.next() * 1.1 * (1.25 - p.temper);
+          }
+          if (p.fmove && Fs.move === p.fmove && !p.fhit && Fs.mt >= FIGHT_MOVES[p.fmove].hit) { p.fhit = true; const M = FIGHT_MOVES[p.fmove];
+            if (d <= M.reach + 0.05 && Math.cos(wrapAngle(Math.atan2(dx, dz) - p.yaw)) > 0.75 && this.onStrike) this.onStrike(p, p.fmove, M); }
+          break; }
         case 'complain': { // complain over the shoulder while walking away
           p.timer -= dt; const ax = p.x - player.x, az = p.z - player.z, d = Math.hypot(ax, az) || 1; tx = p.x + ax / d * 4; tz = p.z + az / d * 4; desired = p.pace * 1.1; p.ch.anim.look = clamp(wrapAngle(Math.atan2(-ax, -az) - p.yaw), -1.3, 1.3) * (Math.sin(p.rt * 2) > 0 ? 1 : 0.3);
           if (p.timer <= 0) this.endReaction(p); break; }
@@ -412,7 +446,7 @@ export class Crowd {
       if (dl > maxDv) { p.vx += dsx / dl * maxDv; p.vz += dsz / dl * maxDv; } else { p.vx = dvx; p.vz = dvz; }
       const sp = Math.hypot(p.vx, p.vz); const prevYaw = p.yaw;
       if (p.state === 'scene' && p.faceYaw !== undefined) p.yaw = dampAngle(p.yaw, p.faceYaw, 6, dt);
-      else if (sp > 0.05) { const turnK = p.state === 'flee' || p.state === 'dodge' ? 9 : 5; if (p.state !== 'down' && p.state !== 'stumble') p.yaw = dampAngle(p.yaw, Math.atan2(p.vx, p.vz), turnK * clamp(sp, 0.4, 1.5), dt); }
+      else if (sp > 0.05) { const turnK = p.state === 'flee' || p.state === 'dodge' ? 9 : 5; if (p.state !== 'down' && p.state !== 'stumble' && p.state !== 'fight') p.yaw = dampAngle(p.yaw, Math.atan2(p.vx, p.vz), turnK * clamp(sp, 0.4, 1.5), dt); }
       const ox = p.x, oz = p.z;
       if (p.state === 'down' && sp * dt > 0.09) { // thrown by a vehicle: sub-step so a fast body can't tunnel through a wall, and walls absorb the impact
         const n = Math.min(16, Math.ceil(sp * dt / 0.09)); for (let k = 0; k < n; k++) { p.x += p.vx * dt / n; p.z += p.vz * dt / n; const r = this.collision.resolveCircle(p.x, p.z, 0.3, p.y || 0.15, 0.3);
@@ -482,22 +516,61 @@ export class Crowd {
   // a punch from the player (fists): non-graphic — they stagger back off balance; a third blow in quick succession puts them on the
   // ground for a few seconds. Bystanders notice (alarm) and the stumble ends in a temper-dependent response, weighted towards
   // fleeing / reporting it. Returns true when it landed.
-  punched(p, src) {
-    if (!p || p.state === 'down') return false; const now = performance.now();
-    if (!p.punchAt || now - p.punchAt > 6000) p.punchN = 0; p.punchAt = now; p.punchN = (p.punchN || 0) + 1;
+  // a punch from the player (Boxing.js technique): a knockdown meter (recovers over time, elders / women go down sooner),
+  // a directional reaction (head snaps back / turns / tips up), a push back of a step. Men who are not elderly may square
+  // up and fight back (decided once per person, weighted by temper); everyone else gets away / calls it in. Fighters who
+  // are covering up take a quarter. Non-graphic. Returns true when it landed.
+  punched(p, src, move = 'jab') {
+    if (!p || p.state === 'down' || p.dead) return false; const M = FIGHT_MOVES[move] || FIGHT_MOVES.jab; const now = this.t;
+    p.ko = Math.min(100, (p.ko ?? 100) + (now - (p.koAt ?? now)) * 4); p.koAt = now;
     const dx = p.x - src.x, dz = p.z - src.z, d = Math.hypot(dx, dz) || 1; p.knockedByCar = false; p.lookAt = { x: src.x, z: src.z };
-    if (p.punchN >= 3) { this.react(p, 'down', 4 + this.rng.next() * 3, { yaw: Math.atan2(-dx, -dz) }); p.downT = 0; p.vx = dx / d * 1.4; p.vz = dz / d * 1.4; p.ch.face.set('fear', 6); p.punchN = 0; }
-    else { this.react(p, 'stumble', 0.65 + this.rng.next() * 0.3, { punched: true }); p.vx = dx / d * 2.0; p.vz = dz / d * 2.0; p.ch.anim.set(this.rng.chance(0.5) ? 'hit' : 'stumble'); p.ch.face.set('fear', 2.5); this.speak(p, 'scared', 2); }
-    this.events.emit('pedPunched', p); this.alarm(p.x, p.z, 18, 2, p); return true;
+    const facing = Math.cos(wrapAngle(Math.atan2(-dx, -dz) - p.yaw)) > 0.5; const blocked = p.state === 'fight' && p.fblock > 0 && facing;
+    p.ko -= M.dmg * (blocked ? 0.25 : 1) * (p.sp.age === 'elder' ? 1.6 : p.sp.sex === 'f' ? 1.25 : 1);
+    this.events.emit('pedPunched', p); this.alarm(p.x, p.z, 18, 2, p);
+    if (blocked) { p.ch.anim.takeHit('block', 1, 1); p.vx = dx / d * 0.9; p.vz = dz / d * 0.9; p.fstun = 0.15; return true; }
+    if (p.ko <= 0) { // knocked down (falls back away from the blow), gets up after a while and leaves
+      p.ch.anim.takeHit(M.react, M.dir || 1, 1.3); this.react(p, 'down', 5 + this.rng.next() * 3, { yaw: Math.atan2(-dx, -dz) }); p.downT = 0; p.vx = dx / d * 1.6; p.vz = dz / d * 1.6;
+      p.ch.face.set('fear', 6); p.ko = 50; p.fightLost = true; return true; }
+    p.ch.anim.takeHit(M.react, M.dir || 1, M.pow || 1); const push = move === 'jab' ? 0.9 : move === 'upper' ? 1.2 : 1.6;
+    if (p.state === 'fight') { p.vx = dx / d * push; p.vz = dz / d * push; p.fstun = move === 'jab' ? 0.22 : 0.42; p.fq = null; p.fcd = Math.max(p.fcd || 0, 0.35); return true; }
+    if (p.fighter === undefined) p.fighter = this.willFight(p);
+    if (p.fighter && !p.fightLost && !p.sit) { this.startFight(p); p.vx = dx / d * push; p.vz = dz / d * push; return true; }
+    this.react(p, 'stumble', 0.65 + this.rng.next() * 0.3, { punched: true }); p.vx = dx / d * push * 1.2; p.vz = dz / d * push * 1.2; p.ch.face.set('fear', 2.5); this.speak(p, 'scared', 2);
+    return true;
   }
+  // who squares up: men only, not seniors; likelier for the young and hot-tempered (≈20–70 %)
+  willFight(p) { const sp = p.sp || {}; if (sp.sex !== 'm' || sp.age === 'elder' || sp.band === 'senior') return false; const base = sp.band === 'mature' ? 0.1 : sp.band === 'young' ? 0.25 : 0.2; return this.rng.chance(base + (p.temper || 0) * 0.5); }
+  startFight(p) {
+    this.react(p, 'fight', 30 + this.rng.next() * 20, { fcd: 0.55 + this.rng.next() * 0.4, fstun: 0.4, fq: null, fside: 0, fsideT: 0, fblock: 0, fgone: 0, fmove: null, punched: false });
+    p.ch.anim.fightOn(true); p.ch.face.set('angry', 40); p.ch.face.mood = 'angry'; this.speak(p, 'shoved', 1, 2.2); this.stats && (this.stats.fights = (this.stats.fights || 0) + 1);
+  }
+  // the player is throwing at this fighter: sometimes they cover up in time
+  incoming(p) { if (!p || p.state !== 'fight' || (p.ch.anim.fight && p.ch.anim.fight.move) || p.fstun > 0) return; if (this.rng.chance(0.2 + (p.temper || 0) * 0.2)) { p.ch.anim.block(true); p.fblock = 0.5; } }
   knock(p, fx, fz, speed, offset = 0) {
     if (p.state === 'down') return; this.react(p, 'down', 2.4 + Math.min(3, speed * 0.2), { yaw: Math.atan2(-fx, -fz) }); p.downT = 0; p.knockedByCar = true;
     // impulse: thrown ahead slightly faster than the car (so it can't run over them), deflected to the side they were struck on, and lifted at speed
     const side = Math.max(-1, Math.min(1, offset || (Math.random() - 0.5))); const fwd = Math.min(12, speed * 1.0 + 1), lat = (0.25 + 0.35 * Math.abs(side)) * Math.min(9, speed * 0.5) * (side >= 0 ? 1 : -1);
     p.vx = fx * fwd + fz * lat; p.vz = fz * fwd - fx * lat; p.airY = 0; p.airVy = speed > 6 ? Math.min(4.2, speed * 0.18) : undefined; p.ch.face.set('fear', 4);
+    if (speed > 13) this.kill(p); /* ~47 km/h and faster: they do not get up */
     this.events.emit('pedHit', p); this.speak(p, 'scared', 2); this.alarm(p.x, p.z, 14, 1, p);
   }
   // ---- player-initiated interactions
+  // incapacitated for good: stays on the ground (eyes closed, no reactions), the body stays solid and is cleared away
+  // later when nobody is looking. Non-graphic.
+  kill(p) {
+    if (p.dead) return; p.dead = true; p.deadT = 0; p.timer = 1e9; p.pending = null; p.knockedByCar = false; p.talkFor = 0; p.ch.face.talking = false;
+    if (p.ch.face.set) p.ch.face.set('blink', 1e9); if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; }
+    if (p.partner && p.partner.partner === p) p.partner.partner = null; p.partner = null; this.stats && (this.stats.killed = (this.stats.killed || 0) + 1);
+  }
+  // the body lies BEHIND the feet (the mesh tips backwards about the ankles), so the collision circle at the feet alone let
+  // heads and torsos sink into walls. Check the whole length of the body; turn the fall to a clear bearing, or slide the
+  // feet out from the wall when no bearing is clear.
+  bodyClear(x, z, yaw) { const bx = -Math.sin(yaw), bz = -Math.cos(yaw); for (const s of [0.35, 0.75, 1.15, 1.55, 1.75]) if (this.collision.blocked(x + bx * s, z + bz * s, 0.17)) return false; return true; }
+  fitBody(p, dt, snap) {
+    if (this.bodyClear(p.x, p.z, p.yaw)) return;
+    for (const da of [0.35, -0.35, 0.7, -0.7, 1.1, -1.1, 1.6, -1.6, 2.2, -2.2, Math.PI]) { const y = p.yaw + da; if (this.bodyClear(p.x, p.z, y)) { p.yaw = snap ? y : dampAngle(p.yaw, y, 14, dt); if (!snap && !this.bodyClear(p.x, p.z, p.yaw)) p.yaw = y; return; } }
+    const fx = Math.sin(p.yaw), fz = Math.cos(p.yaw); for (let k = 1; k <= 8; k++) { const nx = p.x + fx * 0.2 * k, nz = p.z + fz * 0.2 * k; if (this.collision.blocked(nx, nz, 0.25)) break; if (this.bodyClear(nx, nz, p.yaw)) { p.x = nx; p.z = nz; return; } }
+  }
   nearest(x, z, r = 2.5) { let b = null, bd = r * r; for (const p of this.peds) { if (p.state === 'down') continue; const d = (p.x - x) ** 2 + (p.z - z) ** 2; if (d < bd) { bd = d; b = p; } } return b; }
   interact(p, kind, player) {
     const face = p.ch.face; p.talkCd = 0;
