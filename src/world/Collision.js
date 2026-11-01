@@ -54,8 +54,11 @@ export class Collision {
         let dx = x - px, dz = z - pz; const d2 = dx * dx + dz * dz;
         if (d2 >= r * r) continue;
         if (d2 < 1e-8) { // centre inside box: push out the shortest way
-          const l = x - c.x0, rr = c.x1 - x, t = z - c.z0, b = c.z1 - z; const m = Math.min(l, rr, t, b);
-          if (m === l) x = c.x0 - r; else if (m === rr) x = c.x1 + r; else if (m === t) z = c.z0 - r; else z = c.z1 + r;
+          // the nearest side can be a seam shared with the next building of a terrace row: pushing out there lands inside the
+          // neighbour, which pushes straight back (people ended up walking inside a block of shops). Take the nearest side
+          // that leads into the open; if every side is shut in, the nearest one as before.
+          const sides = [[x - c.x0, c.x0 - r, z], [c.x1 - x, c.x1 + r, z], [z - c.z0, x, c.z0 - r], [c.z1 - z, x, c.z1 + r]].sort((a, b) => a[0] - b[0]);
+          const pick = sides.find((sd) => !this.solidAt(sd[1], sd[2], c, y, step, height, opts)) || sides[0]; x = pick[1]; z = pick[2];
         } else { const d = Math.sqrt(d2); x = px + (dx / d) * r; z = pz + (dz / d) * r; }
         hit = moved = true;
       }
@@ -65,6 +68,11 @@ export class Collision {
     const B = L.BOUNDS; const nx = Math.max(B.minX + 2, Math.min(B.maxX - 2, x)), nz = Math.max(B.minZ + 2, Math.min(B.maxZ - 2, z));
     if (nx !== x || nz !== z) hit = true;
     return { x: nx, z: nz, hit };
+  }
+  // is (x, z) inside another box that resolveCircle treats as solid at this height (used to pick a clear way out)
+  solidAt(x, z, except, y = 0, step = 0.45, height = 1.8, opts = {}) {
+    for (const c of this.query(x - 0.01, z - 0.01, x + 0.01, z + 0.01)) { if (c === except || SURFACE.has(c.kind)) continue; const base = c.y0 || 0; if (base + c.h <= y + step || base > y + height || (c.walkUnder && !opts.vehicle)) continue; if (x > c.x0 && x < c.x1 && z > c.z0 && z < c.z1) return true; }
+    return false;
   }
   // Segment vs boxes (3D, boxes from y0 to y0+h). Returns fraction t in [0,1] of the first hit, or 1.
   raycast(ax, ay, az, bx, by, bz, pad = 0.2, all = false, minH = 2.2) {

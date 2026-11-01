@@ -110,7 +110,36 @@ const yawJerk = (arr) => { let n = 0; for (let i = 2; i < arr.length; i++) { con
   for (let i = 0; i < 60; i++) { ctx.simTime += 0.05; C.update(0.05, spot, { x: 0, z: 1 }, ctx); }
   const bx = -Math.sin(q.yaw), bz = -Math.cos(q.yaw); let inWall = 0; for (const s2 of [0.4, 0.8, 1.2, 1.6, 1.75]) { const x = q.x + bx * s2, z = q.z + bz * s2; if (x > w.x0 - 0.1 && x < w.x1 + 0.1 && z > w.z0 && z < w.z1) inWall++; }
   ok(q.state === 'down' && inWall === 0, `a body falling towards a wall is turned / slid clear of it (${inWall} of 5 body points inside the wall)`);
+  // kill() from any caller (debug console, scripts) on someone walking: the body goes down and stays down — never a 'dead' walker
+  const k = near[5]; k.state = 'walk'; C.kill(k); const kx = k.x, kz = k.z; for (let i = 0; i < 200; i++) { ctx.simTime += 0.05; C.update(0.05, spot, { x: 0, z: 1 }, ctx); }
+  ok(k.dead && k.state === 'down' && Math.hypot(k.x - kx, k.z - kz) < 1.5, `kill() on a walking person puts the body down for good (state ${k.state}, moved ${Math.hypot(k.x - kx, k.z - kz).toFixed(2)} m)`);
+  // a body lying still next to a wall, nudged by a slow car towards it: never pushed into the wall
+  const q2 = near[4]; const wx = q2.x + 0.5; const w2 = { x0: wx, x1: wx + 3, z0: q2.z - 3, z1: q2.z + 3, h: 4, kind: 'building' }; col.add(w2); q2.vx = 0; q2.vz = 0;
+  const car = { x: q2.x - 1.5, z: q2.z, speed: 0.4, yaw: 0, T: { len: 4 }, radius: 1, half: 2, circles: () => [[car.x, car.z]], pushOut: (px, pz) => ({ x: wx + 0.4, z: pz }) };
+  const vs0 = C.vehicles; C.vehicles = [car]; for (let i = 0; i < 3; i++) { ctx.simTime += 0.05; C.vehicles = [car]; C.update(0.05, spot, { x: 0, z: 1 }, { ...ctx, vehicles: [car] }); } car.pushOut = () => null;
+  for (let i = 0; i < 20; i++) { ctx.simTime += 0.05; C.update(0.05, spot, { x: 0, z: 1 }, ctx); } C.vehicles = vs0;
+  ok(q2.state === 'down' && !col.blocked(q2.x, q2.z, 0.1), `a body nudged by a car towards a wall is not pushed into it (feet at x ${(q2.x - wx).toFixed(2)} m from the wall face)`);
+  col.remove((c) => c === w2);
+  // the kerb rule (calm walkers are kept off the road) never snaps someone back inside a wall
+  const r = near[6]; let road = null; // a kerb running north-south: pavement to the west, road to the east, nothing else around
+  for (let a = 0; a < 3000 && !road; a++) { const t = a * 0.61, d = 3 + a * 0.05; const x0 = r.x + Math.cos(t) * d, z = r.z + Math.sin(t) * d; if (L.roadAt(x0, z) || col.blocked(x0 - 3, z, 2.2)) continue; let xk = null; for (let x = x0; x < x0 + 2; x += 0.02) if (L.roadAt(x, z)) { xk = x; break; }
+    if (xk !== null && L.roadAt(xk + 0.6, z) && L.roadAt(xk, z + 1.5) && L.roadAt(xk, z - 1.5) && !L.roadAt(xk - 0.1, z + 1.5) && !L.roadAt(xk - 0.1, z - 1.5) && !col.blocked(xk + 0.5, z, 0.4)) road = { x: xk, z }; }
+  if (road) { const wb = { x0: road.x - 4, x1: road.x - 0.05, z0: road.z - 2, z1: road.z + 2, h: 6, kind: 'building' }; col.add(wb); r.state = 'walk'; r.dead = false; r.via = null; r.x = wb.x1 - 0.1; r.z = road.z; r.target = { x: wb.x1 - 0.1, z: road.z + 6 }; r.vx = 0; r.vz = 0;
+    for (let i = 0; i < 30; i++) { ctx.simTime += 0.05; C.update(0.05, spot, { x: 0, z: 1 }, ctx); }
+    ok(!col.blocked(r.x, r.z, 0.12), `someone pushed out of a kerbside shopfront onto the road is not snapped back into the wall (${(r.x - wb.x1).toFixed(2)} m from the face, state ${r.state})`); col.remove((c) => c === wb); }
+  else ok(false, 'found a kerb spot for the kerb/wall test');
+  // someone fleeing gunfire towards Beira Lake / the sea stops at the edge and turns along the shore (never into the water)
+  let shore = null; for (let x = -560; x < 900 && !shore; x += 3) for (let z = -1300; z < 1400 && !shore; z += 3) if (L.isWater(x + 2.5, z) && !L.isWater(x, z) && !L.isWater(x - 3, z) && !L.isWater(x, z + 4) && !L.isWater(x, z - 4) && !col.blocked(x - 1, z, 1.2) && !col.blocked(x, z + 3, 0.5) && !col.blocked(x, z - 3, 0.5) && !L.roadAt(x, z)) shore = { x, z };
+  if (shore) { const f = near[7]; Object.assign(f, { x: shore.x - 0.5, z: shore.z, vx: 0, vz: 0, dead: false }); C.react(f, 'flee', 4, { fleeDir: [1, 0], fleeSp: 4 }, true); let wet = 0, path = 0, px = f.x, pz = f.z;
+    for (let i = 0; i < 60; i++) { ctx.simTime += 0.05; C.update(0.05, f, { x: 0, z: 1 }, ctx); if (L.isWater(f.x, f.z) && !col.walkableWater(f.x, f.z, 0.15)) wet++; path += Math.hypot(f.x - px, f.z - pz); px = f.x; pz = f.z; }
+    ok(wet === 0 && path > 3, `fleeing towards the water, a person stops at the edge and runs along the shore (${wet} frames in the water, ran ${path.toFixed(1)} m, at ${shore.x}, ${shore.z})`); }
+  else ok(false, 'found a shore spot for the water test');
   col.remove((c) => c === w); C.clear(); }
+// ---------------------------------------------------------------- 5b. terrace rows: pushed out through the street face, never across a seam
+{ const x = S.x, z = S.z; addBox(x - 6, x, z - 5, z + 5, 9, 'building'); addBox(x, x + 6, z - 5, z + 5, 9, 'building'); addBox(x + 6, x + 12, z - 5, z + 5, 9, 'building'); // three shops wall to wall, 10 m deep
+  let px = x - 0.25, pz = z + 4.0; for (let i = 0; i < 10; i++) { const r = col.resolveCircle(px, pz, 0.28, 0.15, 0.3); px = r.x; pz = r.z; }
+  ok(!col.blocked(px, pz, 0.12) && pz > z + 5, `someone inside a terrace row next to the shared wall is pushed out through the street face (${(pz - z - 5).toFixed(2)} m outside), not back and forth across the seam`);
+  clearAdded(); }
 
 // ---------------------------------------------------------------- 6. parked bay stays empty after the player takes its car
 { const T2 = new Traffic(new THREE.Scene(), col, { emit() {}, on() {} }); T2.max = 0; const sp = CP.plan.parking[Math.floor(CP.plan.parking.length / 3)]; const focus = { x: sp.x, z: sp.z };

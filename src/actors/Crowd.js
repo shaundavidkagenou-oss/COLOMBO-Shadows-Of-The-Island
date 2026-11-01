@@ -437,7 +437,7 @@ export class Crowd {
         }
       }
       // vehicles: steer around and never overlap (moving or parked)
-      for (const v of vnear) { if (p.state === 'down') { /* a fallen person is still solid: slide them out of any footprint (never through the car), carried sideways by a moving car */ const q = v.pushOut(p.x, p.z, 0.45); if (q) { const ex = q.x - p.x, ez = q.z - p.z, el = Math.hypot(ex, ez) || 1; p.x = q.x; p.z = q.z; const vs = Math.abs(v.speed || 0); if (vs > 1) { p.vx += ex / el * Math.min(4, vs * 0.3); p.vz += ez / el * Math.min(4, vs * 0.3); } } continue; } const lim = 2 + (v.T ? v.T.len / 2 : 5); if (Math.abs(v.x - p.x) > lim || Math.abs(v.z - p.z) > lim) continue; for (const [cx, cz] of v.circles()) { const dx = p.x - cx, dz = p.z - cz; const d = Math.hypot(dx, dz), m = v.radius + 0.3; if (d < m + 0.8 && d > 1e-4 && desired > 0) { const k = (m + 0.8 - d) / 0.8; dvx += dx / d * k * 1.6; dvz += dz / d * k * 1.6; } } const q = v.pushOut(p.x, p.z, 0.3); if (q) { p.x = q.x; p.z = q.z; } }
+      for (const v of vnear) { if (p.state === 'down') { /* a fallen person is still solid: slide them out of any footprint (never through the car), carried sideways by a moving car */ const q = v.pushOut(p.x, p.z, 0.45); if (q) { const ex = q.x - p.x, ez = q.z - p.z, el = Math.hypot(ex, ez) || 1; const rq = this.collision.resolveCircle(q.x, q.z, 0.3, p.y || 0.15, 0.3); p.x = rq.x; p.z = rq.z; /* never slid into a wall by the car */ const vs = Math.abs(v.speed || 0); if (vs > 1) { p.vx += ex / el * Math.min(4, vs * 0.3); p.vz += ez / el * Math.min(4, vs * 0.3); } } continue; } const lim = 2 + (v.T ? v.T.len / 2 : 5); if (Math.abs(v.x - p.x) > lim || Math.abs(v.z - p.z) > lim) continue; for (const [cx, cz] of v.circles()) { const dx = p.x - cx, dz = p.z - cz; const d = Math.hypot(dx, dz), m = v.radius + 0.3; if (d < m + 0.8 && d > 1e-4 && desired > 0) { const k = (m + 0.8 - d) / 0.8; dvx += dx / d * k * 1.6; dvz += dz / d * k * 1.6; } } const q = v.pushOut(p.x, p.z, 0.3); if (q) { p.x = q.x; p.z = q.z; } }
       if (p.state === 'down') { dvx = p.vx; dvz = p.vz; } /* knocked: momentum + the down-state friction/arc only */
       if (p.stuckSide > 0) { p.stuckSide -= dt; dvx = p.sideDir[0] * 1.0; dvz = p.sideDir[1] * 1.0; }
       // smoothed acceleration (people do not change velocity instantly)
@@ -454,14 +454,21 @@ export class Crowd {
         p.mv = 0; } else { p.x += p.vx * dt; p.z += p.vz * dt; }
       // collision every frame near the camera; farther away whenever the person has moved 0.1 m
       p.mv = (p.mv || 0) + sp * dt; // distance since the last collision pass: far people are resolved every 0.1 m walked, so they can never tunnel into a trunk or wall
-      if (sp > 0.02 && (lod === 1 || p.mv > 0.1)) { p.mv = 0; const r = this.collision.resolveCircle(p.x, p.z, 0.28, p.y || 0.15, 0.3); if (r.hit) { const cx = r.x - p.x, cz = r.z - p.z, cl = Math.hypot(cx, cz); if (cl > 1e-4) { const vn = (p.vx * cx + p.vz * cz) / cl; if (vn < 0) { p.vx -= cx / cl * vn; p.vz -= cz / cl * vn; } } } p.x = r.x; p.z = r.z; }
+      if ((sp > 0.02 && (lod === 1 || p.mv > 0.1)) || (p.state === 'down' && lod < 3)) { p.mv = 0; // a body lying still is checked too (a car can nudge it without giving it speed)
+        const r = this.collision.resolveCircle(p.x, p.z, 0.28, p.y || 0.15, 0.3); if (r.hit) { const cx = r.x - p.x, cz = r.z - p.z, cl = Math.hypot(cx, cz); if (cl > 1e-4) { const vn = (p.vx * cx + p.vz * cz) / cl; if (vn < 0) { p.vx -= cx / cl * vn; p.vz -= cz / cl * vn; } } } p.x = r.x; p.z = r.z; }
       if (lod < 3 && p.state !== 'down') { // bodies are solid: never pass through another person
         const q = separate(fixed, p.x, p.z, p.y || 0.15, 0.27, p.ch, 0); if (q.hit) { const r2 = this.collision.resolveCircle(q.x, q.z, 0.28, p.y || 0.15, 0.3); p.x = r2.x; p.z = r2.z; p.vx *= 0.5; p.vz *= 0.5; }
         if (lod === 1 && p.state !== 'idle') { const gi = Math.floor(p.x / 2), gj = Math.floor(p.z / 2); for (let i = gi - 1; i <= gi + 1; i++) for (let j = gj - 1; j <= gj + 1; j++) { const a = grid.get(i * 10000 + j); if (!a) continue; for (const o of a) { if (o === p || o.state === 'down' || (o === p.partner && p.state === 'scene' && o.state === 'scene')) continue; const dx = p.x - o.x, dz = p.z - o.z, d2 = dx * dx + dz * dz; if (d2 < 0.2916 && d2 > 1e-8) { const d = Math.sqrt(d2), k = (0.54 - d) * 0.5; p.x += dx / d * k; p.z += dz / d * k; if (o.state !== 'idle' && (o.crossing || !L.roadAt(o.x - dx / d * k, o.z - dz / d * k))) { o.x -= dx / d * k; o.z -= dz / d * k; } } } } }
       }
+      // nobody walks into the sea / lake / canal (panicked people ran straight away from gunfire and ended up standing in
+      // Beira Lake): stop at the edge and, when fleeing, turn along the shore
+      if ((p.x !== ox || p.z !== oz) && L.isWater(p.x, p.z) && !L.isWater(ox, oz) && !this.collision.walkableWater(p.x, p.z, p.y || 0.15)) {
+        p.x = ox; p.z = oz; const vl = Math.hypot(p.vx, p.vz) || 1; const fd = p.state === 'dodge' && p.dodge ? p.dodge : p.fleeDir || [p.vx / vl, p.vz / vl];
+        if (p.state === 'flee' || p.state === 'recover' || p.state === 'dodge') for (const a of [Math.PI / 2, -Math.PI / 2, Math.PI * 0.75, -Math.PI * 0.75, Math.PI]) { const c = Math.cos(a), sn = Math.sin(a); const nx = fd[0] * c - fd[1] * sn, nz = fd[0] * sn + fd[1] * c; if (!L.isWater(ox + nx * 2, oz + nz * 2) && !this.collision.blocked(ox + nx * 1.2, oz + nz * 1.2, 0.3)) { if (p.state === 'dodge') p.dodge = [nx, nz]; else p.fleeDir = [nx, nz]; break; } }
+        p.vx *= 0.2; p.vz *= 0.2; }
       // the kerb is a hard edge for anyone not crossing: crowding at a crossing or side-stepping never pushes people onto the road
       const calm = p.state === 'scene' || p.state === 'recover' || p.state === 'complain' || p.state === 'watch' || (p.state === 'flee' && (p.fleeSp || 0) < 2.6); // walking away from a scuffle is not a panic: they keep to the pavement
-      if (!p.crossing && (this.isRoutine(p.state) || calm) && L.roadAt(p.x, p.z) && !L.roadAt(ox, oz)) { p.x = ox; p.z = oz; p.vx *= 0.3; p.vz *= 0.3; }
+      if (!p.crossing && (this.isRoutine(p.state) || calm) && L.roadAt(p.x, p.z) && !L.roadAt(ox, oz) && !this.collision.blocked(ox, oz, 0.2)) { p.x = ox; /* (never back into a wall: at a shopfront on the kerb the wall push-out and this snap fought every frame) */ p.z = oz; p.vx *= 0.3; p.vz *= 0.3; }
       const moved = Math.hypot(p.x - ox, p.z - oz) / Math.max(dt, 1e-4); p.speed = moved;
       // --- stuck detection & staged recovery: sidestep → rejoin graph → new route → (off-screen only) recycle
       if (desired > 0.3 && p.state !== 'confront') {
@@ -558,7 +565,8 @@ export class Crowd {
   // incapacitated for good: stays on the ground (eyes closed, no reactions), the body stays solid and is cleared away
   // later when nobody is looking. Non-graphic.
   kill(p) {
-    if (p.dead) return; p.dead = true; p.deadT = 0; p.timer = 1e9; p.pending = null; p.knockedByCar = false; p.talkFor = 0; p.ch.face.talking = false;
+    if (p.dead) return; if (p.state !== 'down') { this.react(p, 'down', 1e9, {}, true); p.downT = 0; } // whoever calls kill(), the body is on the ground (never a 'dead' ped that walks on)
+    p.dead = true; p.deadT = 0; p.timer = 1e9; p.pending = null; p.knockedByCar = false; p.talkFor = 0; p.ch.face.talking = false;
     if (p.ch.face.set) p.ch.face.set('blink', 1e9); if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; }
     if (p.partner && p.partner.partner === p) p.partner.partner = null; p.partner = null; this.stats && (this.stats.killed = (this.stats.killed || 0) + 1);
   }

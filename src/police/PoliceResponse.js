@@ -179,7 +179,7 @@ export class PoliceResponse {
     this.level = 0; this.stats.standDowns++; this.search = null; this.incident = null; this.stop = null; this.setState('return'); for (const u of this.units) if (!u.patrol) this.leave(u);
     if (msg) this.g.hud.notify('Police standing down', msg, 'success', 3.5);
   }
-  restore(level) { this.level = clamp(level || 0, 0, 5); if (this.level > 0) { const P = this.g.player; this.incident = { x: P.x, z: P.z, t: 0 }; this.beginSearch(P.x + (Math.random() * 2 - 1) * 25, P.z + (Math.random() * 2 - 1) * 25); } }
+  restore(level) { this.level = clamp(level || 0, 0, 5); if (this.level > 0) { const P = this.g.player; this.incident = { x: P.x, z: P.z, t: 0 }; this.beginSearch(P.x + (Math.random() * 2 - 1) * 25, P.z + (Math.random() * 2 - 1) * 25); } else if (this.state !== 'patrol' && this.state !== 'return') this.standDown(); }
   save() { return { level: this.level }; }
 
   // ------------------------------------------------------------------ sight
@@ -294,10 +294,12 @@ export class PoliceResponse {
       const P = g.player; const close = dToT < (tg.v ? 16 : 28) && this.seenT < 0.3; void P;
       const footChase = st === 'pursuing' && close && (!tg.v || Math.abs(tg.v.speed) < 1.5);
       const gd = ai.goal && ai.goal.piece && ai.goal.dist !== undefined ? ai.goal.dist : Infinity; const reached = gd < 5 && v.speed < 0.6;
-      if (v.speed < 0.3 && !reached) u.stuckT += dt; else u.stuckT = 0;
+      if (v.speed < 0.3 && !reached) u.stuckT += dt; else { u.stuckT = 0; if (v.speed > 3) u.replans = 0; }
       if (footChase) { this.brakeHere(u); if (v.speed < 1) { this.dismount(u, 'chase'); this.say(u.officers[0], this.stars() >= 2 ? 'chase' : 'stop', 'Officer'); } }
       else if (reached || (u.stuckT > 6 && u.goalPt && Math.hypot(v.x - u.goalPt.x, v.z - u.goalPt.z) < 40)) { u.arrived = true; this.onArrive(u); }
-      else if (u.stuckT > 6) { u.stuckT = 0; if (u.goalPt) this.plan(u, u.goalPt.x, u.goalPt.z); }
+      else if (u.stuckT > 6) { u.stuckT = 0; u.replans = (u.replans || 0) + 1; // blocked (a stalled car / another unit ahead): a new route does not clear the lane
+        if (u.replans > 2) { u.replans = 0; if (dToT < 150 && st !== 'patrol') { this.note(`unit ${u.id} blocked in traffic, crew continues on foot`); this.dismount(u, 'chase'); } else { this.stats.recycled++; this.note(`unit ${u.id} blocked in traffic, recycled`); this.leave(u); return; } }
+        else if (u.goalPt) this.plan(u, u.goalPt.x, u.goalPt.z); }
       if (!ai.route && !ai.goal && u.goalPt && u.planT <= -1) { u.planT = 0; this.plan(u, u.goalPt.x, u.goalPt.z); }
     } else if (u.task === 'foot') {
       u.footT += dt; const st = this.state;
