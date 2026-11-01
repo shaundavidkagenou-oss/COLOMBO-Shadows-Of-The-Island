@@ -12,10 +12,10 @@ const OUT = path.join(ROOT, 'dev/mh-cache'); const REPO = 'makehumancommunity/mp
 const api = (u) => new Promise((res, rej) => execFile('gh', ['api', u], { maxBuffer: 256 * 1024 * 1024 }, (e, out) => (e ? rej(e) : res(JSON.parse(out)))));
 export const WANT = [
   '3dobjs/base.obj', 'mesh_metadata/basemesh_vertex_groups.json',
-  ...['african', 'asian', 'caucasian'].map((e) => `targets/macrodetails/${e}-male-young.target.gz`),
+  ...['african', 'asian', 'caucasian'].flatMap((e) => ['male-young', 'female-young', 'male-old', 'female-old'].map((g) => `targets/macrodetails/${e}-${g}.target.gz`)), // (female / old: crowd heads, tools/mh/bake-npc-heads.mjs)
   /^targets\/(expression|nose|mouth|chin|cheek|eyebrows|eyes|head|ears|forehead|neck)\//,
   'rigs/standard/weights.default.json', 'rigs/standard/rig.default.json',
-  /^targets\/macrodetails\/universal-male-young-(average|max)muscle-(average|min)weight\.target\.gz$/,
+  /^targets\/macrodetails\/universal-(male|female)-young-(average|max)muscle-(average|min|max)weight\.target\.gz$/,
   /^uv_layers\/(face_solid|lips_solid|eyelids_solid|scalp_solid|eyes_wide_solid)\.json\.gz$/,
 ];
 const tree = (await api(`repos/${REPO}/git/trees/${BR}?recursive=1`)).tree.filter((e) => e.type === 'blob' && e.path.startsWith('src/mpfb/data/'));

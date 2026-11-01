@@ -14,10 +14,13 @@ const stub = { blocked: () => false, resolveCircle: (x, z) => ({ x, z, hit: fals
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
 // body-frame sideways speed and on-the-spot yaw rate of every lane-driven car, worst case over a run
+// Traffic rate-limits first-time model builds by wall-clock time; drive that clock from simulated time so the amount of
+// traffic does not depend on how fast this machine (or the character builder) happens to be.
+let simMs = 0; performance.now = () => simMs;
 function track(T, steps, dt, focus, extra = () => {}) {
   const prev = new Map(); let worstLat = 0, worstSpin = 0, who = '', samples = 0;
   for (let i = 0; i < steps; i++) {
-    T.update(dt, focus, null, i * dt, [], null); extra(i);
+    simMs += dt * 1000; T.update(dt, focus, null, i * dt, [], null); extra(i);
     for (const v of T.vehicles) {
       const p = prev.get(v); const skid = !!v.free || !v.ai || !!(v.ai && v.ai.chase) || !!v.towedBy;
       if (p && !skid && !p.skid) {

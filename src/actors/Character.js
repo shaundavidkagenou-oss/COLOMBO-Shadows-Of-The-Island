@@ -11,6 +11,7 @@ import { makeAppearance, FACE_VARIANTS } from './Appearance.js';
 import { lerp, clamp, damp } from '../core/math.js';
 import { HERO_EXTRA, HERO_PARENT, heroJoints, fingerLayout, HeroRig, heroUniforms, patchHeroMaterial, faceNormals } from './HeroRig.js';
 import { hasHeroHead, heroHeadFit, buildHeroHead, headMaterials, iblScale, buildEyeball, EXPR_MORPHS, morphIndex, HEAD_MORPHS } from './HeroHead.js';
+import { npcHeadFit, npcHeadGeometry, npcHeadMaterial, npcHeadOpts, npcScalp, NPC_MORPHS } from './NpcHead.js';
 
 export const BONES = ['hips', 'spine', 'chest', 'neck', 'head', 'shL', 'armL', 'foreL', 'handL', 'shR', 'armR', 'foreR', 'handR', 'thighL', 'shinL', 'footL', 'thighR', 'shinR', 'footR', 'skirtF', 'skirtB', 'skirtF2', 'skirtB2'];
 const B = Object.fromEntries([...BONES, ...HERO_EXTRA].map((n, i) => [n, i])); // protagonist-only bones are appended after the shared 23, so crowd indices are unchanged
@@ -205,6 +206,7 @@ export function buildBodyGeometry(sp) {
   const midriff = o === 'saree';
   const HQ = !!sp.hero; // protagonist: high-detail build (more tessellation, articulated fingers, sculpted nose/ears, garment construction details)
   const MH = HQ && hasHeroHead(sp); const NK = MH ? heroHeadFit(sp) : null; // protagonist with an anatomical head (HeroHead.js): no procedural head / hair / facial hair here
+  const NH = HQ ? null : npcHeadFit(sp); // everyone else: anatomical crowd head (NpcHead.js) on the head bone; hair / caps / scarves here are fitted to its skull
   const neckRing = (y, m) => { const C0 = y > 0.5 ? NK.collarAt(y + 0.012) : NK.collar; return { c: [0, y, C0.cz], rx: C0.rx + m, rz: C0.rz + m }; }; // a ring wrapping the hero's real neck (fitted collar ellipse, HeroHead.js) with margin m
   // grow a ring {rx, rz, cz} so it contains the neck collar ellipse with margin m (front, back and sides), keeping its own shape where it is already bigger
   const encloseNeck = (r, m, y) => { const C0 = NK.collarAt(y + 0.012), cz = r.cz || 0; const fr = Math.max(cz + r.rz, C0.cz + C0.rz + m), bk = Math.min(cz - r.rz, C0.cz - C0.rz - m); r.cz = (fr + bk) / 2; r.rz = (fr - bk) / 2; r.rx = Math.max(r.rx, C0.rx + m); return r; };
@@ -229,6 +231,9 @@ export function buildBodyGeometry(sp) {
     if (open) a.col = C(sp.inner || '#e8e4da');
     // every ring that reaches the neck band contains the real neck (the throat sits forward of the ragged opening and used to poke through)
     for (let i = 0; i < tr.length - 2; i++) if (tr[i].y * s > NK.cutY - 0.03) encloseNeck(tr[i], 0.012, Math.max(tr[i].y * s, NK.cutY + 0.01)); }
+  if (NH) { const a = tr[tr.length - 2], b = tr[tr.length - 1], nk = NH.neck; // crowd head: the neck tube meets the head's own neck skirt (NpcHead.js) and tucks up inside it
+    Object.assign(a, { y: Math.min(1.47, (nk.y0 + 0.003) / s), rx: nk.rx + (sp.collar ? 0.008 : 0.002), rz: nk.rz + (sp.collar ? 0.008 : 0.002), cz: nk.cz });
+    Object.assign(b, { y: (nk.y0 + 0.04) / s, rx: nk.rx * 0.84, rz: nk.rz * 0.84, cz: nk.cz }); }
   if (HQ) { tr[0].rz = (f ? 0.1 : 0.093) * w; tr.unshift({ y: 0.79, rx: 0.114 * w, rz: 0.072 * w, wgt: W1('hips'), col: bottom }); } /* rounded seat between the thighs; the front of the pelvis no longer stands proud of the thighs like an apron */ /* rounded seat between the thighs instead of a flat cap */
   const RO = HQ ? 1 : 0;
   const bel = sp.belly || 0; if (bel) [[2, 0.03, 0.02], [3, 0.045, 0.032], [4, 0.022, 0.012]].forEach(([i0, dz, df]) => { const i = i0 + RO; tr[i].rz += bel * dz * w; tr[i].fz = (tr[i].fz || 0) + bel * df; tr[i].rx += bel * 0.012 * w; });
@@ -356,16 +361,16 @@ export function buildBodyGeometry(sp) {
     if (sp.bangles && side === 'L') sb.loft([{ c: [h[0], 0.885 * s, 0], rx: 0.033, rz: 0.035, w: W1('fore' + side), col: C('#d4a640') }, { c: [h[0], 0.9 * s, 0], rx: 0.033, rz: 0.035, w: W1('fore' + side), col: C('#d4a640') }], 8);
   }
   // --- head (separate group so it can take a face texture)
-  const hc = [0, 1.635 * s, 0.015 * s];
+  const hc = NH ? NH.hc.slice() : [0, 1.635 * s, 0.015 * s];
   const HD = sp.head || {}; const jaw = HD.jaw ?? 1, chin = HD.chin ?? 0, cheek = HD.cheek ?? 0;
-  const hr = (f ? [0.083, 0.11, 0.098] : [0.088, 0.115, 0.102]).map((v, i) => v * [HD.w ?? 1, HD.h ?? 1, HD.d ?? 1][i]);
+  const hr = NH ? NH.hr.slice() : (f ? [0.083, 0.11, 0.098] : [0.088, 0.115, 0.102]).map((v, i) => v * [HD.w ?? 1, HD.h ?? 1, HD.d ?? 1][i]);
   // jaw width (lower half, sides), chin projection (front-bottom) and cheekbones (front-mid sides) all vary per person
   const headBump = (x, y, z) => 1 + (z > 0.5 && y < -0.2 ? -0.06 * (z - 0.5) : 0) + (y < -0.55 ? -0.08 * (-y - 0.55) * 2 : 0)
     + (y < -0.15 ? (jaw - 1) * Math.min(1, (-y - 0.15) * 2.2) * Math.abs(x) * 1.3 : 0) + (z > 0.55 && y < -0.6 ? chin * 0.05 * Math.min(1, (z - 0.55) * 3) * Math.min(1, (-y - 0.6) * 4) : 0)
     + (z > 0.2 && y > -0.4 && y < 0.1 ? cheek * 0.022 * Math.abs(x) * (1 - Math.abs(y + 0.15) * 4) : 0);
-  if (!MH) sb.ellipsoid(hc, hr[0], hr[1], hr[2], W1('head'), skin, { lat: HQ ? 26 : 16, lon: HQ ? 40 : 24, faceUV: true, target: sb.headIdx, bumpFn: headBump });
+  if (!MH && !NH) sb.ellipsoid(hc, hr[0], hr[1], hr[2], W1('head'), skin, { lat: HQ ? 26 : 16, lon: HQ ? 40 : 24, faceUV: true, target: sb.headIdx, bumpFn: headBump });
   // nose + ears
-  if (MH) { /* anatomical nose: HeroHead.js */ } else if (HQ) { const nz = HD.nose || [1, 1, 1]; const fz = hc[2] + hr[2]; const dk = skin.map((v) => v * 0.9); // nose: bridge, rounded tip, nostril wings
+  if (MH || NH) { /* anatomical nose / ears: HeroHead.js, NpcHead.js */ } else if (HQ) { const nz = HD.nose || [1, 1, 1]; const fz = hc[2] + hr[2]; const dk = skin.map((v) => v * 0.9); // nose: bridge, rounded tip, nostril wings
     sb.ellipsoid([0, hc[1] - 0.006 - (nz[1] - 1) * 0.008, fz - 0.007], 0.0125 * nz[0], 0.031 * nz[1], 0.0155 * nz[2], W1('head'), skin, { lat: 12, lon: 16, bumpFn: (x, y, z) => (0.62 + 0.38 * (1 - y) * 0.5) * (Math.abs(x) > 0.3 ? 1 : 1) }); // wedge: narrow bridge, wider base
     sb.ellipsoid([0, hc[1] - 0.024 - (nz[1] - 1) * 0.012, fz + 0.0035], 0.0098 * nz[0], 0.0094, 0.0098 * nz[2], W1('head'), skin, { lat: 8, lon: 12 });
     for (const sx of [-1, 1]) sb.ellipsoid([sx * 0.0102 * nz[0], hc[1] - 0.0275 - (nz[1] - 1) * 0.012, fz - 0.0035], 0.0064, 0.0058, 0.0072, W1('head'), dk, { lat: 6, lon: 10 }); }
@@ -396,15 +401,49 @@ export function buildBodyGeometry(sp) {
     const hl = sp.hairline || 0; const rec = hs === 'receding' ? 0.12 : hs === 'balding' ? 0.16 : 0;
     // hairline: high on the forehead, down past the temples to the ears, lower at the nape; below it the cap tucks inside the head.
     // receding / balding raise it at the temples (M-shape); a bob comes down the sides to the jaw.
-    const hairline = (x, z) => { const fr = smooth01((z + 0.1) / 0.75); return lerp(-0.25, f ? 0.4 : 0.5, fr) + (hl + rec) * fr + rec * 1.4 * Math.abs(x) * fr + (f && z > 0.6 ? 0.04 * Math.cos(x * 9) : 0) - (hs === 'bob' && z < 0.5 ? 0.42 * smooth01((Math.abs(x) - 0.5) * 4) : 0); };
+    // crowd heads (real skull, NpcHead.js): forehead → temples / sideburns → arching over the ear → down to the nape
+    const HLZ = f ? [[-1, -0.66], [-0.62, -0.58], [-0.4, -0.05], [-0.12, 0.06], [0.2, -0.06], [0.42, 0.06], [0.68, 0.4], [1, 0.4]] : [[-1, -0.62], [-0.62, -0.55], [-0.4, 0.02], [-0.12, 0.12], [0.2, -0.12], [0.42, 0.02], [0.68, 0.5], [1, 0.5]];
+    const hlTab = (z) => { let i = 0; while (i < HLZ.length - 2 && HLZ[i + 1][0] < z) i++; const a = HLZ[i], b = HLZ[i + 1]; return lerp(a[1], b[1], smooth01((z - a[0]) / (b[0] - a[0]))); };
+    const hairline = NH ? (x, z) => { const fr = smooth01((z + 0.1) / 0.75); return hlTab(z) + (hl + rec) * fr + rec * 1.4 * Math.abs(x) * fr + (f && z > 0.6 ? 0.04 * Math.cos(x * 9) : 0) - (hs === 'bob' && z < 0.5 && z > -0.5 ? 0.3 * smooth01((Math.abs(x) - 0.5) * 4) : 0); } : (x, z) => { const fr = smooth01((z + 0.1) / 0.75); return lerp(-0.25, f ? 0.4 : 0.5, fr) + (hl + rec) * fr + rec * 1.4 * Math.abs(x) * fr + (f && z > 0.6 ? 0.04 * Math.cos(x * 9) : 0) - (hs === 'bob' && z < 0.5 ? 0.42 * smooth01((Math.abs(x) - 0.5) * 4) : 0); };
     // strand-scale relief on top of the style shape: fine combed grooves running crown → hairline (all styles), so the
     // silhouette and the shading break up like real hair instead of a smooth helmet
     const grooves = (x, y, z) => { const ph = Math.atan2(x, z); return 1 + 0.006 * Math.sin(ph * 46 + y * 5) + 0.004 * Math.sin(ph * 97 - y * 9); };
     const tex = (x, y, z) => grooves(x, y, z) * (hs === 'wavy' ? 1 + 0.04 * Math.sin(x * 14) * Math.cos(z * 11) : hs === 'curly' ? 1 + 0.05 * Math.abs(Math.sin(x * 21) * Math.sin(y * 17) * Math.sin(z * 19)) + 0.02 * Math.sin(x * 47) * Math.sin(z * 43) : hs === 'quiff' ? 1 + (y > 0.45 && z > -0.1 ? 0.07 * smooth01((y - 0.45) * 3) * smooth01((z + 0.1) * 2) : 0) : hs === 'sidepart' ? (Math.abs(x - 0.32) < 0.035 && y > 0.4 ? 0.975 : x < 0.32 ? 1.012 : 1) : 1);
-    const bump = (x, y, z) => (y < hairline(x, z) ? 0.9 / lift : hs === 'balding' && y > 0.6 && z > -0.5 ? 0.9 / lift : 1) * tex(x, y, z);
-    const p1 = Math.PI * (f ? (hs === 'bob' ? 0.7 : 0.6) : 0.52); const H = sb.hairIdx;
-    sb.ellipsoid([hc[0], hc[1] + 0.012, hc[2] - 0.006], hr[0] * lift, hr[1] * 1.02, hr[2] * lift, W1('head'), hair, { lat: hs === 'curly' ? 22 : 18, lon: hs === 'curly' ? 44 : 36, p0: 0, p1, bumpFn: bump, target: H });
-    if (!f && hs !== 'balding') for (const sx of [-1, 1]) { if (HQ) sb.ellipsoid([sx * hr[0] * 0.955, hc[1] - 0.004, hc[2] + 0.024], 0.0055, 0.022, 0.0085, W1('head'), hair.map((v, i) => v * 0.85 + skin[i] * 0.15), { lat: 8, lon: 12, target: H }); else sb.ellipsoid([sx * hr[0] * 0.97, hc[1] - 0.012, hc[2] + 0.014], 0.007, 0.026, 0.014, W1('head'), hair, { lat: 4, lon: 6, target: H }); } // sideburns (hero: slim, in front of the ear)
+    // the cap sinks under the skin below the hairline; a soft ramp (not a step) so the edge follows a clean curve instead of the mesh grid
+    const bump = NH ? (x, y, z) => { const h = hairline(x, z); const k = smooth01((y - h + 0.06) / 0.075) * (hs === 'balding' && z > -0.5 ? 1 - smooth01((y - 0.52) / 0.12) : 1); return lerp(0.88 / lift, 1, k) * tex(x, y, z); }
+      : (x, y, z) => (y < hairline(x, z) ? 0.9 / lift : hs === 'balding' && y > 0.6 && z > -0.5 ? 0.9 / lift : 1) * tex(x, y, z);
+    const p1 = Math.PI * (NH ? (f ? (hs === 'bob' ? 0.8 : 0.76) : 0.74) : f ? (hs === 'bob' ? 0.7 : 0.6) : 0.52); const H = sb.hairIdx;
+    if (NH) { // crowd head: the hair cap is grown from the head's own scalp (NpcHead.js) — exact fit, and a soft hairline that
+      // fades into the skin (forehead → temples / sideburns → arching over the ear → nape), instead of an ellipsoid cut on a grid
+      const SC = npcScalp(NH.v), L = SC.L, P = SC.P, Nr = SC.Nrm, ecy = L.ell.c[1], ecz = L.ell.c[2], er = L.ell.r;
+      const aE = Math.atan2(L.ear[0], L.ear[2] - ecz), earTop = L.ear[1] + 0.022, nape = L.lobe[1] - 0.026;
+      const longF = f && (hs === 'long' || hs === 'shoulder'), bobF = hs === 'bob';
+      const front = (f ? 0.056 : 0.062) + hl * 0.08 + rec * 0.1;
+      const side = bobF ? L.lobe[1] - 0.012 : longF ? L.ear[1] + 0.004 : hs === 'crew' ? 0.008 : f ? 0.004 : -0.01;
+      const over = bobF ? L.lobe[1] - 0.012 : longF ? L.ear[1] + 0.004 : earTop;
+      const TAB = [[0, front], [0.5, front], [aE - 0.6, (front + side) * 0.5 + 0.01], [aE - 0.32, side], [aE - 0.17, over], [aE + 0.28, over], [aE + 0.62, nape + 0.02], [Math.PI + 0.01, nape]];
+      const hAt = (a) => { let i = 0; while (i < TAB.length - 2 && TAB[i + 1][0] < a) i++; const u = TAB[i], v = TAB[i + 1]; return lerp(u[1], v[1], smooth01((a - u[0]) / (v[0] - u[0]))); };
+      const TH = { crew: 0.0035, short: 0.006, grey: 0.0055, receding: 0.005, balding: 0.005, wavy: 0.01, curly: 0.014, quiff: 0.007, sidepart: 0.0075 }[hs] ?? (f ? 0.008 : 0.006);
+      const covAt = (x, y, z, ears) => { const a = Math.abs(Math.atan2(x, z - ecz)); const h = hAt(a) + rec * 0.12 * smooth01((a - 0.15) / 0.35) * (1 - smooth01((a - 0.8) / 0.3));
+        let c = smooth01((y - h + 0.005) / 0.013); if (hs === 'balding') c *= 1 - smooth01((y - (L.crown - 0.05)) / 0.02) * (1 - smooth01((a - 2.0) / 0.5));
+        const qn = Math.hypot(x / er[0], (y - ecy) / er[1], (z - ecz) / er[2]); return c * (1 - smooth01((ears - 0.06) / 0.25) * smooth01((qn - 1.1) / 0.08)); }; // ear = the part standing off the skull
+      const n = SC.N0, m = new Float32Array(n); for (let i = 0; i < n; i++) if (SC.part[i] === 0) m[i] = covAt(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], SC.ears[i]);
+      // the MakeHuman scalp is coarse (it expects hair meshes): one level of curved (PN-style) subdivision for the cap
+      const V = []; const vOf = new Map(); const base = (i) => { if (!vOf.has(i)) { vOf.set(i, V.length); V.push({ p: [P[i * 3], P[i * 3 + 1], P[i * 3 + 2]], n: [Nr[i * 3], Nr[i * 3 + 1], Nr[i * 3 + 2]], e: SC.ears[i] }); } return vOf.get(i); };
+      const mid = (i, j) => { const key = i < j ? i * 65536 + j : j * 65536 + i; if (vOf.has(-key - 1)) return vOf.get(-key - 1); const A = V[base(i)], Bv = V[base(j)];
+        const d = A.p.map((v, k) => Bv.p[k] - v), dn = A.n.map((v, k) => v - Bv.n[k]); const sag = -(d[0] * dn[0] + d[1] * dn[1] + d[2] * dn[2]) / 8; let nn = A.n.map((v, k) => v + Bv.n[k]); const l = Math.hypot(...nn) || 1; nn = nn.map((v) => v / l);
+        const id = V.length; V.push({ p: A.p.map((v, k) => (v + Bv.p[k]) / 2 + nn[k] * sag), n: nn, e: (A.e + Bv.e) / 2 }); vOf.set(-key - 1, id); return id; };
+      const tris = []; for (let t = 0; t < SC.tris.length; t += 3) { const a = SC.tris[t], b = SC.tris[t + 1], c = SC.tris[t + 2]; if (Math.max(m[a], m[b], m[c]) < 0.02) continue;
+        const A = base(a), Bb = base(b), Cc = base(c), ab = mid(a, b), bc = mid(b, c), ca = mid(c, a); tris.push(A, ab, ca, ab, Bb, bc, ca, bc, Cc, ab, bc, ca); }
+      const hn = (i) => (((Math.sin(i * 12.9898 + (sp.seed || 1) * 78.233) * 43758.5453) % 1) + 1) % 1; const vid = new Int32Array(V.length).fill(-1);
+      for (const i of tris) if (vid[i] < 0) { const { p: q, n: nq, e } = V[i]; const mm = covAt(q[0], q[1], q[2], e);
+        let ux = q[0] / er[0], uy = (q[1] - ecy) / er[1], uz = (q[2] - ecz) / er[2]; const ul = Math.hypot(ux, uy, uz) || 1; ux /= ul; uy /= ul; uz /= ul;
+        const off = lerp(-0.002, TH + (tex(ux, uy, uz) - 1) * 0.085, Math.pow(mm, 0.7)); // dives under the skin below the hairline → the edge is a smooth curve
+        const k2 = 0.9 + 0.2 * hn(i); const col = hair.map((v) => Math.min(1, v * k2 + 0.004));
+        vid[i] = sb.pos.length / 3; sb.v(NH.T([q[0] + nq[0] * off, q[1] + nq[1] * off, q[2] + nq[2] * off]), nq, col, [0.01, 0.51], W1('head')); }
+      for (const i of tris) H.push(vid[i]);
+    } else sb.ellipsoid([hc[0], hc[1] + 0.012, hc[2] - 0.006], hr[0] * lift, hr[1] * 1.02, hr[2] * lift, W1('head'), hair, { lat: hs === 'curly' ? 22 : 18, lon: hs === 'curly' ? 44 : 36, p0: 0, p1, bumpFn: bump, target: H });
+    if (!f && hs !== 'balding' && !NH) for (const sx of [-1, 1]) { if (HQ) sb.ellipsoid([sx * hr[0] * 0.955, hc[1] - 0.004, hc[2] + 0.024], 0.0055, 0.022, 0.0085, W1('head'), hair.map((v, i) => v * 0.85 + skin[i] * 0.15), { lat: 8, lon: 12, target: H }); else sb.ellipsoid([sx * hr[0] * 0.97, hc[1] - 0.012, hc[2] + 0.014], 0.007, 0.026, 0.014, W1('head'), hair, { lat: 4, lon: 6, target: H }); } // sideburns (hero: slim, in front of the ear)
     const hv = (j) => { const k = 0.9 + 0.2 * (((Math.sin(j * 12.9898 + (sp.seed || 1) * 78.233) * 43758.5453) % 1 + 1) % 1); return hair.map((v) => Math.min(1, v * k + 0.004)); };
     const hashN = (j) => (((Math.sin(j * 91.7 + (sp.seed || 1) * 13.1) * 43758.5453) % 1) + 1) % 1;
     if (f || hs === 'long') {
@@ -445,7 +484,7 @@ export function buildBodyGeometry(sp) {
     }
   }
   // facial hair: beard shells follow the jaw exactly (same centre, radii and jaw shaping as the head), so they cannot drift off the face
-  if (!MH && (sp.beard || sp.goatee)) {
+  if (!MH && !NH && (sp.beard || sp.goatee)) { // (crowd heads carry their facial hair in NpcHead.js)
     const thick = sp.goatee ? 1.03 : sp.beardShort ? 1.016 : 1.03;
     const ssf = (a, b, v) => { const t = clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
     const beardSoft = (x, y, z) => { const hb = headBump(x, y, z); // hero: same beard regions as below, but blended with smooth masks so the beard edge follows a clean contour instead of the mesh grid
@@ -463,9 +502,12 @@ export function buildBodyGeometry(sp) {
       for (const sx of [-1, 1]) sb.ellipsoid([sx * 0.021, hc[1] - 0.045, hc[2] + hr[2] * 0.895], 0.0125, 0.0085, 0.0095, W1('head'), mc, { lat: 8, lon: 12, bumpFn: strands }); }
     else if (!sp.goatee) sb.ellipsoid([0, hc[1] - 0.04, hc[2] + hr[2] * 0.93], 0.032, 0.009, 0.012, W1('head'), hair, { lat: 4, lon: 8 });
   }
-  if (sp.moustache && HQ && !MH) { const mc = hair.map((v, i) => v * 0.9 + skin[i] * 0.1); const strands = (x, y, z) => 1 + 0.05 * Math.sin(x * 37) * (y < 0 ? 1 : 0.4); sb.ellipsoid([0, hc[1] - 0.041, hc[2] + hr[2] - 0.015], 0.024, 0.0072, 0.0105, W1('head'), mc, { lat: 8, lon: 16, bumpFn: strands }); for (const sx of [-1, 1]) sb.ellipsoid([sx * 0.021, hc[1] - 0.045, hc[2] + hr[2] - 0.02], 0.011, 0.0068, 0.009, W1('head'), mc, { lat: 8, lon: 12, bumpFn: strands }); }
-  else if (sp.moustache && !MH) sb.ellipsoid([0, hc[1] - 0.042, hc[2] + hr[2] - 0.016], 0.03, 0.008, 0.012, W1('head'), hair, { lat: 4, lon: 8 });
-  if (sp.glasses && !MH) { const gz = hc[2] + hr[2] - 0.006, gy = hc[1] + 0.006; for (const sx of [-1, 1]) { sb.boxPart([sx * 0.034, gy + 0.012, gz], 0.038, 0.004, 0.004, W1('head'), C('#1a1a1a')); sb.boxPart([sx * 0.034, gy - 0.01, gz - 0.001], 0.034, 0.003, 0.004, W1('head'), C('#1a1a1a')); sb.boxPart([sx * 0.053, gy + 0.001, gz - 0.002], 0.003, 0.022, 0.004, W1('head'), C('#1a1a1a')); } sb.boxPart([0, gy + 0.008, gz + 0.002], 0.016, 0.003, 0.004, W1('head'), C('#1a1a1a')); }
+  if (sp.moustache && HQ && !MH && !NH) { const mc = hair.map((v, i) => v * 0.9 + skin[i] * 0.1); const strands = (x, y, z) => 1 + 0.05 * Math.sin(x * 37) * (y < 0 ? 1 : 0.4); sb.ellipsoid([0, hc[1] - 0.041, hc[2] + hr[2] - 0.015], 0.024, 0.0072, 0.0105, W1('head'), mc, { lat: 8, lon: 16, bumpFn: strands }); for (const sx of [-1, 1]) sb.ellipsoid([sx * 0.021, hc[1] - 0.045, hc[2] + hr[2] - 0.02], 0.011, 0.0068, 0.009, W1('head'), mc, { lat: 8, lon: 12, bumpFn: strands }); }
+  else if (sp.moustache && !MH && !NH) sb.ellipsoid([0, hc[1] - 0.042, hc[2] + hr[2] - 0.016], 0.03, 0.008, 0.012, W1('head'), hair, { lat: 4, lon: 8 });
+  if (sp.glasses && NH) { const gy = NH.eyeL[1] + 0.003, gz = NH.eyeL[2] + NH.er + 0.012, ex = Math.abs(NH.eyeL[0]), fc = C('#1a1a1a'), hw = W1('head'), ax = Math.max(hr[0] * 1.02, ex + 0.03) + 0.002, az1 = NH.lobeL[2] + 0.01; // frames on the real eyes, temples back to the ears
+    for (const sx of [-1, 1]) { sb.boxPart([sx * ex, gy + 0.013, gz], 0.04, 0.004, 0.004, hw, fc); sb.boxPart([sx * ex, gy - 0.011, gz - 0.001], 0.036, 0.003, 0.004, hw, fc); sb.boxPart([sx * (ex + 0.02), gy + 0.001, gz - 0.002], 0.003, 0.024, 0.004, hw, fc); sb.boxPart([sx * (ex + 0.0215 + (ax - ex - 0.0215) / 2), gy + 0.01, gz - 0.003], ax - ex - 0.0215, 0.004, 0.004, hw, fc); sb.boxPart([sx * ax, gy + 0.01, (gz - 0.003 + az1) / 2], 0.003, 0.004, gz - 0.003 - az1, hw, fc); }
+    sb.boxPart([0, gy + 0.009, gz + 0.002], 2 * ex - 0.04, 0.003, 0.004, hw, fc); }
+  else if (sp.glasses && !MH) { const gz = hc[2] + hr[2] - 0.006, gy = hc[1] + 0.006; for (const sx of [-1, 1]) { sb.boxPart([sx * 0.034, gy + 0.012, gz], 0.038, 0.004, 0.004, W1('head'), C('#1a1a1a')); sb.boxPart([sx * 0.034, gy - 0.01, gz - 0.001], 0.034, 0.003, 0.004, W1('head'), C('#1a1a1a')); sb.boxPart([sx * 0.053, gy + 0.001, gz - 0.002], 0.003, 0.022, 0.004, W1('head'), C('#1a1a1a')); } sb.boxPart([0, gy + 0.008, gz + 0.002], 0.016, 0.003, 0.004, W1('head'), C('#1a1a1a')); }
   // ---- garment construction (hero only): seams, tapes, pockets, belt — flat strips laid on the cloth surface, skinned like the torso
   if (HQ) {
     const tw = (y) => (y / s < 0.99 ? W1('hips') : y / s < 1.2 ? W2('spine', 'chest', 0.3) : W1('chest'));
@@ -525,8 +567,12 @@ export function buildBodyGeometry(sp) {
   // ---- accessories (each placed on the clothing surface or the head shell so nothing sinks into the body)
   const band = (pts, width, col, wgtFn) => { sb.strip(pts.map((p, i) => { const nx = pts[Math.min(i + 1, pts.length - 1)], pv = pts[Math.max(i - 1, 0)]; const d = new THREE.Vector3(nx[0] - pv[0], nx[1] - pv[1], nx[2] - pv[2]).normalize(); const out = new THREE.Vector3(p[0], 0, p[2]).normalize(); const side = new THREE.Vector3().crossVectors(d, out).normalize(); return { c: p, side: [side.x, side.y, side.z], out: [out.x, out.y, out.z], w: wgtFn(p[1]) }; }), width, (q) => q.out, null, col, 0); };
   const torsoW = (y) => (y > 1.3 * s ? W1('chest') : y > 1.1 * s ? W2('spine', 'chest', 0.5) : W1('hips'));
-  if (sp.sunglasses) { const gz = hc[2] + hr[2] - 0.003, gy = hc[1] + 0.005, k = C('#0d0f12'); for (const sx of [-1, 1]) { sb.boxPart([sx * 0.034, gy, gz], 0.042, 0.026, 0.005, W1('head'), k); sb.boxPart([sx * (hr[0] + 0.001), gy + 0.008, hc[2] + hr[2] * 0.35], 0.004, 0.005, hr[2] * 1.15, W1('head'), k); } sb.boxPart([0, gy + 0.009, gz + 0.001], 0.03, 0.005, 0.005, W1('head'), k); }
+  if (sp.sunglasses && NH) { const gy = NH.eyeL[1] + 0.003, gz = NH.eyeL[2] + NH.er + 0.013, ex = Math.abs(NH.eyeL[0]), k = C('#0d0f12'), hw = W1('head'), ax = Math.max(hr[0] * 1.02, ex + 0.03) + 0.002, az1 = NH.lobeL[2] + 0.01;
+    for (const sx of [-1, 1]) { sb.boxPart([sx * ex, gy, gz], 0.044, 0.028, 0.005, hw, k); sb.boxPart([sx * (ex + 0.0225 + (ax - ex - 0.0225) / 2), gy + 0.009, gz - 0.003], ax - ex - 0.0225, 0.005, 0.005, hw, k); sb.boxPart([sx * ax, gy + 0.009, (gz - 0.003 + az1) / 2], 0.004, 0.005, gz - 0.003 - az1, hw, k); }
+    sb.boxPart([0, gy + 0.009, gz + 0.001], 2 * ex - 0.042, 0.005, 0.005, hw, k); }
+  else if (sp.sunglasses) { const gz = hc[2] + hr[2] - 0.003, gy = hc[1] + 0.005, k = C('#0d0f12'); for (const sx of [-1, 1]) { sb.boxPart([sx * 0.034, gy, gz], 0.042, 0.026, 0.005, W1('head'), k); sb.boxPart([sx * (hr[0] + 0.001), gy + 0.008, hc[2] + hr[2] * 0.35], 0.004, 0.005, hr[2] * 1.15, W1('head'), k); } sb.boxPart([0, gy + 0.009, gz + 0.001], 0.03, 0.005, 0.005, W1('head'), k); }
   if (sp.cap) {
+    const hcY = hc[1]; if (NH && sp.capStyle !== 'bucket' && sp.capStyle !== 'straw') hc[1] -= 0.02; /* crowd heads: the fitted skull ellipsoid is shorter than the old egg head, so headwear sits 2 cm lower on it */
     const cr = Math.max(1.12, hairLift + 0.03);
     if (sp.capStyle === 'skull') sb.ellipsoid([hc[0], hc[1] + 0.036, hc[2] - 0.004], hr[0] * Math.max(1.07, hairLift + 0.02), hr[1] * 0.8, hr[2] * Math.max(1.07, hairLift + 0.02), W1('head'), C(sp.cap), { lat: 6, lon: 16, p0: 0, p1: Math.PI * 0.36 });
     else if (sp.capStyle === 'nurse') { sb.boxPart([0, hc[1] + hr[1] * 0.98, hc[2] + 0.01], 0.11, 0.03, 0.08, W1('head'), C('#ffffff')); sb.boxPart([0, hc[1] + hr[1] * 0.98 + 0.012, hc[2] + 0.052], 0.1, 0.012, 0.006, W1('head'), C('#2a4a8a')); }
@@ -547,8 +593,9 @@ export function buildBodyGeometry(sp) {
       const kOut = st ? 2.05 : 1.48, yOut = b0 - (st ? 0.022 : 0.04), uc = cc.map((v) => v * 0.8);
       sb.loft([ring(yOut, kOut, cc), ring(b0 - 0.004, br * (st ? 1.9 : 1.32), cc), ring(b0, br, bandC), ring(b0 + 0.03, br + 0.008, bandC), ring(top - 0.022, br - 0.03, cc), ring(top, br - 0.3, cc)], 18, { capEnd: true });
       sb.loft([ring(b0 - 0.01, br * (st ? 1.9 : 1.32), uc), ring(yOut - 0.006, kOut, uc)], 18, { capStart: false, capEnd: false }); } // brim underside (faces down)
-    else { sb.ellipsoid([hc[0], hc[1] + 0.03, hc[2]], hr[0] * cr, hr[1] * 0.85, hr[2] * cr, W1('head'), C(sp.cap), { lat: 6, lon: 14, p0: 0, p1: Math.PI * 0.42 });
-      sb.boxPart([0, hc[1] + 0.03 + hr[1] * 0.85 * Math.cos(Math.PI * 0.42) - 0.002, hc[2] + hr[2] * cr * 0.97 + 0.03], 0.15, 0.008, 0.075, W1('head'), C(sp.cap)); } // peak
+    else { sb.ellipsoid([hc[0], hc[1] + 0.03, hc[2]], hr[0] * cr, hr[1] * (NH ? 1.0 : 0.85) + (NH ? 0.012 : 0), hr[2] * cr, W1('head'), C(sp.cap), { lat: 6, lon: 14, p0: 0, p1: Math.PI * 0.42 });
+      sb.boxPart([0, hc[1] + 0.03 + (hr[1] * (NH ? 1.0 : 0.85) + (NH ? 0.012 : 0)) * Math.cos(Math.PI * 0.42) - 0.002, hc[2] + hr[2] * cr * 0.97 + 0.03], 0.15, 0.008, 0.075, W1('head'), C(sp.cap)); } // peak
+    hc[1] = hcY;
   }
   if (sp.bag) { // backpack with shoulder straps
     const bz = surfZ(1.22 * s, 0, -1) - 0.062; sb.boxPart([0, 1.2 * s, bz], 0.28 * w, 0.36, 0.12, W1('chest'), C(sp.bag)); sb.boxPart([0, 1.08 * s, bz - 0.065], 0.22 * w, 0.12, 0.02, W1('chest'), C(sp.bag).map((v) => v * 0.8));
@@ -574,7 +621,8 @@ export function buildBodyGeometry(sp) {
   if (sp.watch) { const h = J.handL; const wc = C(sp.watch);
     sb.loft([{ c: [h[0], 0.893 * s, 0], rx: 0.031, rz: 0.033, w: W1('foreL'), col: C('#1a1a1a') }, { c: [h[0], 0.909 * s, 0], rx: 0.031, rz: 0.033, w: W1('foreL'), col: C('#1a1a1a') }], 10);
     sb.boxPart([h[0] + 0.03, 0.901 * s, 0.0], 0.008, 0.026, 0.026, W1('foreL'), wc); }
-  if (sp.earrings) for (const sx of [-1, 1]) sb.ellipsoid([sx * (hr[0] * 1.02 + 0.002), hc[1] - 0.034, hc[2] - 0.006], 0.006, 0.009, 0.006, W1('head'), C('#d4a640'), { lat: 4, lon: 6 });
+  if (sp.earrings && NH) for (const sx of [-1, 1]) { const l = sx > 0 ? NH.lobeL : NH.lobeR; sb.ellipsoid([l[0] + sx * 0.002, l[1] - 0.007, l[2] + 0.003], 0.0045, 0.0075, 0.0045, W1('head'), C('#d4a640'), { lat: 4, lon: 6 }); }
+  else if (sp.earrings) for (const sx of [-1, 1]) sb.ellipsoid([sx * (hr[0] * 1.02 + 0.002), hc[1] - 0.034, hc[2] - 0.006], 0.006, 0.009, 0.006, W1('head'), C('#d4a640'), { lat: 4, lon: 6 });
   if (sp.necklace) sb.loft([{ c: [0, 1.448 * s, 0.008], rx: 0.084, rz: 0.07, w: W1('chest'), col: C('#d4a640') }, { c: [0, 1.456 * s, 0.006], rx: 0.08, rz: 0.066, w: W1('chest'), col: C('#d4a640') }], 14);
   if (sp.epaulettes) for (const side of ['L', 'R']) { const a = J['arm' + side]; const ec = C(sp.epaulettes === true ? (sp.bottom || '#1f2a44') : sp.epaulettes); sb.boxPart([a[0] * 0.8, 1.392 * s + 0.047, -0.004], 0.075, 0.008, 0.042, W2('chest', 'arm' + side, 0.4), ec);
     for (let k = 0; k < (sp.pips || 0); k++) sb.boxPart([a[0] * (0.68 + k * 0.1), 1.392 * s + 0.053, -0.004], 0.012, 0.005, 0.012, W2('chest', 'arm' + side, 0.4), C('#e2bd48')); } // rank pips
@@ -737,11 +785,11 @@ export class Character {
     this.spec = spec; const key = JSON.stringify(spec); const skelKey = `${spec.sex}|${spec.height.toFixed(3)}|${spec.build.toFixed(3)}`;
     let geo = geoCache.get(key); if (!geo) { geo = buildBodyGeometry(spec); geoCache.set(key, geo); }
     const { bones, skeleton } = makeSkeleton(spec, skelKey);
-    const fv = spec.faceV != null ? FACE_VARIANTS[spec.faceV] : null; let faceMat;
-    if (fv) faceMat = getFaceMaterial(`v${spec.faceV}`, { female: spec.sex === 'f', stubble: fv.stubble || 0, seed: spec.faceV, lips: fv.lips, size: 192, v: fv });
+    const fv = spec.faceV != null ? FACE_VARIANTS[spec.faceV] : null; let faceMat = null; const npcHead = !spec.hero;
+    if (npcHead) { /* anatomical crowd head (attachNpcHead): no face texture */ } else if (fv) faceMat = getFaceMaterial(`v${spec.faceV}`, { female: spec.sex === 'f', stubble: fv.stubble || 0, seed: spec.faceV, lips: fv.lips, size: 192, v: fv });
     else { const stub = spec.beard ? 0.9 : spec.sex === 'm' && spec.age === 'adult' ? 0.35 : 0; faceMat = getFaceMaterial(`${spec.sex}|${stub}|${spec.seed % 2}`, { female: spec.sex === 'f', stubble: stub, seed: spec.seed % 2, lips: spec.sex === 'f' ? '#8a3a3a' : '#7a4a40' }); }
     this.face = new FaceRig(this, faceMat);
-    let mats = [getBodyMaterial(), this.face.mat, getHairMaterial()];
+    let mats = [getBodyMaterial(), this.face.mat || getBodyMaterial(), getHairMaterial()];
     if (spec.hero) { // protagonists: own material instances with DQ skinning, subsurface skin, wetness / sweat, expression normals
       if (!geo.attributes.aSkin) geo.setAttribute('aSkin', new THREE.Float32BufferAttribute(skinMask(geo, spec), 1));
       this.heroU = heroUniforms(); const hb = getHairMaterial(); const fn = faceNormals();
@@ -754,6 +802,7 @@ export class Character {
     this.root = new THREE.Group(); this.root.add(this.mesh);
     this.bones = Object.fromEntries(bones.map((b) => [b.name, b])); this.hipY = bones[0].position.y;
     if (spec.hero && hasHeroHead(spec)) this.attachHeroHead(skeleton);
+    if (npcHead) this.attachNpcHead(fv);
     this.anim = new Animator(this); if (spec.hero) this.rig = new HeroRig(this);
     LIVE.add(this);
   }
@@ -770,6 +819,23 @@ export class Character {
     if (H.glasses) { const gl = H.glasses.clone(); gl.position.set(H.fit.o[0] - jh[0], H.fit.o[1] - jh[1], H.fit.o[2] - jh[2]); hb.add(gl); this.glasses = gl; }
     this.face.attachMorphs(m, this.eyes);
   }
+  // crowd head (NpcHead.js): a plain mesh rigid on the head bone — shared geometry (eyes, teeth, facial hair included), own small material
+  attachNpcHead(fv) {
+    const sp = this.spec; const F = npcHeadFit(sp); const o = npcHeadOpts(sp); const g = npcHeadGeometry(F.v, o); const mat = npcHeadMaterial(sp, fv, g);
+    const m = new THREE.Mesh(g, mat); m.name = 'npcHead';
+    // distance LOD: beyond ~11 m (a face is then ~15 px tall) the same head at ~1/3 of the triangles; one material, one shared
+    // set of morph influences, so expressions / blinks carry over seamlessly
+    const lo = new THREE.Mesh(npcHeadGeometry(F.v, o, 1), mat); lo.name = 'npcHeadLo'; lo.morphTargetInfluences = m.morphTargetInfluences;
+    const lod = new THREE.LOD(); lod.name = 'npcHeadLOD'; lod.addLevel(m, 0); lod.addLevel(lo, 11, 0.12);
+    const jh = joints(sp).head; lod.position.set(F.o[0] - jh[0], F.o[1] - jh[1], F.o[2] - jh[2]); lod.scale.setScalar(F.k);
+    // shadows: the near head casts exactly when the body does (the crowd turns distant shadows off). The far head casts
+    // none — the body's own hair / scarf shell already gives the crown its shadow, and a distant face profile in a shadow is
+    // invisible — which keeps a distant crowd head at one extra draw instead of two
+    const body = this.mesh; m.receiveShadow = false; lo.receiveShadow = false; lo.castShadow = false;
+    Object.defineProperty(m, 'castShadow', { get: () => body.castShadow, set() {}, configurable: true });
+    this.bones.head.add(lod); this.head = m; this.headLo = lo; this.headMats = [mat];
+    this.face.attachMorphs(m, null, NPC_MORPHS);
+  }
   dispose() { LIVE.delete(this); this.mesh.skeleton.dispose(); this.face.dispose(); if (this.heroMats) for (const m of this.heroMats) m.dispose(); if (this.headMats) for (const m of this.headMats) m.dispose(); }
   // convenience for gameplay code: expression for a while, or talking on/off
   express(name, dur = 2.5) { this.face.set(name, dur); }
@@ -783,27 +849,32 @@ export const CAM = new THREE.Vector3(); // set every frame by the game
 const FIDX = Object.fromEntries(FACE_FRAMES.map((n, i) => [n, i]));
 export class FaceRig {
   constructor(ch, base) {
-    this.ch = ch; this.mat = base.clone(); this.mat.map = base.map.clone(); this.frame = -1;
+    this.ch = ch; this.mat = base ? base.clone() : null; if (base) this.mat.map = base.map.clone(); this.frame = -1;
     this.expr = 'neutral'; this.exprT = 0; this.mood = 'neutral'; this.blinkT = 0.5 + Math.random() * 4; this.blink = 0; this.talking = false; this.flapT = 0; this.flap = 0; this.glanceT = 2 + Math.random() * 5; this.glance = null;
     this.show(0);
   }
   // protagonists: drive the head's expression morphs and eyeballs instead of atlas frames
-  attachMorphs(mesh, eyes) { this.morph = mesh; this.eyes = eyes; this.mw = new Float32Array(HEAD_MORPHS.length); this.mt = new Float32Array(HEAD_MORPHS.length); this.gaze = [0, 0]; this.sacc = [0, 0]; this.saccT = 0.5; this.flapAmp = 0.5; }
+  // crowd heads pass their own morph list (gaze = the two trailing look morphs instead of eyeball pivots)
+  attachMorphs(mesh, eyes, names = null) { this.morph = mesh; this.eyes = eyes; const map = names ? Object.fromEntries(names.map((n, i) => [n, i])) : null; this.mi = map ? (k) => map[k] ?? -1 : morphIndex;
+    this.lookI = map ? [map.lookL, map.lookR] : null; const n = map ? names.length - 2 : HEAD_MORPHS.length; this.npc = !!map;
+    this.mw = new Float32Array(n); this.mt = new Float32Array(n); this.gaze = [0, 0]; this.sacc = [0, 0]; this.saccT = 0.5; this.flapAmp = 0.5; }
   drive(dt, f) {
     const t = this.mt; t.fill(0); const base = this.expr === 'talk' || this.expr === 'blink' || this.expr === 'lookL' || this.expr === 'lookR' ? 'neutral' : this.expr;
-    const ex = EXPR_MORPHS[base] || {}; for (const k in ex) t[morphIndex(k)] = ex[k];
-    const jaw = morphIndex('jaw'); if (this.talking) { t[jaw] = Math.max(t[jaw], this.flap ? 0.16 + 0.24 * this.flapAmp : 0.025); t[morphIndex('stretch')] += this.flap ? 0.08 * this.flapAmp : 0; t[morphIndex('pucker')] += this.flap ? 0 : 0.12 * this.flapAmp; }
+    const ex = EXPR_MORPHS[base] || {}; for (const k in ex) t[this.mi(k)] = ex[k];
+    const jaw = this.mi('jaw'); if (this.talking) { t[jaw] = Math.max(t[jaw], this.flap ? 0.16 + 0.24 * this.flapAmp : 0.025); t[this.mi('stretch')] += this.flap ? 0.08 * this.flapAmp : 0; t[this.mi('pucker')] += this.flap ? 0 : 0.12 * this.flapAmp; }
     let b = this.blink > 0 ? Math.sin(Math.PI * clamp(1 - this.blink / 0.13, 0, 1)) : 0; if (base === 'surprise') b = 0; if (this.expr === 'blink') b = 1;
-    const bl = morphIndex('blinkL'), br = morphIndex('blinkR'); t[bl] = Math.max(t[bl], b); t[br] = Math.max(t[br], b);
+    const bl = this.mi('blinkL'), br = this.mi('blinkR'); t[bl] = Math.max(t[bl], b); t[br] = Math.max(t[br], b);
     const W = this.mw, inf = this.morph.morphTargetInfluences; for (let i = 0; i < W.length; i++) { const rate = i === bl || i === br ? 70 : i === jaw ? 30 : 10; W[i] += (t[i] - W[i]) * (1 - Math.exp(-rate * dt)); inf[i] = W[i]; }
     this.saccT -= dt; if (this.saccT < 0) { this.sacc = [(Math.random() - 0.5) * 0.09, (Math.random() - 0.5) * 0.05]; this.saccT = 0.35 + Math.random() * 1.8; } // micro-saccades
     const gy = (f === 'lookL' ? 0.34 : f === 'lookR' ? -0.34 : 0) + this.sacc[0], gp = this.sacc[1] + b * 0.18 + (base === 'concern' || base === 'pain' ? 0.06 : 0);
     const k = 1 - Math.exp(-28 * dt); this.gaze[0] += (gy - this.gaze[0]) * k; this.gaze[1] += (gp - this.gaze[1]) * k;
-    for (const e of this.eyes) e.rotation.set(this.gaze[1], this.gaze[0], 0);
+    if (this.eyes) for (const e of this.eyes) e.rotation.set(this.gaze[1], this.gaze[0], 0);
+    else if (this.lookI) { inf[this.lookI[0]] = clamp(this.gaze[0] / 0.34, 0, 1.2); inf[this.lookI[1]] = clamp(-this.gaze[0] / 0.34, 0, 1.2); }
   }
   set(name, dur = 2.5) { if (!(name in FIDX)) return; this.expr = name; this.exprT = dur; if (name === 'surprise' || name === 'fear') this.blinkT = Math.max(this.blinkT, 1.2); }
-  show(i) { if (i === this.frame) return; this.frame = i; this.mat.map.offset.y = 1 - (i + 1) / FACE_FRAMES.length; }
+  show(i) { if (i === this.frame || !this.mat) return; this.frame = i; this.mat.map.offset.y = 1 - (i + 1) / FACE_FRAMES.length; }
   update(dt) {
+    if (this.npc && this.morph.castShadow !== this.ch.mesh.castShadow) this.morph.castShadow = this.ch.mesh.castShadow; // crowd shadow LOD (Crowd.js) covers the head too
     const e = this.ch.root.matrixWorld.elements; const d2 = (e[12] - CAM.x) ** 2 + (e[13] - CAM.y) ** 2 + (e[14] - CAM.z) ** 2;
     if (d2 > 28 * 28 && CAM.lengthSq() > 0) { if (this.frame !== 0 && this.frame !== FIDX[this.mood]) this.show(FIDX[this.mood] || 0); return; }
     if (this.exprT > 0) { this.exprT -= dt; if (this.exprT <= 0) this.expr = this.mood; }
@@ -819,7 +890,7 @@ export class FaceRig {
   }
   // the map clone shares its GPU image with every face of the same variant (~25 atlases in the whole game). Disposing it freed
   // that image when the last such face despawned, and the next spawn re-uploaded 384x1920 px mid-game (a frame stall); kept resident.
-  dispose() { this.mat.dispose(); }
+  dispose() { if (this.mat) this.mat.dispose(); }
 }
 
 // ------------------------------------------------------------------ procedural animator
