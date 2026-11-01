@@ -23,6 +23,14 @@ Pick a preset under Settings → Graphics: Low, Medium, High or Ultra.
 - `/dev/vehicles.html`: all vehicle types, inspectable from any angle.
 - `/dev/weapons.html`: all nine weapon models. Use `?only=<id>` for one weapon and `?side=1` for side views.
 
+## Windows .exe (desktop build)
+Double-click **`build-exe.bat`** in the project folder (Windows 10/11 x64, [Node.js 18+](https://nodejs.org), internet the first time). It installs the packages, builds the game, wraps it in Electron and writes:
+
+- `desktop/release/COLOMBO-Shadows-of-the-Island-1.0.0-portable.exe`: a single file you can run directly.
+- `desktop/release/COLOMBO-Shadows-of-the-Island-1.0.0-setup.exe`: an installer with Start-menu and desktop shortcuts.
+
+The desktop build is the same game as the browser version. It is served from a private `app://` origin, so save games are kept between launches. F11 toggles fullscreen. The first run downloads roughly 250 MB (Vite, Electron, electron-builder). The `.exe` is not code-signed, so Windows SmartScreen may ask you to confirm with *More info → Run anyway*.
+
 ## The city
 
 **Districts:** Fort, Pettah, Galle Face, Beira Lake / Lotus Tower, Slave Island, Kollupitiya, Cinnamon Gardens, Bambalapitiya, Wellawatte, Borella, Maradana, Kotahena and the port.
