@@ -451,6 +451,7 @@ export class Weapons {
     this.el.msg = el('weap-msg', root);
   }
   icon(d) { // small original silhouettes for the wheel / card
+    if (d.cls === 'explosive') return '<svg viewBox="0 0 36 36" width="34" height="34"><path d="M15 5h7v3h-7z M13 9h11v3h-11z M18.5 12c6.5 0 10 4.6 10 10.5S24.6 33 18.5 33 8.5 28.4 8.5 22.5 12 12 18.5 12z" fill="currentColor"/><path d="M24 9c4 0 6 2.5 5.5 6.5L28 15c.3-2.6-1-4-4-4z" fill="currentColor"/><circle cx="10.5" cy="9.5" r="3.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8.5 18.5h20M8.5 24h20" stroke="rgba(0,0,0,.35)" stroke-width="1"/></svg>';
     const P = { pistol: 'M6 14h34v6H22l-2 12h-8l2-12H6z', rifle: 'M2 14h14v-3h40v3h8v4H52l-2 4h-6l-2 8h-6l1-8H24l-2 6H10l2-6H2z', sniper: 'M2 15h12v-2h26V9h12v4h18v3H44l-2 3h-5l-2 9h-6l2-9H22l-2 5H8l2-5H2z' }[d.cls];
     return `<svg viewBox="0 0 72 36" width="${d.cls === 'pistol' ? 48 : 86}" height="36"><path d="${P}" fill="currentColor"/></svg>`;
   }

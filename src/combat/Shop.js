@@ -9,7 +9,11 @@ export const CATEGORIES = [
   { id: 'rifle', label: 'Rifles' },
   { id: 'sniper', label: 'Marksman' },
   { id: 'ammo', label: 'Ammunition' },
+  { id: 'explosive', label: 'Explosives' },
 ];
+// hand grenades: not a weapon slot — a separate throwable (key B), counted per character (Squad member .grenades)
+export const GRENADE = { id: 'frag', name: 'Fragmentation grenade', cls: 'explosive', fuse: 4 };
+export const GRENADE_CAP = 6;
 // weapon price, short shop-counter description (original copy), and the price of one magazine's worth of rounds
 export const STOCK = {
   compact:   { price: 4500,  ammo: 380,  blurb: 'Small, light and easy to carry. Ten rounds, quick to draw — a sensible first purchase.' },
@@ -28,6 +32,8 @@ export function catalogue() {
   const out = [];
   WEAPONS.forEach((w, i) => out.push({ key: 'w:' + w.id, kind: 'weapon', cat: w.cls, slot: i, w, name: w.name, price: STOCK[w.id].price, blurb: STOCK[w.id].blurb }));
   WEAPONS.forEach((w, i) => out.push({ key: 'a:' + w.id, kind: 'ammo', cat: 'ammo', slot: i, w, name: `${w.name} rounds`, qty: w.mag, price: STOCK[w.id].ammo, blurb: `One magazine's worth (${w.mag} rounds) for the ${w.name}. You can carry up to ${reserveCap(w)} spare rounds.` }));
+  out.push({ key: 'g:frag', kind: 'grenade', cat: 'explosive', slot: null, w: GRENADE, name: 'Fragmentation grenade', qty: 1, price: 3500, blurb: `Hand grenade with a ${GRENADE.fuse}-second fuze. Pull the pin, throw, take cover: lethal within a few metres, dangerous well beyond. Carry up to ${GRENADE_CAP}.` });
+  out.push({ key: 'g:frag3', kind: 'grenade', cat: 'explosive', slot: null, w: GRENADE, name: 'Fragmentation grenades ×3', qty: 3, price: 9900, blurb: `Three grenades in a canvas pouch, a little cheaper than buying them one by one. Tops you up if you are already carrying some (up to ${GRENADE_CAP}).` });
   return out;
 }
 // 0..1 bars for the stat panel
@@ -37,8 +43,13 @@ export function stats(w) {
 }
 // what the buy button would do, without doing it
 export function quote(item, inv, money, opts = {}) {
-  const slot = inv[item.slot];
   if (opts.wanted) return { ok: false, why: 'The shop will not serve anyone the police are looking for.' };
+  if (item.kind === 'grenade') { // opts.grenades = how many the active character carries
+    const room = GRENADE_CAP - (opts.grenades | 0); if (room <= 0) return { ok: false, full: true, why: 'Carrying the maximum' };
+    const n = Math.min(item.qty, room), cost = Math.round(item.price * n / item.qty); if (money < cost) return { ok: false, why: 'Not enough money' };
+    return { ok: true, cost, count: n };
+  }
+  const slot = inv[item.slot];
   if (item.kind === 'weapon') {
     if (slot.owned) return { ok: false, owned: true, why: 'Already owned' };
     if (money < item.price) return { ok: false, why: 'Not enough money' };
@@ -53,6 +64,7 @@ export function quote(item, inv, money, opts = {}) {
 // apply a purchase: mutates the inventory slot, returns { ok, cost, msg }. The caller takes the money (Story.pay(-cost)).
 export function purchase(item, inv, money, opts = {}) {
   const q = quote(item, inv, money, opts); if (!q.ok) return { ok: false, cost: 0, msg: q.why };
+  if (item.kind === 'grenade') { const total = (opts.grenades | 0) + q.count; return { ok: true, cost: q.cost, grenades: total, msg: `+${q.count} grenade${q.count > 1 ? 's' : ''} — carrying ${total}` }; } // caller stores the count
   const slot = inv[item.slot];
   if (item.kind === 'weapon') { slot.owned = true; slot.mag = item.w.mag; slot.reserve = item.w.mag * 2; return { ok: true, cost: q.cost, msg: `${item.w.name} bought — comes with ${item.w.mag * 2} spare rounds`, weapon: true }; }
   slot.reserve += q.rounds; return { ok: true, cost: q.cost, msg: `+${q.rounds} rounds for the ${item.w.name}` };

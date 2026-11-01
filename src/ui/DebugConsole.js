@@ -59,7 +59,7 @@ export class DebugConsole {
     try {
       switch (c) {
         case 'help': ['debug.menu true|false — enable the debug menu (open it with Numpad 2)', 'time <0-24> · freeze [on|off]', `weather <${Object.keys(WEATHER).join('|')}>`, 'money <amount>', 'god [on|off] · ammo [on|off] (infinite) · nowanted [on|off]',
-          `give <all|${WEAPONS.map((w) => w.id).join('|')}>`, 'tp <place> | tp <x> <z> | tp waypoint · places', `spawn ped [n] · spawn car [${VEH.join('|')}|<catalogue id>]`, 'cars — list the 40 catalogue vehicles (ids for spawn car)', `model <${MODELS.join('|')}|civilian|reset>`, 'dress [outfit] — re-dress pedestrians within 35 m · outfits', 'heal · clear · close'].forEach((s) => this.print('  ' + s)); break;
+          `give <all|grenades|${WEAPONS.map((w) => w.id).join('|')}>`, 'tp <place> | tp <x> <z> | tp waypoint · places', `spawn ped [n] · spawn car [${VEH.join('|')}|<catalogue id>]`, 'cars — list the 40 catalogue vehicles (ids for spawn car)', `model <${MODELS.join('|')}|civilian|reset>`, 'dress [outfit] — re-dress pedestrians within 35 m · outfits', 'heal · clear · close'].forEach((s) => this.print('  ' + s)); break;
         case 'debug.menu': this.D.menuEnabled = on(a[0], this.D.menuEnabled); if (!this.D.menuEnabled) this.toggleMenu(false); this.print(`debug menu ${this.D.menuEnabled ? 'ENABLED — press Numpad 2 to open it' : 'disabled'}`, 'ok'); break;
         case 'time': this.setTime(+a[0]); break;
         case 'freeze': this.D.freezeTime = on(a[0], this.D.freezeTime); this.print(`clock ${this.D.freezeTime ? 'frozen' : 'running'}`, 'ok'); break;
@@ -88,6 +88,7 @@ export class DebugConsole {
   setWeather(w) { if (!WEATHER[w]) throw new Error('weather: ' + Object.keys(WEATHER).join(', ')); const A = this.g.atmos; A.forceWeather(w); A.setWeather(w, true); A.forced = null; A.lastEnvHour = -99; this.say(`weather ${w}`); }
   money(n) { if (!Number.isFinite(n) || n === 0) throw new Error('money <amount>'); this.g.story.pay(Math.round(n), 'Debug cheat'); this.say(`money ${n > 0 ? '+' : ''}${n.toLocaleString('en-LK')}`); }
   give(id) {
+    if (id === 'grenades' || id === 'grenade') { const G = this.g.grenades; if (!G) throw new Error('no grenades'); G.count = 6; this.say(`6 grenades given to ${this.g.squad?.activeMember?.def?.name || 'player'} (throw: B)`); return; }
     const inv = this.g.weapons.inv; const list = id === 'all' ? WEAPONS : WEAPONS.filter((w) => w.id === id); if (!list.length) throw new Error('unknown weapon');
     for (const w of list) { const s = inv[WEAPONS.indexOf(w)]; s.owned = true; s.mag = w.mag; s.reserve = w.reserve; }
     const W = this.g.weapons; if (W.sel < 0 && !W.drawn) { W.sel = WEAPONS.indexOf(list[0]); W.showHolstered(); }

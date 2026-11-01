@@ -8,10 +8,11 @@ import { Input } from '../core/Input.js';
 import { Audio } from '../audio/Audio.js';
 import { WEAPONS } from '../combat/WeaponDefs.js';
 import { buildWeaponModel } from '../combat/WeaponModels.js';
-import { CATEGORIES, SHOP_NAME, catalogue, stats, quote, purchase, reserveCap } from '../combat/Shop.js';
+import { CATEGORIES, SHOP_NAME, catalogue, stats, quote, purchase, reserveCap, GRENADE, GRENADE_CAP } from '../combat/Shop.js';
+import { buildGrenadeModel } from '../combat/GrenadeModel.js';
 
 const rs = (n) => 'Rs. ' + Math.round(n).toLocaleString('en-LK');
-const CLS = { pistol: 'Handgun', rifle: 'Rifle', sniper: 'Marksman rifle' };
+const CLS = { pistol: 'Handgun', rifle: 'Rifle', sniper: 'Marksman rifle', explosive: 'Explosive' };
 
 export class GunShopUI {
   constructor(game, parent) {
@@ -28,7 +29,7 @@ export class GunShopUI {
   }
   get list() { const c = CATEGORIES[this.cat].id; return this.items.filter((it) => it.cat === c); }
   get member() { return this.g.squad?.activeMember?.def?.name || 'You'; }
-  ctx() { const g = this.g; return { inv: g.weapons.inv, money: g.story.state.money, opts: { wanted: (g.police?.level || 0) > 0 } }; }
+  ctx() { const g = this.g; return { inv: g.weapons.inv, money: g.story.state.money, opts: { wanted: (g.police?.level || 0) > 0, grenades: g.grenades ? g.grenades.count : 0 } }; }
   toggle(v = !this.open) {
     const g = this.g, P = g.player; if (v === this.open) return; this.open = v; this.root.classList.toggle('hidden', !v);
     if (v) { this.prevControl = P.control; P.control = false; Input.releaseLock(); this.flash = null; if (!this.previews) this.makePreviews(); this.render(); Audio.ui('click');
@@ -48,7 +49,7 @@ export class GunShopUI {
     const g = this.g; const it = this.list[this.row]; if (!it) return; const c = this.ctx();
     const r = purchase(it, c.inv, c.money, c.opts);
     if (!r.ok) { this.flash = { bad: true, msg: r.msg }; Audio.ui('fail'); this.render(); return; }
-    g.story.pay(-r.cost, `${SHOP_NAME}: ${it.kind === 'weapon' ? it.w.name : it.name} (${this.member})`);
+    g.story.pay(-r.cost, `${SHOP_NAME}: ${it.kind === 'weapon' ? it.w.name : it.name} (${this.member})`); if (it.kind === 'grenade' && g.grenades) g.grenades.count = r.grenades;
     if (r.weapon && (g.weapons.sel < 0 || !c.inv[g.weapons.sel]?.owned) && !g.weapons.drawn) { g.weapons.sel = it.slot; g.weapons.showHolstered(); } // first gun: carried holstered, ready to draw
     this.flash = { bad: false, msg: r.msg }; Audio.ui('success'); g.hud.notify(SHOP_NAME, `${r.msg} · ${rs(r.cost)}`, 'info', 3); this.render();
     if (g.autosave) g.autosave(); // the purchase (money + loadout) is on disk straight away
@@ -64,10 +65,10 @@ export class GunShopUI {
       const cv = document.createElement('canvas'); cv.width = W; cv.height = H; const a = cv.getContext('2d'); const img = a.createImageData(W, H);
       const prevRT = R.getRenderTarget(), prevTM = R.toneMapping, prevCol = new THREE.Color(); R.getClearColor(prevCol); const prevA = R.getClearAlpha();
       R.toneMapping = THREE.NoToneMapping; R.setClearColor(0x000000, 0);
-      for (const w of WEAPONS) {
-        const m = buildWeaponModel(w); m.rotation.y = -Math.PI / 2; sc.add(m); m.updateMatrixWorld(true);
+      for (const w of [...WEAPONS, GRENADE]) {
+        const m = w === GRENADE ? buildGrenadeModel() : buildWeaponModel(w); if (w === GRENADE) { m.rotation.set(0.15, 0.6, -0.25); m.scale.setScalar(1); } m.rotation.y = -Math.PI / 2; sc.add(m); m.updateMatrixWorld(true);
         const box = new THREE.Box3().setFromObject(m), ctr = box.getCenter(new THREE.Vector3()), sz = box.getSize(new THREE.Vector3());
-        const fit = Math.max(sz.x / (2 * Math.tan(THREE.MathUtils.degToRad(12)) * (W / H)), sz.y / (2 * Math.tan(THREE.MathUtils.degToRad(12)))) * 1.18;
+        const fit = Math.max(sz.x / (2 * Math.tan(THREE.MathUtils.degToRad(12)) * (W / H)), sz.y / (2 * Math.tan(THREE.MathUtils.degToRad(12)))) * (w === GRENADE ? 2.6 : 1.18); /* the panel crops tall images: the grenade gets extra margin */
         cam.position.set(ctr.x + fit * 0.08, ctr.y + fit * 0.12, ctr.z + fit); cam.lookAt(ctr); cam.updateMatrixWorld();
         R.setRenderTarget(rt); R.clear(); R.render(sc, cam); R.readRenderTargetPixels(rt, 0, 0, W, H, px); let any = false; for (let i = 3; i < px.length; i += 28) if (px[i] > 8) { any = true; break; } if (!any) { sc.remove(m); continue; } /* empty render: keep the vector icon */
         for (let y = 0; y < H; y++) img.data.set(px.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4); // flip rows
@@ -79,20 +80,20 @@ export class GunShopUI {
   render() {
     const g = this.g; const c = this.ctx(); const list = this.list; this.row = Math.min(this.row, list.length - 1); const it = list[this.row];
     const tabs = CATEGORIES.map((ct, i) => `<button class="gs-tab${i === this.cat ? ' on' : ''}" data-act="cat" data-i="${i}">${ct.label}</button>`).join('');
-    const rows = list.map((x, i) => { const q = quote(x, c.inv, c.money, c.opts); const s = c.inv[x.slot];
-      const st = x.kind === 'weapon' ? (s.owned ? '<span class="gs-own">OWNED</span>' : '') : (s.owned ? `<span class="gs-cnt">${s.reserve} / ${reserveCap(x.w)}</span>` : '<span class="gs-lock">NO WEAPON</span>');
+    const rows = list.map((x, i) => { const q = quote(x, c.inv, c.money, c.opts); const s = x.kind === 'grenade' ? { owned: true, reserve: c.opts.grenades } : c.inv[x.slot];
+      const st = x.kind === 'grenade' ? `<span class="gs-cnt">${c.opts.grenades} / ${GRENADE_CAP}</span>` : x.kind === 'weapon' ? (s.owned ? '<span class="gs-own">OWNED</span>' : '') : (s.owned ? `<span class="gs-cnt">${s.reserve} / ${reserveCap(x.w)}</span>` : '<span class="gs-lock">NO WEAPON</span>');
       return `<button class="gs-row${i === this.row ? ' on' : ''}${q.ok ? '' : ' dim'}" data-act="item" data-i="${i}"><span class="gs-ico">${this.previews?.[x.w.id] ? `<img src="${this.previews[x.w.id]}" alt="">` : g.weapons.icon(x.w)}</span><span class="gs-nm">${x.name}</span>${st}<span class="gs-pr">${rs(x.price)}</span></button>`; }).join('');
     let det = '';
-    if (it) { const q = quote(it, c.inv, c.money, c.opts); const s = c.inv[it.slot]; const w = it.w; const pv = this.previews?.[w.id];
-      const bars = stats(w).map(([n, v]) => `<div class="gs-stat"><span>${n}</span><i><b style="width:${Math.round(v * 100)}%"></b></i></div>`).join('');
-      const facts = it.kind === 'weapon'
+    if (it) { const q = quote(it, c.inv, c.money, c.opts); const gr = it.kind === 'grenade'; const s = gr ? { owned: true, reserve: c.opts.grenades } : c.inv[it.slot]; const w = it.w; const pv = this.previews?.[w.id];
+      const bars = gr ? '' : stats(w).map(([n, v]) => `<div class="gs-stat"><span>${n}</span><i><b style="width:${Math.round(v * 100)}%"></b></i></div>`).join('');
+      const facts = gr ? `<div class="gs-facts"><div><small>Pack</small>${it.qty} grenade${it.qty > 1 ? 's' : ''}</div><div><small>Carrying</small>${c.opts.grenades} (${this.member})</div><div><small>Max carried</small>${GRENADE_CAP}</div><div><small>Fuze</small>${GRENADE.fuse} s · throw: B</div></div>` : it.kind === 'weapon'
         ? `<div class="gs-facts"><div><small>Magazine</small>${w.mag} rds</div><div><small>Fire mode</small>${w.auto ? 'Automatic' : w.cycle ? 'Bolt / manual' : 'Semi-auto'}</div><div><small>Optic</small>${w.zoom ? w.zoom + '× scope' : 'Iron sights'}</div><div><small>Comes with</small>${w.mag * 2} spare rds</div></div>`
         : `<div class="gs-facts"><div><small>Pack</small>${it.qty} rds</div><div><small>Carrying</small>${s.owned ? s.reserve : 0} rds</div><div><small>Max spare</small>${reserveCap(w)} rds</div><div><small>For</small>${w.name}</div></div>`;
-      const status = q.ok ? (it.kind === 'ammo' && q.rounds < it.qty ? `Tops up ${q.rounds} rounds for ${rs(q.cost)}` : 'Available') : q.why;
-      det = `<div class="gs-pv">${pv ? `<img src="${pv}" alt="">` : `<div class="gs-pvi">${g.weapons.icon(w)}</div>`}${it.kind === 'ammo' ? '<div class="gs-ammo-tag">AMMUNITION</div>' : ''}</div>
-        <div class="gs-dh"><div><div class="gs-cls">${it.kind === 'weapon' ? CLS[w.cls] : 'Ammunition · ' + CLS[w.cls]}</div><h2>${it.name}</h2></div><div class="gs-price">${rs(q.ok ? q.cost : it.price)}</div></div>
+      const status = q.ok ? (gr && q.count < it.qty ? `Tops up ${q.count} for ${rs(q.cost)}` : it.kind === 'ammo' && q.rounds < it.qty ? `Tops up ${q.rounds} rounds for ${rs(q.cost)}` : 'Available') : q.why;
+      det = `<div class="gs-pv">${pv ? `<img src="${pv}" alt="">` : `<div class="gs-pvi">${g.weapons.icon(w)}</div>`}${it.kind === 'ammo' ? '<div class="gs-ammo-tag">AMMUNITION</div>' : gr ? '<div class="gs-ammo-tag">EXPLOSIVE</div>' : ''}</div>
+        <div class="gs-dh"><div><div class="gs-cls">${it.kind === 'weapon' || gr ? CLS[w.cls] : 'Ammunition · ' + CLS[w.cls]}</div><h2>${it.name}</h2></div><div class="gs-price">${rs(q.ok ? q.cost : it.price)}</div></div>
         <p class="gs-blurb">${it.blurb}</p>${it.kind === 'weapon' ? `<div class="gs-stats">${bars}</div>` : ''}${facts}
-        <div class="gs-buyrow"><div class="gs-status${q.ok ? ' ok' : ''}">${status}</div><button class="gs-buy" data-act="buy" ${q.ok ? '' : 'disabled'}>${it.kind === 'weapon' ? (s.owned ? 'Owned' : 'Buy weapon') : 'Buy rounds'}</button></div>
+        <div class="gs-buyrow"><div class="gs-status${q.ok ? ' ok' : ''}">${status}</div><button class="gs-buy" data-act="buy" ${q.ok ? '' : 'disabled'}>${gr ? 'Buy grenades' : it.kind === 'weapon' ? (s.owned ? 'Owned' : 'Buy weapon') : 'Buy rounds'}</button></div>
         ${this.flash ? `<div class="gs-flash${this.flash.bad ? ' bad' : ''}">${this.flash.msg}</div>` : ''}`; }
     const oldList = this.root.querySelector('.gs-list'), oldDet = this.root.querySelector('.gs-det'); const keep = { list: oldList ? oldList.scrollTop : 0, det: oldDet && this._detKey === `${this.cat}:${this.row}` ? oldDet.scrollTop : 0 }; this._detKey = `${this.cat}:${this.row}`;
     this.root.innerHTML = `<div class="gs-panel">

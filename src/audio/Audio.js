@@ -13,7 +13,9 @@ class AudioEngine {
     const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
     const c = (this.ctx = new AC());
     this.master = c.createGain(); this.master.connect(c.destination);
-    const comp = c.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 3; comp.connect(this.master); this.out = comp;
+    const comp = c.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 3; this.out = comp;
+    // concussion muffle (a close explosion): a low-pass between the mix and the master, wide open (inaudible) normally
+    this.lp = c.createBiquadFilter(); this.lp.type = 'lowpass'; this.lp.frequency.value = 22000; this.lp.Q.value = 0.5; comp.connect(this.lp); this.lp.connect(this.master);
     const mk = () => { const g = c.createGain(); g.connect(comp); return g; };
     this.bus = { music: mk(), sfx: mk(), amb: mk(), dlg: mk() };
     // reverb (short convolution) for music + some sfx
@@ -38,9 +40,9 @@ class AudioEngine {
     if (!this.ready) return; const c = this.ctx, t = c.currentTime + when; const o = c.createOscillator(); o.type = type; o.frequency.setValueAtTime(freq, t); if (glide) o.frequency.exponentialRampToValueAtTime(glide, t + dur); o.detune.value = detune;
     const g = c.createGain(); this.env(g, t, attack, vol, dur); const p = c.createStereoPanner(); p.pan.value = pan; o.connect(g); g.connect(p); p.connect(this.bus[out]); if (verb) p.connect(this.verb); o.start(t); o.stop(t + attack + dur + 0.05);
   }
-  noise(dur, { f = 1000, q = 1, type = 'bandpass', vol = 0.2, out = 'sfx', when = 0, attack = 0.005, pan = 0, buf = null } = {}) {
+  noise(dur, { f = 1000, q = 1, type = 'bandpass', vol = 0.2, out = 'sfx', when = 0, attack = 0.005, pan = 0, buf = null, verb = false, sweep = null } = {}) {
     if (!this.ready) return; const c = this.ctx, t = c.currentTime + when; const s = c.createBufferSource(); s.buffer = buf || this.noiseBuf; const fl = c.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q;
-    const g = c.createGain(); this.env(g, t, attack, vol, dur); const p = c.createStereoPanner(); p.pan.value = pan; s.connect(fl); fl.connect(g); g.connect(p); p.connect(this.bus[out]); s.start(t, Math.random() * 2); s.stop(t + dur + attack + 0.1);
+    const g = c.createGain(); this.env(g, t, attack, vol, dur); const p = c.createStereoPanner(); p.pan.value = pan; s.connect(fl); fl.connect(g); g.connect(p); p.connect(this.bus[out]); if (verb) p.connect(this.verb); if (sweep) fl.frequency.exponentialRampToValueAtTime(sweep, t + attack + dur); s.start(t, Math.random() * 2); s.stop(t + dur + attack + 0.1);
   }
   // ---- spatial helper: returns [gain, pan] for a world point relative to listener
   spatial(x, z, ref = 30) { if (!this.listener) return [1, 0]; const l = this.listener; const dx = x - l.x, dz = z - l.z; const d = Math.hypot(dx, dz); const g = clamp(ref / (ref + d * d * 0.08), 0, 1); const rx = Math.cos(l.yaw), rz = -Math.sin(l.yaw); const pan = clamp((dx * rx + dz * rz) / (d + 1), -1, 1) * -1; return [g, pan]; }
@@ -59,6 +61,24 @@ class AudioEngine {
   doorSlam(s = 2) { const k = clamp(s / 4, 0.25, 1); this.noise(0.22, { f: 160, q: 0.8, vol: 0.42 * k, type: 'lowpass', buf: this.brownBuf }); this.tone(70, 0.18, { type: 'sine', vol: 0.22 * k, glide: 48 }); this.noise(0.035, { f: 2200, q: 2.5, vol: 0.09 * k, when: 0.012 }); this.noise(0.4, { f: 900, q: 0.6, vol: 0.03 * k, type: 'lowpass', when: 0.04 }); } // body thump + latch clack
   radioBlip() { if (!this.ready) return; this.noise(0.09, { f: 2400, q: 0.7, vol: 0.05 }); this.tone(1250, 0.07, { type: 'square', vol: 0.025, when: 0.08 }); this.noise(0.12, { f: 1800, q: 0.6, vol: 0.03, when: 2.6 }); } // police radio: squelch open, key beep, squelch tail
   talkBlip(lang) { const base = lang === 'ta' ? 210 : lang === 'si' ? 190 : 200; for (let i = 0; i < 3; i++) this.tone(base + Math.random() * 60, 0.06, { type: 'triangle', vol: 0.025, when: i * 0.09, out: 'dlg' }); }
+  // ---- explosion (grenade-size charge) heard from d metres: the sound arrives d/343 s after the flash. Close: a sharp crack,
+  // a chest-thumping sub drop and a broadband blast; far: mostly the low rumble rolling off the buildings (reverb tail)
+  explosion(x, z, power = 1) {
+    if (!this.ready) return; const l = this.listener; const d = l ? Math.hypot(x - l.x, z - l.z) : 10; const [, pan] = this.spatial(x, z, 60);
+    const w = Math.min(1.4, d / 343), g = Math.min(1, 26 / (26 + d)) * power, near = Math.max(0, 1 - d / 70);
+    this.noise(0.05, { f: 3200, q: 0.5, vol: 0.85 * g * near, when: w, pan });                                                   // the crack of the detonation
+    this.noise(0.9, { f: 2400 * (0.35 + 0.65 * near), q: 0.35, type: 'lowpass', vol: 0.95 * g, when: w, attack: 0.004, pan, sweep: 260, verb: true }); // blast
+    this.tone(62, 0.85, { type: 'sine', vol: 0.95 * g, when: w, attack: 0.006, glide: 26, pan });                               // pressure thump
+    this.tone(36, 1.5, { type: 'sine', vol: 0.55 * g, when: w + 0.01, attack: 0.02, glide: 20 });                              // sub
+    this.noise(3.6, { f: 190, q: 0.4, type: 'lowpass', vol: 0.5 * g, when: w + 0.06, attack: 0.12, buf: this.brownBuf, pan, verb: true }); // rumble rolling down the street
+    if (near > 0.3) for (let i = 0; i < 6; i++) this.tone(1800 + Math.random() * 3800, 0.05, { type: 'triangle', vol: 0.05 * near, when: w + 0.35 + Math.random() * 1.1, pan: pan + (Math.random() - 0.5) * 0.6 }); // debris pattering down
+  }
+  // ears ringing after a blast close by: everything muffled (low-pass sweep) with a high whine, recovering over a few seconds
+  concuss(k) {
+    if (!this.ready || !(k > 0.02)) return; const c = this.ctx, t = c.currentTime; const f = this.lp.frequency; const lo = 22000 * Math.pow(0.02, k);
+    f.cancelScheduledValues(t); f.setValueAtTime(Math.max(lo, 300), t); f.exponentialRampToValueAtTime(Math.max(lo, 300) * 1.3, t + 0.6 + 1.5 * k); f.exponentialRampToValueAtTime(22000, t + 1.4 + 4 * k);
+    const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = 3600 + Math.random() * 600; const g2 = c.createGain(); this.env(g2, t, 0.04, 0.05 * k, 1.2 + 3 * k); o.connect(g2); g2.connect(this.master); o.start(t); o.stop(t + 1.4 + 3 * k);
+  }
   boom() { this.tone(42, 3.5, { type: 'sine', vol: 0.55, attack: 0.6, glide: 30 }); this.noise(4, { f: 90, q: 0.5, type: 'lowpass', vol: 0.3, attack: 1.2, buf: this.brownBuf }); }
   riser(dur = 3) { if (!this.ready) return; this.noise(dur, { f: 400, q: 2, vol: 0.12, attack: dur * 0.9 }); this.tone(110, dur, { type: 'sawtooth', vol: 0.03, attack: dur * 0.9, glide: 440 }); }
   trainHorn(x, z) { const [g, pan] = this.spatial(x, z, 400); if (g < 0.02) return; for (const f of [311, 370]) this.tone(f, 1.6, { type: 'sawtooth', vol: 0.12 * g, pan, attack: 0.1, verb: true }); }

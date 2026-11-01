@@ -13,7 +13,17 @@ let pass = 0, fail = 0; const ok = (c, m) => { if (c) pass++; else { fail++; con
 
 // catalogue
 const cat = Shop.catalogue();
-ok(cat.length === 18 && cat.filter((i) => i.kind === 'weapon').length === 9, 'catalogue: nine weapons + nine ammunition packs');
+ok(cat.length === 20 && cat.filter((i) => i.kind === 'weapon').length === 9 && cat.filter((i) => i.kind === 'ammo').length === 9, 'catalogue: nine weapons + nine ammunition packs + two grenade packs');
+{ // grenades: separate throwable, counted per character (opts.grenades), capped, never a weapon slot
+  const g1 = cat.find((i) => i.key === 'g:frag'), g3 = cat.find((i) => i.key === 'g:frag3'); const inv0 = Shop.catalogue && WEAPONS.map(() => ({ mag: 0, reserve: 0, owned: false }));
+  ok(g1 && g3 && g1.kind === 'grenade' && g1.slot === null && g3.qty === 3 && g3.price < g1.price * 3, 'grenade items: single + discounted three-pack, no weapon slot');
+  let r = Shop.purchase(g3, inv0, 100000, { grenades: 0 }); ok(r.ok && r.grenades === 3 && r.cost === g3.price, 'buy 3 grenades: count 3, full price');
+  r = Shop.purchase(g3, inv0, 100000, { grenades: 5 }); ok(r.ok && r.grenades === Shop.GRENADE_CAP && r.cost === Math.round(g3.price / 3), 'three-pack tops up to the cap and charges only for one');
+  r = Shop.purchase(g1, inv0, 100000, { grenades: Shop.GRENADE_CAP }); ok(!r.ok && /maximum/i.test(r.msg), 'cannot carry more than the cap');
+  r = Shop.purchase(g1, inv0, 100, { grenades: 0 }); ok(!r.ok && /money/i.test(r.msg), 'grenade: not enough money');
+  r = Shop.purchase(g1, inv0, 100000, { grenades: 0, wanted: true }); ok(!r.ok, 'grenade: refused while wanted');
+  ok(inv0.every((s) => !s.owned && s.reserve === 0), 'grenade purchases never touch the weapon inventory');
+}
 ok(cat.every((i) => Number.isInteger(i.price) && i.price > 0 && i.blurb && i.blurb.length > 20), 'every item has an LKR price and a description');
 ok(Shop.CATEGORIES.every((c) => cat.some((i) => i.cat === c.id)), 'every category has stock');
 ok(cat.filter((i) => i.cat === 'pistol').every((i) => i.price < cat.find((q) => q.key === 'w:carbine').price), 'handguns cost less than rifles');

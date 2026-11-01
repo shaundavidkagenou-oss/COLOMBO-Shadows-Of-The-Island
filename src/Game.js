@@ -46,6 +46,8 @@ import { Squad } from './actors/Squad.js';
 import { Birds } from './world/Birds.js';
 import { RagdollWorld } from './actors/Ragdoll.js';
 import { Blood } from './gfx/Blood.js';
+import { Explosions } from './gfx/Explosions.js';
+import { Grenades } from './combat/Grenades.js';
 
 const VNAMES = { tuktuk: 'Three-wheeler', car: 'Hatchback', sedan: 'Sedan', taxi: 'Taxi', van: 'Van', suv: 'SUV', bus: 'SLTB bus', pbus: 'Private bus', lorry: 'Lorry', tow: 'Tow truck', bike: 'Motorcycle', police: 'Police car', policejeep: 'Police jeep', policebike: 'Police motorcycle' };
 for (const [id, T] of Object.entries(CATALOG)) VNAMES[id] = displayName(id, T); // fictional make + model, e.g. "HOSHIDA Kaizan"
@@ -113,6 +115,7 @@ export class Game {
     this.applyDensity();
     progress(0.9, 'Lighting'); await tick();
     this.post = new PostFX(this.renderer, this.scene, this.camera); this.post.build({ bloom: Settings.preset.bloom, ao: Settings.preset.ao });
+    this.explosions = new Explosions(this); this.grenades = new Grenades(this); // throwables (key B) + cinematic blasts
     this.atmos.update(0.016, new THREE.Vector3(-300, 0, -500), this.camera, 0);
     progress(0.93, 'Compiling shaders'); await tick();
     this.world.warm(-500, -400); this.world.update(0.016, { x: -500, z: -400 }, this.camera, this.atmos);
@@ -193,7 +196,7 @@ export class Game {
     this.hud.fade(1, 0); await new Promise((r) => requestAnimationFrame(r));
   }
   async newGame() {
-    this.story.state = Story.freshState(); this.clock = 0; this.mode = 'play'; this.paused = false; this.squad.reset(); this.rebuildPlayer();
+    this.story.state = Story.freshState(); this.clock = 0; this.mode = 'play'; this.paused = false; this.squad.reset(); this.grenades?.clear(); this.rebuildPlayer();
     this.hud.clearBlips(''); this.focus = null; this.setupRoomDoor();
     await playOpening(this);
     Input.requestLock(this.canvas);
@@ -228,7 +231,7 @@ export class Game {
   rebuildPlayer() {
     const P = this.player; const id = this.squad ? this.squad.activeId : 'dineth'; const fits = this.story.state.outfits || {}; const spec = this.debug?.playerSpec || { ...HEROES[id], top: fits[id] || HEROES[id].top };
     const old = P.ch; const parent = old.root.parent; const ch = new Character(spec); ch.root.position.copy(old.root.position); ch.root.rotation.copy(old.root.rotation);
-    if (parent) { parent.add(ch.root); parent.remove(old.root); } if (this.weapons) { this.weapons.forceHolster(); this.weapons.attach(ch); } old.dispose(); P.ch = ch; if (this.squad) this.squad.replaceChar(id, ch); if (P.vehicle) { const seat = P.vehicle.driverSeat(); ch.root.position.set(seat.x, seat.y, seat.z); ch.root.rotation.set(0, 0, 0); ch.anim.sitIn(seat, 1); ch.anim.update(0.001, 0); }
+    if (parent) { parent.add(ch.root); parent.remove(old.root); } if (this.grenades) this.grenades.end(); if (this.weapons) { this.weapons.forceHolster(); this.weapons.attach(ch); } old.dispose(); P.ch = ch; if (this.squad) this.squad.replaceChar(id, ch); if (P.vehicle) { const seat = P.vehicle.driverSeat(); ch.root.position.set(seat.x, seat.y, seat.z); ch.root.rotation.set(0, 0, 0); ch.anim.sitIn(seat, 1); ch.anim.update(0.001, 0); }
   }
   // protagonist skin / clothing layer: rain soaks skin and clothes outdoors (not inside vehicles or interiors) and dries
   // slowly; sweat builds with exertion, faster in the midday heat and humid monsoon air, and fades at rest
@@ -350,7 +353,8 @@ export class Game {
       if (Input.wasPressed('journal') && !this.gunShop.open) this.openPause();
       if (P.vehicle && Input.wasPressed('radio')) { this.radio = (this.radio + 1) % RADIO.length; this.hud.notify('Radio', RADIO[this.radio] ? RADIO[this.radio].name : 'Off', 'info', 1.6); }
     }
-    if (!warmOnly) this.weapons.update(dt, !busy && P.control && !P.cinematic && !this.indoor);
+    if (!warmOnly) { const can = !busy && P.control && !P.cinematic && !this.indoor; this.weapons.update(dt, can && !this.grenades.lockWeapons); this.grenades.update(dt, can); }
+    this.explosions.update(dt);
     if (!warmOnly) this.heroSkin(dt);
     this.bodies = gatherBodies(this.scene); P.bodies = this.bodies;
     if (this.photo) this.updatePhoto(dt);

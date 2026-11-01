@@ -87,7 +87,7 @@ const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _fr = new THREE.Frust
 export class Squad {
   constructor(game) {
     this.g = game; this.unlocked = false; this.active = 0; this.crumbs = []; this.tr = null; this.sel = { open: false, i: 0, t: 0 }; this.zDown = 0; this.padDown = 0; this.msgT = 0;
-    this.members = SQUAD_DEFS.map((def) => ({ def, ch: null, x: 0, z: 0, y: 0, yaw: 0, speed: 0, hp: 100, inv: freshInventory(def), sel: WEAPONS.findIndex((w) => w.id === def.loadout[0]), mode: 'follow', hold: null, mom: null, vehicle: null, seat: null, stuckT: 0, lastX: 0, lastZ: 0, progT: 0, repathT: 0, tx: 0, tz: 0, wasDrawn: false, crouched: false, idleT: 0, exitDelay: 0, hidden: false, wantSprint: false }));
+    this.members = SQUAD_DEFS.map((def) => ({ def, ch: null, x: 0, z: 0, y: 0, yaw: 0, speed: 0, hp: 100, inv: freshInventory(def), grenades: 0, sel: WEAPONS.findIndex((w) => w.id === def.loadout[0]), mode: 'follow', hold: null, mom: null, vehicle: null, seat: null, stuckT: 0, lastX: 0, lastZ: 0, progT: 0, repathT: 0, tx: 0, tz: 0, wasDrawn: false, crouched: false, idleT: 0, exitDelay: 0, hidden: false, wantSprint: false }));
     this.members[0].ch = game.player.ch; this.proxies = [];
     this.portraits = {}; this.hudInit(); this.life = new SquadLife(this); this.wasOn = null;
   }
@@ -107,19 +107,19 @@ export class Squad {
   reset() { // new game: Dineth alone until the squad assembles in "The Meeting"
     this.cancelTransition(); this.unlocked = false; this.crumbs = [];
     if (this.active !== 0) this.switchInstant(0);
-    for (const m of this.members) { m.hp = 100; m.inv = freshInventory(m.def); m.sel = WEAPONS.findIndex((w) => w.id === m.def.loadout[0]); m.mode = 'follow'; m.hold = null; m.vehicle = null; if (m !== this.members[0] && m.ch && m.ch.root.parent) m.ch.root.parent.remove(m.ch.root); }
+    for (const m of this.members) { m.hp = 100; m.inv = freshInventory(m.def); m.grenades = 0; m.sel = WEAPONS.findIndex((w) => w.id === m.def.loadout[0]); m.mode = 'follow'; m.hold = null; m.vehicle = null; if (m !== this.members[0] && m.ch && m.ch.root.parent) m.ch.root.parent.remove(m.ch.root); }
     this.g.weapons.inv = this.members[0].inv; this.g.weapons.sel = this.members[0].sel; this.el.mini.classList.add('hide'); this.el.strip.classList.remove('on');
   }
   // the outfit / load path rebuilds one member's Character (Game.rebuildPlayer for the active one)
   replaceChar(id, ch) { const m = this.memberById(id); if (m) { m.ch = ch; ch.squadId = id; } if (this.unlocked) this.renderPortraits(); }
   save() {
     this.storeActive(this.activeMember, true);
-    const members = {}; for (const m of this.members) members[m.def.id] = { x: +m.x.toFixed(2), z: +m.z.toFixed(2), yaw: +m.yaw.toFixed(3), hp: Math.round(m.hp), inv: m.inv.map((v) => [v.mag, v.reserve, v.owned ? 1 : 0]), sel: m.sel, mode: m.mode === 'hold' ? 'hold' : 'follow', hold: m.mode === 'hold' ? m.hold : null };
+    const members = {}; for (const m of this.members) members[m.def.id] = { x: +m.x.toFixed(2), z: +m.z.toFixed(2), yaw: +m.yaw.toFixed(3), hp: Math.round(m.hp), inv: m.inv.map((v) => [v.mag, v.reserve, v.owned ? 1 : 0]), grenades: m.grenades | 0, sel: m.sel, mode: m.mode === 'hold' ? 'hold' : 'follow', hold: m.mode === 'hold' ? m.hold : null };
     return { v: 1, unlocked: this.unlocked, active: this.activeId, members };
   }
   load(s) {
     this.cancelTransition(); if (!s) { this.reset(); return; }
-    for (const m of this.members) { const d = s.members && s.members[m.def.id]; if (!d) continue; m.x = d.x ?? m.x; m.z = d.z ?? m.z; m.yaw = d.yaw ?? 0; m.hp = clamp(d.hp ?? 100, 1, 100); if (Array.isArray(d.inv)) d.inv.forEach((v, i) => { if (m.inv[i]) { m.inv[i].mag = v[0]; m.inv[i].reserve = v[1]; m.inv[i].owned = !!v[2]; } }); if (typeof d.sel === 'number') m.sel = d.sel; m.mode = d.mode === 'hold' ? 'hold' : 'follow'; m.hold = d.hold || null; }
+    for (const m of this.members) { const d = s.members && s.members[m.def.id]; if (!d) continue; m.x = d.x ?? m.x; m.z = d.z ?? m.z; m.yaw = d.yaw ?? 0; m.hp = clamp(d.hp ?? 100, 1, 100); m.grenades = Math.max(0, Math.min(6, d.grenades | 0)); if (Array.isArray(d.inv)) d.inv.forEach((v, i) => { if (m.inv[i]) { m.inv[i].mag = v[0]; m.inv[i].reserve = v[1]; m.inv[i].owned = !!v[2]; } }); if (typeof d.sel === 'number') m.sel = d.sel; m.mode = d.mode === 'hold' ? 'hold' : 'follow'; m.hold = d.hold || null; }
     const ai = Math.max(0, SQUAD_IDS.indexOf(s.active)); if (s.unlocked) { this.unlocked = false; this.unlock(false); } else this.unlocked = false;
     if (ai !== this.active) this.switchInstant(ai, true);
     else { this.g.weapons.inv = this.activeMember.inv; this.g.weapons.sel = this.activeMember.sel; }
@@ -143,7 +143,7 @@ export class Squad {
     if (P.fpHead) { P.fpHead.scale.setScalar(1); P.fpHead = null; } // first person collapses the active head: give it back
     P.ch = m.ch; P.x = m.x; P.z = m.z; P.y = m.y; P.yaw = m.yaw; P.vy = 0; P.speed = m.speed; P.grounded = true; P.climb = null; P.crouching = false; P.idleT = 0; P.emote = null; P.hitCd = 0;
     P.perk = m.def; const inV = opts.swap || opts.drive; if (!inV && m.ch.root.parent !== g.scene) { m.ch.root.parent?.remove(m.ch.root); g.scene.add(m.ch.root); } m.ch.root.visible = true; m.ch.mesh.visible = true; m.hidden = false;
-    W.forceHolster(); W.inv = m.inv; W.sel = m.sel; W.attach(m.ch); W.showHolstered();
+    this.g.grenades?.onSwitch(); W.forceHolster(); W.inv = m.inv; W.sel = m.sel; W.attach(m.ch); W.showHolstered();
     if (old && old !== m.ch) { old.anim.ik = null; old.anim.aim = null; }
     g.story.state.health = m.hp;
     // arriving in a vehicle: at the wheel of his own three-wheeler, or taking the driver's seat from a passenger seat
