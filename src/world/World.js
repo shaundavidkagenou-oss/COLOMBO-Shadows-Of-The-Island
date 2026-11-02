@@ -10,6 +10,8 @@ import { buildPropGeometries, buildPropsForChunk, updateSignals, initGlowTexture
 import { buildTreeGeometries, buildTreesForChunk, windUniform } from './Vegetation.js';
 import { buildWater, WaterReflection } from './Water.js';
 import { buildParks } from './Parks.js';
+import { buildParkFeatures } from './ParkFeatures.js';
+import { ParkLife } from './ParkLife.js';
 import { ROAD_Y } from './Layout.js';
 import { GrassField, upgradeGroundGrass } from './Grass.js';
 import { Collision } from './Collision.js';
@@ -58,6 +60,8 @@ export class World {
       if (idx % 6 === 0) { progress(0.3 + 0.55 * idx / (NCX * NCZ), 'Building districts'); await tick(); }
     }
     this.parks = buildParks(MAT); this.root.add(this.parks);
+    this.parkFeatures = buildParkFeatures(MAT); this.root.add(this.parkFeatures.group); // Viharamahadevi Park: golden Buddha, lily ponds + bridges, play area + Jet Provost, Cenotaph, railing
+    this.parkLife = new ParkLife(this, this.parkFeatures, quality); this.root.add(this.parkLife.group); // fireflies, fountain water, fruit bats, oil lamps
     upgradeGroundGrass(MAT.grass, 0.8); upgradeGroundGrass(MAT.lawn, 0.3);
     this.grass = new GrassField(this, this.collision); this.grass.setQuality(this.quality || 'high'); this.root.add(this.grass.mesh);
     progress(0.86, 'Filling the ocean and Beira Lake'); await tick();
@@ -167,6 +171,7 @@ export class World {
     if (this.wjob) this.stepWinJob(this.jobBudgetMs);
     if (this.grass) this.grass.update(dt, focus, atmos ? atmos.w.wind : 0.3);
     if (this.parks && this.parks.userData.flowers && camera) this.parks.userData.flowers.update(camera.position);
+    if (this.parkLife && camera && atmos) this.parkLife.update(dt, atmos, camera);
     // landmark animation
     const an = this.landmarks.anim;
     if (an.lotusBeacon) an.lotusBeacon.visible = (this.t % 1.6) < 0.5; // aviation obstruction light
@@ -250,6 +255,6 @@ export class World {
       l.userData.lamp = lamp; l.userData.k = 0; decal(lamp, false); l.position.set(lamp[0], lamp[1] - 0.4, lamp[2]); l.target.position.set(lamp[0], ROAD_Y, lamp[2] + 0.001); l.target.updateMatrixWorld(); lit.add(lamp); }
     for (const l of this.lampLights) { const u = l.userData; const I = u.lamp ? base * u.k : 0; if (l.intensity !== I) l.intensity = I; }
   }
-  setQuality(q) { this.quality = q; if (this.grass) this.grass.setQuality(q); if (this.parks && this.parks.userData.flowers) this.parks.userData.flowers.setQuality(q); const s = q === 'low' ? 0.6 : q === 'medium' ? 0.8 : q === 'ultra' ? 1.25 : 1; this.detailRadius = 330 * s; this.windowRadius = q === 'low' ? 0 : q === 'medium' ? 90 : q === 'ultra' ? 210 : 150; this.propRadius = 430 * s; this.treeRadius = 520 * s; }
+  setQuality(q) { this.quality = q; if (this.grass) this.grass.setQuality(q); if (this.parkLife) this.parkLife.setQuality(q); if (this.parks && this.parks.userData.flowers) this.parks.userData.flowers.setQuality(q); const s = q === 'low' ? 0.6 : q === 'medium' ? 0.8 : q === 'ultra' ? 1.25 : 1; this.detailRadius = 330 * s; this.windowRadius = q === 'low' ? 0 : q === 'medium' ? 90 : q === 'ultra' ? 210 : 150; this.propRadius = 430 * s; this.treeRadius = 520 * s; }
 }
 export { plan };

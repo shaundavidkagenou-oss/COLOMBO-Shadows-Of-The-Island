@@ -27,12 +27,43 @@ export const PATH_SEGS = [
   [VM.x0 + IN, VM.z0 + IN, VM.x1 - IN, VM.z0 + IN, 2.6, 'walk'], [VM.x1 - IN, VM.z0 + IN, VM.x1 - IN, VM.z1 - IN, 2.6, 'walk'],
   [VM.x1 - IN, VM.z1 - IN, VM.x0 + IN, VM.z1 - IN, 2.6, 'walk'], [VM.x0 + IN, VM.z1 - IN, VM.x0 + IN, VM.z0 + IN, 2.6, 'walk'],
 ];
+// ---- landmarks of the real park (Parks feature data; meshes in ParkFeatures.js, life in ParkLife.js) -------------------
+// The game map is compressed: the Town Hall stands on the park's east side, the museum on the south. As in the real park
+// the great seated golden Buddha is at the Town Hall end, facing it; the lily ponds with their little arched bridges lie
+// behind it; the Cenotaph war memorial is at the western end; the children's play area with the displayed Jet Provost
+// trainer is in the south-west lawn; the fruit bats roost in a few giant rain trees.
+export const BUDDHA = { x: 168, z: -30, steps: [7.0, 6.6, 6.2, 5.0, 4.6, 4.2], rise: 0.15, ped: 3.4 }; // stepped plinth (Chebyshev radius of each step edge), solid pedestal inside `ped`
+export function buddhaStepY(x, z) { const d = Math.max(Math.abs(x - BUDDHA.x), Math.abs(z - BUDDHA.z)); let n = 0; for (const e of BUDDHA.steps) if (d < e) n++; return n ? LAND_Y + n * BUDDHA.rise : null; }
+const pondPoly = (cx, cz, rx, rz, ph, n = 40) => { const p = []; for (let k = 0; k < n; k++) { const a = k / n * Math.PI * 2, f = 1 + 0.07 * Math.sin(3 * a + ph) + 0.04 * Math.sin(5 * a + ph * 2); p.push([cx + Math.cos(a) * rx * f, cz + Math.sin(a) * rz * f]); } return p; };
+// ponds: raised stone rim (water 0.22 m above the lawn), lilies; bridges run north–south across them (x, z0, z1, half width)
+export const PONDS = [
+  { poly: pondPoly(141, -41, 13.5, 8, 0.7), cx: 141, cz: -41, jets: [[133, -42], [149.5, -39]], bridge: { x: 141, z0: -52.4, z1: -29.6, hw: 1.15 } },
+  { poly: pondPoly(150, -92, 9, 6, 2.1), cx: 150, cz: -92, jets: [[144.5, -92.5]], bridge: { x: 150, z0: -100.4, z1: -83.6, hw: 1.1 } },
+];
+export const POND_WATER_Y = LAND_Y + 0.22, POND_RIM_Y = LAND_Y + 0.4;
+export const PLAY = { x0: 38, x1: 76, z0: -5, z1: 13, gate: 4, jet: { x: 50, z: 4, yaw: 0.35 } }; // fenced play area, gate on the east side
+export const CENOTAPH = { x: 25, z: -80, half: 6.5 };          // paved square around the war memorial
+export const BAT_TREES = [[124, -21, 1.5], [163, -76, 1.45], [130, -82, 1.5]]; // [x, z, scale] giant rain trees with the flying-fox colony
+export function inPoly(x, z, poly) { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, zi] = poly[i], [xj, zj] = poly[j]; if ((zi > z) !== (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi) c = !c; } return c; }
+export function polyDist(x, z, poly) { let d = Infinity; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) d = Math.min(d, segDist(x, z, poly[j][0], poly[j][1], poly[i][0], poly[i][1])); return d; }
+// height of a bridge deck at z (gentle segmental arch, 0.8 m rise at mid-span over the 0.22 m water)
+export function bridgeY(b, z) { const t = (z - b.z0) / (b.z1 - b.z0); return t < 0 || t > 1 ? null : LAND_Y + 0.05 + 0.8 * Math.sin(Math.PI * t); }
+
 // diagonals: ring → perimeter corners
 for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
   const cx = sx > 0 ? VM.x1 - IN : VM.x0 + IN, cz = sz > 0 ? VM.z1 - IN : VM.z0 + IN;
   const dx = cx - VM.cx, dz = cz - VM.cz, l = Math.hypot(dx, dz);
   PATH_SEGS.push([VM.cx + dx / l * 28.4, VM.cz + dz / l * 28.4, cx, cz, 2.6, 'walk']);
 }
+// garden walks to the new features (index ≥ 16: their own paving layer). Approaches to the two pond bridges, the shrine
+// forecourt from the Town Hall gate, the Cenotaph and the play-area gate.
+export const EXTRA0 = PATH_SEGS.length;
+{ const [p1, p2] = PONDS; const dz = (x, a, b) => a[1] + (b[1] - a[1]) * (x - a[0]) / (b[0] - a[0]); // z of a diagonal at x
+  PATH_SEGS.push([p1.bridge.x, VM.cz + 2.05, p1.bridge.x, p1.bridge.z0, 2.4, 'walk'], [p1.bridge.x, p1.bridge.z1, p1.bridge.x, dz(p1.bridge.x, [111.6, -41.5], [183, 19.5]) - 0.9, 2.4, 'walk']);
+  PATH_SEGS.push([p2.bridge.x, VM.cz - 2.05, p2.bridge.x, p2.bridge.z1, 2.4, 'walk'], [p2.bridge.x, p2.bridge.z0, p2.bridge.x, dz(p2.bridge.x, [109, -81.1], [183, -163]) + 0.9, 2.4, 'walk']);
+  PATH_SEGS.push([BUDDHA.x + BUDDHA.steps[0], BUDDHA.z, VM.x1 - 0.05, BUDDHA.z, 4.2, 'walkGrey']);
+  PATH_SEGS.push([CENOTAPH.x, CENOTAPH.z + CENOTAPH.half, CENOTAPH.x, VM.cz - 2.05, 2.6, 'walk']);
+  PATH_SEGS.push([PLAY.x1, PLAY.gate, VM.cx - 2.05, PLAY.gate, 2.6, 'walk']); }
 // worn desire lines across Galle Face Green (people cut across between the promenade, Galle Road and the hotel)
 export const WORN_SEGS = [
   [-432, -655, -462, -540, 1.7], [-462, -540, -455, -420, 1.7], [-455, -420, -428, -262, 1.7],
@@ -52,7 +83,7 @@ export const HEDGES = [];
   run(VM.x0 + 9, VM.z0 + e, VM.cx - g, VM.z0 + e); run(VM.cx + g, VM.z0 + e, VM.x1 - 9, VM.z0 + e);
   run(VM.x0 + 9, VM.z1 - e, VM.cx - g, VM.z1 - e); run(VM.cx + g, VM.z1 - e, VM.x1 - 9, VM.z1 - e);
   run(VM.x0 + e, VM.z0 + 9, VM.x0 + e, VM.cz - g); run(VM.x0 + e, VM.cz + g, VM.x0 + e, VM.z1 - 9);
-  run(VM.x1 - e, VM.z0 + 9, VM.x1 - e, VM.cz - g); run(VM.x1 - e, VM.cz + g, VM.x1 - e, VM.z1 - 9);
+  run(VM.x1 - e, VM.z0 + 9, VM.x1 - e, VM.cz - g); run(VM.x1 - e, VM.cz + g, VM.x1 - e, BUDDHA.z - 3.5); run(VM.x1 - e, BUDDHA.z + 3.5, VM.x1 - e, VM.z1 - 9); /* gate to the shrine, facing the Town Hall */
 }
 
 const segDist = (x, z, ax, az, bx, bz) => { const dx = bx - ax, dz = bz - az; const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz))); return Math.hypot(x - ax - dx * t, z - az - dz * t); };
@@ -64,6 +95,10 @@ export function onParkFeature(x, z, m = 0) {
     for (const [cx, cz, r] of PLAZAS) if (Math.hypot(x - cx, z - cz) < r + m) return true;
     for (const [cx, cz, r] of BEDS) if (Math.hypot(x - cx, z - cz) < r + 0.2 + m) return true;
     for (const h of HEDGES) if (segDist(x, z, h[0], h[1], h[2], h[3]) < 0.55 + m) return true;
+    for (const pd of PONDS) if (inPoly(x, z, pd.poly) || polyDist(x, z, pd.poly) < 0.3 + m) return true;
+    if (Math.max(Math.abs(x - BUDDHA.x), Math.abs(z - BUDDHA.z)) < BUDDHA.steps[0] + 0.2 + m) return true;
+    if (x > PLAY.x0 - 0.3 - m && x < PLAY.x1 + 0.3 + m && z > PLAY.z0 - 0.3 - m && z < PLAY.z1 + 0.3 + m) return true;
+    if (Math.max(Math.abs(x - CENOTAPH.x), Math.abs(z - CENOTAPH.z)) < CENOTAPH.half + 0.2 + m) return true;
   }
   for (const s of WORN_SEGS) if (segDist(x, z, s[0], s[1], s[2], s[3]) < s[4] / 2 + m) return true;
   return false;
@@ -73,6 +108,44 @@ export function parkColliders() {
   const out = [];
   for (const [ax, az, bx, bz] of HEDGES) out.push({ x0: Math.min(ax, bx) - 0.5, x1: Math.max(ax, bx) + 0.5, z0: Math.min(az, bz) - 0.5, z1: Math.max(az, bz) + 0.5, h: 1.05, kind: 'hedge' });
   for (const [x, z, r] of BEDS) out.push(...discColliders(x, z, r + 0.15, 0.6, 'bed')); // the whole raised bed to its outer rim (nobody stands in the concrete or walks through the flowers)
+  out.push(...featureColliders());
+  return out;
+}
+// ponds (solid to the rim, open where the bridge crosses), bridge parapets, the Buddha's pedestal, the play-area fence and
+// equipment, the Jet Provost on its plinth, the Cenotaph and the boundary railing
+export const PLAY_ITEMS = [ // [kind, x, z, yaw] laid out in the eastern half of the play area (the aircraft takes the west)
+  ['swings', 68, -1.2, 0], ['slide', 70.5, 8.5, Math.PI / 2], ['seesaw', 61, 9.5, 0], ['roundabout', 61, -0.5, 0], ['climber', 70.8, 3.6, 0], ['bench', 65.5, 12.2, Math.PI], ['bench', 58, 12.2, Math.PI],
+];
+export const JET_LIFT = 0.9, JET_BASES = [[0, 0.1, 1.9, 1.0], [0, 3.8, 0.45, 0.45]]; // [local x, local z (nose = +z), half x, half z]
+export const ALTARS = [-2.6, 2.6].map((dz) => ({ x: BUDDHA.x + 5.6, z: BUDDHA.z + dz, hx: 0.28, hz: 0.75, h: 0.8 })); // flower altars on the first tier, either side of the approach
+export const PLAY_ITEM_BOX = { swings: [3.4, 1.6, 2.4], slide: [4.6, 0.9, 2.6], seesaw: [3.6, 0.5, 0.9], roundabout: [1.6, 1.6, 0.9], climber: [2.0, 2.0, 2.2], bench: [1.7, 0.6, 0.9] }; // [len x, depth z, height]
+export const RAILINGS = HEDGES.map(([ax, az, bx, bz]) => { const o = 2.6 - 0.35; // the hedge runs pushed out to the park edge
+  if (az === bz) return az < VM.cz ? [ax, az - o, bx, bz - o] : [ax, az + o, bx, bz + o];
+  return ax < VM.cx ? [ax - o, az, bx - o, bz] : [ax + o, az, bx + o, bz]; });
+function stripsInPoly(poly, cut, h, kind, dz = 0.25) { const out = []; let zmin = Infinity, zmax = -Infinity; for (const p of poly) { zmin = Math.min(zmin, p[1]); zmax = Math.max(zmax, p[1]); }
+  for (let z = zmin; z < zmax; z += dz) { const zc = z + dz / 2, xs = [];
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, zi] = poly[i], [xj, zj] = poly[j]; if ((zi > zc) !== (zj > zc)) xs.push(xi + (zc - zi) / (zj - zi) * (xj - xi)); }
+    xs.sort((a, b) => a - b);
+    for (let k = 0; k + 1 < xs.length; k += 2) { const ivs = cut && xs[k] < cut[1] && xs[k + 1] > cut[0] ? [[xs[k], cut[0]], [cut[1], xs[k + 1]]] : [[xs[k], xs[k + 1]]];
+      for (const [a, b] of ivs) if (b - a > 0.05) out.push({ x0: a === cut?.[1] ? a : a - 0.1, x1: b === cut?.[0] ? b : b + 0.1, z0: z, z1: Math.min(zmax, z + dz), h, kind }); } } // padded 10 cm into the rim: no gaps where the outline curves within a strip
+  return out; }
+export function featureColliders() {
+  const out = [];
+  for (const pd of PONDS) { const b = pd.bridge; out.push(...stripsInPoly(pd.poly, [b.x - b.hw - 0.12, b.x + b.hw + 0.12], LAND_Y + 1.0, 'pond'));
+    let z0 = Infinity, z1 = -Infinity; for (let z = b.z0; z <= b.z1; z += 0.1) if (inPoly(b.x, z, pd.poly) || polyDist(b.x, z, pd.poly) < b.hw + 0.3) { z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+    for (const sd of [-1, 1]) out.push({ x0: b.x + sd * (b.hw + 0.02) - 0.06, x1: b.x + sd * (b.hw + 0.02) + 0.06, z0: z0 - 0.3, z1: z1 + 0.3, h: LAND_Y + 2.0, kind: 'rail' }); }
+  { const r = BUDDHA.ped; out.push({ x0: BUDDHA.x - r, x1: BUDDHA.x + r, z0: BUDDHA.z - r, z1: BUDDHA.z + r, h: LAND_Y + 11, kind: 'landmark' }); }
+  for (const a of ALTARS) out.push({ x0: a.x - a.hx, x1: a.x + a.hx, z0: a.z - a.hz, z1: a.z + a.hz, h: LAND_Y + 3 * BUDDHA.rise + a.h, kind: 'prop' });
+  { const P = PLAY, t = 0.08, h = LAND_Y + 1.0; // fence, gate gap on the east side
+    out.push({ x0: P.x0 - t, x1: P.x1 + t, z0: P.z0 - t, z1: P.z0 + t, h, kind: 'fence' }, { x0: P.x0 - t, x1: P.x1 + t, z0: P.z1 - t, z1: P.z1 + t, h, kind: 'fence' }, { x0: P.x0 - t, x1: P.x0 + t, z0: P.z0, z1: P.z1, h, kind: 'fence' });
+    out.push({ x0: P.x1 - t, x1: P.x1 + t, z0: P.z0, z1: P.gate - 1.6, h, kind: 'fence' }, { x0: P.x1 - t, x1: P.x1 + t, z0: P.gate + 1.6, z1: P.z1, h, kind: 'fence' });
+    for (const [lx, lz, hx, hz] of JET_BASES) { const j = P.jet, c = Math.cos(j.yaw), s = Math.sin(j.yaw); const x = j.x + lx * c + lz * s, z = j.z - lx * s + lz * c; // display plinth + nose-gear pedestal (the aircraft sits 0.9 m up: wings and fuselage clear head height)
+      const ex = Math.abs(c) * hx + Math.abs(s) * hz, ez = Math.abs(s) * hx + Math.abs(c) * hz; out.push({ x0: x - ex, x1: x + ex, z0: z - ez, z1: z + ez, h: LAND_Y + JET_LIFT + 0.6, kind: 'landmark' }); }
+    for (const [k, x, z, yaw] of PLAY_ITEMS) { const [lx, lz, hh] = PLAY_ITEM_BOX[k]; const sw = Math.abs(Math.sin(yaw)) > 0.7; const hx = (sw ? lz : lx) / 2, hz = (sw ? lx : lz) / 2;
+      if (k === 'swings') { for (const sx of [-1, 1]) out.push({ x0: x + sx * 1.7 - 0.12, x1: x + sx * 1.7 + 0.12, z0: z - 0.8, z1: z + 0.8, h: LAND_Y + 2.3, kind: 'pole' }); continue; }
+      out.push({ x0: x - hx, x1: x + hx, z0: z - hz, z1: z + hz, h: LAND_Y + hh, kind: k === 'bench' ? 'bench' : 'prop' }); } }
+  out.push({ x0: CENOTAPH.x - 2.4, x1: CENOTAPH.x + 2.4, z0: CENOTAPH.z - 2.4, z1: CENOTAPH.z + 2.4, h: LAND_Y + 14, kind: 'landmark' });
+  for (const [ax, az, bx, bz] of RAILINGS) out.push({ x0: Math.min(ax, bx) - 0.08, x1: Math.max(ax, bx) + 0.08, z0: Math.min(az, bz) - 0.08, z1: Math.max(az, bz) + 0.08, h: LAND_Y + 1.35, kind: 'fence' });
   return out;
 }
 // a round solid as thin strips that never stick out past the circle (no invisible wall beyond a round rim), covering it fully
@@ -87,15 +160,22 @@ export function parkSurfaceY(x, z) {
   if (x > VM.x0 - 1 && x < VM.x1 + 1 && z > VM.z0 - 1 && z < VM.z1 + 1) {
     for (const [cx, cz, r] of PLAZAS) if (Math.hypot(x - cx, z - cz) < r) best = Math.max(best, PAVE_Y + 0.03);
     for (const [cx, cz, r, w] of PATH_RINGS) { const d = Math.abs(Math.hypot(x - cx, z - cz) - r); if (d < w / 2) best = Math.max(best, PAVE_Y + 0.02); else if (d < w / 2 + 0.12) best = Math.max(best, LAND_Y + 0.08); }
-    PATH_SEGS.forEach((sg, i) => { const d = segDist(x, z, sg[0], sg[1], sg[2], sg[3]); const ly = i < 8 ? PAVE_Y + 0.01 : i < 12 ? PAVE_Y - 0.01 : PAVE_Y; if (d < sg[4] / 2 + 0.01) best = Math.max(best, ly); else if (sg[4] >= 4 && d < sg[4] / 2 + 0.12) best = Math.max(best, LAND_Y + 0.08); });
+    PATH_SEGS.forEach((sg, i) => { const d = segDist(x, z, sg[0], sg[1], sg[2], sg[3]); const ly = i < 8 ? PAVE_Y + 0.01 : i < 12 ? PAVE_Y - 0.01 : i >= EXTRA0 ? PAVE_Y - 0.02 : PAVE_Y; if (d < sg[4] / 2 + 0.01) best = Math.max(best, ly); else if (sg[4] >= 4 && d < sg[4] / 2 + 0.12) best = Math.max(best, LAND_Y + 0.08); });
   }
   for (const sg of WORN_SEGS) if (segDist(x, z, sg[0], sg[1], sg[2], sg[3]) < sg[4] / 2) best = Math.max(best, LAND_Y + 0.02);
+  if (x > VM.x0 && x < VM.x1 && z > VM.z0 && z < VM.z1) {
+    const by = buddhaStepY(x, z); if (by !== null) best = Math.max(best, by);
+    for (const pd of PONDS) { const b = pd.bridge; if (Math.abs(x - b.x) < b.hw + 0.1) { const y = bridgeY(b, z); if (y !== null) best = Math.max(best, y); } }
+    if (x > PLAY.x0 && x < PLAY.x1 && z > PLAY.z0 && z < PLAY.z1) best = Math.max(best, LAND_Y + 0.04);
+    if (Math.max(Math.abs(x - CENOTAPH.x), Math.abs(z - CENOTAPH.z)) < CENOTAPH.half) best = Math.max(best, PAVE_Y + 0.03);
+  }
   return best;
 }
 setSurfaceHook(parkSurfaceY);
 export function parkLamps() {
   const out = [];
   for (let k = 0; k < 8; k++) { const a = (k + 0.5) / 8 * Math.PI * 2; out.push([VM.cx + Math.cos(a) * 22, VM.cz + Math.sin(a) * 22, -a]); }
+  for (const dz of [-3.3, 3.3]) out.push([BUDDHA.x + 10.5, BUDDHA.z + dz, dz < 0 ? Math.PI / 2 : -Math.PI / 2]); // shrine forecourt
   for (const s of PATH_SEGS.slice(0, 4)) { // avenues: lamps every ~22 m, alternating sides
     const [ax, az, bx, bz, w] = s; const l = Math.hypot(bx - ax, bz - az), ux = (bx - ax) / l, uz = (bz - az) / l;
     for (let d = 11, k = 0; d < l - 6; d += 22, k++) { const sd = k % 2 ? 1 : -1, o = w / 2 + 0.9; out.push([ax + ux * d - uz * sd * o, az + uz * d + ux * sd * o, Math.atan2(uz * sd, -ux * sd)]); }
@@ -113,7 +193,7 @@ export function buildParks(MAT) {
   };
   // every path class has its own layer, 1 cm apart, so crossings never share a plane (no z-fighting where walks overlap):
   // perimeter walk < diagonals < avenues/spokes < promenade ring < fountain plaza
-  const layerOf = (i) => (i < 8 ? y + 0.01 : i < 12 ? y - 0.01 : y);
+  const layerOf = (i) => (i < 8 ? y + 0.01 : i < 12 ? y - 0.01 : i >= EXTRA0 ? y - 0.02 : y);
   const Y_RING = y + 0.02, Y_PLAZA = y + 0.03;
   // kerbs/edging are cut wherever another walk crosses them (no kerb stubs lying across a path)
   const crossed = (x, z, self) => PATH_SEGS.some((s, i) => i !== self && segDist(x, z, s[0], s[1], s[2], s[3]) < s[4] / 2 + 0.12)

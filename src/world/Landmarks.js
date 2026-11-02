@@ -15,7 +15,7 @@ function canvas(w, h) { const c = document.createElement('canvas'); c.width = w;
 function texOf(c, repeat = false) { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; if (repeat) t.wrapS = t.wrapT = THREE.RepeatWrapping; return t; }
 
 // Large painted label (station names, hotel names, police...). Lines: [{text, font, color}]
-function labelMaterial(lines, { w = 1024, h = 256, bg = null, border = null, glow = true } = {}) {
+export function labelMaterial(lines, { w = 1024, h = 256, bg = null, border = null, glow = true } = {}) {
   const c = canvas(w, h), ctx = c.getContext('2d');
   if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h); } else ctx.clearRect(0, 0, w, h);
   if (border) { ctx.strokeStyle = border; ctx.lineWidth = h * 0.04; ctx.strokeRect(h * 0.04, h * 0.04, w - h * 0.08, h - h * 0.08); }

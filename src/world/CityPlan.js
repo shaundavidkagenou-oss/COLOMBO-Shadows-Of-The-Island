@@ -2,7 +2,7 @@
 import { nearestS } from './Railway.js';
 import { RNG, hash2 } from '../core/rng.js';
 import * as L from './Layout.js';
-import { onParkFeature, parkColliders, parkLamps, PARK } from './Parks.js';
+import { onParkFeature, parkColliders, parkLamps, PARK, BAT_TREES, PLAY_ITEMS } from './Parks.js';
 import { SIGNS, SHOP_ROWS } from '../gfx/Textures.js';
 import { crownPoints } from './TreeShapes.js';
 
@@ -410,9 +410,12 @@ export function generatePlan() {
   for (let k = 0; k < 40; k++) addPOI('lawn', rng.range(-490, -425), rng.range(-640, -260), rng.range(0, 6.28), {});
   // parks: Viharamahadevi
   const vm = [PARK.x0, PARK.x1, PARK.z0, PARK.z1]; // the lawn itself (zone rect minus boundary roads + pavements)
-  for (let k = 0; k < 70; k++) { const x = rng.range(vm[0] + 6, vm[1] - 6), z = rng.range(vm[2] + 6, vm[3] - 6); if (Math.hypot(x - 90, z + 60) > 22 && !onParkFeature(x, z, 2.2)) addTree(rng.pick(['rain', 'rain', 'bo', 'palm', 'frangipani']), x, z, rng.range(0.9, 1.4)); }
+  for (let k = 0; k < 70; k++) { const x = rng.range(vm[0] + 6, vm[1] - 6), z = rng.range(vm[2] + 6, vm[3] - 6); if (Math.hypot(x - 90, z + 60) > 22 && !onParkFeature(x, z, 2.2) && !BAT_TREES.some(([bx, bz]) => Math.hypot(x - bx, z - bz) < 11)) addTree(rng.pick(['rain', 'rain', 'bo', 'palm', 'frangipani']), x, z, rng.range(0.9, 1.4)); }
   for (let k = 0; k < 14; k++) { const a = k / 14 * Math.PI * 2; const x = 90 + Math.cos(a) * 30, z = -60 + Math.sin(a) * 30; addProp('bench', x, z, -a - Math.PI / 2, {}); addPOI('bench', x, z, -a - Math.PI / 2, { seats: 2 }); /* seat faces the fountain; sitters use the same facing */ }
   for (let k = 0; k < 30; k++) { const x = rng.range(vm[0] + 8, vm[1] - 8), z = rng.range(vm[2] + 8, vm[3] - 8); if (!onParkFeature(x, z, 1)) addPOI('lawn', x, z, rng.range(0, 6.28), {}); }
+  for (const [x, z, sc] of BAT_TREES) addTree('rain', x, z, sc, { bats: true }); // the giant old rain trees the fruit-bat colony roosts in
+  for (const x of [135, 147]) { addProp('bench', x, -53.6, 0, {}); addPOI('bench', x, -53.6, 0, { seats: 2 }); } // on the lily pond's north bank, facing the water
+  for (const [k, x, z, yaw] of PLAY_ITEMS) if (k === 'bench') { addProp('bench', x, z, yaw, {}); addPOI('bench', x, z, yaw, { seats: 2 }); } // benches for the adults by the play area (no child NPCs anywhere)
   // landscaping (Parks.js): hedges + flower-bed rims collide, heritage lamps light the paths at night
   plan.colliders.push(...parkColliders());
   for (const [x, z, r] of parkLamps()) { addProp('lampHeritage', x, z, r, {}); plan.colliders.push({ x0: x - 0.2, x1: x + 0.2, z0: z - 0.2, z1: z + 0.2, h: 5, kind: 'pole' }); }
