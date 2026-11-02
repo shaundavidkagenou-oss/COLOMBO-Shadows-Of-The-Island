@@ -14,6 +14,9 @@
 // stretcher, sitting up and getting up after resuscitation) with the limb lengths kept exact, then physics resumes or the
 // character is handed back to the Animator.
 import * as THREE from 'three';
+import * as Lay from '../world/Layout.js';
+// a body that goes into the sea / Beira Lake / a canal floats at the surface instead of sinking out of sight to the bed
+function waterFloor(x, z) { if (!Lay.isWater(x, z) || Lay.bridgeWalkAt(x, z)) return null; return (Lay.inCanal(z) && !Lay.inLake(x, z) ? -1.0 : Lay.inLake(x, z) ? -0.55 : -0.9) - 0.16; }
 
 export const RAG_N = ['pelvis', 'chest', 'neck', 'head', 'shL', 'shR', 'elL', 'elR', 'wrL', 'wrR', 'hipL', 'hipR', 'knL', 'knR', 'anL', 'anR'];
 const I = Object.fromEntries(RAG_N.map((n, i) => [n, i]));
@@ -96,12 +99,22 @@ export class Ragdoll {
     while (this.acc >= h - 1e-6) { this.acc -= h; n++;
       for (let i = 0; i < this.p.length; i++) { const p = this.p[i], o = this.o[i]; const fr = this.contact[i] ? 0.82 : 0.995; const vx = (p.x - o.x) * fr, vy = (p.y - o.y) * 0.995, vz = (p.z - o.z) * fr; o.copy(p); p.x += vx; p.y += vy - 9.81 * h * h; p.z += vz; }
       for (let it = 0; it < 8; it++) { this.solveSticks(this.sticks); if (it % 2 === 1) this.collide(vehicles, it === 7, true); }
-      this.hinges(); this.solveSticks(this.sticks); this.solveSticks(this.sticks); this.collide(null, false, false); // lengths last, then only the ground (never left inside it) // lengths last, then only the ground (never left inside it)
+      this.hinges(); this.solveSticks(this.sticks); this.solveSticks(this.sticks); this.collide(null, false, false); // lengths last, then only the ground (never left inside it)
       for (let i = 0; i < this.p.length; i++) maxD = Math.max(maxD, this.p[i].distanceToSquared(this.o[i]));
     }
     if (!n) return;
+    this.guard();
     if (Math.sqrt(maxD) < 0.0025 && this.age > 0.6) { this.sleepT += dt; if (this.sleepT > 0.8) { this.asleep = true; for (let i = 0; i < this.p.length; i++) this.o[i].copy(this.p[i]); } } else this.sleepT = 0;
     this.rebase(); this.apply(dt);
+  }
+  // safety net: a pose that went NaN goes back to the last good one; a body that ended up under the ground (anything that
+  // moved the ground or the body outside the solver) is lifted back onto it, at rest
+  guard() {
+    const P = this.p; let bad = false; for (let i = 0; i < P.length; i++) { const q = P[i]; if (!(q.x === q.x && q.y === q.y && q.z === q.z) || Math.abs(q.y) > 1e4) { bad = true; break; } }
+    if (bad) { if (this.good) for (let i = 0; i < P.length; i++) { P[i].copy(this.good[i]); this.o[i].copy(this.good[i]); } this.gy.fill(NaN); const st = this.world && this.world.stats; if (st) st.restored = (st.restored || 0) + 1; return; }
+    const pel = P[I.pelvis]; if (this.col) { const rp = RAD[I.pelvis] * this.s; let gy = this.col.groundAt(pel.x, pel.z, pel.y - rp + 0.35); if (gy < -0.5) { const wf = waterFloor(pel.x, pel.z); if (wf !== null && wf > gy) gy = wf; }
+      const sink = gy + rp - 0.4 - pel.y; if (sink > 0) { const d = sink + 0.4; for (let i = 0; i < P.length; i++) { P[i].y += d; this.o[i].copy(P[i]); } this.gy.fill(NaN); } }
+    if (!this.good) this.good = P.map((q) => q.clone()); else for (let i = 0; i < P.length; i++) this.good[i].copy(P[i]);
   }
   solveSticks(list) {
     const P = this.p;
@@ -112,8 +125,8 @@ export class Ragdoll {
   collide(vehicles, full, walls = full) {
     const col = this.col;
     for (let i = 0; i < this.p.length; i++) { const p = this.p[i], r = RAD[i] * this.s;
-      if (full || this.gy[i] !== this.gy[i]) this.gy[i] = col ? col.groundAt(p.x, p.z, p.y - r + 0.35) : 0; const g = this.gy[i] + r;
-      this.contact[i] = 0; if (p.y < g) { p.y = g; this.contact[i] = 1; } else if (p.y < g + 0.01) this.contact[i] = 1;
+      if (full || this.gy[i] !== this.gy[i]) { let gy = col ? col.groundAt(p.x, p.z, p.y - r + 0.35) : 0; if (gy < -0.5) { const wf = waterFloor(p.x, p.z); if (wf !== null && wf > gy) gy = wf; } this.gy[i] = gy; } const g = this.gy[i] + r;
+      this.contact[i] = 0; if (p.y < g) { p.y = g; this.contact[i] = 1; const o = this.o[i]; if (o.y < g) o.y = g; /* the snap is not speed: a particle lifted out of the ground (kerb edge, body starting in it) must not be launched */ } else if (p.y < g + 0.01) this.contact[i] = 1;
       if (walls && col) { const q = col.resolveCircle(p.x, p.z, r, p.y - r, 0.3, 0.3); if (q.hit) { p.x = q.x; p.z = q.z; } }
     }
     if (full && vehicles) { const P = this.pelvis(); for (const v of vehicles) { if (Math.abs(v.x - P.x) > 7 || Math.abs(v.z - P.z) > 7) continue; for (let i = 0; i < this.p.length; i++) { const p = this.p[i]; const q = v.pushOut(p.x, p.z, RAD[i] * this.s + 0.05); if (q) { p.x = q.x; p.z = q.z; } } } }
@@ -217,7 +230,11 @@ export function rotateAbout(src, origin, axis, ang, out) { _q.setFromAxisAngle(a
 // every live ragdoll; stepped once per frame by the game
 export class RagdollWorld {
   constructor(collision) { this.collision = collision; this.list = []; this.stats = { made: 0 }; }
-  add(ch, opts) { if (ch.rag) return ch.rag; const r = new Ragdoll(ch, this, opts); this.list.push(r); this.stats.made++; return r; }
+  add(ch, opts) { if (ch.rag) return ch.rag;
+    // someone seated in a car (or any other moving parent) is taken out into the world first, where they are: the body's
+    // particles and its root live in world space (a root left inside the car put the body somewhere else entirely)
+    const par = ch.root.parent; if (par && !par.isScene) { let top = par; while (top.parent) top = top.parent; if (top.isScene) { top.attach(ch.root); const e = new THREE.Euler().setFromQuaternion(ch.root.quaternion, 'YXZ'); ch.root.rotation.set(0, e.y, 0); ch.root.updateMatrixWorld(true); } }
+    const r = new Ragdoll(ch, this, opts); this.list.push(r); this.stats.made++; return r; }
   remove(r) { const i = this.list.indexOf(r); if (i >= 0) this.list.splice(i, 1); }
   update(dt, vehicles) { dt = Math.min(dt, 1 / 20); for (const r of this.list.slice()) { if (!r.ch.root.parent && !r.kin) { this.remove(r); continue; } r.step(dt, vehicles); } }
   clear() { this.list = []; }

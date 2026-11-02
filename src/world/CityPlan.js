@@ -291,7 +291,19 @@ function genStreetProps(seg, rng) {
   }
   // jaywalk barriers on busy Pettah/Fort arterials
   if (seg.level === 0 && (d === 'pettah' || d === 'fort' || d === 'maradana')) {
-    for (const side of [-1, 1]) for (let t = 14; t < len - 14; t += 3) { const [x, z] = P(t, side, seg.hw + 0.25); if (ok(x, z) && (Math.floor(t / 3) % 9) !== 0) addProp('railing', x, z, horizontal ? 0 : Math.PI / 2, {}); }
+    // continuous runs of 3 m sections (posts at both ends, so sections join without gaps) along the kerb, solid to walk into;
+    // openings only where they belong: the junction ends, bus stops (people board there), side entrances (ok() fails) and
+    // a 2.4 m pedestrian gap after every 24 m, as on the real barriers (also lets police and medics reach the pavement)
+    const off = seg.hw + 0.25, rot = horizontal ? 0 : Math.PI / 2, stops = plan.busStops.filter((q) => q.seg === seg.id);
+    const shut = (t, side) => { const [x, z] = P(t, side, off); return !ok(x, z) || stops.some((q) => q.side === side && Math.abs(q.t - t) < 4.2); };
+    for (const side of [-1, 1]) { const runs = []; let a = null;
+      for (let t = 14; t <= len - 14 + 1e-6; t += 0.5) { const no = shut(t, side); if (!no && a === null) a = t; if (a !== null && (no || t + 0.5 > len - 14 + 1e-6)) { const e = no ? t - 0.5 : t; if (e - a >= 3) runs.push([a, e]); a = null; } }
+      for (const [a0, a1] of runs) { let t = a0;
+        while (a1 - t >= 3 - 1e-6) { const n = Math.min(8, Math.floor((a1 - t) / 3 + 1e-6)), e = t + n * 3;
+          for (let k = 0; k < n; k++) { const [x, z] = P(t + 1.5 + k * 3, side, off); addProp('railing', x, z, rot, {}); }
+          const [xa, za] = P(t, side, off), [xb, zb] = P(e, side, off);
+          plan.colliders.push({ x0: Math.min(xa, xb) - 0.07, x1: Math.max(xa, xb) + 0.07, z0: Math.min(za, zb) - 0.07, z1: Math.max(za, zb) + 0.07, h: 1.05, kind: 'railing' });
+          t = e + 2.4; } } }
   }
   // parking spots on local streets
   if (seg.level >= 1 && seg.level <= 2) {

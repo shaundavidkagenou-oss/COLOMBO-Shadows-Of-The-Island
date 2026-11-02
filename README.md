@@ -31,6 +31,13 @@ Double-click **`build-exe.bat`** in the project folder (Windows 10/11 x64, [Node
 
 The desktop build is the same game as the browser version. It is served from a private `app://` origin, so save games are kept between launches. F11 toggles fullscreen. The first run downloads roughly 250 MB (Vite, Electron, electron-builder). The `.exe` is not code-signed, so Windows SmartScreen may ask you to confirm with *More info → Run anyway*.
 
+**If the build stops with `getaddrinfo ENOTFOUND github.com`:** your network could not resolve github.com, where Electron's packaging tools are downloaded from. The script handles this by itself:
+1. It packages with the Electron that npm already installed (`desktop/node_modules/electron/dist`), so Electron is not downloaded a second time.
+2. If github.com still cannot be reached, it retries the downloads through the npmmirror.com mirror (`ELECTRON_MIRROR`, `ELECTRON_BUILDER_BINARIES_MIRROR`).
+3. If that also fails, it builds `desktop/release/win-unpacked/COLOMBO Shadows of the Island.exe` with no download at all, plus a zip of that folder. Keep the folder together; this version uses the default Electron icon.
+
+Switching the PC's DNS to 1.1.1.1 or 8.8.8.8, or using another connection, then running the script again gives the single-file and installer versions.
+
 ## The city
 
 **Districts:** Fort, Pettah, Galle Face, Beira Lake / Lotus Tower, Slave Island, Kollupitiya, Cinnamon Gardens, Bambalapitiya, Wellawatte, Borella, Maradana, Kotahena and the port.

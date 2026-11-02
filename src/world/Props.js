@@ -46,7 +46,7 @@ export function buildPropGeometries() {
     for (const x of [-0.75, 0.75]) { p.box(x, 0.21, 0, 0.12, 0.42, 0.5, { col: C('#9a958a') }); p.box(x, 0.66, -0.25, 0.08, 0.5, 0.06, { col: C('#9a958a') }); }
     GEO.bench = [part(p, MAT.paint)]; }
   // pedestrian railing (yellow/black)
-  { const p = new MeshBuilder(); for (let k = 0; k < 6; k++) p.box(-1.25 + k * 0.5, 0.95, 0, 0.5, 0.08, 0.06, { col: k % 2 ? C('#111') : C('#e8c21a') }); p.box(-1.45, 0.5, 0, 0.07, 1.0, 0.07, { col: C('#222') }); p.box(0, 0.55, 0, 2.9, 0.05, 0.04, { col: C('#d8b818') });
+  { const p = new MeshBuilder(); for (let k = 0; k < 6; k++) p.box(-1.25 + k * 0.5, 0.95, 0, 0.5, 0.08, 0.06, { col: k % 2 ? C('#111') : C('#e8c21a') }); for (const x of [-1.5, 1.5]) p.box(x, 0.5, 0, 0.07, 1.0, 0.07, { col: C('#222') }); p.box(0, 0.55, 0, 2.93, 0.05, 0.04, { col: C('#d8b818') }); p.box(0, 0.16, 0, 2.93, 0.05, 0.04, { col: C('#d8b818') }); for (let k = 0; k < 8; k++) p.box(-1.17 + k * 0.334, 0.535, 0, 0.03, 0.76, 0.03, { col: C('#c9ab17') }); /* a 3 m section with a post at each end: sections join post to post; bottom rail + vertical bars make it read as the solid guard rail it is */
     GEO.railing = [part(p, MAT.paint)]; }
   // gate
   { const p = new MeshBuilder(); p.box(-2.1, 1.1, 0, 0.35, 2.2, 0.35, { col: C('#e8e2d4') }); p.box(2.1, 1.1, 0, 0.35, 2.2, 0.35, { col: C('#e8e2d4') }); for (let k = 0; k < 14; k++) p.box(-1.8 + k * 0.28, 0.95, 0, 0.04, 1.7, 0.04, { col: C('#1d1d1d') }); p.box(0, 1.75, 0, 3.8, 0.08, 0.06, { col: C('#1d1d1d') }); p.box(0, 0.25, 0, 3.8, 0.08, 0.06, { col: C('#1d1d1d') });
