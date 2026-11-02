@@ -5,9 +5,11 @@ import { MAT } from '../gfx/Materials.js';
 import { TEX } from '../gfx/Textures.js';
 import { LAND_Y, ROAD_Y, nodes, signalState } from './Layout.js';
 import { RNG } from '../core/rng.js';
+import { buildStallGeometries, stallType, STALL_CANOPY } from './Stalls.js';
 
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 const GEO = {}; // type -> [{geo, mat}]
+let STALLS = null; // [type][parts] from Stalls.js
 function part(mb, mat) { return { geo: mb.build(), mat }; }
 function canvasTex(w, h, draw) { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; }
 
@@ -54,7 +56,9 @@ export function buildPropGeometries() {
     for (let k = 0; k < 10; k++) p.box(-0.8 + (k % 5) * 0.4, 0.92 + Math.floor(k / 5) * 0.12, -0.25 + Math.floor(k / 5) * 0.4, 0.34, 0.16, 0.3, { col: C(rng.pick(['#c0392b', '#2471a3', '#f1c40f', '#27ae60', '#e67e22', '#8e44ad', '#ecf0f1'])) });
     for (const [x, z] of [[-1.05, -0.6], [1.05, -0.6], [-1.05, 0.6], [1.05, 0.6]]) p.box(x, 1.2, z, 0.04, 2.4, 0.04, { col: C('#555') });
     const t = new MeshBuilder(); t.quad([-1.2, 2.2, 0.75], [1.2, 2.2, 0.75], [1.2, 2.45, -0.75], [-1.2, 2.45, -0.75], [0, 0, 1, 1], C('#2f6fa8'));
-    GEO.stall = [part(p, MAT.paint), part(t, MAT.awning)]; }
+    GEO.stall = [part(p, MAT.paint), part(t, MAT.awning)];
+    /* ten modelled stall types (Stalls.js) replace the single generic table when they build */
+    try { STALLS = buildStallGeometries(MAT.awning); } catch (e) { console.warn('stall types', e); STALLS = null; } }
   // Galle Face food cart (isso vadai / kadala)
   { const p = new MeshBuilder(); p.box(0, 0.95, 0, 1.4, 0.9, 2.6, { col: C('#d7d2c4') }); p.box(0, 1.45, 0, 1.45, 0.08, 2.65, { col: C('#9b2d20') });
     for (const z of [-0.9, 0.9]) p.cylinder(0.75, 0.35, z, 0.35, 0.35, 0.08, 12, { col: C('#222') });
@@ -86,6 +90,17 @@ export function buildPropsForChunk(chunk) {
       const mesh = new THREE.InstancedMesh(GEO.containers[0].geo, GEO.containers[0].mat, n); let i = 0; const rng = new RNG(31);
       for (const p of list) for (let t = 0; t < p.tiers; t++) { _p.set(p.x, LAND_Y + t * 2.6, p.z); _m.compose(_p, _q.identity(), _s.set(1, 1, 1)); mesh.setMatrixAt(i, _m); mesh.setColorAt(i, _c.set(rng.pick(['#b03a2e', '#2471a3', '#1e8449', '#d4ac0d', '#7d3c98', '#ca6f1e', '#5d6d7e', '#e5e7e9', '#a04000']))); i++; }
       mesh.castShadow = mesh.receiveShadow = true; mesh.computeBoundingSphere(); group.add(mesh); continue;
+    }
+    if (type === 'stall' && STALLS) {
+      // each stall gets one of the modelled types (neighbours differ) and its own canopy colour
+      const salt = Math.floor(Math.abs(list[0].x * 0.37 + list[0].z * 0.11)) % STALLS.length; const byT = new Map();
+      list.forEach((p, i) => { const t = stallType(i, salt); if (!byT.has(t)) byT.set(t, []); byT.get(t).push(p); });
+      for (const [t, ps] of byT) for (const prt of STALLS[t]) {
+        if (!prt.geo) continue; const mesh = new THREE.InstancedMesh(prt.geo, prt.mat, ps.length);
+        ps.forEach((p, i) => { _p.set(p.x, LAND_Y, p.z); _q.setFromEuler(_e.set(0, p.rot || 0, 0)); _m.compose(_p, _q, _s.set(1, 1, 1)); mesh.setMatrixAt(i, _m); if (prt.tint) mesh.setColorAt(i, _c.set(STALL_CANOPY[((p.seed || 0) + t) % STALL_CANOPY.length])); });
+        mesh.castShadow = !prt.noShadow; mesh.receiveShadow = !prt.noShadow; mesh.computeBoundingSphere(); group.add(mesh);
+      }
+      continue;
     }
     for (const prt of GEO[type]) {
       const mesh = new THREE.InstancedMesh(prt.geo, prt.mat, list.length);
