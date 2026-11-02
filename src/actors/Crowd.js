@@ -507,7 +507,7 @@ export class Crowd {
   }
   visible(p) { const f = this.focus, c = this.camDir; const dx = p.x - f.x, dz = p.z - f.z, d = Math.hypot(dx, dz); if (d > 60) return false; if (!c) return true; return (dx * c.x + dz * c.z) / (d || 1) > 0.2 || d < 12; }
   startPoi(p) {
-    const q = p.poi; if (this.life.atPoi(p, q)) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; return; } p.state = 'idle'; p.timer = this.rng.range(8, 30); p.yaw = q.rot ?? p.yaw;
+    const q = p.poi; if (this.life.atPoi(p, q)) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; return; } p.state = 'idle'; p.timer = this.rng.range(8, 30); if (q.type === 'bench' || q.type === 'door') p.yaw = q.rot ?? p.yaw; /* others turn to face the counter smoothly (idle step damps the yaw) instead of snapping */
     const A = p.ch.anim;
     switch (q.type) {
       case 'bench': A.set('sit'); p.sit = true; p.timer = this.rng.range(15, 45); if (p.seat) p.slideTo = p.seat; p.seat = null; break;

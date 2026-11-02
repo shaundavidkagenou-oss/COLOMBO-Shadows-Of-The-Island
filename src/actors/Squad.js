@@ -70,6 +70,8 @@ export function switchBlock(c) {
   if (c.entering) return 'Not while getting in or out';
   if (c.climbing || c.airborne) return 'Land first';
   if (c.hospital) return 'Not right now';
+  if (c.grenade) return 'Throw or put away the grenade first';
+  if (c.busy) return 'Finish what you are doing first';
   if (c.missionLead) return `${c.missionLead} leads this mission`;
   if (c.targetAway) return `${c.targetAway} is too far behind — regroup first`;
   return null;
@@ -171,7 +173,7 @@ export class Squad {
   blockFor(i) {
     const g = this.g, P = g.player, st = g.story; const target = this.members[i]; const lead = this.missionLead();
     return switchBlock({ locked: !this.unlocked, transitioning: !!this.tr, cutscene: g.director.active, dialogue: (g.hud.choiceEl && !g.hud.choiceEl.classList.contains('hidden')) || g.director.active, indoor: !!g.indoor || !!g.interiors.current,
-      wanted: !!(g.police && g.police.level > 0), entering: !!(P.entry || P.exiting), climbing: !!P.climb, airborne: !P.grounded && P.y - g.collision.groundAt(P.x, P.z, P.y, 0.5) > 0.4, hospital: g.health.busy,
+      wanted: !!(g.police && g.police.level > 0), entering: !!(P.entry || P.exiting), climbing: !!P.climb, airborne: !P.grounded && P.y - g.collision.groundAt(P.x, P.z, P.y, 0.5) > 0.4, hospital: g.health.busy, grenade: !!(g.grenades && g.grenades.state && g.grenades.state !== 'none'), busy: !!(P.indoorBusy || (g.drunk && g.drunk.busy) || (g.weapons && g.weapons.state === 'reload')),
       missionLead: lead && lead !== target.def.id ? SQUAD_DEFS.find((d) => d.id === lead).name : null, targetAway: target.mode === 'away' && !target.vehicle ? target.def.name : null });
   }
   request(i) {

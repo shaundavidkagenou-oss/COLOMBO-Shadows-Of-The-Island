@@ -116,8 +116,10 @@ function stance(an, F, b, s, w, solveArmIK) {
   if (legW > 0.001) {
     const A = an.a, B = an.b; const H = A + B - (drop + bob + 0.012) * s;
     const kL = C && C.kneeL ? track(C.kneeL, mt) : 0, kR = C && C.kneeR ? track(C.kneeR, mt) : 0;
-    const [thL, knL] = legSolve(A, B, (0.2 - fwd) * s, H - kL * 0.05 * s), [thR, knR] = legSolve(A, B, (-0.17 - fwd) * s, H - kR * 0.05 * s);
     const heelL = C && C.heelL ? track(C.heelL, mt) : 0, heelR = C && C.heelR ? track(C.heelR, mt) : 0, pivL = C && C.pivL ? track(C.pivL, mt) : 0, pivR = C && C.pivR ? track(C.pivR, mt) : 0;
+    /* a heel raise pivots on the ball of the foot: the ankle rises instead of the toes digging into the ground */
+    const lift = (h) => (h > 0 ? (0.12 * Math.sin(h) + 0.085 * (1 - Math.cos(h))) * s : 0);
+    const [thL, knL] = legSolve(A, B, (0.2 - fwd) * s, H - kL * 0.05 * s - lift(heelL)), [thR, knR] = legSolve(A, B, (-0.17 - fwd) * s, H - kR * 0.05 * s - lift(heelR));
     const hk = (bone, v) => { bone.rotation.x = lerp(bone.rotation.x, v, legW); };
     hk(b.thighL, thL); hk(b.shinL, knL); hk(b.footL, -(thL + knL) + heelL); hk(b.thighR, thR); hk(b.shinR, knR); hk(b.footR, -(thR + knR) + heelR);
     b.thighL.rotation.z = lerp(b.thighL.rotation.z, -0.07, legW); b.thighR.rotation.z = lerp(b.thighR.rotation.z, 0.07, legW);
