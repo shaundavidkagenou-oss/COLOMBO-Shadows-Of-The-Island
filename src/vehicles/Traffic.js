@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import * as L from '../world/Layout.js';
 import { plan } from '../world/CityPlan.js';
 import { Vehicle } from './Vehicle.js';
-import { VTYPES, modelCached, warmModel } from './VehicleModels.js';
+import { VTYPES, modelCached, warmModel, warmShape } from './VehicleModels.js';
 import { TRAFFIC_W, PARKED_W, NO_LANES } from './VehicleCatalog.js';
 import { RNG } from '../core/rng.js';
 import { clamp, lerp } from '../core/math.js';
@@ -72,6 +72,13 @@ function uturnPiece(p0, p1, f, node, rMin) {
   const cum = [0]; for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]));
   return { type: 'curve', poly: pts, cum, p0, p1: [pts[pts.length - 1][0], pts[pts.length - 1][1]], d0: f, len: Math.max(0.1, cum[cum.length - 1]), node, turn: 'uturn' };
 }
+// ---- body sweep: oriented-box corners / penetration depth (allocation-free) for the 'never drive into another body' guard
+const mkC = () => [[0, 0], [0, 0], [0, 0], [0, 0]]; const _A = mkC();
+function boxCorners(o, x, z, yaw, hw, hl) { const c = Math.cos(yaw), s = Math.sin(yaw); const ax = c * hw, az = -s * hw, bx = s * hl, bz = c * hl;
+  o[0][0] = x - ax - bx; o[0][1] = z - az - bz; o[1][0] = x + ax - bx; o[1][1] = z + az - bz; o[2][0] = x + ax + bx; o[2][1] = z + az + bz; o[3][0] = x - ax + bx; o[3][1] = z - az + bz; return o; }
+function boxPen(A, B) { let best = Infinity; for (let pi = 0; pi < 2; pi++) { const P = pi ? B : A; for (let i = 0; i < 2; i++) { const a = P[i], b = P[i + 1]; let nx = b[1] - a[1], nz = a[0] - b[0]; const l = Math.hypot(nx, nz) || 1; nx /= l; nz /= l;
+  let a0 = Infinity, a1 = -Infinity, b0 = Infinity, b1 = -Infinity; for (let k = 0; k < 4; k++) { const d = A[k][0] * nx + A[k][1] * nz; if (d < a0) a0 = d; if (d > a1) a1 = d; const e = B[k][0] * nx + B[k][1] * nz; if (e < b0) b0 = e; if (e > b1) b1 = e; }
+  const o = Math.min(a1 - b0, b1 - a0); if (o <= 0) return 0; if (o < best) best = o; } } return best; }
 function evalPiece(p, s) {
   let t = clamp(s / p.len, 0, 1);
   if (p.type === 'line') return [lerp(p.p0[0], p.p1[0], t), lerp(p.p0[1], p.p1[1], t), Math.atan2(p.d[0], p.d[1])];
@@ -127,6 +134,7 @@ export class Traffic {
       const [x, z, yaw] = evalPiece(piece, s);
       if (hint) { const dd = Math.hypot(x - focus.x, z - focus.z); if (dd < 45 || (camDir && dd < 170 && ((x - focus.x) * camDir.x + (z - focus.z) * camDir.z) / dd > 0.35)) continue; } // never pops up in view
       if (this.vehicles.some((v) => (v.x - x) ** 2 + (v.z - z) ** 2 < 14 * 14)) continue;
+      if (this.bodyAt(x, z, yaw, VTYPES[type])) continue; // not onto a parked vehicle either
       if (this.player && this.player.vehicle && (this.player.vehicle.x - x) ** 2 + (this.player.vehicle.z - z) ** 2 < 15 * 15) continue;
       let seed = Math.floor(this.rng.next() * 1e6);
       if (!modelCached(type, seed)) { // a first-time look costs a 10-30 ms model build: at most one every 2 s, otherwise reuse a built look (the loading screen builds one of every type)
@@ -144,8 +152,56 @@ export class Traffic {
     // passenger plan: which seats are taken and by whom (created lazily when the vehicle is near the player)
     const r = new RNG(v.id * 7919 + 13); const free = v.mesh.userData.seats.map((q, i) => i).filter((i) => !v.mesh.userData.seats[i].driver);
     const n = Math.min(free.length, r.weighted(PAX[v.type] || [[0, 1]])); const plan = [];
-    for (let k = 0; k < n; k++) { const j = Math.floor(r.next() * free.length); const si = free.splice(j, 1)[0]; plan.push({ si, spec: randomSpec(90000 + v.id * 41 + k * 7, { age: 'adult' }), mode: r.weighted([['lap', 5], ['phone', 2], ['window', 2]]) }); }
+    for (let k = 0; k < n; k++) { const j = Math.floor(r.next() * free.length); const si = free.splice(j, 1)[0]; plan.push({ si, spec: this.paxSpec(90000 + v.id * 41 + k * 7), mode: r.weighted([['lap', 5], ['phone', 2], ['window', 2]]) }); }
     v.paxPlan = plan; v.pax = [];
+  }
+  // passenger looks come from the crowd's prepared looks (built on the loading screen): a never-seen random look costs a
+  // 10-30 ms character build, and buses / tuks filling up near the player were a steady source of driving hitches
+  paxSpec(seed) { const P = this.specPool || (this.crowd && this.crowd.specs); if (P && P.length >= 8) { const r = new RNG(seed); for (let k = 0; k < 6; k++) { const sp = P[Math.floor(r.next() * P.length)]; if (sp && sp.ageYears >= 18) return sp; } } return randomSpec(seed, { age: 'adult' }); }
+  // a parked vehicle never appears on top of another one (a car waiting / pulling past the kerb spot, the player's car)
+  spotTaken(p, type) { const T = VTYPES[type]; if (!T) return false; boxCorners(_A, p.x, p.z, p.yaw, T.wid / 2 + 0.1, T.len / 2 + 0.15); const r = Math.hypot(T.wid, T.len) / 2 + 0.3; const pv = this.player && this.player.vehicle;
+    for (const o of pv && !this.vehicles.includes(pv) ? this.vehicles.concat([pv]) : this.vehicles) { const rr = r + Math.hypot(o.T.wid, o.T.len) / 2; if ((o.x - p.x) ** 2 + (o.z - p.z) ** 2 > rr * rr) continue; if (boxPen(_A, o._bc2 = boxCorners(o._bc2 || mkC(), o.x, o.z, o.yaw, o.T.wid / 2, o.T.len / 2)) > 0) return true; }
+    return false; }
+  bodyAt(x, z, yaw, T) { if (!T) return false; boxCorners(_A, x, z, yaw, T.wid / 2 + 0.2, T.len / 2 + 0.5); const r = Math.hypot(T.wid, T.len) / 2 + 0.6;
+    for (const o of this.parked) { const rr = r + Math.hypot(o.T.wid, o.T.len) / 2; if ((o.x - x) ** 2 + (o.z - z) ** 2 > rr * rr) continue; if (boxPen(_A, o._bc2 = boxCorners(o._bc2 || mkC(), o.x, o.z, o.yaw, o.T.wid / 2, o.T.len / 2)) > 0) return true; } return false; }
+  binBodies(playerV) { const B = this.bins || (this.bins = new Map()); for (const a of B.values()) a.length = 0;
+    const add = (o) => { if (!o || !o.T || (o.mesh && !o.mesh.parent)) return; const ex = Math.min(3, Math.abs(o.speed || 0) * 0.1) * Math.sign(o.speed || 0), ohw = o.T.wid / 2 - 0.03, ohl = o.T.len / 2 - 0.03 + Math.abs(ex); o._bc = boxCorners(o._bc || mkC(), o.x + Math.sin(o.yaw) * ex, o.z + Math.cos(o.yaw) * ex, o.yaw, ohw, ohl); o._br = Math.hypot(ohw, ohl); /* a moving body: where it is now and over the next 0.2 s */ const k = (Math.floor(o.x / 24) * 4096 + Math.floor(o.z / 24)) | 0; let a = B.get(k); if (!a) B.set(k, (a = [])); a.push(o); };
+    for (const o of this.vehicles) add(o); for (const o of this.parked) add(o); if (playerV && !this.vehicles.includes(playerV)) add(playerV); if (this.obstacles) for (const o of this.obstacles) add(o); }
+  // Distance along the vehicle's own path (its lane pieces, with the lateral drift of a lane change / pull-out) before its body
+  // would overlap another vehicle's body: the last line of defence under the leader / junction logic, which only looks down
+  // the lane (a car turning across a junction used to run into one stopped on a crossing curve; a lane change sideswiped a
+  // kerb-parked car). Bodies already touching (a knock, a spawn) only count if the overlap would get deeper, so nobody is
+  // frozen by contact they cannot undo.
+  // is anything within d metres behind the body (reversing)?
+  bodyBehind(v, ai, d) { const B = this.bins; if (!B) return false; const e = evalPiece(ai.pieces[0], Math.max(0, ai.s - d)); const hw = v.T.wid / 2, hl = v.T.len / 2; const x = e[0] + Math.cos(e[2]) * (ai.lat || 0), z = e[1] - Math.sin(e[2]) * (ai.lat || 0);
+    boxCorners(_A, x, z, v.yaw, hw, hl); const i0 = Math.floor((x - 12) / 24), i1 = Math.floor((x + 12) / 24), j0 = Math.floor((z - 12) / 24), j1 = Math.floor((z + 12) / 24);
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const a = B.get((i * 4096 + j) | 0); if (a) for (const o of a) if (o !== v && o._bc && boxPen(_A, o._bc) > 0) return true; }
+    const P = this.crowd && this.crowd.peds; if (P) for (const p of P) { if (Math.abs(p.x - x) > hl + 1 || Math.abs(p.z - z) > hl + 1) continue; const dx = p.x - x, dz = p.z - z, c = Math.cos(v.yaw), s = Math.sin(v.yaw); if (Math.abs(dx * c - dz * s) < hw + 0.4 && Math.abs(dx * s + dz * c) < hl + 0.4) return true; }
+    return false; }
+  bodyGap(v, ai, dt = 0) {
+    // far from the player: recomputed every third frame; in between the last contact distance shrinks by the distance driven (conservative)
+    const F = this.focusPt; if (F && dt > 0 && ai.bodyG !== undefined && ((this.fN | 0) + v.id) % 3 && (v.x - F.x) ** 2 + (v.z - F.z) ** 2 > 3600) { ai.bodyG -= v.speed * dt; return ai.bodyG; }
+    ai.bodyG = this.bodyGap0(v, ai); return ai.bodyG;
+  }
+  bodyGap0(v, ai) {
+    const B = this.bins; if (!B || !ai.pieces || !ai.pieces.length) return Infinity; const hw = v.T.wid / 2 - 0.03, hl = v.T.len / 2 - 0.03, rv = Math.hypot(hw, hl);
+    const look = Math.min(16, 2.5 + v.speed * 1.4), R = look + hl + 7; const near = this._near || (this._near = []); near.length = 0;
+    const i0 = Math.floor((v.x - R) / 24), i1 = Math.floor((v.x + R) / 24), j0 = Math.floor((v.z - R) / 24), j1 = Math.floor((v.z + R) / 24);
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const a = B.get((i * 4096 + j) | 0); if (!a) continue; for (const o of a) { if (o === v || o === v.towing || o.towing === v || o === v.hitchedTo) continue; if (Math.abs(o.x - v.x) > R || Math.abs(o.z - v.z) > R) continue; near.push(o); } }
+    if (!near.length) return Infinity;
+    boxCorners(_A, v.x, v.z, v.yaw, hw, hl); const p0 = this._p0 || (this._p0 = []); p0.length = 0;
+    for (const o of near) { const rr = rv + o._br; p0.push((o.x - v.x) ** 2 + (o.z - v.z) ** 2 > rr * rr ? 0 : boxPen(_A, o._bc)); } // corners: binBodies (this frame; vehicles stepped earlier this frame have moved < 0.5 m)
+    const P = ai.pieces, lw = ai.latWant ?? 0; let ph = ai.hdg || 0, pl = ai.lat || 0; const spP = Math.max(v.speed, 2), kTurn = Math.tan(0.6) / Math.max(1.2, v.T.len * 0.62) * 0.5; // the steering controller below, per 0.5 m
+    for (let d = 0.5, st = 0.5; d <= look; st = d < 4 ? 0.5 : 1, d += st) {
+      { const vdes = clamp((lw - pl) * 1.1, -2.2, 2.2); const want = Math.abs(lw - pl) < 0.01 && Math.abs(ph) < 0.002 ? 0 : Math.asin(clamp(vdes / spP, -0.5, 0.5)); const h0 = ph; ph += clamp(want - ph, -kTurn * st * 2, kTurn * st * 2); pl += Math.sin((h0 + ph) / 2) * st; }
+      let s = ai.s + d, k = 0; while (k < P.length - 1 && s > P[k].len) { s -= P[k].len; k++; } if (s > P[k].len) s = P[k].len;
+      const e = evalPiece(P[k], s); const x = e[0] + Math.cos(e[2]) * pl, z = e[1] - Math.sin(e[2]) * pl;
+      let built = false;
+      for (let n = 0; n < near.length; n++) { const o = near[n]; const rr = rv + o._br; if ((o.x - x) ** 2 + (o.z - z) ** 2 > rr * rr) continue;
+        if (!built) { boxCorners(_A, x, z, e[2] + ph, hw, hl); built = true; }
+        if (boxPen(_A, o._bc) > p0[n] + 0.005) { ai.bodyBlock = o; return d - st; } }
+    }
+    ai.bodyBlock = null; return Infinity;
   }
   // create / drop passengers by distance (LOD) and keep their pose animating at a distance-dependent rate
   updateOccupants(v, dt, focus) {
@@ -203,7 +259,7 @@ export class Traffic {
   }
   update(dt, focus, camDir, simTime, pedsNear, player) {
     this.fN = (this.fN | 0) + 1;
-    this.simTime = simTime; this.player = player;
+    this.simTime = simTime; this.player = player; this.focusPt = focus;
     // spawn / despawn
     for (let i = this.vehicles.length - 1; i >= 0; i--) { const v = this.vehicles[i]; const d = Math.hypot(v.x - focus.x, v.z - focus.z); if (d > 330 && !v.keep) { this.remove(v); this.vehicles.splice(i, 1); } }
     if (this.spawnHint && (this.spawnHintT = (this.spawnHintT || 0) + dt) > 20) { this.spawnHint = undefined; this.spawnHintT = 0; } else if (!this.spawnHint) this.spawnHintT = 0;
@@ -211,6 +267,7 @@ export class Traffic {
     this.updateParked(dt, focus);
     // spatial bins for following
     const all = this.vehicles; const playerV = player && player.vehicle; this.emergency = all.filter((v) => v.ai && v.ai.emergency && v.beaconsOn);
+    this.binBodies(playerV); // every solid vehicle body (moving, parked, the player's, train cars) for the body sweep
     for (const v of all) this.step(v, dt, all, pedsNear, playerV, player);
     for (const v of all) if (v.towing) this.hitch(v);
     for (const v of this.parked) if (v.free) this.stepFree(v, dt);
@@ -297,11 +354,21 @@ export class Traffic {
     if (ai.rejoin) v0 = Math.min(v0, Math.abs(ai.rjErr || 0) > 0.5 ? 3.5 : 7.5);
     if (p.vlim) v0 = Math.min(v0, pathV(p, ai.s)); if (ai.fuel && ai.fuel.vcap) v0 = Math.min(v0, ai.fuel.vcap); /* forecourt paths: curvature speed; slowing to turn in */
     const s0 = 2.2, T = 1.2 / ai.aggressive, a = v.T.accel * 0.8, b = 3.5; const sp = v.speed;
+    const bodyG = this.bodyGap(v, ai, dt); ai.bodyBind = bodyG < Math.min(gap, stopAt) - 0.5; if (bodyG < gap) { gap = bodyG; leadV = 0; } // never into another vehicle's body
     const g2 = Math.min(gap, stopAt); const lv = stopAt < gap ? 0 : leadV;
     const sStar = s0 + Math.max(0, sp * T + (sp * (sp - lv)) / (2 * Math.sqrt(a * b)));
     let acc = a * (1 - Math.pow(sp / Math.max(v0, 0.1), 4) - Math.pow(sStar / Math.max(g2, 0.1), 2));
     if (ai.bumped > 0) { ai.bumped -= dt; acc = -8; }
     acc = clamp(acc, -9, a);
+    // pulling out round a vehicle parked in the lane: only rolling turns the wheels' path, so creep at walking pace up to the
+    // actual contact point while steering out (the body guard's hard stop still keeps the bodies apart)
+    if (ai.bodyBind && ai.bodyBlock && ai.bodyBlock.parked && Math.abs((ai.latWant ?? 0) - (ai.lat || 0)) > 0.1 && bodyG < 4) { const want = bodyG > 0.3 ? Math.min(1.2, bodyG) : 0; acc = clamp((want - sp) * 3, -8, 2); }
+    // nosed up too close behind a vehicle parked in the lane to steer round it (followed someone who pulled out): back up a
+    // couple of metres, as a driver would, when the road behind is clear
+    const bb = ai.bodyBlock, mutual = bb && bb.ai && bb.ai.bodyBlock === v && bb.speed < 0.2 && v.id > bb.id; /* two turning across each other, nose to nose: the later one gives way */
+    if (ai.bodyBind && bb && (bb.parked || mutual) && bodyG < 0.6 && sp < 0.2) ai.wedgedT = (ai.wedgedT || 0) + dt; else if (!(ai.reverse > 0)) ai.wedgedT = 0;
+    if (ai.wedgedT > (mutual ? 2 : 3) && !(ai.reverse > 0)) { ai.reverse = 2.5; ai.wedgedT = 0; }
+    if (ai.reverse > 0) { const ds = Math.min(ai.reverse, 0.9 * dt); if (ai.s - ds > 0.2 && !this.bodyBehind(v, ai, ds + 0.4)) { ai.s -= ds; ai.reverse -= ds; v.reversing = true; v.wheelRot -= ds / v.T.wheelR; } else ai.reverse = 0; if (!(ai.reverse > 0)) v.reversing = false; acc = Math.min(acc, 0); }
     v.speed = Math.max(0, sp + acc * dt); v.brake = acc < -1.0 || v.speed < 0.2;
     // horn when blocked by something other than a red light
     ai.honkCd -= dt;
@@ -315,7 +382,8 @@ export class Traffic {
     { const sp = v.speed, lw = ai.latWant ?? 0; ai.hdg = ai.hdg || 0; const vdes = clamp((lw - ai.lat) * 1.1, -2.2, 2.2);
       const want = Math.abs(lw - ai.lat) < 0.01 && Math.abs(ai.hdg) < 0.002 ? 0 : Math.asin(clamp(vdes / Math.max(sp, 0.5), -0.5, 0.5));
       const yr = Math.min((sp * Math.tan(0.6)) / Math.max(1.2, v.T.len * 0.62), 3.5 / Math.max(sp, 0.5)) * dt; const h0 = ai.hdg; ai.hdg += clamp(want - ai.hdg, -yr, yr); // steering lock and ~0.35 g of grip
-      const hm = (h0 + ai.hdg) / 2; ai.lat += sp * Math.sin(hm) * dt; ai.s += sp * Math.cos(hm) * dt; }
+      const hm = (h0 + ai.hdg) / 2; const s0 = ai.s, l0 = ai.lat; ai.lat += sp * Math.sin(hm) * dt; ai.s += sp * Math.cos(hm) * dt;
+      if (ai.s - s0 > bodyG) { const f = Math.max(0, bodyG) / (ai.s - s0); ai.s = s0 + (ai.s - s0) * f; ai.lat = l0 + (ai.lat - l0) * f; v.speed = 0; } } // hard stop at the body contact
     if (ai.sMaxP && ai.sMaxP === ai.pieces[0] && ai.s > ai.sMax) { ai.s = ai.sMax; v.speed = 0; } // hard stop (FuelStations: pump bay / give-way line)
     while (ai.s > ai.pieces[0].len && ai.pieces.length > 1) { ai.s -= ai.pieces[0].len; ai.pieces.shift(); this.extend(v); }
     const [x, z, yaw] = evalPiece(ai.pieces[0], ai.s);
@@ -401,8 +469,13 @@ export class Traffic {
   async warmModels(points, pr = () => {}) {
     const jobs = this.streetTypes().map((t, i) => [t, 1009 + i * 7919]); for (let k = 1; k <= 12; k++) for (const t of ['police', 'policejeep', 'ambulance']) if (VTYPES[t]) jobs.push([t, 3000 + k * 7]); // police / ambulance units use seed 3000 + 7 * unit id (PoliceResponse.makeUnit)
     for (const [x, z] of points || []) { const near = plan.parking.map((p) => [(p.x - x) ** 2 + (p.z - z) ** 2, p]).filter((n) => n[0] < 150 * 150).sort((a, b) => a[0] - b[0]).slice(0, 26); for (const [, p] of near) { const l = this.parkedLook(p); jobs.push([l.type, l.seed]); } }
-    let t0 = performance.now();
-    for (let i = 0; i < jobs.length; i++) { const [t, sd] = jobs[i]; try { warmModel(t, sd); this.noteLook(t, sd); } catch (e) { console.warn('warm vehicle', t, e); } pr((i + 1) / jobs.length); if (performance.now() - t0 > 30) { await new Promise((r) => setTimeout(r, 0)); t0 = performance.now(); } }
+    // every type x body variant shape (each paint colour is then a ~1 ms recolour, never a model build mid-drive), and the
+    // traffic drivers' 16 looks (a first-time character build is 10-30 ms)
+    const shapes = []; for (const t of Object.keys(VTYPES)) for (let v = 0; v < 4; v++) shapes.push([t, v]);
+    let t0 = performance.now(); const all = shapes.length + this.driverSpecs.length + jobs.length;
+    for (let i = 0; i < shapes.length; i++) { try { warmShape(shapes[i][0], shapes[i][1]); } catch (e) { console.warn('warm vehicle shape', shapes[i], e); } pr(i / all); if (performance.now() - t0 > 30) { await new Promise((r) => setTimeout(r, 0)); t0 = performance.now(); } }
+    for (let i = 0; i < this.driverSpecs.length; i++) { try { new Character(this.driverSpecs[i]).dispose(); } catch (e) { console.warn('warm driver', e); } pr((shapes.length + i) / all); if (performance.now() - t0 > 30) { await new Promise((r) => setTimeout(r, 0)); t0 = performance.now(); } }
+    for (let i = 0; i < jobs.length; i++) { const [t, sd] = jobs[i]; try { warmModel(t, sd); this.noteLook(t, sd); } catch (e) { console.warn('warm vehicle', t, e); } pr((shapes.length + this.driverSpecs.length + i + 1) / all); if (performance.now() - t0 > 30) { await new Promise((r) => setTimeout(r, 0)); t0 = performance.now(); } }
   }
   updateParked(dt, focus) {
     this.parkedAcc = (this.parkedAcc || 0) + dt; this.parkedTimer -= dt; if (this.parkedTimer > 0) return; const tick = this.parkedAcc; this.parkedAcc = 0; this.parkedTimer = 1.0; // tick = real time since the last pass
@@ -417,7 +490,7 @@ export class Traffic {
     if (this.vacated) for (const [sp, t] of this.vacated) { const nt = t + tick; if (!want.has(sp) && nt > 90 && Math.hypot(sp.x - focus.x, sp.z - focus.z) > 160) { this.vacated.delete(sp); this.parkedSet.delete(sp); } else this.vacated.set(sp, nt); }
     let made = 0; // nearest spots first; per frame at most 4 already-built looks or ONE first-time model build (entering a street used to build up to 26 at once)
     for (const p of want) {
-      if (this.parkedSet.has(p)) continue; if (made >= 4) { this.parkedTimer = 0.05; break; } const { type, seed } = this.parkedLook(p); const fresh = !modelCached(type, seed); if (fresh && (made > 0 || performance.now() - (this.lastBuild || -1e9) < 300)) { this.parkedTimer = 0.05; continue; } if (fresh) this.lastBuild = performance.now(); made += fresh ? 4 : 1; /* a first-time model build is the only one this frame */
+      if (this.parkedSet.has(p)) continue; if (made >= 2) { this.parkedTimer = 0; break; } const { type, seed } = this.parkedLook(p); if (this.spotTaken(p, type)) continue; const fresh = !modelCached(type, seed); if (fresh && (made > 0 || performance.now() - (this.lastBuild || -1e9) < 300)) { this.parkedTimer = 0.05; continue; } if (fresh) this.lastBuild = performance.now(); made += fresh ? 2 : 1; /* a first-time model build is the only one this frame; otherwise two per frame (~3 ms each) until the street is filled */
       const v = new Vehicle(type, seed, this.scene); this.noteLook(type, seed); parkOnStand(v); v.place(p.x, p.z, p.yaw); v.parked = true; v.spot = p; this.parked.push(v); this.parkedSet.add(p);
     }
   }

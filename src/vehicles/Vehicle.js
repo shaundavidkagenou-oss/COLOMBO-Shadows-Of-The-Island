@@ -201,7 +201,7 @@ export class Vehicle {
     if (beam && !ud.headPool) { const hp = headPool(); const bike = this.T.entry === 'bike'; const p = new THREE.Mesh(hp.geo, hp.mat); p.name = 'headPool';
       p.position.set(0, 0.07, this.T.len / 2 - 0.1); p.scale.set(bike ? 2.4 : Math.max(2.6, this.T.wid * 1.5), 1, bike ? 8 : 11); p.renderOrder = -1; /* before glass: seen through a windscreen it is tinted like everything else behind the glass */ p.castShadow = p.receiveShadow = false; m.add(p); ud.headPool = p; }
     const decal = beam && !ud.realBeam; if (ud.headPool && ud.headPool.visible !== decal) ud.headPool.visible = decal; // a pooled real beam replaces the decal
-    const wantR = occupied && this.speed < -0.3 ? 1.3 : 0; if (rm && rm.emissiveIntensity !== wantR) rm.emissiveIntensity = wantR;
+    const wantR = occupied && (this.speed < -0.3 || this.reversing) ? 1.3 : 0; if (rm && rm.emissiveIntensity !== wantR) rm.emissiveIntensity = wantR;
   }
   driverSeat() { const s = this.mesh.userData.seats.find((q) => q.driver) || this.mesh.userData.seats[0]; return s; }
   seatWorld(seat) { const v = new THREE.Vector3(seat.x, seat.y, seat.z); this.mesh.updateMatrixWorld(); return v.applyMatrix4(this.mesh.matrixWorld); }

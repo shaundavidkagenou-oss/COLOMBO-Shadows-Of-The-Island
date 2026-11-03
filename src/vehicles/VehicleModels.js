@@ -730,21 +730,43 @@ function doorPivot(d, geos, matsByName) {
 
 // Returns a THREE.Group with .userData {wheels, tailMat, seats, type, color, steerWheel, door, entry}
 // is this (type, seed) look already built? (traffic spreads first-time model builds out so they never stack up in one frame)
-export function modelCached(type, seed = 1) { const T = VTYPES[type]; if (!T) return true; const r = new RNG(seed); const color = r.pick(T.colors); const variant = r.int(0, 3); return modelCache.has(type + color + variant); }
+// a look's geometry is the same for every paint colour except the vertex colours, which are the paint colour or an exact
+// multiple of it (door-jamb shade). So each type + variant is built once with a probe colour nothing else uses, and every
+// paint colour is a copy of that build with the probe vertices recoloured: ~1 ms instead of a 10-40 ms model build mid-drive
+// (identical result: tools/vehicle-recolor-test.mjs compares every look against a direct build).
+const PROBE_HEX = '#d2508e'; let PROBE = null; const shapeCache = new Map();
+function shapeOf(type, variant) {
+  const key = type + '|' + variant; let s = shapeCache.get(key); if (s) return s; PROBE = PROBE || C(PROBE_HEX);
+  const m = buildModel(type, PROBE_HEX, variant); const build = (mbb) => { const out = []; for (const [name, b] of mbb.b) { const g = b.build(); if (g) out.push([name, g, probeMask(g)]); } return out; };
+  s = { geos: build(m.mb), dgeos: build(m.dm), m }; shapeCache.set(key, s); return s;
+}
+// per vertex: the multiple of the probe colour it carries (0 = not paint)
+function probeMask(g) { const c = g.attributes.color; if (!c) return null; const a = c.array, P = PROBE; let mask = null;
+  for (let i = 0; i < a.length; i += 3) { const k = a[i] / P[0]; if (k > 0 && Math.abs(a[i + 1] - k * P[1]) < 2e-5 && Math.abs(a[i + 2] - k * P[2]) < 2e-5) { if (!mask) mask = new Float32Array(a.length / 3); mask[i / 3] = k; } }
+  return mask; }
+function recolor(g, mask, col) { const out = g.clone(); if (!mask) return out; const a = out.attributes.color.array; for (let j = 0; j < mask.length; j++) { const k = mask[j]; if (k) { a[j * 3] = Math.fround(k * col[0]); a[j * 3 + 1] = Math.fround(k * col[1]); a[j * 3 + 2] = Math.fround(k * col[2]); } } return out; }
+// door / bus-door metadata carry colours too (the door jamb shade): copy, recolouring any probe-multiple triple
+function recolorMeta(o, col) { if (Array.isArray(o)) { if (o.length === 3 && o.every((v) => typeof v === 'number')) { const k = o[0] / PROBE[0]; if (k > 0 && Math.abs(o[1] - k * PROBE[1]) < 2e-5 && Math.abs(o[2] - k * PROBE[2]) < 2e-5) return [k * col[0], k * col[1], k * col[2]]; return o.slice(); } return o.map((x) => recolorMeta(x, col)); }
+  if (o && typeof o === 'object' && !o.isBufferGeometry && !o.isVector3) { const r = {}; for (const k in o) r[k] = recolorMeta(o[k], col); return r; } return o; }
+export function shapeCacheSize() { return shapeCache.size; }
+export function modelCached(type, seed = 1) { const T = VTYPES[type]; if (!T) return true; const r = new RNG(seed); const color = r.pick(T.colors); const variant = r.int(0, 3); return modelCache.has(type + color + variant) || shapeCache.has(type + '|' + variant); }
 // the shared (cached) geometry for a look: built once per type + colour + variant
 function ensureModel(type, seed) {
   const T = VTYPES[type]; const r = new RNG(seed); const color = r.pick(T.colors); const variant = r.int(0, 3);
   const key = type + color + variant; let cached = modelCache.get(key); const worn = WORN.has(type) || (type === 'van' && variant === 3);
   if (!cached) {
-    const m = buildModel(type, color, variant); const geos = [];
-    for (const [name, b] of m.mb.b) { const g = b.build(); if (!g) continue; if (worn && (name === 'paint' || name === 'canvas')) dirty(g, seed); geos.push([name, g]); }
-    const dgeos = []; for (const [name, b] of m.dm.b) { const g2 = b.build(); if (g2) dgeos.push([name, g2]); }
-    cached = { geos, dgeos, wheels: m.wheels, seats: m.seats, steerWheel: m.steerWheel, doors: m.doors, wheelStyle: m.wheelStyle, busDoor: m.busDoor }; modelCache.set(key, cached);
+    const S = shapeOf(type, variant), m = S.m, col = C(color); const geos = [];
+    for (const [name, g0, mask] of S.geos) { const g = recolor(g0, mask, col); if (worn && (name === 'paint' || name === 'canvas')) dirty(g, seed); geos.push([name, g]); }
+    const dgeos = []; for (const [name, g0, mask] of S.dgeos) dgeos.push([name, recolor(g0, mask, col)]);
+    cached = { geos, dgeos, wheels: m.wheels, seats: m.seats, steerWheel: m.steerWheel, doors: recolorMeta(m.doors, col), wheelStyle: m.wheelStyle, busDoor: recolorMeta(m.busDoor, col) }; modelCache.set(key, cached);
   }
   return { T, color, variant, worn, cached };
 }
 // loading screen: build a look's geometry ahead of time (no meshes / materials are created)
 export function warmModel(type, seed = 1) { if (VTYPES[type]) ensureModel(type, seed); }
+export function warmShape(type, variant) { if (VTYPES[type]) shapeOf(type, variant); }
+export function cleanLook(type, color, variant) { const S = shapeOf(type, variant), col = C(color); const f = (L) => L.map(([n, g, k]) => [n, recolor(g, k, col)]); return { geos: f(S.geos), dgeos: f(S.dgeos), m: { ...S.m, doors: recolorMeta(S.m.doors, col), busDoor: recolorMeta(S.m.busDoor, col) } }; } // tests only
+export function directModel(type, color, variant) { const m = buildModel(type, color, variant); const f = (mbb) => [...mbb.b].map(([n, b]) => [n, b.build()]).filter((q) => q[1]); return { geos: f(m.mb), dgeos: f(m.dm), m }; } // tests only
 export function createVehicleMesh(type, seed = 1) {
   const { T, color, variant, worn, cached } = ensureModel(type, seed);
   const { mats: M } = vehicleMaterials();

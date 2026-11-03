@@ -82,5 +82,16 @@ for (let i = 0; i < 9; i++) {
   ok(eR < 0.03 && eL < 0.03, `${WEAPONS[i].id}: aimed — wrists on their holds (R ${(eR * 100).toFixed(1)} cm, L ${(eL * 100).toFixed(1)} cm, slide ${(slide * 100).toFixed(0)} cm)`);
   if (h.L && m.userData.hold.fore) { const f = m.userData.hold.fore; const zHand = f.c.z - slide; ok(zHand > f.c.z - 0.2, `${WEAPONS[i].id}: support hand still on the forend / receiver (slid ${(slide * 100).toFixed(0)} cm)`); }
 }
+// ---- the weapon card never shows a gun's ammunition while fists are picked (scroll highlight, wheel, switching to fists)
+{ const nodes = {}; W.el.card.querySelector = (q) => nodes[q] || (nodes[q] = { textContent: '', innerHTML: '', classList: { add() {}, remove() {}, toggle() {} } });
+  const ammo = () => nodes['.wc-ammo b'].textContent + ' ' + nodes['.wc-ammo span'].textContent, card = () => `[${nodes['.wc-name'].innerHTML.replace(/<[^>]*>/g, '')}] ${ammo().trim()} · ${nodes['.wc-state'].textContent}`;
+  const gun = WEAPONS.findIndex((d, k) => W.inv[k].owned && d.cls === 'pistol'); W.select(gun); until(() => W.state === 'ready' && W.cur === gun); run(0.1);
+  ok(/\d/.test(ammo()), `armed: card shows the ammunition (${card()})`);
+  let ring = [-1, ...WEAPONS.map((_, k) => k).filter((k) => W.inv[k].owned)]; let notches = (ring.indexOf(-1) - ring.indexOf(gun) + ring.length) % ring.length; Input.wheel = notches; frame();
+  ok(W.scrollTarget === -1, `scrolled to fists (target ${W.scrollTarget})`); ok(!/\d/.test(ammo()) && /Fists/.test(card()), `scrolled to fists: no ammunition on the card (${card()})`);
+  let seen = ''; run(0.6, () => { if (/\d/.test(ammo())) seen = card(); }); ok(!seen, `while the gun is put away for fists: no ammunition shown (${seen || card()})`);
+  ok(W.cur === -1 && W.sel === -1, `fists in hand (cur ${W.cur}, sel ${W.sel})`);
+  W.select(gun); until(() => W.state === 'ready' && W.cur === gun); run(0.1); W.wheelUpdate(); W.wheelSel = -1; W.hudUpdate(STEP); ok(!/\d/.test(ammo()), `weapon wheel on fists: no ammunition on the card (${card()})`); W.wheelClose(true); run(0.6, () => { if (/\d/.test(ammo())) seen = card(); }); ok(!seen && W.cur === -1, `wheel → fists: no ammunition while switching (${seen || card()})`);
+}
 console.log(`weapon-switch-test: ${passes} passed, ${fails} failed`);
 process.exit(fails ? 1 : 0);
