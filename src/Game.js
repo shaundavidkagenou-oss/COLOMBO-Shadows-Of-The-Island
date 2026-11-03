@@ -10,6 +10,7 @@ import { GunShopUI } from './ui/GunShopUI.js';
 import { DebugConsole, newDebugState } from './ui/DebugConsole.js';
 import { SchoolLife } from './actors/SchoolLife.js';
 import * as THREE from 'three';
+import { gpuInfo, gpuAdvice } from './gfx/GpuInfo.js';
 import { Settings } from './core/Settings.js';
 import { Input } from './core/Input.js';
 import { bus } from './core/Events.js';
@@ -197,6 +198,8 @@ export class Game {
       { label: 'Waking the city', run: async (pr) => { for (let i = 0; i < 4; i++) { this.camera.rotation.y += Math.PI / 2; this.camera.updateMatrixWorld(); this.renderer.render(this.scene, this.camera); pr((i + 1) / 4); await new Promise((r) => requestAnimationFrame(r)); } } },
     ], { minMs: TEST ? 1500 : 6200, onFlash: () => Audio.boom() });
     this.hud.fade(1, 0); await new Promise((r) => requestAnimationFrame(r));
+    const gpu = gpuInfo(this.renderer); console.info('[COLOMBO] GPU:', gpu.label, '·', gpu.api, '·', gpu.kind);
+    if (!this.gpuWarned && (gpu.kind === 'software' || gpu.kind === 'integrated')) { this.gpuWarned = true; this.hud.notify(gpu.kind === 'software' ? 'Graphics card not in use' : 'Integrated graphics', gpuAdvice(gpu), 'warn', 9); }
   }
   async newGame() {
     this.story.state = Story.freshState(); this.clock = 0; this.mode = 'play'; this.paused = false; this.squad.reset(); this.grenades?.clear(); this.rebuildPlayer();

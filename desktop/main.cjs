@@ -9,9 +9,26 @@ const { pathToFileURL } = require('url');
 const ROOT = path.join(__dirname, 'app');
 protocol.registerSchemesAsPrivileged([{ scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, codeCache: true } }]);
 
-// keep the GPU path on even for blocklisted drivers (WebGL 2 is required); vsync off is left to the game's own limiter
+// Run everything that can run on the graphics card on it:
+//  · ignore-gpu-blocklist — keep hardware WebGL 2 even on drivers Chromium blocklists (never fall back to CPU SwiftShader)
+//  · force_high_performance_gpu — on dual-GPU machines pick the dedicated card instead of the integrated one
+//  · enable-gpu-rasterization / enable-zero-copy — the HUD, menus and text are rasterised on the GPU and uploaded without
+//    a CPU copy
+//  · disable-renderer-backgrounding — the game is not throttled when the window loses focus for a moment
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
+app.commandLine.appendSwitch('force_high_performance_gpu');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
+app.commandLine.appendSwitch('enable-zero-copy');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+// Windows decides which adapter an app uses from its per-app graphics preference (Settings › System › Display › Graphics).
+// Writing "GpuPreference=2" (High performance) for this exe into the current user's key is exactly what that settings page
+// does — no admin rights needed. It takes effect from the next launch (the GPU process of this run has already started).
+if (process.platform === 'win32' && app.isPackaged) {
+  try {
+    const { execFile } = require('child_process');
+    execFile('reg', ['add', 'HKCU\\Software\\Microsoft\\DirectX\\UserGpuPreferences', '/v', process.execPath, '/t', 'REG_SZ', '/d', 'GpuPreference=2;', '/f'], { windowsHide: true }, () => {});
+  } catch { /* preference is a bonus; the switches above still apply */ }
+}
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 function createWindow() {

@@ -1,4 +1,5 @@
 // Studio intro + genuine loading screen, montage captions, title card, main menu, pause menu, settings, save/load, credits.
+import { gpuInfo, gpuAdvice } from '../gfx/GpuInfo.js';
 import { Settings, QUALITY_PRESETS, DEFAULT_BINDINGS } from '../core/Settings.js';
 import { SaveSystem, SLOTS } from '../core/SaveSystem.js';
 import { Input, keyLabel } from '../core/Input.js';
@@ -119,6 +120,7 @@ export class Screens {
           row('Resolution scale', select('resolutionScale', [[0.5, '50%'], [0.67, '67%'], [0.75, '75%'], [0.85, '85%'], [1, '100%'], [1.25, '125%'], [1.5, '150%']]));
           const fs = el('button', 'menu-btn small', null, document.fullscreenElement ? 'Exit fullscreen' : 'Enter fullscreen'); fs.onclick = () => { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen?.(); setTimeout(() => (fs.textContent = document.fullscreenElement ? 'Exit fullscreen' : 'Enter fullscreen'), 300); }; row('Display mode', fs);
           row('Field of view', slider('fov', 50, 90, 1)); row('Crowd density', slider('crowdDensity', 0.2, 1.5, 0.05)); row('Traffic density', slider('trafficDensity', 0.2, 1.5, 0.05)); row('Show FPS counter', check('showFps')); row('Blood effects', check('blood'));
+          { const gi = gpuInfo(this.g.renderer); const r = el('div', 'set-row', body, `<span>Graphics card</span>`); el('b', '', r, `${gi.label} · ${gi.api}`); el('p', 'hint', body, gpuAdvice(gi)); }
           el('p', 'hint', body, 'Shadows, bloom, ambient occlusion and draw distance follow the quality preset. Low is recommended for integrated graphics. Blood effects can be turned off (impacts then show a dust puff).');
         },
         Camera: () => { row('Mouse sensitivity', slider('mouseSens', 0.2, 3, 0.05)); row('Invert Y axis', check('invertY')); row('Camera distance', slider('cameraDistance', 0.7, 1.6, 0.05)); row('Camera shake', check('cameraShake')); row('Squad switch transition', select('switchStyle', [['auto', 'Auto (transit, cut when far)'], ['transit', 'Always camera transit'], ['cut', 'Always jump-cut']])); row('Day length (real seconds per game minute)', slider('timeScale', 0.5, 6, 0.25)); },
