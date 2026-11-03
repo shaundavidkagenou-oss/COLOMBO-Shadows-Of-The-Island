@@ -86,6 +86,7 @@ function evalPiece(p, s) {
 
 const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 // arc-length on a piece nearest to (x, z), searched around s0 (curves) / closed form (lines)
+export function pathV(p, s) { const c = p.cum, q = Math.max(0, Math.min(s, p.len)); let lo = 0, hi = c.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (c[m] <= q) lo = m; else hi = m; } return Math.min(p.vlim[lo], p.vlim[hi]); }
 function projectS(p, x, z, s0) {
   if (p.type === 'line') return (x - p.p0[0]) * p.d[0] + (z - p.p0[1]) * p.d[1];
   let best = s0, bd = Infinity; for (let s = Math.max(0, s0 - 3); s <= Math.min(p.len, s0 + 8); s += 0.25) { const [px, pz] = evalPiece(p, s); const d = (px - x) ** 2 + (pz - z) ** 2; if (d < bd) { bd = d; best = s; } }
@@ -112,16 +113,19 @@ export class Traffic {
   pickType(x, z) { const d = L.districtIdAt(x, z); const night = this.night > 0.6; const mix = MIX[d] || MIX.default; const m = night ? mix.map(([t, w]) => [t, t === 'bus' || t === 'pbus' ? w * 0.4 : w]) : mix; const t = this.rng.weighted(m); return t === 'cat' ? this.rng.weighted(CAT_W[d] || CAT_W.default) : t; }
   spawn(focus, camDir, forceNear = false) {
     for (let tries = 0; tries < 12; tries++) {
-      const seg = this.drivableSegs[Math.floor(this.rng.next() * this.drivableSegs.length)];
+      const hint = tries < 4 ? this.spawnHint : null; // a fuel station asking for a customer on its approach road
+      const seg = hint ? hint.seg : this.drivableSegs[Math.floor(this.rng.next() * this.drivableSegs.length)];
       const mx = (seg.x0 + seg.x1) / 2, mz = (seg.z0 + seg.z1) / 2; const d = Math.hypot(mx - focus.x, mz - focus.z);
-      if (d > (forceNear ? 140 : 260) || d < (forceNear ? 25 : 70)) continue;
+      if (!hint && (d > (forceNear ? 140 : 260) || d < (forceNear ? 25 : 70))) continue;
       // avoid spawning in plain view nearby
-      if (!forceNear && d < 160 && camDir) { const dot = ((mx - focus.x) * camDir.x + (mz - focus.z) * camDir.z) / d; if (dot > 0.5) continue; }
-      const [a, b] = segNodes(seg); const fwd = this.rng.chance(0.5); const from = fwd ? a : b, to = fwd ? b : a;
-      const lanes = seg.level <= 1 ? 2 : 1; const lane = Math.floor(this.rng.next() * lanes);
-      const type = this.pickType(mx, mz); if (seg.level >= 3 && (type === 'bus' || type === 'pbus' || type === 'lorry' || NO_LANES.has(type))) continue;
-      const piece = linePiece(seg, from, to, lane); const s = this.rng.range(0, piece.len * 0.8);
+      if (!hint && !forceNear && d < 160 && camDir) { const dot = ((mx - focus.x) * camDir.x + (mz - focus.z) * camDir.z) / d; if (dot > 0.5) continue; }
+      const [a, b] = segNodes(seg); const fwd = this.rng.chance(0.5); const from = hint ? hint.from : fwd ? a : b, to = hint ? hint.to : fwd ? b : a;
+      const lanes = seg.level <= 1 ? 2 : 1; const lane = hint ? hint.lane : Math.floor(this.rng.next() * lanes);
+      let type = this.pickType(mx, mz); if (hint) { for (let k = 0; k < 10 && !hint.types.has(type); k++) type = this.pickType(mx, mz); if (!hint.types.has(type)) continue; }
+      if (seg.level >= 3 && (type === 'bus' || type === 'pbus' || type === 'lorry' || NO_LANES.has(type))) continue;
+      const piece = linePiece(seg, from, to, lane); const s = this.rng.range(0, piece.len * (hint ? 0.6 : 0.8));
       const [x, z, yaw] = evalPiece(piece, s);
+      if (hint) { const dd = Math.hypot(x - focus.x, z - focus.z); if (dd < 45 || (camDir && dd < 170 && ((x - focus.x) * camDir.x + (z - focus.z) * camDir.z) / dd > 0.35)) continue; } // never pops up in view
       if (this.vehicles.some((v) => (v.x - x) ** 2 + (v.z - z) ** 2 < 14 * 14)) continue;
       if (this.player && this.player.vehicle && (this.player.vehicle.x - x) ** 2 + (this.player.vehicle.z - z) ** 2 < 15 * 15) continue;
       let seed = Math.floor(this.rng.next() * 1e6);
@@ -129,7 +133,8 @@ export class Traffic {
         const now = performance.now(); if (now - (this.lastBuild || -1e9) < 2000) { const known = this.looks && this.looks.get(type); let alt = known && known.length ? known[Math.floor(this.rng.next() * known.length)] : -1; for (let k = 0; k < 8 && alt < 0; k++) { const s2 = Math.floor(this.rng.next() * 1e6); if (modelCached(type, s2)) alt = s2; } if (alt < 0) continue; seed = alt; } else this.lastBuild = now; }
       const v = new Vehicle(type, seed, this.scene); this.noteLook(type, seed); v.place(x, z, yaw);
       const T = VTYPES[type]; v.ai = { pieces: [piece], s, v0: Math.min(V0[seg.level], T.maxSpeed * 0.42) * this.rng.range(0.88, 1.12), stuck: 0, honkCd: 0, bumped: 0, aggressive: type === 'tuktuk' || type === 'pbus' ? 1.3 : 1 };
-      v.speed = v.ai.v0 * 0.7; this.extend(v); this.addDriver(v); this.vehicles.push(v); return v;
+      if (hint) v.ai.route = hint.route.slice(); // straight on to the station's road
+      v.speed = v.ai.v0 * 0.7; this.extend(v); this.addDriver(v); this.vehicles.push(v); if (hint) { v.fuelFor = hint.tag; this.spawnHint = undefined; } return v;
     }
     return null;
   }
@@ -178,7 +183,7 @@ export class Traffic {
     }
   }
   extend(v) { // make sure at least line + curve + next line exist
-    const ai = v.ai; let last = ai.pieces[ai.pieces.length - 1];
+    const ai = v.ai; let last = ai.pieces[ai.pieces.length - 1]; if (!last) return;
     while (ai.pieces.length < 3) {
       if (last.type === 'line') {
         const node = last.to; let opts = node.segs.filter((s) => s !== last.seg && !(s.level >= 3 && (v.type === 'bus' || v.type === 'pbus' || v.type === 'lorry' || NO_LANES.has(v.type))));
@@ -201,6 +206,7 @@ export class Traffic {
     this.simTime = simTime; this.player = player;
     // spawn / despawn
     for (let i = this.vehicles.length - 1; i >= 0; i--) { const v = this.vehicles[i]; const d = Math.hypot(v.x - focus.x, v.z - focus.z); if (d > 330 && !v.keep) { this.remove(v); this.vehicles.splice(i, 1); } }
+    if (this.spawnHint && (this.spawnHintT = (this.spawnHintT || 0) + dt) > 20) { this.spawnHint = undefined; this.spawnHintT = 0; } else if (!this.spawnHint) this.spawnHintT = 0;
     let budget = this.vehicles.length < this.max * 0.4 ? 2 : 1; while (this.vehicles.length < this.max && budget-- > 0) this.spawn(focus, camDir, this.vehicles.length < this.max * 0.4);
     this.updateParked(dt, focus);
     // spatial bins for following
@@ -214,7 +220,7 @@ export class Traffic {
   }
   step(v, dt, all, peds, playerV, player) {
     if (v.free) { this.stepFree(v, dt); return; }
-    const ai = v.ai; if (!ai) return; if (ai.stopped) { v.speed = 0; v.brake = true; return; } if (ai.chase) { stepChase(this, v, dt, all); return; } /* police intercept mode (Pursuit.js) */ const p = ai.pieces[0]; // stopped = crew out of a police unit (handbrake on, nobody at the wheel)
+    const ai = v.ai; if (!ai) return; if (ai.stopped) { v.speed = 0; v.brake = true; return; } if (ai.chase) { stepChase(this, v, dt, all); return; } /* police intercept mode (Pursuit.js) */ if (ai.fuel && this.fuel && this.fuel.hold(v, ai, dt)) return; /* parked at a pump (FuelStations.js) */ const p = ai.pieces[0]; // stopped = crew out of a police unit (handbrake on, nobody at the wheel)
     const by = ai.rejoin ? v.yaw : v.yaw - (ai.hdg || 0); const [fx, fz] = [Math.sin(by), Math.cos(by)]; // lane direction (the body's lane-change yaw must not swing what counts as ahead / beside)
     // --- leader gap
     let gap = 60, leadV = 0; if (v.hold) gap = -1; // player is getting in: brake to a stop
@@ -232,18 +238,18 @@ export class Traffic {
     } else if (this.emergency.length) {
       for (const e of this.emergency) { if (e === v) continue; const rx = v.x - e.x, rz = v.z - e.z; const ey = e.yaw - ((e.ai && !e.ai.rejoin && e.ai.hdg) || 0), efx = Math.sin(ey), efz = Math.cos(ey); /* its lane direction, not the overtaking angle */ const al = rx * efx + rz * efz; if (al > 0 && al < 38 && Math.abs(rx * efz - rz * efx) < 2.6 && efx * fx + efz * fz > 0.5) { ai.yieldT = 2.5; break; } }
     }
-    if (ai.yieldT > 0) { ai.yieldT -= dt; latWant = 0.9; }
+    if (ai.yieldT > 0) { ai.yieldT -= dt; latWant = p.type === 'path' ? 0 : 0.9; }
     // kerb-parked cars stick into narrow lanes: pull out toward the centre line to pass them when the oncoming side is clear, otherwise wait behind
-    if (!em && !(ai.yieldT > 0)) { let need = 0, pk = null; const w2 = v.T.wid / 2;
+    if (!em && !(ai.yieldT > 0) && p.type !== 'path') { let need = 0, pk = null; const w2 = v.T.wid / 2;
       // every parked / abandoned vehicle by its real (rotated) footprint: kerb-side ones are passed by pulling out, anything else
       // standing in the lane (a car the player left in the road, one knocked askew) is waited behind — never driven through
       for (const o of this.parked) { if (o.dead || o.disposed || o.towedBy) continue; const rx = o.x - v.x, rz = o.z - v.z; if (Math.abs(rx) > 30 || Math.abs(rz) > 30) continue;
         const ofx = Math.sin(o.yaw), ofz = Math.cos(o.yaw), ohl = o.T.len / 2, ohw = o.T.wid / 2; let lmin = 1e9, lmax = -1e9, amin = 1e9, amax = -1e9;
         for (let c = 0; c < 4; c++) { const cl = c & 1 ? ohl : -ohl, cw = c & 2 ? ohw : -ohw; const qx = rx + ofx * cl + ofz * cw, qz = rz + ofz * cl - ofx * cw; const al = qx * fx + qz * fz, lt = qx * fz - qz * fx + ai.lat; if (al < amin) amin = al; if (al > amax) amax = al; if (lt < lmin) lmin = lt; if (lt > lmax) lmax = lt; }
         if (amax < -v.half - 2.5 || amin > 26) continue; /* stay out until 2.5 m past it before steering back in (the body yaws, so the tail would swing into it) */ if (lmax < -(w2 + 0.3) || lmin > w2 + 0.35) continue; // clear of our path
-        if (lmin + lmax > 0.2) { const n = w2 + 0.35 - lmin; if (n > need) { need = n; pk = o; } }
+        if (lmin + lmax > 0.2 || (o.spot && lmin + lmax > -2)) { const n = w2 + 0.35 - lmin; if (n > need) { need = n; pk = o; } } /* on a kerb parking spot it is kerb-side by definition (on the main roads the kerb lane runs right over the parking line) */
         else if (amin > v.half * 0.3) { const g = amin - v.half; if (g < gap) { gap = g; leadV = 0; } } }
-      if (pk) { let blocked = need > 2.6; if (!blocked) for (const o of all) { if (o === v) continue; const rx = o.x - v.x, rz = o.z - v.z; const al = rx * fx + rz * fz; if (al < -5 || al > 32) continue; const lo = rx * fz - rz * fx + ai.lat; if (lo < 0 && lo > -need - w2 - o.T.wid / 2 - 0.3 && (Math.sin(o.yaw) * fx + Math.cos(o.yaw) * fz) < 0.3) { blocked = true; break; } }
+      if (pk) { let blocked = need > 2.6; if (!blocked) for (const o of all) { if (o === v) continue; const rx = o.x - v.x, rz = o.z - v.z; const al = rx * fx + rz * fz; if (al < -5 || al > 32) continue; const lo = rx * fz - rz * fx + ai.lat; if (lo < 0 && lo > -need - w2 - o.T.wid / 2 - 0.3) { const hd = Math.sin(o.yaw) * fx + Math.cos(o.yaw) * fz; if (hd < 0.3 || (al > -7 && al < 10 && !o.parked && Math.abs(lo) > 0.8)) { blocked = true; break; } } } /* oncoming, or (two-lane roads) someone already alongside in the lane we would pull into */
         if (blocked && Math.abs(ai.lat) < need * 0.6) consider(pk.x, pk.z, 0, pk.half + Math.min(2.5, need * 1.4), 4.5); /* wait with room to steer out round it */ else { latWant = Math.min(latWant, -need); if (need + ai.lat > 0.15) ai.creep = 1; } }
     }
     ai.latWant = latWant; /* applied kinematically below (heading angle → sideways drift), never as a slide */
@@ -281,6 +287,7 @@ export class Traffic {
     } else if (p.type === 'curve') this.res.set(p.node.id, { id: v.id, t: this.simTime });
     if (this.rail) { const d = this.rail.stopDistance(v); if (d < stopAt) stopAt = d; }
     if (ai.goal && ai.goal.piece) { const k = ai.pieces.indexOf(ai.goal.piece); if (k >= 0) { let dist = -ai.s; for (let q = 0; q < k; q++) dist += ai.pieces[q].len; dist += ai.goal.s; ai.goal.dist = dist; if (dist < stopAt && !ai.goal.soft) stopAt = Math.max(-1, dist); } } // soft goal = moving target (pursuit): steer there without braking for it // level crossing: lamps flashing / booms down
+    if (ai.fuel && this.fuel) { const d = this.fuel.stopDist(v, ai); if (d < stopAt) stopAt = d; }
     // --- IDM
     const nextCurve = p.type === 'line' ? ai.pieces[1] : p; const curveV = nextCurve && nextCurve.type === 'curve' && nextCurve.turn !== 'straight' ? (nextCurve.turn === 'uturn' ? 3 : 6.5) : ai.v0;
     let v0 = ai.v0; if (p.type === 'curve') v0 = curveV; else if (p.len - ai.s < 25) v0 = Math.min(v0, lerp(curveV, ai.v0, (p.len - ai.s) / 25));
@@ -288,6 +295,7 @@ export class Traffic {
     if (ai.yieldT > 0) v0 = Math.min(v0, 2.5);
     if (ai.creep) { v0 = Math.min(v0, 4); ai.creep = 0; } /* still steering out round a parked car */
     if (ai.rejoin) v0 = Math.min(v0, Math.abs(ai.rjErr || 0) > 0.5 ? 3.5 : 7.5);
+    if (p.vlim) v0 = Math.min(v0, pathV(p, ai.s)); if (ai.fuel && ai.fuel.vcap) v0 = Math.min(v0, ai.fuel.vcap); /* forecourt paths: curvature speed; slowing to turn in */
     const s0 = 2.2, T = 1.2 / ai.aggressive, a = v.T.accel * 0.8, b = 3.5; const sp = v.speed;
     const g2 = Math.min(gap, stopAt); const lv = stopAt < gap ? 0 : leadV;
     const sStar = s0 + Math.max(0, sp * T + (sp * (sp - lv)) / (2 * Math.sqrt(a * b)));
@@ -298,7 +306,7 @@ export class Traffic {
     // horn when blocked by something other than a red light
     ai.honkCd -= dt;
     if (v.speed < 0.5 && gap < 8 && stopAt === Infinity) { ai.stuck += dt; if (ai.stuck > 2.5 / ai.aggressive && ai.honkCd <= 0) { ai.honkCd = 3 + this.rng.next() * 4; this.events.emit('horn', v); } } else ai.stuck = Math.max(0, ai.stuck - dt);
-    if (ai.stuck > 25 && !v.police) { v.keep = false; this.remove(v); this.vehicles.splice(this.vehicles.indexOf(v), 1); return; } // hopelessly stuck → recycle out of view
+    if (ai.stuck > 25 && !v.police && !ai.fuel) { v.keep = false; this.remove(v); this.vehicles.splice(this.vehicles.indexOf(v), 1); return; } // hopelessly stuck → recycle out of view
     // --- advance along pieces
     if (ai.rejoin) { this.driveRejoin(v, dt); return; }
     // lateral offset (pulling out round a parked car, over for an emergency unit) as real kinematics: the state is the body's
@@ -308,7 +316,8 @@ export class Traffic {
       const want = Math.abs(lw - ai.lat) < 0.01 && Math.abs(ai.hdg) < 0.002 ? 0 : Math.asin(clamp(vdes / Math.max(sp, 0.5), -0.5, 0.5));
       const yr = Math.min((sp * Math.tan(0.6)) / Math.max(1.2, v.T.len * 0.62), 3.5 / Math.max(sp, 0.5)) * dt; const h0 = ai.hdg; ai.hdg += clamp(want - ai.hdg, -yr, yr); // steering lock and ~0.35 g of grip
       const hm = (h0 + ai.hdg) / 2; ai.lat += sp * Math.sin(hm) * dt; ai.s += sp * Math.cos(hm) * dt; }
-    while (ai.s > ai.pieces[0].len) { ai.s -= ai.pieces[0].len; ai.pieces.shift(); this.extend(v); }
+    if (ai.sMaxP && ai.sMaxP === ai.pieces[0] && ai.s > ai.sMax) { ai.s = ai.sMax; v.speed = 0; } // hard stop (FuelStations: pump bay / give-way line)
+    while (ai.s > ai.pieces[0].len && ai.pieces.length > 1) { ai.s -= ai.pieces[0].len; ai.pieces.shift(); this.extend(v); }
     const [x, z, yaw] = evalPiece(ai.pieces[0], ai.s);
     // body heading = direction of travel: lane heading + the lateral angle, corrected for an offset on a curve (the offset path
     // is longer/shorter by (1 − κ·lat)); exact, so a car never moves sideways relative to its own nose

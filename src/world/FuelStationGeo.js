@@ -225,7 +225,7 @@ export function buildFuelStation(site) {
   const signs = new MultiBuilder(), sLit = signs.get('lit'), sFlat = signs.get('flat'), ledB = new MultiBuilder().get('led'), poolB = new MultiBuilder().get('pool'), dispB = new MultiBuilder().get('disp');
   const white = C('#f4f4f1'), offW = C('#e6e4de'), steel = C('#b8bcc0'), darkS = C('#3a3d41'), black = C('#151515'), yellow = C('#f2c21b'), red = C('#c8141b'), cream = C('#e9e1cf'), grey = C('#8c8f92');
   const colliders = [], crown = []; const W2 = L.FUEL_W / 2, D = L.FUEL_D;
-  const col = (u0, u1, w0, w1, h, kind = 'prop', y0) => { const r = site.box(u0, u1, w0, w1); const c = { x0: r[0], x1: r[1], z0: r[2], z1: r[3], h, kind }; if (y0 !== undefined) c.y0 = y0; colliders.push(c); return c; };
+  const col = (u0, u1, w0, w1, h, kind = 'prop', y0) => { const r = site.box(u0, u1, w0, w1); const c = { x0: r[0], x1: r[1], z0: r[2], z1: r[3], h, kind, fuel: site.id }; if (y0 !== undefined) c.y0 = y0; colliders.push(c); return c; };
   // ---- ground: forecourt slab, driveway crossings, gutter ramps, joints, drainage channels, markings, stains
   conc.hrect(-W2, -D, W2, 0, S, 3.2, C('#cfccc4'));
   for (const sg of [-1, 1]) { const c0 = sg * L.FUEL_DRIVE - L.FUEL_DRIVE_HW, c1 = sg * L.FUEL_DRIVE + L.FUEL_DRIVE_HW;
@@ -233,11 +233,11 @@ export function buildFuelStation(site) {
     const yR = L.ROAD_Y + 0.004, wr = site.walk + L.FUEL_RAMP; conc.quad([c0, yR, wr], [c1, yR, wr], [c1, S, site.walk], [c0, S, site.walk], [c0 / 3.2, 0, c1 / 3.2, 0.3], C('#bdb9b0'));
     for (const e of [c0, c1]) { const s = e === c0 ? -1 : 1; const P = s < 0 ? [[e, yR, wr], [e, S, site.walk], [e, L.ROAD_Y, site.walk]] : [[e, yR, wr], [e, L.ROAD_Y, site.walk], [e, S, site.walk]]; conc.quad(P[0], P[1], P[2], P[2], [0, 0, 0.3, 0.1], C('#b5b1a8')); } // ramp cheeks
     for (const e of [c0, c1]) B(paint, e - 0.06, e + 0.06, S - 0.02, S + 0.012, -site.walk, 0, C('#e8e4da')); // white-painted kerb edges of the crossing
-    for (let x = c0 + 0.2; x < c1 - 0.1; x += 0.25) B(metal, x, x + 0.04, S - 0.004, S + 0.003, 0.4, 0.75, darkS); B(metal, c0, c1, S - 0.01, S + 0.001, 0.38, 0.77, black); // drainage grate across the driveway
+    for (let x = c0 + 0.2; x < c1 - 0.1; x += 0.25) B(paint, x, x + 0.04, S - 0.004, S + 0.003, 0.4, 0.75, darkS); B(paint, c0, c1, S - 0.01, S + 0.001, 0.38, 0.77, black); // drainage grate across the driveway
   }
   for (let u = -W2 + 6; u < W2; u += 6) B(mark, u - 0.012, u + 0.012, S, S + 0.002, 0.2, D - 0.2, C('#8d8a84')); // saw-cut joints
   for (let w = 6; w < D; w += 6) B(mark, -W2 + 0.2, W2 - 0.2, S, S + 0.002, w - 0.012, w + 0.012, C('#8d8a84'));
-  for (const w of [FS.canopy.w0 - 0.5, FS.canopy.w1 + 0.6]) { B(metal, -10, 10, S - 0.006, S + 0.002, w - 0.16, w + 0.16, black); for (let u = -9.9; u < 10; u += 0.22) B(metal, u, u + 0.035, S - 0.004, S + 0.003, w - 0.15, w + 0.15, darkS); }
+  for (const w of [FS.canopy.w0 - 0.5, FS.canopy.w1 + 0.6]) { B(paint, -10, 10, S - 0.006, S + 0.002, w - 0.16, w + 0.16, black); for (let u = -9.9; u < 10; u += 0.22) B(paint, u, u + 0.035, S - 0.004, S + 0.003, w - 0.15, w + 0.15, darkS); }
   const arrow = (u, w, dir) => { const s = dir; mark.quad([u - 1.6 * s, S + 0.002, -(w - 0.16)], [u + 0.2 * s, S + 0.002, -(w - 0.16)], [u + 0.2 * s, S + 0.002, -(w + 0.16)], [u - 1.6 * s, S + 0.002, -(w + 0.16)], [0, 0, 1, 1], white);
     const a = [u + 0.2 * s, S + 0.002, -(w - 0.5)], b = [u + 1.1 * s, S + 0.002, -w], c = [u + 0.2 * s, S + 0.002, -(w + 0.5)]; if (s > 0) mark.quad(a, b, b, c, [0, 0, 1, 1], white); else mark.quad(c, b, b, a, [0, 0, 1, 1], white); };
   arrow(-17.5, 6.5, 1); arrow(-17.5, 13, 1); arrow(17.5, 6.5, 1); arrow(17.5, 13, 1);
@@ -374,7 +374,7 @@ export function buildFuelStation(site) {
   { const u = 6.6, w = 23.4 - 2.6; B(metal, u - 0.3, u + 0.3, S, S + 0.1, w - 0.22, w + 0.22, steel); B(paint, u - 0.25, u + 0.25, S + 0.1, S + 1.35, w - 0.18, w + 0.18, C(GRADES.ke.col)); B(paint, u - 0.26, u + 0.26, S + 1.35, S + 1.62, w - 0.2, w + 0.2, white);
     face(sFlat, '-w', u - 0.22, u + 0.22, S + 0.95, S + 1.32, w - 0.185, uvOf(R.kero)); B(paint, u - 0.18, u + 0.18, S + 1.4, S + 1.56, w - 0.205, w - 0.2, C('#1b1d20')); col(u - 0.32, u + 0.32, w - 0.24, w + 0.24, S + 1.62, 'prop'); }
   { const w = 19.4; B(paint, -15.9, -8.1, S, S + 0.004, w - 0.9, w + 0.9, yellow); B(paint, -15.7, -8.3, S + 0.004, S + 0.006, w - 0.7, w + 0.7, C('#bdbab3'));
-    for (let k = 0; k < 4; k++) { const u = -14.6 + k * 1.9; B(metal, u - 0.38, u + 0.38, S, S + 0.014, w - 0.38, w + 0.38, C('#5b5e61')); cyl(paint, u, w, S + 0.014, 0.02, 0.16, 0.16, 16, C(GRADES[['p92', 'p95', 'ad', 'sd'][k]].col)); }
+    for (let k = 0; k < 4; k++) { const u = -14.6 + k * 1.9; B(paint, u - 0.38, u + 0.38, S, S + 0.014, w - 0.38, w + 0.38, C('#5b5e61')); cyl(paint, u, w, S + 0.014, 0.02, 0.16, 0.16, 16, C(GRADES[['p92', 'p95', 'ad', 'sd'][k]].col)); }
     face(sFlat, '+u', 18.9, 19.9, S + 0.5, S + 0.75, -16.0, [R.tank[0] / AT, 1 - (R.tank[1] + R.tank[3]) / AT, (R.tank[0] + R.tank[2]) / AT, 1 - R.tank[1] / AT]); B(paint, -16.06, -16.0, S, S + 0.8, 19.3, 19.5, darkS); }
   for (let k = 0; k < 4; k++) { const w = 26.6 + k * 0.32, u = W2 - 0.38; cyl(metal, u, w, S, 4.4, 0.04, 0.04, 8, C('#c4c7ca')); cyl(metal, u, w, S + 4.4, 0.1, 0.07, 0.05, 8, darkS); } col(W2 - 0.5, W2 - 0.25, 26.4, 27.8, S + 4.5, 'pole');
   // ---- meshes
