@@ -1,6 +1,6 @@
 // Game: boot/loading, presentation flow (intro → montage → menu), the play loop, interactions, save/load.
 import { FuelService } from './world/FuelStations.js';
-import { gatherBodies } from './actors/Bodies.js';
+import { gatherBodies, setBodiesCollision } from './actors/Bodies.js';
 import { PoliceHQLife } from './police/PoliceHQLife.js';
 import { PoliceResponse } from './police/PoliceResponse.js';
 import { TrafficDuty } from './police/TrafficDuty.js';
@@ -105,7 +105,7 @@ export class Game {
     this.blood = new Blood(this.scene, this.collision); this.crowd.blood = this.blood; // impact spray, splats, pools (Settings → Blood effects)
     { const N = this.crowd.specTarget(); for (let i = 0; i < N; i += 8) { this.crowd.prepareSpecs(Math.min(8, N - i)); progress(0.76 + 0.1 * (i / N), 'People of Colombo'); await tick(); } }
     progress(0.86, 'Tuk-tuks, buses and traffic'); await tick();
-    this.traffic = new Traffic(this.scene, this.collision, bus); this.traffic.crowd = this.crowd;
+    this.traffic = new Traffic(this.scene, this.collision, bus); this.traffic.crowd = this.crowd; setBodiesCollision(this.collision); // nudged people never pushed into walls (Bodies.separate)
     this.trains = new Trains(this.scene); this.traffic.obstacles = this.trains.bodies; this.traffic.rail = this.trains; // running trains + level crossings
     this.hqLife = new PoliceHQLife(this);
     this.trafficDuty = new TrafficDuty(this);

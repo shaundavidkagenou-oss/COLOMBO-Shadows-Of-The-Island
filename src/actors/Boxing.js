@@ -93,6 +93,16 @@ const HEAD_R = [0.085, 0.115, 0.1], HAND_PAD = 0.1;
 const _ax = new THREE.Vector3(), _ay = new THREE.Vector3(), _az = new THREE.Vector3(), _d = new THREE.Vector3();
 function keepClear(v, hc, s) { _d.subVectors(v, hc); const x = _d.dot(_ax) / ((HEAD_R[0] + HAND_PAD) * s), y = _d.dot(_ay) / ((HEAD_R[1] + HAND_PAD) * s), z = _d.dot(_az) / ((HEAD_R[2] + HAND_PAD) * s);
   const e = Math.hypot(x, y, z); if (e >= 1) return; if (e < 1e-4) { v.addScaledVector(_az, (HEAD_R[2] + HAND_PAD) * s); return; } v.copy(hc).addScaledVector(_d, 1 / e); }
+// first person (Player sets an.fp / fpYaw / fpPitch): the camera sits just in front of the face (Player.fpEyeLook), so a
+// wrist target that is fine in third person (the rear hand at the chin, the lead hand coming back from a hook while the
+// body leans in) puts the fist on — or through — the lens, and fingers inside the 7 cm near plane are cut open. Keep each
+// wrist at least FP_CLEAR ahead of the eye along the view line wherever it is near the line of sight (fading out to the side).
+const FP_CLEAR = 0.24, _fe = new THREE.Vector3(), _fl = new THREE.Vector3(), _fd = new THREE.Vector3();
+function fpClear(an, b, v, s) {
+  const yaw = an.fpYaw ?? an.ch.root.rotation.y, pitch = an.fpPitch || 0; _fe.setFromMatrixPosition(b.head.matrixWorld); _fe.x += Math.sin(yaw) * 0.1 * s; _fe.y += 0.075 * s; _fe.z += Math.cos(yaw) * 0.1 * s;
+  _fl.set(Math.sin(yaw) * Math.cos(pitch), -Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)); _fd.subVectors(v, _fe); const f = _fd.dot(_fl), need = FP_CLEAR * s; if (f >= need) return;
+  const perp = Math.sqrt(Math.max(0, _fd.lengthSq() - f * f)), k = 1 - sm((perp - 0.2 * s) / (0.16 * s)); if (k > 0) v.addScaledVector(_fl, (need - f) * k);
+}
 function legSolve(A, B, f, H) { // foot offset f (forward, hip-local) and drop H (hip joint → ankle): thigh angle (−fwd), knee flex
   const D = clamp(Math.hypot(f, H), 0.2, A + B - 1e-3); const alpha = Math.acos(clamp((A * A + D * D - B * B) / (2 * A * D), -1, 1));
   const kn = Math.PI - Math.acos(clamp((A * A + B * B - D * D) / (2 * A * B), -1, 1)); return [-(Math.atan2(f, H) + alpha), kn];
@@ -145,7 +155,7 @@ function stance(an, F, b, s, w, solveArmIK) {
     const moving = C && MOVES[F.move].side === S; const y = tg[1] + (moving ? 0 : bobA * (S === 'L' ? 1 : -1));
     _v.set(tg[0] * s, y * s, tg[2] * s); root.localToWorld(_v);
     if (blk > 0) { const H = BLOCK_HEAD; _bw.copy(_hc).addScaledVector(_fw, H.fwd * s).addScaledVector(_lt, (S === 'L' ? H.side : -H.side) * s); _bw.y += H.up * s; _v.lerp(_bw, blk); }
-    keepClear(_v, _hc, s); _v.applyMatrix4(_inv);
+    keepClear(_v, _hc, s); if (an.fp) fpClear(an, b, _v, s); _v.applyMatrix4(_inv);
     solveArmIK(b, S, _v, null, w, _pole.set(pole[0], pole[1], pole[2]));
     const tw = C && C['tw' + S] ? track(C['tw' + S], mt) : 0; const hand = b['hand' + S];
     hand.rotation.x = lerp(hand.rotation.x, moving ? 0.05 : -0.25, w); hand.rotation.z = lerp(hand.rotation.z, 0, w); hand.rotation.y = lerp(hand.rotation.y, tw, w);

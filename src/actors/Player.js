@@ -25,6 +25,7 @@ export class Player {
   teleport(x, z, yaw = 0) { this.leaveRoomFor(x, z); this.x = x; this.z = z; this.y = this.collision.groundAt(x, z, 5, 10); this.yaw = yaw; this.camYaw = yaw + Math.PI; this.vy = 0; this.sync(); this.snapCamera(); }
   sync() { this.ch.root.position.set(this.x, this.y, this.z); this.ch.root.rotation.y = this.yaw; }
   update(dt, traffic) {
+    { const A = this.ch.anim; A.fp = this.camMode === 2 && !this.vehicle && !this.cinematic; A.fpYaw = this.camYaw + Math.PI; A.fpPitch = this.camPitch; } // first-person fists stay in front of the lens (Boxing.fpClear)
     const sens = 0.0024 * Settings.get('mouseSens'); const inv = Settings.get('invertY') ? -1 : 1;
     if (this.control && !this.lookLock) { const zs = this.scoped ? 1 / this.scoped.zoom : this.aiming ? 0.75 : 1; this.camYaw -= (Input.mouseDX * sens + Input.pad.rx * dt * 2.6) * zs; this.camPitch = clamp(this.camPitch + (Input.mouseDY * sens + Input.pad.ry * dt * 2) * inv * zs, -0.5, 1.2); }
     if (Input.wasPressed('camera') && this.control) this.camMode = (this.camMode + 1) % 3;

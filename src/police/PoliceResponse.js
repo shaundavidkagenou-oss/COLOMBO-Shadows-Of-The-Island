@@ -638,7 +638,7 @@ export class PoliceResponse {
   officerHit(o, dx, dz) { // non-graphic: the first round staggers; a second puts the officer down for good
     if (o.mode !== 'foot' && o.mode !== 'down') return; if (o.tackle) { o.tackle = null; } o.hits = (o.hits || 0) + 1; this.reason = 'assaulting a police officer'; this.ff.onOfficerHit(o);
     this.incident = { x: this.g.player.x, z: this.g.player.z, t: this.t }; this.addHeat(1, this.reason, 'You attacked an officer.'); this.spotted();
-    if (o.hits >= 2) this.killOfficer(o, dx, dz); else { o.x += dx * 0.35; o.z += dz * 0.35; o.ch.face?.set?.('fear', 2); }
+    if (o.hits >= 2) this.killOfficer(o, dx, dz); else { const col = this.g.collision; let nx = o.x + dx * 0.35, nz = o.z + dz * 0.35; if (col) { const r = col.resolveCircle(nx, nz, 0.3, o.y || 0.15, 0.3); nx = r.x; nz = r.z; } o.x = nx; o.z = nz; o.ch.face?.set?.('fear', 2); } // staggered back, never into a wall
   }
   // incapacitated: the body stays where it fell (it no longer belongs to the unit, so a unit driving off or being removed
   // never makes it vanish in view) and is cleared away later, unseen. A unit with nobody left leaves its car parked.

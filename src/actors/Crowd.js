@@ -144,6 +144,14 @@ export class Crowd {
     }
   }
   // one crowd pedestrian at (x,z) on walk-graph node nodeId (also used by StreetLife for couples); caller picks the route
+  // running away: look ahead along the flee line and turn before a wall / building (not into it at full tilt, arms in the wall)
+  fleeAhead(p, fd, look) {
+    const col = this.collision, y = p.y || 0.15; if (!col.blocked(p.x + fd[0] * look, p.z + fd[1] * look, 0.3, y)) return fd;
+    const a0 = Math.atan2(fd[0], fd[1]), side = p.fleeSide || (p.id > 0.5 ? 1 : -1);
+    for (const da of [0.6, -0.6, 1.1, -1.1, 1.6, -1.6, 2.3, -2.3, Math.PI]) { const a = a0 + da * side, dx = Math.sin(a), dz = Math.cos(a);
+      if (!col.blocked(p.x + dx * look, p.z + dz * look, 0.3, y) && !col.blocked(p.x + dx * look * 0.5, p.z + dz * look * 0.5, 0.3, y)) { p.fleeSide = da * side > 0 ? 1 : -1; p.fleeDir = [dx, dz]; return p.fleeDir; } }
+    return fd;
+  }
   makePed(sp, x, z, nodeId) {
     const n = L.pedNodes[nodeId]; const ch = new Character(sp); this.scene.add(ch.root);
     const p = { ch, x, z, yaw: this.rng.range(-3, 3), speed: 0, state: 'walk', node: nodeId, target: null, edge: null, lat: this.rng.range(-0.6, 0.6), pace: this.rng.range(1.15, 1.5) * (sp.age === 'elder' ? 0.75 : 1), timer: 0, act: null, react: 0, mood: 0, talkCd: 0, umbrella: this.rng.chance(0.5), crossing: false, id: this.rng.next(), sp, temper: this.rng.next(), vx: 0, vz: 0, stuckT: 0, stuckN: 0 };
@@ -330,10 +338,10 @@ export class Crowd {
         case 'scene': { const r = this.life.step(p, dt, ctx); desired = r.desired || 0; if (r.tx !== undefined && r.tx !== null) { tx = r.tx; tz = r.tz; } avoid = r.avoid ?? false; if (r.accel) accel = r.accel; break; } // StreetLife activity
         // ---- reactions
         case 'dodge': { p.timer -= dt; tx = p.x + p.dodge[0] * 3; tz = p.z + p.dodge[1] * 3; desired = 4.2; accel = 9; avoid = false; if (p.timer <= 0) { if (this.rng.chance(0.35)) { p.state = 'flee'; p.timer = 2 + this.rng.next() * 2; p.fleeDir = this.spread(p.dodge[0], p.dodge[1], 0.6); p.fleeSp = 3; p.ch.anim.set(null); } else this.endReaction(p); } break; }
-        case 'flee': { p.timer -= dt; const fd = p.fleeDir || (() => { const ax = p.x - player.x, az = p.z - player.z, d = Math.hypot(ax, az) || 1; return [ax / d, az / d]; })(); tx = p.x + fd[0] * 5; tz = p.z + fd[1] * 5; desired = p.fleeSp || 4; accel = 6;
+        case 'flee': { p.timer -= dt; const fd = this.fleeAhead(p, p.fleeDir || (() => { const ax = p.x - player.x, az = p.z - player.z, d = Math.hypot(ax, az) || 1; return [ax / d, az / d]; })(), 1.3); tx = p.x + fd[0] * 5; tz = p.z + fd[1] * 5; desired = p.fleeSp || 4; accel = 6;
           if (p.timer <= 0) { p.state = 'recover'; p.timer = 3 + this.rng.next() * 3; p.ch.face.mood = 'concern'; } break; }
         case 'recover': { // calm down: walk on briskly, glance back over the shoulder, then back to routine
-          p.timer -= dt; const fd = p.fleeDir || [Math.sin(p.yaw), Math.cos(p.yaw)]; tx = p.x + fd[0] * 4; tz = p.z + fd[1] * 4; desired = p.pace * 1.15; p.ch.anim.look = Math.sin(p.rt * 1.3) > 0.6 ? 1.0 : 0;
+          p.timer -= dt; const fd = this.fleeAhead(p, p.fleeDir || [Math.sin(p.yaw), Math.cos(p.yaw)], 0.9); tx = p.x + fd[0] * 4; tz = p.z + fd[1] * 4; desired = p.pace * 1.15; p.ch.anim.look = Math.sin(p.rt * 1.3) > 0.6 ? 1.0 : 0;
           if (p.timer <= 0) { if (this.rng.chance(0.25)) this.speak(p, 'recover'); this.endReaction(p); } break; }
         case 'cower': { p.timer -= dt; desired = 0; if (p.ch.anim.action !== 'cower' && p.ch.anim.action !== 'handsup') p.ch.anim.set('cower'); if (p.timer <= 0) { p.ch.anim.set(null); p.state = 'flee'; p.timer = 3 + this.rng.next() * 3; p.fleeSp = 3 + this.rng.next() * 1.5; if (!p.fleeDir) p.fleeDir = this.spread(Math.sin(p.yaw + Math.PI), Math.cos(p.yaw + Math.PI), 1.2); } break; }
         case 'watch': { p.timer -= dt; desired = 0; avoid = false; if (p.lookAt) p.yaw = dampAngle(p.yaw, Math.atan2(p.lookAt.x - p.x, p.lookAt.z - p.z), 4, dt); if (p.timer <= 0) { if (p.after === 'flee') { p.after = null; p.state = 'flee'; p.timer = 3 + this.rng.next() * 4; p.fleeSp = 3.5; const ax = p.x - p.lookAt.x, az = p.z - p.lookAt.z, d = Math.hypot(ax, az) || 1; p.fleeDir = this.spread(ax / d, az / d, 1); p.ch.anim.set(null); } else this.endReaction(p); } break; }
@@ -459,8 +467,11 @@ export class Crowd {
         p.mv = 0; } else { p.x += p.vx * dt; p.z += p.vz * dt; }
       // collision every frame near the camera; farther away whenever the person has moved 0.1 m
       p.mv = (p.mv || 0) + sp * dt; // distance since the last collision pass: far people are resolved every 0.1 m walked, so they can never tunnel into a trunk or wall
-      if ((sp > 0.02 && (lod === 1 || p.mv > 0.1)) || (p.state === 'down' && lod < 3)) { p.mv = 0; // a body lying still is checked too (a car can nudge it without giving it speed)
-        const r = this.collision.resolveCircle(p.x, p.z, 0.28, p.y || 0.15, 0.3); if (r.hit) { const cx = r.x - p.x, cz = r.z - p.z, cl = Math.hypot(cx, cz); if (cl > 1e-4) { const vn = (p.vx * cx + p.vz * cz) / cl; if (vn < 0) { p.vx -= cx / cl * vn; p.vz -= cz / cl * vn; } } } p.x = r.x; p.z = r.z; }
+      if (p.bumped > 0) p.bumped -= dt;
+      if ((sp > 0.02 && (lod === 1 || p.mv > 0.1)) || (p.state === 'down' && lod < 3) || p.bumped > 0 || p.state === 'fight') { p.mv = 0; // nudged by the player / squared up in a fight: checked even when standing still // a body lying still is checked too (a car can nudge it without giving it speed)
+        const r = this.collision.resolveCircle(p.x, p.z, p.state === 'fight' ? 0.44 : 0.28, p.y || 0.15, 0.3); if (r.hit) { /* a fighting stance is wide (rear foot ~0.4 m back): more room off walls */ const cx = r.x - p.x, cz = r.z - p.z, cl = Math.hypot(cx, cz); if (cl > 1e-4) { const vn = (p.vx * cx + p.vz * cz) / cl; if (vn < 0) { p.vx -= cx / cl * vn; p.vz -= cz / cl * vn; }
+          // running away into a wall: turn along it (a person would), instead of pressing on with arms and feet in the wall
+          const fd = p.fleeDir; if (fd && (p.state === 'flee' || p.state === 'recover')) { const nx = cx / cl, nz = cz / cl, dn = fd[0] * nx + fd[1] * nz; if (dn < 0.2) { let tx = -nz, tz = nx; if (tx * (fd[0] + p.vx * 0.2) + tz * (fd[1] + p.vz * 0.2) < 0) { tx = -tx; tz = -tz; } const ux = tx + nx * 0.35, uz = tz + nz * 0.35, ul = Math.hypot(ux, uz); p.fleeDir = [ux / ul, uz / ul]; } } } } p.x = r.x; p.z = r.z; }
       if (lod < 3 && p.state !== 'down') { // bodies are solid: never pass through another person
         const q = separate(fixed, p.x, p.z, p.y || 0.15, 0.27, p.ch, 0); if (q.hit) { const r2 = this.collision.resolveCircle(q.x, q.z, 0.28, p.y || 0.15, 0.3); p.x = r2.x; p.z = r2.z; p.vx *= 0.5; p.vz *= 0.5; }
         if (lod === 1 && p.state !== 'idle') { const gi = Math.floor(p.x / 2), gj = Math.floor(p.z / 2); for (let i = gi - 1; i <= gi + 1; i++) for (let j = gj - 1; j <= gj + 1; j++) { const a = grid.get(i * 10000 + j); if (!a) continue; for (const o of a) { if (o === p || o.state === 'down' || (o === p.partner && p.state === 'scene' && o.state === 'scene')) continue; const dx = p.x - o.x, dz = p.z - o.z, d2 = dx * dx + dz * dz; if (d2 < 0.2916 && d2 > 1e-8) { const d = Math.sqrt(d2), k = (0.54 - d) * 0.5; p.x += dx / d * k; p.z += dz / d * k; if (o.state !== 'idle' && (o.crossing || !L.roadAt(o.x - dx / d * k, o.z - dz / d * k))) { o.x -= dx / d * k; o.z -= dz / d * k; } } } } }
@@ -588,7 +599,8 @@ export class Crowd {
   // the body lies BEHIND the feet (the mesh tips backwards about the ankles), so the collision circle at the feet alone let
   // heads and torsos sink into walls. Check the whole length of the body; turn the fall to a clear bearing, or slide the
   // feet out from the wall when no bearing is clear.
-  bodyClear(x, z, yaw) { const bx = -Math.sin(yaw), bz = -Math.cos(yaw); for (const s of [0.35, 0.75, 1.15, 1.55, 1.75]) if (this.collision.blocked(x + bx * s, z + bz * s, 0.17)) return false; return true; }
+  bodyClear(x, z, yaw) { const bx = -Math.sin(yaw), bz = -Math.cos(yaw), C = this.collision; for (const s of [0.35, 0.75, 1.15, 1.55, 1.75]) if (C.blocked(x + bx * s, z + bz * s, 0.17)) return false;
+    for (const [s, l] of [[1.2, 0.36], [0.8, 0.4]]) for (const sd of [-1, 1]) if (C.blocked(x + bx * s - bz * l * sd, z + bz * s + bx * l * sd, 0.12)) return false; /* the arms fall out to the sides at the shoulders */ return true; }
   fitBody(p, dt, snap) {
     if (this.bodyClear(p.x, p.z, p.yaw)) return;
     for (const da of [0.35, -0.35, 0.7, -0.7, 1.1, -1.1, 1.6, -1.6, 2.2, -2.2, Math.PI]) { const y = p.yaw + da; if (this.bodyClear(p.x, p.z, y)) { p.yaw = snap ? y : dampAngle(p.yaw, y, 14, dt); if (!snap && !this.bodyClear(p.x, p.z, p.yaw)) p.yaw = y; return; } }

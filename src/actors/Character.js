@@ -344,12 +344,12 @@ export function buildBodyGeometry(sp) {
       { c: [lerp(a[0], fo[0], 0.5), 1.25 * s, -0.005], rx: 0.047 * w, rz: 0.05 * w, w: W1('arm' + side) },
       { c: [fo[0], 1.13 * s, -0.01], rx: 0.04, rz: 0.042, w: W2('arm' + side, 'fore' + side, 0.5) },
       { c: [lerp(fo[0], h[0], 0.4), 1.03 * s, -0.005], rx: 0.038, rz: 0.04, w: W1('fore' + side) },
-      { c: [h[0], 0.89 * s, 0], rx: 0.028, rz: 0.03, w: W1('fore' + side) },
+      { c: [h[0], 0.89 * s, 0], rx: HQ ? 0.0255 : 0.028, rz: HQ ? 0.0295 : 0.03, w: W1('fore' + side) }, // the wrist (HQ: the hand's wrist tube emerges flush from here)
     ];
     if (HQ) { ar[0] = { c: [a[0] * 0.84, 1.398 * s, 0], rx: 0.044 * w, rz: 0.05 * w, w: W2('chest', 'arm' + side, 0.6) }; ar[1] = { c: [a[0] * 0.93, 1.385 * s, 0], rx: 0.052 * w, rz: 0.056 * w, w: W2('chest', 'arm' + side, 0.8) }; } // starts inside the new shoulder
     const upW = HQ ? W2('arm' + side, 'armTwist' + side, 0.3) : W1('arm' + side); // mid upper arm: shared by the arm ring and the sleeve hem so they never shear apart
     if (HQ) { ar[3].w = upW; ar[5].w = W2('fore' + side, 'foreTwist' + side, 0.5); ar[6].w = W1('foreTwist' + side); } // twist bones spread limb roll along the skin
-    sb.loft(ar.map((r) => ({ ...r, col: colAt(r.c[1]) })), HQ ? 20 : 10, { capEnd: false, capStart: HQ });
+    sb.loft(ar.map((r) => ({ ...r, col: colAt(r.c[1]) })), HQ ? 20 : 10, { capEnd: true, capStart: HQ }); // capped: an open forearm end showed as a see-through hole (the 'missing wrist')
     if (!HQ) sb.ellipsoid([a[0] * (HQ ? 0.8 : 0.84), (HQ ? 1.366 : 1.392) * s, -0.004], (HQ ? 0.047 : 0.05) * w, HQ ? 0.03 : 0.044, (HQ ? 0.05 : 0.056) * w, sp.sleeveless ? W2('chest', 'arm' + side, 0.5) : W2('chest', 'arm' + side, 0.5), sp.sleeveless ? skin : top, { lat: HQ ? 12 : 7, lon: HQ ? 18 : 10 });
     if (!longSleeve && !sp.sleeveless) { // sleeve hem flare
       sb.loft([{ c: [lerp(a[0], fo[0], 0.4), 1.215 * s, -0.005], rx: 0.056 * w, rz: 0.058 * w, w: upW, col: top }, { c: [lerp(a[0], fo[0], 0.33), 1.27 * s, -0.004], rx: 0.058 * w, rz: 0.06 * w, w: upW, col: top }], HQ ? 20 : 10); // same segment count as the arm, so the hem doesn't saw-tooth through it
@@ -358,7 +358,8 @@ export function buildBodyGeometry(sp) {
       const hcol = sp.gloves ? C(sp.gloves) : sp.tacGloves ? C(sp.tacGloves) : skin; // traffic officers: white gauntlet gloves; tactical gloves (Shashika)
       if (HQ && !sp.gloves) { // articulated hand: palm with knuckle ridge, four three-segment fingers in a relaxed curl, two-segment thumb, nails
         const py = 0.842 * s; const fw = W1('foreTwist' + side);
-        sb.loft([{ c: [h[0], 0.915 * s, 0.001], rx: 0.026, rz: 0.029, w: fw, col: hcol }, { c: [h[0], 0.882 * s, 0.003], rx: 0.0215, rz: 0.03, w: W2('foreTwist' + side, 'hand' + side, 0.5), col: hcol }, { c: [h[0], 0.862 * s, 0.005], rx: 0.019, rz: 0.035, w: hw, col: hcol }, { c: [h[0], 0.84 * s, 0.006], rx: 0.0185, rz: 0.04, w: hw, col: hcol }, { c: [h[0] - sx * 0.001, 0.818 * s, 0.006], rx: 0.0175, rz: 0.041, w: hw, col: hcol }, { c: [h[0] - sx * 0.002, py - 0.034, 0.005], rx: 0.015, rz: 0.038, w: hw, col: hcol }], 18, { capEnd: true }); // wrist → palm → knuckles
+        const WT = (t) => W2('foreTwist' + side, 'hand' + side, t); // wrist: forearm → hand over 4 cm, so a bent wrist stays one smooth piece
+        sb.loft([{ c: [h[0], 0.935 * s, 0.0], rx: 0.0238, rz: 0.0278, w: fw, col: hcol }, { c: [h[0], 0.905 * s, 0.001], rx: 0.0249, rz: 0.029, w: WT(0.12), col: hcol }, { c: [h[0], 0.889 * s, 0.002], rx: 0.0247, rz: 0.0297, w: WT(0.35), col: hcol }, { c: [h[0], 0.876 * s, 0.003], rx: 0.0228, rz: 0.0314, w: WT(0.65), col: hcol }, { c: [h[0], 0.862 * s, 0.005], rx: 0.019, rz: 0.035, w: hw, col: hcol }, { c: [h[0], 0.84 * s, 0.006], rx: 0.0185, rz: 0.04, w: hw, col: hcol }, { c: [h[0] - sx * 0.001, 0.818 * s, 0.006], rx: 0.0175, rz: 0.041, w: hw, col: hcol }, { c: [h[0] - sx * 0.002, py - 0.034, 0.005], rx: 0.015, rz: 0.038, w: hw, col: hcol }], 18, { capEnd: true }); // wrist → palm → knuckles
         const gl = !!sp.tacGloves; const nail = gl ? hcol.map((v) => v * 1.18) : hcol.map((v, i) => Math.min(1, v * 1.25 + [0.06, 0.03, 0.02][i]));
         const FL = fingerLayout(sp, side, J); // three bones per finger: rings at each segment middle are fully on that bone, knuckle rings blend the two
         for (const fg of FL.fingers) { const nm = fg.name, r0 = fg.r0, jt = fg.joints; const rings = [{ c: [jt[0][0], jt[0][1] + 0.006, fg.fz], rx: r0 * 1.12, rz: r0 * 1.05, w: W2('hand' + side, nm + 1 + side, 0.35), col: hcol }];
@@ -370,6 +371,7 @@ export function buildBodyGeometry(sp) {
         sb.ellipsoid([T[0][0] - sx * 0.0045, T[0][1] - 0.05, T[0][2] + 0.024], 0.006, 0.007, gl ? 0.0015 : 0.0022, W1('thb3' + side), nail, { lat: 4, lon: 8 });
         if (gl) sb.loft([{ c: [h[0], 0.905 * s, 0.002], rx: 0.0285, rz: 0.032, w: W1('foreTwist' + side), col: hcol.map((v) => v * 0.8) }, { c: [h[0], 0.872 * s, 0.004], rx: 0.0245, rz: 0.033, w: W2('foreTwist' + side, 'hand' + side, 0.5), col: hcol.map((v) => v * 0.8) }], 18); // glove cuff
       } else {
+      if (!sp.gloves) sb.loft([{ c: [h[0], 0.905 * s, 0], rx: 0.025, rz: 0.027, w: W1('fore' + side), col: hcol }, { c: [h[0], 0.884 * s, 0.003], rx: 0.0235, rz: 0.03, w: W2('fore' + side, 'hand' + side, 0.5), col: hcol }, { c: [h[0], 0.862 * s, 0.005], rx: 0.02, rz: 0.034, w: hw, col: hcol }], HQ ? 20 : 10, { capEnd: true }); // wrist (the forearm used to end 8 mm above the hand: a gap)
       sb.ellipsoid([h[0], 0.84 * s, 0.006], 0.022, 0.042, 0.04, hw, hcol, { lat: 6, lon: 10 });
       sb.ellipsoid([h[0] - sx * 0.004, 0.79 * s, 0.012], 0.017, 0.038, 0.036, hw, hcol, { lat: 6, lon: 10, bumpFn: (x, y, z) => 1 + (y < -0.4 ? 0.04 * Math.sin(z * 18) : 0) });
       sb.ellipsoid([h[0] - sx * 0.014, 0.818 * s, 0.038], 0.011, 0.026, 0.012, hw, hcol, { lat: 4, lon: 6 }); }

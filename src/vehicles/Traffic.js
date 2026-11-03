@@ -289,7 +289,9 @@ export class Traffic {
     // emergency unit (lights on): overtake slow traffic through the centre of the road; civilians ahead pull over and slow down
     const em = ai.emergency && v.beaconsOn; ai.lat = ai.lat || 0; let latWant = 0;
     if (em) {
-      if (leadCiv && gap < 22) ai.overT = 2.5; else ai.overT = Math.max(0, (ai.overT || 0) - dt);
+      const bb = ai.bodyBlock, standing = bb && (bb.parked || bb.dead || (bb.speed || 0) < 0.3) && !(bb.ai && bb.ai.emergency) && (ai.bodyG ?? Infinity) < 22; // a parked / stopped car in our lane (the body guard holds us): go round it like round traffic
+      if ((leadCiv && gap < 22) || standing) ai.overT = 2.5; else ai.overT = Math.max(0, (ai.overT || 0) - dt);
+      if (standing && Math.abs(ai.lat) < 2.4) ai.creep = 1; /* roll slowly so the steering can pull out (a stopped car cannot turn) */
       if (ai.overT > 0 || Math.abs(ai.lat) > 0.5) { const bx = v.x - fz * ai.lat, bz = v.z + fx * ai.lat; let blocked = false; for (const o of all) { if (o === v || (o.ai && o.ai.emergency)) continue; const rx = o.x - bx, rz = o.z - bz; const al = rx * fx + rz * fz; if (al < -7 || al > 14) continue; if (Math.abs(rx * fz - rz * fx) < 1.7) { blocked = true; break; } } if (blocked) ai.overT = Math.max(ai.overT, 0.6); }
       latWant = ai.overT > 0 ? -(p.type === 'line' && p.seg.level >= 2 ? 2.6 : 3.3) : 0;
     } else if (this.emergency.length) {
