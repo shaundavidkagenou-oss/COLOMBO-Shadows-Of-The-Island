@@ -461,6 +461,17 @@ export function generatePlan() {
     if (drop.size) { const cols = new Set([...drop].map((p) => p.col)); plan.props = plan.props.filter((p) => !drop.has(p)); plan.colliders = plan.colliders.filter((c) => !cols.has(c));
       for (const ch of plan.byChunk) ch.props = ch.props.filter((p) => !drop.has(p));
       const dq = (q) => q.type === 'vendor' && !q.cart && near(q); plan.poi = plan.poi.filter((q) => !dq(q)); for (const ch of plan.byChunk) ch.poi = ch.poi.filter((q) => !dq(q)); } }
+  // filling stations (Layout.FUEL_SITES, built by FuelStationGeo.js): the lot, its frontage pavement and the near half of the
+  // road are kept clear — no garden walls, back-lot trees, lamp posts / utility poles / bus halts in the driveways, no kerb
+  // parking across them, no chat spots on the forecourt. Filtered after generation so the random layout of the rest of the
+  // city (which shares the generators' RNG streams) is unchanged.
+  { const inRes = (x, z) => !!L.fuelSiteAt(x, z);
+    const drop = new Set(plan.props.filter((p) => inRes(p.x, p.z))); const dropT = new Set(plan.trees.filter((t) => inRes(t.x, t.z))); const dropW = new Set(plan.walls.filter((w) => inRes((w.x0 + w.x1) / 2, (w.z0 + w.z1) / 2)));
+    const cols = new Set([...drop].map((p) => p.col).filter(Boolean)); for (const t of dropT) cols.add(t.col);
+    for (const c of plan.colliders) if (c.kind !== 'building' && inRes((c.x0 + c.x1) / 2, (c.z0 + c.z1) / 2)) cols.add(c);
+    plan.props = plan.props.filter((p) => !drop.has(p)); plan.trees = plan.trees.filter((t) => !dropT.has(t)); plan.walls = plan.walls.filter((w) => !dropW.has(w)); plan.colliders = plan.colliders.filter((c) => !cols.has(c));
+    const dq = (q) => inRes(q.x, q.z); plan.poi = plan.poi.filter((q) => !dq(q)); plan.busStops = plan.busStops.filter((q) => !dq(q)); plan.parking = plan.parking.filter((q) => !dq(q));
+    for (const ch of plan.byChunk) { ch.props = ch.props.filter((p) => !drop.has(p)); ch.trees = ch.trees.filter((t) => !dropT.has(t)); ch.walls = ch.walls.filter((w) => !dropW.has(w)); ch.poi = ch.poi.filter((q) => !dq(q)); } }
   // no tree may grow inside (or through) a building. Garden/back-lot trees planted against a wall are moved out to 1.6 m
   // from it (crown no longer pushes through the facade); if there is no free spot they are dropped. Around the landmark
   // buildings with walk-in interiors (Police HQ, Galle Face Hotel) the whole crown must stay outside the walls.

@@ -366,6 +366,21 @@ export function makePoliceAppearance(seed, role = 'patrol', opts = {}) {
 }
 // Ambulance crew (EMT) of the free national pre-hospital service: green two-piece work uniform (the service's livery
 // colour), white sleeve patch, black belt and boots, blue nitrile gloves. Adults only; no rank insignia, no weapons.
+// filling-station attendant ('pumper'): brand-colour polo, dark trousers, brand cap, sleeve badge (FuelStations.js). Adults only.
+export function makeAttendantAppearance(seed, brand, opts = {}) {
+  const r = new RNG(seed * 6151 + 71); const sex = opts.sex || (r.chance(0.86) ? 'm' : 'f'); const band = opts.band || r.weighted([['young', 5], ['adult', 4], ['mature', 1.5]]);
+  const base = makeAppearance(seed, { sex, band, exclude: PRESETS.filter((p) => p.skinSet || p.profile === 'tourist').map((p) => p.id) });
+  const sp = Object.assign({}, base);
+  if (!SKIN_LK.includes(sp.skin)) sp.skin = r.pick(SKIN_LK);
+  if (!HAIR_DARK.includes(sp.hairColor) && !HAIR_PEPPER.includes(sp.hairColor)) sp.hairColor = r.pick(HAIR_DARK);
+  for (const k of ['skirt', 'skirtCol', 'pattern', 'shorts', 'sleeveless', 'tie', 'inner', 'scarf', 'bag', 'crossbody', 'necklace', 'bangles', 'earrings', 'sunglasses', 'lanyard', 'cap', 'capStyle', 'watch', 'sandals', 'hiVis', 'apron', 'towel', 'shawl', 'hood', 'headband', 'glasses', 'longSleeve', 'tie', 'epaulettes']) delete sp[k];
+  if (sex === 'f') sp.hair = r.pick(['bun', 'ponytail']); else if (!['crew', 'short', 'sidepart', 'quiff', 'receding'].includes(sp.hair)) sp.hair = r.pick(['crew', 'short', 'sidepart']);
+  Object.assign(sp, { profile: 'worker', preset: 'attendant', role: 'attendant', label: 'Filling-station attendant', outfit: 'polo', top: brand.main, bottom: '#1f2a3a', collar: true, longSleeve: false, shorts: false, patch: brand.accent,
+    cap: brand.cap, belt: '#151515', buckle: '#9a9ea2', shoes: r.pick(['#151515', '#2a2420', '#1d1f24']), sole: '#121212', watch: r.chance(0.4) ? r.pick(['#1a1a1a', '#c8c8c4']) : undefined });
+  if (sp.watch === undefined) delete sp.watch;
+  sp.gait = Object.assign({}, sp.gait, { stoop: Math.min(sp.gait?.stoop || 0, 0.03) }); sp.belly = Math.min(sp.belly || 0, 0.3);
+  Object.assign(sp, opts); return sp;
+}
 export function makeMedicAppearance(seed, opts = {}) {
   const r = new RNG(seed * 5197 + 29); const sex = opts.sex || (r.chance(0.3) ? 'f' : 'm'); const band = opts.band || r.weighted([['young', 4], ['adult', 5], ['mature', 1]]);
   const base = makeAppearance(seed, { sex, band, exclude: PRESETS.filter((p) => p.skinSet || p.profile === 'tourist').map((p) => p.id) });

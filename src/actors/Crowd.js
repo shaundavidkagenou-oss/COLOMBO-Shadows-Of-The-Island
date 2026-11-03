@@ -197,12 +197,14 @@ export class Crowd {
     if (p.state === 'down' && state !== 'down' && !force) return;
     if (p.dead && !force) return;
     if (p.scene || p.benchRead) { this.life.interrupt(p); if (p.state === 'scene') p.state = 'walk'; }
+    if (p.job && state !== 'job') p.job.interrupt(p, state);
     if (this.isRoutine(p.state)) p.routine = { state: p.state, target: p.target, node: p.node, nextNode: p.nextNode, edge: p.edge, poi: p.poi, x: p.x, z: p.z, timer: p.timer, via: p.via, toKerb: p.toKerb, route: p.route, goalPoi: p.goalPoi, crossing: p.crossing };
     if (p.sit) { p.sit = false; }
     if (p.ch.anim.fight && state !== 'fight') p.ch.anim.fightOn(false, state === 'down');
     p.state = state; p.timer = timer; p.rt = 0; Object.assign(p, extra); p.ch.anim.set(null);
   }
   endReaction(p) {
+    if (p.job && !p.dead) { p.routine = null; p.ch.anim.set(null); p.act = null; p.lookAt = null; p.ch.face.mood = 'neutral'; p.ch.face.talking = false; p.lookT = 0; p.stuckN = 0; p.stuckT = 0; p.state = 'job'; p.job.resume(p); return; } // back to work
     const r = p.routine; p.routine = null; p.ch.anim.set(null); p.act = null; p.lookAt = null; p.ch.face.mood = 'neutral'; p.ch.face.talking = false; p.lookT = 0;
     if (r && Math.hypot(r.x - p.x, r.z - p.z) < 4 && r.state !== 'idle') { p.state = r.state === 'shelter' ? 'walk' : r.state; p.target = r.target; p.node = r.node; p.nextNode = r.nextNode; p.edge = r.edge; p.via = r.via; p.toKerb = r.toKerb; p.route = r.route; p.goalPoi = r.goalPoi; p.crossing = r.crossing; p.poi = r.state === 'toPoi' ? r.poi : null; if (r.poi && r.state !== 'toPoi') r.poi.used = Math.max(0, r.poi.used - 1); if (p.state === 'waitCross') p.timer = 0; }
     else { if (r && r.poi) r.poi.used = Math.max(0, r.poi.used - 1); p.poi = null; this.returnToGraph(p); }
@@ -324,6 +326,7 @@ export class Crowd {
           break;
         }
         case 'shelter': { p.timer -= dt; desired = Math.hypot(p.target.x - p.x, p.target.z - p.z) > 0.6 ? 2.6 : 0; tx = p.target.x; tz = p.target.z; if (desired === 0 && p.ch.anim.action !== 'phone' && p.ch.anim.action !== 'look') p.ch.anim.set(this.rng.chance(0.5) ? 'phone' : 'look'); if (!this.rain || p.timer <= 0) { p.ch.anim.set(null); p.state = 'walk'; this.returnToGraph(p); } break; }
+        case 'job': { const r = p.job.step(p, dt, ctx, lod); desired = r.desired || 0; if (r.tx !== undefined && r.tx !== null) { tx = r.tx; tz = r.tz; } avoid = r.avoid ?? false; if (r.accel) accel = r.accel; break; } // a worker at their post (FuelStations.js attendant)
         case 'scene': { const r = this.life.step(p, dt, ctx); desired = r.desired || 0; if (r.tx !== undefined && r.tx !== null) { tx = r.tx; tz = r.tz; } avoid = r.avoid ?? false; if (r.accel) accel = r.accel; break; } // StreetLife activity
         // ---- reactions
         case 'dodge': { p.timer -= dt; tx = p.x + p.dodge[0] * 3; tz = p.z + p.dodge[1] * 3; desired = 4.2; accel = 9; avoid = false; if (p.timer <= 0) { if (this.rng.chance(0.35)) { p.state = 'flee'; p.timer = 2 + this.rng.next() * 2; p.fleeDir = this.spread(p.dodge[0], p.dodge[1], 0.6); p.fleeSp = 3; p.ch.anim.set(null); } else this.endReaction(p); } break; }
@@ -439,7 +442,7 @@ export class Crowd {
         }
       }
       // vehicles: steer around and never overlap (moving or parked)
-      for (const v of vnear) { if (p.state === 'down') { /* a fallen person is still solid: slide them out of any footprint (never through the car), carried sideways by a moving car */ const q = v.pushOut(p.x, p.z, 0.45); if (q) { const ex = q.x - p.x, ez = q.z - p.z, el = Math.hypot(ex, ez) || 1; const rq = this.collision.resolveCircle(q.x, q.z, 0.3, p.y || 0.15, 0.3); p.x = rq.x; p.z = rq.z; /* never slid into a wall by the car */ const vs = Math.abs(v.speed || 0); if (vs > 1) { p.vx += ex / el * Math.min(4, vs * 0.3); p.vz += ez / el * Math.min(4, vs * 0.3); } } continue; } const lim = 2 + (v.T ? v.T.len / 2 : 5); if (Math.abs(v.x - p.x) > lim || Math.abs(v.z - p.z) > lim) continue; for (const [cx, cz] of v.circles()) { const dx = p.x - cx, dz = p.z - cz; const d = Math.hypot(dx, dz), m = v.radius + 0.3; if (d < m + 0.8 && d > 1e-4 && desired > 0) { const k = (m + 0.8 - d) / 0.8; dvx += dx / d * k * 1.6; dvz += dz / d * k * 1.6; } } const q = v.pushOut(p.x, p.z, 0.3); if (q) { p.x = q.x; p.z = q.z; } }
+      for (const v of vnear) { if (p.state === 'down') { /* a fallen person is still solid: slide them out of any footprint (never through the car), carried sideways by a moving car */ const q = v.pushOut(p.x, p.z, 0.45); if (q) { const ex = q.x - p.x, ez = q.z - p.z, el = Math.hypot(ex, ez) || 1; const rq = this.collision.resolveCircle(q.x, q.z, 0.3, p.y || 0.15, 0.3); p.x = rq.x; p.z = rq.z; /* never slid into a wall by the car */ const vs = Math.abs(v.speed || 0); if (vs > 1) { p.vx += ex / el * Math.min(4, vs * 0.3); p.vz += ez / el * Math.min(4, vs * 0.3); } } continue; } const lim = 2 + (v.T ? v.T.len / 2 : 5); if (Math.abs(v.x - p.x) > lim || Math.abs(v.z - p.z) > lim) continue; for (const [cx, cz] of v.circles()) { const dx = p.x - cx, dz = p.z - cz; const d = Math.hypot(dx, dz), m = v.radius + 0.3; if (d < m + 0.8 && d > 1e-4 && desired > 0 && p.state !== 'job') { const k = (m + 0.8 - d) / 0.8; dvx += dx / d * k * 1.6; dvz += dz / d * k * 1.6; } } const q = v.pushOut(p.x, p.z, 0.3); if (q) { p.x = q.x; p.z = q.z; } }
       if (p.state === 'down') { dvx = p.vx; dvz = p.vz; } /* knocked: momentum + the down-state friction/arc only */
       if (p.stuckSide > 0) { p.stuckSide -= dt; dvx = p.sideDir[0] * 1.0; dvz = p.sideDir[1] * 1.0; }
       // smoothed acceleration (people do not change velocity instantly)
@@ -447,7 +450,7 @@ export class Crowd {
       const maxDv = (tgtSp < curSp ? Math.max(accel, 3.5) : accel) * dt * (lod === 1 ? 1 : 1);
       if (dl > maxDv) { p.vx += dsx / dl * maxDv; p.vz += dsz / dl * maxDv; } else { p.vx = dvx; p.vz = dvz; }
       const sp = Math.hypot(p.vx, p.vz); const prevYaw = p.yaw;
-      if (p.state === 'scene' && p.faceYaw !== undefined) p.yaw = dampAngle(p.yaw, p.faceYaw, 6, dt);
+      if ((p.state === 'scene' || p.state === 'job') && p.faceYaw !== undefined && p.faceYaw !== null) p.yaw = dampAngle(p.yaw, p.faceYaw, 6, dt);
       else if (sp > 0.05) { const turnK = p.state === 'flee' || p.state === 'dodge' ? 9 : 5; if (p.state !== 'down' && p.state !== 'stumble' && p.state !== 'fight') p.yaw = dampAngle(p.yaw, Math.atan2(p.vx, p.vz), turnK * clamp(sp, 0.4, 1.5), dt); }
       const ox = p.x, oz = p.z;
       if (p.state === 'down' && sp * dt > 0.09) { // thrown by a vehicle: sub-step so a fast body can't tunnel through a wall, and walls absorb the impact
@@ -473,7 +476,7 @@ export class Crowd {
       if (!p.crossing && (this.isRoutine(p.state) || calm) && L.roadAt(p.x, p.z) && !L.roadAt(ox, oz) && !this.collision.blocked(ox, oz, 0.2)) { p.x = ox; /* (never back into a wall: at a shopfront on the kerb the wall push-out and this snap fought every frame) */ p.z = oz; p.vx *= 0.3; p.vz *= 0.3; }
       const moved = Math.hypot(p.x - ox, p.z - oz) / Math.max(dt, 1e-4); p.speed = moved;
       // --- stuck detection & staged recovery: sidestep → rejoin graph → new route → (off-screen only) recycle
-      if (desired > 0.3 && p.state !== 'confront') {
+      if (desired > 0.3 && p.state !== 'confront' && p.state !== 'job') { // (a job does its own unsticking — it must never be recycled or sent off along the street graph)
         if (moved < desired * 0.25 && !(blockedBy && blockedBy !== player && p.stuckT < 3)) p.stuckT = (p.stuckT || 0) + dt; else p.stuckT = Math.max(0, (p.stuckT || 0) - dt * 2);
         if (blockedBy === player) { p.blockT = (p.blockT || 0) + dt; if (p.blockT > 1.4) { p.blockT = -4; this.speak(p, 'excuse', 0); p.ch.face.set('concern', 1.5); p.lookT = 1.2; p.lookAtPt = null; } } else p.blockT = Math.max(0, (p.blockT || 0) - dt);
         if (p.stuckT > 1.3) {
@@ -493,7 +496,7 @@ export class Crowd {
       const posed = lod === 1 || (this.frame + (p.id * 7 | 0)) % lod === 0; if (posed) p.ch.anim.update(dt * (lod === 1 ? 1 : lod), p.state === 'down' ? 0 : sp, lod === 1 ? turnRate : 0);
       p.y = lod === 1 ? this.collision.groundAt(p.x, p.z, (p.y || 0.15)) : (p.y || 0.15);
       p.ch.root.position.set(p.x, p.y, p.z); p.ch.root.rotation.y = p.yaw;
-      this.life.props(p, lod); if (posed && lod < 3) this.life.post(p); // hand/lip contact corrections need this frame's pose
+      this.life.props(p, lod); if (posed && lod < 3) this.life.post(p); if (p.job) p.job.post(p, lod, posed); // hand/lip contact corrections need this frame's pose
       p.ch.mesh.castShadow = dist < 45;
     }
   }

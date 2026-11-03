@@ -962,7 +962,7 @@ export function solveArmIK(b, S, target, q, w = 1, poleDir = null) { // poleDir:
   if (q) { arm.updateMatrixWorld(false); fore.updateMatrixWorld(false); const want = _q3.copy(chest.getWorldQuaternion(new THREE.Quaternion())).multiply(q); const foreW = fore.getWorldQuaternion(new THREE.Quaternion()); const loc = foreW.invert().multiply(want); if (w >= 1) hand.quaternion.copy(loc); else hand.quaternion.slerp(loc, w); }
 }
 
-const _ikv = new THREE.Vector3();
+const _ikv = new THREE.Vector3(), _ikq = new THREE.Quaternion();
 // chest-local wrist targets (×height/1.72) for the phone poses: [x,y,z] for a call; [rx,ry,rz, lx,ly,lz] for texting
 export const PHONE_T = [-0.12, 0.235, 0.085], TEXT_T = [-0.04, -0.1, 0.27, 0.03, -0.1, 0.27];
 export const PHONE_POLE = new THREE.Vector3(-0.3, -0.75, 0.6); // on a call the elbow hangs forward and down in front of the chest, not out like a wing
@@ -1150,6 +1150,7 @@ export class Animator {
         case 'drive': tl = [-1.05 + this.steer * 0.25, 0, 0.25]; tr = [-1.05 - this.steer * 0.25, 0, -0.25]; tfl = tfr = [-0.6, 0, 0]; break;
         case 'ride': tl = [-1.15, 0, 0.3]; tr = [-1.15, 0, -0.3]; tfl = tfr = [-0.35, 0, 0]; break;
         case 'carry': tl = [-0.6, 0, 0.15]; tr = [-0.6, 0, -0.15]; tfl = tfr = [-1.3, 0, 0]; break;
+        case 'pump': tr = [-0.1 - (this.pumpCarry || 0) * 0.12, 0, -0.07]; tfr = [-0.35 - (this.pumpCarry || 0) * 0.35, 0, 0]; tl = [-0.06, 0, 0.07]; tfl = [-0.22, 0, 0]; head = this.pumpLook ?? null; b.neck.rotation.x += (this.pumpNod || 0) * aw; break; // filling-station attendant: relaxed arms (right forearm a little raised when carrying the nozzle); the hands go onto world points below
         case 'interact': tr = [-1.2, 0, -0.1]; tfr = [-0.4, 0, 0]; break;
         case 'pray': tr = [-0.75, 0, 0.55]; tl = [-0.75, 0, -0.55]; tfr = tfl = [-1.9, 0, 0]; b.neck.rotation.x += 0.2 * aw; break;
         case 'photo': tr = [-1.25, 0, 0.25]; tl = [-1.25, 0, -0.25]; tfr = tfl = [-1.7, 0, 0]; break;
@@ -1225,6 +1226,7 @@ export class Animator {
     if (this.fight) applyFight(this, dt, solveArmIK, seated);
     if (!seated) { if (this.fadeAct && this.fadeW > 0 && BODY_POSES.has(this.fadeAct)) this.bodyPose(this.fadeAct, smooth01(this.fadeW), this.fadeT); if (A_ && aw > 0 && BODY_POSES.has(A_)) this.bodyPose(A_, aw, at); }
     if (!seated && (A_ === 'medKneel' || A_ === 'medLift' || A_ === 'medCarry') && aw > 0.05) for (const S of ['L', 'R']) { const W = this['holdW' + S]; if (!W) continue; b.chest.updateWorldMatrix(true, false); _ikv.copy(W); b.chest.worldToLocal(_ikv); solveArmIK(b, S, _ikv, null, aw, this['holdPole' + S] || null); } // EMS: hands exactly on world points (patient's chest / neck, stretcher handles), solved after the body pose
+    if (!seated && A_ === 'pump' && aw > 0.05) for (const S of ['R', 'L']) { const W = this['holdW' + S], k = (this['holdK' + S] ?? 1) * aw; if (!W || k < 0.01) continue; b.chest.updateWorldMatrix(true, false); _ikv.copy(W); b.chest.worldToLocal(_ikv); const Q = this['holdQ' + S]; let q = null; if (Q) { b.chest.getWorldQuaternion(_ikq); q = _ikq.invert().multiply(Q); } solveArmIK(b, S, _ikv, q, Math.min(1, k), this['holdPole' + S] || null); } // fuel attendant: nozzle grip / keypad / filler flap / cash at the window, each hand blended in and out on its own (FuelStations.js)
     if (seated) applySeatPose(this, dt);
     if (this.nearLean && !seated) { const l = this.nearLean; b.spine.rotation.x += l.s || 0; b.chest.rotation.x += l.c || 0; b.neck.rotation.x += l.p || 0; b.head.rotation.z += l.r || 0; b.head.rotation.y += l.y || 0; } // StreetLife: leaning in for a hug / kiss
     if (this.duck > 0.001) { const d = Math.min(1, this.duck); b.spine.rotation.x += 0.42 * d; b.chest.rotation.x += 0.22 * d; b.neck.rotation.x += 0.32 * d; } // ducking under a low roof line while getting in / out

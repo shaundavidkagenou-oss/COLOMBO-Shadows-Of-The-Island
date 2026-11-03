@@ -377,6 +377,7 @@ let groundHook = null; // Railway registers the ballast bed / level-crossing hum
 export function setGroundHook(fn) { groundHook = fn; }
 export function groundY(x, z) {
   if (groundHook) { const h = groundHook(x, z); if (h != null) return h; }
+  { const f = fuelSurfaceAt(x, z); if (f != null) return f; } // filling-station forecourts + kerb ramps
   if (roadAt(x, z)) return ROAD_Y;
   if (isWater(x, z)) return bridgeWalkAt(x, z) ? LAND_Y : -1.2;
   const cp = copingAt(x, z); if (cp != null) return cp;
@@ -454,6 +455,53 @@ for (let i = 1; i < NX - 1; i++) for (let j = 1; j < NZ - 1; j++) {
 // open-area connectivity (parks / green): connect quadrant nodes across cells without roads
 for (let i = 1; i < NX - 2; i++) for (let j = 1; j < NZ - 1; j++) {
   if (!getH(i, j)) { const a = pedIndex.get(pedKey(i, j, 1, 1)), b = pedIndex.get(pedKey(i + 1, j, -1, 1)); if (a && b && !a.edges.some((e) => pedEdges[e].b === b.id)) addPedEdge(a, b, 'walk'); }
+}
+
+// ---------------------------------------------------------------- fuel stations (FuelStationGeo.js builds them)
+// Four roadside filling stations on main roads, each on the kerb side of the near lane (left-hand traffic: the forecourt
+// is on the left of the traffic that uses it). Station frame: u runs along the road in the near lane's direction of travel
+// (entry driveway upstream at u < 0, exit downstream at u > 0), w runs from the property line (w = 0, back of the
+// pavement) into the lot. Brands are fictional (no real fuel company's name or logo).
+export const FUEL_W = 50, FUEL_D = 30, FUEL_SLAB = LAND_Y + 0.02, FUEL_RAMP = 0.9; // lot frontage × depth, forecourt slab top, kerb ramp depth into the road
+export const FUEL_DRIVE = 20.75, FUEL_DRIVE_HW = 3.75; // driveway centres at u = ∓FUEL_DRIVE, half width
+const FUEL_DEFS = [
+  { id: 'fuelKollupitiya', brand: 'ratna', area: 'Kollupitiya', x: -400, zc: 144, side: 1 },
+  { id: 'fuelBambalapitiya', brand: 'samudra', area: 'Bambalapitiya', x: -400, zc: 856, side: -1 },
+  { id: 'fuelBorella', brand: 'araliya', area: 'Borella', x: 660, zc: 504, side: -1 },
+  { id: 'fuelMaradana', brand: 'nila', area: 'Maradana', x: 420, zc: -520, side: 1 },
+];
+export const FUEL_BRANDS = {
+  ratna: { name: 'RATNA PETROLEUM', short: 'RATNA', si: 'රත්න', main: '#b3122e', dark: '#7c0b1f', accent: '#f4f1ea', cap: '#7c0b1f', logo: 'gem' },
+  samudra: { name: 'SAMUDRA FUELS', short: 'SAMUDRA', si: 'සමුද්‍ර', main: '#0b6e78', dark: '#06464d', accent: '#f28c1e', cap: '#f28c1e', logo: 'wave' },
+  araliya: { name: 'ARALIYA FUELS', short: 'ARALIYA', si: 'අරලිය', main: '#1d7a3a', dark: '#11502a', accent: '#f2c230', cap: '#11502a', logo: 'flower' },
+  nila: { name: 'NILA ENERGY', short: 'NILA', si: 'නිල', main: '#1a3f9c', dark: '#0f2766', accent: '#e8392b', cap: '#0f2766', logo: 'drop' },
+};
+export const FUEL_SITES = FUEL_DEFS.map((d) => {
+  const i = XS.findIndex((l) => l.pos === d.x), j = findIndex(ZS, d.zc); const seg = getV(i, j);
+  if (!seg) throw new Error('fuel site without a road: ' + d.id);
+  const U = [0, d.side], Wv = [d.side, 0]; const O = [d.x + d.side * (seg.hw + seg.walk), d.zc]; // near-lane direction, into the lot, origin on the property line
+  const site = { ...d, seg, hw: seg.hw, walk: seg.walk, U, Wv, O, yaw: Math.atan2(U[0], U[1]), rotY: Math.atan2(-U[1], U[0]), name: `${FUEL_BRANDS[d.brand].name.split(' ').map((s) => s[0] + s.slice(1).toLowerCase()).join(' ')} filling station, ${d.area}` };
+  site.toWorld = (u, w) => [O[0] + U[0] * u + Wv[0] * w, O[1] + U[1] * u + Wv[1] * w];
+  site.toLocal = (x, z) => { const dx = x - O[0], dz = z - O[1]; return [dx * U[0] + dz * U[1], dx * Wv[0] + dz * Wv[1]]; };
+  const box = (u0, u1, w0, w1) => { const a = site.toWorld(u0, w0), b = site.toWorld(u1, w1); return [Math.min(a[0], b[0]), Math.max(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[1], b[1])]; };
+  site.box = box; site.rect = box(-FUEL_W / 2, FUEL_W / 2, 0, FUEL_D);
+  site.reserve = box(-FUEL_W / 2 - 1, FUEL_W / 2 + 1, -seg.walk - seg.hw, FUEL_D); // lot + its frontage pavement + the near half of the road (no kerb parking, poles or bus halts across the driveways)
+  return site;
+});
+for (const s of FUEL_SITES) ZONES.push({ id: s.id, name: s.name, rect: s.rect, blockRoads: false, kind: 'fuel', fuel: s });
+export function fuelSiteAt(x, z, pad = 0) { for (const s of FUEL_SITES) { const r = s.reserve; if (x > r[0] - pad && x < r[1] + pad && z > r[2] - pad && z < r[3] + pad) return s; } return null; }
+// forecourt slab, the concrete driveway crossings over the pavement, and the kerb ramps in the road gutter (wheels roll up
+// from the asphalt onto the forecourt instead of popping up the kerb)
+export function fuelSurfaceAt(x, z) {
+  for (const s of FUEL_SITES) {
+    const r = s.reserve; if (x < r[0] || x > r[1] || z < r[2] || z > r[3]) continue;
+    const [u, w] = s.toLocal(x, z); if (Math.abs(u) > FUEL_W / 2) return null;
+    if (w >= 0) return FUEL_SLAB;
+    if (Math.abs(Math.abs(u) - FUEL_DRIVE) > FUEL_DRIVE_HW) return null;
+    if (w >= -s.walk) return FUEL_SLAB;
+    const k = (w + s.walk + FUEL_RAMP) / FUEL_RAMP; return k > 0 ? ROAD_Y + (FUEL_SLAB - ROAD_Y) * k : null;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------- named places used by story & activities
