@@ -68,13 +68,21 @@ export const HAND_POSES = {
   wheel: [0.45, 0.8, 0.9, 0.95, 0.9], phone: [0.4, 0.6, 0.7, 0.75, 0.75], glove: [0.2, 0.35, 0.4, 0.45, 0.45],
 };
 const JOINT_SHARE = [0.85, 1.0, 0.7]; // how a finger's curl splits across its three joints
+// a hand pose as 15 joint values: 4 fingers × [knuckle, middle, tip joint] then the thumb [curl, opposition (x), swing (y)].
+// Classic poses are 5 curls (thumb + one per finger, split by JOINT_SHARE); the grip solver (combat/GripSolver.js) writes
+// per-joint poses { f: [[a1, a2, a3] ×4], th: [t, ox, oy] } fitted to the actual weapon surface.
+export function poseVec(p, w = 1, out = new Array(15).fill(0)) {
+  if (Array.isArray(p)) { for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) out[i * 3 + j] = (p[i + 1] || 0) * JOINT_SHARE[j] * w; out[12] = (p[0] || 0) * w; out[13] = 0; out[14] = 0; }
+  else { for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) out[i * 3 + j] = p.f[i][j] * w; out[12] = p.th[0] * w; out[13] = (p.th[1] || 0) * w; out[14] = (p.th[2] || 0) * w; }
+  return out;
+}
 
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _m = new THREE.Matrix4(), _e = new THREE.Euler();
 const qIdent = new THREE.Quaternion();
 
 export class HeroRig {
   constructor(ch) {
-    this.ch = ch; this.b = ch.bones; this.cur = { L: [0, 0, 0, 0, 0], R: [0, 0, 0, 0, 0] }; this.want = { L: null, R: null }; this.flick = { L: 0, R: 0 };
+    this.ch = ch; this.b = ch.bones; this.cur = { L: new Array(15).fill(0), R: new Array(15).fill(0) }; this._tgt = new Array(15).fill(0); this.want = { L: null, R: null }; this.flick = { L: 0, R: 0 };
     this.chains = CHAINS.map((c) => ({ ...c, bones: c.bones.map((n) => this.b[n]), p: null, prev: null, len: [], off: [] }));
     for (const c of this.chains) { c.bones.forEach((bn, i) => { const nx = c.bones[i + 1]; const o = nx ? nx.position.clone() : new THREE.Vector3(...c.tip); c.off.push(o); c.len.push(o.length()); }); }
     this.toeK = { L: 0, R: 0 }; this.wrinkle = 0; this.wrinkleWant = 0; this.simOn = true;
@@ -97,12 +105,12 @@ export class HeroRig {
     // ---- fingers: blend toward the requested pose (or automatic) at a fast but finite rate (no snapping)
     for (const S of ['L', 'R']) {
       const sx = S === 'L' ? 1 : -1; const want = this.want[S]; const ap = want ? null : this.autoPose(S);
-      const tgt = want ? want.p.map((v) => v * want.w) : ap ? HAND_POSES[ap] : HAND_POSES.relax;
-      const run = this.ch.anim.runW || 0; const cur = this.cur[S];
-      for (let i = 0; i < 5; i++) cur[i] = damp(cur[i], tgt[i] + (want || ap ? 0 : run * 0.45 + 0.05), 16, dt);
+      const tgt = poseVec(want ? want.p : ap ? HAND_POSES[ap] : HAND_POSES.relax, want ? want.w : 1, this._tgt);
+      const run = this.ch.anim.runW || 0; const cur = this.cur[S]; const idle = want || ap ? 0 : run * 0.45 + 0.05;
+      for (let i = 0; i < 15; i++) cur[i] = damp(cur[i], tgt[i] + (i < 12 ? idle * JOINT_SHARE[i % 3] : 0), 16, dt);
       this.flick[S] = Math.max(0, this.flick[S] - dt * 4); const fk = Math.sin(this.flick[S] * Math.PI);
-      FINGERS.forEach((f, fi) => { const c = cur[fi + 1]; for (let j = 0; j < 3; j++) { const bn = b[f + (j + 1) + S]; bn.rotation.set(0, (fi - 1.5) * 0.04 * (1 - Math.min(1, c)), -sx * c * JOINT_SHARE[j]); } });
-      const t = cur[0]; b['thb1' + S].rotation.set(t * 0.55 + fk * 0.25, 0, -sx * t * 0.45); b['thb2' + S].rotation.set(0, 0, -sx * (t * 0.55 + fk * 0.35)); b['thb3' + S].rotation.set(0, 0, -sx * t * 0.5);
+      FINGERS.forEach((f, fi) => { const sp = (fi - 1.5) * 0.04 * (1 - Math.min(1, cur[fi * 3 + 1])); for (let j = 0; j < 3; j++) b[f + (j + 1) + S].rotation.set(0, sp, -sx * cur[fi * 3 + j]); });
+      const t = cur[12]; b['thb1' + S].rotation.set(t * 0.55 + fk * 0.25 + cur[13], cur[14], -sx * t * 0.45); b['thb2' + S].rotation.set(0, 0, -sx * (t * 0.55 + fk * 0.35)); b['thb3' + S].rotation.set(0, 0, -sx * t * 0.5);
       this.want[S] = null;
     }
     // ---- twist bones (swing–twist split): forearm twist takes half the wrist roll, the upper-arm twist undoes half the

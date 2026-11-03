@@ -7,6 +7,7 @@ import { Settings } from '../core/Settings.js';
 import { clamp, lerp, wrapAngle } from '../core/math.js';
 import { Audio } from '../audio/Audio.js';
 import { buildWeaponModel, weaponMaterials } from './WeaponModels.js';
+import { holdFor } from './GripSolver.js';
 import * as L from '../world/Layout.js';
 
 // cls: pistol | rifle | sniper. rof = rounds/second; spread in radians; recoil = camera kick (rad); dmg: 1.5+ incapacitates in one hit
@@ -68,9 +69,14 @@ export class Weapons {
   slotMatrixInChest(i, out) { const b = this.P.ch.bones; const slot = WEAPONS[i].cls === 'pistol' ? this.holsterP : this.holsterR; b.chest.updateWorldMatrix(true, false); slot.updateWorldMatrix(true, false); return out.copy(b.chest.matrixWorld).invert().multiply(slot.matrixWorld); }
   select(i) {
     if (!(i >= 0 && i <= 8) || !this.inv[i] || !this.inv[i].owned) { if (i >= 0 && i <= 8 && this.inv[i]) this.hudFlash(`${WEAPONS[i].name} not owned — buy it at a gun shop`); return; } this._toFists = false; if (this.state === 'reload') this.abortReload();
-    if (this.state === 'holster') { this.next = i; this.hudWeapon(i); return; } // already putting one away: retarget, never restart the animation
+    this.scrollTarget = null; this._toFists = false;
+    if (this.state === 'holster') { // already putting one away: retarget (or, back to the same weapon, bring it straight back up)
+      if (i === this.cur && this.drawMode === 'hands') { const a = this.appearK ?? 1; this.next = -1; this.state = 'equip'; this.drawMode = 'hands'; this.dur = this.handsDur(WEAPONS[i]); let lo = 0, hi = 1; for (let it = 0; it < 12; it++) { const md = (lo + hi) / 2; if (sm(md) < a) lo = md; else hi = md; } this.t = lo * this.dur; }
+      else this.next = i; this.hudWeapon(i); return; }
     if (this.cur === i) return;
-    if (this.drawn) { this.next = i; this.setState('holster'); } else { this.sel = i; this.cur = i; this.setState('equip'); }
+    if (this.state === 'equip') { // changed mind mid-draw: the new weapon comes straight into the hands, no put-away first
+      this.models[this.cur].visible = false; this.sel = i; this.cur = i; this._fromUnarmed = false; this.setState('equip'); this.hudWeapon(i); return; }
+    if (this.drawn) { this.next = i; this.setState('holster'); } else { this.sel = i; this.cur = i; this._fromUnarmed = true; this.setState('equip'); }
     this.hudWeapon(i);
   }
   // fists (every character, always available): put any weapon away and fight unarmed. sel = −1 means fists.
@@ -115,7 +121,13 @@ export class Weapons {
     Audio.noise(0.06, { f: covering ? 380 : 240, q: 1.3, vol: 0.12, when: 0 }); this.hitsTaken = (this.hitsTaken || 0) + 1;
   }
   holster() { if (this.drawn && this.state !== 'holster') { this.next = -1; if (this.state === 'reload') this.abortReload(); this.setState('holster'); } }
+  // draw / put-away timing. Long guns (and any weapon taken during a swap) come straight into the hands — a short raise
+  // from low ready — and go away the same way; only a pistol drawn from empty hands comes out of (and back into) the hip
+  // holster. Swaps skip the put-away wait: pistol ≈0.5 s, rifle ≈0.6 s from one weapon up to the next.
+  handsDur(d) { return d.cls === 'pistol' ? 0.28 : d.cls === 'rifle' ? 0.36 : 0.4; }
   setState(s) { const prev = this.state; this.state = s; this.t = 0; if (s === 'holster' || s === 'none') this.wantReload = false;
+    const d = this.def; if (d && s === 'equip') { this.drawMode = d.cls === 'pistol' && this._fromUnarmed ? 'hip' : 'hands'; this.dur = this.drawMode === 'hip' ? d.equip : this.handsDur(d); this.appearK = 0; }
+    if (d && s === 'holster') { const swap = this.next >= 0; this.drawMode = d.cls === 'pistol' && !swap ? 'hip' : 'hands'; this.dur = this.drawMode === 'hip' ? d.equip * 0.85 : swap ? 0.22 : 0.3; }
     if (s === 'reload') { const iv = this.inv[this.cur], d = WEAPONS[this.cur]; this.reloadKind = iv && iv.mag > 0 ? 'tactical' : 'empty'; this.reloadDur = d ? d.reload * (this.reloadKind === 'tactical' ? 0.85 : 1) : 1; this._dropped = false; this._relFlick = 0; }
     if (s === 'check') this._chkFlick = 0;
     const rig = this.P && this.P.ch && this.P.ch.rig; if (rig && ((s === 'ready' && prev === 'equip') || s === 'holster')) rig.thumbFlick('R'); // safety off once up / on before stowing
@@ -177,18 +189,19 @@ export class Weapons {
       for (let i = 0; i < 9; i++) if (Input.keyPressed('Digit' + (i + 1)) || (Input.keyPressed('Numpad' + (i + 1)) && !(dbgPad && i === 1))) this.select(i);
       if (Input.keyPressed('Digit0') || Input.keyPressed('Numpad0')) this.selectFists();
       // mouse wheel / d-pad: step a pending target through OWNED weapons; commit once the wheel settles (fast scrolling = one clean switch)
-      const step = Input.wheel && !this.scoped ? (Input.wheel > 0 ? 1 : -1) : Input.pad.buttons[15] && !Input.pad.prev[15] ? 1 : Input.pad.buttons[14] && !Input.pad.prev[14] ? -1 : 0;
-      if (step) { const ring = [-1, ...WEAPONS.map((_, k) => k).filter((k) => this.inv[k].owned)]; /* fists + owned weapons */ const from = this.scrollTarget ?? (this.state === 'holster' && this.next >= 0 ? this.next : this.cur >= 0 ? this.cur : this.sel); const at = Math.max(0, ring.indexOf(from)); const j = ring[(at + step + ring.length) % ring.length]; this.scrollTarget = j; this.scrollT = 0.2; this.hudWeapon(j); }
-      if (this.scrollTarget != null) { this.scrollT -= dt; if (this.scrollT <= 0) { const j = this.scrollTarget; this.scrollTarget = null; if (j < 0) this.selectFists(); else this.select(j); } }
+      const step = Input.wheel && !this.scoped ? clamp(Input.wheel, -9, 9) : Input.pad.buttons[15] && !Input.pad.prev[15] ? 1 : Input.pad.buttons[14] && !Input.pad.prev[14] ? -1 : 0; // every notch of a fast flick counts
+      if (step) { const ring = [-1, ...WEAPONS.map((_, k) => k).filter((k) => this.inv[k].owned)]; /* fists + owned weapons */ const from = this.scrollTarget ?? (this.state === 'holster' && this.next >= 0 ? this.next : this.cur >= 0 ? this.cur : this.sel); const at = Math.max(0, ring.indexOf(from)); const j = ring[(((at + step) % ring.length) + ring.length) % ring.length]; this.scrollTarget = j; this.scrollT = 0.1; this.hudWeapon(j); }
+      const clickPick = this.scrollTarget != null && (Input.mousePressed.has(0) || (Input.pad.rt > 0.4 && !this._rtPrev)); if (clickPick) this._eatFire = true; // a click while scrolling picks the highlighted weapon (and does not fire / draw the old one)
+      if (this.scrollTarget != null) { this.scrollT -= dt; if (this.scrollT <= 0 || clickPick) { const j = this.scrollTarget; this.scrollTarget = null; if (j < 0) this.selectFists(); else this.select(j); } }
       if (Input.wasPressed('holster') || (Input.pad.buttons[12] && !Input.pad.prev[12] && this.drawn)) { if (this.drawn) this.holster(); else this.select(this.sel); }
     }
     let def = this.def;
-    const aimHeld = !this.wheelOpen && (Input.mouseButtons.has(2) || Input.pad.lt > 0.4); const fireHeld = !this.wheelOpen && (Input.mouseButtons.has(0) || Input.pad.rt > 0.4); const firePressed = !this.wheelOpen && (Input.mousePressed.has(0) || (Input.pad.rt > 0.4 && !this._rtPrev)); this._rtPrev = Input.pad.rt > 0.4;
+    const aimHeld = !this.wheelOpen && (Input.mouseButtons.has(2) || Input.pad.lt > 0.4); const fireHeld0 = !this.wheelOpen && (Input.mouseButtons.has(0) || Input.pad.rt > 0.4); const firePressed = !this.wheelOpen && !this._eatFire && (Input.mousePressed.has(0) || (Input.pad.rt > 0.4 && !this._rtPrev)); this._rtPrev = Input.pad.rt > 0.4; const fireHeld = fireHeld0 && !this._eatFire; if (this._eatFire && !Input.mouseButtons.has(0) && Input.pad.rt <= 0.4) this._eatFire = false;
     if (!this.drawn && firePressed && !P.sprinting && this.inv[this.sel] && this.inv[this.sel].owned && Settings.get('fireDraws') !== false) { /* first click draws the weapon */ this.select(this.sel); }
     this.t += dt; this.cool = Math.max(0, this.cool - dt); this.bloom = Math.max(0, this.bloom - dt * (def && def.cls === 'sniper' ? 0.02 : 0.06)); this.recoil = Math.max(0, this.recoil - dt * 9 * (this.recoil + 0.02)); this.quickAim = Math.max(0, this.quickAim - dt);
-    if (this.state === 'equip' && this.t >= def.equip) this.setState('ready');
+    if (this.state === 'equip' && this.t >= this.dur) this.setState('ready');
     if (this.state === 'check' && this.t >= 0.9 && this.cycleT < 0) this.setState('ready'); this.trigT = Math.max(0, this.trigT - dt);
-    if (this.state === 'holster' && this.t >= def.equip * 0.85) { this.models[this.cur].visible = false; const n = this.next; this.cur = -1; this.state = 'none'; A.ik = null; A.aim = null; if (n >= 0) { this.sel = n; this.cur = n; this.setState('equip'); } if (this._toFists) { this.sel = -1; this._toFists = false; } this.showHolstered(); }
+    if (this.state === 'holster' && this.t >= this.dur) { this.models[this.cur].visible = false; const n = this.next; this.cur = -1; this.state = 'none'; A.ik = null; A.aim = null; if (n >= 0) { this.sel = n; this.cur = n; this._fromUnarmed = false; this.setState('equip'); } if (this._toFists) { this.sel = -1; this._toFists = false; } this.showHolstered(); }
     // ---- fists
     this.punchCd = Math.max(0, (this.punchCd || 0) - dt); if (this.punchT > 0) { this.punchT -= dt; if (this.punchT <= 0) this.punchHit(); } this.fistsUpdate(dt, aimHeld);
     if (firePressed && this.fistsReady && !P.sprinting && !P.crouching && this.punchCd <= 0) this.punch();
@@ -271,6 +284,15 @@ export class Weapons {
       if (r < 0.1) this._chkSnd = 0; if (r > 0.84 && !this._chkFlick) { this._chkFlick = 1; P.ch.rig && P.ch.rig.thumbFlick('R'); }
     }
     if (this.cycleT >= 0 && def.cycle) { const c = this.cycleT / def.cycle; gripTarget = 'bolt'; this._cycK = c; if (ud.bolt) { ud.bolt.rotation.z = -0.9 * sm(seg(c, 0.25, 0.35)) * (1 - sm(seg(c, 0.68, 0.78))); ud.bolt.position.z = -0.075 * sm(seg(c, 0.36, 0.5)) * (1 - sm(seg(c, 0.55, 0.68))); } rx -= 0.08 * Math.sin(c * Math.PI); }
+    // in-hand draw / put-away: the weapon rises from a low, muzzle-down carry into the pose (or sinks out of it) while the
+    // hands are already on it — no reach to the back or the hip
+    let ikW = 1, hideW = false; const H = holdFor(P.ch, m);
+    if ((this.state === 'equip' || this.state === 'holster') && this.drawMode === 'hands') {
+      const u = clamp(k / this.dur, 0, 1); let a;
+      if (this.state === 'equip') { a = sm(u); ikW = sm(seg(u, 0, 0.3)); hideW = u < 0.1; } else { a = 1 - sm(seg(u, 0, 0.65)); ikW = 1 - sm(seg(u, 0.65, 1)); hideW = u >= 0.65; }
+      this.appearK = a; const dn = 1 - a; pos.y -= 0.12 * dn; pos.z -= 0.04 * dn; pos.x += (twoHand ? 0.03 : 0.02) * dn; rx += 0.65 * dn; ry += (twoHand ? 0.25 : 0.1) * dn;
+      if (this.state === 'equip' && k < dt * 1.5) Audio.noise(0.1, { f: 900, q: 0.8, vol: 0.05 });
+    }
     // weapon matrix (body space), then chest space
     const wq = new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz, 'YXZ'));
     const body = new THREE.Matrix4().compose(pos, wq, new THREE.Vector3(1, 1, 1)); this._weaponBody = body;
@@ -286,24 +308,27 @@ export class Weapons {
       chestM = D.multiply(chestM); }
     // draw / holster: blend between the holster slot and the hands
     let handOnly = 0; // 0 = weapon in hand pose, 1 = weapon still in holster (hand reaching)
-    if (this.state === 'equip' || this.state === 'holster') {
-      const E = def.equip; const u = this.state === 'equip' ? k / E : 1 - k / (E * 0.85); const slot = this.slotMatrixInChest(this.cur, new THREE.Matrix4());
+    if ((this.state === 'equip' || this.state === 'holster') && this.drawMode === 'hip') { // pistol from / to the hip holster
+      const E = this.dur; const u = this.state === 'equip' ? k / E : 1 - k / E; const slot = this.slotMatrixInChest(this.cur, new THREE.Matrix4());
       const reach = sm(seg(u, 0, 0.38)); const travel = sm(seg(u, 0.38, 1));
       if (u < 0.38) { handOnly = 1; this._reach = reach; } else { const a = new THREE.Vector3(), aq = new THREE.Quaternion(), b = new THREE.Vector3(), bq = new THREE.Quaternion(), sc = new THREE.Vector3(); slot.decompose(a, aq, sc); chestM.decompose(b, bq, sc); chestM = new THREE.Matrix4().compose(a.lerp(b, travel), aq.slerp(bq, travel), new THREE.Vector3(1, 1, 1)); }
       supW = twoHand ? sm(seg(u, 0.7, 1)) : supW * sm(seg(u, 0.8, 1));
       if (this.state === 'equip' && k < dt * 1.5) Audio.noise(0.12, { f: 700, q: 0.8, vol: 0.06 });
       if (handOnly) { const slotM = slot; if (m.parent !== (def.cls === 'pistol' ? this.holsterP : this.holsterR)) { (def.cls === 'pistol' ? this.holsterP : this.holsterR).add(m); m.matrixAutoUpdate = true; m.position.set(0, 0, 0); m.quaternion.identity(); } m.visible = true;
-        const g = new THREE.Vector3(0, 0, 0).applyMatrix4(slotM); A.ik = { R: g, qR: new THREE.Quaternion().setFromRotationMatrix(slotM).multiply(Q_GRIP), wR: this._reach, L: null }; P.ch.rig && P.ch.rig.hand('R', this._reach > 0.8 ? 'grip' : 'open');
+        const g = (H ? H.R.wrist.clone() : new THREE.Vector3()).applyMatrix4(slotM); A.ik = { R: g, qR: new THREE.Quaternion().setFromRotationMatrix(slotM).multiply(H ? H.R.q : Q_GRIP), wR: this._reach, L: null }; P.ch.rig && P.ch.rig.hand('R', this._reach > 0.8 ? (H ? H.R.ready : 'grip') : 'open');
         return; }
     }
     if (m.parent !== this.inHand) { this.inHand.add(m); }
-    m.matrixAutoUpdate = false; m.matrix.copy(chestM); m.matrixWorldNeedsUpdate = true; m.visible = true; this.inHand.matrix.identity();
+    m.matrixAutoUpdate = false; m.matrix.copy(chestM); m.matrixWorldNeedsUpdate = true; m.visible = !hideW; this.inHand.matrix.identity();
     const wQ = new THREE.Quaternion().setFromRotationMatrix(chestM);
-    const grip = new THREE.Vector3(0, 0, 0).applyMatrix4(chestM); let qR = wQ.clone().multiply(Q_GRIP);
-    let sup = ud.support.clone().applyMatrix4(chestM); let qL = wQ.clone().multiply(twoHand ? Q_SUP_R : Q_SUP_P);
+    // wrist + hand orientation from the solved hold (GripSolver): palm on the grip, index at the trigger, support hand on
+    // the forend / wrapped over the firing hand; models without hold data keep the old grip-origin placement
+    const supLocal = H ? H.L.wrist : ud.support;
+    const grip = (H ? H.R.wrist.clone() : new THREE.Vector3()).applyMatrix4(chestM); let qR = wQ.clone().multiply(H ? H.R.q : Q_GRIP);
+    let sup = supLocal.clone().applyMatrix4(chestM); let qL = wQ.clone().multiply(H ? H.L.q : twoHand ? Q_SUP_R : Q_SUP_P);
     if (twoHand) { // support hand: slide back along the forend to the furthest point the left arm can really reach (no floating hand)
-      const b = P.ch.bones; b.shL.updateMatrix(); const sh = b.armL.position.clone().applyMatrix4(b.shL.matrix); const armMax = (b.foreL.position.length() + b.handL.position.length()) * 0.98 + 0.05;
-      const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(wQ); let slide = 0; for (let it = 0; it < 6 && slide < 0.24; it++) { const d = sup.distanceTo(sh); if (d <= armMax) break; slide = Math.min(0.24, slide + (d - armMax) * 1.05); sup = ud.support.clone().applyMatrix4(chestM).addScaledVector(dir, -slide); }
+      const b = P.ch.bones; b.shL.updateMatrix(); const sh = b.armL.position.clone().applyMatrix4(b.shL.matrix); const armMax = (b.foreL.position.length() + b.handL.position.length()) * 0.985; // a hand that can't reach slides back along the forend instead of floating short of it
+      const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(wQ); let slide = 0; for (let it = 0; it < 10 && slide < 0.26; it++) { const d = sup.distanceTo(sh); if (d <= armMax) break; slide = Math.min(0.26, slide + (d - armMax) * 1.05); sup = supLocal.clone().applyMatrix4(chestM).addScaledVector(dir, -slide); }
       this._supSlide = slide; }
     const pouchChest = new THREE.Vector3(0.12, -0.36, 0.08).applyMatrix4(toChest);
     const magFollow = (hand, ins) => { const local = hand.clone().applyMatrix4(chestM.clone().invert()); magL.position.set((local.x - ud.magWell.x) * (1 - ins), (local.y - ud.magWell.y) * (1 - ins) + 0.03 * (1 - ins), (local.z - ud.magWell.z) * (1 - ins)); magL.visible = true; };
@@ -314,11 +339,12 @@ export class Weapons {
     else if (supTarget === 'well') { sup = pouchChest.clone().lerp(wellW(), this._supK); magFollow(sup, this._insK || 0); } // fresh magazine travels in the hand, then seats
     else if (supTarget === 'rack') { const rk = ud.rack.clone().applyMatrix4(chestM); sup = sup.clone().lerp(rk, this._supK * (this.state === 'reload' ? 1 - sm(seg(this._reloadR, 0.92, 1)) : 1)); if (this.state === 'reload' && ud.slide && def.cls !== 'pistol') ud.slide.position.z = -0.05 * Math.sin(seg(this._reloadR, 0.84, 0.94) * Math.PI); }
     if (gripTarget === 'bolt') { const c = this._cycK; const bh = ud.rack.clone(); bh.z += ud.bolt ? ud.bolt.position.z : 0; bh.y += 0.012 * sm(seg(c, 0.25, 0.35)) * (1 - sm(seg(c, 0.68, 0.78))); const bw = bh.applyMatrix4(chestM); grip.lerp(bw, sm(seg(c, 0, 0.22)) * (1 - sm(seg(c, 0.8, 1)))); }
-    A.ik = { R: grip, qR, wR: 1, L: supW > 0.01 ? sup : null, qL, wL: supW };
-    if (!twoHand && supW < 0.99) A.ik.wL = supW; // pistol held one-handed at low ready
+    if (this.drawMode === 'hands' && (this.state === 'equip' || this.state === 'holster')) supW = twoHand ? ikW * sm(seg(ikW, 0.3, 1)) : supW * ikW;
+    A.ik = { R: grip, qR, wR: ikW, L: supW > 0.01 ? sup : null, qL, wL: supW };
     const rig = P.ch.rig; if (rig) { // fingers: trigger discipline (index along the frame) until aimed, a real pull per shot; support hand shapes per task
-      rig.hand('R', gripTarget === 'bolt' ? 'pinch' : this.trigT > 0 ? TRIGGER_PULL : aw > 0.7 && this.state === 'ready' ? 'trigger' : 'grip');
-      const lp = supTarget === 'pouch' || supTarget === 'wellGrab' ? (this._supK > 0.8 ? 'mag' : 'open') : supTarget === 'well' || supTarget === 'pouchOld' ? 'mag' : supTarget === 'rack' ? 'pinch' : 'support';
+      const onTrig = aw > 0.7 && this.state === 'ready'; // finger on the trigger only when aimed; otherwise straight along the frame
+      rig.hand('R', gripTarget === 'bolt' ? 'pinch' : this.trigT > 0 ? (H ? H.R.pull : TRIGGER_PULL) : onTrig ? (H ? H.R.trigger : 'trigger') : H ? H.R.ready : 'grip', ikW > 0.5 || !H ? 1 : 0.6);
+      const lp = supTarget === 'pouch' || supTarget === 'wellGrab' ? (this._supK > 0.8 ? 'mag' : 'open') : supTarget === 'well' || supTarget === 'pouchOld' ? 'mag' : supTarget === 'rack' ? 'pinch' : H ? H.L.pose : 'support';
       if (A.ik.L) rig.hand('L', lp);
     }
   }

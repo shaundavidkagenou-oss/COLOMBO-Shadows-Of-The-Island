@@ -20,13 +20,13 @@ const who = q.get('who') || 'dineth'; const wi = +(q.get('w') || 1); const aim =
 const ch = new Character(HEROES[who]); ch.root.traverse((m) => { if (m.isMesh) { m.castShadow = true; m.frustumCulled = false; } }); s.add(ch.root);
 const P = { ch, x: 0, y: 0, z: 0, yaw: 0, camYaw: -Math.PI, camPitch: +(q.get('pitch') || 0), camMode: view === 'fp' ? 2 : 0, speed: 0, stamina: 1, position: ch.root.position, rotation: ch.root.rotation };
 P.fpEyeLook = Player.prototype.fpEyeLook.bind(P);
-const hudRoot = document.getElementById('hud'); const game = { player: P, scene: s, camera: cam, hud: { root: hudRoot }, crowd: null, police: null, debug: null, collision: { raycast: () => null, groundAt: () => 0, query: () => [] }, timeSlow: 1, birds: null, traffic: null, blood: null, health: null };
+const hudRoot = document.getElementById('hud'); const game = { player: P, scene: s, camera: cam, hud: { root: hudRoot }, crowd: { peds: [] }, police: null, debug: null, collision: { raycast: () => null, groundAt: () => 0, query: () => [] }, timeSlow: 1, birds: null, traffic: { all: () => [] }, blood: null, health: null };
 const Wp = new Weapons(game); P.weapons = Wp;
 const STEP = 1 / 60; const A = ch.anim;
 for (let t = 0; t < 0.3; t += STEP) { Wp.update(STEP, true); A.update(STEP, 0); }
 Wp.select(wi); if (aim) Input.mouseButtons.add(2);
-const stopEquip = q.get('state') === 'equip' ? +(q.get('k') || 0.5) * WEAPONS[wi].equip : null;
-for (let t = 0; t < T; t += STEP) { if (stopEquip != null && Wp.state === 'equip' && Wp.t + STEP > stopEquip) break; Wp.update(STEP, true); if (view === 'fp') { const h = ch.bones.head; h.scale.setScalar(0.001); } A.update(STEP, 0); }
+const stopEquip = q.get('state') === 'equip' ? +(q.get('k') || 0.5) : null; // fraction of the draw (Weapons.dur)
+for (let t = 0; t < T; t += STEP) { if (stopEquip != null && Wp.state === 'equip' && Wp.t + STEP > stopEquip * Wp.dur) break; Wp.update(STEP, true); if (view === 'fp') { const h = ch.bones.head; h.scale.setScalar(0.001); } A.update(STEP, 0); }
 ch.root.updateMatrixWorld(true);
 // ---- contact report: right-hand finger tips vs the weapon (distance to the nearest weapon triangle-ish point cloud)
 const m = Wp.models[wi]; m.updateMatrixWorld(true); const pts = []; m.traverse((o) => { if (!o.isMesh || !o.visible) return; const p = o.geometry.attributes.position; const v = new THREE.Vector3(); for (let i = 0; i < p.count; i += 1) { v.fromBufferAttribute(p, i).applyMatrix4(o.matrixWorld); pts.push(v.clone()); } });
@@ -34,6 +34,9 @@ const near = (p) => { let b = 9; for (const x of pts) { const dd = x.distanceToS
 const report = { state: Wp.state, aimW: +Wp.aimW.toFixed(2), tips: {} };
 for (const S of ['R', 'L']) for (const f of ['idx', 'mid', 'rng', 'pnk', 'thb']) { const bn = ch.bones[f + '3' + S]; if (!bn) continue; const tip = new THREE.Vector3(0, -0.02, 0).applyMatrix4(bn.matrixWorld); report.tips[f + S] = +(near(tip) * 100).toFixed(1); }
 report.wristR = +(near(ch.bones.handR.getWorldPosition(new THREE.Vector3())) * 100).toFixed(1); report.wristL = +(near(ch.bones.handL.getWorldPosition(new THREE.Vector3())) * 100).toFixed(1);
+{ const mdl = Wp.models[Wp.cur]; if (mdl && mdl.userData.hold) { const { holdFor } = await import('../src/combat/GripSolver.js'); const Hh = holdFor(ch, mdl); mdl.updateWorldMatrix(true, false);
+  const tR = Hh.R.wrist.clone().applyMatrix4(mdl.matrixWorld), tL = Hh.L.wrist.clone().applyMatrix4(mdl.matrixWorld); report.ikErrR = +(tR.distanceTo(ch.bones.handR.getWorldPosition(new THREE.Vector3())) * 100).toFixed(1); report.ikErrL = +(tL.distanceTo(ch.bones.handL.getWorldPosition(new THREE.Vector3())) * 100).toFixed(1);
+  const wq = new THREE.Quaternion(); mdl.getWorldQuaternion(wq); const hq = new THREE.Quaternion(); ch.bones.handR.getWorldQuaternion(hq); report.ikRotR = +(THREE.MathUtils.radToDeg(hq.angleTo(wq.clone().multiply(Hh.R.q)))).toFixed(1); report.trigErr = +(Hh.R.trigErr * 100).toFixed(1); } }
 window.report = report; window.__W = Wp; window.__ch = ch;
 // ---- camera
 const hR = ch.bones.handR.getWorldPosition(new THREE.Vector3()), hL = ch.bones.handL.getWorldPosition(new THREE.Vector3());
@@ -44,6 +47,10 @@ else if (view === 'handI') { cam.fov = 30; cam.position.copy(hR).add(new THREE.V
 else if (view === 'handL') { cam.fov = 30; cam.position.copy(hL).add(new THREE.Vector3(0.3, -0.05, 0.15)); cam.lookAt(hL); }
 else if (view === 'under') { cam.fov = 35; const c = hR.clone().lerp(hL, 0.5); cam.position.copy(c).add(new THREE.Vector3(-0.15, -0.45, 0.25)); cam.lookAt(c); }
 else if (view === 'side') { cam.fov = 35; const c = hR.clone().lerp(hL, 0.5); cam.position.copy(c).add(new THREE.Vector3(-1.1, 0.05, 0.1)); cam.lookAt(c); }
+else if (view.startsWith('w')) { // weapon frame: wR = from its right side, wL = left, wF = front, wT = top, wB = below (grip at the centre)
+  const mdl = Wp.models[Wp.cur]; mdl.updateWorldMatrix(true, false); const M = mdl.matrixWorld; const c = new THREE.Vector3(0, -0.005, 0.03).applyMatrix4(M);
+  const off = { wR: [-1, 0.15, 0.1], wL: [1, 0.15, 0.1], wF: [0.15, 0.1, 1], wT: [-0.1, 1, 0.05], wB: [-0.25, -1, 0.15], wRB: [-0.8, 0.2, -0.6] }[view] || [-1, 0, 0];
+  const dir = new THREE.Vector3(...off).normalize().transformDirection(M); cam.fov = 28; cam.position.copy(c).addScaledVector(dir, +(q.get('d') || 0.32)); cam.up.set(0, 1, 0).transformDirection(M); cam.lookAt(c); }
 else if (view === 'back') { cam.fov = 40; cam.position.set(0.3, 1.7, -1.4); cam.lookAt(0, 1.3, 0); }
 cam.updateProjectionMatrix(); r.render(s, cam); window.done = true;
 </script></body></html>
