@@ -124,7 +124,7 @@ export function buildPropsForChunk(chunk) {
       const axisA = Math.abs(dA[1]) > Math.abs(dA[0]) ? 'v' : 'h';
       entries.push({ node: nodes[p.node], axes: [axisA, axisA === 'v' ? 'h' : 'v'], base: i * 6 });
     });
-    mesh.computeBoundingSphere(); group.add(mesh); signalLamps.push({ mesh, entries, group });
+    mesh.computeBoundingSphere(); mesh.userData.dynamic = true; group.add(mesh); signalLamps.push({ mesh, entries, group }); // per-instance colours change: stays per chunk (not pooled)
   }
   // overhead cables between consecutive utility poles
   const poles = byType.get('pole');
@@ -158,7 +158,7 @@ export function buildPropsForChunk(chunk) {
       _p.set(hx, ROAD_Y + 0.03, hz); _m.compose(_p, _q.identity(), _s.set(1, 1, 1)); pools.setMatrixAt(i, _m);
       pos[i * 3] = hx; pos[i * 3 + 1] = LAND_Y + (heritage ? 4.85 : 7.85); pos[i * 3 + 2] = hz;
     });
-    pools.computeBoundingSphere(); group.add(pools);
+    pools.computeBoundingSphere(); pools.userData.dynamic = true; group.add(pools); // per-lamp decals hide / show: stays per chunk
     const pts = new THREE.BufferGeometry(); pts.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     const glow = new THREE.Points(pts, GLOW_MAT); group.add(glow);
     group.userData.lamps = lamps.map((p, i) => [pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2], pools, i]); // [x, y, z, pool decal mesh, instance] — the decal is hidden while a real light is on the lamp

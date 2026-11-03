@@ -1,6 +1,6 @@
 // Builds and streams the static city: ground, buildings (base + streamed detail), landmarks, props, trees, water.
 import * as THREE from 'three';
-import { MultiBuilder, SliceBuild, meshFor } from '../gfx/MeshBuilder.js';
+import { MultiBuilder, SliceBuild, meshFor, FOLIAGE } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
 import { generatePlan, plan, NCX, NCZ, CHUNK, chunkCenter, refitTreeCrowns, landmarkTreeBoxes } from './CityPlan.js';
 import { buildGround } from './GroundBuilder.js';
@@ -79,7 +79,8 @@ export class World {
       p.position.set(0, -600, 0); p.target.position.set(0, -601, 0); this.scene.add(p); this.scene.add(p.target); p.userData.lamp = null; p.userData.k = 0; this.lampLights.push(p); }
     // FPS: the city geometry never moves, so its ~9k scene nodes are frozen — matrices are computed once here instead of
     // every frame (updateMatrixWorld skips these subtrees). Visual output is identical.
-    for (const c of this.chunks) freezeStatic(c.group); freezeStatic(this.parks); freezeStatic(this.outer);
+    this.batchStatic(); this.poolProps();
+    for (const c of this.chunks) freezeStatic(c.group); freezeStatic(this.parks); freezeStatic(this.outer); freezeStatic(this.batched);
     progress(1, 'City ready');
   }
   // The edge of the playable map is a solid, visible boundary — never an invisible wall at the end of a street.
@@ -152,13 +153,58 @@ export class World {
     // invisible boundary handled by Collision bounds clamp
   }
   // Called each frame with the focus (player/camera) position.
+  // GPU batching: the permanent city geometry (ground + building shells of every chunk) used to be one mesh per material
+  // per chunk — ~600 separate draw commands the CPU had to prepare in the main pass alone, again for the sun shadow and
+  // the water mirror. They are moved into one THREE.BatchedMesh per material (+ render settings): the CPU now only culls
+  // each chunk's piece against the camera and the GPU draws every visible piece of that material in ONE multi-draw call.
+  // Identical geometry, materials and shadows; only the number of CPU→GPU commands changes. Foliage keeps its own meshes
+  // (street-lamp shadows skip it per draw), and the streamed detail / window meshes stay per chunk.
+  batchStatic() {
+    const SIG = 'position,normal,uv,color'; const groups = new Map();
+    for (const c of this.chunks) { c.base = []; for (const m of [...c.group.children]) {
+      if (!m.isMesh || m.isInstancedMesh || m.isBatchedMesh || FOLIAGE.has(m.name) || !m.geometry.index || Object.keys(m.geometry.attributes).sort().join(',') !== SIG.split(',').sort().join(',') || Array.isArray(m.material)) continue;
+      const key = m.material.uuid + '|' + m.castShadow + m.receiveShadow + '|' + m.renderOrder + '|' + m.layers.mask; let G = groups.get(key);
+      if (!G) groups.set(key, (G = { mat: m.material, name: m.name, cast: m.castShadow, recv: m.receiveShadow, order: m.renderOrder, layers: m.layers.mask, list: [], nv: 0, ni: 0 }));
+      G.list.push({ c, m }); G.nv += m.geometry.attributes.position.count; G.ni += m.geometry.index.count; } }
+    this.batched = new THREE.Group(); this.batched.name = 'cityBatched'; this.root.add(this.batched); this.batches = [];
+    for (const G of groups.values()) {
+      if (G.list.length < 2) continue; // nothing to gain
+      const B = new THREE.BatchedMesh(G.list.length, G.nv, G.ni, G.mat); B.name = G.name; B.castShadow = G.cast; B.receiveShadow = G.recv; B.renderOrder = G.order; B.layers.mask = G.layers;
+      for (const { c, m } of G.list) { m.updateMatrix(); const gid = B.addGeometry(m.geometry); const iid = B.addInstance(gid); B.setMatrixAt(iid, m.matrix);
+        const r = B.getGeometryRangeAt(gid); c.base.push({ name: m.name, batch: B, gid, iid, r }); c.group.remove(m); m.geometry.dispose(); }
+      B.computeBoundingSphere(); B.computeBoundingBox(); this.batched.add(B); this.batches.push(B); }
+    // read access for code that scans a chunk's ground triangles (grass masks): mesh-like views into the batch buffers
+    for (const c of this.chunks) c.baseViews = c.base.map(({ name, batch, r }) => { const ga = batch.geometry; return { isMesh: true, name, geometry: { attributes: { position: ga.attributes.position, uv: ga.attributes.uv }, index: { array: ga.index.array.subarray(r.indexStart, r.indexStart + r.indexCount) } } }; });
+  }
+  // GPU instancing across chunks: each chunk had its own InstancedMesh per prop part (bollard, railing, pole, stall
+  // canopy…) — ~220 draws in the main pass. One shared InstancedMesh per part now holds the instances of every chunk
+  // within prop range (the same chunks that used to be shown), repacked only when a chunk enters / leaves that range.
+  poolProps() {
+    const pools = new Map(); const own = THREE.Object3D.prototype.onBeforeShadow;
+    for (const c of this.chunks) { c.pooled = []; for (const m of [...c.props.children]) {
+      if (!m.isInstancedMesh || m.userData.dynamic || !m.frustumCulled || Array.isArray(m.material) || m.onBeforeShadow !== own || m.count === 0) continue;
+      const col = !!m.instanceColor; const key = m.geometry.uuid + '|' + m.material.uuid + '|' + m.castShadow + m.receiveShadow + '|' + m.renderOrder + '|' + col + '|' + m.layers.mask;
+      let P = pools.get(key); if (!P) pools.set(key, (P = { geo: m.geometry, mat: m.material, cast: m.castShadow, recv: m.receiveShadow, order: m.renderOrder, col, layers: m.layers.mask, total: 0, parts: [] }));
+      const part = { P, c, n: m.count, mat: m.instanceMatrix.array.slice(0, m.count * 16), color: col ? m.instanceColor.array.slice(0, m.count * 3) : null }; P.total += m.count; P.parts.push(part); c.pooled.push(part); c.props.remove(m); m.dispose(); } }
+    this.propGroup = new THREE.Group(); this.propGroup.name = 'propPools'; this.root.add(this.propGroup); this.propPools = [];
+    for (const P of pools.values()) { const m = new THREE.InstancedMesh(P.geo, P.mat, P.total); m.count = 0; m.castShadow = P.cast; m.receiveShadow = P.recv; m.renderOrder = P.order; m.layers.mask = P.layers;
+      if (P.col) m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(P.total * 3), 3); m.matrixAutoUpdate = false; P.mesh = m; this.propGroup.add(m); this.propPools.push(P); }
+  }
+  // pack the instances of the chunks whose props are shown into the shared meshes (only when that set changes)
+  repackProps() {
+    for (const P of this.propPools) { const m = P.mesh; let n = 0; const M = m.instanceMatrix.array, C = m.instanceColor ? m.instanceColor.array : null;
+      for (const part of P.parts) { if (!part.c.props.visible) continue; M.set(part.mat, n * 16); if (C) C.set(part.color, n * 3); n += part.n; }
+      m.count = n; m.visible = n > 0; m.instanceMatrix.needsUpdate = true; if (C) m.instanceColor.needsUpdate = true; if (n) m.computeBoundingSphere(); }
+  }
+  // every mesh of a chunk's permanent geometry (batched pieces as views, plus what stayed a separate mesh)
+  chunkMeshes(c) { return c.baseViews ? [...c.baseViews, ...c.group.children] : c.group.children; }
   update(dt, focus, camera, atmos) {
     this.t += dt; windUniform.value += dt * (0.6 + (atmos ? atmos.w.wind : 0.3));
     this.signalTimer -= dt; if (this.signalTimer <= 0) { this.signalTimer = 0.25; updateSignals(this.simTime ?? this.t); }
     const fx = focus.x, fz = focus.z; let budget = 1;
     for (const c of this.chunks) {
       const d = Math.max(0, Math.hypot(c.cx - fx, c.cz - fz) - CHUNK * 0.7);
-      c.props.visible = d < this.propRadius;
+      { const v = d < this.propRadius; if (v !== c.props.visible) { c.props.visible = v; this.propDirty = true; } }
       if (c.trees) c.trees.visible = d < this.treeRadius;
       if (d < this.detailRadius) {
         if (!c.detail && budget > 0 && !this.job) { budget--; this.startDetailJob(c); } /* built over several frames: see stepDetailJob */
@@ -167,6 +213,7 @@ export class World {
       if (d < this.windowRadius) { if (!c.win && budget > 0 && !this.wjob) { budget--; this.wjob = this.newJob(c, 'win'); } else if (c.win) c.win.visible = true; } /* window joinery: also built over several frames */
       else if (c.win) { c.win.visible = false; if (d > this.windowRadius + 120) this.disposeWindows(c); }
     }
+    if (this.propDirty && this.propPools) { this.propDirty = false; this.repackProps(); }
     if (this.job) this.stepDetailJob(this.jobBudgetMs);
     if (this.wjob) this.stepWinJob(this.jobBudgetMs);
     if (this.grass) this.grass.update(dt, focus, atmos ? atmos.w.wind : 0.3);

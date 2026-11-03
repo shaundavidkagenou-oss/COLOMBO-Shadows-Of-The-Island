@@ -85,7 +85,7 @@ export class GrassField {
     m = { ox, oz, a: new Uint8Array(N * N), r: new Uint8Array(N * N), g: new Uint8Array(N * N), b: new Uint8Array(N * N), y: new Float32Array(N * N), lawn: new Uint8Array(N * N) };
     const ci0 = idx % NCX, cj0 = Math.floor(idx / NCX); const near = [];
     for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { const ci = ci0 + di, cj = cj0 + dj; if (ci >= 0 && cj >= 0 && ci < NCX && cj < NCZ && this.world.chunks[cj * NCX + ci]) near.push(this.world.chunks[cj * NCX + ci]); }
-    for (const ch of near) for (const mesh of ch.group.children) {
+    for (const ch of near) for (const mesh of this.world.chunkMeshes ? this.world.chunkMeshes(ch) : ch.group.children) {
       if (!mesh.isMesh || (mesh.name !== 'grass' && mesh.name !== 'lawn')) continue;
       const px = this.px[mesh.name]; const lawn = mesh.name === 'lawn' ? 1 : 0;
       const P = mesh.geometry.attributes.position.array, U = mesh.geometry.attributes.uv && mesh.geometry.attributes.uv.array, I = mesh.geometry.index ? mesh.geometry.index.array : null;
@@ -126,7 +126,7 @@ export class GrassField {
         if (Math.max(ax, bx, cx) < x0 || Math.min(ax, bx, cx) > x1 || Math.max(az, bz, cz) < z0 || Math.min(az, bz, cz) > z1) continue;
         const ux = bx - ax, uy = by - ay, uz = bz - az, vx = cx - ax, vy = cy - ay, vz = cz - az; const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
         if (ny <= 0.85 * Math.hypot(nx, ny, nz)) continue; cutTri(ax, ay, az, bx, by, bz, cx, cy, cz); } };
-    for (const ch of near) for (const mesh of ch.group.children) { if (!mesh.isMesh || !PAVE.has(mesh.name)) continue; const ga = mesh.geometry; cutMesh(ga.attributes.position.array, ga.index && ga.index.array, ox, oz, ox + CHUNK, oz + CHUNK); }
+    for (const ch of near) for (const mesh of this.world.chunkMeshes ? this.world.chunkMeshes(ch) : ch.group.children) { if (!mesh.isMesh || !PAVE.has(mesh.name)) continue; const ga = mesh.geometry; cutMesh(ga.attributes.position.array, ga.index && ga.index.array, ox, oz, ox + CHUNK, oz + CHUNK); }
     for (const tri of this.landmarkPaving(idx)) cutTri(...tri);
     // cut out buildings, walls, props, trunks, hedges…
     for (const c of this.collision.query(ox, oz, ox + CHUNK, oz + CHUNK)) {
