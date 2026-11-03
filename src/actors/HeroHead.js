@@ -259,7 +259,10 @@ export function buildHeroHead(sp, bi) {
     for (let t = 0; t < skinIdx.length; t += 3) for (let j = 0; j < 3; j++) { const a = skinIdx[t + j], b = skinIdx[t + (j + 1) % 3]; const e = ek(a, b); const r = ec.get(e); if (r) r.n++; else ec.set(e, { n: 1, a, b }); }
     const yC = (F.cutY - F.o[1]) / F.k; const drop = new Map(); const sk = [];
     const dv = (i) => { if (!drop.has(i)) { const p = pv(i), n = nv(i); const hn = nrm([n[0], 0, n[2]]); drop.set(i, A.add([p[0], yC, p[2]], hn, A.uv.slice(i * 2, i * 2 + 2), A.c.slice(i * 3, i * 3 + 3), i, { uv2: [S.uv[i * 2], S.uv[i * 2 + 1]] })); } return drop.get(i); };
-    for (const { n, a, b } of ec.values()) { if (n !== 1 || !bset.has(a) || !bset.has(b)) continue; const a2 = dv(a), b2 = dv(b); sk.push(b, a, a2, b, a2, b2); }
+    /* the baked boundary list misses a small notch behind each ear (it left a see-through slot in the side of the neck): the rim is
+       every open skin edge connected to the baked boundary */
+    const rim = new Set(bset); const openE = [...ec.values()].filter((e) => e.n === 1); for (let grow = true; grow;) { grow = false; for (const e of openE) if (rim.has(e.a) !== rim.has(e.b)) { rim.add(e.a); rim.add(e.b); grow = true; } }
+    for (const { a, b } of openE) { if (!rim.has(a) || !rim.has(b)) continue; const a2 = dv(a), b2 = dv(b); sk.push(b, a, a2, b, a2, b2); }
     S.skirt = sk; }
   const skinTris = Array.from(skinIdx), mouthTris = [...S.idx[1], ...S.idx[2], ...S.idx[3]], lashTris = Array.from(S.idx[4]);
 

@@ -40,7 +40,7 @@ class SkinBuilder {
   get n() { return this.pos.length / 3; }
   v(p, nrm, c, uv, w) { this.pos.push(p[0], p[1], p[2]); this.nor.push(nrm[0], nrm[1], nrm[2]); this.col.push(c[0], c[1], c[2]); this.uv.push(uv[0], uv[1]); const s = [0, 0, 0, 0], ww = [0, 0, 0, 0]; w.slice(0, 4).forEach(([b, x], i) => { s[i] = b; ww[i] = x; }); const t = ww[0] + ww[1] + ww[2] + ww[3] || 1; this.si.push(...s); this.sw.push(ww[0] / t, ww[1] / t, ww[2] / t, ww[3] / t); return this.n - 1; }
   // Loft of elliptical rings. rings: [{c:[x,y,z], rx, rz, w:[[bone,weight]..], col, fz?(front bulge)}]
-  loft(rings, seg = 12, { region = 0, uvRep = 1, capStart = false, capEnd = false, colFn = null, target = this.idx } = {}) {
+  loft(rings, seg = 12, { region = 0, uvRep = 1, capStart = false, capEnd = false, colFn = null, target = this.idx, surfN = false } = {}) {
     if (!colFn) { const out = []; rings.forEach((r, i) => { const nx = rings[i + 1]; out.push(r); if (nx && (r.col[0] !== nx.col[0] || r.col[1] !== nx.col[1] || r.col[2] !== nx.col[2])) { const m = (t, col) => ({ ...r, c: r.c.map((v, k) => lerp(v, nx.c[k], t)), rx: lerp(r.rx, nx.rx, t), rz: lerp(r.rz, nx.rz, t), col }); out.push(m(0.5, r.col), m(0.505, nx.col)); } }); rings = out; }
     const base = this.n; const [ru, rv] = REGION[region];
     rings.forEach((r, ri) => {
@@ -55,6 +55,12 @@ class SkinBuilder {
       }
     });
     const W = seg + 1;
+    if (surfN) { // true surface normals (across the rings too): sloped parts such as shoulder tops face up instead of sideways
+      const P = this.pos, N = this.nor, at = (ri, k) => base + clamp(ri, 0, rings.length - 1) * W + ((k + seg) % seg);
+      for (let ri = 0; ri < rings.length; ri++) { const r = rings[ri]; for (let k = 0; k <= seg; k++) { const a1 = at(ri, k + 1) * 3, a0 = at(ri, k - 1) * 3, b1 = at(ri + 1, k) * 3, b0 = at(ri - 1, k) * 3, i = (base + ri * W + k) * 3;
+        const tx = P[a1] - P[a0], ty = P[a1 + 1] - P[a0 + 1], tz = P[a1 + 2] - P[a0 + 2], ux = P[b1] - P[b0], uy = P[b1 + 1] - P[b0 + 1], uz = P[b1 + 2] - P[b0 + 2];
+        let nx = ty * uz - tz * uy, ny = tz * ux - tx * uz, nz = tx * uy - ty * ux; const l = Math.hypot(nx, ny, nz); if (l < 1e-9) continue; nx /= l; ny /= l; nz /= l;
+        if (nx * (P[i] - r.c[0]) + nz * (P[i + 2] - r.c[2]) < 0) { nx = -nx; ny = -ny; nz = -nz; } N[i] = nx; N[i + 1] = ny; N[i + 2] = nz; } } }
     const down = rings[rings.length - 1].c[1] < rings[0].c[1]; // rings built top→bottom (arms, legs, skirts) need the opposite winding
     for (let ri = 0; ri < rings.length - 1; ri++) for (let k = 0; k < seg; k++) { const a = base + ri * W + k, b = a + 1, c = a + W, d = c + 1; if (down) target.push(a, b, c, b, d, c); else target.push(a, c, b, b, c, d); }
     const cap = (ri, up) => { const r = rings[ri]; const ctr = this.v(r.c, [0, up ? 1 : -1, 0], colFn ? colFn(ri, 0, r) : r.col, [ru, rv], typeof r.w === 'function' ? r.w(0, 0) : r.w); for (let k = 0; k < seg; k++) { const a = base + ri * W + k; if (up !== down) target.push(ctr, a + 1, a); else target.push(ctr, a, a + 1); } };
@@ -236,12 +242,24 @@ export function buildBodyGeometry(sp) {
     Object.assign(b, { y: (nk.y0 + 0.04) / s, rx: nk.rx * 0.84, rz: nk.rz * 0.84, cz: nk.cz }); }
   if (HQ) { tr[0].rz = (f ? 0.1 : 0.093) * w; tr.unshift({ y: 0.79, rx: 0.114 * w, rz: 0.072 * w, wgt: W1('hips'), col: bottom }); } /* rounded seat between the thighs; the front of the pelvis no longer stands proud of the thighs like an apron */ /* rounded seat between the thighs instead of a flat cap */
   const RO = HQ ? 1 : 0;
+  // protagonist / story-character shoulders: the top of the torso widens into real shoulders (deltoid width at 1.37 m, then
+  // over the acromion and up the trapezius to the neck) instead of a narrow chest box with the arm tubes stuck on its sides.
+  // The shoulder skin blends from the chest to the upper arm with the ring angle (sides follow the arm, the yoke stays on the
+  // chest), so lifting an arm stretches the shoulder over it rather than opening a hole between the arm and the body.
+  // Angle-based, so every shell built on these rings (vest, hi-vis, waistcoat) gets the same weights as the body under it.
+  const shoulderW = (kR) => (ca) => { const k = kR * smooth01((Math.abs(ca) - 0.6) / 0.35); return k > 0.001 ? W2('chest', ca > 0 ? 'armL' : 'armR', k) : W1('chest'); };
+  if (HQ) { const a0 = J.armL[0], at = (y) => tr.find((r) => Math.abs(r.y - y) < 1e-6);
+    const r133 = at(1.33), r140 = at(1.40), r1435 = at(1.435), r1455 = at(1.455);
+    if (r133 && r140 && r1435 && r1455) { r133.wgt = shoulderW(0.22);
+      Object.assign(r140, { y: 1.37, rx: a0 + (f ? 0.03 : 0.04), rz: Math.max(r140.rz, (f ? 0.098 : 0.104) * w), fz: f ? 0.01 : 0.01, wgt: shoulderW(0.5) });
+      Object.assign(r1435, { y: 1.405, rx: a0 + (f ? 0.02 : 0.028), rz: Math.max(r1435.rz, (f ? 0.086 : 0.092) * w), wgt: shoulderW(0.6) });
+      Object.assign(r1455, { y: 1.432, rx: Math.max(r1455.rx, a0 - 0.015), rz: Math.max(r1455.rz, (f ? 0.072 : 0.078) * w), wgt: shoulderW(0.38) }); } }
   const bel = sp.belly || 0; if (bel) [[2, 0.03, 0.02], [3, 0.045, 0.032], [4, 0.022, 0.012]].forEach(([i0, dz, df]) => { const i = i0 + RO; tr[i].rz += bel * dz * w; tr[i].fz = (tr[i].fz || 0) + bel * df; tr[i].rx += bel * 0.012 * w; });
   // torso surface (front/back z at height y and offset x) so straps, lanyards and bags sit on the clothes, never inside
   const surfZ = (y, x, sgn) => { let k = 0; while (k < tr.length - 2 && tr[k + 1].y * s < y) k++; const a = tr[k], b2 = tr[k + 1]; const t = clamp((y / s - a.y) / (b2.y - a.y), 0, 1); const rx = lerp(a.rx, b2.rx, t), rz = lerp(a.rz, b2.rz, t), fz = lerp(a.fz || 0, b2.fz || 0, t), bu = lerp(a.bust || 0, b2.bust || 0, t); const q = clamp(Math.abs(x) / rx, 0, 0.98); const sa = Math.sqrt(1 - q * q); return sgn * rz * sa + (sgn > 0 ? fz * sa + bu * bustShape(clamp(x / rx, -1, 1), sa) : 0); };
   const jacket = o === 'jacket';
   sb.loft(tr.map((r) => ({ c: [0, r.y * s, r.cz || 0], rx: r.rx, rz: r.rz, fz: r.fz, bust: r.bust, w: r.wgt, col: r.col })), HQ ? 40 : f ? 28 : 16, {
-    capStart: true,
+    capStart: true, surfN: HQ,
     colFn: jacket ? (ri, a, r) => { const fr = Math.sin(a); return ri >= 2 + RO && ri <= 6 + RO && fr > 0.93 ? C(sp.inner || '#6b6f72') : r.col; } : sp.tie ? (ri, a, r) => (ri >= 3 + RO && ri <= 6 + RO && Math.sin(a) > 0.97 ? C(sp.tie) : r.col) : null,
   });
   // --- legs
@@ -328,10 +346,11 @@ export function buildBodyGeometry(sp) {
       { c: [lerp(fo[0], h[0], 0.4), 1.03 * s, -0.005], rx: 0.038, rz: 0.04, w: W1('fore' + side) },
       { c: [h[0], 0.89 * s, 0], rx: 0.028, rz: 0.03, w: W1('fore' + side) },
     ];
+    if (HQ) { ar[0] = { c: [a[0] * 0.84, 1.398 * s, 0], rx: 0.044 * w, rz: 0.05 * w, w: W2('chest', 'arm' + side, 0.6) }; ar[1] = { c: [a[0] * 0.93, 1.385 * s, 0], rx: 0.052 * w, rz: 0.056 * w, w: W2('chest', 'arm' + side, 0.8) }; } // starts inside the new shoulder
     const upW = HQ ? W2('arm' + side, 'armTwist' + side, 0.3) : W1('arm' + side); // mid upper arm: shared by the arm ring and the sleeve hem so they never shear apart
     if (HQ) { ar[3].w = upW; ar[5].w = W2('fore' + side, 'foreTwist' + side, 0.5); ar[6].w = W1('foreTwist' + side); } // twist bones spread limb roll along the skin
-    sb.loft(ar.map((r) => ({ ...r, col: colAt(r.c[1]) })), HQ ? 20 : 10, { capEnd: false });
-    sb.ellipsoid([a[0] * (HQ ? 0.8 : 0.84), (HQ ? 1.366 : 1.392) * s, -0.004], (HQ ? 0.047 : 0.05) * w, HQ ? 0.03 : 0.044, (HQ ? 0.05 : 0.056) * w, sp.sleeveless ? W2('chest', 'arm' + side, 0.5) : W2('chest', 'arm' + side, 0.5), sp.sleeveless ? skin : top, { lat: HQ ? 12 : 7, lon: HQ ? 18 : 10 });
+    sb.loft(ar.map((r) => ({ ...r, col: colAt(r.c[1]) })), HQ ? 20 : 10, { capEnd: false, capStart: HQ });
+    if (!HQ) sb.ellipsoid([a[0] * (HQ ? 0.8 : 0.84), (HQ ? 1.366 : 1.392) * s, -0.004], (HQ ? 0.047 : 0.05) * w, HQ ? 0.03 : 0.044, (HQ ? 0.05 : 0.056) * w, sp.sleeveless ? W2('chest', 'arm' + side, 0.5) : W2('chest', 'arm' + side, 0.5), sp.sleeveless ? skin : top, { lat: HQ ? 12 : 7, lon: HQ ? 18 : 10 });
     if (!longSleeve && !sp.sleeveless) { // sleeve hem flare
       sb.loft([{ c: [lerp(a[0], fo[0], 0.4), 1.215 * s, -0.005], rx: 0.056 * w, rz: 0.058 * w, w: upW, col: top }, { c: [lerp(a[0], fo[0], 0.33), 1.27 * s, -0.004], rx: 0.058 * w, rz: 0.06 * w, w: upW, col: top }], HQ ? 20 : 10); // same segment count as the arm, so the hem doesn't saw-tooth through it
     }
@@ -551,7 +570,7 @@ export function buildBodyGeometry(sp) {
       const wc = C(sp.waist || '#3a3d44'); const ys = Array.from({ length: 15 }, (_, k) => 0.985 + k * 0.03);
       const halfW = (y) => (y < 1.16 ? 0.006 : 0.006 + ((y - 1.16) / 0.26) * 0.085); // straight V: closed at the top button (1.16), open to ±9 cm at the collarbone
       const fzAt = (y) => { let k = 0; while (k < tr.length - 2 && tr[k + 1].y * s < y) k++; const a = tr[k], b2 = tr[k + 1]; return lerp(a.fz || 0, b2.fz || 0, clamp((y / s - a.y) / (b2.y - a.y), 0, 1)); }; // same front bulge as the torso, so the shirt chest never pokes through
-      sb.loft(ys.map((yy) => ({ c: [0, yy * s, 0], rx: rxAt(yy * s) + 0.008, rz: rzAt(yy * s) + 0.009, fz: fzAt(yy * s), w: tw(yy * s), col: wc })), 72, { colFn: (ri, a, r) => (Math.sin(a) > 0 && Math.abs(Math.cos(a) * r.rx) < halfW(ys[ri]) * w ? top : r.col) });
+      sb.loft(ys.map((yy) => ({ c: [0, yy * s, 0], rx: Math.min(rxAt(yy * s), 0.176 * w) + 0.008, rz: rzAt(yy * s) + 0.009, fz: fzAt(yy * s), w: yy >= 1.3 ? shoulderW(0.22) : tw(yy * s), col: wc })), 72, /* armholes: stops at chest width, the shoulders come out of it */ { colFn: (ri, a, r) => (Math.sin(a) > 0 && Math.abs(Math.cos(a) * r.rx) < halfW(ys[ri]) * w ? top : r.col) });
       for (let k = 0; k < 5; k++) { const y = (1.0 + k * 0.042) * s; sb.boxPart([0.004, y, surfZ(y, 0, 1) + 0.011], 0.008, 0.008, 0.004, tw(y), C('#1b1c1f')); }
       for (const sx of [-1, 1]) { hstrip(1.06 * s, sx * 0.05 * w, sx * 0.115 * w, 0.007, dark(wc, 0.55)); hstrip(1.25 * s, sx * 0.06 * w, sx * 0.115 * w, 0.007, dark(wc, 0.55)); }
       const gold = C('#c9a54a'); const A = [0.006, 1.085 * s], Bp = [0.1 * w, 1.06 * s]; // chain from the buttonhole into the left pocket

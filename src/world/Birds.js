@@ -221,6 +221,6 @@ export class Birds {
       poseBird(b.sp, { x: b.x, y: b.y, z: b.z, yaw: b.yaw, pitch: b.pitch, roll: flying ? b.roll : 0, spread: b.spread, flap: fp.flap, flapOut: fp.flapOut, sweep: fp.sweep, sweepOut: fp.sweepOut, headYaw: b.head.yaw, headPitch: b.head.pitch, headFwd: b.head.fwd, tailPitch: flying ? (b.state === 'land' ? -0.35 : 0.03) : (b.act === 'peck' ? 0.25 : 0.05) + (b.sp === 'parakeet' ? (b.state === 'ground' ? 0.45 : -0.1) : 0), tailFan: b.state === 'land' || b.state === 'takeoff' ? 1.7 : flying ? 1.25 : b.sp === 'crow' ? 0.62 : 0.45, legL: b.legs ? b.legs[0] : 0, legR: b.legs ? b.legs[1] : 0, tuck: b.tuck }, mats);
       const ms = this.meshes[b.sp]; for (let k = 0; k < 11; k++) ms[k].setMatrixAt(i, mats[k]);
     }
-    for (const sp of SP) { const n = Math.min(cnt[sp], MAXN[sp]); for (const m of this.meshes[sp]) { m.count = n; m.instanceMatrix.needsUpdate = true; } }
+    for (const sp of SP) { const n = Math.min(cnt[sp], MAXN[sp]); for (const m of this.meshes[sp]) { m.count = n; m.visible = n > 0; m.instanceMatrix.needsUpdate = true; } /* FPS: a species with no birds out costs no draw calls (11 parts x every pass) */ }
   }
 }

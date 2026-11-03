@@ -82,7 +82,17 @@ const REACT = {
 };
 export function reactDur(kind) { return (REACT[kind] || REACT.snap).dur; }
 
-const _v = new THREE.Vector3(), _pole = new THREE.Vector3(), _inv = new THREE.Matrix4();
+const _v = new THREE.Vector3(), _pole = new THREE.Vector3(), _inv = new THREE.Matrix4(), _hc = new THREE.Vector3(), _fw = new THREE.Vector3(), _lt = new THREE.Vector3(), _bw = new THREE.Vector3();
+// high block: wrists placed from the HEAD (not fixed root-space points). The block leans the trunk, tucks the chin and turns
+// the hips, which carries the head forward; fixed targets ended up inside the skull. Forearms stand upright in front of the
+// face, fists at brow height, clear of the nose / forehead by a few centimetres for every build.
+const BLOCK_HEAD = { fwd: 0.235, side: 0.08, up: -0.035 };
+// every wrist target (guard, block, the non-punching hand while the body turns into a punch, hook / uppercut arcs) is kept
+// outside the head grown by a fist + forearm margin; a target inside is pushed straight out of it.
+const HEAD_R = [0.085, 0.115, 0.1], HAND_PAD = 0.1;
+const _ax = new THREE.Vector3(), _ay = new THREE.Vector3(), _az = new THREE.Vector3(), _d = new THREE.Vector3();
+function keepClear(v, hc, s) { _d.subVectors(v, hc); const x = _d.dot(_ax) / ((HEAD_R[0] + HAND_PAD) * s), y = _d.dot(_ay) / ((HEAD_R[1] + HAND_PAD) * s), z = _d.dot(_az) / ((HEAD_R[2] + HAND_PAD) * s);
+  const e = Math.hypot(x, y, z); if (e >= 1) return; if (e < 1e-4) { v.addScaledVector(_az, (HEAD_R[2] + HAND_PAD) * s); return; } v.copy(hc).addScaledVector(_d, 1 / e); }
 function legSolve(A, B, f, H) { // foot offset f (forward, hip-local) and drop H (hip joint → ankle): thigh angle (−fwd), knee flex
   const D = clamp(Math.hypot(f, H), 0.2, A + B - 1e-3); const alpha = Math.acos(clamp((A * A + D * D - B * B) / (2 * A * D), -1, 1));
   const kn = Math.PI - Math.acos(clamp((A * A + B * B - D * D) / (2 * A * B), -1, 1)); return [-(Math.atan2(f, H) + alpha), kn];
@@ -128,10 +138,14 @@ function stance(an, F, b, s, w, solveArmIK) {
   // arms: IK to root-space wrist targets, elbow poles, forearm twist (corkscrew) on the straight punches
   const root = an.ch.root; b.chest.updateWorldMatrix(true, false); _inv.copy(b.chest.matrixWorld).invert();
   const bobA = Math.sin(F.t * 2.6 + an.seed * 5) * 0.012;
+  { b.head.updateWorldMatrix(true, false); const hm = b.head.matrixWorld; _hc.set(0, 0.08 * s, 0.02 * s).applyMatrix4(hm); _ax.set(1, 0, 0).transformDirection(hm); _ay.set(0, 1, 0).transformDirection(hm); _az.set(0, 0, 1).transformDirection(hm);
+    _fw.copy(_az); _fw.y = 0; if (_fw.lengthSq() < 1e-6) _fw.set(0, 0, 1).transformDirection(root.matrixWorld); _fw.normalize(); _lt.set(_fw.z, 0, -_fw.x); }
   for (const S of ['L', 'R']) {
     let tg = get(S), pole = get('pole' + S); if (blk > 0) { tg = tg.map((v, i) => lerp(v, BLOCK[S][i], blk)); pole = pole.map((v, i) => lerp(v, BLOCK['pole' + S][i], blk)); }
     const moving = C && MOVES[F.move].side === S; const y = tg[1] + (moving ? 0 : bobA * (S === 'L' ? 1 : -1));
-    _v.set(tg[0] * s, y * s, tg[2] * s); root.localToWorld(_v); _v.applyMatrix4(_inv);
+    _v.set(tg[0] * s, y * s, tg[2] * s); root.localToWorld(_v);
+    if (blk > 0) { const H = BLOCK_HEAD; _bw.copy(_hc).addScaledVector(_fw, H.fwd * s).addScaledVector(_lt, (S === 'L' ? H.side : -H.side) * s); _bw.y += H.up * s; _v.lerp(_bw, blk); }
+    keepClear(_v, _hc, s); _v.applyMatrix4(_inv);
     solveArmIK(b, S, _v, null, w, _pole.set(pole[0], pole[1], pole[2]));
     const tw = C && C['tw' + S] ? track(C['tw' + S], mt) : 0; const hand = b['hand' + S];
     hand.rotation.x = lerp(hand.rotation.x, moving ? 0.05 : -0.25, w); hand.rotation.z = lerp(hand.rotation.z, 0, w); hand.rotation.y = lerp(hand.rotation.y, tw, w);
