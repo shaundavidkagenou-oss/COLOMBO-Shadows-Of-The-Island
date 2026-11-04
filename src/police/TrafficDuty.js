@@ -13,6 +13,7 @@ import { makePoliceAppearance } from '../actors/Appearance.js';
 import { Vehicle } from '../vehicles/Vehicle.js';
 import { parkOnStand, kickUp, KICK_UP } from '../vehicles/Kickstand.js';
 import { shortest, pathTo } from './PoliceResponse.js';
+import { npcBoardSetup, boardCurve, poseBoard, boardGroundFn } from '../actors/Boarding.js';
 import * as L from '../world/Layout.js';
 
 const hash = (a, b) => { const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return s - Math.floor(s); };
@@ -88,7 +89,7 @@ export class TrafficDuty {
   // ------------------------------------------------------------------ end of shift
   endShift(p) {
     this.stats.shiftEnds++; p.ch.anim.set(null); p.t = 0;
-    if (this.bikeOk(p)) { const v = p.bike; v.mesh.updateMatrixWorld(); const s0 = v.mesh.userData.seats[0]; const e = s0.exit || [0.75, s0.z]; const w = new THREE.Vector3(e[0], 0, e[1]).applyMatrix4(v.mesh.matrixWorld); p.walk = [[w.x, w.z]]; p.state = 'toBike'; this.note('shift over: walking to the motorcycle'); }
+    if (this.bikeOk(p)) { const v = p.bike; v.mesh.updateMatrixWorld(); const s0 = v.mesh.userData.seats[0]; p.bf = npcBoardSetup(v, s0, p.ch.anim); p.boarding = false; const e = p.bf ? p.bf.H0 : s0.exit || [0.75, s0.z]; const w = new THREE.Vector3(e[0], 0, e[1]).applyMatrix4(v.mesh.matrixWorld); p.walk = [[w.x, w.z]]; p.state = 'toBike'; /* to the stand point beside the saddle, then the step-over (Boarding.js) */ this.note('shift over: walking to the motorcycle'); }
     else { const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw); p.walk = [[p.x + fx * 30, p.z + fz * 30]]; p.state = 'walkAway'; this.note('shift over: motorcycle gone, walking off'); }
   }
   walkStep(p, dt, sp = 1.35) { const tg = p.walk[0]; if (!tg) return true; const dx = tg[0] - p.px, dz = tg[1] - p.pz, dd = Math.hypot(dx, dz); if (dd < 0.1) { p.walk.shift(); return !p.walk.length; }
@@ -96,9 +97,18 @@ export class TrafficDuty {
   updateLeave(p, dt, d) {
     const g = this.g, v = p.bike || p.rideBike; p.t = (p.t || 0) + dt;
     if (p.state === 'walkAway') { if (this.walkStep(p, dt) || (!this.inView(p.px, 0, p.pz) && d > 25)) { this.remove(p); p.state = 'gone'; } return; }
-    if ((p.state === 'toBike' || p.state === 'mount' || p.state === 'kick') && !this.bikeOk(p)) { p.state = 'walkAway'; p.walk = [[p.px + 30 * Math.sin(p.pyaw), p.pz + 30 * Math.cos(p.pyaw)]]; if (p.ch.root.parent !== g.scene) { p.ch.root.parent?.remove(p.ch.root); g.scene.add(p.ch.root); p.ch.anim.standUp(); } return; } // you took his motorcycle
-    if (p.state === 'toBike') { if (this.walkStep(p, dt) || p.t > 25) { p.state = 'mount'; p.t = 0; const s0 = v.mesh.userData.seats[0]; p.ch.root.parent?.remove(p.ch.root); v.mesh.add(p.ch.root); p.ex = s0.exit || [0.75, s0.z]; p.ch.anim.set(null); } return; }
+    if ((p.state === 'toBike' || p.state === 'mount' || p.state === 'kick') && !this.bikeOk(p)) { p.state = 'walkAway'; p.walk = [[p.px + 30 * Math.sin(p.pyaw), p.pz + 30 * Math.cos(p.pyaw)]]; if (p.ch.root.parent !== g.scene) { const wp = p.ch.root.getWorldPosition(new THREE.Vector3()); p.ch.root.parent?.remove(p.ch.root); g.scene.add(p.ch.root); p.ch.anim.board = null; p.boarding = false; p.ch.anim.standUp(); p.px = wp.x; p.pz = wp.z; p.ch.root.position.set(wp.x, L.groundY(wp.x, wp.z), wp.z); p.ch.root.rotation.set(0, p.pyaw, 0); } return; } // you took his motorcycle (back into the world where he stood, not at bike-local coordinates)
+    if (p.state === 'toBike') { if ((this.walkStep(p, dt) || p.t > 25) && p.bf) { p.state = 'mount'; p.t = 0; return; } if (p.state === 'toBike' && (!p.walk.length || p.t > 25)) { p.state = 'mount'; p.t = 0; const s0 = v.mesh.userData.seats[0]; p.ch.root.parent?.remove(p.ch.root); v.mesh.add(p.ch.root); p.ex = s0.exit || [0.75, s0.z]; p.ch.anim.set(null); } return; }
     const s0 = v.mesh.userData.seats[0];
+    if (p.state === 'mount' && p.bf) { const bf = p.bf, A = p.ch.anim; // the rider's step-over, as the player does it
+      if (!p.boarding) { v.mesh.updateMatrixWorld(); const hw = new THREE.Vector3(bf.H0[0], 0, bf.H0[1]).applyMatrix4(v.mesh.matrixWorld); const dx = hw.x - p.px, dz = hw.z - p.pz, dd = Math.hypot(dx, dz);
+        if (dd > 1e-4) { const st = Math.min(dd, 1.2 * dt); p.px += dx / dd * st; p.pz += dz / dd * st; } const dy = angDiff(v.yaw, p.pyaw); p.pyaw += dy * Math.min(1, 9 * dt);
+        p.ch.root.position.set(p.px, L.groundY(p.px, p.pz), p.pz); p.ch.root.rotation.y = p.pyaw; A.update(dt, dd > 0.03 ? 1.0 : 0);
+        if ((dd < 0.03 && Math.abs(dy) < 0.08) || p.t > 3) { p.px = hw.x; p.pz = hw.z; p.pyaw = v.yaw; p.ch.root.position.set(p.px, L.groundY(p.px, p.pz), p.pz); p.ch.root.rotation.set(0, p.pyaw, 0); p.ch.root.parent?.remove(p.ch.root); v.mesh.add(p.ch.root); p.boarding = true; p.t = 0; A.set(null); A.standUp(); A.duck = 0; }
+        else return; }
+      const k = Math.min(1, Math.max(0, p.t - 0.12) / bf.T); poseBoard(A, bf.G, boardCurve(bf.G, k), v.mesh, boardGroundFn(v, g.collision && g.collision.groundAt ? g.collision : { groundAt: (x, z) => L.groundY(x, z) }), 0, Math.min(1, p.t / 0.25)); A.update(dt, 0, 0); v.sync(dt);
+      if (k >= 1) { A.board = null; p.boarding = false; p.ch.root.position.set(s0.x, s0.y, s0.z); p.ch.root.rotation.set(0, 0, 0); A.sitIn(s0, 1); A.update(0.0001, 0, 0); p.state = 'kick'; p.t = 0; }
+      return; }
     if (p.state === 'mount') { const k = Math.min(1, p.t / 1.0), sm = k * k * (3 - 2 * k); p.ch.root.position.set(p.ex[0] + (s0.x - p.ex[0]) * sm, s0.y * Math.min(1, sm * 1.3), p.ex[1] + (s0.z - p.ex[1]) * sm); p.ch.root.rotation.y = Math.atan2(s0.x - p.ex[0], s0.z - p.ex[1]) * (1 - Math.min(1, sm * 1.4)); p.ch.anim.sitIn(s0, sm); p.ch.anim.update(dt, 0); v.sync(dt); if (k >= 1) { p.state = 'kick'; p.t = 0; } return; }
     if (p.state === 'kick') { const k = Math.min(1, p.t / KICK_UP); kickUp(v, p.ch, s0, k); p.ch.anim.sitIn(s0, 1); p.ch.anim.update(dt, 0); v.sync(dt); if (k >= 1) this.rideOff(p); return; }
     if (p.state === 'pull') { // off the pavement and into the kerb lane

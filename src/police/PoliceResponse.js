@@ -24,6 +24,7 @@ import { linePiece, segNodes, otherEnd, evalPiece } from '../vehicles/Traffic.js
 import { Character } from '../actors/Character.js';
 import { makeMedicAppearance, makePoliceAppearance } from '../actors/Appearance.js';
 import { seatCharacter } from '../actors/Seating.js';
+import { boardCurve, poseBoard, npcBoardSetup, boardGroundFn, swingDoor, lapGrips, EXIT_K } from '../actors/Boarding.js';
 import { Audio } from '../audio/Audio.js';
 import { clamp, lerp } from '../core/math.js';
 import { FootNav } from './FootNav.js';
@@ -468,12 +469,24 @@ export class PoliceResponse {
   updateRadio(dt) { this.radioCd -= dt; if (this.state === 'pursuing' && this.stars() >= 2 && this.seenT < 0.3 && this.radioCd <= 0) this.radio('heading'); }
 
   // ------------------------------------------------------------------ officers
-  exitWorld(o, v) { v.mesh.updateMatrixWorld(); const e = o.seat.exit || [Math.sign(o.seat.x || 1) * (v.T.wid / 2 + 0.6), o.seat.z]; const w = new THREE.Vector3(e[0], 0, e[1]).applyMatrix4(v.mesh.matrixWorld); return [w.x, w.z, e]; }
+  // front-seat crews get in and out the way the player does (Boarding.js): cached geometry for this officer + seat
+  boardFor(o, v) { if (!v || !o.seat) return null; if (o.bfV !== v || o.bfSeat !== o.seat) { o.bfV = v; o.bfSeat = o.seat; o.bf = npcBoardSetup(v, o.seat, o.ch.anim); } return o.bf; }
+  shutDoorNow(bf) { if (bf && bf.door) { bf.door.ang = 0; bf.door.vel = 0; bf.door.pivot.rotation.y = 0; } }
+  exitWorld(o, v) { v.mesh.updateMatrixWorld(); const bf = this.boardFor(o, v); const e = bf ? bf.H0 : o.seat.exit || [Math.sign(o.seat.x || 1) * (v.T.wid / 2 + 0.6), o.seat.z]; const w = new THREE.Vector3(e[0], 0, e[1]).applyMatrix4(v.mesh.matrixWorld); return [w.x, w.z, e]; }
   updateOfficer(o, u, dt) {
     const g = this.g, A = o.ch.anim, v = u.v; let speed = 0;
-    if (o.mode === 'seated') { if (v) { o.x = v.x; o.z = v.z; o.y = v.y; o.yaw = v.yaw; } return; } // animated by Traffic.updateOccupants
+    if (o.mode === 'seated') { if (v) { o.x = v.x; o.z = v.z; o.y = v.y; o.yaw = v.yaw; if (v.doorShut && v.doorShut === o.bf) { const ev = swingDoor(v, o.bf.door, o.bf.side, -0.35, dt, 6.5, 0.9); if (ev === 'latched' || (o.shutT = (o.shutT || 0) + dt) > 1.4) { if (ev !== 'latched') this.shutDoorNow(o.bf); v.doorShut = null; o.shutT = 0; } } } return; } // animated by Traffic.updateOccupants (the driver pulls his door shut first)
     if (o.mode === 'exit') { // slide out of the seat to the door spot while standing up (reverse of entering)
       o.t += dt; if (o.t < 0) { A.update(dt, 0); return; }
+      const bf = this.boardFor(o, v); if (bf) { // front seat: door open, then the player's step-out motion (outer leg out, rise under the roof, inner foot down)
+        if (bf.door) swingDoor(v, bf.door, bf.side, 1, dt, 8.5, 0.62); const tt = o.t - (bf.door ? 0.35 : 0); if (tt < 0) { A.update(dt, 0); return; }
+        if (!o.boarding) { lapGrips(o.ch, v, o.seat, bf.G); o.boarding = true; A.set(null); A.standUp(); A.duck = 0; }
+        const TX = bf.T * (bf.kind === 'bike' || bf.G.lap ? 1 : EXIT_K); /* no door to swing out on: a passenger is not hurried */ const k = 1 - Math.min(1, tt / TX), tl = TX + 0.12 - tt;
+        poseBoard(A, bf.G, boardCurve(bf.G, k), v.mesh, boardGroundFn(v, g.collision), 0, Math.min(1, Math.max(0, tl) / 0.25)); A.update(dt, 0, 0);
+        if (tl <= 0) { A.board = null; o.boarding = false; const r = o.ch.root; const p = r.getWorldPosition(new THREE.Vector3()); const yw = new THREE.Euler().setFromQuaternion(r.getWorldQuaternion(new THREE.Quaternion()), 'YXZ').y;
+          v.mesh.remove(r); g.scene.add(r); r.rotation.set(0, 0, 0); o.x = p.x; o.z = p.z; o.y = g.collision.groundAt(p.x, p.z, v.y + 0.6); o.yaw = yw; o.mode = 'foot'; o.goal = null; this.placeOfficer(o); A.update(0.0001, 0, 0); } // the door is left open while the crew is out
+        return;
+      }
       const k = Math.min(1, o.t / 0.9), sm = k * k * (3 - 2 * k); const [, , ex] = this.exitWorld(o, v);
       o.ch.root.position.set(lerp(o.seat.x, ex[0], sm), lerp(o.seat.y, 0, Math.min(1, sm * 1.3)), lerp(o.seat.z, ex[1], sm)); o.ch.root.rotation.set(0, lerp(0, Math.atan2(ex[0] - o.seat.x, ex[1] - o.seat.z), Math.min(1, sm * 1.5)), 0);
       A.sitIn(o.seat, 1 - sm, null); A.update(dt, k > 0.5 ? 1.0 : 0);
@@ -481,6 +494,17 @@ export class PoliceResponse {
       return;
     }
     if (o.mode === 'enter') { // slide from the door spot into the seat
+      const bf = this.boardFor(o, v); if (bf) { o.t += dt; if (bf.door) swingDoor(v, bf.door, bf.side, 1, dt, 8.5, 0.62);
+        if (!o.boarding) { // the last step to the stand point beside the opening, turning to face along the car while the door swings wide
+          v.mesh.updateMatrixWorld(); const hw = new THREE.Vector3(bf.H0[0], 0, bf.H0[1]).applyMatrix4(v.mesh.matrixWorld); const dx = hw.x - o.x, dz = hw.z - o.z, dd = Math.hypot(dx, dz);
+          if (dd > 1e-4) { const st = Math.min(dd, 1.3 * dt); o.x += dx / dd * st; o.z += dz / dd * st; } const dy = Math.atan2(Math.sin(v.yaw - o.yaw), Math.cos(v.yaw - o.yaw)); o.yaw += dy * Math.min(1, 9 * dt);
+          o.y = g.collision.groundAt(o.x, o.z, v.y + 0.6); this.placeOfficer(o); this.animOfficer(o, dt, dd > 0.03 ? 1.1 : 0);
+          if ((dd < 0.03 && Math.abs(dy) < 0.08 && (!bf.door || bf.door.ang > 0.85)) || o.t > 3) { o.x = hw.x; o.z = hw.z; o.yaw = v.yaw; this.placeOfficer(o); o.ch.root.parent?.remove(o.ch.root); v.mesh.add(o.ch.root); lapGrips(o.ch, v, o.seat, bf.G); o.boarding = true; o.t = 0; A.set(null); A.standUp(); A.duck = 0; }
+          else return; } // (on the frame it is re-parented the step-in pose is applied at once: no frame in vehicle space at world coordinates)
+        const k = Math.min(1, Math.max(0, o.t - 0.12) / bf.T); poseBoard(A, bf.G, boardCurve(bf.G, k), v.mesh, boardGroundFn(v, g.collision), 0, Math.min(1, o.t / 0.25)); A.update(dt, 0, 0);
+        if (k >= 1) { A.board = null; o.boarding = false; seatCharacter(o.ch, v, o.seat); o.mode = 'seated'; if (bf.door) { v.doorShut = bf; o.shutT = 0; } this.syncSeated(u); }
+        return;
+      }
       o.t += dt; const k = Math.min(1, o.t / 0.9), sm = k * k * (3 - 2 * k); const ex = o.ex;
       o.ch.root.position.set(lerp(ex[0], o.seat.x, sm), lerp(0, o.seat.y, Math.min(1, sm * 1.3)), lerp(ex[1], o.seat.z, sm)); o.ch.root.rotation.set(0, lerp(Math.atan2(o.seat.x - ex[0], o.seat.z - ex[1]), 0, sm), 0);
       A.sitIn(o.seat, sm, null); A.update(dt, 0); if (k >= 1) { seatCharacter(o.ch, v, o.seat); o.mode = 'seated'; this.syncSeated(u); }
@@ -493,8 +517,10 @@ export class PoliceResponse {
     if (o.mode === 'return' || u.task === 'leave' || u.task === 'mount') {
       if (!v) { o.goal = null; speed = this.walkAway(o, dt); }
       else { let [wx, wz, ex] = this.exitWorld(o, v); const dw = this.detour(o, v, ex); const tx = dw ? dw[0] : wx, tz = dw ? dw[1] : wz; speed = this.moveTo(o, tx, tz, 2.4, dt); o.retT = (o.retT || 0) + dt; const dd = Math.hypot(wx - o.x, wz - o.z);
+        if (dd < 2.2 && (o.blockedT > 0.5 || o.retT > 12) && dd >= 0.35 && this.boardFor(o, v)) { o.t = 0; o.mode = 'enter'; o.retT = 0; o.boarding = false; return; }
         if (dd < 2.2 && (o.blockedT > 0.5 || o.retT > 12) && dd >= 0.35) { v.mesh.updateMatrixWorld(); const lp = v.mesh.worldToLocal(new THREE.Vector3(o.x, v.y, o.z)); o.ch.root.parent?.remove(o.ch.root); v.mesh.add(o.ch.root); o.ex = [lp.x, lp.z]; o.t = 0; o.mode = 'enter'; o.retT = 0; A.set(null); return; }
-        if (o.retT > 20 && !this.inView(o)) { seatCharacter(o.ch, v, o.seat); o.mode = 'seated'; o.retT = 0; this.syncSeated(u); return; }
+        if (o.retT > 20 && !this.inView(o)) { seatCharacter(o.ch, v, o.seat); this.shutDoorNow(this.boardFor(o, v)); o.mode = 'seated'; o.retT = 0; this.syncSeated(u); return; }
+        if (dd < 0.35 && this.boardFor(o, v)) { o.retT = 0; o.t = 0; o.mode = 'enter'; o.boarding = false; return; }
         if (dd < 0.35) { o.retT = 0; o.ch.root.parent?.remove(o.ch.root); v.mesh.add(o.ch.root); o.ex = ex; o.t = 0; o.mode = 'enter'; A.set(null); return; } }
       this.animOfficer(o, dt, speed); return;
     }
@@ -714,7 +740,8 @@ export class PoliceResponse {
   // incapacitated: the body stays where it fell (it no longer belongs to the unit, so a unit driving off or being removed
   // never makes it vanish in view) and is cleared away later, unseen. A unit with nobody left leaves its car parked.
   killOfficer(o, dx = 0, dz = 0) {
-    if (o.dead) return; o.dead = true; o.mode = 'dead'; o.tackle = null; o.cuffing = false; o.torchOn = false; if (o.torchM) o.torchM.visible = false;
+    if (o.dead) return; if (o.boarding || o.ch.anim.board) { const r = o.ch.root; o.ch.anim.board = null; o.boarding = false; if (r.parent && r.parent !== this.g.scene) { const p = r.getWorldPosition(new THREE.Vector3()); r.parent.remove(r); this.g.scene.add(r); r.position.copy(p); r.rotation.set(0, o.yaw || 0, 0); o.x = p.x; o.z = p.z; } }
+    o.dead = true; o.mode = 'dead'; o.tackle = null; o.cuffing = false; o.torchOn = false; if (o.torchM) o.torchM.visible = false;
     o.ch.anim.ik = null; o.ch.anim.aim = null; o.ch.anim.set('down'); o.ch.face?.set?.('blink', 1e9); this.ff.disarm?.(o);
     const u = o.unit; if (u) u.officers = u.officers.filter((q) => q !== o);
     const R = this.g.ragdolls; if (R && o.ch.root.parent && !o.ch.rag) R.add(o.ch, { vel: [dx * 1.8, 0, dz * 1.8] }); // goes limp (ragdoll)

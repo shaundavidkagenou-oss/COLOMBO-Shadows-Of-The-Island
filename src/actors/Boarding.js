@@ -113,7 +113,7 @@ function carCurve(G, u) {
   const door = G.doorGrip ? G.doorGrip() : null; const outHold = 1 - sm((p3 - 0.1) / 0.5);
   if (grips) { hands[outS] = door ? mix(door, grips[outS], sm((p3 - 0.1) / 0.75)) : grips[outS]; hw8[outS] = door ? sm(p1 / 0.8) : sm((p3 - 0.15) / 0.7); } // door → wheel at full weight (no dip back to the base pose)
   else if (door) { hands[outS] = door; hw8[outS] = sm(p1 / 0.8) * outHold; }
-  return { hip, pitch, roll, twist: 0, duck, feet, legSeat: sm((u - 0.86) / 0.14), poleK: { [inS]: sm(p3 / 0.85), [outS]: sm((p3 - 0.2) / 0.8) }, hands, handW: hw8, grip: { [inS]: grips ? sm((p2 - 0.42) / 0.58) : 0, [outS]: grips ? sm((p3 - 0.5) / 0.5) : 0 }, align: sm((u - 0.3) / 0.6), seated: u >= 1 };
+  return { hip, pitch, roll, twist: 0, duck, feet, legSeat: sm((u - 0.86) / 0.14), poleK: { [inS]: sm(p3 / 0.85), [outS]: sm((p3 - 0.2) / 0.8) }, hands, handW: hw8, grip: { [inS]: grips && !G.lap ? sm((p2 - 0.42) / 0.58) : 0, [outS]: grips && !G.lap ? sm((p3 - 0.5) / 0.5) : 0 }, align: sm((u - 0.3) / 0.6), seated: u >= 1 };
 }
 
 // Catmull-Rom through key points K at knot times T (0..1)
@@ -237,4 +237,40 @@ export function poseBoard(A, G, F, vehMesh, ground, yaw0 = 0, w = 1) {
     feet[sd] = L(p); }
   const hands = {}; for (const sd of ['L', 'R']) if (F.hands[sd]) hands[sd] = L(F.hands[sd]);
   A.board = { w, hip: L(F.hip), pitch: F.pitch, roll: F.roll, twist: F.twist, duck: F.duck, feet, poleOut: F.poleOut, poleK: F.poleK, legSeat: F.legSeat, hands, handW: F.handW, grip: F.grip, toe: G.toe };
+}
+
+// ------------------------------------------------------------------ NPC step-in / step-out (police crews, medics, squad)
+// The same motion the player uses, run on a timer by the NPC's own update. Helpers shared with Player:
+//   boardGroundFn — road height under a vehicle-space point (the body rocks on its springs; a bike leans on its stand),
+//   swingDoor     — the driver's door on its damped hinge (opens to the check strap, latches with a slam when pulled shut),
+//   npcBoardSetup — geometry for one person + seat, or null when that seat keeps the old path (rear rows, pillion, buses).
+const _gm = new THREE.Matrix4(), _gmi = new THREE.Matrix4(), _gp = new THREE.Vector3();
+export function boardGroundFn(v, collision) {
+  v.mesh.updateMatrixWorld(); _gm.copy(v.mesh.matrixWorld); _gmi.copy(_gm).invert(); const y0 = v.y ?? v.mesh.position.y;
+  return (lx, lz) => { _gp.set(lx, 0, lz).applyMatrix4(_gm); _gp.y = collision.groundAt(_gp.x, _gp.z, y0 + 0.6, 1.2); return _gp.applyMatrix4(_gmi).y; };
+}
+export function swingDoor(v, d, side, target, dt, w = 9, z = 0.7) {
+  if (!d) return null; const h = Math.min(dt, 1 / 30); d.ang = d.ang || 0; d.vel = d.vel || 0; let ev = null;
+  d.vel += (w * w * (target - d.ang) - 2 * z * w * d.vel) * h; d.ang += d.vel * h;
+  if (d.ang > 1.05) { d.ang = 1.05; if (d.vel > 0) d.vel *= -0.25; }
+  if (d.ang < 0) { const s = -d.vel; d.ang = 0; d.vel = 0; ev = 'latched'; if (s > 0.6 && v.slam) v.slam(s); }
+  d.pivot.rotation.y = d.max * d.ang * (side < 0 ? 1 : -1); return ev;
+}
+// a seat without a wheel / bars (front passenger): the hands' end point is where the seated pose rests them (the lap), measured
+// from the seated pose itself so the hand-over between the step-in motion and the seat pose is seamless
+export function lapGrips(ch, v, seat, G) {
+  if (G.lap || (G.grips && !G.lap)) return; const A = ch.anim, r = ch.root; if (r.parent !== v.mesh) return;
+  if (!(A.seated === seat && !A.board)) { r.position.set(seat.x, seat.y, seat.z); r.rotation.set(0, 0, 0); A.sitIn(seat, 1); A.update(0.0001, 0, 0); }
+  r.updateMatrixWorld(true); v.mesh.updateMatrixWorld(); _gmi.copy(v.mesh.matrixWorld).invert(); const h = (n) => ch.bones[n].getWorldPosition(new THREE.Vector3()).applyMatrix4(_gmi).toArray();
+  G.grips = { L: h('handL'), R: h('handR') }; G.lap = true;
+}
+export function npcBoardSetup(v, seat, A) {
+  const kind = boardKind(v); if (!kind || !seat || !v.driverSeat) return null; const ds = v.driverSeat(); const isDriver = seat === ds || (Math.abs(seat.x - ds.x) < 0.02 && Math.abs(seat.z - ds.z) < 0.02);
+  if (kind === 'bike' && !isDriver) return null; if (Math.abs(seat.z - ds.z) > 0.35) return null; // front row only (rear doors are not separate meshes)
+  const side = kind === 'bike' ? 1 : seat.x < -0.05 ? -1 : seat.x > 0.05 ? 1 : (seat.exit ? Math.sign(seat.exit[0]) || -1 : -1);
+  const d = v.mesh.userData.door; const useDoor = isDriver && d && d.len && Math.sign(d.pivot.position.x) === side;
+  const door = useDoor ? { x: d.pivot.position.x, z: d.pivot.position.z, len: d.len, max: d.max } : null;
+  const G = boardGeom(v, seat, A, side, door);
+  if (door) G.doorGrip = () => { const th = d.max * (d.ang || 0); return [door.x + side * door.len * Math.sin(th) * 0.88, 1.05, door.z - door.len * Math.cos(th) * 0.88]; };
+  const H0 = boardCurve(G, 0).hip; return { v, seat, kind, side, G, door: useDoor ? d : null, H0: [H0[0], H0[2]], T: BOARD_T[kind] };
 }

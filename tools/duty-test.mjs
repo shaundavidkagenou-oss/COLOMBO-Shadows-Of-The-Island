@@ -22,7 +22,12 @@ const step = (sec, follow) => { for (let i = 0; i < sec * 20; i++) { g.clock += 
 step(1); ok(p.on && p.state === 'duty', 'officer on duty'); const bike = p.bike; ok(!!bike && bike.type === 'policebike', 'his police motorcycle is there');
 if (bike) { ok(!L.roadAt(bike.x, bike.z), 'parked on the pavement, not the road'); const d = Math.hypot(bike.x - p.x, bike.z - p.z); ok(d > 2 && d < 11, `parked near the post (${d.toFixed(1)} m)`); ok(bike.stand === 1 && bike.leanK === 1, 'resting on its side stand'); ok(bike.mesh.rotation.z < -0.1, 'leaning to the left onto the stand'); ok(T.parked.includes(bike), 'solid / visible as a parked vehicle'); }
 g.atmos.hour = 19.95; let sawKick = false, minStand = 1; const seen = new Set();
-for (let i = 0; i < 60 * 20 && p.state !== 'ride'; i++) { g.clock += 0.05; D.update(0.05); T.update(0.05, g.player, null, g.clock, [], null); seen.add(p.state); if (p.state === 'kick') { sawKick = true; minStand = Math.min(minStand, bike.stand); } }
+const BN = ['hips', 'chest', 'head', 'footL', 'footR', 'handL', 'handR', 'shinL', 'shinR']; let prevB = null, maxB = 0, maxAt = '', boarded = false, prevSt = '';
+for (let i = 0; i < 60 * 20 * 4 && p.state !== 'ride'; i++) { const dt = 0.0125; g.clock += dt; D.update(dt); T.update(dt, g.player, null, g.clock, [], null); seen.add(p.state); if (p.state === 'kick') { sawKick = true; minStand = Math.min(minStand, bike.stand); }
+  // the step-over onto the bike (and the seams into / out of it): no bone pops — 80 Hz sampling
+  const stg = p.state + (p.boarding ? '*' : ''); if (p.boarding) boarded = true; if (/mount|kick/.test(stg) || /mount|kick/.test(prevSt)) { p.ch.root.updateMatrixWorld(true); const cur = BN.map((n) => p.ch.bones[n].getWorldPosition(new THREE.Vector3()));
+    if (prevB && !(stg === 'mount' && prevSt === 'mount') && !(stg === 'mount' && prevSt === 'toBike')) cur.forEach((q, k) => { const sp = q.distanceTo(prevB[k]) / dt; if (sp > maxB) { maxB = sp; maxAt = `${BN[k]} ${prevSt}→${stg}`; } }); prevB = cur; } else prevB = null; prevSt = stg; }
+ok(boarded, 'the traffic officer steps over the saddle (Boarding.js), not a slide onto the seat'); ok(maxB < 6, `no pops getting on the motorcycle (fastest bone ${maxB.toFixed(1)} m/s at ${maxAt})`);
 ok(seen.has('toBike') && seen.has('mount') && seen.has('kick') && seen.has('pull'), `shift end sequence (${[...seen].join(' → ')})`);
 ok(sawKick && bike.stand === 0 && bike.leanK === 0, 'stand kicked up, bike upright');
 ok(p.state === 'ride' && T.vehicles.includes(bike) && bike.driverChar === p.ch, 'riding in traffic with the officer at the handlebars');

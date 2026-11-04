@@ -108,7 +108,7 @@ if (!quick) for (const si of (process.env.FUEL_ST ? process.env.FUEL_ST.split(',
     ok(st.lanes[f.bay.lane].every((q) => q !== f) && slot.busy !== f, `${site.id}: bay and dispenser released`);
     for (let i = 0; i < 40 / dt; i++) tick(); ok(!st.att.some((a) => a.noz && a.noz.mode === 'ground') && !st.loose.length, `${site.id}: dropped nozzle picked up and hung back`); }
   // ---- kill an attendant mid-service
-  let a = null; for (let i = 0; i < 150 / dt && !a; i++) { tick(); a = st.att.find((q) => q.p && q.task && (q.phase === 'fuel' || q.phase === 'toFiller')); }
+  let a = null; for (let i = 0; i < 300 / dt && !a; i++) { tick(); /* (customers come from passing traffic: allow for a quiet spell) */ a = st.att.find((q) => q.p && q.task && (q.phase === 'fuel' || q.phase === 'toFiller')); }
   ok(!!a, `${site.id}: found an attendant at work to kill`);
   if (a) { const p = a.p, f2 = a.task; C.kill(p); for (let i = 0; i < 2 / dt; i++) tick();
     ok(p.dead && C.peds.includes(p), `${site.id}: the attendant dies like any crowd person (body stays)`); ok(a.gone && !a.p && svc.stats.attendantsKilled >= 1, `${site.id}: station registers the dead attendant`);
