@@ -16,6 +16,7 @@ const { Player } = await import('../src/actors/Player.js');
 const { Vehicle } = await import('../src/vehicles/Vehicle.js');
 const { seatCharacter } = await import('../src/actors/Seating.js');
 const { boardKind } = await import('../src/actors/Boarding.js');
+const { updateDoorClosers } = await import('../src/vehicles/DoorRig.js');
 
 let pass = 0, fail = 0; const fails = []; const seen = new Set(); const ok = (c, m) => { if (c) pass++; else { fail++; const key = m.replace(/[0-9.]+ m\/s|[0-9.]+ m /g, ''); if (!seen.has(key) && fails.length < 80) { seen.add(key); fails.push(m); } } };
 const DT = 1 / 60; const BONES = ['hips', 'spine', 'chest', 'head', 'thighL', 'thighR', 'shinL', 'shinR', 'footL', 'footR', 'armL', 'armR', 'foreL', 'foreR', 'handL', 'handR'];
@@ -24,7 +25,7 @@ const collision = { groundAt: (x, z) => L.groundY(x, z), resolveCircle: (x, z) =
 const events = { emit() {}, on() {} };
 const W = (ch, n) => { const v = new THREE.Vector3(); ch.bones[n].getWorldPosition(v); return v; };
 const { VTYPES } = await import('../src/vehicles/VehicleModels.js');
-const TYPES = process.env.TYPES ? process.env.TYPES.split(',') : Object.keys(VTYPES).filter((t) => boardKind({ T: VTYPES[t] })); // every step-in type (buses / lorry cabs keep their own boarding)
+const TYPES = process.env.TYPES ? process.env.TYPES.split(',') : Object.keys(VTYPES).filter((t) => boardKind({ T: VTYPES[t] }) || t === 'bus' || t === 'pbus'); // every step-in type + the buses (walked up the treads; lorry cabs keep their own boarding)
 const stats = [];
 for (const type of TYPES) for (const withDriver of [false, true]) {
   const scene = new THREE.Scene(); const v = new Vehicle(type, 7, scene); v.place(10, 20, 0.6); v.mesh.updateMatrixWorld(true);
@@ -41,7 +42,7 @@ for (const type of TYPES) for (const withDriver of [false, true]) {
   const check = (phase) => {
     P.ch.root.updateMatrixWorld(true); const cur = BONES.map((n) => W(P.ch, n)); const X = P.entry || P.exiting; const stage = phase + ':' + ((X && X.stage) || '-') + (process.env.T && X ? '@' + X.t.toFixed(3) : '');
     for (const p of cur) ok(Number.isFinite(p.x + p.y + p.z), `${tag}: NaN bone (${stage})`);
-    const LOCO = /approach|align|open|resist|pull|toSill|stepAway|close|seated/; const loco = LOCO.test(stage) && LOCO.test(prevStage); /* walking / turning / idle within one stage; the seams into and out of boarding stay checked */ // regular gait / turning / idle (not under test here)
+    const LOCO = /approach|align|open|resist|pull|toSill|stepAway|close|seated|busWait|busIn|busWalk|busBack/; const loco = LOCO.test(stage) && LOCO.test(prevStage); /* walking / turning / idle within one stage; the seams into and out of boarding stay checked */ // regular gait / turning / idle (not under test here)
     if (prev && !loco) cur.forEach((p, k) => { const sp = p.distanceTo(prev[k]) / DT; if (sp > st.maxV) { st.maxV = sp; st.maxVat = `${BONES[k]} @${prevStage}→${stage}`; } ok(sp < 6, `${tag}: ${BONES[k]} moves ${sp.toFixed(1)} m/s (${prevStage} → ${stage})`); });
     prev = cur; prevStage = stage;
     // soles above the road while outside the body footprint
@@ -50,18 +51,21 @@ for (const type of TYPES) for (const withDriver of [false, true]) {
     if (drv && drv.root.parent && !adopted) { drv.root.updateMatrixWorld(true); const E = P.entry;
       if (E && E.npcK >= 1) { // standing / walking off: hips + chest outside the body sides, never through the player
         for (const n of ['hips', 'chest']) { const l = W(drv, n).applyMatrix4(inv); const inside = hw - Math.abs(l.x); if (Math.abs(l.z) < hl - 0.3 && l.y < (seat.roof ?? 2) + 0.1) { st.drvIn = Math.max(st.drvIn, inside); ok(inside < 0.02, `${tag}: driver's ${n} ${inside.toFixed(2)} m inside the body side while walking off`); } } }
+      if (E && E.stage === 'busPull' && drv.root.parent) { const dh = W(drv, 'hips'), ph = W(P.ch, 'hips'); const dd = Math.hypot(dh.x - ph.x, dh.z - ph.z); st.drvNear = Math.min(st.drvNear, dd); ok(dd > 0.4, `${tag}: bus driver passes ${dd.toFixed(2)} m from the player`);
+        for (const n of ['hips', 'chest', 'head', 'handL', 'handR', 'footL', 'footR']) { const l = W(drv, n).applyMatrix4(inv); if (Math.abs(Math.abs(l.x) - hw) < 0.03 && l.y > 0.3 && Math.abs(l.z) < hl - 0.3) { const lv = v.mesh.userData.doors.filter((d) => d.leaf && Math.abs(d.hz - d.leaf * 0.475 - e.z) < 0.2); ok(l.x > 0 && Math.abs(l.z - e.z) < 0.46 && lv.every((d) => d.ang > 0.8), `${tag}: bus driver's ${n} crosses the side at z ${(l.z - e.z).toFixed(2)} from the door (leaves ${lv.map((d) => d.ang.toFixed(2))})`); } } }
       if (E && E.npcG) { const dh = W(drv, 'hips'), ph = W(P.ch, 'hips'); const dd = Math.hypot(dh.x - ph.x, dh.z - ph.z); st.drvNear = Math.min(st.drvNear, dd); ok(dd > 0.4, `${tag}: driver passes ${dd.toFixed(2)} m from the player (bodies overlap)`); }
       const cur2 = BONES.map((n) => W(drv, n)); if (prevD) cur2.forEach((p, k) => { const sp = p.distanceTo(prevD[k]) / DT; const walking = P.entry && P.entry.npcK >= 1; ok(sp < (walking ? 10 : 7), /* walking off at a hurried 2.4 m/s: the swing foot itself reaches 7–8 m/s */ `${tag}: driver ${BONES[k]} moves ${sp.toFixed(1)} m/s (${(P.entry && P.entry.stage) || '-'}${P.entry && P.entry.npcK !== undefined ? (P.entry.npcK < 1 ? ' climbing out u=' + (1 - P.entry.npcK).toFixed(3) : ' walking off') : ''})`); }); prevD = cur2;
     } else prevD = null;
   };
-  P.enterVehicle(v, traffic); let t = 0; while (P.entry && t < 20) { P.updateEntry(DT); t += DT; check('in'); } st.tIn = t;
+  P.enterVehicle(v, traffic); let t = 0; while (P.entry && t < 20) { P.updateEntry(DT); updateDoorClosers(DT); t += DT; check('in'); } st.tIn = t;
   ok(!P.entry && P.vehicle === v, `${tag}: entry finished (stuck in ${P.entry && P.entry.stage})`);
   ok(P.ch.root.parent === v.mesh && P.ch.root.position.distanceTo(new THREE.Vector3(seat.x, seat.y, seat.z)) < 1e-6, `${tag}: seated at the driver seat`);
   ok(P.ch.anim.board === null && P.ch.anim.seated === seat, `${tag}: seat pose active at the end`);
   if (withDriver) ok(adopted && adopted.ch === drv && !v.driverChar, `${tag}: pulled-out driver handed to the crowd`);
-  for (let i = 0; i < 30; i++) { P.ch.anim.update(DT, 0, 0); v.sync(DT); }
+  for (let i = 0; i < 90; i++) { P.ch.anim.update(DT, 0, 0); v.sync(DT); updateDoorClosers(DT); }
+  if (type === 'bus' || type === 'pbus') ok(v.mesh.userData.doors.every((d) => !d.leaf || d.ang < 0.02), `${tag}: bus doors shut behind the driver`);
   prev = null; check('seated');
-  ok(P.exitVehicle(traffic), `${tag}: exit starts`); t = 0; while (P.exiting && t < 20) { P.updateExit(DT); t += DT; check('out'); } st.tOut = t;
+  ok(P.exitVehicle(traffic), `${tag}: exit starts`); t = 0; while (P.exiting && t < 20) { P.updateExit(DT); updateDoorClosers(DT); t += DT; check('out'); } st.tOut = t;
   ok(!P.exiting && !P.vehicle && P.ch.root.parent === scene, `${tag}: exit finished`);
   { const inv = new THREE.Matrix4().copy(v.mesh.matrixWorld).invert(); const l = new THREE.Vector3(P.x, 0, P.z).applyMatrix4(inv); ok(Math.abs(l.x) > v.T.wid / 2 + 0.25, `${tag}: standing clear of the body after exit (${(Math.abs(l.x) - v.T.wid / 2).toFixed(2)} m)`); }
   stats.push(st);

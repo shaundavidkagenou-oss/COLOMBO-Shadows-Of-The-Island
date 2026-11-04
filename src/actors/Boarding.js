@@ -158,7 +158,7 @@ function bikeCurve(G, u) {
 // the feet step one at a time to a standing stance under the hips while the body turns toward the aisle.
 export function riseGeom(v, seat, A, yaw0, stand) {
   const rest = seatRest(A, seat), L = rest.L;
-  const G = { kind: 'rise', s: 0, hw: v.T.wid / 2, seat, rest, fl: seat.floor ?? seat.y - 0.3, fz: L.fz ?? 0.5, fx: L.fx ?? 0.12, toe: 0.06, roof: 9, hst: standHip(A), ankle: A.ankle, sc: A.s || 1, ...legLen(A), grips: null, stag: L.footStagger || 0, yaw0, stand };
+  const wg = wheelGrips(seat); const G = { kind: 'rise', s: 0, hw: v.T.wid / 2, seat, rest, fl: seat.floor ?? seat.y - 0.3, fz: L.fz ?? 0.5, fx: L.fx ?? 0.12, toe: 0.06, roof: 9, hst: standHip(A), ankle: A.ankle, sc: A.s || 1, ...legLen(A), grips: wg, wheel: !!wg, stag: L.footStagger || 0, yaw0, stand };
   G.feetEnd = { L: [seat.x + G.fx, G.fl + G.ankle, seat.z + G.fz], R: [seat.x - G.fx, G.fl + G.ankle, seat.z + G.fz + G.stag] };
   G.hipEnd = [seat.x, seat.y + rest.hipUp, seat.z + rest.hipZ];
   return G;
@@ -170,13 +170,14 @@ function riseCurve(G, u) {
   let pitch = lerp(rest.lean, 0.52, sm(k / 0.42)); pitch = lerp(pitch, 0.03, sm((k - 0.42) / 0.58));
   const cs = Math.cos(G.yaw0), sn = Math.sin(G.yaw0); const lx = cs * 0.11, lz = -sn * 0.11; // the character's left in the vehicle frame (facing yaw0)
   const FL = [H0[0] + lx, fl + ankle, H0[2] + lz], FR = [H0[0] - lx, fl + ankle, H0[2] - lz]; const top = fl + ankle + 0.06;
-  const feet = { R: stepOver(G.feetEnd.R, FR, sm((k - 0.38) / 0.3), top, 0, 0), L: stepOver(G.feetEnd.L, FL, sm((k - 0.64) / 0.3), top, 0, 0) };
+  const feet = { R: stepOver(G.feetEnd.R, FR, sm((k - 0.3) / 0.4), top, 0, 0), L: stepOver(G.feetEnd.L, FL, sm((k - 0.58) / 0.4), top, 0, 0) };
   // hands: off the lap to just in front of the thighs, kept in close along the body's CURRENT heading (a window seat has the
   // side wall at the elbow: the base pose's relaxed arm hang would swing out into it), released to the base pose at the end
   const align = sm((u - 0.3) / 0.6), ps = G.yaw0 * (1 - align), fx = Math.sin(ps), fz = Math.cos(ps), ax = Math.cos(ps), az = -Math.sin(ps);
   const hands = {}, handW = {}; for (const sd of ['L', 'R']) { const sx = sd === 'L' ? 1 : -1; const side = [hip[0] + ax * sx * 0.17 + fx * 0.14, hip[1] - 0.2 - 0.08 * sm(k), hip[2] + az * sx * 0.17 + fz * 0.14];
     hands[sd] = G.grips ? mix(G.grips[sd], side, sm(k / 0.5)) : side; handW[sd] = (G.grips ? 1 : sm(k / 0.3)) * (1 - sm((k - 0.72) / 0.28)); }
-  return { hip, pitch, roll: 0, twist: 0, duck: 0, feet, legSeat: sm((u - 0.86) / 0.14), hands, handW, grip: { L: 0, R: 0 }, poleK: { L: 1, R: 1 }, align, seated: u >= 1 };
+  const gw = G.wheel ? sm((u - 0.62) / 0.38) : 0; // fingers close on the wheel rim as the hands arrive
+  return { hip, pitch, roll: 0, twist: 0, duck: 0, feet, legSeat: sm((u - 0.86) / 0.14), hands, handW, grip: { L: gw, R: gw }, poleK: { L: 1, R: 1 }, align, seated: u >= 1 };
 }
 export function boardCurve(G, u) { return G.kind === 'bike' ? bikeCurve(G, clamp(u, 0, 1)) : G.kind === 'rise' ? riseCurve(G, clamp(u, 0, 1)) : carCurve(G, clamp(u, 0, 1)); }
 
