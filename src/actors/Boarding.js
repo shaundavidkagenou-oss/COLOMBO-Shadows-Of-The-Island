@@ -34,7 +34,7 @@ export const BOARD_T = { car: 2.15, van: 2.6, tuk: 2.0, bike: 2.2, cab: 3.6 };
 export const EXIT_K = 0.88;
 export const boardKind = (v) => { const e = v.T.entry || 'car'; return e === 'bike' ? 'bike' : e === 'tuk' ? 'tuk' : e === 'van' ? 'van' : e === 'cab' ? 'cab' : e === 'car' ? 'car' : null; }; // buses keep their own boarding (BusWalk); lorry cabs climb a step first
 // the outer hand's grip on a hinged door (its live rear-top corner)
-export function doorGripFn(d, door, side) { if (d.cab) return null; /* a lorry door opens ~83° right in front of the climber: nothing on it within a natural reach — the inner hand takes the A-pillar handle, the outer is free */ const f = 0.88, y = d.gripY ?? 1.05; return () => { const th = d.max * (d.ang || 0); return [door.x + side * door.len * Math.sin(th) * f, y, door.z - door.len * Math.cos(th) * f]; }; }
+export function doorGripFn(d, door, side) { if (d.cab && d.max > 1.3) return null; /* a lorry door opens ~83° right in front of the climber: nothing on it within a natural reach — the inner hand takes the A-pillar handle, the outer is free */ const f = 0.88, y = d.gripY ?? 1.05; return () => { const th = d.max * (d.ang || 0); return [door.x + side * door.len * Math.sin(th) * f, y, door.z - door.len * Math.cos(th) * f]; }; }
 
 // standing hips height above the ground for this skeleton (legs nearly straight)
 function legLen(A) { const b = A.ch.bones; return { leg: b.shinL.position.length() + b.footL.position.length(), off: Math.abs(b.thighL.position.x) }; }
@@ -68,7 +68,7 @@ export function boardGeom(v, seat, A, side, door = null) {
   G.z0 = door ? Math.min(seat.z - 0.03, door.z - door.len * Math.cos(door.max * 1.05) - 0.46) : seat.z - 0.03; // standing z (between the open door and the B-pillar)
   G.frameZ = Math.min(G.z0 + 0.55, door ? door.z - 0.14 : seat.z + 0.6); // door-frame grip forward toward the A-pillar (elbow bent, never at the shoulder)
   const cs = kind === 'cab' ? v.mesh?.userData?.cabStep : null;
-  if (cs) { G.stepY = cs.y; G.z0 = clamp(G.z0, cs.z0 + 0.15, cs.z1 - 0.13); G.handle = [side * (G.hw + 0.06), 1.78, T.len / 2 - 0.075]; G.dx = 0.16; } // stand ON the tread, inner hand on the A-pillar grab handle
+  if (cs) { G.stepY = cs.y; G.z0 = clamp(G.z0, cs.z0 + 0.13, cs.z1 - 0.16); G.handle = [side * cs.handle[0], cs.handle[1], cs.handle[2]]; G.dx = cs.sx - G.hw; } // stand ON the tread, inner hand on the A-pillar grab handle
   return G;
 }
 
@@ -103,7 +103,7 @@ function carCurve(G, u) {
   const roll = s * 0.22 * duck / Math.max(duckMax, 0.01); // head leans into the opening (toward the cabin centre)
   // feet
   const gIn = [H0[0] - s * 0.11, ankle + sy, G.z0 + 0.02], gOut = [H0[0] + s * 0.11, ankle + sy, G.z0 - 0.03];
-  const top = fl + ankle + 0.07; const feet = {};
+  const top = fl + ankle + (cab ? 0.12 : 0.07); const feet = {};
   const fIn = G.feetEnd[inS], fOut = G.feetEnd[outS];
   const sillIn = [s * (hw - (tuk ? 0.2 : 0.28)), fl + ankle, S.z + (tuk ? 0.12 : 0.2)]; // just inside the sill (reachable while still standing outside)
   feet[inS] = p1 < 1 ? stepOver(gIn, sillIn, p1, top, 1, 0) : { p: mix(sillIn, fIn, sm((p2 - 0.45) / 0.55)), gk: 0 }; // inner leg over the sill, then slides to the pedals once the hips are in
@@ -119,25 +119,25 @@ function carCurve(G, u) {
   if (grips) { hands[outS] = door ? mix(door, grips[outS], sm((p3 - 0.1) / 0.75)) : grips[outS]; hw8[outS] = door ? (cab ? 1 : sm(p1 / 0.8)) : sm((p3 - 0.15) / 0.7); } // door → wheel at full weight (no dip back to the base pose)
   else if (door) { hands[outS] = door; hw8[outS] = (cab ? 1 : sm(p1 / 0.8)) * outHold; }
   if (cab && !grips) hw8[inS] = 1 - sm((p2 - 0.45) / 0.45); // passenger: off the handle once seated
-  return { hip, pitch, roll, twist: 0, duck, feet, legSeat: sm((u - 0.86) / 0.14), poleK: { [inS]: sm(p3 / 0.85), [outS]: sm((p3 - 0.2) / 0.8) }, hands, handW: hw8, grip: { [inS]: grips && !G.lap ? sm((p2 - 0.42) / 0.58) : 0, [outS]: grips && !G.lap ? sm((p3 - 0.5) / 0.5) : 0 }, align: sm((u - 0.3) / 0.6), seated: u >= 1 };
+  return { yaw: G.stepY ? s * lerp(-CAB_YAW, 0.35, sm(p2 / 0.7)) * (1 - sm((p3 - 0.55) / 0.45)) : 0, /* faces the cab while climbing, then swivelled on the seat toward the door while the outer leg comes in (its knee points out of the opening, not at the hinge) */ hip, pitch, roll, twist: 0, duck, feet, legSeat: sm((u - 0.86) / 0.14), poleK: { [inS]: sm(p3 / 0.85), [outS]: sm((p3 - 0.2) / 0.8) }, hands, handW: hw8, grip: { [inS]: grips && !G.lap ? sm((p2 - 0.42) / 0.58) : 0, [outS]: grips && !G.lap ? sm((p3 - 0.5) / 0.5) : 0 }, align: sm((u - 0.3) / 0.6), seated: u >= 1 };
 }
 
 // ---- lorry cab: up onto the tread first ----------------------------------------------------------------------------
 // standing on the road beside the step: inner hand to the A-pillar grab handle, outer hand to the open door, the inner foot
 // goes up onto the tread, the body pulls up on the handle, the outer foot follows; from there it is the car sequence with
 // everything raised by the step (feet over the sill onto the cab floor, hips onto the high seat)
-const CLIMB = 0.3;
+const CLIMB = 0.3, CAB_YAW = 0.75; // climbing faces partly toward the cab (the knee goes in through the opening, not forward past the hinge)
 const stepArc = (a, b, q, lift) => { const t = sm(q), h = Math.sin(Math.PI * clamp(q, 0, 1)) * lift; return { p: [lerp(a[0], b[0], t), lerp(a[1], b[1], t) + h, lerp(a[2], b[2], sm(q * 1.1 - 0.05))], gk: 1 }; }; // foot up onto / down off the tread
 function cabCurve(G, u) {
-  if (u >= CLIMB) return carCurve(G, (u - CLIMB) / (1 - CLIMB));
+  if (!G.stepY) return carCurve(G, u); if (u >= CLIMB) return carCurve(G, (u - CLIMB) / (1 - CLIMB));
   const k = u / CLIMB, B = carCurve(G, 0), { s, hw, hst, ankle } = G, sy = G.stepY, inS = G.inS, outS = inS === 'L' ? 'R' : 'L';
-  const R0 = [s * (hw + 0.42), hst, G.z0 - 0.04], up = sm((k - 0.3) / 0.6);
+  const R0 = [s * (hw + G.dx + 0.26), hst, G.z0 - 0.04], up = sm((k - 0.3) / 0.6);
   const hip = [lerp(R0[0], B.hip[0], sm((k - 0.12) / 0.7)), lerp(R0[1], B.hip[1], up), lerp(R0[2], B.hip[2], sm(k))];
   const fIn0 = [R0[0] - s * 0.11, ankle, G.z0 + 0.0], fOut0 = [R0[0] + s * 0.11, ankle, G.z0 - 0.08];
   const feet = { [inS]: stepArc(fIn0, B.feet[inS].p, seg(k, 0.18, 0.56), 0.1), [outS]: stepArc(fOut0, B.feet[outS].p, seg(k, 0.58, 0.97), 0.1) };
   const hands = { [inS]: B.hands[inS], [outS]: B.hands[outS] }, handW = { [inS]: sm(k / 0.62), [outS]: (B.handW[outS] || 0) * sm((k - 0.1) / 0.35) };
   const pitch = lerp(0.04, 0.22, Math.sin(Math.PI * sm((k - 0.15) / 0.7))) * (1 - sm((k - 0.8) / 0.2)) + B.pitch * sm((k - 0.8) / 0.2);
-  return { ...B, hip, pitch, roll: 0, duck: 0, feet, hands, handW, grip: { [inS]: 0, [outS]: 0 }, poleK: { [inS]: 0, [outS]: 0 }, legSeat: 0, align: 0, seated: false };
+  return { ...B, yaw: -s * CAB_YAW * sm(k / 0.45), hip, pitch, roll: 0, duck: 0, feet, hands, handW, grip: { [inS]: 0, [outS]: 0 }, poleK: { [inS]: 0, [outS]: 0 }, legSeat: 0, align: 0, seated: false };
 }
 
 // Catmull-Rom through key points K at knot times T (0..1)
@@ -284,7 +284,7 @@ export function poseBoard(A, G, F, vehMesh, ground, yaw0 = 0, w = 1) {
   const root = A.ch.root; const gy = ground(F.hip[0], F.hip[2]);
   // root orientation: world-upright yaw → vehicle frame
   vehMesh.updateMatrixWorld(); vehMesh.getWorldQuaternion(_qa); const wy = new THREE.Euler().setFromQuaternion(_qa, 'YXZ').y;
-  _qb.setFromEuler(_e.set(0, wy + yaw0, 0, 'YXZ')); _qa.invert().multiply(_qb); // local quaternion that is upright in the world
+  _qb.setFromEuler(_e.set(0, wy + yaw0 + (F.yaw || 0), 0, 'YXZ')); _qa.invert().multiply(_qb); // local quaternion that is upright in the world
   root.quaternion.copy(_qa).slerp(_q.set(0, 0, 0, 1), F.align); root.position.set(F.hip[0], gy, F.hip[2]); // root on the road under the hips; the hips carry the height
   root.updateMatrix(); _mi.copy(_m.compose(root.position, root.quaternion, _one)).invert();
   const L = (p) => { _p.set(p[0], p[1], p[2]).applyMatrix4(_mi); return [_p.x, _p.y, _p.z]; };

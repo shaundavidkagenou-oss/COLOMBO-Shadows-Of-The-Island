@@ -19,7 +19,7 @@ const { boardKind } = await import('../src/actors/Boarding.js');
 const { updateDoorClosers } = await import('../src/vehicles/DoorRig.js');
 
 let pass = 0, fail = 0; const fails = []; const seen = new Set(); const ok = (c, m) => { if (c) pass++; else { fail++; const key = m.replace(/[0-9.]+ m\/s|[0-9.]+ m /g, ''); if (!seen.has(key) && fails.length < 80) { seen.add(key); fails.push(m); } } };
-const DT = 1 / 60; const BONES = ['hips', 'spine', 'chest', 'head', 'thighL', 'thighR', 'shinL', 'shinR', 'footL', 'footR', 'armL', 'armR', 'foreL', 'foreR', 'handL', 'handR'];
+let cabCross = 0; const DT = 1 / 60; const BONES = ['hips', 'spine', 'chest', 'head', 'thighL', 'thighR', 'shinL', 'shinR', 'footL', 'footR', 'armL', 'armR', 'foreL', 'foreR', 'handL', 'handR'];
 const L = await import('../src/world/Layout.js');
 const collision = { groundAt: (x, z) => L.groundY(x, z), resolveCircle: (x, z) => ({ x, z }), blocked: () => false, raycast: () => 1, query: () => [] };
 const events = { emit() {}, on() {} };
@@ -38,7 +38,7 @@ for (const type of TYPES) for (const withDriver of [false, true]) {
   // start 4 m off the driver side, a little behind
   const e = v.mesh.userData.entry; const sp = new THREE.Vector3(e.x * 2.2, 0, e.z - 1.5).applyMatrix4(v.mesh.matrixWorld); P.x = sp.x; P.z = sp.z; P.y = 0; P.yaw = v.yaw; P.sync();
   const st = { tag, kind, maxV: 0, maxVat: '', sink: 0, drvIn: 0, drvNear: 9, tIn: 0, tOut: 0 };
-  let prev = null, prevD = null, prevStage = '';
+  let prev = null, prevD = null, prevStage = ''; const cabSide = new Map();
   const check = (phase) => {
     P.ch.root.updateMatrixWorld(true); const cur = BONES.map((n) => W(P.ch, n)); const X = P.entry || P.exiting; const stage = phase + ':' + ((X && X.stage) || '-') + (process.env.T && X ? '@' + X.t.toFixed(3) : '');
     for (const p of cur) ok(Number.isFinite(p.x + p.y + p.z), `${tag}: NaN bone (${stage})`);
@@ -48,6 +48,14 @@ for (const type of TYPES) for (const withDriver of [false, true]) {
     // soles above the road while outside the body footprint
     v.mesh.updateMatrixWorld(); const inv = new THREE.Matrix4().copy(v.mesh.matrixWorld).invert(); const hw = v.T.wid / 2, hl = v.T.len / 2;
     for (const f of ['footL', 'footR']) { const w = W(P.ch, f); const l = w.clone().applyMatrix4(inv); if (Math.abs(l.x) > hw + 0.02 || Math.abs(l.z) > hl) { const sink = 0.05 - (w.y - L.groundY(w.x, w.z)); st.sink = Math.max(st.sink, sink); ok(sink < 0.03, `${tag}: ${f} ${sink.toFixed(3)} m into the road (${stage})`); } }
+    // cab doors (lorry / truck): a joint crossing the cab side passes through the door opening — between its edges and above the
+    // bottom of that part of the (notched) opening — never through the solid panel below / beside it
+    const cabD = (v.mesh.userData.doors || []).filter((d) => d.cab && d.rects);
+    if (cabD.length) { const crossers = [[P.ch, 'p'], ...(drv && drv.root.parent && !adopted ? [[drv, 'd']] : [])];
+      for (const [ch, who] of crossers) for (const n of ['hips', 'chest', 'thighL', 'thighR', 'shinL', 'shinR', 'footL', 'footR']) { const l = W(ch, n).applyMatrix4(inv); const key = who + n; const d = cabD.find((q) => Math.sign(q.pivot.position.x) === Math.sign(l.x)); if (!d) continue;
+        const skin = Math.abs(d.pivot.position.x), out = Math.abs(l.x) > skin; const was = cabSide.get(key); cabSide.set(key, out);
+        if (was !== undefined && was !== out && l.y < 2.0 && l.y > 0.35) { /* (nothing solid under the cab sides near the road) */ const r = d.rects.find((q) => l.z >= q[0] && l.z <= q[1]); const zs = d.rects.map((q) => [q[0], q[1]]).flat();
+          ok(r && l.y > r[2] && l.z > Math.min(...zs) && l.z < Math.max(...zs), `${tag}: ${who === 'p' ? '' : 'driver '}${n} crosses the cab side outside the door opening at z ${l.z.toFixed(2)} y ${l.y.toFixed(2)} (${stage})`); cabCross++; } } }
     if (drv && drv.root.parent && !adopted) { drv.root.updateMatrixWorld(true); const E = P.entry;
       if (E && E.npcK >= 1) { // standing / walking off: hips + chest outside the body sides, never through the player
         for (const n of ['hips', 'chest']) { const l = W(drv, n).applyMatrix4(inv); const inside = hw - Math.abs(l.x); if (Math.abs(l.z) < hl - 0.3 && l.y < (seat.roof ?? 2) + 0.1) { st.drvIn = Math.max(st.drvIn, inside); ok(inside < 0.02, `${tag}: driver's ${n} ${inside.toFixed(2)} m inside the body side while walking off`); } } }
@@ -88,4 +96,4 @@ for (const [type, when] of [['sedan', 'stepIn'], ['sedan', 'climb'], ['bike', 'c
 }
 for (const s of stats) console.log(`${s.tag.padEnd(18)} ${String(s.kind).padEnd(5)} in ${s.tIn.toFixed(1)}s out ${s.tOut.toFixed(1)}s  max ${s.maxV.toFixed(1)} m/s (${s.maxVat})  sink ${s.sink.toFixed(3)}  drvIn ${s.drvIn.toFixed(2)} drvNear ${s.drvNear === 9 ? '-' : s.drvNear.toFixed(2)}`);
 for (const f of fails) console.log('FAIL', f);
-console.log(`vehicle-entry-sim: ${pass + fail} checks, ${fail} failed`); process.exit(fail ? 1 : 0);
+console.log(`cab-side crossings checked: ${cabCross}`); console.log(`vehicle-entry-sim: ${pass + fail} checks, ${fail} failed`); process.exit(fail ? 1 : 0);

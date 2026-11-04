@@ -265,11 +265,11 @@ add('bhoomimaxi', { brand: 'vardhan', name: 'Bhoomi Maxi', cls: 'pickup', fam: '
 add('tara', { brand: 'vardhan', name: 'Tara', cls: 'mini truck', fam: 'truck', ref: 'Indian 4-wheel mini truck with a drop-side deck',
   len: 3.8, wid: 1.5, hgt: 1.845, wheelR: 0.27, maxSpeed: 26, accel: 3.0, mass: 900, seats: 2, steer: 0.58, colors: ['#f2f2ee', '#2a5a9a', '#e0b52a', '#2f6b43'],
   truck: { cabL: 1.32, floor: 0.55, roof: 1.84, belt: 1.08, wsTop: 1.72, wsRake: 0.3, nose: 0.06, wf: 1.36, wr: -0.74, deck: 'drop', deckY: 0.72, side: 0.32, deckW: 0.745, seatY: 0.8, sx: 0.32, cabW: 0.75, lamps: 'low' },
-  sound: 'car', entry: 'bus' });
+  sound: 'car', entry: 'van' });
 add('hakobi', { brand: 'daikan', name: 'Hakobi', cls: 'light truck', fam: 'truck', ref: 'Japanese 3-tonne cab-over light truck with aluminium box or drop-side body',
   len: 5.6, wid: 1.9, hgt: 2.6, wheelR: 0.37, maxSpeed: 26, accel: 2.6, mass: 3500, seats: 2, steer: 0.47, colors: ['#f2f2ee', '#2b5c9a', '#2a6b4a', '#a8151d'],
   truck: { cabL: 1.62, floor: 0.88, roof: 2.25, belt: 1.48, wsTop: 2.08, wsRake: 0.18, nose: 0.04, wf: 1.75, wr: -1.6, deck: 'box', deckY: 1.0, side: 1.6, deckW: 0.95, seatY: 1.18, sx: 0.4, cabW: 0.88, lamps: 'bumper', dual: true },
-  sound: 'bus', entry: 'bus' });
+  sound: 'bus', entry: 'cab' });
 
 // ------------------------------------------------------------------------------------------------ assemble
 const SOUND = { car: 'car', sedan: 'car', suv: 'van', van: 'van', pickup: 'van', truck: 'bus' };

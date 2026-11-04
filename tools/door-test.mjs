@@ -49,15 +49,15 @@ for (const type of Object.keys(VTYPES).filter((t) => !process.env.TYPES || proce
   // 2. flush: the door's outermost skin points vs the body's outermost points just ahead of / behind the opening, same height
   const bodyPaint = g.children.find((m) => m.isMesh && m.name === 'paint'); const BP = bodyPaint.geometry.attributes.position; const BV = visVerts(bodyPaint);
   const dp = paintM.geometry.attributes.position; let worst = 0, n2 = 0;
-  for (const yy of [0.55, 0.7, ...(door.cab ? [1.06] : []), ...(door.rects || []).filter((r) => r[2] > 0.6).map((r) => r[2] + 0.12)]) { for (const [zEdge, dir] of [[box.max.z, 1], [box.min.z, -1]]) { // + just above a notched (cab-over) opening's raised bottom
-    let xb = 0, yb = yy; for (const i of BV) { const z = BP.getZ(i), y = BP.getY(i); if (Math.abs(y - yy) < 0.06 && (z - zEdge) * dir > (door.cab ? -0.001 : 0.002) && (z - zEdge) * dir < 0.08 && mx(BP.getX(i)) < xb) { xb = mx(BP.getX(i)); yb = y; } }
+  for (const yy of [0.55, 0.7, ...(door.cab ? [0.89, 1.06, 1.4] : []), ...(door.rects || []).filter((r) => r[2] > 0.6).map((r) => r[2] + 0.12)]) { if (door.cab && yy < Math.min(...door.rects.map((r) => r[2]))) continue; for (const [zEdge, dir] of [[box.max.z, 1], [box.min.z, -1]]) { // + just above a notched (cab-over) opening's raised bottom
+    let xb = 0, yb = yy; for (const i of BV) { const z = BP.getZ(i), y = BP.getY(i); if (Math.abs(y - yy) < 0.06 && (z - zEdge) * dir > (door.cab ? -0.001 : 0.002) && (z - zEdge) * dir < (door.cab ? 0.012 : 0.08) && mx(BP.getX(i)) < xb) { xb = mx(BP.getX(i)); yb = y; } }
     // door skin at the SAME height as the body sample (outermost skin x interpolated over y): bodies with a shoulder curve
     // change x quickly with height, so comparing points up to 6 cm apart in y would report a step that is not there
-    const skin = []; for (let i = 0; i < dp.count; i++) { v3.fromBufferAttribute(dp, i).applyMatrix4(paintM.matrixWorld); if (Math.abs(v3.y - yb) < (door.cab ? 1.3 : 0.1) && (zEdge - v3.z) * dir < 0.08 && (zEdge - v3.z) * dir >= 0) skin.push([v3.y, mx(v3.x)]); }
+    const skin = []; for (let i = 0; i < dp.count; i++) { v3.fromBufferAttribute(dp, i).applyMatrix4(paintM.matrixWorld); if (Math.abs(v3.y - yb) < (door.cab ? 1.3 : 0.1) && (zEdge - v3.z) * dir < 0.08 && (zEdge - v3.z) * dir >= (door.cab ? -0.001 : 0)) skin.push([v3.y, mx(v3.x), Math.abs(zEdge - v3.z)]); }
     let xd = 0; { const lo = skin.filter((p) => p[0] <= yb).sort((p, q) => q[0] - p[0] || p[1] - q[1])[0], hi = skin.filter((p) => p[0] >= yb).sort((p, q) => p[0] - q[0] || p[1] - q[1])[0];
       const outer = (yv) => Math.min(...skin.filter((p) => Math.abs(p[0] - yv) < 1e-4).map((p) => p[1]));
-      if (lo && hi) { const xl = outer(lo[0]), xh = outer(hi[0]); xd = hi[0] - lo[0] > 1e-4 ? xl + (xh - xl) * (yb - lo[0]) / (hi[0] - lo[0]) : Math.min(xl, xh); } }
-    if (xb < 0 && xd < 0) { worst = Math.max(worst, Math.abs(xb - xd)); n2++; } } }
+      if (door.cab && skin.length) { const e = Math.min(...skin.map((p) => p[2])); xd = Math.min(...skin.filter((p) => p[2] < e + 0.002).map((p) => p[1])); } /* cab door: flat vertical panel per z — its outermost skin point at the edge */ else if (lo && hi) { const xl = outer(lo[0]), xh = outer(hi[0]); xd = hi[0] - lo[0] > 1e-4 ? xl + (xh - xl) * (yb - lo[0]) / (hi[0] - lo[0]) : Math.min(xl, xh); } }
+    if (xb < 0 && xd < 0) { worst = Math.max(worst, Math.abs(xb - xd)); n2++; if (process.env.DBG && Math.abs(xb - xd) > 0.006) console.log(tag, 'yy', yy, 'yb', yb.toFixed(3), 'edge', zEdge.toFixed(3), dir, 'body', xb.toFixed(3), 'door', xd.toFixed(3)); } } }
   ok(n2 >= ((door.rects || []).length > 1 ? 1 : 2) && worst < 0.006, `${tag}: door skin not flush with the body (step ${(worst * 1000).toFixed(1)} mm, samples ${n2})`);
   // 3. swing clearance: no door point pushes forward into the wing (ahead of the opening, inboard of the body side)
   //    (only points that move forward of where they sit when closed and end up ahead of the opening, inside the body side)

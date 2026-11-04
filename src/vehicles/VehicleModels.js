@@ -436,8 +436,8 @@ function buildBaseModel(type, color, variant, opts = {}) {
     sideBody(paint, [[L / 2, 0.62], [L / 2 + 0.02, 1.75], [L / 2 - 0.04, 1.82], [L / 2 - cabL, 1.82], [L / 2 - cabL, 0.62]], 0.62, [[wf, R]], W, col, { bevel: 0.07, openTop: [L / 2 - cabL + 0.06, L / 2 - 0.1, 1.2], cut: [-1, 1].map((side) => ({ side, rects: [[czN, czF, 0.55, 9], [czR, czN, archY, 9]], z0: czR, z1: czF, yTop: 1.5 })) });
     loft(glass, [gA, gAt(czR), gAt(czF), gB], C('#fff'), { noBottom: true, skip: (i, k) => i === 1 && ((k >= 1 && k <= 4) || k >= 6) });
     for (const side of [-1, 1]) doors.push({ side, role: 'front', mirror: false, hinge: [side * W, czF], len: czF - czR, max: 1.45, gripY: 1.62, spec: null,
-      cab: { rects: [[czN, czF, 0.62], [czR, czN, archY]], belt: 1.82, zR: czR, gR: gAt(czR + 0.03), gF: gAt(czF - 0.03), W, col, trim: C('#3a3a3a') } });
-    const cabStep = { y: 0.4, z0: czN + 0.06, z1: czF - 0.05, out: 0.32 };
+      cab: { rects: [[czN, czF, 0.62], [czR, czN, archY]], belt: 1.82, win: [gAt(czR + 0.03), gAt(czF - 0.03)].map((q) => q.slice(0, 5)), W, col, trim: C('#3a3a3a') } });
+    const cabStep = { y: 0.4, z0: czN + 0.06, z1: czF - 0.05, out: 0.32, sx: W + 0.16, handle: [W + 0.06, 1.78, L / 2 - 0.075] };
     for (const sx of [-1, 1]) { rubber.box(sx * (W + cabStep.out / 2 - 0.02), cabStep.y - 0.02, (cabStep.z0 + cabStep.z1) / 2, cabStep.out + 0.04, 0.04, cabStep.z1 - cabStep.z0, { col: C('#2a2a2a') }); // tread (chequer plate)
       for (const z of [cabStep.z0 + 0.03, cabStep.z1 - 0.03]) rubber.box(sx * (W + 0.05), (cabStep.y + 0.62) / 2, z, 0.03, 0.62 - cabStep.y, 0.03, { col: C('#1a1a1a') }); // hangers
       beam(ch, [sx * (W + 0.045), 1.45, L / 2 - 0.07], [sx * (W + 0.045), 2.25, L / 2 - 0.08], 0.016, 0.016, C('#b0b4b8'), unitCyl); for (const y of [1.45, 2.25]) ch.box(sx * (W + 0.02), y, L / 2 - 0.075, 0.05, 0.02, 0.02, { col: C('#888') }); } // grab handle on the A-pillar
@@ -487,19 +487,32 @@ function buildBaseModel(type, color, variant, opts = {}) {
     const FP = [[fzc - 0.015, sC], [fzc, sC + 0.3], [fzc - tr.nose * 0.6, belt - 0.12], [zW, belt]];
     const fZ = (y) => { for (let i = 0; i < FP.length - 1; i++) { const a = FP[i], b = FP[i + 1]; if (y >= a[1] && y <= b[1]) return lerp(a[0], b[0], (y - a[1]) / ((b[1] - a[1]) || 1)); } return y < sC ? FP[0][0] : zW; };
     // cab shell (front wheel arch cut into the cab sides), glass house, roof cap, rear panel with a small window
-    sideBody(paint, [...FP, [cr + 0.02, belt], [cr, sC]], sC, [[wf, R]], cw, col, { bevel: 0.06, taper: (z) => 1 - 0.035 * sstep(fzc - 0.3, fzc + 0.02, z), openTop: [cr + 0.06, zW - 0.04, belt - 0.25] });
-    loft(glass, [[zW, belt, belt + 0.02], [(zW + zT) / 2, belt, (belt + wsT) / 2 + 0.01], [zT, belt, wsT], [cr + 0.06, belt, wsT - 0.01], [cr + 0.035, belt, wsT - 0.04]].map(([z, y0, y1]) => [z, y0, y1, g0, g1, 0.04]), C('#fff'), { noBottom: true });
+    // real hinged doors (both sides) between the B-pillar and the raked A-pillar: panel up to the belt, the window follows the
+    // A-pillar rake; hinged at the front; the high cab-over (floor > 0.7) gets a tread ahead of the front wheel + a grab handle
+    const zA = zW - 0.06, zB = cr + 0.12, db = Math.max(sC + 0.04, 2 * R + 0.12), zN = wf + R + 0.1, notch = tr.floor > 0.7 && zN < zA - 0.3, dR = notch ? [[zN, zA, sC + 0.04], [zB, zN, db]] : [[zB, zA, db]], skX = (z) => cw * (1 - 0.035 * sstep(fzc - 0.3, fzc + 0.02, z));
+    const SG = [[zW, belt, belt + 0.02], [(zW + zT) / 2, belt, (belt + wsT) / 2 + 0.01], [zT, belt, wsT], [cr + 0.06, belt, wsT - 0.01], [cr + 0.035, belt, wsT - 0.04]].map(([z, y0, y1]) => [z, y0, y1, g0, g1, 0.04]);
+    const sgAt = (z) => { for (let i = 0; i < SG.length - 1; i++) { const a = SG[i], b = SG[i + 1]; if (z <= a[0] && z >= b[0]) { const t = (a[0] - z) / (a[0] - b[0]); return a.map((v, k) => (k === 0 ? z : lerp(v, b[k], t))); } } return SG[SG.length - 1]; };
+    const SG2 = [...SG.filter((q) => q[0] > zA + 0.005), sgAt(zA), ...SG.filter((q) => q[0] < zA - 0.005 && q[0] > zB + 0.005), sgAt(zB), ...SG.filter((q) => q[0] < zB - 0.005)]; const iA = SG2.findIndex((q) => q[0] === zA), iB = SG2.findIndex((q) => q[0] === zB);
+    sideBody(paint, [...FP, [cr + 0.02, belt], [cr, sC]], sC, [[wf, R]], cw, col, { bevel: 0.06, taper: (z) => 1 - 0.035 * sstep(fzc - 0.3, fzc + 0.02, z), openTop: [cr + 0.06, zW - 0.04, belt - 0.25], cut: [-1, 1].map((side) => ({ side, rects: dR.map((r) => [r[0], r[1], r[2], 9]), z0: zB, z1: zA, yTop: belt - 0.1 })) });
+    loft(glass, SG2, C('#fff'), { noBottom: true, skip: (i, k) => i >= iA && i < iB && ((k >= 1 && k <= 4) || k >= 6) });
+    // door window outline: the top edge stays a pillar's width (~6 cm square to it) clear of the raked A-pillar beam and of the
+    // roof edge; columns at the kinks of that line, the front one where the window is still 8 cm tall
+    const topY = (z) => Math.min(sgAt(Math.min(z + 0.085, zW))[2] - 0.02, sgAt(z)[2] - 0.065); let zf = zA - 0.03; while (zf > zB + 0.3 && topY(zf) < belt + 0.08) zf -= 0.005;
+    const dWin = [...new Set([zB + 0.03, ...SG.map((q) => q[0] - 0.085).filter((z) => z > zB + 0.06 && z < zf - 0.03), zf])].map((z) => { const q = sgAt(z); return [z, q[1], topY(z), q[3], q[4]]; }); const hi = tr.floor > 0.7;
+    for (const side of [-1, 1]) doors.push({ side, role: 'front', mirror: false, hinge: [side * skX(zA), zA], len: zA - zB, max: hi ? 1.45 : 1.15, gripY: belt - 0.1, spec: null,
+      cab: { rects: dR, belt, win: dWin, inset: 0, W: cw, tp: [fzc - 0.3, fzc + 0.02, 0.035], col, trim: C('#3a3a3a') } });
+    const pz = (y) => zW - (zW - zT) * (y - belt) / (wsT - belt); // A-pillar z at height y
+    const cabStep = hi ? { y: Math.round((sC + 0.02) * 0.66 * 100) / 100, z0: wf + R + 0.12, z1: zA - 0.05, out: 0.32, sx: cw + 0.17, handle: [cw - 0.16, belt + 0.27, pz(belt + 0.27) - 0.09] } : null;
     loft(paint, [[cr + 0.015, wsT - 0.03, roof, g1 + 0.014, g1 - 0.03, 0.08], [zT + 0.03, wsT - 0.03, roof - 0.015, g1 + 0.014, g1 - 0.03, 0.08]], col);
     { const z = cr + 0.02, wy0 = belt + 0.12, wy1 = Math.min(wsT - 0.08, belt + 0.38), hx = 0.32; paint.box(0, (belt + wy0) / 2, z, g0 * 2, wy0 - belt, 0.03, { col }); paint.box(0, (wy1 + wsT) / 2, z, g0 * 2, wsT - wy1, 0.03, { col }); for (const sx of [-1, 1]) paint.box(sx * (hx + g0) / 2, (wy0 + wy1) / 2, z, g0 - hx, wy1 - wy0, 0.03, { col }); }
     for (const sx of [-1, 1]) {
       beam(paint, [sx * (g0 + g1) / 2, belt + 0.01, zW], [sx * g1, wsT, zT], 0.06, 0.07, col); beam(paint, [sx * g0, belt, cr + 0.05], [sx * g1, wsT, cr + 0.05], 0.06, 0.06, col);
-      beam(rubber, [sx * g0, belt, cr + 0.16], [sx * g1, wsT, cr + 0.16], 0.04, 0.06, C('#111')); // door rear frame (B-pillar)
-      const zA = zW - 0.06, zB = cr + 0.12, db = Math.max(sC + 0.04, 2 * R + 0.12); seam(mb, sx * (cw * (1 - 0.035 * sstep(fzc - 0.3, fzc + 0.02, zA)) + 0.003), [[zA, belt - 0.01], [zA, db], [zB, db], [zB, belt - 0.01]]);
-      ch.box(sx * (cw + 0.012), belt - 0.1, zB + 0.16, 0.02, 0.03, 0.13, { col: chrome });
-      if (tr.floor > 0.7) rubber.box(sx * (cw - 0.05), (sC + R) / 2 - 0.02, (zA + zB) / 2, 0.14, 0.035, 0.42, { col: C('#202022') }); // boarding step
-      part(ind, unitBox, [sx * (cw + 0.004), belt - 0.15, zW - 0.12], [0, 0, 0], [0.012, 0.035, 0.07]);
+      if (cabStep) { const cs = cabStep; rubber.box(sx * (cw + cs.out / 2 - 0.02), cs.y - 0.02, (cs.z0 + cs.z1) / 2, cs.out + 0.04, 0.04, cs.z1 - cs.z0, { col: C('#2a2a2a') }); // tread
+        for (const z of [cs.z0 + 0.03, cs.z1 - 0.03]) rubber.box(sx * (cw + 0.04), (cs.y + sC + 0.02) / 2, z, 0.03, sC + 0.02 - cs.y, 0.03, { col: C('#1a1a1a') }); // hangers
+        const h = cs.handle; beam(ch, [sx * h[0], belt + 0.08, pz(belt + 0.08) - 0.09], [sx * (h[0] - 0.01), belt + 0.46, pz(belt + 0.46) - 0.09], 0.015, 0.015, C('#b0b4b8'), unitCyl); } // grab handle inside on the A-pillar
+      part(ind, unitBox, [sx * (skX(zW - 0.01) + 0.004), belt - 0.15, zW - 0.01], [0, 0, 0], [0.012, 0.035, 0.05]);
       // truck mirrors on tubular arms
-      beam(ch, [sx * (cw - 0.02), belt + 0.05, zW - 0.2], [sx * (cw + 0.2), belt + 0.12, zW - 0.05], 0.022, 0.022, black, unitCyl); part(paint, unitBox, [sx * (cw + 0.22), belt + 0.28, zW - 0.04], [0, 0, 0], [0.07, 0.3, 0.05], black);
+      beam(ch, [sx * (cw - 0.03), belt + 0.04, zW - 0.01], [sx * (cw + 0.2), belt + 0.12, zW - 0.05], 0.022, 0.022, black, unitCyl); part(paint, unitBox, [sx * (cw + 0.22), belt + 0.28, zW - 0.04], [0, 0, 0], [0.07, 0.3, 0.05], black);
       beam(rubber, [sx * 0.05, belt + 0.03, zW - 0.02], [sx * (g0 - 0.15), belt + 0.05, zW - 0.08], 0.012, 0.012, black); // wipers
     }
     // front face: lamps, grille, emblem, wordmark, bumper, plate
@@ -537,7 +550,7 @@ function buildBaseModel(type, color, variant, opts = {}) {
     // cab interior: floor, trims, headliner, rear wall, dashboard, seats, steering wheel
     const sz = cr + 0.42, sx0 = tr.sx; const seatY = tr.seatY;
     I.box(0, tr.floor, (cr + zW) / 2, g0 * 2 - 0.06, 0.03, zW - cr - 0.08, { col: C('#262628') });
-    for (const sx of [-1, 1]) I.box(sx * (g0 - 0.03), (tr.floor + belt) / 2, (cr + zW) / 2, 0.025, belt - tr.floor, zW - cr - 0.12, { col: C('#4a4a48') });
+    for (const sx of [-1, 1]) I.box(sx * (g0 - 0.03), (tr.floor + belt) / 2, (cr + 0.06 + zB) / 2, 0.025, belt - tr.floor, zB - cr - 0.06, { col: C('#4a4a48') }); // behind the door (it carries its own trim)
     I.box(0, roof - 0.05, (cr + zT) / 2, g1 * 2 - 0.06, 0.02, zT - cr - 0.04, { col: C('#bdbdb5') }); I.box(0, (tr.floor + belt) / 2, cr + 0.05, g0 * 2 - 0.06, belt - tr.floor, 0.025, { col: C('#3a3a3a') });
     part(I, unitBox, [0, belt - 0.06, zW - 0.2], [0, 0, 0], [g0 * 2 - 0.12, 0.2, 0.32], C('#2a2a2a'));
     I.box(0, (tr.floor + seatY) / 2, sz - 0.02, g0 * 2 - 0.1, seatY - tr.floor, 0.42, { col: C('#2c2c2e') }); // engine cover / seat base
@@ -547,7 +560,7 @@ function buildBaseModel(type, color, variant, opts = {}) {
     seats.push({ x: -sx0, y: seatY + 0.06, z: sz, floor: tr.floor + 0.015, fz: 0.55, fx: 0.12, roof: rf, lean: -0.18, hands: 'wheel', wheel: whl, kind: 'drive', driver: true, exit: [-W - 0.6, sz] },
       { x: sx0, y: seatY + 0.06, z: sz, floor: tr.floor + 0.015, fz: 0.57, fx: 0.12, roof: rf, lean: -0.2, hands: 'lap', kind: 'sit', exit: [W + 0.6, sz] });
     const rw = tr.dual ? 0.44 : 0.2, rx = tr.dual ? dW - 0.24 : dW - 0.15;
-    return out([[-cw + 0.17, R, wf, 0.2], [cw - 0.17, R, wf, 0.2], [-rx, R, wr, rw], [rx, R, wr, rw]], sw, { busDoor: [-(W + 0.6), sz + 0.1] }); // driver climbs in on the driver's (right, −x) side
+    return out([[-cw + 0.17, R, wf, 0.2], [cw - 0.17, R, wf, 0.2], [-rx, R, wr, rw], [rx, R, wr, rw]], sw, { cabStep }); // driver climbs in on the driver's (right, −x) side
   }
 
   // =============================================================== CARS, TAXI, VAN, SUV — shared passenger-vehicle builder
@@ -780,18 +793,30 @@ function buildLeafGeos(d) {
   const geos = []; for (const [name, b] of mb.b) { const geo = b.build(); if (geo) { geo.computeBoundingSphere(); geos.push([name, geo]); } } return geos;
 }
 
-// lorry cab door (hinge space, built directly for its side s: the skin is at x 0, inside is −s·x): flat steel panel per notch
-// rect up to the belt, inner trim card, window frame + glass in the cab glass plane (leaning in toward the roof), handle
+// quad facing `want` (flips the winding if needed; paint is single-sided)
+function quadF(m, a, b, c, d, want, col) { const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = d[0] - a[0], vy = d[1] - a[1], vz = d[2] - a[2];
+  if ((uy * vz - uz * vy) * want[0] + (uz * vx - ux * vz) * want[1] + (ux * vy - uy * vx) * want[2] >= 0) m.quad(a, b, c, d, [0, 0, 1, 1], col); else m.quad(b, a, d, c, [0, 0, 1, 1], col); }
+// truck / lorry cab door (hinge space, built directly for its side s): a steel panel per notch rect up to the belt whose skin
+// follows the cab's plan taper (c.tp = [z0, z1, amount] narrowing toward the nose), inner trim card, window frame + glass in
+// the cab's glass plane through the columns c.win ([z, y0, y1, w0, w1] — the window outline follows a raked A-pillar), handle
 function buildCabDoorGeos(d) {
-  const c = d.cab, s = d.side, zF = d.hinge[1], mb = new MultiBuilder(), P = mb.get('paint'), gl = mb.get('glass'), ch = mb.get('chrome'), I = mb.get('interior'), rb = mb.get('rubber'); const X = (x) => s * x;
-  for (const [za, zb, y0] of c.rects) { P.box(X(-0.025), (y0 + c.belt) / 2, (za + zb) / 2 - zF, 0.05, c.belt - y0, zb - za, { col: c.col }); I.box(X(-0.06), (y0 + c.belt) / 2, (za + zb) / 2 - zF, 0.02, c.belt - y0 - 0.06, zb - za - 0.06, { col: c.trim }); }
-  const zr = c.zR - zF, xr0 = c.gR[3] - c.W, xr1 = c.gR[4] - c.W, xf0 = c.gF[3] - c.W, xf1 = c.gF[4] - c.W, y0 = c.belt, yr = c.gR[2] - 0.03, yf = c.gF[2] - 0.03;
-  const q = [[X(xr0), y0 + 0.05, zr + 0.06], [X(xf0), y0 + 0.05, -0.06], [X(xf1), yf - 0.04, -0.06], [X(xr1), yr - 0.04, zr + 0.06]]; if (s > 0) gl.quad(q[0], q[1], q[2], q[3], [0, 0, 1, 1], C('#fff')); else gl.quad(q[1], q[0], q[3], q[2], [0, 0, 1, 1], C('#fff'));
-  beam(P, [X(xr0), y0 + 0.02, zr + 0.02], [X(xf0), y0 + 0.02, -0.02], 0.05, 0.05, c.col); beam(P, [X(xr1), yr, zr + 0.02], [X(xf1), yf, -0.02], 0.045, 0.05, c.col);
-  beam(P, [X(xr0), y0, zr + 0.025], [X(xr1), yr, zr + 0.025], 0.05, 0.05, c.col); beam(P, [X(xf0), y0, -0.025], [X(xf1), yf, -0.025], 0.05, 0.05, c.col);
-  beam(rb, [X(xr0 + 0.006), y0 + 0.05, zr + 0.055], [X(xr1 + 0.006), yr - 0.04, zr + 0.055], 0.012, 0.02, C('#111'));
-  ch.box(X(0.012), c.belt - 0.16, zr + 0.17, 0.02, 0.035, 0.16, { col: C('#c4c8cc') }); rb.box(X(0.004), c.belt - 0.16, zr + 0.17, 0.008, 0.06, 0.19, { col: C('#0c0c0d') }); // handle in its recess
-  ch.box(X(-0.075), c.belt - 0.2, zr + 0.25, 0.02, 0.03, 0.1, { col: C('#9aa0a6') }); // inside pull
+  const c = d.cab, s = d.side, zF = d.hinge[1], hx = Math.abs(d.hinge[0]), mb = new MultiBuilder(), P = mb.get('paint'), gl = mb.get('glass'), ch = mb.get('chrome'), I = mb.get('interior'), rb = mb.get('rubber');
+  const X = (x) => s * x, TH = 0.05, sk = (z) => (c.tp ? c.W * (1 - c.tp[2] * sstep(c.tp[0], c.tp[1], z)) : c.W) - hx; // skin offset (outward) from the hinge line
+  const y1 = c.belt; let zMin = 9;
+  for (const [za, zb, y0] of c.rects) { zMin = Math.min(zMin, za); const n = c.tp ? 6 : 1;
+    for (let i = 0; i < n; i++) { const z0 = za + (zb - za) * i / n, z1 = za + (zb - za) * (i + 1) / n, o0 = sk(z0), o1 = sk(z1), a = z0 - zF, b = z1 - zF;
+      quadF(P, [X(o0), y0, a], [X(o1), y0, b], [X(o1), y1, b], [X(o0), y1, a], [s, 0, 0], c.col); quadF(P, [X(o0 - TH), y0, a], [X(o1 - TH), y0, b], [X(o1 - TH), y1, b], [X(o0 - TH), y1, a], [-s, 0, 0], c.col);
+      quadF(P, [X(o0), y0, a], [X(o1), y0, b], [X(o1 - TH), y0, b], [X(o0 - TH), y0, a], [0, -1, 0], c.col); quadF(P, [X(o0), y1, a], [X(o1), y1, b], [X(o1 - TH), y1, b], [X(o0 - TH), y1, a], [0, 1, 0], c.col); }
+    for (const [z, w] of [[za, -1], [zb, 1]]) { const o = sk(z); quadF(P, [X(o), y0, z - zF], [X(o - TH), y0, z - zF], [X(o - TH), y1, z - zF], [X(o), y1, z - zF], [0, 0, w], c.col); }
+    const zm = (za + zb) / 2; I.box(X(sk(zm) - 0.065), (y0 + y1) / 2, zm - zF, 0.02, y1 - y0 - 0.06, zb - za - 0.06, { col: c.trim }); }
+  const W = c.win.slice().sort((p, q) => p[0] - q[0]), ins = c.inset ?? 0.04, last = W.length - 1;
+  const pt = (q, top, j) => { const zi = j === 0 ? 0.06 : j === last ? -0.06 : 0; return top ? [X(q[4] - hx), q[2] - ins, q[0] - zF + zi] : [X(q[3] - hx), q[1] + 0.05, q[0] - zF + zi]; };
+  for (let j = 0; j < last; j++) { const A = W[j], B = W[j + 1]; quadF(gl, pt(A, 0, j), pt(B, 0, j + 1), pt(B, 1, j + 1), pt(A, 1, j), [s, 0, 0], C('#fff'));
+    beam(P, [X(A[3] - hx), A[1] + 0.02, A[0] - zF], [X(B[3] - hx), B[1] + 0.02, B[0] - zF], 0.05, 0.05, c.col); beam(P, [X(A[4] - hx), A[2] - ins + 0.01, A[0] - zF], [X(B[4] - hx), B[2] - ins + 0.01, B[0] - zF], 0.045, 0.05, c.col); }
+  for (const [q, w] of [[W[0], 1], [W[last], -1]]) beam(P, [X(q[3] - hx), q[1], q[0] - zF + w * 0.025], [X(q[4] - hx), q[2] - ins + 0.01, q[0] - zF + w * 0.025], 0.05, 0.05, c.col);
+  { const q = W[0]; beam(rb, [X(q[3] - hx + 0.006), q[1] + 0.05, q[0] - zF + 0.055], [X(q[4] - hx + 0.006), q[2] - ins - 0.04, q[0] - zF + 0.055], 0.012, 0.02, C('#111')); }
+  const zh = zMin + 0.17; ch.box(X(sk(zh) + 0.012), c.belt - 0.16, zh - zF, 0.02, 0.035, 0.16, { col: C('#c4c8cc') }); rb.box(X(sk(zh) + 0.004), c.belt - 0.16, zh - zF, 0.008, 0.06, 0.19, { col: C('#0c0c0d') }); // handle in its recess
+  ch.box(X(sk(zh + 0.08) - 0.08), c.belt - 0.2, zh + 0.08 - zF, 0.02, 0.03, 0.1, { col: C('#9aa0a6') }); // inside pull
   const geos = []; for (const [name, b] of mb.b) { const geo = b.build(); if (geo) { geo.computeBoundingSphere(); geos.push([name, geo]); } } return geos;
 }
 
