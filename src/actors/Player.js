@@ -8,7 +8,7 @@ import { clamp, lerp, damp, dampAngle, wrapAngle } from '../core/math.js';
 import * as L from '../world/Layout.js';
 import { kickUp, kickDown, isTwoWheel, KICK_UP, KICK_DOWN } from '../vehicles/Kickstand.js';
 import { doorPath, seatPath, seatCharacter } from './Seating.js';
-import { BOARD_T, EXIT_K, boardKind, boardGeom, boardCurve, poseBoard, riseGeom } from './Boarding.js';
+import { BOARD_T, EXIT_K, boardKind, boardGeom, boardCurve, poseBoard, riseGeom, doorGripFn } from './Boarding.js';
 import { busDriverPath, busDriverStand, busWalkStep, turnToward, DRIVER_T as STAND_T } from './BusWalk.js';
 import { openBusDoor } from '../vehicles/DoorRig.js';
 const isBus = (v) => v.type === 'bus' || v.type === 'pbus'; // real doorways + stairwell (VehicleModels): walked, not slid through
@@ -140,7 +140,7 @@ export class Player {
   boardG(v, seat, A, side) {
     const d = v.mesh.userData.door; const door = d && d.len ? { x: d.pivot.position.x, z: d.pivot.position.z, len: d.len, max: d.max } : null;
     const G = boardGeom(v, seat, A, boardKind(v) === 'bike' ? 1 : side, door);
-    if (door) G.doorGrip = () => { const th = d.max * (d.ang || 0); return [door.x + side * door.len * Math.sin(th) * 0.88, 1.05, door.z - door.len * Math.cos(th) * 0.88]; };
+    if (door) G.doorGrip = doorGripFn(d, door, side);
     return G;
   }
   boardGround(v) {

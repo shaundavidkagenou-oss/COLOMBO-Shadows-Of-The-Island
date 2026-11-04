@@ -29,7 +29,7 @@ export const VTYPES = {
   suv: { len: 4.8, wid: 1.9, hgt: 1.85, wheelR: 0.38, maxSpeed: 44, accel: 6.5, mass: 2100, seats: 5, steer: 0.5, sound: 'van', entry: 'van', colors: ['#111214'] },
   bus: { len: 11, wid: 2.5, hgt: 3.15, wheelR: 0.5, maxSpeed: 24, accel: 2.0, mass: 9000, seats: 40, steer: 0.42, sound: 'bus', entry: 'bus', colors: ['#9c1c1c'] },
   pbus: { len: 10.4, wid: 2.45, hgt: 3.1, wheelR: 0.5, maxSpeed: 26, accel: 2.2, mass: 8500, seats: 40, steer: 0.42, sound: 'bus', entry: 'bus', colors: ['#f4f4f2', '#2a5aa8', '#e8e0d0', '#1f7a5a'] },
-  lorry: { len: 7.2, wid: 2.3, hgt: 3.0, wheelR: 0.48, maxSpeed: 24, accel: 2.0, mass: 7000, seats: 2, steer: 0.45, sound: 'bus', entry: 'bus', colors: ['#1d4f8a', '#b51f1f', '#e0b420', '#2a6b3a'] },
+  lorry: { len: 7.2, wid: 2.3, hgt: 3.0, wheelR: 0.48, maxSpeed: 24, accel: 2.0, mass: 7000, seats: 2, steer: 0.45, sound: 'bus', entry: 'cab', colors: ['#1d4f8a', '#b51f1f', '#e0b420', '#2a6b3a'] },
   // Sri Lanka Police vehicles (white with blue bands, trilingual POLICE lettering, blue/red beacons). Built on the civilian
   // body of `base` plus a police kit; never part of random traffic (Traffic.js MIX lists them nowhere).
   police: { base: 'sedan', police: true, len: 4.5, wid: 1.74, hgt: 1.45, wheelR: 0.32, maxSpeed: 46, accel: 6.4, mass: 1300, seats: 4, steer: 0.52, sound: 'car', entry: 'car', colors: ['#f4f4f2'] },
@@ -39,7 +39,7 @@ export const VTYPES = {
   // red/blue beacons, twin rear doors (AmbulanceKit.js). Unbadged; only appears when the player calls 119 → ambulance.
   ambulance: { base: 'van', ambulance: true, len: 4.7, wid: 1.72, hgt: 2.0, wheelR: 0.33, maxSpeed: 38, accel: 5.0, mass: 2100, seats: 8, steer: 0.5, sound: 'van', entry: 'van', colors: ['#f4f4f2'] },
   // municipal wrecker on the lorry cab: equipment deck, boom and winch, rear wheel-lift; only appears to tow a vehicle the player abandoned
-  tow: { base: 'lorry', tow: true, len: 7.2, wid: 2.3, hgt: 3.0, wheelR: 0.48, maxSpeed: 24, accel: 2.0, mass: 6500, seats: 2, steer: 0.45, sound: 'bus', entry: 'bus', colors: ['#e0b420', '#f2f2f0'] },
+  tow: { base: 'lorry', tow: true, len: 7.2, wid: 2.3, hgt: 3.0, wheelR: 0.48, maxSpeed: 24, accel: 2.0, mass: 6500, seats: 2, steer: 0.45, sound: 'bus', entry: 'cab', colors: ['#e0b420', '#f2f2f0'] },
   bike: { len: 1.95, wid: 0.7, hgt: 1.1, wheelR: 0.3, maxSpeed: 30, accel: 6.5, mass: 160, seats: 2, steer: 0.7, sound: 'bike', entry: 'bike', colors: ['#151515', '#b51f1f', '#1d3f8a', '#e8e8e4', '#5a6b3a'] },
 };
 // the 40 catalogue models (fictional makes, real-world proportions) — VehicleCatalog.js
@@ -429,13 +429,23 @@ function buildBaseModel(type, color, variant, opts = {}) {
   // =============================================================== LORRY (cab-over truck with drop-side bed)
   if (type === 'lorry') {
     const cabL = 1.95; const cz = L / 2 - cabL / 2; const wf = L / 2 - 1.15, wr = -L / 2 + 1.55; wheelStyle = 1;
-    sideBody(paint, [[L / 2, 0.62], [L / 2 + 0.02, 1.75], [L / 2 - 0.04, 1.82], [L / 2 - cabL, 1.82], [L / 2 - cabL, 0.62]], 0.62, [[wf, R]], W, col, { bevel: 0.07, openTop: [L / 2 - cabL + 0.06, L / 2 - 0.1, 1.2] });
-    loft(glass, [[L / 2 - cabL + 0.05, 1.8, 2.66, W - 0.05, W - 0.12, 0.05], [L / 2 - 0.12, 1.8, 2.6, W - 0.06, W - 0.14, 0.05]], C('#fff'), { noBottom: true });
+    // cab doors (both sides): real hinged doors on the A-pillar, notched over the front wheel arch, with their own window in the
+    // cab's glass plane; a tread hangs under the front part (in front of the wheel) and a grab handle sits on the A-pillar
+    const czF = L / 2 - 0.16, czR = L / 2 - cabL + 0.64, czN = wf + R + 0.1, archY = R + (R + 0.07) + 0.04; const gA = [L / 2 - cabL + 0.05, 1.8, 2.66, W - 0.05, W - 0.12, 0.05], gB = [L / 2 - 0.12, 1.8, 2.6, W - 0.06, W - 0.14, 0.05];
+    const gAt = (z) => { const t = (z - gA[0]) / (gB[0] - gA[0]); return gA.map((a, i) => (i === 0 ? z : lerp(a, gB[i], t))); };
+    sideBody(paint, [[L / 2, 0.62], [L / 2 + 0.02, 1.75], [L / 2 - 0.04, 1.82], [L / 2 - cabL, 1.82], [L / 2 - cabL, 0.62]], 0.62, [[wf, R]], W, col, { bevel: 0.07, openTop: [L / 2 - cabL + 0.06, L / 2 - 0.1, 1.2], cut: [-1, 1].map((side) => ({ side, rects: [[czN, czF, 0.55, 9], [czR, czN, archY, 9]], z0: czR, z1: czF, yTop: 1.5 })) });
+    loft(glass, [gA, gAt(czR), gAt(czF), gB], C('#fff'), { noBottom: true, skip: (i, k) => i === 1 && ((k >= 1 && k <= 4) || k >= 6) });
+    for (const side of [-1, 1]) doors.push({ side, role: 'front', mirror: false, hinge: [side * W, czF], len: czF - czR, max: 1.45, gripY: 1.62, spec: null,
+      cab: { rects: [[czN, czF, 0.62], [czR, czN, archY]], belt: 1.82, zR: czR, gR: gAt(czR + 0.03), gF: gAt(czF - 0.03), W, col, trim: C('#3a3a3a') } });
+    const cabStep = { y: 0.4, z0: czN + 0.06, z1: czF - 0.05, out: 0.32 };
+    for (const sx of [-1, 1]) { rubber.box(sx * (W + cabStep.out / 2 - 0.02), cabStep.y - 0.02, (cabStep.z0 + cabStep.z1) / 2, cabStep.out + 0.04, 0.04, cabStep.z1 - cabStep.z0, { col: C('#2a2a2a') }); // tread (chequer plate)
+      for (const z of [cabStep.z0 + 0.03, cabStep.z1 - 0.03]) rubber.box(sx * (W + 0.05), (cabStep.y + 0.62) / 2, z, 0.03, 0.62 - cabStep.y, 0.03, { col: C('#1a1a1a') }); // hangers
+      beam(ch, [sx * (W + 0.045), 1.45, L / 2 - 0.07], [sx * (W + 0.045), 2.25, L / 2 - 0.08], 0.016, 0.016, C('#b0b4b8'), unitCyl); for (const y of [1.45, 2.25]) ch.box(sx * (W + 0.02), y, L / 2 - 0.075, 0.05, 0.02, 0.02, { col: C('#888') }); } // grab handle on the A-pillar
     loft(paint, [[L / 2 - cabL + 0.02, 2.6, 2.86, W - 0.04, W - 0.16, 0.12], [L / 2 - 0.1, 2.55, 2.84, W - 0.06, W - 0.18, 0.12]], col);
-    for (const sx of [-1, 1]) { beam(paint, [sx * (W - 0.06), 1.8, L / 2 - 0.1], [sx * (W - 0.1), 2.55, L / 2 - 0.12], 0.08, 0.1, col); beam(paint, [sx * (W - 0.05), 1.8, L / 2 - cabL + 0.6], [sx * (W - 0.1), 2.62, L / 2 - cabL + 0.6], 0.06, 0.08, col); seam(mb, sx * (W + 0.003), [[L / 2 - 0.3, 0.75], [L / 2 - 0.3, 1.78], [L / 2 - cabL + 0.62, 1.78], [L / 2 - cabL + 0.62, 0.75]]); }
+    for (const sx of [-1, 1]) { beam(paint, [sx * (W - 0.06), 1.8, L / 2 - 0.1], [sx * (W - 0.1), 2.55, L / 2 - 0.12], 0.08, 0.1, col); beam(paint, [sx * (W - 0.05), 1.8, L / 2 - cabL + 0.6], [sx * (W - 0.1), 2.62, L / 2 - cabL + 0.6], 0.06, 0.08, col); }
     glass.quad([-W + 0.1, 1.85, L / 2 + 0.025], [W - 0.1, 1.85, L / 2 + 0.025], [W - 0.12, 2.52, L / 2 - 0.1], [-W + 0.12, 2.52, L / 2 - 0.1], [0, 0, 1, 1], C('#fff'));
     for (let i = 0; i < 4; i++) ch.box(0, 1.0 + i * 0.1, L / 2 + 0.03, 1.2, 0.04, 0.02, { col: C('#2a2a2a') });
-    for (const sx of [-1, 1]) { part(lights, unitBox, [sx * (W - 0.3), 0.95, L / 2 + 0.03], [0, 0, 0], [0.32, 0.18, 0.02]); ind.box(sx * (W - 0.08), 0.95, L / 2 + 0.03, 0.1, 0.16, 0.02); beam(ch, [sx * (W - 0.02), 2.3, L / 2 - 0.25], [sx * (W + 0.25), 2.2, L / 2 + 0.05], 0.025, 0.025, black, unitCyl); part(paint, unitBox, [sx * (W + 0.27), 2.0, L / 2 + 0.06], [0, 0, 0], [0.08, 0.36, 0.05], black); }
+    for (const sx of [-1, 1]) { part(lights, unitBox, [sx * (W - 0.3), 0.95, L / 2 + 0.03], [0, 0, 0], [0.32, 0.18, 0.02]); ind.box(sx * (W - 0.08), 0.95, L / 2 + 0.03, 0.1, 0.16, 0.02); beam(ch, [sx * (W - 0.02), 2.3, L / 2 - 0.08], [sx * (W + 0.25), 2.2, L / 2 + 0.05], 0.025, 0.025, black, unitCyl); part(paint, unitBox, [sx * (W + 0.27), 2.0, L / 2 + 0.06], [0, 0, 0], [0.08, 0.36, 0.05], black); }
     rubber.box(0, 0.62, L / 2 + 0.07, W * 2 + 0.04, 0.26, 0.14, { col: C('#2a2a2a') }); plateQuad(mb, 0, 0.62, L / 2 + 0.145, 0.22, 0.06, true, variant);
     // chassis, bed, drop sides with planks, tarp, fuel tank, mudflaps, spare
     rubber.box(0, 0.62, -cabL / 2 + 0.1, 1.0, 0.22, L - cabL + 0.2, { col: C('#1d1d1d') });
@@ -461,12 +471,12 @@ function buildBaseModel(type, color, variant, opts = {}) {
     for (const sx of [-1, 1]) { rubber.box(sx * (W - 0.25), 0.35, wr - 0.75, 0.4, 0.45, 0.02, { col: black }); tails.box(sx * (W - 0.2), 0.8, -L / 2 - 0.01, 0.2, 0.15, 0.04); ind.box(sx * (W - 0.42), 0.8, -L / 2 - 0.01, 0.16, 0.12, 0.04); }
     plateQuad(mb, 0, 0.75, -L / 2 - 0.02, 0.22, 0.06, false, variant);
     const I = mb.get('interior'); part(I, unitBox, [0, 1.75, L / 2 - 0.35], [0, 0, 0], [W * 2 - 0.15, 0.25, 0.35], C('#2a2a2a')); seat(mb, -0.55, 1.15, L / 2 - 0.95, 0.55, C('#3a3a3a')); seat(mb, 0.4, 1.15, L / 2 - 0.95, 0.8, C('#3a3a3a'));
-    I.box(0, 0.79, cz, W * 2 - 0.12, 0.04, cabL - 0.1, { col: C('#2a2a2a') }); for (const sx of [-1, 1]) I.box(sx * (W - 0.07), 1.3, cz, 0.03, 1.0, cabL - 0.2, { col: C('#4a4a48') }); I.box(0, 2.56, cz, W * 2 - 0.12, 0.03, cabL - 0.1, { col: C('#bdbdb5') }); I.box(0, 1.7, L / 2 - cabL + 0.06, W * 2 - 0.12, 1.8, 0.03, { col: C('#4a4a48') });
+    I.box(0, 0.79, cz, W * 2 - 0.12, 0.04, cabL - 0.1, { col: C('#2a2a2a') }); for (const sx of [-1, 1]) I.box(sx * (W - 0.07), 1.3, (L / 2 - cabL + 0.1 + czR) / 2, 0.03, 1.0, czR - (L / 2 - cabL + 0.1), { col: C('#4a4a48') }); // behind the door (the door carries its own trim) I.box(0, 2.56, cz, W * 2 - 0.12, 0.03, cabL - 0.1, { col: C('#bdbdb5') }); I.box(0, 1.7, L / 2 - cabL + 0.06, W * 2 - 0.12, 1.8, 0.03, { col: C('#4a4a48') });
     const lw = { p: [-0.55, 1.76, L / 2 - 0.6], r: 0.22, tilt: 0.65 }; steering(mb, lw.p, lw.r, lw.tilt);
     seats.push({ x: -0.55, y: 1.21, z: L / 2 - 0.95, floor: 0.81, fz: 0.5, fx: 0.13, roof: 2.54, lean: -0.1, hands: 'wheel', wheel: lw, kind: 'drive', driver: true, exit: [-W - 0.6, L / 2 - 0.9] },
       { x: 0.45, y: 1.21, z: L / 2 - 0.95, floor: 0.81, fz: 0.5, fx: 0.13, roof: 2.54, lean: -0.12, hands: 'lap', kind: 'sit', exit: [W + 0.6, L / 2 - 0.9] });
-    heavyDetail(dm, KIT, { L, W, H, R, kind: 'lorry', belt: 1.8, winTop: 2.6, wf, wr });
-    return out([[-W + 0.22, R, wf, 0.3], [W - 0.22, R, wf, 0.3], [-W + 0.26, R, wr, 0.46], [W - 0.26, R, wr, 0.46]], [-0.55, 1.76, L / 2 - 0.6], { busDoor: [W + 0.6, cz] });
+    heavyDetail(dm, KIT, { L, W, H, R, kind: 'lorry', belt: 1.8, winTop: 2.6, wf, wr, cabDoor: [czR, czF] });
+    return out([[-W + 0.22, R, wf, 0.3], [W - 0.22, R, wf, 0.3], [-W + 0.26, R, wr, 0.46], [W - 0.26, R, wr, 0.46]], [-0.55, 1.76, L / 2 - 0.6], { cabStep });
   }
 
   // =============================================================== CAB-OVER TRUCKS (catalogue: 4-wheel mini truck, 3-tonne light truck)
@@ -770,6 +780,21 @@ function buildLeafGeos(d) {
   const geos = []; for (const [name, b] of mb.b) { const geo = b.build(); if (geo) { geo.computeBoundingSphere(); geos.push([name, geo]); } } return geos;
 }
 
+// lorry cab door (hinge space, built directly for its side s: the skin is at x 0, inside is −s·x): flat steel panel per notch
+// rect up to the belt, inner trim card, window frame + glass in the cab glass plane (leaning in toward the roof), handle
+function buildCabDoorGeos(d) {
+  const c = d.cab, s = d.side, zF = d.hinge[1], mb = new MultiBuilder(), P = mb.get('paint'), gl = mb.get('glass'), ch = mb.get('chrome'), I = mb.get('interior'), rb = mb.get('rubber'); const X = (x) => s * x;
+  for (const [za, zb, y0] of c.rects) { P.box(X(-0.025), (y0 + c.belt) / 2, (za + zb) / 2 - zF, 0.05, c.belt - y0, zb - za, { col: c.col }); I.box(X(-0.06), (y0 + c.belt) / 2, (za + zb) / 2 - zF, 0.02, c.belt - y0 - 0.06, zb - za - 0.06, { col: c.trim }); }
+  const zr = c.zR - zF, xr0 = c.gR[3] - c.W, xr1 = c.gR[4] - c.W, xf0 = c.gF[3] - c.W, xf1 = c.gF[4] - c.W, y0 = c.belt, yr = c.gR[2] - 0.03, yf = c.gF[2] - 0.03;
+  const q = [[X(xr0), y0 + 0.05, zr + 0.06], [X(xf0), y0 + 0.05, -0.06], [X(xf1), yf - 0.04, -0.06], [X(xr1), yr - 0.04, zr + 0.06]]; if (s > 0) gl.quad(q[0], q[1], q[2], q[3], [0, 0, 1, 1], C('#fff')); else gl.quad(q[1], q[0], q[3], q[2], [0, 0, 1, 1], C('#fff'));
+  beam(P, [X(xr0), y0 + 0.02, zr + 0.02], [X(xf0), y0 + 0.02, -0.02], 0.05, 0.05, c.col); beam(P, [X(xr1), yr, zr + 0.02], [X(xf1), yf, -0.02], 0.045, 0.05, c.col);
+  beam(P, [X(xr0), y0, zr + 0.025], [X(xr1), yr, zr + 0.025], 0.05, 0.05, c.col); beam(P, [X(xf0), y0, -0.025], [X(xf1), yf, -0.025], 0.05, 0.05, c.col);
+  beam(rb, [X(xr0 + 0.006), y0 + 0.05, zr + 0.055], [X(xr1 + 0.006), yr - 0.04, zr + 0.055], 0.012, 0.02, C('#111'));
+  ch.box(X(0.012), c.belt - 0.16, zr + 0.17, 0.02, 0.035, 0.16, { col: C('#c4c8cc') }); rb.box(X(0.004), c.belt - 0.16, zr + 0.17, 0.008, 0.06, 0.19, { col: C('#0c0c0d') }); // handle in its recess
+  ch.box(X(-0.075), c.belt - 0.2, zr + 0.25, 0.02, 0.03, 0.1, { col: C('#9aa0a6') }); // inside pull
+  const geos = []; for (const [name, b] of mb.b) { const geo = b.build(); if (geo) { geo.computeBoundingSphere(); geos.push([name, geo]); } } return geos;
+}
+
 // Returns a THREE.Group with .userData {wheels, tailMat, seats, type, color, steerWheel, door, entry}
 // is this (type, seed) look already built? (traffic spreads first-time model builds out so they never stack up in one frame)
 // a look's geometry is the same for every paint colour except the vertex colours, which are the paint colour or an exact
@@ -819,7 +844,7 @@ function slicePivotGeos(cached, i) {
 }
 function bakeDoors(cached, T, type, col) {
   const doors = cached.doors, stripes = doorStripes(T, type);
-  const dg = doors.map((d) => d.leaf ? buildLeafGeos(d) : buildDoorGeos(d.mirror ? { ...d, hinge: [-d.hinge[0], d.hinge[1]] } : d, col, stripes)); // hinge space, −x orientation
+  const dg = doors.map((d) => d.leaf ? buildLeafGeos(d) : d.cab ? buildCabDoorGeos(d) : buildDoorGeos(d.mirror ? { ...d, hinge: [-d.hinge[0], d.hinge[1]] } : d, col, stripes)); // hinge space, −x orientation
   const names = [...new Set([...cached.geos.map((q) => q[0]), ...dg.flatMap((l) => l.map((q) => q[0]))])]; const ranges = {}, baked = [];
   for (const name of names) { const body = cached.geos.find((q) => q[0] === name); const parts = body ? [{ geo: body[1], m: null }] : []; const who = [];
     dg.forEach((l, i) => { const q = l.find((x) => x[0] === name); if (!q) return; const d = doors[i]; const M = new THREE.Matrix4().makeTranslation(d.hinge[0], 0, d.hinge[1]); if (d.mirror) M.multiply(new THREE.Matrix4().makeScale(-1, 1, 1)); parts.push({ geo: q[1], m: M }); who.push(i); });
@@ -835,7 +860,7 @@ function ensureModel(type, seed) {
     const S = shapeOf(type, variant), m = S.m, col = C(color); const geos = [];
     for (const [name, g0, mask] of S.geos) geos.push([name, recolor(g0, mask, col)]);
     const dgeos = []; for (const [name, g0, mask] of S.dgeos) dgeos.push([name, recolor(g0, mask, col)]);
-    cached = { geos, dgeos, wheels: m.wheels, seats: m.seats, steerWheel: m.steerWheel, doors: recolorMeta(m.doors, col), wheelStyle: m.wheelStyle, busDoor: recolorMeta(m.busDoor, col) };
+    cached = { geos, dgeos, wheels: m.wheels, seats: m.seats, steerWheel: m.steerWheel, doors: recolorMeta(m.doors, col), wheelStyle: m.wheelStyle, busDoor: recolorMeta(m.busDoor, col), cabStep: m.cabStep };
     cached.doorRanges = S.doorRanges;
     if (worn) for (const [name, g] of cached.geos) if (name === 'paint' || name === 'canvas') dirty(g, seed); // after baking: shut doors carry the same grime as the panels round them
     modelCache.set(key, cached);
@@ -871,7 +896,7 @@ export function createVehicleMesh(type, seed = 1) {
   });
   // doors: shut ones are part of the body meshes; DoorRig puts a moving one on its pivot (front edge hinge / sliding track)
   const doors = (cached.doors || []).map((d, i) => { const pivot = new THREE.Group(); pivot.position.set(d.hinge[0], 0, d.hinge[1]); pivot.visible = false; pivot.name = 'door' + i; g.add(pivot);
-    const o = { pivot, i, side: d.side, role: d.role, slide: d.role === 'slide', leaf: d.leaf || 0, open: 0, max: d.leaf ? 1.45 : d.role === 'rear' ? 1.05 : 1.15, ang: 0, vel: 0, len: d.len, hx: d.hinge[0], hz: d.hinge[1], rects: d.spec && d.spec.rects, live: false }; poseDoor(o); return o; });
+    const o = { pivot, i, side: d.side, role: d.role, slide: d.role === 'slide', leaf: d.leaf || 0, cab: !!d.cab, gripY: d.gripY, open: 0, max: d.max ?? (d.leaf ? 1.45 : d.role === 'rear' ? 1.05 : 1.15), ang: 0, vel: 0, len: d.len, hx: d.hinge[0], hz: d.hinge[1], rects: d.spec && d.spec.rects, live: false }; poseDoor(o); return o; });
   if (doors.length) for (const name in cached.doorRanges) if (!mats[name]) mats[name] = byName[name] || MAT.paint; // a material only the doors use
   const door = doors.find((d) => !d.leaf) || null; // car door the driver uses (bus door leaves are not)
   const ds = cached.seats.find((s) => s.driver) || cached.seats[0];
@@ -882,7 +907,7 @@ export function createVehicleMesh(type, seed = 1) {
   const entry = cached.busDoor ? { x: cached.busDoor[0], z: cached.busDoor[1], side: cached.busDoor[0] < 0 ? -1 : 1 } : door ? { x: side * (hw + dR * Math.sin(0.7)), z: cached.doors[0].hinge[1] - dR * Math.cos(0.7), side } : { x: side * (hw + (T.entry === 'tuk' ? 0.35 : T.entry === 'bike' ? 0.45 : 0.55)), z: ds.z, side };
   const rear = T.ambulance ? buildAmbRear() : null; if (rear) g.add(rear.group); // twin rear doors + lit cabin (opened by the medics)
   const stand = base === 'bike' ? standMeshes(M.vrim) : null; if (stand) g.add(stand); // animated side stand (Kickstand.js)
-  g.userData = { doors, bake: doors.length ? { ranges: cached.doorRanges, meshes: bodyMeshes, shared, mats, pivotGeos: (i) => slicePivotGeos(cached, i) } : null, stand, detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons, rear };
+  g.userData = { doors, bake: doors.length ? { ranges: cached.doorRanges, meshes: bodyMeshes, shared, mats, pivotGeos: (i) => slicePivotGeos(cached, i) } : null, stand, detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons, rear, cabStep: cached.cabStep };
   return g;
 }
 // darken lower panels and add per-vehicle grime variation to working vehicles
