@@ -331,7 +331,9 @@ export class Squad {
   }
   placeAt(id, x, z, yaw) { const m = this.memberById(id); if (!m || m === this.activeMember || !m.ch) return null; if (m.vehicle) this.disembark(m, true); if (m.ch.root.parent !== this.g.scene) { m.ch.root.parent?.remove(m.ch.root); this.g.scene.add(m.ch.root); } m.x = x; m.z = z; m.y = this.g.collision.groundAt(x, z, this.g.player.y + 1, 2); m.yaw = yaw; m.speed = 0; m.mom = null; m.hidden = false; m.ch.root.visible = true; if (m.mode === 'away') m.mode = 'follow'; this.syncFollower(m); return m.ch; }
   syncFollower(m) { m.ch.root.position.set(m.x, m.y, m.z); m.ch.root.rotation.set(0, m.yaw, 0); }
-  freeSeat(v) { const seats = v.mesh.userData.seats || []; const used = new Set(this.followers.filter((f) => f.vehicle === v).map((f) => f.seat)); for (const f of this.followers) { if (f.board && f.board.v === v) used.add(f.board.seat); if (f.boardV === v && f.boardSeat) used.add(f.boardSeat); } const pax = new Set((v.paxPlan || []).map((p) => p.seat)); for (const s of seats) if (!s.driver && !used.has(s) && !pax.has(s)) return s; return null; }
+  freeSeat(v, A = null) { const seats = v.mesh.userData.seats || []; const used = new Set(this.followers.filter((f) => f.vehicle === v).map((f) => f.seat)); for (const f of this.followers) { if (f.board && f.board.v === v) used.add(f.board.seat); if (f.boardV === v && f.boardSeat) used.add(f.boardSeat); } const pax = new Set((v.paxPlan || []).map((p) => p.seat)); const free = seats.filter((s) => !s.driver && !used.has(s) && !pax.has(s));
+    if (A) { const real = free.find((s) => npcBoardSetup(v, s, A)); if (real) return real; } // prefer a seat he can step into through its own door (not one the fallback has to place him in)
+    return free[0] || null; }
   boardPoint(v, seat) { const side = Math.sign(seat.x) || 1; v.mesh.updateMatrixWorld(); return new THREE.Vector3(side * (v.T.wid / 2 + 0.6), 0, seat.z).applyMatrix4(v.mesh.matrixWorld); }
   disembark(m, instant = false) {
     const g = this.g; if (m.unboard) { if (!instant) return; m.unboard = null; m.ch.anim.board = null; }
@@ -414,7 +416,7 @@ export class Squad {
     if (dV > (v ? 15 : 7)) return;
     const say = (key) => { if (c.nag <= 0) { g.hud.subtitle(m.def.name, L[key], '', 3.2); c.nag = 12; } };
     if (g.police && g.police.level > 0) { say('wanted'); return; }
-    const why = canPickUp(v, v ? this.freeSeat(v) : null); if (why) { say(why); return; }
+    const why = canPickUp(v, v ? this.freeSeat(v, A) : null); if (why) { say(why); return; }
     if (Math.abs(v.speed) > 1.5) return;
     this.clearCall(m); m.crew = 'with'; m.mode = 'follow'; m.boardV = null; m.boardSeat = null; g.hud.subtitle(m.def.name, L.got, '', 2.6);
   }
@@ -434,7 +436,7 @@ export class Squad {
     const dL = Math.hypot(P.x - m.x, P.z - m.z);
     // boarding the leader's vehicle
     if (P.vehicle && m.mode !== 'hold' && !this.tr) {
-      const v = P.vehicle; if (!m.boardSeat || m.boardV !== v) { m.boardV = v; m.boardSeat = this.freeSeat(v); m.boardT = 0; }
+      const v = P.vehicle; if (!m.boardSeat || m.boardV !== v) { m.boardV = v; m.boardSeat = this.freeSeat(v, m.ch.anim); m.boardT = 0; }
       m.boardT += dt; const seat = m.boardSeat;
       if (!seat || m.boardT > 9 || (Math.abs(v.speed) > 5 && dL > 3)) { if (dL > 40 || (!this.inView(m.x, m.y, m.z) && dL > 20)) { m.mode = 'away'; m.hidden = true; ch.root.visible = false; m.boardSeat = null; return; } m.speed = damp(m.speed, 0, 6, dt); A.update(dt, m.speed, 0); this.syncFollower(m); return; }
       if (m.board) { this.stepIn(m, dt); return; }

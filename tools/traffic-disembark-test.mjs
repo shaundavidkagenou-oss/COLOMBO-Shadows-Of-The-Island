@@ -19,7 +19,7 @@ let pass = 0, fail = 0; const fails = []; const seen = new Set(); const ok = (c,
 const DT = 1 / 60; const BONES = ['hips', 'spine', 'chest', 'head', 'thighL', 'thighR', 'shinL', 'shinR', 'footL', 'footR', 'armL', 'armR', 'foreL', 'foreR', 'handL', 'handR'];
 const collision = { groundAt: (x, z) => L.groundY(x, z), resolveCircle: (x, z) => ({ x, z, hit: false }), blocked: () => false, raycast: () => 1, query: () => [] };
 const carOf = (base) => Object.keys(VTYPES).find((k) => (VTYPES[k].base || k) === base && !VTYPES[k].police && !VTYPES[k].ambulance && VTYPES[k].entry === (base === 'van' ? 'van' : 'car'));
-const TYPES = process.env.TYPES ? process.env.TYPES.split(',') : [...new Set(['taxi', carOf('car') || 'car', carOf('suv') || 'suv', 'van', 'tuktuk', 'bus', 'pbus'])].filter((t) => VTYPES[t]);
+const TYPES = process.env.TYPES ? process.env.TYPES.split(',') : [...new Set(['taxi', carOf('car') || 'car', carOf('suv') || 'suv', 'van', 'tuktuk', 'bus', 'pbus', 'lorry', 'hakobi'])].filter((t) => VTYPES[t]);
 const rows = [];
 for (const type of TYPES) for (const reason of ['calm', 'flee']) {
   const scene = new THREE.Scene(); const tr = new Traffic(scene, collision, { emit() {}, on() {} }); const adopted = [];
