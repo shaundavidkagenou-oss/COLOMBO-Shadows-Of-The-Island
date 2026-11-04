@@ -426,6 +426,11 @@ function shopAtlas(cw = 256) {
     a.restore();
   }
   grime(a, W, H, { scale: 24, amount: 0.15, seed: 101 });
+  // night glare: the lit window used to be one flat bright gradient over the whole opening, so at night the glow swamped what
+  // is painted inside (shelves, menu boards, goods) and the window read as a blank cream panel. The glow is now modulated by the
+  // window's own picture, lifted so dark interiors still glow (~45%) while the contents stay readable
+  { const M = canvas(W, H), m = M.getContext('2d'); m.drawImage(A, 0, 0); m.globalCompositeOperation = 'screen'; m.fillStyle = 'rgb(115,115,115)'; m.fillRect(0, 0, W, H);
+    e.globalCompositeOperation = 'multiply'; e.drawImage(M, 0, 0); e.globalCompositeOperation = 'source-over'; }
   return { map: toTex(A), emissive: toTex(E) };
 }
 
