@@ -54,6 +54,15 @@ export function applySeatPose(A, dt) {
   if (A.seatFitFor !== S) fitSeat(A);
   poseSeat(A, dt, clamp(A.seatW, 0, 1));
 }
+// The fitted seated pose parameters for `seat` (the same numbers poseSeat will use), without leaving the character seated:
+// boarding (Boarding.js) ends exactly on this pose so the hand-over to the seat pose is seamless.
+export function seatRest(A, seat) {
+  if (A._rest && A._rest.seat === seat) return A._rest;
+  const keep = [A.seatL, A.seatFitFor, A.fitLean, A.fitSink, A.fitSlide, A.fitCrown]; A.seatL = seatLocal(seat); fitSeat(A);
+  const S = A.seatL, b = A.ch.bones; const thighR = 0.075 * A.s * A.ch.spec.build;
+  A._rest = { seat, L: S, hipUp: thighR - b.thighL.position.y - 0.012 - (A.fitSink || 0), hipZ: (S.hipZ ?? -0.03) + (A.fitSlide || 0), lean: A.fitLean ?? S.lean ?? -0.12 };
+  [A.seatL, A.seatFitFor, A.fitLean, A.fitSink, A.fitSlide, A.fitCrown] = keep; return A._rest;
+}
 function fitSeat(A) {
   const S = A.seatL; const b = A.ch.bones; const bl = Object.values(b); const s = A.s;
   bl.forEach((x, i) => { (_saveQ[i] ||= new THREE.Quaternion()).copy(x.quaternion); }); _saveP.copy(b.hips.position);
