@@ -8,7 +8,8 @@ import { Character, randomSpec, HEROES } from '../actors/Character.js';
 import { buildHQInterior, HQ_DEF } from './HQInterior.js';
 import { HQ } from './PoliceHQ.js';
 import { buildGunShopInterior } from './GunShop.js';
-import { buildHeroRoom, isHeroRoom, heroDoorSpots } from './HeroRooms.js';
+import { buildHeroRoom, isHeroRoom, heroDoorSpots, wallSpot } from './HeroRooms.js';
+import { buildHeroEntrance } from './HeroEntrance.js';
 
 const Y = -40; const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 const DEFS = {
@@ -26,7 +27,15 @@ export class Interiors {
     this.doors = Object.entries(plan.missionShops).map(([id, s]) => ({ id, x: s.x, z: s.z, rot: s.rot, faceIn: s.faceIn }));
     if (roomPos) this.doors.push({ id: 'room', owner: 'dineth', x: roomPos[0], z: roomPos[1], rot: 0, faceIn: Math.PI });
     try { for (const d of heroDoorSpots(this.g)) this.doors.push(d); } catch (e) { console.warn('hero room doors', e); } // Shashika's + David's rooms (HeroRooms.js)
+    this.buildEntrances(); // a real house-front around each protagonist's door (HeroEntrance.js)
     // the Police HQ has no door prompt: it is walked into through its automatic doors (see updateSeamless)
+  }
+  buildEntrances() {
+    const g = this.g; if (!g.scene || !g.collision) return; this.entrances = this.entrances || new Map();
+    for (const d of this.doors) { if (!isHeroRoom(d.id)) continue; const key = `${d.x.toFixed(2)},${d.z.toFixed(2)}`; const old = this.entrances.get(d.id); if (old && old.key === key) { d.faceIn = old.faceIn; continue; }
+      if (old) { g.scene.remove(old.group); const cs = old.colliders; g.collision.remove((c) => cs.includes(c)); }
+      try { let e = buildHeroEntrance(d.id, d, g.collision); if (!e) { const w = wallSpot(g, d.x, d.z, 30); if (w) { d.x = w.x; d.z = w.z; d.faceIn = w.faceIn; if (d.id === 'room' && g.story?.state?.flags) g.story.state.flags.room = [w.x, w.z]; e = buildHeroEntrance(d.id, d, g.collision); } } /* no wall at the old spot (e.g. an older save): the door moves to the nearest real wall */
+        if (!e) { console.warn('hero entrance: no wall at', d.id); continue; } g.scene.add(e.group); g.collision.addAll(e.colliders); this.entrances.set(d.id, { key: `${d.x.toFixed(2)},${d.z.toFixed(2)}`, group: e.group, colliders: e.colliders, faceIn: d.faceIn }); } catch (err) { console.warn('hero entrance', d.id, err); } }
   }
   nearDoor(x, z) { for (const d of this.doors) if (Math.hypot(d.x - x, d.z - z) < 2.2) return d; return null; }
   build(id, door) {

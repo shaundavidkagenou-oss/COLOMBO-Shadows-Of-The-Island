@@ -29,15 +29,20 @@ export function heroDoorSpots(game) {
   if (game._heroDoors) return game._heroDoors; const col = game.collision; const out = [];
   const ok = (x, z) => !col.blocked(x, z, 0.5) && !L.roadAt(x, z) && !L.isWater(x, z);
   for (const id of ['room_shashika', 'room_david']) {
-    const R = HERO_ROOMS[id]; const n = R.near(); const sx = n.x + R.off[0], sz = n.z + R.off[1]; let best = null;
-    for (let r = 0; r < 60 && !best; r += 1.5) for (let a = 0; a < 16 && !best; a++) { const x = sx + Math.cos(a * 0.3927) * r, z = sz + Math.sin(a * 0.3927) * r; if (!ok(x, z)) continue;
-      for (let k = 0; k < 8; k++) { const yaw = k * Math.PI / 4; const f = col.raycast(x, 1.0, z, x + Math.sin(yaw) * 1.6, 1.0, z + Math.cos(yaw) * 1.6, 0.1); if (f < 1 && f > 0.25) { const near = (game.interiors?.doors || []).some((d) => Math.hypot(d.x - x, d.z - z) < 6); if (!near) { best = { x, z, faceIn: yaw }; break; } } } }
-    if (!best) best = { x: sx, z: sz, faceIn: 0 };
+    const R = HERO_ROOMS[id]; const n = R.near(); const sx = n.x + R.off[0], sz = n.z + R.off[1]; void ok;
+    const best = wallSpot(game, sx, sz) || { x: sx, z: sz, faceIn: 0 };
     out.push({ id, owner: R.owner, x: best.x, z: best.z, rot: 0, faceIn: best.faceIn });
   }
   return (game._heroDoors = out);
 }
 
+// nearest walkable pavement spot (≤ 60 m) with a real building wall 0.4–1.6 m in front of it and no other door within 6 m
+export function wallSpot(game, sx, sz, maxR = 60) {
+  const col = game.collision; const ok = (x, z) => !col.blocked(x, z, 0.5) && !L.roadAt(x, z) && !L.isWater(x, z);
+  for (let r = 0; r < maxR; r += 1.5) for (let a = 0; a < 16; a++) { const x = sx + Math.cos(a * 0.3927) * r, z = sz + Math.sin(a * 0.3927) * r; if (!ok(x, z)) continue;
+    for (let k = 0; k < 8; k++) { const yaw = k * Math.PI / 4; const f = col.raycast(x, 1.0, z, x + Math.sin(yaw) * 1.6, 1.0, z + Math.cos(yaw) * 1.6, 0.1); if (f < 1 && f > 0.25) { const near = (game.interiors?.doors || []).some((d) => Math.hypot(d.x - x, d.z - z) < 6 && !(d.x === sx && d.z === sz)); if (!near) return { x, z, faceIn: yaw }; } } }
+  return null;
+}
 // ---------------------------------------------------------------------------------------------- TV
 const CHANNELS = [
   { id: 'news', name: 'Island 1 · News at Nine', light: [0.45, 0.55, 1.0] },

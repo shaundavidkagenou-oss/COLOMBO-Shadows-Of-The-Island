@@ -21,7 +21,7 @@ function headPool() {
   return (HEAD_POOL = { geo, mat });
 }
 // strength follows darkness: invisible in daylight (lights on in rain), a modest throw at dusk, full at night
-export function setHeadPoolNight(n) { const hp = headPool(); const k = Math.min(1, Math.max(0, (n - 0.25) / 0.6)); hp.mat.opacity = 0.42 * k * k * (3 - 2 * k); }
+export function setHeadPoolNight(n) { const hp = headPool(); const k = Math.min(1, Math.max(0, (n - 0.25) / 0.6)); hp.mat.opacity = 0.32 * k * k * (3 - 2 * k); } // painted pool for far vehicles (was 0.42: on wet asphalt it read as glare)
 // Near-LOD switch for the high-detail kit (VehicleDetail.js): detail group + hi-res wheels within ud.lodR of the camera.
 export const LIVE_VEHICLES = globalThis.__liveVehicles || (globalThis.__liveVehicles = new Set()); // global so dev hot-reloads share one registry
 export function setVehicleLOD(ud, near) { if (ud.lodNear === near) return; ud.lodNear = near; ud.detail.visible = near; for (const w of ud.wheels) { const u = w.userData; u.lo.visible = !near; u.hi.visible = near; if (u.cal) u.cal.visible = near; } }
@@ -72,8 +72,13 @@ export class HeadlightRig {
       if (!c) { if (s.intensity !== 0) s.intensity = 0; s.shadow.autoUpdate = false; return; }
       if (s.castShadow) s.shadow.autoUpdate = true; // shadow maps only re-render for beams that are actually lit
       const v = c[1], T = v.T, m = v.mesh; m.updateMatrixWorld(); const y = HeadlightRig.lampY(T), bike = T.entry === 'bike';
-      s.position.copy(this._p.set(0, y, T.len / 2 + 0.12).applyMatrix4(m.matrixWorld)); s.target.position.copy(this._p.set(0, y - 0.95, T.len / 2 + 22).applyMatrix4(m.matrixWorld)); s.target.updateMatrixWorld();
-      s.angle = bike ? 0.42 : 0.52; s.intensity = (bike ? 55 : 95) * k * (v.damage > 0.85 ? 0.3 : 1);
+      // dipped beam, left-hand traffic: aimed down and toward the kerb (local +x is the vehicle's left), so it lights the road
+      // ahead of the car instead of the oncoming lane — real low beams have exactly this asymmetric cut-off
+      s.position.copy(this._p.set(0, y, T.len / 2 + 0.12).applyMatrix4(m.matrixWorld)); s.target.position.copy(this._p.set(bike ? 0.5 : 1.3, y - 1.1, T.len / 2 + 20).applyMatrix4(m.matrixWorld)); s.target.updateMatrixWorld();
+      // a beam pointing back at the camera (oncoming traffic) mostly shows up as a hot specular streak on the asphalt between
+      // the car and the viewer, which hid the car itself: oncoming beams run at 60 %, the player's own beam is unchanged
+      let face = 1; if (v !== playerVeh) { const vx = Math.sin(v.yaw), vz = Math.cos(v.yaw), ddx = cx - v.x, ddz = cz - v.z, dl = Math.hypot(ddx, ddz) || 1; const toward = (vx * ddx + vz * ddz) / dl; face = 1 - 0.4 * clamp((toward - 0.3) / 0.5, 0, 1); }
+      s.angle = bike ? 0.42 : 0.52; s.intensity = (bike ? 55 : 95) * k * face * (v.damage > 0.85 ? 0.3 : 1);
       m.userData.realBeam = true; if (m.userData.headPool) m.userData.headPool.visible = false; this.assigned.push(v); });
   }
 }
