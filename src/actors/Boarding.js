@@ -152,7 +152,33 @@ function bikeCurve(G, u) {
   return { hip, pitch, roll, twist, duck: 0, feet,  legSeat: sm((u - 0.86) / 0.14), hands, handW, grip: { L: 1, R: grips ? sm((p2 - 0.4) / 0.4) : 0 }, align: sm((u - 0.5) / 0.5), seated: u >= 1 };
 }
 
-export function boardCurve(G, u) { return G.kind === 'bike' ? bikeCurve(G, clamp(u, 0, 1)) : carCurve(G, clamp(u, 0, 1)); }
+// ---- standing up from a bus seat into the legroom in front of it (u 1 = seated → 0 = standing, facing the aisle) ----------
+// Same frame conventions as the car curve (vehicle-local, poseBoard turns it into A.board): starts exactly on the fitted seat
+// pose (hipEnd / feetEnd / legSeat hand-over), hips come forward over the feet and up with the trunk pitched into the push,
+// the feet step one at a time to a standing stance under the hips while the body turns toward the aisle.
+export function riseGeom(v, seat, A, yaw0, stand) {
+  const rest = seatRest(A, seat), L = rest.L;
+  const G = { kind: 'rise', s: 0, hw: v.T.wid / 2, seat, rest, fl: seat.floor ?? seat.y - 0.3, fz: L.fz ?? 0.5, fx: L.fx ?? 0.12, toe: 0.06, roof: 9, hst: standHip(A), ankle: A.ankle, sc: A.s || 1, ...legLen(A), grips: null, stag: L.footStagger || 0, yaw0, stand };
+  G.feetEnd = { L: [seat.x + G.fx, G.fl + G.ankle, seat.z + G.fz], R: [seat.x - G.fx, G.fl + G.ankle, seat.z + G.fz + G.stag] };
+  G.hipEnd = [seat.x, seat.y + rest.hipUp, seat.z + rest.hipZ];
+  return G;
+}
+function riseCurve(G, u) {
+  const { rest, fl, hst, ankle } = G; const k = 1 - u; const Hend = G.hipEnd, H0 = [G.stand[0], fl + hst, G.stand[1]];
+  const mid = [lerp(Hend[0], H0[0], 0.45), Hend[1] + 0.13 * G.sc, lerp(Hend[2], H0[2], 0.8)]; // weight forward over the feet first
+  const hip = spline([Hend, mid, H0], [0, 0.48, 1], sm(k));
+  let pitch = lerp(rest.lean, 0.52, sm(k / 0.42)); pitch = lerp(pitch, 0.03, sm((k - 0.42) / 0.58));
+  const cs = Math.cos(G.yaw0), sn = Math.sin(G.yaw0); const lx = cs * 0.11, lz = -sn * 0.11; // the character's left in the vehicle frame (facing yaw0)
+  const FL = [H0[0] + lx, fl + ankle, H0[2] + lz], FR = [H0[0] - lx, fl + ankle, H0[2] - lz]; const top = fl + ankle + 0.06;
+  const feet = { R: stepOver(G.feetEnd.R, FR, sm((k - 0.38) / 0.3), top, 0, 0), L: stepOver(G.feetEnd.L, FL, sm((k - 0.64) / 0.3), top, 0, 0) };
+  // hands: off the lap to just in front of the thighs, kept in close along the body's CURRENT heading (a window seat has the
+  // side wall at the elbow: the base pose's relaxed arm hang would swing out into it), released to the base pose at the end
+  const align = sm((u - 0.3) / 0.6), ps = G.yaw0 * (1 - align), fx = Math.sin(ps), fz = Math.cos(ps), ax = Math.cos(ps), az = -Math.sin(ps);
+  const hands = {}, handW = {}; for (const sd of ['L', 'R']) { const sx = sd === 'L' ? 1 : -1; const side = [hip[0] + ax * sx * 0.17 + fx * 0.14, hip[1] - 0.2 - 0.08 * sm(k), hip[2] + az * sx * 0.17 + fz * 0.14];
+    hands[sd] = G.grips ? mix(G.grips[sd], side, sm(k / 0.5)) : side; handW[sd] = (G.grips ? 1 : sm(k / 0.3)) * (1 - sm((k - 0.72) / 0.28)); }
+  return { hip, pitch, roll: 0, twist: 0, duck: 0, feet, legSeat: sm((u - 0.86) / 0.14), hands, handW, grip: { L: 0, R: 0 }, poleK: { L: 1, R: 1 }, align, seated: u >= 1 };
+}
+export function boardCurve(G, u) { return G.kind === 'bike' ? bikeCurve(G, clamp(u, 0, 1)) : G.kind === 'rise' ? riseCurve(G, clamp(u, 0, 1)) : carCurve(G, clamp(u, 0, 1)); }
 
 // ---- the pose -------------------------------------------------------------------------------------------------------
 // A.board = { hip, pitch, roll, twist, duck, feet: {L, R} (root-local ankle targets), toe, hands {L, R} root-local or
@@ -277,6 +303,6 @@ export function npcBoardSetup(v, seat, A) {
   const hinged = d && !d.slide; const door = hinged ? { x: d.pivot.position.x, z: d.pivot.position.z, len: d.len, max: d.max } : null;
   const G = boardGeom(v, seat, A, side, door);
   if (door) G.doorGrip = () => { const th = d.max * (d.ang || 0); return [door.x + side * door.len * Math.sin(th) * 0.88, 1.05, door.z - door.len * Math.cos(th) * 0.88]; };
-  else if (d) G.doorGrip = () => [d.pivot.position.x + side * 0.02, 1.0, d.pivot.position.z - 0.06]; // slider: its front-edge handle, wherever it has run back to
+  // slider: no handle grab — once open it has run back BEHIND the seat, and the reach from there to the lap passes the shoulder (elbow flip)
   const H0 = boardCurve(G, 0).hip; return { v, seat, kind, side, G, door: d || null, H0: [H0[0], H0[2]], T: BOARD_T[kind] };
 }

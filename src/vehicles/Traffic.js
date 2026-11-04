@@ -10,6 +10,9 @@ import { RNG } from '../core/rng.js';
 import { clamp, lerp } from '../core/math.js';
 import { Character, randomSpec } from '../actors/Character.js';
 import { seatCharacter, doorPath } from '../actors/Seating.js';
+import { npcBoardSetup, boardCurve, poseBoard, boardGroundFn, lapGrips, swingDoor, EXIT_K } from '../actors/Boarding.js';
+import { busExitPath, busAlightStep } from '../actors/BusWalk.js';
+import { cancelShut, shutDoorLater, openBusDoor } from './DoorRig.js';
 import { parkOnStand } from './Kickstand.js';
 import { stepChase } from '../police/Pursuit.js';
 
@@ -218,22 +221,50 @@ export class Traffic {
     if (v.driverChar) upd(v.driverChar); if (v.pax) for (const ch of v.pax) upd(ch);
   }
   dropPax(v) { for (const ch of v.pax) { ch.root.parent?.remove(ch.root); ch.dispose(); } this.paxCount -= v.pax.length; v.pax = []; }
-  // passengers climb out (staged, no teleport): slide from the seat to their door spot while standing up, then walk off
+  // passengers get out like people: car / van / tuk — each opens his own door (front passenger, rear pair, van slider), steps out
+  // with the same motion as the police / squad (Boarding.js) and pushes it shut behind him (left open by someone running off);
+  // bus — stands up, walks the aisle to his doorway (the folding leaves open first) and down the treads. Two people using the
+  // same door take turns. Seats with no way out of their own (bike pillion) keep the short dismount slide.
   disembark(v, reason = 'flee', from = null) {
-    if (!v.pax || !v.pax.length) { v.paxPlan = []; return; } const seats = v.mesh.userData.seats;
-    v.disembarking = v.pax.map((ch, i) => ({ ch, seat: seats[v.paxPlan[i].si], t: -i * 0.35 })); this.paxCount -= v.pax.length; v.pax = []; v.paxPlan = []; v.paxReason = reason; v.paxFrom = from;
+    if (!v.pax || !v.pax.length) { v.paxPlan = []; return; } const seats = v.mesh.userData.seats; const bus = v.type === 'bus' || v.type === 'pbus';
+    const perDoor = new Map(); let busN = 0;
+    v.disembarking = v.pax.map((ch, i) => { const seat = seats[v.paxPlan[i].si]; const o = { ch, seat, t: -i * 0.35 };
+      if (bus) { o.P = busExitPath(v, seat); o.v = v; o.t = -busN++ * 1.15; return o; }
+      const bf = npcBoardSetup(v, seat, ch.anim); if (bf) { o.bf = bf; const key = bf.door || bf.side; const n = perDoor.get(key) || 0; perDoor.set(key, n + 1); o.t = -n * (bf.T * EXIT_K * 0.85) - (bf.door ? 0 : i * 0.2); }
+      return o; });
+    if (bus) for (const z of new Set(v.disembarking.map((o) => o.P.dz))) openBusDoor(v, z, true);
+    this.paxCount -= v.pax.length; v.pax = []; v.paxPlan = []; v.paxReason = reason; v.paxFrom = from;
     if (!this.leaving.includes(v)) this.leaving.push(v);
+  }
+  // hand a passenger who has got out over to the crowd (world position / heading from his root)
+  releasePax(v, o) {
+    const r = o.ch.root; o.ch.anim.board = null; o.ch.anim.standUp(); v.mesh.updateMatrixWorld(); r.updateMatrixWorld(true);
+    const p = r.getWorldPosition(new THREE.Vector3()); const yw = new THREE.Euler().setFromQuaternion(r.getWorldQuaternion(new THREE.Quaternion()), 'YXZ').y;
+    r.parent?.remove(r); r.rotation.set(0, 0, 0); o.done = true;
+    if (this.crowd) this.crowd.adopt(o.ch, p.x, p.z, yw, v.paxReason, v.paxFrom); else o.ch.dispose();
   }
   updateDisembark(dt) {
     for (let i = this.leaving.length - 1; i >= 0; i--) {
       const v = this.leaving[i]; const list = v.disembarking || [];
+      if (!v.mesh.parent) { for (const o of list) if (!o.done) { o.done = true; o.ch.root.parent?.remove(o.ch.root); o.ch.dispose(); } v.disembarking = null; this.leaving.splice(i, 1); continue; }
       for (const o of list) {
         if (o.done) continue; o.t += dt; const A = o.ch.anim; if (o.t < 0) { A.update(dt, 0); continue; }
-        const k = Math.min(1, o.t / 0.9), sm = k * k * (3 - 2 * k); const ex = o.seat.exit || [Math.sign(o.seat.x || 1) * (v.T.wid / 2 + 0.6), o.seat.z];
-        const dp = doorPath(o.seat, ex, k, v.T.wid / 2); o.ch.root.position.set(dp.x, dp.y, dp.z); void sm;
-        o.ch.root.rotation.y = lerp(0, Math.atan2(ex[0] - o.seat.x, ex[1] - o.seat.z), Math.min(1, dp.a + dp.b)); A.sitIn(o.seat, Math.max(0.001, dp.sitW), null); A.duck = (o.seat.roof ?? 9) < 2.4 ? Math.min(1, (1 - dp.b) * 1.6) * Math.min(1, dp.a * 2.5) : 0; if (k >= 1) A.duck = 0; A.update(dt, k > 0.5 ? 1.0 : 0);
-        if (k >= 1) { o.done = true; A.standUp(); v.mesh.updateMatrixWorld(); const wp = new THREE.Vector3(ex[0], 0, ex[1]).applyMatrix4(v.mesh.matrixWorld); v.mesh.remove(o.ch.root);
-          if (this.crowd) this.crowd.adopt(o.ch, wp.x, wp.z, v.yaw + o.ch.root.rotation.y, v.paxReason, v.paxFrom); else o.ch.dispose(); }
+        if (o.P) { // bus: aisle + stairwell
+          if (busAlightStep(o, dt)) { this.releasePax(v, o); if (list.every((q) => q.done || (q.P && q.P.dz !== o.P.dz))) openBusDoor(v, o.P.dz, false, 0.9); }
+          continue; }
+        if (o.bf) { // car / van / tuk: the real step-out through his own door
+          const bf = o.bf; if (o.t0 === undefined) o.t0 = 0; o.t0 += dt;
+          if (bf.door) { cancelShut(bf.door); swingDoor(v, bf.door, bf.side, 1, dt, 8.5, 0.62); if (!o.started && o.t0 < 0.45 && bf.door.ang < 0.85) { A.update(dt, 0, 0); continue; } }
+          if (!o.started) { lapGrips(o.ch, v, o.seat, bf.G); o.started = true; o.tx = 0; A.set(null); A.standUp(); A.duck = 0; o.ch.mesh.castShadow = true; }
+          o.tx += dt; const TX = bf.T * (bf.kind === 'bike' || bf.G.lap ? 1 : EXIT_K) * (v.paxReason === 'flee' ? 0.85 : 1); const k = 1 - Math.min(1, o.tx / TX), tl = TX + 0.12 - o.tx;
+          poseBoard(A, bf.G, boardCurve(bf.G, k), v.mesh, boardGroundFn(v, this.collision), 0, Math.min(1, Math.max(0, tl) / 0.25)); A.update(dt, 0, 0);
+          if (tl <= 0) { this.releasePax(v, o); if (bf.door && v.paxReason !== 'flee' && !list.some((q) => !q.done && q.bf && q.bf.door === bf.door)) shutDoorLater(v, bf.door, 0.8); }
+          continue; }
+        // no door of its own (bike pillion): short dismount slide
+        const k = Math.min(1, o.t / 0.9); const ex = o.seat.exit || [Math.sign(o.seat.x || 1) * (v.T.wid / 2 + 0.6), o.seat.z];
+        const dp = doorPath(o.seat, ex, k, v.T.wid / 2); o.ch.root.position.set(dp.x, dp.y, dp.z);
+        o.ch.root.rotation.y = lerp(0, Math.atan2(ex[0] - o.seat.x, ex[1] - o.seat.z), Math.min(1, dp.a + dp.b)); A.sitIn(o.seat, Math.max(0.001, dp.sitW), null); A.duck = 0; A.update(dt, k > 0.5 ? 1.0 : 0);
+        if (k >= 1) this.releasePax(v, o);
       }
       if (list.every((o) => o.done)) { v.disembarking = null; this.leaving.splice(i, 1); }
     }

@@ -376,7 +376,7 @@ function buildBaseModel(type, color, variant, opts = {}) {
     const red = type === 'bus'; const sill = 0.42, belt = 1.5, winTop = H - 0.32; const stripe = red ? C('#e8b820') : C(variant % 2 ? '#d43a2a' : '#e8a020');
     const wf = L / 2 - 2.0, wr = -L / 2 + 2.6; wheelStyle = 1;
     // kerb-side (+x) doorways: real openings (body side + window band cut away), two-leaf folding doors on hinges, stairwell steps
-    const doorZ = [L / 2 - 1.05, -0.6], BD = doorZ.map((z) => [z - 0.475, z + 0.475]); const inDoor = (z, m = 0) => BD.some(([a, b]) => z > a - m && z < b + m);
+    const doorZ = [L / 2 - 1.05, -0.6], BD = doorZ.map((z) => [z - 0.475, z + 0.475]);
     const solid = (z0, z1, m = 0) => { const out = []; let a = z0; for (const [p, q] of BD.slice().sort((u, v) => u[0] - v[0])) { if (q + m < a || p - m > z1) continue; if (p - m > a) out.push([a, p - m]); a = q + m; } if (a < z1) out.push([a, z1]); return out; }; // z spans of the kerb side between the doorways
     sideBody(paint, [[L / 2, 0.45], [L / 2 + 0.02, 1.2], [L / 2 - 0.02, belt], [-L / 2 + 0.04, belt], [-L / 2, 1.3], [-L / 2, 0.45]], sill, [[wf, R], [wr, R]], W, col,
       { taper: (z, y) => 1 - 0.035 * sstep(L / 2 - 0.4, L / 2, z) - 0.03 * sstep(-L / 2 + 0.4, -L / 2, z), bevel: 0.08, openTop: [-L / 2 - 0.2, L / 2 + 0.2, 1.3], cut: BD.map(([a, b]) => ({ side: 1, rects: [[a, b, sill - 0.05, 9]], z0: a, z1: b, yTop: sill - 0.1 })) });
