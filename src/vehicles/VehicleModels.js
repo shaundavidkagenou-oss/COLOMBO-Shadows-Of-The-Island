@@ -896,7 +896,7 @@ export function createVehicleMesh(type, seed = 1) {
   });
   // doors: shut ones are part of the body meshes; DoorRig puts a moving one on its pivot (front edge hinge / sliding track)
   const doors = (cached.doors || []).map((d, i) => { const pivot = new THREE.Group(); pivot.position.set(d.hinge[0], 0, d.hinge[1]); pivot.visible = false; pivot.name = 'door' + i; g.add(pivot);
-    const o = { pivot, i, side: d.side, role: d.role, slide: d.role === 'slide', leaf: d.leaf || 0, cab: !!d.cab, gripY: d.gripY, open: 0, max: d.max ?? (d.leaf ? 1.45 : d.role === 'rear' ? 1.05 : 1.15), ang: 0, vel: 0, len: d.len, hx: d.hinge[0], hz: d.hinge[1], rects: d.spec && d.spec.rects, live: false }; poseDoor(o); return o; });
+    const o = { pivot, i, side: d.side, role: d.role, slide: d.role === 'slide', leaf: d.leaf || 0, cab: !!d.cab, gripY: d.gripY, open: 0, max: d.max ?? (d.leaf ? 1.45 : d.role === 'rear' ? 1.05 : 1.15), ang: 0, vel: 0, len: d.len, hx: d.hinge[0], hz: d.hinge[1], rects: (d.spec && d.spec.rects) || (d.cab && d.cab.rects), live: false }; poseDoor(o); return o; });
   if (doors.length) for (const name in cached.doorRanges) if (!mats[name]) mats[name] = byName[name] || MAT.paint; // a material only the doors use
   const door = doors.find((d) => !d.leaf) || null; // car door the driver uses (bus door leaves are not)
   const ds = cached.seats.find((s) => s.driver) || cached.seats[0];

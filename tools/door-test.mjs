@@ -17,7 +17,7 @@ const kinds = {}; let nDoors = 0;
 let fails = 0, checks = 0; const bad = [];
 const ok = (c, msg) => { checks++; if (!c) { fails++; bad.push(msg); } };
 const v3 = new THREE.Vector3();
-for (const type of Object.keys(VTYPES)) for (let seed = 1; seed <= 6; seed++) {
+for (const type of Object.keys(VTYPES).filter((t) => !process.env.TYPES || process.env.TYPES.split(',').includes(t))) for (let seed = 1; seed <= 6; seed++) {
   const g = createVehicleMesh(type, seed); const ud = g.userData; if (!ud.door) continue;
   // 0. bake / live switching
   const bodyOf = (name) => g.children.find((m) => m.isMesh && m.name === name);
@@ -31,7 +31,7 @@ for (const type of Object.keys(VTYPES)) for (let seed = 1; seed <= 6; seed++) {
   const pv = door.pivot; const W = VTYPES[type].wid / 2; const s = door.side, mx = (x) => (s < 0 ? x : -x), tag = `${type}#${seed} ${door.role}${s > 0 ? '+' : '-'}`;
   const allPivots = ud.doors.map((d) => d.pivot);
   // closed door volume = bounds of the door's painted shell (model space)
-  const box = new THREE.Box3(); for (const m of pv.children) if (m.material && m.geometry && (m.geometry.attributes.position)) { const gb = m.geometry.clone(); gb.applyMatrix4(m.matrixWorld); gb.computeBoundingBox(); if (m.name !== 'glass' && gb.boundingBox.max.y < 1.3) box.union(gb.boundingBox); }
+  const box = new THREE.Box3(); for (const m of pv.children) if (m.material && m.geometry && (m.geometry.attributes.position)) { const gb = m.geometry.clone(); gb.applyMatrix4(m.matrixWorld); gb.computeBoundingBox(); if (m.name !== 'glass' && gb.boundingBox.max.y < 1.3) box.union(gb.boundingBox); else if (door.cab && m.name === 'paint') { const P = gb.attributes.position; for (let i = 0; i < P.count; i++) if (P.getY(i) < 1.85) box.expandByPoint(v3.fromBufferAttribute(P, i)); } } // lorry cab door: the panel below the belt (its window frame rises to the roof)
   const paintM = pv.children.find((m) => m.name === 'paint') || pv.children[0];
   const inner = box.clone(); inner.min.addScalar(0.012); inner.max.addScalar(-0.012);
   // 1. fixed surfaces inside the door volume (outboard part: between the skin and the door card)
@@ -49,11 +49,11 @@ for (const type of Object.keys(VTYPES)) for (let seed = 1; seed <= 6; seed++) {
   // 2. flush: the door's outermost skin points vs the body's outermost points just ahead of / behind the opening, same height
   const bodyPaint = g.children.find((m) => m.isMesh && m.name === 'paint'); const BP = bodyPaint.geometry.attributes.position; const BV = visVerts(bodyPaint);
   const dp = paintM.geometry.attributes.position; let worst = 0, n2 = 0;
-  for (const yy of [0.55, 0.7, ...(door.rects || []).filter((r) => r[2] > 0.6).map((r) => r[2] + 0.12)]) { for (const [zEdge, dir] of [[box.max.z, 1], [box.min.z, -1]]) { // + just above a notched (cab-over) opening's raised bottom
-    let xb = 0, yb = yy; for (const i of BV) { const z = BP.getZ(i), y = BP.getY(i); if (Math.abs(y - yy) < 0.06 && (z - zEdge) * dir > 0.002 && (z - zEdge) * dir < 0.08 && mx(BP.getX(i)) < xb) { xb = mx(BP.getX(i)); yb = y; } }
+  for (const yy of [0.55, 0.7, ...(door.cab ? [1.06] : []), ...(door.rects || []).filter((r) => r[2] > 0.6).map((r) => r[2] + 0.12)]) { for (const [zEdge, dir] of [[box.max.z, 1], [box.min.z, -1]]) { // + just above a notched (cab-over) opening's raised bottom
+    let xb = 0, yb = yy; for (const i of BV) { const z = BP.getZ(i), y = BP.getY(i); if (Math.abs(y - yy) < 0.06 && (z - zEdge) * dir > (door.cab ? -0.001 : 0.002) && (z - zEdge) * dir < 0.08 && mx(BP.getX(i)) < xb) { xb = mx(BP.getX(i)); yb = y; } }
     // door skin at the SAME height as the body sample (outermost skin x interpolated over y): bodies with a shoulder curve
     // change x quickly with height, so comparing points up to 6 cm apart in y would report a step that is not there
-    const skin = []; for (let i = 0; i < dp.count; i++) { v3.fromBufferAttribute(dp, i).applyMatrix4(paintM.matrixWorld); if (Math.abs(v3.y - yb) < 0.1 && (zEdge - v3.z) * dir < 0.08 && (zEdge - v3.z) * dir >= 0) skin.push([v3.y, mx(v3.x)]); }
+    const skin = []; for (let i = 0; i < dp.count; i++) { v3.fromBufferAttribute(dp, i).applyMatrix4(paintM.matrixWorld); if (Math.abs(v3.y - yb) < (door.cab ? 1.3 : 0.1) && (zEdge - v3.z) * dir < 0.08 && (zEdge - v3.z) * dir >= 0) skin.push([v3.y, mx(v3.x)]); }
     let xd = 0; { const lo = skin.filter((p) => p[0] <= yb).sort((p, q) => q[0] - p[0] || p[1] - q[1])[0], hi = skin.filter((p) => p[0] >= yb).sort((p, q) => p[0] - q[0] || p[1] - q[1])[0];
       const outer = (yv) => Math.min(...skin.filter((p) => Math.abs(p[0] - yv) < 1e-4).map((p) => p[1]));
       if (lo && hi) { const xl = outer(lo[0]), xh = outer(hi[0]); xd = hi[0] - lo[0] > 1e-4 ? xl + (xh - xl) * (yb - lo[0]) / (hi[0] - lo[0]) : Math.min(xl, xh); } }
@@ -76,7 +76,7 @@ for (const type of Object.keys(VTYPES)) for (let seed = 1; seed <= 6; seed++) {
   // around a wheel arch — cab-over vans — have a higher bottom edge over the wheel)
   const near = ud.seats.filter((q) => q.x * s > 0.1).sort((p, q) => Math.abs(p.z - zc) - Math.abs(q.z - zc))[0]; const edge = near ? Math.max(0.62, Math.abs(near.x) + 0.26) : 0.62;
   const rcz = (door.rects || []).find((r) => zc >= r[0] && zc <= r[1]); const yBot = rcz ? rcz[2] : box.min.y; // bottom of the opening at this z
-  for (const yy of [yBot + 0.25, yBot + 0.4]) { rc.set(new THREE.Vector3(s * (W + 0.6), yy, zc), new THREE.Vector3(-s, 0, 0)); rc.far = W + 0.6 - edge; const hits = rc.intersectObjects(fixed, false).filter((h) => h.object.name !== 'glass'); if (hits.length) blocked++; }
+  for (const yy of [yBot + 0.25, yBot + 0.4]) { rc.set(new THREE.Vector3(s * (W + 0.6), yy, zc), new THREE.Vector3(-s, 0, 0)); rc.far = W + 0.6 - edge; const hits = rc.intersectObjects(fixed, false).filter((h) => h.object.name !== 'glass'); if (hits.length) { blocked++; if (process.env.DBG) console.log(tag, yy.toFixed(2), zc.toFixed(2), hits.map((h) => (h.object.name || h.object.parent?.name) + '@' + h.point.x.toFixed(2)).join(' ')); } }
   ok(blocked === 0, `${tag}: doorway blocked by a fixed surface`);
   }
   allDoorsLive(ud, false);
