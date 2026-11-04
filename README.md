@@ -83,7 +83,7 @@ Mission 5 has a three-way ending choice. There are also side activities, an econ
 
 This is not a sky zoom and not a radial wheel. It is a short "tactical seamless transition":
 
-1. **Trigger:** tap **Z** for the next squad-mate, or **F1 / F2 / F3** to pick one directly. Hold **Z** for the selector: time slows to 30% and a three-card strip shows each character's portrait, health and status. Choose with A/D, the mouse or the wheel; **E** toggles hold/follow for the highlighted member; release Z to switch. On a gamepad, tap or hold **LB**.
+1. **Trigger:** tap **Z** for the next squad-mate, or **F1 / F2 / F3** to pick one directly. Hold **Z** for the selector: time slows to 30% and a three-card strip shows each character's portrait, health and status. Choose with A/D, the mouse or the wheel; release Z to switch. Squad-mates take no orders. On a gamepad, tap or hold **LB**.
 2. **Departure:** the character you leave reacts to context:
    - on the move: a glance back over the shoulder, then keeps going;
    - under threat (police, guards, pursuers or a drawn weapon): drops into cover and holds that spot;
@@ -91,12 +91,15 @@ This is not a sky zoom and not a radial wheel. It is a short "tactical seamless 
 3. **Camera:** within 250 m with a clear line of sight, the camera flies a Bezier arc (0.55–1.15 s) with a FOV punch (60→95→60) plus radial motion blur and chromatic split. When farther or blocked, it does a 0.22 s glitch jump-cut. Settings → Camera → *Squad switch transition* can force either.
 4. **Arrival:** the incoming character does a takeover move: Dineth pulls his gloves tight, Shashika tightens his vest straps, David pushes his glasses up, or a crouched character rises. If they were armed or there is a threat, they bring their primary up and check it instead: Dineth and Shashika rack the charging handle; David works the bolt (a press-check with the pistol). Control returns at 70% of the move.
 
-The two inactive characters keep moving with the AI:
-- they keep the heading and speed they had when you left them;
-- they follow in formation, using your trail when the direct line is blocked;
-- they hold position when ordered;
-- they ride along in vehicles and get out with you;
-- they catch up when left far behind.
+The two inactive characters never tag along on their own. Each gets on with his own life: Dineth drives his three-wheeler, Shashika works at Lanka Auto Care in Maradana, David runs his phone-repair stall in Pettah.
+
+**Calling a friend (phone → Contacts):**
+- Call Shashika, David or Dineth (whoever you are not playing) and ask him to come along. He names a pickup spot: the kerb outside his work, or, for Dineth out in his tuk, the landmark nearest to him. The spot gets a pickup marker on the map and a GPS route.
+- He waits there at the kerb, facing the road. Pull up beside him in a car, tuk or van with a free seat and stop. He walks to the passenger side and steps in (the same step-in as the player and police crews; rear seats still use the simpler slide).
+- On foot he won't come ("Where's the car?"), and on a motorbike he says there's no room. Nobody comes while the police are after you.
+- Once picked up, he rides along, gets out with you and follows you on foot (formation, using your trail when the direct line is blocked).
+- Call him again to send him off: he goes back to his own day, getting out of the car at the next stop. If he's still waiting, "Never mind" cancels the pickup.
+- Switching to a mate who is with you keeps the one you leave in the group. Switching to anyone else sends everyone home. After loading a save, everybody is back at work.
 
 Saves (format v3) store each character's position, health, ammo, outfit and orders. Older v2 saves are migrated automatically: Dineth keeps his own loadout's ammo, and the squad counts as formed if *The Meeting* was finished.
 
@@ -127,7 +130,7 @@ Saves (format v3) store each character's position, health, ammo, outfit and orde
 | Squad | |
 |---|---|
 | Z (tap) / F1–F3 | Switch to the next member / a specific one |
-| Z (hold) | Squad selector (slow motion; A/D choose, E hold/follow) |
+| Z (hold) | Squad selector (slow motion; A/D choose) |
 
 R is context-separated. Weapons are always holstered in a vehicle, and the radio only works in one, so the two never overlap.
 
@@ -206,8 +209,8 @@ These were observed during testing.
 - First-person aim is checked visually: the sights land on screen centre in renders. A numeric sight-to-camera-ray check in the harness disagreed with the rendered frames, so the exact alignment error is unmeasured.
 
 **Squad:**
-- You can't switch while in a vehicle, indoors, in dialogue, in a cutscene or in the air.
-- Followers use direct steering plus your breadcrumb trail, not a full navmesh. In dense alleys they can fall behind and then catch up off-screen.
+- You can't switch while wanted, indoors, in dialogue, in a cutscene or in the air (switching in a vehicle is allowed).
+- A picked-up mate uses direct steering plus your breadcrumb trail, not a full navmesh. In dense alleys they can fall behind and then catch up off-screen.
 - The departure and arrival moves are procedural poses on the same rig, not motion capture.
 
 **World:**

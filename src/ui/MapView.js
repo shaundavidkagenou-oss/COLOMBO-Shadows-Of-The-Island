@@ -67,6 +67,7 @@ export const BLIP_STYLE = {
   landmark: { col: '#e8a33a', cat: 'landmarks', name: 'Landmark' }, police: { col: '#5b8cff', cat: 'services', name: 'Police' },
   hospital: { col: '#ff5a5a', cat: 'services', name: 'Hospital' }, station: { col: '#d9c7a0', cat: 'transit', name: 'Railway station' },
   worship: { col: '#f2d27a', cat: 'landmarks', name: 'Place of worship' }, school: { col: '#9fd3a8', cat: 'landmarks', name: 'School' }, home: { col: '#7fd6ff', cat: 'services', name: 'Safehouse' },
+  pickup: { col: '#ffd34a', cat: 'missions', name: 'Friend waiting for a lift' },
 };
 export function drawIcon(g, kind, x, y, r = 9) {
   const st = BLIP_STYLE[kind] || { col: '#fff' }; g.save(); g.translate(x, y);
@@ -82,6 +83,7 @@ export function drawIcon(g, kind, x, y, r = 9) {
     case 'stamp': for (let i = 0; i < 5; i++) { const a = -Math.PI / 2 + i * 2 * Math.PI / 5, b = a + Math.PI / 5; g.lineTo(Math.cos(a) * 5 * k, Math.sin(a) * 5 * k); g.lineTo(Math.cos(b) * 2.2 * k, Math.sin(b) * 2.2 * k); } g.closePath(); g.fill(); break;
     case 'photo': g.rect(-5 * k, -3 * k, 10 * k, 7 * k); g.fill(); g.fillStyle = 'rgba(8,10,14,0.9)'; g.beginPath(); g.arc(0, 0.5 * k, 2.2 * k, 0, 7); g.fill(); break;
     case 'enemy': g.arc(0, 0, 4 * k, 0, 7); g.fill(); break;
+    case 'pickup': g.arc(0, -2.4 * k, 2.3 * k, 0, 7); g.fill(); g.beginPath(); g.moveTo(-4.4 * k, 5 * k); g.quadraticCurveTo(-4.2 * k, 0.6 * k, 0, 0.6 * k); g.quadraticCurveTo(4.2 * k, 0.6 * k, 4.4 * k, 5 * k); g.closePath(); g.fill(); break;
     case 'waypoint': g.moveTo(-3 * k, 5 * k); g.lineTo(-3 * k, -5 * k); g.stroke(); g.beginPath(); g.moveTo(-3 * k, -5 * k); g.lineTo(5 * k, -2.5 * k); g.lineTo(-3 * k, 0); g.closePath(); g.fill(); break;
     case 'landmark': g.arc(0, -1.2 * k, 3.2 * k, 0, 7); g.fill(); g.beginPath(); g.moveTo(-2.6 * k, 0); g.lineTo(0, 5 * k); g.lineTo(2.6 * k, 0); g.fill(); break;
     case 'police': g.moveTo(0, -5 * k); g.lineTo(4.5 * k, -3 * k); g.lineTo(3.5 * k, 2 * k); g.lineTo(0, 5 * k); g.lineTo(-3.5 * k, 2 * k); g.lineTo(-4.5 * k, -3 * k); g.closePath(); g.fill(); break;

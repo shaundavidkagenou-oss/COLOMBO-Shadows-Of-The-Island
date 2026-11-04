@@ -61,8 +61,8 @@ export class SquadLife {
   }
   update(m, dt, k, bodies) {
     const g = this.g, P = g.player, sq = this.sq, A = m.ch.anim; if (!m.life) this.atWork(m); const l = m.life, j = this.job(m);
-    // riding as a passenger when the mission ended: stays aboard until the driver stops and gets out
-    if (m.vehicle) { if (P.vehicle !== m.vehicle) sq.disembark(m); else { A.update(dt, 0); return; } }
+    // riding as a passenger without being with you (switched away from in the passenger seat, or sent off): out at the next stop
+    if (m.vehicle) { if (P.vehicle !== m.vehicle || Math.abs(m.vehicle.speed) < 0.4) { sq.disembark(m); if (m.vehicle) return; } else { A.update(dt, 0); return; } } // (front seats step out over a few frames)
     const veh = l.v || l.drive; if (veh) { m.x = veh.x; m.z = veh.z; m.y = veh.y; m.yaw = veh.yaw;
       if (Math.hypot(veh.x - P.x, veh.z - P.z) > TUK_DROP && !sq.inView(veh.x, veh.y, veh.z)) { this.dropVehicle(m, veh); if (j.kind === 'tuk') this.hide(m); else this.atWork(m); }
       return; }

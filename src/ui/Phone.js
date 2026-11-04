@@ -9,6 +9,7 @@ import { Input } from '../core/Input.js';
 import { Audio } from '../audio/Audio.js';
 import { plan } from '../world/CityPlan.js';
 import * as L from '../world/Layout.js';
+import { callOptions, lines as friendLines } from '../actors/SquadCall.js';
 
 const el = (tag, cls, parent, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; if (parent) parent.appendChild(e); return e; };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -60,14 +61,16 @@ export class Phone {
   rows() { // selectable rows of the current app
     if (this.app === 'jobs') return this.jobs();
     if (this.app === 'health') return [{ t: 'Call 1990 Suwa Seriya' }, { t: 'GPS to National Hospital' }];
-    if (this.app === 'contacts') { if (!this.call) return CONTACTS; if (this.call.stage === 'ask') return [{ t: 'Police' }, { t: 'Ambulance' }, { t: 'Hang up' }]; return []; }
+    if (this.app === 'contacts') { if (!this.call) return this.contacts(); if (this.call.stage === 'ask') return this.call.friend ? callOptions(this.friend(this.call.friend)) : [{ t: 'Police' }, { t: 'Ambulance' }, { t: 'Hang up' }]; return []; }
     return [];
   }
   activate() {
     const g = this.g;
     if (this.app === 'contacts') {
-      if (!this.call) { const c = CONTACTS[this.row]; if (!c) return; this.call = { n: c.n, stage: 'ring', t: 0 }; this.row = 0; this.ring(); this.render(); return; }
-      if (this.call.stage !== 'ask') return; if (this.row === 2) { this.hangUp(); return; }
+      if (!this.call) { const c = this.contacts()[this.row]; if (!c) return; this.call = { n: c.n, friend: c.friend || null, stage: 'ring', t: 0 }; this.row = 0; this.ring(); this.render(); return; }
+      if (this.call.stage !== 'ask') return;
+      if (this.call.friend) { const m = this.friend(this.call.friend); const o = m && callOptions(m)[this.row]; if (!o || o.id === 'hang') { this.hangUp(); return; } const r = this.friendAnswer(m, o.id); this.call = { n: this.call.n, friend: this.call.friend, stage: 'done', res: r }; Audio.ui(r.ok ? 'notify' : 'click'); this.render(); return; }
+      if (this.row === 2) { this.hangUp(); return; }
       const kind = this.row === 0 ? 'police' : 'ambulance'; const r = g.police && g.police.emergencyCall ? g.police.emergencyCall(kind) : { ok: false, title: '119', msg: 'No answer.' };
       this.call = { n: this.call.n, stage: 'done', kind, res: r }; Audio.ui(r.ok ? 'notify' : 'click'); this.render(); return;
     }
@@ -78,6 +81,21 @@ export class Phone {
       this.toggle(false); if (g.health.hp >= 100) { g.hud.notify('1990 Suwa Seriya', 'The dispatcher checks on you: you are not injured, so no ambulance is sent.', 'info', 5); return; }
       g.health.hospitalise('called an ambulance', true);
     }
+  }
+  // squad-mates you are not playing: call one to ask him along (he names a pickup spot), ask where he is, or send him off
+  friend(id) { const sq = this.g.squad; return sq && sq.memberById(id); }
+  contacts() {
+    const sq = this.g.squad; if (!sq || !sq.unlocked) return CONTACTS;
+    const fr = sq.followers.map((m) => ({ n: m.def.name, friend: m.def.id, t: m.crew === 'with' ? 'With you' : m.crew === 'pickup' ? 'Waiting for a lift' : 'Friend', d: m.crew === 'with' ? 'Riding / walking with you. Call to send him off.' : m.crew === 'pickup' && m.call ? `Waiting ${m.call.label}.` : 'Call and ask him to come along — you pick him up by car.' }));
+    return [...fr, ...CONTACTS];
+  }
+  friendAnswer(m, id) {
+    const g = this.g, sq = g.squad, Ln = friendLines(m.def.id), t = m.def.name;
+    if (id === 'come') { if (g.police && g.police.level > 0) return { ok: false, title: t, msg: Ln.wanted }; const c = sq.arrangePickup(m); return { ok: true, title: t, msg: Ln.yes(c.label) }; }
+    if (id === 'where') { if (m.call) g.hud.setWaypoint(m.call.x, m.call.z); return { ok: true, title: t, msg: Ln.where(m.call ? m.call.label : 'by the road') }; }
+    if (id === 'cancel') { sq.cancelPickup(m); return { ok: true, title: t, msg: Ln.cancel }; }
+    if (id === 'bye') { sq.dismiss(m); return { ok: true, title: t, msg: Ln.bye }; }
+    return { ok: false, title: t, msg: 'No answer.' };
   }
   ring() { if (Audio.tone) { Audio.tone(425, 0.9, { type: 'sine', vol: 0.05, attack: 0.02 }); } }
   hangUp() { const c = this.call; this.call = null; this.row = 0; if (c && c.stage === 'done' && c.res) this.g.hud.notify(c.res.title || '119', c.res.msg, c.res.ok ? 'info' : 'warn', 6); this.toggle(false); }
@@ -119,8 +137,10 @@ export class Phone {
         this.rows().map((r, i) => `<div class="ph-row${i === this.row ? ' sel' : ''}" data-i="${i}"><b>${r.t}</b>${i === 0 ? `<p>${this.confirm ? '<em class="ph-warn">Press Enter again to call. An ambulance will take you to the National Hospital (free service; medicines Rs. 900). An active mission or job will be abandoned.</em>' : 'Free national ambulance service.'}</p>` : ''}</div>`).join('');
     } else if (this.app === 'contacts') {
       const c = this.call;
-      if (!c) h = `<div class="ph-head">Contacts</div><div class="ph-list">` + CONTACTS.map((k, i) => `<div class="ph-row${i === this.row ? ' sel' : ''}" data-i="${i}"><b>☎ ${k.n} · ${k.t}</b><p>${k.d}</p></div>`).join('') + '</div><div class="ph-hint">Enter: call</div>';
+      if (!c) h = `<div class="ph-head">Contacts</div><div class="ph-list">` + this.contacts().map((k, i) => `<div class="ph-row${i === this.row ? ' sel' : ''}" data-i="${i}"><b>${k.friend ? '👤' : '☎'} ${k.n} · ${k.t}</b><p>${esc(k.d)}</p></div>`).join('') + '</div><div class="ph-hint">Enter: call</div>';
       else if (c.stage === 'ring') h = `<div class="ph-call"><div class="ph-call-n">${c.n}</div><div class="ph-call-s">Calling…</div><div class="ph-call-ring">☎</div></div>`;
+      else if (c.stage === 'ask' && c.friend) h = `<div class="ph-call"><div class="ph-call-n">${c.n}</div><div class="ph-call-q">“${esc(friendLines(c.friend).hi)}”</div></div>` + this.rows().map((r, i) => `<div class="ph-row${i === this.row ? ' sel' : ''}" data-i="${i}"><b>${esc(r.t)}</b></div>`).join('') + '<div class="ph-hint">↑↓ choose · Enter answer · Backspace hang up</div>';
+      else if (c.stage === 'done' && c.friend) h = `<div class="ph-call"><div class="ph-call-n">${c.n}</div><div class="ph-call-q ${c.res.ok ? 'ok' : 'no'}">“${esc(c.res.msg)}”</div><div class="ph-call-s">Call ended</div></div>`;
       else if (c.stage === 'ask') h = `<div class="ph-call"><div class="ph-call-n">${c.n} · Emergency</div><div class="ph-call-q">“119 Emergency. Police or ambulance?”</div></div>` + this.rows().map((r, i) => `<div class="ph-row${i === this.row ? ' sel' : ''}" data-i="${i}"><b>${r.t}</b></div>`).join('') + '<div class="ph-hint">↑↓ choose · Enter answer · Backspace hang up</div>';
       else h = `<div class="ph-call"><div class="ph-call-n">${c.n} · ${c.kind === 'police' ? 'Police' : 'Ambulance (1990 Suwa Seriya)'}</div><div class="ph-call-q ${c.res.ok ? 'ok' : 'no'}">${esc(c.res.msg)}</div><div class="ph-call-s">Call ended</div></div>`;
     } else if (this.app === 'weather') {

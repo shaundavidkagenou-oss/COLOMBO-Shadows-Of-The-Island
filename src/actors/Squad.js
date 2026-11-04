@@ -16,6 +16,8 @@ import * as THREE from 'three';
 import { Character, HEROES } from './Character.js';
 import { separate } from './Bodies.js';
 import { seatCharacter } from './Seating.js';
+import { boardCurve, poseBoard, npcBoardSetup, boardGroundFn, lapGrips, EXIT_K } from './Boarding.js';
+import { anchorFor, pickupSpot, lines as callLines, canPickUp } from './SquadCall.js';
 import { SquadLife } from './SquadLife.js';
 import { Input } from '../core/Input.js';
 import { Settings } from '../core/Settings.js';
@@ -89,12 +91,14 @@ const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _fr = new THREE.Frust
 export class Squad {
   constructor(game) {
     this.g = game; this.unlocked = false; this.active = 0; this.crumbs = []; this.tr = null; this.sel = { open: false, i: 0, t: 0 }; this.zDown = 0; this.padDown = 0; this.msgT = 0;
-    this.members = SQUAD_DEFS.map((def) => ({ def, ch: null, x: 0, z: 0, y: 0, yaw: 0, speed: 0, hp: 100, inv: freshInventory(def), grenades: 0, sel: WEAPONS.findIndex((w) => w.id === def.loadout[0]), mode: 'follow', hold: null, mom: null, vehicle: null, seat: null, stuckT: 0, lastX: 0, lastZ: 0, progT: 0, repathT: 0, tx: 0, tz: 0, wasDrawn: false, crouched: false, idleT: 0, exitDelay: 0, hidden: false, wantSprint: false }));
+    this.members = SQUAD_DEFS.map((def) => ({ def, ch: null, x: 0, z: 0, y: 0, yaw: 0, speed: 0, hp: 100, inv: freshInventory(def), grenades: 0, sel: WEAPONS.findIndex((w) => w.id === def.loadout[0]), mode: 'follow', hold: null, mom: null, vehicle: null, seat: null, stuckT: 0, lastX: 0, lastZ: 0, progT: 0, repathT: 0, tx: 0, tz: 0, wasDrawn: false, crouched: false, idleT: 0, exitDelay: 0, hidden: false, wantSprint: false, crew: null, call: null, board: null, unboard: null }));
     this.members[0].ch = game.player.ch; this.proxies = [];
     this.portraits = {}; this.hudInit(); this.life = new SquadLife(this); this.wasOn = null;
   }
-  // squad-mates follow only during the missions that bring the three together; otherwise each lives his own life
-  squadOn() { const st = this.g.story; return !!(st && st.running && st.squadFor && st.squadFor(st.running)); }
+  // nobody tags along on his own: a squad-mate is with you only after you phoned him and picked him up (m.crew 'with');
+  // m.crew 'pickup' = he agreed and is waiting at a kerbside spot on the map; null = his own life (SquadLife)
+  squadOn() { return this.followers.some((m) => m.crew === 'with'); }
+  crewOf() { return this.followers.filter((m) => m.crew === 'with'); }
   get activeMember() { return this.members[this.active]; }
   get activeId() { return this.members[this.active].def.id; }
   get followers() { return this.members.filter((m, i) => i !== this.active); }
@@ -109,7 +113,7 @@ export class Squad {
   reset() { // new game: Dineth alone until the squad assembles in "The Meeting"
     this.cancelTransition(); this.unlocked = false; this.crumbs = [];
     if (this.active !== 0) this.switchInstant(0);
-    for (const m of this.members) { m.hp = 100; m.inv = freshInventory(m.def); m.grenades = 0; m.sel = WEAPONS.findIndex((w) => w.id === m.def.loadout[0]); m.mode = 'follow'; m.hold = null; m.vehicle = null; if (m !== this.members[0] && m.ch && m.ch.root.parent) m.ch.root.parent.remove(m.ch.root); }
+    for (const m of this.members) { m.hp = 100; m.inv = freshInventory(m.def); m.grenades = 0; m.sel = WEAPONS.findIndex((w) => w.id === m.def.loadout[0]); m.mode = 'follow'; m.hold = null; m.vehicle = null; this.clearCall(m); m.crew = null; m.board = null; m.unboard = null; if (m !== this.members[0] && m.ch && m.ch.root.parent) m.ch.root.parent.remove(m.ch.root); }
     this.g.weapons.inv = this.members[0].inv; this.g.weapons.sel = this.members[0].sel; this.el.mini.classList.add('hide'); this.el.strip.classList.remove('on');
   }
   // the outfit / load path rebuilds one member's Character (Game.rebuildPlayer for the active one)
@@ -121,7 +125,7 @@ export class Squad {
   }
   load(s) {
     this.cancelTransition(); if (!s) { this.reset(); return; }
-    for (const m of this.members) { const d = s.members && s.members[m.def.id]; if (!d) continue; m.x = d.x ?? m.x; m.z = d.z ?? m.z; m.yaw = d.yaw ?? 0; m.hp = clamp(d.hp ?? 100, 1, 100); m.grenades = Math.max(0, Math.min(6, d.grenades | 0)); if (Array.isArray(d.inv)) d.inv.forEach((v, i) => { if (m.inv[i]) { m.inv[i].mag = v[0]; m.inv[i].reserve = v[1]; m.inv[i].owned = !!v[2]; } }); if (typeof d.sel === 'number') m.sel = d.sel; m.mode = d.mode === 'hold' ? 'hold' : 'follow'; m.hold = d.hold || null; }
+    for (const m of this.members) { const d = s.members && s.members[m.def.id]; if (!d) continue; m.x = d.x ?? m.x; m.z = d.z ?? m.z; m.yaw = d.yaw ?? 0; m.hp = clamp(d.hp ?? 100, 1, 100); m.grenades = Math.max(0, Math.min(6, d.grenades | 0)); if (Array.isArray(d.inv)) d.inv.forEach((v, i) => { if (m.inv[i]) { m.inv[i].mag = v[0]; m.inv[i].reserve = v[1]; m.inv[i].owned = !!v[2]; } }); if (typeof d.sel === 'number') m.sel = d.sel; m.mode = 'follow'; m.hold = null; this.clearCall(m); m.crew = null; m.board = null; m.unboard = null; } // after a load everybody is back to his own day
     const ai = Math.max(0, SQUAD_IDS.indexOf(s.active)); if (s.unlocked) { this.unlocked = false; this.unlock(false); } else this.unlocked = false;
     if (ai !== this.active) this.switchInstant(ai, true);
     else { this.g.weapons.inv = this.activeMember.inv; this.g.weapons.sel = this.activeMember.sel; }
@@ -134,7 +138,15 @@ export class Squad {
     if (m.mode !== 'life') return; this.life.leave(m); m.mode = 'follow'; m.hidden = false; this.placeNear(m, true);
   }
   // after the player has been placed (load / respawn): bring squad-mates that are far away to the leader
-  regroup(force = false) { const P = this.g.player; this.crumbs = [{ x: P.x, z: P.z, y: P.y }]; if (!this.unlocked) return; this.wasOn = this.squadOn(); if (!this.wasOn) { for (const m of this.followers) { if (m.vehicle) this.disembark(m, true); this.life.leave(m); m.mode = 'life'; this.life.atWork(m); } return; } for (const m of this.followers) if (m.mode === 'life') { this.life.leave(m); m.mode = 'follow'; } for (const m of this.followers) { if (m.vehicle) this.disembark(m, true); if (force || m.mode !== 'hold' || Math.hypot(m.x - P.x, m.z - P.z) > 400) { if (force) { m.mode = 'follow'; m.hold = null; } this.placeNear(m, false); } else this.syncFollower(m); } }
+  regroup(force = false) {
+    const P = this.g.player; this.crumbs = [{ x: P.x, z: P.z, y: P.y }]; if (!this.unlocked) return;
+    for (const m of this.followers) { this.settleBoard(m);
+      if (m.crew === 'pickup') continue; // still waiting at his pickup spot
+      if (m.crew !== 'with') { if (m.vehicle) this.disembark(m, true); this.life.leave(m); m.mode = 'life'; m.crew = null; this.life.atWork(m); continue; }
+      if (m.mode === 'life') { this.life.leave(m); m.mode = 'follow'; } if (m.vehicle) this.disembark(m, true);
+      if (force || m.mode !== 'hold' || Math.hypot(m.x - P.x, m.z - P.z) > 400) { if (force) { m.mode = 'follow'; m.hold = null; } this.placeNear(m, false); } else this.syncFollower(m);
+    }
+  }
   // ------------------------------------------------------------------ active <-> follower data
   storeActive(m, keepWeapons = false) {
     const P = this.g.player, W = this.g.weapons; m.x = P.x; m.z = P.z; m.y = P.y; m.yaw = P.yaw; m.speed = P.speed; m.crouched = !!P.crouching;
@@ -156,15 +168,15 @@ export class Squad {
   }
   // switching away while driving: the departing character keeps the vehicle and drives on (his own life), or — during a
   // squad mission / with no road under it — stops, parks it and gets out to follow the new lead
-  handOff(from, v) {
+  handOff(from, v, on) {
     const P = this.g.player; P.vehicle = null; P.entry = null; P.exiting = null; v.player = false;
-    if (!this.squadOn()) { from.mode = 'life'; if (this.life.takeWheel(from, v)) { from.vehicle = null; return 'drive'; } }
+    if (!on) { from.mode = 'life'; if (this.life.takeWheel(from, v)) { from.vehicle = null; return 'drive'; } }
     v.speed = 0; this.g.traffic.release(v); from.vehicle = v; from.seat = v.driverSeat(); this.disembark(from, true); return 'out';
   }
   // used by load / reset: swap without any transition
   switchInstant(i, silent = false) {
     const from = this.activeMember, to = this.members[i]; if (from === to) return; this.ensureChars();
-    this.storeActive(from); this.active = i; this.loadActive(to); from.mode = from.mode === 'hold' ? 'hold' : 'follow'; from.mom = null;
+    this.settleBoard(to); this.storeActive(from); this.active = i; this.loadActive(to); to.crew = null; this.clearCall(to); if (from.crew === 'with') from.mode = 'follow'; else { from.mode = 'life'; from.life = { t: 0, spot: 0, next: 0, act: null }; } from.mom = null;
     if (this.unlocked && !from.ch.root.parent) this.g.scene.add(from.ch.root);
     if (!silent) this.hudRefresh();
   }
@@ -197,10 +209,11 @@ export class Squad {
     // camera start
     const A = cam.position.clone(); const fwd = new THREE.Vector3(); cam.getWorldDirection(fwd);
     // swap: the departing character becomes a squad-mate immediately (keeps moving), the new one takes the controller
-    this.storeActive(from); const mom = { t: 4, dur: 4, yaw: P.yaw, speed: P.speed }; const on = this.squadOn();
+    this.settleBoard(to); this.storeActive(from); const mom = { t: 4, dur: 4, yaw: P.yaw, speed: P.speed }; const on = to.crew === 'with'; /* switching to a mate who is with you: the one you leave stays with the group; otherwise he goes about his day and anyone with you heads off too */
+    from.crew = on ? 'with' : null; this.clearCall(from); to.crew = null; this.clearCall(to); if (!on) for (const c of this.followers) if (c !== to && c !== from && c.crew === 'with') c.crew = null;
     const veh = P.vehicle; const swap = !!veh && to.vehicle === veh; let handed = null;
     from.mode = on ? (from.mode === 'hold' ? 'hold' : 'follow') : 'life'; if (from.mode === 'life') from.life = from.life && (from.life.v || from.life.drive) ? from.life : { t: 0, spot: 0, next: 0, act: null };
-    if (veh && !swap) handed = this.handOff(from, veh);
+    if (veh && !swap) handed = this.handOff(from, veh, on);
     let drive = null; if (!swap && to.mode === 'life') { drive = to.life && (to.life.v || to.life.drive); if (!drive && this.life.job(to).kind === 'tuk' && to.hidden) drive = this.life.spawnTuk(to, true); }
     this.active = i; this.loadActive(to, { swap: swap ? { v: veh, from } : null, drive });
     from.mom = mom; if (!swap && handed !== 'drive' && handed !== 'out') from.vehicle = null; from.repathT = 0; from.progT = 0; from.lastX = from.x; from.lastZ = from.z;
@@ -274,8 +287,13 @@ export class Squad {
     this.handleInput(dt, busy);
     this.updateTransition(dt);
     const bodies = g.bodies || [];
-    const on = this.squadOn(); if (on !== this.wasOn) { this.wasOn = on; for (const m of this.followers) this.setLife(m, !on); }
-    this.followers.forEach((m, k) => { try { if (m.mode === 'life') this.life.update(m, dt, k, bodies); else this.updateFollower(m, dt, k, bodies); } catch (e) { if (!this._fe) { console.error(e); this._fe = 1; } } });
+    this.followers.forEach((m, k) => { try {
+      if (m.unboard) { this.stepOut(m, dt); return; } // getting out of a car (front seats: the real step-out)
+      if (m.crew === 'pickup') { if (m.mode !== 'pickup') this.startPickup(m); this.updatePickup(m, dt, k, bodies); return; }
+      if (m.crew !== 'with' && m.mode !== 'life' && !m.vehicle && !m.board) this.setLife(m, true); // sent off: back to his own day
+      if (m.crew === 'with' && m.mode === 'life') this.setLife(m, false);
+      if (m.mode === 'life') this.life.update(m, dt, k, bodies); else this.updateFollower(m, dt, k, bodies);
+    } catch (e) { if (!this._fe) { console.error(e); this._fe = 1; } } });
     this.proxies = this.followers.filter((m) => !m.vehicle && !m.hidden && m.ch.root.parent === this.g.scene).map((m) => ({ x: m.x, z: m.z, crossing: m.speed > 0.5 }));
     this.hudUpdate(dt);
   }
@@ -312,14 +330,88 @@ export class Squad {
   }
   placeAt(id, x, z, yaw) { const m = this.memberById(id); if (!m || m === this.activeMember || !m.ch) return null; if (m.vehicle) this.disembark(m, true); if (m.ch.root.parent !== this.g.scene) { m.ch.root.parent?.remove(m.ch.root); this.g.scene.add(m.ch.root); } m.x = x; m.z = z; m.y = this.g.collision.groundAt(x, z, this.g.player.y + 1, 2); m.yaw = yaw; m.speed = 0; m.mom = null; m.hidden = false; m.ch.root.visible = true; if (m.mode === 'away') m.mode = 'follow'; this.syncFollower(m); return m.ch; }
   syncFollower(m) { m.ch.root.position.set(m.x, m.y, m.z); m.ch.root.rotation.set(0, m.yaw, 0); }
-  freeSeat(v) { const seats = v.mesh.userData.seats || []; const used = new Set(this.followers.filter((f) => f.vehicle === v).map((f) => f.seat)); const pax = new Set((v.paxPlan || []).map((p) => p.seat)); for (const s of seats) if (!s.driver && !used.has(s) && !pax.has(s)) return s; return null; }
+  freeSeat(v) { const seats = v.mesh.userData.seats || []; const used = new Set(this.followers.filter((f) => f.vehicle === v).map((f) => f.seat)); for (const f of this.followers) { if (f.board && f.board.v === v) used.add(f.board.seat); if (f.boardV === v && f.boardSeat) used.add(f.boardSeat); } const pax = new Set((v.paxPlan || []).map((p) => p.seat)); for (const s of seats) if (!s.driver && !used.has(s) && !pax.has(s)) return s; return null; }
   boardPoint(v, seat) { const side = Math.sign(seat.x) || 1; v.mesh.updateMatrixWorld(); return new THREE.Vector3(side * (v.T.wid / 2 + 0.6), 0, seat.z).applyMatrix4(v.mesh.matrixWorld); }
   disembark(m, instant = false) {
-    const g = this.g, v = m.vehicle; m.vehicle = null; const seat = m.seat; m.seat = null; if (!v) return;
+    const g = this.g; if (m.unboard) { if (!instant) return; m.unboard = null; m.ch.anim.board = null; }
+    if (!instant && m.vehicle && m.seat && !g.indoor) { const v = m.vehicle; const bf = npcBoardSetup(v, m.seat, m.ch.anim); if (bf) { v.mesh.updateMatrixWorld(); const w = new THREE.Vector3(bf.H0[0], 0, bf.H0[1]).applyMatrix4(v.mesh.matrixWorld); if (!g.collision.blocked(w.x, w.z, 0.3)) { m.unboard = { v, seat: m.seat, bf, t: 0, started: false }; return; } } }
+    const v = m.vehicle; m.vehicle = null; const seat = m.seat; m.seat = null; if (!v) return;
     const side = Math.sign(seat ? seat.x : 1) || 1; v.mesh.updateMatrixWorld(); let p = null;
     for (const [sx, dz] of [[side, 0], [-side, 0], [side, -1.2], [-side, -1.2], [0, -(v.T.len / 2 + 0.8)]]) { const q = new THREE.Vector3(sx * (v.T.wid / 2 + 0.7), 0, (seat ? seat.z : 0) + dz).applyMatrix4(v.mesh.matrixWorld); if (!g.collision.blocked(q.x, q.z, 0.32)) { p = q; break; } }
     if (!p) { this.placeNear(m, false); return; }
     v.mesh.remove(m.ch.root); g.scene.add(m.ch.root); m.x = p.x; m.z = p.z; m.y = g.collision.groundAt(p.x, p.z, v.y + 0.5, 1); m.yaw = v.yaw + side * Math.PI / 2; m.speed = 0; m.mode = m.mode === 'hold' ? 'hold' : 'follow'; m.ch.anim.standUp(); m.ch.anim.set(null); m.ch.mesh.castShadow = true; this.syncFollower(m); m.stuckT = 0; m.progT = 0; m.lastX = m.x; m.lastZ = m.z;
+  }
+  // ------------------------------------------------------------------ getting in / out of the leader's car (front row)
+  stepIn(m, dt) {
+    const b = m.board, v = b.v, bf = b.bf, A = m.ch.anim, g = this.g; b.t += dt;
+    if (b.stage === 'align') { // the last step to the stand point beside the opening, turning to face along the car
+      v.mesh.updateMatrixWorld(); const hw = new THREE.Vector3(bf.H0[0], 0, bf.H0[1]).applyMatrix4(v.mesh.matrixWorld); const dx = hw.x - m.x, dz = hw.z - m.z, dd = Math.hypot(dx, dz);
+      if (dd > 1e-4) { const st = Math.min(dd, 1.3 * dt); m.x += dx / dd * st; m.z += dz / dd * st; } const dy = wrapAngle(v.yaw - m.yaw); m.yaw += dy * Math.min(1, 9 * dt);
+      m.y = g.collision.groundAt(m.x, m.z, v.y + 0.6, 1); m.speed = dd > 0.03 ? 1.1 : 0; this.syncFollower(m); A.update(dt, m.speed, 0);
+      if (Math.abs(v.speed) > 1.5 || g.player.vehicle !== v) { m.board = null; return; } // drove off / got out
+      if (!((dd < 0.03 && Math.abs(dy) < 0.08) || b.t > 3)) return;
+      m.x = hw.x; m.z = hw.z; m.yaw = v.yaw; m.speed = 0; this.syncFollower(m); m.ch.root.parent?.remove(m.ch.root); v.mesh.add(m.ch.root); lapGrips(m.ch, v, b.seat, bf.G); b.stage = 'in'; b.t = 0; A.set(null); A.standUp(); A.duck = 0;
+    } // (on the frame it is re-parented the step-in pose is applied at once)
+    const k = Math.min(1, Math.max(0, b.t - 0.12) / bf.T); poseBoard(A, bf.G, boardCurve(bf.G, k), v.mesh, boardGroundFn(v, g.collision), 0, Math.min(1, b.t / 0.25)); A.update(dt, 0, 0);
+    if (k >= 1 || Math.abs(v.speed) > 2.5) { A.board = null; m.board = null; m.vehicle = v; m.seat = b.seat; m.boardSeat = null; m.ch.mesh.castShadow = false; seatCharacter(m.ch, v, b.seat); m.exitDelay = 0.6; }
+  }
+  stepOut(m, dt) {
+    const u = m.unboard, v = u.v, bf = u.bf, A = m.ch.anim, g = this.g; u.t += dt;
+    if (!u.started) { lapGrips(m.ch, v, u.seat, bf.G); u.started = true; A.set(null); A.standUp(); A.duck = 0; m.ch.mesh.castShadow = true; }
+    const TX = bf.T * (bf.kind === 'bike' || bf.G.lap ? 1 : EXIT_K); const k = 1 - Math.min(1, u.t / TX), tl = TX + 0.12 - u.t;
+    poseBoard(A, bf.G, boardCurve(bf.G, k), v.mesh, boardGroundFn(v, g.collision), 0, Math.min(1, Math.max(0, tl) / 0.25)); A.update(dt, 0, 0);
+    if (tl > 0) return;
+    A.board = null; const r = m.ch.root; const p = r.getWorldPosition(new THREE.Vector3()); const yw = new THREE.Euler().setFromQuaternion(r.getWorldQuaternion(new THREE.Quaternion()), 'YXZ').y;
+    r.parent?.remove(r); g.scene.add(r); r.rotation.set(0, 0, 0); m.x = p.x; m.z = p.z; m.y = g.collision.groundAt(p.x, p.z, v.y + 0.6, 1); m.yaw = yw; m.speed = 0; m.vehicle = null; m.seat = null; m.unboard = null;
+    if (m.mode === 'away' || m.mode === 'pickup') m.mode = 'follow'; A.standUp(); A.set(null); this.syncFollower(m); m.stuckT = 0; m.progT = 0; m.lastX = m.x; m.lastZ = m.z; A.update(0.0001, 0, 0);
+  }
+  // finish any half-done step in / out at once (switching, regroup, load)
+  settleBoard(m) {
+    if (m.unboard) this.disembark(m, true);
+    if (m.board) { const b = m.board; m.board = null; m.ch.anim.board = null; if (b.stage === 'in') { m.vehicle = b.v; m.seat = b.seat; seatCharacter(m.ch, b.v, b.seat); m.ch.mesh.castShadow = false; } }
+  }
+  // ------------------------------------------------------------------ phone: call a mate, pick him up
+  callAvailable(m) { return this.unlocked && m && m !== this.activeMember; }
+  // he agreed: he names a kerbside spot (map marker + GPS) and goes there to wait
+  arrangePickup(m) {
+    const g = this.g; const a = anchorFor(m); const sp = pickupSpot(g.traffic, g.collision, a);
+    m.call = { x: sp.x, z: sp.z, y: sp.y, yaw: sp.yaw, stop: sp.stop, label: a.label, t: 0, nag: 0 }; g.hud.addBlip('pickup:' + m.def.id, sp.x, sp.z, 'pickup', `${m.def.name} — pickup ${a.label}`); m.crew = 'pickup'; m.mode = 'life'; // the switch to 'pickup' happens in update (drops the tuk etc.)
+    if (g.hud.setWaypoint) g.hud.setWaypoint(sp.x, sp.z); return m.call;
+  }
+  clearCall(m) { const g = this.g, c = m.call; if (g.hud.removeBlip) g.hud.removeBlip('pickup:' + m.def.id); const w = g.hud.waypoint; if (c && w && Math.hypot(w.x - c.x, w.z - c.z) < 1 && g.hud.clearWaypoint) g.hud.clearWaypoint(); m.call = null; }
+  cancelPickup(m) { if (m.crew !== 'pickup') return; this.clearCall(m); m.crew = null; this.setLife(m, true); }
+  dismiss(m) { if (m.crew !== 'with') return; m.crew = null; m.mode = m.mode === 'hold' ? 'follow' : m.mode; }
+  startPickup(m) {
+    if (m.vehicle) { this.disembark(m, true); } this.life.leave(m); m.mode = 'pickup'; m.hold = null; m.coverT = 0; m.board = null;
+    const g = this.g, c = m.call; const near = Math.hypot(m.x - g.player.x, m.z - g.player.z) < 90 && !m.hidden && m.ch.root.parent === g.scene;
+    if (!near) { m.x = c.x; m.z = c.z; m.y = g.collision.groundAt(c.x, c.z, c.y + 0.5, 1); m.yaw = c.yaw; if (m.ch.root.parent !== g.scene) { m.ch.root.parent?.remove(m.ch.root); g.scene.add(m.ch.root); } m.hidden = true; m.ch.root.visible = false; this.syncFollower(m); } // he makes his own way there
+    m.ch.anim.set(null); m.repathT = 0; m.stuckT = 0; m.progT = 0; m.lastX = m.x; m.lastZ = m.z;
+  }
+  updatePickup(m, dt, k, bodies) {
+    const g = this.g, P = g.player, c = m.call, A = m.ch.anim; c.t += dt; c.nag -= dt;
+    if (g.indoor) { if (!m.hidden) { m.hidden = true; m.ch.root.visible = false; } return; }
+    const dSpot = Math.hypot(c.x - m.x, c.z - m.z), dP = Math.hypot(P.x - c.x, P.z - c.z);
+    if (m.hidden) { // abstract: he is on his way / already there; appear at the kerb when nobody is looking
+      if (dSpot > 0.5) { m.x = c.x; m.z = c.z; m.yaw = c.yaw; }
+      if (dP < 160 && (dP > 45 || !this.inView(c.x, c.y, c.z))) { m.y = g.collision.groundAt(c.x, c.z, c.y + 0.5, 1); m.hidden = false; m.ch.root.visible = true; this.syncFollower(m); }
+      return;
+    }
+    if (dP > 220) { m.hidden = true; m.ch.root.visible = false; return; }
+    if (dSpot > 0.5) { // walking over to the spot
+      if (dSpot > 30 && !this.inView(m.x, m.y, m.z)) { m.x = c.x; m.z = c.z; m.yaw = c.yaw; m.y = g.collision.groundAt(c.x, c.z, c.y + 0.5, 1); this.syncFollower(m); return; }
+      this.steer(m, dt, c.x, c.z, dSpot > 6 ? 1.6 : 1.2, bodies); return;
+    }
+    // waiting at the kerb, facing the road; now and then a look at the phone / up the road
+    m.speed = damp(m.speed, 0, 8, dt); m.yaw = dampAngle(m.yaw, c.yaw, 4, dt); if (!A.action && Math.random() < dt / 7) A.play(Math.random() < 0.5 ? 'comms' : 'glance', 1.4);
+    A.update(dt, 0, 0); this.syncFollower(m);
+    // the pickup: you pull up beside him in something with a free seat and stop
+    const v = P.vehicle; const dV = v ? Math.hypot(v.x - m.x, v.z - m.z) : Math.hypot(P.x - m.x, P.z - m.z); const L = callLines(m.def.id);
+    if (dV > (v ? 15 : 7)) return;
+    const say = (key) => { if (c.nag <= 0) { g.hud.subtitle(m.def.name, L[key], '', 3.2); c.nag = 12; } };
+    if (g.police && g.police.level > 0) { say('wanted'); return; }
+    const why = canPickUp(v, v ? this.freeSeat(v) : null); if (why) { say(why); return; }
+    if (Math.abs(v.speed) > 1.5) return;
+    this.clearCall(m); m.crew = 'with'; m.mode = 'follow'; m.boardV = null; m.boardSeat = null; g.hud.subtitle(m.def.name, L.got, '', 2.6);
   }
   updateFollower(m, dt, k, bodies) {
     const g = this.g, P = g.player, ch = m.ch, A = ch.anim, col = g.collision;
@@ -328,7 +420,7 @@ export class Squad {
     if (g.indoor) { if (!m.hidden) { m.hidden = true; ch.root.visible = false; } return; }
     if (m.hidden && m.mode !== 'away') { m.hidden = false; ch.root.visible = true; if (m.mode !== 'hold') this.placeNear(m, true); }
     // riding with the leader
-    if (m.vehicle) { if (P.vehicle !== m.vehicle) { m.exitDelay -= dt; if (m.exitDelay <= 0) this.disembark(m); } else m.exitDelay = 0.35 + k * 0.4; A.update(dt, 0); return; }
+    if (m.vehicle) { if (P.vehicle !== m.vehicle || (m.crew !== 'with' && Math.abs(m.vehicle.speed) < 0.4)) { m.exitDelay -= dt; if (m.exitDelay <= 0) this.disembark(m); } else m.exitDelay = 0.35 + k * 0.4; A.update(dt, 0); return; }
     if (m.mode === 'away') { // left behind when the leader drove off: catch up out of sight once the leader is on foot
       if (!P.vehicle && !this.tr) { const d = Math.hypot(m.x - P.x, m.z - P.z); if (d > 25 || !this.inView(m.x, m.y, m.z)) this.placeNear(m, true); else { m.mode = 'follow'; m.hidden = false; ch.root.visible = true; } }
       return;
@@ -340,9 +432,11 @@ export class Squad {
       const v = P.vehicle; if (!m.boardSeat || m.boardV !== v) { m.boardV = v; m.boardSeat = this.freeSeat(v); m.boardT = 0; }
       m.boardT += dt; const seat = m.boardSeat;
       if (!seat || m.boardT > 9 || (Math.abs(v.speed) > 5 && dL > 3)) { if (dL > 40 || (!this.inView(m.x, m.y, m.z) && dL > 20)) { m.mode = 'away'; m.hidden = true; ch.root.visible = false; m.boardSeat = null; return; } m.speed = damp(m.speed, 0, 6, dt); A.update(dt, m.speed, 0); this.syncFollower(m); return; }
-      const bp = this.boardPoint(v, seat); const d = Math.hypot(bp.x - m.x, bp.z - m.z);
-      if (d < 0.9 || (d < 3 && Math.abs(v.speed) > 1.5)) { m.vehicle = v; m.seat = seat; m.boardSeat = null; ch.mesh.castShadow = false; seatCharacter(ch, v, seat); return; }
-      this.steer(m, dt, bp.x, bp.z, d > 4 ? 5.2 : 2.6, bodies); return;
+      if (m.board) { this.stepIn(m, dt); return; }
+      const bf = npcBoardSetup(v, seat, A); v.mesh.updateMatrixWorld(); const bp = bf ? new THREE.Vector3(bf.H0[0], 0, bf.H0[1]).applyMatrix4(v.mesh.matrixWorld) : this.boardPoint(v, seat); const d = Math.hypot(bp.x - m.x, bp.z - m.z);
+      if (bf && d < 0.6 && Math.abs(v.speed) < 0.8) { m.board = { v, seat, bf, t: 0, stage: 'align' }; this.stepIn(m, dt); return; } // front seat: the last step, turn, then the real step-in (as the player / police crews)
+      if ((!bf && d < 0.9) || (d < 3 && Math.abs(v.speed) > 1.5)) { m.vehicle = v; m.seat = seat; m.boardSeat = null; ch.mesh.castShadow = false; seatCharacter(ch, v, seat); return; } // rear seats keep the old path
+      this.steer(m, dt, bp.x, bp.z, d > 4 ? 5.2 : d > 1.6 ? 2.6 : 1.4, bodies); return;
     }
     m.boardSeat = null;
     // targets: formation slot (or the hold point); the leader's trail when the direct line is blocked
@@ -395,6 +489,7 @@ export class Squad {
   showStrip(sec) { this.el.strip.classList.add('on'); this.stripT = sec; }
   status(m, i) {
     const P = this.g.player; if (i === this.active) return 'You';
+    if (m.crew === 'pickup' && m.call) { const d = Math.round(Math.hypot(m.call.x - P.x, m.call.z - P.z)); return `Waiting for a lift · ${d < 1000 ? d + ' m' : (d / 1000).toFixed(1) + ' km'}`; }
     if (m.mode === 'life') { const d = Math.round(Math.hypot(m.x - P.x, m.z - P.z)); return `${this.life.label(m)} · ${d < 1000 ? d + ' m' : (d / 1000).toFixed(1) + ' km'}`; }
     if (m.vehicle) return 'Passenger'; if (m.mode === 'away') return 'Catching up'; const d = Math.round(Math.hypot(m.x - P.x, m.z - P.z));
     return `${m.mode === 'hold' ? 'Holding' : m.speed > 0.4 ? 'Moving up' : 'With you'} · ${d} m`;

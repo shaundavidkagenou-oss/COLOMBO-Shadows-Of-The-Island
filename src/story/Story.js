@@ -185,7 +185,7 @@ export class Story {
           ['David', 'Rest first. Ruwan wants you at Galle Face tonight. We will be close.'],
         ]);
         this.state.flags.squad = true;
-        this.hud.notify('Squad assembled', `Switch protagonist: tap <kbd>Z</kbd> for the next one, hold <kbd>Z</kbd> for the squad selector, or <kbd>F1</kbd> Dineth · <kbd>F2</kbd> Shashika · <kbd>F3</kbd> David. On missions that need all three, the other two come along on their own and ride with you; the rest of the time each gets on with his own life — Dineth drives his three-wheeler, Shashika works at Lanka Auto Care, David runs his repair stall in Pettah. You can switch while driving, but not while the police are after you.`, 'info', 14);
+        this.hud.notify('Squad assembled', `Switch protagonist: tap <kbd>Z</kbd> for the next one, hold <kbd>Z</kbd> for the squad selector, or <kbd>F1</kbd> Dineth · <kbd>F2</kbd> Shashika · <kbd>F3</kbd> David. Nobody tags along on his own: each gets on with his own life — Dineth drives his three-wheeler, Shashika works at Lanka Auto Care, David runs his repair stall in Pettah. To bring one along, call him (phone → Contacts) — he names a pickup spot on the map; drive there and stop beside him. You can switch while driving, but not while the police are after you.`, 'info', 14);
       },
       async () => {
         const [rx, rz] = this.state.flags.room; this.hud.setObjective('The Meeting', `Rest until evening (${this.hud.key('interact')} at the door)`, { x: rx, z: rz });
@@ -207,7 +207,7 @@ export class Story {
           ['Ruwan', 'Three shopkeepers kept copies of everything: Mrs. Fathima, Mr. Selvaraj and Uncle Bandara. They trust me. They will trust you.'],
           { choice: ['"I\'ll help. For the street."', '"What do I get out of it?"'], onChoice: async (i) => { if (i === 0) this.rel('ruwan', 8); else { this.rel('ruwan', -5); await this.g.director.say('Ruwan', 'You get your city back, machan. That\'s the deal.'); } } },
           ['Ruwan', 'Careful. Someone has been watching me all evening. Black SUV, near the hotel.'],
-          ...(this.g.squad && this.g.squad.unlocked ? [['Shashika', 'I saw it on Galle Road too. Dineth — go. We keep up.']] : []),
+          ...(this.g.squad && this.g.squad.unlocked ? [['Shashika', 'I saw it on Galle Road too. Dineth — go. Call if you need us.']] : []),
         ], { spec: HEROES.ruwan, x, z, yaw: -Math.PI / 2 });
       },
       async () => {
@@ -278,7 +278,7 @@ export class Story {
       },
       async () => { await this.followVehicle('van', [[-120, -40], [-280, -40], [-280, -240], [-280, -660], [-280, -900], [-150, -900], [-150, -1000], [-100, -1040]], 'Follow the courier van — don\'t get too close'); },
       async () => {
-        this.hud.notify('Sneak', `Crouch with ${this.hud.key('crouch')}. Stay out of the guards\' sight. Your squad-mates crouch with you.`, 'info', 6); this.freeSwitch(true, 'Free switching: send whoever you like into the yard — whoever you leave stays in cover by the gate.');
+        this.hud.notify('Sneak', `Crouch with ${this.hud.key('crouch')}. Stay out of the guards\' sight. Anyone you brought along crouches with you.`, 'info', 6); this.freeSwitch(true, 'Free switching: send whoever you like into the yard — anyone you brought along stays in cover by the gate when you switch away.');
         const tgt = { x: -95, y: 1.5, z: -1080, done: false };
         this.spawnGuards([[[-130, -1070], [-60, -1070]], [[-110, -1100], [-110, -1050]], [[-70, -1095], [-140, -1095]]]);
         this.hud.setObjective('The Courier', 'Sneak into the yard and photograph the shipping ledger', tgt);
