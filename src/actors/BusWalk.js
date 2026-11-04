@@ -12,7 +12,7 @@ export const STAND_T = 1.35; // seat -> standing in the legroom
 export const DRIVER_T = 1.65; // the driver's seat: feet travel further (under the wheel to the pedals)
 // floor height under vehicle-local x in a doorway (smoothed tread edges: the body drops as the foot comes down on the next tread)
 export function stairY(W, x, floor = BUS_FLOOR) {
-  const T = BUS_STEPS(W); const e = 0.07; let y = floor;
+  const T = BUS_STEPS(W); const e = 0.1; let y = floor;
   y = lerp(y, T[1][0], sm((x - (T[1][1] - e)) / (2 * e)));
   y = lerp(y, T[0][0], sm((x - (T[0][1] - e)) / (2 * e)));
   y = lerp(y, 0, sm((x - (T[0][2] - e)) / (2 * e)));
@@ -51,7 +51,7 @@ export function busPathAt(P, s) {
   return { x, y, z, yaw: Math.atan2(b[0] - a[0], b[2] - a[2]), seg: i };
 }
 // walking pace along the path: slower on the stairs and round the turns
-export function busPace(P, s) { const p = busPathAt(P, s); return p.x > P.W - 0.7 && Math.abs(p.z - P.dz) < 0.44 ? 0.75 : 1.05; }
+export function busPace(P, s) { const p = busPathAt(P, s); return p.x > P.W - 0.7 && Math.abs(p.z - P.dz) < 0.44 ? 0.65 : 1.05; }
 // turn toward a heading at a limited rate (no snapping round at the aisle corners)
 export function turnToward(cur, want, dt, rate = 5) { let d = want - cur; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return cur + clamp(d, -rate * dt, rate * dt); }
 // getting off, one frame: o = { ch, seat, t, P, s, yaw }. Returns true when the passenger is standing on the kerb.
