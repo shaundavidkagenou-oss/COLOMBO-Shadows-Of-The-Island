@@ -339,6 +339,7 @@ export class Player {
     eye.setFromMatrixPosition(h.matrixWorld).add(new THREE.Vector3(Math.sin(yaw) * 0.1 * s, 0.075 * s, Math.cos(yaw) * 0.1 * s)); look.set(Math.sin(yaw) * Math.cos(this.camPitch), -Math.sin(this.camPitch), Math.cos(yaw) * Math.cos(this.camPitch)); return eye; }
   snapCamera() { this.updateCamera(1, true); }
   updateCamera(dt, snap = false) {
+    if (this.camHid) { this.ch.root.visible = true; this.camHid = false; } // set again below while the camera is still inside the body
     if (this.cinematic || this.camOverride) return; const cam = this.camera; const v = this.vehicle;
     if (this.scoped && this.weapons && !v) { this.weapons.scopeCamera(dt); return; }
     this.aimCam = damp(this.aimCam || 0, this.aiming && !v ? 1 : 0, 10, dt);
@@ -390,6 +391,9 @@ export class Player {
     cam.position.copy(this.camPos);
     if (this.shake > 0 && Settings.get('cameraShake')) { cam.position.x += (Math.random() - 0.5) * this.shake * 0.3; cam.position.y += (Math.random() - 0.5) * this.shake * 0.3; this.shake = Math.max(0, this.shake - dt * 2.5); }
     cam.lookAt(tgt);
+    // back against a wall: collision pulls the camera into the body and the screen filled with the back of the head / shirt.
+    // While the camera is inside the body's radius the character is not drawn (as in other third-person games)
+    if (!v && Math.hypot(cam.position.x - this.x, cam.position.z - this.z) < 0.45 && cam.position.y < this.y + 2.0) { this.ch.root.visible = false; this.camHid = true; }
     if (this.camFx) { cam.rotateZ(this.camFx.roll || 0); cam.rotateX(this.camFx.pitch || 0); cam.rotateY(this.camFx.yaw || 0); } // drunk sway (Drunk.js)
     if (v) { const spd = Math.abs(v.speed); const f = Settings.get('fov') + Math.min(12, spd * 0.35); if (Math.abs(cam.fov - f) > 0.05) { cam.fov = damp(cam.fov, f, 3, dt); cam.updateProjectionMatrix(); } }
     else if (Math.abs(cam.fov - Settings.get('fov')) > 0.05) { cam.fov = damp(cam.fov, Settings.get('fov'), 3, dt); cam.updateProjectionMatrix(); }

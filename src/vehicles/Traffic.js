@@ -521,9 +521,9 @@ export class Traffic {
     for (const v of this.parked) if (v.spot && !want.has(v.spot) && !v.keep) { v.dispose(); v.dead = true; this.parkedSet.delete(v.spot); }
     this.parked = this.parked.filter((v) => !v.dead);
     if (this.vacated) for (const [sp, t] of this.vacated) { const nt = t + tick; if (!want.has(sp) && nt > 90 && Math.hypot(sp.x - focus.x, sp.z - focus.z) > 160) { this.vacated.delete(sp); this.parkedSet.delete(sp); } else this.vacated.set(sp, nt); }
-    let made = 0; // nearest spots first; per frame at most 4 already-built looks or ONE first-time model build (entering a street used to build up to 26 at once)
+    const t0 = performance.now(); let made = 0; // nearest spots first; per frame at most 4 already-built looks or ONE first-time model build (entering a street used to build up to 26 at once)
     for (const p of want) {
-      if (this.parkedSet.has(p)) continue; if (made >= 2) { this.parkedTimer = 0; break; } const { type, seed } = this.parkedLook(p); if (this.spotTaken(p, type)) continue; const fresh = !modelCached(type, seed); if (fresh && (made > 0 || performance.now() - (this.lastBuild || -1e9) < 300)) { this.parkedTimer = 0.05; continue; } if (fresh) this.lastBuild = performance.now(); made += fresh ? 2 : 1; /* a first-time model build is the only one this frame; otherwise two per frame (~3 ms each) until the street is filled */
+      if (this.parkedSet.has(p)) continue; if (made >= 2 || (made > 0 && performance.now() - t0 > 2.5)) { this.parkedTimer = 0; break; } /* ~2.5 ms of new parked cars per frame (at least one), the rest next frame */ const { type, seed } = this.parkedLook(p); if (this.spotTaken(p, type)) continue; const fresh = !modelCached(type, seed); if (fresh && (made > 0 || performance.now() - (this.lastBuild || -1e9) < 300)) { this.parkedTimer = 0.05; continue; } if (fresh) this.lastBuild = performance.now(); made += fresh ? 2 : 1; /* a first-time model build is the only one this frame; otherwise two per frame (~3 ms each) until the street is filled */
       const v = new Vehicle(type, seed, this.scene); this.noteLook(type, seed); parkOnStand(v); v.place(p.x, p.z, p.yaw); v.parked = true; v.spot = p; this.parked.push(v); this.parkedSet.add(p);
     }
   }

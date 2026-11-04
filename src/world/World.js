@@ -29,7 +29,7 @@ export class World {
   constructor(scene) {
     this.scene = scene; this.root = new THREE.Group(); this.root.name = 'world'; scene.add(this.root);
     this.collision = new Collision(); this.chunks = []; this.detailQueue = []; this.signalTimer = 0; this.t = 0;
-    this.detailRadius = 330; this.job = null; this.wjob = null; this.jobBudgetMs = 2.5; this.windowRadius = 150; this.propRadius = 430; this.treeRadius = 520;
+    this.detailRadius = 330; this.job = null; this.wjob = null; this.revealQ = []; this.jobBudgetMs = 2.5; this.windowRadius = 150; this.propRadius = 430; this.treeRadius = 520;
     this.lampLights = [];
   }
   async build(progress = () => {}, quality = 'high') {
@@ -216,6 +216,7 @@ export class World {
       else if (c.win) { c.win.visible = false; if (d > this.windowRadius + 120) this.disposeWindows(c); }
     }
     if (this.propDirty && this.propPools) { this.propDirty = false; this.repackProps(); }
+    if (this.revealQ.length) this.revealStep();
     if (this.job) this.stepDetailJob(this.jobBudgetMs);
     if (this.wjob) this.stepWinJob(this.jobBudgetMs);
     if (this.grass) this.grass.update(dt, focus, atmos ? atmos.w.wind : 0.3);
@@ -259,12 +260,16 @@ export class World {
       if (g) { const m = meshFor(J.sn, g, MAT, det ? { cast: true, receive: true } : k === 0 ? { cast: false, receive: true } : { cast: false, receive: false }); if (m) { if (!det && k === 1) m.renderOrder = 2; J.meshes.push(m); } }
       if ((J.q.length || J.sb) && performance.now() - t0 > budgetMs) return false; }
     const c = J.c; if (det ? c.detail : c.win) { for (const m of J.meshes) m.geometry.dispose(); return true; } // built meanwhile by warm()
-    if (det) this.finishDetail(c, J.meshes); else this.finishWindows(c, J.meshes); return true;
+    if (det) this.finishDetail(c, J.meshes, true); else this.finishWindows(c, J.meshes, true); return true;
   }
-  finishWindows(c, meshes) { const g = new THREE.Group(); g.name = 'windows' + c.idx; for (const m of meshes) g.add(m); c.win = g; c.group.add(g); refreshStatic(c.group); }
-  finishDetail(c, meshes) {
+  finishWindows(c, meshes, staged = false) { const g = new THREE.Group(); g.name = 'windows' + c.idx; for (const m of meshes) g.add(m); c.win = g; c.group.add(g); refreshStatic(c.group); if (staged) this.stage(meshes); }
+  // streamed meshes appear over the next frames within a vertex budget: the GPU uploads a mesh's buffers the first time it is
+  // drawn, and a whole chunk's merged materials (several MB) arriving in one frame was a visible hitch while driving
+  stage(meshes) { for (const m of meshes) { m.visible = false; this.revealQ.push(m); } }
+  revealStep(maxVerts = 90000) { let n = 0; while (this.revealQ.length) { const m = this.revealQ.shift(); if (!m.parent || !m.geometry || !m.geometry.attributes.position) continue; m.visible = true; n += m.geometry.attributes.position.count; if (n >= maxVerts) break; } }
+  finishDetail(c, meshes, staged = false) {
     const g = new THREE.Group(); for (const m of meshes) { if (m.name === 'pool' || m.name === 'lampHead') { m.castShadow = false; m.receiveShadow = false; } g.add(m); }
-    c.detail = g; c.group.add(g); refreshStatic(c.group);
+    c.detail = g; c.group.add(g); refreshStatic(c.group); if (staged) this.stage(meshes);
   }
   buildDetailFor(c) {
     if (this.job && this.job.c === c) { this.stepDetailJob(Infinity); if (c.detail) return; }

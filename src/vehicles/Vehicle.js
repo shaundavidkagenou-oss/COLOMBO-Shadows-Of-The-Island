@@ -25,7 +25,10 @@ export function setHeadPoolNight(n) { const hp = headPool(); const k = Math.min(
 // Near-LOD switch for the high-detail kit (VehicleDetail.js): detail group + hi-res wheels within ud.lodR of the camera.
 import { syncDoors } from './DoorRig.js';
 export const LIVE_VEHICLES = globalThis.__liveVehicles || (globalThis.__liveVehicles = new Set()); // global so dev hot-reloads share one registry
-export function setVehicleLOD(ud, near) { if (ud.lodNear === near) return; ud.lodNear = near; ud.detail.visible = near; for (const w of ud.wheels) { const u = w.userData; u.lo.visible = !near; u.hi.visible = near; if (u.cal) u.cal.visible = near; } }
+// The hidden half of each LOD pair is also taken out of the scene graph (its host is kept in userData.host): three walks every
+// object of the scene each frame to update world matrices, visible or not, and the ~70 vehicles were half of all objects
+const host = (o, on) => { if (!o) return; const h = o.userData.host; if (on) { if (h && o.parent !== h) h.add(o); } else if (o.parent) o.parent.remove(o); };
+export function setVehicleLOD(ud, near) { if (ud.lodNear === near) return; ud.lodNear = near; ud.detail.visible = near; host(ud.detail, near); for (const w of ud.wheels) { const u = w.userData; u.lo.visible = !near; u.hi.visible = near; host(u.lo, !near); host(u.hi, near); if (u.cal) { u.cal.visible = near; host(u.cal, near); } } }
 export function updateVehicleLOD(cam) { const cx = cam.position.x, cy = cam.position.y, cz = cam.position.z; for (const v of LIVE_VEHICLES) { const m = v.mesh, ud = m.userData; if (ud.doors) syncDoors(ud); if (!ud.detail) continue; const r = ud.lodR, d2 = (m.position.x - cx) ** 2 + (m.position.y - cy) ** 2 + (m.position.z - cz) ** 2; setVehicleLOD(ud, d2 < (ud.lodNear ? (r + 5) * (r + 5) : r * r) && m.visible !== false); } }
 // ---- real headlight beams. A fixed pool of SpotLights is created once at load (light counts never change, so no shader
 // recompiles); every frame they are handed to the vehicles whose lights matter most: the player's own vehicle first (that

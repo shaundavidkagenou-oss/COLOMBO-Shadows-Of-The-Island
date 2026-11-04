@@ -838,7 +838,12 @@ function shapeOf(type, variant) {
 function probeMask(g) { const c = g.attributes.color; if (!c) return null; const a = c.array, P = PROBE; let mask = null;
   for (let i = 0; i < a.length; i += 3) { const k = a[i] / P[0]; if (k > 0 && Math.abs(a[i + 1] - k * P[1]) < 2e-5 && Math.abs(a[i + 2] - k * P[2]) < 2e-5) { if (!mask) mask = new Float32Array(a.length / 3); mask[i / 3] = k; } }
   return mask; }
-function recolor(g, mask, col) { const out = g.clone(); if (!mask) return out; const a = out.attributes.color.array; for (let j = 0; j < mask.length; j++) { const k = mask[j]; if (k) { a[j * 3] = Math.fround(k * col[0]); a[j * 3 + 1] = Math.fround(k * col[1]); a[j * 3 + 2] = Math.fround(k * col[2]); } } return out; }
+// a look = the shape with its own vertex colours: index / position / normal / uv stay SHARED with the shape (nothing ever moves a
+// vehicle's vertices; looks are cached, never disposed), only the colour array is copied — a new paint colour used to clone every
+// attribute (4-19 ms per new look mid-drive, a visible hitch when a street of parked cars streamed in) and upload it all again
+function recolor(g, mask, col) { const out = new THREE.BufferGeometry(); out.name = g.name; out.setIndex(g.index); for (const n in g.attributes) out.setAttribute(n, n === 'color' ? g.attributes.color.clone() : g.attributes[n]);
+  for (const q of g.groups) out.addGroup(q.start, q.count, q.materialIndex); out.boundingBox = g.boundingBox ? g.boundingBox.clone() : null; out.boundingSphere = g.boundingSphere ? g.boundingSphere.clone() : null; out.userData = { ...g.userData };
+  if (!mask) return out; const a = out.attributes.color.array; for (let j = 0; j < mask.length; j++) { const k = mask[j]; if (k) { a[j * 3] = Math.fround(k * col[0]); a[j * 3 + 1] = Math.fround(k * col[1]); a[j * 3 + 2] = Math.fround(k * col[2]); } } return out; }
 // door / bus-door metadata carry colours too (the door jamb shade): copy, recolouring any probe-multiple triple
 function recolorMeta(o, col) { if (Array.isArray(o)) { if (o.length === 3 && o.every((v) => typeof v === 'number')) { const k = o[0] / PROBE[0]; if (k > 0 && Math.abs(o[1] - k * PROBE[1]) < 2e-5 && Math.abs(o[2] - k * PROBE[2]) < 2e-5) return [k * col[0], k * col[1], k * col[2]]; return o.slice(); } return o.map((x) => recolorMeta(x, col)); }
   if (o && typeof o === 'object' && !o.isBufferGeometry && !o.isVector3) { const r = {}; for (const k in o) r[k] = recolorMeta(o[k], col); return r; } return o; }
@@ -904,10 +909,10 @@ export function createVehicleMesh(type, seed = 1) {
   let beacons = null; if (T.police || T.ambulance) { byName.lbBlue = M.lbBlue.clone(); byName.lbRed = M.lbRed.clone(); beacons = { blue: byName.lbBlue, red: byName.lbRed }; } // per vehicle: only responding units flash
   const g = new THREE.Group(); const tailMat = M.vtail.clone(); const indMat = M.vind.clone(); const headMat = M.vlight.clone(); const revMat = M.vrev.clone(); byName.vtail = tailMat; byName.vind = indMat; byName.vlight = headMat; byName.vrev = revMat; headMat.emissiveIntensity = 0.04; tailMat.emissiveIntensity = 0.03; revMat.emissiveIntensity = 0; // per vehicle (start dark): each car's own lamps
   directionalLamp(headMat, 1); directionalLamp(tailMat, -1); directionalLamp(revMat, -1); // lamps glow only from the lens face (seen through the cabin glass from the other end they stay dark)
-  const bodyMeshes = {}, shared = {}, mats = {}; for (const [name, geo] of cached.geos) { const mesh = new THREE.Mesh(geo, byName[name] || MAT.paint); mesh.name = name; bodyMeshes[name] = mesh; shared[name] = geo; mats[name] = mesh.material; mesh.castShadow = name !== 'glass' && name !== 'vlight' && name !== 'interior' && name !== 'badge' && name !== 'amb'; mesh.receiveShadow = name === 'paint'; if (name === 'glass') mesh.renderOrder = 2; g.add(mesh); }
+  const bodyMeshes = {}, shared = {}, mats = {}; for (const [name, geo] of cached.geos) { const mesh = new THREE.Mesh(geo, byName[name] || MAT.paint); mesh.name = name; bodyMeshes[name] = mesh; shared[name] = geo; mats[name] = mesh.material; mesh.castShadow = name !== 'glass' && name !== 'vlight' && name !== 'interior' && name !== 'badge' && name !== 'amb'; mesh.receiveShadow = name === 'paint'; if (name === 'glass') mesh.renderOrder = 2; mesh.matrixAutoUpdate = false; g.add(mesh); } /* body parts never move inside the vehicle: skip recomposing their local matrix every frame */
   const det = new THREE.Group(); det.name = 'detail'; det.visible = false; byName.lens = M.vlens; byName.vrefl = M.vrefl;
   for (const [name, geo] of cached.dgeos) { const mesh = new THREE.Mesh(geo, byName[name] || M.vchrome); mesh.name = name; mesh.castShadow = false; mesh.receiveShadow = name === 'paint'; if (name === 'glass' || name === 'lens') mesh.renderOrder = 2; mesh.matrixAutoUpdate = false; det.add(mesh); }
-  g.add(det); const base = T.base || type; const wkind = base === 'bike' ? 'bike' : (base === 'bus' || base === 'pbus' || base === 'lorry' || T.family === 'truck') ? 'heavy' : 'car';
+  det.userData.host = g; /* added by setVehicleLOD when near */ const base = T.base || type; const wkind = base === 'bike' ? 'bike' : (base === 'bus' || base === 'pbus' || base === 'lorry' || T.family === 'truck') ? 'heavy' : 'car';
   const wp = wheelParts(T.wheelR, cached.wheels[0][3], cached.wheelStyle);
   const wheels = cached.wheels.map(([x, y, z, w]) => {
     const parts = w === cached.wheels[0][3] ? wp : wheelParts(T.wheelR, w, cached.wheelStyle);
@@ -916,6 +921,8 @@ export function createVehicleMesh(type, seed = 1) {
     const holder = new THREE.Group(); holder.add(tyre, rim); if (x < 0) holder.rotation.y = Math.PI; spin.add(holder); pivot.add(spin);
     const hp = hiWheelParts(T.wheelR, w, cached.wheelStyle, wkind, KIT); const hi = new THREE.Group(); const t2 = new THREE.Mesh(hp.tyre, M.vtyre); t2.castShadow = true; hi.add(t2, new THREE.Mesh(hp.rim, M.vrim)); if (x < 0) hi.rotation.y = Math.PI; hi.visible = false; spin.add(hi);
     let cal = null; if (hp.caliper) { cal = new THREE.Mesh(hp.caliper, M.vrim); if (x < 0) cal.rotation.y = Math.PI; cal.visible = false; pivot.add(cal); }
+    for (const o of [holder, tyre, rim, hi, ...hi.children, cal]) if (o) { o.updateMatrix(); o.matrixAutoUpdate = false; } // fixed inside the wheel: only pivot (steer, suspension) and spin move
+    holder.userData.host = hi.userData.host = spin; spin.remove(hi); if (cal) { cal.userData.host = pivot; pivot.remove(cal); } // far LOD at birth: see setVehicleLOD
     pivot.userData.lo = holder; pivot.userData.hi = hi; pivot.userData.cal = cal;
     pivot.userData.spin = spin; pivot.userData.front = z > 0; pivot.userData.baseY = y; g.add(pivot); return pivot;
   });

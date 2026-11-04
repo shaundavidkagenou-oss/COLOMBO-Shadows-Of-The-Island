@@ -24,7 +24,7 @@ import { PostFX } from './gfx/PostFX.js';
 import { setVehicleNight } from './vehicles/VehicleModels.js';
 import { CATALOG, displayName } from './vehicles/VehicleCatalog.js';
 import { updateDoorClosers } from './vehicles/DoorRig.js';
-import { updateVehicleLOD, setHeadPoolNight, Vehicle, HeadlightRig } from './vehicles/Vehicle.js';
+import { updateVehicleLOD, setHeadPoolNight, Vehicle, HeadlightRig, setVehicleLOD, LIVE_VEHICLES } from './vehicles/Vehicle.js';
 import { FlashlightRig } from './police/Firefight.js';
 import { World } from './world/World.js';
 import { Interiors } from './world/Interiors.js';
@@ -196,7 +196,7 @@ export class Game {
     await enterGameLoading(this.ui, [
       { label: 'Streaming Colombo districts', run: (pr) => this.world.warmAsync(points, pr) },
       { label: 'Vehicles of Colombo', run: (pr) => this.traffic.warmModels(points, pr) },
-      { label: 'Compiling shaders', run: async (pr) => { this.camera.position.set(points[0][0], 3, points[0][1] + 6); this.camera.lookAt(points[0][0], 1.5, points[0][1]); this.camera.updateMatrixWorld(); try { if (this.renderer.compileAsync) await Promise.race([this.renderer.compileAsync(this.scene, this.camera), wait(8000)]); else this.renderer.compile(this.scene, this.camera); } catch (e) { console.warn('compile', e); } pr(1); } },
+      { label: 'Compiling shaders', run: async (pr) => { this.camera.position.set(points[0][0], 3, points[0][1] + 6); this.camera.lookAt(points[0][0], 1.5, points[0][1]); this.camera.updateMatrixWorld(); for (const v of LIVE_VEHICLES) setVehicleLOD(v.mesh.userData, true); /* near-LOD parts too (the next frame's LOD pass puts them back) */ try { if (this.renderer.compileAsync) await Promise.race([this.renderer.compileAsync(this.scene, this.camera), wait(8000)]); else this.renderer.compile(this.scene, this.camera); } catch (e) { console.warn('compile', e); } pr(0.5); await this.warmLightSets((k) => pr(0.5 + k * 0.5)); pr(1); } },
       { label: 'Waking the city', run: async (pr) => { for (let i = 0; i < 4; i++) { this.camera.rotation.y += Math.PI / 2; this.camera.updateMatrixWorld(); this.renderer.render(this.scene, this.camera); pr((i + 1) / 4); await new Promise((r) => requestAnimationFrame(r)); } } },
     ], { minMs: TEST ? 1500 : 6200, onFlash: () => Audio.boom() });
     this.hud.fade(1, 0); await new Promise((r) => requestAnimationFrame(r));
@@ -220,6 +220,21 @@ export class Game {
     const m = this.story.state.mission; if (m.id && m.stage > 0) this.story.startMission(m.id, m.stage); else if (m.id === 'm0') this.story.startMission('m0', 0); else this.story.offerNext();
     for (let i = 0; i < 30; i++) this.updatePlay(0.033, true);
     await this.hud.fade(0, 0.8); this.hud.notify('Game loaded', `${d.missionTitle || 'Free roam'} · ${d.timeString || ''}`, 'success', 3); Audio.setMusic('explore');
+  }
+  // Every material's shader is keyed by the scene's light counts. The walk-in Police HQ interior (6 point lights) appears without a
+  // fade whenever the player comes within 150 m; the first time that count is seen every visible material recompiles: a long stall
+  // in the middle of a drive. Compile that variant here instead, with dark stand-in lights (three caches programs per light set, so
+  // later toggles only rebind). Shops / hero rooms are entered behind a fade with only the room on screen: not worth the memory.
+  async warmLightSets(pr = () => {}) {
+    const extra = [6]; const g = new THREE.Group(); g.name = 'lightWarm'; this.scene.add(g);
+    try {
+      for (let i = 0; i < extra.length; i++) {
+        while (g.children.length < extra[i]) { const l = new THREE.PointLight(0xffffff, 0, 1, 2); l.position.set(0, -800, 0); g.add(l); }
+        if (this.renderer.compileAsync) await Promise.race([this.renderer.compileAsync(this.scene, this.camera), wait(5000)]); else this.renderer.compile(this.scene, this.camera);
+        pr((i + 1) / extra.length);
+      }
+    } catch (e) { console.warn('light-set compile', e); }
+    this.scene.remove(g); for (const l of g.children) l.dispose?.();
   }
   setupRoomDoor() { const r = this.story.state.flags.room; this.interiors.setupDoors(r || null); }
   // ================================================================= services used by Story / Director
