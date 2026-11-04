@@ -62,7 +62,8 @@ const sq = new Squad(g); g.squad = sq; sq.unlock(false);
 const sh = sq.memberById('shashika'), da = sq.memberById('david');
 // the camera looks at the player from behind (so in-view checks behave like the game)
 const aimCam = () => { const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw); camera.position.set(P.x - fx * 5, P.y + 2.2, P.z - fz * 5); camera.lookAt(P.x + fx * 4, P.y + 1.2, P.z + fz * 4); camera.updateMatrixWorld(); };
-const step = (n, fn) => { for (let i = 0; i < n; i++) { if (fn) fn(i); if (!P.vehicle) P.sync(); aimCam(); sq.update(DT, false); } };
+const { updateDoorClosers } = await import('../src/vehicles/DoorRig.js');
+const step = (n, fn) => { for (let i = 0; i < n; i++) { if (fn) fn(i); if (!P.vehicle) P.sync(); aimCam(); sq.update(DT, false); updateDoorClosers(DT); } };
 const walkTo = (x, z, sp = 4) => { const d = Math.hypot(x - P.x, z - P.z); P.yaw = Math.atan2(x - P.x, z - P.z); const n = Math.ceil(d / sp / DT); step(n, () => { const dd = Math.hypot(x - P.x, z - P.z); if (dd < 0.05) { P.speed = 0; return; } const s = Math.min(dd, sp * DT); P.x += Math.sin(P.yaw) * s; P.z += Math.cos(P.yaw) * s; P.y = L.groundY(P.x, P.z); P.speed = sp; }); P.speed = 0; };
 
 // ---------------------------------------------------------------- 2. nobody tags along
@@ -105,17 +106,21 @@ const leaveCar = () => { P.vehicle = null; car.player = false; car.mesh.remove(P
   let s = -back; let v = 8; for (let i = 0; i < 600 && v > 0; i++) { v = Math.max(0, v - 4 * DTT); s += v * DTT; if (s > 0) { s = 0; v = 0; } drive(spot.stop.x + pc.d[0] * s, spot.stop.z + pc.d[1] * s, cy, v); step(1); }
   ok(sh.crew === 'with' && hud.subs.some((x) => x.startsWith('Shashika')), `stopped beside him: he comes along (${hud.subs.join(' | ')})`);
   ok(!hud.blips.some((b) => b.id === 'pickup:shashika') && !hud.waypoint, 'blip and waypoint cleared');
-  let t = 0, sawIn = false; while (!sh.vehicle && t < 20) { step(1); t += DTT; scene.updateMatrixWorld(true); const stg = sh.board ? sh.board.stage : sh.mode; if (stg === 'in') sawIn = true; const cur = BONES.map(W); if (cur.some((q) => !Number.isFinite(q.x + q.y + q.z))) nan = true;
+  const pdoor = car.mesh.userData.doors.find((d) => d.role === 'front' && d.side > 0); let doorAtIn = -1;
+  let t = 0, sawIn = false; while (!sh.vehicle && t < 20) { step(1); t += DTT; scene.updateMatrixWorld(true); const stg = sh.board ? sh.board.stage : sh.mode; if (stg === 'in' && !sawIn) doorAtIn = pdoor.ang || 0; if (stg === 'in') sawIn = true; const cur = BONES.map(W); if (cur.some((q) => !Number.isFinite(q.x + q.y + q.z))) nan = true;
     if (prev && stg === 'in' && stagePrev === 'in') cur.forEach((q, k) => { const sp = q.distanceTo(prev[k]) / DTT; if (sp > maxV) { maxV = sp; at = BONES[k]; } }); prev = cur; stagePrev = stg; }
   ok(sh.vehicle === car && sh.seat && !sh.seat.driver, `he got in (${t.toFixed(1)} s)`); ok(sawIn, 'with the real step-in (front passenger seat)'); ok(!nan, 'no NaN bone');
   ok(maxV < 6, `step-in: fastest bone ${maxV.toFixed(2)} m/s (${at})`); ok(sh.ch.root.parent === car.mesh && sh.ch.root.position.distanceTo(new THREE.Vector3(sh.seat.x, sh.seat.y, sh.seat.z)) < 1e-6 && !sh.ch.anim.board, 'seated exactly at the seat, board pose cleared');
+  ok(doorAtIn > 0.85, `he opened the front passenger door before stepping in (ang ${doorAtIn.toFixed(2)})`);
+  step(120); ok((pdoor.ang || 0) === 0 && !pdoor.live, `and pulled it shut behind him (ang ${(pdoor.ang || 0).toFixed(2)})`);
   console.log(`  step-in ${t.toFixed(1)} s, fastest bone ${maxV.toFixed(2)} m/s`);
   // drive off 200 m: he rides along
   for (let i = 0; i < 600; i++) { s += 12 * DTT; drive(spot.stop.x + pc.d[0] * Math.min(s, 120), spot.stop.z + pc.d[1] * Math.min(s, 120), cy, 12); step(1); }
   ok(sh.vehicle === car && sh.crew === 'with', 'rides along while you drive'); }
 
 // ---------------------------------------------------------------- 6. out together, then send him off
-{ car.speed = 0; leaveCar(); let t = 0, sawOut = false; while (sh.vehicle && t < 10) { step(1); t += DT; if (sh.unboard) sawOut = true; }
+{ car.speed = 0; leaveCar(); const pdoor = car.mesh.userData.doors.find((d) => d.role === 'front' && d.side > 0); let maxAng = 0; let t = 0, sawOut = false; while (sh.vehicle && t < 10) { step(1); t += DT; if (sh.unboard) sawOut = true; maxAng = Math.max(maxAng, pdoor.ang || 0); }
+  ok(maxAng > 0.85, `he opens his door to get out (max ${maxAng.toFixed(2)})`);
   ok(!sh.vehicle && sawOut, `you get out: he steps out too (${t.toFixed(1)} s, real step-out)`);
   const inv = new THREE.Matrix4().copy(car.mesh.matrixWorld).invert(); const l = new THREE.Vector3(sh.x, 0, sh.z).applyMatrix4(inv); ok(Math.abs(l.x) > car.T.wid / 2 - 0.05, 'he stands outside the body');
   walkTo(P.x + Math.sin(cy) * -12, P.z + Math.cos(cy) * -12, 3); step(120); ok(sh.mode === 'follow' && Math.hypot(sh.x - P.x, sh.z - P.z) < 6, `he follows you on foot (${Math.hypot(sh.x - P.x, sh.z - P.z).toFixed(1)} m)`);

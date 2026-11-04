@@ -23,6 +23,7 @@ import { Atmosphere } from './gfx/Atmosphere.js';
 import { PostFX } from './gfx/PostFX.js';
 import { setVehicleNight } from './vehicles/VehicleModels.js';
 import { CATALOG, displayName } from './vehicles/VehicleCatalog.js';
+import { updateDoorClosers } from './vehicles/DoorRig.js';
 import { updateVehicleLOD, setHeadPoolNight, Vehicle, HeadlightRig } from './vehicles/Vehicle.js';
 import { FlashlightRig } from './police/Firefight.js';
 import { World } from './world/World.js';
@@ -344,6 +345,7 @@ export class Game {
   }
   hourFactor() { const h = this.atmos.hour; if (h < 5) return 0.25; if (h < 7) return 0.55; if (h < 19) return 1; if (h < 22) return 0.8; return 0.45; }
   updatePlay(dt, warmOnly = false) {
+    updateDoorClosers(dt); // doors people pulled shut behind them (DoorRig)
     this.dt = dt; this.clock += dt; const P = this.player, A = this.atmos, cam = this.camera, D = this.director;
     if (!D.active && !this.debug.freezeTime) A.advance(dt / Settings.get('timeScale'));
     if (!warmOnly) this.debugCon.update();

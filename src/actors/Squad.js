@@ -16,7 +16,8 @@ import * as THREE from 'three';
 import { Character, HEROES } from './Character.js';
 import { separate } from './Bodies.js';
 import { seatCharacter } from './Seating.js';
-import { boardCurve, poseBoard, npcBoardSetup, boardGroundFn, lapGrips, EXIT_K } from './Boarding.js';
+import { boardCurve, poseBoard, npcBoardSetup, boardGroundFn, lapGrips, swingDoor, EXIT_K } from './Boarding.js';
+import { shutDoorLater, cancelShut } from '../vehicles/DoorRig.js';
 import { anchorFor, pickupSpot, lines as callLines, canPickUp } from './SquadCall.js';
 import { SquadLife } from './SquadLife.js';
 import { Input } from '../core/Input.js';
@@ -348,21 +349,25 @@ export class Squad {
       v.mesh.updateMatrixWorld(); const hw = new THREE.Vector3(bf.H0[0], 0, bf.H0[1]).applyMatrix4(v.mesh.matrixWorld); const dx = hw.x - m.x, dz = hw.z - m.z, dd = Math.hypot(dx, dz);
       if (dd > 1e-4) { const st = Math.min(dd, 1.3 * dt); m.x += dx / dd * st; m.z += dz / dd * st; } const dy = wrapAngle(v.yaw - m.yaw); m.yaw += dy * Math.min(1, 9 * dt);
       m.y = g.collision.groundAt(m.x, m.z, v.y + 0.6, 1); m.speed = dd > 0.03 ? 1.1 : 0; this.syncFollower(m); A.update(dt, m.speed, 0);
-      if (Math.abs(v.speed) > 1.5 || g.player.vehicle !== v) { m.board = null; return; } // drove off / got out
-      if (!((dd < 0.03 && Math.abs(dy) < 0.08) || b.t > 3)) return;
+      if (bf.door) { cancelShut(bf.door); swingDoor(v, bf.door, bf.side, 1, dt, 8.5, 0.62); } // his own door (front passenger / rear / slider) opens as he arrives
+      if (Math.abs(v.speed) > 1.5 || g.player.vehicle !== v) { m.board = null; if (bf.door) shutDoorLater(v, bf.door, 0); return; } // drove off / got out
+      if (!((dd < 0.03 && Math.abs(dy) < 0.08 && (!bf.door || bf.door.ang > 0.85)) || b.t > 3)) return;
       m.x = hw.x; m.z = hw.z; m.yaw = v.yaw; m.speed = 0; this.syncFollower(m); m.ch.root.parent?.remove(m.ch.root); v.mesh.add(m.ch.root); lapGrips(m.ch, v, b.seat, bf.G); b.stage = 'in'; b.t = 0; A.set(null); A.standUp(); A.duck = 0;
     } // (on the frame it is re-parented the step-in pose is applied at once)
+    if (bf.door) swingDoor(v, bf.door, bf.side, 1, dt, 8.5, 0.62); // held open while he steps in
     const k = Math.min(1, Math.max(0, b.t - 0.12) / bf.T); poseBoard(A, bf.G, boardCurve(bf.G, k), v.mesh, boardGroundFn(v, g.collision), 0, Math.min(1, b.t / 0.25)); A.update(dt, 0, 0);
-    if (k >= 1 || Math.abs(v.speed) > 2.5) { A.board = null; m.board = null; m.vehicle = v; m.seat = b.seat; m.boardSeat = null; m.ch.mesh.castShadow = false; seatCharacter(m.ch, v, b.seat); m.exitDelay = 0.6; }
+    if (k >= 1 || Math.abs(v.speed) > 2.5) { if (bf.door) shutDoorLater(v, bf.door, 0.1); /* seated: pulls it shut */ A.board = null; m.board = null; m.vehicle = v; m.seat = b.seat; m.boardSeat = null; m.ch.mesh.castShadow = false; seatCharacter(m.ch, v, b.seat); m.exitDelay = 0.6; }
   }
   stepOut(m, dt) {
     const u = m.unboard, v = u.v, bf = u.bf, A = m.ch.anim, g = this.g; u.t += dt;
+    if (bf.door) { cancelShut(bf.door); swingDoor(v, bf.door, bf.side, 1, dt, 8.5, 0.62); if (!u.started && u.t < 0.4 && bf.door.ang < 0.85) { A.update(dt, 0, 0); return; } } // door open first, then out
     if (!u.started) { lapGrips(m.ch, v, u.seat, bf.G); u.started = true; A.set(null); A.standUp(); A.duck = 0; m.ch.mesh.castShadow = true; }
     const TX = bf.T * (bf.kind === 'bike' || bf.G.lap ? 1 : EXIT_K); const k = 1 - Math.min(1, u.t / TX), tl = TX + 0.12 - u.t;
     poseBoard(A, bf.G, boardCurve(bf.G, k), v.mesh, boardGroundFn(v, g.collision), 0, Math.min(1, Math.max(0, tl) / 0.25)); A.update(dt, 0, 0);
     if (tl > 0) return;
     A.board = null; const r = m.ch.root; const p = r.getWorldPosition(new THREE.Vector3()); const yw = new THREE.Euler().setFromQuaternion(r.getWorldQuaternion(new THREE.Quaternion()), 'YXZ').y;
     r.parent?.remove(r); g.scene.add(r); r.rotation.set(0, 0, 0); m.x = p.x; m.z = p.z; m.y = g.collision.groundAt(p.x, p.z, v.y + 0.6, 1); m.yaw = yw; m.speed = 0; m.vehicle = null; m.seat = null; m.unboard = null;
+    if (bf.door) shutDoorLater(v, bf.door, 0.7); // pushed shut once he has stepped clear
     if (m.mode === 'away' || m.mode === 'pickup') m.mode = 'follow'; A.standUp(); A.set(null); this.syncFollower(m); m.stuckT = 0; m.progT = 0; m.lastX = m.x; m.lastZ = m.z; A.update(0.0001, 0, 0);
   }
   // finish any half-done step in / out at once (switching, regroup, load)

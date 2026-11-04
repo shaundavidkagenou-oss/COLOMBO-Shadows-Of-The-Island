@@ -25,6 +25,7 @@ import { Character } from '../actors/Character.js';
 import { makeMedicAppearance, makePoliceAppearance } from '../actors/Appearance.js';
 import { seatCharacter } from '../actors/Seating.js';
 import { boardCurve, poseBoard, npcBoardSetup, boardGroundFn, swingDoor, lapGrips, EXIT_K } from '../actors/Boarding.js';
+import { shutDoorLater, cancelShut, poseDoor } from '../vehicles/DoorRig.js';
 import { Audio } from '../audio/Audio.js';
 import { clamp, lerp } from '../core/math.js';
 import { FootNav } from './FootNav.js';
@@ -471,15 +472,15 @@ export class PoliceResponse {
   // ------------------------------------------------------------------ officers
   // front-seat crews get in and out the way the player does (Boarding.js): cached geometry for this officer + seat
   boardFor(o, v) { if (!v || !o.seat) return null; if (o.bfV !== v || o.bfSeat !== o.seat) { o.bfV = v; o.bfSeat = o.seat; o.bf = npcBoardSetup(v, o.seat, o.ch.anim); } return o.bf; }
-  shutDoorNow(bf) { if (bf && bf.door) { bf.door.ang = 0; bf.door.vel = 0; bf.door.pivot.rotation.y = 0; } }
+  shutDoorNow(bf) { if (bf && bf.door) { cancelShut(bf.door); bf.door.ang = 0; bf.door.vel = 0; poseDoor(bf.door); } }
   exitWorld(o, v) { v.mesh.updateMatrixWorld(); const bf = this.boardFor(o, v); const e = bf ? bf.H0 : o.seat.exit || [Math.sign(o.seat.x || 1) * (v.T.wid / 2 + 0.6), o.seat.z]; const w = new THREE.Vector3(e[0], 0, e[1]).applyMatrix4(v.mesh.matrixWorld); return [w.x, w.z, e]; }
   updateOfficer(o, u, dt) {
     const g = this.g, A = o.ch.anim, v = u.v; let speed = 0;
-    if (o.mode === 'seated') { if (v) { o.x = v.x; o.z = v.z; o.y = v.y; o.yaw = v.yaw; if (v.doorShut && v.doorShut === o.bf) { const ev = swingDoor(v, o.bf.door, o.bf.side, -0.35, dt, 6.5, 0.9); if (ev === 'latched' || (o.shutT = (o.shutT || 0) + dt) > 1.4) { if (ev !== 'latched') this.shutDoorNow(o.bf); v.doorShut = null; o.shutT = 0; } } } return; } // animated by Traffic.updateOccupants (the driver pulls his door shut first)
+    if (o.mode === 'seated') { if (v) { o.x = v.x; o.z = v.z; o.y = v.y; o.yaw = v.yaw; } return; } // animated by Traffic.updateOccupants (each officer pulled his own door shut: DoorRig closers)
     if (o.mode === 'exit') { // slide out of the seat to the door spot while standing up (reverse of entering)
       o.t += dt; if (o.t < 0) { A.update(dt, 0); return; }
       const bf = this.boardFor(o, v); if (bf) { // front seat: door open, then the player's step-out motion (outer leg out, rise under the roof, inner foot down)
-        if (bf.door) swingDoor(v, bf.door, bf.side, 1, dt, 8.5, 0.62); const tt = o.t - (bf.door ? 0.35 : 0); if (tt < 0) { A.update(dt, 0); return; }
+        if (bf.door) { cancelShut(bf.door); swingDoor(v, bf.door, bf.side, 1, dt, 8.5, 0.62); } const tt = o.t - (bf.door ? 0.35 : 0); if (tt < 0) { A.update(dt, 0); return; }
         if (!o.boarding) { lapGrips(o.ch, v, o.seat, bf.G); o.boarding = true; A.set(null); A.standUp(); A.duck = 0; }
         const TX = bf.T * (bf.kind === 'bike' || bf.G.lap ? 1 : EXIT_K); /* no door to swing out on: a passenger is not hurried */ const k = 1 - Math.min(1, tt / TX), tl = TX + 0.12 - tt;
         poseBoard(A, bf.G, boardCurve(bf.G, k), v.mesh, boardGroundFn(v, g.collision), 0, Math.min(1, Math.max(0, tl) / 0.25)); A.update(dt, 0, 0);
@@ -494,7 +495,7 @@ export class PoliceResponse {
       return;
     }
     if (o.mode === 'enter') { // slide from the door spot into the seat
-      const bf = this.boardFor(o, v); if (bf) { o.t += dt; if (bf.door) swingDoor(v, bf.door, bf.side, 1, dt, 8.5, 0.62);
+      const bf = this.boardFor(o, v); if (bf) { o.t += dt; if (bf.door) { cancelShut(bf.door); swingDoor(v, bf.door, bf.side, 1, dt, 8.5, 0.62); }
         if (!o.boarding) { // the last step to the stand point beside the opening, turning to face along the car while the door swings wide
           v.mesh.updateMatrixWorld(); const hw = new THREE.Vector3(bf.H0[0], 0, bf.H0[1]).applyMatrix4(v.mesh.matrixWorld); const dx = hw.x - o.x, dz = hw.z - o.z, dd = Math.hypot(dx, dz);
           if (dd > 1e-4) { const st = Math.min(dd, 1.3 * dt); o.x += dx / dd * st; o.z += dz / dd * st; } const dy = Math.atan2(Math.sin(v.yaw - o.yaw), Math.cos(v.yaw - o.yaw)); o.yaw += dy * Math.min(1, 9 * dt);
@@ -502,7 +503,7 @@ export class PoliceResponse {
           if ((dd < 0.03 && Math.abs(dy) < 0.08 && (!bf.door || bf.door.ang > 0.85)) || o.t > 3) { o.x = hw.x; o.z = hw.z; o.yaw = v.yaw; this.placeOfficer(o); o.ch.root.parent?.remove(o.ch.root); v.mesh.add(o.ch.root); lapGrips(o.ch, v, o.seat, bf.G); o.boarding = true; o.t = 0; A.set(null); A.standUp(); A.duck = 0; }
           else return; } // (on the frame it is re-parented the step-in pose is applied at once: no frame in vehicle space at world coordinates)
         const k = Math.min(1, Math.max(0, o.t - 0.12) / bf.T); poseBoard(A, bf.G, boardCurve(bf.G, k), v.mesh, boardGroundFn(v, g.collision), 0, Math.min(1, o.t / 0.25)); A.update(dt, 0, 0);
-        if (k >= 1) { A.board = null; o.boarding = false; seatCharacter(o.ch, v, o.seat); o.mode = 'seated'; if (bf.door) { v.doorShut = bf; o.shutT = 0; } this.syncSeated(u); }
+        if (k >= 1) { A.board = null; o.boarding = false; seatCharacter(o.ch, v, o.seat); o.mode = 'seated'; if (bf.door) shutDoorLater(v, bf.door, 0.05); this.syncSeated(u); }
         return;
       }
       o.t += dt; const k = Math.min(1, o.t / 0.9), sm = k * k * (3 - 2 * k); const ex = o.ex;

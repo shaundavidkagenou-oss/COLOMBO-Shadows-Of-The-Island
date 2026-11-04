@@ -23,7 +23,7 @@ import * as THREE from 'three';
 import { clamp, lerp } from '../core/math.js';
 import { solveLeg, seatRest } from './Seating.js';
 import { solveArmIK } from './Character.js';
-import { poseDoor } from '../vehicles/DoorRig.js';
+import { springDoor, doorForSeat } from '../vehicles/DoorRig.js';
 
 const sm = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
 const seg = (u, a, b) => clamp((u - a) / (b - a), 0, 1);
@@ -209,7 +209,12 @@ function boardPoseFull(A, P, b) {
     b.chest.updateWorldMatrix(true, false); _v.set(t[0], t[1], t[2]); root.localToWorld(_v); b.chest.worldToLocal(_v); if (w < 1) _v.lerpVectors(_w, _v, w);
     // never fold the arm flat (a hand target at the shoulder has no defined elbow): slide the target out along its line
     const arm = b['arm' + sd], par = arm.parent; par.updateWorldMatrix(true, false); _w.copy(arm.position).applyMatrix4(par.matrixWorld); b.chest.worldToLocal(_w);
-    { _k.subVectors(_v, _w); const dl = _k.length(), mn = 0.3 * (A.s || 1); if (dl < mn) _v.copy(_w).addScaledVector(dl > 1e-4 ? _k.divideScalar(dl) : _k.set(0, 0, 1), mn); }
+    { _k.subVectors(_v, _w); const mn = 0.3 * (A.s || 1), soft = mn * 1.5; let dl = _k.length();
+      // a path that passes close by the shoulder (rear seats: low roof edge → lap) is eased out forward-and-down in the BODY
+      // frame — a fixed direction, so the hand never swings round the shoulder the way sliding it along the (rapidly turning)
+      // shoulder→target line does
+      if (P.lapSoft && dl < soft) { root.getWorldQuaternion(_qa2); par.getWorldQuaternion(_qb2); _pd.set(0, -0.55, 0.84).applyQuaternion(_qa2).applyQuaternion(_qb2.invert()); const f = (soft - dl) / soft, fade = 1 - (P.legSeat || 0); /* none once settled: the seat pose itself holds the hand there */ _v.addScaledVector(_pd, (soft - dl) * (1.1 + f) * fade); _k.subVectors(_v, _w); dl = _k.length(); }
+      if (dl < mn) _v.copy(_w).addScaledVector(dl > 1e-4 ? _k.divideScalar(dl) : _k.set(0, 0, 1), mn); }
     // elbow pole: out, down and a little back in the BODY frame (the chest is pitched far forward while ducking, so a
     // chest-space "down" pole would point straight at the wheel and flip), blended into the seat pose's pole at the end
     const pk = clamp(P.poleK ? P.poleK[sd] ?? 1 : P.grip ? P.grip[sd] || 0 : 0, 0, 1); const sx = sd === 'L' ? 1 : -1;
@@ -237,7 +242,7 @@ export function poseBoard(A, G, F, vehMesh, ground, yaw0 = 0, w = 1) {
     if (f.gk > 0) p = [p[0], p[1] + f.gk * ground(p[0], p[2]), p[2]];
     feet[sd] = L(p); }
   const hands = {}; for (const sd of ['L', 'R']) if (F.hands[sd]) hands[sd] = L(F.hands[sd]);
-  A.board = { w, hip: L(F.hip), pitch: F.pitch, roll: F.roll, twist: F.twist, duck: F.duck, feet, poleOut: F.poleOut, poleK: F.poleK, legSeat: F.legSeat, hands, handW: F.handW, grip: F.grip, toe: G.toe };
+  A.board = { w, hip: L(F.hip), pitch: F.pitch, roll: F.roll, twist: F.twist, duck: F.duck, feet, poleOut: F.poleOut, poleK: F.poleK, legSeat: F.legSeat, hands, handW: F.handW, grip: F.grip, toe: G.toe, lapSoft: G.lap && G.kind !== 'tuk' };
 }
 
 // ------------------------------------------------------------------ NPC step-in / step-out (police crews, medics, squad)
@@ -250,13 +255,7 @@ export function boardGroundFn(v, collision) {
   v.mesh.updateMatrixWorld(); _gm.copy(v.mesh.matrixWorld); _gmi.copy(_gm).invert(); const y0 = v.y ?? v.mesh.position.y;
   return (lx, lz) => { _gp.set(lx, 0, lz).applyMatrix4(_gm); _gp.y = collision.groundAt(_gp.x, _gp.z, y0 + 0.6, 1.2); return _gp.applyMatrix4(_gmi).y; };
 }
-export function swingDoor(v, d, side, target, dt, w = 9, z = 0.7) {
-  if (!d) return null; const h = Math.min(dt, 1 / 30); d.ang = d.ang || 0; d.vel = d.vel || 0; let ev = null;
-  d.vel += (w * w * (target - d.ang) - 2 * z * w * d.vel) * h; d.ang += d.vel * h;
-  const top = d.slide ? 1 : 1.05; if (d.ang > top) { d.ang = top; if (d.vel > 0) d.vel *= d.slide ? -0.1 : -0.25; } // a sliding door stops on its track
-  if (d.ang < 0) { const s = -d.vel; d.ang = 0; d.vel = 0; ev = 'latched'; if (s > 0.6 && v.slam) v.slam(s); }
-  if (d.side === undefined) d.side = side; poseDoor(d); return ev;
-}
+export function swingDoor(v, d, side, target, dt, w = 9, z = 0.7) { if (d && d.side === undefined) d.side = side; return springDoor(v, d, target, dt, w, z); }
 // a seat without a wheel / bars (front passenger): the hands' end point is where the seated pose rests them (the lap), measured
 // from the seated pose itself so the hand-over between the step-in motion and the seat pose is seamless
 export function lapGrips(ch, v, seat, G) {
@@ -267,11 +266,17 @@ export function lapGrips(ch, v, seat, G) {
 }
 export function npcBoardSetup(v, seat, A) {
   const kind = boardKind(v); if (!kind || !seat || !v.driverSeat) return null; const ds = v.driverSeat(); const isDriver = seat === ds || (Math.abs(seat.x - ds.x) < 0.02 && Math.abs(seat.z - ds.z) < 0.02);
-  if (kind === 'bike' && !isDriver) return null; if (Math.abs(seat.z - ds.z) > 0.35) return null; // front row only (rear doors are not separate meshes)
-  const side = kind === 'bike' ? 1 : seat.x < -0.05 ? -1 : seat.x > 0.05 ? 1 : (seat.exit ? Math.sign(seat.exit[0]) || -1 : -1);
-  const d = v.mesh.userData.door; const useDoor = isDriver && d && d.len && Math.sign(d.pivot.position.x) === side;
-  const door = useDoor ? { x: d.pivot.position.x, z: d.pivot.position.z, len: d.len, max: d.max } : null;
+  if (kind === 'bike' && !isDriver) return null;
+  const ud = v.mesh.userData; let side = kind === 'bike' ? 1 : seat.x < -0.05 ? -1 : seat.x > 0.05 ? 1 : (seat.exit ? Math.sign(seat.exit[0]) || -1 : -1);
+  // the seat's own door: front / rear pair, or the van's kerb-side slider (rear rows of a van with no door on the right go in
+  // through the slider). Cars with real doors never board a seat no door reaches; tuk-tuks are open at the sides.
+  const doored = kind === 'car' || kind === 'van'; let d = doored ? doorForSeat(ud, seat, side) : null;
+  if (!d && doored && side < 0 && !isDriver) { const sl = (ud.doors || []).find((q) => q.slide); if (sl && seat.z < sl.hz + 0.12 && seat.z > sl.hz - sl.len - 0.2) { d = sl; side = 1; } }
+  if (doored && ud.doors && ud.doors.length && !d) return null;
+  if (!doored && kind !== 'tuk' && Math.abs(seat.z - ds.z) > 0.35) return null; // other open bodies: front row only
+  const hinged = d && !d.slide; const door = hinged ? { x: d.pivot.position.x, z: d.pivot.position.z, len: d.len, max: d.max } : null;
   const G = boardGeom(v, seat, A, side, door);
   if (door) G.doorGrip = () => { const th = d.max * (d.ang || 0); return [door.x + side * door.len * Math.sin(th) * 0.88, 1.05, door.z - door.len * Math.cos(th) * 0.88]; };
-  const H0 = boardCurve(G, 0).hip; return { v, seat, kind, side, G, door: useDoor ? d : null, H0: [H0[0], H0[2]], T: BOARD_T[kind] };
+  else if (d) G.doorGrip = () => [d.pivot.position.x + side * 0.02, 1.0, d.pivot.position.z - 0.06]; // slider: its front-edge handle, wherever it has run back to
+  const H0 = boardCurve(G, 0).hip; return { v, seat, kind, side, G, door: d || null, H0: [H0[0], H0[2]], T: BOARD_T[kind] };
 }

@@ -35,3 +35,27 @@ export function setDoorLive(ud, d, on) {
 }
 // tests / tools: bring every door out (their meshes on the pivots), or fold them all back
 export function allDoorsLive(ud, on = true) { for (const d of ud.doors || []) setDoorLive(ud, d, on); }
+
+// door spring (critically-ish damped toward a target opening; target < 0 pulls it onto the latch). Returns 'latched' on the
+// frame it shuts (the slam sound comes from v.slam with the closing speed).
+export function springDoor(v, d, target, dt, w = 9, z = 0.7) {
+  if (!d) return null; const h = Math.min(dt, 1 / 30); d.ang = d.ang || 0; d.vel = d.vel || 0; let ev = null;
+  d.vel += (w * w * (target - d.ang) - 2 * z * w * d.vel) * h; d.ang += d.vel * h;
+  const top = d.slide ? 1 : 1.05; if (d.ang > top) { d.ang = top; if (d.vel > 0) d.vel *= d.slide ? -0.1 : -0.25; } // a sliding door stops on its track
+  if (d.ang < 0) { const s = -d.vel; d.ang = 0; d.vel = 0; ev = 'latched'; if (s > 0.6 && v && v.slam) v.slam(s); }
+  poseDoor(d); return ev;
+}
+// doors someone pulls shut behind them: after `delay` s (the person has stepped clear) the door is swung onto its latch
+const closers = new Map(); // door -> { v, t }
+export function shutDoorLater(v, d, delay = 0) { if (d) closers.set(d, { v, t: -delay }); }
+export function cancelShut(d) { closers.delete(d); }
+export function updateDoorClosers(dt) {
+  for (const [d, c] of closers) { c.t += dt; if (c.t < 0) continue; const ev = springDoor(c.v, d, -0.35, dt, 6.5, 0.9);
+    if (ev === 'latched' || c.t > 1.6 || !c.v.mesh.parent) { if (ev !== 'latched') { d.ang = 0; d.vel = 0; poseDoor(d); } closers.delete(d); } }
+}
+// the door a person uses for this seat: same side, the opening that spans the seat (front / rear / sliding); null = none
+export function doorForSeat(ud, seat, side) {
+  const D = ud && ud.doors; if (!D || !D.length) return null; let best = null, bd = 9;
+  for (const d of D) { if (d.side !== side) continue; const zc = d.hz - d.len * 0.55, lo = d.hz - d.len - 0.2, hi = d.hz + 0.12; if (seat.z < lo || seat.z > hi) continue; const e = Math.abs(seat.z - zc); if (e < bd) { bd = e; best = d; } }
+  return best;
+}
