@@ -4,6 +4,7 @@
 // AMBULANCE · ගිලන් රථ · நோயாளர் காவு வண்டி.
 //  - addAmbulanceKit(m, T): static geometry (frosted rear-compartment windows, green bands, decals, light bars, corner lamps)
 //  - buildAmbRear(): runtime twin rear doors (hinged at the rear corners) + the lit cabin interior seen when they open
+import { doorGapsMeta, spansOutside } from './DoorSpans.js';
 import * as THREE from 'three';
 
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
@@ -63,7 +64,7 @@ export function addAmbulanceKit(m, T) {
   const glassX = (y) => gw0 + (gw1 - gw0) * (y - y0) / (y1 - y0);
   // body skin x at height y (shared van taper: tumblehome above 0.75, tuck under 0.42)
   const skin = (y) => W * (1 - 0.02 * sstep(0.75, 1.0, y) - 0.03 * sstep(0.42, 0.3, y));
-  const dr = m.doors && m.doors[0]; const spans = (sx) => sx > 0 || !dr ? [[-2.2, 2.0]] : [[-2.2, dr.hinge[1] - dr.len - 0.005], [dr.hinge[1] + 0.005, 2.0]]; // driver door carries its own band piece
+  const spans = (sx) => spansOutside(-2.2, 2.0, doorGapsMeta(m.doors, sx)); // driver door carries its own band piece
   for (const sx of [-1, 1]) {
     // rear-compartment windows: frosted (privacy film), flush with the window pillars
     const xa = glassX(y0) + 0.045, xb = glassX(y1) + 0.045;

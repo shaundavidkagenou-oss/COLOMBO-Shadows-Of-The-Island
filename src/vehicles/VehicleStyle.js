@@ -3,6 +3,7 @@
 // pickup load beds, and the FICTIONAL brand emblems + wordmarks. Built into the same MultiBuilder as the base body, so
 // the extra parts share the vehicle's materials (lamps use the real lamp materials: headlamp / tail / indicator /
 // reverse only — nothing else glows).
+import { doorGaps, spansOutside } from './DoorSpans.js';
 import * as THREE from 'three';
 import { MeshBuilder } from '../gfx/MeshBuilder.js';
 import { BRANDS, CATALOG } from './VehicleCatalog.js';
@@ -236,16 +237,16 @@ function extras(X, K) {
   // snorkel on the right-hand (driver, −x) front wing, up the A-pillar
   if (v(S.snorkel)) { const x = -(W + 0.045), cz = gh[0][0], yb = gh[0][1] - 0.12, yt = roofF[2] - 0.08; beam3(rub, [x, yb, cz + 0.28], [x, yb + 0.03, cz - 0.02], 0.07, 0.07, black, G.cyl); beam3(rub, [x, yb, cz - 0.02], [x, yt, lerp(cz, roofF[0], 0.85)], 0.075, 0.075, black, G.cyl); part3(rub, G.box, [x, yt + 0.04, lerp(cz, roofF[0], 0.85) + 0.05], [0, 0, 0], [0.11, 0.1, 0.17], black); }
   // fender flares / lower cladding
-  if (S.flares || S.cladding) { const fl = S.flares === 'body' ? col : black; for (const sx of [-1, 1]) for (const wz of [X.wf, X.wr]) { const x = sx * (sideX(wz, R + 0.2) - 0.004); const rr = wz === X.wf ? (R + 0.095) / 1.075 : R + 0.1; /* front flare ends at the door opening (arch cut + 3 cm), never over the door */ const m = new THREE.Matrix4().compose(_p.set(x, R, wz), _q.identity(), _s.set(S.cladding && !S.flares ? 0.4 : 0.62, rr, rr)); (S.flares === 'body' ? paint : rub).geometry(arcGeo, m, fl); } }
+  if (S.flares || S.cladding) { const fl = S.flares === 'body' ? col : black; for (const sx of [-1, 1]) for (const wz of [X.wf, X.wr]) { const x = sx * (sideX(wz, R + 0.2) - 0.004); const rr = wz === X.wf || X.D.rearDoor || X.D.slide ? (R + 0.095) / 1.075 : R + 0.1; /* rear flare likewise stops at a rear / sliding door's arch notch */ /* front flare ends at the door opening (arch cut + 3 cm), never over the door */ const m = new THREE.Matrix4().compose(_p.set(x, R, wz), _q.identity(), _s.set(S.cladding && !S.flares ? 0.4 : 0.62, rr, rr)); (S.flares === 'body' ? paint : rub).geometry(arcGeo, m, fl); } }
   if (S.cladding) for (const sx of [-1, 1]) part3(rub, G.box, [sx * (sideX(0, sill + 0.03) + 0.008), sill + 0.028, (X.wf + X.wr) / 2], [0, 0, 0], [0.02, 0.05, X.wf - X.wr - 2 * R - 0.25], black); /* rocker cladding below the door shut line */
   if (S.skid) { part3(ch, G.box, [0, sill + 0.03, X.fz + 0.01], [0.3, 0, 0], [0.7, 0.05, 0.06], hex('#a8acb0')); part3(ch, G.box, [0, sill + 0.03, X.rz - 0.01], [-0.3, 0, 0], [0.7, 0.05, 0.06], hex('#a8acb0')); }
   // chrome belt line / D-pillar kink
-  if (S.chromeBelt) for (const sx of [-1, 1]) { const a = gh[0], b = gh[gh.length - 1]; const pts = sx > 0 ? [[a[0], b[0]]] : [...(a[0] - D.door[0] > 0.04 ? [[a[0], D.door[0] + 0.012]] : []), [D.door[1] - 0.012, b[0]]]; /* stops short of the driver-door shut lines */ for (const [za, zb] of pts) beam3(ch, [sx * (gw0 + 0.014), lerp(a[1], b[1], (a[0] - za) / (a[0] - b[0])) + 0.006, za], [sx * (gw0 + 0.014), lerp(a[1], b[1], (a[0] - zb) / (a[0] - b[0])) + 0.006, zb], 0.012, 0.02, chrome); }
+  if (S.chromeBelt) for (const sx of [-1, 1]) { const a = gh[0], b = gh[gh.length - 1]; const pts = spansOutside(b[0], a[0], doorGaps(D, sx), 0.012).map(([p, q]) => [q, p]); /* stops short of every door's shut lines */ for (const [za, zb] of pts) beam3(ch, [sx * (gw0 + 0.014), lerp(a[1], b[1], (a[0] - za) / (a[0] - b[0])) + 0.006, za], [sx * (gw0 + 0.014), lerp(a[1], b[1], (a[0] - zb) / (a[0] - b[0])) + 0.006, zb], 0.012, 0.02, chrome); }
   if (S.kink) for (const sx of [-1, 1]) { const b = gh[gh.length - 1], rr = gh[gh.length - 2]; beam3(ch, [sx * (gw0 + 0.01), b[1] + 0.01, rr[0] + 0.35], [sx * (gw0 - 0.005), b[1] + 0.13, rr[0] - 0.02], 0.02, 0.03, chrome); }
   // whip antenna on the kerb-side wing
   if (S.antenna) { const z = gh[0][0] + 0.12, x = sideX(z, gh[0][1]) - 0.06; beam3(ch, [x, gh[0][1] - 0.02, z], [x - 0.02, gh[0][1] + 0.8, z - 0.25], 0.006, 0.006, hex('#2a2a2a'), G.cyl); }
   // black side rubbing strips (90s saloons); the driver door keeps its own section free
-  if (S.rubStrip) for (const sx of [-1, 1]) { const y = sill + 0.3, za = X.wr + R + 0.1, zb = X.wf - R - 0.1; const segs = sx > 0 ? [[za, zb]] : [[za, D.door[1] - 0.01], [D.door[0] + 0.01, zb]]; for (const [z0, z1] of segs) if (z1 > z0) part3(rub, G.box, [sx * (sideX((z0 + z1) / 2, y) + 0.008), y, (z0 + z1) / 2], [0, 0, 0], [0.02, 0.04, z1 - z0], black); }
+  if (S.rubStrip) for (const sx of [-1, 1]) { const y = sill + 0.3, za = X.wr + R + 0.1, zb = X.wf - R - 0.1; const segs = spansOutside(za, zb, doorGaps(D, sx), 0.01); for (const [z0, z1] of segs) if (z1 > z0) part3(rub, G.box, [sx * (sideX((z0 + z1) / 2, y) + 0.008), y, (z0 + z1) / 2], [0, 0, 0], [0.02, 0.04, z1 - z0], black); }
   // classic separate wings with the headlamps in their noses
   if (S.fenders) for (const sx of [-1, 1]) {
     // classic separate wings: smooth lofts whose lower edge follows the wheel opening and whose crown swells over the wheel

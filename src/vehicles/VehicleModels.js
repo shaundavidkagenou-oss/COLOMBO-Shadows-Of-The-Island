@@ -5,6 +5,8 @@
 // tumblehome) so the bodywork reads as pressed panels rather than boxes; cabins get pillars, tinted glass and visible
 // interiors (seats, dashboard, steering wheel); wheels are lathed tyres with alloy rims; cars and vans get a separately
 // hinged driver door used by the entry/exit animation.
+import { doorGapsMeta, spansOutside } from './DoorSpans.js';
+import { poseDoor } from './DoorRig.js';
 import * as THREE from 'three';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { carDetail, tukDetail, bikeDetail, heavyDetail, hiWheelParts } from './VehicleDetail.js';
@@ -68,9 +70,11 @@ function subtractRect(poly, [z0, z1, y0, y1]) { // convex poly minus axis-aligne
   const mid = clipHalf(clipHalf(poly, (p) => p[0] - z0), (p) => z1 - p[0]);
   return [clipHalf(poly, (p) => z0 - p[0]), clipHalf(poly, (p) => p[0] - z1), clipHalf(mid, (p) => y0 - p[1]), clipHalf(mid, (p) => p[1] - y1)].filter((q) => q.length >= 3 && Math.abs(polyArea(q)) > 1e-9);
 }
-//  cut: { rects: [[z0,z1,y0,y1]], z0, z1, yTop } — opens the −x (driver) side: cap clipped around the rects, shoulder bevel over the door removed
+//  cut: { rects: [[z0,z1,y0,y1]], z0, z1, yTop, side } (or a list of them) — opens a door aperture in the −x (side −1) or +x
+//  (side +1) cap: cap clipped around the rects, shoulder bevel over the door removed
 function sideBody(mb, top, sill, arches, W, col, { taper = null, bevel = 0.05, openTop = null, cut = null } = {}) {
-  if (cut) { const t2 = [top[0]]; for (let i = 1; i < top.length; i++) { const a = top[i - 1], b = top[i]; for (const zs of [cut.z1, cut.z0]) if ((a[0] - zs) * (b[0] - zs) < 0) { const t = (a[0] - zs) / (a[0] - b[0]); t2.push([zs, a[1] + (b[1] - a[1]) * t]); } t2.push(b); } top = t2; } // contour vertices at the door edges so the bevel splits there
+  const cuts = cut ? (Array.isArray(cut) ? cut : [cut]).map((c) => ({ side: -1, ...c })) : null; if (cuts && !cuts.length) cut = null;
+  if (cut) { const zsAll = [...new Set(cuts.flatMap((c) => [c.z1, c.z0]))]; const t2 = [top[0]]; for (let i = 1; i < top.length; i++) { const a = top[i - 1], b = top[i]; for (const zs of zsAll) if ((a[0] - zs) * (b[0] - zs) < 0) { const t = (a[0] - zs) / (a[0] - b[0]); t2.push([zs, a[1] + (b[1] - a[1]) * t]); } t2.push(b); } top = t2; } // contour vertices at the door edges so the bevel splits there
   const sh = new THREE.Shape(); const f = top[0], r = top[top.length - 1];
   sh.moveTo(r[0], sill);
   for (const [zc, R] of [...arches].sort((a, b) => a[0] - b[0])) {
@@ -89,15 +93,18 @@ function sideBody(mb, top, sill, arches, W, col, { taper = null, bevel = 0.05, o
       if (up && cx < W - bevel * 1.2 && ranges.some(([z0, z1, yMin]) => cy > yMin && cz > z0 && cz < z1 && Math.min(a.z, b.z, c.z) > z0 - 0.05 && Math.max(a.z, b.z, c.z) < z1 + 0.05)) continue; keep.push(I[t], I[t + 1], I[t + 2]); }
     g.setIndex(keep);
   }
-  if (cut) { // real door aperture on the driver side: nothing of the body is left where the door sits
-    const P = g.attributes.position, I = g.index.array, keep = [], pos = Array.from(P.array); const xs = -W + 1e-4, xb = -W + bevel + 1e-4, e = 1e-3;
+  if (cut) { // real door apertures: nothing of the body is left where a door sits
+    const P = g.attributes.position, I = g.index.array, keep = [], pos = Array.from(P.array); const xs = W - 1e-4, xb = W - bevel - 1e-4, e = 1e-3;
     for (let t = 0; t < I.length; t += 3) { const v = [I[t], I[t + 1], I[t + 2]]; const X = v.map((i) => P.getX(i)), Y = v.map((i) => P.getY(i)), Z = v.map((i) => P.getZ(i));
-      if (Math.max(...X) <= xs) { let polys = [[[Z[0], Y[0]], [Z[1], Y[1]], [Z[2], Y[2]]]]; const whole = Math.min(...Z) > cut.z1 + e || Math.max(...Z) < cut.z0 - e || Math.max(...Y) < Math.min(...cut.rects.map((r) => r[2])) - e;
+      const capSide = Math.max(...X) <= -xs ? -1 : Math.min(...X) >= xs ? 1 : 0;
+      if (capSide) { const mine = cuts.filter((c) => c.side === capSide); let polys = [[[Z[0], Y[0]], [Z[1], Y[1]], [Z[2], Y[2]]]];
+        const whole = mine.every((c) => Math.min(...Z) > c.z1 + e || Math.max(...Z) < c.z0 - e || Math.max(...Y) < Math.min(...c.rects.map((r) => r[2])) - e);
         if (whole) { keep.push(...v); continue; }
-        for (const rc of cut.rects) polys = polys.flatMap((q) => subtractRect(q, rc));
-        for (const q of polys) { const base = pos.length / 3; for (const [z, y] of q) pos.push(-W, y, z); for (let k = 1; k < q.length - 1; k++) if (Math.abs(polyArea([q[0], q[k], q[k + 1]])) > 1e-8) keep.push(base, base + k, base + k + 1); }
+        for (const c of mine) for (const rc of c.rects) polys = polys.flatMap((q) => subtractRect(q, rc));
+        for (const q of polys) { const base = pos.length / 3; for (const [z, y] of q) pos.push(capSide * W, y, z); for (let k = 1; k < q.length - 1; k++) if (Math.abs(polyArea([q[0], q[k], q[k + 1]])) > 1e-8) keep.push(base, base + k, base + k + 1); }
         continue; }
-      if (Math.max(...X) <= xb && Math.min(...Z) >= cut.z0 - 0.005 && Math.max(...Z) <= cut.z1 + 0.005 && Math.min(...Y) > cut.yTop) continue; // shoulder bevel over the door: it is part of the door skin now
+      const bevSide = Math.max(...X) <= -xb ? -1 : Math.min(...X) >= xb ? 1 : 0;
+      if (bevSide && cuts.some((c) => c.side === bevSide && Math.min(...Z) >= c.z0 - 0.005 && Math.max(...Z) <= c.z1 + 0.005 && Math.min(...Y) > c.yTop)) continue; // shoulder bevel over a door: it is part of the door skin now
       keep.push(...v); }
     g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(keep); const g2 = mergeVertices(g, 1e-4); g.dispose(); g = g2;
   }
@@ -171,7 +178,7 @@ function addPoliceKit(m, base, T) {
     return;
   }
   const H = T.hgt, hy = base === 'suv' ? 0.78 : 0.66; // body bands and door lettering
-  const dr = m.doors && m.doors[0]; const spans = (sx) => sx > 0 || !dr ? [[-1.45, 1.45]] : [[-1.45, dr.hinge[1] - dr.len - 0.005], [dr.hinge[1] + 0.005, 1.45]]; // driver side: bands stop at the door gap (the door has its own)
+  const spans = (sx) => spansOutside(-1.45, 1.45, doorGapsMeta(m.doors, sx)); // driver side: bands stop at the door gap (the door has its own)
   for (const sx of [-1, 1]) { const x = W + 0.012; for (const [za, zb] of spans(sx)) { sideDecal(paint, sx, x, hy, hy + 0.07, za, zb, [0, 0, 0.1, 0.1], blue); sideDecal(paint, sx, x, hy - 0.1, hy - 0.075, za, zb, [0, 0, 0.1, 0.1], blue); } sideDecal(dec, sx, x + 0.002, hy - 0.4, hy - 0.12, -0.98, -0.08); } // lettering on the rear doors (the driver door is a separate swinging mesh)
   const ry = H - (base === 'suv' ? 0.0 : 0.02), rz = base === 'suv' ? -0.2 : -0.35; // roof light bar
   rubber.box(0, ry + 0.03, rz, 1.15, 0.05, 0.26, { col: C('#1a1a1a') }); mb.get('lbBlue').box(-0.29, ry + 0.1, rz, 0.54, 0.1, 0.22, { col: [1, 1, 1] }); mb.get('lbRed').box(0.29, ry + 0.1, rz, 0.54, 0.1, 0.22, { col: [1, 1, 1] });
@@ -548,8 +555,24 @@ function buildBaseModel(type, color, variant, opts = {}) {
   const lipY = (z, t) => topAt(z) - 0.6 * bev + 0.6 * bev * Math.sin(t * Math.PI / 2); // same rounded shoulder as the extrusion bevel
   const skinPt = (z, y, t = 0) => [-(W - bev + bev * Math.cos(t * Math.PI / 2)) * taper(z, y), y, z];
   const prof = (z, yb, ny = 8) => { const o = []; for (let j = 0; j <= ny; j++) o.push(skinPt(z, lerp(yb, lipY(z, 0), j / ny))); for (let m = 1; m <= 3; m++) o.push(skinPt(z, lipY(z, m / 3), m / 3)); return o; };
-  const apRects = notched ? [[d1, archBack, dy0, 9], [archBack, d0, archTop, 9]] : [[d1, d0, dy0, 9]];
-  sideBody(paint, D.top, sill, [[D.wf, R], [D.wr, R]], W, col, { taper, bevel: bev, cut: { rects: apRects, z0: d1, z1: d0, yTop: Math.min(topAt(d0), topAt(d1)) - 0.6 * bev - 0.01 }, openTop: D.bed ? [[D.gh[D.gh.length - 1][0] + 0.03, D.gh[0][0] - 0.03, sill + 0.3], [D.bed.z1 + 0.03, D.bed.z0 + 0.005, D.bed.floor - 0.25]] : [D.gh[D.gh.length - 1][0] + 0.03, D.gh[0][0] - 0.03, sill + 0.3] });
+  // door apertures: the front doors on both sides, the rear doors on both sides (four-door bodies) and the sliding door on the
+  // kerb side (vans). Each is a set of vertical slabs (a door reaching over a wheel arch is notched round it) + its outline.
+  const archFrontR = D.wr + (R + 0.07) + 0.03, gpD = 0.005;
+  const aperture = (za, zb, nF, nR) => {
+    const bz = (z, g) => (z === za || z === archBack ? z - g : z + g); const zs = [zb, ...(nR ? [archFrontR] : []), ...(nF ? [archBack] : []), za];
+    const slabs = (g) => zs.slice(0, -1).map((z0, i) => { const z1 = zs[i + 1]; const hi = (nR && z0 === zb) || (nF && z1 === za); return [bz(z0, g), bz(z1, g), (hi ? archTop : dy0) + g]; });
+    const path = (g) => { const o = [[bz(za, g), lipY(bz(za, g), 0)]]; if (nF) o.push([bz(za, g), archTop + g], [bz(archBack, g), archTop + g], [bz(archBack, g), dy0 + g]); else o.push([bz(za, g), dy0 + g]);
+      if (nR) o.push([bz(archFrontR, g), dy0 + g], [bz(archFrontR, g), archTop + g], [bz(zb, g), archTop + g]); else o.push([bz(zb, g), dy0 + g]); o.push([bz(zb, g), lipY(bz(zb, g), 0)]); return o; };
+    return { za, zb, nF, nR, apRects: slabs(0).map((r) => [...r, 9]), apPath: path(0), dRects: slabs(gpD), dPath: path(gpD), zF: za - gpD, zR: zb + gpD };
+  };
+  const apF = aperture(d0, d1, notched, false);
+  const apR = D.rearDoor ? aperture(D.rearDoor[0], D.rearDoor[1], false, D.rearDoor[1] < archFrontR) : null;
+  const apS = D.slide ? aperture(D.slide[0], D.slide[1], false, D.slide[1] < archFrontR) : null;
+  const openings = [{ ap: apF, side: -1, role: 'front' }, { ap: apF, side: 1, role: 'front' }, ...(apR ? [{ ap: apR, side: -1, role: 'rear' }, { ap: apR, side: 1, role: 'rear' }] : []), ...(apS ? [{ ap: apS, side: 1, role: 'slide' }] : [])];
+  const apRects = apF.apRects;
+  // [za, zb] spans along one side outside every opening there (strips / bands / trims stop at the door gaps)
+  const sideSpans = (sx, za, zb, pad = 0.005) => { let segs = [[za, zb]]; for (const o of openings) { if (o.side !== sx) continue; const lo = o.ap.zb - pad, hi = o.ap.za + pad; segs = segs.flatMap(([a, b]) => (b <= lo || a >= hi ? [[a, b]] : [[a, lo], [hi, b]].filter(([p, q]) => q - p > 0.02))); } return segs; };
+  sideBody(paint, D.top, sill, [[D.wf, R], [D.wr, R]], W, col, { taper, bevel: bev, cut: openings.map(({ ap, side }) => ({ rects: ap.apRects, z0: ap.zb, z1: ap.za, yTop: Math.min(topAt(ap.za), topAt(ap.zb)) - 0.6 * bev - 0.01, side })), openTop: D.bed ? [[D.gh[D.gh.length - 1][0] + 0.03, D.gh[0][0] - 0.03, sill + 0.3], [D.bed.z1 + 0.03, D.bed.z0 + 0.005, D.bed.floor - 0.25]] : [D.gh[D.gh.length - 1][0] + 0.03, D.gh[0][0] - 0.03, sill + 0.3] });
   // wheel-well liners (stop see-through above the tyres)
   for (const wz of [D.wf, D.wr]) for (const sx of [-1, 1]) part(rubber, linerCyl, [sx * (W - 0.24), R, wz], [0, 0, Math.PI / 2], [R + 0.06, 0.3, R + 0.06], C('#0c0c0c')); // open sleeve: no end caps covering the wheel face
   // greenhouse: tinted glass loft; half widths follow the tumblehome
@@ -557,13 +580,16 @@ function buildBaseModel(type, color, variant, opts = {}) {
   // the driver-door window is cut out of the greenhouse (−x side between the door edges) and rebuilt on the door itself,
   // so the glass and its frame swing open with the door instead of a fixed pane staying behind / a frame poking out
   const ghAt = (z) => { const G = D.gh; for (let i = 1; i < G.length; i++) { const a = G[i - 1], b = G[i]; if (z <= a[0] && z >= b[0]) { const t = (a[0] - z) / (a[0] - b[0] || 1); return [z, lerp(a[1], b[1], t), lerp(a[2], b[2], t)]; } } return [z, G[0][1], G[0][2]]; };
-  const [wd0, wd1] = [Math.min(D.door[0], D.gh[0][0] - 0.02), D.door[1]];
-  const ghSecs = [...D.gh.filter((g) => g[0] > wd0), ghAt(wd0), ...D.gh.filter((g) => g[0] < wd0 && g[0] > wd1), ghAt(wd1), ...D.gh.filter((g) => g[0] < wd1)];
-  const iD0 = ghSecs.findIndex((g) => g[0] === wd0), iD1 = ghSecs.findIndex((g) => g[0] === wd1);
+  // every door window is cut out of the greenhouse and rebuilt on its door (front windows start just behind the windscreen)
+  const winZ = (o) => [o.role === 'front' ? Math.min(o.ap.za, D.gh[0][0] - 0.02) : o.ap.za, o.ap.zb];
+  const cutZ = [...new Set(openings.flatMap((o) => winZ(o)))]; const inner = (z) => !cutZ.some((c) => Math.abs(c - z) < 1e-9);
+  const ghSecs = [...D.gh.filter((g) => inner(g[0])), ...cutZ.map(ghAt)].sort((a, b) => b[0] - a[0]);
+  const secI = (z) => ghSecs.findIndex((g) => Math.abs(g[0] - z) < 1e-9);
+  const wins = openings.map((o) => { const [a, b] = winZ(o); return { side: o.side, i0: secI(a), i1: secI(b) }; });
   const wTop = (z, y1) => (D.winTop && z < D.gh[2][0] - 0.01 ? Math.min(y1, D.winTop) : y1);
   const glassSecs = ghSecs.map(([z, y0, y1]) => [z, y0, wTop(z, y1), gw0 - 0.01, D.winTop ? lerp(gw0, gw1, (wTop(z, y1) - y0) / Math.max(0.01, y1 - y0)) : gw1, 0.05]);
-  loft(glass, glassSecs, C('#fff'), { noBottom: true, skip: (i, k) => i >= iD0 && i < iD1 && k >= 7 });
-  const doorGlass = glassSecs.slice(iD0, iD1 + 1).map(loftRing);
+  loft(glass, glassSecs, C('#fff'), { noBottom: true, skip: (i, k) => wins.some((w) => i >= w.i0 && i < w.i1 && (w.side < 0 ? k >= 7 : k >= 1 && k <= 3)) });
+  const winGlass = (o) => { const w = wins[openings.indexOf(o)]; return glassSecs.slice(w.i0, w.i1 + 1).map(loftRing); }; // −x orientation (+x doors are mirrored copies)
   // roof panel + pillars (A, B, C) + belt trim
   const gh = D.gh; const roofF = gh[2], roofR = gh[gh.length - 2];
   const roofCol = S && S.twoTone ? (S.twoTone === 'v' ? (variant % 2 ? C('#151517') : col) : C(S.twoTone)) : col; const pilCol = S && S.blackPillars ? C('#101012') : roofCol;
@@ -579,9 +605,10 @@ function buildBaseModel(type, color, variant, opts = {}) {
     for (let i = 0; i < 2; i++) beam(paint, top(i), top(i + 1), 0.06, 0.06, pilCol);
     const nL = gh.length - 1; beam(paint, top(nL - 1), top(nL), isVan ? 0.07 : 0.1, 0.07, pilCol);
     beam(paint, [sx * gw0 * 0.94, gh[nL][1] + 0.02, gh[nL][0] + 0.1], top(nL), isVan ? 0.05 : 0.1, 0.07, pilCol);
-    { const yT = D.winTop ? Math.min(roofF[2] - 0.01, D.winTop - 0.005) : roofF[2] - 0.01; beam(paint, [sx * gw0, gh[0][1] + 0.02, D.pillarsB], [sx * (gw1 + 0.005), yT, D.pillarsB - 0.03], 0.05, 0.1, C('#111')); } /* high-roof vans: the black pillar stops at the glass, not in the painted band */
+    { const yT = D.winTop ? Math.min(roofF[2] - 0.01, D.winTop - 0.005) : roofF[2] - 0.01; const o2 = openings.find((o) => o.side === sx && o.role !== 'front'); /* a rear / sliding door behind: the pillar fills only the gap between the two openings (it must not overhang the door that swings past it) */ const zc = o2 ? (apF.zb + o2.ap.za) / 2 : D.pillarsB, dz = o2 ? Math.max(0.012, apF.zb - o2.ap.za - 0.008) : 0.1;
+      beam(paint, [sx * gw0, gh[0][1] + 0.02, zc], [sx * (gw1 + 0.005), yT, o2 ? zc : D.pillarsB - 0.03], 0.05, dz, C('#111')); } /* high-roof vans: the black pillar stops at the glass, not in the painted band */
     { const gL = gh[gh.length - 1], rl = (z) => [sx * (gw0 + 0.005), lerp(gh[0][1], gL[1], (gh[0][0] - z) / (gh[0][0] - gL[0])) + 0.005, z]; // outer belt weatherstrip (the driver door carries its own piece)
-      if (sx > 0) beam(rubber, rl(gh[0][0]), rl(gL[0]), 0.012, 0.025, C('#111')); else { beam(rubber, rl(gh[0][0]), rl(D.door[0]), 0.012, 0.025, C('#111')); beam(rubber, rl(D.door[1]), rl(gL[0]), 0.012, 0.025, C('#111')); } }
+      for (const [za, zb] of sideSpans(sx, gL[0], gh[0][0], 0)) beam(rubber, rl(zb), rl(za), 0.012, 0.025, C('#111')); } // (each door carries its own piece)
     if (!SP && k === 'van') for (const z of [-0.9, -1.8]) beam(paint, [sx * gw0, 1.1, z], [sx * gw1, 1.93, z], 0.04, 0.08, col);
     if (cab && cab.vanPillars) for (const z of cab.vanPillars) { const g2 = ghAt(z); beam(paint, [sx * gw0, g2[1], z], [sx * (D.winTop ? lerp(gw0, gw1, (D.winTop - g2[1]) / (g2[2] - g2[1])) : gw1), wTop(z, g2[2]), z], 0.04, 0.08, col); }
   }
@@ -607,14 +634,13 @@ function buildBaseModel(type, color, variant, opts = {}) {
   }
   part(ch, unitCyl, [0.45, sill - 0.02, rz + 0.05], [Math.PI / 2, 0, 0], [0.035, 0.18, 0.035], C('#8a8d90'));
   if (!S && k === 'suv') { part(rubber, unitCyl, [0, 1.0, rz - 0.13], [Math.PI / 2, 0, 0], [0.36, 0.24, 0.36], C('#151515')); part(paint, unitCyl, [0, 1.0, rz - 0.255], [Math.PI / 2, 0, 0], [0.3, 0.02, 0.3], col); for (const sx of [-1, 1]) beam(ch, [sx * (gw1 - 0.06), roofF[2] + 0.06, roofF[0] - 0.1], [sx * (gw1 - 0.06), roofF[2] + 0.06, roofR[0] + 0.1], 0.03, 0.04, C('#2a2a2a')); }
-  if (type === 'taxi') { part(paint, unitBox, [0, roofF[2] + 0.11, (roofF[0] + roofR[0]) / 2 + 0.2], [0, 0, 0], [0.5, 0.15, 0.22], C('#f4f4f0')); part(rubber, unitBox, [0, roofF[2] + 0.03, (roofF[0] + roofR[0]) / 2 + 0.2], [0, 0, 0], [0.3, 0.03, 0.12], C('#111')); for (const sx of [-1, 1]) { if (sx > 0) paint.box(sx * (W + 0.004), 0.62, -0.1, 0.01, 0.08, 2.2, { col: C('#111') }); else for (const [za, zb] of [[-1.2, D.door[1]], [D.door[0], 1.0]]) if (zb > za) paint.box(-(W + 0.004), 0.62, (za + zb) / 2, 0.01, 0.08, zb - za, { col: C('#111') }); } } // taxi side stripe (driver door carries its piece)
+  if (type === 'taxi') { part(paint, unitBox, [0, roofF[2] + 0.11, (roofF[0] + roofR[0]) / 2 + 0.2], [0, 0, 0], [0.5, 0.15, 0.22], C('#f4f4f0')); part(rubber, unitBox, [0, roofF[2] + 0.03, (roofF[0] + roofR[0]) / 2 + 0.2], [0, 0, 0], [0.3, 0.03, 0.12], C('#111')); for (const sx of [-1, 1]) for (const [za, zb] of sideSpans(sx, -1.2, 1.0)) paint.box(sx * (W + 0.004), 0.62, (za + zb) / 2, 0.01, 0.08, zb - za, { col: C('#111') }); } // taxi side stripe (each door carries its piece)
   // body-side details: door seams, handles, sill trim, mirrors
   for (const sx of [-1, 1]) {
     const x = sx * (W * taper(0, 0.6) + 0.002); const xf = (z, y) => sx * (W * taper(z, y) + 0.004); const [d0, d1] = D.door; const by = gh[0][1] - 0.02;
-    if (sx > 0) seam(mb, xf, notchOutline(D, R, sill, by)); // driver side: the real door gap replaces the painted-on seam
-    if (D.rearDoor) seam(mb, xf, [[D.rearDoor[0], by], [D.rearDoor[0], sill + 0.06], [D.rearDoor[1], sill + 0.06], [D.rearDoor[1], by]]);
-    if (D.slide && sx > 0) { const st = SP ? Math.min(ghAt(D.slide[1])[2], D.winTop || 9) - 0.06 : 1.9; seam(mb, xf, [[D.slide[0], st], [D.slide[0], sill + 0.06], [D.slide[1], sill + 0.06], [D.slide[1], st]]); }
-    if (sx > 0) ch.box(x + sx * 0.01, by - 0.12, d1 + 0.18, 0.02, 0.03, 0.14, { col: chrome }); if (D.rearDoor) ch.box(x + sx * 0.01, by - 0.12, D.rearDoor[1] + 0.18, 0.02, 0.03, 0.14, { col: chrome });
+    // front / rear / sliding doors are real panels with real shut lines (no painted-on seams); a sliding door's rail stays
+    if (D.slide && sx > 0) { const yr = gh[0][1] - 0.03, z0 = D.slide[1] - 0.03, z1 = Math.max(D.wr + R + 0.12, D.slide[1] - 0.85); rubber.box(xf((z0 + z1) / 2, yr) + 0.006, yr, (z0 + z1) / 2, 0.012, 0.022, z0 - z1, { col: C('#151517') }); } // sliding door's upper track
+    void x; void d0; void d1; // handles are on the doors
     beam(rubber, [sx * (W * 0.97), sill + 0.03, D.wr + R + 0.1], [sx * (W * 0.97), sill + 0.03, D.wf - R - 0.1], 0.03, 0.05, trimGrey);
     mirror(mb, sx * gw0, gh[0][1] + 0.08, gh[0][0] - 0.12, sx, S && (S.blackMirrors || S.bumper === 'black') ? C('#1b1c1e') : col);
   }
@@ -631,8 +657,7 @@ function buildBaseModel(type, color, variant, opts = {}) {
   { // cabin shell seen from inside: floor pan, door trims to the beltline, headliner, firewall, console, parcel shelf
     const zf = gh[0][0] - 0.05, zr = gh[gh.length - 1][0] + 0.08, trim = C(variant % 2 ? '#2c2c2e' : '#5a5046'); const beltY = Math.min(...gh.map((g) => g[1]));
     I.box(0, floorY, (zf + zr) / 2, gw0 * 2 - 0.08, 0.03, zf - zr, { col: C('#202022') });
-    I.box(gw0 - 0.045, (floorY + beltY) / 2 + 0.01, (zf + zr) / 2, 0.03, beltY - floorY, zf - zr - 0.04, { col: trim }); // driver side: only ahead of / behind the doorway (the door carries its own card)
-    for (const [za, zb] of [[zr + 0.02, d1], [d0, zf - 0.02]]) if (zb - za > 0.02) I.box(-(gw0 - 0.045), (floorY + beltY) / 2 + 0.01, (za + zb) / 2, 0.03, beltY - floorY, zb - za, { col: trim });
+    for (const sx of [-1, 1]) for (const [za, zb] of sideSpans(sx, zr + 0.02, zf - 0.02, 0)) I.box(sx * (gw0 - 0.045), (floorY + beltY) / 2 + 0.01, (za + zb) / 2, 0.03, beltY - floorY, zb - za, { col: trim }); // only between the doorways (each door carries its own card)
     const roofIn = Math.min(roofF[2], roofR[2]) - 0.035; I.box(0, roofIn, (roofF[0] + roofR[0]) / 2, gw1 * 2 - 0.1, 0.02, roofF[0] - roofR[0], { col: C('#c8c4ba') });
     I.box(0, (floorY + gh[0][1] - 0.16) / 2, dz + 0.12, gw0 * 2 - 0.1, gh[0][1] - 0.16 - floorY, 0.04, { col: C('#18181a') });
     I.box(0, floorY + 0.12, (sz + dz - 0.25) / 2, 0.2, 0.22, Math.max(0.2, dz - 0.25 - sz), { col: C('#1c1c1e') });
@@ -650,21 +675,22 @@ function buildBaseModel(type, color, variant, opts = {}) {
     seats.push(mk(-sxF, sz, { driver: true, hands: 'wheel', wheel: cw, kind: 'drive', fz: fzK(0.62) }), mk(sxF, sz, { fz: fzK(0.64) }));
     if (!SP && k === 'van') for (const z of [-0.4, -1.4]) seats.push(mk(0.4, z, { fz: 0.55 }), mk(-0.4, z, { fz: 0.55 }));
     else for (const [z, n, dy = 0] of rows) for (const x of rowX(n).slice().sort((a, b) => b - a)) seats.push(mk(x, z, { y: cy + dy, fz: fzK(SP && k === 'van' ? 0.55 : 0.52) - dy * 0.8 })); }
-  // separately hinged driver door (right side, −x) used by the entry/exit animation. Its outer skin is the exact piece of
-  // body surface that was cut out (same taper + shoulder), so closed it is flush with a real 5 mm shut line all round.
-  { const gp = 0.005, xj = -(gw0 - 0.08), by = gh[0][1] - 0.02, jam = col.map((v) => v * 0.42), J = paint;
-    const flatTop = (z) => lipY(z, 0);
-    // jamb: painted walls from the skin into the body around the opening (A-pillar face, sill, notch step, B-pillar face)
-    const apPath = notched ? [[d0, flatTop(d0)], [d0, archTop], [archBack, archTop], [archBack, dy0], [d1, dy0], [d1, flatTop(d1)]] : [[d0, flatTop(d0)], [d0, dy0], [d1, dy0], [d1, flatTop(d1)]];
-    doorShell(J, apPath, skinPt, prof, xj, jam, topAt, lipY);
-    for (const [za, zb, yb] of apRects) { const zz = [Math.max(za, d1), Math.min(zb, d0)]; dquad(I, [xj, floorY, zz[0]], [xj, floorY, zz[1]], [xj, yb, zz[1]], [xj, yb, zz[0]], C('#1d1d1f')); }
-    { const [za, zb] = notched ? [d1, archBack] : [d1, d0]; const xo = skinPt((za + zb) / 2, dy0)[0]; I.box((xo + xj) / 2, dy0 + 0.004, (za + zb) / 2, Math.abs(xo - xj) - 0.01, 0.008, zb - za - 0.06, { col: C('#3a3b3e') }); } // scuff plate on the sill
-    const dRects = notched ? [[d1 + gp, archBack - gp, dy0 + gp], [archBack - gp, d0 - gp, archTop + gp]] : [[d1 + gp, d0 - gp, dy0 + gp]];
-    const zF = d0 - gp, zR = d1 + gp; const dPath = notched ? [[zF, flatTop(zF)], [zF, archTop + gp], [archBack - gp, archTop + gp], [archBack - gp, dy0 + gp], [zR, dy0 + gp], [zR, flatTop(zR)]] : [[zF, flatTop(zF)], [zF, dy0 + gp], [zR, dy0 + gp], [zR, flatTop(zR)]];
+  // separately hinged doors (front both sides, rear both sides, the van's sliding door) used by the boarding animations. Each
+  // outer skin is the exact piece of body surface that was cut out (same taper + shoulder), so closed it is flush with a
+  // real 5 mm shut line all round. Doors are specified in −x orientation; +x doors are built as mirror images.
+  { const xj = -(gw0 - 0.08), by = gh[0][1] - 0.02, jam = col.map((v) => v * 0.42), J = paint;
+    const mirP = (p) => [-p[0], p[1], p[2]]; const skinM = (z, y, t) => mirP(skinPt(z, y, t)); const profM = (z, yb, ny) => prof(z, yb, ny).map(mirP);
+    // jamb: painted walls from the skin into the body around each opening (pillar faces, sill, notch steps), dark sill wall, scuff plate
+    for (const { ap, side } of openings) { const sp = side < 0 ? skinPt : skinM, pf = side < 0 ? prof : profM, xi = side < 0 ? xj : -xj;
+      doorShell(J, ap.apPath, sp, pf, xi, jam, topAt, lipY);
+      for (const [za, zb, yb] of ap.apRects) dquad(I, [xi, floorY, za], [xi, floorY, zb], [xi, yb, zb], [xi, yb, za], C('#1d1d1f'));
+      const lo = ap.apRects.reduce((m, r) => (r[2] <= m[2] + 1e-6 && r[1] - r[0] > m[1] - m[0] ? r : m)); const [za, zb] = lo; const xo = sp((za + zb) / 2, dy0)[0];
+      I.box((xo + xi) / 2, dy0 + 0.004, (za + zb) / 2, Math.abs(xo - xi) - 0.01, 0.008, zb - za - 0.06, { col: C('#3a3b3e') }); } // scuff plate on the sill
     const gL = gh[gh.length - 1]; const glY = (z) => lerp(gh[0][1], gL[1], (gh[0][0] - z) / (gh[0][0] - gL[0]));
     const roofY = (z) => { for (let i = 1; i < gh.length; i++) { const a = gh[i - 1], b = gh[i]; if (z <= a[0] && z >= b[0]) return lerp(a[2], b[2], (a[0] - z) / (a[0] - b[0] || 1)); } return gh[1][2]; };
-    doors = [{ side: -1, hinge: [-(W + 0.004), zF], len: zF - zR, glass: doorGlass,
-      spec: { rects: dRects, path: dPath, zF, zR, skinPt, prof, topAt, lipY, xc: -(gw0 - 0.05), gw0, gw1, glY, roofY, by, visor: S ? !S.noVisor && (!isVan || k === 'suv' || k === 'pickup') : !isVan || k === 'suv', trim: C(variant % 2 ? '#2c2c2e' : '#5a5046'), jam, seatY, floorY } }];
+    const visor = S ? !S.noVisor && (!isVan || k === 'suv' || k === 'pickup') : !isVan || k === 'suv'; const trim = C(variant % 2 ? '#2c2c2e' : '#5a5046');
+    doors = openings.map((o) => ({ side: o.side, role: o.role, mirror: o.side > 0, hinge: [o.side * (W + 0.004), o.ap.zF], len: o.ap.zF - o.ap.zR, glass: winGlass(o),
+      spec: { rects: o.ap.dRects, path: o.ap.dPath, zF: o.ap.zF, zR: o.ap.zR, skinPt, prof, topAt, lipY, xc: -(gw0 - 0.05), gw0, gw1, glY, roofY, by, visor: visor && o.role !== 'slide', trim, jam, seatY, floorY, key: o.role === 'front' && o.side < 0 } }));
   }
   carDetail(dm, KIT, { W, R, D, k, type, fz, rz, taper, gw0, gw1, fy, hy, nw, ty: S ? 0 : ty, sill, isVan, col, gh, roofF, roofR, seatY, sz, dz, floorY, variant, style: S, sx0: sxF, visors: S ? !S.noVisor && (!isVan || k === 'suv' || k === 'pickup') : !isVan || k === 'suv' });
   if (S) styleVehicle({ mb, dm, T, S, D, W, R, fz, rz, sill, col, gh, gw0, gw1, roofF, roofR, taper, variant, isVan, k, type, bev, wf: D.wf, wr: D.wr, floorY, plate: (cx, cy, z, hw, hh, front) => plateQuad(mb, cx, cy, z, hw, hh, front, variant) });
@@ -708,7 +734,7 @@ function buildDoorGeos(d, col, stripes = null) {
     const zs = zCols(S.zR, S.zF); for (let i = 0; i < zs.length - 1; i++) { const a = zs[i], b = zs[i + 1]; dquad(rb, [xs, S.topAt(a), a], [xs, S.topAt(b), b], [xs, S.glY(b) + 0.004, b], [xs, S.glY(a) + 0.004, a], C('#111')); } }
   // handle in its dark recess, key cylinder (same height as the other doors' handles)
   { const z = S.zR + 0.175, y = S.by - 0.12, x = S.skinPt(z, y)[0]; rb.box(x - 0.002, y, z, 0.006, 0.05, 0.17, { col: C('#0c0c0d') }); ch.box(x - 0.012, y, z, 0.02, 0.03, 0.14, { col: C('#c4c8cc') });
-    const zk = S.zR + 0.315, xk = S.skinPt(zk, y)[0]; ch.box(xk - 0.004, y, zk, 0.006, 0.026, 0.026, { col: C('#c4c8cc') }); }
+    if (S.key) { const zk = S.zR + 0.315, xk = S.skinPt(zk, y)[0]; ch.box(xk - 0.004, y, zk, 0.006, 0.026, 0.026, { col: C('#c4c8cc') }); } } // key cylinder: driver's door only
   // inside: armrest with pull cup, interior handle, speaker grille low at the front
   { const zm = (S.zF + S.zR) / 2, ya = S.seatY + 0.22; I.box(S.xc + 0.035, ya, zm - 0.05, 0.07, 0.05, Math.min(0.55, (S.zF - S.zR) * 0.6), { col: S.trim.map((v) => v * 0.75) });
     ch.box(S.xc + 0.012, ya + 0.14, S.zF - 0.24, 0.015, 0.03, 0.09, { col: C('#9aa0a6') }); const lo = S.rects.reduce((m, r) => (r[1] - r[0] > m[1] - m[0] ? r : m)); if (lo[1] - lo[0] > 0.3) I.box(S.xc + 0.006, lo[2] + 0.16, Math.max(lo[0] + 0.1, lo[1] - 0.17), 0.012, 0.14, 0.16, { col: C('#141416') }); } /* speaker on the widest panel section, always inside the door (a notched door can have a sliver of panel under the notch) */ // speaker on the lower panel (ahead of it a notched door has the wheel arch)
@@ -722,11 +748,6 @@ function buildDoorGeos(d, col, stripes = null) {
   for (const [name, b] of mb.b) { const geo = b.build(); if (geo) { geo.applyMatrix4(m); geo.computeBoundingSphere(); geos.push([name, geo]); } }
   return geos;
 }
-function doorPivot(d, geos, matsByName) {
-  const pivot = new THREE.Group(); pivot.position.set(d.hinge[0], 0, d.hinge[1]);
-  for (const [name, geo] of geos) { const m = new THREE.Mesh(geo, matsByName[name]); m.castShadow = name === 'paint'; m.receiveShadow = name === 'paint'; if (name === 'glass') m.renderOrder = 2; pivot.add(m); }
-  return pivot;
-}
 
 // Returns a THREE.Group with .userData {wheels, tailMat, seats, type, color, steerWheel, door, entry}
 // is this (type, seed) look already built? (traffic spreads first-time model builds out so they never stack up in one frame)
@@ -737,8 +758,10 @@ function doorPivot(d, geos, matsByName) {
 const PROBE_HEX = '#d2508e'; let PROBE = null; const shapeCache = new Map();
 function shapeOf(type, variant) {
   const key = type + '|' + variant; let s = shapeCache.get(key); if (s) return s; PROBE = PROBE || C(PROBE_HEX);
-  const m = buildModel(type, PROBE_HEX, variant); const build = (mbb) => { const out = []; for (const [name, b] of mbb.b) { const g = b.build(); if (g) out.push([name, g, probeMask(g)]); } return out; };
-  s = { geos: build(m.mb), dgeos: build(m.dm), m }; shapeCache.set(key, s); return s;
+  const m = buildModel(type, PROBE_HEX, variant); const raw = (mbb) => { const out = []; for (const [name, b] of mbb.b) { const g = b.build(); if (g) out.push([name, g]); } return out; };
+  const mask = (l) => l.map(([name, g]) => [name, g, probeMask(g)]);
+  const body = { geos: raw(m.mb), doors: m.doors }; if (m.doors && m.doors.length) bakeDoors(body, VTYPES[type], type, PROBE); // shut doors baked into the body once per shape (paint recolour covers them too)
+  s = { geos: mask(body.geos), dgeos: mask(raw(m.dm)), doorRanges: body.doorRanges, m }; shapeCache.set(key, s); return s;
 }
 // per vertex: the multiple of the probe colour it carries (0 = not paint)
 function probeMask(g) { const c = g.attributes.color; if (!c) return null; const a = c.array, P = PROBE; let mask = null;
@@ -750,15 +773,51 @@ function recolorMeta(o, col) { if (Array.isArray(o)) { if (o.length === 3 && o.e
   if (o && typeof o === 'object' && !o.isBufferGeometry && !o.isVector3) { const r = {}; for (const k in o) r[k] = recolorMeta(o[k], col); return r; } return o; }
 export function shapeCacheSize() { return shapeCache.size; }
 export function modelCached(type, seed = 1) { const T = VTYPES[type]; if (!T) return true; const r = new RNG(seed); const color = r.pick(T.colors); const variant = r.int(0, 3); return modelCache.has(type + color + variant) || shapeCache.has(type + '|' + variant); }
+// ---- doors baked into the body while shut (DoorRig.js brings a moving door out onto its pivot)
+function doorStripes(T, type) { const hy = T.base === 'suv' ? 0.78 : 0.66; return T.police ? [[hy + 0.035, 0.07, C('#1b3f94')], [hy - 0.0875, 0.025, C('#1b3f94')]] : T.ambulance ? [[0.71, 0.12, C(AMB_GREEN)], [0.57, 0.025, C(AMB_GREEN)]] : type === 'taxi' ? [[0.62, 0.08, C('#111'), 0.009]] : null; } // police bands / taxi stripe continue across the doors
+// concatenate indexed geometries (position / normal / uv / colour), each with an optional matrix (a mirroring matrix flips the winding)
+function concatGeos(parts) {
+  let nv = 0, ni = 0; for (const p of parts) { nv += p.geo.attributes.position.count; ni += p.geo.index.count; }
+  const pos = new Float32Array(nv * 3), nor = new Float32Array(nv * 3), uv = new Float32Array(nv * 2), col = new Float32Array(nv * 3).fill(1), idx = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni);
+  const v = new THREE.Vector3(), n = new THREE.Vector3(), m3 = new THREE.Matrix3(); let vo = 0, io = 0; const ranges = [];
+  for (const { geo, m } of parts) { const P = geo.attributes.position, N = geo.attributes.normal, U = geo.attributes.uv, Cc = geo.attributes.color, I = geo.index; if (m) m3.getNormalMatrix(m); const flip = m && m.determinant() < 0;
+    for (let i = 0; i < P.count; i++) { const o = vo + i; v.fromBufferAttribute(P, i); if (m) v.applyMatrix4(m); pos[o * 3] = v.x; pos[o * 3 + 1] = v.y; pos[o * 3 + 2] = v.z;
+      if (N) { n.fromBufferAttribute(N, i); if (m) n.applyMatrix3(m3).normalize(); nor[o * 3] = n.x; nor[o * 3 + 1] = n.y; nor[o * 3 + 2] = n.z; } if (U) { uv[o * 2] = U.getX(i); uv[o * 2 + 1] = U.getY(i); } if (Cc) { col[o * 3] = Cc.getX(i); col[o * 3 + 1] = Cc.getY(i); col[o * 3 + 2] = Cc.getZ(i); } }
+    for (let k = 0; k < I.count; k += 3) { const a = vo + I.getX(k), b = vo + I.getX(k + 1), c = vo + I.getX(k + 2); idx[io + k] = a; idx[io + k + 1] = flip ? c : b; idx[io + k + 2] = flip ? b : c; }
+    ranges.push({ v0: vo, v1: vo + P.count, i0: io, i1: io + I.count }); vo += P.count; io += I.count; }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.setIndex(new THREE.BufferAttribute(idx, 1)); g.computeBoundingSphere(); g.computeBoundingBox(); return { geo: g, ranges };
+}
+// door i's own geometry (hinge space) cut back out of the baked body: same vertices / colours (worn grime included)
+function slicePivotGeos(cached, i) {
+  if (!cached.pivotGeos) cached.pivotGeos = []; if (cached.pivotGeos[i]) return cached.pivotGeos[i]; const d = cached.doors[i]; const out = [];
+  for (const [name, src] of cached.geos) { const R = cached.doorRanges[name]; const r = R && R.doors.find((q) => q.door === i); if (!r) continue; const g = new THREE.BufferGeometry();
+    for (const k of ['position', 'normal', 'uv', 'color']) { const A = src.attributes[k]; const arr = A.array.slice(r.v0 * A.itemSize, r.v1 * A.itemSize); if (k === 'position') for (let j = 0; j < arr.length; j += 3) { arr[j] -= d.hinge[0]; arr[j + 2] -= d.hinge[1]; } g.setAttribute(k, new THREE.BufferAttribute(arr, A.itemSize)); }
+    const I = src.index.array.slice(r.i0, r.i1); for (let j = 0; j < I.length; j++) I[j] -= r.v0; g.setIndex(new THREE.BufferAttribute(I, 1)); g.computeBoundingSphere(); out.push([name, g]); }
+  return (cached.pivotGeos[i] = out);
+}
+function bakeDoors(cached, T, type, col) {
+  const doors = cached.doors, stripes = doorStripes(T, type);
+  const dg = doors.map((d) => buildDoorGeos(d.mirror ? { ...d, hinge: [-d.hinge[0], d.hinge[1]] } : d, col, stripes)); // hinge space, −x orientation
+  const names = [...new Set([...cached.geos.map((q) => q[0]), ...dg.flatMap((l) => l.map((q) => q[0]))])]; const ranges = {}, baked = [];
+  for (const name of names) { const body = cached.geos.find((q) => q[0] === name); const parts = body ? [{ geo: body[1], m: null }] : []; const who = [];
+    dg.forEach((l, i) => { const q = l.find((x) => x[0] === name); if (!q) return; const d = doors[i]; const M = new THREE.Matrix4().makeTranslation(d.hinge[0], 0, d.hinge[1]); if (d.mirror) M.multiply(new THREE.Matrix4().makeScale(-1, 1, 1)); parts.push({ geo: q[1], m: M }); who.push(i); });
+    const { geo, ranges: rr } = concatGeos(parts); const off = body ? 1 : 0; ranges[name] = { body: body ? rr[0].i1 : 0, doors: who.map((i, k) => ({ door: i, ...rr[k + off] })) }; baked.push([name, geo]); if (body) body[1].dispose(); }
+  for (const l of dg) for (const [, g] of l) g.dispose();
+  cached.geos = baked; cached.doorRanges = ranges;
+}
 // the shared (cached) geometry for a look: built once per type + colour + variant
 function ensureModel(type, seed) {
   const T = VTYPES[type]; const r = new RNG(seed); const color = r.pick(T.colors); const variant = r.int(0, 3);
   const key = type + color + variant; let cached = modelCache.get(key); const worn = WORN.has(type) || (type === 'van' && variant === 3);
   if (!cached) {
     const S = shapeOf(type, variant), m = S.m, col = C(color); const geos = [];
-    for (const [name, g0, mask] of S.geos) { const g = recolor(g0, mask, col); if (worn && (name === 'paint' || name === 'canvas')) dirty(g, seed); geos.push([name, g]); }
+    for (const [name, g0, mask] of S.geos) geos.push([name, recolor(g0, mask, col)]);
     const dgeos = []; for (const [name, g0, mask] of S.dgeos) dgeos.push([name, recolor(g0, mask, col)]);
-    cached = { geos, dgeos, wheels: m.wheels, seats: m.seats, steerWheel: m.steerWheel, doors: recolorMeta(m.doors, col), wheelStyle: m.wheelStyle, busDoor: recolorMeta(m.busDoor, col) }; modelCache.set(key, cached);
+    cached = { geos, dgeos, wheels: m.wheels, seats: m.seats, steerWheel: m.steerWheel, doors: recolorMeta(m.doors, col), wheelStyle: m.wheelStyle, busDoor: recolorMeta(m.busDoor, col) };
+    cached.doorRanges = S.doorRanges;
+    if (worn) for (const [name, g] of cached.geos) if (name === 'paint' || name === 'canvas') dirty(g, seed); // after baking: shut doors carry the same grime as the panels round them
+    modelCache.set(key, cached);
   }
   return { T, color, variant, worn, cached };
 }
@@ -774,7 +833,7 @@ export function createVehicleMesh(type, seed = 1) {
   let beacons = null; if (T.police || T.ambulance) { byName.lbBlue = M.lbBlue.clone(); byName.lbRed = M.lbRed.clone(); beacons = { blue: byName.lbBlue, red: byName.lbRed }; } // per vehicle: only responding units flash
   const g = new THREE.Group(); const tailMat = M.vtail.clone(); const indMat = M.vind.clone(); const headMat = M.vlight.clone(); const revMat = M.vrev.clone(); byName.vtail = tailMat; byName.vind = indMat; byName.vlight = headMat; byName.vrev = revMat; headMat.emissiveIntensity = 0.04; tailMat.emissiveIntensity = 0.03; revMat.emissiveIntensity = 0; // per vehicle (start dark): each car's own lamps
   directionalLamp(headMat, 1); directionalLamp(tailMat, -1); directionalLamp(revMat, -1); // lamps glow only from the lens face (seen through the cabin glass from the other end they stay dark)
-  for (const [name, geo] of cached.geos) { const mesh = new THREE.Mesh(geo, byName[name] || MAT.paint); mesh.name = name; mesh.castShadow = name !== 'glass' && name !== 'vlight' && name !== 'interior' && name !== 'badge' && name !== 'amb'; mesh.receiveShadow = name === 'paint'; if (name === 'glass') mesh.renderOrder = 2; g.add(mesh); }
+  const bodyMeshes = {}, shared = {}, mats = {}; for (const [name, geo] of cached.geos) { const mesh = new THREE.Mesh(geo, byName[name] || MAT.paint); mesh.name = name; bodyMeshes[name] = mesh; shared[name] = geo; mats[name] = mesh.material; mesh.castShadow = name !== 'glass' && name !== 'vlight' && name !== 'interior' && name !== 'badge' && name !== 'amb'; mesh.receiveShadow = name === 'paint'; if (name === 'glass') mesh.renderOrder = 2; g.add(mesh); }
   const det = new THREE.Group(); det.name = 'detail'; det.visible = false; byName.lens = M.vlens; byName.vrefl = M.vrefl;
   for (const [name, geo] of cached.dgeos) { const mesh = new THREE.Mesh(geo, byName[name] || M.vchrome); mesh.name = name; mesh.castShadow = false; mesh.receiveShadow = name === 'paint'; if (name === 'glass' || name === 'lens') mesh.renderOrder = 2; mesh.matrixAutoUpdate = false; det.add(mesh); }
   g.add(det); const base = T.base || type; const wkind = base === 'bike' ? 'bike' : (base === 'bus' || base === 'pbus' || base === 'lorry' || T.family === 'truck') ? 'heavy' : 'car';
@@ -789,16 +848,20 @@ export function createVehicleMesh(type, seed = 1) {
     pivot.userData.lo = holder; pivot.userData.hi = hi; pivot.userData.cal = cal;
     pivot.userData.spin = spin; pivot.userData.front = z > 0; pivot.userData.baseY = y; g.add(pivot); return pivot;
   });
-  let door = null; if (cached.doors && cached.doors[0]) { const d = cached.doors[0]; const hy = T.base === 'suv' ? 0.78 : 0.66; if (!cached.doorGeos) cached.doorGeos = buildDoorGeos(d, C(color), T.police ? [[hy + 0.035, 0.07, C('#1b3f94')], [hy - 0.0875, 0.025, C('#1b3f94')]] : T.ambulance ? [[0.71, 0.12, C(AMB_GREEN)], [0.57, 0.025, C(AMB_GREEN)]] : type === 'taxi' ? [[0.62, 0.08, C('#111'), 0.009]] : null); /* police bands / taxi stripe continue across the door */ const pv = doorPivot(d, cached.doorGeos, byName); g.add(pv); door = { pivot: pv, side: d.side, open: 0, max: 1.15, ang: 0, vel: 0, len: d.len, rects: d.spec && d.spec.rects }; }
+  // doors: shut ones are part of the body meshes; DoorRig puts a moving one on its pivot (front edge hinge / sliding track)
+  const doors = (cached.doors || []).map((d, i) => { const pivot = new THREE.Group(); pivot.position.set(d.hinge[0], 0, d.hinge[1]); pivot.visible = false; pivot.name = 'door' + i; g.add(pivot);
+    const o = { pivot, i, side: d.side, role: d.role, slide: d.role === 'slide', open: 0, max: d.role === 'rear' ? 1.05 : 1.15, ang: 0, vel: 0, len: d.len, hx: d.hinge[0], hz: d.hinge[1], rects: d.spec && d.spec.rects, live: false }; poseDoor(o); return o; });
+  if (doors.length) for (const name in cached.doorRanges) if (!mats[name]) mats[name] = byName[name] || MAT.paint; // a material only the doors use
+  const door = doors[0] || null;
   const ds = cached.seats.find((s) => s.driver) || cached.seats[0];
   const side = T.entry === 'bike' ? 1 : -1; const hw = T.wid / 2;
   // hinged door: stand just outside the door's swing arc, a little behind its rear edge (radius len + 0.3 from the hinge, 40° back
   // from the body side) so the opening door passes in front of the body and the way in runs behind the opened panel
-  const dR = door ? cached.doors[0].len + 0.3 : 0;
+  const dR = door ? door.len + 0.3 : 0;
   const entry = cached.busDoor ? { x: cached.busDoor[0], z: cached.busDoor[1], side: cached.busDoor[0] < 0 ? -1 : 1 } : door ? { x: side * (hw + dR * Math.sin(0.7)), z: cached.doors[0].hinge[1] - dR * Math.cos(0.7), side } : { x: side * (hw + (T.entry === 'tuk' ? 0.35 : T.entry === 'bike' ? 0.45 : 0.55)), z: ds.z, side };
   const rear = T.ambulance ? buildAmbRear() : null; if (rear) g.add(rear.group); // twin rear doors + lit cabin (opened by the medics)
   const stand = base === 'bike' ? standMeshes(M.vrim) : null; if (stand) g.add(stand); // animated side stand (Kickstand.js)
-  g.userData = { stand, detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons, rear };
+  g.userData = { doors, bake: doors.length ? { ranges: cached.doorRanges, meshes: bodyMeshes, shared, mats, pivotGeos: (i) => slicePivotGeos(cached, i) } : null, stand, detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons, rear };
   return g;
 }
 // darken lower panels and add per-vehicle grime variation to working vehicles

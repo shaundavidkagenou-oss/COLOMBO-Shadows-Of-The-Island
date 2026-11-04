@@ -9,6 +9,7 @@
 //
 // High-detail wheels: lathed tyre with tread grooves + tread blocks + sidewall ring, multi-spoke / steel rims with
 // lips, barrels, lug nuts, centre caps and valve stems, ventilated brake discs (spin with the wheel) and calipers (do not).
+import { doorGaps, spansOutside } from './DoorSpans.js';
 import * as THREE from 'three';
 import { MeshBuilder } from '../gfx/MeshBuilder.js';
 
@@ -90,13 +91,13 @@ export function carDetail(dm, K, c) {
   const doorsZ = [[D.door[0], D.door[1]]]; if (D.rearDoor) doorsZ.push([D.rearDoor[0], D.rearDoor[1]]);
   for (const sx of [-1, 1]) {
     // rain visors over the side windows (dark smoked acrylic), very common on Colombo cars
-    if (visors) for (const [z0, z1] of doorsZ) { if (sx < 0 && z0 === D.door[0]) continue; /* the swinging driver door carries its own visor */ const ry = (z) => { for (let i = 1; i < gh.length; i++) { const A = gh[i - 1], B = gh[i]; if (z <= A[0] && z >= B[0]) return lerp(A[2], B[2], (A[0] - z) / (A[0] - B[0] || 1)); } return gh[1][2]; };
+    if (visors) for (const [z0, z1] of doorsZ) { if (z0 !== null) continue; /* every door carries its own visor */ const ry = (z) => { for (let i = 1; i < gh.length; i++) { const A = gh[i - 1], B = gh[i]; if (z <= A[0] && z >= B[0]) return lerp(A[2], B[2], (A[0] - z) / (A[0] - B[0] || 1)); } return gh[1][2]; };
       beam(gl, [sx * (gw1 + 0.035), ry(z0 - 0.04) - 0.05, z0 - 0.04], [sx * (gw1 + 0.035), ry(z1 + 0.03) - 0.05, z1 + 0.03], 0.006, 0.065, C('#fff')); }
     // door-handle recesses + key cylinder on the front doors; inner-belt chrome strip
-    for (const [, d1] of doorsZ) { if (sx < 0 && d1 === D.door[1]) continue; const x = sx * (xAt(d1 + 0.18, belt - 0.12) + 0.004); rub.box(x, belt - 0.12, d1 + 0.18, 0.006, 0.05, 0.17, { col: C('#0c0c0d') }); }
-    if (sx > 0) part(chr, discX, [sx * (xAt(D.door[1] + 0.32, belt - 0.12) + 0.008), belt - 0.12, D.door[1] + 0.32], [0, 0, 0], [0.006, 0.014, 0.014], chrome);
+    for (const [, d1] of doorsZ) { if (d1 !== null) continue; /* handles are on the doors */ const x = sx * (xAt(d1 + 0.18, belt - 0.12) + 0.004); rub.box(x, belt - 0.12, d1 + 0.18, 0.006, 0.05, 0.17, { col: C('#0c0c0d') }); }
+    if (false) part(chr, discX, [sx * (xAt(D.door[1] + 0.32, belt - 0.12) + 0.008), belt - 0.12, D.door[1] + 0.32], [0, 0, 0], [0.006, 0.014, 0.014], chrome);
     { const gA = [gh[0][0] - 0.05, belt + 0.012], gB = [gh[gh.length - 1][0] + 0.12, gh[gh.length - 1][1] + 0.012], bp = (z) => [sx * (gw0 + 0.012), lerp(gA[1], gB[1], (gA[0] - z) / (gA[0] - gB[0])), z];
-      if (sx > 0) beam(chr, bp(gA[0]), bp(gB[0]), 0.008, 0.012, satin); else { if (gA[0] - D.door[0] > 0.04) beam(chr, bp(gA[0]), bp(D.door[0] + 0.012), 0.008, 0.012, satin); beam(chr, bp(D.door[1] - 0.012), bp(gB[0]), 0.008, 0.012, satin); } /* stops short of the door shut lines */ } // inner-belt strip (not across the driver door)
+      for (const [za, zb] of spansOutside(gB[0], gA[0], doorGaps(D, sx), 0.012)) beam(chr, bp(zb), bp(za), 0.008, 0.012, satin); /* stops short of the door shut lines */ } // inner-belt strip (not across any door)
     // mirror: aerodynamic cap + repeater + mirror glass bezel
     const mx = sx * gw0, my = gh[0][1] + 0.08, mz = gh[0][0] - 0.12;
     part(pnt, sphLo, [mx + sx * 0.18, my + 0.02, mz - 0.01], [0, sx * 0.12, 0], [0.072, 0.048, 0.05], col);
@@ -109,7 +110,7 @@ export function carDetail(dm, K, c) {
     beam(rub, [sx * (xAt(0, sill) - 0.01), sill - 0.015, D.wr + R + 0.12], [sx * (xAt(0, sill) - 0.01), sill - 0.015, D.wf - R - 0.12], 0.04, 0.04, C('#1e1f22'));
   }
   // fuel flap on the kerb side (left = +x) rear quarter
-  { const z = D.wr + R + 0.25, y = ST ? gh[0][1] - 0.22 : 0.8, x = xAt(z, y) + 0.006; part(rub, ringX, [x, y, z], [0, 0, 0], [0.004, 0.075, 0.075], C('#111')); part(pnt, discX, [x + 0.002, y, z], [0, 0, 0], [0.004, 0.07, 0.07], col); }
+  { const zEnd = Math.min(...doorGaps(D, 1).map((g) => g[0])), z = Math.min(D.wr + R + 0.25, zEnd - 0.13), dz = z - D.wr, arch = Math.abs(dz) < R + 0.07 ? R + Math.sqrt((R + 0.07) ** 2 - dz * dz) : 0; /* behind the last kerb-side door, above the arch */ const y = Math.max(ST ? gh[0][1] - 0.22 : 0.8, arch + 0.11), x = xAt(z, y) + 0.006; part(rub, ringX, [x, y, z], [0, 0, 0], [0.004, 0.075, 0.075], C('#111')); part(pnt, discX, [x + 0.002, y, z], [0, 0, 0], [0.004, 0.07, 0.07], col); }
   // ---- rear: lamp segmentation + lens covers, third brake light, reflectors, garnish, wiper, exhaust tip, diffuser
   for (const sx of ST ? [] : [-1, 1]) {
     const tx = sx * (W * 0.86 - 0.14), tz = rz - 0.038;

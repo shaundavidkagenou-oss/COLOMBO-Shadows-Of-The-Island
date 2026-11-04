@@ -23,6 +23,7 @@ import * as THREE from 'three';
 import { clamp, lerp } from '../core/math.js';
 import { solveLeg, seatRest } from './Seating.js';
 import { solveArmIK } from './Character.js';
+import { poseDoor } from '../vehicles/DoorRig.js';
 
 const sm = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
 const seg = (u, a, b) => clamp((u - a) / (b - a), 0, 1);
@@ -252,9 +253,9 @@ export function boardGroundFn(v, collision) {
 export function swingDoor(v, d, side, target, dt, w = 9, z = 0.7) {
   if (!d) return null; const h = Math.min(dt, 1 / 30); d.ang = d.ang || 0; d.vel = d.vel || 0; let ev = null;
   d.vel += (w * w * (target - d.ang) - 2 * z * w * d.vel) * h; d.ang += d.vel * h;
-  if (d.ang > 1.05) { d.ang = 1.05; if (d.vel > 0) d.vel *= -0.25; }
+  const top = d.slide ? 1 : 1.05; if (d.ang > top) { d.ang = top; if (d.vel > 0) d.vel *= d.slide ? -0.1 : -0.25; } // a sliding door stops on its track
   if (d.ang < 0) { const s = -d.vel; d.ang = 0; d.vel = 0; ev = 'latched'; if (s > 0.6 && v.slam) v.slam(s); }
-  d.pivot.rotation.y = d.max * d.ang * (side < 0 ? 1 : -1); return ev;
+  if (d.side === undefined) d.side = side; poseDoor(d); return ev;
 }
 // a seat without a wheel / bars (front passenger): the hands' end point is where the seated pose rests them (the lap), measured
 // from the seated pose itself so the hand-over between the step-in motion and the seat pose is seamless
