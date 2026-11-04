@@ -229,7 +229,7 @@ export function heavyDetail(dm, K, c) {
     else for (const [dx, r] of [[0.28, 0.085], [0.48, 0.07]]) { const x = sx * (W - dx); part(head, cupGeo, [x, 0.85, fz + 0.078], [0, 0, 0], [r * 0.95, r * 0.95, 0.02]); part(head, sphLo, [x, 0.85, fz + 0.07], [0, 0, 0], [0.014, 0.014, 0.014]); part(lens, discZ, [x, 0.85, fz + 0.081], [0, 0, 0], [r, r, 0.004]); part(chr, ringZ, [x, 0.85, fz + 0.079], [0, 0, 0], [r * 1.05, r * 1.05, r], chrome); }
     // roof-edge rain gutter, cab / body marker lamps (unlit amber reflectors), mud flaps, reflectors, tow hooks
     beam(rub, [sx * (W - 0.01), (kind === 'lorry' ? 2.6 : winTop) + 0.02, rz + (kind === 'lorry' ? L - 1.95 : 0.1)], [sx * (W - 0.01), (kind === 'lorry' ? 2.55 : winTop) + 0.02, fz - 0.15], 0.02, 0.02, black);
-    for (let z = rz + 1.0; z < fz - 0.8; z += 2.0) part(rub, unitBox, [sx * (W + 0.008), kind === 'lorry' ? 1.0 : 0.62, z], [0, 0, 0], [0.01, 0.04, 0.09], amber);
+    for (let z = rz + 1.0; z < fz - 0.8; z += 2.0) if (!(sx > 0 && c.doorZ && c.doorZ.some((d) => Math.abs(z - d) < 0.6))) part(rub, unitBox, [sx * (W + 0.008), kind === 'lorry' ? 1.0 : 0.62, z], [0, 0, 0], [0.01, 0.04, 0.09], amber);
     for (const z of [wf, wr]) rub.box(sx * (W - 0.22), 0.3, z - R - 0.15, 0.42, 0.4, 0.015, { col: black });
     part(rub, unitBox, [sx * (W - 0.15), kind === 'lorry' ? 0.62 : 0.42, rz - 0.13], [0, 0, 0], [0.12, 0.05, 0.01], red);
     part(chr, ringZ, [sx * 0.55, kind === 'lorry' ? 0.48 : 0.28, fz + 0.12], [Math.PI / 2, 0, 0], [0.05, 0.05, 0.05], C('#2a2a2a'));

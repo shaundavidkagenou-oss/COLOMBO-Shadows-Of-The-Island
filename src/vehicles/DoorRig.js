@@ -10,6 +10,7 @@ import * as THREE from 'three';
 export function poseDoor(d) {
   const k = Math.max(0, d.ang || 0);
   if (d.slide) { const out = Math.min(1, k / 0.18), back = Math.max(0, (k - 0.12) / 0.88); d.pivot.position.set(d.hx + d.side * 0.15 * out, 0, d.hz - (d.len + 0.05) * back); d.pivot.rotation.y = 0; return; }
+  if (d.leaf) { d.pivot.rotation.y = -d.leaf * d.max * k; return; } // bus door leaf: swings out to the street
   d.pivot.rotation.y = d.max * k * (d.side < 0 ? 1 : -1);
 }
 const isOpen = (d) => (d.slide ? (d.ang || 0) > 1e-4 : Math.abs(d.pivot.rotation.y) > 1e-5 || (d.ang || 0) > 1e-4);
@@ -47,15 +48,22 @@ export function springDoor(v, d, target, dt, w = 9, z = 0.7) {
 }
 // doors someone pulls shut behind them: after `delay` s (the person has stepped clear) the door is swung onto its latch
 const closers = new Map(); // door -> { v, t }
-export function shutDoorLater(v, d, delay = 0) { if (d) closers.set(d, { v, t: -delay }); }
+export function shutDoorLater(v, d, delay = 0) { if (d) { drivers.delete(d); closers.set(d, { v, t: -delay }); } }
 export function cancelShut(d) { closers.delete(d); }
+// powered doors (bus leaves): swung to a target opening and held there; shutDoorLater brings them back onto the seal
+const drivers = new Map(); // door -> { v, target }
+export function driveDoor(v, d, target = 1) { if (!d) return; closers.delete(d); const c = drivers.get(d); if (c) { c.target = target; c.v = v; } else drivers.set(d, { v, target }); }
+// the folding-door leaves of the bus doorway nearest vehicle-local z (pairs: both leaves of one doorway)
+export function busLeaves(ud, z) { const L = ((ud && ud.doors) || []).filter((d) => d.leaf); if (!L.length) return []; let best = L[0]; const zc = (d) => d.hz - d.leaf * d.len; for (const d of L) if (Math.abs(zc(d) - z) < Math.abs(zc(best) - z)) best = d; return L.filter((d) => Math.abs(zc(d) - zc(best)) < 0.2); }
+export function openBusDoor(v, z, open = true, delay = 0) { for (const d of busLeaves(v.mesh.userData, z)) { if (open) driveDoor(v, d, 1); else shutDoorLater(v, d, delay); } }
 export function updateDoorClosers(dt) {
+  for (const [d, c] of drivers) { springDoor(c.v, d, c.target, dt, 6, 1); if ((Math.abs(d.ang - c.target) < 0.01 && Math.abs(d.vel) < 0.02) || !c.v.mesh.parent) { d.ang = c.target; d.vel = 0; poseDoor(d); drivers.delete(d); } }
   for (const [d, c] of closers) { c.t += dt; if (c.t < 0) continue; const ev = springDoor(c.v, d, -0.35, dt, 6.5, 0.9);
     if (ev === 'latched' || c.t > 1.6 || !c.v.mesh.parent) { if (ev !== 'latched') { d.ang = 0; d.vel = 0; poseDoor(d); } closers.delete(d); } }
 }
 // the door a person uses for this seat: same side, the opening that spans the seat (front / rear / sliding); null = none
 export function doorForSeat(ud, seat, side) {
   const D = ud && ud.doors; if (!D || !D.length) return null; let best = null, bd = 9;
-  for (const d of D) { if (d.side !== side) continue; const zc = d.hz - d.len * 0.55, lo = d.hz - d.len - 0.2, hi = d.hz + 0.12; if (seat.z < lo || seat.z > hi) continue; const e = Math.abs(seat.z - zc); if (e < bd) { bd = e; best = d; } }
+  for (const d of D) { if (d.side !== side || d.leaf) continue; const zc = d.hz - d.len * 0.55, lo = d.hz - d.len - 0.2, hi = d.hz + 0.12; if (seat.z < lo || seat.z > hi) continue; const e = Math.abs(seat.z - zc); if (e < bd) { bd = e; best = d; } }
   return best;
 }

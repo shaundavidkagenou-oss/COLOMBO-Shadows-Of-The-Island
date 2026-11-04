@@ -275,6 +275,8 @@ function buildModel(type, color, variant) {
   if (TP.tow) return buildBaseModel(TP.base, color, variant, { tow: true });
   return buildBaseModel(type, color, variant);
 }
+// bus stairwell treads [top y, inner x, outer x] (vehicle-local, kerb side): two steps up to the 0.92 m floor
+export const BUS_STEPS = (W) => [[0.45, W - 0.32, W - 0.04], [0.69, W - 0.6, W - 0.32]];
 function buildBaseModel(type, color, variant, opts = {}) {
   const T = VTYPES[type]; const mb = new MultiBuilder(); const dm = new MultiBuilder(); const L = T.len, W = T.wid / 2, H = T.hgt, R = T.wheelR;
   const col = C(color), black = C('#151517'), chrome = C('#c4c8cc'), trimGrey = C('#2a2b2e'); const seats = []; let doors = []; let wheelStyle = variant % 3;
@@ -373,10 +375,18 @@ function buildBaseModel(type, color, variant, opts = {}) {
   if (type === 'bus' || type === 'pbus') {
     const red = type === 'bus'; const sill = 0.42, belt = 1.5, winTop = H - 0.32; const stripe = red ? C('#e8b820') : C(variant % 2 ? '#d43a2a' : '#e8a020');
     const wf = L / 2 - 2.0, wr = -L / 2 + 2.6; wheelStyle = 1;
+    // kerb-side (+x) doorways: real openings (body side + window band cut away), two-leaf folding doors on hinges, stairwell steps
+    const doorZ = [L / 2 - 1.05, -0.6], BD = doorZ.map((z) => [z - 0.475, z + 0.475]); const inDoor = (z, m = 0) => BD.some(([a, b]) => z > a - m && z < b + m);
+    const solid = (z0, z1, m = 0) => { const out = []; let a = z0; for (const [p, q] of BD.slice().sort((u, v) => u[0] - v[0])) { if (q + m < a || p - m > z1) continue; if (p - m > a) out.push([a, p - m]); a = q + m; } if (a < z1) out.push([a, z1]); return out; }; // z spans of the kerb side between the doorways
     sideBody(paint, [[L / 2, 0.45], [L / 2 + 0.02, 1.2], [L / 2 - 0.02, belt], [-L / 2 + 0.04, belt], [-L / 2, 1.3], [-L / 2, 0.45]], sill, [[wf, R], [wr, R]], W, col,
-      { taper: (z, y) => 1 - 0.035 * sstep(L / 2 - 0.4, L / 2, z) - 0.03 * sstep(-L / 2 + 0.4, -L / 2, z), bevel: 0.08, openTop: [-L / 2 - 0.2, L / 2 + 0.2, 1.3] });
-    // window band (glass) with pillars, roof with rounded edges and hatches
-    loft(glass, [[-L / 2 + 0.06, belt, winTop, W - 0.04, W - 0.06, 0.04], [L / 2 - 0.25, belt, winTop, W - 0.04, W - 0.06, 0.04]], C('#fff'), { noBottom: true });
+      { taper: (z, y) => 1 - 0.035 * sstep(L / 2 - 0.4, L / 2, z) - 0.03 * sstep(-L / 2 + 0.4, -L / 2, z), bevel: 0.08, openTop: [-L / 2 - 0.2, L / 2 + 0.2, 1.3], cut: BD.map(([a, b]) => ({ side: 1, rects: [[a, b, sill - 0.05, 9]], z0: a, z1: b, yTop: sill - 0.1 })) });
+    // window band (glass) with pillars, roof with rounded edges and hatches (no glass where the doors are, a transom pane over them)
+    loft(glass, [-L / 2 + 0.06, BD[1][0], BD[1][1], BD[0][0], BD[0][1], L / 2 - 0.25].map((z) => [z, belt, winTop, W - 0.04, W - 0.06, 0.04]), C('#fff'), { noBottom: true, skip: (i, k) => (i === 1 || i === 3) && k >= 1 && k <= 4 });
+    for (const [a, b] of BD) { glass.quad([W - 0.04, 2.6, a], [W - 0.04, 2.6, b], [W - 0.05, winTop, b], [W - 0.05, winTop, a], [0, 0, 1, 1], C('#fff'));
+      rubber.box(W - 0.035, 2.575, (a + b) / 2, 0.07, 0.07, b - a + 0.08, { col: C('#1a1a1a') }); for (const z of [a - 0.02, b + 0.02]) rubber.box(W - 0.035, (sill + 2.6) / 2, z, 0.07, 2.6 - sill, 0.04, { col: C('#1a1a1a') });
+      for (const [y, x0, x1] of BUS_STEPS(W)) { rubber.box((x0 + x1) / 2, y - 0.02, (a + b) / 2, x1 - x0, 0.04, b - a, { col: C('#2a2a2a') }); ch.box(x1 - 0.015, y + 0.002, (a + b) / 2, 0.03, 0.012, b - a - 0.02, { col: C('#9a9ea2') }); } // treads with alloy nosing (outer edge)
+      for (const [y0, y1, x] of [[0.43, 0.67, W - 0.32], [0.67, 0.9, W - 0.6]]) rubber.box(x - 0.01, (y0 + y1) / 2, (a + b) / 2, 0.02, y1 - y0, b - a, { col: C('#222') }); // risers
+      for (const z of [a + 0.05, b - 0.05]) beam(ch, [W - 0.1, 0.5, z], [W - 0.1, 2.2, z], 0.018, 0.018, C('#b0b4b8'), unitCyl); } // grab poles either side
     loft(paint, [[-L / 2 + 0.02, winTop, H, W - 0.02, W - 0.16, 0.24], [L / 2 - 0.2, winTop, H, W - 0.02, W - 0.16, 0.24]], red ? C('#7c1414') : col);
     for (const z of [-2.2, 1.0]) part(paint, unitBox, [0, H + 0.04, z], [0, 0, 0], [0.8, 0.08, 0.7], C('#d8d8d4'));
     // front: raked windscreen in two panes, destination board, wipers, grille, headlamps, big bumper
@@ -397,23 +407,22 @@ function buildBaseModel(type, color, variant, opts = {}) {
     // side: pillars between windows, livery stripes, doors on the kerb side (+x), wheel-arch shadows
     for (const sx of [-1, 1]) {
       for (let z = -L / 2 + 0.9; z < L / 2 - 0.6; z += 1.18) if (sx < 0 || (Math.abs(z - (L / 2 - 1.05)) > 0.6 && Math.abs(z + 0.6) > 0.6)) beam(paint, [sx * (W - 0.035), belt, z], [sx * (W - 0.05), winTop, z], 0.05, 0.09, col);
-      paint.box(sx * (W + 0.006), belt - 0.22, 0, 0.012, 0.14, L - 0.5, { col: stripe }); paint.box(sx * (W + 0.006), 0.78, 0, 0.012, 0.08, L - 0.5, { col: red ? C('#f2f2ee') : C('#1a3a8a') });
-      for (let z = -L / 2 + 0.6; z < L / 2 - 0.3; z += 1.18) beam(rubber, [sx * (W - 0.03), (belt + winTop) / 2 + 0.05, z], [sx * (W - 0.03), (belt + winTop) / 2 + 0.05, z + 0.6], 0.012, 0.02, C('#3a3a3a'));
-      beam(rubber, [sx * (W + 0.005), belt, -L / 2 + 0.1], [sx * (W + 0.005), belt, L / 2 - 0.1], 0.02, 0.03, C('#111'));
+      for (const [a, b] of sx > 0 ? solid(-L / 2 + 0.25, L / 2 - 0.25, 0.04) : [[-L / 2 + 0.25, L / 2 - 0.25]]) { paint.box(sx * (W + 0.006), belt - 0.22, (a + b) / 2, 0.012, 0.14, b - a, { col: stripe }); paint.box(sx * (W + 0.006), 0.78, (a + b) / 2, 0.012, 0.08, b - a, { col: red ? C('#f2f2ee') : C('#1a3a8a') }); }
+      for (let z = -L / 2 + 0.6; z < L / 2 - 0.3; z += 1.18) if (sx < 0 || !BD.some(([a, b]) => z + 0.6 > a - 0.05 && z < b + 0.05)) beam(rubber, [sx * (W - 0.03), (belt + winTop) / 2 + 0.05, z], [sx * (W - 0.03), (belt + winTop) / 2 + 0.05, z + 0.6], 0.012, 0.02, C('#3a3a3a'));
+      for (const [a, b] of sx > 0 ? solid(-L / 2 + 0.1, L / 2 - 0.1, 0.04) : [[-L / 2 + 0.1, L / 2 - 0.1]]) beam(rubber, [sx * (W + 0.005), belt, a], [sx * (W + 0.005), belt, b], 0.02, 0.03, C('#111'));
     }
-    for (const dz of [L / 2 - 1.05, -0.6]) { // folding doors: dark glazed leaves with frames
-      const x = W + 0.012; part(rubber, unitBox, [x, 1.5, dz], [0, 0, 0], [0.02, 2.1, 0.95], C('#1a1a1a'));
-      for (const s of [-0.24, 0.24]) glass.quad([x + 0.012, 0.8, dz + s - 0.2], [x + 0.012, 0.8, dz + s + 0.2], [x + 0.012, 2.4, dz + s + 0.2], [x + 0.012, 2.4, dz + s - 0.2], [0, 0, 1, 1], C('#fff'));
-      part(ch, unitBox, [x + 0.02, 0.5, dz], [0, 0, 0], [0.04, 0.12, 0.9], C('#888'));
-    }
+    // folding doors: two dark glazed leaves per doorway, each hinged at its jamb and folding in against it (DoorRig poses them)
+    for (const dz of doorZ) for (const s of [1, -1]) doors.push({ side: 1, role: 'leaf', leaf: s, mirror: false, hinge: [W - 0.01, dz + s * 0.475], len: 0.478, spec: null });
     // interior: rows of seats seen through the windows, driver seat + flat steering wheel
-    const I = mb.get('interior'); I.box(0, 0.9, 0, W * 2 - 0.12, 0.04, L - 0.3, { col: C('#3a3a38') }); for (const sx of [-1, 1]) I.box(sx * (W - 0.07), (0.92 + belt) / 2, 0, 0.03, belt - 0.92, L - 0.3, { col: C('#6a6a66') }); I.box(0, H - 0.12, 0, W * 2 - 0.12, 0.03, L - 0.3, { col: C('#d8d8d0') }); I.box(0, (0.92 + belt) / 2, -L / 2 + 0.2, W * 2 - 0.12, belt - 0.92, 0.03, { col: C('#6a6a66') });
+    const I = mb.get('interior'); I.box(-0.28, 0.9, 0, W * 2 - 0.68, 0.04, L - 0.3, { col: C('#3a3a38') }); // floor (the stairwells cut out of its kerb edge)
+    for (const [a, b] of solid(-L / 2 + 0.15, L / 2 - 0.15)) { I.box(W - 0.34, 0.9, (a + b) / 2, 0.56, 0.04, b - a, { col: C('#3a3a38') }); I.box(W - 0.07, (0.92 + belt) / 2, (a + b) / 2, 0.03, belt - 0.92, b - a, { col: C('#6a6a66') }); }
+    I.box(-(W - 0.07), (0.92 + belt) / 2, 0, 0.03, belt - 0.92, L - 0.3, { col: C('#6a6a66') }); I.box(0, H - 0.12, 0, W * 2 - 0.12, 0.03, L - 0.3, { col: C('#d8d8d0') }); I.box(0, (0.92 + belt) / 2, -L / 2 + 0.2, W * 2 - 0.12, belt - 0.92, 0.03, { col: C('#6a6a66') });
     const rowZ = [];  for (let z = -L / 2 + 1.2; z < L / 2 - 2.2; z += 0.85) for (const sx of [-1, 1]) { if (sx > 0 && Math.abs(z + 0.6) < 0.7) continue; rowZ.push([sx, z]); part(I, unitBox, [sx * (W - 0.5), 1.3, z], [0, 0, 0], [0.85, 0.12, 0.45], C(red ? '#3a4a6a' : '#6a2a2a')); part(I, unitBox, [sx * (W - 0.5), 1.62, z - 0.22], [-0.12, 0, 0], [0.85, 0.6, 0.08], C(red ? '#3a4a6a' : '#6a2a2a')); part(I, unitCyl, [sx * (W - 0.12), 1.95, z], [0, 0, 0], [0.02, 0.9, 0.02], C('#b0b4b8')); }
     part(I, unitBox, [0, 1.3, fz - 0.35], [0, 0, 0], [W * 2 - 0.1, 0.3, 0.4], C('#2a2a2a')); I.box(0, 1.0, fz - 0.2, W * 2 - 0.1, 0.2, 0.12, { col: C('#222') }); seat(mb, -0.75, 1.3, fz - 1.2, 0.5, C('#2a2a2a'));
     const bw = { p: [-0.75, 1.74, fz - 0.66], r: 0.24, tilt: 1.1 }; steering(mb, bw.p, bw.r, bw.tilt);
     seats.push({ x: -0.75, y: 1.36, z: fz - 1.2, floor: 0.92, fz: 0.56, fx: 0.13, roof: H - 0.14, lean: -0.06, hands: 'wheel', wheel: bw, kind: 'drive', driver: true, exit: [W + 0.6, L / 2 - 1.05] });
     for (const [sx, z] of rowZ) for (const o of [-0.21, 0.21]) seats.push({ x: sx * (W - 0.5) + o, y: 1.36, z, floor: 0.92, fz: 0.42, fx: 0.11, roof: H - 0.14, lean: -0.05, hands: 'lap', kind: 'sit', bus: true, exit: [W + 0.6, z > 1.2 ? L / 2 - 1.05 : -0.6] });
-    heavyDetail(dm, KIT, { L, W, H, R, kind: 'bus', belt, winTop, wf, wr });
+    heavyDetail(dm, KIT, { L, W, H, R, kind: 'bus', belt, winTop, wf, wr, doorZ });
     return out([[-W + 0.22, R, wf, 0.3], [W - 0.22, R, wf, 0.3], [-W + 0.26, R, wr, 0.46], [W - 0.26, R, wr, 0.46]], [-0.75, 1.45, fz - 0.72], { busDoor: [W + 0.6, L / 2 - 1.05] });
   }
 
@@ -750,6 +759,17 @@ function buildDoorGeos(d, col, stripes = null) {
   return geos;
 }
 
+// bus door leaf (hinge space: hinge on its jamb, the leaf runs along −leaf·z): dark glazed panel, glass both faces, kick plate,
+// rubber seal on the free edge. Swings out to the street (DoorRig poseDoor), so it never sweeps through the stairwell.
+function buildLeafGeos(d) {
+  const mb = new MultiBuilder(), rb = mb.get('rubber'), gl = mb.get('glass'), ch = mb.get('chrome'); const s = d.leaf, n = d.len, zc = -s * n / 2, y0 = 0.4, y1 = 2.53;
+  rb.box(0, (y0 + y1) / 2, zc, 0.03, y1 - y0, n, { col: C('#1a1a1a') }); rb.box(0, (y0 + y1) / 2, -s * (n - 0.012), s > 0 ? 0.046 : 0.04, y1 - y0, 0.024, { col: C('#0d0d0d') });
+  const za = Math.min(-s * 0.035, -s * (n - 0.04)), zb = Math.max(-s * 0.035, -s * (n - 0.04));
+  gl.quad([0.016, 0.85, za], [0.016, 0.85, zb], [0.016, 2.42, zb], [0.016, 2.42, za], [0, 0, 1, 1], C('#fff')); gl.quad([-0.016, 0.85, zb], [-0.016, 0.85, za], [-0.016, 2.42, za], [-0.016, 2.42, zb], [0, 0, 1, 1], C('#fff'));
+  ch.box(0, 0.55, zc, 0.04, 0.12, n - 0.03, { col: C('#888') }); ch.box(0.02, 1.25, -s * (n - 0.08), 0.03, 0.4, 0.025, { col: C('#b0b4b8') }); // kick plate, grab handle by the free edge
+  const geos = []; for (const [name, b] of mb.b) { const geo = b.build(); if (geo) { geo.computeBoundingSphere(); geos.push([name, geo]); } } return geos;
+}
+
 // Returns a THREE.Group with .userData {wheels, tailMat, seats, type, color, steerWheel, door, entry}
 // is this (type, seed) look already built? (traffic spreads first-time model builds out so they never stack up in one frame)
 // a look's geometry is the same for every paint colour except the vertex colours, which are the paint colour or an exact
@@ -799,7 +819,7 @@ function slicePivotGeos(cached, i) {
 }
 function bakeDoors(cached, T, type, col) {
   const doors = cached.doors, stripes = doorStripes(T, type);
-  const dg = doors.map((d) => buildDoorGeos(d.mirror ? { ...d, hinge: [-d.hinge[0], d.hinge[1]] } : d, col, stripes)); // hinge space, −x orientation
+  const dg = doors.map((d) => d.leaf ? buildLeafGeos(d) : buildDoorGeos(d.mirror ? { ...d, hinge: [-d.hinge[0], d.hinge[1]] } : d, col, stripes)); // hinge space, −x orientation
   const names = [...new Set([...cached.geos.map((q) => q[0]), ...dg.flatMap((l) => l.map((q) => q[0]))])]; const ranges = {}, baked = [];
   for (const name of names) { const body = cached.geos.find((q) => q[0] === name); const parts = body ? [{ geo: body[1], m: null }] : []; const who = [];
     dg.forEach((l, i) => { const q = l.find((x) => x[0] === name); if (!q) return; const d = doors[i]; const M = new THREE.Matrix4().makeTranslation(d.hinge[0], 0, d.hinge[1]); if (d.mirror) M.multiply(new THREE.Matrix4().makeScale(-1, 1, 1)); parts.push({ geo: q[1], m: M }); who.push(i); });
@@ -851,9 +871,9 @@ export function createVehicleMesh(type, seed = 1) {
   });
   // doors: shut ones are part of the body meshes; DoorRig puts a moving one on its pivot (front edge hinge / sliding track)
   const doors = (cached.doors || []).map((d, i) => { const pivot = new THREE.Group(); pivot.position.set(d.hinge[0], 0, d.hinge[1]); pivot.visible = false; pivot.name = 'door' + i; g.add(pivot);
-    const o = { pivot, i, side: d.side, role: d.role, slide: d.role === 'slide', open: 0, max: d.role === 'rear' ? 1.05 : 1.15, ang: 0, vel: 0, len: d.len, hx: d.hinge[0], hz: d.hinge[1], rects: d.spec && d.spec.rects, live: false }; poseDoor(o); return o; });
+    const o = { pivot, i, side: d.side, role: d.role, slide: d.role === 'slide', leaf: d.leaf || 0, open: 0, max: d.leaf ? 1.45 : d.role === 'rear' ? 1.05 : 1.15, ang: 0, vel: 0, len: d.len, hx: d.hinge[0], hz: d.hinge[1], rects: d.spec && d.spec.rects, live: false }; poseDoor(o); return o; });
   if (doors.length) for (const name in cached.doorRanges) if (!mats[name]) mats[name] = byName[name] || MAT.paint; // a material only the doors use
-  const door = doors[0] || null;
+  const door = doors.find((d) => !d.leaf) || null; // car door the driver uses (bus door leaves are not)
   const ds = cached.seats.find((s) => s.driver) || cached.seats[0];
   const side = T.entry === 'bike' ? 1 : -1; const hw = T.wid / 2;
   // hinged door: stand just outside the door's swing arc, a little behind its rear edge (radius len + 0.3 from the hinge, 40° back
