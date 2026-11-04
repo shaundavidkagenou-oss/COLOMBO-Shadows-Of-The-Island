@@ -85,6 +85,7 @@ ok(PR.ARREST_FINE.every((f, i) => i === 0 || f >= PR.FINE_ON_SPOT), 'arrest fine
 }
 // ---- 5. intercept driving (Pursuit.js): tail / PIT / block against a suspect fleeing down a long straight
 const PU = await import('../src/police/Pursuit.js');
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 {
   T.collision.resolveCircle = (x, z) => ({ x, z, hit: false });
   const circ = function () { const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw); return [-1.4, 0, 1.4].map((t) => [this.x + fx * t, this.z + fz * t]); };
@@ -107,6 +108,34 @@ const PU = await import('../src/police/Pursuit.js');
     if (!L.roadAt(S.x, S.z) || d > 250 || d < 40 || ahead < 0) { badSite++; if (process.env.DBG) console.log('site', x, z, S, d, ahead); } }
   ok(sites > tries * 0.4, `roadblock site found ahead on most roads (${sites}/${tries})`); ok(badSite === 0, `every roadblock site is on the road ahead of the suspect (${badSite} bad)`);
   const st = { x: 10, z: 10, yaw: 0, len: 4, depth: 0.42 }; const car = mk(10, 10 + 1.6, 0, 10, false); ok(PU.overStrip(st, car), 'spike strip: front wheels on the strip → puncture'); car.z = 16; ok(!PU.overStrip(st, car), 'spike strip: clear 6 m away');
+  // corner chase: the suspect turns right round a building; the PIT car must follow round it (trail), not plough into the corner
+  const corner = (useTrail, othersSee = false, gap0 = 30, bx0 = 4) => {
+    const B = { x0: bx0, x1: 80, z0: 0, z1: 55 }; // the building on the inside of the turn
+    const C = { resolveCircle(cx, cz, r) { const qx = clamp(cx, B.x0, B.x1), qz = clamp(cz, B.z0, B.z1); const dx = cx - qx, dz = cz - qz, d = Math.hypot(dx, dz);
+        if (d >= r) return { x: cx, z: cz, hit: false }; if (d > 1e-6) return { x: qx + dx / d * r, z: qz + dz / d * r, hit: true }; const ex = [cx - B.x0, B.x1 - cx, cz - B.z0, B.z1 - cz], m = Math.min(...ex), i = ex.indexOf(m);
+        return { x: i === 0 ? B.x0 - r : i === 1 ? B.x1 + r : cx, z: i === 2 ? B.z0 - r : i === 3 ? B.z1 + r : cz, hit: true }; },
+      raycast(ax, ay, az, bx, by, bz, pad = 0.2) { let t0 = 0, t1 = 1; for (const [o, d, mn, mx] of [[ax, bx - ax, B.x0 - pad, B.x1 + pad], [az, bz - az, B.z0 - pad, B.z1 + pad]]) { if (Math.abs(d) < 1e-9) { if (o < mn || o > mx) return 1; continue; } let ta = (mn - o) / d, tb = (mx - o) / d; if (ta > tb) [ta, tb] = [tb, ta]; t0 = Math.max(t0, ta); t1 = Math.min(t1, tb); if (t0 > t1) return 1; } return t0; } };
+    const keepRC = T.collision.resolveCircle; T.collision.resolveCircle = C.resolveCircle;
+    const S = mk(0, 0, 0, 16, false); const v = mk(0, -gap0, 0, 16, true); v.ai.chase = null; S.flat = false;
+    const g = { ...fakeGame, player: { vehicle: S, x: 0, z: 0, yaw: 0 }, collision: C, indoor: false, atmos: { night: 0, w: { rain: 0 } }, camera: { position: new THREE.Vector3(), getWorldDirection: (q) => q.set(0, 0, 1) } };
+    const p = new PR.PoliceResponse(g); p.radio = () => {}; p.say = () => {}; p.dismount = () => {}; if (!useTrail) { p.trailAim = () => null; p.lineBlocked = () => false; }
+    const u = { id: 1, v, officers: [{ mode: 'seated' }], task: 'drive' }; p.units = [u]; p.level = 3; p.state = 'pursuing'; p.seenT = 0;
+    const R = 12;
+    let sd = 0, wedges = 0, maxBlock = 0, dropped = false, minGapAfter = 1e9, gapEnd = 0, hits = 0;
+    for (let i = 0; i < 16 * 20; i++) { const dt = 0.05; sd += S.speed * dt; // suspect: north on x = 0, quarter turn (R 8) at z = 52, then east on z = 60
+      const L1 = 92, arc = Math.PI / 2 * R; S.speed = sd < L1 - 25 ? 16 : sd < L1 + arc ? Math.max(11, 16 - (sd - L1 + 25) * 0.25) : Math.min(16, (S.speed || 11) + 3 * dt); /* brakes for the corner (≈1 g), then accelerates */ if (sd < L1) { S.x = 0; S.z = sd - 40; S.yaw = 0; } else if (sd < L1 + arc) { const a2 = (sd - L1) / R; S.x = R - R * Math.cos(a2); S.z = 52 + R * Math.sin(a2); S.yaw = a2; } else { S.x = R + (sd - L1 - arc); S.z = 52 + R; S.yaw = Math.PI / 2; }
+      g.player.x = S.x; g.player.z = S.z; p.t += dt;
+      const seen = othersSee || C.raycast(v.x, 1, v.z, S.x, 1, S.z, 0.2) >= 0.999; /* othersSee: another unit has eyes on them (seenT is shared) */ if (seen) { p.seenT = 0; p.lastSeen = { x: S.x, z: S.z, t: p.t, h: S.yaw, sp: S.speed }; } else p.seenT += dt;
+      p.recordTrail(); const d = Math.hypot(v.x - S.x, v.z - S.z); const on = p.updateIntercept(u, dt, p.target(), d);
+      if (!v.ai.chase) { dropped = true; break; } if (on) PU.stepChase(T, v, dt, [S, v]);
+      const bt = v.ai.chase ? v.ai.chase.blockT : 0; maxBlock = Math.max(maxBlock, bt); if (C.resolveCircle(v.x, v.z, 0.9).hit) hits++;
+      if (S.x > 30) minGapAfter = Math.min(minGapAfter, d); gapEnd = d; if (process.env.CDBG && i % 5 === 0) console.log(useTrail, othersSee, (i * dt).toFixed(2), 'S', S.x.toFixed(1), S.z.toFixed(1), 'v', v.x.toFixed(1), v.z.toFixed(1), v.speed.toFixed(1), v.ai.chase && v.ai.chase.role, v.ai.chase && v.ai.chase.blocked, p.seenT.toFixed(2)); }
+    T.collision.resolveCircle = keepRC; return { dropped, maxBlock, hits, minGapAfter, gapEnd, vx: v.x, vz: v.z };
+  };
+  const cNew = corner(true), cOld = corner(false); const sNew = corner(true, true, 80, 2), sOld = corner(false, true, 80, 2);
+  ok(!sNew.dropped && sNew.maxBlock < 1 && sNew.gapEnd < 30, `corner chase while another unit has eyes on the suspect: follows round the building (wedged ${sNew.maxBlock.toFixed(1)} s, wall contact ${sNew.hits} frames, gap at the end ${sNew.gapEnd.toFixed(1)} m; aiming straight at them instead: ${sOld.dropped ? 'chase dropped' : `wedged ${sOld.maxBlock.toFixed(1)} s, ${sOld.hits} contact frames, gap ${sOld.gapEnd.toFixed(1)} m`})`);
+  ok(!cNew.dropped && cNew.maxBlock < 1 && cNew.hits <= 4, `corner chase: the PIT car follows the suspect round a building (wedged ${cNew.maxBlock.toFixed(1)} s, wall contact ${cNew.hits} frames; without the trail: ${cOld.dropped ? 'chase dropped' : `wedged ${cOld.maxBlock.toFixed(1)} s, ${cOld.hits} frames`})`);
+  ok(!cNew.dropped && cNew.gapEnd < 25 && cNew.vz > 58 && cNew.vz < 72, `…and is right behind them on the new road at the end (gap ${cNew.gapEnd.toFixed(1)} m at (${cNew.vx.toFixed(0)}, ${cNew.vz.toFixed(0)}); without the trail ${cOld.gapEnd.toFixed(1)} m)`);
   const l1 = PU.radioLine('heading', { road: 'Galle Road', dir: PU.compass(Math.PI), vtype: 'tuktuk' }); ok(/three-wheeler heading north on Galle Road/.test(l1.en), `radio: "${l1.en}"`);
   { const s5 = PU.catchUpSpeed(5, 33, 400, 28), s5n = PU.catchUpSpeed(5, 33, 30, 28), s3 = PU.catchUpSpeed(3, 20, 300, 23);
     ok(s5 > 33 * 1.1 && s5 <= 42 && s5n === 28 && s3 > 20, `3★+ catch-up: 5★ unit 400 m behind a 33 m/s car drives ${s5.toFixed(1)} m/s; at the bumper ${s5n} m/s; 3★ ${s3.toFixed(1)} m/s`);

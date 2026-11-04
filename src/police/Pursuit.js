@@ -37,14 +37,14 @@ export function chaseAim(role, P, v, stars, t = 0) {
   const pf = [Math.sin(P.yaw), Math.cos(P.yaw)], pr = [pf[1], -pf[0]]; const ps = Math.max(0, P.speed || 0);
   const rx = v.x - P.x, rz = v.z - P.z; const along = rx * pf[0] + rz * pf[1], lat = rx * pr[0] + rz * pr[1];
   const side = lat >= 0 ? 1 : -1; const wid = (P.T && P.T.wid) || 1.8, vw = (v.T && v.T.wid) || 1.8; const half = P.half || 2.2;
-  const lead = clamp(Math.hypot(rx, rz) / Math.max(4, Math.abs((v.speed || 0) - ps) + 4), 0, 1.2); // predict where the suspect will be
+  const lead = clamp(Math.hypot(rx, rz) / Math.max(6, (v.speed || 0) + 2), 0, 1); // predict where the suspect will be by the time we get there (≈ distance / own speed; was ÷ relative speed, which aimed ~20 m ahead at matched speed)
   const px = P.x + pf[0] * ps * lead, pz = P.z + pf[1] * ps * lead;
   let ax, az, speed, contact = false;
   if (role === 'pit' && stars >= 3) {
     const level = along > -half * 2.2 && along < half * 0.2 && Math.abs(lat) < wid / 2 + vw / 2 + 1.4; // drawn level with the rear quarter
     const off = level ? wid / 2 + vw / 2 - 0.9 : wid / 2 + vw / 2 + 0.6; // then turn in: aim through the rear corner
     ax = px - pf[0] * half * 0.75 + pr[0] * side * off; az = pz - pf[1] * half * 0.75 + pr[1] * side * off;
-    speed = ps + (along < -half * 2 ? 7 : level ? 1.5 : 3); contact = level;
+    speed = level ? ps + 1.5 : ps + clamp((-half * 0.75 - along) * 0.8, -6, 7); contact = level; // hold the rear quarter: never run on ahead of the suspect (it would overshoot the next turn)
   } else if (role === 'block' && stars >= 3) {
     if (along > half + 9 && Math.abs(lat) < 7) { ax = P.x + pf[0] * (along + 4); az = P.z + pf[1] * (along + 4); speed = Math.max(0, ps * 0.35 - 2); contact = true; } // ahead: brake on the suspect's line
     else { const s2 = side * (wid + 1.2); ax = px + pf[0] * (14 + ps * 0.5) + pr[0] * s2; az = pz + pf[1] * (14 + ps * 0.5) + pr[1] * s2; speed = ps + 9; } // overtake on the outside
@@ -57,7 +57,7 @@ export function chaseAim(role, P, v, stars, t = 0) {
 
 // --------------------------------------------------------------- one kinematic step of an intercept car (called from Traffic.step)
 export function stepChase(T, v, dt, all) {
-  const ai = v.ai, ch = ai.chase; const vT = v.T; const top = (vT.maxSpeed || 40) * 0.9 * (ch.boost || 1);
+  const ai = v.ai, ch = ai.chase; const vT = v.T; const top = Math.max((vT.maxSpeed || 40) * 0.9 * (ch.boost || 1), Math.min(46, ch.minTop || 0)); // 3★+: the crew pushes past the suspect's speed (≤ 46 m/s)
   let want = Math.atan2(ch.ax - v.x, ch.az - v.z); let dyaw = angDiff(want, v.yaw); const dist = Math.hypot(ch.ax - v.x, ch.az - v.z);
   let target = Math.min(top, ch.speed); if (dist < 3 && !ch.contact) target = Math.min(target, ch.speed * 0.9);
   target = Math.min(target, lerp(top, 5, clamp((Math.abs(dyaw) - 0.25) / 1.6, 0, 1))); // slow for sharp turns

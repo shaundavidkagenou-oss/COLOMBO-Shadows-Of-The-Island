@@ -133,7 +133,7 @@ export class PoliceResponse {
     if (this.cine) { this.cine.update(dt); this.updateSiren(dt, false); this.ff.update(dt); return; } // BUSTED sequence owns the officers and the camera
     if (g.director.active || this.busy) { this.updateSiren(dt, true); this.ff.update(dt); return; }
     this.foot = []; for (const u of this.units.concat(this.civil)) for (const o of u.officers) if (o.mode === 'foot' || o.mode === 'down' || o.mode === 'return') this.foot.push(o);
-    this.updateGlobal(dt);
+    this.updateGlobal(dt); this.recordTrail();
     for (const u of this.units.slice()) this.updateUnit(u, dt);
     for (const u of this.civil.slice()) this.updateCivil(u, dt);
     this.ems.update(dt);
@@ -400,20 +400,23 @@ export class PoliceResponse {
     const v = u.v, ai = v.ai, lv = this.stars(); const P = tg.v;
     const can = this.state === 'pursuing' && lv >= 2 && !!P && this.allSeated(u) && !v.free && !ai.stopped;
     if (!ai.chase) {
-      if (!can || this.seenT > 1 || d > 75 || Math.abs(P.speed) < 2.5) return false;
+      if (!can || this.seenT > 1 || d > (lv >= 3 ? 110 : 75) || Math.abs(P.speed) < 2.5) return false;
       const busy = this.units.filter((q) => q.v && q.v.ai && q.v.ai.chase).map((q) => q.v.ai.chase.role);
-      const role = lv < 3 ? 'tail' : ['pit', 'block', 'tail'].find((r) => !busy.includes(r)) || (u.id % 2 ? 'pit' : 'tail');
+      const want = lv >= 4 ? ['pit', 'block', 'pit', 'tail'] : ['pit', 'block', 'tail']; const left = want.slice(); for (const r of busy) { const i = left.indexOf(r); if (i >= 0) left.splice(i, 1); } // 4★+: two PIT cars (one each side)
+      const role = lv < 3 ? 'tail' : left[0] || (u.id % 2 ? 'pit' : 'tail');
       ai.chase = { role, ax: v.x, az: v.z, speed: v.speed, blockT: 0, boost: [1, 1, 1.02, 1.06, 1.1, 1.14][lv], t: 0, pitCd: 1.5, stop: false, contact: false };
       ai.route = null; ai.goal = null; this.stats.intercepts++; this.note(`unit ${u.id} intercepting (${role})`);
       if (lv >= 3) this.radio(role === 'pit' ? 'pit' : role === 'block' ? 'block' : 'ram', u);
     }
-    const ch = ai.chase; ch.t += dt; ch.pitCd -= dt;
-    if (!can || this.seenT > 2.5 || d > 120 || ch.blockT > 2.5) { // lost them / wedged: back to the road network and the routed chase
+    const ch = ai.chase; ch.t += dt; ch.pitCd -= dt; ch.minTop = lv >= 3 ? Math.abs(P.speed) * 1.08 + 2 : 0;
+    if (!can || this.seenT > (lv >= 3 ? 4.5 : 2.5) || d > (lv >= 3 ? 170 : 120) || ch.blockT > 2.5) { // lost them / wedged: back to the road network and the routed chase
       if (rejoinLane(this.T, v)) { u.planT = 0; u.goalPt = null; u.stuckT = 0; this.note(`unit ${u.id} back on the road`); return false; }
       const nr = nearestRoad(this.T.drivableSegs, v.x, v.z); if (nr) { ch.ax = nr.px; ch.az = nr.pz; ch.speed = 6; ch.stop = false; ch.blockT = 0; } return true;
     }
-    if (this.seenT > 0.25 && this.lastSeen) { ch.ax = this.lastSeen.x; ch.az = this.lastSeen.z; ch.speed = Math.max(10, Math.abs(P.speed)); ch.stop = false; return true; } // momentarily out of sight: drive to where they were
+    if (this.seenT > 0.25 && this.lastSeen) { const tp = this.trailAim(v, ch); ch.ax = tp ? tp.x : this.lastSeen.x; ch.az = tp ? tp.z : this.lastSeen.z; ch.speed = Math.max(10, Math.abs(P.speed) + 2); ch.stop = false; ch.contact = false; return true; } // momentarily out of sight: follow the line they took (saw them turn), not a frozen point
     const aim = chaseAim(ch.role, P, v, lv, ch.t); ch.ax = aim.x; ch.az = aim.z; ch.speed = aim.speed; ch.contact = aim.contact;
+    ch.losT = (ch.losT || 0) - dt; if (ch.losT <= 0) { ch.losT = 0.2; ch.blocked = this.lineBlocked(v, aim.x, aim.z); }
+    if (ch.blocked) { const tp = this.trailAim(v, ch); if (tp) { ch.ax = tp.x; ch.az = tp.z; ch.speed = Math.max(aim.speed, Math.abs(P.speed) + 3); ch.contact = false; } } else ch.ti = null; // a building between them (round a corner): follow the suspect's path round it instead of ploughing into the corner
     ch.stop = Math.abs(P.speed) < 1.5 && d < 18; // suspect stopped: pull up beside them, crew out
     if (ch.stop && v.speed < 1) { this.dismount(u, 'chase'); this.say(u.officers[0], 'chase', 'Officer'); return true; }
     if (ch.role === 'pit' && aim.contact && aim.along < 0 && ch.pitCd <= 0 && Math.abs(P.speed) > 6 && this.touching(v, P)) {
@@ -421,6 +424,19 @@ export class PoliceResponse {
     }
     return true;
   }
+  // the suspect's driven path while units have eyes on it (and a moment after): intercept cars follow it round corners
+  recordTrail() {
+    const tg = this.target(); if (this.state !== 'pursuing') { if (this.trail && this.trail.length) this.trail = []; return; }
+    if (!tg.v || this.seenT > 2) return; const tr = this.trail || (this.trail = []); if (tr.v !== tg.v) { tr.length = 0; tr.v = tg.v; }
+    const l = tr[tr.length - 1]; if (!l || (l.x - tg.x) ** 2 + (l.z - tg.z) ** 2 > 9) { tr.push({ x: tg.x, z: tg.z }); if (tr.length > 140) { tr.shift(); for (const u of this.units) { const c = u.v && u.v.ai && u.v.ai.chase; if (c && c.ti > 0) c.ti--; } } }
+  }
+  trailAim(v, ch) {
+    const tr = this.trail; if (!tr || tr.length < 2 || tr.v !== this.target().v) return null; const first = ch.ti == null || ch.ti >= tr.length;
+    let bi = first ? 0 : ch.ti, bd = Infinity; for (let k = first ? 0 : ch.ti, e = first ? tr.length : Math.min(tr.length, ch.ti + 30); k < e; k++) { const d = (tr[k].x - v.x) ** 2 + (tr[k].z - v.z) ** 2; if (d < bd) { bd = d; bi = k; } }
+    ch.ti = bi; const look = 6 + Math.max(0, v.speed) * 0.45; let acc = 0, k = bi; while (k < tr.length - 1 && acc < look) { acc += Math.hypot(tr[k + 1].x - tr[k].x, tr[k + 1].z - tr[k].z); k++; }
+    return tr[k];
+  }
+  lineBlocked(v, x, z) { const c = this.g.collision; if (!c || !c.raycast) return false; const y = (v.y || 0) + 0.7; return c.raycast(v.x, y, v.z, x, y, z, 0.7, false, 0.9) < 0.97; }
   touching(a, b) { for (const p of a.circles()) for (const q of b.circles()) if (Math.hypot(p[0] - q[0], p[1] - q[1]) < a.radius + b.radius + 0.35) return true; return false; }
 
   // ------------------------------------------------------------------ roadblocks (4★+) and spike strips (5★)
