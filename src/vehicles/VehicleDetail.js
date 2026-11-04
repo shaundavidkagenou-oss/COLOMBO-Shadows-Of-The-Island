@@ -137,7 +137,7 @@ export function carDetail(dm, K, c) {
   gl.box(0.02, dashY - 0.06, dz2 - 0.23, 0.2, 0.12, 0.01, { col: C('#fff') }); I.box(0.02, dashY - 0.06, dz2 - 0.223, 0.22, 0.14, 0.01, { col: C('#0d0d0e') }); // centre screen
   for (const x of [-0.62, -0.14, 0.18, 0.62].map((v) => v * Math.min(1, (gw0 - 0.1) / 0.62))) { part(chr, ringZ, [x, dashY - 0.035, dz2 - 0.228], [0, 0, 0], [0.032, 0.032, 0.05], satin); part(I, discZ, [x, dashY - 0.035, dz2 - 0.226], [0, 0, 0], [0.03, 0.03, 0.004], C('#0a0a0a')); }
   for (let i = 0; i < 6; i++) I.box(-0.06 + (i % 3) * 0.08, dashY - 0.17 - Math.floor(i / 3) * 0.035, dz2 - 0.222, 0.05, 0.022, 0.01, { col: C('#2b2c2f') }); // climate buttons
-  I.box(0.42, dashY - 0.1, dz2 - 0.222, 0.36, 0.004, 0.006, { col: C('#0a0a0a') }); // glovebox shut line
+  { const gx1 = Math.min(0.6, gw0 - 0.11); I.box((0.24 + gx1) / 2, dashY - 0.1, dz2 - 0.222, gx1 - 0.24, 0.004, 0.006, { col: C('#0a0a0a') }); } // glovebox shut line (stops inside the dash on narrow cabins)
   const gz2 = sz + 0.28; beam(I, [0, floorY + 0.24, gz2], [0, floorY + 0.38, gz2 - 0.03], 0.016, 0.016, C('#101010'), unitCyl); part(I, sphLo, [0, floorY + 0.4, gz2 - 0.03], [0, 0, 0], [0.032, 0.03, 0.036], C('#1a1a1a'));
   beam(I, [0.09, floorY + 0.24, sz - 0.02], [0.09, floorY + 0.3, sz + 0.2], 0.03, 0.03, C('#141414'));
   for (const [x, w] of [[-0.52, 0.06], [-0.4, 0.08], [-0.27, 0.06]]) part(I, unitBox, [x + 0.38 - X0, floorY + 0.11, dz2 - 0.02], [-0.6, 0, 0], [w, 0.09, 0.015], C('#2a2a2c')); // clutch / brake / accelerator

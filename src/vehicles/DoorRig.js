@@ -3,13 +3,13 @@
 // The moment a door moves it goes "live": the body meshes of that vehicle switch to a view of the shared geometry that
 // skips the door's triangles (geometry groups over the same buffers — nothing is copied), and the door's own meshes on
 // its hinge pivot appear. Once it is shut again it is folded back into the body. Hinged doors swing about the front
-// edge; the van's sliding door steps out 7 cm and runs back along the body side.
+// edge; the van's sliding door steps out 15 cm (clear of its own shell depth) and runs back along the body side.
 import * as THREE from 'three';
 
 // pose a door from its normalised opening d.ang (0 shut .. 1 open)
 export function poseDoor(d) {
   const k = Math.max(0, d.ang || 0);
-  if (d.slide) { const out = Math.min(1, k / 0.18), back = Math.max(0, (k - 0.12) / 0.88); d.pivot.position.set(d.hx + d.side * 0.07 * out, 0, d.hz - (d.len + 0.05) * back); d.pivot.rotation.y = 0; return; }
+  if (d.slide) { const out = Math.min(1, k / 0.18), back = Math.max(0, (k - 0.12) / 0.88); d.pivot.position.set(d.hx + d.side * 0.15 * out, 0, d.hz - (d.len + 0.05) * back); d.pivot.rotation.y = 0; return; }
   d.pivot.rotation.y = d.max * k * (d.side < 0 ? 1 : -1);
 }
 const isOpen = (d) => (d.slide ? (d.ang || 0) > 1e-4 : Math.abs(d.pivot.rotation.y) > 1e-5 || (d.ang || 0) > 1e-4);

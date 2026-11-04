@@ -10,6 +10,7 @@
 import './node-dom-stub.mjs';
 import * as THREE from 'three';
 const { createVehicleMesh, VTYPES } = await import('../src/vehicles/VehicleModels.js');
+const { allDoorsLive } = await import('../src/vehicles/DoorRig.js');
 const { makeSkeleton } = await import('../src/actors/Character.js');
 const { applySeatPose, seatLocal } = await import('../src/actors/Seating.js');
 const { boardGeom, boardCurve, poseBoard, applyBoardPose, boardKind, BOARD_T } = await import('../src/actors/Boarding.js');
@@ -23,7 +24,7 @@ for (const type of types) {
   const T = VTYPES[type]; const g = createVehicleMesh(type, 1); const ud = g.userData; const seat = ud.seats.find((s) => s.driver) || ud.seats[0]; const hw = T.wid / 2; const kind = boardKind({ T });
   const side = ud.entry ? ud.entry.side : -1; const st = (stats[type] = { reach: 0, head: -9, sill: 9, jump: 0, end: 0, door: 9, sink: 9 });
   const veh = new THREE.Group(); veh.updateMatrixWorld();
-  const d = ud.door; let doorSeg = null; if (d) { let len = 0; d.pivot.traverse((o) => { if (o.geometry) { o.geometry.computeBoundingBox(); len = Math.max(len, -o.geometry.boundingBox.min.z); } }); const th = d.max * 1.05; const hx = d.pivot.position.x, hz = d.pivot.position.z; doorSeg = [hx, hz, hx + side * len * Math.sin(th), hz - len * Math.cos(th)]; }
+  if (ud.doors) allDoorsLive(ud); /* shut doors are baked into the body: bring the meshes out to measure them */ const d = ud.door; let doorSeg = null; if (d) { let len = 0; d.pivot.traverse((o) => { if (o.geometry) { o.geometry.computeBoundingBox(); len = Math.max(len, -o.geometry.boundingBox.min.z); } }); const th = d.max * 1.05; const hx = d.pivot.position.x, hz = d.pivot.position.z; doorSeg = [hx, hz, hx + side * len * Math.sin(th), hz - len * Math.cos(th)]; }
   for (const height of [1.52, 1.72, 1.88]) {
     const sp = { sex: height < 1.6 ? 'f' : 'm', height, build: height > 1.8 ? 1.08 : 0.96 }; const { bones } = makeSkeleton(sp, 'b' + height);
     const b = Object.fromEntries(bones.map((x) => [x.name, x])); const root = new THREE.Group(); const mesh = new THREE.Group(); root.add(mesh); mesh.add(bones[0]); veh.add(root);
