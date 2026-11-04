@@ -20,7 +20,7 @@
 import * as THREE from 'three';
 import * as L from '../world/Layout.js';
 import { Vehicle } from '../vehicles/Vehicle.js';
-import { linePiece, segNodes, otherEnd } from '../vehicles/Traffic.js';
+import { linePiece, segNodes, otherEnd, evalPiece } from '../vehicles/Traffic.js';
 import { Character } from '../actors/Character.js';
 import { makeMedicAppearance, makePoliceAppearance } from '../actors/Appearance.js';
 import { seatCharacter } from '../actors/Seating.js';
@@ -35,6 +35,16 @@ import { chaseAim, rejoinLane, applyPit, roadblockSite, makeSpikeStrip, overStri
 
 const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
 export const UNITS_FOR = [0, 1, 3, 5, 6, 8];
+// Wanted-level units are DISPATCHED, not conjured: each car leaves a police base (it pulls out of the compound gate onto
+// the road and drives the whole route in) or — when the incident is far from both bases — comes in from a neighbouring
+// division along a road at the edge of the map. The first crew needs a few seconds to scramble, later cars from the same
+// base leave one after another, and every unit then has real travel time, so a 3★ response builds up over a minute
+// instead of four cars appearing at once. A patrol car already in the area is diverted first.
+export const POLICE_BASES = [
+  { id: 'hq', name: 'Police Headquarters', x: L.PLACES.policeHQ2.x, z: L.PLACES.policeHQ2.z - 6, cars: 4 },
+  { id: 'kollupitiya', name: 'Kollupitiya Police Station', x: L.PLACES.police.x, z: L.PLACES.police.z, cars: 3 },
+];
+export const DISPATCH = { scramble: [3.5, 6.5], gap: [9, 14], edgeK: 1.35, edgeAdd: 160, edgeDelay: 4 };
 export const CHASE_V0 = [9, 12, 19, 23, 26, 28]; // lane cruising speed by level (m/s)
 export const LOSE_AFTER = (stars) => 5 + stars * 1.5; // seconds out of every unit's sight before a pursuit becomes a search
 export const SEARCH_TIME = (lv) => 32 + lv * 16;
@@ -84,7 +94,7 @@ export class PoliceResponse {
     this.g = game; this.level = 0; this.state = 'patrol'; this.units = []; this.incident = null; this.lastSeen = null; this.search = null;
     this.stateT = 0; this.seenT = 99; this.repT = -99; this.crimeT = -99; this.spawnCd = 0; this.patrolCd = 20; this.seed = 1; this.busy = false; this.prompt = '';
     this.foot = []; this.civil = []; this.log = []; this.stats = { reports: 0, dispatched: 0, sightings: 0, fines: 0, arrests: 0, searches: 0, decays: 0, standDowns: 0, maxUnits: 0, spawnMinDist: Infinity };
-    this.reason = 'disturbance'; this.stop = null; this.t = 0; this.siren = null; this.waits = []; this.radioCd = 4; this.radioN = 0; this.blockCd = 12;
+    this.queue = []; this.baseState = {}; this.edges = null; this.reason = 'disturbance'; this.stop = null; this.t = 0; this.siren = null; this.waits = []; this.radioCd = 4; this.radioN = 0; this.blockCd = 12;
     Object.assign(this.stats, { intercepts: 0, pits: 0, roadblocks: 0, spikes: 0, flats: 0, recycled: 0, tackles: 0, tackleHits: 0, busted: { grab: 0, tackle: 0, shot: 0 } });
     this.ff = new Firefight(this); this.ems = new EMS(this); this.cine = null; this.bodies = []; this.nav = new FootNav(this.g.collision, () => this.T.all());
   }
@@ -133,7 +143,7 @@ export class PoliceResponse {
     this.ff.update(dt);
   }
   updateGlobal(dt) {
-    const want = UNITS_FOR[this.stars()] || 0; const active = this.units.filter((u) => u.task !== 'leave' && !u.patrol);
+    this.updateQueue(); const want = UNITS_FOR[this.stars()] || 0; const active = this.units.filter((u) => u.task !== 'leave' && !u.patrol);
     // visibility
     let seen = false; for (const u of this.units) if (u.task !== 'leave' && this.unitSees(u)) { seen = true; break; }
     if (seen && this.level > 0) this.spotted(); else this.seenT += dt;
@@ -159,7 +169,7 @@ export class PoliceResponse {
         if (this.search.t <= 0) {
           const before = this.stars(); this.level = Math.max(0, before - 1); this.stats.decays++; this.note(`search expired: ${before}→${this.stars()}`);
           if (this.level <= 0) this.standDown('The police have stopped looking for you.');
-          else { this.g.hud.notify('Search scaled down', `${'★'.repeat(this.stars())} — fewer units are still checking the area.`, 'info', 3); this.beginSearch(this.search.x, this.search.z); for (const u of active.slice(UNITS_FOR[this.stars()])) this.leave(u); }
+          else { this.g.hud.notify('Search scaled down', `${'★'.repeat(this.stars())} — fewer units are still checking the area.`, 'info', 3); this.beginSearch(this.search.x, this.search.z); for (const u of active.slice(UNITS_FOR[this.stars()])) this.leave(u); const keep = Math.max(0, UNITS_FOR[this.stars()] - Math.min(active.length, UNITS_FOR[this.stars()])); for (const q of this.queue.splice(keep)) this.release(q.src); }
         }
         break; }
       case 'return': if (!this.units.some((u) => !u.patrol)) this.setState('patrol'); if (this.level > 0) { this.setState('detected'); this.detectT = 2; } break;
@@ -170,9 +180,52 @@ export class PoliceResponse {
     const inc = this.incident || this.target();
     const pu = this.units.find((u) => u.patrol); if (pu) { pu.patrol = false; this.note('patrol unit diverted'); this.assign(pu, 'drive', inc); }
     this.topUp(UNITS_FOR[lv], inc);
-    this.g.hud.notify(lv >= 2 ? 'Police responding' : 'Police investigating', lv >= 2 ? 'Units with sirens are on the way to where you were reported.' : 'A patrol car is coming to check the reported location.', 'warn', 3.2);
+    const src = this.queue.length ? this.queue[0].src : null; const from = pu ? 'a patrol car in the area' : src ? (src.edge ? 'a neighbouring division' : src.name) : 'the nearest station';
+    this.g.hud.notify(lv >= 2 ? 'Police responding' : 'Police investigating', lv >= 2 ? `Units dispatched from ${from} — sirens on the way to where you were reported.` : `A car from ${from} is coming to check the reported location.`, 'warn', 3.2);
   }
-  topUp(want, pt) { this.spawnCd -= this.g.dt || 0.05; if (this.spawnCd > 0 || !pt) return; const active = this.units.filter((u) => u.task !== 'leave' && !u.patrol); if (active.length >= want) return; const lv = this.stars(); const ahead = lv >= 3 && this.state === 'pursuing' && active.length % 2 === 1; const u = this.spawnUnit({ jeep: lv >= 3 && active.length % 3 === 1, ahead }) || (ahead ? this.spawnUnit({}) : null); if (u) { this.spawnCd = lv >= 4 ? 0.7 : lv >= 3 ? 1 : 1.5; this.assign(u, 'drive', pt); } else this.spawnCd = 0.5; }
+  // queue the next car (see POLICE_BASES): which base / division sends it, and when it leaves
+  topUp(want, pt) {
+    if (!pt) return; const active = this.units.filter((u) => u.task !== 'leave' && !u.patrol); const n = active.length + this.queue.length; if (n >= want) return;
+    const lv = this.stars(); const ahead = lv >= 3 && this.state === 'pursuing' && n % 2 === 1; const src = this.pickSource(pt, ahead); if (!src) return;
+    const st = this.baseState[src.id] || (this.baseState[src.id] = { out: 0, nextT: -1e9 }); const rr = (r) => r[0] + Math.random() * (r[1] - r[0]);
+    const first = this.t + rr(DISPATCH.scramble) + (src.edge ? DISPATCH.edgeDelay : 0); const t = Math.max(first, st.nextT); st.nextT = t + rr(DISPATCH.gap); st.out++;
+    this.queue.push({ t, src, jeep: lv >= 3 && n % 3 === 1, tries: 0 }); this.note(`car ${n + 1} to leave ${src.name} in ${(t - this.t).toFixed(0)} s`);
+  }
+  edgeSources() { // road ends at the edge of the map (where neighbouring divisions' cars come in), a handful spread around it
+    if (this.edges) return this.edges; const pts = []; let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const sg of this.T.drivableSegs) { if (sg.level >= 3 || sg.crossing) continue; for (const [x, z] of [[sg.x0, sg.z0], [sg.x1, sg.z1]]) { pts.push([x, z]); x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); } }
+    const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2; const best = new Map(); // per 45° sector, the road point farthest out
+    for (const [x, z] of pts) { const k = Math.round(Math.atan2(x - cx, z - cz) / (Math.PI / 4)) & 7; const d = Math.hypot(x - cx, z - cz); if (!best.has(k) || best.get(k).d < d) best.set(k, { x, z, d }); }
+    this.edges = [...best.entries()].map(([k, p]) => ({ id: 'edge' + k, name: 'a neighbouring division', edge: true, x: p.x, z: p.z, cars: 2 })); return this.edges;
+  }
+  pickSource(pt, ahead = false) {
+    const tg = this.target(); const P = this.g.player; const h = tg.v ? tg.v.yaw : P.yaw; let best = null, bc = Infinity;
+    for (const src of POLICE_BASES.concat(this.edgeSources())) {
+      const st = this.baseState[src.id]; const out = st ? st.out : 0; if (out >= src.cars) continue;
+      if (src.edge && Math.hypot(src.x - tg.x, src.z - tg.z) < 200) continue; // a division car "arriving" over the map edge must not start next to the suspect
+      let c = Math.hypot(src.x - pt.x, src.z - pt.z) * (src.edge ? DISPATCH.edgeK : 1) + (src.edge ? DISPATCH.edgeAdd : 0) + out * 40;
+      c += Math.max(0, (st ? st.nextT : 0) - this.t) * 18; // a car that would wait at the gate is worth that much road (≈18 m/s)
+      if (this.state === 'pursuing' && tg.v) { const fwd = ((src.x - tg.x) * Math.sin(h) + (src.z - tg.z) * Math.cos(h)) > 0; c *= ahead ? (fwd ? 0.6 : 1.8) : (fwd ? 0.85 : 1.3); } // interceptors (and, less strongly, every car) from ahead of a fleeing suspect
+      if (c < bc) { bc = c; best = src; }
+    }
+    return best;
+  }
+  dispatchTarget() { return this.state === 'pursuing' ? this.lastSeen : this.state === 'searching' ? this.search : this.incident || this.lastSeen; }
+  updateQueue() {
+    if (!this.queue.length) return; this.queue.sort((a, b) => a.t - b.t);
+    for (const q of this.queue.slice()) { if (q.t > this.t) break; const u = this.launch(q);
+      if (u) { this.queue.splice(this.queue.indexOf(q), 1); const pt = this.dispatchTarget(); if (pt) this.assign(u, 'drive', pt); }
+      else if (++q.tries > 10) { this.queue.splice(this.queue.indexOf(q), 1); this.release(q.src); const f = this.spawnUnit({ jeep: q.jeep }); if (f) { const pt = this.dispatchTarget(); if (pt) this.assign(f, 'drive', pt); } } // gate blocked for long: the old out-of-view fallback, never no response
+      else q.t = this.t + 1.2; }
+  }
+  release(src) { const st = src && this.baseState[src.id]; if (st) st.out = Math.max(0, st.out - 1); }
+  launch(q) { // the car pulls out of the base gate (or in from the edge road) onto the lane toward the suspect
+    const s = q.src, T = this.T, P = this.g.player; const pt = this.dispatchTarget() || this.target(); const ln = T.laneNear(s.x, s.z, Math.atan2(pt.x - s.x, pt.z - s.z), s.edge ? 60 : 80); if (!ln) return null;
+    const [x, z] = evalPiece(ln.piece, ln.s); if (T.all().some((v) => (v.x - x) ** 2 + (v.z - z) ** 2 < 81)) return null; // gate / lane busy: wait
+    const dp = Math.hypot(x - P.x, z - P.z); if (dp < 45 && q.tries < 6 && this.inView({ x, z })) return null; // never pops in right in front of the camera
+    const u = this.makeUnit(x, z, Math.atan2(ln.piece.d[0], ln.piece.d[1]), ln.piece, ln.s, false, q.jeep); if (!u) return null; u.base = s.id; u.from = s.name;
+    this.note(`unit ${u.id} left ${s.name}`); return u;
+  }
   beginSearch(x, z, fromSight = false) {
     const lv = Math.max(1, this.stars()); const r0 = 50 + lv * 18; const P = this.g.player;
     // the search centre is the last known position pushed along the suspect's heading — not the live position
@@ -181,6 +234,7 @@ export class PoliceResponse {
     for (const u of this.units) if (u.task !== 'leave' && !u.patrol) { u.searchFoot = !u.searchedOnce; this.searchNext(u); }
   }
   standDown(msg) {
+    for (const q of this.queue) this.release(q.src); this.queue = [];
     this.level = 0; this.stats.standDowns++; this.search = null; this.incident = null; this.stop = null; this.setState('return'); for (const u of this.units) if (!u.patrol) this.leave(u);
     if (msg) this.g.hud.notify('Police standing down', msg, 'success', 3.5);
   }
@@ -270,7 +324,7 @@ export class PoliceResponse {
     const T = this.T; this.dropStrip(u); for (const o of u.officers) { if (o.mode !== 'seated') { o.ch.root.parent?.remove(o.ch.root); o.ch.dispose(); } }
     if (u.v && !u.v.player) { const i = T.vehicles.indexOf(u.v); if (i >= 0) T.vehicles.splice(i, 1); const pi = T.parked.indexOf(u.v); if (pi >= 0) T.parked.splice(pi, 1); this.syncSeated(u); T.remove(u.v); }
     else if (u.v) { u.v.police = null; }
-    this.units = this.units.filter((q) => q !== u); this.note(`unit ${u.id} removed`);
+    this.units = this.units.filter((q) => q !== u); this.note(`unit ${u.id} removed`); if (u.base) { this.release({ id: u.base }); u.base = null; }
   }
   searchNext(u) {
     const S = this.search; if (!S) return; for (let k = 0; k < 8; k++) { const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * S.r; const x = S.x + Math.cos(a) * r, z = S.z + Math.sin(a) * r; if (L.isWater(x, z)) continue; this.assign(u, 'drive', { x, z }); return; }
@@ -294,7 +348,8 @@ export class PoliceResponse {
       const st = this.state; u.planT -= dt;
       if (st === 'pursuing' && this.stars() >= 3) { // 3★+: no cruising — a unit that is behind drives faster than the suspect to close the gap
         ai.v0 = catchUpSpeed(this.stars(), tg.v ? Math.abs(tg.v.speed) : 0, dToT, CHASE_V0[this.stars()]);
-        if (straggler(v, tg, dToT, this.inView(v))) { this.stats.recycled++; this.note(`unit ${u.id} fell behind, recycled`); this.leave(u); return; } /* topUp sends a fresh car from ahead */
+        u.minD = Math.min(u.minD ?? 1e9, dToT); u.age = (u.age || 0) + dt;
+        if ((u.minD < 250 || u.age > 50) && straggler(v, tg, dToT, this.inView(v))) { /* (a car still on its way in from a base is not a straggler) */ this.stats.recycled++; this.note(`unit ${u.id} fell behind, recycled`); this.leave(u); return; } /* topUp sends a fresh car from ahead */
       }
       if (st === 'pursuing' && u.planT <= 0) { // chase: aim ~2.5 s ahead of a moving suspect (soft goal, no braking); hard stop only once they have stopped
         u.planT = 1.6; const live = this.seenT < 0.25; /* someone has eyes on the suspect right now */ const ls = live ? tg : this.lastSeen; const sp = live && tg.v ? Math.abs(tg.v.speed) : live ? (this.g.player.speed || 0) : 0;
@@ -734,7 +789,7 @@ export class PoliceResponse {
     const [sx, sz] = g.story.safeSpot(st.x, st.z); P.teleport(sx, sz, shot ? Math.PI : 0); P.ch.anim.set(null); P.speed = 0; if (shot && H) { H.hp = 100; H.lastHurt = -99; P.stamina = 1; }
     g.world?.warm?.(sx, sz);
     this.cine.dispose(); this.cine = null;
-    for (const u of this.units.slice()) this.removeUnit(u); this.level = 0; this.stop = null; this.search = null; this.incident = null; this.lastSeen = null; this.setState('patrol'); this.patrolCd = 60;
+    for (const u of this.units.slice()) this.removeUnit(u); this.queue = []; this.baseState = {}; this.level = 0; this.stop = null; this.search = null; this.incident = null; this.lastSeen = null; this.setState('patrol'); this.patrolCd = 60;
     this.lastPenalty = { kind: 'arrest', how: kind, level: lv, fine, paid, hours, confiscated: conf, station: st.name, why, meds };
     P.snapCamera?.(); await this.wait(0.6); await g.hud.fade(0, 0.8); P.control = true; this.busy = false; if (H) H.busy = false; void healthWasBusy;
     g.hud.notify(shot ? `Released — ${HOSPITAL.name}` : `Released — ${st.name}`, `${shot ? 'Shot and arrested by the police; treated under guard and charged' : 'Charged'} with ${why} (${'★'.repeat(lv)}). Fine Rs. ${fine.toLocaleString('en-LK')}${paid < fine ? ` (you had Rs. ${paid.toLocaleString('en-LK')} — the balance was waived)` : ' paid'}. Held ${hours} h${conf ? `; ${conf} rounds of ammunition confiscated` : ''}${shot ? `. Treatment is free; medicines ${meds ? `Rs. ${meds.toLocaleString('en-LK')}` : 'waived'}` : ''}.`, 'info', 10);

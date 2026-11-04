@@ -116,5 +116,41 @@ const PU = await import('../src/police/Pursuit.js');
   { const lf = PU.radioLine('heading', { road: 'Galle Road', dir: 0, vtype: 'foot' }); ok(/suspect on foot, heading/.test(lf.en) && !/vehicle/.test(lf.en), `radio (on foot): "${lf.en}"`); }
   const l2 = PU.radioLine('heading', { road: 'Galle Road', dir: PU.compass(Math.PI / 2), alt: true }); ok(l2.si.includes('නැගෙනහිර') && /east/.test(l2.tr), 'radio: Sinhala line with translation');
 }
+// ---- 6. dispatch from HQ / stations (no units conjured next to the player): the real queue / source / launch logic,
+// unit creation recorded. A 3★ response builds up car by car with a crew scramble delay and gaps between departures.
+{
+  const mkGame = (px, pz, look = [0, 0, 1]) => ({ ...fakeGame, player: { x: px, z: pz, y: 0, yaw: 0 }, indoor: false, collision: { raycast: () => 1 }, atmos: { night: 0, w: { rain: 0 } },
+    camera: { position: new THREE.Vector3(px, 2, pz - 4), getWorldDirection: (v) => v.set(...look) }, hud: { notify() {}, subtitle() {} }, story: { state: { money: 0 }, pay() {} } });
+  const runAt = (px, pz, secs, look) => {
+    const g = mkGame(px, pz, look); T.vehicles = []; T.parked = []; const p = new PR.PoliceResponse(g); const launches = [];
+    p.makeUnit = function (x, z, yaw, piece, s, patrol, jeep) { const u = { id: this.seed++, v: { x, z, y: 0, yaw, police: true, ai: {}, beacons() {}, dispose() {} }, officers: [], task: 'idle', patrol, arrived: false }; this.units.push(u); launches.push({ t: this.t, x, z, u }); return u; };
+    p.assign = (u, task, pt) => { u.task = task; u.goalPt = pt; }; p.spawnUnit = () => null; // (fallback disabled: every car must come out of a base / division)
+    p.incident = { x: px, z: pz, t: 0 }; p.level = 3; p.setState('detected'); p.detectT = 0.5;
+    for (let t = 0; t < secs; t += 0.05) { p.t += 0.05; p.stateT += 0.05; p.updateGlobal(0.05); }
+    for (const L0 of launches) L0.src = p.units.find((u) => u === L0.u)?.base; return { p, launches };
+  };
+  const hq = PR.POLICE_BASES.find((b) => b.id === 'hq'), kol = PR.POLICE_BASES.find((b) => b.id === 'kollupitiya');
+  // (a) near Police HQ (but out of its gate's way): cars come out of HQ, one at a time
+  { const { p, launches } = runAt(hq.x + 120, hq.z + 60, 60); const first = launches[0]; if (process.env.DBG) console.log(p.log.join("\n"));
+    ok(launches.length >= 3 && launches.length <= 5, `3★ near HQ: ${launches.length} cars left within 60 s (built up, not all at once)`);
+    const fh = launches.find((l) => l.u.base === 'hq'); ok(p.log.find((l) => /car 1 to leave/.test(l))?.includes('Police Headquarters'), 'the first car is sent from Police HQ (nearest base)'); ok(first && first.t >= 3.5 + 0.5, `no car leaves before the crew scrambles (first after ${first ? first.t.toFixed(1) : '-'} s)`);
+    ok(fh && Math.hypot(fh.x - hq.x, fh.z - hq.z) < 85, `HQ cars pull out at the HQ gate (${fh ? Math.hypot(fh.x - hq.x, fh.z - hq.z).toFixed(0) : '-'} m from it)`); ok(new Set(launches.map((l) => l.u.base)).size >= 2, `a big response draws on more than one base (${[...new Set(launches.map((l) => l.u.from))].join(', ')})`);
+    const byBase = {}; for (const l of launches) (byBase[l.u.base] = byBase[l.u.base] || []).push(l.t); let minGap = 99; for (const ts of Object.values(byBase)) for (let i = 1; i < ts.length; i++) minGap = Math.min(minGap, ts[i] - ts[i - 1]);
+    ok(minGap >= PR.DISPATCH.gap[0] - 0.1, `cars from the same base leave ≥ ${PR.DISPATCH.gap[0]} s apart (closest ${minGap === 99 ? '-' : minGap.toFixed(1)} s)`);
+    ok((byBase.hq || []).length <= hq.cars, `never more cars out of HQ than it has (${(byBase.hq || []).length}/${hq.cars})`);
+    const t5 = launches.filter((l) => l.t < 12).length; ok(t5 <= 2, `no burst: ${t5} car(s) out in the first 12 s`);
+    p.leave = () => {}; p.standDown(); for (const u of p.units.slice()) p.removeUnit(u); ok(!p.queue.length && Object.values(p.baseState).every((s) => s.out === 0), 'stand-down clears the queue and every base gets its cars back'); }
+  // (b) near Kollupitiya station: the first car comes from there
+  { const { p } = runAt(kol.x + 90, kol.z - 110, 20); ok(p.log.find((l) => /car 1 to leave/.test(l))?.includes('Kollupitiya'), `3★ near Kollupitiya: first car sent from there`); }
+  // (c) far from both bases: units also come in from the edge roads (neighbouring divisions), far from the player
+  { const far = nodes.reduce((b, n) => (Math.min(Math.hypot(n.x - hq.x, n.z - hq.z), Math.hypot(n.x - kol.x, n.z - kol.z)) > Math.min(Math.hypot(b.x - hq.x, b.z - hq.z), Math.hypot(b.x - kol.x, b.z - kol.z)) ? n : b), nodes[0]);
+    const { launches } = runAt(far.x, far.z, 60); const minD = Math.min(...launches.map((l) => Math.hypot(l.x - far.x, l.z - far.z)));
+    ok(launches.length >= 2, `3★ far from both bases (${far.x.toFixed(0)}, ${far.z.toFixed(0)}): ${launches.length} cars dispatched (${[...new Set(launches.map((l) => l.u.from))].join(', ')})`);
+    ok(minD > 100, `no car starts next to the player (closest start ${minD.toFixed(0)} m)`); }
+  // (d) standing right at the HQ gate looking at it: no car pops into view within 45 m before the retry limit
+  { const ln = T.laneNear(hq.x, hq.z, 0, 80); const [gx, gz] = [ln.piece.p0[0] + ln.piece.d[0] * ln.s, ln.piece.p0[1] + ln.piece.d[1] * ln.s];
+    const { launches } = runAt(gx + 6, gz - 30, 9, [0, 0, 1]); const early = launches.filter((l) => l.t < 8 && Math.hypot(l.x - gx - 6, l.z - gz + 30) < 45);
+    ok(early.length === 0, `watching the HQ gate from close by: no car pops in in front of the camera (${early.length})`); }
+}
 console.log(`metrics: ${routes} routes (worst ${worst.toFixed(2)}× optimal), ${arrived}/${trips} unit trips arrived (max stop error ${maxErr.toFixed(1)} m)`);
 console.log(`police: ${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);
