@@ -7,8 +7,9 @@ import { Settings } from '../core/Settings.js';
 import { clamp, lerp, damp, dampAngle, wrapAngle } from '../core/math.js';
 import * as L from '../world/Layout.js';
 import { kickUp, kickDown, isTwoWheel, KICK_UP, KICK_DOWN } from '../vehicles/Kickstand.js';
-import { doorPath, seatPath } from './Seating.js';
-const _feet = new THREE.Vector3();
+import { doorPath, seatPath, seatCharacter } from './Seating.js';
+import { BOARD_T, EXIT_K, boardKind, boardGeom, boardCurve, poseBoard } from './Boarding.js';
+const _feet = new THREE.Vector3(); const _bgP = new THREE.Vector3(), _bgInv = new THREE.Matrix4();
 
 export class Player {
   constructor(scene, camera, collision, events) {
@@ -108,7 +109,7 @@ export class Player {
   // cancels; nothing here can leave the player without control (timeouts fall back to finishing the step).
   enterVehicle(v, traffic) {
     if (this.entry) return; if (this.settling && this.settling.v === v) this.settling = null; const ud = v.mesh.userData; const e = ud.entry || { x: -(v.T.wid / 2 + 0.55), z: 0, side: -1 };
-    v.hold = true; this.entry = { v, traffic, stage: 'approach', t: 0, total: 0, e, door: ud.door, kind: v.T.entry || 'car', driver: v.driverChar || null };
+    v.hold = true; this.entry = { v, traffic, stage: 'approach', t: 0, total: 0, e, door: ud.door, kind: v.T.entry || 'car', bk: boardKind(v), driver: v.driverChar || null };
     this.control = false; this.speed = 0;
   }
   // driver door as a damped spring (normalised angle 0..1): opens off the latch, bounces lightly on the check strap,
@@ -131,6 +132,18 @@ export class Player {
     if (need > 0.002) { r.position.y += need; r.updateMatrixWorld(true); }
   }
   local(v, x, y, z) { v.mesh.updateMatrixWorld(); return new THREE.Vector3(x, y, z).applyMatrix4(v.mesh.matrixWorld); }
+  // Step-in boarding (Boarding.js): geometry for this person + vehicle (the door's live rear-top corner is the outer hand's
+  // grip) and the road height in vehicle space (the body rocks on its springs; a bike leans on its side stand).
+  boardG(v, seat, A, side) {
+    const d = v.mesh.userData.door; const door = d && d.len ? { x: d.pivot.position.x, z: d.pivot.position.z, len: d.len, max: d.max } : null;
+    const G = boardGeom(v, seat, A, boardKind(v) === 'bike' ? 1 : side, door);
+    if (door) G.doorGrip = () => { const th = d.max * (d.ang || 0); return [door.x + side * door.len * Math.sin(th) * 0.88, 1.05, door.z - door.len * Math.cos(th) * 0.88]; };
+    return G;
+  }
+  boardGround(v) {
+    v.mesh.updateMatrixWorld(); const m = v.mesh.matrixWorld; _bgInv.copy(m).invert(); const y0 = v.y ?? v.mesh.position.y;
+    return (lx, lz) => { _bgP.set(lx, 0, lz).applyMatrix4(m); _bgP.y = this.collision.groundAt(_bgP.x, _bgP.z, y0 + 0.6, 1.2); return _bgP.applyMatrix4(_bgInv).y; };
+  }
   updateEntry(dt) {
     const E = this.entry; const v = E.v; const A = this.ch.anim; E.t += dt; E.total += dt; const e = E.e; const seat = v.driverSeat();
     const faceYawL = -e.side * Math.PI / 2; const doorAng = (k) => { if (E.door) { E.door.ang = k; E.door.vel = 0; E.door.pivot.rotation.y = E.door.max * k * (e.side < 0 ? 1 : -1); } };
@@ -153,18 +166,21 @@ export class Player {
         if (Math.abs(wrapAngle(this.yaw - want)) < 0.05 || E.t > 0.5) { next(E.door ? 'open' : E.kind === 'bus' ? 'board' : 'step'); A.set('interact'); E.hadDriver = E.traffic.takeOver(v, true); v.speed = 0; } break; }
       case 'open': { // pull the handle: the door pops off the latch, then swings out onto its check strap
         if (E.t === dt) { doorAng(0); this.events.emit('doorOpen', { v }); } if (E.t < 0.14) door(0.07, 14, 1); else door(1, 8.5, 0.62); A.update(dt, 0, 0); this.sync();
-        if ((E.t > 0.45 && E.door.ang > 0.9) || E.t > 1.1) next(E.driver ? (Math.random() < 0.25 ? 'resist' : 'pull') : 'sit'); break; }
+        if ((E.t > 0.45 && E.door.ang > 0.9) || E.t > 1.1) next(E.driver ? (Math.random() < 0.25 ? 'resist' : 'pull') : E.bk ? 'toSill' : 'sit'); break; }
       case 'resist': { // driver grabs the door / pushes back briefly before giving in
         A.set('shove'); if (E.driver) { E.driver.anim.set('argue'); E.driver.face.set('angry', 2); E.driver.anim.update(dt, 0); } door(0.7 + Math.sin(E.t * 5.2) * 0.13 + Math.sin(E.t * 11.3) * 0.04, 13, 0.55); A.update(dt, 0, 0); this.sync(); /* tug of war on the door: smooth pulls, not a jitter */
         if (E.t === dt) this.events.emit('npcLineRaw', { who: 'Driver', text: 'Ado! Let go! This is my vehicle!' }); if (E.t > 1.3) next('pull'); break; }
       case 'pull': { // driver is pulled out of the seat and steps away (no teleport swap)
         const d = E.driver; const k = Math.min(1, E.t / 0.9); A.set('shove'); if (d && E.t === dt) { E.handledLine = true; this.events.emit('npcLineRaw', { who: 'Driver', text: "Ado! What are you doing? That's my vehicle!" }); if (d.face) d.face.set('fear', 2); }
+        if (d && E.bk) { // no door to stand behind (tuk-tuk, bike): step forward and out of the rider's way while he climbs off backwards
+          let mv = 0; { const sx = E.bk === 'bike' ? 1 : e.side; const q = E.door ? this.local(v, e.x + sx * 0.15, 0, e.z) : this.local(v, e.x + sx * 0.3, 0, e.z + 0.75); /* door: half a step out, clear of his way out */ const dx = q.x - this.x, dz = q.z - this.z, dd = Math.hypot(dx, dz); if (dd > 0.03) { const st = Math.min(dd, 1.3 * dt); this.x += dx / dd * st; this.z += dz / dd * st; mv = 1.3; } this.y = this.collision.groundAt(this.x, this.z, this.y, 0.5); }
+          if (E.door) door(1, 8.5, 0.62); /* yanked wide open */ this.pullOut(E, v, seat, d, dt); A.update(dt, mv, 0); this.sync(); if (!E.driver) next('toSill'); break; }
         if (d) { if (!E.pullTo) { const own = seat.exit && Math.sign(seat.exit[0]) !== Math.sign(e.x); E.pullTo = own ? [seat.exit[0] + Math.sign(seat.exit[0]) * 0.3, seat.exit[1]] : [e.x + e.side * 0.6, e.z - 0.5]; } /* lorry / bus: the driver leaves by his own door, not through the cab */ const dp = doorPath(seat, E.pullTo, k, v.T.wid / 2); d.root.position.set(dp.x, dp.y, dp.z); d.root.rotation.y = lerp(0, Math.atan2(E.pullTo[0] - seat.x, E.pullTo[1] - seat.z), Math.min(1, dp.a + dp.b)); d.anim.sitIn(seat, Math.max(0.001, dp.sitW)); d.anim.duck = (seat.roof ?? 9) < 2.4 ? Math.min(1, (1 - dp.b) * 1.6) * Math.min(1, dp.a * 2.5) : 0; d.anim.set(k > 0.25 && k < 0.7 ? 'stumble' : null); d.anim.update(dt, k > 0.5 ? 1.2 : 0, 0); if (k >= 1) d.anim.standUp(); }
         A.update(dt, 0, 0); this.sync();
-        if (k >= 1) { if (d) { v.mesh.remove(d.root); const wp = this.local(v, E.pullTo[0], 0, E.pullTo[1]); d.anim.duck = 0; v.driverChar = null; if (this.crowd) this.crowd.adopt(d, wp.x, wp.z, v.yaw + faceYawL + Math.PI, Math.random() < 0.4 ? 'confront' : 'flee', { x: this.x, z: this.z }); else d.dispose(); E.driver = null; } next('sit'); }
+        if (k >= 1) { if (d) { v.mesh.remove(d.root); const wp = this.local(v, E.pullTo[0], 0, E.pullTo[1]); d.anim.duck = 0; v.driverChar = null; if (this.crowd) this.crowd.adopt(d, wp.x, wp.z, v.yaw + faceYawL + Math.PI, Math.random() < 0.4 ? 'confront' : 'flee', { x: this.x, z: this.z }); else d.dispose(); E.driver = null; } next(E.bk ? 'toSill' : 'sit'); }
         break; }
       case 'board': { const k = Math.min(1, E.t / 0.6); const p = this.local(v, e.x - e.side * 0.9, 0.35 * k, e.z); this.x = lerp(this.x, p.x, k); this.z = lerp(this.z, p.z, k); A.update(dt, 1, 0); this.sync(); if (k >= 1) { if (E.driver) next('pull'); else next('sit'); } break; }
-      case 'step': if (E.driver) { E.hadDriver = true; next('pull'); break; } next('sit'); break;
+      case 'step': if (E.driver) { E.hadDriver = true; next('pull'); break; } next(E.bk ? 'toSill' : 'sit'); break;
       case 'sit': { // move from the doorway into the seat, turn to face forward, settle into the driving pose
         if (E.door) door(1, 8.5, 0.62); v.load = Math.min(1, E.t / 0.5); // weight comes onto the seat: the driver's side settles
         if (E.t === dt || !E.parented) { this.scene.remove(this.ch.root); v.mesh.add(this.ch.root); E.parented = true; E.from = this.ch.root.position.clone(); const inv = new THREE.Matrix4().copy(v.mesh.matrixWorld).invert(); E.from = new THREE.Vector3(this.x, this.y, this.z).applyMatrix4(inv); A.set(null); A.sitIn(seat, 0); }
@@ -172,6 +188,21 @@ export class Player {
         const dp = seatPath(seat, [E.from.x, E.from.z], s, v.T.wid / 2); this.ch.root.position.set(dp.x, Math.max(dp.y, lerp(E.from.y, 0, s)), dp.z); // step to the opening, lower in over the sill (never seated outside), then across the cushion
         this.ch.root.rotation.set(0, lerp(faceYawL, 0, dp.turn), 0); A.sitIn(seat, Math.max(dp.sitW, 0.001)); A.duck = (seat.roof ?? 9) < 2.4 && !seat.ride ? dp.duck : 0; A.update(dt, 0, 0); this.keepFeetAbove(v, seat); if (k >= 1) A.duck = 0;
         if (k >= 1) next(E.door ? 'close' : E.kind === 'bike' && ((v.stand || 0) > 0.01 || (v.leanK || 0) > 0.01) ? 'kick' : 'done'); break; }
+      case 'toSill': { // step from the door to the standing spot beside the opening and turn to face forward (Boarding.js H0)
+        if (E.door) door(1, 8.5, 0.62); if (A.action) A.set(null);
+        if (!E.G) E.G = this.boardG(v, seat, A, e.side); const h = boardCurve(E.G, 0).hip; const p = this.local(v, h[0], this.boardGround(v)(h[0], h[2]), h[2]); // (on the road: a bike leans on its stand, so local y 0 is not the ground)
+        const dx = p.x - this.x, dz = p.z - this.z, dd = Math.hypot(dx, dz); if (dd > 0.01) { const st = Math.min(dd, 1.1 * dt); this.x += dx / dd * st; this.z += dz / dd * st; }
+        this.yaw = dampAngle(this.yaw, v.yaw, 7, dt); this.y = this.collision.groundAt(this.x, this.z, this.y, 0.5); A.update(dt, dd > 0.06 ? 1.0 : 0, 0); this.sync();
+        if ((dd < 0.03 && Math.abs(wrapAngle(this.yaw - v.yaw)) < 0.06) || E.t > 1.6) { this.x = p.x; this.z = p.z; this.yaw = v.yaw; this.sync(); next('stepIn'); }
+        break; }
+      case 'stepIn': { // step in like a person: inner foot over the sill, duck and lower onto the cushion, outer leg in, hands to the wheel
+        if (E.door) door(1, 8.5, 0.62);
+        if (!E.parented) { this.scene.remove(this.ch.root); v.mesh.add(this.ch.root); E.parented = true; A.set(null); A.standUp(); A.duck = 0; }
+        const u = Math.min(1, Math.max(0, E.t - 0.12) / BOARD_T[E.bk]); v.load = Math.min(1, Math.max(0, (u - 0.35) / 0.4)); // the weight comes onto the seat as the hips do
+        poseBoard(A, E.G, boardCurve(E.G, u), v.mesh, this.boardGround(v), 0, Math.min(1, E.t / 0.25)); A.update(dt, 0, 0); // eased in from the stride the walk to the sill ended on
+        if (u >= 1) { A.board = null; this.ch.root.position.set(seat.x, seat.y, seat.z); this.ch.root.rotation.set(0, 0, 0); A.sitIn(seat, 1); A.update(0.0001, 0, 0);
+          next(E.door ? 'close' : E.bk === 'bike' && ((v.stand || 0) > 0.01 || (v.leanK || 0) > 0.01) ? 'kick' : 'done'); }
+        break; }
       case 'kick': { const k = Math.min(1, E.t / KICK_UP); kickUp(v, this.ch, seat, k); A.sitIn(seat, 1); A.update(dt, 0, 0); if (k >= 1) next('done'); break; } // pull the bike upright, boot the side stand up
       case 'close': { const ev = door(-0.35, 6.5, 0.9); A.update(dt, 0, 0); if (ev === 'latched' || E.t > 1.2) next('done'); break; } // pulled shut from inside: it swings in and slams on the latch
       case 'done': {
@@ -179,6 +210,33 @@ export class Player {
         this.ch.anim.set(null); this.ch.anim.sitIn(seat, 1); this.ch.mesh.castShadow = true; v.lights = this.nightLights;
         this.camYaw = v.yaw + Math.PI; this.events.emit('enterVehicle', { v, hadDriver: E.hadDriver && !E.handledLine }); break; }
     }
+  }
+  // The driver of a step-in vehicle is pulled out: he climbs out with the reversed boarding motion (hurried), stands up
+  // beside the opening, then hurries off back along the body (between the car and the player, never through either)
+  // before the crowd takes him over (flee / confront). Clears E.driver when he is gone.
+  pullOut(E, v, seat, d, dt) {
+    const s = E.bk === 'bike' ? 1 : E.e.side;
+    if (!E.npcG) { d.anim.set(null); d.anim.standUp(); d.anim.duck = 0; E.npcG = this.boardG(v, seat, d.anim, s); E.npcT = BOARD_T[E.bk] * (E.bk === 'bike' ? 1 : 0.8); E.npcK = 0; }
+    if (E.npcK < 1) { E.npcK = Math.min(1, E.npcK + dt / E.npcT); poseBoard(d.anim, E.npcG, boardCurve(E.npcG, 1 - E.npcK), v.mesh, this.boardGround(v), 0, Math.min(1, (1 - E.npcK) * E.npcT / 0.25)); d.anim.update(dt, 0, 0);
+      if (E.npcK >= 1) { // standing beside the opening: into the world exactly where he stands (upright), then hurry off
+        d.anim.board = null; d.anim.set(null); const wp = d.root.getWorldPosition(new THREE.Vector3()); const yw = new THREE.Euler().setFromQuaternion(d.root.getWorldQuaternion(new THREE.Quaternion()), 'YXZ').y;
+        v.mesh.remove(d.root); this.scene.add(d.root); d.root.position.copy(wp); d.root.rotation.set(0, yw, 0); v.driverChar = null;
+        const tl = E.bk === 'bike' ? [0.3, seat.z - 1.35] : [s * (E.npcG.hw + 0.26), E.npcG.z0 - 1.05]; const tw = this.local(v, tl[0], 0, tl[1]);
+        E.npcFrom = [wp.x, wp.z, yw]; E.npcTo = [tw.x, tw.z]; E.npcW = 0; E.npcDur = Math.max(0.7, Math.hypot(tw.x - wp.x, tw.z - wp.z) / 1.6); } return; }
+    E.npcW = Math.min(1, E.npcW + dt / E.npcDur); const k = E.npcW * E.npcW * (3 - 2 * E.npcW); const vs = 6 * E.npcW * (1 - E.npcW) * Math.hypot(E.npcTo[0] - E.npcFrom[0], E.npcTo[1] - E.npcFrom[1]) / E.npcDur; const f = E.npcFrom, t = E.npcTo; const x = lerp(f[0], t[0], k), z = lerp(f[1], t[1], k); const yaw = Math.atan2(t[0] - f[0], t[1] - f[1]);
+    d.root.position.set(x, this.collision.groundAt(x, z, d.root.position.y + 0.5, 0.6), z); d.root.rotation.set(0, f[2] + wrapAngle(yaw - f[2]) * Math.min(1, E.npcW * 2.5), 0); d.anim.update(dt, vs, 0);
+    if (E.npcW >= 1) { this.scene.remove(d.root); if (this.crowd) this.crowd.adopt(d, x, z, yaw, Math.random() < 0.4 ? 'confront' : 'flee', { x: this.x, z: this.z }); else d.dispose(); E.driver = null; }
+  }
+  // Death / arrest mid-entry: back into the world, standing, exactly where the body is (never left parented to the vehicle
+  // or frozen in the boarding pose); a half-pulled driver goes back to his seat, or (already out) to the crowd.
+  abortVehicleTransition() {
+    const E = this.entry; if (!E) return; const r = this.ch.root, A = this.ch.anim;
+    if (r.parent && r.parent !== this.scene) { const p = r.getWorldPosition(new THREE.Vector3()); r.parent.remove(r); this.scene.add(r); this.x = p.x; this.z = p.z; }
+    A.board = null; A.standUp(); A.duck = 0; A.set(null); r.rotation.set(0, 0, 0);
+    const d = E.driver; if (d) { d.anim.board = null;
+      if (E.npcFrom) { this.scene.remove(d.root); if (this.crowd) this.crowd.adopt(d, d.root.position.x, d.root.position.z, d.root.rotation.y, 'flee', { x: this.x, z: this.z }); else d.dispose(); }
+      else if (E.npcG) seatCharacter(d, E.v, E.v.driverSeat()); }
+    if (E.door) { E.door.vel = 0; } E.v.hold = false; this.entry = null; this.control = true; this.sync();
   }
   // free exit spot: driver door side, then the other side, then anywhere around the vehicle
   exitSpot(v) {
@@ -191,15 +249,16 @@ export class Player {
   exitVehicle(traffic) {
     const v = this.vehicle; if (!v || Math.abs(v.speed) > 3 || this.exiting) return false;
     const spot = this.exitSpot(v); const ud = v.mesh.userData; const sameSide = Math.sign(spot.lx) === Math.sign((ud.entry || { x: -1 }).x);
-    this.exiting = { v, traffic, spot, t: 0, stage: isTwoWheel(v) && !((v.stand || 0) > 0.99 && (v.leanK || 0) > 0.99) ? 'kick' : ud.door && sameSide ? 'open' : 'out', door: sameSide ? ud.door : null, side: Math.sign(spot.lx) || -1 };
+    const board = !!boardKind(v) && sameSide && !spot.forced; // step-out (reversed boarding) on the entry side; otherwise slide across / out
+    this.exiting = { v, traffic, spot, t: 0, board, stage: isTwoWheel(v) && !((v.stand || 0) > 0.99 && (v.leanK || 0) > 0.99) ? 'kick' : ud.door && sameSide ? 'open' : board ? 'unboard' : 'out', door: sameSide ? ud.door : null, side: Math.sign(spot.lx) || -1 };
     this.control = false; v.speed = 0; v.brake = true; return true;
   }
   updateExit(dt) {
     const X = this.exiting; const v = X.v; X.t += dt; const A = this.ch.anim; const seat = v.driverSeat(); const side = X.side;
     const doorAng = (k) => { if (X.door) { X.door.ang = k; X.door.vel = 0; X.door.pivot.rotation.y = X.door.max * k * (side < 0 ? 1 : -1); } };
     const door = (target, w, z) => this.driveDoor(v, X.door, side, target, dt, w, z); if (X.stage !== 'end') v.sync(dt); // the vehicle is not stepped while getting out
-    if (X.stage === 'kick') { const k = Math.min(1, X.t / KICK_DOWN); v.speed = 0; kickDown(v, this.ch, seat, k); A.update(dt, 0, 0); if (k >= 1) { X.stage = 'out'; X.t = 0; } return; } // boot the side stand down, lean the bike onto it
-    if (X.stage === 'open') { if (X.t === dt) { doorAng(0); this.events.emit('doorOpen', { v }); } if (X.t < 0.12) door(0.07, 14, 1); else door(1, 9, 0.62); A.update(dt, 0, 0); if ((X.t > 0.4 && X.door.ang > 0.88) || X.t > 1) { X.stage = 'out'; X.t = 0; } return; }
+    if (X.stage === 'kick') { const k = Math.min(1, X.t / KICK_DOWN); v.speed = 0; kickDown(v, this.ch, seat, k); A.update(dt, 0, 0); if (k >= 1) { X.stage = X.board ? 'unboard' : 'out'; X.t = 0; } return; } // boot the side stand down, lean the bike onto it
+    if (X.stage === 'open') { if (X.t === dt) { doorAng(0); this.events.emit('doorOpen', { v }); } if (X.t < 0.12) door(0.07, 14, 1); else door(1, 9, 0.62); A.update(dt, 0, 0); if ((X.t > 0.4 && X.door.ang > 0.88) || X.t > 1) { X.stage = X.board ? 'unboard' : 'out'; X.t = 0; } return; }
     if (X.stage === 'out') { // swing out of the seat to the spot beside the vehicle
       const k = Math.min(1, X.t / 0.95); const dp = seatPath(seat, [X.spot.lx, X.spot.lz], 1 - k, v.T.wid / 2); A.sitIn(seat, Math.max(dp.sitW, 0.001)); if (A.action) A.set(null); if (X.door) door(1, 9, 0.62); v.load = Math.max(0, 1 - k * 1.6); // weight off the seat: the body rises back
       this.ch.root.position.set(dp.x, dp.y, dp.z); this.ch.root.rotation.set(0, lerp(0, -side * Math.PI / 2 + Math.PI, 1 - dp.turn), 0); A.duck = (seat.roof ?? 9) < 2.4 && !seat.ride ? dp.duck : 0; /* turns to face out while sliding to the sill, then stands as the hips leave the opening */ A.update(dt, k > 0.55 ? 0.8 : 0, 0); this.keepFeetAbove(v, seat); if (k >= 1) A.duck = 0;
@@ -208,6 +267,22 @@ export class Player {
         this.x = X.spot.x; this.z = X.spot.z; this.y = this.collision.groundAt(this.x, this.z, v.y + 0.5, 1); this.yaw = v.yaw - side * Math.PI / 2 + Math.PI; this.sync(); A.set(null); A.standUp();
         X.stage = X.door ? 'close' : 'end'; X.t = 0; }
       return; }
+    if (X.stage === 'unboard') { // the boarding motion in reverse: outer leg out, hands off the wheel, rise out under the roof, inner foot down
+      if (X.door) door(1, 9, 0.62); if (!X.G) { X.G = this.boardG(v, seat, A, side); A.set(null); A.standUp(); A.duck = 0; }
+      const bkx = boardKind(v); const TX = BOARD_T[bkx] * (bkx === 'bike' ? 1 : EXIT_K); /* the leg swing back over a saddle is not hurried */ const u = 1 - Math.min(1, X.t / TX); v.load = Math.min(1, Math.max(0, (u - 0.35) / 0.4));
+      const tl = TX + 0.12 - X.t; poseBoard(A, X.G, boardCurve(X.G, u), v.mesh, this.boardGround(v), 0, Math.min(1, Math.max(0, tl) / 0.25)); A.update(dt, 0, 0); // eased out into the standing idle
+      if (tl <= 0) { // standing beside the opening: re-parent to the world at the same place, facing forward
+        A.board = null; const p = this.ch.root.getWorldPosition(new THREE.Vector3()); X.yawW = new THREE.Euler().setFromQuaternion(this.ch.root.getWorldQuaternion(new THREE.Quaternion()), 'YXZ').y; v.mesh.remove(this.ch.root); this.scene.add(this.ch.root); // exactly where the root stood (a leaning bike's local frame is tilted)
+        v.player = false; v.speed = 0; v.brake = false; X.traffic.release(v); this.vehicle = null;
+        this.x = p.x; this.z = p.z; this.y = this.collision.groundAt(this.x, this.z, v.y + 0.5, 1); this.yaw = X.yawW; this.ch.root.rotation.set(0, 0, 0); this.sync(); A.set(null); A.standUp(); A.update(0.0001, 0, 0);
+        X.stage = 'stepAway'; X.t = 0; }
+      return; }
+    if (X.stage === 'stepAway') { // step clear of the door's swing before it is pushed shut (closing it on yourself sweeps through the body)
+      if (X.door) door(1, 9, 0.62); const dx = X.spot.x - this.x, dz = X.spot.z - this.z, dd = Math.hypot(dx, dz);
+      if (dd > 0.02) { const st = Math.min(dd, 1.2 * dt); const r = this.collision.resolveCircle(this.x + dx / dd * st, this.z + dz / dd * st, 0.3, this.y, 0.45, 1.75); this.x = r.x; this.z = r.z; }
+      const face = X.door ? v.yaw - side * Math.PI / 2 : Math.atan2(dx, dz); if (dd > 0.02 || X.door) this.yaw = dampAngle(this.yaw, dd > 0.25 && !X.door ? Math.atan2(dx, dz) : face, 8, dt);
+      this.y = this.collision.groundAt(this.x, this.z, this.y, 0.5); A.update(dt, dd > 0.08 ? 1.1 : 0, 0); this.sync();
+      if (dd < 0.08 || X.t > 1.8) { X.stage = X.door ? 'close' : 'end'; X.t = 0; } return; }
     if (X.stage === 'close') { const ev = door(-0.4, 7.5, 0.85); A.update(dt, 0, 0); this.sync(); if (ev === 'latched' || X.t > 1.2) { X.stage = 'end'; } return; } // pushed shut from outside: slams
     doorAng(0); this.settling = { v, t: 0 }; this.exiting = null; this.control = true; this.events.emit('exitVehicle', v);
   }

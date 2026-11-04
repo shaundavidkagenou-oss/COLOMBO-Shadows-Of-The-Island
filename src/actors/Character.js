@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { applyFight, fightState, MOVES as FIGHT_MOVES } from './Boxing.js';
 import { LIVE } from './Bodies.js';
 import { applySeatPose, seatLocal } from './Seating.js';
+import { applyBoardPose } from './Boarding.js';
 import { TEX, faceAtlas, FACE_FRAMES } from '../gfx/Textures.js';
 import { RNG } from '../core/rng.js';
 import { makeAppearance, FACE_VARIANTS } from './Appearance.js';
@@ -977,11 +978,11 @@ export class Animator {
     this.lean = 0; this.air = 0; this.look = 0; this.crouch = 0; this.drive = 0; this.steer = 0; this.seed = Math.random(); this.locoW = 0; this.hipYs = ch.hipY;
     this.shift = 0; this.shiftTarget = Math.random() < 0.5 ? -1 : 1; this.shiftT = 2 + Math.random() * 6; this.idleLook = 0; this.idleLookT = Math.random() * 4; this.idleLookTarget = 0;
     this.stepped = false; this.stepFoot = 0; this.runW = 0; this.fadeAct = null; this.fadeW = 0; this.fadeT = 0; this.actionDur = 0;
-    this.seated = null; this.seatL = null; this.seatW = 0; this.seatMode = null; this.seatLook = 0; this.seatLookT = 0; this.vehSpeed = 0; this.brakeLean = 0; this.cornerLean = 0;
+    this.board = null; this.seated = null; this.seatL = null; this.seatW = 0; this.seatMode = null; this.seatLook = 0; this.seatLookT = 0; this.vehSpeed = 0; this.brakeLean = 0; this.cornerLean = 0;
   }
   // Vehicle seat (see Seating.js). w: blend 0 (standing pose) … 1 (fully seated); entry/exit animations ramp it.
-  sitIn(seat, w = 1, mode = null) { if (seat !== this.seated) { this.seated = seat; this.seatL = seatLocal(seat); this.seatLookT = 0; } this.seatW = w; this.seatMode = mode; }
-  standUp() { this.seated = null; this.seatL = null; this.seatW = 0; this.seatMode = null; }
+  sitIn(seat, w = 1, mode = null) { this.board = null; if (seat !== this.seated) { this.seated = seat; this.seatL = seatLocal(seat); this.seatLookT = 0; } this.seatW = w; this.seatMode = mode; }
+  standUp() { this.board = null; this.seated = null; this.seatL = null; this.seatW = 0; this.seatMode = null; }
   // switching actions cross-fades: the outgoing pose keeps blending out (fadeAct / fadeW) while the new one blends in,
   // so gestures always ease back to the neutral stance instead of snapping.
   set(action) { if (action !== this.action) { if (this.action && this.action !== 'crouch' && this.actionW > 0.05) { this.fadeAct = this.action; this.fadeW = this.actionW; this.fadeT = this.actionT || 0; } this.prevAction = this.action; this.action = action; this.actionW = 0; this.actionT = 0; this.actionDur = 0; } }
@@ -1222,14 +1223,14 @@ export class Animator {
       b.chest.rotation.set(lerp(b.chest.rotation.x, -m.pitch * 0.55, k), lerp(b.chest.rotation.y, -(m.twist || 0), k), lerp(b.chest.rotation.z, 0, k));
       b.neck.rotation.x = lerp(b.neck.rotation.x, m.pitch * 0.35, k); b.neck.rotation.y = lerp(b.neck.rotation.y, (m.twist || 0) * 0.6, k); b.head.rotation.y = lerp(b.head.rotation.y, (m.twist || 0) * 0.4, k); b.head.rotation.x = lerp(b.head.rotation.x, (m.headDown || 0), k);
     }
-    const seated = this.seated && this.seatW > 0;
+    const seated = (this.seated && this.seatW > 0) || !!this.board; // boarding (getting in / out, Boarding.js) counts as seated: no gestures, fight or body poses layered on it
     if (!seated && !this.ik) for (const [S, x, y, z, w, pole] of actIK) solveArmIK(b, S, _ikv.set(x, y, z), null, w, pole);
     if (this.ik && !seated) { if (this.ik.R) solveArmIK(b, 'R', this.ik.R, this.ik.qR, this.ik.wR ?? 1); if (this.ik.L) solveArmIK(b, 'L', this.ik.L, this.ik.qL, this.ik.wL ?? 1); }
     if (this.fight) applyFight(this, dt, solveArmIK, seated);
     if (!seated) { if (this.fadeAct && this.fadeW > 0 && BODY_POSES.has(this.fadeAct)) this.bodyPose(this.fadeAct, smooth01(this.fadeW), this.fadeT); if (A_ && aw > 0 && BODY_POSES.has(A_)) this.bodyPose(A_, aw, at); }
     if (!seated && (A_ === 'medKneel' || A_ === 'medLift' || A_ === 'medCarry') && aw > 0.05) for (const S of ['L', 'R']) { const W = this['holdW' + S]; if (!W) continue; b.chest.updateWorldMatrix(true, false); _ikv.copy(W); b.chest.worldToLocal(_ikv); solveArmIK(b, S, _ikv, null, aw, this['holdPole' + S] || null); } // EMS: hands exactly on world points (patient's chest / neck, stretcher handles), solved after the body pose
     if (!seated && A_ === 'pump' && aw > 0.05) for (const S of ['R', 'L']) { const W = this['holdW' + S], k = (this['holdK' + S] ?? 1) * aw; if (!W || k < 0.01) continue; b.chest.updateWorldMatrix(true, false); _ikv.copy(W); b.chest.worldToLocal(_ikv); const Q = this['holdQ' + S]; let q = null; if (Q) { b.chest.getWorldQuaternion(_ikq); q = _ikq.invert().multiply(Q); } solveArmIK(b, S, _ikv, q, Math.min(1, k), this['holdPole' + S] || null); } // fuel attendant: nozzle grip / keypad / filler flap / cash at the window, each hand blended in and out on its own (FuelStations.js)
-    if (seated) applySeatPose(this, dt);
+    if (this.board) applyBoardPose(this); else if (seated) applySeatPose(this, dt);
     if (this.nearLean && !seated) { const l = this.nearLean; b.spine.rotation.x += l.s || 0; b.chest.rotation.x += l.c || 0; b.neck.rotation.x += l.p || 0; b.head.rotation.z += l.r || 0; b.head.rotation.y += l.y || 0; } // StreetLife: leaning in for a hug / kiss
     if (this.duck > 0.001) { const d = Math.min(1, this.duck); b.spine.rotation.x += 0.42 * d; b.chest.rotation.x += 0.22 * d; b.neck.rotation.x += 0.32 * d; } // ducking under a low roof line while getting in / out
     else if (A_ === 'ride' && aw > 0) { b.thighL.rotation.set(-1.2, 0, -0.25); b.thighR.rotation.set(-1.2, 0, 0.25); b.shinL.rotation.x = 1.3; b.shinR.rotation.x = 1.3; b.footL.rotation.x = 0; b.footR.rotation.x = 0; b.hips.position.y = this.ch.hipY - 0.15; b.hips.position.x = 0; b.hips.rotation.set(0, 0, 0); }

@@ -29,7 +29,7 @@ const seg = (u, a, b) => clamp((u - a) / (b - a), 0, 1);
 const mix = (p, q, k) => [lerp(p[0], q[0], k), lerp(p[1], q[1], k), lerp(p[2], q[2], k)];
 
 // seconds for the whole curve (getting out runs at EXIT_K of that)
-export const BOARD_T = { car: 2.15, van: 2.35, tuk: 2.0, bike: 2.0 };
+export const BOARD_T = { car: 2.15, van: 2.6, tuk: 2.0, bike: 2.2 };
 export const EXIT_K = 0.88;
 export const boardKind = (v) => { const e = v.T.entry || 'car'; return e === 'bike' ? 'bike' : e === 'tuk' ? 'tuk' : e === 'van' ? 'van' : e === 'car' ? 'car' : null; }; // buses / lorry cabs keep their own boarding
 
@@ -172,8 +172,17 @@ function poleLeg(H, F, a, b, pole, qOut) {
   return Math.PI - Math.acos(clamp((a * a + b * b - d * d) / (2 * a * b), -1, 1));
 }
 const _pl = new THREE.Vector3(); const _pole = new THREE.Vector3(), _pd = new THREE.Vector3(); const _qa2 = new THREE.Quaternion(), _qb2 = new THREE.Quaternion();
+// P.w < 1 blends from whatever the base pose is (mid-stride as the walk to the sill ends, the standing idle) into the
+// boarding pose, so neither end of the motion pops.
+const _baseQ = new Map(); const _baseHip = new THREE.Vector3();
 export function applyBoardPose(A) {
-  const P = A.board; if (!P) return; const b = A.ch.bones; const a = b.shinL.position.length(), bl = b.footL.position.length();
+  const P = A.board; if (!P) return; const b = A.ch.bones; const w = P.w ?? 1;
+  if (w < 1) { for (const k in b) { let q = _baseQ.get(k); if (!q) _baseQ.set(k, (q = new THREE.Quaternion())); q.copy(b[k].quaternion); } _baseHip.copy(b.hips.position); }
+  boardPoseFull(A, P, b);
+  if (w < 1) { for (const k in b) b[k].quaternion.slerp(_baseQ.get(k), 1 - w); b.hips.position.lerp(_baseHip, 1 - w); }
+}
+function boardPoseFull(A, P, b) {
+  const a = b.shinL.position.length(), bl = b.footL.position.length();
   b.hips.position.set(P.hip[0], P.hip[1], P.hip[2]);
   _e.set(P.pitch, P.twist || 0, P.roll || 0, 'YXZ'); _qh.setFromEuler(_e); b.hips.quaternion.copy(_qh);
   const d = P.duck || 0; const lean = P.pitch; const R = (bone, x, y, z) => { _e.set(x, y, z, 'XYZ'); b[bone].quaternion.setFromEuler(_e); };
@@ -215,7 +224,7 @@ export function applyBoardPose(A) {
 // The root is upright in the WORLD while standing (a bike leaning on its stand tilts the vehicle frame) and blends into
 // the vehicle frame as the person sits (align → 1).
 const _m = new THREE.Matrix4(), _mi = new THREE.Matrix4(), _p = new THREE.Vector3(), _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion(), _one = new THREE.Vector3(1, 1, 1);
-export function poseBoard(A, G, F, vehMesh, ground, yaw0 = 0) {
+export function poseBoard(A, G, F, vehMesh, ground, yaw0 = 0, w = 1) {
   const root = A.ch.root; const gy = ground(F.hip[0], F.hip[2]);
   // root orientation: world-upright yaw → vehicle frame
   vehMesh.updateMatrixWorld(); vehMesh.getWorldQuaternion(_qa); const wy = new THREE.Euler().setFromQuaternion(_qa, 'YXZ').y;
@@ -227,5 +236,5 @@ export function poseBoard(A, G, F, vehMesh, ground, yaw0 = 0) {
     if (f.gk > 0) p = [p[0], p[1] + f.gk * ground(p[0], p[2]), p[2]];
     feet[sd] = L(p); }
   const hands = {}; for (const sd of ['L', 'R']) if (F.hands[sd]) hands[sd] = L(F.hands[sd]);
-  A.board = { hip: L(F.hip), pitch: F.pitch, roll: F.roll, twist: F.twist, duck: F.duck, feet, poleOut: F.poleOut, poleK: F.poleK, legSeat: F.legSeat, hands, handW: F.handW, grip: F.grip, toe: G.toe };
+  A.board = { w, hip: L(F.hip), pitch: F.pitch, roll: F.roll, twist: F.twist, duck: F.duck, feet, poleOut: F.poleOut, poleK: F.poleK, legSeat: F.legSeat, hands, handW: F.handW, grip: F.grip, toe: G.toe };
 }

@@ -708,6 +708,7 @@ export class PoliceResponse {
     if (this.busy) return; const g = this.g, P = g.player, lv = Math.max(this.stars(), kind === 'shot' ? 4 : 2); this.busy = true; this.stats.arrests++; this.stats.busted[kind] = (this.stats.busted[kind] || 0) + 1; this.note(`arrest at ${lv}★ (${kind})`);
     const H = g.health; const healthWasBusy = H ? H.busy : false; if (H) H.busy = true;
     g.weapons?.forceHolster?.(); if (o && o.tackle && kind !== 'tackle') o.tackle = null;
+    P.abortVehicleTransition?.(); // arrested mid-entry
     if (P.vehicle) { const v = P.vehicle; v.speed = 0; v.mesh.remove(P.ch.root); g.scene.add(P.ch.root); v.player = false; P.vehicle = null; P.exiting = null; P.entry = null; P.ch.anim.standUp(); g.traffic.release(v); const yo = o ? o.yaw : P.yaw; P.teleport(o ? o.x + Math.sin(yo) * 0.9 : P.x + 1.5, o ? o.z + Math.cos(yo) * 0.9 : P.z, yo + Math.PI); }
     P.control = false; P.speed = 0; if (P.ch.anim.ik) P.ch.anim.ik = null; P.ch.anim.aim = null;
     // penalties are decided now (shown on the custody record) and applied behind the final fade
