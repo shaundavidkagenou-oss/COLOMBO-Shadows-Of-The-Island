@@ -8,6 +8,9 @@ const KINDS = {
   stand: { acts: [[null, 2.5], ['look', 2], ['phone', 1.2], ['text', 1.5], ['crossarms', 1], ['glance', 1], ['stretch', 0.3]], dur: [5, 16] },
   phone: { acts: [['phone', 4], ['text', 2], ['look', 1], [null, 1]], dur: [6, 20] },
   chat: { acts: [['talk', 3], ['listen', 3], ['shrug', 0.4], ['point', 0.3], ['crossarms', 0.6]], dur: [2, 6] },
+  patron: { seated: true, acts: [['sit', 4], ['clap', 0.5], ['talk', 1], ['look', 1.2], ['glance', 1.4], ['phone', 0.5], ['listen', 0.8]], dur: [3, 9] }, // club customers watching a show (world/Club.js)
+  barfly: { acts: [[null, 2], ['talk', 2], ['listen', 2], ['look', 1.5], ['glance', 1], ['clap', 0.3], ['phone', 0.4]], dur: [3, 9] },
+  dj: { acts: [['interact', 4], ['dance', 1.6], ['look', 1], ['glance', 0.8], ['point', 0.3]], dur: [3, 8] },
   vendor: { acts: [['interact', 3], ['talk', 2], ['crossarms', 1], ['look', 1.5], ['wave', 0.5], [null, 1.2]], dur: [4, 12] },
 };
 export const ROUTINE_KINDS = Object.keys(KINDS);

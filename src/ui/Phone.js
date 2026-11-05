@@ -53,6 +53,7 @@ export class Phone {
     out.push({ t: 'Tuk-tuk taxi', d: `Drive fares across the city. Fare ≈ Rs. 150 flag + Rs. 16 per 100 m, 30% tip if on time. Get into any three-wheeler and press ${g.hud.key('more')}.${tuk ? ` Nearest parked tuk-tuk: ${Math.round(td)} m.` : ''}`, at: tuk ? { x: tuk.x, z: tuk.z } : null, done: g.story.state.stats.taxi });
     if (S.kade) out.push({ t: 'Short-eats delivery', d: `Lucky Tea Kade pays Rs. 600 + a speed bonus per parcel delivered before it gets cold. Ask Siri (${g.hud.key('more')}) at the kade.`, at: S.kade, done: g.story.state.stats.deliveries });
     if (S.garage) out.push({ t: 'Garage (spend)', d: 'Vehicle repairs Rs. 800.', at: S.garage });
+    if (S.club) out.push({ t: 'The Velvet Monsoon (spend)', d: 'Club on Galle Road, Kollupitiya: live pole-dance shows, bar and lounge (18+). Tip a dancer Rs. 500, make it rain Rs. 5,000, a shot at the bar Rs. 1,200.', at: S.club });
     if (S.kade) out.push({ t: 'Tea & rotti (spend)', d: 'Rs. 150 — restores stamina and some health.', at: S.kade });
     if (S.tailor) out.push({ t: 'Ceylon Threads tailor (spend)', d: 'New jacket colour Rs. 2,000.', at: S.tailor });
     out.push({ t: 'National Hospital', d: 'Free treatment at the state hospital.', at: { x: L.PLACES.hospital.x, z: L.PLACES.hospital.z } });

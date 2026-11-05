@@ -205,12 +205,51 @@ export function heroShoe(sb, ft, side, sp, W1, W2, shoe) {
   { const ut = Math.min(u0 + 0.02, 0.4); sb.boxPart([xc(ut), yS(ut) + H(ut) + 0.004, zOf(ut) + 0.01], 0.03, 0.008, 0.03, wf([0, 0, zOf(ut)]), tongueC); }
   for (let k = 0; k < nL; k++) { const u = lerp(u0, u1, k / (nL - 1)); const y = yS(u) + H(u) + 0.0025; sb.boxPart([xc(u), y, zOf(u)], 0.03 - k * 0.0012, 0.0035, 0.0045, wf([0, y, zOf(u)]), lace); }
 }
+// ---- garment hems: insert two interpolated rings either side of a colour edge so the edge is crisp. Weights are blended
+// (bone by bone) like the geometry, so the extra rings deform exactly like the surface they sit on.
+function lerpW(a, b, t) { const m = new Map(); for (const [bn, x] of a) m.set(bn, (m.get(bn) || 0) + x * (1 - t)); for (const [bn, x] of b) m.set(bn, (m.get(bn) || 0) + x * t); return [...m].filter(([, x]) => x > 1e-4); }
+function hemInsert(tr, yh, below, above, gap) { // torso rings ({ y (÷s), rx, rz, fz, bust, cz, wgt, col })
+  const k = tr.findIndex((r, i) => i < tr.length - 1 && r.y < yh - gap && tr[i + 1].y > yh + gap); if (k < 0) return;
+  const a = tr[k], b = tr[k + 1]; const at = (y, col) => { const t = (y - a.y) / (b.y - a.y); const L = (p) => lerp(a[p] || 0, b[p] || 0, t); return { y, rx: L('rx'), rz: L('rz'), fz: L('fz'), bust: L('bust'), cz: L('cz'), wgt: lerpW(a.wgt, b.wgt, t), col }; };
+  a.col = below; b.col = above; tr.splice(k + 1, 0, at(yh - gap, below), at(yh + gap, above));
+}
+function hemInsertLeg(lr, yh, gap) { // leg rings ({ c: [x, y, z], rx, rz, w }) ordered top → bottom
+  const k = lr.findIndex((r, i) => i < lr.length - 1 && r.c[1] > yh + gap && lr[i + 1].c[1] < yh - gap); if (k < 0) return;
+  const a = lr[k], b = lr[k + 1]; const at = (y) => { const t = (a.c[1] - y) / (a.c[1] - b.c[1]); return { c: [lerp(a.c[0], b.c[0], t), y, lerp(a.c[2], b.c[2], t)], rx: lerp(a.rx, b.rx, t), rz: lerp(a.rz, b.rz, t), w: lerpW(a.w, b.w, t) }; };
+  lr.splice(k + 1, 0, at(yh + gap), at(yh - gap));
+}
+// ---- high heels (sp.heels): platform court shoe. The foot is built flat (bind pose) but is always worn pitched toe-down by
+// `pitch` (PoleDance.js poses it): the stiletto is built along the direction that is vertical once the foot is pitched, and
+// is exactly long enough that heel tip and platform touch the floor together. heelFit() is shared with the animation.
+export function heelFit(sp) {
+  const J = joints(sp), ay = J.footL[1], az = J.footL[2]; const plat = 0.018, pitch = 0.5, c = Math.cos(pitch), sn = Math.sin(pitch);
+  const rot = (y, z) => [(y - ay) * c - (z - az) * sn, (y - ay) * sn + (z - az) * c]; // relative to the ankle, after the pitch
+  const ballY = 0.008 - plat, ballZ = 0.105, heelTop = [0.012, -0.05];
+  const b = rot(ballY, ballZ), h = rot(heelTop[0], heelTop[1]);
+  return { pitch, plat, ball: [0, ballY - ay, ballZ - az], ankleH: -b[0], heelTop, heelLen: h[0] - b[0], dir: [-c, sn] };
+}
+function heelShoe(sb, sp, ft, side, W1, W2, shoe, n0) {
+  const s = sp.height / 1.72, H = heelFit(sp), fw = W1('foot' + side), sole = C(sp.sole || '#111014'), x = ft[0];
+  sb.boxPart([x, 0.008 - H.plat / 2, 0.104], 0.084, H.plat, 0.13, fw, sole); // platform under the forefoot
+  sb.boxPart([x, 0.008 - 0.004, 0.02], 0.07, 0.008, 0.08, fw, sole); // shank: the arch of the sole
+  const rings = []; for (let i = 0; i <= 4; i++) { const t = i / 4, L = H.heelLen * t; const r = lerp(0.015, 0.0058, Math.pow(t, 0.8));
+    rings.push({ c: [x, H.heelTop[0] + 0.006 + H.dir[0] * L, H.heelTop[1] + H.dir[1] * L], rx: r, rz: r * 1.15 / Math.cos(H.pitch), w: fw, col: i === 4 ? sole : shoe }); }
+  sb.loft(rings, 10, { capEnd: true }); // stiletto (tip cap in the sole colour)
+  // ankle strap, on the same (interpolated) weights as the leg surface it wraps: shin→foot 0.6 at 0.09·s, shin only at 0.14·s
+  sb.loft([{ c: [x, 0.098 * s, -0.01], rx: 0.0388, rz: 0.0418, w: W2('shin' + side, 'foot' + side, 0.5), col: shoe }, { c: [x, 0.112 * s, -0.01], rx: 0.0392, rz: 0.0425, w: W2('shin' + side, 'foot' + side, 0.34), col: shoe }], 10);
+  // toe spring: in a heel the foot pitches toes-down about the ankle but the toes and the platform front stay flat on the floor,
+  // so everything ahead of the ball is bent up by the pitch (smoothly over 3 cm) — worn, the forefoot sole lies level
+  const yb = 0.008 - H.plat, zb = 0.105, P = sb.pos, N = sb.nor;
+  for (let i = n0; i < sb.n; i++) { const dz = P[i * 3 + 2] - zb; if (dz <= 0) continue; const t = Math.min(1, dz / 0.03), a = -H.pitch * t * t * (3 - 2 * t), c = Math.cos(a), sn = Math.sin(a);
+    const y = P[i * 3 + 1] - yb; P[i * 3 + 1] = yb + y * c - dz * sn; P[i * 3 + 2] = zb + y * sn + dz * c;
+    const ny = N[i * 3 + 1], nz = N[i * 3 + 2]; N[i * 3 + 1] = ny * c - nz * sn; N[i * 3 + 2] = ny * sn + nz * c; }
+}
 export function buildBodyGeometry(sp) {
   const sb = new SkinBuilder(); const J = joints(sp); const s = sp.height / 1.72, w = sp.build, f = sp.sex === 'f';
   const skin = C(sp.skin), top = C(sp.top), bottom = C(sp.bottom), shoe = C(sp.shoes || '#2a2420'), hair = C(sp.hairColor || '#15100c');
   const o = sp.outfit; const longSleeve = sp.longSleeve; const skirtLen = sp.skirt; // null | 'knee' | 'ankle'
   const W1 = (b) => [[B[b], 1]]; const W2 = (a, b, t) => [[B[a], 1 - t], [B[b], t]];
-  const midriff = o === 'saree';
+  const midriff = o === 'saree' || !!sp.midriff; // bare midriff: saree blouse, or a crop top (sp.midriff, hem at sp.cropY)
   const HQ = !!sp.hero; // protagonist: high-detail build (more tessellation, articulated fingers, sculpted nose/ears, garment construction details)
   const MH = HQ && hasHeroHead(sp); const NK = MH ? heroHeadFit(sp) : null; // protagonist with an anatomical head (HeroHead.js): no procedural head / hair / facial hair here
   const NH = HQ ? null : npcHeadFit(sp); // everyone else: anatomical crowd head (NpcHead.js) on the head bone; hair / caps / scarves here are fitted to its skull
@@ -258,6 +297,8 @@ export function buildBodyGeometry(sp) {
   const bel = sp.belly || 0; if (bel) [[2, 0.03, 0.02], [3, 0.045, 0.032], [4, 0.022, 0.012]].forEach(([i0, dz, df]) => { const i = i0 + RO; tr[i].rz += bel * dz * w; tr[i].fz = (tr[i].fz || 0) + bel * df; tr[i].rx += bel * 0.012 * w; });
   // torso surface (front/back z at height y and offset x) so straps, lanyards and bags sit on the clothes, never inside
   const surfZ = (y, x, sgn) => { let k = 0; while (k < tr.length - 2 && tr[k + 1].y * s < y) k++; const a = tr[k], b2 = tr[k + 1]; const t = clamp((y / s - a.y) / (b2.y - a.y), 0, 1); const rx = lerp(a.rx, b2.rx, t), rz = lerp(a.rz, b2.rz, t), fz = lerp(a.fz || 0, b2.fz || 0, t), bu = lerp(a.bust || 0, b2.bust || 0, t); const q = clamp(Math.abs(x) / rx, 0, 0.98); const sa = Math.sqrt(1 - q * q); return sgn * rz * sa + (sgn > 0 ? fz * sa + bu * bustShape(clamp(x / rx, -1, 1), sa) : 0); };
+  // crop top / high-waist shorts: crisp garment edges (two rings 8 mm apart) instead of a colour fade across a 10 cm band
+  if (sp.midriff && o !== 'saree') { hemInsert(tr, sp.cropY ?? 1.19, skin, top, 0.004); hemInsert(tr, sp.waistY ?? 0.985, bottom, skin, 0.004); }
   const jacket = o === 'jacket';
   sb.loft(tr.map((r) => ({ c: [0, r.y * s, r.cz || 0], rx: r.rx, rz: r.rz, fz: r.fz, bust: r.bust, w: r.wgt, col: r.col })), HQ ? 40 : f ? 28 : 16, {
     capStart: true, surfN: HQ,
@@ -267,7 +308,7 @@ export function buildBodyGeometry(sp) {
   const parts = { legs: [], skirt: null, skirtSeg: 18 }; // vertex ranges (used by tools/clothing-test.mjs)
   for (const side of ['L', 'R']) {
     const th = J['thigh' + side], sh = J['shin' + side], ft = J['foot' + side]; const sx = Math.sign(th[0]);
-    const shorts = sp.shorts; const legCol = (y) => (shorts && y < 0.62 * s ? skin : skirtLen === 'ankle' && y < 0.2 ? skin : bottom);
+    const shorts = sp.shorts, hemY = (sp.shortsY ?? 0.62) * s; const legCol = (y) => (shorts && y < hemY ? skin : skirtLen === 'ankle' && y < 0.2 ? skin : bottom);
     const lr = [
       { c: [th[0] * 0.82, 0.9 * s, 0], rx: 0.078 * w, rz: 0.088 * w, w: W2('hips', 'thigh' + side, 0.6) },
       { c: [th[0] * 0.92, 0.84 * s, 0], rx: 0.08 * w, rz: 0.086 * w, w: W2('hips', 'thigh' + side, 0.85) },
@@ -278,11 +319,13 @@ export function buildBodyGeometry(sp) {
       { c: [ft[0], 0.14 * s, -0.01], rx: 0.037, rz: 0.04, w: W1('shin' + side) },
       { c: [ft[0], 0.09 * s, -0.01], rx: 0.035, rz: 0.038, w: W2('shin' + side, 'foot' + side, 0.6) },
     ];
+    if (shorts && sp.shortsY != null) hemInsertLeg(lr, hemY, 0.003); // hot pants / leotard leg line: a crisp hem, not a fade down the thigh
     const l0 = sb.n; sb.loft(lr.map((r) => ({ ...r, col: legCol(r.c[1]) })), HQ ? 20 : 10); parts.legs.push([l0, sb.n]);
     // shoe / sandal
     const sandal = sp.sandals; const fc = sandal ? skin : shoe; const heroFeet = HQ && sp.hero && !sandal;
-    if (heroFeet) heroShoe(sb, ft, side, sp, W1, W2, shoe); else sb.ellipsoid([ft[0], 0.05 * s, 0.045], 0.044, 0.042, 0.118, HQ ? (sy, sx2, sz) => { const t = smooth01((sz - 0.42) / 0.35); return t > 0.001 ? W2('foot' + side, 'toe' + side, t) : W1('foot' + side); } : W1('foot' + side), fc, { lat: HQ ? 12 : 7, lon: HQ ? 22 : 12, bumpFn: (x, y, z) => (y < -0.2 ? 0.98 : 1) * (z > 0.6 ? 0.97 : 1) });
-    if (sandal) { sb.boxPart([ft[0], 0.008, 0.05], 0.1, 0.016, 0.27, W1('foot' + side), C(sp.sole || sp.shoes || '#2a2420')); sb.boxPart([ft[0], 0.05 * s, 0.09], 0.092, 0.012, 0.03, W1('foot' + side), shoe); }
+    const nFoot = sb.n; if (heroFeet) heroShoe(sb, ft, side, sp, W1, W2, shoe); else sb.ellipsoid([ft[0], 0.05 * s, 0.045], 0.044, 0.042, 0.118, HQ ? (sy, sx2, sz) => { const t = smooth01((sz - 0.42) / 0.35); return t > 0.001 ? W2('foot' + side, 'toe' + side, t) : W1('foot' + side); } : W1('foot' + side), fc, { lat: HQ ? 12 : 7, lon: HQ ? 22 : 12, bumpFn: (x, y, z) => (y < -0.2 ? 0.98 : 1) * (z > 0.6 ? 0.97 : 1) });
+    if (sp.heels && !HQ) heelShoe(sb, sp, ft, side, W1, W2, shoe, nFoot);
+    else if (sandal) { sb.boxPart([ft[0], 0.008, 0.05], 0.1, 0.016, 0.27, W1('foot' + side), C(sp.sole || sp.shoes || '#2a2420')); sb.boxPart([ft[0], 0.05 * s, 0.09], 0.092, 0.012, 0.03, W1('foot' + side), shoe); }
     else if (heroFeet) { /* sole is part of heroShoe */ } else if (HQ) { const sw = sp.sole ? 0.084 : 0.094, sl = sp.sole ? 0.24 : 0.262, z0 = 0.046 - sl / 2, z1 = 0.046 + sl / 2, zt = 0.118, sc = C(sp.sole || (sp.shoes === '#e8e8e4' ? '#d8d8d4' : '#1a1512')); sb.boxPart([ft[0], 0.011, (z0 + zt) / 2], sw, 0.022, zt - z0, W1('foot' + side), sc); sb.boxPart([ft[0], 0.011, (zt + z1) / 2], sw, 0.022, z1 - zt, W1('toe' + side), sc); } // sole hinges at the ball of the foot
     else sb.boxPart([ft[0], 0.011, 0.046], sp.sole ? 0.084 : 0.094, 0.022, sp.sole ? 0.24 : 0.262, W1('foot' + side), C(sp.sole || (sp.shoes === '#e8e8e4' ? '#d8d8d4' : '#1a1512')));
     if (HQ && !sandal) { const fw = W1('foot' + side); const lace = shoe.map((v) => v * 0.45); // laces across the instep, tongue, trouser hem break over the shoe

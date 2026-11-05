@@ -163,7 +163,7 @@ const Q_BASE = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2,
 const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _m4 = new THREE.Matrix4();
 const Q_WIPE = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(V(0, 0, 1), V(-1, 0, 0), V(0, -1, 0)));
 export const DRINK_T = { reach: 0.8, lift: 1.35, pourEnd: 2.95, bottleDown: 3.75, raise: 4.45, drinkEnd: 5.15, lower: 5.65, glassDown: 6.45, wipe: 7.15, end: 7.7 };
-class Drink {
+export class Drink {
   constructor(room, bottle, glass, spot) { this.room = room; this.bottle = bottle; this.glass = glass; this.spot = spot; this.active = false; this.shots = 14; this.stream = null; this.qYaw = new THREE.Quaternion(); this.qYawI = new THREE.Quaternion(); this.root = new THREE.Vector3(); }
   get fill() { return this.shots / 14; }
   start(P) {
@@ -197,7 +197,7 @@ class Drink {
   finish() {
     const P = this.P; this.active = false; if (this.ch.anim.postPose) this.ch.anim.postPose = null; P.control = true; P.indoorBusy = false; this.stream.visible = false;
     this.bottle.position.copy(this.homeB.p); this.bottle.quaternion.copy(this.homeB.q); this.glass.position.copy(this.homeG.p); this.glass.quaternion.copy(this.homeG.q); this.glass.userData.setFill(0); this.bottle.userData.setFill(this.fill);
-    const d = this.room.game.drunk; if (d && !this.blackout) this.room.game.hud.notify(d.label, this.shots ? `${this.shots} shot${this.shots > 1 ? 's' : ''} left in the bottle.` : 'That was the last of the bottle.', 'info', 2.2); this.blackout = false;
+    const d = this.room.game.drunk; if (d && !this.blackout) this.room.game.hud.notify(d.label, this.note ? this.note() : this.shots ? `${this.shots} shot${this.shots > 1 ? 's' : ''} left in the bottle.` : 'That was the last of the bottle.', 'info', 2.2); this.blackout = false;
   }
   abort() { if (this.active) { this.t = DRINK_T.end; this.finish(); } }
   pose(b, dt, seated) {

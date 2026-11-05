@@ -132,7 +132,7 @@ class AudioEngine {
   setMusic(mode) { if (mode === this.musicMode) return; this.musicMode = mode; this.step = 0; if (this.ctx) this.nextNote = this.ctx.currentTime + 0.1; }
   updateMusic(dt, st) {
     if (this.musicMode === 'none' || !this.ctx) return; const c = this.ctx;
-    const mode = this.musicMode; const bpm = { menu: 76, explore: 84, tension: 118, night: 68, radio1: 124, radio2: 92, chase: 132, intro: 60 }[mode] || 80; const spb = 60 / bpm / 2; // eighth notes
+    const mode = this.musicMode; const bpm = { menu: 76, explore: 84, tension: 118, night: 68, radio1: 124, radio2: 92, chase: 132, intro: 60, club: 100 }[mode] || 80; const spb = 60 / bpm / 2; // eighth notes
     // scale: D Dorian-ish with a raised 4th flavour for colour
     const root = mode === 'tension' || mode === 'chase' ? 110 : 146.83; const SC = [0, 2, 3, 5, 7, 9, 10, 12, 14, 15];
     const f = (deg, oct = 0) => root * Math.pow(2, (SC[((deg % SC.length) + SC.length) % SC.length] + 12 * (oct + Math.floor(deg / SC.length))) / 12);
@@ -143,6 +143,14 @@ class AudioEngine {
         if (s6 === 0) [0, 2, 4].forEach((d) => this.tone(f(prog + d, 1), spb * 5, { type: 'triangle', vol: 0.03, when: w, out: 'music' }));
         if (s6 === 1 || s6 === 4) this.tone(f(prog, 0) / 2, spb * 1.5, { type: 'sawtooth', vol: 0.05, when: w, out: 'music' });
         if (Math.random() < 0.5) this.tone(f(prog + [0, 2, 4, 5, 7][Math.floor(Math.random() * 5)], 2), spb * 0.9, { type: 'square', vol: 0.018, when: w, out: 'music' });
+      } else if (mode === 'club') { // club PA: slow four-on-the-floor R&B/house groove in a minor key (original, generative)
+        const s16 = s % 16, cm = [0, 5, 3, 6][bar]; // i – vi – iv – VII flavour on the Dorian scale
+        if (s % 2 === 0) this.drum(w, 52, 0.34); // kick on every beat
+        if (s % 2 === 1) this.noise(0.045, { f: 8000, vol: 0.03, when: w, out: 'music' }); // off-beat hat
+        if (s % 8 === 2 || s % 8 === 6) { this.noise(0.12, { f: 1500, q: 0.8, vol: 0.07, when: w, out: 'music', verb: true }); this.noise(0.03, { f: 4200, vol: 0.03, when: w + 0.012, out: 'music' }); } // clap on 2 and 4
+        const bl = [0, 0, 7, 0, 5, 0, 7, 10][s % 8]; if (s % 8 !== 3 && s % 8 !== 7) this.tone(f(cm, -1) * Math.pow(2, bl / 12), spb * 0.85, { type: 'sawtooth', vol: 0.05, when: w, out: 'music' }); // bass line
+        if (s16 === 0) [0, 2, 4, 6].forEach((d) => this.tone(f(cm + d, 0), spb * 15, { type: 'triangle', vol: 0.022, attack: 0.6, when: w, out: 'music', verb: true, detune: (Math.random() - 0.5) * 10 })); // pad
+        if (s % 4 === 3 && Math.random() < 0.55) this.tone(f(cm + [4, 6, 7, 9][Math.floor(Math.random() * 4)], 1), spb * 1.4, { type: 'square', vol: 0.014, when: w, out: 'music', verb: true }); // stab
       } else {
         const sparse = mode === 'night' || mode === 'menu' || mode === 'intro';
         if (s % 16 === 0) [0, 2, 4, 7].forEach((d) => this.tone(f(prog + d, 0), spb * 16, { type: 'sine', vol: sparse ? 0.035 : 0.03, attack: 1.2, when: w, out: 'music', verb: true, detune: (Math.random() - 0.5) * 8 }));

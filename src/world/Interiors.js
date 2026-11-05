@@ -8,6 +8,7 @@ import { Character, randomSpec, HEROES } from '../actors/Character.js';
 import { buildHQInterior, HQ_DEF } from './HQInterior.js';
 import { HQ } from './PoliceHQ.js';
 import { buildGunShopInterior } from './GunShop.js';
+import { buildClub } from './Club.js';
 import { buildHeroRoom, isHeroRoom, heroDoorSpots, wallSpot } from './HeroRooms.js';
 import { buildHeroEntrance } from './HeroEntrance.js';
 
@@ -42,6 +43,7 @@ export class Interiors {
     if (this.built.has(id)) return this.built.get(id);
     if (id === 'hq') { const room = buildHQInterior(this.g, door || { id: 'hq', ...HQ.door }, HQ.interior); this.built.set(id, room); return room; }
     if (id === 'gunshop') { const room = buildGunShopInterior(this.g, door); this.built.set(id, room); return room; }
+    if (id === 'club') { const room = buildClub(this.g, door); this.built.set(id, room); return room; }
     if (isHeroRoom(id)) { const room = buildHeroRoom(this.g, id, door); this.built.set(id, room); return room; }
     const D = DEFS[id]; const mb = new MultiBuilder(); const rng = new RNG(id.length * 97 + 5);
     const cx = door.x, cz = door.z - 200; // offset in z so rooms don't overlap the shop's own geometry footprint
@@ -97,7 +99,7 @@ export class Interiors {
     this.built.set(id, room); return room;
   }
   async enter(door) {
-    const g = this.g; const room = this.build(door.id, door); await g.hud.fade(1, 0.5);
+    const g = this.g; if (!this.built.has(door.id)) g.player.indoorBusy = true; await g.hud.fade(1, 0.5); const room = this.build(door.id, door); g.player.indoorBusy = false; /* first visit: build behind the black fade (the club creates its cast here) */
     this.prev = { x: g.player.x, z: g.player.z, yaw: g.player.yaw }; room.g.visible = true; this.current = room;
     if (room.D.keeper && !room.keeperCh) { const spec = room.D.keeper.height ? room.D.keeper : randomSpec(room.D.keeper.seed, room.D.keeper); const ch = new Character(spec); ch.root.position.set(room.keeperPos[0], Y, room.keeperPos[1]); room.g.add(ch.root); room.keeperCh = ch; }
     g.player.indoor = room; g.player.x = room.spawn[0]; g.player.z = room.spawn[1]; g.player.y = Y; g.player.yaw = Math.PI; g.player.camYaw = 0; g.player.sync(); g.player.snapCamera();

@@ -522,6 +522,7 @@ export const PLACES = {
   slaveFlat:     { x: -150, z: -150, name: "Dineth's room, Slave Island" },
   garage:        { x: 455, z: -790, name: 'Lanka Auto Care, Maradana' },
   gunshop:       { x: 380, z: -700, name: 'Ceylon Arms Co., Maradana' },
+  club:          { x: -389, z: 215.5, name: 'The Velvet Monsoon, Kollupitiya' },
   tailor:        { x: -305, z: 470, name: 'Ceylon Threads, Bambalapitiya' },
   hospital:      { x: 660, z: -160, name: 'National Hospital' },
   police:        { x: -310, z: 45, name: 'Kollupitiya Police Station' },
