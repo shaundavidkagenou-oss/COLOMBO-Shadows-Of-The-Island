@@ -13,8 +13,9 @@ export class TrailerScore {
   constructor() {
     this.ok = !!(Audio.ready && Audio.ctx); if (!this.ok) return;
     const c = (this.c = Audio.ctx);
-    this.out = c.createGain(); this.out.gain.value = 1; this.out.connect(Audio.bus.music);
-    this.hall = c.createConvolver(); this.hall.buffer = hallIR(c, 3.6); const hg = c.createGain(); hg.gain.value = 0.42; this.hall.connect(hg); hg.connect(Audio.bus.music);
+    this.lvl = c.createGain(); this.lvl.gain.value = 1; this.lvl.connect(Audio.bus.music); this.secK = 1; // section level (dry + hall): Act I sits lower in the arrangement, lifted here
+    this.out = c.createGain(); this.out.gain.value = 1; this.out.connect(this.lvl);
+    this.hall = c.createConvolver(); this.hall.buffer = hallIR(c, 3.6); const hg = c.createGain(); hg.gain.value = 0.42; this.hall.connect(hg); hg.connect(this.lvl);
     this.sfx = c.createGain(); this.sfx.gain.value = 1; this.sfx.connect(Audio.bus.sfx);
     this.ev = []; this.i = 0; this.t0 = 0;
   }
@@ -134,7 +135,7 @@ export class TrailerScore {
   }
   start(t0) { if (!this.ok) return; this.t0 = t0; }
   // schedule everything due within the look-ahead window (called every frame with the current edit time)
-  update(e) { if (!this.ok) return; const E = this.ev; while (this.i < E.length && E[this.i].t < e + 0.35) { const ev = E[this.i++]; if (ev.t < e - 0.15) continue; try { ev.fn(Math.max(this.c.currentTime + 0.005, this.t0 + ev.t)); } catch (err) { console.warn('trailer score', err); } } }
+  update(e) { if (!this.ok) return; const k = e < 25.85 ? 2.5 : 1; if (k !== this.secK) { this.secK = k; this.lvl.gain.setTargetAtTime(k, this.c.currentTime, k > 1 ? 0.01 : 0.04); } const E = this.ev; while (this.i < E.length && E[this.i].t < e + 0.35) { const ev = E[this.i++]; if (ev.t < e - 0.15) continue; try { ev.fn(Math.max(this.c.currentTime + 0.005, this.t0 + ev.t)); } catch (err) { console.warn('trailer score', err); } } }
   seek(e) { if (!this.ok) return; let i = 0; while (i < this.ev.length && this.ev[i].t < e) i++; this.i = i; }
   fadeOut(sec = 0.6) { if (!this.ok) return; const t = this.c.currentTime; for (const g of [this.out, this.sfx]) { g.gain.cancelScheduledValues(t); g.gain.setValueAtTime(g.gain.value, t); g.gain.linearRampToValueAtTime(0, t + sec); } this.stopLoops(); }
   // ------------------------------------------------------------------ live trailer sound design (driven per frame by the runtime)

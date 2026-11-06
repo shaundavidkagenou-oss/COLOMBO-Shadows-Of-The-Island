@@ -210,7 +210,7 @@ export class TrailerRuntime {
       if (p.pitch === undefined) { v.pitch = clamp(-o.acc * 0.0032, -0.04, 0.045); v.roll = clamp(p.speed * hdgRate * 0.0045, -0.07, 0.07); } else { v.pitch = p.pitch; v.roll = p.roll; }
       v.lights = !!p.lights; v.brake = o.acc < -2.5 && p.speed > 0.5; if (o.r.type === 'police' || o.r.type === 'policejeep') v.beacons(!!p.beacons, t);
       const slipK = p.speed > 3 ? clamp((Math.abs(p.slip || 0) - 0.12) / 0.3, 0, 1) : 0; // drifting: rears pour smoke, fronts scrub a little
-      if (p.smokeR > 0 || slipK > 0) { v.tireSmoke = { r: Math.max(p.smokeR || 0, slipK), f: slipK * 0.55, launch: 0 }; v.wheelRot += (p.smokeR || 0) * dt * 55; }
+      if (p.smokeR > 0 || slipK > 0) { v.tireSmoke = { r: Math.max((p.smokeR || 0) * 1.5, slipK * 2.0), f: slipK * 0.9, launch: 0 }; /* >1 = denser, bigger, longer-lived puffs (a trailer-only request; the game's own driving never asks for more than 1) */ v.wheelRot += (p.smokeR || 0) * dt * 55; }
       v.sync(dt);
       const ch = v.driverChar; if (ch && ch !== this.actors.dineth.ch) { const A = ch.anim; A.steer = v.steer / (v.T.steer || 0.5); A.vehSpeed = v.speed; A.brakeLean = clamp(-o.acc * 0.012, -0.06, 0.08); A.cornerLean = clamp(-A.steer * v.speed * 0.004, -0.06, 0.06); A.update(Math.max(dt, 1e-4), 0); }
     }
