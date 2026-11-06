@@ -124,6 +124,7 @@ export function carDetail(dm, K, c) {
     if (!ST) chr.box(0, ty - 0.11, rz - 0.04, 0.55, 0.028, 0.012, { col: chrome });
     if ((k === 'car' || isVan) && k !== 'pickup') { const p = [0, gh[n][1] + 0.1, gh[n][0] + 0.02]; beam(rub, p, [-0.32, gh[n][1] + 0.38, gh[n][0] + 0.06], 0.008, 0.008, C('#151515')); part(rub, unitCyl, p, [Math.PI / 2, 0, 0], [0.02, 0.03, 0.02], C('#151515')); } }
   part(rub, discZ, [0.45, sill - 0.02, rz - 0.042], [0, 0, 0], [0.026, 0.026, 0.006], C('#050505')); // exhaust tip bore
+  dm.exhaust = { p: [0.45, sill - 0.02, rz - 0.06], d: [0, 0, -1], fuel: isVan ? 'dieselLight' : 'petrol' }; // where VehicleSmoke puffs the exhaust gas from (vans: diesel)
   for (let i = -3; i <= 3; i++) rub.box(i * 0.12, sill - 0.01, rz + 0.03, 0.01, 0.05, 0.12, { col: black }); // diffuser fins
   // ---- underbody: floor pan, sump, tank, exhaust run, suspension arms and struts
   rub.box(0, sill - 0.03, (D.wf + D.wr) / 2, W * 1.6, 0.02, D.wf - D.wr - 0.3, { col: C('#141416') });
@@ -172,7 +173,7 @@ export function tukDetail(dm, K, c) {
   I.box(0.3, 1.1, 0.75, 0.16, 0.09, 0.08, { col: C('#151515') }); I.box(0.3, 1.11, 0.709, 0.12, 0.03, 0.004, { col: C('#1f3a26') }); // fare meter (unlit display)
   part(chr, unitBox, [0, 1.4, 0.82], [0.2, 0, 0], [0.16, 0.05, 0.015], C('#222')); part(chr, unitBox, [0, 1.4, 0.812], [0.2, 0, 0], [0.14, 0.035, 0.004], chrome);
   for (let i = 0; i < 6; i++) rub.box(0, 0.425, 0.32 + i * 0.03, 0.62, 0.006, 0.012, { col: black });
-  beam(chr, [0.45, 0.22, -0.6], [0.5, 0.24, -1.35], 0.035, 0.035, C('#8a8d90'), unitCyl); part(rub, discZ, [0.5, 0.24, -1.352], [0, 0, 0], [0.028, 0.028, 0.004], C('#050505'));
+  beam(chr, [0.45, 0.22, -0.6], [0.5, 0.24, -1.35], 0.035, 0.035, C('#8a8d90'), unitCyl); part(rub, discZ, [0.5, 0.24, -1.352], [0, 0, 0], [0.028, 0.028, 0.004], C('#050505')); dm.exhaust = { p: [0.5, 0.24, -1.37], d: [0, -0.05, -1], fuel: 'tuk' };
   for (const sx of [-1, 1]) { part(lens, unitBox, [sx * 0.5, 0.72, -1.282], [0, 0, 0], [0.095, 0.21, 0.004]); part(refl, ringZ, [sx * 0.5, 0.74, -1.28], [0, Math.PI, 0], [0.03, 0.03, 0.03], C('#d0b0b0')); }
   tail.box(0, 1.39, -1.28, 0.2, 0.025, 0.015); // high-level brake light on the canopy rear
   if (variant % 2 === 0) for (const sx of [-1, 1]) pnt.box(sx * 0.646, 0.46, -0.5, 0.004, 0.035, 0.9, { col: C('#f4f4f2') }); // pinstripe
@@ -187,6 +188,10 @@ export function bikeDetail(dm, K, c) {
   // instrument pod, levers, mirrors' backs, ignition, cables
   part(I, discZ, [0, 1.14, 0.58], [-0.6, 0, 0], [0.06, 0.06, 0.03], C('#151515')); part(I, discZ, [0, 1.15, 0.566], [-0.6, 0, 0], [0.047, 0.047, 0.004], C('#0a0a0b')); part(chr, ringZ, [0, 1.15, 0.564], [-0.6, 0, 0], [0.05, 0.05, 0.05], chrome); part(I, unitBox, [0.01, 1.155, 0.562], [-0.6, 0, -0.7], [0.004, 0.035, 0.002], C('#d84a20'));
   for (const sx of [-1, 1]) { beam(chr, [sx * 0.26, 1.13, 0.52], [sx * 0.36, 1.12, 0.58], 0.012, 0.006, alu); beam(rub, [sx * 0.05, 1.13, 0.5], [sx * 0.12, 0.85, 0.6], 0.008, 0.008, black, unitCyl); }
+  if (scooter) { // the scooter's silencer: a stubby black can beside the rear wheel on the right, chrome-tipped (exhaust puffs from its end)
+    beam(rub, [-0.1, 0.27, -0.12], [-0.17, 0.31, -0.58], 0.045, 0.055, C('#1c1c1e'), unitCyl); beam(chr, [-0.17, 0.31, -0.58], [-0.175, 0.315, -0.66], 0.02, 0.02, C('#b8bcc0'), unitCyl);
+    dm.exhaust = { p: [-0.175, 0.315, -0.68], d: [0, 0, -1], fuel: 'bike' };
+  }
   if (!scooter) {
     // engine: finned cylinder, crankcase covers, carburettor, chain, sprockets, chain guard, heat shield, rear shocks
     for (let i = 0; i < 7; i++) chr.box(0, 0.4 + i * 0.035, 0.27, 0.28, 0.012, 0.16, { col: C('#6a6d70') });
@@ -196,6 +201,7 @@ export function bikeDetail(dm, K, c) {
     part(chr, ringX, [0.12, R, -0.68], [0, 0, 0], [0.12, 0.1, 0.1], C('#555')); part(chr, ringX, [0.12, 0.34, 0.0], [0, 0, 0], [0.12, 0.045, 0.045], C('#555'));
     beam(pnt, [0.14, 0.43, -0.05], [0.14, R + 0.15, -0.6], 0.012, 0.05, black); // chain guard
     beam(chr, [0.16, 0.42, -0.15], [0.19, 0.45, -0.55], 0.012, 0.07, chrome); // exhaust heat shield
+    dm.exhaust = { p: [0.14, 0.42, -0.79], d: [0.05, 0.03, -1], fuel: 'bike' }; // tail pipe end (VehicleModels: exhaust beam)
     for (const sx of [-1, 1]) { const a = [sx * 0.13, R + 0.03, -0.62], b = [sx * 0.12, 0.84, -0.32]; beam(chr, a, b, 0.035, 0.035, C('#2a2a2a'), unitCyl); for (let i = 0; i < 6; i++) { const t = 0.2 + i * 0.11; part(chr, ringZ, [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)], [Math.PI / 2 + 0.53, 0, 0], [0.032, 0.032, 0.06], C('#c43a2a')); } }
     for (const sx of [-1, 1]) pnt.box(sx * 0.13, 0.86, 0.12, 0.012, 0.09, 0.18, { col: C('#1a1a1a') }); // knee pads
     part(chr, discZ, [0, 1.005, 0.12], [Math.PI / 2, 0, 0], [0.035, 0.035, 0.012], chrome); // fuel cap
@@ -235,7 +241,12 @@ export function heavyDetail(dm, K, c) {
     part(chr, ringZ, [sx * 0.55, kind === 'lorry' ? 0.48 : 0.28, fz + 0.12], [Math.PI / 2, 0, 0], [0.05, 0.05, 0.05], C('#2a2a2a'));
   }
   for (const sx of [-1, 0, 1]) part(rub, unitBox, [sx * 0.5, (kind === 'lorry' ? 2.86 : H) + 0.03, fz - 0.3], [0, 0, 0], [0.12, 0.04, 0.06], amber); // roof markers
+  if (kind === 'bus') { // tail pipe under the rear overhang, offside (right): a short chrome stub angled down
+    beam(chr, [-(W - 0.35), 0.36, rz + 0.5], [-(W - 0.35), 0.32, rz - 0.02], 0.045, 0.045, chrome, unitCyl); part(rub, discZ, [-(W - 0.35), 0.32, rz - 0.024], [0, 0, 0], [0.04, 0.04, 0.004], C('#050505'));
+    dm.exhaust = { p: [-(W - 0.35), 0.32, rz - 0.05], d: [0, -0.15, -1], fuel: 'diesel' };
+  }
   if (kind === 'lorry') {
+  dm.exhaust = { p: [-W - 0.09, 3.04, fz - 2.08], d: [0, 1, 0], fuel: 'diesel' }; // vertical stack: puffs straight up
     rub.box(0, 2.68, fz + 0.06, W * 2 - 0.1, 0.06, 0.2, { col: C('#1a1a1a') }); // sun visor
     for (const sx of [-1, 1]) { rub.box(sx * (W - 0.12), 0.45, fz - 0.95, 0.26, 0.03, 0.3, { col: C('#2a2a2a') }); rub.box(sx * (W - 0.12), 0.25, fz - 0.95, 0.26, 0.03, 0.3, { col: C('#2a2a2a') }); } // cab steps
     beam(chr, [-W - 0.09, 0.7, fz - 2.08], [-W - 0.09, 3.0, fz - 2.08], 0.06, 0.06, chrome, unitCyl); part(rub, discZ, [-W - 0.09, 3.0, fz - 2.08], [Math.PI / 2, 0, 0], [0.05, 0.05, 0.004], C('#050505')); for (const y of [1.3, 2.2]) rub.box(-W - 0.03, y, fz - 2.08, 0.1, 0.05, 0.05, { col: C('#1a1a1a') }); // exhaust stack: outboard, behind the cab (clear of the bed and its tarp)

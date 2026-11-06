@@ -52,6 +52,7 @@ import { Blood } from './gfx/Blood.js';
 import { Explosions } from './gfx/Explosions.js';
 import { Grenades } from './combat/Grenades.js';
 import { Drunk } from './actors/Drunk.js';
+import { VehicleSmoke } from './gfx/VehicleSmoke.js';
 import { HERO_ROOMS } from './world/HeroRooms.js';
 
 const VNAMES = { tuktuk: 'Three-wheeler', car: 'Hatchback', sedan: 'Sedan', taxi: 'Taxi', van: 'Van', suv: 'SUV', bus: 'SLTB bus', pbus: 'Private bus', lorry: 'Lorry', tow: 'Tow truck', bike: 'Motorcycle', police: 'Police car', policejeep: 'Police jeep', policebike: 'Police motorcycle' };
@@ -122,6 +123,7 @@ export class Game {
     this.post = new PostFX(this.renderer, this.scene, this.camera); this.post.build({ bloom: Settings.preset.bloom, ao: Settings.preset.ao });
     this.explosions = new Explosions(this); this.grenades = new Grenades(this); // throwables (key B) + cinematic blasts
     this.drunk = new Drunk(this); // vodka in the hero rooms (HeroRooms.js)
+    this.vsmoke = new VehicleSmoke(this, Settings.get('quality')); // tyre smoke + exhaust (one draw call, fixed pool)
     this.atmos.update(0.016, new THREE.Vector3(-300, 0, -500), this.camera, 0);
     progress(0.93, 'Compiling shaders'); await tick();
     this.world.warm(-500, -400); this.world.update(0.016, { x: -500, z: -400 }, this.camera, this.atmos);
@@ -401,6 +403,7 @@ export class Game {
     if (this.indoor) this.hideOutdoor(); // anything spawned since entering (police units etc.) stays hidden too
     if (!this.indoor) this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; if (!this.indoor) this.traffic.update(dt, focus, camDir, this.clock, this.police.foot.length || this.squad.proxies.length ? this.crowd.peds.concat(this.police.foot, this.squad.proxies) : this.crowd.peds, P); this.hqLife.update(dt); if (!this.indoor) { this.trafficDuty.update(dt); this.schoolLife.update(dt); this.cricket.update(dt); } if (!warmOnly) this.police.update(dt);
     if (!this.indoor) this.trains.update(dt, { focus, night: A.night, player: this.indoor ? null : P, playerVehicle: P.vehicle || null, vehicles: this.traffic.all(), listener: true });
+    if (this.vsmoke && !warmOnly) this.vsmoke.update(dt); // after every vehicle moved this frame (player, mission cars, traffic, police)
     if (!this.indoor) this.crowd.update(dt, focus, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: P, armed: !!(this.weapons && this.weapons.drawn), hourFactor: this.hourFactor(), hour: A.hour, bodies: this.bodies, police: this.police });
     if (!this.indoor && this.world.fuel) { if (!this.fuelSvc) this.fuelSvc = new FuelService(this.world.fuel, { crowd: this.crowd, traffic: this.traffic, scene: this.scene, player: P }); this.fuelSvc.update(dt, { focus, night: A.night }); } // filling stations: refuelling traffic + attendants (FuelStations.js)
     if (P.vehicle && A.night > 0.5 && P.nightLights === undefined) { P.vehicle.lights = true; }
@@ -487,6 +490,7 @@ export class Game {
     if (k === 'quality' || k === 'resolutionScale' || k === '*') { this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * pr.pixelRatio * Settings.get('resolutionScale')); this.renderer.shadowMap.enabled = pr.shadows; this.atmos.sun.castShadow = pr.shadows; this.atmos.drawDist = pr.drawDist; this.world.setQuality(Settings.get('quality')); this.post.build({ bloom: pr.bloom, ao: pr.ao }); this.resize(); this.scene.traverse((o) => { if (o.material && o.material.needsUpdate !== undefined && k === 'quality') o.material.needsUpdate = true; }); }
     if (k === 'fov' || k === '*') { this.camera.fov = Settings.get('fov'); this.camera.updateProjectionMatrix(); }
     if (['crowdDensity', 'trafficDensity', 'quality', '*'].includes(k)) this.applyDensity();
+    if ((k === 'quality' || k === '*') && this.vsmoke) this.vsmoke.setQuality(Settings.get('quality'));
     if (['master', 'music', 'sfx', 'ambience', 'dialogue', '*'].includes(k)) Audio.applyVolumes();
     if (k === 'subtitleSize' || k === '*') document.documentElement.style.setProperty('--sub-scale', Settings.get('subtitleSize'));
   }

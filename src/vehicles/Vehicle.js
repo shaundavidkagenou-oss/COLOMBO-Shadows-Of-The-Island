@@ -119,6 +119,16 @@ export class Vehicle {
     if (input.handbrake) acc -= Math.sign(sp) * Math.min(Math.abs(sp) / dt, 9);
     acc -= sp * Math.abs(sp) * 0.0012 * (T.mass > 3000 ? 2 : 1);
     this.speed += acc * dt; this.brake = (fwd < 0 && sp > 0.5) || input.handbrake;
+    { // tyre smoke + exhaust drivers for VehicleSmoke (0..1; it reads and clears them each frame): flooring it from a standstill spins the
+      // driven wheels for a moment (more on powerful cars), throttle against the handbrake is a burnout, a handbrake slide smokes the rears,
+      // stamping on the brakes at speed briefly locks the fronts. Sideways sliding / spinning is read from the motion itself.
+      const ts = this.tireSmoke || (this.tireSmoke = { f: 0, r: 0, launch: 0 }); const heavy = T.mass > 3000, power = clamp((T.accel - 3.2) / 3.5, 0.15, 1);
+      if (fwd > 0.85 && !(this._thr > 0.5) && sp > -0.3 && sp < 1.5 && !heavy) ts.launch = 0.35 + 0.5 * power; this._thr = fwd;
+      if (ts.launch > 0) { ts.launch = fwd > 0.5 ? Math.max(0, ts.launch - dt) : 0; ts.r = Math.max(ts.r, Math.min(1, ts.launch * 1.6) * (0.35 + 0.65 * power) * (T.entry === 'bike' ? 0.5 : 1)); }
+      if (input.handbrake && fwd > 0.5 && Math.abs(sp) < 6 && !heavy) ts.r = Math.max(ts.r, 1);
+      else if (input.handbrake && Math.abs(sp) > 3) ts.r = Math.max(ts.r, clamp(Math.abs(sp) / 14, 0.35, 0.9));
+      if (fwd < -0.5 && sp > 12) ts.f = Math.max(ts.f, 0.25 * clamp((sp - 12) / 12, 0, 1) * (heavy ? 0.5 : 1));
+      this.throttle = Math.max(0, fwd); this.throttleFresh = true; }
     const steerMax = T.steer * lerp(1, 0.35, clamp(Math.abs(sp) / T.maxSpeed, 0, 1));
     this.steer = damp(this.steer, input.steer * steerMax + (flat ? Math.sin(performance.now() * 0.0071) * 0.05 * clamp(Math.abs(sp) / 8, 0, 1) : 0), 6, dt); // flats pull and wobble
     const wb = T.len * 0.62; let yawRate = (this.speed * Math.tan(this.steer)) / wb;
