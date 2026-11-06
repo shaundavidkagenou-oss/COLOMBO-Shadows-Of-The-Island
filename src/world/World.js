@@ -10,6 +10,7 @@ import { buildPropGeometries, buildPropsForChunk, updateSignals, initGlowTexture
 import { buildTreeGeometries, windUniform } from './Vegetation.js';
 import { Forest } from './Forest.js';
 import { buildVines } from './Vines.js';
+import { bootMap, bootMapWorld } from '../debug/boot.js';
 import { buildWater, WaterReflection } from './Water.js';
 import { buildParks } from './Parks.js';
 import { buildParkFeatures } from './ParkFeatures.js';
@@ -37,7 +38,7 @@ export class World {
   }
   async build(progress = () => {}, quality = 'high') {
     progress(0.0, 'Planning Colombo'); await tick();
-    generatePlan();
+    generatePlan(); await bootMap(plan); // saved map-editor edits (src/debug, only loaded when some were saved)
     this.plan = plan; this.collision.addAll(plan.colliders);
     for (const b of plan.buildings) for (const [px, pz, r] of frontColumns(b)) this.collision.add({ x0: px - r - 0.01, x1: px + r + 0.01, z0: pz - r - 0.01, z1: pz + r + 0.01, h: L.LAND_Y + (b.colonnade ? 4.4 : 2.9), kind: 'pole' }); // villa porch + Fort arcade columns
     progress(0.08, 'Laying roads and pavements'); await tick();
@@ -59,7 +60,7 @@ export class World {
       c.group.name = 'chunk' + idx;
       const gm = ground[idx]; if (gm) for (const m of gm.toMeshes(MAT, { cast: false, receive: true })) c.group.add(m);
       const mb = new MultiBuilder(); for (const b of ch.buildings) buildBase(b, mb); for (const w of ch.walls || []) buildWall(w, mb);
-      for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) { if (m.name === 'ao') { m.castShadow = false; m.receiveShadow = false; m.renderOrder = 1; } c.group.add(m); }
+      for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) { m.userData.layer = 'bld'; if (m.name === 'ao') { m.castShadow = false; m.receiveShadow = false; m.renderOrder = 1; } c.group.add(m); }
       c.props = buildPropsForChunk(ch); c.props.visible = false; c.group.add(c.props);
       c.lamps = c.props.userData.lamps || [];
       this.root.add(c.group); this.chunks.push(c);
@@ -91,6 +92,7 @@ export class World {
     // every frame (updateMatrixWorld skips these subtrees). Visual output is identical.
     this.batchStatic(); this.poolProps();
     for (const c of this.chunks) freezeStatic(c.group); freezeStatic(this.parks); freezeStatic(this.outer); freezeStatic(this.batched);
+    await bootMapWorld(this); // saved map-editor objects (primitives, painted textures)
     progress(1, 'City ready');
   }
   // The edge of the playable map is a solid, visible boundary — never an invisible wall at the end of a street.
@@ -181,7 +183,7 @@ export class World {
       if (G.list.length < 2) continue; // nothing to gain
       const B = new THREE.BatchedMesh(G.list.length, G.nv, G.ni, G.mat); B.name = G.name; B.castShadow = G.cast; B.receiveShadow = G.recv; B.renderOrder = G.order; B.layers.mask = G.layers;
       for (const { c, m } of G.list) { m.updateMatrix(); const gid = B.addGeometry(m.geometry); const iid = B.addInstance(gid); B.setMatrixAt(iid, m.matrix);
-        const r = B.getGeometryRangeAt(gid); c.base.push({ name: m.name, batch: B, gid, iid, r }); c.group.remove(m); m.geometry.dispose(); }
+        const r = B.getGeometryRangeAt(gid); c.base.push({ name: m.name, batch: B, gid, iid, r, layer: m.userData.layer }); c.group.remove(m); m.geometry.dispose(); }
       B.computeBoundingSphere(); B.computeBoundingBox(); this.batched.add(B); this.batches.push(B); }
     // read access for code that scans a chunk's ground triangles (grass masks): mesh-like views into the batch buffers
     for (const c of this.chunks) c.baseViews = c.base.map(({ name, batch, r }) => { const ga = batch.geometry; return { isMesh: true, name, geometry: { attributes: { position: ga.attributes.position, uv: ga.attributes.uv }, index: { array: ga.index.array.subarray(r.indexStart, r.indexStart + r.indexCount) } } }; });

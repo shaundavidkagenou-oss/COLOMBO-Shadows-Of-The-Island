@@ -53,6 +53,7 @@ import { Explosions } from './gfx/Explosions.js';
 import { Grenades } from './combat/Grenades.js';
 import { Drunk } from './actors/Drunk.js';
 import { VehicleSmoke } from './gfx/VehicleSmoke.js';
+import { bootRuntime } from './debug/boot.js';
 import { HERO_ROOMS } from './world/HeroRooms.js';
 
 const VNAMES = { tuktuk: 'Three-wheeler', car: 'Hatchback', sedan: 'Sedan', taxi: 'Taxi', van: 'Van', suv: 'SUV', bus: 'SLTB bus', pbus: 'Private bus', lorry: 'Lorry', tow: 'Tow truck', bike: 'Motorcycle', police: 'Police car', policejeep: 'Police jeep', policebike: 'Police motorcycle' };
@@ -80,8 +81,8 @@ export class Game {
     this.screens = new Screens(this.ui, this);
     addEventListener('resize', () => this.resize());
     bus.on('settings', (k) => this.applySettings(k));
-    this.canvas.addEventListener('click', () => { if (this.mode === 'play' && !this.paused) Input.requestLock(this.canvas); });
-    bus.on('pointerlock', (locked) => { if (!locked && this.mode === 'play' && !this.paused && !this.photo && !this.hud.bigMapOpen && !this.director.active && !this.ignoreUnlock && !this.gunShop?.open && !this.debugCon?.menuOpen && !this.debugCon?.open) this.openPause(); });
+    this.canvas.addEventListener('click', () => { if (this.mode === 'play' && !this.paused && !this.editorHook) Input.requestLock(this.canvas); });
+    bus.on('pointerlock', (locked) => { if (!locked && this.mode === 'play' && !this.paused && !this.photo && !this.hud.bigMapOpen && !this.director.active && !this.ignoreUnlock && !this.gunShop?.open && !this.debugCon?.menuOpen && !this.debugCon?.open && !this.editorHook) this.openPause(); });
     bus.on('key', (code) => this.onKey(code));
   }
   // ================================================================= loading (genuine progress)
@@ -126,6 +127,7 @@ export class Game {
     this.vsmoke = new VehicleSmoke(this, Settings.get('quality')); // tyre smoke + exhaust (one draw call, fixed pool)
     this.atmos.update(0.016, new THREE.Vector3(-300, 0, -500), this.camera, 0);
     progress(0.93, 'Compiling shaders'); await tick();
+    await bootRuntime(this); // saved animation / NPC edits (src/debug, only loaded when some were saved)
     this.world.warm(-500, -400); this.world.update(0.016, { x: -500, z: -400 }, this.camera, this.atmos);
     try { if (this.renderer.compileAsync) await Promise.race([this.renderer.compileAsync(this.scene, this.camera), wait(15000)]); else this.renderer.compile(this.scene, this.camera); } catch (e) { console.warn('compile', e); }
     this.wireEvents();
@@ -296,7 +298,7 @@ export class Game {
   // ================================================================= input
   onKey(code) {
     if (this.mode !== 'play' || this.paused) return;
-    if (code === 'Escape') { if (this.gunShop?.open || this.debugCon?.menuOpen || this.debugCon?.open) return; if (this.phone?.open) this.phone.toggle(false); else if (this.photo) this.togglePhoto(false); else if (this.hud.bigMapOpen) this.toggleMap(false); else if (!this.director.active) this.openPause(); }
+    if (code === 'Escape') { if (this.gunShop?.open || this.debugCon?.menuOpen || this.debugCon?.open || this.editorHook) return; if (this.phone?.open) this.phone.toggle(false); else if (this.photo) this.togglePhoto(false); else if (this.hud.bigMapOpen) this.toggleMap(false); else if (!this.director.active) this.openPause(); }
   }
   async openPause() {
     if (this.paused || this.director.active) return; this.paused = true; Input.releaseLock(); Audio.ui('click');
@@ -335,6 +337,7 @@ export class Game {
     try {
       const mapOpen = this.mode === 'play' && this.hud.bigMapOpen; // the pause map freezes the world (and the hidden 3D view is not drawn)
       if (mapOpen) { if (Input.wasPressed('map')) this.toggleMap(false); }
+      else if (this.mode === 'play' && this.editorHook) this.editorHook(dt); // a debug editor (src/debug, loaded only when typed) has the frame: the world is frozen, still drawn
       else if (this.mode === 'play' && !this.paused) this.updatePlay(dt * (this.timeSlow || 1)); // weapon wheel / squad selector slow time
       else if (this.mode === 'menu' || this.mode === 'intro') this.updateAmbient(dt);
       CAM.copy(this.camera.position); updateVehicleLOD(this.camera); if (this.headRig && this.atmos) this.headRig.update(this.camera, this.player && this.player.vehicle, this.atmos.night, this.indoor ? 1 : (this.seamK || 0));

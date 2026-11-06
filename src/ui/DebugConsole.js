@@ -42,6 +42,7 @@ export class DebugConsole {
     });
     addEventListener('keydown', (e) => { // global hot keys (the game's own key bus ignores the console while typing)
       if (this.g.mode !== 'play') return;
+      if (this.g.editorHook) return; // a debug editor has the keyboard
       if (e.code === 'Backquote' && !this.open) { e.preventDefault(); this.toggle(true); }
       else if (e.code === 'Numpad2' && !this.open && this.g.debug.menuEnabled && !this.menuOpen) { this.toggleMenu(true); this.skipNav = true; }
     });
@@ -59,7 +60,7 @@ export class DebugConsole {
     try {
       switch (c) {
         case 'help': ['debug.menu true|false — enable the debug menu (open it with Numpad 2)', 'time <0-24> · freeze [on|off]', `weather <${Object.keys(WEATHER).join('|')}>`, 'money <amount>', 'god [on|off] · ammo [on|off] (infinite) · nowanted [on|off]',
-          `give <all|grenades|${WEAPONS.map((w) => w.id).join('|')}>`, 'tp <place> | tp <x> <z> | tp waypoint · places', 'drunk <0..1> · room <dineth|shashika|david>', `spawn ped [n] · spawn car [${VEH.join('|')}|<catalogue id>]`, 'cars — list the 40 catalogue vehicles (ids for spawn car)', `model <${MODELS.join('|')}|civilian|reset>`, 'dress [outfit] — re-dress pedestrians within 35 m · outfits', 'heal · clear · close'].forEach((s) => this.print('  ' + s)); break;
+          `give <all|grenades|${WEAPONS.map((w) => w.id).join('|')}>`, 'tp <place> | tp <x> <z> | tp waypoint · places', 'drunk <0..1> · room <dineth|shashika|david>', `spawn ped [n] · spawn car [${VEH.join('|')}|<catalogue id>]`, 'cars — list the 40 catalogue vehicles (ids for spawn car)', `model <${MODELS.join('|')}|civilian|reset>`, 'dress [outfit] — re-dress pedestrians within 35 m · outfits', 'animations — animation editor (every animation in the game, keyframes, poses, speed …)', 'map — map editor (move / add / delete / repaint anything, save the map)', 'npc — NPC editor (remodel NPCs: every appearance parameter, proportions, paint on the model, fabric textures)', 'heal · clear · close'].forEach((s) => this.print('  ' + s)); break;
         case 'debug.menu': this.D.menuEnabled = on(a[0], this.D.menuEnabled); if (!this.D.menuEnabled) this.toggleMenu(false); this.print(`debug menu ${this.D.menuEnabled ? 'ENABLED — press Numpad 2 to open it' : 'disabled'}`, 'ok'); break;
         case 'time': this.setTime(+a[0]); break;
         case 'freeze': this.D.freezeTime = on(a[0], this.D.freezeTime); this.print(`clock ${this.D.freezeTime ? 'frozen' : 'running'}`, 'ok'); break;
@@ -79,6 +80,9 @@ export class DebugConsole {
         case 'heal': this.g.health.hp = 100; this.print('healed', 'ok'); break;
         case 'drunk': { const D = this.g.drunk; if (!D) throw new Error('no drunk system'); const v = Math.max(0, Math.min(1.1, +(a[0] ?? 0.8))); D.level = v; D.eff = v; D.hold = 30; this.print(`drunk level ${v.toFixed(2)} (${D.label})`, 'ok'); break; }
         case 'room': { const id = { dineth: 'room', shashika: 'room_shashika', david: 'room_david' }[a[0] || 'dineth']; const I = this.g.interiors; const d = I.doors.find((x) => x.id === id) || (id === 'room' ? { id: 'room', x: this.g.player.x, z: this.g.player.z, rot: 0, faceIn: Math.PI } : null); if (!d) throw new Error('no such room door'); if (I.current) throw new Error('leave the current interior first'); I.enter(d); this.print('entering ' + id, 'ok'); break; }
+        case 'animations': case 'anim': case 'map': case 'npc': case 'npcs': { // the editors are separate modules, downloaded only now
+          const kind = c.startsWith('anim') ? 'animations' : c.startsWith('npc') ? 'npc' : 'map'; this.print(`loading the ${kind} editor…`, 'sys'); this.toggle(false);
+          import('../debug/boot.js').then((m) => m.openEditor(kind, this.g)).catch((e) => { console.error(e); this.toggle(true); this.print('editor failed to load: ' + (e && e.message || e), 'err'); }); break; }
         case 'clear': this.log = []; this.print(''); break;
         case 'close': case 'exit': this.toggle(false); break;
         default: this.print(`unknown command: ${cmd} (type help)`, 'err');
