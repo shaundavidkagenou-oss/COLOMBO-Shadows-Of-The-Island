@@ -7,7 +7,9 @@ import { buildGround } from './GroundBuilder.js';
 import { buildBase, buildDetail, buildWall, buildWindows, windowTasks, frontColumns } from './BuildingGen.js';
 import { buildLandmarks } from './Landmarks.js';
 import { buildPropGeometries, buildPropsForChunk, updateSignals, initGlowTexture } from './Props.js';
-import { buildTreeGeometries, buildTreesForChunk, windUniform } from './Vegetation.js';
+import { buildTreeGeometries, windUniform } from './Vegetation.js';
+import { Forest } from './Forest.js';
+import { buildVines } from './Vines.js';
 import { buildWater, WaterReflection } from './Water.js';
 import { buildParks } from './Parks.js';
 import { buildParkFeatures } from './ParkFeatures.js';
@@ -30,7 +32,7 @@ export class World {
   constructor(scene) {
     this.scene = scene; this.root = new THREE.Group(); this.root.name = 'world'; scene.add(this.root);
     this.collision = new Collision(); this.chunks = []; this.detailQueue = []; this.signalTimer = 0; this.t = 0;
-    this.detailRadius = 330; this.job = null; this.wjob = null; this.revealQ = []; this.jobBudgetMs = 2.5; this.windowRadius = 150; this.propRadius = 430; this.treeRadius = 520;
+    this.detailRadius = 330; this.job = null; this.wjob = null; this.revealQ = []; this.jobBudgetMs = 2.5; this.windowRadius = 150; this.propRadius = 430; this.treeRadius = 520; this.vineRadius = 240;
     this.lampLights = [];
   }
   async build(progress = () => {}, quality = 'high') {
@@ -47,7 +49,8 @@ export class World {
     { const fs = buildFuelStations(); this.fuel = fs; this.root.add(fs.group); this.collision.addAll(fs.colliders); } // four filling stations (FuelStations.js)
     { // second crown-clearance pass against the landmark buildings (they only exist now): no leaves inside them either
       const boxes = landmarkTreeBoxes(this.collision.list.filter((c) => c.kind === 'landmark' && !c.fuel)).concat(this.fuel.crownBoxes); const r = refitTreeCrowns(boxes);
-      if (r.changed.size) { this.collision.remove((c) => r.changed.has(c)); this.collision.addAll(r.keep); } }
+      if (r.changed.size) { this.collision.remove((c) => r.changed.has(c)); this.collision.addAll(r.keep); }
+      plan.plants = (plan.plants || []).filter((p) => !boxes.some((b) => p.x > b[0] - 0.5 && p.x < b[1] + 0.5 && p.z > b[2] - 0.5 && p.z < b[3] + 0.5)); } // no shrub inside a landmark or forecourt
     progress(0.3, 'Street furniture and trees'); await tick();
     buildPropGeometries(); buildTreeGeometries(); initGlowTexture();
     for (let idx = 0; idx < NCX * NCZ; idx++) {
@@ -58,11 +61,14 @@ export class World {
       const mb = new MultiBuilder(); for (const b of ch.buildings) buildBase(b, mb); for (const w of ch.walls || []) buildWall(w, mb);
       for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) { if (m.name === 'ao') { m.castShadow = false; m.receiveShadow = false; m.renderOrder = 1; } c.group.add(m); }
       c.props = buildPropsForChunk(ch); c.props.visible = false; c.group.add(c.props);
-      c.trees = buildTreesForChunk(ch); if (c.trees) { c.trees.visible = false; c.group.add(c.trees); }
       c.lamps = c.props.userData.lamps || [];
       this.root.add(c.group); this.chunks.push(c);
       if (idx % 6 === 0) { progress(0.3 + 0.55 * idx / (NCX * NCZ), 'Building districts'); await tick(); }
     }
+    // every tree, palm, banana clump, shrub, fern and weed: a few batched meshes with cell culling + LOD (Forest.js)
+    this.forest = new Forest(plan.trees, plan.plants || [], quality || 'high'); this.root.add(this.forest.group);
+    for (const c of this.chunks) c.trees = this.forest.chunkHandle(c.cx - CHUNK / 2, c.cz - CHUNK / 2, CHUNK);
+    this.vines = buildVines(plan, this.chunks); this.root.add(this.vines.warm); // creepers up compound walls and house walls, bougainvillea over the copings (Vines.js)
     this.parks = buildParks(MAT); this.root.add(this.parks);
     this.parkFeatures = buildParkFeatures(MAT); this.root.add(this.parkFeatures.group); // Viharamahadevi Park: golden Buddha, lily ponds + bridges, play area + Jet Provost, Cenotaph, railing
     this.parkLife = new ParkLife(this, this.parkFeatures, quality); this.root.add(this.parkLife.group); // fireflies, fountain water, fruit bats, oil lamps
@@ -209,7 +215,7 @@ export class World {
     for (const c of this.chunks) {
       const d = Math.max(0, Math.hypot(c.cx - fx, c.cz - fz) - CHUNK * 0.7);
       { const v = d < this.propRadius; if (v !== c.props.visible) { c.props.visible = v; this.propDirty = true; } }
-      if (c.trees) c.trees.visible = d < this.treeRadius;
+      if (c.vines) c.vines.visible = d < this.vineRadius;
       if (d < this.detailRadius) {
         if (!c.detail && budget > 0 && !this.job) { budget--; this.startDetailJob(c); } /* built over several frames: see stepDetailJob */
         else if (c.detail) c.detail.visible = true;
@@ -218,6 +224,7 @@ export class World {
       else if (c.win) { c.win.visible = false; if (d > this.windowRadius + 120) this.disposeWindows(c); }
     }
     if (this.propDirty && this.propPools) { this.propDirty = false; this.repackProps(); }
+    if (this.forest) this.forest.update(focus, camera);
     if (this.revealQ.length) this.revealStep();
     if (this.job) this.stepDetailJob(this.jobBudgetMs);
     if (this.wjob) this.stepWinJob(this.jobBudgetMs);
@@ -311,6 +318,6 @@ export class World {
       l.userData.lamp = lamp; l.userData.k = 0; decal(lamp, false); l.position.set(lamp[0], lamp[1] - 0.4, lamp[2]); l.target.position.set(lamp[0], ROAD_Y, lamp[2] + 0.001); l.target.updateMatrixWorld(); lit.add(lamp); }
     for (const l of this.lampLights) { const u = l.userData; const I = u.lamp ? base * u.k : 0; if (l.intensity !== I) l.intensity = I; if (l.castShadow) l.shadow.autoUpdate = I > 0; } /* FPS: an unlit pooled lamp (all day, parked at y -600) no longer re-renders its shadow map every frame */
   }
-  setQuality(q) { this.quality = q; if (this.grass) this.grass.setQuality(q); if (this.parkLife) this.parkLife.setQuality(q); if (this.parks && this.parks.userData.flowers) this.parks.userData.flowers.setQuality(q); const s = q === 'low' ? 0.6 : q === 'medium' ? 0.8 : q === 'ultra' ? 1.25 : 1; this.detailRadius = 330 * s; this.windowRadius = q === 'low' ? 0 : q === 'medium' ? 90 : q === 'ultra' ? 210 : 150; this.propRadius = 430 * s; this.treeRadius = 520 * s; }
+  setQuality(q) { this.quality = q; if (this.grass) this.grass.setQuality(q); if (this.forest) this.forest.setQuality(q); if (this.parkLife) this.parkLife.setQuality(q); if (this.parks && this.parks.userData.flowers) this.parks.userData.flowers.setQuality(q); const s = q === 'low' ? 0.6 : q === 'medium' ? 0.8 : q === 'ultra' ? 1.25 : 1; this.detailRadius = 330 * s; this.windowRadius = q === 'low' ? 0 : q === 'medium' ? 90 : q === 'ultra' ? 210 : 150; this.propRadius = 430 * s; this.treeRadius = 520 * s; }
 }
 export { plan };

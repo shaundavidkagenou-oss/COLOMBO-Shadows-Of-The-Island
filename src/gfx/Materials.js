@@ -85,6 +85,12 @@ export function buildMaterials() {
   MAT.leavesBright = std({ map: TEX.leavesBright, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9, vertexColors: true });
   MAT.palm = std({ map: TEX.palm, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85, vertexColors: true });
   MAT.bark = std({ color: 0x6b5a48, roughness: 1, vertexColors: true });
+  // trees / plants (Forest.js): real bark and palm-trunk textures, small-leaf sprigs (creepers, shrubs), banana blades, flowers
+  MAT.treeBark = std({ map: TEX.bark, color: 0xb8a894, roughness: 1, vertexColors: true });
+  MAT.palmBark = std({ map: TEX.palmBark, roughness: 1, vertexColors: true });
+  MAT.leavesSmall = std({ map: TEX.leavesSmall, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9, vertexColors: true });
+  MAT.banana = std({ map: TEX.banana, alphaTest: 0.4, side: THREE.DoubleSide, roughness: 0.75, vertexColors: true });
+  MAT.bloom = std({ roughness: 0.7, side: THREE.DoubleSide, vertexColors: true });
   // baked contact occlusion: gradient geometry at wall bases / along their footings, multiplied over what is already drawn
   // (darkens only, never lightens; no fog so distant facades are not tinted)
   MAT.ao = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.MultiplyBlending, premultipliedAlpha: true, depthWrite: false, fog: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });

@@ -28,7 +28,8 @@ e = T('propGeo'); P.buildPropGeometries(); e();
 const V = await import('../src/world/Vegetation.js');
 e = T('treeGeo'); V.buildTreeGeometries(); e();
 e = T('chunks'); let pt = 0, tt = 0;
-for (const ch of plan.byChunk) { const g = P.buildPropsForChunk(ch); pt += tris(g); const tg = V.buildTreesForChunk(ch); if (tg) tt += tris(tg); } e();
+for (const ch of plan.byChunk) { const g = P.buildPropsForChunk(ch); pt += tris(g); } e();
+{ const { Forest } = await import('../src/world/Forest.js'); e = T('forest'); const F = new Forest(plan.trees, plan.plants, 'high'); e(); for (const m of F.meshes) tt += m.geometry.index.count / 3; console.log('forest', F.stats); }
 console.log('prop tris', pt, 'tree tris', tt);
 const W = await import('../src/world/Water.js');
 e = T('water'); const w = W.buildWater(); e(); console.log('water tris', tris(w));

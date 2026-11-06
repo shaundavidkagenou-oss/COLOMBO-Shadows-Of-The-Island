@@ -5,6 +5,7 @@ import * as L from './Layout.js';
 import { onParkFeature, parkColliders, parkLamps, PARK, BAT_TREES, PLAY_ITEMS } from './Parks.js';
 import { SIGNS, SHOP_ROWS } from '../gfx/Textures.js';
 import { crownPoints } from './TreeShapes.js';
+import { greenTrees, greenPlants } from './Greenery.js';
 
 export const CHUNK = 200;
 export const NCX = Math.ceil((L.BOUNDS.maxX - L.BOUNDS.minX) / CHUNK), NCZ = Math.ceil((L.BOUNDS.maxZ - L.BOUNDS.minZ) / CHUNK);
@@ -22,7 +23,7 @@ const PAINTS = {
   modern: ['#ffffff', '#f0f0f0', '#e8e6e0', '#dfe6ea'],
 };
 export const plan = {
-  buildings: [], props: [], trees: [], colliders: [], parking: [], busStops: [], poi: [], walls: [], vendors: [],
+  buildings: [], props: [], trees: [], plants: [], colliders: [], parking: [], busStops: [], poi: [], walls: [], vendors: [],
   byChunk: [], // { buildings:[], props:[], trees:[], poi:[] }
 };
 for (let i = 0; i < NCX * NCZ; i++) plan.byChunk.push({ buildings: [], props: [], trees: [], poi: [], walls: [] });
@@ -342,7 +343,7 @@ export function crownHits(type, x, z, yaw, s, sy, sq, boxes) {
     for (let k = 0; k < boxes.length; k++) { const b = boxes[k]; if (ly < b[4] && wx > b[0] && wx < b[1] && wz > b[2] && wz < b[3]) return true; } }
   return false;
 }
-const REACH = { rain: 13, mara: 9, bo: 9, palm: 7, mango: 6.6, jak: 6.2, frangipani: 4.5 };
+const REACH = { rain: 13, mara: 9, bo: 9, palm: 7, mango: 6.6, jak: 6.2, frangipani: 4.5, areca: 4.2, banana: 3.4 };
 let EXTRA = null; // extra solid volumes (landmark buildings, from World) bucketed on a 50 m grid
 // Second pass, run by World once the landmark buildings exist: refit every tree against them too. Returns the trunk
 // colliders that moved or were removed so World can re-file them in the collision grid.
@@ -472,6 +473,7 @@ export function generatePlan() {
     plan.props = plan.props.filter((p) => !drop.has(p)); plan.trees = plan.trees.filter((t) => !dropT.has(t)); plan.walls = plan.walls.filter((w) => !dropW.has(w)); plan.colliders = plan.colliders.filter((c) => !cols.has(c));
     const dq = (q) => inRes(q.x, q.z); plan.poi = plan.poi.filter((q) => !dq(q)); plan.busStops = plan.busStops.filter((q) => !dq(q)); plan.parking = plan.parking.filter((q) => !dq(q));
     for (const ch of plan.byChunk) { ch.props = ch.props.filter((p) => !drop.has(p)); ch.trees = ch.trees.filter((t) => !dropT.has(t)); ch.walls = ch.walls.filter((w) => !dropW.has(w)); ch.poi = ch.poi.filter((q) => !dq(q)); } }
+  greenTrees({ plan, addTree, onRailReserve, inSchool }); // more street trees + garden trees, banana clumps, areca palms (Greenery.js, own RNG)
   // no tree may grow inside (or through) a building. Garden/back-lot trees planted against a wall are moved out to 1.6 m
   // from it (crown no longer pushes through the facade); if there is no free spot they are dropped. Around the landmark
   // buildings with walk-in interiors (Police HQ, Galle Face Hotel) the whole crown must stay outside the walls.
@@ -502,7 +504,8 @@ export function generatePlan() {
       for (const ch of plan.byChunk) ch.trees = ch.trees.filter((t) => !drop.has(t)); }
     plan.treeFix = { moved, dropped: drop.size }; }
   fitTreeCrowns();
-  plan.stats = { buildings: plan.buildings.length, props: plan.props.length, trees: plan.trees.length, parking: plan.parking.length, poi: plan.poi.length, ms: Math.round(performance.now() - t0) };
+  greenPlants({ plan }); // shrubs, ferns, weeds (Greenery.js) → plan.plants
+  plan.stats = { buildings: plan.buildings.length, props: plan.props.length, trees: plan.trees.length, plants: plan.plants.length, parking: plan.parking.length, poi: plan.poi.length, ms: Math.round(performance.now() - t0) };
   return plan;
 }
 export { missionSigns };

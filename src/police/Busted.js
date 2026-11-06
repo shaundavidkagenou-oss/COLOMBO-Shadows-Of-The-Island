@@ -141,7 +141,7 @@ export class BustedCinematic {
   nearMeshes() {
     if (this._near) return this._near; const out = []; const root = this.g.world && this.g.world.root, P = this.g.player; this._near = out; if (!root || !root.traverse) return out;
     const sph = new THREE.Sphere(); root.updateMatrixWorld(true);
-    root.traverse((m) => { if (!m.isMesh || m.visible === false || !m.geometry) return; let bs;
+    root.traverse((m) => { if (!m.isMesh || m.visible === false || !m.geometry || m.isBatchedMesh || (m.name && m.name.startsWith('vine'))) return; let bs; // (foliage never blocks the lens: the batched forest / vines are skipped)
       if (m.isInstancedMesh) { if (!m.boundingSphere && m.computeBoundingSphere) m.computeBoundingSphere(); bs = m.boundingSphere; } else { if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere(); bs = m.geometry.boundingSphere; }
       if (!bs) return; sph.copy(bs).applyMatrix4(m.matrixWorld); if (Math.hypot(sph.center.x - P.x, sph.center.z - P.z) < sph.radius + 20) out.push(m); });
     return out;

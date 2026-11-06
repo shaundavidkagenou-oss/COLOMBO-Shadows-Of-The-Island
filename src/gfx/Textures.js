@@ -548,13 +548,54 @@ function palmFrond(size) { // alpha-tested leaflets
   }
   const t = toTex(c, { repeat: false }); return t;
 }
-function leafCluster(size, hues = ['#2f5a1e', '#3d6e26', '#4c7f2e', '#28501a', '#5c8c38']) {
-  const c = canvas(size, size), ctx = c.getContext('2d'), rng = new RNG(121);
-  for (let k = 0; k < 260; k++) {
-    const a = rng.next() * Math.PI * 2, r = Math.sqrt(rng.next()) * size * 0.45; const x = size / 2 + Math.cos(a) * r, y = size / 2 + Math.sin(a) * r;
-    ctx.fillStyle = rng.pick(hues); ctx.beginPath(); ctx.ellipse(x, y, rng.range(5, 10), rng.range(3, 5), rng.next() * 3, 0, 7); ctx.fill();
-  }
+// A sprig of real leaves (alpha-cut card): a forked twig with pointed-oval leaves along each branch, every leaf with a lit and a
+// shaded half either side of its midrib, a darker rim and a pale midrib; leaves overlap toward the middle, leaving natural gaps
+// at the edge (no disc of blobs). shape: 'oval' (mango / rain tree / bo-like), 'small' (dense small leaves: ficus, hedges, creepers)
+function leafCluster(size, hues = ['#2f5a1e', '#3d6e26', '#4c7f2e', '#28501a', '#5c8c38'], seed = 121, shape = 'oval') {
+  const c = canvas(size, size), ctx = c.getContext('2d'), rng = new RNG(seed); const S = size / 256, C = size / 2;
+  const shade = (hex, k) => { const n = parseInt(hex.slice(1), 16); const f = (v) => Math.max(0, Math.min(255, Math.round(v * k))); return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`; };
+  const leaf = (x, y, ang, len, wid, hue) => { ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+    const half = (sg, k) => { ctx.fillStyle = shade(hue, k); ctx.beginPath(); ctx.moveTo(0, 0); ctx.bezierCurveTo(len * 0.25, sg * wid * 1.05, len * 0.7, sg * wid * 0.9, len, 0); ctx.closePath(); ctx.fill(); };
+    half(-1, 1.12); half(1, 0.82); // light catches one side of the fold
+    ctx.strokeStyle = shade(hue, 0.6); ctx.lineWidth = 0.9 * S; ctx.beginPath(); ctx.moveTo(0, 0); ctx.bezierCurveTo(len * 0.25, -wid * 1.05, len * 0.7, -wid * 0.9, len, 0); ctx.bezierCurveTo(len * 0.7, wid * 0.9, len * 0.25, wid * 1.05, 0, 0); ctx.stroke();
+    ctx.strokeStyle = shade(hue, 1.45); ctx.lineWidth = 0.8 * S; ctx.beginPath(); ctx.moveTo(len * 0.04, 0); ctx.lineTo(len * 0.9, 0); ctx.stroke();
+    ctx.restore(); };
+  const twig = (x0, y0, x1, y1, w) => { ctx.strokeStyle = '#4a3a26'; ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); };
+  const nB = shape === 'small' ? 9 : 6; const leaves = [];
+  for (let b = 0; b < nB; b++) { const a = (b / nB) * Math.PI * 2 + rng.range(-0.25, 0.25); const L = size * rng.range(0.3, 0.42); const ex = C + Math.cos(a) * L, ey = C + Math.sin(a) * L;
+    twig(C + Math.cos(a) * size * 0.04, C + Math.sin(a) * size * 0.04, ex, ey, 1.6 * S);
+    const nL = shape === 'small' ? 10 : 6; for (let k = 0; k < nL; k++) { const t = 0.2 + 0.8 * (k / (nL - 1)); const px = C + Math.cos(a) * L * t, py = C + Math.sin(a) * L * t;
+      for (const sg of k === nL - 1 ? [0] : [-1, 1]) { const la = a + sg * rng.range(0.5, 0.95); const len = (shape === 'small' ? rng.range(11, 17) : rng.range(26, 40)) * S * (1.05 - 0.3 * t * (shape === 'small' ? 0 : 1)); const wid = len * (shape === 'small' ? rng.range(0.32, 0.42) : rng.range(0.2, 0.3));
+        if (Math.hypot(px + Math.cos(la) * len - C, py + Math.sin(la) * len - C) > size * 0.49) continue; leaves.push([px, py, la, len, wid, rng.pick(hues), rng.next()]); } } }
+  leaves.sort((p, q) => p[6] - q[6]); for (const l of leaves) leaf(l[0], l[1], l[2], l[3], l[4], l[5]);
   return toTex(c, { repeat: false });
+}
+// banana leaf (u across the blade, v along it): wide blade, pale midrib, fine parallel veins sweeping out to the edge, torn
+// slits running in from the edge along the veins (alpha), browned tattered margins
+function bananaLeaf(w, h) {
+  const c = canvas(w, h), ctx = c.getContext('2d'), rng = new RNG(171); const cx = w / 2;
+  ctx.clearRect(0, 0, w, h);
+  const halfW = (v) => w * 0.47 * Math.pow(Math.sin(Math.PI * Math.min(1, v * 1.04 + 0.02)), 0.55);
+  for (const sg of [-1, 1]) { ctx.beginPath(); ctx.moveTo(cx, 0); for (let i = 0; i <= 40; i++) { const v = i / 40; ctx.lineTo(cx + sg * halfW(v), v * h); } ctx.lineTo(cx, h); ctx.closePath();
+    const g = ctx.createLinearGradient(cx, 0, cx + sg * w * 0.5, 0); g.addColorStop(0, sg < 0 ? '#5f9a34' : '#4f8a2c'); g.addColorStop(0.85, sg < 0 ? '#6aa63c' : '#5a9532'); g.addColorStop(1, '#8a8a3a'); ctx.fillStyle = g; ctx.fill(); }
+  ctx.lineWidth = 1; for (let y = 4; y < h; y += 3) { for (const sg of [-1, 1]) { ctx.strokeStyle = `rgba(${sg < 0 ? '40,80,20' : '30,66,16'},${rng.range(0.25, 0.5)})`; ctx.beginPath(); ctx.moveTo(cx, y); ctx.quadraticCurveTo(cx + sg * w * 0.2, y + 6, cx + sg * halfW(y / h), y + 14); ctx.stroke(); } }
+  ctx.globalCompositeOperation = 'destination-out'; // tears along the veins
+  for (let k = 0; k < 26; k++) { const sg = rng.chance(0.5) ? -1 : 1, y = rng.range(0.1, 0.95) * h, d = rng.range(0.3, 0.92); ctx.lineWidth = rng.range(1.2, 2.6); ctx.beginPath(); ctx.moveTo(cx + sg * halfW(y / h) * 1.05, y + 14); ctx.quadraticCurveTo(cx + sg * halfW(y / h) * (1 - d * 0.5), y + 8, cx + sg * halfW(y / h) * (1 - d), y + 3); ctx.stroke(); }
+  ctx.globalCompositeOperation = 'source-atop'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(120,96,40,0.55)'; // dry margin
+  for (const sg of [-1, 1]) { ctx.beginPath(); for (let i = 0; i <= 40; i++) { const v = i / 40; ctx.lineTo(cx + sg * halfW(v), v * h); } ctx.stroke(); }
+  ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = '#b8c87a'; ctx.fillRect(cx - 2.5, 0, 5, h); ctx.fillStyle = 'rgba(60,90,30,0.5)'; ctx.fillRect(cx + 1.5, 0, 1.5, h); // midrib
+  return toTex(c, { repeat: false });
+}
+// tree bark (tiles): vertical fissured ridges with lichen flecks, grey-brown; palm trunk: horizontal leaf-scar rings
+function barkTex(size, palm = false) {
+  const c = canvas(size, size), ctx = c.getContext('2d'), rng = new RNG(palm ? 183 : 181);
+  ctx.fillStyle = palm ? '#8a7d68' : '#6e5e4c'; ctx.fillRect(0, 0, size, size);
+  if (palm) { for (let r = 0; r < 8; r++) { const y = (r + 0.5) * size / 8; ctx.fillStyle = 'rgba(40,32,24,0.55)'; ctx.fillRect(0, y - 2, size, 4); ctx.fillStyle = 'rgba(200,190,170,0.18)'; ctx.fillRect(0, y + 2, size, 3);
+      for (let x = 0; x < size; x += 4) { ctx.fillStyle = `rgba(${rng.chance(0.5) ? '60,50,38' : '150,140,120'},${rng.range(0.05, 0.2)})`; ctx.fillRect(x, y - size / 16 + rng.range(0, 6), 3, rng.range(6, size / 10)); } } }
+  else { for (let k = 0; k < 70; k++) { const x = rng.range(0, size), w = rng.range(2, 6); ctx.strokeStyle = `rgba(35,26,18,${rng.range(0.35, 0.7)})`; ctx.lineWidth = w; ctx.beginPath(); let px = x; ctx.moveTo(px, 0); for (let y = 0; y <= size; y += 16) { px += rng.range(-3, 3); ctx.lineTo(px, y); } ctx.stroke();
+      ctx.strokeStyle = `rgba(170,150,125,${rng.range(0.08, 0.2)})`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x + w, 0); ctx.lineTo(x + w + rng.range(-4, 4), size); ctx.stroke(); }
+    for (let k = 0; k < 60; k++) { ctx.fillStyle = `rgba(${rng.chance(0.6) ? '150,160,120' : '190,190,170'},${rng.range(0.12, 0.3)})`; ctx.beginPath(); ctx.ellipse(rng.range(0, size), rng.range(0, size), rng.range(2, 7), rng.range(1.5, 5), 0, 0, 7); ctx.fill(); } }
+  return toTex(c, { repeat: true });
 }
 function fabricPlaid(size, seed = 131) { // sarong check (grayscale, tinted per instance)
   const c = canvas(size, size), ctx = c.getContext('2d'), rng = new RNG(seed);
@@ -684,7 +725,7 @@ export async function buildTextures(quality = 'high', progress = () => {}) {
       TEX.glow = radial(128, [[0, 'rgba(255,255,255,1)'], [0.25, 'rgba(255,255,255,0.5)'], [1, 'rgba(255,255,255,0)']]);
       TEX.pool = radial(128, [[0, 'rgba(255,255,255,0.9)'], [0.5, 'rgba(255,255,255,0.35)'], [1, 'rgba(255,255,255,0)']]);
     }],
-    ['foliage', () => { TEX.palm = palmFrond(512); TEX.leaves = leafCluster(256); TEX.leavesBright = leafCluster(256, ['#4a7a2a', '#5f9236', '#6fa040', '#3e6a22', '#86b04e']); }],
+    ['foliage', () => { TEX.palm = palmFrond(512); TEX.leaves = leafCluster(512); TEX.leavesBright = leafCluster(512, ['#4a7a2a', '#5f9236', '#6fa040', '#3e6a22', '#86b04e'], 123); TEX.leavesSmall = leafCluster(256, ['#2c5a1c', '#3a6a24', '#47782c', '#2a4f18', '#55863a'], 127, 'small'); TEX.banana = bananaLeaf(128, 512); TEX.bark = barkTex(256); TEX.palmBark = barkTex(256, true); }],
     ['fabrics', () => { TEX.plaid = fabricPlaid(256); TEX.saree = fabricSaree(256); TEX.batik = fabricBatik(256); TEX.weave = fabricWeave(128); }],
   ];
   for (let i = 0; i < steps.length; i++) {
