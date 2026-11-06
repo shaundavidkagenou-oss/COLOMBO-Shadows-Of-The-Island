@@ -1,21 +1,23 @@
 // The people of The Velvet Monsoon (world/Club.js): four featured dancers, staff and customers. All adults (ages set
-// explicitly, 24–31 for the dancers); fictional characters with stage names. Dancers wear club dancewear (sleeveless crop
-// top or leotard, high-cut shorts, platform heels) — covered, nothing explicit. Kept free of browser-only imports so the
+// explicitly, 24–31 for the dancers); fictional characters with stage names. Dancers wear two-piece stage bikinis (bandeau top,
+// briefs) and platform heels — covered, nothing explicit; strong colours that never read as bare skin. Kept free of browser-only imports so the
 // Node tests can build them.
 import { makeAppearance } from '../actors/Appearance.js';
 
 export const DANCERS = [
-  { name: 'Ruby', seed: 7101, age: 26, height: 1.69, build: 0.96, hair: 'long', hairColor: '#120c08', style: 'crop', top: '#b0122c', bottom: '#14080c', shoes: '#b0122c', necklace: true },
-  { name: 'Jade', seed: 7102, age: 29, height: 1.66, build: 0.98, hair: 'ponytail', hairColor: '#1a120c', style: 'crop', top: '#0d7356', bottom: '#0d7356', shoes: '#101010' },
-  { name: 'Opal', seed: 7103, age: 24, height: 1.71, build: 0.94, hair: 'bob', hairColor: '#0e0a08', style: 'leotard', top: '#d9d4e6', bottom: '#d9d4e6', shoes: '#d9d4e6' },
-  { name: 'Saffron', seed: 7104, age: 31, height: 1.64, build: 1.0, hair: 'shoulder', hairColor: '#2a1a10', style: 'leotard', top: '#d9861a', bottom: '#d9861a', shoes: '#1a1210', necklace: true },
+  { name: 'Ruby', seed: 7101, age: 26, height: 1.69, build: 0.96, hair: 'long', hairColor: '#120c08', style: 'bikini', top: '#b0122c', bottom: '#b0122c', shoes: '#b0122c', necklace: true },
+  { name: 'Jade', seed: 7102, age: 29, height: 1.66, build: 0.98, hair: 'ponytail', hairColor: '#1a120c', style: 'bikini', top: '#0d7356', bottom: '#0d7356', shoes: '#101010' },
+  { name: 'Opal', seed: 7103, age: 24, height: 1.71, build: 0.94, hair: 'bob', hairColor: '#0e0a08', style: 'bikini', top: '#5b2fa8', bottom: '#5b2fa8', shoes: '#d9d4e6' },
+  { name: 'Saffron', seed: 7104, age: 31, height: 1.64, build: 1.0, hair: 'shoulder', hairColor: '#2a1a10', style: 'bikini', top: '#d9861a', bottom: '#d9861a', shoes: '#1a1210', necklace: true },
 ];
 export function dancerSpec(d) {
-  const crop = d.style === 'crop';
   return makeAppearance(d.seed, {
     preset: 'f_student', outfit: 'dancewear', label: `Dancer (${d.name})`, ageYears: d.age, height: d.height, build: d.build, belly: 0,
     hair: d.hair, hairColor: d.hairColor, top: d.top, bottom: d.bottom, sleeveless: true, longSleeve: false, collar: false,
-    shorts: true, shortsY: crop ? 0.8 : 0.85, midriff: crop, cropY: 1.2, waistY: 0.975,
+    // two-piece stage bikini: bandeau top over the whole bust (under-bust line 1.135 → 1.39, so no part of the bust's curve
+    // shows below or above it), low-rise briefs with a high-cut leg line; chest secondary motion is a small damped spring
+    // (Character.updateBust)
+    bikini: true, bikiniTopY: 1.39, bustSpring: true, shorts: true, shortsY: 0.865, midriff: true, cropY: 1.135, waistY: 0.935,
     heels: true, shoes: d.shoes, sole: '#0b0b0d', sandals: false, earrings: true, necklace: !!d.necklace,
     bag: undefined, crossbody: undefined, lanyard: undefined, glasses: false, sunglasses: false, watch: undefined, cap: undefined, skirt: undefined,
   });

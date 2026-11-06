@@ -325,6 +325,15 @@ export class PoleDancer {
     th.quaternion.copy(thQ); sh.quaternion.copy(shinQ); (this.kn[S] || (this.kn[S] = new THREE.Vector3())).copy(u1).applyQuaternion(thQ).normalize();
     sh.updateWorldMatrix(true, false); const want = _q6.copy(gq).multiply(_q1); const shW = sh.getWorldQuaternion(_q7); ft.quaternion.copy(shW.invert().multiply(want));
   }
+  // how far the forearm sinks into the pole (m, > 0 = inside): the forearm as a tapered tube (elbow r 4.2 cm → 2.9 cm at
+  // 80 % of the way to the wrist; the last bit next to a gripping hand is the hand's business)
+  foreHit(b, S, g) {
+    const fo = b['fore' + S], hd = b['hand' + S]; fo.updateWorldMatrix(true, true); const e = g.worldToLocal(fo.getWorldPosition(_w3)), wx = e.x, wy = e.y, wz = e.z;
+    const h = g.worldToLocal(hd.getWorldPosition(_w3)); const px = this.pole.x, pz = this.pole.z, s = this.s || 1; let worst = -9;
+    for (let k = 0; k <= 8; k++) { const t = (k / 8) * 0.8, x = wx + (h.x - wx) * t, y = wy + (h.y - wy) * t, z = wz + (h.z - wz) * t; if (y < this.pole.y0 || y > this.pole.y1) continue;
+      worst = Math.max(worst, POLE_R + (0.042 + (0.029 - 0.042) * (t / 0.8)) * s - Math.hypot(x - px, z - pz)); }
+    return worst;
+  }
   arm(b, S, Hd, g, gq, i) {
     const chest = b.chest; chest.updateWorldMatrix(true, false);
     const tw = g.localToWorld(_v1.set(Hd.p[0], Hd.p[1], Hd.p[2])); const target = chest.worldToLocal(_v2.copy(tw));
@@ -337,6 +346,13 @@ export class PoleDancer {
     const pole = _v7.set(Hd.el[0], Hd.el[1], Hd.el[2]).applyQuaternion(gq).applyQuaternion(parQi);
     const ep = this.elb[S]; if (ep) { const ax = par.worldToLocal(_v9.copy(tw)).sub(b['arm' + S].position).normalize(); limitSwivel(pole, ep, ax, this.maxSwivel); } // elbow: a hand passing close to the shoulder never flips it
     solveArmIK(b, S, target, qC, 1, pole);
+    // forearm clear of the pole: if the forearm (elbow → just short of the wrist) comes within its own radius of the pole,
+    // swivel the elbow round the shoulder→hand line (the hand stays exactly where it is) by the smallest angle that clears it
+    { const F = this.fsw || (this.fsw = {}); const cur = F[S] || 0; let tgt = 0;
+      if (this.foreHit(b, S, g) > 0 || cur) { const ax = par.worldToLocal(_w1.copy(tw)).sub(b['arm' + S].position).normalize(); const p0 = _w2.copy(pole); let best = null;
+        for (const da of [0, 0.08, -0.08, 0.16, -0.16, 0.26, -0.26, 0.4, -0.4]) { if (da) { pole.copy(p0).applyAxisAngle(ax, da); solveArmIK(b, S, target, qC, 1, pole); } const hit = this.foreHit(b, S, g); if (!best || hit < best.hit - 1e-4) best = { da, hit }; if (hit <= 0) break; }
+        tgt = best.da; const step = this.maxSwivel * 0.3; const nw = cur + Math.max(-step, Math.min(step, tgt - cur)); F[S] = Math.abs(nw) < 1e-4 ? 0 : nw; // eased, never snapped
+        pole.copy(p0).applyAxisAngle(ax, F[S]); solveArmIK(b, S, target, qC, 1, pole); } }
     (this.elb[S] || (this.elb[S] = new THREE.Vector3())).copy(b['fore' + S].position).applyQuaternion(b['arm' + S].quaternion).normalize();
     if (Hd.grip > 0.5) { b['hand' + S].updateWorldMatrix(true, false); const hw = b['hand' + S].getWorldPosition(_v8); g.worldToLocal(hw); this.debug.reach[i] = Math.hypot(hw.x - Hd.p[0], hw.y - Hd.p[1], hw.z - Hd.p[2]); } else this.debug.reach[i] = 0;
   }

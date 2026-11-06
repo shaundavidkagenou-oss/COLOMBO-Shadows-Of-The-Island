@@ -927,14 +927,15 @@ export class Character {
   // force (acceleration minus gravity) in its own frame, relative to standing still upright; ~2.3 Hz, lightly damped
   updateBust(dt) {
     const B = this.bust, e = this.bones.chest.matrixWorld.elements; const p = _bp.set(e[12], e[13], e[14]);
-    if (!B.p || !(dt > 0) || dt > 0.1) { B.p = (B.p || new THREE.Vector3()).copy(p); B.v.set(0, 0, 0); return; }
+    if (!B.p || !(dt > 0) || dt > 0.1) { B.p = (B.p || new THREE.Vector3()).copy(p); B.v.set(0, 0, 0); B.a = (B.a || new THREE.Vector3()).set(0, 0, 0); return; }
     const vel = _bv.copy(p).sub(B.p).divideScalar(dt), acc = _ba.copy(vel).sub(B.v).divideScalar(dt); B.v.copy(vel); B.p.copy(p);
-    if (acc.length() > 60) acc.setLength(60); acc.y += 9.81;
+    if (acc.length() > 25) acc.setLength(25); B.a.lerp(acc, 1 - Math.exp(-dt / 0.035)); // twice-differentiated positions are noisy: a short low-pass
+    const a = _ba.copy(B.a); a.y += 9.81;
     const uL = Math.hypot(e[4], e[5], e[6]) || 1, sL = Math.hypot(e[0], e[1], e[2]) || 1;
-    const fUp = (acc.x * e[4] + acc.y * e[5] + acc.z * e[6]) / uL - 9.81, fSd = (acc.x * e[0] + acc.y * e[1] + acc.z * e[2]) / sL;
-    const w = 14.5, z = 0.24, h = dt / 2;
-    for (let k = 0; k < 2; k++) { B.vy += (-w * w * B.y - 2 * z * w * B.vy - fUp) * h; B.y += B.vy * h; B.vx += (-w * w * B.x - 2 * z * w * B.vx - fSd) * h; B.x += B.vx * h; }
-    const inf = this.mesh.morphTargetInfluences; inf[0] = Math.tanh(B.y / 0.013); inf[1] = Math.tanh(B.x / 0.009);
+    const fUp = (a.x * e[4] + a.y * e[5] + a.z * e[6]) / uL - 9.81, fSd = (a.x * e[0] + a.y * e[1] + a.z * e[2]) / sL;
+    const w = 14.5, z = 0.32, G = 0.6, h = dt / 2; // ~2.3 Hz; G scales the drive (soft tissue held by the garment)
+    for (let k = 0; k < 2; k++) { B.vy += (-w * w * B.y - 2 * z * w * B.vy - G * fUp) * h; B.y += B.vy * h; B.vx += (-w * w * B.x - 2 * z * w * B.vx - G * fSd) * h; B.x += B.vx * h; }
+    const inf = this.mesh.morphTargetInfluences; inf[0] = Math.tanh(B.y / 0.03); inf[1] = Math.tanh(B.x / 0.03);
   }
 }
 
