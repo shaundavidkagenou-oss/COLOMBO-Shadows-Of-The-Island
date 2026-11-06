@@ -7,6 +7,7 @@
 // Pedestrians spawned or re-dressed here come from the crowd's own adult spec pool — no new spawn paths.
 import * as THREE from 'three';
 import { Input } from '../core/Input.js';
+import { openEditor } from '../debug/boot.js'; // tiny: the editors themselves load on demand
 import { Audio } from '../audio/Audio.js';
 import { WEAPONS } from '../combat/WeaponDefs.js';
 import { WEATHER } from '../gfx/Atmosphere.js';
@@ -82,7 +83,7 @@ export class DebugConsole {
         case 'room': { const id = { dineth: 'room', shashika: 'room_shashika', david: 'room_david' }[a[0] || 'dineth']; const I = this.g.interiors; const d = I.doors.find((x) => x.id === id) || (id === 'room' ? { id: 'room', x: this.g.player.x, z: this.g.player.z, rot: 0, faceIn: Math.PI } : null); if (!d) throw new Error('no such room door'); if (I.current) throw new Error('leave the current interior first'); I.enter(d); this.print('entering ' + id, 'ok'); break; }
         case 'animations': case 'anim': case 'map': case 'npc': case 'npcs': { // the editors are separate modules, downloaded only now
           const kind = c.startsWith('anim') ? 'animations' : c.startsWith('npc') ? 'npc' : 'map'; this.print(`loading the ${kind} editor…`, 'sys'); this.toggle(false);
-          import('../debug/boot.js').then((m) => m.openEditor(kind, this.g)).catch((e) => { console.error(e); this.toggle(true); this.print('editor failed to load: ' + (e && e.message || e), 'err'); }); break; }
+          openEditor(kind, this.g).catch((e) => { console.error(e); this.toggle(true); this.print('editor failed to load: ' + (e && e.message || e), 'err'); }); break; }
         case 'clear': this.log = []; this.print(''); break;
         case 'close': case 'exit': this.toggle(false); break;
         default: this.print(`unknown command: ${cmd} (type help)`, 'err');
