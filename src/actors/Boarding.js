@@ -381,7 +381,7 @@ export function npcBoardSetup(v, seat, A) {
   if (!doored && kind !== 'tuk' && Math.abs(seat.z - ds.z) > 0.35) return null; // other open bodies: front row only
   const hinged = d && !d.slide; const door = hinged ? { x: d.pivot.position.x, z: d.pivot.position.z, len: d.len, max: d.max } : null;
   const G = boardGeom(v, seat, A, side, door);
-  if (door) G.doorGrip = doorGripFn(d, door, side, A.ch);
+  if (door) { G.doorGrip = doorGripFn(d, door, side, A.ch); if (G.doorGrip && G.doorGrip().q) doorHoldAngle(G, d, A.ch, side, 1); } // NPCs swing their door fully open: the outer hand lets go of its edge where, ducking in, it passes out of reach (or never takes it when it is never within reach)
   // slider: no handle grab — once open it has run back BEHIND the seat, and the reach from there to the lap passes the shoulder (elbow flip)
   const H0 = boardCurve(G, 0).hip; return { v, seat, kind, side, G, door: d || null, H0: [H0[0], H0[2]], T: BOARD_T[kind] };
 }
