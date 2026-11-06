@@ -24,6 +24,7 @@ import { clamp, lerp } from '../core/math.js';
 import { solveLeg, seatRest } from './Seating.js';
 import { solveArmIK } from './Character.js';
 import { springDoor, doorForSeat } from '../vehicles/DoorRig.js';
+import { gripFor, solveGrip, boxShape } from '../combat/GripSolver.js';
 
 const sm = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
 const seg = (u, a, b) => clamp((u - a) / (b - a), 0, 1);
@@ -34,7 +35,42 @@ export const BOARD_T = { car: 2.15, van: 2.6, tuk: 2.0, bike: 2.2, cab: 3.6 };
 export const EXIT_K = 0.88;
 export const boardKind = (v) => { const e = v.T.entry || 'car'; return e === 'bike' ? 'bike' : e === 'tuk' ? 'tuk' : e === 'van' ? 'van' : e === 'cab' ? 'cab' : e === 'car' ? 'car' : null; }; // buses keep their own boarding (BusWalk); lorry cabs climb a step first
 // the outer hand's grip on a hinged door (its live rear-top corner)
-export function doorGripFn(d, door, side) { if (d.cab && d.max > 1.3) return null; /* a lorry door opens ~83° right in front of the climber: nothing on it within a natural reach — the inner hand takes the A-pillar handle, the outer is free */ const f = 0.88, y = d.gripY ?? 1.05; return () => { const th = d.max * (d.ang || 0); return [door.x + side * door.len * Math.sin(th) * f, y, door.z - door.len * Math.cos(th) * f]; }; }
+export function doorGripFn(d, door, side, ch = null) { if (d.cab && d.max > 1.3) return null; /* a lorry door opens ~83° right in front of the climber: nothing on it within a natural reach — the inner hand takes the A-pillar handle, the outer is free */
+  const S = side < 0 ? 'R' : 'L'; const H = ch && d.grab ? doorEdgeGrip(ch, d.grab, S) : null;
+  if (H) { const out = [0, 0, 0]; return () => { d.pivot.updateMatrix(); _dg.copy(H.wrist).applyMatrix4(d.pivot.matrix); out[0] = _dg.x; out[1] = _dg.y; out[2] = _dg.z; out.q = (out.q || new THREE.Quaternion()).copy(d.pivot.quaternion).multiply(H.q); out.pose = H.pose; out.S = S; out.back = (out.back || new THREE.Vector3()).set(0, 0, -1).applyQuaternion(d.pivot.quaternion); out.inn = (out.inn || new THREE.Vector3()).set(-d.grab.side, 0, 0).applyQuaternion(d.pivot.quaternion); return out; }; } // back: along the door past its rear edge (the way the hand slides off it)
+  const f = 0.88, y = d.gripY ?? 1.05; return () => { const th = d.max * (d.ang || 0); return [door.x + side * door.len * Math.sin(th) * f, y, door.z - door.len * Math.cos(th) * f]; }; }
+const _dg = new THREE.Vector3(), _dq = new THREE.Quaternion(), _dy = new THREE.Vector3(0, 1, 0);
+// how far to open the door so that, standing beside the opening and starting to duck in, the outer hand holds it at a
+// comfortable bent-arm reach (~38 cm shoulder → wrist): a sedan's door is held at ~45°, a tall SUV's nearly at its stop.
+// (Fully open, the rear edge of a car door is 0.6–0.8 m from the shoulder: out of reach — the old hand floated at it.)
+export function doorHoldAngle(G, d, ch, side, force = null) { // force: the door is already at that angle (yanked wide to pull a driver out)
+  if (!d || !d.grab || !d.grab.win || !ch || (G.kind !== 'car' && G.kind !== 'van')) return 1; /* a cab's door is reached up at from the step: held wide */ const S = side < 0 ? 'R' : 'L'; const E = doorEdgeGrip(ch, d.grab, S); if (!E) return 1;
+  const sc = G.sc || 1; let best = 1, bc = 1e9;
+  const shAt = (u) => { const F = carCurve({ ...G, doorGrip: null }, u); return new THREE.Vector3(F.hip[0] + G.s * 0.18 * sc, F.hip[1] + 0.46 * sc * Math.cos(F.pitch || 0), F.hip[2] + 0.46 * sc * Math.sin(F.pitch || 0)); };
+  const US = [0.22, 0.25, 0.28, 0.31, 0.34, 0.37, 0.4]; const SH = US.map(shAt);
+  for (let a = force ?? 0.5; a <= (force ?? 1) + 0.0001; a += 0.025) { _dq.setFromAxisAngle(_dy.set(0, 1, 0), d.max * a * (side < 0 ? 1 : -1)); _dg.copy(E.wrist).applyQuaternion(_dq).add(d.pivot.position);
+    let mn = 9; for (const sh of SH) mn = Math.min(mn, sh.distanceTo(_dg)); const c = Math.abs(SH[1].distanceTo(_dg) - 0.38) + 3 * Math.max(0, 0.3 * sc - mn); /* comfortable at the duck, never folded into the shoulder */ if (c < bc) { bc = c; best = a; } }
+  best = +best.toFixed(3); // and where, ducking in, the door's edge passes out of reach: the hand lets go there and goes on to the wheel
+  _dq.setFromAxisAngle(_dy.set(0, 1, 0), d.max * best * (side < 0 ? 1 : -1)); const gp = E.wrist.clone().applyQuaternion(_dq).add(d.pivot.position); const b = ch.bones; const L = b['fore' + S].position.length() + b['hand' + S].position.length();
+  G.doorRel = 2; for (let u = 0.3; u <= 0.95; u += 0.01) { const F = carCurve({ ...G, doorGrip: null }, u); const sh = _dy.set(F.hip[0] + G.s * 0.18 * sc, F.hip[1] + 0.46 * sc * Math.cos(F.pitch || 0), F.hip[2] + 0.46 * sc * Math.sin(F.pitch || 0)); if (sh.distanceTo(gp) > L * 0.86) { G.doorRel = u; break; } }
+  if (force != null && G.doorRel < 0.34) G.doorGrip = null; // wide open: its edge is never within a natural reach — the outer hand goes straight to the wheel
+  return best;
+}
+// the outer hand holding an open door the way people do: palm on the inner door card just ahead of the rear edge, fingers
+// round the edge onto the outer skin, thumb up the card — solved on this hero's own hand (GripSolver), in the pivot frame
+export function doorEdgeGrip(ch, g, S) {
+  return gripFor(ch, g, S, () => { const s = g.side; const W = g.win; // window frame's rear edge (thin: the fingers wrap right round it); cab doors: the panel edge
+    const xc = W ? W.x : (g.card + g.skin) / 2, y = W ? W.y : g.y, zR = W ? W.zR : g.zR, t = W ? 0.026 : Math.max(Math.abs(g.skin - g.card), 0.02); const inner = xc - s * t / 2;
+    const slab = boxShape(new THREE.Vector3(xc, y, zR + 0.15), 0, [t / 2, 0.12, 0.15], W ? 0.008 : 0.012); if (W && W.tilt) { slab.Y.set(W.tilt, 1, 0).normalize(); slab.X.set(1, -W.tilt, 0).normalize(); } // follows the leaning glass
+    return solveGrip(ch.bones, S, { X: new THREE.Vector3(-1, 0, 0), Z: new THREE.Vector3(0, 1, 0), shapes: [slab], at: new THREE.Vector3(inner - s * 0.03, y, zR + 0.05), palm: [0, -0.04, 0.004], thumbAt: new THREE.Vector3(inner - s * 0.012, y + 0.035, zR + 0.1) }); });
+}
+// the outside door handle (opening the door): the hand comes onto the bar from above, palm on it, fingers curled round its
+// lower edge, thumb above it on the skin — pivot frame
+export function doorHandleGrip(ch, g, S) {
+  if (!g || !g.handle) return null; const h = g.handle;
+  return gripFor(ch, g.handle, S, () => { const s = g.side; const bar = boxShape(new THREE.Vector3(h.x, h.y, h.z), 0, [Math.abs(h.x - h.skin) + 0.002, 0.015, 0.07], 0.004); const skin = boxShape(new THREE.Vector3(h.skin - s * 0.03, h.y, h.z), 0, [0.03, 0.12, 0.2], 0.01);
+    return solveGrip(ch.bones, S, { X: new THREE.Vector3(1, 0, 0), Z: new THREE.Vector3(0, 0, 1), shapes: [bar, skin], at: new THREE.Vector3(h.x + s * 0.04, h.y + 0.045, h.z), palm: [0, -0.04, 0.004], thumbAt: new THREE.Vector3(h.skin + s * 0.008, h.y + 0.04, h.z + 0.05) }); });
+}
 
 // standing hips height above the ground for this skeleton (legs nearly straight)
 function legLen(A) { const b = A.ch.bones; return { leg: b.shinL.position.length() + b.footL.position.length(), off: Math.abs(b.thighL.position.x) }; }
@@ -122,10 +158,13 @@ function carCurve(G, u) {
     hands[inS] = [0, 1, 2].map((k) => (1 - t) * (1 - t) * frame[k] + 2 * t * (1 - t) * C[k] + t * t * g[k]); hw8[inS] = cab ? 1 : sm(p1 / 0.95); }
   else { hands[inS] = frame; hw8[inS] = sm(p1 / 0.95) * (1 - sm((p2 - 0.45) / 0.45)); }
   const door = G.doorGrip ? G.doorGrip() : null; const outHold = 1 - sm((p3 - 0.1) / 0.5);
-  if (grips) { hands[outS] = door ? mix(door, grips[outS], sm((p3 - 0.1) / 0.75)) : grips[outS]; hw8[outS] = door ? (cab ? 1 : sm(p1 / 0.8)) : sm((p3 - 0.15) / 0.7); } // door → wheel at full weight (no dip back to the base pose)
-  else if (door) { hands[outS] = door; hw8[outS] = (cab ? 1 : sm(p1 / 0.8)) * outHold; }
+  const tOut = Math.max(sm((p3 - 0.1) / 0.75), seg(u, (G.doorRel ?? 2) - 0.1, (G.doorRel ?? 2) + 0.4)); // leaves the door edge before it is out of reach
+  if (grips) { hands[outS] = door ? mix(door, grips[outS], door.back ? sm(seg(tOut, 0.3, 1)) : tOut) : grips[outS]; if (door && door.back) { const b = 0.06 * Math.sin(Math.PI * seg(tOut, 0.12, 0.6)), c = 0.14 * Math.sin(Math.PI * seg(tOut, 0.15, 1)); hands[outS][0] += door.back.x * b + door.inn.x * c; hands[outS][2] += door.back.z * b + door.inn.z * c; } /* slides off the edge (fingers uncurling) before it heads in for the wheel — never dragged back through the frame */ hw8[outS] = door ? (cab ? 1 : sm(p1 / 0.8)) : sm((p3 - 0.15) / 0.7); } // door → wheel at full weight (no dip back to the base pose)
+  else if (door) { hands[outS] = door; hw8[outS] = (cab ? 1 : sm(p1 / 0.8)) * outHold * (1 - sm(seg(u, (G.doorRel ?? 2) - 0.1, (G.doorRel ?? 2) + 0.25))); }
   if (cab && !grips) hw8[inS] = 1 - sm((p2 - 0.45) / 0.45); // passenger: off the handle once seated
-  return { yaw: G.stepY ? s * lerp(-(G.cabYaw || CAB_YAW), 0.35, sm(p2 / 0.7)) * (1 - sm((p3 - 0.55) / 0.45)) : 0, /* faces the cab while climbing, then swivelled on the seat toward the door while the outer leg comes in (its knee points out of the opening, not at the hinge) */ hip, pitch, roll, twist: 0, duck, feet, legSeat: sm((u - 0.86) / 0.14), poleK: { [inS]: sm(p3 / 0.85), [outS]: sm((p3 - 0.2) / 0.8) }, poleIn: cab ? { [inS]: 0, [outS]: sm((u - 0.25) / 0.12) * (1 - sm((u - 0.8) / 0.15)) } : null, hands, handW: hw8, grip: { [inS]: grips && !G.lap ? sm((p2 - 0.42) / 0.58) : 0, [outS]: grips && !G.lap ? sm((p3 - 0.5) / 0.5) : 0 }, align: sm((u - 0.3) / 0.6), seated: u >= 1 };
+  const handQ = {}, fing = {}; if (door && door.q) { const k = grips ? 1 - sm(seg(tOut, 0.25, 0.7)) : outHold * (1 - sm(seg(u, (G.doorRel ?? 2) - 0.1, (G.doorRel ?? 2) + 0.25))); handQ[outS] = { q: door.q, w: k }; fing[outS] = { p: door.pose, w: (grips ? 1 - sm(tOut / 0.3) : k) * sm(seg(hw8[outS] || 0, 0.85, 1)) }; /* fingers close round the edge only as the hand arrives */
+    if (door.back && hands[outS]) { const a = 1 - sm(seg(hw8[outS] || 0, 0.3, 1)); hands[outS] = [hands[outS][0] + (door.back.x * 0.08 + door.inn.x * 0.06) * a, hands[outS][1], hands[outS][2] + (door.back.z * 0.08 + door.inn.z * 0.06) * a]; } } // comes onto the edge from behind it, not through the frame // the solved door grasp: hand orientation + fingers, released as the hand leaves for the wheel
+  return { yaw: G.stepY ? s * lerp(-(G.cabYaw || CAB_YAW), 0.35, sm(p2 / 0.7)) * (1 - sm((p3 - 0.55) / 0.45)) : 0, /* faces the cab while climbing, then swivelled on the seat toward the door while the outer leg comes in (its knee points out of the opening, not at the hinge) */ hip, pitch, roll, twist: 0, duck, feet, legSeat: sm((u - 0.86) / 0.14), poleK: { [inS]: sm(p3 / 0.85), [outS]: sm((p3 - 0.2) / 0.8) }, poleIn: cab ? { [inS]: 0, [outS]: sm((u - 0.25) / 0.12) * (1 - sm((u - 0.8) / 0.15)) } : null, hands, handW: hw8, handQ, fing, grip: { [inS]: grips && !G.lap ? sm((p2 - 0.42) / 0.58) : 0, [outS]: grips && !G.lap ? sm((p3 - 0.5) / 0.5) : 0 }, align: sm((u - 0.3) / 0.6), seated: u >= 1 };
 }
 
 // ---- lorry cab: up onto the tread first ----------------------------------------------------------------------------
@@ -228,7 +267,7 @@ function poleLeg(H, F, a, b, pole, qOut) {
   _mb.makeBasis(_bx, _by, _bz); qOut.setFromRotationMatrix(_mb);
   return Math.PI - Math.acos(clamp((a * a + b * b - d * d) / (2 * a * b), -1, 1));
 }
-const _pl = new THREE.Vector3(); const _pole = new THREE.Vector3(), _pd = new THREE.Vector3(); const _qa2 = new THREE.Quaternion(), _qb2 = new THREE.Quaternion();
+const _bh = new THREE.Vector3(); const _pl = new THREE.Vector3(); const _pole = new THREE.Vector3(), _pd = new THREE.Vector3(); const _qa2 = new THREE.Quaternion(), _qb2 = new THREE.Quaternion();
 // P.w < 1 blends from whatever the base pose is (mid-stride as the walk to the sill ends, the standing idle) into the
 // boarding pose, so neither end of the motion pops.
 const _baseQ = new Map(); const _baseHip = new THREE.Vector3();
@@ -265,7 +304,11 @@ function boardPoseFull(A, P, b) {
     // blend the hand POSITION from where the base pose holds it to the grip and always solve at full weight (slerping the
     // arm rotation toward a raised grip ~180° away flips the arm to the other side half-way)
     b['hand' + sd].updateWorldMatrix(true, false); _w.setFromMatrixPosition(b['hand' + sd].matrixWorld); b.chest.worldToLocal(_w);
-    b.chest.updateWorldMatrix(true, false); _v.set(t[0], t[1], t[2]); root.localToWorld(_v); b.chest.worldToLocal(_v); if (w < 1) _v.lerpVectors(_w, _v, w);
+    b.chest.updateWorldMatrix(true, false); _v.set(t[0], t[1], t[2]); root.localToWorld(_v); b.chest.worldToLocal(_v);
+    let hold = 1; const hq0 = P.handQ && P.handQ[sd]; if (hq0) { // a door grasp only while the door is really within reach: never a hand floating short of it / folded into the shoulder
+      const arm = b['arm' + sd]; arm.parent.updateWorldMatrix(true, false); _bh.copy(arm.position).applyMatrix4(arm.parent.matrixWorld); b.chest.worldToLocal(_bh); const dl = _bh.distanceTo(_v), L = (b['fore' + sd].position.length() + b['hand' + sd].position.length());
+      hold = sm((dl - 0.2 * (A.s || 1)) / 0.08); void L; } // (beyond reach the IK just straightens the arm at it: the curve lets go of the edge before that — G.doorRel)
+    const wE = w * (hq0 ? Math.max(hold, 1 - hq0.w) : 1); if (wE < 0.001) continue; if (wE < 1) _v.lerpVectors(_w, _v, wE);
     // never fold the arm flat (a hand target at the shoulder has no defined elbow): slide the target out along its line
     const arm = b['arm' + sd], par = arm.parent; par.updateWorldMatrix(true, false); _w.copy(arm.position).applyMatrix4(par.matrixWorld); b.chest.worldToLocal(_w);
     { _k.subVectors(_v, _w); const mn = 0.3 * (A.s || 1), soft = mn * 1.5; let dl = _k.length();
@@ -280,6 +323,8 @@ function boardPoseFull(A, P, b) {
     root.getWorldQuaternion(_qa2); par.getWorldQuaternion(_qb2); _pole.set(sx * 0.8, -0.45, -0.3).applyQuaternion(_qa2).applyQuaternion(_qb2.invert()).normalize();
     _pole.lerp(_pd.set(sx * 0.45, -1, -0.15).normalize(), pk);
     solveArmIK(b, sd, _v, null, 1, pk >= 0.999 ? null : _pole);
+    const hq = hq0 && hold > 0.001 ? hq0 : null; if (hq) { root.getWorldQuaternion(_qa2).multiply(hq.q); b['fore' + sd].updateWorldMatrix(false, false); b['fore' + sd].getWorldQuaternion(_qb2).invert().multiply(_qa2); b['hand' + sd].quaternion.slerp(_qb2, Math.min(1, hq.w * hold * Math.min(1, w * 1.5))); } // the solved door grasp's hand orientation
+    const fg = P.fing && P.fing[sd]; if (fg && fg.p && A.ch.rig && fg.w * hold > 0.05) A.ch.rig.hand(sd, fg.p, Math.min(1, fg.w * hold * Math.min(1, w * 1.5)));
     const g = P.grip ? P.grip[sd] || 0 : 0; if (g > 0.001) { _e.set(0.25, 0, sd === 'L' ? -0.3 : 0.3, 'XYZ'); _q.setFromEuler(_e); b['hand' + sd].quaternion.slerp(_q, Math.min(1, g)); }
   }
 }
@@ -301,7 +346,8 @@ export function poseBoard(A, G, F, vehMesh, ground, yaw0 = 0, w = 1) {
     if (f.gk > 0) p = [p[0], p[1] + f.gk * ground(p[0], p[2]), p[2]];
     feet[sd] = L(p); }
   const hands = {}; for (const sd of ['L', 'R']) if (F.hands[sd]) hands[sd] = L(F.hands[sd]);
-  A.board = { w, hip: L(F.hip), pitch: F.pitch, roll: F.roll, twist: F.twist, duck: F.duck, feet, poleOut: F.poleOut, poleIn: F.poleIn, poleSide: G.s, poleK: F.poleK, legSeat: F.legSeat, hands, handW: F.handW, grip: F.grip, toe: G.toe, lapSoft: (G.lap && G.kind !== 'tuk') || G.kind === 'cab' }; /* cab: a tall climber crouching under the roof edge brings the shoulder up to the handle → wheel path */
+  let handQ = null; if (F.handQ) for (const sd of ['L', 'R']) { const h = F.handQ[sd]; if (!h || h.w < 0.001) continue; (handQ ||= {})[sd] = { q: _qa.copy(root.quaternion).invert().multiply(h.q).clone(), w: h.w }; } // vehicle frame → root frame
+  A.board = { w, hip: L(F.hip), pitch: F.pitch, roll: F.roll, twist: F.twist, duck: F.duck, feet, poleOut: F.poleOut, poleIn: F.poleIn, poleSide: G.s, poleK: F.poleK, legSeat: F.legSeat, hands, handW: F.handW, handQ, fing: F.fing || null, grip: F.grip, toe: G.toe, lapSoft: (G.lap && G.kind !== 'tuk') || G.kind === 'cab' }; /* cab: a tall climber crouching under the roof edge brings the shoulder up to the handle → wheel path */
 }
 
 // ------------------------------------------------------------------ NPC step-in / step-out (police crews, medics, squad)
@@ -335,7 +381,7 @@ export function npcBoardSetup(v, seat, A) {
   if (!doored && kind !== 'tuk' && Math.abs(seat.z - ds.z) > 0.35) return null; // other open bodies: front row only
   const hinged = d && !d.slide; const door = hinged ? { x: d.pivot.position.x, z: d.pivot.position.z, len: d.len, max: d.max } : null;
   const G = boardGeom(v, seat, A, side, door);
-  if (door) G.doorGrip = doorGripFn(d, door, side);
+  if (door) G.doorGrip = doorGripFn(d, door, side, A.ch);
   // slider: no handle grab — once open it has run back BEHIND the seat, and the reach from there to the lap passes the shoulder (elbow flip)
   const H0 = boardCurve(G, 0).hip; return { v, seat, kind, side, G, door: d || null, H0: [H0[0], H0[2]], T: BOARD_T[kind] };
 }

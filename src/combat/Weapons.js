@@ -256,7 +256,7 @@ export class Weapons {
     // recoil kick
     pos.add(this.spr.p); rx += this.spr.r.x; ry += this.spr.r.y; rz += this.spr.r.z; // springs: recoil impulse, look sway, gait bob, breathing
     // reload / bolt choreography (weapon offsets + support-hand path)
-    let supTarget = null, supW = twoHand ? 1 : aw, gripTarget = null; const magL = ud.mag; magL.visible = true; magL.position.set(0, 0, 0); if (ud.slide) ud.slide.position.set(0, 0, 0); if (ud.bolt) ud.bolt.rotation.set(0, 0, 0);
+    let supTarget = null, supW = twoHand || (P.camMode === 2 && !P.vehicle) ? 1 : aw, gripTarget = null; /* first person: a pistol is held in both hands (support hand wrapped over the firing hand), so the fingers of both are in view */ const magL = ud.mag; magL.visible = true; magL.position.set(0, 0, 0); if (ud.slide) ud.slide.position.set(0, 0, 0); if (ud.bolt) ud.bolt.rotation.set(0, 0, 0);
     if (this.slideLock && ud.slide && def.cls !== 'sniper') ud.slide.position.z = def.cls === 'pistol' ? -0.035 : -0.03; // last round fired: slide / bolt held open
     if (this.state === 'reload') {
       const r = k / this.reloadDur; supW = 1; const E = this.reloadKind === 'empty'; const tl = sm(seg(r, 0, 0.14)) * (1 - sm(seg(r, 0.86, 1)));

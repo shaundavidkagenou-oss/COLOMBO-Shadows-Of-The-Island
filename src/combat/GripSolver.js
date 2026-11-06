@@ -30,7 +30,9 @@ function sdBox(p, s) {
   const qx = Math.abs(_d.dot(s.X)) - (s.h[0] - r), qy = Math.abs(_d.dot(s.Y)) - (s.h[1] - r), qz = Math.abs(_d.dot(s.Z)) - (s.h[2] - r);
   const out = Math.hypot(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0)); return out + Math.min(Math.max(qx, qy, qz), 0) - r;
 }
-const sdf = (p, shapes) => { let d = 1e9; for (const s of shapes) d = Math.min(d, sdBox(p, s)); return d; };
+// signed distance from p to an upright (y axis) capped cylinder {cyl: true, c, r, hy}
+function sdCyl(p, s) { _d.subVectors(p, s.c); const dr = Math.hypot(_d.x, _d.z) - s.r, dy = Math.abs(_d.y) - s.hy; return Math.min(Math.max(dr, dy), 0) + Math.hypot(Math.max(dr, 0), Math.max(dy, 0)); }
+const sdf = (p, shapes) => { let d = 1e9; for (const s of shapes) d = Math.min(d, s.cyl ? sdCyl(p, s) : sdBox(p, s)); return d; };
 export function boxShape(c, rx, h, rr = 0.003) { // box rotated about the weapon's x axis (raked grips)
   const cs = Math.cos(rx), sn = Math.sin(rx);
   return { c: c.clone(), X: new THREE.Vector3(1, 0, 0), Y: new THREE.Vector3(0, cs, sn), Z: new THREE.Vector3(0, -sn, cs), h, rr: Math.min(rr, ...h) };
@@ -154,6 +156,36 @@ function solve(bones, ud) {
   }
   return { R, L };
 }
+
+// ---------------------------------------------------------------- hand-held objects (glass, bottle)
+// Power grasp on an upright cylinder of radius r (grip frame: origin on the axis at the grip height, y up the axis). dirIn
+// is the horizontal direction the palm faces (towards the axis). The knuckle line runs up the axis (index on top), the palm
+// is slid in until its skin touches, every finger closes joint by joint onto the surface and the thumb wraps round the other
+// way. Returns the hand bone's wrist position + orientation in the grip frame and the per-joint finger pose (HeroRig.hand).
+export function solveWrap(bones, S, r, dirIn, opts = {}) {
+  const sx = S === 'L' ? 1 : -1; const n = dirIn.clone().setY(0).normalize(); const up = new THREE.Vector3(0, 1, 0);
+  const shapes = [{ cyl: true, c: new THREE.Vector3(0, opts.cy ?? 0, 0), r, hy: opts.hy ?? 0.1 }];
+  const Y = up.clone().cross(n.clone().multiplyScalar(-sx)); // frame(): Y = Z × X
+  const thT = Y.multiplyScalar(0.75).addScaledVector(n, 0.66).normalize().multiplyScalar(r + R_FINGER).add(new THREE.Vector3(0, 0.012, 0));
+  return solveGrip(bones, S, { X: n.clone().multiplyScalar(-sx), Z: up, shapes, at: n.clone().multiplyScalar(-(r + 0.03)), palm: [0, -0.04, 0.004 + (opts.dz ?? 0)], thumbAt: thT });
+}
+// General grasp: hand frame X / Z (the hand bone's axes in the object frame: X = palm normal for the right hand, −palm normal
+// for the left; Z = knuckle line, index side), palm point `palm` (hand frame, x filled in) put at `at` and slid in until
+// the palm skin touches the shapes (rounded boxes / cylinders), fingers closed onto them, thumb searched towards thumbAt.
+export function solveGrip(bones, S, o) {
+  const H = new Hand(bones, S); const F = frame(o.X, o.Z); const shapes = o.shapes;
+  seat(F, H, new THREE.Vector3(-H.sx * PALM_X, o.palm[1], o.palm[2]), o.at, shapes);
+  const f = [0, 1, 2, 3].map((fi) => close(F, H, fi, o.closeShapes || shapes, o.lim || [1.5, 1.75, 1.3]));
+  const th = thumb(F, H, shapes, o.thumbAt);
+  return { wrist: F.T.clone(), q: new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(F.X, F.Y, F.Z)), pose: pose(f, th) };
+}
+// cached per character: key = any object or string (one solve per hero per prop / door type)
+const gripCache = new WeakMap();
+export function gripFor(ch, key, S, solveFn) {
+  if (!ch || !ch.bones || !ch.bones['idx1' + S] || !ch.bones['thb1' + S]) return null; let m = gripCache.get(ch); if (!m) gripCache.set(ch, (m = new Map()));
+  const k = typeof key === 'string' ? key + S : key; let byS = m.get(k); if (!byS) m.set(k, (byS = {})); return byS[S] || (byS[S] = solveFn(ch.bones, S));
+}
+export function wrapFor(ch, key, S, r, dirIn, opts) { return gripFor(ch, 'wrap:' + key, S, (bones) => solveWrap(bones, S, r, dirIn, opts)); }
 
 const cache = new WeakMap();
 // hold for this character + weapon model (null if the model has no hold data or the rig no finger bones)

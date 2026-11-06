@@ -749,6 +749,21 @@ function gridInto(b, cols, col, flip = false) {
 }
 const zCols = (za, zb, step = 0.08) => { const n = Math.max(2, Math.ceil((zb - za) / step)); return Array.from({ length: n + 1 }, (_, i) => lerp(za, zb, i / n)); };
 
+// Where a hand takes hold of a hinged door, in its pivot's frame (hinge at the origin, the panel running back along −z, the
+// outside of the car towards side·x): the outside handle (bar centre + the skin behind it) and the panel's rear edge (inner
+// door-card and outer-skin x, a height below the belt where the panel is solid). Used by Boarding / Player to put a solved
+// grasp (GripSolver) on the door instead of a wrist point inside the panel.
+function doorGrab(d) {
+  if (d.leaf || d.role === 'slide') return null; const side = d.side, S = d.spec;
+  if (!S) { const y = d.gripY ?? 1.05; return { side, y, zR: -d.len + 0.004, card: -side * 0.06, skin: 0, handle: null }; } // cab doors: plain slab estimate
+  const hxN = -Math.abs(d.hinge[0]); const loc = (x) => -side * (x - hxN); const zr = S.zR + 0.004;
+  const y = Math.min(S.by - 0.1, S.topAt(zr + 0.06) - 0.07); const skin = loc(S.skinPt(zr + 0.06, y)[0]), card = loc(S.xc);
+  const hz = S.zR + 0.175, hy = S.by - 0.12; const hs = loc(S.skinPt(hz, hy)[0]);
+  // the window's rear edge (glass + rubber, between the belt and the roof line): what a hand holds the open door by
+  let win = null; if (S.glY && S.roofY && S.gw0) { const g0 = S.glY(zr), g1 = S.roofY(zr); if (g1 - g0 > 0.2) { const wy = g0 + Math.min(0.2, (g1 - g0) * 0.42); const gxAt = (yy) => loc(-lerp(S.gw0, S.gw1 ?? S.gw0, (yy - g0) / (g1 - g0))); win = { y: wy, x: gxAt(wy), tilt: gxAt(wy + 0.1) * 10 - gxAt(wy) * 10, zR: zr - d.hinge[1] - 0.024 }; } } // the rubber frame runs ~2.5 cm past the panel's rear edge; the glass leans in (tumblehome)
+  return { side, y, zR: zr - d.hinge[1], card, skin, win, handle: { x: hs + side * 0.012, skin: hs, y: hy, z: hz - d.hinge[1] } };
+}
+
 // Driver door: own mesh group on a hinge pivot (front edge) so it can swing open. Built in model space from the spec the
 // body builder left (the cut-out skin), then moved into hinge space. stripes: police bands [[yCentre, height, colour]].
 function buildDoorGeos(d, col, stripes = null) {
@@ -931,7 +946,7 @@ export function createVehicleMesh(type, seed = 1) {
   });
   // doors: shut ones are part of the body meshes; DoorRig puts a moving one on its pivot (front edge hinge / sliding track)
   const doors = (cached.doors || []).map((d, i) => { const pivot = new THREE.Group(); pivot.position.set(d.hinge[0], 0, d.hinge[1]); pivot.visible = false; pivot.name = 'door' + i; g.add(pivot);
-    const o = { pivot, i, side: d.side, role: d.role, slide: d.role === 'slide', leaf: d.leaf || 0, cab: !!d.cab, gripY: d.gripY, open: 0, max: d.max ?? (d.leaf ? 1.45 : d.role === 'rear' ? 1.05 : 1.15), ang: 0, vel: 0, len: d.len, hx: d.hinge[0], hz: d.hinge[1], rects: (d.spec && d.spec.rects) || (d.cab && d.cab.rects), live: false }; poseDoor(o); return o; });
+    const o = { pivot, i, side: d.side, role: d.role, slide: d.role === 'slide', leaf: d.leaf || 0, cab: !!d.cab, gripY: d.gripY, open: 0, max: d.max ?? (d.leaf ? 1.45 : d.role === 'rear' ? 1.05 : 1.15), ang: 0, vel: 0, len: d.len, hx: d.hinge[0], hz: d.hinge[1], rects: (d.spec && d.spec.rects) || (d.cab && d.cab.rects), live: false, grab: doorGrab(d) }; poseDoor(o); return o; });
   if (doors.length) for (const name in cached.doorRanges) if (!mats[name]) mats[name] = byName[name] || MAT.paint; // a material only the doors use
   const door = doors.find((d) => !d.leaf) || null; // car door the driver uses (bus door leaves are not)
   const ds = cached.seats.find((s) => s.driver) || cached.seats[0];

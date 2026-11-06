@@ -299,11 +299,15 @@ export function buildBodyGeometry(sp) {
   const surfZ = (y, x, sgn) => { let k = 0; while (k < tr.length - 2 && tr[k + 1].y * s < y) k++; const a = tr[k], b2 = tr[k + 1]; const t = clamp((y / s - a.y) / (b2.y - a.y), 0, 1); const rx = lerp(a.rx, b2.rx, t), rz = lerp(a.rz, b2.rz, t), fz = lerp(a.fz || 0, b2.fz || 0, t), bu = lerp(a.bust || 0, b2.bust || 0, t); const q = clamp(Math.abs(x) / rx, 0, 0.98); const sa = Math.sqrt(1 - q * q); return sgn * rz * sa + (sgn > 0 ? fz * sa + bu * bustShape(clamp(x / rx, -1, 1), sa) : 0); };
   // crop top / high-waist shorts: crisp garment edges (two rings 8 mm apart) instead of a colour fade across a 10 cm band
   if (sp.midriff && o !== 'saree') { hemInsert(tr, sp.cropY ?? 1.19, skin, top, 0.004); hemInsert(tr, sp.waistY ?? 0.985, bottom, skin, 0.004); }
+  // bikini (club dancers): a bandeau top covering the bust from the under-bust line (cropY) to bikiniTopY; bare shoulders and upper chest
+  if (sp.bikini && sp.bikiniTopY) { const yt = sp.bikiniTopY; for (const r of tr) if (r.y > yt && r.col === top) r.col = skin; hemInsert(tr, yt, top, skin, 0.004); }
   const jacket = o === 'jacket';
+  const torso0 = sb.n;
   sb.loft(tr.map((r) => ({ c: [0, r.y * s, r.cz || 0], rx: r.rx, rz: r.rz, fz: r.fz, bust: r.bust, w: r.wgt, col: r.col })), HQ ? 40 : f ? 28 : 16, {
     capStart: true, surfN: HQ,
     colFn: jacket ? (ri, a, r) => { const fr = Math.sin(a); return ri >= 2 + RO && ri <= 6 + RO && fr > 0.93 ? C(sp.inner || '#6b6f72') : r.col; } : sp.tie ? (ri, a, r) => (ri >= 3 + RO && ri <= 6 + RO && Math.sin(a) > 0.97 ? C(sp.tie) : r.col) : null,
   });
+  const torso1 = sb.n;
   // --- legs
   const parts = { legs: [], skirt: null, skirtSeg: 18 }; // vertex ranges (used by tools/clothing-test.mjs)
   for (const side of ['L', 'R']) {
@@ -379,7 +383,7 @@ export function buildBodyGeometry(sp) {
   // --- arms
   for (const side of ['L', 'R']) {
     const a = J['arm' + side], fo = J['fore' + side], h = J['hand' + side];
-    const sleeveEnd = longSleeve ? 0.84 : sp.sleeveless ? 1.38 : 1.2; // y where skin starts
+    const sleeveEnd = sp.bikini ? 9 : longSleeve ? 0.84 : sp.sleeveless ? 1.38 : 1.2; // y where skin starts (bikini: bare arms and shoulders)
     const colAt = (y) => (y * (1 / s) > sleeveEnd ? (jacket ? top : top) : skin);
     const ar = [
       { c: [a[0] * 0.8, 1.425 * s, 0], rx: 0.045 * w, rz: 0.05 * w, w: W2('chest', 'arm' + side, 0.5) },
@@ -752,7 +756,20 @@ export function buildBodyGeometry(sp) {
     for (const y of [...ysF].reverse()) P.push(bodyPt(y, -1));
     sb.strip(P.map((p, i) => { const a = P[Math.max(0, i - 1)].c, b = P[Math.min(P.length - 1, i + 1)].c; const d = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]).normalize(); const side = new THREE.Vector3().crossVectors(d, p.out).normalize();
       return { c: p.c, side: [side.x, side.y, side.z], out: [p.out.x, p.out.y, p.out.z], w: p.c[1] > 1.3 * s ? W1('chest') : torsoW(p.c[1]) }; }), 0.034, (q) => q.out, null, sc, 0); }
-  const geo = sb.build(); geo.userData.parts = parts; return geo;
+  const geo = sb.build(); geo.userData.parts = parts;
+  // chest secondary motion (sp.bustSpring, adult female dancers): two relative morph targets on the torso's bust vertices —
+  // 0: lift (up, slightly forward), 1: sideways sway. Driven per frame by a damped spring (Character.updateBust); the top
+  // over it is the same surface, so it moves with it. Amplitude ±13 / ±9 mm at influence 1.
+  if (sp.bustSpring && f && bf > 0) {
+    const P = geo.attributes.position, n = P.count, up = new Float32Array(n * 3), sd = new Float32Array(n * 3), bMax = 0.033 * bf;
+    const ringAt = (y) => { let k = 0; while (k < tr.length - 2 && tr[k + 1].y < y) k++; const a = tr[k], b = tr[k + 1]; const t = clamp((y - a.y) / (b.y - a.y), 0, 1); return { bust: lerp(a.bust || 0, b.bust || 0, t), rx: lerp(a.rx, b.rx, t), cz: lerp(a.cz || 0, b.cz || 0, t) }; };
+    let any = 0;
+    for (let i = torso0; i < torso1; i++) { const x = P.getX(i), y = P.getY(i) / s, z = P.getZ(i); const r = ringAt(y); if (!r.bust || z <= r.cz) continue;
+      const ca = clamp(x / r.rx, -1, 1), wgt = clamp((r.bust / bMax) * bustShape(ca, Math.sqrt(1 - ca * ca)), 0, 1); if (wgt < 1e-3) continue;
+      up[i * 3 + 1] = 0.013 * wgt; up[i * 3 + 2] = 0.003 * wgt; sd[i * 3] = 0.009 * wgt; any++; }
+    if (any) { geo.morphAttributes.position = [new THREE.Float32BufferAttribute(up, 3), new THREE.Float32BufferAttribute(sd, 3)]; geo.morphTargetsRelative = true; geo.userData.bustMorph = any; }
+  }
+  return geo;
 }
 
 // ------------------------------------------------------------------ shared materials
@@ -845,6 +862,7 @@ function skinMask(geo, spec) {
   const g = geo.groups[1]; if (g) { const ix = geo.index; for (let k = g.start; k < g.start + g.count; k++) out[ix.getX(k)] = 1; }
   return out;
 }
+const _bp = new THREE.Vector3(), _bv = new THREE.Vector3(), _ba = new THREE.Vector3();
 export class Character {
   constructor(spec) {
     this.spec = spec; const key = JSON.stringify(spec); const skelKey = `${spec.sex}|${spec.height.toFixed(3)}|${spec.build.toFixed(3)}`;
@@ -869,6 +887,7 @@ export class Character {
     if (spec.hero && hasHeroHead(spec)) this.attachHeroHead(skeleton);
     if (npcHead) this.attachNpcHead(fv);
     this.anim = new Animator(this); if (spec.hero) this.rig = new HeroRig(this);
+    if (geo.userData.bustMorph) { this.mesh.updateMorphTargets(); this.bust = { p: null, v: new THREE.Vector3(), x: 0, vx: 0, y: 0, vy: 0 }; }
     LIVE.add(this);
   }
   // protagonist head (HeroHead.js): a second SkinnedMesh on the same skeleton (child of the body mesh, so visibility,
@@ -904,6 +923,19 @@ export class Character {
   dispose() { LIVE.delete(this); this.mesh.skeleton.dispose(); this.face.dispose(); if (this.heroMats) for (const m of this.heroMats) m.dispose(); if (this.headMats) for (const m of this.headMats) m.dispose(); }
   // convenience for gameplay code: expression for a while, or talking on/off
   express(name, dur = 2.5) { this.face.set(name, dur); }
+  // damped spring for the chest secondary motion (see buildBodyGeometry, sp.bustSpring): driven by the chest bone's specific
+  // force (acceleration minus gravity) in its own frame, relative to standing still upright; ~2.3 Hz, lightly damped
+  updateBust(dt) {
+    const B = this.bust, e = this.bones.chest.matrixWorld.elements; const p = _bp.set(e[12], e[13], e[14]);
+    if (!B.p || !(dt > 0) || dt > 0.1) { B.p = (B.p || new THREE.Vector3()).copy(p); B.v.set(0, 0, 0); return; }
+    const vel = _bv.copy(p).sub(B.p).divideScalar(dt), acc = _ba.copy(vel).sub(B.v).divideScalar(dt); B.v.copy(vel); B.p.copy(p);
+    if (acc.length() > 60) acc.setLength(60); acc.y += 9.81;
+    const uL = Math.hypot(e[4], e[5], e[6]) || 1, sL = Math.hypot(e[0], e[1], e[2]) || 1;
+    const fUp = (acc.x * e[4] + acc.y * e[5] + acc.z * e[6]) / uL - 9.81, fSd = (acc.x * e[0] + acc.y * e[1] + acc.z * e[2]) / sL;
+    const w = 14.5, z = 0.24, h = dt / 2;
+    for (let k = 0; k < 2; k++) { B.vy += (-w * w * B.y - 2 * z * w * B.vy - fUp) * h; B.y += B.vy * h; B.vx += (-w * w * B.x - 2 * z * w * B.vx - fSd) * h; B.x += B.vx * h; }
+    const inf = this.mesh.morphTargetInfluences; inf[0] = Math.tanh(B.y / 0.013); inf[1] = Math.tanh(B.x / 0.009);
+  }
 }
 
 // ------------------------------------------------------------------ facial animation
@@ -996,7 +1028,12 @@ export function solveArmIK(b, S, target, q, w = 1, poleDir = null) { // poleDir:
   const tw = _v1.copy(target).applyMatrix4(chest.matrixWorld); const tp = par.worldToLocal(tw).sub(arm.position); // target relative to the shoulder, parent space
   const u1 = fore.position, u2 = hand.position; const L1 = u1.length(), L2 = u2.length();
   const d = clamp(tp.length(), Math.abs(L1 - L2) + 1e-3, L1 + L2 - 1e-3);
-  const cosE = clamp((L1 * L1 + L2 * L2 - d * d) / (2 * L1 * L2), -1, 1); const flex = Math.PI - Math.acos(cosE);
+  // elbow flex about the forearm's x axis giving |u1 + Rx(−flex)·u2| = d EXACTLY. The upper-arm and hand offsets are not
+  // collinear in the rigs (≈0.1 rad apart: the bind arm is slightly bent / offset), so the plain law of cosines put the
+  // wrist up to 1.5 cm off its target — enough to sink fingers into a weapon grip or a door
+  const ay = u1.y, az = u1.z, cy = u2.y, cz = u2.z; const ra = Math.hypot(ay, az), rc = Math.hypot(cy, cz);
+  const K = clamp((d * d - L1 * L1 - L2 * L2 - 2 * u1.x * u2.x) / (2 * Math.max(ra * rc, 1e-9)), -1, 1);
+  let off = Math.atan2(az, ay) - Math.atan2(cz, cy); off = Math.atan2(Math.sin(off), Math.cos(off)); const flex = Math.acos(K) - off;
   const foreQ = _q1.setFromAxisAngle(_v2.set(1, 0, 0), -flex);
   const h = _v3.copy(u2).applyQuaternion(foreQ).add(u1); // hand in arm space at zero shoulder rotation
   const armQ = _q2.setFromUnitVectors(_v4.copy(h).normalize(), _v2.copy(tp).normalize());
@@ -1009,6 +1046,23 @@ export function solveArmIK(b, S, target, q, w = 1, poleDir = null) { // poleDir:
 }
 
 const _ikv = new THREE.Vector3(), _ikq = new THREE.Quaternion();
+// A.reach = { S, p (world wrist), q (world hand orientation), w, lean, pose (HeroRig finger pose), pole? }: the trunk bends
+// forward by `lean` (a low handle), then the arm IK puts the hand bone exactly on the solved grasp
+const _rq = new THREE.Quaternion();
+function applyReach(A, b) {
+  const R = A.reach; const w = Math.min(1, Math.max(0, R.w || 0)); if (w < 0.001) return;
+  // bend at the waist as far as the reach needs (a low sedan handle): the shoulder swings down / forward about the spine
+  const arm = b['arm' + R.S]; const Lr = b['fore' + R.S].position.length() + b['hand' + R.S].position.length();
+  let lean = A._rLean ?? (R.lean || 0);
+  for (let it = 0; it < 3; it++) { const sx0 = b.spine.rotation.x, cx0 = b.chest.rotation.x; b.spine.rotation.x += lean * 0.6 * w; b.chest.rotation.x += lean * 0.4 * w; arm.updateWorldMatrix(true, false); const dsh = _ikv.setFromMatrixPosition(arm.matrixWorld).distanceTo(R.p); b.spine.rotation.x = sx0; b.chest.rotation.x = cx0;
+    lean = Math.min(R.maxLean ?? 0.6, Math.max(0, lean + (dsh - 0.92 * Lr) / 0.42)); }
+  A._rLean = A._rLean === undefined ? lean : A._rLean + (lean - A._rLean) * 0.35; lean = A._rLean;
+  b.spine.rotation.x += lean * 0.6 * w; b.chest.rotation.x += lean * 0.4 * w;
+  b.chest.updateWorldMatrix(true, false); _ikv.copy(R.p); b.chest.worldToLocal(_ikv);
+  let q = null; if (R.q) { b.chest.getWorldQuaternion(_rq); q = _rq.invert().multiply(R.q); }
+  solveArmIK(b, R.S, _ikv, q, w, R.pole || null);
+  if (R.pose && A.ch.rig) A.ch.rig.hand(R.S, R.pose, w);
+}
 // chest-local wrist targets (×height/1.72) for the phone poses: [x,y,z] for a call; [rx,ry,rz, lx,ly,lz] for texting
 export const PHONE_T = [-0.12, 0.235, 0.085], TEXT_T = [-0.04, -0.1, 0.27, 0.03, -0.1, 0.27];
 export const PHONE_POLE = new THREE.Vector3(-0.3, -0.75, 0.6); // on a call the elbow hangs forward and down in front of the chest, not out like a wing
@@ -1051,6 +1105,7 @@ export class Animator {
     return { th: -fwd * A, knee, foot: lerp(0.35, -0.12, smooth01(u * 1.3)), contact: false, u };
   }
   update(dt, speed, turnRate = 0) {
+    if (this.ch.bust) this.ch.updateBust(dt);
     if (this.ch.rag) return; // a ragdoll (Ragdoll.js) owns the bones
     const b = this.ch.bones; const g = this.g; const s = this.s; this.t += dt; this.actionT = (this.actionT || 0) + dt;
     if (this.actionDur && this.actionT > this.actionDur) this.set(null);
@@ -1071,7 +1126,7 @@ export class Animator {
     this.idleLookT -= dt; if (this.idleLookT < 0) { this.idleLookTarget = Math.random() < 0.4 ? 0 : (Math.random() - 0.5) * 1.1; this.idleLookT = 1.5 + Math.random() * 4; }
     this.idleLook = damp(this.idleLook, this.idleLookTarget * (1 - w * 0.7), 5, dt);
     const A_ = this.action; this.actionW = clamp(this.actionW + dt * 3, 0, 1); const aw = A_ ? this.actionW : 0;
-    const crouch = (this.crouch = damp(this.crouch, A_ === 'crouch' || A_ === 'cover' ? 1 : A_ === 'cuffStand' ? 0.7 : 0, A_ === 'rise' ? 3.2 : 8, dt));
+    const crouch = (this.crouch = damp(this.crouch, A_ === 'crouch' || A_ === 'cover' ? 1 : A_ === 'cuffStand' ? 0.7 : this.reach && this.reach.knee ? this.reach.knee * Math.min(1, this.reach.w || 0) : 0, A_ === 'rise' ? 3.2 : 8, dt));
     const sit = this.seated && A_ !== 'rise' ? 1 : A_ === 'sit' ? aw : this.fadeAct === 'sit' ? this.fadeW : 0; /* seated (desk staff): legs/hips stay seated while the upper body types, phones, talks */ const drive = (this.drive = damp(this.drive, A_ === 'drive' ? 1 : 0, 8, dt)); const seatT = Math.max(sit, drive);
     const gT = A_ === 'sitGround' ? aw : this.fadeAct === 'sitGround' ? this.fadeW : 0; // sitting on the grass (no seat): hips on the ground, knees up, feet flat
     this.lean = damp(this.lean, clamp(-turnRate * sp * 0.03, -0.2, 0.2), 6, dt);
@@ -1098,7 +1153,7 @@ export class Animator {
     const flight = Math.max(need(legs[0]), need(legs[1])) + 0.035 * run * g.bounce;
     let hy = W > 1e-3 ? lerp(flight, acc / W, smooth01(W / 0.35)) : flight;
     // a rigid pendulum bobs ~9 cm per step; people flatten it with stance-knee flexion → keep a fraction around a slow average
-    if (this.hyAvg === undefined || dt > 0.2) this.hyAvg = hy; this.hyAvg = damp(this.hyAvg, hy, 1.6, dt);
+    if (this.hyAvg === undefined || dt > 0.2) this.hyAvg = hy; this.hyAvg = damp(this.hyAvg, hy, this.reach && this.reach.knee ? 8 : 1.6, dt); /* a deliberate knee bend (reaching low) is not smoothed away like the gait bob */
     const hyWalk = this.hyAvg + (hy - this.hyAvg) * 0.32 * g.bounce;
     // running: lowest at each mid-stance (the knee absorbs the landing), highest in flight — a smooth periodic bob, two per cycle
     const hyRun = this.hyAvg - 0.012 * s - 0.03 * s * g.bounce * Math.cos(2 * Math.PI * (2 * pL - beta));
@@ -1113,6 +1168,10 @@ export class Animator {
       const kn = Math.PI - Math.acos(clamp((this.a * this.a + this.b * this.b - d * d) / (2 * this.a * this.b), -1, 1));
       const th = Math.atan2(-xf, yv) - Math.acos(clamp((this.a * this.a + d * d - this.b * this.b) / (2 * this.a * d), -1, 1));
       const k = 1 - ikOff; l.thW = lerp(l.thW, th, k); l.kn = lerp(l.kn, kn, k); }
+    { // contact changes: a leg leaving its IK-planted stance eases into the swing pose over ~0.1 s (a knee bend while walking — crouching,
+      // reaching low — would otherwise snap the lifting leg into its swing angles in one frame)
+      const LB = this._lb || (this._lb = [{ c: null, th: 0, kn: 0, k: 0 }, { c: null, th: 0, kn: 0, k: 0 }]);
+      legs.forEach((l, i) => { const m = LB[i]; if (m.c !== null && m.c !== l.contact && dt < 0.2) { m.k = 1; m.dur = l.contact ? 0.07 : 0.1; } if (m.k > 0) { l.thW = lerp(l.thW, m.th, m.k); l.kn = lerp(l.kn, m.kn, m.k); } m.k = Math.max(0, m.k - dt / (m.dur || 0.1)); m.c = l.contact; m.th = l.thW; m.kn = l.kn; }); } // (and a heel strike settles onto the IK-planted pose over ~4 frames)
     b.hips.position.y = this.hipYs; b.hips.position.x = (swayPh * 0.02 * g.sway * (1 - run) * w + sh * 0.028) * s;
     b.hips.rotation.set(hipPitch, pelvisYaw, hipRoll);
     const R = (bone, x, y, z) => b[bone].rotation.set(x, y, z);
@@ -1269,6 +1328,7 @@ export class Animator {
     const seated = (this.seated && this.seatW > 0) || !!this.board; // boarding (getting in / out, Boarding.js) counts as seated: no gestures, fight or body poses layered on it
     if (!seated && !this.ik) for (const [S, x, y, z, w, pole] of actIK) solveArmIK(b, S, _ikv.set(x, y, z), null, w, pole);
     if (this.ik && !seated) { if (this.ik.R) solveArmIK(b, 'R', this.ik.R, this.ik.qR, this.ik.wR ?? 1); if (this.ik.L) solveArmIK(b, 'L', this.ik.L, this.ik.qL, this.ik.wL ?? 1); }
+    if (this.reach && !seated) applyReach(this, b); else this._rLean = undefined; // one hand onto a world point with a solved grasp (opening a car door by its handle)
     if (this.fight) applyFight(this, dt, solveArmIK, seated);
     if (!seated) { if (this.fadeAct && this.fadeW > 0 && BODY_POSES.has(this.fadeAct)) this.bodyPose(this.fadeAct, smooth01(this.fadeW), this.fadeT); if (A_ && aw > 0 && BODY_POSES.has(A_)) this.bodyPose(A_, aw, at); }
     if (!seated && (A_ === 'medKneel' || A_ === 'medLift' || A_ === 'medCarry') && aw > 0.05) for (const S of ['L', 'R']) { const W = this['holdW' + S]; if (!W) continue; b.chest.updateWorldMatrix(true, false); _ikv.copy(W); b.chest.worldToLocal(_ikv); solveArmIK(b, S, _ikv, null, aw, this['holdPole' + S] || null); } // EMS: hands exactly on world points (patient's chest / neck, stretcher handles), solved after the body pose

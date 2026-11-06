@@ -12,6 +12,7 @@ import * as RP from './RoomProps.js';
 import { Input } from '../core/Input.js';
 import { Audio } from '../audio/Audio.js';
 import { solveArmIK } from '../actors/Character.js';
+import { wrapFor } from '../combat/GripSolver.js';
 import * as L from './Layout.js';
 
 const Y = -40;
@@ -215,21 +216,34 @@ export class Drink {
     const par = this.room.g.position; const gripB = 0.11, gripG = 0.032;
     const homeB = this.unbody(this.homeB.p.clone().add(par)).add(V(0, gripB, 0)), homeG = this.unbody(this.homeG.p.clone().add(par)).add(V(0, gripG, 0));
     const restL = cb.clone().add(V(0.19, -0.42, 0.05).multiplyScalar(s)), restR = cb.clone().add(V(-0.19, -0.42, 0.05).multiplyScalar(s));
-    const glassHold = cb.clone().add(V(-0.06, -0.2, 0.3).multiplyScalar(s));
-    const wrist = (side, grip, q, r) => grip.clone().sub(V(side === 'R' ? r : -r, 0, 0.085).applyQuaternion(q));
+    // the glass is held well clear of the surface it stood on (a high bar counter is at chest-minus-20-cm height: the old
+    // fixed hold point sank the glass into the counter), and every move off / back onto the surface lifts first (arc)
+    const glassHold = cb.clone().add(V(-0.06, -0.2, 0.3).multiplyScalar(s)); glassHold.y = Math.max(glassHold.y, homeG.y + 0.12);
+    const arc = (a, b, k, h = 0.07) => { const p = a.clone().lerp(b, sm(k)); p.y += h * Math.sin(Math.PI * Math.min(1, Math.max(0, k))); return p; };
+    // real grasps (GripSolver.solveWrap, this hero's own finger bones): palm on the glass / bottle, fingers closed onto it, thumb
+    // round the other side — wrist + hand orientation in the object's grip frame (falls back to the old offsets without finger bones)
+    const hG = wrapFor(ch, 'shotGlass', 'R', 0.026, V(1, 0, 0.35), { cy: -0.001, hy: 0.031 }), hB = wrapFor(ch, 'vodka', 'L', 0.041, V(-1, 0, 0.35), { cy: -0.007, hy: 0.097 });
+    const wrist = (side, grip, q, r) => { const h = side === 'R' ? hG : hB; return h ? grip.clone().add(h.wrist.clone().applyQuaternion(q)) : grip.clone().sub(V(side === 'R' ? r : -r, 0, 0.085).applyQuaternion(q)); };
+    const held = (side, q) => { const h = side === 'R' ? hG : hB; return h ? q.clone().multiply(h.q) : null; };
     const I = new THREE.Quaternion();
-    let Lw, Rw, qL = I.clone(), qR = I.clone(), qHandR = null;
+    // a low table (75 cm) is out of arm's reach with the fixed lean: bend further over it until both shoulders are within
+    // reach of the grasps on the glass and bottle standing there (no hand stopping short / glass floating to the hand)
+    if (reachK * w > 0.01) { const need = [['R', this.body(wrist('R', homeG, I, 0.03))], ['L', this.body(wrist('L', homeB, I, 0.042))]]; let extra = 0;
+      for (let it = 0; it < 8; it++) { let over = 0; for (const [S, p] of need) { const arm = b['arm' + S]; arm.updateWorldMatrix(true, false); const len = (b['fore' + S].position.length() + b['hand' + S].position.length()) * 0.97; over = Math.max(over, arm.getWorldPosition(_v1).distanceTo(p) - len); }
+        if (over <= 0.002 || extra >= 0.6) break; const dl = Math.min(0.6 - extra, over * 1.8 + 0.01); extra += dl; b.spine.rotation.x += dl * 0.6 * reachK * w; b.chest.rotation.x += dl * 0.4 * reachK * w; }
+      b.chest.updateWorldMatrix(true, false); b.head.updateWorldMatrix(true, false); cb.copy(this.unbody(V(0, 0, 0).applyMatrix4(b.chest.matrixWorld))); }
+    let Lw, Rw, qL = I.clone(), qR = I.clone(), qHandR = held('R', I), qHandL = held('L', I);
     // ---- right hand: the glass
     let gGrip = homeG.clone(), gTilt = I.clone();
     if (t < T.reach) Rw = restR.clone().lerp(wrist('R', homeG, I, 0.03), sm(t / T.reach));
     else {
-      if (t < T.lift) gGrip = homeG.clone().lerp(glassHold, sm(seg(t, T.reach, T.lift)));
+      if (t < T.lift) gGrip = arc(homeG, glassHold, seg(t, T.reach, T.lift));
       else if (t < T.raise - 0.25) gGrip = glassHold.clone();
       else if (t < T.lower) { const up = sm(seg(t, T.raise - 0.25, T.raise + 0.15)) * (1 - sm(seg(t, T.drinkEnd, T.lower))); const a = (0.45 + 1.3 * sm(seg(t, T.raise, T.drinkEnd - 0.1))) * up; gTilt = new THREE.Quaternion().setFromAxisAngle(V(1, 0, 0), -a); const lip = mouth.clone().add(V(0, -0.012 * s, 0.004)); const atMouth = lip.sub(V(0, 0.062 - gripG, -0.024).applyQuaternion(gTilt)); gGrip = glassHold.clone().lerp(atMouth, up); }
-      else if (t < T.glassDown) gGrip = glassHold.clone().lerp(homeG, sm(seg(t, T.lower, T.glassDown - 0.05)));
-      if (t < T.glassDown) { this.place(this.glass, this.homeG, gGrip, gTilt, gripG); Rw = wrist('R', gGrip, gTilt, 0.03); qR = gTilt; }
+      else if (t < T.glassDown) gGrip = arc(glassHold, homeG, seg(t, T.lower, T.glassDown - 0.05));
+      if (t < T.glassDown) { this.place(this.glass, this.homeG, gGrip, gTilt, gripG); Rw = wrist('R', gGrip, gTilt, 0.03); qR = gTilt; qHandR = held('R', gTilt); }
       else { this.glass.position.copy(this.homeG.p); this.glass.quaternion.copy(this.homeG.q);
-        const wipeA = mouth.clone().add(V(-0.13, -0.045, 0.05).multiplyScalar(s)), wipeB = mouth.clone().add(V(-0.03, -0.04, 0.045).multiplyScalar(s)); qHandR = Q_WIPE; /* back of the hand across the lips, fingers to the left */
+        const wipeA = mouth.clone().add(V(-0.13, -0.045, 0.05).multiplyScalar(s)), wipeB = mouth.clone().add(V(-0.03, -0.04, 0.045).multiplyScalar(s)); qHandR = (held('R', I) || I.clone().multiply(Q_BASE)).slerp(Q_WIPE, sm(seg(t, T.glassDown, T.glassDown + 0.3))); /* back of the hand across the lips, fingers to the left (turned from the grasp, no snap) */
         if (t < T.wipe) Rw = wrist('R', homeG, I, 0.03).lerp(wipeA, sm(seg(t, T.glassDown, T.glassDown + 0.35))).lerp(wipeB, sm(seg(t, T.glassDown + 0.3, T.wipe)));
         else Rw = wipeB.lerp(restR, sm(seg(t, T.wipe, T.end))); }
     }
@@ -238,17 +252,17 @@ export class Drink {
     else if (t < T.bottleDown) {
       const pour = sm(seg(t, T.lift, T.lift + 0.5)) * (1 - sm(seg(t, T.pourEnd - 0.35, T.pourEnd))); const bTilt = new THREE.Quaternion().setFromAxisAngle(V(0, 0, 1), 1.9 * pour);
       const above = gGrip.clone().add(V(0.13 * s, 0.16, 0.0)); let pt;
-      if (t < T.lift) pt = homeB.clone().lerp(above, sm(seg(t, T.reach, T.lift))); else if (t < T.pourEnd) pt = above.clone(); else pt = above.clone().lerp(homeB, sm(seg(t, T.pourEnd, T.bottleDown - 0.05)));
+      if (t < T.lift) pt = arc(homeB, above, seg(t, T.reach, T.lift), 0.05); else if (t < T.pourEnd) pt = above.clone(); else pt = arc(above, homeB, seg(t, T.pourEnd, T.bottleDown - 0.05), 0.05);
       if (pour > 0) { const rim = gGrip.clone().add(V(0.004, 0.062 - gripG + 0.045, 0)); const target = rim.sub(V(0, 0.2, 0).applyQuaternion(bTilt)); pt.lerp(target, pour); }
-      this.place(this.bottle, this.homeB, pt, bTilt, gripB); Lw = wrist('L', pt, bTilt, 0.042); qL = bTilt;
+      this.place(this.bottle, this.homeB, pt, bTilt, gripB); Lw = wrist('L', pt, bTilt, 0.042); qL = bTilt; qHandL = held('L', bTilt);
     } else { this.bottle.position.copy(this.homeB.p); this.bottle.quaternion.copy(this.homeB.q); Lw = wrist('L', homeB, I, 0.042).lerp(restL, sm(seg(t, T.bottleDown, T.bottleDown + 0.45))); }
     // ---- IK (targets to chest space)
     const chestQ = b.chest.getWorldQuaternion(new THREE.Quaternion()).invert();
     const toChest = (bp) => b.chest.worldToLocal(this.body(bp)).divideScalar(s);
     const handQ = (qt, custom) => chestQ.clone().multiply(this.qYaw).multiply(custom || qt.clone().multiply(Q_BASE));
-    solveArmIK(b, 'L', toChest(Lw).multiplyScalar(s), handQ(qL), w, V(0.6, -0.8, -0.3));
+    solveArmIK(b, 'L', toChest(Lw).multiplyScalar(s), handQ(qL, qHandL), w, V(0.6, -0.8, -0.3));
     solveArmIK(b, 'R', toChest(Rw).multiplyScalar(s), handQ(qR, qHandR), w, V(-0.6, -0.8, -0.3));
-    if (rig) { rig.hand('L', t > T.reach - 0.12 && t < T.bottleDown ? 'grip' : 'relax', 1); rig.hand('R', t > T.reach - 0.12 && t < T.glassDown ? 'grip' : 'relax', 1); }
+    if (rig) { rig.hand('L', t > T.reach - 0.12 && t < T.bottleDown ? (hB ? hB.pose : 'grip') : t < T.reach - 0.12 ? 'open' : 'relax', 1); rig.hand('R', t > T.reach - 0.12 && t < T.glassDown ? (hG ? hG.pose : 'grip') : t < T.reach - 0.12 ? 'open' : 'relax', 1); }
     void dt; void _q1; void _q2; void _v1; void _v2; void _m4;
   }
 }
