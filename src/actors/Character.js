@@ -1173,6 +1173,16 @@ export class Animator {
       // reaching low — would otherwise snap the lifting leg into its swing angles in one frame)
       const LB = this._lb || (this._lb = [{ c: null, th: 0, kn: 0, k: 0 }, { c: null, th: 0, kn: 0, k: 0 }]);
       legs.forEach((l, i) => { const m = LB[i]; if (m.c !== null && m.c !== l.contact && dt < 0.2) { m.k = 1; m.dur = l.contact ? 0.07 : 0.1; } if (m.k > 0) { l.thW = lerp(l.thW, m.th, m.k); l.kn = lerp(l.kn, m.kn, m.k); } m.k = Math.max(0, m.k - dt / (m.dur || 0.1)); m.c = l.contact; m.th = l.thW; m.kn = l.kn; }); } // (and a heel strike settles onto the IK-planted pose over ~4 frames)
+    // no foot below the ground: a swing (or blending) leg whose ankle would dip under its standing height — the hips lowered
+    // by a knee bend (crouch, reaching low) while the gait's swing pose assumes full height — is folded up just enough to
+    // keep the sole on top of the ground (same two-bone solve as the planted legs, same forward foot position)
+    if (ikOff < 0.999) for (const l of legs) { const yMin = this.ankle + 0.02 * s + heel(l), yA = this.hipYs - this.a * Math.cos(l.thW) - this.b * Math.cos(l.thW + l.kn);
+      if (yA >= yMin - 0.002) continue;
+      const xf = -(this.a * Math.sin(l.thW) + this.b * Math.sin(l.thW + l.kn)), yv = this.hipYs - yMin;
+      const d = clamp(Math.hypot(xf, yv), Math.abs(this.a - this.b) + 1e-3, this.a + this.b - 1e-3);
+      const kn = Math.PI - Math.acos(clamp((this.a * this.a + this.b * this.b - d * d) / (2 * this.a * this.b), -1, 1));
+      const th = Math.atan2(-xf, yv) - Math.acos(clamp((this.a * this.a + d * d - this.b * this.b) / (2 * this.a * d), -1, 1));
+      const k = 1 - ikOff; l.thW = lerp(l.thW, th, k); l.kn = lerp(l.kn, kn, k); }
     b.hips.position.y = this.hipYs; b.hips.position.x = (swayPh * 0.02 * g.sway * (1 - run) * w + sh * 0.028) * s;
     b.hips.rotation.set(hipPitch, pelvisYaw, hipRoll);
     const R = (bone, x, y, z) => b[bone].rotation.set(x, y, z);
