@@ -219,13 +219,13 @@ export function buildPlan() {
   // ---------------------------------------------------------------- scenes (environment + rigs)
   const NIGHT = { hour: 21.3, weather: 'clear', wet: 0.62 };
   const scenes = {
-    A1: { env: { hour: 17.85, weather: 'clear', wet: 0 }, focus: [-560, -400], traffic: true },
+    A1: { env: { hour: 17.85, weather: 'clear', wet: 0 }, focus: [-440, -380], traffic: true }, // the green and Galle Road the camera looks at (not the sea)
     A2: { env: { hour: 17.92, weather: 'cloudy', wet: 0 }, focus: [210, -470], traffic: true },
     A3: { env: { hour: 15.6, weather: 'rain', wet: 1 }, focus: [-150, -904], traffic: true, rigs: rigsA3, clearRoad: [[-235, -55], [-908, -899]] },
-    A4: { env: { hour: 18.1, weather: 'clear', wet: 0 }, focus: [-560, -455], traffic: true },
+    A4: { env: { hour: 18.1, weather: 'clear', wet: 0 }, focus: [-490, -460], traffic: true }, // the promenade behind the camera
     A5: { env: { hour: 18.55, weather: 'clear', wet: 0, toHour: 19.25 }, focus: [-60, -520], traffic: true },
     B: { env: NIGHT, rigs: rigsB, peds: pedsB, traffic: false },
-    C: { env: NIGHT, rigs: rigsC, peds: pedsC, fire: fireC, events: eventsC, traffic: false, hideRoadPeds: true },
+    C: { env: NIGHT, rigs: rigsC, peds: pedsC, fire: fireC, events: eventsC, traffic: false, hideRoadPeds: true, noPeds: [[-400, -578, 75]] }, // nobody strolls through the ambush
     F: { env: { hour: 21.3, weather: 'clear', wet: 0.3 }, focus: [230, -560], traffic: true },
   };
   for (const [id, s] of Object.entries(scenes)) { s.id = id; s.rigs ||= {}; s.peds ||= {}; s.fire ||= []; s.events ||= []; }
@@ -236,7 +236,7 @@ export function buildPlan() {
     // ACT I — the postcard city (sunset → nightfall), cross-dissolves through black
     S('A1', 0.0, 7.5, dolly({ p: [-700, 55, -520], l: [-420, 40, -380] }, { p: [-585, 42, -330], l: [-380, 30, -300] }, 50, 46), { name: 'sea' }),
     S('A2', 7.5, 4.5, dolly({ p: [115, 4, -452], l: [305, 120, -480] }, { p: [165, 6, -466], l: [305, 165, -480] }, 50, 48), { name: 'lotus' }),
-    S('A3', 12.0, 4.5, dolly({ p: [-150, 0.8, -906.5], l: [-200, 1.0, -903.6] }, { p: [-152, 0.9, -906.8], l: [-140, 1.0, -903.6] }, 52, 50), { name: 'pettah', focus: [-150, -904] }),
+    S('A3', 12.0, 4.5, dolly({ p: [-150, 0.8, -900.4], l: [-200, 1.0, -903.6] }, { p: [-152, 0.9, -900.2], l: [-140, 1.0, -903.6] }, 52, 50), { name: 'pettah', focus: [-150, -904] }),
     S('A4', 16.5, 4.5, dolly({ p: [-505, 2.6, -470], l: [-700, 15, -440] }, { p: [-512, 2.8, -455], l: [-700, 12, -430] }, 50, 48), { name: 'promenade', focus: [-505, -462] }),
     S('A5', 21.0, 5.0, dolly({ p: [70, 22, -400], l: [-200, 50, -640] }, { p: [55, 24, -420], l: [-200, 55, -650] }, 52, 50), { name: 'nightfall' }),
     // ACT II — the crew
@@ -248,7 +248,7 @@ export function buildPlan() {
     S('C', 48.0, 2.0, dolly({ p: [-358.6, 0.42, 45.3], l: [-352.6, 0.65, 47.2] }, { p: [-358.1, 0.45, 45.6], l: [-352.6, 0.65, 47.2] }, 34, 33), { t0: 0, name: 'lights', focus: [-352, 47] }),
     S('C', 50.0, 2.5, (t, P) => { const v = P.hero; return { p: [-343.5, 0.75, 44.6], l: [v.x, 0.75, v.z], fov: 40, hand: 0.4 }; }, { t0: 2.0, name: 'launch', focus: [-360, 45] }),
     S('C', 52.5, 5.5, (t, P) => { const v = P.hero; return { p: [-389.2, 0.55, 34.6], l: [v.x, 0.6, v.z], fov: 44, hand: 0.25 }; }, { t0: 5.0, rate: (u) => (u < 0.08 ? 1 : u < 0.2 ? lerp(1, 0.28, smr(0.08, 0.2, u)) : u < 0.75 ? 0.28 : lerp(0.28, 1, smr(0.75, 0.95, u))), name: 'drift', focus: [-395, 38] }),
-    S('C', 58.0, 3.0, (t, P, u) => { const v = P.pol1; return { p: L3([-411.8, 6.8, 51.6], [-411.0, 6.4, 50.4], sm(u)), l: [v.x * 0.7 - 398 * 0.3, 0.6, v.z * 0.7 + 36 * 0.3], fov: 46, hand: 0.35 }; }, { t0: 9.8, name: 'police corner', focus: [-398, 38] }),
+    S('C', 58.0, 3.0, (t, P, u) => { const v = P.pol1; return { p: L3([-410.6, 7.2, 30.5], [-410.0, 6.6, 32.2], sm(u)), l: [v.x * 0.7 - 398 * 0.3, 0.6, v.z * 0.7 + 36 * 0.3], fov: 46, hand: 0.35 }; }, { t0: 9.8, name: 'police corner', focus: [-398, 38] }),
     S('C', 61.0, 4.5, rigCam('hero', [4.6, 0.95, 0.8], [0, 0.75, 1.2], 40, { hand: 0.8 }), { t0: 12.6, name: 'tracking' }),
     S('C', 65.5, 3.0, rigCam('hero', [0.6, 0.55, 8.0], [0, 0.75, 0], 36, { hand: 0.7 }), { t0: 17.1, name: 'front' }),
     S('C', 68.5, 3.0, rigCam('hero', [3, 30, -16], [0, 0, 14], 50, { hand: 0.3 }), { t0: 20.1, name: 'aerial' }),

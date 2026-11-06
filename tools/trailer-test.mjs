@@ -10,6 +10,7 @@ const CP = await import('../src/world/CityPlan.js');
 const L = await import('../src/world/Layout.js');
 const { VTYPES } = await import('../src/vehicles/VehicleModels.js');
 const TP = await import('../src/story/TrailerPlan.js');
+const { crownPoints } = await import('../src/world/TreeShapes.js');
 const { buildPlan, posesAt, editTimeOf, blackAt, LENGTH } = TP;
 
 let pass = 0, fail = 0; const bad = [];
@@ -37,7 +38,13 @@ for (const [a, b] of [[26.2, 26.8], [46.2, 47.8], [92.2, 93.8]]) ok(blackAt(P, (
 
 // ---------------------------------------------------------------- world obstacles near the action
 const cols = plan.colliders.filter((c) => (c.h ?? 3) >= 0.25);
-const trees = plan.trees.map((t) => ({ x: t.x, z: t.z, r: 0.32 * (t.s || 1) }));
+const trees = plan.trees.map((t) => ({ x: t.x, z: t.z, r: 0.32 * (t.s || 1), t }));
+// a tree's foliage in world space (the same crown point cloud the game uses to keep leaves out of buildings), cached
+const crownCache = new Map();
+const crownWorld = (t) => { if (crownCache.has(t)) return crownCache.get(t); const P = crownPoints(t.type); const out = []; if (P) { const c = Math.cos(t.yaw || 0), sn = Math.sin(t.yaw || 0), hs = (t.s || 1) * (t.sq || 1), vs = (t.s || 1) * (t.sy || 1); for (let i = 0; i < P.length; i += 3) { const lx = P[i] * hs, ly = P[i + 1] * vs, lz = P[i + 2] * hs; out.push(t.x + lx * c + lz * sn, ly, t.z - lx * sn + lz * c); } } const a = new Float32Array(out); crownCache.set(t, a); return a; };
+// leaves at the lens: any foliage within 1 m of the camera, or within 4.5 m inside the view cone (fills the frame)
+const foliageAtLens = (p, l, fov, list) => { const dx = l[0] - p[0], dy = l[1] - p[1], dz = l[2] - p[2], dl = Math.hypot(dx, dy, dz) || 1; const cosH = Math.cos(Math.min(1.2, (fov * Math.PI / 180) * 0.95));
+  for (const tr of list) { if (Math.hypot(tr.x - p[0], tr.z - p[2]) > 16) continue; const W = crownWorld(tr.t); for (let i = 0; i < W.length; i += 3) { const vx = W[i] - p[0], vy = W[i + 1] - p[1], vz = W[i + 2] - p[2]; const d = Math.hypot(vx, vy, vz); if (d < 1.0) return `${tr.t.type} ${tr.x.toFixed(1)},${tr.z.toFixed(1)} at ${d.toFixed(2)} m`; if (d < 4.5 && (vx * dx + vy * dy + vz * dz) / (d * dl) > cosH) return `${tr.t.type} ${tr.x.toFixed(1)},${tr.z.toFixed(1)} in view at ${d.toFixed(2)} m`; } } return null; };
 const near = (list, x, z, R) => list.filter((c) => (c.x0 !== undefined ? c.x1 > x - R && c.x0 < x + R && c.z1 > z - R && c.z0 < z + R : Math.abs(c.x - x) < R && Math.abs(c.z - z) < R));
 const cache = new Map();
 const local = (x, z) => { const k = Math.round(x / 40) + ':' + Math.round(z / 40); if (!cache.has(k)) cache.set(k, { c: near(cols, Math.round(x / 40) * 40, Math.round(z / 40) * 40, 60), t: near(trees, Math.round(x / 40) * 40, Math.round(z / 40) * 40, 60) }); return cache.get(k); };
@@ -79,6 +86,7 @@ for (const s of P.shots) {
     const W = local(cx, cz);
     for (const q of W.c) if (cy < (q.h ?? 3) + 0.3) ok(!(cx > q.x0 - 0.2 && cx < q.x1 + 0.2 && cz > q.z0 - 0.2 && cz < q.z1 + 0.2), `${where}: camera inside ${q.kind || 'collider'} ${q.x0.toFixed(1)},${q.z0.toFixed(1)}`);
     for (const tr of W.t) if (cy < 3) ok(Math.hypot(cx - tr.x, cz - tr.z) > tr.r + 0.2, `${where}: camera in tree`);
+    { const hit = foliageAtLens(c.p, c.l, c.fov || 45, W.t); ok(!hit, `${where}: leaves at the lens (${hit})`); }
     for (const [vid, B, rig, p] of boxes) if (cy < VTYPES[rig.type].hgt + (p.cy ?? 0) + 0.1) ok(!boxCircle(B, cx, cz, 0.2), `${where}: camera inside ${vid}`);
     ok(c.fov > 10 && c.fov < 90, `${where}: fov`);
   }
@@ -90,6 +98,7 @@ ok(frames > 2000, `frames checked ${frames}`);
   const lamp = local(-390, 0).c.find((c) => Math.abs((c.x0 + c.x1) / 2 + 390.4) < 0.5 && Math.abs((c.z0 + c.z1) / 2 - 1) < 0.6);
   ok(lamp && sat(obb(-390.4, 1, 0.3, 2.4, 0.9), aabbBox(lamp)), 'self-check: lamp post collider found and hit');
   const tr = local(-412, 20).t.find((q) => Math.hypot(q.x + 411.5, q.z - 19.8) < 0.5); ok(tr && boxCircle(obb(-411.5, 19.8, 0, 2.4, 0.9), tr.x, tr.z, tr.r), 'self-check: tree found and hit');
+  ok(!!foliageAtLens([-411.6, 6.7, 51.28], [-395, 1, 30], 50, local(-411.6, 51.3).t), 'self-check: the camera that was in the crown at the corner is caught');
   console.log('self-check', !!bld, !!lamp, !!tr, 'colliders', cols.length, 'trees', trees.length);
 }
 

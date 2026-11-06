@@ -33,6 +33,11 @@ const FF = Firefight.prototype;
 export async function runTrailer(g) {
   const T = new TrailerRuntime(g);
   g.gpuWarned = true; // no "integrated graphics" toast over the opening shot (the game shows it when actually entering play)
+  // streaming: the loading screen builds the city detail for Act I and the crew scene only; while the trailer plays, a
+  // rolling window (prewarm) builds the locations of the next ~14 s of shots in the background with the world's own
+  // incremental jobs, pins them, and frees the ones behind — memory stays near free play's, every cut lands on a
+  // finished street. Radii are a little tighter than free play's; the page reloads afterwards, so the game keeps its own.
+  const w = g.world; T.radii = [w.detailRadius, w.windowRadius]; w.detailRadius = 210; w.windowRadius = 110;
   await g.enterLoading(T.points, [{ label: 'Casting the trailer', run: (pr) => T.build(pr) }]);
   return T.start();
 }
@@ -41,15 +46,29 @@ export class TrailerRuntime {
   constructor(g) {
     this.g = g; this.plan = buildPlan(); this.e = 0; this.shot = null; this.sceneId = null; this.fired = new Set(); this.lastSim = -1; this.done = false;
     this.shake = 0; this.fireAcc = {}; this.cues = []; this.prevD = {}; this.proxies = []; this._v = new THREE.Vector3(); this._d = new THREE.Vector3();
-    // where the world must be fully streamed: every shot, and the whole getaway route (kept loaded: World.keepDetail)
-    const pts = [];
-    for (const s of this.plan.shots) { const c = s.cam(s.t0, posesAt(this.plan.scenes[s.scene], s.t0), 0); pts.push(s.focus || [(c.p[0] + c.l[0]) / 2, (c.p[2] + c.l[2]) / 2]); }
-    for (let z = 60; z >= -620; z -= 150) pts.push([-400, z]); pts.push([-300, 43], [-400, -600]);
-    this.points = pts.map((p) => [Math.round(p[0]), Math.round(p[1])]);
+    // where the world must be fully streamed: every shot, and the whole getaway route (those chunks are pinned: chunk.keep)
+    // per shot: where its camera starts / ends / looks
+    this.shotPts = this.plan.shots.map((s) => { const S = this.plan.scenes[s.scene], out = []; for (const u of [0, 0.5, 1]) { const t = s.t0 + s.simLen * u, c = s.cam(t, posesAt(S, t), u); out.push([c.p[0], c.p[2]], [(c.p[0] + c.l[0]) / 2, (c.p[2] + c.l[2]) / 2]); } if (s.focus) out.push(s.focus); return out; });
+    // the first shot's location first (the loading screen's shader compile looks from points[0])
+    this.points = this.needPts(0, 46.5).map((p) => [Math.round(p[0]), Math.round(p[1])]);
+  }
+  needPts(e0, e1) { const pts = []; this.plan.shots.forEach((s, i) => { if (s.start < e1 && s.start + s.dur > e0) pts.push(...this.shotPts[i]); }); const ded = []; for (const p of pts) if (!ded.some((q) => Math.hypot(q[0] - p[0], q[1] - p[1]) < 60)) ded.push(p); return ded; }
+  // rolling streaming window (see runTrailer): pin + pre-build the next shots' chunks, free the ones no longer needed
+  prewarm(e, f) {
+    const w = this.g.world; if ((this.pwT = (this.pwT || 0) - 1) > 0) return; this.pwT = 10;
+    // build ahead for the next 16 s of shots; keep (never free) whatever the next 32 s still need
+    const pts = this.needPts(Math.max(0, e - 0.5), e + 16).concat([[f.x, f.z]]), later = this.needPts(e + 16, e + 32), R = w.detailRadius, WR = w.windowRadius; let freed = 0;
+    for (const c of w.chunks) {
+      let dmin = 1e9; for (const [x, z] of pts) dmin = Math.min(dmin, Math.hypot(c.cx - x, c.cz - z) - 140);
+      const near = dmin < R; c.keep = near || later.some(([x, z]) => Math.hypot(c.cx - x, c.cz - z) - 140 < R);
+      if (c.keep && !near) continue;
+      if (near) { if (!c.detail && !w.job) w.startDetailJob(c); if (!c.win && !w.wjob && dmin < WR) w.wjob = w.newJob(c, 'win'); }
+      else if (freed < 2 && Math.hypot(c.cx - f.x, c.cz - f.z) - 140 > R + 40 && (c.detail || c.win) && (!w.job || w.job.c !== c) && (!w.wjob || w.wjob.c !== c)) { if (c.detail) w.disposeDetail(c); if (c.win) w.disposeWindows(c); freed++; }
+    }
   }
   // ---------------------------------------------------------------- cast & vehicles (behind the loading screen, before the shader compile)
   async build(pr = () => {}) {
-    const g = this.g, P = this.plan, scene = g.scene; g.world.keepDetail = true;
+    const g = this.g, P = this.plan, scene = g.scene;
     const tick = () => new Promise((r) => setTimeout(r, 0));
     const actor = (spec) => { const ch = new Character(spec); scene.add(ch.root); return { ch, mode: 'foot', x: 0, y: 0, z: 0, yaw: 0, sees: true, cineAim: false, _draw: false, _tp: { x: 0, y: 1, z: 0 } }; };
     this.actors = {};
@@ -127,7 +146,7 @@ export class TrailerRuntime {
     if (bk > 0.999) { const i = plan.shots.indexOf(shot), nx = plan.shots[i + 1]; if (nx && nx.start - e < 2.6 && nx.start > e) shot = nx; }
     const newShot = shot !== this.shot;
     if (newShot) { if (shot.scene !== this.sceneId) this.activateScene(shot.scene, shot); this.shot = shot; this.snap = true; }
-    const S = this.S, le = e - shot.start, u = clamp(le / shot.dur, 0, 1);
+    const S = this.S, le = e - shot.start, u = clamp(le / shot.dur, 0, 1); this.eNow = e;
     const simT = shot.simAt(le), rate = shot.rateAt(le);
     let simDt = !newShot && simT >= this.lastSim ? simT - this.lastSim : dt * rate; simDt = clamp(simDt, 0, 0.1);
     if (newShot && simT > this.lastSim + 0.5) this.skipEvents(simT - 0.3); // a forward jump in sim time: no burst of stale gunshots
@@ -157,11 +176,12 @@ export class TrailerRuntime {
     T.max = S.traffic ? this.orig.traffic : 0;
     const R = this.reservedRects(id); T.reserved = R.length ? (p) => R.some((r) => p.x > r[0] && p.x < r[1] && p.z > r[2] && p.z < r[3]) : null;
     T.parkedTimer = 0; // re-evaluate the parked cars now (reserved spots are cleared)
-    const f = this.focusOf(shot, posesAt(S, shot.t0)); g.world.warm(f.x, f.z);
+    const f = this.focusOf(shot, posesAt(S, shot.t0));
     // let the street life settle around the new camera before the black lifts
     const cam = g.camera, c = shot.cam(shot.t0, posesAt(S, shot.t0), 0); cam.position.set(c.p[0], c.p[1], c.p[2]); cam.lookAt(c.l[0], c.l[1], c.l[2]); cam.updateMatrixWorld();
     const camDir = cam.getWorldDirection(new THREE.Vector3());
-    for (let i = 0; i < (S.traffic ? 10 : 2); i++) { T.update(0.1, f, camDir, g.clock, g.crowd.peds, g.ghost); g.crowd.update(0.1, f, camDir, { simTime: g.clock, vehicles: T.all(), rain: A.w.rain, night: A.night, player: g.ghost, hourFactor: g.hourFactor(), hour: A.hour, police: null }); }
+    const band = S.clearRoad ? [S.clearRoad[0][0], S.clearRoad[0][1], S.clearRoad[1][0], S.clearRoad[1][1]] : null;
+    for (let i = 0; i < (S.traffic ? 36 : 2); i++) { T.update(0.1, f, camDir, g.clock, g.crowd.peds, g.ghost); if (band) this.clearRect(band, true); g.crowd.update(0.1, f, camDir, { simTime: g.clock, vehicles: T.all(), rain: A.w.rain, night: A.night, player: g.ghost, hourFactor: g.hourFactor(), hour: A.hour, police: null }); }
     this.cleanPeds(true);
   }
   reservedRects(id) {
@@ -172,6 +192,7 @@ export class TrailerRuntime {
   focusOf(shot, P) {
     if (shot.focus) return { x: shot.focus[0], z: shot.focus[1] };
     if (shot.focusRig && P[shot.focusRig]) return { x: P[shot.focusRig].x, z: P[shot.focusRig].z };
+    const sf = this.plan.scenes[shot.scene].focus; if (sf) return { x: sf[0], z: sf[1] }; // where the street life is (not a point out at sea)
     const c = shot.cam(shot.t0, P, 0); const dx = c.l[0] - c.p[0], dz = c.l[2] - c.p[2], d = Math.hypot(dx, dz) || 1, k = Math.min(d / 2, 150) / d;
     return { x: c.p[0] + dx * k, z: c.p[2] + dz * k };
   }
@@ -188,7 +209,8 @@ export class TrailerRuntime {
       const hdgRate = dt > 1e-4 && !this.snap ? wrap(p.hdg - (o.hdg ?? p.hdg)) / dt : 0; o.hdg = p.hdg;
       if (p.pitch === undefined) { v.pitch = clamp(-o.acc * 0.0032, -0.04, 0.045); v.roll = clamp(p.speed * hdgRate * 0.0045, -0.07, 0.07); } else { v.pitch = p.pitch; v.roll = p.roll; }
       v.lights = !!p.lights; v.brake = o.acc < -2.5 && p.speed > 0.5; if (o.r.type === 'police' || o.r.type === 'policejeep') v.beacons(!!p.beacons, t);
-      if (p.smokeR > 0) { v.tireSmoke = { r: p.smokeR, f: 0, launch: 0 }; v.wheelRot += p.smokeR * dt * 55; }
+      const slipK = p.speed > 3 ? clamp((Math.abs(p.slip || 0) - 0.12) / 0.3, 0, 1) : 0; // drifting: rears pour smoke, fronts scrub a little
+      if (p.smokeR > 0 || slipK > 0) { v.tireSmoke = { r: Math.max(p.smokeR || 0, slipK), f: slipK * 0.55, launch: 0 }; v.wheelRot += (p.smokeR || 0) * dt * 55; }
       v.sync(dt);
       const ch = v.driverChar; if (ch && ch !== this.actors.dineth.ch) { const A = ch.anim; A.steer = v.steer / (v.T.steer || 0.5); A.vehSpeed = v.speed; A.brakeLean = clamp(-o.acc * 0.012, -0.06, 0.08); A.cornerLean = clamp(-A.steer * v.speed * 0.004, -0.06, 0.06); A.update(Math.max(dt, 1e-4), 0); }
     }
@@ -280,7 +302,7 @@ export class TrailerRuntime {
     const g = this.g, A = g.atmos, cam = g.camera, S = this.S, env = S.env; this.simDtLast = simDt;
     A.hour = env.toHour ? lerp(env.hour, env.toHour, sm(u)) : env.hour; A.wet = env.wet; if (A.forced !== env.weather) A.forceWeather(env.weather);
     const f = this.focusOf(shot, P); const fv = this._fv || (this._fv = new THREE.Vector3()); fv.set(f.x, 0, f.z);
-    g.clock += dt; g.world.simTime = g.clock; g.world.update(dt, f, cam, A); A.update(dt, fv, cam, dt); setVehicleNight(A.night); setHeadPoolNight(A.night);
+    g.clock += dt; g.world.simTime = g.clock; this.prewarm(this.eNow, f); g.world.update(dt, f, cam, A); A.update(dt, fv, cam, dt); setVehicleNight(A.night); setHeadPoolNight(A.night);
     const camDir = cam.getWorldDirection(this._d);
     const T = g.traffic; T.night = A.night; T.weatherRain = A.w.rain; if (S.clearRoad) this.clearRect([S.clearRoad[0][0], S.clearRoad[0][1], S.clearRoad[1][0], S.clearRoad[1][1]]);
     T.update(simDt, f, camDir, g.clock, g.crowd.peds, g.ghost);
@@ -293,7 +315,7 @@ export class TrailerRuntime {
     this.fires = [];
     if (g.vsmoke) g.vsmoke.update(simDt);
     if (g.weapons) g.weapons.fxUpdate(simDt);
-    this.beaconSpill(P, this.simT, A.night);
+    const used = this.beaconSpill(P, this.simT, A.night); this.keyLight(shot, P, A.night, used);
     // engines heard from the camera (pitched down in slow motion), plus nearby traffic
     const near = []; let i = 0;
     for (const [id] of Object.entries(S.rigs)) { const v = this.veh(id).v; if (!v.mesh.visible || v.T.rail) continue; const q = this.proxies[i] || (this.proxies[i] = { x: 0, z: 0, speed: 0, type: '' }); i++; q.x = v.x; q.z = v.z; q.speed = v.speed * clamp(this.rate, 0.35, 1); q.type = v.type; q.d = (v.x - cam.position.x) ** 2 + (v.z - cam.position.z) ** 2; near.push(q); }
@@ -304,13 +326,24 @@ export class TrailerRuntime {
   beaconSpill(P, t, night) {
     const rig = this.g.flashRig; if (!rig) return; const cam = this.g.camera.position; const list = [];
     if (night > 0.35) for (const [id] of Object.entries(this.S.rigs)) { const o = this.veh(id), v = o.v; if (!v.beaconsOn || !v.mesh.visible) continue; const d = (v.x - cam.x) ** 2 + (v.z - cam.z) ** 2; if (d < 70 * 70) list.push([d, v]); }
-    list.sort((a, b) => a[0] - b[0]);
+    list.sort((a, b) => a[0] - b[0]); let used = 0;
     rig.spots.forEach((s, i) => {
-      const it = i < 2 ? list[i] : null; if (!it) { if (s.intensity) s.intensity = 0; return; }
+      const it = i < 2 ? list[i] : null; if (!it) { if (s.intensity && !s.isKey) s.intensity = 0; return; } used = i + 1; s.isKey = false;
       const v = it[1], ph = (t * 2.4) % 1, on = (t * 9.6) % 1 < 0.5; const blue = ph < 0.5;
       s.color.setHex(blue ? 0x2a5cff : 0xff2a22); s.intensity = on ? 34 : 2; s.angle = 1.15; s.penumbra = 1; s.distance = 17; s.decay = 1.6;
       const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw); s.position.set(v.x - fx * 0.2, (v.y || 0) + 2.1, v.z - fz * 0.2); s.target.position.set(v.x + fx * 1.5, v.y || 0, v.z + fz * 1.5); s.target.updateMatrixWorld();
     });
+    return used;
+  }
+  // night close-ups: a soft warm key from above the camera's shoulder onto the subject (motivated by the street lamps), so
+  // faces read at night instead of going to silhouette. Uses the first torch spotlight the light bars are not using.
+  keyLight(shot, P, night, used) {
+    const rig = this.g.flashRig; if (!rig) return; const KEY = { dineth: ['dineth'], shashika: ['shashika'], david: ['david'], trio: ['dineth', 0.75], ambush: ['shashika'], 'walk away': ['dineth', 0.7] };
+    for (const s of rig.spots) if (s.isKey) { s.intensity = 0; s.isKey = false; }
+    const k = KEY[shot.name], s = rig.spots[used]; if (!k || !s || night < 0.35) return; const p = P[k[0]]; if (!p || !p.vis || p.seat) return;
+    const cam = this.g.camera.position, gy = this.g.collision.groundAt(p.x, p.z, 0.4); let dx = cam.x - p.x, dz = cam.z - p.z; const d = Math.hypot(dx, dz) || 1; dx /= d; dz /= d;
+    s.isKey = true; s.color.setHex(0xffd9b0); s.intensity = 16 * clamp((night - 0.35) / 0.3, 0, 1); s.angle = k[1] || 0.42; s.penumbra = 1; s.distance = 14; s.decay = 1.4;
+    s.position.set(p.x + dx * 3.2 - dz * 1.4, gy + 3.4, p.z + dz * 3.2 + dx * 1.4); s.target.position.set(p.x, gy + 1.25, p.z); s.target.updateMatrixWorld();
   }
   // keep the crowd out of the action: nobody on the closed roads near the cars, nobody walking through a close-up
   cleanPeds(all) {
@@ -321,12 +354,14 @@ export class TrailerRuntime {
       if (S.hideRoadPeds && L.roadAt(p.x, p.z)) for (const v of cars) { if ((p.x - v.x) ** 2 + (p.z - v.z) ** 2 < 45 * 45) { bad = true; break; } }
       if (!bad) for (const v of cars) { if ((p.x - v.x) ** 2 + (p.z - v.z) ** 2 < 4.5 * 4.5) { bad = true; break; } }
       if (!bad) for (const o of Object.values(this.actors)) { if (!o.ch.root.parent || o.parentV) continue; if ((p.x - o.x) ** 2 + (p.z - o.z) ** 2 < 2.2 * 2.2) { bad = true; break; } }
+      if (!bad && S.noPeds) for (const [x, z, r] of S.noPeds) if ((p.x - x) ** 2 + (p.z - z) ** 2 < r * r) { bad = true; break; }
       if (!bad && L2) { const dx = L2[0] - cam.x, dz = L2[2] - cam.z, len = Math.hypot(dx, dz); if (len > 0.5 && len < 40) { const k = clamp(((p.x - cam.x) * dx + (p.z - cam.z) * dz) / (len * len), 0, 1); const qx = cam.x + dx * k - p.x, qz = cam.z + dz * k - p.z; if (qx * qx + qz * qz < 1.0 && k * len < len - 0.5) bad = true; } }
-      if (bad && (all || !this.visible(p))) C.remove(p); else if (bad && Math.hypot(p.x - cam.x, p.z - cam.z) < 12) C.remove(p);
+      if (bad && (all || !this.visible(p) || (S.noPeds && this.inZone(p, S.noPeds)))) C.remove(p); else if (bad && Math.hypot(p.x - cam.x, p.z - cam.z) < 12) C.remove(p);
     }
   }
+  inZone(p, Z) { return Z.some(([x, z, r]) => (p.x - x) ** 2 + (p.z - z) ** 2 < r * r); }
   visible(p) { const cam = this.g.camera; const v = this._v.set(p.x, (p.y || 0) + 1, p.z).project(cam); return v.z < 1 && Math.abs(v.x) < 1.1 && Math.abs(v.y) < 1.1; }
-  clearRect(r) { const T = this.g.traffic; for (let i = T.vehicles.length - 1; i >= 0; i--) { const v = T.vehicles[i]; if (v.x > r[0] && v.x < r[1] && v.z > r[2] && v.z < r[3] && (!this.visible(v) || Math.hypot(v.x - this.g.camera.position.x, v.z - this.g.camera.position.z) > 90)) { T.remove(v); T.vehicles.splice(i, 1); } } }
+  clearRect(r, all = false) { const T = this.g.traffic, cam = this.g.camera.position; for (let i = T.vehicles.length - 1; i >= 0; i--) { const v = T.vehicles[i]; if (!(v.x > r[0] && v.x < r[1] && v.z > r[2] && v.z < r[3])) continue; const d = Math.hypot(v.x - cam.x, v.z - cam.z); if (all || !this.visible(v) || d > 90 || d < 14) { T.remove(v); T.vehicles.splice(i, 1); } } }
   // ---------------------------------------------------------------- live sound: screeching tyres, sirens with Doppler, whooshes on the big cuts
   audioFx(P, t, rate, dt) {
     const cam = this.g.camera.position; let scr = 0, scrPan = 0;
