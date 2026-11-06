@@ -23,7 +23,7 @@ class NpcEditor {
     this.win = new Win('NPC editor — remodel any NPC', { x: 20, y: 20, w: W, h: H, onClose: () => this.session.end() });
     this.left = h('div', { cls: 'ed-col', style: { width: '240px', flex: 'none', overflow: 'auto' } });
     const mid = h('div', { cls: 'ed-col', style: { flex: 1 } }); this.vp = new Viewport(mid, { target: [0, 0.95, 0], dist: 3 }); this.vp.el.style.flex = '1';
-    this.modeBtns = [['orbit', 'Orbit'], ['paint', '🖌 Paint on model'], ['pick', 'Pick colour']].map(([m, t]) => { const b = btn(t, () => this.setMode(m)); b.dataset.m = m; return b; });
+    this.modeBtns = [['orbit', 'Orbit'], ['paint', 'Paint on model'], ['pick', 'Pick colour']].map(([m, t]) => { const b = btn(t, () => this.setMode(m)); b.dataset.m = m; return b; });
     mid.append(h('div', { cls: 'ed-tabs', style: { marginTop: '4px' } }, this.modeBtns, btn('Fabric texture…', () => this.openFabric()), btn('Undo paint', () => this.undoPaint()), btn('Reset paint', () => this.resetPaint())),
       h('div', { cls: 'ed-row' }, color('Brush colour', this.brush.col, (v) => { this.brush.col = v; }), num('Brush size (m)', this.brush.size, { min: 0.01, max: 0.4, step: 0.005 }, (v) => { this.brush.size = v; }), num('Strength', this.brush.str, { min: 0.02, max: 1, step: 0.01 }, (v) => { this.brush.str = v; })),
       h('div', { cls: 'ed-hint' }, 'Orbit: drag / right-drag / wheel · Paint: drag on the body (colours skin, clothes, any spot) · Fabric texture: paint the cloth pattern itself'));
@@ -40,7 +40,7 @@ class NpcEditor {
     L.append(section('NPCs near you (' + near.length + ')', true, h('div', { cls: 'ed-list', style: { maxHeight: '190px' } }, near.map((p) => h('div', { cls: p === this.target ? 'sel' : '', onclick: () => this.loadPed(p) }, (p.sp?.label || p.ch.spec.label || p.ch.spec.preset || 'NPC') + ' ', h('small', {}, Math.round(Math.hypot(p.x - P.x, p.z - P.z)) + ' m'))))));
     L.append(section('Saved custom NPCs (' + NPCS.list.length + ')', true, h('div', { cls: 'ed-list', style: { maxHeight: '150px' } }, NPCS.list.map((e) => h('div', { cls: this.entry && this.entry.id === e.id ? 'sel' : '', onclick: () => this.loadEntry(e) }, e.name, h('small', {}, '×' + e.weight))))));
     L.append(section('Start from a preset', false, h('div', { cls: 'ed-list', style: { maxHeight: '220px' } }, PRESETS.map((p) => h('div', { onclick: () => this.loadSpec(makeAppearance((Math.random() * 1e6) | 0, { preset: p.id }), null) }, p.label || p.id)))));
-    L.append(btn('🎲 Random NPC', () => this.loadSpec(makeAppearance((Math.random() * 1e6) | 0), null)), btn('Refresh list', () => this.fillLeft()));
+    L.append(btn('Random NPC', () => this.loadSpec(makeAppearance((Math.random() * 1e6) | 0), null)), btn('Refresh list', () => this.fillLeft()));
   }
   loadPed(p) { this.target = p; const sp = clone(p.ch.spec); const e = sp._custom ? NPCS.list.find((x) => x.id === sp._custom) : null; if (e) this.loadEntry(e, p); else this.loadSpec(sp, null); this.fillLeft(); }
   loadEntry(e, ped = null) { this.target = ped; this.loadSpec(clone(e.spec), { ...clone({ ...e, fabricMat: undefined }) }); }
@@ -115,7 +115,7 @@ class NpcEditor {
     R.append(section('Use it', true,
       h('div', { cls: 'ed-tabs' }, btn('Apply to picked NPC', () => this.applyToWorld(this.target ? [this.target] : [])), btn('Apply to everyone within 30 m', () => this.applyToWorld(this.nearby().filter((p) => Math.hypot(p.x - this.g.player.x, p.z - this.g.player.z) < 30)))),
       nameIn, num('Spawn weight', weight, { min: 1, max: 20, step: 1 }, (v) => { weight = v; }),
-      h('div', { cls: 'ed-tabs' }, btn(this.entry ? '💾 Save custom NPC' : '💾 Save as custom NPC (spawns in crowd)', async () => { await this.save(weight); }), this.entry ? btn('Save as copy', async () => { this.entry = null; await this.save(weight); }) : null,
+      h('div', { cls: 'ed-tabs' }, btn(this.entry ? 'Save custom NPC' : 'Save as custom NPC (spawns in crowd)', async () => { await this.save(weight); }), this.entry ? btn('Save as copy', async () => { this.entry = null; await this.save(weight); }) : null,
         this.entry ? btn('Delete', async () => { NPCS.list = NPCS.list.filter((e) => e.id !== this.entry.id); forgetMaterial(this.entry.id); this.entry = null; await saveNpcs(this.g); this.fillLeft(); this.buildRight(); toast('Deleted'); }, { cls: 'warn' }) : null),
       h('div', { cls: 'ed-tabs' }, btn('Export', () => download('npc-' + (this.name || 'custom') + '.json', JSON.stringify(this.currentEntry(weight)))), btn('Import', async () => { const f = await pickFile(); if (!f) return; try { const e = JSON.parse(await f.text()); this.loadSpec(e.spec || e, e.spec ? e : null); } catch (er) { toast('Bad file: ' + er.message); } }))));
   }
@@ -130,3 +130,4 @@ class NpcEditor {
   dispose() { if (this.ch) this.ch.dispose(); this.vp.dispose(); if (this.fabWin && !this.fabWin.closed) this.fabWin.close(); if (!this.win.closed) this.win.close(); ed = null; }
 }
 void HEROES;
+export function current() { return ed; } // tests / console inspection

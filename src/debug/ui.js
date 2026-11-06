@@ -20,7 +20,7 @@ const CSS = `
 .ed-btn:hover{background:#3a4458}.ed-btn.on{background:#b07818;border-color:#e0a030;color:#fff}.ed-btn.warn{background:#5a2428;border-color:#8a3a40}
 .ed-sec{border:1px solid #2c3340;border-radius:5px;margin:5px 0}
 .ed-sec>.h{padding:4px 7px;background:#1d222c;cursor:pointer;color:#e0a030;font-weight:600}
-.ed-sec>.h:before{content:'▾ ';color:#778}.ed-sec.closed>.h:before{content:'▸ '}
+.ed-sec>.h:before{content:'';display:inline-block;width:0;height:0;margin:0 7px 2px 0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:6px solid #778;vertical-align:middle}.ed-sec.closed>.h:before{border-top:4px solid transparent;border-bottom:4px solid transparent;border-left:6px solid #778;border-right:0}
 .ed-sec>.b{padding:4px 7px}.ed-sec.closed>.b{display:none}
 .ed-list{border:1px solid #2c3340;border-radius:4px;overflow:auto;background:#0f1116}
 .ed-list div{padding:3px 7px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

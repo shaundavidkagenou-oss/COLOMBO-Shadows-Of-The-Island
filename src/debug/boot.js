@@ -30,5 +30,5 @@ export async function bootRuntime(game) {
 // console entry points (dynamic import = loaded on demand)
 export async function openEditor(kind, game) {
   const mod = kind === 'animations' ? await import('./AnimEditor.js') : kind === 'map' ? await import('./MapEditor.js') : await import('./NpcEditor.js');
-  return mod.open(game);
+  const ed = await mod.open(game); (globalThis.__editors ||= {})[kind] = ed; return ed; // (inspectable from the browser console)
 }

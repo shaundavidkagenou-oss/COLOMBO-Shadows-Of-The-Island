@@ -22,16 +22,16 @@ class AnimEditor {
     this.search = h('input', { type: 'text', placeholder: 'search…', style: { width: '100%', marginBottom: '4px' } }); this.search.addEventListener('input', () => this.fillList());
     this.list = h('div', { cls: 'ed-list', style: { flex: 1 } });
     const specs = this.specOptions(); this.specSel = select('Preview on', specs.map((s, i) => [i, s.label]), 0, (v) => this.setModel(+v));
-    const left = h('div', { cls: 'ed-col', style: { width: '230px', flex: 'none' } }, h('div', { cls: 'ed-hint' }, 'Animations (● edited · number = characters doing it now)'), this.search, this.list, this.specSel,
+    const left = h('div', { cls: 'ed-col', style: { width: '230px', flex: 'none' } }, h('div', { cls: 'ed-hint' }, 'Animations (* = edited · number = characters doing it now)'), this.search, this.list, this.specSel,
       check('Apply edits in game', ANIM.enabled, (v) => { ANIM.enabled = v; }));
     // ---- centre: viewport + timeline
     const mid = h('div', { cls: 'ed-col', style: { flex: 1 } });
     this.vp = new Viewport(mid, { target: [0, 0.95, 0], dist: 3.4 }); this.vp.el.style.flex = '1';
     this.tl = h('canvas', { style: { width: '100%', height: '96px', background: '#0f1116', border: '1px solid #2c3340', borderRadius: '4px', marginTop: '4px', cursor: 'pointer' } });
     this.timeLbl = h('span', { style: { minWidth: '120px' } });
-    this.playBtn = btn('❚❚ Pause', () => this.togglePlay());
-    mid.append(this.tl, h('div', { cls: 'ed-row' }, this.playBtn, btn('|◀', () => this.stepKey(-1), { title: 'previous key' }), btn('▶|', () => this.stepKey(1), { title: 'next key' }), btn('−frame', () => this.nudge(-1 / 30)), btn('+frame', () => this.nudge(1 / 30)), this.timeLbl,
-      h('span', { cls: 'ed-hint' }, 'drag = orbit · right-drag = pan · wheel = zoom · click a joint to select it · drag a ◆ to retime')));
+    this.playBtn = btn('Pause', () => this.togglePlay());
+    mid.append(this.tl, h('div', { cls: 'ed-row' }, this.playBtn, btn('Prev key', () => this.stepKey(-1), { title: 'previous key' }), btn('Next key', () => this.stepKey(1), { title: 'next key' }), btn('−frame', () => this.nudge(-1 / 30)), btn('+frame', () => this.nudge(1 / 30)), this.timeLbl,
+      h('span', { cls: 'ed-hint' }, 'drag = orbit · right-drag = pan · wheel = zoom · click a joint to select it · drag a key marker to retime')));
     // ---- right: clip + bone
     this.right = h('div', { cls: 'ed-col', style: { width: '320px', flex: 'none', overflow: 'auto' } });
     this.win.body.append(h('div', { cls: 'ed-cols' }, left, mid, this.right));
@@ -54,7 +54,7 @@ class AnimEditor {
   // ---- list of animations: known states ∪ seen this session ∪ live now ∪ edited
   fillList() {
     const live = liveStates(); const keys = [...new Set([...KNOWN, ...ANIM.seen.keys(), ...live.keys(), ...Object.keys(ANIM.clips)])].filter((k) => k.includes(this.search.value.trim()));
-    const sel = this.key; this.list.replaceChildren(...keys.map((k) => { const d = h('div', { cls: k === sel ? 'sel' : '', onclick: () => this.select(k) }, (ANIM.clips[k] ? '● ' : '') + k, live.get(k) ? h('small', {}, String(live.get(k))) : null); return d; }));
+    const sel = this.key; this.list.replaceChildren(...keys.map((k) => { const d = h('div', { cls: k === sel ? 'sel' : '', onclick: () => this.select(k) }, (ANIM.clips[k] ? '* ' : '') + k, live.get(k) ? h('small', {}, String(live.get(k))) : null); return d; }));
   }
   select(key) { this.key = key; this.clip = ANIM.clips[key] || null; if (ANIM.force) ANIM.force.key = key; this.restart(); this.fillList(); this.buildRight(); }
   ensureClip() { if (!this.clip) { this.clip = ANIM.clips[this.key] = newClip(this.key); this.fillList(); } return this.clip; }
@@ -69,7 +69,7 @@ class AnimEditor {
       select('Mode', [['add', 'Add to the game pose'], ['replace', 'Replace the game pose']], c.mode, (v) => { c.mode = v; this.buildRight(); }),
       num('Weight', c.weight, { min: 0, max: 1.5, step: 0.01 }, (v) => { c.weight = v; }), num('Time scale', c.speed ?? 1, { min: 0.1, max: 3, step: 0.01 }, (v) => { c.speed = v; }),
       num('Length', c.length, { min: 0.1, max: 20, step: 0.05 }, (v) => { c.length = v; }), check('Loop', c.loop, (v) => { c.loop = v; }), check('Disabled', !!c.off, (v) => { c.off = v; }),
-      h('div', { cls: 'ed-tabs' }, btn('Bake game pose → keys', () => this.bake(), { title: 'sample the procedural pose into keys (replace mode starting point)' }), btn('Mirror L↔R', () => this.mirror()), btn('Delete clip', () => { delete ANIM.clips[this.key]; this.clip = null; this.buildRight(); this.fillList(); }, { cls: 'warn' }))));
+      h('div', { cls: 'ed-tabs' }, btn('Bake game pose → keys', () => this.bake(), { title: 'sample the procedural pose into keys (replace mode starting point)' }), btn('Mirror L/R', () => this.mirror()), btn('Delete clip', () => { delete ANIM.clips[this.key]; this.clip = null; this.buildRight(); this.fillList(); }, { cls: 'warn' }))));
     // bones
     const bl = h('div', { cls: 'ed-list', style: { maxHeight: '150px' } }, BONE_LIST.map((b) => h('div', { cls: b === this.bone ? 'sel' : '', onclick: () => { this.bone = b; this.attachMarker(); this.buildRight(); } }, b, c && c.tracks[b] && c.tracks[b].length ? h('small', {}, c.tracks[b].length + ' keys') : null)));
     const hip = this.bone === 'hipPos', v = this.valueAt(this.bone, this.t); const rng = hip ? { min: -0.6, max: 0.6, step: 0.001 } : { min: -PI, max: PI, step: 0.001 };
@@ -80,7 +80,7 @@ class AnimEditor {
       h('div', { cls: 'ed-tabs' }, btn('Key all bones here', () => this.keyAll()), btn('Delete key', () => this.delKey()), btn('Clear bone', () => { if (this.clip) { delete this.clip.tracks[this.bone]; this.buildRight(); } }), btn('Copy pose', () => this.copyPose()), btn('Paste pose', () => this.pastePose())),
       hip ? null : section('Bone scale (this animation)', false, ...[0, 1, 2].map((i) => num('Scale ' + 'XYZ'[i], sc[i], { min: 0.3, max: 2.5, step: 0.01 }, (val) => { const cl = this.ensureClip(); cl.scale ||= {}; const s = (cl.scale[this.bone] ||= [1, 1, 1]); s[i] = val; })))));
     R.append(section('File', true, h('div', { cls: 'ed-tabs' },
-      btn('💾 Save (applies in game)', async () => { await saveAnims(); toast('Animations saved — they now apply to every character'); }),
+      btn('Save (applies in game)', async () => { await saveAnims(); toast('Animations saved — they now apply to every character'); }),
       btn('Export JSON', () => download('colombo-animations.json', JSON.stringify(ANIM.clips, null, 1))),
       btn('Import JSON', async () => { const f = await pickFile(); if (!f) return; try { Object.assign(ANIM.clips, JSON.parse(await f.text())); this.select(this.key); toast('Imported'); } catch (e) { toast('Bad file: ' + e.message); } }),
       btn('Revert to saved', async () => { await loadSavedAnims(); this.select(this.key); }))));
@@ -125,7 +125,7 @@ class AnimEditor {
     this.ch.root.updateMatrixWorld(true); this.timeLbl.textContent = `t = ${this.t.toFixed(2)} / ${L.toFixed(2)}`; this.drawTimeline();
     if (this.sl && !this.playing && this._slT !== this.t) { this._slT = this.t; const v = this.valueAt(this.bone, this.t); this.sl.forEach((s, i) => s.set(v['xyz'[i]])); }
   }
-  togglePlay() { this.playing = !this.playing; this.playBtn.textContent = this.playing ? '❚❚ Pause' : '▶ Play'; if (this.playing) this.restartAt(); }
+  togglePlay() { this.playing = !this.playing; this.playBtn.textContent = this.playing ? 'Pause' : 'Play'; if (this.playing) this.restartAt(); }
   pause() { if (this.playing) this.togglePlay(); }
   restartAt() { const a = this.ch.anim; if (!LOCO.includes(this.key) && !this.key.startsWith('fight') && !this.key.startsWith('hit')) a.actionT = this.t; }
   nudge(d) { this.pause(); this.t = Math.max(0, Math.min(this.len, this.t + d)); }
@@ -156,3 +156,4 @@ class AnimEditor {
   }
   dispose() { clearInterval(this.listT); ANIM.force = null; if (this.ch) { this.ch.dispose(); } this.vp.dispose(); if (!this.win.closed) this.win.close(); ed = null; }
 }
+export function current() { return ed; } // tests / console inspection

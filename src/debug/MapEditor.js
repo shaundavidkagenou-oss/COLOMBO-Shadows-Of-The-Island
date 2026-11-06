@@ -28,7 +28,7 @@ let uidN = Date.now() % 1e7;
 
 class MapEditor {
   constructor(game) {
-    this.g = game; this.W = game.world; this.cam = game.camera; this.keys = new Set(); this.speed = 25; this.sel = null; this.undo = []; this.dirtyChunks = new Set(); this.forestDirty = false; this.flushAt = 0; this.texCv = new Map();
+    this.g = game; this.plan = plan; this.W = game.world; this.cam = game.camera; this.keys = new Set(); this.speed = 25; this.sel = null; this.undo = []; this.dirtyChunks = new Set(); this.forestDirty = false; this.flushAt = 0; this.texCv = new Map();
     this.filter = { b: true, w: true, p: true, t: true, pl: true, prim: true }; this.place = null; this.grab = null;
     const e = new THREE.Euler().setFromQuaternion(this.cam.quaternion, 'YXZ'); this.yaw = e.y; this.pitch = e.x; this.pos = this.cam.position.clone();
     if (this.W.editorPrims == null) { this.W.editorPrims = new THREE.Group(); this.W.editorPrims.name = 'editorPrims'; this.W.root.add(this.W.editorPrims); }
@@ -46,9 +46,9 @@ class MapEditor {
     let addK = 'prim', addT = 'box'; const typeSel = h('div');
     const fillTypes = () => { typeSel.replaceChildren(select('Type', kinds[addK], addT, (v) => { addT = v; })); }; addT = kinds[addK][0]; fillTypes();
     const add = section('Add', true, select('Kind', Object.keys(kinds).map((k) => [k, LABEL[k]]), addK, (v) => { addK = v; addT = kinds[v][0]; fillTypes(); }), typeSel,
-      btn('➕ Place (click on the ground)', () => { this.place = { k: addK, type: addT }; toast('Click where it goes (right-click cancels)'); }));
+      btn('+ Place (click on the ground)', () => { this.place = { k: addK, type: addT }; toast('Click where it goes (right-click cancels)'); }));
     this.status = h('div', { cls: 'ed-hint' });
-    const file = section('Save', true, h('div', { cls: 'ed-tabs' }, btn('💾 Save map', () => this.save()), btn('Export', () => this.exportMap()), btn('Import', () => this.importMap())),
+    const file = section('Save', true, h('div', { cls: 'ed-tabs' }, btn('Save map', () => this.save()), btn('Export', () => this.exportMap()), btn('Import', () => this.importMap())),
       h('div', { cls: 'ed-tabs' }, btn('Undo', () => this.doUndo()), btn('Revert to generated city…', () => this.revertAll(), { cls: 'warn' })), this.status);
     const tex = section('Textures', false, btn('Repaint a city texture (roads, walls, roofs …)', () => this.matWindow()));
     const view = section('View', false, num('Fly speed', this.speed, { min: 2, max: 200, step: 1 }, (v) => { this.speed = v; }), btn('Fly to player', () => { const P = this.g.player; this.pos.set(P.x, (P.y || 0) + 12, P.z + 14); this.pitch = -0.6; this.yaw = Math.PI; }),
@@ -60,7 +60,7 @@ class MapEditor {
   updateStatus() { const E = MAP.edits; this.status.textContent = `${Object.keys(E.mods).length} changed / deleted · ${E.added.length} added${this.unsaved ? ' · unsaved changes' : ''}`; }
   inspect() {
     if (!this.insp || this.insp.closed) { this.insp = new Win('Inspector', { x: innerWidth - 372, y: 12, w: 360, h: Math.min(innerHeight - 24, 640) }); this.insp.onClose = () => { this.insp = null; }; }
-    const B = this.insp.body; B.replaceChildren(); const s = this.sel; if (!s) { B.append(h('div', { cls: 'ed-hint' }, 'Nothing selected.')); return; }
+    const B = this.insp.body; B.replaceChildren(); const s = this.sel; if (!s || !s.o) { this.sel = null; B.append(h('div', { cls: 'ed-hint' }, 'Nothing selected.')); return; }
     const { k, o } = s; const name = k === 'prim' ? o.shape : o.style || o.type || 'wall';
     B.append(h('div', { style: { fontWeight: 600, color: '#e0a030', marginBottom: '6px' } }, `${LABEL[k]} — ${name}  `, h('small', { style: { color: '#999' } }, k === 'prim' ? 'placed object' : o._eid)));
     if (this.locked(s)) B.append(h('div', { cls: 'ed-hint', style: { color: '#f0a060' } }, 'Linked to a mission / shop / interior: it can be edited but not deleted. Its shopfront / interior follows after a reload.'));
@@ -71,12 +71,12 @@ class MapEditor {
         yaw: { min: -Math.PI, max: Math.PI, step: 0.01 }, rot: { min: -Math.PI, max: Math.PI, step: 0.01 }, h: { min: 0.3, max: 8, step: 0.05 } };
       for (const key of ['x', 'x0', 'x1']) H[key] = { min: o[key] - 60, max: o[key] + 60, step: 0.05 }; for (const key of ['z', 'z0', 'z1']) H[key] = { min: o[key] - 60, max: o[key] + 60, step: 0.05 };
       for (const key of ['porch', 'balconies', 'tanks']) if (f[key] === undefined && k === 'b') f[key] = false;
-      B.append(propGrid(f, (p, v) => this.setSel({ [p.split('.')[0]]: f[p.split('.')[0]] ?? v }), H));
+      B.append(propGrid(f, (p, v) => this.setSel({ [p.split('.')[0]]: f[p.split('.')[0]] ?? v }, true), H));
     }
     B.append(h('div', { cls: 'ed-tabs', style: { marginTop: '8px' } }, btn('Grab (G)', () => this.startGrab()), btn('Duplicate', () => this.duplicate()), btn('Focus (F)', () => this.focus()), btn('Delete', () => this.del(), { cls: 'warn' })));
   }
   primPanel(d) {
-    const out = h('div'); const ch = (f) => this.setPrim(d, f);
+    const out = h('div'); const ch = (f) => this.setPrim(d, f, false, true);
     out.append(select('Shape', PRIM_SHAPES, d.shape, (v) => ch({ shape: v })));
     for (const [k, lab, rg] of [['x', 'X', 0.05], ['y', 'Height above ground', 0.05], ['z', 'Z', 0.05]]) out.append(num(lab, d[k], { min: d[k] - 50, max: d[k] + 50, step: rg }, (v) => ch({ [k]: v })));
     for (const [k, lab] of [['sx', 'Width'], ['sy', 'Height'], ['sz', 'Depth']]) out.append(num(lab, d[k] || 1, { min: 0.05, max: 60, step: 0.05 }, (v) => ch({ [k]: v })));
@@ -160,7 +160,7 @@ class MapEditor {
     if (this.place) { const p = this.groundAt(e); if (!p) return; this.placeAt(this.place, p); if (!e.shiftKey) this.place = null; return; }
     this.select(this.pickAt(e));
   }
-  select(s) { this.sel = s; this.inspect(); this.updateBox(); }
+  select(s) { this.sel = s && s.o ? s : null; this.inspect(); this.updateBox(); }
   updateBox() { const s = this.sel; if (!s) { this.box.visible = false; return; } let b; if (s.k === 'prim') { const m = this.meshOf(s.o); if (!m) { this.box.visible = false; return; } const bb = new THREE.Box3().setFromObject(m); b = [bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z]; } else b = this.boxOf(s.k, s.o);
     this.box.position.set((b[0] + b[3]) / 2, b[1], (b[2] + b[5]) / 2); this.box.scale.set(Math.max(0.1, b[3] - b[0]), Math.max(0.1, b[4] - b[1]), Math.max(0.1, b[5] - b[2])); this.box.visible = true; }
   locked(s) { if (!s || s.k !== 'b') return false; const id = s.o.id; return Object.values(plan.missionShops || {}).some((v) => v && v.b === id) || !!(s.o.interior || s.o.hero || s.o.mission || s.o.room); }
@@ -169,8 +169,8 @@ class MapEditor {
   entryOf(o) { return o._eid && o._eid.startsWith('a:') ? MAP.edits.added.find((d) => 'a:' + d.uid === o._eid) : null; }
   record(o) { const k = kindOf(o), en = this.entryOf(o); if (en) Object.assign(en, pick(o, FIELDS[k])); else MAP.edits.mods[o._eid] = pick(o, FIELDS[k]); this.unsaved = true; this.updateStatus(); }
   sync(out, k) { const W = this.W; const rs = new Set(out.removed); if (rs.size) W.collision.remove((c) => rs.has(c)); for (const c of out.added) W.collision.add(c); if (k === 't' || k === 'pl') this.forestDirty = true; else for (const c of out.chunks) if (c >= 0) this.dirtyChunks.add(c); this.flushAt = performance.now() + 250; }
-  setSel(f) { const s = this.sel; if (!s) return; if (s.k === 'prim') return this.setPrim(s.o, f); const o = s.o, k = s.k; const before = pick(o, Object.keys(f).concat(FIELDS[k])); const prev = this.snapEntry(o);
-    this.sync(setFields(plan, o, f), k); this.record(o); this.undo.push({ t: 'set', o, k, before, prev }); this.updateBox(); }
+  setSel(f, fromPanel = false) { const s = this.sel; if (!s) return; if (s.k === 'prim') return this.setPrim(s.o, f, false, fromPanel); const o = s.o, k = s.k; const before = pick(o, Object.keys(f).concat(FIELDS[k])); const prev = this.snapEntry(o);
+    this.sync(setFields(plan, o, f), k); this.record(o); this.undo.push({ t: 'set', o, k, before, prev }); this.updateBox(); if (!fromPanel) this.inspect(); }
   snapEntry(o) { const en = this.entryOf(o); return en ? { en: JSON.parse(JSON.stringify(en)) } : { mod: MAP.edits.mods[o._eid] ? JSON.parse(JSON.stringify(MAP.edits.mods[o._eid])) : undefined }; }
   restoreEntry(o, prev) { const en = this.entryOf(o); if (en && prev.en) { for (const k of Object.keys(en)) delete en[k]; Object.assign(en, prev.en); } else if (!en) { if (prev.mod === undefined) delete MAP.edits.mods[o._eid]; else MAP.edits.mods[o._eid] = prev.mod; } }
   moveBy(dx, dz) { const s = this.sel; if (!s) return; const o = s.o; if (s.k === 'prim') return this.setPrim(o, { x: o.x + dx, z: o.z + dz }); if (o.x0 !== undefined) this.setSel({ x0: o.x0 + dx, x1: o.x1 + dx, z0: o.z0 + dz, z1: o.z1 + dz }); else this.setSel({ x: o.x + dx, z: o.z + dz }); }
@@ -197,12 +197,12 @@ class MapEditor {
     d.uid = uid; d.k = pl.k; MAP.edits.added.push(d); const { obj, out } = createObj(plan, d); this.sync(out, pl.k); this.undo.push({ t: 'add', o: obj, k: pl.k, d, out }); this.unsaved = true; this.updateStatus(); this.select({ k: pl.k, o: obj });
   }
   addPrim(d) { if (!MAP.edits.added.includes(d)) MAP.edits.added.push(d); const m = primMesh(d); this.W.editorPrims.add(m); const c = primCollider(d); if (c) this.W.collision.add(c); this.undo.push({ t: 'addPrim', d }); this.unsaved = true; this.updateStatus(); this.select({ k: 'prim', o: d, mesh: m }); }
-  setPrim(d, f, noUndo = false) {
+  setPrim(d, f, noUndo = false, fromPanel = false) {
     if (!noUndo) this.undo.push({ t: 'setPrim', d, before: pick(d, Object.keys(f).concat(['x', 'y', 'z', 'sx', 'sy', 'sz', 'rx', 'ry', 'rz'])) });
     const needMesh = ['shape', 'color', 'rough', 'metal', 'glow', 'opacity', 'tex', 'rep', 'shadow'].some((k) => k in f); Object.assign(d, f); let m = this.meshOf(d);
     if (needMesh && m) { this.W.editorPrims.remove(m); m.geometry.dispose(); m.material.dispose(); if (d.tex && this.texCv.has(d.tex)) { MAP.edits.textures[d.tex] = this.texCv.get(d.tex).toDataURL(); } m = primMesh(d); if (d.tex && this.texCv.has(d.tex)) { m.material.map = liveTexture(d.tex, this.texCv.get(d.tex)); m.material.map.repeat.set(d.rep || 1, d.rep || 1); } this.W.editorPrims.add(m); }
     else if (m) placePrim(m, d);
-    this.W.collision.remove((c) => c.prim === d.uid); const c = primCollider(d); if (c) this.W.collision.add(c); this.unsaved = true; this.updateStatus(); this.updateBox(); if (needMesh && 'shape' in f) this.inspect();
+    this.W.collision.remove((c) => c.prim === d.uid); const c = primCollider(d); if (c) this.W.collision.add(c); this.unsaved = true; this.updateStatus(); this.updateBox(); if (!fromPanel || 'shape' in f || 'tex' in f) this.inspect();
   }
   duplicate() { const s = this.sel; if (!s) return; if (s.k === 'prim') { const d = { ...JSON.parse(JSON.stringify(s.o)), uid: 'u' + (uidN++).toString(36) }; d.x += 2; d.z += 2; return this.addPrim(d); }
     const [x, z] = ctr(s.o); const k = s.k; const o = s.o; const d = JSON.parse(JSON.stringify(o, (kk, v) => (kk.startsWith('_') || kk === 'col' || kk === 'id' || kk === 'h' || kk === 'totalH' ? undefined : v))); const off = k === 'b' ? (o.x1 - o.x0) + 2 : k === 'w' ? 0 : 2;
@@ -224,8 +224,9 @@ class MapEditor {
     const [cx, cz] = s.k === 'prim' ? G.start : ctr(s.o); this.box.position.x += 0; this.updateBox(); if (s.k !== 'prim') { this.box.position.x += nx - cx; this.box.position.z += nz - cz; } }
   endGrab() { const G = this.grab; this.grab = null; const s = this.sel; if (!s) return; if (s.k === 'prim') { const cur = { x: s.o.x, y: s.o.y, z: s.o.z }; Object.assign(s.o, { x: G.start[0], z: G.start[1] }); this.setPrim(s.o, cur); } else { const [cx, cz] = ctr(s.o); this.moveBy(G.cur[0] - cx, G.cur[1] - cz); } this.inspect(); }
   cancelGrab() { const G = this.grab; this.grab = null; const s = this.sel; if (s && s.k === 'prim') { s.o.x = G.start[0]; s.o.z = G.start[1]; s.o.y = L.groundY(s.o.x, s.o.z); const m = this.meshOf(s.o); if (m) placePrim(m, s.o); } this.updateBox(); }
-  focus() { const s = this.sel; if (!s) return; const [x, z] = s.k === 'prim' ? [s.o.x, s.o.z] : ctr(s.o); const b = s.k === 'prim' ? null : this.boxOf(s.k, s.o); const hgt = b ? b[4] - b[1] : 3; const dist = Math.max(8, hgt * 1.6);
-    this.pos.set(x - Math.sin(this.yaw) * -dist, L.groundY(x, z) + hgt * 0.6 + dist * 0.5, z - Math.cos(this.yaw) * -dist); this.pitch = -0.45; }
+  focus() { const s = this.sel; if (!s) return; const [x, z] = s.k === 'prim' ? [s.o.x, s.o.z] : ctr(s.o); const b = s.k === 'prim' ? null : this.boxOf(s.k, s.o); const hgt = b ? b[4] - b[1] : 3, diag = b ? Math.hypot(b[3] - b[0], b[5] - b[2]) : 3;
+    const P = 0.62, d = Math.max(10, hgt * 1.1 + diag * 1.2); const gy = L.groundY(x, z); // look down at ~35° from above the neighbours
+    this.pos.set(x + Math.sin(this.yaw) * d * Math.cos(P), gy + hgt * 0.5 + d * Math.sin(P), z + Math.cos(this.yaw) * d * Math.cos(P)); this.pitch = -P; }
   // ---------------------------------------------------------------- live rebuild of what an edit touched
   rebuildChunk(ci) {
     const W = this.W, c = W.chunks[ci], ch = plan.byChunk[ci]; if (!c || !ch) return;
@@ -267,3 +268,4 @@ class MapEditor {
   }
 }
 void text; void textureFor;
+export function current() { return ed; } // tests / console inspection

@@ -21,7 +21,7 @@ export class Painter {
   // canvas: the canvas to paint (painted in place); onChange(): called after changes (throttled to animation frames)
   constructor(parent, canvas, onChange = () => {}) {
     this.cv = canvas; this.g = canvas.getContext('2d', { willReadFrequently: true }); this.onChange = onChange; this.tool = 'brush'; this.col = '#c0392b'; this.col2 = '#f4e9d0'; this.size = 12; this.alpha = 1; this.hard = 0.7; this.zoom = 1; this.undo = []; this.redo = []; this.text = 'COLOMBO';
-    const tools = [['brush', '🖌 Brush'], ['air', 'Airbrush'], ['erase', 'Eraser'], ['fill', 'Fill'], ['line', 'Line'], ['rect', 'Rect'], ['ellipse', 'Ellipse'], ['grad', 'Gradient'], ['text', 'Text'], ['pick', 'Picker'], ['smudge', 'Smudge']];
+    const tools = [['brush', 'Brush'], ['air', 'Airbrush'], ['erase', 'Eraser'], ['fill', 'Fill'], ['line', 'Line'], ['rect', 'Rect'], ['ellipse', 'Ellipse'], ['grad', 'Gradient'], ['text', 'Text'], ['pick', 'Picker'], ['smudge', 'Smudge']];
     this.toolBtns = tools.map(([id, t]) => { const b = btn(t, () => this.setTool(id)); b.dataset.t = id; return b; });
     this.view = h('canvas'); this.view.style.cssText = 'image-rendering:pixelated;cursor:crosshair;background:repeating-conic-gradient(#555 0 25%,#777 0 50%) 0/16px 16px;touch-action:none';
     const wrap = h('div', { style: { overflow: 'auto', flex: 1, minHeight: '160px', border: '1px solid #2c3340', borderRadius: '4px' } }, this.view);
