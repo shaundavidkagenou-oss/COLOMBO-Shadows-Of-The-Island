@@ -43,6 +43,12 @@
     #gate .g-ring::before { content: ''; position: absolute; inset: -10px -26px; border: 1px solid rgba(232,163,58,.5); clip-path: polygon(20px 0, calc(100% - 20px) 0, 100% 50%, calc(100% - 20px) 100%, 20px 100%, 0 50%); animation: gring 2.4s ease-out infinite; }
     @keyframes gring { from { opacity: .9; transform: scale(.94); } to { opacity: 0; transform: scale(1.12); } }
     #gate.entering .g-btn { color: #120c04; } #gate.entering .g-btn::after { transform: scaleX(1); }
+    #gate .g-row { display: flex; align-items: center; justify-content: center; gap: 2.4vw; flex-wrap: wrap; margin-top: 7vh; }
+    #gate .g-row .g-btn { margin-top: 0; }
+    #gate .g-btn.g-alt { padding: .95em 2.6em; font-size: clamp(13px, 1.25vw, 17px); letter-spacing: .36em; text-indent: .36em; color: rgba(255,243,220,.82); background: rgba(10,8,4,.45); }
+    #gate .g-btn.g-alt::before { background: linear-gradient(90deg, rgba(138,90,28,.7), rgba(255,207,122,.7), rgba(138,90,28,.7)); }
+    #gate .g-btn.g-alt .tri { display: inline-block; width: 0; height: 0; margin-right: .9em; border-left: .62em solid currentColor; border-top: .38em solid transparent; border-bottom: .38em solid transparent; vertical-align: .02em; }
+    #gate.trailer .g-alt { color: #120c04; } #gate.trailer .g-alt::after { transform: scaleX(1); } #gate.trailer #gate-enter { opacity: .35; }
     #gate .g-hint { margin-top: 2.2vh; font-size: 13px; letter-spacing: .28em; color: rgba(244,239,230,.42); text-transform: uppercase; }
     #gate .g-foot { position: absolute; left: 0; right: 0; bottom: 3.2vh; display: flex; justify-content: space-between; padding: 0 4vw; font-size: 12px; letter-spacing: .3em; color: rgba(244,239,230,.4); text-transform: uppercase; }
     #gate .g-foot b { color: rgba(232,163,58,.8); font-weight: 600; }
@@ -72,7 +78,10 @@
       <div class="g-native">කොළඹ &nbsp;·&nbsp; கொழும்பு</div>
       <div class="g-title">COLOMBO</div>
       <div class="g-sub"><i></i>SHADOWS OF THE ISLAND<i></i></div>
-      <button class="g-btn" id="gate-enter" type="button"><span class="g-ring"></span><span class="shine"></span><span>ENTER GAME</span></button>
+      <div class="g-row">
+        <button class="g-btn" id="gate-enter" type="button"><span class="g-ring"></span><span class="shine"></span><span>ENTER GAME</span></button>
+        <button class="g-btn g-alt" id="gate-trailer" type="button"><span><i class="tri"></i>WATCH TRAILER</span></button>
+      </div>
       <div class="g-hint">Headphones recommended</div>
     </div>
     <div class="g-foot"><span>A <b>Shaun David Studios</b> production</span><span>Keyboard &amp; mouse · Gamepad</span></div>
@@ -80,10 +89,14 @@
   <script>
     // the game module may still be loading when the button is pressed: remember the click and let Screens pick it up
     (function () {
-      var g = document.getElementById('gate'), b = document.getElementById('gate-enter');
+      var g = document.getElementById('gate'), b = document.getElementById('gate-enter'), t = document.getElementById('gate-trailer');
       if (/[?&]test\b/.test(location.search) && /[?&]quick=/.test(location.search)) { g.remove(); return; } // automated test runs skip the gate
       function go() { if (window.__sdsEntered) return; window.__sdsEntered = true; g.classList.add('entering'); window.dispatchEvent(new Event('sds-enter')); }
-      b.addEventListener('click', go); addEventListener('keydown', function (e) { if (e.code === 'Enter' || e.code === 'Space') go(); });
+      // WATCH TRAILER: same entry (the click unlocks audio), then the game plays the in-engine trailer instead of the menu and
+      // reloads back to this gate when it ends - nothing of the game (saves, settings, story) is touched
+      function trailer() { if (window.__sdsEntered) return; window.__sdsTrailer = true; g.classList.add('trailer'); go(); }
+      b.addEventListener('click', go); t.addEventListener('click', trailer);
+      addEventListener('keydown', function (e) { if (e.code === 'Enter' || e.code === 'Space') { e.preventDefault(); if (document.activeElement === t) trailer(); else go(); } });
       setTimeout(function () { b.focus({ preventScroll: true }); }, 400);
     })();
   </script>

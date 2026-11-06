@@ -152,13 +152,17 @@ export class Game {
     if (quick) { // test shortcuts: ?test&quick=new (opening cinematic) | ?test&quick=play (skip opening, free play at Main Street)
       await this.load((p, l) => { window.__progress = [p, l]; });
       if (quick === 'new') return this.newGame();
+      if (quick === 'trailer') return this.playTrailer();
       this.story.state = Story.freshState(); this.squad.reset(); this.mode = 'play'; this.atmos.hour = 17; this.setupRoomDoor(); this.world.warm(-140, -892); this.player.teleport(-140, -891.8, Math.PI / 2);
       this.player.cinematic = false; this.player.control = true; this.hud.show(true); this.hud.fade(0, 0.3); this.story.setupWorldActivities(); this.story.startMission('m0', 0); return;
     }
     await this.screens.studioIntro((p) => this.load(p));
+    if (window.__sdsTrailer) return this.playTrailer(); // "WATCH TRAILER" on the entry gate: plays, then reloads to the gate
     await this.montage();
     await this.menuLoop();
   }
+  // the official trailer (src/story/Trailer.js): its own lazily-loaded chunk, never loaded when the game is entered normally
+  async playTrailer() { const { runTrailer } = await import('./story/Trailer.js'); return runTrailer(this); }
   async montage() {
     this.mode = 'intro'; const d = this.director; let skip = false; const off = bus.on('key', () => (skip = true)); const clk = () => (skip = true); addEventListener('mousedown', clk);
     const A = this.atmos; Audio.setMusic('intro');
@@ -195,9 +199,9 @@ export class Game {
     }
   }
   // Enter-game loading screen: real streaming / shader / GPU-upload work around the spawn point(s), studio branding on top
-  async enterLoading(points) {
+  async enterLoading(points, pre = []) {
     Audio.setMusic('none'); Audio.riser(5);
-    await enterGameLoading(this.ui, [
+    await enterGameLoading(this.ui, [...pre,
       { label: 'Streaming Colombo districts', run: (pr) => this.world.warmAsync(points, pr) },
       { label: 'Vehicles of Colombo', run: (pr) => this.traffic.warmModels(points, pr) },
       { label: 'Compiling shaders', run: async (pr) => { this.camera.position.set(points[0][0], 3, points[0][1] + 6); this.camera.lookAt(points[0][0], 1.5, points[0][1]); this.camera.updateMatrixWorld(); for (const v of LIVE_VEHICLES) setVehicleLOD(v.mesh.userData, true); /* near-LOD parts too (the next frame's LOD pass puts them back) */ try { if (this.renderer.compileAsync) await Promise.race([this.renderer.compileAsync(this.scene, this.camera), wait(8000)]); else this.renderer.compile(this.scene, this.camera); } catch (e) { console.warn('compile', e); } pr(0.5); await this.warmLightSets((k) => pr(0.5 + k * 0.5)); pr(1); } },
@@ -340,6 +344,7 @@ export class Game {
       else if (this.mode === 'play' && this.editorHook) this.editorHook(dt); // a debug editor (src/debug, loaded only when typed) has the frame: the world is frozen, still drawn
       else if (this.mode === 'play' && !this.paused) this.updatePlay(dt * (this.timeSlow || 1)); // weapon wheel / squad selector slow time
       else if (this.mode === 'menu' || this.mode === 'intro') this.updateAmbient(dt);
+      else if (this.mode === 'trailer' && this.trailerHook) this.trailerHook(dt); // the trailer drives the world and camera itself
       CAM.copy(this.camera.position); updateVehicleLOD(this.camera); if (this.headRig && this.atmos) this.headRig.update(this.camera, this.player && this.player.vehicle, this.atmos.night, this.indoor ? 1 : (this.seamK || 0));
       if (this.post && !mapOpen) { if (this.world && this.world.waterRefl) { const q = Settings.get('quality'); this.world.waterRefl.scale = q === 'ultra' ? 0.6 : 0.45; this.world.waterRefl.halfRate = q !== 'ultra'; this.world.waterRefl.update(this.renderer, this.scene, this.camera, (q === 'high' || q === 'ultra') && !this.indoor); } this.post.update(this.atmos); this.post.render(dt); }
     } catch (e) { if (!this._errN || this._errN < 5) console.error(e && e.stack || e); this._errN = (this._errN || 0) + 1; this.lastError = e; }

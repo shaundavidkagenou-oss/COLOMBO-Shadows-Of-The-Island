@@ -221,9 +221,9 @@ export class World {
       if (d < this.detailRadius) {
         if (!c.detail && budget > 0 && !this.job) { budget--; this.startDetailJob(c); } /* built over several frames: see stepDetailJob */
         else if (c.detail) c.detail.visible = true;
-      } else if (c.detail) { c.detail.visible = false; if (d > this.detailRadius + 300) this.disposeDetail(c); }
+      } else if (c.detail) { c.detail.visible = false; if (d > this.detailRadius + 300 && !this.keepDetail) this.disposeDetail(c); } /* keepDetail: set only by the trailer (its cuts jump across the city) */
       if (d < this.windowRadius) { if (!c.win && budget > 0 && !this.wjob) { budget--; this.wjob = this.newJob(c, 'win'); } else if (c.win) c.win.visible = true; } /* window joinery: also built over several frames */
-      else if (c.win) { c.win.visible = false; if (d > this.windowRadius + 120) this.disposeWindows(c); }
+      else if (c.win) { c.win.visible = false; if (d > this.windowRadius + 120 && !this.keepDetail) this.disposeWindows(c); }
     }
     if (this.propDirty && this.propPools) { this.propDirty = false; this.repackProps(); }
     if (this.forest) this.forest.update(focus, camera);
