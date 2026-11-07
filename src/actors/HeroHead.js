@@ -135,7 +135,7 @@ export function iblScale(m, spec, diff, desat = 0.5) {
   m.customProgramCacheKey = function () { return (prevKey ? prevKey.call(this) : '') + `|ibl${spec}_${diff}_${desat}`; };
   return m;
 }
-function hairMaterial(kind, opts = {}) {
+export function hairMaterial(kind, opts = {}) {
   // kind 'volume' (solid hair mass with fine strand relief) or 'fur' (alpha-tested shell layer)
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: kind === 'fur' ? 0.7 : 0.6, metalness: 0, side: kind === 'fur' ? THREE.DoubleSide : THREE.FrontSide });
   if (kind === 'volume') { m.polygonOffset = true; m.polygonOffsetFactor = -1; m.polygonOffsetUnits = -2; }

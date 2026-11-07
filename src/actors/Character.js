@@ -13,6 +13,8 @@ import { lerp, clamp, damp } from '../core/math.js';
 import { HERO_EXTRA, HERO_PARENT, heroJoints, fingerLayout, HeroRig, heroUniforms, patchHeroMaterial, faceNormals } from './HeroRig.js';
 import { hasHeroHead, heroHeadFit, buildHeroHead, headMaterials, iblScale, buildEyeball, EXPR_MORPHS, morphIndex, HEAD_MORPHS } from './HeroHead.js';
 import { npcHeadFit, npcHeadGeometry, npcHeadMaterial, npcHeadOpts, npcScalp, NPC_MORPHS } from './NpcHead.js';
+import { hasDancerBody, dancerGeometry, makeDancerSkeleton, dancerMaterials, attachDancerEyes, dancerHeelFit, queueDancerPaint, morphsMatchHeroes } from './DancerBody.js';
+import { DancerRig } from './DancerRig.js';
 
 export const BONES = ['hips', 'spine', 'chest', 'neck', 'head', 'shL', 'armL', 'foreL', 'handL', 'shR', 'armR', 'foreR', 'handR', 'thighL', 'shinL', 'footL', 'thighR', 'shinR', 'footR', 'skirtF', 'skirtB', 'skirtF2', 'skirtB2'];
 const B = Object.fromEntries([...BONES, ...HERO_EXTRA].map((n, i) => [n, i])); // protagonist-only bones are appended after the shared 23, so crowd indices are unchanged
@@ -222,6 +224,7 @@ function hemInsertLeg(lr, yh, gap) { // leg rings ({ c: [x, y, z], rx, rz, w }) 
 // `pitch` (PoleDance.js poses it): the stiletto is built along the direction that is vertical once the foot is pitched, and
 // is exactly long enough that heel tip and platform touch the floor together. heelFit() is shared with the animation.
 export function heelFit(sp) {
+  if (hasDancerBody(sp.dancerBody)) return dancerHeelFit(sp.dancerBody, sp.height); // club dancers: their own feet and shoes (DancerBody.js)
   const J = joints(sp), ay = J.footL[1], az = J.footL[2]; const plat = 0.018, pitch = 0.5, c = Math.cos(pitch), sn = Math.sin(pitch);
   const rot = (y, z) => [(y - ay) * c - (z - az) * sn, (y - ay) * sn + (z - az) * c]; // relative to the ankle, after the pitch
   const ballY = 0.008 - plat, ballZ = 0.105, heelTop = [0.012, -0.05];
@@ -865,7 +868,8 @@ function skinMask(geo, spec) {
 const _bp = new THREE.Vector3(), _bv = new THREE.Vector3(), _ba = new THREE.Vector3();
 export class Character {
   constructor(spec) {
-    this.spec = spec; const key = JSON.stringify(spec); const skelKey = `${spec.sex}|${spec.height.toFixed(3)}|${spec.build.toFixed(3)}`;
+    this.spec = spec; if (hasDancerBody(spec.dancerBody)) { this.initDancer(spec); return; }
+    const key = JSON.stringify(spec); const skelKey = `${spec.sex}|${spec.height.toFixed(3)}|${spec.build.toFixed(3)}`;
     let geo = geoCache.get(key); if (!geo) { geo = buildBodyGeometry(spec); geoCache.set(key, geo); }
     const { bones, skeleton } = makeSkeleton(spec, skelKey);
     const fv = spec.faceV != null ? FACE_VARIANTS[spec.faceV] : null; let faceMat = null; const npcHead = !spec.hero;
@@ -889,6 +893,21 @@ export class Character {
     this.anim = new Animator(this); if (spec.hero) this.rig = new HeroRig(this);
     if (geo.userData.bustMorph) { this.mesh.updateMorphTargets(); this.bust = { p: null, v: new THREE.Vector3(), x: 0, vx: 0, y: 0, vy: 0 }; }
     LIVE.add(this);
+  }
+  // club dancers (DancerBody.js): one continuous MakeHuman-derived body with its own fitted 57-bone skeleton, the protagonists'
+  // skin shading, a GPU-painted skin texture (queued; the club flushes it with the renderer), expression morphs on the shared
+  // FaceRig, real eyeballs; hair, garments, cloth, breast springs and fingers live in DancerRig
+  initDancer(spec) {
+    const id = spec.dancerBody; const geo = dancerGeometry(id, spec.hairColor); const { bones, skeleton } = makeDancerSkeleton(id);
+    if (!morphsMatchHeroes()) throw new Error('dancer morph order differs from the protagonists\' heads');
+    this.face = new FaceRig(this, null); this.heroU = heroUniforms(); const mats = dancerMaterials(id, this.heroU); this.heroMats = mats;
+    this.mesh = new THREE.SkinnedMesh(geo, mats); this.mesh.name = 'dancerBody';
+    this.mesh.add(bones[0]); this.mesh.bind(skeleton); this.mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.9, 0), 1.3); this.mesh.castShadow = true; this.mesh.receiveShadow = false;
+    this.root = new THREE.Group(); this.root.add(this.mesh);
+    this.bones = Object.fromEntries(bones.map((b) => [b.name, b])); this.hipY = bones[0].position.y; this.head = this.mesh;
+    this.eyes = attachDancerEyes(this.bones, id); this.face.attachMorphs(this.mesh, this.eyes);
+    this.anim = new Animator(this); this.dancer = new DancerRig(this, id);
+    queueDancerPaint(this); LIVE.add(this);
   }
   // protagonist head (HeroHead.js): a second SkinnedMesh on the same skeleton (child of the body mesh, so visibility,
   // falls and the first-person head hide all apply), eyeballs + glasses as rigid children of the head bone
@@ -920,7 +939,7 @@ export class Character {
     this.bones.head.add(lod); this.head = m; this.headLo = lo; this.headMats = [mat];
     this.face.attachMorphs(m, null, NPC_MORPHS);
   }
-  dispose() { LIVE.delete(this); this.mesh.skeleton.dispose(); this.face.dispose(); if (this.heroMats) for (const m of this.heroMats) m.dispose(); if (this.headMats) for (const m of this.headMats) m.dispose(); }
+  dispose() { LIVE.delete(this); this.disposed = true; if (this.dancer) this.dancer.dispose(); if (this.dancerRT) this.dancerRT.dispose(); this.mesh.skeleton.dispose(); this.face.dispose(); if (this.heroMats) for (const m of this.heroMats) m.dispose(); if (this.headMats) for (const m of this.headMats) m.dispose(); }
   // convenience for gameplay code: expression for a while, or talking on/off
   express(name, dur = 2.5) { this.face.set(name, dur); }
   // damped spring for the chest secondary motion (see buildBodyGeometry, sp.bustSpring): driven by the chest bone's specific
@@ -1349,7 +1368,7 @@ export class Animator {
     if (this.duck > 0.001) { const d = Math.min(1, this.duck); b.spine.rotation.x += 0.42 * d; b.chest.rotation.x += 0.22 * d; b.neck.rotation.x += 0.32 * d; } // ducking under a low roof line while getting in / out
     else if (A_ === 'ride' && aw > 0) { b.thighL.rotation.set(-1.2, 0, -0.25); b.thighR.rotation.set(-1.2, 0, 0.25); b.shinL.rotation.x = 1.3; b.shinR.rotation.x = 1.3; b.footL.rotation.x = 0; b.footR.rotation.x = 0; b.hips.position.y = this.ch.hipY - 0.15; b.hips.position.x = 0; b.hips.rotation.set(0, 0, 0); }
     if (this.drunkSway > 0.01 && !seated) { const k = this.drunkSway, t = this.t; const sw = Math.sin(t * 1.15) * 0.07 * k + Math.sin(t * 2.7) * 0.025 * k; b.spine.rotation.z += sw; b.chest.rotation.z += sw * 0.6; b.neck.rotation.z -= sw * 0.8; b.head.rotation.z += Math.sin(t * 0.9 + 1) * 0.06 * k; b.head.rotation.x += 0.07 * k + Math.sin(t * 1.3) * 0.03 * k; b.hips.position.x += Math.sin(t * 1.15) * 0.03 * k * s; } // drunk: the body sways, the head lolls (Drunk.js)
-    if (this.postPose) this.postPose(b, dt, seated); // full-body overrides layered last (grenade throw, drinking): see combat/Grenades.js, world/HeroRooms.js
+    if (this.postPose) this.postPose(b, dt, seated); if (this.ch.dancer) this.ch.dancer.update(dt); // full-body overrides layered last (grenade throw, drinking): see combat/Grenades.js, world/HeroRooms.js
     this.driveSkirt();
     if (this.ch.face) this.ch.face.update(dt);
     if (this.ch.rig) this.ch.rig.update(dt); // protagonists: fingers, twist / toe bones, expression wrinkles, cloth springs

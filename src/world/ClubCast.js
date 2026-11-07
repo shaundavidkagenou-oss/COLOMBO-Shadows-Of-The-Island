@@ -12,6 +12,7 @@ export const DANCERS = [
 ];
 export function dancerSpec(d) {
   return makeAppearance(d.seed, {
+    dancerBody: d.name.toLowerCase(), // whole-body MakeHuman-derived character with fitted clothes (actors/DancerBody.js, DancerRig.js)
     preset: 'f_student', outfit: 'dancewear', label: `Dancer (${d.name})`, ageYears: d.age, height: d.height, build: d.build, belly: 0,
     hair: d.hair, hairColor: d.hairColor, top: d.top, bottom: d.bottom, sleeveless: true, longSleeve: false, collar: false,
     // two-piece stage bikini: bandeau top over the whole bust (under-bust line 1.135 → 1.39, so no part of the bust's curve

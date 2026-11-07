@@ -40,7 +40,7 @@ const norm3 = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0]
 export class PoleDancer {
   // ch: Character (wearing heels); pole: { x, z, y0 (stage top), y1 } in the parent group's space; opts: { seed, audience: [x, z] }
   constructor(ch, pole, opts = {}) {
-    this.ch = ch; this.pole = pole; this.seed = opts.seed || 1; this.rnd = mulberry(this.seed * 977 + 13);
+    this.ch = ch; ch.poleDancer = this; this.pole = pole; this.seed = opts.seed || 1; this.rnd = mulberry(this.seed * 977 + 13);
     this.audience = opts.audience || [pole.x, pole.z + 5]; this.name = opts.name || 'Dancer';
     const sp = ch.spec, s = sp.height / 1.72; this.s = s; this.hf = heelFit(sp);
     this.H = ch.hipY + (this.hf.ankleH - 0.085 * s) - 0.012 * s; // pelvis height standing on the heels, knees soft
@@ -296,7 +296,7 @@ export class PoleDancer {
   }
   // ---------------------------------------------------------------- bones (Animator.postPose)
   apply(b, dt = 1 / 60) {
-    const P = this.cur; if (!P) return; const g = this.ch.root.parent; if (!g) return; this.maxSwivel = 15 * Math.min(0.1, dt || 1 / 60); // fastest an elbow / knee may swing round its limb axis (rad per frame) const g = this.ch.root.parent; if (!g) return;
+    const P = this.cur; if (!P) return; const g = this.ch.root.parent; if (!g) return; this.ch.handGrip = { L: P.h.L.grip, R: P.h.R.grip }; // fingers close round the pole (DancerRig) this.maxSwivel = 15 * Math.min(0.1, dt || 1 / 60); // fastest an elbow / knee may swing round its limb axis (rad per frame) const g = this.ch.root.parent; if (!g) return;
     b.hips.position.set(P.hip[0], P.hip[1], P.hip[2]); b.hips.rotation.set(P.hr[0], P.hr[1], P.hr[2]);
     b.spine.rotation.set(P.sp[0], P.sp[1], P.sp[2]); b.chest.rotation.set(P.ch[0], P.ch[1], P.ch[2]); b.neck.rotation.set(P.nk[0], P.nk[1], P.nk[2]); b.head.rotation.set(P.hd[0], P.hd[1], P.hd[2]);
     if (b.shL) b.shL.rotation.set(0, 0, 0); if (b.shR) b.shR.rotation.set(0, 0, 0);

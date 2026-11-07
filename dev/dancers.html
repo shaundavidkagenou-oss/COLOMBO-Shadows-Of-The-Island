@@ -1,0 +1,40 @@
+<!doctype html><html><body style="margin:0;background:#222"><canvas id="c"></canvas>
+<script type="module">
+// Club dancer check (actors/DancerBody.js + DancerRig.js) through the real Character / PoleDancer / skin paint.
+// ?who=ruby|jade|opal|saffron|all &view=front|back|side|q|qf|top &zoom=0 (full) | 1 (upper body) | 2 (face) | 3 (hips) | 4 (feet)
+// &t=seconds of pole dance before the frame (0 = rest pose, no dance) &light=studio|club &w &h
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { buildTextures } from '/src/gfx/Textures.js';
+import { Character } from '/src/actors/Character.js';
+import { PoleDancer } from '/src/actors/PoleDance.js';
+import { DANCERS, dancerSpec } from '/src/world/ClubCast.js';
+import { flushDancerPaint, dancerPaintPending } from '/src/actors/DancerBody.js';
+await buildTextures('medium');
+const q = new URLSearchParams(location.search); const W = +(q.get('w') || 1280), H = +(q.get('h') || 720);
+const r = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true }); r.setSize(W, H); r.toneMapping = THREE.ACESFilmicToneMapping; r.outputColorSpace = THREE.SRGBColorSpace; r.shadowMap.enabled = true; r.shadowMap.type = THREE.PCFSoftShadowMap;
+const s = new THREE.Scene(); const club = q.get('light') === 'club';
+s.background = new THREE.Color(club ? 0x0c0a12 : 0x6f7a86);
+const pm = new THREE.PMREMGenerator(r); s.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; s.environmentIntensity = club ? 0.25 : 0.6;
+s.add(new THREE.HemisphereLight(club ? 0x553355 : 0xdde8ff, 0x332222, club ? 0.5 : 0.9));
+const d = new THREE.DirectionalLight(club ? 0xff99cc : 0xfff0dd, club ? 2.2 : 2.6); d.position.set(2.5, 5, 4); d.castShadow = true; d.shadow.mapSize.set(2048, 2048); d.shadow.camera.left = d.shadow.camera.bottom = -3; d.shadow.camera.right = d.shadow.camera.top = 3; d.shadow.bias = -0.0004; s.add(d);
+const d2 = new THREE.DirectionalLight(club ? 0x6699ff : 0xbfd4ff, club ? 1.4 : 0.8); d2.position.set(-3, 3, -2); s.add(d2);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), new THREE.MeshStandardMaterial({ color: club ? 0x1a1418 : 0x8d8a83, roughness: 0.6 })); ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; s.add(ground);
+const cam = new THREE.PerspectiveCamera(28, W / H, 0.02, 100);
+const who = q.get('who') || 'all'; const list = who === 'all' ? DANCERS : DANCERS.filter((x) => x.name.toLowerCase() === who);
+const T = +(q.get('t') || 0); const gap = 0.9; const STEP = 1 / 60; const out = [];
+const chars = list.map((dd, i) => { const g = new THREE.Group(); g.position.set((i - (list.length - 1) / 2) * gap, 0, 0); s.add(g); const ch = new Character(dancerSpec(dd)); g.add(ch.root);
+  ch.root.traverse((m) => { if (m.isMesh) { m.castShadow = true; m.frustumCulled = false; } });
+  let pd = null; if (T > 0) { pd = new PoleDancer(ch, { x: 0, z: -0.32, y0: 0, y1: 3.2 }, { seed: dd.seed, audience: [0, 5] }); const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.0225, 0.0225, 3.2, 20), new THREE.MeshStandardMaterial({ color: 0xdddddd, metalness: 1, roughness: 0.15 })); pole.position.set(0, 1.6, -0.32); g.add(pole); }
+  return { ch, pd, g }; });
+for (const c of chars) { if (c.pd) { for (let t = 0; t < T; t += STEP) c.pd.update(STEP); } else { for (let k = 0; k < 90; k++) c.ch.anim.update(STEP, 0); } c.g.updateMatrixWorld(true); }
+while (dancerPaintPending()) flushDancerPaint(r);
+const view = q.get('view') || 'front'; const zoom = q.get('zoom') || '0'; const span = (list.length - 1) * gap; const one = list.length === 1;
+const ty = { 0: 0.9, 1: 1.3, 2: 1.57, 3: 0.95, 4: 0.08, 5: 1.2 }[zoom]; const dist = { 0: one ? 4.4 : 5.2 + span * 1.3, 1: one ? 1.5 : 2.8 + span, 2: 0.55, 3: one ? 1.4 : 2.6 + span, 4: one ? 0.9 : 2 + span, 5: one ? 2.4 : 4 + span }[zoom];
+const dir = { front: [0, 0, 1], back: [0, 0, -1], side: [1, 0, 0], q: [0.75, 0, -0.66], qf: [0.7, 0, 0.7], top: [0.0001, 1, 0.35], low: [0, -0.35, 1] }[view];
+const L = new THREE.Vector3(...dir).normalize(); const fy = zoom === '2' && one ? chars[0].ch.spec.height * 0.928 : ty; cam.position.set(L.x * dist, fy + L.y * dist + (view === 'top' ? 0 : 0.05), L.z * dist + (one ? 0 : 0)); cam.lookAt(0, fy, 0); cam.updateProjectionMatrix();
+if (one && T > 0) { const hp = new THREE.Vector3(); chars[0].ch.bones[zoom === '2' ? 'head' : zoom === '1' ? 'chest' : 'hips'].getWorldPosition(hp); cam.position.add(new THREE.Vector3(hp.x, hp.y - fy, hp.z)); cam.lookAt(hp); }
+r.render(s, cam);
+window.report = chars.map((c) => ({ name: c.ch.spec.label, br: c.ch.dancer.br.map((b) => b.lim) }));
+window.done = true;
+</script></body></html>
