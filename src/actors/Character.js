@@ -615,7 +615,7 @@ export function buildBodyGeometry(sp) {
       // the plackets), hugging the hips with a slight flare. Front edges ride the flap bones, the back the hem bone, the
       // sides stay on the hips, so it swings a little without ever leaving the body as a separate board.
       { const ys = [1.02, 0.99, 0.96, 0.935, 0.915]; const open = 0.4, NC = 30; const P = [], N = [], Wr = [];
-        ys.forEach((yy, ri) => { const y = yy * s; const yr = Math.max(y, 0.95 * s); const rx = rxAt(yr) + 0.009 + ri * 0.0035, rz = rzAt(yr) + 0.011 + ri * 0.0035; const row = [], nr = [], wr = [];
+        ys.forEach((yy, ri) => { const y = yy * s; const yr = Math.max(y, 0.95 * s); const rx = Math.max(rxAt(yr) + 0.006, HB ? rxAt(1.02 * s) + 0.003 : 0) + ri * (HB ? 0.0012 : 0.0035), rz = Math.max(rzAt(yr) + 0.008, HB ? rzAt(1.02 * s) + 0.003 : 0) + ri * (HB ? 0.0012 : 0.0035); /* HB: falls straight from the draped shirt, clearing the hips — no flared ring */ const row = [], nr = [], wr = [];
           for (let ci = 0; ci <= NC; ci++) { const a = Math.PI / 2 + open + (ci / NC) * (2 * Math.PI - 2 * open); const ca = Math.cos(a), sa = Math.sin(a); row.push([ca * rx, y, sa * rz + (HB ? HB.ringAt(yr).cz : 0)]); nr.push([ca / rx, 0, sa / rz]);
             const tgt = sa >= 0 ? (ca > 0 ? 'flapL' : 'flapR') + (ri >= 3 ? 2 : 1) : 'hemB1'; const k = smooth01((Math.abs(sa) - 0.3) / 0.45) * [0, 0.35, 0.7, 0.9, 1][ri];
             wr.push(ri === 0 ? tw(y) : k > 0.001 ? W2('hips', tgt, k) : W1('hips')); }
