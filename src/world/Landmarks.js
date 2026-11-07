@@ -109,14 +109,14 @@ export function buildLandmarks() {
     // ---- stem: 200 m reinforced-concrete shaft (real tower: ~350 m overall — 4-storey podium, ~200 m shaft, 8-floor bud, mast).
     // Vivid green, flared where it meets the podium, eight shallow vertical flutes, a horizontal panel joint every 4.5 m.
     const SH = 200, sy = y0 + 14; // stem lands ON the upper podium roof (y0 + 8 + 6): it used to start at +17, leaving a 3 m see-through gap
-    const R = (h) => { let r = 11 - 4.6 * Math.pow(h / SH, 0.85); if (h < 22) r += 5.5 * Math.pow(1 - h / 22, 2); if (h > 188) r -= 0.7 * smooth01((h - 188) / 12); return r; };
+    const R = (h) => { let r = 11 - 4.6 * Math.pow(h / SH, 0.85); if (h < 18) r += 2.8 * Math.pow(1 - h / 18, 2); if (h > 188) r -= 0.7 * smooth01((h - 188) / 12); return r; };
     {
       const rows = []; for (let j = 0; j <= SH; j += 9) { if (j > 0) rows.push([j - 0.1, 1]); rows.push([j, 0]); if (j < SH) rows.push([j + 0.1, 1]); for (const f of [1.5, 3, 4.5, 6, 7.5]) if (j + f < SH - 0.2) rows.push([j + f, 0]); } rows.push([SH, 0]); rows.sort((a, b) => a[0] - b[0]);
-      const COLS = 96; const pos = [], col = [], idx = []; const green = new THREE.Color('#6dbb72'), joint = new THREE.Color('#5aa862'), lit = new THREE.Color('#84cb88'); // the real shaft's pale green
+      const COLS = 96; const pos = [], col = [], idx = []; const green = new THREE.Color('#4a9c8a'), joint = new THREE.Color('#3f8c7b'), lit = new THREE.Color('#5aae9a'); // the real shaft's teal-green
       rows.forEach(([h, kind], ri) => { const r0 = R(h); for (let c = 0; c <= COLS; c++) { const a = (c / COLS) * Math.PI * 2; let g = 0; for (let k = 0; k < 8; k++) { let d = a - (k / 8) * Math.PI * 2 - Math.PI / 8; d = Math.atan2(Math.sin(d), Math.cos(d)); g = Math.max(g, Math.exp(-(d * d) / (0.045 * 0.045))); } const r = r0 * (1 - 0.055 * g); pos.push(x + Math.cos(a) * r, sy + h, z + Math.sin(a) * r); const cc = kind ? joint : green.clone().lerp(lit, 0.25 * (1 - g)).lerp(joint, 0.35 * g); col.push(cc.r, cc.g, cc.b); }
         if (ri > 0) { const b0 = (ri - 1) * (COLS + 1), b1 = ri * (COLS + 1); for (let c = 0; c < COLS; c++) idx.push(b0 + c, b1 + c, b0 + c + 1, b0 + c + 1, b1 + c, b1 + c + 1); } });
       const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.setIndex(idx); g.computeVertexNormals();
-      const stem = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.06 })); stem.castShadow = true; stem.receiveShadow = true; stem.name = 'lotus-stem'; group.add(stem);
+      const stem = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0.04 })); stem.castShadow = true; stem.receiveShadow = true; stem.name = 'lotus-stem'; group.add(stem);
       // glazed lift-core window slots on two faces, every 3.3 m (the lifts and stairs run up the shaft)
       const glass = mb.get('glass'); for (const side of [0, Math.PI]) for (let h = 26; h < SH - 6; h += 3.3) { const r = R(h) * 0.995; const cx = x + Math.cos(side) * r, cz = z + Math.sin(side) * r; glass.box(cx, sy + h, cz, side === 0 ? 0.25 : 0.25, 1.5, 1.3, { col: C('#203038'), uvScale: 2 }); }
       // podium crown where the stem lands: maintenance ring
@@ -125,15 +125,13 @@ export function buildLandmarks() {
     // ---- bud (tower house: observation deck, revolving restaurant): pointed closed lotus of real petal shells cupped by green
     // sepals, with the LED show on the petals themselves (LotusTower.js)
     const by = sy + SH;
-    { const bud = buildLotusBud(group, { x, z, by, sy, SH, R }); anim.lotusUpdate = bud.update; }
+    const bud = buildLotusBud(group, { x, z, by, sy, SH, R }); anim.lotusUpdate = bud.update;
+    for (const hh of [SH - 7, SH - 13]) lathe(conc, [[R(hh) + 0.05, -0.5], [R(hh) + 0.75, -0.3], [R(hh) + 0.75, 0.3], [R(hh) + 0.05, 0.5]], 48, x, sy + hh, z, '#d9dcd6'); // two collars under the calyx
     // ---- mast: equipment housing, two service platforms, tapering antenna (~80 m) → top ≈ 350 m above the lake
-    const my = by + 63; metal.cylinder(x, my, z, 2.6, 2.0, 7, 16, { col: C('#e6e3dc') });
-    metal.cylinder(x, my + 7, z, 1.55, 1.15, 30, 12, { col: C('#d9d6cf') }); metal.cylinder(x, my + 36, z, 3.2, 3.2, 0.6, 16, { col: C('#bdb9b0') });
-    metal.cylinder(x, my + 37, z, 0.95, 0.55, 24, 10, { col: C('#d9d6cf') }); metal.cylinder(x, my + 60, z, 1.9, 1.9, 0.45, 12, { col: C('#bdb9b0') });
-    metal.cylinder(x, my + 61, z, 0.38, 0.1, 18, 8, { col: C('#cfcbc2') });
+    // aviation lights on the mast's service ring and antenna, beacon at the tip (mast geometry: LotusTower.js)
     const avMat = new THREE.MeshBasicMaterial({ color: 0xff2a1a, toneMapped: false }); const avGeo = new THREE.SphereGeometry(0.45, 8, 6);
-    for (const [hy, rr] of [[36.8, 3.2], [60.6, 1.9]]) for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2; const m = new THREE.Mesh(avGeo, avMat); m.position.set(x + Math.cos(a) * rr, my + hy, z + Math.sin(a) * rr); group.add(m); }
-    { const m = new THREE.Mesh(avGeo, avMat); m.position.set(x, my + 79.3, z); group.add(m); anim.lotusBeacon = m; }
+    for (const [hy, rr] of bud.av) for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2; const m = new THREE.Mesh(avGeo, avMat); m.position.set(x + Math.cos(a) * rr, hy, z + Math.sin(a) * rr); group.add(m); }
+    { const m = new THREE.Mesh(avGeo, avMat); m.position.set(x, bud.beaconY, z); group.add(m); anim.lotusBeacon = m; }
     coll(x - 32, x + 32, z - 32, z + 32, 14); coll(x - 16, x + 16, z - 16, z + 16, 270);
     label([{ text: 'COLOMBO LOTUS TOWER', font: SANS(90), color: '#f1e3c2' }, { text: 'කොළඹ නෙළුම් කුළුණ  ·  கொழும்பு தாமரைக் கோபுரம்', font: SI(54), color: '#f1e3c2' }], x - 32.4, y0 + 10.5, z, 34, 6, -Math.PI / 2, { h: 256, w: 1400, bg: null });
   }

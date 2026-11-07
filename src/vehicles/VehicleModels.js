@@ -153,7 +153,10 @@ function wheelParts(R, w, style = 0) {
 
 // ------------------------------------------------------------------ materials
 let mats = null; const routeMats = [];
-const ROUTES = [['138', 'කොටුව', 'FORT'], ['100', 'පිටකොටුව', 'PETTAH'], ['154', 'බොරැල්ල', 'BORELLA']];
+// Colombo bus routes (route number, Sinhala, Tamil, English destination) shown on the amber LED destination boards
+const ROUTES = [['138', 'කොට්ටාව', 'கொட்டாவ', 'KOTTAWA'], ['100', 'පානදුර', 'பாணந்துறை', 'PANADURA'], ['154', 'අඟුලාන', 'அங்குலானை', 'ANGULANA'], ['101', 'මොරටුව', 'மொரட்டுவை', 'MORATUWA'],
+  ['120', 'හොරණ', 'ஹொரணை', 'HORANA'], ['177', 'කඩුවෙල', 'கடுவலை', 'KADUWELA'], ['155', 'රත්මලාන', 'இரத்மலானை', 'RATMALANA'], ['103', 'නාරාහේන්පිට', 'நாரஹேன்பிட்டி', 'NARAHENPITA']];
+export const BUS_ROUTES = ROUTES.length;
 // Door / top-box lettering: POLICE with Sinhala and Tamil (පොලිසිය / பொலிஸ்) on a transparent background.
 let policeMat = null;
 function policeDecalMat() {
@@ -185,14 +188,23 @@ function addPoliceKit(m, base, T) {
   rubber.box(0, ry + 0.03, rz, 1.15, 0.05, 0.26, { col: C('#1a1a1a') }); mb.get('lbBlue').box(-0.29, ry + 0.1, rz, 0.54, 0.1, 0.22, { col: [1, 1, 1] }); mb.get('lbRed').box(0.29, ry + 0.1, rz, 0.54, 0.1, 0.22, { col: [1, 1, 1] });
   dec.quad([0.5, 0.62, -T.len / 2 - 0.03], [-0.5, 0.62, -T.len / 2 - 0.03], [-0.5, 0.8, -T.len / 2 - 0.03], [0.5, 0.8, -T.len / 2 - 0.03], [0, 0.5, 1, 1], [1, 1, 1]); // POLICE on the boot
 }
-function routeMat(i) {
-  if (routeMats[i]) return routeMats[i];
-  const c = document.createElement('canvas'); c.width = 512; c.height = 80; const g = c.getContext('2d');
-  g.fillStyle = '#0c0c0c'; g.fillRect(0, 0, 512, 80); g.fillStyle = '#ffb020'; g.font = 'bold 54px "Barlow Condensed", sans-serif'; g.textBaseline = 'middle'; g.fillText(ROUTES[i][0], 14, 42);
-  g.font = '600 40px "Noto Sans Sinhala", "Noto Sans Tamil", sans-serif'; g.fillText(ROUTES[i][1], 120, 42); g.font = 'bold 40px "Barlow Condensed", sans-serif'; g.textAlign = 'right'; g.fillText(ROUTES[i][2], 500, 42);
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
-  return (routeMats[i] = new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.5, roughness: 0.4 }));
+// One atlas (row per route) of amber dot-matrix LED boards: big route number left; Sinhala / Tamil / English stacked right.
+// Rendered once; the LED look is a dark dot grid laid over the lettering. Night brightness: setVehicleNight.
+let routeAtlas = null;
+function routeMat() {
+  if (routeAtlas) return routeAtlas;
+  const RW = 512, RH = 128, n = ROUTES.length; const c = document.createElement('canvas'); c.width = RW; c.height = RH * n; const g = c.getContext('2d');
+  ROUTES.forEach(([no, si, ta, en], k) => { const y = k * RH; g.save(); g.beginPath(); g.rect(0, y, RW, RH); g.clip(); g.fillStyle = '#060606'; g.fillRect(0, y, RW, RH);
+    g.fillStyle = '#ffae1a'; g.textBaseline = 'middle'; g.font = 'bold 92px "Barlow Condensed", sans-serif'; g.fillText(no, 10, y + RH / 2 + 4);
+    const fit = (txt, font, max, yy) => { g.font = font; const w = g.measureText(txt).width; g.save(); g.translate(500, yy); if (w > max) g.scale(max / w, 1); g.textAlign = 'right'; g.fillText(txt, 0, 0); g.restore(); };
+    fit(si, '600 40px "Noto Sans Sinhala", sans-serif', 330, y + 30); fit(ta, '600 26px "Noto Sans Tamil", sans-serif', 330, y + 70); fit(en, 'bold 30px "Barlow Condensed", sans-serif', 330, y + 104);
+    g.restore(); });
+  g.fillStyle = 'rgba(6,6,6,0.82)'; for (let x = 0; x < RW; x += 4) g.fillRect(x, 0, 1.4, RH * n); for (let yy = 0; yy < RH * n; yy += 4) g.fillRect(0, yy, RW, 1.4); // LED dot grid
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return (routeAtlas = new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.45, roughness: 0.35 }));
 }
+// uv rect of route k: full board, or just the number (rear/side number boxes)
+const routeUV = (k, numberOnly = false) => { const n = ROUTES.length, v1 = 1 - k / n, v0 = 1 - (k + 1) / n; return [0, v0 + 0.002, numberOnly ? 0.215 : 1, v1 - 0.002]; };
 // Number plates (Sri Lankan format: province + letters + digits; white front, yellow rear). Atlas rows 0-3 rear, 4-7 front.
 function plateMaterial() {
   const c = document.createElement('canvas'); c.width = 256; c.height = 512; const g = c.getContext('2d'); const r = new RNG(77);
@@ -229,14 +241,14 @@ export function vehicleMaterials() {
       vlens: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.03, metalness: 0.0, transparent: true, opacity: 0.16, envMapIntensity: 1.6, depthWrite: false }), // clear lamp covers
       vrefl: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.12, metalness: 0.95, envMapIntensity: 1.4, side: THREE.DoubleSide }), // reflector bowls / rings
       vind: new THREE.MeshStandardMaterial({ color: 0xb06a10, emissive: 0xffa020, emissiveIntensity: 0.05, roughness: 0.25 }),
-      badge: badgeMaterial(), plate: plateMaterial(), route0: routeMat(0), route1: routeMat(1), route2: routeMat(2), police: policeDecalMat(), amb: ambDecalMat(),
+      badge: badgeMaterial(), plate: plateMaterial(), route: routeMat(), police: policeDecalMat(), amb: ambDecalMat(),
       lbBlue: new THREE.MeshStandardMaterial({ color: 0x0c1e5a, emissive: 0x2a5cff, emissiveIntensity: 0, roughness: 0.2, transparent: true, opacity: 0.92 }),
       lbRed: new THREE.MeshStandardMaterial({ color: 0x5a0c0c, emissive: 0xff2020, emissiveIntensity: 0, roughness: 0.2, transparent: true, opacity: 0.92 }),
     };
   }
   return { lightMat: mats.vlight, tailMatBase: mats.vtail, indicatorMat: mats.vind, mats };
 }
-export function setVehicleNight(n) { vehicleMaterials(); mats.vlight.emissiveIntensity = 0.2 + n * 3.0; mats.vtail.emissiveIntensity = 0.08 + n * 0.5; }
+export function setVehicleNight(n) { vehicleMaterials(); mats.vlight.emissiveIntensity = 0.2 + n * 3.0; mats.vtail.emissiveIntensity = 0.08 + n * 0.5; mats.route.emissiveIntensity = 0.45 + n * 1.5; }
 
 function plateQuad(mb, cx, cy, z, hw, hh, front, variant) {
   const row = (front ? 4 : 0) + (variant % 4); const v0 = 1 - (row + 1) / 8 + 0.004, v1 = 1 - row / 8 - 0.004; const pm = mb.get('plate');
@@ -393,7 +405,10 @@ function buildBaseModel(type, color, variant, opts = {}) {
     const fz = L / 2; glass.quad([-W + 0.08, belt - 0.15, fz + 0.02], [W - 0.08, belt - 0.15, fz + 0.02], [W - 0.1, winTop, fz - 0.2], [-W + 0.1, winTop, fz - 0.2], [0, 0, 1, 1], C('#fff'));
     beam(rubber, [0, belt - 0.15, fz + 0.03], [0, winTop, fz - 0.19], 0.06, 0.05, black); for (const sx of [-1, 1]) beam(paint, [sx * (W - 0.05), belt - 0.15, fz + 0.01], [sx * (W - 0.07), winTop, fz - 0.2], 0.1, 0.1, col);
     loft(paint, [[fz - 0.2, winTop, H - 0.02, W - 0.04, W - 0.16, 0.2], [fz, winTop + 0.02, H - 0.06, W - 0.08, W - 0.2, 0.16]], col);
-    mb.get('route' + (variant % 3)).quad([-0.95, winTop + 0.02, fz - 0.17], [0.95, winTop + 0.02, fz - 0.17], [0.95, H - 0.08, fz - 0.17], [-0.95, H - 0.08, fz - 0.17], [0, 0, 1, 1]);
+    { const rk = variant % ROUTES.length, rb = mb.get('route'); rb.quad([-0.95, winTop + 0.05, fz + 0.012], [0.95, winTop + 0.05, fz + 0.012], [0.95, H - 0.1, fz + 0.012], [-0.95, H - 0.1, fz + 0.012], routeUV(rk)); // on the header's front face (it used to sit inside the header block, invisible)
+      // kerb-side board over the front door window band, and the route number high on the back
+      const sy0 = winTop + 0.04, sy1 = H - 0.1, sz = L / 2 - 1.0, sx = W - 0.005; rb.quad([sx, sy0, sz], [sx, sy0, sz - 1.7], [sx, sy1, sz - 1.7], [sx, sy1, sz], routeUV(rk));
+      const ry0 = H - 0.46, ry1 = H - 0.1, rz = -L / 2 - 0.035; rb.quad([0.21, ry0, rz], [-0.21, ry0, rz], [-0.21, ry1, rz], [0.21, ry1, rz], routeUV(rk, true)); }
     for (const sx of [-1, 1]) { beam(rubber, [sx * 0.3, belt - 0.12, fz + 0.04], [sx * 0.75, belt + 0.45, fz - 0.03], 0.015, 0.015, black); part(ch, unitBox, [sx * (W - 0.38), 0.85, fz + 0.03], [0, 0, 0], [0.42, 0.22, 0.04], chrome); part(lights, unitCyl, [sx * (W - 0.28), 0.85, fz + 0.05], [Math.PI / 2, 0, 0], [0.085, 0.02, 0.085]); part(lights, unitCyl, [sx * (W - 0.48), 0.85, fz + 0.05], [Math.PI / 2, 0, 0], [0.07, 0.02, 0.07]); ind.box(sx * (W - 0.1), 0.85, fz + 0.04, 0.08, 0.14, 0.03); }
     for (let i = 0; i < 5; i++) ch.box(0, 0.62 + i * 0.07, fz + 0.035, 1.0, 0.025, 0.02, { col: C('#2a2a2a') });
     rubber.box(0, 0.42, fz + 0.08, W * 2 + 0.04, 0.24, 0.16, { col: C('#222') }); plateQuad(mb, 0, 0.42, fz + 0.165, 0.24, 0.06, true, variant);
@@ -919,11 +934,11 @@ export function cleanLook(type, color, variant) { const S = shapeOf(type, varian
 export function directModel(type, color, variant) { const m = buildModel(type, color, variant); const f = (mbb) => [...mbb.b].map(([n, b]) => [n, b.build()]).filter((q) => q[1]); const body = { geos: f(m.mb), doors: m.doors }; if (m.doors && m.doors.length) bakeDoors(body, VTYPES[type], type, C(color)); return { geos: body.geos, dgeos: f(m.dm), m }; } // tests only (doors baked in the paint colour directly)
 // shadow pass: parts that sit flush on (or inside) the painted body add a draw call per vehicle but never change the shadow
 // (lamp lenses, indicators, plates, route boards: the body's own silhouette already covers theirs)
-const NO_CAST = new Set(['glass', 'vlight', 'interior', 'badge', 'amb', 'vtail', 'vind', 'vrev', 'plate', 'route0', 'route1', 'route2']);
+const NO_CAST = new Set(['glass', 'vlight', 'interior', 'badge', 'amb', 'vtail', 'vind', 'vrev', 'plate', 'route']);
 export function createVehicleMesh(type, seed = 1) {
   const { T, color, variant, worn, cached } = ensureModel(type, seed);
   const { mats: M } = vehicleMaterials();
-  const byName = { paint: worn ? M.vworn : M.vpaint, glass: M.vglass, chrome: M.vchrome, rubber: M.vrubber, interior: M.vinterior, canvas: M.vcanvas, vlight: M.vlight, vtail: M.vtail, vind: M.vind, plate: M.plate, badge: M.badge, route0: M.route0, route1: M.route1, route2: M.route2, police: M.police, amb: M.amb, lbBlue: M.lbBlue, lbRed: M.lbRed };
+  const byName = { paint: worn ? M.vworn : M.vpaint, glass: M.vglass, chrome: M.vchrome, rubber: M.vrubber, interior: M.vinterior, canvas: M.vcanvas, vlight: M.vlight, vtail: M.vtail, vind: M.vind, plate: M.plate, badge: M.badge, route: M.route, police: M.police, amb: M.amb, lbBlue: M.lbBlue, lbRed: M.lbRed };
   let beacons = null; if (T.police || T.ambulance) { byName.lbBlue = M.lbBlue.clone(); byName.lbRed = M.lbRed.clone(); beacons = { blue: byName.lbBlue, red: byName.lbRed }; } // per vehicle: only responding units flash
   const g = new THREE.Group(); const tailMat = M.vtail.clone(); const indMat = M.vind.clone(); const headMat = M.vlight.clone(); const revMat = M.vrev.clone(); byName.vtail = tailMat; byName.vind = indMat; byName.vlight = headMat; byName.vrev = revMat; headMat.emissiveIntensity = 0.04; tailMat.emissiveIntensity = 0.03; revMat.emissiveIntensity = 0; // per vehicle (start dark): each car's own lamps
   directionalLamp(headMat, 1); directionalLamp(tailMat, -1); directionalLamp(revMat, -1); // lamps glow only from the lens face (seen through the cabin glass from the other end they stay dark)

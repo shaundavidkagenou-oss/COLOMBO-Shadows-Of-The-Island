@@ -22,7 +22,10 @@ try {
       if (s.target === 'sign' && F && F.signs[s.k || 0]) { const q = F.signs[s.k || 0]; const c = Math.cos(q.rot), sn = Math.sin(q.rot); s.at = [q.x + sn * 4, q.z + c * 4]; s.cam = [q.x + 0.7 * c + sn * 3.2, q.y - 0.5, q.z - 0.7 * sn + c * 3.2]; s.look = [q.x + 0.7 * c, q.y - 0.3, q.z - 0.7 * sn]; }
       const [x, z] = s.at; g.world.warm(x, z); g.player.teleport(x, z, 0);
       g.atmos.hour = s.hour ?? 12; g.atmos.forceWeather(s.weather || 'clear'); g.atmos.setWeather(s.weather || 'clear', true); if (s.wet !== undefined) g.atmos.wet = s.wet;
-      g.atmos.envTimer = 0; await g.stepSim(6, 0.05); g.player.camOverride = true; g.camera.position.set(...s.cam); g.camera.lookAt(...s.look); g.camera.updateMatrixWorld();
+      let veh = null; if (s.spawn) { g.debugCon.exec('spawn car ' + s.spawn); veh = g.traffic.parked[g.traffic.parked.length - 1]; }
+      g.atmos.envTimer = 0; await g.stepSim(6, 0.05); g.player.camOverride = true;
+      if (veh && s.camRel) { const m = veh.mesh; m.updateMatrixWorld(); const T = window.__THREE_V3 || m.position.constructor; const c = new T(...s.camRel).applyMatrix4(m.matrixWorld), l = new T(...(s.lookRel || [0, 1.5, 0])).applyMatrix4(m.matrixWorld); s.cam = [c.x, c.y, c.z]; s.look = [l.x, l.y, l.z]; }
+      g.camera.position.set(...s.cam); g.camera.lookAt(...s.look); g.camera.updateMatrixWorld();
       return { hour: g.atmos.hour, night: +g.atmos.night.toFixed(2), boards: F && F.boards.length, signs: F && F.signs.length, names: F && [...new Set(F.signs.map((q) => q.name))].join('|') }; }, s);
     await new Promise((r) => setTimeout(r, s.wait || 6000));
     await page.screenshot({ path: `${outDir}/${s.name}.png` }); console.log('shot', s.name, JSON.stringify(info), ((Date.now() - t0) / 1000).toFixed(0) + 's');
