@@ -155,7 +155,7 @@ function buildWear(C, sp, W) {
     if (y > ub && C.warm(u) < 0.15) for (const s of strap) v = Math.max(v, 0.0058 - polyDist(p, s));
     f[u] = v; }
   const cupTh = (r) => { const T = r.p[0] > 0 ? tips[0] : tips[1]; const d = Math.hypot(r.p[0] - T[0], r.p[1] - T[1]); return 0.0014 + W.cupPad * sstep(0.09, 0.0, d) * (r.p[2] > T[2] - 0.08 ? 1 : 0); };
-  shell(C, f, { acc: A, g: G.fabric, col: vary(top), th: cupTh, hide, hideMargin: 0.007 });
+  shell(C, f, { acc: A, g: G.fabric, col: vary(top), th: cupTh, hide, hideMargin: 0.0035 });
   // ---- briefs: front / back rise, high-cut leg lines, gusset
   const hy = J.hips[1], tL = J.thighL;
   for (let u = 0; u < NU; u++) { const x = P[u * 3], y = P[u * 3 + 1], z = P[u * 3 + 2]; if (C.warm(u) > 0.1 || y > hy + 0.12 || y < hy - 0.2) { f[u] = -1; continue; }
@@ -165,7 +165,7 @@ function buildWear(C, sp, W) {
     const dx = sideX, dy = sy - cy, l = Math.hypot(dx, dy); let fLeg = (dx * (y - cy) - dy * ax) / l; // > 0 above / inside the crotch → hip line
     fLeg += 0.55 * Math.max(0, -z - 0.02) * sstep(0.02, 0.1, ax) - 0.25 * Math.max(0, z - 0.03);
     const fG = 0.024 - ax; const v = Math.min(fTop, Math.max(fLeg, y < tL[1] - 0.02 ? fG : -1)); f[u] = v; }
-  shell(C, f, { acc: A, g: G.fabric, col: vary(bottom), th: 0.0013, hide, hideMargin: 0.007 });
+  shell(C, f, { acc: A, g: G.fabric, col: vary(bottom), th: 0.0013, hide, hideMargin: 0.0035 });
   // ---- waistband for the skirt / fringe belt (at the skirt's top line)
   const sk = W.skirt || W.fringe; if (sk) { const yt = hy + sk.top;
     for (let u = 0; u < NU; u++) { const y = P[u * 3 + 1]; f[u] = C.warm(u) > 0.1 ? -1 : 0.009 - Math.abs(y - (yt - 0.006)); }
@@ -235,6 +235,10 @@ export function buildHair(C, sp) {
     const Rs = new Float32Array(NA * NY); for (let iy = 0; iy < NY; iy++) for (let ia = 0; ia < NA; ia++) { let s = 0; for (let k = -2; k <= 2; k++) s += R[iy * NA + (ia + k + NA) % NA]; Rs[iy * NA + ia] = s / 5; }
     const Rb = (a, y) => { const fa = (((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2) * NA, ia = Math.floor(fa) % NA, ib = (ia + 1) % NA, ta = fa - Math.floor(fa); const fy = clamp((y - y0) / dy, 0, NY - 1.001), iy = Math.floor(fy), ty = fy - iy;
       const g = (i, j) => Rs[j * NA + i]; return lerp(lerp(g(ia, iy), g(ib, iy), ta), lerp(g(ia, iy + 1), g(ib, iy + 1), ta), ty); };
+    // body contact: the largest raw radius among neighbouring bins (the smoothed table under-reads the trapezius / shoulder
+    // blade peaks and the skin poked through the hair there)
+    const Rmax = (a, y) => { const ia = Math.floor(((((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2)) * NA) % NA, iy = Math.round(clamp((y - y0) / dy, 0, NY - 1)); let m = 0;
+      for (let j = Math.max(0, iy - 2); j <= Math.min(NY - 1, iy + 2); j++) for (let k = -3; k <= 3; k++) m = Math.max(m, R[j * NA + (ia + k + NA) % NA]); return m; };
     const shY = J.armL[1] + 0.03; const edgeA = (y) => lerp(M.edge[1], M.edge[0], sstep(shY - 0.02, J.neck[1] + 0.02, y));
     const NC = 64, NR = 34; const yTop = ey + 0.01; const rows = []; const grid = [];
     for (let c = 0; c <= NC; c++) { const u = c / NC; const col0 = []; let Rh = 0; const jit = 0;
@@ -242,16 +246,25 @@ export function buildHair(C, sp) {
         const y = lerp(yTop, yEnd, v); const ea = edgeA(y); const a = lerp(ea, Math.PI * 2 - ea, u);
         Rh = Math.max(Rh - 0.0005, Rb(a, y) + M.gap); let Ro = Rh + M.wave * Math.sin(y * 70 + u * 9) * sstep(yTop - 0.03, yTop - 0.08, y);
         if (M.tuck) Ro -= 0.009 * sstep(0.8, 1, v); const edge = sstep(0, 0.12, u) * sstep(1, 0.88, u); // thin, soft side edges and ends (no box edge)
-        const Rin = Rb(a, y) + 0.002; Ro = Math.max(Rin + 0.004, lerp(Rin + 0.005, Ro, edge)); const Ri = Math.max(Rin, Ro - M.th * edge * (1 - 0.8 * sstep(0.7, 1, v)));
-        col0.push({ a, y, Ro, Ri }); }
+        const Rin = Math.max(Rb(a, y), Rmax(a, y)) + 0.003; Ro = Math.max(Rin + 0.004, lerp(Rin + 0.005, Ro, edge));
+        col0.push({ a, y, Ro, Rin, edge, v }); }
       grid.push(col0); }
+    // smooth the outer surface (the cumulative-max fall left a ledge wherever the body radius jumped — shoulder top, shoulder
+    // blades — at a different height in every column: a staircase), then re-floor it on the body and derive the inner face
+    for (let pass = 0; pass < 6; pass++) { const nx = grid.map((col) => col.map((g) => g.Ro));
+      for (let c = 0; c <= NC; c++) for (let r = 0; r <= NR; r++) { const at = (cc, rr) => grid[clamp(cc, 0, NC)][clamp(rr, 0, NR)].Ro;
+        nx[c][r] = (4 * at(c, r) + at(c - 1, r) + at(c + 1, r) + at(c, r - 1) + at(c, r + 1)) / 8; }
+      for (let c = 0; c <= NC; c++) for (let r = 0; r <= NR; r++) { const g = grid[c][r]; g.Ro = Math.max(g.Rin + 0.004, nx[c][r]); } }
+    for (const col of grid) for (const g of col) g.Ri = Math.max(g.Rin, g.Ro - M.th * g.edge * (1 - 0.8 * sstep(0.7, 1, g.v)));
+    const PO = (c, r, R0) => { const g = grid[clamp(c, 0, NC)][clamp(r, 0, NR)]; const rr = R0 === undefined ? g.Ro : R0; return [Math.sin(g.a) * rr, g.y, cz + Math.cos(g.a) * rr]; };
+    const nOut = (c, r) => { const tc = sub(PO(c + 1, r), PO(c - 1, r)), tr = sub(PO(c, r + 1), PO(c, r - 1)); let n = nrm(crs(tr, tc)); const g = grid[c][r]; if (n[0] * Math.sin(g.a) + n[2] * Math.cos(g.a) < 0) n = scl(n, -1); return n; };
     const wOf = (y) => { const hn = J.neck[1]; const wh = sstep(hn - 0.01, hn + 0.06, y); const wc = 1 - sstep(shY - 0.05, hn - 0.01, y); return top4(boneW([['head', wh], ['neck', Math.max(0, 1 - wh - wc)], ['chest', wc]])); };
     // soft strand layers just outside the mass (alpha-tested), slightly longer at the ends so the cut is wispy, not a hard line
     for (const [lay, ex] of [[0.5, 0.0018], [1, 0.0036]]) { const ids = []; for (let c = 0; c <= NC; c++) for (let r = 0; r <= NR; r++) { const g = grid[c][r]; const R0 = g.Ro + ex; const p = [Math.sin(g.a) * R0, g.y - (r === NR ? 0.012 * lay : 0), cz + Math.cos(g.a) * R0];
-        ids.push(A.v(p, nrm([Math.sin(g.a), 0.15, Math.cos(g.a)]), wOf(g.y), vary(p), { flow: [0, -1, 0], root: [Math.sin(g.a) * g.Ro, g.y, cz + Math.cos(g.a) * g.Ro], layer: lay })); }
+        ids.push(A.v(p, nOut(c, r), wOf(g.y), vary(p), { flow: [0, -1, 0], root: [Math.sin(g.a) * g.Ro, g.y, cz + Math.cos(g.a) * g.Ro], layer: lay })); }
       for (let c = 0; c < NC; c++) for (let r = 0; r < NR; r++) { const a = ids[c * (NR + 1) + r], b = ids[(c + 1) * (NR + 1) + r]; A.tri(1, a, a + 1, b + 1); A.tri(1, a, b + 1, b); } }
     const vid = []; for (const side of [0, 1]) { const ids = []; for (let c = 0; c <= NC; c++) for (let r = 0; r <= NR; r++) { const g = grid[c][r]; const R0 = side ? g.Ri : g.Ro; const p = [Math.sin(g.a) * R0, g.y, cz + Math.cos(g.a) * R0];
-        const n = side ? [-Math.sin(g.a), 0, -Math.cos(g.a)] : [Math.sin(g.a), 0.15, Math.cos(g.a)]; ids.push(A.v(p, nrm(n), wOf(g.y), vary(p), { flow: [0, -1, 0], root: p, layer: 0 })); } vid.push(ids); }
+        const n = side ? [-Math.sin(g.a), 0, -Math.cos(g.a)] : nOut(c, r); ids.push(A.v(p, nrm(n), wOf(g.y), vary(p), { flow: [0, -1, 0], root: p, layer: 0 })); } vid.push(ids); }
     const id = (s, c, r) => vid[s][c * (NR + 1) + r];
     for (let c = 0; c < NC; c++) for (let r = 0; r < NR; r++) { A.tri(0, id(0, c, r), id(0, c, r + 1), id(0, c + 1, r + 1)); A.tri(0, id(0, c, r), id(0, c + 1, r + 1), id(0, c + 1, r)); A.tri(0, id(1, c, r), id(1, c + 1, r + 1), id(1, c, r + 1)); A.tri(0, id(1, c, r), id(1, c + 1, r), id(1, c + 1, r + 1)); }
     for (let c = 0; c < NC; c++) { A.tri(0, id(0, c, NR), id(1, c, NR), id(1, c + 1, NR)); A.tri(0, id(0, c, NR), id(1, c + 1, NR), id(0, c + 1, NR)); }
@@ -281,6 +294,9 @@ function wearMaterials(W, U) {
   const shoe = new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.18, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.08 });
   const metal = new THREE.MeshStandardMaterial({ color: fin, roughness: 0.22, metalness: 1 });
   const sole = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0 });
+  // garments lie 1–3 mm off the skin: a depth bias keeps the fabric in front of the skin under its edges at any distance
+  // (without it straps, bands and cup edges broke up into fragments where the skin z-fought through)
+  for (const m of [fab, shoe, metal, sole]) { m.polygonOffset = true; m.polygonOffsetFactor = -1; m.polygonOffsetUnits = -4; }
   const tag = W.fabric; const mats = [fab, shoe, metal, sole];
   mats.forEach((m, i) => { patchHeroMaterial(m, 'body', U, i === 0 ? fabricPatch(tag) : null); const k = m.customProgramCacheKey; m.customProgramCacheKey = () => k() + '|dw' + i + (i === 0 ? tag : ''); });
   return mats;
@@ -387,7 +403,10 @@ export class DancerRig {
   // pinned row: each point skinned like the nearest body vertex (linear blend of its bones), so the waistband line follows
   // the lower back and hips exactly as the skin under it does
   pinSkin(C, cl, hipsJ) { cl.pw = []; for (let i = 0; i < cl.pin; i++) { const q = [cl.rest[i * 3] + hipsJ[0], cl.rest[i * 3 + 1] + hipsJ[1], cl.rest[i * 3 + 2] + hipsJ[2]]; let best = -1, bd = 1e9;
-      for (let u = 0; u < C.NU; u++) { if (C.warm(u) > 0.1) continue; const d = (C.P[u * 3] - q[0]) ** 2 + (C.P[u * 3 + 1] - q[1]) ** 2 + (C.P[u * 3 + 2] - q[2]) ** 2; if (d < bd) { bd = d; best = u; } }
+      const near = []; for (let u = 0; u < C.NU; u++) { if (C.warm(u) > 0.1) continue; const d = (C.P[u * 3] - q[0]) ** 2 + (C.P[u * 3 + 1] - q[1]) ** 2 + (C.P[u * 3 + 2] - q[2]) ** 2; if (d < bd) { bd = d; best = u; } if (d < 0.0004) near.push([d, u]); }
+      near.sort((x, y) => x[0] - y[0]); const nn = near.slice(0, 3); if (nn.length) { // waistband hugs the skin (the ring radius spanned the lumbar hollow at the back)
+        const sp = [0, 0, 0], sn = [0, 0, 0]; for (const [, u] of nn) for (let k = 0; k < 3; k++) { sp[k] += C.P[u * 3 + k] / nn.length; sn[k] += C.N[u * 3 + k]; } const n = nrm(sn);
+        const hug = [sp[0] + n[0] * 0.003, q[1], sp[2] + n[2] * 0.003]; const dl = Math.hypot(hug[0] - q[0], hug[2] - q[2]); if (dl < 0.03) { q[0] = hug[0]; q[2] = hug[2]; } }
       const w = top4(C.wmap(best)); cl.pw.push({ q, w }); } cl.pinPrev = new Float32Array(cl.pin * 3); cl.pinCur = new Float32Array(cl.pin * 3); }
   pinUpdate(cl) { const sk = this.ch.mesh.skeleton; const bm = sk.bones, bi = sk.boneInverses; cl.pinPrev.set(cl.pinCur);
     cl.pw.forEach((P, i) => { let x = 0, y = 0, z = 0; for (let k = 0; k < 4; k++) { const w = P.w.w[k]; if (!w) continue; _m4.multiplyMatrices(bm[P.w.i[k]].matrixWorld, bi[P.w.i[k]]); _v.set(P.q[0], P.q[1], P.q[2]).applyMatrix4(_m4); x += _v.x * w; y += _v.y * w; z += _v.z * w; }
