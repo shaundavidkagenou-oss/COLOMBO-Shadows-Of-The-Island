@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { TEX } from './Textures.js';
 import { applyInteriorMapping, INTERIOR, occupancy } from './InteriorMapping.js';
 export const MAT = {};
-const facadeKeys = ['colonial', 'brick', 'glass', 'glass2', 'office', 'hotel', 'shop', 'shop2', 'apartment', 'villa', 'warehouse'];
+const facadeKeys = ['colonial', 'brick', 'glass', 'glass2', 'glass3', 'office', 'office2', 'office3', 'hotel', 'shop', 'shop2', 'shop3', 'apartment', 'apartment2', 'villa', 'warehouse'];
 const wetTargets = [];
 // Road glare: on wet asphalt at night every oncoming headlight (a spot light pointed back at the viewer) became a white
 // mirror streak between the car and the camera, so bright that bloom turned it into a white halo hiding the car (tested:
@@ -41,7 +41,7 @@ export function buildMaterials() {
   for (const k of facadeKeys) {
     const f = TEX['f_' + k];
     MAT['f_' + k] = std({ map: f.map, emissiveMap: f.emissive, emissive: 0xffffff, emissiveIntensity: 0, roughnessMap: f.rm, metalnessMap: f.rm, roughness: 1, metalness: k.startsWith('glass') ? 1 : 1, vertexColors: true, envMapIntensity: k.startsWith('glass') ? 1.0 : 0.8 });
-    applyInteriorMapping(MAT['f_' + k], { office: k === 'glass' || k === 'glass2' || k === 'office' }); // windows show parallax rooms with depth (offices: lit floor sections)
+    applyInteriorMapping(MAT['f_' + k], { office: /^(glass|office)/.test(k) }); // windows show parallax rooms with depth (offices: lit floor sections)
   }
   MAT.shops = std({ map: TEX.shops.map, emissiveMap: TEX.shops.emissive, emissive: 0xffffff, emissiveIntensity: 0.15, roughness: 0.8 });
   // after closing time each shop unit pulls down its own roller shutter (galvanised or painted; ~14% trade late)
@@ -86,7 +86,7 @@ export function buildMaterials() {
   MAT.palm = std({ map: TEX.palm, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85, vertexColors: true });
   MAT.bark = std({ color: 0x6b5a48, roughness: 1, vertexColors: true });
   // trees / plants (Forest.js): real bark and palm-trunk textures, small-leaf sprigs (creepers, shrubs), banana blades, flowers
-  MAT.treeBark = std({ map: TEX.bark, color: 0xb8a894, roughness: 1, vertexColors: true });
+  MAT.treeBark = std({ map: TEX.bark, bumpMap: TEX.bark, bumpScale: 2.2, color: 0xf2ece4, roughness: 0.95, vertexColors: true }); // mid grey-brown bark with relief (was ~3 % albedo: read as black sticks)
   MAT.palmBark = std({ map: TEX.palmBark, roughness: 1, vertexColors: true });
   MAT.leavesSmall = std({ map: TEX.leavesSmall, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9, vertexColors: true });
   MAT.banana = std({ map: TEX.banana, alphaTest: 0.4, side: THREE.DoubleSide, roughness: 0.75, vertexColors: true });

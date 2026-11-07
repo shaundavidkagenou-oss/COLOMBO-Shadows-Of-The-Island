@@ -228,12 +228,12 @@ export function buildLandmarks() {
     label([{ text: 'THE DUTCH HOSPITAL', font: EN(120), color: '#3a2a1a' }, { text: 'ලන්දේසි රෝහල  ·  ஒல்லாந்தர் மருத்துவமனை', font: SI(70), color: '#3a2a1a' }], X0 - 0.1, y0 + 4.7, (Z0 + Z1) / 2, 14, 1.6, -Math.PI / 2, { w: 1400, h: 260, bg: '#f3eee2', glow: false });
   }
 
-  // ------------------------------------------------------------ CARGILLS (red brick, York Street)
+  // ------------------------------------------------------------ CARGROVE & CO. (fictional; red brick, York Street)
   {
     const y0 = LAND_Y, x0 = -268, x1 = -230, z0 = -888, z1 = -843;
     facade('brick', x0, x1, z0, z1, y0, y0 + 16, '#ffffff');
     for (const tz of [z0 + 2.5, z1 - 2.5]) { mb.get('f_brick').box(x0 + 2.5, y0 + 10, tz, 5.6, 20, 5.6, { col: [1, 1, 1], uvScale: 12.8, top: false }); lathe(paint, [[3.2, 0], [3.4, 1], [2.4, 3.8], [0.3, 6.5]], 12, x0 + 2.5, y0 + 20, tz, '#6f7a6a'); }
-    label([{ text: 'CARGILLS', font: EN(170), color: '#f8f2e4' }], x0 - 0.15, y0 + 14, (z0 + z1) / 2, 18, 2.6, -Math.PI / 2, { w: 1200, h: 200 });
+    label([{ text: 'CARGROVE & CO.', font: EN(170), color: '#f8f2e4' }], x0 - 0.15, y0 + 14, (z0 + z1) / 2, 18, 2.6, -Math.PI / 2, { w: 1200, h: 200 });
     coll(x0, x1, z0, z1, 24);
   }
 

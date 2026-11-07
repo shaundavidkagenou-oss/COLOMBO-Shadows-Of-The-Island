@@ -162,6 +162,11 @@ const FRAG_BODY = /* glsl */`
     float lod = smoothstep(0.6, 2.0, fw);
     if (lod > 0.0) { vec3 avgC = vec3(0.6, 0.58, 0.54) * 0.62; vec3 avgL = vec3(0.92, 0.94, 0.96) * uIntDay + vec3(1.0, 0.9, 0.78) * 0.9 * uIntNight * uOcc + vec3(0.012);
       interior = mix(interior, avgC * avgL * tint, lod); }
+    // curtain-wall realism: every pane sits a hair off-plane (real glass bows slightly in its frame), so the reflected sky and
+    // city break up pane by pane instead of one perfect mirror per facade. Fades with distance before it could shimmer.
+    { vec2 pane = floor(p / vec2(RW * 0.5, FH)); float ha = iHash(pane + wq * 5.3 + nq * 2.1), hb = iHash(pane + wq * 5.3 + 11.7);
+      vec3 tiltW = (T * (ha - 0.5) * 0.055 + vec3(0.0, 1.0, 0.0) * (hb - 0.5) * 0.04) * (1.0 - smoothstep(0.25, 1.2, fw));
+      normal = normalize(normal + (viewMatrix * vec4(tiltW, 0.0)).xyz * gm); }
     // fresnel: grazing views show reflection, face-on views show the room
     float fres = 0.04 + 0.96 * pow(1.0 - dl.z, 5.0);
     totalEmissiveRadiance = mix(totalEmissiveRadiance, interior * (1.0 - fres * 0.85), gm);
@@ -182,7 +187,7 @@ export function applyInteriorMapping(mat, { office = false } = {}) {
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + FRAG_DECL)
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + FRAG_BODY);
   };
-  mat.customProgramCacheKey = () => 'interior-v8' + (office ? '-office' : '');
+  mat.customProgramCacheKey = () => 'interior-v9' + (office ? '-office' : '');
   return mat;
 }
 

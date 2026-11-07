@@ -153,9 +153,9 @@ function genCommercial(rng, cell) {
   const onArterial = [cell.L, cell.R, cell.T, cell.B].some((s) => s && s.level === 0);
   if (onArterial && rng.chance(0.22) && W > 30 && D > 30 && rectFree(lx0, lx1, lz0, lz1)) return genTowers(rng, cell);
   const make = (r, a, b, c, dd, side) => {
-    const big = onArterial && r.chance(0.6);
+    const big = onArterial && r.chance(0.42); // Galle Road is mostly 2–5 storey shophouses with the odd block, not a wall of offices
     const shop = r.chance(0.7) ? shopFor(r, cell.district) : null;
-    const bld = addBuilding({ x0: a, x1: b, z0: c, z1: dd, floors: big ? r.int(4, 9) : r.int(2, 4), style: r.pick(big ? ['office', 'apartment', 'hotel', 'shop'] : ['shop', 'shop2', 'apartment']), color: r.pick(PAINTS.dense), front: side, district: cell.district,
+    const bld = addBuilding({ x0: a, x1: b, z0: c, z1: dd, floors: big ? r.int(4, 9) : r.int(2, 4), style: r.pick(big ? ['office', 'apartment', 'hotel', 'shop', 'shop2', 'apartment'] : ['shop', 'shop2', 'apartment', 'shop2']), color: r.pick(PAINTS.dense), front: side, district: cell.district,
       groundRow: shop ? shop.groundRow : SHOP_ROWS.lobby, groundCol: shop ? shop.groundCol : r.int(0, 3), sign: shop ? shop.sign : null, shopKind: shop ? shop.shopKind : 'office', awning: r.chance(0.3), balconies: r.chance(0.4), tanks: r.chance(0.6), roof: 'flat', uOff: r.int(0, 3) / 4 });
     if (shop) { const [px, pz] = frontPoint(bld, 1.0); addPOI('shop', px, pz, facingIntoShop(side), { b: bld.id, kind: shop.shopKind }); }
   };

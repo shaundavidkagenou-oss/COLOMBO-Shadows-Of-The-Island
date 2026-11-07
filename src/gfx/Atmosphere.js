@@ -1,5 +1,6 @@
 // Time of day, sky, clouds, sun/moon lighting, fog, environment reflections and weather.
 import * as THREE from 'three';
+import { leafLight } from '../world/Wind.js';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { clamp, lerp, smoothstep } from '../core/math.js';
 import { updateMaterials } from './Materials.js';
@@ -123,7 +124,12 @@ export class Atmosphere {
     // surroundings band (buildings, tree line) up to ~9° above the horizon: grazing reflections — the silhouette edges of fence
     // bars, dark clothing, car flanks, where Fresnel reflectance goes to ~100 % — pick up a muted city tone instead of bright
     // cyan horizon haze (which rendered as 1-px cyan fringes on every dark edge in daylight)
+    // …and above that band a painted Colombo skyline (towers with window grids; lit windows at night), so glass towers and car
+    // bodies reflect a city instead of an empty horizon
     this.envSkyline = new THREE.Mesh(new THREE.CylinderGeometry(60, 60, 11.5, 48, 1, true), new THREE.MeshBasicMaterial({ color: 0x4a4c46, side: THREE.BackSide })); this.envSkyline.position.y = 3.6; this.envScene.add(this.envSkyline);
+    { const sk = skylineTextures(); const geo = new THREE.CylinderGeometry(59.5, 59.5, 22, 64, 1, true);
+      this.envCity = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: sk.day, transparent: true, alphaTest: 0.02, side: THREE.BackSide, depthWrite: false, fog: false })); this.envCity.position.y = 10.5; this.envScene.add(this.envCity);
+      this.envCityLit = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: sk.lit, transparent: true, blending: THREE.AdditiveBlending, side: THREE.BackSide, depthWrite: false, opacity: 0, fog: false })); this.envCityLit.position.y = 10.5; this.envScene.add(this.envCityLit); }
     this.envTimer = 0; this.envRT = null; this.lastEnvHour = -99;
     // rain streaks
     this.rainCount = 7000; const rg = new THREE.BufferGeometry(); const rp = new Float32Array(this.rainCount * 6); this.rainSeeds = new Float32Array(this.rainCount * 3);
@@ -181,6 +187,8 @@ export class Atmosphere {
     if (elev < 0) { this.sun.position.copy(focus).addScaledVector(new THREE.Vector3(-0.4, 0.8, -0.3).normalize(), 300); this.sun.color.setRGB(0.62, 0.72, 1.0); this.sun.intensity = 0.78 * this.night * (1 - this.w.cloud * 0.45); } // moonlight: readable silhouettes and road surface, still clearly night
     else this.sun.position.copy(focus).addScaledVector(this.sunDir, 300);
     this.sun.target.position.copy(focus); this.sun.target.updateMatrixWorld();
+    { const d = leafLight.dir.value, c = leafLight.col.value; const sd = this.sun.position.clone().sub(focus).normalize(); d[0] = sd.x; d[1] = sd.y; d[2] = sd.z;
+      c[0] = this.sun.color.r * this.sun.intensity; c[1] = this.sun.color.g * this.sun.intensity; c[2] = this.sun.color.b * this.sun.intensity; }
     // snap shadow camera to texel grid to avoid shimmering
     const skyTop = new THREE.Color().setRGB(0.28, 0.48, 0.82).lerp(new THREE.Color(0.32, 0.36, 0.42), this.w.dark).lerp(new THREE.Color(0.02, 0.04, 0.1), this.night);
     const horizon = new THREE.Color().setRGB(0.75, 0.82, 0.88).lerp(new THREE.Color(1.0, 0.62, 0.38), golden * (1 - this.night) * (1 - this.w.dark)).lerp(new THREE.Color(0.5, 0.52, 0.55), this.w.dark * 0.7).lerp(new THREE.Color(0.06, 0.08, 0.14), this.night);
@@ -219,6 +227,7 @@ export class Atmosphere {
       this.envTimer = 12; this.lastEnvHour = this.hour;
       this.envGround.material.color.setRGB(0.25, 0.23, 0.2).multiplyScalar(1 - this.night * 0.8);
       this.envSkyline.material.color.setRGB(0.3, 0.31, 0.28).multiplyScalar((1 - this.night * 0.85) * (1 - this.w.dark * 0.35));
+      if (this.envCity) { this.envCity.material.color.setRGB(1, 1, 1).multiplyScalar(Math.max(0.06, (1 - this.night * 0.9)) * (1 - this.w.dark * 0.4)); this.envCityLit.material.opacity = this.night * 0.9; }
       const prevFog = this.scene.fog; const old = this.envRT;
       this.envRT = this.pmrem.fromScene(this.envScene, 0.02, 0.1, 200);
       this.scene.environment = this.envRT.texture; this.envBase = this.scene.environmentIntensity = 0.62 * (1 - this.night * 0.7) * (1 - this.w.dark * 0.3); // sky PMREM is HDR: full strength washed every facade
@@ -233,4 +242,24 @@ export class Atmosphere {
   }
   serialize() { return { hour: this.hour, day: this.day, weather: this.target }; }
   restore(s) { if (!s) return; this.hour = s.hour; this.day = s.day || 1; this.setWeather(s.weather || 'clear', true); }
+}
+
+// Reflection-only skyline strip for the environment map: 2048×256, towers of varied height and width, window grids; a second
+// texture holds the lit windows for night. Bottom ~30 % is the building bases (merges with the dark surroundings band).
+function skylineTextures() {
+  const W = 2048, H = 256; const mk = () => { const c = document.createElement('canvas'); c.width = W; c.height = H; return c; };
+  const cd = mk(), cl = mk(), d = cd.getContext('2d'), l = cl.getContext('2d'); let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  l.fillStyle = '#000'; l.fillRect(0, 0, W, H);
+  for (let pass = 0; pass < 2; pass++) for (let x = 0; x < W;) {
+    const w = 18 + rnd() * (pass ? 60 : 40), tall = pass ? 0.25 + rnd() * 0.55 : 0.15 + rnd() * 0.3; const top = Math.floor(H * (1 - tall)), glass = rnd() < 0.45;
+    const base = pass ? [70 + rnd() * 30, 78 + rnd() * 30, 88 + rnd() * 34] : [96, 100, 104]; const k = pass ? 1 : 1.12;
+    d.fillStyle = `rgb(${base[0] * k | 0},${base[1] * k | 0},${base[2] * k | 0})`; d.fillRect(x, top, w, H - top);
+    if (glass) { const g = d.createLinearGradient(x, 0, x + w, 0); g.addColorStop(0, 'rgba(150,180,205,0.55)'); g.addColorStop(1, 'rgba(60,80,100,0.35)'); d.fillStyle = g; d.fillRect(x, top, w, H - top); }
+    for (let y = top + 4; y < H - 6; y += 5) for (let wx = x + 3; wx < x + w - 3; wx += 4) {
+      d.fillStyle = glass ? 'rgba(20,30,40,0.25)' : 'rgba(30,30,35,0.45)'; d.fillRect(wx, y, 2, 2.5);
+      if (rnd() < 0.32) { l.fillStyle = rnd() < 0.7 ? 'rgba(255,214,150,0.9)' : 'rgba(210,230,255,0.85)'; l.fillRect(wx, y, 2, 2.5); } }
+    x += w + (pass ? 6 + rnd() * 40 : 2 + rnd() * 10);
+  }
+  const t = (c) => { const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; tx.wrapS = THREE.RepeatWrapping; return tx; };
+  return { day: t(cd), lit: t(cl) };
 }

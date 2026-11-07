@@ -109,9 +109,14 @@ function contactAO(mb, s, y0) {
     gquad(mb, [pa(W[k]), pb(W[k]), pb(W[k + 1]), pa(W[k + 1])], [g(WC[k]), g(WC[k]), g(WC[k + 1]), g(WC[k + 1])], [0, 1, 0]);
   }
 }
+// Façade variant per building: style names stay as they are (gardens, birds, roofs, the map editor key off them); only the
+// texture differs. Hashed from the footprint so it is stable across reloads and works for editor-placed buildings.
+const FAC_VARIANTS = { office: ['office', 'office2', 'office3'], apartment: ['apartment', 'apartment2'], shop2: ['shop2', 'shop3'], shop: ['shop', 'shop', 'shop3'], glass: ['glass', 'glass3'], glass2: ['glass2', 'office3'] };
+export function facKey(style, b, salt = 0) { const v = FAC_VARIANTS[style]; if (!v) return style;
+  const h = (Math.imul(Math.round(b.x0 * 10) + salt * 977, 73856093) ^ Math.imul(Math.round(b.z0 * 10), 19349663)) >>> 0; return v[h % v.length]; }
 export function buildBase(b, multi) {
   const paint = col(b.color || '#ffffff');
-  const fac = multi.get('f_' + b.style);
+  const fac = multi.get('f_' + facKey(b.style, b));
   const y0 = LAND_Y; const hasGround = b.groundRow != null; const yTop = y0 + b.h;
   for (const s of sides(b.x0, b.x1, b.z0, b.z1)) {
     if (s.len < 0.1) continue;
@@ -131,7 +136,7 @@ export function buildBase(b, multi) {
   // tower on podium
   if (b.tower) {
     const t = b.tower, i = t.inset; const tx0 = b.x0 + i, tx1 = b.x1 - i, tz0 = b.z0 + i, tz1 = b.z1 - i;
-    const th = t.floors * FLOOR_H; const tfac = multi.get('f_' + t.style); const tc = col(t.color || '#fff');
+    const th = t.floors * FLOOR_H; const tfac = multi.get('f_' + facKey(t.style, b, 7)); const tc = col(t.color || '#fff');
     for (const s of sides(tx0, tx1, tz0, tz1)) facadeWall(tfac, s, yTop, yTop + th, 0, yTop, tc);
     multi.get('roofFlat').hrect(tx0, tz0, tx1, tz1, yTop + th, 6, roofCol);
     { // rooftop services: parapet, lift overrun, plant units, tanks, antenna (seeded per building)
@@ -279,7 +284,7 @@ export function buildDetail(b, multi) {
   // building fabric: rendered plinth course, rainwater downpipes (PVC grey or painted black/cast iron on heritage),
   // eave gutters on tiled roofs, and a CEB electricity meter box beside the entrance
   {
-    const shopFront = b.groundRow != null; const pc = paint.map((v) => v * 0.62 + 0.08); const heritage = b.style === 'colonial' || b.style === 'brick'; const curtain = /^glass/.test(b.style) || ((b.style === 'office' || b.style === 'hotel') && b.floors > 6);
+    const shopFront = b.groundRow != null; const pc = paint.map((v) => v * 0.62 + 0.08); const heritage = b.style === 'colonial' || b.style === 'brick'; const fk = facKey(b.style, b); const curtain = /^glass/.test(fk) || fk === 'office3' || ((fk === 'office' || fk === 'hotel') && b.floors > 6);
     const pipeCol = heritage ? [0.12, 0.12, 0.13] : rng.chance(0.5) ? [0.72, 0.72, 0.7] : [0.42, 0.44, 0.46]; const pm = multi.get('paint');
     for (const s of sd) {
       if (s.len < 1.5) continue; const r = rotOf(s); const mid = along(s, 0.5);
@@ -401,7 +406,7 @@ function dressFacade(solid, glass, s, y0, y1, uOff, vStart, key, paint, cols = n
 // The same work as one ordered list of facade tasks, so streaming can spread a building over several frames
 // (a large shop-house row is thousands of 3D window frames: up to ~130 ms for one building in a single call).
 export function windowTasks(b, solid, glass) {
-  const paint = col(b.color || '#ffffff'); const y0 = LAND_Y, yTop = y0 + b.h; const hasGround = b.groundRow != null; const key = 'f_' + b.style;
+  const paint = col(b.color || '#ffffff'); const y0 = LAND_Y, yTop = y0 + b.h; const hasGround = b.groundRow != null; const key = 'f_' + facKey(b.style, b);
   const T = []; const F = (...a) => { const s = a[2], uOff = a[5]; const i0 = Math.floor(uOff), i1 = Math.ceil(uOff + s.len / (4 * BAY)); for (let k = i0; k < i1; k++) T.push(() => dressFacade(...a, [k, k + 1])); }; // one 4-bay column per task
   for (const s of sides(b.x0, b.x1, b.z0, b.z1)) {
     if (s.len < 0.1) continue;
@@ -412,13 +417,13 @@ export function windowTasks(b, solid, glass) {
   }
   if (b.tower) {
     const t = b.tower, i = t.inset; const th = t.floors * FLOOR_H;
-    for (const s of sides(b.x0 + i, b.x1 - i, b.z0 + i, b.z1 - i)) F(solid, glass, s, yTop, yTop + th, 0, yTop, 'f_' + t.style, col(t.color || '#fff'));
+    for (const s of sides(b.x0 + i, b.x1 - i, b.z0 + i, b.z1 - i)) F(solid, glass, s, yTop, yTop + th, 0, yTop, 'f_' + facKey(t.style, b, 7), col(t.color || '#fff'));
   }
   return T;
 }
 // one-shot build (warm / loading); identical output to running windowTasks() in order (tools/stream-test.mjs)
 export function buildWindows(b, solid, glass) {
-  const paint = col(b.color || '#ffffff'); const y0 = LAND_Y, yTop = y0 + b.h; const hasGround = b.groundRow != null; const key = 'f_' + b.style;
+  const paint = col(b.color || '#ffffff'); const y0 = LAND_Y, yTop = y0 + b.h; const hasGround = b.groundRow != null; const key = 'f_' + facKey(b.style, b);
   let n = 0;
   for (const s of sides(b.x0, b.x1, b.z0, b.z1)) {
     if (s.len < 0.1) continue;
@@ -429,7 +434,7 @@ export function buildWindows(b, solid, glass) {
   }
   if (b.tower) {
     const t = b.tower, i = t.inset; const th = t.floors * FLOOR_H;
-    for (const s of sides(b.x0 + i, b.x1 - i, b.z0 + i, b.z1 - i)) n += dressFacade(solid, glass, s, yTop, yTop + th, 0, yTop, 'f_' + t.style, col(t.color || '#fff'));
+    for (const s of sides(b.x0 + i, b.x1 - i, b.z0 + i, b.z1 - i)) n += dressFacade(solid, glass, s, yTop, yTop + th, 0, yTop, 'f_' + facKey(t.style, b, 7), col(t.color || '#fff'));
   }
   return n;
 }

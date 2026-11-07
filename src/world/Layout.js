@@ -90,7 +90,7 @@ export const ZONES = [
   { id: 'parliament', name: 'Old Parliament', rect: [-475, -409, -740, -668], blockRoads: true, kind: 'landmark' },
   { id: 'wtc', name: 'Twin Towers', rect: [-340, -280, -1000, -900], blockRoads: true, kind: 'landmark' },
   { id: 'dutch', name: 'Dutch Hospital', rect: [-400, -340, -900, -830], blockRoads: false, kind: 'landmark' },
-  { id: 'cargills', name: 'Cargills Building', rect: [-280, -220, -900, -830], blockRoads: false, kind: 'landmark' },
+  { id: 'cargills', name: 'Cargrove Building', rect: [-280, -220, -900, -830], blockRoads: false, kind: 'landmark' },
   { id: 'fortstation', name: 'Colombo Fort Railway Station', rect: [-110, 40, -652, -622], blockRoads: true, kind: 'landmark' },
   { id: 'maradanast', name: 'Maradana Railway Station', rect: [420, 540, -652, -622], blockRoads: true, kind: 'landmark' },
   { id: 'stlucia', name: "St. Lucia's Cathedral", rect: [300, 420, -1210, -1080], blockRoads: true, kind: 'landmark' },

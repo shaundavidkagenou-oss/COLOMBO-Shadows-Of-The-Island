@@ -25,7 +25,7 @@ function tubeGeo(pts, radii, sides, { capEnd = true, capStart = false, vLen = 1 
   if (capEnd) cap(n - 1, 1, 0.55); if (capStart) cap(0, -1, 0.3);
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); return g;
 }
-function trunk(mb, h, r0, r1, bend, rng, col = [0.42, 0.35, 0.28], seg = 12, sides = 9) {
+function trunk(mb, h, r0, r1, bend, rng, col = [0.74, 0.67, 0.58], seg = 12, sides = 9) {
   const dir = rng.next() * Math.PI * 2; const pts = [], radii = [];
   pts.push(new THREE.Vector3(0, -0.25, 0)); radii.push(r0 * 1.32); // buried root flare: the trunk meets the ground solidly
   for (let k = 0; k <= seg; k++) { const u = k / seg; pts.push(new THREE.Vector3(Math.cos(dir) * bend * u * u, u * h, Math.sin(dir) * bend * u * u)); radii.push((r0 + (r1 - r0) * u) * (1 + 0.28 * Math.max(0, 1 - u * 7) ** 2)); }
@@ -33,7 +33,7 @@ function trunk(mb, h, r0, r1, bend, rng, col = [0.42, 0.35, 0.28], seg = 12, sid
   return [Math.cos(dir) * bend, h, Math.sin(dir) * bend];
 }
 // a limb grows out of the trunk: it starts inside the trunk axis (no seam at the fork), curves gently upward and ends in a capped tip
-function limb(mb, from, to, r0, r1, col = [0.4, 0.33, 0.27], n = 6, sides = 7) {
+function limb(mb, from, to, r0, r1, col = [0.7, 0.63, 0.55], n = 6, sides = 7) {
   const a = new THREE.Vector3(...from), b = new THREE.Vector3(...to); const d = b.clone().sub(a); const start = a.clone().add(new THREE.Vector3(0, -0.35, 0)); // on the trunk axis, inside the trunk
   const pts = [], radii = []; for (let k = 0; k <= n; k++) { const u = k / n; const p = start.clone().lerp(b, u); p.y += Math.sin(u * Math.PI) * d.length() * 0.06; pts.push(p); radii.push(r0 + (r1 - r0) * u); }
   const g = tubeGeo(pts, radii, sides, { capEnd: true, capStart: true, vLen: Math.max(0.5, d.length() / 2) }); mb.geometry(g, new THREE.Matrix4(), col); g.dispose();
@@ -94,13 +94,13 @@ function strip(mb, f, side, width, seg, fold, uvMode, col) {
 let S = null;
 function broadleaf(seed, o) {
   const build = (lod) => { const hi = lod === 0; const rngS = new RNG(seed), rngC = new RNG(seed + 1), rngB = new RNG(seed + 2); const t = new MeshBuilder(), c = new MeshBuilder(), fl = new MeshBuilder();
-    const top = trunk(t, o.h * 0.45, o.trunkR, o.trunkR * 0.7, 0.4, rngS, [0.42, 0.35, 0.28], hi ? 12 : 5, hi ? 9 : 6);
+    const top = trunk(t, o.h * 0.45, o.trunkR, o.trunkR * 0.7, 0.4, rngS, [0.74, 0.67, 0.58], hi ? 12 : 5, hi ? 9 : 6);
     const ends = []; for (let k = 0; k < o.limbs; k++) { const a = k / o.limbs * Math.PI * 2 + rngS.range(-0.3, 0.3); const e = [top[0] + Math.cos(a) * o.r * 0.55, o.h * rngS.range(0.7, 0.85), top[2] + Math.sin(a) * o.r * 0.55]; ends.push(e); limb(t, top, e, o.trunkR * 0.6, o.trunkR * 0.25, undefined, hi ? 6 : 3, hi ? 7 : 5); }
     const cr = { cx: top[0], cy: o.h * 0.82, cz: top[2], rx: o.r, ry: o.h * 0.28, rz: o.r, clumps: o.clumps, flat: o.flat, tint: o.tint };
     const C = clumpsOf(rngS, cr);
     if (hi) for (const q of C) { let best = null, bd = 1e9; for (const e of ends) { const d = Math.hypot(e[0] - q.x, e[1] - q.y, e[2] - q.z); if (d < bd) { bd = d; best = e; } } // twigs out to the clumps
       if (best && bd > 0.6) limb(t, [best[0], best[1] + 0.3, best[2]], [q.x + (best[0] - q.x) * 0.25, q.y - q.rv * 0.3, q.z + (best[2] - q.z) * 0.25], o.trunkR * 0.22, o.trunkR * 0.07, undefined, 3, 5); }
-    clumpCrown(c, cr, C, rngC, hi ? o.cards : o.cardsLo, hi ? o.size : o.size * o.loK);
+    clumpCrown(c, cr, C, rngC, hi ? Math.round(o.cards * 1.35) : o.cardsLo, hi ? o.size * 0.9 : o.size * o.loK); // denser, finer near crowns: no see-through blobs
     if (o.flowers && hi) for (const q of C) for (let k = 0; k < o.flowers; k++) { const u = rngB.next() * 6.28, v = rngB.next() * 1.2; flower(fl, q.x + Math.sin(v) * Math.cos(u) * q.r, q.y + Math.cos(v) * q.rv, q.z + Math.sin(v) * Math.sin(u) * q.r, 0.05, o.flowerCol(rngB), 5, 0.5, rngB); }
     if (o.fruit && hi) for (let k = 0; k < o.fruit; k++) { const a = rngB.next() * 6.28, y = rngB.range(1.6, o.h * 0.42); const r = o.trunkR * (1 - 0.3 * y / (o.h * 0.45)); blob(fl, Math.cos(a) * (r + 0.13), y, Math.sin(a) * (r + 0.13), 0.14, 0.24, 0.14, rngB.chance(0.5) ? [0.42, 0.5, 0.16] : [0.5, 0.55, 0.2], 0); } // jak fruit on the trunk
     return { t: t.build(), c: c.build(), f: fl.build() }; };
