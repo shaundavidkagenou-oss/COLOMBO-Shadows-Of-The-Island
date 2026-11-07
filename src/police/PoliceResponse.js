@@ -830,9 +830,9 @@ export class PoliceResponse {
     if (shot) { const S = g.story; if (S.side) { S.side = null; S.hud?.setTimer?.(null); S.hud?.setObjective?.('', ''); S.removeNPC?.('fare'); } if (S.running) { const err = S.fail('You were shot and arrested by the police.'); for (const c of S.conds || []) c.rej(err); S.conds = []; } if (meds > 0) S.pay(-meds, 'Pharmacy — medicines prescribed at the National Hospital (treatment there is free)'); }
     g.atmos.advance(hours * 60);
     if (g.interiors?.current) { const room = g.interiors.current; room.g.visible = false; g.interiors.current = null; g.setIndoor?.(false); } P.indoor = null;
-    const [sx, sz] = g.story.safeSpot(st.x, st.z); P.teleport(sx, sz, shot ? Math.PI : 0); P.ch.anim.set(null); P.speed = 0; if (shot && H) { H.hp = 100; H.lastHurt = -99; P.stamina = 1; }
+    const [sx, sz] = g.story.safeSpot(st.x, st.z); P.teleport(sx, sz, shot ? Math.PI : 0); P.speed = 0; if (shot && H) { H.hp = 100; H.lastHurt = -99; P.stamina = 1; }
     g.world?.warm?.(sx, sz);
-    this.cine.dispose(); this.cine = null;
+    this.cine.dispose(); this.cine = null; P.respawnReset?.(); P.control = false; g.squad?.regroup?.(); // no cuffed / tackled pose blending out at the station, no leftover camera state
     for (const u of this.units.slice()) this.removeUnit(u); this.queue = []; this.baseState = {}; this.level = 0; this.stop = null; this.search = null; this.incident = null; this.lastSeen = null; this.setState('patrol'); this.patrolCd = 60;
     this.lastPenalty = { kind: 'arrest', how: kind, level: lv, fine, paid, hours, confiscated: conf, station: st.name, why, meds };
     P.snapCamera?.(); await this.wait(0.6); await g.hud.fade(0, 0.8); P.control = true; this.busy = false; if (H) H.busy = false; void healthWasBusy;

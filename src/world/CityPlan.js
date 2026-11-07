@@ -2,7 +2,7 @@
 import { nearestS } from './Railway.js';
 import { RNG, hash2 } from '../core/rng.js';
 import * as L from './Layout.js';
-import { onParkFeature, parkColliders, parkLamps, PARK, BAT_TREES, PLAY_ITEMS } from './Parks.js';
+import { onParkFeature, parkColliders, parkLamps, PARK, BAT_TREES, PLAY_ITEMS, POND_BENCHES } from './Parks.js';
 import { SIGNS, SHOP_ROWS } from '../gfx/Textures.js';
 import { crownPoints } from './TreeShapes.js';
 import { greenTrees, greenPlants } from './Greenery.js';
@@ -48,6 +48,12 @@ function addBuilding(b) {
   return b;
 }
 function addProp(type, x, z, rot = 0, extra = {}) { const p = { type, x, z, rot, ...extra }; plan.props.push(p); addToChunk('props', p, x, z); return p; }
+// a bench is solid (people walked straight through them): a 2 × 8 grid of small boxes stays tight to the slats at any yaw
+// (one axis-aligned box round a turned bench would be a big invisible wall reaching over the spot sitters walk up to).
+// Seat faces local +z, backrest at −z; the footprint covers the backrest and the seat up to its front edge.
+function benchColliders(x, z, rot) { const c = Math.cos(rot), s = Math.sin(rot);
+  for (const lz of [-0.19, 0.01]) for (let k = 0; k < 8; k++) { const lx = -0.805 + k * 0.23, hx = 0.115, hz = 0.1; const cx = x + lx * c + lz * s, cz = z - lx * s + lz * c;
+    const ex = Math.abs(c) * hx + Math.abs(s) * hz, ez = Math.abs(s) * hx + Math.abs(c) * hz; plan.colliders.push({ x0: cx - ex, x1: cx + ex, z0: cz - ez, z1: cz + ez, h: L.LAND_Y + 0.86, kind: 'bench', front: [s, c] }); } } // someone getting up leaves by the seat front
 function onRailReserve(x, z) { if (L.distToRail(x, z) < 7.5 || (L.distToRail(x, z) < 15 && nearestS(x, z).d < 7.5)) return true; for (const st of L.STATIONS) { if (st.along === 'x' ? Math.abs(x - st.x) < 95 && z > -633 && z < -610 : Math.abs(z - st.z) < 60 && Math.abs(x - st.x) < 10) return true; } return false; } // track corridor + platforms stay clear
 const inSchool = (x, z) => x > 247 && x < 341 && z > 328.5 && z < 388; // Johns school compound builds its own grounds
 function addTree(type, x, z, s = 1, extra = {}) { if (L.isWater(x, z) || L.roadAt(x, z) || onRailReserve(x, z) || inSchool(x, z)) return; const t = { type, x, z, s, ...extra }; plan.trees.push(t); addToChunk('trees', t, x, z); t.col = { x0: x - 0.35 * s, x1: x + 0.35 * s, z0: z - 0.35 * s, z1: z + 0.35 * s, h: 6, kind: 'tree' }; plan.colliders.push(t.col); }
@@ -417,17 +423,17 @@ export function generatePlan() {
   // Galle Face Green: promenade palms, benches, food carts
   for (let z = -640; z < -250; z += 14) {
     const cx = L.coastX(z) + 16; addTree('palm', cx + rng.range(-1, 1), z, rng.range(0.9, 1.25));
-    if (Math.floor(z / 14) % 2 === 0) { addProp('bench', cx + 3, z + 7, -Math.PI / 2, {}); addPOI('bench', cx + 3, z + 7, -Math.PI / 2, { seats: 2 }); }
+    if (Math.floor(z / 14) % 2 === 0) { addProp('bench', cx + 3, z + 7, -Math.PI / 2, {}); benchColliders(cx + 3, z + 7, -Math.PI / 2); addPOI('bench', cx + 3, z + 7, -Math.PI / 2, { seats: 2 }); }
   }
   for (let k = 0; k < 9; k++) { const z = -400 + k * 16, x = L.coastX(z) + 24; addProp('foodcart', x, z, -Math.PI / 2, { seed: k }); addPOI('vendor', x + 1.4, z, -Math.PI / 2, { cart: true }); plan.colliders.push({ x0: x - 1.1, x1: x + 1.1, z0: z - 1.6, z1: z + 1.6, h: 2.2, kind: 'cart' }); }
   for (let k = 0; k < 40; k++) addPOI('lawn', rng.range(-490, -425), rng.range(-640, -260), rng.range(0, 6.28), {});
   // parks: Viharamahadevi
   const vm = [PARK.x0, PARK.x1, PARK.z0, PARK.z1]; // the lawn itself (zone rect minus boundary roads + pavements)
   for (let k = 0; k < 70; k++) { const x = rng.range(vm[0] + 6, vm[1] - 6), z = rng.range(vm[2] + 6, vm[3] - 6); if (Math.hypot(x - 90, z + 60) > 22 && !onParkFeature(x, z, 2.2) && !BAT_TREES.some(([bx, bz]) => Math.hypot(x - bx, z - bz) < 11)) addTree(rng.pick(['rain', 'rain', 'bo', 'palm', 'frangipani']), x, z, rng.range(0.9, 1.4)); }
-  for (let k = 0; k < 14; k++) { const a = k / 14 * Math.PI * 2; const x = 90 + Math.cos(a) * 30, z = -60 + Math.sin(a) * 30; addProp('bench', x, z, -a - Math.PI / 2, {}); addPOI('bench', x, z, -a - Math.PI / 2, { seats: 2 }); /* seat faces the fountain; sitters use the same facing */ }
+  for (let k = 0; k < 14; k++) { const a = k / 14 * Math.PI * 2; const x = 90 + Math.cos(a) * 30, z = -60 + Math.sin(a) * 30; addProp('bench', x, z, -a - Math.PI / 2, {}); benchColliders(x, z, -a - Math.PI / 2); addPOI('bench', x, z, -a - Math.PI / 2, { seats: 2 }); /* seat faces the fountain; sitters use the same facing */ }
   for (let k = 0; k < 30; k++) { const x = rng.range(vm[0] + 8, vm[1] - 8), z = rng.range(vm[2] + 8, vm[3] - 8); if (!onParkFeature(x, z, 1)) addPOI('lawn', x, z, rng.range(0, 6.28), {}); }
   for (const [x, z, sc] of BAT_TREES) addTree('rain', x, z, sc, { bats: true }); // the giant old rain trees the fruit-bat colony roosts in
-  for (const x of [135, 147]) { addProp('bench', x, -53.6, 0, {}); addPOI('bench', x, -53.6, 0, { seats: 2 }); } // on the lily pond's north bank, facing the water
+  for (const [x] of POND_BENCHES) { addProp('bench', x, -53.6, 0, {}); benchColliders(x, -53.6, 0); addPOI('bench', x, -53.6, 0, { seats: 2 }); } // on the lily pond's north bank, facing the water
   for (const [k, x, z, yaw] of PLAY_ITEMS) if (k === 'bench') { addProp('bench', x, z, yaw, {}); addPOI('bench', x, z, yaw, { seats: 2 }); } // benches for the adults by the play area (no child NPCs anywhere)
   // landscaping (Parks.js): hedges + flower-bed rims collide, heritage lamps light the paths at night
   plan.colliders.push(...parkColliders());
@@ -437,7 +443,7 @@ export function generatePlan() {
   // lakeside benches
   for (let k = 0; k < 40; k++) {
     const a = rng.next() * Math.PI * 2; const [cx, cz, rx, rz] = L.LAKE[0]; const x = cx + Math.cos(a) * (rx + 9), z = cz + Math.sin(a) * (rz + 9);
-    if (!L.inLake(x, z, 5) && !L.roadAt(x, z) && !L.zoneAt(x, z)) { addProp('bench', x, z, Math.atan2(cx - x, cz - z), {}); addPOI('bench', x, z, Math.atan2(cx - x, cz - z), { seats: 2 }); }
+    if (!L.inLake(x, z, 5) && !L.roadAt(x, z) && !L.zoneAt(x, z) && !plan.props.some((q) => q.type === 'bench' && Math.hypot(q.x - x, q.z - z) < 2.5)) { addProp('bench', x, z, Math.atan2(cx - x, cz - z), {}); benchColliders(x, z, Math.atan2(cx - x, cz - z)); addPOI('bench', x, z, Math.atan2(cx - x, cz - z), { seats: 2 }); }
   }
   // chat spots on sidewalks near intersections
   for (const pn of L.pedNodes) if (hash2(pn.id, 77) < 0.12) addPOI('chat', pn.x + (hash2(pn.id, 1) - 0.5) * 2, pn.z + (hash2(pn.id, 2) - 0.5) * 2, 0, {});
