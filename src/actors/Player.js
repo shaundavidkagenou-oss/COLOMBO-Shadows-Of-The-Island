@@ -29,6 +29,23 @@ export class Player {
   leaveRoomFor(x, z) { const I = this.indoor, b = I && I.bounds; if (b && (x < b.x0 - 1 || x > b.x1 + 1 || z < b.z0 - 1 || z > b.z1 + 1)) this.indoor = null; }
   teleport(x, z, yaw = 0) { this.leaveRoomFor(x, z); this.x = x; this.z = z; this.y = this.collision.groundAt(x, z, 5, 10); this.yaw = yaw; this.camYaw = yaw + Math.PI; this.vy = 0; this.sync(); this.snapCamera(); }
   sync() { this.ch.root.position.set(this.x, this.y, this.z); this.ch.root.rotation.y = this.yaw; }
+  // Respawn (hospital / released from custody): nothing of the moment of death may follow the player to the new spot. Before,
+  // only the action was cleared — which cross-fades it: the collapse / cuffed / seated pose kept blending out on the body at the
+  // hospital, a death mid-car-entry finished boarding during the fade, and the camera kept the speed-FOV, aim offset, shake and
+  // sway, easing back after the fade-in. Everything transient is cut here, the pose is evaluated once, then the camera snaps.
+  respawnReset() {
+    const r = this.ch.root, A = this.ch.anim, cam = this.camera;
+    if (r.parent && r.parent !== this.scene) { r.parent.remove(r); this.scene.add(r); }
+    this.entry = null; this.exiting = null; this.climb = null; this.transition = null; this.settling = 0; this.emote = null; this.cinematic = false; this.lookLock = false;
+    this.vy = 0; this.grounded = true; this.speed = 0; this.crouching = false; this.sprinting = false; this.aiming = false; this.scoped = null; this.aimCam = 0;
+    this.shake = 0; this.camFx = null; this.idleCam = 0; this.idleT = 0; this.camPitch = 0.18; this.camYaw = this.yaw + Math.PI;
+    if (this.fpHead) { this.fpHead.scale.setScalar(1); this.fpHead = null; }
+    r.visible = true; this.camHid = false; this.ch.mesh.visible = true; r.rotation.set(0, this.yaw, 0); r.scale.setScalar(1);
+    A.standUp(); A.duck = 0; A.action = null; A.actionW = 0; A.prevAction = null; A.actionT = 0; A.actionDur = 0; A.fadeAct = null; A.fadeW = 0; A.fadeT = 0;
+    A.speed = 0; A.lean = 0; A.air = 0; A.crouch = 0; A.drive = 0; A.steer = 0; A.locoW = 0; A.runW = 0; A.vehSpeed = 0; A.brakeLean = 0; A.cornerLean = 0;
+    this.y = this.collision.groundAt(this.x, this.z, this.y + 5, 10); this.sync(); A.update(1 / 60, 0); this.ch.root.updateMatrixWorld(true);
+    const f = Settings.get('fov'); cam.fov = f; cam.near = 0.25; cam.updateProjectionMatrix(); this.snapCamera();
+  }
   update(dt, traffic) {
     { const A = this.ch.anim; A.fp = this.camMode === 2 && !this.vehicle && !this.cinematic; A.fpYaw = this.camYaw + Math.PI; A.fpPitch = this.camPitch; } // first-person fists stay in front of the lens (Boxing.fpClear)
     const sens = 0.0024 * Settings.get('mouseSens'); const inv = Settings.get('invertY') ? -1 : 1;

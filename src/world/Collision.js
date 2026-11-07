@@ -53,6 +53,11 @@ export class Collision {
         const px = Math.max(c.x0, Math.min(x, c.x1)), pz = Math.max(c.z0, Math.min(z, c.z1));
         let dx = x - px, dz = z - pz; const d2 = dx * dx + dz * dz;
         if (d2 >= r * r) continue;
+        if (c.front && x > c.x0 - r && x < c.x1 + r && z > c.z0 - r && z < c.z1 + r && ((x - (c.x0 + c.x1) / 2) * c.front[0] + (z - (c.z0 + c.z1) / 2) * c.front[1] > -0.05 || d2 < 1e-8)) {
+          // a bench: whoever is in it (sitting, getting up) steps out by the seat front, never through the backrest
+          const fx = c.front[0], fz = c.front[1]; const tx = fx > 1e-6 ? (c.x1 + r - x) / fx : fx < -1e-6 ? (c.x0 - r - x) / fx : Infinity, tz = fz > 1e-6 ? (c.z1 + r - z) / fz : fz < -1e-6 ? (c.z0 - r - z) / fz : Infinity;
+          const t = Math.min(tx, tz) + 0.001; if (t > 0 && t < 2) { x += fx * t; z += fz * t; hit = moved = true; continue; }
+        }
         if (d2 < 1e-8) { // centre inside box: push out the shortest way
           // the nearest side can be a seam shared with the next building of a terrace row: pushing out there lands inside the
           // neighbour, which pushes straight back (people ended up walking inside a block of shops). Take the nearest side

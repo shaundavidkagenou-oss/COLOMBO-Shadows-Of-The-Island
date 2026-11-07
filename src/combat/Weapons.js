@@ -1,6 +1,7 @@
 // Nine-weapon system for the squad (each member has their own loadout, see Squad.js): inventory, wheel, draw/holster, aim (over-the-shoulder / scope), fire, recoil, reload,
 // effects, hit detection and the non-graphic reactions it triggers in the crowd. Hands are placed on each weapon by
 // two-bone IK (Animator.ik) using the grip/support points exposed by the model, so every animation keeps both hands on it.
+import { bloomHot } from '../gfx/BloomHot.js';
 import * as THREE from 'three';
 import { Input } from '../core/Input.js';
 import { Settings } from '../core/Settings.js';
@@ -429,7 +430,7 @@ export class Weapons {
     this.puffTex = new THREE.CanvasTexture(pc); this.sparkMat = new THREE.SpriteMaterial({ map: this.puffTex, color: 0xffc070, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
     this.shellGeo = new THREE.CylinderGeometry(0.0045, 0.0045, 0.02, 6); this.decals = []; this.decalMat = new THREE.MeshBasicMaterial({ color: 0x1a1816, transparent: true, opacity: 0.75, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }); this.decalGeo = new THREE.CircleGeometry(0.035, 8);
   }
-  flash(p, d, def) { const f = this.flashMesh; f.position.copy(p); f.lookAt(p.clone().add(d)); const s = def.cls === 'pistol' ? 0.7 : def.cls === 'rifle' ? 1 : 1.4; f.scale.setScalar(s * (0.8 + Math.random() * 0.4)); f.rotation.z += Math.random() * 3; f.visible = true; this.flashT = 0.05; this.flashLight.position.copy(p); this.flashLight.intensity = 6 * s; }
+  flash(p, d, def) { bloomHot(); const f = this.flashMesh; f.position.copy(p); f.lookAt(p.clone().add(d)); const s = def.cls === 'pistol' ? 0.7 : def.cls === 'rifle' ? 1 : 1.4; f.scale.setScalar(s * (0.8 + Math.random() * 0.4)); f.rotation.z += Math.random() * 3; f.visible = true; this.flashT = 0.05; this.flashLight.position.copy(p); this.flashLight.intensity = 6 * s; }
   tracer(a, b, def) { if (def.cls === 'pistol' && Math.random() < 0.5) return; const m = new THREE.Mesh(this.tracerGeo, this.tracerMat); m.position.copy(a); m.lookAt(b); m.scale.z = a.distanceTo(b); this.g.scene.add(m); this.fx.push({ m, life: 0.05, kind: 'tracer' }); }
   puff(p, color, n) { for (let i = 0; i < n; i++) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.puffTex, color, transparent: true, depthWrite: false, opacity: 0.7 })); s.position.copy(p); s.scale.setScalar(0.12); this.g.scene.add(s); this.fx.push({ m: s, life: 0.6 + Math.random() * 0.3, max: 0.9, kind: 'puff', v: new THREE.Vector3((Math.random() - 0.5) * 0.8, 0.3 + Math.random() * 0.6, (Math.random() - 0.5) * 0.8) }); } }
   sparks(p, d) { for (let i = 0; i < 7; i++) { const s = new THREE.Sprite(this.sparkMat); s.position.copy(p); s.scale.setScalar(0.05); this.g.scene.add(s); this.fx.push({ m: s, life: 0.25 + Math.random() * 0.2, kind: 'spark', v: new THREE.Vector3(-d.x * 2 + (Math.random() - 0.5) * 4, Math.random() * 3, -d.z * 2 + (Math.random() - 0.5) * 4) }); } }

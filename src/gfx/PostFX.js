@@ -1,5 +1,6 @@
 // Post-processing: subtle bloom (night lights), optional GTAO, warm tropical colour grade + gentle vignette, SMAA, output.
 import * as THREE from 'three';
+import { bloomIsHot } from './BloomHot.js';
 const lerp = (a, b, t) => a + (b - a) * t;
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
@@ -38,6 +39,10 @@ const SenseShader = {
       gl_FragColor = vec4(col, 1.0);
     }`,
 };
+// FPS: by day the bloom runs at threshold 7 / strength 0.03 — measured: it changes no pixel at all (tools: identical frames
+// with and without it at 12:00 and 17:00, both view directions). Its ~13 half-res passes are skipped then. Anything that can
+// exceed the threshold keeps it on: night / dusk (lamps), storm darkness, a fireball (glow), interiors (club neon), a muzzle
+// flash or flashing beacons (bloomHot).
 const CopyFS = 'uniform sampler2D tDiffuse; varying vec2 vUv; void main(){ gl_FragColor = texture2D(tDiffuse, vUv); }';
 class SensePass extends Pass {
   constructor(w, h) {
@@ -125,7 +130,7 @@ export class PostFX {
   }
   setTransit(blur, chroma, glitch) { const u = this.transit.uniforms; u.uBlur.value = blur; u.uChroma.value = chroma; u.uGlitch.value = glitch; u.uTime.value = performance.now() / 1000; this.transit.enabled = blur > 0.001 || chroma > 0.001 || glitch > 0.001; }
   update(atmos) {
-    if (this.bloom) { const gl = this.glow || 0; this.bloom.strength = 0.03 + atmos.night * 0.3 + gl * 0.35; this.bloom.threshold = lerp(lerp(7, 1.7, atmos.night), 2.2, gl); /* daylight: effectively off (no veil); night: lamps and windows glow; a fireball briefly glows in daylight too */ this.bloom.radius = 0.3 + gl * 0.25; }
+    if (this.bloom) { const gl = this.glow || 0; this.bloom.enabled = atmos.night > 0.001 || gl > 0 || (atmos.w && atmos.w.dark > 0.15) || this.indoor || bloomIsHot(); this.bloom.strength = 0.03 + atmos.night * 0.3 + gl * 0.35; this.bloom.threshold = lerp(lerp(7, 1.7, atmos.night), 2.2, gl); /* daylight: effectively off (no veil); night: lamps and windows glow; a fireball briefly glows in daylight too */ this.bloom.radius = 0.3 + gl * 0.25; }
     const u = this.grade.uniforms; u.uWarm.value = 0.35 + atmos.golden * 0.5 * (1 - atmos.w.dark); u.uSat.value = 1.1 - atmos.w.dark * 0.12; u.uWet.value = atmos.wet; u.uFlash.value = atmos.flash * 0.25;
   }
   render(dt) { this.tickSenses(dt || 0.016); if (this.enabled) this.composer.render(dt); else this.r.render(this.scene, this.camera); }

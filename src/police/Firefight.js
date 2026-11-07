@@ -16,6 +16,7 @@
 // Torches: at night, officers searching on foot carry a hand torch (armed officers: a torch clamped to the rifle). A fixed
 // pool of SpotLights (created once: light counts never change, so no shader recompiles) is handed each frame to the
 // torches nearest the camera; every other lit torch still shows its bright lens. Beams are clipped at walls.
+import { bloomHot } from '../gfx/BloomHot.js';
 import * as THREE from 'three';
 import { buildT56 } from '../combat/WeaponModels.js';
 import { POLICE_T56 } from '../combat/WeaponDefs.js';
@@ -229,7 +230,7 @@ export class Firefight {
   }
   effects(o, mz, dir, hit) {
     const g = this.g, W = g.weapons; const def = POLICE_T56;
-    if (o.rifle) { const f = o.rifle.userData.flash; if (f) { f.visible = true; f.rotation.z = Math.random() * 3; f.scale.setScalar(0.85 + Math.random() * 0.35); o.rp.flashT = 0.05; } }
+    if (o.rifle) { const f = o.rifle.userData.flash; if (f) { bloomHot(); f.visible = true; f.rotation.z = Math.random() * 3; f.scale.setScalar(0.85 + Math.random() * 0.35); o.rp.flashT = 0.05; } }
     if (W && W.fx) { W.tracer(mz, hit.point, def); if (hit.kind === 'vehicle') W.sparks(hit.point, dir); else if (hit.kind === 'world' || hit.kind === 'ground') { W.puff(hit.point, hit.kind === 'ground' ? 0x6d6a64 : 0xb5ab9a, 4); W.decal(hit.point, dir, hit.kind); } else if (hit.kind === 'player' && !(g.blood && g.blood.spray(hit.point, dir, 0.6))) W.puff(hit.point, 0x8a8478, 2); }
     if (Audio.ctx && Audio.spatial) { const [gn, pan] = Audio.spatial(mz.x, mz.z, 70); const s = def.snd; const v = s.vol * Math.max(0.12, gn);
       Audio.noise(s.dur, { f: s.crack, q: 0.6, vol: v, type: 'lowpass', attack: 0.001, pan }); Audio.tone(s.body * 2.2, s.dur * 1.3, { type: 'sine', vol: v * 0.5, attack: 0.002, glide: s.body * 0.6, pan });
