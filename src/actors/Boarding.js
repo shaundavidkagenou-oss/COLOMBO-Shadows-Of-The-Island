@@ -68,8 +68,11 @@ export function doorEdgeGrip(ch, g, S) {
 // lower edge, thumb above it on the skin — pivot frame
 export function doorHandleGrip(ch, g, S) {
   if (!g || !g.handle) return null; const h = g.handle;
-  return gripFor(ch, g.handle, S, () => { const s = g.side; const bar = boxShape(new THREE.Vector3(h.x, h.y, h.z), 0, [Math.abs(h.x - h.skin) + 0.002, 0.015, 0.07], 0.004); const skin = boxShape(new THREE.Vector3(h.skin - s * 0.03, h.y, h.z), 0, [0.03, 0.12, 0.2], 0.01);
-    return solveGrip(ch.bones, S, { X: new THREE.Vector3(1, 0, 0), Z: new THREE.Vector3(0, 0, 1), shapes: [bar, skin], at: new THREE.Vector3(h.x + s * 0.04, h.y + 0.045, h.z), palm: [0, -0.04, 0.004], thumbAt: new THREE.Vector3(h.skin + s * 0.008, h.y + 0.04, h.z + 0.05) }); });
+  return gripFor(ch, g.handle, S, () => { const s = g.side; const bar = boxShape(new THREE.Vector3(h.x, h.y, h.z), 0, [Math.abs(h.x - h.skin) + 0.002, 0.015, 0.07], 0.004); const skin = boxShape(new THREE.Vector3(h.skin - s * 0.03, h.y + 0.05, h.z), 0, [0.03, 0.07, 0.2], 0.01);
+    // below the bar the side swells outward (tumblehome): bands of panel at the measured skin, so the curled fingertips stop on it
+    const lo = h.lo || [h.skin, h.skin, h.skin]; const band = (dy, x) => boxShape(new THREE.Vector3(x - s * 0.03, h.y - dy, h.z), 0, [0.03, 0.022, 0.2], 0.006);
+    const panel = [skin, band(0.0, h.skin), band(0.04, s > 0 ? Math.max(h.skin, lo[0]) : Math.min(h.skin, lo[0])), ...[1, 2].map((i) => band(0.04 * (i + 1), s > 0 ? Math.max(lo[i - 1], lo[i]) : Math.min(lo[i - 1], lo[i])))];
+    return solveGrip(ch.bones, S, { rf: 0.0102 /* anatomical finger pads (HeroBody.js) */, X: new THREE.Vector3(1, 0, 0), Z: new THREE.Vector3(0, 0, 1), shapes: [bar, ...panel], at: new THREE.Vector3(h.x + s * 0.03, h.y + 0.014, h.z), palm: [0, -0.045, 0.004] /* palm on the bar's outer face, fingers below it curl in under the bar (the old seat put the bar under the first phalanges, which could only open backwards through it) */, thumbAt: new THREE.Vector3(h.skin + s * 0.008, h.y + 0.04, h.z + 0.05) }); });
 }
 
 // standing hips height above the ground for this skeleton (legs nearly straight)
@@ -311,7 +314,7 @@ function boardPoseFull(A, P, b) {
     const wE = w * (hq0 ? Math.max(hold, 1 - hq0.w) : 1); if (wE < 0.001) continue; if (wE < 1) _v.lerpVectors(_w, _v, wE);
     // never fold the arm flat (a hand target at the shoulder has no defined elbow): slide the target out along its line
     const arm = b['arm' + sd], par = arm.parent; par.updateWorldMatrix(true, false); _w.copy(arm.position).applyMatrix4(par.matrixWorld); b.chest.worldToLocal(_w);
-    { _k.subVectors(_v, _w); const mn = 0.3 * (A.s || 1), soft = mn * 1.5; let dl = _k.length();
+    { _k.subVectors(_v, _w); const mn = (0.3 - 0.05 * (hq0 ? hq0.w * hold : 0)) * (A.s || 1), soft = 0.45 * (A.s || 1); /* holding a door edge the elbow is bent and well defined down to ~0.25 (the grasp itself lets go below 0.28): a 0.3 floor shoved a tall hero's hand off the edge it still held */ let dl = _k.length();
       // a path that passes close by the shoulder (rear seats: low roof edge → lap) is eased out forward-and-down in the BODY
       // frame — a fixed direction, so the hand never swings round the shoulder the way sliding it along the (rapidly turning)
       // shoulder→target line does

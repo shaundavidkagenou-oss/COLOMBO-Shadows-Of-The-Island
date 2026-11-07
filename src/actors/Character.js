@@ -10,6 +10,7 @@ import { TEX, faceAtlas, FACE_FRAMES } from '../gfx/Textures.js';
 import { RNG } from '../core/rng.js';
 import { makeAppearance, FACE_VARIANTS } from './Appearance.js';
 import { lerp, clamp, damp } from '../core/math.js';
+import { hasHeroBody, buildHeroGarments, clothShader } from './HeroBody.js';
 import { HERO_EXTRA, HERO_PARENT, heroJoints, fingerLayout, HeroRig, heroUniforms, patchHeroMaterial, faceNormals } from './HeroRig.js';
 import { hasHeroHead, heroHeadFit, buildHeroHead, headMaterials, iblScale, buildEyeball, EXPR_MORPHS, morphIndex, HEAD_MORPHS } from './HeroHead.js';
 import { npcHeadFit, npcHeadGeometry, npcHeadMaterial, npcHeadOpts, npcScalp, NPC_MORPHS } from './NpcHead.js';
@@ -39,9 +40,9 @@ function shapedNormal(rings, ri, a) {
   const n = new THREE.Vector3().crossVectors(ta, ty).normalize(); if (n.x * Math.cos(a) + n.z * Math.sin(a) < 0) n.negate(); return n;
 }
 class SkinBuilder {
-  constructor() { this.pos = []; this.nor = []; this.col = []; this.uv = []; this.si = []; this.sw = []; this.idx = []; this.headIdx = []; this.hairIdx = []; }
+  constructor() { this.pos = []; this.nor = []; this.col = []; this.uv = []; this.si = []; this.sw = []; this.idx = []; this.headIdx = []; this.hairIdx = []; this.cl = []; this.clv = [0, 0]; }
   get n() { return this.pos.length / 3; }
-  v(p, nrm, c, uv, w) { this.pos.push(p[0], p[1], p[2]); this.nor.push(nrm[0], nrm[1], nrm[2]); this.col.push(c[0], c[1], c[2]); this.uv.push(uv[0], uv[1]); const s = [0, 0, 0, 0], ww = [0, 0, 0, 0]; w.slice(0, 4).forEach(([b, x], i) => { s[i] = b; ww[i] = x; }); const t = ww[0] + ww[1] + ww[2] + ww[3] || 1; this.si.push(...s); this.sw.push(ww[0] / t, ww[1] / t, ww[2] / t, ww[3] / t); return this.n - 1; }
+  v(p, nrm, c, uv, w) { this.pos.push(p[0], p[1], p[2]); this.nor.push(nrm[0], nrm[1], nrm[2]); this.col.push(c[0], c[1], c[2]); this.uv.push(uv[0], uv[1]); this.cl.push(this.clv[0], this.clv[1]); const s = [0, 0, 0, 0], ww = [0, 0, 0, 0]; w.slice(0, 4).forEach(([b, x], i) => { s[i] = b; ww[i] = x; }); const t = ww[0] + ww[1] + ww[2] + ww[3] || 1; this.si.push(...s); this.sw.push(ww[0] / t, ww[1] / t, ww[2] / t, ww[3] / t); return this.n - 1; }
   // Loft of elliptical rings. rings: [{c:[x,y,z], rx, rz, w:[[bone,weight]..], col, fz?(front bulge)}]
   loft(rings, seg = 12, { region = 0, uvRep = 1, capStart = false, capEnd = false, colFn = null, target = this.idx, surfN = false } = {}) {
     if (!colFn) { const out = []; rings.forEach((r, i) => { const nx = rings[i + 1]; out.push(r); if (nx && (r.col[0] !== nx.col[0] || r.col[1] !== nx.col[1] || r.col[2] !== nx.col[2])) { const m = (t, col) => ({ ...r, c: r.c.map((v, k) => lerp(v, nx.c[k], t)), rx: lerp(r.rx, nx.rx, t), rz: lerp(r.rz, nx.rz, t), col }); out.push(m(0.5, r.col), m(0.505, nx.col)); } }); rings = out; }
@@ -127,6 +128,7 @@ class SkinBuilder {
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
     g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(this.si, 4)); g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(this.sw, 4));
+    if (this.cl.some((v) => v !== 0)) { g.setAttribute('aCloth', new THREE.Float32BufferAttribute(this.cl, 2)); g.userData.heroBody = true; } // garment ids for the protagonists' fabric / skin shader (HeroBody.js)
     g.setIndex([...this.idx, ...this.headIdx, ...this.hairIdx]); g.addGroup(0, this.idx.length, 0); g.addGroup(this.idx.length, this.headIdx.length, 1); g.addGroup(this.idx.length + this.headIdx.length, this.hairIdx.length, 2);
     g.computeBoundingSphere(); g.boundingSphere.radius = 1.4; g.boundingSphere.center.set(0, 0.9, 0);
     return g;
@@ -259,6 +261,9 @@ export function buildBodyGeometry(sp) {
   const neckRing = (y, m) => { const C0 = y > 0.5 ? NK.collarAt(y + 0.012) : NK.collar; return { c: [0, y, C0.cz], rx: C0.rx + m, rz: C0.rz + m }; }; // a ring wrapping the hero's real neck (fitted collar ellipse, HeroHead.js) with margin m
   // grow a ring {rx, rz, cz} so it contains the neck collar ellipse with margin m (front, back and sides), keeping its own shape where it is already bigger
   const encloseNeck = (r, m, y) => { const C0 = NK.collarAt(y + 0.012), cz = r.cz || 0; const fr = Math.max(cz + r.rz, C0.cz + C0.rz + m), bk = Math.min(cz - r.rz, C0.cz - C0.rz - m); r.cz = (fr + bk) / 2; r.rz = (fr - bk) / 2; r.rx = Math.max(r.rx, C0.rx + m); return r; };
+  // anatomical protagonist body (HeroBody.js): one continuous MakeHuman-derived surface fitted to this skeleton, with the
+  // shirt / trousers grown from it as garment shells; the elliptical torso / arm / leg tubes and procedural hands are skipped
+  const HB = MH && hasHeroBody(sp) ? buildHeroGarments(sb, sp, { B, J, NK, C }) : null;
   // --- torso (hips → neck)
   // natural variation in adult female figure (seeded, spec override `bust`), slightly lower/softer with age
   const bf = f ? (sp.bust ?? (0.82 + 0.36 * ((((Math.sin((sp.seed || 1) * 47.13) * 43758.5453) % 1) + 1) % 1))) * (sp.age === 'elder' ? 0.9 : 1) : 0;
@@ -298,16 +303,17 @@ export function buildBodyGeometry(sp) {
       Object.assign(r140, { y: 1.37, rx: a0 + (f ? 0.03 : 0.04), rz: Math.max(r140.rz, (f ? 0.098 : 0.104) * w), fz: f ? 0.01 : 0.01, wgt: shoulderW(0.5) });
       Object.assign(r1435, { y: 1.405, rx: a0 + (f ? 0.02 : 0.028), rz: Math.max(r1435.rz, (f ? 0.086 : 0.092) * w), wgt: shoulderW(0.6) });
       Object.assign(r1455, { y: 1.432, rx: Math.max(r1455.rx, a0 - 0.015), rz: Math.max(r1455.rz, (f ? 0.072 : 0.078) * w), wgt: shoulderW(0.38) }); } }
-  const bel = sp.belly || 0; if (bel) [[2, 0.03, 0.02], [3, 0.045, 0.032], [4, 0.022, 0.012]].forEach(([i0, dz, df]) => { const i = i0 + RO; tr[i].rz += bel * dz * w; tr[i].fz = (tr[i].fz || 0) + bel * df; tr[i].rx += bel * 0.012 * w; });
+  if (HB) for (const r of tr) { const R = HB.ringAt(r.y * s); Object.assign(r, { rx: R.rx, rz: R.rz, cz: R.cz, fz: 0, bust: 0 }); } // accessories ride the real cloth surface
+  const bel = HB ? 0 : sp.belly || 0; if (bel) [[2, 0.03, 0.02], [3, 0.045, 0.032], [4, 0.022, 0.012]].forEach(([i0, dz, df]) => { const i = i0 + RO; tr[i].rz += bel * dz * w; tr[i].fz = (tr[i].fz || 0) + bel * df; tr[i].rx += bel * 0.012 * w; });
   // torso surface (front/back z at height y and offset x) so straps, lanyards and bags sit on the clothes, never inside
-  const surfZ = (y, x, sgn) => { let k = 0; while (k < tr.length - 2 && tr[k + 1].y * s < y) k++; const a = tr[k], b2 = tr[k + 1]; const t = clamp((y / s - a.y) / (b2.y - a.y), 0, 1); const rx = lerp(a.rx, b2.rx, t), rz = lerp(a.rz, b2.rz, t), fz = lerp(a.fz || 0, b2.fz || 0, t), bu = lerp(a.bust || 0, b2.bust || 0, t); const q = clamp(Math.abs(x) / rx, 0, 0.98); const sa = Math.sqrt(1 - q * q); return sgn * rz * sa + (sgn > 0 ? fz * sa + bu * bustShape(clamp(x / rx, -1, 1), sa) : 0); };
+  const surfZ = HB ? HB.surfZ : (y, x, sgn) => { let k = 0; while (k < tr.length - 2 && tr[k + 1].y * s < y) k++; const a = tr[k], b2 = tr[k + 1]; const t = clamp((y / s - a.y) / (b2.y - a.y), 0, 1); const rx = lerp(a.rx, b2.rx, t), rz = lerp(a.rz, b2.rz, t), fz = lerp(a.fz || 0, b2.fz || 0, t), bu = lerp(a.bust || 0, b2.bust || 0, t); const q = clamp(Math.abs(x) / rx, 0, 0.98); const sa = Math.sqrt(1 - q * q); return sgn * rz * sa + (sgn > 0 ? fz * sa + bu * bustShape(clamp(x / rx, -1, 1), sa) : 0); };
   // crop top / high-waist shorts: crisp garment edges (two rings 8 mm apart) instead of a colour fade across a 10 cm band
   if (sp.midriff && o !== 'saree') { hemInsert(tr, sp.cropY ?? 1.19, skin, top, 0.004); hemInsert(tr, sp.waistY ?? 0.985, bottom, skin, 0.004); }
   // bikini (club dancers): a bandeau top covering the bust from the under-bust line (cropY) to bikiniTopY; bare shoulders and upper chest
   if (sp.bikini && sp.bikiniTopY) { const yt = sp.bikiniTopY; for (const r of tr) if (r.y > yt && r.col === top) r.col = skin; hemInsert(tr, yt, top, skin, 0.004); }
   const jacket = o === 'jacket';
   const torso0 = sb.n;
-  sb.loft(tr.map((r) => ({ c: [0, r.y * s, r.cz || 0], rx: r.rx, rz: r.rz, fz: r.fz, bust: r.bust, w: r.wgt, col: r.col })), HQ ? 40 : f ? 28 : 16, {
+  if (!HB) sb.loft(tr.map((r) => ({ c: [0, r.y * s, r.cz || 0], rx: r.rx, rz: r.rz, fz: r.fz, bust: r.bust, w: r.wgt, col: r.col })), HQ ? 40 : f ? 28 : 16, {
     capStart: true, surfN: HQ,
     colFn: jacket ? (ri, a, r) => { const fr = Math.sin(a); if (MH && sp.kit === 'openShirt' && ri === tr.length - 2 && fr > 0.35) return C(sp.inner || '#e8e4da'); return ri >= 2 + RO && ri <= 6 + RO && fr > 0.93 ? C(sp.inner || '#6b6f72') : r.col; } : sp.tie ? (ri, a, r) => (ri >= 3 + RO && ri <= 6 + RO && Math.sin(a) > 0.97 ? C(sp.tie) : r.col) : null,
   });
@@ -328,7 +334,7 @@ export function buildBodyGeometry(sp) {
       { c: [ft[0], 0.09 * s, -0.01], rx: 0.035, rz: 0.038, w: W2('shin' + side, 'foot' + side, 0.6) },
     ];
     if (shorts && sp.shortsY != null) hemInsertLeg(lr, hemY, 0.003); // hot pants / leotard leg line: a crisp hem, not a fade down the thigh
-    const l0 = sb.n; sb.loft(lr.map((r) => ({ ...r, col: legCol(r.c[1]) })), HQ ? 20 : 10); parts.legs.push([l0, sb.n]);
+    const l0 = sb.n; if (!HB) sb.loft(lr.map((r) => ({ ...r, col: legCol(r.c[1]) })), HQ ? 20 : 10); parts.legs.push([l0, sb.n]);
     // shoe / sandal
     const sandal = sp.sandals; const fc = sandal ? skin : shoe; const heroFeet = HQ && sp.hero && !sandal;
     const nFoot = sb.n; if (heroFeet) heroShoe(sb, ft, side, sp, W1, W2, shoe); else sb.ellipsoid([ft[0], 0.05 * s, 0.045], 0.044, 0.042, 0.118, HQ ? (sy, sx2, sz) => { const t = smooth01((sz - 0.42) / 0.35); return t > 0.001 ? W2('foot' + side, 'toe' + side, t) : W1('foot' + side); } : W1('foot' + side), fc, { lat: HQ ? 12 : 7, lon: HQ ? 22 : 12, bumpFn: (x, y, z) => (y < -0.2 ? 0.98 : 1) * (z > 0.6 ? 0.97 : 1) });
@@ -340,7 +346,7 @@ export function buildBodyGeometry(sp) {
       if (!heroFeet) for (let k = 0; k < 4; k++) { const z = 0.05 + k * 0.019; const yTop = 0.05 * s + 0.042 * Math.sqrt(Math.max(0, 1 - ((z - 0.045) / 0.118) ** 2)) * 0.98; sb.boxPart([ft[0], yTop + 0.002, z], 0.034 - k * 0.002, 0.004, 0.005, fw, lace); }
       if (!heroFeet) sb.boxPart([ft[0], 0.05 * s + 0.044, 0.035], 0.03, 0.006, 0.03, fw, shoe.map((v) => v * 0.85));
       if (sp.boots) sb.loft([{ c: [ft[0], 0.205 * s, -0.008], rx: 0.045, rz: 0.049, w: W1('shin' + side), col: shoe }, { c: [ft[0], 0.15 * s, -0.008], rx: 0.046, rz: 0.051, w: W2('shin' + side, 'foot' + side, 0.4), col: shoe }, { c: [ft[0], 0.085 * s, 0.0], rx: 0.048, rz: 0.062, w: W1('foot' + side), col: shoe }], 20); // boot shaft (trousers tucked in)
-      else sb.loft([{ c: [ft[0], 0.125 * s, -0.008], rx: 0.044, rz: 0.047, w: W1('shin' + side), col: bottom.map((v) => v * 0.85) }, { c: [ft[0], 0.105 * s, -0.004], rx: 0.047, rz: 0.054, w: W2('shin' + side, 'foot' + side, 0.5), col: bottom.map((v) => v * 0.85) }], 20); }
+      else if (!HB) sb.loft([{ c: [ft[0], 0.125 * s, -0.008], rx: 0.044, rz: 0.047, w: W1('shin' + side), col: bottom.map((v) => v * 0.85) }, { c: [ft[0], 0.105 * s, -0.004], rx: 0.047, rz: 0.054, w: W2('shin' + side, 'foot' + side, 0.5), col: bottom.map((v) => v * 0.85) }], 20); }
     void sx;
   }
   // --- skirt / sarong / saree / frock (cone from waist to hem, weighted mostly to hips)
@@ -401,14 +407,16 @@ export function buildBodyGeometry(sp) {
     if (HQ) { ar[0] = { c: [a[0] * 0.84, 1.398 * s, 0], rx: 0.044 * w, rz: 0.05 * w, w: W2('chest', 'arm' + side, 0.6) }; ar[1] = { c: [a[0] * 0.93, 1.385 * s, 0], rx: 0.052 * w, rz: 0.056 * w, w: W2('chest', 'arm' + side, 0.8) }; } // starts inside the new shoulder
     const upW = HQ ? W2('arm' + side, 'armTwist' + side, 0.3) : W1('arm' + side); // mid upper arm: shared by the arm ring and the sleeve hem so they never shear apart
     if (HQ) { ar[3].w = upW; ar[5].w = W2('fore' + side, 'foreTwist' + side, 0.5); ar[6].w = W1('foreTwist' + side); } // twist bones spread limb roll along the skin
-    sb.loft(ar.map((r) => ({ ...r, col: colAt(r.c[1]) })), HQ ? 20 : 10, { capEnd: true, capStart: HQ }); // capped: an open forearm end showed as a see-through hole (the 'missing wrist')
+    if (!HB) sb.loft(ar.map((r) => ({ ...r, col: colAt(r.c[1]) })), HQ ? 20 : 10, { capEnd: true, capStart: HQ }); // capped: an open forearm end showed as a see-through hole (the 'missing wrist')
     if (!HQ) sb.ellipsoid([a[0] * (HQ ? 0.8 : 0.84), (HQ ? 1.366 : 1.392) * s, -0.004], (HQ ? 0.047 : 0.05) * w, HQ ? 0.03 : 0.044, (HQ ? 0.05 : 0.056) * w, sp.sleeveless ? W2('chest', 'arm' + side, 0.5) : W2('chest', 'arm' + side, 0.5), sp.sleeveless ? skin : top, { lat: HQ ? 12 : 7, lon: HQ ? 18 : 10 });
-    if (!longSleeve && !sp.sleeveless) { // sleeve hem flare
+    if (!HB && !longSleeve && !sp.sleeveless) { // sleeve hem flare
       sb.loft([{ c: [lerp(a[0], fo[0], 0.4), 1.215 * s, -0.005], rx: 0.056 * w, rz: 0.058 * w, w: upW, col: top }, { c: [lerp(a[0], fo[0], 0.33), 1.27 * s, -0.004], rx: 0.058 * w, rz: 0.06 * w, w: upW, col: top }], HQ ? 20 : 10); // same segment count as the arm, so the hem doesn't saw-tooth through it
     }
     { const sx = Math.sign(h[0]); const hw = W1('hand' + side); // palm, slightly curled finger block, thumb
       const hcol = sp.gloves ? C(sp.gloves) : sp.tacGloves ? C(sp.tacGloves) : skin; // traffic officers: white gauntlet gloves; tactical gloves (Shashika)
-      if (HQ && !sp.gloves) { // articulated hand: palm with knuckle ridge, four three-segment fingers in a relaxed curl, two-segment thumb, nails
+      if (HB && !sp.gloves) { // anatomical hand is part of the fitted body; tactical gloves get a cuff round the real wrist
+        if (sp.tacGloves) { const wr = HB.wrist(side, 0.9 * s); if (wr) sb.loft([{ c: [wr.c[0], 0.907 * s, wr.c[2]], rx: wr.rx + 0.004, rz: wr.rz + 0.004, w: W1('foreTwist' + side), col: hcol.map((v) => v * 0.8) }, { c: [wr.c[0], 0.874 * s, wr.c[2]], rx: wr.rx + 0.002, rz: wr.rz + 0.003, w: W2('foreTwist' + side, 'hand' + side, 0.5), col: hcol.map((v) => v * 0.8) }], 22); }
+      } else if (HQ && !sp.gloves) { // articulated hand: palm with knuckle ridge, four three-segment fingers in a relaxed curl, two-segment thumb, nails
         const py = 0.842 * s; const fw = W1('foreTwist' + side);
         const WT = (t) => W2('foreTwist' + side, 'hand' + side, t); // wrist: forearm → hand over 4 cm, so a bent wrist stays one smooth piece
         sb.loft([{ c: [h[0], 0.935 * s, 0.0], rx: 0.0238, rz: 0.0278, w: fw, col: hcol }, { c: [h[0], 0.905 * s, 0.001], rx: 0.0249, rz: 0.029, w: WT(0.12), col: hcol }, { c: [h[0], 0.889 * s, 0.002], rx: 0.0247, rz: 0.0297, w: WT(0.35), col: hcol }, { c: [h[0], 0.876 * s, 0.003], rx: 0.0228, rz: 0.0314, w: WT(0.65), col: hcol }, { c: [h[0], 0.862 * s, 0.005], rx: 0.019, rz: 0.035, w: hw, col: hcol }, { c: [h[0], 0.84 * s, 0.006], rx: 0.0185, rz: 0.04, w: hw, col: hcol }, { c: [h[0] - sx * 0.001, 0.818 * s, 0.006], rx: 0.0175, rz: 0.041, w: hw, col: hcol }, { c: [h[0] - sx * 0.002, py - 0.034, 0.005], rx: 0.015, rz: 0.038, w: hw, col: hcol }], 18, { capEnd: true }); // wrist → palm → knuckles
@@ -427,7 +435,8 @@ export function buildBodyGeometry(sp) {
       sb.ellipsoid([h[0], 0.84 * s, 0.006], 0.022, 0.042, 0.04, hw, hcol, { lat: 6, lon: 10 });
       sb.ellipsoid([h[0] - sx * 0.004, 0.79 * s, 0.012], 0.017, 0.038, 0.036, hw, hcol, { lat: 6, lon: 10, bumpFn: (x, y, z) => 1 + (y < -0.4 ? 0.04 * Math.sin(z * 18) : 0) });
       sb.ellipsoid([h[0] - sx * 0.014, 0.818 * s, 0.038], 0.011, 0.026, 0.012, hw, hcol, { lat: 4, lon: 6 }); }
-      if (HQ && longSleeve && !sp.tacGloves) { const fw = W1('foreTwist' + side), cc = top.map((v) => v * 0.8); sb.loft([{ c: [h[0], 0.925 * s, -0.001], rx: 0.0335, rz: 0.0355, w: fw, col: cc }, { c: [h[0], 0.893 * s, 0], rx: 0.0315, rz: 0.0335, w: fw, col: cc }], 20); } // ribbed cuff
+      if (HB && longSleeve && !sp.tacGloves) { const fw = W1('foreTwist' + side), cc = top.map((v) => v * 0.8); const wr = HB.wrist(side, 0.912 * s); if (wr) sb.loft([{ c: [wr.c[0], 0.93 * s, wr.c[2]], rx: wr.rx + 0.0035, rz: wr.rz + 0.0035, w: fw, col: cc }, { c: [wr.c[0], 0.898 * s, wr.c[2]], rx: wr.rx + 0.003, rz: wr.rz + 0.003, w: fw, col: cc }], 22); } // ribbed cuff on the real sleeve end
+      else if (HQ && longSleeve && !sp.tacGloves) { const fw = W1('foreTwist' + side), cc = top.map((v) => v * 0.8); sb.loft([{ c: [h[0], 0.925 * s, -0.001], rx: 0.0335, rz: 0.0355, w: fw, col: cc }, { c: [h[0], 0.893 * s, 0], rx: 0.0315, rz: 0.0335, w: fw, col: cc }], 20); } // ribbed cuff
       if (sp.gloves) { const fw = W1('fore' + side), gc = C(sp.gloves), rc = C(sp.cuff || '#c0262d'); // flared gauntlet cuff with a red band
         sb.loft([{ c: [h[0], 0.875 * s, 0], rx: 0.032, rz: 0.034, w: fw, col: gc }, { c: [lerp(fo[0], h[0], 0.62), 0.94 * s, -0.002], rx: 0.04, rz: 0.042, w: fw, col: gc }, { c: [lerp(fo[0], h[0], 0.56), 0.955 * s, -0.003], rx: 0.0415, rz: 0.0435, w: fw, col: rc }, { c: [lerp(fo[0], h[0], 0.5), 0.975 * s, -0.003], rx: 0.0425, rz: 0.0445, w: fw, col: rc }, { c: [lerp(fo[0], h[0], 0.46), 0.985 * s, -0.003], rx: 0.0425, rz: 0.0445, w: fw, col: gc }], 10); } }
     if (sp.patch && side === 'L') { const px = a[0] + 0.054 * w + 0.003; sb.ellipsoid([px, 1.33 * s, 0], 0.004, 0.032, 0.03, W1('armL'), C(sp.patch), { lat: 4, lon: 10 }); sb.ellipsoid([px + 0.002, 1.33 * s, 0], 0.003, 0.016, 0.015, W1('armL'), C('#d9b13b'), { lat: 4, lon: 8 }); } // round shoulder flash
@@ -584,12 +593,12 @@ export function buildBodyGeometry(sp) {
   // ---- garment construction (hero only): seams, tapes, pockets, belt — flat strips laid on the cloth surface, skinned like the torso
   if (HQ) {
     const tw = (y) => (y / s < 0.99 ? W1('hips') : y / s < 1.2 ? W2('spine', 'chest', 0.3) : W1('chest'));
-    const rxAt = (y) => { let k = 0; while (k < tr.length - 2 && tr[k + 1].y * s < y) k++; const a = tr[k], b2 = tr[k + 1]; return lerp(a.rx, b2.rx, clamp((y / s - a.y) / (b2.y - a.y), 0, 1)); };
-    const rzAt = (y) => { let k = 0; while (k < tr.length - 2 && tr[k + 1].y * s < y) k++; const a = tr[k], b2 = tr[k + 1]; return lerp(a.rz, b2.rz, clamp((y / s - a.y) / (b2.y - a.y), 0, 1)); };
+    const rxAt = HB ? (y) => HB.ringAt(y).rx : (y) => { let k = 0; while (k < tr.length - 2 && tr[k + 1].y * s < y) k++; const a = tr[k], b2 = tr[k + 1]; return lerp(a.rx, b2.rx, clamp((y / s - a.y) / (b2.y - a.y), 0, 1)); };
+    const rzAt = HB ? (y) => HB.ringAt(y).rz : (y) => { let k = 0; while (k < tr.length - 2 && tr[k + 1].y * s < y) k++; const a = tr[k], b2 = tr[k + 1]; return lerp(a.rz, b2.rz, clamp((y / s - a.y) / (b2.y - a.y), 0, 1)); };
     const vstrip = (x0, y0, y1, width, col, sgn = 1, fx = null) => { const path = []; const n = 8; for (let i = 0; i <= n; i++) { const y = lerp(y0, y1, i / n); const x = fx ? fx(y) : x0; path.push({ c: [x, y, surfZ(y, x, sgn) + 0.0022 * sgn], side: [1, 0, 0], w: tw(y) }); } sb.strip(path, width, () => [0, 0, sgn], tw(y0), col); };
     const hstrip = (y, x0, x1, width, col, sgn = 1) => { const path = []; const n = 6; for (let i = 0; i <= n; i++) { const x = lerp(x0, x1, i / n); path.push({ c: [x, y, surfZ(y, x, sgn) + 0.0024 * sgn], side: [0, 1, 0], w: tw(y) }); } sb.strip(path, width, () => [0, 0, sgn], tw(y), col); };
     const dark = (c, k) => c.map((v) => v * k);
-    const band = (y0, y1, grow, col, wt, colFn = null) => sb.loft([y0, y1].map((y) => ({ c: [0, y, 0], rx: rxAt(y) + grow, rz: rzAt(y) + grow, w: wt, col })), 40, colFn ? { colFn } : {});
+    const band = (y0, y1, grow, col, wt, colFn = null) => sb.loft([y0, y1].map((y) => ({ c: [0, y, HB ? HB.ringAt(y).cz : 0], rx: rxAt(y) + grow, rz: rzAt(y) + grow, w: wt, col })), 40, colFn ? { colFn } : {});
     if (jacket && sp.zip) {
       const tape = C('#202226'); for (const sx of [-1, 1]) vstrip(0, 1.03 * s, 1.425 * s, 0.011, tape, 1, (y) => sx * rxAt(y) * 0.375); // zip tapes along the open front
       for (const sx of [-1, 1]) { hstrip(1.315 * s, sx * 0.055 * w, sx * 0.125 * w, 0.02, dark(top, 0.78)); hstrip(1.1 * s, sx * 0.07 * w, sx * 0.135 * w, 0.009, dark(top, 0.55)); } // chest pocket flaps, hand-warmer welts
@@ -607,7 +616,7 @@ export function buildBodyGeometry(sp) {
       // sides stay on the hips, so it swings a little without ever leaving the body as a separate board.
       { const ys = [1.02, 0.99, 0.96, 0.935, 0.915]; const open = 0.4, NC = 30; const P = [], N = [], Wr = [];
         ys.forEach((yy, ri) => { const y = yy * s; const yr = Math.max(y, 0.95 * s); const rx = rxAt(yr) + 0.009 + ri * 0.0035, rz = rzAt(yr) + 0.011 + ri * 0.0035; const row = [], nr = [], wr = [];
-          for (let ci = 0; ci <= NC; ci++) { const a = Math.PI / 2 + open + (ci / NC) * (2 * Math.PI - 2 * open); const ca = Math.cos(a), sa = Math.sin(a); row.push([ca * rx, y, sa * rz]); nr.push([ca / rx, 0, sa / rz]);
+          for (let ci = 0; ci <= NC; ci++) { const a = Math.PI / 2 + open + (ci / NC) * (2 * Math.PI - 2 * open); const ca = Math.cos(a), sa = Math.sin(a); row.push([ca * rx, y, sa * rz + (HB ? HB.ringAt(yr).cz : 0)]); nr.push([ca / rx, 0, sa / rz]);
             const tgt = sa >= 0 ? (ca > 0 ? 'flapL' : 'flapR') + (ri >= 3 ? 2 : 1) : 'hemB1'; const k = smooth01((Math.abs(sa) - 0.3) / 0.45) * [0, 0.35, 0.7, 0.9, 1][ri];
             wr.push(ri === 0 ? tw(y) : k > 0.001 ? W2('hips', tgt, k) : W1('hips')); }
           P.push(row); N.push(nr); Wr.push(wr); });
@@ -624,7 +633,7 @@ export function buildBodyGeometry(sp) {
       const wc = C(sp.waist || '#3a3d44'); const ys = Array.from({ length: 15 }, (_, k) => 0.985 + k * 0.03);
       const halfW = (y) => (y < 1.16 ? 0.006 : 0.006 + ((y - 1.16) / 0.26) * 0.085); // straight V: closed at the top button (1.16), open to ±9 cm at the collarbone
       const fzAt = (y) => { let k = 0; while (k < tr.length - 2 && tr[k + 1].y * s < y) k++; const a = tr[k], b2 = tr[k + 1]; return lerp(a.fz || 0, b2.fz || 0, clamp((y / s - a.y) / (b2.y - a.y), 0, 1)); }; // same front bulge as the torso, so the shirt chest never pokes through
-      sb.loft(ys.map((yy) => ({ c: [0, yy * s, 0], rx: Math.min(rxAt(yy * s), 0.176 * w) + 0.008, rz: rzAt(yy * s) + 0.009, fz: fzAt(yy * s), w: yy >= 1.3 ? shoulderW(0.22) : tw(yy * s), col: wc })), 72, /* armholes: stops at chest width, the shoulders come out of it */ { colFn: (ri, a, r) => (Math.sin(a) > 0 && Math.abs(Math.cos(a) * r.rx) < halfW(ys[ri]) * w ? top : r.col) });
+      sb.loft(ys.map((yy) => ({ c: [0, yy * s, HB ? HB.ringAt(yy * s).cz : 0], rx: Math.min(rxAt(yy * s), 0.176 * w) + 0.008, rz: rzAt(yy * s) + 0.009, fz: fzAt(yy * s), w: yy >= 1.3 ? shoulderW(0.22) : tw(yy * s), col: wc })), 72, /* armholes: stops at chest width, the shoulders come out of it */ { colFn: (ri, a, r) => (Math.sin(a) > 0 && Math.abs(Math.cos(a) * r.rx) < halfW(ys[ri]) * w ? top : r.col) });
       for (let k = 0; k < 5; k++) { const y = (1.0 + k * 0.042) * s; sb.boxPart([0.004, y, surfZ(y, 0, 1) + 0.011], 0.008, 0.008, 0.004, tw(y), C('#1b1c1f')); }
       for (const sx of [-1, 1]) { hstrip(1.06 * s, sx * 0.05 * w, sx * 0.115 * w, 0.007, dark(wc, 0.55)); hstrip(1.25 * s, sx * 0.06 * w, sx * 0.115 * w, 0.007, dark(wc, 0.55)); }
       const gold = C('#c9a54a'); const A = [0.006, 1.085 * s], Bp = [0.1 * w, 1.06 * s]; // chain from the buttonhole into the left pocket
@@ -700,7 +709,7 @@ export function buildBodyGeometry(sp) {
   if (sp.epaulettes) for (const side of ['L', 'R']) { const a = J['arm' + side]; const ec = C(sp.epaulettes === true ? (sp.bottom || '#1f2a44') : sp.epaulettes); sb.boxPart([a[0] * 0.8, 1.392 * s + 0.047, -0.004], 0.075, 0.008, 0.042, W2('chest', 'arm' + side, 0.4), ec);
     for (let k = 0; k < (sp.pips || 0); k++) sb.boxPart([a[0] * (0.68 + k * 0.1), 1.392 * s + 0.053, -0.004], 0.012, 0.005, 0.012, W2('chest', 'arm' + side, 0.4), C('#e2bd48')); } // rank pips
   if (sp.vest) { const vc = C(sp.vest); const idx = [2, 3, 4, 5, 6].map((i) => i + RO); // tactical vest: a shell just outside the shirt from waist to chest, with pouches
-    sb.loft(idx.map((i) => ({ c: [0, tr[i].y * s, 0], rx: tr[i].rx + 0.02, rz: tr[i].rz + 0.022, fz: tr[i].fz, bust: tr[i].bust, w: tr[i].wgt, col: vc })), f ? 28 : 16, { capStart: false, capEnd: false });
+    sb.loft(idx.map((i) => ({ c: [0, tr[i].y * s, HB ? tr[i].cz || 0 : 0], rx: tr[i].rx + 0.02, rz: tr[i].rz + 0.022, fz: tr[i].fz, bust: tr[i].bust, w: tr[i].wgt, col: vc })), f ? 28 : 16, { capStart: false, capEnd: false });
     for (const bx of [-0.07, 0, 0.07]) sb.boxPart([bx * w, 1.1 * s, surfZ(1.1 * s, bx * w, 1) + 0.03], 0.055, 0.07, 0.03, W2('spine', 'chest', 0.3), vc.map((v) => v * 0.8));
     if (!sp.hero) sb.boxPart([0, 1.3 * s, surfZ(1.3 * s, 0, -1) - 0.024], 0.2 * w, 0.045, 0.004, W1('chest'), C('#e9e9e2')); } // light panel across the back (police)
   // ---- everyday wardrobe extras: hi-vis vest, apron, shoulder towel, shawl / dupatta, hood, sports headband
@@ -881,7 +890,7 @@ export class Character {
     if (spec.hero) { // protagonists: own material instances with DQ skinning, subsurface skin, wetness / sweat, expression normals
       if (!geo.attributes.aSkin) geo.setAttribute('aSkin', new THREE.Float32BufferAttribute(skinMask(geo, spec), 1));
       this.heroU = heroUniforms(); const hb = getHairMaterial(); const fn = faceNormals();
-      const body = getBodyMaterial().clone(); patchHeroMaterial(body, 'body', this.heroU); iblScale(body, 0.55, 1.0, 0.5);
+      const body = getBodyMaterial().clone(); patchHeroMaterial(body, 'body', this.heroU, geo.userData.heroBody ? clothShader({ inner: spec.inner, open: spec.kit === 'openShirt', s: spec.height / 1.72, denim: spec.kit === 'openShirt', stitch: '#b8873e' }) : null); iblScale(body, 0.55, 1.0, 0.5);
       const fm = this.face.mat; if (fn.base) { fm.normalMap = fn.base; fm.normalScale = new THREE.Vector2(0.35, -0.35); } patchHeroMaterial(fm, 'face', this.heroU);
       const hm = hb.clone(); patchHeroMaterial(hm, 'hair', this.heroU, hb.onBeforeCompile); mats = [body, fm, hm]; this.heroMats = [body, hm];
     }

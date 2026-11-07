@@ -80,9 +80,9 @@ function seat(F, H, local, at, shapes) {
 }
 
 // grasp closing: all joints curl together; a link that touches freezes itself and the joints behind it
-function close(F, H, fi, shapes, lim = [1.55, 1.75, 1.3]) {
+function close(F, H, fi, shapes, lim = [1.55, 1.75, 1.3], rf = R_FINGER) { // rf: finger pad radius used for contact (default: the stick model)
   const a = [0, 0, 0], live = [true, true, true], step = 0.03; const pts = []; const w = new THREE.Vector3();
-  const touching = () => { const hit = [false, false, false]; H.finger(fi, a, pts); for (const s of pts) if (sdf(toW(F, s.p, w), shapes) < R_FINGER) hit[s.link] = true; return hit; };
+  const touching = () => { const hit = [false, false, false]; H.finger(fi, a, pts); for (const s of pts) if (sdf(toW(F, s.p, w), shapes) < rf) hit[s.link] = true; return hit; };
   if (touching().some(Boolean)) { // starts inside (finger lies on the surface): open it until clear
     for (let k = 0; k < 12 && touching().some(Boolean); k++) { a[0] -= 0.04; a[1] -= 0.03; } return a.map((v) => +v.toFixed(3)); }
   for (let it = 0; it < 120 && live.some(Boolean); it++) {
@@ -175,7 +175,7 @@ export function solveWrap(bones, S, r, dirIn, opts = {}) {
 export function solveGrip(bones, S, o) {
   const H = new Hand(bones, S); const F = frame(o.X, o.Z); const shapes = o.shapes;
   seat(F, H, new THREE.Vector3(-H.sx * PALM_X, o.palm[1], o.palm[2]), o.at, shapes);
-  const f = [0, 1, 2, 3].map((fi) => close(F, H, fi, o.closeShapes || shapes, o.lim || [1.5, 1.75, 1.3]));
+  const f = [0, 1, 2, 3].map((fi) => close(F, H, fi, o.closeShapes || shapes, o.lim || [1.5, 1.75, 1.3], o.rf || R_FINGER));
   const th = thumb(F, H, shapes, o.thumbAt);
   return { wrist: F.T.clone(), q: new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(F.X, F.Y, F.Z)), pose: pose(f, th) };
 }

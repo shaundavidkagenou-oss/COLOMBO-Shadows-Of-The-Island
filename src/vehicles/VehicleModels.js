@@ -791,7 +791,7 @@ function doorGrab(d) {
   const hz = S.zR + 0.175, hy = S.by - 0.12; const hs = loc(S.skinPt(hz, hy)[0]);
   // the window's rear edge (glass + rubber, between the belt and the roof line): what a hand holds the open door by
   let win = null; if (S.glY && S.roofY && S.gw0) { const g0 = S.glY(zr), g1 = S.roofY(zr); if (g1 - g0 > 0.2) { const wy = g0 + Math.min(0.2, (g1 - g0) * 0.42); const gxAt = (yy) => loc(-lerp(S.gw0, S.gw1 ?? S.gw0, (yy - g0) / (g1 - g0))); win = { y: wy, x: gxAt(wy), tilt: gxAt(wy + 0.1) * 10 - gxAt(wy) * 10, zR: zr - d.hinge[1] - 0.024 }; } } // the rubber frame runs ~2.5 cm past the panel's rear edge; the glass leans in (tumblehome)
-  return { side, y, zR: zr - d.hinge[1], card, skin, win, handle: { x: hs + side * 0.012, skin: hs, y: hy, z: hz - d.hinge[1] } };
+  return { side, y, zR: zr - d.hinge[1], card, skin, win, handle: { x: hs + side * 0.012, skin: hs, y: hy, z: hz - d.hinge[1], lo: [0.04, 0.08, 0.12].map((dy) => loc(S.skinPt(hz, hy - dy)[0])) } }; // lo: the skin below the bar (the side bulges out under the handle line)
 }
 
 // Driver door: own mesh group on a hinge pivot (front edge) so it can swing open. Built in model space from the spec the
