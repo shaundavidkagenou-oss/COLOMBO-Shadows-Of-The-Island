@@ -18,6 +18,7 @@ import { Input } from '../core/Input.js';
 import { Audio } from '../audio/Audio.js';
 import { Character } from '../actors/Character.js';
 import { PoleDancer } from '../actors/PoleDance.js';
+import { flushDancerPaint, dancerPaintPending } from '../actors/DancerBody.js';
 import { makeAppearance } from '../actors/Appearance.js';
 import { routine } from '../actors/Routine.js';
 import { DANCERS, dancerSpec, STAFF, PATRON_SEEDS, patronSpec, CLUB, CLUB_CHAIRS, CLUB_BOOTHS, PATRON_SPOTS, STAFF_SPOTS, seatTopFor } from './ClubCast.js';
@@ -354,6 +355,7 @@ export function buildClub(game, door) {
     ball.rotation.y += dt * 0.6; L6.stage.color.setHex(pal[bar8 % pal.length]).lerp(STAGE_TINT, 0.55); L6.stage.intensity = 22 + 5 * pulse;
     // the round-platform dancer plays to the player when he is close
     const lx = P.x - ox, lz = P.z - oz; const dr = dancers[2]; if (dr) { const dd = Math.hypot(lx - RC.x, lz - RC.z); dr.audience = dd < 6 ? [lx, lz] : dr.home; }
+    if (dancerPaintPending() && game.renderer) flushDancerPaint(game.renderer); // dancers' skin textures: painted on the GPU, one per frame
     for (const d of dancers) d.update(dt);
     for (const p of people) { routine(p, p.ch, dt, p.kind, p.rnd); p.ch.anim.update(dt, 0); }
     if (rain) { rain.t += dt; rain.acc += dt; while (rain.acc > 0.05 && rain.left > 0) { rain.acc -= 0.05; rain.left--; throwNote(100, handPos(P), rain.d); if (rain.left % 8 === 0) P.ch.anim.play('interact', 0.45); if (Audio.ready) Audio.noise(0.05, { f: 2500 + Math.random() * 1500, q: 2, vol: 0.02 }); }

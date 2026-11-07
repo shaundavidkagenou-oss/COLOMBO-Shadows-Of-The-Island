@@ -134,7 +134,7 @@ class SkinBuilder {
 }
 
 // ------------------------------------------------------------------ joints (rest pose, metres) for height 1.0 scale applied later
-function joints(sp) {
+export function joints(sp) {
   const H = sp.height, f = sp.sex === 'f', s = H / 1.72; const wide = sp.build;
   const j = {
     hips: [0, 0.95 * s, 0], spine: [0, 1.08 * s, 0], chest: [0, 1.25 * s, 0], neck: [0, 1.46 * s, 0], head: [0, 1.55 * s, 0.01 * s],

@@ -44,6 +44,9 @@ export class PoleDancer {
     this.audience = opts.audience || [pole.x, pole.z + 5]; this.name = opts.name || 'Dancer';
     const sp = ch.spec, s = sp.height / 1.72; this.s = s; this.hf = heelFit(sp);
     this.H = ch.hipY + (this.hf.ankleH - 0.085 * s) - 0.012 * s; // pelvis height standing on the heels, knees soft
+    // arm length relative to the body the moves were designed on (shoulder → wrist ≈ 0.532·s): grip heights are rescaled about
+    // the shoulder so a shorter-armed body still reaches the pole (1 for the crowd body)
+    const bl = (n) => ch.bones[n]?.position.length() || 0; this.armK = Math.min(1.12, (bl('foreL') + bl('handL')) / (0.532 * s)) || 1;
     this.t = 0; this.phi = this.rnd() * TAU; this.dir = this.rnd() < 0.5 ? 1 : -1; this.queue = []; this.move = null; this.prev = null; this.fadeT = 1;
     this.attn = null; this.look = null; this.smileT = 2 + this.rnd() * 6; this.cur = null; this.tips = 0;
     this.lastPose = null; this.debug = { reach: [0, 0], floor: 0 };
@@ -160,7 +163,8 @@ export class PoleDancer {
     const px = this.pole.x, pz = this.pole.z, s = this.s, sx = side === 'L' ? 1 : -1;
     const lean = P.hr[0] + P.sp[0] + P.ch[0], tw = P.hr[1] + P.sp[1] + P.ch[1], Ls = 0.46 * s, w = 0.175 * s;
     const sh = this.B(P, P.hip[0] + sx * w * Math.cos(tw), P.hip[1] + Ls * Math.cos(lean), P.hip[2] + Ls * Math.sin(lean) - sx * w * Math.sin(tw));
-    const bx = this.dirB(P, 1, 0, 0), y = this.pole.y0 + h, off = POLE_R + 0.021; let best = null;
+    const shY = sh[1] - this.pole.y0; h = shY + (h - shY) * (this.armK || 1);
+    const bx = this.dirB(P, 1, 0, 0), y = this.pole.y0 + h, off = POLE_R + 0.025; let best = null;
     for (const uy of [1, -1]) {
       let a = norm3([px - sh[0], y - sh[1], pz - sh[2]]), n = null, pc = null;
       for (let it = 0; it < 3; it++) { const ah = norm3([a[0], 0, a[2]]); n = side === 'L' ? cross(ah, [0, uy, 0]) : cross([0, uy, 0], ah);
@@ -204,14 +208,14 @@ export class PoleDancer {
       const prep = sm(seg(t, 0, 0.55)), air = bump(t, 0.55, 0.85, T - 0.95, T - 0.55), land = seg(t, T - 0.95, T);
       // angle: slow while stepping in, fast in the air (easing out), settling on landing
       const prog = 0.08 * seg(t, 0, 0.55) + 0.84 * sm(seg(t, 0.55, T - 0.6) ** 0.8) + 0.08 * seg(t, T - 0.6, T);
-      const phi = m.phi0 + dir * D * prog; const rIn = hook ? 0.34 : 0.36; const r = lerp(lerp(0.5, rIn, prep), 0.5, sm(land));
+      const phi = m.phi0 + dir * D * prog; const rIn = hook ? 0.32 : 0.36; const r = lerp(lerp(0.5, rIn, prep), 0.5, sm(land));
       P.rx = px + Math.sin(phi) * r; P.rz = pz + Math.cos(phi) * r; P.yaw = phi + dir * Math.PI / 2 - dir * 0.3 * air;
       const ra = this.radial(phi);
       const tuckY = H + 0.05 * air - 0.44 - 0.04 * air; // feet tucked under the hips, well above the stage
       const stand = (k) => { const bx = (k === 0 ? dir : -dir) * 0.1; const q = this.B(P, bx, 0, 0.04); return { p: q, yaw: P.yaw + (k === 0 ? dir : -dir) * 0.12, pitch: hf.pitch, knee: norm3(this.dirB(P, 0, 0.3, 1)) }; };
       const tuck = (k) => { let q; let pitch = 1.15; let knee = this.dirB(P, 0, 0.5, 1);
         if (!hook) q = this.B(P, (k === 0 ? dir : -dir) * 0.04, tuckY + (k === 0 ? 0.03 : 0), 0.24 + (k === 0 ? 0.02 : 0));
-        else if (k === 0) { q = this.B(P, dir * 0.02, 0.5 * s, -0.12); knee = norm3([-ra[0], 0.2, -ra[2]]); pitch = 0.9; } // hooked: the knee pit wraps the pole, calf behind it
+        else if (k === 0) { q = this.B(P, dir * 0.02, 0.5 * s, -0.12); knee = norm3(this.dirB(P, dir, 0.2, 0.5)); pitch = 0.9; } // hooked: thigh passes IN FRONT of the pole (knee toward it and forward), so the pole sits in the knee pit and the calf wraps behind it
         else { q = this.B(P, -dir * 0.18, 0.32 * s, 0.5); pitch = 1.25; knee = this.dirB(P, -dir * 0.3, 0.6, 0.6); } // outside leg long and pointed
         return { p: q, yaw: P.yaw, pitch, knee: norm3(knee) }; };
       const kAir = sm(seg(t, 0.45, 0.8)) * (1 - sm(seg(t, T - 0.85, T - 0.5)));
@@ -278,16 +282,18 @@ export class PoleDancer {
       // free hand: up the side → into the hair at the back of the head → down the nape → out wide → rests on the hip
       // [time, wrist (body frame), palm normal, thumb direction] — fingers follow from the hand frame (up in the hair, forward on the hip)
       const ox = -wIn; const K = [
-        [0.0, [ox * 0.2 * s, 0.92 * s, 0.05], [-ox, 0, 0], [0, 0, 1]],
-        [0.7, [ox * 0.2 * s, 1.3 * s, 0.26], [-ox, 0, 0], [0, 0.6, 0.8]], // up in front of the shoulder (never through it)
-        [1.3, [ox * 0.115 * s, 1.6 * s, -0.03], [-ox, 0, 0], [0, 0, -1]],
-        [2.2, [ox * 0.075 * s, 1.46 * s, -0.095], [0, 0, 1], [-ox, 0, 0]],
-        [3.1, [ox * 0.5 * s, 1.12 * s, 0.14], [0, -1, 0], [0, 0, 1]],
-        [3.9, [ox * 0.205 * s, 0.99 * s, 0.03], [-ox, 0, 0], [0, 1, 0]],
-        [T, [ox * 0.205 * s, 0.99 * s, 0.03], [-ox, 0, 0], [0, 1, 0]]];
+        // 5th column: elbow direction (body frame) — out and down at the sides, raised out to the side while the hand is in the
+        // hair, so the elbow swings smoothly up and back down instead of flipping when the hand passes the shoulder
+        [0.0, [ox * 0.2 * s, 0.92 * s, 0.05], [-ox, 0, 0], [0, 0, 1], [ox * 0.8, -0.3, -0.3]],
+        [0.7, [ox * 0.2 * s, 1.3 * s, 0.26], [-ox, 0, 0], [0, 0.6, 0.8], [ox * 0.8, -0.45, 0]], // up in front of the shoulder (never through it)
+        [1.3, [ox * 0.115 * s, 1.6 * s, -0.03], [-ox, 0, 0], [0, 0, -1], [ox * 0.85, 0.45, 0.15]],
+        [2.2, [ox * 0.075 * s, 1.46 * s, -0.095], [0, 0, 1], [-ox, 0, 0], [ox * 0.9, 0.3, 0.1]],
+        [3.1, [ox * 0.5 * s, 1.12 * s, 0.14], [0, -1, 0], [0, 0, 1], [ox * 0.6, -0.6, -0.4]],
+        [3.9, [ox * 0.205 * s, 0.99 * s, 0.03], [-ox, 0, 0], [0, 1, 0], [ox * 0.8, -0.3, -0.3]],
+        [T, [ox * 0.205 * s, 0.99 * s, 0.03], [-ox, 0, 0], [0, 1, 0], [ox * 0.8, -0.3, -0.3]]];
       let k = 0; while (k < K.length - 2 && K[k + 1][0] < t) k++; const a = K[k], b = K[k + 1]; const u = sm(seg(t, a[0], b[0]));
-      const bp = a[1].map((v, i) => lerp(v, b[1][i], u)), bn = a[2].map((v, i) => lerp(v, b[2][i], u)), bu = a[3].map((v, i) => lerp(v, b[3][i], u));
-      hOut = { p: this.B(P, bp[0], bp[1], bp[2]), n: norm3(this.dirB(P, ...bn)), up: norm3(this.dirB(P, ...bu)), el: this.dirB(P, ox * 0.8, -0.3, -0.3) };
+      const bp = a[1].map((v, i) => lerp(v, b[1][i], u)), bn = a[2].map((v, i) => lerp(v, b[2][i], u)), bu = a[3].map((v, i) => lerp(v, b[3][i], u)), be = a[4].map((v, i) => lerp(v, b[4][i], u));
+      hOut = { p: this.B(P, bp[0], bp[1], bp[2]), n: norm3(this.dirB(P, ...bn)), up: norm3(this.dirB(P, ...bu)), el: norm3(this.dirB(P, ...be)) };
     }
     P.f = dir > 0 ? { L: fIn, R: fOut } : { L: fOut, R: fIn };
     P.h = side === 'L' ? { L: hIn, R: hOut } : { L: hOut, R: hIn };
@@ -296,7 +302,7 @@ export class PoleDancer {
   }
   // ---------------------------------------------------------------- bones (Animator.postPose)
   apply(b, dt = 1 / 60) {
-    const P = this.cur; if (!P) return; const g = this.ch.root.parent; if (!g) return; this.ch.handGrip = { L: P.h.L.grip, R: P.h.R.grip }; // fingers close round the pole (DancerRig) this.maxSwivel = 15 * Math.min(0.1, dt || 1 / 60); // fastest an elbow / knee may swing round its limb axis (rad per frame) const g = this.ch.root.parent; if (!g) return;
+    const P = this.cur; if (!P) return; const g = this.ch.root.parent; if (!g) return; this.ch.handGrip = { L: P.h.L.grip, R: P.h.R.grip }; /* fingers close round the pole (DancerRig) */ this.maxSwivel = 10 * Math.min(0.1, dt || 1 / 60); // fastest an elbow / knee may swing round its limb axis (rad per frame) const g = this.ch.root.parent; if (!g) return;
     b.hips.position.set(P.hip[0], P.hip[1], P.hip[2]); b.hips.rotation.set(P.hr[0], P.hr[1], P.hr[2]);
     b.spine.rotation.set(P.sp[0], P.sp[1], P.sp[2]); b.chest.rotation.set(P.ch[0], P.ch[1], P.ch[2]); b.neck.rotation.set(P.nk[0], P.nk[1], P.nk[2]); b.head.rotation.set(P.hd[0], P.hd[1], P.hd[2]);
     if (b.shL) b.shL.rotation.set(0, 0, 0); if (b.shR) b.shR.rotation.set(0, 0, 0);
@@ -331,17 +337,29 @@ export class PoleDancer {
     const fo = b['fore' + S], hd = b['hand' + S]; fo.updateWorldMatrix(true, true); const e = g.worldToLocal(fo.getWorldPosition(_w3)), wx = e.x, wy = e.y, wz = e.z;
     const h = g.worldToLocal(hd.getWorldPosition(_w3)); const px = this.pole.x, pz = this.pole.z, s = this.s || 1; let worst = -9;
     for (let k = 0; k <= 8; k++) { const t = (k / 8) * 0.8, x = wx + (h.x - wx) * t, y = wy + (h.y - wy) * t, z = wz + (h.z - wz) * t; if (y < this.pole.y0 || y > this.pole.y1) continue;
-      worst = Math.max(worst, POLE_R + (0.042 + (0.029 - 0.042) * (t / 0.8)) * s - Math.hypot(x - px, z - pz)); }
+      worst = Math.max(worst, POLE_R + (0.055 + (0.038 - 0.055) * (t / 0.8)) * s - Math.hypot(x - px, z - pz)); }
     return worst;
   }
   arm(b, S, Hd, g, gq, i) {
     const chest = b.chest; chest.updateWorldMatrix(true, false);
-    const tw = g.localToWorld(_v1.set(Hd.p[0], Hd.p[1], Hd.p[2])); const target = chest.worldToLocal(_v2.copy(tw));
+    // a released hand never cuts through the pole (cross-fades blend one hold point into the next in a straight line): its wrist
+    // target is eased radially out to at least rMin from the pole axis (soft knee, so nothing snaps)
+    let hx = Hd.p[0], hz = Hd.p[2];
+    if (Hd.grip < 0.5) { const dx = hx - this.pole.x, dz = hz - this.pole.z, r = Math.hypot(dx, dz), rMin = POLE_R + 0.075 * (this.s || 1), k = 2 * rMin;
+      if (r < k && r > 1e-5) { const rn = r + (k - r) * (k - r) / (2 * k); hx = this.pole.x + dx * rn / r; hz = this.pole.z + dz * rn / r; } }
+    const tw = g.localToWorld(_v1.set(hx, Hd.p[1], hz)); const target = chest.worldToLocal(_v2.copy(tw));
+    // a free hand never folds the arm shut on the shoulder joint (hand-to-hair / hand-to-chest touches): with the arm folded the
+    // elbow direction is undefined and swings round in a frame. Soft knee: beyond k the target is untouched, below it is eased out
+    if (Hd.grip < 0.5) { const shC = chest.worldToLocal(b['arm' + S].getWorldPosition(_w4)); const dv = _w5.copy(target).sub(shC); const d = dv.length();
+      const L = b['fore' + S].position.length() + b['hand' + S].position.length(), k = 0.8 * L; if (d < k && d > 1e-6) { target.copy(shC).addScaledVector(dv, (d + (k - d) * (k - d) / (2 * k)) / d); tw.copy(chest.localToWorld(_w6.copy(target))); } }
     // hand frame from palm normal n and thumb direction (parent-group space) → chest space
     const n = _v3.set(Hd.n[0], Hd.n[1], Hd.n[2]).normalize(); const up = _v4.set(Hd.up[0], Hd.up[1], Hd.up[2]); up.addScaledVector(n, -up.dot(n)); if (up.lengthSq() < 1e-6) up.set(0, 1, 0); up.normalize();
     const X = S === 'L' ? _v5.copy(n).negate() : _v5.copy(n); const Z = up; const Y = _v6.crossVectors(Z, X);
     _m.makeBasis(X, Y, Z); const qL = _q1.setFromRotationMatrix(_m); const qW = _q2.copy(gq).multiply(qL);
     const chestQi = chest.getWorldQuaternion(_q3).invert(); const qC = _q4.copy(chestQi).multiply(qW);
+    // the wrist never snaps: when the grip changes from thumb-up to thumb-down (or a new hold starts) the hand turns toward its
+    // new orientation at a bounded rate (~11 rad/s) instead of flipping in one frame
+    { const H = this.hq || (this.hq = {}); const dt = (this.maxSwivel || 0.17) / 10; if (!H[S]) H[S] = qC.clone(); else { H[S].rotateTowards(qC, 11 * dt); qC.copy(H[S]); } }
     const par = b['arm' + S].parent; par.updateWorldMatrix(true, false); const parQi = par.getWorldQuaternion(_q5).invert();
     const pole = _v7.set(Hd.el[0], Hd.el[1], Hd.el[2]).applyQuaternion(gq).applyQuaternion(parQi);
     const ep = this.elb[S]; if (ep) { const ax = par.worldToLocal(_v9.copy(tw)).sub(b['arm' + S].position).normalize(); limitSwivel(pole, ep, ax, this.maxSwivel); } // elbow: a hand passing close to the shoulder never flips it
@@ -350,16 +368,23 @@ export class PoleDancer {
     // swivel the elbow round the shoulder→hand line (the hand stays exactly where it is) by the smallest angle that clears it
     { const F = this.fsw || (this.fsw = {}); const cur = F[S] || 0; let tgt = 0;
       if (this.foreHit(b, S, g) > 0 || cur) { const ax = par.worldToLocal(_w1.copy(tw)).sub(b['arm' + S].position).normalize(); const p0 = _w2.copy(pole); let best = null;
-        for (const da of [0, 0.08, -0.08, 0.16, -0.16, 0.26, -0.26, 0.4, -0.4]) { if (da) { pole.copy(p0).applyAxisAngle(ax, da); solveArmIK(b, S, target, qC, 1, pole); } const hit = this.foreHit(b, S, g); if (!best || hit < best.hit - 1e-4) best = { da, hit }; if (hit <= 0) break; }
-        tgt = best.da; const step = this.maxSwivel * 0.3; const nw = cur + Math.max(-step, Math.min(step, tgt - cur)); F[S] = Math.abs(nw) < 1e-4 ? 0 : nw; // eased, never snapped
+        for (const da of [0, 0.08, -0.08, 0.16, -0.16, 0.26, -0.26, 0.4, -0.4, 0.6, -0.6, 0.8, -0.8, 1.1, -1.1]) { if (da) { pole.copy(p0).applyAxisAngle(ax, da); solveArmIK(b, S, target, qC, 1, pole); } const hit = this.foreHit(b, S, g); if (!best || hit < best.hit - 1e-4) best = { da, hit }; if (hit <= 0) break; }
+        tgt = best.da; const step = this.maxSwivel * 0.6; const nw = cur + Math.max(-step, Math.min(step, tgt - cur)); F[S] = Math.abs(nw) < 1e-4 ? 0 : nw; // eased, never snapped
         pole.copy(p0).applyAxisAngle(ax, F[S]); solveArmIK(b, S, target, qC, 1, pole); } }
+    // a released hand (fingered rigs) never sinks its knuckles into the pole: tilt it at the wrist, the smallest angle that clears
+    if (Hd.grip < 0.5 && b['mid1' + S]) { const hd = b['hand' + S]; hd.updateWorldMatrix(true, false); const kn = () => g.worldToLocal(hd.localToWorld(_w4.copy(b['mid1' + S].position)));
+      const pr = this.pole, rq = POLE_R + 0.026; const c0 = kn(); if (c0.y > pr.y0 && c0.y < pr.y1 && Math.hypot(c0.x - pr.x, c0.z - pr.z) < rq) {
+        const wr = g.worldToLocal(hd.getWorldPosition(_w5)); const fd = _w6.copy(c0).sub(wr).normalize(); const out = _v9.set(wr.x - pr.x, 0, wr.z - pr.z).normalize();
+        const kAx = fd.clone().cross(out); if (kAx.lengthSq() > 1e-8) { kAx.normalize(); const gq2 = g.getWorldQuaternion(new THREE.Quaternion()); const kW = kAx.applyQuaternion(gq2);
+          const pq = hd.parent.getWorldQuaternion(new THREE.Quaternion()), pqi = pq.clone().invert(), base = hd.quaternion.clone(), rot = new THREE.Quaternion();
+          for (let th = 0.1; th <= 1.6; th += 0.1) { hd.quaternion.copy(pqi).multiply(rot.setFromAxisAngle(kW, th)).multiply(pq).multiply(base); hd.updateWorldMatrix(false, false); const c = kn(); if (Math.hypot(c.x - pr.x, c.z - pr.z) >= rq) break; } } } }
     (this.elb[S] || (this.elb[S] = new THREE.Vector3())).copy(b['fore' + S].position).applyQuaternion(b['arm' + S].quaternion).normalize();
     if (Hd.grip > 0.5) { b['hand' + S].updateWorldMatrix(true, false); const hw = b['hand' + S].getWorldPosition(_v8); g.worldToLocal(hw); this.debug.reach[i] = Math.hypot(hw.x - Hd.p[0], hw.y - Hd.p[1], hw.z - Hd.p[2]); } else this.debug.reach[i] = 0;
   }
 }
 const _gq = new THREE.Quaternion(), _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _q4 = new THREE.Quaternion(), _q5 = new THREE.Quaternion(), _q6 = new THREE.Quaternion(), _q7 = new THREE.Quaternion();
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _v4 = new THREE.Vector3(), _v5 = new THREE.Vector3(), _v6 = new THREE.Vector3(), _v7 = new THREE.Vector3(), _v8 = new THREE.Vector3();
-const _X = new THREE.Vector3(1, 0, 0), _e = new THREE.Euler(), _m = new THREE.Matrix4(), _v9 = new THREE.Vector3(), _w1 = new THREE.Vector3(), _w2 = new THREE.Vector3(), _w3 = new THREE.Vector3();
+const _X = new THREE.Vector3(1, 0, 0), _e = new THREE.Euler(), _m = new THREE.Matrix4(), _v9 = new THREE.Vector3(), _w1 = new THREE.Vector3(), _w2 = new THREE.Vector3(), _w3 = new THREE.Vector3(), _w4 = new THREE.Vector3(), _w5 = new THREE.Vector3(), _w6 = new THREE.Vector3();
 // Two-bone IK swivel continuity: if the wanted elbow/knee direction (pole) is more than `max` radians round the limb axis
 // from where the joint was last frame, swing it only `max` that way this frame. Slow changes pass through untouched.
 function limitSwivel(pole, prev, axis, max) {

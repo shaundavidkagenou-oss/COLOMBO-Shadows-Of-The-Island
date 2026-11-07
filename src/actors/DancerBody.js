@@ -93,7 +93,9 @@ export function dancerGeometry(id, hairColor = '#120c08') {
     for (let k = 0; k < 4; k++) { si.push(S.ski[u * 4 + k]); sw.push(S.skw[u * 4 + k] / 255); }
     const M = S.masks; mA.push(M.lips[u] / 255, M.lids[u] / 255, M.brows[u] / 255, M.cheeks[u] / 255); mB.push(M.nose[u] / 255, M.ears[u] / 255, Bd.nail[u], Bd.palm[u]);
     skin.push(S.part[r] === 0 ? 1 : 0); col.push(1, 1, 1); anchor.push(u); }
-  const groups = [[...S.idx[0]], [...S.idx[1]], [...S.idx[2], ...S.idx[3]], [...S.idx[4]], []];
+  // eyelashes: MakeHuman's lash cards; only the upper ones are kept (the lower ones read as a heavy dark rim at game distance)
+  const lashT = []; { const t = S.idx[1], ey = Bd.L.eyeL[1]; for (let k = 0; k < t.length; k += 3) { const y = (P[o[t[k]] * 3 + 1] + P[o[t[k + 1]] * 3 + 1] + P[o[t[k + 2]] * 3 + 1]) / 3; if (y >= ey) lashT.push(t[k], t[k + 1], t[k + 2]); } }
+  const groups = [[...S.idx[0]], lashT, [...S.idx[2], ...S.idx[3]], [...S.idx[4]], []];
   // ---- eyebrows: individual strands lying on the brow skin (ray-cast onto the face from the front)
   const face = []; for (const i of S.idx[0]) face.push(i); // render-vertex triangles of the skin
   const L = Bd.L; const GC = 0.004, grid = new Map(); const gk = (i, j) => i * 4096 + j;
@@ -175,7 +177,7 @@ function skinDetail(sh) {
       { vec3 q = vRest * 1150.0; float fw = length(fwidth(q)); float fade = 1.0 - smoothstep(0.35, 0.9, fw);
         if (fade > 0.0) {
           float h = (1.0 - dpNoise(q)) ; h = h * h * 0.65 + dpNoise(q * 2.7 + 3.1) * 0.35;
-          float hh = (h + dpNoise(vRest * 240.0) * 0.6) * 0.00011 * fade;
+          float hh = (h + dpNoise(vRest * 240.0) * 0.5) * 0.00007 * fade;
           vec3 dpx = dFdx(-vViewPosition), dpy = dFdy(-vViewPosition); float dhx = dFdx(hh), dhy = dFdy(hh);
           vec3 r1 = cross(dpy, normal), r2 = cross(normal, dpx); float det = dot(dpx, r1);
           vec3 grad = sign(det) * (dhx * r1 + dhy * r2); normal = normalize(abs(det) * normal - grad); } }`);
@@ -192,10 +194,16 @@ export function dancerMaterials(id, U) {
   const skin = new THREE.MeshStandardMaterial({ color: new THREE.Color(look.skin), roughness: 0.55, metalness: 0 });
   patchHeroMaterial(skin, 'body', U, skinDetail); iblScale(skin, 0.55, 1.0, 0.5);
   const kp = skin.customProgramCacheKey; skin.customProgramCacheKey = () => kp() + '|dancerSkin';
-  const lash = new THREE.MeshStandardMaterial({ color: 0x0a0706, roughness: 0.55, metalness: 0, side: THREE.DoubleSide });
+  // lash cards cut into individual lashes (u runs along the lid; MakeHuman's own lash texture is not used)
+  const lash = new THREE.MeshStandardMaterial({ color: 0x0c0806, roughness: 0.5, metalness: 0, side: THREE.DoubleSide });
+  lash.onBeforeCompile = (sh) => { sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vLashUv;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvLashUv = uv;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec2 vLashUv;').replace('#include <alphatest_fragment>', `{ float s = vLashUv.x * 1500.0; float j = fract(sin(floor(s) * 91.7) * 4375.5);
+      if (abs(fract(s) - 0.5) > 0.16 + 0.1 * j) discard; }`); };
+  lash.customProgramCacheKey = () => 'dancerLash';
   const teeth = new THREE.MeshStandardMaterial({ color: 0xd8d0c2, roughness: 0.32, metalness: 0 });
   const tongue = new THREE.MeshStandardMaterial({ color: 0x8a3a3a, roughness: 0.45, metalness: 0 });
   const brow = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+  iblScale(lash, 0.28, 0.9, 0.6); iblScale(brow, 0.28, 0.9, 0.6);
   return [skin, lash, teeth, tongue, brow];
 }
 export function attachDancerEyes(bones, id) {
@@ -240,10 +248,10 @@ void main() {
   for (int k = 0; k < 2; k++) { vec3 e = k == 0 ? uEyeL : uEyeR; float sx = k == 0 ? 1.0 : -1.0; vec2 q = vec2((vP.x - e.x) * sx, vP.y - e.y) / uEyeRad;
     if (vP.z > e.z - 0.004) {
       float upper = smoothstep(-0.15, 0.25, q.y); float sh = lids * upper * smoothstep(1.9, 1.0, q.y);
-      c = mix(c, uShadow, sh * 0.62); rough = mix(rough, 0.38, sh);
-      float lid = length(q * vec2(0.85, 1.85)); float ln = smoothstep(1.32, 1.12, lid) * smoothstep(0.98, 1.08, lid) * smoothstep(-0.05, 0.25, q.y);
+      c = mix(c, uShadow, sh * 0.5); rough = mix(rough, 0.5, sh);
+      float lid = length(q * vec2(0.85, 1.85)); float ln = smoothstep(1.2, 1.08, lid) * smoothstep(0.98, 1.05, lid) * smoothstep(0.12, 0.4, q.y);
       float wing = smoothstep(0.035, 0.0, abs(q.y - 0.18 - (q.x - 0.9) * 0.55)) * smoothstep(0.75, 0.95, q.x) * smoothstep(1.5, 1.25, q.x);
-      c = mix(c, vec3(0.012, 0.008, 0.007), clamp(ln + wing, 0.0, 1.0) * uLiner); } }
+      c = mix(c, vec3(0.02, 0.012, 0.01), clamp(ln + wing, 0.0, 1.0) * uLiner * 0.8); } }
   // brow skin under the strands: a faint fill so the brow reads as a shape, not a sparse scatter of hairs
   for (int k = 0; k < 2; k++) { float sx = k == 0 ? 1.0 : -1.0; if (vP.z < uEyeL.z - 0.03) continue; float x = vP.x * sx; float best = 9.0;
     for (int i = 0; i < 15; i++) { vec4 a = uBrow[i], b = uBrow[i + 1]; vec2 ab = b.xy - a.xy; float t = clamp(dot(vec2(x, vP.y) - a.xy, ab) / dot(ab, ab), 0.0, 1.0); vec2 pp = a.xy + ab * t; float th = mix(a.z, b.z, t); best = min(best, length(vec2(x, vP.y) - pp) / max(th * 0.5, 1e-4)); }

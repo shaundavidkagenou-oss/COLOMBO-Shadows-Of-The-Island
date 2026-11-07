@@ -24,7 +24,14 @@
 import * as THREE from 'three';
 import { dancerBody, dancerShared, DANCER_BONES } from './DancerBody.js';
 import { patchHeroMaterial, poseVec, HAND_POSES } from './HeroRig.js';
-import { hairMaterial } from './HeroHead.js';
+import { hairMaterial, iblScale } from './HeroHead.js';
+// fill the empty bins of a polar radius table (rows of NA angles): circular linear interpolation between the nearest filled
+// bins of the same row; rows with almost nothing copy the nearest usable row
+function fillTable(R, NA, NY) {
+  const good = []; for (let iy = 0; iy < NY; iy++) { const row = R.subarray(iy * NA, iy * NA + NA); const f = []; for (let i = 0; i < NA; i++) if (row[i] > 0) f.push(i); good.push(f.length >= 6);
+    if (f.length < 6) continue; for (let k = 0; k < f.length; k++) { const a = f[k], b = f[(k + 1) % f.length]; const span = (b - a + NA) % NA || NA; for (let j = 1; j < span; j++) row[(a + j) % NA] = lerp(row[a], row[b], j / span); } }
+  for (let iy = 0; iy < NY; iy++) if (!good[iy]) { let best = -1; for (let d = 1; d < NY && best < 0; d++) { if (iy - d >= 0 && good[iy - d]) best = iy - d; else if (iy + d < NY && good[iy + d]) best = iy + d; } if (best >= 0) R.copyWithin(iy * NA, best * NA, best * NA + NA); }
+}
 
 const BI = Object.fromEntries(DANCER_BONES.map((n, i) => [n, i]));
 const sstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -145,7 +152,7 @@ function buildWear(C, sp, W) {
   for (let u = 0; u < NU; u++) { const x = P[u * 3], y = P[u * 3 + 1], z = P[u * 3 + 2]; const p = [x, y, z];
     let v = Math.max(cupF(u, tips[0], 1), cupF(u, tips[1], -1));
     if (C.warm(u) < 0.2 && C.wb(u, 'head', 'neck') < 0.5) { const yb = ub + W.cup.base - 0.004 + (z < 0 ? 0.012 * sstep(0, -0.08, z) : 0); v = Math.max(v, 0.0055 - Math.abs(y - yb)); }
-    if (y > ub && C.warm(u) < 0.15) for (const s of strap) v = Math.max(v, 0.0045 - polyDist(p, s));
+    if (y > ub && C.warm(u) < 0.15) for (const s of strap) v = Math.max(v, 0.0058 - polyDist(p, s));
     f[u] = v; }
   const cupTh = (r) => { const T = r.p[0] > 0 ? tips[0] : tips[1]; const d = Math.hypot(r.p[0] - T[0], r.p[1] - T[1]); return 0.0014 + W.cupPad * sstep(0.09, 0.0, d) * (r.p[2] > T[2] - 0.08 ? 1 : 0); };
   shell(C, f, { acc: A, g: G.fabric, col: vary(top), th: cupTh, hide, hideMargin: 0.007 });
@@ -197,7 +204,7 @@ function buildWear(C, sp, W) {
 }
 
 // ---------------------------------------------------------------- hair
-const HAIRLINE = [[0, 0.066], [0.3, 0.065], [0.52, 0.062], [0.78, 0.056], [1.02, 0.044], [1.22, 0.026], [1.34, -0.004], [1.5, -0.008], [1.6, 0.012], [1.9, 0.018], [2.25, 0.0], [2.6, -0.045], [3.2, -0.075]];
+const HAIRLINE = [[0, 0.056], [0.3, 0.055], [0.52, 0.053], [0.78, 0.049], [1.02, 0.044], [1.22, 0.026], [1.34, -0.004], [1.5, -0.008], [1.6, 0.012], [1.9, 0.018], [2.25, 0.0], [2.6, -0.045], [3.2, -0.075]];
 const HAIR = {
   // cap volume (m) on top / at the sides, mass: end height (relative to landmarks), coverage angle, thickness, waves
   long: { top: 0.009, side: 0.011, part: true, mass: { end: (L, J, a) => L.underBustY + 0.005 + 0.05 * Math.pow(Math.abs(a - Math.PI) / 1.9, 2), edge: [1.28, 2.15], th: 0.016, gap: 0.009, wave: 0 } },
@@ -205,13 +212,13 @@ const HAIR = {
   bob: { top: 0.012, side: 0.015, part: false, mass: { end: (L) => L.eyeL[1] - 0.088, edge: [0.92, 0.92], th: 0.02, gap: 0.011, wave: 0, tuck: true } },
   ponytail: { top: 0.0035, side: 0.004, part: false, sleek: true, tail: true },
 };
-function buildHair(C, sp) {
+export function buildHair(C, sp) {
   const st = HAIR[sp.hair] || HAIR.long; const A = new Acc(2); const { P, NU, J, L } = C; const f = new Float32Array(NU);
   const ey = L.eyeL[1], cz = L.eyeL[2] - 0.085; const col = lin(sp.hairColor || '#120c08');
-  const vary = (p) => { const n = 0.85 + 0.3 * hash(Math.round(p[0] * 900), Math.round(p[1] * 900) + Math.round(p[2] * 900) * 3); return [col[0] * n, col[1] * n, col[2] * n]; };
+  const vary = (p) => { const n = 0.96 + 0.05 * Math.sin(p[0] * 61 + p[1] * 23) * Math.sin(p[2] * 47 - p[1] * 31); return [col[0] * n, col[1] * n, col[2] * n]; }; // smooth tone variation (per-vertex noise banded the mass)
   const tie = [0, ey + 0.075, cz - 0.075];
   for (let u = 0; u < NU; u++) { const x = P[u * 3], y = P[u * 3 + 1], z = P[u * 3 + 2]; if (C.wb(u, 'head', 'neck') < 0.6 || y < ey - 0.1) { f[u] = -1; continue; }
-    const a = Math.abs(Math.atan2(x, z - cz)); f[u] = (y - ey) - tab(HAIRLINE, a) - (C.mask.ears[u] > 60 ? 1 : 0); }
+    const a = Math.abs(Math.atan2(x, z - cz)); f[u] = (y - ey) - tab(HAIRLINE, a) - (st.tail && C.mask.ears[u] > 170 ? 1 : 0); } // ears: only the pulled-back style leaves them bare; the others cover them
   const thick = (r, extra = 0) => { const p = r.p; const a = Math.abs(Math.atan2(p[0], p[2] - cz)); const hy = p[1] - ey;
     let t = lerp(st.side, st.top, sstep(0.02, 0.07, hy)); if (st.part && hy > 0.05 && p[2] > cz - 0.04) t -= 0.0045 * Math.exp(-((p[0] / 0.005) ** 2)) * sstep(0.05, 0.075, hy);
     return 0.0011 + extra + t * sstep(0.0, st.sleek ? 0.006 : 0.02, r.f) * (a > 2.4 && hy < 0 ? 1 : 1); };
@@ -224,20 +231,25 @@ function buildHair(C, sp) {
     const NA = 120, y0 = L.underBustY - 0.08, y1 = ey + 0.04, dy = 0.005, NY = Math.ceil((y1 - y0) / dy) + 1; const R = new Float32Array(NA * NY);
     for (let u = 0; u < NU; u++) { if (C.warm(u) > 0.25) continue; const x = P[u * 3], y = P[u * 3 + 1], z = P[u * 3 + 2]; if (y < y0 || y > y1) continue; const a = (Math.atan2(x, z - cz) + Math.PI * 2) % (Math.PI * 2);
       const ia = Math.floor(a / (Math.PI * 2) * NA) % NA, iy = Math.round((y - y0) / dy); const r = Math.hypot(x, z - cz); if (r > R[iy * NA + ia]) R[iy * NA + ia] = r; }
-    for (let it = 0; it < 3; it++) for (let iy = 0; iy < NY; iy++) for (let ia = 0; ia < NA; ia++) if (!R[iy * NA + ia]) R[iy * NA + ia] = Math.max(R[iy * NA + (ia + 1) % NA], R[iy * NA + (ia + NA - 1) % NA], iy > 0 ? R[(iy - 1) * NA + ia] : 0, iy + 1 < NY ? R[(iy + 1) * NA + ia] : 0);
+    fillTable(R, NA, NY);
     const Rs = new Float32Array(NA * NY); for (let iy = 0; iy < NY; iy++) for (let ia = 0; ia < NA; ia++) { let s = 0; for (let k = -2; k <= 2; k++) s += R[iy * NA + (ia + k + NA) % NA]; Rs[iy * NA + ia] = s / 5; }
     const Rb = (a, y) => { const fa = (((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2) * NA, ia = Math.floor(fa) % NA, ib = (ia + 1) % NA, ta = fa - Math.floor(fa); const fy = clamp((y - y0) / dy, 0, NY - 1.001), iy = Math.floor(fy), ty = fy - iy;
       const g = (i, j) => Rs[j * NA + i]; return lerp(lerp(g(ia, iy), g(ib, iy), ta), lerp(g(ia, iy + 1), g(ib, iy + 1), ta), ty); };
     const shY = J.armL[1] + 0.03; const edgeA = (y) => lerp(M.edge[1], M.edge[0], sstep(shY - 0.02, J.neck[1] + 0.02, y));
     const NC = 64, NR = 34; const yTop = ey + 0.01; const rows = []; const grid = [];
-    for (let c = 0; c <= NC; c++) { const u = c / NC; const col0 = []; let Rh = 0; const jit = (hash(c, 7) - 0.5) * 0.018;
+    for (let c = 0; c <= NC; c++) { const u = c / NC; const col0 = []; let Rh = 0; const jit = 0;
       for (let r = 0; r <= NR; r++) { const v = r / NR; const a0 = edgeA(yTop); const aMid = lerp(a0, Math.PI * 2 - a0, u); const yEnd = M.end(L, J, aMid) + jit * (M.tuck ? 0.2 : 1);
         const y = lerp(yTop, yEnd, v); const ea = edgeA(y); const a = lerp(ea, Math.PI * 2 - ea, u);
-        Rh = Math.max(Rh - 0.0012, Rb(a, y) + M.gap + (r === 0 ? 0 : 0)); let Ro = Rh + M.wave * Math.sin(y * 70 + u * 9) * sstep(yTop - 0.03, yTop - 0.08, y);
-        if (M.tuck) Ro -= 0.009 * sstep(0.8, 1, v); const Ri = Math.max(Rb(a, y) + 0.002, Ro - M.th * (1 - 0.6 * sstep(0.85, 1, v)));
+        Rh = Math.max(Rh - 0.0005, Rb(a, y) + M.gap); let Ro = Rh + M.wave * Math.sin(y * 70 + u * 9) * sstep(yTop - 0.03, yTop - 0.08, y);
+        if (M.tuck) Ro -= 0.009 * sstep(0.8, 1, v); const edge = sstep(0, 0.12, u) * sstep(1, 0.88, u); // thin, soft side edges and ends (no box edge)
+        const Rin = Rb(a, y) + 0.002; Ro = Math.max(Rin + 0.004, lerp(Rin + 0.005, Ro, edge)); const Ri = Math.max(Rin, Ro - M.th * edge * (1 - 0.8 * sstep(0.7, 1, v)));
         col0.push({ a, y, Ro, Ri }); }
       grid.push(col0); }
     const wOf = (y) => { const hn = J.neck[1]; const wh = sstep(hn - 0.01, hn + 0.06, y); const wc = 1 - sstep(shY - 0.05, hn - 0.01, y); return top4(boneW([['head', wh], ['neck', Math.max(0, 1 - wh - wc)], ['chest', wc]])); };
+    // soft strand layers just outside the mass (alpha-tested), slightly longer at the ends so the cut is wispy, not a hard line
+    for (const [lay, ex] of [[0.5, 0.0018], [1, 0.0036]]) { const ids = []; for (let c = 0; c <= NC; c++) for (let r = 0; r <= NR; r++) { const g = grid[c][r]; const R0 = g.Ro + ex; const p = [Math.sin(g.a) * R0, g.y - (r === NR ? 0.012 * lay : 0), cz + Math.cos(g.a) * R0];
+        ids.push(A.v(p, nrm([Math.sin(g.a), 0.15, Math.cos(g.a)]), wOf(g.y), vary(p), { flow: [0, -1, 0], root: [Math.sin(g.a) * g.Ro, g.y, cz + Math.cos(g.a) * g.Ro], layer: lay })); }
+      for (let c = 0; c < NC; c++) for (let r = 0; r < NR; r++) { const a = ids[c * (NR + 1) + r], b = ids[(c + 1) * (NR + 1) + r]; A.tri(1, a, a + 1, b + 1); A.tri(1, a, b + 1, b); } }
     const vid = []; for (const side of [0, 1]) { const ids = []; for (let c = 0; c <= NC; c++) for (let r = 0; r <= NR; r++) { const g = grid[c][r]; const R0 = side ? g.Ri : g.Ro; const p = [Math.sin(g.a) * R0, g.y, cz + Math.cos(g.a) * R0];
         const n = side ? [-Math.sin(g.a), 0, -Math.cos(g.a)] : [Math.sin(g.a), 0.15, Math.cos(g.a)]; ids.push(A.v(p, nrm(n), wOf(g.y), vary(p), { flow: [0, -1, 0], root: p, layer: 0 })); } vid.push(ids); }
     const id = (s, c, r) => vid[s][c * (NR + 1) + r];
@@ -275,7 +287,7 @@ function wearMaterials(W, U) {
 }
 
 // ---------------------------------------------------------------- cloth (Verlet)
-const _m4 = new THREE.Matrix4(), _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
+const _m4 = new THREE.Matrix4(), _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
 class Cloth {
   // pts: rest positions in hips-local space (row 0 pinned), cons: [i, j, rest, stiffness, mode (0 both, 1 stretch only)]
   constructor(n, pinned) { this.n = n; this.p = new Float32Array(n * 3); this.o = new Float32Array(n * 3); this.rest = new Float32Array(n * 3); this.pin = pinned; this.cons = []; this.ok = false; }
@@ -303,7 +315,7 @@ export class DancerRig {
     const wear = new THREE.SkinnedMesh(geo, this.wearMats); wear.name = 'dancerWear'; body.add(wear); wear.bind(skel, body.bindMatrix); wear.castShadow = true; wear.receiveShadow = false; this.wear = wear;
     this.hideSkin(body.geometry, hide); this.hidden = hide.size;
     // ---- hair
-    const Hh = buildHair(C, sp); const hg = Hh.A.geometry(true); this.hairMats = [hairMaterial('volume', { freq: 2600 }), hairMaterial('fur', { freq: 2600 })];
+    const Hh = buildHair(C, sp); const hg = Hh.A.geometry(true); this.hairMats = [hairMaterial('volume', { freq: 2600 }), hairMaterial('fur', { freq: 2600 })]; for (const m of this.hairMats) iblScale(m, 0.28, 0.9, 0.6);
     const hair = new THREE.SkinnedMesh(hg, this.hairMats); hair.name = 'dancerHair'; body.add(hair); hair.bind(skel, body.bindMatrix); hair.castShadow = true; this.hair = hair;
     // ---- jewellery: hoop earrings (rigid on the head)
     this.extra = [];
@@ -315,6 +327,7 @@ export class DancerRig {
     const hipsJ = C.J.hips; this.hipT = this.hipTable(C);
     this.caps = []; for (const S of ['L', 'R']) { this.caps.push({ bA: ch.bones['thigh' + S], bB: ch.bones['shin' + S], ...this.limbR(C, 'thigh' + S, C.J['thigh' + S], C.J['shin' + S]) }, { bA: ch.bones['shin' + S], bB: ch.bones['foot' + S], ...this.limbR(C, 'shin' + S, C.J['shin' + S], C.J['foot' + S]) }); }
     for (const c of this.caps) { c.a = [0, 0, 0]; c.b = [0, 0, 0]; }
+    this.hull = { a: [0, 0, 0], b: [0, 0, 0], ra: 0, rb: 0 }; // between the thighs: fabric spans across both legs
     if (W.skirt) this.skirt = this.makeSkirt(C, W.skirt, hipsJ, sp);
     if (W.fringe) this.fringe = this.makeFringe(C, W.fringe, hipsJ);
     if (HAIR[sp.hair]?.tail) this.tail = this.makeTail(C, Hh, sp);
@@ -341,7 +354,7 @@ export class DancerRig {
   hipTable(C) { const J = C.J, hy = J.hips; const y0 = J.thighL[1] - 0.02, y1 = hy[1] + 0.09, NA = 64, NY = 12, dy = (y1 - y0) / (NY - 1); const R = new Float32Array(NA * NY); const cz = -0.01;
     for (let u = 0; u < C.NU; u++) { if (C.warm(u) > 0.2) continue; const x = C.P[u * 3], y = C.P[u * 3 + 1], z = C.P[u * 3 + 2]; if (y < y0 || y > y1) continue; const a = (Math.atan2(x, z - cz) + Math.PI * 2) % (Math.PI * 2);
       const ia = Math.floor(a / (Math.PI * 2) * NA) % NA, iy = Math.round((y - y0) / dy); const r = Math.hypot(x, z - cz); if (r > R[iy * NA + ia]) R[iy * NA + ia] = r; }
-    for (let it = 0; it < 4; it++) for (let i = 0; i < NA * NY; i++) if (!R[i]) R[i] = Math.max(R[(i + 1) % (NA * NY)], R[(i + NA * NY - 1) % (NA * NY)]);
+    fillTable(R, NA, NY);
     const fn = (a, y) => { const fa = (((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2) * NA; const ia = Math.floor(fa) % NA, ib = (ia + 1) % NA, ta = fa - Math.floor(fa); const fy = clamp((y - y0) / dy, 0, NY - 1.001), iy = Math.floor(fy), ty = fy - iy;
       const g = (i, j) => R[j * NA + i]; return lerp(lerp(g(ia, iy), g(ib, iy), ta), lerp(g(ia, iy + 1), g(ib, iy + 1), ta), ty); };
     // in hips-local coordinates (hips bone origin at the hips joint)
@@ -352,6 +365,7 @@ export class DancerRig {
     for (let c = 0; c < NC; c++) { const a = (c / NC) * Math.PI * 2; const r0 = Rw(a, yt) + 0.004; let r = r0;
       for (let rr = 0; rr < NR; rr++) { const y = yt - rr * dy; const fl = r0 * (1 + (K.flare - 1) * Math.pow(rr / (NR - 1), 0.85)); r = Math.max(fl, Math.min(Rlow(a, y), 0.3) + 0.01, r * (rr ? 1 : 0)); const i = rr * NC + c;
         cl.rest[i * 3] = Math.sin(a) * r - hipsJ[0]; cl.rest[i * 3 + 1] = y - hipsJ[1]; cl.rest[i * 3 + 2] = Math.cos(a) * r - 0.01 - hipsJ[2]; } }
+    this.pinSkin(C, cl, hipsJ);
     const R3 = (i) => [cl.rest[i * 3], cl.rest[i * 3 + 1], cl.rest[i * 3 + 2]]; const dist = (i, j) => Math.hypot(...sub(R3(i), R3(j)));
     const open = (c, rr) => K.slit != null && rr * dy > K.slitTop && c === NC - 1; // the sarong's slit: no ring link across it
     const slitC = K.slit != null ? Math.round(((Math.PI * 0.5 - K.slit + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2) * NC) : 0;
@@ -359,20 +373,30 @@ export class DancerRig {
     cl.cmap = Array.from({ length: NC }, (_, c) => col(c));
     for (let rr = 0; rr < NR; rr++) for (let k = 0; k < NC; k++) { const i = rr * NC + col(k), j = rr * NC + col(k + 1); if (!open(k, rr)) cl.cons.push([i, j, dist(i, j), 1, 1]);
       if (rr + 1 < NR) cl.cons.push([i, i + NC, dist(i, i + NC), 1, 0]); if (rr + 2 < NR) cl.cons.push([i, i + 2 * NC, dist(i, i + 2 * NC), 0.25, 0]);
-      if (rr + 1 < NR && !open(k, rr)) { cl.cons.push([i, j + NC, dist(i, j + NC), 0.3, 1]); } }
+      if (rr + 1 < NR && !open(k, rr)) { cl.cons.push([i, j + NC, dist(i, j + NC), 0.3, 1]); }
+      const j2 = rr * NC + col(k + 2); if (rr > 0 && !open(k, rr) && !open(k + 1, rr) && k + 2 <= NC + 1) cl.cons.push([i, j2, dist(i, j2), 0.18, 0]); } // ring bending: holds the flare
     // render mesh: (NC + 1) columns (the seam duplicated; the slit left open), pleats as an alternating offset
     const NCr = NC + 1; const g = new THREE.BufferGeometry(); const pos = new Float32Array(NCr * NR * 3); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(NCr * NR * 3), 3));
     const uv = new Float32Array(NCr * NR * 2); for (let rr = 0; rr < NR; rr++) for (let k = 0; k < NCr; k++) { uv[(rr * NCr + k) * 2] = k / NC; uv[(rr * NCr + k) * 2 + 1] = 1 - rr / (NR - 1); } g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     const idx = []; for (let rr = 0; rr + 1 < NR; rr++) for (let k = 0; k < NC; k++) { if (K.slit != null && k === NC - 1 && rr * dy > K.slitTop - dy) continue; const a = rr * NCr + k, b = a + 1, c2 = a + NCr, d = c2 + 1; idx.push(a, c2, d, a, d, b); } g.setIndex(idx);
     const base = new THREE.Color(sp.bottom || sp.top); if (K.kind === 'flare') base.lerp(new THREE.Color(0xffffff), 0.06);
-    const mat = new THREE.MeshPhysicalMaterial({ color: base, side: THREE.DoubleSide, roughness: K.kind === 'flare' ? 0.55 : 0.42, sheen: 1, sheenRoughness: 0.3, sheenColor: new THREE.Color(0xffffff).multiplyScalar(0.6), transparent: K.kind === 'flare', opacity: K.kind === 'flare' ? 0.9 : 1, depthWrite: true });
+    const mat = new THREE.MeshPhysicalMaterial({ color: base, side: THREE.DoubleSide, roughness: K.kind === 'flare' ? 0.55 : 0.42, sheen: 1, sheenRoughness: 0.3, sheenColor: new THREE.Color(0xffffff).multiplyScalar(0.6), });
     const mesh = new THREE.Mesh(g, mat); mesh.frustumCulled = false; mesh.castShadow = true; mesh.name = 'dancerSkirt'; mesh.renderOrder = 1; this.ch.root.add(mesh);
     cl.mesh = mesh; cl.kind = K.kind; cl.NCr = NCr; cl.slit = K.slit != null; return cl;
   }
+  // pinned row: each point skinned like the nearest body vertex (linear blend of its bones), so the waistband line follows
+  // the lower back and hips exactly as the skin under it does
+  pinSkin(C, cl, hipsJ) { cl.pw = []; for (let i = 0; i < cl.pin; i++) { const q = [cl.rest[i * 3] + hipsJ[0], cl.rest[i * 3 + 1] + hipsJ[1], cl.rest[i * 3 + 2] + hipsJ[2]]; let best = -1, bd = 1e9;
+      for (let u = 0; u < C.NU; u++) { if (C.warm(u) > 0.1) continue; const d = (C.P[u * 3] - q[0]) ** 2 + (C.P[u * 3 + 1] - q[1]) ** 2 + (C.P[u * 3 + 2] - q[2]) ** 2; if (d < bd) { bd = d; best = u; } }
+      const w = top4(C.wmap(best)); cl.pw.push({ q, w }); } cl.pinPrev = new Float32Array(cl.pin * 3); cl.pinCur = new Float32Array(cl.pin * 3); }
+  pinUpdate(cl) { const sk = this.ch.mesh.skeleton; const bm = sk.bones, bi = sk.boneInverses; cl.pinPrev.set(cl.pinCur);
+    cl.pw.forEach((P, i) => { let x = 0, y = 0, z = 0; for (let k = 0; k < 4; k++) { const w = P.w.w[k]; if (!w) continue; _m4.multiplyMatrices(bm[P.w.i[k]].matrixWorld, bi[P.w.i[k]]); _v.set(P.q[0], P.q[1], P.q[2]).applyMatrix4(_m4); x += _v.x * w; y += _v.y * w; z += _v.z * w; }
+      cl.pinCur[i * 3] = x; cl.pinCur[i * 3 + 1] = y; cl.pinCur[i * 3 + 2] = z; }); }
   makeFringe(C, K, hipsJ) {
     const NF = K.n, NS = K.nodes; const yt = hipsJ[1] + K.top - 0.008; const Rw = this.hipT.Rw; const cl = new Cloth(NF * NS, NF); cl.NC = NF; cl.NR = NS; const dl = K.len / (NS - 1);
     for (let c = 0; c < NF; c++) { const a = (c / NF) * Math.PI * 2; const r0 = Rw(a, yt) + 0.005;
       for (let s = 0; s < NS; s++) { const i = s * NF + c; const r = r0 + 0.004 * s; cl.rest[i * 3] = Math.sin(a) * r - hipsJ[0]; cl.rest[i * 3 + 1] = yt - s * dl - hipsJ[1]; cl.rest[i * 3 + 2] = Math.cos(a) * r - 0.01 - hipsJ[2]; } }
+    this.pinSkin(C, cl, hipsJ);
     for (let s = 0; s + 1 < NS; s++) for (let c = 0; c < NF; c++) { const i = s * NF + c; cl.cons.push([i, i + NF, dl, 1, 0]); }
     // ribbons of beads: 2 verts per node
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(NF * NS * 2 * 3), 3)); g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(NF * NS * 2 * 3), 3));
@@ -404,21 +428,48 @@ export class DancerRig {
   // ---------------------------------------------------------------- per frame (after the animation pose)
   update(dt) {
     if (!(dt > 0)) return; const ch = this.ch; ch.root.updateMatrixWorld(true); this.t += dt;
-    this.fingers(dt); this.breasts(dt);
+    const pole = this.poleWorld(); this.fingers(dt, pole); this.breasts(dt);
     const hips = ch.bones.hips; const big = dt > 0.1 || !this.prevHips; if (!this.prevHips) this.prevHips = new THREE.Matrix4();
     for (const c of this.caps) { c.bA.getWorldPosition(_v); c.a[0] = _v.x; c.a[1] = _v.y; c.a[2] = _v.z; c.bB.getWorldPosition(_v); c.b[0] = _v.x; c.b[1] = _v.y; c.b[2] = _v.z; }
+    { const [tL, sL, tR, sR] = [this.caps[0], this.caps[1], this.caps[2], this.caps[3]]; const H = this.hull; const wT = Math.hypot(...sub(tL.a, tR.a)) / 2, wK = Math.hypot(...sub(tL.b, tR.b)) / 2;
+      for (let k = 0; k < 3; k++) { H.a[k] = (tL.a[k] + tR.a[k]) / 2; H.b[k] = (tL.b[k] + tR.b[k]) / 2; } H.ra = wT + tL.ra * 0.75; H.rb = wK + tL.rb * 0.7; H.on = wK < 0.17; }
     this.hipT.m.copy(hips.matrixWorld); this.hipT.inv.copy(hips.matrixWorld).invert();
-    const pd = ch.poleDancer; let pole = null; if (pd && pd.pole && ch.root.parent) { const g = ch.root.parent; _v.set(pd.pole.x, 0, pd.pole.z).applyMatrix4(g.matrixWorld); _v2.set(0, 0, 0).applyMatrix4(g.matrixWorld); pole = { x: _v.x, z: _v.z, y0: pd.pole.y0 + _v2.y - 0.1, y1: pd.pole.y1 + _v2.y, r: 0.026 + 0.005 }; }
     for (const cl of [this.skirt, this.fringe, this.tail]) if (cl) this.sim(cl, dt, big, pole);
     this.prevHips.copy(hips.matrixWorld);
   }
-  fingers(dt) {
-    const b = this.ch.bones; const hg = this.ch.handGrip;
+  poleWorld() { const ch = this.ch, pd = ch.poleDancer; if (!(pd && pd.pole && ch.root.parent)) return null; const g = ch.root.parent; _v.set(pd.pole.x, 0, pd.pole.z).applyMatrix4(g.matrixWorld); _v2.set(0, 0, 0).applyMatrix4(g.matrixWorld);
+    return { x: _v.x, z: _v.z, y0: pd.pole.y0 + _v2.y - 0.1, y1: pd.pole.y1 + _v2.y, r: 0.026 + 0.005, R: 0.0225 }; }
+  // fingers closing on the pole: each joint curls as far as it can while the next joint (or the finger tip) stays on the pole
+  // surface — the hand wraps the actual pole instead of a fixed fist pose that would sink into it
+  wrap(S, pole, out, base = null) { const b = this.ch.bones, F = this.fing[S]; const tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3();
+    for (const [fi, f] of ['idx', 'mid', 'rng', 'pnk', 'thb'].entries()) { const R = pole.R + (f === 'thb' ? 0.013 : 0.0105); const lim = f === 'thb' ? [0.9, 0.9, 0.9] : [1.5, 1.7, 1.2];
+      for (let j = 0; j < 3; j++) { const bone = b[f + (j + 1) + S]; const child = j < 2 ? b[f + (j + 2) + S] : null;
+        const endW = () => { bone.updateMatrixWorld(true); if (child) return child.getWorldPosition(tmp); return bone.localToWorld(tmp.copy(bone.position).setLength(f === 'thb' ? 0.026 : 0.024)); }; // tip: continues the bone's own (curled) axis
+        const clear = (a) => { bone.quaternion.setFromAxisAngle(F[f][j], a); const e = endW(); return Math.hypot(e.x - pole.x, e.z - pole.z) >= R; };
+        let lo = -0.3, hi = lim[j];
+        if (base && base[fi * 3 + j] === null) { bone.updateMatrixWorld(true); out[fi * 3 + j] = null; continue; }
+        if (base) { const a0 = base[fi * 3 + j]; lo = a0; if (!clear(a0)) { lo = null; for (let k = 1; k <= 8 && lo === null; k++) { if (clear(a0 + k * 0.18)) lo = a0 + k * 0.18; else if (clear(a0 - k * 0.12)) lo = a0 - k * 0.12; } if (lo === null) lo = Math.min(lim[j], a0 + 1.4); } }
+        else if (clear(hi)) lo = hi; else if (!clear(lo)) hi = lo; else for (let it = 0; it < 7; it++) { const m = (lo + hi) / 2; if (clear(m)) lo = m; else hi = m; }
+        bone.quaternion.setFromAxisAngle(F[f][j], lo); out[fi * 3 + j] = lo; bone.updateMatrixWorld(true);
+        if (!clear(lo)) { // the curl axis can't take it out (thumb on the palm side): swing the segment radially away from the pole
+          const p0 = bone.getWorldPosition(new THREE.Vector3()), e = endW().clone(), seg = e.clone().sub(p0).normalize(); const rad = new THREE.Vector3(p0.x - pole.x, 0, p0.z - pole.z).normalize();
+          const k = seg.clone().cross(rad); if (k.lengthSq() > 1e-8) { k.normalize(); const qp = bone.parent.getWorldQuaternion(new THREE.Quaternion()), qpi = qp.clone().invert(), base = bone.quaternion.clone();
+            for (let th = 0.12; th <= 1.8; th += 0.12) { bone.quaternion.copy(qpi).multiply(_q2.setFromAxisAngle(k, th)).multiply(qp).multiply(base); if (Math.hypot(endW().x - pole.x, endW().z - pole.z) >= R) break; } }
+          out[fi * 3 + j] = null; bone.updateMatrixWorld(true); } } } }
+  fingers(dt, pole) {
+    const b = this.ch.bones; const hg = this.ch.handGrip; const NAMES = ['idx', 'mid', 'rng', 'pnk', 'thb'];
+    const angles = (v) => { const pv = poseVec(v, 1); const a = pv.slice(0, 12); for (let j = 0; j < 3; j++) a.push(pv[12] * [0.5, 0.7, 0.6][j]); return a; };
+    const relax = [0.12, 0.22, 0.26, 0.3, 0.34];
     for (const S of ['L', 'R']) { const want = hg ? (hg[S] ? 1 : 0) : 0; this.grip[S] += (want - this.grip[S]) * (1 - Math.exp(-dt / 0.09));
-      const g = this.grip[S]; const relax = [0.12, 0.22, 0.26, 0.3, 0.34]; const P = HAND_POSES.grip; const v = [0, 1, 2, 3, 4].map((i) => lerp(relax[i], P[i] + 0.05, g));
-      const pv = poseVec(v, 1); const F = this.fing[S];
-      ['idx', 'mid', 'rng', 'pnk'].forEach((f, i) => { for (let j = 0; j < 3; j++) b[f + (j + 1) + S].quaternion.setFromAxisAngle(F[f][j], pv[i * 3 + j]); });
-      for (let j = 0; j < 3; j++) b['thb' + (j + 1) + S].quaternion.setFromAxisAngle(F.thb[j], pv[12] * [0.5, 0.7, 0.6][j]); }
+      const g = this.grip[S]; const F = this.fing[S];
+      const hw = b['hand' + S].getWorldPosition(_v3), near = pole && Math.hypot(hw.x - pole.x, hw.z - pole.z) < 0.25 && hw.y > pole.y0 - 0.1 && hw.y < pole.y1 + 0.1;
+      let fin;
+      if (near && g > 0.02) { const w = new Array(15); this.wrap(S, pole, w); const r0 = angles(relax); fin = w.map((x, i) => (x === null ? null : lerp(r0[i], x, g))); } // closing on the pole
+      else fin = angles(relax.map((r, i) => lerp(r, HAND_POSES.grip[i] + 0.05, g)));
+      // null = a joint the contact solve had to swing off its curl axis: keep its solved rotation
+      NAMES.forEach((f, fi) => { for (let j = 0; j < 3; j++) { const a = fin[fi * 3 + j]; if (a !== null) b[f + (j + 1) + S].quaternion.setFromAxisAngle(F[f][j], a); } });
+      // whatever the grip state (closing, opening, released and travelling round the pole), nothing ends up inside the pole
+      if (near) { b['hand' + S].updateMatrixWorld(true); this.wrap(S, pole, new Array(15), fin); } }
   }
   breasts(dt) {
     const ch = this.ch, chest = ch.bones.chest; const e = chest.matrixWorld.elements; const p = _v.set(e[12], e[13], e[14]); chest.getWorldQuaternion(_q);
@@ -446,8 +497,8 @@ export class DancerRig {
     const pinW = (i, m, out) => { _v.set(cl.rest[i * 3], cl.rest[i * 3 + 1], cl.rest[i * 3 + 2]); if (cl.kind === 'tail') { _v.copy(cl.tieLocal).applyMatrix4(this.ch.bones.head.matrixWorld); } else _v.applyMatrix4(m); out[i * 3] = _v.x; out[i * 3 + 1] = _v.y; out[i * 3 + 2] = _v.z; };
     if (big || !cl.ok) { for (let i = 0; i < cl.n; i++) { _v.set(cl.rest[i * 3], cl.rest[i * 3 + 1], cl.rest[i * 3 + 2]).applyMatrix4(hips.matrixWorld); p[i * 3] = o[i * 3] = _v.x; p[i * 3 + 1] = o[i * 3 + 1] = _v.y; p[i * 3 + 2] = o[i * 3 + 2] = _v.z; }
       if (cl.kind === 'tail') { const h = this.ch.bones.head.matrixWorld; const t = cl.tieLocal.clone().applyMatrix4(h); const d = cl.dirLocal.clone().transformDirection(h); for (let s = 0; s < cl.n; s++) { const q = t.clone().addScaledVector(d, s * 0.04 * 0.4).add(new THREE.Vector3(0, -s * 0.036, 0)); p[s * 3] = o[s * 3] = q.x; p[s * 3 + 1] = o[s * 3 + 1] = q.y; p[s * 3 + 2] = o[s * 3 + 2] = q.z; } }
-      cl.ok = true; for (let k = 0; k < 30; k++) this.step(cl, 1 / 120, pole, hips.matrixWorld, hips.matrixWorld); this.render(cl); return; }
-    const n = Math.min(4, Math.max(1, Math.ceil(dt / (1 / 100)))); const h = dt / n; const m0 = this.prevHips, m1 = hips.matrixWorld;
+      if (cl.pw) { this.pinUpdate(cl); cl.pinPrev.set(cl.pinCur); } cl.ok = true; for (let k = 0; k < 30; k++) this.step(cl, 1 / 120, pole, hips.matrixWorld, hips.matrixWorld); this.render(cl); return; }
+    if (cl.pw) this.pinUpdate(cl); const n = Math.min(4, Math.max(1, Math.ceil(dt / (1 / 100)))); const h = dt / n; const m0 = this.prevHips, m1 = hips.matrixWorld;
     for (let k = 0; k < n; k++) { const t = (k + 1) / n; this.step(cl, h, pole, m0, m1, t); }
     this.render(cl);
   }
@@ -455,16 +506,18 @@ export class DancerRig {
     const p = cl.p, o = cl.o, n = cl.n, pin = cl.pin; const damp = cl.kind === 'tail' ? 0.985 : cl.kind === 'fringe' ? 0.975 : 0.97; const g = -9.81 * h * h;
     // pinned row follows the hips (interpolated over the sub-steps), tail root follows the head
     if (cl.kind === 'tail') { _v.copy(cl.tieLocal).applyMatrix4(this.ch.bones.head.matrixWorld); p[0] = _v.x; p[1] = _v.y; p[2] = _v.z; const d = _v2.copy(cl.dirLocal).transformDirection(this.ch.bones.head.matrixWorld); cl.dirW = d; }
+    else if (cl.pw) { for (let i = 0; i < pin; i++) for (let c = 0; c < 3; c++) p[i * 3 + c] = lerp(cl.pinPrev[i * 3 + c], cl.pinCur[i * 3 + c], t); }
     else { for (let i = 0; i < pin; i++) { _v.set(cl.rest[i * 3], cl.rest[i * 3 + 1], cl.rest[i * 3 + 2]); const a = _v.clone().applyMatrix4(m0), b = _v.applyMatrix4(m1); p[i * 3] = lerp(a.x, b.x, t); p[i * 3 + 1] = lerp(a.y, b.y, t); p[i * 3 + 2] = lerp(a.z, b.z, t); } }
     for (let i = pin; i < n; i++) { const x = p[i * 3], y = p[i * 3 + 1], z = p[i * 3 + 2]; p[i * 3] += (x - o[i * 3]) * damp; p[i * 3 + 1] += (y - o[i * 3 + 1]) * damp + g; p[i * 3 + 2] += (z - o[i * 3 + 2]) * damp; o[i * 3] = x; o[i * 3 + 1] = y; o[i * 3 + 2] = z; }
     if (cl.kind === 'tail' && cl.dirW) { const d = cl.dirW; p[3] = p[0] + d.x * 0.036; p[4] = p[1] + d.y * 0.036; p[5] = p[2] + d.z * 0.036; } // the tie holds the first segment's direction
     const head = this.ch.bones.head; let hc = null; if (cl.kind === 'tail') { hc = _v2.set(0, 0.075, -0.02).applyMatrix4(head.matrixWorld).clone(); }
     for (let it = 0; it < 4; it++) {
       for (const [i, j, rest, k, mode] of cl.cons) { const dx = p[j * 3] - p[i * 3], dy = p[j * 3 + 1] - p[i * 3 + 1], dz = p[j * 3 + 2] - p[i * 3 + 2]; const d = Math.hypot(dx, dy, dz) || 1e-9;
-        if (mode === 1 && d < rest && d > rest * 0.55) continue; // ring / shear: resists stretching, lets the cloth gather
+        if (mode === 1 && d < rest && d > rest * 0.8) continue; // ring / shear: resists stretching, lets the cloth gather a little
         const diff = ((d - rest) / d) * k; const wi = i < cl.pin ? 0 : 1, wj = j < cl.pin ? 0 : 1; const s = wi + wj; if (!s) continue;
         const cx = dx * diff / s, cy = dy * diff / s, cz = dz * diff / s; if (wi) { p[i * 3] += cx; p[i * 3 + 1] += cy; p[i * 3 + 2] += cz; } if (wj) { p[j * 3] -= cx; p[j * 3 + 1] -= cy; p[j * 3 + 2] -= cz; } }
-      for (let i = cl.pin; i < n; i++) { collide(p, i, this.caps, pole, cl.kind === 'tail' ? null : this.hipT);
+      const caps = cl.kind === 'tail' || !this.hull.on ? this.caps : this.capsHull || (this.capsHull = [...this.caps, this.hull]);
+      for (let i = cl.pin; i < n; i++) { collide(p, i, caps, pole, cl.kind === 'tail' ? null : this.hipT);
         if (hc) { const dx = p[i * 3] - hc.x, dy = p[i * 3 + 1] - hc.y, dz = p[i * 3 + 2] - hc.z, d = Math.hypot(dx, dy, dz), R = 0.105; if (d < R) { const k2 = R / (d || 1); p[i * 3] = hc.x + dx * k2; p[i * 3 + 1] = hc.y + dy * k2; p[i * 3 + 2] = hc.z + dz * k2; } } }
       if (cl.kind === 'tail') { const ch = this.ch.bones.chest; _v.set(0, 0.2, -0.13).applyMatrix4(ch.matrixWorld); for (let i = 1; i < n; i++) { const dx = p[i * 3] - _v.x, dy = p[i * 3 + 1] - _v.y, dz = p[i * 3 + 2] - _v.z, d = Math.hypot(dx, dy, dz); if (d < 0.1) { const k2 = 0.1 / (d || 1); p[i * 3] = _v.x + dx * k2; p[i * 3 + 1] = _v.y + dy * k2; p[i * 3 + 2] = _v.z + dz * k2; } } }
     }

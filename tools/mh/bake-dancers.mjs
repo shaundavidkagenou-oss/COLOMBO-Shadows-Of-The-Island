@@ -47,6 +47,7 @@ export const DANCERS = {
       'head/head-round': 0.45, 'cheek/l-cheek-volume-incr': 0.3, 'cheek/r-cheek-volume-incr': 0.3, 'mouth/mouth-lowerlip-volume-incr': 0.55, 'mouth/mouth-upperlip-volume-incr': 0.3, 'nose/nose-flaring-incr': 0.2,
       'eyes/l-eye-scale-incr': 0.15, 'eyes/r-eye-scale-incr': 0.15, 'chin/chin-prominent-decr': 0.15, 'eyebrows/eyebrows-trans-down': 0.1 } },
 };
+const ARMS = { 'arms/measure-upperarm-length-incr': 0.6, 'arms/measure-lowerarm-length-incr': 0.6 };
 const HEEL = { pitch: 0.55, plat: 0.024 }; // platform stage heels (≈ 10 cm): forefoot pitch, platform thickness under the ball
 
 // ---------------------------------------------------------------- mesh parts (shared topology)
@@ -143,6 +144,9 @@ for (const [id, D] of Object.entries(DANCERS)) {
   for (const [c, cw] of Object.entries(cupW)) if (cw) applyTarget(P, loadTarget(`breast/female-young-averagemuscle-averageweight-${c}-averagefirmness`), cw);
   for (const [f, fw] of Object.entries(firmW)) if (fw) applyTarget(P, loadTarget(`breast/female-young-averagemuscle-averageweight-averagecup-${f}`), fw);
   for (const [t, w] of Object.entries(D.t)) if (w) applyTarget(P, loadTarget(t), w);
+  // MakeHuman's default arms are short for these heights (wrist ≈ 7 cm above the crotch line; real arm ≈ 0.33·H shoulder→wrist):
+  // lengthen upper and lower arm so the hands hang at mid-thigh and the pole grips are within reach
+  for (const [t, w] of Object.entries(ARMS)) applyTarget(P, loadTarget(t), w);
   // ---- joints (MakeHuman space, decimetres) and the re-pose into the game rest pose
   const J0 = {}; for (const n of ORDER) J0[n] = { h: joint(P, RIG[n].head), t: joint(P, RIG[n].tail) };
   const G = {}; // bone → { q (global rotation), h (posed head) }
