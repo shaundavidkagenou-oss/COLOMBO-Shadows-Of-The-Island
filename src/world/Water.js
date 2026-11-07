@@ -96,7 +96,7 @@ const frag = /* glsl */`
     vec3 R = reflect(-V, N); R.y = abs(R.y);
     vec3 sky = mix(uSkyHorizon, uSkyTop, pow(clamp(R.y, 0.0, 1.0), 0.6));
     vec3 refl = sky;
-    if (uReflOn > 0.5) {
+    if (uReflOn > 0.001) { // uReflOn: mirror strength (fades in / out, and with distance)
       vec4 rc = uReflMat * vec4(vWorld.x, uReflH, vWorld.z, 1.0); vec2 ruv = rc.xy / rc.w;
       ruv += (N.xz - vNormalW.xz * 0.4) * (0.085 / (1.0 + camD * 0.01)) * (0.7 + rough * 0.5);
       // soft 4-tap read (rough water never holds a razor-sharp mirror image)
@@ -106,7 +106,7 @@ const frag = /* glsl */`
       // never smear the edge row: outside the mirror view fall back to the sky reflection; churned surf at the seawall holds no clear image
       vec2 eg = smoothstep(vec2(-0.01), vec2(0.07), ruv) * smoothstep(vec2(1.01), vec2(0.93), ruv);
       float surfK = uFoamCoast > 0.0 ? 1.0 - 0.7 * smoothstep(60.0, 6.0, coastX(vWorld.z) - vWorld.x) : 1.0;
-      refl = mix(sky, pr, eg.x * eg.y * surfK);
+      refl = mix(sky, pr, eg.x * eg.y * surfK * clamp(uReflOn, 0.0, 1.0));
     }
     // ---- water body: absorption by depth, view-dependent; sub-surface glow through backlit crests
     float depth = depthAt(p) + max(vHeight, -1.0) * 0.6;
@@ -153,6 +153,9 @@ function waterMat(opts) {
 // ------------------------------------------------------------------ planar reflection
 // One mirror render per frame for the water plane nearest the camera (sea −0.9 / lake −0.55), oblique near plane so
 // nothing under the surface leaks in, reduced resolution, shadows reused, skipped when no water is in view.
+// a water surface only asks for the mirror render while it is on screen AND within this distance: a sliver of harbour at the
+// end of a street 400 m away gets the water's own sky reflection (as on Medium) instead of a second render of the city
+const REFL_NEAR = 300;
 export class WaterReflection {
   constructor(group) {
     this.group = group; this.rt = new THREE.WebGLRenderTarget(512, 256, { type: THREE.HalfFloatType, samples: 0 }); this.rt.texture.generateMipmaps = false;
@@ -163,13 +166,37 @@ export class WaterReflection {
     for (const c of CANALS) this.boxes.push({ box: new THREE.Box3(new THREE.Vector3(-570, -1.5, c.z0), new THREE.Vector3(930, 0.5, c.z1)), h: -1.0 });
     waterUniforms.uRefl.value = this.rt.texture;
   }
+  // FPS: the reflection is a second full render of the city. It is only drawn while water actually reaches the screen —
+  // an occlusion query brackets each water mesh in the main pass (buildings in front hide canals / the harbour from most
+  // streets) — and on High it is refreshed every other frame (the last one stays projected in world space meanwhile).
+  initQueries(renderer) {
+    this._qInit = true; const gl = renderer.getContext && renderer.getContext(); if (typeof WebGL2RenderingContext === 'undefined' || !gl || !(gl instanceof WebGL2RenderingContext)) return;
+    this.gl = gl; this.recs = []; this.qOK = true;
+    this.group.traverse((m) => { if (!m.isMesh || !(m.material.uniforms && m.material.uniforms.uRefl) || m.renderOrder === 9) return; /* not the horizon-only far ocean */ m.updateWorldMatrix(true, false); const rec = { q: null, open: false, pending: false, mesh: m, vis: false, drawn: -1e9, box: new THREE.Box3().setFromObject(m) }; this.recs.push(rec); const pb = m.onBeforeRender, pa = m.onAfterRender;
+      m.onBeforeRender = function (r, sc, cam, ...rest) { pb.call(this, r, sc, cam, ...rest); const W = m.userData._refl; if (W && cam === W.mainCam) rec.drawn = W.frame; if (W && cam === W.mainCam && !rec.pending && !W._qOpen) { rec.q = rec.q || gl.createQuery(); gl.beginQuery(gl.ANY_SAMPLES_PASSED, rec.q); rec.open = true; W._qOpen = true; } };
+      m.onAfterRender = function (r, sc, cam, ...rest) { if (rec.open) { gl.endQuery(gl.ANY_SAMPLES_PASSED); rec.open = false; rec.pending = true; m.userData._refl._qOpen = false; } pa.call(this, r, sc, cam, ...rest); };
+      m.userData._refl = this; });
+  }
+  pollQueries() { if (!this.qOK) return; const gl = this.gl; for (const r of this.recs) if (r.pending && gl.getQueryParameter(r.q, gl.QUERY_RESULT_AVAILABLE)) { r.pending = false; r.vis = !!gl.getQueryParameter(r.q, gl.QUERY_RESULT); } }
+  // last resolved answer per surface (query results can arrive a few frames late on a busy GPU), dropped once the surface
+  // is no longer drawn at all (frustum-culled), and only for water near enough for the mirror detail to be seen
+  nearestOnScreen(cp) { let d = Infinity; for (const r of this.recs) if (r.vis && this.frame - r.drawn <= 2) d = Math.min(d, r.box.distanceToPoint(cp)); return d; }
   update(renderer, scene, camera, on) {
-    waterUniforms.uReflOn.value = 0; if (!on || !this.enabled) return;
+    if (!this._qInit) this.initQueries(renderer); this.mainCam = camera; this.frame = (this.frame || 0) + 1; this.pollQueries();
+    const now = performance.now(); const dt = Math.min(0.1, (now - (this._t || now)) / 1000); this._t = now; this.k = this.k || 0;
+    const off = () => { waterUniforms.uReflOn.value = 0; this.valid = false; this.k = 0; };
+    // mirror strength eases towards its target (no pop when water comes into view / goes out of range); fading out keeps the
+    // last mirror image, which stays correctly projected in world space
+    const fade = (tgt) => { this.k = tgt > this.k ? Math.min(tgt, this.k + dt * 4) : Math.max(tgt, this.k - dt * 4); if (this.k <= 0) this.valid = false; waterUniforms.uReflOn.value = this.valid ? this.k : 0; };
+    if (!on || !this.enabled) return off();
     // nearest visible water body
     this._m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); this._fr.setFromProjectionMatrix(this._m);
     let best = null, bd = 1e9; const cp = camera.position;
     for (const b of this.boxes) { if (!this._fr.intersectsBox(b.box)) continue; const d = b.box.distanceToPoint(cp); if (d < 1400 && d < bd) { bd = d; best = b; } }
-    if (!best || cp.y < best.h) return;
+    if (!best || cp.y < best.h) return off();
+    const want = this.qOK ? Math.min(1, Math.max(0, (REFL_NEAR - this.nearestOnScreen(cp)) / (REFL_NEAR * 0.3))) : 1; // full mirror within 210 m of on-screen water, none past 300 m
+    if (want <= 0) return fade(0); // no near water on screen: no mirror render (the last one fades out)
+    if (this.valid && this.halfRate && (this.frame & 1) && this.lastBest === best) return fade(want); // keep last frame's reflection
     const size = renderer.getSize(this._v); const w = Math.min(1280, Math.round(size.x * this.scale)), h = Math.round(w * size.y / size.x);
     if (this.rt.width !== w || this.rt.height !== h) this.rt.setSize(w, h);
     const H = best.h, cam = this.cam; cam.copy(camera, false);
@@ -177,19 +204,24 @@ export class WaterReflection {
     cam.position.set(cp.x, 2 * H - cp.y, cp.z); cam.quaternion.identity();
     const fwd = this._v.set(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(this._wq)); const tgt = new THREE.Vector3(cp.x + fwd.x, 2 * H - (cp.y + fwd.y), cp.z + fwd.z);
     cam.up.set(0, 1, 0).applyQuaternion(camera.getWorldQuaternion(this._wq)); cam.up.y = -cam.up.y; // camera up, reflected across the plane
-    cam.lookAt(tgt); cam.far = Math.min(camera.far, 2600); cam.updateProjectionMatrix(); cam.updateMatrixWorld();
+    cam.lookAt(tgt); cam.far = Math.min(camera.far, 2600); const rev = !!renderer.state?.buffers?.depth?.getReversed?.(); cam._reversedDepth = rev; cam.updateProjectionMatrix(); cam.updateMatrixWorld();
     const tm = waterUniforms.uReflMat.value; tm.set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1); tm.multiply(cam.projectionMatrix).multiply(cam.matrixWorldInverse);
     // oblique clip plane (Lengyel) so geometry below the water line is not reflected
     this._p.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, H, 0)).applyMatrix4(cam.matrixWorldInverse);
     const c = this._c.set(this._p.normal.x, this._p.normal.y, this._p.normal.z, this._p.constant - 0.05); const pm = cam.projectionMatrix, q = this._q;
-    q.x = (Math.sign(c.x) + pm.elements[8]) / pm.elements[0]; q.y = (Math.sign(c.y) + pm.elements[9]) / pm.elements[5]; q.z = -1; q.w = (1 + pm.elements[10]) / pm.elements[14];
-    c.multiplyScalar(2 / c.dot(q)); pm.elements[2] = c.x; pm.elements[6] = c.y; pm.elements[10] = c.z + 1; pm.elements[14] = c.w;
+    if (!rev) { // OpenGL depth range: near plane z = −w (Lengyel)
+      q.x = (Math.sign(c.x) + pm.elements[8]) / pm.elements[0]; q.y = (Math.sign(c.y) + pm.elements[9]) / pm.elements[5]; q.z = -1; q.w = (1 + pm.elements[10]) / pm.elements[14];
+      c.multiplyScalar(2 / c.dot(q)); pm.elements[2] = c.x; pm.elements[6] = c.y; pm.elements[10] = c.z + 1; pm.elements[14] = c.w;
+    } else { // reversed-Z [0,1]: near plane z = w, far plane z = 0 → new z row M3' = M4 − a·C, with the far plane through the far corner Q
+      q.set(Math.sign(c.x), Math.sign(c.y), 0, 1).applyMatrix4(this._m.copy(pm).invert());
+      const a = -q.z / c.dot(q); pm.elements[2] = -a * c.x; pm.elements[6] = -a * c.y; pm.elements[10] = -1 - a * c.z; pm.elements[14] = -a * c.w;
+    }
     // render (water hidden, shadows reused, no post)
     const prevRT = renderer.getRenderTarget(), prevShadow = renderer.shadowMap.autoUpdate, prevXR = renderer.xr.enabled; const vis = this.group.visible;
     this.group.visible = false; renderer.shadowMap.autoUpdate = false; renderer.xr.enabled = false;
     renderer.setRenderTarget(this.rt); renderer.clear(); renderer.render(scene, cam);
     renderer.setRenderTarget(prevRT); renderer.shadowMap.autoUpdate = prevShadow; renderer.xr.enabled = prevXR; this.group.visible = vis;
-    waterUniforms.uReflOn.value = 1; waterUniforms.uReflH.value = H;
+    waterUniforms.uReflH.value = H; this.valid = true; this.lastBest = best; fade(want);
   }
 }
 
@@ -217,5 +249,9 @@ export function buildWater() {
   for (const c of CANALS) { const m = new THREE.Mesh(new THREE.PlaneGeometry(1500, c.z1 - c.z0).rotateX(-Math.PI / 2), waterMat({ shallow: '#4f5a36', deep: '#262f1e', scatter: '#5a6a3a', rough: 0.35 })); m.position.set(180, -1.0, (c.z0 + c.z1) / 2); group.add(m); }
   // dark seabed so shallow edges never show the void
   const bed = new THREE.Mesh(new THREE.PlaneGeometry(30000, 30000).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x0a1a20 })); bed.position.y = -4; group.add(bed);
+  // FPS: the (opaque) water surfaces are drawn after the rest of the opaque scene — the depth test gives the same picture, but
+  // the wave shader no longer runs for canal / ocean pixels the city then paints over, and the reflection's occlusion query
+  // (WaterReflection) only counts water that is really on screen. The far ocean keeps its place just before the others.
+  for (const m of group.children) if (m.isMesh && m.material.uniforms && m.material.uniforms.uRefl) m.renderOrder = m === far ? 9 : 10;
   return group;
 }

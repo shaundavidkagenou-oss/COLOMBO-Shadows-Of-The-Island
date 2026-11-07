@@ -8,6 +8,51 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
+import { Pass, FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
+// Senses: blast shock ripple (a refraction ring racing out from the explosion on screen), concussion (blur, washed-out colour,
+// dark edges) and being drunk (wobble, double vision, motion smear from a history buffer, swimming edges, rich colour).
+// Only enabled while one of them is active, so normal frames cost nothing.
+const SenseShader = {
+  uniforms: { tDiffuse: { value: null }, tHist: { value: null }, uShock: { value: new THREE.Vector4() }, uAspect: { value: 1.7 }, uConc: { value: 0 }, uDrunk: { value: 0 }, uGhost: { value: 0 }, uTime: { value: 0 } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `uniform sampler2D tDiffuse; uniform sampler2D tHist; uniform vec4 uShock; uniform float uAspect; uniform float uConc; uniform float uDrunk; uniform float uGhost; uniform float uTime; varying vec2 vUv;
+    void main() {
+      vec2 uv = vUv; vec2 c = vUv - 0.5; float lc = length(c);
+      if (uShock.w > 0.0) { vec2 d = uv - uShock.xy; d.x *= uAspect; float l = length(d); float ring = exp(-pow((l - uShock.z) / 0.055, 2.0)); vec2 dir = d / max(l, 1e-4); dir.x /= uAspect; uv -= dir * ring * uShock.w * 0.03; }
+      if (uDrunk > 0.0) uv += vec2(sin(uv.y * 5.0 + uTime * 1.3) + sin(uv.y * 11.0 - uTime * 0.7) * 0.4, cos(uv.x * 4.0 + uTime * 1.05)) * 0.0045 * uDrunk;
+      vec3 col = texture2D(tDiffuse, uv).rgb;
+      if (uDrunk > 0.0) {
+        vec2 o = vec2(sin(uTime * 0.61) + 0.35 * sin(uTime * 1.7), cos(uTime * 0.43)) * 0.012 * uDrunk;
+        col = mix(col, texture2D(tDiffuse, uv + o).rgb, 0.42 * min(1.0, uDrunk * 1.6));                    // double vision
+        float e = smoothstep(0.12, 0.7, lc) * uDrunk;                                                      // the edges swim out of focus
+        if (e > 0.01) { vec3 s = texture2D(tDiffuse, uv + c * 0.025 * e).rgb + texture2D(tDiffuse, uv - c * 0.025 * e).rgb + texture2D(tDiffuse, uv + vec2(c.y, -c.x) * 0.02 * e).rgb; col = mix(col, s / 3.0, min(1.0, e * 0.9)); }
+        col = mix(col, texture2D(tHist, vUv).rgb, uGhost);                                                 // smear: the last frames linger
+        float lum = dot(col, vec3(0.299, 0.587, 0.114)); col = mix(vec3(lum), col, 1.0 + 0.4 * uDrunk); col *= vec3(1.0 + 0.05 * uDrunk, 1.0, 1.0 - 0.04 * uDrunk);
+        col *= 1.0 - 0.3 * uDrunk * smoothstep(0.3, 0.9, lc) * (0.8 + 0.2 * sin(uTime * 1.9));
+      }
+      if (uConc > 0.0) {
+        vec3 s = vec3(0.0); for (int i = 0; i < 6; i++) { float a = float(i) * 1.0472 + 0.4; s += texture2D(tDiffuse, uv + vec2(cos(a), sin(a) * uAspect) * 0.007 * uConc).rgb; } s /= 6.0;
+        col = mix(col, s, min(1.0, uConc * 0.9)); float lum = dot(col, vec3(0.299, 0.587, 0.114)); col = mix(col, vec3(lum), uConc * 0.65);
+        col = mix(col, vec3(1.0, 0.97, 0.92), smoothstep(0.6, 1.0, uConc) * 0.5); col *= 1.0 - 0.45 * uConc * smoothstep(0.2, 0.8, lc);
+      }
+      gl_FragColor = vec4(col, 1.0);
+    }`,
+};
+const CopyFS = 'uniform sampler2D tDiffuse; varying vec2 vUv; void main(){ gl_FragColor = texture2D(tDiffuse, vUv); }';
+class SensePass extends Pass {
+  constructor(w, h) {
+    super(); this.mat = new THREE.ShaderMaterial({ uniforms: THREE.UniformsUtils.clone(SenseShader.uniforms), vertexShader: SenseShader.vertexShader, fragmentShader: SenseShader.fragmentShader, depthTest: false, depthWrite: false }); this.uniforms = this.mat.uniforms;
+    this.copy = new THREE.ShaderMaterial({ uniforms: { tDiffuse: { value: null } }, vertexShader: SenseShader.vertexShader, fragmentShader: CopyFS, depthTest: false, depthWrite: false });
+    this.quad = new FullScreenQuad(this.mat); this.cq = new FullScreenQuad(this.copy); this.hist = new THREE.WebGLRenderTarget(Math.max(1, w), Math.max(1, h), { type: THREE.HalfFloatType }); this.histOk = false;
+  }
+  setSize(w, h) { this.hist.setSize(w, h); this.histOk = false; }
+  render(renderer, writeBuffer, readBuffer) {
+    const U = this.uniforms; U.tDiffuse.value = readBuffer.texture; U.tHist.value = this.hist.texture; const ghost = U.uGhost.value; if (!this.histOk) U.uGhost.value = 0;
+    renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer); this.quad.render(renderer); U.uGhost.value = ghost;
+    if (U.uDrunk.value > 0.001 && !this.renderToScreen) { this.copy.uniforms.tDiffuse.value = writeBuffer.texture; renderer.setRenderTarget(this.hist); this.cq.render(renderer); this.histOk = true; } else this.histOk = false;
+  }
+  dispose() { this.hist.dispose(); this.mat.dispose(); this.copy.dispose(); this.quad.dispose(); this.cq.dispose(); }
+}
 
 const GradeShader = {
   uniforms: { tDiffuse: { value: null }, uWarm: { value: 0.5 }, uSat: { value: 1.08 }, uVig: { value: 0.18 }, uWet: { value: 0 }, uFlash: { value: 0 } },
@@ -26,7 +71,7 @@ const SanitizeShader = {
   uniforms: { tDiffuse: { value: null } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
   fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv;
-    void main(){ vec4 c = texture2D(tDiffuse, vUv); if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0, 0.0, 0.0, 1.0); gl_FragColor = vec4(min(c.rgb, vec3(40.0)), c.a); }`,
+    void main(){ vec4 c = texture2D(tDiffuse, vUv); /* comparisons are false for NaN and fail for Inf; unlike isnan() they are not folded away by fast-math drivers */ if (any(isnan(c)) || any(isinf(c)) || !all(lessThan(abs(c), vec4(65000.0)))) c = vec4(0.0, 0.0, 0.0, 1.0); gl_FragColor = vec4(min(c.rgb, vec3(40.0)), c.a); }`,
 };
 // Squad-switch transit: radial motion blur toward the screen centre, chromatic aberration growing to the edges, and for
 // jump-cuts a short signal glitch (row tearing, RGB split, scanlines). Disabled (zero cost) whenever all three are 0.
@@ -53,7 +98,7 @@ export class PostFX {
   }
   build(preset = { bloom: true, ao: false }) {
     const r = this.r, size = r.getSize(new THREE.Vector2()); const pr = r.getPixelRatio();
-    const rt = new THREE.WebGLRenderTarget(size.x * pr, size.y * pr, { type: THREE.HalfFloatType, samples: 0 });
+    const rt = new THREE.WebGLRenderTarget(size.x * pr, size.y * pr, { type: THREE.HalfFloatType, samples: 0, depthTexture: new THREE.DepthTexture(size.x * pr, size.y * pr, THREE.FloatType) }); // 32-bit float depth: with the reversed-Z renderer this removes distance z-fighting
     this.composer = new EffectComposer(r, rt);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.composer.addPass(new ShaderPass(SanitizeShader));
@@ -62,13 +107,26 @@ export class PostFX {
     this.composer.addPass(new OutputPass());
     this.grade = new ShaderPass(GradeShader); this.composer.addPass(this.grade);
     this.transit = new ShaderPass(TransitShader); this.transit.enabled = false; this.composer.addPass(this.transit);
+    if (this.sense) this.sense.dispose(); this.sense = new SensePass(size.x * pr, size.y * pr); this.sense.enabled = false; this.composer.addPass(this.sense); this.shocks = this.shocks || []; this.conc = this.conc || 0; this.drunk = this.drunk || 0; this.glow = 0;
     if (preset.smaa !== false) { this.smaa = new SMAAPass(size.x * pr, size.y * pr); this.composer.addPass(this.smaa); }
   }
   setSize(w, h) { this.composer.setSize(w, h); }
+  // explosion hooks (Explosions.js) and the drunk level (Drinks): see SenseShader
+  shock(x, y, a) { this.shocks.push({ x, y, a, t: 0 }); if (this.shocks.length > 3) this.shocks.shift(); this.glow = Math.max(this.glow, Math.min(1, a * 1.5)); }
+  concuss(k) { this.conc = Math.max(this.conc, Math.min(1, k)); }
+  setDrunk(k) { this.drunk = Math.max(0, Math.min(1, k)); }
+  tickSenses(dt) {
+    const S = this.sense; if (!S) return; const U = S.uniforms; const sz = this.r.getSize(new THREE.Vector2()); U.uAspect.value = sz.x / Math.max(1, sz.y); U.uTime.value += dt;
+    for (const s of this.shocks) s.t += dt; this.shocks = this.shocks.filter((s) => s.t < 0.6); const s = this.shocks[this.shocks.length - 1];
+    if (s) U.uShock.value.set(s.x, s.y, 0.05 + s.t * 1.6, s.a * Math.pow(1 - s.t / 0.6, 1.5)); else U.uShock.value.w = 0;
+    this.conc = Math.max(0, this.conc - dt / 5); U.uConc.value = this.conc > 0.01 ? Math.min(1, this.conc * 1.15) : 0;
+    U.uDrunk.value = this.drunk > 0.01 ? this.drunk : 0; U.uGhost.value = Math.min(0.82, this.drunk * 0.8);
+    S.enabled = !!s || U.uConc.value > 0 || U.uDrunk.value > 0; this.glow = Math.max(0, this.glow - dt * 0.9);
+  }
   setTransit(blur, chroma, glitch) { const u = this.transit.uniforms; u.uBlur.value = blur; u.uChroma.value = chroma; u.uGlitch.value = glitch; u.uTime.value = performance.now() / 1000; this.transit.enabled = blur > 0.001 || chroma > 0.001 || glitch > 0.001; }
   update(atmos) {
-    if (this.bloom) { this.bloom.strength = 0.03 + atmos.night * 0.3; this.bloom.threshold = lerp(7, 1.7, atmos.night); /* daylight: effectively off (no veil); night: lamps and windows glow */ this.bloom.radius = 0.3; }
+    if (this.bloom) { const gl = this.glow || 0; this.bloom.strength = 0.03 + atmos.night * 0.3 + gl * 0.35; this.bloom.threshold = lerp(lerp(7, 1.7, atmos.night), 2.2, gl); /* daylight: effectively off (no veil); night: lamps and windows glow; a fireball briefly glows in daylight too */ this.bloom.radius = 0.3 + gl * 0.25; }
     const u = this.grade.uniforms; u.uWarm.value = 0.35 + atmos.golden * 0.5 * (1 - atmos.w.dark); u.uSat.value = 1.1 - atmos.w.dark * 0.12; u.uWet.value = atmos.wet; u.uFlash.value = atmos.flash * 0.25;
   }
-  render(dt) { if (this.enabled) this.composer.render(dt); else this.r.render(this.scene, this.camera); }
+  render(dt) { this.tickSenses(dt || 0.016); if (this.enabled) this.composer.render(dt); else this.r.render(this.scene, this.camera); }
 }

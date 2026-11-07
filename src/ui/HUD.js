@@ -9,6 +9,10 @@ import { Gps, MapView, drawIcon, BLIP_STYLE } from './MapView.js';
 const el = (tag, cls, parent, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; if (parent) parent.appendChild(e); return e; };
 const MAP_SCALE = 1.0; // px per metre in the base map canvas
 const fmtDist = (d) => (d >= 1000 ? `${(d / 1000).toFixed(1)} km` : `${Math.round(d / 10) * 10} m`);
+// DOM writes only when the value changed: rewriting identical text / styles every frame still invalidates style + layout
+const setTxt = (el, v) => { if (el._t !== v) { el._t = v; el.textContent = v; } };
+const setHtml = (el, v) => { if (el._h !== v) { el._h = v; el.innerHTML = v; } };
+const setStyle = (el, k, v) => { const c = el._s || (el._s = {}); if (c[k] !== v) { c[k] = v; el.style[k] = v; } };
 export class HUD {
   constructor(root) {
     this.root = el('div', 'hud hidden', root);
@@ -84,13 +88,13 @@ export class HUD {
     const pol = this.police; if (pol) { // search area (pulsing ring) and police units (flashing red/blue while responding)
       const now = performance.now() / 1000;
       if (pol.search) { const [x, y] = toMini(pol.search.x, pol.search.z); const r = pol.search.r * MAP_SCALE * zoom; g.save(); g.beginPath(); g.arc(S / 2, S / 2, S / 2 - 2, 0, 7); g.clip(); g.fillStyle = `rgba(70,130,255,${0.13 + 0.06 * Math.sin(now * 3)})`; g.strokeStyle = 'rgba(120,170,255,0.85)'; g.lineWidth = 2; g.setLineDash([6, 4]); g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); g.stroke(); g.setLineDash([]); g.restore(); }
-      for (const u of pol.units) { let [x, y] = toMini(u.x, u.z); const dx = x - S / 2, dy = y - S / 2, d = Math.hypot(dx, dy), R = S / 2 - 9; if (d > R) { if (!u.lights) continue; x = S / 2 + dx / d * R; y = S / 2 + dy / d * R; }
+      for (const u of pol.units) { if (this.canSeeUnit && !this.canSeeUnit(u)) continue; let [x, y] = toMini(u.x, u.z); const dx = x - S / 2, dy = y - S / 2, d = Math.hypot(dx, dy), R = S / 2 - 9; if (d > R) { if (!u.lights) continue; x = S / 2 + dx / d * R; y = S / 2 + dy / d * R; }
         g.fillStyle = u.lights ? ((now * 3) % 1 < 0.5 ? '#ff3b3b' : '#3b7bff') : '#a9c8ff'; g.strokeStyle = '#000'; g.lineWidth = 1.5; g.beginPath(); g.rect(x - 4, y - 4, 8, 8); g.fill(); g.stroke(); }
     }
     for (const e of extras) { const [x, y] = toMini(e.x, e.z); if ((x - S / 2) ** 2 + (y - S / 2) ** 2 > (S / 2 - 8) ** 2) continue; g.fillStyle = e.color; g.beginPath(); g.arc(x, y, e.r || 2.5, 0, 7); g.fill(); }
     for (const b of this.blips) {
-      let [x, y] = toMini(b.x, b.z); const dx = x - S / 2, dy = y - S / 2, d = Math.hypot(dx, dy), R = S / 2 - 10; let edge = false; if (d > R) { x = S / 2 + dx / d * R; y = S / 2 + dy / d * R; edge = true; }
-      if (b.kind === 'waypoint') { drawIcon(g, 'waypoint', x, y, edge ? 5 : 6.5); continue; }
+      let [x, y] = toMini(b.x, b.z); const dx = x - S / 2, dy = y - S / 2, d = Math.hypot(dx, dy), R = S / 2 - 10; let edge = false; if (d > R && !(b.kind === 'objective' || b.kind === 'mission' || b.kind === 'waypoint' || b.kind === 'enemy' || b.kind === 'pickup')) continue; /* only story/route markers sit on the rim: collectibles, photo spots, shops show once in range (full map shows all) */ if (d > R) { x = S / 2 + dx / d * R; y = S / 2 + dy / d * R; edge = true; }
+      if (b.kind === 'waypoint' || b.kind === 'pickup') { drawIcon(g, b.kind, x, y, edge ? 5 : 6.5); continue; }
       g.fillStyle = { objective: '#ffb020', mission: '#f4efe6', side: '#5ac8a8', stamp: '#d8a0ff', photo: '#7ab8ff', shop: '#9ad06a', enemy: '#ff4a3a' }[b.kind] || '#fff';
       g.strokeStyle = '#000'; g.lineWidth = 2; g.beginPath();
       if (b.kind === 'objective') { g.moveTo(x, y - 7); g.lineTo(x + 6, y); g.lineTo(x, y + 7); g.lineTo(x - 6, y); g.closePath(); } else g.arc(x, y, edge ? 3 : 4.5, 0, 7);
@@ -165,7 +169,7 @@ export class HUD {
   drawBig() {
     const c = this.bigC; if (c.width !== innerWidth || c.height !== innerHeight) { c.width = innerWidth; c.height = innerHeight; } const g = c.getContext('2d');
     this.mapView.sat = this.satellite || null;
-    this.mapView.draw(g, c.width, c.height, { police: this.police, route: this.gps.route, routeColor: this.gps.target && this.gps.target.kind === 'objective' ? '#ffb020' : '#33d4c0', blips: this.blips, player: this.player ? [this.player[0], this.player[1], this.playerYaw || 0] : null });
+    this.mapView.draw(g, c.width, c.height, { seeUnit: this.canSeeUnit, extras: this.mapExtras ? this.mapExtras() : [], police: this.police, route: this.gps.route, routeColor: this.gps.target && this.gps.target.kind === 'objective' ? '#ffb020' : '#33d4c0', blips: this.blips, player: this.player ? [this.player[0], this.player[1], this.playerYaw || 0] : null });
     const sr = this.mapView.satReady ?? 1; if (this.mapView.style === 'satellite' && sr < 1) { const w = 220, x = c.width / 2 - w / 2, y = 74; g.fillStyle = 'rgba(8,10,14,0.75)'; g.fillRect(x - 10, y - 18, w + 20, 34); g.fillStyle = 'rgba(255,255,255,0.15)'; g.fillRect(x, y + 6, w, 3); g.fillStyle = '#e8a33a'; g.fillRect(x, y + 6, w * sr, 3); g.fillStyle = '#e8e4da'; g.font = '600 12px "Barlow Condensed", sans-serif'; g.textAlign = 'center'; g.fillText(`UPDATING SATELLITE IMAGERY ${Math.round(sr * 100)}%`, c.width / 2, y - 2); }
     const t = this.gps.target; if (t && this.player) { const d = this.gps.remaining(this.player[0], this.player[1]); this.bmWay.classList.add('show'); this.bmWay.innerHTML = `<b>${t.kind === 'objective' ? 'OBJECTIVE ROUTE' : 'WAYPOINT'}</b><span>${fmtDist(d)} by road · ~${Math.max(1, Math.round(d / 1000 / 28 * 60))} min drive · ${Math.max(1, Math.round(d / 1000 / 4.8 * 60))} min walk</span><span class="bm-to">${L.roadNameAt(t.x, t.z) || L.districtAt(t.x, t.z)?.name.split(' · ')[0] || ''}</span>`; } else { this.bmWay.classList.remove('show'); this.bmWay.innerHTML = ''; }
     if (this.mouse) this.updateMapHover();
@@ -201,8 +205,8 @@ export class HUD {
   hurt(k = 0.5) { const e = this.hurtEl; e.style.setProperty('--k', (0.35 + k * 0.65).toFixed(2)); e.classList.remove('on'); void e.offsetWidth; e.classList.add('on'); }
   // ---------- per-frame
   update(st) {
-    this.clock.textContent = st.time; this.money.textContent = `Rs. ${st.money.toLocaleString('en-LK')}`;
-    this.district.textContent = st.district || ''; this.street.textContent = st.street || ''; this.street.classList.toggle('show', !!st.street);
+    setTxt(this.clock, st.time); setTxt(this.money, `Rs. ${st.money.toLocaleString('en-LK')}`);
+    setTxt(this.district, st.district || ''); setTxt(this.street, st.street || ''); this.street.classList.toggle('show', !!st.street);
     this.police = st.police || null; this.player = [st.x, st.z]; this.playerYaw = -(st.camYaw - Math.PI) + Math.PI;
     if (!this.baseHasBuildings && plan.buildings.length) this.buildBaseMap();
     { // GPS: player waypoint first, otherwise the mission objective
@@ -210,20 +214,20 @@ export class HUD {
       if (this.waypoint) { if (Math.hypot(this.waypoint.x - st.x, this.waypoint.z - st.z) < 18) { this.clearWaypoint(); this.notify('Waypoint reached', '', 'success', 2.5); } }
       if (!this.waypoint) { const o = this.objective; if (o && Math.hypot(o.x - st.x, o.z - st.z) > 45 && !st.indoor) { const t = this.gps.target; if (!t || t.kind !== 'objective' || Math.hypot(t.x - o.x, t.z - o.z) > 25) this.gps.set(o.x, o.z, 'objective'); } else if (this.gps.target) this.gps.clear(); }
       if (st.indoor) this.gps.route = null; else this.gps.update(dt, st.x, st.z);
-      const t = this.gps.target; if (t && this.gps.route) { this.gpsEl.className = 'gps-info show' + (t.kind === 'objective' ? ' obj' : ''); this.gpsEl.innerHTML = `<b>${t.kind === 'objective' ? 'GPS · OBJECTIVE' : 'GPS · WAYPOINT'}</b> ${fmtDist(this.gps.remaining(st.x, st.z))}`; } else this.gpsEl.className = 'gps-info';
+      const t = this.gps.target; if (t && this.gps.route) { this.gpsEl.className = 'gps-info show' + (t.kind === 'objective' ? ' obj' : ''); setHtml(this.gpsEl, `<b>${t.kind === 'objective' ? 'GPS · OBJECTIVE' : 'GPS · WAYPOINT'}</b> ${fmtDist(this.gps.remaining(st.x, st.z))}`); } else this.gpsEl.className = 'gps-info';
     }
     this.drawMini(st.x, st.z, st.camYaw - Math.PI, st.extras);
-    this.stamina.style.opacity = st.stamina < 0.98 && !st.vehicle ? 1 : 0.35; this.staminaBar.style.width = `${st.stamina * 100}%`;
-    if (st.health != null) { const hp = st.health; this.hpBar.style.width = `${hp}%`; this._hpShown += (hp - this._hpShown) * (hp < this._hpShown ? 0.04 : 1); this.hpGhost.style.width = `${this._hpShown}%`; this.hp.classList.toggle('low', hp < 30); this.hurtEl.classList.toggle('low', hp < 25 && !st.healthBusy); }
-    if (st.vehicle) { this.veh.classList.remove('hidden'); this.vehSpeed.innerHTML = `${Math.round(Math.abs(st.vehicle.speed) * 3.6)}<small>km/h</small>`; this.vehName.textContent = st.vehicleName; this.radioEl.textContent = st.radio || ''; } else this.veh.classList.add('hidden');
-    if (this.objective) { const d = Math.hypot(this.objective.x - st.x, this.objective.z - st.z); this.objDist.textContent = d > 30 ? `${d > 1000 ? (d / 1000).toFixed(1) + ' km' : Math.round(d) + ' m'}` : ''; } else this.objDist.textContent = '';
+    setStyle(this.stamina, 'opacity', st.stamina < 0.98 && !st.vehicle ? 1 : 0.35); setStyle(this.staminaBar, 'width', `${st.stamina * 100}%`);
+    if (st.health != null) { const hp = st.health; setStyle(this.hpBar, 'width', `${hp}%`); this._hpShown += (hp - this._hpShown) * (hp < this._hpShown ? 0.04 : 1); setStyle(this.hpGhost, 'width', `${this._hpShown}%`); this.hp.classList.toggle('low', hp < 30); this.hurtEl.classList.toggle('low', hp < 25 && !st.healthBusy); }
+    if (st.vehicle) { this.veh.classList.remove('hidden'); setHtml(this.vehSpeed, `${Math.round(Math.abs(st.vehicle.speed) * 3.6)}<small>km/h</small>`); setTxt(this.vehName, st.vehicleName); setTxt(this.radioEl, st.radio || ''); } else this.veh.classList.add('hidden');
+    if (this.objective) { const d = Math.hypot(this.objective.x - st.x, this.objective.z - st.z); setTxt(this.objDist, d > 30 ? `${d > 1000 ? (d / 1000).toFixed(1) + ' km' : Math.round(d) + ' m'}` : ''); } else setTxt(this.objDist, '');
     // world-space objective marker
     const mk = this.objective || (this.waypoint && { x: this.waypoint.x, z: this.waypoint.z, y: L.groundY(this.waypoint.x, this.waypoint.z) });
     if (mk && st.camera) {
       const v = st.projector(mk.x, (mk.y ?? 0) + 2.2, mk.z);
       const d = Math.hypot(mk.x - st.x, mk.z - st.z);
-      if (v && d > 4) { this.marker.classList.remove('hidden'); this.marker.style.transform = `translate(${v[0]}px, ${v[1]}px)`; this.marker.querySelector('.wm-d').textContent = `${Math.round(d)} m`; } else this.marker.classList.add('hidden');
+      if (v && d > 4) { this.marker.classList.remove('hidden'); setStyle(this.marker, 'transform', `translate(${v[0]}px, ${v[1]}px)`); setTxt(this.marker.querySelector('.wm-d'), `${Math.round(d)} m`); } else this.marker.classList.add('hidden');
     } else this.marker.classList.add('hidden');
-    if (Settings.get('showFps')) { this.fps.classList.remove('hidden'); this.fps.textContent = `${st.fps.toFixed(0)} fps · ${st.draws} draws`; } else this.fps.classList.add('hidden');
+    if (Settings.get('showFps')) { this.fps.classList.remove('hidden'); setTxt(this.fps, `${st.fps.toFixed(0)} fps · ${st.draws} draws`); } else this.fps.classList.add('hidden');
   }
 }

@@ -1,0 +1,35 @@
+<!doctype html><html><body style="margin:0;background:#888"><canvas id="c"></canvas>
+<script type="module">
+// Crowd face close-ups: a grid of NPC heads (one viewport per person).
+//   ?n=8 (people)  &cols=4  &cell=300 (px)  &dist=0.75 (camera distance to the face, m)  &yaw=15 (deg, turn the heads)
+//   &seed=1 (which people)  &ids=presetA,presetB (specific presets)  &expr=smile (expression)  &q=medium (texture quality)
+import * as THREE from 'three';
+import { buildTextures } from '/src/gfx/Textures.js';
+import { Character } from '/src/actors/Character.js';
+import { PRESETS, makeAppearance } from '/src/actors/Appearance.js';
+const q = new URLSearchParams(location.search);
+await buildTextures(q.get('q') || 'medium');
+const n = +(q.get('n') || 8), cols = +(q.get('cols') || 4), cell = +(q.get('cell') || 300), dist = +(q.get('dist') || 0.75), yaw = (q.has('yaw') ? +q.get('yaw') : 15) * Math.PI / 180, seed = +(q.get('seed') || 1);
+const rows = Math.ceil(n / cols); const W = cols * cell, H = rows * cell;
+const r = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true }); r.setSize(W, H); r.toneMapping = THREE.ACESFilmicToneMapping; r.outputColorSpace = THREE.SRGBColorSpace; r.setScissorTest(true);
+const s = new THREE.Scene(); s.background = new THREE.Color(0x9fb4c8); s.add(new THREE.HemisphereLight(0xdde8ff, 0x665544, 1.35)); const d = new THREE.DirectionalLight(0xfff0dd, 2.4); d.position.set(3, 6, 6); s.add(d);
+const ids = q.get('ids') ? q.get('ids').split(',') : null;
+const pool = PRESETS.filter((p) => !p.police && !p.hero);
+const people = []; window.labels = [];
+for (let i = 0; i < n; i++) {
+  const sp = ids ? makeAppearance(seed * 97 + i * 13, { preset: ids[i % ids.length] }) : makeAppearance(seed * 1009 + i * 7919, { preset: pool[(seed * 7 + i * 11) % pool.length].id });
+  const ch = new Character(sp); ch.root.position.set(i * 3, 0, 0); ch.root.rotation.y = yaw; s.add(ch.root);
+  if (q.get('expr')) ch.express(q.get('expr'), 99);
+  for (let k = 0; k < 30; k++) ch.anim.update(1 / 30, 0); if (ch.face && ch.face.update) for (let k = 0; k < 5; k++) ch.face.update(1 / 30, 0, null);
+  people.push(ch); window.labels.push(`${sp.preset || '?'}:${sp.sex}/${sp.age}`);
+}
+s.updateMatrixWorld(true);
+const cam = new THREE.PerspectiveCamera(22, 1, 0.02, 100);
+people.forEach((ch, i) => {
+  let head = null; ch.root.traverse((o) => { if (o.isBone && /head/i.test(o.name) && !head) head = o; });
+  const p = new THREE.Vector3(); if (head) head.getWorldPosition(p); else p.set(i * 3, 1.6, 0); p.y += 0.06 + +(q.get('dy') || 0);
+  cam.position.set(p.x, p.y + 0.02, p.z + dist); cam.lookAt(p.x, p.y, p.z); cam.updateProjectionMatrix();
+  const cx = (i % cols) * cell, cy = H - (Math.floor(i / cols) + 1) * cell; r.setViewport(cx, cy, cell, cell); r.setScissor(cx, cy, cell, cell); r.render(s, cam);
+});
+console.log(window.labels.join(' | ')); window.__ready = true;
+</script></body></html>

@@ -1,0 +1,51 @@
+<!doctype html><html><body style="margin:0;background:#888"><canvas id="c"></canvas>
+<script type="module">
+// Protagonist body check (shoulders / arm joins / fist guard and block clearance) through the real Animator.
+// ?who=dineth|shashika|david|all  &pose=idle|guard|block|jab|cross|walk  &view=front|back|side|q (3/4 back)|top  &zoom=1 (upper body) | 2 (neck close-up)
+// &t=seconds of animation before the frame (default 1.2). Writes hand / forearm clearances to window.report.
+import * as THREE from 'three';
+import { buildTextures } from '/src/gfx/Textures.js';
+import { Character, HEROES } from '/src/actors/Character.js';
+await buildTextures('medium');
+const q = new URLSearchParams(location.search); const W = +(q.get('w') || 1280), H = +(q.get('h') || 720);
+const r = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true }); r.setSize(W, H); r.toneMapping = THREE.ACESFilmicToneMapping; r.outputColorSpace = THREE.SRGBColorSpace; r.shadowMap.enabled = true;
+const s = new THREE.Scene(); s.background = new THREE.Color(0x9fb4c8);
+s.add(new THREE.HemisphereLight(0xdde8ff, 0x665544, 1.3)); const d = new THREE.DirectionalLight(0xfff0dd, 2.4); d.position.set(3, 6, 5); d.castShadow = true; s.add(d);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ color: 0x8d8a83, roughness: 0.95 })); ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; s.add(ground);
+const cam = new THREE.PerspectiveCamera(30, W / H, 0.05, 100);
+const who = q.get('who') || 'all'; const ids = who === 'all' ? ['dineth', 'shashika', 'david'] : [who]; const pose = q.get('pose') || 'idle'; const T = +(q.get('t') || 1.2);
+const gap = 1.0; const chars = ids.map((id, i) => { const ch = new Character(HEROES[id]); ch.root.position.set((i - (ids.length - 1) / 2) * gap, 0, 0); ch.root.traverse((m) => { if (m.isMesh) { m.castShadow = true; m.frustumCulled = false; } }); s.add(ch.root); return ch; });
+const STEP = 1 / 60;
+for (const ch of chars) { const A = ch.anim; let sp = 0;
+  if (pose === 'guard' || pose === 'block' || pose === 'jab' || pose === 'cross') A.fightOn(true);
+  if (pose === 'block') A.block(true);
+  if (pose === 'walk') sp = 1.4;
+  let t = 0; for (; t < T - 1e-6; t += STEP) A.update(STEP, sp);
+  if (pose === 'jab' || pose === 'cross') { A.strike ? A.strike(pose) : A.play && A.play(pose); const ht = +(q.get('ht') || 0.12); for (let u = 0; u < ht; u += STEP) A.update(STEP, 0); }
+  ch.root.updateMatrixWorld(true); }
+// clearance report: hand / forearm skinned vertices inside the head ellipsoid (rx .085, ry .115, rz .1 about the head centre)
+const V = THREE.Vector3;
+function measure(ch, id) { const b = ch.bones; ch.root.updateMatrixWorld(true); const hd = b.head.getWorldPosition(new V()); const sc = HEROES[id].height / 1.72;
+  const hc = new V(0, 0.08 * sc, 0.02 * sc).applyMatrix4(b.head.matrixWorld); const ax = new V(1, 0, 0).transformDirection(b.head.matrixWorld), ay = new V(0, 1, 0).transformDirection(b.head.matrixWorld), az = new V(0, 0, 1).transformDirection(b.head.matrixWorld);
+  let inside = 0, minE = 9; const tmp = new V(), d = new V();
+  ch.root.traverse((m) => { if (!m.isSkinnedMesh) return; const g = m.geometry, si = g.attributes.skinIndex, sw = g.attributes.skinWeight, pos = g.attributes.position; if (!si) return; const bn = m.skeleton.bones.map((x) => x.name);
+    const armIdx = new Set(bn.map((n, i) => (/^(hand|fore|idx|mid|rng|pnk|thb)/.test(n) ? i : -1)).filter((i) => i >= 0));
+    for (let v = 0; v < pos.count; v++) { let arm = 0; for (let c = 0; c < 4; c++) if (armIdx.has(si.getComponent(v, c))) arm += sw.getComponent(v, c); if (arm < 0.6) continue;
+      m.getVertexPosition(v, tmp); tmp.applyMatrix4(m.matrixWorld); d.subVectors(tmp, hc); const e = Math.hypot(d.dot(ax) / 0.085, d.dot(ay) / 0.115, d.dot(az) / 0.1); if (e < minE) minE = e; if (e < 1) inside++; } });
+  return { inside, minE: +minE.toFixed(3), dL: +b.handL.getWorldPosition(new V()).distanceTo(hd).toFixed(3), dR: +b.handR.getWorldPosition(new V()).distanceTo(hd).toFixed(3) }; }
+const report = {};
+if (q.get('scan')) { // whole animation: worst frame
+  for (let i = 0; i < chars.length; i++) { const ch = chars[i], A = ch.anim; let worst = { inside: 0, minE: 9 }; const frames = [];
+    const sample = () => { const m = measure(ch, ids[i]); frames.push(m.inside); if (m.inside > worst.inside || (m.inside === worst.inside && m.minE < worst.minE)) worst = m; };
+    if (pose === 'block') { A.block(false); for (let t = 0; t < 0.4; t += STEP) A.update(STEP, 0); A.block(true); for (let k = 0; k < 40; k++) { A.update(STEP, 0); if (k % 2 === 0) sample(); } }
+    else if (pose === 'combo') { for (const mv of ['jab', 'cross', 'hook', 'upper']) { A.strike(mv); for (let k = 0; k < 36; k++) { A.update(STEP, 0); if (k % 2 === 0) sample(); } } }
+    else for (let k = 0; k < 40; k++) { A.update(STEP, pose === 'walk' ? 1.4 : 0); if (k % 2 === 0) sample(); }
+    report[ids[i]] = { worst, frames: frames.join(',') }; } }
+else for (let i = 0; i < chars.length; i++) report[ids[i]] = measure(chars[i], ids[i]);
+window.report = report;
+const view = q.get('view') || 'front'; const zoom = q.get('zoom'); const span = (ids.length - 1) * gap;
+const ty = zoom === '2' ? 1.5 : zoom ? 1.38 : 0.95; const dist = zoom === '2' ? 0.75 : zoom ? (ids.length > 1 ? 3.6 + span : 1.9) : (ids.length > 1 ? 5.5 + span : 4.2); // zoom=2: neck close-up
+const dir = { front: [0, 0, 1], back: [0, 0, -1], side: [1, 0, 0], q: [0.75, 0, -0.66], qf: [0.7, 0, 0.7], top: [0.0001, 1, 0.35] }[view];
+const L = new V(...dir).normalize(); cam.position.set(L.x * dist, ty + L.y * dist + (view === 'top' ? 0 : 0.12), L.z * dist); cam.lookAt(0, ty, 0); cam.updateProjectionMatrix();
+r.render(s, cam); window.done = true;
+</script></body></html>

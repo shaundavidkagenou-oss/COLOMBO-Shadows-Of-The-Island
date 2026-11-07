@@ -7,6 +7,7 @@ import { RNG, hash2 } from '../core/rng.js';
 
 import { buildTrack } from './Railway.js';
 const RY = L.ROAD_Y, LY = L.LAND_Y;
+import { resetGroundDetail, regWalkRect, regWalkCorner, regKerb } from './GroundDetail.js';
 const WHITE0 = [0.93, 0.93, 0.9], YELLOW0 = [0.93, 0.76, 0.12]; const WHITE = WHITE0, YELLOW = YELLOW0;
 const lotMaterial = (cell) => {
   const zn = L.zoneAt(cell.cx, cell.cz);
@@ -26,9 +27,11 @@ function clipLand(pts) {
   }
   return out;
 }
+const clipX = (poly, xl, keepLeft) => { const out = []; for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length]; const ia = keepLeft ? a[0] <= xl : a[0] >= xl, ib = keepLeft ? b[0] <= xl : b[0] >= xl; if (ia) out.push(a); if (ia !== ib) { const t = (xl - a[0]) / (b[0] - a[0]); out.push([xl, a[1] + (b[1] - a[1]) * t]); } } return out; }; // polygon ∩ half-plane x ≤ xl (or ≥)
 const kerbStriped = (seg, x, z) => { const d = L.districtIdAt(x, z); return seg.level <= 1 && ['fort', 'gftowers', 'gfgreen', 'pettah', 'kollupitiya', 'beira'].includes(d); };
 
 export function buildGround(progress) {
+  resetGroundDetail(); // modelled bricks / kerb stones near the camera follow exactly what is laid here (GroundDetail.js)
   const chunks = []; for (let i = 0; i < NCX * NCZ; i++) chunks.push(new MultiBuilder());
   const at = (x, z) => { let c = chunkIndex(x, z); if (c < 0) { const cx = Math.max(0, Math.min(NCX - 1, Math.floor((x - L.BOUNDS.minX) / 200))), cz = Math.max(0, Math.min(NCZ - 1, Math.floor((z - L.BOUNDS.minZ) / 200))); c = cz * NCX + cx; } return chunks[c]; };
 
@@ -66,22 +69,22 @@ export function buildGround(progress) {
     const wT = c.T ? c.T.walk : 0, wB = c.B ? c.B.walk : 0, wL = c.L ? c.L.walk : 0, wR = c.R ? c.R.walk : 0;
     let rTL = 0, rTR = 0, rBL = 0, rBR = 0; const K = mb.get('kerb');
     if (!c.partial) {
-      const W = mb.get(walkMat);
+      const W = mb.get(walkMat); const grey = walkMat === 'walkGrey'; const WR = (a, b, c2, d) => { W.hrect(a, b, c2, d, LY, 2); regWalkRect(a, b, c2, d, grey); };
       // rounded kerb corners where two roads meet (radius limited by both footpaths)
       const rad = (a, b) => (a && b ? Math.min(a, b, 3.2) * 0.92 : 0);
       rTL = rad(c.T && wT, c.L && wL); rTR = rad(c.T && wT, c.R && wR); rBL = rad(c.B && wB, c.L && wL); rBR = rad(c.B && wB, c.R && wR);
-      if (wT) { W.hrect(lx0 + rTL, lz0, lx1 - rTR, lz0 + wT, LY, 2); if (rTL) W.hrect(lx0, lz0 + rTL, lx0 + rTL, lz0 + wT, LY, 2); if (rTR) W.hrect(lx1 - rTR, lz0 + rTR, lx1, lz0 + wT, LY, 2); }
-      if (wB) { W.hrect(lx0 + rBL, lz1 - wB, lx1 - rBR, lz1, LY, 2); if (rBL) W.hrect(lx0, lz1 - wB, lx0 + rBL, lz1 - rBL, LY, 2); if (rBR) W.hrect(lx1 - rBR, lz1 - wB, lx1, lz1 - rBR, LY, 2); }
+      if (wT) { WR(lx0 + rTL, lz0, lx1 - rTR, lz0 + wT); if (rTL) WR(lx0, lz0 + rTL, lx0 + rTL, lz0 + wT); if (rTR) WR(lx1 - rTR, lz0 + rTR, lx1, lz0 + wT); }
+      if (wB) { WR(lx0 + rBL, lz1 - wB, lx1 - rBR, lz1); if (rBL) WR(lx0, lz1 - wB, lx0 + rBL, lz1 - rBL); if (rBR) WR(lx1 - rBR, lz1 - wB, lx1, lz1 - rBR); }
       const corner = (ox, oz, sx, sz, r) => { // quarter-disc paving + asphalt fill + curved kerb
         if (!r) return; const cx = ox + sx * r, cz = oz + sz * r, N = 8, arc = [];
         for (let k = 0; k <= N; k++) { const t = (k / N) * Math.PI / 2; arc.push([cx - sx * r * Math.cos(t), cz - sz * r * Math.sin(t)]); }
-        W.hpoly([[cx, cz], ...arc], LY, 2); mb.get('road').hpoly([[ox, oz], ...arc], L.ROAD_Y, 10);
+        W.hpoly([[cx, cz], ...arc], LY, 2); regWalkCorner(cx, cz, r, sx, sz, grey); mb.get('road').hpoly([[ox, oz], ...arc], L.ROAD_Y, 10);
         for (let k = 0; k < N; k++) { const a = arc[k], b = arc[k + 1]; const kc = [0.78, 0.77, 0.74];
-          K.wall(a[0], a[1], b[0], b[1], RY - 0.02, LY, [0, 0, 0.4, 0.1], kc); K.wall(b[0], b[1], a[0], a[1], RY - 0.02, LY, [0, 0, 0.4, 0.1], kc); }
+          K.wall(a[0], a[1], b[0], b[1], RY - 0.02, LY, [0, 0, 0.4, 0.1], kc); K.wall(b[0], b[1], a[0], a[1], RY - 0.02, LY, [0, 0, 0.4, 0.1], kc); regKerb(a[0], a[1], b[0], b[1], kc); }
       };
       corner(lx0, lz0, 1, 1, rTL); corner(lx1, lz0, -1, 1, rTR); corner(lx0, lz1, 1, -1, rBL); corner(lx1, lz1, -1, -1, rBR);
-      if (wL) W.hrect(lx0, lz0 + wT, lx0 + wL, lz1 - wB, LY, 2);
-      if (wR) W.hrect(lx1 - wR, lz0 + wT, lx1, lz1 - wB, LY, 2);
+      if (wL) WR(lx0, lz0 + wT, lx0 + wL, lz1 - wB);
+      if (wR) WR(lx1 - wR, lz0 + wT, lx1, lz1 - wB);
       const g = mb.get(lotMat); const [a, b, cc, d] = [lx0 + wL, lx1 - wR, lz0 + wT, lz1 - wB];
       if (b > a && d > cc) g.hrect(a, cc, b, d, LY, lotMat === 'concrete' ? 6 : 8, lotMat === 'concrete' ? [0.82, 0.8, 0.76] : null);
     } else {
@@ -95,7 +98,13 @@ export function buildGround(progress) {
         let qx = 0, qz = 0; for (const p of poly) { qx += p[0]; qz += p[1]; } qx /= poly.length; qz /= poly.length;
         const full = poly.length === 4 && poly[0][0] === x && poly[2][0] === x2;
         const inWalk = (wT && qz < lz0 + wT) || (wB && qz > lz1 - wB) || (wL && qx < lx0 + wL) || (wR && qx > lx1 - wR);
-        const promenade = c.district === 'gfgreen' && qx < L.coastX(qz) + 13;
+        // Galle Face promenade: 13 m of paving behind the seawall from the Fort end down to z -160, where the coastal railway
+        // meets the shore. Cells straddling its inland edge are split along the curve (no 2.5 m zig-zag of brick and grass).
+        const promZone = (c.district === 'gfgreen' || (qz >= -240 && qz < L.PROMENADE_END)) && qz < L.PROMENADE_END, xl = L.coastX((z + z2) / 2) + 13;
+        const paint = (pl, tgt) => { if (pl.length < 3) return; const tc = tgt === g && lotMat === 'concrete' ? [0.82, 0.8, 0.76] : (tgt === sand ? [0.9, 0.88, 0.85] : null); tgt.hpoly(pl, LY, tgt === W ? 2 : 8, tc); };
+        if (promZone && x < xl && x2 > xl) { // split cell: promenade west of the edge, the lot's own ground east of it
+          paint(clipX(poly, xl, true), W); paint(clipX(poly, xl, false), inWalk ? W : g); continue; }
+        const promenade = promZone && qx < xl;
         const shore = !promenade && L.isSea(qx - 9, qz) && qz > -240;
         const target = inWalk || promenade ? W : shore ? sand : g;
         const tc = target === g && lotMat === 'concrete' ? [0.82, 0.8, 0.76] : (target === sand ? [0.9, 0.88, 0.85] : null);
@@ -111,7 +120,7 @@ export function buildGround(progress) {
         const t0 = k / n, t1 = (k + 1) / n; const ax = x0 + (x1 - x0) * t0, az = z0 + (z1 - z0) * t0, bx = x0 + (x1 - x0) * t1, bz = z0 + (z1 - z0) * t1;
         if (L.isWater((ax + bx) / 2, (az + bz) / 2)) continue;
         const col = striped ? (k % 2 ? [0.12, 0.12, 0.12] : [0.95, 0.95, 0.92]) : [0.78, 0.77, 0.74];
-        K.wall(ax, az, bx, bz, RY - 0.02, LY, [0, 0, (len / n) / 2, 0.1], col);
+        K.wall(ax, az, bx, bz, RY - 0.02, LY, [0, 0, (len / n) / 2, 0.1], col); if (!c.partial) regKerb(ax, az, bx, bz, col);
       }
     };
     // walls oriented so the face points toward the road (CCW rules of MeshBuilder.wall)
@@ -135,7 +144,11 @@ export function buildGround(progress) {
     }
   }
   // promenade railing along Galle Face
-  for (let z = -655; z < -245; z += 2.5) { const x = L.coastX(z) + 0.4; const mb = at(x + 10, z); mb.get('metal').box(x, LY + 1.05, z, 0.08, 1.0, 0.08, { col: [0.2, 0.2, 0.2] }); mb.get('metal').box(x, LY + 1.5, z + 1.25, 0.06, 0.06, 2.5, { col: [0.25, 0.25, 0.25] }); }
+  for (let z = -655; z < L.PROMENADE_END - 0.01; z += 2.5) { const x = L.coastX(z) + 0.4, xn = L.coastX(z + 2.5) + 0.4; const mb = at(x + 10, z); mb.get('metal').box(x, LY + 1.05, z, 0.08, 1.0, 0.08, { col: [0.2, 0.2, 0.2] });
+    for (const yy of [1.5, 1.0]) mb.get('metal').box((x + xn) / 2, LY + yy, z + 1.25, 0.06, 0.06, Math.hypot(2.5, xn - x), { col: [0.25, 0.25, 0.25], rotY: Math.atan2(xn - x, 2.5) }); } // follows the seawall curve, two rails
+  { const z = L.PROMENADE_END, xa = L.coastX(z) + 0.4, xb = L.coastX(z) + 13; const mb = at(xa + 10, z); // end of the promenade: the railing returns inland, closing it off from the railway shore
+    for (let x = xa; x <= xb + 0.01; x += 2.5) mb.get('metal').box(x, LY + 1.05, z, 0.08, 1.0, 0.08, { col: [0.2, 0.2, 0.2] });
+    for (const yy of [1.5, 1.0]) mb.get('metal').box((xa + xb) / 2, LY + yy, z, xb - xa, 0.06, 0.06, { col: [0.25, 0.25, 0.25] }); }
   // harbour quay walls
   for (let x = L.coastX(-1180); x < 230; x += 4) { const mb = at(x, -1170); mb.get('concrete').quad([x + 4, -2.5, -1180], [x, -2.5, -1180], [x, LY + 0.4, -1180], [x + 4, LY + 0.4, -1180], [0, 0, 2, 1.4], [0.6, 0.6, 0.58]); if (Math.floor(x / 4) % 5 === 0) mb.get('metal').cylinder(x, LY, -1181, 0.25, 0.2, 0.6, 8, { col: [0.15, 0.15, 0.15] }); }
   for (let z = -1300; z < -1180; z += 4) { const mb = at(235, z); mb.get('concrete').quad([230, -2.5, z], [230, -2.5, z + 4], [230, LY + 0.4, z + 4], [230, LY + 0.4, z], [0, 0, 2, 1.4], [0.6, 0.6, 0.58]); }
@@ -158,7 +171,8 @@ export function buildGround(progress) {
         mb.get('concrete').quad([p0[0] + ox * 0.9, LY, p0[1] + oz * 0.9], [p1[0] + ox * 0.9, LY, p1[1] + oz * 0.9], [p1[0] + ox * 0.9, LY + 0.3, p1[1] + oz * 0.9], [p0[0] + ox * 0.9, LY + 0.3, p0[1] + oz * 0.9], [0, 0, 1.5, 0.1], [0.78, 0.76, 0.72]);
         mb.get('concrete').quad([p1[0] + ox * 0.9, LY, p1[1] + oz * 0.9], [p0[0] + ox * 0.9, LY, p0[1] + oz * 0.9], [p0[0] + ox * 0.9, LY + 0.3, p0[1] + oz * 0.9], [p1[0] + ox * 0.9, LY + 0.3, p1[1] + oz * 0.9], [0, 0, 1.5, 0.1], [0.78, 0.76, 0.72]); }
       if (k % 2 === 0) mb.get('metal').box(p0[0] + ox * 0.4, LY + 0.85, p0[1] + oz * 0.4, 0.08, 1.0, 0.08, { col: [0.25, 0.27, 0.25] });
-      mb.get('metal').quad([p1[0] + ox * 0.4, LY + 1.25, p1[1] + oz * 0.4], [p0[0] + ox * 0.4, LY + 1.25, p0[1] + oz * 0.4], [p0[0] + ox * 0.4, LY + 1.33, p0[1] + oz * 0.4], [p1[0] + ox * 0.4, LY + 1.33, p1[1] + oz * 0.4], [0, 0, 1, 1], [0.25, 0.27, 0.25]);
+      { const ax = p0[0] + ox * 0.4, az = p0[1] + oz * 0.4, bx = p1[0] + ox * 0.4, bz = p1[1] + oz * 0.4, l = Math.hypot(bx - ax, bz - az) + 0.06, ry = -Math.atan2(bz - az, bx - ax); // solid top + mid rails (visible from both sides)
+        mb.get('metal').box((ax + bx) / 2, LY + 1.29, (az + bz) / 2, l, 0.07, 0.06, { col: [0.25, 0.27, 0.25], rotY: ry }); mb.get('metal').box((ax + bx) / 2, LY + 0.82, (az + bz) / 2, l, 0.05, 0.04, { col: [0.25, 0.27, 0.25], rotY: ry }); }
     }
   }
   // canals
@@ -194,12 +208,12 @@ function roadWear(mb, s, dir, a, b, n0, n1) {
   // queued-traffic oil zone before each stop line (approach lane is on the left of travel)
   const cw = 3.4, gap = 0.8; const j0 = n0.segs.length >= 3 && s.level <= 2 && !s.crossing, j1 = n1.segs.length >= 3 && s.level <= 2 && !s.crossing;
   const lane0 = lanes[0];
-  if (j1) { const st = len - gap - cw - 0.9, o = (dir === 'v' ? 1 : -1) * lane0; rect(st - 11, st - 0.8, o - 0.55, o + 0.55, y + 0.003, [0.72, 0.71, 0.7]); rect(st - 6, st - 1.4, o - 0.3, o + 0.3, y + 0.004, [0.58, 0.57, 0.56]); }
-  if (j0) { const st = gap + cw + 0.9, o = (dir === 'v' ? -1 : 1) * lane0; rect(st + 0.8, st + 11, o - 0.55, o + 0.55, y + 0.003, [0.72, 0.71, 0.7]); rect(st + 1.4, st + 6, o - 0.3, o + 0.3, y + 0.004, [0.58, 0.57, 0.56]); }
+  if (j1) { const st = len - gap - cw - 0.9, o = (dir === 'v' ? 1 : -1) * lane0; rect(st - 11, st - 0.8, o - 0.55, o + 0.55, y + 0.003, [0.72, 0.71, 0.7]); rect(st - 6, st - 1.4, o - 0.3, o + 0.3, y + 0.004, [0.66, 0.65, 0.64]); }
+  if (j0) { const st = gap + cw + 0.9, o = (dir === 'v' ? -1 : 1) * lane0; rect(st + 0.8, st + 11, o - 0.55, o + 0.55, y + 0.003, [0.72, 0.71, 0.7]); rect(st + 1.4, st + 6, o - 0.3, o + 0.3, y + 0.004, [0.66, 0.65, 0.64]); }
   // repair patches: fresh black cut-and-fill or old faded grey squares, some trench reinstatements across a lane
   const np = Math.floor(len / 45 + r.next() * 2.2);
   for (let k = 0; k < np; k++) {
-    const t = r.range(4, len - 4), o = r.range(-s.hw + 0.8, s.hw - 0.8), fresh = r.chance(0.45), tone = fresh ? r.range(0.62, 0.72) : r.range(1.08, 1.18);
+    const t = r.range(4, len - 4), o = r.range(-s.hw + 0.8, s.hw - 0.8), fresh = r.chance(0.45), tone = fresh ? r.range(0.8, 0.87) : r.range(1.05, 1.11); // subtle: deep-black squares read as holes at night
     if (r.chance(0.25)) { const side = o < 0 ? -1 : 1; rect(t, t + r.range(0.6, 0.9), side < 0 ? -s.hw + 0.3 : 0.2, side < 0 ? -0.2 : s.hw - 0.3, y + 0.005, [tone, tone, tone * 0.98]); }
     else { const wl = r.range(1.0, 3.6), wo = r.range(0.7, 2.2); rect(t, t + wl, o - wo / 2, o + wo / 2, y + 0.005, [tone, tone, tone * 0.98]); }
   }

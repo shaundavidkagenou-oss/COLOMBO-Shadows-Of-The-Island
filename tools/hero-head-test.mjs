@@ -22,6 +22,10 @@ for (const id of ['dineth', 'shashika', 'david']) {
   // throat front is skin (vertices exist in front of the neck centre between cut and chin)
   let throat = 0; const zc = F.section.cz + 0.01; for (let i = 0; i < P.length; i += 3) if (P[i + 1] > F.cutY + 0.02 && P[i + 1] < F.cutY + 0.07 && P[i + 2] > zc + 0.03 && Math.abs(P[i]) < 0.02) throat++;
   ok(throat > 10, `${id}: throat front present (${throat})`);
+  // the skin is closed everywhere above the collar cut: no open edge there (a notch behind each ear used to leave a see-through slot)
+  { const gr = g.groups[0], I = g.index.array, ec = new Map(); for (let t = gr.start; t < gr.start + gr.count; t += 3) for (let j = 0; j < 3; j++) { const a = I[t + j], b = I[t + (j + 1) % 3]; const key = a < b ? a * 1e6 + b : b * 1e6 + a; ec.set(key, (ec.get(key) || 0) + 1); }
+    let openHi = 0; for (const [key, n] of ec) { if (n !== 1) continue; const a = Math.floor(key / 1e6), b = key % 1e6; if (Math.max(P[a * 3 + 1], P[b * 3 + 1]) > F.cutY + 0.003) openHi++; }
+    ok(openHi === 0, `${id}: neck skin closed above the collar cut (${openHi} open edges)`); }
   // hair / beard / brow colours are brown-black, never blue-dominant
   const C = g.attributes.color.array; const hairKeys = ['hair', 'hairFur', 'brow', 'beardBase', 'fur']; let blue = 0, n = 0;
   g.groups.forEach((gr, gi) => { const key = ch.head.userData.keys ? ch.head.userData.keys[gi] : null; if (key && !hairKeys.includes(key)) return; if (!key && gi === 0) return;

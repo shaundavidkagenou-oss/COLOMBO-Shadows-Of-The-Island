@@ -223,7 +223,7 @@ function buildCrossing(sys, c) {
     for (let k = 0; k * 0.6 < len; k++) { const m = new THREE.Mesh(boomSeg, k % 2 ? white : red); m.position.x = 0.3 + k * 0.6; m.castShadow = true; arm.add(m); }
     const cw = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.28, 0.22), new THREE.MeshStandardMaterial({ color: 0x333333 })); cw.position.x = -0.45; arm.add(cw);
     arm.rotation.z = Math.PI / 2 * 0.95; g.add(pivot);
-    c.sides.push({ arm, px, pz, bdx, bdz, len, knocked: 0 });
+    c.sides.push({ arm, px, pz, bdx, bdz, len, py: y0 + 1.0, ofs: 0, av: 0, need: 0, touch: false, clatT: 0, down: 0 });
   }
   for (const m of mb.toMeshes(MAT)) g.add(m);
   sys.scene.add(g); c.group = g; c.flash = 0; c.closedT = 0; c.bellT = 0;
@@ -246,7 +246,7 @@ export class Trains {
     this.bodies = this.trains.flatMap((t) => t.bodies);
   }
   // crossing state: closed while a train occupies it or is about to arrive
-  updateCrossings(dt, listener) {
+  updateCrossings(dt, listener, contacts = []) {
     for (const c of this.crossings) {
       let closed = false;
       for (const t of this.trains) {
@@ -259,7 +259,8 @@ export class Trains {
       c.boom = clamp(c.boom + (want ? dt / 5 : -dt / 4), 0, 1); c.active = closed || c.boom > 0.01;
       c.flash = c.active ? c.flash + dt : 0; const ph = Math.floor(c.flash * 2.4) % 2;
       c.lampMats[0].color.setRGB(c.active && ph === 0 ? 2.2 : 0.14, c.active && ph === 0 ? 0.12 : 0.0, 0.0); c.lampMats[1].color.setRGB(c.active && ph === 1 ? 2.2 : 0.14, c.active && ph === 1 ? 0.12 : 0.0, 0.0);
-      for (const sd of c.sides) { sd.knocked = Math.max(0, sd.knocked - dt); const down = sd.knocked > 0 ? 0 : c.boom; const e = down * down * (3 - 2 * down); sd.arm.rotation.z = (Math.PI / 2) * 0.95 * (1 - e); sd.down = e; }
+      const near = contacts.filter((v) => v && Math.abs(v.x - c.x) < 30 && Math.abs(v.z - c.z) < 30);
+      for (const sd of c.sides) this.stepBoom(sd, c.boom, near, dt);
       if (c.active && listener) { c.bellT -= dt; if (c.bellT <= 0) { c.bellT = 0.42; const [g, pan] = Audio.spatial(c.x, c.z, 50); if (g > 0.03) Audio.tone(1350, 0.16, { type: 'triangle', vol: 0.06 * g, pan }); } }
     }
   }
@@ -274,20 +275,42 @@ export class Trains {
     }
     return best;
   }
-  // a vehicle driving into a lowered boom knocks it up (non-physical barrier) with a clatter
-  checkBooms(v) {
-    if (!v) return;
-    for (const c of this.crossings) for (const sd of c.sides) {
-      if (sd.down < 0.5) continue; const rx = v.x - sd.px, rz = v.z - sd.pz; const t = rx * sd.bdx + rz * sd.bdz; if (t < 0 || t > sd.len) continue;
-      const perp = Math.abs(rx * sd.bdz - rz * sd.bdx); if (perp < (v.T ? v.T.len / 2 : 0.4)) { sd.knocked = 6; Audio.noise(0.25, { f: 1800, q: 1.2, vol: 0.18 }); }
-    }
+  // Boom arm as a hinged, weighted beam: the motor drives the commanded angle (raised ↔ lowered), and on top of it
+  // the arm can be lifted (ofs ≥ 0) by whatever is under it. It can never pass through a vehicle: it rests on the
+  // roof of anything parked beneath it, and a car driving into it shoves it up with a kick proportional to its speed;
+  // the arm then swings, falls back under gravity and settles on its rest with a small bounce. No snapping.
+  stepBoom(sd, boom, near, dt) {
+    const UP = (Math.PI / 2) * 0.95; const e = boom * boom * (3 - 2 * boom); const base = UP * (1 - e);
+    let need = 0, fast = 0;
+    for (const v of near) { const n = this.armClearance(sd, v); if (n > need) { need = n; fast = Math.abs(v.speed || 0); } }
+    const dt1 = Math.max(dt, 1e-3);
+    if (need > sd.need + 1e-4 && fast > 1.5) sd.av = Math.max(sd.av, Math.min(4.5, ((need - sd.need) / dt1) * 1.6 + fast * 0.12)); // shoved: fling it up
+    sd.clatT = Math.max(0, sd.clatT - dt);
+    if (need > 0 && !sd.touch && fast > 1.5 && sd.clatT <= 0) { sd.clatT = 0.8; const [g, pan] = Audio.spatial(sd.px, sd.pz, 40); if (g > 0.03) Audio.noise(0.25, { f: 1800, q: 1.2, vol: 0.18 * g, pan }); }
+    sd.touch = need > 0; sd.need = need;
+    sd.av -= 3.2 * Math.cos(base + sd.ofs) * dt; sd.av *= Math.exp(-1.1 * dt); sd.ofs += sd.av * dt; // gravity torque ∝ cos(angle), hinge damping
+    if (base + sd.ofs > UP) { sd.ofs = UP - base; if (sd.av > 0) sd.av *= -0.2; } // hits the post stop
+    if (base + sd.ofs < need) { sd.ofs = need - base; sd.av = Math.max(sd.av, 0); } // resting on / riding over a vehicle
+    if (sd.ofs < 0) { sd.ofs = 0; sd.av = sd.av < -0.5 ? -sd.av * 0.22 : 0; } // back on its rest (motor position): small bounce
+    const ang = base + sd.ofs; sd.arm.rotation.z = ang; sd.down = 1 - ang / UP;
+  }
+  // smallest arm angle (rad above horizontal) that clears vehicle v where its footprint crosses the arm's line (0 = no contact)
+  armClearance(sd, v) {
+    const T = v.T || {}; const hl = (T.len || 4.2) / 2 + 0.05, hw = (T.wid || 1.8) / 2 + 0.05; const top = (v.y || 0) + (T.hgt || 1.5) + 0.04;
+    if (top <= sd.py) return 0; const fx = Math.sin(v.yaw || 0), fz = Math.cos(v.yaw || 0);
+    const P = [[hl, hw], [hl, -hw], [-hl, -hw], [-hl, hw]].map(([a, b]) => { const x = v.x + fx * a + fz * b - sd.px, z = v.z + fz * a - fx * b - sd.pz; return [x * sd.bdx + z * sd.bdz, x * sd.bdz - z * sd.bdx]; });
+    let t0 = Infinity, t1 = -Infinity; const W = 0.06;
+    for (let i = 0; i < 4; i++) { const [ta, pa] = P[i], [tb, pb] = P[(i + 1) % 4];
+      if (Math.abs(pa) <= W) { t0 = Math.min(t0, ta); t1 = Math.max(t1, ta); }
+      if ((pa > W && pb < -W) || (pa < -W && pb > W) || (Math.abs(pa) > W && Math.abs(pb) <= W)) { const u = pa / (pa - pb); const t = ta + (tb - ta) * u; t0 = Math.min(t0, t); t1 = Math.max(t1, t); } }
+    if (t0 > t1 || t1 < 0.3 || t0 > sd.len) return 0;
+    const t = Math.max(0.3, t0); return Math.asin(Math.min(0.999, (top - sd.py) / t));
   }
   update(dt, { focus, night = 0, player = null, playerVehicle = null, vehicles = [], listener = null } = {}) {
     this.night = night; for (const m of [this.mats.trainWin]) m.emissiveIntensity = night * 0.85;
     const obstacles = [playerVehicle || player, ...vehicles.filter((v) => !v.isTrain && (v.speed || 0) < 1.5), ...(this.trains.length > 1 ? this.bodies : [])];
     for (const t of this.trains) { t.update(dt, { obstacles }); if (t._night !== Math.round(night * 4)) { t._night = Math.round(night * 4); t.updateLamps(); } }
-    this.updateCrossings(dt, listener);
-    if (playerVehicle) this.checkBooms(playerVehicle);
+    this.updateCrossings(dt, listener, playerVehicle ? [playerVehicle, ...vehicles] : vehicles);
     // the train is immovable: push vehicles it runs into off the track (AI traffic stops at crossings, so this is a fallback)
     for (const b of this.bodies) {
       if (Math.abs(b.speed) < 0.05) continue;

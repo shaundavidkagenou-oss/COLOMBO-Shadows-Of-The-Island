@@ -3,14 +3,30 @@ import * as THREE from 'three';
 import { TEX } from './Textures.js';
 import { applyInteriorMapping, INTERIOR, occupancy } from './InteriorMapping.js';
 export const MAT = {};
-const facadeKeys = ['colonial', 'brick', 'glass', 'glass2', 'office', 'hotel', 'shop', 'shop2', 'apartment', 'villa', 'warehouse'];
+const facadeKeys = ['colonial', 'brick', 'glass', 'glass2', 'glass3', 'office', 'office2', 'office3', 'hotel', 'shop', 'shop2', 'shop3', 'apartment', 'apartment2', 'villa', 'warehouse'];
 const wetTargets = [];
+// Road glare: on wet asphalt at night every oncoming headlight (a spot light pointed back at the viewer) became a white
+// mirror streak between the car and the camera, so bright that bloom turned it into a white halo hiding the car (tested:
+// bloom off → car visible behind a streak; beam off → no halo). On road surfaces each spot light's SPECULAR term is capped
+// (0.55, below the night bloom threshold of 1.7) and scaled by ROAD_SPOT_SPEC; the wet streak stays, it just never blooms.
+// Diffuse light (the lit road ahead) and every other light are untouched. Driven by updateMaterials.
+export const ROAD_SPOT_SPEC = { value: 1 };
+function roadSpotSpec(m) {
+  m.onBeforeCompile = (sh) => { sh.uniforms.uRoadSpotSpec = ROAD_SPOT_SPEC;
+    const pars = THREE.ShaderChunk.lights_physical_pars_fragment.replace('reflectedLight.directSpecular += irradiance * specularBRDF * material.multiScatteringCompensation;', 'reflectedLight.directSpecular += min( irradiance * specularBRDF * material.multiScatteringCompensation, vec3( gSpotCap ) ) * gSpotSpec;');
+    let beg = THREE.ShaderChunk.lights_fragment_begin; const i = beg.indexOf('#if ( NUM_SPOT_LIGHTS > 0 ) && defined( RE_Direct )'); const call = 'RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );';
+    const j = i >= 0 ? beg.indexOf(call, i) : -1; if (j >= 0) beg = beg.slice(0, j) + 'gSpotSpec = uRoadSpotSpec; gSpotCap = 0.55; ' + call + ' gSpotSpec = 1.0; gSpotCap = 1e6;' + beg.slice(j + call.length);
+    if (j < 0 || pars === THREE.ShaderChunk.lights_physical_pars_fragment) return; // three changed its chunks: leave the material as it is
+    sh.fragmentShader = 'uniform float uRoadSpotSpec;\nfloat gSpotSpec = 1.0;\nfloat gSpotCap = 1e6;\n' + sh.fragmentShader.replace('#include <lights_physical_pars_fragment>', pars).replace('#include <lights_fragment_begin>', beg); };
+  m.customProgramCacheKey = () => 'roadSpotSpec2';
+}
 export function buildMaterials() {
   const std = (o) => new THREE.MeshStandardMaterial(o);
   MAT.road = std({ map: TEX.asphalt, roughnessMap: TEX.asphaltRough, roughness: 1, metalness: 0, color: 0xffffff });
   // same asphalt + same world-space UVs as MAT.road, but vertex-tinted: wheel-path polish, oil-stained stop zones and
   // repair patches are real overlay geometry on the carriageway (tone changes only, texture stays continuous)
   MAT.roadTint = std({ map: TEX.asphalt, roughnessMap: TEX.asphaltRough, roughness: 1, metalness: 0, vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+  roadSpotSpec(MAT.road); roadSpotSpec(MAT.roadTint);
   MAT.walk = std({ map: TEX.pavers, roughness: 0.9, color: 0xffffff });
   MAT.walkGrey = std({ map: TEX.paversGrey, roughness: 0.9 });
   MAT.kerb = std({ map: TEX.concrete, roughness: 0.85, vertexColors: true });
@@ -25,7 +41,7 @@ export function buildMaterials() {
   for (const k of facadeKeys) {
     const f = TEX['f_' + k];
     MAT['f_' + k] = std({ map: f.map, emissiveMap: f.emissive, emissive: 0xffffff, emissiveIntensity: 0, roughnessMap: f.rm, metalnessMap: f.rm, roughness: 1, metalness: k.startsWith('glass') ? 1 : 1, vertexColors: true, envMapIntensity: k.startsWith('glass') ? 1.0 : 0.8 });
-    applyInteriorMapping(MAT['f_' + k]); // windows show parallax rooms with depth
+    applyInteriorMapping(MAT['f_' + k], { office: /^(glass|office)/.test(k) }); // windows show parallax rooms with depth (offices: lit floor sections)
   }
   MAT.shops = std({ map: TEX.shops.map, emissiveMap: TEX.shops.emissive, emissive: 0xffffff, emissiveIntensity: 0.15, roughness: 0.8 });
   // after closing time each shop unit pulls down its own roller shutter (galvanised or painted; ~14% trade late)
@@ -69,6 +85,12 @@ export function buildMaterials() {
   MAT.leavesBright = std({ map: TEX.leavesBright, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9, vertexColors: true });
   MAT.palm = std({ map: TEX.palm, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85, vertexColors: true });
   MAT.bark = std({ color: 0x6b5a48, roughness: 1, vertexColors: true });
+  // trees / plants (Forest.js): real bark and palm-trunk textures, small-leaf sprigs (creepers, shrubs), banana blades, flowers
+  MAT.treeBark = std({ map: TEX.bark, bumpMap: TEX.bark, bumpScale: 2.2, color: 0xf2ece4, roughness: 0.95, vertexColors: true }); // mid grey-brown bark with relief (was ~3 % albedo: read as black sticks)
+  MAT.palmBark = std({ map: TEX.palmBark, roughness: 1, vertexColors: true });
+  MAT.leavesSmall = std({ map: TEX.leavesSmall, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9, vertexColors: true });
+  MAT.banana = std({ map: TEX.banana, alphaTest: 0.4, side: THREE.DoubleSide, roughness: 0.75, vertexColors: true });
+  MAT.bloom = std({ roughness: 0.7, side: THREE.DoubleSide, vertexColors: true });
   // baked contact occlusion: gradient geometry at wall bases / along their footings, multiplied over what is already drawn
   // (darkens only, never lightens; no fog so distant facades are not tinted)
   MAT.ao = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.MultiplyBlending, premultipliedAlpha: true, depthWrite: false, fog: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
@@ -93,5 +115,9 @@ export function updateMaterials(night, wet, t) {
   if (MAT.winGlass) MAT.winGlass.envMapIntensity = 2.4 * (1 - 0.85 * n); // a dark night sky barely reflects: panes show the room behind (lit or dark) instead of a uniform sky sheen
   MAT.pool.opacity = n * 0.55;
   MAT.glow.opacity = n * 0.9;
-  for (const [m, dryR, wetR] of wetTargets) { m.roughness = dryR + (wetR - dryR) * wet; m.color.copy(_dry).lerp(_wet, wet * 0.8); m.envMapIntensity = 0.6 + wet * 1.6; }
+  // wet roads at night: a film of water on real asphalt is not a mirror (the texture breaks it up); at 0.18 every oncoming
+  // headlight smeared into a long white streak that hid the car behind it. Night keeps the wet look (darker, glossier)
+  // but with a broader, dimmer highlight.
+  for (const [m, dryR, wetR] of wetTargets) { const wr = m === MAT.road || m === MAT.roadTint ? wetR + (0.26 - wetR) * n : wetR; m.roughness = dryR + (wr - dryR) * wet; m.color.copy(_dry).lerp(_wet, wet * 0.8); m.envMapIntensity = (0.6 + wet * 1.6) * (1 - 0.45 * n); }
+  ROAD_SPOT_SPEC.value = 1 - 0.45 * Math.min(1, wet * 1.5) * n - 0.2 * (1 - Math.min(1, wet * 1.5)) * n; // wet night 0.55, dry night 0.8, day 1 (and every spot highlight on the road capped below the bloom threshold, see roadSpotSpec)
 }

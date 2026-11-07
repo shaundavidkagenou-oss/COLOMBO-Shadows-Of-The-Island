@@ -5,9 +5,11 @@ import { MAT } from '../gfx/Materials.js';
 import { TEX } from '../gfx/Textures.js';
 import { LAND_Y, ROAD_Y, nodes, signalState } from './Layout.js';
 import { RNG } from '../core/rng.js';
+import { buildStallGeometries, stallType, STALL_CANOPY } from './Stalls.js';
 
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 const GEO = {}; // type -> [{geo, mat}]
+let STALLS = null; // [type][parts] from Stalls.js
 function part(mb, mat) { return { geo: mb.build(), mat }; }
 function canvasTex(w, h, draw) { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; }
 
@@ -28,7 +30,7 @@ export function buildPropGeometries() {
   // traffic signal pole (heads are separate dynamic lamps)
   { const p = new MeshBuilder(); p.cylinder(0, 0, 0, 0.1, 0.09, 3.2, 8, { col: C('#2b2d2b') });
     p.box(0, 2.85, 0.18, 0.34, 1.0, 0.24, { col: C('#151515') }); p.box(0.18, 2.85, 0, 0.24, 1.0, 0.34, { col: C('#151515') });
-    for (const [x, z] of [[0, 0.31], [0.31, 0]]) p.box(x, 2.85, z, x ? 0.02 : 0.4, 1.1, z ? 0.02 : 0.4, { col: C('#e8c21a') });
+    for (const [x, z] of [[0, 0.3075], [0.3075, 0]]) p.box(x, 2.85, z, x ? 0.015 : 0.4, 1.1, z ? 0.015 : 0.4, { col: C('#e8c21a') }); // backboard face at 0.315: lamps float 1.8 cm in front (no coplanar flicker)
     GEO.signal = [part(p, MAT.metal)]; }
   // bus halt shelter
   { const busSign = canvasTex(512, 160, (a, w, h) => { a.fillStyle = '#0e5e35'; a.fillRect(0, 0, w, h); a.fillStyle = '#fff'; a.textAlign = 'center'; a.textBaseline = 'middle'; a.font = '700 54px "Barlow Condensed", sans-serif'; a.fillText('BUS HALT', w / 2, 40); a.font = '700 34px "Noto Sans Sinhala", sans-serif'; a.fillText('බස් නැවතුම', w * 0.28, 115); a.font = '700 30px "Noto Sans Tamil", sans-serif'; a.fillText('பஸ் தரிப்பு', w * 0.74, 115); });
@@ -38,10 +40,13 @@ export function buildPropGeometries() {
     const s = new MeshBuilder(); s.quad([-1.1, 2.62, 0.92], [1.1, 2.62, 0.92], [1.1, 3.3, 0.92], [-1.1, 3.3, 0.92], [0, 0, 1, 1]);
     GEO.busStop = [part(p, MAT.paint), part(s, MAT.busSign)]; }
   // bench
-  { const p = new MeshBuilder(); for (let k = 0; k < 4; k++) p.box(0, 0.46 + (k > 2 ? 0.3 : 0), -0.18 + k * 0.12 + (k > 2 ? 0.0 : 0), 1.8, 0.05, 0.1, { col: C('#7a5532') }); p.box(0, 0.75, -0.24, 1.8, 0.35, 0.05, { col: C('#7a5532') }); for (const x of [-0.75, 0.75]) p.box(x, 0.23, 0, 0.12, 0.46, 0.5, { col: C('#9a958a') });
+  { const p = new MeshBuilder(); // seat faces local +z: three seat slats centred on the origin (sitters' hips land on z = 0), backrest behind (−z)
+    for (let k = 0; k < 3; k++) p.box(0, 0.44, -0.15 + k * 0.15, 1.8, 0.05, 0.12, { col: C('#7a5532'), bottom: true });
+    for (const y of [0.62, 0.8]) p.box(0, y, -0.25, 1.8, 0.11, 0.04, { col: C('#7a5532'), bottom: true });
+    for (const x of [-0.75, 0.75]) { p.box(x, 0.21, 0, 0.12, 0.42, 0.5, { col: C('#9a958a') }); p.box(x, 0.66, -0.25, 0.08, 0.5, 0.06, { col: C('#9a958a') }); }
     GEO.bench = [part(p, MAT.paint)]; }
   // pedestrian railing (yellow/black)
-  { const p = new MeshBuilder(); for (let k = 0; k < 6; k++) p.box(-1.25 + k * 0.5, 0.95, 0, 0.5, 0.08, 0.06, { col: k % 2 ? C('#111') : C('#e8c21a') }); p.box(-1.45, 0.5, 0, 0.07, 1.0, 0.07, { col: C('#222') }); p.box(0, 0.55, 0, 2.9, 0.05, 0.04, { col: C('#d8b818') });
+  { const p = new MeshBuilder(); for (let k = 0; k < 6; k++) p.box(-1.25 + k * 0.5, 0.95, 0, 0.5, 0.08, 0.06, { col: k % 2 ? C('#111') : C('#e8c21a') }); for (const x of [-1.5, 1.5]) p.box(x, 0.5, 0, 0.07, 1.0, 0.07, { col: C('#222') }); p.box(0, 0.55, 0, 2.93, 0.05, 0.04, { col: C('#d8b818') }); p.box(0, 0.16, 0, 2.93, 0.05, 0.04, { col: C('#d8b818') }); for (let k = 0; k < 8; k++) p.box(-1.17 + k * 0.334, 0.535, 0, 0.03, 0.76, 0.03, { col: C('#c9ab17') }); /* a 3 m section with a post at each end: sections join post to post; bottom rail + vertical bars make it read as the solid guard rail it is */
     GEO.railing = [part(p, MAT.paint)]; }
   // gate
   { const p = new MeshBuilder(); p.box(-2.1, 1.1, 0, 0.35, 2.2, 0.35, { col: C('#e8e2d4') }); p.box(2.1, 1.1, 0, 0.35, 2.2, 0.35, { col: C('#e8e2d4') }); for (let k = 0; k < 14; k++) p.box(-1.8 + k * 0.28, 0.95, 0, 0.04, 1.7, 0.04, { col: C('#1d1d1d') }); p.box(0, 1.75, 0, 3.8, 0.08, 0.06, { col: C('#1d1d1d') }); p.box(0, 0.25, 0, 3.8, 0.08, 0.06, { col: C('#1d1d1d') });
@@ -51,7 +56,9 @@ export function buildPropGeometries() {
     for (let k = 0; k < 10; k++) p.box(-0.8 + (k % 5) * 0.4, 0.92 + Math.floor(k / 5) * 0.12, -0.25 + Math.floor(k / 5) * 0.4, 0.34, 0.16, 0.3, { col: C(rng.pick(['#c0392b', '#2471a3', '#f1c40f', '#27ae60', '#e67e22', '#8e44ad', '#ecf0f1'])) });
     for (const [x, z] of [[-1.05, -0.6], [1.05, -0.6], [-1.05, 0.6], [1.05, 0.6]]) p.box(x, 1.2, z, 0.04, 2.4, 0.04, { col: C('#555') });
     const t = new MeshBuilder(); t.quad([-1.2, 2.2, 0.75], [1.2, 2.2, 0.75], [1.2, 2.45, -0.75], [-1.2, 2.45, -0.75], [0, 0, 1, 1], C('#2f6fa8'));
-    GEO.stall = [part(p, MAT.paint), part(t, MAT.awning)]; }
+    GEO.stall = [part(p, MAT.paint), part(t, MAT.awning)];
+    /* ten modelled stall types (Stalls.js) replace the single generic table when they build */
+    try { STALLS = buildStallGeometries(MAT.awning); } catch (e) { console.warn('stall types', e); STALLS = null; } }
   // Galle Face food cart (isso vadai / kadala)
   { const p = new MeshBuilder(); p.box(0, 0.95, 0, 1.4, 0.9, 2.6, { col: C('#d7d2c4') }); p.box(0, 1.45, 0, 1.45, 0.08, 2.65, { col: C('#9b2d20') });
     for (const z of [-0.9, 0.9]) p.cylinder(0.75, 0.35, z, 0.35, 0.35, 0.08, 12, { col: C('#222') });
@@ -84,6 +91,17 @@ export function buildPropsForChunk(chunk) {
       for (const p of list) for (let t = 0; t < p.tiers; t++) { _p.set(p.x, LAND_Y + t * 2.6, p.z); _m.compose(_p, _q.identity(), _s.set(1, 1, 1)); mesh.setMatrixAt(i, _m); mesh.setColorAt(i, _c.set(rng.pick(['#b03a2e', '#2471a3', '#1e8449', '#d4ac0d', '#7d3c98', '#ca6f1e', '#5d6d7e', '#e5e7e9', '#a04000']))); i++; }
       mesh.castShadow = mesh.receiveShadow = true; mesh.computeBoundingSphere(); group.add(mesh); continue;
     }
+    if (type === 'stall' && STALLS) {
+      // each stall gets one of the modelled types (neighbours differ) and its own canopy colour
+      const salt = Math.floor(Math.abs(list[0].x * 0.37 + list[0].z * 0.11)) % STALLS.length; const byT = new Map();
+      list.forEach((p, i) => { const t = stallType(i, salt); if (!byT.has(t)) byT.set(t, []); byT.get(t).push(p); });
+      for (const [t, ps] of byT) for (const prt of STALLS[t]) {
+        if (!prt.geo) continue; const mesh = new THREE.InstancedMesh(prt.geo, prt.mat, ps.length);
+        ps.forEach((p, i) => { _p.set(p.x, LAND_Y, p.z); _q.setFromEuler(_e.set(0, p.rot || 0, 0)); _m.compose(_p, _q, _s.set(1, 1, 1)); mesh.setMatrixAt(i, _m); if (prt.tint) mesh.setColorAt(i, _c.set(STALL_CANOPY[((p.seed || 0) + t) % STALL_CANOPY.length])); });
+        mesh.castShadow = !prt.noShadow; mesh.receiveShadow = !prt.noShadow; mesh.computeBoundingSphere(); group.add(mesh);
+      }
+      continue;
+    }
     for (const prt of GEO[type]) {
       const mesh = new THREE.InstancedMesh(prt.geo, prt.mat, list.length);
       list.forEach((p, i) => { _p.set(p.x, LAND_Y, p.z); _q.setFromEuler(_e.set(0, p.rot || 0, 0)); _m.compose(_p, _q, _s.set(1, 1, 1)); mesh.setMatrixAt(i, _m); });
@@ -97,7 +115,7 @@ export function buildPropsForChunk(chunk) {
     sigs.forEach((p, i) => {
       // head A faces local +z (axis 'v' traffic), head B faces local +x (axis 'h' traffic)
       for (let h = 0; h < 2; h++) for (let k = 0; k < 3; k++) {
-        const local = h === 0 ? new THREE.Vector3(0, 3.18 - k * 0.32, 0.32) : new THREE.Vector3(0.32, 3.18 - k * 0.32, 0);
+        const local = h === 0 ? new THREE.Vector3(0, 3.18 - k * 0.32, 0.333) : new THREE.Vector3(0.333, 3.18 - k * 0.32, 0);
         local.applyAxisAngle(new THREE.Vector3(0, 1, 0), p.rot); _p.set(p.x + local.x, LAND_Y + local.y, p.z + local.z);
         _q.setFromEuler(_e.set(0, p.rot + (h === 0 ? 0 : Math.PI / 2), 0)); _m.compose(_p, _q, _s.set(1, 1, 1)); mesh.setMatrixAt(i * 6 + h * 3 + k, _m); mesh.setColorAt(i * 6 + h * 3 + k, _c.set(0x111111));
       }
@@ -106,7 +124,7 @@ export function buildPropsForChunk(chunk) {
       const axisA = Math.abs(dA[1]) > Math.abs(dA[0]) ? 'v' : 'h';
       entries.push({ node: nodes[p.node], axes: [axisA, axisA === 'v' ? 'h' : 'v'], base: i * 6 });
     });
-    mesh.computeBoundingSphere(); group.add(mesh); signalLamps.push({ mesh, entries, group });
+    mesh.computeBoundingSphere(); mesh.userData.dynamic = true; group.add(mesh); signalLamps.push({ mesh, entries, group }); // per-instance colours change: stays per chunk (not pooled)
   }
   // overhead cables between consecutive utility poles
   const poles = byType.get('pole');
@@ -140,10 +158,10 @@ export function buildPropsForChunk(chunk) {
       _p.set(hx, ROAD_Y + 0.03, hz); _m.compose(_p, _q.identity(), _s.set(1, 1, 1)); pools.setMatrixAt(i, _m);
       pos[i * 3] = hx; pos[i * 3 + 1] = LAND_Y + (heritage ? 4.85 : 7.85); pos[i * 3 + 2] = hz;
     });
-    pools.computeBoundingSphere(); group.add(pools);
+    pools.computeBoundingSphere(); pools.userData.dynamic = true; group.add(pools); // per-lamp decals hide / show: stays per chunk
     const pts = new THREE.BufferGeometry(); pts.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     const glow = new THREE.Points(pts, GLOW_MAT); group.add(glow);
-    group.userData.lamps = lamps.map((p, i) => [pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]]);
+    group.userData.lamps = lamps.map((p, i) => [pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2], pools, i]); // [x, y, z, pool decal mesh, instance] — the decal is hidden while a real light is on the lamp
   }
   return group;
 }

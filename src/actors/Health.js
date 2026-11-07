@@ -24,10 +24,10 @@ export class Health {
   get hp() { const s = this.g.story.state; if (typeof s.health !== 'number' || !isFinite(s.health)) s.health = 100; return s.health; }
   set hp(v) { this.g.story.state.health = Math.max(0, Math.min(100, v)); }
   damage(n, cause) {
-    const g = this.g; if (this.busy || !(n > 0) || g.director.active || g.mode !== 'play') return;
+    const g = this.g; if (this.busy || !(n > 0) || g.director.active || g.mode !== 'play' || g.debug?.god) return;
     n *= (g.player && g.player.perk && g.player.perk.armor) || 1; // Shashika's plate carrier takes some of it
     this.hp = this.hp - n; this.lastHurt = g.clock; this.stats.lastCause = cause; g.hud.hurt?.(Math.min(1, n / 40));
-    if (this.hp <= 0) this.hospitalise(cause);
+    if (this.hp <= 0) { if (cause === 'shot by police' && g.police && !g.police.busy && g.police.killedByPolice) { this.hp = 1; this.stats.policeDowns = (this.stats.policeDowns || 0) + 1; g.police.killedByPolice(); } else this.hospitalise(cause); } // shot down by police → BUSTED, released at the hospital
   }
   heal(n) { this.hp = this.hp + n; }
   update(dt) {
@@ -47,6 +47,7 @@ export class Health {
     if (S.running) { const err = S.fail(ambulance ? 'You called an ambulance.' : 'You were taken to hospital.'); for (const c of S.conds) c.rej(err); S.conds = []; }
     if (!ambulance) P.ch.anim.set('stumble');
     await this.wait(ambulance ? 0.2 : 1.2); await g.hud.fade(1, 0.9);
+    P.abortVehicleTransition?.(); // dying mid-entry
     if (P.vehicle) { const veh = P.vehicle; veh.speed = 0; veh.mesh.remove(P.ch.root); g.scene.add(P.ch.root); veh.player = false; P.vehicle = null; P.exiting = null; P.entry = null; P.ch.anim.standUp(); g.traffic.release(veh); }
     if (g.police && g.police.level > 0) { for (const u of g.police.units.slice()) g.police.removeUnit(u); g.police.level = 0; g.police.stop = null; g.police.search = null; g.police.incident = null; g.police.lastSeen = null; g.police.setState('patrol'); }
     if (g.interiors.current) { const room = g.interiors.current; room.g.visible = false; g.interiors.current = null; g.setIndoor(false); } // shop/flat interior: leave it

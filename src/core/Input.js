@@ -5,10 +5,11 @@ class InputSystem {
   constructor() {
     this.down = new Set(); this.pressed = new Set(); this.released = new Set();
     this.mouseDX = 0; this.mouseDY = 0; this.wheel = 0; this.mouseButtons = new Set(); this.mousePressed = new Set();
-    this.locked = false; this.enabled = true; this.capture = null;
+    this.locked = false; this.enabled = true; this.capture = null; this.typing = false;
     this.pad = { lx: 0, ly: 0, rx: 0, ry: 0, lt: 0, rt: 0, buttons: [], prev: [] };
     addEventListener('keydown', (e) => {
       if (this.capture) { e.preventDefault(); const c = this.capture; this.capture = null; c(e.code); return; }
+      if (this.typing) return; // developer console has the keyboard
       if (['Space', 'Tab', 'ArrowUp', 'ArrowDown'].includes(e.code) && document.activeElement === document.body) e.preventDefault(); if (e.code === 'F1' || e.code === 'F2' || e.code === 'F3') e.preventDefault(); // squad switch keys (not browser help / search)
       if (!this.down.has(e.code)) this.pressed.add(e.code);
       this.down.add(e.code); bus.emit('key', e.code);

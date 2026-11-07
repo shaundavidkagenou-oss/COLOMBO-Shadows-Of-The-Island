@@ -7,20 +7,13 @@ import { Settings } from '../core/Settings.js';
 import { clamp, lerp, wrapAngle } from '../core/math.js';
 import { Audio } from '../audio/Audio.js';
 import { buildWeaponModel, weaponMaterials } from './WeaponModels.js';
+import { holdFor } from './GripSolver.js';
 import * as L from '../world/Layout.js';
 
 // cls: pistol | rifle | sniper. rof = rounds/second; spread in radians; recoil = camera kick (rad); dmg: 1.5+ incapacitates in one hit
-export const WEAPONS = [
-  { id: 'compact', name: 'Compact Pistol', cls: 'pistol', size: 0.86, mag: 10, reserve: 60, rof: 5.5, auto: false, dmg: 0.6, spread: 0.012, bloom: 0.012, recoil: 0.018, reload: 1.25, range: 60, equip: 0.42, loud: 45, snd: { crack: 3200, body: 170, dur: 0.1, vol: 0.4, tail: 0.25 } },
-  { id: 'service', name: 'Service Pistol', cls: 'pistol', size: 1.0, mag: 15, reserve: 90, rof: 4.5, auto: false, dmg: 0.75, spread: 0.009, bloom: 0.011, recoil: 0.024, reload: 1.4, range: 70, equip: 0.45, loud: 55, snd: { crack: 2700, body: 140, dur: 0.12, vol: 0.48, tail: 0.3 } },
-  { id: 'heavy', name: 'Heavy Pistol', cls: 'pistol', size: 1.12, mag: 8, reserve: 48, rof: 2.6, auto: false, dmg: 1.2, spread: 0.008, bloom: 0.02, recoil: 0.055, reload: 1.7, range: 80, equip: 0.5, loud: 70, snd: { crack: 1900, body: 95, dur: 0.18, vol: 0.62, tail: 0.45 } },
-  { id: 'carbine', name: 'Carbine Rifle', cls: 'rifle', mag: 30, reserve: 180, rof: 11, auto: true, dmg: 0.6, spread: 0.006, bloom: 0.004, recoil: 0.012, reload: 2.1, range: 160, equip: 0.7, loud: 90, snd: { crack: 2300, body: 110, dur: 0.14, vol: 0.55, tail: 0.5 } },
-  { id: 'assault', name: 'Assault Rifle', cls: 'rifle', mag: 30, reserve: 180, rof: 9.5, auto: true, dmg: 0.75, spread: 0.008, bloom: 0.006, recoil: 0.017, reload: 2.4, range: 150, equip: 0.75, loud: 95, snd: { crack: 1800, body: 90, dur: 0.16, vol: 0.6, tail: 0.55 } },
-  { id: 'battle', name: 'Battle Rifle', cls: 'rifle', mag: 20, reserve: 120, rof: 6, auto: true, dmg: 1.05, spread: 0.005, bloom: 0.009, recoil: 0.03, reload: 2.6, range: 200, equip: 0.8, loud: 110, snd: { crack: 1500, body: 75, dur: 0.2, vol: 0.7, tail: 0.7 } },
-  { id: 'bolt', name: 'Bolt-Action Sniper', cls: 'sniper', mag: 5, reserve: 30, rof: 0.75, auto: false, dmg: 3, spread: 0.0008, bloom: 0, recoil: 0.07, reload: 2.9, range: 600, equip: 0.9, loud: 140, zoom: 5, sway: 1, cycle: 0.95, snd: { crack: 1200, body: 55, dur: 0.32, vol: 0.85, tail: 1.3 } },
-  { id: 'semi', name: 'Semi-Auto Sniper', cls: 'sniper', mag: 10, reserve: 50, rof: 2.4, auto: false, dmg: 1.6, spread: 0.0015, bloom: 0.003, recoil: 0.05, reload: 2.6, range: 500, equip: 0.85, loud: 130, zoom: 4, sway: 1.2, snd: { crack: 1400, body: 65, dur: 0.26, vol: 0.78, tail: 1.0 } },
-  { id: 'precision', name: 'Precision Sniper', cls: 'sniper', mag: 7, reserve: 35, rof: 1.1, auto: false, dmg: 2.5, spread: 0.0005, bloom: 0, recoil: 0.06, reload: 3.0, range: 800, equip: 0.95, loud: 140, zoom: 7, sway: 0.55, cycle: 0.7, snd: { crack: 1100, body: 50, dur: 0.36, vol: 0.9, tail: 1.5 } },
-];
+import { WEAPONS } from './WeaponDefs.js';
+import { MOVES as FIGHT_MOVES, COMBO } from '../actors/Boxing.js';
+export { WEAPONS };
 
 const sm = (k) => { k = clamp(k, 0, 1); return k * k * (3 - 2 * k); };
 const seg = (k, a, b) => clamp((k - a) / (b - a), 0, 1);
@@ -55,7 +48,11 @@ export class Weapons {
     this.lastCamYaw = null; this.lastCamPitch = 0; this.slideLock = false; this.reloadKind = null; this.reloadDur = 1; this.trigT = 0; this.fpAds = 0; this.aimHeld = false;
     this.holsterP = new THREE.Group(); this.holsterR = new THREE.Group(); // hip holster (hips bone) and back sling (chest bone)
     this.holsterP.position.set(-0.2, -0.06, 0.03); this.holsterP.rotation.set(Math.PI / 2 - 0.15, 0, 0.1);
-    this.holsterR.position.set(0.02, 0.06, -0.17); this.holsterR.rotation.set(-Math.PI / 2 + 0.25, Math.PI, 0.75);
+    { // back sling: diagonal across the back, muzzle up behind the right shoulder (−x is the right side), stock towards the left hip;
+      // the rifle lies flat (its side against the back) 0.21 m behind the chest bone so it clears the shoulder blades and seat
+      const b = new THREE.Vector3(-0.5, 0.866, 0), xw = new THREE.Vector3(0, 0, 1), yw = new THREE.Vector3().crossVectors(b, xw);
+      this.holsterR.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(xw, yw, b));
+      this.holsterR.position.set(0.125, -0.32, -0.21); } // grip; the rifle's middle (≈0.25 m up the barrel) lands on the spine
     this.inHand = new THREE.Group(); this.inHand.matrixAutoUpdate = false; this.attach(this.P.ch);
     for (const m of this.models) m.visible = false;
     this.fxInit(); this.hudInit(); this.showHolstered();
@@ -67,18 +64,70 @@ export class Weapons {
 
   // ------------------------------------------------------------------ helpers
   showHolstered() { // the selected weapon rides in its holster/sling when not in the hands
-    for (let i = 0; i < 9; i++) { const m = this.models[i]; if (i === this.sel && this.state === 'none') { const slot = WEAPONS[i].cls === 'pistol' ? this.holsterP : this.holsterR; if (m.parent !== slot) slot.add(m); m.position.set(0, 0, 0); m.quaternion.identity(); m.visible = true; m.matrixAutoUpdate = true; } else if (i !== this.cur || this.state === 'none') { if (i !== this.sel) m.visible = false; } }
+    for (let i = 0; i < 9; i++) { const m = this.models[i]; if (i === this.sel && this.state === 'none' && this.inv[i] && this.inv[i].owned) { const slot = WEAPONS[i].cls === 'pistol' ? this.holsterP : this.holsterR; if (m.parent !== slot) slot.add(m); m.position.set(0, 0, 0); m.quaternion.identity(); m.visible = true; m.matrixAutoUpdate = true; } else if (i !== this.cur || this.state === 'none') { if (i !== this.sel) m.visible = false; } }
   }
   slotMatrixInChest(i, out) { const b = this.P.ch.bones; const slot = WEAPONS[i].cls === 'pistol' ? this.holsterP : this.holsterR; b.chest.updateWorldMatrix(true, false); slot.updateWorldMatrix(true, false); return out.copy(b.chest.matrixWorld).invert().multiply(slot.matrixWorld); }
   select(i) {
-    if (!(i >= 0 && i <= 8) || !this.inv[i] || !this.inv[i].owned) return; if (this.state === 'reload') this.abortReload();
-    if (this.state === 'holster') { this.next = i; this.hudWeapon(i); return; } // already putting one away: retarget, never restart the animation
+    if (!(i >= 0 && i <= 8) || !this.inv[i] || !this.inv[i].owned) { if (i >= 0 && i <= 8 && this.inv[i]) this.hudFlash(`${WEAPONS[i].name} not owned — buy it at a gun shop`); return; } this._toFists = false; if (this.state === 'reload') this.abortReload();
+    this.scrollTarget = null; this._toFists = false;
+    if (this.state === 'holster') { // already putting one away: retarget (or, back to the same weapon, bring it straight back up)
+      if (i === this.cur && this.drawMode === 'hands') { const a = this.appearK ?? 1; this.next = -1; this.state = 'equip'; this.drawMode = 'hands'; this.dur = this.handsDur(WEAPONS[i]); let lo = 0, hi = 1; for (let it = 0; it < 12; it++) { const md = (lo + hi) / 2; if (sm(md) < a) lo = md; else hi = md; } this.t = lo * this.dur; }
+      else this.next = i; this.hudWeapon(i); return; }
     if (this.cur === i) return;
-    if (this.drawn) { this.next = i; this.setState('holster'); } else { this.sel = i; this.cur = i; this.setState('equip'); }
+    if (this.state === 'equip') { // changed mind mid-draw: the new weapon comes straight into the hands, no put-away first
+      this.models[this.cur].visible = false; this.sel = i; this.cur = i; this._fromUnarmed = false; this.setState('equip'); this.hudWeapon(i); return; }
+    if (this.drawn) { this.next = i; this.setState('holster'); } else { this.sel = i; this.cur = i; this._fromUnarmed = true; this.setState('equip'); }
     this.hudWeapon(i);
   }
+  // fists (every character, always available): put any weapon away and fight unarmed. sel = −1 means fists.
+  selectFists() { this.scrollTarget = null; if (this.drawn) { this._toFists = true; this.holster(); } else { this.sel = -1; this._toFists = false; this.showHolstered(); } this.hudWeapon(-1); }
+  get fistsReady() { return !this.drawn && this.state === 'none' && (this.sel < 0 || !this.inv[this.sel] || !this.inv[this.sel].owned); }
+  // fists: boxing combinations (Boxing.js) — repeated presses inside the window chain jab → cross → lead hook → uppercut.
+  // Soft lock: the nearest person within 2.4 m in front of the camera (someone squaring up with you first); the throw
+  // turns to them and steps in to range. Hold aim (RMB / LT) to cover up.
+  punch() {
+    const P = this.P, C = this.g.crowd; this.comboI = this.comboT > 0 ? ((this.comboI ?? -1) + 1) % COMBO.length : 0; const move = COMBO[this.comboI]; const M = FIGHT_MOVES[move];
+    this.curMove = move; this.comboT = M.dur + 0.38; this.punchCd = M.dur * 0.74; this.punchT = M.hit; this.punches = (this.punches || 0) + 1; this.fightT = 4;
+    const ay = P.speed > 0.5 ? P.yaw : wrapAngle(P.camYaw + Math.PI); const fx = Math.sin(ay), fz = Math.cos(ay); let best = null, bs = -1;
+    if (C && C.peds) for (const p of C.peds) { if (p.state === 'down' || p.dead || !p.ch) continue; const dx = p.x - P.x, dz = p.z - P.z, d = Math.hypot(dx, dz); if (d > 2.4 || d < 0.05 || Math.abs((p.y || 0) - (P.y || 0)) > 0.9) continue;
+      const c = (dx * fx + dz * fz) / d; if (c < 0.35) continue; const sc = c * 2 - d + (p.state === 'fight' ? 1.5 : 0); if (sc > bs) { bs = sc; best = p; } }
+    this.lock = best; P.yaw = best ? Math.atan2(best.x - P.x, best.z - P.z) : ay;
+    if (best && C.incoming) C.incoming(best);
+    P.ch.anim.strike(move); Audio.noise(0.09, { f: move === 'jab' ? 900 : 650, q: 0.9, vol: 0.05, when: 0 });
+  }
+  punchHit() { // the locked target if still in reach and in front, else the nearest standing person in the cone of this technique
+    const P = this.P, C = this.g.crowd; if (!C || !C.peds) return null; const M = FIGHT_MOVES[this.curMove] || FIGHT_MOVES.jab; const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
+    const ok = (p) => { if (!p || p.state === 'down' || p.dead || !p.ch) return -1; const dx = p.x - P.x, dz = p.z - P.z, d = Math.hypot(dx, dz); if (d > M.reach || d < 0.05) return -1; if ((dx * fx + dz * fz) / d < 0.55) return -1; if (Math.abs((p.y || 0) - (P.y || 0)) > 0.9) return -1; return d; };
+    let best = ok(this.lock) >= 0 ? this.lock : null; if (!best) { let bd = 1e9; for (const p of C.peds) { const d = ok(p); if (d >= 0 && d < bd) { bd = d; best = p; } } }
+    if (!best) return null;
+    if (C.punched(best, P, this.curMove)) { this.landed = (this.landed || 0) + 1; Audio.noise(0.06, { f: 230 + (M.dmg > 20 ? -40 : 30), q: 1.4, vol: 0.13, when: 0 }); P.shake = Math.max(P.shake || 0, M.dmg > 20 ? 0.18 : 0.12); if (this.g.police) this.g.police.crime(best.x, best.z, 'assault'); }
+    return best;
+  }
+  // per frame (fists): stance on while fighting, block, step in to the locked target during the throw
+  fistsUpdate(dt, aimHeld) {
+    const P = this.P, A = P.ch.anim, C = this.g.crowd; this.comboT = Math.max(0, (this.comboT || 0) - dt); this.fightT = Math.max(0, (this.fightT || 0) - dt);
+    const able = this.fistsReady && !P.vehicle && !P.sprinting && !P.climb && !P.swimming && !P.indoorSeat && !P.busy;
+    this.engageCd = (this.engageCd || 0) - dt; if (this.engageCd <= 0 && C && C.peds) { this.engageCd = 0.3; this.engaged = C.peds.some((p) => p.state === 'fight' && Math.hypot(p.x - P.x, p.z - P.z) < 5); }
+    this.blocking = able && aimHeld; A.block(this.blocking); if (this.blocking || this.engaged) this.fightT = Math.max(this.fightT, 1);
+    A.fightOn(able && this.fightT > 0); if (!able && A.fight && A.fight.w > 0 && (P.vehicle || P.climb)) A.fightOn(false, true);
+    const L = this.lock; if (L && this.punchT > 0 && able && !L.dead && L.state !== 'down') { const dx = L.x - P.x, dz = L.z - P.z, d = Math.hypot(dx, dz); const want = (FIGHT_MOVES[this.curMove] || FIGHT_MOVES.jab).reach - 0.3;
+      if (d > want && d < 2.6) { const st = Math.min(d - want, 3.2 * dt); const nx = P.x + dx / d * st, nz = P.z + dz / d * st; const col = this.g.collision; const r = col && col.resolveCircle ? col.resolveCircle(nx, nz, 0.32, P.y, 0.45, 1.75) : { x: nx, z: nz }; P.x = r.x; P.z = r.z; } }
+  }
+  // a street fighter's punch landed on the player (Crowd.onStrike): covered up → a quarter, non-graphic reaction
+  struckBy(p, move, M) {
+    const P = this.P; if (P.vehicle) return; const fy = Math.atan2(p.x - P.x, p.z - P.z); const covering = this.blocking && Math.cos(wrapAngle(fy - P.yaw)) > 0.6;
+    const dmg = ({ jab: 3, cross: 5, hook: 6, upper: 7 }[move] || 4) * (covering ? 0.25 : 1); if (this.g.health) this.g.health.damage(dmg, 'street fight');
+    P.ch.anim.takeHit(covering ? 'block' : M.react, M.dir || 1, (M.pow || 1) * 0.8); P.shake = Math.max(P.shake || 0, covering ? 0.06 : 0.2); this.fightT = Math.max(this.fightT || 0, 3);
+    Audio.noise(0.06, { f: covering ? 380 : 240, q: 1.3, vol: 0.12, when: 0 }); this.hitsTaken = (this.hitsTaken || 0) + 1;
+  }
   holster() { if (this.drawn && this.state !== 'holster') { this.next = -1; if (this.state === 'reload') this.abortReload(); this.setState('holster'); } }
+  // draw / put-away timing. Long guns (and any weapon taken during a swap) come straight into the hands — a short raise
+  // from low ready — and go away the same way; only a pistol drawn from empty hands comes out of (and back into) the hip
+  // holster. Swaps skip the put-away wait: pistol ≈0.5 s, rifle ≈0.6 s from one weapon up to the next.
+  handsDur(d) { return d.cls === 'pistol' ? 0.28 : d.cls === 'rifle' ? 0.36 : 0.4; }
   setState(s) { const prev = this.state; this.state = s; this.t = 0; if (s === 'holster' || s === 'none') this.wantReload = false;
+    const d = this.def; if (d && s === 'equip') { this.drawMode = d.cls === 'pistol' && this._fromUnarmed ? 'hip' : 'hands'; this.dur = this.drawMode === 'hip' ? d.equip : this.handsDur(d); this.appearK = 0; }
+    if (d && s === 'holster') { const swap = this.next >= 0; this.drawMode = d.cls === 'pistol' && !swap ? 'hip' : 'hands'; this.dur = this.drawMode === 'hip' ? d.equip * 0.85 : swap ? 0.22 : 0.3; }
     if (s === 'reload') { const iv = this.inv[this.cur], d = WEAPONS[this.cur]; this.reloadKind = iv && iv.mag > 0 ? 'tactical' : 'empty'; this.reloadDur = d ? d.reload * (this.reloadKind === 'tactical' ? 0.85 : 1) : 1; this._dropped = false; this._relFlick = 0; }
     if (s === 'check') this._chkFlick = 0;
     const rig = this.P && this.P.ch && this.P.ch.rig; if (rig && ((s === 'ready' && prev === 'equip') || s === 'holster')) rig.thumbFlick('R'); // safety off once up / on before stowing
@@ -136,20 +185,26 @@ export class Weapons {
     // ---- selection: wheel (hold Tab), number keys, mouse wheel, gamepad d-pad
     if (Input.isDown('weaponWheel')) this.wheelUpdate(); else if (this.wheelOpen) this.wheelClose(true);
     if (!this.wheelOpen) {
-      for (let i = 0; i < 9; i++) if (Input.keyPressed('Digit' + (i + 1)) || Input.keyPressed('Numpad' + (i + 1))) this.select(i);
+      const dbgPad = this.g.debug && this.g.debug.menuEnabled; // Numpad2 opens the debug menu once it is enabled
+      for (let i = 0; i < 9; i++) if (Input.keyPressed('Digit' + (i + 1)) || (Input.keyPressed('Numpad' + (i + 1)) && !(dbgPad && i === 1))) this.select(i);
+      if (Input.keyPressed('Digit0') || Input.keyPressed('Numpad0')) this.selectFists();
       // mouse wheel / d-pad: step a pending target through OWNED weapons; commit once the wheel settles (fast scrolling = one clean switch)
-      const step = Input.wheel && !this.scoped ? (Input.wheel > 0 ? 1 : -1) : Input.pad.buttons[15] && !Input.pad.prev[15] ? 1 : Input.pad.buttons[14] && !Input.pad.prev[14] ? -1 : 0;
-      if (step) { const from = this.scrollTarget ?? (this.state === 'holster' && this.next >= 0 ? this.next : this.cur >= 0 ? this.cur : this.sel); let j = from; for (let k = 0; k < 9; k++) { j = (j + step + 9) % 9; if (this.inv[j].owned) break; } this.scrollTarget = j; this.scrollT = 0.2; this.hudWeapon(j); }
-      if (this.scrollTarget != null) { this.scrollT -= dt; if (this.scrollT <= 0) { const j = this.scrollTarget; this.scrollTarget = null; this.select(j); } }
+      const step = Input.wheel && !this.scoped ? clamp(Input.wheel, -9, 9) : Input.pad.buttons[15] && !Input.pad.prev[15] ? 1 : Input.pad.buttons[14] && !Input.pad.prev[14] ? -1 : 0; // every notch of a fast flick counts
+      if (step) { const ring = [-1, ...WEAPONS.map((_, k) => k).filter((k) => this.inv[k].owned)]; /* fists + owned weapons */ const from = this.scrollTarget ?? (this.state === 'holster' && this.next >= 0 ? this.next : this.cur >= 0 ? this.cur : this.sel); const at = Math.max(0, ring.indexOf(from)); const j = ring[(((at + step) % ring.length) + ring.length) % ring.length]; this.scrollTarget = j; this.scrollT = 0.1; this.hudWeapon(j); }
+      const clickPick = this.scrollTarget != null && (Input.mousePressed.has(0) || (Input.pad.rt > 0.4 && !this._rtPrev)); if (clickPick) this._eatFire = true; // a click while scrolling picks the highlighted weapon (and does not fire / draw the old one)
+      if (this.scrollTarget != null) { this.scrollT -= dt; if (this.scrollT <= 0 || clickPick) { const j = this.scrollTarget; this.scrollTarget = null; if (j < 0) this.selectFists(); else this.select(j); } }
       if (Input.wasPressed('holster') || (Input.pad.buttons[12] && !Input.pad.prev[12] && this.drawn)) { if (this.drawn) this.holster(); else this.select(this.sel); }
     }
     let def = this.def;
-    const aimHeld = !this.wheelOpen && (Input.mouseButtons.has(2) || Input.pad.lt > 0.4); const fireHeld = !this.wheelOpen && (Input.mouseButtons.has(0) || Input.pad.rt > 0.4); const firePressed = !this.wheelOpen && (Input.mousePressed.has(0) || (Input.pad.rt > 0.4 && !this._rtPrev)); this._rtPrev = Input.pad.rt > 0.4;
+    const aimHeld = !this.wheelOpen && (Input.mouseButtons.has(2) || Input.pad.lt > 0.4); const fireHeld0 = !this.wheelOpen && (Input.mouseButtons.has(0) || Input.pad.rt > 0.4); const firePressed = !this.wheelOpen && !this._eatFire && (Input.mousePressed.has(0) || (Input.pad.rt > 0.4 && !this._rtPrev)); this._rtPrev = Input.pad.rt > 0.4; const fireHeld = fireHeld0 && !this._eatFire; if (this._eatFire && !Input.mouseButtons.has(0) && Input.pad.rt <= 0.4) this._eatFire = false;
     if (!this.drawn && firePressed && !P.sprinting && this.inv[this.sel] && this.inv[this.sel].owned && Settings.get('fireDraws') !== false) { /* first click draws the weapon */ this.select(this.sel); }
     this.t += dt; this.cool = Math.max(0, this.cool - dt); this.bloom = Math.max(0, this.bloom - dt * (def && def.cls === 'sniper' ? 0.02 : 0.06)); this.recoil = Math.max(0, this.recoil - dt * 9 * (this.recoil + 0.02)); this.quickAim = Math.max(0, this.quickAim - dt);
-    if (this.state === 'equip' && this.t >= def.equip) this.setState('ready');
+    if (this.state === 'equip' && this.t >= this.dur) this.setState('ready');
     if (this.state === 'check' && this.t >= 0.9 && this.cycleT < 0) this.setState('ready'); this.trigT = Math.max(0, this.trigT - dt);
-    if (this.state === 'holster' && this.t >= def.equip * 0.85) { this.models[this.cur].visible = false; const n = this.next; this.cur = -1; this.state = 'none'; A.ik = null; A.aim = null; if (n >= 0) { this.sel = n; this.cur = n; this.setState('equip'); } this.showHolstered(); }
+    if (this.state === 'holster' && this.t >= this.dur) { this.models[this.cur].visible = false; const n = this.next; this.cur = -1; this.state = 'none'; A.ik = null; A.aim = null; if (n >= 0) { this.sel = n; this.cur = n; this._fromUnarmed = false; this.setState('equip'); } if (this._toFists) { this.sel = -1; this._toFists = false; } this.showHolstered(); }
+    // ---- fists
+    this.punchCd = Math.max(0, (this.punchCd || 0) - dt); if (this.punchT > 0) { this.punchT -= dt; if (this.punchT <= 0) this.punchHit(); } this.fistsUpdate(dt, aimHeld);
+    if (firePressed && this.fistsReady && !P.sprinting && !P.crouching && this.punchCd <= 0) this.punch();
     if (this.state === 'reload' && this.t >= this.reloadDur) { const iv = this.inv[this.cur]; const take = Math.min(def.mag + (this.reloadKind === 'tactical' ? 1 : 0) - iv.mag, iv.reserve); this.slideLock = false; /* tactical: the chambered round stays (+1) */ iv.mag += take; iv.reserve -= take; this.reloadMagOut = false; this.setState('ready'); }
     def = this.def;
     if (!def) { P.aiming = false; this.setScope(false); this.hudUpdate(dt); this.fxUpdate(dt); return; }
@@ -167,7 +222,7 @@ export class Weapons {
       const trig = def.auto ? fireHeld : firePressed;
       if (trig && this.aimW < 0.8) { this.quickAim = 0.5; }
       else if (trig && this.cool <= 0) {
-        if (iv.mag > 0) { this.fire(def); iv.mag--; this.cool = 1 / def.rof; if (def.cycle && iv.mag > 0) this.cycleT = 0; if (iv.mag === 0 && iv.reserve > 0 && Settings.get('autoReload') !== false) { this.autoReloadT = 0.35; } }
+        if (iv.mag > 0) { this.fire(def); if (!this.g.debug?.infAmmo) iv.mag--; this.cool = 1 / def.rof; if (def.cycle && iv.mag > 0) this.cycleT = 0; if (iv.mag === 0 && iv.reserve > 0 && Settings.get('autoReload') !== false) { this.autoReloadT = 0.35; } }
         else if (firePressed) { Audio.tone(1800, 0.03, { type: 'square', vol: 0.06 }); this.cool = 0.25; if (iv.reserve > 0) { this.setState('reload'); this.reloadSnd(def); } else this.hudFlash('No ammunition'); }
       }
       if (fireHeld || aimHeld) this.quickAim = Math.max(this.quickAim, aimHeld ? 0 : 0.6);
@@ -201,7 +256,7 @@ export class Weapons {
     // recoil kick
     pos.add(this.spr.p); rx += this.spr.r.x; ry += this.spr.r.y; rz += this.spr.r.z; // springs: recoil impulse, look sway, gait bob, breathing
     // reload / bolt choreography (weapon offsets + support-hand path)
-    let supTarget = null, supW = twoHand ? 1 : aw, gripTarget = null; const magL = ud.mag; magL.visible = true; magL.position.set(0, 0, 0); if (ud.slide) ud.slide.position.set(0, 0, 0); if (ud.bolt) ud.bolt.rotation.set(0, 0, 0);
+    let supTarget = null, supW = twoHand || (P.camMode === 2 && !P.vehicle) ? 1 : aw, gripTarget = null; /* first person: a pistol is held in both hands (support hand wrapped over the firing hand), so the fingers of both are in view */ const magL = ud.mag; magL.visible = true; magL.position.set(0, 0, 0); if (ud.slide) ud.slide.position.set(0, 0, 0); if (ud.bolt) ud.bolt.rotation.set(0, 0, 0);
     if (this.slideLock && ud.slide && def.cls !== 'sniper') ud.slide.position.z = def.cls === 'pistol' ? -0.035 : -0.03; // last round fired: slide / bolt held open
     if (this.state === 'reload') {
       const r = k / this.reloadDur; supW = 1; const E = this.reloadKind === 'empty'; const tl = sm(seg(r, 0, 0.14)) * (1 - sm(seg(r, 0.86, 1)));
@@ -229,6 +284,15 @@ export class Weapons {
       if (r < 0.1) this._chkSnd = 0; if (r > 0.84 && !this._chkFlick) { this._chkFlick = 1; P.ch.rig && P.ch.rig.thumbFlick('R'); }
     }
     if (this.cycleT >= 0 && def.cycle) { const c = this.cycleT / def.cycle; gripTarget = 'bolt'; this._cycK = c; if (ud.bolt) { ud.bolt.rotation.z = -0.9 * sm(seg(c, 0.25, 0.35)) * (1 - sm(seg(c, 0.68, 0.78))); ud.bolt.position.z = -0.075 * sm(seg(c, 0.36, 0.5)) * (1 - sm(seg(c, 0.55, 0.68))); } rx -= 0.08 * Math.sin(c * Math.PI); }
+    // in-hand draw / put-away: the weapon rises from a low, muzzle-down carry into the pose (or sinks out of it) while the
+    // hands are already on it — no reach to the back or the hip
+    let ikW = 1, hideW = false; const H = holdFor(P.ch, m);
+    if ((this.state === 'equip' || this.state === 'holster') && this.drawMode === 'hands') {
+      const u = clamp(k / this.dur, 0, 1); let a;
+      if (this.state === 'equip') { a = sm(u); ikW = sm(seg(u, 0, 0.3)); hideW = u < 0.1; } else { a = 1 - sm(seg(u, 0, 0.65)); ikW = 1 - sm(seg(u, 0.65, 1)); hideW = u >= 0.65; }
+      this.appearK = a; const dn = 1 - a; pos.y -= 0.12 * dn; pos.z -= 0.04 * dn; pos.x += (twoHand ? 0.03 : 0.02) * dn; rx += 0.65 * dn; ry += (twoHand ? 0.25 : 0.1) * dn;
+      if (this.state === 'equip' && k < dt * 1.5) Audio.noise(0.1, { f: 900, q: 0.8, vol: 0.05 });
+    }
     // weapon matrix (body space), then chest space
     const wq = new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz, 'YXZ'));
     const body = new THREE.Matrix4().compose(pos, wq, new THREE.Vector3(1, 1, 1)); this._weaponBody = body;
@@ -244,24 +308,27 @@ export class Weapons {
       chestM = D.multiply(chestM); }
     // draw / holster: blend between the holster slot and the hands
     let handOnly = 0; // 0 = weapon in hand pose, 1 = weapon still in holster (hand reaching)
-    if (this.state === 'equip' || this.state === 'holster') {
-      const E = def.equip; const u = this.state === 'equip' ? k / E : 1 - k / (E * 0.85); const slot = this.slotMatrixInChest(this.cur, new THREE.Matrix4());
+    if ((this.state === 'equip' || this.state === 'holster') && this.drawMode === 'hip') { // pistol from / to the hip holster
+      const E = this.dur; const u = this.state === 'equip' ? k / E : 1 - k / E; const slot = this.slotMatrixInChest(this.cur, new THREE.Matrix4());
       const reach = sm(seg(u, 0, 0.38)); const travel = sm(seg(u, 0.38, 1));
       if (u < 0.38) { handOnly = 1; this._reach = reach; } else { const a = new THREE.Vector3(), aq = new THREE.Quaternion(), b = new THREE.Vector3(), bq = new THREE.Quaternion(), sc = new THREE.Vector3(); slot.decompose(a, aq, sc); chestM.decompose(b, bq, sc); chestM = new THREE.Matrix4().compose(a.lerp(b, travel), aq.slerp(bq, travel), new THREE.Vector3(1, 1, 1)); }
       supW = twoHand ? sm(seg(u, 0.7, 1)) : supW * sm(seg(u, 0.8, 1));
       if (this.state === 'equip' && k < dt * 1.5) Audio.noise(0.12, { f: 700, q: 0.8, vol: 0.06 });
       if (handOnly) { const slotM = slot; if (m.parent !== (def.cls === 'pistol' ? this.holsterP : this.holsterR)) { (def.cls === 'pistol' ? this.holsterP : this.holsterR).add(m); m.matrixAutoUpdate = true; m.position.set(0, 0, 0); m.quaternion.identity(); } m.visible = true;
-        const g = new THREE.Vector3(0, 0, 0).applyMatrix4(slotM); A.ik = { R: g, qR: new THREE.Quaternion().setFromRotationMatrix(slotM).multiply(Q_GRIP), wR: this._reach, L: null }; P.ch.rig && P.ch.rig.hand('R', this._reach > 0.8 ? 'grip' : 'open');
+        const g = (H ? H.R.wrist.clone() : new THREE.Vector3()).applyMatrix4(slotM); A.ik = { R: g, qR: new THREE.Quaternion().setFromRotationMatrix(slotM).multiply(H ? H.R.q : Q_GRIP), wR: this._reach, L: null }; P.ch.rig && P.ch.rig.hand('R', this._reach > 0.8 ? (H ? H.R.ready : 'grip') : 'open');
         return; }
     }
     if (m.parent !== this.inHand) { this.inHand.add(m); }
-    m.matrixAutoUpdate = false; m.matrix.copy(chestM); m.matrixWorldNeedsUpdate = true; m.visible = true; this.inHand.matrix.identity();
+    m.matrixAutoUpdate = false; m.matrix.copy(chestM); m.matrixWorldNeedsUpdate = true; m.visible = !hideW; this.inHand.matrix.identity();
     const wQ = new THREE.Quaternion().setFromRotationMatrix(chestM);
-    const grip = new THREE.Vector3(0, 0, 0).applyMatrix4(chestM); let qR = wQ.clone().multiply(Q_GRIP);
-    let sup = ud.support.clone().applyMatrix4(chestM); let qL = wQ.clone().multiply(twoHand ? Q_SUP_R : Q_SUP_P);
+    // wrist + hand orientation from the solved hold (GripSolver): palm on the grip, index at the trigger, support hand on
+    // the forend / wrapped over the firing hand; models without hold data keep the old grip-origin placement
+    const supLocal = H ? H.L.wrist : ud.support;
+    const grip = (H ? H.R.wrist.clone() : new THREE.Vector3()).applyMatrix4(chestM); let qR = wQ.clone().multiply(H ? H.R.q : Q_GRIP);
+    let sup = supLocal.clone().applyMatrix4(chestM); let qL = wQ.clone().multiply(H ? H.L.q : twoHand ? Q_SUP_R : Q_SUP_P);
     if (twoHand) { // support hand: slide back along the forend to the furthest point the left arm can really reach (no floating hand)
-      const b = P.ch.bones; b.shL.updateMatrix(); const sh = b.armL.position.clone().applyMatrix4(b.shL.matrix); const armMax = (b.foreL.position.length() + b.handL.position.length()) * 0.98 + 0.05;
-      const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(wQ); let slide = 0; for (let it = 0; it < 6 && slide < 0.24; it++) { const d = sup.distanceTo(sh); if (d <= armMax) break; slide = Math.min(0.24, slide + (d - armMax) * 1.05); sup = ud.support.clone().applyMatrix4(chestM).addScaledVector(dir, -slide); }
+      const b = P.ch.bones; b.shL.updateMatrix(); const sh = b.armL.position.clone().applyMatrix4(b.shL.matrix); const armMax = (b.foreL.position.length() + b.handL.position.length()) * 0.985; // a hand that can't reach slides back along the forend instead of floating short of it
+      const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(wQ); let slide = 0; for (let it = 0; it < 10 && slide < 0.26; it++) { const d = sup.distanceTo(sh); if (d <= armMax) break; slide = Math.min(0.26, slide + (d - armMax) * 1.05); sup = supLocal.clone().applyMatrix4(chestM).addScaledVector(dir, -slide); }
       this._supSlide = slide; }
     const pouchChest = new THREE.Vector3(0.12, -0.36, 0.08).applyMatrix4(toChest);
     const magFollow = (hand, ins) => { const local = hand.clone().applyMatrix4(chestM.clone().invert()); magL.position.set((local.x - ud.magWell.x) * (1 - ins), (local.y - ud.magWell.y) * (1 - ins) + 0.03 * (1 - ins), (local.z - ud.magWell.z) * (1 - ins)); magL.visible = true; };
@@ -272,11 +339,12 @@ export class Weapons {
     else if (supTarget === 'well') { sup = pouchChest.clone().lerp(wellW(), this._supK); magFollow(sup, this._insK || 0); } // fresh magazine travels in the hand, then seats
     else if (supTarget === 'rack') { const rk = ud.rack.clone().applyMatrix4(chestM); sup = sup.clone().lerp(rk, this._supK * (this.state === 'reload' ? 1 - sm(seg(this._reloadR, 0.92, 1)) : 1)); if (this.state === 'reload' && ud.slide && def.cls !== 'pistol') ud.slide.position.z = -0.05 * Math.sin(seg(this._reloadR, 0.84, 0.94) * Math.PI); }
     if (gripTarget === 'bolt') { const c = this._cycK; const bh = ud.rack.clone(); bh.z += ud.bolt ? ud.bolt.position.z : 0; bh.y += 0.012 * sm(seg(c, 0.25, 0.35)) * (1 - sm(seg(c, 0.68, 0.78))); const bw = bh.applyMatrix4(chestM); grip.lerp(bw, sm(seg(c, 0, 0.22)) * (1 - sm(seg(c, 0.8, 1)))); }
-    A.ik = { R: grip, qR, wR: 1, L: supW > 0.01 ? sup : null, qL, wL: supW };
-    if (!twoHand && supW < 0.99) A.ik.wL = supW; // pistol held one-handed at low ready
+    if (this.drawMode === 'hands' && (this.state === 'equip' || this.state === 'holster')) supW = twoHand ? ikW * sm(seg(ikW, 0.3, 1)) : supW * ikW;
+    A.ik = { R: grip, qR, wR: ikW, L: supW > 0.01 ? sup : null, qL, wL: supW };
     const rig = P.ch.rig; if (rig) { // fingers: trigger discipline (index along the frame) until aimed, a real pull per shot; support hand shapes per task
-      rig.hand('R', gripTarget === 'bolt' ? 'pinch' : this.trigT > 0 ? TRIGGER_PULL : aw > 0.7 && this.state === 'ready' ? 'trigger' : 'grip');
-      const lp = supTarget === 'pouch' || supTarget === 'wellGrab' ? (this._supK > 0.8 ? 'mag' : 'open') : supTarget === 'well' || supTarget === 'pouchOld' ? 'mag' : supTarget === 'rack' ? 'pinch' : 'support';
+      const onTrig = aw > 0.7 && this.state === 'ready'; // finger on the trigger only when aimed; otherwise straight along the frame
+      rig.hand('R', gripTarget === 'bolt' ? 'pinch' : this.trigT > 0 ? (H ? H.R.pull : TRIGGER_PULL) : onTrig ? (H ? H.R.trigger : 'trigger') : H ? H.R.ready : 'grip', ikW > 0.5 || !H ? 1 : 0.6);
+      const lp = supTarget === 'pouch' || supTarget === 'wellGrab' ? (this._supK > 0.8 ? 'mag' : 'open') : supTarget === 'well' || supTarget === 'pouchOld' ? 'mag' : supTarget === 'rack' ? 'pinch' : H ? H.L.pose : 'support';
       if (A.ik.L) rig.hand('L', lp);
     }
   }
@@ -296,11 +364,12 @@ export class Weapons {
     if (o.y + d.y * best.t < this.groundY(o.x + d.x * best.t, o.z + d.z * best.t)) { // hits the street before anything else
       const tg = d.y < -1e-4 ? (this.groundY(o.x, o.z) - o.y) / d.y : best.t; if (tg > 0 && tg < best.t) best = { t: tg, kind: 'ground' }; }
     for (const p of this.g.crowd.peds) {
+      if (p.ch.rag) { if (Math.abs(p.x - o.x) < best.t + 2 && Math.abs(p.z - o.z) < best.t + 2) { const h = p.ch.rag.rayHit(o, d, best.t); if (h && h.t >= skipNear) best = { t: h.t, kind: 'ped', p, y: h.at.y - (p.y || 0) }; } continue; } // a body on the ground: its actual limbs
       const rx = p.x - o.x, rz = p.z - o.z; const dh = Math.hypot(d.x, d.z) || 1e-6; const t = (rx * d.x + rz * d.z) / (dh * dh); if (t < skipNear || t > best.t) continue;
       const cx = o.x + d.x * t - p.x, cz = o.z + d.z * t - p.z; const down = p.state === 'down'; const rad = down ? 0.5 : 0.3; if (cx * cx + cz * cz > rad * rad) continue;
       const y = o.y + d.y * t - (p.y || 0); if (y < 0.05 || y > (down ? 0.45 : (p.ch.spec.height || 1.7) + 0.05)) continue; best = { t, kind: 'ped', p, y };
     }
-    if (this.g.police) for (const p of this.g.police.foot) { const rx = p.x - o.x, rz = p.z - o.z; const dh = Math.hypot(d.x, d.z) || 1e-6; const t = (rx * d.x + rz * d.z) / (dh * dh); if (t < skipNear || t > best.t) continue; const cx = o.x + d.x * t - p.x, cz = o.z + d.z * t - p.z; if (cx * cx + cz * cz > 0.09) continue; const y = o.y + d.y * t - (p.y || 0); if (y < 0.05 || y > (p.mode === 'down' ? 0.45 : 1.8)) continue; best = { t, kind: 'officer', p, y }; }
+    if (this.g.police) for (const p of this.g.police.foot) { const rx = p.x - o.x, rz = p.z - o.z; const dh = Math.hypot(d.x, d.z) || 1e-6; const t = (rx * d.x + rz * d.z) / (dh * dh); if (t < skipNear || t > best.t) continue; const cx = o.x + d.x * t - p.x, cz = o.z + d.z * t - p.z; if (cx * cx + cz * cz > 0.09) continue; const y = o.y + d.y * t - (p.y || 0); if (y < 0.05 || y > (p.mode === 'down' ? 0.45 : 1.8 - 0.65 * ((p.ch && p.ch.anim && p.ch.anim.crouch) || 0))) continue; best = { t, kind: 'officer', p, y }; } // an officer crouched in cover presents less
     const vs = this.g.traffic.all();
     for (const v of vs) { if (Math.abs(v.x - o.x) > range || Math.abs(v.z - o.z) > range) continue; for (const [cx, cz] of v.circles()) { const rx = cx - o.x, ry = v.y + 0.9 - o.y, rz = cz - o.z; const t = rx * d.x + ry * d.y + rz * d.z; if (t < skipNear || t > best.t) continue; const qx = o.x + d.x * t - cx, qy = o.y + d.y * t - (v.y + 0.9), qz = o.z + d.z * t - cz; const rr = v.radius * 0.95; const dd = qx * qx + qy * qy * 1.8 + qz * qz; if (dd < rr * rr) { const back = Math.sqrt(rr * rr - dd); best = { t: Math.max(skipNear, t - back), kind: 'vehicle', v }; } } }
     best.point = o.clone().addScaledVector(d, best.t); return best;
@@ -321,13 +390,14 @@ export class Weapons {
       this.spr.pv.z -= (cls === 'pistol' ? 0.55 : cls === 'sniper' ? 1.1 : 0.7) * st; this.spr.pv.y += 0.12 * st; this.spr.rv.x -= (cls === 'pistol' ? 9 : cls === 'sniper' ? 7 : 4.5) * st; this.spr.rv.y += (Math.random() * 2 - 1) * 1.6 * st; this.spr.rv.z += (Math.random() * 2 - 1) * 1.2 * st;
       this.trigT = 0.07; if (this.inv[this.cur].mag <= 1 && cls !== 'sniper') this.slideLock = true; } P.shake = Math.max(P.shake || 0, def.cls === 'sniper' ? 0.25 : 0.08);
     this.gunSound(def, P.x, P.z); this.flash(mz, dir, def); if (!def.cycle) this.ejectShell(); this.tracer(mz, hit.point, def);
-    if (hit.kind === 'ped') { const p = hit.p; this.g.crowd.hitPed(p, dir.x, dir.z, def.dmg); this.puff(hit.point, 0x8a8478, 3); this.hitMarker(); }
-    else if (hit.kind === 'officer') { this.g.police.officerHit(hit.p, dir.x, dir.z); this.puff(hit.point, 0x8a8478, 3); this.hitMarker(); } // non-graphic: stagger / down-and-recover
+    if (hit.kind === 'ped') { const p = hit.p; this.g.crowd.hitPed(p, dir.x, dir.z, def.dmg, hit.point); if (!(this.g.blood && this.g.blood.spray(hit.point, dir, def.dmg))) this.puff(hit.point, 0x8a8478, 3); this.hitMarker(); }
+    else if (hit.kind === 'officer') { this.g.police.officerHit(hit.p, dir.x, dir.z); if (!(this.g.blood && this.g.blood.spray(hit.point, dir, def.dmg))) this.puff(hit.point, 0x8a8478, 3); this.hitMarker(); } // stagger / down-and-recover
     else if (hit.kind === 'vehicle') { this.sparks(hit.point, dir); Audio.tone(2400 + Math.random() * 1500, 0.07, { type: 'triangle', vol: 0.05 }); const v = hit.v; if (v.ai) v.ai.bumped = 2.5; this.g.crowd.alarm(v.x, v.z, 25, 2, null); }
     else if (hit.kind === 'world' || hit.kind === 'ground') { this.puff(hit.point, hit.kind === 'ground' ? 0x6d6a64 : 0xb5ab9a, 5); this.decal(hit.point, dir, hit.kind); }
     this.shotAlarm -= 1; if (this.shotAlarm <= 0) { this.shotAlarm = 3; this.g.crowd.alarm(P.x, P.z, def.loud, 2, null); }
     this.g.crowd.alarm(hit.point.x, hit.point.z, 10, 2, null);
-    if (this.g.police) this.g.police.gunfire(P.x, P.z); else { this.heat = Math.min(5, this.heat + 0.05); this.heatT = 0; } this.lastShot = { x: P.x, z: P.z, t: performance.now() };
+    this.g.birds?.scare(P.x, P.z, 50); // every bird nearby goes up at a gunshot
+    if (this.g.police) this.g.police.gunfire(P.x, P.z, hit.point); else { this.heat = Math.min(5, this.heat + 0.05); this.heatT = 0; } this.lastShot = { x: P.x, z: P.z, t: performance.now() };
     if (this.onShot) this.onShot(def, hit);
   }
   report(e) { // a witness phoned the police (several calls about the same incident only count once every few seconds)
@@ -402,37 +472,45 @@ export class Weapons {
     this.el.scope = el('scope', root, '<div class="sc-ring"></div><div class="sc-h"></div><div class="sc-v"></div><div class="sc-dot"></div><div class="sc-mils"></div><div class="sc-hint">Hold <kbd>Shift</kbd> to steady · breath <span class="sc-breath"><i></i></span></div>');
     this.el.breath = this.el.scope.querySelector('.sc-breath i');
     this.el.heat = el('heat hide', root, '<span>POLICE</span><b></b><i></i>'); this.el.heatLabel = this.el.heat.querySelector('i');
-    this.el.wheel = el('weap-wheel', root, '<div class="ww-center"><div class="ww-name"></div><div class="ww-ammo"></div><div class="ww-hint">Move the mouse · release <kbd>Tab</kbd></div></div>');
+    this.el.wheel = el('weap-wheel', root, '<div class="ww-center"><div class="ww-name"></div><div class="ww-ammo"></div><div class="ww-hint">Move the mouse · centre = fists · release <kbd>Tab</kbd></div></div>');
     this.el.slots = WEAPONS.map((d, i) => { const a = (i / 9) * Math.PI * 2 - Math.PI / 2; const s = el('ww-slot ' + d.cls, this.el.wheel, `<div class="ww-icon">${this.icon(d)}</div><div class="ww-label">${i + 1} · ${d.name}</div>`); s.style.left = `calc(50% + ${Math.cos(a) * 190}px)`; s.style.top = `calc(50% + ${Math.sin(a) * 190}px)`; return s; });
     this.el.msg = el('weap-msg', root);
   }
   icon(d) { // small original silhouettes for the wheel / card
+    if (d.cls === 'explosive') return '<svg viewBox="0 0 36 36" width="34" height="34"><path d="M15 5h7v3h-7z M13 9h11v3h-11z M18.5 12c6.5 0 10 4.6 10 10.5S24.6 33 18.5 33 8.5 28.4 8.5 22.5 12 12 18.5 12z" fill="currentColor"/><path d="M24 9c4 0 6 2.5 5.5 6.5L28 15c.3-2.6-1-4-4-4z" fill="currentColor"/><circle cx="10.5" cy="9.5" r="3.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8.5 18.5h20M8.5 24h20" stroke="rgba(0,0,0,.35)" stroke-width="1"/></svg>';
     const P = { pistol: 'M6 14h34v6H22l-2 12h-8l2-12H6z', rifle: 'M2 14h14v-3h40v3h8v4H52l-2 4h-6l-2 8h-6l1-8H24l-2 6H10l2-6H2z', sniper: 'M2 15h12v-2h26V9h12v4h18v3H44l-2 3h-5l-2 9h-6l2-9H22l-2 5H8l2-5H2z' }[d.cls];
     return `<svg viewBox="0 0 72 36" width="${d.cls === 'pistol' ? 48 : 86}" height="36"><path d="${P}" fill="currentColor"/></svg>`;
   }
-  hudWeapon(i) { const d = WEAPONS[i]; this.el.card.querySelector('.wc-name').innerHTML = `${this.icon(d)}<span>${d.name}</span>`; this.el.card.classList.remove('hide'); this._cardT = 4; }
+  hudWeapon(i) { const d = WEAPONS[i]; this._cardPick = d ? i : -1; this.el.card.querySelector('.wc-name').innerHTML = d ? `${this.icon(d)}<span>${d.name}</span>` : `${this.fistIcon()}<span>Fists</span>`; this.el.card.classList.remove('hide'); this._cardT = 4; }
+  fistIcon() { return '<svg viewBox="0 0 36 36" width="34" height="34"><path d="M9 15c0-2 1.5-3 3-3s3 1 3 3v-2c0-2 1.5-3 3-3s3 1 3 3v1c0-2 1.5-3 3-3s3 1 3 3v8c0 5-4 9-9 9h-2c-4 0-7-3-7-7v-4c0-1.5 1-2.5 2.5-2.5H9z" fill="currentColor"/></svg>'; }
   hudFlash(t) { this.el.msg.textContent = t; this.el.msg.classList.add('on'); clearTimeout(this._msgT); this._msgT = setTimeout(() => this.el.msg.classList.remove('on'), 1400); }
   hitMarker() { this.el.hit.classList.remove('on'); void this.el.hit.offsetWidth; this.el.hit.classList.add('on'); Audio.tone(1400, 0.04, { type: 'triangle', vol: 0.04 }); }
   hudUpdate(dt) {
     const d = this.def; const on = !!d && this.drawn;
     this.el.cross.classList.toggle('hide', !on || this.scoped); this.el.cross.classList.toggle('aim', this.aimW > 0.5);
     if (on) { const gap = 6 + (d.spread + this.bloom) * (this.P.speed > 0.6 ? 1.7 : 1) * 900 * (this.aimW > 0.5 ? 1 : 1.8); this.el.cross.style.setProperty('--gap', gap.toFixed(1) + 'px'); }
-    if (on || this._cardT > 0) { this._cardT = (this._cardT || 0) - dt; const i = this.cur >= 0 ? this.cur : this.sel; const iv = this.inv[i]; const dd = WEAPONS[i]; this.el.card.querySelector('.wc-ammo b').textContent = iv.mag; this.el.card.querySelector('.wc-ammo span').textContent = '/ ' + iv.reserve; this.el.card.querySelector('.wc-state').textContent = this.state === 'reload' ? (this.reloadKind === 'tactical' ? 'Tactical reload…' : 'Empty reload…') : this.state === 'check' ? 'Weapon check…' : this.cycleT >= 0 ? 'Working the bolt…' : this.state === 'none' ? `Holstered · ${dd.cls === 'pistol' ? 'hip holster' : 'back sling'}` : iv.mag === 0 ? (iv.reserve ? 'Empty — R to reload' : 'Out of ammunition') : ''; this.el.card.classList.toggle('low', iv.mag <= Math.ceil(dd.mag * 0.25)); this.el.card.classList.remove('hide'); }
+    // the card shows what the player has PICKED (scroll highlight, wheel selection, the weapon or fists on their way into the
+    // hands), never the gun still being put away: scrolling or switching to fists never shows the old gun's ammunition
+    const pick0 = this.wheelOpen ? this.wheelSel : this.scrollTarget != null ? this.scrollTarget : this._toFists ? -1 : this.state === 'holster' && this.next >= 0 ? this.next : this.cur >= 0 ? this.cur : this.sel;
+    const pick = WEAPONS[pick0] && this.inv[pick0] && this.inv[pick0].owned ? pick0 : -1;
+    if (this._cardPick !== pick) { this._cardPick = pick; const dn = WEAPONS[pick]; this.el.card.querySelector('.wc-name').innerHTML = dn ? `${this.icon(dn)}<span>${dn.name}</span>` : `${this.fistIcon()}<span>Fists</span>`; }
+    if (pick < 0 && (on || this._cardT > 0)) { this._cardT -= dt; this.el.card.querySelector('.wc-ammo b').textContent = ''; this.el.card.querySelector('.wc-ammo span').textContent = ''; this.el.card.querySelector('.wc-state').textContent = 'Unarmed · click to punch'; this.el.card.classList.remove('hide'); }
+    else if (on || this._cardT > 0) { this._cardT = (this._cardT || 0) - dt; const i = pick; const iv = this.inv[i]; const dd = WEAPONS[i]; const pending = i !== this.cur && (this.cur >= 0 || this.scrollTarget != null || this.wheelOpen); this.el.card.querySelector('.wc-ammo b').textContent = iv.mag; this.el.card.querySelector('.wc-ammo span').textContent = '/ ' + iv.reserve; this.el.card.querySelector('.wc-state').textContent = pending ? 'Switching…' : this.state === 'reload' ? (this.reloadKind === 'tactical' ? 'Tactical reload…' : 'Empty reload…') : this.state === 'check' ? 'Weapon check…' : this.cycleT >= 0 ? 'Working the bolt…' : this.state === 'none' ? `Holstered · ${dd.cls === 'pistol' ? 'hip holster' : 'back sling'}` : iv.mag === 0 ? (iv.reserve ? 'Empty — R to reload' : 'Out of ammunition') : ''; this.el.card.classList.toggle('low', iv.mag <= Math.ceil(dd.mag * 0.25)); this.el.card.classList.remove('hide'); }
     else this.el.card.classList.add('hide');
     const pi = this.g.police ? this.g.police.hudInfo() : null; const h = pi ? pi.level : Math.ceil(this.heat - 0.01); const lab = pi ? pi.label : '';
     this.el.heat.classList.toggle('hide', h <= 0 && !lab); this.el.heat.querySelector('b').textContent = h > 0 ? '★'.repeat(h) + '☆'.repeat(5 - h) : ''; this.el.heatLabel.textContent = lab; this.el.heat.classList.toggle('calm', h <= 0);
   }
   wheelUpdate() {
-    if (!this.wheelOpen) { this.wheelOpen = true; this.wheelX = 0; this.wheelY = 0; this.wheelSel = this.cur >= 0 ? this.cur : this.sel; this.el.wheel.classList.add('on'); this.P.lookLock = true; this.g.timeSlow = 0.3; }
+    if (!this.wheelOpen) { this.wheelOpen = true; this.wheelX = 0; this.wheelY = 0; this.wheelMoved = false; this.wheelSel = this.cur >= 0 ? this.cur : this.sel; for (let i = 0; i < 9; i++) this.el.slots[i].classList.toggle('locked', !this.inv[i].owned); this.el.wheel.classList.add('on'); this.P.lookLock = true; this.g.timeSlow = 0.3; }
     this.wheelX += Input.mouseDX + Input.pad.rx * 12; this.wheelY += Input.mouseDY + Input.pad.ry * 12; const r = Math.hypot(this.wheelX, this.wheelY); if (r > 120) { this.wheelX *= 120 / r; this.wheelY *= 120 / r; }
-    if (r > 30) { let a = Math.atan2(this.wheelY, this.wheelX) + Math.PI / 2; if (a < 0) a += Math.PI * 2; this.wheelSel = Math.round(a / (Math.PI * 2 / 9)) % 9; }
+    if (r > 30) { this.wheelMoved = true; let a = Math.atan2(this.wheelY, this.wheelX) + Math.PI / 2; if (a < 0) a += Math.PI * 2; this.wheelSel = Math.round(a / (Math.PI * 2 / 9)) % 9; } else if (this.wheelMoved && r < 18) this.wheelSel = -1; // back to the centre: fists
     for (let i = 0; i < 9; i++) this.el.slots[i].classList.toggle('sel', i === this.wheelSel);
-    const d = WEAPONS[this.wheelSel], iv = this.inv[this.wheelSel]; this.el.wheel.querySelector('.ww-name').textContent = d.name; this.el.wheel.querySelector('.ww-ammo').textContent = `${iv.mag} / ${iv.reserve} · ${d.auto ? 'automatic' : d.cycle ? 'bolt / manual' : 'semi-automatic'}`;
+    const d = WEAPONS[this.wheelSel], iv = this.inv[this.wheelSel]; this.el.wheel.querySelector('.ww-name').textContent = d ? d.name : 'Fists'; this.el.wheel.querySelector('.ww-ammo').textContent = !d ? 'Unarmed · click to punch' : !iv.owned ? 'Not owned · buy it at a gun shop' : `${iv.mag} / ${iv.reserve} · ${d.auto ? 'automatic' : d.cycle ? 'bolt / manual' : 'semi-automatic'}`;
   }
-  wheelClose(apply) { if (!this.wheelOpen) return; this.wheelOpen = false; this.el.wheel.classList.remove('on'); this.P.lookLock = false; this.g.timeSlow = 1; if (apply && this.wheelSel >= 0) this.select(this.wheelSel); }
+  wheelClose(apply) { if (!this.wheelOpen) return; this.wheelOpen = false; this.el.wheel.classList.remove('on'); this.P.lookLock = false; this.g.timeSlow = 1; if (apply) { if (this.wheelSel >= 0) this.select(this.wheelSel); else if (this.wheelSel === -1) this.selectFists(); } }
 
   // ------------------------------------------------------------------ save / load
   save() { return { inv: this.inv.map((v) => [v.mag, v.reserve]), sel: this.sel, heat: this.g.police ? this.g.police.level : this.heat }; }
-  load(s) { if (!s) return; this.forceHolster(); (s.inv || []).forEach((v, i) => { if (this.inv[i]) { this.inv[i].mag = v[0]; this.inv[i].reserve = v[1]; } }); this.sel = s.sel || 0; this.heat = s.heat || 0; this.showHolstered(); }
+  load(s) { if (!s) return; this.forceHolster(); (s.inv || []).forEach((v, i) => { if (this.inv[i]) { this.inv[i].mag = v[0]; this.inv[i].reserve = v[1]; } }); this.sel = s.sel ?? 0; if (this.sel >= 0 && !(this.inv[this.sel] && this.inv[this.sel].owned)) this.sel = -1; this.heat = s.heat || 0; this.showHolstered(); }
   refill() { this.inv.forEach((v, i) => { v.mag = WEAPONS[i].mag; v.reserve = WEAPONS[i].reserve; }); }
 }

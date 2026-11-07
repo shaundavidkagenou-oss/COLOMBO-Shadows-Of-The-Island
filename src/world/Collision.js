@@ -26,15 +26,15 @@ export class Collision {
   }
   // Height of walkable ground at (x,z) for something whose feet are at y (decks above feet+step are ignored).
   groundAt(x, z, y = 0, step = 0.6) {
-    let g = L.groundY(x, z);
+    let g = L.surfaceY(x, z); // terrain or the paving laid on it
     for (const c of this.query(x, z, x, z)) {
       if (x < c.x0 || x > c.x1 || z < c.z0 || z > c.z1) continue;
       if (SURFACE.has(c.kind) || c.h <= step + 0.05) { const top = c.y0 !== undefined ? c.y0 + c.h : c.h; if (top <= y + step && top > g) g = top; }
     }
     return g;
   }
-  walkableWater(x, z, y) { // water blocks unless a deck/bridge is underfoot
-    if (!L.isWater(x, z)) return true;
+  walkableWater(x, z, y) { // water (and the railings along it) blocks unless a deck/bridge is underfoot
+    if (!L.isWater(x, z)) { if (!L.beyondRailing(x, z)) return true; for (const c of this.query(x, z, x, z)) if (SURFACE.has(c.kind) && x >= c.x0 && x <= c.x1 && z >= c.z0 && z <= c.z1) return true; return false; }
     if (L.bridgeWalkAt(x, z)) return true;
     for (const c of this.query(x, z, x, z)) if (SURFACE.has(c.kind) && x >= c.x0 && x <= c.x1 && z >= c.z0 && z <= c.z1) return true;
     return false;
@@ -54,8 +54,11 @@ export class Collision {
         let dx = x - px, dz = z - pz; const d2 = dx * dx + dz * dz;
         if (d2 >= r * r) continue;
         if (d2 < 1e-8) { // centre inside box: push out the shortest way
-          const l = x - c.x0, rr = c.x1 - x, t = z - c.z0, b = c.z1 - z; const m = Math.min(l, rr, t, b);
-          if (m === l) x = c.x0 - r; else if (m === rr) x = c.x1 + r; else if (m === t) z = c.z0 - r; else z = c.z1 + r;
+          // the nearest side can be a seam shared with the next building of a terrace row: pushing out there lands inside the
+          // neighbour, which pushes straight back (people ended up walking inside a block of shops). Take the nearest side
+          // that leads into the open; if every side is shut in, the nearest one as before.
+          const sides = [[x - c.x0, c.x0 - r, z], [c.x1 - x, c.x1 + r, z], [z - c.z0, x, c.z0 - r], [c.z1 - z, x, c.z1 + r]].sort((a, b) => a[0] - b[0]);
+          const pick = sides.find((sd) => !this.solidAt(sd[1], sd[2], c, y, step, height, opts)) || sides[0]; x = pick[1]; z = pick[2];
         } else { const d = Math.sqrt(d2); x = px + (dx / d) * r; z = pz + (dz / d) * r; }
         hit = moved = true;
       }
@@ -66,11 +69,17 @@ export class Collision {
     if (nx !== x || nz !== z) hit = true;
     return { x: nx, z: nz, hit };
   }
+  // is (x, z) inside another box that resolveCircle treats as solid at this height (used to pick a clear way out)
+  solidAt(x, z, except, y = 0, step = 0.45, height = 1.8, opts = {}) {
+    for (const c of this.query(x - 0.01, z - 0.01, x + 0.01, z + 0.01)) { if (c === except || SURFACE.has(c.kind)) continue; const base = c.y0 || 0; if (base + c.h <= y + step || base > y + height || (c.walkUnder && !opts.vehicle)) continue; if (x > c.x0 && x < c.x1 && z > c.z0 && z < c.z1) return true; }
+    return false;
+  }
   // Segment vs boxes (3D, boxes from y0 to y0+h). Returns fraction t in [0,1] of the first hit, or 1.
-  raycast(ax, ay, az, bx, by, bz, pad = 0.2, all = false) {
+  raycast(ax, ay, az, bx, by, bz, pad = 0.2, all = false, minH = 2.2) {
     let best = 1; const dx = bx - ax, dy = by - ay, dz = bz - az;
     for (const c of this.query(Math.min(ax, bx), Math.min(az, bz), Math.max(ax, bx), Math.max(az, bz))) {
-      if (!all && c.h < 2.2 && c.kind !== 'landmark') continue; // ignore small things for the camera (bullets pass all=true)
+      if (!all && c.h < minH && c.kind !== 'landmark') continue; // ignore small things (bullets pass all=true; the camera passes a lower minH so it also stops at compound walls)
+      if (c.h <= 0) continue; // disabled (open gates, raised booms)
       const base = c.y0 || 0;
       let t0 = 0, t1 = best;
       const slab = (o, d, mn, mx) => { if (Math.abs(d) < 1e-9) return o >= mn && o <= mx; let ta = (mn - o) / d, tb = (mx - o) / d; if (ta > tb) [ta, tb] = [tb, ta]; t0 = Math.max(t0, ta); t1 = Math.min(t1, tb); return t0 <= t1; };

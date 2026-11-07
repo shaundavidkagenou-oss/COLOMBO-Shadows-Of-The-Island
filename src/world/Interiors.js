@@ -7,6 +7,10 @@ import { RNG } from '../core/rng.js';
 import { Character, randomSpec, HEROES } from '../actors/Character.js';
 import { buildHQInterior, HQ_DEF } from './HQInterior.js';
 import { HQ } from './PoliceHQ.js';
+import { buildGunShopInterior } from './GunShop.js';
+import { buildClub } from './Club.js';
+import { buildHeroRoom, isHeroRoom, heroDoorSpots, wallSpot } from './HeroRooms.js';
+import { buildHeroEntrance } from './HeroEntrance.js';
 
 const Y = -40; const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 const DEFS = {
@@ -22,13 +26,25 @@ export class Interiors {
   constructor(game) { this.g = game; this.current = null; this.built = new Map(); this.doors = []; this.fan = null; }
   setupDoors(roomPos) {
     this.doors = Object.entries(plan.missionShops).map(([id, s]) => ({ id, x: s.x, z: s.z, rot: s.rot, faceIn: s.faceIn }));
-    if (roomPos) this.doors.push({ id: 'room', x: roomPos[0], z: roomPos[1], rot: 0, faceIn: Math.PI });
+    if (roomPos) this.doors.push({ id: 'room', owner: 'dineth', x: roomPos[0], z: roomPos[1], rot: 0, faceIn: Math.PI });
+    try { for (const d of heroDoorSpots(this.g)) this.doors.push(d); } catch (e) { console.warn('hero room doors', e); } // Shashika's + David's rooms (HeroRooms.js)
+    this.buildEntrances(); // a real house-front around each protagonist's door (HeroEntrance.js)
     // the Police HQ has no door prompt: it is walked into through its automatic doors (see updateSeamless)
+  }
+  buildEntrances() {
+    const g = this.g; if (!g.scene || !g.collision) return; this.entrances = this.entrances || new Map();
+    for (const d of this.doors) { if (!isHeroRoom(d.id)) continue; const key = `${d.x.toFixed(2)},${d.z.toFixed(2)}`; const old = this.entrances.get(d.id); if (old && old.key === key) { d.faceIn = old.faceIn; continue; }
+      if (old) { g.scene.remove(old.group); const cs = old.colliders; g.collision.remove((c) => cs.includes(c)); }
+      try { let e = buildHeroEntrance(d.id, d, g.collision); if (!e) { const w = wallSpot(g, d.x, d.z, 30); if (w) { d.x = w.x; d.z = w.z; d.faceIn = w.faceIn; if (d.id === 'room' && g.story?.state?.flags) g.story.state.flags.room = [w.x, w.z]; e = buildHeroEntrance(d.id, d, g.collision); } } /* no wall at the old spot (e.g. an older save): the door moves to the nearest real wall */
+        if (!e) { console.warn('hero entrance: no wall at', d.id); continue; } g.scene.add(e.group); g.collision.addAll(e.colliders); this.entrances.set(d.id, { key: `${d.x.toFixed(2)},${d.z.toFixed(2)}`, group: e.group, colliders: e.colliders, faceIn: d.faceIn }); } catch (err) { console.warn('hero entrance', d.id, err); } }
   }
   nearDoor(x, z) { for (const d of this.doors) if (Math.hypot(d.x - x, d.z - z) < 2.2) return d; return null; }
   build(id, door) {
     if (this.built.has(id)) return this.built.get(id);
     if (id === 'hq') { const room = buildHQInterior(this.g, door || { id: 'hq', ...HQ.door }, HQ.interior); this.built.set(id, room); return room; }
+    if (id === 'gunshop') { const room = buildGunShopInterior(this.g, door); this.built.set(id, room); return room; }
+    if (id === 'club') { const room = buildClub(this.g, door); this.built.set(id, room); return room; }
+    if (isHeroRoom(id)) { const room = buildHeroRoom(this.g, id, door); this.built.set(id, room); return room; }
     const D = DEFS[id]; const mb = new MultiBuilder(); const rng = new RNG(id.length * 97 + 5);
     const cx = door.x, cz = door.z - 200; // offset in z so rooms don't overlap the shop's own geometry footprint
     const x0 = cx - D.w / 2, x1 = cx + D.w / 2, z0 = cz - D.d, z1 = cz; const H = id === 'garage' ? 5 : 3.2;
@@ -83,15 +99,16 @@ export class Interiors {
     this.built.set(id, room); return room;
   }
   async enter(door) {
-    const g = this.g; const room = this.build(door.id, door); await g.hud.fade(1, 0.5);
+    const g = this.g; if (!this.built.has(door.id)) g.player.indoorBusy = true; await g.hud.fade(1, 0.5); const room = this.build(door.id, door); g.player.indoorBusy = false; /* first visit: build behind the black fade (the club creates its cast here) */
     this.prev = { x: g.player.x, z: g.player.z, yaw: g.player.yaw }; room.g.visible = true; this.current = room;
     if (room.D.keeper && !room.keeperCh) { const spec = room.D.keeper.height ? room.D.keeper : randomSpec(room.D.keeper.seed, room.D.keeper); const ch = new Character(spec); ch.root.position.set(room.keeperPos[0], Y, room.keeperPos[1]); room.g.add(ch.root); room.keeperCh = ch; }
     g.player.indoor = room; g.player.x = room.spawn[0]; g.player.z = room.spawn[1]; g.player.y = Y; g.player.yaw = Math.PI; g.player.camYaw = 0; g.player.sync(); g.player.snapCamera();
     g.setIndoor(true); await g.hud.fade(0, 0.5); g.hud.notify(room.D.name, room.id === 'hq' && !this.hqNoted ? HQ_DEF.note : '', 'info', room.id === 'hq' && !this.hqNoted ? 6 : 2.5); if (room.id === 'hq') this.hqNoted = true;
+    if (room.onEnter) room.onEnter();
     if (room.D.line) setTimeout(() => g.hud.subtitle(room.D.name.split(' ')[0] === 'Lucky' ? 'Siri' : room.D.name, room.D.line, '', 3.5), 600);
   }
   async exit() {
-    const g = this.g; const room = this.current; if (!room) return; await g.hud.fade(1, 0.5);
+    const g = this.g; const room = this.current; if (!room) return; if (room.onExit) room.onExit(); await g.hud.fade(1, 0.5);
     room.g.visible = false; this.current = null; g.player.indoor = null; const d = room.door; // door point already sits on the pavement in front of the shop
     g.player.teleport(d.x, d.z, d.faceIn + Math.PI); g.setIndoor(false); await g.hud.fade(0, 0.5);
   }
@@ -108,15 +125,21 @@ export class Interiors {
     if (!want) for (const p of g.hqLife?.people || []) if (p.ch?.root && Math.abs(p.ch.root.position.x - ex) < 2.6 && Math.abs(p.ch.root.position.z - ez) < 2.8) { want = 1; break; }
     this.doorK = (this.doorK || 0) + Math.sign(want - (this.doorK || 0)) * Math.min(Math.abs(want - (this.doorK || 0)), dt / 0.7);
     const leaves = g.world?.landmarks?.anim?.hqDoors; if (leaves) { const e = (1 - Math.cos(this.doorK * Math.PI)) / 2; for (const lf of leaves) lf.position.x = lf.userData.home + lf.userData.dir * lf.userData.w * 0.95 * e; }
+    // closed / half-open glass is solid: the opening only becomes passable once the leaves have slid ~70 % clear
+    if (this.hqDoorColl === undefined) this.hqDoorColl = (g.collision?.list || []).find((c) => c.id === 'hqDoors') || null;
+    if (this.hqDoorColl) { const c = this.hqDoorColl; if (c.hFull === undefined) c.hFull = c.h; c.h = this.doorK > 0.7 ? 0 : c.hFull; }
     // hand-over between the world and the room model
     if (P.indoor === r) { if (P.z < r.front - 0.05 || P.vehicle || P.z > r.front + r.depth + 1 || P.x < r.bounds.x0 - 1 || P.x > r.bounds.x1 + 1 || P.y < r.y - 1.5) P.indoor = null; } // any exit (door, or a teleport: arrest, hospital) releases the room model
     else if (!P.indoor && !P.vehicle && !this.current && P.z > r.front + 0.3 && P.z < r.front + r.depth && P.x > r.bounds.x0 && P.x < r.bounds.x1 && P.y > r.y - 0.6 && P.y < r.y + 2 * r.H) P.indoor = r;
     // how "inside" the camera is: drives the light blend in Game (eased so stepping through the door is a smooth adaptation)
     const tk = P.indoor === r ? Math.min(1, Math.max(0, (P.z - r.front + 0.3) / 3.5)) : 0; this.seamK = (this.seamK || 0) + (tk - (this.seamK || 0)) * Math.min(1, dt * 2.5);
+    // ceiling lights: point lights have no shadows, so from outside their reach is clamped to the nearest wall (the facade and
+    // compound are not lit through the walls); once inside they light the whole floor
+    if (r.lights) { const k = this.seamK; for (const l of r.lights) { const dw = Math.max(1.5, (l.userData.wallD || 16) + 0.3); l.distance = dw + (16 - dw) * k; l.intensity = 14 * (0.55 + 0.45 * k); } }
     return this.seamK;
   }
   update(dt) {
-    const r = this.current; if (!r) return null; if (r.fan) r.fan.rotation.y += dt * 9; if (r.update) r.update(dt, this.g.player); if (r.keeperCh) { const p = this.g.player; r.keeperCh.root.rotation.y = Math.atan2(p.x - r.keeperPos[0], p.z - r.keeperPos[1]); r.keeperCh.anim.update(dt, 0); }
+    const r = this.current; if (!r) return null; if (r.fan && !r.hero) r.fan.rotation.y += dt * 9; if (r.update) r.update(dt, this.g.player); if (r.keeperCh) { const p = this.g.player; r.keeperCh.root.rotation.y = Math.atan2(p.x - r.keeperPos[0], p.z - r.keeperPos[1]); r.keeperCh.anim.update(dt, 0); }
     const p = this.g.player; if (p.y < r.y + 1 && Math.hypot(p.x - r.spawn[0], p.z - (r.spawn[1] + 0.6)) < 1.3) return 'exit'; return null;
   }
 }

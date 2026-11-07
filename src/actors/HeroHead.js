@@ -59,7 +59,19 @@ export function heroHeadFit(sp) {
   // the ragged neck opening is closed by a vertical skirt down to a level cut inside the shirt (cutY); 'section' is the
   // cross-section of that skirt, which the torso / collar rings wrap
   const cutY = Math.min(b0, 1.462 * s) - 0.004; const section = { cz: (bz0 + bz1) / 2, rx: bx, rz: (bz1 - bz0) / 2 };
-  const f = { k, o, T, L, neckAt, eyeL: T(L.eyeL), eyeR: T(L.eyeR), eyeRad: L.eyeR_ * k * 0.93, bottom: o[1] + k * L.neck.y, bottomMin: b0, bottomMax: b1, cutY, section };
+  // the real neck is not an ellipse (throat, sternocleidomastoids bulge on the diagonals): scale the section so it encloses
+  // every neck vertex in the band a collar covers (cutY … cutY + 6 cm) — collars built on it never let skin poke through
+  let encl = 1; { const P = D.pos; for (let i = 0; i < S.N; i++) { if (S.part[i] !== 0 || P[i * 3 + 1] > L.chin[1] - 0.005) continue; const py = o[1] + k * P[i * 3 + 1]; if (py < cutY || py > cutY + 0.06) continue;
+    const ex = (k * P[i * 3]) / section.rx, ez = (o[2] + k * P[i * 3 + 2] - section.cz) / section.rz; encl = Math.max(encl, Math.hypot(ex, ez)); } }
+  section.encl = Math.min(encl, 1.35);
+  // collar ellipse: fitted to the real neck over the whole height a collar can reach (cutY … cutY + 8 cm): its own centre
+  // (the throat sits forward of the ragged opening), its own extents, then grown until every vertex in the band is inside
+  const collarAt = (y1) => { const P = D.pos; let xm = section.rx, z0 = section.cz - section.rz, z1 = section.cz + section.rz; const pts = []; // the skirt (section) is always inside
+    for (let i = 0; i < S.N; i++) { if (S.part[i] !== 0 || P[i * 3 + 1] > L.chin[1] - 0.005) continue; const py = o[1] + k * P[i * 3 + 1]; if (py < cutY || py > y1) continue; const px = k * P[i * 3], pz = o[2] + k * P[i * 3 + 2]; xm = Math.max(xm, Math.abs(px)); z0 = Math.min(z0, pz); z1 = Math.max(z1, pz); pts.push(px, pz); }
+    const c = { cz: (z0 + z1) / 2, rx: Math.max(xm, section.rx), rz: Math.max((z1 - z0) / 2, section.rz) }; let e = 1; for (let j = 0; j < pts.length; j += 2) e = Math.max(e, Math.hypot(pts[j] / c.rx, (pts[j + 1] - c.cz) / c.rz));
+    c.rx *= e; c.rz *= e; return c; };
+  const collar = collarAt(cutY + 0.08);
+  const f = { k, o, T, L, neckAt, eyeL: T(L.eyeL), eyeR: T(L.eyeR), eyeRad: L.eyeR_ * k * 0.93, bottom: o[1] + k * L.neck.y, bottomMin: b0, bottomMax: b1, cutY, section, collar, collarAt };
   FITS.set(key, f); return f;
 }
 
@@ -123,7 +135,7 @@ export function iblScale(m, spec, diff, desat = 0.5) {
   m.customProgramCacheKey = function () { return (prevKey ? prevKey.call(this) : '') + `|ibl${spec}_${diff}_${desat}`; };
   return m;
 }
-function hairMaterial(kind, opts = {}) {
+export function hairMaterial(kind, opts = {}) {
   // kind 'volume' (solid hair mass with fine strand relief) or 'fur' (alpha-tested shell layer)
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: kind === 'fur' ? 0.7 : 0.6, metalness: 0, side: kind === 'fur' ? THREE.DoubleSide : THREE.FrontSide });
   if (kind === 'volume') { m.polygonOffset = true; m.polygonOffsetFactor = -1; m.polygonOffsetUnits = -2; }
@@ -247,7 +259,10 @@ export function buildHeroHead(sp, bi) {
     for (let t = 0; t < skinIdx.length; t += 3) for (let j = 0; j < 3; j++) { const a = skinIdx[t + j], b = skinIdx[t + (j + 1) % 3]; const e = ek(a, b); const r = ec.get(e); if (r) r.n++; else ec.set(e, { n: 1, a, b }); }
     const yC = (F.cutY - F.o[1]) / F.k; const drop = new Map(); const sk = [];
     const dv = (i) => { if (!drop.has(i)) { const p = pv(i), n = nv(i); const hn = nrm([n[0], 0, n[2]]); drop.set(i, A.add([p[0], yC, p[2]], hn, A.uv.slice(i * 2, i * 2 + 2), A.c.slice(i * 3, i * 3 + 3), i, { uv2: [S.uv[i * 2], S.uv[i * 2 + 1]] })); } return drop.get(i); };
-    for (const { n, a, b } of ec.values()) { if (n !== 1 || !bset.has(a) || !bset.has(b)) continue; const a2 = dv(a), b2 = dv(b); sk.push(b, a, a2, b, a2, b2); }
+    /* the baked boundary list misses a small notch behind each ear (it left a see-through slot in the side of the neck): the rim is
+       every open skin edge connected to the baked boundary */
+    const rim = new Set(bset); const openE = [...ec.values()].filter((e) => e.n === 1); for (let grow = true; grow;) { grow = false; for (const e of openE) if (rim.has(e.a) !== rim.has(e.b)) { rim.add(e.a); rim.add(e.b); grow = true; } }
+    for (const { a, b } of openE) { if (!rim.has(a) || !rim.has(b)) continue; const a2 = dv(a), b2 = dv(b); sk.push(b, a, a2, b, a2, b2); }
     S.skirt = sk; }
   const skinTris = Array.from(skinIdx), mouthTris = [...S.idx[1], ...S.idx[2], ...S.idx[3]], lashTris = Array.from(S.idx[4]);
 
@@ -439,6 +454,7 @@ export const EXPR_MORPHS = {
   concern: { browInner: 0.75, frown: 0.3, press: 0.2 },
   angry: { browDown: 0.95, squint: 0.4, sneer: 0.35, press: 0.45, frown: 0.2 },
   pain: { browDown: 0.5, browInner: 0.6, squint: 0.7, stretch: 0.5, sneer: 0.3 },
+  wince: { browDown: 0.75, browInner: 0.35, squint: 0.85, sneer: 0.5, press: 0.55, stretch: 0.2 }, // after a shot of spirits
   lookL: {}, lookR: {},
 };
 export function morphIndex(name) { return MI[name]; }

@@ -1,5 +1,6 @@
 // Hand-built landmark architecture for Colombo. All geometry is procedural.
 import * as THREE from 'three';
+import { buildLotusBud } from './LotusTower.js';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
 import { TEX } from '../gfx/Textures.js';
@@ -7,6 +8,7 @@ import { LAND_Y, LAKE, STATIONS, roadAt } from './Layout.js';
 import { RNG } from '../core/rng.js';
 import { buildPoliceHQ } from './PoliceHQ.js';
 import { buildJohnsSchool } from './JohnsSchool.js';
+import { discColliders } from './Parks.js';
 
 const C = (hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; };
 const M4 = new THREE.Matrix4();
@@ -14,7 +16,7 @@ function canvas(w, h) { const c = document.createElement('canvas'); c.width = w;
 function texOf(c, repeat = false) { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; if (repeat) t.wrapS = t.wrapT = THREE.RepeatWrapping; return t; }
 
 // Large painted label (station names, hotel names, police...). Lines: [{text, font, color}]
-function labelMaterial(lines, { w = 1024, h = 256, bg = null, border = null, glow = true } = {}) {
+export function labelMaterial(lines, { w = 1024, h = 256, bg = null, border = null, glow = true } = {}) {
   const c = canvas(w, h), ctx = c.getContext('2d');
   if (bg) { ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h); } else ctx.clearRect(0, 0, w, h);
   if (border) { ctx.strokeStyle = border; ctx.lineWidth = h * 0.04; ctx.strokeRect(h * 0.04, h * 0.04, w - h * 0.08, h - h * 0.08); }
@@ -66,7 +68,7 @@ export function buildLandmarks() {
   const group = new THREE.Group(); group.name = 'landmarks';
   const mb = new MultiBuilder(); const colliders = []; const anim = {};
   const conc = mb.get('concrete'), paint = mb.get('paint'), metal = mb.get('metal');
-  const box = (b, cx, cy, cz, sx, sy, sz, col, o = {}) => b.box(cx, cy, cz, sx, sy, sz, { col: C(col), uvScale: o.uv || 3, ...o });
+  const box = (b, cx, cy, cz, sx, sy, sz, col, o = {}) => b.box(cx, cy, cz, sx, sy, sz, { col: C(col), uvScale: o.uv || 3, bottom: true, ...o }); // closed boxes: canopies, lintels and slabs stay solid when seen from below
   const coll = (x0, x1, z0, z1, h, extra = {}) => colliders.push({ x0, x1, z0, z1, h, kind: 'landmark', ...extra });
   const lathe = (b, pts, seg, x, y, z, col, phiStart = 0, phiLen = Math.PI * 2) => { const g = new THREE.LatheGeometry(pts.map(([r, h]) => new THREE.Vector2(r, h)), seg, phiStart, phiLen); M4.makeTranslation(x, y, z); b.geometry(g, M4, C(col)); g.dispose(); };
   const facade = (style, x0, x1, z0, z1, y0, y1, col, uOff = 0) => {
@@ -94,7 +96,7 @@ export function buildLandmarks() {
   };
   const labels = [];
   const label = (lines, x, y, z, w, h, rotY, o) => { const m = labelMesh(labelMaterial(lines, o), x, y, z, w, h, rotY); group.add(m); labels.push(m.material); return m; };
-  const EN = (px) => `700 ${px}px "Cormorant Garamond", serif`, SANS = (px) => `700 ${px}px "Barlow Condensed", sans-serif`, SI = (px) => `700 ${px}px "Noto Sans Sinhala", sans-serif`, TA = (px) => `700 ${px}px "Noto Sans Tamil", sans-serif`;
+  const EN = (px) => `700 ${px}px "Cormorant Garamond", serif`, SANS = (px) => `700 ${px}px "Barlow Condensed", sans-serif`, SI = (px) => `700 ${px}px "Noto Sans Sinhala", "Noto Sans Tamil", sans-serif`, TA = (px) => `700 ${px}px "Noto Sans Tamil", sans-serif`;
 
   // ------------------------------------------------------------ LOTUS TOWER (Nelum Kuluna)
   {
@@ -106,54 +108,31 @@ export function buildLandmarks() {
     for (let k = -3; k <= 3; k++) for (const sgn of [-1, 1]) { metal.box(x + k * 9, y0 + 4, z + sgn * 32.15, 0.35, 4.2, 0.35, { col: C('#bdb9b0') }); metal.box(x + sgn * 32.15, y0 + 4, z + k * 9, 0.35, 4.2, 0.35, { col: C('#bdb9b0') }); }
     // ---- stem: 200 m reinforced-concrete shaft (real tower: ~350 m overall — 4-storey podium, ~200 m shaft, 8-floor bud, mast).
     // Vivid green, flared where it meets the podium, eight shallow vertical flutes, a horizontal panel joint every 4.5 m.
-    const SH = 200, sy = y0 + 17;
-    const R = (h) => { let r = 11 - 4.6 * Math.pow(h / SH, 0.85); if (h < 22) r += 5.5 * Math.pow(1 - h / 22, 2); if (h > 188) r -= 0.7 * smooth01((h - 188) / 12); return r; };
+    const SH = 200, sy = y0 + 14; // stem lands ON the upper podium roof (y0 + 8 + 6): it used to start at +17, leaving a 3 m see-through gap
+    const R = (h) => { let r = 11 - 4.6 * Math.pow(h / SH, 0.85); if (h < 18) r += 2.8 * Math.pow(1 - h / 18, 2); if (h > 188) r -= 0.7 * smooth01((h - 188) / 12); return r; };
     {
       const rows = []; for (let j = 0; j <= SH; j += 9) { if (j > 0) rows.push([j - 0.1, 1]); rows.push([j, 0]); if (j < SH) rows.push([j + 0.1, 1]); for (const f of [1.5, 3, 4.5, 6, 7.5]) if (j + f < SH - 0.2) rows.push([j + f, 0]); } rows.push([SH, 0]); rows.sort((a, b) => a[0] - b[0]);
-      const COLS = 96; const pos = [], col = [], idx = []; const green = new THREE.Color('#3f9a52'), joint = new THREE.Color('#368a48'), lit = new THREE.Color('#4fb262');
+      const COLS = 96; const pos = [], col = [], idx = []; const green = new THREE.Color('#4a9c8a'), joint = new THREE.Color('#3f8c7b'), lit = new THREE.Color('#5aae9a'); // the real shaft's teal-green
       rows.forEach(([h, kind], ri) => { const r0 = R(h); for (let c = 0; c <= COLS; c++) { const a = (c / COLS) * Math.PI * 2; let g = 0; for (let k = 0; k < 8; k++) { let d = a - (k / 8) * Math.PI * 2 - Math.PI / 8; d = Math.atan2(Math.sin(d), Math.cos(d)); g = Math.max(g, Math.exp(-(d * d) / (0.045 * 0.045))); } const r = r0 * (1 - 0.055 * g); pos.push(x + Math.cos(a) * r, sy + h, z + Math.sin(a) * r); const cc = kind ? joint : green.clone().lerp(lit, 0.25 * (1 - g)).lerp(joint, 0.35 * g); col.push(cc.r, cc.g, cc.b); }
         if (ri > 0) { const b0 = (ri - 1) * (COLS + 1), b1 = ri * (COLS + 1); for (let c = 0; c < COLS; c++) idx.push(b0 + c, b1 + c, b0 + c + 1, b0 + c + 1, b1 + c, b1 + c + 1); } });
       const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.setIndex(idx); g.computeVertexNormals();
-      const stem = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.48, metalness: 0.05 })); stem.castShadow = true; stem.receiveShadow = true; stem.name = 'lotus-stem'; group.add(stem);
+      const stem = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0.04 })); stem.castShadow = true; stem.receiveShadow = true; stem.name = 'lotus-stem'; group.add(stem);
       // glazed lift-core window slots on two faces, every 3.3 m (the lifts and stairs run up the shaft)
       const glass = mb.get('glass'); for (const side of [0, Math.PI]) for (let h = 26; h < SH - 6; h += 3.3) { const r = R(h) * 0.995; const cx = x + Math.cos(side) * r, cz = z + Math.sin(side) * r; glass.box(cx, sy + h, cz, side === 0 ? 0.25 : 0.25, 1.5, 1.3, { col: C('#203038'), uvScale: 2 }); }
       // podium crown where the stem lands: maintenance ring
       lathe(conc, [[17.5, 0], [17.5, 1.2], [16.2, 1.6]], 32, x, sy - 0.2, z, '#d8d2c6');
     }
-    // ---- bud (tower house: observation deck, revolving restaurant) with green sepals cupping its base
+    // ---- bud (tower house: observation deck, revolving restaurant): pointed closed lotus of real petal shells cupped by green
+    // sepals, with the LED show on the petals themselves (LotusTower.js)
     const by = sy + SH;
-    lathe(paint, [[5.6, -1], [6.4, 0], [13, 5], [19, 13], [21.5, 22], [19, 32], [12, 41], [4.5, 48], [1.6, 52]], 24, x, by, z, '#8b2f78');
-    // shell(): a petal/sepal with real thickness — outer skin + inward-facing inner skin (reversed profile) + a rim strip, so no edge or gap is ever see-through
-    const shell = (pts, seg, col, colIn, ph, len, t) => { lathe(paint, pts, seg, x, by, z, col, ph, len); const inner = pts.map(([r, h]) => [Math.max(0.2, r - t), h]).reverse(); lathe(paint, inner, seg, x, by, z, colIn, ph, len); const [r1, h1] = pts[pts.length - 1]; lathe(paint, [[r1, h1], [Math.max(0.2, r1 - t), h1]], seg, x, by, z, colIn, ph, len);
-      for (const a of [ph, ph + len]) { const ca = Math.sin(a), sa = -Math.cos(a); /* LatheGeometry: x = r·sinφ, z = r·cosφ */ for (let i = 0; i < pts.length - 1; i++) { const [ra, ha] = pts[i], [rb, hb] = pts[i + 1]; const P0 = [x + ca * ra, by + ha, z - sa * ra], P1 = [x + ca * rb, by + hb, z - sa * rb], P2 = [x + ca * (rb - t), by + hb, z - sa * (rb - t)], P3 = [x + ca * (ra - t), by + ha, z - sa * (ra - t)]; paint.quad(P0, P1, P2, P3, [0, 0, 1, 1], C(colIn)); paint.quad(P3, P2, P1, P0, [0, 0, 1, 1], C(colIn)); } } };
-    for (let k = 0; k < 6; k++) { const ph = (k / 6) * Math.PI * 2; shell([[5.5, -4], [7.2, -1.6], [8.5, 0], [11, 2.2], [13.6, 4.6], [15.8, 7], [17.6, 9.5], [18.7, 11.2], [19.4, 12.9]], 9, k % 2 ? '#3a8a4b' : '#44a056', '#2f7a40', ph, (Math.PI * 2 / 6) * 0.9, 0.45); }
-    for (let layer = 0; layer < 2; layer++) for (let k = 0; k < 8; k++) {
-      const ph = (k + layer * 0.5) / 8 * Math.PI * 2; const sc = layer ? 0.92 : 1;
-      shell([[7, 1], [11.2, 2.7], [15, 5], [19.2, 8.6], [22.5, 13], [24, 17], [24.5, 21], [23.6, 25.6], [21.5, 30], [18.6, 33.8], [15, 37], [13.4, 38.3]].map(([r, h]) => [r * sc, h + layer * 4]), 10, layer ? '#b44d97' : '#c96aa9', '#7a2a66', ph, Math.PI * 2 / 8 * 0.86, 0.5);
-    }
-    // observation deck band
-    lathe(mb.get('glass'), [[21.8, 0], [22, 5.5]], 48, x, by + 19, z, '#ffffff');
-    // deck mullions every 7.5° and the slab edges of the observation deck + revolving-restaurant floors (seen through the petal gaps)
-    for (let k = 0; k < 48; k++) { const a = k / 48 * Math.PI * 2; metal.box(x + Math.cos(a) * 22.05, by + 21.75, z + Math.sin(a) * 22.05, 0.18, 5.5, 0.18, { col: C('#cfcac0') }); }
-    lathe(conc, [[22.4, 0], [22.4, 0.6], [21.6, 0.6]], 48, x, by + 18.4, z, '#e4dfd6'); lathe(conc, [[22.4, 0], [22.4, 0.6], [21.6, 0.6]], 48, x, by + 24.5, z, '#e4dfd6');
-    lathe(mb.get('glass'), [[20.6, 0], [19.6, 4.2]], 48, x, by + 25.1, z, '#ffffff'); lathe(conc, [[20.9, 0], [20.9, 0.5], [19.4, 0.5]], 48, x, by + 29.3, z, '#e4dfd6');
+    const bud = buildLotusBud(group, { x, z, by, sy, SH, R }); anim.lotusUpdate = bud.update;
+    for (const hh of [SH - 7, SH - 13]) lathe(conc, [[R(hh) + 0.05, -0.5], [R(hh) + 0.75, -0.3], [R(hh) + 0.75, 0.3], [R(hh) + 0.05, 0.5]], 48, x, sy + hh, z, '#d9dcd6'); // two collars under the calyx
     // ---- mast: equipment housing, two service platforms, tapering antenna (~80 m) → top ≈ 350 m above the lake
-    const my = by + 50; metal.cylinder(x, my, z, 2.6, 2.0, 7, 16, { col: C('#e6e3dc') });
-    metal.cylinder(x, my + 7, z, 1.55, 1.15, 30, 12, { col: C('#d9d6cf') }); metal.cylinder(x, my + 36, z, 3.2, 3.2, 0.6, 16, { col: C('#bdb9b0') });
-    metal.cylinder(x, my + 37, z, 0.95, 0.55, 24, 10, { col: C('#d9d6cf') }); metal.cylinder(x, my + 60, z, 1.9, 1.9, 0.45, 12, { col: C('#bdb9b0') });
-    metal.cylinder(x, my + 61, z, 0.38, 0.1, 18, 8, { col: C('#cfcbc2') });
+    // aviation lights on the mast's service ring and antenna, beacon at the tip (mast geometry: LotusTower.js)
     const avMat = new THREE.MeshBasicMaterial({ color: 0xff2a1a, toneMapped: false }); const avGeo = new THREE.SphereGeometry(0.45, 8, 6);
-    for (const [hy, rr] of [[36.8, 3.2], [60.6, 1.9]]) for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2; const m = new THREE.Mesh(avGeo, avMat); m.position.set(x + Math.cos(a) * rr, my + hy, z + Math.sin(a) * rr); group.add(m); }
-    { const m = new THREE.Mesh(avGeo, avMat); m.position.set(x, my + 79.3, z); group.add(m); anim.lotusBeacon = m; }
+    for (const [hy, rr] of bud.av) for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2; const m = new THREE.Mesh(avGeo, avMat); m.position.set(x + Math.cos(a) * rr, hy, z + Math.sin(a) * rr); group.add(m); }
+    { const m = new THREE.Mesh(avGeo, avMat); m.position.set(x, bud.beaconY, z); group.add(m); anim.lotusBeacon = m; }
     coll(x - 32, x + 32, z - 32, z + 32, 14); coll(x - 16, x + 16, z - 16, z + 16, 270);
-    // night LED lighting (≈20,000 LEDs on the real bud and stem; animated colours)
-    const ledMat = new THREE.MeshBasicMaterial({ color: 0xff40c0, transparent: true, opacity: 0, toneMapped: false, blending: THREE.AdditiveBlending, depthWrite: false });
-    const ledGeo = new THREE.LatheGeometry([[7.4, 1], [15.8, 5], [23.4, 13], [25.5, 21], [22.6, 30], [16.4, 38], [9, 45], [2.2, 52]].map(([r, h]) => new THREE.Vector2(r, h)), 48); // just outside the petals so the whole bloom glows
-    const led = new THREE.Mesh(ledGeo, ledMat); led.position.set(x, by, z); group.add(led);
-    const stripPts = []; for (let h = 0; h <= SH; h += 5) stripPts.push(new THREE.Vector2(R(h) + 0.12, h));
-    const lc = document.createElement('canvas'); lc.width = 64; lc.height = 4; const lx = lc.getContext('2d'); lx.fillStyle = '#000'; lx.fillRect(0, 0, 64, 4); lx.fillStyle = '#fff'; lx.fillRect(25, 0, 14, 4); const lt = new THREE.CanvasTexture(lc); lt.wrapS = THREE.RepeatWrapping; lt.repeat.set(48, 1);
-    const stemLed = ledMat.clone(); stemLed.map = lt; const strip = new THREE.Mesh(new THREE.LatheGeometry(stripPts, 96), stemLed); strip.position.set(x, sy, z); group.add(strip); anim.lotusStem = stemLed; // vertical LED lines up the stem
-    anim.lotus = ledMat;
     label([{ text: 'COLOMBO LOTUS TOWER', font: SANS(90), color: '#f1e3c2' }, { text: 'කොළඹ නෙළුම් කුළුණ  ·  கொழும்பு தாமரைக் கோபுரம்', font: SI(54), color: '#f1e3c2' }], x - 32.4, y0 + 10.5, z, 34, 6, -Math.PI / 2, { h: 256, w: 1400, bg: null });
   }
 
@@ -205,7 +184,7 @@ export function buildLandmarks() {
 
   // ------------------------------------------------------------ GALLE FACE HOTEL
   {
-    const x0 = -465, x1 = -414, z0 = -232, z1 = -178, y0 = LAND_Y;
+    const x0 = -465, x1 = -414, z0 = -240, z1 = -205, y0 = LAND_Y; // south wing stops short of the coastal railway curve (track reserve ±7.5 m at z ≈ -190…-196)
     facade('colonial', x0, x1, z0, z1, y0, y0 + 15, '#f7f3ea');
     hip(x0, x1, z0, z1, y0 + 15, 7);
     columns(x0 - 2.5, z0 + 3, x0 - 2.5, z1 - 3, 14, y0, 4, 0.35, '#ffffff');
@@ -249,12 +228,12 @@ export function buildLandmarks() {
     label([{ text: 'THE DUTCH HOSPITAL', font: EN(120), color: '#3a2a1a' }, { text: 'ලන්දේසි රෝහල  ·  ஒல்லாந்தர் மருத்துவமனை', font: SI(70), color: '#3a2a1a' }], X0 - 0.1, y0 + 4.7, (Z0 + Z1) / 2, 14, 1.6, -Math.PI / 2, { w: 1400, h: 260, bg: '#f3eee2', glow: false });
   }
 
-  // ------------------------------------------------------------ CARGILLS (red brick, York Street)
+  // ------------------------------------------------------------ CARGROVE & CO. (fictional; red brick, York Street)
   {
     const y0 = LAND_Y, x0 = -268, x1 = -230, z0 = -888, z1 = -843;
     facade('brick', x0, x1, z0, z1, y0, y0 + 16, '#ffffff');
     for (const tz of [z0 + 2.5, z1 - 2.5]) { mb.get('f_brick').box(x0 + 2.5, y0 + 10, tz, 5.6, 20, 5.6, { col: [1, 1, 1], uvScale: 12.8, top: false }); lathe(paint, [[3.2, 0], [3.4, 1], [2.4, 3.8], [0.3, 6.5]], 12, x0 + 2.5, y0 + 20, tz, '#6f7a6a'); }
-    label([{ text: 'CARGILLS', font: EN(170), color: '#f8f2e4' }], x0 - 0.15, y0 + 14, (z0 + z1) / 2, 18, 2.6, -Math.PI / 2, { w: 1200, h: 200 });
+    label([{ text: 'CARGROVE & CO.', font: EN(170), color: '#f8f2e4' }], x0 - 0.15, y0 + 14, (z0 + z1) / 2, 18, 2.6, -Math.PI / 2, { w: 1200, h: 200 });
     coll(x0, x1, z0, z1, 24);
   }
 
@@ -328,7 +307,7 @@ export function buildLandmarks() {
     lathe(conc, [[1.6, 0], [1.4, 2.5], [3.5, 2.8], [3.3, 3.1], [0.6, 3.1], [0.5, 4.5], [1.6, 4.7], [0.2, 5]], 16, cx, y0, cz, '#e6e2d8');
     const fw = new THREE.Mesh(new THREE.CircleGeometry(10.6, 40), new THREE.MeshStandardMaterial({ color: 0x3f6f7a, roughness: 0.05, metalness: 0.3 }));
     fw.rotation.x = -Math.PI / 2; fw.position.set(cx, y0 + 0.5, cz); group.add(fw);
-    coll(cx - 11, cx + 11, cz - 11, cz + 11, 0.8);
+    for (const c of discColliders(cx, cz, 11.25, 0.8, 'landmark')) colliders.push(c); // round basin: solid to its rim, no square corners sticking out onto the plaza
   }
 
   // ------------------------------------------------------------ GANGARAMAYA & SEEMA MALAKA

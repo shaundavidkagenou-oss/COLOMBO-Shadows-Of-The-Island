@@ -1,0 +1,51 @@
+<!doctype html><html><body style="margin:0;background:#888"><canvas id="c"></canvas>
+<script type="module">
+// Street-life pose check: each activity posed by the real StreetLife code (props, lip / hand / kiss corrections).
+// ?shot=smoke|light|paper|phone|text|hug|kiss|hold|fight|escort|all  &w=1280&h=720  &yaw=deg (camera orbit)
+import * as THREE from 'three';
+import { buildTextures } from '/src/gfx/Textures.js';
+import { Character, randomSpec, HEROES } from '/src/actors/Character.js';
+import { makePoliceAppearance } from '/src/actors/Appearance.js';
+import { StreetLife, cigarette, newspaper, phoneProp, chestTarget } from '/src/actors/StreetLife.js';
+import { RNG } from '/src/core/rng.js';
+await buildTextures('medium');
+const q = new URLSearchParams(location.search); const W = +(q.get('w') || 1280), H = +(q.get('h') || 720);
+const r = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true }); r.setSize(W, H); r.toneMapping = THREE.ACESFilmicToneMapping; r.outputColorSpace = THREE.SRGBColorSpace;
+const s = new THREE.Scene(); s.background = new THREE.Color(0x9fb4c8);
+s.add(new THREE.HemisphereLight(0xdde8ff, 0x665544, 1.3)); const d = new THREE.DirectionalLight(0xfff0dd, 2.4); d.position.set(3, 6, 5); s.add(d);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ color: 0x8d8a83, roughness: 0.95 })); ground.rotation.x = -Math.PI / 2; s.add(ground);
+const life = new StreetLife({ rng: new RNG(5), scene: s, peds: [], collision: { blocked: () => false } });
+const spec = (sex, seed, nocap) => { for (let k = 0; k < 200; k++) { const sp = randomSpec(seed + k * 13); if (sp.sex === sex && sp.age !== 'elder' && !(nocap && sp.cap)) return sp; } return randomSpec(seed); };
+const ALL = []; const ped = (sp, x, z, yaw) => { const ch = new Character(sp); ch.root.position.set(x, 0, z); ch.root.rotation.y = yaw; s.add(ch.root); const p = { ch, x, z, y: 0, yaw, vx: 0, vz: 0 }; ALL.push(p); return p; };
+const G = {}; // groups: name → { at: [x, z], people, tick(dt) }
+// smoker on a drag (closed-loop lip contact) / lighting up
+{ const p = ped(spec('m', 31), -6, 0, 0.3); p.cig = cigarette(); p.ch.bones.handR.add(p.cig); p.scene = { kind: 'smoke', phase: 'drag' }; const A = p.ch.anim; A.set('smoke');
+  p.cig.userData.ember.color.setRGB(2.6, 0.7, 0.13); G.smoke = { at: [-6, 0], h: 1.55, tick: () => { A.smokeK = 1; A.smokeLight = 0; A.update(1 / 30, 0); life.post(p); } };
+  const p2 = ped(spec('m', 77), -4.6, 0, -0.3); p2.cig = cigarette(); p2.ch.bones.handR.add(p2.cig); p2.cig.userData.flame.visible = true; const A2 = p2.ch.anim; A2.set('smoke');
+  G.light = { at: [-4.6, 0], h: 1.55, tick: () => { A2.smokeK = 1; A2.smokeLight = 1; A2.update(1 / 30, 0); } }; }
+// newspaper reader
+{ const p = ped(spec('m', 55), -3, 0, 0); p.paper = newspaper(); p.ch.bones.chest.add(p.paper); const A = p.ch.anim; A.set('paper'); G.paper = { at: [-3, 0], h: 1.45, tick: () => A.update(1 / 30, 0) }; }
+// phone call / texting
+{ const p = ped(spec('f', 91), -1.6, 0, -0.4); p.phone = phoneProp(); p.ch.bones.handR.add(p.phone); const A = p.ch.anim; A.set('phone'); G.phone = { at: [-1.6, 0], h: 1.55, tick: () => { A.update(1 / 30, 0); p.ch.root.updateMatrixWorld(true); life.postPhone(p); } };
+  const p2 = ped(spec('m', 19), -0.5, 0, 0.2); p2.phone = phoneProp(); p2.ch.bones.handR.add(p2.phone); const A2 = p2.ch.anim; A2.set('text'); G.text = { at: [-0.5, 0], h: 1.35, tick: () => A2.update(1 / 30, 0) }; }
+// couple: hug / kiss (StreetLife.postCouple) and hand in hand (postHold)
+const couple = (name, x, phase, t, z0) => { const a = ped(spec('m', 3 + x * 7, true), x, z0 + 0.18, Math.PI), b = ped(spec('f', 5 + x * 11, true), x, z0 - 0.18, 0); const cp = { a, b, phase, t, lean: 0, c: { x, z: z0, dir: 0, gap: 0.36 } };
+  a.scene = { kind: 'couple', cp, side: 1 }; b.scene = { kind: 'couple', cp, side: -1 }; a.ch.anim.set('hold'); b.ch.anim.set('hold'); a.ch.face.set('smile', 99); b.ch.face.set('smile', 99);
+  G[name] = { at: [x, z0], h: 1.5, side: true, tick: () => { for (const p of [a, b]) { p.ch.anim.update(1 / 30, 0); } life.post(a); life.post(b); } }; };
+couple('hug', 1.5, 'hug', 1.0, 5); couple('kiss', 3.2, 'kiss', 1.3, -5); // own rows: nothing between the side camera and them
+{ const a = ped(spec('m', 41), 5.2, 0, 0), b = ped(spec('f', 43), 4.64, 0, 0); a.partner = b; b.partner = a; a.holdFor = b; b.holdFor = a; a.scene = null; b.scene = null;
+  G.hold = { at: [4.9, 0], h: 1.2, tick: () => { for (const p of [a, b]) p.ch.anim.update(1 / 30, 1.1); life.post(a); life.post(b); } }; }
+// fight: guard stance / a punch landing on a cover
+{ const a = ped(spec('m', 61), 7, 0.55, Math.PI), b = ped(spec('m', 63), 7, -0.55, 0); a.ch.anim.set('guard'); b.ch.anim.set('guard'); a.ch.face.mood = b.ch.face.mood = 'angry';
+  G.fight = { at: [7, 0], h: 1.4, side: true, tick: () => { a.ch.anim.update(1 / 30, 0); b.ch.anim.update(1 / 30, 0); } }; }
+// escort: officer's right hand on the detainee's upper arm, detainee handcuffed
+{ const o = ped(makePoliceAppearance(7001, 'patrol'), 9.2, 0, 0), p = ped(spec('m', 71), 8.75, 0.12, 0); p.ch.anim.set('cuffed'); const A = o.ch.anim; A.set('hold');
+  G.escort = { at: [9.0, 0], h: 1.3, tick: () => { p.ch.anim.update(1 / 30, 1.2); const c = p.ch.bones.chest; c.updateWorldMatrix(true, false); const sc = p.ch.anim.s || 1; const w = c.localToWorld(new THREE.Vector3(0.19 * sc, -0.04 * sc, -0.01)); A.holdR = chestTarget(o.ch, w, new THREE.Vector3()); A.holdL = null; A.update(1 / 30, 1.2); } }; }
+for (let k = 0; k < 90; k++) for (const g of Object.values(G)) g.tick();
+if (q.get('mark')) { const mk = new THREE.MeshBasicMaterial({ color: 0xff0000, depthTest: false }); for (const p of ALL) { const m = new THREE.Mesh(new THREE.SphereGeometry(0.008, 8, 6), mk); m.renderOrder = 9; m.position.copy(life.mouthWorld(p, new THREE.Vector3())); s.add(m); } }
+s.updateMatrixWorld(true);
+const shot = q.get('shot') || 'all'; const cam = new THREE.PerspectiveCamera(30, W / H, 0.05, 100);
+if (shot === 'all') { cam.position.set(1.5, 2.2, 14); cam.lookAt(1.5, 0.9, 0); }
+else { const g = G[shot]; const yaw = (+(q.get('yaw') || (g.side ? 90 : 25))) * Math.PI / 180; const dist = +(q.get('d') || 2.3); cam.fov = 26; cam.position.set(g.at[0] + Math.sin(yaw) * dist, g.h + 0.1, g.at[1] + Math.cos(yaw) * dist); cam.lookAt(g.at[0], g.h - 0.15, g.at[1]); }
+cam.updateProjectionMatrix(); r.render(s, cam); window.done = true;
+</script></body></html>

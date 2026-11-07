@@ -3,6 +3,8 @@ import { Settings } from '../core/Settings.js';
 import { bus } from '../core/Events.js';
 import { clamp, lerp } from '../core/math.js';
 import * as L from '../world/Layout.js';
+import { CATALOG, isHeavy } from '../vehicles/VehicleCatalog.js';
+const DIESEL = new Set(['van', 'suv', 'policejeep', ...Object.keys(CATALOG).filter((k) => CATALOG[k].sound === 'van')]);
 
 class AudioEngine {
   constructor() { this.ctx = null; this.ready = false; this.engines = []; this.musicMode = 'none'; this.nextNote = 0; this.step = 0; this.radio = 0; }
@@ -11,7 +13,9 @@ class AudioEngine {
     const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
     const c = (this.ctx = new AC());
     this.master = c.createGain(); this.master.connect(c.destination);
-    const comp = c.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 3; comp.connect(this.master); this.out = comp;
+    const comp = c.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 3; this.out = comp;
+    // concussion muffle (a close explosion): a low-pass between the mix and the master, wide open (inaudible) normally
+    this.lp = c.createBiquadFilter(); this.lp.type = 'lowpass'; this.lp.frequency.value = 22000; this.lp.Q.value = 0.5; comp.connect(this.lp); this.lp.connect(this.master);
     const mk = () => { const g = c.createGain(); g.connect(comp); return g; };
     this.bus = { music: mk(), sfx: mk(), amb: mk(), dlg: mk() };
     // reverb (short convolution) for music + some sfx
@@ -36,9 +40,9 @@ class AudioEngine {
     if (!this.ready) return; const c = this.ctx, t = c.currentTime + when; const o = c.createOscillator(); o.type = type; o.frequency.setValueAtTime(freq, t); if (glide) o.frequency.exponentialRampToValueAtTime(glide, t + dur); o.detune.value = detune;
     const g = c.createGain(); this.env(g, t, attack, vol, dur); const p = c.createStereoPanner(); p.pan.value = pan; o.connect(g); g.connect(p); p.connect(this.bus[out]); if (verb) p.connect(this.verb); o.start(t); o.stop(t + attack + dur + 0.05);
   }
-  noise(dur, { f = 1000, q = 1, type = 'bandpass', vol = 0.2, out = 'sfx', when = 0, attack = 0.005, pan = 0, buf = null } = {}) {
+  noise(dur, { f = 1000, q = 1, type = 'bandpass', vol = 0.2, out = 'sfx', when = 0, attack = 0.005, pan = 0, buf = null, verb = false, sweep = null } = {}) {
     if (!this.ready) return; const c = this.ctx, t = c.currentTime + when; const s = c.createBufferSource(); s.buffer = buf || this.noiseBuf; const fl = c.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q;
-    const g = c.createGain(); this.env(g, t, attack, vol, dur); const p = c.createStereoPanner(); p.pan.value = pan; s.connect(fl); fl.connect(g); g.connect(p); p.connect(this.bus[out]); s.start(t, Math.random() * 2); s.stop(t + dur + attack + 0.1);
+    const g = c.createGain(); this.env(g, t, attack, vol, dur); const p = c.createStereoPanner(); p.pan.value = pan; s.connect(fl); fl.connect(g); g.connect(p); p.connect(this.bus[out]); if (verb) p.connect(this.verb); if (sweep) fl.frequency.exponentialRampToValueAtTime(sweep, t + attack + dur); s.start(t, Math.random() * 2); s.stop(t + dur + attack + 0.1);
   }
   // ---- spatial helper: returns [gain, pan] for a world point relative to listener
   spatial(x, z, ref = 30) { if (!this.listener) return [1, 0]; const l = this.listener; const dx = x - l.x, dz = z - l.z; const d = Math.hypot(dx, dz); const g = clamp(ref / (ref + d * d * 0.08), 0, 1); const rx = Math.cos(l.yaw), rz = -Math.sin(l.yaw); const pan = clamp((dx * rx + dz * rz) / (d + 1), -1, 1) * -1; return [g, pan]; }
@@ -47,7 +51,7 @@ class AudioEngine {
   horn(type, x, z) {
     const [g, pan] = this.spatial(x, z, 60); if (g < 0.02) return; const v = 0.25 * g;
     if (type === 'tuktuk' || type === 'bike') { this.tone(1150, 0.18, { type: 'square', vol: v * 0.5, pan }); this.tone(1220, 0.16, { type: 'square', vol: v * 0.3, pan, when: 0.22 }); }
-    else if (type === 'bus' || type === 'pbus' || type === 'lorry') { for (const f of [233, 294, 349]) this.tone(f, 0.9, { type: 'sawtooth', vol: v * 0.35, pan, attack: 0.04 }); }
+    else if (isHeavy(type)) { for (const f of [233, 294, 349]) this.tone(f, 0.9, { type: 'sawtooth', vol: v * 0.35, pan, attack: 0.04 }); }
     else { this.tone(420, 0.35, { type: 'square', vol: v * 0.4, pan }); this.tone(520, 0.35, { type: 'square', vol: v * 0.3, pan }); }
   }
   crash(v) { this.noise(0.5, { f: 600, q: 0.7, vol: clamp(v / 20, 0.1, 0.6), type: 'lowpass', buf: this.brownBuf }); this.noise(0.25, { f: 3000, q: 1, vol: clamp(v / 40, 0.05, 0.3), when: 0.02 }); for (let i = 0; i < 4; i++) this.tone(2000 + Math.random() * 3000, 0.15, { type: 'triangle', vol: 0.03, when: 0.05 + i * 0.04 }); }
@@ -55,7 +59,31 @@ class AudioEngine {
   ui(kind = 'click') { if (kind === 'click') this.tone(880, 0.05, { type: 'triangle', vol: 0.08 }); else if (kind === 'hover') this.tone(1320, 0.03, { type: 'sine', vol: 0.03 }); else if (kind === 'notify') { this.tone(660, 0.2, { vol: 0.1, verb: true }); this.tone(990, 0.3, { vol: 0.08, when: 0.1, verb: true }); } else if (kind === 'success') { [523, 659, 784, 1046].forEach((f, i) => this.tone(f, 0.4, { vol: 0.09, when: i * 0.09, verb: true, type: 'triangle' })); } else if (kind === 'fail') { [392, 330, 262].forEach((f, i) => this.tone(f, 0.4, { vol: 0.1, when: i * 0.14, type: 'triangle' })); } else if (kind === 'collect') { [988, 1319].forEach((f, i) => this.tone(f, 0.25, { vol: 0.09, when: i * 0.07, verb: true })); } else if (kind === 'camera') { this.noise(0.04, { f: 4000, vol: 0.2 }); this.noise(0.06, { f: 2500, vol: 0.15, when: 0.08 }); } else if (kind === 'door') { this.noise(0.3, { f: 300, q: 0.8, vol: 0.2, type: 'lowpass', buf: this.brownBuf }); } }
   doorOpen() { this.noise(0.03, { f: 2600, q: 3, vol: 0.06 }); this.noise(0.05, { f: 1400, q: 2, vol: 0.05, when: 0.04 }); this.noise(0.25, { f: 420, q: 0.7, vol: 0.03, type: 'lowpass', when: 0.08 }); } // latch release + seal letting go
   doorSlam(s = 2) { const k = clamp(s / 4, 0.25, 1); this.noise(0.22, { f: 160, q: 0.8, vol: 0.42 * k, type: 'lowpass', buf: this.brownBuf }); this.tone(70, 0.18, { type: 'sine', vol: 0.22 * k, glide: 48 }); this.noise(0.035, { f: 2200, q: 2.5, vol: 0.09 * k, when: 0.012 }); this.noise(0.4, { f: 900, q: 0.6, vol: 0.03 * k, type: 'lowpass', when: 0.04 }); } // body thump + latch clack
+  radioBlip() { if (!this.ready) return; this.noise(0.09, { f: 2400, q: 0.7, vol: 0.05 }); this.tone(1250, 0.07, { type: 'square', vol: 0.025, when: 0.08 }); this.noise(0.12, { f: 1800, q: 0.6, vol: 0.03, when: 2.6 }); } // police radio: squelch open, key beep, squelch tail
   talkBlip(lang) { const base = lang === 'ta' ? 210 : lang === 'si' ? 190 : 200; for (let i = 0; i < 3; i++) this.tone(base + Math.random() * 60, 0.06, { type: 'triangle', vol: 0.025, when: i * 0.09, out: 'dlg' }); }
+  // ---- explosion (grenade-size charge) heard from d metres: the sound arrives d/343 s after the flash. Close: a sharp crack,
+  // a chest-thumping sub drop and a broadband blast; far: mostly the low rumble rolling off the buildings (reverb tail)
+  explosion(x, z, power = 1) {
+    if (!this.ready) return; const l = this.listener; const d = l ? Math.hypot(x - l.x, z - l.z) : 10; const [, pan] = this.spatial(x, z, 60);
+    const w = Math.min(1.4, d / 343), g = Math.min(1, 26 / (26 + d)) * power, near = Math.max(0, 1 - d / 70);
+    this.noise(0.05, { f: 3200, q: 0.5, vol: 0.85 * g * near, when: w, pan });                                                   // the crack of the detonation
+    this.noise(0.9, { f: 2400 * (0.35 + 0.65 * near), q: 0.35, type: 'lowpass', vol: 0.95 * g, when: w, attack: 0.004, pan, sweep: 260, verb: true }); // blast
+    this.tone(62, 0.85, { type: 'sine', vol: 0.95 * g, when: w, attack: 0.006, glide: 26, pan });                               // pressure thump
+    this.tone(36, 1.5, { type: 'sine', vol: 0.55 * g, when: w + 0.01, attack: 0.02, glide: 20 });                              // sub
+    this.noise(3.6, { f: 190, q: 0.4, type: 'lowpass', vol: 0.5 * g, when: w + 0.06, attack: 0.12, buf: this.brownBuf, pan, verb: true }); // rumble rolling down the street
+    if (near > 0.3) for (let i = 0; i < 6; i++) this.tone(1800 + Math.random() * 3800, 0.05, { type: 'triangle', vol: 0.05 * near, when: w + 0.35 + Math.random() * 1.1, pan: pan + (Math.random() - 0.5) * 0.6 }); // debris pattering down
+  }
+  // ears ringing after a blast close by: everything muffled (low-pass sweep) with a high whine, recovering over a few seconds
+  concuss(k) {
+    if (!this.ready || !(k > 0.02)) return; const c = this.ctx, t = c.currentTime; const f = this.lp.frequency; const lo = 22000 * Math.pow(0.02, k);
+    f.cancelScheduledValues(t); f.setValueAtTime(Math.max(lo, 300), t); f.exponentialRampToValueAtTime(Math.max(lo, 300) * 1.3, t + 0.6 + 1.5 * k); f.exponentialRampToValueAtTime(this.lpBase || 22000, t + 1.4 + 4 * k);
+    const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = 3600 + Math.random() * 600; const g2 = c.createGain(); this.env(g2, t, 0.04, 0.05 * k, 1.2 + 3 * k); o.connect(g2); g2.connect(this.master); o.start(t); o.stop(t + 1.4 + 3 * k);
+  }
+  // drunk: the world goes slightly woolly (k 0..1); a concussion ramps back to this base
+  setMuffle(k) { if (!this.ready) return; const base = 22000 * Math.pow(0.12, Math.max(0, Math.min(1, k))); if (Math.abs(base - (this.lpBase || 22000)) < 40) return; this.lpBase = base; const t = this.ctx.currentTime; const f = this.lp.frequency; if (f.value > 21000 || Math.abs(f.value - base) < 6000) f.setTargetAtTime(base, t, 0.4); }
+  // radio / TV in a room: music through a small speaker (band-limited) instead of full range
+  speaker(on) { if (!this.ready) return; if (!this.spk) { const c = this.ctx; this.spkHP = c.createBiquadFilter(); this.spkHP.type = 'highpass'; this.spkHP.frequency.value = 20; this.spkLP = c.createBiquadFilter(); this.spkLP.type = 'lowpass'; this.spkLP.frequency.value = 22000; this.bus.music.disconnect(); this.bus.music.connect(this.spkHP); this.spkHP.connect(this.spkLP); this.spkLP.connect(this.out); this.spk = true; }
+    const t = this.ctx.currentTime; this.spkHP.frequency.setTargetAtTime(on ? 170 : 20, t, 0.05); this.spkLP.frequency.setTargetAtTime(on ? 5200 : 22000, t, 0.05); }
   boom() { this.tone(42, 3.5, { type: 'sine', vol: 0.55, attack: 0.6, glide: 30 }); this.noise(4, { f: 90, q: 0.5, type: 'lowpass', vol: 0.3, attack: 1.2, buf: this.brownBuf }); }
   riser(dur = 3) { if (!this.ready) return; this.noise(dur, { f: 400, q: 2, vol: 0.12, attack: dur * 0.9 }); this.tone(110, dur, { type: 'sawtooth', vol: 0.03, attack: dur * 0.9, glide: 440 }); }
   trainHorn(x, z) { const [g, pan] = this.spatial(x, z, 400); if (g < 0.02) return; for (const f of [311, 370]) this.tone(f, 1.6, { type: 'sawtooth', vol: 0.12 * g, pan, attack: 0.1, verb: true }); }
@@ -93,7 +121,8 @@ class AudioEngine {
       const sp = Math.abs(v.speed); const k = v.type; let base, fc, vol;
       if (k === 'tuktuk') { base = 38 + sp * 5; fc = 900 + sp * 60; vol = 0.11; e.lfo.frequency.value = base * 0.5; }
       else if (k === 'bike') { base = 55 + sp * 7; fc = 1400 + sp * 40; vol = 0.09; e.lfo.frequency.value = base * 0.5; }
-      else if (k === 'bus' || k === 'pbus' || k === 'lorry') { base = 28 + sp * 2.2; fc = 300 + sp * 20; vol = 0.16; e.lfo.frequency.value = 9; }
+      else if (isHeavy(k)) { base = 28 + sp * 2.2; fc = 300 + sp * 20; vol = 0.16; e.lfo.frequency.value = 9; }
+      else if (DIESEL.has(k)) { base = 29 + sp * 2.8; fc = 340 + sp * 28; vol = 0.1; e.lfo.frequency.value = 7.5; } // diesel SUVs, vans, pickups
       else { base = 32 + sp * 3.2; fc = 380 + sp * 35; vol = 0.08; e.lfo.frequency.value = 6; }
       const gearSp = v.player ? ((sp % 9) / 9) * 0.6 + 0.6 : 1; e.o.frequency.setTargetAtTime(base * gearSp, t, 0.08); e.o2.frequency.setTargetAtTime(base * gearSp * 0.5, t, 0.08); e.f.frequency.setTargetAtTime(fc, t, 0.1);
       const [g, pan] = v.player ? [1, 0] : this.spatial(v.x, v.z, 20); e.g.gain.setTargetAtTime(vol * g * (v.player ? 1.2 : 0.8) * (st.indoor ? 0.2 : 1), t, 0.1); e.p.pan.setTargetAtTime(pan, t, 0.1);
@@ -103,7 +132,7 @@ class AudioEngine {
   setMusic(mode) { if (mode === this.musicMode) return; this.musicMode = mode; this.step = 0; if (this.ctx) this.nextNote = this.ctx.currentTime + 0.1; }
   updateMusic(dt, st) {
     if (this.musicMode === 'none' || !this.ctx) return; const c = this.ctx;
-    const mode = this.musicMode; const bpm = { menu: 76, explore: 84, tension: 118, night: 68, radio1: 124, radio2: 92, chase: 132, intro: 60 }[mode] || 80; const spb = 60 / bpm / 2; // eighth notes
+    const mode = this.musicMode; const bpm = { menu: 76, explore: 84, tension: 118, night: 68, radio1: 124, radio2: 92, chase: 132, intro: 60, club: 100 }[mode] || 80; const spb = 60 / bpm / 2; // eighth notes
     // scale: D Dorian-ish with a raised 4th flavour for colour
     const root = mode === 'tension' || mode === 'chase' ? 110 : 146.83; const SC = [0, 2, 3, 5, 7, 9, 10, 12, 14, 15];
     const f = (deg, oct = 0) => root * Math.pow(2, (SC[((deg % SC.length) + SC.length) % SC.length] + 12 * (oct + Math.floor(deg / SC.length))) / 12);
@@ -114,6 +143,14 @@ class AudioEngine {
         if (s6 === 0) [0, 2, 4].forEach((d) => this.tone(f(prog + d, 1), spb * 5, { type: 'triangle', vol: 0.03, when: w, out: 'music' }));
         if (s6 === 1 || s6 === 4) this.tone(f(prog, 0) / 2, spb * 1.5, { type: 'sawtooth', vol: 0.05, when: w, out: 'music' });
         if (Math.random() < 0.5) this.tone(f(prog + [0, 2, 4, 5, 7][Math.floor(Math.random() * 5)], 2), spb * 0.9, { type: 'square', vol: 0.018, when: w, out: 'music' });
+      } else if (mode === 'club') { // club PA: slow four-on-the-floor R&B/house groove in a minor key (original, generative)
+        const s16 = s % 16, cm = [0, 5, 3, 6][bar]; // i – vi – iv – VII flavour on the Dorian scale
+        if (s % 2 === 0) this.drum(w, 52, 0.34); // kick on every beat
+        if (s % 2 === 1) this.noise(0.045, { f: 8000, vol: 0.03, when: w, out: 'music' }); // off-beat hat
+        if (s % 8 === 2 || s % 8 === 6) { this.noise(0.12, { f: 1500, q: 0.8, vol: 0.07, when: w, out: 'music', verb: true }); this.noise(0.03, { f: 4200, vol: 0.03, when: w + 0.012, out: 'music' }); } // clap on 2 and 4
+        const bl = [0, 0, 7, 0, 5, 0, 7, 10][s % 8]; if (s % 8 !== 3 && s % 8 !== 7) this.tone(f(cm, -1) * Math.pow(2, bl / 12), spb * 0.85, { type: 'sawtooth', vol: 0.05, when: w, out: 'music' }); // bass line
+        if (s16 === 0) [0, 2, 4, 6].forEach((d) => this.tone(f(cm + d, 0), spb * 15, { type: 'triangle', vol: 0.022, attack: 0.6, when: w, out: 'music', verb: true, detune: (Math.random() - 0.5) * 10 })); // pad
+        if (s % 4 === 3 && Math.random() < 0.55) this.tone(f(cm + [4, 6, 7, 9][Math.floor(Math.random() * 4)], 1), spb * 1.4, { type: 'square', vol: 0.014, when: w, out: 'music', verb: true }); // stab
       } else {
         const sparse = mode === 'night' || mode === 'menu' || mode === 'intro';
         if (s % 16 === 0) [0, 2, 4, 7].forEach((d) => this.tone(f(prog + d, 0), spb * 16, { type: 'sine', vol: sparse ? 0.035 : 0.03, attack: 1.2, when: w, out: 'music', verb: true, detune: (Math.random() - 0.5) * 8 }));

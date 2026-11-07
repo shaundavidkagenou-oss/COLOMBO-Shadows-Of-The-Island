@@ -12,11 +12,16 @@ const OUT = path.join(ROOT, 'dev/mh-cache'); const REPO = 'makehumancommunity/mp
 const api = (u) => new Promise((res, rej) => execFile('gh', ['api', u], { maxBuffer: 256 * 1024 * 1024 }, (e, out) => (e ? rej(e) : res(JSON.parse(out)))));
 export const WANT = [
   '3dobjs/base.obj', 'mesh_metadata/basemesh_vertex_groups.json',
-  ...['african', 'asian', 'caucasian'].map((e) => `targets/macrodetails/${e}-male-young.target.gz`),
+  ...['african', 'asian', 'caucasian'].flatMap((e) => ['male-young', 'female-young', 'male-old', 'female-old'].map((g) => `targets/macrodetails/${e}-${g}.target.gz`)), // (female / old: crowd heads, tools/mh/bake-npc-heads.mjs)
   /^targets\/(expression|nose|mouth|chin|cheek|eyebrows|eyes|head|ears|forehead|neck)\//,
   'rigs/standard/weights.default.json', 'rigs/standard/rig.default.json',
-  /^targets\/macrodetails\/universal-male-young-(average|max)muscle-(average|min)weight\.target\.gz$/,
+  /^targets\/macrodetails\/universal-(male|female)-young-(average|max)muscle-(average|min|max)weight\.target\.gz$/,
   /^uv_layers\/(face_solid|lips_solid|eyelids_solid|scalp_solid|eyes_wide_solid)\.json\.gz$/,
+  // club dancers (tools/mh/bake-dancers.mjs): a whole female body — figure, bust (cup / firmness macros), waist and hips, the
+  // game-engine rig with breast bones and its authored weights, and MPFB's UV-space region masks (lips, eyelids, nails…)
+  /^targets\/breast\/(female-young-averagemuscle-averageweight-|breast-)/, /^targets\/(stomach|hip|buttocks|torso|arms|legs|hands)\//,
+  'rigs/standard/weights.game_engine_with_breast.json', 'rigs/standard/rig.game_engine_with_breast.json',
+  /^textures\/mpfb_(face|lips|eyelids|ears|fingernails|toenails|aureolae)\.jpg$/,
 ];
 const tree = (await api(`repos/${REPO}/git/trees/${BR}?recursive=1`)).tree.filter((e) => e.type === 'blob' && e.path.startsWith('src/mpfb/data/'));
 const pick = tree.filter((e) => { const p = e.path.slice('src/mpfb/data/'.length); return WANT.some((w) => (typeof w === 'string' ? w === p : w.test(p))); });

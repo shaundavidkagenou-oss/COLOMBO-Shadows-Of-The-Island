@@ -1,13 +1,17 @@
 // Game: boot/loading, presentation flow (intro → montage → menu), the play loop, interactions, save/load.
-import { gatherBodies } from './actors/Bodies.js';
+import { FuelService } from './world/FuelStations.js';
+import { gatherBodies, setBodiesCollision } from './actors/Bodies.js';
 import { PoliceHQLife } from './police/PoliceHQLife.js';
 import { PoliceResponse } from './police/PoliceResponse.js';
 import { TrafficDuty } from './police/TrafficDuty.js';
 import { Health } from './actors/Health.js';
 import { StreetCricket } from './actors/StreetCricket.js';
 import { Phone } from './ui/Phone.js';
+import { GunShopUI } from './ui/GunShopUI.js';
+import { DebugConsole, newDebugState } from './ui/DebugConsole.js';
 import { SchoolLife } from './actors/SchoolLife.js';
 import * as THREE from 'three';
+import { gpuInfo, gpuAdvice } from './gfx/GpuInfo.js';
 import { Settings } from './core/Settings.js';
 import { Input } from './core/Input.js';
 import { bus } from './core/Events.js';
@@ -18,13 +22,17 @@ import { buildMaterials } from './gfx/Materials.js';
 import { Atmosphere } from './gfx/Atmosphere.js';
 import { PostFX } from './gfx/PostFX.js';
 import { setVehicleNight } from './vehicles/VehicleModels.js';
-import { updateVehicleLOD, setHeadPoolNight } from './vehicles/Vehicle.js';
+import { CATALOG, displayName } from './vehicles/VehicleCatalog.js';
+import { updateDoorClosers } from './vehicles/DoorRig.js';
+import { updateVehicleLOD, setHeadPoolNight, Vehicle, HeadlightRig, setVehicleLOD, LIVE_VEHICLES } from './vehicles/Vehicle.js';
+import { FlashlightRig } from './police/Firefight.js';
 import { World } from './world/World.js';
 import { Interiors } from './world/Interiors.js';
 import * as L from './world/Layout.js';
 import { Crowd } from './actors/Crowd.js';
 import { Player } from './actors/Player.js';
 import { Character, HEROES, CAM } from './actors/Character.js';
+import { makePoliceAppearance } from './actors/Appearance.js';
 import { Traffic } from './vehicles/Traffic.js';
 import { Trains } from './vehicles/Trains.js';
 import { Audio } from './audio/Audio.js';
@@ -38,8 +46,18 @@ import { Story, MISSIONS } from './story/Story.js';
 import { playOpening } from './story/Opening.js';
 import { Weapons } from './combat/Weapons.js';
 import { Squad } from './actors/Squad.js';
+import { Birds } from './world/Birds.js';
+import { RagdollWorld } from './actors/Ragdoll.js';
+import { Blood } from './gfx/Blood.js';
+import { Explosions } from './gfx/Explosions.js';
+import { Grenades } from './combat/Grenades.js';
+import { Drunk } from './actors/Drunk.js';
+import { VehicleSmoke } from './gfx/VehicleSmoke.js';
+import { bootRuntime } from './debug/boot.js';
+import { HERO_ROOMS } from './world/HeroRooms.js';
 
-const VNAMES = { tuktuk: 'Three-wheeler', car: 'Hatchback', sedan: 'Sedan', taxi: 'Taxi', van: 'Van', suv: 'SUV', bus: 'SLTB bus', pbus: 'Private bus', lorry: 'Lorry', bike: 'Motorcycle', police: 'Police car', policejeep: 'Police jeep', policebike: 'Police motorcycle' };
+const VNAMES = { tuktuk: 'Three-wheeler', car: 'Hatchback', sedan: 'Sedan', taxi: 'Taxi', van: 'Van', suv: 'SUV', bus: 'SLTB bus', pbus: 'Private bus', lorry: 'Lorry', tow: 'Tow truck', bike: 'Motorcycle', police: 'Police car', policejeep: 'Police jeep', policebike: 'Police motorcycle' };
+for (const [id, T] of Object.entries(CATALOG)) VNAMES[id] = displayName(id, T); // fictional make + model, e.g. "HOSHIDA Kaizan"
 const RADIO = [null, { mode: 'radio1', name: 'Radio Lanka Breeze 98.4' }, { mode: 'radio2', name: 'Island Pulse 104.2' }];
 const TEST = new URLSearchParams(location.search).has('test'); // headless testing: allow big timesteps so cinematics finish under software rendering
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -49,7 +67,7 @@ export class Game {
     this.root = root; this.bus = bus; this.clock = 0; this.dt = 0; this.mode = 'boot'; this.paused = false; this.radio = 0; this.autosaveT = 0; this.fps = 60; this.indoor = false;
     this.ghost = { x: 1e7, z: 1e7, y: 0, yaw: 0, speed: 0, vehicle: null, crouching: false, sprinting: false, ch: null, isGhost: true }; // stand-in player for menu/intro simulation
     const preset = Settings.preset;
-    this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', stencil: false });
+    this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', stencil: false, reversedDepthBuffer: true }); // reversed-Z + float depth (PostFX target): uniform depth precision near and far, so windows, signs, glass and paving never z-fight (falls back to standard depth without EXT_clip_control)
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * preset.pixelRatio * Settings.get('resolutionScale'));
     this.renderer.setSize(innerWidth, innerHeight); this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1;
@@ -63,8 +81,8 @@ export class Game {
     this.screens = new Screens(this.ui, this);
     addEventListener('resize', () => this.resize());
     bus.on('settings', (k) => this.applySettings(k));
-    this.canvas.addEventListener('click', () => { if (this.mode === 'play' && !this.paused) Input.requestLock(this.canvas); });
-    bus.on('pointerlock', (locked) => { if (!locked && this.mode === 'play' && !this.paused && !this.photo && !this.hud.bigMapOpen && !this.director.active && !this.ignoreUnlock) this.openPause(); });
+    this.canvas.addEventListener('click', () => { if (this.mode === 'play' && !this.paused && !this.editorHook) Input.requestLock(this.canvas); });
+    bus.on('pointerlock', (locked) => { if (!locked && this.mode === 'play' && !this.paused && !this.photo && !this.hud.bigMapOpen && !this.director.active && !this.ignoreUnlock && !this.gunShop?.open && !this.debugCon?.menuOpen && !this.debugCon?.open && !this.editorHook) this.openPause(); });
     bus.on('key', (code) => this.onKey(code));
   }
   // ================================================================= loading (genuine progress)
@@ -81,28 +99,39 @@ export class Game {
     progress(0.73, 'Sky, sea and monsoon'); await tick();
     this.atmos = new Atmosphere(this.scene, this.renderer); this.atmos.drawDist = Settings.preset.drawDist; this.atmos.sun.castShadow = Settings.preset.shadows; this.atmos.sun.shadow.mapSize.set(Settings.preset.shadowRes, Settings.preset.shadowRes);
     this.atmos.listeners.thunder = () => Audio.thunder(Math.random() * 0.7);
+    this.flashRig = new FlashlightRig(this.scene, { count: Settings.get('quality') === 'low' ? 1 : 3 }); // police hand torches at night (pool created once)
+    this.headRig = new HeadlightRig(this.scene, { count: Settings.get('quality') === 'low' ? 2 : 4, shadows: Settings.preset.shadows, shadowRes: Settings.get('quality') === 'ultra' ? 2048 : 1024 }); // real headlight beams (pool created once at load)
+    this.headRig.collision = this.collision; // headlight light-pool decals stop at trunks, poles and walls
     progress(0.76, 'People of Colombo'); await tick();
     this.crowd = new Crowd(this.scene, this.collision, bus);
-    for (let i = 0; i < 64; i += 8) { this.crowd.prepareSpecs(8); progress(0.76 + 0.1 * (i / 64), 'People of Colombo'); await tick(); }
+    this.ragdolls = new RagdollWorld(this.collision); this.crowd.ragdolls = this.ragdolls; // dead NPCs go limp: verlet ragdolls (src/actors/Ragdoll.js)
+    this.blood = new Blood(this.scene, this.collision); this.crowd.blood = this.blood; // impact spray, splats, pools (Settings → Blood effects)
+    { const N = this.crowd.specTarget(); for (let i = 0; i < N; i += 8) { this.crowd.prepareSpecs(Math.min(8, N - i)); progress(0.76 + 0.1 * (i / N), 'People of Colombo'); await tick(); } }
     progress(0.86, 'Tuk-tuks, buses and traffic'); await tick();
-    this.traffic = new Traffic(this.scene, this.collision, bus); this.traffic.crowd = this.crowd;
+    this.traffic = new Traffic(this.scene, this.collision, bus); this.traffic.crowd = this.crowd; setBodiesCollision(this.collision); // nudged people never pushed into walls (Bodies.separate)
     this.trains = new Trains(this.scene); this.traffic.obstacles = this.trains.bodies; this.traffic.rail = this.trains; // running trains + level crossings
     this.hqLife = new PoliceHQLife(this);
     this.trafficDuty = new TrafficDuty(this);
     this.schoolLife = new SchoolLife(this);
     this.cricket = new StreetCricket(this);
+    this.birds = new Birds(this); // house crows, rock pigeons, rose-ringed parakeets
     this.player = new Player(this.scene, this.camera, this.collision, bus); this.player.crowd = this.crowd;
-    this.hud = new HUD(this.ui); this.hud.satellite = new Satellite(this); this.director = new Director(this); this.story = new Story(this); this.interiors = new Interiors(this); this.weapons = new Weapons(this); this.player.weapons = this.weapons; this.squad = new Squad(this); this.police = new PoliceResponse(this);
-    this.health = new Health(this); this.phone = new Phone(this, this.hud.root);
+    this.hud = new HUD(this.ui); this.hud.canSeeUnit = (u) => this.canSeeUnit(u); this.hud.mapExtras = () => this.miniExtras(); this.hud.satellite = new Satellite(this); this.director = new Director(this); this.story = new Story(this); this.interiors = new Interiors(this); this.weapons = new Weapons(this); this.player.weapons = this.weapons; this.squad = new Squad(this); this.police = new PoliceResponse(this);
+    this.crowd.onStrike = (p, m, M) => { if (this.weapons) this.weapons.struckBy(p, m, M); }; // street fighters' punches land on the player
+    this.health = new Health(this); this.phone = new Phone(this, this.hud.root); this.gunShop = new GunShopUI(this, this.hud.root); this.debug = newDebugState(); this.debugCon = new DebugConsole(this, this.hud.root);
     this.applyDensity();
     progress(0.9, 'Lighting'); await tick();
-    this.post = new PostFX(this.renderer, this.scene, this.camera); this.post.build({ bloom: Settings.preset.bloom, ao: Settings.preset.ao });
+    this.post = new PostFX(this.renderer, this.scene, this.camera); this.post.build({ bloom: Settings.preset.bloom, ao: Settings.preset.ao }); this.world.glintsOn = Settings.get('wetReflections') !== false; this.atmos.nightBoost = Settings.get('nightBrightness') ?? 1;
+    this.explosions = new Explosions(this); this.grenades = new Grenades(this); // throwables (key B) + cinematic blasts
+    this.drunk = new Drunk(this); // vodka in the hero rooms (HeroRooms.js)
+    this.vsmoke = new VehicleSmoke(this, Settings.get('quality')); // tyre smoke + exhaust (one draw call, fixed pool)
     this.atmos.update(0.016, new THREE.Vector3(-300, 0, -500), this.camera, 0);
     progress(0.93, 'Compiling shaders'); await tick();
+    await bootRuntime(this); // saved animation / NPC edits (src/debug, only loaded when some were saved)
     this.world.warm(-500, -400); this.world.update(0.016, { x: -500, z: -400 }, this.camera, this.atmos);
     try { if (this.renderer.compileAsync) await Promise.race([this.renderer.compileAsync(this.scene, this.camera), wait(15000)]); else this.renderer.compile(this.scene, this.camera); } catch (e) { console.warn('compile', e); }
     this.wireEvents();
-    if (TEST) { window.__Input = Input; window.__L = L; this.stepSim = async (n, dt = 0.05, keys = []) => { for (const k of keys) Input.down.add(k); for (let i = 0; i < n; i++) { this.updatePlay(dt); if (i === 0) Input.pressed.clear(); for (let j = 0; j < 12; j++) await null; /* let story/director promise chains advance like real frames */ } for (const k of keys) Input.down.delete(k); return { x: this.player.x, z: this.player.z, y: this.player.y, v: this.player.vehicle && this.player.vehicle.type, speed: this.player.vehicle ? this.player.vehicle.speed : this.player.speed }; }; }
+    if (TEST) { window.__Input = Input; window.__L = L; window.__Vehicle = Vehicle; window.__Character = Character; window.__makePoliceAppearance = makePoliceAppearance; window.__THREE = THREE; this.stepSim = async (n, dt = 0.05, keys = []) => { for (const k of keys) Input.down.add(k); for (let i = 0; i < n; i++) { this.updatePlay(dt); if (i === 0) Input.pressed.clear(); for (let j = 0; j < 12; j++) await null; /* let story/director promise chains advance like real frames */ } for (const k of keys) Input.down.delete(k); return { x: this.player.x, z: this.player.z, y: this.player.y, v: this.player.vehicle && this.player.vehicle.type, speed: this.player.vehicle ? this.player.vehicle.speed : this.player.speed }; }; }
     progress(1, 'Colombo is ready');
     this.last = performance.now(); this.mode = 'intro'; this.loop();
   }
@@ -123,13 +152,17 @@ export class Game {
     if (quick) { // test shortcuts: ?test&quick=new (opening cinematic) | ?test&quick=play (skip opening, free play at Main Street)
       await this.load((p, l) => { window.__progress = [p, l]; });
       if (quick === 'new') return this.newGame();
+      if (quick === 'trailer') return this.playTrailer();
       this.story.state = Story.freshState(); this.squad.reset(); this.mode = 'play'; this.atmos.hour = 17; this.setupRoomDoor(); this.world.warm(-140, -892); this.player.teleport(-140, -891.8, Math.PI / 2);
       this.player.cinematic = false; this.player.control = true; this.hud.show(true); this.hud.fade(0, 0.3); this.story.setupWorldActivities(); this.story.startMission('m0', 0); return;
     }
     await this.screens.studioIntro((p) => this.load(p));
+    if (window.__sdsTrailer) return this.playTrailer(); // "WATCH TRAILER" on the entry gate: plays, then reloads to the gate
     await this.montage();
     await this.menuLoop();
   }
+  // the official trailer (src/story/Trailer.js): its own lazily-loaded chunk, never loaded when the game is entered normally
+  async playTrailer() { const { runTrailer } = await import('./story/Trailer.js'); return runTrailer(this); }
   async montage() {
     this.mode = 'intro'; const d = this.director; let skip = false; const off = bus.on('key', () => (skip = true)); const clk = () => (skip = true); addEventListener('mousedown', clk);
     const A = this.atmos; Audio.setMusic('intro');
@@ -166,17 +199,20 @@ export class Game {
     }
   }
   // Enter-game loading screen: real streaming / shader / GPU-upload work around the spawn point(s), studio branding on top
-  async enterLoading(points) {
+  async enterLoading(points, pre = []) {
     Audio.setMusic('none'); Audio.riser(5);
-    await enterGameLoading(this.ui, [
+    await enterGameLoading(this.ui, [...pre,
       { label: 'Streaming Colombo districts', run: (pr) => this.world.warmAsync(points, pr) },
-      { label: 'Compiling shaders', run: async (pr) => { this.camera.position.set(points[0][0], 3, points[0][1] + 6); this.camera.lookAt(points[0][0], 1.5, points[0][1]); this.camera.updateMatrixWorld(); try { if (this.renderer.compileAsync) await Promise.race([this.renderer.compileAsync(this.scene, this.camera), wait(8000)]); else this.renderer.compile(this.scene, this.camera); } catch (e) { console.warn('compile', e); } pr(1); } },
+      { label: 'Vehicles of Colombo', run: (pr) => this.traffic.warmModels(points, pr) },
+      { label: 'Compiling shaders', run: async (pr) => { this.camera.position.set(points[0][0], 3, points[0][1] + 6); this.camera.lookAt(points[0][0], 1.5, points[0][1]); this.camera.updateMatrixWorld(); for (const v of LIVE_VEHICLES) setVehicleLOD(v.mesh.userData, true); /* near-LOD parts too (the next frame's LOD pass puts them back) */ try { if (this.renderer.compileAsync) await Promise.race([this.renderer.compileAsync(this.scene, this.camera), wait(8000)]); else this.renderer.compile(this.scene, this.camera); } catch (e) { console.warn('compile', e); } pr(0.5); await this.warmLightSets((k) => pr(0.5 + k * 0.5)); pr(1); } },
       { label: 'Waking the city', run: async (pr) => { for (let i = 0; i < 4; i++) { this.camera.rotation.y += Math.PI / 2; this.camera.updateMatrixWorld(); this.renderer.render(this.scene, this.camera); pr((i + 1) / 4); await new Promise((r) => requestAnimationFrame(r)); } } },
     ], { minMs: TEST ? 1500 : 6200, onFlash: () => Audio.boom() });
     this.hud.fade(1, 0); await new Promise((r) => requestAnimationFrame(r));
+    const gpu = gpuInfo(this.renderer); console.info('[COLOMBO] GPU:', gpu.label, '·', gpu.api, '·', gpu.kind);
+    if (!this.gpuWarned && (gpu.kind === 'software' || gpu.kind === 'integrated')) { this.gpuWarned = true; this.hud.notify(gpu.kind === 'software' ? 'Graphics card not in use' : 'Integrated graphics', gpuAdvice(gpu), 'warn', 9); }
   }
   async newGame() {
-    this.story.state = Story.freshState(); this.clock = 0; this.mode = 'play'; this.paused = false; this.squad.reset(); this.rebuildPlayer();
+    this.story.state = Story.freshState(); this.clock = 0; this.mode = 'play'; this.paused = false; this.squad.reset(); this.grenades?.clear(); this.rebuildPlayer();
     this.hud.clearBlips(''); this.focus = null; this.setupRoomDoor();
     await playOpening(this);
     Input.requestLock(this.canvas);
@@ -192,6 +228,21 @@ export class Game {
     const m = this.story.state.mission; if (m.id && m.stage > 0) this.story.startMission(m.id, m.stage); else if (m.id === 'm0') this.story.startMission('m0', 0); else this.story.offerNext();
     for (let i = 0; i < 30; i++) this.updatePlay(0.033, true);
     await this.hud.fade(0, 0.8); this.hud.notify('Game loaded', `${d.missionTitle || 'Free roam'} · ${d.timeString || ''}`, 'success', 3); Audio.setMusic('explore');
+  }
+  // Every material's shader is keyed by the scene's light counts. The walk-in Police HQ interior (6 point lights) appears without a
+  // fade whenever the player comes within 150 m; the first time that count is seen every visible material recompiles: a long stall
+  // in the middle of a drive. Compile that variant here instead, with dark stand-in lights (three caches programs per light set, so
+  // later toggles only rebind). Shops / hero rooms are entered behind a fade with only the room on screen: not worth the memory.
+  async warmLightSets(pr = () => {}) {
+    const extra = [6]; const g = new THREE.Group(); g.name = 'lightWarm'; this.scene.add(g);
+    try {
+      for (let i = 0; i < extra.length; i++) {
+        while (g.children.length < extra[i]) { const l = new THREE.PointLight(0xffffff, 0, 1, 2); l.position.set(0, -800, 0); g.add(l); }
+        if (this.renderer.compileAsync) await Promise.race([this.renderer.compileAsync(this.scene, this.camera), wait(5000)]); else this.renderer.compile(this.scene, this.camera);
+        pr((i + 1) / extra.length);
+      }
+    } catch (e) { console.warn('light-set compile', e); }
+    this.scene.remove(g); for (const l of g.children) l.dispose?.();
   }
   setupRoomDoor() { const r = this.story.state.flags.room; this.interiors.setupDoors(r || null); }
   // ================================================================= services used by Story / Director
@@ -209,9 +260,9 @@ export class Game {
   }
   async playEnding(kind, state) { this.player.control = false; await this.hud.fade(1, 1.2); this.hud.show(false); Input.releaseLock(); this.ignoreUnlock = true; await this.screens.ending(kind, state); this.ignoreUnlock = false; this.hud.show(true); await this.hud.fade(0, 1); this.player.control = true; Input.requestLock(this.canvas); this.autosave(); }
   rebuildPlayer() {
-    const P = this.player; const id = this.squad ? this.squad.activeId : 'dineth'; const fits = this.story.state.outfits || {}; const spec = { ...HEROES[id], top: fits[id] || HEROES[id].top };
+    const P = this.player; const id = this.squad ? this.squad.activeId : 'dineth'; const fits = this.story.state.outfits || {}; const spec = this.debug?.playerSpec || { ...HEROES[id], top: fits[id] || HEROES[id].top };
     const old = P.ch; const parent = old.root.parent; const ch = new Character(spec); ch.root.position.copy(old.root.position); ch.root.rotation.copy(old.root.rotation);
-    if (parent) { parent.add(ch.root); parent.remove(old.root); } if (this.weapons) { this.weapons.forceHolster(); this.weapons.attach(ch); } old.dispose(); P.ch = ch; if (this.squad) this.squad.replaceChar(id, ch); if (P.vehicle) { const seat = P.vehicle.driverSeat(); ch.root.position.set(seat.x, seat.y, seat.z); ch.root.rotation.set(0, 0, 0); ch.anim.sitIn(seat, 1); ch.anim.update(0.001, 0); }
+    if (parent) { parent.add(ch.root); parent.remove(old.root); } if (this.grenades) this.grenades.end(); if (this.weapons) { this.weapons.forceHolster(); this.weapons.attach(ch); } old.dispose(); P.ch = ch; if (this.squad) this.squad.replaceChar(id, ch); if (P.vehicle) { const seat = P.vehicle.driverSeat(); ch.root.position.set(seat.x, seat.y, seat.z); ch.root.rotation.set(0, 0, 0); ch.anim.sitIn(seat, 1); ch.anim.update(0.001, 0); }
   }
   // protagonist skin / clothing layer: rain soaks skin and clothes outdoors (not inside vehicles or interiors) and dries
   // slowly; sweat builds with exertion, faster in the midday heat and humid monsoon air, and fades at rest
@@ -234,6 +285,7 @@ export class Game {
     bus.on('horn', (v) => Audio.horn(v.type, v.x, v.z));
     bus.on('crash', (v) => Audio.crash(v));
     bus.on('land', () => Audio.footstep(true, false));
+    bus.on('towed', (v) => this.hud.notify('Vehicle towed', `Your ${VNAMES[v.type] || 'vehicle'} was left unattended for 5 minutes and a CMC tow truck has taken it away.`, 'info', 5));
     bus.on('enterVehicle', ({ v, hadDriver }) => { if (hadDriver) this.hud.subtitle('Driver', 'Ado! What are you doing? That\'s my vehicle!', '', 2.8); this.hud.notify(VNAMES[v.type] || 'Vehicle', `${this.hud.key('enter')} exit · ${this.hud.key('horn')} horn · ${this.hud.key('lights')} lights · ${this.hud.key('radio')} radio`, 'info', 3.5); Audio.ui('door'); });
     bus.on('npcLineRaw', ({ who, text }) => this.hud.subtitle(who, text, '', 2.4));
     bus.on('exitVehicle', () => { if (this.radio) { this.radio = 0; } });
@@ -250,7 +302,7 @@ export class Game {
   // ================================================================= input
   onKey(code) {
     if (this.mode !== 'play' || this.paused) return;
-    if (code === 'Escape') { if (this.phone?.open) this.phone.toggle(false); else if (this.photo) this.togglePhoto(false); else if (this.hud.bigMapOpen) this.toggleMap(false); else if (!this.director.active) this.openPause(); }
+    if (code === 'Escape') { if (this.gunShop?.open || this.debugCon?.menuOpen || this.debugCon?.open || this.editorHook) return; if (this.phone?.open) this.phone.toggle(false); else if (this.photo) this.togglePhoto(false); else if (this.hud.bigMapOpen) this.toggleMap(false); else if (!this.director.active) this.openPause(); }
   }
   async openPause() {
     if (this.paused || this.director.active) return; this.paused = true; Input.releaseLock(); Audio.ui('click');
@@ -282,16 +334,19 @@ export class Game {
   // ================================================================= per-frame
   loop() {
     requestAnimationFrame(() => this.loop());
+    if (this.noRender) return; // headless tests (TEST mode): step the sim with stepSim() without paying for frames
     const now = performance.now(); const raw = (now - this.last) / 1000; this.last = now; const dt = Math.min(TEST ? 0.5 : 0.05, Math.max(0.0005, raw));
     this.fps = lerp(this.fps, 1 / Math.max(raw, 1e-3), 0.05);
     Input.pollGamepad();
     try {
       const mapOpen = this.mode === 'play' && this.hud.bigMapOpen; // the pause map freezes the world (and the hidden 3D view is not drawn)
       if (mapOpen) { if (Input.wasPressed('map')) this.toggleMap(false); }
+      else if (this.mode === 'play' && this.editorHook) this.editorHook(dt); // a debug editor (src/debug, loaded only when typed) has the frame: the world is frozen, still drawn
       else if (this.mode === 'play' && !this.paused) this.updatePlay(dt * (this.timeSlow || 1)); // weapon wheel / squad selector slow time
       else if (this.mode === 'menu' || this.mode === 'intro') this.updateAmbient(dt);
-      CAM.copy(this.camera.position); updateVehicleLOD(this.camera);
-      if (this.post && !mapOpen) { if (this.world && this.world.waterRefl) { const q = Settings.get('quality'); this.world.waterRefl.scale = q === 'ultra' ? 0.6 : 0.45; this.world.waterRefl.update(this.renderer, this.scene, this.camera, (q === 'high' || q === 'ultra') && !this.indoor); } this.post.update(this.atmos); this.post.render(dt); }
+      else if (this.mode === 'trailer' && this.trailerHook) this.trailerHook(dt); // the trailer drives the world and camera itself
+      CAM.copy(this.camera.position); updateVehicleLOD(this.camera); if (this.headRig && this.atmos) this.headRig.update(this.camera, this.player && this.player.vehicle, this.atmos.night, this.indoor ? 1 : (this.seamK || 0));
+      if (this.post && !mapOpen) { if (this.world && this.world.waterRefl) { const q = Settings.get('quality'); this.world.waterRefl.scale = q === 'ultra' ? 0.6 : 0.45; this.world.waterRefl.halfRate = q !== 'ultra'; this.world.waterRefl.update(this.renderer, this.scene, this.camera, (q === 'high' || q === 'ultra') && !this.indoor); } this.post.update(this.atmos); this.post.render(dt); }
     } catch (e) { if (!this._errN || this._errN < 5) console.error(e && e.stack || e); this._errN = (this._errN || 0) + 1; this.lastError = e; }
     Input.endFrame();
   }
@@ -310,25 +365,30 @@ export class Game {
     const camDir = new THREE.Vector3(); cam.getWorldDirection(camDir);
     this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; this.traffic.update(dt, f, camDir, this.clock, this.crowd.peds, this.ghost);
     this.trains.update(dt, { focus: f, night: A.night, vehicles: this.traffic.all(), listener: true });
-    this.crowd.update(dt, f, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: this.ghost, hourFactor: this.hourFactor(), hour: A.hour });
+    this.crowd.update(dt, f, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: this.ghost, hourFactor: this.hourFactor(), hour: A.hour, police: null });
     Audio.update(dt, { listener: { x: cam.position.x, z: cam.position.z, yaw: Math.atan2(camDir.x, camDir.z) }, night: A.night, rain: A.w.rain, wind: A.w.wind, traffic: this.traffic.vehicles.length, vehicles: [], indoor: false });
   }
   hourFactor() { const h = this.atmos.hour; if (h < 5) return 0.25; if (h < 7) return 0.55; if (h < 19) return 1; if (h < 22) return 0.8; return 0.45; }
   updatePlay(dt, warmOnly = false) {
+    updateDoorClosers(dt); // doors people pulled shut behind them (DoorRig)
     this.dt = dt; this.clock += dt; const P = this.player, A = this.atmos, cam = this.camera, D = this.director;
-    if (!D.active) A.advance(dt / Settings.get('timeScale'));
+    if (!D.active && !this.debug.freezeTime) A.advance(dt / Settings.get('timeScale'));
+    if (!warmOnly) this.debugCon.update();
     if (this.phone.open && (D.active || this.health.busy)) this.phone.toggle(false); // cutscene / hospital: put the phone away
-    const busy = D.active || this.photo || this.hud.bigMapOpen || this.paused || this.phone.open || this.health.busy;
+    if (this.gunShop.open && (D.active || this.health.busy || !this.indoor)) this.gunShop.toggle(false);
+    const busy = D.active || this.photo || this.hud.bigMapOpen || this.paused || this.phone.open || this.health.busy || this.gunShop.open || this.debugCon.menuOpen || this.debugCon.open;
+    if (this.gunShop.open && !warmOnly) this.gunShop.update();
     // global actions
     if (!D.active && !warmOnly) {
-      if (Input.wasPressed('map') && !this.photo) { if (this.phone.open) this.phone.toggle(false); this.toggleMap(); }
-      if (Input.wasPressed('phone') && !this.hud.bigMapOpen) { if (this.photo) this.togglePhoto(false); else this.phone.toggle(); }
+      if (Input.wasPressed('map') && !this.photo && !this.gunShop.open) { if (this.phone.open) this.phone.toggle(false); this.toggleMap(); }
+      if (Input.wasPressed('phone') && !this.hud.bigMapOpen && !this.gunShop.open) { if (this.photo) this.togglePhoto(false); else this.phone.toggle(); }
       else this.phone.update();
       if (this.mode === 'play') this.health.update(dt);
-      if (Input.wasPressed('journal')) this.openPause();
+      if (Input.wasPressed('journal') && !this.gunShop.open) this.openPause();
       if (P.vehicle && Input.wasPressed('radio')) { this.radio = (this.radio + 1) % RADIO.length; this.hud.notify('Radio', RADIO[this.radio] ? RADIO[this.radio].name : 'Off', 'info', 1.6); }
     }
-    if (!warmOnly) this.weapons.update(dt, !busy && P.control && !P.cinematic && !this.indoor);
+    if (!warmOnly) { const can = !busy && P.control && !P.cinematic && !this.indoor; this.weapons.update(dt, can && !this.grenades.lockWeapons); this.grenades.update(dt, can); this.drunk.update(dt); if (this.interiors.current?.tick) this.interiors.current.tick(dt, P); }
+    this.explosions.update(dt);
     if (!warmOnly) this.heroSkin(dt);
     this.bodies = gatherBodies(this.scene); P.bodies = this.bodies;
     if (this.photo) this.updatePhoto(dt);
@@ -338,26 +398,32 @@ export class Game {
     // interactions on foot / vehicle
     let localPrompt = null;
     if (!busy && !warmOnly && P.control) localPrompt = this.updateInteractions(dt);
-    const focus = { x: P.x, z: P.z }; const fv = new THREE.Vector3(P.x, P.y, P.z);
-    this.world.simTime = this.clock; this.world.update(dt, focus, cam, A);
+    const inRoom = this.interiors.current; const focus = inRoom && inRoom.door ? { x: inRoom.door.x, z: inRoom.door.z } : { x: P.x, z: P.z }; const fv = new THREE.Vector3(P.x, P.y, P.z); // inside a shop room (built away from the street) keep the city streamed around its street door, not around the hidden room
+    this.world.simTime = this.clock; this.world.indoorK = this.indoor ? 1 : (this.seamK || 0); this.world.update(dt, focus, cam, A);
     A.update(dt, fv, cam, dt); setVehicleNight(A.night); setHeadPoolNight(A.night);
     // walk-in Police HQ: smooth outdoor → indoor light adaptation while the city keeps running outside
+    { const I = this.interiors, cur = I.current; if (cur && this.player.indoor !== cur && !this.player.indoor) { cur.g.visible = false; I.current = null; this.setIndoor(false); } } // teleported out of a shop/flat: close it
     const sk = this.indoor || warmOnly ? 0 : this.interiors.updateSeamless(dt); this.seamK = sk;
-    if (!this.indoor && A.envBase !== undefined) this.scene.environmentIntensity = A.envBase * (1 - 0.55 * sk);
+    if (!this.indoor && A.envBase !== undefined) this.scene.environmentIntensity = A.envBase * (1 - 0.8 * sk); // indoors, reflections would show the room, not the sky
     if (sk > 0.002) { A.sun.intensity *= 1 - 0.92 * sk; A.hemi.intensity = lerp(A.hemi.intensity, 0.8, sk); A.hemi.color.lerp(HQ_SKY, sk); A.hemi.groundColor.lerp(HQ_GND, sk); A.ambient.intensity = lerp(A.ambient.intensity, 0.3, sk); this.renderer.toneMappingExposure = lerp(this.renderer.toneMappingExposure, 1.0, sk); if (sk > 0.5) A.rain.visible = false; }
-    if (this.indoor) { A.sun.intensity = 0; A.hemi.intensity *= 0.25; A.ambient.intensity = 0.25; this.scene.environmentIntensity = 0.25; A.rain.visible = false; this.renderer.toneMappingExposure = 1; }
+    if (this.indoor) { A.sun.intensity = 0; A.hemi.intensity *= 0.25; A.ambient.intensity = 0.25; this.scene.environmentIntensity = 0.12; A.rain.visible = false; this.renderer.toneMappingExposure = 1; }
     const camDir = new THREE.Vector3(); cam.getWorldDirection(camDir);
     if (this.indoor) this.hideOutdoor(); // anything spawned since entering (police units etc.) stays hidden too
     if (!this.indoor) this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; if (!this.indoor) this.traffic.update(dt, focus, camDir, this.clock, this.police.foot.length || this.squad.proxies.length ? this.crowd.peds.concat(this.police.foot, this.squad.proxies) : this.crowd.peds, P); this.hqLife.update(dt); if (!this.indoor) { this.trafficDuty.update(dt); this.schoolLife.update(dt); this.cricket.update(dt); } if (!warmOnly) this.police.update(dt);
     if (!this.indoor) this.trains.update(dt, { focus, night: A.night, player: this.indoor ? null : P, playerVehicle: P.vehicle || null, vehicles: this.traffic.all(), listener: true });
-    if (!this.indoor) this.crowd.update(dt, focus, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: P, hourFactor: this.hourFactor(), hour: A.hour, bodies: this.bodies });
+    if (this.vsmoke && !warmOnly) this.vsmoke.update(dt); // after every vehicle moved this frame (player, mission cars, traffic, police)
+    if (!this.indoor) this.crowd.update(dt, focus, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: P, armed: !!(this.weapons && this.weapons.drawn), hourFactor: this.hourFactor(), hour: A.hour, bodies: this.bodies, police: this.police });
+    if (!this.indoor && this.world.fuel) { if (!this.fuelSvc) this.fuelSvc = new FuelService(this.world.fuel, { crowd: this.crowd, traffic: this.traffic, scene: this.scene, player: P }); this.fuelSvc.update(dt, { focus, night: A.night }); } // filling stations: refuelling traffic + attendants (FuelStations.js)
     if (P.vehicle && A.night > 0.5 && P.nightLights === undefined) { P.vehicle.lights = true; }
+    if (!this.indoor) this.ragdolls.update(dt, this.traffic.all()); this.blood.update(dt);
+    if (this.birds) this.birds.update(dt);
+    this.updateSight(dt);
     // story & prompts
     const storyPrompt = D.active ? null : this.story.update(dt);
     this.hud.prompt(D.active || this.photo ? '' : storyPrompt || this.police.prompt || localPrompt || '');
     // music
     this.musicT = (this.musicT || 0) - dt;
-    if (this.musicT <= 0) { this.musicT = 1; if (!(Audio.musicMode === 'chase' && this.story.pursuers.length) && !D.active) { let m = A.night > 0.5 ? 'night' : 'explore'; if (this.story.guards.length) m = 'tension'; if (this.story.pursuers.length) m = 'chase'; if (P.vehicle && this.radio) m = RADIO[this.radio].mode; if (this.indoor) m = 'none'; Audio.setMusic(m); } }
+    if (this.musicT <= 0) { this.musicT = 1; if (!(Audio.musicMode === 'chase' && this.story.pursuers.length) && !D.active) { let m = A.night > 0.5 ? 'night' : 'explore'; if (this.story.guards.length) m = 'tension'; if (this.story.pursuers.length) m = 'chase'; if (P.vehicle && this.radio) m = RADIO[this.radio].mode; if (this.indoor) m = this.interiors.current?.musicMode || 'none'; Audio.setMusic(m); } }
     // HUD
     const v = P.vehicle; const dist = L.districtAt(P.x, P.z);
     this.hud.update({ health: this.health.hp, healthBusy: this.health.busy, time: A.timeString, money: this.story.state.money, district: this.indoor ? this.interiors.current.D.name : this.seamK > 0.5 ? this.interiors.hq.D.name : dist ? dist.name.split(' · ')[0] : '', street: this.indoor ? '' : L.roadNameAt(P.x, P.z) || '', x: P.x, z: P.z, camYaw: this.photo ? this.photoYaw + Math.PI : P.camYaw, stamina: P.stamina, vehicle: v, vehicleName: v ? VNAMES[v.type] || v.type : '', radio: v && this.radio ? `♪ ${RADIO[this.radio].name}` : '', camera: cam, police: this.police.hudInfo(), projector: (x, y, z) => this.project(x, y, z), fps: this.fps, draws: this.renderer.info.render.calls, extras: this.miniExtras(), indoor: !!this.indoor });
@@ -369,14 +435,16 @@ export class Game {
   }
   updateInteractions() {
     const P = this.player; const I = this.interiors; const key = (a) => this.hud.key(a);
-    if (I.current && I.current.id === 'room') { const b = I.current.bounds; if (Math.hypot(P.x - (b.x0 + 1.2), P.z - (b.z0 + 1.6)) < 1.8 && !this.story.running) { const h = this.atmos.hour; const to = h >= 6 && h < 17 ? 19.75 : 8; if (Input.wasPressed('interact')) this.restUntil(to); return `${key('interact')} Sleep until ${to === 8 ? '8:00 AM' : '7:45 PM'}`; } }
+    if (I.current && I.current.id === 'room' && !I.current.hero) { const b = I.current.bounds; if (Math.hypot(P.x - (b.x0 + 1.2), P.z - (b.z0 + 1.6)) < 1.8 && !this.story.running) { const h = this.atmos.hour; const to = h >= 6 && h < 17 ? 19.75 : 8; if (Input.wasPressed('interact')) this.restUntil(to); return `${key('interact')} Sleep until ${to === 8 ? '8:00 AM' : '7:45 PM'}`; } }
     { const gp = this.schoolLife.guard?.interact(P, key); if (gp) return gp; } // Johns school night watchman
-    if (I.current) { const r = I.update(this.dt); if (r === 'exit') { if (Input.wasPressed('enter')) I.exit(); return `${key('enter')} Leave ${I.current.D.name}`; } return null; }
+    if (I.current && I.current.nearCounter && I.current.prompt && Input.wasPressed('interact')) { this.gunShop.toggle(true); return null; } // gun shop counter
+    if (I.current) { const r = I.update(this.dt); if (r === 'exit' && !this.player.indoorBusy) { if (Input.wasPressed('enter')) I.exit(); return `${key('enter')} Leave ${I.current.D.name}` + (I.current.hero && I.current.prompt ? ` · ${I.current.prompt}` : ''); } return I.current.prompt || null; }
+    if (I.hq && P.indoor === I.hq && I.hq.prompt) { if (I.hq.oic?.near && Input.wasPressed('interact')) I.hq.oic.open = !I.hq.oic.open; return I.hq.prompt; } // seamless HQ: the OIC door
     if (P.entry || P.exiting) return null;
     if (P.vehicle) { if (Input.wasPressed('enter')) { if (!P.exitVehicle(this.traffic)) this.hud.notify('Slow down', 'Stop the vehicle to get out.', 'info', 1.5); } return null; }
     const door = I.nearDoor(P.x, P.z);
     const veh = this.traffic.nearest(P.x, P.z, 3.4);
-    if (door && (!veh || Math.hypot(door.x - P.x, door.z - P.z) < 1.6)) { const name = door.id === 'room' ? 'your room' : this.interiorName(door.id); if (Input.wasPressed('enter')) I.enter(door); return `${key('enter')} Enter ${name}`; }
+    if (door && (!veh || Math.hypot(door.x - P.x, door.z - P.z) < 1.6)) { const H = HERO_ROOMS[door.id]; const me = this.squad?.activeMember?.def?.id || 'dineth'; if (H && door.owner && door.owner !== me) return `${H.name} · locked (switch to ${H.name.split("'")[0]})`; const name = H ? 'your room' : this.interiorName(door.id); if (Input.wasPressed('enter')) I.enter(door); return `${key('enter')} Enter ${name}`; }
     if (veh) { if (Input.wasPressed('enter')) P.enterVehicle(veh, this.traffic); return `${key('enter')} ${veh.driverChar ? 'Take' : 'Get in'} ${VNAMES[veh.type] || 'vehicle'}`; }
     if (this.weapons && this.weapons.drawn) return null; // armed: no small talk (holster with X)
     // pedestrians: nearest in front within 2.6 m
@@ -393,9 +461,32 @@ export class Game {
     if (Input.wasPressed('more')) { const em = ['wave', 'stretch', 'clap', 'dance', 'look'][Math.floor(Math.random() * 5)]; P.ch.anim.play(em, em === 'dance' ? 5 : 2.2); P.emote = em; }
     return null;
   }
-  interiorName(id) { return { kade: 'Lucky Tea Kade', fathima: 'Fathima Textiles', selvaraj: 'Selvaraj Electronics', bandara: 'Bandara Spice Stores', tailor: 'Ceylon Threads', garage: 'Lanka Auto Care', hq: 'Police Headquarters' }[id] || id; }
+  interiorName(id) { return { kade: 'Lucky Tea Kade', fathima: 'Fathima Textiles', selvaraj: 'Selvaraj Electronics', bandara: 'Bandara Spice Stores', tailor: 'Ceylon Threads', garage: 'Lanka Auto Care', gunshop: 'Ceylon Arms Co.', club: 'The Velvet Monsoon', hq: 'Police Headquarters' }[id] || id; }
+  // what the player can actually see: vehicles / people / police units within range and not hidden behind a building or wall.
+  // Only these get (small) marks on the minimap and the full map — the map is not a tracker of every NPC and car in the city.
+  lineOfSight(ax, az, bx, bz) {
+    const d = Math.hypot(bx - ax, bz - az), n = Math.ceil(d / 2.5);
+    for (let k = 1; k < n; k++) { const t = k / n, x = ax + (bx - ax) * t, z = az + (bz - az) * t;
+      for (const c of this.collision.query(x - 0.05, z - 0.05, x + 0.05, z + 0.05)) { if (c.kind === 'tree' || c.kind === 'pole' || c.kind === 'deck' || c.kind === 'platform' || (c.y0 || 0) + c.h < 2.4 || (c.y0 || 0) > 3) continue; if (x > c.x0 && x < c.x1 && z > c.z0 && z < c.z1) return false; } }
+    return true;
+  }
+  updateSight(dt) {
+    this.sightT = (this.sightT || 0) - dt; if (this.sightT > 0 && this.sight) return; this.sightT = 0.3;
+    const P = this.player, src = P.vehicle || P, R = 70; const S = { veh: [], peds: [], units: new Set() };
+    if (!this.indoor && P.indoor == null) {
+      const see = (o) => { const d = Math.hypot(o.x - src.x, o.z - src.z); return d < R && (d < 6 || this.lineOfSight(src.x, src.z, o.x, o.z)); };
+      for (const v of this.traffic.all()) if (v !== P.vehicle && v.x !== undefined && see(v)) S.veh.push(v);
+      for (const p of this.crowd.peds || []) if (see(p)) S.peds.push(p);
+      for (const u of this.police?.units || []) if (see(u)) S.units.add(u);
+    }
+    this.sight = S;
+  }
+  canSeeUnit(u) { const S = this.sight; if (S && S.units.has(u)) return true; const P = this.player, src = P.vehicle || P; return !!u.lights && Math.hypot(u.x - src.x, u.z - src.z) < 150; } // responding units are heard (siren)
   miniExtras() {
-    const out = []; for (const v of this.traffic.vehicles) out.push({ x: v.x, z: v.z, color: 'rgba(255,255,255,0.55)', r: 1.6 });
+    const out = []; const S = this.sight || { veh: [], peds: [] };
+    for (const v of S.veh) out.push({ x: v.x, z: v.z, color: 'rgba(255,255,255,0.6)', r: 1.3 });
+    for (const p of S.peds) out.push({ x: p.x, z: p.z, color: 'rgba(255,226,160,0.65)', r: 0.8 });
+    { const me = this.squad?.activeMember?.def?.id; const hd = (this.interiors.doors || []).find((d) => d.owner === me && HERO_ROOMS[d.id]); if (hd && !this.indoor) out.push({ x: hd.x, z: hd.z, color: '#7fd1ff', r: 2.6 }); } // your room
     for (const pv of this.story.pursuers) out.push({ x: pv.v ? pv.v.x : pv.x, z: pv.v ? pv.v.z : pv.z, color: '#ff4a3a', r: 3.5 });
     return out;
   }
@@ -405,8 +496,11 @@ export class Game {
   applySettings(k) {
     const pr = Settings.preset; if (!this.post) return;
     if (k === 'quality' || k === 'resolutionScale' || k === '*') { this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * pr.pixelRatio * Settings.get('resolutionScale')); this.renderer.shadowMap.enabled = pr.shadows; this.atmos.sun.castShadow = pr.shadows; this.atmos.drawDist = pr.drawDist; this.world.setQuality(Settings.get('quality')); this.post.build({ bloom: pr.bloom, ao: pr.ao }); this.resize(); this.scene.traverse((o) => { if (o.material && o.material.needsUpdate !== undefined && k === 'quality') o.material.needsUpdate = true; }); }
+    if (k === 'wetReflections' || k === '*') { if (this.world) this.world.glintsOn = Settings.get('wetReflections') !== false; }
+    if (k === 'nightBrightness' || k === '*') { if (this.atmos) this.atmos.nightBoost = Settings.get('nightBrightness') ?? 1; }
     if (k === 'fov' || k === '*') { this.camera.fov = Settings.get('fov'); this.camera.updateProjectionMatrix(); }
     if (['crowdDensity', 'trafficDensity', 'quality', '*'].includes(k)) this.applyDensity();
+    if ((k === 'quality' || k === '*') && this.vsmoke) this.vsmoke.setQuality(Settings.get('quality'));
     if (['master', 'music', 'sfx', 'ambience', 'dialogue', '*'].includes(k)) Audio.applyVolumes();
     if (k === 'subtitleSize' || k === '*') document.documentElement.style.setProperty('--sub-scale', Settings.get('subtitleSize'));
   }

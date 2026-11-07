@@ -1,0 +1,30 @@
+{
+  "name": "colombo-shadows-of-the-island-desktop",
+  "productName": "COLOMBO Shadows of the Island",
+  "version": "1.0.0",
+  "private": true,
+  "description": "COLOMBO: Shadows of the Island - desktop build (Shaun David Studios)",
+  "author": "Shaun David Studios",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win portable nsis --x64",
+    "dist:dir": "electron-builder --dir"
+  },
+  "devDependencies": {
+    "electron": "45.2.1",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "com.shaundavidstudios.colombo",
+    "productName": "COLOMBO Shadows of the Island",
+    "copyright": "Shaun David Studios",
+    "directories": { "output": "release", "buildResources": "build" },
+    "files": ["main.cjs", "app/**/*"],
+    "asar": true,
+    "win": { "icon": "build/icon.png", "target": ["portable", "nsis"] },
+    "portable": { "artifactName": "COLOMBO-Shadows-of-the-Island-${version}-portable.exe" },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "artifactName": "COLOMBO-Shadows-of-the-Island-${version}-setup.exe", "shortcutName": "COLOMBO Shadows of the Island" },
+    "linux": { "target": ["dir"], "icon": "build/icon.png", "category": "Game" }
+  }
+}

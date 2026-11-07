@@ -26,6 +26,8 @@ export function gatherBodies(scene) {
 
 // push a circle (x, z, r) out of all bodies except `self`; returns {x, z, hit}. `share` (0..1) moves crowd peds
 // out of the way instead of the mover for that fraction of the overlap.
+// the city colliders: a nudged person is never pushed into a wall / building (Game sets this once the world is built)
+let COL = null; export function setBodiesCollision(c) { COL = c; }
 export function separate(bodies, x, z, y, r, self, share = 0) {
   let hit = false;
   for (const b of bodies) {
@@ -33,7 +35,8 @@ export function separate(bodies, x, z, y, r, self, share = 0) {
     const dx = x - b.x, dz = z - b.z, m = r + b.r; if (Math.abs(dx) > m || Math.abs(dz) > m) continue;
     const d2 = dx * dx + dz * dz; if (d2 >= m * m) continue;
     const d = Math.sqrt(d2) || 1e-3, nx = d2 > 1e-8 ? dx / d : 1, nz = d2 > 1e-8 ? dz / d : 0, o = m - d;
-    const k = b.ped && share > 0 && b.ped.state !== 'idle' ? share : 0; // peds standing at a stall/bench hold their spot
+    let k = b.ped && share > 0 && b.ped.state !== 'idle' ? share : 0; // peds standing at a stall/bench hold their spot
+    if (k && COL && COL.blocked(b.ped.x - nx * o * k, b.ped.z - nz * o * k, 0.28)) k = 0; // their back is to a wall: they hold, the pusher stops
     if (k) { b.ped.x -= nx * o * k; b.ped.z -= nz * o * k; b.x = b.ped.x; b.z = b.ped.z; b.ped.bumped = 0.6; }
     x += nx * o * (1 - k); z += nz * o * (1 - k); hit = true;
   }

@@ -1,0 +1,36 @@
+<!doctype html><html><body style="margin:0;background:#888"><canvas id="c"></canvas>
+<script type="module">
+// Unarmed combat pose check (Boxing.js through the real Animator): attacker / victim pairs for each technique.
+// ?shot=all|stance|jab|cross|hook|upper|block|walk  &t=seconds into the move (default: the impact frame)  &yaw=deg &d=dist &w= &h=
+import * as THREE from 'three';
+import { buildTextures } from '/src/gfx/Textures.js';
+import { Character, randomSpec, HEROES } from '/src/actors/Character.js';
+import { MOVES } from '/src/actors/Boxing.js';
+await buildTextures('medium');
+const q = new URLSearchParams(location.search); const W = +(q.get('w') || 1280), H = +(q.get('h') || 720);
+const r = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true }); r.setSize(W, H); r.toneMapping = THREE.ACESFilmicToneMapping; r.outputColorSpace = THREE.SRGBColorSpace; r.shadowMap.enabled = true;
+const s = new THREE.Scene(); s.background = new THREE.Color(0x9fb4c8);
+s.add(new THREE.HemisphereLight(0xdde8ff, 0x665544, 1.3)); const d = new THREE.DirectionalLight(0xfff0dd, 2.4); d.position.set(3, 6, 5); d.castShadow = true; s.add(d);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ color: 0x8d8a83, roughness: 0.95 })); ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; s.add(ground);
+const cam = new THREE.PerspectiveCamera(30, W / H, 0.05, 100);
+const male = (seed) => { for (let k = 0; k < 200; k++) { const sp = randomSpec(seed + k * 13); if (sp.sex === 'm' && sp.age !== 'elder') return sp; } return randomSpec(seed); };
+const person = (spec, x, z, yaw) => { const ch = new Character(spec); ch.root.position.set(x, 0, z); ch.root.rotation.y = yaw; ch.root.traverse((m) => { if (m.isMesh) m.castShadow = true; }); s.add(ch.root); return ch; };
+const T = q.get('t'); const G = {}; const STEP = 1 / 60;
+const run = (ch, secs, speed = 0) => { for (let t = 0; t < secs - 1e-6; t += STEP) ch.anim.update(Math.min(STEP, secs - t), speed); };
+// guard stance (hero with fingers + crowd male), front and side
+{ const a = person(HEROES.dineth, -12, 0, 0); a.anim.fightOn(true); run(a, 1.2); G.stance = { at: [-12, 0], h: 1.05 }; }
+{ const a = person(male(5), -6, 0, 0); a.anim.fightOn(true); a.anim.block(true); run(a, 1.2); G.block = { at: [-6, 0], h: 1.15 }; }
+// the four techniques: attacker at (x, 0) facing +z, victim 0.95 m ahead facing the attacker
+let x = 0; for (const m of ['jab', 'cross', 'hook', 'upper']) {
+  const M = MOVES[m]; const a = person(m === 'jab' || m === 'hook' ? HEROES.dineth : male(20 + x), x, 0, 0); const v = person(male(40 + x * 3), x, 0.95, Math.PI);
+  a.anim.fightOn(true); v.anim.fightOn(true); run(a, 1.0); run(v, 1.0); const t = T !== null ? +T : M.hit + 0.02;
+  a.anim.strike(m); let vt = 0; for (let k = 0; k * STEP < t - 1e-6; k++) { a.anim.update(STEP, 0); if (!vt && (k + 1) * STEP >= M.hit) { v.anim.takeHit(M.react, M.dir || 1, M.pow || 1); vt = 1; } v.anim.update(STEP, 0); }
+  G[m] = { at: [x, 0.48], h: 1.25, side: true }; x += 6; }
+// walking in guard
+{ const a = person(male(77), 24, 0, 0); a.anim.fightOn(true); run(a, 1.37, 1.2); G.walk = { at: [24, 0], h: 1.0 }; }
+s.updateMatrixWorld(true);
+const shot = q.get('shot') || 'all';
+if (shot === 'all') { cam.fov = 34; cam.position.set(6, 5, 30); cam.lookAt(6, 0.9, 0); }
+else { const g = G[shot]; const yaw = (+(q.get('yaw') || (g.side ? 90 : 25))) * Math.PI / 180; const dist = +(q.get('d') || 4.4); cam.fov = 28; cam.position.set(g.at[0] + Math.sin(yaw) * dist, g.h + 0.2, g.at[1] + Math.cos(yaw) * dist); cam.lookAt(g.at[0], g.h - 0.1, g.at[1]); }
+cam.updateProjectionMatrix(); r.render(s, cam); window.done = true;
+</script></body></html>

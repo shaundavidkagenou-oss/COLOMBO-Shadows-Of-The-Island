@@ -6,7 +6,7 @@ export const DEFAULT_BINDINGS = {
   interact: 'KeyE', insult: 'KeyQ', shove: 'KeyG', more: 'KeyT',
   horn: 'KeyH', lights: 'KeyL', camera: 'KeyV', radio: 'KeyR',
   phone: 'KeyP', map: 'KeyM', journal: 'KeyJ',
-  reload: 'KeyR', holster: 'KeyX', weaponWheel: 'Tab',
+  reload: 'KeyR', holster: 'KeyX', weaponWheel: 'Tab', grenade: 'KeyB',
 };
 export const QUALITY_PRESETS = {
   low:    { pixelRatio: 0.75, shadows: false, shadowRes: 1024, bloom: false, ao: false, drawDist: 650,  crowd: 60,  traffic: 22, detailRadius: 1 },
@@ -20,7 +20,8 @@ const DEFAULTS = {
   master: 0.85, music: 0.6, sfx: 0.85, ambience: 0.75, dialogue: 1.0, voiceTTS: false,
   subtitles: true, subtitleSize: 1.0, crowdDensity: 1.0, trafficDensity: 1.0,
   timeScale: 2.0, // real seconds per game minute
-  showFps: false, switchStyle: 'auto', // squad switch camera: auto (transit, or jump-cut when far / blocked) | transit | cut
+  showFps: false, blood: true, /* blood effects (impact spray, splats, pools under bodies) */ wetReflections: true, /* wet-road light streaks (WetGlints) */ nightBrightness: 1.15, /* night exposure multiplier (Settings → Night brightness) */
+  switchStyle: 'auto', // squad switch camera: auto (transit, or jump-cut when far / blocked) | transit | cut
   bindings: { ...DEFAULT_BINDINGS },
 };
 class SettingsStore {
