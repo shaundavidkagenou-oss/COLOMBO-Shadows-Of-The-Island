@@ -226,11 +226,16 @@ function directionalLamp(mat, dir) {
 // Soft contact shadow / ambient occlusion under every vehicle: the dark patch real cars always sit on (without it a body
 // reads as hovering above the asphalt even when the tyres touch). One shared material + one unit quad, scaled per type.
 let contactGeo = null;
-function contactShadowMat() {
-  const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
-  const g = x.createRadialGradient(64, 64, 8, 64, 64, 64); g.addColorStop(0, 'rgba(0,0,0,0.9)'); g.addColorStop(0.55, 'rgba(0,0,0,0.62)'); g.addColorStop(1, 'rgba(0,0,0,0)');
-  x.fillStyle = g; x.fillRect(0, 0, 128, 128); const t = new THREE.CanvasTexture(c);
-  return new THREE.MeshBasicMaterial({ color: 0x000000, map: t, transparent: true, opacity: 0.72, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+function contactShadowMat() { // texture-free: per-vertex alpha (inner rectangle opaque, feathered ring fading to 0)
+  return new THREE.MeshBasicMaterial({ color: 0x000000, vertexColors: true, transparent: true, opacity: 0.8, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+}
+// unit footprint (±0.5): core ±0.5 × body, feather out to ±0.5 × (1 + f); RGBA colours, alpha 1 inside → 0 at the rim
+function contactShadowGeo() {
+  const ci = 0.5 / 1.42 * 1.0, cz = 0.5 / 1.22 * 1.0, o = 0.5; // core = body footprint inside the scaled quad
+  const P = [[-ci, -cz], [ci, -cz], [ci, cz], [-ci, cz], [-o, -o], [o, -o], [o, o], [-o, o]];
+  const pos = [], col = []; for (const [k, [x, z]] of P.entries()) { pos.push(x, 0, z); col.push(0, 0, 0, k < 4 ? 1 : 0); }
+  const idx = [0, 2, 1, 0, 3, 2]; for (let k = 0; k < 4; k++) { const a = k, b = (k + 1) % 4, A = a + 4, B = b + 4; idx.push(a, b, B, a, B, A); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 4)); g.setIndex(idx); g.computeVertexNormals(); return g;
 }
 export function vehicleMaterials() {
   if (!mats) {
@@ -980,9 +985,9 @@ export function createVehicleMesh(type, seed = 1) {
   // from the body side) so the opening door passes in front of the body and the way in runs behind the opened panel
   const dR = door ? door.len + 0.3 : 0;
   const entry = cached.busDoor ? { x: cached.busDoor[0], z: cached.busDoor[1], side: cached.busDoor[0] < 0 ? -1 : 1 } : door ? { x: side * (hw + dR * Math.sin(0.7)), z: cached.doors[0].hinge[1] - dR * Math.cos(0.7), side } : { x: side * (hw + (T.entry === 'tuk' ? 0.35 : T.entry === 'bike' ? 0.45 : 0.55)), z: ds.z, side };
-  { if (!contactGeo) { contactGeo = new THREE.PlaneGeometry(1, 1); contactGeo.rotateX(-Math.PI / 2); }
+  { if (!contactGeo) contactGeo = contactShadowGeo();
     const bikeish = base === 'bike' || base === 'tuktuk'; const cs = new THREE.Mesh(contactGeo, M.contact); cs.name = 'contactShadow';
-    cs.scale.set(T.wid * (bikeish ? 1.6 : 1.22), 1, T.len * 1.08); cs.position.y = 0.015; cs.raycast = () => {}; cs.castShadow = cs.receiveShadow = false; cs.renderOrder = 1;
+    cs.scale.set(T.wid * (bikeish ? 1.7 : 1.42), 1, T.len * 1.22); /* core (34/64 × 40/64 of the quad) ≈ body footprint, soft edge beyond */ cs.position.y = 0.015; cs.raycast = () => {}; cs.castShadow = cs.receiveShadow = false; cs.renderOrder = 1;
     cs.updateMatrix(); cs.matrixAutoUpdate = false; g.add(cs); }
   const rear = T.ambulance ? buildAmbRear() : null; if (rear) g.add(rear.group); // twin rear doors + lit cabin (opened by the medics)
   const stand = base === 'bike' ? standMeshes(M.vrim) : null; if (stand) g.add(stand); // animated side stand (Kickstand.js)

@@ -25,8 +25,10 @@ try {
       let veh = null; if (s.spawn) { g.debugCon.exec('spawn car ' + s.spawn); veh = g.traffic.parked[g.traffic.parked.length - 1]; }
       g.atmos.envTimer = 0; await g.stepSim(6, 0.05); g.player.camOverride = true;
       if (veh && s.camRel) { const m = veh.mesh; m.updateMatrixWorld(); const T = window.__THREE_V3 || m.position.constructor; const c = new T(...s.camRel).applyMatrix4(m.matrixWorld), l = new T(...(s.lookRel || [0, 1.5, 0])).applyMatrix4(m.matrixWorld); s.cam = [c.x, c.y, c.z]; s.look = [l.x, l.y, l.z]; }
+      if (s.js) (new Function('g', 'veh', s.js))(g, veh); // debug hook
       g.camera.position.set(...s.cam); g.camera.lookAt(...s.look); g.camera.updateMatrixWorld();
-      return { hour: g.atmos.hour, night: +g.atmos.night.toFixed(2), boards: F && F.boards.length, signs: F && F.signs.length, names: F && [...new Set(F.signs.map((q) => q.name))].join('|') }; }, s);
+      const csO = veh && veh.mesh.getObjectByName('contactShadow'); const csI = csO ? { vis: csO.visible, parentVis: veh.mesh.visible, wy: csO.getWorldPosition(new csO.position.constructor()).y, vy: veh.y, my: veh.mesh.position.y, mat: csO.material.type, op: csO.material.opacity, hasMap: !!csO.material.map } : (veh ? 'none' : null);
+      return { cs: csI, hour: g.atmos.hour, night: +g.atmos.night.toFixed(2), boards: F && F.boards.length, signs: F && F.signs.length, names: F && [...new Set(F.signs.map((q) => q.name))].join('|') }; }, s);
     await new Promise((r) => setTimeout(r, s.wait || 6000));
     await page.screenshot({ path: `${outDir}/${s.name}.png` }); console.log('shot', s.name, JSON.stringify(info), ((Date.now() - t0) / 1000).toFixed(0) + 's');
   }
