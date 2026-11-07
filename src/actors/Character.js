@@ -277,7 +277,8 @@ export function buildBodyGeometry(sp) {
   ];
   if (MH) { const a = tr[tr.length - 2], b = tr[tr.length - 1]; const open = sp.kit === 'openShirt'; const yTop = open ? NK.cutY + 0.034 : Math.max(NK.cutY + 0.03, 1.5 * s); const r0 = neckRing(yTop, 0.006); // collar wraps the real neck; its top sits above the level cut so no skin gap shows
     Object.assign(a, { rx: r0.rx + 0.004, rz: r0.rz + 0.004, cz: r0.c[2] }); Object.assign(b, { y: yTop / s, rx: r0.rx, rz: r0.rz, cz: r0.c[2], wgt: W2('chest', 'neck', 0.7), col: open ? C(sp.inner || '#e8e4da') : sp.collar ? top : skin }); // open shirt: the tee's crew neck hugs the neck inside the open collar (no tall shirt-coloured ring)
-    if (open) a.col = C(sp.inner || '#e8e4da');
+    // (ring `a` keeps the shirt colour: the tee shows only at the front of the opening — colFn below — so no white band
+    // wraps round the back of the shoulders under the collar)
     // every ring that reaches the neck band contains the real neck (the throat sits forward of the ragged opening and used to poke through)
     for (let i = 0; i < tr.length - 2; i++) if (tr[i].y * s > NK.cutY - 0.03) encloseNeck(tr[i], 0.012, Math.max(tr[i].y * s, NK.cutY + 0.01)); }
   if (NH) { const a = tr[tr.length - 2], b = tr[tr.length - 1], nk = NH.neck; // crowd head: the neck tube meets the head's own neck skirt (NpcHead.js) and tucks up inside it
@@ -308,7 +309,7 @@ export function buildBodyGeometry(sp) {
   const torso0 = sb.n;
   sb.loft(tr.map((r) => ({ c: [0, r.y * s, r.cz || 0], rx: r.rx, rz: r.rz, fz: r.fz, bust: r.bust, w: r.wgt, col: r.col })), HQ ? 40 : f ? 28 : 16, {
     capStart: true, surfN: HQ,
-    colFn: jacket ? (ri, a, r) => { const fr = Math.sin(a); return ri >= 2 + RO && ri <= 6 + RO && fr > 0.93 ? C(sp.inner || '#6b6f72') : r.col; } : sp.tie ? (ri, a, r) => (ri >= 3 + RO && ri <= 6 + RO && Math.sin(a) > 0.97 ? C(sp.tie) : r.col) : null,
+    colFn: jacket ? (ri, a, r) => { const fr = Math.sin(a); if (MH && sp.kit === 'openShirt' && ri === tr.length - 2 && fr > 0.35) return C(sp.inner || '#e8e4da'); return ri >= 2 + RO && ri <= 6 + RO && fr > 0.93 ? C(sp.inner || '#6b6f72') : r.col; } : sp.tie ? (ri, a, r) => (ri >= 3 + RO && ri <= 6 + RO && Math.sin(a) > 0.97 ? C(sp.tie) : r.col) : null,
   });
   const torso1 = sb.n;
   // --- legs

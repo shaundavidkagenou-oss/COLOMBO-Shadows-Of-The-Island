@@ -223,6 +223,15 @@ function directionalLamp(mat, dir) {
   };
   mat.customProgramCacheKey = () => 'lamp' + dir;
 }
+// Soft contact shadow / ambient occlusion under every vehicle: the dark patch real cars always sit on (without it a body
+// reads as hovering above the asphalt even when the tyres touch). One shared material + one unit quad, scaled per type.
+let contactGeo = null;
+function contactShadowMat() {
+  const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
+  const g = x.createRadialGradient(64, 64, 8, 64, 64, 64); g.addColorStop(0, 'rgba(0,0,0,0.9)'); g.addColorStop(0.55, 'rgba(0,0,0,0.62)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  x.fillStyle = g; x.fillRect(0, 0, 128, 128); const t = new THREE.CanvasTexture(c);
+  return new THREE.MeshBasicMaterial({ color: 0x000000, map: t, transparent: true, opacity: 0.72, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+}
 export function vehicleMaterials() {
   if (!mats) {
     mats = {
@@ -241,6 +250,7 @@ export function vehicleMaterials() {
       vlens: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.03, metalness: 0.0, transparent: true, opacity: 0.16, envMapIntensity: 1.6, depthWrite: false }), // clear lamp covers
       vrefl: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.12, metalness: 0.95, envMapIntensity: 1.4, side: THREE.DoubleSide }), // reflector bowls / rings
       vind: new THREE.MeshStandardMaterial({ color: 0xb06a10, emissive: 0xffa020, emissiveIntensity: 0.05, roughness: 0.25 }),
+      contact: contactShadowMat(),
       badge: badgeMaterial(), plate: plateMaterial(), route: routeMat(), police: policeDecalMat(), amb: ambDecalMat(),
       lbBlue: new THREE.MeshStandardMaterial({ color: 0x0c1e5a, emissive: 0x2a5cff, emissiveIntensity: 0, roughness: 0.2, transparent: true, opacity: 0.92 }),
       lbRed: new THREE.MeshStandardMaterial({ color: 0x5a0c0c, emissive: 0xff2020, emissiveIntensity: 0, roughness: 0.2, transparent: true, opacity: 0.92 }),
@@ -970,6 +980,10 @@ export function createVehicleMesh(type, seed = 1) {
   // from the body side) so the opening door passes in front of the body and the way in runs behind the opened panel
   const dR = door ? door.len + 0.3 : 0;
   const entry = cached.busDoor ? { x: cached.busDoor[0], z: cached.busDoor[1], side: cached.busDoor[0] < 0 ? -1 : 1 } : door ? { x: side * (hw + dR * Math.sin(0.7)), z: cached.doors[0].hinge[1] - dR * Math.cos(0.7), side } : { x: side * (hw + (T.entry === 'tuk' ? 0.35 : T.entry === 'bike' ? 0.45 : 0.55)), z: ds.z, side };
+  { if (!contactGeo) { contactGeo = new THREE.PlaneGeometry(1, 1); contactGeo.rotateX(-Math.PI / 2); }
+    const bikeish = base === 'bike' || base === 'tuktuk'; const cs = new THREE.Mesh(contactGeo, M.contact); cs.name = 'contactShadow';
+    cs.scale.set(T.wid * (bikeish ? 1.6 : 1.22), 1, T.len * 1.08); cs.position.y = 0.015; cs.raycast = () => {}; cs.castShadow = cs.receiveShadow = false; cs.renderOrder = 1;
+    cs.updateMatrix(); cs.matrixAutoUpdate = false; g.add(cs); }
   const rear = T.ambulance ? buildAmbRear() : null; if (rear) g.add(rear.group); // twin rear doors + lit cabin (opened by the medics)
   const stand = base === 'bike' ? standMeshes(M.vrim) : null; if (stand) g.add(stand); // animated side stand (Kickstand.js)
   g.userData = { exhaust: cached.exhaust, doors, bake: doors.length ? { ranges: cached.doorRanges, meshes: bodyMeshes, shared, mats, pivotGeos: (i) => slicePivotGeos(cached, i) } : null, stand, detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons, rear, cabStep: cached.cabStep };
