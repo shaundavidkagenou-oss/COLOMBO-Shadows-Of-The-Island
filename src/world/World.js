@@ -2,10 +2,11 @@
 import * as THREE from 'three';
 import { MultiBuilder, SliceBuild, meshFor, FOLIAGE } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
+import { RangeBatch, rangesFor, disposeMesh } from '../gfx/CellBatch.js';
 import { GroundDetail } from './GroundDetail.js';
 import { generatePlan, plan, NCX, NCZ, CHUNK, chunkCenter, refitTreeCrowns, landmarkTreeBoxes } from './CityPlan.js';
 import { buildGround } from './GroundBuilder.js';
-import { buildBase, buildDetail, buildWall, buildWindows, windowTasks, frontColumns } from './BuildingGen.js';
+import { buildBase, buildDetail, buildWall, windowTasks, frontColumns } from './BuildingGen.js';
 import { buildLandmarks } from './Landmarks.js';
 import { buildPropGeometries, buildPropsForChunk, updateSignals, initGlowTexture } from './Props.js';
 import { buildTreeGeometries, windUniform } from './Vegetation.js';
@@ -274,18 +275,25 @@ export class World {
   stepJob(J, budgetMs) {
     if (!J) return true; const t0 = performance.now(); const bs = plan.byChunk[J.c.idx].buildings; const det = J.kind === 'detail';
     while (J.i < bs.length || (J.tasks && J.tasks.length)) { // generate: one building (detail) / one facade (windows) at a time
-      if (det) buildDetail(bs[J.i++], J.B[0]); else { if (!J.tasks || !J.tasks.length) J.tasks = windowTasks(bs[J.i++], J.B[0], J.B[1]); const t = J.tasks.shift(); if (t) t(); }
+      if (det) { this.markJob(J); buildDetail(bs[J.i++], J.B[0]); } else { if (!J.tasks || !J.tasks.length) { this.markJob(J); J.tasks = windowTasks(bs[J.i++], J.B[0], J.B[1]); } const t = J.tasks.shift(); if (t) t(); }
       if (performance.now() - t0 > budgetMs) return false; }
-    if (!J.q) { J.q = []; J.B.forEach((mb, k) => { for (const name of mb.b.keys()) J.q.push([k, name]); }); }
-    while (J.q.length || J.sb) { // merge: one material at a time, large ones in slices
+    if (!J.q) { this.markJob(J); J.q = []; J.B.forEach((mb, k) => { for (const name of mb.b.keys()) J.q.push([k, name]); }); }
+    while (J.q.length || J.sb || J.rb) { // merge: one material at a time, large ones in slices
+      if (J.rb) { if (!J.rb.step(t0, budgetMs)) return false; const B = J.rb.mesh, o = J.rbOpts; J.rb = null; B.name = J.sn; B.castShadow = o.cast; B.receiveShadow = o.receive; B.matrixAutoUpdate = false; B.updateMatrix(); J.meshes.push(B); if ((J.q.length || J.sb) && performance.now() - t0 > budgetMs) return false; continue; }
       if (!J.sb) { const [k, name] = J.q.shift(); J.sb = new SliceBuild(J.B[k].b.get(name)); J.sk = k; J.sn = name; }
       if (!J.sb.step(t0, budgetMs)) return false;
       const g = J.sb.geometry(), k = J.sk; J.sb = null;
-      if (g) { const m = meshFor(J.sn, g, MAT, det ? { cast: true, receive: true } : k === 0 ? { cast: false, receive: true } : { cast: false, receive: false }); if (m) { if (!det && k === 1) m.renderOrder = 2; J.meshes.push(m); } }
+      if (g) { const opts = det ? { cast: true, receive: true } : k === 0 ? { cast: false, receive: true } : { cast: false, receive: false };
+        // opaque detail / window joinery: one BatchedMesh instance per building (per-building frustum culling, still one draw) — see CellBatch.RangeBatch
+        const mat = MAT[J.sn], ranges = (det || k === 0) && mat && !mat.isShaderMaterial && !FOLIAGE.has(J.sn) && J.sn !== 'pool' && J.sn !== 'lampHead' ? rangesFor(J.marks, J.sn) : null;
+        if (ranges && ranges.length >= 3 && g.index.count >= 18000) { J.rb = new RangeBatch(g, ranges, mat); J.rbOpts = opts; if (performance.now() - t0 > budgetMs) return false; continue; }
+        const m = meshFor(J.sn, g, MAT, opts); if (m) { if (!det && k === 1) m.renderOrder = 2; J.meshes.push(m); } }
       if ((J.q.length || J.sb) && performance.now() - t0 > budgetMs) return false; }
-    const c = J.c; if (det ? c.detail : c.win) { for (const m of J.meshes) m.geometry.dispose(); return true; } // built meanwhile by warm()
-    if (det) this.finishDetail(c, J.meshes, true); else this.finishWindows(c, J.meshes, true); return true;
+    const c = J.c; if (det ? c.detail : c.win) { for (const m of J.meshes) disposeMesh(m); return true; } // built meanwhile by warm()
+    if (det) this.finishDetail(c, J.meshes, !J.sync); else this.finishWindows(c, J.meshes, !J.sync); return true;
   }
+  // per-building range marks: each material builder's vertex / index count before every building (+ one at the end)
+  markJob(J) { const mb = J.B[0]; (J.marks || (J.marks = [])).push(new Map([...mb.b].map(([n, b]) => [n, [b.pos.length / 3, b.idx.length]]))); }
   finishWindows(c, meshes, staged = false) { const g = new THREE.Group(); g.name = 'windows' + c.idx; for (const m of meshes) g.add(m); c.win = g; c.group.add(g); refreshStatic(c.group); if (staged) this.stage(meshes); }
   // streamed meshes appear over the next frames within a vertex budget: the GPU uploads a mesh's buffers the first time it is
   // drawn, and a whole chunk's merged materials (several MB) arriving in one frame was a visible hitch while driving
@@ -297,23 +305,18 @@ export class World {
   }
   buildDetailFor(c) {
     if (this.job && this.job.c === c) { this.stepDetailJob(Infinity); if (c.detail) return; }
-    const ch = plan.byChunk[c.idx]; const mb = new MultiBuilder();
-    for (const b of ch.buildings) buildDetail(b, mb);
-    this.finishDetail(c, mb.toMeshes(MAT, { cast: true, receive: true }));
+    const J = this.newJob(c, 'detail'); J.sync = true; this.stepJob(J, Infinity); // one-shot (warm / loading): the same job code, unbudgeted
   }
   // near tier: 3D window joinery + reflective panes (see BuildingGen.buildWindows)
   buildWindowsFor(c) {
     if (this.wjob && this.wjob.c === c) { this.stepWinJob(Infinity); if (c.win) return; }
-    const ch = plan.byChunk[c.idx]; const solid = new MultiBuilder(), glass = new MultiBuilder();
-    for (const b of ch.buildings) buildWindows(b, solid, glass);
-    const meshes = [...solid.toMeshes(MAT, { cast: false, receive: true })]; for (const m of glass.toMeshes(MAT, { cast: false, receive: false })) { m.renderOrder = 2; meshes.push(m); }
-    this.finishWindows(c, meshes);
+    const J = this.newJob(c, 'win'); J.sync = true; this.stepJob(J, Infinity);
   }
-  disposeWindows(c) { c.group.remove(c.win); c.win.traverse((m) => m.geometry && m.geometry.dispose()); c.win = null; }
+  disposeWindows(c) { c.group.remove(c.win); c.win.traverse((m) => m.geometry && disposeMesh(m)); c.win = null; }
   // after a long jump (teleport / fast travel) release streamed chunk geometry well outside the new streaming radii at once,
   // instead of keeping it until the 630 m hysteresis — keeps memory flat when jumping across the city
   trim(x, z) { let n = 0; for (const c of this.chunks) { const d = Math.max(0, Math.hypot(c.cx - x, c.cz - z) - CHUNK * 0.7); if (c.detail && d > this.detailRadius + 60) { this.disposeDetail(c); n++; } if (c.win && d > this.windowRadius + 40) { this.disposeWindows(c); n++; } } return n; }
-  disposeDetail(c) { c.group.remove(c.detail); c.detail.traverse((m) => m.geometry && m.geometry.dispose()); c.detail = null; }
+  disposeDetail(c) { c.group.remove(c.detail); c.detail.traverse((m) => m.geometry && disposeMesh(m)); c.detail = null; }
   // Force detail around a point (used before cinematics / after teleport)
   warm(x, z) { for (const c of this.chunks) { const d = Math.hypot(c.cx - x, c.cz - z) - CHUNK * 0.7; if (!c.detail && d < this.detailRadius) this.buildDetailFor(c); if (!c.win && d < this.windowRadius) this.buildWindowsFor(c); } }
   // same as warm(), one chunk per frame with progress (used by the enter-game loading screen)

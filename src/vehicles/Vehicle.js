@@ -1,4 +1,5 @@
 // Vehicle entity: mesh + arcade physics (player) or kinematic path following (AI, see Traffic.js).
+import { bloomHot } from '../gfx/BloomHot.js';
 import * as THREE from 'three';
 import { createVehicleMesh, VTYPES } from './VehicleModels.js';
 import { setAmbRear } from './AmbulanceKit.js';
@@ -103,7 +104,7 @@ export class Vehicle {
   get pos() { return { x: this.x, z: this.z }; }
   // police light bar: alternating blue/red while responding, dark otherwise (no flashing on parked or patrolling units)
   rearDoors(k) { const r = this.mesh.userData.rear; if (r) setAmbRear(r, Math.max(0, Math.min(1, k))); } // ambulance twin rear doors (0 shut .. 1 open)
-  beacons(on, t = 0) { const b = this.mesh.userData.beacons; if (!b) return; this.beaconsOn = on; const ph = (t * 2.4) % 1, k = (t * 9.6) % 1 < 0.5; b.blue.emissiveIntensity = on ? (ph < 0.5 && k ? 7 : 0.15) : 0; b.red.emissiveIntensity = on ? (ph >= 0.5 && k ? 7 : 0.15) : 0; }
+  beacons(on, t = 0) { const b = this.mesh.userData.beacons; if (!b) return; this.beaconsOn = on; if (on) bloomHot(0.3); const ph = (t * 2.4) % 1, k = (t * 9.6) % 1 < 0.5; b.blue.emissiveIntensity = on ? (ph < 0.5 && k ? 7 : 0.15) : 0; b.red.emissiveIntensity = on ? (ph >= 0.5 && k ? 7 : 0.15) : 0; }
   forward() { return [Math.sin(this.yaw), Math.cos(this.yaw)]; }
   place(x, z, yaw) { this.x = x; this.z = z; this.yaw = yaw; this.y = L.groundY(x, z); this.sync(0); }
   // circles along the length used for collision

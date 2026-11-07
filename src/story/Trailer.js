@@ -7,6 +7,7 @@
 // No lights or materials are created while it plays (that would recompile every shader mid-trailer): every actor is
 // built behind the loading screen, before the shader compile; muzzle flashes, fire light and the police light-bar spill
 // reuse the game's existing light pools.
+import { bloomHot } from '../gfx/BloomHot.js';
 import * as THREE from 'three';
 import { buildPlan, shotAt, blackAt, posesAt, editTimeOf, LENGTH } from './TrailerPlan.js';
 import { TrailerScore } from './TrailerScore.js';
@@ -262,7 +263,7 @@ export class TrailerRuntime {
     const gy = L.groundY(tg.x, tg.z); const aim = new THREE.Vector3(tg.cx ?? tg.x, gy + (tg.cy ?? 0.85), tg.cz ?? tg.z);
     const spread = s.target === 'hero' ? 1.6 : 0.45; aim.x += (Math.random() - 0.5) * spread; aim.y += (Math.random() - 0.3) * spread * 0.5; aim.z += (Math.random() - 0.5) * spread;
     const dir = aim.clone().sub(mz).normalize(); const far = aim.clone().addScaledVector(dir, s.target === 'hero' && Math.random() < 0.6 ? 25 : 0); // misses fly on past a moving car
-    const ud = o.rifle.userData; if (ud.flash) { ud.flash.visible = true; ud.flash.rotation.z = Math.random() * 3; ud.flash.scale.setScalar(0.85 + Math.random() * 0.35); o.rp.flashT = 0.05; } o.rp.kick = 1;
+    const ud = o.rifle.userData; if (ud.flash) { bloomHot(); ud.flash.visible = true; ud.flash.rotation.z = Math.random() * 3; ud.flash.scale.setScalar(0.85 + Math.random() * 0.35); o.rp.flashT = 0.05; } o.rp.kick = 1;
     if (W) { W.tracer(mz, far, POLICE_T56); if (far.distanceToSquared(aim) < 0.01) W.sparks(aim, dir); W.flashLight.position.copy(mz); W.flashLight.intensity = 6; W.flashT = 0.05; }
     const [gn, pan] = Audio.spatial ? Audio.spatial(mz.x, mz.z, 60) : [0.5, 0]; const d = this.g.camera.position.distanceTo(mz); this.score.gun(Math.max(0.12, gn), pan, this.rate, d);
     if (far.distanceToSquared(aim) < 0.01) { const [g2, p2] = Audio.spatial ? Audio.spatial(aim.x, aim.z, 30) : [0.3, 0]; this.score.ping(g2, p2); }
