@@ -5,6 +5,7 @@ import { RNG } from '../core/rng.js';
 import { LAND_Y } from './Layout.js';
 import { FLOOR_H, GROUND_H } from './CityPlan.js';
 import { dressFort, fortCrown, fortHeritage } from './FortStyle.js';
+import { dressDistrict } from './DistrictStyle.js';
 import { SIGN_COLS, SIGN_ROWS, SIGNS, FACADE_WINDOWS } from '../gfx/Textures.js';
 
 const BAY = 3.2;
@@ -192,6 +193,7 @@ export function buildDetail(b, multi) {
     }
   }
   if (b.district === 'fort') dressFort(b, multi, { sd, front, paint }); // Colombo Fort benchmark district relief
+  else dressDistrict(b, multi, { sd, front, paint, fk: facKey(b.style, b) }); // the rest of the city: vernacular relief per facade type (DistrictStyle.js)
   if (b.colonnade) { // Fort arcades
     const s = front, n = Math.max(2, Math.floor(s.len / 4)); const r = rotOf(s);
     for (const [px, pz] of colonnadeColumns(b)) conc.cylinder(px, y0, pz, 0.32, 0.28, GROUND_H, 10, { col: paint, caps: false }); // solid (World)
@@ -265,7 +267,11 @@ export function buildDetail(b, multi) {
     const n = rng.int(0, Math.min(4, b.floors));
     for (let k = 0; k < n; k++) {
       const p = along(s, rng.range(0.15, 0.85)); const yy = y0 + rng.range(3, Math.max(3.2, b.h - 1));
-      multi.get('paint').box(p[0] + s.n[0] * 0.2, yy, p[1] + s.n[1] * 0.2, 0.85, 0.6, 0.35, { col: [0.9, 0.9, 0.88], rotY: rotOf(s) });
+      const r = rotOf(s), tx = -s.n[1], tz = s.n[0], pm = multi.get('paint'), mt = multi.get('metal'); // split-AC condenser: casing, fan grille + hub, wall brackets
+      pm.box(p[0] + s.n[0] * 0.22, yy, p[1] + s.n[1] * 0.22, 0.85, 0.6, 0.32, { col: [0.9, 0.9, 0.88], rotY: r });
+      const fx = p[0] + s.n[0] * 0.385 - tx * 0.12, fz = p[1] + s.n[1] * 0.385 - tz * 0.12;
+      { const h = 0.23, ax = tx * h, az = tz * h, ox = fx, oz = fz; mt.quad([ox + ax, yy - h, oz + az], [ox - ax, yy - h, oz - az], [ox - ax, yy + h, oz - az], [ox + ax, yy + h, oz + az], [0, 0, 1, 1], [0.16, 0.16, 0.17]); } // fan grille (one quad)
+      mt.box(p[0] + s.n[0] * 0.22, yy - 0.33, p[1] + s.n[1] * 0.22, 0.8, 0.04, 0.4, { col: [0.3, 0.3, 0.3], rotY: r, top: false }); // wall bracket shelf
     }
   }
   // roof clutter: water tanks, stair hut, dish
@@ -274,8 +280,13 @@ export function buildDetail(b, multi) {
       const n = rng.int(1, 3);
       for (let k = 0; k < n; k++) {
         const tx = rng.range(b.x0 + 1.2, b.x1 - 1.2), tz = rng.range(b.z0 + 1.2, b.z1 - 1.2);
-        multi.get('metal').box(tx, yTop + 0.5, tz, 1.3, 1.0, 1.3, { col: [0.25, 0.25, 0.25] });
-        multi.get('paint').cylinder(tx, yTop + 1.0, tz, 0.62, 0.6, 1.25, 12, { col: col(rng.pick(TANK)) });
+        // steel stand (4 angle legs + platform) carrying a ribbed polyethylene tank with a screw lid (kept lean: thousands of roofs)
+        const mt = multi.get('metal'), pm = multi.get('paint'), sc = [0.24, 0.24, 0.25], tc = col(rng.pick(TANK)), sh = rng.range(0.7, 1.4);
+        for (const [ox, oz] of [[-0.58, -0.58], [0.58, -0.58], [-0.58, 0.58], [0.58, 0.58]]) mt.box(tx + ox, yTop + sh / 2, tz + oz, 0.06, sh, 0.06, { col: sc, top: false, bottom: false });
+        mt.box(tx, yTop + sh, tz, 1.3, 0.06, 1.3, { col: sc });
+        pm.cylinder(tx, yTop + sh + 0.03, tz, 0.6, 0.55, 1.25, 12, { col: tc });
+        pm.cylinder(tx, yTop + sh + 0.62, tz, 0.6, 0.6, 0.06, 12, { col: tc.map((v) => v * 0.85), caps: false }); // moulded rib
+        pm.cylinder(tx, yTop + sh + 1.28, tz, 0.2, 0.2, 0.07, 8, { col: tc.map((v) => v * 0.8) }); // lid
       }
     }
     if (b.floors >= 3 && (b.x1 - b.x0) > 6 && (b.z1 - b.z0) > 6) conc.box(b.x0 + 2, yTop + 1.3, b.z0 + 2, 2.6, 2.6, 2.6, { col: darker, uvScale: 3 });
@@ -349,6 +360,7 @@ export function buildWall(w, multi) {
 //    shophouses. Only openings up to ~10 floors are dressed — that is what is seen up close; higher floors keep the
 //    texture + interior mapping, which already reads correctly at that distance.
 const WIN_MAX_Y = 34;
+const HOOD_KEYS = new Set(['f_shop', 'f_shop2', 'f_apartment', 'f_apartment2', 'f_villa', 'f_office2']);
 function dressFacade(solid, glass, s, y0, y1, uOff, vStart, key, paint, cols = null) { // cols = [iu from, iu to): a slice of the facade (streaming)
   const wins = FACADE_WINDOWS[key]; if (!wins || !wins.length || s.len < 1.5) return 0;
   const TW = 4 * BAY, TH = 2 * FLOOR_H; const r = Math.atan2(s.n[0], s.n[1]);
@@ -358,6 +370,7 @@ function dressFacade(solid, glass, s, y0, y1, uOff, vStart, key, paint, cols = n
   const surr = paint.map((v) => v * 0.9), sillC = paint.map((v) => v * 0.97);
   const conc = solid.get('concrete'), join = solid.get('paint'), met = solid.get('metal'), gl = glass.get('winGlass');
   const grillC = [0.06, 0.06, 0.065]; let n = 0;
+  const hoods = HOOD_KEYS.has(key) && ((Math.imul(Math.round(s.a[0] * 7 + s.a[1] * 13), 2654435761) >>> 0) % 10) < 7; // ~70 % of such walls
   for (let iu = cols ? Math.max(iu0, cols[0]) : iu0, iuE = cols ? Math.min(iu1, cols[1]) : iu1; iu < iuE; iu++) for (let iv = iv0; iv < iv1; iv++) for (const w of wins) {
     const d0 = (iu + w.u0 - uOff) * TW, d1 = (iu + w.u1 - uOff) * TW; if (d0 < 0.3 || d1 > s.len - 0.3) continue;
     const ya = vStart + (iv + w.v0) * TH, yb = vStart + (iv + w.v1) * TH; if (ya < y0 + 0.08 || yb > top - 0.08) continue;
@@ -374,6 +387,11 @@ function dressFacade(solid, glass, s, y0, y1, uOff, vStart, key, paint, cols = n
     else B(conc, 0, yb + e / 2, dep / 2, W + 2 * e, e, dep, surr, { bottom: true });
     // sill: deeper and wider, with a drip edge underneath
     B(conc, 0, ya - 0.045, dep / 2 + 0.05, W + 2 * e + 0.16, 0.09, dep + 0.1, sillC, { bottom: true });
+    // Colombo window hood ("sunshade"): a thin cast slab over the opening on two small brackets, on most shophouse and
+    // apartment walls — the deep shadow line it throws is what makes these streets read as real concrete buildings
+    if (hoods && !w.arch && w.kind !== 'door') { const hy = yb + e + 0.12, hd = 0.42;
+      B(conc, 0, hy, hd / 2 + 0.02, W + 0.42, 0.07, hd, surr, { bottom: true });
+      for (const sg of [-1, 1]) B(conc, sg * (W / 2 + 0.12), hy - 0.13, hd * 0.32, 0.07, 0.2, hd * 0.55, surr, { bottom: true }); }
     const gTop = w.arch ? spring : yb;
     if (w.kind === 'shutter') { // louvred timber shutters: angled slats catch the light like real louvres
       const sc = col(w.shut || '#3a6b52'), sd = sc.map((v) => v * 0.55); const step = 0.1;
