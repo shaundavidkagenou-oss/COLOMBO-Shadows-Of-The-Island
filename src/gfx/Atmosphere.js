@@ -12,7 +12,7 @@ const cloudVert = `varying vec3 vDir; void main(){ vDir = normalize((modelMatrix
 #endif
  }`; // on the far plane (reversed-Z: far = 0)
 const cloudFrag = `
-  uniform float uTime, uCover, uDark, uNight; uniform vec3 uSunDir, uSunCol, uSkyCol;
+  uniform float uTime, uCover, uDark, uNight; uniform vec3 uSunDir, uSunCol, uSkyCol, uGlow, uMoonDir;
   varying vec3 vDir;
   float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
   float n(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f); return mix(mix(h(i),h(i+vec2(1,0)),f.x), mix(h(i+vec2(0,1)),h(i+vec2(1,1)),f.x), f.y); }
@@ -30,7 +30,10 @@ const cloudFrag = `
     vec3 shade = mix(uSkyCol * 0.7, vec3(0.32, 0.34, 0.38), uDark);
     vec3 col = mix(lit, shade, clamp(base * 1.1 * uDark + (1.0 - detail) * 0.3, 0.0, 1.0));
     col += uSunCol * sunAmt * 0.8 * (1.0 - uDark);
-    col *= mix(1.0, 0.08, uNight);
+    // night: moonlit tops (cool grey-blue) and undersides lit orange by the city's lights (strongest low over the horizon)
+    float moonAmt = pow(max(dot(normalize(vDir), uMoonDir), 0.0), 4.0);
+    vec3 ncol = vec3(0.05, 0.058, 0.08) * (0.55 + 0.45 * detail) * (1.0 - 0.45 * uDark) + uGlow * (0.9 + 1.6 * (1.0 - smoothstep(0.0, 0.5, vDir.y))) * (0.6 + 0.4 * base) + vec3(0.09, 0.1, 0.13) * moonAmt * (1.0 - detail) * (1.0 - uDark);
+    col = mix(col, ncol, uNight);
     gl_FragColor = vec4(col, d * horizon * mix(0.95, 1.0, uDark));
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -52,10 +55,16 @@ export class Atmosphere {
     this.weatherTimer = 240; this.drawDist = 1400; this.rng = new RNG(99);
     // sky
     this.sky = new Sky(); this.sky.scale.setScalar(18000); scene.add(this.sky);
-    { const m = this.sky.material; m.uniforms.uSkyGain = { value: 1 }; m.vertexShader = m.vertexShader.replace('gl_Position.z = gl_Position.w; // set z to camera.far', '#ifdef USE_REVERSED_DEPTH_BUFFER\n gl_Position.z = 0.0;\n#else\n gl_Position.z = gl_Position.w;\n#endif'); m.fragmentShader = 'uniform float uSkyGain;\n' + m.fragmentShader.replace('gl_FragColor = vec4( texColor, 1.0 );', 'gl_FragColor = vec4( texColor * uSkyGain, 1.0 );'); m.needsUpdate = true; } // midday Preetham sky is far hotter than the city it lights: scale it so the horizon isn't a white wall
+    { const m = this.sky.material; m.uniforms.uSkyGain = { value: 1 }; m.vertexShader = m.vertexShader.replace('gl_Position.z = gl_Position.w; // set z to camera.far', '#ifdef USE_REVERSED_DEPTH_BUFFER\n gl_Position.z = 0.0;\n#else\n gl_Position.z = gl_Position.w;\n#endif'); m.uniforms.uNightK = { value: 0 }; m.uniforms.uNZen = { value: new THREE.Color(0.0035, 0.0065, 0.018) }; m.uniforms.uNHor = { value: new THREE.Color(0.016, 0.02, 0.034) }; m.uniforms.uGlow = { value: new THREE.Color(0.05, 0.028, 0.014) }; m.uniforms.uMoonDir = { value: new THREE.Vector3(0, 1, 0) };
+      /* night sky (the Preetham model is black once the sun has set): navy zenith, a lighter horizon band, the warm sodium/LED light
+         pollution dome over the city (strongest at the horizon) and the moon's scattering glow; also feeds the PMREM environment */
+      m.fragmentShader = 'uniform float uSkyGain; uniform float uNightK; uniform vec3 uNZen, uNHor, uGlow, uMoonDir;\n' + m.fragmentShader.replace('gl_FragColor = vec4( texColor, 1.0 );', `{ float ey = clamp( direction.y, 0.0, 1.0 ); vec3 nsky = mix( uNHor, uNZen, pow( ey, 0.42 ) );
+        nsky += uGlow * ( exp( -ey * 7.0 ) * 0.85 + exp( -ey * 26.0 ) * 0.6 ); float md = max( dot( direction, uMoonDir ), 0.0 ); nsky += vec3( 0.55, 0.6, 0.75 ) * ( 0.012 * pow( md, 12.0 ) + 0.05 * pow( md, 300.0 ) );
+        if ( direction.y < 0.0 ) nsky = uNHor * 0.8 + uGlow * 0.9;
+        gl_FragColor = vec4( texColor * uSkyGain + nsky * uNightK, 1.0 ); }`); m.needsUpdate = true; } // midday Preetham sky is far hotter than the city it lights: scale it so the horizon isn't a white wall
     const u = this.sky.material.uniforms; u.turbidity.value = 6; u.rayleigh.value = 1.6; u.mieCoefficient.value = 0.004; u.mieDirectionalG.value = 0.82;
     // clouds
-    this.cloudMat = new THREE.ShaderMaterial({ uniforms: { uTime: { value: 0 }, uCover: { value: 0.3 }, uDark: { value: 0 }, uNight: { value: 0 }, uSunDir: { value: new THREE.Vector3() }, uSunCol: { value: new THREE.Color() }, uSkyCol: { value: new THREE.Color() } }, vertexShader: cloudVert, fragmentShader: cloudFrag, transparent: true, depthWrite: false, side: THREE.BackSide });
+    this.cloudMat = new THREE.ShaderMaterial({ uniforms: { uTime: { value: 0 }, uCover: { value: 0.3 }, uDark: { value: 0 }, uNight: { value: 0 }, uSunDir: { value: new THREE.Vector3() }, uSunCol: { value: new THREE.Color() }, uSkyCol: { value: new THREE.Color() }, uGlow: { value: new THREE.Color(0.05, 0.028, 0.014) }, uMoonDir: { value: new THREE.Vector3(0, 1, 0) } }, vertexShader: cloudVert, fragmentShader: cloudFrag, transparent: true, depthWrite: false, side: THREE.BackSide });
     this.clouds = new THREE.Mesh(new THREE.SphereGeometry(9000, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2), this.cloudMat); this.clouds.renderOrder = -1; this.clouds.frustumCulled = false; scene.add(this.clouds);
     // stars
     // A full celestial sphere: magnitudes follow the real star-count law (many faint, few bright), colours from blue-white to
@@ -154,7 +163,7 @@ export class Atmosphere {
     const tgt = WEATHER[this.target]; const k = 1 - Math.exp(-dt * 0.08);
     for (const key of Object.keys(tgt)) this.w[key] = lerp(this.w[key], tgt[key], k);
     if (Math.abs(this.w.cloud - tgt.cloud) < 0.02) this.weather = this.target;
-    this.wet = clamp(this.wet + (this.w.rain > 0.2 ? dt * 0.05 : -dt * 0.006), 0, 1);
+    this.wet = clamp(this.wet + (this.w.rain > 0.2 ? dt * 0.05 : -dt * 0.0025), 0, 1); // roads stay wet a good while after a shower
     // sun & moon
     const th = ((this.hour - 6.15) / (18.3 - 6.15)) * Math.PI;
     this.sunDir.set(Math.cos(th), Math.sin(th) * 0.97, 0.22).normalize();
@@ -169,19 +178,19 @@ export class Atmosphere {
     this.sun.color.copy(sunCol);
     this.sun.intensity = Math.max(0, smoothstep(-0.02, 0.12, elev)) * 2.7 * cloudDim;
     // moon light at night (kept bright enough for readable night gameplay)
-    if (elev < 0) { this.sun.position.copy(focus).addScaledVector(new THREE.Vector3(-0.4, 0.8, -0.3).normalize(), 300); this.sun.color.setRGB(0.6, 0.7, 1.0); this.sun.intensity = 0.32 * this.night * (1 - this.w.cloud * 0.6); }
+    if (elev < 0) { this.sun.position.copy(focus).addScaledVector(new THREE.Vector3(-0.4, 0.8, -0.3).normalize(), 300); this.sun.color.setRGB(0.62, 0.72, 1.0); this.sun.intensity = 0.78 * this.night * (1 - this.w.cloud * 0.45); } // moonlight: readable silhouettes and road surface, still clearly night
     else this.sun.position.copy(focus).addScaledVector(this.sunDir, 300);
     this.sun.target.position.copy(focus); this.sun.target.updateMatrixWorld();
     // snap shadow camera to texel grid to avoid shimmering
     const skyTop = new THREE.Color().setRGB(0.28, 0.48, 0.82).lerp(new THREE.Color(0.32, 0.36, 0.42), this.w.dark).lerp(new THREE.Color(0.02, 0.04, 0.1), this.night);
     const horizon = new THREE.Color().setRGB(0.75, 0.82, 0.88).lerp(new THREE.Color(1.0, 0.62, 0.38), golden * (1 - this.night) * (1 - this.w.dark)).lerp(new THREE.Color(0.5, 0.52, 0.55), this.w.dark * 0.7).lerp(new THREE.Color(0.06, 0.08, 0.14), this.night);
-    this.hemi.color.copy(skyTop).lerp(new THREE.Color(1, 1, 1), 0.35); this.hemi.groundColor.setRGB(0.42, 0.36, 0.3).lerp(new THREE.Color(0.08, 0.07, 0.08), this.night);
-    this.hemi.intensity = lerp(0.55, 0.42, golden) * (1 + this.w.cloud * 0.5) * (1 - this.night * 0.55) + 0.12;
-    this.ambient.intensity = this.night * 0.55; this.ambient.color.setRGB(0.35, 0.38, 0.55);
+    this.hemi.color.copy(skyTop).lerp(new THREE.Color(1, 1, 1), 0.35); this.hemi.groundColor.setRGB(0.42, 0.36, 0.3).lerp(new THREE.Color(0.15, 0.115, 0.09), this.night); /* night bounce: warm street light off the roads */
+    this.hemi.intensity = lerp(0.55, 0.42, golden) * (1 + this.w.cloud * 0.5) * (1 - this.night * 0.55) + 0.12 + this.night * 0.17;
+    this.ambient.intensity = this.night * 0.85; this.ambient.color.setRGB(0.34, 0.37, 0.55);
     // fog
-    const fogCol = horizon.clone().lerp(skyTop, 0.35).multiplyScalar(0.8); /* aerial perspective: bluish, never white */ this.scene.fog.color.copy(fogCol);
+    const fogCol = horizon.clone().lerp(skyTop, 0.35).multiplyScalar(0.8); /* aerial perspective: bluish, never white */ fogCol.lerp(new THREE.Color(0.042, 0.04, 0.052).multiplyScalar(1 + this.w.cloud * 0.4), this.night); /* night: the city's light haze, matching the sky's horizon glow */ this.scene.fog.color.copy(fogCol);
     this.scene.fog.near = this.drawDist * 0.35 * this.w.fog; this.scene.fog.far = this.drawDist * 1.5 * this.w.fog * (1 - this.night * 0.2);
-    this.renderer.toneMappingExposure = lerp(0.82, 1.0, golden) * (1 + this.night * 0.22) * (1 + this.w.dark * 0.12);
+    this.renderer.toneMappingExposure = lerp(0.82, 1.0, golden) * (1 + this.night * 0.3) * (1 + this.w.dark * 0.12) * lerp(1, this.nightBoost ?? 1, this.night); // Settings → Night brightness
     // clouds
     const cu = this.cloudMat.uniforms; cu.uTime.value += dt * (0.5 + this.w.wind); cu.uCover.value = this.w.cloud; cu.uDark.value = this.w.dark; cu.uNight.value = this.night;
     cu.uSunDir.value.copy(elev > -0.1 ? this.sunDir : new THREE.Vector3(0, 1, 0)); cu.uSunCol.value.copy(sunCol); cu.uSkyCol.value.copy(horizon);
@@ -189,6 +198,8 @@ export class Atmosphere {
     { const su = this.starMat.uniforms; su.uOpacity.value = this.night * Math.pow(1 - this.w.cloud, 1.5) * (1 - this.w.dark * 0.8); su.uTime.value += dt; su.uPix.value = this.renderer.getPixelRatio ? this.renderer.getPixelRatio() : 1;
       this.stars.quaternion.setFromAxisAngle(this.starPole, -((this.day || 0) * 0.0172 + this.hour / 24) * Math.PI * 2); } // sidereal turn through the night
     const moonDir = new THREE.Vector3(-this.sunDir.x, Math.max(0.25, -this.sunDir.y), -0.3).normalize();
+    { const su = this.sky.material.uniforms, glow = 1 + this.w.cloud * 0.9; su.uNightK.value = this.night; su.uMoonDir.value.copy(moonDir); su.uGlow.value.setRGB(0.042 * glow, 0.03 * glow, 0.022 * glow);
+      cu.uMoonDir.value.copy(moonDir); cu.uGlow.value.copy(su.uGlow.value).multiplyScalar(0.9); }
     this.moon.position.copy(camera.position).addScaledVector(moonDir, 9000); this.moon.lookAt(camera.position); this.moon.material.opacity = this.night * (1 - this.w.cloud * 0.8);
     this.moonHalo.position.copy(camera.position).addScaledVector(moonDir, 9010); this.moonHalo.lookAt(camera.position); this.moonHalo.material.opacity = this.night * (1 - this.w.cloud * 0.6) * 0.7;
     this.sky.visible = true;

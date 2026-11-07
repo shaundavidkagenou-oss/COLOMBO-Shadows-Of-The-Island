@@ -45,7 +45,11 @@ const FRAG_BODY = /* glsl */`
   vec2 nq = floor(Nw.xz * 2.0 + 0.5);                 // facade orientation, exact (-1/0/1) for the axis-aligned walls
   vec2 wq = floor((vIWPos.xz - nq * 0.8) / 97.0);      // block id from a point 0.8 m inside the wall: never flips across the face
   { // painted window lights (non-glazed openings, distant LOD) obey the same per-room occupancy as the mapped rooms
-    vec2 pc = floor(vec2(vMapUv.x * 2.0, vMapUv.y * 2.0)); vec2 ps = pc + wq * 13.1 + nq * 7.3; float plh = iHash(ps + 31.0);
+    vec2 pc = floor(vec2(vMapUv.x * 2.0, vMapUv.y * 2.0));
+#ifdef INT_OFFICE
+    pc.x = floor(pc.x / 2.0); // offices: whole floor sections lit together
+#endif
+    vec2 ps = pc + wq * 13.1 + nq * 7.3; float plh = iHash(ps + 31.0);
     totalEmissiveRadiance *= step(1.0 - uOcc, plh) * mix(0.62, 1.0, fract(plh * 7.13)); }
   float gm = (1.0 - smoothstep(0.2, 0.3, roughnessFactor)) * step(abs(Nw.y), 0.3);
   if (gm > 0.001) {
@@ -107,8 +111,14 @@ const FRAG_BODY = /* glsl */`
     // ---- light. Day: daylight through the window. Night: whether a room is lit follows the clock (uOcc: busy evenings,
     // late-night stragglers, early risers) and every room has its own fitting with real falloff: a wall-mounted tube light
     // (cool white — the usual fitting in Colombo homes and offices) or a warm ceiling bulb; some rooms only have a TV on.
+#ifdef INT_OFFICE
+    // offices: a floor section (4 rooms ≈ 25 m) shares its lights; cool tube lighting everywhere, no TVs; a lit section is evenly lit
+    float lh = iHash(vec2(floor(cell.x / 4.0), cell.y) + wq * 13.1 + nq * 7.3 + 31.0); float lit = step(1.0 - uOcc, lh) * mix(0.85, 1.0, fract(lh * 7.13));
+    float kind = 0.2;
+#else
     float lh = iHash(seed + 31.0); float lit = step(1.0 - uOcc, lh) * mix(0.62, 1.0, fract(lh * 7.13));
     float kind = fract(lh * 13.7);
+#endif
     vec3 lamp = kind < 0.55 ? vec3(0.84, 0.95, 1.0) : vec3(1.0, 0.76, 0.48);
     vec3 hl = vec3(rl, hp.z);
     vec3 lp = kind < 0.55 ? vec3(RW * 0.5, FH - 0.6, depth - 0.1) : vec3(RW * 0.5, FH - 0.35, depth * 0.5);
@@ -126,12 +136,24 @@ const FRAG_BODY = /* glsl */`
     if (t == ty && dl.y > 0.0 && kind >= 0.55 && kind < 0.9) interior += lamp * 2.2 * smoothstep(0.4, 0.0, distance(vec2(rl.x, hp.z), lp.xz)) * uIntNight * lit;
     // blinds, or fabric curtains that glow in their own colour when the room behind is lit
     vec2 gp = p - lo;
+#ifdef INT_OFFICE
+    float hb = iHash(vec2(floor(cell.x / 4.0), cell.y) + wq * 5.7 + 2.0); float blind = step(0.5, hb) * step(FH * (1.0 - mix(0.3, 0.6, hb)), gp.y); // one blind height per floor section
+#else
     float blind = step(0.55, h3) * step(FH * (1.0 - mix(0.25, 0.85, h1)), gp.y);
+#endif
     float slats = mix(0.85 + 0.15 * step(0.5, fract(gp.y * 9.0)), 0.925, smoothstep(0.03, 0.09, fw));
+#ifdef INT_OFFICE
+    vec3 blindC = vec3(0.8, 0.8, 0.78) * slats;
+#else
     vec3 blindC = (h2 < 0.5 ? vec3(0.86, 0.83, 0.74) : vec3(0.62, 0.58, 0.5)) * slats;
+#endif
     vec3 back = kind < 0.9 ? lamp * 0.95 : vec3(0.35, 0.45, 0.8) * flick;
     interior = mix(interior, blindC * (vec3(0.8) * uIntDay + back * uIntNight * lit), blind);
+#ifdef INT_OFFICE
+    float cur = 0.0;
+#else
     float cur = step(0.3, h3) * (1.0 - step(0.55, h3)) * step(mix(0.0, 1.1, h1 * h1), abs(gp.x - RW * 0.5));
+#endif
     vec3 curC = h4 < 0.2 ? vec3(0.55, 0.13, 0.12) : h4 < 0.4 ? vec3(0.82, 0.62, 0.22) : h4 < 0.6 ? vec3(0.16, 0.46, 0.46) : h4 < 0.8 ? vec3(0.86, 0.8, 0.66) : vec3(0.8, 0.46, 0.5);
     float folds = mix(0.72 + 0.28 * sin(gp.x * 15.0 + h2 * 6.0), 0.86, smoothstep(0.08, 0.3, fw));
     interior = mix(interior, curC * folds * (vec3(0.55) * uIntDay + back * 0.75 * uIntNight * lit + vec3(0.01)), cur);
@@ -149,7 +171,8 @@ const FRAG_BODY = /* glsl */`
 #endif
 `;
 
-export function applyInteriorMapping(mat) {
+export function applyInteriorMapping(mat, { office = false } = {}) {
+  if (office) mat.defines = { ...(mat.defines || {}), INT_OFFICE: '' }; // office towers: floor-section lighting, cool tubes, uniform blinds
   mat.onBeforeCompile = (sh) => {
     sh.uniforms.uIntDay = INTERIOR.uIntDay;
     sh.uniforms.uIntNight = INTERIOR.uIntNight;
@@ -159,7 +182,7 @@ export function applyInteriorMapping(mat) {
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + FRAG_DECL)
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + FRAG_BODY);
   };
-  mat.customProgramCacheKey = () => 'interior-v7';
+  mat.customProgramCacheKey = () => 'interior-v8' + (office ? '-office' : '');
   return mat;
 }
 

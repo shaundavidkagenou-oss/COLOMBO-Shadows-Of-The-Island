@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { RNG } from '../core/rng.js';
 import { LAND_Y } from './Layout.js';
 import { FLOOR_H, GROUND_H } from './CityPlan.js';
+import { dressFort, fortCrown, fortHeritage } from './FortStyle.js';
 import { SIGN_COLS, SIGN_ROWS, SIGNS, FACADE_WINDOWS } from '../gfx/Textures.js';
 
 const BAY = 3.2;
@@ -148,6 +149,7 @@ export function buildBase(b, multi) {
         if (rr.chance(0.6)) mt.cylinder(lx, ry + 4.4, lz, 0.08, 0.05, 9 + rr.next() * 8, 6, { col: [0.5, 0.5, 0.52] }); // antenna
       }
     }
+    fortCrown(b, multi);
     if (t.crown) { const ci = Math.min(tx1 - tx0, tz1 - tz0) * 0.2; multi.get('concrete').box((tx0 + tx1) / 2, yTop + th + 2, (tz0 + tz1) / 2, tx1 - tx0 - ci, 4, tz1 - tz0 - ci, { col: [0.85, 0.86, 0.88], uvScale: 4 }); }
   }
 }
@@ -167,22 +169,24 @@ export function buildDetail(b, multi) {
   const along = (s, t) => [s.a[0] + (s.b[0] - s.a[0]) * t, s.a[1] + (s.b[1] - s.a[1]) * t];
   const rotOf = (s) => Math.atan2(s.n[0], s.n[1]);
   // parapet (flat roofs)
+  const fortH = fortHeritage(b); const skipP = fortH ? b.front : null; // Fort heritage fronts get a real balustrade instead (FortStyle.js)
   if (b.roof === 'flat' || !b.roof) {
     const ph = b.style === 'villa' ? 0.5 : 0.9, th = 0.25;
-    conc.box((b.x0 + b.x1) / 2, yTop + ph / 2, b.z0 + th / 2, b.x1 - b.x0, ph, th, { col: darker, uvScale: 3 });
-    conc.box((b.x0 + b.x1) / 2, yTop + ph / 2, b.z1 - th / 2, b.x1 - b.x0, ph, th, { col: darker, uvScale: 3 });
-    conc.box(b.x0 + th / 2, yTop + ph / 2, (b.z0 + b.z1) / 2, th, ph, b.z1 - b.z0, { col: darker, uvScale: 3 });
-    conc.box(b.x1 - th / 2, yTop + ph / 2, (b.z0 + b.z1) / 2, th, ph, b.z1 - b.z0, { col: darker, uvScale: 3 });
+    if (skipP !== 'N') conc.box((b.x0 + b.x1) / 2, yTop + ph / 2, b.z0 + th / 2, b.x1 - b.x0, ph, th, { col: darker, uvScale: 3 });
+    if (skipP !== 'S') conc.box((b.x0 + b.x1) / 2, yTop + ph / 2, b.z1 - th / 2, b.x1 - b.x0, ph, th, { col: darker, uvScale: 3 });
+    if (skipP !== 'W') conc.box(b.x0 + th / 2, yTop + ph / 2, (b.z0 + b.z1) / 2, th, ph, b.z1 - b.z0, { col: darker, uvScale: 3 });
+    if (skipP !== 'E') conc.box(b.x1 - th / 2, yTop + ph / 2, (b.z0 + b.z1) / 2, th, ph, b.z1 - b.z0, { col: darker, uvScale: 3 });
   }
   // cornices / string courses on heritage buildings
   if (b.cornice) {
     const ext = 0.35;
     for (const yy of [y0 + GROUND_H, yTop - 0.3]) conc.box((b.x0 + b.x1) / 2, yy, (b.z0 + b.z1) / 2, b.x1 - b.x0 + ext * 2, 0.45, b.z1 - b.z0 + ext * 2, { col: paint.map((v) => v * 0.95), uvScale: 3, bottom: true });
-    if (b.style === 'colonial') { // balustrade + pediment over the front
+    if (b.style === 'colonial' && !fortH) { // balustrade + pediment over the front
       const s = front, mid = along(s, 0.5); const r = rotOf(s);
       conc.box(mid[0] + s.n[0] * 0.2, yTop + 1.4, mid[1] + s.n[1] * 0.2, Math.min(s.len * 0.4, 14), 1.6, 0.5, { col: paint, rotY: r, uvScale: 3 });
     }
   }
+  if (b.district === 'fort') dressFort(b, multi, { sd, front, paint }); // Colombo Fort benchmark district relief
   if (b.colonnade) { // Fort arcades
     const s = front, n = Math.max(2, Math.floor(s.len / 4)); const r = rotOf(s);
     for (const [px, pz] of colonnadeColumns(b)) conc.cylinder(px, y0, pz, 0.32, 0.28, GROUND_H, 10, { col: paint, caps: false }); // solid (World)

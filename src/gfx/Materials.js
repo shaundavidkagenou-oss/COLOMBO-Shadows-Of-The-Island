@@ -41,7 +41,7 @@ export function buildMaterials() {
   for (const k of facadeKeys) {
     const f = TEX['f_' + k];
     MAT['f_' + k] = std({ map: f.map, emissiveMap: f.emissive, emissive: 0xffffff, emissiveIntensity: 0, roughnessMap: f.rm, metalnessMap: f.rm, roughness: 1, metalness: k.startsWith('glass') ? 1 : 1, vertexColors: true, envMapIntensity: k.startsWith('glass') ? 1.0 : 0.8 });
-    applyInteriorMapping(MAT['f_' + k]); // windows show parallax rooms with depth
+    applyInteriorMapping(MAT['f_' + k], { office: k === 'glass' || k === 'glass2' || k === 'office' }); // windows show parallax rooms with depth (offices: lit floor sections)
   }
   MAT.shops = std({ map: TEX.shops.map, emissiveMap: TEX.shops.emissive, emissive: 0xffffff, emissiveIntensity: 0.15, roughness: 0.8 });
   // after closing time each shop unit pulls down its own roller shutter (galvanised or painted; ~14% trade late)
