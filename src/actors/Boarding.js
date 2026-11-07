@@ -310,11 +310,11 @@ function boardPoseFull(A, P, b) {
     b.chest.updateWorldMatrix(true, false); _v.set(t[0], t[1], t[2]); root.localToWorld(_v); b.chest.worldToLocal(_v);
     let hold = 1; const hq0 = P.handQ && P.handQ[sd]; if (hq0) { // a door grasp only while the door is really within reach: never a hand floating short of it / folded into the shoulder
       const arm = b['arm' + sd]; arm.parent.updateWorldMatrix(true, false); _bh.copy(arm.position).applyMatrix4(arm.parent.matrixWorld); b.chest.worldToLocal(_bh); const dl = _bh.distanceTo(_v), L = (b['fore' + sd].position.length() + b['hand' + sd].position.length());
-      hold = sm((dl - 0.2 * (A.s || 1)) / 0.08); void L; } // (beyond reach the IK just straightens the arm at it: the curve lets go of the edge before that — G.doorRel)
+      hold = sm((dl - 0.185 * (A.s || 1)) / 0.06); /* full grasp down to ~0.245 (a sharply bent elbow, hand at the chest), matching the fold floor below */ void L; } // (beyond reach the IK just straightens the arm at it: the curve lets go of the edge before that — G.doorRel)
     const wE = w * (hq0 ? Math.max(hold, 1 - hq0.w) : 1); if (wE < 0.001) continue; if (wE < 1) _v.lerpVectors(_w, _v, wE);
     // never fold the arm flat (a hand target at the shoulder has no defined elbow): slide the target out along its line
     const arm = b['arm' + sd], par = arm.parent; par.updateWorldMatrix(true, false); _w.copy(arm.position).applyMatrix4(par.matrixWorld); b.chest.worldToLocal(_w);
-    { _k.subVectors(_v, _w); const mn = (0.3 - 0.05 * (hq0 ? hq0.w * hold : 0)) * (A.s || 1), soft = 0.45 * (A.s || 1); /* holding a door edge the elbow is bent and well defined down to ~0.25 (the grasp itself lets go below 0.28): a 0.3 floor shoved a tall hero's hand off the edge it still held */ let dl = _k.length();
+    { _k.subVectors(_v, _w); const mn = (0.3 - 0.06 * (hq0 ? hq0.w * hold : 0)) * (A.s || 1), soft = 0.45 * (A.s || 1); /* holding a door edge the elbow is bent and well defined down to ~0.24 (the grasp lets go below 0.245): a 0.3 floor shoved a tall hero's hand off the edge it still held */ let dl = _k.length();
       // a path that passes close by the shoulder (rear seats: low roof edge → lap) is eased out forward-and-down in the BODY
       // frame — a fixed direction, so the hand never swings round the shoulder the way sliding it along the (rapidly turning)
       // shoulder→target line does
