@@ -7,6 +7,7 @@ import { RNG, hash2 } from '../core/rng.js';
 
 import { buildTrack } from './Railway.js';
 const RY = L.ROAD_Y, LY = L.LAND_Y;
+import { resetGroundDetail, regWalkRect, regWalkCorner, regKerb } from './GroundDetail.js';
 const WHITE0 = [0.93, 0.93, 0.9], YELLOW0 = [0.93, 0.76, 0.12]; const WHITE = WHITE0, YELLOW = YELLOW0;
 const lotMaterial = (cell) => {
   const zn = L.zoneAt(cell.cx, cell.cz);
@@ -30,6 +31,7 @@ const clipX = (poly, xl, keepLeft) => { const out = []; for (let i = 0; i < poly
 const kerbStriped = (seg, x, z) => { const d = L.districtIdAt(x, z); return seg.level <= 1 && ['fort', 'gftowers', 'gfgreen', 'pettah', 'kollupitiya', 'beira'].includes(d); };
 
 export function buildGround(progress) {
+  resetGroundDetail(); // modelled bricks / kerb stones near the camera follow exactly what is laid here (GroundDetail.js)
   const chunks = []; for (let i = 0; i < NCX * NCZ; i++) chunks.push(new MultiBuilder());
   const at = (x, z) => { let c = chunkIndex(x, z); if (c < 0) { const cx = Math.max(0, Math.min(NCX - 1, Math.floor((x - L.BOUNDS.minX) / 200))), cz = Math.max(0, Math.min(NCZ - 1, Math.floor((z - L.BOUNDS.minZ) / 200))); c = cz * NCX + cx; } return chunks[c]; };
 
@@ -67,22 +69,22 @@ export function buildGround(progress) {
     const wT = c.T ? c.T.walk : 0, wB = c.B ? c.B.walk : 0, wL = c.L ? c.L.walk : 0, wR = c.R ? c.R.walk : 0;
     let rTL = 0, rTR = 0, rBL = 0, rBR = 0; const K = mb.get('kerb');
     if (!c.partial) {
-      const W = mb.get(walkMat);
+      const W = mb.get(walkMat); const grey = walkMat === 'walkGrey'; const WR = (a, b, c2, d) => { W.hrect(a, b, c2, d, LY, 2); regWalkRect(a, b, c2, d, grey); };
       // rounded kerb corners where two roads meet (radius limited by both footpaths)
       const rad = (a, b) => (a && b ? Math.min(a, b, 3.2) * 0.92 : 0);
       rTL = rad(c.T && wT, c.L && wL); rTR = rad(c.T && wT, c.R && wR); rBL = rad(c.B && wB, c.L && wL); rBR = rad(c.B && wB, c.R && wR);
-      if (wT) { W.hrect(lx0 + rTL, lz0, lx1 - rTR, lz0 + wT, LY, 2); if (rTL) W.hrect(lx0, lz0 + rTL, lx0 + rTL, lz0 + wT, LY, 2); if (rTR) W.hrect(lx1 - rTR, lz0 + rTR, lx1, lz0 + wT, LY, 2); }
-      if (wB) { W.hrect(lx0 + rBL, lz1 - wB, lx1 - rBR, lz1, LY, 2); if (rBL) W.hrect(lx0, lz1 - wB, lx0 + rBL, lz1 - rBL, LY, 2); if (rBR) W.hrect(lx1 - rBR, lz1 - wB, lx1, lz1 - rBR, LY, 2); }
+      if (wT) { WR(lx0 + rTL, lz0, lx1 - rTR, lz0 + wT); if (rTL) WR(lx0, lz0 + rTL, lx0 + rTL, lz0 + wT); if (rTR) WR(lx1 - rTR, lz0 + rTR, lx1, lz0 + wT); }
+      if (wB) { WR(lx0 + rBL, lz1 - wB, lx1 - rBR, lz1); if (rBL) WR(lx0, lz1 - wB, lx0 + rBL, lz1 - rBL); if (rBR) WR(lx1 - rBR, lz1 - wB, lx1, lz1 - rBR); }
       const corner = (ox, oz, sx, sz, r) => { // quarter-disc paving + asphalt fill + curved kerb
         if (!r) return; const cx = ox + sx * r, cz = oz + sz * r, N = 8, arc = [];
         for (let k = 0; k <= N; k++) { const t = (k / N) * Math.PI / 2; arc.push([cx - sx * r * Math.cos(t), cz - sz * r * Math.sin(t)]); }
-        W.hpoly([[cx, cz], ...arc], LY, 2); mb.get('road').hpoly([[ox, oz], ...arc], L.ROAD_Y, 10);
+        W.hpoly([[cx, cz], ...arc], LY, 2); regWalkCorner(cx, cz, r, sx, sz, grey); mb.get('road').hpoly([[ox, oz], ...arc], L.ROAD_Y, 10);
         for (let k = 0; k < N; k++) { const a = arc[k], b = arc[k + 1]; const kc = [0.78, 0.77, 0.74];
-          K.wall(a[0], a[1], b[0], b[1], RY - 0.02, LY, [0, 0, 0.4, 0.1], kc); K.wall(b[0], b[1], a[0], a[1], RY - 0.02, LY, [0, 0, 0.4, 0.1], kc); }
+          K.wall(a[0], a[1], b[0], b[1], RY - 0.02, LY, [0, 0, 0.4, 0.1], kc); K.wall(b[0], b[1], a[0], a[1], RY - 0.02, LY, [0, 0, 0.4, 0.1], kc); regKerb(a[0], a[1], b[0], b[1], kc); }
       };
       corner(lx0, lz0, 1, 1, rTL); corner(lx1, lz0, -1, 1, rTR); corner(lx0, lz1, 1, -1, rBL); corner(lx1, lz1, -1, -1, rBR);
-      if (wL) W.hrect(lx0, lz0 + wT, lx0 + wL, lz1 - wB, LY, 2);
-      if (wR) W.hrect(lx1 - wR, lz0 + wT, lx1, lz1 - wB, LY, 2);
+      if (wL) WR(lx0, lz0 + wT, lx0 + wL, lz1 - wB);
+      if (wR) WR(lx1 - wR, lz0 + wT, lx1, lz1 - wB);
       const g = mb.get(lotMat); const [a, b, cc, d] = [lx0 + wL, lx1 - wR, lz0 + wT, lz1 - wB];
       if (b > a && d > cc) g.hrect(a, cc, b, d, LY, lotMat === 'concrete' ? 6 : 8, lotMat === 'concrete' ? [0.82, 0.8, 0.76] : null);
     } else {
@@ -118,7 +120,7 @@ export function buildGround(progress) {
         const t0 = k / n, t1 = (k + 1) / n; const ax = x0 + (x1 - x0) * t0, az = z0 + (z1 - z0) * t0, bx = x0 + (x1 - x0) * t1, bz = z0 + (z1 - z0) * t1;
         if (L.isWater((ax + bx) / 2, (az + bz) / 2)) continue;
         const col = striped ? (k % 2 ? [0.12, 0.12, 0.12] : [0.95, 0.95, 0.92]) : [0.78, 0.77, 0.74];
-        K.wall(ax, az, bx, bz, RY - 0.02, LY, [0, 0, (len / n) / 2, 0.1], col);
+        K.wall(ax, az, bx, bz, RY - 0.02, LY, [0, 0, (len / n) / 2, 0.1], col); if (!c.partial) regKerb(ax, az, bx, bz, col);
       }
     };
     // walls oriented so the face points toward the road (CCW rules of MeshBuilder.wall)

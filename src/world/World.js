@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { MultiBuilder, SliceBuild, meshFor, FOLIAGE } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
+import { GroundDetail } from './GroundDetail.js';
 import { generatePlan, plan, NCX, NCZ, CHUNK, chunkCenter, refitTreeCrowns, landmarkTreeBoxes } from './CityPlan.js';
 import { buildGround } from './GroundBuilder.js';
 import { buildBase, buildDetail, buildWall, buildWindows, windowTasks, frontColumns } from './BuildingGen.js';
@@ -78,6 +79,7 @@ export class World {
     this.parkLife = new ParkLife(this, this.parkFeatures, quality); this.root.add(this.parkLife.group); // fireflies, fountain water, fruit bats, oil lamps
     upgradeGroundGrass(MAT.grass, 0.8); upgradeGroundGrass(MAT.lawn, 0.3);
     this.grass = new GrassField(this, this.collision); this.grass.setQuality(this.quality || 'high'); this.root.add(this.grass.mesh);
+    this.groundDetail = new GroundDetail(); this.groundDetail.setQuality(this.quality || quality || 'high'); this.root.add(this.groundDetail.group); // modelled bricks / kerb stones / ballast / rail clips near the camera
     progress(0.86, 'Filling the ocean and Beira Lake'); await tick();
     this.water = buildWater(); this.root.add(this.water); this.waterRefl = new WaterReflection(this.water);
     progress(0.9, 'Outer suburbs'); await tick();
@@ -235,6 +237,7 @@ export class World {
     if (this.job) this.stepDetailJob(this.jobBudgetMs);
     if (this.wjob) this.stepWinJob(this.jobBudgetMs);
     if (this.grass) this.grass.update(dt, focus, atmos ? atmos.w.wind : 0.3);
+    if (this.groundDetail && camera) this.groundDetail.update(camera);
     if (this.parks && this.parks.userData.flowers && camera) this.parks.userData.flowers.update(camera.position);
     if (this.parkLife && camera && atmos) this.parkLife.update(dt, atmos, camera);
     // landmark animation
@@ -330,6 +333,6 @@ export class World {
       l.userData.lamp = lamp; l.userData.k = 0; decal(lamp, false); l.position.set(lamp[0], lamp[1] - 0.4, lamp[2]); l.target.position.set(lamp[0], ROAD_Y, lamp[2] + 0.001); l.target.updateMatrixWorld(); lit.add(lamp); }
     for (const l of this.lampLights) { const u = l.userData; const I = u.lamp ? base * u.k : 0; if (l.intensity !== I) l.intensity = I; if (l.castShadow) l.shadow.autoUpdate = I > 0; } /* FPS: an unlit pooled lamp (all day, parked at y -600) no longer re-renders its shadow map every frame */
   }
-  setQuality(q) { this.quality = q; if (this.glints) this.glints.max = WetGlints.budget(q); if (this.grass) this.grass.setQuality(q); if (this.forest) this.forest.setQuality(q); if (this.parkLife) this.parkLife.setQuality(q); if (this.parks && this.parks.userData.flowers) this.parks.userData.flowers.setQuality(q); const s = q === 'low' ? 0.6 : q === 'medium' ? 0.8 : q === 'ultra' ? 1.25 : 1; this.detailRadius = 330 * s; this.windowRadius = q === 'low' ? 0 : q === 'medium' ? 90 : q === 'ultra' ? 210 : 150; this.propRadius = 430 * s; this.treeRadius = 520 * s; }
+  setQuality(q) { this.quality = q; if (this.glints) this.glints.max = WetGlints.budget(q); if (this.grass) this.grass.setQuality(q); if (this.groundDetail) this.groundDetail.setQuality(q); if (this.forest) this.forest.setQuality(q); if (this.parkLife) this.parkLife.setQuality(q); if (this.parks && this.parks.userData.flowers) this.parks.userData.flowers.setQuality(q); const s = q === 'low' ? 0.6 : q === 'medium' ? 0.8 : q === 'ultra' ? 1.25 : 1; this.detailRadius = 330 * s; this.windowRadius = q === 'low' ? 0 : q === 'medium' ? 90 : q === 'ultra' ? 210 : 150; this.propRadius = 430 * s; this.treeRadius = 520 * s; }
 }
 export { plan };

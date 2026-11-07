@@ -633,17 +633,27 @@ export function buildBodyGeometry(sp) {
       const wc = C(sp.waist || '#3a3d44'); const ys = Array.from({ length: 15 }, (_, k) => 0.985 + k * 0.03);
       const halfW = (y) => (y < 1.16 ? 0.006 : 0.006 + ((y - 1.16) / 0.26) * 0.085); // straight V: closed at the top button (1.16), open to ±9 cm at the collarbone
       const fzAt = (y) => { let k = 0; while (k < tr.length - 2 && tr[k + 1].y * s < y) k++; const a = tr[k], b2 = tr[k + 1]; return lerp(a.fz || 0, b2.fz || 0, clamp((y / s - a.y) / (b2.y - a.y), 0, 1)); }; // same front bulge as the torso, so the shirt chest never pokes through
-      sb.loft(ys.map((yy) => ({ c: [0, yy * s, HB ? HB.ringAt(yy * s).cz : 0], rx: Math.min(rxAt(yy * s), 0.176 * w) + 0.008, rz: rzAt(yy * s) + 0.009, fz: fzAt(yy * s), w: yy >= 1.3 ? shoulderW(0.22) : tw(yy * s), col: wc })), 72, /* armholes: stops at chest width, the shoulders come out of it */ { colFn: (ri, a, r) => (Math.sin(a) > 0 && Math.abs(Math.cos(a) * r.rx) < halfW(ys[ri]) * w ? top : r.col) });
-      for (let k = 0; k < 5; k++) { const y = (1.0 + k * 0.042) * s; sb.boxPart([0.004, y, surfZ(y, 0, 1) + 0.011], 0.008, 0.008, 0.004, tw(y), C('#1b1c1f')); }
+      if (!HB) sb.loft(ys.map((yy) => ({ c: [0, yy * s, 0], rx: Math.min(rxAt(yy * s), 0.176 * w) + 0.008, rz: rzAt(yy * s) + 0.009, fz: fzAt(yy * s), w: yy >= 1.3 ? shoulderW(0.22) : tw(yy * s), col: wc })), 72, /* armholes: stops at chest width, the shoulders come out of it */ { colFn: (ri, a, r) => (Math.sin(a) > 0 && Math.abs(Math.cos(a) * r.rx) < halfW(ys[ri]) * w ? top : r.col) });
+      for (let k = 0; k < 5; k++) { const y = (1.0 + k * 0.042) * s; if (HB) { sb.ellipsoid([0.006, y, surfZ(y, 0.006, 1) + 0.0012], 0.0062, 0.0062, 0.0022, tw(y), C('#22201e'), { lat: 4, lon: 10 }); sb.boxPart([0.006, y, surfZ(y, 0.006, 1) + 0.0032], 0.0024, 0.0008, 0.0008, tw(y), C('#0c0b0a')); } else sb.boxPart([0.004, y, surfZ(y, 0, 1) + 0.011], 0.008, 0.008, 0.004, tw(y), C('#1b1c1f')); } // horn buttons with thread holes
+      if (HB) { const wcol = C(sp.waist || '#3a3d44'); // back adjuster: two half-belts and a steel slide buckle on the satin back
+        for (const sx of [-1, 1]) { const x0 = sx * 0.02, x1 = sx * 0.095; const y = 1.0 * s; const pts = []; for (let i = 0; i <= 6; i++) { const x = lerp(x0, x1, i / 6); pts.push({ c: [x, y, surfZ(y, x, -1) - 0.0022], side: [0, 1, 0], w: tw(y) }); } sb.strip(pts, 0.022, () => [0, 0, -1], tw(y), wcol.map((v) => v * 0.8)); }
+        sb.boxPart([0, 1.0 * s, surfZ(1.0 * s, 0, -1) - 0.004], 0.03, 0.026, 0.003, tw(1.0 * s), C('#9b9a96'));
+        for (const side of ['L', 'R']) { const wr = HB.wrist(side, 0.9 * s); if (!wr) continue; const sx = side === 'L' ? 1 : -1; const fw = W1('foreTwist' + side); // French cuff links on the cuff's outer face
+          sb.boxPart([wr.c[0] + sx * (wr.rx + 0.006), 0.913 * s, wr.c[2] + 0.004], 0.003, 0.009, 0.009, fw, C('#c9a54a')); }
+        { const wr = HB.wrist('L', 0.889 * s); if (wr) { const fw = W1('foreTwistL'); // wristwatch on the left wrist, peeking from under the cuff: leather strap, steel case, white dial
+          sb.loft([{ c: [wr.c[0], 0.895 * s, wr.c[2]], rx: wr.rx + 0.0025, rz: wr.rz + 0.0025, w: fw, col: C('#3a2416') }, { c: [wr.c[0], 0.883 * s, wr.c[2]], rx: wr.rx + 0.0025, rz: wr.rz + 0.0025, w: fw, col: C('#3a2416') }], 20);
+          sb.boxPart([wr.c[0] + wr.rx + 0.005, 0.889 * s, wr.c[2]], 0.007, 0.032, 0.03, fw, C('#b8bcc0')); sb.boxPart([wr.c[0] + wr.rx + 0.0087, 0.889 * s, wr.c[2]], 0.0008, 0.026, 0.024, fw, C('#f2efe6'));
+          sb.boxPart([wr.c[0] + wr.rx + 0.0093, 0.8935 * s, wr.c[2]], 0.0006, 0.009, 0.0016, fw, C('#141414')); sb.boxPart([wr.c[0] + wr.rx + 0.0093, 0.889 * s, wr.c[2] + 0.004], 0.0006, 0.0016, 0.008, fw, C('#141414')); } }
+      }
       for (const sx of [-1, 1]) { hstrip(1.06 * s, sx * 0.05 * w, sx * 0.115 * w, 0.007, dark(wc, 0.55)); hstrip(1.25 * s, sx * 0.06 * w, sx * 0.115 * w, 0.007, dark(wc, 0.55)); }
       const gold = C('#c9a54a'); const A = [0.006, 1.085 * s], Bp = [0.1 * w, 1.06 * s]; // chain from the buttonhole into the left pocket
       for (let k = 0; k <= 12; k++) { const t = k / 12; const x = lerp(A[0], Bp[0], t), y = lerp(A[1], Bp[1], t) - 0.022 * Math.sin(Math.PI * t); sb.boxPart([x, y, surfZ(y, x, 1) + 0.013], 0.0045, 0.003, 0.003, tw(y), gold); }
       for (let k = 0; k < 8; k++) { const t = k / 7; const y = lerp(1.1 * s, 1.03 * s, t), x = 0.012 + 0.003 * t; sb.boxPart([x, y, surfZ(1.1 * s, 0, 1) + 0.014], 0.003, 0.0045, 0.003, t < 0.5 ? W1('fob1') : W1('fob2'), gold); }
       sb.ellipsoid([0.015, 1.024 * s, surfZ(1.1 * s, 0, 1) + 0.016], 0.008, 0.008, 0.002, W1('fob2'), gold, { lat: 6, lon: 10 }); // fob medallion
     }
-    band(0.962 * s, 0.992 * s, 0.004, C('#24180f'), W1('hips')); // belt
-    sb.boxPart([0, 0.977 * s, surfZ(0.977 * s, 0, 1) + 0.008], 0.044, 0.034, 0.007, W1('hips'), C('#a8a6a0')); // buckle
-    vstrip(0, 0.865 * s, 0.955 * s, 0.004, dark(bottom, 0.7)); // fly
+    const vestHB = HB && sp.kit === 'waistcoat'; // the fitted waistcoat covers the belt line
+    if (!vestHB) { band(0.962 * s, 0.992 * s, 0.004, C('#24180f'), W1('hips')); /* belt */ sb.boxPart([0, 0.977 * s, surfZ(0.977 * s, 0, 1) + 0.008], 0.044, 0.034, 0.007, W1('hips'), C('#a8a6a0')); } // buckle
+    vstrip(0, 0.865 * s, vestHB ? 0.915 * s : 0.955 * s, 0.004, dark(bottom, 0.7)); // fly
     for (const sx of [-1, 1]) hstrip(0.9 * s, sx * 0.035 * w, sx * 0.118 * w, 0.072, dark(bottom, 0.86), -1); // back pockets
   }
   // ---- accessories (each placed on the clothing surface or the head shell so nothing sinks into the body)
@@ -856,7 +866,7 @@ export const HEROES = {
   // the three playable protagonists (high-detail build + 70-bone rig)
   dineth: { seed: 11, hero: true, mh: 'dineth', kit: 'openShirt', sex: 'm', age: 'adult', skin: '#8a5636', build: 0.98, height: 1.74, outfit: 'jacket', top: '#7b2d26', inner: '#ece7dc', bottom: '#28303d', shoes: '#e4e1da', sole: '#cfcac0', longSleeve: false, hair: 'quiff', hairColor: '#0f0b08', collar: true, sandals: false },
   shashika: { seed: 12, hero: true, mh: 'shashika', kit: 'tactical', sex: 'm', age: 'adult', skin: '#6b4228', build: 1.18, height: 1.8, outfit: 'shirt', top: '#4b5240', bottom: '#5b5745', shoes: '#1f1b17', boots: true, longSleeve: true, vest: '#2b2e27', strap: '#1b1c19', tacGloves: '#1c1c1a', hair: 'crew', hairColor: '#0c0a08', beard: true, beardShort: true, collar: true, sandals: false },
-  david: { seed: 13, hero: true, mh: 'david', kit: 'waistcoat', sex: 'm', age: 'adult', skin: '#94613f', build: 0.95, height: 1.78, outfit: 'shirt', top: '#cfdae6', bottom: '#2d2f33', shoes: '#121212', longSleeve: true, waist: '#3a3d44', hair: 'sidepart', hairColor: '#120d0a', glasses: true, moustache: true, collar: true, sandals: false },
+  david: { seed: 13, hero: true, mh: 'david', kit: 'waistcoat', sex: 'm', age: 'adult', skin: '#94613f', build: 0.95, height: 1.78, outfit: 'shirt', top: '#cfdae6', stripe: '#6f8bb3', heroTie: '#5a1b28', vestBack: '#4b4146', bottom: '#2d2f33', shoes: '#121212', longSleeve: true, waist: '#3a3d44', hair: 'sidepart', hairColor: '#120d0a', glasses: true, moustache: true, collar: true, sandals: false },
   ruwan: { seed: 2, sex: 'm', age: 'adult', skin: '#7a4a2e', build: 1.1, height: 1.71, outfit: 'shirt', top: '#6d3b2c', bottom: '#3a3f4a', shoes: '#151515', hair: 'short', hairColor: '#0d0a08', moustache: true, collar: true, sandals: false },
   fathima: { seed: 3, sex: 'f', age: 'adult', skin: '#a8734f', build: 1.05, height: 1.58, outfit: 'salwar', top: '#1b6b6b', skirt: 'knee', skirtCol: '#1b6b6b', bottom: '#f2efe6', pattern: 2, hair: 'bun', hairColor: '#1c140e', longSleeve: true, sandals: true },
   selvaraj: { seed: 4, sex: 'm', age: 'elder', skin: '#5e3a24', build: 1.08, height: 1.68, outfit: 'shirt', top: '#f2f2ee', bottom: '#4a4036', hair: 'grey', hairColor: '#b8b6b0', moustache: true, glasses: true, collar: true, sandals: true },
@@ -890,7 +900,7 @@ export class Character {
     if (spec.hero) { // protagonists: own material instances with DQ skinning, subsurface skin, wetness / sweat, expression normals
       if (!geo.attributes.aSkin) geo.setAttribute('aSkin', new THREE.Float32BufferAttribute(skinMask(geo, spec), 1));
       this.heroU = heroUniforms(); const hb = getHairMaterial(); const fn = faceNormals();
-      const body = getBodyMaterial().clone(); patchHeroMaterial(body, 'body', this.heroU, geo.userData.heroBody ? clothShader({ inner: spec.inner, open: spec.kit === 'openShirt', s: spec.height / 1.72, denim: spec.kit === 'openShirt', stitch: '#b8873e' }) : null); iblScale(body, 0.55, 1.0, 0.5);
+      const body = getBodyMaterial().clone(); patchHeroMaterial(body, 'body', this.heroU, geo.userData.heroBody ? clothShader({ inner: spec.inner, open: spec.kit === 'openShirt', s: spec.height / 1.72, denim: spec.kit === 'openShirt', stitch: '#b8873e', stripe: spec.stripe, vestBack: spec.vestBack, crease: spec.kit === 'waistcoat' }) : null); iblScale(body, 0.55, 1.0, 0.5);
       const fm = this.face.mat; if (fn.base) { fm.normalMap = fn.base; fm.normalScale = new THREE.Vector2(0.35, -0.35); } patchHeroMaterial(fm, 'face', this.heroU);
       const hm = hb.clone(); patchHeroMaterial(hm, 'hair', this.heroU, hb.onBeforeCompile); mats = [body, fm, hm]; this.heroMats = [body, hm];
     }
