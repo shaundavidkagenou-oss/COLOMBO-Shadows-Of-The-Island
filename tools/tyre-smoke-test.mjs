@@ -32,7 +32,7 @@ function run(secs, step, dt = 1 / 60) {
   for (let f = 0; f < n; f++) { const before = S.stats.emitted, i0 = S.i; step && step(f * dt, dt); S.update(dt); const k = S.stats.emitted - before;
     ok(k <= S.budget, `frame emitted ${k} > budget ${S.budget}`);
     if (k) { const A = S.A.aT; ok(A.updateRanges.length >= 1 && A.updateRanges.length <= 2, 'upload ranges ' + A.updateRanges.length); const tot = A.updateRanges.reduce((s, r) => s + r.count, 0); ok(tot === k * 4, `uploaded ${tot / 4} slots for ${k} puffs`); }
-    for (let j = 0; j < k; j++) { const i = (i0 + j) % SMOKE_POOL; out.push({ x: S.A.aP0.getX(i), y: S.A.aP0.getY(i), z: S.A.aP0.getZ(i), kind: S.A.aR.getY(i), grey: S.A.aC.getX(i), alpha: S.A.aC.getY(i), gy: S.A.aC.getZ(i), s1: S.A.aT.getW(i), life: S.A.aT.getY(i) }); } }
+    for (let j = 0; j < k; j++) { const i = (i0 + j) % SMOKE_POOL; out.push({ x: S.A.aP0.getX(i), y: S.A.aP0.getY(i), z: S.A.aP0.getZ(i), kind: S.A.aR.getY(i), grey: S.A.aC.getX(i), alpha: S.A.aC.getY(i), gy: S.A.aC.getZ(i), s1: S.A.aT.getW(i), life: S.A.aT.getY(i), vx: S.A.aV.getX(i), vz: S.A.aV.getZ(i) }); } }
   return out;
 }
 // vehicle-local coordinates of a world point (x left, z forward)
@@ -66,6 +66,14 @@ clear(); camera.position.set(X0 + 4, 2, Z0 - 6); { const c = mk('sedan', X0, Z0,
 clear(); camera.position.set(X0 + 4, 2, Z0 - 6); { const c = mk('sedan', X0, Z0, 0, { parked: false, player: true }); const P = run(12, (t, dt) => c.drive(dt, { throttle: 1, steer: 0, handbrake: true }, collision, []));
   const ty = P.filter((p) => p.kind === KIND.TYRE); ok(ty.length > 80, 'burnout smoke ' + ty.length); const live = ty.length / 12 * 4.2; ok(live < 330, 'burnout live puffs ≈ ' + live.toFixed(0)); ok(S.tyreLoad < 300, 'tyre load ' + S.tyreLoad.toFixed(0));
   for (const p of ty) { const q = local(c, p); ok(q.lz < 0, 'burnout smoke at the front wheels'); }
+  const hz = P.filter((p) => p.kind === KIND.TYRE_HAZE); ok(hz.length >= 15, 'burnout haze bank ' + hz.length);
+  ok(hz.every((p) => p.life >= 6 && p.alpha <= 0.25 && p.s1 >= 2.5), 'haze puffs must be long-lived, thin and wide');
+  ok(ty.every((p) => p.life <= 3.35 && p.alpha >= 0.45), 'core puffs must be dense and short-lived');
+  const back = ty.map((p) => p.vx * Math.sin(c.yaw) + p.vz * Math.cos(c.yaw)); const mb = back.reduce((a, b) => a + b, 0) / back.length;
+  ok(mb < -1.2, 'spinning tread did not fling smoke backwards: mean ' + mb.toFixed(2));
+  const sk = S.skid; let used = 0, dark = 0; for (let i = 0; i < 1536; i++) if (sk.A.aW.getY(i) > 0) { used++; dark = Math.max(dark, sk.A.aW.getY(i)); }
+  ok(used >= 2 && used <= 8, 'burnout should leave one rubber patch per driven wheel, used ' + used); ok(dark >= 0.7, 'burnout patch darkness ' + dark.toFixed(2));
+  console.log('  burnout: tread throw ' + mb.toFixed(2) + ' m/s, haze ' + hz.length + ', skid slots ' + used + ', patch alpha ' + dark.toFixed(2));
   console.log('  burnout: ' + ty.length + ' puffs / 12 s (≈' + live.toFixed(0) + ' alive), load ' + S.tyreLoad.toFixed(0)); }
 // 8. handbrake turn at speed + plain sideways slide (traffic car shoved by a crash)
 clear(); camera.position.set(X0, 3, Z0 + 12); { const c = mk('sedan', X0, Z0, 0, { parked: false, player: true }); c.speed = 16; const P = run(1.2, (t, dt) => c.drive(dt, { throttle: 0, steer: 0.8, handbrake: true }, collision, []));
@@ -84,8 +92,24 @@ clear(); { game.indoor = true; mk('bus', X0, Z0, 0, { parked: false, driver: {} 
 // 12. a wrecked car smokes from under the bonnet
 clear(); camera.position.set(X0, 3, Z0 + 12); { const c = mk('sedan', X0, Z0, 0, { parked: true, damage: 0.95 }); const P = run(3); const en = P.filter((p) => p.kind === KIND.ENGINE); ok(en.length > 15, 'engine smoke ' + en.length);
   for (const p of en) { const q = local(c, p); ok(q.lz > 0.6, 'engine smoke not at the bonnet'); } }
+// 12b. skid marks: a sliding car lays a continuous rubber stripe on the ground under its tyres; cruising lays nothing; wet roads less
+{ const sk = S.skid; const reset = () => sk.clear(); const live = () => { const o = []; for (let i = 0; i < 1536; i++) if (sk.A.aW.getY(i) > 0) o.push({ i, ax: sk.A.aA.getX(i), ay: sk.A.aA.getY(i), az: sk.A.aA.getZ(i), bx: sk.A.aB.getX(i), by: sk.A.aB.getY(i), bz: sk.A.aB.getZ(i), w: sk.A.aW.getX(i), a: sk.A.aW.getY(i) }); return o; };
+  clear(); reset(); camera.position.set(X0, 3, Z0 + 12); { mk('sedan', X0, Z0, 0, { parked: false, driver: {} }); const c = [...LIVE_VEHICLES][0]; run(3, (t, dt) => { c.speed = 12; c.z += 12 * dt; }); ok(live().length === 0, 'cruising car left skid marks ' + live().length); }
+  clear(); reset(); { const c = mk('sedan', X0, Z0, 0, { parked: false, driver: {} }); let ranges = 0;
+    run(1.0, (t, dt) => { c.x += 7 * dt; c.z += 4 * dt; ranges = Math.max(ranges, sk.A.aA.updateRanges.length); });
+    const M = live(); ok(M.length >= 8, 'slide stripe segments ' + M.length); ok(ranges <= 2, 'skid upload ranges ' + ranges);
+    const gy = c.groundY ?? c.y ?? 0; ok(M.every((m) => Math.abs(m.ay - gy) < 0.05 && Math.abs(m.by - gy) < 0.05), 'skid marks not on the ground');
+    ok(M.every((m) => Math.hypot(m.bx - m.ax, m.bz - m.az) <= 0.6 + 0.2 && m.w > 0.15 && m.w < 0.35), 'skid segment size');
+    let chained = 0; for (const m of M) if (M.some((q) => q !== m && Math.hypot(q.ax - m.bx, q.az - m.bz) < 1e-4)) chained++;
+    ok(chained >= M.length - 6, `stripe not continuous: ${chained}/${M.length} segments chained`);
+    const ux = 7 / Math.hypot(7, 4), uz = 4 / Math.hypot(7, 4); for (const m of M) { const off = Math.abs((m.bx - X0) * uz - (m.bz - Z0) * ux); ok(off < c.T.len * 0.6, 'skid mark off the path the tyres slid along ' + off.toFixed(2)); }
+    const dry = M.length; clear(); reset(); game.atmos.w.rain = 1; const d = mk('sedan', X0, Z0, 0, { parked: false, driver: {} }); run(1.0, (t, dt) => { d.x += 7 * dt; d.z += 4 * dt; }); game.atmos.w.rain = 0;
+    const wet = live(), wa = wet.reduce((a, m) => a + m.a, 0) / Math.max(1, wet.length), da = M.reduce((a, m) => a + m.a, 0) / M.length;
+    ok(wet.length === 0 || wa < da, `wet marks not lighter: ${wa.toFixed(2)} vs ${da.toFixed(2)}`);
+    console.log(`  skid: slide ${dry} segments (${chained} chained, ${ranges} upload ranges), wet ${wet.length}`); }
+  ok(sk.mesh.parent === scene && sk.mesh.frustumCulled === false, 'skid mesh not in the scene'); reset(); }
 // 13. the pool was never re-allocated; every puff starts on or above the ground it was born on
 ok(Object.entries(S.A).every(([k, a]) => a.array === arrays[k]), 'pool re-allocated');
 ok(S.mesh.frustumCulled === false && S.mesh.parent === scene, 'smoke mesh not permanently in the scene');
-console.log(`tyre-smoke-test: ${pass} checks, ${fail} failed (emitted ${S.stats.emitted}: tyre ${S.stats.tyre}, exhaust ${S.stats.exhaust}, engine ${S.stats.engine})`);
+console.log(`tyre-smoke-test: ${pass} checks, ${fail} failed (emitted ${S.stats.emitted}: tyre ${S.stats.tyre}, haze ${S.stats.haze}, exhaust ${S.stats.exhaust}, engine ${S.stats.engine})`);
 process.exit(fail ? 1 : 0);

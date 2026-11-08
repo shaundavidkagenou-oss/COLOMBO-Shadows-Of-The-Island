@@ -2,6 +2,7 @@
 // protagonists: fingers, twist, toe and secondary-motion bones — see HeroRig.js),
 // Sri Lankan everyday clothing and a procedural animation layer (locomotion, idles, gestures, reactions).
 import * as THREE from 'three';
+import { addBloodStain } from '../gfx/BloodStain.js';
 import { applyFight, fightState, MOVES as FIGHT_MOVES } from './Boxing.js';
 import { LIVE } from './Bodies.js';
 import { applySeatPose, seatLocal } from './Seating.js';
@@ -838,7 +839,7 @@ export function getHairMaterial() {
   };
   return hairMat;
 }
-export function getBodyMaterial() { if (!bodyMat) bodyMat = new THREE.MeshStandardMaterial({ map: fabricAtlas(), vertexColors: true, roughness: 0.85 }); return bodyMat; }
+export function getBodyMaterial() { if (!bodyMat) bodyMat = addBloodStain(new THREE.MeshStandardMaterial({ map: fabricAtlas(), vertexColors: true, roughness: 0.85 })); return bodyMat; } // 0 wounds; a wounded ped gets its own copy (BloodStain.js)
 export function getFaceMaterial(key, opts) {
   if (!faceMats.has(key)) faceMats.set(key, new THREE.MeshStandardMaterial({ map: faceAtlas(opts), vertexColors: true, roughness: 0.62 }));
   return faceMats.get(key);
@@ -902,7 +903,7 @@ export class Character {
       this.heroU = heroUniforms(); const hb = getHairMaterial(); const fn = faceNormals();
       const body = getBodyMaterial().clone(); patchHeroMaterial(body, 'body', this.heroU, geo.userData.heroBody ? clothShader({ inner: spec.inner, open: spec.kit === 'openShirt', s: spec.height / 1.72, denim: spec.kit === 'openShirt', stitch: '#b8873e', stripe: spec.stripe, vestBack: spec.vestBack, crease: spec.kit === 'waistcoat' }) : null); iblScale(body, 0.55, 1.0, 0.5);
       const fm = this.face.mat; if (fn.base) { fm.normalMap = fn.base; fm.normalScale = new THREE.Vector2(0.35, -0.35); } patchHeroMaterial(fm, 'face', this.heroU);
-      const hm = hb.clone(); patchHeroMaterial(hm, 'hair', this.heroU, hb.onBeforeCompile); mats = [body, fm, hm]; this.heroMats = [body, hm];
+      const hm = hb.clone(); patchHeroMaterial(hm, 'hair', this.heroU, hb.onBeforeCompile); mats = [addBloodStain(body), fm, hm]; this.heroMats = [body, hm];
     }
     this.mesh = new THREE.SkinnedMesh(geo, mats);
     this.mesh.add(bones[0]); this.mesh.bind(skeleton); this.mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.9, 0), 1.3); this.mesh.castShadow = true; this.mesh.receiveShadow = false; this.mesh.frustumCulled = true;
@@ -934,7 +935,7 @@ export class Character {
   attachHeroHead(skeleton) {
     const sp = this.spec; const key = [sp.mh, sp.height, sp.skin, sp.hair, sp.hairColor, !!sp.beard, !!sp.moustache, !!sp.glasses, sp.hairline || 0].join('|');
     let H = headCache.get(key); if (!H) { H = buildHeroHead(sp, { head: B.head, neck: B.neck, chest: B.chest }); headCache.set(key, H); }
-    const mats = headMaterials(sp, H, this.heroU);
+    const mats = headMaterials(sp, H, this.heroU); for (const hm of Array.isArray(mats) ? mats : [mats]) if (hm && hm.isMeshStandardMaterial) addBloodStain(hm);
     const m = new THREE.SkinnedMesh(H.geometry, mats); m.name = 'heroHead'; m.userData.keys = H.keys;
     this.mesh.add(m); m.bind(skeleton, this.mesh.bindMatrix); m.castShadow = true; m.receiveShadow = false; m.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.9, 0), 1.3);
     this.head = m; this.headMats = mats; const hb = this.bones.head; const jh = joints(sp).head;
@@ -944,7 +945,7 @@ export class Character {
   }
   // crowd head (NpcHead.js): a plain mesh rigid on the head bone — shared geometry (eyes, teeth, facial hair included), own small material
   attachNpcHead(fv) {
-    const sp = this.spec; const F = npcHeadFit(sp); const o = npcHeadOpts(sp); const g = npcHeadGeometry(F.v, o); const mat = npcHeadMaterial(sp, fv, g);
+    const sp = this.spec; const F = npcHeadFit(sp); const o = npcHeadOpts(sp); const g = npcHeadGeometry(F.v, o); const mat = addBloodStain(npcHeadMaterial(sp, fv, g));
     const m = new THREE.Mesh(g, mat); m.name = 'npcHead';
     // distance LOD: beyond ~11 m (a face is then ~15 px tall) the same head at ~1/3 of the triangles; one material, one shared
     // set of morph influences, so expressions / blinks carry over seamlessly
@@ -959,7 +960,7 @@ export class Character {
     this.bones.head.add(lod); this.head = m; this.headLo = lo; this.headMats = [mat];
     this.face.attachMorphs(m, null, NPC_MORPHS);
   }
-  dispose() { LIVE.delete(this); this.disposed = true; if (this.dancer) this.dancer.dispose(); if (this.dancerRT) this.dancerRT.dispose(); this.mesh.skeleton.dispose(); this.face.dispose(); if (this.heroMats) for (const m of this.heroMats) m.dispose(); if (this.headMats) for (const m of this.headMats) m.dispose(); }
+  dispose() { LIVE.delete(this); this.disposed = true; if (this.bloodMat) { this.bloodMat.dispose(); this.bloodMat = null; } if (this.dancer) this.dancer.dispose(); if (this.dancerRT) this.dancerRT.dispose(); this.mesh.skeleton.dispose(); this.face.dispose(); if (this.heroMats) for (const m of this.heroMats) m.dispose(); if (this.headMats) for (const m of this.headMats) m.dispose(); }
   // convenience for gameplay code: expression for a while, or talking on/off
   express(name, dur = 2.5) { this.face.set(name, dur); }
   // damped spring for the chest secondary motion (see buildBodyGeometry, sp.bustSpring): driven by the chest bone's specific

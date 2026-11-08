@@ -122,7 +122,7 @@ export class Game {
     this.applyDensity();
     progress(0.9, 'Lighting'); await tick();
     this.post = new PostFX(this.renderer, this.scene, this.camera); this.post.build({ bloom: Settings.preset.bloom, ao: Settings.preset.ao }); this.world.glintsOn = Settings.get('wetReflections') !== false; this.atmos.nightBoost = Settings.get('nightBrightness') ?? 1;
-    this.explosions = new Explosions(this); this.grenades = new Grenades(this); // throwables (key B) + cinematic blasts
+    this.explosions = new Explosions(this); this.blood.useFx(this.explosions.U); this.grenades = new Grenades(this); // throwables (key B) + cinematic blasts
     this.drunk = new Drunk(this); // vodka in the hero rooms (HeroRooms.js)
     this.vsmoke = new VehicleSmoke(this, Settings.get('quality')); // tyre smoke + exhaust (one draw call, fixed pool)
     this.atmos.update(0.016, new THREE.Vector3(-300, 0, -500), this.camera, 0);

@@ -216,7 +216,7 @@ export class Explosions {
       if (p.ch.rag) { p.ch.rag.impulse(ux * 9 * f, 4 * f, uz * 9 * f); continue; } // a body is thrown about
       if (d < R1 || (d < R2 && Math.random() < 0.45 * (1 - (d - R1) / (R2 - R1)))) { // killed: thrown by the blast
         p.vx = ux * (6 + 8 * f); p.vz = uz * (6 + 8 * f); p.airVy = 3 + 5 * f; C.kill(p); if (p.ch.rag) p.ch.rag.impulse(ux * 2, 2.5 * f, uz * 2);
-        if (g.blood) g.blood.spray(new THREE.Vector3(p.x, (p.y || 0) + 1.0, p.z), { x: ux, y: 0.3, z: uz }, 1.4); this.stats.killed++; C.events?.emit?.('pedHit', p);
+        if (g.blood) { const bp = new THREE.Vector3(p.x - ux * 0.15, (p.y || 0) + 1.0, p.z - uz * 0.15); g.blood.wound(p.ch, bp, { x: ux, y: 0.3, z: uz }, 1.8); g.blood.spray(bp, { x: ux, y: 0.3, z: uz }, 1.4); } this.stats.killed++; C.events?.emit?.('pedHit', p);
       } else if (d < R2) { C.knock(p, ux, uz, 6 + 5 * f, 0); this.stats.downed++; }
       else if (p.state !== 'down') { C.react(p, 'stumble', 0.7, { punched: true }); p.vx = ux * 3 * f; p.vz = uz * 3 * f; }
     }

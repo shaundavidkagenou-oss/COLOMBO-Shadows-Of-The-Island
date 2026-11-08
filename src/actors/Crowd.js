@@ -565,12 +565,24 @@ export class Crowd {
     if (blocked) { p.ch.anim.takeHit('block', 1, 1); p.vx = dx / d * 0.9; p.vz = dz / d * 0.9; p.fstun = 0.15; return true; }
     if (p.ko <= 0) { // knocked down (falls back away from the blow), gets up after a while and leaves
       p.ch.anim.takeHit(M.react, M.dir || 1, 1.3); this.react(p, 'down', 5 + this.rng.next() * 3, { yaw: Math.atan2(-dx, -dz) }); p.downT = 0; p.vx = dx / d * 1.6; p.vz = dz / d * 1.6;
-      p.ch.face.set('blink', 0.4); p.ko = 50; p.fightLost = true; this.koStart(p, dx / d, dz / d, move, M); return true; }
-    p.ch.anim.takeHit(M.react, M.dir || 1, M.pow || 1); const push = move === 'jab' ? 0.9 : move === 'upper' ? 1.2 : 1.6; p.ch.face.set(p.ch.face.morph ? 'pain' : 'concern', 1.8);
+      p.ch.face.set('blink', 0.4); p.ko = 50; p.fightLost = true; this.koStart(p, dx / d, dz / d, move, M); this.faceBleed(p, dx / d, dz / d, move, true); return true; }
+    p.ch.anim.takeHit(M.react, M.dir || 1, M.pow || 1); this.faceBleed(p, dx / d, dz / d, move, false); const push = move === 'jab' ? 0.9 : move === 'upper' ? 1.2 : 1.6; p.ch.face.set(p.ch.face.morph ? 'pain' : 'concern', 1.8);
     if (p.state === 'fight') { p.vx = dx / d * push; p.vz = dz / d * push; p.fstun = move === 'jab' ? 0.22 : 0.42; p.fq = null; p.fcd = Math.max(p.fcd || 0, 0.35); return true; }
     if (p.fighter === undefined) p.fighter = this.willFight(p);
     if (p.fighter && !p.fightLost && !p.sit) { this.startFight(p); p.vx = dx / d * push; p.vz = dz / d * push; return true; }
     this.react(p, 'stumble', 0.65 + this.rng.next() * 0.3, { punched: true }); p.vx = dx / d * push * 1.2; p.vz = dz / d * push * 1.2; p.ch.face.set('fear', 2.5); this.speak(p, 'scared', 2);
+    return true;
+  }
+  // a clean shot to the face can split a lip or start a nosebleed: after a few head shots, or the punch that drops them (no gore —
+  // a small stain at the nose / mouth that trickles, a few drops, a short drip; Settings → Blood effects)
+  faceBleed(p, ux, uz, move, ko) {
+    const B = this.blood; if (!B || !B.on || move === 'body' || !p.ch.bones || !p.ch.bones.head) return false;
+    p.headHits = (p.headHits || 0) + 1; if (p.bledAt != null && this.t - p.bledAt < 12) return false;
+    const chance = ko ? 0.75 : p.headHits >= 3 ? 0.4 : move === 'hook' || move === 'upper' ? 0.12 : 0; if (this.rng.next() >= chance) return false;
+    const hb = p.ch.bones.head; hb.updateWorldMatrix(true, false); const fx = Math.sin(p.yaw), fz = Math.cos(p.yaw);
+    const pt = new THREE.Vector3().setFromMatrixPosition(hb.matrixWorld); pt.x += fx * 0.11; pt.y += 0.06; pt.z += fz * 0.11;
+    if (!B.wound(p.ch, pt, { x: -fx, y: 0, z: -fz }, 0.3, { r: 0.017, run: 0.05, bleed: 7, rate: 0.55 })) return false;
+    p.bledAt = this.t; for (let k = 0; k < 4; k++) B.drop(pt.x, pt.y - 0.02, pt.z, ux * (0.8 + Math.random()) + (Math.random() - 0.5) * 0.5, 0.4 + Math.random() * 0.6, uz * (0.8 + Math.random()) + (Math.random() - 0.5) * 0.5, 0.006 + Math.random() * 0.005, 2);
     return true;
   }
   // ---- knockouts with a body: the hit reaction starts on the feet (head snaps, knees go), then the legs give and the person
@@ -684,7 +696,7 @@ export class Crowd {
     else { this.react(p, 'flee', 4 + this.rng.next() * 3, { fleeDir: this.spread(ax / d, az / d, 0.5), fleeSp: 3.2 }); ch.face.set('fear', 3); this.speak(p, 'scared', 2); }
     this.alarm(x, z, 14, 1, p); return p;
   }
-  despawn(p) { if (p.ch.rag && this.ragdolls) { this.ragdolls.remove(p.ch.rag); p.ch.rag = null; } this.life.forget(p); p.ch.crowdPed = null; if (p.poi) p.poi.used = Math.max(0, p.poi.used - 1); this.scene.remove(p.ch.root); p.ch.dispose(); }
+  despawn(p) { if (this.blood) this.blood.forget(p.ch); if (p.ch.rag && this.ragdolls) { this.ragdolls.remove(p.ch.rag); p.ch.rag = null; } this.life.forget(p); p.ch.crowdPed = null; if (p.poi) p.poi.used = Math.max(0, p.poi.used - 1); this.scene.remove(p.ch.root); p.ch.dispose(); }
   clear() { for (const p of this.peds) this.despawn(p); this.peds = []; this.life.clear(); }
 }
 let umbrellaGeos = null;
