@@ -118,7 +118,6 @@ function surfacePath(C, guide, per, filt) { const out = []; for (let i = 0; i + 
   // smooth (vertex snapping is ~3 mm jagged) and re-snap
   for (let it = 0; it < 3; it++) for (let i = 1; i + 1 < out.length; i++) out[i] = lerp3(out[i], lerp3(out[i - 1], out[i + 1], 0.5), 0.6);
   return out; }
-const polyDist = (p, path) => { let d = 1e9; for (let i = 0; i + 1 < path.length; i++) d = Math.min(d, segDist(p, path[i], path[i + 1])); return d; };
 
 // ---------------------------------------------------------------- wardrobe per dancer
 // cup: triangle in the front view around the bust tip — h (apex above the tip), wi / wo (half-width of the base inward /
@@ -131,6 +130,22 @@ export const WEAR = {
   saffron: { cup: { h: 0.1, wi: 0.085, wo: 0.095, base: 0.002 }, rise: [0.035, 0.05], cutSide: 0.065, cupPad: 0.0036, skirt: { kind: 'pleat', len: 0.25, flare: 1.4, cols: 64, rows: 10, top: 0.035 }, fabric: 'satin', fin: 'gold' },
 };
 const G = { fabric: 0, shoe: 1, metal: 2, sole: 3 };
+// nearest skin vertex index to q (optionally filtered)
+function nearestU(C, q) { let best = 0, bd = 1e9; const P = C.P; for (let u = 0; u < C.NU; u++) { const d = (P[u * 3] - q[0]) ** 2 + (P[u * 3 + 1] - q[1]) ** 2 + (P[u * 3 + 2] - q[2]) ** 2; if (d < bd) { bd = d; best = u; } } return best; }
+// a strap as its own ribbon along a surface path: a slightly domed band of half-width hw lying `off` above the skin, with
+// folded edges down to the skin, skinned like the nearest body vertex (continuous at any mesh density)
+function strapRibbon(C, A, path, hw, off, colOf) {
+  const { P, N } = C; const n = path.length; const pts = [], nor = [], wts = [];
+  for (let i = 0; i < n; i++) { const u = nearestU(C, path[i]); const vn = [N[u * 3], N[u * 3 + 1], N[u * 3 + 2]]; const vp = [P[u * 3], P[u * 3 + 1], P[u * 3 + 2]];
+    const p = path[i]; const below = dot(sub(vp, p), vn); pts.push(add(p, scl(vn, Math.max(0, below)))); nor.push(vn); wts.push(top4(C.wmap(u))); } // smoothing pulls the path under convex skin: back onto it
+  for (let it = 0; it < 2; it++) for (let i = 1; i + 1 < n; i++) nor[i] = nrm(add(nor[i], scl(add(nor[i - 1], nor[i + 1]), 0.5)));
+  const ACROSS = [-1, -0.5, 0, 0.5, 1], DOME = [0, 0.55, 0.75, 0.55, 0]; const rows = [];
+  for (let i = 0; i < n; i++) { const t = nrm(sub(path[Math.min(n - 1, i + 1)], path[Math.max(0, i - 1)])); const nn = nor[i]; const b = nrm(crs(nn, t));
+    const row = ACROSS.map((a, k) => { const q = add(add(pts[i], scl(b, a * hw)), scl(nn, off * (0.6 + 0.4 * DOME[k] / 0.75))); const sn = nrm(add(nn, scl(b, a * 0.35))); return A.v(q, sn, wts[i], colOf(q)); });
+    const e0 = A.v(add(add(pts[i], scl(b, -hw * 1.04)), scl(nn, 0.0002)), nrm(add(scl(b, -1), scl(nn, 0.3))), wts[i], colOf(pts[i])), e1 = A.v(add(add(pts[i], scl(b, hw * 1.04)), scl(nn, 0.0002)), nrm(add(b, scl(nn, 0.3))), wts[i], colOf(pts[i]));
+    rows.push([e0, ...row, e1]); }
+  for (let i = 0; i + 1 < n; i++) { const r0 = rows[i], r1 = rows[i + 1]; for (let k = 0; k + 1 < r0.length; k++) { A.tri(G.fabric, r0[k], r1[k], r1[k + 1]); A.tri(G.fabric, r0[k], r1[k + 1], r0[k + 1]); } }
+}
 function buildWear(C, sp, W) {
   const A = new Acc(4); const hide = new Set(); const { P, N, NU, J, L } = C; const f = new Float32Array(NU);
   const top = lin(sp.top), bottom = lin(sp.bottom || sp.top), shoe = lin(sp.shoes || '#101010'), sole = lin(sp.sole || '#0b0b0d');
@@ -152,10 +167,12 @@ function buildWear(C, sp, W) {
   for (let u = 0; u < NU; u++) { const x = P[u * 3], y = P[u * 3 + 1], z = P[u * 3 + 2]; const p = [x, y, z];
     let v = Math.max(cupF(u, tips[0], 1), cupF(u, tips[1], -1));
     if (C.warm(u) < 0.2 && C.wb(u, 'head', 'neck') < 0.5) { const yb = ub + W.cup.base - 0.004 + (z < 0 ? 0.012 * sstep(0, -0.08, z) : 0); v = Math.max(v, 0.0055 - Math.abs(y - yb)); }
-    if (y > ub && C.warm(u) < 0.15) for (const s of strap) v = Math.max(v, 0.0058 - polyDist(p, s));
+    /* halter straps: built below as their own ribbons (a 12 mm strip carved from the body field broke into fragments
+       wherever it passed between two skin vertices) */
     f[u] = v; }
   const cupTh = (r) => { const T = r.p[0] > 0 ? tips[0] : tips[1]; const d = Math.hypot(r.p[0] - T[0], r.p[1] - T[1]); return 0.0014 + W.cupPad * sstep(0.09, 0.0, d) * (r.p[2] > T[2] - 0.08 ? 1 : 0); };
   shell(C, f, { acc: A, g: G.fabric, col: vary(top), th: cupTh, hide, hideMargin: 0.0035 });
+  for (const path of strap) strapRibbon(C, A, path, 0.0058, 0.0016, vary(top));
   // ---- briefs: front / back rise, high-cut leg lines, gusset
   const hy = J.hips[1], tL = J.thighL;
   for (let u = 0; u < NU; u++) { const x = P[u * 3], y = P[u * 3 + 1], z = P[u * 3 + 2]; if (C.warm(u) > 0.1 || y > hy + 0.12 || y < hy - 0.2) { f[u] = -1; continue; }
@@ -223,7 +240,9 @@ export function buildHair(C, sp) {
     let t = lerp(st.side, st.top, sstep(0.02, 0.07, hy)); if (st.part && hy > 0.05 && p[2] > cz - 0.04) t -= 0.0045 * Math.exp(-((p[0] / 0.005) ** 2)) * sstep(0.05, 0.075, hy);
     return 0.0011 + extra + t * sstep(0.0, st.sleek ? 0.006 : 0.02, r.f) * (a > 2.4 && hy < 0 ? 1 : 1); };
   const flowOf = (r, op) => { const p = r.p; let d; if (st.tail) d = sub(tie, p); else if (st.part) d = [Math.sign(p[0] || 1) * 0.8, -0.6, (p[2] - cz) * 4]; else d = [p[0], -0.5, (p[2] - cz) * 2]; return tangentize(d, r.n); };
-  shell(C, f, { acc: A, g: 0, col: vary, th: (r) => thick(r), attrs: (r, op) => ({ flow: flowOf(r, op), root: op, layer: 0 }), rimIn: 0.0003 });
+  const skinRoot = lin(sp.skin || '#8a5434').map((v, i) => v * 0.5 + col[i] * 0.25); /* sparse hair at the hairline: scalp shows through, the colour builds up over ~8 mm */
+  const scalpCol = (p, r) => { const c = vary(p); const k = r ? sstep(0.0, 0.008, r.f) : 1; return [lerp(skinRoot[0], c[0], k), lerp(skinRoot[1], c[1], k), lerp(skinRoot[2], c[2], k)]; };
+  shell(C, f, { acc: A, g: 0, col: scalpCol, th: (r) => thick(r), attrs: (r, op) => ({ flow: flowOf(r, op), root: op, layer: 0 }), rimIn: 0.0003 });
   for (const [lay, ex] of [[0.5, 0.0016], [1, 0.0032]]) shell(C, f, { acc: A, g: 1, col: vary, th: (r) => thick(r, ex), attrs: (r, op) => ({ flow: flowOf(r, op), root: op, layer: lay }), rim: false });
   // hanging mass: radius table of the body round the head's vertical axis; the hair falls straight down from the widest
   // point above (cumulative max going down) and rests on the shoulders and back below the neck
