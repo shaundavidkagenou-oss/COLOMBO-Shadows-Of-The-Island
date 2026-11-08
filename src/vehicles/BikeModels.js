@@ -58,7 +58,10 @@ LAY.retroScooter = { ...LAY.scooter, tail: -0.82 };
 const LEGACY = [BIKES.takami_tenro.bike, BIKES.veera_saathi.bike];
 
 export function buildBike(mb, dm, K, spec, col, variant) {
-  const { beam, part, C, unitBox, unitCyl, loft, plateQuad } = K;
+  const { beam, part, C, unitBox, unitCyl, plateQuad } = K;
+  // the shared loft winds its faces outward only when the sections run toward +z; bodywork here is mostly authored
+  // front → back, so reverse those (and swap the caps) — otherwise the single-sided paint shows the shell's inside
+  const loft = (mb, secs, col, o = {}) => { if (secs.length > 1 && secs[secs.length - 1][0] < secs[0][0]) { secs = [...secs].reverse(); o = { ...o, capFront: o.capBack ?? true, capBack: o.capFront ?? true }; } return K.loft(mb, secs, col, o); };
   const S = spec || LEGACY[variant % 2]; const st = S.style; const Lo = LAY[st]; const R = S.R; const scoot = st === 'scooter' || st === 'scooterSport' || st === 'retroScooter';
   const faired = st === 'sport' || st === 'super'; const sup = st === 'super';
   const P = mb.get('paint'), CH = mb.get('chrome'), RB = mb.get('rubber'), IN = mb.get('interior'), CF = mb.get('carbon'), AL = mb.get('alloy'), EN = mb.get('engine'), GL = mb.get('glass'), HL = mb.get('vlight'), TL = mb.get('vtail'), IND = mb.get('vind'), MR = mb.get('mirror');
@@ -201,6 +204,7 @@ export function buildBike(mb, dm, K, spec, col, variant) {
     const nz = zF + 0.13, ny = sup ? 0.79 : 0.8;
     loft(P, [[hz + 0.04, 0.6, 1.0, 0.2, 0.18, 0.08], [hz + 0.2, 0.64, 0.98, 0.19, 0.15, 0.08], [nz - 0.06, ny - 0.07, ny + 0.13, 0.13, 0.09, 0.06], [nz, ny - 0.04, ny + 0.06, 0.06, 0.04, 0.03]], col);
     loft(P, [[hz + 0.08, 0.3, 0.68, 0.17, 0.2, 0.06], [hz - 0.12, 0.25, 0.74, 0.19, 0.2, 0.06], [0.08, 0.3, 0.74, 0.18, 0.18, 0.05], [-0.04, 0.42, 0.74, 0.15, 0.15, 0.04]], col, { noBottom: true });
+    loft(P, [[hz + 0.07, 0.56, 0.88, 0.2, 0.17, 0.05], [0.3, 0.55, 0.84, 0.2, 0.175, 0.05], [0.16, 0.58, 0.78, 0.18, 0.17, 0.04]], col, { noBottom: true }); // upper side fairing: nose → tank → lower panels in one skin
     loft(P, [[hz - 0.02, 0.16, 0.3, 0.12, 0.17, 0.04], [0.0, 0.17, 0.3, 0.14, 0.17, 0.04], [-0.12, 0.2, 0.3, 0.1, 0.12, 0.03]], sup ? blk : col); // belly pan
     for (const sx of [1, -1]) {
       const sideX = sx * 0.2; IN.quad([sideX + sx * 0.001, 0.45, hz - 0.18], [sideX + sx * 0.001, 0.45, hz - 0.02], [sideX + sx * 0.001, 0.6, hz + 0.0], [sideX + sx * 0.001, 0.6, hz - 0.2], [0, 0, 1, 1], blk); // side vent
@@ -218,18 +222,19 @@ export function buildBike(mb, dm, K, spec, col, variant) {
       part(dRefl, cup, [sx * 0.07, ny - 0.02, nz - 0.07], [0, sx * 0.4, 0], [0.032, 0.032, 0.02], C('#d8dce0')); part(dHL, sph, [sx * 0.07, ny - 0.02, nz - 0.072], [0, 0, 0], [0.014, 0.014, 0.008]); }
     part(IN, unitBox, [0, ny - 0.04, nz - 0.005], [0, 0, 0], [0.05, 0.035, 0.02], blk); // ram-air intake
     // tail: narrow upswept tail with seat cowl, LED light, plate hugger on an arm with LED indicators
-    const tz = Lo.tail; loft(P, [[-0.1, 0.78, 0.86, 0.13, 0.12, 0.04], [-0.42, 0.84, 0.95, 0.11, 0.1, 0.04], [tz + 0.12, 0.92, 1.02, 0.06, 0.05, 0.03], [tz + 0.02, 0.95, 1.03, 0.035, 0.03, 0.015]], col);
+    const tz = Lo.tail; loft(P, [[-0.1, 0.64, 0.86, 0.15, 0.13, 0.05], [-0.42, 0.74, 0.95, 0.12, 0.1, 0.045], [tz + 0.12, 0.86, 1.02, 0.065, 0.05, 0.03], [tz + 0.02, 0.92, 1.03, 0.035, 0.03, 0.015]], col); // tail unit closed down to the undertray
+    loft(RB, [[-0.2, 0.62, 0.66, 0.12, 0.13, 0.015], [tz + 0.1, 0.82, 0.86, 0.05, 0.06, 0.012]], blk); // undertray
     loft(IN, [[-0.06, 0.82, 0.875, 0.12, 0.115, 0.03], [-0.36, 0.86, 0.9, 0.11, 0.1, 0.03]], seatC); // rider seat (thin, firm)
     loft(sup ? CF : P, [[-0.4, 0.93, 0.98, 0.085, 0.07, 0.03], [-0.62, 0.95, 1.0, 0.07, 0.055, 0.025]], sup ? C('#232326') : col); // pillion seat cowl
     TL.quad([-0.035, 0.955, tz + 0.015], [0.035, 0.955, tz + 0.015], [0.03, 0.99, tz + 0.02], [-0.03, 0.99, tz + 0.02], [0, 0, 1, 1], [1, 1, 1]); TL.quad([0.035, 0.955, tz + 0.016], [-0.035, 0.955, tz + 0.016], [-0.03, 0.99, tz + 0.021], [0.03, 0.99, tz + 0.021], [0, 0, 1, 1], [1, 1, 1]);
-    beam(RB, [0, 0.82, -0.62], [0, 0.6, tz + 0.04], 0.03, 0.12, blk); plateQuad(mb, 0, 0.6, tz + 0.0, 0.1, 0.04, false, variant);
+    beam(RB, [0, 0.74, -0.66], [0, 0.6, tz + 0.03], 0.012, 0.07, blk); plateQuad(mb, 0, 0.6, tz + 0.0, 0.1, 0.04, false, variant);
     for (const sx of [1, -1]) { beam(dRB, [sx * 0.03, 0.66, tz + 0.06], [sx * 0.11, 0.67, tz + 0.06], 0.008, 0.008, blk, unitCyl); part(IND, unitBox, [sx * 0.12, 0.67, tz + 0.06], [0, 0, 0], [0.025, 0.012, 0.02]); }
     // mirrors on the fairing with integrated LED indicators
     for (const sx of [1, -1]) { const m = [sx * 0.24, 0.98, hz + 0.16]; beam(P, [sx * 0.16, 0.92, hz + 0.2], m, 0.015, 0.02, blk); part(P, unitBox, [sx * 0.27, 0.99, hz + 0.15], [0, sx * 0.15, 0], [0.12, 0.055, 0.04], col);
       MR.quad(...(sx > 0 ? [[0.325, 0.968, hz + 0.122], [0.215, 0.968, hz + 0.139], [0.215, 1.012, hz + 0.139], [0.325, 1.012, hz + 0.122]] : [[-0.215, 0.968, hz + 0.139], [-0.325, 0.968, hz + 0.122], [-0.325, 1.012, hz + 0.122], [-0.215, 1.012, hz + 0.139]]), [0, 0, 1, 1], [1, 1, 1]);
       part(IND, unitBox, [sx * 0.3, 0.99, hz + 0.172], [0, sx * 0.15, 0], [0.06, 0.008, 0.004]); }
     // TFT dash behind the screen
-    { const c = [0, 0.95, hz + 0.08], n = nrm(0.85, 0.0135); part(IN, unitBox, c, [-0.85, 0, 0], [0.15, 0.025, 0.09], blk); faceQuad(dDash, [c[0] + n[0], c[1] + n[1], c[2] + n[2]], 0.85, 0.065, 0.04, [0.5, 0.5, 1, 1]); }
+    { const c = [0, 1.0, hz + 0.05], n = nrm(0.85, 0.0135); part(IN, unitBox, c, [-0.85, 0, 0], [0.15, 0.025, 0.09], blk); faceQuad(dDash, [c[0] + n[0], c[1] + n[1], c[2] + n[2]], 0.85, 0.065, 0.04, [0.5, 0.5, 1, 1]); }
     // front mudguard (carbon on the superbikes), hugger
     arcBand(sup ? CF : P, zF, R, R + 0.03, 0.55, 1.95, wF / 2 + 0.012, sup ? C('#232326') : col, 12); arcBand(sup ? CF : RB, zR, R, R + 0.025, 1.9, 2.6, wR / 2 + 0.01, sup ? C('#232326') : blk, 6);
     if (sup) { for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2; part(dAL, unitCyl, [Math.sin(a) * 0.03, 1.03, 0.2 + Math.cos(a) * 0.03], [0, 0, 0], [0.004, 0.006, 0.004], steel); } part(AL, unitCyl, [0, 1.025, 0.2], [0, 0, 0], [0.038, 0.012, 0.038], C('#8d9196')); } // aircraft-style fuel cap with its bolt ring

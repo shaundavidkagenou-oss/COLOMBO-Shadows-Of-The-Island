@@ -58,12 +58,12 @@ const BODY = {
     diffuseColor.rgb *= 0.93 + 0.12 * t; roughnessFactor = clamp(roughnessFactor + (h - 0.5) * 0.12 * a + (t - 0.5) * 0.08, 0.2, 1.0); normal = wsBump(normal, h * a, 0.00012); }`,
   carbon: `{ vec3 an = abs(vWsN); vec2 uv; vec3 ua, va;
     if (an.x > an.y && an.x > an.z) { uv = vWsP.zy; ua = vWsAz; va = vWsAy; } else if (an.y > an.z) { uv = vWsP.xz; ua = vWsAx; va = vWsAz; } else { uv = vWsP.xy; ua = vWsAx; va = vWsAy; }
-    const float F = 150.0; vec2 q = vec2(uv.x + uv.y, uv.x - uv.y) * 0.70710678 * F; float a = wsAA(F * 1.6);
+    const float F = 300.0; /* ≈3.3 mm tow crossings (3K twill) */ vec2 q = vec2(uv.x + uv.y, uv.x - uv.y) * 0.70710678 * F; float a = wsAA(F * 1.6);
     vec2 cell = floor(q), f = fract(q); float warp = step(2.0, mod(cell.x + cell.y, 4.0));                  // 2/2 twill: over two, under two
     vec3 fd = normalize(mix(ua + va, ua - va, warp));                                                      // fibre direction of the tow on top (view space)
     float across = mix(f.y, f.x, warp); float crown = sin(across * 3.14159);                              // tow cross-section
     float sheen = pow(1.0 - abs(dot(normalize(vViewPosition), fd)), 2.0);
-    float shade = mix(0.55, 0.45 + 1.1 * sheen, a) * mix(1.0, 0.7 + 0.3 * crown, a) * (0.96 + 0.08 * wsN(vec3(q * 0.5, 0.0)));
+    float shade = mix(0.85, 0.72 + 0.6 * sheen, a) * mix(1.0, 0.86 + 0.14 * crown, a) * (0.96 + 0.08 * wsN(vec3(q * 0.5, 0.0)));
     diffuseColor.rgb *= shade; roughnessFactor = clamp(mix(roughnessFactor, mix(0.5, 0.22, sheen), a), 0.1, 1.0); normal = wsBump(normal, crown * a, 0.0003); }`,
   cast: `{ float a = wsAA(900.0); float h = wsN(vWsP * 900.0); float t = wsF(vWsP * 30.0);
     diffuseColor.rgb *= 0.92 + 0.14 * t; roughnessFactor = clamp(roughnessFactor + (h - 0.5) * 0.18 * a + (t - 0.5) * 0.1, 0.15, 1.0); normal = wsBump(normal, h * a, 0.0001); }`,
