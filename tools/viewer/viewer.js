@@ -8,6 +8,8 @@ import { setVehicleLOD } from '../../src/vehicles/Vehicle.js';
 import { modelFloor } from '../../src/world/FloorKit.js';
 import { buildT56, buildWeaponModel } from '../../src/combat/WeaponModels.js';
 import { WEAPONS } from '../../src/combat/WeaponDefs.js';
+import { Character, randomSpec } from '../../src/actors/Character.js';
+import { applySeatPose, seatLocal } from '../../src/actors/Seating.js';
 
 const q = new URLSearchParams(location.search); const type = q.get('type') || 'soraki_rr1000', seed = +(q.get('seed') || 1);
 const W = +(q.get('w') || 1280), H = +(q.get('h') || 720);
@@ -42,6 +44,10 @@ const g = createVehicleMesh(type, seed); scene.add(g); if (g.userData.detail) { 
 g.traverse((o) => { if (o.isMesh && o.name !== 'contactShadow') { o.castShadow = true; o.receiveShadow = true; } });
 const hide = (q.get('hide') || '').split(',').filter(Boolean); if (hide.length) g.traverse((o) => { if (o.isMesh && hide.includes(o.name)) o.visible = false; }); // isolate parts: &hide=paint,interior
 console.log('parts', [...new Set((() => { const n = []; g.traverse((o) => o.isMesh && n.push(o.name)); return n; })())].join(','));
+// &rider=<height>: seat a crowd adult on the driver's seat with the game's own seat pose (checks knees / legs against the bodywork)
+if (q.get('rider')) { const h = +q.get('rider') > 1 ? +q.get('rider') : 1.75; const sp = { ...randomSpec(7, { sex: 'm' }), height: h, build: 1.0 }; const ch = new Character(sp);
+  const seat = g.userData.seats[0]; ch.root.position.set(seat.x, seat.y, seat.z); scene.add(ch.root);
+  applySeatPose({ ch, root: ch.root, s: h / 1.72, ankle: 0.085 * h / 1.72, seatW: 1, seatL: seatLocal(seat), t: 0, seed: 0.3, vehSpeed: 0, seatLookT: 9, steer: 0 }, 0.016); ch.root.updateMatrixWorld(true); }
 const T = VTYPES[type]; const L = T.len;
 const views = (q.get('views') || 'rider,left,front34,rear34').split(',');
 const CAM = { rider: [[0.05, 1.5, -0.62], [0, 0.9, 0.5]], left: [[2.6, 0.75, 0], [0, 0.6, 0]], right: [[-2.6, 0.75, 0], [0, 0.6, 0]], front34: [[-1.7, 1.1, L * 0.95], [0, 0.65, 0.1]],

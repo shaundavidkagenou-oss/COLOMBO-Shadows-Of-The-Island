@@ -74,8 +74,8 @@ export function capRow(b, net, r, col, back = true) {
 // ------------------------------------------------------------------------------------------------- livery atlas
 // one 2048² canvas for all five racers: per bike a 640 × 1024 slot holding the side-fairing artwork (512²), the nose cowl
 // (384 × 256), the tail (640 × 128) and the tank badge (192 × 128). Names are fictional (makers from BikeCatalog, made-up sponsors).
-const SLOT = { soraki: 0, brennhart: 1, takami: 2, orvano: 3, harroway: 4 };
-const NUM = { soraki: '17', brennhart: '54', takami: '8', orvano: '61', harroway: '33' };
+const SLOT = { soraki: 0, brennhart: 1, takami: 2, orvano: 3, harroway: 4, street: 5 }; // street = stock road graphics for the 155/300 sport bikes
+const NUM = { soraki: '17', brennhart: '54', takami: '8', orvano: '61', harroway: '33', street: '' };
 const AREAS = { side: [0, 0, 512, 512], cowl: [0, 512, 384, 256], tail: [0, 768, 640, 128], tank: [0, 896, 192, 128], num: [384, 512, 256, 256], strip: [196, 896, 444, 128] };
 export function liveryRect(make, area) {
   const k = SLOT[make] ?? 0; const ox = (k % 3) * 680, oy = Math.floor(k / 3) * 1024; const [x, y, w, h] = AREAS[area]; const X = ox + x, Y = oy + y;
@@ -85,7 +85,7 @@ const SPONSORS = ['VELORA OIL', 'ARKANO BRAKES', 'NOVEXA CHAINS', 'MONSOON RACIN
 let liveryTex = null;
 function drawLivery() {
   const c = document.createElement('canvas'); c.width = 2048; c.height = 2048; const g = c.getContext('2d'); g.clearRect(0, 0, 2048, 2048);
-  const BK = { soraki: ['SORAKI', '#d01f2a', '#ffffff', 'tricolour'], brennhart: ['BRENNHART', '#1f5fd0', '#ffffff', 'motorsport'], takami: ['TAKAMI', '#141416', '#3fae2a', 'split'], orvano: ['ORVANO', '#f2f2f0', '#141416', 'stripe'], harroway: ['HARROWAY', '#e8b400', '#141416', 'stripe'] };
+  const BK = { soraki: ['SORAKI', '#d01f2a', '#ffffff', 'tricolour'], brennhart: ['BRENNHART', '#1f5fd0', '#ffffff', 'motorsport'], takami: ['TAKAMI', '#141416', '#3fae2a', 'split'], orvano: ['ORVANO', '#f2f2f0', '#141416', 'stripe'], harroway: ['HARROWAY', '#e8b400', '#141416', 'stripe'] , street: ['TSUBASA', '#141416', '#c8ccd0', 'street'] };
   const txt = (s, x, y, size, col, o = {}) => { g.save(); g.translate(x, y); g.transform(1, 0, o.slant ?? -0.22, 1, 0, 0); g.font = `${o.weight || 800} ${size}px "Barlow Condensed", "Arial Narrow", sans-serif`; g.textAlign = o.align || 'left'; g.textBaseline = 'middle';
     if (o.stroke) { g.lineWidth = o.stroke; g.strokeStyle = o.strokeCol || '#111'; g.lineJoin = 'round'; g.strokeText(s, 0, 0, o.max || 4000); } g.fillStyle = col; g.fillText(s, 0, 0, o.max || 4000); g.restore(); };
   for (const make of Object.keys(SLOT)) {
@@ -96,24 +96,27 @@ function drawLivery() {
         g.lineTo(x + w + 10, y + h * (y1 - 0.42 + cut)); g.bezierCurveTo(x + w * 0.62, y + h * (y1 - 0.3), x + w * 0.35, y + h * (y1 - 0.02), x - 10, y + h * y1); g.closePath(); g.fillStyle = col; g.fill(); };
       if (style === 'split') { g.fillStyle = acc; g.beginPath(); g.moveTo(x - 10, y + h * 0.72); g.lineTo(x + w + 10, y + h * 0.5); g.lineTo(x + w + 10, y + h + 10); g.lineTo(x - 10, y + h + 10); g.fill(); sw(0.62, 0.68, acc2); }
       else if (style === 'motorsport') { sw(0.78, 0.98, acc); sw(0.7, 0.76, '#c8102e'); sw(0.66, 0.685, '#ffffff'); }
+      else if (style === 'street') { sw(0.84, 0.96, acc); sw(0.78, 0.81, acc2); }
       else if (style === 'tricolour') { sw(0.8, 0.98, '#1d3fa0'); sw(0.745, 0.79, '#ffffff'); sw(0.98, 1.2, acc); sw(0.7, 0.725, acc); }
       else { sw(0.78, 0.92, acc); sw(0.72, 0.75, acc2); }
       txt(name, x + 20, y + h * 0.6, 92, style === 'tricolour' ? acc : '#ffffff', { stroke: 10, strokeCol: '#111', max: w * 0.8 });
-      // number roundel (white oval, black number) up near the top of the panel
+      if (style !== 'street') { // number roundel (white oval, black number) up near the top of the panel
       g.save(); g.translate(x + w * 0.57, y + h * 0.22); g.transform(1, 0, -0.18, 1, 0, 0); g.fillStyle = '#ffffff'; g.strokeStyle = '#111'; g.lineWidth = 8; g.beginPath(); g.ellipse(0, 0, 112, 92, 0, 0, Math.PI * 2); g.fill(); g.stroke(); g.restore();
       txt(NUM[make], x + w * 0.57, y + h * 0.22 + 4, 150, '#111', { align: 'center', weight: 900, slant: -0.18 });
-      txt(SPONSORS[(k + 1) % SPONSORS.length], x + 22, y + h * 0.465, 40, '#ffffff', { stroke: 6, max: w * 0.5 }); txt(SPONSORS[(k + 3) % SPONSORS.length], x + 26, y + h * 0.73, 32, '#ffffff', { stroke: 5, max: w * 0.6 });
+      txt(SPONSORS[(k + 1) % SPONSORS.length], x + 22, y + h * 0.465, 40, '#ffffff', { stroke: 6, max: w * 0.5 }); txt(SPONSORS[(k + 3) % SPONSORS.length], x + 26, y + h * 0.73, 32, '#ffffff', { stroke: 5, max: w * 0.6 }); }
+      else { txt('SORAKI', x + 24, y + h * 0.44, 46, '#111', { stroke: 6, strokeCol: '#ffffff', max: w * 0.5 }); txt('FUEL INJECTION  LIQUID COOLED', x + 26, y + h * 0.73, 26, '#ffffff', { stroke: 5, max: w * 0.7 }); }
       g.restore(); }
     // ---- nose cowl: accent arrow towards the beak + sponsor
     { const [x, y, w, h] = A('cowl'); g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip();
       g.fillStyle = style === 'tricolour' ? '#ffffff' : acc; g.beginPath(); g.moveTo(x - 5, y + h * 0.55); g.lineTo(x + w * 0.55, y + h * 0.25); g.lineTo(x + w + 5, y + h * 0.2); g.lineTo(x + w + 5, y + h * 0.42); g.lineTo(x + w * 0.55, y + h * 0.48); g.lineTo(x - 5, y + h * 0.8); g.closePath(); g.fill();
       g.fillStyle = style === 'tricolour' ? acc : acc2; g.beginPath(); g.moveTo(x - 5, y + h * 0.84); g.lineTo(x + w * 0.55, y + h * 0.53); g.lineTo(x + w + 5, y + h * 0.48); g.lineTo(x + w + 5, y + h * 0.56); g.lineTo(x + w * 0.55, y + h * 0.6); g.lineTo(x - 5, y + h * 0.94); g.closePath(); g.fill();
-      txt(SPONSORS[(k + 2) % SPONSORS.length], x + w * 0.5, y + h * 0.72, 34, '#ffffff', { stroke: 6, max: w * 0.55, align: 'center' }); g.restore(); }
+      if (style !== 'street') txt(SPONSORS[(k + 2) % SPONSORS.length], x + w * 0.5, y + h * 0.72, 34, '#ffffff', { stroke: 6, max: w * 0.55, align: 'center' }); g.restore(); }
     // ---- tail: number + racing stripe + sponsor
     { const [x, y, w, h] = A('tail'); g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip(); g.fillStyle = acc; g.beginPath(); g.moveTo(x, y + h * 0.78); g.lineTo(x + w, y + h * 0.18); g.lineTo(x + w, y + h * 0.36); g.lineTo(x, y + h * 0.96); g.fill();
-      txt(NUM[make], x + w * 0.22, y + h * 0.45, 96, '#ffffff', { stroke: 8, weight: 900, align: 'center' }); txt(SPONSORS[(k + 4) % SPONSORS.length], x + w * 0.62, y + h * 0.62, 34, '#ffffff', { stroke: 5, max: w * 0.4, align: 'center' }); g.restore(); }
+      if (style === 'street') txt('SORAKI', x + w * 0.42, y + h * 0.5, 56, '#ffffff', { stroke: 6, align: 'center' });
+      else txt(NUM[make], x + w * 0.22, y + h * 0.45, 96, '#ffffff', { stroke: 8, weight: 900, align: 'center' }); if (style !== 'street') txt(SPONSORS[(k + 4) % SPONSORS.length], x + w * 0.62, y + h * 0.62, 34, '#ffffff', { stroke: 5, max: w * 0.4, align: 'center' }); g.restore(); }
     // ---- tank badge: maker's name in a chrome-edged plate
-    { const [x, y, w, h] = A('tank'); g.fillStyle = '#111'; g.fillRect(x + 4, y + 30, w - 8, h - 60); g.strokeStyle = '#c8ccd0'; g.lineWidth = 5; g.strokeRect(x + 6, y + 32, w - 12, h - 64); txt(name, x + w / 2, y + h / 2, 48, '#ffffff', { align: 'center', max: w - 30, slant: -0.15 }); }
+    { const [x, y, w, h] = A('tank'); const badge = style === 'street' ? 'SORAKI' : name; g.fillStyle = '#111'; g.fillRect(x + 4, y + 30, w - 8, h - 60); g.strokeStyle = '#c8ccd0'; g.lineWidth = 5; g.strokeRect(x + 6, y + 32, w - 12, h - 64); txt(badge, x + w / 2, y + h / 2, 48, '#ffffff', { align: 'center', max: w - 30, slant: -0.15 }); }
     // ---- belly sponsor strip: a black-edged bar with a sponsor name and a small accent block
     { const [x, y, w, h] = A('strip'); g.fillStyle = '#111'; g.fillRect(x + 4, y + 30, w - 8, h - 60); g.fillStyle = acc; g.fillRect(x + 4, y + 30, 46, h - 60);
       txt(SPONSORS[(k + 5) % SPONSORS.length], x + 60 + (w - 70) / 2, y + h / 2, 44, '#ffffff', { align: 'center', max: w - 90 }); }
@@ -133,15 +136,16 @@ export function liveryMaterial() {
 // K: { mb, dm, col (paint), blk, seatC, carbon colour, make }. Returns the points other parts hang from.
 export function raceBody(mb, K) {
   const P = mb.get('paint'), IN = mb.get('interior'), GL = mb.get('glass'), HL = mb.get('vlight'), TL = mb.get('vtail'), CF = mb.get('carbon'), LV = mb.get('livery'), RB = mb.get('rubber');
-  const { col, blk, seatC, cf, make } = K; const W = [1, 1, 1];
+  const { col, blk, seatC, cf, make } = K; const W = [1, 1, 1]; const street = make === 'street';
+  const N = (net) => (K.xf ? net.map((r) => r.map(K.xf)) : net); // optional per-model reshape of every control net (the smaller sport bikes)
   // nose cowl: pointed beak over the front wheel, flanks sweeping back to the screen edge (columns: lower edge → top edge)
-  const cowl = [
+  const cowl = N([
     [[0.03, 0.735, 0.9], [0.036, 0.75, 0.905], [0.03, 0.768, 0.908], [0.0, 0.776, 0.905]],
     [[0.1, 0.69, 0.8], [0.122, 0.735, 0.822], [0.108, 0.8, 0.83], [0.0, 0.84, 0.82]],
     [[0.168, 0.645, 0.67], [0.198, 0.715, 0.695], [0.19, 0.81, 0.71], [0.11, 0.875, 0.705]],
     [[0.212, 0.615, 0.54], [0.238, 0.7, 0.56], [0.228, 0.82, 0.575], [0.145, 0.915, 0.58]],
     [[0.228, 0.61, 0.43], [0.246, 0.7, 0.445], [0.236, 0.83, 0.46], [0.158, 0.94, 0.47]],
-    [[0.226, 0.61, 0.35], [0.238, 0.7, 0.36], [0.222, 0.84, 0.37], [0.17, 0.95, 0.375]]]; // last row tucks over the tank front so no gap shows
+    [[0.226, 0.61, 0.35], [0.238, 0.7, 0.36], [0.222, 0.84, 0.37], [0.17, 0.95, 0.375]]]); // last row tucks over the tank front so no gap shows
   panel(P, cowl, col);
   // screen: a bubble between the cowl's top edges, rising to the rear
   const scr = cowl.slice(0, 5).map((r, i) => { const e = r[3]; const rise = [0.004, 0.022, 0.07, 0.12, 0.165][i]; return [[e[0], e[1] + 0.002, e[2]], [e[0] * 0.55, e[1] + rise * 0.82, e[2] - 0.005], [0, e[1] + rise, e[2] - 0.008]]; });
@@ -149,41 +153,41 @@ export function raceBody(mb, K) {
   patch(GL, scr, 0, 5, 0, 2, W, [0, 0, 1, 1], { lift: 0, nu: 30, nv: 10 });
   // side fairings with the belly pan in one skin (columns: belly centre → top edge under the tank); the front edge
   // stays behind the front tyre's travel and the rear edge slants back down to the belly
-  const side = [
+  const side = N([
     [[0, 0.175, 0.3], [0.12, 0.2, 0.32], [0.2, 0.3, 0.37], [0.232, 0.48, 0.42], [0.232, 0.63, 0.445], [0.21, 0.72, 0.44]],
     [[0, 0.155, 0.2], [0.14, 0.18, 0.2], [0.222, 0.3, 0.22], [0.252, 0.5, 0.24], [0.242, 0.67, 0.25], [0.2, 0.752, 0.25]],
     [[0, 0.16, 0.0], [0.14, 0.19, 0.0], [0.214, 0.3, 0.01], [0.232, 0.49, 0.04], [0.214, 0.645, 0.08], [0.182, 0.736, 0.11]],
-    [[0, 0.205, -0.2], [0.13, 0.235, -0.19], [0.198, 0.33, -0.14], [0.205, 0.47, -0.05], [0.185, 0.6, 0.02], [0.162, 0.7, 0.06]]];
+    [[0, 0.205, -0.2], [0.13, 0.235, -0.19], [0.198, 0.33, -0.14], [0.205, 0.47, -0.05], [0.185, 0.6, 0.02], [0.162, 0.7, 0.06]]]);
   panel(P, side, col);
   // tank: tall, scalloped for the knees, sloping into the seat
-  const tank = [
+  const tank = N([
     [[0.08, 0.84, 0.45], [0.075, 0.9, 0.452], [0.055, 0.945, 0.453], [0.028, 0.962, 0.453], [0, 0.965, 0.453]],
     [[0.172, 0.79, 0.42], [0.165, 0.88, 0.43], [0.125, 0.955, 0.44], [0.062, 0.99, 0.44], [0, 0.995, 0.44]],
     [[0.2, 0.76, 0.25], [0.2, 0.875, 0.25], [0.162, 0.985, 0.25], [0.085, 1.035, 0.25], [0, 1.045, 0.25]],
     [[0.172, 0.76, 0.05], [0.168, 0.86, 0.05], [0.14, 0.955, 0.04], [0.075, 0.995, 0.04], [0, 1.003, 0.04]],
-    [[0.12, 0.78, -0.1], [0.12, 0.84, -0.1], [0.1, 0.88, -0.11], [0.05, 0.9, -0.11], [0, 0.905, -0.11]]];
+    [[0.1, 0.78, -0.1], [0.1, 0.84, -0.1], [0.085, 0.88, -0.11], [0.045, 0.9, -0.11], [0, 0.905, -0.11]]]);
   panel(P, tank, col, { thick: 0 });
   // seat (thin, firm) and the tail it sits in
-  const seat = [
+  const seat = N([
     [[0.06, 0.85, -0.045], [0.06, 0.865, -0.05], [0.04, 0.873, -0.052], [0, 0.875, -0.052]],
-    [[0.12, 0.79, -0.07], [0.12, 0.848, -0.07], [0.08, 0.868, -0.075], [0, 0.873, -0.075]],
-    [[0.125, 0.8, -0.25], [0.12, 0.86, -0.25], [0.08, 0.877, -0.25], [0, 0.881, -0.25]],
+    [[0.104, 0.79, -0.07], [0.104, 0.848, -0.07], [0.072, 0.868, -0.075], [0, 0.873, -0.075]],
+    [[0.11, 0.8, -0.25], [0.108, 0.86, -0.25], [0.075, 0.877, -0.25], [0, 0.881, -0.25]],
     [[0.1, 0.84, -0.42], [0.1, 0.886, -0.42], [0.065, 0.9, -0.42], [0, 0.905, -0.42]],
-    [[0.05, 0.87, -0.445], [0.05, 0.895, -0.445], [0.03, 0.905, -0.445], [0, 0.908, -0.445]]];
+    [[0.05, 0.87, -0.445], [0.05, 0.895, -0.445], [0.03, 0.905, -0.445], [0, 0.908, -0.445]]]);
   panel(IN, seat, seatC, { thick: 0 });
-  const tail = [ // slim wedge sweeping up from under the seat to a high, sharp tip; the rear wheel shows under it
-    [[0.15, 0.6, -0.06], [0.165, 0.69, -0.06], [0.16, 0.77, -0.06], [0.135, 0.8, -0.06], [0.07, 0.8, -0.06], [0, 0.8, -0.06]],
-    [[0.132, 0.72, -0.3], [0.146, 0.778, -0.3], [0.144, 0.826, -0.3], [0.122, 0.852, -0.3], [0.06, 0.857, -0.3], [0, 0.857, -0.3]],
+  const tail = N([ // slim wedge sweeping up from under the seat to a high, sharp tip; the rear wheel shows under it
+    [[0.14, 0.6, -0.06], [0.15, 0.69, -0.06], [0.138, 0.77, -0.06], [0.112, 0.8, -0.06], [0.06, 0.8, -0.06], [0, 0.8, -0.06]],
+    [[0.124, 0.72, -0.3], [0.134, 0.778, -0.3], [0.128, 0.826, -0.3], [0.108, 0.852, -0.3], [0.055, 0.857, -0.3], [0, 0.857, -0.3]],
     [[0.104, 0.82, -0.52], [0.118, 0.862, -0.52], [0.116, 0.9, -0.52], [0.094, 0.928, -0.52], [0.048, 0.942, -0.52], [0, 0.946, -0.52]],
     [[0.06, 0.925, -0.74], [0.068, 0.955, -0.74], [0.064, 0.985, -0.74], [0.047, 1.006, -0.74], [0.024, 1.016, -0.74], [0, 1.018, -0.74]],
-    [[0.022, 0.99, -0.9], [0.026, 1.006, -0.9], [0.024, 1.024, -0.9], [0.016, 1.036, -0.9], [0.008, 1.041, -0.9], [0, 1.042, -0.9]]];
+    [[0.022, 0.99, -0.9], [0.026, 1.006, -0.9], [0.024, 1.024, -0.9], [0.016, 1.036, -0.9], [0.008, 1.041, -0.9], [0, 1.042, -0.9]]]);
   panel(P, tail, col);
   capRow(TL, tail, 4, W, true); // LED tail light filling the tip
   // undertray (black) from the tail's lower edge in to the centre line
   const under = tail.slice(0, 5).map((r) => [[0, r[0][1] - 0.012, r[0][2]], [r[0][0] * 0.98, r[0][1] - 0.002, r[0][2]]]);
   panel(RB, under, blk, { thick: 0 });
   // carbon pillion cowl on the tail top, behind the rider's seat
-  patch(CF, tail, 2.05, 3.6, 3.2, 5, cf, [0, 0, 1, 1], { lift: 0.003, nu: 12, nv: 8 });
+  patch(street ? IN : CF, tail, 2.05, 3.6, 3.2, 5, street ? seatC : cf, [0, 0, 1, 1], { lift: 0.003, nu: 12, nv: 8 }); // carbon cowl (racers) / pillion pad (road)
   // lamps, intake and vents cut into the panels
   patch(HL, cowl, 0.55, 1.45, 1.05, 1.55, W, [0, 0, 1, 1], { lift: 0.0015 }); patch(HL, cowl, 0.9, 1.75, 1.75, 2.05, W, [0, 0, 1, 1], { lift: 0.0015 }); // twin LED slits per side
   patch(IN, cowl, 0, 0.6, 0, 0.9, blk, [0, 0, 1, 1], { lift: 0.0015 }); // ram-air intake mouth at the beak
@@ -193,7 +197,7 @@ export function raceBody(mb, K) {
   patch(LV, cowl, 1.15, 3.9, 0.15, 2.75, W, liveryRect(make, 'cowl'), { nu: 18, nv: 12, lift: 0.0018 });
   patch(LV, tail, 1.15, 3.4, 0.35, 2.7, W, liveryRect(make, 'tail'), { nu: 18, nv: 8 });
   patch(LV, tank, 2.2, 2.85, 1.6, 2.4, W, liveryRect(make, 'tank'), { nu: 6, nv: 6, flipY: false });
-  patch(LV, side, 0.9, 2.5, 0.85, 1.55, W, liveryRect(make, 'strip'), { nu: 12, nv: 6, lift: 0.0016 }); // belly sponsor
+  if (!street) patch(LV, side, 0.9, 2.5, 0.85, 1.55, W, liveryRect(make, 'strip'), { nu: 12, nv: 6, lift: 0.0016 }); // belly sponsor
   return { cowl, side, tank, tail, evalNet };
 }
 export { evalNet };

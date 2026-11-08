@@ -122,6 +122,8 @@ function poseSeat(A, dt, w, fitting = false) {
     const fo = sd === 'L' ? A.footOverL : null; if (fo && fo.w > 0) F.lerp(_fo.set(fo.x, fo.y + ankle, fo.z), Math.min(1, fo.w)); // kickstand: the left boot on the stand's tang
     const L = solveLeg(_v, F, a, bl);
     _e.set(-L.theta, 0, L.gamma, 'ZXY'); _qw.setFromEuler(_e); // world (root-space) thigh orientation
+    if (S.kneeOut) { // sport riding: swing the knee out round the hip→ankle axis (the ankle stays on its target) so it clears the tank/fairing
+      const ax = _fo.copy(F).sub(_v).normalize(); _qs.setFromAxisAngle(ax, -sx * S.kneeOut); _qw.premultiply(_qs); }
     _qt.copy(_qh).invert().multiply(_qw); tb.quaternion.slerp(_qt, w); // local = hips⁻¹ · world
     _e.set(L.knee, 0, 0, 'XYZ'); _qs.setFromEuler(_e); b['shin' + sd].quaternion.slerp(_qs, w);
     // foot flat (or slightly toe-down on pegs): local = (hips·thigh·shin)⁻¹ · desired
