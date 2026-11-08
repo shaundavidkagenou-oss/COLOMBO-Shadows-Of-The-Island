@@ -21,13 +21,16 @@ const focus = { x: -392, z: 700 }; const player = { x: focus.x, z: focus.z, y: 0
 const camDir = new THREE.Vector3(0, 0, -1); const dt = 1 / 60;
 const ctx = { simTime: 0, vehicles: [], player, bodies: [], hourFactor: 1, hour: 12, rain: 0, night: 0 };
 const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 1400);
+const VS = process.env.NOVS ? null : await import('../src/gfx/ViewSkip.js'); // the game's view skipping (NOVS=1: every person/vehicle posed and transformed every frame)
+const sun = new THREE.DirectionalLight(); sun.target.position.set(0, 0, 0); sun.position.set(-0.42, 0.82, -0.38).multiplyScalar(100); // late-morning sun, as the game's 11:00
 const S = { traffic: [], crowd: [], matrix: [], frame: [] }; let t = 0;
 const step = (rec, move) => {
   if (move) { focus.z -= 2.5 * dt / 0.08 * 0.5; player.z = focus.z; } // ~15 m/s down Galle Road
   camera.position.set(focus.x, 2, focus.z + 5); camera.lookAt(focus.x, 1.5, focus.z - 10); camera.updateMatrixWorld();
+  if (VS) VS.refreshView(camera, sun, 0);
   const a = performance.now(); T.update(dt, focus, camDir, t, C.peds, player); const b = performance.now();
   ctx.simTime = t; ctx.vehicles = T.all ? T.all() : T.vehicles; C.update(dt, focus, camDir, ctx); const c = performance.now();
-  scene.updateMatrixWorld(); const d = performance.now(); t += dt;
+  if (VS) { VS.holdVehicles(T.all ? T.all() : T.vehicles, null); VS.updateSceneMatrices(scene); } else scene.updateMatrixWorld(); const d = performance.now(); t += dt;
   if (rec) { S.traffic.push(b - a); S.crowd.push(c - b); S.matrix.push(d - c); S.frame.push(d - a); }
 };
 for (let i = 0; i < 20 / dt; i++) step(false, false); // fill the city

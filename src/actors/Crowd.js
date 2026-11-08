@@ -10,6 +10,8 @@ import { StreetLife } from './StreetLife.js';
 import { separate } from './Bodies.js';
 import { Keys, supineFrame, rollAngle, rotateAbout } from './Ragdoll.js';
 import { PRESETS, lookKey, profileActivity } from './Appearance.js';
+import { offView, holdThisFrame } from '../gfx/ViewSkip.js';
+const HOLD_OK = new Set(['walk', 'toPoi', 'idle', 'waitCross', 'shop', 'shelter', 'lawn', 'busStop', 'bench', 'chat', 'watch', 'flee', 'cower', 'scene', 'door']); // ambient states that may be posed at a lower rate while unseen
 import { RNG } from '../core/rng.js';
 import { clamp, lerp, dampAngle, wrapAngle } from '../core/math.js';
 import { LINES, pick } from '../story/Lines.js';
@@ -506,7 +508,10 @@ export class Crowd {
       if (p.state === 'walk' && p.act && this.rng.chance(dt * 0.05)) { p.act = null; p.ch.anim.set(null); }
       // animate (lower rate when far); pass the real turn rate for lean
       const turnRate = wrapAngle(p.yaw - prevYaw) / Math.max(dt, 1e-4);
-      const posed = lod === 1 || (this.frame + (p.id * 7 | 0)) % lod === 0; if (posed) p.ch.anim.update(dt * (lod === 1 ? 1 : lod), p.state === 'down' ? 0 : sp, lod === 1 ? turnRate : 0);
+      /* FPS (src/gfx/ViewSkip.js): unseen — outside the view and its turning margin, farther from it than any shadow can reach — ambient people are posed every 4th frame and skip the frame's matrix pass in between */
+      const unseen = !p.keep && !p.job && HOLD_OK.has(p.state) && offView(p.x, p.z, 1); const plod = unseen ? Math.max(lod, 4) : lod;
+      const posed = plod === 1 || (this.frame + (p.id * 7 | 0)) % plod === 0; if (posed) p.ch.anim.update(dt * (plod === 1 ? 1 : plod), p.state === 'down' ? 0 : sp, plod === 1 ? turnRate : 0);
+      if (unseen && !posed) holdThisFrame(p.ch.root);
       p.y = lod === 1 || p.state === 'down' || (this.frame + p.id) % 4 === 0 ? this.collision.groundAt(p.x, p.z, (p.y || 0.15)) : (p.y || 0.15); /* far people too (every 4th frame): never left at an old height after walking or being thrown off a kerb */
       if (!(p.y > -50)) { p.y = this.collision.groundAt(p.x, p.z, 0.5); p.vx = p.vz = 0; } /* safety net: a bad height (NaN / far under) never leaves anyone in the void */
       p.ch.root.position.set(p.x, p.y, p.z); p.ch.root.rotation.y = p.yaw;
