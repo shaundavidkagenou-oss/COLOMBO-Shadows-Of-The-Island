@@ -8,8 +8,8 @@ const browser = await puppeteer.launch({ executablePath: await chromium.executab
 try {
   for (const spec of types) { const [type, views, seed, hide] = spec.split(':'); const page = await browser.newPage(); const errs = [];
     page.on('pageerror', (e) => errs.push(String(e.message || e))); page.on('console', (m) => { if (m.type() === 'error' || m.text().startsWith('parts')) errs.push(m.text()); });
-    const t0 = Date.now(); await page.goto(`http://127.0.0.1:${process.env.PORT || 5202}/index.html?${type.startsWith('floors=') ? type : 'type=' + type}&seed=${seed || 1}&w=${W}&h=${H}${views ? '&views=' + views : ''}${hide ? '&hide=' + hide : ''}`, { waitUntil: 'load', timeout: 300000 });
+    const t0 = Date.now(); await page.goto(`http://127.0.0.1:${process.env.PORT || 5202}/index.html?${type.startsWith('floors=') || type.startsWith('weapon=') ? type : 'type=' + type}&seed=${seed || 1}&w=${W}&h=${H}${views ? '&views=' + views : ''}${hide ? '&hide=' + hide : ''}`, { waitUntil: 'load', timeout: 300000 });
     await page.waitForFunction(() => window.__ready, { timeout: 300000, polling: 500 });
-    const name = `${type.replace('floors=', 'floors_').replace(/,/g, '-')}${views ? '_' + views.replace(/,/g, '-') : ''}${seed ? '_s' + seed : ''}${hide ? '_h' + hide.replace(/,/g, '-') : ''}`; await page.screenshot({ path: `${outDir}/${name}.png` });
+    const name = `${type.replace('floors=', 'floors_').replace('weapon=', 'weapon_').replace(/,/g, '-')}${views ? '_' + views.replace(/,/g, '-') : ''}${seed ? '_s' + seed : ''}${hide ? '_h' + hide.replace(/,/g, '-') : ''}`; await page.screenshot({ path: `${outDir}/${name}.png` });
     console.log('shot', name, ((Date.now() - t0) / 1000).toFixed(1) + 's', errs.slice(0, 3).join(' | ')); await page.close(); }
 } catch (e) { console.log('ERR', e.message); } finally { await browser.close(); }

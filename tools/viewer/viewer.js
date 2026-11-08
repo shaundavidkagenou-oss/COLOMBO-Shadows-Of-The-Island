@@ -6,6 +6,8 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { createVehicleMesh, VTYPES } from '../../src/vehicles/VehicleModels.js';
 import { setVehicleLOD } from '../../src/vehicles/Vehicle.js';
 import { modelFloor } from '../../src/world/FloorKit.js';
+import { buildT56, buildWeaponModel } from '../../src/combat/WeaponModels.js';
+import { WEAPONS } from '../../src/combat/WeaponDefs.js';
 
 const q = new URLSearchParams(location.search); const type = q.get('type') || 'soraki_rr1000', seed = +(q.get('seed') || 1);
 const W = +(q.get('w') || 1280), H = +(q.get('h') || 720);
@@ -25,6 +27,17 @@ if (floors) { ground.visible = false; const ks = floors.split(','); const cw = M
     sun.target.position.set(i * 10, 0, 0); sun.position.set(i * 10 - 3, 2.2, -2); sun.target.updateMatrixWorld(); sun.shadow.camera.updateProjectionMatrix();
     fc.position.set(i * 10 - 0.2, 0.7, 1.15); fc.lookAt(i * 10 + 0.1, 0, -0.3); const x = (i % cw) * fw, y = H - (Math.floor(i / cw) + 1) * fh; renderer.setViewport(x, y, fw, fh); renderer.setScissor(x, y, fw, fh); renderer.render(scene, fc); });
   window.__ready = true; throw new Error('floor preview done'); }
+const wpn = q.get('weapon'); // weapon preview: &weapon=t56|<weapon id>&views=left,right,front34,rear34,muzzle,grip,top
+if (wpn) { ground.visible = false; scene.background = new THREE.Color(0x8d9aa6);
+  const w = wpn === 't56' ? buildT56() : buildWeaponModel(WEAPONS.find((d) => d.id === wpn)); scene.add(w); w.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  const bb = new THREE.Box3().setFromObject(w), c = bb.getCenter(new THREE.Vector3()), L = bb.max.z - bb.min.z;
+  const WC = { left: [[L * 1.05, 0.02, c.z], c], right: [[-L * 1.05, 0.02, c.z], c], front34: [[-L * 0.6, L * 0.25, c.z + L * 0.75], c], rear34: [[L * 0.55, L * 0.22, c.z - L * 0.75], c],
+    top: [[0.25, L * 1.1, c.z], c], muzzle: [[0.16, 0.12, bb.max.z + 0.1], new THREE.Vector3(0, 0.08, bb.max.z - 0.12)], grip: [[0.32, 0.02, 0.0], new THREE.Vector3(0, 0.0, 0.0)],
+    stock: [[0.3, 0.06, bb.min.z + 0.1], new THREE.Vector3(0, 0.0, bb.min.z + 0.14)], mag: [[-0.3, -0.06, 0.12], new THREE.Vector3(0, -0.06, 0.12)] };
+  const vs = (q.get('views') || 'left,right,front34,rear34').split(','); const cl = vs.length > 1 ? 2 : 1, rw = Math.ceil(vs.length / cl), vw = Math.floor(W / cl), vh = Math.floor(H / rw);
+  const cam = new THREE.PerspectiveCamera(36, vw / vh, 0.01, 20);
+  vs.forEach((v, i) => { const [p, t] = WC[v] || WC.left; cam.position.set(...p); cam.lookAt(t); cam.updateProjectionMatrix(); const x = (i % cl) * vw, y = H - (Math.floor(i / cl) + 1) * vh; renderer.setViewport(x, y, vw, vh); renderer.setScissor(x, y, vw, vh); renderer.render(scene, cam); });
+  window.__ready = true; throw new Error('weapon preview done'); }
 const g = createVehicleMesh(type, seed); scene.add(g); if (g.userData.detail) { g.add(g.userData.detail); setVehicleLOD(g.userData, true); }
 g.traverse((o) => { if (o.isMesh && o.name !== 'contactShadow') { o.castShadow = true; o.receiveShadow = true; } });
 const hide = (q.get('hide') || '').split(',').filter(Boolean); if (hide.length) g.traverse((o) => { if (o.isMesh && hide.includes(o.name)) o.visible = false; }); // isolate parts: &hide=paint,interior

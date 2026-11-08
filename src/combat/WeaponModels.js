@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { boxShape } from './GripSolver.js';
 import { weaponSurface } from './WeaponSurface.js';
+import { sweep, latheZ, ringZ, flutedZ } from './WeaponLoft.js';
 
 let MATS = null;
 export function weaponMaterials() {
@@ -57,7 +58,7 @@ function knurl(r, h, x, y, z, axis = 'y', seg = 28, amp = 0.08) {
 
 class Parts { // collects geometry per material, merges into one mesh per material
   constructor() { this.by = new Map(); }
-  add(mat, ...gs) { if (!this.by.has(mat)) this.by.set(mat, []); for (const g of gs) { const n = g.index ? g.toNonIndexed() : g; for (const k of Object.keys(n.attributes)) if (!['position', 'normal', 'uv'].includes(k)) n.deleteAttribute(k); this.by.get(mat).push(n); } return this; }
+  add(mat, ...gs) { if (!this.by.has(mat)) this.by.set(mat, []); for (const g of gs) { const n = g.index ? g.toNonIndexed() : g; if (!n.attributes.uv) n.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(n.attributes.position.count * 2), 2)); for (const k of Object.keys(n.attributes)) if (!['position', 'normal', 'uv'].includes(k)) n.deleteAttribute(k); this.by.get(mat).push(n); } return this; }
   build(group) { for (const [mat, gs] of this.by) { const m = new THREE.Mesh(mergeGeometries(gs), mat); m.castShadow = true; group.add(m); } return group; }
 }
 
@@ -170,7 +171,9 @@ function rifle(def) {
 }
 
 function scope(P, m, len, r, y, z) { // tube, bells, turrets, rings, lenses
-  P.add(m.metal, cylZ(r, len, 0, y, z, 16), cylZ(r * 1.25, 0.05, 0, y, z + len / 2 + 0.02, 16, r * 1.65), cylZ(r * 1.45, 0.06, 0, y, z - len / 2 - 0.02, 16, r * 1.2), cylY(r * 0.75, 0.03, 0, y + r + 0.012, z), cylX(r * 0.75, 0.03, r + 0.012, y, z));
+  const h = len / 2; // turned tube: eyepiece bell with its focus ring, power ring, main tube, objective bell, recessed lens seats
+  P.add(m.metal, latheZ([[z - h - 0.046, 0.00001], [z - h - 0.046, r * 1.36], [z - h - 0.05, r * 1.42], [z - h - 0.044, r * 1.48], [z - h - 0.02, r * 1.43], [z - h + 0.004, r * 1.22], [z - h + 0.012, r * 1.18], [z - h + 0.04, r * 1.18], [z - h + 0.05, r], [z + h - 0.04, r], [z + h, r * 1.26], [z + h + 0.03, r * 1.6], [z + h + 0.045, r * 1.66], [z + h + 0.049, r * 1.62], [z + h + 0.043, r * 1.56], [z + h + 0.043, 0.00001]], y, 0, 32), cylY(r * 0.75, 0.03, 0, y + r + 0.012, z, 20), cylX(r * 0.75, 0.03, r + 0.012, y, z, 20));
+  for (let i = 0; i < 9; i++) P.add(m.rubber, ringZ(r * 1.19, 0.0011, z - h + 0.015 + i * 0.003, y, 0, Math.PI * 2, 0, 24)); // power-ring grip ribs
   P.add(m.poly, box(0.024, 0.026, 0.022, 0, y - r - 0.006, z - len * 0.28), box(0.024, 0.026, 0.022, 0, y - r - 0.006, z + len * 0.28));
   P.add(m.lens, cylZ(r * 1.55, 0.004, 0, y, z + len / 2 + 0.047, 16), cylZ(r * 1.15, 0.004, 0, y, z - len / 2 - 0.052, 16));
   P.add(m.metal, knurl(r * 0.82, 0.008, 0, y + r + 0.024, z, 'y', 32), knurl(r * 0.82, 0.008, r + 0.024, y, z, 'x', 32)); // knurled turret caps
@@ -194,12 +197,29 @@ function sniper(def) {
     scope(P, m, 0.3, 0.016, bore + 0.064, 0.08); muzZ = 0.85; support = new THREE.Vector3(0, bore - 0.035, 0.36); stockZ = -0.317;
     Mg.add(m.metal, box(0.03, 0.09, 0.075, 0, -0.03, 0.09, 0.04)); B.add(m.steel, box(0.008, 0.012, 0.02, -0.03, bore + 0.004, 0.02));
   } else { // precision rifle: tan chassis, fluted heavy barrel, big optic, skeleton stock, deployed-ready bipod
-    P.add(m.polyTan, box(0.056, 0.06, 0.5, 0, bore - 0.02, 0.18), box(0.04, 0.02, 0.3, 0, bore - 0.055, 0.35));
-    P.add(m.metal, box(0.04, 0.04, 0.24, 0, bore + 0.01, 0.06), box(0.03, 0.009, 0.7, 0, bore + 0.034, 0.24)); P.add(m.metal, cylZ(0.0135, 0.62, 0, bore, 0.62, 10)); P.add(m.steel, box(0.04, 0.026, 0.07, 0, bore, 0.95), ...[0, 1, 2].map((i) => box(0.042, 0.006, 0.008, 0, bore, 0.93 + i * 0.02)));
-    P.add(m.polyTan, box(0.032, 0.095, 0.045, 0, -0.008, -0.024, 0.3)); P.add(m.metal, box(0.012, 0.02, 0.26, 0, bore - 0.01, -0.16), box(0.012, 0.02, 0.24, 0, bore - 0.09, -0.17), box(0.03, 0.03, 0.12, 0, bore + 0.03, -0.18)); P.add(m.rubber, box(0.05, 0.14, 0.018, 0, bore - 0.05, -0.3)); trigger(P, m, 0.02, 0.03);
-    P.add(m.metal, box(0.009, 0.009, 0.2, 0.014, bore - 0.07, 0.48), box(0.009, 0.009, 0.2, -0.014, bore - 0.07, 0.48));
+    // chassis: rounded block with a forend that narrows forward, accessory slots milled into the sides, bottom rail
+    P.add(m.polyTan, sweep([{ z: -0.07, y: bore - 0.022, hd: 0.026, hw: 0.026, n: 5 }, { z: -0.055, y: bore - 0.02, hd: 0.03, hw: 0.028, n: 5 }, { z: 0.2, y: bore - 0.02, hd: 0.03, hw: 0.028, n: 5 }, { z: 0.415, y: bore - 0.018, hd: 0.028, hw: 0.026, n: 5 }, { z: 0.43, y: bore - 0.018, hd: 0.025, hw: 0.023, n: 5 }], { vertical: true, seg: 32 }));
+    P.add(m.polyTan, sweep([{ z: 0.2, y: bore - 0.055, hd: 0.01, hw: 0.02, n: 4 }, { z: 0.495, y: bore - 0.055, hd: 0.01, hw: 0.02, n: 4 }, { z: 0.5, y: bore - 0.053, hd: 0.008, hw: 0.018, n: 4 }], { vertical: true }));
+    for (const s of [1, -1]) for (let i = 0; i < 4; i++) P.add(m.slot, box(0.0012, 0.008, 0.03, s * 0.0275, bore - 0.025, 0.24 + i * 0.045)); // M-slot style recesses
+    // action (round receiver with a flat-topped scope rail and cross slots), fluted heavy barrel, muzzle brake with ports
+    P.add(m.metal, latheZ([[-0.06, 0.017], [-0.055, 0.019], [0.175, 0.019], [0.18, 0.017]], bore + 0.01, 0, 28));
+    P.add(m.metal, sweep([{ z: -0.11, y: bore + 0.031, hd: 0.0045, hw: 0.015, n: 6 }, { z: 0.59, y: bore + 0.031, hd: 0.0045, hw: 0.015, n: 6 }], { vertical: true, sub: 1, seg: 20 }), ...Array.from({ length: 22 }, (_, i) => box(0.031, 0.0035, 0.004, 0, bore + 0.0355, -0.1 + i * 0.032)));
+    P.add(m.metal, latheZ([[0.175, 0.0175], [0.2, 0.0175], [0.215, 0.0145]], bore, 0, 28), flutedZ(0.0145, 0.215, 0.88, bore, 6, 0.0019, 0.04), latheZ([[0.88, 0.0145], [0.905, 0.0122], [0.915, 0.0122]], bore, 0, 28));
+    P.add(m.steel, sweep([{ z: 0.912, y: bore, hd: 0.0135, hw: 0.0195, n: 3.4 }, { z: 0.985, y: bore, hd: 0.0135, hw: 0.0195, n: 3.4 }], { vertical: true, sub: 1, seg: 28 }));
+    for (const s of [1, -1]) for (let i = 0; i < 3; i++) P.add(m.slot, box(0.0012, 0.017, 0.008, s * 0.0195, bore, 0.93 + i * 0.02)); P.add(m.slot, place(new THREE.CircleGeometry(0.0055, 16), 0, bore, 0.9855));
+    // pistol grip swept along its rake (rounded box filling the hand's grip volume), skeleton stock with rounded bars,
+    // cheek riser, rubber butt pad
+    { const ax = [0, Math.cos(0.3), Math.sin(0.3)], c = [0, -0.008, -0.024]; const at = (t, hd, hw) => ({ z: c[2] + ax[2] * t, y: c[1] + ax[1] * t, hd, hw, n: 4.2 });
+      P.add(m.polyTan, sweep([at(0.0475, 0.0215, 0.0152), at(0.02, 0.0222, 0.0158), at(-0.02, 0.0225, 0.016), at(-0.0475, 0.0215, 0.0155)].reverse(), { seg: 28 })); }
+    P.add(m.metal, sweep([{ z: -0.03, y: bore - 0.01, hd: 0.01, hw: 0.0062, n: 3 }, { z: -0.29, y: bore - 0.01, hd: 0.01, hw: 0.0062, n: 3 }], { vertical: true, sub: 1 }), sweep([{ z: -0.05, y: bore - 0.06, hd: 0.01, hw: 0.0062, n: 3 }, { z: -0.12, y: bore - 0.09, hd: 0.01, hw: 0.0062, n: 3 }, { z: -0.29, y: bore - 0.09, hd: 0.01, hw: 0.0062, n: 3 }], { vertical: true }));
+    P.add(m.polyTan, sweep([{ z: -0.24, y: bore + 0.026, hd: 0.011, hw: 0.013, n: 3 }, { z: -0.225, y: bore + 0.03, hd: 0.015, hw: 0.015, n: 3 }, { z: -0.135, y: bore + 0.03, hd: 0.015, hw: 0.015, n: 3 }, { z: -0.12, y: bore + 0.026, hd: 0.011, hw: 0.013, n: 3 }], { vertical: true }), latheZ([[-0.21, 0.004], [-0.15, 0.004]], bore + 0.006, 0.0, 10), latheZ([[-0.21, 0.004], [-0.15, 0.004]], bore - 0.002, 0, 10));
+    P.add(m.rubber, sweep([{ z: -0.291, y: bore - 0.05, hd: 0.068, hw: 0.024, n: 3.2 }, { z: -0.302, y: bore - 0.05, hd: 0.07, hw: 0.025, n: 3.2 }, { z: -0.309, y: bore - 0.05, hd: 0.068, hw: 0.0235, n: 3.2 }], { vertical: true, seg: 28 })); trigger(P, m, 0.02, 0.03);
+    // bipod folded along the forend: tubular legs with rubber feet, pivot block
+    P.add(m.metal, latheZ([[0.385, 0.0048], [0.575, 0.0048]], bore - 0.07, 0.014, 14), latheZ([[0.385, 0.0048], [0.575, 0.0048]], bore - 0.07, -0.014, 14), sweep([{ z: 0.37, y: bore - 0.065, hd: 0.008, hw: 0.0184, n: 3 }, { z: 0.4, y: bore - 0.065, hd: 0.008, hw: 0.0184, n: 3 }], { vertical: true, sub: 1 }));
+    P.add(m.rubber, place(new THREE.SphereGeometry(0.0068, 14, 10), 0.014, bore - 0.07, 0.58), place(new THREE.SphereGeometry(0.0068, 14, 10), -0.014, bore - 0.07, 0.58));
     scope(P, m, 0.36, 0.018, bore + 0.07, 0.07); muzZ = 0.99; support = new THREE.Vector3(0, bore - 0.06, 0.3); stockZ = -0.31;
-    Mg.add(m.metal, box(0.032, 0.07, 0.08, 0, -0.022, 0.09)); B.add(m.steel, cylX(0.005, 0.06, -0.035, bore + 0.01, -0.02), sph(0.012, -0.065, bore + 0.01, -0.02));
+    Mg.add(m.metal, sweep([{ z: 0.09, y: 0.013, hd: 0.04, hw: 0.016, n: 5 }, { z: 0.092, y: -0.057, hd: 0.04, hw: 0.016, n: 5 }], { sub: 1, seg: 24 }));
+    B.add(m.steel, cylX(0.005, 0.06, -0.035, bore + 0.01, -0.02, 14), place(new THREE.SphereGeometry(0.012, 16, 12), -0.065, bore + 0.01, -0.02));
   }
   if (id === 'bolt') { screwY(P, m, 0, 0.017, -1, 0.14); screwZ(P, m, 0, bore - 0.02, -0.3082, -1); screwZ(P, m, 0, bore - 0.1, -0.3178, -1, 0.0026, 1.1); B.add(m.steel, knurl(0.0115, 0.008, -0.065, bore + 0.006, 0.0, 'x', 20, 0.06)); } /* knob rides on the bolt */ // action screw, buttplate screws, chequered bolt knob
   else if (id === 'semi') { pinX(P, m, 0.044, 0.034, -0.02, 0.0026); pinX(P, m, 0.044, 0.04, 0.2, 0.0026); pinX(P, m, 0.044, 0.04, 0.026); for (const s of [1, -1]) hexX(P, m, 0.016, s, bore - 0.03, 0.425, 0.0022); }
@@ -222,36 +242,51 @@ function sniper(def) {
 function t56() {
   const m = weaponMaterials(); const g = new THREE.Group(); const P = new Parts(); const bore = 0.075;
   const rx0 = -0.085, rx1 = 0.215; // receiver span (grip origin at z 0)
-  // receiver: stamped body, rounded dust cover with its rear catch, front trunnion block, rivets, ejection port
-  P.add(m.blued, box(0.044, 0.05, rx1 - rx0, 0, 0.05, (rx0 + rx1) / 2), box(0.042, 0.018, rx1 - rx0 - 0.03, 0, 0.012, (rx0 + rx1) / 2 + 0.015));
-  P.add(m.metal, cylZ(0.0215, rx1 - rx0 - 0.02, 0, 0.076, (rx0 + rx1) / 2 - 0.005, 12), box(0.03, 0.012, 0.016, 0, 0.09, rx0 + 0.012));
-  P.add(m.steel, ...[-0.06, -0.03, 0.15, 0.18].map((z) => cylX(0.0032, 0.047, 0, 0.033, z, 6)), box(0.002, 0.016, 0.06, -0.0225, 0.07, 0.085));
-  P.add(m.blued, box(0.034, 0.03, 0.05, 0, 0.088, rx1 + 0.012)); // front trunnion / rear sight base
+  // receiver: stamped body with small corner radii (stepped down round the magazine well), rounded dust cover with two
+  // pressed ribs and its recoil-spring button, front trunnion / rear sight block, rivets, ejection port
+  const tb = (z, top, bot, hw, n, o = {}) => ({ z, y: (top + bot) / 2, hd: (top - bot) / 2, hw, n, ...o });
+  P.add(m.blued, sweep([tb(rx0, 0.075, 0.026, 0.0215, 7), tb(rx0 + 0.02, 0.075, 0.025, 0.022, 7), tb(rx0 + 0.045, 0.075, 0.006, 0.022, 7), tb(rx0 + 0.08, 0.075, 0.004, 0.022, 7), tb(rx1 - 0.01, 0.075, 0.004, 0.022, 7), tb(rx1, 0.075, 0.006, 0.0215, 7)], { vertical: true, seg: 28, sub: 3 }));
+  P.add(m.metal, sweep([tb(rx0 + 0.003, 0.0905, 0.06, 0.0205, 2.2), tb(rx0 + 0.02, 0.0955, 0.054, 0.0222, 2.2), tb(rx1 - 0.03, 0.0955, 0.054, 0.0222, 2.2), tb(rx1 - 0.012, 0.0955, 0.054, 0.0222, 2.2)], { vertical: true, seg: 32 }));
+  for (const z of [rx0 + 0.07, rx0 + 0.16]) P.add(m.metal, sweep([tb(z - 0.005, 0.0961, 0.06, 0.0228, 2.2), tb(z + 0.005, 0.0961, 0.06, 0.0228, 2.2)], { vertical: true, seg: 32, sub: 1 }));
+  P.add(m.steel, latheZ([[rx0 - 0.006, 0.00001], [rx0 - 0.006, 0.0042], [rx0 - 0.004, 0.0052], [rx0 + 0.006, 0.0052]], 0.083, 0, 16));
+  P.add(m.steel, ...[-0.06, -0.03, 0.15, 0.18].map((z) => cylX(0.0032, 0.047, 0, 0.033, z, 8))); P.add(m.slot, box(0.002, 0.016, 0.06, -0.0214, 0.064, 0.085));
+  P.add(m.blued, sweep([{ z: rx1 - 0.014, y: 0.088, hd: 0.016, hw: 0.017, n: 3.5 }, { z: rx1, y: 0.088, hd: 0.016, hw: 0.017, n: 3.5 }, { z: rx1 + 0.03, y: 0.087, hd: 0.0145, hw: 0.016, n: 3.5 }, { z: rx1 + 0.04, y: 0.085, hd: 0.012, hw: 0.014, n: 3.5 }], { vertical: true }));
   // rear sight leaf + notch block (sight point sits on its top edge)
   P.add(m.metal, box(0.024, 0.006, 0.07, 0, 0.106, rx1 + 0.008, -0.04), box(0.026, 0.012, 0.01, 0, 0.112, rx1 - 0.02));
   // selector lever (large, right side = -x) and the bolt-hold notch
   P.add(m.steel, box(0.003, 0.014, 0.12, -0.0235, 0.074, 0.06, 0.06), box(0.004, 0.02, 0.012, -0.0237, 0.064, 0.0));
-  // lower handguard (finger grooves), upper handguard over the gas tube, steel retainers
-  P.add(m.woodT56, prof([[rx1 + 0.004, 0.08], [rx1 + 0.252, 0.08], [rx1 + 0.258, 0.042], [rx1 + 0.19, 0.029], [rx1 + 0.08, 0.026], [rx1 + 0.02, 0.031], [rx1 + 0.004, 0.04]], 0.052, 0, 0.004));
-  P.add(m.woodT56d, box(0.062, 0.005, 0.13, 0, 0.047, rx1 + 0.14), box(0.062, 0.005, 0.13, 0, 0.037, rx1 + 0.14));
-  P.add(m.woodT56, prof([[rx1 + 0.06, 0.095], [rx1 + 0.215, 0.095], [rx1 + 0.22, 0.11], [rx1 + 0.205, 0.121], [rx1 + 0.07, 0.121], [rx1 + 0.06, 0.11]], 0.032, 0, 0.004));
-  P.add(m.steel, box(0.058, 0.05, 0.012, 0, 0.055, rx1 + 0.26), box(0.04, 0.03, 0.012, 0, 0.106, rx1 + 0.225));
-  // gas tube, gas block (with front sling swivel), barrel, front sight base + closed hood + post, muzzle nut
-  P.add(m.blued, cylZ(0.011, 0.07, 0, 0.104, rx1 + 0.255, 10), box(0.03, 0.052, 0.036, 0, 0.088, rx1 + 0.3));
-  P.add(m.metal, cylZ(0.0095, 0.43, 0, bore, rx1 + 0.215, 12));
-  P.add(m.blued, box(0.026, 0.03, 0.03, 0, 0.09, rx1 + 0.4), box(0.004, 0.03, 0.02, 0.011, 0.118, rx1 + 0.4), box(0.004, 0.03, 0.02, -0.011, 0.118, rx1 + 0.4), box(0.026, 0.004, 0.02, 0, 0.134, rx1 + 0.4));
-  P.add(m.steel, box(0.003, 0.022, 0.004, 0, 0.114, rx1 + 0.4), cylZ(0.0125, 0.022, 0, bore, rx1 + 0.43, 10), box(0.012, 0.01, 0.014, 0, 0.05, rx1 + 0.3));
-  // spike bayonet folded back under the barrel: hinge block at the front sight base, tapered spike pointing rearwards
-  P.add(m.steel, box(0.018, 0.02, 0.026, 0, 0.056, rx1 + 0.405), cylZ(0.0018, 0.23, 0, 0.052, rx1 + 0.28, 6, 0.0065), box(0.012, 0.01, 0.01, 0, 0.052, rx1 + 0.17));
-  // pistol grip (raked back), trigger + guard, magazine release paddle
-  P.add(m.woodT56d, prof([[0.018, 0.03], [-0.026, 0.03], [-0.052, -0.072], [-0.014, -0.078]], 0.028, 0, 0.003)); trigger(P, m, 0.022, 0.016); P.add(m.steel, box(0.014, 0.006, 0.014, 0, 0.0, 0.066));
-  // fixed wooden stock with drop: wrist, butt, steel buttplate, rear sling swivel
-  P.add(m.woodT56, prof([[rx0 + 0.004, 0.074], [rx0 - 0.11, 0.058], [rx0 - 0.28, 0.046], [rx0 - 0.272, -0.072], [rx0 - 0.2, -0.052], [rx0 - 0.1, 0.012], [rx0 + 0.004, 0.026]], 0.038, 0, 0.004));
-  P.add(m.steel, box(0.044, 0.124, 0.008, 0, -0.013, rx0 - 0.28, -0.07), box(0.006, 0.012, 0.022, 0, -0.045, rx0 - 0.2));
+  // lower handguard: palm swell, narrower top edge, a finger groove along each side; round upper handguard on the gas tube;
+  // steel retainer bands that follow the wood
+  const hg = (z, y, hd, hw, pinch = 0) => ({ z, y, hd, hw, n: 3, topK: 0.9, pinch, pinchY: -0.12 });
+  P.add(m.woodT56, sweep([hg(rx1 + 0.004, 0.057, 0.022, 0.0235), hg(rx1 + 0.025, 0.0545, 0.0265, 0.026), hg(rx1 + 0.08, 0.053, 0.027, 0.0265, 0.09), hg(rx1 + 0.19, 0.0545, 0.0255, 0.026, 0.09), hg(rx1 + 0.24, 0.058, 0.021, 0.0245), hg(rx1 + 0.256, 0.06, 0.019, 0.023)], { vertical: true, seg: 32 }));
+  P.add(m.woodT56, sweep([{ z: rx1 + 0.06, y: 0.106, hd: 0.011, hw: 0.014, n: 2.4 }, { z: rx1 + 0.076, y: 0.108, hd: 0.0132, hw: 0.0165, n: 2.4 }, { z: rx1 + 0.2, y: 0.108, hd: 0.0132, hw: 0.0165, n: 2.4 }, { z: rx1 + 0.22, y: 0.1065, hd: 0.0115, hw: 0.0148, n: 2.4 }], { vertical: true }));
+  P.add(m.steel, sweep([{ z: rx1 + 0.253, y: 0.058, hd: 0.0222, hw: 0.0256, n: 3.4 }, { z: rx1 + 0.266, y: 0.058, hd: 0.0222, hw: 0.0256, n: 3.4 }], { vertical: true, sub: 1, seg: 32 }), sweep([{ z: rx1 + 0.219, y: 0.1065, hd: 0.0136, hw: 0.0172, n: 2.6 }, { z: rx1 + 0.229, y: 0.1065, hd: 0.0136, hw: 0.0172, n: 2.6 }], { vertical: true, sub: 1 }));
+  // gas tube, gas block with the slanted front face and front sling loop, stepped barrel with the threaded muzzle nut and
+  // an open bore, front sight base, open-topped hood + post
+  P.add(m.blued, latheZ([[rx1 + 0.218, 0.0108], [rx1 + 0.29, 0.0108]], 0.104, 0, 18));
+  P.add(m.blued, sweep([{ z: rx1 + 0.282, y: 0.091, hd: 0.027, hw: 0.0145, n: 3.5 }, { z: rx1 + 0.3, y: 0.09, hd: 0.026, hw: 0.0145, n: 3.5 }, { z: rx1 + 0.318, y: 0.082, hd: 0.018, hw: 0.013, n: 3.5 }], { vertical: true }));
+  P.add(m.steel, place(new THREE.TorusGeometry(0.0062, 0.0016, 6, 14), 0, 0.0565, rx1 + 0.3, 0, Math.PI / 2, 0));
+  P.add(m.metal, latheZ([[rx1 - 0.002, 0.0125], [rx1 + 0.03, 0.0125], [rx1 + 0.036, 0.0104], [rx1 + 0.2, 0.0099], [rx1 + 0.418, 0.0095], [rx1 + 0.4185, 0.0121], [rx1 + 0.439, 0.0121], [rx1 + 0.442, 0.0103], [rx1 + 0.442, 0.0045], [rx1 + 0.41, 0.0045], [rx1 + 0.41, 0.00001]], bore, 0, 22));
+  for (let i = 0; i < 6; i++) P.add(m.metal, ringZ(0.0121, 0.0006, rx1 + 0.4215 + i * 0.0028, bore, 0, Math.PI * 2, 0, 22)); // muzzle-nut threads
+  P.add(m.blued, sweep([{ z: rx1 + 0.386, y: 0.091, hd: 0.029, hw: 0.0135, n: 3.5 }, { z: rx1 + 0.416, y: 0.091, hd: 0.029, hw: 0.0135, n: 3.5 }], { vertical: true, sub: 1 }));
+  { const gap = 0.9, hood = new THREE.LatheGeometry([[0.0108, 0.39], [0.0134, 0.39], [0.0134, 0.411], [0.0108, 0.411], [0.0108, 0.39]].map(([r, z]) => new THREE.Vector2(r, rx1 + z)), 22, Math.PI + gap / 2, Math.PI * 2 - gap); hood.rotateX(Math.PI / 2); hood.translate(0, 0.1215, 0); P.add(m.blued, hood); }
+  P.add(m.steel, box(0.003, 0.022, 0.004, 0, 0.114, rx1 + 0.4));
+  // spike bayonet folded back under the barrel: hinge block at the front sight base, turned spike tapering to a point
+  P.add(m.steel, sweep([{ z: rx1 + 0.392, y: 0.055, hd: 0.009, hw: 0.0095, n: 3 }, { z: rx1 + 0.418, y: 0.055, hd: 0.009, hw: 0.0095, n: 3 }], { vertical: true, sub: 1 }), latheZ([[rx1 + 0.165, 0.00001], [rx1 + 0.172, 0.0019], [rx1 + 0.3, 0.0046], [rx1 + 0.39, 0.0066], [rx1 + 0.393, 0.00001]], 0.052, 0, 12), box(0.012, 0.01, 0.01, 0, 0.052, rx1 + 0.17));
+  // pistol grip swept along its rake with a palm swell, trigger + guard, magazine release paddle
+  P.add(m.woodT56d, sweep([{ z: -0.002, y: 0.032, hd: 0.021, hw: 0.0125, n: 2.6 }, { z: -0.012, y: 0.0, hd: 0.019, hw: 0.0135, n: 2.6 }, { z: -0.022, y: -0.035, hd: 0.0205, hw: 0.0145, n: 2.6 }, { z: -0.03, y: -0.065, hd: 0.021, hw: 0.0145, n: 2.6 }, { z: -0.0325, y: -0.077, hd: 0.0195, hw: 0.0135, n: 2.6 }], { seg: 28 }));
+  trigger(P, m, 0.022, 0.016); P.add(m.steel, box(0.014, 0.006, 0.014, 0, 0.0, 0.066));
+  // fixed wooden stock with drop: narrow wrist swelling to the butt, comb narrower than the belly, steel buttplate that
+  // follows the butt outline, rear sling loop
+  const lin = (pts, d) => { for (let i = 1; i < pts.length; i++) if (d <= pts[i][0] || i === pts.length - 1) { const [a, ya] = pts[i - 1], [b, yb] = pts[i]; return ya + (yb - ya) * Math.min(1, Math.max(0, (d - a) / (b - a))); } return 0; };
+  const top = [[-0.004, 0.074], [0.11, 0.058], [0.28, 0.046]], bot = [[-0.004, 0.026], [0.1, 0.012], [0.2, -0.052], [0.28, -0.074]];
+  const st = (d, hw, n = 2.7) => tb(rx0 - d, lin(top, d), lin(bot, d), hw, n, { topK: 0.84 });
+  P.add(m.woodT56, sweep([st(-0.004, 0.0172), st(0.03, 0.0165), st(0.07, 0.0163), st(0.11, 0.0172), st(0.15, 0.0184), st(0.19, 0.0193), st(0.23, 0.0197), st(0.262, 0.0198), st(0.276, 0.0196)], { vertical: true, seg: 32 }));
+  P.add(m.steel, sweep([st(0.276, 0.0201, 2.9), st(0.284, 0.0201, 2.9)], { vertical: true, sub: 1, seg: 32 }), place(new THREE.TorusGeometry(0.0062, 0.0016, 6, 14), 0, lin(bot, 0.2) - 0.006, rx0 - 0.2, 0, Math.PI / 2, 0));
   // hardware: trigger / hammer pins, front-trunnion rivets, buttplate + tang + grip screws, handguard retainer lever, gas-tube lock lever
-  pinX(P, m, 0.044, 0.03, 0.03); pinX(P, m, 0.044, 0.035, 0.005); P.add(m.steel, ...[0.035, 0.048, 0.061].map((y) => cylX(0.003, 0.047, 0, y, 0.2, 6)));
-  screwZ(P, m, 0, 0.027, rx0 - 0.2868, -1); screwZ(P, m, 0, -0.053, rx0 - 0.2812, -1, 0.0026, 1.3); screwY(P, m, 0, 0.0735, 1, rx0 - 0.014, 0.0024); screwY(P, m, 0, -0.0752, -1, -0.033, 0.0024, 1.1);
-  P.add(m.steel, box(0.002, 0.008, 0.02, -0.0302, 0.06, rx1 + 0.262), cylX(0.0022, 0.001, -0.0296, 0.055, rx1 + 0.258, 10), box(0.002, 0.012, 0.008, -0.0175, 0.1, rx1 + 0.03, 0.4));
+  pinX(P, m, 0.044, 0.03, 0.03); pinX(P, m, 0.044, 0.035, 0.005); P.add(m.steel, ...[0.035, 0.048, 0.061].map((y) => cylX(0.003, 0.047, 0, y, 0.2, 8)));
+  screwZ(P, m, 0, 0.027, rx0 - 0.284, -1); screwZ(P, m, 0, -0.053, rx0 - 0.284, -1, 0.0026, 1.3); screwY(P, m, 0, lin(top, 0.014) - 0.0004, 1, rx0 - 0.014, 0.0024); screwY(P, m, 0, -0.0772, -1, -0.0325, 0.0024, 1.1);
+  P.add(m.steel, box(0.002, 0.008, 0.02, -0.0266, 0.058, rx1 + 0.262), cylX(0.0022, 0.001, -0.026, 0.053, rx1 + 0.258, 10), box(0.002, 0.012, 0.008, -0.0175, 0.1, rx1 + 0.03, 0.4));
   // canvas sling hanging slack between the swivels (catenary of short straps)
   { const a = new THREE.Vector3(0, 0.045, rx1 + 0.3), b = new THREE.Vector3(0, -0.045, rx0 - 0.2); const N = 9; let prev = a.clone();
     for (let i = 1; i <= N; i++) { const k = i / N; const p = a.clone().lerp(b, k); p.y -= Math.sin(k * Math.PI) * 0.07; p.x = 0.024; const mid = prev.clone().add(p).multiplyScalar(0.5); const len = prev.distanceTo(p); const ang = Math.atan2(p.y - prev.y, p.z - prev.z);
@@ -260,9 +295,13 @@ function t56() {
   // curved 30-round steel magazine (three segments with ribs) — drops out on reload
   const mag = new THREE.Group(); const Mg = new Parts(); const mz = 0.098;
   { const front = qcurve([0.132, 0.028], [0.136, -0.075], [0.212, -0.168]), rear = qcurve([0.068, 0.028], [0.074, -0.068], [0.148, -0.18]);
-    Mg.add(m.blued, prof(front.concat(rear.slice().reverse()), 0.027, 0, 0.0025));
-    const rib = (k) => { const f = front[k], r = rear[k]; const mx = (f[0] + r[0]) / 2, my = (f[1] + r[1]) / 2; const ang = Math.atan2(f[1] - r[1], f[0] - r[0]); return box(0.031, 0.006, Math.hypot(f[0] - r[0], f[1] - r[1]) * 0.8, 0, my, mx, -ang); };
-    Mg.add(m.metal, rib(3), rib(6), box(0.032, 0.011, 0.072, 0, -0.176, 0.182, -0.18)); }
+    // swept down the curve: the section runs front-to-back across the curve (perpendicular to it), rounded-box corners
+    const ctr = (t) => { const k = Math.min(7.999, Math.max(0, t)), i = Math.floor(k), u = k - i; const L = (a, b) => a + (b - a) * u;
+      const f = [L(front[i][0], front[i + 1][0]), L(front[i][1], front[i + 1][1])], r = [L(rear[i][0], rear[i + 1][0]), L(rear[i][1], rear[i + 1][1])];
+      return { z: (f[0] + r[0]) / 2, y: (f[1] + r[1]) / 2, hd: Math.hypot(f[0] - r[0], f[1] - r[1]) / 2 * 0.97 }; };
+    Mg.add(m.blued, sweep([0, 1, 2, 3, 4, 5, 6, 7, 7.75].map((t) => ({ ...ctr(t), hw: 0.0135, n: 5 })), { seg: 28 }));
+    const band = (t, w, k) => sweep([t - w, t, t + w].map((u) => { const c = ctr(u); return { ...c, hd: c.hd * k, hw: 0.0135 * k + 0.0009, n: 5 }; }), { seg: 28, sub: 2 });
+    Mg.add(m.metal, band(3, 0.18, 1.02), band(6, 0.18, 1.02), sweep([7.4, 7.6, 7.78].map((t) => { const c = ctr(t); return { ...c, hd: c.hd * 1.06 + 0.001, hw: 0.0158, n: 4 }; }), { seg: 28, sub: 2 })); } // ribs + floorplate
   Mg.build(mag); g.add(mag);
   // bolt carrier + charging handle (right side): racks on reload
   const bolt = new THREE.Group(); const B = new Parts(); B.add(m.steel, box(0.01, 0.012, 0.03, -0.028, 0.072, 0.15), sph(0.0085, -0.04, 0.072, 0.162)); B.build(bolt); g.add(bolt);
