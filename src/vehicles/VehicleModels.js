@@ -783,15 +783,22 @@ const zCols = (za, zb, step = 0.08) => { const n = Math.max(2, Math.ceil((zb - z
 // outside of the car towards side·x): the outside handle (bar centre + the skin behind it) and the panel's rear edge (inner
 // door-card and outer-skin x, a height below the belt where the panel is solid). Used by Boarding / Player to put a solved
 // grasp (GripSolver) on the door instead of a wrist point inside the panel.
+// the outside pull handle, model space (outside = −x): a bar on two posts standing off the skin, its inner face 2 cm clear of
+// the most outward point of the panel at and just below it, so fingers hook in behind it even where the side bulges out under
+// the handle line (curvier bodies). xs: skin at the bar height; xb: bar centre; posts run from the skin to the bar.
+export function handleBar(S) {
+  const z = S.zR + 0.175, y = S.by - 0.12, xs = S.skinPt(z, y)[0]; let base = xs; for (const dy of [0.02, 0.04, 0.06]) base = Math.min(base, S.skinPt(z, y - dy)[0]);
+  return { z, y, xs, xb: base - 0.026, half: 0.006, h: 0.028, len: 0.13 };
+}
 function doorGrab(d) {
   if (d.leaf || d.role === 'slide') return null; const side = d.side, S = d.spec;
   if (!S) { const y = d.gripY ?? 1.05; return { side, y, zR: -d.len + 0.004, card: -side * 0.06, skin: 0, handle: null }; } // cab doors: plain slab estimate
   const hxN = -Math.abs(d.hinge[0]); const loc = (x) => -side * (x - hxN); const zr = S.zR + 0.004;
   const y = Math.min(S.by - 0.1, S.topAt(zr + 0.06) - 0.07); const skin = loc(S.skinPt(zr + 0.06, y)[0]), card = loc(S.xc);
-  const hz = S.zR + 0.175, hy = S.by - 0.12; const hs = loc(S.skinPt(hz, hy)[0]);
+  const HB = handleBar(S); const hz = HB.z, hy = HB.y; const hs = loc(HB.xs);
   // the window's rear edge (glass + rubber, between the belt and the roof line): what a hand holds the open door by
   let win = null; if (S.glY && S.roofY && S.gw0) { const g0 = S.glY(zr), g1 = S.roofY(zr); if (g1 - g0 > 0.2) { const wy = g0 + Math.min(0.2, (g1 - g0) * 0.42); const gxAt = (yy) => loc(-lerp(S.gw0, S.gw1 ?? S.gw0, (yy - g0) / (g1 - g0))); win = { y: wy, x: gxAt(wy), tilt: gxAt(wy + 0.1) * 10 - gxAt(wy) * 10, zR: zr - d.hinge[1] - 0.024 }; } } // the rubber frame runs ~2.5 cm past the panel's rear edge; the glass leans in (tumblehome)
-  return { side, y, zR: zr - d.hinge[1], card, skin, win, handle: { x: hs + side * 0.012, skin: hs, y: hy, z: hz - d.hinge[1], lo: [0.04, 0.08, 0.12].map((dy) => loc(S.skinPt(hz, hy - dy)[0])) } }; // lo: the skin below the bar (the side bulges out under the handle line)
+  return { side, y, zR: zr - d.hinge[1], card, skin, win, handle: { x: loc(HB.xb), half: HB.half, posts: [HB.len / 2 - 0.008, -HB.len / 2 + 0.008], skin: hs, y: hy, z: hz - d.hinge[1], lo: [0.04, 0.08, 0.12].map((dy) => loc(S.skinPt(hz, hy - dy)[0])) } }; // lo: the skin below the bar (the side bulges out under the handle line)
 }
 
 // Driver door: own mesh group on a hinge pivot (front edge) so it can swing open. Built in model space from the spec the
@@ -811,7 +818,8 @@ function buildDoorGeos(d, col, stripes = null) {
   { const xs = -(S.gw0 + 0.005); beam(rb, [xs, S.glY(S.zF) + 0.005, S.zF], [xs, S.glY(S.zR) + 0.005, S.zR], 0.012, 0.025, C('#111'));
     const zs = zCols(S.zR, S.zF); for (let i = 0; i < zs.length - 1; i++) { const a = zs[i], b = zs[i + 1]; dquad(rb, [xs, S.topAt(a), a], [xs, S.topAt(b), b], [xs, S.glY(b) + 0.004, b], [xs, S.glY(a) + 0.004, a], C('#111')); } }
   // handle in its dark recess, key cylinder (same height as the other doors' handles)
-  { const z = S.zR + 0.175, y = S.by - 0.12, x = S.skinPt(z, y)[0]; rb.box(x - 0.002, y, z, 0.006, 0.05, 0.17, { col: C('#0c0c0d') }); ch.box(x - 0.012, y, z, 0.02, 0.03, 0.14, { col: C('#c4c8cc') });
+  { const HB = handleBar(S), z = HB.z, y = HB.y, x = HB.xs; rb.box(x - 0.002, y, z, 0.006, 0.05, 0.17, { col: C('#0c0c0d') }); // dark recess plate
+    ch.box(HB.xb, y, z, HB.half * 2, HB.h, HB.len, { col: C('#c4c8cc') }); for (const e of [-1, 1]) { const zp = z + e * (HB.len / 2 - 0.008), dx = x - HB.xb; ch.box(HB.xb + dx / 2 + 0.002, y, zp, dx + 0.004, 0.02, 0.016, { col: C('#b4b8bc') }); } // pull bar on two posts
     if (S.key) { const zk = S.zR + 0.315, xk = S.skinPt(zk, y)[0]; ch.box(xk - 0.004, y, zk, 0.006, 0.026, 0.026, { col: C('#c4c8cc') }); } } // key cylinder: driver's door only
   // inside: armrest with pull cup, interior handle, speaker grille low at the front
   { const zm = (S.zF + S.zR) / 2, ya = S.seatY + 0.22, aL = Math.min(0.55, (S.zF - S.zR) * 0.6), aF = Math.min(zm - 0.05 + aL / 2, S.dashR ?? 9), aB = zm - 0.05 - aL / 2; /* the armrest ends behind the dashboard (kei vans: the cabin is short) */ if (aF - aB > 0.12 && !S.slide) I.box(S.xc + 0.035, ya, (aF + aB) / 2, 0.07, 0.05, aF - aB, { col: S.trim.map((v) => v * 0.75) });

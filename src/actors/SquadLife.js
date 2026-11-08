@@ -40,7 +40,7 @@ export class SquadLife {
   // a squad mission starts: drop the job (the tuk goes back to traffic without him) and join up out of sight
   leave(m) { const l = m.life; if (l && (l.v || l.drive)) this.dropVehicle(m, l.v || l.drive); m.life = null; }
   dropVehicle(m, v) {
-    const T = this.g.traffic; if (!v) return; if (v.driverChar === m.ch) { v.mesh.remove(m.ch.root); v.driverChar = null; } v.squad = null; v.onRemove = null; v.keep = false;
+    const T = this.g.traffic; if (!v) return; if (v.driverChar === m.ch) { v.mesh.remove(m.ch.root); m.ch.anim.standUp(); v.driverChar = null; } v.squad = null; v.onRemove = null; v.keep = false;
     const i = T.vehicles.indexOf(v); if (i >= 0) T.vehicles.splice(i, 1); T.remove(v); if (m.life) { m.life.v = null; m.life.drive = null; }
   }
   // the vehicle the player was driving when switching away: the departing character drives on in it
@@ -66,6 +66,8 @@ export class SquadLife {
     const veh = l.v || l.drive; if (veh) { m.x = veh.x; m.z = veh.z; m.y = veh.y; m.yaw = veh.yaw;
       if (Math.hypot(veh.x - P.x, veh.z - P.z) > TUK_DROP && !sq.inView(veh.x, veh.y, veh.z)) { this.dropVehicle(m, veh); if (j.kind === 'tuk') this.hide(m); else this.atWork(m); }
       return; }
+    // on foot from here: never left in the seated pose of a vehicle that was taken away (hips at road level = buried to the waist)
+    if (A.seated && !m.board && !m.unboard) A.standUp(); if (!m.ch.root.parent && !m.hidden) g.scene.add(m.ch.root);
     const dP = Math.hypot(m.x - P.x, m.z - P.z);
     if (j.kind === 'tuk') { // on foot (just switched away from, or the mission ended): walks off, then is back on the road
       if (m.hidden) { if (dP < TUK_SPAWN && !g.indoor) this.spawnTuk(m); return; }

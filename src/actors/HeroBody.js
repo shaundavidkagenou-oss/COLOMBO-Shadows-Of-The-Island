@@ -223,8 +223,22 @@ export function buildHeroGarments(sb, sp, ctx) {
       for (let r = 0; r <= NR; r++) { const t = r / NR; const yy = lerp(y0, y1, t); const hw = lerp(0.012, 0.039, sstep(0, 0.75, t)) * (t > 0.93 ? 1 - (t - 0.93) * 6 : 1); const zc = zS(yy, 0) + 0.0028 + 0.004 * (1 - t);
         Pt.push([[-hw, yy, Math.max(zc, zS(yy, -hw) + 0.0025)], [hw, yy, Math.max(zc, zS(yy, hw) + 0.0025)]]); Nt.push([[0, 0.1, 1], [0, 0.1, 1]]); Wt.push(yy > 1.2 * s ? cw(0) : [[B.chest, 0.7], [B.spine, 0.3]]); }
       Pt.push([[0, y1 - 0.034, zS(y1 - 0.034, 0) + 0.0026], [0, y1 - 0.034, zS(y1 - 0.034, 0) + 0.0026]]); Nt.push([[0, 0.1, 1], [0, 0.1, 1]]); Wt.push([[B.chest, 0.7], [B.spine, 0.3]]); // pointed tip
-      sb.grid(Pt, Nt, Wt, tc, tc.map((v) => v * 0.7)); sb.clv = [0, 0]; }
+      sb.grid(Pt, Nt, Wt, tc, tc.map((v) => v * 0.7)); sb.clv = [0, 0];
+      // tie bar: a slim gold clip across the blade, inside the waistcoat's V
+      { const yb = 1.285 * s, hw = lerp(0.012, 0.039, sstep(0, 0.75, (y0 - yb) / (y0 - y1))) + 0.004; const zb = zS(yb, 0) + 0.0028 + 0.004 * (1 - (y0 - yb) / (y0 - y1)) + 0.0016; const gc = C('#c9a54a'); const tcSave = tc;
+        sb.clv = [0, 0]; const q8 = [[-hw, yb - 0.0025, zb + 0.0012], [hw, yb - 0.0025, zb + 0.0012], [hw, yb + 0.0025, zb + 0.0012], [-hw, yb + 0.0025, zb + 0.0012], [-hw, yb - 0.0025, zb - 0.002], [hw, yb - 0.0025, zb - 0.002], [hw, yb + 0.0025, zb - 0.002], [-hw, yb + 0.0025, zb - 0.002]];
+        const f = [[0, 1, 2, 3], [5, 4, 7, 6], [4, 0, 3, 7], [1, 5, 6, 2], [3, 2, 6, 7], [4, 5, 1, 0]]; const wb = [[B.chest, 0.7], [B.spine, 0.3]];
+        for (const q of f) { const A = q8[q[0]], Bq = q8[q[1]], Cq = q8[q[2]]; const ux = Bq[0] - A[0], uy = Bq[1] - A[1], uz = Bq[2] - A[2], vx = Cq[0] - A[0], vy = Cq[1] - A[1], vz = Cq[2] - A[2]; const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx, l = Math.hypot(nx, ny, nz) || 1;
+          const i = q.map((k) => sb.v(q8[k], [nx / l, ny / l, nz / l], gc, [0.01, 0.51], wb)); sb.idx.push(i[0], i[1], i[2], i[0], i[2], i[3]); } void tcSave; } }
   }
+  // waistcoat shawl lapels: satin facings rolled back along both edges of the V (from the top button up to the shoulder),
+  // raised on the waistcoat front, the inner edge rolled highest. clv y = 2 marks satin for the shader.
+  if (vc) { const halfV = (yy) => 0.006 + ((yy - 1.16 * s) / (0.26 * s)) * 0.09; const NR = 12; const lc = C(sp.vestBack || '#4b4146');
+    for (const sx of [-1, 1]) { const P2 = [], N2 = [], W2 = [];
+      for (let r = 0; r <= NR; r++) { const t = r / NR; const yy = lerp(1.168 * s, 1.415 * s, t); const x0 = sx * halfV(yy), wd = lerp(0.006, 0.03, sstep(0, 0.55, t)) * (t > 0.94 ? 1 - (t - 0.94) * 10 : 1);
+        const cols = [[0, 0.0034], [0.5, 0.0031], [1, 0.0014]].map(([k, dz]) => { const x = x0 + sx * wd * k; return [x, yy, out.surfZ(yy, x, 1) + dz]; });
+        P2.push(cols); N2.push(cols.map((_, k) => [sx * (k === 0 ? -0.35 : 0.12), 0.05, 1])); W2.push(cols.map(() => (yy > 1.3 * s ? [[B.chest, 1]] : [[B.chest, 0.7], [B.spine, 0.3]]))); }
+      sb.clv = [CLOTH.VEST, 2]; sb.grid(sx > 0 ? P2 : P2.map((row) => row.slice().reverse()), sx > 0 ? N2 : N2.map((row) => row.slice().reverse()), W2, lc, lc.map((v) => v * 0.75)); sb.clv = [0, 0]; } }
   out.stats = { shirt: sh.used.reduce((a, b) => a + b, 0), trousers: tr.used.reduce((a, b) => a + b, 0), skinTris: bodyTris.length / 3 };
   return out;
 }
@@ -237,8 +251,25 @@ export function clothShader(opts) {
   const U = { uInner: { value: new THREE.Color(opts.inner || '#e8e4da') }, uOpen: { value: opts.open ? 1 : 0 }, uS: { value: opts.s || 1 }, uDenim: { value: opts.denim ? 1 : 0 }, uStitch: { value: new THREE.Color(opts.stitch || '#b8873e') }, uStripe: { value: new THREE.Color(opts.stripe || '#000000') }, uStripeOn: { value: opts.stripe ? 1 : 0 }, uVestBack: { value: new THREE.Color(opts.vestBack || '#4a4040') }, uCrease: { value: opts.crease ? 1 : 0 } };
   return (sh) => {
     Object.assign(sh.uniforms, U);
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec2 aCloth;\nvarying vec2 vCloth;\nvarying vec3 vBP;\nvarying vec3 vBN;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvCloth = aCloth; vBP = position; vBN = normal;');
+    if (!sh.uniforms.uSway) sh.uniforms.uSway = { value: new THREE.Vector4() };
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec2 aCloth;\nvarying vec2 vCloth;\nvarying vec3 vBP;\nvarying vec3 vBN;\nuniform vec4 uSway;\nuniform float uOpen;\nuniform float uS;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+vCloth = aCloth; vBP = position; vBN = normal;
+  { // cloth secondary motion (bind space, before skinning): loose hems lag behind the body's accelerations and turns
+    // (spring in Anim.update) and flutter at speed; motion into the body is removed, so loose cloth only slides along
+    // or swings out from what is under it
+    float idc = floor( aCloth.x + 0.5 ); float yb = position.y / uS; float w = 0.0;
+    if ( idc == 1.0 && uOpen > 0.5 ) w = smoothstep( 1.03, 0.88, yb ) + 0.6 * smoothstep( 1.12, 0.95, yb ) * step( 0.0, position.z ) * smoothstep( 0.6, 1.0, abs( aCloth.y ) ); // untucked open shirt: hem + front edges
+    else if ( idc == 5.0 ) w = 0.55 * smoothstep( 1.0, 0.93, yb ); // waistcoat points
+    else if ( idc == 6.0 ) w = 1.1 * smoothstep( 1.38, 1.02, yb ); // tie blade
+    else if ( idc == 2.0 ) w = 0.3 * smoothstep( 0.3, 0.07, yb ); // trouser hems
+    if ( w > 0.0 ) {
+      vec2 d = uSway.xy * w; vec2 nh = normal.xz; float nl = length( nh );
+      if ( nl > 0.2 ) { nh /= nl; d -= nh * min( dot( d, nh ), 0.0 ); }
+      float fl = uSway.z * w * sin( uSway.w * 8.7 + position.x * 37.0 + position.z * 23.0 + yb * 14.0 );
+      transformed.xz += d; transformed += normal * ( 0.25 * length( uSway.xy ) * w + 0.5 * ( fl + abs( fl ) ) ); transformed.y += 0.2 * length( d );
+    }
+  }`);
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
 varying vec2 vCloth; varying vec3 vBP; varying vec3 vBN;
 uniform vec3 uInner; uniform float uOpen; uniform float uS; uniform float uDenim; uniform vec3 uStitch; uniform vec3 uStripe; uniform float uStripeOn; uniform vec3 uVestBack; uniform float uCrease;
@@ -304,6 +335,11 @@ vec3 hbBump( vec3 pos, vec3 n, float h ) { vec3 dpx = dFdx( pos ), dpy = dFdy( p
       } else {
         float P = 0.0010; float f = hbFade( P, px ); float d = cu.x * 0.707 + cu.y * 0.707; hbH += 0.00006 * f * ( sin( d * 6.2832 / P ) * 0.5 + 0.5 );
         diffuseColor.rgb *= 1.0 + 0.05 * ( hbNoise( vec3( cu.x * 300.0, bp.y * 12.0, 8.0 ) ) - 0.5 ) * hbFade( 0.005, px );
+        if ( uCrease > 0.5 ) { // suit trousers: the waistcoat's windowpane overcheck, quieter
+          vec2 cq = vec2( cu.x, cu.y ) + 0.5; float lw = 0.0022; vec2 dd = abs( fract( cq / 0.075 ) - 0.5 ) * 0.075; float aa = max( px, 0.0004 );
+          float ln = max( 1.0 - smoothstep( lw * 0.5 - aa * 0.5, lw * 0.5 + aa * 0.5, dd.x ), 1.0 - smoothstep( lw * 0.5 - aa * 0.5, lw * 0.5 + aa * 0.5, dd.y ) ) * min( 1.0, lw / aa );
+          vec3 wp = mix( vec3( dot( uStripe, vec3( 0.333 ) ) ), uStripe, 0.55 ); float st = fwidth( cu.x ) / max( fwidth( cu.y ), 1e-6 ); ln *= smoothstep( 3.0, 1.6, max( st, 1.0 / max( st, 1e-6 ) ) ); /* muted thread; fades where the cloth mapping is badly stretched (crotch / seams) */
+          diffuseColor.rgb = mix( diffuseColor.rgb, mix( diffuseColor.rgb, wp, 0.07 ), clamp( ln, 0.0, 1.0 ) ); }
         if ( uCrease > 0.5 && bp.y < 0.86 && bp.y > 0.12 ) { float c = abs( atan( bn.x, bn.z ) ); float cr = smoothstep( 0.09, 0.0, c ) + 0.7 * smoothstep( 0.09, 0.0, abs( c - 3.14159 ) ); // pressed front and back creases
           hbH += 0.0009 * cr; diffuseColor.rgb *= 1.0 + 0.07 * cr; }
       }
@@ -329,7 +365,14 @@ vec3 hbBump( vec3 pos, vec3 n, float h ) { vec3 dpx = dFdx( pos ), dpy = dFdy( p
       float hb = sin( ( cu.y + tri * 1.6 ) * 6.2832 / P ) * 0.5 + 0.5; float f = hbFade( P, px ), fc = hbFade( W, px );
       vec3 wool = diffuseColor.rgb * ( 0.9 + 0.2 * hb * f + 0.1 * ( 1.0 - f ) * 0.5 ) * ( 1.0 + 0.06 * ( hbNoise( vBP * 900.0 ) - 0.5 ) * fc );
       wool *= 1.0 - 0.08 * smoothstep( 0.45, 0.5, abs( fract( cu.x / W ) - 0.5 ) ) * fc; // chevron column breaks
+      // Prince-of-Wales check: glen-check blocks (alternating 4 mm / 16 mm tone fields) under a 7.5 cm blue windowpane
+      // overcheck, filtered against the pixel footprint so it still reads (as its average tone) at play distance
+      { vec2 cq = vec2( cu.x, cu.y ) + 0.5; float gf = hbFade( 0.004, px ); vec2 g4 = floor( cq / 0.004 ); vec2 g16 = floor( cq / 0.016 );
+        float glen = mod( g16.x + g16.y, 2.0 ) < 1.0 ? mod( g4.x + g4.y, 2.0 ) : mod( g4.x, 2.0 ) * 0.6 + 0.2; wool *= 1.0 + 0.12 * ( glen - 0.5 ) * gf;
+        float lw = 0.0026; vec2 dd = abs( fract( cq / 0.075 ) - 0.5 ) * 0.075; float aa = max( px, 0.0004 ); float lx = 1.0 - smoothstep( lw * 0.5 - aa * 0.5, lw * 0.5 + aa * 0.5, dd.x ), ly = 1.0 - smoothstep( lw * 0.5 - aa * 0.5, lw * 0.5 + aa * 0.5, dd.y );
+        float ln = max( lx, ly ) * min( 1.0, lw / aa ); vec3 wp = mix( vec3( dot( uStripe, vec3( 0.333 ) ) ), uStripe, 0.55 ); wool = mix( wool, mix( wool, wp, 0.2 ), clamp( ln, 0.0, 1.0 ) ); } /* muted blue-grey thread, not a bright line */
       vec3 satin = uVestBack * ( 1.0 + 0.5 * pow( 1.0 - ndv, 2.0 ) + 0.05 * sin( cu.y * 6.2832 / 0.0006 ) * hbFade( 0.0006, px ) );
+      back = max( back, step( 1.5, vCloth.y ) ); // shawl lapels (clv y = 2): satin facing
       diffuseColor.rgb = mix( wool, satin, back ); hbH += 0.00012 * hb * f * ( 1.0 - back );
       hbH += 0.002 * hbNoise( vec3( cu.x * 14.0, bp.y * 5.0, 3.7 ) ); // soft body drape
       float side = smoothstep( 0.05, 0.0, abs( bn.z + 0.3 ) ) * step( abs( bn.y ), 0.6 ); hbH -= 0.0005 * side; hbAO *= 1.0 - 0.25 * side; // side seam where front meets back

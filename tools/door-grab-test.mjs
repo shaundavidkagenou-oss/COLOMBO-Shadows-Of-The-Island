@@ -21,7 +21,7 @@ const near = (p, meshes) => { let best = 9; for (const d of DIRS) { rc.set(p, d)
 const HAND = /^(hand|idx|mid|rng|pnk|thb)[123]?([LR])$/;
 const types = Object.keys(VTYPES).filter((t) => { const k = boardKind({ T: VTYPES[t] }); return (k === 'car' || k === 'van' || k === 'cab') && (!process.env.TYPES || process.env.TYPES.split(',').includes(t)); });
 const heroes = ['dineth', 'shashika', 'david']; const chars = heroes.map((h) => new Character(HEROES[h]));
-const summary = [];
+const summary = []; let hookN = 0, hookOk = 0;
 for (const type of types) {
   const T = VTYPES[type]; const g = createVehicleMesh(type, 1); const ud = g.userData; const d = ud.door; if (!d || d.slide || d.leaf) continue;
   const scene = new THREE.Scene(); scene.add(g); allDoorsLive(ud); const seat = ud.seats.find((s) => s.driver) || ud.seats[0]; const side = ud.entry ? ud.entry.side : -1;
@@ -59,10 +59,15 @@ for (const type of types) {
     if (H) { setAng(0); for (let k = 0; k < 40; k++) { A.update(1 / 60, 0, 0); ch.rig.hand(S, H.pose, 1); }
       const hand = ch.bones['hand' + S]; hand.matrixWorld.compose(H.wrist.clone().applyMatrix4(d.pivot.matrixWorld), d.pivot.getWorldQuaternion(new THREE.Quaternion()).multiply(H.q), new THREE.Vector3(1, 1, 1)); for (const c of hand.children) c.updateMatrixWorld(true);
       mesh.skeleton.update(); let bur = 0, gap = 9; for (const i of verts) { mesh.getVertexPosition(i, v); v.applyMatrix4(mesh.matrixWorld); if (inside(v, meshes)) bur++; else gap = Math.min(gap, near(v, meshes)); } hb = bur / verts.length; hg = gap;
+      { const h = d.grab.handle, sd = d.grab.side; const inv = d.pivot.matrixWorld.clone().invert(); let hooked = 0; const tipX = [];
+        for (const f of ['idx', 'mid', 'rng']) { const b = ch.bones[f + '3' + S]; const p = new THREE.Vector3().setFromMatrixPosition(b.matrixWorld).applyMatrix4(inv); /* matrixWorld as posed (getWorldPosition would recompute it from the parents' local transforms) */ const out = (p.x - h.skin) * sd, barOut = (h.x - h.skin) * sd + (h.half || 0.01); tipX.push((out * 1000).toFixed(0));
+          if (out > -0.004 && out < barOut && p.y < h.y + 0.016) hooked++; }
+        hookN++; if (hooked >= 2) hookOk++; if (h.half) ok(hooked >= 2, `${tag}: door handle — only ${hooked}/3 fingers hooked behind the bar (tip joints ${tipX.join('/')} mm out from the skin, bar ${(((h.x - h.skin) * sd) * 1000).toFixed(0)} mm)`); }
       ok(hb < 0.08, `${tag}: door handle — ${(hb * 100).toFixed(0)}% of the hand skin inside the door`); ok(hg < 0.01, `${tag}: door handle — hand ${(hg * 1000).toFixed(0)} mm off the door`); }
     summary.push(worst); if (Vb) console.log(`${tag.padEnd(22)} door held at ${holdA} · step-in: skin in door ≤${(worst * 100).toFixed(1)}% gap ≤${(gapW * 1000).toFixed(0)} mm (held ${held}/${gFr} frames)` + (H ? ` · handle: in door ${(hb * 100).toFixed(1)}% gap ${(hg * 1000).toFixed(0)} mm` : ''));
     ch.root.removeFromParent(); setAng(0);
   }
 }
 summary.sort((a, b) => a - b); if (summary.length) console.log(`hand skin inside the door while held: median ${(summary[summary.length >> 1] * 100).toFixed(1)}% · worst ${(summary[summary.length - 1] * 100).toFixed(1)}%`);
+console.log(`door handle: fingers hooked behind the bar in ${hookOk}/${hookN} grasps`);
 console.log(`door-grab: ${pass + fail} checks, ${fail} failed`); process.exit(fail ? 1 : 0);

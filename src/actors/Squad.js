@@ -295,7 +295,7 @@ export class Squad {
       if (m.crew === 'with' && m.mode === 'life') this.setLife(m, false);
       if (m.mode === 'life') this.life.update(m, dt, k, bodies); else this.updateFollower(m, dt, k, bodies);
     } catch (e) { if (!this._fe) { console.error(e); this._fe = 1; } } });
-    this.proxies = this.followers.filter((m) => !m.vehicle && !m.hidden && m.ch.root.parent === this.g.scene).map((m) => ({ x: m.x, z: m.z, crossing: m.speed > 0.5 }));
+    this.proxies = this.followers.filter((m) => !m.vehicle && !m.hidden && m.ch && m.ch.root.parent === this.g.scene).map((m) => ({ x: m.x, z: m.z, crossing: m.speed > 0.5 }));
     this.hudUpdate(dt);
   }
   trail(P) { if (P.vehicle || this.g.indoor) return; const c = this.crumbs; const l = c[c.length - 1]; if (!l || Math.hypot(P.x - l.x, P.z - l.z) > 0.8) { c.push({ x: P.x, z: P.z, y: P.y }); if (c.length > 160) c.shift(); } }

@@ -866,7 +866,7 @@ export const HEROES = {
   // the three playable protagonists (high-detail build + 70-bone rig)
   dineth: { seed: 11, hero: true, mh: 'dineth', kit: 'openShirt', sex: 'm', age: 'adult', skin: '#8a5636', build: 0.98, height: 1.74, outfit: 'jacket', top: '#7b2d26', inner: '#ece7dc', bottom: '#28303d', shoes: '#e4e1da', sole: '#cfcac0', longSleeve: false, hair: 'quiff', hairColor: '#0f0b08', collar: true, sandals: false },
   shashika: { seed: 12, hero: true, mh: 'shashika', kit: 'tactical', sex: 'm', age: 'adult', skin: '#6b4228', build: 1.18, height: 1.8, outfit: 'shirt', top: '#4b5240', bottom: '#5b5745', shoes: '#1f1b17', boots: true, longSleeve: true, vest: '#2b2e27', strap: '#1b1c19', tacGloves: '#1c1c1a', hair: 'crew', hairColor: '#0c0a08', beard: true, beardShort: true, collar: true, sandals: false },
-  david: { seed: 13, hero: true, mh: 'david', kit: 'waistcoat', sex: 'm', age: 'adult', skin: '#94613f', build: 0.95, height: 1.78, outfit: 'shirt', top: '#cfdae6', stripe: '#6f8bb3', heroTie: '#5a1b28', vestBack: '#4b4146', bottom: '#2d2f33', shoes: '#121212', longSleeve: true, waist: '#3a3d44', hair: 'sidepart', hairColor: '#120d0a', glasses: true, moustache: true, collar: true, sandals: false },
+  david: { seed: 13, hero: true, mh: 'david', kit: 'waistcoat', sex: 'm', age: 'adult', skin: '#94613f', build: 0.95, height: 1.78, outfit: 'shirt', top: '#cfdae6', stripe: '#6f8bb3', heroTie: '#5a1b28', vestBack: '#4b4146', bottom: '#2d2f33', shoes: '#3b1c12' /* oxblood oxfords */, longSleeve: true, waist: '#3a3d44', hair: 'sidepart', hairColor: '#120d0a', glasses: true, moustache: true, collar: true, sandals: false },
   ruwan: { seed: 2, sex: 'm', age: 'adult', skin: '#7a4a2e', build: 1.1, height: 1.71, outfit: 'shirt', top: '#6d3b2c', bottom: '#3a3f4a', shoes: '#151515', hair: 'short', hairColor: '#0d0a08', moustache: true, collar: true, sandals: false },
   fathima: { seed: 3, sex: 'f', age: 'adult', skin: '#a8734f', build: 1.05, height: 1.58, outfit: 'salwar', top: '#1b6b6b', skirt: 'knee', skirtCol: '#1b6b6b', bottom: '#f2efe6', pattern: 2, hair: 'bun', hairColor: '#1c140e', longSleeve: true, sandals: true },
   selvaraj: { seed: 4, sex: 'm', age: 'elder', skin: '#5e3a24', build: 1.08, height: 1.68, outfit: 'shirt', top: '#f2f2ee', bottom: '#4a4036', hair: 'grey', hairColor: '#b8b6b0', moustache: true, glasses: true, collar: true, sandals: true },
@@ -1152,6 +1152,11 @@ export class Animator {
     if (this.fadeW > 0) { this.fadeW = Math.max(0, this.fadeW - dt * 3.2); this.fadeT += dt; if (this.fadeW === 0) this.fadeAct = null; }
     this.speed = damp(this.speed, speed, 12, dt); const sp = Math.max(0, this.speed);
     const run = (this.runW = damp(this.runW, clamp((sp - 2.5) / 2.0, 0, 1), 6, dt)); const w = (this.locoW = damp(this.locoW, smooth01(sp / 0.55), 8, dt));
+    const SW = this.ch.heroU && this.ch.heroU.uSway; if (SW && dt > 0) { // cloth secondary motion: an under-damped spring driven by the body's accelerations (HeroBody clothShader)
+      const c = this._sw || (this._sw = { x: 0, z: 0, vx: 0, vz: 0, sp }); const acc = clamp((sp - c.sp) / dt, -12, 12); c.sp = sp; // forward (+z) acceleration
+      const tz = clamp(-acc * 0.006 - sp * 0.005, -0.05, 0.03), tx = clamp(-sp * turnRate * 0.012, -0.045, 0.045); // inertia lags opposite the acceleration; air drag trails it at speed; turns swing it outward
+      const h = Math.min(dt, 1 / 30); const K = 70, C = 2 * Math.sqrt(K) * 0.32; c.vx += (K * (tx - c.x) - C * c.vx) * h; c.vz += (K * (tz - c.z) - C * c.vz) * h; c.x += c.vx * h; c.z += c.vz * h;
+      SW.value.set(c.x, c.z, 0.0035 * clamp(sp / 5, 0, 1) + 0.0012 * w, this.t); }
     // stride and phase
     const stepLen = Math.min((0.36 + 0.3 * sp) * s * g.stride, (1.15 + 0.45 * run) * s); const cycleLen = 2 * stepLen; const beta = lerp(0.6, 0.36, run);
     const prev = this.cyc; this.cyc = (this.cyc + (sp * dt) / cycleLen) % 1;
