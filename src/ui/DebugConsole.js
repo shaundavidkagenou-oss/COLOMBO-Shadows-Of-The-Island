@@ -7,6 +7,7 @@
 // Pedestrians spawned or re-dressed here come from the crowd's own adult spec pool — no new spawn paths.
 import * as THREE from 'three';
 import { Input } from '../core/Input.js';
+import { Settings } from '../core/Settings.js';
 import { openEditor } from '../debug/boot.js'; // tiny: the editors themselves load on demand
 import { Audio } from '../audio/Audio.js';
 import { WEAPONS } from '../combat/WeaponDefs.js';
@@ -53,6 +54,23 @@ export class DebugConsole {
   }
   get D() { return this.g.debug; }
   // ------------------------------------------------------------------ console
+  // frame-rate benchmark of real play: every requestAnimationFrame interval for N seconds while the player plays/drives normally
+  bench(secs) {
+    if (this._bench) { this.print('a benchmark is already running', 'err'); return; }
+    const g = this.g, R = g.renderer; const dts = []; let last = performance.now(), calls = 0, n = 0; const t0 = last; this._bench = true;
+    this.print(`benchmark: ${secs} s of normal play from now — the console closes; play or drive as usual`, 'sys'); setTimeout(() => this.toggle(false), 0);
+    const tick = () => { const now = performance.now(); dts.push(now - last); last = now; if (R && R.info) { calls += R.info.render.calls; n++; }
+      if (now - t0 < secs * 1000) { requestAnimationFrame(tick); return; }
+      this._bench = false; dts.shift(); const s = [...dts].sort((x, y) => y - x); const tot = dts.reduce((x, y) => x + y, 0); const low = (f) => { const k = Math.max(1, Math.floor(s.length * f)); return 1000 / (s.slice(0, k).reduce((x, y) => x + y, 0) / k); };
+      let gpu = ''; try { const gl = R.getContext(); const ext = gl.getExtension('WEBGL_debug_renderer_info'); gpu = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : ''; } catch (e) { /* not exposed */ }
+      const q = Settings.get('quality'), sz = R.getSize(new THREE.Vector2()), pr = R.getPixelRatio();
+      const lines = [`BENCHMARK ${secs} s · ${dts.length} frames · quality ${q} · ${Math.round(sz.x * pr)}×${Math.round(sz.y * pr)}${gpu ? ' · ' + gpu : ''}`,
+        `  average ${(1000 * dts.length / tot).toFixed(1)} fps · 1 % low ${low(0.01).toFixed(1)} fps · 0.1 % low ${low(0.001).toFixed(1)} fps`,
+        `  worst frame ${s[0].toFixed(1)} ms · frames over 33 ms (below 30 fps): ${dts.filter((d) => d > 33.4).length} · over 50 ms: ${dts.filter((d) => d > 50).length}`,
+        `  draw calls ~${n ? Math.round(calls / n) : '?'} per frame (last pass)`];
+      for (const l of lines) this.print(l, 'ok'); console.log(lines.join('\n')); this.toggle(true); };
+    requestAnimationFrame(tick);
+  }
   toggle(v = !this.open) {
     this.open = v; this.con.classList.toggle('hidden', !v); Input.typing = v; Input.down.clear();
     if (v) { Input.releaseLock(); setTimeout(() => this.input.focus(), 0); } else this.input.blur();
@@ -63,7 +81,7 @@ export class DebugConsole {
     try {
       switch (c) {
         case 'help': ['debug.menu true|false — enable the debug menu (open it with Numpad 2)', 'time <0-24> · freeze [on|off]', `weather <${Object.keys(WEATHER).join('|')}>`, 'money <amount>', 'god [on|off] · ammo [on|off] (infinite) · nowanted [on|off]',
-          `give <all|grenades|${WEAPONS.map((w) => w.id).join('|')}>`, 'tp <place> | tp <x> <z> | tp waypoint · places', 'drunk <0..1> · room <dineth|shashika|david>', `spawn ped [n] · spawn car [${VEH.join('|')}|<catalogue id>]`, 'cars — list the 40 catalogue vehicles (ids for spawn car)', `model <${MODELS.join('|')}|civilian|reset>`, 'dress [outfit] — re-dress pedestrians within 35 m · outfits', 'animations — animation editor (every animation in the game, keyframes, poses, speed …)', 'map — map editor (move / add / delete / repaint anything, save the map)', 'npc — NPC editor (remodel NPCs: every appearance parameter, proportions, paint on the model, fabric textures)', 'heal · clear · close'].forEach((s) => this.print('  ' + s)); break;
+          `give <all|grenades|${WEAPONS.map((w) => w.id).join('|')}>`, 'tp <place> | tp <x> <z> | tp waypoint · places', 'drunk <0..1> · room <dineth|shashika|david>', 'bench [seconds] — frame-rate benchmark of real play (avg fps, 1 % / 0.1 % lows, worst frame); the console closes while it runs', `spawn ped [n] · spawn car [${VEH.join('|')}|<catalogue id>]`, 'cars — list the 40 catalogue vehicles (ids for spawn car)', `model <${MODELS.join('|')}|civilian|reset>`, 'dress [outfit] — re-dress pedestrians within 35 m · outfits', 'animations — animation editor (every animation in the game, keyframes, poses, speed …)', 'map — map editor (move / add / delete / repaint anything, save the map)', 'npc — NPC editor (remodel NPCs: every appearance parameter, proportions, paint on the model, fabric textures)', 'heal · clear · close'].forEach((s) => this.print('  ' + s)); break;
         case 'debug.menu': this.D.menuEnabled = on(a[0], this.D.menuEnabled); if (!this.D.menuEnabled) this.toggleMenu(false); this.print(`debug menu ${this.D.menuEnabled ? 'ENABLED — press Numpad 2 to open it' : 'disabled'}`, 'ok'); break;
         case 'time': this.setTime(+a[0]); break;
         case 'freeze': this.D.freezeTime = on(a[0], this.D.freezeTime); this.print(`clock ${this.D.freezeTime ? 'frozen' : 'running'}`, 'ok'); break;
@@ -86,6 +104,7 @@ export class DebugConsole {
         case 'animations': case 'anim': case 'map': case 'npc': case 'npcs': { // the editors are separate modules, downloaded only now
           const kind = c.startsWith('anim') ? 'animations' : c.startsWith('npc') ? 'npc' : 'map'; this.print(`loading the ${kind} editor…`, 'sys'); this.toggle(false);
           openEditor(kind, this.g).catch((e) => { console.error(e); this.toggle(true); this.print('editor failed to load: ' + (e && e.message || e), 'err'); }); break; }
+        case 'bench': this.bench(+a[0] || 20); break;
         case 'clear': this.log = []; this.print(''); break;
         case 'close': case 'exit': this.toggle(false); break;
         default: this.print(`unknown command: ${cmd} (type help)`, 'err');

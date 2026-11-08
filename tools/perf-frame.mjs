@@ -39,8 +39,19 @@ try {
       await g.stepSim(60, 0.05); }, S);
     log(`${S.name}: placed`);
     await new Promise((r) => setTimeout(r, 4000)); // let the real loop warm (shader compiles of this view)
+    let cdp = null; if (process.env.PROF) { cdp = await page.target().createCDPSession(); await cdp.send('Profiler.enable'); await cdp.send('Profiler.setSamplingInterval', { interval: 200 }); await cdp.send('Profiler.start'); }
+    if (process.env.GEOLOG) await page.evaluate(() => { // which geometries are new during the measured frames, and the bytes bufferData uploads
+      const g = window.__game, gl = g.renderer.getContext(); const ids = new Set(); g.scene.traverse((o) => { if (o.geometry) ids.add(o.geometry.id); }); window.__geo0 = ids;
+      const B = (window.__buf = { n: 0, bytes: 0, big: [] }); const bd = gl.bufferData.bind(gl); gl.bufferData = function (t, d, u) { if (window.__perf.on) { B.n++; const b = d && d.byteLength ? d.byteLength : (typeof d === 'number' ? d : 0); B.bytes += b; if (b > 200000 && B.big.length < 12) B.big.push([b, (new Error().stack || '').split('\n').slice(2, 9).map((l) => l.trim().replace(/\(.*\//, '(').slice(0, 70)).join(' < ')]); } return bd(t, d, u); }; });
     await page.evaluate(() => { window.__perf.frames = []; window.__perf.on = true; });
     const t0 = Date.now(); await page.waitForFunction((n) => window.__perf.frames.length >= n, { timeout: 1500000, polling: 500 }, +NF);
+    if (process.env.GEOLOG) console.log('GEOLOG', JSON.stringify(await page.evaluate(() => { const g = window.__game, ids = window.__geo0; const fresh = {}; let nv = 0;
+      g.scene.traverse((o) => { if (!o.geometry || ids.has(o.geometry.id)) return; const path = []; let q = o; while (q && q !== g.scene && path.length < 4) { path.push(q.name || q.type); q = q.parent; } const k = path.reverse().join('/'); const c = o.geometry.attributes.position ? o.geometry.attributes.position.count : 0; nv += c; fresh[k] = fresh[k] || [0, 0]; fresh[k][0]++; fresh[k][1] += c; });
+      return { buf: window.__buf, newGeoms: Object.entries(fresh).sort((a, b) => b[1][1] - a[1][1]).slice(0, 25), newVerts: nv, frames: window.__perf.frames.length }; })));
+    if (cdp) { // main-thread JS self time (the renderer's JavaScript runs on the user's CPU whatever the GPU)
+      const { profile } = await cdp.send('Profiler.stop'); const byId = new Map(profile.nodes.map((n) => [n.id, n])); const self = new Map(); let tot = 0;
+      profile.samples.forEach((sid, i) => { const d = profile.timeDeltas[i] || 0; const cf = byId.get(sid).callFrame; const k = `${cf.functionName || '(anon)'} ${(cf.url.split('/').pop() || '').replace(/-[A-Za-z0-9_]{8}\.js/, '.js')}:${cf.lineNumber + 1}`; self.set(k, (self.get(k) || 0) + d); tot += d; });
+      console.log('PROFILE top self (% of sampled main-thread time, ' + (tot / 1e6).toFixed(1) + ' s):'); [...self].sort((a, b) => b[1] - a[1]).slice(0, +process.env.PROF > 1 ? +process.env.PROF : 40).forEach(([k, t]) => console.log('  ' + (100 * t / tot).toFixed(1).padStart(5) + '%  ' + k)); }
     const out = await page.evaluate((S) => { const g = window.__game, P = window.__perf; P.on = false; const F = P.frames.splice(0);
       const keys = ['total', 'sim', 'refl', 'shadow', 'main', 'post', 'wait', ...P.subs]; const st = {};
       for (const k of keys) { const v = F.map((f) => f[k] || 0).sort((a, b) => a - b); if (k.startsWith('u.') && v[v.length - 1] < 0.5) continue; st[k] = { avg: +(v.reduce((a, b) => a + b, 0) / v.length).toFixed(2), p95: +v[Math.floor(v.length * 0.95)].toFixed(2), max: +v[v.length - 1].toFixed(2) }; }

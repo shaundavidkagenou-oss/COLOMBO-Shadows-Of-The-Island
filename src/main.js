@@ -1,4 +1,5 @@
 // Entry point. Fonts are bundled locally via Fontsource (SIL OFL) so Sinhala/Tamil text renders correctly offline.
+import './core/fastMath.js'; // first: non-allocating Math.hypot (fewer GC pauses)
 import '@fontsource/noto-sans-sinhala/400.css';
 import '@fontsource/noto-sans-sinhala/600.css';
 import '@fontsource/noto-sans-tamil/400.css';

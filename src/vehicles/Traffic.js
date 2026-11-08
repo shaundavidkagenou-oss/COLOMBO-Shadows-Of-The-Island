@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import * as L from '../world/Layout.js';
 import { plan } from '../world/CityPlan.js';
 import { Vehicle } from './Vehicle.js';
-import { VTYPES, modelCached, warmModel, warmShape } from './VehicleModels.js';
+import { VTYPES, modelCached, warmModel, warmShape, createVehicleMesh } from './VehicleModels.js';
 import { TRAFFIC_W, PARKED_W, NO_LANES } from './VehicleCatalog.js';
 import { BIKE_LISTS, BIKE_PARKED, BIKE_IDS } from './BikeCatalog.js';
 import { RNG } from '../core/rng.js';
@@ -541,6 +541,10 @@ export class Traffic {
     const shapes = []; for (const t of Object.keys(VTYPES)) for (let v = 0; v < 4; v++) shapes.push([t, v]);
     let t0 = performance.now(); const all = shapes.length + this.driverSpecs.length + jobs.length;
     for (let i = 0; i < shapes.length; i++) { try { warmShape(shapes[i][0], shapes[i][1]); } catch (e) { console.warn('warm vehicle shape', shapes[i], e); } pr(i / all); if (performance.now() - t0 > 30) { await new Promise((r) => setTimeout(r, 0)); t0 = performance.now(); } }
+    /* FPS: the FIRST vehicle of each type also built its detailed wheels, door grab geometry and per-type materials — 15-50 ms
+       (measured: sathi 50, tuktuk 26, veera_saathi 20, lorry 14) the first time one drove in or was parked. One mesh per type here
+       fills those caches; the instance itself (never drawn, no GPU upload) is dropped. */
+    for (const t of Object.keys(VTYPES)) { try { createVehicleMesh(t, 1009); } catch (e) { console.warn('warm vehicle mesh', t, e); } if (performance.now() - t0 > 30) { await new Promise((r) => setTimeout(r, 0)); t0 = performance.now(); } }
     for (let i = 0; i < this.driverSpecs.length; i++) { try { new Character(this.driverSpecs[i]).dispose(); } catch (e) { console.warn('warm driver', e); } pr((shapes.length + i) / all); if (performance.now() - t0 > 30) { await new Promise((r) => setTimeout(r, 0)); t0 = performance.now(); } }
     for (let i = 0; i < jobs.length; i++) { const [t, sd] = jobs[i]; try { warmModel(t, sd); this.noteLook(t, sd); } catch (e) { console.warn('warm vehicle', t, e); } pr((shapes.length + this.driverSpecs.length + i + 1) / all); if (performance.now() - t0 > 30) { await new Promise((r) => setTimeout(r, 0)); t0 = performance.now(); } }
   }
