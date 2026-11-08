@@ -388,7 +388,7 @@ export class Weapons {
     { const st = (P.crouching ? 0.75 : 1) * (this.aimW > 0.8 ? 0.85 : 1) * (0.6 + 0.4 * ((P.perk && P.perk.steady) || 1)); const cls = def.cls;
       P.camPitch = clamp(P.camPitch - def.recoil * 0.35 * st, -0.5, 1.2); // the part the shooter must pull down
       this.kick.v += def.recoil * 9 * st * (0.85 + Math.random() * 0.3); this.kick.yv += def.recoil * 3 * st * (Math.random() * 2 - 1); // rises, then mostly recovers
-      this.spr.pv.z -= (cls === 'pistol' ? 0.55 : cls === 'sniper' ? 1.1 : 0.7) * st; this.spr.pv.y += 0.12 * st; this.spr.rv.x -= (cls === 'pistol' ? 9 : cls === 'sniper' ? 7 : 4.5) * st; this.spr.rv.y += (Math.random() * 2 - 1) * 1.6 * st; this.spr.rv.z += (Math.random() * 2 - 1) * 1.2 * st;
+      if (P.ch && P.ch.anim.shotKick) P.ch.anim.shotKick(cls, st); this.spr.pv.z -= (cls === 'pistol' ? 0.55 : cls === 'sniper' ? 1.1 : 0.7) * st; this.spr.pv.y += 0.12 * st; this.spr.rv.x -= (cls === 'pistol' ? 9 : cls === 'sniper' ? 7 : 4.5) * st; this.spr.rv.y += (Math.random() * 2 - 1) * 1.6 * st; this.spr.rv.z += (Math.random() * 2 - 1) * 1.2 * st;
       this.trigT = 0.07; if (this.inv[this.cur].mag <= 1 && cls !== 'sniper') this.slideLock = true; } P.shake = Math.max(P.shake || 0, def.cls === 'sniper' ? 0.25 : 0.08);
     this.gunSound(def, P.x, P.z); this.flash(mz, dir, def); if (!def.cycle) this.ejectShell(); this.tracer(mz, hit.point, def);
     if (hit.kind === 'ped') { const p = hit.p; if (this.g.blood && p.ch) this.g.blood.wound(p.ch, hit.point, dir, def.dmg); this.g.crowd.hitPed(p, dir.x, dir.z, def.dmg, hit.point); if (!(this.g.blood && this.g.blood.spray(hit.point, dir, def.dmg))) this.puff(hit.point, 0x8a8478, 3); this.hitMarker(); }

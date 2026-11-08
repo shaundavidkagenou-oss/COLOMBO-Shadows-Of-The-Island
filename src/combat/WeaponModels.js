@@ -4,15 +4,19 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { boxShape } from './GripSolver.js';
+import { weaponSurface } from './WeaponSurface.js';
 
 let MATS = null;
 export function weaponMaterials() {
   if (MATS) return MATS;
-  const S = (c, r, m = 0) => new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: m });
+  // every surface gets its procedural finish (WeaponSurface.js): machined / scratched metal, real wood grain under varnish, stippled polymer
+  const S = (c, r, m = 0, kind = null) => weaponSurface(new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: m }), kind);
+  const W = (c, r) => weaponSurface(new THREE.MeshPhysicalMaterial({ color: c, roughness: r, metalness: 0, clearcoat: 0.45, clearcoatRoughness: 0.32 }), 'wood'); // oiled + varnished
   MATS = {
-    metal: S('#2b2d31', 0.38, 0.75), steel: S('#5d6168', 0.3, 0.85), poly: S('#1b1c1e', 0.72), polyTan: S('#9c8763', 0.68), polyOlive: S('#4a4d36', 0.7),
-    wood: S('#6a4123', 0.55), woodDark: S('#4a2c17', 0.6), rubber: S('#121212', 0.9), brass: S('#b48a3c', 0.35, 0.9),
-    blued: S('#1f2124', 0.42, 0.7), woodT56: S('#7a4a26', 0.5), woodT56d: S('#5a3419', 0.58), canvas: S('#4d4b34', 0.92), torchLens: new THREE.MeshStandardMaterial({ color: '#fff6dc', roughness: 0.1, emissive: '#fff1c8', emissiveIntensity: 2.5 }),
+    metal: S('#2b2d31', 0.36, 0.82, 'metal'), steel: S('#6a6e75', 0.26, 0.92, 'steel'), poly: S('#1b1c1e', 0.72, 0, 'poly'), polyTan: S('#9c8763', 0.68, 0, 'poly'), polyOlive: S('#4a4d36', 0.7, 0, 'poly'),
+    wood: W('#6a4123', 0.5), woodDark: W('#4a2c17', 0.55), rubber: S('#121212', 0.9, 0, 'rubber'), brass: S('#b48a3c', 0.32, 0.95, 'brass'),
+    blued: S('#1c1e23', 0.38, 0.85, 'blued'), woodT56: W('#7a4a26', 0.46), woodT56d: W('#5a3419', 0.52), canvas: S('#4d4b34', 0.92),
+    slot: S('#050505', 0.85, 0.3), // screw slots, hex sockets: the shadowed recess torchLens: new THREE.MeshStandardMaterial({ color: '#fff6dc', roughness: 0.1, emissive: '#fff1c8', emissiveIntensity: 2.5 }),
     lens: new THREE.MeshStandardMaterial({ color: '#0d1a26', roughness: 0.05, metalness: 0.6, emissive: '#06121c' }),
     dot: new THREE.MeshBasicMaterial({ color: '#ff3b2f' }),
   };
@@ -34,6 +38,22 @@ function prof(pts, w, cx = 0, bev = 0.003, curve = null) {
   g.translate(0, 0, -(w - 2 * bev) / 2); g.rotateY(-Math.PI / 2); g.translate(cx, 0, 0); return g; // shape x → +z, extrusion → x
 }
 const qcurve = (a, c, b, n = 8) => Array.from({ length: n + 1 }, (_, i) => { const t = i / n, u = 1 - t; return [u * u * a[0] + 2 * u * t * c[0] + t * t * b[0], u * u * a[1] + 2 * u * t * c[1] + t * t * b[1]]; });
+
+// small hardware: screws, bolts, pins, knurling — modelled, not painted on. s = which face (+1 left / up / front, −1 right / down / rear);
+// x0 / y0 / z0 = the surface the part sits on
+const SH = 0.0011; // screw-head height
+function screwX(P, m, x0, s, y, z, r = 0.0026, ang = 0.7) { P.add(m.steel, cylX(r, SH, x0 + s * SH / 2, y, z, 12)); P.add(m.slot, box(0.0004, r * 1.75, r * 0.32, x0 + s * (SH + 0.0001), y, z, ang)); }
+function screwY(P, m, x, y0, s, z, r = 0.0026, ang = 0.4) { P.add(m.steel, cylY(r, SH, x, y0 + s * SH / 2, z, 12)); P.add(m.slot, box(r * 1.75, 0.0004, r * 0.32, x, y0 + s * (SH + 0.0001), z, 0, ang)); }
+function screwZ(P, m, x, y, z0, s, r = 0.0026, ang = 0.5) { P.add(m.steel, cylZ(r, SH, x, y, z0 + s * SH / 2, 12)); P.add(m.slot, box(r * 1.75, r * 0.32, 0.0004, x, y, z0 + s * (SH + 0.0001), 0, 0, ang)); }
+function hexX(P, m, x0, s, y, z, r = 0.003) { const h = 0.0022; P.add(m.steel, cylX(r * 1.35, 0.0005, x0 + s * 0.00025, y, z, 14), place(new THREE.CylinderGeometry(r, r, h, 6), x0 + s * (0.0005 + h / 2), y, z, 0, 0, Math.PI / 2)); } // hex bolt head on its washer
+function capX(P, m, x0, s, y, z, r = 0.0026) { const h = 0.0018; P.add(m.metal, cylX(r, h, x0 + s * h / 2, y, z, 14)); P.add(m.slot, cylX(r * 0.5, 0.0004, x0 + s * (h + 0.0001), y, z, 6)); } // socket-head cap screw
+const pinX = (P, m, w, y, z, r = 0.0018) => P.add(m.steel, cylX(r, w + 0.0012, 0, y, z, 10)); // cross pin, flush ends on both sides
+// knurled / notched ring (turret caps, castle nut): alternate rim vertices pushed out
+function knurl(r, h, x, y, z, axis = 'y', seg = 28, amp = 0.08) {
+  const g = new THREE.CylinderGeometry(r, r, h, seg, 1); const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) { const px = p.getX(i), pz = p.getZ(i); if (px * px + pz * pz < 1e-12) continue; const a = Math.atan2(px, pz); const k = Math.round(((a + Math.PI) / (2 * Math.PI)) * seg) % 2 ? 1 + amp : 1; p.setX(i, px * k); p.setZ(i, pz * k); }
+  g.computeVertexNormals(); return axis === 'x' ? place(g, x, y, z, 0, 0, Math.PI / 2) : axis === 'z' ? place(g, x, y, z, Math.PI / 2, 0, 0) : place(g, x, y, z);
+}
 
 class Parts { // collects geometry per material, merges into one mesh per material
   constructor() { this.by = new Map(); }
@@ -66,6 +86,13 @@ function pistol(def) {
   P.add(m.rubber, box(0.031 * k, 0.07 * k, 0.03 * k, 0, -0.016, -0.036, 0.27));
   trigger(P, m, 0.012, 0.022 * k);
   if (def.id === 'heavy') P.add(m.steel, box(0.008, 0.014, 0.01, 0, 0.07 * k, -0.06, 0.5)); // exposed hammer
+  { const fx = 0.014 * k, fy = 0.034 * k; // frame half-width, frame centre height
+    pinX(P, m, 0.028 * k, 0.029 * k, 0.019); pinX(P, m, 0.028 * k, 0.031 * k, 0.05 * k + 0.012); // trigger pivot + locking-block pins
+    P.add(m.steel, box(0.0012, 0.006, 0.026 * k, fx + 0.0006, fy + 0.005 * k, 0.04 * k), cylX(0.0032, 0.0016, fx + 0.0012, fy + 0.005 * k, 0.028 * k, 12)); // slide-stop lever + thumb pad (left)
+    P.add(m.steel, cylX(0.0024, 0.0008, -fx - 0.0004, fy + 0.005 * k, 0.028 * k, 10)); // slide-stop pin end (right)
+    P.add(m.steel, box(0.0012, 0.004, 0.009, fx + 0.0006, fy - 0.004 * k, 0.074 * k)); // takedown lever
+    P.add(m.poly, cylX(0.0036, 0.0022, 0.0155 * k + 0.001, 0.018 * k, -0.006, 12)); // magazine release (left, behind the guard)
+    if (def.id === 'heavy') for (const s of [1, -1]) { screwX(P, m, 0.0155 * k, s, 0.0042, -0.0304); screwX(P, m, 0.0155 * k, s, -0.0362, -0.0416, 0.0026, -0.4); } } // grip-panel screws
   P.build(g);
   // slide (moves on recoil / rack): body, serrations, sights, ejection port, barrel crown
   const slide = new THREE.Group(); const S = new Parts();
@@ -74,6 +101,8 @@ function pistol(def) {
   S.add(m.poly, box(0.004, 0.007, 0.006, 0, bore + 0.018 * k, front - 0.01), box(0.014, 0.007, 0.006, 0, bore + 0.018 * k, front - L + 0.012));
   S.add(m.metal, box(0.031 * k, 0.012, 0.035 * k, 0.001, bore + 0.006, front - L * 0.45));
   S.add(m.rubber, cylZ(0.0065 * k, 0.004, 0, bore, front + 0.001, 10));
+  S.add(m.steel, box(0.001, 0.004, 0.024, -0.015 * k - 0.0005, bore + 0.007 * k, front - L * 0.45 + 0.024)); // extractor (right of the port)
+  S.add(m.steel, box(0.012 * k, 0.014 * k, 0.0012, 0, bore - 0.001, front - L - 0.0005)); S.add(m.slot, cylZ(0.0018, 0.0004, 0, bore + 0.002, front - L - 0.0012, 8)); // firing-pin cap plate + pin hole
   S.build(slide); g.add(slide);
   // magazine (drops out of the grip on reload)
   const mag = new THREE.Group(); const Mg = new Parts(); Mg.add(m.metal, box(0.022 * k, 0.095 * k, 0.034 * k, 0, -0.012, -0.032, 0.27)); Mg.add(m.poly, box(0.032 * k, 0.01, 0.05 * k, 0, -0.064 * k, -0.034 - 0.052 * k * 0.27, 0.27)); Mg.build(mag); g.add(mag);
@@ -112,6 +141,18 @@ function rifle(def) {
   else { P.add(m.metal, box(0.026, 0.026, 0.09, 0, bore + 0.045, 0.06), cylZ(0.016, 0.1, 0, bore + 0.066, 0.06, 12)); P.add(m.lens, cylZ(0.0135, 0.102, 0, bore + 0.066, 0.06, 12)); P.add(m.metal, box(0.006, 0.03, 0.01, 0, bore + 0.03, rx1 + hgLen - 0.01)); }
   // sling swivels
   P.add(m.steel, box(0.004, 0.012, 0.02, -0.022, bore - 0.03, rx0 - 0.05), box(0.004, 0.012, 0.02, 0, bore - 0.03, rx1 + hgLen - 0.04));
+  { const lx = 0.021, ux = 0.024; // lower / upper receiver half-widths
+    pinX(P, m, 0.042, 0.045, -0.032, 0.0026); pinX(P, m, 0.042, 0.05, 0.198, 0.0026); // takedown + pivot pins
+    pinX(P, m, 0.042, 0.038, 0.026); pinX(P, m, 0.042, 0.043, 0.002); pinX(P, m, 0.042, 0.047, -0.012, 0.0016); // trigger, hammer, selector axis
+    P.add(m.steel, box(0.0018, 0.006, 0.014, lx + 0.0009, 0.047, -0.006, 0.3), cylX(0.004, 0.0016, lx + 0.0008, 0.047, -0.012, 12)); // safety selector (left)
+    P.add(m.steel, cylX(0.0042, 0.003, -lx - 0.0015, 0.04, 0.052, 14)); P.add(m.slot, cylX(0.003, 0.0004, -lx - 0.0031, 0.04, 0.052, 14)); // magazine release button (right)
+    P.add(m.steel, box(0.0016, 0.014, 0.012, lx + 0.0008, 0.044, 0.062)); // bolt-catch paddle (left)
+    if (id !== 'assault') P.add(m.metal, cylZ(0.0058, 0.022, -ux - 0.004, 0.083, 0.005, 12), knurl(0.0062, 0.004, -ux - 0.004, 0.083, 0.017, 'z', 16, 0.1)); // forward assist (right rear)
+    P.add(m.steel, cylZ(0.0009, 0.05, -ux - 0.0006, 0.081, 0.09, 6)); // ejection-port cover hinge rod
+    P.add(m.slot, cylY(0.0022, 0.0006, 0, bore + 0.0213, rx1 + hgLen + 0.012, 6), cylY(0.0022, 0.0006, 0, bore + 0.0213, rx1 + hgLen + 0.028, 6)); // gas-block set screws
+    if (id === 'assault') { for (const s of [1, -1]) screwX(P, m, 0.025, s, bore - 0.004, rx1 + hgLen - 0.02); screwZ(P, m, 0, bore - 0.0054, rx0 - 0.2506, -1); screwZ(P, m, 0, bore - 0.0746, rx0 - 0.2618, -1, 0.0026, 1.2); } // handguard retainer + buttplate screws
+    else for (const s of [1, -1]) for (const i of [1, 3]) hexX(P, m, 0.03, s, bore, rx1 + 0.03 + i * (hgLen - 0.06) / 4, 0.0024); // handguard clamp bolts
+    if (id === 'carbine') P.add(m.steel, knurl(0.0165, 0.007, 0, bore - 0.004, rx0 - 0.006, 'z', 12, 0.14), box(0.03, 0.035, 0.0025, 0, bore - 0.006, rx0 - 0.0013)); } // castle nut + end plate
   P.build(g);
   // magazine: curved stack for carbine/assault, straight box for battle
   const mag = new THREE.Group(); const Mg = new Parts(); const mz = 0.075;
@@ -132,6 +173,8 @@ function scope(P, m, len, r, y, z) { // tube, bells, turrets, rings, lenses
   P.add(m.metal, cylZ(r, len, 0, y, z, 16), cylZ(r * 1.25, 0.05, 0, y, z + len / 2 + 0.02, 16, r * 1.65), cylZ(r * 1.45, 0.06, 0, y, z - len / 2 - 0.02, 16, r * 1.2), cylY(r * 0.75, 0.03, 0, y + r + 0.012, z), cylX(r * 0.75, 0.03, r + 0.012, y, z));
   P.add(m.poly, box(0.024, 0.026, 0.022, 0, y - r - 0.006, z - len * 0.28), box(0.024, 0.026, 0.022, 0, y - r - 0.006, z + len * 0.28));
   P.add(m.lens, cylZ(r * 1.55, 0.004, 0, y, z + len / 2 + 0.047, 16), cylZ(r * 1.15, 0.004, 0, y, z - len / 2 - 0.052, 16));
+  P.add(m.metal, knurl(r * 0.82, 0.008, 0, y + r + 0.024, z, 'y', 32), knurl(r * 0.82, 0.008, r + 0.024, y, z, 'x', 32)); // knurled turret caps
+  for (const zr of [z - len * 0.28, z + len * 0.28]) for (const s of [1, -1]) for (const dy of [0.006, -0.006]) capX(P, m, 0.012, s, y - r - 0.006 + dy, zr, 0.0019); // ring cap screws
 }
 
 function sniper(def) {
@@ -158,6 +201,9 @@ function sniper(def) {
     scope(P, m, 0.36, 0.018, bore + 0.07, 0.07); muzZ = 0.99; support = new THREE.Vector3(0, bore - 0.06, 0.3); stockZ = -0.31;
     Mg.add(m.metal, box(0.032, 0.07, 0.08, 0, -0.022, 0.09)); B.add(m.steel, cylX(0.005, 0.06, -0.035, bore + 0.01, -0.02), sph(0.012, -0.065, bore + 0.01, -0.02));
   }
+  if (id === 'bolt') { screwY(P, m, 0, 0.017, -1, 0.14); screwZ(P, m, 0, bore - 0.02, -0.3082, -1); screwZ(P, m, 0, bore - 0.1, -0.3178, -1, 0.0026, 1.1); B.add(m.steel, knurl(0.0115, 0.008, -0.065, bore + 0.006, 0.0, 'x', 20, 0.06)); } /* knob rides on the bolt */ // action screw, buttplate screws, chequered bolt knob
+  else if (id === 'semi') { pinX(P, m, 0.044, 0.034, -0.02, 0.0026); pinX(P, m, 0.044, 0.04, 0.2, 0.0026); pinX(P, m, 0.044, 0.04, 0.026); for (const s of [1, -1]) hexX(P, m, 0.016, s, bore - 0.03, 0.425, 0.0022); }
+  else { for (const s of [1, -1]) { for (const z of [0.0, 0.12, 0.26]) capX(P, m, 0.028, s, bore - 0.02, z); hexX(P, m, 0.0185, s, bore - 0.07, 0.385, 0.0022); } } // chassis cap screws, bipod hinge bolts
   P.build(g); Mg.build(mag); B.build(bolt); g.add(mag); g.add(bolt);
   const holds = {
     bolt: () => makeHold(boxShape(V3(0, -0.012, -0.024), 0.32, [0.0155, 0.04, 0.023], 0.008), 0.025, 0.028, [boxShape(V3(0, bore, 0.08), 0, [0.018, 0.018, 0.11], 0.012), boxShape(V3(0, bore - 0.028, 0.12), 0, [0.025, 0.025, 0.22], 0.008)], { thumbR: V3(-0.032, 0.045, 0), fore: foreShape(bore - 0.028, 0.3, 0.025, 0.025, 0.012) }),
@@ -202,6 +248,10 @@ function t56() {
   // fixed wooden stock with drop: wrist, butt, steel buttplate, rear sling swivel
   P.add(m.woodT56, prof([[rx0 + 0.004, 0.074], [rx0 - 0.11, 0.058], [rx0 - 0.28, 0.046], [rx0 - 0.272, -0.072], [rx0 - 0.2, -0.052], [rx0 - 0.1, 0.012], [rx0 + 0.004, 0.026]], 0.038, 0, 0.004));
   P.add(m.steel, box(0.044, 0.124, 0.008, 0, -0.013, rx0 - 0.28, -0.07), box(0.006, 0.012, 0.022, 0, -0.045, rx0 - 0.2));
+  // hardware: trigger / hammer pins, front-trunnion rivets, buttplate + tang + grip screws, handguard retainer lever, gas-tube lock lever
+  pinX(P, m, 0.044, 0.03, 0.03); pinX(P, m, 0.044, 0.035, 0.005); P.add(m.steel, ...[0.035, 0.048, 0.061].map((y) => cylX(0.003, 0.047, 0, y, 0.2, 6)));
+  screwZ(P, m, 0, 0.027, rx0 - 0.2868, -1); screwZ(P, m, 0, -0.053, rx0 - 0.2812, -1, 0.0026, 1.3); screwY(P, m, 0, 0.0735, 1, rx0 - 0.014, 0.0024); screwY(P, m, 0, -0.0752, -1, -0.033, 0.0024, 1.1);
+  P.add(m.steel, box(0.002, 0.008, 0.02, -0.0302, 0.06, rx1 + 0.262), cylX(0.0022, 0.001, -0.0296, 0.055, rx1 + 0.258, 10), box(0.002, 0.012, 0.008, -0.0175, 0.1, rx1 + 0.03, 0.4));
   // canvas sling hanging slack between the swivels (catenary of short straps)
   { const a = new THREE.Vector3(0, 0.045, rx1 + 0.3), b = new THREE.Vector3(0, -0.045, rx0 - 0.2); const N = 9; let prev = a.clone();
     for (let i = 1; i <= N; i++) { const k = i / N; const p = a.clone().lerp(b, k); p.y -= Math.sin(k * Math.PI) * 0.07; p.x = 0.024; const mid = prev.clone().add(p).multiplyScalar(0.5); const len = prev.distanceTo(p); const ang = Math.atan2(p.y - prev.y, p.z - prev.z);

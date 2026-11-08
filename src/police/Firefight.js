@@ -210,7 +210,7 @@ export class Firefight {
     const dir = aim.sub(mz).normalize(); const hit = this.trace(o, mz, dir, POLICE_T56.range);
     // check fire: someone else is in the line → do not shoot (sidestep a little instead)
     if (hit.kind === 'ped' || hit.kind === 'officer') { cb.holdT = 0.6; this.stats.holds++; if (cb.cover) cb.phase = 'hide'; else { const col = this.g.collision, nx = o.x + Math.cos(o.yaw) * 0.3, nz = o.z - Math.sin(o.yaw) * 0.3; if (!col || !col.blocked(nx, nz, 0.28)) { o.x = nx; o.z = nz; } } return; } // the sidestep never goes into a wall
-    cb.mag--; cb.burst++; this.stats.shots++; this.p.stats.policeShots = (this.p.stats.policeShots || 0) + 1; if (o.rp) o.rp.kick = 1;
+    cb.mag--; cb.burst++; this.stats.shots++; this.p.stats.policeShots = (this.p.stats.policeShots || 0) + 1; if (o.rp) o.rp.kick = 1; if (o.ch && o.ch.anim.shotKick) o.ch.anim.shotKick('rifle', 1);
     this.effects(o, mz, dir, hit);
     if (hit.kind === 'player') { this.stats.hits++; const dmg = POLICE_T56.dmg * (this.p.stars() >= 5 ? 1.15 : 1) * (0.85 + Math.random() * 0.3); g.health ? g.health.damage(dmg, 'shot by police') : (this.lastDamage = (this.lastDamage || 0) + dmg); }
     else if (hit.kind === 'vehicle' && hit.v === P.vehicle && Math.random() < 0.3) { this.stats.hits++; g.health && g.health.damage(POLICE_T56.dmg * 0.6, 'shot by police'); } // through the bodywork / glass

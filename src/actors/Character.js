@@ -1109,6 +1109,12 @@ export const PHONE_T = [-0.12, 0.235, 0.085], TEXT_T = [-0.04, -0.1, 0.27, 0.03,
 export const PHONE_POLE = new THREE.Vector3(-0.3, -0.75, 0.6); // on a call the elbow hangs forward and down in front of the chest, not out like a wing
 export const HAND_TW = { phone: [0, 1.2, 0, 0, 0, 0], text: [-0.35, -1.5, 0, 0, 0, 0] }; // [R x,y,z, L x,y,z] added to the hand rotations
 export class Animator {
+  // one shot fired from the weapon in hand: impulse into the torso recoil spring (applied in the aim stance); cls pistol | rifle | sniper
+  shotKick(cls = 'pistol', strength = 1) {
+    const K = this.sk || (this.sk = { x: 0, v: 0, y: 0, yv: 0 }); const r = cls === 'sniper' ? [2.5, 1.7] : cls === 'rifle' ? [1.35, 0.9] : [0.95, 0.25];
+    K.v += r[0] * strength * (0.9 + Math.random() * 0.2); K.yv -= r[1] * strength * (0.85 + Math.random() * 0.3);
+    if (this.ch.face && Math.random() < (cls === 'sniper' ? 0.6 : 0.3)) this.ch.face.set('blink', 0.1);
+  }
   constructor(ch) {
     this.ch = ch; this.g = gaitProfile(ch.spec); const s = ch.spec.height / 1.72; this.s = s;
     this.a = 0.43 * s; this.b = 0.415 * s; this.ankle = 0.085 * s; // thigh / shin lengths, ankle height
@@ -1380,6 +1386,12 @@ export class Animator {
       const m = this.aim; const k = m.w ?? 1; b.spine.rotation.y = lerp(b.spine.rotation.y, 0, k); b.spine.rotation.x = lerp(b.spine.rotation.x, -m.pitch * 0.45, k); b.spine.rotation.z = lerp(b.spine.rotation.z, 0, k);
       b.chest.rotation.set(lerp(b.chest.rotation.x, -m.pitch * 0.55, k), lerp(b.chest.rotation.y, -(m.twist || 0), k), lerp(b.chest.rotation.z, 0, k));
       b.neck.rotation.x = lerp(b.neck.rotation.x, m.pitch * 0.35, k); b.neck.rotation.y = lerp(b.neck.rotation.y, (m.twist || 0) * 0.6, k); b.head.rotation.y = lerp(b.head.rotation.y, (m.twist || 0) * 0.4, k); b.head.rotation.x = lerp(b.head.rotation.x, (m.headDown || 0), k);
+      const K = this.sk; if (K && (K.x || K.v || K.y || K.yv)) { // the body takes each shot: torso rocks back (rifles: firing shoulder driven back) and settles; the
+        // neck / head counter it so the eyes stay on the sights (only ~25 % of the rock reaches the head) — a damped spring, never a canned clip
+        const n = 3, h = Math.min(dt, 1 / 20) / n, ks = 300, cs = 2 * Math.sqrt(ks) * 0.52;
+        for (let i = 0; i < n; i++) { K.v += (-ks * K.x - cs * K.v) * h; K.x += K.v * h; K.yv += (-ks * K.y - cs * K.yv) * h; K.y += K.yv * h; }
+        b.spine.rotation.x -= K.x * 0.4 * k; b.chest.rotation.x -= K.x * 0.6 * k; b.chest.rotation.y -= K.y * k; b.neck.rotation.x += K.x * 0.55 * k; b.head.rotation.x += K.x * 0.2 * k; b.neck.rotation.y += K.y * 0.6 * k;
+        if (Math.abs(K.x) + Math.abs(K.y) < 2e-4 && Math.abs(K.v) + Math.abs(K.yv) < 2e-3) K.x = K.v = K.y = K.yv = 0; }
     }
     const seated = (this.seated && this.seatW > 0) || !!this.board; // boarding (getting in / out, Boarding.js) counts as seated: no gestures, fight or body poses layered on it
     if (!seated && !this.ik) for (const [S, x, y, z, w, pole] of actIK) solveArmIK(b, S, _ikv.set(x, y, z), null, w, pole);
