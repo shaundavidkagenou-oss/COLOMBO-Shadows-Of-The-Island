@@ -146,7 +146,7 @@ export function buildBike(mb, dm, K, spec, col, variant) {
   const E = S.engine;
   if (E === 'single' || E === 'singleLC') {
     const ac = E === 'single'; const tilt = st === 'commuter' || st === 'street' ? 1.15 : st === 'classic' ? 0.25 : st === 'adv' || st === 'trail' ? 0.3 : 0.5;
-    const cc = [0, 0.33, 0.02]; part(EN, pillow, cc, [0, 0, 0], [0.2, 0.21, 0.3], engC); part(EN, pillow, [0, 0.3, -0.12], [0, 0, 0], [0.17, 0.17, 0.16], engC); // crankcase + gearbox lobe (castings) part(EN, discX, [-0.105, 0.33, 0.0], [0, 0, 0], [0.025, 0.105, 0.105], engCover); part(EN, discX, [0.105, 0.34, 0.08], [0, 0, 0], [0.025, 0.085, 0.085], engCover);
+    const cc = [0, 0.33, 0.02]; part(EN, pillow, cc, [0, 0, 0], [0.2, 0.21, 0.3], engC); part(EN, pillow, [0, 0.3, -0.12], [0, 0, 0], [0.17, 0.17, 0.16], engC); /* crankcase + gearbox lobe (castings) */ part(EN, discX, [-0.105, 0.33, 0.0], [0, 0, 0], [0.025, 0.105, 0.105], engCover); part(EN, discX, [0.105, 0.34, 0.08], [0, 0, 0], [0.025, 0.085, 0.085], engCover);
     const base = [0, 0.4, 0.12], ax2 = [0, Math.cos(tilt), Math.sin(tilt)]; const at = (d) => [0, base[1] + ax2[1] * d, base[2] + ax2[2] * d];
     part(EN, unitBox, at(0.08), [tilt, 0, 0], [0.12, 0.16, 0.12], ac ? C('#2a2b2e') : engC);
     if (ac) for (let i = 0; i < 7; i++) part(EN, unitBox, at(0.03 + i * 0.022), [tilt, 0, 0], [0.2 - (i === 6 ? 0.02 : 0), 0.006, 0.17], i % 2 ? C('#3a3b3e') : C(st === 'classic' ? '#b0b4b8' : '#4a4c50')); // cooling fins

@@ -15,6 +15,7 @@
 // 4 mm below. Pieces are GPU-instanced (one draw call per floor + one for the grout + one for divider strips).
 import * as THREE from 'three';
 import { canvasTex, rnd, speckle, blotches } from './RoomKit.js';
+import { addWetTarget } from '../gfx/Materials.js';
 
 const TOP = 0.0015, BED = -0.004; // piece top / grout bed relative to the walk height
 
@@ -81,8 +82,8 @@ function surfTex(kind) {
 
 // per-piece texture offset (every tile / board shows a different part of the stone / grain) + uv span per piece
 const MATS = new Map();
-function pieceMaterial(kind, rough, metal, span) {
-  const key = [kind, rough, metal, span].join(':'); if (MATS.has(key)) return MATS.get(key);
+function pieceMaterial(kind, rough, metal, span, outdoor = false) {
+  const key = [kind, rough, metal, span, outdoor].join(':'); if (MATS.has(key)) return MATS.get(key);
   const m = new THREE.MeshStandardMaterial({ map: surfTex(kind), roughness: rough, metalness: metal, color: 0xffffff });
   m.onBeforeCompile = (sh) => {
     sh.vertexShader = sh.vertexShader.replace('#include <uv_vertex>', `#include <uv_vertex>
@@ -137,7 +138,7 @@ export function modelFloor(spec, x0, z0, x1, z1, y = 0) {
   for (const p of pieces) { const w = Math.max(0.01, p[2] - J), d = Math.max(0.01, p[3] - J); const isBoard = S.kind === 'wood';
     const gw = isBoard ? (along === 'z' ? +w.toFixed(3) : 1) : +w.toFixed(3), gd = isBoard ? (along === 'z' ? 1 : +d.toFixed(3)) : +d.toFixed(3);
     const k = gw + 'x' + gd; let e = byGeo.get(k); if (!e) byGeo.set(k, (e = { gw, gd, list: [] })); e.list.push({ p, sx: isBoard && along === 'x' ? w : 1, sz: isBoard && along === 'z' ? d : 1 }); }
-  const mat = pieceMaterial(S.kind, S.rough, S.metal, S.span); const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3(), _c = new THREE.Color(); let count = 0;
+  const mat = pieceMaterial(S.kind, S.rough, S.metal, S.span, !!S.wet); if (S.wet) addWetTarget(mat, S.wet[0], S.wet[1]); /* outdoor floors darken / gloss up in the rain */ const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3(), _c = new THREE.Color(); let count = 0;
   for (const e of byGeo.values()) {
     const geo = slabGeo(e.gw, e.gd, S.chamfer, S.kind === 'wood' && along === 'z'); const im = new THREE.InstancedMesh(geo, mat, e.list.length); im.receiveShadow = true; im.castShadow = false;
     e.list.forEach((it, i) => { const [cx, cz] = it.p; const lip = (r() - 0.5) * 2 * S.lip; _p.set(cx, y + TOP + lip, cz); _q.setFromAxisAngle(_s.set(0, 1, 0), (r() - 0.5) * 0.002); _s.set(it.sx, 1, it.sz); _m.compose(_p, _q, _s); im.setMatrixAt(i, _m);

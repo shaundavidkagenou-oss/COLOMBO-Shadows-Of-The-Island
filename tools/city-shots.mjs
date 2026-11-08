@@ -28,7 +28,7 @@ try {
       if (s.js) (new Function('g', 'veh', 's', s.js))(g, veh, s); // debug hook (may set s.cam / s.look)
       g.camera.position.set(...s.cam); g.camera.lookAt(...s.look); g.camera.updateMatrixWorld();
       const csO = veh && veh.mesh.getObjectByName('contactShadow'); const csI = csO ? { vis: csO.visible, parentVis: veh.mesh.visible, wy: csO.getWorldPosition(new csO.position.constructor()).y, vy: veh.y, my: veh.mesh.position.y, mat: csO.material.type, op: csO.material.opacity, hasMap: !!csO.material.map } : (veh ? 'none' : null);
-      return { cs: csI, hour: g.atmos.hour, night: +g.atmos.night.toFixed(2), boards: F && F.boards.length, signs: F && F.signs.length, names: F && [...new Set(F.signs.map((q) => q.name))].join('|') }; }, s);
+      return { cs: csI, hour: g.atmos.hour, night: +g.atmos.night.toFixed(2), boards: F && F.boards.length, signs: F && F.signs.length, names: F && [...new Set(F.signs.map((q) => q.name))].join('|'), dbg: window.__dbg }; }, s); // js hooks may report through window.__dbg
     await new Promise((r) => setTimeout(r, s.wait || 6000));
     await page.screenshot({ path: `${outDir}/${s.name}.png` }); console.log('shot', s.name, JSON.stringify(info), ((Date.now() - t0) / 1000).toFixed(0) + 's');
     if (s.probe) console.log('probe', s.name, JSON.stringify(await page.evaluate((src) => { try { return (new Function('g', src))(window.__game); } catch (e) { return 'ERR ' + e.message; } }, s.probe))); // state after the wait

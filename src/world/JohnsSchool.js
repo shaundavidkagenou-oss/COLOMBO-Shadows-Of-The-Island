@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
+import { modelFloor } from './FloorKit.js';
 
 export const SCHOOL = {
   name: "Johns Private Girls' School", si: 'ජෝන්ස් බාලිකා විද්‍යාලය', ta: 'ஜோன்ஸ் மகளிர் பாடசாலை',
@@ -103,7 +104,8 @@ export function buildJohnsSchool({ mb, box, coll, label, group, LAND_Y, SANS, SI
   // ------------------------------------------------------------ main classroom block (three storeys, arcaded corridors)
   const [mx0, mx1, mz0, mz1] = S.main, FH = S.FH, P = S.plinth, zc = mz0 + S.corridor, NR = S.rooms, RW = S.roomW; const yF = (f) => y0 + P + f * FH; const top = yF(S.storeys);
   box(conc, (mx0 + mx1) / 2, y0 + P / 2, (mz0 + mz1) / 2 - 0.2, mx1 - mx0, P, mz1 - mz0 + 0.4, '#b9b2a4'); coll(mx0, mx1, mz0 - 0.4, mz1, y0 + P, { kind: 'deck' });
-  for (let f = 0; f < S.storeys; f++) paint.hrect(mx0, mz0 - (f ? 0.15 : 0.4), mx1, mz1, yF(f) + 0.006, 1, C(REDOX)); // red-oxide cement floors
+  // red-oxide cement floors: modelled 1 m trowelled bays with their joints (sitting on the slab tops, as the painted floor did)
+  for (let f = 0; f < S.storeys; f++) group.add(modelFloor({ kind: 'redoxide', size: 1.0, rough: 0.68, seed: 410 + f } /* worn school floor: less sky sheen at grazing angles (0.45 read pink) */, mx0, mz0 - (f ? 0.15 : 0.4), mx1, mz1, yF(f) + 0.006));
   for (let f = 1; f <= S.storeys; f++) { box(paint, (mx0 + mx1) / 2, yF(f) - 0.12, (mz0 + mz1) / 2 - 0.08, mx1 - mx0 + 0.3, 0.24, mz1 - mz0 + 0.46, '#ece6d6', { bottom: true }); box(paint, (mx0 + mx1) / 2, yF(f) - 0.12, mz0 - 0.32, mx1 - mx0 + 0.3, 0.24, 0.03, MAROON); }
   hip(mx0 - 0.2, mx1 + 0.2, mz0 - 0.4, mz1 + 0.2, top, 3.2, '#b5532e');
   // wall with openings: o = [{a, b, lo, hi}] along x at fixed z

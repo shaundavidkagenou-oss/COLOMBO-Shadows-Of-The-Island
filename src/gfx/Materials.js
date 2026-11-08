@@ -5,6 +5,8 @@ import { applyInteriorMapping, INTERIOR, occupancy } from './InteriorMapping.js'
 export const MAT = {};
 const facadeKeys = ['colonial', 'brick', 'glass', 'glass2', 'glass3', 'office', 'office2', 'office3', 'hotel', 'shop', 'shop2', 'shop3', 'apartment', 'apartment2', 'villa', 'warehouse'];
 const wetTargets = [];
+// outdoor materials built elsewhere (modelled forecourt slabs …) join the rain response: white-based maps only (the colour is driven)
+export function addWetTarget(m, dryR, wetR) { if (!wetTargets.some((t) => t[0] === m)) wetTargets.push([m, dryR, wetR]); }
 // Road glare: on wet asphalt at night every oncoming headlight (a spot light pointed back at the viewer) became a white
 // mirror streak between the car and the camera, so bright that bloom turned it into a white halo hiding the car (tested:
 // bloom off → car visible behind a streak; beam off → no halo). On road surfaces each spot light's SPECULAR term is capped
