@@ -45,11 +45,12 @@ for (const [k, kind] of Object.entries(want)) {
   keys.add(M[k].customProgramCacheKey());
 }
 ok(keys.size === new Set(Object.values(want)).size, `one program key per surface kind (${keys.size})`);
-ok(SURFACE_KINDS.length === 7, 'seven surface kinds');
+ok(SURFACE_KINDS.length === 9 && SURFACE_KINDS.includes('carbon') && SURFACE_KINDS.includes('cast'), 'nine surface kinds (7 weapon + carbon, cast for the motorcycles)');
 
 // 3. hardware vs the committed models ------------------------------------------------------------------------------------
 const tmp = new URL('../src/combat/.__old_WeaponModels.js', import.meta.url);
-writeFileSync(tmp, execSync('git show HEAD:src/combat/WeaponModels.js').toString());
+// baseline = the models before the metal / wood / hardware rework (895e6af, the commit before it); override with WEAPON_BASE=<rev>
+writeFileSync(tmp, execSync(`git show ${process.env.WEAPON_BASE || '895e6af'}:src/combat/WeaponModels.js`).toString());
 let OLD;
 try { OLD = await import(tmp.href); } finally { rmSync(tmp); }
 

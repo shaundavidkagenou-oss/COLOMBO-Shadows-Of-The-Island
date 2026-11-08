@@ -8,6 +8,10 @@
 //   wood   — growth rings (~4 mm apart) warped by the figure, dark latewood lines, open pores along the grain, colour figure; under an
 //            oiled varnish (clearcoat on MeshPhysicalMaterial)
 //   poly   — stippled polymer (grip texture relief), rubber — fine pebble
+// Also used by the motorcycles (VehicleModels.js):
+//   carbon — 2×2 twill carbon fibre at 45°: each tow's fibres run one way, so its sheen depends on the view direction (tows facing
+//            you across the fibres light up, the crossing ones stay dark) — the shifting chequer real carbon has; tow crowns in relief
+//   cast   — sand-cast / powder-coated engine cases: fine granular relief + mottling
 // Every pattern fades out where it would be finer than a pixel (no shimmer in first person or at a distance).
 const NOISE = `
 varying vec3 vWsP; varying vec3 vWsN;
@@ -52,13 +56,26 @@ const BODY = {
     normal = wsBump(normal, late * 0.5 * aR - pores * aP, 0.00006); }`,
   poly: `{ float a = wsAA(1700.0); float h = wsN(vWsP * 1700.0); float t = wsF(vWsP * 60.0);
     diffuseColor.rgb *= 0.93 + 0.12 * t; roughnessFactor = clamp(roughnessFactor + (h - 0.5) * 0.12 * a + (t - 0.5) * 0.08, 0.2, 1.0); normal = wsBump(normal, h * a, 0.00012); }`,
+  carbon: `{ vec3 an = abs(vWsN); vec2 uv; vec3 ua, va;
+    if (an.x > an.y && an.x > an.z) { uv = vWsP.zy; ua = vWsAz; va = vWsAy; } else if (an.y > an.z) { uv = vWsP.xz; ua = vWsAx; va = vWsAz; } else { uv = vWsP.xy; ua = vWsAx; va = vWsAy; }
+    const float F = 150.0; vec2 q = vec2(uv.x + uv.y, uv.x - uv.y) * 0.70710678 * F; float a = wsAA(F * 1.6);
+    vec2 cell = floor(q), f = fract(q); float warp = step(2.0, mod(cell.x + cell.y, 4.0));                  // 2/2 twill: over two, under two
+    vec3 fd = normalize(mix(ua + va, ua - va, warp));                                                      // fibre direction of the tow on top (view space)
+    float across = mix(f.y, f.x, warp); float crown = sin(across * 3.14159);                              // tow cross-section
+    float sheen = pow(1.0 - abs(dot(normalize(vViewPosition), fd)), 2.0);
+    float shade = mix(0.55, 0.45 + 1.1 * sheen, a) * mix(1.0, 0.7 + 0.3 * crown, a) * (0.96 + 0.08 * wsN(vec3(q * 0.5, 0.0)));
+    diffuseColor.rgb *= shade; roughnessFactor = clamp(mix(roughnessFactor, mix(0.5, 0.22, sheen), a), 0.1, 1.0); normal = wsBump(normal, crown * a, 0.0003); }`,
+  cast: `{ float a = wsAA(900.0); float h = wsN(vWsP * 900.0); float t = wsF(vWsP * 30.0);
+    diffuseColor.rgb *= 0.92 + 0.14 * t; roughnessFactor = clamp(roughnessFactor + (h - 0.5) * 0.18 * a + (t - 0.5) * 0.1, 0.15, 1.0); normal = wsBump(normal, h * a, 0.0001); }`,
   rubber: `{ float a = wsAA(1200.0); float h = wsN(vWsP * 1200.0); roughnessFactor = clamp(roughnessFactor + (h - 0.5) * 0.08, 0.5, 1.0); normal = wsBump(normal, h * a, 0.00016); }`,
 };
 export function weaponSurface(mat, kind) {
   const body = BODY[kind]; if (!body) return mat;
   mat.onBeforeCompile = (sh) => {
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWsP; varying vec3 vWsN;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvWsP = position; vWsN = normal;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>\n${NOISE}`).replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${body}`);
+    const ax = kind === 'carbon'; // carbon needs the object axes in view space (fibre direction vs the eye)
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWsP; varying vec3 vWsN;' + (ax ? ' varying vec3 vWsAx; varying vec3 vWsAy; varying vec3 vWsAz;' : ''))
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWsP = position; vWsN = normal;' + (ax ? ' vWsAx = normalize((modelViewMatrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz); vWsAy = normalize((modelViewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz); vWsAz = normalize((modelViewMatrix * vec4(0.0, 0.0, 1.0, 0.0)).xyz);' : ''));
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>\n${NOISE}${ax ? 'varying vec3 vWsAx; varying vec3 vWsAy; varying vec3 vWsAz;\n' : ''}`).replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${body}`);
   };
   mat.customProgramCacheKey = () => 'weaponSurface:' + kind; mat.userData.surface = kind; return mat;
 }

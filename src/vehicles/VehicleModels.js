@@ -9,7 +9,10 @@ import { doorGapsMeta, spansOutside } from './DoorSpans.js';
 import { poseDoor } from './DoorRig.js';
 import * as THREE from 'three';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { carDetail, tukDetail, bikeDetail, heavyDetail, hiWheelParts } from './VehicleDetail.js';
+import { carDetail, tukDetail, heavyDetail, hiWheelParts } from './VehicleDetail.js';
+import { BIKES } from './BikeCatalog.js';
+import { buildBike } from './BikeModels.js';
+import { weaponSurface } from '../combat/WeaponSurface.js';
 import { MeshBuilder, MultiBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
 import { RNG } from '../core/rng.js';
@@ -43,7 +46,7 @@ export const VTYPES = {
   bike: { len: 1.95, wid: 0.7, hgt: 1.1, wheelR: 0.3, maxSpeed: 30, accel: 6.5, mass: 160, seats: 2, steer: 0.7, sound: 'bike', entry: 'bike', colors: ['#151515', '#b51f1f', '#1d3f8a', '#e8e8e4', '#5a6b3a'] },
 };
 // the 40 catalogue models (fictional makes, real-world proportions) — VehicleCatalog.js
-Object.assign(VTYPES, CATALOG);
+Object.assign(VTYPES, CATALOG); Object.assign(VTYPES, BIKES); // + 20 motorcycle / scooter kinds (BikeCatalog.js)
 // clean private vehicles get clear-coated paint; working vehicles get worn, dirtier paint
 const WORN = new Set(['tuktuk', 'taxi', 'bus', 'pbus', 'lorry', 'tow', 'tara', 'hakobi', 'bhoomimaxi']);
 
@@ -131,6 +134,7 @@ function beam(mb, a, b, tx, tz, col, geo = unitBox) {
 function part(mb, geo, pos, rot = [0, 0, 0], scale = [1, 1, 1], col) { _ma.compose(_va.set(...pos), _q.setFromEuler(new THREE.Euler(...rot)), _s.set(...scale)); mb.geometry(geo, _ma, col); }
 const torus = new THREE.TorusGeometry(1, 0.11, 8, 24);
 const KIT = { beam, part, C, unitBox, unitCyl };
+const BKIT = { ...KIT, unitSph, loft, plateQuad }; // motorcycles (BikeModels.js)
 const linerCyl = new THREE.CylinderGeometry(1, 1, 1, 20, 1, true, -0.08, Math.PI + 0.16); // upper arc only (after the 90° z-turn, theta 0..π is the top half)
 
 // ------------------------------------------------------------------ wheels
@@ -173,11 +177,11 @@ function sideDecal(b, sx, x, y0, y1, z0, z1, uv = [0, 0, 1, 1], col = [1, 1, 1])
 }
 function addPoliceKit(m, base, T) {
   const mb = m.mb, paint = mb.get('paint'), rubber = mb.get('rubber'), dec = mb.get('police'), blue = C('#1b3f94'), W = T.wid / 2;
-  if (base === 'bike') { // white top box with lettering and a beacon, blue tank band
-    paint.box(0, 1.1, -0.84, 0.42, 0.3, 0.34, { col: C('#f4f4f2') }); rubber.box(0, 0.94, -0.84, 0.44, 0.03, 0.36, { col: C('#222') });
-    for (const sx of [-1, 1]) sideDecal(dec, sx, 0.212, 1.0, 1.2, -0.99, -0.69, [0, 0, 1, 1]);
-    dec.quad([0.2, 1.0, -1.012], [-0.2, 1.0, -1.012], [-0.2, 1.2, -1.012], [0.2, 1.2, -1.012], [0, 0, 1, 1], [1, 1, 1]);
-    rubber.box(0, 1.27, -0.84, 0.05, 0.04, 0.05, { col: C('#222') }); mb.get('lbBlue').box(-0.05, 1.32, -0.84, 0.09, 0.07, 0.09, { col: [1, 1, 1] }); mb.get('lbRed').box(0.05, 1.32, -0.84, 0.09, 0.07, 0.09, { col: [1, 1, 1] });
+  if (base === 'bike') { // white top box (sits on the commuter's luggage rack, y 0.81) with lettering and a beacon, blue tank band
+    paint.box(0, 1.0, -0.84, 0.42, 0.3, 0.34, { col: C('#f4f4f2') }); rubber.box(0, 0.835, -0.84, 0.44, 0.03, 0.36, { col: C('#222') });
+    for (const sx of [-1, 1]) sideDecal(dec, sx, 0.212, 0.9, 1.1, -0.99, -0.69, [0, 0, 1, 1]);
+    dec.quad([0.2, 0.9, -1.012], [-0.2, 0.9, -1.012], [-0.2, 1.1, -1.012], [0.2, 1.1, -1.012], [0, 0, 1, 1], [1, 1, 1]);
+    rubber.box(0, 1.17, -0.84, 0.05, 0.04, 0.05, { col: C('#222') }); mb.get('lbBlue').box(-0.05, 1.22, -0.84, 0.09, 0.07, 0.09, { col: [1, 1, 1] }); mb.get('lbRed').box(0.05, 1.22, -0.84, 0.09, 0.07, 0.09, { col: [1, 1, 1] });
     for (const sx of [-1, 1]) paint.box(sx * 0.165, 0.76, 0.1, 0.012, 0.05, 0.36, { col: blue });
     return;
   }
@@ -206,6 +210,27 @@ function routeMat() {
 // uv rect of route k: full board, or just the number (rear/side number boxes)
 const routeUV = (k, numberOnly = false) => { const n = ROUTES.length, v1 = 1 - k / n, v0 = 1 - (k + 1) / n; return [0, v0 + 0.002, numberOnly ? 0.215 : 1, v1 - 0.002]; };
 // Number plates (Sri Lankan format: province + letters + digits; white front, yellow rear). Atlas rows 0-3 rear, 4-7 front.
+// motorcycle instruments atlas: left half an analogue speedometer (white on black, red needle, tell-tales), top-right quarter a colour TFT
+// (rev bar, gear, speed, riding mode, lap timer); lit from behind at night (emissive = the same image)
+function dashMaterial() {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 256; const g = c.getContext('2d');
+  g.fillStyle = '#050506'; g.fillRect(0, 0, 512, 256);
+  // analogue speedo
+  g.save(); g.translate(128, 132); g.strokeStyle = '#e8e8e4'; g.fillStyle = '#e8e8e4'; g.lineWidth = 3; g.font = 'bold 17px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  for (let v = 0; v <= 120; v += 10) { const a = (-225 + (v / 120) * 270) * Math.PI / 180; const r0 = v % 20 ? 92 : 84; g.beginPath(); g.moveTo(Math.cos(a) * r0, Math.sin(a) * r0); g.lineTo(Math.cos(a) * 104, Math.sin(a) * 104); g.stroke(); if (v % 20 === 0) g.fillText(String(v), Math.cos(a) * 68, Math.sin(a) * 68); }
+  g.strokeStyle = '#d02020'; g.lineWidth = 5; g.beginPath(); g.arc(0, 0, 100, (-225 + 250) * Math.PI / 180, 45 * Math.PI / 180); g.stroke();
+  g.font = '12px sans-serif'; g.fillText('km/h', 0, 34); g.fillStyle = '#20c040'; g.fillText('N', -22, 58); g.fillStyle = '#3a7bff'; g.fillText('\u25C9', 22, 58);
+  g.fillStyle = '#ff3a20'; g.rotate((-225 + 4) * Math.PI / 180); g.fillRect(0, -3, 92, 6); g.restore(); g.fillStyle = '#222'; g.beginPath(); g.arc(128, 132, 10, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#18c040'; g.beginPath(); g.moveTo(26, 40); g.lineTo(42, 30); g.lineTo(42, 50); g.fill(); g.beginPath(); g.moveTo(230, 40); g.lineTo(214, 30); g.lineTo(214, 50); g.fill();
+  // TFT
+  const X = 256; const grd = g.createLinearGradient(X + 16, 0, X + 240, 0); grd.addColorStop(0, '#e8f4ff'); grd.addColorStop(0.7, '#ffb000'); grd.addColorStop(1, '#ff2010');
+  g.fillStyle = '#0b0d12'; g.fillRect(X + 6, 6, 244, 116); g.fillStyle = grd; for (let i = 0; i < 26; i++) { const h = 6 + i * 1.3; g.globalAlpha = i < 9 ? 1 : 0.22; g.fillRect(X + 16 + i * 8.6, 44 - h, 6, h); } g.globalAlpha = 1;
+  g.fillStyle = '#f2f2f2'; g.font = 'bold 54px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('N', X + 52, 86); g.font = 'bold 40px sans-serif'; g.fillText('0', X + 150, 82);
+  g.font = '12px sans-serif'; g.fillText('km/h', X + 150, 108); g.fillStyle = '#ff3030'; g.font = 'bold 13px sans-serif'; g.fillText('RACE', X + 220, 64); g.fillStyle = '#9ad'; g.font = '11px sans-serif'; g.fillText('LAP 0:00.0', X + 214, 100);
+  g.fillStyle = '#2a8'; g.fillRect(X + 196, 112, 44, 4);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return new THREE.MeshStandardMaterial({ map: t, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.45, roughness: 0.18, metalness: 0.0 });
+}
 function plateMaterial() {
   const c = document.createElement('canvas'); c.width = 256; c.height = 512; const g = c.getContext('2d'); const r = new RNG(77);
   for (let i = 0; i < 8; i++) { const y = i * 64; g.fillStyle = i < 4 ? '#f2c818' : '#f4f4f0'; g.fillRect(0, y, 256, 64); g.strokeStyle = '#111'; g.lineWidth = 4; g.strokeRect(3, y + 3, 250, 58);
@@ -255,6 +280,12 @@ export function vehicleMaterials() {
       vlens: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.03, metalness: 0.0, transparent: true, opacity: 0.16, envMapIntensity: 1.6, depthWrite: false }), // clear lamp covers
       vrefl: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.12, metalness: 0.95, envMapIntensity: 1.4, side: THREE.DoubleSide }), // reflector bowls / rings
       vind: new THREE.MeshStandardMaterial({ color: 0xb06a10, emissive: 0xffa020, emissiveIntensity: 0.05, roughness: 0.25 }),
+      // motorcycles: twill carbon fibre under clear lacquer, machined alloy, sand-cast engine cases, real mirror glass, instrument faces
+      vcarbon: weaponSurface(new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.36, metalness: 0.2, clearcoat: 1, clearcoatRoughness: 0.04, envMapIntensity: 1.1 }), 'carbon'),
+      valloy: weaponSurface(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.92, envMapIntensity: 1.15 }), 'steel'),
+      vengine: weaponSurface(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.6, envMapIntensity: 0.9 }), 'cast'),
+      vmirror: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.03, metalness: 1.0, envMapIntensity: 1.6 }),
+      vdash: dashMaterial(),
       contact: contactShadowMat(),
       badge: badgeMaterial(), plate: plateMaterial(), route: routeMat(), police: policeDecalMat(), amb: ambDecalMat(),
       lbBlue: new THREE.MeshStandardMaterial({ color: 0x0c1e5a, emissive: 0x2a5cff, emissiveIntensity: 0, roughness: 0.2, transparent: true, opacity: 0.92 }),
@@ -263,7 +294,7 @@ export function vehicleMaterials() {
   }
   return { lightMat: mats.vlight, tailMatBase: mats.vtail, indicatorMat: mats.vind, mats };
 }
-export function setVehicleNight(n) { vehicleMaterials(); mats.vlight.emissiveIntensity = 0.2 + n * 3.0; mats.vtail.emissiveIntensity = 0.08 + n * 0.5; mats.route.emissiveIntensity = 0.45 + n * 1.5; }
+export function setVehicleNight(n) { vehicleMaterials(); mats.vdash.emissiveIntensity = 0.45 + n * 0.9; mats.vlight.emissiveIntensity = 0.2 + n * 3.0; mats.vtail.emissiveIntensity = 0.08 + n * 0.5; mats.route.emissiveIntensity = 0.45 + n * 1.5; }
 
 function plateQuad(mb, cx, cy, z, hw, hh, front, variant) {
   const row = (front ? 4 : 0) + (variant % 4); const v0 = 1 - (row + 1) / 8 + 0.004, v1 = 1 - row / 8 - 0.004; const pm = mb.get('plate');
@@ -371,31 +402,9 @@ function buildBaseModel(type, color, variant, opts = {}) {
   }
 
   // =============================================================== MOTORCYCLE / SCOOTER
-  if (type === 'bike') {
-    const scooter = variant % 2 === 1; wheelStyle = 1;
-    if (scooter) {
-      loft(paint, [[-0.72, 0.42, 0.78, 0.15, 0.13, 0.08], [-0.2, 0.36, 0.82, 0.17, 0.15, 0.1], [0.12, 0.3, 0.42, 0.14, 0.14, 0.05], [0.38, 0.3, 0.44, 0.14, 0.14, 0.05]], col);
-      loft(paint, [[0.38, 0.3, 1.0, 0.18, 0.15, 0.1], [0.6, 0.45, 1.05, 0.16, 0.12, 0.1], [0.66, 0.7, 1.08, 0.12, 0.1, 0.06]], col); // front apron
-      part(mb.get('interior'), unitBox, [0, 0.86, -0.35], [0, 0, 0], [0.28, 0.08, 0.62], C('#151515'));
-    } else {
-      loft(paint, [[-0.25, 0.75, 0.92, 0.12, 0.1, 0.06], [0.1, 0.72, 1.0, 0.16, 0.13, 0.08], [0.42, 0.78, 0.98, 0.12, 0.1, 0.06]], col); // tank
-      part(rubber, unitBox, [0, 0.52, 0.05], [0, 0, 0], [0.22, 0.28, 0.42], C('#3a3a3a')); part(ch, unitCyl, [0, 0.42, 0.25], [0, 0, Math.PI / 2], [0.1, 0.24, 0.1], C('#8a8d90')); // engine
-      beam(ch, [0.1, 0.38, 0.1], [0.14, 0.42, -0.75], 0.05, 0.05, C('#b8bcc0'), unitCyl); // exhaust
-      part(mb.get('interior'), unitBox, [0, 0.9, -0.38], [0.08, 0, 0], [0.26, 0.08, 0.6], C('#151515'));
-      loft(paint, [[-0.85, 0.7, 0.82, 0.1, 0.08, 0.04], [-0.55, 0.78, 0.86, 0.12, 0.1, 0.04]], col); // tail
-    }
-    for (const sx of [-1, 1]) beam(ch, [sx * 0.07, R, 0.72], [sx * 0.07, 1.07, 0.52], 0.035, 0.035, C('#a8acb0'), unitCyl); // fork
-    loft(paint, [[0.55, R * 2 + 0.02, R * 2 + 0.05, 0.08, 0.08, 0.02], [0.85, R * 1.7, R * 1.7 + 0.04, 0.08, 0.08, 0.02]], col);
-    beam(ch, [-0.36, 1.13, 0.5], [0.36, 1.13, 0.5], 0.022, 0.022, black, unitCyl); for (const sx of [-1, 1]) { beam(rubber, [sx * 0.3, 1.13, 0.5], [sx * 0.4, 1.13, 0.5], 0.035, 0.035, black, unitCyl); beam(ch, [sx * 0.24, 1.13, 0.5], [sx * 0.3, 1.32, 0.54], 0.012, 0.012, chrome, unitCyl); part(ch, unitSph, [sx * 0.3, 1.27, 0.6], [0, 0, 0], [0.05, 0.035, 0.012], chrome); }
-    part(ch, unitCyl, [0, 1.0, 0.7], [Math.PI / 2, 0, 0], [0.09, 0.08, 0.09], scooter ? col : chrome); part(lights, unitCyl, [0, 1.0, 0.745], [Math.PI / 2, 0, 0], [0.075, 0.01, 0.075]);
-    tails.box(0, 0.86, -0.9, 0.12, 0.06, 0.04); for (const sx of [-1, 1]) { part(ind, unitSph, [sx * 0.16, 0.98, 0.66], [0, 0, 0], [0.025, 0.025, 0.035]); part(ind, unitSph, [sx * 0.12, 0.82, -0.9], [0, 0, 0], [0.025, 0.025, 0.035]); }
-    plateQuad(mb, 0, 0.7, -0.93, 0.12, 0.045, false, variant);
-    for (const sx of [-1, 1]) { beam(ch, [sx * 0.12, 0.42, -0.4], [sx * 0.26, 0.42, -0.4], 0.025, 0.025, black, unitCyl); if (!scooter) beam(ch, [sx * 0.1, 0.36, 0.06], [sx * 0.24, 0.36, 0.06], 0.025, 0.025, black, unitCyl); } // foot pegs
-    const sy = scooter ? 0.9 : 0.94, bars = [[0.33, 1.13, 0.5], [-0.33, 1.13, 0.5]];
-    seats.push({ x: 0, y: sy, z: -0.08, floor: scooter ? 0.42 : 0.36, fz: scooter ? 0.3 : 0.14, fx: scooter ? 0.12 : 0.2, roof: 9, lean: 0.3, hands: 'bars', bars, kind: 'ride', driver: true, ride: true, exit: [0.75, -0.1] },
-      { x: 0, y: sy + 0.01, z: -0.46, floor: 0.42, fz: 0.06, fx: 0.25, roof: 9, lean: 0.08, hands: 'lap', kind: 'ride', ride: true, exit: [0.75, -0.6] });
-    bikeDetail(dm, KIT, { R, col, scooter });
-    return out([[0, R, 0.7, 0.1], [0, R, -0.68, 0.12]], [0, 1.06, 0.56]);
+  if (type === 'bike' || T.bike) { // every two-wheeler is built from real parts in BikeModels.js (the generic 'bike' = an everyday commuter)
+    const r = buildBike(mb, dm, BKIT, T.bike || null, col, variant); seats.push(...r.seats); wheelStyle = r.wheelStyle;
+    return out(r.wheels, r.steerWheel);
   }
 
   // =============================================================== BUSES (SLTB red + private)
@@ -957,11 +966,11 @@ export function cleanLook(type, color, variant) { const S = shapeOf(type, varian
 export function directModel(type, color, variant) { const m = buildModel(type, color, variant); const f = (mbb) => [...mbb.b].map(([n, b]) => [n, b.build()]).filter((q) => q[1]); const body = { geos: f(m.mb), doors: m.doors }; if (m.doors && m.doors.length) bakeDoors(body, VTYPES[type], type, C(color)); return { geos: body.geos, dgeos: f(m.dm), m }; } // tests only (doors baked in the paint colour directly)
 // shadow pass: parts that sit flush on (or inside) the painted body add a draw call per vehicle but never change the shadow
 // (lamp lenses, indicators, plates, route boards: the body's own silhouette already covers theirs)
-const NO_CAST = new Set(['glass', 'vlight', 'interior', 'badge', 'amb', 'vtail', 'vind', 'vrev', 'plate', 'route']);
+const NO_CAST = new Set(['glass', 'vlight', 'interior', 'badge', 'amb', 'vtail', 'vind', 'vrev', 'plate', 'route', 'mirror', 'dash']);
 export function createVehicleMesh(type, seed = 1) {
   const { T, color, variant, worn, cached } = ensureModel(type, seed);
   const { mats: M } = vehicleMaterials();
-  const byName = { paint: worn ? M.vworn : M.vpaint, glass: M.vglass, chrome: M.vchrome, rubber: M.vrubber, interior: M.vinterior, canvas: M.vcanvas, vlight: M.vlight, vtail: M.vtail, vind: M.vind, plate: M.plate, badge: M.badge, route: M.route, police: M.police, amb: M.amb, lbBlue: M.lbBlue, lbRed: M.lbRed };
+  const byName = { carbon: M.vcarbon, alloy: M.valloy, engine: M.vengine, mirror: M.vmirror, dash: M.vdash, paint: worn ? M.vworn : M.vpaint, glass: M.vglass, chrome: M.vchrome, rubber: M.vrubber, interior: M.vinterior, canvas: M.vcanvas, vlight: M.vlight, vtail: M.vtail, vind: M.vind, plate: M.plate, badge: M.badge, route: M.route, police: M.police, amb: M.amb, lbBlue: M.lbBlue, lbRed: M.lbRed };
   let beacons = null; if (T.police || T.ambulance) { byName.lbBlue = M.lbBlue.clone(); byName.lbRed = M.lbRed.clone(); beacons = { blue: byName.lbBlue, red: byName.lbRed }; } // per vehicle: only responding units flash
   const g = new THREE.Group(); const tailMat = M.vtail.clone(); const indMat = M.vind.clone(); const headMat = M.vlight.clone(); const revMat = M.vrev.clone(); byName.vtail = tailMat; byName.vind = indMat; byName.vlight = headMat; byName.vrev = revMat; headMat.emissiveIntensity = 0.04; tailMat.emissiveIntensity = 0.03; revMat.emissiveIntensity = 0; // per vehicle (start dark): each car's own lamps
   directionalLamp(headMat, 1); directionalLamp(tailMat, -1); directionalLamp(revMat, -1); // lamps glow only from the lens face (seen through the cabin glass from the other end they stay dark)
@@ -975,7 +984,7 @@ export function createVehicleMesh(type, seed = 1) {
     const pivot = new THREE.Group(); pivot.position.set(x, y, z); const spin = new THREE.Group();
     const tyre = new THREE.Mesh(parts.tyre, M.vtyre); const rim = new THREE.Mesh(parts.rim, M.vrim); tyre.castShadow = true;
     const holder = new THREE.Group(); holder.add(tyre, rim); if (x < 0) holder.rotation.y = Math.PI; spin.add(holder); pivot.add(spin);
-    const hp = hiWheelParts(T.wheelR, w, cached.wheelStyle, wkind, KIT); const hi = new THREE.Group(); const t2 = new THREE.Mesh(hp.tyre, M.vtyre); t2.castShadow = true; hi.add(t2, new THREE.Mesh(hp.rim, M.vrim)); if (x < 0) hi.rotation.y = Math.PI; hi.visible = false; spin.add(hi);
+    const hp = hiWheelParts(T.wheelR, w, cached.wheelStyle, wkind, KIT, z > 0); const hi = new THREE.Group(); const t2 = new THREE.Mesh(hp.tyre, M.vtyre); t2.castShadow = true; hi.add(t2, new THREE.Mesh(hp.rim, M.vrim)); if (x < 0) hi.rotation.y = Math.PI; hi.visible = false; spin.add(hi);
     let cal = null; if (hp.caliper) { cal = new THREE.Mesh(hp.caliper, M.vrim); if (x < 0) cal.rotation.y = Math.PI; cal.visible = false; pivot.add(cal); }
     for (const o of [holder, tyre, rim, hi, ...hi.children, cal]) if (o) { o.updateMatrix(); o.matrixAutoUpdate = false; } // fixed inside the wheel: only pivot (steer, suspension) and spin move
     holder.userData.host = hi.userData.host = spin; spin.remove(hi); if (cal) { cal.userData.host = pivot; pivot.remove(cal); } // far LOD at birth: see setVehicleLOD
@@ -999,7 +1008,7 @@ export function createVehicleMesh(type, seed = 1) {
     cs.updateMatrix(); cs.matrixAutoUpdate = false; g.add(cs); }
   const rear = T.ambulance ? buildAmbRear() : null; if (rear) g.add(rear.group); // twin rear doors + lit cabin (opened by the medics)
   const stand = base === 'bike' ? standMeshes(M.vrim) : null; if (stand) g.add(stand); // animated side stand (Kickstand.js)
-  g.userData = { exhaust: cached.exhaust, doors, bake: doors.length ? { ranges: cached.doorRanges, meshes: bodyMeshes, shared, mats, pivotGeos: (i) => slicePivotGeos(cached, i) } : null, stand, detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons, rear, cabStep: cached.cabStep };
+  g.userData = { wheelStyle: cached.wheelStyle, exhaust: cached.exhaust, doors, bake: doors.length ? { ranges: cached.doorRanges, meshes: bodyMeshes, shared, mats, pivotGeos: (i) => slicePivotGeos(cached, i) } : null, stand, detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons, rear, cabStep: cached.cabStep };
   return g;
 }
 // darken lower panels and add per-vehicle grime variation to working vehicles

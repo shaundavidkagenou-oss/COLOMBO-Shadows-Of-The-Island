@@ -278,7 +278,7 @@ export class Player {
       if (E.npcK >= 1) { // standing beside the opening: into the world exactly where he stands (upright), then hurry off
         d.anim.board = null; d.anim.set(null); const wp = d.root.getWorldPosition(new THREE.Vector3()); const yw = new THREE.Euler().setFromQuaternion(d.root.getWorldQuaternion(new THREE.Quaternion()), 'YXZ').y;
         v.mesh.remove(d.root); this.scene.add(d.root); d.root.position.copy(wp); d.root.rotation.set(0, yw, 0); v.driverChar = null;
-        const tl = E.bk === 'bike' ? [0.3, seat.z - 1.35] : [s * (E.npcG.hw + 0.26), E.npcG.z0 - 1.05]; const tw = this.local(v, tl[0], 0, tl[1]);
+        const tl = E.bk === 'bike' ? [Math.max(0.3, v.T.wid / 2 + 0.06), seat.z - 1.35] /* clear of wide bars / mirrors (adventure, naked) */ : [s * (E.npcG.hw + 0.26), E.npcG.z0 - 1.05]; const tw = this.local(v, tl[0], 0, tl[1]);
         E.npcFrom = [wp.x, wp.z, yw]; E.npcTo = [tw.x, tw.z]; E.npcW = 0; E.npcDur = Math.max(0.7, Math.hypot(tw.x - wp.x, tw.z - wp.z) / 1.6); } return; }
     E.npcW = Math.min(1, E.npcW + dt / E.npcDur); const k = E.npcW * E.npcW * (3 - 2 * E.npcW); const vs = 6 * E.npcW * (1 - E.npcW) * Math.hypot(E.npcTo[0] - E.npcFrom[0], E.npcTo[1] - E.npcFrom[1]) / E.npcDur; const f = E.npcFrom, t = E.npcTo; const x = lerp(f[0], t[0], k), z = lerp(f[1], t[1], k); const yaw = Math.atan2(t[0] - f[0], t[1] - f[1]);
     d.root.position.set(x, this.collision.groundAt(x, z, d.root.position.y + 0.5, 0.6), z); d.root.rotation.set(0, f[2] + wrapAngle(yaw - f[2]) * Math.min(1, E.npcW * 2.5), 0); d.anim.update(dt, vs, 0);
@@ -379,7 +379,7 @@ export class Player {
     const distMul = Settings.get('cameraDistance');
     let dist, height, tgt;
     if (v) {
-      const big = v.T.len > 6; dist = (big ? 11 : v.type === 'bike' || v.type === 'tuktuk' ? 4.8 : 6.2) * distMul * (this.camMode === 1 ? 1.5 : 1); height = big ? 3.4 : 1.6;
+      const big = v.T.len > 6; dist = (big ? 11 : v.T.entry === 'bike' || v.type === 'tuktuk' ? 4.8 : 6.2) * distMul * (this.camMode === 1 ? 1.5 : 1); height = big ? 3.4 : 1.6;
       // chase cam: drift behind vehicle heading unless the player is looking around
       if (Math.abs(Input.mouseDX) < 0.5 && Math.abs(Input.pad.rx) < 0.1) { this.idleCam = (this.idleCam || 0) + dt; if (this.idleCam > 1.2 || Math.abs(v.speed) > 6) this.camYaw = dampAngle(this.camYaw, v.yaw + Math.PI + (v.speed < -1 ? Math.PI : 0), 2.5, dt); } else this.idleCam = 0;
       tgt = new THREE.Vector3(v.x, v.y + height, v.z);

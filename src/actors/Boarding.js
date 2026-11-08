@@ -196,9 +196,11 @@ function spline(K, T, t) {
   return [0, 1, 2].map((k) => 0.5 * (2 * P1[k] + (-P0[k] + P2[k]) * f + (2 * P0[k] - 5 * P1[k] + 4 * P2[k] - P3[k]) * f2 + (-P0[k] + 3 * P1[k] - 3 * P2[k] + P3[k]) * f3));
 }
 // ---- motorcycle (mount from the left, +x) ----------------------------------------------------------------------------
+// standing beside a two-wheeler: hips 0.4 m out, or just outside the bars / mirrors on a wide adventure / naked bike
+const bikeStandX = (G) => Math.max(0.4, G.hw + 0.04);
 function bikeHip(G, u) {
   const { seat: S, hst } = G; const p1 = seg(u, 0, 0.5), p2 = seg(u, 0.44, 0.8), p3 = seg(u, 0.76, 1);
-  const H0 = [0.4, hst, S.z + 0.06], H1 = [0.17, hst - 0.09, S.z + 0.02]; const Hend = G.hipEnd;
+  const H0 = [bikeStandX(G), hst, S.z + 0.06], H1 = [0.17, hst - 0.09, S.z + 0.02]; const Hend = G.hipEnd;
   if (p3 > 0) return [Hend[0], lerp(Hend[1] + 0.01, Hend[1], sm(p3)), Hend[2]];
   if (p2 > 0) return [lerp(H1[0], Hend[0], sm(p2)), lerp(H1[1], Hend[1] + 0.01, sm(p2 / 0.8)), lerp(H1[2], Hend[2], sm(p2))];
   return mix(H0, H1, sm(p1));
@@ -206,7 +208,7 @@ function bikeHip(G, u) {
 function bikeCurve(G, u) {
   const { seat: S, rest, hst, ankle } = G; const grips = G.grips;
   const p1 = seg(u, 0, 0.5), p2 = seg(u, 0.44, 0.8), p3 = seg(u, 0.76, 1);
-  const H0 = [0.4, hst, S.z + 0.06]; const hip = bikeHip(G, u);
+  const H0 = [bikeStandX(G), hst, S.z + 0.06]; const hip = bikeHip(G, u);
   const pitch = lerp(lerp(0.05, 0.42, sm(p1 / 0.6)), rest.lean, sm(p2)); const roll = 0.12 * Math.sin(Math.PI * p1); // lean over the bike (toward −x) while the leg swings
   const twist = 0.18 * Math.sin(Math.PI * p1);
   const gL = [H0[0] + 0.11, ankle, S.z + 0.04], gR0 = [H0[0] - 0.11, ankle, S.z + 0.0], pR = G.feetEnd.R, pL = G.feetEnd.L;

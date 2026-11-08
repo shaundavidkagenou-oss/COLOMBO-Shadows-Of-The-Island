@@ -16,10 +16,11 @@ import { HEROES, Character } from '../actors/Character.js';
 import { Vehicle } from '../vehicles/Vehicle.js';
 import { VTYPES } from '../vehicles/VehicleModels.js';
 import { SUV_IDS, OTHER_IDS, displayName } from '../vehicles/VehicleCatalog.js';
+import { BIKE_IDS } from '../vehicles/BikeCatalog.js';
 
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const VEH = ['tuktuk', 'car', 'sedan', 'taxi', 'van', 'suv', 'bike', 'bus', 'lorry'].filter((t) => VTYPES[t]);
-const CAT_VEH = [...SUV_IDS, ...OTHER_IDS]; // the 40 catalogue models (fictional makes)
+const CAT_VEH = [...SUV_IDS, ...OTHER_IDS, ...BIKE_IDS]; // the 40 catalogue models + 20 motorcycles / scooters (fictional makes)
 const MODELS = ['dineth', 'shashika', 'david', 'ruwan', 'fathima', 'selvaraj', 'bandara', 'anjali'].filter((k) => HEROES[k]);
 const fmtH = (h) => `${String(Math.floor(h) % 24).padStart(2, '0')}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}`;
 

@@ -145,6 +145,12 @@ export class Vehicle {
     let nx = this.x + (fx * this.speed + rx * this.lat) * dt, nz = this.z + (fz * this.speed + rz * this.lat) * dt;
     // water: block like a wall
     if (L.isWater(nx, nz) && !L.bridgeWalkAt(nx, nz) && !L.roadAt(nx, nz)) { nx = this.x; nz = this.z; this.impact(Math.abs(this.speed)); this.speed *= -0.2; }
+    { // swept nose: at racer speeds (74 m/s ≈ 2.5 m per 30 fps frame) a single jump could land past a thin wall / fence and be
+      // pushed out the far side — sample the path and stop at the first contact so the impulse response below handles it
+      const dx = nx - this.x, dz = nz - this.z, dl = Math.hypot(dx, dz), rr = this.radius;
+      if (dl > rr * 0.8) { const nose = Math.max(0, this.half - rr), ox = this.x + fx * nose, oz = this.z + fz * nose;
+        if (!collision.resolveCircle(ox, oz, rr, this.y, 0.25, 2, { vehicle: true }).hit) { const n = Math.ceil(dl / (rr * 0.6));
+          for (let i = 1; i <= n; i++) { const t = i / n; if (collision.resolveCircle(ox + dx * t, oz + dz * t, rr, this.y, 0.25, 2, { vehicle: true }).hit) { nx = this.x + dx * t; nz = this.z + dz * t; break; } } } } }
     this.x = nx; this.z = nz;
     // ---- collisions: impulse response (restitution + tangential friction + yaw spin from off-centre contacts), mass-weighted against other vehicles
     const m1 = T.mass || 1100, I1 = (T.len * T.len + T.wid * T.wid) / 12; const nC = Math.max(2, Math.ceil((T.len - T.wid) / (T.wid * 0.7)) + 1); const tOf = (k) => (k / (nC - 1) - 0.5) * (T.len - T.wid);

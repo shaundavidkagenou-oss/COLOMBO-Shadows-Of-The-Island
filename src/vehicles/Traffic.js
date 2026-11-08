@@ -6,6 +6,7 @@ import { plan } from '../world/CityPlan.js';
 import { Vehicle } from './Vehicle.js';
 import { VTYPES, modelCached, warmModel, warmShape } from './VehicleModels.js';
 import { TRAFFIC_W, PARKED_W, NO_LANES } from './VehicleCatalog.js';
+import { BIKE_LISTS, BIKE_PARKED, BIKE_IDS } from './BikeCatalog.js';
 import { RNG } from '../core/rng.js';
 import { clamp, lerp } from '../core/math.js';
 import { Character, randomSpec } from '../actors/Character.js';
@@ -150,7 +151,7 @@ export class Traffic {
   }
   setDensity(d) { this.max = Math.round(10 + d * 45); }
   all() { const o = this.obstacles; if (!this.parked.length && !(o && o.length)) return this.vehicles; return o && o.length ? this.vehicles.concat(this.parked, o) : this.vehicles.concat(this.parked); } // obstacles = train cars (solid, not enterable)
-  pickType(x, z) { const d = L.districtIdAt(x, z); const night = this.night > 0.6; const mix = MIX[d] || MIX.default; const m = night ? mix.map(([t, w]) => [t, t === 'bus' || t === 'pbus' ? w * 0.4 : w]) : mix; const t = this.rng.weighted(m); return t === 'cat' ? this.rng.weighted(CAT_W[d] || CAT_W.default) : t; }
+  pickType(x, z) { const d = L.districtIdAt(x, z); const night = this.night > 0.6; const mix = MIX[d] || MIX.default; const m = night ? mix.map(([t, w]) => [t, t === 'bus' || t === 'pbus' ? w * 0.4 : w]) : mix; const t = this.rng.weighted(m); return t === 'cat' ? this.rng.weighted(CAT_W[d] || CAT_W.default) : t === 'bike' ? this.rng.weighted(BIKE_LISTS[d] || BIKE_LISTS.default) : t; } // two-wheelers: one of the 20 kinds (BikeCatalog.js)
   spawn(focus, camDir, forceNear = false) {
     for (let tries = 0; tries < 12; tries++) {
       const hint = tries < 4 ? this.spawnHint : null; // a fuel station asking for a customer on its approach road
@@ -182,7 +183,7 @@ export class Traffic {
     seatCharacter(ch, v, seat); ch.mesh.castShadow = false; v.driverChar = ch; v.animAcc = 0;
     // passenger plan: which seats are taken and by whom (created lazily when the vehicle is near the player)
     const r = new RNG(v.id * 7919 + 13); const free = v.mesh.userData.seats.map((q, i) => i).filter((i) => !v.mesh.userData.seats[i].driver);
-    const n = Math.min(free.length, r.weighted(PAX[v.type] || [[0, 1]])); const plan = [];
+    const n = Math.min(free.length, r.weighted(PAX[v.type] || (v.T.entry === 'bike' ? PAX.bike : [[0, 1]]))); const plan = [];
     for (let k = 0; k < n; k++) { const j = Math.floor(r.next() * free.length); const si = free.splice(j, 1)[0]; plan.push({ si, spec: this.paxSpec(90000 + v.id * 41 + k * 7), mode: r.weighted([['lap', 5], ['phone', 2], ['window', 2]]) }); }
     v.paxPlan = plan; v.pax = [];
   }
@@ -527,8 +528,8 @@ export class Traffic {
     const fx = Math.sin(T.yaw), fz = Math.cos(T.yaw); c.x = T.x + fx * zc; c.z = T.z + fz * zc; c.yaw = T.yaw; c.pitch = -a; c.roll = 0; c.speed = T.speed; c.y = L.groundY(c.x, c.z) - ra * Math.sin(a); c.sync(0);
   }
   // the vehicle that belongs on a parking spot (deterministic per spot)
-  parkedLook(p) { const r = new RNG(Math.floor(p.x * 31 + p.z * 17)); let type = r.weighted([['car', 1.5], ['tuktuk', 3], ['van', 0.8], ['sedan', 0.6], ['bike', 2], ['taxi', 0.6], ['cat', 7]]); if (type === 'cat') type = r.weighted(PARKED_LIST); return { type, seed: Math.floor(r.next() * 1e6) }; }
-  streetTypes() { const used = new Set(PARKED_LIST.map((w) => w[0])); for (const m of [...Object.values(MIX), ...Object.values(CAT_W)]) for (const [t] of m) used.add(t); return Object.keys(VTYPES).filter((t) => used.has(t)); }
+  parkedLook(p) { const r = new RNG(Math.floor(p.x * 31 + p.z * 17)); let type = r.weighted([['car', 1.5], ['tuktuk', 3], ['van', 0.8], ['sedan', 0.6], ['bike', 2], ['taxi', 0.6], ['cat', 7]]); if (type === 'cat') type = r.weighted(PARKED_LIST); else if (type === 'bike') type = r.weighted(BIKE_PARKED); return { type, seed: Math.floor(r.next() * 1e6) }; }
+  streetTypes() { const used = new Set([...PARKED_LIST.map((w) => w[0]), ...BIKE_IDS]); for (const m of [...Object.values(MIX), ...Object.values(CAT_W)]) for (const [t] of m) used.add(t); return Object.keys(VTYPES).filter((t) => used.has(t)); }
   noteLook(type, seed) { const L = this.looks || (this.looks = new Map()); let a = L.get(type); if (!a) L.set(type, (a = [])); if (a.length < 16 && !a.includes(seed)) a.push(seed); }
   // loading screen: one look of every vehicle type (so traffic always has a built look to fall back on) and the parked
   // vehicles around the spawn point(s) - otherwise the first seconds of play build them, 10-40 ms per first-time model
@@ -577,7 +578,7 @@ export class Traffic {
       o.t += dt; if (ai.pieces[0] === o.path && ((ai.s >= o.path.len - 0.06 && v.speed < 0.12) || ai.s >= o.path.len - 0.021)) { A.splice(i, 1); this.parkArrived(v, o, st); continue; }
       if (o.t > 60) { ai.park = null; if (ai.sMaxP === o.path) ai.sMaxP = null; ai.pieces = ai.pieces.filter((q) => q !== o.path); if (st && st.claim === v) { st.claim = null; st.occ = false; } A.splice(i, 1); } } // blocked for a minute: give up (it carries on along the road)
     this.arriveT = (this.arriveT ?? 3) - dt; if (this.arriveT > 0 || !this.spots || A.length >= 2) return; this.arriveT = 2.5;
-    const gH = this.gameH ?? 0, today = Math.floor(gH / 24); const ok = this.parkTypes || (this.parkTypes = new Set(['car', 'tuktuk', 'van', 'sedan', 'bike', ...PARKED_LIST.map((w) => w[0])]));
+    const gH = this.gameH ?? 0, today = Math.floor(gH / 24); const ok = this.parkTypes || (this.parkTypes = new Set(['car', 'tuktuk', 'van', 'sedan', 'bike', ...BIKE_IDS, ...PARKED_LIST.map((w) => w[0])]));
     for (const v of this.vehicles) { const ai = v.ai;
       if (!ai || ai.park || ai.fuel || ai.chase || ai.route || ai.goal || ai.emergency || ai.rejoin || v.police || v.towing || v.towedBy || v.keep || v.free || v.hold || !v.driverChar || !ok.has(v.type)) continue;
       const P = ai.pieces[0]; if (!P || P.type !== 'line' || P.seg.level < 1 || P.seg.level > 2 || P.lane !== (P.seg.level <= 1 ? 1 : 0) || Math.abs(ai.lat || 0) > 0.1 || Math.abs(ai.hdg || 0) > 0.02) continue;

@@ -23,6 +23,10 @@ export const ringX = (() => { const g = new THREE.TorusGeometry(1, 0.12, 6, 24);
 export const arcX = (() => { const g = new THREE.TorusGeometry(1, 0.07, 5, 18, Math.PI); g.rotateY(Math.PI / 2); return g; })(); // half ring in the z/y plane (wheel-arch lip)
 const hexX = (() => { const g = new THREE.CylinderGeometry(1, 1, 1, 6); g.rotateZ(Math.PI / 2); return g; })();
 const sphLo = new THREE.SphereGeometry(1, 10, 6);
+const gearX = new Map(); // toothed sprocket, axis x, unit radius
+function gearGeoX(teeth) { if (gearX.has(teeth)) return gearX.get(teeth); const g = new THREE.CylinderGeometry(1, 1, 1, teeth * 2, 1); const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) { const x = p.getX(i), z = p.getZ(i); if (x * x + z * z < 1e-9) continue; const a = Math.atan2(x, z); if (Math.round(((a + Math.PI) / (2 * Math.PI)) * teeth * 2) % 2 === 0) { p.setX(i, x * 0.9); p.setZ(i, z * 0.9); } }
+  g.computeVertexNormals(); g.rotateZ(Math.PI / 2); gearX.set(teeth, g); return g; }
 
 const _e = new THREE.Euler(), _v = new THREE.Vector3();
 const loc = (o, rot, lx, ly, lz) => { _v.set(lx, ly, lz).applyEuler(_e.set(...rot)); return [o[0] + _v.x, o[1] + _v.y, o[2] + _v.z]; };
@@ -264,8 +268,8 @@ export function heavyDetail(dm, K, c) {
 
 // ------------------------------------------------------------------------------------------------ high-detail wheels
 const hiCache = new Map();
-export function hiWheelParts(R, w, style, kind, K) {
-  const key = `${R}:${w}:${style}:${kind}`; if (hiCache.has(key)) return hiCache.get(key);
+export function hiWheelParts(R, w, style, kind, K, front = true) {
+  const key = `${R}:${w}:${style}:${kind}:${kind === 'bike' ? +front : ''}`; if (hiCache.has(key)) return hiCache.get(key);
   const { beam, part, C, unitBox, unitCyl } = K; const h = w / 2; const bike = kind === 'bike', heavy = kind === 'heavy';
   // tyre: rounded sidewalls, shoulders, three circumferential grooves; plus raised tread blocks and a sidewall ring
   const ri = bike ? 0.8 : 0.66, gd = R * 0.012, prof = bike ? [V2(R * 0.8, h * 0.9), V2(R * 0.9, h * 1.05), V2(R * 0.97, h * 0.85), V2(R, h * 0.4)] : [V2(R * 0.66, h * 0.92), V2(R * 0.8, h * 1.02), V2(R * 0.9, h * 1.0), V2(R * 0.965, h * 0.88), V2(R - gd, h * 0.66)];
@@ -279,13 +283,29 @@ export function hiWheelParts(R, w, style, kind, K) {
   if (!bike) part(tb, ringX, [h * 1.0, 0, 0], [0, 0, 0], [0.1, R * 0.83, R * 0.83], [1, 1, 1]);
   const tyre = tb.build(); tl.dispose();
   // rim (+ brake disc that spins with it)
-  const mb = new MeshBuilder(); const rc = style === 1 ? C(heavy ? '#d8dadc' : '#2a2a2c') : style === 2 ? C('#c9ccd0') : C('#a4aab0'); const dk = C('#3a3d40'); const rr = R * ri;
+  const mb = new MeshBuilder(); const rc = bike ? C(style === 1 ? '#c4c8cc' : '#1b1c1f') : style === 1 ? C(heavy ? '#d8dadc' : '#2a2a2c') : style === 2 ? C('#c9ccd0') : C('#a4aab0'); const dk = C('#3a3d40'); const rr = R * ri;
   const barrel = new THREE.LatheGeometry([V2(rr * 0.96, h * 0.85), V2(rr, h * 0.78), V2(rr * 0.97, h * 0.5), V2(rr * 0.9, h * 0.2), V2(rr * 0.9, -h * 0.6), V2(rr, -h * 0.8)], 36); barrel.rotateZ(-Math.PI / 2); mb.geometry(barrel, new THREE.Matrix4(), rc); barrel.dispose();
   part(mb, ringX, [h * 0.84, 0, 0], [0, 0, 0], [0.15, rr * 0.99, rr * 0.99], rc); // rim lip
-  if (bike) { // laced wire wheel: hub, 32 spokes, drum
-    part(mb, discX, [0, 0, 0], [0, 0, 0], [h * 1.1, R * 0.16, R * 0.16], C('#9a9ea2'));
-    for (let i = 0; i < 32; i++) { const a = (i / 32) * Math.PI * 2, s = i % 2 ? 1 : -1; beam(mb, [s * h * 0.45, Math.sin(a) * R * 0.14, Math.cos(a) * R * 0.14], [0, Math.sin(a + 0.25 * s) * rr * 0.9, Math.cos(a + 0.25 * s) * rr * 0.9], 0.004, 0.004, C('#c8ccd0'), unitCyl); }
-    part(mb, discX, [-h * 0.6, 0, 0], [0, 0, 0], [0.006, R * 0.42, R * 0.42], C('#9a9ea2')); part(mb, ringX, [-h * 0.6, 0, 0], [0, 0, 0], [0.1, R * 0.3, R * 0.3], C('#55595e'));
+  let bikeCal = null;
+  if (bike) { // motorcycle: laced (style 1), five-spoke cast commuter (0) or three split-spoke sport wheel (2); discs / drum; rear sprocket
+    const hub = C('#8d9196'), discC = C('#9a9ea4'), dk2 = C('#1b1c1f');
+    if (style === 1) { part(mb, discX, [0, 0, 0], [0, 0, 0], [h * 1.1, R * 0.16, R * 0.16], hub);
+      for (let i = 0; i < 32; i++) { const a = (i / 32) * Math.PI * 2, s = i % 2 ? 1 : -1; beam(mb, [s * h * 0.45, Math.sin(a) * R * 0.14, Math.cos(a) * R * 0.14], [0, Math.sin(a + 0.25 * s) * rr * 0.9, Math.cos(a + 0.25 * s) * rr * 0.9], 0.004, 0.004, C('#c8ccd0'), unitCyl); } }
+    else if (style === 0) { part(mb, discX, [0, 0, 0], [0, 0, 0], [h * 1.3, R * 0.15, R * 0.15], dk2);
+      for (let i = 0; i < 5; i++) { const a = (i / 5) * Math.PI * 2; for (const o of [-0.16, 0.16]) beam(mb, [0, Math.sin(a) * R * 0.13, Math.cos(a) * R * 0.13], [0, Math.sin(a + o) * rr * 0.93, Math.cos(a + o) * rr * 0.93], h * 0.5, R * 0.05, rc); } }
+    else { part(mb, discX, [0, 0, 0], [0, 0, 0], [h * 1.4, R * 0.13, R * 0.13], dk2);
+      for (let i = 0; i < 3; i++) { const a = (i / 3) * Math.PI * 2; for (const o of [-0.22, 0.22]) beam(mb, [0, Math.sin(a) * R * 0.12, Math.cos(a) * R * 0.12], [0, Math.sin(a + o) * rr * 0.95, Math.cos(a + o) * rr * 0.95], h * 0.42, R * 0.04, rc); }
+      part(mb, ringX, [h * 0.86, 0, 0], [0, 0, 0], [0.12, rr * 0.985, rr * 0.985], C('#c8102e')); } // rim stripe
+    // brakes: front discs (twin floating on sport wheels), rear disc (sport) or drum; calipers do not spin
+    const disc = (x, rd) => { part(mb, discX, [x, 0, 0], [0, 0, 0], [0.005, rd, rd], discC); part(mb, discX, [x, 0, 0], [0, 0, 0], [0.007, rd * 0.62, rd * 0.62], C('#2a2b2e'));
+      for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2; part(mb, discX, [x, Math.sin(a) * rd * 0.63, Math.cos(a) * rd * 0.63], [0, 0, 0], [0.01, rd * 0.04, rd * 0.04], C('#c9ccd0')); } // bobbins
+      for (let i = 0; i < 24; i++) { const a = (i / 24) * Math.PI * 2 + (i % 2) * 0.06; const r = rd * (i % 2 ? 0.78 : 0.88); part(mb, discX, [x, Math.sin(a) * r, Math.cos(a) * r], [0, 0, 0], [0.0055, rd * 0.025, rd * 0.025], C('#0a0a0a')); } }; // drilled
+    const cal = (x, rd, t, col, big) => { const cb = bikeCal || (bikeCal = new MeshBuilder()); part(cb, unitBox, [x, Math.sin(t) * rd * 0.9, Math.cos(t) * rd * 0.9], [-t, 0, 0], [big ? 0.034 : 0.028, big ? 0.11 : 0.075, big ? 0.045 : 0.035], col); part(cb, unitBox, [x + Math.sign(x || 1) * 0.008, Math.sin(t) * rd * 0.9, Math.cos(t) * rd * 0.9], [-t, 0, 0], [0.006, big ? 0.06 : 0.04, 0.02], C('#f2f2f0')); };
+    if (front) { if (style === 2) { for (const sx of [1, -1]) { disc(sx * (h + 0.008), rr * 0.68); cal(sx * (h + 0.012), rr * 0.68, 2.4, C('#c9a23a'), true); } }
+      else { disc(h + 0.006, rr * 0.62); cal(h + 0.01, rr * 0.62, 2.4, C('#3a3b3e'), false); } }
+    else { if (style === 2) { disc(-(h + 0.006), rr * 0.46); cal(-(h + 0.01), rr * 0.46, -0.6, C('#c9a23a'), false); }
+      else { part(mb, discX, [-h * 0.75, 0, 0], [0, 0, 0], [0.02, R * 0.36, R * 0.36], hub); part(mb, ringX, [-h * 0.85, 0, 0], [0, 0, 0], [0.1, R * 0.3, R * 0.3], C('#55595e')); } // drum
+      part(mb, gearGeoX(style === 2 ? 42 : 40), [h + 0.01, 0, 0], [0, 0, 0], [0.006, style === 2 ? 0.1 : 0.11, style === 2 ? 0.1 : 0.11], C('#55585c')); part(mb, discX, [h + 0.012, 0, 0], [0, 0, 0], [0.004, 0.06, 0.06], C('#2a2b2e')); } // rear sprocket
   } else if (style === 1) { // pressed steel wheel: dished disc, ventilation holes, hub cap, lug nuts
     const dish = new THREE.LatheGeometry([V2(0.001, h * 0.42), V2(R * 0.2, h * 0.46), V2(R * 0.26, h * 0.3), V2(rr * 0.75, h * 0.38), V2(rr * 0.9, h * 0.2)], 36); dish.rotateZ(-Math.PI / 2); mb.geometry(dish, new THREE.Matrix4(), rc); dish.dispose();
     const nh = heavy ? 10 : 8; for (let i = 0; i < nh; i++) { const a = (i / nh) * Math.PI * 2; part(mb, discX, [h * 0.395, Math.sin(a) * rr * 0.55, Math.cos(a) * rr * 0.55], [0, 0, 0], [0.006, R * 0.055, R * 0.055], C('#0a0a0a')); }
@@ -303,7 +323,7 @@ export function hiWheelParts(R, w, style, kind, K) {
   }
   const rim = mb.build();
   // caliper (does not spin): mounted behind the spokes at the trailing top
-  let caliper = null; if (!bike && style !== 1) { const cb = new MeshBuilder(); part(cb, unitBox, [-h * 0.02, rr * 0.62, -rr * 0.32], [0.5, 0, 0], [0.07, R * 0.14, R * 0.34], C(style === 2 ? '#a82020' : '#3a3c40')); caliper = cb.build(); }
+  let caliper = bike && bikeCal ? bikeCal.build() : null; if (!bike && style !== 1) { const cb = new MeshBuilder(); part(cb, unitBox, [-h * 0.02, rr * 0.62, -rr * 0.32], [0.5, 0, 0], [0.07, R * 0.14, R * 0.34], C(style === 2 ? '#a82020' : '#3a3c40')); caliper = cb.build(); }
   const out = { tyre, rim, caliper }; hiCache.set(key, out); return out;
 }
 const lerp = (a, b, t) => a + (b - a) * t;
