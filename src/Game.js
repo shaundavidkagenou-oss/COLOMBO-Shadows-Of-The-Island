@@ -21,7 +21,8 @@ import { buildTextures, setAniso } from './gfx/Textures.js';
 import { buildMaterials } from './gfx/Materials.js';
 import { Atmosphere } from './gfx/Atmosphere.js';
 import { PostFX } from './gfx/PostFX.js';
-import { setVehicleNight } from './vehicles/VehicleModels.js';
+import { setVehicleNight, createVehicleMesh, VTYPES } from './vehicles/VehicleModels.js';
+import { captureToCanvas } from './gfx/LinearCapture.js';
 import { CATALOG, displayName } from './vehicles/VehicleCatalog.js';
 import { updateDoorClosers } from './vehicles/DoorRig.js';
 import { updateVehicleLOD, setHeadPoolNight, Vehicle, HeadlightRig, setVehicleLOD, LIVE_VEHICLES } from './vehicles/Vehicle.js';
@@ -129,7 +130,7 @@ export class Game {
     progress(0.93, 'Compiling shaders'); await tick();
     await bootRuntime(this); // saved animation / NPC edits (src/debug, only loaded when some were saved)
     this.world.warm(-500, -400); this.world.update(0.016, { x: -500, z: -400 }, this.camera, this.atmos);
-    try { if (this.renderer.compileAsync) await Promise.race([this.renderer.compileAsync(this.scene, this.camera), wait(15000)]); else this.renderer.compile(this.scene, this.camera); } catch (e) { console.warn('compile', e); }
+    try { await this.compileForGame(this.scene, 15000); } catch (e) { console.warn('compile', e); } // the main pass's programs (see compileForGame)
     this.wireEvents();
     if (TEST) { window.__Input = Input; window.__L = L; window.__Vehicle = Vehicle; window.__Character = Character; window.__makePoliceAppearance = makePoliceAppearance; window.__THREE = THREE; this.stepSim = async (n, dt = 0.05, keys = []) => { for (const k of keys) Input.down.add(k); for (let i = 0; i < n; i++) { this.updatePlay(dt); if (i === 0) Input.pressed.clear(); for (let j = 0; j < 12; j++) await null; /* let story/director promise chains advance like real frames */ } for (const k of keys) Input.down.delete(k); return { x: this.player.x, z: this.player.z, y: this.player.y, v: this.player.vehicle && this.player.vehicle.type, speed: this.player.vehicle ? this.player.vehicle.speed : this.player.speed }; }; }
     progress(1, 'Colombo is ready');
@@ -153,6 +154,7 @@ export class Game {
       await this.load((p, l) => { window.__progress = [p, l]; });
       if (quick === 'new') return this.newGame();
       if (quick === 'trailer') return this.playTrailer();
+      if (new URLSearchParams(location.search).get('warm')) await this.enterLoading([[-140, -891.8]]); // &warm=1: the real enter-game loading (streaming, vehicle warm, shader compile) like a player gets
       this.story.state = Story.freshState(); this.squad.reset(); this.mode = 'play'; this.atmos.hour = 17; this.setupRoomDoor(); this.world.warm(-140, -892); this.player.teleport(-140, -891.8, Math.PI / 2);
       this.player.cinematic = false; this.player.control = true; this.hud.show(true); this.hud.fade(0, 0.3); this.story.setupWorldActivities(); this.story.startMission('m0', 0); return;
     }
@@ -204,8 +206,8 @@ export class Game {
     await enterGameLoading(this.ui, [...pre,
       { label: 'Streaming Colombo districts', run: (pr) => this.world.warmAsync(points, pr) },
       { label: 'Vehicles of Colombo', run: (pr) => this.traffic.warmModels(points, pr) },
-      { label: 'Compiling shaders', run: async (pr) => { this.camera.position.set(points[0][0], 3, points[0][1] + 6); this.camera.lookAt(points[0][0], 1.5, points[0][1]); this.camera.updateMatrixWorld(); for (const v of LIVE_VEHICLES) setVehicleLOD(v.mesh.userData, true); /* near-LOD parts too (the next frame's LOD pass puts them back) */ try { if (this.renderer.compileAsync) await Promise.race([this.renderer.compileAsync(this.scene, this.camera), wait(8000)]); else this.renderer.compile(this.scene, this.camera); } catch (e) { console.warn('compile', e); } pr(0.5); await this.warmLightSets((k) => pr(0.5 + k * 0.5)); pr(1); } },
-      { label: 'Waking the city', run: async (pr) => { for (let i = 0; i < 4; i++) { this.camera.rotation.y += Math.PI / 2; this.camera.updateMatrixWorld(); this.renderer.render(this.scene, this.camera); pr((i + 1) / 4); await new Promise((r) => requestAnimationFrame(r)); } } },
+      { label: 'Compiling shaders', run: async (pr) => { this.camera.position.set(points[0][0], 3, points[0][1] + 6); this.camera.lookAt(points[0][0], 1.5, points[0][1]); this.camera.updateMatrixWorld(); for (const v of LIVE_VEHICLES) setVehicleLOD(v.mesh.userData, true); /* near-LOD parts too (the next frame's LOD pass puts them back) */ const ws = this.shaderWarmSet(); this.scene.add(ws); try { await this.compileForGame(this.scene, 8000); } catch (e) { console.warn('compile', e); } finally { this.scene.remove(ws); } pr(0.5); await this.warmLightSets((k) => pr(0.5 + k * 0.5)); try { captureToCanvas(this.renderer, this.scene, this.camera, 0, 0, 2, 2); /* the map / busted capture output program */ } catch (e) { console.warn('capture warm', e); } pr(1); } },
+      { label: 'Waking the city', run: async (pr) => { for (let i = 0; i < 4; i++) { this.camera.rotation.y += Math.PI / 2; this.camera.updateMatrixWorld(); if (this.post) this.post.render(1 / 60); else this.renderer.render(this.scene, this.camera); /* through the real post chain: the main-pass target's programs, shadow-depth programs and every post pass */ pr((i + 1) / 4); await new Promise((r) => requestAnimationFrame(r)); } } },
     ], { minMs: TEST ? 1500 : 6200, onFlash: () => Audio.boom() });
     this.hud.fade(1, 0); await new Promise((r) => requestAnimationFrame(r));
     const gpu = gpuInfo(this.renderer); console.info('[COLOMBO] GPU:', gpu.label, '·', gpu.api, '·', gpu.kind);
@@ -238,11 +240,28 @@ export class Game {
     try {
       for (let i = 0; i < extra.length; i++) {
         while (g.children.length < extra[i]) { const l = new THREE.PointLight(0xffffff, 0, 1, 2); l.position.set(0, -800, 0); g.add(l); }
-        if (this.renderer.compileAsync) await Promise.race([this.renderer.compileAsync(this.scene, this.camera), wait(5000)]); else this.renderer.compile(this.scene, this.camera);
+        await this.compileForGame(this.scene, 5000);
         pr((i + 1) / extra.length);
       }
     } catch (e) { console.warn('light-set compile', e); }
     this.scene.remove(g); for (const l of g.children) l.dispose?.();
+  }
+  // Compile shader programs the way the game draws: the main pass renders into the composer's half-float target (linear output,
+  // tone mapping in the OutputPass), and a material's program depends on that. Compiling with no target bound — as the loading
+  // screen did — built the to-canvas variants, which the game never draws with, so the real ones compiled during the first
+  // seconds of play (and whenever something new came into view). KHR_parallel_shader_compile (compileAsync) keeps the page alive.
+  async compileForGame(root = this.scene, ms = 8000) {
+    const R = this.renderer, rt = this.post && this.post.composer ? this.post.composer.renderTarget1 : null, prev = R.getRenderTarget(); let p = null;
+    R.setRenderTarget(rt); try { if (R.compileAsync) p = R.compileAsync(root, this.camera, this.scene); else R.compile(root, this.camera, this.scene); } finally { R.setRenderTarget(prev); }
+    if (p) await Promise.race([p, wait(ms)]);
+  }
+  // materials that otherwise first appear mid-play: every vehicle's own lamp / beacon materials and its near-LOD parts, one of
+  // each body family, the police / ambulance units and every motorcycle (their parts differ: carbon, alloy, engine, livery)
+  shaderWarmSet() {
+    const g = new THREE.Group(); g.name = 'shaderWarm'; g.visible = false; const seen = new Set();
+    for (const [k, T] of Object.entries(VTYPES)) { const key = T.police ? 'police' : T.ambulance ? 'amb' : T.entry === 'bike' ? k : (T.base || k) + (T.family || ''); if (seen.has(key)) continue; seen.add(key);
+      try { const m = createVehicleMesh(k, 1); if (m.userData.detail) setVehicleLOD(m.userData, true); g.add(m); } catch (e) { console.warn('warm set', k, e); } }
+    return g;
   }
   setupRoomDoor() { const r = this.story.state.flags.room; this.interiors.setupDoors(r || null); }
   // ================================================================= services used by Story / Director

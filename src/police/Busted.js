@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import { Audio } from '../audio/Audio.js';
 import { clamp, lerp } from '../core/math.js';
+import { captureToCanvas } from '../gfx/LinearCapture.js';
 
 const sm = (x) => { const t = clamp(x, 0, 1); return t * t * (3 - 2 * t); };
 const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
@@ -48,7 +49,7 @@ export class BustedCinematic {
       // booking photo: shoot at the normal exposure, measure the face area, and re-shoot brighter only if it came out
       // genuinely dark (night, deep shade). Exposure is a uniform, so the re-shoot costs no shader rebuild.
       const exp0 = R.toneMappingExposure; const out = document.createElement('canvas'); out.width = 240; out.height = 300; const x = out.getContext('2d'); const ch = H * 0.62, cw = ch * 0.8;
-      const shoot = (e) => { R.toneMappingExposure = exp0 * e; R.setRenderTarget(null); R.render(g.scene, c); x.drawImage(R.domElement, (W - cw) / 2, (H - ch) / 2, cw, ch, 0, 0, 240, 300); };
+      const pr = R.getPixelRatio(); const shoot = (e) => { R.toneMappingExposure = exp0 * e; captureToCanvas(R, g.scene, c, 0, 0, W / pr, H / pr); /* the game's shader programs, not a to-canvas set compiled mid-arrest */ R.setScissorTest(false); R.setViewport(0, 0, W / pr, H / pr); x.drawImage(R.domElement, (W - cw) / 2, (H - ch) / 2, cw, ch, 0, 0, 240, 300); };
       const meter = () => { const im = x.getImageData(60, 60, 120, 150); let sum = 0; for (let i = 0; i < im.data.length; i += 16) sum += im.data[i] * 0.3 + im.data[i + 1] * 0.59 + im.data[i + 2] * 0.11; return sum / (im.data.length / 16) / 255; };
       try { shoot(1); const mean = meter(); this.mugMean = mean; if (mean < 0.2) shoot(clamp(0.3 / Math.max(0.02, mean), 1, 5)); } finally { R.toneMappingExposure = exp0; }
       return out.toDataURL('image/jpeg', 0.85);
