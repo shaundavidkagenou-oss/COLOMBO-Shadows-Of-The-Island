@@ -11,8 +11,8 @@ const { Crowd } = await import('../src/actors/Crowd.js'); const { Collision } = 
 const { RagdollWorld } = await import('../src/actors/Ragdoll.js');
 const V = process.env.V; let pass = 0, fail = 0; const ok = (c, m) => { if (c) pass++; else { fail++; console.log('FAIL', m); } };
 // deterministic spot list: kerb edges, roads, pavements, park, bridges, water edges
-{ let ms = +(process.env.SEED || 1); Math.random = () => ((ms = (ms * 48271) % 2147483647) / 2147483647); } // the crowd's own randomness, seeded: a failure is reproducible (SEED=n)
-let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+let ms = +(process.env.SEED || 1); Math.random = () => ((ms = (ms * 48271) % 2147483647) / 2147483647); // the crowd's own randomness, seeded: a failure is reproducible (SEED=n)
+let seed = +(process.env.RS || 7); const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
 const B = L.BOUNDS; const spots = { kerb: [], road: [], walk: [], park: [], bridge: [], shore: [] };
 const PK = (await import('../src/world/Parks.js')).PARK;
 for (let i = 0; i < 400000 && Object.values(spots).some((a) => a.length < 6); i++) {
@@ -36,6 +36,7 @@ let cases = 0, soft = 0, skipped = 0;
 const AT = process.env.AT ? process.env.AT.split(',').map(Number) : null; if (AT) { for (const k in spots) spots[k] = []; spots.debug = [[AT[0], AT[1]]]; }
 for (const [kind, list] of Object.entries(spots)) for (const [sx, sz] of list) for (const dt of [1 / 60, 1 / 30, 0.1]) for (const how of ['punch', 'kill', 'car']) {
   if (AT && (AT[2] && Math.abs(dt - AT[2]) > 1e-4 || process.env.HOW && process.env.HOW !== how)) continue;
+  if (process.env.STATES) console.log('STATE', how, sx.toFixed(1), sz.toFixed(1), dt.toFixed(3), 'MS', ms, 'RS', seed); if (AT && process.env.MS) { ms = +process.env.MS; seed = +process.env.RS; } // replay one case of a full run exactly
   const focus = { x: sx, z: sz }; const ctx = { simTime: 0, vehicles: [], player: { x: sx - 30, z: sz, vehicle: null, ch: null }, bodies: [], hourFactor: 1, hour: 12 };
   for (const p of C.peds.slice()) { C.despawn(p); } C.peds.length = 0;
   for (let i = 0; i < 60 && !C.peds.length; i++) C.update(1 / 30, focus, [0, 1], ctx);

@@ -25,8 +25,12 @@ export class Collision {
     return out;
   }
   // Height of walkable ground at (x,z) for something whose feet are at y (decks above feet+step are ignored).
-  groundAt(x, z, y = 0, step = 0.6) {
+  // faces: the raised copings along the seawall / lake are part of the terrain height, so by default they count as floor
+  // wherever x,z falls on them; with faces = true a coping top out of reach from y (more than `step` above) is a face, and
+  // the ground there is the land at its foot (ragdoll joints swung against the seawall stay beside it, not snapped on top)
+  groundAt(x, z, y = 0, step = 0.6, faces = false) {
     let g = L.surfaceY(x, z); // terrain or the paving laid on it
+    if (faces && g > y + step) { const cp = L.copingAt(x, z); if (cp !== null && g === cp) g = L.LAND_Y; }
     for (const c of this.query(x, z, x, z)) {
       if (x < c.x0 || x > c.x1 || z < c.z0 || z > c.z1) continue;
       if (SURFACE.has(c.kind) || c.h <= step + 0.05) { const top = c.y0 !== undefined ? c.y0 + c.h : c.h; if (top <= y + step && top > g) g = top; }
@@ -88,6 +92,18 @@ export class Collision {
       if (t0 < t1 && t0 < best) { best = t0; // the face entered: its outward normal (towards a) and its plane coordinate
         if (ax0 === 0) { hit.axis = 0; hit.nx = dx > 0 ? -1 : 1; hit.nz = 0; hit.face = dx > 0 ? c.x0 : c.x1; } else { hit.axis = 1; hit.nx = 0; hit.nz = dz > 0 ? -1 : 1; hit.face = dz > 0 ? c.z0 : c.z1; } }
     }
+    return this.sweepCoping(ax, az, dx, dz, y, step, best, hit);
+  }
+  // the seawall / lake copings are terrain height, not boxes: a segment starting off one that runs into a coping top more
+  // than `step` above y meets its face (marched in 10 cm steps, the crossing bisected; the normal points to the open side)
+  sweepCoping(ax, az, dx, dz, y, step, best, hit) {
+    const cop = (x, z) => { const c = L.copingAt(x, z); return c !== null && c > y + step && L.surfaceY(x, z) === c; };
+    if (cop(ax, az)) return best; const len = Math.hypot(dx, dz), n = Math.max(1, Math.ceil(len * best / 0.1)); let t0 = 0;
+    for (let i = 1; i <= n; i++) { const t = best * i / n; if (!cop(ax + dx * t, az + dz * t)) { t0 = t; continue; }
+      let lo = t0, hi = t; for (let k = 0; k < 6; k++) { const m = (lo + hi) * 0.5; if (cop(ax + dx * m, az + dz * m)) hi = m; else lo = m; }
+      const px = ax + dx * lo, pz = az + dz * lo; let nx = 0, nz = 0; for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4, cx = Math.cos(a), cz = Math.sin(a); if (!cop(px + cx * 0.08, pz + cz * 0.08)) { nx += cx; nz += cz; } }
+      const nl = Math.hypot(nx, nz); if (nl < 1e-6) { nx = -dx / len; nz = -dz / len; } else { nx /= nl; nz /= nl; }
+      hit.axis = 2; hit.nx = nx; hit.nz = nz; hit.px = px; hit.pz = pz; hit.face = 0; return lo; }
     return best;
   }
   // is (x, z) inside another box that resolveCircle treats as solid at this height (used to pick a clear way out)
