@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { MultiBuilder, SliceBuild, meshFor, FOLIAGE } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
 import { RangeBatch, rangesFor, disposeMesh } from '../gfx/CellBatch.js';
-import { GroundDetail } from './GroundDetail.js';
+import { GroundDetail, regTrees } from './GroundDetail.js';
 import { generatePlan, plan, NCX, NCZ, CHUNK, chunkCenter, refitTreeCrowns, landmarkTreeBoxes } from './CityPlan.js';
 import { buildGround } from './GroundBuilder.js';
 import { buildBase, buildDetail, buildWall, windowTasks, frontColumns } from './BuildingGen.js';
@@ -80,7 +80,7 @@ export class World {
     this.parkLife = new ParkLife(this, this.parkFeatures, quality); this.root.add(this.parkLife.group); // fireflies, fountain water, fruit bats, oil lamps
     upgradeGroundGrass(MAT.grass, 0.8); upgradeGroundGrass(MAT.lawn, 0.3);
     this.grass = new GrassField(this, this.collision); this.grass.setQuality(this.quality || 'high'); this.root.add(this.grass.mesh);
-    this.groundDetail = new GroundDetail(); this.groundDetail.setQuality(this.quality || quality || 'high'); this.root.add(this.groundDetail.group); // modelled bricks / kerb stones / ballast / rail clips near the camera
+    regTrees(plan.trees); this.groundDetail = new GroundDetail(); this.groundDetail.setQuality(this.quality || quality || 'high'); this.root.add(this.groundDetail.group); // modelled bricks / kerb stones / ballast / rail clips near the camera
     progress(0.86, 'Filling the ocean and Beira Lake'); await tick();
     this.water = buildWater(); this.root.add(this.water); this.waterRefl = new WaterReflection(this.water);
     progress(0.9, 'Outer suburbs'); await tick();

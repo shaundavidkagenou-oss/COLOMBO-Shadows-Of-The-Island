@@ -20,12 +20,17 @@ import * as RW from './Railway.js';
 
 const T = 8; // tile size (m)
 const RY = L.ROAD_Y, LY = L.LAND_Y;
-const REG = { walk: new Map(), kerb: new Map() };
+const REG = { walk: new Map(), kerb: new Map(), man: new Map(), tree: new Map() };
 const key = (i, j) => (i + 2000) * 4096 + (j + 2000);
 function addTo(map, x0, z0, x1, z1, item) {
   for (let i = Math.floor(x0 / T); i <= Math.floor(x1 / T); i++) for (let j = Math.floor(z0 / T); j <= Math.floor(z1 / T); j++) { const k = key(i, j); let a = map.get(k); if (!a) map.set(k, (a = [])); a.push(item); }
 }
-export function resetGroundDetail() { REG.walk.clear(); REG.kerb.clear(); }
+export function resetGroundDetail() { REG.walk.clear(); REG.kerb.clear(); REG.man.clear(); }
+// cast-iron manhole covers laid by GroundBuilder.roadWear (cover radius r, top at RY + 0.02)
+export function regManhole(x, z, r = 0.33) { addTo(REG.man, x, z, x, z, { x, z, r }); }
+// trees (CityPlan): their fallen leaves gather on the ground under the crown
+export function regTrees(trees) { REG.tree.clear(); for (const t of trees || []) { const R = 4.2 * (t.s || 1); addTo(REG.tree, t.x - R, t.z - R, t.x + R, t.z + R, { x: t.x, z: t.z, R }); } }
+const hash2 = (a, b, k = 0) => { const v = Math.sin(a * 12.9898 + b * 78.233 + k * 37.719) * 43758.5453; return v - Math.floor(v); };
 export function regWalkRect(x0, z0, x1, z1, grey) { if (x1 - x0 > 0.2 && z1 - z0 > 0.2) addTo(REG.walk, x0, z0, x1, z1, { t: 0, x0, z0, x1, z1, grey }); }
 // quarter disc of radius r centred (cx, cz), the quadrant towards (−sx, −sz) (GroundBuilder's rounded corner paving)
 export function regWalkCorner(cx, cz, r, sx, sz, grey) { if (r > 0.2) addTo(REG.walk, cx - r, cz - r, cx + r, cz + r, { t: 1, cx, cz, r, sx, sz, grey }); }
@@ -98,14 +103,66 @@ function fasteningGeometry() {
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); return g;
 }
 
+// a tuft of weed / grass blades (bent tapered blades, two segments each), base at the origin; colour by vertex (green → dry)
+function tuftGeometry(seed) {
+  let s = seed; const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+  const pos = [], nor = [], col = [], idx = []; const nB = 9;
+  for (let b = 0; b < nB; b++) { const a = rnd() * 6.283, lean = 0.25 + rnd() * 0.55, h = 0.035 + rnd() * 0.06, w = 0.0026 + rnd() * 0.0018; const dry = rnd() < 0.3;
+    const dx = Math.cos(a), dz = Math.sin(a), px = -dz, pz = dx; const ox = dx * 0.006 * rnd(), oz = dz * 0.006 * rnd(); const base = pos.length / 3;
+    const c0 = dry ? [0.36, 0.33, 0.16] : [0.15, 0.25, 0.07], c1 = dry ? [0.62, 0.55, 0.3] : [0.36, 0.5, 0.16];
+    for (let k = 0; k <= 2; k++) { const t = k / 2; const r = lean * h * t * t, y = h * t * (1 - 0.25 * lean * t); const ww = w * (1 - t * 0.85);
+      for (const e of [-1, 1]) { pos.push(ox + dx * r + px * ww * e, y, oz + dz * r + pz * ww * e); nor.push(dx * 0.4, 0.9, dz * 0.4); col.push(...c0.map((v, i) => v + (c1[i] - v) * t)); } }
+    for (let k = 0; k < 2; k++) { const i0 = base + k * 2; idx.push(i0, i0 + 1, i0 + 3, i0, i0 + 3, i0 + 2); } }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.setIndex(idx); return g;
+}
+// a fallen leaf, unit length along z, curled across its width and bowed along its length (dry leaves cup upward)
+function leafGeometry(curl) {
+  const pos = [], nor = [], idx = []; const NL = 6;
+  for (let i = 0; i <= NL; i++) { const t = i / NL; const z = t - 0.5; const hw = 0.22 * Math.sin(Math.PI * Math.pow(t, 0.8)) + 0.004; const bow = 0.05 * Math.sin(Math.PI * t);
+    for (const e of [-1, 0, 1]) { const x = e * hw; pos.push(x, bow + curl * (e * e) * hw * 1.6 + 0.004, z); nor.push(-e * curl * 0.8, 1, 0); } }
+  for (let i = 0; i < NL; i++) { const a = i * 3; for (let e = 0; e < 2; e++) idx.push(a + e, a + e + 3, a + e + 4, a + e, a + e + 4, a + e + 1); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setIndex(idx); g.computeVertexNormals(); return g;
+}
+// street litter: crown cap (fluted rim), cigarette butt (filter + paper), crumpled paper ball — colour by vertex
+function litterGeometries() {
+  const paint = (g, fn) => { const P = g.attributes.position, c = []; for (let i = 0; i < P.count; i++) c.push(...fn(P.getX(i), P.getY(i), P.getZ(i))); g.setAttribute('color', new THREE.Float32BufferAttribute(c, 3)); return g; };
+  const cap = new THREE.CylinderGeometry(0.0145, 0.016, 0.006, 12, 1); cap.translate(0, 0.003, 0); paint(cap, () => [0.75, 0.74, 0.7]);
+  const butt = new THREE.CylinderGeometry(0.0042, 0.0042, 0.032, 6, 2); butt.rotateZ(Math.PI / 2); butt.translate(0, 0.004, 0); paint(butt, (x) => (x < -0.004 ? [0.78, 0.5, 0.25] : [0.93, 0.92, 0.88]));
+  const paper = new THREE.IcosahedronGeometry(0.022, 1); { const P = paper.attributes.position; for (let i = 0; i < P.count; i++) { const k = 0.75 + 0.45 * hash2(P.getX(i) * 97, P.getZ(i) * 89, P.getY(i) * 71); P.setXYZ(i, P.getX(i) * k, P.getY(i) * k * 0.8 + 0.016, P.getZ(i) * k); } paper.computeVertexNormals(); paint(paper, () => [0.9, 0.89, 0.85]); }
+  return [cap, butt, paper];
+}
+// cast-iron manhole cover top detail (on a 0.33 m cover): two raised rings, radial ribs between them, a diamond grip
+// pattern in the centre, two dark pick holes — 1.5–3 mm raised relief, base at the cover's top face (y = 0)
+function manholeGeometry() {
+  const parts = []; const add = (g) => { parts.push(g.index ? g.toNonIndexed() : g); };
+  const ring = (r, w, h) => { const g = new THREE.RingGeometry(r - w / 2, r + w / 2, 40, 1); g.rotateX(-Math.PI / 2); g.translate(0, h, 0); add(g); const side = new THREE.CylinderGeometry(r + w / 2, r + w / 2, h, 40, 1, true); side.translate(0, h / 2, 0); add(side); };
+  ring(0.305, 0.022, 0.003); ring(0.17, 0.016, 0.0028);
+  for (let k = 0; k < 16; k++) { const a = (k / 16) * Math.PI * 2; const b = new THREE.BoxGeometry(0.012, 0.0025, 0.12); b.translate(0, 0.00125, 0.237); b.rotateY(a); add(b); }
+  for (let i = -4; i <= 4; i++) for (let j = -4; j <= 4; j++) { const x = i * 0.034, z = j * 0.034; if (Math.hypot(x, z) > 0.145) continue; const b = new THREE.BoxGeometry(0.016, 0.0022, 0.016); b.rotateY(Math.PI / 4); b.translate(x, 0.0011, z); add(b); }
+  const pos = [], nor = [], col = []; for (const g of parts) { const P = g.attributes.position, Nn = g.attributes.normal; for (let i = 0; i < P.count; i++) { pos.push(P.getX(i), P.getY(i), P.getZ(i)); nor.push(Nn.getX(i), Nn.getY(i), Nn.getZ(i)); col.push(0.3, 0.29, 0.27); } g.dispose(); }
+  for (const sd of [-1, 1]) { const h = new THREE.CircleGeometry(0.011, 10); h.rotateX(-Math.PI / 2); h.translate(sd * 0.235, 0.0004, 0); const P = h.toNonIndexed(); const Q = P.attributes.position; for (let i = 0; i < Q.count; i++) { pos.push(Q.getX(i), Q.getY(i), Q.getZ(i)); nor.push(0, 1, 0); col.push(0.02, 0.02, 0.02); } h.dispose(); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); return g;
+}
+// rail joint: a fishplate either side of the rail web (x across the rail, z along) with four bolts through, heads on the
+// outside, nuts on the inside; origin at the web centre
+function fishplateGeometry() {
+  const parts = []; const add = (g, c) => { const n = g.index ? g.toNonIndexed() : g; n.userData.c = c; parts.push(n); };
+  for (const e of [-1, 1]) { const b = new THREE.BoxGeometry(0.014, 0.075, 0.6); b.translate(e * 0.016, 0, 0); add(b, [0.32, 0.25, 0.2]);
+    for (const z of [-0.21, -0.07, 0.07, 0.21]) { const h = new THREE.CylinderGeometry(0.013, 0.013, 0.014, 6, 1); h.rotateZ(Math.PI / 2); h.translate(e * 0.03, 0.004, z); add(h, e > 0 ? [0.36, 0.3, 0.25] : [0.28, 0.22, 0.18]); } }
+  const pos = [], nor = [], col = []; for (const g of parts) { const P = g.attributes.position, Nn = g.attributes.normal; for (let i = 0; i < P.count; i++) { pos.push(P.getX(i), P.getY(i), P.getZ(i)); nor.push(Nn.getX(i), Nn.getY(i), Nn.getZ(i)); col.push(...g.userData.c); } g.dispose(); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); return g;
+}
+
 // ---------------------------------------------------------------- materials
 const DET_R = { value: 13 };
-function patchDetail(m, { uvScale = 0, sink = 0, tag }) {
+const DET_T = { value: 0 };
+function patchDetail(m, { uvScale = 0, sink = 0, tag, sway = 0 }) {
   m.onBeforeCompile = (sh) => {
-    sh.uniforms.uDetR = DET_R;
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uDetR;').replace('#include <begin_vertex>', `#include <begin_vertex>
+    sh.uniforms.uDetR = DET_R; sh.uniforms.uDetT = DET_T;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uDetR;\nuniform float uDetT;').replace('#include <begin_vertex>', `#include <begin_vertex>
   { vec4 ip = modelMatrix * instanceMatrix * vec4( 0.0, 0.0, 0.0, 1.0 ); float dd = distance( ip.xz, cameraPosition.xz );
     transformed.y -= ${sink.toFixed(4)} * smoothstep( uDetR - 3.0, uDetR, dd );
+    ${sway ? `float sw = transformed.y * ${sway.toFixed(3)}; transformed.x += sw * sin( uDetT * 2.1 + ip.x * 1.7 + ip.z * 0.9 ); transformed.z += sw * 0.7 * sin( uDetT * 1.6 + ip.z * 1.9 );` : ''}
     ${uvScale ? `vec4 wq = modelMatrix * instanceMatrix * vec4( transformed, 1.0 ); vMapUv = vec2( wq.x, -wq.z ) / ${uvScale.toFixed(3)};` : ''} }`);
   };
   m.customProgramCacheKey = () => 'gdet-' + tag;
@@ -115,11 +172,11 @@ function patchDetail(m, { uvScale = 0, sink = 0, tag }) {
 // ---------------------------------------------------------------- the field
 export class GroundDetail {
   constructor() {
-    this.group = new THREE.Group(); this.group.name = 'groundDetail'; this.tiles = new Map(); this.R = 13; if (typeof window !== 'undefined') window.__groundDetail = this; // debug / test handle this.ballastK = 1; this.ready = false;
+    this.group = new THREE.Group(); this.group.name = 'groundDetail'; this.tiles = new Map(); this.R = 13; this.ballastK = 1; this.ready = false; this.t = 0; if (typeof window !== 'undefined') window.__groundDetail = this; // debug / test handle
   }
   init() {
     if (this.ready) return; this.ready = true;
-    this.geo = { brick: brickGeometry(), kerb: kerbGeometry(), stones: [stoneGeometry(11), stoneGeometry(29), stoneGeometry(47)], fast: fasteningGeometry() };
+    this.geo = { brick: brickGeometry(), kerb: kerbGeometry(), stones: [stoneGeometry(11), stoneGeometry(29), stoneGeometry(47)], fast: fasteningGeometry(), tufts: [tuftGeometry(5), tuftGeometry(17), tuftGeometry(41)], leaves: [leafGeometry(0.35), leafGeometry(0.9)], litter: litterGeometries(), man: manholeGeometry(), fish: fishplateGeometry() };
     const std = (o) => new THREE.MeshStandardMaterial(o);
     this.mat = {
       walk: patchDetail(std({ map: TEX.pavers, roughness: 0.9 }), { uvScale: 2, sink: 0.012, tag: 'walk' }),
@@ -127,6 +184,11 @@ export class GroundDetail {
       kerb: patchDetail(std({ map: TEX.concrete, roughness: 0.85 }), { sink: 0.016, tag: 'kerb' }),
       stone: patchDetail(std({ color: 0x8d8a85, roughness: 0.93, flatShading: true }), { sink: 0.07, tag: 'stone' }), // plain granite tones per stone (the bed texture's dark joints made the stones read as specks)
       fast: patchDetail(std({ vertexColors: true, roughness: 0.6, metalness: 0.35 }), { sink: 0.07, tag: 'fast' }),
+      tuft: patchDetail(std({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide }), { sink: 0.1, tag: 'tuft', sway: 0.12 }),
+      leaf: patchDetail(std({ color: 0xffffff, roughness: 0.82, side: THREE.DoubleSide }), { sink: 0.03, tag: 'leaf' }),
+      litter: patchDetail(std({ vertexColors: true, roughness: 0.55, metalness: 0.2 }), { sink: 0.04, tag: 'litter' }),
+      fish: patchDetail(std({ vertexColors: true, roughness: 0.6, metalness: 0.35 }), { sink: 0.07, tag: 'fish' }),
+      iron: patchDetail(std({ vertexColors: true, roughness: 0.5, metalness: 0.55 }), { sink: 0.006, tag: 'iron' }),
     };
   }
   setQuality(q) {
@@ -135,7 +197,7 @@ export class GroundDetail {
   }
   dropTile(t) { for (const m of t.meshes) { this.group.remove(m); m.dispose(); } }
   update(camera) {
-    if (!this.R || !camera) return; if (!TEX.pavers || !MAT.walk) return; this.init();
+    if (!this.R || !camera) return; if (!TEX.pavers || !MAT.walk) return; this.init(); this.t += 1 / 60; DET_T.value = this.t;
     // follow the ground materials' wet / time-of-day state (Materials.updateMaterials drives MAT.walk / kerb)
     for (const [d, s] of [[this.mat.walk, MAT.walk], [this.mat.walkGrey, MAT.walkGrey], [this.mat.kerb, MAT.kerb]]) { d.roughness = s.roughness; d.color.copy(s.color); d.envMapIntensity = s.envMapIntensity; if (s.envMap) d.envMap = s.envMap; }
     const cx = camera.position.x, cz = camera.position.z; const high = camera.position.y - LY > 25; // aerial views: nothing at this scale is visible
@@ -147,7 +209,9 @@ export class GroundDetail {
     const order = [...need].filter((k) => !this.tiles.has(k)); order.sort((a, b) => this.tileDist(a, cx, cz) - this.tileDist(b, cx, cz));
     for (const k of order) { if (budget-- <= 0) break; this.tiles.set(k, this.buildTile(k)); }
   }
-  stats() { const o = { tiles: this.tiles.size }; for (const t of this.tiles.values()) for (const m of t.meshes) { const k = m.material === this.mat.kerb ? 'kerb' : m.material === this.mat.stone ? 'stone' : m.material === this.mat.fast ? 'fast' : 'brick'; o[k] = (o[k] || 0) + m.count; } return o; }
+  // debug: nearest registered manhole / tree to (x, z) (shots and tests aim at them)
+  nearest(x, z) { const best = (map) => { let b = null, bd = 1e9; for (const arr of map.values()) for (const o of arr) { const d = Math.hypot(o.x - x, o.z - z); if (d < bd) { bd = d; b = o; } } return b && { x: b.x, z: b.z, d: +bd.toFixed(1), R: b.R }; }; return { man: best(REG.man), tree: best(REG.tree) }; }
+  stats() { const o = { tiles: this.tiles.size }; for (const t of this.tiles.values()) for (const m of t.meshes) { const k = Object.keys(this.mat).find((n) => this.mat[n] === m.material) || '?'; o[k] = (o[k] || 0) + m.count; } return o; }
   tileDist(k, cx, cz) { const i = Math.floor(k / 4096) - 2000, j = (k % 4096) - 2000; return Math.hypot(i * T + T / 2 - cx, j * T + T / 2 - cz); }
   inst(geo, mat, list, colors = null) { // list: Float32Array-able array of 16-float matrices
     const n = list.length / 16; if (!n) return null; const m = new THREE.InstancedMesh(geo, mat, n); m.instanceMatrix.array.set(list); m.instanceMatrix.needsUpdate = true;
@@ -157,7 +221,8 @@ export class GroundDetail {
   buildTile(k) {
     const i = Math.floor(k / 4096) - 2000, j = (k % 4096) - 2000; const x0 = i * T, z0 = j * T, x1 = x0 + T, z1 = z0 + T; const meshes = [];
     const walks = REG.walk.get(k) || [], kerbs = REG.kerb.get(k) || [];
-    const M = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(1, 1, 1), p = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+    const M = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(1, 1, 1), p = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), E = new THREE.Euler();
+    const tufts = []; // [x, z, scale, rand] weeds at ground level (y from the surface at that point)
     // footpath bricks at the texture's own brick positions (global rows of 0.125 m; odd rows offset half a brick)
     if (walks.length) { const red = [], grey = [];
       for (let R = Math.floor(z0 / 0.125); R * 0.125 < z1; R++) { const bz = R * 0.125 + B0; const off = (R & 1) * 0.125;
@@ -165,7 +230,9 @@ export class GroundDetail {
           if (mx < x0 || mx >= x1 || mz < z0 || mz >= z1) continue; const it = walkAt(walks, mx, mz); if (!it) continue;
           let ok = true; for (const [ex, ez] of [[bx - 0.004, bz - 0.004], [bx + BW + 0.004, bz - 0.004], [bx - 0.004, bz + BH + NOTCH + 0.004], [bx + BW + 0.004, bz + BH + NOTCH + 0.004]]) if (!walkAt(walks, ex, ez)) { ok = false; break; }
           if (!ok) continue; for (const s of kerbs) { for (const [ex, ez] of [[bx, bz], [bx + BW, bz], [bx, bz + BH + NOTCH], [bx + BW, bz + BH + NOTCH]]) if (segDist(ex, ez, s) < 0.158) { ok = false; break; } if (!ok) break; } if (!ok) continue; // clear of the kerb stones
-          M.makeTranslation(bx, LY, bz); (it.grey ? grey : red).push(...M.elements); } }
+          { const h1 = hash2(R, c), h2 = hash2(R, c, 1), h3 = hash2(R, c, 2); const settled = h3 < 0.006; /* laid by hand: each brick sits a little high or low and tilts a touch; a few have settled */
+            q.setFromEuler(E.set((h1 - 0.5) * 0.016, 0, (h2 - 0.5) * 0.016)); p.set(bx, LY + (h2 - 0.5) * 0.0024 - (settled ? 0.004 : 0), bz); sc.set(1, 1, 1); M.compose(p, q, sc); (it.grey ? grey : red).push(...M.elements);
+            if (h3 > 0.9965) tufts.push([bx - 0.006, bz - 0.006, 0.4 + 0.4 * h1, h2]); /* a weed in the joint */ } } }
       const a = this.inst(this.geo.brick, this.mat.walk, red), b = this.inst(this.geo.brick, this.mat.walkGrey, grey); if (a) meshes.push(a); if (b) meshes.push(b); }
     // kerb stones (blocks whose centre is in this tile)
     if (kerbs.length) { const mats = [], cols = [];
@@ -177,6 +244,26 @@ export class GroundDetail {
         for (let b = 0; b < nb; b++) { const t = (b + 0.5) / nb; const bx = s.x0 + (s.x1 - s.x0) * t, bz = s.z0 + (s.z1 - s.z0) * t; if (bx < x0 || bx >= x1 || bz < z0 || bz >= z1) continue;
           M.makeBasis(new THREE.Vector3(dx, 0, dz), up, new THREE.Vector3(nx, 0, nz)); q.setFromRotationMatrix(M); p.set(bx, LY, bz); sc.set(bl - 0.005, 1, 1); M.compose(p, q, sc); mats.push(...M.elements); cols.push(...s.col); } }
       const m = this.inst(this.geo.kerb, this.mat.kerb, mats, cols); if (m) meshes.push(m); }
+    // weeds behind the kerb stones (the strip between kerb and paving collects soil) and along the walk's building side
+    for (const s of kerbs) { const len = Math.hypot(s.x1 - s.x0, s.z1 - s.z0); if (len < 0.3) continue; const dx = (s.x1 - s.x0) / len, dz = (s.z1 - s.z0) / len; let nx = -dz, nz = dx;
+      const mx = (s.x0 + s.x1) / 2, mz = (s.z0 + s.z1) / 2; const all = REG.walk.get(key(Math.floor((mx + nx * 0.3) / T), Math.floor((mz + nz * 0.3) / T))) || []; if (!walkAt(all, mx + nx * 0.3, mz + nz * 0.3)) { nx = -nx; nz = -nz; }
+      for (let t = 0.2; t < len; t += 0.45) { const h = hash2(Math.round((s.x0 + dx * t) * 10), Math.round((s.z0 + dz * t) * 10), 3); if (h > 0.3) continue; const x = s.x0 + dx * t + nx * 0.165, z = s.z0 + dz * t + nz * 0.165; if (x < x0 || x >= x1 || z < z0 || z >= z1) continue; tufts.push([x, z, 0.6 + h * 2.2, h * 3.3]); } }
+    for (const it of walks) { if (it.t !== 0) continue; const edges = [[it.x0, it.z0, it.x1, it.z0, 0, -1], [it.x0, it.z1, it.x1, it.z1, 0, 1], [it.x0, it.z0, it.x0, it.z1, -1, 0], [it.x1, it.z0, it.x1, it.z1, 1, 0]];
+      for (const [ax, az, bx2, bz2, ox, oz] of edges) { const len = Math.hypot(bx2 - ax, bz2 - az); for (let t = 0.25; t < len; t += 0.5) { const x = ax + (bx2 - ax) * t / len - ox * 0.05, z = az + (bz2 - az) * t / len - oz * 0.05; if (x < x0 || x >= x1 || z < z0 || z >= z1) continue;
+        if (walkAt(walks, x + ox * 0.15, z + oz * 0.15)) continue; let nearK = false; for (const s of kerbs) if (segDist(x, z, s) < 0.6) { nearK = true; break; } if (nearK) continue; const h = hash2(Math.round(x * 10), Math.round(z * 10), 4); if (h > 0.4) continue; tufts.push([x, z, 0.9 + h * 2.2, h * 2.5]); } } }
+    const groundY = (x, z) => { if (walkAt(walks, x, z)) return LY + 0.0078; if (L.roadAt(x, z)) { for (const s of kerbs) if (segDist(x, z, s) < 0.75) return RY + 0.001; return null; } return LY + 0.002; }; // on the bricks, in the gutter, or on soil
+    if (tufts.length) { const lists = [[], [], []]; for (const [x, z, k, r] of tufts) { const y = groundY(x, z); if (y === null) continue; q.setFromEuler(E.set(0, r * 6.283, 0)); p.set(x, y - 0.002, z); sc.set(k, k * (0.8 + 0.4 * (r % 1)), k); M.compose(p, q, sc); lists[Math.floor((r * 7) % 3)].push(...M.elements); }
+      for (let v = 0; v < 3; v++) { const m = this.inst(this.geo.tufts[v], this.mat.tuft, lists[v]); if (m) meshes.push(m); } }
+    // fallen leaves under the trees (denser near the trunk) and a light scatter of blown leaves and litter on the walks / gutters
+    { const LV = [[], []], LC = [[], []]; const PAL = [[0.55, 0.36, 0.16], [0.68, 0.52, 0.2], [0.42, 0.29, 0.14], [0.5, 0.55, 0.22], [0.34, 0.22, 0.12], [0.6, 0.44, 0.24]]; let sd = (i * 92821 + j * 68917) >>> 0 || 7; const rnd = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);
+      const leaf = (x, z) => { if (x < x0 || x >= x1 || z < z0 || z >= z1) return; const y = groundY(x, z); if (y === null) return; const v = rnd() < 0.55 ? 1 : 0; const sz = 0.045 + rnd() * 0.05; q.setFromEuler(E.set((rnd() - 0.5) * 0.3, rnd() * 6.283, (rnd() - 0.5) * 0.3)); p.set(x, y, z); sc.set(sz, sz, sz); M.compose(p, q, sc); LV[v].push(...M.elements); const c = PAL[Math.floor(rnd() * PAL.length)], t = 0.85 + rnd() * 0.3; LC[v].push(c[0] * t, c[1] * t, c[2] * t); };
+      for (const tr of REG.tree.get(k) || []) { const n = Math.round(tr.R * tr.R * 3.2); for (let e = 0; e < n; e++) { const a = rnd() * 6.283, r = tr.R * Math.pow(rnd(), 0.75); leaf(tr.x + Math.cos(a) * r, tr.z + Math.sin(a) * r); } }
+      if (walks.length) for (let e = 0; e < 14; e++) leaf(x0 + rnd() * T, z0 + rnd() * T);
+      for (let v = 0; v < 2; v++) { const m = this.inst(this.geo.leaves[v], this.mat.leaf, LV[v], LC[v]); if (m) meshes.push(m); }
+      const LT = [[], [], []]; for (const s of kerbs) { const len = Math.hypot(s.x1 - s.x0, s.z1 - s.z0); for (let t = rnd() * 3; t < len; t += 1.5 + rnd() * 4) { const dx = (s.x1 - s.x0) / len, dz = (s.z1 - s.z0) / len; const o = (rnd() < 0.5 ? -1 : 1) * (0.2 + rnd() * 0.3); const x = s.x0 + dx * t - dz * o, z = s.z0 + dz * t + dx * o; if (x < x0 || x >= x1 || z < z0 || z >= z1) continue; const y = groundY(x, z); if (y === null) continue; const v = Math.floor(rnd() * 3); q.setFromEuler(E.set(0, rnd() * 6.283, 0)); p.set(x, y, z); sc.set(1, 1, 1); M.compose(p, q, sc); LT[v].push(...M.elements); } }
+      for (let v = 0; v < 3; v++) { const m = this.inst(this.geo.litter[v], this.mat.litter, LT[v]); if (m) meshes.push(m); } }
+    // manhole cover relief (the cover itself is part of the road mesh)
+    { const MH = []; for (const mh of REG.man.get(k) || []) { M.makeRotationY(hash2(mh.x, mh.z) * 6.283); M.setPosition(mh.x, RY + 0.0202, mh.z); MH.push(...M.elements); } const m = this.inst(this.geo.man, this.mat.iron, MH); if (m) meshes.push(m); }
     // railway: ballast stones + fastenings along the track segments crossing this tile
     if (this.ballastK > 0) this.trackDetail(x0, z0, x1, z1, meshes, i * 7919 + j * 104729);
     return { meshes };
@@ -184,7 +271,7 @@ export class GroundDetail {
   trackDetail(x0, z0, x1, z1, meshes, seed) {
     const P = RW.PATH, n = P.xs.length; const STEP = 2; const deckAt = (s) => RW.CROSSINGS.some((c) => Math.abs(s - c.s) <= c.half);
     let s0 = seed >>> 0 || 1; const rnd = () => ((s0 = (s0 * 16807) % 2147483647) / 2147483647);
-    const stones = [[], [], []], stoneCol = [[], [], []], fast = []; const M = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), p = new THREE.Vector3(), sc = new THREE.Vector3();
+    const stones = [[], [], []], stoneCol = [[], [], []], fast = [], fish = []; const M = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), p = new THREE.Vector3(), sc = new THREE.Vector3();
     for (let k = 0; k < n - 1; k++) {
       const ax = P.xs[k], az = P.zs[k], bx = P.xs[k + 1], bz = P.zs[k + 1]; if (Math.max(ax, bx) < x0 - 3.2 || Math.min(ax, bx) > x1 + 3.2 || Math.max(az, bz) < z0 - 3.2 || Math.min(az, bz) > z1 + 3.2) continue;
       const mx = (ax + bx) / 2, mz = (az + bz) / 2; if (L.isWater(mx, mz)) continue; if (deckAt((k + 0.5) * STEP)) continue;
@@ -192,6 +279,7 @@ export class GroundDetail {
       // fastenings on every sleeper (GroundBuilder/Railway lay sleepers every 0.65 m from each segment's start)
       for (let s = 0; s < l; s += 0.65) { const sx = ax + dx * s, sz = az + dz * s; for (const sd of [-1, 1]) { const fx = sx + nx * sd * RW.RAIL_OFF, fz = sz + nz * sd * RW.RAIL_OFF; if (fx < x0 || fx >= x1 || fz < z0 || fz >= z1) continue;
         q.setFromEuler(e.set(0, yaw, 0)); p.set(fx, RW.SLEEPER_TOP, fz); /* local x → across the track */ sc.set(1, 1, 1); M.compose(p, q, sc); fast.push(...M.elements); } }
+      if (k % 6 === 3) for (const sd of [-1, 1]) { const fx = ax + nx * sd * RW.RAIL_OFF, fz = az + nz * sd * RW.RAIL_OFF; if (fx >= x0 && fx < x1 && fz >= z0 && fz < z1) { q.setFromEuler(e.set(0, yaw, 0)); p.set(fx, RW.SLEEPER_TOP + 0.06, fz); sc.set(1, 1, 1); M.compose(p, q, sc); fish.push(...M.elements); } } /* rail joint every 12 m */
       // loose stones: jittered grid over the bed (±1.9 m) and its shoulders (to ±3.1 m)
       const dens = 80 * this.ballastK, cell = 1 / Math.sqrt(dens);
       for (let s = cell / 2; s < l; s += cell) for (let w = -2.85; w <= 2.85; w += cell) {
@@ -203,6 +291,6 @@ export class GroundDetail {
         const t = 0.5 + rnd() * 0.5, warm = (rnd() - 0.5) * 0.12; /* grey granite, a few rust-stained/dark pieces */ stoneCol[v].push(t + warm, t, t - warm); }
     }
     for (let v = 0; v < 3; v++) { const m = this.inst(this.geo.stones[v], this.mat.stone, stones[v], stoneCol[v]); if (m) meshes.push(m); }
-    const f = this.inst(this.geo.fast, this.mat.fast, fast); if (f) meshes.push(f);
+    const f = this.inst(this.geo.fast, this.mat.fast, fast); if (f) meshes.push(f); const fp = this.inst(this.geo.fish, this.mat.fish, fish); if (fp) meshes.push(fp);
   }
 }

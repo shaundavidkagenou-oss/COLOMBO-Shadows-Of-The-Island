@@ -7,7 +7,7 @@ import { RNG, hash2 } from '../core/rng.js';
 
 import { buildTrack } from './Railway.js';
 const RY = L.ROAD_Y, LY = L.LAND_Y;
-import { resetGroundDetail, regWalkRect, regWalkCorner, regKerb } from './GroundDetail.js';
+import { resetGroundDetail, regWalkRect, regWalkCorner, regKerb, regManhole } from './GroundDetail.js';
 const WHITE0 = [0.93, 0.93, 0.9], YELLOW0 = [0.93, 0.76, 0.12]; const WHITE = WHITE0, YELLOW = YELLOW0;
 const lotMaterial = (cell) => {
   const zn = L.zoneAt(cell.cx, cell.cz);
@@ -221,7 +221,7 @@ function roadWear(mb, s, dir, a, b, n0, n1) {
   for (let t = r.range(10, 30); t < len - 6; t += r.range(38, 70)) {
     const o = (r.chance(0.5) ? -1 : 1) * (lanes[Math.floor(r.next() * lanes.length)] + r.range(-0.5, 0.5)); if (Math.abs(o) > s.hw - 0.8) continue;
     const [x, z] = dir === 'v' ? [cx + o, a + t] : [a + t, cz + o];
-    P.cylinder(x, RY - 0.01, z, 0.46, 0.44, 0.022, 16, { col: [0.5, 0.49, 0.47] }); M.cylinder(x, RY - 0.01, z, 0.33, 0.33, 0.03, 16, { col: [0.2, 0.19, 0.18] });
+    mb.get('concrete').cylinder(x, RY - 0.01, z, 0.46, 0.44, 0.022, 16, { col: [0.62, 0.6, 0.56] }); /* weathered concrete collar (was in the white road-paint mesh) */ M.cylinder(x, RY - 0.01, z, 0.33, 0.33, 0.03, 16, { col: [0.2, 0.19, 0.18] }); regManhole(x, z);
   }
   // kerb-side drain gratings (both edges): dark sump with cast bars
   if (s.level <= 2 && !s.bridge) for (let t = r.range(6, 16); t < len - 3; t += r.range(18, 28)) for (const sg of [-1, 1]) {
