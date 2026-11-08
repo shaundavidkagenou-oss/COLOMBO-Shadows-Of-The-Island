@@ -57,17 +57,17 @@ export class DebugConsole {
   // frame-rate benchmark of real play: every requestAnimationFrame interval for N seconds while the player plays/drives normally
   bench(secs) {
     if (this._bench) { this.print('a benchmark is already running', 'err'); return; }
-    const g = this.g, R = g.renderer; const dts = []; let last = performance.now(), calls = 0, n = 0; const t0 = last; this._bench = true;
+    const g = this.g, R = g.renderer; const dts = []; let last = performance.now(); const t0 = last; this._bench = true;
     this.print(`benchmark: ${secs} s of normal play from now — the console closes; play or drive as usual`, 'sys'); setTimeout(() => this.toggle(false), 0);
-    const tick = () => { const now = performance.now(); dts.push(now - last); last = now; if (R && R.info) { calls += R.info.render.calls; n++; }
+    const tick = () => { const now = performance.now(); dts.push(now - last); last = now;
       if (now - t0 < secs * 1000) { requestAnimationFrame(tick); return; }
       this._bench = false; dts.shift(); const s = [...dts].sort((x, y) => y - x); const tot = dts.reduce((x, y) => x + y, 0); const low = (f) => { const k = Math.max(1, Math.floor(s.length * f)); return 1000 / (s.slice(0, k).reduce((x, y) => x + y, 0) / k); };
       let gpu = ''; try { const gl = R.getContext(); const ext = gl.getExtension('WEBGL_debug_renderer_info'); gpu = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : ''; } catch (e) { /* not exposed */ }
       const q = Settings.get('quality'), sz = R.getSize(new THREE.Vector2()), pr = R.getPixelRatio();
       const lines = [`BENCHMARK ${secs} s · ${dts.length} frames · quality ${q} · ${Math.round(sz.x * pr)}×${Math.round(sz.y * pr)}${gpu ? ' · ' + gpu : ''}`,
         `  average ${(1000 * dts.length / tot).toFixed(1)} fps · 1 % low ${low(0.01).toFixed(1)} fps · 0.1 % low ${low(0.001).toFixed(1)} fps`,
-        `  worst frame ${s[0].toFixed(1)} ms · frames over 33 ms (below 30 fps): ${dts.filter((d) => d > 33.4).length} · over 50 ms: ${dts.filter((d) => d > 50).length}`,
-        `  draw calls ~${n ? Math.round(calls / n) : '?'} per frame (last pass)`];
+        `  worst frame ${s[0].toFixed(1)} ms · frames over 33 ms (below 30 fps): ${dts.filter((d) => d > 33.4).length} · over 50 ms: ${dts.filter((d) => d > 50).length}`];
+      if (dts.length < 60) lines.push('  (very few frames: run it longer for meaningful lows)');
       for (const l of lines) this.print(l, 'ok'); console.log(lines.join('\n')); this.toggle(true); };
     requestAnimationFrame(tick);
   }
