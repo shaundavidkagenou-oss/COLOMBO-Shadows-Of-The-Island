@@ -8,6 +8,7 @@
 // small parts. Coordinates: +z forward, +x = the bike's LEFT (the kick-stand side), y up from the ground, metres.
 import * as THREE from 'three';
 import { BIKES } from './BikeCatalog.js';
+import { raceBody } from './RaceBody.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z); const I4 = new THREE.Matrix4();
 const lerp = (a, b, t) => a + (b - a) * t; const L3 = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
@@ -35,6 +36,16 @@ const sph = new THREE.SphereGeometry(1, 12, 8);
 const pillow = (() => { const g = new THREE.SphereGeometry(0.5, 18, 12); const p = g.attributes.position; const e = 0.4;
   for (let i = 0; i < p.count; i++) { const x = p.getX(i) * 2, y = p.getY(i) * 2, z = p.getZ(i) * 2; const f = (v) => Math.sign(v) * Math.pow(Math.abs(v), e) * 0.5; p.setXYZ(i, f(x), f(y), f(z)); }
   g.deleteAttribute('uv'); g.computeVertexNormals(); return g; })();
+// extruded aluminium section: a unit rounded rectangle (superellipse, n = 4) along y with flat ends — frame spars, swingarm legs
+const rbar = (() => { const seg = 20, pos = [], idx = []; const pt = (k) => { const a = k / seg * Math.PI * 2, c = Math.cos(a), s = Math.sin(a); return [Math.sign(c) * Math.pow(Math.abs(c), 0.5) * 0.5, Math.sign(s) * Math.pow(Math.abs(s), 0.5) * 0.5]; };
+  for (const y of [-0.5, 0.5]) for (let k = 0; k < seg; k++) { const [x, z] = pt(k); pos.push(x, y, z); }
+  for (let k = 0; k < seg; k++) { const a = k, b = (k + 1) % seg, c = a + seg, d = b + seg; idx.push(a, c, b, b, c, d); }
+  const g0 = new THREE.BufferGeometry(); g0.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g0.setIndex(idx); g0.computeVertexNormals();
+  const caps = []; for (const [y, ny] of [[-0.5, -1], [0.5, 1]]) { const cg = new THREE.CircleGeometry(0.5, seg); const cp = cg.attributes.position; for (let i = 1; i < cp.count; i++) { const [x, z] = pt((i - 1) % seg); cp.setXYZ(i, x, 0, z); } cp.setXYZ(0, 0, 0, 0); cg.rotateX(0); cg.deleteAttribute('uv');
+    const P2 = cg.attributes.position; for (let i = 0; i < P2.count; i++) P2.setY(i, y); const N = cg.attributes.normal; for (let i = 0; i < N.count; i++) N.setXYZ(i, 0, ny, 0); if (ny < 0) { const ix = cg.index.array; for (let i = 0; i < ix.length; i += 3) { const t = ix[i + 1]; ix[i + 1] = ix[i + 2]; ix[i + 2] = t; } } caps.push(cg); }
+  const all = [g0.toNonIndexed(), ...caps.map((c) => c.toNonIndexed())]; let n = 0; for (const g of all) n += g.attributes.position.count; const P = new Float32Array(n * 3), Nn = new Float32Array(n * 3); let o = 0;
+  for (const g of all) { P.set(g.attributes.position.array, o * 3); Nn.set(g.attributes.normal.array, o * 3); o += g.attributes.position.count; }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.BufferAttribute(Nn, 3)); return g; })();
 // a flat face whose normal is (0, cos φ, −sin φ) — tilted back towards the rider by φ from straight up — centred at c, half sizes hw × hh,
 // wound so a single-sided material shows it from the rider's side; uv rect left = the rider's left (+x)
 function faceQuad(b, c, phi, hw, hh, uv, col = [1, 1, 1]) { const uy = Math.sin(phi) * hh, uz = Math.cos(phi) * hh;
@@ -108,7 +119,7 @@ export function buildBike(mb, dm, K, spec, col, variant) {
   // ---- frame
   const piv = [0, sup || st === 'sport' ? 0.46 : st === 'naked' ? 0.42 : 0.38, scoot ? -0.15 : -0.06];
   if (S.frame === 'spar') for (const s of [1, -1]) { const w = sup ? 0.17 : 0.15; const a = [s * 0.06, hy - 0.08, hz - 0.02], m = [s * w, hy - 0.12, hz - 0.3], b = [s * w, piv[1] + 0.05, piv[2] + 0.02];
-    beam(AL, a, m, 0.035, 0.11, sup ? C('#8d9196') : C('#2a2b2e')); beam(AL, m, b, 0.035, 0.12, sup ? C('#8d9196') : C('#2a2b2e')); part(AL, unitBox, [s * w, piv[1] - 0.04, piv[2] + 0.01], [0, 0, 0], [0.035, 0.2, 0.12], sup ? C('#8d9196') : C('#2a2b2e'));
+    beam(AL, a, m, 0.035, 0.11, sup ? C('#8d9196') : C('#2a2b2e'), rbar); beam(AL, m, b, 0.035, 0.12, sup ? C('#8d9196') : C('#2a2b2e'), rbar); part(AL, pillow, [s * w, piv[1] - 0.04, piv[2] + 0.01], [0, 0, 0], [0.04, 0.22, 0.13], sup ? C('#8d9196') : C('#2a2b2e'));
     part(dAL, hexX, [s * (w + 0.02), piv[1], piv[2]], [0, 0, 0], [0.012, 0.016, 0.016], steel); }
   else if (S.frame === 'trellis') for (const s of [1, -1]) { const w = 0.13; const top = [[s * 0.05, hy - 0.06, hz - 0.03], [s * w, hy - 0.1, hz - 0.22], [s * w, hy - 0.14, hz - 0.44], [s * w, piv[1] + 0.12, piv[2] + 0.06]], bot = [[s * 0.05, hy - 0.2, hz + 0.0], [s * w, hy - 0.3, hz - 0.2], [s * w, hy - 0.36, hz - 0.4], [s * w, piv[1] + 0.02, piv[2] + 0.05]];
     for (let i = 0; i < 3; i++) { beam(P, top[i], top[i + 1], 0.013, 0.013, frameC, unitCyl); beam(P, bot[i], bot[i + 1], 0.013, 0.013, frameC, unitCyl); beam(P, top[i + 1], bot[i], 0.011, 0.011, frameC, unitCyl); beam(P, top[i + 1], bot[i + 1], 0.011, 0.011, frameC, unitCyl); } }
@@ -123,7 +134,7 @@ export function buildBike(mb, dm, K, spec, col, variant) {
   else for (const s of [1, -1]) {
     const a = [s * (scoot ? 0.11 : armW), piv[1], piv[2]], b = [s * armW, R + 0.01, zR];
     if (scoot) continue;
-    beam(st === 'classic' || st === 'commuter' || st === 'street' ? P : AL, a, b, sup || st === 'sport' ? 0.035 : 0.028, sup ? 0.085 : st === 'naked' || st === 'sport' ? 0.06 : 0.042, sup ? C('#8d9196') : st === 'classic' || st === 'commuter' || st === 'street' ? frameC : C('#2a2b2e'));
+    beam(st === 'classic' || st === 'commuter' || st === 'street' ? P : AL, a, b, sup || st === 'sport' ? 0.035 : 0.028, sup ? 0.085 : st === 'naked' || st === 'sport' ? 0.06 : 0.042, sup ? C('#8d9196') : st === 'classic' || st === 'commuter' || st === 'street' ? frameC : C('#2a2b2e'), sup ? rbar : unitBox);
     if (sup && s < 0) tube(AL, [[s * armW, piv[1] + 0.03, piv[2] - 0.05], [s * (armW + 0.005), piv[1] + 0.06, lerp(piv[2], zR, 0.45)], [s * armW, R + 0.06, zR + 0.12]], 0.016, C('#8d9196'), 8, 16); // banana brace (right)
     part(dAL, unitBox, [s * armW, R + 0.01, zR - 0.035], [0, 0, 0], [0.03, 0.025, 0.05], steel); part(dAL, hexX, [s * (armW + 0.018), R, zR], [0, 0, 0], [0.01, 0.014, 0.014], steel); // chain adjuster + axle nut
   }
@@ -157,7 +168,7 @@ export function buildBike(mb, dm, K, spec, col, variant) {
     if (!ac) { part(EN, unitBox, [0, 0.55, hz - 0.06], [-Lo.rake, 0, 0], [0.22, 0.2, 0.035], blk); for (let i = 0; i < 9; i++) part(dEN, unitBox, [0, 0.47 + i * 0.019, hz - 0.035 + i * 0.008], [-Lo.rake, 0, 0], [0.2, 0.004, 0.004], C('#3a3b3e')); } // radiator + fins
   } else if (E === 'twin' || E === 'i3' || E === 'i4') {
     const n = E === 'twin' ? 2 : E === 'i3' ? 3 : 4, W = 0.09 * n + 0.04, tilt = 0.55;
-    part(EN, unitBox, [0, 0.31, 0.0], [0, 0, 0], [W + 0.04, 0.2, 0.36], engC); part(EN, unitBox, [0, 0.2, 0.0], [0, 0, 0], [W * 0.62, 0.06, 0.26], C('#2a2b2e')); // crankcase, sump
+    part(EN, sup ? pillow : unitBox, [0, 0.31, sup ? 0.02 : 0.0], [0, 0, 0], [sup ? W : W + 0.04, sup ? 0.22 : 0.2, sup ? 0.34 : 0.36], engC); part(EN, sup ? pillow : unitBox, [0, 0.2, 0.0], [0, 0, 0], [W * 0.62, 0.07, 0.26], C('#2a2b2e')); // crankcase, sump (moulded castings on the racers, tucked inside the fairing)
     const base = [0, 0.42, 0.1]; const at = (d) => [0, base[1] + Math.cos(tilt) * d, base[2] + Math.sin(tilt) * d];
     part(EN, unitBox, at(0.08), [tilt, 0, 0], [W, 0.16, 0.16], engC); part(EN, unitBox, at(0.19), [tilt, 0, 0], [W - 0.01, 0.07, 0.17], C('#2a2b2e'));
     part(EN, unitBox, at(0.245), [tilt, 0, 0], [W - 0.03, 0.045, 0.15], sup ? acc : engCover); // cam cover (painted on the superbikes)
@@ -170,7 +181,7 @@ export function buildBike(mb, dm, K, spec, col, variant) {
     const hc = sup ? C('#9a8a72') : C('#4a4b4e'), hb = sup ? C('#55618a') : C('#3a3b3e');
     for (let i = 0; i < n; i++) { const x = (i - (n - 1) / 2) * 0.09; const p0 = at(0.12); tube(CH, [[x, p0[1] - 0.06, p0[2] + 0.07], [x * 0.98, 0.42, 0.33], [x * 0.9, 0.3, 0.33]], 0.017, hb, 8, 14); tube(CH, [[x * 0.9, 0.3, 0.33], [x * 0.75, 0.2, 0.28], [x * 0.35, 0.14, 0.14], [-0.03, 0.13, -0.02]], 0.017, hc, 8, 18); }
     const mufS = [-0.06, 0.15, -0.08];
-    if (E === 'i3') { part(AL, unitBox, [0, 0.13, -0.16], [0.05, 0, 0], [0.2, 0.09, 0.24], C('#2a2b2e')); part(dCH, discZ, [-0.06, 0.13, -0.285], [0, 0, 0], [0.028, 0.028, 0.012], C('#0a0a0a')); part(dCH, discZ, [0.06, 0.13, -0.285], [0, 0, 0], [0.028, 0.028, 0.012], C('#0a0a0a')); dm.exhaust = { p: [-0.06, 0.13, -0.3], d: [0, 0, -1], fuel: 'bike' }; } // underslung triple box
+    if (E === 'i3') { part(AL, pillow, [0, 0.13, -0.16], [0.05, 0, 0], [0.2, 0.1, 0.26], C('#2a2b2e')); part(dCH, discZ, [-0.06, 0.13, -0.285], [0, 0, 0], [0.028, 0.028, 0.012], C('#0a0a0a')); part(dCH, discZ, [0.06, 0.13, -0.285], [0, 0, 0], [0.028, 0.028, 0.012], C('#0a0a0a')); dm.exhaust = { p: [-0.06, 0.13, -0.3], d: [0, 0, -1], fuel: 'bike' }; } // underslung triple box
     else { const s1 = [-0.17, sup ? 0.5 : 0.44, -0.58]; tube(CH, [mufS, [-0.12, 0.2, -0.2], [-0.15, 0.3, -0.3]], 0.03, hc, 8, 12);
       const can = sup ? CF : AL; part(can, unitCyl, L3([-0.15, 0.3, -0.3], s1, 0.55), [Math.PI / 2 - 0.42, 0, 0], [0.058, 0.32, 0.052], sup ? C('#232326') : C('#55585c')); // silencer: carbon on the superbikes
       part(AL, unitCyl, s1, [Math.PI / 2 - 0.42, 0, 0], [0.05, 0.05, 0.05], C('#8d9196')); part(dCH, discZ, [s1[0], s1[1] + 0.016, s1[2] - 0.03], [-0.42, 0, 0], [0.026, 0.026, 0.02], C('#050505'));
@@ -182,7 +193,7 @@ export function buildBike(mb, dm, K, spec, col, variant) {
     part(EN, discX, [-0.135, 0.31, -0.02], [0, 0, 0], [0.03, 0.1, 0.1], C('#3a3b3e'));
     part(EN, unitBox, [0, 0.62, 0.36], [-Lo.rake, 0, 0], [0.26, 0.24, 0.04], blk);
     tube(CH, [[0, 0.33, 0.38], [0, 0.18, 0.34], [-0.03, 0.12, 0.1], [-0.04, 0.12, -0.1]], 0.02, C('#9a8a72'), 8, 18);
-    part(CF, unitBox, [-0.02, 0.12, -0.2], [0.04, 0, 0], [0.22, 0.08, 0.26], C('#232326')); for (const x of [-0.07, 0.03]) part(dCH, discZ, [x, 0.12, -0.335], [0, 0, 0], [0.025, 0.025, 0.012], C('#050505'));
+    part(CF, pillow, [-0.02, 0.12, -0.2], [0.04, 0, 0], [0.22, 0.09, 0.28], C('#232326')); for (const x of [-0.07, 0.03]) part(dCH, discZ, [x, 0.12, -0.335], [0, 0, 0], [0.025, 0.025, 0.012], C('#050505'));
     dm.exhaust = { p: [-0.02, 0.12, -0.35], d: [0, -0.05, -1], fuel: 'bike' };
   } else { // scooter: engine + CVT case is the left half of the swing arm; silencer on the right
     part(EN, unitBox, [0.07, 0.3, -0.38], [0, 0, 0], [0.11, 0.17, 0.46], C('#8d9196')); part(EN, unitBox, [0.12, 0.3, -0.38], [0, 0, 0], [0.02, 0.14, 0.4], C('#55585c'));
@@ -201,12 +212,16 @@ export function buildBike(mb, dm, K, spec, col, variant) {
   // ---- bodywork per style
   const ts = S.tankK || 1;
   if (sup || st === 'sport') {
+    const tz = Lo.tail; const nz = zF + 0.13, ny = sup ? 0.79 : 0.8;
+    if (sup) { // sculpted race bodywork + livery stickers (RaceBody.js); winglets in carbon on the cowl flanks
+      raceBody(mb, { col, blk, seatC, cf: C('#232326'), make: S.make });
+      for (const sx of [1, -1]) part(CF, pillow, [sx * 0.245, 0.742, 0.6], [0.06, sx * 0.12, sx * 0.22], [0.075, 0.009, 0.1], C('#232326')); // thin carbon winglets on the cowl flanks
+    } else {
     const s = sup ? 1 : 0.94;
     loft(P, [[hz - 0.03, 0.78, 0.96 * s + 0.04, 0.14, 0.11, 0.06], [0.24, 0.76, 1.02 * s + 0.02, 0.17, 0.15, 0.08], [0.02, 0.76, 0.99 * s + 0.02, 0.165, 0.13, 0.08], [-0.13, 0.8, 0.9, 0.13, 0.1, 0.05]], col); // tank
     if (sup) loft(CF, [[0.3, 0.98, 1.035, 0.12, 0.1, 0.03], [0.05, 0.96, 1.0, 0.12, 0.1, 0.03]], C('#2a2a2e')); // carbon tank cover
     // upper fairing (nose), side panels, belly pan, winglets
-    const nz = zF + 0.13, ny = sup ? 0.79 : 0.8;
-    loft(P, [[hz + 0.04, 0.58, 1.0, 0.235, 0.2, 0.08], [hz + 0.2, 0.62, 0.98, 0.215, 0.16, 0.08], [nz - 0.06, ny - 0.07, ny + 0.13, 0.13, 0.09, 0.06], [nz, ny - 0.04, ny + 0.06, 0.06, 0.04, 0.03]], col);
+        loft(P, [[hz + 0.04, 0.58, 1.0, 0.235, 0.2, 0.08], [hz + 0.2, 0.62, 0.98, 0.215, 0.16, 0.08], [nz - 0.06, ny - 0.07, ny + 0.13, 0.13, 0.09, 0.06], [nz, ny - 0.04, ny + 0.06, 0.06, 0.04, 0.03]], col);
     loft(P, [[hz + 0.08, 0.3, 0.7, 0.2, 0.245, 0.06], [hz - 0.12, 0.25, 0.76, 0.22, 0.25, 0.06], [0.08, 0.3, 0.76, 0.2, 0.225, 0.05], [-0.04, 0.42, 0.74, 0.16, 0.17, 0.04]], col, { noBottom: true }); // lower fairing: wide enough to enclose the engine and radiator (≈0.5 m)
     loft(P, [[hz + 0.07, 0.56, 0.9, 0.245, 0.2, 0.05], [0.3, 0.55, 0.86, 0.245, 0.195, 0.05], [0.14, 0.58, 0.8, 0.215, 0.18, 0.04]], col, { noBottom: true }); // upper side fairing: nose → tank → lower panels in one skin
     loft(P, [[hz - 0.02, 0.16, 0.3, 0.12, 0.17, 0.04], [0.0, 0.17, 0.3, 0.14, 0.17, 0.04], [-0.12, 0.2, 0.3, 0.1, 0.12, 0.03]], sup ? blk : col); // belly pan
@@ -226,13 +241,17 @@ export function buildBike(mb, dm, K, spec, col, variant) {
       part(dRefl, cup, [sx * 0.07, ny - 0.02, nz - 0.07], [0, sx * 0.4, 0], [0.032, 0.032, 0.02], C('#d8dce0')); part(dHL, sph, [sx * 0.07, ny - 0.02, nz - 0.072], [0, 0, 0], [0.014, 0.014, 0.008]); }
     part(IN, unitBox, [0, ny - 0.04, nz - 0.005], [0, 0, 0], [0.05, 0.035, 0.02], blk); // ram-air intake
     // tail: narrow upswept tail with seat cowl, LED light, plate hugger on an arm with LED indicators
-    const tz = Lo.tail; loft(P, [[-0.1, 0.64, 0.86, 0.15, 0.13, 0.05], [-0.42, 0.74, 0.95, 0.12, 0.1, 0.045], [tz + 0.12, 0.86, 1.02, 0.065, 0.05, 0.03], [tz + 0.02, 0.92, 1.03, 0.035, 0.03, 0.015]], col); // tail unit closed down to the undertray
+    loft(P, [[-0.1, 0.64, 0.86, 0.15, 0.13, 0.05], [-0.42, 0.74, 0.95, 0.12, 0.1, 0.045], [tz + 0.12, 0.86, 1.02, 0.065, 0.05, 0.03], [tz + 0.02, 0.92, 1.03, 0.035, 0.03, 0.015]], col); // tail unit closed down to the undertray
     loft(RB, [[-0.2, 0.62, 0.66, 0.12, 0.13, 0.015], [tz + 0.1, 0.82, 0.86, 0.05, 0.06, 0.012]], blk); // undertray
     loft(IN, [[-0.06, 0.82, 0.875, 0.12, 0.115, 0.03], [-0.36, 0.86, 0.9, 0.11, 0.1, 0.03]], seatC); // rider seat (thin, firm)
     loft(sup ? CF : P, [[-0.4, 0.93, 0.98, 0.085, 0.07, 0.03], [-0.62, 0.95, 1.0, 0.07, 0.055, 0.025]], sup ? C('#232326') : col); // pillion seat cowl
     TL.quad([-0.035, 0.955, tz + 0.015], [0.035, 0.955, tz + 0.015], [0.03, 0.99, tz + 0.02], [-0.03, 0.99, tz + 0.02], [0, 0, 1, 1], [1, 1, 1]); TL.quad([0.035, 0.955, tz + 0.016], [-0.035, 0.955, tz + 0.016], [-0.03, 0.99, tz + 0.021], [0.03, 0.99, tz + 0.021], [0, 0, 1, 1], [1, 1, 1]);
-    beam(RB, [0, 0.74, -0.66], [0, 0.6, tz + 0.03], 0.012, 0.07, blk); plateQuad(mb, 0, 0.6, tz + 0.0, 0.1, 0.04, false, variant);
-    for (const sx of [1, -1]) { beam(dRB, [sx * 0.03, 0.66, tz + 0.06], [sx * 0.11, 0.67, tz + 0.06], 0.008, 0.008, blk, unitCyl); part(IND, unitBox, [sx * 0.12, 0.67, tz + 0.06], [0, 0, 0], [0.025, 0.012, 0.02]); }
+    }
+    // plate holder: racers carry a short tail tidy tucked right under the tail tip; the sport body keeps its longer hugger arm
+    const plY = sup ? 0.78 : 0.6, plZ = sup ? tz + 0.02 : tz, inY = sup ? 0.84 : 0.67;
+    beam(RB, sup ? [0, 0.95, -0.8] : [0, 0.74, -0.66], [0, plY, plZ + 0.03], 0.012, sup ? 0.06 : 0.07, blk);
+    plateQuad(mb, 0, plY, plZ, 0.1, 0.04, false, variant);
+    for (const sx of [1, -1]) { beam(dRB, [sx * 0.03, inY - 0.01, plZ + 0.06], [sx * 0.11, inY, plZ + 0.06], 0.008, 0.008, blk, unitCyl); part(IND, unitBox, [sx * 0.12, inY, plZ + 0.06], [0, 0, 0], [0.025, 0.012, 0.02]); }
     // mirrors on the fairing with integrated LED indicators
     for (const sx of [1, -1]) { const m = [sx * 0.24, 0.98, hz + 0.16]; beam(P, [sx * 0.16, 0.92, hz + 0.2], m, 0.015, 0.02, blk); part(P, pillow, [sx * 0.27, 0.99, hz + 0.15], [0, sx * 0.15, 0], [0.12, 0.055, 0.04], col);
       MR.quad(...(sx > 0 ? [[0.325, 0.968, hz + 0.122], [0.215, 0.968, hz + 0.139], [0.215, 1.012, hz + 0.139], [0.325, 1.012, hz + 0.122]] : [[-0.215, 0.968, hz + 0.139], [-0.325, 0.968, hz + 0.122], [-0.325, 1.012, hz + 0.122], [-0.215, 1.012, hz + 0.139]]), [0, 0, 1, 1], [1, 1, 1]);
