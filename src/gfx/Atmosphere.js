@@ -229,12 +229,7 @@ export class Atmosphere {
       this.envSkyline.material.color.setRGB(0.3, 0.31, 0.28).multiplyScalar((1 - this.night * 0.85) * (1 - this.w.dark * 0.35));
       if (this.envCity) { this.envCity.material.color.setRGB(1, 1, 1).multiplyScalar(Math.max(0.06, (1 - this.night * 0.9)) * (1 - this.w.dark * 0.4)); this.envCityLit.material.opacity = this.night * 0.9; }
       const prevFog = this.scene.fog; const old = this.envRT;
-      // the sun disc is left out of the reflection capture: three's Sky draws it at ~19000x sky radiance, the PMREM blur smeared
-      // that over a wide lobe and every curved clear-coated panel facing it (bike tanks / fairings, wheel-arch lips, mirror caps)
-      // rendered white whatever its paint; the sun's highlight already comes from the directional light (direct specular)
-      const skyU = this.sky.material.uniforms, disc = skyU.showSunDisc ? skyU.showSunDisc.value : null; if (disc !== null) skyU.showSunDisc.value = 0;
       this.envRT = this.pmrem.fromScene(this.envScene, 0.02, 0.1, 200);
-      if (disc !== null) skyU.showSunDisc.value = disc;
       this.scene.environment = this.envRT.texture; this.envBase = this.scene.environmentIntensity = 0.62 * (1 - this.night * 0.7) * (1 - this.w.dark * 0.3); // sky PMREM is HDR: full strength washed every facade
       if (old) old.dispose(); void prevFog;
     }
