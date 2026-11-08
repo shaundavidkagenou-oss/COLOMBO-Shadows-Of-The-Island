@@ -78,7 +78,18 @@ const CURVES = {
 const BLOCK = { L: [0.075, 1.53, 0.2], R: [-0.075, 1.53, 0.19], poleL: [0.05, -1, 0.9], poleR: [-0.05, -1, 0.9], chin: 0.28, lean: 0.2, drop: 0.08 };
 // reactions (victim): head / trunk offsets over time — dir = +1 turns the head to the victim's left
 const REACT = {
-  snap: { dur: 0.75 }, hook: { dur: 0.85 }, upper: { dur: 0.95 }, body: { dur: 0.9 }, block: { dur: 0.35 },
+  snap: { dur: 1.35 }, hook: { dur: 1.5 }, upper: { dur: 1.6 }, body: { dur: 1.55 }, block: { dur: 0.35 },
+};
+// where the hurt hand goes (arm raise, arm swing inward, elbow flex, wrist): tuned with tools/clutch-test.mjs so the palm
+// lands ON the jaw / mouth / chin / ribs of the real rig instead of hovering beside the face
+// p: wrist target in that bone's frame (metres at body scale 1; written for the hand named, struck from the right — a
+// blow from the left mirrors x), pole: elbow direction, wr / wz: wrist bend, w: weight. The arm is solved by IK every
+// frame (Character.solveArmIK), so the palm follows the head as it drops / turns and fits every body size.
+export const CLUTCH = {
+  snap: { R: { bone: 'head', p: [-0.02, -0.03, 0.18], pole: [-0.5, -1, -0.1], wr: 0.05 } }, // palm over the mouth
+  hook: { R: { bone: 'head', p: [-0.15, 0.02, 0.1], pole: [-0.6, -1, -0.2], wr: 0.3, wz: -0.2 } }, // palm on the struck jaw
+  upper: { R: { bone: 'head', p: [-0.035, -0.06, 0.19], pole: [-0.45, -1, -0.1], wr: 0.05 }, L: { bone: 'chest', p: [0.1, 0.02, 0.2], pole: [0.5, -1, -0.2], wr: 0, w: 0.6 } }, // hand cupping the chin, the other half up
+  body: { L: { bone: 'chest', p: [0.195, 0, 0.085], pole: [0.5, -1, 0], wr: -0.25 }, R: { bone: 'spine', p: [-0.005, 0.12, 0.065], pole: [-0.5, -1, 0], wr: -0.33, w: 0.7 } }, // over the ribs / the stomach
 };
 export function reactDur(kind) { return (REACT[kind] || REACT.snap).dur; }
 
@@ -116,7 +127,7 @@ export function applyFight(an, dt, solveArmIK, seated) {
   if (F.react) { F.rt += dt; if (F.rt >= reactDur(F.react)) F.react = null; }
   F.t = (F.t || 0) + dt;
   const w = sm(F.w); if (w > 0.001 && !seated) stance(an, F, b, s, w, solveArmIK);
-  if (F.react && !seated) reaction(an, F, b, s);
+  if (F.react && !seated) reaction(an, F, b, s, solveArmIK);
 }
 
 function stance(an, F, b, s, w, solveArmIK) {
@@ -162,14 +173,38 @@ function stance(an, F, b, s, w, solveArmIK) {
   }
 }
 
-function reaction(an, F, b, s) {
-  const k = F.react, t = F.rt, d = F.rdir || 1, P = clamp(F.rpow ?? 1, 0.3, 1.6);
-  // impulse envelope: sharp onset (~60 ms), damped recovery with a small overshoot
-  const env = (on, decay) => (t < on ? easeOut(t / on) : Math.exp(-(t - on) * decay) * Math.cos((t - on) * 5.5));
-  if (k === 'snap') { const e = env(0.06, 4.2) * P; b.neck.rotation.x -= 0.2 * e; b.head.rotation.x -= 0.3 * e; b.spine.rotation.x -= 0.16 * e; b.chest.rotation.x -= 0.1 * e; b.head.rotation.z += 0.08 * e * d; b.hips.position.z -= 0.04 * s * Math.max(0, e); }
-  else if (k === 'hook') { const e = env(0.07, 3.6) * P; b.neck.rotation.y += 0.3 * e * d; b.head.rotation.y += 0.34 * e * d; b.head.rotation.z += 0.22 * e * d; b.chest.rotation.y += 0.28 * e * d; b.spine.rotation.z += 0.12 * e * d; b.hips.position.y -= 0.03 * s * Math.max(0, e); }
-  else if (k === 'upper') { const e = env(0.08, 3.2) * P; b.neck.rotation.x -= 0.3 * e; b.head.rotation.x -= 0.42 * e; b.spine.rotation.x -= 0.22 * e; b.chest.rotation.x -= 0.12 * e; if (t < 0.25) { b.footL.rotation.x += 0.2 * Math.sin(t / 0.25 * Math.PI); b.footR.rotation.x += 0.2 * Math.sin(t / 0.25 * Math.PI); } }
-  else if (k === 'body') { const e = (t < 0.1 ? easeOut(t / 0.1) : Math.exp(-(t - 0.1) * 2.4)) * P; b.spine.rotation.x += 0.42 * e; b.chest.rotation.x += 0.2 * e; b.neck.rotation.x += 0.15 * e; b.hips.position.z -= 0.05 * s * e; b.hips.position.y -= 0.04 * s * e; }
+const _cv = new THREE.Vector3(), _cp = new THREE.Vector3(), _ci = new THREE.Matrix4();
+function reaction(an, F, b, s, solveArmIK) {
+  const k = F.react, t = F.rt, d = F.rdir || 1, P = clamp(F.rpow ?? 1, 0.3, 1.6), dur = reactDur(k);
+  // a real blow is a chain, not one offset: the head is hit first and whips on its own (the neck is a spring: it lags,
+  // overshoots and rings out), the trunk follows ~40 ms later, the startle flares both arms for a moment, a heavy blow
+  // buckles the knees (the hips drop and come back), and once the shock passes a hand goes up to where it hurts (jaw /
+  // mouth / ribs) and comes down again while they recover. Fighters in a guard keep their hands up (no clutching).
+  const env = (on, decay, lag = 0) => { const u = t - lag; if (u <= 0) return 0; return u < on ? easeOut(u / on) : Math.exp(-(u - on) * decay) * Math.cos((u - on) * 5.5); };
+  const ring = (lag, decay, f) => { const u = t - lag; if (u <= 0) return 0; return Math.exp(-u * decay) * Math.sin(u * f); }; // spring whip (starts at 0, sharp)
+  const hold = (a0, a1) => sm((t - a0) / 0.22) * (1 - sm((t - (dur - a1)) / a1)); // 0 → 1 → 0 over the reaction
+  const guard = (F.w || 0) > 0.3; const heavy = clamp((P - 0.75) / 0.6, 0, 1);
+  const flare = t < 0.35 ? Math.sin(Math.min(1, t / 0.35) * Math.PI) * (0.5 + 0.5 * P) : 0;
+  if (!guard && k !== 'block') { b.armL.rotation.z += 0.28 * flare; b.armR.rotation.z -= 0.28 * flare; b.armL.rotation.x -= 0.22 * flare; b.armR.rotation.x -= 0.22 * flare; b.foreL.rotation.x -= 0.35 * flare; b.foreR.rotation.x -= 0.35 * flare; }
+  if (k !== 'block' && heavy > 0) { // knees give: a short sag on both legs, then the legs catch the weight again
+    const bk = (t < 0.12 ? easeOut(t / 0.12) : Math.exp(-(t - 0.12) * 3.2)) * heavy;
+    b.thighL.rotation.x -= 0.22 * bk; b.thighR.rotation.x -= 0.18 * bk; b.shinL.rotation.x += 0.45 * bk; b.shinR.rotation.x += 0.38 * bk; b.footL.rotation.x -= 0.22 * bk; b.footR.rotation.x -= 0.18 * bk; b.hips.position.y -= 0.065 * s * bk; }
+  const clutch = (side, c, w, flip = false) => { if (guard || w <= 0 || !c || !solveArmIK) return; w *= c.w ?? 1; const m = flip ? -1 : 1; const bn = b[c.bone];
+    bn.updateWorldMatrix(true, false); _cv.set(c.p[0] * m * s, c.p[1] * s, c.p[2] * s).applyMatrix4(bn.matrixWorld); // wrist target, world
+    b.chest.updateWorldMatrix(true, false); _ci.copy(b.chest.matrixWorld).invert(); _cv.applyMatrix4(_ci);
+    solveArmIK(b, side, _cv, null, Math.min(1, w), _cp.set(c.pole[0] * m, c.pole[1], c.pole[2])); const hd = b['hand' + side]; hd.rotation.x += (c.wr || 0) * w; hd.rotation.z += (c.wz || 0) * m * w; };
+  const C = CLUTCH[k] || {}; const sd = d > 0 ? 'R' : 'L'; // one-sided clutches: the hand on the struck side, mirrored for a blow from the left
+  if (k === 'snap') { const e = env(0.06, 4.2) * P, e2 = env(0.08, 3.4, 0.04) * P, wh = ring(0.02, 6, 17) * P;
+    b.neck.rotation.x -= 0.2 * e + 0.12 * wh; b.head.rotation.x -= 0.3 * e + 0.16 * wh; b.spine.rotation.x -= 0.16 * e2; b.chest.rotation.x -= 0.1 * e2; b.head.rotation.z += 0.08 * e * d; b.hips.position.z -= 0.05 * s * Math.max(0, e2);
+    const h = hold(0.3, 0.55); b.head.rotation.x += 0.12 * h; b.neck.rotation.x += 0.08 * h; clutch(sd, C.R, h, d < 0); } // hand to the mouth, the head comes down to it
+  else if (k === 'hook') { const e = env(0.07, 3.6) * P, e2 = env(0.09, 3.0, 0.045) * P, wh = ring(0.02, 5.5, 15) * P;
+    b.neck.rotation.y += (0.3 * e + 0.14 * wh) * d; b.head.rotation.y += (0.34 * e + 0.2 * wh) * d; b.head.rotation.z += (0.22 * e + 0.1 * wh) * d; b.chest.rotation.y += 0.28 * e2 * d; b.spine.rotation.z += 0.12 * e2 * d; b.hips.position.y -= 0.03 * s * Math.max(0, e2);
+    const h = hold(0.32, 0.6); b.head.rotation.z -= 0.1 * h * d; b.neck.rotation.y -= 0.12 * h * d; clutch(sd, C.R, h, d < 0); } // palm over the struck jaw
+  else if (k === 'upper') { const e = env(0.08, 3.2) * P, e2 = env(0.1, 2.8, 0.05) * P, wh = ring(0.03, 5, 14) * P;
+    b.neck.rotation.x -= 0.3 * e + 0.15 * wh; b.head.rotation.x -= 0.42 * e + 0.2 * wh; b.spine.rotation.x -= 0.22 * e2; b.chest.rotation.x -= 0.12 * e2; if (t < 0.25) { b.footL.rotation.x += 0.2 * Math.sin(t / 0.25 * Math.PI); b.footR.rotation.x += 0.2 * Math.sin(t / 0.25 * Math.PI); }
+    const h = hold(0.38, 0.6); b.head.rotation.x += 0.18 * h; b.neck.rotation.x += 0.1 * h; clutch('R', C.R, h); clutch('L', C.L, h); } // both hands come up to the chin
+  else if (k === 'body') { const e = (t < 0.1 ? easeOut(t / 0.1) : Math.exp(-(t - 0.1) * 2.4)) * P; b.spine.rotation.x += 0.42 * e; b.chest.rotation.x += 0.2 * e; b.neck.rotation.x += 0.15 * e; b.hips.position.z -= 0.05 * s * e; b.hips.position.y -= 0.04 * s * e;
+    const h = hold(0.15, 0.6); b.spine.rotation.x += 0.12 * h; clutch('L', C.L, h); clutch('R', C.R, h); } // doubled over, arms wrapped over the ribs
   else if (k === 'block') { const e = env(0.05, 6) * P; b.spine.rotation.x -= 0.1 * e; b.chest.rotation.y += 0.08 * e * d; b.hips.position.z -= 0.03 * s * Math.max(0, e); }
 }
 

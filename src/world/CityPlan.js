@@ -321,7 +321,7 @@ function genStreetProps(seg, rng) {
       if (!rng.chance(0.45)) continue; const side = rng.chance(0.5) ? -1 : 1; // left-hand kerb parking
       const off = seg.hw - 1.3; const [x, z] = horizontal ? [seg.x0 + t, seg.z0 + side * off] : [seg.x0 + side * off, seg.z0 + t];
       if (L.distToRail(x, z) < 14) continue; // never on or beside a level crossing
-      const heading = horizontal ? (side > 0 ? 1 : -1) : (side < 0 ? 1 : -1); // drive direction consistent with left-hand traffic
+      const heading = horizontal ? (side > 0 ? -1 : 1) : (side < 0 ? -1 : 1); // facing the same way as the traffic in the lane beside it (left-hand traffic: the lane for +x is on the −z side, for +z on the +x side — Traffic.linePiece)
       const yaw = horizontal ? (heading > 0 ? Math.PI / 2 : -Math.PI / 2) : (heading > 0 ? 0 : Math.PI);
       plan.parking.push({ x, z, yaw, seg: seg.id, district: d });
     }

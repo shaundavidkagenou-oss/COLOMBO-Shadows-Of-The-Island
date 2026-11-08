@@ -89,7 +89,7 @@ export class HeadlightRig {
 }
 export class Vehicle {
   constructor(type, seed, scene) {
-    this.id = NEXT_ID++; this.type = type; this.T = VTYPES[type]; this.mesh = createVehicleMesh(type, seed); scene.add(this.mesh); this.scene = scene; LIVE_VEHICLES.add(this);
+    this.id = NEXT_ID++; this.type = type; this.seed = seed; this.T = VTYPES[type]; this.mesh = createVehicleMesh(type, seed); scene.add(this.mesh); this.scene = scene; LIVE_VEHICLES.add(this);
     this.x = 0; this.z = 0; this.y = 0; this.yaw = 0; this.speed = 0; this.steer = 0; this.lat = 0; this.wheelRot = 0; this.pitch = 0; this.roll = 0; this.stand = 0; this.leanK = 0; /* two-wheelers: side stand down / resting on it (Kickstand.js) */
     this.brake = false; this.lights = false; this.driver = null; this.player = false; this.ai = null; this.parked = false; this.horn = 0; this.damage = 0; this.health = 100;
     this.radius = this.T.wid * 0.55; this.half = this.T.len / 2;

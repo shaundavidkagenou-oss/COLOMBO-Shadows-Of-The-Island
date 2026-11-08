@@ -19,6 +19,7 @@ import { stepChase } from '../police/Pursuit.js';
 // passengers per vehicle type: [count, weight] (the driver is always present)
 const PAX = { car: [[0, 5], [1, 3], [2, 1.5], [3, 0.8]], sedan: [[0, 5], [1, 3], [2, 1]], taxi: [[0, 2], [1, 4], [2, 2]], suv: [[0, 3], [1, 3], [2, 2], [3, 1]], van: [[0, 3], [1, 2], [2, 2], [4, 1]],
   tuktuk: [[0, 3], [1, 4], [2, 3]], bike: [[0, 6], [1, 4]], lorry: [[0, 3], [1, 2]], bus: [[6, 1], [10, 2], [16, 2], [22, 1]], pbus: [[8, 1], [14, 2], [20, 2], [26, 1]] };
+export const SPOT_FAR = 130, SPOT_SEEN = 145, SPOT_MAT = 175, SPOT_CAP = 40, SPOT_OCC = 0.72; // parking: re-decide only beyond SPOT_FAR; build in view only beyond SPOT_SEEN
 export const TOW_DIST = 150, TOW_TIME = 300; // a vehicle the player left behind is towed after 5 min with the player beyond 150 m
 const PAX_NEAR = 90, PAX_FAR = 120, PAX_CAP = 60; // passengers exist only near the player (LOD); total cap
 
@@ -32,7 +33,19 @@ const MIX = {
   cinnamon: [['car', 9], ['sedan', 5], ['van', 7], ['tuktuk', 22], ['bike', 8], ['suv', 2], ['taxi', 6], ['cat', 41]],
 };
 
-function laneOffset(seg, lane) { return seg.level <= 1 ? 1.8 + lane * 3.2 : seg.level === 2 ? seg.hw * 0.5 : seg.hw * 0.48; }
+// lane centre from the centre line. Arterials (18 m): 1.8 / 5.0. Main streets (12 m): 1.5 / 4.3 — the kerb lane used to sit at
+// 5.0 of a 6.0 m half-width, so a car's body was 5 cm off the kerb and every turn from it swung a corner over the footpath.
+function laneOffset(seg, lane) { return seg.level === 0 ? 1.8 + lane * 3.2 : seg.level === 1 ? 1.5 + lane * 2.8 : seg.level === 2 ? seg.hw * 0.5 : seg.hw * 0.48; }
+// the network ambient traffic flows on: drivable roads minus dead-end spurs (a road that only leads to a dead end — the park
+// edge at Green Path / Glennie Street, the lake shore, the coast — is where every car used to turn round) and roads to the map
+// edge. Peeled repeatedly, so a spur of several blocks goes as a whole. Police, ambulances and routed units still use every road.
+export function flowNetwork(segs) {
+  const B = L.BOUNDS; const inB = (n) => n.x > B.minX + 10 && n.x < B.maxX - 10 && n.z > B.minZ + 10 && n.z < B.maxZ - 10;
+  let cur = segs.slice();
+  for (let it = 0; it < 64; it++) { const deg = new Map(); for (const sg of cur) for (const n of segNodes(sg)) deg.set(n.id, (deg.get(n.id) || 0) + 1);
+    const keep = cur.filter((sg) => segNodes(sg).every((n) => inB(n) && deg.get(n.id) > 1)); if (keep.length === cur.length) break; cur = keep; }
+  return cur;
+}
 function nodeClear(node, dir) { const h = dir === 'v' ? node.hwH : node.hwV; return h > 0 ? h + 1.2 : 0; }
 function otherEnd(seg, node) { const a = L.nodeAt(seg.i, seg.j); if (seg.dir === 'v') { const b = L.nodeAt(seg.i, seg.j + 1); return a.id === node.id ? b : a; } const b = L.nodeAt(seg.i + 1, seg.j); return a.id === node.id ? b : a; }
 function segNodes(seg) { return seg.dir === 'v' ? [L.nodeAt(seg.i, seg.j), L.nodeAt(seg.i, seg.j + 1)] : [L.nodeAt(seg.i, seg.j), L.nodeAt(seg.i + 1, seg.j)]; }
@@ -96,6 +109,23 @@ function evalPiece(p, s) {
 
 const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 // arc-length on a piece nearest to (x, z), searched around s0 (curves) / closed form (lines)
+// a driver pulling in to a kerb spot: a smooth S from the lane (at arc s on line piece P) onto the spot pose, slowing to a
+// stop exactly on the spot (cubic Bezier, tangents along the lane and the spot heading)
+export function parkPath(P, sA, spot) {
+  const [ax, az, ay] = evalPiece(P, sA); const L0 = Math.hypot(spot.x - ax, spot.z - az); const k = L0 * 0.42;
+  const C = [[ax, az], [ax + Math.sin(ay) * k, az + Math.cos(ay) * k], [spot.x - Math.sin(spot.yaw) * k, spot.z - Math.cos(spot.yaw) * k], [spot.x, spot.z]];
+  const n = Math.max(8, Math.ceil(L0 / 0.25)); const poly = [];
+  for (let j = 0; j <= n; j++) { const t = j / n, m = 1 - t; const b = [m * m * m, 3 * m * m * t, 3 * m * t * t, t * t * t], db = [-3 * m * m, 3 * m * m - 6 * m * t, 6 * m * t - 3 * t * t, 3 * t * t];
+    let x = 0, z = 0, dx = 0, dz = 0; for (let q = 0; q < 4; q++) { x += b[q] * C[q][0]; z += b[q] * C[q][1]; dx += db[q] * C[q][0]; dz += db[q] * C[q][1]; }
+    poly.push([x, z, dx * dx + dz * dz > 1e-9 ? Math.atan2(dx, dz) : (t < 0.5 ? ay : spot.yaw)]); }
+  for (let i = 1; i < poly.length; i++) poly[i][2] = poly[i - 1][2] + wrapA(poly[i][2] - poly[i - 1][2]);
+  const cum = [0]; for (let i = 1; i < poly.length; i++) cum.push(cum[i - 1] + Math.hypot(poly[i][0] - poly[i - 1][0], poly[i][1] - poly[i - 1][1]));
+  const len = Math.max(0.1, cum[cum.length - 1]); const vlim = new Array(poly.length);
+  for (let i = 0; i < poly.length; i++) { const a = Math.max(0, i - 2), b = Math.min(poly.length - 1, i + 2); const ds = cum[b] - cum[a]; const kap = ds > 1e-3 ? Math.abs(poly[b][2] - poly[a][2]) / ds : 0; vlim[i] = clamp(Math.sqrt(1.7 / Math.max(kap, 1e-4)), 2.5, 14); }
+  // curvature only: the stop itself is the smooth √(2·0.9·remaining) approach in step() (a sampled stop profile is a step
+  // function between samples and made the IDM brake hard in the last 25 cm)
+  return { type: 'path', poly, cum, len, vlim, seg: P.seg, park: true };
+}
 export function pathV(p, s) { const c = p.cum, q = Math.max(0, Math.min(s, p.len)); let lo = 0, hi = c.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (c[m] <= q) lo = m; else hi = m; } return Math.min(p.vlim[lo], p.vlim[hi]); }
 function projectS(p, x, z, s0) {
   if (p.type === 'line') return (x - p.p0[0]) * p.d[0] + (z - p.p0[1]) * p.d[1];
@@ -116,7 +146,7 @@ export class Traffic {
   constructor(scene, collision, events) {
     this.scene = scene; this.collision = collision; this.events = events; this.vehicles = []; this.parked = []; this.rng = new RNG(777);
     this.max = 40; this.simTime = 0; this.res = new Map(); this.driverSpecs = []; for (let i = 0; i < 16; i++) this.driverSpecs.push(randomSpec(5000 + i * 13, { sex: i % 5 === 0 ? 'f' : 'm', age: 'adult' }));
-    this.paxCount = 0; this.leaving = []; this.crowd = null; this.parkedTimer = 0; this.drivableSegs = L.segments.filter((s) => !s.crossing || s.level <= 2); this.drivable = new Set(this.drivableSegs); this.emergency = [];
+    this.paxCount = 0; this.leaving = []; this.crowd = null; this.parkedTimer = 0; this.drivableSegs = L.segments.filter((s) => !s.crossing || s.level <= 2); this.drivable = new Set(this.drivableSegs); this.flowSegs = flowNetwork(this.drivableSegs); this.flow = new Set(this.flowSegs); this.emergency = [];
   }
   setDensity(d) { this.max = Math.round(10 + d * 45); }
   all() { const o = this.obstacles; if (!this.parked.length && !(o && o.length)) return this.vehicles; return o && o.length ? this.vehicles.concat(this.parked, o) : this.vehicles.concat(this.parked); } // obstacles = train cars (solid, not enterable)
@@ -124,18 +154,16 @@ export class Traffic {
   spawn(focus, camDir, forceNear = false) {
     for (let tries = 0; tries < 12; tries++) {
       const hint = tries < 4 ? this.spawnHint : null; // a fuel station asking for a customer on its approach road
-      const seg = hint ? hint.seg : this.drivableSegs[Math.floor(this.rng.next() * this.drivableSegs.length)];
+      const seg = hint ? hint.seg : this.flowSegs[Math.floor(this.rng.next() * this.flowSegs.length)];
       const mx = (seg.x0 + seg.x1) / 2, mz = (seg.z0 + seg.z1) / 2; const d = Math.hypot(mx - focus.x, mz - focus.z);
-      if (!hint && (d > (forceNear ? 140 : 260) || d < (forceNear ? 25 : 70))) continue;
-      // avoid spawning in plain view nearby
-      if (!hint && !forceNear && d < 160 && camDir) { const dot = ((mx - focus.x) * camDir.x + (mz - focus.z) * camDir.z) / d; if (dot > 0.5) continue; }
+      if (!hint && (d > (forceNear ? 170 : 260) || d < (forceNear ? 45 : 70))) continue;
       const [a, b] = segNodes(seg); const fwd = this.rng.chance(0.5); const from = hint ? hint.from : fwd ? a : b, to = hint ? hint.to : fwd ? b : a;
       const lanes = seg.level <= 1 ? 2 : 1; const lane = hint ? hint.lane : Math.floor(this.rng.next() * lanes);
       let type = this.pickType(mx, mz); if (hint) { for (let k = 0; k < 10 && !hint.types.has(type); k++) type = this.pickType(mx, mz); if (!hint.types.has(type)) continue; }
       if (seg.level >= 3 && (type === 'bus' || type === 'pbus' || type === 'lorry' || NO_LANES.has(type))) continue;
       const piece = linePiece(seg, from, to, lane); const s = this.rng.range(0, piece.len * (hint ? 0.6 : 0.8));
       const [x, z, yaw] = evalPiece(piece, s);
-      if (hint) { const dd = Math.hypot(x - focus.x, z - focus.z); if (dd < 45 || (camDir && dd < 170 && ((x - focus.x) * camDir.x + (z - focus.z) * camDir.z) / dd > 0.35)) continue; } // never pops up in view
+      { const dd = Math.hypot(x - focus.x, z - focus.z); if (dd < 45 || (!(this.freshT > 0) && this.seen(x, z, dd))) continue; } // never pops up in view — the vehicle's own spot, not its road's midpoint, at any distance
       if (this.vehicles.some((v) => (v.x - x) ** 2 + (v.z - z) ** 2 < 14 * 14)) continue;
       if (this.bodyAt(x, z, yaw, VTYPES[type])) continue; // not onto a parked vehicle either
       if (this.player && this.player.vehicle && (this.player.vehicle.x - x) ** 2 + (this.player.vehicle.z - z) ** 2 < 15 * 15) continue;
@@ -266,14 +294,15 @@ export class Traffic {
         o.ch.root.rotation.y = lerp(0, Math.atan2(ex[0] - o.seat.x, ex[1] - o.seat.z), Math.min(1, dp.a + dp.b)); A.sitIn(o.seat, Math.max(0.001, dp.sitW), null); A.duck = 0; A.update(dt, k > 0.5 ? 1.0 : 0);
         if (k >= 1) this.releasePax(v, o);
       }
-      if (list.every((o) => o.done)) { v.disembarking = null; this.leaving.splice(i, 1); }
+      if (list.every((o) => o.done)) { v.disembarking = null; this.leaving.splice(i, 1); if (v.standLater) { v.standLater = false; if (v.parked) parkOnStand(v); } } /* a bike that was just parked: the stand goes down once the rider is off */
     }
   }
   extend(v) { // make sure at least line + curve + next line exist
     const ai = v.ai; let last = ai.pieces[ai.pieces.length - 1]; if (!last) return;
     while (ai.pieces.length < 3) {
       if (last.type === 'line') {
-        const node = last.to; let opts = node.segs.filter((s) => s !== last.seg && !(s.level >= 3 && (v.type === 'bus' || v.type === 'pbus' || v.type === 'lorry' || NO_LANES.has(v.type))));
+        const node = last.to; let opts = node.segs.filter((s) => s !== last.seg && this.drivable.has(s) && !(s.level >= 3 && (v.type === 'bus' || v.type === 'pbus' || v.type === 'lorry' || NO_LANES.has(v.type))));
+        { const f = opts.filter((s) => this.flow.has(s)); if (f.length) opts = f; } // never down a dead-end spur unless it is the only way on
         opts = opts.filter((s) => { const o = otherEnd(s, node); return o.x > L.BOUNDS.minX + 10 && o.x < L.BOUNDS.maxX - 10 && o.z > L.BOUNDS.minZ + 10 && o.z < L.BOUNDS.maxZ - 10; });
         let next = null;
         if (ai.route && ai.route.length) { const want = ai.route[0]; next = node.segs.find((s) => otherEnd(s, node) === want && this.drivable.has(s)) || null; if (next) ai.route.shift(); else ai.route = null; } // planned route (police units)
@@ -290,7 +319,8 @@ export class Traffic {
   }
   update(dt, focus, camDir, simTime, pedsNear, player) {
     this.fN = (this.fN | 0) + 1;
-    this.simTime = simTime; this.player = player; this.focusPt = focus;
+    this.simTime = simTime; this.player = player; this.focusPt = focus; this.camDir = camDir;
+    { const lf = this.lastSpawnFocus; if (!lf || Math.hypot(lf.x - focus.x, lf.z - focus.z) > 60) this.freshT = 2; this.lastSpawnFocus = { x: focus.x, z: focus.z }; this.freshT = (this.freshT || 0) - dt; } // just loaded / teleported (behind the loading screen or a fade): the area may fill at once
     // spawn / despawn
     for (let i = this.vehicles.length - 1; i >= 0; i--) { const v = this.vehicles[i]; const d = Math.hypot(v.x - focus.x, v.z - focus.z); if (d > 330 && !v.keep) { this.remove(v); this.vehicles.splice(i, 1); } }
     if (this.spawnHint && (this.spawnHintT = (this.spawnHintT || 0) + dt) > 20) { this.spawnHint = undefined; this.spawnHintT = 0; } else if (!this.spawnHint) this.spawnHintT = 0;
@@ -302,6 +332,7 @@ export class Traffic {
     for (const v of all) this.step(v, dt, all, pedsNear, playerV, player);
     for (const v of all) if (v.towing) this.hitch(v);
     for (const v of this.parked) if (v.free) this.stepFree(v, dt);
+    this.updateArrivals(dt, focus);
     this.paxBudget = 1; for (const v of all) if (v.driverChar || (v.pax && v.pax.length) || (v.paxPlan && v.paxPlan.length)) this.updateOccupants(v, dt, focus);
     if (playerV && playerV.pax && playerV.pax.length) this.updateOccupants(playerV, dt, focus);
     this.updateDisembark(dt);
@@ -378,6 +409,7 @@ export class Traffic {
     if (this.rail) { const d = this.rail.stopDistance(v); if (d < stopAt) stopAt = d; }
     if (ai.goal && ai.goal.piece) { const k = ai.pieces.indexOf(ai.goal.piece); if (k >= 0) { let dist = -ai.s; for (let q = 0; q < k; q++) dist += ai.pieces[q].len; dist += ai.goal.s; ai.goal.dist = dist; if (dist < stopAt && !ai.goal.soft) stopAt = Math.max(-1, dist); } } // soft goal = moving target (pursuit): steer there without braking for it // level crossing: lamps flashing / booms down
     if (ai.fuel && this.fuel) { const d = this.fuel.stopDist(v, ai); if (d < stopAt) stopAt = d; }
+    if (ai.park && p !== ai.park.path) { const k = ai.pieces.indexOf(ai.park.path); if (k > 0) { let d = -ai.s; for (let q = 0; q < k; q++) d += ai.pieces[q].len; d += ai.park.path.len + 2.35; if (d < stopAt) stopAt = d; } } // pulling in to a kerb spot: stop on it (IDM keeps s0 = 2.2 m short of the target, so aim 2.35 m past; the hard stop ends it on the spot)
     // --- IDM
     const nextCurve = p.type === 'line' ? ai.pieces[1] : p; const curveV = nextCurve && nextCurve.type === 'curve' && nextCurve.turn !== 'straight' ? (nextCurve.turn === 'uturn' ? 3 : 6.5) : ai.v0;
     let v0 = ai.v0; if (p.type === 'curve') v0 = curveV; else if (p.len - ai.s < 25) v0 = Math.min(v0, lerp(curveV, ai.v0, (p.len - ai.s) / 25));
@@ -393,6 +425,7 @@ export class Traffic {
     let acc = a * (1 - Math.pow(sp / Math.max(v0, 0.1), 4) - Math.pow(sStar / Math.max(g2, 0.1), 2));
     if (ai.bumped > 0) { ai.bumped -= dt; acc = -8; }
     acc = clamp(acc, -9, a);
+    if (ai.park) { const k = ai.pieces.indexOf(ai.park.path); if (k >= 0) { let rem = -ai.s; for (let q = 0; q <= k; q++) rem += ai.pieces[q].len; rem = Math.max(0, rem - 0.025); /* to the hard-stop point (sMax = len − 0.02) */ const vd = Math.sqrt(2 * 0.9 * rem); acc = Math.min(acc, clamp((vd - sp) * 2.5, -3.5, a)); const need = (sp * sp) / (2 * Math.max(rem, 0.01)); if (need > 0.75) acc = Math.min(acc, -Math.min(need, 3.5)); } } /* and the exact v²/2d once braking is due: rolls to zero ON the spot, never stopped by the clamp */ // easing onto the spot: creeps the last centimetres instead of braking against it
     // pulling out round a vehicle parked in the lane: only rolling turns the wheels' path, so creep at walking pace up to the
     // actual contact point while steering out (the body guard's hard stop still keeps the bodies apart)
     if (ai.bodyBind && ai.bodyBlock && ai.bodyBlock.parked && Math.abs((ai.latWant ?? 0) - (ai.lat || 0)) > 0.1 && bodyG < 4) { const want = bodyG > 0.3 ? Math.min(1.2, bodyG) : 0; acc = clamp((want - sp) * 3, -8, 2); }
@@ -406,7 +439,7 @@ export class Traffic {
     // horn when blocked by something other than a red light
     ai.honkCd -= dt;
     if (v.speed < 0.5 && gap < 8 && stopAt === Infinity) { ai.stuck += dt; if (ai.stuck > 2.5 / ai.aggressive && ai.honkCd <= 0) { ai.honkCd = 3 + this.rng.next() * 4; this.events.emit('horn', v); } } else ai.stuck = Math.max(0, ai.stuck - dt);
-    if (ai.stuck > 25 && !v.police && !ai.fuel) { v.keep = false; this.remove(v); this.vehicles.splice(this.vehicles.indexOf(v), 1); return; } // hopelessly stuck → recycle out of view
+    if (ai.stuck > 25 && !v.police && !ai.fuel && !this.seen(v.x, v.z)) { v.keep = false; this.remove(v); this.vehicles.splice(this.vehicles.indexOf(v), 1); return; } // hopelessly stuck → recycle out of view
     // --- advance along pieces
     if (ai.rejoin) { this.driveRejoin(v, dt); return; }
     // lateral offset (pulling out round a parked car, over for an emergency unit) as real kinematics: the state is the body's
@@ -457,15 +490,15 @@ export class Traffic {
     const ai = v.ai; if (!ai) { v.free = null; return; } /* parked car: stays where it was pushed */
     // re-anchor on the lane: nearest arc-length on the current piece; the offset decays smoothly in step()
     const pc = ai.pieces[0]; let bestS = ai.s, bd = Infinity; for (let s2 = Math.max(0, ai.s - 12); s2 <= Math.min(pc.len, ai.s + 12); s2 += 0.5) { const [x, z] = evalPiece(pc, s2); const d = (x - v.x) ** 2 + (z - v.z) ** 2; if (d < bd) { bd = d; bestS = s2; } }
-    if (bd > 36) { const P = this.player; if (P && Math.hypot(P.x - v.x, P.z - v.z) > 90) { this.remove(v); const i = this.vehicles.indexOf(v); if (i >= 0) this.vehicles.splice(i, 1); } return; } /* thrown far off the road: stays as a stalled car until you are well away */
+    if (bd > 36) { const P = this.player; if (P && Math.hypot(P.x - v.x, P.z - v.z) > 90 && !this.seen(v.x, v.z)) { this.remove(v); const i = this.vehicles.indexOf(v); if (i >= 0) this.vehicles.splice(i, 1); } return; } /* thrown far off the road: stays as a stalled car until you are well away */
     ai.s = bestS; ai.lat = 0; ai.hdg = 0; ai.rejoin = true; v.free = null; ai.bumped = 1; /* drives back into the lane (driveRejoin) */
   }
   remove(v) { if (v.towing) { v.towing.dispose(); v.towing = null; } if (v.squad && v.driverChar) { v.mesh.remove(v.driverChar.root); v.driverChar.anim?.standUp?.(); v.driverChar = null; const m = v.squad; v.squad = null; if (v.onRemove) v.onRemove(m); } /* a squad-mate at the wheel is never disposed */ if (v.driverChar) { v.driverChar.dispose(); } if (v.pax && v.pax.length) this.dropPax(v); v.dispose(); }
   // Hand a vehicle over to the player (car-jack: driver steps out and walks off grumbling)
-  takeOver(v, keepDriver = false) { const i = this.vehicles.indexOf(v); if (i >= 0) this.vehicles.splice(i, 1); const pi = this.parked.indexOf(v); if (pi >= 0) this.parked.splice(pi, 1); const hadDriver = !!v.driverChar; this.disembark(v, 'flee', this.player ? { x: this.player.x, z: this.player.z } : null); if (v.driverChar && !keepDriver) { v.mesh.remove(v.driverChar.root); v.driverChar.dispose(); v.driverChar = null; } v.ai = null; v.hold = false; v.parked = false; v.keep = true; v.left = null; if (v.spot) { (this.vacated || (this.vacated = new Map())).set(v.spot, 0); v.spot = null; } return hadDriver; } // the bay stays empty (no new car pops into it behind the player) until it is far away and some time has passed
+  takeOver(v, keepDriver = false) { const i = this.vehicles.indexOf(v); if (i >= 0) this.vehicles.splice(i, 1); const pi = this.parked.indexOf(v); if (pi >= 0) this.parked.splice(pi, 1); if (v.spot) { this.vacate(v.spot); v.spot = null; } const hadDriver = !!v.driverChar; this.disembark(v, 'flee', this.player ? { x: this.player.x, z: this.player.z } : null); if (v.driverChar && !keepDriver) { v.mesh.remove(v.driverChar.root); v.driverChar.dispose(); v.driverChar = null; } v.ai = null; v.hold = false; v.parked = false; v.keep = true; v.left = null; if (v.spot) { (this.vacated || (this.vacated = new Map())).set(v.spot, 0); v.spot = null; } return hadDriver; } // the bay stays empty (no new car pops into it behind the player) until it is far away and some time has passed
   // the player got out / was taken out of a vehicle: it stays exactly where it was left (never culled by distance); with
   // `tow` it is towed once the player has been more than TOW_DIST away for TOW_TIME seconds (coming back resets the clock)
-  release(v, tow = true) { parkOnStand(v); v.parked = true; v.keep = true; v.speed = 0; v.brake = false; v.left = tow ? { away: 0 } : null; if (v.spot) { this.parkedSet && this.parkedSet.delete(v.spot); v.spot = null; } if (!this.parked.includes(v)) this.parked.push(v); }
+  release(v, tow = true) { parkOnStand(v); v.parked = true; v.keep = true; v.speed = 0; v.brake = false; v.left = tow ? { away: 0 } : null; if (v.spot) { this.vacate(v.spot); v.spot = null; } if (!this.parked.includes(v)) this.parked.push(v); }
   // a municipal tow truck pulls up on the nearest lane in front of the vehicle, wheel-lifts it and drives off with it
   // put any vehicle under lane-following AI on the nearest drivable lane heading the way it faces (null if no road within maxD)
   laneNear(x, z, yaw, maxD = 40) {
@@ -480,7 +513,7 @@ export class Traffic {
   }
   // a municipal tow truck pulls up on the nearest lane in front of the vehicle, wheel-lifts it and drives off with it
   tow(v) {
-    const i = this.parked.indexOf(v); if (i >= 0) this.parked.splice(i, 1); v.left = null; v.parked = false; v.free = null;
+    const i = this.parked.indexOf(v); if (i >= 0) this.parked.splice(i, 1); if (v.spot) { this.vacate(v.spot); v.spot = null; } v.left = null; v.parked = false; v.free = null;
     const T = new Vehicle('tow', 4100 + (v.id % 97), this.scene); const ln = this.laneNear(v.x, v.z, v.yaw);
     if (ln) { ln.s = clamp(ln.s + T.T.len / 2 + 3, 0.5, ln.piece.len - 0.5); this.adoptAI(T, ln, { v0: Math.min(V0[ln.seg.level], 9) }); T.speed = 0; this.addDriver(T); }
     else T.place(v.x + Math.sin(v.yaw) * 7, v.z + Math.cos(v.yaw) * 7, v.yaw); /* no lane nearby: the truck takes it straight from where it stands */
@@ -513,20 +546,77 @@ export class Traffic {
   updateParked(dt, focus) {
     this.parkedAcc = (this.parkedAcc || 0) + dt; this.parkedTimer -= dt; if (this.parkedTimer > 0) return; const tick = this.parkedAcc; this.parkedAcc = 0; this.parkedTimer = 1.0; // tick = real time since the last pass
     for (const v of this.parked.slice()) if (v.left) { if (Math.hypot(v.x - focus.x, v.z - focus.z) > TOW_DIST) v.left.away += tick; else v.left.away = 0; if (v.left.away >= TOW_TIME) this.tow(v); }
-    for (let i = this.parked.length - 1; i >= 0; i--) { const v = this.parked[i]; if (Math.hypot(v.x - focus.x, v.z - focus.z) > 200 && !v.keep) { v.dispose(); this.parked.splice(i, 1); } }
-    if (!this.parkedSet) this.parkedSet = new Set(); const near = [];
-    for (const p of plan.parking) { const d = (p.x - focus.x) ** 2 + (p.z - focus.z) ** 2; if (d < 150 * 150) near.push([d, p]); }
+    // Parking spots never change in front of the player. Each spot's state (a vehicle there today or not) is decided once
+    // per in-game day and only while the player is far from it (> SPOT_FAR) — so walking or driving up to a street never
+    // makes cars pop onto it. The vehicle itself is built only where it can't be seen (out of the view cone, or beyond
+    // SPOT_SEEN), and removed only unseen and far. A spot that is vacated (the player takes the car, its owner drives off,
+    // it is towed) gets no new vehicle for a whole in-game day. Teleports / loading (fresh) fill the area at once.
+    if (!this.parkedSet) this.parkedSet = new Set(); if (!this.spots) this.spots = new Map();
+    const gH = this.gameH ?? 0, today = Math.floor(gH / 24); const lf = this.lastFocus; const fresh = !lf || Math.hypot(lf.x - focus.x, lf.z - focus.z) > 60 || this.parkedFresh; this.lastFocus = { x: focus.x, z: focus.z }; this.parkedFresh = false;
+    for (let i = this.parked.length - 1; i >= 0; i--) { const v = this.parked[i]; if (v.keep) continue; const d = Math.hypot(v.x - focus.x, v.z - focus.z);
+      const res = v.spot && this.reserved && this.reserved(v.spot); if ((d > 200 && !this.seen(v.x, v.z, d)) || d > 280 || res) { v.dispose(); this.parked.splice(i, 1); if (v.spot) this.parkedSet.delete(v.spot); } }
+    const near = []; for (const p of plan.parking) { const d = (p.x - focus.x) ** 2 + (p.z - focus.z) ** 2; if (d < SPOT_MAT * SPOT_MAT) near.push([d, p]); }
     near.sort((a, b) => a[0] - b[0]);
-    const want = new Set(near.slice(0, 26).map((n) => n[1]).filter((p) => !(this.reserved && this.reserved(p)))); // reserved = kept clear (e.g. a cinematic's driving lane)
-    for (const v of this.parked) if (v.spot && !want.has(v.spot) && !v.keep) { v.dispose(); v.dead = true; this.parkedSet.delete(v.spot); }
-    this.parked = this.parked.filter((v) => !v.dead);
-    if (this.vacated) for (const [sp, t] of this.vacated) { const nt = t + tick; if (!want.has(sp) && nt > 90 && Math.hypot(sp.x - focus.x, sp.z - focus.z) > 160) { this.vacated.delete(sp); this.parkedSet.delete(sp); } else this.vacated.set(sp, nt); }
-    const t0 = performance.now(); let made = 0; // nearest spots first; per frame at most 4 already-built looks or ONE first-time model build (entering a street used to build up to 26 at once)
-    for (const p of want) {
-      if (this.parkedSet.has(p)) continue; if (made >= 2 || (made > 0 && performance.now() - t0 > 2.5)) { this.parkedTimer = 0; break; } /* ~2.5 ms of new parked cars per frame (at least one), the rest next frame */ const { type, seed } = this.parkedLook(p); if (this.spotTaken(p, type)) continue; const fresh = !modelCached(type, seed); if (fresh && (made > 0 || performance.now() - (this.lastBuild || -1e9) < 300)) { this.parkedTimer = 0.05; continue; } if (fresh) this.lastBuild = performance.now(); made += fresh ? 2 : 1; /* a first-time model build is the only one this frame; otherwise two per frame (~3 ms each) until the street is filled */
-      const v = new Vehicle(type, seed, this.scene); this.noteLook(type, seed); parkOnStand(v); v.place(p.x, p.z, p.yaw); v.parked = true; v.spot = p; this.parked.push(v); this.parkedSet.add(p);
+    const t0 = performance.now(); let made = 0, have = 0; for (const v of this.parked) if (v.spot) have++; // nearest spots first; per frame at most 2 already-built looks or ONE first-time model build
+    for (const [d2, p] of near) {
+      if (this.reserved && this.reserved(p)) continue; const d = Math.sqrt(d2); const st = this.spotState(p, today, d, fresh);
+      if (!st.occ || st.until > gH || st.claim || this.parkedSet.has(p)) continue; if (have >= SPOT_CAP) break;
+      if (!fresh && d < SPOT_SEEN && this.seen(p.x, p.z, d)) continue; // in plain view: it waits until nobody is looking
+      if (made >= 2 || (made > 0 && performance.now() - t0 > 2.5)) { this.parkedTimer = 0; break; } /* ~2.5 ms of new parked cars per frame (at least one), the rest next frame */ const { type, seed } = st.look || this.parkedLook(p); if (this.spotTaken(p, type)) continue; /* st.look: the car somebody drove in and parked there today */ const fr = !modelCached(type, seed); if (fr && (made > 0 || performance.now() - (this.lastBuild || -1e9) < 300)) { this.parkedTimer = 0.05; continue; } if (fr) this.lastBuild = performance.now(); made += fr ? 2 : 1; /* a first-time model build is the only one this frame; otherwise two per frame (~3 ms each) until the street is filled */
+      const v = new Vehicle(type, seed, this.scene); this.noteLook(type, seed); parkOnStand(v); v.place(p.x, p.z, p.yaw); v.parked = true; v.spot = p; this.parked.push(v); this.parkedSet.add(p); have++;
     }
   }
+  // People come and park: now and then a car / tuk / bike in the kerb lane of a local street (level 1-2) near the player picks a
+  // free kerb spot 18-70 m ahead on its own side, eases off, follows a smooth S onto the spot and stops; it becomes a parked
+  // vehicle on that spot for the rest of the in-game day and the driver (and any passengers) get out through the doors and
+  // walk off. A spot is claimed while a car is pulling in, so nothing else is built or parked there.
+  updateArrivals(dt, focus) {
+    const A = this.arrivals || (this.arrivals = []);
+    for (let i = A.length - 1; i >= 0; i--) { const o = A[i], v = o.v, ai = v.ai; const st = this.spots && this.spots.get(o.spot);
+      if (!this.vehicles.includes(v) || !ai || ai.park !== o || v.free || v.dead || ai.chase || ai.emergency) { if (ai && ai.park === o) { ai.park = null; if (ai.sMaxP === o.path) ai.sMaxP = null; } if (st && st.claim === v) { st.claim = null; st.occ = false; } A.splice(i, 1); continue; } // taken over / knocked / recycled: the spot is free again
+      o.t += dt; if (ai.pieces[0] === o.path && ((ai.s >= o.path.len - 0.06 && v.speed < 0.12) || ai.s >= o.path.len - 0.021)) { A.splice(i, 1); this.parkArrived(v, o, st); continue; }
+      if (o.t > 60) { ai.park = null; if (ai.sMaxP === o.path) ai.sMaxP = null; ai.pieces = ai.pieces.filter((q) => q !== o.path); if (st && st.claim === v) { st.claim = null; st.occ = false; } A.splice(i, 1); } } // blocked for a minute: give up (it carries on along the road)
+    this.arriveT = (this.arriveT ?? 3) - dt; if (this.arriveT > 0 || !this.spots || A.length >= 2) return; this.arriveT = 2.5;
+    const gH = this.gameH ?? 0, today = Math.floor(gH / 24); const ok = this.parkTypes || (this.parkTypes = new Set(['car', 'tuktuk', 'van', 'sedan', 'bike', ...PARKED_LIST.map((w) => w[0])]));
+    for (const v of this.vehicles) { const ai = v.ai;
+      if (!ai || ai.park || ai.fuel || ai.chase || ai.route || ai.goal || ai.emergency || ai.rejoin || v.police || v.towing || v.towedBy || v.keep || v.free || v.hold || !v.driverChar || !ok.has(v.type)) continue;
+      const P = ai.pieces[0]; if (!P || P.type !== 'line' || P.seg.level < 1 || P.seg.level > 2 || P.lane !== (P.seg.level <= 1 ? 1 : 0) || Math.abs(ai.lat || 0) > 0.1 || Math.abs(ai.hdg || 0) > 0.02) continue;
+      const d = Math.hypot(v.x - focus.x, v.z - focus.z); if (d < 18 || d > 140 || this.rng.next() > 0.35) continue;
+      const nx = P.d[1], nz = -P.d[0], hy = Math.atan2(P.d[0], P.d[1]); let pick = null, sPick = 0;
+      for (const sp of plan.parking) { if (sp.seg !== P.seg.id) continue; const al = (sp.x - P.p0[0]) * P.d[0] + (sp.z - P.p0[1]) * P.d[1];
+        if (al < ai.s + 18 || al > Math.min(P.len - 3, ai.s + 70)) continue; if ((sp.x - P.from.x) * nx + (sp.z - P.from.z) * nz <= 0 || Math.abs(wrapA(sp.yaw - hy)) > 0.3) continue; // our kerb, facing our way
+        if (this.reserved && this.reserved(sp)) continue; const st = this.spotState(sp, today, Math.hypot(sp.x - focus.x, sp.z - focus.z), false);
+        if (st.claim || this.parkedSet.has(sp) || (st.occ && st.until <= gH && st.day === today && !this.seen(sp.x, sp.z))) continue; // a car belongs there (it is just waiting to be built out of sight)
+        if (this.spotTaken(sp, v.type)) continue;
+        // pulling in forwards needs the kerb behind the spot clear: no parked body within 13 m behind it on that kerb
+        let blocked = false; for (const o of this.parked) { const rx = o.x - sp.x, rz = o.z - sp.z; const b = -(rx * P.d[0] + rz * P.d[1]), l = Math.abs(rx * nx + rz * nz); if (b > 0.5 && b < 13 && l < 2.2) { blocked = true; break; } }
+        if (blocked) continue; pick = sp; sPick = al; break; }
+      if (!pick) continue;
+      const sA = Math.max(ai.s + 3, sPick - 12); const path = parkPath(P, sA, pick); const cut = { ...P, p1: [P.p0[0] + P.d[0] * sA, P.p0[1] + P.d[1] * sA], len: sA };
+      const o = { v, spot: pick, path, t: 0 }; ai.pieces = [cut, path]; ai.park = o; ai.sMaxP = path; ai.sMax = path.len - 0.02; A.push(o);
+      const st = this.spotState(pick, today, 0, false); st.claim = v; st.occ = true; st.day = today; st.until = -1; this.parkStats = this.parkStats || { started: 0, parked: 0 }; this.parkStats.started++;
+      if (A.length >= 2) break; }
+  }
+  // the car has stopped on its spot: it is a parked vehicle now (kept for the day), and everyone gets out
+  parkArrived(v, o, st) {
+    const i = this.vehicles.indexOf(v); if (i >= 0) this.vehicles.splice(i, 1); const sp = o.spot;
+    v.ai = null; v.speed = 0; v.brake = false; v.steer = 0; v.lights = false; v.place(sp.x, sp.z, sp.yaw); v.parked = true; if (v.driverChar || (v.pax && v.pax.length)) v.standLater = true; else parkOnStand(v); v.spot = sp; this.parked.push(v); this.parkedSet.add(sp);
+    if (st) { st.claim = null; st.occ = true; st.until = -1; st.look = { type: v.type, seed: v.seed }; }
+    if (v.driverChar) { const seats = v.mesh.userData.seats; const ds = Math.max(0, seats.indexOf(v.driverSeat())); const n = (v.pax || []).length; // the driver leaves by his own door, first
+      v.pax = [v.driverChar, ...(v.pax || [])]; v.paxPlan = [{ si: ds, spec: v.driverChar.spec, mode: 'lap' }, ...(v.paxPlan || []).slice(0, n)]; v.driverChar = null; this.paxCount++; }
+    this.disembark(v, 'calm'); if (this.parkStats) this.parkStats.parked++;
+  }
+  // is a point in (or right next to) the camera's view? (the camera sits a few metres behind the focus)
+  seen(x, z, d = null) { const f = this.focusPt, c = this.camDir; if (!f) return true; const dx = x - f.x, dz = z - f.z; d = d ?? Math.hypot(dx, dz); if (d < 22) return true; if (d > 330 || !c) return !c; const cl = Math.hypot(c.x, c.z) || 1; return (dx * c.x + dz * c.z) / (cl * d) > 0.38; }
+  // today's state of a parking spot; re-decided only once a day and only while the player is far from it
+  spotState(p, today, d, fresh) {
+    let st = this.spots.get(p); if (!st) { st = { day: -1, occ: false, until: -1 }; this.spots.set(p, st); }
+    if (st.day !== today && !st.claim && (st.day < 0 ? (fresh || d > SPOT_FAR || !this.seen(p.x, p.z, d)) : (fresh || d > SPOT_FAR) && !this.parkedSet.has(p))) { /* fresh = just loaded / teleported: nothing on screen yet */
+      const h = Math.sin(p.x * 12.9898 + p.z * 78.233 + today * 37.719) * 43758.5453; st.occ = h - Math.floor(h) < SPOT_OCC; st.day = today; st.look = null; }
+    return st;
+  }
+  // a parked vehicle left its spot (taken by the player, driven off by its owner, towed): nothing is spawned there for a day
+  vacate(spot) { if (!spot) return; if (!this.spots) this.spots = new Map(); const st = this.spots.get(spot) || { day: Math.floor((this.gameH ?? 0) / 24), occ: false, until: -1 }; st.occ = false; st.look = null; st.claim = null; st.until = (this.gameH ?? 0) + 24; this.spots.set(spot, st); this.parkedSet && this.parkedSet.delete(spot); }
   nearest(x, z, maxD = 4) { let best = null, bd = maxD * maxD; for (const v of this.all()) { if (v.player || v.isTrain || v.squad || v.towedBy) continue; const d = (v.x - x) ** 2 + (v.z - z) ** 2; if (d < bd) { bd = d; best = v; } } return best; }
 }
 export { evalPiece, linePiece, curvePiece, otherEnd, segNodes, laneOffset };

@@ -8,6 +8,7 @@ import { Character, randomSpec } from './Character.js';
 import { MOVES as FIGHT_MOVES } from './Boxing.js';
 import { StreetLife } from './StreetLife.js';
 import { separate } from './Bodies.js';
+import { Keys, supineFrame, rollAngle, rotateAbout } from './Ragdoll.js';
 import { PRESETS, lookKey, profileActivity } from './Appearance.js';
 import { RNG } from '../core/rng.js';
 import { clamp, lerp, dampAngle, wrapAngle } from '../core/math.js';
@@ -255,7 +256,7 @@ export class Crowd {
   spread(x, z, a) { const t = (this.rng.next() - 0.5) * 2 * a; const c = Math.cos(t), s = Math.sin(t); return [x * c - z * s, x * s + z * c]; }
   // non-graphic hit (weapon): flinch, maybe fall and stay down for a while, then get up and get away
   hitPed(p, dx, dz, power = 1, at = null) {
-    if (p.ch.rag) { p.ch.rag.impulse(dx * 2.4 * power, 0.25 * power, dz * 2.4 * power, at); return; } // a body: the round shoves the limp limbs
+    if (p.ch.rag) { p.ch.rag.impulse(dx * 2.4 * power, 0.25 * power, dz * 2.4 * power, at); if (!p.dead) { p.hits = (p.hits || 0) + power; if (p.hits >= 1.2) this.kill(p); } return; } // a body: the round shoves the limp limbs (someone out cold can still be killed)
     if (p.state === 'down') { if (!p.dead) { p.hits = (p.hits || 0) + power; if (p.hits >= 1.2) this.kill(p); else p.timer = Math.max(p.timer, 4); } return; }
     p.knockedByCar = false; p.hits = (p.hits || 0) + power; p.vx = (p.vx || 0) + dx * 1.5; p.vz = (p.vz || 0) + dz * 1.5;
     // shot hard enough (one heavy round, or two light ones): they collapse and do NOT get up again (non-graphic)
@@ -351,13 +352,14 @@ export class Crowd {
         case 'hit': { p.timer -= dt; desired = 0; if (p.timer <= 0) { p.state = 'flee'; p.timer = 5 + this.rng.next() * 4; p.fleeSp = 3 + this.rng.next(); const ax = p.x - player.x, az = p.z - player.z, d = Math.hypot(ax, az) || 1; p.fleeDir = this.spread(ax / d, az / d, 0.7); p.ch.anim.set(null); } break; }
         case 'down': { // fall (mesh tips over), lie still, then get up and stagger away — no injury detail
           p.timer -= dt; p.downT = (p.downT || 0) + dt; desired = 0; avoid = false; if (p.dead) { p.timer = 1e9; p.deadT = (p.deadT || 0) + dt; } else if (p.awaitMedic) p.timer = Math.max(p.timer, 1); // an ambulance is coming: they stay out cold until the crew wakes them
+          if (p.koRag && !p.koRag.limp && !p.dead) { p.koRag.t += dt; if (p.koRag.t >= p.koRag.lim && this.ragdolls && p.ch.root.parent) { this.koLimp(p); break; } }
           if (lod === 1 || (this.frame + p.id) % 4 === 0) this.fitBody(p, dt * (lod === 1 ? 1 : 4), p.downT < 0.05);
           if (p.dead && p.deadT > 150 && !this.visible(p) && Math.hypot(p.x - focus.x, p.z - focus.z) > 35) p.recycle = true; /* cleared away unseen */
           const fall = clamp(p.downT / 0.55, 0, 1), rise = p.dead ? 0 : clamp(1 - p.timer / 0.9, 0, 1); const k = fall * (1 - rise);
           if (p.airVy !== undefined && (p.airY > 0 || p.airVy > 0)) { p.airVy -= 9.81 * dt; p.airY = Math.max(0, (p.airY || 0) + p.airVy * dt); if (p.airY === 0) { p.airVy = undefined; p.vx *= 0.55; p.vz *= 0.55; } } /* thrown: ballistic arc, momentum lost on landing */
           else { const sl = Math.hypot(p.vx, p.vz); if (sl > 1e-3) { const f = Math.max(0, sl - 7 * dt) / sl; p.vx *= f; p.vz *= f; } } /* sliding along the ground: friction */
           p.ch.mesh.rotation.x = -1.45 * (k * k * (3 - 2 * k)); p.ch.mesh.position.y = 0.12 * k + (p.airY || 0);
-          if (p.timer <= 0) { p.ch.mesh.rotation.x = 0; p.ch.mesh.position.y = 0; p.hits = 0; p.downT = 0; p.airY = 0; p.airVy = undefined;
+          if (p.timer <= 0) { p.ch.mesh.rotation.x = 0; p.ch.mesh.position.y = 0; p.hits = 0; p.downT = 0; p.airY = 0; p.airVy = undefined; p.koRag = null;
             if (p.knockedByCar && p.temper > 0.55 && this.rng.chance(0.6)) { this.react(p, 'confront', 3.5, {}, true); p.ch.anim.set('argue'); p.ch.face.set('angry', 4); this.speak(p, 'annoyed', 1); }
             else { p.state = 'flee'; p.timer = 3 + this.rng.next() * 3; p.fleeSp = 2.6 + this.rng.next(); const ax = p.x - player.x, az = p.z - player.z, d = Math.hypot(ax, az) || 1; p.fleeDir = this.spread(ax / d, az / d, 0.8); this.speak(p, 'scared', 1); }
             p.knockedByCar = false; }
@@ -505,7 +507,8 @@ export class Crowd {
       // animate (lower rate when far); pass the real turn rate for lean
       const turnRate = wrapAngle(p.yaw - prevYaw) / Math.max(dt, 1e-4);
       const posed = lod === 1 || (this.frame + (p.id * 7 | 0)) % lod === 0; if (posed) p.ch.anim.update(dt * (lod === 1 ? 1 : lod), p.state === 'down' ? 0 : sp, lod === 1 ? turnRate : 0);
-      p.y = lod === 1 ? this.collision.groundAt(p.x, p.z, (p.y || 0.15)) : (p.y || 0.15);
+      p.y = lod === 1 || p.state === 'down' || (this.frame + p.id) % 4 === 0 ? this.collision.groundAt(p.x, p.z, (p.y || 0.15)) : (p.y || 0.15); /* far people too (every 4th frame): never left at an old height after walking or being thrown off a kerb */
+      if (!(p.y > -50)) { p.y = this.collision.groundAt(p.x, p.z, 0.5); p.vx = p.vz = 0; } /* safety net: a bad height (NaN / far under) never leaves anyone in the void */
       p.ch.root.position.set(p.x, p.y, p.z); p.ch.root.rotation.y = p.yaw;
       this.life.props(p, lod); if (posed && lod < 3) this.life.post(p); if (p.job) p.job.post(p, lod, posed); // hand/lip contact corrections need this frame's pose
       p.ch.mesh.castShadow = dist < 45;
@@ -513,6 +516,7 @@ export class Crowd {
   }
   // a ragdolled body: follows its pelvis, bleeds into a pool once it has settled, and is cleared away unseen much later
   ragPed(p, dt, focus, dist) {
+    if (!p.dead && p.koRag) { this.koRagPed(p, dt, dist); return; }
     const r = p.ch.rag; p.deadT = (p.deadT || 0) + dt; p.downT = (p.downT || 0) + dt; p.timer = 1e9; p.state = 'down'; p.vx = p.vz = 0;
     if (!r.kin) { const P = r.pelvis(); p.x = P.x; p.z = P.z; p.y = p.ch.root.position.y; p.yaw = p.ch.root.rotation.y; }
     if (this.blood && !p.pooled && !r.kin && (r.asleep || p.deadT > 3) && !p.noPool) { p.pooled = true; const P = r.pelvis(), C = r.part('chest'); this.blood.pool(P.x * 0.45 + C.x * 0.55, P.z * 0.45 + C.z * 0.55, 0.9 + Math.random() * 0.5, P.y); }
@@ -561,13 +565,49 @@ export class Crowd {
     if (blocked) { p.ch.anim.takeHit('block', 1, 1); p.vx = dx / d * 0.9; p.vz = dz / d * 0.9; p.fstun = 0.15; return true; }
     if (p.ko <= 0) { // knocked down (falls back away from the blow), gets up after a while and leaves
       p.ch.anim.takeHit(M.react, M.dir || 1, 1.3); this.react(p, 'down', 5 + this.rng.next() * 3, { yaw: Math.atan2(-dx, -dz) }); p.downT = 0; p.vx = dx / d * 1.6; p.vz = dz / d * 1.6;
-      p.ch.face.set('fear', 6); p.ko = 50; p.fightLost = true; return true; }
-    p.ch.anim.takeHit(M.react, M.dir || 1, M.pow || 1); const push = move === 'jab' ? 0.9 : move === 'upper' ? 1.2 : 1.6;
+      p.ch.face.set('blink', 0.4); p.ko = 50; p.fightLost = true; this.koStart(p, dx / d, dz / d, move, M); return true; }
+    p.ch.anim.takeHit(M.react, M.dir || 1, M.pow || 1); const push = move === 'jab' ? 0.9 : move === 'upper' ? 1.2 : 1.6; p.ch.face.set(p.ch.face.morph ? 'pain' : 'concern', 1.8);
     if (p.state === 'fight') { p.vx = dx / d * push; p.vz = dz / d * push; p.fstun = move === 'jab' ? 0.22 : 0.42; p.fq = null; p.fcd = Math.max(p.fcd || 0, 0.35); return true; }
     if (p.fighter === undefined) p.fighter = this.willFight(p);
     if (p.fighter && !p.fightLost && !p.sit) { this.startFight(p); p.vx = dx / d * push; p.vz = dz / d * push; return true; }
     this.react(p, 'stumble', 0.65 + this.rng.next() * 0.3, { punched: true }); p.vx = dx / d * push * 1.2; p.vz = dz / d * push * 1.2; p.ch.face.set('fear', 2.5); this.speak(p, 'scared', 2);
     return true;
+  }
+  // ---- knockouts with a body: the hit reaction starts on the feet (head snaps, knees go), then the legs give and the person
+  // drops as a ragdoll with the blow's momentum (head and chest pushed, the legs fold under), lies out cold on whatever is
+  // there (kerb, steps, slope — the body takes the ground's shape and can never end up in it), and after a while rolls onto
+  // the back, sits up, gets a foot under and stands (Ragdoll body keys), then the down state's own get-up logic hands them on.
+  // Far away (or without a ragdoll world) the older tipped-mesh fall is used.
+  koStart(p, ux, uz, move, M) {
+    const f = this.focus; if (!this.ragdolls || !p.ch.root.parent || (f && Math.hypot(p.x - f.x, p.z - f.z) > 60)) return;
+    p.koRag = { t: 0, lim: 0.14 + this.rng.next() * 0.08, ux, uz, move, pow: (M && M.pow) || 1, dir: (M && M.dir) || 1, lie: 3.5 + this.rng.next() * 3.5, limp: false, ph: null };
+  }
+  koLimp(p) {
+    const K = p.koRag; K.limp = true; const pw = K.pow, up = K.move === 'upper', hk = K.move === 'hook';
+    if (K.car) { // legs swept ahead of the trunk (the bumper strikes below the knee), the upper body lags and folds onto the bonnet
+      const r = this.ragdolls.add(p.ch, { vel: [p.vx, p.airVy || 0.2, p.vz], legK: 1.3, upK: 0.75 }); r.faceLive = true; p.noPool = true; const rt = p.ch.root; p.x = rt.position.x; p.z = rt.position.z; p.y = rt.position.y; p.yaw = rt.rotation.y;
+      p.vx = p.vz = 0; p.airVy = undefined; p.airY = 0; p.ch.anim.set(null); p.ch.face.set('blink', K.lie + 2); return; }
+    // carried back by the blow at walking pace; the legs barely move (they buckle in place), the trunk takes it
+    const r = this.ragdolls.add(p.ch, { vel: [K.ux * 1.1 * pw + p.vx * 0.4, up ? 0.6 : 0.05, K.uz * 1.1 * pw + p.vz * 0.4], legK: 0.25, upK: 1.25 });
+    const H = r.part('head'); const sx = hk ? -K.uz * K.dir : 0, sz = hk ? K.ux * K.dir : 0; // a hook spins the head / shoulders away
+    r.impulse(K.ux * 1.6 * pw + sx * 1.4, up ? 1.2 : 0.1, K.uz * 1.6 * pw + sz * 1.4, H);
+    r.faceLive = true; p.noPool = true; const rt = p.ch.root; p.x = rt.position.x; p.z = rt.position.z; p.y = rt.position.y; p.yaw = rt.rotation.y; p.vx = p.vz = 0; p.airVy = undefined; p.airY = 0; p.ch.anim.set(null); p.ch.face.set('blink', K.lie + 2);
+  }
+  koRagPed(p, dt, dist) {
+    const r = p.ch.rag, K = p.koRag; K.t += dt; p.state = 'down'; p.timer = 1e9; p.vx = p.vz = 0; p.downT = (p.downT || 0) + dt;
+    if (!r.kin) { const P = r.pelvis(); p.x = P.x; p.z = P.z; p.y = p.ch.root.position.y; p.yaw = p.ch.root.rotation.y; }
+    p.ch.mesh.castShadow = dist < 45;
+    if (p.awaitMedic) { K.medic = true; return; } // the ambulance crew owns the body now (EMS.js)
+    if (K.ph || K.t < K.lim + K.lie || (!r.asleep && K.t < K.lim + K.lie + 3)) return;
+    const col = this.collision; K.ph = 'roll'; p.ch.face.set('concern', 8);
+    const live = () => p.ch.rag === r && p.koRag === K && !p.dead && !p.awaitMedic;
+    const getUp = () => { if (!live()) return; const fr = supineFrame(r); const key = (n) => Keys.toWorld(Keys[n](r.rest), fr.x, fr.z, fr.yaw, col);
+      const stand = () => { if (!live()) return; const zA = Keys.standZ(r.rest); r.release(); const x = fr.x + Math.sin(fr.yaw) * zA, z = fr.z + Math.cos(fr.yaw) * zA; const q = col.resolveCircle(x, z, 0.3, (p.y || 0) + 0.3, 0.3);
+        p.x = q.x; p.z = q.z; p.y = col.groundAt(p.x, p.z, (p.y || 0) + 0.5); p.yaw = fr.yaw; p.ch.root.position.set(p.x, p.y, p.z); p.ch.root.rotation.set(0, p.yaw, 0); p.ch.mesh.rotation.set(0, 0, 0); p.ch.mesh.position.set(0, 0, 0);
+        p.koRag = null; p.noPool = false; p.timer = 0; p.downT = 0; p.hits = 0; p.ch.anim.set('stumble'); p.ch.face.set('fear', 3); };
+      K.ph = 'up'; r.blendTo(key('supine'), 0.7, () => { if (live()) r.blendTo(key('sit'), 1.25, () => { if (live()) r.blendTo(key('crouch'), 1.0, () => { if (live()) r.blendTo(key('stand'), 0.85, stand, { hold: true }); }, { hold: true }); }, { hold: true }); }, { hold: true }); };
+    const ang = rollAngle(r); if (Math.abs(ang) > 1.2) { const snap = r.snapshot(); const P0 = r.pelvis().clone(); P0.y = col.groundAt(P0.x, P0.z, P0.y) + 0.15; const ax = r.part('chest').clone().sub(r.pelvis()).setY(0).normalize(); r.play((k, out) => rotateAbout(snap, P0, ax, ang * k, out), 1.2, getUp, { hold: true }); }
+    else getUp();
   }
   // who squares up: men only, not seniors; likelier for the young and hot-tempered (≈20–70 %)
   willFight(p) { const sp = p.sp || {}; if (sp.sex !== 'm' || sp.age === 'elder' || sp.band === 'senior') return false; const base = sp.band === 'mature' ? 0.1 : sp.band === 'young' ? 0.25 : 0.2; return this.rng.chance(base + (p.temper || 0) * 0.5); }
@@ -580,19 +620,23 @@ export class Crowd {
   knock(p, fx, fz, speed, offset = 0) {
     if (p.state === 'down') return; this.react(p, 'down', 2.4 + Math.min(3, speed * 0.2), { yaw: Math.atan2(-fx, -fz) }); p.downT = 0; p.knockedByCar = true;
     // impulse: thrown ahead slightly faster than the car (so it can't run over them), deflected to the side they were struck on, and lifted at speed
-    const side = Math.max(-1, Math.min(1, offset || (Math.random() - 0.5))); const fwd = Math.min(12, speed * 1.0 + 1), lat = (0.25 + 0.35 * Math.abs(side)) * Math.min(9, speed * 0.5) * (side >= 0 ? 1 : -1);
-    p.vx = fx * fwd + fz * lat; p.vz = fz * fwd - fx * lat; p.airY = 0; p.airVy = speed > 6 ? Math.min(4.2, speed * 0.18) : undefined; p.ch.face.set('fear', 4);
+    // measured pedestrian throws: below ~20 km/h a person is shoved and falls (≈0.6 × car speed); above, the legs are swept,
+    // the body wraps onto the bonnet and leaves at ≈0.75–0.85 × the car's speed with a low arc — not launched faster than the car
+    const side = Math.max(-1, Math.min(1, offset || (Math.random() - 0.5))); const fwd = Math.min(11, speed * (speed > 6 ? 0.8 : 0.6) + 0.4), lat = (0.12 + 0.22 * Math.abs(side)) * Math.min(5, speed * 0.3) * (side >= 0 ? 1 : -1);
+    p.vx = fx * fwd + fz * lat; p.vz = fz * fwd - fx * lat; p.airY = 0; p.airVy = speed > 6 ? Math.min(2.6, speed * 0.12) : undefined; p.ch.face.set('fear', 4);
     if (speed > 13) this.kill(p); /* ~47 km/h and faster: they do not get up */
+    else { const f = this.focus; if (this.ragdolls && p.ch.root.parent && (!f || Math.hypot(p.x - f.x, p.z - f.z) < 60)) { p.koRag = { t: 0, lim: 0, ux: fx, uz: fz, move: 'car', pow: 1, dir: 1, lie: 3 + this.rng.next() * 3 + Math.min(3, speed * 0.25), limp: false, ph: null, car: true }; this.koLimp(p); } }
     this.events.emit('pedHit', p); this.speak(p, 'scared', 2); this.alarm(p.x, p.z, 14, 1, p);
   }
   // ---- player-initiated interactions
   // incapacitated for good: stays on the ground (eyes closed, no reactions), the body stays solid and is cleared away
   // later when nobody is looking. Non-graphic.
   kill(p) {
-    if (p.dead) return; if (p.state !== 'down') { this.react(p, 'down', 1e9, {}, true); p.downT = 0; } // whoever calls kill(), the body is on the ground (never a 'dead' ped that walks on)
+    if (p.dead) return; const byCar = !!p.knockedByCar; if (p.state !== 'down') { this.react(p, 'down', 1e9, {}, true); p.downT = 0; } // whoever calls kill(), the body is on the ground (never a 'dead' ped that walks on)
+    if (p.koRag) { if (p.ch.rag && p.ch.rag.kin) { p.ch.rag.kin = null; p.ch.rag.wake(); } p.koRag = null; p.noPool = false; } // out cold (or getting up) when it happened: the body goes limp where it is
     p.dead = true; p.deadT = 0; p.timer = 1e9; p.pending = null; p.knockedByCar = false; p.talkFor = 0; p.ch.face.talking = false;
     const f = this.focus; if (this.ragdolls && !p.ch.rag && p.ch.root.parent && (!f || Math.hypot(p.x - f.x, p.z - f.z) < 90)) { // goes limp: ragdoll with the momentum it had (thrown by a car, pushed by a round)
-      this.ragdolls.add(p.ch, { vel: [p.vx || 0, p.airVy || 0, p.vz || 0] }); p.airVy = undefined; p.airY = 0; p.vx = p.vz = 0; p.ch.anim.set(null); }
+      this.ragdolls.add(p.ch, { vel: [p.vx || 0, p.airVy || 0, p.vz || 0], legK: byCar ? 1.3 : 1.2, upK: byCar ? 0.75 : 0.7 }); p.airVy = undefined; p.airY = 0; p.vx = p.vz = 0; p.ch.anim.set(null); }
     if (p.ch.face.set) p.ch.face.set('blink', 1e9); if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; }
     if (p.partner && p.partner.partner === p) p.partner.partner = null; p.partner = null; this.stats && (this.stats.killed = (this.stats.killed || 0) + 1);
   }

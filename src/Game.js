@@ -363,7 +363,7 @@ export class Game {
     const f = this.focus || { x: cam.position.x, z: cam.position.z }; const fv = new THREE.Vector3(f.x, 0, f.z);
     this.world.simTime = this.clock; this.world.update(dt, f, cam, A); A.update(dt, fv, cam, dt); setVehicleNight(A.night); setHeadPoolNight(A.night);
     const camDir = new THREE.Vector3(); cam.getWorldDirection(camDir);
-    this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; this.traffic.update(dt, f, camDir, this.clock, this.crowd.peds, this.ghost);
+    this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; this.traffic.gameH = (A.day || 1) * 24 + A.hour; this.traffic.update(dt, f, camDir, this.clock, this.crowd.peds, this.ghost);
     this.trains.update(dt, { focus: f, night: A.night, vehicles: this.traffic.all(), listener: true });
     this.crowd.update(dt, f, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: this.ghost, hourFactor: this.hourFactor(), hour: A.hour, police: null });
     Audio.update(dt, { listener: { x: cam.position.x, z: cam.position.z, yaw: Math.atan2(camDir.x, camDir.z) }, night: A.night, rain: A.w.rain, wind: A.w.wind, traffic: this.traffic.vehicles.length, vehicles: [], indoor: false });
@@ -409,7 +409,7 @@ export class Game {
     if (this.indoor) { A.sun.intensity = 0; A.hemi.intensity *= 0.25; A.ambient.intensity = 0.25; this.scene.environmentIntensity = 0.12; A.rain.visible = false; this.renderer.toneMappingExposure = 1; }
     const camDir = new THREE.Vector3(); cam.getWorldDirection(camDir);
     if (this.indoor) this.hideOutdoor(); // anything spawned since entering (police units etc.) stays hidden too
-    if (!this.indoor) this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; if (!this.indoor) this.traffic.update(dt, focus, camDir, this.clock, this.police.foot.length || this.squad.proxies.length ? this.crowd.peds.concat(this.police.foot, this.squad.proxies) : this.crowd.peds, P); this.hqLife.update(dt); if (!this.indoor) { this.trafficDuty.update(dt); this.schoolLife.update(dt); this.cricket.update(dt); } if (!warmOnly) this.police.update(dt);
+    if (!this.indoor) this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; this.traffic.gameH = (A.day || 1) * 24 + A.hour; if (!this.indoor) this.traffic.update(dt, focus, camDir, this.clock, this.police.foot.length || this.squad.proxies.length ? this.crowd.peds.concat(this.police.foot, this.squad.proxies) : this.crowd.peds, P); this.hqLife.update(dt); if (!this.indoor) { this.trafficDuty.update(dt); this.schoolLife.update(dt); this.cricket.update(dt); } if (!warmOnly) this.police.update(dt);
     if (!this.indoor) this.trains.update(dt, { focus, night: A.night, player: this.indoor ? null : P, playerVehicle: P.vehicle || null, vehicles: this.traffic.all(), listener: true });
     if (this.vsmoke && !warmOnly) this.vsmoke.update(dt); // after every vehicle moved this frame (player, mission cars, traffic, police)
     if (!this.indoor) this.crowd.update(dt, focus, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: P, armed: !!(this.weapons && this.weapons.drawn), hourFactor: this.hourFactor(), hour: A.hour, bodies: this.bodies, police: this.police });

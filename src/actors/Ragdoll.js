@@ -29,6 +29,7 @@ const v3 = () => new THREE.Vector3();
 const _a = v3(), _b = v3(), _c = v3(), _d = v3(), _m = new THREE.Matrix4(), _inv = new THREE.Matrix4(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
 const CAPS = [[I.pelvis, I.chest, 0.17], [I.chest, I.neck, 0.15], [I.neck, I.head, 0.11], [I.shL, I.elL, 0.06], [I.shR, I.elR, 0.06], [I.elL, I.wrL, 0.05], [I.elR, I.wrR, 0.05], [I.hipL, I.knL, 0.09], [I.hipR, I.knR, 0.09], [I.knL, I.anL, 0.065], [I.knR, I.anR, 0.065]].map(([a, b, r]) => [a, b, r]);
 const smooth = (k) => k * k * (3 - 2 * k);
+const LEDGE = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
 // rest pose (identity bone rotations) particle positions in skeleton space; feet on y = 0
 export function restParticles(ch) {
@@ -125,9 +126,17 @@ export class Ragdoll {
   collide(vehicles, full, walls = full) {
     const col = this.col;
     for (let i = 0; i < this.p.length; i++) { const p = this.p[i], r = RAD[i] * this.s;
-      if (full || this.gy[i] !== this.gy[i]) { let gy = col ? col.groundAt(p.x, p.z, p.y - r + 0.35) : 0; if (gy < -0.5) { const wf = waterFloor(p.x, p.z); if (wf !== null && wf > gy) gy = wf; } this.gy[i] = gy; } const g = this.gy[i] + r;
+      const gq = this.gxz || (this.gxz = new Float32Array(this.p.length * 2)); const moved = (p.x - gq[i * 2]) ** 2 + (p.z - gq[i * 2 + 1]) ** 2 > 0.0064; // re-sample the ground under a joint that has moved 8 cm sideways since (a cached height from beside a coping let a knee swing into its face)
+      if (full || moved || this.gy[i] !== this.gy[i]) { gq[i * 2] = p.x; gq[i * 2 + 1] = p.z; let gy = col ? col.groundAt(p.x, p.z, p.y - r + 0.35) : 0; if (gy < -0.5) { const wf = waterFloor(p.x, p.z); if (wf !== null && wf > gy) gy = wf; } this.gy[i] = gy; } const g = this.gy[i] + r;
       this.contact[i] = 0; if (p.y < g) { p.y = g; this.contact[i] = 1; const o = this.o[i]; if (o.y < g) o.y = g; /* the snap is not speed: a particle lifted out of the ground (kerb edge, body starting in it) must not be launched */ } else if (p.y < g + 0.01) this.contact[i] = 1;
       if (walls && col) { const q = col.resolveCircle(p.x, p.z, r, p.y - r, 0.3, 0.3); if (q.hit) { p.x = q.x; p.z = q.z; } }
+      if (full && col) { const gi = this.gy[i]; for (let k = 0; k < 4; k++) { const ox = LEDGE[k][0] * r, oz = LEDGE[k][1] * r; const ge = col.groundAt(p.x + ox, p.z + oz, p.y + 0.35); // a kerb / step edge within the joint's radius that stands above its underside is a face, not a floor: slide off it
+        if (ge > gi + 0.04 && ge < gi + 0.25 && ge > p.y - r * 0.4) { p.x -= ox * 0.6; p.z -= oz * 0.6; const o = this.o[i]; o.x -= ox * 0.6; o.z -= oz * 0.6; } } }
+      // inside a raised block from the side (seawall / lake coping, plinth: a walkable top 0.2-0.8 m above the ground the joint
+      // sees): the ground query above skips a surface more than 0.35 m over the joint, so a limb swung into the coping's face
+      // stayed in the concrete. The face stops it where it came from; one already inside is set on the top (not launched).
+      if (full && col) { const gi = this.gy[i], gh = col.groundAt(p.x, p.z, p.y + 1.2); if (gh > gi + 0.2 && gh < gi + 0.8 && p.y - r < gh - 0.02) { const o = this.o[i]; const go = col.groundAt(o.x, o.z, o.y + 1.2);
+        if (go < gh - 0.2) { p.x = o.x; p.z = o.z; } else { p.y = gh + r; if (o.y < p.y) o.y = p.y; this.gy[i] = gh; this.contact[i] = 1; } } }
     }
     if (full && vehicles) { const P = this.pelvis(); for (const v of vehicles) { if (Math.abs(v.x - P.x) > 7 || Math.abs(v.z - P.z) > 7) continue; for (let i = 0; i < this.p.length; i++) { const p = this.p[i]; const q = v.pushOut(p.x, p.z, RAD[i] * this.s + 0.05); if (q) { p.x = q.x; p.z = q.z; } } } }
   }
@@ -178,6 +187,10 @@ export class Ragdoll {
     const K = this.kin; K.t += dt; const k = Math.min(1, K.t / K.dur); const out = this._out || (this._out = RAG_N.map(() => v3()));
     K.fn(K.ease ? smooth(k) : k, out); for (let i = 0; i < this.p.length; i++) this.p[i].copy(out[i]);
     for (let it = 0; it < 3; it++) this.solveSticks(this.limb);
+    // scripted paths (rolling onto the back, sitting up, the medics' log roll) never take a limb through the ground: an arm
+    // that a roll sweeps under the body, or a hand planted on a kerb, stays on top of whatever is there
+    if (this.col) for (let pass = 0; pass < 2; pass++) { let lifted = false; for (let i = 0; i < this.p.length; i++) { const q = this.p[i], r = RAD[i] * this.s; let g = this.col.groundAt(q.x, q.z, q.y - r + 0.35); if (g < -0.5) { const wf = waterFloor(q.x, q.z); if (wf !== null && wf > g) g = wf; } g += r * 0.7; if (q.y < g) { q.y = g; lifted = true; } }
+      if (!lifted) break; this.solveSticks(this.limb); }
     for (let i = 0; i < this.p.length; i++) { this.o[i].copy(this.p[i]); this.gy[i] = NaN; }
     this.rebase(); this.apply(dt);
     if (k >= 1 && !K.hold) { this.kin = null; this.sleepT = 0; this.asleep = false; if (K.done) K.done(); }
@@ -228,6 +241,23 @@ export function rollAngle(rag) {
 export function rotateAbout(src, origin, axis, ang, out) { _q.setFromAxisAngle(axis, ang); for (let i = 0; i < src.length; i++) out[i].copy(src[i]).sub(origin).applyQuaternion(_q).add(origin); return out; }
 
 // every live ragdoll; stepped once per frame by the game
+// closest points of segments P0P1 / Q0Q1 → [s, t] (0..1 along each)
+function segClosest(P0, P1, Q0, Q1) { const d1x = P1.x - P0.x, d1y = P1.y - P0.y, d1z = P1.z - P0.z, d2x = Q1.x - Q0.x, d2y = Q1.y - Q0.y, d2z = Q1.z - Q0.z, rx = P0.x - Q0.x, ry = P0.y - Q0.y, rz = P0.z - Q0.z;
+  const a = d1x * d1x + d1y * d1y + d1z * d1z, e = d2x * d2x + d2y * d2y + d2z * d2z, f = d2x * rx + d2y * ry + d2z * rz; let s = 0, t = 0;
+  if (a < 1e-9 && e < 1e-9) return [0, 0]; if (a < 1e-9) return [0, Math.min(1, Math.max(0, f / e))];
+  const c = d1x * rx + d1y * ry + d1z * rz; if (e < 1e-9) return [Math.min(1, Math.max(0, -c / a)), 0];
+  const b = d1x * d2x + d1y * d2y + d1z * d2z, den = a * e - b * b; s = den > 1e-9 ? Math.min(1, Math.max(0, (b * f - c * e) / den)) : 0; t = (b * s + f) / e;
+  if (t < 0) { t = 0; s = Math.min(1, Math.max(0, -c / a)); } else if (t > 1) { t = 1; s = Math.min(1, Math.max(0, (b - c) / a)); } return [s, t]; }
+const _pa = new THREE.Vector3(), _pb = new THREE.Vector3();
+// push two overlapping capsules (one from each ragdoll) apart; ka / kb: 1 = movable, 0 = fixed. Returns true if they touched.
+function capPush(A, ca, B, cb, ka, kb) { if (!ka && !kb) return false; const a0 = A.p[ca[0]], a1 = A.p[ca[1]], b0 = B.p[cb[0]], b1 = B.p[cb[1]];
+  const [s, t] = segClosest(a0, a1, b0, b1); _pa.copy(a0).lerp(a1, s); _pb.copy(b0).lerp(b1, t); const R = ca[2] * A.s + cb[2] * B.s;
+  let nx = _pa.x - _pb.x, ny = _pa.y - _pb.y, nz = _pa.z - _pb.z; let d = Math.hypot(nx, ny, nz); if (d >= R) return false;
+  if (d < 1e-5) { nx = 0; ny = 1; nz = 0; d = 1e-5; } else { nx /= d; ny /= d; nz /= d; } const pen = R - d; const wa = ka / (ka + kb), wb = kb / (ka + kb);
+  const mv = (P, O, i, w, sg) => { if (!w) return; const u = P === A ? s : t; const k = (sg * pen * w * (i === 0 ? 1 - u : u)) / ((1 - u) * (1 - u) + u * u); /* the capsule's contact point moves by exactly its share */ const p = P.p[i === 0 ? (P === A ? ca[0] : cb[0]) : (P === A ? ca[1] : cb[1])], o = P.o[i === 0 ? (P === A ? ca[0] : cb[0]) : (P === A ? ca[1] : cb[1])];
+    const dx = nx * k, dy = ny * k, dz = nz * k; p.x += dx; p.y += dy; p.z += dz; o.x += dx * 0.5; o.y += dy * 0.5; o.z += dz * 0.5; };
+  mv(A, null, 0, wa, 1); mv(A, null, 1, wa, 1); mv(B, null, 0, wb, -1); mv(B, null, 1, wb, -1); if (ka && A.asleep === false) A.sleepT = 0; if (kb && B.asleep === false) B.sleepT = 0; return true; }
+
 export class RagdollWorld {
   constructor(collision) { this.collision = collision; this.list = []; this.stats = { made: 0 }; }
   add(ch, opts) { if (ch.rag) return ch.rag;
@@ -236,6 +266,14 @@ export class RagdollWorld {
     const par = ch.root.parent; if (par && !par.isScene) { let top = par; while (top.parent) top = top.parent; if (top.isScene) { top.attach(ch.root); const e = new THREE.Euler().setFromQuaternion(ch.root.quaternion, 'YXZ'); ch.root.rotation.set(0, e.y, 0); ch.root.updateMatrixWorld(true); } }
     const r = new Ragdoll(ch, this, opts); this.list.push(r); this.stats.made++; return r; }
   remove(r) { const i = this.list.indexOf(r); if (i >= 0) this.list.splice(i, 1); }
-  update(dt, vehicles) { dt = Math.min(dt, 1 / 20); for (const r of this.list.slice()) { if (!r.ch.root.parent && !r.kin) { this.remove(r); continue; } r.step(dt, vehicles); } }
+  update(dt, vehicles) { dt = Math.min(dt, 1 / 20); for (const r of this.list.slice()) { if (!r.ch.root.parent && !r.kin) { this.remove(r); continue; } r.step(dt, vehicles); } this.bodies(); }
+  // bodies never pass through each other: capsule-vs-capsule between ragdolls lying close together (two knocked down on
+  // the same spot, one falling across another). A settled or animated (getting-up) body does not move; the falling one
+  // comes to rest on top of / beside it.
+  bodies() { const L = this.list; if (L.length < 2) return; let n = 0;
+    for (let a = 0; a < L.length; a++) for (let b = a + 1; b < L.length; b++) { const A = L[a], B = L[b]; const fa = A.asleep || A.kin, fb = B.asleep || B.kin; if (fa && fb) continue;
+      const pa = A.pelvis(), pb = B.pelvis(); if ((pa.x - pb.x) ** 2 + (pa.z - pb.z) ** 2 > 2.6 * 2.6 || Math.abs(pa.y - pb.y) > 2) continue;
+      for (let it = 0; it < 2; it++) for (const ca of CAPS) for (const cb of CAPS) { if (capPush(A, ca, B, cb, fa ? 0 : 1, fb ? 0 : 1)) n++; } }
+    this.stats.bodyPush = (this.stats.bodyPush || 0) + n; }
   clear() { this.list = []; }
 }
