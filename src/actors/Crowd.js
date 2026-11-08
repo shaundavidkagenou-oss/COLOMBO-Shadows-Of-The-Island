@@ -656,11 +656,20 @@ export class Crowd {
   // heads and torsos sink into walls. Check the whole length of the body; turn the fall to a clear bearing, or slide the
   // feet out from the wall when no bearing is clear.
   bodyClear(x, z, yaw) { const bx = -Math.sin(yaw), bz = -Math.cos(yaw), C = this.collision; for (const s of [0.35, 0.75, 1.15, 1.55, 1.75]) if (C.blocked(x + bx * s, z + bz * s, 0.17)) return false;
-    for (const [s, l] of [[1.2, 0.36], [0.8, 0.4]]) for (const sd of [-1, 1]) if (C.blocked(x + bx * s - bz * l * sd, z + bz * s + bx * l * sd, 0.12)) return false; /* the arms fall out to the sides at the shoulders */ return true; }
+    for (const [s, l] of [[1.2, 0.36], [0.8, 0.4], [0.05, 0.44]]) for (const sd of [-1, 1]) if (C.blocked(x + bx * s - bz * l * sd, z + bz * s + bx * l * sd, 0.12)) return false; /* the arms fall out to the sides at the shoulders, and swing out beside the hips while going down */ return true; }
   fitBody(p, dt, snap) {
     if (this.bodyClear(p.x, p.z, p.yaw)) return;
     for (const da of [0.35, -0.35, 0.7, -0.7, 1.1, -1.1, 1.6, -1.6, 2.2, -2.2, Math.PI]) { const y = p.yaw + da; if (this.bodyClear(p.x, p.z, y)) { p.yaw = snap ? y : dampAngle(p.yaw, y, 14, dt); if (!snap && !this.bodyClear(p.x, p.z, p.yaw)) p.yaw = y; return; } }
     const fx = Math.sin(p.yaw), fz = Math.cos(p.yaw); for (let k = 1; k <= 8; k++) { const nx = p.x + fx * 0.2 * k, nz = p.z + fz * 0.2 * k; if (this.collision.blocked(nx, nz, 0.25)) break; if (this.bodyClear(nx, nz, p.yaw)) { p.x = nx; p.z = nz; return; } }
+    // hemmed in (a narrow alley between a building and a compound wall, a corner): no turn on the spot fits, so the fall also
+    // drifts the body a little way off the wall (never across one) to where it can lie down; a spot with no room is not
+    // searched again for half a second
+    const C = this.collision, now = this.t || 0; if (p.fitFail && now - p.fitFail < 0.5) return;
+    for (const rr of [0.25, 0.45, 0.65]) for (let a = 0; a < 8; a++) { const ang = a * Math.PI / 4, nx = p.x + Math.sin(ang) * rr, nz = p.z + Math.cos(ang) * rr;
+      if (C.blocked(nx, nz, 0.25) || C.sweepSolid(p.x, p.z, nx, nz, p.y || 0, 0.3, 1.8) < 1) continue;
+      for (const da of [0, 0.35, -0.35, 0.7, -0.7, 1.1, -1.1, 1.6, -1.6, 2.2, -2.2, Math.PI]) { const y = p.yaw + da; if (!this.bodyClear(nx, nz, y)) continue;
+        const f = snap ? 1 : Math.min(1, dt * 10); p.x += (nx - p.x) * f; p.z += (nz - p.z) * f; p.yaw = snap ? y : dampAngle(p.yaw, y, 14, dt); p.fitFail = 0; return; } }
+    p.fitFail = now || 1e-3;
   }
   nearest(x, z, r = 2.5) { let b = null, bd = r * r; for (const p of this.peds) { if (p.state === 'down') continue; const d = (p.x - x) ** 2 + (p.z - z) ** 2; if (d < bd) { bd = d; b = p; } } return b; }
   interact(p, kind, player) {

@@ -98,9 +98,9 @@ export class VehicleSmoke {
     // always 'visible' (dead puffs collapse off-screen in the vertex shader): compiled with the scene at load, never a first-use hitch
     this.mesh = new THREE.Mesh(geo, this.mat); this.mesh.frustumCulled = false; this.mesh.renderOrder = 19; this.mesh.userData.fx = true; this.mesh.name = 'vehicleSmoke';
     if (game.scene) game.scene.add(this.mesh);
-    this.skid = new SkidMarks(game.scene, this.U.uNoise, this.U.uTime); // rubber laid by the same slipping tyres (one more draw call)
+    this.skid = new SkidMarks(game.scene, this.U.uNoise, this.U.uTime); this.skid.setQuality(quality); // rubber laid by the same slipping tyres (one more draw call)
   }
-  setQuality(q) { this.budget = q === 'low' ? 18 : q === 'medium' ? 30 : q === 'ultra' ? 56 : 42; this.rateK = q === 'low' ? 0.55 : q === 'medium' ? 0.8 : 1; }
+  setQuality(q) { if (this.skid) this.skid.setQuality(q); this.budget = q === 'low' ? 18 : q === 'medium' ? 30 : q === 'ultra' ? 56 : 42; this.rateK = q === 'low' ? 0.55 : q === 'medium' ? 0.8 : 1; }
   // ------------------------------------------------------------------ one puff into the ring (slots written this frame are uploaded once)
   emit(px, py, pz, vx, vy, vz, born, life, s0, s1, kind, buoy, drag, grey, alpha, gy) {
     const i = this.i; this.i = (i + 1) % SMOKE_POOL; const A = this.A;

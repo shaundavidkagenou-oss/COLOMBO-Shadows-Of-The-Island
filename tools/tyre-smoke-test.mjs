@@ -111,5 +111,12 @@ clear(); camera.position.set(X0, 3, Z0 + 12); { const c = mk('sedan', X0, Z0, 0,
 // 13. the pool was never re-allocated; every puff starts on or above the ground it was born on
 ok(Object.entries(S.A).every(([k, a]) => a.array === arrays[k]), 'pool re-allocated');
 ok(S.mesh.frustumCulled === false && S.mesh.parent === scene, 'smoke mesh not permanently in the scene');
+// skid marks follow the graphics setting (how long rubber stays on the road; high = the original 150 s) and are wiped on load
+{ const sk = S.skid; const life = () => sk.U.uLife.value; ok(life() === 150, `skid life on high is the original 150 s (${life()})`);
+  S.setQuality('low'); ok(life() === 75, `skid life follows quality: low ${life()} s`); S.setQuality('ultra'); ok(life() === 200, `skid life follows quality: ultra ${life()} s`); S.setQuality('high'); ok(life() === 150, 'back to 150 s on high');
+  ok(sk.mat.vertexShader.includes('uLife'), 'skid shader fades by the uLife uniform');
+  sk.mark({ yaw: 0 }, 0, 0, 0, 0.1, 0, 0, 1, 0.2); sk.flush(); let any = 0; for (let i = 0; i < 1536; i++) if (sk.A.aW.getY(i) > 0) any++; ok(any > 0, 'a mark was laid');
+  sk.clear(); any = 0; for (let i = 0; i < 1536; i++) if (sk.A.aW.getY(i) > 0) any++; ok(any === 0, `clear() wipes every mark (${any} left)`);
+  const gsrc = (await import('fs')).readFileSync(new URL('../src/Game.js', import.meta.url), 'utf8'); ok(/skid\.clear\(\)[^\n]*this\.story\.restore\(d\.story\)/.test(gsrc), 'loading a save clears the skid marks'); }
 console.log(`tyre-smoke-test: ${pass} checks, ${fail} failed (emitted ${S.stats.emitted}: tyre ${S.stats.tyre}, haze ${S.stats.haze}, exhaust ${S.stats.exhaust}, engine ${S.stats.engine})`);
 process.exit(fail ? 1 : 0);

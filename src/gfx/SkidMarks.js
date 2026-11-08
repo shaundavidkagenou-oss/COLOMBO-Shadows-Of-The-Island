@@ -10,20 +10,21 @@ import * as THREE from 'three';
 
 export const SKID_POOL = 1536;
 export const SKID_LIFE = 150; // s
+export const SKID_LIFE_Q = { low: 75, medium: 110, high: 150, ultra: 200 };
 const SEG = 0.6, PATCH = 0.26, STALE = 0.25;
 
 const VS = `
 attribute vec3 aA; attribute vec3 aB; attribute vec4 aW;
-uniform float uTime;
+uniform float uTime; uniform float uLife;
 varying vec2 vQ; varying float vA; varying vec2 vW;
 void main() {
   float age = uTime - aW.z;
-  if (age < 0.0 || age > ${SKID_LIFE.toFixed(1)} || aW.y <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+  if (age < 0.0 || age > uLife || aW.y <= 0.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
   vec2 d = aB.xz - aA.xz; float L = max(length(d), 1e-4); d /= L; vec2 n = vec2(-d.y, d.x);
   float t = position.y + 0.5;                                     // 0 at A .. 1 at B
   vec3 p = mix(aA, aB, t); p.xz += n * position.x * aW.x; p.y += 0.018;
   vQ = vec2(position.x * 2.0, t * L); vW = p.xz;
-  vA = aW.y * (1.0 - smoothstep(${(SKID_LIFE * 0.45).toFixed(1)}, ${SKID_LIFE.toFixed(1)}, age));
+  vA = aW.y * (1.0 - smoothstep(uLife * 0.45, uLife, age));
   gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
 }`;
 const FS = `
@@ -40,7 +41,7 @@ void main() {
 
 export class SkidMarks {
   constructor(scene, noiseUniform, timeUniform) {
-    this.U = { uTime: timeUniform || { value: 0 }, uNoise: noiseUniform || { value: null } };
+    this.U = { uTime: timeUniform || { value: 0 }, uNoise: noiseUniform || { value: null }, uLife: { value: SKID_LIFE } };
     const base = new THREE.PlaneGeometry(1, 1); const geo = new THREE.InstancedBufferGeometry(); geo.index = base.index; geo.setAttribute('position', base.attributes.position);
     this.A = {}; for (const [name, size] of [['aA', 3], ['aB', 3], ['aW', 4]]) { const a = new THREE.InstancedBufferAttribute(new Float32Array(SKID_POOL * size), size); a.setUsage(THREE.DynamicDrawUsage); geo.setAttribute(name, a); this.A[name] = a; }
     for (let i = 0; i < SKID_POOL; i++) this.A.aW.setXYZW(i, 0, 0, -1e4, 0);
@@ -53,6 +54,8 @@ export class SkidMarks {
     this.flushAll();
   }
   get t() { return this.U.uTime.value; }
+  // graphics quality: how long laid rubber stays on the road before fading (high = the original 150 s; one draw call either way)
+  setQuality(q) { this.U.uLife.value = SKID_LIFE_Q[q] || SKID_LIFE; }
   // one slipping wheel this frame: contact moved (x0,z0) → (x1,z1); inten 0..1; w = tyre width (m)
   mark(v, wheel, x0, z0, x1, z1, gy, inten, w) {
     let per = this.open.get(v); if (!per) { per = []; this.open.set(v, per); }

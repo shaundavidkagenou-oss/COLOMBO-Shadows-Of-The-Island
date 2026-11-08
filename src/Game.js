@@ -220,7 +220,7 @@ export class Game {
   }
   async startLoaded(slot) {
     const d = SaveSystem.read(slot); if (!d) return this.menuLoop();
-    this.story.restore(d.story); this.atmos.restore(d.atmos); this.clock = d.clock || 0; this.squad.load(d.squad); this.rebuildPlayer(); this.weapons.load(d.weapons); this.squad.load(d.squad); this.pendingWanted = d.police ? d.police.level : d.weapons ? d.weapons.heat : 0;
+    if (this.vsmoke && this.vsmoke.skid) this.vsmoke.skid.clear(); /* a loaded game starts with clean roads */ this.story.restore(d.story); this.atmos.restore(d.atmos); this.clock = d.clock || 0; this.squad.load(d.squad); this.rebuildPlayer(); this.weapons.load(d.weapons); this.squad.load(d.squad); this.pendingWanted = d.police ? d.police.level : d.weapons ? d.weapons.heat : 0;
     const p = d.player || { x: L.PLACES.meeting.x, z: L.PLACES.meeting.z, yaw: 0 }; this.world.warm(p.x, p.z); this.player.teleport(p.x, p.z, p.yaw); this.squad.regroup();
     this.player.cinematic = false; this.player.control = true; this.mode = 'play'; this.paused = false; this.hud.show(true); this.director.active = false;
     if (this.pendingWanted) { this.police.restore(this.pendingWanted); this.pendingWanted = 0; }

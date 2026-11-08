@@ -74,6 +74,22 @@ export class Collision {
     if (nx !== x || nz !== z) hit = true;
     return { x: nx, z: nz, hit };
   }
+  // first entry of the segment a→b (plan view) into a box that resolveCircle treats as solid at height y: fraction t in [0,1]
+  // (1 = no entry; on a hit, this.sweepHit holds the entered face's outward normal and plane). Boxes that already contain a are skipped (that is resolveCircle's job). Ragdoll joints use it so a
+  // limb can never pass through a thin compound wall and come out on the far side.
+  sweepSolid(ax, az, bx, bz, y = 0, step = 0.45, height = 1.8) {
+    let best = 1; const dx = bx - ax, dz = bz - az; if (dx * dx + dz * dz < 1e-10) return 1; const hit = this.sweepHit || (this.sweepHit = { nx: 0, nz: 0, face: 0, axis: 0 });
+    for (const c of this.query(Math.min(ax, bx), Math.min(az, bz), Math.max(ax, bx), Math.max(az, bz))) {
+      if (SURFACE.has(c.kind) || !(c.h > 0) || c.walkUnder) continue; const base = c.y0 || 0; if (base + c.h <= y + step || base > y + height) continue;
+      if (ax > c.x0 && ax < c.x1 && az > c.z0 && az < c.z1) continue;
+      let t0 = 0, t1 = best, ax0 = -1;
+      if (Math.abs(dx) < 1e-9) { if (ax <= c.x0 || ax >= c.x1) continue; } else { let ta = (c.x0 - ax) / dx, tb = (c.x1 - ax) / dx; if (ta > tb) { const q = ta; ta = tb; tb = q; } if (ta > t0) { t0 = ta; ax0 = 0; } t1 = Math.min(t1, tb); }
+      if (Math.abs(dz) < 1e-9) { if (az <= c.z0 || az >= c.z1) continue; } else { let ta = (c.z0 - az) / dz, tb = (c.z1 - az) / dz; if (ta > tb) { const q = ta; ta = tb; tb = q; } if (ta > t0) { t0 = ta; ax0 = 1; } t1 = Math.min(t1, tb); }
+      if (t0 < t1 && t0 < best) { best = t0; // the face entered: its outward normal (towards a) and its plane coordinate
+        if (ax0 === 0) { hit.axis = 0; hit.nx = dx > 0 ? -1 : 1; hit.nz = 0; hit.face = dx > 0 ? c.x0 : c.x1; } else { hit.axis = 1; hit.nx = 0; hit.nz = dz > 0 ? -1 : 1; hit.face = dz > 0 ? c.z0 : c.z1; } }
+    }
+    return best;
+  }
   // is (x, z) inside another box that resolveCircle treats as solid at this height (used to pick a clear way out)
   solidAt(x, z, except, y = 0, step = 0.45, height = 1.8, opts = {}) {
     for (const c of this.query(x - 0.01, z - 0.01, x + 0.01, z + 0.01)) { if (c === except || SURFACE.has(c.kind)) continue; const base = c.y0 || 0; if (base + c.h <= y + step || base > y + height || (c.walkUnder && !opts.vehicle)) continue; if (x > c.x0 && x < c.x1 && z > c.z0 && z < c.z1) return true; }
