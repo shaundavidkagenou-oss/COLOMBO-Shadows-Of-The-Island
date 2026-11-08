@@ -8,7 +8,8 @@
 //     spec.size: piece size (m) — tile edge / bay / slab; wood: board width       spec.len: [min, max] board length
 //     spec.colors: base colours (picked per piece, plus tone jitter)              spec.grout: joint colour
 //     spec.rough / spec.metal: surface finish                                      spec.along: 'x' | 'z' (boards)
-//     spec.seed: layout seed                                                       spec.strip: divider colour (terrazzo)
+//     spec.seed: layout seed                                                       spec.strip: divider strips (terrazzo)
+//     spec.holes: [[x0, z0, x1, z1], …] areas left open (an inlay laid separately, a stairwell) — pieces are cut around them
 //
 // The tops sit 1.5 mm above `y` (the walk height used by collision), so feet never sink into them; the grout bed is
 // 4 mm below. Pieces are GPU-instanced (one draw call per floor + one for the grout + one for divider strips).
@@ -105,7 +106,7 @@ const DEF = {
   terrazzo: { size: 1.2, joint: 0.003, chamfer: 0.0012, colors: ['#ffffff'], grout: '#8a8274', rough: 0.26, metal: 0, tone: 0.04, lip: 0.0002, span: [1, 1], strip: true },
   wood: { size: 0.13, joint: 0.0025, chamfer: 0.0018, colors: ['#c89868', '#b07c50', '#d8a878', '#a06a40'], grout: '#24160c', rough: 0.42, metal: 0, tone: 0.07, lip: 0.0005, len: [0.9, 2.1], span: [1, 0.2] },
   granite: { size: 0.8, joint: 0.002, chamfer: 0.0015, colors: ['#ffffff'], grout: '#3a3836', rough: 0.12, metal: 0, tone: 0.05, lip: 0.0003, span: [0.8, 0.8] },
-  concrete: { size: 1.5, joint: 0.006, chamfer: 0.004, colors: ['#ffffff'], grout: '#4a4844', rough: 0.8, metal: 0, tone: 0.05, lip: 0.0008, span: [1, 1] },
+  concrete: { size: 1.5, joint: 0.006, chamfer: 0.004, colors: ['#ffffff'], grout: '#4a4844', rough: 0.8, metal: 0, tone: 0.05, lip: 0.0006, span: [1, 1] },
 };
 
 export function modelFloor(spec, x0, z0, x1, z1, y = 0) {
@@ -124,6 +125,13 @@ export function modelFloor(spec, x0, z0, x1, z1, y = 0) {
     for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) { const a0 = cx + (i - nx / 2) * s, b0 = cz + (j - nz / 2) * s; const ax = Math.max(x0, a0), bx = Math.min(x1, a0 + s), az = Math.max(z0, b0), bz = Math.min(z1, b0 + s);
       if (bx - ax > 0.02 && bz - az > 0.02) pieces.push([(ax + bx) / 2, (az + bz) / 2, bx - ax, bz - az, (i + j) & 1]); }
   }
+  // holes: cut every overlapping piece down to the parts outside the hole (up to four strips, as a tiler cuts around an inlay)
+  for (const [hx0, hz0, hx1, hz1] of S.holes || []) { for (let i = pieces.length - 1; i >= 0; i--) { const [cx, cz, w, d, ci] = pieces[i]; const a0 = cx - w / 2, a1 = cx + w / 2, b0 = cz - d / 2, b1 = cz + d / 2;
+    if (a1 <= hx0 || a0 >= hx1 || b1 <= hz0 || b0 >= hz1) continue; pieces.splice(i, 1); const keep = (p0, q0, p1, q1) => { if (p1 - p0 > 0.02 && q1 - q0 > 0.02) pieces.push([(p0 + p1) / 2, (q0 + q1) / 2, p1 - p0, q1 - q0, ci]); };
+    keep(a0, b0, Math.min(a1, hx0), b1); keep(Math.max(a0, hx1), b0, a1, b1); keep(Math.max(a0, hx0), b0, Math.min(a1, hx1), Math.min(b1, hz0)); keep(Math.max(a0, hx0), Math.max(b0, hz1), Math.min(a1, hx1), b1); } }
+  if (S.holes && S.holes.length) { g.remove(bed); const sh = new THREE.Shape([new THREE.Vector2(x0, -z0), new THREE.Vector2(x1, -z0), new THREE.Vector2(x1, -z1), new THREE.Vector2(x0, -z1)]); // the bed gets the holes too
+    for (const [hx0, hz0, hx1, hz1] of S.holes) sh.holes.push(new THREE.Path([new THREE.Vector2(Math.max(x0, hx0), -Math.max(z0, hz0)), new THREE.Vector2(Math.max(x0, hx0), -Math.min(z1, hz1)), new THREE.Vector2(Math.min(x1, hx1), -Math.min(z1, hz1)), new THREE.Vector2(Math.min(x1, hx1), -Math.max(z0, hz0))]));
+    const bg = new THREE.Mesh(new THREE.ShapeGeometry(sh), groutMat(S.grout)); bg.rotation.x = -Math.PI / 2; bg.position.y = y + BED; bg.receiveShadow = true; g.add(bg); }
   // one geometry per distinct (rounded) piece size → instancing; boards share one geometry scaled along their length
   const byGeo = new Map(); const J = S.joint;
   for (const p of pieces) { const w = Math.max(0.01, p[2] - J), d = Math.max(0.01, p[3] - J); const isBoard = S.kind === 'wood';

@@ -14,6 +14,10 @@ import { Audio } from '../audio/Audio.js';
 import { solveArmIK } from '../actors/Character.js';
 import { wrapFor } from '../combat/GripSolver.js';
 import * as L from './Layout.js';
+import { modelFloor } from './FloorKit.js';
+
+// floors as laid: red-oxide cement in 1 m bays, 50 cm glazed tiles, terrazzo in 1.2 m bays with brass dividers
+const FLOOR_SPEC = { redoxide: { kind: 'redoxide', size: 1.0, seed: 3 }, tiles: { kind: 'ceramic', size: 0.5, colors: ['#e9e3d7', '#e4ddcf'], grout: '#9d9483', seed: 8 }, terrazzo: { kind: 'terrazzo', size: 1.2, seed: 13 } };
 
 const Y = -40;
 const RADIO = [null, { mode: 'radio1', name: 'Radio Lanka Breeze 98.4', f: 0.32 }, { mode: 'radio2', name: 'Island Pulse 104.2', f: 0.78 }];
@@ -300,7 +304,8 @@ export function buildHeroRoom(game, id, door) {
     k.box('skirt', wl.len, 0.1, 0.014, wl.len / 2, 0.05, 0.007, { uv: 0 }); k.box('ceil', wl.len, 0.06, 0.05, wl.len / 2, H - 0.03, 0.025); k.box('ceil', wl.len, 0.03, 0.08, wl.len / 2, H - 0.075, 0.04);
     k.pop();
   }
-  k.plane('floor', W, D, 0, 0, 0, { rx: -Math.PI / 2 }); k.plane('ceil', W, D, 0, H, 0, { rx: Math.PI / 2 });
+  g.add(modelFloor(theme.floorSpec || FLOOR_SPEC[theme.floor], -W / 2, -D / 2, W / 2, D / 2, 0)); // modelled bays / tiles over a recessed joint bed (FloorKit)
+  k.plane('ceil', W, D, 0, H, 0, { rx: Math.PI / 2 });
   // window: frame + grille + curtains, and the view outside (day / night planes)
   let viewDay = null, viewNight = null;
   if (win) { const wl = walls.find((x) => x.name === win.wall); k.push(wl.o[0], 0, wl.o[1], wl.o[2]); k.push(win.u, win.sill, -0.14); RP.windowUnit(k, { w: win.w, h: win.h, curtain: theme.curtain }); k.pop();

@@ -10,6 +10,7 @@ import { RNG } from '../core/rng.js';
 import { WEAPONS } from '../combat/WeaponDefs.js';
 import { buildWeaponModel } from '../combat/WeaponModels.js';
 import { STOCK, SHOP_NAME } from '../combat/Shop.js';
+import { modelFloor } from './FloorKit.js';
 
 const Y = -40; const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 export const GUNSHOP_DEF = { name: SHOP_NAME, w: 9, d: 12, keeper: { seed: 9181, sex: 'm', age: 'elder', outfit: 'shirt', top: '#e9e6dc', hair: 'short' }, line: 'Licence on file? Good. Look all you like — ask before you touch.' };
@@ -33,9 +34,7 @@ export function buildGunShopInterior(game, door) {
   const g = new THREE.Group();
 
   // ---- shell: polished dark tile floor, timber wainscot under charcoal-green walls, panel ceiling
-  conc.hrect(x0, z0, x1, z1, Y, 0.8, C('#3b3d3f'));
-  for (let x = x0 + 0.6; x < x1; x += 0.6) paint.box(x, Y + 0.002, cz - D.d / 2, 0.012, 0.004, D.d, { col: C('#2a2b2c') }); // tile joints
-  for (let z = z0 + 0.6; z < z1; z += 0.6) paint.box(cx, Y + 0.002, z, D.w, 0.004, 0.012, { col: C('#2a2b2c') });
+  g.add(modelFloor({ kind: 'ceramic', size: 0.6, colors: ['#3d3f41', '#393b3d', '#414345'], grout: '#1c1d1e', rough: 0.16, tone: 0.03, seed: 1847 }, x0, z0, x1, z1, Y)); // modelled 60 cm tiles, real joints
   paint.hrect(x0, z0, x1, z1, Y + H, 1, C('#e8e6e0'), true);
   const wallC = C('#33413a'), woodC = C('#4a2f1e');
   paint.wall(x0, z0, x1, z0, Y, Y + H, [0, 0, 1, 1], wallC); paint.wall(x0, z1, x0, z0, Y, Y + H, [0, 0, 1, 1], wallC); paint.wall(x1, z1, x0, z1, Y, Y + H, [0, 0, 1, 1], wallC); paint.wall(x1, z0, x1, z1, Y, Y + H, [0, 0, 1, 1], wallC);

@@ -13,6 +13,7 @@
 import * as THREE from 'three';
 import { Kit, aoBlob, canvasTex, woodTex, speckle, blotches, rnd } from './RoomKit.js';
 import * as RP from './RoomProps.js';
+import { modelFloor } from './FloorKit.js';
 import { Drink } from './HeroRooms.js';
 import { Input } from '../core/Input.js';
 import { Audio } from '../audio/Audio.js';
@@ -142,7 +143,7 @@ export function buildClub(game, door) {
 
   // ---- shell: stone floor in the hall, carpet in the lobby, star ceiling, velvet walls over a lacquered wainscot
   const LZ = 8.6; // lobby partition
-  k.box('floor', W, 0.02, LZ + D / 2, 0, -0.01, (LZ - D / 2) / 2, { uv: 1 / 1.2 }); k.box('carpet', W, 0.02, D / 2 - LZ, 0, -0.008, (LZ + D / 2) / 2, { uv: 1 / 0.9 });
+  g.add(modelFloor({ kind: 'granite', size: 0.6, colors: ['#3a3940', '#35343b', '#3f3e45'], grout: '#08080a', rough: 0.4, seed: 301 }, -W / 2, -D / 2, W / 2, LZ, 0)); /* modelled honed-stone tiles: a sheen with real joints */ k.box('carpet', W, 0.02, D / 2 - LZ, 0, -0.008, (LZ + D / 2) / 2, { uv: 1 / 0.9 });
   k.box('ceil', W, 0.06, D, 0, H + 0.03, 0);
   const stars = new THREE.Mesh(new THREE.PlaneGeometry(W - 1, LZ + D / 2 - 1), new THREE.MeshBasicMaterial({ map: texStars(), toneMapped: false })); stars.material.map.repeat.set(3, 3.4); stars.rotation.x = Math.PI / 2; stars.position.set(0, H - 0.002, (LZ - D / 2) / 2); g.add(stars);
   const wall = (x, z, w, d, h = H, y = 0) => { k.box('velvet', w, h, d, x, y + h / 2, z, { uv: 1 / 0.6 }); k.block(x, z, w, d); };

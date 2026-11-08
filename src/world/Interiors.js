@@ -11,6 +11,18 @@ import { buildGunShopInterior } from './GunShop.js';
 import { buildClub } from './Club.js';
 import { buildHeroRoom, isHeroRoom, heroDoorSpots, wallSpot } from './HeroRooms.js';
 import { buildHeroEntrance } from './HeroEntrance.js';
+import { modelFloor } from './FloorKit.js';
+
+// modelled floors per shop, as such places are laid in Colombo (FloorKit: real bays / tiles / slabs with recessed joints)
+const SHOP_FLOOR = {
+  kade: { kind: 'redoxide', size: 1.0, seed: 17 },
+  fathima: { kind: 'terrazzo', size: 1.2, seed: 18 },
+  selvaraj: { kind: 'ceramic', size: 0.4, colors: ['#e6e4de', '#dedcd5'], grout: '#8e8b84', seed: 19 },
+  bandara: { kind: 'concrete', size: 1.0, colors: ['#c8b8a0', '#c0b098'], grout: '#5a4e40', rough: 0.75, seed: 20 },
+  tailor: { kind: 'checker', size: 0.3, seed: 21 },
+  garage: { kind: 'concrete', size: 2.0, grout: '#3a3936', seed: 22 },
+  room: { kind: 'redoxide', size: 1.0, seed: 23 },
+};
 
 const Y = -40; const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 const DEFS = {
@@ -49,7 +61,6 @@ export class Interiors {
     const cx = door.x, cz = door.z - 200; // offset in z so rooms don't overlap the shop's own geometry footprint
     const x0 = cx - D.w / 2, x1 = cx + D.w / 2, z0 = cz - D.d, z1 = cz; const H = id === 'garage' ? 5 : 3.2;
     const paint = mb.get('paint'), conc = mb.get('concrete'); const wallC = C(D.wall);
-    conc.hrect(x0, z0, x1, z1, Y, 1.2, C(D.floor));
     paint.hrect(x0, z0, x1, z1, Y + H, 1, C('#f2efe8'), true);
     // walls with inward-facing normals (normal = (-dz, dx) of the a→b direction)
     paint.wall(x0, z0, x1, z0, Y, Y + H, [0, 0, 1, 1], wallC); paint.wall(x0, z1, x0, z0, Y, Y + H, [0, 0, 1, 1], wallC); paint.wall(x1, z1, x0, z1, Y, Y + H, [0, 0, 1, 1], wallC); paint.wall(x1, z0, x1, z1, Y, Y + H, [0, 0, 1, 1], wallC);
@@ -94,6 +105,7 @@ export class Interiors {
     const tube = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.05, 0.08), new THREE.MeshBasicMaterial({ color: 0xffffff })); tube.position.set(cx, Y + H - 0.05, z0 + 0.3); g.add(tube);
     const light = new THREE.PointLight(0xfff1dc, 18, Math.max(D.w, D.d) * 1.6, 1.4); light.position.set(cx, Y + H - 0.6, cz - D.d / 2); g.add(light);
     const amb = new THREE.PointLight(0xffe0c0, 6, 12, 1.5); amb.position.set(cx, Y + 1.5, z1 - 1.5); g.add(amb);
+    g.add(modelFloor(SHOP_FLOOR[id] || { kind: 'concrete', seed: id.length }, x0, z0, x1, z1, Y)); // modelled floor (no painted joints)
     g.visible = false; this.g.scene.add(g);
     const room = { id, D, g, fan, bounds: { x0: x0 + 0.3, x1: x1 - 0.3, z0: z0 + 0.3, z1: z1 - 0.3 }, obstacles, spawn: [cx, z1 - 1.2], keeperPos: [cx + (id === 'garage' ? 2 : 0.6), z0 + (id === 'kade' ? 2.1 : 2.8)], y: Y, door };
     this.built.set(id, room); return room;
