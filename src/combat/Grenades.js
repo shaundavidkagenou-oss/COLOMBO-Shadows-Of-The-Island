@@ -99,7 +99,7 @@ export class Grenades {
   pullPin() {
     this.pinOut = true; const ud = this.inHand.userData; const ch = this.ch; Audio.tone(2600, 0.02, { type: 'square', vol: 0.05 }); Audio.noise(0.05, { f: 4200, q: 4, vol: 0.06, when: 0.02 }); // the pin scraping out
     ch.bones.handL.attach(ud.pin); this.pinDropT = 0.5;
-    if (this.g.crowd) this.g.crowd.alarm(this.P.x, this.P.z, 14, 2, null); // people close by see a grenade come out
+    if (this.g.crowd) this.g.crowd.alarm(this.P.x, this.P.z, 14, 2, null, 'weapon', true); // people close by see a grenade come out
   }
   release() {
     this.thrown = true; this.stats.thrown++; const p = this.handWorld(); const vel = this.launchVel(); this.inHand.visible = false;
@@ -156,7 +156,7 @@ export class Grenades {
         if (o.onGround && o.v.lengthSq() < 0.02) { o.rest = true; o.v.set(0, 0, 0); }
       }
       if (!o.water && L.isWater(o.p.x, o.p.z) && o.p.y < L.groundY(o.p.x, o.p.z) + 0.4 && !(L.bridgeWalkAt && L.bridgeWalkAt(o.p.x, o.p.z))) { o.water = true; o.v.multiplyScalar(0.15); Audio.noise(0.25, { f: 700, q: 0.7, vol: 0.06 }); } // plop
-      if (!o.warned && (o.onGround || o.rest)) { o.warned = true; const C = this.g.crowd; if (C) C.alarm(o.p.x, o.p.z, 12, 3, null); } // "grenade!" — everyone near scatters
+      if (!o.warned && (o.onGround || o.rest)) { o.warned = true; const C = this.g.crowd; if (C) C.alarm(o.p.x, o.p.z, 12, 3, null, 'weapon', true); } // "grenade!" — everyone near scatters
       // spin: rolls along the ground, tumbles in the air
       if (!o.rest) { const s = o.onGround ? _w.set(o.v.z, 0, -o.v.x).multiplyScalar(1 / R) : o.spin; const a = s.length() * dt; if (a > 1e-5) { _q.setFromAxisAngle(_v.copy(s).normalize(), a); o.q.premultiply(_q); } }
       o.m.position.copy(o.p); o.m.quaternion.copy(o.q);

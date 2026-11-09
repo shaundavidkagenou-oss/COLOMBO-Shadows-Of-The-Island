@@ -61,7 +61,8 @@ class AudioEngine {
   doorOpen() { this.noise(0.03, { f: 2600, q: 3, vol: 0.06 }); this.noise(0.05, { f: 1400, q: 2, vol: 0.05, when: 0.04 }); this.noise(0.25, { f: 420, q: 0.7, vol: 0.03, type: 'lowpass', when: 0.08 }); } // latch release + seal letting go
   doorSlam(s = 2) { const k = clamp(s / 4, 0.25, 1); this.noise(0.22, { f: 160, q: 0.8, vol: 0.42 * k, type: 'lowpass', buf: this.brownBuf }); this.tone(70, 0.18, { type: 'sine', vol: 0.22 * k, glide: 48 }); this.noise(0.035, { f: 2200, q: 2.5, vol: 0.09 * k, when: 0.012 }); this.noise(0.4, { f: 900, q: 0.6, vol: 0.03 * k, type: 'lowpass', when: 0.04 }); } // body thump + latch clack
   radioBlip() { if (!this.ready) return; this.noise(0.09, { f: 2400, q: 0.7, vol: 0.05 }); this.tone(1250, 0.07, { type: 'square', vol: 0.025, when: 0.08 }); this.noise(0.12, { f: 1800, q: 0.6, vol: 0.03, when: 2.6 }); } // police radio: squelch open, key beep, squelch tail
-  talkBlip(lang) { const base = lang === 'ta' ? 210 : lang === 'si' ? 190 : 200; for (let i = 0; i < 3; i++) this.tone(base + Math.random() * 60, 0.06, { type: 'triangle', vol: 0.025, when: i * 0.09, out: 'dlg' }); }
+  talkBlip(lang, tone = null, fem = false) { const T = tone || { pitch: 1, rate: 1, vol: 1 }; const base = (lang === 'ta' ? 210 : lang === 'si' ? 190 : 200) * (fem ? 1.25 : 1) * T.pitch; const n = T.rate > 1.2 ? 4 : 3; /* frightened / angry voices: faster, higher, louder; sad: slower, lower, softer */
+    for (let i = 0; i < n; i++) this.tone(base + Math.random() * 60 * T.pitch, 0.06 / T.rate, { type: 'triangle', vol: 0.025 * T.vol, when: i * 0.09 / T.rate, out: 'dlg' }); }
   // ---- explosion (grenade-size charge) heard from d metres: the sound arrives d/343 s after the flash. Close: a sharp crack,
   // a chest-thumping sub drop and a broadband blast; far: mostly the low rumble rolling off the buildings (reverb tail)
   explosion(x, z, power = 1) {

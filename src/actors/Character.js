@@ -1246,20 +1246,25 @@ export class Animator {
         th = lerp(th, gth, gT); kn = lerp(kn, -phi - gth, gT); foot = lerp(foot, phi, gT); }
       R('thigh' + sd, th, sx * g.toeOut * 0.5, lerp(lerp(-hipRoll * 0.9, -sx * 0.06, seatT), -sx * 0.2, gT)); R('shin' + sd, kn, 0, 0); R('foot' + sd, foot, 0, 0);
     });
+    // emotional posture (Mind.js express → this.emo, eased here so a change of mood never pops): sadness slumps and drops the
+    // head, fear / stress tighten the arms in and hunch the shoulders, confidence lifts the chest, anger swings the arms harder
+    let eSl = 0, eTe = 0, ePr = 0, eAg = 0, eSh = 0; if (this.emo) { const E = this.emo, es = this.emoS || (this.emoS = { slump: 0, tense: 0, proud: 0, agit: 0, shake: 0 }), ek = Math.min(1, dt * 1.6);
+      es.slump += (E.slump - es.slump) * ek; es.tense += (E.tense - es.tense) * ek; es.proud += (E.proud - es.proud) * ek; es.agit += (E.agit - es.agit) * ek; es.shake += ((E.shake || 0) - es.shake) * Math.min(1, dt * 4);
+      const sitK = 1 - Math.max(seatT, gT); eSl = es.slump * sitK; eTe = es.tense * sitK; ePr = es.proud * sitK; eAg = es.agit * sitK; eSh = es.shake; }
     // spine, chest: counter-rotation against the pelvis, posture, breathing
     const breathe = Math.sin(this.t * (1.5 + run * 2) + this.seed * 6) * (0.012 + run * 0.01);
     const spineYaw = -pelvisYaw * 0.7, chestYaw = -pelvisYaw * 1.05;
-    R('spine', breathe + g.stoop + run * 0.12 + crouch * 0.2 - hipPitch * 0.4, spineYaw, -hipRoll * 0.55);
-    R('chest', breathe * 0.6 + g.stoop * 0.5, chestYaw, -hipRoll * 0.35 + Math.sin(2 * Math.PI * pL) * 0.03 * g.swagger * w);
+    R('spine', breathe + g.stoop + run * 0.12 + crouch * 0.2 - hipPitch * 0.4 + eSl * 0.1 + eTe * 0.04 - ePr * 0.04, spineYaw, -hipRoll * 0.55);
+    R('chest', breathe * 0.6 + g.stoop * 0.5 + eSl * 0.08 + eTe * 0.03 - ePr * 0.05, chestYaw + Math.sin(this.t * 6.3 + this.seed * 3) * 0.025 * eAg, -hipRoll * 0.35 + Math.sin(2 * Math.PI * pL) * 0.03 * g.swagger * w);
     // head: stabilised against the trunk, plus look/idle look
     const trunkYaw = pelvisYaw + spineYaw + chestYaw;
-    R('neck', -g.stoop * 0.8 + g.headDown - run * 0.12 - crouch * 0.2, -trunkYaw * 0.5, hipRoll * 0.3);
+    R('neck', -g.stoop * 0.8 + g.headDown - run * 0.12 - crouch * 0.2 + eSl * 0.16 + eTe * 0.05 - ePr * 0.04, -trunkYaw * 0.5 + Math.sin(this.t * 9) * 0.14 * eSh, hipRoll * 0.3);
     const onCall = this.action === 'phone' ? 1 - 0.85 * this.actionW : 1; /* phone at the ear: the head stays with the hand (no free look-around) */
     R('head', -(this.hipYs - this.ch.hipY + gT * (this.ch.hipY - 0.45 - 0.12 * s)) * 0.6 * onCall, (this.look * 0.6 + this.idleLook * 0.5 - trunkYaw * 0.4) * onCall, hipRoll * 0.3 * onCall);
     // arms: pendulum swing opposite to the legs, slightly lagging, bigger forward than back
-    const armAmp = (0.1 + 0.2 * clamp(sp / 1.6, 0, 1) + run * 0.6) * g.arm * w;
+    const armAmp = (0.1 + 0.2 * clamp(sp / 1.6, 0, 1) + run * 0.6) * g.arm * w * (1 + 0.35 * eAg - 0.4 * eSl - 0.15 * eTe);
     const sw = (p) => { const v = Math.cos(2 * Math.PI * (p - g.lag)); return v > 0 ? v : v * 0.75; };
-    let aL = [-sw(pR) * armAmp + 0.03, 0, g.armOut + run * 0.08 + sh * 0.02], aR = [-sw(pL) * armAmp + 0.03, 0, -g.armOut - run * 0.08 + sh * 0.02];
+    const aOut = g.armOut * (1 - 0.45 * eTe) + 0.03 * eAg; let aL = [-sw(pR) * armAmp + 0.03, 0, aOut + run * 0.08 + sh * 0.02], aR = [-sw(pL) * armAmp + 0.03, 0, -aOut - run * 0.08 + sh * 0.02];
     let fL = [-(g.elbow + Math.max(0, sw(pR)) * 0.3 * w + run * 1.25), 0, 0], fR = [-(g.elbow + Math.max(0, sw(pL)) * 0.3 * w + run * 1.25), 0, 0];
     const blend = (cur, tgt, k) => cur.map((v, i) => lerp(v, tgt[i], k));
     const t = this.t, at = this.actionT;
@@ -1322,6 +1327,9 @@ export class Animator {
         case 'pray': tr = [-0.75, 0, 0.55]; tl = [-0.75, 0, -0.55]; tfr = tfl = [-1.9, 0, 0]; b.neck.rotation.x += 0.2 * aw; break;
         case 'photo': tr = [-1.25, 0, 0.25]; tl = [-1.25, 0, -0.25]; tfr = tfl = [-1.7, 0, 0]; break;
         case 'shrug': { const k = Math.sin(clamp(at / 1.2, 0, 1) * Math.PI); tr = [-0.3 * k, 0, -0.5 * k]; tl = [-0.3 * k, 0, 0.5 * k]; tfr = tfl = [-1.4 * k, 0, 0]; head = 0.1 * k; break; }
+        case 'nod': { const k = Math.sin(clamp(at / 1.1, 0, 1) * Math.PI); b.neck.rotation.x += (0.05 + Math.max(0, Math.sin(at * 8.5)) * 0.2) * k * aw; head = 0; break; } // a friendly nod (Mind.js greetings)
+        case 'laugh': { const k = clamp(at / 0.3, 0, 1) * clamp((this.actionDur || 9) - at, 0, 0.4) / 0.4, sh = Math.abs(Math.sin(at * 13)); b.chest.rotation.x -= (0.07 + 0.05 * sh) * k * aw; b.neck.rotation.x -= (0.1 + 0.07 * sh) * k * aw; b.spine.rotation.x += 0.05 * sh * k * aw; // head back, shoulders shaking
+          tr = [-0.35 * k, 0, -0.15 * k]; tfr = [-1.5 * k, 0, 0]; tl = [-0.1, 0, 0.12]; tfl = [-0.4 - 0.15 * sh * k, 0, 0]; head = Math.sin(at * 2) * 0.12; break; }
         case 'beckon': tr = [-1.3, 0, -0.15]; tfr = [-1.2 - Math.max(0, Math.sin(t * 6)) * 0.6, 0, 0]; break;
         case 'alert': { // something happened: weight down, hands up in front, head scanning
           ikT('L', 0.13, -0.2, 0.26); ikT('R', -0.13, -0.2, 0.26); head = Math.sin(at * 1.6) * 0.55; b.hips.position.y -= 0.035 * s * aw;

@@ -25,6 +25,7 @@ function headPool() {
 export function setHeadPoolNight(n) { const hp = headPool(); const k = Math.min(1, Math.max(0, (n - 0.25) / 0.6)); hp.mat.opacity = 0.32 * k * k * (3 - 2 * k); } // painted pool for far vehicles (was 0.42: on wet asphalt it read as glare)
 // Near-LOD switch for the high-detail kit (VehicleDetail.js): detail group + hi-res wheels within ud.lodR of the camera.
 import { syncDoors } from './DoorRig.js';
+export const VEH_HOOKS = { crash: null }; // crash(v, by, dv): the player's vehicle hit this one (Traffic: the other driver's reaction — Mind.js road rage)
 export const LIVE_VEHICLES = globalThis.__liveVehicles || (globalThis.__liveVehicles = new Set()); // global so dev hot-reloads share one registry
 // The hidden half of each LOD pair is also taken out of the scene graph (its host is kept in userData.host): three walks every
 // object of the scene each frame to update world matrices, visible or not, and the ~70 vehicles were half of all objects
@@ -211,7 +212,7 @@ export class Vehicle {
   }
   impact(v) { if (v > 4) { this.damage = Math.min(1, this.damage + v * 0.004); this.lastImpact = { v, t: performance.now() }; } }
   // impulse from a collision (AI / parked): leave the lane and slide freely until the energy is gone (Traffic.stepFree)
-  shove(dvx, dvz, dspin = 0) { if (this.player || this.immovable) return; const dv = Math.hypot(dvx, dvz); if (dv < 0.6 && !this.free) { this.bump(0, 0); return; } const [fx, fz] = this.forward(); const f = this.free || (this.free = { vx: fx * (this.speed || 0), vz: fz * (this.speed || 0), spin: 0, rest: 0, sev: 0 }); f.vx += dvx; f.vz += dvz; f.spin = clamp(f.spin + dspin, -2.4, 2.4); f.sev = Math.max(f.sev, dv); f.rest = 0; this.speed = 0; this.brake = true; if (this.ai) this.ai.bumped = 2.5; this.impact(dv * 1.25); }
+  shove(dvx, dvz, dspin = 0, by = null) { if (this.player || this.immovable) return; const dv = Math.hypot(dvx, dvz); if (by && by.player && VEH_HOOKS.crash) VEH_HOOKS.crash(this, by, dv); if (dv < 0.6 && !this.free) { this.bump(0, 0); return; } const [fx, fz] = this.forward(); const f = this.free || (this.free = { vx: fx * (this.speed || 0), vz: fz * (this.speed || 0), spin: 0, rest: 0, sev: 0 }); f.vx += dvx; f.vz += dvz; f.spin = clamp(f.spin + dspin, -2.4, 2.4); f.sev = Math.max(f.sev, dv); f.rest = 0; this.speed = 0; this.brake = true; if (this.ai) this.ai.bumped = 2.5; this.impact(dv * 1.25); }
   bump(dx, dz) { if (this.parked) { this.x += dx * 0.3; this.z += dz * 0.3; this.sync(0); } else if (this.ai) { this.ai.bumped = 2.5; } }
   sync(dt) {
     this.settle(dt); const S = this.sus; const sr = Math.sin(S.r);

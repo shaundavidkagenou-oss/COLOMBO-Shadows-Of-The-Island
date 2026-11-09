@@ -220,7 +220,7 @@ export class Explosions {
       } else if (d < R2) { C.knock(p, ux, uz, 6 + 5 * f, 0); this.stats.downed++; }
       else if (p.state !== 'down') { C.react(p, 'stumble', 0.7, { punched: true }); p.vx = ux * 3 * f; p.vz = uz * 3 * f; }
     }
-    if (C) C.alarm(c.x, c.z, 90, 3, null);
+    if (C) C.alarm(c.x, c.z, 90, 3, null, 'explosion');
     g.birds?.scare(c.x, c.z, 140);
     // police: officers caught in it; anyone setting off explosives in the city is wanted (an officer or a witness reports it)
     const PR = g.police;

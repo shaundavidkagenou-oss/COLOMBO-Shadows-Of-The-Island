@@ -455,6 +455,13 @@ export const EXPR_MORPHS = {
   angry: { browDown: 0.95, squint: 0.4, sneer: 0.35, press: 0.45, frown: 0.2 },
   pain: { browDown: 0.5, browInner: 0.6, squint: 0.7, stretch: 0.5, sneer: 0.3 },
   wince: { browDown: 0.75, browInner: 0.35, squint: 0.85, sneer: 0.5, press: 0.55, stretch: 0.2 }, // after a shot of spirits
+  // NPC feelings (Mind.js): built only from channels both the hero and the crowd heads have (no sneer / pucker on crowd heads)
+  sad: { browInner: 0.85, frown: 0.55, press: 0.15, squint: 0.1 },
+  confused: { browUp: 0.3, browDown: 0.3, browInner: 0.35, press: 0.25, frown: 0.1 },
+  suspicious: { browDown: 0.5, squint: 0.65, press: 0.35 },
+  embarrassed: { smile: 0.35, browInner: 0.5, squint: 0.3, press: 0.25 },
+  excited: { smile: 0.6, browUp: 0.55, wide: 0.35, jaw: 0.12 },
+  laugh: { smile: 1, squint: 0.65, jaw: 0.45, browUp: 0.2 },
   lookL: {}, lookR: {},
 };
 export function morphIndex(name) { return MI[name]; }

@@ -647,7 +647,7 @@ export class PoliceResponse {
     if (q.mode === 'held') { // walk round behind them; they turn their back; handcuffs
       const bx = q.x - Math.sin(q.yaw) * 0.62, bz = q.z - Math.cos(q.yaw) * 0.62; const d = Math.hypot(bx - o.x, bz - o.z);
       if (d > 0.25 && !(d < 0.5 && o.blockedT > 0.4)) { speed = this.moveTo(o, bx, bz, d > 6 ? 2.6 : 1.3, dt); if (A.action) A.set(null); }
-      else { o.yaw += angDiff(Math.atan2(q.x - o.x, q.z - o.z), o.yaw) * Math.min(1, dt * 6); q.mode = 'cuffing'; q.t = 0; A.set('interact'); if (u.officers[0] === o && this.nearPlayer(o.x, o.z)) this.say(o, u.prisoners.length === 1 ? 'cuff1' : 'cuff', 'Police officer'); }
+      else { o.yaw += angDiff(Math.atan2(q.x - o.x, q.z - o.z), o.yaw) * Math.min(1, dt * 6); q.mode = 'cuffing'; q.t = 0; A.set('interact'); if (this.g.crowd && this.g.crowd.alarm && !q.arrestSeen) { q.arrestSeen = true; this.g.crowd.alarm(q.x, q.z, 30, 1, q, 'arrest'); } /* an arrest draws onlookers: some gather, some film, some walk on (Mind.js) */ if (u.officers[0] === o && this.nearPlayer(o.x, o.z)) this.say(o, u.prisoners.length === 1 ? 'cuff1' : 'cuff', 'Police officer'); }
       this.animOfficer(o, dt, speed); return; }
     if (q.mode === 'cuffing') { o.yaw += angDiff(Math.atan2(q.x - o.x, q.z - o.z), o.yaw) * Math.min(1, dt * 6); if (A.action !== 'interact') A.set('interact'); this.animOfficer(o, dt, 0); return; }
     if (q.mode === 'escort') { // walk them to their door, a hand on the upper arm

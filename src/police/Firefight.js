@@ -235,7 +235,7 @@ export class Firefight {
     if (Audio.ctx && Audio.spatial) { const [gn, pan] = Audio.spatial(mz.x, mz.z, 70); const s = def.snd; const v = s.vol * Math.max(0.12, gn);
       Audio.noise(s.dur, { f: s.crack, q: 0.6, vol: v, type: 'lowpass', attack: 0.001, pan }); Audio.tone(s.body * 2.2, s.dur * 1.3, { type: 'sine', vol: v * 0.5, attack: 0.002, glide: s.body * 0.6, pan });
       Audio.noise(s.tail, { f: 480, q: 0.5, type: 'lowpass', vol: v * 0.3, attack: 0.02, when: 0.03 + Math.min(0.25, Math.hypot(mz.x - g.player.x, mz.z - g.player.z) / 340), buf: Audio.brownBuf, pan }); }
-    if (g.crowd && g.crowd.alarm) { if ((this._alarmN = (this._alarmN || 0) + 1) % 3 === 1) g.crowd.alarm(mz.x, mz.z, def.loud, 2, null); }
+    if (g.crowd && g.crowd.alarm) { if ((this._alarmN = (this._alarmN || 0) + 1) % 3 === 1) g.crowd.alarm(mz.x, mz.z, def.loud, 2, null, 'gunshot'); }
     if (g.birds && g.birds.scare && this._alarmN % 3 === 1) g.birds.scare(mz.x, mz.z, 50);
   }
 

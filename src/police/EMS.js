@@ -224,6 +224,7 @@ export class EMS {
     const e = u.e, p = e.p, C = this.crowd; p.dead = false; p.awaitMedic = false; p.keep = false; p.hits = 0; p.deadT = 0; p.downT = 0; p.timer = 0; p.ch.mesh.rotation.set(0, 0, 0); p.ch.mesh.position.set(0, 0, 0);
     p.ch.face.set?.('concern', 6); p.ch.face.mood = 'concern'; const away = { x: Math.sin(p.yaw), z: Math.cos(p.yaw) };
     if (C && C.react) { C.react(p, 'recover', 6, { fleeDir: [away.x, away.z] }, true); p.ch.anim.set(null); }
+    if (p.mind) { p.mind.dead = false; if (C && C.minds) C.minds.playerAct(p, 'helped'); } // the player phoned the ambulance that saved them: remembered with gratitude (Mind.js)
     this.say('okay'); e.ph = 'leave'; e.t = 0; for (const o of u.officers) { o.want = null; o.ch.anim.set(null); o.ch.anim.holdWL = o.ch.anim.holdWR = null; o.mode = 'return'; o.goal = null; }
   }
   // ---------------------------------------------------------------- the stretcher (not revived)

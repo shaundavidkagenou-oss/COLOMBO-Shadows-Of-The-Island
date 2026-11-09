@@ -3,7 +3,9 @@
 import * as THREE from 'three';
 import * as L from '../world/Layout.js';
 import { plan } from '../world/CityPlan.js';
-import { Vehicle } from './Vehicle.js';
+import { Vehicle, VEH_HOOKS } from './Vehicle.js';
+import { Mind, genTraits, hashStr, TI } from '../actors/Mind.js';
+import { LINES, pick } from '../story/Lines.js';
 import { VTYPES, modelCached, warmModel, warmShape, createVehicleMesh } from './VehicleModels.js';
 import { TRAFFIC_W, PARKED_W, NO_LANES } from './VehicleCatalog.js';
 import { BIKE_LISTS, BIKE_PARKED, BIKE_IDS } from './BikeCatalog.js';
@@ -16,6 +18,7 @@ import { busExitPath, busAlightStep } from '../actors/BusWalk.js';
 import { cancelShut, shutDoorLater, openBusDoor } from './DoorRig.js';
 import { parkOnStand } from './Kickstand.js';
 import { stepChase } from '../police/Pursuit.js';
+const RAGE_MIND = new Mind(); // scratch: a seated driver's temperament from his look (no per-vehicle allocation)
 
 // passengers per vehicle type: [count, weight] (the driver is always present)
 const PAX = { car: [[0, 5], [1, 3], [2, 1.5], [3, 0.8]], sedan: [[0, 5], [1, 3], [2, 1]], taxi: [[0, 2], [1, 4], [2, 2]], suv: [[0, 3], [1, 3], [2, 2], [3, 1]], van: [[0, 3], [1, 2], [2, 2], [4, 1]],
@@ -145,6 +148,7 @@ function obbHit(ax, az, ay, ahw, ahl, bx, bz, by, bhw, bhl) {
 }
 export class Traffic {
   constructor(scene, collision, events) {
+    VEH_HOOKS.crash = (v, by, dv) => this.onCrash(v, by, dv); this.raging = []; this.reboarding = []; this.rageStats = { crashes: 0, honk: 0, out: 0, back: 0 };
     this.scene = scene; this.collision = collision; this.events = events; this.vehicles = []; this.parked = []; this.rng = new RNG(777);
     this.max = 40; this.simTime = 0; this.res = new Map(); this.driverSpecs = []; for (let i = 0; i < 16; i++) this.driverSpecs.push(randomSpec(5000 + i * 13, { sex: i % 5 === 0 ? 'f' : 'm', age: 'adult' }));
     this.paxCount = 0; this.leaving = []; this.crowd = null; this.parkedTimer = 0; this.drivableSegs = L.segments.filter((s) => !s.crossing || s.level <= 2); this.drivable = new Set(this.drivableSegs); this.flowSegs = flowNetwork(this.drivableSegs); this.flow = new Set(this.flowSegs); this.emergency = [];
@@ -265,12 +269,71 @@ export class Traffic {
     this.paxCount -= v.pax.length; v.pax = []; v.paxPlan = []; v.paxReason = reason; v.paxFrom = from;
     if (!this.leaving.includes(v)) this.leaving.push(v);
   }
+  // ---- road rage (Mind.js personalities): the player's vehicle hit an AI car. The driver's temperament decides: a sharp horn
+  // and a shout from the window, or — if it is safe (player slow / on foot, unarmed, no police chase, daylight or a bold
+  // driver) — he stops, gets out through his own door, confronts the player, then walks back and drives off (reboard)
+  onCrash(v, by, dv) {
+    if (!v.ai || v.parked || v.player || !v.driverChar || v.police || v.squad || v.keep || v.towing || v.towedBy || v.ai.emergency || v.ai.chase || v.awayDriver || v.rageDriver || v.disembarking) return;
+    const now = this.simTime || 0; if ((v.rageCd || 0) > now || dv < 0.35) return; v.rageCd = now + 8; this.rageStats.crashes++;
+    const sp = v.driverChar.spec || {}; const m = RAGE_MIND; m.reset(); genTraits(m, hashStr('drv' + (sp.seed ?? v.id)), sp); const t = m.tr;
+    const anger = 0.25 + Math.min(1, dv * 0.3) + 0.45 * t[TI.AGG] - 0.25 * t[TI.PAT];
+    const bus = v.type === 'bus' || v.type === 'pbus'; const night = this.crowd && this.crowd.night > 0.5;
+    const out = !bus && dv >= 0.9 && anger * (0.6 + 0.4 * t[TI.CONF]) > 0.42 + this.rng.next() * 0.35 && !(night && t[TI.FEARF] > 0.45) && t[TI.FEARF] < 0.75;
+    this.raging.push({ v, t: 0, delay: 0.6 + this.rng.next() * 1.2 + (1 - t[TI.CONF]) * 0.6, out, anger, by });
+  }
+  updateRage(dt) {
+    const C = this.crowd;
+    for (let i = this.raging.length - 1; i >= 0; i--) {
+      const R = this.raging[i], v = R.v; R.t += dt;
+      if (!v.mesh.parent || v.player || !v.driverChar || v.disembarking || R.t > 10) { if (R.held) v.hold = false; this.raging.splice(i, 1); continue; }
+      if (R.out && !R.held) { R.held = true; v.hold = true; } // brake to a stop
+      if (R.t < R.delay || v.free || Math.abs(v.speed) > 0.6) continue;
+      this.raging.splice(i, 1);
+      const P = C && C.player; const pv = P && P.vehicle; const pd = P ? Math.hypot(P.x - v.x, P.z - v.z) : 1e9; const lvl = C && C.police ? C.police.level || 0 : 0;
+      const safe = C && R.out && pd < 30 && (!pv || Math.abs(pv.speed) < 3.5) && !C.playerArmed && lvl < 2 && !(C.focus && Math.hypot(C.focus.x - v.x, C.focus.z - v.z) > 60);
+      if (!safe) { if (R.held) v.hold = false; if (this.events) this.events.emit('horn', v); this.rageStats.honk++; // stays in the car: a long horn and a shout through the window
+        if (C && pd < 16 && R.anger > 0.5 && this.events) this.events.emit('npcLine', { ped: { x: v.x, z: v.z, sp: v.driverChar.spec, mind: null }, line: pick(LINES.roadRage, () => this.rng.next()), prio: 1 }); continue; }
+      // gets out by his own door (the parking step-out), passengers stay in their seats
+      const seats = v.mesh.userData.seats; const ds = Math.max(0, seats.indexOf(v.driverSeat())); const keep = v.pax || [], keepPlan = v.paxPlan || [];
+      v.rageDriver = v.driverChar; v.pax = [v.driverChar]; v.paxPlan = [{ si: ds, spec: v.driverChar.spec, mode: 'lap' }]; v.driverChar = null; this.paxCount++;
+      this.disembark(v, 'confront', { x: P.x, z: P.z }); v.pax = keep; v.paxPlan = keepPlan; this.rageStats.out++;
+    }
+  }
+  // the stand point beside the driver's door, in world space (Crowd 'toCar' walks there)
+  boardPoint(v, ch = null) {
+    const seat = v.driverSeat(); if (!seat) return null; if (v.rbfSeat !== seat && ch) { v.rbfSeat = seat; v.rbf = npcBoardSetup(v, seat, ch.anim); }
+    const e = v.rbf ? v.rbf.H0 : seat.exit || [Math.sign(seat.x || 1) * (v.T.wid / 2 + 0.6), seat.z]; v.mesh.updateMatrixWorld(); const w = (v.rbpW || (v.rbpW = new THREE.Vector3())).set(e[0], 0, e[1]).applyMatrix4(v.mesh.matrixWorld); return w;
+  }
+  // a driver back at his door: the step-in (the police re-boarding motion), then he drives on
+  reboard(v, p) {
+    if (!this.crowd || v.driverChar || !v.mesh.parent || v.player || v.disembarking) return false; const seat = v.driverSeat(); if (!seat) return false;
+    const ch = p.ch; this.crowd.release(p); ch.root.parent?.remove(ch.root); this.scene.add(ch.root); // release keeps the character (it is ours again)
+    const bf = npcBoardSetup(v, seat, ch.anim); this.reboarding.push({ v, ch, seat, bf, t: 0, boarding: false, x: p.x, z: p.z, yaw: p.yaw, y: p.y || ch.root.position.y }); v.awayDriver = null; return true;
+  }
+  updateReboard(dt) {
+    for (let i = this.reboarding.length - 1; i >= 0; i--) {
+      const o = this.reboarding[i], v = o.v, A = o.ch.anim, bf = o.bf; o.t += dt;
+      if (!v.mesh.parent || v.player || v.driverChar) { // the car is gone / taken: he stays on foot
+        this.reboarding.splice(i, 1); o.ch.root.parent?.remove(o.ch.root); A.board = null; A.standUp(); o.ch.root.rotation.set(0, 0, 0); v.hold = false; if (this.crowd) this.crowd.adopt(o.ch, o.x, o.z, o.yaw, 'calm'); else o.ch.dispose(); continue; }
+      if (!bf) { if (o.t > 0.4) { this.reboarding.splice(i, 1); o.ch.root.parent?.remove(o.ch.root); seatCharacter(o.ch, v, o.seat); o.ch.mesh.castShadow = false; v.driverChar = o.ch; v.animAcc = 0; v.hold = false; this.rageStats.back++; } continue; }
+      if (bf.door) { cancelShut(bf.door); swingDoor(v, bf.door, bf.side, 1, dt, 8.5, 0.62); }
+      if (!o.boarding) {
+        v.mesh.updateMatrixWorld(); const hw = (o.hw || (o.hw = new THREE.Vector3())).set(bf.H0[0], 0, bf.H0[1]).applyMatrix4(v.mesh.matrixWorld); const dx = hw.x - o.x, dz = hw.z - o.z, dd = Math.hypot(dx, dz);
+        if (dd > 1e-4) { const st = Math.min(dd, 1.3 * dt); o.x += dx / dd * st; o.z += dz / dd * st; } const dy = Math.atan2(Math.sin(v.yaw - o.yaw), Math.cos(v.yaw - o.yaw)); o.yaw += dy * Math.min(1, 9 * dt);
+        o.y = this.collision.groundAt(o.x, o.z, v.y + 0.6); o.ch.root.position.set(o.x, o.y, o.z); o.ch.root.rotation.set(0, o.yaw, 0); A.update(dt, dd > 0.03 ? 1.1 : 0);
+        if ((dd < 0.03 && Math.abs(dy) < 0.08 && (!bf.door || bf.door.ang > 0.85)) || o.t > 3) { o.ch.root.parent?.remove(o.ch.root); v.mesh.add(o.ch.root); lapGrips(o.ch, v, o.seat, bf.G); o.boarding = true; o.t = 0; A.set(null); A.standUp(); A.duck = 0; }
+        else continue; }
+      const k = Math.min(1, Math.max(0, o.t - 0.12) / bf.T); poseBoard(A, bf.G, boardCurve(bf.G, k), v.mesh, boardGroundFn(v, this.collision), 0, Math.min(1, o.t / 0.25)); A.update(dt, 0, 0);
+      if (k >= 1) { A.board = null; seatCharacter(o.ch, v, o.seat); o.ch.mesh.castShadow = false; v.driverChar = o.ch; v.animAcc = 0; if (bf.door) shutDoorLater(v, bf.door, 0.05); v.hold = false; this.reboarding.splice(i, 1); this.rageStats.back++; }
+    }
+  }
   // hand a passenger who has got out over to the crowd (world position / heading from his root)
   releasePax(v, o) {
     const r = o.ch.root; o.ch.anim.board = null; o.ch.anim.standUp(); v.mesh.updateMatrixWorld(); r.updateMatrixWorld(true);
     const p = r.getWorldPosition(new THREE.Vector3()); const yw = new THREE.Euler().setFromQuaternion(r.getWorldQuaternion(new THREE.Quaternion()), 'YXZ').y;
     r.parent?.remove(r); r.rotation.set(0, 0, 0); o.done = true;
-    if (this.crowd) this.crowd.adopt(o.ch, p.x, p.z, yw, v.paxReason, v.paxFrom); else o.ch.dispose();
+    if (this.crowd) { const ped = this.crowd.adopt(o.ch, p.x, p.z, yw, v.paxReason, v.paxFrom);
+      if (ped && v.rageDriver === o.ch) { v.rageDriver = null; ped.homeCar = v; v.awayDriver = ped; this.crowd.minds.playerAct(ped, 'crashed'); ped.timer = Math.max(ped.timer || 0, 5 + this.rng.next() * 4); ped.talkCd = 0; this.crowd.speak(ped, 'roadRage', 2, 2.5); } } else o.ch.dispose();
   }
   updateDisembark(dt) {
     for (let i = this.leaving.length - 1; i >= 0; i--) {
@@ -336,7 +399,7 @@ export class Traffic {
     this.updateArrivals(dt, focus);
     this.paxBudget = 1; for (const v of all) if (v.driverChar || (v.pax && v.pax.length) || (v.paxPlan && v.paxPlan.length)) this.updateOccupants(v, dt, focus);
     if (playerV && playerV.pax && playerV.pax.length) this.updateOccupants(playerV, dt, focus);
-    this.updateDisembark(dt);
+    this.updateDisembark(dt); if (this.crowd && this.crowd.traffic !== this) this.crowd.traffic = this; if (this.raging.length) this.updateRage(dt); if (this.reboarding.length) this.updateReboard(dt);
   }
   step(v, dt, all, peds, playerV, player) {
     if (v.free) { this.stepFree(v, dt); return; }

@@ -13,10 +13,10 @@ const CP = await import('../src/world/CityPlan.js'); CP.generatePlan();
 const { Collision } = await import('../src/world/Collision.js');
 const { Traffic } = await import('../src/vehicles/Traffic.js');
 const { Crowd } = await import('../src/actors/Crowd.js');
-const ACC = {}; if (process.env.WRAP) { const { wrap } = await import('./_wrap.mjs'); wrap(Traffic.prototype, ['bodyGap', 'binBodies', 'spawn', 'addDriver', 'remove', 'updateParked', 'step', 'updateOccupants', 'extend', 'updateDisembark'], 'T', ACC); wrap(Crowd.prototype, Object.getOwnPropertyNames(Crowd.prototype).filter((n) => n !== 'constructor' && n !== 'update'), 'C', ACC); }
+const ACC = {}; if (process.env.WRAP) { const { wrap } = await import('./_wrap.mjs'); wrap(Traffic.prototype, ['bodyGap', 'binBodies', 'spawn', 'addDriver', 'remove', 'updateParked', 'step', 'updateOccupants', 'extend', 'updateDisembark'], 'T', ACC); wrap(Crowd.prototype, Object.getOwnPropertyNames(Crowd.prototype).filter((n) => n !== 'constructor' && n !== 'update'), 'C', ACC); const { MindSystem } = await import('../src/actors/Mind.js'); wrap(MindSystem.prototype, Object.getOwnPropertyNames(MindSystem.prototype).filter((n) => n !== 'constructor' && n !== 'now'), 'M', ACC); }
 const col = new Collision(); col.addAll(CP.plan.colliders);
 const scene = new THREE.Scene(); const events = { emit() {}, on() {} };
-const C = new Crowd(scene, col, events); C.max = QP.crowd; C.prepareSpecs?.(C.specTarget ? C.specTarget() : 48);
+const C = new Crowd(scene, col, events); if (process.env.MIND === '0') C.minds.enabled = false; /* A/B: NPC minds off */ C.max = QP.crowd; C.prepareSpecs?.(C.specTarget ? C.specTarget() : 48);
 const T = new Traffic(scene, col, events); T.max = QP.traffic; T.crowd = C; { const tw = performance.now(); await T.warmModels([[-392, 700]]); console.log('loading-screen warm', (performance.now() - tw).toFixed(0), 'ms'); }
 const focus = { x: -392, z: 700 }; const player = { x: focus.x, z: focus.z, y: 0, vehicle: null, ch: null };
 const camDir = new THREE.Vector3(0, 0, -1); const dt = 1 / 60;

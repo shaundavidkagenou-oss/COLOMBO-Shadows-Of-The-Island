@@ -80,7 +80,7 @@ export class DebugConsole {
     const [cmd, ...a] = line.split(/\s+/); const c = cmd.toLowerCase(); const on = (v, cur) => (v === undefined ? !cur : /^(1|true|on|yes)$/i.test(v));
     try {
       switch (c) {
-        case 'help': ['debug.menu true|false — enable the debug menu (open it with Numpad 2)', 'time <0-24> · freeze [on|off]', `weather <${Object.keys(WEATHER).join('|')}>`, 'money <amount>', 'god [on|off] · ammo [on|off] (infinite) · nowanted [on|off]',
+        case 'help': ['debug.menu true|false — enable the debug menu (open it with Numpad 2)', 'time <0-24> · freeze [on|off]', `weather <${Object.keys(WEATHER).join('|')}>`, 'money <amount>', 'god [on|off] · ammo [on|off] (infinite) · nowanted [on|off]', 'mind · mind stats · mind off|on — NPC personality / feelings / memories',
           `give <all|grenades|${WEAPONS.map((w) => w.id).join('|')}>`, 'tp <place> | tp <x> <z> | tp waypoint · places', 'drunk <0..1> · room <dineth|shashika|david>', 'bench [seconds] — frame-rate benchmark of real play (avg fps, 1 % / 0.1 % lows, worst frame); the console closes while it runs', `spawn ped [n] · spawn car [${VEH.join('|')}|<catalogue id>]`, 'cars — list the 40 catalogue vehicles (ids for spawn car)', `model <${MODELS.join('|')}|civilian|reset>`, 'dress [outfit] — re-dress pedestrians within 35 m · outfits', 'animations — animation editor (every animation in the game, keyframes, poses, speed …)', 'map — map editor (move / add / delete / repaint anything, save the map)', 'npc — NPC editor (remodel NPCs: every appearance parameter, proportions, paint on the model, fabric textures)', 'heal · clear · close'].forEach((s) => this.print('  ' + s)); break;
         case 'debug.menu': this.D.menuEnabled = on(a[0], this.D.menuEnabled); if (!this.D.menuEnabled) this.toggleMenu(false); this.print(`debug menu ${this.D.menuEnabled ? 'ENABLED — press Numpad 2 to open it' : 'disabled'}`, 'ok'); break;
         case 'time': this.setTime(+a[0]); break;
@@ -105,6 +105,19 @@ export class DebugConsole {
           const kind = c.startsWith('anim') ? 'animations' : c.startsWith('npc') ? 'npc' : 'map'; this.print(`loading the ${kind} editor…`, 'sys'); this.toggle(false);
           openEditor(kind, this.g).catch((e) => { console.error(e); this.toggle(true); this.print('editor failed to load: ' + (e && e.message || e), 'err'); }); break; }
         case 'bench': this.bench(+a[0] || 20); break;
+        case 'mind': { // NPC minds (Mind.js): 'mind' = the nearest person's personality / feelings / memories; 'mind stats'; 'mind off|on' (A/B)
+          const C = this.g.crowd, M = C && C.minds; if (!M) throw new Error('no crowd minds');
+          if (a[0] === 'stats') { const I = M.info(); this.print(Object.entries(I).map(([k, v]) => `${k} ${typeof v === 'number' ? +v.toFixed(2) : v}`).join(' · '), 'ok'); const R = this.g.traffic && this.g.traffic.rageStats; if (R) this.print(`road rage: crashes ${R.crashes} · horn ${R.honk} · got out ${R.out} · back in ${R.back}`); break; }
+          if (a[0] === 'off' || a[0] === 'on') { M.enabled = a[0] === 'on'; this.print(`NPC minds ${M.enabled ? 'on' : 'off (stimuli ignored; personalities stay)'}`, 'ok'); break; }
+          const P = this.g.player; let best = null, bd = 12; for (const q of C.peds) { const d = Math.hypot(q.x - P.x, q.z - P.z); if (q.mind && d < bd) { bd = d; best = q; } }
+          if (!best) { this.print('nobody within 12 m', 'warn'); break; } const D = M.describe(best);
+          this.print(`${D.id} (${D.home || '?'}) · ${D.state} · mood ${D.mood} · pace ×${D.pace} · ${bd.toFixed(1)} m`, 'ok');
+          this.print('  traits   ' + Object.entries(D.traits).map(([k, v]) => `${k} ${v}`).join(' · '));
+          this.print('  feelings ' + Object.entries(D.emotions).filter(([, v]) => v > 0.02).map(([k, v]) => `${k} ${v}`).join(' · '));
+          if (D.memories.length) this.print('  memories ' + D.memories.map((e) => `${e.what}${e.who ? '(' + e.who + ')' : ''} ${e.imp} ${e.ago}s ago`).join(' · '));
+          for (const [h, r] of Object.entries(D.player)) this.print(`  ${h}: like ${r.like} · fear ${r.fear} · met ${r.met} · harassed ${r.harassed} · helped ${r.helped} · crimes seen ${r.crimesSeen}`);
+          if (D.ties.length) this.print('  knows    ' + D.ties.map((t) => `${t.who} ${t.aff}`).join(' · '));
+          break; }
         case 'clear': this.log = []; this.print(''); break;
         case 'close': case 'exit': this.toggle(false); break;
         default: this.print(`unknown command: ${cmd} (type help)`, 'err');
