@@ -116,13 +116,19 @@ export function styleVehicle(X) {
       fbox(ind, sx * (xo - 0.03), hyc - H.h * 0.25, 0.04, H.h * 0.5, 0.03, 0.012);
     } else { // rect / swept / slim / tall: lens on a dark housing, optional wrap round the corner and fin onto the bonnet
       const w = H.w || 0.3, h = Math.min(H.h || 0.12, (hy - fy) + 0.04);
+      // a lamp assembly instead of a lit slab: dark bezel, chrome reflector housing, projector lens(es) in chrome rings and a
+      // DRL light guide — built from the builders the car already draws (no extra materials / draw calls)
       fbox(rub, cx, hyc, w + 0.025, h + 0.025, 0.02, 0.005, dark, tilt);
-      fbox(head, cx, hyc, w, h, 0.03, 0.016, undefined, tilt);
-      if (H.t !== 'rect') fbox(ch, cx - sx * w * 0.18, hyc, w * 0.34, h * 0.55, 0.02, 0.03, chrome, tilt); // projector bezel
+      fbox(ch, cx, hyc, w, h, 0.02, 0.012, hex('#8d939a'), tilt); // reflector housing (brushed chrome)
+      const nP = w > 0.26 && H.t !== 'rect' ? 2 : 1; const rP = Math.min(h * 0.3, 0.042);
+      for (let q = 0; q < nP; q++) { const px = cx - sx * w * (nP === 2 ? (q ? -0.1 : 0.22) : 0.12); const [pp, tt] = onF(px, hyc + h * 0.06, 0.024);
+        put(ch, G.ring, onF(px, hyc + h * 0.06, 0.03)[0], [-tt, 0, 0], [rP * 1.2, rP * 1.2, 0.1], chrome); put(head, G.disc, pp, [-tt, 0, 0], [rP, rP, 0.03]); }
+      if (H.t === 'rect') fbox(head, cx, hyc, w * 0.92, h * 0.86, 0.02, 0.016, undefined, tilt); // sealed-beam rect lamps: a fluted lens face
+      else fbox(head, cx - sx * w * 0.02, hyc - h * 0.36, w * 0.86, 0.012, 0.02, 0.026, undefined, tilt); // DRL light guide
       fbox(ind, cx + sx * (w / 2 - 0.035), hyc - h * 0.22, 0.05, h * 0.42, 0.03, 0.03, undefined, tilt); // amber indicator at the outer end
       if (H.amber) fbox(ind, sx * (xo + 0.004), hyc, 0.012, h * 0.95, 0.03, 0.0);
       if (H.wrap) { const zc = faceZ(hyc) - 0.06 - H.wrap / 2; const xs = (W - bev * 0.4) * taper(zc, hyc) + 0.002; const hh = h * 0.8 + Math.abs(H.tilt || 0) * 0.1;
-        put(rub, G.box, [sx * (xs - 0.006), hyc + (H.tilt || 0) * 0.06, zc], [0, 0, 0], [0.02, hh + 0.02, H.wrap + 0.02], dark); put(head, G.box, [sx * (xs + 0.002), hyc + (H.tilt || 0) * 0.06, zc], [0, 0, 0], [0.016, hh, H.wrap]); }
+        put(rub, G.box, [sx * (xs - 0.016), hyc + (H.tilt || 0) * 0.06, zc], [0, 0, 0], [0.02, hh + 0.02, H.wrap + 0.02], dark); put(head, G.box, [sx * (xs - 0.009), hyc + (H.tilt || 0) * 0.06, zc], [0, 0, 0], [0.016, hh, H.wrap]); } // inset: the shape field rounds this corner
       if (H.fin) { const a = tp[3], b = tp[4]; const z0 = a[0] - 0.02, z1 = lerp(a[0], b[0], 0.4); const y0 = a[1], y1 = lerp(a[1], b[1], 0.4); const x = sx * (xMax(hy) - 0.12);
         const dz = z1 - z0, dy = y1 - y0; put(paint, G.box, [x, (y0 + y1) / 2 + 0.025, (z0 + z1) / 2], [Math.atan2(dy, -dz), 0, 0], [0.16, 0.05, Math.hypot(dz, dy)], col);
         put(head, G.box, [x, (y0 + y1) / 2 + 0.03, (z0 + z1) / 2 + 0.01], [Math.atan2(dy, -dz), 0, 0], [0.12, 0.03, Math.hypot(dz, dy) * 0.9]); }
@@ -176,6 +182,11 @@ export function styleVehicle(X) {
   const Tl = S.tail || { t: 'wrap', w: 0.28, h: 0.14 };
   const ty0 = Tl.y ?? ((tp[6][1] + tp[7][1]) / 2 - 0.02);
   const bumpR = S.bumper === 'black' || S.bumper === 'grey';
+  // a tail cluster instead of a lit slab: red-tinted chrome reflector backing (what a lamp interior looks like through the red
+  // lens) under a lit light-guide frame + centre bar (existing builders: no extra draw calls)
+  const tailCluster = (x, y, w, h, out) => { rbox(ch, x, y, w, h, 0.02, out - 0.004, hex('#5c0c0c')); const t2 = Math.min(0.016, h * 0.16);
+    rbox(tail, x, y + h / 2 - t2 / 2, w, t2, 0.02, out + 0.002); rbox(tail, x, y - h / 2 + t2 / 2, w, t2, 0.02, out + 0.002); rbox(tail, x, y, w * 0.86, t2 * 0.8, 0.02, out + 0.002);
+    for (const e of [-1, 1]) rbox(tail, x + e * (w / 2 - t2 / 2), y, t2, h, 0.02, out + 0.002); };
   for (const sx of [-1, 1]) {
     const t = Tl.t;
     if (t === 'pillar') { const w = Tl.w || 0.1, y0 = by - (Tl.low ?? 0.08), y1 = Math.min(y0 + (Tl.h || 0.4), (rR[2] - 0.08)); const xc = (y) => sx * (xRear(y) - w / 2 + 0.004);
@@ -185,12 +196,12 @@ export function styleVehicle(X) {
     else if (t === 'small') { const w = Tl.w || 0.1, h = Tl.h || 0.16; const y = Tl.low ? sill + 0.14 : tp[7][1] + h / 2 + 0.05; const x = sx * (xRear(y) - w / 2 - 0.02); const out = Tl.low && bumpR ? 0.045 : 0.012;
       rbox(rub, x, y, w + 0.02, h + 0.02, 0.02, out - 0.008, dark); rbox(tail, x, y + h * 0.18, w, h * 0.6, 0.03, out); rbox(ind, x, y - h * 0.32, w, h * 0.3, 0.03, out); rbox(rev, x - sx * (w + 0.03), y, 0.05, 0.05, 0.03, out); }
     else if (t === 'round') { const r = Tl.r || 0.05, y = ty0; const x = sx * (xRear(y) - r - 0.05); const [p, tt] = onR(x, y, 0.02); put(tail, G.disc, p, [tt, 0, 0], [r, r, 0.03]); put(ch, G.ring, onR(x, y, 0.026)[0], [tt, 0, 0], [r * 1.05, r * 1.05, 0.1], chrome); rbox(ind, x, y - r - 0.04, 0.05, 0.035, 0.03, 0.015); }
-    else if (t === 'rect') { const w = Tl.w || 0.2, h = Tl.h || 0.1, y = ty0; const x = sx * (xRear(y) - w / 2 - 0.02); rbox(rub, x, y, w + 0.02, h + 0.02, 0.02, 0.006, dark); rbox(tail, x + sx * w * 0.15, y, w * 0.7, h, 0.03, 0.016); rbox(ind, x - sx * w * 0.38, y, w * 0.24, h, 0.03, 0.016); }
-    else if (t === 'bar') { const h = Tl.h || 0.13, y = ty0; const xo = xRear(y); const w = 0.32; const x = sx * (xo - w / 2 - 0.01); rbox(rub, x, y, w + 0.02, h + 0.02, 0.02, 0.006, dark); rbox(tail, x + sx * 0.04, y, w - 0.08, h, 0.03, 0.016); rbox(ind, sx * (xo - 0.03), y, 0.05, h, 0.03, 0.017); rbox(rev, x - sx * (w / 2 - 0.03), y - h * 0.2, 0.06, h * 0.4, 0.03, 0.017);
+    else if (t === 'rect') { const w = Tl.w || 0.2, h = Tl.h || 0.1, y = ty0; const x = sx * (xRear(y) - w / 2 - 0.02); rbox(rub, x, y, w + 0.02, h + 0.02, 0.02, 0.006, dark); tailCluster(x + sx * w * 0.15, y, w * 0.7, h, 0.016); rbox(ind, x - sx * w * 0.38, y, w * 0.24, h, 0.03, 0.016); }
+    else if (t === 'bar') { const h = Tl.h || 0.13, y = ty0; const xo = xRear(y); const w = 0.32; const x = sx * (xo - w / 2 - 0.01); rbox(rub, x, y, w + 0.02, h + 0.02, 0.02, 0.006, dark); tailCluster(x + sx * 0.04, y, w - 0.08, h, 0.016); rbox(ind, sx * (xo - 0.03), y, 0.05, h, 0.03, 0.017); rbox(rev, x - sx * (w / 2 - 0.03), y - h * 0.2, 0.06, h * 0.4, 0.03, 0.017);
       if (sx > 0) rbox(rub, 0, y, 2 * (xo - w - 0.02), h * 0.8, 0.02, 0.012, hex('#4a0c0c')); } // unlit red garnish between the lamps
     else { // wrap (default): horizontal cluster at the corner wrapping onto the side, optional upward extension
       const w = Tl.w || 0.28, h = Tl.h || 0.14, y = ty0; const xo = xRear(y); const x = sx * (xo - w / 2 - 0.01);
-      rbox(rub, x, y, w + 0.02, h + 0.02, 0.02, 0.006, dark); rbox(tail, x + sx * w * 0.12, y + h * 0.1, w * 0.76, h * 0.8, 0.03, 0.016 + (Tl.proud || 0)); rbox(ind, x - sx * w * 0.38, y + h * 0.15, w * 0.2, h * 0.5, 0.03, 0.017); rbox(rev, x - sx * w * 0.38, y - h * 0.25, w * 0.2, h * 0.36, 0.03, 0.017);
+      rbox(rub, x, y, w + 0.02, h + 0.02, 0.02, 0.006, dark); tailCluster(x + sx * w * 0.12, y + h * 0.1, w * 0.76, h * 0.8, 0.016 + (Tl.proud || 0)); rbox(ind, x - sx * w * 0.38, y + h * 0.15, w * 0.2, h * 0.5, 0.03, 0.017); rbox(rev, x - sx * w * 0.38, y - h * 0.25, w * 0.2, h * 0.36, 0.03, 0.017);
       if (Tl.up) { const xc = (yy) => sx * (xRear(Math.min(yy, by - 0.02)) - 0.04); rstrip(tail, xc, 0.06, y + h / 2, Math.min(by - 0.01, y + h / 2 + Tl.up), 0.016); }
       const zc = rearZ(y) + 0.07; const xs = (W - bev * 0.4) * taper(zc, y) + 0.003; put(tail, G.box, [sx * xs, y + h * 0.1, zc], [0, 0, 0], [0.016, h * 0.7, 0.12]); // side marker / wrap
       if (Tl.garnish && sx > 0) rbox(ch, 0, y - h * 0.55, 2 * (xo - w), 0.025, 0.012, 0.012, chrome); }

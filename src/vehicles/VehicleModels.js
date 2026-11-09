@@ -56,6 +56,16 @@ const WORN = new Set(['tuktuk', 'taxi', 'bus', 'pbus', 'lorry', 'tow', 'tara', '
 // loft cross-section ring (10 points, counter-clockwise from the bottom-left); points 6..9 + 0 form the −x side
 function loftRing(s) { const [z, y0, y1, w0, w1, r = 0.12] = s; const h = y1 - y0; const rr = Math.min(r, h * 0.45);
   return [[-w0 + rr * 0.3, y0], [w0 - rr * 0.3, y0], [w0, y0 + rr], [w0 + (w1 - w0) * 0.55, y0 + h * 0.55], [w1, y1 - rr], [w1 - rr, y1], [-w1 + rr, y1], [-w1, y1 - rr], [-(w0 + (w1 - w0) * 0.55), y0 + h * 0.55], [-w0, y0 + rr]].map(([x, y]) => [x, y, z]); }
+// a smooth swept strip with a flattened half-round section (pillars lying on the glasshouse instead of square beams):
+// pts = path, nrm(i) = outward direction at pts[i] (the flat underside faces −nrm, 3 mm into the surface it sits on)
+function strip(mb, pts, nrm, w, t, col, seg = 6) {
+  const tmp = new MeshBuilder(); const V = (a) => new THREE.Vector3(...a); const rings = [];
+  for (let i = 0; i < pts.length; i++) { const T = V(pts[Math.min(pts.length - 1, i + 1)]).sub(V(pts[Math.max(0, i - 1)])).normalize(); const N = V(nrm(i)); N.addScaledVector(T, -N.dot(T)).normalize(); const B = new THREE.Vector3().crossVectors(T, N).normalize(); const P = V(pts[i]);
+    const r = []; for (let j = 0; j <= seg; j++) { const th = Math.PI * j / seg; r.push(P.clone().addScaledVector(B, (w / 2) * Math.cos(th)).addScaledVector(N, t * Math.sin(th) - 0.003).toArray()); } rings.push(r); }
+  for (let i = 0; i < rings.length - 1; i++) { const a = rings[i], b = rings[i + 1]; for (let j = 0; j < seg; j++) tmp.quad(a[j], b[j], b[j + 1], a[j + 1], [0, 0, 1, 1], col); tmp.quad(a[seg], b[seg], b[0], a[0], [0, 0, 1, 1], col); }
+  let g = tmp.build(); if (g) { g.deleteAttribute('normal'); g.deleteAttribute('uv'); g = mergeVertices(g, 1e-5); g.computeVertexNormals(); mb.geometry(g, new THREE.Matrix4()); g.dispose(); }
+  for (const [r, f] of [[rings[0], false], [rings[rings.length - 1], true]]) { const c = r.reduce((q, p) => [q[0] + p[0] / r.length, q[1] + p[1] / r.length, q[2] + p[2] / r.length], [0, 0, 0]); for (let j = 0; j < seg; j++) { if (f) mb.quad(c, r[j], r[j + 1], c, [0, 0, 1, 1], col); else mb.quad(c, r[j + 1], r[j], c, [0, 0, 1, 1], col); } }
+}
 function loft(mb, secs, col, { capFront = true, capBack = true, noBottom = false, skip = null } = {}) {
   const rings = secs.map(loftRing); const n = rings[0].length; const tmp = new MeshBuilder();
   for (let i = 0; i < rings.length - 1; i++) for (let k = noBottom ? 1 : 0; k < n; k++) { if (skip && skip(i, k)) continue; const a = rings[i][k], b = rings[i][(k + 1) % n], c = rings[i + 1][(k + 1) % n], d = rings[i + 1][k]; tmp.quad(a, b, c, d, [0, 0, 1, 1], col); }
@@ -662,7 +672,10 @@ function buildBaseModel(type, color, variant, opts = {}) {
   // every door window is cut out of the greenhouse and rebuilt on its door (front windows start just behind the windscreen)
   const winZ = (o) => [o.role === 'front' ? Math.min(o.ap.za, D.gh[0][0] - 0.02) : o.ap.za, o.ap.zb];
   const cutZ = [...new Set(openings.flatMap((o) => winZ(o)))]; const inner = (z) => !cutZ.some((c) => Math.abs(c - z) < 1e-9);
-  const ghSecs = [...D.gh.filter((g) => inner(g[0])), ...cutZ.map(ghAt)].sort((a, b) => b[0] - a[0]);
+  // SUVs / pickups: a section 30 cm ahead of the tailgate glass, where the D-pillar panel starts (behind the last door window)
+  const dpZ = (k === 'suv' || k === 'pickup') && !(isVan && D.winTop) ? D.gh[D.gh.length - 1][0] + 0.3 : null; const winEnd = Math.min(...openings.map((o) => winZ(o)[1])); /* winZ = [front edge, rear edge] */
+  const extraZ = dpZ !== null && dpZ < winEnd - 0.05 && !D.gh.some((g) => Math.abs(g[0] - dpZ) < 0.03) ? [dpZ] : [];
+  const ghSecs = [...D.gh.filter((g) => inner(g[0])), ...cutZ.map(ghAt), ...extraZ.map(ghAt)].sort((a, b) => b[0] - a[0]);
   const secI = (z) => ghSecs.findIndex((g) => Math.abs(g[0] - z) < 1e-9);
   const wins = openings.map((o) => { const [a, b] = winZ(o); return { side: o.side, i0: secI(a), i1: secI(b) }; });
   const wTop = (z, y1) => (D.winTop && z < D.gh[2][0] - 0.01 ? Math.min(y1, D.winTop) : y1);
@@ -678,12 +691,23 @@ function buildBaseModel(type, color, variant, opts = {}) {
     const up = gh.slice(3, gh.length - 1).map(([z, y0, y1]) => [z, D.winTop - 0.015, y1 - 0.02, lerp(gw0, gw1, (D.winTop - y0) / Math.max(0.01, y1 - y0)) + 0.006, gw1 + 0.004, 0.04]).reverse();
     up.unshift([gh[gh.length - 1][0] - 0.005, D.winTop - 0.015, Math.min(gh[gh.length - 1][2], gh[gh.length - 2][2]) - 0.02, up[0][3], up[0][4], 0.04]); up.push([roofF[0] - 0.08, D.winTop - 0.015, roofF[2] + 0.0, gw0 * 0.93, gw1 + 0.004, 0.04]);
     loft(paint, up, col); }
+  // C / D pillars: a painted panel over the glasshouse behind the last side window, 4 mm proud of the glass, on the same loft
+  // rings (it follows the greenhouse curvature and the body shape field; no box beams). Saloons and hatches get the broad
+  // sail panel from the last door window back; SUVs / pickups keep their rear quarter glass and get a D-pillar over the last
+  // bay; vans keep their windows (box beams, as before).
+  const sailPanel = !(isVan && (k === 'van' || D.winTop)); const lastSec = ghSecs.length - 1;
+  const sailFrom = (sx) => { const e = Math.max(0, ...wins.filter((w) => w.side === sx).map((w) => w.i1)); return extraZ.length ? Math.max(e, secI(extraZ[0])) : k === 'suv' || k === 'pickup' || isVan ? Math.max(e, lastSec - 1) : e; };
+  if (sailPanel) { const off = glassSecs.map(([z, y0, y1, w0, w1, r]) => [z, y0, y1 + 0.004, w0 + 0.004, w1 + 0.004, r]); const fL = sailFrom(-1), fR = sailFrom(1);
+    loft(paint, off, pilCol, { noBottom: true, capFront: false, capBack: false, skip: (i, kk) => !((kk >= 6 && i >= fL) || (kk >= 1 && kk <= 4 && i >= fR)) }); }
   for (const sx of [-1, 1]) {
-    // A-pillars follow the windscreen edge up to the roof; C/D-pillars follow the rear glass edge
+    // A-pillars: a flattened rounded strip along the windscreen / side-glass corner up to the roof
     const top = (i) => [sx * (i === 0 ? (gw0 + gw1) / 2 : gw1 - 0.01), gh[i][2] - 0.01, gh[i][0]];
-    for (let i = 0; i < 2; i++) beam(paint, top(i), top(i + 1), 0.06, 0.06, pilCol);
-    const nL = gh.length - 1; beam(paint, top(nL - 1), top(nL), isVan ? 0.07 : 0.1, 0.07, pilCol);
-    beam(paint, [sx * gw0 * 0.94, gh[nL][1] + 0.02, gh[nL][0] + 0.1], top(nL), isVan ? 0.05 : 0.1, 0.07, pilCol);
+    { const pa = []; for (let i = 0; i < 2; i++) for (let u = 0; u < 4; u++) { const a0 = top(i), a1 = top(i + 1); pa.push(a0.map((v, c) => v + (a1[c] - v) * u / 4)); } pa.push(top(2));
+      const dz = gh[2][0] - gh[0][0], dy = gh[2][2] - gh[0][2], l = Math.hypot(dz, dy) || 1; const nWs = [0, -dz / l, dy / l];
+      strip(paint, pa, () => [sx * 0.9, nWs[1] * 0.8 + 0.25, nWs[2] * 0.8], 0.085, 0.012, pilCol); }
+    const nL = gh.length - 1; if (!sailPanel) { beam(paint, top(nL - 1), top(nL), isVan ? 0.07 : 0.1, 0.07, pilCol);
+      beam(paint, [sx * gw0 * 0.94, gh[nL][1] + 0.02, gh[nL][0] + 0.1], top(nL), isVan ? 0.05 : 0.1, 0.07, pilCol); }
+    /* with the sail panel, its own edge is the C-pillar (no strip standing off the rear glass) */
     { const yT = D.winTop ? Math.min(roofF[2] - 0.01, D.winTop - 0.005) : roofF[2] - 0.01; const o2 = openings.find((o) => o.side === sx && o.role !== 'front'); /* a rear / sliding door behind: the pillar fills only the gap between the two openings (it must not overhang the door that swings past it) */ const zc = o2 ? (apF.zb + o2.ap.za) / 2 : D.pillarsB, dz = o2 ? Math.max(0.012, apF.zb - o2.ap.za - 0.008) : 0.1;
       beam(paint, [sx * gw0, gh[0][1] + 0.02, zc], [sx * (gw1 + 0.005), yT, o2 ? zc : D.pillarsB - 0.03], 0.05, dz, C('#111')); } /* high-roof vans: the black pillar stops at the glass, not in the painted band */
     { const gL = gh[gh.length - 1], rl = (z) => [sx * (gw0 + 0.005), lerp(gh[0][1], gL[1], (gh[0][0] - z) / (gh[0][0] - gL[0])) + 0.005, z]; // outer belt weatherstrip (the driver door carries its own piece)
