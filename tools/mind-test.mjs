@@ -148,11 +148,12 @@ ok(C.peds.every((p) => !p.gather || p.state === 'gather'), 'no stale onlooker sl
 
 // ---- 8. heap + cost (minds on) over a soak with events every 3 s
 console.log('8. heap / cost');
+focus.x = player.x = -392; focus.z = player.z = 700; player.vehicle = null; step(600); /* back to the busy start street (earlier sections can end where there is no walk network) and refill it */
 globalThis.gc?.(); const h0 = process.memoryUsage().heapUsed; const tk0 = C.minds.stats.ticks; let tm = 0; const N = Math.round(SOAK / dt);
 for (let i = 0; i < N; i++) { if (i % 180 === 0) C.alarm(focus.x + 10 * Math.sin(i), focus.z + 10 * Math.cos(i), 35, 1 + (i % 3 === 0 ? 1 : 0), null, i % 3 === 0 ? 'gunshot' : 'accident');
   const a = performance.now(); step(); tm += performance.now() - a; }
 globalThis.gc?.(); const h1 = process.memoryUsage().heapUsed;
 console.log(`   ${SOAK}s soak: heap ${((h1 - h0) / 1048576).toFixed(1)} MB, ticks ${C.minds.stats.ticks - tk0} (${((C.minds.stats.ticks - tk0) / N).toFixed(2)}/frame), frame avg ${(tm / N).toFixed(2)} ms, peds ${C.peds.length}`);
-ok((h1 - h0) / 1048576 < 25, 'heap growth bounded');
+ok((h1 - h0) / 1048576 < 25, 'heap growth bounded'); ok(C.peds.length >= 80, `the street stays populated through the soak (${C.peds.length} peds)`);
 ok((C.minds.stats.ticks - tk0) / N <= 14, 'mind updates within the per-frame budget');
 console.log(`\nmind-test: ${pass} passed, ${fail} failed`); if (fail) { console.log(fails.join('\n')); process.exit(1); }

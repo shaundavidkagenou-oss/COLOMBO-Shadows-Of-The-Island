@@ -1121,7 +1121,7 @@ export class Animator {
     this.cyc = Math.random(); this.t = Math.random() * 100; this.speed = 0; this.action = null; this.actionW = 0; this.prevAction = null;
     this.lean = 0; this.air = 0; this.look = 0; this.crouch = 0; this.drive = 0; this.steer = 0; this.seed = Math.random(); this.locoW = 0; this.hipYs = ch.hipY;
     this.shift = 0; this.shiftTarget = Math.random() < 0.5 ? -1 : 1; this.shiftT = 2 + Math.random() * 6; this.idleLook = 0; this.idleLookT = Math.random() * 4; this.idleLookTarget = 0;
-    this.stepped = false; this.stepFoot = 0; this.runW = 0; this.fadeAct = null; this.fadeW = 0; this.fadeT = 0; this.actionDur = 0;
+    this.emo = null; this.emoS = null; /* emotional posture (Mind.js), declared up front for a stable object shape */ this.stepped = false; this.stepFoot = 0; this.runW = 0; this.fadeAct = null; this.fadeW = 0; this.fadeT = 0; this.actionDur = 0;
     this.board = null; this.seated = null; this.seatL = null; this.seatW = 0; this.seatMode = null; this.seatLook = 0; this.seatLookT = 0; this.vehSpeed = 0; this.brakeLean = 0; this.cornerLean = 0;
   }
   // Vehicle seat (see Seating.js). w: blend 0 (standing pose) … 1 (fully seated); entry/exit animations ramp it.

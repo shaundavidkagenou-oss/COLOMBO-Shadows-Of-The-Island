@@ -287,7 +287,7 @@ export class Traffic {
       const R = this.raging[i], v = R.v; R.t += dt;
       if (!v.mesh.parent || v.player || !v.driverChar || v.disembarking || R.t > 10) { if (R.held) v.hold = false; this.raging.splice(i, 1); continue; }
       if (R.out && !R.held) { R.held = true; v.hold = true; } // brake to a stop
-      if (R.t < R.delay || v.free || Math.abs(v.speed) > 0.6) continue;
+      if (R.t < R.delay || (R.out && (v.free || Math.abs(v.speed) > 0.6))) continue; /* only a driver getting out waits for the car to stop; one who stays in leans on the horn while still rolling */
       this.raging.splice(i, 1);
       const P = C && C.player; const pv = P && P.vehicle; const pd = P ? Math.hypot(P.x - v.x, P.z - v.z) : 1e9; const lvl = C && C.police ? C.police.level || 0 : 0;
       const safe = C && R.out && pd < 30 && (!pv || Math.abs(pv.speed) < 3.5) && !C.playerArmed && lvl < 2 && !(C.focus && Math.hypot(C.focus.x - v.x, C.focus.z - v.z) > 60);
