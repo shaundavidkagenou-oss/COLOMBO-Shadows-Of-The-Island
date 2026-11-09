@@ -8,6 +8,7 @@
 import { doorGapsMeta, spansOutside } from './DoorSpans.js';
 import { poseDoor } from './DoorRig.js';
 import * as THREE from 'three';
+import { bodySkin, makeBodyWarp } from './BodyShape.js';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { carDetail, tukDetail, heavyDetail, hiWheelParts } from './VehicleDetail.js';
 import { BIKES } from './BikeCatalog.js';
@@ -86,10 +87,15 @@ function sideBody(mb, top, sill, arches, W, col, { taper = null, bevel = 0.05, o
     sh.lineTo(zc - dx, sill); sh.absarc(zc, R, ra, Math.PI + Math.asin(s), -Math.asin(s), true);
   }
   sh.lineTo(f[0], sill); for (const p of top) sh.lineTo(p[0], p[1]); sh.lineTo(r[0], sill);
-  const depth = Math.max(0.02, 2 * W - 2 * bevel);
-  let g = new THREE.ExtrudeGeometry(sh, { depth, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel * 0.6, bevelOffset: -bevel * 0.6, bevelSegments: 3, curveSegments: 14 });
-  g.applyMatrix4(new THREE.Matrix4().set(0, 0, -1, W - bevel, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1));
-  g.deleteAttribute('uv'); g.deleteAttribute('normal'); g = mergeVertices(g, 1e-4);
+  // the same outline as the Shape above, as [z, y] points (arches sampled every ~4 cm) → a densely surfaced skin (BodyShape.js)
+  const ol = [[r[0], sill]];
+  for (const [zc, R] of [...arches].sort((a, b) => a[0] - b[0])) {
+    const ra = R + 0.07, s = Math.min(0.95, Math.max(-0.95, (R - sill) / ra)); const al = Math.asin(s), a0 = Math.PI + al, a1 = -al; const n = Math.max(8, Math.ceil(ra * (a0 - a1) / 0.04));
+    for (let k = 0; k <= n; k++) { const t = a0 + (a1 - a0) * k / n; ol.push([zc + Math.cos(t) * ra, R + Math.sin(t) * ra]); }
+  }
+  ol.push([f[0], sill]); for (const p of top) ol.push([p[0], p[1]]);
+  const olc = ol.filter((p, i) => { const q = ol[(i + 1) % ol.length]; return Math.hypot(p[0] - q[0], p[1] - q[1]) > 1e-5; });
+  let g = mergeVertices(bodySkin(olc, W, bevel), 1e-4); sideOutline = olc;
   if (openTop) { // remove the upward-facing cap over the cabin so occupants are not sliced by it (interior trims line the cabin)
     const ranges = Array.isArray(openTop[0]) ? openTop : [openTop]; const P = g.attributes.position, I = g.index.array, keep = []; const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3();
     for (let t = 0; t < I.length; t += 3) { a.fromBufferAttribute(P, I[t]); b.fromBufferAttribute(P, I[t + 1]); c.fromBufferAttribute(P, I[t + 2]); n.subVectors(c, b).cross(b.clone().sub(a)).normalize();
@@ -118,7 +124,7 @@ function sideBody(mb, top, sill, arches, W, col, { taper = null, bevel = 0.05, o
   // dark wheel-well liners inside the arch tunnels
   for (const [zc, Rw] of arches) archLiner(liners || mb, W * 0.97, zc, Rw, Rw + 0.06);
 }
-let liners = null;
+let liners = null; let sideOutline = null; // the last side silhouette sideBody built (the body shape field follows it)
 function archLiner(mb, hw, zc, yc, ra) {
   const n = 12, a0 = -0.15, a1 = Math.PI + 0.15; const col = C('#0b0b0c');
   for (let i = 0; i < n; i++) { const t0 = a0 + (a1 - a0) * i / n, t1 = a0 + (a1 - a0) * (i + 1) / n;
@@ -645,7 +651,7 @@ function buildBaseModel(type, color, variant, opts = {}) {
   const apRects = apF.apRects;
   // [za, zb] spans along one side outside every opening there (strips / bands / trims stop at the door gaps)
   const sideSpans = (sx, za, zb, pad = 0.005, minL = 0.02) => { let segs = [[za, zb]]; for (const o of openings) { if (o.side !== sx) continue; const lo = o.ap.zb - pad, hi = o.ap.za + pad; segs = segs.flatMap(([a, b]) => (b <= lo || a >= hi ? [[a, b]] : [[a, lo], [hi, b]].filter(([p, q]) => q - p > minL))); } return segs; };
-  sideBody(paint, D.top, sill, [[D.wf, R], [D.wr, R]], W, col, { taper, bevel: bev, cut: openings.map(({ ap, side }) => ({ rects: ap.apRects, z0: ap.zb, z1: ap.za, yTop: Math.min(topAt(ap.za), topAt(ap.zb)) - 0.6 * bev - 0.01, side })), openTop: D.bed ? [[D.gh[D.gh.length - 1][0] + 0.03, D.gh[0][0] - 0.03, sill + 0.3], [D.bed.z1 + 0.03, D.bed.z0 + 0.005, D.bed.floor - 0.25]] : [D.gh[D.gh.length - 1][0] + 0.03, D.gh[0][0] - 0.03, sill + 0.3] });
+  sideBody(paint, D.top, sill, [[D.wf, R], [D.wr, R]], W, col, { taper, bevel: bev, cut: openings.map(({ ap, side }) => ({ rects: ap.apRects, z0: ap.zb, z1: ap.za, yTop: Math.min(topAt(ap.za), topAt(ap.zb)) - 0.6 * bev - 0.01, side })), openTop: D.bed ? [[D.gh[D.gh.length - 1][0] + 0.03, D.gh[0][0] - 0.03, sill + 0.3], [D.bed.z1 + 0.03, D.bed.z0 + 0.005, D.bed.floor - 0.25]] : [D.gh[D.gh.length - 1][0] + 0.03, D.gh[0][0] - 0.03, sill + 0.3] }); const shapeOutline = sideOutline;
   // wheel-well liners (stop see-through above the tyres)
   for (const wz of [D.wf, D.wr]) for (const sx of [-1, 1]) part(rubber, linerCyl, [sx * (W - 0.24), R, wz], [0, 0, Math.PI / 2], [R + 0.06, 0.3, R + 0.06], C('#0c0c0c')); // open sleeve: no end caps covering the wheel face
   // greenhouse: tinted glass loft; half widths follow the tumblehome
@@ -767,7 +773,11 @@ function buildBaseModel(type, color, variant, opts = {}) {
   }
   carDetail(dm, KIT, { W, R, D, k, type, fz, rz, taper, gw0, gw1, fy, hy, nw, ty: S ? 0 : ty, sill, isVan, col, gh, roofF, roofR, seatY, sz, dz, floorY, variant, style: S, sx0: sxF, visors: S ? !S.noVisor && (!isVan || k === 'suv' || k === 'pickup') : !isVan || k === 'suv' });
   if (S) styleVehicle({ mb, dm, T, S, D, W, R, fz, rz, sill, col, gh, gw0, gw1, roofF, roofR, taper, variant, isVan, k, type, bev, wf: D.wf, wr: D.wr, floorY, plate: (cx, cy, z, hw, hh, front) => plateQuad(mb, cx, cy, z, hw, hh, front, variant) });
-  return out([[-W + 0.15, R, D.wf, 0.21], [W - 0.15, R, D.wf, 0.21], [-W + 0.15, R, D.wr, 0.21], [W - 0.15, R, D.wr, 0.21]], sw);
+  // body shape field (BodyShape.js): plan-view rounding of nose / tail corners, crowned bonnet / boot / roof, tumblehome.
+  // Per family: low, curvy saloons and hatches get the most; upright SUVs, pickups and vans keep flatter, squarer panels.
+  const fam = SP ? SP.family : k; const FS = { car: [0.15, 0.1, 0.035, 0.045, 0.035], sedan: [0.16, 0.12, 0.035, 0.045, 0.035], suv: [0.11, 0.06, 0.03, 0.035, 0.03], pickup: [0.1, 0.03, 0.03, 0.035, 0.03], van: [0.09, 0.035, 0.025, 0.03, 0.025] }[fam] || [0.12, 0.07, 0.03, 0.04, 0.03];
+  const shape = { W, outline: shapeOutline, roof: D.gh.map(([z, , y]) => [z, y]), roofW: gw1, nose: FS[0], tail: FS[1], crown: FS[2], roofCrown: FS[3], tuckSill: FS[4] * 0.75, tuckBelt: FS[4] * 0.4, sill, belt: D.gh[0][1] };
+  return out([[-W + 0.15, R, D.wf, 0.21], [W - 0.15, R, D.wf, 0.21], [-W + 0.15, R, D.wr, 0.21], [W - 0.15, R, D.wr, 0.21]], sw, { shape });
 }
 
 // double-sided quad (thin shells seen from both sides: jambs, door edges)
@@ -808,7 +818,12 @@ function doorGrab(d) {
   const HB = handleBar(S); const hz = HB.z, hy = HB.y; const hs = loc(HB.xs);
   // the window's rear edge (glass + rubber, between the belt and the roof line): what a hand holds the open door by
   let win = null; if (S.glY && S.roofY && S.gw0) { const g0 = S.glY(zr), g1 = S.roofY(zr); if (g1 - g0 > 0.2) { const wy = g0 + Math.min(0.2, (g1 - g0) * 0.42); const gxAt = (yy) => loc(-lerp(S.gw0, S.gw1 ?? S.gw0, (yy - g0) / (g1 - g0))); win = { y: wy, x: gxAt(wy), tilt: gxAt(wy + 0.1) * 10 - gxAt(wy) * 10, zR: zr - d.hinge[1] - 0.024 }; } } // the rubber frame runs ~2.5 cm past the panel's rear edge; the glass leans in (tumblehome)
-  return { side, y, zR: zr - d.hinge[1], card, skin, win, handle: { x: loc(HB.xb), half: HB.half, posts: [HB.len / 2 - 0.008, -HB.len / 2 + 0.008], skin: hs, y: hy, z: hz - d.hinge[1], lo: [0.04, 0.08, 0.12].map((dy) => loc(S.skinPt(hz, hy - dy)[0])) } }; // lo: the skin below the bar (the side bulges out under the handle line)
+  const g = { side, y, zR: zr - d.hinge[1], card, skin, win, handle: { x: loc(HB.xb), half: HB.half, posts: [HB.len / 2 - 0.008, -HB.len / 2 + 0.008], skin: hs, y: hy, z: hz - d.hinge[1], lo: [0.04, 0.08, 0.12].map((dy) => loc(S.skinPt(hz, hy - dy)[0])) } };
+  // the body shape field moved the door with the body (BodyShape.js): the grasp targets follow it (hinge-local x through the field)
+  if (d.field) { const F = d.field, o = [0, 0, 0]; const X = (l, yy, zb) => { F(hxN - side * l, yy, zb, o); return -side * (o[0] - hxN); };
+    g.skin = X(skin, y, zr + 0.06); g.card = X(card, y, zr + 0.06); const H = g.handle; H.x = X(H.x, hy, hz); H.skin = X(hs, hy, hz); H.lo = H.lo.map((l, k) => X(l, hy - 0.04 * (k + 1), hz));
+    if (win) { const wx = X(win.x, win.y, zr), wx1 = X(win.x + win.tilt / 10, win.y + 0.1, zr); F(hxN - side * win.x, win.y, zr, o); g.win = { ...win, x: wx, tilt: (wx1 - wx) * 10, y: o[1] }; } }
+  return g; // lo: the skin below the bar (the side bulges out under the handle line)
 }
 
 // Driver door: own mesh group on a hinge pivot (front edge) so it can swing open. Built in model space from the spec the
@@ -894,8 +909,12 @@ function shapeOf(type, variant) {
   const key = type + '|' + variant; let s = shapeCache.get(key); if (s) return s; PROBE = PROBE || C(PROBE_HEX);
   const m = buildModel(type, PROBE_HEX, variant); const raw = (mbb) => { const out = []; for (const [name, b] of mbb.b) { const g = b.build(); if (g) out.push([name, g]); } return out; };
   const mask = (l) => l.map(([name, g]) => [name, g, probeMask(g)]);
-  const body = { geos: raw(m.mb), doors: m.doors }; if (m.doors && m.doors.length) bakeDoors(body, VTYPES[type], type, PROBE); // shut doors baked into the body once per shape (paint recolour covers them too)
-  s = { geos: mask(body.geos), dgeos: mask(raw(m.dm)), doorRanges: body.doorRanges, m }; shapeCache.set(key, s); return s;
+  // body shape field (BodyShape.js): every part is first refined where the field bends (in bakeDoors for the door leaves, which
+  // live in hinge space), then the whole baked body — skin, shut doors, glass, lamps, trims — moves through the one field
+  const SF = m.shape && m.shape.outline && !globalThis.__noBodyWarp ? makeBodyWarp(m.shape) : null;
+  const body = { geos: raw(m.mb), doors: m.doors, refine: SF ? SF.refine : null }; if (m.doors && m.doors.length) bakeDoors(body, VTYPES[type], type, PROBE); else if (SF) body.geos = body.geos.map(([n, g]) => [n, SF.refine(g, null, n)]);
+  if (SF) { if (m.doors) for (const d of m.doors) d.field = SF.field; for (const [, g] of body.geos) SF.warp(g); m.dgeosWarp = (g) => SF.warp(g); m.dgeosRefine = SF.refine; } // the whole baked body (skin + shut doors + glass + lamps + trims) follows one smooth shape field // shut doors baked into the body once per shape (paint recolour covers them too)
+  let dg = raw(m.dm); if (m.dgeosWarp) { dg = dg.map(([n, g]) => [n, m.dgeosRefine(g, null, n)]); for (const [, g] of dg) m.dgeosWarp(g); } s = { geos: mask(body.geos), dgeos: mask(dg), doorRanges: body.doorRanges, m }; shapeCache.set(key, s); return s;
 }
 // per vertex: the multiple of the probe colour it carries (0 = not paint)
 function probeMask(g) { const c = g.attributes.color; if (!c) return null; const a = c.array, P = PROBE; let mask = null;
@@ -939,8 +958,8 @@ function bakeDoors(cached, T, type, col) {
   const doors = cached.doors, stripes = doorStripes(T, type);
   const dg = doors.map((d) => d.leaf ? buildLeafGeos(d) : d.cab ? buildCabDoorGeos(d) : buildDoorGeos(d.mirror ? { ...d, hinge: [-d.hinge[0], d.hinge[1]] } : d, col, stripes)); // hinge space, −x orientation
   const names = [...new Set([...cached.geos.map((q) => q[0]), ...dg.flatMap((l) => l.map((q) => q[0]))])]; const ranges = {}, baked = [];
-  for (const name of names) { const body = cached.geos.find((q) => q[0] === name); const parts = body ? [{ geo: body[1], m: null }] : []; const who = [];
-    dg.forEach((l, i) => { const q = l.find((x) => x[0] === name); if (!q) return; const d = doors[i]; const M = new THREE.Matrix4().makeTranslation(d.hinge[0], 0, d.hinge[1]); if (d.mirror) M.multiply(new THREE.Matrix4().makeScale(-1, 1, 1)); parts.push({ geo: q[1], m: M }); who.push(i); });
+  for (const name of names) { const body = cached.geos.find((q) => q[0] === name); const parts = body ? [{ geo: cached.refine ? cached.refine(body[1], null, name) : body[1], m: null }] : []; const who = [];
+    dg.forEach((l, i) => { const q = l.find((x) => x[0] === name); if (!q) return; const d = doors[i]; const M = new THREE.Matrix4().makeTranslation(d.hinge[0], 0, d.hinge[1]); if (d.mirror) M.multiply(new THREE.Matrix4().makeScale(-1, 1, 1)); parts.push({ geo: cached.refine ? cached.refine(q[1], M, name) : q[1], m: M }); who.push(i); });
     const { geo, ranges: rr } = concatGeos(parts); const off = body ? 1 : 0; ranges[name] = { body: body ? rr[0].i1 : 0, doors: who.map((i, k) => ({ door: i, ...rr[k + off] })) }; baked.push([name, geo]); if (body) body[1].dispose(); }
   for (const l of dg) for (const [, g] of l) g.dispose();
   cached.geos = baked; cached.doorRanges = ranges;
