@@ -87,6 +87,7 @@ function subtractRect(poly, [z0, z1, y0, y1]) { // convex poly minus axis-aligne
 }
 //  cut: { rects: [[z0,z1,y0,y1]], z0, z1, yTop, side } (or a list of them) — opens a door aperture in the −x (side −1) or +x
 //  (side +1) cap: cap clipped around the rects, shoulder bevel over the door removed
+const skinMemo = new Map(); // sideBody skins of the last few shapes (bounded)
 function sideBody(mb, top, sill, arches, W, col, { taper = null, bevel = 0.05, openTop = null, cut = null } = {}) {
   const cuts = cut ? (Array.isArray(cut) ? cut : [cut]).map((c) => ({ side: -1, ...c })) : null; if (cuts && !cuts.length) cut = null;
   if (cut) { const zsAll = [...new Set(cuts.flatMap((c) => [c.z1, c.z0]))]; const t2 = [top[0]]; for (let i = 1; i < top.length; i++) { const a = top[i - 1], b = top[i]; for (const zs of zsAll) if ((a[0] - zs) * (b[0] - zs) < 0) { const t = (a[0] - zs) / (a[0] - b[0]); t2.push([zs, a[1] + (b[1] - a[1]) * t]); } t2.push(b); } top = t2; } // contour vertices at the door edges so the bevel splits there
@@ -105,15 +106,16 @@ function sideBody(mb, top, sill, arches, W, col, { taper = null, bevel = 0.05, o
   }
   ol.push([f[0], sill]); for (const p of top) ol.push([p[0], p[1]]);
   const olc = ol.filter((p, i) => { const q = ol[(i + 1) % ol.length]; return Math.hypot(p[0] - q[0], p[1] - q[1]) > 1e-5; });
-  let g = mergeVertices(bodySkin(olc, W, bevel), 1e-4); sideOutline = olc;
-  if (openTop) { // remove the upward-facing cap over the cabin so occupants are not sliced by it (interior trims line the cabin)
+  sideOutline = olc; const skinKey = JSON.stringify([olc, W, bevel, openTop, cut ? cuts : null]); const memoG = skinMemo.get(skinKey); /* a type's variants share the skin: surfaced + cut once */
+  let g = memoG ? memoG.clone() : mergeVertices(bodySkin(olc, W, bevel), 1e-4);
+  if (!memoG && openTop) { // remove the upward-facing cap over the cabin so occupants are not sliced by it (interior trims line the cabin)
     const ranges = Array.isArray(openTop[0]) ? openTop : [openTop]; const P = g.attributes.position, I = g.index.array, keep = []; const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3();
     for (let t = 0; t < I.length; t += 3) { a.fromBufferAttribute(P, I[t]); b.fromBufferAttribute(P, I[t + 1]); c.fromBufferAttribute(P, I[t + 2]); n.subVectors(c, b).cross(b.clone().sub(a)).normalize();
       const cz = (a.z + b.z + c.z) / 3, cy = (a.y + b.y + c.y) / 3, cx = Math.abs(a.x + b.x + c.x) / 3; const up = Math.abs(n.y) > 0.8;
       if (up && cx < W - bevel * 1.2 && ranges.some(([z0, z1, yMin]) => cy > yMin && cz > z0 && cz < z1 && Math.min(a.z, b.z, c.z) > z0 - 0.05 && Math.max(a.z, b.z, c.z) < z1 + 0.05)) continue; keep.push(I[t], I[t + 1], I[t + 2]); }
     g.setIndex(keep);
   }
-  if (cut) { // real door apertures: nothing of the body is left where a door sits
+  if (!memoG && cut) { // real door apertures: nothing of the body is left where a door sits
     const P = g.attributes.position, I = g.index.array, keep = [], pos = Array.from(P.array); const xs = W - 1e-4, xb = W - bevel - 1e-4, e = 1e-3;
     for (let t = 0; t < I.length; t += 3) { const v = [I[t], I[t + 1], I[t + 2]]; const X = v.map((i) => P.getX(i)), Y = v.map((i) => P.getY(i)), Z = v.map((i) => P.getZ(i));
       const capSide = Math.max(...X) <= -xs ? -1 : Math.min(...X) >= xs ? 1 : 0;
@@ -129,6 +131,7 @@ function sideBody(mb, top, sill, arches, W, col, { taper = null, bevel = 0.05, o
       keep.push(...v); }
     g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(keep); const g2 = mergeVertices(g, 1e-4); g.dispose(); g = g2;
   }
+  if (!memoG) { if (skinMemo.size >= 6) skinMemo.delete(skinMemo.keys().next().value); skinMemo.set(skinKey, g.clone()); }
   if (taper) { const p = g.attributes.position; for (let i = 0; i < p.count; i++) p.setX(i, p.getX(i) * taper(p.getZ(i), p.getY(i))); }
   g.computeVertexNormals(); mb.geometry(g, new THREE.Matrix4(), col); g.dispose();
   // dark wheel-well liners inside the arch tunnels

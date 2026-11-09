@@ -15,6 +15,7 @@
 import * as THREE from 'three';
 
 const sstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+const sstepD = (a, b, x) => { const w = b - a, t = (x - a) / w; return t <= 0 || t >= 1 ? 0 : 6 * t * (1 - t) / w; }; // d/dx sstep
 
 // closed outline [[z, y], ...] (any orientation) → evenly resampled points with smooth outward normals
 function resample(pts, fine, coarse) {
@@ -163,22 +164,47 @@ const REFINE_TOL = { paint: 0.002, glass: 0.002, rubber: 0.004, chrome: 0.004, t
 //   tumblehome      the side section bulges at the shoulder line: tucked in by tuckSill at the sill and tuckBelt at the belt (·u⁴)
 // spec: { W, outline [[z,y]] (side silhouette), roof [[z,y]] (windscreen base → roof → back-light base), roofW, nose, tail,
 //         crown, roofCrown, sill, belt, tuckSill, tuckBelt }
+// refinement memo: a type's four variants share most parts (skin, glass, lamps) bit for bit, so a part refined for one is
+// reused by the next — keyed by the part's content hash; holds one shape spec at a time (the warm-up builds a type's
+// variants back to back), so it never grows past one vehicle's parts
+let memoSpec = null; const memo = new Map();
+function geoHash(g, M) { let h = 0x811c9dc5 | 0; const mix = (arr) => { const v = new Int32Array(arr.buffer, arr.byteOffset, arr.byteLength >> 2); h = Math.imul(h ^ v.length, 16777619); for (let i = 0; i < v.length; i++) h = Math.imul(h ^ v[i], 16777619); };
+  for (const k of Object.keys(g.attributes).sort()) mix(g.attributes[k].array); if (g.index) mix(g.index.array); if (M) mix(new Float32Array(M.elements)); return (h >>> 0).toString(36) + ':' + g.attributes.position.count + ':' + (g.index ? g.index.count : 0); }
+const cloneGeo = (g) => { const o = g.clone(); o.userData = g.userData; return o; };
 export function makeBodyWarp(spec) {
+  const specKey = JSON.stringify(spec); if (specKey !== memoSpec) { memoSpec = specKey; memo.clear(); }
   const { W, outline, roof = null, roofW = W * 0.78, nose = 0.12, tail = 0.09, crown = 0.03, roofCrown = 0.04, sill, belt, tuckSill = 0.025, tuckBelt = 0.015 } = spec;
   let zr = Infinity, zf = -Infinity; for (const [z] of outline) { zr = Math.min(zr, z); zf = Math.max(zf, z); }
   const cell = 0.02, top = envelope(outline, true, zr - 0.1, zf + 0.1, cell);
   let roofT = null, rz0 = 0, rz1 = 0;
   if (roof && roof.length > 1) { rz0 = Math.min(...roof.map((p) => p[0])); rz1 = Math.max(...roof.map((p) => p[0])); roofT = envelope(roof, false, rz0 - 0.05, rz1 + 0.05, cell); }
   const bandN = Math.max(0.45, nose * 3.5), bandT = Math.max(0.45, tail * 3.5), ySh = belt - Math.min(0.22, (belt - sill) * 0.35);
+  const TM = globalThis.__bwMask || 15; /* debug: per-term mask (viewer ?bw=1 plan, 2 crown, 4 roof, 8 tumblehome) */
   const field = (x, y, z, out) => {
     const ax = Math.abs(x), sx = x < 0 ? -1 : 1; const u = Math.min(1, ax / W), u2 = u * u; let dx = 0, dy = 0, dz = 0;
-    const TM = globalThis.__bwMask || 15; /* debug: per-term mask (viewer ?bw=1 plan, 2 crown, 4 roof, 8 tumblehome) */ if (TM & 1) { dz -= nose * u2 * sstep(zf - bandN, zf, z); dz += tail * u2 * sstep(zr + bandT, zr, z); }
+    if (TM & 1) { dz -= nose * u2 * sstep(zf - bandN, zf, z); dz += tail * u2 * sstep(zr + bandT, zr, z); }
     const yt = top(z); if (TM & 2) dy -= crown * u2 * sstep(yt - 0.45, yt, y) * (1 - sstep(yt + 0.02, yt + 0.27, y)); /* the greenhouse above has its own roof crown: fade out so window frames / headroom stay put */
     if ((TM & 4) && roofT && z > rz0 - 0.2 && z < rz1 + 0.2) { const ur = Math.min(1, ax / roofW), yr = roofT(z); dy -= roofCrown * ur * ur * sstep(yr - 0.5, yr, y) * sstep(rz0 - 0.2, rz0 + 0.1, z) * sstep(rz1 + 0.2, rz1 - 0.1, z); }
     const u4 = u2 * u2; if (TM & 8) dx -= sx * u4 * (tuckSill * sstep(ySh, sill, y) + tuckBelt * sstep(ySh, belt, y));
     out[0] = x + dx; out[1] = y + dy; out[2] = z + dz; return out;
   };
-  return { field, warp: (g) => warpGeometry(g, field), refine: (g, M = null, name = '') => REFINE_TOL[name] === 0 ? g : refineForField(g, field, M, REFINE_TOL[name] ?? 0.0012) };
+  // the same field with its exact Jacobian J (row-major 3×3, J[r*3+c] = ∂out_r/∂in_c) — warping needs it for every vertex's
+  // normal, and finite differences cost three extra field evaluations per vertex (the loading screen warms ~300 shapes)
+  const H = 1e-3, envD = (f, z) => (f(z + H) - f(z - H)) / (2 * H);
+  const fieldJ = (x, y, z, out, J) => {
+    const ax = Math.abs(x), sx = x < 0 ? -1 : 1; const u = Math.min(1, ax / W), du = ax < W ? sx / W : 0, u2 = u * u, du2 = 2 * u * du;
+    let dx = 0, dy = 0, dz = 0, xx = 0, xy = 0, yx = 0, yy = 0, yz = 0, zx = 0, zz = 0;
+    if (TM & 1) { const N = -nose * sstep(zf - bandN, zf, z) + tail * sstep(zr + bandT, zr, z); dz = u2 * N; zx = du2 * N; zz = u2 * (-nose * sstepD(zf - bandN, zf, z) + tail * sstepD(zr + bandT, zr, z)); }
+    if (TM & 2) { const yt = top(z), ytz = envD(top, z), A = sstep(yt - 0.45, yt, y), Ay = sstepD(yt - 0.45, yt, y), B = 1 - sstep(yt + 0.02, yt + 0.27, y), By = -sstepD(yt + 0.02, yt + 0.27, y), G = Ay * B + A * By;
+      dy -= crown * u2 * A * B; yx -= crown * du2 * A * B; yy -= crown * u2 * G; yz += crown * u2 * ytz * G; }
+    if ((TM & 4) && roofT && z > rz0 - 0.2 && z < rz1 + 0.2) { const ur = Math.min(1, ax / roofW), dur = ax < roofW ? sx / roofW : 0, ur2 = ur * ur, yr = roofT(z), yrz = envD(roofT, z);
+      const R = sstep(yr - 0.5, yr, y), Ry = sstepD(yr - 0.5, yr, y), Z1 = sstep(rz0 - 0.2, rz0 + 0.1, z), Z2 = sstep(rz1 + 0.2, rz1 - 0.1, z), Z1z = sstepD(rz0 - 0.2, rz0 + 0.1, z), Z2z = sstepD(rz1 + 0.2, rz1 - 0.1, z);
+      dy -= roofCrown * ur2 * R * Z1 * Z2; yx -= roofCrown * 2 * ur * dur * R * Z1 * Z2; yy -= roofCrown * ur2 * Ry * Z1 * Z2; yz -= roofCrown * ur2 * (-Ry * yrz * Z1 * Z2 + R * Z1z * Z2 + R * Z1 * Z2z); }
+    if (TM & 8) { const u4 = u2 * u2, du4 = 2 * u2 * du2, T = tuckSill * sstep(ySh, sill, y) + tuckBelt * sstep(ySh, belt, y); dx = -sx * u4 * T; xx = -sx * du4 * T; xy = -sx * u4 * (tuckSill * sstepD(ySh, sill, y) + tuckBelt * sstepD(ySh, belt, y)); }
+    out[0] = x + dx; out[1] = y + dy; out[2] = z + dz;
+    J[0] = 1 + xx; J[1] = xy; J[2] = 0; J[3] = yx; J[4] = 1 + yy; J[5] = yz; J[6] = zx; J[7] = 0; J[8] = 1 + zz; return out;
+  };
+  return { field, fieldJ, warp: (g) => warpGeometry(g, field, fieldJ), refine: (g, M = null, name = '') => { if (REFINE_TOL[name] === 0) return g; if (memoSpec !== specKey) { memoSpec = specKey; memo.clear(); } const k = name + '|' + geoHash(g, M); const hit = memo.get(k); if (hit) return cloneGeo(hit); const r = refineForField(g, field, M, REFINE_TOL[name] ?? 0.0012); memo.set(k, cloneGeo(r)); return r; } };
 }
 
 // Refine a geometry so that a smooth field can bend it: a big flat quad (a bumper face, a roof panel, a box) only has
@@ -193,14 +219,23 @@ export function refineForField(g, field, M = null, tol = 0.0012, maxDepth = 6) {
   const disp = []; const tmp = [0, 0, 0];
   const D = (i) => { if (disp[i * 3] !== undefined) return; let x = P[i * 3], y = P[i * 3 + 1], z = P[i * 3 + 2]; if (e) { const X = e[0] * x + e[4] * y + e[8] * z + e[12], Y = e[1] * x + e[5] * y + e[9] * z + e[13], Z = e[2] * x + e[6] * y + e[10] * z + e[14]; x = X; y = Y; z = Z; }
     field(x, y, z, tmp); disp[i * 3] = tmp[0] - x; disp[i * 3 + 1] = tmp[1] - y; disp[i * 3 + 2] = tmp[2] - z; };
-  const mids = new Map(); let added = 0;
-  const midOf = (a, b) => { const k = a < b ? a * 4194304 + b : b * 4194304 + a; let m = mids.get(k); if (m !== undefined) return m;
+  /* edge table (open addressing on typed arrays; a Map keyed by a·2²²+b hashes heap doubles and was the hot spot): per edge
+     whether it splits, its midpoint vertex once made, and the field displacement at its midpoint — each edge is tested by
+     both of its triangles, and a split's midpoint IS the new vertex, so its displacement is reused */
+  let cap = 1 << Math.max(10, Math.ceil(Math.log2(src.index.count * 2 + 16))), mask = cap - 1, used = 0;
+  let EA = new Int32Array(cap).fill(-1), EB = new Int32Array(cap), EF = new Int8Array(cap), EM = new Int32Array(cap).fill(-1), ED = new Float64Array(cap * 3);
+  const slot = (a, b) => { let h = (Math.imul(a, 73856093) ^ Math.imul(b, 19349663)) & mask; while (EA[h] !== -1 && (EA[h] !== a || EB[h] !== b)) h = (h + 1) & mask; return h; };
+  const grow = () => { const oA = EA, oB = EB, oF = EF, oM = EM, oD = ED; cap *= 2; mask = cap - 1; EA = new Int32Array(cap).fill(-1); EB = new Int32Array(cap); EF = new Int8Array(cap); EM = new Int32Array(cap).fill(-1); ED = new Float64Array(cap * 3);
+    for (let i = 0; i < oA.length; i++) if (oA[i] !== -1) { const h = slot(oA[i], oB[i]); EA[h] = oA[i]; EB[h] = oB[i]; EF[h] = oF[i]; EM[h] = oM[i]; ED[h * 3] = oD[i * 3]; ED[h * 3 + 1] = oD[i * 3 + 1]; ED[h * 3 + 2] = oD[i * 3 + 2]; } };
+  const edgeSlot = (a, b) => { if (a > b) { const t = a; a = b; b = t; } let h = slot(a, b); if (EA[h] === -1) { if (++used * 2 > cap) { grow(); h = slot(a, b); } EA[h] = a; EB[h] = b; EF[h] = 0; EM[h] = -1; } return h; };
+  let added = 0;
+  const midOf = (a, b) => { const h = edgeSlot(a, b); let m = EM[h]; if (m !== -1) return m;
     m = data[0].length / A[0].itemSize; for (let t = 0; t < A.length; t++) { const sz = A[t].itemSize, d = data[t]; for (let c = 0; c < sz; c++) d.push((d[a * sz + c] + d[b * sz + c]) / 2); }
-    if (nIdx >= 0) { const d = data[nIdx]; const l = Math.hypot(d[m * 3], d[m * 3 + 1], d[m * 3 + 2]) || 1; d[m * 3] /= l; d[m * 3 + 1] /= l; d[m * 3 + 2] /= l; }
-    mids.set(k, m); added++; return m; };
-  const needs = (a, b) => { const L = Math.hypot(P[a * 3] - P[b * 3], P[a * 3 + 1] - P[b * 3 + 1], P[a * 3 + 2] - P[b * 3 + 2]); if (L < 0.012) return false; D(a); D(b);
+    if (nIdx >= 0) { const d = data[nIdx]; const l = Math.sqrt(d[m * 3] * d[m * 3] + d[m * 3 + 1] * d[m * 3 + 1] + d[m * 3 + 2] * d[m * 3 + 2]) || 1; d[m * 3] /= l; d[m * 3 + 1] /= l; d[m * 3 + 2] /= l; }
+    if (EF[h] === 2) { disp[m * 3] = ED[h * 3]; disp[m * 3 + 1] = ED[h * 3 + 1]; disp[m * 3 + 2] = ED[h * 3 + 2]; } EM[h] = m; added++; return m; };
+  const needs = (a, b) => { const h = edgeSlot(a, b); if (EF[h]) return EF[h] === 2; /* 0 untested · 1 keep · 2 split */ const qx = P[a * 3] - P[b * 3], qy = P[a * 3 + 1] - P[b * 3 + 1], qz = P[a * 3 + 2] - P[b * 3 + 2]; if (qx * qx + qy * qy + qz * qz < 0.012 * 0.012) { EF[h] = 1; return false; } D(a); D(b);
     let x = (P[a * 3] + P[b * 3]) / 2, y = (P[a * 3 + 1] + P[b * 3 + 1]) / 2, z = (P[a * 3 + 2] + P[b * 3 + 2]) / 2; if (e) { const X = e[0] * x + e[4] * y + e[8] * z + e[12], Y = e[1] * x + e[5] * y + e[9] * z + e[13], Z = e[2] * x + e[6] * y + e[10] * z + e[14]; x = X; y = Y; z = Z; }
-    field(x, y, z, tmp); const ex = tmp[0] - x - (disp[a * 3] + disp[b * 3]) / 2, ey = tmp[1] - y - (disp[a * 3 + 1] + disp[b * 3 + 1]) / 2, ez = tmp[2] - z - (disp[a * 3 + 2] + disp[b * 3 + 2]) / 2; return ex * ex + ey * ey + ez * ez > tol * tol; };
+    field(x, y, z, tmp); const ex = tmp[0] - x - (disp[a * 3] + disp[b * 3]) / 2, ey = tmp[1] - y - (disp[a * 3 + 1] + disp[b * 3 + 1]) / 2, ez = tmp[2] - z - (disp[a * 3 + 2] + disp[b * 3 + 2]) / 2; const r = ex * ex + ey * ey + ez * ez > tol * tol; EF[h] = r ? 2 : 1; if (r) { ED[h * 3] = tmp[0] - x; ED[h * 3 + 1] = tmp[1] - y; ED[h * 3 + 2] = tmp[2] - z; } return r; };
   const I = src.index.array; const out = []; const stack = [];
   for (let t = 0; t < I.length; t += 3) stack.push(I[t], I[t + 1], I[t + 2], 0);
   while (stack.length) { const dep = stack.pop(), c = stack.pop(), b = stack.pop(), a = stack.pop();
@@ -216,14 +251,14 @@ export function refineForField(g, field, M = null, tol = 0.0012, maxDepth = 6) {
 }
 
 // move every vertex through the field; normals by the cofactor of the field's Jacobian (finite differences)
-export function warpGeometry(g, field) {
-  const P = g.attributes.position, N = g.attributes.normal; const e = 1e-3; const a = [0, 0, 0], bx = [0, 0, 0], by = [0, 0, 0], bz = [0, 0, 0];
+export function warpGeometry(g, field, fieldJ = null) {
+  const P = g.attributes.position, N = g.attributes.normal; const e = 1e-3; const a = [0, 0, 0], bx = [0, 0, 0], by = [0, 0, 0], bz = [0, 0, 0], J = new Float64Array(9);
   for (let i = 0; i < P.count; i++) {
-    const x = P.getX(i), y = P.getY(i), z = P.getZ(i); field(x, y, z, a);
-    if (N) { field(x + e, y, z, bx); field(x, y + e, z, by); field(x, y, z + e, bz);
-      const j00 = (bx[0] - a[0]) / e, j10 = (bx[1] - a[1]) / e, j20 = (bx[2] - a[2]) / e, j01 = (by[0] - a[0]) / e, j11 = (by[1] - a[1]) / e, j21 = (by[2] - a[2]) / e, j02 = (bz[0] - a[0]) / e, j12 = (bz[1] - a[1]) / e, j22 = (bz[2] - a[2]) / e;
+    const x = P.getX(i), y = P.getY(i), z = P.getZ(i); if (N && fieldJ) fieldJ(x, y, z, a, J); else field(x, y, z, a);
+    if (N) { if (!fieldJ) { field(x + e, y, z, bx); field(x, y + e, z, by); field(x, y, z + e, bz); J[0] = (bx[0] - a[0]) / e; J[3] = (bx[1] - a[1]) / e; J[6] = (bx[2] - a[2]) / e; J[1] = (by[0] - a[0]) / e; J[4] = (by[1] - a[1]) / e; J[7] = (by[2] - a[2]) / e; J[2] = (bz[0] - a[0]) / e; J[5] = (bz[1] - a[1]) / e; J[8] = (bz[2] - a[2]) / e; }
+      const j00 = J[0], j01 = J[1], j02 = J[2], j10 = J[3], j11 = J[4], j12 = J[5], j20 = J[6], j21 = J[7], j22 = J[8];
       const c00 = j11 * j22 - j12 * j21, c01 = j12 * j20 - j10 * j22, c02 = j10 * j21 - j11 * j20, c10 = j02 * j21 - j01 * j22, c11 = j00 * j22 - j02 * j20, c12 = j01 * j20 - j00 * j21, c20 = j01 * j12 - j02 * j11, c21 = j02 * j10 - j00 * j12, c22 = j00 * j11 - j01 * j10;
-      const nx = N.getX(i), ny = N.getY(i), nz = N.getZ(i); const ox = c00 * nx + c01 * ny + c02 * nz, oy = c10 * nx + c11 * ny + c12 * nz, oz = c20 * nx + c21 * ny + c22 * nz; /* n' ∝ cof(J)·n = det(J)·J⁻ᵀ·n */ const l = Math.hypot(ox, oy, oz) || 1; N.setXYZ(i, ox / l, oy / l, oz / l); }
+      const nx = N.getX(i), ny = N.getY(i), nz = N.getZ(i); const ox = c00 * nx + c01 * ny + c02 * nz, oy = c10 * nx + c11 * ny + c12 * nz, oz = c20 * nx + c21 * ny + c22 * nz; /* n' ∝ cof(J)·n = det(J)·J⁻ᵀ·n */ const l = Math.sqrt(ox * ox + oy * oy + oz * oz) || 1; N.setXYZ(i, ox / l, oy / l, oz / l); }
     P.setXYZ(i, a[0], a[1], a[2]);
   }
   P.needsUpdate = true; if (N) N.needsUpdate = true; g.computeBoundingBox(); g.computeBoundingSphere(); return g;
