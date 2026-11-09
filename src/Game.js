@@ -1,4 +1,5 @@
 // Game: boot/loading, presentation flow (intro → montage → menu), the play loop, interactions, save/load.
+import { preloadRealModels } from './vehicles/RealModels.js';
 import { FuelService } from './world/FuelStations.js';
 import { gatherBodies, setBodiesCollision } from './actors/Bodies.js';
 import { PoliceHQLife } from './police/PoliceHQLife.js';
@@ -91,11 +92,12 @@ export class Game {
   // ================================================================= loading (genuine progress)
   async load(progress) {
     const q = Settings.get('quality'); const step = (a, b) => (p, label) => progress(a + (b - a) * p, label);
-    progress(0, 'Loading fonts');
+    progress(0, 'Loading fonts'); const realCars = preloadRealModels().catch((e) => console.warn('[vehicles] real bodies:', e)); // real-car bodies (RealModels.js) download / decode alongside the fonts and textures
     try { await Promise.race([Promise.all(['600 32px "Noto Sans Sinhala"', '600 32px "Noto Sans Tamil"', '700 32px "Barlow Condensed"', '600 32px "Cormorant Garamond"', '500 16px "Manrope"'].map((f) => document.fonts.load(f, 'අආ தமி Aa'))), wait(6000)]); } catch (e) { console.warn('font load', e); }
     progress(0.04, 'Painting textures'); await tick();
     await buildTextures(q, step(0.04, 0.22));
     buildMaterials(); progress(0.23, 'Mixing materials'); await tick();
+    progress(0.235, 'Vehicles of Colombo'); await realCars; // before anything builds a vehicle: a type with a real body never caches its procedural one
     this.world = new World(this.scene); this.world.setQuality(q);
     await this.world.build(step(0.24, 0.72), q);
     this.collision = this.world.collision;

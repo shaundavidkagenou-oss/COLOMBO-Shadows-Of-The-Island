@@ -31,8 +31,14 @@ export const LIVE_VEHICLES = globalThis.__liveVehicles || (globalThis.__liveVehi
 // object of the scene each frame to update world matrices, visible or not, and the ~70 vehicles were half of all objects
 const host = (o, on) => { if (!o) return; const h = o.userData.host; if (on) { if (h && o.parent !== h) h.add(o); } else if (o.parent) o.parent.remove(o); };
 export function setVehicleLOD(ud, near) { if (ud.lodNear === near) return; ud.lodNear = near; ud.detail.visible = near; host(ud.detail, near); for (const w of ud.wheels) { const u = w.userData; u.lo.visible = !near; u.hi.visible = near; host(u.lo, !near); host(u.hi, near); if (u.cal) { u.cal.visible = near; host(u.cal, near); } } }
+// real-car bodies (RealModels.js): 0 = LOD0 body meshes (doors cut out, interior), 1 = LOD1, 2 = LOD2 (doors shut); the hidden
+// levels leave the scene graph like the detail group. Any door off its seat keeps LOD0 (the door ranges live on those meshes).
+export function setRealLevel(ud, lvl) { const R = ud.real; if (!R || R.level === lvl) return; R.level = lvl; const hi = lvl === 0;
+  for (const m of R.hi) { m.visible = hi; host(m, hi); } R.mid.visible = lvl === 1; host(R.mid, lvl === 1); R.low.visible = lvl === 2; host(R.low, lvl === 2); }
+const doorOff = (ud) => { if (!ud.doors) return false; for (const d of ud.doors) if (d.live || (d.ang || 0) > 0) return true; return false; };
 export function updateVehicleLOD(cam) { const cx = cam.position.x, cy = cam.position.y, cz = cam.position.z; for (const v of LIVE_VEHICLES) { const m = v.mesh, ud = m.userData; if (ud.doors) syncDoors(ud); if (!ud.detail) continue; const r = ud.lodR, d2 = (m.position.x - cx) ** 2 + (m.position.y - cy) ** 2 + (m.position.z - cz) ** 2; setVehicleLOD(ud, d2 < (ud.lodNear ? (r + 5) * (r + 5) : r * r) && m.visible !== false);
-    const fr = ud.farR; if (fr) { const far = d2 > (ud.lodFar ? (fr - 10) * (fr - 10) : fr * fr); if (far !== ud.lodFar) { ud.lodFar = far; for (const fm of ud.farHide) fm.visible = !far; } } } } // third level: cabin / plate / badges off when far
+    const fr = ud.farR; if (fr) { const far = d2 > (ud.lodFar ? (fr - 10) * (fr - 10) : fr * fr); if (far !== ud.lodFar) { ud.lodFar = far; for (const fm of ud.farHide) fm.visible = !far; } }
+    if (ud.real) setRealLevel(ud, ud.lodNear || doorOff(ud) ? 0 : ud.lodFar ? 2 : 1); } } // third level: cabin / plate / badges off when far
 // ---- real headlight beams. A fixed pool of SpotLights is created once at load (light counts never change, so no shader
 // recompiles); every frame they are handed to the vehicles whose lights matter most: the player's own vehicle first (that
 // beam casts shadows: kerbs, poles, people and cars throw real shadows ahead of you), then the nearest lit vehicles that

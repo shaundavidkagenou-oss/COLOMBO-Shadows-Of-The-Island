@@ -184,8 +184,9 @@ add('kecil', { brand: 'seruni', name: 'Kecil', cls: 'hatchback', fam: 'car', ref
 
 // ======================================================================= saloons
 add('ventra', { brand: 'hoshida', name: 'Ventra', cls: 'saloon', fam: 'sedan', ref: '2010s compact saloon, the default family / office car',
-  len: 4.4, wid: 1.695, hgt: 1.46, wheelR: 0.3, maxSpeed: 42, accel: 5.8, mass: 1150, seats: 5, steer: 0.53, colors: PAL.pearl,
-  b: { L: 4.4, sill: 0.28, fo: 0.9, wb: 2.6, bump: 0.52, fy: 0.62, hd: 0.2, hy: 0.74, cd: 1.18, cy: 0.88, wd: 1.72, roof: 1.46, rd: 1.36, roofR: 1.43, bd: 0.95, by: 0.96, gy1: 0.98, td: 0.1, ty: 0.95, tm: 0.62, door: [0.9, -0.04], rearDoor: [-0.07, -0.92] },
+  // real body (RealModels.js): dimensions measured on the converted model (tools/cars/build.mjs) so physics, the fallback body and the fitted interior match it
+  len: 4.51, wid: 1.754, hgt: 1.437, wheelR: 0.324, maxSpeed: 42, accel: 5.8, mass: 1150, seats: 5, steer: 0.53, colors: PAL.pearl,
+  b: { L: 4.51, sill: 0.28, fo: 0.94, wb: 2.61, bump: 0.52, fy: 0.62, hd: 0.2, hy: 0.74, cd: 1.18, cy: 0.88, wd: 1.72, roof: 1.437, rd: 1.36, roofR: 1.41, bd: 0.95, by: 0.97, gy1: 0.98, td: 0.1, ty: 0.95, tm: 0.62, door: [0.88, -0.2], rearDoor: [-0.22, -1.23] },
   cab: { seatY: 0.38, rows: [[-0.88, 3]] },
   S: { head: { t: 'swept', w: 0.36, h: 0.11, x: 0.15, wrap: 0.24, tilt: 0.08 }, grille: { t: 'hbars', w: 0.4, chrome: true, n: 2 }, lower: { t: 'trapezoid', w: 0.55, h: 0.12 }, tail: { t: 'wrap', w: 0.3, h: 0.14, deck: true }, wheels: [0, 2] } });
 add('solace', { brand: 'hoshida', name: 'Solace', cls: 'saloon', fam: 'sedan', ref: '2000s–2010s mid-size premium saloon with chrome-heavy trim',

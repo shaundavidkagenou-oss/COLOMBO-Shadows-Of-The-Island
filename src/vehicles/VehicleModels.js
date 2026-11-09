@@ -22,6 +22,8 @@ import { standMeshes } from './Kickstand.js';
 import { addAmbulanceKit, ambDecalMat, buildAmbRear, AMB_GREEN } from './AmbulanceKit.js';
 import { CATALOG } from './VehicleCatalog.js';
 import { styleVehicle, badgeMaterial, badgeText, placeEmblem } from './VehicleStyle.js';
+import { realAsset } from './RealModels.js';
+import { realDoorSpec } from './RealSpec.js';
 
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 const lerp = (a, b, t) => a + (b - a) * t; const sstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -856,7 +858,7 @@ function doorGrab(d) {
   const y = Math.min(S.by - 0.1, S.topAt(zr + 0.06) - 0.07); const skin = loc(S.skinPt(zr + 0.06, y)[0]), card = loc(S.xc);
   const HB = handleBar(S); const hz = HB.z, hy = HB.y; const hs = loc(HB.xs);
   // the window's rear edge (glass + rubber, between the belt and the roof line): what a hand holds the open door by
-  let win = null; if (S.glY && S.roofY && S.gw0) { const g0 = S.glY(zr), g1 = S.roofY(zr); if (g1 - g0 > 0.2) { const wy = g0 + Math.min(0.2, (g1 - g0) * 0.42); const gxAt = (yy) => loc(-lerp(S.gw0, S.gw1 ?? S.gw0, (yy - g0) / (g1 - g0))); win = { y: wy, x: gxAt(wy), tilt: gxAt(wy + 0.1) * 10 - gxAt(wy) * 10, zR: zr - d.hinge[1] - 0.024 }; } } // the rubber frame runs ~2.5 cm past the panel's rear edge; the glass leans in (tumblehome)
+  let win = null; if (S.glY && S.roofY && S.gw0) { const g0 = S.glY(zr), g1 = S.roofY(zr); if (g1 - g0 > 0.2) { const wy = g0 + Math.min(0.2, (g1 - g0) * 0.42); const gxAt = (yy) => loc(-lerp(S.gw0, S.gw1 ?? S.gw0, (yy - g0) / (g1 - g0))); win = { y: wy, x: gxAt(wy), tilt: gxAt(wy + 0.1) * 10 - gxAt(wy) * 10, zR: (S.winR != null ? S.winR + 0.004 : zr - 0.024) - d.hinge[1] }; } } // real doors: the measured rear-most frame point // the rubber frame runs ~2.5 cm past the panel's rear edge; the glass leans in (tumblehome)
   const g = { side, y, zR: zr - d.hinge[1], card, skin, win, handle: { x: loc(HB.xb), half: HB.half, posts: [HB.len / 2 - 0.008, -HB.len / 2 + 0.008], skin: hs, y: hy, z: hz - d.hinge[1], lo: [0.04, 0.08, 0.12].map((dy) => loc(S.skinPt(hz, hy - dy)[0])) } };
   // the body shape field moved the door with the body (BodyShape.js): the grasp targets follow it (hinge-local x through the field)
   if (d.field) { const F = d.field, o = [0, 0, 0]; const X = (l, yy, zb) => { F(hxN - side * l, yy, zb, o); return -side * (o[0] - hxN); };
@@ -946,6 +948,7 @@ function buildCabDoorGeos(d) {
 const PROBE_HEX = '#d2508e'; let PROBE = null; const shapeCache = new Map();
 function shapeOf(type, variant) {
   const key = type + '|' + variant; let s = shapeCache.get(key); if (s) return s; PROBE = PROBE || C(PROBE_HEX);
+  { const A = globalThis.__noRealCars ? null : realAsset(type); if (A) { s = realShape(type, variant, A); shapeCache.set(key, s); return s; } } // a real-car body (RealModels.js) when one is loaded for this type
   const m = buildModel(type, PROBE_HEX, variant); const raw = (mbb) => { const out = []; for (const [name, b] of mbb.b) { const g = b.build(); if (g) out.push([name, g]); } return out; };
   const mask = (l) => l.map(([name, g]) => [name, g, probeMask(g)]);
   // body shape field (BodyShape.js): every part is first refined where the field bends (in bakeDoors for the door leaves, which
@@ -955,6 +958,56 @@ function shapeOf(type, variant) {
   if (SF) { if (m.doors) for (const d of m.doors) d.field = SF.field; for (const [, g] of body.geos) SF.warp(g); m.dgeosWarp = (g) => SF.warp(g); m.dgeosRefine = SF.refine; } // the whole baked body (skin + shut doors + glass + lamps + trims) follows one smooth shape field // shut doors baked into the body once per shape (paint recolour covers them too)
   let dg = raw(m.dm); if (m.dgeosWarp) { dg = dg.map(([n, g]) => [n, m.dgeosRefine(g, null, n)]); for (const [, g] of dg) m.dgeosWarp(g); } s = { geos: mask(body.geos), dgeos: mask(dg), doorRanges: body.doorRanges, m }; shapeCache.set(key, s); return s;
 }
+// ---- real-car bodies (RealModels.js / tools/cars/build.mjs). The real exterior (LOD0 with its doors cut out on their seams,
+// LOD1 / LOD2 with the doors shut) replaces the procedural shell; everything the game's mechanics are fitted to stays the type's
+// own: the interior (seats, dash, steering wheel — what the seat IK, boarding and door-grab solvers are tuned on), the seat /
+// steering metadata and the door roles. Door hinges, lengths and grasp specs come from the real doors (skin sampled offline),
+// the outside pull handle is the game's own (same grasp-solver bar as every other car) set in the real handle recess, plates are
+// the game's Sri Lankan plates where the real ones were, wheels are the real wheel (tyre + rim + disc) on the real axle positions.
+const REAL_KEEP = new Set(['interior', 'dash']);
+function realShape(type, variant, A) {
+  const m = buildModel(type, PROBE_HEX, variant); const meta = A.meta; const P = PROBE;
+  const own = (name, g) => { const out = g.clone(); if (name === 'paint') { const c = out.attributes.color.array; for (let i = 0; i < c.length; i += 3) { const k = c[i]; c[i] = k * P[0]; c[i + 1] = k * P[1]; c[i + 2] = k * P[2]; } } return out; }; // paint shade k → probe multiple (recoloured per look)
+  const built = (mbb) => { const out = []; for (const [name, b] of mbb.b) { const g = b.build(); if (g) out.push([name, g]); } return out; };
+  const pb = new MultiBuilder(); for (const [cx, cy, z, hw, hh, front] of meta.plates || []) plateQuad(pb, cx, cy, z, hw, hh, front, variant);
+  const fit = shellFit(A); const inner = (l) => l.map(([n, g]) => { fit(g); return [n, g]; });
+  const extraBody = [...inner(built(m.mb).filter(([n]) => REAL_KEEP.has(n))), ...built(pb)];
+  // doors: the procedural door of the same role / side gives the gameplay fields (swing limit, grip height), the real one the rest
+  const doors = meta.doors.map((rd) => { const pd = (m.doors || []).find((d) => d.role === rd.role && d.side === rd.side && !d.leaf) || {}; return { ...pd, side: rd.side, role: rd.role, hinge: rd.hinge.slice(), len: rd.len, spec: realDoorSpec(rd.spec), glass: null, mirror: false, field: null, leaf: 0, cab: null }; });
+  const leaves = doors.map((d, i) => { const l = A.lod0.doors[i].map(([n, g]) => [n, own(n, g)]); const hb = new MultiBuilder(); realHandle(hb, d); const mx = new THREE.Matrix4().makeTranslation(Math.abs(d.hinge[0]), 0, -d.hinge[1]); if (d.side > 0) mx.premultiply(new THREE.Matrix4().makeScale(-1, 1, 1));
+    for (const [n, g] of built(hb)) { g.applyMatrix4(mx); if (d.side > 0) flipWinding(g); l.push([n, g]); } return l; });
+  // bake: body + shut doors per material, door ranges for DoorRig (same layout as bakeDoors)
+  const names = [...new Set([...A.lod0.body.map((q) => q[0]), ...extraBody.map((q) => q[0]), ...leaves.flatMap((l) => l.map((q) => q[0]))])]; const geos = [], ranges = {};
+  for (const name of names) { const body = [...A.lod0.body.filter((q) => q[0] === name).map((q) => ({ geo: own(name, q[1]), m: null })), ...extraBody.filter((q) => q[0] === name).map((q) => ({ geo: q[1], m: null }))]; const who = [], parts = [...body];
+    leaves.forEach((l, i) => { for (const q of l) if (q[0] === name) { parts.push({ geo: q[1], m: new THREE.Matrix4().makeTranslation(doors[i].hinge[0], 0, doors[i].hinge[1]) }); who.push(i); } });
+    const { geo, ranges: rr } = concatGeos(parts); const nb = body.length; ranges[name] = { body: nb ? rr[nb - 1].i1 : 0, doors: who.map((i, k) => ({ door: i, ...rr[nb + k] })) }; geos.push([name, geo]); }
+  m.doors = doors; m.wheels = meta.wheels.map((w) => w.slice()); m.realWheel = { hi: A.w0, lo: A.w1 }; m.real = meta;
+  const lod = (L) => { const by = new Map(); for (const [n, g] of L) (by.get(n) || by.set(n, []).get(n)).push({ geo: own(n, g), m: null }); for (const [n, g] of built(pb)) (by.get(n) || by.set(n, []).get(n)).push({ geo: g.clone(), m: null }); return [...by].map(([n, parts]) => [n, concatGeos(parts).geo]); };
+  const mask = (l) => l.map(([name, g]) => [name, g, probeMask(g)]);
+  const dg = inner(built(m.dm).filter(([n]) => REAL_KEEP.has(n)));
+  return { geos: mask(geos), dgeos: mask(dg), doorRanges: ranges, m, lods: [mask(lod(A.lod1)), mask(lod(A.lod2))] };
+}
+// the type's own interior was fitted to the procedural shell: clamp it inside the real one (top: roof / glass height per x,z;
+// sides: the half-width per y,z incl. the shut doors) so no headliner, pillar trim or seat edge pokes through the real body
+const shellCache = new WeakMap();
+function shellFit(A) { let f = shellCache.get(A); if (f) return f; const S = 0.05, lo = A.meta.dims.lo, nx = Math.ceil(-lo[0] * 2 / S) + 1, nz = Math.ceil(-lo[2] * 2 / S) + 1, ny = Math.ceil(A.meta.dims.hgt / S) + 2;
+  const top = new Float32Array(nx * nz).fill(-1), side = new Float32Array(ny * nz).fill(-1); const v = new THREE.Vector3();
+  const add = (g, mx) => { const P = g.attributes.position; for (let i = 0; i < P.count; i++) { v.fromBufferAttribute(P, i); if (mx) v.applyMatrix4(mx); const ix = Math.round((v.x - lo[0]) / S), iz = Math.round((v.z - lo[2]) / S), iy = Math.round(v.y / S);
+    if (ix >= 0 && ix < nx && iz >= 0 && iz < nz) top[iz * nx + ix] = Math.max(top[iz * nx + ix], v.y); if (iy >= 0 && iy < ny && iz >= 0 && iz < nz) side[iz * ny + iy] = Math.max(side[iz * ny + iy], Math.abs(v.x)); } };
+  for (const [n, g] of A.lod0.body) if (n === 'paint' || n === 'glass') add(g, null);
+  A.meta.doors.forEach((d, i) => { const mx = new THREE.Matrix4().makeTranslation(d.hinge[0], 0, d.hinge[1]); for (const [n, g] of A.lod0.doors[i]) if (n === 'paint' || n === 'glass') add(g, mx); });
+  const at = (arr, w, a, b) => { let m = -1; for (let da = -1; da <= 1; da++) for (let db = -1; db <= 1; db++) { const k = (b + db) * w + a + da; if (a + da < 0 || a + da >= w || b + db < 0 || k < 0 || k >= arr.length) continue; m = Math.max(m, arr[k]); } return m; }; // the highest neighbour: lenient across cell edges
+  const out = (x, y, z) => { const iz = Math.round((z - lo[2]) / S); const t = at(top, nx, Math.round((x - lo[0]) / S), iz); if (t > 0 && y > t + 0.01) return true; if (y > 0.75) { const w = at(side, ny, Math.round(y / S), iz); if (w > 0 && Math.abs(x) > w + 0.01) return true; } return false; };
+  // triangles of the fitted interior that stick out of the real shell are removed (the interior's shape itself is left alone)
+  f = (g) => { if (globalThis.__noShellFit || !g.index) return 0; const P = g.attributes.position, I = g.index.array; const bad = new Uint8Array(P.count); for (let i = 0; i < P.count; i++) bad[i] = out(P.getX(i), P.getY(i), P.getZ(i)) ? 1 : 0;
+    const keep = []; for (let t = 0; t < I.length; t += 3) if (!bad[I[t]] && !bad[I[t + 1]] && !bad[I[t + 2]]) keep.push(I[t], I[t + 1], I[t + 2]);
+    const cut = (I.length - keep.length) / 3; if (cut) { g.setIndex(keep); g.computeBoundingSphere(); } return cut; };
+  shellCache.set(A, f); return f; }
+function flipWinding(g) { const I = g.index.array; for (let i = 0; i < I.length; i += 3) { const t = I[i + 1]; I[i + 1] = I[i + 2]; I[i + 2] = t; } }
+// the outside pull handle of a real door in its recess (model space, −x orientation; same parts as buildDoorGeos)
+function realHandle(mb, d) { const S = d.spec, rb = mb.get('rubber'), ch = mb.get('chrome'); const HB = handleBar(S), z = HB.z, y = HB.y, x = HB.xs;
+  rb.box(x - 0.002, y, z, 0.006, 0.05, 0.17, { col: C('#0c0c0d') }); ch.box(HB.xb, y, z, HB.half * 2, HB.h, HB.len, { col: C('#c4c8cc') });
+  for (const e of [-1, 1]) { const zp = z + e * (HB.len / 2 - 0.008), dx = x - HB.xb; ch.box(HB.xb + dx / 2 + 0.002, y, zp, dx + 0.004, 0.02, 0.016, { col: C('#b4b8bc') }); } }
 // per vertex: the multiple of the probe colour it carries (0 = not paint)
 function probeMask(g) { const c = g.attributes.color; if (!c) return null; const a = c.array, P = PROBE; let mask = null;
   for (let i = 0; i < a.length; i += 3) { const k = a[i] / P[0]; if (k > 0 && Math.abs(a[i + 1] - k * P[1]) < 2e-5 && Math.abs(a[i + 2] - k * P[2]) < 2e-5) { if (!mask) mask = new Float32Array(a.length / 3); mask[i / 3] = k; } }
@@ -1013,6 +1066,7 @@ function ensureModel(type, seed) {
     const dgeos = []; for (const [name, g0, mask] of S.dgeos) dgeos.push([name, recolor(g0, mask, col)]);
     cached = { geos, dgeos, wheels: m.wheels, seats: m.seats, steerWheel: m.steerWheel, doors: recolorMeta(m.doors, col), wheelStyle: m.wheelStyle, busDoor: recolorMeta(m.busDoor, col), cabStep: m.cabStep, exhaust: (m.dm && m.dm.exhaust) || null };
     cached.doorRanges = S.doorRanges;
+    if (S.lods) cached.lods = S.lods.map((L) => L.map(([name, g0, mask]) => [name, recolor(g0, mask, col)])); if (m.realWheel) cached.realWheel = m.realWheel;
     if (worn) for (const [name, g] of cached.geos) if (name === 'paint' || name === 'canvas') dirty(g, seed); // after baking: shut doors carry the same grime as the panels round them
     modelCache.set(key, cached);
   }
@@ -1029,21 +1083,25 @@ const NO_CAST = new Set(['livery', 'glass', 'vlight', 'interior', 'badge', 'amb'
 export function createVehicleMesh(type, seed = 1) {
   const { T, color, variant, worn, cached } = ensureModel(type, seed);
   const { mats: M } = vehicleMaterials();
-  const byName = { carbon: M.vcarbon, alloy: M.valloy, engine: M.vengine, mirror: M.vmirror, dash: M.vdash, paint: worn ? M.vworn : M.vpaint, glass: M.vglass, chrome: M.vchrome, rubber: M.vrubber, interior: M.vinterior, canvas: M.vcanvas, vlight: M.vlight, vtail: M.vtail, vind: M.vind, plate: M.plate, livery: M.livery, badge: M.badge, route: M.route, police: M.police, amb: M.amb, lbBlue: M.lbBlue, lbRed: M.lbRed };
+  const byName = { carbon: M.vcarbon, alloy: M.valloy, engine: M.vengine, mirror: M.vmirror, dash: M.vdash, paint: worn ? M.vworn : M.vpaint, glass: M.vglass, chrome: M.vchrome, rubber: M.vrubber, interior: M.vinterior, canvas: M.vcanvas, vlight: M.vlight, vtail: M.vtail, vind: M.vind, plate: M.plate, livery: M.livery, badge: M.badge, route: M.route, police: M.police, amb: M.amb, lbBlue: M.lbBlue, lbRed: M.lbRed, lens: M.vlens, vrefl: M.vrefl };
   let beacons = null; if (T.police || T.ambulance) { byName.lbBlue = M.lbBlue.clone(); byName.lbRed = M.lbRed.clone(); beacons = { blue: byName.lbBlue, red: byName.lbRed }; } // per vehicle: only responding units flash
   const g = new THREE.Group(); const tailMat = M.vtail.clone(); const indMat = M.vind.clone(); const headMat = M.vlight.clone(); const revMat = M.vrev.clone(); byName.vtail = tailMat; byName.vind = indMat; byName.vlight = headMat; byName.vrev = revMat; headMat.emissiveIntensity = 0.04; tailMat.emissiveIntensity = 0.03; revMat.emissiveIntensity = 0; // per vehicle (start dark): each car's own lamps
   directionalLamp(headMat, 1); directionalLamp(tailMat, -1); directionalLamp(revMat, -1); // lamps glow only from the lens face (seen through the cabin glass from the other end they stay dark)
   const bodyMeshes = {}, shared = {}, mats = {}; for (const [name, geo] of cached.geos) { const mesh = new THREE.Mesh(geo, byName[name] || MAT.paint); mesh.name = name; bodyMeshes[name] = mesh; shared[name] = geo; mats[name] = mesh.material; mesh.castShadow = !NO_CAST.has(name); mesh.receiveShadow = name === 'paint'; if (name === 'glass') mesh.renderOrder = 2; mesh.matrixAutoUpdate = false; g.add(mesh); } /* body parts never move inside the vehicle: skip recomposing their local matrix every frame */
+  let real = null; if (cached.lods) { // real-car body: LOD1 / LOD2 groups (doors shut) swapped in by Vehicle.updateVehicleLOD; LOD0 = the body meshes above
+    const mk = (L, nm) => { const grp = new THREE.Group(); grp.name = nm; for (const [name, geo] of L) { const mesh = new THREE.Mesh(geo, byName[name] || MAT.paint); mesh.name = name; mesh.castShadow = !NO_CAST.has(name); mesh.receiveShadow = name === 'paint'; if (name === 'glass' || name === 'lens') mesh.renderOrder = 2; mesh.matrixAutoUpdate = false; grp.add(mesh); } grp.visible = false; grp.userData.host = g; return grp; };
+    real = { hi: Object.values(bodyMeshes), mid: mk(cached.lods[0], 'lod1'), low: mk(cached.lods[1], 'lod2'), level: 0 }; for (const mesh of real.hi) mesh.userData.host = g; }
   const det = new THREE.Group(); det.name = 'detail'; det.visible = false; byName.lens = M.vlens; byName.vrefl = M.vrefl;
   for (const [name, geo] of cached.dgeos) { const mesh = new THREE.Mesh(geo, byName[name] || M.vchrome); mesh.name = name; mesh.castShadow = false; mesh.receiveShadow = name === 'paint'; if (name === 'glass' || name === 'lens') mesh.renderOrder = 2; mesh.matrixAutoUpdate = false; det.add(mesh); }
   det.userData.host = g; /* added by setVehicleLOD when near */ const base = T.base || type; const wkind = base === 'bike' ? 'bike' : (base === 'bus' || base === 'pbus' || base === 'lorry' || T.family === 'truck') ? 'heavy' : 'car';
-  const wp = wheelParts(T.wheelR, cached.wheels[0][3], cached.wheelStyle);
+  const RW = cached.realWheel; const rwGeo = (L, n) => { const q = L.find((e) => e[0] === n); return q ? q[1] : EMPTY_GEO; }; // real-car wheel templates (+x side, hub space), shared by every wheel of the type
+  const wp = RW ? { tyre: rwGeo(RW.lo, 'tyre'), rim: rwGeo(RW.lo, 'rim') } : wheelParts(T.wheelR, cached.wheels[0][3], cached.wheelStyle);
   const wheels = cached.wheels.map(([x, y, z, w]) => {
-    const parts = w === cached.wheels[0][3] ? wp : wheelParts(T.wheelR, w, cached.wheelStyle);
+    const parts = RW || w === cached.wheels[0][3] ? wp : wheelParts(T.wheelR, w, cached.wheelStyle);
     const pivot = new THREE.Group(); pivot.position.set(x, y, z); const spin = new THREE.Group();
     const tyre = new THREE.Mesh(parts.tyre, M.vtyre); const rim = new THREE.Mesh(parts.rim, M.vrim); tyre.castShadow = true;
     const holder = new THREE.Group(); holder.add(tyre, rim); if (x < 0) holder.rotation.y = Math.PI; spin.add(holder); pivot.add(spin);
-    const hp = hiWheelParts(T.wheelR, w, cached.wheelStyle, wkind, KIT, z > 0); const hi = new THREE.Group(); const t2 = new THREE.Mesh(hp.tyre, M.vtyre); t2.castShadow = true; hi.add(t2, new THREE.Mesh(hp.rim, M.vrim)); if (x < 0) hi.rotation.y = Math.PI; hi.visible = false; spin.add(hi);
+    const hp = RW ? { tyre: rwGeo(RW.hi, 'tyre'), rim: rwGeo(RW.hi, 'rim'), caliper: RW.hi.some((e) => e[0] === 'cal') ? rwGeo(RW.hi, 'cal') : null } : hiWheelParts(T.wheelR, w, cached.wheelStyle, wkind, KIT, z > 0); const hi = new THREE.Group(); const t2 = new THREE.Mesh(hp.tyre, M.vtyre); t2.castShadow = true; hi.add(t2, new THREE.Mesh(hp.rim, M.vrim)); if (x < 0) hi.rotation.y = Math.PI; hi.visible = false; spin.add(hi);
     let cal = null; if (hp.caliper) { cal = new THREE.Mesh(hp.caliper, M.vrim); if (x < 0) cal.rotation.y = Math.PI; cal.visible = false; pivot.add(cal); }
     for (const o of [holder, tyre, rim, hi, ...hi.children, cal]) if (o) { o.updateMatrix(); o.matrixAutoUpdate = false; } // fixed inside the wheel: only pivot (steer, suspension) and spin move
     holder.userData.host = hi.userData.host = spin; spin.remove(hi); if (cal) { cal.userData.host = pivot; pivot.remove(cal); } // far LOD at birth: see setVehicleLOD
@@ -1067,9 +1125,10 @@ export function createVehicleMesh(type, seed = 1) {
     cs.updateMatrix(); cs.matrixAutoUpdate = false; g.add(cs); }
   const rear = T.ambulance ? buildAmbRear() : null; if (rear) g.add(rear.group); // twin rear doors + lit cabin (opened by the medics)
   const stand = base === 'bike' ? standMeshes(M.vrim) : null; if (stand) g.add(stand); // animated side stand (Kickstand.js)
-  g.userData = { wheelStyle: cached.wheelStyle, exhaust: cached.exhaust, doors, bake: doors.length ? { ranges: cached.doorRanges, meshes: bodyMeshes, shared, mats, pivotGeos: (i) => slicePivotGeos(cached, i) } : null, stand, detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, lodFar: false, farR: wkind === 'heavy' ? 160 : wkind === 'bike' ? 0 : 140, farHide: ['interior', 'dash', 'plate', 'badge'].map((n) => bodyMeshes[n]).filter(Boolean), /* far LOD (Vehicle.updateVehicleLOD): cabin, plate, badges off beyond farR — lamps stay */ wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons, rear, cabStep: cached.cabStep };
+  g.userData = { wheelStyle: cached.wheelStyle, exhaust: cached.exhaust, doors, bake: doors.length ? { ranges: cached.doorRanges, meshes: bodyMeshes, shared, mats, pivotGeos: (i) => slicePivotGeos(cached, i) } : null, stand, detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, lodFar: false, farR: wkind === 'heavy' ? 160 : wkind === 'bike' ? 0 : 140, farHide: ['interior', 'dash', 'plate', 'badge'].map((n) => bodyMeshes[n]).filter(Boolean), /* far LOD (Vehicle.updateVehicleLOD): cabin, plate, badges off beyond farR — lamps stay */ real, wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons, rear, cabStep: cached.cabStep };
   return g;
 }
+const EMPTY_GEO = new THREE.BufferGeometry();
 // darken lower panels and add per-vehicle grime variation to working vehicles
 function dirty(g, seed) {
   const p = g.attributes.position, c = g.attributes.color; const r = new RNG(seed * 7 + 3);

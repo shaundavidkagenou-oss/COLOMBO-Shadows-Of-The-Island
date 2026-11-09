@@ -20,7 +20,7 @@ const inside = (p, meshes) => { let n = 0; for (const d of DIRS) { rc.set(p, d);
 const near = (p, meshes) => { let best = 9; for (const d of DIRS) { rc.set(p, d); rc.far = 0.06; const h = rc.intersectObjects(meshes, false)[0]; if (h) best = Math.min(best, h.distance); } return best; };
 const HAND = /^(hand|idx|mid|rng|pnk|thb)[123]?([LR])$/;
 const types = Object.keys(VTYPES).filter((t) => { const k = boardKind({ T: VTYPES[t] }); return (k === 'car' || k === 'van' || k === 'cab') && (!process.env.TYPES || process.env.TYPES.split(',').includes(t)); });
-const heroes = ['dineth', 'shashika', 'david']; const chars = heroes.map((h) => new Character(HEROES[h]));
+const heroes = process.env.WHO ? process.env.WHO.split(',') : ['dineth', 'shashika', 'david']; const chars = heroes.map((h) => new Character(HEROES[h]));
 const summary = []; let hookN = 0, hookOk = 0;
 for (const type of types) {
   const T = VTYPES[type]; const g = createVehicleMesh(type, 1); const ud = g.userData; const d = ud.door; if (!d || d.slide || d.leaf) continue;
