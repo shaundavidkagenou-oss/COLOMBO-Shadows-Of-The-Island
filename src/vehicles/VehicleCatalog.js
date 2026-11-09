@@ -45,6 +45,7 @@ export const BRANDS = {
   seruni: { name: 'SERUNI', origin: 'Malaysia', emblem: 'petals' },    // five-petal flower
   bristen: { name: 'BRISTEN', origin: 'Britain', emblem: 'plaque' },   // chrome-edged blue plaque with wordmark
   strelau: { name: 'STRELAU', origin: 'Germany', emblem: 'compass' },  // ring with a compass cross
+  calder: { name: 'CALDER', origin: 'USA', emblem: 'target' },        // (real-body cars carry no emblem at all)
 };
 
 // palettes typical of Colombo traffic: lots of white / pearl / silver / black, some colour on the small cars
@@ -189,6 +190,12 @@ add('ventra', { brand: 'hoshida', name: 'Ventra', cls: 'saloon', fam: 'sedan', r
   b: { L: 4.51, sill: 0.28, fo: 0.94, wb: 2.61, bump: 0.52, fy: 0.62, hd: 0.2, hy: 0.74, cd: 1.18, cy: 0.88, wd: 1.72, roof: 1.437, rd: 1.36, roofR: 1.41, bd: 0.95, by: 0.97, gy1: 0.98, td: 0.1, ty: 0.95, tm: 0.62, door: [0.88, -0.2], rearDoor: [-0.22, -1.23] },
   cab: { seatY: 0.38, rows: [[-0.88, 3]] },
   S: { head: { t: 'swept', w: 0.36, h: 0.11, x: 0.15, wrap: 0.24, tilt: 0.08 }, grille: { t: 'hbars', w: 0.4, chrome: true, n: 2 }, lower: { t: 'trapezoid', w: 0.55, h: 0.12 }, tail: { t: 'wrap', w: 0.3, h: 0.14, deck: true }, wheels: [0, 2] } });
+add('raiden', { brand: 'kensei', name: 'Raiden', cls: 'sports coupe', fam: 'sedan', ref: 'late-2010s two-seat sports coupe — rare: a few enthusiast imports',
+  // real body (RealModels.js, de-badged); dimensions measured on the converted model
+  len: 4.379, wid: 1.854, hgt: 1.297, wheelR: 0.334, maxSpeed: 68, accel: 9.2, mass: 1500, seats: 2, steer: 0.5, colors: ['#c8102e', '#f2f2ee', '#1a1b1e', '#9ea3a8', '#1f4fa0', '#e8b80e'],
+  b: { L: 4.379, sill: 0.22, fo: 0.97, wb: 2.48, bump: 0.42, fy: 0.52, hd: 0.3, hy: 0.7, cd: 1.68, cy: 0.83, wd: 2.17, roof: 1.25, rd: 1.13, roofR: 1.22, bd: 0.34, by: 0.95, gy1: 0.96, td: 0.08, ty: 0.94, tm: 0.6, /* glass-measured: windshield base z 0.56 / y 0.85, top z ≈ 0 / 1.225, backlight z −1.06…−1.87 */ door: [0.44, -0.9] },
+  cab: { seatY: 0.3, sz: -0.4, rows: [] },
+  S: { head: { t: 'swept', w: 0.34, h: 0.08, x: 0.2, wrap: 0.28, tilt: 0.1 }, grille: { t: 'mesh', w: 0.5 }, lower: { t: 'trapezoid', w: 0.6, h: 0.1 }, tail: { t: 'wrap', w: 0.32, h: 0.1, deck: true }, wheels: [0, 2] } });
 add('solace', { brand: 'hoshida', name: 'Solace', cls: 'saloon', fam: 'sedan', ref: '2000s–2010s mid-size premium saloon with chrome-heavy trim',
   len: 4.595, wid: 1.695, hgt: 1.475, wheelR: 0.315, maxSpeed: 44, accel: 6.0, mass: 1250, seats: 5, steer: 0.52, colors: ['#f1f1ec', '#c3c7cb', '#1a1b1e', '#5d6166', '#6a5a4a'],
   b: { L: 4.595, sill: 0.28, fo: 0.92, wb: 2.7, bump: 0.52, fy: 0.62, hd: 0.2, hy: 0.75, cd: 1.22, cy: 0.89, wd: 1.78, roof: 1.47, rd: 1.4, roofR: 1.44, bd: 1.0, by: 0.97, gy1: 0.99, td: 0.12, ty: 0.96, tm: 0.62, door: [0.96, -0.02], rearDoor: [-0.05, -0.93] },
@@ -296,10 +303,10 @@ export const vehicleClass = (type) => { const T = CATALOG[type]; return T ? (T.c
 // dominated by tuk-tuks, kei cars and small hybrids, vans and pickups; trucks gather at the port.
 export const TRAFFIC_W = {
   default: { tora: 4, nippa: 2.5, sathi: 1, chhoti: 0.4, hopper: 0.6, kargo: 1, pico: 0.8, pixa: 2.5, mizu: 2.5, kobi: 1.6, rizo: 1.2, lumo: 0.6, kecil: 0.8,
-    ventra: 2, solace: 1.4, ecora: 1.6, elana: 0.8, arlen: 1, lanzo: 0.8, wren: 0.15, praetor: 0.4, arco: 0.6, workline: 1.4, doruka: 1.6, haruto: 1, mova: 0.8,
+    ventra: 2, raiden: 0.05, solace: 1.4, ecora: 1.6, elana: 0.8, arlen: 1, lanzo: 0.8, wren: 0.15, praetor: 0.4, arco: 0.6, workline: 1.4, doruka: 1.6, haruto: 1, mova: 0.8,
     taurex: 1.6, bhoomimaxi: 1.2, tara: 1.6, hakobi: 1.2, bastion: 0.5, kaizan: 0.8, varuna: 0.4, warden: 0.25, ezra: 1.8, kivo: 1, trevan: 0.6, bhoomi: 0.6, kito: 0.3, tarvo: 0.7 },
   port: { tara: 6, hakobi: 9, bhoomimaxi: 5, taurex: 3, mova: 3, kargo: 2, workline: 3, doruka: 2 },
-  cinnamon: { praetor: 2, kaizan: 2.5, tarvo: 2, ezra: 3, kivo: 2, trevan: 1.5, varuna: 1, warden: 0.6, solace: 3, ecora: 2.5, elana: 1.5, arco: 1.2, mizu: 2, pixa: 1.5, tora: 2, lumo: 1, kobi: 1.4, taurex: 1.2, ventra: 2 },
+  cinnamon: { raiden: 0.25, praetor: 2, kaizan: 2.5, tarvo: 2, ezra: 3, kivo: 2, trevan: 1.5, varuna: 1, warden: 0.6, solace: 3, ecora: 2.5, elana: 1.5, arco: 1.2, mizu: 2, pixa: 1.5, tora: 2, lumo: 1, kobi: 1.4, taurex: 1.2, ventra: 2 },
 };
 // parked at the kerb (residential / commercial streets)
-export const PARKED_W = { tora: 2, nippa: 1, pixa: 1.2, mizu: 1.2, kobi: 0.8, ventra: 1, solace: 0.6, ecora: 0.8, ezra: 0.9, kaizan: 0.3, tarvo: 0.3, taurex: 0.6, workline: 0.5, doruka: 0.6, arlen: 0.5, sathi: 0.4, tara: 0.6, rizo: 0.5, hopper: 0.3, kecil: 0.4, pico: 0.4, lumo: 0.3, kivo: 0.4, bhoomi: 0.3, lanzo: 0.3, elana: 0.3, wren: 0.08, praetor: 0.2, arco: 0.3, bastion: 0.2, kito: 0.15, warden: 0.1, varuna: 0.2, trevan: 0.3, chhoti: 0.2, kargo: 0.4, mova: 0.4, haruto: 0.4, bhoomimaxi: 0.4, hakobi: 0.3 };
+export const PARKED_W = { tora: 2, nippa: 1, pixa: 1.2, mizu: 1.2, kobi: 0.8, ventra: 1, raiden: 0.04, solace: 0.6, ecora: 0.8, ezra: 0.9, kaizan: 0.3, tarvo: 0.3, taurex: 0.6, workline: 0.5, doruka: 0.6, arlen: 0.5, sathi: 0.4, tara: 0.6, rizo: 0.5, hopper: 0.3, kecil: 0.4, pico: 0.4, lumo: 0.3, kivo: 0.4, bhoomi: 0.3, lanzo: 0.3, elana: 0.3, wren: 0.08, praetor: 0.2, arco: 0.3, bastion: 0.2, kito: 0.15, warden: 0.1, varuna: 0.2, trevan: 0.3, chhoti: 0.2, kargo: 0.4, mova: 0.4, haruto: 0.4, bhoomimaxi: 0.4, hakobi: 0.3 };

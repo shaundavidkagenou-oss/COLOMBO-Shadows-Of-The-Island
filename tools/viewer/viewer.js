@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { createVehicleMesh, VTYPES } from '../../src/vehicles/VehicleModels.js';
 import { setVehicleLOD, setRealLevel } from '../../src/vehicles/Vehicle.js';
+import { allDoorsLive } from '../../src/vehicles/DoorRig.js';
 import { preloadRealModels } from '../../src/vehicles/RealModels.js';
 import { modelFloor } from '../../src/world/FloorKit.js';
 import { buildT56, buildWeaponModel } from '../../src/combat/WeaponModels.js';
@@ -44,7 +45,8 @@ if (wpn) { ground.visible = false; scene.background = new THREE.Color(0x8d9aa6);
 if (q.get('nowarp')) globalThis.__noBodyWarp = true; if (q.get('bw')) globalThis.__bwMask = +q.get('bw'); // A/B: the body shape field (BodyShape.js) off
 if (q.get('nofit')) globalThis.__noShellFit = true; if (q.get('noreal')) globalThis.__noRealCars = true; else await preloadRealModels((t) => fetch(`assets/vehicles/${t}.glb`).then((r) => r.arrayBuffer())); // real-car bodies (RealModels.js); &noreal=1 = procedural A/B
 const g = createVehicleMesh(type, seed); scene.add(g); if (g.userData.detail) { g.add(g.userData.detail); setVehicleLOD(g.userData, true); }
-if (q.get('lod') && g.userData.real) setRealLevel(g.userData, +q.get('lod')); // &lod=1|2: the real body's distance meshes
+if (q.get('lod') && g.userData.real) setRealLevel(g.userData, +q.get('lod'));
+if (q.get('open')) { allDoorsLive(g.userData); for (const d of g.userData.doors || []) { if (d.slide) continue; d.ang = +q.get('open'); d.pivot.rotation.y = d.max * d.ang * (d.side < 0 ? 1 : -1); } g.updateMatrixWorld(true); } // &open=0..1: every hinged door swung open // &lod=1|2: the real body's distance meshes
 g.traverse((o) => { if (o.isMesh && o.name !== 'contactShadow') { o.castShadow = true; o.receiveShadow = true; } });
 const hide = (q.get('hide') || '').split(',').filter(Boolean); if (hide.length) g.traverse((o) => { if (o.isMesh && hide.includes(o.name)) o.visible = false; }); // isolate parts: &hide=paint,interior
 console.log('parts', [...new Set((() => { const n = []; g.traverse((o) => o.isMesh && n.push(o.name)); return n; })())].join(','));
@@ -55,7 +57,7 @@ if (q.get('rider')) { const h = +q.get('rider') > 1 ? +q.get('rider') : 1.75; co
 const T = VTYPES[type]; const L = T.len;
 const views = (q.get('views') || 'rider,left,front34,rear34').split(',');
 const CAM = { rider: [[0.05, 1.5, -0.62], [0, 0.9, 0.5]], left: [[2.6, 0.75, 0], [0, 0.6, 0]], right: [[-2.6, 0.75, 0], [0, 0.6, 0]], front34: [[-1.7, 1.1, L * 0.95], [0, 0.65, 0.1]],
-  rear34: [[1.6, 1.15, -L * 0.95], [0, 0.65, -0.1]], top: [[0, 3.2, 0.01], [0, 0.5, 0]], engine: [[1.1, 0.6, 0.15], [0, 0.45, 0.05]], cockpit: [[0.0, 1.25, -0.2], [0, 0.95, 0.45]], sideFar: [[L * 1.45, 0.95, 0], [0, 0.7, 0]], f34far: [[-L * 0.75, 1.55, L * 1.05], [0, 0.65, 0.2]], r34far: [[L * 0.75, 1.6, -L * 1.05], [0, 0.65, -0.2]], topFar: [[0.01, L * 1.6, 0], [0, 0.5, 0]], frontFar: [[0, 1.0, L * 1.3], [0, 0.7, 0]], rearFar: [[0, 1.05, -L * 1.3], [0, 0.7, 0]], lowF34: [[-L * 0.55, 0.55, L * 0.75], [0, 0.55, 0.3]], wheel: [[0.9, 0.45, L * 0.32], [0, 0.32, L * 0.32]], wheelOut: [[1.75, 0.42, L * 0.29], [0.6, 0.34, L * 0.29]], cabin: [[0.0, 1.12, -1.05], [0, 0.92, 0.6]], roofSide: [[2.4, 2.1, 0.2], [0, 1.2, 0]] };
+  rear34: [[1.6, 1.15, -L * 0.95], [0, 0.65, -0.1]], top: [[0, 3.2, 0.01], [0, 0.5, 0]], engine: [[1.1, 0.6, 0.15], [0, 0.45, 0.05]], cockpit: [[0.0, 1.25, -0.2], [0, 0.95, 0.45]], sideFar: [[L * 1.45, 0.95, 0], [0, 0.7, 0]], f34far: [[-L * 0.75, 1.55, L * 1.05], [0, 0.65, 0.2]], r34far: [[L * 0.75, 1.6, -L * 1.05], [0, 0.65, -0.2]], topFar: [[0.01, L * 1.6, 0], [0, 0.5, 0]], frontFar: [[0, 1.0, L * 1.3], [0, 0.7, 0]], rearFar: [[0, 1.05, -L * 1.3], [0, 0.7, 0]], lowF34: [[-L * 0.55, 0.55, L * 0.75], [0, 0.55, 0.3]], wheel: [[0.9, 0.45, L * 0.32], [0, 0.32, L * 0.32]], wheelOut: [[1.75, 0.42, L * 0.29], [0.6, 0.34, L * 0.29]], cabin: [[0.0, 1.12, -1.05], [0, 0.92, 0.6]], roofSide: [[2.4, 2.1, 0.2], [0, 1.2, 0]], doorWide: [[3.4, 1.5, -0.6], [0.5, 0.65, -0.1]], topFar: [[0.01, 7.5, 0], [0, 0, 0]], noseR: [[-1.0, 1.0, L * 0.5 + 0.9], [-0.55, 0.7, L * 0.5 - 0.3]], pillarL: [[2.0, 1.5, 0.6], [0.4, 1.2, 0.3]] };
 const cols = views.length > 1 ? 2 : 1, rows = Math.ceil(views.length / cols); const vw = Math.floor(W / cols), vh = Math.floor(H / rows);
 const cam = new THREE.PerspectiveCamera(40, vw / vh, 0.02, 100);
 views.forEach((v, i) => { const [p, t] = CAM[v] || CAM.left; cam.position.set(...p); cam.lookAt(...t); cam.fov = v === 'cockpit' || v === 'cabin' || v === 'engine' || v === 'wheel' ? 50 : 40; cam.updateProjectionMatrix();

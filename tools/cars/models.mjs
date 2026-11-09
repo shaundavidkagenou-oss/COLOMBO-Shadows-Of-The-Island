@@ -39,4 +39,33 @@ export const MODELS = {
     isHandle: (tr) => tr.cat === 'paint' && tr.isl.size[2] < 0.25 && tr.isl.size[1] < 0.08 && tr.isl.n < 700,
     plates: { rear: 'drop', front: [0, 0.43] }, // rear: where the source plate was; front: on the bumper (z found on the skin)
   },
+  // A90-generation sports coupe (catalogue: Kensei Raiden) — ZTARK's de-identified edit (emblems, lettering, wheel-cap logos removed)
+  raiden: {
+    src: 'z_supra.glb', title: 'Toyota Supra 3D Model (Free)', url: 'https://sketchfab.com/3d-models/toyota-supra-3d-model-free-41b83cfb912b4eab9af19a802bcf5ffc', author: 'Mpgs.studio3DModels',
+    note: 'de-identified edit by ZTARK (github.com/windowfilmresources-prog/ztark-tint-visualizer)', scale: 1, rotY: 0,
+    budget: { lod0: 70000, wheel0: 5000, wheel1: 600 }, // a rare sports car: the multi-spoke wheels and the body surfacing get more
+    isWheel: (tr) => ['Tire', 'Rim_Alloy', 'Brake_Disc', 'Caliper'].includes(tr.mat),
+    classify(tr) {
+      const { mat, wheel } = tr;
+      if (wheel >= 0) return mat === 'Tire' ? 'tyre' : mat === 'Caliper' ? 'caliper' : 'rim';
+      switch (mat) {
+        case 'Body_Paint': return 'paint';
+        case 'Interior': case 'Interior_Accent': return null; // the game's own fitted interior replaces it
+        case 'Windows': return 'glass';
+        case 'Trim_Gloss': return 'chrome'; // gloss-black trim: dark vertex colour on the metallic material
+        case 'Chrome': case 'Lamp_Chrome': return 'chrome';
+        case 'Mirror_Face': return 'mirror';
+        case 'Lens_Clear': return 'lens';
+        case 'Lamp_Front': return 'vlight';
+        case 'Lamp_Red': case 'Lens_Red': return 'vtail';
+        case 'Lamp_Amber': case 'Lens_Amber': return 'vind';
+        default: return 'rubber'; // Trim_Black, Underbody, lamp housings, reflectors (their own colours)
+      }
+    },
+    // the door is one skin with the body: cut on its seam (a line of gaps in the source mesh, traced from its open edges)
+    doors: [{ role: 'front', zone: [-0.93, 0.46, 0.15, 1.08], xmin: 0.82, card: { xmin: 0.6, y0: 0.32, y1: 0.9 }, /* y0: above the seam's rounded lower-rear corner */ /* the rebuilt cabin tub's side wall + the trim mesh's door cards */ outline: [[0.44, 0.95], [0.44, 0.16], [-0.61, 0.16], [-0.66, 0.2], [-0.72, 0.23], [-0.8, 0.26], [-0.87, 0.28], [-0.905, 0.32], [-0.905, 0.95]],
+      split: [-0.9, 0.45], splitY: [0.84, 1.26] }],
+    isHandle: (tr) => tr.cat === 'paint' && tr.isl.size[2] < 0.25 && tr.isl.size[1] < 0.08 && tr.isl.lo[2] > -0.8 && tr.isl.hi[2] < -0.45,
+    plates: { front: [0, 0.36], rear: [0, 0.62] },
+  },
 };

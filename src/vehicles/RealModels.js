@@ -9,7 +9,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 
 // catalogue types with a real body (fictional names stay: the catalogue never uses a real make or model name)
-export const REAL_TYPES = ['ventra'];
+export const REAL_TYPES = ['ventra', 'raiden'];
 const assets = new Map();
 export const realAsset = (type) => assets.get(type) || null;
 export const realTypesLoaded = () => [...assets.keys()];

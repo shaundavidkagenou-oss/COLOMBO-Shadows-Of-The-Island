@@ -99,16 +99,77 @@ const hexLin = (h) => [1, 3, 5].map((i) => srgbToLin(parseInt(h.slice(i, i + 2),
 // ---------- 5. doors ----------
 // cfg.doors: [{ role, zone: [z0, z1, y0, y1], xmin, split: [z0, z1], splitY: [y0, y1] }] (one per role, both sides)
 // zone: a piece lying wholly inside it (|x| ≥ xmin on that side) moves with the door (skin, mirror, frame, glass);
+// card: { xmin, y0, y1 } — a door whose inner trim is part of a cabin-wide piece (one interior tub, one trim mesh for both sides):
+//   its non-paint triangles inside the outline, |x| ≥ xmin, y0 ≤ y ≤ y1, swing with the door instead of walling the doorway
 // split / splitY: pieces crossing it (one glass piece for both side windows, frames) are cut per triangle there.
 const MOVES = new Set(['paint', 'glass', 'rubber', 'chrome', 'mirror', 'lens', 'vind']);
-function assignDoors(M) {
+const inPoly = (P, x, y) => { let c = false; for (let i = 0, j = P.length - 1; i < P.length; j = i++) { const [xi, yi] = P[i], [xj, yj] = P[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; } return c; };
+const segD = (P, x, y) => { let d = 9; for (let i = 0, j = P.length - 1; i < P.length; j = i++) { const [ax, ay] = P[j], [bx, by] = P[i]; const ex = bx - ax, ey = by - ay; const t = Math.max(0, Math.min(1, ((x - ax) * ex + (y - ay) * ey) / (ex * ex + ey * ey || 1))); d = Math.min(d, Math.hypot(x - ax - ex * t, y - ay - ey * t)); } return d; };
+// the hand-traced outline is only good to a couple of cm, and the real panel gap wanders around it: a straight cut through 2–5 cm
+// triangles leaves a staircase edge on the door and the opening. So only triangles clearly inside (door) / outside (body) the outline
+// are taken from it; the band in between is grown from both sides at once across shared edges. The panel gap is a run of open
+// (unshared) edges, so the two fronts stop on the modelled seam itself; where the seam is dashed they meet within the band.
+const SNAP = 0.045;
+function snapToSeam(M, D) {
+  const C = M.T.filter((tr) => tr.cat === 'paint' && tr.wheel < 0 && Math.sign(tr.c[0]) === D.side && Math.abs(tr.c[0]) >= D.xmin - 0.15 && (tr.door < 0 || tr.door === D.i));
+  const lab = new Map(), band = []; for (const tr of C) { const inn = inPoly(D.outline, tr.c[2], tr.c[1]); const d = segD(D.outline, tr.c[2], tr.c[1]);
+    if (d > SNAP && !(inn && Math.abs(tr.c[0]) < D.xmin)) lab.set(tr, inn ? 1 : 0); else band.push(tr); } // inside but inboard of xmin (a door top that tucks in, a sill face): undecided, connectivity says which
+  if (!band.length) return; const E = new Map(); const key = (a, b) => (a < b ? a * 4194304 + b : b * 4194304 + a); // welded ids < 2^22
+  for (const tr of C) for (let j = 0; j < 3; j++) { const k = key(tr.w[j], tr.w[(j + 1) % 3]); const e = E.get(k); if (e) e.push(tr); else E.set(k, [tr]); }
+  let front = [...lab.keys()]; const inBand = new Set(band); let moved = 0;
+  while (front.length) { const nx = []; const claim = new Map(); // one ring per pass for both labels: neither side can outrun the other
+    for (const tr of front) for (let j = 0; j < 3; j++) { const e = E.get(key(tr.w[j], tr.w[(j + 1) % 3])); if (!e || e.length !== 2) continue; const o = e[0] === tr ? e[1] : e[0];
+      if (!inBand.has(o) || lab.has(o)) continue; const l = lab.get(tr); const c = claim.get(o); claim.set(o, c === undefined ? l : (c === l ? l : 0)); } // contested: stays body
+    for (const [o, l] of claim) { lab.set(o, l); nx.push(o); } front = nx; }
+  for (const tr of band) { const l = lab.has(tr) ? lab.get(tr) : (inPoly(D.outline, tr.c[2], tr.c[1]) ? 1 : 0); const was = tr.door === D.i; if (l && !was) { tr.door = D.i; moved++; } else if (!l && was) { tr.door = -1; moved++; } }
+  for (const [tr, l] of lab) if (!inBand.has(tr)) tr.door = l ? D.i : (tr.door === D.i ? -1 : tr.door);
+  console.log(`door ${D.i}: seam snap — band ${band.length} tris, ${moved} relabelled`);
+}
+// the door card of a door whose inner trim belongs to a cabin-wide piece: its non-paint triangles are CUT on the card box
+// (front seam … rear seam × y0 … y1) — the part inside swings with the door, the rest stays — so both the open door's card and
+// the doorway keep straight edges (taking whole triangles by centroid left a saw-tooth: the cabin tub is coarse)
+let freshW = 1 << 26;
+function clipCard(M, D) {
+  const k = D.card; let zf = -9, zr = 9; for (const [z, y] of D.outline) { if (y >= k.y0 - 0.02) { zf = Math.max(zf, z); zr = Math.min(zr, z); } }
+  const X = [0, k.xmin * D.side, D.side], Z0 = [2, zr, 1], Z1 = [2, zf, -1]; // [axis, value, keep side]: inside = (p[axis] - value) * sign ≥ 0 — |x| ≥ xmin is a cut too: coarse tub triangles span it
+  const a = clipBox(M, D, [X, Z0, Z1, [1, k.y0, 1], [1, k.y1, -1]], (tr) => { tr.door = D.i; });
+  console.log(`door ${D.i}: card — ${a[0]} trim triangles whole, ${a[1]} cut on the card box z ${zr.toFixed(2)}…${zf.toFixed(2)} y ${k.y0}…${k.y1}`);
+}
+// split every candidate non-paint triangle of this door's side on the convex box `planes`: the part inside gets `onInside`
+function clipBox(M, D, planes, onInside) {
+  const k = D.card; const out = []; let cut = 0, whole = 0;
+  const ins = (q, [ax, val, sg]) => (q.p[ax] - val) * sg >= 0;
+  const lerp = (a, b, t) => ({ p: a.p.map((x, i) => x + (b.p[i] - x) * t), n: a.n.map((x, i) => x + (b.n[i] - x) * t) });
+  for (const tr of M.T) {
+    if (tr.cat === 'paint' || tr.cat === 'drop' || !MOVES.has(tr.cat) || tr.wheel >= 0 || (tr.door >= 0 && tr.door !== D.i)) { out.push(tr); continue; }
+    if (!tr.v.some((p) => p[0] * D.side >= k.xmin) || tr.isl.lo[1] > k.y1 - 0.05) { out.push(tr); continue; } // nothing out at the door / a window seal that only dips to the belt
+    const N = tr.p.nrm; let poly = tr.v.map((p, j) => { const i = tr.p.idx[tr.t * 3 + j]; return { p, n: tr.vn ? tr.vn[j] : N ? [N[i * 3], N[i * 3 + 1], N[i * 3 + 2]] : tr.n }; });
+    if (poly.every((q) => planes.every((pl) => ins(q, pl)))) { onInside(tr); whole++; out.push(tr); continue; }
+    if (planes.some((pl) => poly.every((q) => !ins(q, pl)))) { out.push(tr); continue; } // wholly outside one plane
+    const rest = []; // pieces outside the box, peeled off plane by plane
+    for (const [ax, val, sg] of planes) { const inP = [], outP = [];
+      for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length]; const da = (a.p[ax] - val) * sg, db = (b.p[ax] - val) * sg;
+        if (da >= 0) inP.push(a); else outP.push(a);
+        if ((da >= 0) !== (db >= 0)) { const x = lerp(a, b, da / (da - db)); inP.push(x); outP.push(x); } }
+      if (outP.length >= 3) rest.push(outP); poly = inP; if (poly.length < 3) break; }
+    const emit = (P, inside) => { for (let i = 1; i + 1 < P.length; i++) { const v = [P[0].p, P[i].p, P[i + 1].p]; const e1 = v[1].map((x, j) => x - v[0][j]), e2 = v[2].map((x, j) => x - v[0][j]);
+        const cr = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]; const ar = Math.hypot(...cr) / 2; if (ar < 1e-9) continue;
+        const t2 = { ...tr, v, vn: [P[0].n, P[i].n, P[i + 1].n], c: [0, 1, 2].map((j) => (v[0][j] + v[1][j] + v[2][j]) / 3), w: [freshW++, freshW++, freshW++], area: ar }; if (inside) onInside(t2); out.push(t2); } };
+    if (poly.length >= 3) emit(poly, true); for (const r of rest) emit(r, false); cut++;
+  }
+  M.T = out; return [whole, cut];
+}
+export function assignDoors(M) {
   const cfg = M.cfg; M.doors = []; if (!cfg.doors) return;
   for (const D of cfg.doors) for (const side of [-1, 1]) M.doors.push({ ...D, side, i: M.doors.length });
   const inZone = (o, D) => { const z = D.zone, e = 0.004; return o.lo[2] >= z[0] - e && o.hi[2] <= z[1] + e && o.lo[1] >= z[2] - e && o.hi[1] <= z[3] + e && (D.side < 0 ? o.hi[0] <= -D.xmin : o.lo[0] >= D.xmin); };
   for (const tr of M.T) { tr.door = -1; if (tr.cat === 'drop' || !MOVES.has(tr.cat) || tr.wheel >= 0) continue;
     for (const D of M.doors) { if (inZone(tr.isl, D)) { tr.door = D.i; break; }
+      if (D.outline && tr.cat === 'paint' && Math.sign(tr.c[0]) === D.side && Math.abs(tr.c[0]) >= D.xmin && inPoly(D.outline, tr.c[2], tr.c[1])) { tr.door = D.i; break; } // a door that is one skin with the body: cut on its seam outline (z, y)
       const sp = D.split, sy = D.splitY; if (!sp || tr.cat === 'paint') continue; const c = tr.c;
       if (Math.sign(c[0]) === D.side && Math.abs(c[0]) >= D.xmin && c[2] >= sp[0] && c[2] < sp[1] && c[1] >= sy[0] && c[1] <= sy[1]) { tr.door = D.i; break; } } }
+  for (const D of M.doors) if (D.outline) snapToSeam(M, D);
+  for (const D of M.doors) if (D.card && D.outline) clipCard(M, D);
   if (cfg.isHandle) for (const tr of M.T) if (tr.door >= 0 && cfg.isHandle(tr, M.doors[tr.door])) tr.cat = 'drop'; // the game puts its own handle (grasp solver) in the same recess
 }
 
@@ -139,7 +200,11 @@ function doorSpec(M, D) {
       if (hi < lo) continue; if (isNaN(glY[iz]) || lo < glY[iz]) glY[iz] = lo; if (isNaN(roofY[iz]) || hi > roofY[iz]) roofY[iz] = hi; } }
   fill(glY); fill(roofY); for (const tr of glass) for (const v of tr.v) { if (v[2] > zR + 0.08) continue; /* the pane near the rear edge: where the hand holds the frame */ const iz = Math.max(0, Math.min(nz - 1, Math.round((v[2] - z0) / GS))); if (v[1] < glY[iz] + 0.03) { gw0 += Math.abs(v[0]); n0++; } if (v[1] > roofY[iz] - 0.03) { gw1 += Math.abs(v[0]); n1++; } }
   const skinAt = (z, y) => sampleXS(xs, z0, y0, nz, ny, GS, z, y);
-  const depth = M.cfg.doorDepth || 0.075; const xc = -(skinAt(zR + 0.06, by - 0.1) - depth);
+  // the door card's face where the hand holds the open door (the rear edge, a hand below the belt): measured on the door's own
+  // trim when it carries the real one (card: the cabin wall moves with it), else the usual 7.5 cm panel depth
+  let depth = M.cfg.doorDepth || 0.075; { const sx = skinAt(zR + 0.06, by - 0.1); let inn = 9; for (const tr of mine) { if (tr.cat === 'glass' || tr.cat === 'paint') continue; for (const v of tr.v) if (v[2] < zR + 0.3 && v[1] > by - 0.22 && v[1] < by + 0.01) inn = Math.min(inn, Math.abs(v[0])); }
+    if (inn < 9 && sx - inn > depth) { depth = Math.min(0.3, sx - inn); console.log(`door ${D.i}: card face ${(sx - inn).toFixed(3)} m inside the skin at the hold point`); } }
+  const xc = -(skinAt(zR + 0.06, by - 0.1) - depth);
   const hx = skinAt(zF - 0.02, by - 0.15); const yb = lo[1];
   D.spec = { z0, y0, nz, ny, step: GS, xs: Array.from(xs, (v) => Math.round(v * 1000)), topA: Array.from(fill(topA), (v) => +v.toFixed(4)), glY: glass.length ? Array.from(glY, (v) => +v.toFixed(4)) : null, roofY: glass.length ? Array.from(roofY, (v) => +v.toFixed(4)) : null,
     winR: winR(mine, zR, glY, roofY, z0, nz, GS),
@@ -213,7 +278,7 @@ function collect(M, extra) {
   // paint normals recomputed over the welded skin (area-weighted, 35° crease): the source normals carry ripples that show on dark / glossy paint
   const RN = M.cfg.renormal !== false && process.env.RENORM !== '0'; const adj = new Map(); if (RN) for (const tr of M.T) if (tr.cat === 'paint' && tr.wheel < 0) for (let j = 0; j < 3; j++) (adj.get(tr.w[j]) || adj.set(tr.w[j], []).get(tr.w[j])).push(tr);
   const smoothN = (tr, j) => { const q = [0, 0, 0]; for (const o of adj.get(tr.w[j])) { const d = o.n[0] * tr.n[0] + o.n[1] * tr.n[1] + o.n[2] * tr.n[2]; if (d < 0.82) continue; for (let k = 0; k < 3; k++) q[k] += o.n[k] * o.area; } const l = Math.hypot(...q) || 1; return q.map((x) => x / l); };
-  for (const tr of M.T) { if (tr.cat === 'drop') continue; const N = tr.p.nrm; const vn = RN && tr.cat === 'paint' && tr.wheel < 0 ? [0, 1, 2].map((j) => smoothN(tr, j)) : [0, 1, 2].map((j) => { const i = tr.p.idx[tr.t * 3 + j]; return N ? [N[i * 3], N[i * 3 + 1], N[i * 3 + 2]] : tr.n; });
+  for (const tr of M.T) { if (tr.cat === 'drop') continue; const N = tr.p.nrm; const vn = RN && tr.cat === 'paint' && tr.wheel < 0 ? [0, 1, 2].map((j) => smoothN(tr, j)) : tr.vn ? tr.vn : [0, 1, 2].map((j) => { const i = tr.p.idx[tr.t * 3 + j]; return N ? [N[i * 3], N[i * 3 + 1], N[i * 3 + 2]] : tr.n; });
     const tc = [tr.p.triCol[tr.t * 4], tr.p.triCol[tr.t * 4 + 1], tr.p.triCol[tr.t * 4 + 2]];
     let col = tc; if (tr.cat === 'paint') { const k = tr.k != null ? tr.k : paintRef ? Math.min(1.2, lum(tc) / paintRef) : 1; col = [k, k, k]; } else if (M.cfg.colOf) col = M.cfg.colOf(tr, tc) || tc;
     if (tr.wheel >= 0) { if (tr.wheel !== 0) continue; const piece = tr.cat === 'caliper' ? 'cal' : 'wheel'; const v = tr.v.map((p) => [p[0] - W0.c[0], p[1] - W0.c[1], p[2] - W0.c[2]]); add(piece, tr.cat === 'tyre' ? 'tyre' : 'rim', v, vn, col); continue; }
@@ -248,7 +313,7 @@ function compact(m) { const remap = new Int32Array(m.pos.length / 3).fill(-1); l
 // LOD budgets (triangles): body + doors share one budget; the wheel template its own
 export const BUDGET = { lod0: +(process.env.LOD0 || 60000), lod1: 10000, lod2: 2500, wheel0: 3000, wheel1: 500 };
 async function makeLODs(meshes, cfg) {
-  const B = { ...BUDGET, ...(cfg.budget || {}) }; const tris = (L) => L.reduce((s, m) => s + m.idx.length / 3, 0);
+  const B = { ...BUDGET, ...(cfg.budget || {}) }; if (process.env.LOD0) B.lod0 = +process.env.LOD0; /* env wins (LOD0=1e7: unsimplified near LOD, for checks) */ const tris = (L) => L.reduce((s, m) => s + m.idx.length / 3, 0);
   const car = meshes.filter((m) => m.piece === 'body' || m.piece.startsWith('door')), wh = meshes.filter((m) => m.piece === 'wheel' || m.piece === 'cal');
   const fit = async (L, budget, err0, lock = false) => { let r = Math.min(1, budget / Math.max(1, tris(L))), out = L, err = err0; for (let it = 0; it < 8; it++) { out = await Promise.all(L.map((m) => simplify(m, r, err, lock))); const t = tris(out); if (t <= budget * 1.04) break; r *= budget / t * 0.97; err *= 1.8; } return out; };
   const lod0 = await fit(car, B.lod0, 0.002, true);
@@ -258,9 +323,17 @@ async function makeLODs(meshes, cfg) {
   const shutFull = (L) => { const by = new Map(); for (const m of L) { let pos = m.pos; if (m.piece.startsWith('door')) { const D = cfg.__doors[+m.piece.slice(4)]; pos = m.pos.slice(); for (let i = 0; i < pos.length; i += 3) { pos[i] += D.hinge[0]; pos[i + 2] += D.hinge[1]; } }
     let idx = m.idx; if (m.cat === 'paint') { const keep = [], bl = []; const isB = (i) => Math.abs(m.col[i * 3] - 0.995) < 0.002; for (let t = 0; t < idx.length; t += 3) { if (m.col[idx[t] * 3] < 0.9 && m.col[idx[t + 1] * 3] < 0.9 && m.col[idx[t + 2] * 3] < 0.9) continue; (isB(idx[t]) && isB(idx[t + 1]) && isB(idx[t + 2]) ? bl : keep).push(idx[t], idx[t + 1], idx[t + 2]); } idx = new Uint32Array(keep); if (bl.length) blanks.push(compact({ ...m, pos, idx: new Uint32Array(bl), piece: 'body' })); } /* door jambs (shades 0.72 / 0.78) are hidden with the doors shut */
     (by.get(m.cat) || by.set(m.cat, []).get(m.cat)).push({ ...m, pos, idx }); } return [...by].map(([cat, list]) => posWeld(mergeMeshes(list, cat))); };
-  const farFit = async (L, budget, err0, lock) => { let r = Math.min(1, budget / Math.max(1, tris(L))), out = L, err = err0; for (let it = 0; it < 10; it++) { out = await Promise.all(L.map((m) => simplifyFar(m, r, err, lock))); const t = tris(out); if (t <= budget * 1.04) break; r *= budget / t * 0.97; err *= 1.7; } return out.map((m) => renormal(m)).filter((m) => m.idx.length); };
+  // each material gets its own share of the budget (paint first: it is the silhouette and the colour), simplified on its own;
+  // uniform trims that refuse to simplify (mesh grilles, clipped-together underbody) fall back to sloppy clustering
+  const SHARE = { paint: 0.5, rubber: 0.22, chrome: 0.1, glass: 0.06 };
+  const farFit = async (L, budget, err0, lock) => { const rest = L.filter((m) => !(m.cat in SHARE)); const restT = Math.max(1, rest.reduce((a2, m) => a2 + m.idx.length / 3, 0));
+    const out = await Promise.all(L.map(async (m) => { const n = m.idx.length / 3; const tgt = Math.max(12, Math.floor(m.cat in SHARE ? budget * SHARE[m.cat] : budget * 0.12 * n / restT)); if (n <= tgt) return m;
+      let r = tgt / n, err = err0, o = m; for (let it = 0; it < 8; it++) { o = await simplifyFar(m, r, err, lock); const t = o.idx.length / 3; if (t <= tgt * 1.05) break; r *= tgt / t * 0.97; err *= 1.7; }
+      if (o.idx.length / 3 > tgt * 1.3 && (m.cat === 'rubber' || m.cat === 'chrome')) { const { MeshoptSimplifier: S } = await import('meshoptimizer'); await S.ready; const [I] = S.simplifySloppy(o.idx, o.pos, 3, null, tgt * 3, err0 * 4); o = compact({ ...o, idx: I }); }
+      return o; }));
+    return out.map((m) => renormal(m)).filter((m) => m.idx.length); };
   const far = shutFull(car.filter((m) => m.cat !== 'interior' && m.cat !== 'plate'));
-  const lod1 = await farFit(far, B.lod1, 0.003, false), lod2 = await farFit(far.filter((m) => !['lens', 'mirror'].includes(m.cat)), B.lod2, 0.015, false);
+  const lod1 = await farFit(far.map((m) => dropSmall(m, 0.02)), B.lod1, 0.003, false), lod2 = await farFit(far.filter((m) => !['lens', 'mirror'].includes(m.cat)).map((m) => dropSmall(m, 0.06)), B.lod2, 0.015, false);
   for (const b of blanks) { const r = renormal(posWeld(b)); lod1.push(r); lod2.push(r); }
   const w0 = await fit(wh, B.wheel0, 0.0008), w1 = await fit(wh.filter((m) => m.piece === 'wheel'), B.wheel1, 0.004);
   // LOD1 / LOD2 are drawn with the doors shut: their door pieces go back to model space and merge with the body
@@ -269,6 +342,12 @@ async function makeLODs(meshes, cfg) {
     return [...by.values()].map((g) => mergeMeshes(g.list, g.cat)); };
   return { lod0, lod1, lod2, w0, w1, shut, tris: { src: tris(car), lod0: tris(lod0), lod1: tris(lod1), lod2: tris(lod2), wheel0: tris(w0), wheel1: tris(w1) } };
 }
+// far LODs: loose pieces smaller than minDiag (clips, mesh-grille cells, bolts) are invisible at that range — dropped
+function dropSmall(m, minDiag) { const n = m.pos.length / 3, par = new Int32Array(n).map((_, i) => i); const find = (i) => { while (par[i] !== i) { par[i] = par[par[i]]; i = par[i]; } return i; };
+  for (let t = 0; t < m.idx.length; t += 3) { const a = find(m.idx[t]), b = find(m.idx[t + 1]), c = find(m.idx[t + 2]); par[b] = a; par[find(c)] = a; }
+  const box = new Map(); for (let i = 0; i < n; i++) { const r = find(i); let b = box.get(r); if (!b) box.set(r, (b = [9, 9, 9, -9, -9, -9])); for (let k = 0; k < 3; k++) { b[k] = Math.min(b[k], m.pos[i * 3 + k]); b[k + 3] = Math.max(b[k + 3], m.pos[i * 3 + k]); } }
+  const keep = []; for (let t = 0; t < m.idx.length; t += 3) { const b = box.get(find(m.idx[t])); if (Math.hypot(b[3] - b[0], b[4] - b[1], b[5] - b[2]) < minDiag) continue; keep.push(m.idx[t], m.idx[t + 1], m.idx[t + 2]); }
+  return keep.length === m.idx.length ? m : compact({ ...m, idx: new Uint32Array(keep) }); }
 // weld by position (paint: + its shade, others: + colour) so the simplifier sees one connected surface per material
 function posWeld(m) { const map = new Map(); const pos = [], col = [], idx = []; const paint = m.cat === 'paint';
   for (let i = 0; i < m.pos.length / 3; i++) { const p = [m.pos[i * 3], m.pos[i * 3 + 1], m.pos[i * 3 + 2]], c = [m.col[i * 3], m.col[i * 3 + 1], m.col[i * 3 + 2]]; const k = p.map((x) => Math.round(x * 2e3)).join(',') + (paint ? '' : '|' + c.map((x) => Math.round(x * 50)).join(',')); let id = map.get(k); if (id === undefined) { id = pos.length / 3; map.set(k, id); pos.push(...p); col.push(...c); } map.set(i + '#', id); }
@@ -312,7 +391,9 @@ function plates(M) {
   const pl = M.T.filter((tr) => tr.cat === 'plate'); if (pl.length) { const lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9]; for (const tr of pl) for (const v of tr.v) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], v[k]); hi[k] = Math.max(hi[k], v[k]); }
     const front = lo[2] > 0; out.push([+((lo[0] + hi[0]) / 2).toFixed(4), +((lo[1] + hi[1]) / 2).toFixed(4), +(front ? hi[2] + 0.003 : lo[2] - 0.003).toFixed(4), +((hi[0] - lo[0]) / 2).toFixed(4), +((hi[1] - lo[1]) / 2).toFixed(4), front]); for (const tr of pl) tr.cat = 'drop'; }
   for (const key of ['front', 'rear']) { const q = P[key]; if (!Array.isArray(q)) continue; const front = key === 'front'; const [cx, cy] = q; let z = front ? -1e9 : 1e9;
-    for (const tr of M.T) { if (tr.cat !== 'paint' || tr.door >= 0) continue; if (Math.abs(tr.c[0] - cx) > 0.12 || Math.abs(tr.c[1] - cy) > 0.04) continue; z = front ? Math.max(z, tr.c[2]) : Math.min(z, tr.c[2]); }
+    for (const any of [false, true]) { for (const tr of M.T) { if ((any ? tr.cat === 'drop' || tr.cat === 'glass' : tr.cat !== 'paint') || tr.door >= 0 || tr.wheel >= 0) continue; if (Math.abs(tr.c[0] - cx) > 0.12 || Math.abs(tr.c[1] - cy) > 0.04) continue; z = front ? Math.max(z, tr.c[2]) : Math.min(z, tr.c[2]); }
+      if (Math.abs(z) < 1e8) break; } /* on the paint skin; else on whatever is there (a plate mounted on the lower grille) */
+    if (Math.abs(z) >= 1e8) { console.warn('  plate', key, 'found no surface at', cx, cy); continue; }
     out.push([cx, cy, +(z + (front ? 0.006 : -0.006)).toFixed(4), q[2] ?? 0.26, q[3] ?? 0.055, front]); }
   M.plates = out;
 }
