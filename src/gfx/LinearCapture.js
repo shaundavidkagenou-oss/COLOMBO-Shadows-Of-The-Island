@@ -11,8 +11,16 @@ import * as THREE from 'three';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 
 let rt = null, out = null;
-// draw `scene` from `cam` into the canvas rectangle (x, y, w, h) in CSS pixels, bottom-left origin like setViewport
+const keepVP = new THREE.Vector4(), keepSC = new THREE.Vector4();
+// draw `scene` from `cam` into the canvas rectangle (x, y, w, h) in CSS pixels, bottom-left origin like setViewport.
+// The renderer's render target, viewport, scissor box and scissor test are put back exactly as they were: the capture's
+// rectangle must never outlive the call. (It once did: the 2×2 shader-warm capture in the enter-game loading left a 2×2 viewport
+// + scissor behind, so every later frame — player camera, trailer — was drawn into a 2-pixel corner and the screen stayed black.)
 export function captureToCanvas(R, scene, cam, x, y, w, h) {
+  const keepRT = R.getRenderTarget(), keepST = R.getScissorTest(); R.getViewport(keepVP); R.getScissor(keepSC);
+  try { drawCapture(R, scene, cam, x, y, w, h); } finally { R.setRenderTarget(keepRT); R.setViewport(keepVP); R.setScissor(keepSC); R.setScissorTest(keepST); }
+}
+function drawCapture(R, scene, cam, x, y, w, h) {
   const pr = R.getPixelRatio(); const pw = Math.max(1, Math.round(w * pr)), ph = Math.max(1, Math.round(h * pr));
   if (!rt) rt = new THREE.WebGLRenderTarget(pw, ph, { type: THREE.HalfFloatType, samples: 0, depthTexture: new THREE.DepthTexture(pw, ph, THREE.FloatType) }); // same formats as the composer's target
   else if (rt.width !== pw || rt.height !== ph) rt.setSize(pw, ph);
