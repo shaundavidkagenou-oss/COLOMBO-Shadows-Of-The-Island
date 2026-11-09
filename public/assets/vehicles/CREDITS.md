@@ -18,3 +18,4 @@ respective owners and none are used in the game.
 |---|---|---|---|---|
 | `ventra.glb` | Hoshida Ventra (saloon) | "Toyota Corolla", https://sketchfab.com/3d-models/toyota-corolla-723da379600d4fb9a3e9687e99ca68d5 | Nieve5677 | CC BY 4.0, modified |
 | `raiden.glb` | Kensei Raiden (sports coupe) | "Toyota Supra 3D Model (Free)", https://sketchfab.com/3d-models/toyota-supra-3d-model-free-41b83cfb912b4eab9af19a802bcf5ffc | Mpgs.studio3DModels (de-identified, interior rebuilt and decimated by ZTARK — github.com/windowfilmresources-prog/ztark-tint-visualizer) | CC BY 4.0, modified |
+| `vanta.glb` | Calder Vanta (sports car) | "Chevrolet Corvette (C7)", https://sketchfab.com/3d-models/chevrolet-corvette-c7-2b509d1bce104224b147c81757f6f43a | Martin Trafas (de-identified by ZTARK — emblems, scripts, plate and baked tyre / caliper lettering removed) | CC BY 4.0, modified |

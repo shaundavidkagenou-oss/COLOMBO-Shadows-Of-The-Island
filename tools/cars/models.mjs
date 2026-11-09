@@ -70,4 +70,39 @@ export const MODELS = {
     isHandle: (tr) => tr.cat === 'paint' && tr.isl.size[2] < 0.25 && tr.isl.size[1] < 0.08 && tr.isl.lo[2] > -0.8 && tr.isl.hi[2] < -0.45,
     plates: { front: [0, 0.36], rear: [0, 0.62] },
   },
+  // front-mid-engined sports car (catalogue: Calder Vanta)
+  vanta: {
+    src: 'z_corvette.glb', title: 'Chevrolet Corvette (C7)', url: 'https://sketchfab.com/3d-models/chevrolet-corvette-c7-2b509d1bce104224b147c81757f6f43a', author: 'Martin Trafas',
+    note: 'de-identified edit by ZTARK (github.com/windowfilmresources-prog/ztark-tint-visualizer)', len: 4.49, rotY: 0,
+    budget: { lod0: 90000, wheel0: 9000, wheel1: 600 }, // a very dense source (1M triangles): the paint keeps its surfacing
+    doorDepth: 0.18, // the door skin piece carries its own inner return flanges / window ledge, ~15 cm deep: the generated card sits behind them
+    trimUnlock: true,
+    fill: [{ quad: [[-0.22, 0.72, 1.5], [-0.22, 0.72, 1.76], [0.22, 0.72, 1.76], [0.22, 0.72, 1.5]] }], // hood-vent floor (opening z 1.55…1.70, |x| < 0.17) // ~110k triangles of small loose trim (gloss plastics, reflectors, grille mesh) cannot simplify with locked borders
+    isWheel: (tr) => ['TireMaterial', 'Rim_Alloy', 'Lug_Nuts', 'Brake_Disc', 'Brake_Caliper'].includes(tr.mat),
+    colOf: (tr, tc) => (tr.cat === 'rim' ? tc.map((c) => Math.min(c, 1) * (tr.mat === 'Rim_Alloy' ? 0.5 : 0.8)) : null), // satin silver alloy
+    classify(tr) {
+      const { mat, wheel, c } = tr;
+      if (wheel >= 0) return mat === 'TireMaterial' ? 'tyre' : mat === 'Brake_Caliper' ? 'caliper' : 'rim';
+      switch (mat) {
+        case 'Body_Paint': return 'paint';
+        case 'Interior': case 'Shadow': return null; // the game's own fitted interior replaces the cabin; fake contact-shadow cards
+        case 'Windows': return 'glass';
+        case 'Car_Paint_2': case 'Glossy_Plastic': case 'Chrome': case 'Exhaust': return 'chrome'; // black roof panel / gloss-black trim (dark colour on the metallic material), tailpipes
+        case 'Side_Mirrors': return 'mirror';
+        case 'Reflectors': return c[2] > 1.5 ? 'vlight' : c[2] < -1.8 ? 'chrome' : 'rubber'; // headlamp reflectors glow with the lamps, tail-lamp reflectors stay bright; elsewhere (inside the hood / side vents) dark — a bright vent floor showed through at LOD1
+        case 'Main_Headlight_Lens': case 'Headlight_Cover': return 'lens';
+        case 'Daylight_Cover': return 'vlight';
+        case 'Tail_Lights_Red_Cover': case 'Tail_Lights_Red_Cover_2': case 'Spoiler_Light_Cover': return 'vtail';
+        case 'Tail_Lights_White_Cover': return 'vrev';
+        case 'Blinker_Glass_Cover': case 'Side_Reflectors_Cover': return 'vind';
+        default: return 'rubber'; // Plastic, grille Mesh, Rubber, WindowBorder, Wipers, Exhaust_Housing, Undercarriage
+      }
+    },
+    // one door per side (seams traced from the debug render: front seam behind the vent z 0.50, rear seam ahead of the fuel door
+    // z −0.875); the frameless door glass is split from the fixed quarter glass at z −0.77
+    doors: [{ role: 'front', zone: [-0.9, 0.52, 0.15, 1.08], xmin: 0.6, /* the door skin is its own piece in this source: taken whole by the zone (a seam outline relabelled fender / sill slivers) */
+      split: [-0.77, 0.5], splitY: [0.84, 1.25] }],
+    isHandle: () => false, // a hidden pull in the door's rear-top pocket: nothing to grab outside
+    plates: { front: [0, 0.3], rear: [0, 0.55] },
+  },
 };

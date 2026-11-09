@@ -180,7 +180,7 @@ function winR(mine, zR, glY, roofY, z0, nz, GS) { const iz = Math.max(0, Math.mi
   let zMin = 9; for (const tr of mine) { if (tr.cat !== 'glass' && tr.cat !== 'rubber' && tr.cat !== 'paint') continue; for (const v of tr.v) if (Math.abs(v[1] - wy) < 0.06 && v[2] < zMin) zMin = v[2]; } return zMin < 9 ? +zMin.toFixed(4) : null; }
 function doorSpec(M, D) {
   const mine = M.T.filter((tr) => tr.door === D.i && tr.cat !== 'drop'); const paint = mine.filter((tr) => tr.cat === 'paint');
-  const isl = new Map(); for (const tr of paint) isl.set(tr.isl, (isl.get(tr.isl) || 0) + 1); const main = [...isl].sort((a, b) => b[0].size[2] - a[0].size[2])[0][0]; /* the door skin: the longest painted piece (a mirror housing can have more triangles) */ D.main = main;
+  const isl = new Map(); for (const tr of paint) isl.set(tr.isl, (isl.get(tr.isl) || 0) + 1); const big = [...isl].filter(([, n]) => n >= 0.2 * paint.length); const main = (big.length ? big : [...isl]).sort((a, b) => b[0].size[2] - a[0].size[2])[0][0]; /* the door skin: the longest painted piece holding ≥ 20 % of the door's paint (a mirror housing is short, a stray body sliver holds a handful) */ D.main = main;
   const skin = paint.filter((tr) => tr.isl === main); const glass = mine.filter((tr) => tr.cat === 'glass');
   const lo = main.lo, hi = main.hi; const z0 = Math.floor(lo[2] / GS) * GS, y0 = Math.floor(lo[1] / GS) * GS; const nz = Math.ceil((hi[2] - z0) / GS) + 1, ny = Math.ceil((hi[1] - y0) / GS) + 1;
   const xs = new Float32Array(nz * ny); // outermost |x| of the skin per (z, y) cell, 0 = no skin
@@ -226,7 +226,8 @@ function solidDoor(M, D, extra) {
   for (const n of vn.values()) { const l = Math.hypot(...n) || 1; n[0] /= l; n[1] /= l; n[2] /= l; }
   const off = (v, k) => { const n = vn.get(k); return [v[0] - n[0] * d, v[1] - n[1] * d * 0.3, v[2] - n[2] * d * 0.3]; }; // mostly straight in: the card stays a flat-ish panel
   const card = M.cfg.cardCol || [0.07, 0.07, 0.075];
-  for (const tr of skin) extra.push({ door: D.i, cat: 'interior', v: [off(tr.v[0], tr.w[0]), off(tr.v[2], tr.w[2]), off(tr.v[1], tr.w[1])], col: card });
+  const inN = (k) => vn.get(k).map((x) => -x); // the card faces the cabin: the skin's smoothed normal reversed (welds into one surface, so it simplifies)
+  for (const tr of skin) extra.push({ door: D.i, cat: 'interior', v: [off(tr.v[0], tr.w[0]), off(tr.v[2], tr.w[2]), off(tr.v[1], tr.w[1])], vn: [inN(tr.w[0]), inN(tr.w[2]), inN(tr.w[1])], col: card });
   for (const e of boundaryEdges(skin)) { const ka = e.tr.w[e.tr.v.indexOf(e.a)], kb = e.tr.w[e.tr.v.indexOf(e.b)]; const a2 = off(e.a, ka), b2 = off(e.b, kb);
     extra.push({ door: D.i, cat: 'paint', v: [e.a, e.b, b2], k: 0.78 }, { door: D.i, cat: 'paint', v: [e.a, b2, a2], k: 0.78 }, { door: D.i, cat: 'paint', v: [e.a, b2, e.b], k: 0.78 }, { door: D.i, cat: 'paint', v: [e.a, a2, b2], k: 0.78 }); }
 }
@@ -285,7 +286,7 @@ function collect(M, extra) {
     if (tr.door >= 0) { const D = M.doors[tr.door]; add('door' + D.i, tr.cat, tr.v.map((p) => [p[0] - D.hinge[0], p[1], p[2] - D.hinge[1]]), vn, col); continue; }
     if (tr.flip) { add('body', tr.cat, [tr.v[0], tr.v[2], tr.v[1]], [vn[0], vn[2], vn[1]].map((n) => n.map((x) => -x)), col); continue; } /* a piece facing the wrong way (cfg.classify sets tr.flip) */
     add('body', tr.cat, tr.v, vn, col); }
-  for (const x of extra) { const f = fnorm(x.v).n; const col = x.cat === 'paint' ? [x.k, x.k, x.k] : x.col; if (x.door >= 0) { const D = M.doors[x.door]; add('door' + D.i, x.cat, x.v.map((p) => [p[0] - D.hinge[0], p[1], p[2] - D.hinge[1]]), [f, f, f], col); } else add('body', x.cat, x.v, [f, f, f], col); }
+  for (const x of extra) { const f = fnorm(x.v).n; const N = x.vn || [f, f, f]; const col = x.cat === 'paint' ? [x.k, x.k, x.k] : x.col; if (x.door >= 0) { const D = M.doors[x.door]; add('door' + D.i, x.cat, x.v.map((p) => [p[0] - D.hinge[0], p[1], p[2] - D.hinge[1]]), N, col); } else add('body', x.cat, x.v, N, col); }
   return [...groups.values()].map(weld);
 }
 const lum = (c) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
@@ -315,8 +316,19 @@ export const BUDGET = { lod0: +(process.env.LOD0 || 60000), lod1: 10000, lod2: 2
 async function makeLODs(meshes, cfg) {
   const B = { ...BUDGET, ...(cfg.budget || {}) }; if (process.env.LOD0) B.lod0 = +process.env.LOD0; /* env wins (LOD0=1e7: unsimplified near LOD, for checks) */ const tris = (L) => L.reduce((s, m) => s + m.idx.length / 3, 0);
   const car = meshes.filter((m) => m.piece === 'body' || m.piece.startsWith('door')), wh = meshes.filter((m) => m.piece === 'wheel' || m.piece === 'cal');
-  const fit = async (L, budget, err0, lock = false) => { let r = Math.min(1, budget / Math.max(1, tris(L))), out = L, err = err0; for (let it = 0; it < 8; it++) { out = await Promise.all(L.map((m) => simplify(m, r, err, lock))); const t = tris(out); if (t <= budget * 1.04) break; r *= budget / t * 0.97; err *= 1.8; } return out; };
+  const fit = async (L, budget, err0, lock = false) => { let r = Math.min(1, budget / Math.max(1, tris(L))), out = L, err = err0, best = null;
+    // converge from both sides: pieces that cannot reach the ratio keep more, the rest then go further than needed — an undershoot
+    // (a dense source with many unsimplifiable bits: half the budget used, faceted paint) raises the ratio again
+    const KEEP = new Set(['paint', 'glass', 'interior']); const lk = (m) => lock && !(cfg.trimUnlock && !KEEP.has(m.cat)); // cfg.trimUnlock: a source of many small loose trim pieces — unlocked from the start, so the paint is not crushed to make room
+    for (let it = 0; it < 8; it++) { out = await Promise.all(L.map((m) => simplify(m, Math.min(1, r * (cfg.trimUnlock && m.cat === 'paint' ? 2.5 : 1)), err, lk(m)))); /* trimUnlock: the paint (silhouette, reflections) takes the larger share */ const t = tris(out); if (t <= budget * 1.04 && (!best || t > tris(best))) best = out; if (process.env.FITDBG) console.log(`fit ${budget}: it ${it} r ${r.toFixed(4)} err ${err.toFixed(4)} -> ${t}`);
+      if (t <= budget * 1.04 && (t >= budget * 0.9 || r >= 1)) break; if (t > budget * 1.04) { r *= budget / t * 0.97; err *= 1.8; } else r = Math.min(1, r * budget / t * 0.98); }
+    out = best || out;
+    // still over: trims made of many small loose pieces (gloss plastics, lamp reflectors, mesh grilles) cannot collapse with locked
+    // borders — they get an unlocked pass; paint / glass / door cards stay locked (no cracks between door and body)
+    if (lock && tris(out) > budget * 1.1) { const keep = new Set(['paint', 'glass', 'interior']); let r2 = r; for (let it = 0; it < 6 && tris(out) > budget * 1.04; it++) { const lockedT = out.reduce((a2, m, i) => a2 + (keep.has(L[i].cat) ? m.idx.length / 3 : 0), 0); const freeT = L.reduce((a2, m) => a2 + (keep.has(m.cat) ? 0 : m.idx.length / 3), 0); r2 = Math.min(r2, Math.max(0.02, (budget - lockedT) / Math.max(1, freeT))); out = await Promise.all(L.map((m, i) => (keep.has(m.cat) ? out[i] : simplify(m, r2, err, false)))); r2 *= 0.85; } }
+    return out; };
   const lod0 = await fit(car, B.lod0, 0.002, true);
+  if (tris(lod0) > B.lod0 * 1.1) { const by = {}; lod0.forEach((m, i) => { const k = m.piece.replace(/\d+$/, '') + ':' + m.cat; const o = by[k] || (by[k] = [0, 0]); o[0] += m.idx.length / 3; o[1] += car[i].idx.length / 3; }); console.log('LOD0 over budget — kept / source per piece:', Object.entries(by).sort((a, b) => b[1][0] - a[1][0]).map(([k, [n, n0]]) => `${k} ${n}/${n0}`).join(', ')); }
   // far LODs: from the full mesh with the doors shut, welded by position only (normal seams no longer block collapses, no cracks
   // between door and body), simplified per material with locked material borders for LOD1, normals rebuilt afterwards
   const blanks = []; /* badge blanks (shade 0.995): tiny loose plates the simplifier would collapse, re-opening the badge outline — kept whole */
@@ -401,7 +413,7 @@ export async function buildOne(id, M0) {
   const M = M0 || await prepare(id); assignDoors(M); for (const D of M.doors) doorSpec(M, D);
   { let hw = 0; for (const tr of M.T) if (tr.cat === 'paint' && tr.door < 0) for (const v of tr.v) if (v[1] > 0.3 && v[1] < M.hi[1] - 0.25) hw = Math.max(hw, Math.abs(v[0])); M.bodyHalfW = hw; } // body width without the mirrors
   plates(M);
-  const extra = []; for (const D of M.doors) solidDoor(M, D, extra); jambs(M, extra); capLogoHoles(M, extra); headliner(M, extra);
+  const extra = []; for (const D of M.doors) solidDoor(M, D, extra); jambs(M, extra); capLogoHoles(M, extra); headliner(M, extra); for (const f of M.cfg.fill || []) { const [a, b, c, d] = f.quad, col = f.col || [0.015, 0.015, 0.017]; extra.push({ cat: f.cat || 'rubber', v: [a, b, c], col }, { cat: f.cat || 'rubber', v: [a, c, d], col }); } /* cfg.fill: a floor under an opening (vent) — at the far LODs its fins simplify away and the ground showed through */
   const meshes = collect(M, extra); const L = await makeLODs(meshes, { ...M.cfg, __doors: M.doors });
   const out = path.join(ROOT, 'public/assets/vehicles', id + '.glb'); fs.mkdirSync(path.dirname(out), { recursive: true }); await writeGLB(id, M, L, out);
   return { M, L, out, bytes: fs.statSync(out).size };
