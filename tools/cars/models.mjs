@@ -12,6 +12,7 @@ export const MODELS = {
     src: 'corolla.glb', title: 'Toyota Corolla', url: 'https://sketchfab.com/3d-models/toyota-corolla-723da379600d4fb9a3e9687e99ca68d5', author: 'Nieve5677',
     scale: 0.001, rotY: Math.PI,
     isWheel: (tr) => tr.mat === 'PaletteMaterial005',
+    colOf: (tr, tc) => (tr.cat === 'rim' ? tc.map((c) => Math.min(c, 1) * 0.55) : null), // painted silver alloy (the source's is near white: chalky under the sky)
     classify(tr, X) {
       const { mat, hex, a, wheel, isl } = tr; const [xa] = ax(isl);
       const chrome = mat === 'PaletteMaterial004', black = mat === 'PaletteMaterial002' && hex === '#000000';
@@ -43,8 +44,9 @@ export const MODELS = {
   raiden: {
     src: 'z_supra.glb', title: 'Toyota Supra 3D Model (Free)', url: 'https://sketchfab.com/3d-models/toyota-supra-3d-model-free-41b83cfb912b4eab9af19a802bcf5ffc', author: 'Mpgs.studio3DModels',
     note: 'de-identified edit by ZTARK (github.com/windowfilmresources-prog/ztark-tint-visualizer)', scale: 1, rotY: 0,
-    budget: { lod0: 70000, wheel0: 5000, wheel1: 600 }, // a rare sports car: the multi-spoke wheels and the body surfacing get more
+    budget: { lod0: 70000, wheel0: 9000, wheel1: 600 }, // a rare sports car: the multi-spoke wheels and the body surfacing get more
     isWheel: (tr) => ['Tire', 'Rim_Alloy', 'Brake_Disc', 'Caliper'].includes(tr.mat),
+    colOf: (tr, tc) => (tr.cat === 'rim' ? tc.map((c) => Math.min(c, 1) * (tr.mat === 'Brake_Disc' ? 0.3 : 0.24)) : null), // dark satin-grey forged alloy, steel-grey discs (the source's are near white)
     classify(tr) {
       const { mat, wheel } = tr;
       if (wheel >= 0) return mat === 'Tire' ? 'tyre' : mat === 'Caliper' ? 'caliper' : 'rim';
