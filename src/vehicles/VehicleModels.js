@@ -279,10 +279,22 @@ function contactShadowGeo() {
   const idx = [0, 2, 1, 0, 3, 2]; for (let k = 0; k < 4; k++) { const a = k, b = (k + 1) % 4, A = a + 4, B = b + 4; idx.push(a, b, B, a, B, A); }
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 4)); g.setIndex(idx); g.computeVertexNormals(); return g;
 }
+// metallic paint: aluminium flakes under the clear coat. Object-space hash cells (~0.7 mm) jitter the BASE layer's normal and
+// roughness; the clearcoat keeps the unperturbed normal (smooth lacquer over a sparkly base, as on real paint). Flakes fade
+// out where a cell is smaller than a pixel (fwidth), so distant traffic never shimmers. One shared program, a few ALU ops.
+function paintFlakes(m) {
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vFlakeP;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvFlakeP = position;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vFlakeP;\nfloat flakeH(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }')
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nvec3 flakeC = floor(vFlakeP * 1400.0); float flakeA = clamp(1.6 - length(fwidth(vFlakeP)) * 1400.0, 0.0, 1.0); roughnessFactor = clamp(roughnessFactor * (1.0 + (flakeH(flakeC) - 0.5) * 0.6 * flakeA), 0.04, 1.0);')
+      .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nnormal = normalize(normal + (vec3(flakeH(flakeC + 1.3), flakeH(flakeC + 7.1), flakeH(flakeC + 3.7)) - 0.5) * 0.16 * flakeA);');
+  };
+  m.customProgramCacheKey = () => 'vpaint-flakes'; return m;
+}
 export function vehicleMaterials() {
   if (!mats) {
     mats = {
-      vpaint: new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.25, clearcoat: 1, clearcoatRoughness: 0.07, envMapIntensity: 1.0 }),
+      vpaint: paintFlakes(new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.25, clearcoat: 1, clearcoatRoughness: 0.07, envMapIntensity: 1.0 })),
       vworn: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.15, envMapIntensity: 0.7 }),
       vglass: new THREE.MeshPhysicalMaterial({ color: 0x0c1215, roughness: 0.1, metalness: 0.0, specularIntensity: 0.38, transparent: true, opacity: 0.8, envMapIntensity: 0.5, depthWrite: false, side: THREE.DoubleSide }), // tinted automotive glass: weak Fresnel so sloped rear screens never read as white glowing panels against the sky
       vchrome: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.22, metalness: 0.8, envMapIntensity: 1.2 }),
@@ -845,7 +857,7 @@ function doorGrab(d) {
   const g = { side, y, zR: zr - d.hinge[1], card, skin, win, handle: { x: loc(HB.xb), half: HB.half, posts: [HB.len / 2 - 0.008, -HB.len / 2 + 0.008], skin: hs, y: hy, z: hz - d.hinge[1], lo: [0.04, 0.08, 0.12].map((dy) => loc(S.skinPt(hz, hy - dy)[0])) } };
   // the body shape field moved the door with the body (BodyShape.js): the grasp targets follow it (hinge-local x through the field)
   if (d.field) { const F = d.field, o = [0, 0, 0]; const X = (l, yy, zb) => { F(hxN - side * l, yy, zb, o); return -side * (o[0] - hxN); };
-    g.skin = X(skin, y, zr + 0.06); g.card = X(card, y, zr + 0.06); const H = g.handle; H.x = X(H.x, hy, hz); H.skin = X(hs, hy, hz); H.lo = H.lo.map((l, k) => X(l, hy - 0.04 * (k + 1), hz));
+    g.skin = X(skin, y, zr + 0.06); g.card = X(card, y, zr + 0.06); const H = g.handle; H.x = X(H.x, hy, hz); H.skin = X(hs, hy, hz); H.lo = H.lo.map((l) => l + (H.skin - hs)); /* the grip solver's panel bands: kept at their unwarped offset from the skin (the belt tuck adds ~3 mm of swell under the bar, which leaves the curled fingers no room behind it; the hand-in-door check runs on the real warped mesh) */
     if (win) { const wx = X(win.x, win.y, zr), wx1 = X(win.x + win.tilt / 10, win.y + 0.1, zr); F(hxN - side * win.x, win.y, zr, o); g.win = { ...win, x: wx, tilt: (wx1 - wx) * 10, y: o[1] }; } }
   return g; // lo: the skin below the bar (the side bulges out under the handle line)
 }
@@ -1052,7 +1064,7 @@ export function createVehicleMesh(type, seed = 1) {
     cs.updateMatrix(); cs.matrixAutoUpdate = false; g.add(cs); }
   const rear = T.ambulance ? buildAmbRear() : null; if (rear) g.add(rear.group); // twin rear doors + lit cabin (opened by the medics)
   const stand = base === 'bike' ? standMeshes(M.vrim) : null; if (stand) g.add(stand); // animated side stand (Kickstand.js)
-  g.userData = { wheelStyle: cached.wheelStyle, exhaust: cached.exhaust, doors, bake: doors.length ? { ranges: cached.doorRanges, meshes: bodyMeshes, shared, mats, pivotGeos: (i) => slicePivotGeos(cached, i) } : null, stand, detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons, rear, cabStep: cached.cabStep };
+  g.userData = { wheelStyle: cached.wheelStyle, exhaust: cached.exhaust, doors, bake: doors.length ? { ranges: cached.doorRanges, meshes: bodyMeshes, shared, mats, pivotGeos: (i) => slicePivotGeos(cached, i) } : null, stand, detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, lodFar: false, farR: wkind === 'heavy' ? 160 : wkind === 'bike' ? 0 : 140, farHide: ['interior', 'dash', 'plate', 'badge'].map((n) => bodyMeshes[n]).filter(Boolean), /* far LOD (Vehicle.updateVehicleLOD): cabin, plate, badges off beyond farR — lamps stay */ wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons, rear, cabStep: cached.cabStep };
   return g;
 }
 // darken lower panels and add per-vehicle grime variation to working vehicles

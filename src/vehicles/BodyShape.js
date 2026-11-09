@@ -173,7 +173,7 @@ export function makeBodyWarp(spec) {
   const field = (x, y, z, out) => {
     const ax = Math.abs(x), sx = x < 0 ? -1 : 1; const u = Math.min(1, ax / W), u2 = u * u; let dx = 0, dy = 0, dz = 0;
     const TM = globalThis.__bwMask || 15; /* debug: per-term mask (viewer ?bw=1 plan, 2 crown, 4 roof, 8 tumblehome) */ if (TM & 1) { dz -= nose * u2 * sstep(zf - bandN, zf, z); dz += tail * u2 * sstep(zr + bandT, zr, z); }
-    const yt = top(z); if (TM & 2) dy -= crown * u2 * sstep(yt - 0.45, yt, y);
+    const yt = top(z); if (TM & 2) dy -= crown * u2 * sstep(yt - 0.45, yt, y) * (1 - sstep(yt + 0.02, yt + 0.27, y)); /* the greenhouse above has its own roof crown: fade out so window frames / headroom stay put */
     if ((TM & 4) && roofT && z > rz0 - 0.2 && z < rz1 + 0.2) { const ur = Math.min(1, ax / roofW), yr = roofT(z); dy -= roofCrown * ur * ur * sstep(yr - 0.5, yr, y) * sstep(rz0 - 0.2, rz0 + 0.1, z) * sstep(rz1 + 0.2, rz1 - 0.1, z); }
     const u4 = u2 * u2; if (TM & 8) dx -= sx * u4 * (tuckSill * sstep(ySh, sill, y) + tuckBelt * sstep(ySh, belt, y));
     out[0] = x + dx; out[1] = y + dy; out[2] = z + dz; return out;
