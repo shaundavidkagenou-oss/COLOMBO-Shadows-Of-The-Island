@@ -3,6 +3,8 @@
 //   node tools/render-probe.mjs [play|trailer|gate] [outPrefix]     PORT env = server port (default 5199)
 // play    — ?test&quick=play: free play on Main Street (player camera)
 // warm    — ?test&quick=play&warm=1: free play after the REAL enter-game loading (streaming, vehicle warm, shader compile)
+// new     — ?test&quick=new: NEW GAME — the enter-game loading, then the opening cinematic and play
+// enter   — free play, then the real enter-game loading (menu → NEW GAME / LOAD) run in the page, then the player camera
 // trailer — ?test&quick=trailer: the in-engine trailer (its own camera)
 // EVAL env = a JS expression printed with every sample (state dumps while chasing a fault)
 // gate    — the real flow: ENTER GAME → studio intro / loading → menu → NEW GAME → opening, no test shortcuts
@@ -22,7 +24,7 @@ try {
   page.on('requestfailed', (r) => errors.push('request failed: ' + r.url() + ' ' + (r.failure() && r.failure().errorText)));
   page.on('response', (r) => { if (r.status() >= 400 && !/favicon/.test(r.url())) errors.push('HTTP ' + r.status() + ' ' + r.url()); });
   await page.evaluateOnNewDocument(() => { localStorage.setItem('colombo.settings.v1', JSON.stringify({ quality: 'low', showFps: false })); });
-  const url = `http://localhost:${PORT}/` + (MODE === 'gate' ? '' : MODE === 'warm' ? '?test&quick=play&warm=1' : `?test&quick=${MODE}`);
+  const url = `http://localhost:${PORT}/` + (MODE === 'gate' ? '' : MODE === 'enter' ? '?test&quick=play' : MODE === 'warm' ? '?test&quick=play&warm=1' : `?test&quick=${MODE}`);
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 300000 });
   const t0 = Date.now();
   if (MODE === 'gate') { // the real player flow
@@ -32,8 +34,11 @@ try {
     await page.waitForFunction(() => window.__game && /menu/.test(window.__game.mode || ''), { timeout: 1500000, polling: 2000 }).catch(() => {});
     console.log('mode after load:', await page.evaluate(() => window.__game && window.__game.mode), ((Date.now() - t0) / 1000).toFixed(0) + 's');
   } else {
-    await page.waitForFunction((m) => window.__game && window.__game.mode === m, { timeout: 1500000, polling: 2000 }, MODE === 'warm' ? 'play' : MODE).catch(() => {});
+    await page.waitForFunction((m) => window.__game && window.__game.mode === m, { timeout: 1500000, polling: 2000 }, MODE === 'warm' || MODE === 'new' || MODE === 'enter' ? 'play' : MODE).catch(() => {});
     console.log('mode:', await page.evaluate(() => window.__game && window.__game.mode), ((Date.now() - t0) / 1000).toFixed(0) + 's');
+    if (MODE === 'enter') { // menu → NEW GAME / LOAD: the real enter-game loading runs, then the player camera takes over
+      await page.evaluate(async () => { const g = window.__game; await g.enterLoading([[-140, -891.8]]); g.mode = 'play'; g.world.warm(-140, -892); g.player.teleport(-140, -891.8, Math.PI / 2); g.player.cinematic = false; g.player.control = true; g.hud.show(true); g.hud.fade(0, 0.3); });
+      console.log('enterLoading done', ((Date.now() - t0) / 1000).toFixed(0) + 's'); }
   }
   for (let k = 0; k < 3; k++) {
     await wait(MODE === 'trailer' ? 9000 : 5000);
