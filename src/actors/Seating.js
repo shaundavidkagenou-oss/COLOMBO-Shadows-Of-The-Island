@@ -26,8 +26,12 @@ const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _k = new THREE.Vector3
 // Returns { gamma (splay about +z), theta (forward swing of the thigh from straight down), knee (flexion) }.
 export function solveLeg(H, F, a, b) {
   const dx = F.x - H.x, dy = F.y - H.y, dz = F.z - H.z;
-  const down = Math.hypot(dx, dy); // distance in the splayed leg plane, "downward" component
-  const gamma = Math.atan2(dx, -dy); // rotate the leg plane about the forward axis so it contains the target
+  // rotate the leg plane about the forward axis so it contains the target, and take the target's "downward" distance in that
+  // plane. A foot level with (or above) the hip — legs out flat in a low sports car, a foot lifted over the sill — would flip
+  // atan2(dx, −dy) through ±π (the knee spinning round); below 8 cm of drop the plane stays upright and "down" goes negative
+  // instead (thigh pointing forward-up). With 8 cm or more of drop this is exactly the plain solve.
+  const gamma = Math.atan2(dx, Math.max(-dy, 0.08));
+  const down = dx * Math.sin(gamma) - dy * Math.cos(gamma); // distance in the splayed leg plane, "downward" component
   const D = clamp(Math.hypot(dz, down), Math.abs(a - b) + 1e-3, (a + b) * 0.999);
   const phi = Math.atan2(dz, down);
   const alpha = Math.acos(clamp((a * a + D * D - b * b) / (2 * a * D), -1, 1));

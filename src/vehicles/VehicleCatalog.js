@@ -188,19 +188,19 @@ add('ventra', { brand: 'hoshida', name: 'Ventra', cls: 'saloon', fam: 'sedan', r
   // real body (RealModels.js): dimensions measured on the converted model (tools/cars/build.mjs) so physics, the fallback body and the fitted interior match it
   len: 4.51, wid: 1.754, hgt: 1.437, wheelR: 0.324, maxSpeed: 42, accel: 5.8, mass: 1150, seats: 5, steer: 0.53, colors: PAL.pearl,
   b: { L: 4.51, sill: 0.28, fo: 0.94, wb: 2.61, bump: 0.52, fy: 0.62, hd: 0.2, hy: 0.74, cd: 1.18, cy: 0.88, wd: 1.72, roof: 1.437, rd: 1.36, roofR: 1.41, bd: 0.95, by: 0.97, gy1: 0.98, td: 0.1, ty: 0.95, tm: 0.62, door: [0.88, -0.2], rearDoor: [-0.22, -1.23] },
-  cab: { seatY: 0.38, rows: [[-0.88, 3]] },
+  cab: { seatY: 0.38, rows: [[-0.88, 3, -0.02]] },
   S: { head: { t: 'swept', w: 0.36, h: 0.11, x: 0.15, wrap: 0.24, tilt: 0.08 }, grille: { t: 'hbars', w: 0.4, chrome: true, n: 2 }, lower: { t: 'trapezoid', w: 0.55, h: 0.12 }, tail: { t: 'wrap', w: 0.3, h: 0.14, deck: true }, wheels: [0, 2] } });
 add('raiden', { brand: 'kensei', name: 'Raiden', cls: 'sports coupe', fam: 'sedan', ref: 'late-2010s two-seat sports coupe — rare: a few enthusiast imports',
   // real body (RealModels.js, de-badged); dimensions measured on the converted model
   len: 4.379, wid: 1.854, hgt: 1.297, wheelR: 0.334, maxSpeed: 68, accel: 9.2, mass: 1500, seats: 2, steer: 0.5, colors: ['#c8102e', '#f2f2ee', '#1a1b1e', '#9ea3a8', '#1f4fa0', '#e8b80e'],
   b: { L: 4.379, sill: 0.22, fo: 0.97, wb: 2.48, bump: 0.42, fy: 0.52, hd: 0.3, hy: 0.7, cd: 1.68, cy: 0.83, wd: 2.17, roof: 1.25, rd: 1.13, roofR: 1.22, bd: 0.34, by: 0.95, gy1: 0.96, td: 0.08, ty: 0.94, tm: 0.6, /* glass-measured: windshield base z 0.56 / y 0.85, top z ≈ 0 / 1.225, backlight z −1.06…−1.87 */ door: [0.44, -0.9] },
-  cab: { seatY: 0.3, sz: -0.4, rows: [] },
+  cab: { seatY: 0.25, sz: -0.4, rows: [] },
   S: { head: { t: 'swept', w: 0.34, h: 0.08, x: 0.2, wrap: 0.28, tilt: 0.1 }, grille: { t: 'mesh', w: 0.5 }, lower: { t: 'trapezoid', w: 0.6, h: 0.1 }, tail: { t: 'wrap', w: 0.32, h: 0.1, deck: true }, wheels: [0, 2] } });
 add('vanta', { brand: 'calder', name: 'Vanta', cls: 'sports coupe', fam: 'sedan', ref: '2010s front-mid-engined two-seat sports car — very rare: a handful of collector imports',
   // real body (RealModels.js, de-badged); dimensions measured on the converted model
   len: 4.49, wid: 1.885, hgt: 1.241, wheelR: 0.36, maxSpeed: 78, accel: 10.4, mass: 1520, seats: 2, steer: 0.5, colors: ['#e8b80e', '#c8102e', '#f2f2ee', '#1a1b1e', '#2f6e94', '#9ea3a8'],
   b: { L: 4.49, sill: 0.22, fo: 0.91, wb: 2.71, bump: 0.4, fy: 0.57, hd: 0.3, hy: 0.86, cd: 1.52, cy: 0.79, wd: 2.22, roof: 1.24, rd: 1.25, roofR: 1.21, bd: 0.35, by: 0.97, gy1: 0.98, td: 0.06, ty: 0.99, tm: 0.6, /* glass-measured: windshield base z 0.80 / y 0.82, top z ≈ 0 / 1.17, hatch glass z −1.0…−1.9 */ door: [0.43, -0.86] },
-  cab: { seatY: 0.28, sz: -0.38, rows: [] },
+  cab: { seatY: 0.24, sz: -0.38, rows: [] },
   S: { head: { t: 'swept', w: 0.36, h: 0.07, x: 0.22, wrap: 0.3, tilt: 0.12 }, grille: { t: 'mesh', w: 0.6 }, lower: { t: 'trapezoid', w: 0.7, h: 0.1 }, tail: { t: 'wrap', w: 0.3, h: 0.08, deck: true }, wheels: [0, 2] } });
 add('solace', { brand: 'hoshida', name: 'Solace', cls: 'saloon', fam: 'sedan', ref: '2000s–2010s mid-size premium saloon with chrome-heavy trim',
   len: 4.595, wid: 1.695, hgt: 1.475, wheelR: 0.315, maxSpeed: 44, accel: 6.0, mass: 1250, seats: 5, steer: 0.52, colors: ['#f1f1ec', '#c3c7cb', '#1a1b1e', '#5d6166', '#6a5a4a'],

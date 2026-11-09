@@ -517,7 +517,15 @@ function buildBaseModel(type, color, variant, opts = {}) {
     loft(paint, [[L / 2 - cabL + 0.02, 2.6, 2.86, W - 0.04, W - 0.16, 0.12], [L / 2 - 0.1, 2.55, 2.84, W - 0.06, W - 0.18, 0.12]], col);
     for (const sx of [-1, 1]) { beam(paint, [sx * (W - 0.06), 1.8, L / 2 - 0.1], [sx * (W - 0.1), 2.55, L / 2 - 0.12], 0.08, 0.1, col); beam(paint, [sx * (W - 0.05), 1.8, L / 2 - cabL + 0.6], [sx * (W - 0.1), 2.62, L / 2 - cabL + 0.6], 0.06, 0.08, col); }
     glass.quad([-W + 0.1, 1.85, L / 2 + 0.025], [W - 0.1, 1.85, L / 2 + 0.025], [W - 0.12, 2.52, L / 2 - 0.1], [-W + 0.12, 2.52, L / 2 - 0.1], [0, 0, 1, 1], C('#fff'));
-    for (let i = 0; i < 4; i++) ch.box(0, 1.0 + i * 0.1, L / 2 + 0.03, 1.2, 0.04, 0.02, { col: C('#2a2a2a') });
+    // grille: recessed dark panel, chrome surround, bright horizontal bars; black headlamp housings behind the lenses; sun visor
+    // over the windscreen and a chrome belt strip (no flat painted face)
+    rubber.box(0, 1.15, L / 2 + 0.01, 1.3, 0.42, 0.03, { col: C('#121214') });
+    for (const sy of [-1, 1]) ch.box(0, 1.15 + sy * 0.225, L / 2 + 0.035, 1.38, 0.035, 0.03, { col: C('#c4c8cc') });
+    for (const sx of [-1, 1]) ch.box(sx * 0.672, 1.15, L / 2 + 0.035, 0.035, 0.485, 0.03, { col: C('#c4c8cc') });
+    for (let i = 0; i < 5; i++) ch.box(0, 0.99 + i * 0.08, L / 2 + 0.03, 1.28, 0.03, 0.02, { col: C('#8e9296') });
+    for (const sx of [-1, 1]) rubber.box(sx * (W - 0.3), 0.95, L / 2 + 0.015, 0.42, 0.25, 0.04, { col: C('#18181a') });
+    paint.box(0, 2.6, L / 2 + 0.03, W * 2 - 0.22, 0.05, 0.26, { col });
+    ch.box(0, 1.72, L / 2 + 0.035, W * 2 - 0.1, 0.03, 0.02, { col: C('#c4c8cc') });
     for (const sx of [-1, 1]) { part(lights, unitBox, [sx * (W - 0.3), 0.95, L / 2 + 0.03], [0, 0, 0], [0.32, 0.18, 0.02]); ind.box(sx * (W - 0.08), 0.95, L / 2 + 0.03, 0.1, 0.16, 0.02); beam(ch, [sx * (W - 0.02), 2.3, L / 2 - 0.08], [sx * (W + 0.25), 2.2, L / 2 + 0.05], 0.025, 0.025, black, unitCyl); part(paint, unitBox, [sx * (W + 0.27), 2.0, L / 2 + 0.06], [0, 0, 0], [0.08, 0.36, 0.05], black); }
     rubber.box(0, 0.62, L / 2 + 0.07, W * 2 + 0.04, 0.26, 0.14, { col: C('#2a2a2a') }); plateQuad(mb, 0, 0.62, L / 2 + 0.145, 0.22, 0.06, true, variant);
     // chassis, bed, drop sides with planks, tarp, fuel tank, mudflaps, spare

@@ -235,7 +235,7 @@ export function heavyDetail(dm, K, c) {
     // mirror glass faces and second (kerb-view) mirror
     part(gl, unitBox, [sx * (W + (kind === 'lorry' ? 0.27 : 0.3)), kind === 'lorry' ? 2.0 : 1.78, fz + (kind === 'lorry' ? 0.03 : 0.127)], [0, 0, 0], [0.085, kind === 'lorry' ? 0.32 : 0.38, 0.006], C('#fff'));
     // headlamp bowls
-    if (kind === 'lorry') for (const dx of [-0.08, 0.08]) { const x = sx * (W - 0.3) + dx; part(head, cupGeo, [x, 0.95, fz + 0.065], [0, 0, 0], [0.065, 0.065, 0.02]); part(head, sphLo, [x, 0.95, fz + 0.057], [0, 0, 0], [0.013, 0.013, 0.013]); part(lens, discZ, [x, 0.95, fz + 0.068], [0, 0, 0], [0.07, 0.07, 0.004]); }
+    if (kind === 'lorry') for (const dx of [-0.08, 0.08]) { const x = sx * (W - 0.3) + dx; part(head, cupGeo, [x, 0.95, fz + 0.065], [0, 0, 0], [0.065, 0.065, 0.02]); part(head, sphLo, [x, 0.95, fz + 0.057], [0, 0, 0], [0.013, 0.013, 0.013]); part(lens, discZ, [x, 0.95, fz + 0.068], [0, 0, 0], [0.07, 0.07, 0.004]); part(chr, ringZ, [x, 0.95, fz + 0.067], [0, 0, 0], [0.074, 0.074, 0.07], chrome); }
     else for (const [dx, r] of [[0.28, 0.085], [0.48, 0.07]]) { const x = sx * (W - dx); part(head, cupGeo, [x, 0.85, fz + 0.078], [0, 0, 0], [r * 0.95, r * 0.95, 0.02]); part(head, sphLo, [x, 0.85, fz + 0.07], [0, 0, 0], [0.014, 0.014, 0.014]); part(lens, discZ, [x, 0.85, fz + 0.081], [0, 0, 0], [r, r, 0.004]); part(chr, ringZ, [x, 0.85, fz + 0.079], [0, 0, 0], [r * 1.05, r * 1.05, r], chrome); }
     // roof-edge rain gutter, cab / body marker lamps (unlit amber reflectors), mud flaps, reflectors, tow hooks
     beam(rub, [sx * (W - 0.01), (kind === 'lorry' ? 2.6 : winTop) + 0.02, rz + (kind === 'lorry' ? L - 1.95 : 0.1)], [sx * (W - 0.01), (kind === 'lorry' ? 2.55 : winTop) + 0.02, fz - 0.15], 0.02, 0.02, black);
