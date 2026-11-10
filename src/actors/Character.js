@@ -366,7 +366,7 @@ export function buildBodyGeometry(sp) {
     const hemY = skirtLen === 'ankle' ? 0.1 : skirtLen === 'mid' ? 0.32 : 0.48; const topY = o === 'saree' ? 0.93 : NB ? 0.985 : o === 'salwar' || o === 'kurti' || o === 'abaya' ? 1.2 : o === 'kurta' ? 1.02 : 0.97; // anatomical bodies: the tunic's top is the fitted top shell (over the bust), the cone starts at the hips
     const region = sp.pattern ?? 0; const N = Math.max(7, Math.ceil((topY - hemY) / 0.07) + 1); const rings = []; // ~7 cm ring spacing so the hip-hinge zone is resolved on long tunics too
     for (let i = 0; i < N; i++) {
-      const t = i / (N - 1), y = lerp(topY, hemY, t) * s; const flare = o === 'sarong' ? 0.045 : o === 'frock' ? 0.09 : o === 'skirt_top' ? 0.07 : o === 'abaya' ? 0.065 : o === 'office_f' ? 0.065 : 0.05; /* office skirt: a slight A-line so a long stride (running) stays inside it */ // a sarong is a ~2 m cloth tube folded at the waist: loose at the hem
+      const t = i / (N - 1), y = lerp(topY, hemY, t) * s; const flare = o === 'sarong' ? 0.045 : o === 'frock' ? 0.09 : o === 'skirt_top' ? 0.07 : o === 'abaya' ? 0.065 : o === 'office_f' ? (NB ? 0.1 : 0.065) : 0.05; /* office skirt: a slight A-line so a long stride (running) stays inside it */ // a sarong is a ~2 m cloth tube folded at the waist: loose at the hem
       const ease = Math.sin(clamp((0.97 * s - y) / (0.3 * s), 0, 1) * Math.PI / 2); // cloth stands off the hips/thighs (real garments are not skin-tight there)
       const rx = lerp(0.17 * w, 0.17 * w + flare + (skirtLen === 'ankle' ? 0.02 : 0), Math.pow(t, 0.8)) + 0.012 * w * ease, rz = lerp(0.12 * w, 0.13 * w + flare * 0.8, t) + 0.03 * w * ease;
       // per-vertex skinning: each side of the garment follows the leg under it (stronger toward the hem), so a striding knee
@@ -385,8 +385,10 @@ export function buildBodyGeometry(sp) {
         return out.sort((p, q) => q[1] - p[1]).slice(0, 4); };
       let rxF = rx + (y > 0.9 * s ? 0.005 : 0), rzF = rz, czF = 0.005;
       if (NB && y > 0.66 * s) { const br = NB.ringAt(y); const pv = rings[rings.length - 1]; // anatomical hips / seat: the skirt always encloses the body (+ ease) and never pinches in below a wider ring
-        const ex = 0.012 + 0.01 * t; const bz0 = br.cz - br.rz - ex, bz1 = br.cz + br.rz + ex; const z0 = Math.min(czF - rzF, bz0, pv ? pv.c[2] - pv.rz : 9), z1 = Math.max(czF + rzF, bz1, pv ? pv.c[2] + pv.rz : -9);
-        rxF = Math.max(rxF, br.rx + ex, pv ? pv.rx : 0); czF = (z0 + z1) / 2; rzF = (z1 - z0) / 2; }
+        const ex = 0.012 + 0.01 * t; const hx = 0.012 * smooth01((t - 0.35) / 0.65); rxF += hx; rzF += hx * 1.6; /* anatomical thighs / knees / calves are fuller than the old tube legs: a little more room towards the hem for the stride */ const bz0 = br.cz - br.rz - ex, bz1 = br.cz + br.rz + ex; const z0 = Math.min(czF - rzF, bz0, pv ? pv.c[2] - pv.rz : 9), z1 = Math.max(czF + rzF, bz1, pv ? pv.c[2] + pv.rz : -9);
+        const tz1 = NB.surfZ(y, 0, 1) + 0.008, tz0 = NB.surfZ(y, 0, -1) - 0.008; const zz0 = t < 0.25 ? Math.min(z0, tz0) : z0, zz1 = t < 0.25 ? Math.max(z1, tz1) : z1; // the shirt / singlet tail stays inside the waist too
+        rxF = Math.max(rxF, br.rx + ex + (t < 0.25 ? 0.008 : 0), pv ? pv.rx : 0); czF = (zz0 + zz1) / 2; rzF = (zz1 - zz0) / 2;
+        if (t < 0.3) { let e = 1; for (let xq = -0.2; xq <= 0.2001; xq += 0.02) for (const sg of [1, -1]) { const zq = NB.surfZ(y, xq, sg) + sg * 0.008; if (Math.abs(zq) > 0.5) continue; e = Math.max(e, Math.hypot(xq / rxF, (zq - czF) / rzF)); } rxF *= e; rzF *= e; } } // the shirt / singlet tail never pokes out at the sides either
       rings.push({ c: [0, y, czF], rx: rxF, rz: rzF, w: wFn, col: C(sp.skirtCol || sp.bottom) });
     }
     const k0 = sb.n; sb.loft(rings, 18, { region, uvRep: 2 }); parts.skirt = [k0, sb.n]; skirtProf = rings.map((r) => [r.c[1], r.c[2] + r.rz, r.c[2] - r.rz, r.rx]); // front surface (apron over a skirt)
@@ -396,6 +398,7 @@ export function buildBodyGeometry(sp) {
     const pc = C(sp.skirtCol || sp.top); const path = [];
     const pts = o === 'saree'
       ? [[-0.15, 0.96, 0.12], [-0.08, 1.1, 0.12], [0.02, 1.24, 0.135], [0.1, 1.36, 0.1], [0.14, 1.44, 0.02], [0.14, 1.42, -0.08], [0.13, 1.25, -0.115], [0.12, 1.0, -0.12], [0.12, 0.78, -0.13]]
+      : HB ? [[0.12, 0.98, -0.12], [0.12, 1.2, -0.11], [0.125, 1.38, -0.07], [0.125, 1.43, 0.0], [0.13, 1.35, 0.085], [0.1, 1.22, 0.13], [0.0, 1.14, 0.14], [-0.1, 1.22, 0.13], [-0.13, 1.35, 0.085], [-0.125, 1.43, 0.0], [-0.125, 1.38, -0.07], [-0.12, 1.2, -0.11], [-0.12, 0.98, -0.12]] // anatomical bodies: a deep U below the bust, both ends falling down the back
       : [[0.15, 1.38, 0.03], [0.165, 1.33, 0.085], [0.1, 1.27, 0.125], [-0.1, 1.27, 0.125], [-0.165, 1.33, 0.085], [-0.15, 1.38, 0.03], [-0.14, 1.36, -0.07], [0, 1.33, -0.1], [0.14, 1.36, -0.07]];
     pts.forEach((p, i) => {
       const nx = pts[Math.min(i + 1, pts.length - 1)], pv = pts[Math.max(i - 1, 0)]; const d = new THREE.Vector3(nx[0] - pv[0], nx[1] - pv[1], nx[2] - pv[2]).normalize();
@@ -403,15 +406,15 @@ export function buildBodyGeometry(sp) {
       const y = p[1]; const wgt = y > 1.3 ? W1('chest') : y > 1.05 ? W2('spine', 'chest', 0.5) : W1('hips');
       path.push({ c: [p[0] * w, y * s, p[2] * w], side: [side.x, side.y, side.z], out: [out.x, out.y, out.z], w: wgt });
     });
-    if (HB && o === 'saree') { // anatomical bodies: the pallu is a draped, pleated cloth panel resting on the blouse
+    if (HB) { // anatomical bodies: the pallu / dupatta is a draped, pleated cloth panel resting on the blouse / tunic
       const skBack = (yq, xq) => { if (!skirtProf || yq > skirtProf[0][0]) return 1e9; let k = 0; while (k < skirtProf.length - 2 && skirtProf[k + 1][0] > yq) k++; /* rings run top → hem */ const a = skirtProf[k], b2 = skirtProf[k + 1]; const tt = clamp((yq - a[0]) / (b2[0] - a[0] || 1), 0, 1); const zf = lerp(a[1], b2[1], tt), zb = lerp(a[2], b2[2], tt), rxs = lerp(a[3], b2[3], tt); const q = clamp(Math.abs(xq) / rxs, 0, 0.95); return (zf + zb) / 2 - (zf - zb) / 2 * Math.sqrt(1 - q * q); };
-      const R = 26, NCc = 9, WD = 0.26, cr = (a0, a1, a2, a3, t) => 0.5 * (2 * a1 + (a2 - a0) * t + (2 * a0 - 5 * a1 + 4 * a2 - a3) * t * t + (3 * a1 - a0 - 3 * a2 + a3) * t * t * t);
+      const sar = o === 'saree'; const R = sar ? 26 : 34, NCc = sar ? 9 : 7, WD = sar ? 0.26 : 0.16, cr = (a0, a1, a2, a3, t) => 0.5 * (2 * a1 + (a2 - a0) * t + (2 * a0 - 5 * a1 + 4 * a2 - a3) * t * t + (3 * a1 - a0 - 3 * a2 + a3) * t * t * t);
       const spl = (u) => { const f = u * (path.length - 1), i = Math.min(path.length - 2, Math.floor(f)), t = f - i; const g = (k) => path[clamp(k, 0, path.length - 1)]; return [0, 1, 2].map((d) => cr(g(i - 1).c[d], g(i).c[d], g(i + 1).c[d], g(i + 2).c[d], t)); };
       const P = [], Z0 = [], Wr = [];
       for (let r = 0; r < R; r++) {
         const u = r / (R - 1), c = spl(u), c2 = spl(Math.min(1, u + 0.02)), c1 = spl(Math.max(0, u - 0.02)); const d = new THREE.Vector3(c2[0] - c1[0], c2[1] - c1[1], c2[2] - c1[2]).normalize();
         const up = smooth01((c[1] / s - 1.34) / 0.08) * 3; const out = new THREE.Vector3(c[0], 0, c[2]).normalize(); out.y += up; out.normalize(); // over the shoulder the cloth faces up
-        const sd = new THREE.Vector3().crossVectors(d, out).normalize(); const wd = WD * (0.3 + 0.7 * smooth01(u / 0.22)) * (1 - 0.6 * smooth01((c[1] / s - 1.3) / 0.1)); // gathered where it tucks in at the hip and pleated narrow where it is pinned on the shoulder
+        const sd = new THREE.Vector3().crossVectors(d, out).normalize(); const wd = WD * (sar ? 0.3 + 0.7 * smooth01(u / 0.22) : 1) * (1 - 0.6 * smooth01((c[1] / s - 1.3) / 0.1)); // gathered where it tucks in at the hip and pleated narrow where it is pinned on the shoulder
         const row = [], z0 = []; const wg = c[1] > 1.3 * s ? W1('chest') : c[1] > 1.05 * s ? W2('spine', 'chest', 0.5) : W1('hips'); Wr.push(wg);
         for (let k = 0; k < NCc; k++) {
           const t = k / (NCc - 1) - 0.5; const q = [c[0] + sd.x * t * wd, c[1] + sd.y * t * wd, c[2] + sd.z * t * wd];
@@ -419,15 +422,15 @@ export function buildBodyGeometry(sp) {
           const ty = HB.topY ? HB.topY(q[0], q[2]) : -1e9; let zz = q[2], yy = q[1];
           if (wF > 0) zz = lerp(zz, surfZ(q[1], q[0], 1) + 0.007, wF);
           if (wB > 0) zz = lerp(zz, Math.min(surfZ(q[1], q[0], -1), skBack(q[1], q[0])) - 0.007, wB);
-          if (wT > 0 && ty > q[1] - 0.08 && ty < q[1] + 0.08) yy = lerp(yy, Math.max(yy, ty + 0.007), wT);
+          if (wT > 0 && ty > q[1] - 0.08 && ty < q[1] + 0.045) yy = lerp(yy, Math.max(yy, ty + 0.007), wT);
           row.push([q[0], yy, zz]); z0.push(zz);
         }
         P.push(row); Z0.push(z0);
       }
       for (let r = 1; r < R; r++) for (let k = 0; k < NCc; k++) { const a1 = P[r][k], a0 = P[r - 1][k]; if (a1[2] < -0.02 && a1[1] < a0[1] && a1[2] > a0[2]) { a1[2] = a0[2]; Z0[r][k] = a0[2]; } } // the back end hangs straight down
       const Y0 = P.map((row) => row.map((q) => q[1]));
-      for (let it = 0; it < 3; it++) for (let r = 1; r < R - 1; r++) for (let k = 0; k < NCc; k++) { const q = P[r][k]; if (Math.abs(q[2]) > 0.05 || q[1] < 1.3 * s) continue; // smooth the pleats over the shoulder pin
-        const nb = [P[r - 1][k][1], P[r + 1][k][1]]; if (k > 0) nb.push(P[r][k - 1][1]); if (k < NCc - 1) nb.push(P[r][k + 1][1]); q[1] = Math.max(Y0[r][k] - 0.004, nb.reduce((x, y2) => x + y2, 0) / nb.length); }
+      for (let it = 0; it < 6; it++) for (let r = 1; r < R - 1; r++) for (let k = 0; k < NCc; k++) { const q = P[r][k]; if (Math.abs(q[2]) > 0.06 || q[1] < 1.3 * s) continue; // smooth the pleats over the shoulder pin
+        const nb = [P[r - 1][k][1], P[r + 1][k][1]]; if (k > 0) nb.push(P[r][k - 1][1]); if (k < NCc - 1) nb.push(P[r][k + 1][1]); q[1] = Math.max(Y0[r][k] - 0.012, nb.reduce((x, y2) => x + y2, 0) / nb.length); }
       for (let it = 0; it < 4; it++) for (let r = 1; r < R - 1; r++) for (let k = 0; k < NCc; k++) { // relax: bridge the bust / hollows like real cloth, never sinking into the blouse
         const zf = P[r][k][2] >= 0; const nb = [P[r - 1][k][2], P[r + 1][k][2]]; if (k > 0) nb.push(P[r][k - 1][2]); if (k < NCc - 1) nb.push(P[r][k + 1][2]);
         const m = nb.reduce((x, y2) => x + y2, 0) / nb.length; P[r][k][2] = zf ? Math.max(Z0[r][k], m) : Math.min(Z0[r][k], m);
@@ -435,7 +438,8 @@ export function buildBodyGeometry(sp) {
       const N = P.map((row, r) => row.map((q, k) => { const a1 = P[Math.min(R - 1, r + 1)][k], a0 = P[Math.max(0, r - 1)][k], b1 = row[Math.min(NCc - 1, k + 1)], b0 = row[Math.max(0, k - 1)];
         const n = new THREE.Vector3(a1[0] - a0[0], a1[1] - a0[1], a1[2] - a0[2]).cross(new THREE.Vector3(b1[0] - b0[0], b1[1] - b0[1], b1[2] - b0[2])).normalize(); if (n.x * q[0] + n.z * q[2] < 0) n.negate(); return [n.x, n.y, n.z]; }));
       P.forEach((row, r) => row.forEach((q, k) => { const pl = 0.0035 * Math.sin((k / (NCc - 1)) * Math.PI * 3) * Math.sin(Math.PI * Math.min(1, r / (R - 1) * 1.6)); const n = N[r][k]; q[0] += n[0] * pl; q[1] += n[1] * pl; q[2] += n[2] * pl; })); // lengthwise pleats
-      sb.grid(P, N, Wr, pc, pc.map((v) => v * 0.85));
+      const dc = sar ? pc : pc.map((v) => lerp(v, 1, 0.35)); // a dupatta is usually a lighter, contrasting fabric
+      sb.grid(P, N, Wr, dc, dc.map((v) => v * 0.85));
     } else sb.strip(path, o === 'saree' ? 0.26 : 0.12, (p) => p.out, null, pc, sp.pattern ?? 1);
   }
   // --- arms
@@ -827,7 +831,7 @@ export function buildBodyGeometry(sp) {
     for (const y of [...ysF].reverse()) P.push(bodyPt(y, -1));
     sb.strip(P.map((p, i) => { const a = P[Math.max(0, i - 1)].c, b = P[Math.min(P.length - 1, i + 1)].c; const d = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]).normalize(); const side = new THREE.Vector3().crossVectors(d, p.out).normalize();
       return { c: p.c, side: [side.x, side.y, side.z], out: [p.out.x, p.out.y, p.out.z], w: p.c[1] > 1.3 * s ? W1('chest') : torsoW(p.c[1]) }; }), 0.034, (q) => q.out, null, sc, 0); }
-  const geo = sb.build(); geo.userData.parts = parts; if (NB) geo.userData.npcBody = true;
+  const geo = sb.build(); geo.userData.parts = parts; if (NB) { geo.userData.npcBody = true; parts.legVerts = NB.legVerts; }
   // chest secondary motion (sp.bustSpring, adult female dancers): two relative morph targets on the torso's bust vertices —
   // 0: lift (up, slightly forward), 1: sideways sway. Driven per frame by a damped spring (Character.updateBust); the top
   // over it is the same surface, so it moves with it. Amplitude ±13 / ±9 mm at influence 1.
@@ -1518,9 +1522,10 @@ export class Animator {
     if (b.skirtF2) {
       if (dS > 0.05) { // long garments: aim each lower panel from its (already swung) knee-line hinge at the ankles, plus cloth clearance
         const h2 = (P1, P2, u) => { const c = Math.cos(u), sn = Math.sin(u); return [P1.y + P2.y * c - P2.z * sn, P1.z + P2.y * sn + P2.z * c]; };
+        const clr = this.ch.mesh?.geometry?.userData?.npcBody ? 0.24 : 0.15; // anatomical calves / shins are fuller than the old tube legs
         const uf = uF * 1.04, ub = uB * 1.04, hf = h2(b.skirtF.position, b.skirtF2.position, uf), hb = h2(b.skirtB.position, b.skirtB2.position, ub); let lf = uf, lb = ub;
         for (const [y, z] of ank) { let af = Math.atan2(-(z - hf[1]), -(y - hf[0])), ab = Math.atan2(-(z - hb[1]), -(y - hb[0])); if (af > 1.6) af -= 2 * Math.PI; if (ab < -1.6) ab += 2 * Math.PI; // heel above the hinge: keep the angle continuous past ±π
-          lf = Math.min(lf, af - 0.15); lb = Math.max(lb, ab + 0.15); }
+          lf = Math.min(lf, af - clr); lb = Math.max(lb, ab + clr); }
         b.skirtF2.rotation.set(clamp(lf - uf, -1.3, 0), 0, 0); b.skirtB2.rotation.set(clamp(lb - ub, 0, 1.3), 0, 0);
       } else { b.skirtF2.rotation.set((fwd - uF) * 1.04, 0, 0); b.skirtB2.rotation.set((back - uB) * 1.04, 0, 0); }
     }

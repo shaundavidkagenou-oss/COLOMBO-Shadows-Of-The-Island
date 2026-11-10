@@ -72,7 +72,7 @@ function planOf(sp) {
 export function buildNpcGarments(sb, sp, ctx) {
   const sex = sp.sex === 'f' ? 'f' : 'm'; const S0 = shared(sex); const { B, NH, C } = ctx; const NU = S0.NU;
   const lod = sp._lod ? 1 : 0; const S = { ...S0, idx: S0.lv[lod].idx, nb: S0.lv[lod].nb }; // far LOD: the coarse index level over the same vertices
-  const { armW, handW, legW } = S;
+  const { armW, handW, legW, footW } = S;
   const s = sp.height / 1.72, bw = sp.build ?? 1;
   const skin = C(sp.skin), top = C(sp.top || '#d8d4cc'), bottom = C(sp.bottom || '#2b2e36');
   const PL = planOf(sp);
@@ -106,9 +106,28 @@ export function buildNpcGarments(sb, sp, ctx) {
     return 0.0075 + 0.005 * sstep(0.88 * s, 0.7 * s, yy) + 0.006 * sstep(0.5 * s, 0.18 * s, yy) - 0.002 * sstep(0.93 * s, 0.99 * s, yy); };
   const uv0 = [0.01, 0.51];
   // ---- one garment shell (HeroBody.js construction)
-  const shell = (has, ease, col, hemFor, post, colFn = null) => {
+  // under a skirt / sarong / saree / tunic the legs (skin and any trouser or briefs shell) from ~5 cm above the hem up to the
+  // hips are always covered: they are not emitted at all (no leg poking through the swinging cloth when running, fewer triangles)
+  const sk = sp.skirt; const skHem = sk === 'ankle' ? 0.1 : sk === 'mid' ? 0.32 : sk ? 0.48 : null;
+  const skTop = ((sp.outfit === 'saree') ? 0.85 : 0.95) * s; /* saree: bare midriff above the skirt, cut well below its waist */ const skirtCull = skHem == null ? null : (u) => armW[u] < 0.5 && y(u) > (skHem + 0.12) * s && y(u) < skTop;
+  // just above the hem the legs slim smoothly towards the bone axis (up to 45 %), so a striding knee / calf stays inside the
+  // swinging cloth without a visible cut edge when the hem lifts; positions only (the shared body data is not touched)
+  const slimP = [0, 0, 0];
+  const slim = (u, X, Y, Z) => { slimP[0] = X; slimP[1] = Y; slimP[2] = Z; if (skHem == null || legW[u] < 0.5) return slimP; const f = 0.45 * sstep((skHem + 0.005) * s, (skHem + 0.085) * s, y(u)); if (f <= 0) return slimP;
+    const sd = P[u * 3] > 0 ? 'L' : 'R'; const a = ctx.J[(y(u) > ctx.J['shin' + sd][1] ? 'thigh' : 'shin') + sd], b = ctx.J[(y(u) > ctx.J['shin' + sd][1] ? 'shin' : 'foot') + sd];
+    const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2]; const t = clamp(((X - a[0]) * dx + (Y - a[1]) * dy + (Z - a[2]) * dz) / (dx * dx + dy * dy + dz * dz), 0, 1); const ax = a[0] + dx * t, ay = a[1] + dy * t, az = a[2] + dz * t;
+    slimP[0] = ax + (X - ax) * (1 - f); slimP[1] = ay + (Y - ay) * (1 - f); slimP[2] = az + (Z - az) * (1 - f); return slimP; };
+  const skirtTri = (a, b, c) => (skirtCull(a) ? 1 : 0) + (skirtCull(b) ? 1 : 0) + (skirtCull(c) ? 1 : 0) >= 2; // the cut edge is deep inside the skirt
+  const shell = (has, ease, col, hemFor, post, colFn = null, drop = false) => {
     const inG = new Uint8Array(NU); for (let u = 0; u < NU; u++) inG[u] = has(u, 0.013) ? 1 : 0;
-    const tris = []; for (let t = 0; t < S.idx.length; t += 3) { const a = S.idx[t], b = S.idx[t + 1], c = S.idx[t + 2]; if (inG[a] && inG[b] && inG[c]) tris.push(a, b, c); }
+    for (let it = 0; it < 2; it++) { const add = []; // close pin-holes: a vertex (nearly) surrounded by covered ones is covered too (irregular arm / leg weights)
+      for (let u = 0; u < NU; u++) { if (inG[u] || handW[u] > 0.3 || footW[u] > 0.3) continue; const nb = S.nb[u]; if (nb.length < 3) continue; let c = 0; for (const v of nb) c += inG[v]; if (c >= nb.length - 1) add.push(u); }
+      for (const u of add) inG[u] = 1; }
+    let tris = []; for (let t = 0; t < S.idx.length; t += 3) { const a = S.idx[t], b = S.idx[t + 1], c = S.idx[t + 2]; if (inG[a] && inG[b] && inG[c]) tris.push(a, b, c); }
+    for (let pass = 0; pass < 2; pass++) { // prune "teeth": triangles with two or three open edges stick out of the cut edge (armholes, necklines)
+      const ec = new Map(); const ek = (a, b) => (a < b ? a * 65536 + b : b * 65536 + a); for (let t = 0; t < tris.length; t += 3) for (let k = 0; k < 3; k++) { const key = ek(tris[t + k], tris[t + (k + 1) % 3]); ec.set(key, (ec.get(key) || 0) + 1); }
+      const kept = []; for (let t = 0; t < tris.length; t += 3) { let open = 0; for (let k = 0; k < 3; k++) if (ec.get(ek(tris[t + k], tris[t + (k + 1) % 3])) === 1) open++; if (open < 2) kept.push(tris[t], tris[t + 1], tris[t + 2]); }
+      tris = kept; }
     const used = new Uint8Array(NU); for (const v of tris) used[v] = 1;
     const edge = new Map(); for (let t = 0; t < tris.length; t += 3) for (let k = 0; k < 3; k++) { const a = tris[t + k], b = tris[t + (k + 1) % 3]; const key = a < b ? a * 65536 + b : b * 65536 + a; edge.set(key, (edge.get(key) || 0) + 1); }
     const bnd = new Uint8Array(NU); const bEdges = [];
@@ -126,19 +145,23 @@ export function buildNpcGarments(sb, sp, ctx) {
     // ragged edges that are not level hems (armholes, openings): smooth them along the boundary (1D Laplacian on the loop)
     { const adj = new Map(); for (let i = 0; i < bEdges.length; i += 2) { const a = bEdges[i], b = bEdges[i + 1]; if (!adj.has(a)) adj.set(a, []); if (!adj.has(b)) adj.set(b, []); adj.get(a).push(b); adj.get(b).push(a); }
       const free = [...adj.keys()].filter((u) => hemFor(u) == null && adj.get(u).length === 2);
-      for (let it = 0; it < 4; it++) { const T2 = new Float32Array(free.length * 3); free.forEach((u, k) => { const [a, b] = adj.get(u); for (let c = 0; c < 3; c++) T2[k * 3 + c] = lerp(Q[u * 3 + c], (Q[a * 3 + c] + Q[b * 3 + c]) / 2, 0.5); }); free.forEach((u, k) => { for (let c = 0; c < 3; c++) Q[u * 3 + c] = T2[k * 3 + c]; }); } }
+      for (let it = 0; it < 2; it++) { const T2 = new Float32Array(free.length * 3); free.forEach((u, k) => { const [a, b] = adj.get(u); for (let c = 0; c < 3; c++) T2[k * 3 + c] = lerp(Q[u * 3 + c], (Q[a * 3 + c] + Q[b * 3 + c]) / 2, 0.5); }); free.forEach((u, k) => { for (let c = 0; c < 3; c++) Q[u * 3 + c] = T2[k * 3 + c]; }); } }
     if (post) post(Q, used, bnd);
     const QN = normalsOf(Q, tris, NU);
     const map = new Int32Array(NU).fill(-1);
-    for (let u = 0; u < NU; u++) { if (!used[u]) continue; map[u] = sb.v([Q[u * 3], Q[u * 3 + 1], Q[u * 3 + 2]], [QN[u * 3], QN[u * 3 + 1], QN[u * 3 + 2]], colFn ? colFn(u, Q) : col, uv0, W[u]); }
-    for (let t = 0; t < tris.length; t += 3) { if (Q[tris[t] * 3 + 1] > yTop + 0.004 && Q[tris[t + 1] * 3 + 1] > yTop + 0.004 && Q[tris[t + 2] * 3 + 1] > yTop + 0.004) continue; sb.idx.push(map[tris[t]], map[tris[t + 1]], map[tris[t + 2]]); }
+    if (drop) return { Q, used, map, E, bnd }; // computed (other layers fit against it) but not drawn
+    const live = skirtCull ? new Uint8Array(NU) : null; if (live) for (let t = 0; t < tris.length; t += 3) { const a = tris[t], b = tris[t + 1], c = tris[t + 2]; if (!skirtTri(a, b, c)) live[a] = live[b] = live[c] = 1; }
+    for (let u = 0; u < NU; u++) { if (!used[u] || (live && !live[u])) continue; map[u] = sb.v(slim(u, Q[u * 3], Q[u * 3 + 1], Q[u * 3 + 2]), [QN[u * 3], QN[u * 3 + 1], QN[u * 3 + 2]], colFn ? colFn(u, Q) : col, uv0, W[u]); }
+    for (let t = 0; t < tris.length; t += 3) { if (Q[tris[t] * 3 + 1] > yTop + 0.004 && Q[tris[t + 1] * 3 + 1] > yTop + 0.004 && Q[tris[t + 2] * 3 + 1] > yTop + 0.004) continue; if (map[tris[t]] < 0 || map[tris[t + 1]] < 0 || map[tris[t + 2]] < 0 || (live && skirtTri(tris[t], tris[t + 1], tris[t + 2]))) continue; sb.idx.push(map[tris[t]], map[tris[t + 1]], map[tris[t + 2]]); }
     // turned-under hems: every open edge folds back towards the body (thickness at sleeve ends, the shirt tail, trouser cuffs)
-    const hc = col.map((v) => v * 0.78);
-    if (!lod) for (let i = 0; i < bEdges.length; i += 2) { const a = bEdges[i], b = bEdges[i + 1]; if (Q[a * 3 + 1] > yTop - 0.002 && Q[b * 3 + 1] > yTop - 0.002) continue;
+    const hcHem = col.map((v) => v * 0.78);
+    const fcFree = col.map((v) => v * 0.96); // free edges (armholes, necklines) have no turned-under hem: the edge shows the cloth itself
+    if (!lod) for (let i = 0; i < bEdges.length; i += 2) { const a = bEdges[i], b = bEdges[i + 1]; if (Q[a * 3 + 1] > yTop - 0.002 && Q[b * 3 + 1] > yTop - 0.002) continue; if (map[a] < 0 || map[b] < 0) continue;
+      const hc = hemFor(a) == null || hemFor(b) == null ? fcFree : hcHem;
       const ia = [], ib = []; for (const [u, arr] of [[a, ia], [b, ib]]) { const d = E[u] + 0.003; arr.push(sb.v([Q[u * 3] - N[u * 3] * d, Q[u * 3 + 1] - N[u * 3 + 1] * d, Q[u * 3 + 2] - N[u * 3 + 2] * d], [-N[u * 3], -N[u * 3 + 1], -N[u * 3 + 2]], hc, uv0, W[u])); }
       const oa = sb.v([Q[a * 3], Q[a * 3 + 1], Q[a * 3 + 2]], [0, -1, 0], hc, uv0, W[a]), ob = sb.v([Q[b * 3], Q[b * 3 + 1], Q[b * 3 + 2]], [0, -1, 0], hc, uv0, W[b]);
       sb.idx.push(ob, oa, ia[0], ob, ia[0], ib[0]); }
-    return { Q, used, map, E };
+    return { Q, used, map, E, bnd };
   };
   // ---- legs: trousers / shorts / briefs (first: a tucked shirt sits inside the waistband)
   const legCol = PL.legs === 'briefs' ? C(sp.skirtCol || sp.bottom || '#333').map((v) => v * 0.7) : bottom;
@@ -167,7 +190,7 @@ export function buildNpcGarments(sb, sp, ctx) {
       const T = new Float32Array(Q); for (let it = 0; it < 2; it++) { for (let u = 0; u < NU; u++) { if (!used[u] || legW[u] < 0.5 || Q[u * 3 + 1] < legHem + 0.01) continue; let x = 0, yy = 0, z = 0, n = 0; for (const v of S.nb[u]) { if (!used[v]) continue; x += Q[v * 3]; yy += Q[v * 3 + 1]; z += Q[v * 3 + 2]; n++; } if (!n) continue; T[u * 3] = lerp(Q[u * 3], x / n, 0.5); T[u * 3 + 1] = lerp(Q[u * 3 + 1], yy / n, 0.5); T[u * 3 + 2] = lerp(Q[u * 3 + 2], z / n, 0.5); } Q.set(T); }
       for (let u = 0; u < NU; u++) { if (!used[u]) continue; const d = (Q[u * 3] - P[u * 3]) * N[u * 3] + (Q[u * 3 + 1] - P[u * 3 + 1]) * N[u * 3 + 1] + (Q[u * 3 + 2] - P[u * 3 + 2]) * N[u * 3 + 2]; const m = 0.006; if (d < m) for (let k = 0; k < 3; k++) Q[u * 3 + k] += N[u * 3 + k] * (m - d); } }
     if (!boots) return; // tucked into the boot shaft (Character.js boot loft)
-    for (let u = 0; u < NU; u++) { if (!used[u] || Q[u * 3 + 1] > 0.215 * s) continue; const ft = ctx.J[P[u * 3] > 0 ? 'footL' : 'footR']; const dx = Q[u * 3] - ft[0], dz = Q[u * 3 + 2] + 0.008; const e = Math.hypot(dx / 0.042, dz / 0.046); if (e > 1) { Q[u * 3] = ft[0] + dx / e; Q[u * 3 + 2] = -0.008 + dz / e; } } });
+    for (let u = 0; u < NU; u++) { if (!used[u] || Q[u * 3 + 1] > 0.215 * s) continue; const ft = ctx.J[P[u * 3] > 0 ? 'footL' : 'footR']; const dx = Q[u * 3] - ft[0], dz = Q[u * 3 + 2] + 0.008; const e = Math.hypot(dx / 0.042, dz / 0.046); if (e > 1) { Q[u * 3] = ft[0] + dx / e; Q[u * 3 + 2] = -0.008 + dz / e; } } }, null, PL.legs === 'briefs' && skHem != null); // briefs under a skirt: the skin there is culled / covered anyway
   // ---- drape: the top hangs from the chest / shoulder blades instead of following the waist in
   const drape = (Q, used) => {
     const NA = 48, DY = 0.015, Y0 = shirtHem - 0.03, Y1 = 1.34 * s, NYb = Math.ceil((Y1 - Y0) / DY) + 1, TAPER = 0.3; if (NYb < 3) return;
@@ -206,7 +229,7 @@ export function buildNpcGarments(sb, sp, ctx) {
   const jacketCol = null;
   // ---- top: neck conformed to the head's neck ellipse; the top edge a level line at yTop
   // the shirt / tee showing in the open front of a jacket or hoodie: a panel under it, a little larger than the opening
-  const sh = shell(shirtHas, shirtEase, top, (u) => (armW[u] >= 0.5 ? sleeveY : y(u) < 1.25 * s ? shirtHem : null), (Q, used, bnd) => {
+  const sh = shell(shirtHas, shirtEase, top, (u) => (armW[u] >= 0.5 ? sleeveY : y(u) < (PL.sleeve === 'none' ? Math.min(1.15 * s, shirtHem + 0.1) : 1.25 * s) ? shirtHem : null), (Q, used, bnd) => {
     if (sex === 'f') bridge(Q, used);
     drape(Q, used);
     for (let u = 0; u < NU; u++) { if (!used[u] || armW[u] >= 0.5) continue; const yy = Q[u * 3 + 1]; const t = sstep(yTop - 0.06, yTop - 0.004, yy); if (t <= 0) continue;
@@ -214,23 +237,27 @@ export function buildNpcGarments(sb, sp, ctx) {
       const a = Math.atan2((Q[u * 3 + 2] - E0.cz) / (E0.rz + m), Q[u * 3] / (E0.rx + m));
       Q[u * 3] = lerp(Q[u * 3], Math.cos(a) * (E0.rx + m), tt); Q[u * 3 + 2] = lerp(Q[u * 3 + 2], E0.cz + Math.sin(a) * (E0.rz + m), tt); Q[u * 3 + 1] = Math.min(yy, yTop); } }, jacketCol);
   // ---- skin: everything not deeply covered (2.5 cm past every garment edge stays, so no gap shows into a sleeve or collar)
-  const coveredTorso = (u) => y(u) >= shirtHem + 0.025;
-  const coveredLeg = (u) => y(u) <= waistY - 0.02 && y(u) >= legHem + 0.03;
+  const coveredTorso = (u) => y(u) >= shirtHem + 0.025 && sh.map[u] >= 0 && !sh.bnd[u]; // only where the shirt really has cloth (not at its edges) // shoulders show through a singlet's armholes
+  const briefsOff = PL.legs === 'briefs' && skHem != null; // briefs under a skirt are not drawn, so they hide nothing
+  const coveredLeg = (u) => !briefsOff && y(u) <= waistY - 0.02 && y(u) >= legHem + 0.03;
   const hidden = (u) => {
     if (armW[u] >= 0.5) return PL.sleeve !== 'none' && handW[u] < 0.5 && y(u) >= sleeveY + 0.03;
     if (y(u) < footCut) return true;
+    if (skirtCull && skirtCull(u)) return true;
     if (legW[u] < 0.5) return coveredTorso(u) || coveredLeg(u);
     return coveredLeg(u);
   };
   const glove = sp.gloves ? C(sp.gloves) : null;
   const bmap = new Int32Array(NU).fill(-1); const nailC = skin.map((v, i) => Math.min(1, v * 1.32 + [0.08, 0.05, 0.05][i]));
-  const bodyTris = []; for (let t = 0; t < S.idx.length; t += 3) { const a = S.idx[t], b = S.idx[t + 1], c = S.idx[t + 2]; if (hidden(a) && hidden(b) && hidden(c)) continue; if (y(a) > cutY - 0.001 && y(b) > cutY - 0.001 && y(c) > cutY - 0.001) continue; bodyTris.push(a, b, c); }
+  const bodyTris = []; for (let t = 0; t < S.idx.length; t += 3) { const a = S.idx[t], b = S.idx[t + 1], c = S.idx[t + 2]; if (hidden(a) && hidden(b) && hidden(c)) continue; if (skirtCull && skirtTri(a, b, c)) continue; if (y(a) > cutY - 0.001 && y(b) > cutY - 0.001 && y(c) > cutY - 0.001) continue; bodyTris.push(a, b, c); }
   for (const u of bodyTris) { if (bmap[u] >= 0) continue; const gl = glove && armW[u] >= 0.5 && (handW[u] >= 0.35 || y(u) < 0.905 * s); const nl = S.nail[u] / 255;
     const col = gl ? glove : nl > 0 ? skin.map((v, i) => lerp(v, nailC[i], nl)) : skin;
-    bmap[u] = sb.v([P[u * 3], P[u * 3 + 1], P[u * 3 + 2]], [N[u * 3], N[u * 3 + 1], N[u * 3 + 2]], col, uv0, W[u]); }
+    bmap[u] = sb.v(slim(u, P[u * 3], P[u * 3 + 1], P[u * 3 + 2]), [N[u * 3], N[u * 3 + 1], N[u * 3 + 2]], col, uv0, W[u]); }
   for (const u of bodyTris) sb.idx.push(bmap[u]);
+  // leg vertices actually emitted (skin + trouser / briefs shell): the clothing test checks them against skirts in motion
+  const legVerts = []; for (let u = 0; u < NU; u++) if (legW[u] >= 0.5) { if (bmap[u] >= 0) legVerts.push(bmap[u]); if (tr.map[u] >= 0) legVerts.push(tr.map[u]); }
   // ---- surface queries for everything built on top (belts, pockets, plackets, straps, vests, skirts, scarves)
-  const out = {};
+  const out = { legVerts };
   const torsoPt = [];
   for (let u = 0; u < NU; u++) { if (armW[u] >= 0.5 || (legW[u] >= 0.5 && P[u * 3 + 1] < 0.86 * s)) continue; const Qs = sh.used[u] && (y(u) >= (PL.tucked ? 0.975 : PL.hem) * s) ? sh.Q : tr.used[u] ? tr.Q : sh.used[u] ? sh.Q : P; torsoPt.push(Qs[u * 3], Qs[u * 3 + 1], Qs[u * 3 + 2]); }
   const ringCache = new Map();

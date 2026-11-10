@@ -17,7 +17,7 @@ for (const [key, sp] of specs) {
   const ch = new Character(sp); const m = ch.mesh, P = m.geometry.userData.parts, A = ch.anim; if (!P || !P.skirt) { out.push(`skip ${key}: no part ranges`); continue; }
   const W = P.skirtSeg + 1, nR = (P.skirt[1] - P.skirt[0]) / W; const pos = m.geometry.attributes.position;
   const topY = pos.getY(P.skirt[0]), hemY = pos.getY(P.skirt[0] + (nR - 1) * W);
-  const legIdx = []; for (const [a, b] of P.legs) for (let i = a; i < b; i++) { const y = pos.getY(i); if (y < topY - 0.06 && y > hemY + 0.03) legIdx.push(i); }
+  const legIdx = []; const legSrc = P.legVerts || P.legs.flatMap(([a, b]) => Array.from({ length: b - a }, (_, k) => a + k)); /* anatomical crowd bodies list their emitted leg vertices */ for (const i of legSrc) { const y = pos.getY(i); if (y < topY - 0.06 && y > hemY + 0.03) legIdx.push(i); }
   let worst = 0, worstPose = ''; const per = {};
   for (const [pose, spd, frames] of [['idle', 0, 30], ['walk', 1.4, 90], ['brisk', 2.0, 90], ['run', 5.0, 60]]) {
     A.set(null); for (let i = 0; i < 60; i++) A.update(1 / 60, spd);
@@ -38,7 +38,7 @@ for (const [key, sp] of specs) {
         for (let q = 0; q < prof.length - 1; q++) { const [r0, y0] = prof[q], [r1, y1] = prof[q + 1]; const dr = r1 - r0, dy = y1 - y0, L2 = dr * dr + dy * dy || 1e-9;
           const tt = ((rad - r0) * dr + (v.y - y0) * dy) / L2; const tc = Math.min(1, Math.max(0, tt)); const pr = r0 + dr * tc, py = y0 + dy * tc; const dist = Math.hypot(rad - pr, v.y - py);
           if (dist < best) { best = dist; const L = Math.sqrt(L2); sd = ((rad - pr) * -dy + (v.y - py) * dr) / L; cover = !((q === 0 && tt < 0) || (q === prof.length - 2 && tt > 1)); } }
-        if (!cover) continue; checks++; per[pose] = Math.max(per[pose] || 0, sd); if (sd > worst) { worst = sd; worstPose = `${pose} f${f}`; }
+        if (!cover) continue; checks++; per[pose] = Math.max(per[pose] || 0, sd); if (sd > worst) { worst = sd; worstPose = `${pose} f${f}`; if (process.env.CLOTH_DEBUG) worstPose += ` restY ${pos.getY(i).toFixed(3)} (hem ${hemY.toFixed(3)} top ${topY.toFixed(3)}) skinnedY ${v.y.toFixed(3)} th ${(th * 57.3).toFixed(0)}° x ${pos.getX(i).toFixed(3)} z ${pos.getZ(i).toFixed(3)}`; }
       }
     }
   }
