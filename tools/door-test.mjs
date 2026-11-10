@@ -54,6 +54,9 @@ for (const type of Object.keys(VTYPES).filter((t) => !process.env.TYPES || proce
     // door skin at the SAME height as the body sample (outermost skin x interpolated over y): bodies with a shoulder curve
     // change x quickly with height, so comparing points up to 6 cm apart in y would report a step that is not there
     const skin = []; for (let i = 0; i < dp.count; i++) { v3.fromBufferAttribute(dp, i).applyMatrix4(paintM.matrixWorld); if (Math.abs(v3.y - yb) < (door.cab ? 1.3 : 0.1) && (zEdge - v3.z) * dir < 0.08 && (zEdge - v3.z) * dir >= (door.cab ? -0.001 : 0)) skin.push([v3.y, mx(v3.x), Math.abs(zEdge - v3.z)]); }
+    /* outer skin only: the edge band also holds the shut face's inner points (~13 cm in); one of those as the nearest-height
+       sample interpolated a step that was not there (bhoomimaxi: skin 0.839 vs body 0.838, reported 28 mm) */
+    if (!door.cab) { const all = skin.slice(); skin.length = 0; for (const p of all) { const o = Math.min(...all.filter((q) => Math.abs(q[0] - p[0]) < 0.03).map((q) => q[1])); if (p[1] <= o + 0.03) skin.push(p); } }
     let xd = 0; { const lo = skin.filter((p) => p[0] <= yb).sort((p, q) => q[0] - p[0] || p[1] - q[1])[0], hi = skin.filter((p) => p[0] >= yb).sort((p, q) => p[0] - q[0] || p[1] - q[1])[0];
       const outer = (yv) => Math.min(...skin.filter((p) => Math.abs(p[0] - yv) < 1e-4).map((p) => p[1]));
       if (door.cab && skin.length) { const e = Math.min(...skin.map((p) => p[2])); xd = Math.min(...skin.filter((p) => p[2] < e + 0.002).map((p) => p[1])); } /* cab door: flat vertical panel per z — its outermost skin point at the edge */ else if (lo && hi) { const xl = outer(lo[0]), xh = outer(hi[0]); xd = hi[0] - lo[0] > 1e-4 ? xl + (xh - xl) * (yb - lo[0]) / (hi[0] - lo[0]) : Math.min(xl, xh); } }

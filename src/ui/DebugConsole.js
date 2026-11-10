@@ -2,8 +2,10 @@
 //   `  (Backquote)        open / close the console (typing never reaches the game while it is open)
 //   debug.menu true       enable the debug menu; Numpad 2 then opens / closes it (debug.menu false disables it again)
 // The menu (keyboard: ↑/↓ or Numpad 8/2 move · Enter / Numpad 5 select · Backspace / Numpad 4 back; mouse works too)
-// holds the cheats: time, weather, spawning pedestrians and vehicles, re-dressing nearby pedestrians, player model,
-// infinite ammo, never wanted, teleport, god mode, money and weapons. Every cheat is also a console command (type `help`).
+// holds the cheats: time, weather, spawning pedestrians and vehicles (real-model cars, buses & lorries, police & emergency,
+// SUVs, bikes), the vehicle you are in / next to (info, repair, upright, doors), re-dressing nearby pedestrians, player
+// model, infinite ammo, never wanted, teleport, god mode, money and weapons, plus world & systems (drunk level, hero rooms,
+// NPC minds, benchmark, editors, FPS counter). Every cheat is also a console command (type `help`).
 // Pedestrians spawned or re-dressed here come from the crowd's own adult spec pool — no new spawn paths.
 import * as THREE from 'three';
 import { Input } from '../core/Input.js';
@@ -14,7 +16,9 @@ import { WEAPONS } from '../combat/WeaponDefs.js';
 import { WEATHER } from '../gfx/Atmosphere.js';
 import { PLACES } from '../world/Layout.js';
 import { HEROES, Character } from '../actors/Character.js';
-import { Vehicle } from '../vehicles/Vehicle.js';
+import { Vehicle, LIVE_VEHICLES } from '../vehicles/Vehicle.js';
+import { driveDoor, shutDoorLater } from '../vehicles/DoorRig.js';
+import { REAL_TYPES, realAsset } from '../vehicles/RealModels.js';
 import { VTYPES } from '../vehicles/VehicleModels.js';
 import { SUV_IDS, OTHER_IDS, displayName } from '../vehicles/VehicleCatalog.js';
 import { BIKE_IDS, SUPERBIKE_IDS, BIKES, bikeName } from '../vehicles/BikeCatalog.js';
@@ -23,6 +27,8 @@ const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt
 const VEH = ['tuktuk', 'car', 'sedan', 'taxi', 'van', 'suv', 'bike', 'bus', 'lorry'].filter((t) => VTYPES[t]);
 const vName = (v) => (BIKES[v] ? bikeName(v) : VTYPES[v] && VTYPES[v].catalog ? displayName(v, VTYPES[v]) : v); // cars use the car makes, bikes the bike makes
 const CAT_VEH = [...SUV_IDS, ...OTHER_IDS, ...BIKE_IDS]; // the 40 catalogue models + 20 motorcycles / scooters (fictional makes)
+const HEAVY = ['bus', 'pbus', 'lorry', 'tow'].filter((t) => VTYPES[t]), EMERG = ['police', 'policejeep', 'policebike', 'ambulance'].filter((t) => VTYPES[t]);
+const realTag = (v) => (realAsset(v) ? ' · real model' : ''); // body converted from a real car model (badges removed); otherwise procedural
 const MODELS = ['dineth', 'shashika', 'david', 'ruwan', 'fathima', 'selvaraj', 'bandara', 'anjali'].filter((k) => HEROES[k]);
 const fmtH = (h) => `${String(Math.floor(h) % 24).padStart(2, '0')}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}`;
 
@@ -81,7 +87,7 @@ export class DebugConsole {
     try {
       switch (c) {
         case 'help': ['debug.menu true|false — enable the debug menu (open it with Numpad 2)', 'time <0-24> · freeze [on|off]', `weather <${Object.keys(WEATHER).join('|')}>`, 'money <amount>', 'god [on|off] · ammo [on|off] (infinite) · nowanted [on|off]', 'mind · mind stats · mind off|on — NPC personality / feelings / memories',
-          `give <all|grenades|${WEAPONS.map((w) => w.id).join('|')}>`, 'tp <place> | tp <x> <z> | tp waypoint · places', 'drunk <0..1> · room <dineth|shashika|david>', 'bench [seconds] — frame-rate benchmark of real play (avg fps, 1 % / 0.1 % lows, worst frame); the console closes while it runs', `spawn ped [n] · spawn car [${VEH.join('|')}|<catalogue id>]`, 'cars — list the 40 catalogue vehicles (ids for spawn car)', `model <${MODELS.join('|')}|civilian|reset>`, 'dress [outfit] — re-dress pedestrians within 35 m · outfits', 'animations — animation editor (every animation in the game, keyframes, poses, speed …)', 'map — map editor (move / add / delete / repaint anything, save the map)', 'npc — NPC editor (remodel NPCs: every appearance parameter, proportions, paint on the model, fabric textures)', 'heal · clear · close'].forEach((s) => this.print('  ' + s)); break;
+          `give <all|grenades|${WEAPONS.map((w) => w.id).join('|')}>`, 'tp <place> | tp <x> <z> | tp waypoint · places', 'drunk <0..1> · room <dineth|shashika|david>', 'vehicle info|repair|upright|open|close — your vehicle, or the nearest within 10 m', 'bench [seconds] — frame-rate benchmark of real play (avg fps, 1 % / 0.1 % lows, worst frame); the console closes while it runs', `spawn ped [n] · spawn car [${VEH.join('|')}|<catalogue id>]`, 'cars — list the 40 catalogue vehicles (ids for spawn car)', `model <${MODELS.join('|')}|civilian|reset>`, 'dress [outfit] — re-dress pedestrians within 35 m · outfits', 'animations — animation editor (every animation in the game, keyframes, poses, speed …)', 'map — map editor (move / add / delete / repaint anything, save the map)', 'npc — NPC editor (remodel NPCs: every appearance parameter, proportions, paint on the model, fabric textures)', 'heal · clear · close'].forEach((s) => this.print('  ' + s)); break;
         case 'debug.menu': this.D.menuEnabled = on(a[0], this.D.menuEnabled); if (!this.D.menuEnabled) this.toggleMenu(false); this.print(`debug menu ${this.D.menuEnabled ? 'ENABLED — press Numpad 2 to open it' : 'disabled'}`, 'ok'); break;
         case 'time': this.setTime(+a[0]); break;
         case 'freeze': this.D.freezeTime = on(a[0], this.D.freezeTime); this.print(`clock ${this.D.freezeTime ? 'frozen' : 'running'}`, 'ok'); break;
@@ -100,7 +106,8 @@ export class DebugConsole {
         case 'outfits': this.print('  ' + this.outfits().join(', ')); break;
         case 'heal': this.g.health.hp = 100; this.print('healed', 'ok'); break;
         case 'drunk': { const D = this.g.drunk; if (!D) throw new Error('no drunk system'); const v = Math.max(0, Math.min(1.1, +(a[0] ?? 0.8))); D.level = v; D.eff = v; D.hold = 30; this.print(`drunk level ${v.toFixed(2)} (${D.label})`, 'ok'); break; }
-        case 'room': { const id = { dineth: 'room', shashika: 'room_shashika', david: 'room_david' }[a[0] || 'dineth']; const I = this.g.interiors; const d = I.doors.find((x) => x.id === id) || (id === 'room' ? { id: 'room', x: this.g.player.x, z: this.g.player.z, rot: 0, faceIn: Math.PI } : null); if (!d) throw new Error('no such room door'); if (I.current) throw new Error('leave the current interior first'); I.enter(d); this.print('entering ' + id, 'ok'); break; }
+        case 'room': this.room(a[0] || 'dineth'); break;
+        case 'vehicle': case 'veh': { const op = (a[0] || 'info').toLowerCase(); if (op === 'info') this.vehInfo(); else if (op === 'repair') { const v = this.vehTarget(); v.damage = 0; v.health = 100; this.say(`${vName(v.type)} repaired`); } else if (op === 'upright') { const v = this.vehTarget(); v.speed = 0; v.lat = 0; if (v.sus) Object.assign(v.sus, { r: 0, rv: 0, h: 0, hv: 0 }); v.place(v.x, v.z, v.yaw); this.say(`${vName(v.type)} set upright`); } else if (op === 'open' || op === 'close') this.vehDoors(op === 'open'); else throw new Error('vehicle info|repair|upright|open|close'); break; }
         case 'animations': case 'anim': case 'map': case 'npc': case 'npcs': { // the editors are separate modules, downloaded only now
           const kind = c.startsWith('anim') ? 'animations' : c.startsWith('npc') ? 'npc' : 'map'; this.print(`loading the ${kind} editor…`, 'sys'); this.toggle(false);
           openEditor(kind, this.g).catch((e) => { console.error(e); this.toggle(true); this.print('editor failed to load: ' + (e && e.message || e), 'err'); }); break; }
@@ -140,6 +147,12 @@ export class DebugConsole {
     const [sx, sz] = g.story.safeSpot ? g.story.safeSpot(x, z) : [x, z]; P.teleport(sx, sz, P.yaw); if (g.world.trim) g.world.trim(sx, sz); this.say(`teleported to ${label}`);
   }
   tpWaypoint() { const w = this.g.hud.waypoint; if (!w) throw new Error('no waypoint set (set one on the map)'); this.teleport(w.x, w.z, 'waypoint'); }
+  room(who) { const id = { dineth: 'room', shashika: 'room_shashika', david: 'room_david' }[who || 'dineth']; if (!id) throw new Error('room <dineth|shashika|david>'); const I = this.g.interiors; const d = I.doors.find((x) => x.id === id) || (id === 'room' ? { id: 'room', x: this.g.player.x, z: this.g.player.z, rot: 0, faceIn: Math.PI } : null); if (!d) throw new Error('no such room door'); if (I.current) throw new Error('leave the current interior first'); I.enter(d); this.print('entering ' + id, 'ok'); }
+  // the player's vehicle, else the nearest live vehicle within 10 m
+  vehTarget() { const P = this.g.player; if (P.vehicle) return P.vehicle; let best = null, bd = 10; for (const v of LIVE_VEHICLES) { if (v.disposed || !v.mesh || !v.mesh.parent) continue; const d = Math.hypot(v.x - P.x, v.z - P.z); if (d < bd) { bd = d; best = v; } } if (!best) throw new Error('no vehicle within 10 m'); return best; }
+  vehInfo() { const v = this.vehTarget(), T = v.T, ud = v.mesh.userData; const lvl = ud.real ? ['LOD0', 'LOD1', 'LOD2'][ud.real.level] || '?' : ud.lodNear ? 'near kit' : 'far';
+    this.say(`${vName(v.type)} (${v.type}) · ${T.cls || T.fam || 'vehicle'} · ${realAsset(v.type) ? 'real model' : 'procedural'} · ${lvl} · damage ${Math.round((v.damage || 0) * 100)} % · ${Math.round(Math.abs(v.speed || 0) * 3.6)} km/h · ${(ud.doors || []).length} doors`); }
+  vehDoors(open) { const v = this.vehTarget(), D = (v.mesh.userData.doors || []); if (!D.length) throw new Error('this vehicle has no opening doors'); for (const d of D) { if (open) driveDoor(v, d, d.leaf ? 1 : 0.85); else shutDoorLater(v, d, 0); } this.say(`${D.length} doors ${open ? 'opened' : 'closing'}`); }
   spawnPeds(n) {
     const C = this.g.crowd, P = this.g.player; let k = 0; C.max = Math.max(C.max, C.peds.length + n);
     for (let i = 0; i < n * 3 && k < n; i++) if (C.spawn({ x: P.x, z: P.z }, null, true)) k++;
@@ -197,10 +210,28 @@ export class DebugConsole {
       { label: 'Spawn', sub: () => ({ title: 'Spawn', items: [
         { label: 'Spawn 5 pedestrians', act: () => this.spawnPeds(5) }, { label: 'Spawn 15 pedestrians', act: () => this.spawnPeds(15) },
         ...VEH.map((v) => ({ label: 'Spawn ' + v, act: () => this.spawnCar(v) })),
-        { label: 'SUVs (10)', sub: () => ({ title: 'Spawn SUV', items: SUV_IDS.map((v) => ({ label: `${displayName(v, VTYPES[v])} · ${VTYPES[v].cls}`, act: () => this.spawnCar(v) })) }) },
+        { label: `Real-model cars (${REAL_TYPES.length})`, sub: () => ({ title: 'Spawn real-model car', items: REAL_TYPES.filter((v) => VTYPES[v]).map((v) => ({ label: `${vName(v)} · ${VTYPES[v].cls}${realAsset(v) ? '' : ' · (model not loaded: procedural)'}`, act: () => this.spawnCar(v) })) }) },
+        { label: `Buses & lorries (${HEAVY.length})`, sub: () => ({ title: 'Spawn bus / lorry', items: HEAVY.map((v) => ({ label: { bus: 'CTB bus', pbus: 'Private bus', lorry: 'Lorry', tow: 'Tow truck' }[v] || v, act: () => this.spawnCar(v) })) }) },
+        { label: `Police & emergency (${EMERG.length})`, sub: () => ({ title: 'Spawn police / emergency', items: EMERG.map((v) => ({ label: { police: 'Police car', policejeep: 'Police jeep', policebike: 'Police motorcycle', ambulance: '1990 Suwa Seriya ambulance' }[v] || v, act: () => this.spawnCar(v) })) }) },
+        { label: `SUVs (${SUV_IDS.length})`, sub: () => ({ title: 'Spawn SUV', items: SUV_IDS.map((v) => ({ label: `${displayName(v, VTYPES[v])} · ${VTYPES[v].cls}`, act: () => this.spawnCar(v) })) }) },
         { label: `Superbikes (${SUPERBIKE_IDS.length})`, sub: () => ({ title: 'Spawn superbike', items: SUPERBIKE_IDS.map((v) => ({ label: `${bikeName(v)} · ${BIKES[v].cc} cc`, act: () => this.spawnCar(v) })) }) },
         { label: `Motorcycles & scooters (${BIKE_IDS.length})`, sub: () => ({ title: 'Spawn motorcycle', items: BIKE_IDS.map((v) => ({ label: `${bikeName(v)} · ${BIKES[v].cc} cc · ${BIKES[v].cls}`, act: () => this.spawnCar(v) })) }) },
-        { label: 'Cars, vans & trucks (30)', sub: () => ({ title: 'Spawn vehicle', items: OTHER_IDS.map((v) => ({ label: `${displayName(v, VTYPES[v])} · ${VTYPES[v].cls}`, act: () => this.spawnCar(v) })) }) },
+        { label: `Cars, vans & trucks (${OTHER_IDS.length})`, sub: () => ({ title: 'Spawn vehicle', items: OTHER_IDS.map((v) => ({ label: `${displayName(v, VTYPES[v])} · ${VTYPES[v].cls}${realTag(v)}`, act: () => this.spawnCar(v) })) }) },
+      ] }) },
+      { label: 'Vehicle', sub: () => ({ title: 'Vehicle (yours, or the nearest within 10 m)', items: [
+        { label: 'Info', act: () => this.vehInfo() },
+        { label: 'Repair', act: () => { const v = this.vehTarget(); v.damage = 0; v.health = 100; this.say(`${vName(v.type)} repaired`); } },
+        { label: 'Set upright / stop', act: () => { const v = this.vehTarget(); v.speed = 0; v.lat = 0; if (v.sus) Object.assign(v.sus, { r: 0, rv: 0, h: 0, hv: 0 }); v.place(v.x, v.z, v.yaw); this.say(`${vName(v.type)} set upright`); } },
+        { label: 'Open all doors', act: () => this.vehDoors(true) }, { label: 'Close all doors', act: () => this.vehDoors(false) },
+      ] }) },
+      { label: 'World & systems', sub: () => ({ title: 'World & systems', items: [
+        { label: 'Drunk level', sub: () => ({ title: 'Drunk level', items: [[0, 'Sober'], [0.4, 'Tipsy'], [0.8, 'Drunk'], [1.1, 'Wasted']].map(([v, n]) => ({ label: `${n} (${v})`, act: () => { this.exec('drunk ' + v); this.say(`drunk level: ${n}`); } })) }) },
+        { label: 'Hero rooms', sub: () => ({ title: 'Hero rooms', items: ['dineth', 'shashika', 'david'].map((h) => ({ label: `${h[0].toUpperCase() + h.slice(1)}'s room`, act: () => { this.toggleMenu(false); this.room(h); } })) }) },
+        { label: 'NPC minds (personality / memory)', val: () => (g.crowd && g.crowd.minds ? (g.crowd.minds.enabled ? 'ON' : 'OFF') : '—'), act: () => { const M = g.crowd && g.crowd.minds; if (!M) throw new Error('no crowd minds'); M.enabled = !M.enabled; this.say(`NPC minds ${M.enabled ? 'on' : 'off'}`); } },
+        { label: 'Inspect nearest person (console)', act: () => { this.toggleMenu(false); this.toggle(true); this.exec('mind'); } },
+        { label: 'Benchmark 20 s (result in console)', act: () => { this.toggleMenu(false); this.bench(20); } },
+        { label: 'Show FPS counter', val: () => t(Settings.get('showFps')), act: () => Settings.set('showFps', !Settings.get('showFps')) },
+        { label: 'Editors', sub: () => ({ title: 'Editors (loaded on demand)', items: [['animations', 'Animation editor'], ['map', 'Map editor'], ['npc', 'NPC editor']].map(([k, n]) => ({ label: n, act: () => { this.toggleMenu(false); this.exec(k); } })) }) },
       ] }) },
       { label: 'Pedestrian clothing', sub: () => ({ title: 'Re-dress pedestrians (35 m)', items: [{ label: 'Random outfits', act: () => this.dress() }, ...this.outfits().map((o) => ({ label: o, act: () => this.dress(o) }))] }) },
       { label: 'Teleport', sub: () => ({ title: 'Teleport', items: [{ label: 'To map waypoint', act: () => this.tpWaypoint() }, ...Object.values(PLACES).map((p) => ({ label: p.name, act: () => this.teleport(p.x, p.z, p.name) }))] }) },

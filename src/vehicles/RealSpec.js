@@ -18,6 +18,6 @@ export function sampleCol(arr, z0, n, step, z) { const f = Math.max(0, Math.min(
 export function realDoorSpec(sp) {
   const xs = Float32Array.from(sp.xs, (v) => v / 1000); const { z0, y0, nz, ny, step } = sp;
   const col = (a) => (a ? (z) => sampleCol(a, z0, nz, step, z) : null);
-  return { real: true, zR: sp.zR, zF: sp.zF, by: sp.by, xc: sp.xc, gw0: sp.gw0, gw1: sp.gw1, winR: sp.winR ?? null, rects: sp.rects,
+  return { real: true, zR: sp.zR, zF: sp.zF, by: sp.by, xc: sp.xc, gw0: sp.gw0, gw1: sp.gw1, winR: sp.winR ?? null, rects: sp.rects, hs: sp.hs ?? null,
     skinPt: (z, y) => [-sampleXS(xs, z0, y0, nz, ny, step, z, y), y, z], topAt: col(sp.topA), glY: col(sp.glY), roofY: col(sp.roofY) };
 }

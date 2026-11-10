@@ -75,6 +75,7 @@ export const MODELS = {
     src: 'z_corvette.glb', title: 'Chevrolet Corvette (C7)', url: 'https://sketchfab.com/3d-models/chevrolet-corvette-c7-2b509d1bce104224b147c81757f6f43a', author: 'Martin Trafas',
     note: 'de-identified edit by ZTARK (github.com/windowfilmresources-prog/ztark-tint-visualizer)', len: 4.49, rotY: 0,
     budget: { lod0: 90000, wheel0: 9000, wheel1: 600 }, // a very dense source (1M triangles): the paint keeps its surfacing
+    doorFrontTrim: 0.012, // the door's leading-edge wrap 1–8 cm ahead of the hinge (behind the fender) is dropped
     doorDepth: 0.18, // the door skin piece carries its own inner return flanges / window ledge, ~15 cm deep: the generated card sits behind them
     trimUnlock: true,
     fill: [{ quad: [[-0.22, 0.72, 1.5], [-0.22, 0.72, 1.76], [0.22, 0.72, 1.76], [0.22, 0.72, 1.5]] }], // hood-vent floor (opening z 1.55…1.70, |x| < 0.17) // ~110k triangles of small loose trim (gloss plastics, reflectors, grille mesh) cannot simplify with locked borders
@@ -103,6 +104,8 @@ export const MODELS = {
     doors: [{ role: 'front', zone: [-0.9, 0.52, 0.15, 1.08], xmin: 0.6, /* the door skin is its own piece in this source: taken whole by the zone (a seam outline relabelled fender / sill slivers) */
       split: [-0.77, 0.5], splitY: [0.84, 1.25] }],
     isHandle: () => false, // a hidden pull in the door's rear-top pocket: nothing to grab outside
+    shutTrim: [0.075, 0.075, 0.08], // shut faces / jamb walls matte dark (a shadowed gap) — the 18 cm walls behind the deep C7 shut lines glinted as facets
+    handleStyle: 'hidden', // the game's grasp bar is drawn as a slim dark pull under the door's top edge, not a chrome bar on a plate
     plates: { front: [0, 0.3], rear: [0, 0.55] },
   },
 };

@@ -208,7 +208,7 @@ function doorSpec(M, D) {
   const hx = skinAt(zF - 0.02, by - 0.15); const yb = lo[1];
   D.spec = { z0, y0, nz, ny, step: GS, xs: Array.from(xs, (v) => Math.round(v * 1000)), topA: Array.from(fill(topA), (v) => +v.toFixed(4)), glY: glass.length ? Array.from(glY, (v) => +v.toFixed(4)) : null, roofY: glass.length ? Array.from(roofY, (v) => +v.toFixed(4)) : null,
     winR: winR(mine, zR, glY, roofY, z0, nz, GS),
-    gw0: n0 ? +(gw0 / n0).toFixed(4) : null, gw1: n1 ? +(gw1 / n1).toFixed(4) : null, zR: +zR.toFixed(4), zF: +zF.toFixed(4), by: +by.toFixed(4), xc: +xc.toFixed(4), rects: [[+zR.toFixed(4), +zF.toFixed(4), +yb.toFixed(4)]] };
+    gw0: n0 ? +(gw0 / n0).toFixed(4) : null, gw1: n1 ? +(gw1 / n1).toFixed(4) : null, zR: +zR.toFixed(4), zF: +zF.toFixed(4), by: +by.toFixed(4), xc: +xc.toFixed(4), rects: [[+zR.toFixed(4), +zF.toFixed(4), +yb.toFixed(4)]], ...(M.cfg.handleStyle ? { hs: M.cfg.handleStyle } : {}) };
   D.hinge = [+(D.side * hx).toFixed(4), +zF.toFixed(4)]; D.len = +(zF - zR).toFixed(4); D.depth = depth;
 }
 // rasterize a triangle into the (z, y) grid; cb(iz, iy, x) with x interpolated at the cell centre
@@ -219,6 +219,8 @@ function rasterYZ(v, z0, y0, nz, ny, cb) {
     if (w0 < -1e-6 || w1 < -1e-6 || w2 < -1e-6) continue; cb(iz, iy, w0 * P[0][2] + w1 * P[1][2] + w2 * P[2][2]); }
 }
 // ---------- solid doors: inner card (skin offset inwards along the vertex normals), shut faces round the panel edge, jamb walls round the body opening
+// cfg.shutTrim = [r,g,b]: shut faces and jamb walls (extruded straight in from jagged source boundaries, flat-shaded) as matte dark trim
+// (the double-sided trim material: one winding) instead of gloss paint, whose facets caught the sky as pale slivers along the shut lines
 function boundaryEdges(trs) { const E = new Map(); for (const tr of trs) for (let j = 0; j < 3; j++) { const a = tr.w[j], b = tr.w[(j + 1) % 3]; const k = a < b ? a + ',' + b : b + ',' + a; const e = E.get(k); if (e) e.n++; else E.set(k, { n: 1, a: tr.v[j], b: tr.v[(j + 1) % 3], tr }); } return [...E.values()].filter((e) => e.n === 1); }
 function solidDoor(M, D, extra) {
   const skin = M.T.filter((tr) => tr.door === D.i && tr.isl === D.main && tr.cat === 'paint'); const d = D.depth;
@@ -229,6 +231,9 @@ function solidDoor(M, D, extra) {
   const inN = (k) => vn.get(k).map((x) => -x); // the card faces the cabin: the skin's smoothed normal reversed (welds into one surface, so it simplifies)
   for (const tr of skin) extra.push({ door: D.i, cat: 'interior', v: [off(tr.v[0], tr.w[0]), off(tr.v[2], tr.w[2]), off(tr.v[1], tr.w[1])], vn: [inN(tr.w[0]), inN(tr.w[2]), inN(tr.w[1])], col: card });
   for (const e of boundaryEdges(skin)) { const ka = e.tr.w[e.tr.v.indexOf(e.a)], kb = e.tr.w[e.tr.v.indexOf(e.b)]; const a2 = off(e.a, ka), b2 = off(e.b, kb);
+    if (M.cfg.shutTrim) { /* straight in (like the jamb walls): offset along a rolled edge's normal (pointing forward / down) laid the face
+         flat along the outside of a deep door as a visible strip */ const sd = Math.sign(D.hinge[0]); const a3 = [e.a[0] - sd * d, e.a[1], e.a[2]], b3 = [e.b[0] - sd * d, e.b[1], e.b[2]];
+      extra.push({ door: D.i, cat: 'rubber', v: [e.a, e.b, b3], col: M.cfg.shutTrim }, { door: D.i, cat: 'rubber', v: [e.a, b3, a3], col: M.cfg.shutTrim }); continue; }
     extra.push({ door: D.i, cat: 'paint', v: [e.a, e.b, b2], k: 0.78 }, { door: D.i, cat: 'paint', v: [e.a, b2, a2], k: 0.78 }, { door: D.i, cat: 'paint', v: [e.a, b2, e.b], k: 0.78 }, { door: D.i, cat: 'paint', v: [e.a, a2, b2], k: 0.78 }); }
 }
 function jambs(M, extra) {
@@ -236,6 +241,7 @@ function jambs(M, extra) {
   const near = (p, D) => { const z = D.zone; return Math.sign(p[0]) === D.side && Math.abs(p[0]) > D.xmin - 0.05 && p[2] > z[0] - 0.03 && p[2] < z[1] + 0.03 && p[1] > z[2] - 0.03 && p[1] < z[3] + 0.03; };
   for (const e of boundaryEdges(body)) { const m = [(e.a[0] + e.b[0]) / 2, (e.a[1] + e.b[1]) / 2, (e.a[2] + e.b[2]) / 2]; const D = M.doors.find((q) => near(m, q)); if (!D) continue;
     const a2 = [e.a[0] - D.side * d, e.a[1], e.a[2]], b2 = [e.b[0] - D.side * d, e.b[1], e.b[2]];
+    if (M.cfg.shutTrim) { extra.push({ door: -1, cat: 'rubber', v: [e.a, e.b, b2], col: M.cfg.shutTrim }, { door: -1, cat: 'rubber', v: [e.a, b2, a2], col: M.cfg.shutTrim }); continue; }
     extra.push({ door: -1, cat: 'paint', v: [e.a, e.b, b2], k: 0.72 }, { door: -1, cat: 'paint', v: [e.a, b2, a2], k: 0.72 }, { door: -1, cat: 'paint', v: [e.a, b2, e.b], k: 0.72 }, { door: -1, cat: 'paint', v: [e.a, a2, b2], k: 0.72 }); }
 }
 
@@ -281,9 +287,13 @@ function collect(M, extra) {
   const smoothN = (tr, j) => { const q = [0, 0, 0]; for (const o of adj.get(tr.w[j])) { const d = o.n[0] * tr.n[0] + o.n[1] * tr.n[1] + o.n[2] * tr.n[2]; if (d < 0.82) continue; for (let k = 0; k < 3; k++) q[k] += o.n[k] * o.area; } const l = Math.hypot(...q) || 1; return q.map((x) => x / l); };
   for (const tr of M.T) { if (tr.cat === 'drop') continue; const N = tr.p.nrm; const vn = RN && tr.cat === 'paint' && tr.wheel < 0 ? [0, 1, 2].map((j) => smoothN(tr, j)) : tr.vn ? tr.vn : [0, 1, 2].map((j) => { const i = tr.p.idx[tr.t * 3 + j]; return N ? [N[i * 3], N[i * 3 + 1], N[i * 3 + 2]] : tr.n; });
     const tc = [tr.p.triCol[tr.t * 4], tr.p.triCol[tr.t * 4 + 1], tr.p.triCol[tr.t * 4 + 2]];
-    let col = tc; if (tr.cat === 'paint') { const k = tr.k != null ? tr.k : paintRef ? Math.min(1.2, lum(tc) / paintRef) : 1; col = [k, k, k]; } else if (M.cfg.colOf) col = M.cfg.colOf(tr, tc) || tc;
+    let col = tc; if (tr.cat === 'paint') { const k = tr.k != null ? tr.k : paintRef ? Math.min(1.0, lum(tc) / paintRef) : 1; /* never brighter than the paint itself: light primer-grey insides (jambs, flanges) rendered as pale paint */ col = [k, k, k]; } else if (M.cfg.colOf) col = M.cfg.colOf(tr, tc) || tc;
     if (tr.wheel >= 0) { if (tr.wheel !== 0) continue; const piece = tr.cat === 'caliper' ? 'cal' : 'wheel'; const v = tr.v.map((p) => [p[0] - W0.c[0], p[1] - W0.c[1], p[2] - W0.c[2]]); add(piece, tr.cat === 'tyre' ? 'tyre' : 'rim', v, vn, col); continue; }
-    if (tr.door >= 0) { const D = M.doors[tr.door]; add('door' + D.i, tr.cat, tr.v.map((p) => [p[0] - D.hinge[0], p[1], p[2] - D.hinge[1]]), vn, col); continue; }
+    if (tr.door >= 0) { const D = M.doors[tr.door]; const hv = tr.v.map((p) => [p[0] - D.hinge[0], p[1], p[2] - D.hinge[1]]);
+      /* cfg.doorFrontTrim: the door's leading-edge wrap reaching forward of the hinge behind the fender (hidden when shut, it
+         swings out through the fender's edge as pale torn slivers when the door opens) is left out */
+      if (M.cfg.doorFrontTrim != null && Math.min(hv[0][2], hv[1][2], hv[2][2]) > M.cfg.doorFrontTrim) continue;
+      add('door' + D.i, tr.cat, hv, vn, col); continue; }
     if (tr.flip) { add('body', tr.cat, [tr.v[0], tr.v[2], tr.v[1]], [vn[0], vn[2], vn[1]].map((n) => n.map((x) => -x)), col); continue; } /* a piece facing the wrong way (cfg.classify sets tr.flip) */
     add('body', tr.cat, tr.v, vn, col); }
   for (const x of extra) { const f = fnorm(x.v).n; const N = x.vn || [f, f, f]; const col = x.cat === 'paint' ? [x.k, x.k, x.k] : x.col; if (x.door >= 0) { const D = M.doors[x.door]; add('door' + D.i, x.cat, x.v.map((p) => [p[0] - D.hinge[0], p[1], p[2] - D.hinge[1]]), N, col); } else add('body', x.cat, x.v, N, col); }

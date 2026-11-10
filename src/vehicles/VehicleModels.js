@@ -335,11 +335,30 @@ function plateQuad(mb, cx, cy, z, hw, hh, front, variant) {
   if (front) pm.quad([cx - hw, cy - hh, z], [cx + hw, cy - hh, z], [cx + hw, cy + hh, z], [cx - hw, cy + hh, z], [0, v0, 1, v1], C('#fff'));
   else pm.quad([cx + hw, cy - hh, z], [cx - hw, cy - hh, z], [cx - hw, cy + hh, z], [cx + hw, cy + hh, z], [0, v0, 1, v1], C('#fff'));
 }
-// seat: cushion + reclined backrest + headrest
+// a unit "pillow": a 3×3×3-subdivided cube pushed out onto a super-ellipsoid (flat faces, rounded edges and corners) and
+// welded so it shades smoothly — upholstery instead of sharp boxes (one shared geometry, 108 triangles)
+const mkPillow = (seg) => { const g = new THREE.BoxGeometry(1, 1, 1, seg, seg, seg); const P = g.attributes.position, v = new THREE.Vector3(), n = 4;
+  for (let i = 0; i < P.count; i++) { v.fromBufferAttribute(P, i).multiplyScalar(2); const m = Math.max(Math.abs(v.x), Math.abs(v.y), Math.abs(v.z)); const ln = Math.pow(Math.abs(v.x) ** n + Math.abs(v.y) ** n + Math.abs(v.z) ** n, 1 / n); v.multiplyScalar(m / ln * 0.5); P.setXYZ(i, v.x, v.y, v.z); }
+  g.deleteAttribute('normal'); g.deleteAttribute('uv'); const w = mergeVertices(g, 1e-4); w.computeVertexNormals(); return w; };
+const pillow = mkPillow(3), pillowLo = mkPillow(2); // the coarse one for bolsters / back shell (half the vertices; their size hides it)
+const shade = (c, k) => (Array.isArray(c) ? c : C(c)).map((x) => Math.min(1, x * k)); // C() colours are [r, g, b]
+// seat: frame, cushion insert between raised side bolsters, reclined backrest insert between wrap-round bolsters, rounded
+// headrest — same footprint / heights as the old three boxes (occupant poses, door clearances and the cab-fit are unchanged);
+// wide benches keep their bolsters at the ends only
 function seat(mb, x, y, z, w, col, { back = 0.55, head = true } = {}) {
-  const I = mb.get('interior'); part(I, unitBox, [x, y, z], [0, 0, 0], [w, 0.12, 0.48], col);
-  part(I, unitBox, [x, y + back / 2 + 0.02, z - 0.24], [-0.22, 0, 0], [w, back, 0.12], col);
-  if (head) part(I, unitBox, [x, y + back + 0.12, z - 0.33], [-0.22, 0, 0], [w * 0.55, 0.16, 0.1], col);
+  if (w > 0.6) w -= 0.04; /* a bench's ends stop 2 cm short of the door cards (the old flat box ran into the rear doors' volume: its big faces hid it from the door test) */
+  const I = mb.get('interior'), bol = shade(col, 0.82), ins = shade(col, 1.12), frame = C('#141416');
+  const bw = Math.min(0.09, w * 0.19), iw = w - 2 * bw; // bolster width / insert width
+  part(I, unitBox, [x, y - 0.075, z - 0.01], [0, 0, 0], [w * 0.86, 0.05, 0.42], frame); // seat pan / frame under the cushion
+  part(I, pillow, [x, y - 0.005, z + 0.005], [0, 0, 0], [iw + 0.01, 0.12, 0.47], ins); // cushion insert
+  const bench = w > 0.6, tz = bench ? 0 : 0.12, ty = bench ? 0 : 0.16; // a bench's end bolsters stay square (they run up to the door cards)
+  const xin = (hw, hd, a) => w / 2 - (hw * Math.cos(a) + hd * Math.sin(a)) - (bench ? 0 : 0.025); /* front seats: the outer bolster stays 2.5 cm in from the old width (a rear door's card starts right behind it) */ // bolster centre so its rotated extent stays inside the old seat width
+  for (const e of [-1, 1]) part(I, pillowLo, [x + e * xin(bw / 2, 0.07, tz), y + (bench ? 0 : 0.01), z], [0, 0, e * -tz], [bw, bench ? 0.12 : 0.14, 0.48], bol); // side bolsters
+  const by = y + back / 2 + 0.02, bz = z - 0.24;
+  part(I, pillow, [x, by, bz + 0.01], [-0.22, 0, 0], [iw + 0.01, back * 0.97, 0.11], ins); // backrest insert
+  for (const e of [-1, 1]) part(I, pillowLo, [x + e * xin(bw / 2, 0.06, ty), by - 0.01, bz + (bench ? 0 : 0.03)], [-0.22, e * ty, 0], [bw, back * 0.94, 0.12], bol); /* old backrest depth; nudged forward by what the yaw adds behind (a rear door starts right behind a front seat) */ // backrest bolsters, angled in round the shoulders
+  part(I, pillowLo, [x, by - 0.005, bz - 0.04], [-0.22, 0, 0], [w * 0.82, back * 0.9, 0.05], frame); // seat back shell (inside the bolsters: clear of a rear door right behind)
+  if (head) part(I, pillow, [x, y + back + 0.12, z - 0.33], [-0.22, 0, 0], [w * 0.55, 0.16, 0.1], col);
 }
 function steering(mb, p, r = 0.18, tilt = 1.1) {
   const I = mb.get('interior'); part(I, torus, p, [tilt, 0, 0], [r, r, r * 1.4], C('#141414'));
@@ -983,7 +1002,8 @@ function realShape(type, variant, A) {
   // doors: the procedural door of the same role / side gives the gameplay fields (swing limit, grip height), the real one the rest
   const doors = meta.doors.map((rd) => { const pd = (m.doors || []).find((d) => d.role === rd.role && d.side === rd.side && !d.leaf) || {}; return { ...pd, side: rd.side, role: rd.role, hinge: rd.hinge.slice(), len: rd.len, spec: realDoorSpec(rd.spec), glass: null, mirror: false, field: null, leaf: 0, cab: null }; });
   const leaves = doors.map((d, i) => { const l = A.lod0.doors[i].map(([n, g]) => [n, own(n, g)]); const hb = new MultiBuilder(); realHandle(hb, d); const mx = new THREE.Matrix4().makeTranslation(Math.abs(d.hinge[0]), 0, -d.hinge[1]); if (d.side > 0) mx.premultiply(new THREE.Matrix4().makeScale(-1, 1, 1));
-    for (const [n, g] of built(hb)) { g.applyMatrix4(mx); if (d.side > 0) flipWinding(g); l.push([n, g]); } return l; });
+    for (const [n, g] of built(hb)) { g.applyMatrix4(mx); if (d.side > 0) flipWinding(g); const j = l.findIndex((q) => q[0] === n);
+      if (j < 0) l.push([n, g]); else l[j] = [n, concatGeos([{ geo: l[j][1], m: null }, { geo: g, m: null }]).geo]; } return l; }); // one part per material per leaf: a second same-material part (the hidden handle's rubber) got its own range that DoorRig never swung — and the door pivot never held it
   // bake: body + shut doors per material, door ranges for DoorRig (same layout as bakeDoors)
   const names = [...new Set([...A.lod0.body.map((q) => q[0]), ...extraBody.map((q) => q[0]), ...leaves.flatMap((l) => l.map((q) => q[0]))])]; const geos = [], ranges = {};
   for (const name of names) { const body = [...A.lod0.body.filter((q) => q[0] === name).map((q) => ({ geo: own(name, q[1]), m: null })), ...extraBody.filter((q) => q[0] === name).map((q) => ({ geo: q[1], m: null }))]; const who = [], parts = [...body];
@@ -1014,6 +1034,10 @@ function shellFit(A) { let f = shellCache.get(A); if (f) return f; const S = 0.0
 function flipWinding(g) { const I = g.index.array; for (let i = 0; i < I.length; i += 3) { const t = I[i + 1]; I[i + 1] = I[i + 2]; I[i + 2] = t; } }
 // the outside pull handle of a real door in its recess (model space, −x orientation; same parts as buildDoorGeos)
 function realHandle(mb, d) { const S = d.spec, rb = mb.get('rubber'), ch = mb.get('chrome'); const HB = handleBar(S), z = HB.z, y = HB.y, x = HB.xs;
+  if (S.hs === 'hidden') { // concealed latch (the source car has no exposed handle): a slim dark satin pull, posts and all, no recess plate
+    rb.box(x - 0.002, y, z, 0.006, 0.05, 0.17, { col: C('#0a0a0b') }); // the finger pocket behind the pull (flush with the skin: the fingertips rest in it)
+    rb.box(HB.xb, y, z, HB.half * 2, HB.h, HB.len, { col: C('#18181a') }); // the full bar height: the grip is shaped round the standard bar
+    for (const e of [-1, 1]) { const zp = z + e * (HB.len / 2 - 0.008), dx = x - HB.xb; rb.box(HB.xb + dx / 2 + 0.002, y, zp, dx + 0.004, 0.018, 0.016, { col: C('#141416') }); } return; }
   rb.box(x - 0.002, y, z, 0.006, 0.05, 0.17, { col: C('#0c0c0d') }); ch.box(HB.xb, y, z, HB.half * 2, HB.h, HB.len, { col: C('#c4c8cc') });
   for (const e of [-1, 1]) { const zp = z + e * (HB.len / 2 - 0.008), dx = x - HB.xb; ch.box(HB.xb + dx / 2 + 0.002, y, zp, dx + 0.004, 0.02, 0.016, { col: C('#b4b8bc') }); } }
 // per vertex: the multiple of the probe colour it carries (0 = not paint)
