@@ -265,6 +265,7 @@ export class DebugConsole {
   weatherMenu() { return { title: 'Weather', items: Object.keys(WEATHER).map((w) => ({ label: w[0].toUpperCase() + w.slice(1), val: () => (this.g.atmos.target === w ? '●' : ''), act: () => this.setWeather(w) })) }; }
   menuKeys() {
     if (this.skipNav) { this.skipNav = false; return; }
+    if (!this.stack.length) { this.stack = [this.root()]; this.sel = 0; this.renderMenu(); } /* never navigate an empty stack (something closed / reopened the menu underneath us) */
     const k = (c) => Input.keyPressed(c); const m = this.stack[this.stack.length - 1]; const n = m.items.length;
     if (k('Numpad2') || k('ArrowDown')) { this.sel = (this.sel + 1) % n; this.renderMenu(); }
     if (k('Numpad8') || k('ArrowUp')) { this.sel = (this.sel + n - 1) % n; this.renderMenu(); }
@@ -278,6 +279,7 @@ export class DebugConsole {
     this.renderMenu();
   }
   renderMenu() {
+    if (!this.stack.length) this.stack = [this.root()];
     const m = this.stack[this.stack.length - 1]; const path = this.stack.map((s) => s.title).join(' › ');
     this.menu.innerHTML = `<div class="dbg-mh"><b>DEBUG</b><span>${esc(path)}</span></div><div class="dbg-items">${m.items.map((it, i) => `<div class="dbg-it${i === this.sel ? ' on' : ''}" data-i="${i}"><span>${esc(it.label)}</span><em>${it.sub ? '›' : it.val ? esc(it.val()) : ''}</em></div>`).join('')}</div><div class="dbg-mf">Num 8/2 move · Num 5 select · Num 4 back · Num 0 close</div>`;
     const on = this.menu.querySelector('.dbg-it.on'); if (on) on.scrollIntoView({ block: 'nearest' });

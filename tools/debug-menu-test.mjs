@@ -69,9 +69,9 @@ try {
     run('room dineth'); for (let w = 0; w < 400 && !g.interiors.current; w++) await tick(); out.roomCmd = !!g.interiors.current; if (g.interiors.current) await g.interiors.exit();
     run('help');
     // the explosion last: the wreck, the fire and the thrown pieces then run in the live game loop for a while (page errors fail)
-    if (boom) { const e0 = errLog(); try { await boom.act(); out.acts++; } catch (e) { out.fails.push('Debug > Vehicle > Damage > ' + boom.label + ' [act] ' + e.message); } if (errLog() > e0) out.fails.push('Debug > Vehicle > Damage > Explode [console err]');
-      const t1 = Date.now(); while (Date.now() - t1 < 20000) await new Promise((r) => setTimeout(r, 500)); out.wrecked = !!v.wrecked; out.dmgAfter = JSON.stringify(g.vdamage.stats);
-      if (!v.wrecked) out.fails.push('Explode now: the car is not wrecked'); run('vehicle repair'); } else out.fails.push('Debug > Vehicle > Damage: no Explode entry');
+    if (boom) { const vt = dc.vehTarget(); out.boomType = vt && vt.type; const e0 = errLog(); try { await boom.act(); out.acts++; } catch (e) { out.fails.push('Debug > Vehicle > Damage > ' + boom.label + ' [act] ' + e.message); } if (errLog() > e0) out.fails.push('Debug > Vehicle > Damage > Explode [console err]');
+      const t1 = Date.now(); while (Date.now() - t1 < 20000) await new Promise((r) => setTimeout(r, 500)); out.wrecked = !!(vt && vt.wrecked); out.dmgAfter = JSON.stringify(g.vdamage.stats);
+      if (!out.wrecked) out.fails.push('Explode now: the target ' + out.boomType + ' is not wrecked'); } else out.fails.push('Debug > Vehicle > Damage: no Explode entry');
     out.cmds = cmds; dc.toggleMenu(false); return out;
   });
   await wait(4000); // let a few frames run with everything spawned / toggled
@@ -81,7 +81,7 @@ try {
   console.log(`  vehicle target ${res.target}; doors after 'vehicle open' ${JSON.stringify(res.doorOpen)} (4 s) ${JSON.stringify(res.doorOpen2)} (after ${res.frames}); hero rooms entered/left ${res.rooms}; 'room dineth' entered ${res.roomCmd}`);
   if (!res.target) { console.log('FAIL spawn car vanta: no vehicle next to the player'); failed++; }
   if (res.rooms !== 3 || !res.roomCmd) { console.log('FAIL hero rooms'); failed++; }
-  console.log(`  damage menu: before repair ${res.dmgBefore}; after the explosion (20 s live) wrecked ${res.wrecked} ${res.dmgAfter}`);
+  console.log(`  damage menu: before repair ${res.dmgBefore}; after the explosion (20 s live) ${res.boomType} wrecked ${res.wrecked} ${res.dmgAfter}`);
   if (process.env.V) for (const s of res.skipped) console.log('  skip ' + s);
   for (const f of res.fails) { console.log('FAIL ' + f); failed++; }
   for (const e of errors) { console.log('FAIL ' + e); failed++; }
