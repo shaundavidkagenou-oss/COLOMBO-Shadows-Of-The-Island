@@ -56,6 +56,7 @@ export class CustomsUI {
   options(sl = this.slot) { if (!sl) return []; if (sl.kind === 'colour') return [{ id: null, name: sl.id === 'paint1' || sl.id === 'paint2' ? 'Factory colour' : 'Stock', base: 0, desc: 'No custom colour.' }, ...sl.presets.map(([n, h]) => ({ id: h.toLowerCase(), name: n, base: sl.base, desc: sl.desc, swatch: h }))]; return sl.options; }
   curVal(sl) { const m = this.installed; return sl.kind === 'colour' ? (m[sl.id] || null) : (m[sl.id] || sl.options[0].id); }
   price(sl, val) { return priceOf(this.v.type, sl.id, val, this.scan); }
+  get noun() { const P = profileOf(this.v.type) || {}; return P.kind === 'bike' ? 'bike' : P.kind === 'tuk' ? 'three-wheeler' : P.klass === 'truck' ? 'truck' : P.klass === 'van' ? 'van' : 'car'; }
   vName() { return this.g.vehicleName ? this.g.vehicleName(this.v.type) : this.v.type; }
   // ------------------------------------------------------------------------------------------------ open / close
   show(v) {
@@ -156,8 +157,8 @@ export class CustomsUI {
       state = `<div class="cc-cmp"><div><small>Installed</small>${esc(curName)}</div><div><small>Previewing</small>${esc(title)}</div></div>`;
       priceTxt = instd ? '<em>Installed</em>' : p ? rs(p) : 'Free'; buy = instd ? '<button class="cc-btn cc-buy" disabled>Installed</button>' : `<button class="cc-btn cc-buy" data-act="buy">${p ? 'Buy · ' + rs(p) : 'Fit (free)'}</button>`;
       if (o && o.lvl !== undefined) state += `<div class="cc-lvl">Level ${o.lvl} of ${sl.options.length - 1}</div>`;
-    } else if (this.level === 'slots') { const sl = this.slot; title = sl ? sl.name : ''; desc = sl ? (slotLocked(sl.id, inst) ? NEEDS_TEXT[sl.id] : `${this.options(sl).length - (sl.kind === 'colour' ? 1 : 1)} option${this.options(sl).length > 2 ? 's' : ''} for this vehicle. Open to preview them on the car.`) : ''; }
-    else if (this.level === 'cats') { const c = this.cats[this.ci]; title = c ? c.name : ''; desc = c ? `${this.slotsOf(c.id).length} upgrade slot${this.slotsOf(c.id).length === 1 ? '' : 's'} fit this ${esc((profileOf(v.type) || {}).label || 'vehicle').toLowerCase()}. Everything is previewed on the car before you pay.` : ''; }
+    } else if (this.level === 'slots') { const sl = this.slot; title = sl ? sl.name : ''; desc = sl ? (slotLocked(sl.id, inst) ? NEEDS_TEXT[sl.id] : `${this.options(sl).length - (sl.kind === 'colour' ? 1 : 1)} option${this.options(sl).length > 2 ? 's' : ''} for this vehicle. Open to preview them on the ${this.noun}.`) : ''; }
+    else if (this.level === 'cats') { const c = this.cats[this.ci]; title = c ? c.name : ''; desc = c ? `${this.slotsOf(c.id).length} upgrade slot${this.slotsOf(c.id).length === 1 ? '' : 's'} fit this ${esc((profileOf(v.type) || {}).label || 'vehicle').toLowerCase()}. Everything is previewed on the ${this.noun} before you pay.` : ''; }
     else { title = 'Repair required'; desc = 'Body, glass, lamps and mechanicals restored to as-new.'; priceTxt = rs(REPAIR_PRICE); }
     const bars = STAT_NAMES.map(([k, n]) => { const a = sA[k], b = sB[k]; const lo = Math.min(a, b), hi = Math.max(a, b); return `<div class="cc-stat"><span>${n}</span><i><b style="width:${lo * 100}%"></b>${hi > lo + 0.002 ? `<u class="${b > a ? 'up' : 'dn'}" style="left:${lo * 100}%;width:${(hi - lo) * 100}%"></u>` : ''}</i></div>`; }).join('');
     const fl = this.flash ? `<div class="cc-flash ${this.flash.bad ? 'bad' : 'ok'}">${esc(this.flash.msg)}</div>` : '';

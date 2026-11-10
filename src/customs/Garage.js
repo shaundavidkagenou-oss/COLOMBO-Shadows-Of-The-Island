@@ -37,6 +37,9 @@ export class Garage {
     const T = this.g.traffic; const v = new Vehicle(r.type, r.seed, this.g.scene); v.place(x, z, yaw); v.ownerId = r.id; T.release(v, false);
     r.mods = sanitize(r.type, r.mods); if (Object.keys(r.mods).length) installMods(v, r.mods); this.live.set(r.id, v); return v;
   }
+  // Colombo Customs recovery (reception desk): a lost record comes back with every mod, parked at (x, z, yaw); false when the garage is full
+  recover(r, x, z, yaw) { if (!r || !r.lost || !profileOf(r.type) || !this.canOwnMore()) return null; r.lost = false; r.x = x; r.z = z; r.yaw = yaw; return this.spawn(r, x, z, yaw); }
+  get lostList() { return this.state.list.filter((r) => r.lost && profileOf(r.type)); }
   // the player took over an owned vehicle again (or one we already track) — keep the live map right
   attach(v) { if (v && v.ownerId && this.rec(v.ownerId)) this.live.set(v.ownerId, v); }
   update(dt) { this.t += dt; if (this.t < 1.5) return; this.t = 0; for (const [id, v] of this.live) { const r = this.rec(id); if (!r) { this.live.delete(id); continue; } if (v.wrecked || v.disposed) this.markLost(r, v); } }

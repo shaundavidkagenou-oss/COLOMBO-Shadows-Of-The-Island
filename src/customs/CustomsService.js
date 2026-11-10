@@ -13,6 +13,7 @@ import { profileOf, SHOP_NAME } from './CustomsCatalog.js';
 import { restoreInstalled, setPreviewLights } from './CustomsApply.js';
 import { Audio } from '../audio/Audio.js';
 import { Input } from '../core/Input.js';
+import { shutDoorLater } from '../vehicles/DoorRig.js';
 import { makeMechanicAppearance } from '../actors/Appearance.js';
 
 const H = L.CUSTOMS_HALL, S = L.CUSTOMS_SLAB;
@@ -52,7 +53,7 @@ export class CustomsService {
     if (on !== this.lightsOn) { this.geo.lights.visible = on; this.lightsOn = on; }
     this.geo.update(night, camIn || this.state === 'shop');
     for (const m of this.mech) m.stream(d);
-    if (this.state === 'idle') { this.promptText = d < 60 ? this.entryCheck() : null; return; }
+    if (this.state === 'idle') { this.promptText = d < 60 ? (P.vehicle ? this.entryCheck() : this.recoveryCheck()) : null; return; }
     this.promptText = null; this.t += dt;
     if (this.state === 'shop') { this.orbitCamera(dt); if (this.ui) this.ui.update(dt); }
     else this.flowCamera(dt);
@@ -71,6 +72,31 @@ export class CustomsService {
     const path = this.planIn(v); if (!path) return `Line up with the open roller door to drive into ${SHOP_NAME}`;
     if (Input.wasPressed('interact')) { this.begin(v, path); return null; }
     return `${g.hud.key('interact')} Enter ${SHOP_NAME}`;
+  }
+  // on foot at the reception door (yellow walkway): a destroyed owned vehicle is recovered for the insurance excess, all mods intact,
+  // into a free customer bay on the forecourt (never on top of a car, a pedestrian or the player)
+  recoveryCheck() {
+    const g = this.g, P = g.player, G = g.garage; if (!G || P.vehicle || P.entry || (g.director && g.director.active) || (g.health && g.health.busy)) return null;
+    const [u, w] = this.local(P.x, P.z); if (Math.abs(u - RECEPTION.u) > 1.6 || w < RECEPTION.w - 2.6 || w > RECEPTION.w + 0.4) return null;
+    const r = G.lostList[0]; if (!r) return null; const price = G.recoveryPrice(r), name = G.nameOf(r.type);
+    if (!Input.wasPressed('interact')) return `${g.hud.key('interact')} Recover your ${name} · Rs. ${price.toLocaleString('en-US')}`;
+    const fail = (msg) => { Audio.ui('fail'); g.hud.notify(SHOP_NAME, msg, 'info', 3); return null; };
+    if ((g.police && g.police.level) > 0) return fail('Lose the police first.');
+    if (!G.canOwnMore()) return fail('Your garage is full — 12 registered vehicles.');
+    if (g.story.state.money < price) return fail(`Not enough money — recovery costs Rs. ${price.toLocaleString('en-US')}.`);
+    const bay = this.freeBay(); if (!bay) return fail('The customer bays are full — clear one first.');
+    const v = G.recover(r, bay.x, bay.z, bay.yaw); if (!v) return fail('This vehicle cannot be recovered.');
+    g.story.pay(-price, `${SHOP_NAME} recovery`); Audio.ui('success'); g.hud.notify(SHOP_NAME, `Your ${name} is back in the customer bays, every modification intact.`, 'info', 4); if (g.autosave) g.autosave();
+    return null;
+  }
+  freeBay() {
+    const g = this.g, s = this.site, yaw = s.yawOf(0), T = g.traffic, peds = (g.crowd && g.crowd.peds) || [];
+    for (const bu of CG.bays) {
+      const [x, z] = s.toWorld(bu, 5.0); const near = (o, r) => o && !o.disposed && Math.hypot(o.x - x, o.z - z) < r;
+      if ([...T.vehicles, ...T.parked].some((o) => near(o, 3.4)) || near(g.player, 2.8) || peds.some((p) => near(p, 2.2))) continue;
+      return { x, z, yaw };
+    }
+    return null;
   }
   // Hermite path (site frame) from the vehicle's pose to the turntable centre, nose into the hall; null when no safe path exists
   planIn(v) {
@@ -109,6 +135,7 @@ export class CustomsService {
   begin(v, path) {
     const g = this.g, P = g.player, cam = g.camera; this.v = v; this.path = path; this.state = 'in'; this.t = 0; this.dur = path.len / 2.3 + 1.2; this.visits++;
     P.control = false; P.camOverride = true; v.brake = false; v.kin = (dt) => this.kinStep(dt); this.v0 = Math.abs(v.speed);
+    for (const d of v.mesh.userData.doors || []) if (!d.gone && !d.leaf && Math.abs(d.ang || 0) > 0.01) shutDoorLater(v, d, 0); // a door left swinging is shut as the car rolls in
     this.cam0 = cam.position.clone(); this.look0 = cam.position.clone().add(cam.getWorldDirection(new THREE.Vector3()).multiplyScalar(10)); this.camLook.copy(this.look0);
     g.hud.prompt(''); g.hud.notify(SHOP_NAME, 'Drive-in service bay · Performance · Paint · Wheels', 'info', 3); Audio.ui('notify');
     for (const m of this.mech) m.event('arrive');
@@ -183,6 +210,7 @@ export class CustomsService {
 // attendants): the crowd walks, poses and animates them; this decides where they go and what they do. Lead: guides the car in,
 // inspects it, works at the diagnostics cart, waves it off. Second: tyre changer / bench, comes to the wheels when they change.
 // They keep off the turntable while it turns and out of the drive path.
+const RECEPTION = { u: 14.7, w: H.w0 }; // the reception glass door at the end of the yellow walkway (CustomsGeo)
 const POSTS = [{ u: CG.cart.u - 0.9, w: CG.cart.w - 0.2, act: 'type', face: [CG.cart.u, CG.cart.w] }, { u: CG.changer.u + 0.9, w: CG.changer.w - 0.9, act: 'interact', face: [CG.changer.u, CG.changer.w] }];
 class Mechanic {
   constructor(svc, i) { this.svc = svc; this.i = i; this.p = null; this.mode = 'idle'; this.t = 0; this.target = null; this.act = null; this.face = null; this.spawnN = 0; this.job = { step: (p, dt) => this.step(dt), post: () => {}, interrupt: () => { this.interrupted = true; }, resume: () => { this.interrupted = false; this.go(this.mode); } }; }

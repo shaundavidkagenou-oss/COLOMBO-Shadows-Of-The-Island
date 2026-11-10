@@ -284,7 +284,7 @@ export class Game {
   // materials that otherwise first appear mid-play: every vehicle's own lamp / beacon materials and its near-LOD parts, one of
   // each body family, the police / ambulance units and every motorcycle (their parts differ: carbon, alloy, engine, livery)
   makeCustomsUI(svc) { return new CustomsUI(this, svc, this.hud.root); }
-  vehicleName(t) { return VNAMES[t] || t; }
+  vehicleName(t) { if (VNAMES[t]) return VNAMES[t]; const T = VTYPES[t]; if (T && T.make && T.model) return `${T.make[0].toUpperCase()}${T.make.slice(1)} ${T.model}`; return t; } // catalogue vehicles: fictional make + model
   shaderWarmSet() {
     const g = new THREE.Group(); g.name = 'shaderWarm'; g.visible = false; const seen = new Set();
     for (const [k, T] of Object.entries(VTYPES)) { const key = T.police ? 'police' : T.ambulance ? 'amb' : T.entry === 'bike' ? k : (T.base || k) + (T.family || ''); if (seen.has(key)) continue; seen.add(key);
@@ -480,7 +480,7 @@ export class Game {
     if (this.musicT <= 0) { this.musicT = 1; if (!(Audio.musicMode === 'chase' && this.story.pursuers.length) && !D.active) { let m = A.night > 0.5 ? 'night' : 'explore'; if (this.story.guards.length) m = 'tension'; if (this.story.pursuers.length) m = 'chase'; if (P.vehicle && this.radio) m = RADIO[this.radio].mode; if (this.indoor) m = this.interiors.current?.musicMode || 'none'; Audio.setMusic(m); } }
     // HUD
     const v = P.vehicle; const dist = L.districtAt(P.x, P.z);
-    this.hud.update({ health: this.health.hp, healthBusy: this.health.busy, time: A.timeString, money: this.story.state.money, district: this.indoor ? this.interiors.current.D.name : this.seamK > 0.5 ? this.interiors.hq.D.name : dist ? dist.name.split(' · ')[0] : '', street: this.indoor ? '' : L.roadNameAt(P.x, P.z) || '', x: P.x, z: P.z, camYaw: this.photo ? this.photoYaw + Math.PI : P.camYaw, stamina: P.stamina, vehicle: v, vehicleName: v ? VNAMES[v.type] || v.type : '', radio: v && this.radio ? `♪ ${RADIO[this.radio].name}` : '', camera: cam, police: this.police.hudInfo(), projector: (x, y, z) => this.project(x, y, z), fps: this.fps, draws: this.renderer.info.render.calls, extras: this.miniExtras(), indoor: !!this.indoor });
+    this.hud.update({ health: this.health.hp, healthBusy: this.health.busy, time: A.timeString, money: this.story.state.money, district: this.indoor ? this.interiors.current.D.name : this.seamK > 0.5 ? this.interiors.hq.D.name : dist ? dist.name.split(' · ')[0] : '', street: this.indoor ? '' : L.roadNameAt(P.x, P.z) || '', x: P.x, z: P.z, camYaw: this.photo ? this.photoYaw + Math.PI : P.camYaw, stamina: P.stamina, vehicle: v, vehicleName: v ? this.vehicleName(v.type) : '', radio: v && this.radio ? `♪ ${RADIO[this.radio].name}` : '', camera: cam, police: this.police.hudInfo(), projector: (x, y, z) => this.project(x, y, z), fps: this.fps, draws: this.renderer.info.render.calls, extras: this.miniExtras(), indoor: !!this.indoor });
     // audio
     const near = v ? [v] : []; for (const o of this.traffic.vehicles) { if (near.length >= 6) break; if (Math.hypot(o.x - P.x, o.z - P.z) < 45) near.push(o); }
     Audio.update(dt, { listener: { x: P.x, z: P.z, yaw: P.camYaw + Math.PI }, night: A.night, rain: A.w.rain, wind: A.w.wind, traffic: this.traffic.vehicles.length, vehicles: near, indoor: this.indoor || this.seamK > 0.6 });

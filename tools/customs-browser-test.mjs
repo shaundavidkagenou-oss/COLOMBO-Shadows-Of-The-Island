@@ -6,7 +6,7 @@
 import puppeteer from '/home/user/testenv/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js';
 import chromium from '/home/user/testenv/node_modules/@sparticuz/chromium/build/index.js';
 import fs from 'fs';
-const [outDir = '/tmp/cc', Q = 'medium', PH = 'abc'] = process.argv.slice(2); const has = (k) => PH.includes(k); // phases: a = car flow + leave, b = save/reload + motorcycle + police, c = night + repeated visits (separate runs keep each browser under the sandbox's memory) fs.mkdirSync(outDir, { recursive: true });
+const [outDir = '/tmp/cc', Q = 'medium', PH = 'abcde'] = process.argv.slice(2); const has = (k) => PH.includes(k); // phases: a = car flow + leave, b = save/reload + motorcycle + police, c = night + repeated visits (separate runs keep each browser under the sandbox's memory) fs.mkdirSync(outDir, { recursive: true });
 const browser = await puppeteer.launch({ executablePath: await chromium.executablePath(), headless: true, protocolTimeout: 1700000,
   args: [...chromium.args, '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--window-size=1024,576', '--enable-precise-memory-info', '--js-flags=--expose-gc'], defaultViewport: { width: 1024, height: 576 } });
 const errors = []; let pass = 0, fail = 0;
@@ -92,7 +92,7 @@ try {
     const done = await C.until(() => g.customs.state === 'idle', 30); await g.stepSim(4, 0.05); return { st, done, ctl: g.player.control, inVeh: g.player.vehicle === v, pos: C.wl(v), cam: !!g.player.camOverride, mods: Object.keys(v.mods || {}).length }; });
   ok(out.done && out.ctl && out.inVeh && !out.cam, 'leave → drive-out, control back in the same car', JSON.stringify(out));
   ok(out.pos.w < 10, 'car outside the hall after leaving', JSON.stringify(out.pos));
-  await memLog('after leave'); await shot('06-after-leave', 6000, [-9, -6, 3.2, 3, 14, 1.4]);
+  await memLog('after leave'); // (no exterior capture after a rendered shop session: SwiftShader keeps every program / texture in the same 3.9 GB)
   const drive = await ev(async () => { const g = window.__game; const r = await g.stepSim(40, 0.05, ['KeyS']); return r; });
   ok(drive.speed !== 0 || true, 'drives normally after leaving', JSON.stringify(drive));
   }
@@ -109,9 +109,20 @@ try {
   ok(sv.live && sv.same, 'after save + reload the owned car is back with all its mods', JSON.stringify(sv));
   ok(sv.dupes <= 1, 'no duplicate owned car after reload', JSON.stringify(sv));
   ok(!sv.lv, 'owned car is never queued for towing');
+  }
+  if (has('d')) {
+  // ------------------------------------------------------------------------------------------------ 4b. recovery of a destroyed owned car
+  const rec = await ev(async () => { const g = window.__game, C = window.__cc, S = window.__L.CUSTOMS_SITE; const v = await C.drive('car', 11); g.player.exitVehicle(g.traffic); await C.until(() => !g.player.vehicle && g.player.control, 15); await g.stepSim(10, 0.05);
+    const r = g.garage.own(v); r.mods = { paint1: '#a8141c' }; v.mods = { ...r.mods }; const id = r.id; v.wrecked = true; g.garage.update(2); const lost = g.garage.rec(id).lost;
+    const [x, z] = S.toWorld(14.7, 10.6); g.player.teleport(x, z, S.yawOf(0)); await g.stepSim(4, 0.05); const prompt = g.customs.prompt; const m0 = g.story.state.money; const price = g.garage.recoveryPrice(g.garage.rec(id));
+    await C.press('interact'); await g.stepSim(4, 0.05); const nv = g.garage.live.get(id); const wl = nv ? C.wl(nv) : null; g.traffic.remove(v); /* the burnt-out wreck off the driveway for the next checks */
+    return { lost, prompt, price, paid: m0 - g.story.state.money, back: !g.garage.rec(id).lost, wl, mods: nv && nv.mods, onBay: !!wl && wl.w > 2.4 && wl.w < 7.6 && wl.u < -11.5 }; });
+  ok(rec.lost, 'destroyed owned car is marked lost', JSON.stringify(rec));
+  ok(/Recover your/.test(rec.prompt || ''), 'reception offers the recovery with its price', rec.prompt);
+  ok(rec.back && rec.paid === rec.price && rec.onBay && rec.mods && rec.mods.paint1 === '#a8141c', 'recovery charges the excess and parks the car in a customer bay with its mods', JSON.stringify(rec));
   // ------------------------------------------------------------------------------------------------ 5. motorcycle
-  const bike = await ev(async () => { const g = window.__game, C = window.__cc; const v = await C.drive('orvano_corsa', 3); await g.stepSim(3, 0.05); await C.press('interact');
-    const done = await C.until(() => g.customs.state === 'shop', 30); const u = g.customs.ui; const cats = u.cats.map((c) => c.id); const slots = [];
+  const bike = await ev(async () => { const g = window.__game, C = window.__cc; const v = await C.drive('orvano_corsa', 3); await g.stepSim(3, 0.05); const pr = g.customs.prompt; await C.press('interact');
+    const done = await C.until(() => g.customs.state === 'shop', 30); const u = g.customs.ui; if (!done || !u) return { done: false, pr, now: g.customs.prompt, st: g.customs.state, pos: C.wl(v), inVeh: g.player.vehicle === v, entry: !!g.player.entry, yaw: +v.yaw.toFixed(2), speed: v.speed, cats: [], slots: [] }; const cats = u.cats.map((c) => c.id); const slots = [];
     for (let i = 0; i < u.cats.length; i++) for (const s of u.slotsOf(u.cats[i].id)) slots.push(s.id); return { done, cats, slots, pos: C.wl(v) }; });
   ok(bike.done, 'motorcycle drives in and opens the shop', JSON.stringify(bike.pos));
   ok(!bike.slots.some((s) => /bumper|skirt|widebody|roof|hood|diffuser|splitter/i.test(s)), 'motorcycle gets no car parts', bike.slots.join(','));
@@ -125,25 +136,29 @@ try {
   }
   if (has('c')) {
   // ------------------------------------------------------------------------------------------------ 7. night + draw calls + repeated visits
+  await ev(async () => { const g = window.__game; g.atmos.hour = 21.5; g.atmos.envTimer = 0; g.world.warm(-262, 285); g.player.teleport(-276, 279, 0); await g.stepSim(30, 0.05); });
+  await shot('08a-night-exterior', 9000, [-14, -11, 2.2, 2, 14, 4.2]); // fresh session: the facade at night is the first frame rendered near the site
   const night = await ev(async () => { const g = window.__game, C = window.__cc; g.atmos.hour = 21.5; g.atmos.envTimer = 0; const v = await C.drive('car', 11); await g.stepSim(10, 0.05); await C.press('interact'); const d = await C.until(() => g.customs.state === 'shop', 30); return { d, night: g.atmos.night }; });
   ok(night.d, 'night visit opens the shop', JSON.stringify(night));
   await shot('08-night-shop', 8000);
-  const calls = await ev(async () => { const g = window.__game; const r = g.renderer.info.render; return { calls: r.calls, tris: r.triangles }; });
-  console.log('workshop (night) draw calls', JSON.stringify(calls));
-  await ev(async () => { const g = window.__game, C = window.__cc; g.customs.leave(); await C.until(() => g.customs.state === 'idle', 30); });
-  const mem = await ev(async () => { const g = window.__game, C = window.__cc; const rows = [C.mem()]; const v = g.player.vehicle;
-    for (let k = 0; k < 5; k++) { v.place(...window.__L.CUSTOMS_SITE.toWorld(0, 1.0), window.__L.CUSTOMS_SITE.yawOf(0)); v.speed = 0; await g.stepSim(4, 0.05); await C.press('interact'); await C.until(() => g.customs.state === 'shop', 30);
-      const u = g.customs.ui; u.level = 'cats'; u.setCat(u.cats.findIndex((c) => c.id === 'paint')); u.setSlot(0); for (let i = 1; i < 8; i++) { u.setOpt(i); await g.stepSim(1, 0.05); } u.back(); u.back();
-      u.level = 'cats'; u.setCat(u.cats.findIndex((c) => c.id === 'wheels')); u.setSlot(0); for (let i = 1; i < 6; i++) { u.setOpt(i); await g.stepSim(1, 0.05); } u.back(); u.back();
-      g.customs.leave(); await C.until(() => g.customs.state === 'idle', 30); if (window.gc) { window.gc(); window.gc(); } rows.push(C.mem()); }
-    return rows; });
+  }
+  if (has('e')) { // repeated visits in a session of their own (unrendered; scene-level resource counts + heap after GC)
+  await ev(async () => { const g = window.__game, C = window.__cc; await C.drive('car', 11); });
+  const { execSync } = await import('node:child_process'); const rss = () => { try { return Math.round(execSync("ps -eo rss,args | grep '[c]hromium' | awk '{s+=$1} END {print s}'").toString() / 1024); } catch (e) { return -1; } };
+  const mem = [await ev(() => window.__cc.mem())]; mem[0].rss = rss(); console.log('visit 0', JSON.stringify(mem[0]));
+  for (let k = 0; k < 5; k++) {
+    const step = async (name, fn) => { await ev(fn); const m = await ev(() => window.__cc.mem()); m.rss = rss(); console.log(`visit ${k + 1} ${name}`, JSON.stringify(m)); return m; };
+    await step('in', async () => { const g = window.__game, C = window.__cc, v = g.player.vehicle; v.place(...window.__L.CUSTOMS_SITE.toWorld(0, 1.0), window.__L.CUSTOMS_SITE.yawOf(0)); v.speed = 0; await g.stepSim(4, 0.05); await C.press('interact'); await C.until(() => g.customs.state === 'shop', 30); });
+    await step('paint', async () => { const g = window.__game, u = g.customs.ui; u.level = 'cats'; u.setCat(u.cats.findIndex((c) => c.id === 'paint')); u.setSlot(0); for (let i = 1; i < 8; i++) { u.setOpt(i); await g.stepSim(1, 0.05); } u.back(); u.back(); });
+    await step('wheels', async () => { const g = window.__game, u = g.customs.ui; u.level = 'cats'; u.setCat(u.cats.findIndex((c) => c.id === 'wheels')); u.setSlot(0); for (let i = 1; i < 6; i++) { u.setOpt(i); await g.stepSim(1, 0.05); } u.back(); u.back(); });
+    mem.push(await step('left', async () => { const g = window.__game, C = window.__cc; g.customs.leave(); await C.until(() => g.customs.state === 'idle', 30); }));
+  }
   console.log('memory per visit', JSON.stringify(mem));
   const L1 = mem[1], Ln = mem[mem.length - 1]; const gr = Ln.geo - L1.geo, tx = Ln.tex - L1.tex, sg = Ln.sGeo - L1.sGeo, sm = Ln.sMat - L1.sMat;
   ok(gr <= 8 && tx <= 4 && sg <= 4 && sm <= 4, 'repeated visits (2→6) do not leak geometries / textures / materials', `gpu geo +${gr} tex +${tx} · scene geo +${sg} mat +${sm} · heap ${L1.heap}→${Ln.heap} MB`);
   await ev(() => { window.__game.atmos.hour = 11; window.__game.atmos.envTimer = 0; });
-  await shot('09-day-exterior-after', 6000, [-6, -9, 3.5, 1, 14, 2.5]);
   }
-  { const mv = await ev(() => ({ viol: window.__cc.viol, samples: window.__cc.samples })); ok(mv.samples > 50 && mv.viol === 0, 'mechanics never inside the car footprint', JSON.stringify(mv)); }
+  { const mv = await ev(() => ({ viol: window.__cc.viol, samples: window.__cc.samples })); if (!mv.samples) console.log('(mechanics footprint: no shop session sampled in this phase)'); else ok(mv.samples > 50 && mv.viol === 0, 'mechanics never inside the car footprint', JSON.stringify(mv)); }
 } catch (e) { console.log('ERR', e.stack || e.message); fail++; } finally { await Promise.race([browser.close(), new Promise((r) => setTimeout(r, 10000))]); try { browser.process() && browser.process().kill('SIGKILL'); } catch (e) { /* already gone */ } }
 console.log('errors:', errors.slice(0, 8).join(' | ') || 'none');
 console.log(`customs-browser-test: ${pass} passed, ${fail} failed`);
