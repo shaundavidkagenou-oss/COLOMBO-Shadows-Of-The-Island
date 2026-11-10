@@ -3,7 +3,7 @@ import { preloadRealModels } from './vehicles/RealModels.js';
 import { FuelService } from './world/FuelStations.js';
 import { gatherBodies, setBodiesCollision } from './actors/Bodies.js';
 import { PoliceHQLife } from './police/PoliceHQLife.js';
-import { PoliceResponse } from './police/PoliceResponse.js';
+import { PoliceResponse, crewSpec, CREW_LOOKS } from './police/PoliceResponse.js';
 import { TrafficDuty } from './police/TrafficDuty.js';
 import { Health } from './actors/Health.js';
 import { StreetCricket } from './actors/StreetCricket.js';
@@ -113,6 +113,9 @@ export class Game {
     this.ragdolls = new RagdollWorld(this.collision); this.crowd.ragdolls = this.ragdolls; // dead NPCs go limp: verlet ragdolls (src/actors/Ragdoll.js)
     this.blood = new Blood(this.scene, this.collision); this.crowd.blood = this.blood; // impact spray, splats, pools (Settings → Blood effects)
     { const N = this.crowd.specTarget(); for (let i = 0; i < N; i += 8) { this.crowd.prepareSpecs(Math.min(8, N - i)); progress(0.76 + 0.1 * (i / N), 'People of Colombo'); await tick(); } }
+    { // police / ambulance crews: their looks are a fixed set (PoliceResponse.crewSpec) — build the bodies now, not mid-chase
+      const crews = []; for (let id = 0; id < CREW_LOOKS.police; id++) for (let k = 0; k < 2; k++) crews.push([id, k, false]); for (let id = 0; id < CREW_LOOKS.ems; id++) for (let k = 0; k < 2; k++) crews.push([id, k, true]);
+      for (let i = 0; i < crews.length; i++) { const [id, k, ems] = crews[i]; try { new Character(crewSpec(id, k, ems)).dispose(); } catch (e) { console.warn('crew prewarm', e); } if (i % 6 === 5) { progress(0.86, 'Police and ambulance crews'); await tick(); } } }
     progress(0.86, 'Tuk-tuks, buses and traffic'); await tick();
     this.traffic = new Traffic(this.scene, this.collision, bus); this.traffic.crowd = this.crowd; setBodiesCollision(this.collision); // nudged people never pushed into walls (Bodies.separate)
     this.trains = new Trains(this.scene); this.traffic.obstacles = this.trains.bodies; this.traffic.rail = this.trains; // running trains + level crossings

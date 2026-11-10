@@ -169,7 +169,7 @@ export class Atmosphere {
     const tgt = WEATHER[this.target]; const k = 1 - Math.exp(-dt * 0.08);
     for (const key of Object.keys(tgt)) this.w[key] = lerp(this.w[key], tgt[key], k);
     if (Math.abs(this.w.cloud - tgt.cloud) < 0.02) this.weather = this.target;
-    this.wet = clamp(this.wet + (this.w.rain > 0.2 ? dt * 0.05 : -dt * 0.0025), 0, 1); // roads stay wet a good while after a shower
+    this.wet = clamp(this.wet + (this.w.rain > 0.2 ? dt * 0.05 : -dt * 0.016), 0, 1); // wet only while it rains: the shine is gone about a minute after the rain stops (a road that still mirrored the sky minutes after a shower read as a bug)
     // sun & moon
     const th = ((this.hour - 6.15) / (18.3 - 6.15)) * Math.PI;
     this.sunDir.set(Math.cos(th), Math.sin(th) * 0.97, 0.22).normalize();

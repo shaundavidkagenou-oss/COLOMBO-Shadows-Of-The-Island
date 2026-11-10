@@ -13,14 +13,18 @@ export function addWetTarget(m, dryR, wetR) { if (!wetTargets.some((t) => t[0] =
 // (0.55, below the night bloom threshold of 1.7) and scaled by ROAD_SPOT_SPEC; the wet streak stays, it just never blooms.
 // Diffuse light (the lit road ahead) and every other light are untouched. Driven by updateMaterials.
 export const ROAD_SPOT_SPEC = { value: 1 };
+// Dry asphalt is matte: the roughness map's smoother (puddle-prone) patches only turn glossy once the road is actually wet
+// (ROAD_WET follows Atmosphere.wet, which now tracks the rain). Without this a dry road sheened like a wet one toward the sun.
+export const ROAD_WET = { value: 0 };
 function roadSpotSpec(m) {
-  m.onBeforeCompile = (sh) => { sh.uniforms.uRoadSpotSpec = ROAD_SPOT_SPEC;
+  m.onBeforeCompile = (sh) => { sh.uniforms.uRoadSpotSpec = ROAD_SPOT_SPEC; sh.uniforms.uRoadWet = ROAD_WET;
     const pars = THREE.ShaderChunk.lights_physical_pars_fragment.replace('reflectedLight.directSpecular += irradiance * specularBRDF * material.multiScatteringCompensation;', 'reflectedLight.directSpecular += min( irradiance * specularBRDF * material.multiScatteringCompensation, vec3( gSpotCap ) ) * gSpotSpec;');
     let beg = THREE.ShaderChunk.lights_fragment_begin; const i = beg.indexOf('#if ( NUM_SPOT_LIGHTS > 0 ) && defined( RE_Direct )'); const call = 'RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );';
     const j = i >= 0 ? beg.indexOf(call, i) : -1; if (j >= 0) beg = beg.slice(0, j) + 'gSpotSpec = uRoadSpotSpec; gSpotCap = 0.55; ' + call + ' gSpotSpec = 1.0; gSpotCap = 1e6;' + beg.slice(j + call.length);
     if (j < 0 || pars === THREE.ShaderChunk.lights_physical_pars_fragment) return; // three changed its chunks: leave the material as it is
-    sh.fragmentShader = 'uniform float uRoadSpotSpec;\nfloat gSpotSpec = 1.0;\nfloat gSpotCap = 1e6;\n' + sh.fragmentShader.replace('#include <lights_physical_pars_fragment>', pars).replace('#include <lights_fragment_begin>', beg); };
-  m.customProgramCacheKey = () => 'roadSpotSpec2';
+    sh.fragmentShader = 'uniform float uRoadSpotSpec;\nuniform float uRoadWet;\nfloat gSpotSpec = 1.0;\nfloat gSpotCap = 1e6;\n' + sh.fragmentShader.replace('#include <lights_physical_pars_fragment>', pars).replace('#include <lights_fragment_begin>', beg)
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = mix( max( roughnessFactor, 0.94 ), roughnessFactor, smoothstep( 0.05, 0.6, uRoadWet ) );'); };
+  m.customProgramCacheKey = () => 'roadSpotSpec3';
 }
 export function buildMaterials() {
   const std = (o) => new THREE.MeshStandardMaterial(o);
@@ -120,6 +124,7 @@ export function updateMaterials(night, wet, t) {
   // wet roads at night: a film of water on real asphalt is not a mirror (the texture breaks it up); at 0.18 every oncoming
   // headlight smeared into a long white streak that hid the car behind it. Night keeps the wet look (darker, glossier)
   // but with a broader, dimmer highlight.
-  for (const [m, dryR, wetR] of wetTargets) { const wr = m === MAT.road || m === MAT.roadTint ? wetR + (0.26 - wetR) * n : wetR; m.roughness = dryR + (wr - dryR) * wet; m.color.copy(_dry).lerp(_wet, wet * 0.8); m.envMapIntensity = (0.6 + wet * 1.6) * (1 - 0.45 * n); }
+  for (const [m, dryR, wetR] of wetTargets) { const wr = m === MAT.road || m === MAT.roadTint ? wetR + (0.26 - wetR) * n : wetR; m.roughness = dryR + (wr - dryR) * wet; m.color.copy(_dry).lerp(_wet, wet * 0.8); m.envMapIntensity = (0.6 + wet * 1.6) * (1 - 0.45 * n); if (m === MAT.road || m === MAT.roadTint) m.envMapIntensity = (0.3 + wet * 1.9) * (1 - 0.45 * n); }
+  ROAD_WET.value = wet;
   ROAD_SPOT_SPEC.value = 1 - 0.45 * Math.min(1, wet * 1.5) * n - 0.2 * (1 - Math.min(1, wet * 1.5)) * n; // wet night 0.55, dry night 0.8, day 1 (and every spot highlight on the road capped below the bloom threshold, see roadSpotSpec)
 }

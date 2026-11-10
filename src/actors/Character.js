@@ -12,6 +12,7 @@ import { RNG } from '../core/rng.js';
 import { makeAppearance, FACE_VARIANTS } from './Appearance.js';
 import { lerp, clamp, damp } from '../core/math.js';
 import { hasHeroBody, buildHeroGarments, clothShader } from './HeroBody.js';
+import { hasNpcBody, buildNpcGarments } from './NpcBody.js';
 import { HERO_EXTRA, HERO_PARENT, heroJoints, fingerLayout, HeroRig, heroUniforms, patchHeroMaterial, faceNormals } from './HeroRig.js';
 import { hasHeroHead, heroHeadFit, buildHeroHead, headMaterials, iblScale, buildEyeball, EXPR_MORPHS, morphIndex, HEAD_MORPHS } from './HeroHead.js';
 import { npcHeadFit, npcHeadGeometry, npcHeadMaterial, npcHeadOpts, npcScalp, NPC_MORPHS } from './NpcHead.js';
@@ -43,7 +44,9 @@ function shapedNormal(rings, ri, a) {
 class SkinBuilder {
   constructor() { this.pos = []; this.nor = []; this.col = []; this.uv = []; this.si = []; this.sw = []; this.idx = []; this.headIdx = []; this.hairIdx = []; this.cl = []; this.clv = [0, 0]; }
   get n() { return this.pos.length / 3; }
-  v(p, nrm, c, uv, w) { this.pos.push(p[0], p[1], p[2]); this.nor.push(nrm[0], nrm[1], nrm[2]); this.col.push(c[0], c[1], c[2]); this.uv.push(uv[0], uv[1]); this.cl.push(this.clv[0], this.clv[1]); const s = [0, 0, 0, 0], ww = [0, 0, 0, 0]; w.slice(0, 4).forEach(([b, x], i) => { s[i] = b; ww[i] = x; }); const t = ww[0] + ww[1] + ww[2] + ww[3] || 1; this.si.push(...s); this.sw.push(ww[0] / t, ww[1] / t, ww[2] / t, ww[3] / t); return this.n - 1; }
+  v(p, nrm, c, uv, w) { this.pos.push(p[0], p[1], p[2]); this.nor.push(nrm[0], nrm[1], nrm[2]); this.col.push(c[0], c[1], c[2]); this.uv.push(uv[0], uv[1]); this.cl.push(this.clv[0], this.clv[1]);
+    const n = Math.min(4, w.length); const b0 = n > 0 ? w[0][0] : 0, b1 = n > 1 ? w[1][0] : 0, b2 = n > 2 ? w[2][0] : 0, b3 = n > 3 ? w[3][0] : 0; const x0 = n > 0 ? w[0][1] : 0, x1 = n > 1 ? w[1][1] : 0, x2 = n > 2 ? w[2][1] : 0, x3 = n > 3 ? w[3][1] : 0; // (allocation-free: ~10k calls per person)
+    const t = x0 + x1 + x2 + x3 || 1; this.si.push(b0, b1, b2, b3); this.sw.push(x0 / t, x1 / t, x2 / t, x3 / t); return this.n - 1; }
   // Loft of elliptical rings. rings: [{c:[x,y,z], rx, rz, w:[[bone,weight]..], col, fz?(front bulge)}]
   loft(rings, seg = 12, { region = 0, uvRep = 1, capStart = false, capEnd = false, colFn = null, target = this.idx, surfN = false } = {}) {
     if (!colFn) { const out = []; rings.forEach((r, i) => { const nx = rings[i + 1]; out.push(r); if (nx && (r.col[0] !== nx.col[0] || r.col[1] !== nx.col[1] || r.col[2] !== nx.col[2])) { const m = (t, col) => ({ ...r, c: r.c.map((v, k) => lerp(v, nx.c[k], t)), rx: lerp(r.rx, nx.rx, t), rz: lerp(r.rz, nx.rz, t), col }); out.push(m(0.5, r.col), m(0.505, nx.col)); } }); rings = out; }
@@ -161,6 +164,8 @@ const _tab = (T, u) => { if (u <= T[0][0]) return T[0][1]; for (let i = 1; i < T
 const _sp = (x, e) => Math.sign(x) * Math.pow(Math.abs(x), e);
 export function heroShoe(sb, ft, side, sp, W1, W2, shoe) {
   const kind = sp.boots ? 'boot' : sp.sole ? 'sneaker' : 'oxford';
+  // resolution: protagonists full; crowd bodies (NpcBody) a lighter last (a shoe is ~25 px tall at street distance); far LOD lighter still
+  const RES = sp.hero ? [40, 28, 40, 24] : sp._lod ? [10, 8, 8, 5] : [18, 12, 14, 7];
   const L = kind === 'boot' ? 0.276 : kind === 'sneaker' ? 0.272 : 0.268, z0 = 0.046 - L / 2 - 0.004;
   const med = -Math.sign(ft[0]) || 1; // towards the body centre (big-toe side)
   const cap = (u) => Math.sqrt(Math.max(0, 1 - Math.pow(Math.abs(2 * u - 1), u > 0.5 ? 3.2 : 6))); // rounder toe than heel
@@ -181,7 +186,7 @@ export function heroShoe(sb, ft, side, sp, W1, W2, shoe) {
   const up = shoe, dk = shoe.map((v) => v * 0.62);
   const soleC = C3(sp.sole || (kind === 'boot' ? '#16130f' : kind === 'oxford' ? '#1b1410' : '#cfcac0'));
   // upper
-  sb.param(40, 28, (u, v) => { const a = v * Math.PI * 2, c = Math.cos(a), sn = Math.sin(a); const w = halfW(u) * cap(u);
+  sb.param(RES[0], RES[1], (u, v) => { const a = v * Math.PI * 2, c = Math.cos(a), sn = Math.sin(a); const w = halfW(u) * cap(u);
     const top = Math.max(0, sn); const x = xc(u) + w * _sp(c, 0.8) * (1 - 0.16 * Math.pow(top, 1.5));
     const y = sn >= 0 ? yS(u) + H(u) * _sp(sn, 0.85) : yS(u) - 0.004 * -sn; return [x, y, zOf(u)]; },
   wf, (u, v, p) => { const a = v * Math.PI * 2, sn = Math.sin(a), c = Math.cos(a); const hgt = (p[1] - yS(u)) / Math.max(1e-4, H(u)); let col = up;
@@ -197,7 +202,7 @@ export function heroShoe(sb, ft, side, sp, W1, W2, shoe) {
       if (u > 0.3 && u < 0.66 && sn > 0.8) col = up.map((x) => x * 0.75); }
     return col; }, (u) => [xc(u), yS(u) + H(u) * 0.35, zOf(u)]);
   // sole (rounded-box section that follows the plan outline; slightly wider than the upper)
-  sb.param(40, 24, (u, v) => { const a = v * Math.PI * 2, c = Math.cos(a), sn = Math.sin(a); const w = (halfW(u) + 0.004) * cap(u);
+  sb.param(RES[2], RES[3], (u, v) => { const a = v * Math.PI * 2, c = Math.cos(a), sn = Math.sin(a); const w = (halfW(u) + 0.004) * cap(u);
     const y0 = yB(u), y1 = yS(u) + 0.002; return [xc(u) + w * _sp(c, 0.3), (y0 + y1) / 2 + (y1 - y0) / 2 * _sp(sn, 0.3), zOf(u) + (u < 0.02 ? -0.002 : 0)]; },
   wf, (u, v) => { const sn = Math.sin(v * Math.PI * 2); let col = soleC; if (sn < -0.6) col = soleC.map((x) => x * (kind === 'sneaker' ? 0.62 : 0.7)); // tread
     else if (kind === 'oxford' && u < 0.27 && sn < 0.5) col = C3('#3a2618'); // stacked leather heel
@@ -208,6 +213,7 @@ export function heroShoe(sb, ft, side, sp, W1, W2, shoe) {
   const [u0, u1, nL] = kind === 'boot' ? [0.3, 0.64, 7] : kind === 'sneaker' ? [0.38, 0.64, 5] : [0.44, 0.62, 4];
   const tongueC = kind === 'sneaker' ? up.map((x) => x * 0.97) : up.map((x) => x * 0.82);
   { const ut = Math.min(u0 + 0.02, 0.4); sb.boxPart([xc(ut), yS(ut) + H(ut) + 0.004, zOf(ut) + 0.01], 0.03, 0.008, 0.03, wf([0, 0, zOf(ut)]), tongueC); }
+  if (sp._lod) return;
   for (let k = 0; k < nL; k++) { const u = lerp(u0, u1, k / (nL - 1)); const y = yS(u) + H(u) + 0.0025; sb.boxPart([xc(u), y, zOf(u)], 0.03 - k * 0.0012, 0.0035, 0.0045, wf([0, y, zOf(u)]), lace); }
 }
 // ---- garment hems: insert two interpolated rings either side of a colour edge so the edge is crisp. Weights are blended
@@ -254,7 +260,9 @@ export function buildBodyGeometry(sp) {
   const sb = new SkinBuilder(); const J = joints(sp); const s = sp.height / 1.72, w = sp.build, f = sp.sex === 'f';
   const skin = C(sp.skin), top = C(sp.top), bottom = C(sp.bottom), shoe = C(sp.shoes || '#2a2420'), hair = C(sp.hairColor || '#15100c');
   const o = sp.outfit; const longSleeve = sp.longSleeve; const skirtLen = sp.skirt; // null | 'knee' | 'ankle'
-  const W1 = (b) => [[B[b], 1]]; const W2 = (a, b, t) => [[B[a], 1 - t], [B[b], t]];
+  // non-protagonists have only the 23 crowd bones: protagonist-only bones (twist, toe, finger) fold onto their crowd parent
+  const fb = sp.hero ? (b) => b : (b) => { while (B[b] >= BONES.length && HERO_PARENT[b]) b = HERO_PARENT[b]; return b; };
+  const W1 = (b) => [[B[fb(b)], 1]]; const W2 = (a, b, t) => [[B[fb(a)], 1 - t], [B[fb(b)], t]];
   const midriff = o === 'saree' || !!sp.midriff; // bare midriff: saree blouse, or a crop top (sp.midriff, hem at sp.cropY)
   const HQ = !!sp.hero; // protagonist: high-detail build (more tessellation, articulated fingers, sculpted nose/ears, garment construction details)
   const MH = HQ && hasHeroHead(sp); const NK = MH ? heroHeadFit(sp) : null; // protagonist with an anatomical head (HeroHead.js): no procedural head / hair / facial hair here
@@ -264,7 +272,9 @@ export function buildBodyGeometry(sp) {
   const encloseNeck = (r, m, y) => { const C0 = NK.collarAt(y + 0.012), cz = r.cz || 0; const fr = Math.max(cz + r.rz, C0.cz + C0.rz + m), bk = Math.min(cz - r.rz, C0.cz - C0.rz - m); r.cz = (fr + bk) / 2; r.rz = (fr - bk) / 2; r.rx = Math.max(r.rx, C0.rx + m); return r; };
   // anatomical protagonist body (HeroBody.js): one continuous MakeHuman-derived surface fitted to this skeleton, with the
   // shirt / trousers grown from it as garment shells; the elliptical torso / arm / leg tubes and procedural hands are skipped
-  const HB = MH && hasHeroBody(sp) ? buildHeroGarments(sb, sp, { B, J, NK, C }) : null;
+  // everyone else (crowd, police, staff): the anatomical crowd body (NpcBody.js) with garment shells; same accessory paths
+  const NB = !HQ && NH && hasNpcBody(sp) ? buildNpcGarments(sb, sp, { B, J, NH, C }) : null;
+  const HB = MH && hasHeroBody(sp) ? buildHeroGarments(sb, sp, { B, J, NK, C }) : NB;
   // --- torso (hips → neck)
   // natural variation in adult female figure (seeded, spec override `bust`), slightly lower/softer with age
   const bf = f ? (sp.bust ?? (0.82 + 0.36 * ((((Math.sin((sp.seed || 1) * 47.13) * 43758.5453) % 1) + 1) % 1))) * (sp.age === 'elder' ? 0.9 : 1) : 0;
@@ -337,13 +347,13 @@ export function buildBodyGeometry(sp) {
     if (shorts && sp.shortsY != null) hemInsertLeg(lr, hemY, 0.003); // hot pants / leotard leg line: a crisp hem, not a fade down the thigh
     const l0 = sb.n; if (!HB) sb.loft(lr.map((r) => ({ ...r, col: legCol(r.c[1]) })), HQ ? 20 : 10); parts.legs.push([l0, sb.n]);
     // shoe / sandal
-    const sandal = sp.sandals; const fc = sandal ? skin : shoe; const heroFeet = HQ && sp.hero && !sandal;
+    const sandal = sp.sandals; const fc = sandal ? skin : shoe; const heroFeet = ((HQ && sp.hero) || (NB && !sp.heels)) && !sandal;
     const nFoot = sb.n; if (heroFeet) heroShoe(sb, ft, side, sp, W1, W2, shoe); else sb.ellipsoid([ft[0], 0.05 * s, 0.045], 0.044, 0.042, 0.118, HQ ? (sy, sx2, sz) => { const t = smooth01((sz - 0.42) / 0.35); return t > 0.001 ? W2('foot' + side, 'toe' + side, t) : W1('foot' + side); } : W1('foot' + side), fc, { lat: HQ ? 12 : 7, lon: HQ ? 22 : 12, bumpFn: (x, y, z) => (y < -0.2 ? 0.98 : 1) * (z > 0.6 ? 0.97 : 1) });
     if (sp.heels && !HQ) heelShoe(sb, sp, ft, side, W1, W2, shoe, nFoot);
     else if (sandal) { sb.boxPart([ft[0], 0.008, 0.05], 0.1, 0.016, 0.27, W1('foot' + side), C(sp.sole || sp.shoes || '#2a2420')); sb.boxPart([ft[0], 0.05 * s, 0.09], 0.092, 0.012, 0.03, W1('foot' + side), shoe); }
     else if (heroFeet) { /* sole is part of heroShoe */ } else if (HQ) { const sw = sp.sole ? 0.084 : 0.094, sl = sp.sole ? 0.24 : 0.262, z0 = 0.046 - sl / 2, z1 = 0.046 + sl / 2, zt = 0.118, sc = C(sp.sole || (sp.shoes === '#e8e8e4' ? '#d8d8d4' : '#1a1512')); sb.boxPart([ft[0], 0.011, (z0 + zt) / 2], sw, 0.022, zt - z0, W1('foot' + side), sc); sb.boxPart([ft[0], 0.011, (zt + z1) / 2], sw, 0.022, z1 - zt, W1('toe' + side), sc); } // sole hinges at the ball of the foot
     else sb.boxPart([ft[0], 0.011, 0.046], sp.sole ? 0.084 : 0.094, 0.022, sp.sole ? 0.24 : 0.262, W1('foot' + side), C(sp.sole || (sp.shoes === '#e8e8e4' ? '#d8d8d4' : '#1a1512')));
-    if (HQ && !sandal) { const fw = W1('foot' + side); const lace = shoe.map((v) => v * 0.45); // laces across the instep, tongue, trouser hem break over the shoe
+    if ((HQ || NB) && !sandal) { const fw = W1('foot' + side); const lace = shoe.map((v) => v * 0.45); // laces across the instep, tongue, trouser hem break over the shoe
       if (!heroFeet) for (let k = 0; k < 4; k++) { const z = 0.05 + k * 0.019; const yTop = 0.05 * s + 0.042 * Math.sqrt(Math.max(0, 1 - ((z - 0.045) / 0.118) ** 2)) * 0.98; sb.boxPart([ft[0], yTop + 0.002, z], 0.034 - k * 0.002, 0.004, 0.005, fw, lace); }
       if (!heroFeet) sb.boxPart([ft[0], 0.05 * s + 0.044, 0.035], 0.03, 0.006, 0.03, fw, shoe.map((v) => v * 0.85));
       if (sp.boots) sb.loft([{ c: [ft[0], 0.205 * s, -0.008], rx: 0.045, rz: 0.049, w: W1('shin' + side), col: shoe }, { c: [ft[0], 0.15 * s, -0.008], rx: 0.046, rz: 0.051, w: W2('shin' + side, 'foot' + side, 0.4), col: shoe }, { c: [ft[0], 0.085 * s, 0.0], rx: 0.048, rz: 0.062, w: W1('foot' + side), col: shoe }], 20); // boot shaft (trousers tucked in)
@@ -353,7 +363,7 @@ export function buildBodyGeometry(sp) {
   // --- skirt / sarong / saree / frock (cone from waist to hem, weighted mostly to hips)
   let skirtProf = null;
   if (skirtLen) {
-    const hemY = skirtLen === 'ankle' ? 0.1 : skirtLen === 'mid' ? 0.32 : 0.48; const topY = o === 'saree' ? 0.93 : o === 'salwar' || o === 'kurti' || o === 'abaya' ? 1.2 : o === 'kurta' ? 1.02 : 0.97;
+    const hemY = skirtLen === 'ankle' ? 0.1 : skirtLen === 'mid' ? 0.32 : 0.48; const topY = o === 'saree' ? 0.93 : NB ? 0.985 : o === 'salwar' || o === 'kurti' || o === 'abaya' ? 1.2 : o === 'kurta' ? 1.02 : 0.97; // anatomical bodies: the tunic's top is the fitted top shell (over the bust), the cone starts at the hips
     const region = sp.pattern ?? 0; const N = Math.max(7, Math.ceil((topY - hemY) / 0.07) + 1); const rings = []; // ~7 cm ring spacing so the hip-hinge zone is resolved on long tunics too
     for (let i = 0; i < N; i++) {
       const t = i / (N - 1), y = lerp(topY, hemY, t) * s; const flare = o === 'sarong' ? 0.045 : o === 'frock' ? 0.09 : o === 'skirt_top' ? 0.07 : o === 'abaya' ? 0.065 : o === 'office_f' ? 0.065 : 0.05; /* office skirt: a slight A-line so a long stride (running) stays inside it */ // a sarong is a ~2 m cloth tube folded at the waist: loose at the hem
@@ -373,9 +383,13 @@ export function buildBodyGeometry(sp) {
         add(B.skirtF, k * fF * (1 - kk)); add(B.skirtF2, k * fF * kk); add(B.skirtB, k * fB * (1 - kk)); add(B.skirtB2, k * fB * kk);
         add(B.thighL, k * side * sL); add(B.thighR, k * side * (1 - sL));
         return out.sort((p, q) => q[1] - p[1]).slice(0, 4); };
-      rings.push({ c: [0, y, 0.005], rx: rx + (y > 0.9 * s ? 0.005 : 0), rz, w: wFn, col: C(sp.skirtCol || sp.bottom) });
+      let rxF = rx + (y > 0.9 * s ? 0.005 : 0), rzF = rz, czF = 0.005;
+      if (NB && y > 0.66 * s) { const br = NB.ringAt(y); const pv = rings[rings.length - 1]; // anatomical hips / seat: the skirt always encloses the body (+ ease) and never pinches in below a wider ring
+        const ex = 0.012 + 0.01 * t; const bz0 = br.cz - br.rz - ex, bz1 = br.cz + br.rz + ex; const z0 = Math.min(czF - rzF, bz0, pv ? pv.c[2] - pv.rz : 9), z1 = Math.max(czF + rzF, bz1, pv ? pv.c[2] + pv.rz : -9);
+        rxF = Math.max(rxF, br.rx + ex, pv ? pv.rx : 0); czF = (z0 + z1) / 2; rzF = (z1 - z0) / 2; }
+      rings.push({ c: [0, y, czF], rx: rxF, rz: rzF, w: wFn, col: C(sp.skirtCol || sp.bottom) });
     }
-    const k0 = sb.n; sb.loft(rings, 18, { region, uvRep: 2 }); parts.skirt = [k0, sb.n]; skirtProf = rings.map((r) => [r.c[1], r.c[2] + r.rz]); // front surface (apron over a skirt)
+    const k0 = sb.n; sb.loft(rings, 18, { region, uvRep: 2 }); parts.skirt = [k0, sb.n]; skirtProf = rings.map((r) => [r.c[1], r.c[2] + r.rz, r.c[2] - r.rz, r.rx]); // front surface (apron over a skirt)
   }
   // --- saree pallu: across the front from right hip over the left shoulder, hanging down the back
   if (o === 'saree' || o === 'salwar') {
@@ -389,7 +403,40 @@ export function buildBodyGeometry(sp) {
       const y = p[1]; const wgt = y > 1.3 ? W1('chest') : y > 1.05 ? W2('spine', 'chest', 0.5) : W1('hips');
       path.push({ c: [p[0] * w, y * s, p[2] * w], side: [side.x, side.y, side.z], out: [out.x, out.y, out.z], w: wgt });
     });
-    sb.strip(path, o === 'saree' ? 0.26 : 0.12, (p) => p.out, null, pc, sp.pattern ?? 1);
+    if (HB && o === 'saree') { // anatomical bodies: the pallu is a draped, pleated cloth panel resting on the blouse
+      const skBack = (yq, xq) => { if (!skirtProf || yq > skirtProf[0][0]) return 1e9; let k = 0; while (k < skirtProf.length - 2 && skirtProf[k + 1][0] > yq) k++; /* rings run top → hem */ const a = skirtProf[k], b2 = skirtProf[k + 1]; const tt = clamp((yq - a[0]) / (b2[0] - a[0] || 1), 0, 1); const zf = lerp(a[1], b2[1], tt), zb = lerp(a[2], b2[2], tt), rxs = lerp(a[3], b2[3], tt); const q = clamp(Math.abs(xq) / rxs, 0, 0.95); return (zf + zb) / 2 - (zf - zb) / 2 * Math.sqrt(1 - q * q); };
+      const R = 26, NCc = 9, WD = 0.26, cr = (a0, a1, a2, a3, t) => 0.5 * (2 * a1 + (a2 - a0) * t + (2 * a0 - 5 * a1 + 4 * a2 - a3) * t * t + (3 * a1 - a0 - 3 * a2 + a3) * t * t * t);
+      const spl = (u) => { const f = u * (path.length - 1), i = Math.min(path.length - 2, Math.floor(f)), t = f - i; const g = (k) => path[clamp(k, 0, path.length - 1)]; return [0, 1, 2].map((d) => cr(g(i - 1).c[d], g(i).c[d], g(i + 1).c[d], g(i + 2).c[d], t)); };
+      const P = [], Z0 = [], Wr = [];
+      for (let r = 0; r < R; r++) {
+        const u = r / (R - 1), c = spl(u), c2 = spl(Math.min(1, u + 0.02)), c1 = spl(Math.max(0, u - 0.02)); const d = new THREE.Vector3(c2[0] - c1[0], c2[1] - c1[1], c2[2] - c1[2]).normalize();
+        const up = smooth01((c[1] / s - 1.34) / 0.08) * 3; const out = new THREE.Vector3(c[0], 0, c[2]).normalize(); out.y += up; out.normalize(); // over the shoulder the cloth faces up
+        const sd = new THREE.Vector3().crossVectors(d, out).normalize(); const wd = WD * (0.3 + 0.7 * smooth01(u / 0.22)) * (1 - 0.6 * smooth01((c[1] / s - 1.3) / 0.1)); // gathered where it tucks in at the hip and pleated narrow where it is pinned on the shoulder
+        const row = [], z0 = []; const wg = c[1] > 1.3 * s ? W1('chest') : c[1] > 1.05 * s ? W2('spine', 'chest', 0.5) : W1('hips'); Wr.push(wg);
+        for (let k = 0; k < NCc; k++) {
+          const t = k / (NCc - 1) - 0.5; const q = [c[0] + sd.x * t * wd, c[1] + sd.y * t * wd, c[2] + sd.z * t * wd];
+          const wF = smooth01((q[2] - 0.01) / 0.05), wB = smooth01((-q[2] - 0.01) / 0.05), wT = 1 - wF - wB; // front / shoulder top / back
+          const ty = HB.topY ? HB.topY(q[0], q[2]) : -1e9; let zz = q[2], yy = q[1];
+          if (wF > 0) zz = lerp(zz, surfZ(q[1], q[0], 1) + 0.007, wF);
+          if (wB > 0) zz = lerp(zz, Math.min(surfZ(q[1], q[0], -1), skBack(q[1], q[0])) - 0.007, wB);
+          if (wT > 0 && ty > q[1] - 0.08 && ty < q[1] + 0.08) yy = lerp(yy, Math.max(yy, ty + 0.007), wT);
+          row.push([q[0], yy, zz]); z0.push(zz);
+        }
+        P.push(row); Z0.push(z0);
+      }
+      for (let r = 1; r < R; r++) for (let k = 0; k < NCc; k++) { const a1 = P[r][k], a0 = P[r - 1][k]; if (a1[2] < -0.02 && a1[1] < a0[1] && a1[2] > a0[2]) { a1[2] = a0[2]; Z0[r][k] = a0[2]; } } // the back end hangs straight down
+      const Y0 = P.map((row) => row.map((q) => q[1]));
+      for (let it = 0; it < 3; it++) for (let r = 1; r < R - 1; r++) for (let k = 0; k < NCc; k++) { const q = P[r][k]; if (Math.abs(q[2]) > 0.05 || q[1] < 1.3 * s) continue; // smooth the pleats over the shoulder pin
+        const nb = [P[r - 1][k][1], P[r + 1][k][1]]; if (k > 0) nb.push(P[r][k - 1][1]); if (k < NCc - 1) nb.push(P[r][k + 1][1]); q[1] = Math.max(Y0[r][k] - 0.004, nb.reduce((x, y2) => x + y2, 0) / nb.length); }
+      for (let it = 0; it < 4; it++) for (let r = 1; r < R - 1; r++) for (let k = 0; k < NCc; k++) { // relax: bridge the bust / hollows like real cloth, never sinking into the blouse
+        const zf = P[r][k][2] >= 0; const nb = [P[r - 1][k][2], P[r + 1][k][2]]; if (k > 0) nb.push(P[r][k - 1][2]); if (k < NCc - 1) nb.push(P[r][k + 1][2]);
+        const m = nb.reduce((x, y2) => x + y2, 0) / nb.length; P[r][k][2] = zf ? Math.max(Z0[r][k], m) : Math.min(Z0[r][k], m);
+      }
+      const N = P.map((row, r) => row.map((q, k) => { const a1 = P[Math.min(R - 1, r + 1)][k], a0 = P[Math.max(0, r - 1)][k], b1 = row[Math.min(NCc - 1, k + 1)], b0 = row[Math.max(0, k - 1)];
+        const n = new THREE.Vector3(a1[0] - a0[0], a1[1] - a0[1], a1[2] - a0[2]).cross(new THREE.Vector3(b1[0] - b0[0], b1[1] - b0[1], b1[2] - b0[2])).normalize(); if (n.x * q[0] + n.z * q[2] < 0) n.negate(); return [n.x, n.y, n.z]; }));
+      P.forEach((row, r) => row.forEach((q, k) => { const pl = 0.0035 * Math.sin((k / (NCc - 1)) * Math.PI * 3) * Math.sin(Math.PI * Math.min(1, r / (R - 1) * 1.6)); const n = N[r][k]; q[0] += n[0] * pl; q[1] += n[1] * pl; q[2] += n[2] * pl; })); // lengthwise pleats
+      sb.grid(P, N, Wr, pc, pc.map((v) => v * 0.85));
+    } else sb.strip(path, o === 'saree' ? 0.26 : 0.12, (p) => p.out, null, pc, sp.pattern ?? 1);
   }
   // --- arms
   for (const side of ['L', 'R']) {
@@ -409,13 +456,13 @@ export function buildBodyGeometry(sp) {
     const upW = HQ ? W2('arm' + side, 'armTwist' + side, 0.3) : W1('arm' + side); // mid upper arm: shared by the arm ring and the sleeve hem so they never shear apart
     if (HQ) { ar[3].w = upW; ar[5].w = W2('fore' + side, 'foreTwist' + side, 0.5); ar[6].w = W1('foreTwist' + side); } // twist bones spread limb roll along the skin
     if (!HB) sb.loft(ar.map((r) => ({ ...r, col: colAt(r.c[1]) })), HQ ? 20 : 10, { capEnd: true, capStart: HQ }); // capped: an open forearm end showed as a see-through hole (the 'missing wrist')
-    if (!HQ) sb.ellipsoid([a[0] * (HQ ? 0.8 : 0.84), (HQ ? 1.366 : 1.392) * s, -0.004], (HQ ? 0.047 : 0.05) * w, HQ ? 0.03 : 0.044, (HQ ? 0.05 : 0.056) * w, sp.sleeveless ? W2('chest', 'arm' + side, 0.5) : W2('chest', 'arm' + side, 0.5), sp.sleeveless ? skin : top, { lat: HQ ? 12 : 7, lon: HQ ? 18 : 10 });
+    if (!HQ && !NB) sb.ellipsoid([a[0] * (HQ ? 0.8 : 0.84), (HQ ? 1.366 : 1.392) * s, -0.004], (HQ ? 0.047 : 0.05) * w, HQ ? 0.03 : 0.044, (HQ ? 0.05 : 0.056) * w, sp.sleeveless ? W2('chest', 'arm' + side, 0.5) : W2('chest', 'arm' + side, 0.5), sp.sleeveless ? skin : top, { lat: HQ ? 12 : 7, lon: HQ ? 18 : 10 });
     if (!HB && !longSleeve && !sp.sleeveless) { // sleeve hem flare
       sb.loft([{ c: [lerp(a[0], fo[0], 0.4), 1.215 * s, -0.005], rx: 0.056 * w, rz: 0.058 * w, w: upW, col: top }, { c: [lerp(a[0], fo[0], 0.33), 1.27 * s, -0.004], rx: 0.058 * w, rz: 0.06 * w, w: upW, col: top }], HQ ? 20 : 10); // same segment count as the arm, so the hem doesn't saw-tooth through it
     }
     { const sx = Math.sign(h[0]); const hw = W1('hand' + side); // palm, slightly curled finger block, thumb
       const hcol = sp.gloves ? C(sp.gloves) : sp.tacGloves ? C(sp.tacGloves) : skin; // traffic officers: white gauntlet gloves; tactical gloves (Shashika)
-      if (HB && !sp.gloves) { // anatomical hand is part of the fitted body; tactical gloves get a cuff round the real wrist
+      if (HB && (!sp.gloves || NB)) { // anatomical hand is part of the fitted body; tactical gloves get a cuff round the real wrist
         if (sp.tacGloves) { const wr = HB.wrist(side, 0.9 * s); if (wr) sb.loft([{ c: [wr.c[0], 0.907 * s, wr.c[2]], rx: wr.rx + 0.004, rz: wr.rz + 0.004, w: W1('foreTwist' + side), col: hcol.map((v) => v * 0.8) }, { c: [wr.c[0], 0.874 * s, wr.c[2]], rx: wr.rx + 0.002, rz: wr.rz + 0.003, w: W2('foreTwist' + side, 'hand' + side, 0.5), col: hcol.map((v) => v * 0.8) }], 22); }
       } else if (HQ && !sp.gloves) { // articulated hand: palm with knuckle ridge, four three-segment fingers in a relaxed curl, two-segment thumb, nails
         const py = 0.842 * s; const fw = W1('foreTwist' + side);
@@ -780,7 +827,7 @@ export function buildBodyGeometry(sp) {
     for (const y of [...ysF].reverse()) P.push(bodyPt(y, -1));
     sb.strip(P.map((p, i) => { const a = P[Math.max(0, i - 1)].c, b = P[Math.min(P.length - 1, i + 1)].c; const d = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]).normalize(); const side = new THREE.Vector3().crossVectors(d, p.out).normalize();
       return { c: p.c, side: [side.x, side.y, side.z], out: [p.out.x, p.out.y, p.out.z], w: p.c[1] > 1.3 * s ? W1('chest') : torsoW(p.c[1]) }; }), 0.034, (q) => q.out, null, sc, 0); }
-  const geo = sb.build(); geo.userData.parts = parts;
+  const geo = sb.build(); geo.userData.parts = parts; if (NB) geo.userData.npcBody = true;
   // chest secondary motion (sp.bustSpring, adult female dancers): two relative morph targets on the torso's bust vertices —
   // 0: lift (up, slightly forward), 1: sideways sway. Driven per frame by a damped spring (Character.updateBust); the top
   // over it is the same surface, so it moves with it. Amplitude ±13 / ±9 mm at influence 1.
@@ -907,6 +954,7 @@ export class Character {
     }
     this.mesh = new THREE.SkinnedMesh(geo, mats);
     this.mesh.add(bones[0]); this.mesh.bind(skeleton); this.mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.9, 0), 1.3); this.mesh.castShadow = true; this.mesh.receiveShadow = false; this.mesh.frustumCulled = true;
+    if (geo.userData.npcBody) this.initBodyLod(key, geo);
     this.root = new THREE.Group(); this.root.add(this.mesh);
     this.bones = Object.fromEntries(bones.map((b) => [b.name, b])); this.hipY = bones[0].position.y;
     if (spec.hero && hasHeroHead(spec)) this.attachHeroHead(skeleton);
@@ -914,6 +962,15 @@ export class Character {
     this.anim = new Animator(this); if (spec.hero) this.rig = new HeroRig(this);
     if (geo.userData.bustMorph) { this.mesh.updateMorphTargets(); this.bust = { p: null, v: new THREE.Vector3(), x: 0, vx: 0, y: 0, vy: 0 }; }
     LIVE.add(this);
+  }
+  // anatomical crowd bodies (NpcBody.js): a far version (coarse body index level, lighter shoes, no hem strips) swapped in
+  // beyond ~20 m (a person is then under ~90 px tall). Same vertex layout / bones / materials: only the geometry changes,
+  // decided per frame from the camera distance at render time (the swap shows from the next frame, shadows included).
+  initBodyLod(key, geo) {
+    const kl = key + '|lo'; let lo = geoCache.get(kl); if (!lo) { lo = buildBodyGeometry(Object.assign({}, this.spec, { _lod: 1 })); geoCache.set(kl, lo); }
+    this.geoHi = geo; this.geoLo = lo; this.bodyLo = false; const m = this.mesh; const e = m.matrixWorld.elements;
+    m.onBeforeRender = (r, sc, cam) => { if (this.lodLock) return; const c = cam.matrixWorld.elements; const d2 = (e[12] - c[12]) ** 2 + (e[13] - c[13]) ** 2 + (e[14] - c[14]) ** 2; const far = this.bodyLo ? d2 > 18 * 18 : d2 > 22 * 22;
+      if (far !== this.bodyLo) { this.bodyLo = far; m.geometry = far ? this.geoLo : this.geoHi; } };
   }
   // club dancers (DancerBody.js): one continuous MakeHuman-derived body with its own fitted 57-bone skeleton, the protagonists'
   // skin shading, a GPU-painted skin texture (queued; the club flushes it with the renderer), expression morphs on the shared

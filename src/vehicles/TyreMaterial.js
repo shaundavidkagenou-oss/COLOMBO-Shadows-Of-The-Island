@@ -61,3 +61,33 @@ normal = tyBump(-vViewPosition, normal, tyHC.x * 1.0);`);
   m.customProgramCacheKey = () => 'vd-tyre'; m.userData.tyre = U; tyreMats.set(geo, m); return m;
 }
 
+
+// ---- wheel rims: one shared material for every rim (and the bike stands). The rim geometry only carries a vertex colour,
+// so the shader reads the finish from it, per pixel:
+//   silver (light grey)  → bare / clear-coated aluminium: fully metallic, a fine machined lathe sheen across the face
+//                          (concentric, faded out by pixel footprint so it never shimmers), a touch of brake dust;
+//   gunmetal (mid-dark)  → dark-painted / anodised alloy: metallic, a little rougher;
+//   black (near 0)       → painted black steel / hub bores: glossy paint, not metal (a black mirror looks like a hole).
+// Before this every rim was metalness 0.3 / roughness 0.4: grey plastic in daylight.
+let rimMat = null, calMat = null;
+export function rimMaterial() {
+  if (rimMat) return rimMat;
+  const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 1.0, envMapIntensity: 1.15, side: THREE.DoubleSide });
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vRimP;').replace('#include <begin_vertex>', '#include <begin_vertex>\n  vRimP = position;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vRimP;')
+      .replace('#include <color_fragment>', `#include <color_fragment>
+  float rimL = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
+  float rimSilver = smoothstep( 0.2, 0.32, rimL ); float rimDark = smoothstep( 0.035, 0.09, rimL ) * ( 1.0 - rimSilver ); float rimBlack = 1.0 - rimSilver - rimDark;
+  float rimR = length( vRimP.yz ); float rimFw = fwidth( rimR ) * 1400.0;
+  float rimLathe = ( 0.5 + 0.5 * sin( rimR * 1400.0 ) ) * ( 1.0 - smoothstep( 0.6, 2.5, rimFw ) );
+  vec3 alu = mix( vec3( 0.70, 0.71, 0.73 ), diffuseColor.rgb * 1.25, 0.35 ) * ( 0.94 + 0.06 * rimLathe );
+  alu = mix( alu, vec3( 0.36, 0.31, 0.26 ), 0.08 ); // brake dust
+  diffuseColor.rgb = alu * rimSilver + min( diffuseColor.rgb * 2.2, vec3( 0.5 ) ) * rimDark + diffuseColor.rgb * rimBlack;`)
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = rimSilver * ( 0.27 + 0.08 * rimLathe ) + rimDark * 0.32 + rimBlack * 0.36;')
+      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n  metalnessFactor = rimSilver + rimDark * 0.9;');
+  };
+  m.customProgramCacheKey = () => 'vd-rim'; rimMat = m; return m;
+}
+// brake calipers: painted (red / grey / black), not raw metal
+export function caliperMaterial() { return calMat || (calMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.15, envMapIntensity: 0.9 })); }

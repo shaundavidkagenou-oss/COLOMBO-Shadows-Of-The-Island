@@ -24,7 +24,7 @@ import { CATALOG } from './VehicleCatalog.js';
 import { styleVehicle, badgeMaterial, badgeText, placeEmblem } from './VehicleStyle.js';
 import { realAsset } from './RealModels.js';
 import { realDoorSpec } from './RealSpec.js';
-import { tyreMaterial } from './TyreMaterial.js';
+import { tyreMaterial, rimMaterial, caliperMaterial } from './TyreMaterial.js';
 
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 const lerp = (a, b, t) => a + (b - a) * t; const sstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -304,7 +304,7 @@ export function vehicleMaterials() {
       vworn: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.15, envMapIntensity: 0.7 }),
       vglass: new THREE.MeshPhysicalMaterial({ color: 0x0c1215, roughness: 0.1, metalness: 0.0, specularIntensity: 0.38, transparent: true, opacity: 0.8, envMapIntensity: 0.5, depthWrite: false, side: THREE.DoubleSide }), // tinted automotive glass: weak Fresnel so sloped rear screens never read as white glowing panels against the sky
       vchrome: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.22, metalness: 0.8, envMapIntensity: 1.2 }),
-      vrim: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.3, envMapIntensity: 1.0, side: THREE.DoubleSide }),
+      vrim: rimMaterial(), // real metal (TyreMaterial.js): silver alloy / gunmetal / black steel read from the vertex colour
       vrubber: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0.0, side: THREE.DoubleSide }),
       vtyre: new THREE.MeshStandardMaterial({ color: 0x1b1b1c, roughness: 0.93, metalness: 0.0, side: THREE.DoubleSide }),
       vinterior: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0.0 }),
@@ -1135,7 +1135,7 @@ export function createVehicleMesh(type, seed = 1) {
     const tyre = new THREE.Mesh(parts.tyre, tyreMaterial(parts.tyre)); const rim = new THREE.Mesh(parts.rim, M.vrim); tyre.castShadow = true;
     const holder = new THREE.Group(); holder.add(tyre, rim); if (x < 0) holder.rotation.y = Math.PI; spin.add(holder); pivot.add(spin);
     const hp = RW ? { tyre: rwGeo(RW.hi, 'tyre'), rim: rwGeo(RW.hi, 'rim'), caliper: RW.hi.some((e) => e[0] === 'cal') ? rwGeo(RW.hi, 'cal') : null } : hiWheelParts(T.wheelR, w, cached.wheelStyle, wkind, KIT, z > 0); const hi = new THREE.Group(); const t2 = new THREE.Mesh(hp.tyre, tyreMaterial(hp.tyre)); t2.castShadow = true; hi.add(t2, new THREE.Mesh(hp.rim, M.vrim)); if (x < 0) hi.rotation.y = Math.PI; hi.visible = false; spin.add(hi);
-    let cal = null; if (hp.caliper) { cal = new THREE.Mesh(hp.caliper, M.vrim); if (x < 0) cal.rotation.y = Math.PI; cal.visible = false; pivot.add(cal); }
+    let cal = null; if (hp.caliper) { cal = new THREE.Mesh(hp.caliper, caliperMaterial()); if (x < 0) cal.rotation.y = Math.PI; cal.visible = false; pivot.add(cal); }
     for (const o of [holder, tyre, rim, hi, ...hi.children, cal]) if (o) { o.updateMatrix(); o.matrixAutoUpdate = false; } // fixed inside the wheel: only pivot (steer, suspension) and spin move
     holder.userData.host = hi.userData.host = spin; spin.remove(hi); if (cal) { cal.userData.host = pivot; pivot.remove(cal); } // far LOD at birth: see setVehicleLOD
     pivot.userData.lo = holder; pivot.userData.hi = hi; pivot.userData.cal = cal;
