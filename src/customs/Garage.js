@@ -30,7 +30,7 @@ export class Garage {
   nameOf(type) { return this.g.vehicleName ? this.g.vehicleName(type) : type; }
   // after a save was loaded (story.state replaced): drop live owned vehicles of the previous session, spawn this save's ones
   restore() {
-    const T = this.g.traffic; for (const [, v] of this.live) { if (v.player || v.disposed) continue; const i = T.parked.indexOf(v); if (i >= 0) T.parked.splice(i, 1); T.remove(v); } this.live.clear();
+    const T = this.g.traffic; for (const [, v] of this.live) { if (v.disposed || this.g.player.vehicle === v) { v.ownerId = null; continue; } /* still driven: no longer the save's record */ const i = T.parked.indexOf(v); if (i >= 0) T.parked.splice(i, 1); T.remove(v); } this.live.clear();
     for (const r of this.state.list) { if (r.lost || !profileOf(r.type)) continue; this.spawn(r, r.x, r.z, r.yaw); }
   }
   spawn(r, x, z, yaw) {

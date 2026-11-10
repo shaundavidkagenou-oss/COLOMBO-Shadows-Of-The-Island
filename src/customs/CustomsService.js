@@ -45,9 +45,12 @@ export class CustomsService {
     const d = Math.hypot(P.x - this.ctr[0], P.z - this.ctr[1]);
     // six ceiling lights: only near the workshop, never together with the Police HQ interior's six (same light count → the shader
     // variant the loading screen compiled), never while a room interior is open
-    const hq = g.interiors && g.interiors.hq; const on = !g.indoor && !(g.interiors && g.interiors.current) && !(hq && hq.g && hq.g.visible) && d < 120;
+    // …and only while the camera is inside the hall (or a car is being worked on): seen from the street the hall is walled in, so the
+    // city around the workshop keeps the normal light set (cheaper fragments, no 8-light variant of every street material)
+    const camIn = this.geo.insideHall(cam.position.x, cam.position.z) && cam.position.y < S + H.h; const work = this.state === 'in' || this.state === 'shop' || this.state === 'turn';
+    const hq = g.interiors && g.interiors.hq; const on = !g.indoor && !(g.interiors && g.interiors.current) && !(hq && hq.g && hq.g.visible) && d < 120 && (camIn || work);
     if (on !== this.lightsOn) { this.geo.lights.visible = on; this.lightsOn = on; }
-    const camIn = this.geo.insideHall(cam.position.x, cam.position.z) && cam.position.y < S + H.h; this.geo.update(night, camIn || this.state === 'shop');
+    this.geo.update(night, camIn || this.state === 'shop');
     for (const m of this.mech) m.stream(d);
     if (this.state === 'idle') { this.promptText = d < 60 ? this.entryCheck() : null; return; }
     this.promptText = null; this.t += dt;
@@ -193,7 +196,13 @@ class Mechanic {
   // shop events → what to do
   event(e) { if (!this.p) return; if (e === 'arrive') this.go(this.i === 0 ? 'guide' : 'idle'); else if (e === 'inspect') this.go(this.i === 0 ? 'inspect' : 'idle'); else if (e === 'clear') this.go('clear'); else if (e === 'wave') this.go(this.i === 0 ? 'wave' : 'clear'); else if (e === 'work') this.go('work'); else if (e === 'focus') this.go('focus'); else if (e === 'nod') { this.nod = 1.2; } else this.go('idle'); }
   go(mode) { this.mode = mode; this.t = 0; this.stage = 0; this.target = null; this.setAct(null); }
-  setAct(a) { if (!this.p) return; if (a !== this.act) { this.act = a; this.p.ch.anim.set(a); } }
+  setAct(a) { if (!this.p) return; if (a !== this.act) { this.act = a; const A = this.p.ch.anim; if (a === 'medKneel') { A.holdL = null; A.holdR = null; A.medLean = 0.38; } else A.medLean = undefined; A.set(a); } } // medKneel = knelt, leaning in, hands at work (the fuel attendant's crouch); 'kneel' is the arrest pose
+  // car footprint in its own frame: f = forward (sin yaw, cos yaw), l = left (cos yaw, -sin yaw); half sizes include 0.42 m clearance
+  carBox() { const v = this.svc.v; if (!v || this.svc.state === 'idle' || v.disposed) return null; return { x: v.x, z: v.z, s: Math.sin(v.yaw), c: Math.cos(v.yaw), hl: v.T.len / 2 + 0.42, hw: v.T.wid / 2 + 0.42 }; }
+  toCar(B, x, z) { const dx = x - B.x, dz = z - B.z; return [dx * B.s + dz * B.c, dx * B.c - dz * B.s]; }
+  fromCar(B, f, l) { return [B.x + B.s * f + B.c * l, B.z + B.c * f - B.s * l]; }
+  pushOut(B, P) { const ef = B.hl - Math.abs(P[0]), el = B.hw - Math.abs(P[1]); return el <= ef ? [P[0], (P[1] >= 0 ? 1 : -1) * (B.hw + 0.02)] : [(P[0] >= 0 ? 1 : -1) * (B.hl + 0.02), P[1]]; }
+  crosses(B, A, C) { for (let k = 1; k < 12; k++) { const t = k / 12, f = A[0] + (C[0] - A[0]) * t, l = A[1] + (C[1] - A[1]) * t; if (Math.abs(f) < B.hl - 0.05 && Math.abs(l) < B.hw - 0.05) return true; } return false; }
   // spot beside the car on the turntable: side ±1, along = fraction of half length (+ = front)
   carSpot(side, along, off = 0.75) { const v = this.svc.v; const T = v ? v.T : { len: 4.4, wid: 1.8 }; return [H.tt[0] + side * (T.wid / 2 + off), H.tt[1] + along * T.len / 2]; }
   step(dt) {
@@ -202,17 +211,27 @@ class Mechanic {
     switch (this.mode) {
       case 'idle': spot = [po.u, po.w]; act = po.act; face = po.face; break;
       case 'guide': spot = [-4.2, H.tt[1] + 3.2]; act = 'beckon'; face = [0, H.w0 - 2]; break; // beside the far side of the turntable, waving the car on
-      case 'inspect': { const pts = [this.carSpot(-1, 0.75, 0.9), this.carSpot(1, 0.8, 0.9), this.carSpot(1, -0.75, 0.9), [po.u, po.w]]; const k = Math.min(pts.length - 1, Math.floor(this.t / 4.5)); spot = pts[k]; act = k < 3 ? (k === 1 ? 'kneel' : 'look') : po.act; face = k < 3 ? [H.tt[0], H.tt[1]] : po.face; break; }
-      case 'work': { const side = this.i ? 1 : -1; spot = this.carSpot(side, this.i ? -0.55 : 0.55, 0.7); act = 'kneel'; face = [H.tt[0] + side * 0.5, spot[1]]; if (this.t > 6) this.go('idle'); break; }
-      case 'focus': { const cat = svc.ui && svc.ui.catId; if (this.i === 0) { if (cat === 'wheels' || cat === 'brakes' || cat === 'suspension') { spot = this.carSpot(-(svc.wheelSide || 1), 0.55, 0.75); act = 'kneel'; } else if (cat === 'engine' || cat === 'turbo' || cat === 'exhaust') { spot = this.carSpot(-1, cat === 'exhaust' ? -1.1 : 1.1, 0.4); act = 'look'; } else { spot = [po.u, po.w]; act = po.act; } face = act === 'kneel' || act === 'look' ? [H.tt[0], H.tt[1]] : po.face; } else { spot = [po.u, po.w]; act = po.act; face = po.face; } break; }
+      case 'inspect': { const pts = [this.carSpot(-1, 0.75, 0.9), this.carSpot(1, 0.8, 0.9), this.carSpot(1, -0.75, 0.9), [po.u, po.w]]; const k = Math.min(pts.length - 1, Math.floor(this.t / 4.5)); spot = pts[k]; act = k < 3 ? (k === 1 ? 'medKneel' : 'look') : po.act; face = k < 3 ? [H.tt[0], H.tt[1]] : po.face; break; }
+      case 'work': { const side = this.i ? 1 : -1; spot = this.carSpot(side, this.i ? -0.55 : 0.55, 0.7); act = 'medKneel'; face = [H.tt[0] + side * 0.5, spot[1]]; if (this.t > 6) this.go('idle'); break; }
+      case 'focus': { const cat = svc.ui && svc.ui.catId; if (this.i === 0) { if (cat === 'wheels' || cat === 'brakes' || cat === 'suspension') { spot = this.carSpot(-(svc.wheelSide || 1), 0.55, 0.75); act = 'medKneel'; } else if (cat === 'engine' || cat === 'turbo' || cat === 'exhaust') { spot = this.carSpot(-1, cat === 'exhaust' ? -1.1 : 1.1, 0.4); act = 'look'; } else { spot = [po.u, po.w]; act = po.act; } face = act === 'medKneel' || act === 'look' ? [H.tt[0], H.tt[1]] : po.face; } else { spot = [po.u, po.w]; act = po.act; face = po.face; } break; }
       case 'clear': spot = this.i === 0 ? [-6.2, H.tt[1] - 1] : [po.u, po.w]; act = this.i === 0 ? 'crossarms' : po.act; face = [0, H.tt[1]]; break; // outside the turntable radius while it turns
       case 'wave': spot = [-5.6, H.w0 + 1.6]; act = this.t < 3.5 ? 'wave' : 'crossarms'; face = [0, H.w0 - 3]; if (this.t > 7) this.go('idle'); break;
     }
     if (this.nod > 0) { this.nod -= dt; act = 'nod'; }
     // route: around the car on the turntable instead of through it
-    const [pu, pw] = svc.local(p.x, p.z); let [tu, tw] = spot; const v = svc.v; if (v && svc.state !== 'idle') { const R = Math.max(v.T.len, v.T.wid) / 2 + 0.6; const cu = H.tt[0], cw = H.tt[1]; const mu = (pu + tu) / 2 - cu, mw = (pw + tw) / 2 - cw; const dd = Math.hypot(mu, mw);
-      if (dd < R && Math.hypot(tu - pu, tw - pw) > 1.5) { const k = R / Math.max(0.2, dd); tu = cu + (dd > 0.2 ? mu : 1) * k; tw = cw + (dd > 0.2 ? mw : 0) * k; } }
-    const [x, z] = svc.world(tu, tw); const d = Math.hypot(x - p.x, z - p.z);
+    let [tu, tw] = spot; const v = svc.v;
+    if (svc.state === 'shop' && svc.g.camera) { // never stand in the shot: a spot on the camera → car sight line slides sideways out of it
+      const [cu, cw] = svc.local(svc.g.camera.position.x, svc.g.camera.position.z); const ou = H.tt[0], ow = H.tt[1]; const su = ou - cu, sw = ow - cw, L2 = su * su + sw * sw;
+      if (L2 > 1) { const t = ((tu - cu) * su + (tw - cw) * sw) / L2; if (t > 0 && t < 0.92) { const qu = cu + su * t, qw = cw + sw * t, L = Math.sqrt(L2); const nu = -sw / L, nw = su / L; const off = (tu - qu) * nu + (tw - qw) * nw; const need = 1.5 + 0.9 * t;
+        if (Math.abs(off) < need) { const sg = off >= 0 ? 1 : -1; tu = qu + nu * need * sg; tw = qw + nw * need * sg; } } }
+      tu = Math.max(-H.hu + 0.8, Math.min(H.hu - 0.8, tu)); tw = Math.max(H.w0 + 0.8, Math.min(H.w1 - 0.8, tw)); }
+    let [x, z] = svc.world(tu, tw); const B = this.carBox();
+    if (B) { // the car's real footprint (+ clearance): never stand in it, never walk through it
+      const P = this.toCar(B, p.x, p.z); if (Math.abs(P[0]) < B.hl && Math.abs(P[1]) < B.hw) { const o = this.pushOut(B, P); [p.x, p.z] = this.fromCar(B, o[0], o[1]); if (p.ch) p.ch.root.position.set(p.x, p.ch.root.position.y, p.z); }
+      let T = this.toCar(B, x, z); if (Math.abs(T[0]) < B.hl && Math.abs(T[1]) < B.hw) { T = this.pushOut(B, T); [x, z] = this.fromCar(B, T[0], T[1]); }
+      const Pc = this.toCar(B, p.x, p.z); if (this.crosses(B, Pc, T)) { let best = null, bd = 1e9; for (const sf of [-1, 1]) for (const sl of [-1, 1]) { const c = [sf * (B.hl + 0.25), sl * (B.hw + 0.25)]; if (this.crosses(B, Pc, c)) continue; const dd = Math.hypot(c[0] - Pc[0], c[1] - Pc[1]) + Math.hypot(T[0] - c[0], T[1] - c[1]); if (dd < bd) { bd = dd; best = c; } }
+        if (best) [x, z] = this.fromCar(B, best[0], best[1]); } }
+    const d = Math.hypot(x - p.x, z - p.z);
     if (d > 0.18) { this.setAct(null); p.faceYaw = null; return { desired: Math.min(1.25, 0.3 + d * 1.1), tx: x, tz: z, avoid: true, accel: 3 }; }
     if (face) { const [fx, fz] = svc.world(face[0], face[1]); p.faceYaw = Math.atan2(fx - p.x, fz - p.z); }
     this.setAct(act); return { desired: 0, tx: null, tz: null, avoid: false };

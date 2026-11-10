@@ -752,3 +752,6 @@ input[type="text"], input:not([type]), textarea { cursor: text !important; }
 .cc-money { text-align: right; } .cc-money b { font: 700 20px/1 var(--f-hud); color: #7fd0a0; letter-spacing: 0.04em; }
 .cc-leave { padding: 10px 16px; }
 @media (max-width: 1100px) { .cc-keys span:nth-child(n+4) { display: none; } .cc-views .cc-vb:nth-child(n+6) { display: none; } }
+/* Colombo Customs open: the game HUD steps back (notifications stay — purchase confirmations use them) */
+.hud.cc-mode > :not(.cc):not(.notes) { visibility: hidden; }
+.hud.cc-mode .notes { top: 96px; right: 24px; }

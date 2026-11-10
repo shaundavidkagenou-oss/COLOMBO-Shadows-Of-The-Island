@@ -60,9 +60,9 @@ export class CustomsUI {
   // ------------------------------------------------------------------------------------------------ open / close
   show(v) {
     this.v = v; this.scan = lookScan(v); this.open = true; this.root.classList.remove('hidden'); this.level = this.svc.needsRepair(v) ? 'repair' : 'cats'; this.ci = 0; this.si = 0; this.oi = 0; this.flash = null; this.pv = null;
-    Input.releaseLock(); this.render();
+    Input.releaseLock(); this.g.hud.root.classList.add('cc-mode'); /* the game HUD steps back (styles.css .hud.cc-mode) */ this.render();
   }
-  hide() { if (!this.open) return; this.open = false; this.root.classList.add('hidden'); this.endPreview(); const g = this.g; Input.mousePressed.clear(); Input.mouseButtons.clear(); Input.wheel = 0; g.ignoreUnlock = true; Input.requestLock(g.canvas); setTimeout(() => (g.ignoreUnlock = false), 300); }
+  hide() { if (!this.open) return; this.open = false; this.root.classList.add('hidden'); this.g.hud.root.classList.remove('cc-mode'); this.endPreview(); const g = this.g; Input.mousePressed.clear(); Input.mouseButtons.clear(); Input.wheel = 0; g.ignoreUnlock = true; Input.requestLock(g.canvas); setTimeout(() => (g.ignoreUnlock = false), 300); }
   // ------------------------------------------------------------------------------------------------ preview
   previewOf(sl, val, text) { const m = { ...this.installed }; if (val === null || val === undefined) delete m[sl.id]; else m[sl.id] = val; if (sl.id === 'plate' && val === 'vanity') m.plateText = plateText(text ?? m.plateText ?? ''); return m; }
   preview(sl, val, text) {
