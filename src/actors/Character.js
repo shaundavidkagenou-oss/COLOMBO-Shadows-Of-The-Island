@@ -12,16 +12,16 @@ import { RNG } from '../core/rng.js';
 import { makeAppearance, FACE_VARIANTS } from './Appearance.js';
 import { lerp, clamp, damp, smoothstep } from '../core/math.js';
 import { hasHeroBody, buildHeroGarments, clothShader } from './HeroBody.js';
-import { hasNpcBody, buildNpcGarments } from './NpcBody.js';
+import { hasNpcBody, buildNpcGarments, FAB } from './NpcBody.js';
 import { HERO_EXTRA, HERO_PARENT, heroJoints, fingerLayout, HeroRig, heroUniforms, patchHeroMaterial, faceNormals } from './HeroRig.js';
 import { hasHeroHead, heroHeadFit, buildHeroHead, headMaterials, iblScale, buildEyeball, EXPR_MORPHS, morphIndex, HEAD_MORPHS } from './HeroHead.js';
 import { npcHeadFit, npcHeadGeometry, npcHeadMaterial, npcHeadOpts, npcScalp, NPC_MORPHS } from './NpcHead.js';
 import { hasDancerBody, dancerGeometry, makeDancerSkeleton, dancerMaterials, attachDancerEyes, dancerHeelFit, queueDancerPaint, morphsMatchHeroes } from './DancerBody.js';
 import { DancerRig } from './DancerRig.js';
 
-export const BONES = ['hips', 'spine', 'chest', 'neck', 'head', 'shL', 'armL', 'foreL', 'handL', 'shR', 'armR', 'foreR', 'handR', 'thighL', 'shinL', 'footL', 'thighR', 'shinR', 'footR', 'skirtF', 'skirtB', 'skirtF2', 'skirtB2'];
+export const BONES = ['hips', 'spine', 'chest', 'neck', 'head', 'shL', 'armL', 'foreL', 'handL', 'shR', 'armR', 'foreR', 'handR', 'thighL', 'shinL', 'footL', 'thighR', 'shinR', 'footR', 'skirtF', 'skirtB', 'skirtF2', 'skirtB2', 'clothB'];
 const B = Object.fromEntries([...BONES, ...HERO_EXTRA].map((n, i) => [n, i])); // protagonist-only bones are appended after the shared 23, so crowd indices are unchanged
-const PARENT = { hips: null, spine: 'hips', chest: 'spine', neck: 'chest', head: 'neck', shL: 'chest', armL: 'shL', foreL: 'armL', handL: 'foreL', shR: 'chest', armR: 'shR', foreR: 'armR', handR: 'foreR', thighL: 'hips', shinL: 'thighL', footL: 'shinL', thighR: 'hips', shinR: 'thighR', footR: 'shinR', skirtF: 'hips', skirtB: 'hips', skirtF2: 'skirtF', skirtB2: 'skirtB' };
+const PARENT = { hips: null, spine: 'hips', chest: 'spine', neck: 'chest', head: 'neck', shL: 'chest', armL: 'shL', foreL: 'armL', handL: 'foreL', shR: 'chest', armR: 'shR', foreR: 'armR', handR: 'foreR', thighL: 'hips', shinL: 'thighL', footL: 'shinL', thighR: 'hips', shinR: 'thighR', footR: 'shinR', skirtF: 'hips', skirtB: 'hips', skirtF2: 'skirtF', skirtB2: 'skirtB', clothB: 'chest' };
 
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 const smooth01 = (x) => { const t = clamp(x, 0, 1); return t * t * (3 - 2 * t); };
@@ -42,9 +42,9 @@ function shapedNormal(rings, ri, a) {
   const n = new THREE.Vector3().crossVectors(ta, ty).normalize(); if (n.x * Math.cos(a) + n.z * Math.sin(a) < 0) n.negate(); return n;
 }
 class SkinBuilder {
-  constructor() { this.pos = []; this.nor = []; this.col = []; this.uv = []; this.si = []; this.sw = []; this.idx = []; this.headIdx = []; this.hairIdx = []; this.cl = []; this.clv = [0, 0]; }
+  constructor() { this.pos = []; this.nor = []; this.col = []; this.uv = []; this.si = []; this.sw = []; this.idx = []; this.headIdx = []; this.hairIdx = []; this.cl = []; this.clv = [0, 0]; this.fab = []; this.fabv = 0; }
   get n() { return this.pos.length / 3; }
-  v(p, nrm, c, uv, w) { this.pos.push(p[0], p[1], p[2]); this.nor.push(nrm[0], nrm[1], nrm[2]); this.col.push(c[0], c[1], c[2]); this.uv.push(uv[0], uv[1]); this.cl.push(this.clv[0], this.clv[1]);
+  v(p, nrm, c, uv, w) { this.pos.push(p[0], p[1], p[2]); this.nor.push(nrm[0], nrm[1], nrm[2]); this.col.push(c[0], c[1], c[2]); this.uv.push(uv[0], uv[1]); this.cl.push(this.clv[0], this.clv[1]); this.fab.push(this.fabv);
     const n = Math.min(4, w.length); const b0 = n > 0 ? w[0][0] : 0, b1 = n > 1 ? w[1][0] : 0, b2 = n > 2 ? w[2][0] : 0, b3 = n > 3 ? w[3][0] : 0; const x0 = n > 0 ? w[0][1] : 0, x1 = n > 1 ? w[1][1] : 0, x2 = n > 2 ? w[2][1] : 0, x3 = n > 3 ? w[3][1] : 0; // (allocation-free: ~10k calls per person)
     const t = x0 + x1 + x2 + x3 || 1; this.si.push(b0, b1, b2, b3); this.sw.push(x0 / t, x1 / t, x2 / t, x3 / t); return this.n - 1; }
   // Loft of elliptical rings. rings: [{c:[x,y,z], rx, rz, w:[[bone,weight]..], col, fz?(front bulge)}]
@@ -133,6 +133,7 @@ class SkinBuilder {
     g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
     g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(this.si, 4)); g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(this.sw, 4));
     if (this.cl.some((v) => v !== 0)) { g.setAttribute('aCloth', new THREE.Float32BufferAttribute(this.cl, 2)); g.userData.heroBody = true; } // garment ids for the protagonists' fabric / skin shader (HeroBody.js)
+    if (this.fab.some((v) => v !== 0)) g.setAttribute('aFab', new THREE.Uint8BufferAttribute(this.fab, 1)); // fabric kind per vertex (NpcBody.js FAB): 1 byte, crowd bodies only
     g.setIndex([...this.idx, ...this.headIdx, ...this.hairIdx]); g.addGroup(0, this.idx.length, 0); g.addGroup(this.idx.length, this.headIdx.length, 1); g.addGroup(this.idx.length + this.headIdx.length, this.hairIdx.length, 2);
     g.computeBoundingSphere(); g.boundingSphere.radius = 1.4; g.boundingSphere.center.set(0, 0.9, 0);
     return g;
@@ -152,6 +153,7 @@ export function joints(sp) {
   // swings the cloth forward / back instead of levering it up around the body axis) — see Animator.driveSkirt
   j.skirtF = [0, 0.93 * s, 0.12 * wide]; j.skirtB = [0, 0.93 * s, -0.12 * wide];
   j.skirtF2 = [0, 0.5 * s, 0.15 * wide]; j.skirtB2 = [0, 0.5 * s, -0.15 * wide]; // knee-line hinges: the lower panels bend to follow the shins
+  j.clothB = [0, 1.43 * s, -0.06 * wide]; // hinge across the top of the shoulder blades: the hanging back of a pallu / dupatta / shawl / towel swings from it (Animator.driveCloth)
   return j;
 }
 
@@ -276,6 +278,7 @@ export function buildBodyGeometry(sp) {
   // everyone else (crowd, police, staff): the anatomical crowd body (NpcBody.js) with garment shells; same accessory paths
   const NB = !HQ && NH && hasNpcBody(sp) ? buildNpcGarments(sb, sp, { B, J, NH, C }) : null;
   const HB = MH && hasHeroBody(sp) ? buildHeroGarments(sb, sp, { B, J, NK, C }) : NB;
+  const fabK = (k) => { if (NB) sb.fabv = k; }; // cloth kind for the crowd body's fabric shader (NpcBody.js FAB); 0 = skin / hard parts
   // --- torso (hips → neck)
   // natural variation in adult female figure (seeded, spec override `bust`), slightly lower/softer with age
   const bf = f ? (sp.bust ?? (0.82 + 0.36 * ((((Math.sin((sp.seed || 1) * 47.13) * 43758.5453) % 1) + 1) % 1))) * (sp.age === 'elder' ? 0.9 : 1) : 0;
@@ -392,11 +395,11 @@ export function buildBodyGeometry(sp) {
         if (t < 0.3) { let e = 1; for (let xq = -0.2; xq <= 0.2001; xq += 0.02) for (const sg of [1, -1]) { const zq = NB.surfZ(y, xq, sg) + sg * 0.008; if (Math.abs(zq) > 0.5) continue; e = Math.max(e, Math.hypot(xq / rxF, (zq - czF) / rzF)); } rxF *= e; rzF *= e; } } // the shirt / singlet tail never pokes out at the sides either
       rings.push({ c: [0, y, czF], rx: rxF, rz: rzF, w: wFn, col: C(sp.skirtCol || sp.bottom) });
     }
-    const k0 = sb.n; sb.loft(rings, 18, { region, uvRep: 2 }); parts.skirt = [k0, sb.n]; skirtProf = rings.map((r) => [r.c[1], r.c[2] + r.rz, r.c[2] - r.rz, r.rx]); // front surface (apron over a skirt)
+    fabK(o === 'saree' ? FAB.SILK : FAB.PLAIN); const k0 = sb.n; sb.loft(rings, 18, { region, uvRep: 2 }); fabK(0); parts.skirt = [k0, sb.n]; skirtProf = rings.map((r) => [r.c[1], r.c[2] + r.rz, r.c[2] - r.rz, r.rx]); // front surface (apron over a skirt)
   }
   // --- saree pallu: across the front from right hip over the left shoulder, hanging down the back
   if (o === 'saree' || o === 'salwar') {
-    const pc = C(sp.skirtCol || sp.top); const path = [];
+    const pc = C(sp.skirtCol || sp.top); const path = []; fabK(FAB.SILK); /* saree pallu / chiffon dupatta */
     const pts = o === 'saree'
       ? [[-0.15, 0.96, 0.12], [-0.08, 1.1, 0.12], [0.02, 1.24, 0.135], [0.1, 1.36, 0.1], [0.14, 1.44, 0.02], [0.14, 1.42, -0.08], [0.13, 1.25, -0.115], [0.12, 1.0, -0.12], [0.12, 0.78, -0.13]]
       : HB ? [[0.12, 0.98, -0.12], [0.12, 1.2, -0.11], [0.125, 1.38, -0.07], [0.125, 1.43, 0.0], [0.13, 1.35, 0.085], [0.1, 1.22, 0.13], [0.0, 1.14, 0.14], [-0.1, 1.22, 0.13], [-0.13, 1.35, 0.085], [-0.125, 1.43, 0.0], [-0.125, 1.38, -0.07], [-0.12, 1.2, -0.11], [-0.12, 0.98, -0.12]] // anatomical bodies: a deep U below the bust, both ends falling down the back
@@ -416,7 +419,9 @@ export function buildBodyGeometry(sp) {
         const u = r / (R - 1), c = spl(u), c2 = spl(Math.min(1, u + 0.02)), c1 = spl(Math.max(0, u - 0.02)); const d = new THREE.Vector3(c2[0] - c1[0], c2[1] - c1[1], c2[2] - c1[2]).normalize();
         const up = smooth01((c[1] / s - 1.34) / 0.08) * 3; const out = new THREE.Vector3(c[0], 0, c[2]).normalize(); out.y += up; out.normalize(); // over the shoulder the cloth faces up
         const sd = new THREE.Vector3().crossVectors(d, out).normalize(); const wd = WD * (sar ? 0.3 + 0.7 * smooth01(u / 0.22) : 1) * (1 - 0.6 * smooth01((c[1] / s - 1.3) / 0.1)); // gathered where it tucks in at the hip and pleated narrow where it is pinned on the shoulder
-        const row = [], z0 = []; const wg = c[1] > 1.3 * s ? W1('chest') : c[1] > 1.05 * s ? W2('spine', 'chest', 0.5) : W1('hips'); Wr.push(wg);
+        const row = [], z0 = []; let wg = c[1] > 1.3 * s ? W1('chest') : c[1] > 1.05 * s ? W2('spine', 'chest', 0.5) : W1('hips');
+        if (c[2] < -0.03 && NB) { const hang = clamp((1.37 * s - c[1]) / (0.42 * s), 0, 1); if (hang > 0) wg = lerpW(wg, W1('clothB'), 0.92 * smooth01(hang)); } // the hanging back length swings (pinned at the shoulder)
+        Wr.push(wg);
         for (let k = 0; k < NCc; k++) {
           const t = k / (NCc - 1) - 0.5; const q = [c[0] + sd.x * t * wd, c[1] + sd.y * t * wd, c[2] + sd.z * t * wd];
           const wF = smooth01((q[2] - 0.01) / 0.05), wB = smooth01((-q[2] - 0.01) / 0.05), wT = 1 - wF - wB; // front / shoulder top / back
@@ -439,10 +444,11 @@ export function buildBodyGeometry(sp) {
       const N = P.map((row, r) => row.map((q, k) => { const a1 = P[Math.min(R - 1, r + 1)][k], a0 = P[Math.max(0, r - 1)][k], b1 = row[Math.min(NCc - 1, k + 1)], b0 = row[Math.max(0, k - 1)];
         const n = new THREE.Vector3(a1[0] - a0[0], a1[1] - a0[1], a1[2] - a0[2]).cross(new THREE.Vector3(b1[0] - b0[0], b1[1] - b0[1], b1[2] - b0[2])).normalize(); if (n.x * q[0] + n.z * q[2] < 0) n.negate(); return [n.x, n.y, n.z]; }));
       P.forEach((row, r) => row.forEach((q, k) => { const pl = 0.0035 * Math.sin((k / (NCc - 1)) * Math.PI * 3) * Math.sin(Math.PI * Math.min(1, r / (R - 1) * 1.6)); const n = N[r][k]; q[0] += n[0] * pl; q[1] += n[1] * pl; q[2] += n[2] * pl; })); // lengthwise pleats
-      const dc = sar ? pc : pc.map((v) => lerp(v, 1, 0.35)); // a dupatta is usually a lighter, contrasting fabric
+      const dc = sar ? pc : sp.shawl ? C(sp.shawl) : pc.map((v) => lerp(v, 1, 0.35)); // a dupatta is usually a lighter, contrasting fabric (or the rolled shawl colour: it IS the dupatta)
       sb.grid(P, N, Wr, dc, dc.map((v) => v * 0.85));
     } else sb.strip(path, o === 'saree' ? 0.26 : 0.12, (p) => p.out, null, pc, sp.pattern ?? 1);
   }
+  fabK(0);
   // --- arms
   for (const side of ['L', 'R']) {
     const a = J['arm' + side], fo = J['fore' + side], h = J['hand' + side];
@@ -752,8 +758,11 @@ export function buildBodyGeometry(sp) {
     band(ys.map((y, i) => { const t = i / (ys.length - 1); const x = lerp(0.1, -0.13, t) * w; return i === 0 ? [x, y * s, 0.0] : [x, y * s, surfZ(y * s, x, -1) - 0.007]; }), 0.026, sc, torsoW);
     const bx = -0.13 * w; sb.boxPart([bx, 1.0 * s, surfZ(1.0 * s, bx, 1) + 0.03], 0.15, 0.12, 0.05, W1('hips'), C(sp.crossbody));
   }
-  if (sp.lanyard) { const lc = C(sp.lanyard); const cz = surfZ(1.2 * s, 0, 1) + 0.007;
-    for (const sx of [-1, 1]) band([[sx * 0.058, 1.47 * s, 0.0], [sx * 0.05, 1.41 * s, surfZ(1.41 * s, 0.05, 1) + 0.005], [sx * 0.026, 1.31 * s, surfZ(1.31 * s, 0.026, 1) + 0.005], [sx * 0.006, 1.25 * s, surfZ(1.25 * s, 0, 1) + 0.006]], 0.014, lc, torsoW);
+  if (sp.lanyard) { const lc = C(sp.lanyard);
+    /* worn OVER a dupatta / shawl: that cloth bridges the bust, so lift the cord and card above the bridged surface (else the card pokes up through it) */
+    const lz = (y, x, o) => (sp.shawl && NB ? Math.max(surfZ(y, x, 1), surfZ(y, x + 0.09 * w, 1), surfZ(y, x - 0.09 * w, 1)) + 0.012 : surfZ(y, x, 1)) + o;
+    const cz = lz(1.2 * s, 0, 0.007);
+    for (const sx of [-1, 1]) band([[sx * 0.058, 1.47 * s, 0.0], [sx * 0.05, 1.41 * s, lz(1.41 * s, 0.05, 0.005)], [sx * 0.026, 1.31 * s, lz(1.31 * s, 0.026, 0.005)], [sx * 0.006, 1.25 * s, lz(1.25 * s, 0, 0.006)]], 0.014, lc, torsoW);
     if (sp.lanyardCard !== false) { sb.boxPart([0, 1.2 * s, cz], 0.056, 0.082, 0.005, W1('chest'), C('#f4f4f0')); sb.boxPart([0, 1.233 * s, cz + 0.001], 0.056, 0.016, 0.005, W1('chest'), lc); } }
   if (sp.cord) band([[0.125 * w, 1.44 * s, 0.0], [0.11 * w, 1.4 * s, surfZ(1.4 * s, 0.11 * w, 1) + 0.005], [0.085 * w, 1.33 * s, surfZ(1.33 * s, 0.085 * w, 1) + 0.006], [0.07 * w, 1.29 * s, surfZ(1.29 * s, 0.07 * w, 1) + 0.006]], 0.01, C(sp.cord), torsoW); // whistle cord: left shoulder to breast pocket
   if (sp.uniformShirt) { // service shirt details (photo refs): two breast pockets with buttoned flaps, front button placket, name plate over the right pocket
@@ -771,18 +780,40 @@ export function buildBodyGeometry(sp) {
   if (sp.necklace) sb.loft([{ c: [0, 1.448 * s, 0.008], rx: 0.084, rz: 0.07, w: W1('chest'), col: C('#d4a640') }, { c: [0, 1.456 * s, 0.006], rx: 0.08, rz: 0.066, w: W1('chest'), col: C('#d4a640') }], 14);
   if (sp.epaulettes) for (const side of ['L', 'R']) { const a = J['arm' + side]; const ec = C(sp.epaulettes === true ? (sp.bottom || '#1f2a44') : sp.epaulettes); sb.boxPart([a[0] * 0.8, 1.392 * s + 0.047, -0.004], 0.075, 0.008, 0.042, W2('chest', 'arm' + side, 0.4), ec);
     for (let k = 0; k < (sp.pips || 0); k++) sb.boxPart([a[0] * (0.68 + k * 0.1), 1.392 * s + 0.053, -0.004], 0.012, 0.005, 0.012, W2('chest', 'arm' + side, 0.4), C('#e2bd48')); } // rank pips
-  if (sp.vest) { const vc = C(sp.vest); const idx = [2, 3, 4, 5, 6].map((i) => i + RO); // tactical vest: a shell just outside the shirt from waist to chest, with pouches
-    sb.loft(idx.map((i) => ({ c: [0, tr[i].y * s, HB ? tr[i].cz || 0 : 0], rx: tr[i].rx + 0.02, rz: tr[i].rz + 0.022, fz: tr[i].fz, bust: tr[i].bust, w: tr[i].wgt, col: vc })), f ? 28 : 16, { capStart: false, capEnd: false });
+  // crowd / police body (NpcBody): a band of cloth worn over the top (vests, reflective tapes) built on the REAL outer cloth
+  // profile (NpcBody.beltRing: outermost shirt / trouser point per sector, widened over its neighbours) at every row, offset
+  // by dr, with thick top / bottom rims, each point skinned like the cloth under it — the old ellipse loft did not match the
+  // anatomical chest, so the shirt poked through its upper corners at the shoulders and the corners lifted off when moving
+  // tapes = [[ya, yb, colour]]: raised strips modelled INTO the band (a 2.5 mm step up at each edge, same vertices / skin weights
+  // as the band round them), so a reflective tape can never separate from or sink into the vest when the torso bends
+  const vestBand = (y0, y1, rows, dr, col, rim, tapes = []) => { const NA = sp._lod ? 24 : 40; const half = Math.max(0.012, (y1 - y0) / rows * 0.6); const RAISE = 0.0025;
+    const ring = (yy) => HB.beltRing(yy, half, NA).pts; const L = [];
+    const tapeAt = (yy) => tapes.find(([ya, yb]) => yy > ya + 1e-4 && yy < yb - 1e-4);
+    const ys = []; for (let r = 0; r <= rows; r++) ys.push({ yy: lerp(y0, y1, r / rows) }); for (const t of tapes) ys.push({ yy: t[0], edge: t, up: true }, { yy: t[1], edge: t, up: false });
+    ys.sort((a, b) => a.yy - b.yy || (a.edge ? (a.up ? 1 : -1) : 0) - (b.edge ? (b.up ? 1 : -1) : 0));
+    { const p0 = ring(y0); L.push({ yy: y0, pts: p0, off: 0.0025, ny: -1, col: rim }); }
+    for (const q of ys) { const pts = ring(q.yy);
+      if (q.edge) { const tc = C(q.edge[2]); if (q.up) L.push({ yy: q.yy, pts, off: dr, col }, { yy: q.yy, pts, off: dr + RAISE, col: tc }); else L.push({ yy: q.yy, pts, off: dr + RAISE, col: tc }, { yy: q.yy, pts, off: dr, col }); }
+      else { const t = tapeAt(q.yy); L.push({ yy: q.yy, pts, off: t ? dr + RAISE : dr, col: t ? C(t[2]) : col }); } }
+    { const p1 = ring(y1); L.push({ yy: y1, pts: p1, off: 0.0025, ny: 1, col: rim }); }
+    const wd = W2('spine', 'chest', 0.6); const base = sb.n;
+    for (const q of L) for (let k = 0; k <= NA; k++) { const pt = q.pts[k % NA]; sb.v([pt.x + pt.nx * q.off, q.yy, pt.z + pt.nz * q.off], q.ny ? [pt.nx * 0.3, q.ny, pt.nz * 0.3] : [pt.nx, 0, pt.nz], q.col, [0.01, 0.51], pt.w || wd); }
+    for (let r = 0; r < L.length - 1; r++) for (let k = 0; k < NA; k++) { const a0 = base + r * (NA + 1) + k, a1 = a0 + NA + 1, b0 = a0 + 1, b1 = a1 + 1; sb.idx.push(a0, a1, b0, a1, b1, b0); } };
+  const nbBand = !!(NB && HB && HB.beltRing);
+  fabK(0); if (sp.vest) { const vc = C(sp.vest); fabK(FAB.NYLON); const idx = [2, 3, 4, 5, 6].map((i) => i + RO); // tactical vest: a shell just outside the shirt from waist to chest, with pouches
+    if (nbBand) vestBand(tr[idx[0]].y * s, tr[idx[4]].y * s, sp._lod ? 5 : 10, 0.017, vc, vc.map((v) => v * 0.7));
+    else sb.loft(idx.map((i) => ({ c: [0, tr[i].y * s, HB ? tr[i].cz || 0 : 0], rx: tr[i].rx + 0.02, rz: tr[i].rz + 0.022, fz: tr[i].fz, bust: tr[i].bust, w: tr[i].wgt, col: vc })), f ? 28 : 16, { capStart: false, capEnd: false });
     for (const bx of [-0.07, 0, 0.07]) sb.boxPart([bx * w, 1.1 * s, surfZ(1.1 * s, bx * w, 1) + 0.03], 0.055, 0.07, 0.03, W2('spine', 'chest', 0.3), vc.map((v) => v * 0.8));
     if (!sp.hero) sb.boxPart([0, 1.3 * s, surfZ(1.3 * s, 0, -1) - 0.024], 0.2 * w, 0.045, 0.004, W1('chest'), C('#e9e9e2')); } // light panel across the back (police)
   // ---- everyday wardrobe extras: hi-vis vest, apron, shoulder towel, shawl / dupatta, hood, sports headband
   const ringAt = (y) => { let k = 0; while (k < tr.length - 2 && tr[k + 1].y * s < y) k++; const a2 = tr[k], b2 = tr[k + 1]; const t = clamp((y / s - a2.y) / (b2.y - a2.y), 0, 1); return { rx: lerp(a2.rx, b2.rx, t), rz: lerp(a2.rz, b2.rz, t), fz: lerp(a2.fz || 0, b2.fz || 0, t), bust: lerp(a2.bust || 0, b2.bust || 0, t), cz: lerp(a2.cz || 0, b2.cz || 0, t), w: t < 0.5 ? a2.wgt : b2.wgt }; };
   const hoop = (y, h, dr, col) => { const R0 = ringAt(y - h / 2), R1 = ringAt(y + h / 2); sb.loft([R0, R1].map((R, i) => ({ c: [0, y + (i ? h / 2 : -h / 2), R.cz], rx: R.rx + dr, rz: R.rz + dr * 1.1, fz: R.fz, bust: R.bust, w: R.w, col })), f ? 28 : 16, { capStart: false, capEnd: false }); };
-  if (sp.hiVis) { // reflective safety vest (municipal cleaners, road crews, parking attendants): fluorescent shell over the top, two silver bands
+  fabK(0); if (sp.hiVis) { fabK(FAB.MESH); // reflective safety vest (municipal cleaners, road crews, parking attendants): fluorescent shell over the top, two silver bands
     const vc = C(sp.hiVis), rc = C('#d6dad6'); const idx = [2, 3, 4, 5, 6].map((i) => i + RO);
-    sb.loft(idx.map((i) => ({ c: [0, tr[i].y * s, tr[i].cz || 0], rx: tr[i].rx + 0.011, rz: tr[i].rz + 0.013, fz: tr[i].fz, bust: tr[i].bust, w: tr[i].wgt, col: vc })), f ? 28 : 16, { capStart: false, capEnd: false });
-    hoop(1.06 * s, 0.034, 0.016, rc); hoop(1.2 * s, 0.034, 0.016, rc); }
-  if (sp.apron) { // bib apron: panel on the chest, neck strap, waist tie; the skirt of it hangs from the waist on the skirt hinge (follows the forward thigh)
+    if (nbBand) vestBand(tr[idx[0]].y * s, tr[idx[4]].y * s, sp._lod ? 5 : 10, 0.008, vc, vc.map((v) => v * 0.8), [1.06 * s, 1.2 * s].map((yy) => [yy - 0.017, yy + 0.017, '#d6dad6'])); // reflective tapes modelled into the vest // reflective tapes just outside the mesh
+    else { sb.loft(idx.map((i) => ({ c: [0, tr[i].y * s, tr[i].cz || 0], rx: tr[i].rx + 0.011, rz: tr[i].rz + 0.013, fz: tr[i].fz, bust: tr[i].bust, w: tr[i].wgt, col: vc })), f ? 28 : 16, { capStart: false, capEnd: false });
+      hoop(1.06 * s, 0.034, 0.016, rc); hoop(1.2 * s, 0.034, 0.016, rc); } }
+  fabK(0); if (sp.apron) { fabK(FAB.PLAIN); // bib apron: panel on the chest, neck strap, waist tie; the skirt of it hangs from the waist on the skirt hinge (follows the forward thigh)
     const ac = C(sp.apron), tc = ac.map((v) => v * 0.78); const zf = (y) => Math.max(surfZ(y, 0, 1), surfZ(y, 0.075 * w, 1), surfZ(y, -0.075 * w, 1)) + 0.007;
     /* bib and skirt are continuous cloth ribbons (stacked slabs stepped visibly over a flared sarong / skirt) */
     const rib = (pts, width) => sb.strip(pts.map(([y, z, wt]) => ({ c: [0, y, z], side: [1, 0, 0], out: [0, 0, 1], w: wt })), width, (q) => q.out, null, ac, 0);
@@ -794,25 +825,47 @@ export function buildBodyGeometry(sp) {
     for (const sx of [-1, 1]) band([[sx * 0.1 * w, 1.3 * s, zf(1.3 * s)], [sx * 0.085 * w, 1.38 * s, surfZ(1.38 * s, sx * 0.085 * w, 1) + 0.006], [sx * 0.065, 1.45 * s, surfZ(1.45 * s, sx * 0.065, 1) + 0.004], [sx * 0.05, 1.49 * s, 0.0]], 0.016, tc, torsoW); }
   // cloth lying on the torso: each strip point sits on the surface and the strip is oriented by the real surface normal
   // (slope of the torso cross-section there), so a wide drape lies flat on the chest instead of half sinking into it
-  const drape = (sg, pts, width, col) => { const path = pts.map(([x, y], i) => { const e = 0.006, f = surfZ(y, x, sg), df = (surfZ(y, x + e, sg) - surfZ(y, x - e, sg)) / (2 * e);
-      const n = new THREE.Vector3(-df * sg, 0, sg).normalize(); return { x, y, c: [x + n.x * 0.011, y, f + n.z * 0.011], n }; });
+  const overVest = nbBand ? (sp.vest ? 0.024 : sp.hiVis ? 0.014 : 0) : 0; // a towel / shawl worn over a vest lies on the vest, not under it
+  // anatomical bodies: the drape is a cloth GRID conformed across its whole width (every vertex on the real front / back cloth
+  // surface + clearance, relaxed to bridge hollows but never sinking) — a flat ribbon centred on the surface let the bust /
+  // shoulder blades poke through its middle and edges
+  const drapeNB = (sg, pts, width, col) => { const R = Math.max(8, (pts.length - 1) * 4 + 1), NCc = 7, cl = 0.008; const P = [], Z0 = [], Wr = [];
+    const at = (u) => { const f = u * (pts.length - 1), i = Math.min(pts.length - 2, Math.floor(f)), t = f - i; return [lerp(pts[i][0], pts[i + 1][0], t), lerp(pts[i][1], pts[i + 1][1], t)]; };
+    for (let r = 0; r < R; r++) { const u = r / (R - 1), c = at(u), c2 = at(Math.min(1, u + 0.02)), c1 = at(Math.max(0, u - 0.02)); let dx = c2[0] - c1[0], dy = c2[1] - c1[1]; const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
+      const row = [], z0 = []; for (let k = 0; k < NCc; k++) { const t = (k / (NCc - 1) - 0.5) * width; const y = c[1] + dx * t, hx = HB.ringAt ? 0.92 * HB.ringAt(y).rx : 1; const x = clamp(c[0] - dy * t, -hx, hx); /* never past the torso side (surface depth is garbage there) */ const o = cl + (y < 1.42 * s ? overVest : 0); const z = surfZ(y, x, sg) + sg * o; row.push([x, y, z]); z0.push(z); }
+      P.push(row); Z0.push(z0); const hang = sg < 0 ? clamp((1.37 * s - c[1]) / (0.42 * s), 0, 1) : 0; Wr.push(hang > 0 ? lerpW(torsoW(c[1]), W1('clothB'), 0.92 * smooth01(hang)) : torsoW(c[1])); }
+    for (let it = 0; it < 3; it++) for (let r = 1; r < R - 1; r++) for (let k = 0; k < NCc; k++) { const nb = [P[r - 1][k][2], P[r + 1][k][2]]; if (k > 0) nb.push(P[r][k - 1][2]); if (k < NCc - 1) nb.push(P[r][k + 1][2]);
+      const m = nb.reduce((x, y) => x + y, 0) / nb.length; P[r][k][2] = sg > 0 ? Math.max(Z0[r][k], m) : Math.min(Z0[r][k], m); }
+    const N = P.map((row, r) => row.map((q, k) => { const a1 = P[Math.min(R - 1, r + 1)][k], a0 = P[Math.max(0, r - 1)][k], b1 = row[Math.min(NCc - 1, k + 1)], b0 = row[Math.max(0, k - 1)];
+      const n = new THREE.Vector3(a1[0] - a0[0], a1[1] - a0[1], a1[2] - a0[2]).cross(new THREE.Vector3(b1[0] - b0[0], b1[1] - b0[1], b1[2] - b0[2])).normalize(); if (n.z * sg < 0) n.negate(); return [n.x, n.y, n.z]; }));
+    sb.grid(P, N, Wr, col, col.map((v) => v * 0.85)); };
+  const drape = (sg, pts, width, col) => { if (NB && HB && HB.surfZ) return drapeNB(sg, pts, width, col); const path = pts.map(([x, y], i) => { const e = 0.006, f = surfZ(y, x, sg), df = (surfZ(y, x + e, sg) - surfZ(y, x - e, sg)) / (2 * e); const o = 0.011 + (y < 1.42 * s ? overVest : 0);
+      const n = new THREE.Vector3(-df * sg, 0, sg).normalize(); return { x, y, c: [x + n.x * o, y, f + n.z * o], n }; });
     sb.strip(path.map((p, i) => { const a = path[Math.max(0, i - 1)], b = path[Math.min(path.length - 1, i + 1)]; const d = new THREE.Vector3(b.c[0] - a.c[0], b.c[1] - a.c[1], b.c[2] - a.c[2]).normalize(); const side = new THREE.Vector3().crossVectors(d, p.n).normalize();
-      return { c: p.c, side: [side.x, side.y, side.z], out: [p.n.x, p.n.y, p.n.z], w: torsoW(p.y) }; }), width, (q) => q.out, null, col, 0); };
+      const hang = sg < 0 && NB ? clamp((1.37 * s - p.y) / (0.42 * s), 0, 1) : 0; return { c: p.c, side: [side.x, side.y, side.z], out: [p.n.x, p.n.y, p.n.z], w: hang > 0 ? lerpW(torsoW(p.y), W1('clothB'), 0.92 * smooth01(hang)) : torsoW(p.y) }; }), width, (q) => q.out, null, col, 0); };
   // short piece across the top of the shoulder joining the front and back halves of a drape
-  const shoulderBridge = (x, width, col) => { const y = 1.418 * s, zf = surfZ(y, x, 1), zb = surfZ(y, x, -1); sb.boxPart([x, y + 0.008, (zf + zb) / 2], width, 0.016, zf - zb + 0.018, W1('chest'), col); };
-  if (sp.towel) { // towel / cloth over the left shoulder (labourers, porters, traders): hangs to mid-chest in front and down the back
+  const shoulderBridge = (x, width, col) => { if (NB && HB && HB.surfZ) { /* anatomical body: a soft cloth arch over the shoulder joining the drape's front and back top edges (a box read as a floating bar) */
+      const y0 = 1.418 * s, R = 9, Cn = 5, P = [], N = [], Wr = [];
+      for (let r = 0; r < R; r++) { const t = r / (R - 1), row = []; for (let k = 0; k < Cn; k++) { const xx = x + (k / (Cn - 1) - 0.5) * width; const zf = surfZ(y0, xx, 1) + 0.008 + overVest, zb = surfZ(y0, xx, -1) - 0.008 - overVest;
+        row.push([xx, y0 + 0.02 * s * Math.sin(Math.PI * t), lerp(zf, zb, t)]); } P.push(row); Wr.push(W1('chest')); }
+      for (let r = 0; r < R; r++) { const row = []; for (let k = 0; k < Cn; k++) { const q = P[r][k], a1 = P[Math.min(R - 1, r + 1)][k], a0 = P[Math.max(0, r - 1)][k], b1 = P[r][Math.min(Cn - 1, k + 1)], b0 = P[r][Math.max(0, k - 1)];
+        const n = new THREE.Vector3(a1[0] - a0[0], a1[1] - a0[1], a1[2] - a0[2]).cross(new THREE.Vector3(b1[0] - b0[0], b1[1] - b0[1], b1[2] - b0[2])).normalize(); const zc = (P[0][k][2] + P[R - 1][k][2]) / 2;
+        if (n.y * (q[1] - (y0 - 0.06 * s)) + n.z * (q[2] - zc) < 0) n.negate(); row.push([n.x, n.y, n.z]); } N.push(row); }
+      sb.grid(P, N, Wr, col, col.map((v) => v * 0.85)); return; }
+    const y = 1.418 * s, zf = surfZ(y, x, 1), zb = surfZ(y, x, -1); sb.boxPart([x, y + 0.008, (zf + zb) / 2], width, 0.016, zf - zb + 0.018, W1('chest'), col); };
+  fabK(0); if (sp.towel) { fabK(FAB.PLAIN); // towel / cloth over the left shoulder (labourers, porters, traders): hangs to mid-chest in front and down the back
     const tc = C(sp.towel), x0 = 0.1 * w; const ys = [1.42, 1.37, 1.31, 1.25, 1.19, 1.13];
     drape(1, ys.map((y, i) => [x0 - i * 0.003, y * s]), 0.11, tc); drape(-1, ys.map((y, i) => [x0 - i * 0.003, y * s]), 0.11, tc.map((v) => v * 0.94)); shoulderBridge(x0, 0.11, tc);
     for (const sg of [1, -1]) drape(sg, [[x0 - 0.016, 1.14 * s], [x0 - 0.016, 1.125 * s]], 0.112, tc.map((v) => v * 0.78)); } // woven hem stripe
-  if (sp.shawl) { // shawl / dupatta: wide drape from the left shoulder across the chest to the right hip, and down the back
+  fabK(0); if (sp.shawl && !(o === 'salwar' && HB)) { fabK(FAB.SILK); /* a salwar's own dupatta (above) is the shawl: never two cloths fighting through each other */ // shawl / dupatta: wide drape from the left shoulder across the chest to the right hip, and down the back
     const sc = C(sp.shawl); const ys = [1.42, 1.36, 1.29, 1.21, 1.13, 1.05, 0.98];
     for (const sg of [1, -1]) drape(sg, ys.map((y, i) => [lerp(0.095, -0.14, i / (ys.length - 1)) * w, y * s]), 0.15, sg > 0 ? sc : sc.map((v) => v * 0.92));
     shoulderBridge(0.095 * w, 0.15, sc); }
-  if (sp.hood) { // hoodie: the hood gathered behind the neck, drawstrings at the front
+  fabK(0); if (sp.hood) { fabK(FAB.KNIT); // hoodie: the hood gathered behind the neck, drawstrings at the front
     const hcol = C(sp.top).map((v) => v * 0.9), yh = 1.43 * s; sb.ellipsoid([0, yh, surfZ(yh, 0, -1) - 0.03], 0.12 * w, 0.075, 0.055, W2('chest', 'neck', 0.35), hcol, { lat: 6, lon: 12 });
     for (const sx of [-1, 1]) sb.boxPart([sx * 0.035, 1.34 * s, surfZ(1.34 * s, sx * 0.035, 1) + 0.006], 0.008, 0.13, 0.006, W1('chest'), C('#e8e6e0')); }
-  if (sp.headband) { const hw = W1('head'), k = Math.max(1.06, hairLift + 0.012), y = hc[1] + 0.045; sb.loft([{ c: [0, y - 0.016, hc[2]], rx: hr[0] * k, rz: hr[2] * k, w: hw, col: C(sp.headband) }, { c: [0, y + 0.016, hc[2] - 0.003], rx: hr[0] * k * 0.99, rz: hr[2] * k * 0.99, w: hw, col: C(sp.headband) }], 16, { capStart: false, capEnd: false }); }
-  if (sp.belt && HB && HB.beltRing) { // anatomical crowd / police body: a real belt (outer face, top and bottom edges) laid on the
+  fabK(0); if (sp.headband) { fabK(FAB.KNIT); const hw = W1('head'), k = Math.max(1.06, hairLift + 0.012), y = hc[1] + 0.045; sb.loft([{ c: [0, y - 0.016, hc[2]], rx: hr[0] * k, rz: hr[2] * k, w: hw, col: C(sp.headband) }, { c: [0, y + 0.016, hc[2] - 0.003], rx: hr[0] * k * 0.99, rz: hr[2] * k * 0.99, w: hw, col: C(sp.headband) }], 16, { capStart: false, capEnd: false }); }
+  fabK(0); if (sp.belt && HB && HB.beltRing) { fabK(FAB.LEATHER); // anatomical crowd / police body: a real belt (outer face, top and bottom edges) laid on the
     // outer cloth profile at the waist (NpcBody.beltRing) — never sinking into the hips, skinned like the cloth under it
     const bc = C(sp.belt), be = bc.map((v) => v * 0.8); const yb = 0.965 * s, hh = 0.021; const { pts } = HB.beltRing(yb, hh + 0.008); const NA = pts.length; const wd = W1('hips');
     const rows = [[-hh, 0.0012, -1], [-hh, 0.0068, 0], [hh, 0.0068, 0], [hh, 0.0012, 1]]; const base = sb.n;
@@ -827,7 +880,7 @@ export function buildBodyGeometry(sp) {
     sb.boxPart([0, yb, rz + 0.004], 0.05, 0.036, 0.008, W1('hips'), C(sp.buckle || '#c9cdd2'));
     if (sp.holster) { sb.boxPart([-(rx + 0.012), yb - 0.075, 0.03], 0.04, 0.13, 0.085, W1('hips'), C('#121212')); sb.boxPart([-(rx + 0.006), yb - 0.01, 0.03], 0.02, 0.04, 0.05, W1('hips'), C('#121212')); }
     if (sp.pouch) sb.boxPart([rx + 0.01, yb - 0.035, 0.05], 0.03, 0.06, 0.05, W1('hips'), C('#121212')); }
-  if (sp.strap && HB && HB.topY && HB.beltRing) { // Sam Browne cross strap on the anatomical body: left hip (on the belt) → up the
+  fabK(0); if (sp.strap && HB && HB.topY && HB.beltRing) { fabK(FAB.LEATHER); // Sam Browne cross strap on the anatomical body: left hip (on the belt) → up the
     // chest on the real front cloth surface → over the right shoulder on the shirt's top-down height field → down the back
     const sc = C(sp.strap); const xAt = (y) => lerp(-0.118, 0.125, clamp((1.42 - y / s) / 0.43, 0, 1)) * w; /* over the middle of the shoulder, clear of the collar */ const cz = HB.ringAt(1.25 * s).cz;
     const offAt = (y) => 0.006 + 0.009 * smoothstep(1.15 * s, 1.2 * s, y) * smoothstep(1.41 * s, 1.36 * s, y); // clears the pocket flaps / buttons only where it crosses them
@@ -858,6 +911,7 @@ export function buildBodyGeometry(sp) {
     for (const y of [...ysF].reverse()) P.push(bodyPt(y, -1));
     sb.strip(P.map((p, i) => { const a = P[Math.max(0, i - 1)].c, b = P[Math.min(P.length - 1, i + 1)].c; const d = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]).normalize(); const side = new THREE.Vector3().crossVectors(d, p.out).normalize();
       return { c: p.c, side: [side.x, side.y, side.z], out: [p.out.x, p.out.y, p.out.z], w: p.c[1] > 1.3 * s ? W1('chest') : torsoW(p.c[1]) }; }), 0.034, (q) => q.out, null, sc, 0); }
+  fabK(0);
   const geo = sb.build(); geo.userData.parts = parts; if (NB) { geo.userData.npcBody = true; parts.legVerts = NB.legVerts; }
   // chest secondary motion (sp.bustSpring, adult female dancers): two relative morph targets on the torso's bust vertices —
   // 0: lift (up, slightly forward), 1: sideways sway. Driven per frame by a damped spring (Character.updateBust); the top
@@ -918,6 +972,84 @@ export function getHairMaterial() {
   return hairMat;
 }
 export function getBodyMaterial() { if (!bodyMat) bodyMat = addBloodStain(new THREE.MeshStandardMaterial({ map: fabricAtlas(), vertexColors: true, roughness: 0.85 })); return bodyMat; } // 0 wounds; a wounded ped gets its own copy (BloodStain.js)
+// Crowd / police bodies (NpcBody): the same atlas + vertex-colour material, plus cloth surfaces per garment from the 1-byte
+// aFab attribute (NpcBody.js FAB) — woven / knitted relief as a bump (plain weave, twill, denim wales, jersey knit, ripstop,
+// hi-vis mesh, leather grain), soft drape folds, thread slub, per-cloth roughness and the grazing-angle fibre sheen of cotton /
+// the gloss of silk. Garment colours are unchanged; skin (aFab 0) is exactly the old shading. Fine relief fades out with
+// distance (fwidth) so it never shimmers; one program, no extra draws or textures; 2 value-noise lookups at most per pixel.
+let npcBodyMat = null;
+export function getNpcBodyMaterial() {
+  if (npcBodyMat) return npcBodyMat;
+  const m = new THREE.MeshStandardMaterial({ map: fabricAtlas(), vertexColors: true, roughness: 0.85 });
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aFab;\nvarying float vFab;\nvarying vec3 vFP;\nvarying vec3 vFN;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFab = aFab; vFP = position; vFN = normal;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+varying float vFab; varying vec3 vFP; varying vec3 vFN;
+float fbH; float fbR;
+float fbHash( vec3 p ) { p = fract( p * 0.3183099 + 0.1 ); p *= 17.0; return fract( p.x * p.y * p.z * ( p.x + p.y + p.z ) ); }
+float fbNoise( vec3 x ) { vec3 i = floor( x ); vec3 f = fract( x ); f = f * f * ( 3.0 - 2.0 * f );
+  return mix( mix( mix( fbHash( i ), fbHash( i + vec3( 1.0, 0.0, 0.0 ) ), f.x ), mix( fbHash( i + vec3( 0.0, 1.0, 0.0 ) ), fbHash( i + vec3( 1.0, 1.0, 0.0 ) ), f.x ), f.y ),
+              mix( mix( fbHash( i + vec3( 0.0, 0.0, 1.0 ) ), fbHash( i + vec3( 1.0, 0.0, 1.0 ) ), f.x ), mix( fbHash( i + vec3( 0.0, 1.0, 1.0 ) ), fbHash( i + vec3( 1.0, 1.0, 1.0 ) ), f.x ), f.y ), f.z ); }
+float fbPlain( vec2 c, float P ) { return ( sin( c.x * 6.2832 / P ) * 0.5 + 0.5 ) * ( sin( c.y * 6.2832 / P ) * 0.5 + 0.5 ); }
+float fbKnit( vec2 c, float P ) { return abs( sin( ( c.x + abs( fract( c.y / P ) - 0.5 ) * P * 0.6 ) * 3.1416 / P ) ); }
+float fbTwill( vec2 c, float P ) { return sin( ( c.x * 0.454 + c.y * 0.891 ) * 6.2832 / P ) * 0.5 + 0.5; }
+float fbHole( vec2 c, float P ) { return smoothstep( 0.32, 0.2, length( fract( c / P ) - 0.5 ) ); }
+float fbFade( float period, float px ) { return 1.0 - smoothstep( 0.16 * period, 0.36 * period, px ); } // full relief only at ≥ 6 px per thread period: no moiré
+vec3 fbBump( vec3 pos, vec3 n, float h ) { vec3 dpx = dFdx( pos ), dpy = dFdy( pos ); float hx = dFdx( h ), hy = dFdy( h );
+  vec3 r1 = cross( dpy, n ), r2 = cross( n, dpx ); float det = dot( dpx, r1 ); vec3 g = sign( det ) * ( hx * r1 + hy * r2 ); return normalize( abs( det ) * n - g ); }`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+  fbH = 0.0; fbR = -1.0;
+  {
+    int fk = int( vFab + 0.5 );
+    if ( fk > 0 ) {
+      float px = length( fwidth( vFP ) ) * 0.7; vec3 bn = normalize( vFN );
+      // cloth coordinates for the thread patterns: across the surface and down it, projected on x (front / back) and on z (sides)
+      // and blended smoothly by the normal (no seam); the noises are 3-D lookups on the bind-space position (no projection)
+      vec2 cA = vec2( vFP.x, vFP.y ), cB = vec2( vFP.z, vFP.y ); float wB = smoothstep( 0.3, 0.7, abs( bn.x ) / ( abs( bn.x ) + abs( bn.z ) + 1e-4 ) );
+      float ndv = abs( dot( normalize( vNormal ), normalize( vViewPosition ) ) ); float gr = pow( 1.0 - ndv, 3.0 );
+      // drape: long soft vertical folds (none on leather / nylon webbing)
+      float fold = fbNoise( vec3( vFP.x * 13.0, vFP.y * 2.6, vFP.z * 13.0 + float( fk ) * 3.1 ) );
+      float fa = fk == 8 ? 0.0 : fk == 6 ? 0.0012 : fk == 1 ? 0.0018 : fk == 4 ? 0.0032 : 0.0026; fbH += fa * fold;
+      diffuseColor.rgb *= 1.0 - ( fa * 30.0 ) * ( 1.0 - fold ); // the fold hollows a touch darker
+      if ( fk == 2 ) { // plain-weave cotton / poplin: two crossing 1.1 mm thread waves, slub streaks
+        float P = 0.0011; float f = fbFade( P, px );
+        fbH += 0.00009 * f * mix( fbPlain( cA, P ), fbPlain( cB, P ), wB );
+        diffuseColor.rgb *= 1.0 + 0.07 * ( fbNoise( vec3( vFP.x * 420.0, vFP.y * 26.0, vFP.z * 420.0 ) ) - 0.5 ) * fbFade( 0.004, px );
+        diffuseColor.rgb *= 1.0 + 0.15 * gr; fbR = 0.82;
+      } else if ( fk == 1 ) { // jersey knit: vertical wales of V loops, heathered
+        float P = 0.0009; float f = fbFade( P, px ); float w = mix( fbKnit( cA, P ), fbKnit( cB, P ), wB );
+        fbH += 0.0001 * f * w;
+        diffuseColor.rgb *= 1.0 + 0.05 * ( fbNoise( vFP * 900.0 ) - 0.5 ) * fbFade( 0.003, px );
+        diffuseColor.rgb *= 1.0 + 0.2 * gr; fbR = 0.9;
+      } else if ( fk == 3 || fk == 9 || fk == 5 ) { // twill: drill / chino (3), denim (9), wool suiting (5)
+        float P = fk == 9 ? 0.0019 : fk == 5 ? 0.0012 : 0.0016; float f = fbFade( P, px );
+        float tw = mix( fbTwill( cA, P ), fbTwill( cB, P ), wB ); fbH += ( fk == 5 ? 0.00005 : 0.00011 ) * f * tw;
+        float sx = fk == 9 ? 240.0 : 380.0; float slub = fbNoise( vec3( vFP.x * sx, vFP.y * ( fk == 9 ? 7.0 : 20.0 ), vFP.z * sx ) ); float sf = fbFade( 0.006, px );
+        if ( fk == 9 ) { diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * 1.55 + 0.035, 0.22 * f * smoothstep( 0.55, 0.95, tw ) ); // white weft flecks
+          diffuseColor.rgb *= 0.92 + 0.16 * mix( 0.5, slub, sf ); fbR = 0.88; }
+        else { diffuseColor.rgb *= 1.0 + ( fk == 5 ? 0.06 : 0.05 ) * ( slub - 0.5 ) * sf; fbR = fk == 5 ? 0.93 : 0.8; }
+        diffuseColor.rgb *= 1.0 + ( fk == 5 ? 0.1 : 0.08 ) * gr;
+      } else if ( fk == 4 ) { // silk / chiffon (saree, pallu, dupatta, tie): fine sheen, satin glow along the folds
+        diffuseColor.rgb *= 1.0 + 0.35 * gr + 0.12 * smoothstep( 0.45, 0.85, fold ); fbR = 0.42;
+      } else if ( fk == 6 ) { // heavy nylon (tactical vest carrier): coarse 2 mm basket weave, faint synthetic sheen
+        float P = 0.002; float f = fbFade( P, px );
+        fbH += 0.00007 * f * mix( fbPlain( cA, P ), fbPlain( cB, P ), wB ); diffuseColor.rgb *= 1.0 + 0.1 * gr; fbR = 0.76;
+      } else if ( fk == 7 ) { // hi-vis polyester mesh: 3 mm open cells
+        float P = 0.003; float f = fbFade( P, px ); float hole = mix( fbHole( cA, P ), fbHole( cB, P ), wB );
+        fbH -= 0.00012 * f * hole; diffuseColor.rgb *= 1.0 - 0.28 * f * hole - 0.12 * ( 1.0 - f ); fbR = 0.72;
+      } else if ( fk == 8 ) { // leather (belt, Sam Browne strap): pebbled grain, waxed sheen
+        float n = fbNoise( vFP * 900.0 ); float f = fbFade( 0.0012, px ); fbH += 0.00008 * f * n;
+        diffuseColor.rgb *= 1.0 - 0.06 * f * ( 1.0 - n ); fbR = 0.42;
+      }
+    }
+  }`)
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  if ( fbR > 0.0 ) roughnessFactor = fbR;')
+      .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n  if ( fbR > 0.0 ) normal = fbBump( - vViewPosition, normal, fbH );');
+  };
+  m.customProgramCacheKey = () => 'npcfabric1';
+  npcBodyMat = addBloodStain(m); return npcBodyMat;
+}
 export function getFaceMaterial(key, opts) {
   if (!faceMats.has(key)) faceMats.set(key, new THREE.MeshStandardMaterial({ map: faceAtlas(opts), vertexColors: true, roughness: 0.62 }));
   return faceMats.get(key);
@@ -987,7 +1119,7 @@ export class Character {
     if (npcHead) { /* anatomical crowd head (attachNpcHead): no face texture */ } else if (fv) faceMat = getFaceMaterial(`v${spec.faceV}`, { female: spec.sex === 'f', stubble: fv.stubble || 0, seed: spec.faceV, lips: fv.lips, size: 192, v: fv });
     else { const stub = spec.beard ? 0.9 : spec.sex === 'm' && spec.age === 'adult' ? 0.35 : 0; faceMat = getFaceMaterial(`${spec.sex}|${stub}|${spec.seed % 2}`, { female: spec.sex === 'f', stubble: stub, seed: spec.seed % 2, lips: spec.sex === 'f' ? '#8a3a3a' : '#7a4a40' }); }
     this.face = new FaceRig(this, faceMat);
-    let mats = [getBodyMaterial(), this.face.mat || getBodyMaterial(), getHairMaterial()];
+    let mats = [geo.userData.npcBody && geo.attributes.aFab ? getNpcBodyMaterial() : getBodyMaterial(), this.face.mat || getBodyMaterial(), getHairMaterial()];
     if (spec.hero) { // protagonists: own material instances with DQ skinning, subsurface skin, wetness / sweat, expression normals
       if (!geo.attributes.aSkin) geo.setAttribute('aSkin', new THREE.Float32BufferAttribute(skinMask(geo, spec), 1));
       this.heroU = heroUniforms(); const hb = getHairMaterial(); const fn = faceNormals();
@@ -1000,6 +1132,7 @@ export class Character {
     if (geo.userData.npcBody) this.initBodyLod(key, geo);
     this.root = new THREE.Group(); this.root.add(this.mesh);
     this.bones = Object.fromEntries(bones.map((b) => [b.name, b])); this.hipY = bones[0].position.y;
+    this.clothHang = !!(geo.userData.npcBody && (spec.outfit === 'saree' || spec.outfit === 'salwar' || spec.shawl || spec.towel)); // drives the clothB pendulum (Animator.driveCloth)
     if (spec.hero && hasHeroHead(spec)) this.attachHeroHead(skeleton);
     if (npcHead) this.attachNpcHead(fv);
     this.anim = new Animator(this); if (spec.hero) this.rig = new HeroRig(this);
@@ -1515,7 +1648,7 @@ export class Animator {
     else if (A_ === 'ride' && aw > 0) { b.thighL.rotation.set(-1.2, 0, -0.25); b.thighR.rotation.set(-1.2, 0, 0.25); b.shinL.rotation.x = 1.3; b.shinR.rotation.x = 1.3; b.footL.rotation.x = 0; b.footR.rotation.x = 0; b.hips.position.y = this.ch.hipY - 0.15; b.hips.position.x = 0; b.hips.rotation.set(0, 0, 0); }
     if (this.drunkSway > 0.01 && !seated) { const k = this.drunkSway, t = this.t; const sw = Math.sin(t * 1.15) * 0.07 * k + Math.sin(t * 2.7) * 0.025 * k; b.spine.rotation.z += sw; b.chest.rotation.z += sw * 0.6; b.neck.rotation.z -= sw * 0.8; b.head.rotation.z += Math.sin(t * 0.9 + 1) * 0.06 * k; b.head.rotation.x += 0.07 * k + Math.sin(t * 1.3) * 0.03 * k; b.hips.position.x += Math.sin(t * 1.15) * 0.03 * k * s; } // drunk: the body sways, the head lolls (Drunk.js)
     if (this.postPose) this.postPose(b, dt, seated); if (this.ch.dancer) this.ch.dancer.update(dt); // full-body overrides layered last (grenade throw, drinking): see combat/Grenades.js, world/HeroRooms.js
-    this.driveSkirt();
+    this.driveSkirt(); this.driveCloth(dt);
     if (this.ch.face) this.ch.face.update(dt);
     if (this.ch.rig) this.ch.rig.update(dt); // protagonists: fingers, twist / toe bones, expression wrinkles, cloth springs
   }
@@ -1546,6 +1679,26 @@ export class Animator {
     else if (act === 'medKneel') { const ln = this.medLean ?? 0.2; hips(kneelY - 0.03 * s - 0.04 * s * Math.max(0, ln - 0.3), 0.22 + ln * 0.5); legs(0.3, 1.62, 0.75, 0.3, 1.62, 0.75); b.spine.rotation.x = lerp(b.spine.rotation.x, ln * 0.55, w); b.chest.rotation.x = lerp(b.chest.rotation.x, ln * 0.3, w); } // both knees down beside a patient; medLean: CPR rocks from the hips over locked arms
     else if (act === 'medLift') { const up = this.medUp ?? 0; hips(lerp(kneelY - 0.03 * s, stand * 0.96, up), lerp(0.5, 0.18, up)); legs(lerp(0.3, -0.12, up), lerp(1.62, 0.22, up), lerp(0.75, 0.05, up), lerp(0.3, -0.12, up), lerp(1.62, 0.22, up), lerp(0.75, 0.05, up)); b.spine.rotation.x = lerp(b.spine.rotation.x, lerp(0.35, 0.2, up), w); } // lifting from kneeling to standing (medUp 0 → 1)
     else if (act === 'cuffKneel') { hips(kneelY - 0.03 * s, 0.35); legs(0.27, 1.62, 0.75, 0.27, 1.62, 0.75); } // both knees down close beside the suspect, hinged forward at the hips (thighs kept vertical)
+  }
+  // Hanging cloth (saree pallu, dupatta, shawl, towel down the back): a damped pendulum on the clothB hinge, driven by the
+  // person's real motion — it lags behind when they speed up, lifts away with speed (air drag), swings out on turns and
+  // bobs with each step, then settles. It only ever swings AWAY from the back (never into the body), and never less than
+  // the skirt's back panel tents out, so a saree tail lying on the skirt always stays outside it.
+  driveCloth(dt) {
+    const bc = this.ch.bones.clothB; if (!bc || !this.ch.clothHang) return; const C = this.cl || (this.cl = { th: 0, tv: 0, ph: 0, pv: 0, x: NaN, z: NaN, yaw: 0, vf: 0, vl: 0, hy: 0, hv: 0 });
+    const root = this.ch.root, yaw = root.rotation.y; const h = Math.min(Math.max(dt, 1e-3), 0.05);
+    if (!(C.x === C.x) || dt > 0.25) { C.x = root.position.x; C.z = root.position.z; C.yaw = yaw; C.hy = this.ch.bones.hips.position.y; }
+    const vx = (root.position.x - C.x) / h, vz = (root.position.z - C.z) / h; C.x = root.position.x; C.z = root.position.z;
+    const fx = Math.sin(yaw), fz = Math.cos(yaw); let vf = vx * fx + vz * fz, vl = vx * fz - vz * fx; if (vf * vf + vl * vl > 225) { vf = C.vf; vl = C.vl; } // teleports / seat snaps are not motion
+    const af = clamp((vf - C.vf) / h, -12, 12), al = clamp((vl - C.vl) / h, -12, 12); C.vf = vf; C.vl = vl;
+    let dy = yaw - C.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); const yr = clamp(dy / h, -6, 6); C.yaw = yaw;
+    const hy = this.ch.bones.hips.position.y, hv = (hy - C.hy) / h, ay = clamp((hv - C.hv) / h, -30, 30); C.hy = hy; C.hv = hv;
+    const sp = Math.abs(vf); const thT = 0.32 * Math.min(1, sp * sp / 30) + 0.05 * af, phT = clamp(-0.05 * yr * vf - 0.035 * al, -0.3, 0.3);
+    const K = 17, D = 2.6; // ≈0.65 Hz pendulum, lightly damped (the swing visibly overshoots once and settles)
+    C.tv += (K * (thT - C.th) - D * C.tv + 0.06 * ay) * h; C.th += C.tv * h; C.pv += (K * (phT - C.ph) - D * C.pv) * h; C.ph += C.pv * h;
+    const sb = this.ch.bones.skirtB; const thMin = sb ? 0.25 * Math.max(0, sb.rotation.x) : 0;
+    if (C.th < thMin) { C.th = thMin; if (C.tv < 0) C.tv = 0; } if (C.th > 0.9) { C.th = 0.9; if (C.tv > 0) C.tv = 0; }
+    C.ph = clamp(C.ph, -0.3, 0.3); bc.rotation.set(C.th, 0, C.ph);
   }
   // Garment hinges: angle (about the hip x axis, −forward) of each leg's knee and ankle in hip space; skirtF takes the most
   // forward of them, skirtB the most rearward, so the front and back panels of skirts / sarongs / sarees tent over the legs.

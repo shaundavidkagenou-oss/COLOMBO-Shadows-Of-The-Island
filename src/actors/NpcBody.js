@@ -20,6 +20,16 @@ const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t 
 const dec = (s, T) => { const bin = atob(s); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); return new T(u8.buffer); };
 
 /** Everyone who is not a protagonist (they have HeroBody) or a club dancer (DancerBody). `__NO_NPC_BODY`: A/B tests. */
+// ---- fabric kinds (per-vertex attribute aFab, read by getNpcBodyMaterial's fabric shader in Character.js): woven / knitted
+// surface relief, drape folds, roughness and sheen per cloth type; the colour of every garment is unchanged. 0 = skin / none.
+export const FAB = { KNIT: 1, PLAIN: 2, TWILL: 3, SILK: 4, WOOL: 5, NYLON: 6, MESH: 7, LEATHER: 8, DENIM: 9 };
+export function topFabric(sp) { const o = sp.outfit;
+  if (o === 'jacket') return sp.hood ? FAB.KNIT : FAB.WOOL; // hoodie fleece / suit jacket
+  if (o === 'tee' || o === 'polo' || o === 'tee_jeans' || o === 'skirt_top') return FAB.KNIT;
+  if (o === 'saree') return FAB.SILK;
+  return FAB.PLAIN; } // shirts, uniforms, kurtas, blouses, frocks, abayas
+export function bottomFabric(sp, PL) { if (sp.denim) return FAB.DENIM; if (sp.track || (PL && PL.legs === 'briefs')) return FAB.KNIT;
+  const o = sp.outfit; if (o === 'kurta' || o === 'kurti' || o === 'salwar') return FAB.KNIT; /* leggings / churidar */ return FAB.TWILL; }
 export const hasNpcBody = (sp) => !globalThis.__NO_NPC_BODY && !!sp && !sp.hero && !sp.dancerBody && !!DATA.sexes;
 
 const SH = {};
@@ -195,7 +205,8 @@ export function buildNpcGarments(sb, sp, ctx) {
         const w = sstep(Y1, Y1 - 0.12 * s, Q[u * 3 + 1]); let k = Math.min(lerp(r, tt, w), r + 0.016) / r; const nx = ax + (Q[u * 3] - ax) * k; if (Math.sign(nx) !== sx || Math.abs(nx) < 0.012) k = Math.max(1, (Math.abs(ax) - 0.012) / Math.max(1e-4, Math.abs(Q[u * 3] - ax)));
         Q[u * 3] = ax + (Q[u * 3] - ax) * k; Q[u * 3 + 2] = az + (Q[u * 3 + 2] - az) * k; } }
   };
-  const tr = shell(trouserHas, trouserEase, legCol, (u) => (y(u) < 0.9 * s ? legHem : y(u) > 0.9 * s ? waistY : null), (Q, used) => {
+  const fabTop = topFabric(sp), fabBottom = bottomFabric(sp, PL);
+  sb.fabv = fabBottom; const tr = shell(trouserHas, trouserEase, legCol, (u) => (y(u) < 0.9 * s ? legHem : y(u) > 0.9 * s ? waistY : null), (Q, used) => {
     if (PL.legs !== 'briefs') { legDrape(Q, used); // then a short relax of the legs so the pushed-out cloth reads as one smooth tube
       const T = new Float32Array(Q); for (let it = 0; it < 2; it++) { for (let u = 0; u < NU; u++) { if (!used[u] || legW[u] < 0.5 || Q[u * 3 + 1] < legHem + 0.01) continue; let x = 0, yy = 0, z = 0, n = 0; for (const v of S.nb[u]) { if (!used[v]) continue; x += Q[v * 3]; yy += Q[v * 3 + 1]; z += Q[v * 3 + 2]; n++; } if (!n) continue; T[u * 3] = lerp(Q[u * 3], x / n, 0.5); T[u * 3 + 1] = lerp(Q[u * 3 + 1], yy / n, 0.5); T[u * 3 + 2] = lerp(Q[u * 3 + 2], z / n, 0.5); } Q.set(T); }
       for (let u = 0; u < NU; u++) { if (!used[u]) continue; const d = (Q[u * 3] - P[u * 3]) * N[u * 3] + (Q[u * 3 + 1] - P[u * 3 + 1]) * N[u * 3 + 1] + (Q[u * 3 + 2] - P[u * 3 + 2]) * N[u * 3 + 2]; const m = 0.006; if (d < m) for (let k = 0; k < 3; k++) Q[u * 3 + k] += N[u * 3 + k] * (m - d); } }
@@ -242,13 +253,14 @@ export function buildNpcGarments(sb, sp, ctx) {
   const jacketCol = null;
   // ---- top: neck conformed to the head's neck ellipse; the top edge a level line at yTop
   // the shirt / tee showing in the open front of a jacket or hoodie: a panel under it, a little larger than the opening
-  const sh = shell(shirtHas, shirtEase, top, (u) => (armW[u] >= 0.5 ? sleeveY : y(u) < (PL.sleeve === 'none' ? Math.min(1.15 * s, shirtHem + 0.1) : 1.25 * s) ? shirtHem : null), (Q, used, bnd) => {
+  sb.fabv = fabTop; const sh = shell(shirtHas, shirtEase, top, (u) => (armW[u] >= 0.5 ? sleeveY : y(u) < (PL.sleeve === 'none' ? Math.min(1.15 * s, shirtHem + 0.1) : 1.25 * s) ? shirtHem : null), (Q, used, bnd) => {
     if (sex === 'f') bridge(Q, used);
     drape(Q, used);
     for (let u = 0; u < NU; u++) { if (!used[u] || armW[u] >= 0.5) continue; const yy = Q[u * 3 + 1]; const t = sstep(yTop - 0.06, yTop - 0.004, yy); if (t <= 0) continue;
       const yc = Math.min(yy, yTop); const E0 = collarAt(yc); const m = 0.006; const rn = Math.hypot(Q[u * 3] / (E0.rx + m), (Q[u * 3 + 2] - E0.cz) / (E0.rz + m)); const tt = t * sstep(2.6, 1.6, rn); if (tt <= 0) continue;
       const a = Math.atan2((Q[u * 3 + 2] - E0.cz) / (E0.rz + m), Q[u * 3] / (E0.rx + m));
       Q[u * 3] = lerp(Q[u * 3], Math.cos(a) * (E0.rx + m), tt); Q[u * 3 + 2] = lerp(Q[u * 3 + 2], E0.cz + Math.sin(a) * (E0.rz + m), tt); Q[u * 3 + 1] = Math.min(yy, yTop); } }, jacketCol);
+  sb.fabv = 0;
   // ---- skin: everything not deeply covered (2.5 cm past every garment edge stays, so no gap shows into a sleeve or collar)
   const coveredTorso = (u) => y(u) >= shirtHem + 0.025 && sh.used[u] > 0; // only where the shirt really has cloth (armholes cut by the pruning show skin) // shoulders show through a singlet's armholes
   const briefsOff = PL.legs === 'briefs' && skHem != null; // briefs under a skirt are not drawn, so they hide nothing
@@ -310,10 +322,10 @@ export function buildNpcGarments(sb, sp, ctx) {
     return n ? { c: [(x0 + x1) / 2, yq, (z0 + z1) / 2], rx: (x1 - x0) / 2, rz: (z1 - z0) / 2 } : null; };
   // ---- open front of a jacket / hoodie: the shirt / tee panel showing in a clean V, and raised lapels (jacket) or a zip
   // placket (hoodie) along both edges — laid on the jacket's surface (front height field), like the waistcoat lapels
-  if (open) { const ic = C(sp.inner || '#d8d4cc'); const tw = (yy) => (yy > 1.25 * s ? [[B.chest, 1]] : [[B.chest, 0.6], [B.spine, 0.4]]); const y1 = Math.min(yTop - 0.004, 1.43 * s); const NR = lod ? 6 : 16;
+  if (open) { const ic = C(sp.inner || '#d8d4cc'); sb.fabv = sp.hood ? FAB.KNIT : FAB.PLAIN; /* tee under a hoodie, shirt under a jacket */ const tw = (yy) => (yy > 1.25 * s ? [[B.chest, 1]] : [[B.chest, 0.6], [B.spine, 0.4]]); const y1 = Math.min(yTop - 0.004, 1.43 * s); const NR = lod ? 6 : 16;
     { const Pg = [], Ng = [], Wg = []; for (let r = 0; r <= NR; r++) { const yy = lerp(vY0, y1, r / NR); const hv = halfV(yy); const row = [], nr = [], wr = []; for (let c = 0; c <= 4; c++) { const x = lerp(-hv, hv, c / 4); row.push([x, yy, out.surfZ(yy, x, 1) + 0.0025]); nr.push([0, 0, 1]); wr.push(tw(yy)); } Pg.push(row); Ng.push(nr); Wg.push(wr); }
       sb.grid(Pg, Ng, Wg, ic, ic.map((v) => v * 0.8)); }
-    const lc = top.map((v) => v * (sp.hood ? 0.8 : 0.92)); const wd = sp.hood ? 0.008 : 0.028;
+    sb.fabv = fabTop; const lc = top.map((v) => v * (sp.hood ? 0.8 : 0.92)); const wd = sp.hood ? 0.008 : 0.028;
     for (const sx of [-1, 1]) { const Pg = [], Ng = [], Wg = []; for (let r = 0; r <= NR; r++) { const t = r / NR; const yy = lerp(vY0 - (sp.hood ? 0.02 : 0.01), y1, t); const x0 = sx * halfV(yy); const w = wd * (sp.hood ? 1 : lerp(0.35, 1, sstep(0, 0.6, t)));
         const cols = [[0, 0.0042], [0.5, 0.0036], [1, 0.0016]].map(([k, dz]) => { const x = x0 + sx * w * k; return [x, yy, out.surfZ(yy, x, 1) + dz]; });
         Pg.push(sx > 0 ? cols : cols.slice().reverse()); Ng.push([[0, 0.05, 1], [0, 0.05, 1], [0, 0.05, 1]]); Wg.push([tw(yy), tw(yy), tw(yy)]); }
@@ -330,7 +342,7 @@ export function buildNpcGarments(sb, sp, ctx) {
   if (collarOn) {
     const C0 = collarAt(yTop - 0.012), cz0 = C0.cz; const polo = PL.o === 'polo'; const gap = polo ? 0.3 : 0.17, NC = lod ? 12 : 24; const cw = (t) => [[B.chest, 1 - t], [B.neck, t]];
     const rows = [[0.0015, 0.0078, 0, 0.45], [-0.012, 0.0125, 0.4, 0.25], [-0.03, 0.019, 1, 0.08]];
-    const Pg = [], Ng = [], Wg = [];
+    const Pg = [], Ng = [], Wg = []; sb.fabv = fabTop;
     rows.forEach(([dy, m, k, nw], ri) => { const row = [], nr = [], wr = [];
       for (let ci = 0; ci <= NC; ci++) { const t = ci / NC; const a = Math.PI / 2 + gap + t * (2 * Math.PI - 2 * gap); const ca = Math.cos(a), sa = Math.sin(a);
         const pt = sstep(0.13, 0.0, Math.min(t, 1 - t)) * k * (polo ? 0.6 : 1);
@@ -340,7 +352,7 @@ export function buildNpcGarments(sb, sp, ctx) {
       Pg.push(row); Ng.push(nr); Wg.push(wr); });
     sb.grid(Pg, Ng, Wg, top, top.map((v) => v * 0.8));
     // necktie (office shirts): knot in the collar gap, blade down the shirt front
-    if (sp.tie) { const tc = C(sp.tie); const zS = (yy, x) => out.surfZ(yy, x, 1); const ky = yTop - 0.013; const kf = Math.max(zS(ky, 0), cz0 + C0.rz + 0.006) + 0.003;
+    if (sp.tie) { const tc = C(sp.tie); sb.fabv = FAB.SILK; const zS = (yy, x) => out.surfZ(yy, x, 1); const ky = yTop - 0.013; const kf = Math.max(zS(ky, 0), cz0 + C0.rz + 0.006) + 0.003;
       const kt = 0.018, kb = 0.011, kh = 0.028; const quad = (c, w) => { const f = [[0, 1, 2, 3], [5, 4, 7, 6], [4, 0, 3, 7], [1, 5, 6, 2], [3, 2, 6, 7], [4, 5, 1, 0]];
         for (const q of f) { const A = c[q[0]], Bq = c[q[1]], Cq = c[q[2]]; const ux = Bq[0] - A[0], uy = Bq[1] - A[1], uz = Bq[2] - A[2], vx = Cq[0] - A[0], vy = Cq[1] - A[1], vz = Cq[2] - A[2]; const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx, l = Math.hypot(nx, ny, nz) || 1;
           const i = q.map((k) => sb.v(c[k], [nx / l, ny / l, nz / l], tc, uv0, w)); sb.idx.push(i[0], i[1], i[2], i[0], i[2], i[3]); } };
@@ -351,6 +363,7 @@ export function buildNpcGarments(sb, sp, ctx) {
       Pt.push([[0, yb - 0.032, zS(yb - 0.032, 0) + 0.0026], [0, yb - 0.032, zS(yb - 0.032, 0) + 0.0026]]); Nt.push([[0, 0.1, 1], [0, 0.1, 1]]); Wt.push([[B.chest, 0.7], [B.spine, 0.3]]);
       sb.grid(Pt, Nt, Wt, tc, tc.map((v) => v * 0.7)); }
   }
+  sb.fabv = 0;
   out.feetBare = sandals; out.yTop = yTop; out.plan = PL;
   out.stats = { shirt: sh.used.reduce((a, b) => a + b, 0), trousers: tr.used.reduce((a, b) => a + b, 0), skinTris: bodyTris.length / 3 };
   return out;

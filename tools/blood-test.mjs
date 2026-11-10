@@ -12,7 +12,7 @@ import './node-dom-stub.mjs';
 { let sd = 5; Math.random = () => { sd = (sd * 16807) % 2147483647; return (sd - 1) / 2147483646; }; }
 globalThis.localStorage ??= { getItem: () => null, setItem: () => {}, removeItem: () => {} };
 const THREE = await import('three');
-const { Character, randomSpec, getBodyMaterial } = await import('../src/actors/Character.js');
+const { Character, randomSpec, getBodyMaterial, getNpcBodyMaterial } = await import('../src/actors/Character.js');
 const { Blood } = await import('../src/gfx/Blood.js');
 const { addBloodStain, isBloodPatched, BLOOD_T, bindPoint } = await import('../src/gfx/BloodStain.js');
 const { Settings } = await import('../src/core/Settings.js');
@@ -26,7 +26,7 @@ for (const lib of ['standard', 'physical']) { const m = addBloodStain(lib === 's
   ok(sh.vertexShader.includes('vBindP = position;'), lib + ': vertex injection'); ok(sh.fragmentShader.includes('uniform vec4 uWound[') && sh.fragmentShader.includes('bloodK'), lib + ': fragment injection');
   ok(sh.fragmentShader.indexOf('bloodK') < sh.fragmentShader.indexOf('#include <lights_physical_fragment>'), lib + ': stain before lighting');
   ok(sh.uniforms.uWoundN && sh.uniforms.uWoundN.value === 0 && sh.uniforms.uBloodT === BLOOD_T, lib + ': uniforms bound'); ok(m.customProgramCacheKey().includes('bloodstain'), lib + ': program key'); }
-const shared = getBodyMaterial(); ok(isBloodPatched(shared), 'crowd body material not patched'); ok(shared.userData.bloodU.uWoundN.value === 0, 'shared material has wounds');
+const shared = getBodyMaterial(); ok(isBloodPatched(shared), 'crowd body material not patched'); ok(isBloodPatched(getNpcBodyMaterial()), 'crowd fabric body material not patched'); ok(shared.userData.bloodU.uWoundN.value === 0, 'shared material has wounds');
 
 // ---- characters: a crowd man, a crowd woman, standing in a walk pose
 const scene = new THREE.Scene();
@@ -61,9 +61,10 @@ const step = (secs) => { for (let f = 0; f < secs * 60; f++) B.update(1 / 60); }
 // a shot from the west (−x) hitting the man's chest: dir +x; the building face is at x = 6
 { const ch = chs[0]; const chest = new THREE.Vector3().setFromMatrixPosition(ch.bones.chest.matrixWorld); const hit = chest.clone(); hit.x -= 0.12;
   const before = ch.mesh.material.slice(); ok(B.wound(ch, hit, V(1, 0, 0), 1.5), 'wound refused');
-  ok(!!ch.bloodMat && ch.bloodMat !== shared && ch.mesh.material.includes(ch.bloodMat) && !ch.mesh.material.includes(shared), 'wounded ped did not get its own material');
-  ok(ch.bloodMat.customProgramCacheKey() === shared.customProgramCacheKey(), 'own copy changes the program key');
-  ok(shared.userData.bloodU.uWoundN.value === 0 && ch.bloodMat.userData.bloodU.uWoundN.value === 1, 'wound written to the wrong material');
+  const worn = before[0]; ok(worn === shared || worn === getNpcBodyMaterial(), 'body wears an unexpected material'); // crowd bodies: the fabric variant (getNpcBodyMaterial)
+  ok(!!ch.bloodMat && ch.bloodMat !== worn && ch.mesh.material.includes(ch.bloodMat) && !ch.mesh.material.includes(worn), 'wounded ped did not get its own material');
+  ok(ch.bloodMat.customProgramCacheKey() === worn.customProgramCacheKey(), 'own copy changes the program key');
+  ok(worn.userData.bloodU.uWoundN.value === 0 && ch.bloodMat.userData.bloodU.uWoundN.value === 1, 'wound written to the wrong material');
   ok(chs[1].mesh.material.includes(shared), 'an unhurt ped lost the shared material'); ok(before.length === ch.mesh.material.length, 'material slots changed');
   const W = ch.bloodMat.userData.bloodU.uWound.value[0]; const j = bindIndex(ch.mesh, W); const w = j >= 0 ? skinned(ch.mesh, j) : V(1e3, 0, 0);
   ok(w.distanceTo(hit) < 0.12, 'wound not where the shot struck: ' + w.distanceTo(hit).toFixed(3)); ok(w.x < chest.x, 'wound on the far side of the chest');

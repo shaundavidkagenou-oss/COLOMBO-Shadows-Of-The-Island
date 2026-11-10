@@ -246,6 +246,9 @@ export function makeAppearance(seed, opts = {}) {
   else if (o === 'frock') { const c = pr.uniform || r.pick(P.dress); Object.assign(sp, { outfit: 'frock', top: c, skirt: pr.long ? 'ankle' : r.chance(0.5) ? 'mid' : 'knee', skirtCol: c, bottom: sp.skin, pattern: pr.uniform ? 0 : r.chance(0.5) ? 2 : 0, collar: !!pr.uniform }); if (pr.uniform) sp.skirt = 'mid'; }
   else if (o === 'skirt_top') Object.assign(sp, { outfit: 'skirt_top', top: top('tee'), skirt: r.chance(0.5) ? 'knee' : 'mid', skirtCol: r.pick(['#2c3e5c', '#1d1d24', '#c8b896', '#8a2a3a', '#3a6a5a']), bottom: sp.skin, pattern: 0 });
   else if (o === 'tee_jeans') Object.assign(sp, { outfit: 'tee_jeans', top: top(pr.topPal || 'tee'), bottom: pr.bottom === 'track' ? r.pick(TRACK) : pr.shorts ? r.pick(P.shorts) : r.pick(P.jeans), shorts: !!pr.shorts });
+  { const casual = o === 'tee' || o === 'polo' || o === 'tee_jeans' || o === 'hoodie'; // cloth type of the legs for the fabric shader (colour is unchanged)
+    if (casual && pr.bottom === 'track') sp.track = true;
+    else if ((o === 'tee' || o === 'polo') ? pr.bottom === 'jeans' : o === 'hoodie' || (o === 'tee_jeans' && !pr.shorts)) sp.denim = true; }
   if (sp.hair === 'hijab') sp.scarf = o === 'abaya' ? r.pick(P.abaya.concat(P.scarf.slice(0, 3))) : r.pick(P.scarf);
   // ---- footwear
   if (pr.ft === 'sneaker') { sp.shoes = r.pick(P.sneaker); sp.sole = '#e6e6e2'; }

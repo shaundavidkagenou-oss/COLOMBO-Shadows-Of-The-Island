@@ -24,7 +24,7 @@ import { Atmosphere } from './gfx/Atmosphere.js';
 import { PostFX } from './gfx/PostFX.js';
 import { setVehicleNight, createVehicleMesh, VTYPES } from './vehicles/VehicleModels.js';
 import { captureToCanvas } from './gfx/LinearCapture.js';
-import { updateLightSets, forceNightSet, nightSetOn, maintainWarm, markWarm } from './gfx/LightSets.js';
+import { updateLightSets, forceNightSet, lightLevel, LIGHT_LEVELS, maintainWarm, markWarm } from './gfx/LightSets.js';
 import { refreshView, holdVehicles, updateSceneMatrices, withMatricesDone } from './gfx/ViewSkip.js';
 import { CATALOG, displayName } from './vehicles/VehicleCatalog.js';
 import { updateDoorClosers } from './vehicles/DoorRig.js';
@@ -141,7 +141,7 @@ export class Game {
     this.world.warm(-500, -400); this.world.update(0.016, { x: -500, z: -400 }, this.camera, this.atmos);
     try { await this.compileForGame(this.scene, 15000); } catch (e) { console.warn('compile', e); } // the main pass's programs (see compileForGame)
     this.wireEvents();
-    if (TEST) { window.__Input = Input; window.__L = L; window.__Vehicle = Vehicle; window.__Character = Character; window.__makePoliceAppearance = makePoliceAppearance; window.__THREE = THREE; window.__lightSets = { forceNightSet, nightSetOn }; this.stepSim = async (n, dt = 0.05, keys = []) => { for (const k of keys) Input.down.add(k); for (let i = 0; i < n; i++) { this.updatePlay(dt); if (i === 0) Input.pressed.clear(); for (let j = 0; j < 12; j++) await null; /* let story/director promise chains advance like real frames */ } for (const k of keys) Input.down.delete(k); return { x: this.player.x, z: this.player.z, y: this.player.y, v: this.player.vehicle && this.player.vehicle.type, speed: this.player.vehicle ? this.player.vehicle.speed : this.player.speed }; }; }
+    if (TEST) { window.__Input = Input; window.__L = L; window.__Vehicle = Vehicle; window.__Character = Character; window.__makePoliceAppearance = makePoliceAppearance; window.__THREE = THREE; window.__lightSets = { forceNightSet, lightLevel, nightSetOn: () => lightLevel() > 0 }; this.stepSim = async (n, dt = 0.05, keys = []) => { for (const k of keys) Input.down.add(k); for (let i = 0; i < n; i++) { this.updatePlay(dt); if (i === 0) Input.pressed.clear(); for (let j = 0; j < 12; j++) await null; /* let story/director promise chains advance like real frames */ } for (const k of keys) Input.down.delete(k); return { x: this.player.x, z: this.player.z, y: this.player.y, v: this.player.vehicle && this.player.vehicle.type, speed: this.player.vehicle ? this.player.vehicle.speed : this.player.speed }; }; }
     progress(1, 'Colombo is ready');
     this.last = performance.now(); this.mode = 'intro'; this.loop();
   }
@@ -215,8 +215,8 @@ export class Game {
     await enterGameLoading(this.ui, [...pre,
       { label: 'Streaming Colombo districts', run: (pr) => this.world.warmAsync(points, pr) },
       { label: 'Vehicles of Colombo', run: (pr) => this.traffic.warmModels(points, pr) },
-      { label: 'Compiling shaders', run: async (pr) => { this.camera.position.set(points[0][0], 3, points[0][1] + 6); this.camera.lookAt(points[0][0], 1.5, points[0][1]); this.camera.updateMatrixWorld(); for (const v of LIVE_VEHICLES) setVehicleLOD(v.mesh.userData, true); /* near-LOD parts too (the next frame's LOD pass puts them back) */ const ws = this.shaderWarmSet(); this.scene.add(ws); const night0 = nightSetOn(); try { for (const on of [night0, !night0]) { forceNightSet(on); await this.compileForGame(this.scene, 8000); } /* both light states (LightSets): dusk / dawn only rebinds */ } catch (e) { console.warn('compile', e); } finally { forceNightSet(null); markWarm(this.scene); this.scene.remove(ws); } pr(0.5); await this.warmLightSets((k) => pr(0.5 + k * 0.5)); try { captureToCanvas(this.renderer, this.scene, this.camera, 0, 0, 2, 2); /* the map / busted capture output program */ } catch (e) { console.warn('capture warm', e); } pr(1); } },
-      { label: 'Waking the city', run: async (pr) => { for (let i = 0; i < 4; i++) { this.camera.rotation.y += Math.PI / 2; this.camera.updateMatrixWorld(); if (this.post) this.post.render(1 / 60); else this.renderer.render(this.scene, this.camera); /* through the real post chain: the main-pass target's programs, shadow-depth programs and every post pass */ pr((i + 1) / 4); await new Promise((r) => requestAnimationFrame(r)); } } },
+      { label: 'Compiling shaders', run: async (pr) => { this.camera.position.set(points[0][0], 3, points[0][1] + 6); this.camera.lookAt(points[0][0], 1.5, points[0][1]); this.camera.updateMatrixWorld(); for (const v of LIVE_VEHICLES) setVehicleLOD(v.mesh.userData, true); /* near-LOD parts too (the next frame's LOD pass puts them back) */ const ws = this.shaderWarmSet(); this.scene.add(ws); const lv0 = lightLevel(); try { for (const lv of [lv0, ...LIGHT_LEVELS.filter((l) => l !== lv0)]) { forceNightSet(lv); await this.compileForGame(this.scene, 8000); } /* every light level (LightSets): dusk / dawn / a torch only rebinds */ } catch (e) { console.warn('compile', e); } finally { forceNightSet(null); markWarm(this.scene); this.scene.remove(ws); } pr(0.5); await this.warmLightSets((k) => pr(0.5 + k * 0.5)); try { captureToCanvas(this.renderer, this.scene, this.camera, 0, 0, 2, 2); /* the map / busted capture output program */ } catch (e) { console.warn('capture warm', e); } pr(1); } },
+      { label: 'Waking the city', run: async (pr) => { for (let i = 0; i < 4; i++) { this.camera.rotation.y += Math.PI / 2; this.camera.updateMatrixWorld(); this.warmLevelFrames(); /* through the real post chain, once per light level: the main-pass target's programs, shadow-depth programs and every post pass */ pr((i + 1) / 4); await new Promise((r) => requestAnimationFrame(r)); } } },
     ], { minMs: TEST ? 1500 : 6200, onFlash: () => Audio.boom() });
     this.hud.fade(1, 0); await new Promise((r) => requestAnimationFrame(r));
     const gpu = gpuInfo(this.renderer); console.info('[COLOMBO] GPU:', gpu.label, '·', gpu.api, '·', gpu.kind);
@@ -247,15 +247,25 @@ export class Game {
   async warmLightSets(pr = () => {}) {
     const extra = [6]; const g = new THREE.Group(); g.name = 'lightWarm'; this.scene.add(g);
     try {
-      const night0 = nightSetOn(); let n = 0; // in both night-light states (LightSets)
-      for (const on of [night0, !night0]) { forceNightSet(on); for (let i = 0; i < extra.length; i++) {
+      const lv0 = lightLevel(); let n = 0; // in every light level (LightSets)
+      for (const lv of [lv0, ...LIGHT_LEVELS.filter((l) => l !== lv0)]) { forceNightSet(lv); for (let i = 0; i < extra.length; i++) {
         while (g.children.length < extra[i]) { const l = new THREE.PointLight(0xffffff, 0, 1, 2); l.position.set(0, -800, 0); g.add(l); }
         await this.compileForGame(this.scene, 5000);
-        pr(++n / (extra.length * 2));
+        pr(++n / (extra.length * LIGHT_LEVELS.length));
       } }
     } catch (e) { console.warn('light-set compile', e); }
     forceNightSet(null); this.scene.remove(g); for (const l of g.children) l.dispose?.();
   }
+  // The headlight spots' shadow-depth programs (alpha-tested foliage, cut-outs…) are built by the shadow mapper the first time a
+  // spot shadow pass draws such an object — normally the first lit beam at dusk, a visible hitch. Before a loading-screen frame:
+  // the (dark) spots sit at the camera aimed the way it looks, so that frame's shadow passes build them. LightSets keeps them in
+  // the shaders for a while after a warm-up (level 2 hold); HeadlightRig moves them onto real cars once beams are lit.
+  // Shadow-depth programs are keyed by the scene's light counts too (three puts them in every program key) and are only built
+  // when a shadow pass first draws a material — compile() cannot reach them. So each loading-screen warm frame is drawn once per
+  // light level (LightSets), with the dark spots aimed from the camera: day, night and torch-lit depth variants all exist before play.
+  warmLevelFrames() { for (const lv of [2, 1, 0]) { forceNightSet(lv); this.warmSpotShadows(); if (this.post) this.post.render(1 / 60); else this.renderer.render(this.scene, this.camera); } forceNightSet(null); }
+  warmSpotShadows() { const hs = (this.headRig && this.headRig.spots) || []; const c = this.camera, d = c.getWorldDirection(new THREE.Vector3());
+    for (const sp of hs) { if (!sp.castShadow) continue; sp.position.copy(c.position); sp.target.position.copy(c.position).addScaledVector(d, 20).setY(c.position.y - 4); sp.target.updateMatrixWorld(); sp.updateMatrixWorld(); sp.shadow.needsUpdate = true; } }
   // Compile shader programs the way the game draws: the main pass renders into the composer's half-float target (linear output,
   // tone mapping in the OutputPass), and a material's program depends on that. Compiling with no target bound — as the loading
   // screen did — built the to-canvas variants, which the game never draws with, so the real ones compiled during the first

@@ -361,7 +361,7 @@ export class FlashlightRig {
       vertexShader: 'varying vec2 vUv; varying vec3 vN; varying vec3 vV; void main() { vUv = uv; vec4 mv = modelViewMatrix * vec4(position, 1.0); vV = -mv.xyz; vN = normalMatrix * normal; gl_Position = projectionMatrix * mv; }',
       fragmentShader: 'uniform vec3 color; uniform float opacity; varying vec2 vUv; varying vec3 vN; varying vec3 vV; void main() { float l = vUv.y * vUv.y * (0.3 + 0.7 * vUv.y); float e = abs(dot(normalize(vN), normalize(vV))); float a = l * pow(e, 1.8) * opacity; gl_FragColor = vec4(color, a);\n#include <tonemapping_fragment>\n#include <colorspace_fragment>\n}' });
     for (let i = 0; i < count; i++) {
-      const s = new THREE.SpotLight(0xfff2d8, 0, 26, 0.3, 0.5, 1.6); s.name = 'torch' + i; s.castShadow = false; s.position.set(0, -500, 0); s.target.position.set(0, -501, 0); scene.add(nightLight(s)); scene.add(s.target); this.spots.push(s); /* night torches: out of the shaders while dark (LightSets) */
+      const s = new THREE.SpotLight(0xfff2d8, 0, 26, 0.3, 0.5, 1.6); s.name = 'torch' + i; s.castShadow = false; s.position.set(0, -500, 0); s.target.position.set(0, -501, 0); scene.add(nightLight(s, 2)); scene.add(s.target); this.spots.push(s); /* night torches: out of the shaders while dark (LightSets) */
       const b = new THREE.Mesh(geo, this.beamMat); b.visible = false; b.frustumCulled = false; b.renderOrder = 3; scene.add(b); this.beams.push(b);
     }
     this.glowMat = new THREE.SpriteMaterial({ map: glowTexture() || null, color: 0xfff4dc, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }); this.glows = [];
