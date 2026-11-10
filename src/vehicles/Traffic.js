@@ -546,7 +546,7 @@ export class Traffic {
     if (sp > dec) { f.vx -= f.vx / sp * dec; f.vz -= f.vz / sp * dec; } else { f.vx = 0; f.vz = 0; }
     f.spin *= Math.exp(-2.6 * dt); if (Math.abs(f.spin) < 0.03) f.spin = 0;
     v.x += f.vx * dt; v.z += f.vz * dt; v.yaw += f.spin * dt; v.speed = 0; v.brake = true;
-    for (const [cx, cz] of v.circles()) { const r = this.collision.resolveCircle(cx, cz, v.radius, v.y, 0.25, 2, { vehicle: true }); if (r.hit) { const dx = r.x - cx, dz = r.z - cz, dl = Math.hypot(dx, dz) || 1; v.x += dx; v.z += dz; const vn = (f.vx * dx + f.vz * dz) / dl; if (vn < 0) { f.vx -= dx / dl * vn * 1.2; f.vz -= dz / dl * vn * 1.2; v.impact(-vn); } } }
+    for (const [cx, cz] of v.circles()) { const r = this.collision.resolveCircle(cx, cz, v.radius, v.y, 0.25, 2, { vehicle: true }); if (r.hit) { const dx = r.x - cx, dz = r.z - cz, dl = Math.hypot(dx, dz) || 1; v.x += dx; v.z += dz; const vn = (f.vx * dx + f.vz * dz) / dl; if (vn < 0) { f.vx -= dx / dl * vn * 1.2; f.vz -= dz / dl * vn * 1.2; const [fx, fz] = v.forward(); v.impact(-vn, { nx: dx / dl, nz: dz / dl, t: (cx - v.x) * fx + (cz - v.z) * fz }); } } }
     v.y = L.groundY(v.x, v.z); v.sync(dt);
     if (Math.hypot(f.vx, f.vz) < 0.15 && f.spin === 0) f.rest += dt; else f.rest = 0;
     if (v.ai && v.ai.chase && f.rest > 0.45 + Math.min(1.5, f.sev * 0.1)) { v.free = null; v.speed = 0; return; } // a pursuing unit knocked aside: straight back into the chase
@@ -558,6 +558,20 @@ export class Traffic {
     ai.s = bestS; ai.lat = 0; ai.hdg = 0; ai.rejoin = true; v.free = null; ai.bumped = 1; /* drives back into the lane (driveRejoin) */
   }
   remove(v) { if (v.towing) { v.towing.dispose(); v.towing = null; } if (v.squad && v.driverChar) { v.mesh.remove(v.driverChar.root); v.driverChar.anim?.standUp?.(); v.driverChar = null; const m = v.squad; v.squad = null; if (v.onRemove) v.onRemove(m); } /* a squad-mate at the wheel is never disposed */ if (v.driverChar) { v.driverChar.dispose(); } if (v.pax && v.pax.length) this.dropPax(v); v.dispose(); }
+  // VehicleDamage: a burning / shot-up vehicle is abandoned — the AI stops driving it (it coasts to a halt when `coast`), it stays
+  // where it ends up (a kept vehicle: towed later like any car the player left), and whoever is still alive in it gets out through
+  // his own door and runs (`from`: what they run from). Occupants killed in their seats stay slumped there (v.deadOcc).
+  abandon(v, from = null, coast = false) {
+    if (v.player || v.squad || v.isTrain || v.towedBy || v.abandoned) return false; v.abandoned = true;
+    const i = this.vehicles.indexOf(v); if (i >= 0) this.vehicles.splice(i, 1);
+    if (coast && Math.abs(v.speed || 0) > 0.6 && !v.free) { const [fx, fz] = v.forward(); v.free = { vx: fx * v.speed, vz: fz * v.speed, spin: (v.steer || 0) * 0.3, rest: 0, sev: 0 }; }
+    v.ai = null; v.speed = 0; v.brake = true; v.hold = false; v.steer = 0; v.towing = null;
+    if (v.driverChar && !v.driverChar.vdDead) { const seats = v.mesh.userData.seats; const ds = Math.max(0, seats.indexOf(v.driverSeat())); const n = (v.pax || []).length;
+      v.pax = [v.driverChar, ...(v.pax || [])]; v.paxPlan = [{ si: ds, spec: v.driverChar.spec, mode: 'lap' }, ...(v.paxPlan || []).slice(0, n)]; v.driverChar = null; this.paxCount++; }
+    if (v.pax && v.pax.length) { const keep = [], plan = []; v.pax.forEach((ch, k) => { if (ch.vdDead) { (v.deadOcc || (v.deadOcc = [])).push(ch); this.paxCount--; } else { keep.push(ch); plan.push((v.paxPlan || [])[k] || { si: 0, mode: 'lap' }); } }); v.pax = keep; v.paxPlan = plan; }
+    v.parked = true; v.keep = true; v.left = { away: 0 }; if (!this.parked.includes(v)) this.parked.push(v);
+    this.disembark(v, 'flee', from); return true;
+  }
   // Hand a vehicle over to the player (car-jack: driver steps out and walks off grumbling)
   takeOver(v, keepDriver = false) { const i = this.vehicles.indexOf(v); if (i >= 0) this.vehicles.splice(i, 1); const pi = this.parked.indexOf(v); if (pi >= 0) this.parked.splice(pi, 1); if (v.spot) { this.vacate(v.spot); v.spot = null; } const hadDriver = !!v.driverChar; this.disembark(v, 'flee', this.player ? { x: this.player.x, z: this.player.z } : null); if (v.driverChar && !keepDriver) { v.mesh.remove(v.driverChar.root); v.driverChar.dispose(); v.driverChar = null; } v.ai = null; v.hold = false; v.parked = false; v.keep = true; v.left = null; if (v.spot) { (this.vacated || (this.vacated = new Map())).set(v.spot, 0); v.spot = null; } return hadDriver; } // the bay stays empty (no new car pops into it behind the player) until it is far away and some time has passed
   // the player got out / was taken out of a vehicle: it stays exactly where it was left (never culled by distance); with
@@ -685,6 +699,6 @@ export class Traffic {
   }
   // a parked vehicle left its spot (taken by the player, driven off by its owner, towed): nothing is spawned there for a day
   vacate(spot) { if (!spot) return; if (!this.spots) this.spots = new Map(); const st = this.spots.get(spot) || { day: Math.floor((this.gameH ?? 0) / 24), occ: false, until: -1 }; st.occ = false; st.look = null; st.claim = null; st.until = (this.gameH ?? 0) + 24; this.spots.set(spot, st); this.parkedSet && this.parkedSet.delete(spot); }
-  nearest(x, z, maxD = 4) { let best = null, bd = maxD * maxD; for (const v of this.all()) { if (v.player || v.isTrain || v.squad || v.towedBy) continue; const d = (v.x - x) ** 2 + (v.z - z) ** 2; if (d < bd) { bd = d; best = v; } } return best; }
+  nearest(x, z, maxD = 4) { let best = null, bd = maxD * maxD; for (const v of this.all()) { if (v.player || v.isTrain || v.squad || v.towedBy || v.wrecked) continue; const d = (v.x - x) ** 2 + (v.z - z) ** 2; if (d < bd) { bd = d; best = v; } } return best; }
 }
 export { evalPiece, linePiece, curvePiece, otherEnd, segNodes, laneOffset };

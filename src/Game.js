@@ -27,7 +27,8 @@ import { captureToCanvas } from './gfx/LinearCapture.js';
 import { refreshView, holdVehicles, updateSceneMatrices, withMatricesDone } from './gfx/ViewSkip.js';
 import { CATALOG, displayName } from './vehicles/VehicleCatalog.js';
 import { updateDoorClosers } from './vehicles/DoorRig.js';
-import { updateVehicleLOD, setHeadPoolNight, Vehicle, HeadlightRig, setVehicleLOD, LIVE_VEHICLES } from './vehicles/Vehicle.js';
+import { updateVehicleLOD, setHeadPoolNight, Vehicle, HeadlightRig, setVehicleLOD, LIVE_VEHICLES, CHASSIS } from './vehicles/Vehicle.js';
+import { VehicleDamage } from './vehicles/VehicleDamage.js';
 import { FlashlightRig } from './police/Firefight.js';
 import { World } from './world/World.js';
 import { Interiors } from './world/Interiors.js';
@@ -127,7 +128,7 @@ export class Game {
     this.applyDensity();
     progress(0.9, 'Lighting'); await tick();
     this.post = new PostFX(this.renderer, this.scene, this.camera); this.post.build({ bloom: Settings.preset.bloom, ao: Settings.preset.ao }); this.world.glintsOn = Settings.get('wetReflections') !== false; this.atmos.nightBoost = Settings.get('nightBrightness') ?? 1;
-    this.explosions = new Explosions(this); this.blood.useFx(this.explosions.U); this.grenades = new Grenades(this); // throwables (key B) + cinematic blasts
+    this.explosions = new Explosions(this); this.vdamage = new VehicleDamage(this); /* glass, bullets through bodywork, tyres, dents, fire → explosion, flung debris */ this.blood.useFx(this.explosions.U); this.grenades = new Grenades(this); // throwables (key B) + cinematic blasts
     this.drunk = new Drunk(this); // vodka in the hero rooms (HeroRooms.js)
     this.vsmoke = new VehicleSmoke(this, Settings.get('quality')); // tyre smoke + exhaust (one draw call, fixed pool)
     this.atmos.update(0.016, new THREE.Vector3(-300, 0, -500), this.camera, 0);
@@ -265,6 +266,7 @@ export class Game {
     const g = new THREE.Group(); g.name = 'shaderWarm'; g.visible = false; const seen = new Set();
     for (const [k, T] of Object.entries(VTYPES)) { const key = T.police ? 'police' : T.ambulance ? 'amb' : T.entry === 'bike' ? k : (T.base || k) + (T.family || ''); if (seen.has(key)) continue; seen.add(key);
       try { const m = createVehicleMesh(k, 1); if (m.userData.detail) setVehicleLOD(m.userData, true); g.add(m); } catch (e) { console.warn('warm set', k, e); } }
+    if (this.vdamage) g.add(this.vdamage.warmGroup()); // damaged glass, charred shell, bullet holes, shards / fragments
     return g;
   }
   setupRoomDoor() { const r = this.story.state.flags.room; this.interiors.setupDoors(r || null); }
@@ -415,7 +417,7 @@ export class Game {
       if (P.vehicle && Input.wasPressed('radio')) { this.radio = (this.radio + 1) % RADIO.length; this.hud.notify('Radio', RADIO[this.radio] ? RADIO[this.radio].name : 'Off', 'info', 1.6); }
     }
     if (!warmOnly) { const can = !busy && P.control && !P.cinematic && !this.indoor; this.weapons.update(dt, can && !this.grenades.lockWeapons); this.grenades.update(dt, can); this.drunk.update(dt); if (this.interiors.current?.tick) this.interiors.current.tick(dt, P); }
-    this.explosions.update(dt);
+    CHASSIS.focus = P; this.vdamage.update(dt); /* burning vehicles feed the explosion light + particles: before them */ this.explosions.update(dt);
     if (!warmOnly) this.heroSkin(dt);
     this.bodies = gatherBodies(this.scene); P.bodies = this.bodies;
     if (this.photo) this.updatePhoto(dt);

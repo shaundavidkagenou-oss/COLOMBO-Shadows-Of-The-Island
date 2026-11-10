@@ -45,5 +45,19 @@ function unpack(gltf) {
   gltf.scene.traverse((o) => { if (!o.isMesh) return; const [L, piece, cat] = o.name.split('|'); if (!cat) return; const g = toFloat(o.geometry, o.matrixWorld); g.name = o.name;
     if (L === 'lod0') { if (piece === 'body') a.lod0.body.push([cat, g]); else if (piece.startsWith('door')) a.lod0.doors[+piece.slice(4)].push([cat, g]); }
     else if (L === 'lod1' || L === 'lod2') a[L].push([cat, g]); else if (L === 'w0' || L === 'w1') a[L].push([piece === 'cal' ? 'cal' : cat, g]); });
-  return a;
+  pullTyreWalls(a); return a;
+}
+// Some source models (the Ventra's) have the outer tyre sidewall in a body rubber material that the offline wheel split did not
+// take: it was baked into the static body — it did not spin, steer, ride the suspension or leave with a wheel thrown by an
+// explosion, and it had no tyre material. Here those triangles (rubber, wholly inside a wheel's tyre band) leave the body; the
+// ones round wheel 0 (the wheel the template was cut from) join the shared tyre template in hub space.
+function pullTyreWalls(a) {
+  const W = a.meta.wheels; const T0 = a.w0.find((q) => q[0] === 'tyre'); if (!W || !W.length || !T0) return;
+  T0[1].computeBoundingBox(); const bb = T0[1].boundingBox; const R = Math.max(bb.max.y, -bb.min.y, bb.max.z, -bb.min.z); const inWheel = (x, y, z) => { for (let i = 0; i < W.length; i++) { const w = W[i]; const r = Math.hypot(y - w[1], z - w[2]); const lx = (x - w[0]) * (Math.sign(w[0]) || 1); if (lx > bb.min.x - 0.02 && lx < bb.max.x + 0.045 && r < R * 1.03 && r > R * 0.5) return i; } /* across the tyre's own width (hub space, mirrored for the far side): not the arch liner inboard */ return -1; };
+  const take = (g, keepW0) => { const P = g.attributes.position, I = g.index.array, keep = [], got = []; for (let f = 0; f < I.length; f += 3) { let wi = -2; for (let j = 0; j < 3 && wi !== -1; j++) { const k = I[f + j]; const q = inWheel(P.getX(k), P.getY(k), P.getZ(k)); wi = wi === -2 ? q : wi === q ? q : -1; } if (wi < 0) keep.push(I[f], I[f + 1], I[f + 2]); else if (wi === 0 && keepW0) got.push(I[f], I[f + 1], I[f + 2]); }
+    if (keep.length === I.length) return null; g.setIndex(new THREE.BufferAttribute(P.count > 65535 ? Uint32Array.from(keep) : Uint16Array.from(keep), 1)); return got; };
+  const join = (tpl, g, idx) => { if (!idx || !idx.length) return; const c = W[0]; const t = tpl[1]; const n0 = t.attributes.position.count; const used = [...new Set(idx)]; const map = new Map(used.map((k, i) => [k, n0 + i])); const out = new THREE.BufferGeometry();
+    for (const name of ['position', 'normal', 'uv', 'color']) { const A = t.attributes[name], B = g.attributes[name]; if (!A || !B) continue; const sz = A.itemSize; const arr = new Float32Array((n0 + used.length) * sz); arr.set(A.array.subarray(0, n0 * sz)); used.forEach((k, i) => { for (let e = 0; e < sz; e++) arr[(n0 + i) * sz + e] = B.array[k * sz + e] - (name === 'position' ? c[e] : 0); }); out.setAttribute(name, new THREE.BufferAttribute(arr, sz)); }
+    const I = [...t.index.array, ...idx.map((k) => map.get(k))]; out.setIndex(new THREE.BufferAttribute(n0 + used.length > 65535 ? Uint32Array.from(I) : Uint16Array.from(I), 1)); out.computeBoundingBox(); out.computeBoundingSphere(); out.name = t.name; tpl[1] = out; };
+  for (const [list, wl] of [[a.lod0.body, a.w0], [a.lod1, a.w1], [a.lod2, null]]) { const tpl = wl && wl.find((q) => q[0] === 'tyre'); for (const q of list) { if (q[0] !== 'rubber') continue; const got = take(q[1], !!tpl); if (got && tpl) join(tpl, q[1], got); } }
 }

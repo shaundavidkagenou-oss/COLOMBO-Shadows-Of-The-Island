@@ -24,6 +24,7 @@ import { CATALOG } from './VehicleCatalog.js';
 import { styleVehicle, badgeMaterial, badgeText, placeEmblem } from './VehicleStyle.js';
 import { realAsset } from './RealModels.js';
 import { realDoorSpec } from './RealSpec.js';
+import { tyreMaterial } from './TyreMaterial.js';
 
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 const lerp = (a, b, t) => a + (b - a) * t; const sstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -1131,9 +1132,9 @@ export function createVehicleMesh(type, seed = 1) {
   const wheels = cached.wheels.map(([x, y, z, w]) => {
     const parts = RW || w === cached.wheels[0][3] ? wp : wheelParts(T.wheelR, w, cached.wheelStyle);
     const pivot = new THREE.Group(); pivot.position.set(x, y, z); const spin = new THREE.Group();
-    const tyre = new THREE.Mesh(parts.tyre, M.vtyre); const rim = new THREE.Mesh(parts.rim, M.vrim); tyre.castShadow = true;
+    const tyre = new THREE.Mesh(parts.tyre, tyreMaterial(parts.tyre)); const rim = new THREE.Mesh(parts.rim, M.vrim); tyre.castShadow = true;
     const holder = new THREE.Group(); holder.add(tyre, rim); if (x < 0) holder.rotation.y = Math.PI; spin.add(holder); pivot.add(spin);
-    const hp = RW ? { tyre: rwGeo(RW.hi, 'tyre'), rim: rwGeo(RW.hi, 'rim'), caliper: RW.hi.some((e) => e[0] === 'cal') ? rwGeo(RW.hi, 'cal') : null } : hiWheelParts(T.wheelR, w, cached.wheelStyle, wkind, KIT, z > 0); const hi = new THREE.Group(); const t2 = new THREE.Mesh(hp.tyre, M.vtyre); t2.castShadow = true; hi.add(t2, new THREE.Mesh(hp.rim, M.vrim)); if (x < 0) hi.rotation.y = Math.PI; hi.visible = false; spin.add(hi);
+    const hp = RW ? { tyre: rwGeo(RW.hi, 'tyre'), rim: rwGeo(RW.hi, 'rim'), caliper: RW.hi.some((e) => e[0] === 'cal') ? rwGeo(RW.hi, 'cal') : null } : hiWheelParts(T.wheelR, w, cached.wheelStyle, wkind, KIT, z > 0); const hi = new THREE.Group(); const t2 = new THREE.Mesh(hp.tyre, tyreMaterial(hp.tyre)); t2.castShadow = true; hi.add(t2, new THREE.Mesh(hp.rim, M.vrim)); if (x < 0) hi.rotation.y = Math.PI; hi.visible = false; spin.add(hi);
     let cal = null; if (hp.caliper) { cal = new THREE.Mesh(hp.caliper, M.vrim); if (x < 0) cal.rotation.y = Math.PI; cal.visible = false; pivot.add(cal); }
     for (const o of [holder, tyre, rim, hi, ...hi.children, cal]) if (o) { o.updateMatrix(); o.matrixAutoUpdate = false; } // fixed inside the wheel: only pivot (steer, suspension) and spin move
     holder.userData.host = hi.userData.host = spin; spin.remove(hi); if (cal) { cal.userData.host = pivot; pivot.remove(cal); } // far LOD at birth: see setVehicleLOD

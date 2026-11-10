@@ -87,7 +87,7 @@ export class DebugConsole {
     try {
       switch (c) {
         case 'help': ['debug.menu true|false — enable the debug menu (open it with Numpad 2)', 'time <0-24> · freeze [on|off]', `weather <${Object.keys(WEATHER).join('|')}>`, 'money <amount>', 'god [on|off] · ammo [on|off] (infinite) · nowanted [on|off]', 'mind · mind stats · mind off|on — NPC personality / feelings / memories',
-          `give <all|grenades|${WEAPONS.map((w) => w.id).join('|')}>`, 'tp <place> | tp <x> <z> | tp waypoint · places', 'drunk <0..1> · room <dineth|shashika|david>', 'vehicle info|repair|upright|open|close — your vehicle, or the nearest within 10 m', 'bench [seconds] — frame-rate benchmark of real play (avg fps, 1 % / 0.1 % lows, worst frame); the console closes while it runs', `spawn ped [n] · spawn car [${VEH.join('|')}|<catalogue id>]`, 'cars — list the 40 catalogue vehicles (ids for spawn car)', `model <${MODELS.join('|')}|civilian|reset>`, 'dress [outfit] — re-dress pedestrians within 35 m · outfits', 'animations — animation editor (every animation in the game, keyframes, poses, speed …)', 'map — map editor (move / add / delete / repaint anything, save the map)', 'npc — NPC editor (remodel NPCs: every appearance parameter, proportions, paint on the model, fabric textures)', 'heal · clear · close'].forEach((s) => this.print('  ' + s)); break;
+          `give <all|grenades|${WEAPONS.map((w) => w.id).join('|')}>`, 'tp <place> | tp <x> <z> | tp waypoint · places', 'drunk <0..1> · room <dineth|shashika|david>', 'vehicle info|repair|upright|open|close|dmg|shoot [n]|tyre|glass|dent|fire|explode — your vehicle, or the nearest within 10 m', 'bench [seconds] — frame-rate benchmark of real play (avg fps, 1 % / 0.1 % lows, worst frame); the console closes while it runs', `spawn ped [n] · spawn car [${VEH.join('|')}|<catalogue id>]`, 'cars — list the 40 catalogue vehicles (ids for spawn car)', `model <${MODELS.join('|')}|civilian|reset>`, 'dress [outfit] — re-dress pedestrians within 35 m · outfits', 'animations — animation editor (every animation in the game, keyframes, poses, speed …)', 'map — map editor (move / add / delete / repaint anything, save the map)', 'npc — NPC editor (remodel NPCs: every appearance parameter, proportions, paint on the model, fabric textures)', 'heal · clear · close'].forEach((s) => this.print('  ' + s)); break;
         case 'debug.menu': this.D.menuEnabled = on(a[0], this.D.menuEnabled); if (!this.D.menuEnabled) this.toggleMenu(false); this.print(`debug menu ${this.D.menuEnabled ? 'ENABLED — press Numpad 2 to open it' : 'disabled'}`, 'ok'); break;
         case 'time': this.setTime(+a[0]); break;
         case 'freeze': this.D.freezeTime = on(a[0], this.D.freezeTime); this.print(`clock ${this.D.freezeTime ? 'frozen' : 'running'}`, 'ok'); break;
@@ -107,7 +107,7 @@ export class DebugConsole {
         case 'heal': this.g.health.hp = 100; this.print('healed', 'ok'); break;
         case 'drunk': { const D = this.g.drunk; if (!D) throw new Error('no drunk system'); const v = Math.max(0, Math.min(1.1, +(a[0] ?? 0.8))); D.level = v; D.eff = v; D.hold = 30; this.print(`drunk level ${v.toFixed(2)} (${D.label})`, 'ok'); break; }
         case 'room': this.room(a[0] || 'dineth'); break;
-        case 'vehicle': case 'veh': { const op = (a[0] || 'info').toLowerCase(); if (op === 'info') this.vehInfo(); else if (op === 'repair') { const v = this.vehTarget(); v.damage = 0; v.health = 100; this.say(`${vName(v.type)} repaired`); } else if (op === 'upright') { const v = this.vehTarget(); v.speed = 0; v.lat = 0; if (v.sus) Object.assign(v.sus, { r: 0, rv: 0, h: 0, hv: 0 }); v.place(v.x, v.z, v.yaw); this.say(`${vName(v.type)} set upright`); } else if (op === 'open' || op === 'close') this.vehDoors(op === 'open'); else throw new Error('vehicle info|repair|upright|open|close'); break; }
+        case 'vehicle': case 'veh': { const op = (a[0] || 'info').toLowerCase(); if (op === 'info') this.vehInfo(); else if (op === 'repair') this.vehRepair(); else if (this.vehDamage(op, a.slice(1))) { /* damage tools */ } else if (op === 'upright') { const v = this.vehTarget(); v.speed = 0; v.lat = 0; if (v.sus) Object.assign(v.sus, { r: 0, rv: 0, h: 0, hv: 0 }); v.place(v.x, v.z, v.yaw); this.say(`${vName(v.type)} set upright`); } else if (op === 'open' || op === 'close') this.vehDoors(op === 'open'); else throw new Error('vehicle info|repair|upright|open|close|dmg|shoot [n]|tyre|glass|dent|fire|explode'); break; }
         case 'animations': case 'anim': case 'map': case 'npc': case 'npcs': { // the editors are separate modules, downloaded only now
           const kind = c.startsWith('anim') ? 'animations' : c.startsWith('npc') ? 'npc' : 'map'; this.print(`loading the ${kind} editor…`, 'sys'); this.toggle(false);
           openEditor(kind, this.g).catch((e) => { console.error(e); this.toggle(true); this.print('editor failed to load: ' + (e && e.message || e), 'err'); }); break; }
@@ -152,6 +152,20 @@ export class DebugConsole {
   vehTarget() { const P = this.g.player; if (P.vehicle) return P.vehicle; let best = null, bd = 10; for (const v of LIVE_VEHICLES) { if (v.disposed || !v.mesh || !v.mesh.parent) continue; const d = Math.hypot(v.x - P.x, v.z - P.z); if (d < bd) { bd = d; best = v; } } if (!best) throw new Error('no vehicle within 10 m'); return best; }
   vehInfo() { const v = this.vehTarget(), T = v.T, ud = v.mesh.userData; const lvl = ud.real ? ['LOD0', 'LOD1', 'LOD2'][ud.real.level] || '?' : ud.lodNear ? 'near kit' : 'far';
     this.say(`${vName(v.type)} (${v.type}) · ${T.cls || T.fam || 'vehicle'} · ${realAsset(v.type) ? 'real model' : 'procedural'} · ${lvl} · damage ${Math.round((v.damage || 0) * 100)} % · ${Math.round(Math.abs(v.speed || 0) * 3.6)} km/h · ${(ud.doors || []).length} doors`); }
+  vehRepair() { const v = this.vehTarget(); if (v.wrecked) throw new Error('burnt out — a wreck cannot be repaired'); if (this.g.vdamage) this.g.vdamage.repair(v); v.damage = 0; v.health = 100; this.say(`${vName(v.type)} repaired`); }
+  // VehicleDamage tools on the target vehicle; returns false for an unknown op
+  vehDamage(op, a = []) {
+    const VD = this.g.vdamage; const ops = ['dmg', 'damage', 'shoot', 'tyre', 'glass', 'dent', 'fire', 'explode']; if (!ops.includes(op)) return false; if (!VD) throw new Error('no vehicle damage system'); const v = this.vehTarget(); const nm = vName(v.type);
+    if (op === 'dmg' || op === 'damage') { const st = v.vd; const G = st && st.glass; this.say(`${nm}: health ${Math.round(v.health ?? 100)} · power ${Math.round((v.power ?? 1) * 100)} % · ${v.wrecked ? 'WRECKED' : v.burning ? 'ON FIRE' : 'running'} · panes broken ${G ? G.broken.reduce((s, b) => s + b, 0) + '/' + G.panes.length : 0} · cracks ${G ? Math.min(G.nCr, 8) : 0} · holes ${st ? st.nHole : 0} · flats ${st ? st.flats : 0} · lamps ${v.headOut ? 'front out ' : ''}${v.tailOut ? 'rear out' : ''}`); return true; }
+    if (v.wrecked) throw new Error('already a burnt-out wreck');
+    if (op === 'shoot') { const n = Math.max(1, Math.min(60, +a[0] || 6)); VD.shootDemo(v, n); this.say(`${nm}: ${n} rounds fired into it — health ${Math.round(v.health)}`); }
+    else if (op === 'tyre') { const W = (v.mesh.userData.wheels || []).filter((w) => !w.userData.flat); if (!W.length) throw new Error('every tyre is already flat'); VD.burst(v, W[0]); this.say(`${nm}: tyre burst`); }
+    else if (op === 'glass') { if (!VD.smashAll(v)) throw new Error('this vehicle has no glass'); this.say(`${nm}: glass smashed`); }
+    else if (op === 'dent') { const [fx, fz] = v.forward(); VD.onImpact(v, 16, { nx: -fx, nz: -fz, t: v.T.len / 2 }); this.say(`${nm}: front crash at ~58 km/h — health ${Math.round(v.health)}`); }
+    else if (op === 'fire') { VD.ignite(v, 7, 'debug', 'engine'); this.say(`${nm}: engine fire — it goes up in about 7 s`); }
+    else if (op === 'explode') { VD.explode(v, 'debug'); this.say(`${nm}: exploded`); }
+    return true;
+  }
   vehDoors(open) { const v = this.vehTarget(), D = (v.mesh.userData.doors || []); if (!D.length) throw new Error('this vehicle has no opening doors'); for (const d of D) { if (open) driveDoor(v, d, d.leaf ? 1 : 0.85); else shutDoorLater(v, d, 0); } this.say(`${D.length} doors ${open ? 'opened' : 'closing'}`); }
   spawnPeds(n) {
     const C = this.g.crowd, P = this.g.player; let k = 0; C.max = Math.max(C.max, C.peds.length + n);
@@ -220,7 +234,16 @@ export class DebugConsole {
       ] }) },
       { label: 'Vehicle', sub: () => ({ title: 'Vehicle (yours, or the nearest within 10 m)', items: [
         { label: 'Info', act: () => this.vehInfo() },
-        { label: 'Repair', act: () => { const v = this.vehTarget(); v.damage = 0; v.health = 100; this.say(`${vName(v.type)} repaired`); } },
+        { label: 'Repair (dents, glass, tyres, engine)', act: () => this.vehRepair() },
+        { label: 'Damage', sub: () => ({ title: 'Vehicle damage (GTA-style)', items: [
+          { label: 'Damage status', act: () => this.vehDamage('dmg') },
+          { label: 'Shoot it: 6 rifle rounds', act: () => this.vehDamage('shoot', ['6']) },
+          { label: 'Burst a tyre', act: () => this.vehDamage('tyre') },
+          { label: 'Smash all glass', act: () => this.vehDamage('glass') },
+          { label: 'Hard crash (dent the front)', act: () => this.vehDamage('dent') },
+          { label: 'Set the engine on fire', act: () => this.vehDamage('fire') },
+          { label: 'Explode now', act: () => this.vehDamage('explode') },
+        ] }) },
         { label: 'Set upright / stop', act: () => { const v = this.vehTarget(); v.speed = 0; v.lat = 0; if (v.sus) Object.assign(v.sus, { r: 0, rv: 0, h: 0, hv: 0 }); v.place(v.x, v.z, v.yaw); this.say(`${vName(v.type)} set upright`); } },
         { label: 'Open all doors', act: () => this.vehDoors(true) }, { label: 'Close all doors', act: () => this.vehDoors(false) },
       ] }) },

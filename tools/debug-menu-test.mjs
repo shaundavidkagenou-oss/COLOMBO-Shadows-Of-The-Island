@@ -55,7 +55,12 @@ try {
     const v = dc.vehTarget(); out.target = v && v.type;
     for (const op of ['info', 'repair', 'upright', 'open', 'close']) run('vehicle ' + op);
     const vm = dc.root().items.find((i) => i.label === 'Vehicle').sub(); // the menu's Vehicle submenu on the same car
-    for (const it of vm.items) { const e0 = errLog(); try { await it.act(); out.acts++; } catch (e) { out.fails.push('Debug > Vehicle > ' + it.label + ' [act] ' + e.message); } if (errLog() > e0) out.fails.push('Debug > Vehicle > ' + it.label + ' [console err]'); }
+    // Vehicle > Damage (a submenu): every entry on the same car, except the explosion, which runs last (it throws the doors off)
+    let boom = null; for (const it of vm.items) { if (!it.sub) continue; const sm = it.sub(); out.labels['Debug > Vehicle > ' + it.label] = sm.items.map((i) => i.label);
+      for (const si of sm.items) { if (/explode/i.test(si.label)) { boom = si; continue; } const e0 = errLog(); try { await si.act(); out.acts++; } catch (e) { out.fails.push('Debug > Vehicle > ' + it.label + ' > ' + si.label + ' [act] ' + e.message); } if (errLog() > e0) out.fails.push('Debug > Vehicle > ' + it.label + ' > ' + si.label + ' [console err] ' + dc.log.filter(([, c]) => c === 'err').slice(-1)[0][0]); await tick(); } }
+    out.dmgBefore = g.vdamage ? JSON.stringify(g.vdamage.stats) : 'no vdamage';
+    run('vehicle repair'); // back to a clean car for the door checks
+    for (const it of vm.items) { if (it.sub) continue; const e0 = errLog(); try { await it.act(); out.acts++; } catch (e) { out.fails.push('Debug > Vehicle > ' + it.label + ' [act] ' + e.message); } if (errLog() > e0) out.fails.push('Debug > Vehicle > ' + it.label + ' [console err]'); }
     const doors = v.mesh.userData.doors || []; await new Promise((r) => setTimeout(r, 6000)); run('vehicle open'); await new Promise((r) => setTimeout(r, 4000)); out.doorOpen = doors.map((d) => +(d.ang ?? 0).toFixed(2));
     // the door spring runs in game time (~1 s); SwiftShader with ~100 spawned vehicles crawls, so poll (up to 90 s of wall time)
     const t0 = Date.now(); while (Date.now() - t0 < 90000 && !doors.every((d) => d.ang > 0.6)) await new Promise((r) => setTimeout(r, 1000));
@@ -63,6 +68,10 @@ try {
     if (!out.doorOpen2.every((a) => a > 0.6)) out.fails.push('vehicle open: doors at ' + out.doorOpen2.join(',') + ' after 94 s');
     run('room dineth'); for (let w = 0; w < 400 && !g.interiors.current; w++) await tick(); out.roomCmd = !!g.interiors.current; if (g.interiors.current) await g.interiors.exit();
     run('help');
+    // the explosion last: the wreck, the fire and the thrown pieces then run in the live game loop for a while (page errors fail)
+    if (boom) { const e0 = errLog(); try { await boom.act(); out.acts++; } catch (e) { out.fails.push('Debug > Vehicle > Damage > ' + boom.label + ' [act] ' + e.message); } if (errLog() > e0) out.fails.push('Debug > Vehicle > Damage > Explode [console err]');
+      const t1 = Date.now(); while (Date.now() - t1 < 20000) await new Promise((r) => setTimeout(r, 500)); out.wrecked = !!v.wrecked; out.dmgAfter = JSON.stringify(g.vdamage.stats);
+      if (!v.wrecked) out.fails.push('Explode now: the car is not wrecked'); run('vehicle repair'); } else out.fails.push('Debug > Vehicle > Damage: no Explode entry');
     out.cmds = cmds; dc.toggleMenu(false); return out;
   });
   await wait(4000); // let a few frames run with everything spawned / toggled
@@ -72,6 +81,7 @@ try {
   console.log(`  vehicle target ${res.target}; doors after 'vehicle open' ${JSON.stringify(res.doorOpen)} (4 s) ${JSON.stringify(res.doorOpen2)} (after ${res.frames}); hero rooms entered/left ${res.rooms}; 'room dineth' entered ${res.roomCmd}`);
   if (!res.target) { console.log('FAIL spawn car vanta: no vehicle next to the player'); failed++; }
   if (res.rooms !== 3 || !res.roomCmd) { console.log('FAIL hero rooms'); failed++; }
+  console.log(`  damage menu: before repair ${res.dmgBefore}; after the explosion (20 s live) wrecked ${res.wrecked} ${res.dmgAfter}`);
   if (process.env.V) for (const s of res.skipped) console.log('  skip ' + s);
   for (const f of res.fails) { console.log('FAIL ' + f); failed++; }
   for (const e of errors) { console.log('FAIL ' + e); failed++; }

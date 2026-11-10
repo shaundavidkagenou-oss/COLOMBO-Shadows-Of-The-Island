@@ -359,7 +359,7 @@ export class Weapons {
     return { o, d };
   }
   // nearest hit along a ray: world geometry, pedestrians (capsules), vehicles (bounding circles)
-  trace(o, d, range, skipNear = 0) {
+  trace(o, d, range, skipNear = 0, skipV = null) { // skipV: a vehicle the bullet already went through / past
     let best = { t: range, kind: 'none' };
     const s0 = o.clone().addScaledVector(d, skipNear), e = o.clone().addScaledVector(d, range); const tw = this.g.collision.raycast(s0.x, s0.y, s0.z, e.x, e.y, e.z, 0.02, true); if (tw < 1) best = { t: skipNear + tw * (range - skipNear), kind: 'world' };
     if (o.y + d.y * best.t < this.groundY(o.x + d.x * best.t, o.z + d.z * best.t)) { // hits the street before anything else
@@ -372,7 +372,7 @@ export class Weapons {
     }
     if (this.g.police) for (const p of this.g.police.foot) { const rx = p.x - o.x, rz = p.z - o.z; const dh = Math.hypot(d.x, d.z) || 1e-6; const t = (rx * d.x + rz * d.z) / (dh * dh); if (t < skipNear || t > best.t) continue; const cx = o.x + d.x * t - p.x, cz = o.z + d.z * t - p.z; if (cx * cx + cz * cz > 0.09) continue; const y = o.y + d.y * t - (p.y || 0); if (y < 0.05 || y > (p.mode === 'down' ? 0.45 : 1.8 - 0.65 * ((p.ch && p.ch.anim && p.ch.anim.crouch) || 0))) continue; best = { t, kind: 'officer', p, y }; } // an officer crouched in cover presents less
     const vs = this.g.traffic.all();
-    for (const v of vs) { if (Math.abs(v.x - o.x) > range || Math.abs(v.z - o.z) > range) continue; for (const [cx, cz] of v.circles()) { const rx = cx - o.x, ry = v.y + 0.9 - o.y, rz = cz - o.z; const t = rx * d.x + ry * d.y + rz * d.z; if (t < skipNear || t > best.t) continue; const qx = o.x + d.x * t - cx, qy = o.y + d.y * t - (v.y + 0.9), qz = o.z + d.z * t - cz; const rr = v.radius * 0.95; const dd = qx * qx + qy * qy * 1.8 + qz * qz; if (dd < rr * rr) { const back = Math.sqrt(rr * rr - dd); best = { t: Math.max(skipNear, t - back), kind: 'vehicle', v }; } } }
+    for (const v of vs) { if (v === skipV || Math.abs(v.x - o.x) > range || Math.abs(v.z - o.z) > range) continue; for (const [cx, cz] of v.circles()) { const rx = cx - o.x, ry = v.y + 0.9 - o.y, rz = cz - o.z; const t = rx * d.x + ry * d.y + rz * d.z; if (t < skipNear || t > best.t) continue; const qx = o.x + d.x * t - cx, qy = o.y + d.y * t - (v.y + 0.9), qz = o.z + d.z * t - cz; const rr = v.radius * 0.95; const dd = qx * qx + qy * qy * 1.8 + qz * qz; if (dd < rr * rr) { const back = Math.sqrt(rr * rr - dd); best = { t: Math.max(skipNear, t - back), kind: 'vehicle', v }; } } }
     best.point = o.clone().addScaledVector(d, best.t); return best;
   }
   groundY(x, z) { return L.groundY(x, z); }
@@ -383,23 +383,35 @@ export class Weapons {
     const aimHit = this.trace(o, d, def.range, camToPlayer + 0.4);
     const mz = this.muzzleWorld(new THREE.Vector3());
     // the bullet leaves the muzzle toward the aim point; anything between the muzzle and that point takes the hit instead
-    const dir = aimHit.point.clone().sub(mz); const len = dir.length(); dir.normalize(); let hit = this.trace(mz, dir, Math.max(0.1, len + 0.05), 0.05); if (hit.kind === 'none') hit = aimHit;
+    const dir = aimHit.point.clone().sub(mz); const len = dir.length(); dir.normalize(); let hit = this.trace(mz, dir, Math.max(0.1, len + 0.05), 0.05); let hdir = dir, horg = mz; if (hit.kind === 'none') { hit = aimHit; hdir = d; horg = o; }
     this.bloom = Math.min(0.08, this.bloom + def.bloom); this.recoil = Math.min(0.12, this.recoil + 0.05); this.recoilYaw = Math.random() * 2 - 1;
     { const st = (P.crouching ? 0.75 : 1) * (this.aimW > 0.8 ? 0.85 : 1) * (0.6 + 0.4 * ((P.perk && P.perk.steady) || 1)); const cls = def.cls;
       P.camPitch = clamp(P.camPitch - def.recoil * 0.35 * st, -0.5, 1.2); // the part the shooter must pull down
       this.kick.v += def.recoil * 9 * st * (0.85 + Math.random() * 0.3); this.kick.yv += def.recoil * 3 * st * (Math.random() * 2 - 1); // rises, then mostly recovers
       if (P.ch && P.ch.anim.shotKick) P.ch.anim.shotKick(cls, st); this.spr.pv.z -= (cls === 'pistol' ? 0.55 : cls === 'sniper' ? 1.1 : 0.7) * st; this.spr.pv.y += 0.12 * st; this.spr.rv.x -= (cls === 'pistol' ? 9 : cls === 'sniper' ? 7 : 4.5) * st; this.spr.rv.y += (Math.random() * 2 - 1) * 1.6 * st; this.spr.rv.z += (Math.random() * 2 - 1) * 1.2 * st;
       this.trigT = 0.07; if (this.inv[this.cur].mag <= 1 && cls !== 'sniper') this.slideLock = true; } P.shake = Math.max(P.shake || 0, def.cls === 'sniper' ? 0.25 : 0.08);
-    this.gunSound(def, P.x, P.z); this.flash(mz, dir, def); if (!def.cycle) this.ejectShell(); this.tracer(mz, hit.point, def);
-    if (hit.kind === 'ped') { const p = hit.p; if (this.g.blood && p.ch) this.g.blood.wound(p.ch, hit.point, dir, def.dmg); this.g.crowd.hitPed(p, dir.x, dir.z, def.dmg, hit.point); if (!(this.g.blood && this.g.blood.spray(hit.point, dir, def.dmg))) this.puff(hit.point, 0x8a8478, 3); this.hitMarker(); }
-    else if (hit.kind === 'officer') { if (this.g.blood && hit.p.ch) this.g.blood.wound(hit.p.ch, hit.point, dir, def.dmg); this.g.police.officerHit(hit.p, dir.x, dir.z); if (!(this.g.blood && this.g.blood.spray(hit.point, dir, def.dmg))) this.puff(hit.point, 0x8a8478, 3); this.hitMarker(); } // stagger / down-and-recover
-    else if (hit.kind === 'vehicle') { this.sparks(hit.point, dir); Audio.tone(2400 + Math.random() * 1500, 0.07, { type: 'triangle', vol: 0.05 }); const v = hit.v; if (v.ai) v.ai.bumped = 2.5; this.g.crowd.alarm(v.x, v.z, 25, 2, null, 'gunshot', true); }
-    else if (hit.kind === 'world' || hit.kind === 'ground') { this.puff(hit.point, hit.kind === 'ground' ? 0x6d6a64 : 0xb5ab9a, 5); this.decal(hit.point, dir, hit.kind); }
+    this.gunSound(def, P.x, P.z); this.flash(mz, dir, def); if (!def.cycle) this.ejectShell();
+    const fin = this.applyHit(hit, hdir, horg, def, 1, 0); this.tracer(mz, fin.point, def);
     this.shotAlarm -= 1; if (this.shotAlarm <= 0) { this.shotAlarm = 3; this.g.crowd.alarm(P.x, P.z, def.loud, 2, null, 'gunshot', true); }
     this.g.crowd.alarm(hit.point.x, hit.point.z, 10, 2, null, 'gunshot', true);
     this.g.birds?.scare(P.x, P.z, 50); // every bird nearby goes up at a gunshot
     if (this.g.police) this.g.police.gunfire(P.x, P.z, hit.point); else { this.heat = Math.min(5, this.heat + 0.05); this.heatT = 0; } this.lastShot = { x: P.x, z: P.z, t: performance.now() };
     if (this.onShot) this.onShot(def, hit);
+  }
+  // what one bullet does to what it hit (k: the fraction of its energy left after going through something). Vehicles: the exact
+  // test against the body (VehicleDamage) — a shot that only crossed the bounding circles flies on past the car; one that went
+  // through carries on from the exit hole with what is left. Returns the last thing it hit (for the tracer).
+  applyHit(hit, dir, org, def, k = 1, depth = 0) {
+    const dmg = def.dmg * k;
+    if (hit.kind === 'ped') { const p = hit.p; if (this.g.blood && p.ch) this.g.blood.wound(p.ch, hit.point, dir, dmg); this.g.crowd.hitPed(p, dir.x, dir.z, dmg, hit.point); if (!(this.g.blood && this.g.blood.spray(hit.point, dir, dmg))) this.puff(hit.point, 0x8a8478, 3); this.hitMarker(); }
+    else if (hit.kind === 'officer') { if (this.g.blood && hit.p.ch) this.g.blood.wound(hit.p.ch, hit.point, dir, dmg); this.g.police.officerHit(hit.p, dir.x, dir.z); if (!(this.g.blood && this.g.blood.spray(hit.point, dir, dmg))) this.puff(hit.point, 0x8a8478, 3); this.hitMarker(); } // stagger / down-and-recover
+    else if (hit.kind === 'vehicle') { const v = hit.v, VD = this.g.vdamage; const R = VD ? VD.bullet(v, org, dir, { cls: def.cls, dmg }, { by: 'player' }) : null;
+      if (VD && !R) { if (depth < 2) return this.applyHit(this.trace(org, dir, def.range, Math.max(0.05, hit.t + 0.01), v), dir, org, def, k, depth + 1); return hit; } // passed over / beside the body
+      if (R) hit.point.copy(R.point); if (!R || R.kind !== 'glass') this.sparks(hit.point, dir); if (!VD) Audio.tone(2400 + Math.random() * 1500, 0.07, { type: 'triangle', vol: 0.05 });
+      if (v.ai) v.ai.bumped = 2.5; this.g.crowd.alarm(v.x, v.z, 25, 2, null, 'gunshot', true); if (R && R.occupant) this.hitMarker();
+      if (R && R.exit && R.pass > 0.12 && depth < 2) { const rest = def.range - hit.t; const h2 = this.trace(R.exit, dir, Math.max(0.1, rest), 0.02, v); if (h2.kind !== 'none') return this.applyHit(h2, dir, R.exit, def, k * R.pass, depth + 1); } }
+    else if (hit.kind === 'world' || hit.kind === 'ground') { this.puff(hit.point, hit.kind === 'ground' ? 0x6d6a64 : 0xb5ab9a, 5); this.decal(hit.point, dir, hit.kind); }
+    return hit;
   }
   report(e) { // a witness phoned the police (several calls about the same incident only count once every few seconds)
     if (this.g.police) return this.g.police.report(e); // the police response system owns the wanted level

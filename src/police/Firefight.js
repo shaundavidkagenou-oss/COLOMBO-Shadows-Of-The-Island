@@ -213,6 +213,7 @@ export class Firefight {
     cb.mag--; cb.burst++; this.stats.shots++; this.p.stats.policeShots = (this.p.stats.policeShots || 0) + 1; if (o.rp) o.rp.kick = 1; if (o.ch && o.ch.anim.shotKick) o.ch.anim.shotKick('rifle', 1);
     this.effects(o, mz, dir, hit);
     if (hit.kind === 'player') { this.stats.hits++; const dmg = POLICE_T56.dmg * (this.p.stars() >= 5 ? 1.15 : 1) * (0.85 + Math.random() * 0.3); g.health ? g.health.damage(dmg, 'shot by police') : (this.lastDamage = (this.lastDamage || 0) + dmg); }
+    else if (hit.kind === 'vehicle' && g.vdamage) { const R = g.vdamage.bullet(hit.v, mz, dir, { cls: 'rifle', dmg: 0.75 }, { by: 'police', playerHp: POLICE_T56.dmg * 0.85 }); if (R) { hit.point.copy(R.point); if (R.occupant === 'player') this.stats.hits++; } } // the real thing: glass, panels, tyres, the people inside (VehicleDamage)
     else if (hit.kind === 'vehicle' && hit.v === P.vehicle && Math.random() < 0.3) { this.stats.hits++; g.health && g.health.damage(POLICE_T56.dmg * 0.6, 'shot by police'); } // through the bodywork / glass
     else { const ax = hit.point.x - mz.x, az = hit.point.z - mz.z, L2 = ax * ax + az * az || 1; const t = clamp(((P.x - mz.x) * ax + (P.z - mz.z) * az) / L2, 0, 1); const nd = Math.hypot(mz.x + ax * t - P.x, mz.z + az * t - P.z); if (nd < 1.6 && Audio.ctx) Audio.noise(0.07, { f: 3200, q: 1.2, vol: 0.12 * (1 - nd / 1.6), attack: 0.002 }); } // supersonic crack of a near miss
   }
