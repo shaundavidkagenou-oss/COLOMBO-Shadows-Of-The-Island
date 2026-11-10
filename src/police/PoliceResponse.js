@@ -449,7 +449,7 @@ export class PoliceResponse {
   // ------------------------------------------------------------------ roadblocks (4★+) and spike strips (5★)
   updateRoadblocks(dt) {
     this.blockCd -= dt; const tg = this.target(); const lv = this.stars();
-    for (const u of this.units) if (u.strip && tg.v && !tg.v.flat && overStrip(u.strip, tg.v)) { tg.v.flat = true; tg.v.impact(7); this.stats.flats++; this.note('suspect tyres punctured'); this.g.hud.notify('Tyres punctured', 'You drove over a police spike strip — the car is slow and hard to control now. Switch vehicles to get away.', 'warn', 4); this.radio('flat', u, true); }
+    for (const u of this.units) if (u.strip && tg.v && !tg.v.flat && !(tg.v.tune && tg.v.tune.runflat) && overStrip(u.strip, tg.v)) { tg.v.flat = true; tg.v.impact(7); this.stats.flats++; this.note('suspect tyres punctured'); this.g.hud.notify('Tyres punctured', 'You drove over a police spike strip — the car is slow and hard to control now. Switch vehicles to get away.', 'warn', 4); this.radio('flat', u, true); }
     if (this.state !== 'pursuing' || lv < 4 || !tg.v || Math.abs(tg.v.speed) < 8 || this.seenT > 0.3 || this.blockCd > 0 || this.g.indoor) return;
     if (this.units.filter((u) => u.task === 'block').length >= (lv >= 5 ? 4 : 2)) return;
     this.blockCd = 6; const site = roadblockSite(tg.v, () => nearestRoad(this.T.drivableSegs, tg.x, tg.z), this.T.drivable, 150, 240); if (!site) return;

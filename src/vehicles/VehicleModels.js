@@ -1075,7 +1075,7 @@ function concatGeos(parts) {
 function slicePivotGeos(cached, i) {
   if (!cached.pivotGeos) cached.pivotGeos = []; if (cached.pivotGeos[i]) return cached.pivotGeos[i]; const d = cached.doors[i]; const out = [];
   for (const [name, src] of cached.geos) { const R = cached.doorRanges[name]; const r = R && R.doors.find((q) => q.door === i); if (!r) continue; const g = new THREE.BufferGeometry();
-    for (const k of ['position', 'normal', 'uv', 'color']) { const A = src.attributes[k]; const arr = A.array.slice(r.v0 * A.itemSize, r.v1 * A.itemSize); if (k === 'position') for (let j = 0; j < arr.length; j += 3) { arr[j] -= d.hinge[0]; arr[j + 2] -= d.hinge[1]; } g.setAttribute(k, new THREE.BufferAttribute(arr, A.itemSize)); }
+    for (const k of ['position', 'normal', 'uv', 'color', 'pmask']) { const A = src.attributes[k]; if (!A) continue; const arr = A.array.slice(r.v0 * A.itemSize, r.v1 * A.itemSize); if (k === 'position') for (let j = 0; j < arr.length; j += 3) { arr[j] -= d.hinge[0]; arr[j + 2] -= d.hinge[1]; } g.setAttribute(k, new THREE.BufferAttribute(arr, A.itemSize)); }
     const I = src.index.array.slice(r.i0, r.i1); for (let j = 0; j < I.length; j++) I[j] -= r.v0; g.setIndex(new THREE.BufferAttribute(I, 1)); g.computeBoundingSphere(); out.push([name, g]); }
   return (cached.pivotGeos[i] = out);
 }
@@ -1105,6 +1105,44 @@ function ensureModel(type, seed) {
   }
   return { T, color, variant, worn, cached };
 }
+// ---- COLOMBO CUSTOMS (src/customs): the look of a customised vehicle. The same shape as its traffic look (same buffers for
+// position / normal / uv / index), but the paint is baked WHITE × its shade and carries a binary 'pmask' attribute (1 = paint), so
+// the vehicle's own paint shader (CustomsPaint.js) colours, two-tones, finishes and liveries it with uniforms: a new colour is a
+// uniform write, never a geometry rebuild. Built once per type + variant and shared by every customised vehicle of that look.
+const customCache = new Map(); const WHITE = [1, 1, 1];
+function maskGeo(g0, mask) { const g = recolor(g0, mask, WHITE); const n = g.attributes.position.count; const pm = new Float32Array(n); if (mask) for (let i = 0; i < n; i++) pm[i] = mask[i] > 0 ? 1 : 0; g.setAttribute('pmask', new THREE.BufferAttribute(pm, 1)); return g; }
+// 'paint' meshes → white + pmask (coloured by the shader); other meshes keep the shape's own colours; the few non-paint meshes that
+// carry body-colour vertices (a tuk-tuk's canvas hood, a body-colour trim strip) are listed in `tint` and recoloured per vehicle
+export function ensureCustomModel(type, variant) {
+  const key = type + '|' + variant; let c = customCache.get(key); if (c) return c;
+  const S = shapeOf(type, variant), m = S.m; const tint = [];
+  const ml = (L, where) => L.map(([name, g0, mask]) => { if (name === 'paint') return [name, maskGeo(g0, mask)]; if (mask) tint.push({ where, name, g0, mask }); return [name, recolor(g0, null, WHITE)]; });
+  c = { key, geos: ml(S.geos, 'b'), dgeos: ml(S.dgeos, 'd'), doors: recolorMeta(m.doors, WHITE), doorRanges: S.doorRanges, lods: S.lods ? S.lods.map((L, i) => ml(L, 'L' + i)) : null, exhaust: (m.dm && m.dm.exhaust) || null, wheels: m.wheels, wheelStyle: m.wheelStyle, tint };
+  customCache.set(key, c); return c;
+}
+// the per-vehicle copy of the custom look: shares every buffer with the cached one except the colour of `tint` meshes
+function ownCustom(K, hex) { if (!K.tint.length) return K; const col = C(hex); const sub = (L, where) => L.map(([n, g]) => { const t = K.tint.find((q) => q.where === where && q.name === n); return t ? [n, recolor(t.g0, t.mask, col)] : [n, g]; });
+  return { ...K, geos: sub(K.geos, 'b'), dgeos: sub(K.dgeos, 'd'), lods: K.lods ? K.lods.map((L, i) => sub(L, 'L' + i)) : null, pivotGeos: null, own: true }; }
+function wearCustom(g, V) { const ud = g.userData; const B = ud.bake; const byName = new Map(V.geos);
+  for (const name in ud.bodyMeshes || {}) { const geo = byName.get(name); if (!geo) continue; const mesh = ud.bodyMeshes[name]; if (B) { B.shared[name] = geo; delete mesh.userData.view; } mesh.geometry = geo; }
+  if (B) { B.pivotGeos = (i) => slicePivotGeos(V, i); for (const d of ud.doors || []) if (d.pivot.children.length) d.pivot.clear(); }
+  const swap = (grp, list) => { if (!grp || !list) return; const ms = grp.children.filter((o) => o.isMesh); if (ms.length !== list.length) return; ms.forEach((mesh, i) => { if (mesh.name === list[i][0]) mesh.geometry = list[i][1]; }); };
+  swap(ud.detail, V.dgeos); if (ud.real && V.lods) { swap(ud.real.mid, V.lods[0]); swap(ud.real.low, V.lods[1]); } ud.custom = V; }
+// swap a live vehicle's body buffers to its custom look (invisible: the paint shader starts at the vehicle's own colour). Doors
+// must be shut (Customs only does this with the vehicle parked in the bay); damage must have been repaired first (VehicleDamage
+// keeps private dented copies of the buffers it replaced and would restore the traffic look on a later repair otherwise).
+export function customizeMesh(g, hex = null) {
+  const ud = g.userData; if (ud.custom) return ud.custom; const C0 = ensureCustomModel(ud.type, ud.variant ?? 0);
+  wearCustom(g, ownCustom(C0, hex || ud.color || '#ffffff')); ud.customHex = hex || ud.color; return ud.custom;
+}
+// a respray of a vehicle whose non-paint meshes carry body colour: recolour just those (paint itself is a shader uniform)
+export function tintCustom(g, hex) { const ud = g.userData; if (!ud.custom || !ud.custom.tint.length || ud.customHex === hex) return; const C0 = ensureCustomModel(ud.type, ud.variant ?? 0); const old = ud.custom;
+  wearCustom(g, ownCustom(C0, hex)); ud.customHex = hex;
+  if (old.own) { const keep = new Set([...C0.geos, ...C0.dgeos, ...(C0.lods || []).flat()].map((e) => e[1])); for (const L of [old.geos, old.dgeos, ...(old.lods || [])]) for (const [, geo] of L) if (!keep.has(geo)) geo.dispose(); } } // the previous colour's private copies (a preview never leaks GPU buffers)
+// every mesh of a vehicle that carries a given body material name (body, near detail, real-car LODs, door pivots)
+export function vehicleMeshesNamed(g, name) { const ud = g.userData, out = []; const scan = (grp) => { if (grp) for (const o of grp.children) if (o.isMesh && o.name === name) out.push(o); };
+  for (const n in ud.bodyMeshes || {}) if (n === name) out.push(ud.bodyMeshes[n]); scan(ud.detail); if (ud.real) { scan(ud.real.mid); scan(ud.real.low); } for (const d of ud.doors || []) scan(d.pivot); return out; }
+export { wheelParts };
 // loading screen: build a look's geometry ahead of time (no meshes / materials are created)
 export function warmModel(type, seed = 1) { if (VTYPES[type]) ensureModel(type, seed); }
 export function warmShape(type, variant) { if (VTYPES[type]) shapeOf(type, variant); }
@@ -1158,7 +1196,7 @@ export function createVehicleMesh(type, seed = 1) {
     cs.updateMatrix(); cs.matrixAutoUpdate = false; g.add(cs); }
   const rear = T.ambulance ? buildAmbRear() : null; if (rear) g.add(rear.group); // twin rear doors + lit cabin (opened by the medics)
   const stand = base === 'bike' ? standMeshes(M.vrim) : null; if (stand) g.add(stand); // animated side stand (Kickstand.js)
-  g.userData = { wheelStyle: cached.wheelStyle, exhaust: cached.exhaust, doors, bake: doors.length ? { ranges: cached.doorRanges, meshes: bodyMeshes, shared, mats, pivotGeos: (i) => slicePivotGeos(cached, i) } : null, stand, detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, lodFar: false, farR: wkind === 'heavy' ? 160 : wkind === 'bike' ? 0 : 140, farHide: ['interior', 'dash', 'plate', 'badge'].map((n) => bodyMeshes[n]).filter(Boolean), /* far LOD (Vehicle.updateVehicleLOD): cabin, plate, badges off beyond farR — lamps stay */ real, wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons, rear, cabStep: cached.cabStep };
+  g.userData = { variant, bodyMeshes, wheelStyle: cached.wheelStyle, exhaust: cached.exhaust, doors, bake: doors.length ? { ranges: cached.doorRanges, meshes: bodyMeshes, shared, mats, pivotGeos: (i) => slicePivotGeos(cached, i) } : null, stand, detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, lodFar: false, farR: wkind === 'heavy' ? 160 : wkind === 'bike' ? 0 : 140, farHide: ['interior', 'dash', 'plate', 'badge'].map((n) => bodyMeshes[n]).filter(Boolean), /* far LOD (Vehicle.updateVehicleLOD): cabin, plate, badges off beyond farR — lamps stay */ real, wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons, rear, cabStep: cached.cabStep };
   return g;
 }
 const EMPTY_GEO = new THREE.BufferGeometry();

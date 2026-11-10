@@ -263,7 +263,7 @@ export class VehicleDamage {
     return ch;
   }
   hurt(v, n, by) {
-    if (v.wrecked) return; const st = this.st(v); v.health = Math.max(0, v.health - n * armour(v));
+    if (v.wrecked) return; const st = this.st(v); v.health = Math.max(0, v.health - n * armour(v) * (v.tune ? v.tune.armour : 1)); /* Colombo Customs armour */
     const h = v.health; v.damage = Math.max(v.damage || 0, h < 40 ? 0.72 + (40 - h) / 40 * 0.28 : h < 70 ? 0.35 + (70 - h) / 30 * 0.3 : v.damage || 0);
     this.setPower(v);
     if (h <= 0 && !st.fire) this.ignite(v, rnd(6, 9), by, 'engine');
@@ -309,7 +309,7 @@ export class VehicleDamage {
   lamp(v, front, pl) { const st = this.st(v); if (front) { st.lampsF++; if (st.lampsF >= 2 || Math.random() < 0.6) v.headOut = true; } else { st.lampsR++; if (st.lampsR >= 2 || Math.random() < 0.6) v.tailOut = true; } const wp = this.toWorld(v, pl); Audio.glassShatter && Audio.glassShatter(wp.x, wp.z, 0.35); for (let i = 0; i < 8; i++) this.shard(wp, rnd(-1, 1), rnd(0, 1.2), rnd(-1, 1), rnd(0.008, 0.02), front ? 0xf0f0ea : 0xb01010); }
   // ================================================================ TYRES
   burst(v, w) {
-    const u = w.userData; if (u.flat) return; u.flat = true; u.drop = v.T.wheelR * (isBike(v) ? 0.18 : 0.3); const st = this.st(v); st.flats++; this.stats.tyres++; this.setPower(v);
+    const u = w.userData; if (u.flat) return; const K = v.tune; if (K && (K.runflat || (K.burstResist && Math.random() < K.burstResist))) return false; /* Customs run-flats / tough sidewalls */ u.flat = true; u.drop = v.T.wheelR * (isBike(v) ? 0.18 : 0.3); const st = this.st(v); st.flats++; this.stats.tyres++; this.setPower(v);
     w.updateWorldMatrix(true, false); const p = w.getWorldPosition(new THREE.Vector3()); Audio.tyreBurst && Audio.tyreBurst(p.x, p.z); const E = this.g.explosions;
     if (E) for (let i = 0; i < 6; i++) E.emit(E.smoke, 2, p.clone().add(tmpV.set(rnd(-0.2, 0.2), -0.2, rnd(-0.2, 0.2))), tmpV2.set(rnd(-2, 2), rnd(0.2, 1), rnd(-2, 2)), rnd(0.8, 1.4), 0.15, 0.7, 2, 0.1, 2.5, [0.55, 0.4, L.groundY(p.x, p.z)]);
     this.fitDrops(v); if (v.ai) v.ai.bumped = 3;
@@ -394,7 +394,7 @@ export class VehicleDamage {
   // toggling (DoorRig.setDoorLive) keeps using it
   own(v, e) {
     const st = this.st(v), ud = v.mesh.userData, B = ud.bake; const src = e.kind === 'bake' ? B.shared[e.name] : e.mesh.geometry; if (src.userData.vdOwner === v) return src;
-    const o = new THREE.BufferGeometry(); for (const k in src.attributes) o.setAttribute(k, (k === 'position' || k === 'normal' || k === 'color') ? src.attributes[k].clone() : src.attributes[k]); o.setIndex(src.index); for (const gr of src.groups) o.addGroup(gr.start, gr.count, gr.materialIndex);
+    const o = new THREE.BufferGeometry(); for (const k in src.attributes) o.setAttribute(k, (k === 'position' || k === 'normal' || k === 'color' || k === 'pmask') ? src.attributes[k].clone() : src.attributes[k]); /* pmask: Colombo Customs paint mask (scrapes take paint off) */ o.setIndex(src.index); for (const gr of src.groups) o.addGroup(gr.start, gr.count, gr.materialIndex);
     if (!src.boundingSphere) src.computeBoundingSphere(); o.boundingSphere = src.boundingSphere.clone(); o.boundingSphere.radius += 0.2; o.boundingBox = src.boundingBox; o.userData.vdOwner = v;
     st.owned.push({ o, src, mesh: e.mesh, name: e.name, kind: e.kind });
     if (e.kind === 'bake') { B.shared[e.name] = o; delete e.mesh.userData.view; const live = (ud.doors || []).find((d) => d.live); if (live) setDoorLive(ud, live, true); else e.mesh.geometry = o; }
@@ -419,21 +419,21 @@ export class VehicleDamage {
     const ud = v.mesh.userData, B = ud.bake; if (!B) return;
     for (const d of ud.doors || []) { if (d.gone) continue; let made = false;
       for (const name of names) { const R = B.ranges[name], r = R && R.doors.find((q) => q.door === d.i); if (!r) continue; if (!made) { this.pivotMeshes(v, d); made = true; } const m = d.pivot.children.find((c) => c.name === name); if (!m) continue;
-        let g = m.geometry; if (g.userData.vdOwner !== v) { const o = new THREE.BufferGeometry(); for (const k in g.attributes) o.setAttribute(k, (k === 'position' || k === 'normal' || k === 'color') ? g.attributes[k].clone() : g.attributes[k]); o.setIndex(g.index); o.boundingSphere = g.boundingSphere && g.boundingSphere.clone(); o.userData.vdOwner = v; o.userData.vdSrc = g; this.st(v).owned.push({ o, src: g, mesh: m, name, kind: 'pivot' }); m.geometry = g = o; }
-        const S = B.shared[name]; for (const k of ['position', 'normal', 'color']) { const a = S.attributes[k], b = g.attributes[k]; if (!a || !b) continue; const n = a.itemSize; b.array.set(a.array.subarray(r.v0 * n, r.v1 * n)); if (k === 'position') for (let j = 0; j < b.array.length; j += 3) { b.array[j] -= d.hx; b.array[j + 2] -= d.hz; } b.needsUpdate = true; } } }
+        let g = m.geometry; if (g.userData.vdOwner !== v) { const o = new THREE.BufferGeometry(); for (const k in g.attributes) o.setAttribute(k, (k === 'position' || k === 'normal' || k === 'color' || k === 'pmask') ? g.attributes[k].clone() : g.attributes[k]); o.setIndex(g.index); o.boundingSphere = g.boundingSphere && g.boundingSphere.clone(); o.userData.vdOwner = v; o.userData.vdSrc = g; this.st(v).owned.push({ o, src: g, mesh: m, name, kind: 'pivot' }); m.geometry = g = o; }
+        const S = B.shared[name]; for (const k of ['position', 'normal', 'color', 'pmask']) { const a = S.attributes[k], b = g.attributes[k]; if (!a || !b) continue; const n = a.itemSize; b.array.set(a.array.subarray(r.v0 * n, r.v1 * n)); if (k === 'position') for (let j = 0; j < b.array.length; j += 3) { b.array[j] -= d.hx; b.array[j + 2] -= d.hz; } b.needsUpdate = true; } } }
   }
   // paint scraped to bare metal along the contact (grinding a wall / another car): streaky, along the body
   scrape(v, dir, t, k) {
     if (isBike(v)) return; const T = v.T, hw = T.wid / 2, hl = T.len / 2; const side = Math.abs(dir.x) > Math.abs(dir.z); const y0 = heavyType(v) ? 0.75 : 0.5 + rnd(-0.1, 0.12), band = 0.07 + 0.05 * k;
     this.stats.scrapes++; const B = v.mesh.userData.bake;
     for (const e of this.deformables(v)) { if (e.name !== 'paint' && e.name !== 'livery' && e.name !== 'police' && e.name !== 'amb') continue; const src = e.kind === 'bake' ? B.shared[e.name] : e.mesh.geometry; if (!src.attributes.color) continue;
-      const o = this.own(v, e); const pos = o.attributes.position, nrm = o.attributes.normal, col = o.attributes.color; let ch = false;
+      const o = this.own(v, e); const pos = o.attributes.position, nrm = o.attributes.normal, col = o.attributes.color, pm = o.attributes.pmask || null; let ch = false;
       for (let i = 0; i < pos.count; i++) { const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i); if (Math.abs(y - y0) > band) continue;
         if (side) { if (Math.sign(x) !== -Math.sign(dir.x) || Math.abs(x) < hw * 0.75 || Math.abs(z - t) > 0.55 + k * 0.6) continue; if (nrm && nrm.getX(i) * -Math.sign(dir.x) < 0.3) continue; }
         else { if (Math.sign(z) !== -Math.sign(dir.z) || Math.abs(z) < hl * 0.8) continue; if (nrm && nrm.getZ(i) * -Math.sign(dir.z) < 0.3) continue; }
         const streak = 0.5 + 0.5 * Math.sin(y * 260 + hash1(Math.floor(y * 90)) * 6); const edge = 1 - Math.abs(y - y0) / band; const m = Math.min(1, (0.35 + 0.65 * k) * edge * (0.6 + 0.4 * streak));
-        const g = 0.42 + 0.22 * streak; col.setXYZ(i, col.getX(i) + (g - col.getX(i)) * m, col.getY(i) + (g - col.getY(i)) * m, col.getZ(i) + (g * 0.97 - col.getZ(i)) * m); ch = true; }
-      if (ch) { col.needsUpdate = true; if (e.kind === 'bake') this.syncPivots(v, new Set([e.name])); } }
+        const g = 0.42 + 0.22 * streak; col.setXYZ(i, col.getX(i) + (g - col.getX(i)) * m, col.getY(i) + (g - col.getY(i)) * m, col.getZ(i) + (g * 0.97 - col.getZ(i)) * m); if (pm) pm.setX(i, pm.getX(i) * (1 - m)); ch = true; }
+      if (ch) { col.needsUpdate = true; if (pm) pm.needsUpdate = true; if (e.kind === 'bake') this.syncPivots(v, new Set([e.name])); } }
   }
   // ================================================================ FIRE → EXPLOSION
   ignite(v, fuse, by, why) {

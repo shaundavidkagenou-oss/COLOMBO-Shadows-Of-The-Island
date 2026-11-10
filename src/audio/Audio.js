@@ -49,8 +49,14 @@ class AudioEngine {
   spatial(x, z, ref = 30) { if (!this.listener) return [1, 0]; const l = this.listener; const dx = x - l.x, dz = z - l.z; const d = Math.hypot(dx, dz); const g = clamp(ref / (ref + d * d * 0.08), 0, 1); const rx = Math.cos(l.yaw), rz = -Math.sin(l.yaw); const pan = clamp((dx * rx + dz * rz) / (d + 1), -1, 1) * -1; return [g, pan]; }
   // ---- sfx
   footstep(sprint, wet) { this.noise(0.07, { f: wet ? 1800 : 900 + Math.random() * 300, q: 1.2, vol: sprint ? 0.12 : 0.07, type: 'bandpass' }); if (wet) this.noise(0.05, { f: 3500, q: 2, vol: 0.04, when: 0.02 }); }
-  horn(type, x, z) {
+  horn(type, x, z, style = null) {
     const [g, pan] = this.spatial(x, z, 60); if (g < 0.02) return; const v = 0.25 * g;
+    if (style) { // Colombo Customs horns
+      if (style === 'dual') { this.tone(392, 0.4, { type: 'square', vol: v * 0.35, pan }); this.tone(494, 0.4, { type: 'square', vol: v * 0.3, pan }); }
+      else if (style === 'sport') { this.tone(640, 0.28, { type: 'square', vol: v * 0.35, pan }); this.tone(800, 0.28, { type: 'square', vol: v * 0.28, pan }); }
+      else if (style === 'air') { for (const f of [185, 233, 277]) this.tone(f, 1.0, { type: 'sawtooth', vol: v * 0.36, pan, attack: 0.03 }); }
+      else if (style === 'tune') [523, 659, 784, 1046].forEach((f, i) => this.tone(f, 0.16, { type: 'square', vol: v * 0.28, pan, when: i * 0.14 }));
+      return; }
     if (type === 'tuktuk' || type === 'bike' || BIKES[type]) { this.tone(1150, 0.18, { type: 'square', vol: v * 0.5, pan }); this.tone(1220, 0.16, { type: 'square', vol: v * 0.3, pan, when: 0.22 }); }
     else if (isHeavy(type)) { for (const f of [233, 294, 349]) this.tone(f, 0.9, { type: 'sawtooth', vol: v * 0.35, pan, attack: 0.04 }); }
     else { this.tone(420, 0.35, { type: 'square', vol: v * 0.4, pan }); this.tone(520, 0.35, { type: 'square', vol: v * 0.3, pan }); }
@@ -124,6 +130,13 @@ class AudioEngine {
   bird() { const f = 2500 + Math.random() * 2000; const pan = Math.random() * 2 - 1; const n = 2 + Math.floor(Math.random() * 4); for (let i = 0; i < n; i++) this.tone(f + Math.random() * 600, 0.07, { vol: 0.015, pan, when: i * 0.11, glide: f * 1.3 }); }
   cricket() { const pan = Math.random() * 2 - 1; for (let i = 0; i < 6; i++) this.tone(4200, 0.03, { vol: 0.008, pan, when: i * 0.05, type: 'triangle' }); }
   // engines: a few oscillator voices assigned to the nearest vehicles
+  // Colombo Customs turbo: a spool whistle that rises with boost and a blow-off valve when the throttle lifts off boost (player only)
+  turbo(v, st) {
+    const c = this.ctx, t = c.currentTime; let T = this.turboV;
+    if (!T) { if (!v) return; const o = c.createOscillator(); o.type = 'sine'; const f = c.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 6; const g = c.createGain(); g.gain.value = 0; o.connect(f); f.connect(g); g.connect(this.bus.sfx); o.start(); T = this.turboV = { o, f, g, last: 0 }; }
+    const b = v ? v.boost || 0 : 0; T.o.frequency.setTargetAtTime(1500 + b * 3200, t, 0.06); T.f.frequency.setTargetAtTime(1500 + b * 3200, t, 0.06); T.g.gain.setTargetAtTime(v ? b * b * 0.035 * (st.indoor ? 0.3 : 1) : 0, t, 0.08);
+    if (T.last > 0.6 && b < T.last - 0.08 && v && (v.throttle || 0) < 0.3) { this.noise(0.35, { f: 2600, q: 0.6, vol: 0.06 * T.last, attack: 0.005, sweep: 900 }); T.last = 0; } else T.last = b;
+  }
   updateEngines(st) {
     const c = this.ctx, t = c.currentTime; const want = st.vehicles || [];
     while (this.engines.length < 6) { const o = c.createOscillator(); o.type = 'sawtooth'; const o2 = c.createOscillator(); o2.type = 'square'; const f = c.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 2; const g = c.createGain(); g.gain.value = 0; const p = c.createStereoPanner(); const am = c.createGain(); const lfo = c.createOscillator(); lfo.frequency.value = 18; const lfoG = c.createGain(); lfoG.gain.value = 0.3; lfo.connect(lfoG); lfoG.connect(am.gain); o.connect(am); o2.connect(am); am.connect(f); f.connect(g); g.connect(p); p.connect(this.bus.sfx); o.start(); o2.start(); lfo.start(); this.engines.push({ o, o2, f, g, p, lfo }); }
@@ -136,9 +149,11 @@ class AudioEngine {
       else if (isHeavy(k)) { base = 28 + sp * 2.2; fc = 300 + sp * 20; vol = 0.16; e.lfo.frequency.value = 9; }
       else if (DIESEL.has(k)) { base = 29 + sp * 2.8; fc = 340 + sp * 28; vol = 0.1; e.lfo.frequency.value = 7.5; } // diesel SUVs, vans, pickups
       else { base = 32 + sp * 3.2; fc = 380 + sp * 35; vol = 0.08; e.lfo.frequency.value = 6; }
+      const ex = v.tune && v.tune.exhaust; if (ex) { const X = { sport: [1.2, 1.15], twin: [1.25, 1.2], quad: [1.35, 1.3], titanium: [1.3, 1.55], straight: [1.55, 1.6], stack: [1.3, 1.1], carbon: [1.25, 1.35], full: [1.5, 1.6] }[ex] || [1.2, 1.2]; vol *= X[0]; fc *= X[1]; } // Customs exhaust: louder, more open
       const gearSp = v.player ? ((sp % 9) / 9) * 0.6 + 0.6 : 1; e.o.frequency.setTargetAtTime(base * gearSp, t, 0.08); e.o2.frequency.setTargetAtTime(base * gearSp * 0.5, t, 0.08); e.f.frequency.setTargetAtTime(fc, t, 0.1);
       const [g, pan] = v.player ? [1, 0] : this.spatial(v.x, v.z, 20); e.g.gain.setTargetAtTime(vol * g * (v.player ? 1.2 : 0.8) * (st.indoor ? 0.2 : 1), t, 0.1); e.p.pan.setTargetAtTime(pan, t, 0.1);
     });
+    this.turbo(want.find((v) => v && v.player && v.tune && v.tune.turbo) || null, st);
   }
   // ---- generative original score
   setMusic(mode) { if (mode === this.musicMode) return; this.musicMode = mode; this.step = 0; if (this.ctx) this.nextNote = this.ctx.currentTime + 0.1; }

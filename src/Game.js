@@ -322,7 +322,7 @@ export class Game {
   // ================================================================= events → audio / HUD
   wireEvents() {
     bus.on('footstep', (e) => Audio.footstep(e.sprint, this.atmos.wet > 0.3 && !this.indoor));
-    bus.on('horn', (v) => Audio.horn(v.type, v.x, v.z));
+    bus.on('horn', (v) => Audio.horn(v.type, v.x, v.z, v.tune ? v.tune.horn : null));
     bus.on('crash', (v) => Audio.crash(v));
     bus.on('land', () => Audio.footstep(true, false));
     bus.on('towed', (v) => this.hud.notify('Vehicle towed', `Your ${VNAMES[v.type] || 'vehicle'} was left unattended for 5 minutes and a CMC tow truck has taken it away.`, 'info', 5));
