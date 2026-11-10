@@ -25,6 +25,7 @@ function headPool() {
 export function setHeadPoolNight(n) { const hp = headPool(); const k = Math.min(1, Math.max(0, (n - 0.25) / 0.6)); hp.mat.opacity = 0.32 * k * k * (3 - 2 * k); } // painted pool for far vehicles (was 0.42: on wet asphalt it read as glare)
 // Near-LOD switch for the high-detail kit (VehicleDetail.js): detail group + hi-res wheels within ud.lodR of the camera.
 import { syncDoors } from './DoorRig.js';
+import { nightLight } from '../gfx/LightSets.js';
 export const VEH_HOOKS = { crash: null, impact: null, dispose: null }; // impact(v, speed, contact): VehicleDamage dents / scrapes / engine damage; dispose(v): its per-vehicle buffers // crash(v, by, dv): the player's vehicle hit this one (Traffic: the other driver's reaction — Mind.js road rage)
 // chassis LOD: the spring / terrain attitude only runs within CHASSIS.r of CHASSIS.focus (the player; set by Game each frame)
 export const CHASSIS = { focus: null, r: 160 };
@@ -52,7 +53,7 @@ export class HeadlightRig {
     for (let i = 0; i < count; i++) {
       const s = new THREE.SpotLight(0xfff0d8, 0, 60, 0.5, 0.6, 1.5); s.name = 'headBeam' + i; s.castShadow = !!shadows; // every pooled beam is stopped by walls (no light through the school / compound walls)
       if (s.castShadow) { const r = i === 0 ? shadowRes : Math.max(512, shadowRes / 2); s.shadow.mapSize.set(r, r); s.shadow.autoUpdate = false; s.shadow.needsUpdate = true; /* one initial render allocates the depth map: a shadow-casting light whose map never existed leaves an unbound shadow sampler and every lit draw call is rejected */ s.shadow.camera.near = 0.3; s.shadow.camera.far = 60; s.shadow.camera.userData.noFoliage = true; /* no coarse leaf shadows (MeshBuilder.skipLampShadow) */ s.shadow.bias = -0.0005; s.shadow.normalBias = 0.04; }
-      s.position.set(0, -500, 0); s.target.position.set(0, -501, 0); scene.add(s); scene.add(s.target); this.spots.push(s);
+      s.position.set(0, -500, 0); s.target.position.set(0, -501, 0); scene.add(nightLight(s)); scene.add(s.target); this.spots.push(s); /* dark by day: out of the shaders then (LightSets) */
     }
     this.assigned = []; this._p = new THREE.Vector3(); this._d = new THREE.Vector3();
   }

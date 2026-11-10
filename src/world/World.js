@@ -1,5 +1,6 @@
 // Builds and streams the static city: ground, buildings (base + streamed detail), landmarks, props, trees, water.
 import * as THREE from 'three';
+import { nightLight } from '../gfx/LightSets.js';
 import { MultiBuilder, SliceBuild, meshFor, FOLIAGE } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
 import { RangeBatch, rangesFor, disposeMesh } from '../gfx/CellBatch.js';
@@ -93,7 +94,7 @@ export class World {
     const nLights = quality === 'low' ? 3 : quality === 'medium' ? 6 : quality === 'ultra' ? 10 : 8; const shadowed = quality === 'high' || quality === 'ultra' ? 2 : 0;
     for (let i = 0; i < nLights; i++) { const p = new THREE.SpotLight(0xffc98a, 0, 34, 1.08, 0.6, 1.5); p.castShadow = i < shadowed;
       if (p.castShadow) { p.shadow.mapSize.set(512, 512); p.shadow.camera.near = 0.5; p.shadow.camera.far = 30; p.shadow.bias = -0.0008; p.shadow.normalBias = 0.05; p.shadow.autoUpdate = true; p.shadow.needsUpdate = true; p.shadow.camera.userData.noFoliage = true; }
-      p.position.set(0, -600, 0); p.target.position.set(0, -601, 0); this.scene.add(p); this.scene.add(p.target); p.userData.lamp = null; p.userData.k = 0; this.lampLights.push(p); }
+      p.position.set(0, -600, 0); p.target.position.set(0, -601, 0); this.scene.add(nightLight(p)); this.scene.add(p.target); p.userData.lamp = null; p.userData.k = 0; this.lampLights.push(p); } // dark by day: out of the shaders then (LightSets)
     this.glints = new WetGlints(this.scene, 64); this.glints.max = WetGlints.budget(quality); this.glintsOn = true; this._glintSrc = []; // wet-road light streaks (WetGlints.js)
     // FPS: the city geometry never moves, so its ~9k scene nodes are frozen — matrices are computed once here instead of
     // every frame (updateMatrixWorld skips these subtrees). Visual output is identical.

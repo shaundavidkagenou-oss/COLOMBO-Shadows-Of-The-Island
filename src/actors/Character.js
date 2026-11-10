@@ -961,6 +961,7 @@ const geoCache = new Map(); const headCache = new Map();
 // (≈25 % less vertex memory, CPU and GPU). Positions / normals stay float (BloodStain reads them); skinIndex keeps its
 // format; getX()/fromBufferAttribute denormalise, so skinning helpers read the same weights (to 1/255).
 function compactNpcGeo(g) {
+  g.groups = g.groups.filter((gr) => gr.count > 0); // FPS: the face group is empty on crowd bodies (their head is its own mesh) — three still bound a program and issued a draw for it, in every pass
   const sw = g.attributes.skinWeight; if (sw && sw.array instanceof Float32Array) { const a = sw.array, q = new Uint8Array(a.length);
     for (let i = 0; i < a.length; i += 4) { let t = 0, mx = i; for (let k = 0; k < 4; k++) { q[i + k] = Math.round(a[i + k] * 255); t += q[i + k]; if (a[i + k] > a[mx]) mx = i + k; } q[mx] = Math.max(0, Math.min(255, q[mx] + 255 - t)); }
     g.setAttribute('skinWeight', new THREE.BufferAttribute(q, 4, true)); }
