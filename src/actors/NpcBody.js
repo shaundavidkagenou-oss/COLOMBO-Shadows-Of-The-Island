@@ -98,7 +98,7 @@ export function buildNpcGarments(sb, sp, ctx) {
   const sandals = !!sp.sandals; const boots = !!sp.boots;
   const legHem = PL.legs === 'shorts' ? (sp.shortsY ?? 0.62) * s : PL.legs === 'briefs' ? 0.8 * s : (boots ? 0.165 : sandals ? 0.11 : 0.093) * s;
   const footCut = sandals ? -1 : 0.072 * s; // closed shoes: the foot inside the shoe is not drawn
-  const shirtHas = (u, tol) => (armW[u] >= 0.5 ? PL.sleeve !== 'none' && handW[u] < 0.5 && y(u) >= sleeveY - tol : legW[u] < 0.5 && y(u) >= shirtHem - tol);
+    const shirtHas = (u, tol) => (armW[u] >= 0.5 ? PL.sleeve !== 'none' && handW[u] < 0.5 && y(u) >= sleeveY - tol : legW[u] < 0.5 && y(u) >= shirtHem - tol);
   const trouserHas = (u, tol) => armW[u] < 0.5 && y(u) <= waistY + tol && y(u) >= legHem - tol;
   const shirtEase = (u) => { if (armW[u] >= 0.5) return PL.sleeve === 'long' ? lerp(0.006, 0.011, sstep(0.95 * s, 1.15 * s, y(u))) : 0.009 + 0.013 * sstep(1.33 * s, 1.215 * s, y(u));
     return 0.0075 + 0.004 * sstep(1.1 * s, 1.0 * s, y(u)) * (PL.tucked ? 1 : 1.3); };
@@ -120,9 +120,12 @@ export function buildNpcGarments(sb, sp, ctx) {
   const skirtTri = (a, b, c) => (skirtCull(a) ? 1 : 0) + (skirtCull(b) ? 1 : 0) + (skirtCull(c) ? 1 : 0) >= 2; // the cut edge is deep inside the skirt
   const shell = (has, ease, col, hemFor, post, colFn = null, drop = false) => {
     const inG = new Uint8Array(NU); for (let u = 0; u < NU; u++) inG[u] = has(u, 0.013) ? 1 : 0;
-    for (let it = 0; it < 2; it++) { const add = []; // close pin-holes: a vertex (nearly) surrounded by covered ones is covered too (irregular arm / leg weights)
-      for (let u = 0; u < NU; u++) { if (inG[u] || handW[u] > 0.3 || footW[u] > 0.3) continue; const nb = S.nb[u]; if (nb.length < 3) continue; let c = 0; for (const v of nb) c += inG[v]; if (c >= nb.length - 1) add.push(u); }
-      for (const u of add) inG[u] = 1; }
+    { // close holes: small islands of uncovered vertices enclosed by the garment (irregular arm / leg skin weights at the
+      // shoulders) are covered too; real openings (neck, armholes, cuffs, hems) connect to the large head / arm / leg regions
+      const comp = new Int32Array(NU).fill(-1); const st = []; const memb = [];
+      for (let u0 = 0; u0 < NU; u0++) { if (inG[u0] || comp[u0] >= 0) continue; memb.length = 0; st.push(u0); comp[u0] = u0; let big = false;
+        while (st.length) { const u = st.pop(); memb.push(u); if (memb.length > 80) big = true; for (const v of S.nb[u]) if (!inG[v] && comp[v] < 0) { comp[v] = u0; st.push(v); } }
+        if (!big) for (const u of memb) if (handW[u] < 0.3 && footW[u] < 0.3) inG[u] = 1; } }
     let tris = []; for (let t = 0; t < S.idx.length; t += 3) { const a = S.idx[t], b = S.idx[t + 1], c = S.idx[t + 2]; if (inG[a] && inG[b] && inG[c]) tris.push(a, b, c); }
     for (let pass = 0; pass < 2; pass++) { // prune "teeth": triangles with two or three open edges stick out of the cut edge (armholes, necklines)
       const ec = new Map(); const ek = (a, b) => (a < b ? a * 65536 + b : b * 65536 + a); for (let t = 0; t < tris.length; t += 3) for (let k = 0; k < 3; k++) { const key = ek(tris[t + k], tris[t + (k + 1) % 3]); ec.set(key, (ec.get(key) || 0) + 1); }
@@ -145,7 +148,9 @@ export function buildNpcGarments(sb, sp, ctx) {
     // ragged edges that are not level hems (armholes, openings): smooth them along the boundary (1D Laplacian on the loop)
     { const adj = new Map(); for (let i = 0; i < bEdges.length; i += 2) { const a = bEdges[i], b = bEdges[i + 1]; if (!adj.has(a)) adj.set(a, []); if (!adj.has(b)) adj.set(b, []); adj.get(a).push(b); adj.get(b).push(a); }
       const free = [...adj.keys()].filter((u) => hemFor(u) == null && adj.get(u).length === 2);
-      for (let it = 0; it < 2; it++) { const T2 = new Float32Array(free.length * 3); free.forEach((u, k) => { const [a, b] = adj.get(u); for (let c = 0; c < 3; c++) T2[k * 3 + c] = lerp(Q[u * 3 + c], (Q[a * 3 + c] + Q[b * 3 + c]) / 2, 0.5); }); free.forEach((u, k) => { for (let c = 0; c < 3; c++) Q[u * 3 + c] = T2[k * 3 + c]; }); } }
+      for (let it = 0; it < 2; it++) { const T2 = new Float32Array(free.length * 3); free.forEach((u, k) => { const [a, b] = adj.get(u); for (let c = 0; c < 3; c++) T2[k * 3 + c] = lerp(Q[u * 3 + c], (Q[a * 3 + c] + Q[b * 3 + c]) / 2, 0.5); }); free.forEach((u, k) => { for (let c = 0; c < 3; c++) Q[u * 3 + c] = T2[k * 3 + c]; }); }
+      for (const u of free) { const d = (Q[u * 3] - P[u * 3]) * N[u * 3] + (Q[u * 3 + 1] - P[u * 3 + 1]) * N[u * 3 + 1] + (Q[u * 3 + 2] - P[u * 3 + 2]) * N[u * 3 + 2]; const m = E[u]; // a smoothed edge on a convex shoulder must not sink into the skin
+        if (d < m) for (let k = 0; k < 3; k++) Q[u * 3 + k] += N[u * 3 + k] * (m - d); } }
     if (post) post(Q, used, bnd);
     const QN = normalsOf(Q, tris, NU);
     const map = new Int32Array(NU).fill(-1);
@@ -237,7 +242,7 @@ export function buildNpcGarments(sb, sp, ctx) {
       const a = Math.atan2((Q[u * 3 + 2] - E0.cz) / (E0.rz + m), Q[u * 3] / (E0.rx + m));
       Q[u * 3] = lerp(Q[u * 3], Math.cos(a) * (E0.rx + m), tt); Q[u * 3 + 2] = lerp(Q[u * 3 + 2], E0.cz + Math.sin(a) * (E0.rz + m), tt); Q[u * 3 + 1] = Math.min(yy, yTop); } }, jacketCol);
   // ---- skin: everything not deeply covered (2.5 cm past every garment edge stays, so no gap shows into a sleeve or collar)
-  const coveredTorso = (u) => y(u) >= shirtHem + 0.025 && sh.map[u] >= 0 && !sh.bnd[u]; // only where the shirt really has cloth (not at its edges) // shoulders show through a singlet's armholes
+  const coveredTorso = (u) => y(u) >= shirtHem + 0.025 && sh.used[u] > 0; // only where the shirt really has cloth (armholes cut by the pruning show skin) // shoulders show through a singlet's armholes
   const briefsOff = PL.legs === 'briefs' && skHem != null; // briefs under a skirt are not drawn, so they hide nothing
   const coveredLeg = (u) => !briefsOff && y(u) <= waistY - 0.02 && y(u) >= legHem + 0.03;
   const hidden = (u) => {
