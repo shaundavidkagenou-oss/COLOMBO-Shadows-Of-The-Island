@@ -9,6 +9,12 @@ import { Health } from './actors/Health.js';
 import { StreetCricket } from './actors/StreetCricket.js';
 import { Phone } from './ui/Phone.js';
 import { GunShopUI } from './ui/GunShopUI.js';
+import { CustomsUI } from './ui/CustomsUI.js';
+import { CustomsService } from './customs/CustomsService.js';
+import { Garage } from './customs/Garage.js';
+import { updateCustoms, customsWarmMeshes } from './customs/CustomsApply.js';
+import { wheelsWarmMesh } from './customs/CustomsWheels.js';
+import { paintWarmMesh } from './customs/CustomsPaint.js';
 import { DebugConsole, newDebugState } from './ui/DebugConsole.js';
 import { SchoolLife } from './actors/SchoolLife.js';
 import * as THREE from 'three';
@@ -28,7 +34,7 @@ import { updateLightSets, forceNightSet, lightLevel, LIGHT_LEVELS, maintainWarm,
 import { refreshView, holdVehicles, updateSceneMatrices, withMatricesDone } from './gfx/ViewSkip.js';
 import { CATALOG, displayName } from './vehicles/VehicleCatalog.js';
 import { updateDoorClosers } from './vehicles/DoorRig.js';
-import { updateVehicleLOD, setHeadPoolNight, Vehicle, HeadlightRig, setVehicleLOD, LIVE_VEHICLES, CHASSIS } from './vehicles/Vehicle.js';
+import { updateVehicleLOD, setHeadPoolNight, Vehicle, HeadlightRig, setVehicleLOD, LIVE_VEHICLES, CHASSIS, TUNE_ENV } from './vehicles/Vehicle.js';
 import { VehicleDamage } from './vehicles/VehicleDamage.js';
 import { FlashlightRig } from './police/Firefight.js';
 import { World } from './world/World.js';
@@ -88,7 +94,7 @@ export class Game {
     addEventListener('resize', () => this.resize());
     bus.on('settings', (k) => this.applySettings(k));
     this.canvas.addEventListener('click', () => { if (this.mode === 'play' && !this.paused && !this.editorHook) Input.requestLock(this.canvas); });
-    bus.on('pointerlock', (locked) => { if (!locked && this.mode === 'play' && !this.paused && !this.photo && !this.hud.bigMapOpen && !this.director.active && !this.ignoreUnlock && !this.gunShop?.open && !this.debugCon?.menuOpen && !this.debugCon?.open && !this.editorHook) this.openPause(); });
+    bus.on('pointerlock', (locked) => { if (!locked && this.mode === 'play' && !this.paused && !this.photo && !this.hud.bigMapOpen && !this.director.active && !this.ignoreUnlock && !this.gunShop?.open && !this.customs?.active && !this.debugCon?.menuOpen && !this.debugCon?.open && !this.editorHook) this.openPause(); });
     bus.on('key', (code) => this.onKey(code));
   }
   // ================================================================= loading (genuine progress)
@@ -128,7 +134,7 @@ export class Game {
     this.player = new Player(this.scene, this.camera, this.collision, bus); this.player.crowd = this.crowd;
     this.hud = new HUD(this.ui); this.hud.canSeeUnit = (u) => this.canSeeUnit(u); this.hud.mapExtras = () => this.miniExtras(); this.hud.satellite = new Satellite(this); this.director = new Director(this); this.story = new Story(this); this.interiors = new Interiors(this); this.weapons = new Weapons(this); this.player.weapons = this.weapons; this.squad = new Squad(this); this.police = new PoliceResponse(this);
     this.crowd.onStrike = (p, m, M) => { if (this.weapons) this.weapons.struckBy(p, m, M); }; // street fighters' punches land on the player
-    this.health = new Health(this); this.phone = new Phone(this, this.hud.root); this.gunShop = new GunShopUI(this, this.hud.root); this.debug = newDebugState(); this.debugCon = new DebugConsole(this, this.hud.root);
+    this.health = new Health(this); this.phone = new Phone(this, this.hud.root); this.gunShop = new GunShopUI(this, this.hud.root); this.garage = new Garage(this); /* Colombo Customs ownership records (story.state.garage) */ this.debug = newDebugState(); this.debugCon = new DebugConsole(this, this.hud.root);
     this.applyDensity();
     progress(0.9, 'Lighting'); await tick();
     this.post = new PostFX(this.renderer, this.scene, this.camera); this.post.build({ bloom: Settings.preset.bloom, ao: Settings.preset.ao }); this.world.glintsOn = Settings.get('wetReflections') !== false; this.atmos.nightBoost = Settings.get('nightBrightness') ?? 1;
@@ -223,7 +229,7 @@ export class Game {
     if (!this.gpuWarned && (gpu.kind === 'software' || gpu.kind === 'integrated')) { this.gpuWarned = true; this.hud.notify(gpu.kind === 'software' ? 'Graphics card not in use' : 'Integrated graphics', gpuAdvice(gpu), 'warn', 9); }
   }
   async newGame() {
-    this.story.state = Story.freshState(); this.clock = 0; this.mode = 'play'; this.paused = false; this.squad.reset(); this.grenades?.clear(); this.rebuildPlayer();
+    this.story.state = Story.freshState(); this.clock = 0; this.mode = 'play'; this.paused = false; this.squad.reset(); this.grenades?.clear(); this.rebuildPlayer(); if (this.customs && this.customs.active) this.customs.abort(); this.garage.restore(); /* no owned vehicles in a new game */
     this.hud.clearBlips(''); this.focus = null; this.setupRoomDoor();
     await playOpening(this);
     Input.requestLock(this.canvas);
@@ -232,7 +238,7 @@ export class Game {
   async startLoaded(slot) {
     const d = SaveSystem.read(slot); if (!d) return this.menuLoop();
     if (this.vsmoke && this.vsmoke.skid) this.vsmoke.skid.clear(); /* a loaded game starts with clean roads */ this.story.restore(d.story); this.atmos.restore(d.atmos); this.crowd.minds.load(d.minds); /* NPC memories / relationships (Mind.js); an older save has none */ this.clock = d.clock || 0; this.squad.load(d.squad); this.rebuildPlayer(); this.weapons.load(d.weapons); this.squad.load(d.squad); this.pendingWanted = d.police ? d.police.level : d.weapons ? d.weapons.heat : 0;
-    const p = d.player || { x: L.PLACES.meeting.x, z: L.PLACES.meeting.z, yaw: 0 }; this.world.warm(p.x, p.z); this.player.teleport(p.x, p.z, p.yaw); this.squad.regroup();
+    const p = d.player || { x: L.PLACES.meeting.x, z: L.PLACES.meeting.z, yaw: 0 }; this.world.warm(p.x, p.z); this.player.teleport(p.x, p.z, p.yaw); this.squad.regroup(); if (this.customs && this.customs.active) this.customs.abort(); this.garage.restore(); // owned (customised) vehicles back where they were parked
     this.player.cinematic = false; this.player.control = true; this.mode = 'play'; this.paused = false; this.hud.show(true); this.director.active = false;
     if (this.pendingWanted) { this.police.restore(this.pendingWanted); this.pendingWanted = 0; }
     this.story.setupWorldActivities(); this.setupRoomDoor();
@@ -277,11 +283,14 @@ export class Game {
   }
   // materials that otherwise first appear mid-play: every vehicle's own lamp / beacon materials and its near-LOD parts, one of
   // each body family, the police / ambulance units and every motorcycle (their parts differ: carbon, alloy, engine, livery)
+  makeCustomsUI(svc) { return new CustomsUI(this, svc, this.hud.root); }
+  vehicleName(t) { return VNAMES[t] || t; }
   shaderWarmSet() {
     const g = new THREE.Group(); g.name = 'shaderWarm'; g.visible = false; const seen = new Set();
     for (const [k, T] of Object.entries(VTYPES)) { const key = T.police ? 'police' : T.ambulance ? 'amb' : T.entry === 'bike' ? k : (T.base || k) + (T.family || ''); if (seen.has(key)) continue; seen.add(key);
       try { const m = createVehicleMesh(k, 1); if (m.userData.detail) setVehicleLOD(m.userData, true); g.add(m); } catch (e) { console.warn('warm set', k, e); } }
     if (this.vdamage) g.add(this.vdamage.warmGroup()); // damaged glass, charred shell, bullet holes, shards / fragments
+    for (const m of [...customsWarmMeshes(), wheelsWarmMesh(), paintWarmMesh()]) g.add(m); // Colombo Customs: neon strip / glow pool, custom rim, custom paint programs
     return g;
   }
   setupRoomDoor() { const r = this.story.state.flags.room; this.interiors.setupDoors(r || null); }
@@ -290,7 +299,7 @@ export class Game {
   saveTo(slot) {
     const P = this.player; let pos = { x: P.x, z: P.z, yaw: P.yaw };
     if (this.interiors.current) { const d = this.interiors.current.door; pos = { x: d.x, z: d.z, yaw: d.faceIn + Math.PI }; } else if (P.vehicle) { const e = P.vehicle.exitPoint(-1); pos = { x: e.x, z: e.z, yaw: P.vehicle.yaw }; }
-    const m = MISSIONS.find((q) => q.id === this.story.state.mission.id);
+    const m = MISSIONS.find((q) => q.id === this.story.state.mission.id); if (this.garage) this.garage.snapshot(); // owned vehicles where they stand now (Colombo Customs)
     SaveSystem.write(slot, { minds: this.crowd.minds.save(), story: this.story.serialize(), atmos: this.atmos.serialize(), player: pos, weapons: this.weapons.save(), squad: this.squad.save(), police: this.police.save(), clock: this.clock, missionTitle: m ? m.title : 'Free roam', timeString: `Day ${this.atmos.day} · ${this.atmos.timeString}` });
   }
   async restUntil(hour) {
@@ -309,7 +318,7 @@ export class Game {
   heroSkin(dt) {
     const A = this.atmos; const chars = this.squad ? this.squad.members.map((m) => m.ch) : [this.player.ch];
     for (const ch of chars) { const U = ch && ch.heroU; if (!U) continue; const P = this.player; const inVeh = ch === P.ch ? !!P.vehicle : !!ch.inVehicle;
-      const rain = this.indoor || inVeh ? 0 : A.w.rain || 0; const wet = U.uWet.value; U.uWet.value = clamp(wet + (rain > 0.2 ? dt * 0.06 * rain : -dt * (this.indoor || inVeh ? 0.012 : 0.004)), 0, 1);
+      const rain = this.indoor || inVeh ? 0 : A.w.rain || 0; const wet = U.uWet.value; TUNE_ENV.wet = wet; /* Customs semi-slick tyres lose grip on wet roads */ U.uWet.value = clamp(wet + (rain > 0.2 ? dt * 0.06 * rain : -dt * (this.indoor || inVeh ? 0.012 : 0.004)), 0, 1);
       const spd = ch.anim ? ch.anim.speed || 0 : 0; const heat = A.night ? 0.4 : 0.6 + 0.4 * Math.max(0, 1 - Math.abs(A.hour - 13) / 4); const humid = 0.8 + 0.4 * Math.min(1, A.w.rain + (A.weather === 'overcast' ? 0.3 : 0));
       const exert = spd > 4.5 ? 1 : spd > 2.2 ? 0.35 : 0; const sw = U.uSweat.value; U.uSweat.value = clamp(sw + (exert * heat * humid * 0.02 - (exert ? 0 : 0.006)) * dt * (this.indoor ? 0.6 : 1) * 1, 0, 1); }
   }
@@ -342,7 +351,7 @@ export class Game {
   // ================================================================= input
   onKey(code) {
     if (this.mode !== 'play' || this.paused) return;
-    if (code === 'Escape') { if (this.gunShop?.open || this.debugCon?.menuOpen || this.debugCon?.open || this.editorHook) return; if (this.phone?.open) this.phone.toggle(false); else if (this.photo) this.togglePhoto(false); else if (this.hud.bigMapOpen) this.toggleMap(false); else if (!this.director.active) this.openPause(); }
+    if (code === 'Escape') { if (this.gunShop?.open || this.customs?.active || this.debugCon?.menuOpen || this.debugCon?.open || this.editorHook) return; if (this.phone?.open) this.phone.toggle(false); else if (this.photo) this.togglePhoto(false); else if (this.hud.bigMapOpen) this.toggleMap(false); else if (!this.director.active) this.openPause(); }
   }
   async openPause() {
     if (this.paused || this.director.active) return; this.paused = true; Input.releaseLock(); Audio.ui('click');
@@ -420,7 +429,7 @@ export class Game {
     if (!warmOnly) this.debugCon.update();
     if (this.phone.open && (D.active || this.health.busy)) this.phone.toggle(false); // cutscene / hospital: put the phone away
     if (this.gunShop.open && (D.active || this.health.busy || !this.indoor)) this.gunShop.toggle(false);
-    const busy = D.active || this.photo || this.hud.bigMapOpen || this.paused || this.phone.open || this.health.busy || this.gunShop.open || this.debugCon.menuOpen || this.debugCon.open;
+    const busy = D.active || this.photo || this.hud.bigMapOpen || this.paused || this.phone.open || this.health.busy || this.gunShop.open || !!(this.customs && this.customs.active) || this.debugCon.menuOpen || this.debugCon.open;
     if (this.gunShop.open && !warmOnly) this.gunShop.update();
     // global actions
     if (!D.active && !warmOnly) {
@@ -444,7 +453,7 @@ export class Game {
     if (!busy && !warmOnly && P.control) localPrompt = this.updateInteractions(dt);
     const inRoom = this.interiors.current; const focus = inRoom && inRoom.door ? { x: inRoom.door.x, z: inRoom.door.z } : { x: P.x, z: P.z }; const fv = new THREE.Vector3(P.x, P.y, P.z); // inside a shop room (built away from the street) keep the city streamed around its street door, not around the hidden room
     this.world.simTime = this.clock; this.world.indoorK = this.indoor ? 1 : (this.seamK || 0); this.world.update(dt, focus, cam, A);
-    A.update(dt, fv, cam, dt); setVehicleNight(A.night); setHeadPoolNight(A.night);
+    A.update(dt, fv, cam, dt); setVehicleNight(A.night); setHeadPoolNight(A.night); updateCustoms(A.night); // Colombo Customs lamps (underglow, aux lenses, cabin) follow each vehicle's lights
     // walk-in Police HQ: smooth outdoor → indoor light adaptation while the city keeps running outside
     { const I = this.interiors, cur = I.current; if (cur && this.player.indoor !== cur && !this.player.indoor) { cur.g.visible = false; I.current = null; this.setIndoor(false); } } // teleported out of a shop/flat: close it
     const sk = this.indoor || warmOnly ? 0 : this.interiors.updateSeamless(dt); this.seamK = sk;
@@ -458,13 +467,14 @@ export class Game {
     if (this.vsmoke && !warmOnly) this.vsmoke.update(dt); // after every vehicle moved this frame (player, mission cars, traffic, police)
     if (!this.indoor) this.crowd.update(dt, focus, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: P, armed: !!(this.weapons && this.weapons.drawn), hourFactor: this.hourFactor(), hour: A.hour, bodies: this.bodies, police: this.police, hero: this.squad?.activeMember?.def?.id });
     if (!this.indoor && this.world.fuel) { if (!this.fuelSvc) this.fuelSvc = new FuelService(this.world.fuel, { crowd: this.crowd, traffic: this.traffic, scene: this.scene, player: P }); this.fuelSvc.update(dt, { focus, night: A.night }); } // filling stations: refuelling traffic + attendants (FuelStations.js)
+    if (this.world.customs && !warmOnly) { if (!this.customs) this.customs = new CustomsService(this, this.world.customs); this.customs.update(dt, { night: A.night }); this.garage.update(dt); } // Colombo Customs (customs/CustomsService.js)
     if (P.vehicle && A.night > 0.5 && P.nightLights === undefined) { P.vehicle.lights = true; }
     if (!this.indoor) this.ragdolls.update(dt, this.traffic.all()); this.blood.update(dt);
     if (this.birds) this.birds.update(dt);
     this.updateSight(dt);
     // story & prompts
     const storyPrompt = D.active ? null : this.story.update(dt);
-    this.hud.prompt(D.active || this.photo ? '' : storyPrompt || this.police.prompt || localPrompt || '');
+    this.hud.prompt(D.active || this.photo || (this.customs && this.customs.active) ? '' : storyPrompt || this.police.prompt || localPrompt || (this.customs && this.customs.prompt) || '');
     // music
     this.musicT = (this.musicT || 0) - dt;
     if (this.musicT <= 0) { this.musicT = 1; if (!(Audio.musicMode === 'chase' && this.story.pursuers.length) && !D.active) { let m = A.night > 0.5 ? 'night' : 'explore'; if (this.story.guards.length) m = 'tension'; if (this.story.pursuers.length) m = 'chase'; if (P.vehicle && this.radio) m = RADIO[this.radio].mode; if (this.indoor) m = this.interiors.current?.musicMode || 'none'; Audio.setMusic(m); } }

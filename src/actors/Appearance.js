@@ -384,6 +384,13 @@ export function makeAttendantAppearance(seed, brand, opts = {}) {
   sp.gait = Object.assign({}, sp.gait, { stoop: Math.min(sp.gait?.stoop || 0, 0.03) }); sp.belly = Math.min(sp.belly || 0, 0.3);
   Object.assign(sp, opts); return sp;
 }
+// Colombo Customs mechanic: navy work coverall look (navy shirt + matching trousers), orange shop patch, dark work boots, no cap
+export function makeMechanicAppearance(seed, opts = {}) {
+  const r = new RNG(seed * 4441 + 13); const navy = r.pick(['#1e2a44', '#1b2640', '#22304c']);
+  const sp = makeAttendantAppearance(seed, { main: navy, accent: '#ff7a1a', cap: undefined }, Object.assign({ sex: 'm' }, opts));
+  Object.assign(sp, { preset: 'mechanic', role: 'mechanic', label: 'Colombo Customs mechanic', top: navy, bottom: navy, longSleeve: r.chance(0.5), patch: '#ff7a1a', shoes: '#1a1612', sole: '#0e0e0e', belt: '#141414' });
+  delete sp.cap; Object.assign(sp, opts); return sp;
+}
 export function makeMedicAppearance(seed, opts = {}) {
   const r = new RNG(seed * 5197 + 29); const sex = opts.sex || (r.chance(0.3) ? 'f' : 'm'); const band = opts.band || r.weighted([['young', 4], ['adult', 5], ['mature', 1]]);
   const base = makeAppearance(seed, { sex, band, exclude: PRESETS.filter((p) => p.skinSet || p.profile === 'tourist').map((p) => p.id) });

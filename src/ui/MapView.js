@@ -68,6 +68,7 @@ export const BLIP_STYLE = {
   hospital: { col: '#ff5a5a', cat: 'services', name: 'Hospital' }, station: { col: '#d9c7a0', cat: 'transit', name: 'Railway station' },
   worship: { col: '#f2d27a', cat: 'landmarks', name: 'Place of worship' }, school: { col: '#9fd3a8', cat: 'landmarks', name: 'School' }, home: { col: '#7fd6ff', cat: 'services', name: 'Safehouse' },
   pickup: { col: '#ffd34a', cat: 'missions', name: 'Friend waiting for a lift' },
+  customs: { col: '#ff7a1a', cat: 'services', name: 'Colombo Customs (vehicle workshop)' },
 };
 export function drawIcon(g, kind, x, y, r = 9) {
   const st = BLIP_STYLE[kind] || { col: '#fff' }; g.save(); g.translate(x, y);
@@ -92,6 +93,7 @@ export function drawIcon(g, kind, x, y, r = 9) {
     case 'station': g.rect(-4 * k, -4.5 * k, 8 * k, 7 * k); g.fill(); g.fillStyle = 'rgba(8,10,14,0.9)'; g.fillRect(-2.8 * k, -3.2 * k, 5.6 * k, 2.4 * k); g.fillStyle = st.col; g.beginPath(); g.moveTo(-3 * k, 3 * k); g.lineTo(-4.5 * k, 5.5 * k); g.moveTo(3 * k, 3 * k); g.lineTo(4.5 * k, 5.5 * k); g.stroke(); break;
     case 'worship': g.moveTo(-4.5 * k, 4 * k); g.lineTo(4.5 * k, 4 * k); g.lineTo(4.5 * k, 1 * k); g.quadraticCurveTo(0, -7 * k, -4.5 * k, 1 * k); g.closePath(); g.fill(); break;
     case 'home': g.moveTo(-5 * k, 0); g.lineTo(0, -5 * k); g.lineTo(5 * k, 0); g.lineTo(3.5 * k, 0); g.lineTo(3.5 * k, 4.5 * k); g.lineTo(-3.5 * k, 4.5 * k); g.lineTo(-3.5 * k, 0); g.closePath(); g.fill(); break;
+    case 'customs': g.lineWidth = 2.2 * k; g.moveTo(-4 * k, 4 * k); g.lineTo(1.2 * k, -1.2 * k); g.stroke(); g.beginPath(); g.arc(2.6 * k, -2.6 * k, 2.4 * k, Math.PI * 0.95, Math.PI * 2.55); g.stroke(); break;
     default: g.arc(0, 0, 3.5 * k, 0, 7); g.fill();
   }
   g.restore();
@@ -99,7 +101,7 @@ export function drawIcon(g, kind, x, y, r = 9) {
 // fixed map points of interest (always shown, filterable)
 export const MAP_POI = [
   ['lotus', 'landmark'], ['gfHotel', 'landmark'], ['museum', 'landmark'], ['townhall', 'landmark'], ['vmpark', 'landmark'], ['clockTower', 'landmark'], ['seema', 'worship'],
-  ['mosque', 'worship'], ['stlucia', 'worship'], ['port', 'landmark'], ['hospital', 'hospital'], ['police', 'police'], ['policeHQ2', 'police'], ['slaveFlat', 'home'], ['johns', 'school'],
+  ['mosque', 'worship'], ['stlucia', 'worship'], ['port', 'landmark'], ['hospital', 'hospital'], ['police', 'police'], ['policeHQ2', 'police'], ['slaveFlat', 'home'], ['johns', 'school'], ['customs', 'customs'],
 ].map(([k, kind]) => ({ x: L.PLACES[k].x, z: L.PLACES[k].z, kind, label: L.PLACES[k].name }));
 
 // ----------------------------------------------------------------------------- map renderer

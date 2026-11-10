@@ -149,6 +149,7 @@ class AudioEngine {
       else if (isHeavy(k)) { base = 28 + sp * 2.2; fc = 300 + sp * 20; vol = 0.16; e.lfo.frequency.value = 9; }
       else if (DIESEL.has(k)) { base = 29 + sp * 2.8; fc = 340 + sp * 28; vol = 0.1; e.lfo.frequency.value = 7.5; } // diesel SUVs, vans, pickups
       else { base = 32 + sp * 3.2; fc = 380 + sp * 35; vol = 0.08; e.lfo.frequency.value = 6; }
+      if (v.rev) { const r = v.rev; base *= 1 + r * 1.1; fc *= 1 + r * 1.6; vol *= 1 + r * 0.7; } // Colombo Customs: revving on the turntable (preview of engine / exhaust work)
       const ex = v.tune && v.tune.exhaust; if (ex) { const X = { sport: [1.2, 1.15], twin: [1.25, 1.2], quad: [1.35, 1.3], titanium: [1.3, 1.55], straight: [1.55, 1.6], stack: [1.3, 1.1], carbon: [1.25, 1.35], full: [1.5, 1.6] }[ex] || [1.2, 1.2]; vol *= X[0]; fc *= X[1]; } // Customs exhaust: louder, more open
       const gearSp = v.player ? ((sp % 9) / 9) * 0.6 + 0.6 : 1; e.o.frequency.setTargetAtTime(base * gearSp, t, 0.08); e.o2.frequency.setTargetAtTime(base * gearSp * 0.5, t, 0.08); e.f.frequency.setTargetAtTime(fc, t, 0.1);
       const [g, pan] = v.player ? [1, 0] : this.spatial(v.x, v.z, 20); e.g.gain.setTargetAtTime(vol * g * (v.player ? 1.2 : 0.8) * (st.indoor ? 0.2 : 1), t, 0.1); e.p.pan.setTargetAtTime(pan, t, 0.1);
