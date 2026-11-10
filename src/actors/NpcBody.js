@@ -118,6 +118,11 @@ export function buildNpcGarments(sb, sp, ctx) {
     const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2]; const t = clamp(((X - a[0]) * dx + (Y - a[1]) * dy + (Z - a[2]) * dz) / (dx * dx + dy * dy + dz * dz), 0, 1); const ax = a[0] + dx * t, ay = a[1] + dy * t, az = a[2] + dz * t;
     slimP[0] = ax + (X - ax) * (1 - f); slimP[1] = ay + (Y - ay) * (1 - f); slimP[2] = az + (Z - az) * (1 - f); return slimP; };
   const skirtTri = (a, b, c) => (skirtCull(a) ? 1 : 0) + (skirtCull(b) ? 1 : 0) + (skirtCull(c) ? 1 : 0) >= 2; // the cut edge is deep inside the skirt
+  // edge use counts of a triangle list (open-addressing hash on typed arrays: no Map of numeric keys per garment)
+  const edgeCount = (tris) => { let cap = 1024; while (cap < tris.length * 2) cap <<= 1; const K = new Int32Array(cap).fill(-1), V = new Uint8Array(cap), M = cap - 1;
+    const slot = (a, b) => { const key = a < b ? a * 65536 + b : b * 65536 + a; let h = Math.imul(key, 0x9E3779B1) >>> 0 & M; while (K[h] !== -1 && K[h] !== key) h = (h + 1) & M; K[h] = key; return h; };
+    for (let t = 0; t < tris.length; t += 3) for (let k = 0; k < 3; k++) { const h = slot(tris[t + k], tris[t + (k + 1) % 3]); if (V[h] < 255) V[h]++; }
+    return (a, b) => V[slot(a, b)]; };
   const shell = (has, ease, col, hemFor, post, colFn = null, drop = false) => {
     const inG = new Uint8Array(NU); for (let u = 0; u < NU; u++) inG[u] = has(u, 0.013) ? 1 : 0;
     { // close holes: small islands of uncovered vertices enclosed by the garment (irregular arm / leg skin weights at the
@@ -128,13 +133,13 @@ export function buildNpcGarments(sb, sp, ctx) {
         if (!big) for (const u of memb) if (handW[u] < 0.3 && footW[u] < 0.3) inG[u] = 1; } }
     let tris = []; for (let t = 0; t < S.idx.length; t += 3) { const a = S.idx[t], b = S.idx[t + 1], c = S.idx[t + 2]; if (inG[a] && inG[b] && inG[c]) tris.push(a, b, c); }
     for (let pass = 0; pass < 2; pass++) { // prune "teeth": triangles with two or three open edges stick out of the cut edge (armholes, necklines)
-      const ec = new Map(); const ek = (a, b) => (a < b ? a * 65536 + b : b * 65536 + a); for (let t = 0; t < tris.length; t += 3) for (let k = 0; k < 3; k++) { const key = ek(tris[t + k], tris[t + (k + 1) % 3]); ec.set(key, (ec.get(key) || 0) + 1); }
-      const kept = []; for (let t = 0; t < tris.length; t += 3) { let open = 0; for (let k = 0; k < 3; k++) if (ec.get(ek(tris[t + k], tris[t + (k + 1) % 3])) === 1) open++; if (open < 2) kept.push(tris[t], tris[t + 1], tris[t + 2]); }
+      const ec = edgeCount(tris);
+      const kept = []; for (let t = 0; t < tris.length; t += 3) { let open = 0; for (let k = 0; k < 3; k++) if (ec(tris[t + k], tris[t + (k + 1) % 3]) === 1) open++; if (open < 2) kept.push(tris[t], tris[t + 1], tris[t + 2]); }
       tris = kept; }
     const used = new Uint8Array(NU); for (const v of tris) used[v] = 1;
-    const edge = new Map(); for (let t = 0; t < tris.length; t += 3) for (let k = 0; k < 3; k++) { const a = tris[t + k], b = tris[t + (k + 1) % 3]; const key = a < b ? a * 65536 + b : b * 65536 + a; edge.set(key, (edge.get(key) || 0) + 1); }
+    const edge = edgeCount(tris);
     const bnd = new Uint8Array(NU); const bEdges = [];
-    for (let t = 0; t < tris.length; t += 3) for (let k = 0; k < 3; k++) { const a = tris[t + k], b = tris[t + (k + 1) % 3]; const key = a < b ? a * 65536 + b : b * 65536 + a; if (edge.get(key) === 1) { bnd[a] = bnd[b] = 1; bEdges.push(a, b); } }
+    for (let t = 0; t < tris.length; t += 3) for (let k = 0; k < 3; k++) { const a = tris[t + k], b = tris[t + (k + 1) % 3]; if (edge(a, b) === 1) { bnd[a] = bnd[b] = 1; bEdges.push(a, b); } }
     const Q = new Float32Array(NU * 3), E = new Float32Array(NU);
     for (let u = 0; u < NU; u++) { if (!used[u]) continue; const e = ease(u); E[u] = e; for (let k = 0; k < 3; k++) Q[u * 3 + k] = P[u * 3 + k] + N[u * 3 + k] * e;
       if (bnd[u]) { const hy = hemFor(u); if (hy != null) Q[u * 3 + 1] = hy; } }

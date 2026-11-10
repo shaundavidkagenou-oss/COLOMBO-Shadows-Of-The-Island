@@ -930,6 +930,17 @@ export const HEROES = {
 
 // ------------------------------------------------------------------ Character instance
 const geoCache = new Map(); const headCache = new Map();
+// crowd / police bodies are cached per look (≈130 looks × hi + lo): store skin weights as 8-bit and UVs as 16-bit normalised
+// (≈25 % less vertex memory, CPU and GPU). Positions / normals stay float (BloodStain reads them); skinIndex keeps its
+// format; getX()/fromBufferAttribute denormalise, so skinning helpers read the same weights (to 1/255).
+function compactNpcGeo(g) {
+  const sw = g.attributes.skinWeight; if (sw && sw.array instanceof Float32Array) { const a = sw.array, q = new Uint8Array(a.length);
+    for (let i = 0; i < a.length; i += 4) { let t = 0, mx = i; for (let k = 0; k < 4; k++) { q[i + k] = Math.round(a[i + k] * 255); t += q[i + k]; if (a[i + k] > a[mx]) mx = i + k; } q[mx] = Math.max(0, Math.min(255, q[mx] + 255 - t)); }
+    g.setAttribute('skinWeight', new THREE.BufferAttribute(q, 4, true)); }
+  const uv = g.attributes.uv; if (uv && uv.array instanceof Float32Array) { const a = uv.array; let ok = true; for (let i = 0; i < a.length; i++) if (a[i] < 0 || a[i] > 1) { ok = false; break; }
+    if (ok) { const q = new Uint16Array(a.length); for (let i = 0; i < a.length; i++) q[i] = Math.round(a[i] * 65535); g.setAttribute('uv', new THREE.BufferAttribute(q, 2, true)); } }
+  return g;
+}
 // 1 for skin vertices (exact skin colour, plus every head-group vertex), 0 for clothing — drives the subsurface / sweat terms
 function skinMask(geo, spec) {
   const col = geo.attributes.color, n = col.count, out = new Float32Array(n); const sk = C(spec.skin);
@@ -942,7 +953,7 @@ export class Character {
   constructor(spec) {
     this.spec = spec; if (hasDancerBody(spec.dancerBody)) { this.initDancer(spec); return; }
     const key = JSON.stringify(spec); const skelKey = `${spec.sex}|${spec.height.toFixed(3)}|${spec.build.toFixed(3)}`;
-    let geo = geoCache.get(key); if (!geo) { geo = buildBodyGeometry(spec); geoCache.set(key, geo); }
+    let geo = geoCache.get(key); if (!geo) { geo = buildBodyGeometry(spec); if (geo.userData.npcBody) compactNpcGeo(geo); geoCache.set(key, geo); }
     const { bones, skeleton } = makeSkeleton(spec, skelKey);
     const fv = spec.faceV != null ? FACE_VARIANTS[spec.faceV] : null; let faceMat = null; const npcHead = !spec.hero;
     if (npcHead) { /* anatomical crowd head (attachNpcHead): no face texture */ } else if (fv) faceMat = getFaceMaterial(`v${spec.faceV}`, { female: spec.sex === 'f', stubble: fv.stubble || 0, seed: spec.faceV, lips: fv.lips, size: 192, v: fv });
@@ -971,7 +982,7 @@ export class Character {
   // beyond ~20 m (a person is then under ~90 px tall). Same vertex layout / bones / materials: only the geometry changes,
   // decided per frame from the camera distance at render time (the swap shows from the next frame, shadows included).
   initBodyLod(key, geo) {
-    const kl = key + '|lo'; let lo = geoCache.get(kl); if (!lo) { lo = buildBodyGeometry(Object.assign({}, this.spec, { _lod: 1 })); geoCache.set(kl, lo); }
+    const kl = key + '|lo'; let lo = geoCache.get(kl); if (!lo) { lo = compactNpcGeo(buildBodyGeometry(Object.assign({}, this.spec, { _lod: 1 }))); geoCache.set(kl, lo); }
     this.geoHi = geo; this.geoLo = lo; this.bodyLo = false; const m = this.mesh; const e = m.matrixWorld.elements;
     m.onBeforeRender = (r, sc, cam) => { if (this.lodLock) return; const c = cam.matrixWorld.elements; const d2 = (e[12] - c[12]) ** 2 + (e[13] - c[13]) ** 2 + (e[14] - c[14]) ** 2; const far = this.bodyLo ? d2 > 18 * 18 : d2 > 22 * 22;
       if (far !== this.bodyLo) { this.bodyLo = far; m.geometry = far ? this.geoLo : this.geoHi; } };

@@ -795,7 +795,7 @@ export class Crowd {
   }
   // a weapon is pointed at this pedestrian: hands up and freeze, back away, or run — varied, never a herd
   threaten(p, src) {
-    if (!p || p.state === 'down' || p.state === 'flee' || p.state === 'cower' || p.state === 'surrender' || p.threatCd > performance.now()) return; p.threatCd = performance.now() + 2500;
+    if (!p || p.state === 'down' || p.state === 'flee' || p.state === 'cower' || p.state === 'surrender' || p.threatCd > this.t) return; p.threatCd = this.t + 2.5; // sim seconds (a wall-clock cooldown ran out early whenever the sim lagged real time)
     const ax = p.x - src.x, az = p.z - src.z, d = Math.hypot(ax, az) || 1; const byP = !!(this.player && src === this.player); if (byP) this.minds.playerAct(p, 'threat'); else if (p.mind) feel(p.mind, EI.FEA, 0.6);
     p.ch.face.set('fear', 4); p.ch.face.mood = 'fear'; p.lookAt = { x: src.x, z: src.z }; const t = p.mind ? p.mind.tr : null; const T = (i) => (t ? t[i] : 0.5);
     // the weights differ person to person: the timid freeze or cower, quick thinkers run, the bold back off and phone it in
