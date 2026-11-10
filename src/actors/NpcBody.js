@@ -96,7 +96,7 @@ export function buildNpcGarments(sb, sp, ctx) {
   const yTop = Math.max(y0 + (sp.collar ? 0.026 : 0.006), 1.42 * s);
   const shirtHem = PL.hem * s; const sleeveY = (PL.sleeve === 'long' ? 0.905 : 1.205) * s; const waistY = 0.997 * s;
   const sandals = !!sp.sandals; const boots = !!sp.boots;
-  const legHem = PL.legs === 'shorts' ? (sp.shortsY ?? 0.62) * s : PL.legs === 'briefs' ? 0.8 * s : (boots ? 0.165 : sandals ? 0.11 : 0.093) * s;
+  const legHem = PL.legs === 'shorts' ? (sp.shortsY ?? 0.62) * s : PL.legs === 'briefs' ? 0.8 * s : (boots ? 0.165 : sandals ? 0.11 : 0.076) * s; // closed shoes: the trouser hem breaks onto the shoe collar (no bare ankle between hem and shoe)
   const footCut = sandals ? -1 : 0.072 * s; // closed shoes: the foot inside the shoe is not drawn
     const shirtHas = (u, tol) => (armW[u] >= 0.5 ? PL.sleeve !== 'none' && handW[u] < 0.5 && y(u) >= sleeveY - tol : legW[u] < 0.5 && y(u) >= shirtHem - tol);
   const trouserHas = (u, tol) => armW[u] < 0.5 && y(u) <= waistY + tol && y(u) >= legHem - tol;
@@ -199,6 +199,9 @@ export function buildNpcGarments(sb, sp, ctx) {
     if (PL.legs !== 'briefs') { legDrape(Q, used); // then a short relax of the legs so the pushed-out cloth reads as one smooth tube
       const T = new Float32Array(Q); for (let it = 0; it < 2; it++) { for (let u = 0; u < NU; u++) { if (!used[u] || legW[u] < 0.5 || Q[u * 3 + 1] < legHem + 0.01) continue; let x = 0, yy = 0, z = 0, n = 0; for (const v of S.nb[u]) { if (!used[v]) continue; x += Q[v * 3]; yy += Q[v * 3 + 1]; z += Q[v * 3 + 2]; n++; } if (!n) continue; T[u * 3] = lerp(Q[u * 3], x / n, 0.5); T[u * 3 + 1] = lerp(Q[u * 3 + 1], yy / n, 0.5); T[u * 3 + 2] = lerp(Q[u * 3 + 2], z / n, 0.5); } Q.set(T); }
       for (let u = 0; u < NU; u++) { if (!used[u]) continue; const d = (Q[u * 3] - P[u * 3]) * N[u * 3] + (Q[u * 3 + 1] - P[u * 3 + 1]) * N[u * 3 + 1] + (Q[u * 3 + 2] - P[u * 3 + 2]) * N[u * 3 + 2]; const m = 0.006; if (d < m) for (let k = 0; k < 3; k++) Q[u * 3 + k] += N[u * 3 + k] * (m - d); } }
+    if (!boots && !sandals && PL.legs !== 'briefs' && PL.legs !== 'shorts') { // closed shoes: the hem breaks over the shoe collar (heroShoe last: heel at z -0.092, collar ~0.09-0.105 high)
+      for (let u = 0; u < NU; u++) { if (!used[u] || Q[u * 3 + 1] > 0.135) continue; const ft = ctx.J[P[u * 3] > 0 ? 'footL' : 'footR']; const dx = Q[u * 3] - ft[0], dz = Q[u * 3 + 2] + 0.028; const e = Math.hypot(dx / 0.05, dz / 0.072); if (e >= 1 || e < 1e-4) continue;
+        const k = lerp(1, 1 / e, sstep(0.135, 0.11, Q[u * 3 + 1])); Q[u * 3] = ft[0] + dx * k; Q[u * 3 + 2] = -0.028 + dz * k; } }
     if (!boots) return; // tucked into the boot shaft (Character.js boot loft)
     for (let u = 0; u < NU; u++) { if (!used[u] || Q[u * 3 + 1] > 0.215 * s) continue; const ft = ctx.J[P[u * 3] > 0 ? 'footL' : 'footR']; const dx = Q[u * 3] - ft[0], dz = Q[u * 3 + 2] + 0.008; const e = Math.hypot(dx / 0.042, dz / 0.046); if (e > 1) { Q[u * 3] = ft[0] + dx / e; Q[u * 3 + 2] = -0.008 + dz / e; } } }, null, PL.legs === 'briefs' && skHem != null); // briefs under a skirt: the skin there is culled / covered anyway
   // ---- drape: the top hangs from the chest / shoulder blades instead of following the waist in
@@ -268,14 +271,24 @@ export function buildNpcGarments(sb, sp, ctx) {
   const legVerts = []; for (let u = 0; u < NU; u++) if (legW[u] >= 0.5) { if (bmap[u] >= 0) legVerts.push(bmap[u]); if (tr.map[u] >= 0) legVerts.push(tr.map[u]); }
   // ---- surface queries for everything built on top (belts, pockets, plackets, straps, vests, skirts, scarves)
   const out = { legVerts };
-  const torsoPt = [];
-  for (let u = 0; u < NU; u++) { if (armW[u] >= 0.5 || (legW[u] >= 0.5 && P[u * 3 + 1] < 0.86 * s)) continue; const Qs = sh.used[u] && (y(u) >= (PL.tucked ? 0.975 : PL.hem) * s) ? sh.Q : tr.used[u] ? tr.Q : sh.used[u] ? sh.Q : P; torsoPt.push(Qs[u * 3], Qs[u * 3 + 1], Qs[u * 3 + 2]); }
+  const torsoPt = [], torsoU = [];
+  for (let u = 0; u < NU; u++) { if (armW[u] >= 0.5 || (legW[u] >= 0.5 && P[u * 3 + 1] < 0.86 * s)) continue; const Qs = sh.used[u] && (y(u) >= (PL.tucked ? 0.975 : PL.hem) * s) ? sh.Q : tr.used[u] ? tr.Q : sh.used[u] ? sh.Q : P; torsoPt.push(Qs[u * 3], Qs[u * 3 + 1], Qs[u * 3 + 2]); torsoU.push(u); }
   const ringCache = new Map();
   out.ringAt = (yq) => { const key = Math.round(yq * 500); if (ringCache.has(key)) return ringCache.get(key); let band = 0.015, r = null;
     for (let tries = 0; tries < 4 && !r; tries++, band *= 1.8) { let xm = 0, z0 = 1e9, z1 = -1e9; const pts = [];
       for (let i = 0; i < torsoPt.length; i += 3) { if (Math.abs(torsoPt[i + 1] - yq) > band) continue; xm = Math.max(xm, Math.abs(torsoPt[i])); z0 = Math.min(z0, torsoPt[i + 2]); z1 = Math.max(z1, torsoPt[i + 2]); pts.push(torsoPt[i], torsoPt[i + 2]); }
       if (pts.length < 8) continue; const c = { cz: (z0 + z1) / 2, rx: xm, rz: (z1 - z0) / 2 }; let e = 1; for (let j = 0; j < pts.length; j += 2) e = Math.max(e, Math.hypot(pts[j] / c.rx, (pts[j + 1] - c.cz) / c.rz)); c.rx *= Math.min(e, 1.12); c.rz *= Math.min(e, 1.12); r = c; }
     r = r || { cz: 0, rx: 0.15 * s, rz: 0.1 * s }; ringCache.set(key, r); return r; };
+  // belt line: the OUTER cloth surface (trousers + tucked shirt) at height yq ± half, as a closed polar profile round the body
+  // axis (NA sectors, the outermost point of each), conservatively widened over neighbouring sectors and smoothed — a belt
+  // laid on it never sinks into the hips / flanks the way an ellipse fit does. Each point carries the skin weights of the
+  // cloth vertex it rests on, so the belt bends with the waist.
+  out.beltRing = (yq, half, NA = 48) => { const cz = out.ringAt(yq).cz; const R = new Float32Array(NA), Uw = new Int32Array(NA).fill(-1);
+    for (let i = 0; i < torsoPt.length; i += 3) { if (Math.abs(torsoPt[i + 1] - yq) > half) continue; const dx = torsoPt[i], dz = torsoPt[i + 2] - cz; const r = Math.hypot(dx, dz); const k = ((Math.round(Math.atan2(dz, dx) / (2 * Math.PI) * NA) % NA) + NA) % NA; if (r > R[k]) { R[k] = r; Uw[k] = torsoU[i / 3]; } }
+    for (let k = 0; k < NA; k++) if (!R[k]) { let a = 1, b = 1; while (a < NA && !R[(k - a + NA) % NA]) a++; while (b < NA && !R[(k + b) % NA]) b++; const ka = (k - a + NA) % NA, kb = (k + b) % NA; R[k] = (R[ka] * b + R[kb] * a) / (a + b); Uw[k] = a <= b ? Uw[ka] : Uw[kb]; }
+    const M = R.slice(); for (let k = 0; k < NA; k++) M[k] = Math.max(R[(k + NA - 1) % NA], R[k], R[(k + 1) % NA]);
+    const pts = []; for (let k = 0; k < NA; k++) { const r = (M[(k + NA - 1) % NA] + 2 * M[k] + M[(k + 1) % NA]) / 4; const a = k / NA * 2 * Math.PI; pts.push({ x: Math.cos(a) * r, z: cz + Math.sin(a) * r, nx: Math.cos(a), nz: Math.sin(a), r, w: Uw[k] >= 0 ? W[Uw[k]] : null }); }
+    return { cz, pts }; };
   // front / back cloth height field on a 1.5 cm grid (rasterised outer-layer triangles), for strips laid on the surface
   const GX0 = -0.36, GY0 = 0.7 * s, GD = 0.015, NX = 49, NY = Math.ceil((1.62 * s - GY0) / GD) + 1; const FR = new Float32Array(NX * NY).fill(-1e9), BK = new Float32Array(NX * NY).fill(1e9);
   const raster = (Q, used, keep) => { for (let t = 0; t < S.idx.length; t += 3) { const a = S.idx[t], b = S.idx[t + 1], c = S.idx[t + 2]; if (!used[a] || !used[b] || !used[c] || !keep(a) || !keep(b) || !keep(c)) continue;

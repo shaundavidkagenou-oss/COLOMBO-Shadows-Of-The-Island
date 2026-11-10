@@ -10,7 +10,7 @@
 import * as THREE from 'three';
 import { Audio } from '../audio/Audio.js';
 import { clamp, lerp } from '../core/math.js';
-import { captureToCanvas } from '../gfx/LinearCapture.js';
+import { captureToPixels } from '../gfx/LinearCapture.js';
 
 const sm = (x) => { const t = clamp(x, 0, 1); return t * t * (3 - 2 * t); };
 const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
@@ -41,19 +41,32 @@ export class BustedCinematic {
     for (const q of this.p.foot) if (q !== o && q.mode === 'foot') { q.cineAim = true; q.sees = true; }
     this.say(LINES[this.kind]);
   }
+  // booking photo. Drawn like a real custody photo — the suspect alone in front of the booking wall (the card's grey wall and
+  // height chart are the HTML behind it) — so the capture renders only the player (plus every light, which keeps each material's
+  // program the one the game already uses) with this frame's shadow maps, into a small 240×300 target read back in one go.
+  // It used to render the whole world from a new camera at full canvas size and copy the canvas through drawImage /
+  // getImageData / toDataURL: first-use programs for whatever stood behind the suspect, every shadow map re-rendered, and two
+  // full-frame GPU readbacks — a multi-second freeze the moment the police made the arrest.
   captureMugshot() {
-    const g = this.g, R = g.renderer; if (!R || !R.domElement || typeof document === 'undefined') return null;
-    try {
-      const P = g.player, h = P.ch.bones.head; P.ch.root.updateMatrixWorld(true); const hp = h.getWorldPosition(new THREE.Vector3()); hp.y += 0.03; const f = new THREE.Vector3(Math.sin(P.yaw), 0, Math.cos(P.yaw));
-      const W = R.domElement.width, H = R.domElement.height; const c = new THREE.PerspectiveCamera(17, W / H, 0.05, 60); c.position.copy(hp).addScaledVector(f, 1.35); c.position.y += 0.02; c.lookAt(hp); c.updateMatrixWorld();
-      // booking photo: shoot at the normal exposure, measure the face area, and re-shoot brighter only if it came out
-      // genuinely dark (night, deep shade). Exposure is a uniform, so the re-shoot costs no shader rebuild.
-      const exp0 = R.toneMappingExposure; const out = document.createElement('canvas'); out.width = 240; out.height = 300; const x = out.getContext('2d'); const ch = H * 0.62, cw = ch * 0.8;
-      const pr = R.getPixelRatio(); const shoot = (e) => { R.toneMappingExposure = exp0 * e; captureToCanvas(R, g.scene, c, 0, 0, W / pr, H / pr); /* the game's shader programs, not a to-canvas set compiled mid-arrest */ R.setScissorTest(false); R.setViewport(0, 0, W / pr, H / pr); x.drawImage(R.domElement, (W - cw) / 2, (H - ch) / 2, cw, ch, 0, 0, 240, 300); };
-      const meter = () => { const im = x.getImageData(60, 60, 120, 150); let sum = 0; for (let i = 0; i < im.data.length; i += 16) sum += im.data[i] * 0.3 + im.data[i + 1] * 0.59 + im.data[i + 2] * 0.11; return sum / (im.data.length / 16) / 255; };
-      try { shoot(1); const mean = meter(); this.mugMean = mean; if (mean < 0.2) shoot(clamp(0.3 / Math.max(0.02, mean), 1, 5)); } finally { R.toneMappingExposure = exp0; }
-      return out.toDataURL('image/jpeg', 0.85);
-    } catch (e) { return null; }
+    const g = this.g, R = g.renderer; if (!R || !R.domElement || typeof document === 'undefined' || !document.createElement) return null;
+    const MW = 240, MH = 300, SS = 2, RW = MW * SS, RH = MH * SS; /* rendered at 2× and filtered down: no MSAA in the capture target */ const cv = document.createElement('canvas'); cv.width = MW; cv.height = MH; const x = cv.getContext && cv.getContext('2d'); if (!x || !x.createImageData) return null;
+    const P = g.player, h = P.ch.bones.head; P.ch.root.updateMatrixWorld(true); const hp = h.getWorldPosition(new THREE.Vector3()); hp.y += 0.03; const f = new THREE.Vector3(Math.sin(P.yaw), 0, Math.cos(P.yaw));
+    const fov = 2 * Math.atan(0.29 / 1.35) * 180 / Math.PI; hp.y -= 0.1; // booking framing: head and shoulders (~0.58 m tall at 1.35 m), eyes in the upper third
+    const c = new THREE.PerspectiveCamera(fov, RW / RH, 0.05, 60); c.position.copy(hp).addScaledVector(f, 1.35); c.position.y += 0.02; c.lookAt(hp); c.updateMatrixWorld();
+    const LAYER = 7; c.layers.set(LAYER);
+    const shoot = (e) => { // draws now (this pose, this light); the pixels arrive asynchronously
+      const scene = g.scene, bg = scene.background, touched = [], exp0 = R.toneMappingExposure;
+      const on = (o) => { if (!o.layers.isEnabled(LAYER)) { o.layers.enable(LAYER); touched.push(o); } };
+      try { P.ch.root.traverse(on); scene.traverse((o) => { if (o.isLight) on(o); }); scene.background = null; R.toneMappingExposure = exp0 * e; return captureToPixels(R, scene, c, RW, RH, 0); }
+      catch (err) { return Promise.resolve(null); } finally { R.toneMappingExposure = exp0; scene.background = bg; for (const o of touched) o.layers.disable(LAYER); }
+    };
+    const meter = (px) => { let sum = 0, n = 0; for (let y = 90 * SS; y < 240 * SS; y += 3 * SS) for (let xx = 60 * SS; xx < 180 * SS; xx += 3 * SS) { const i = (y * RW + xx) * 4; if (px[i + 3] < 128) continue; sum += px[i] * 0.3 + px[i + 1] * 0.59 + px[i + 2] * 0.11; n++; } return n ? sum / n / 255 : 0.5; };
+    const paint = (px) => { const big = document.createElement('canvas'); big.width = RW; big.height = RH; const bx = big.getContext('2d'); const im = bx.createImageData(RW, RH); for (let y = 0; y < RH; y++) im.data.set(px.subarray((RH - 1 - y) * RW * 4, (RH - y) * RW * 4), y * RW * 4); /* WebGL rows are bottom-up */ bx.putImageData(im, 0, 0); x.imageSmoothingQuality = 'high'; x.drawImage(big, 0, 0, MW, MH); };
+    // shoot at the normal exposure, meter the face, re-shoot brighter only if it came out genuinely dark (night, deep shade).
+    // Exposure is a uniform: the re-shoot compiles nothing. The card shows the photo seconds later, long after both have landed.
+    this.mugReady = shoot(1).then((px) => { if (!px || this.disposed) return null; const mean = meter(px); this.mugMean = mean; if (mean >= 0.2) return px;
+      return shoot(clamp(0.3 / Math.max(0.02, mean), 1, 5)).then((p2) => p2 || px); }).then((px) => { if (px && !this.disposed) paint(px); return !!px; }).catch(() => false);
+    return cv;
   }
   buildOverlay() {
     if (typeof document === 'undefined' || !document.createElement) return; const root = document.createElement('div'); root.className = 'busted'; const I = this.info;
@@ -61,11 +74,11 @@ export class BustedCinematic {
     const stars = '★'.repeat(I.lv) + '<i>' + '★'.repeat(5 - I.lv) + '</i>';
     root.innerHTML = `<div class="bz-grade"></div><div class="bz-strobe l"></div><div class="bz-strobe r"></div><div class="bz-bar top"></div><div class="bz-bar bot"><div class="bz-sub"></div></div>
       <div class="bz-title"><div class="bz-word">${word}</div><div class="bz-rule"></div><div class="bz-line"><span class="si">අත්අඩංගුවට</span><b>·</b><span class="ta">கைது</span><b>·</b><span class="en">IN POLICE CUSTODY</span></div><div class="bz-stars">${stars}</div></div>
-      <div class="bz-card"><div class="bz-mug">${this.mug ? `<img src="${this.mug}" alt="">` : '<div class="bz-nomug"></div>'}<div class="bz-chart">${[190, 180, 170, 160, 150].map((v) => `<span>${v}</span>`).join('')}</div><div class="bz-plate">${esc(I.name)}<br>${esc(I.caseNo)}</div></div>
+      <div class="bz-card"><div class="bz-mug">${this.mug ? '' : '<div class="bz-nomug"></div>'}<div class="bz-chart">${[190, 180, 170, 160, 150].map((v) => `<span>${v}</span>`).join('')}</div><div class="bz-plate">${esc(I.name)}<br>${esc(I.caseNo)}</div></div>
         <div class="bz-rec"><div class="bz-head">CUSTODY RECORD · COLOMBO DIVISION</div><div class="bz-rows"></div></div></div>
       <div class="bz-flash"></div><div class="bz-black"></div><div class="bz-skip">Press <kbd>Enter</kbd> / <kbd>Space</kbd> to skip</div>`;
     if (typeof root.querySelector !== 'function') return; // headless (tests): no overlay
-    (this.g.ui || document.body).appendChild(root); this.el = root; this.rows = root.querySelector('.bz-rows'); (typeof requestAnimationFrame === 'function' ? requestAnimationFrame : setTimeout)(() => root.classList.add('on'));
+    (this.g.ui || document.body).appendChild(root); this.el = root; if (this.mug) root.querySelector('.bz-mug')?.prepend(this.mug); this.rows = root.querySelector('.bz-rows'); (typeof requestAnimationFrame === 'function' ? requestAnimationFrame : setTimeout)(() => root.classList.add('on'));
     this.rowData = I.rows; this.canvas = this.g.renderer && this.g.renderer.domElement;
   }
   // ---------------------------------------------------------------- per frame (dt = scaled game dt)
@@ -187,7 +200,7 @@ export class BustedCinematic {
   sfxBeat() { if (!Audio.ctx) return; Audio.tone(58, 0.14, { type: 'sine', vol: 0.4, attack: 0.004 }); Audio.tone(50, 0.16, { type: 'sine', vol: 0.3, attack: 0.004, when: 0.2 }); }
   // ---------------------------------------------------------------- teardown
   dispose() {
-    const g = this.g, P = g.player, cam = g.camera; g.timeSlow = this.prevSlow === undefined ? 1 : 1; P.camOverride = false; cam.fov = this.cam0 ? this.cam0.fov : cam.fov; cam.updateProjectionMatrix();
+    this.disposed = true; const g = this.g, P = g.player, cam = g.camera; g.timeSlow = this.prevSlow === undefined ? 1 : 1; P.camOverride = false; cam.fov = this.cam0 ? this.cam0.fov : cam.fov; cam.updateProjectionMatrix();
     if (this.canvas) this.canvas.style.filter = ''; if (this.el) { const el = this.el; el.classList.add('out'); setTimeout(() => el.remove(), 900); }
     if (this.hudWas) g.hud.show(true); if (Audio.ctx && this.ambWas !== undefined) Audio.applyVolumes?.();
     for (const q of this.p.foot) { q.cineAim = false; if (this.lit) { q.torchOn = false; if (q.rifle) q.rifle.userData.torch.visible = false; if (q.torchM) q.torchM.visible = false; if (q.ch.anim.action === 'torch') q.ch.anim.set(null); } } if (this.o) this.o.cuffing = false;

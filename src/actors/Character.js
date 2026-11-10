@@ -10,7 +10,7 @@ import { applyBoardPose } from './Boarding.js';
 import { TEX, faceAtlas, FACE_FRAMES } from '../gfx/Textures.js';
 import { RNG } from '../core/rng.js';
 import { makeAppearance, FACE_VARIANTS } from './Appearance.js';
-import { lerp, clamp, damp } from '../core/math.js';
+import { lerp, clamp, damp, smoothstep } from '../core/math.js';
 import { hasHeroBody, buildHeroGarments, clothShader } from './HeroBody.js';
 import { hasNpcBody, buildNpcGarments } from './NpcBody.js';
 import { HERO_EXTRA, HERO_PARENT, heroJoints, fingerLayout, HeroRig, heroUniforms, patchHeroMaterial, faceNormals } from './HeroRig.js';
@@ -163,7 +163,8 @@ const _ss = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * 
 const _tab = (T, u) => { if (u <= T[0][0]) return T[0][1]; for (let i = 1; i < T.length; i++) if (u <= T[i][0]) { const a = T[i - 1], b = T[i]; return lerp(a[1], b[1], (u - a[0]) / (b[0] - a[0])); } return T[T.length - 1][1]; };
 const _sp = (x, e) => Math.sign(x) * Math.pow(Math.abs(x), e);
 export function heroShoe(sb, ft, side, sp, W1, W2, shoe) {
-  const kind = sp.boots ? 'boot' : sp.sole ? 'sneaker' : 'oxford';
+  const soleLight = sp.sole ? parseInt(String(sp.sole).replace('#', '').padEnd(6, '0').slice(0, 2), 16) > 0x60 : false; // dark rubber soles belong to leather oxfords (police, formal), light cupsoles to trainers
+  const kind = sp.shoeKind || (sp.boots ? 'boot' : soleLight ? 'sneaker' : 'oxford');
   // resolution: protagonists full; crowd bodies (NpcBody) a lighter last (a shoe is ~25 px tall at street distance); far LOD lighter still
   const RES = sp.hero ? [40, 28, 40, 24] : sp._lod ? [10, 8, 8, 5] : [18, 12, 14, 7];
   const L = kind === 'boot' ? 0.276 : kind === 'sneaker' ? 0.272 : 0.268, z0 = 0.046 - L / 2 - 0.004;
@@ -811,12 +812,38 @@ export function buildBodyGeometry(sp) {
     const hcol = C(sp.top).map((v) => v * 0.9), yh = 1.43 * s; sb.ellipsoid([0, yh, surfZ(yh, 0, -1) - 0.03], 0.12 * w, 0.075, 0.055, W2('chest', 'neck', 0.35), hcol, { lat: 6, lon: 12 });
     for (const sx of [-1, 1]) sb.boxPart([sx * 0.035, 1.34 * s, surfZ(1.34 * s, sx * 0.035, 1) + 0.006], 0.008, 0.13, 0.006, W1('chest'), C('#e8e6e0')); }
   if (sp.headband) { const hw = W1('head'), k = Math.max(1.06, hairLift + 0.012), y = hc[1] + 0.045; sb.loft([{ c: [0, y - 0.016, hc[2]], rx: hr[0] * k, rz: hr[2] * k, w: hw, col: C(sp.headband) }, { c: [0, y + 0.016, hc[2] - 0.003], rx: hr[0] * k * 0.99, rz: hr[2] * k * 0.99, w: hw, col: C(sp.headband) }], 16, { capStart: false, capEnd: false }); }
-  if (sp.belt) { const bc = C(sp.belt); const i0 = tr[1 + RO], i1 = tr[2 + RO]; const yb = 0.965 * s, t = (0.965 - i0.y) / (i1.y - i0.y); const rx = lerp(i0.rx, i1.rx, t) + 0.009, rz = lerp(i0.rz, i1.rz, t) + 0.009;
+  if (sp.belt && HB && HB.beltRing) { // anatomical crowd / police body: a real belt (outer face, top and bottom edges) laid on the
+    // outer cloth profile at the waist (NpcBody.beltRing) — never sinking into the hips, skinned like the cloth under it
+    const bc = C(sp.belt), be = bc.map((v) => v * 0.8); const yb = 0.965 * s, hh = 0.021; const { pts } = HB.beltRing(yb, hh + 0.008); const NA = pts.length; const wd = W1('hips');
+    const rows = [[-hh, 0.0012, -1], [-hh, 0.0068, 0], [hh, 0.0068, 0], [hh, 0.0012, 1]]; const base = sb.n;
+    for (let k = 0; k <= NA; k++) { const p = pts[k % NA]; for (const [dy, off, ny] of rows) sb.v([p.x + p.nx * off, yb + dy, p.z + p.nz * off], ny ? [p.nx * 0.3, ny, p.nz * 0.3] : [p.nx, 0, p.nz], ny ? be : bc, [0.01, 0.51], p.w || wd); }
+    for (let k = 0; k < NA; k++) for (let r = 0; r < 3; r++) { const a0 = base + k * 4 + r, a1 = a0 + 1, b0 = a0 + 4, b1 = b0 + 4 - 3; sb.idx.push(a0, a1, b0, a1, b1, b0); } // angle runs +x → +z (counter-clockwise seen from above): this winding faces outward
+    const front = pts[Math.round(NA / 4) % NA], right = pts[Math.round(NA / 2) % NA], left = pts[0];
+    sb.boxPart([0, yb, front.z + 0.0105], 0.05, 0.036, 0.007, front.w || wd, C(sp.buckle || '#c9cdd2'));
+    if (sp.holster) { sb.boxPart([right.x - 0.026, yb - 0.075, 0.03], 0.04, 0.13, 0.085, right.w || wd, C('#121212')); sb.boxPart([right.x - 0.012, yb - 0.01, 0.03], 0.02, 0.04, 0.05, right.w || wd, C('#121212')); }
+    if (sp.pouch) sb.boxPart([left.x + 0.024, yb - 0.035, 0.05], 0.03, 0.06, 0.05, left.w || wd, C('#121212')); }
+  else if (sp.belt) { const bc = C(sp.belt); const i0 = tr[1 + RO], i1 = tr[2 + RO]; const yb = 0.965 * s, t = (0.965 - i0.y) / (i1.y - i0.y); const rx = lerp(i0.rx, i1.rx, t) + 0.009, rz = lerp(i0.rz, i1.rz, t) + 0.009;
     sb.loft([{ c: [0, yb - 0.022, 0], rx, rz, w: W1('hips'), col: bc }, { c: [0, yb + 0.022, 0], rx, rz, w: W1('hips'), col: bc }], 16, { capStart: false, capEnd: false });
     sb.boxPart([0, yb, rz + 0.004], 0.05, 0.036, 0.008, W1('hips'), C(sp.buckle || '#c9cdd2'));
     if (sp.holster) { sb.boxPart([-(rx + 0.012), yb - 0.075, 0.03], 0.04, 0.13, 0.085, W1('hips'), C('#121212')); sb.boxPart([-(rx + 0.006), yb - 0.01, 0.03], 0.02, 0.04, 0.05, W1('hips'), C('#121212')); }
     if (sp.pouch) sb.boxPart([rx + 0.01, yb - 0.035, 0.05], 0.03, 0.06, 0.05, W1('hips'), C('#121212')); }
-  if (sp.strap) { // Sam Browne cross strap: ONE continuous band, left hip → up the chest → over the right shoulder → down the back → left hip.
+  if (sp.strap && HB && HB.topY && HB.beltRing) { // Sam Browne cross strap on the anatomical body: left hip (on the belt) → up the
+    // chest on the real front cloth surface → over the right shoulder on the shirt's top-down height field → down the back
+    const sc = C(sp.strap); const xAt = (y) => lerp(-0.118, 0.125, clamp((1.42 - y / s) / 0.43, 0, 1)) * w; /* over the middle of the shoulder, clear of the collar */ const cz = HB.ringAt(1.25 * s).cz;
+    const offAt = (y) => 0.006 + 0.009 * smoothstep(1.15 * s, 1.2 * s, y) * smoothstep(1.41 * s, 1.36 * s, y); // clears the pocket flaps / buttons only where it crosses them
+    const P = []; const yF = 1.37 * s;
+    for (let y = 0.985 * s; y < yF; y += 0.02) { const x = xAt(y); P.push([x, y, HB.surfZ(y, x, 1) + offAt(y)]); }
+    const x0 = xAt(yF), zF = HB.surfZ(yF, x0, 1), zB = HB.surfZ(yF, x0, -1); const NT = 10;
+    for (let i = 0; i <= NT; i++) { const z = lerp(zF + 0.006, zB - 0.006, i / NT); const ty = HB.topY(x0, z); P.push([x0, Math.max(yF, ty > 0 ? ty + 0.006 : yF), z]); }
+    for (let y = yF - 0.02; y >= 0.985 * s - 1e-6; y -= 0.02) { const x = xAt(y); P.push([x, y, HB.surfZ(y, x, -1) - 0.006]); }
+    for (let it = 0; it < 2; it++) for (let i = 1; i < P.length - 1; i++) { const q = P[i]; const m = [(P[i - 1][0] + P[i + 1][0]) / 2, (P[i - 1][1] + P[i + 1][1]) / 2, (P[i - 1][2] + P[i + 1][2]) / 2];
+      const n = [lerp(q[0], m[0], 0.5), lerp(q[1], m[1], 0.5), lerp(q[2], m[2], 0.5)]; // smooth, but never into the cloth
+      if (n[1] < yF - 0.01) n[2] = n[2] > cz ? Math.max(n[2], HB.surfZ(n[1], n[0], 1) + offAt(n[1])) : Math.min(n[2], HB.surfZ(n[1], n[0], -1) - 0.006); else { const ty = HB.topY(n[0], n[2]); if (ty > 0) n[1] = Math.max(n[1], ty + 0.006); }
+      P[i] = n; }
+    sb.strip(P.map((c, i) => { const a = P[Math.max(0, i - 1)], b = P[Math.min(P.length - 1, i + 1)]; const d = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]).normalize();
+      const o = new THREE.Vector3(c[0] * 0.5, Math.max(0, c[1] - 1.28 * s), c[2] - cz); o.addScaledVector(d, -o.dot(d)).normalize(); const side = new THREE.Vector3().crossVectors(d, o).normalize();
+      return { c, side: [side.x, side.y, side.z], out: [o.x, o.y, o.z], w: c[1] > 1.3 * s ? W1('chest') : torsoW(c[1]) }; }), 0.034, (q) => q.out, null, sc, 0); }
+  else if (sp.strap) { // Sam Browne cross strap: ONE continuous band, left hip → up the chest → over the right shoulder → down the back → left hip.
     // It lies on the torso clear of the shirt details (pocket flaps / buttons stand up to 12 mm), and over the shoulder its
     // surface normal points up (the old version met at a point inside the trapezius and twisted there).
     const sc = C(sp.strap); const offF = sp.vest ? 0.03 : 0.017, offB = sp.vest ? 0.03 : 0.012;

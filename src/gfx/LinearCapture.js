@@ -29,6 +29,29 @@ function drawCapture(R, scene, cam, x, y, w, h) {
   R.setRenderTarget(null); R.setViewport(x, y, w, h); R.setScissor(x, y, w, h); R.setScissorTest(true);
   out.render(R, null, rt);
 }
+// small capture straight into pixels (the busted mugshot): the scene is drawn from `cam` into a w×h linear half-float target with
+// the game's programs, tone-mapped / sRGB-encoded by the OutputPass into a w×h 8-bit target, and read back with one small
+// readPixels (w·h·4 bytes). No full-canvas readback (drawImage of the WebGL canvas + getImageData / toDataURL stalls the GPU
+// pipeline and copies the whole frame), and the frame's shadow maps are reused instead of being re-rendered for this camera.
+// Resolves to RGBA rows bottom-up (WebGL order), or null when the renderer can't read back. The render itself happens now (the
+// pose / exposure of this moment); only the pixels arrive later.
+let srt = null, srt8 = null, sout = null;
+export function captureToPixels(R, scene, cam, w, h, clearAlpha = 1) {
+  const keepRT = R.getRenderTarget(), keepST = R.getScissorTest(); R.getViewport(keepVP); R.getScissor(keepSC);
+  const SM = R.shadowMap, keepAU = SM.autoUpdate, keepNU = SM.needsUpdate; const keepCC = new THREE.Color(); R.getClearColor(keepCC); const keepCA = R.getClearAlpha();
+  try {
+    if (!srt) { srt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples: 0, depthTexture: new THREE.DepthTexture(w, h, THREE.FloatType) }); srt8 = new THREE.WebGLRenderTarget(w, h, { type: THREE.UnsignedByteType, depthBuffer: false }); sout = new OutputPass(); }
+    else if (srt.width !== w || srt.height !== h) { srt.setSize(w, h); srt8.setSize(w, h); }
+    SM.autoUpdate = false; SM.needsUpdate = false; R.setClearColor(keepCC, clearAlpha);
+    R.setRenderTarget(srt); R.setScissorTest(false); R.setViewport(0, 0, w, h); R.clear(); R.render(scene, cam);
+    sout.renderToScreen = false; sout.render(R, srt8, srt);
+    const px = new Uint8Array(w * h * 4);
+    // asynchronous readback (WebGL2 pixel-pack buffer + fence): the GPU finishes in its own time and the frame never waits on it.
+    // A synchronous readPixels stalls the CPU until the whole GPU queue has drained (measured 23 s under a software rasteriser).
+    if (R.readRenderTargetPixelsAsync) return R.readRenderTargetPixelsAsync(srt8, 0, 0, w, h, px).then(() => px, () => null);
+    R.readRenderTargetPixels(srt8, 0, 0, w, h, px); return Promise.resolve(px);
+  } catch (e) { return Promise.resolve(null); } finally { SM.autoUpdate = keepAU; SM.needsUpdate = keepNU; R.setClearColor(keepCC, keepCA); R.setRenderTarget(keepRT); R.setViewport(keepVP); R.setScissor(keepSC); R.setScissorTest(keepST); }
+}
 // a fog that changes no pixel but keeps the fog code in the programs (removing scene.fog would select other programs)
 export function neutralFog(scene) {
   const f = scene.fog; if (!f) return () => {};

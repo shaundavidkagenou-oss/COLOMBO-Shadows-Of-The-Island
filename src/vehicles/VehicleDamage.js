@@ -28,7 +28,7 @@ import * as THREE from 'three';
 import { Audio } from '../audio/Audio.js';
 import { VEH_HOOKS } from './Vehicle.js';
 import { vehicleMaterials } from './VehicleModels.js';
-import { setDoorLive } from './DoorRig.js';
+import { setDoorLive, poseDoor, DOOR_HOOKS, doorHeld, freeDoorNow, vehicleVelocity } from './DoorRig.js';
 import * as L from '../world/Layout.js';
 
 const MAX_PANES = 16, MAX_CRACKS = 8, HOLES = 28, SHARDS = 360, FRAGS = 120, BODIES = 44;
@@ -197,6 +197,11 @@ export class VehicleDamage {
     this.g = game; this.burning = new Set(); this.wrecks = new Set(); this.bodies = []; this.hits = [];
     this.stats = { shots: 0, glass: 0, shattered: 0, tyres: 0, holes: 0, dents: 0, scrapes: 0, fires: 0, explosions: 0, occupants: 0, debris: 0 };
     VEH_HOOKS.impact = (v, s, c) => this.onImpact(v, s, c); VEH_HOOKS.dispose = (v) => this.onDispose(v);
+    // free-swinging doors (DoorRig): what the free edge can hit, and tearing a door off its hinges
+    DOOR_HOOKS.detach = (v, d, w) => this.detachDoor(v, d, w);
+    DOOR_HOOKS.blocked = (x, z, y) => { const C = this.g.collision; if (!C || !C.query) return false; const r = 0.06;
+      for (const c of C.query(x - r, z - r, x + r, z + r)) { if (c.kind === 'deck' || c.kind === 'platform' || c.h < 0.5 || c.walkUnder) continue; const y0 = c.y0 || 0; if (y0 > y + 1.1 || y0 + c.h < y + 0.35) continue;
+        if (x + r > c.x0 && x - r < c.x1 && z + r > c.z0 && z - r < c.z1) return true; } return false; };
     this.pools = null; this._e = new THREE.Euler();
   }
   // ---- per-vehicle state (lazy)
@@ -334,12 +339,39 @@ export class VehicleDamage {
     this.hurt(v, Math.max(0, speed - 6) * (heavyType(v) ? 0.7 : 1.5));
     if (now - st.dentT < 90 && speed < 12) return; st.dentT = now;
     const D = Math.min(0.17, Math.max(0, (speed - 3) * 0.012)), R = Math.min(0.75, 0.26 + 0.022 * speed);
-    if (!isBike(v)) this.dentFrom(v, dir, D, R, null, c.t);
+    if (!isBike(v)) { this.dentFrom(v, dir, D, R, null, c.t); this.impactDoors(v, dir, speed, c.t); }
     // what else breaks: lamps on the face that was hit, glass at the impact, the windscreen in a hard head-on
     const front = dir.z < -0.6, rear = dir.z > 0.6; if (D > 0.05) { if (front && Math.random() < D * 9) v.headOut = true; if (rear && Math.random() < D * 9) v.tailOut = true; }
     if (speed > 9 && !isBike(v)) { const P = proxyOf(v); const G = this.glassState(v, P); const hx = -Math.sign(dir.x) * hw, hz = front ? hl : rear ? -hl : (c.t || 0);
       G.panes.forEach((p, i) => { if (G.broken[i]) return; const d = Math.hypot(p.c[0] - hx * (Math.abs(dir.x) > 0.5 ? 1 : 0), p.c[2] - hz); const ch = (speed - 9) * 0.06 * Math.max(0, 1.6 - d); if (Math.random() < ch) { if (i === 0) this.glassHit(v, P, -1, tmpV.set(p.c[0] + rnd(-0.4, 0.4), p.c[1] + rnd(-0.1, 0.15), p.c[2]), tmpV2.set(...p.n), 'crash'); else this.shatter(v, G, i, false); } }); }
     void H;
+  }
+  // a crash and the doors: an open door on the side that was hit (or swung into a head-on) is torn off; a hard hit on a shut
+  // door's side can spring its latch and it swings open (then the free-door physics has it). Not a door someone is using.
+  impactDoors(v, dir, speed, t) {
+    const ud = v.mesh.userData, D = ud.doors; if (!D || !D.length || !ud.bake) return;
+    const sideHit = Math.abs(dir.x) > Math.abs(dir.z) * 0.8 ? -Math.sign(dir.x) : 0; // obstacle came from -dir: that side of the body
+    for (const d of D) { if (d.gone || d.leaf || d.slide || doorHeld(d)) continue; const ds = Math.sign(d.hx) || d.side || 1; const open = (d.ang || 0) > 0.04;
+      const inZ = t == null || (t <= d.hz + 0.3 && t >= d.hz - (d.len || 1) - 0.3);
+      if (open) { const ch = sideHit === ds ? (inZ ? 0.45 + speed * 0.05 : 0.15 + speed * 0.03) : dir.z < -0.6 ? speed * 0.035 : 0;
+        if (speed > 5 && Math.random() < ch && this.detachDoor(v, d, speed)) continue;
+        if (sideHit === ds) d.vel = -Math.abs(d.vel || 0) - speed * 0.08; } // knocked toward the body
+      else if (sideHit === ds && inZ && speed > 11 && !(v.player && d === ud.door) && Math.random() < (speed - 11) * 0.06) { d.ang = 0.03; d.vel = 0.5 + Math.random() * 0.7; freeDoorNow(v, d); } }
+  }
+  // tear a door off its hinges: the real door (its paint, glass, trim and any dents) becomes a rigid body that tumbles away with
+  // the car's momentum and lies on the road; the opening stays open (the body view keeps the door's triangles out).
+  detachDoor(v, d, w = 0) {
+    const ud = v.mesh.userData; if (!d || d.gone || d.leaf || d.slide || !ud.bake || v.disposed) return false; const ms = this.pivotMeshes(v, d); if (!ms || !ms.length) return false;
+    v.mesh.updateMatrixWorld(true); d.pivot.updateMatrixWorld(true); const S = shared();
+    const bb = new THREE.Box3(); for (const m of ms) { if (!m.geometry.boundingBox) m.geometry.computeBoundingBox(); bb.union(m.geometry.boundingBox); } const ctr = bb.getCenter(new THREE.Vector3()), hs = bb.getSize(new THREE.Vector3()).multiplyScalar(0.5);
+    const holder = new THREE.Group(); holder.name = 'doorDebris'; for (const m of ms) { const mat = Array.isArray(m.material) ? m.material[0] : m.material; const mm = new THREE.Mesh(m.geometry, mat === S.invis ? S.charPaint : mat); mm.name = m.name; if (m.name === 'glass') mm.renderOrder = 2; mm.position.copy(ctr).negate(); holder.add(mm); }
+    d.pivot.matrixWorld.decompose(holder.position, holder.quaternion, holder.scale); holder.position.copy(ctr.clone().applyMatrix4(d.pivot.matrixWorld)); holder.scale.set(1, 1, 1); this.g.scene.add(holder);
+    d.gone = true; d.vel = 0; setDoorLive(ud, d, true); d.pivot.visible = false; v.mesh.remove(d.pivot);
+    const [vx, vz] = vehicleVelocity(v); const side = Math.sign(d.hx) || d.side || 1; const o = tmpV2.set(side, 0, 0).transformDirection(v.mesh.matrixWorld);
+    const out = rnd(1.2, 2.6) + Math.min(4, w * 0.15); const vel = new THREE.Vector3(vx * 0.8 + o.x * out, rnd(1.2, 2.8), vz * 0.8 + o.z * out);
+    this.addBody(holder, vel, new THREE.Vector3(rnd(-5, 5), rnd(-7, 7), rnd(-5, 5)), [Math.max(0.04, hs.x), Math.max(0.2, hs.y), Math.max(0.2, hs.z)]);
+    this.stats.doors = (this.stats.doors || 0) + 1; if (Audio.debrisHit) Audio.debrisHit(holder.position.x, holder.position.z, 1); if (v.slam) v.slam(1.4);
+    return true;
   }
   // world contact normal (pushes the car away from the obstacle) → the inward dent direction in vehicle-local space
   localDir(v, nx, nz) { const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw); return new THREE.Vector3(nx * fz - nz * fx, 0, nx * fx + nz * fz).normalize(); }
@@ -451,7 +483,7 @@ export class VehicleDamage {
     const launch = (obj, dirX, dirZ, upv, spd, he, w) => { const d = tmpV.set(dirX, 0, dirZ); if (d.lengthSq() < 1e-6) d.set(rnd(-1, 1), 0, rnd(-1, 1)); d.normalize(); this.addBody(obj, new THREE.Vector3(d.x * spd, upv, d.z * spd), w || new THREE.Vector3(rnd(-9, 9), rnd(-6, 6), rnd(-9, 9)), he); };
     const local = (x, y, z) => new THREE.Vector3(x, y, z).applyMatrix4(v.mesh.matrixWorld); const out = (lx, lz) => tmpV2.set(lx, 0, lz).transformDirection(v.mesh.matrixWorld).clone();
     // doors: most of them come off
-    const B = ud.bake; for (const d of ud.doors || []) { if (d.leaf || !B || Math.random() > 0.6) continue; const ms = this.pivotMeshes(v, d); if (!ms || !ms.length) continue; d.pivot.updateMatrixWorld(true);
+    const B = ud.bake; for (const d of ud.doors || []) { if (d.leaf || d.gone || !B || Math.random() > 0.6) continue; const ms = this.pivotMeshes(v, d); if (!ms || !ms.length) continue; d.pivot.updateMatrixWorld(true);
       // the body of the piece is centred on the door's own bounding box (its pivot is the hinge line)
       const bb = new THREE.Box3(); for (const m of ms) { if (!m.geometry.boundingBox) m.geometry.computeBoundingBox(); bb.union(m.geometry.boundingBox); } const ctr = bb.getCenter(new THREE.Vector3()), hs = bb.getSize(new THREE.Vector3()).multiplyScalar(0.5);
       const holder = new THREE.Group(); for (const m of ms) { const mm = new THREE.Mesh(m.geometry, m.name === 'glass' ? S.invis : /^(chrome|vrefl)$/.test(m.name) ? S.charMetal : /^(rubber|interior|dash|canvas)$/.test(m.name) ? S.charSoft : S.charPaint); mm.position.copy(ctr).negate(); holder.add(mm); }
@@ -548,6 +580,7 @@ export class VehicleDamage {
   // ================================================================ repair / dispose / tools
   repair(v) {
     if (!v || v.wrecked) return false; const st = v.vd; v.health = 100; v.power = 1; v.damage = 0; v.headOut = v.tailOut = false; v.dropFit = null; for (const w of v.mesh.userData.wheels || []) { w.userData.flat = false; w.userData.drop = 0; }
+    for (const d of v.mesh.userData.doors || []) if (d.gone) { d.gone = false; d.ang = 0; d.vel = 0; d.strapW = 0; if (!d.pivot.parent) v.mesh.add(d.pivot); poseDoor(d); setDoorLive(v.mesh.userData, d, false); } // torn-off doors refitted
     if (!st) return true; const ud = v.mesh.userData, B = ud.bake;
     for (const e of st.owned) { if (e.kind === 'bake') { B.shared[e.name] = e.src; delete e.mesh.userData.view; } else e.mesh.geometry = e.src; }
     if (B) { for (const n in B.meshes) { const m = B.meshes[n]; m.geometry = B.shared[n]; } for (const d of ud.doors || []) if (d.live) setDoorLive(ud, d, true); }

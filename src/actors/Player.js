@@ -11,7 +11,7 @@ import { kickUp, kickDown, isTwoWheel, KICK_UP, KICK_DOWN } from '../vehicles/Ki
 import { doorPath, seatPath, seatCharacter } from './Seating.js';
 import { BOARD_T, EXIT_K, boardKind, boardGeom, boardCurve, poseBoard, riseGeom, doorGripFn, doorHandleGrip, doorHoldAngle } from './Boarding.js';
 import { busDriverPath, busDriverStand, busWalkStep, turnToward, DRIVER_T as STAND_T } from './BusWalk.js';
-import { openBusDoor } from '../vehicles/DoorRig.js';
+import { openBusDoor, holdDoor } from '../vehicles/DoorRig.js';
 const isBus = (v) => v.type === 'bus' || v.type === 'pbus'; // real doorways + stairwell (VehicleModels): walked, not slid through
 const _feet = new THREE.Vector3(); const _bgP = new THREE.Vector3(), _bgInv = new THREE.Matrix4();
 
@@ -136,7 +136,7 @@ export class Player {
   // driver door as a damped spring (normalised angle 0..1): opens off the latch, bounces lightly on the check strap,
   // and a close accelerates into the latch → slam (sound + the body rocks on its springs). Returns 'latched' on a close.
   driveDoor(v, door, side, target, dt, w = 9, z = 0.7) {
-    if (!door) return null; const h = Math.min(dt, 1 / 30); door.ang = door.ang || 0; door.vel = door.vel || 0; let ev = null;
+    if (!door) return null; holdDoor(door); const h = Math.min(dt, 1 / 30); door.ang = door.ang || 0; door.vel = door.vel || 0; let ev = null;
     door.vel += (w * w * (target - door.ang) - 2 * z * w * door.vel) * h; door.ang += door.vel * h;
     if (door.ang > 1.05) { door.ang = 1.05; if (door.vel > 0) door.vel *= -0.25; } // check-strap stop
     if (door.ang < 0) { const s = -door.vel; door.ang = 0; door.vel = 0; ev = 'latched'; if (s > 0.6) { v.slam(s); this.events.emit('doorSlam', { v, s }); } }
@@ -167,7 +167,7 @@ export class Player {
   }
   updateEntry(dt) {
     const E = this.entry; const v = E.v; const A = this.ch.anim; E.t += dt; E.total += dt; const e = E.e; const seat = v.driverSeat();
-    const faceYawL = -e.side * Math.PI / 2; const doorAng = (k) => { if (E.door) { E.door.ang = k; E.door.vel = 0; E.door.pivot.rotation.y = E.door.max * k * (e.side < 0 ? 1 : -1); } };
+    const faceYawL = -e.side * Math.PI / 2; const doorAng = (k) => { if (E.door) { holdDoor(E.door); E.door.ang = k; E.door.vel = 0; E.door.pivot.rotation.y = E.door.max * k * (e.side < 0 ? 1 : -1); } };
     const door = (target, w, z) => this.driveDoor(v, E.door, e.side, target, dt, w, z); if (E.stage !== 'approach') v.sync(dt); // held vehicle is not stepped: keep its springs alive
     const next = (st) => { E.stage = st; E.t = 0; };
     const walkTo = (wx, wz, sp) => { const dx = wx - this.x, dz = wz - this.z, d = Math.hypot(dx, dz); if (d > 0.05) { const st = Math.min(d, sp * dt); this.yaw = dampAngle(this.yaw, Math.atan2(dx, dz), 10, dt); const r = this.collision.resolveCircle(this.x + dx / d * st, this.z + dz / d * st, 0.3, this.y, 0.45, 1.75); this.x = r.x; this.z = r.z; if (E.stage === 'approach') { const q = v.pushOut(this.x, this.z, 0.32); if (q) { this.x = q.x; this.z = q.z; } } } this.y = this.collision.groundAt(this.x, this.z, this.y, 0.5); A.update(dt, d > 0.15 ? sp : 0, 0); this.sync(); return d; };
@@ -313,7 +313,7 @@ export class Player {
   }
   updateExit(dt) {
     const X = this.exiting; const v = X.v; X.t += dt; const A = this.ch.anim; const seat = v.driverSeat(); const side = X.side;
-    const doorAng = (k) => { if (X.door) { X.door.ang = k; X.door.vel = 0; X.door.pivot.rotation.y = X.door.max * k * (side < 0 ? 1 : -1); } };
+    const doorAng = (k) => { if (X.door) { holdDoor(X.door); X.door.ang = k; X.door.vel = 0; X.door.pivot.rotation.y = X.door.max * k * (side < 0 ? 1 : -1); } };
     const door = (target, w, z) => this.driveDoor(v, X.door, side, target, dt, w, z); if (X.stage !== 'end') v.sync(dt); // the vehicle is not stepped while getting out
     if (X.stage === 'busRise') { // the sit-down played back: off the wheel, up out of the seat, turned toward the door
       if (!X.G) { X.G = riseGeom(v, seat, A, Math.PI / 2, busDriverStand(seat)); A.set(null); A.standUp(); A.duck = 0; }
