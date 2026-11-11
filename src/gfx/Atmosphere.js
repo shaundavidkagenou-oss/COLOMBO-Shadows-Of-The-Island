@@ -16,6 +16,34 @@ export const SUN_SHADOW = { range: 34, ahead: 0.3, wallH: 22, dist: 300, pcf: { 
 { const C = THREE.ShaderChunk; const a = 'directLight.color *= ( directLight.visible && receiveShadow ) ? getShadow( directionalShadowMap[ i ], directionalLightShadow.shadowMapSize, directionalLightShadow.shadowIntensity, directionalLightShadow.shadowBias, directionalLightShadow.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;';
   if (C.lights_fragment_begin.includes(a)) C.lights_fragment_begin = C.lights_fragment_begin.replace(a, '{ vec2 sunEdge = abs( vDirectionalShadowCoord[ i ].xy / vDirectionalShadowCoord[ i ].w * 2.0 - 1.0 ); ' +
     a.replace('? getShadow(', '? mix( getShadow(').replace('vDirectionalShadowCoord[ i ] ) : 1.0;', 'vDirectionalShadowCoord[ i ] ), 1.0, smoothstep( 0.86, 0.995, max( sunEdge.x, sunEdge.y ) ) ) : 1.0; }')); }
+// ----------------------------------------------------------------------------------------------------------------- sun disc
+// The Preetham disc was a 0.53°-radius circle of ~60 000 (HDR), clamped by the post sanitizer to a flat white dot whatever the
+// time of day. Now (uDiscMode 1, the main view): a 0.39° disc with a soft anti-aliased limb and limb darkening, tinted by the
+// atmosphere's own transmittance (white-gold high up, deep orange near the horizon), bright enough to drive the flare and
+// shafts but dimming as it sinks, plus a faint forward-scattering corona that blends it into the sky. The environment-map
+// capture keeps the original disc (uDiscMode 0) so reflections are unchanged.
+export const SUN_DISC = { rad: 0.0075, hdr: 30 };
+export const SKY_KNEE = { k: 0.55, w: 0.9 }; // sky in-scatter luminance (HDR, after the sky gain) where the roll-off starts, and its asymptotic headroom
+// sun light warmth: the light turns gold well before the last half hour (17:00 ≈ 18° sun is the golden hour; the old warmth
+// only started below ~13°), so buildings take the warm evening / morning light; 0 = the previous curve
+export const SUN_WARMTH = 0.8;
+function sunDiscPatch(fs) {
+  const a = 'vec3 sundiscColor = ( 760.0 * sundisc ) * min( vSunE * Fex, 80.0 );';
+  if (!fs.includes(a)) { console.warn('Sky: sun disc patch not applied'); return fs; }
+  return fs.replace(a, a + `
+      if ( uDiscMode > 0.5 ) {
+        float rr = sqrt( max( 2.0 * ( 1.0 - cosTheta ), 0.0 ) ) / uSunRad; float fw = max( fwidth( rr ), 1e-3 );
+        float disc = 1.0 - smoothstep( 1.0 - fw, 1.0 + fw, rr ); float mu = sqrt( max( 0.0, 1.0 - min( rr * rr, 1.0 ) ) );
+        vec3 tint = Fex / max( max( Fex.r, Fex.g ), max( Fex.b, 1e-5 ) ); float up = smoothstep( 0.0, 0.25, vSunDirection.y );
+        float k = mix( 5.0, uSunDisc, up ) * smoothstep( -0.03, 0.01, vSunDirection.y ) * showSunDisc;
+        float corona = exp( -max( rr - 1.0, 0.0 ) * 1.4 ) * ( 1.0 - disc ) * 0.05;
+        sundiscColor = tint * k * ( disc * ( 1.0 - 0.6 * ( 1.0 - mu ) ) + corona );
+        // sky highlight knee: Preetham's Mie peak is 8–12 (HDR) for degrees around the sun and the open sky ~1.5–2, which
+        // ACES turned into a flat white patch (the disc vanished into it) over a pale, washed-out blue. Above SKY_KNEE the sky's
+        // in-scattering rolls off smoothly with its hue kept: a deeper blue, a warm circumsolar glow, a disc that reads as one.
+        { vec3 sk = Lin * 0.04 * uSkyGain; float L = dot( sk, vec3( 0.2126, 0.7152, 0.0722 ) ); if ( L > ${SKY_KNEE.k.toFixed(3)} ) Lin *= ( ${SKY_KNEE.k.toFixed(3)} + ( L - ${SKY_KNEE.k.toFixed(3)} ) / ( 1.0 + ( L - ${SKY_KNEE.k.toFixed(3)} ) / ${SKY_KNEE.w.toFixed(3)} ) ) / L; }
+      }`);
+}
 const _sf = new THREE.Vector3(), _sc = new THREE.Vector3(), _sx = new THREE.Vector3(), _sy = new THREE.Vector3(), _sl = new THREE.Vector3(), _UP = new THREE.Vector3(0, 1, 0);
 const cloudVert = `varying vec3 vDir; void main(){ vDir = normalize((modelMatrix * vec4(position,1.0)).xyz - cameraPosition); vec4 p = projectionMatrix * viewMatrix * modelMatrix * vec4(position,1.0); gl_Position = p.xyww;
 #ifdef USE_REVERSED_DEPTH_BUFFER
@@ -66,10 +94,10 @@ export class Atmosphere {
     this.weatherTimer = 240; this.drawDist = 1400; this.rng = new RNG(99);
     // sky
     this.sky = new Sky(); this.sky.scale.setScalar(18000); scene.add(this.sky);
-    { const m = this.sky.material; m.uniforms.uSkyGain = { value: 1 }; m.vertexShader = m.vertexShader.replace('gl_Position.z = gl_Position.w; // set z to camera.far', '#ifdef USE_REVERSED_DEPTH_BUFFER\n gl_Position.z = 0.0;\n#else\n gl_Position.z = gl_Position.w;\n#endif'); m.uniforms.uNightK = { value: 0 }; m.uniforms.uNZen = { value: new THREE.Color(0.0035, 0.0065, 0.018) }; m.uniforms.uNHor = { value: new THREE.Color(0.016, 0.02, 0.034) }; m.uniforms.uGlow = { value: new THREE.Color(0.05, 0.028, 0.014) }; m.uniforms.uMoonDir = { value: new THREE.Vector3(0, 1, 0) };
+    { const m = this.sky.material; m.uniforms.uSkyGain = { value: 1 }; m.vertexShader = m.vertexShader.replace('gl_Position.z = gl_Position.w; // set z to camera.far', '#ifdef USE_REVERSED_DEPTH_BUFFER\n gl_Position.z = 0.0;\n#else\n gl_Position.z = gl_Position.w;\n#endif'); m.uniforms.uNightK = { value: 0 }; m.uniforms.uNZen = { value: new THREE.Color(0.0035, 0.0065, 0.018) }; m.uniforms.uNHor = { value: new THREE.Color(0.016, 0.02, 0.034) }; m.uniforms.uGlow = { value: new THREE.Color(0.05, 0.028, 0.014) }; m.uniforms.uMoonDir = { value: new THREE.Vector3(0, 1, 0) }; m.uniforms.uDiscMode = { value: 1 }; m.uniforms.uSunRad = { value: SUN_DISC.rad }; m.uniforms.uSunDisc = { value: SUN_DISC.hdr };
       /* night sky (the Preetham model is black once the sun has set): navy zenith, a lighter horizon band, the warm sodium/LED light
          pollution dome over the city (strongest at the horizon) and the moon's scattering glow; also feeds the PMREM environment */
-      m.fragmentShader = 'uniform float uSkyGain; uniform float uNightK; uniform vec3 uNZen, uNHor, uGlow, uMoonDir;\n' + m.fragmentShader.replace('gl_FragColor = vec4( texColor, 1.0 );', `{ float ey = clamp( direction.y, 0.0, 1.0 ); vec3 nsky = mix( uNHor, uNZen, pow( ey, 0.42 ) );
+      m.fragmentShader = 'uniform float uSkyGain; uniform float uNightK; uniform vec3 uNZen, uNHor, uGlow, uMoonDir; uniform float uDiscMode, uSunRad, uSunDisc;\n' + sunDiscPatch(m.fragmentShader).replace('gl_FragColor = vec4( texColor, 1.0 );', `{ float ey = clamp( direction.y, 0.0, 1.0 ); vec3 nsky = mix( uNHor, uNZen, pow( ey, 0.42 ) );
         nsky += uGlow * ( exp( -ey * 7.0 ) * 0.85 + exp( -ey * 26.0 ) * 0.6 ); float md = max( dot( direction, uMoonDir ), 0.0 ); nsky += vec3( 0.55, 0.6, 0.75 ) * ( 0.012 * pow( md, 12.0 ) + 0.05 * pow( md, 300.0 ) );
         if ( direction.y < 0.0 ) nsky = uNHor * 0.8 + uGlow * 0.9;
         gl_FragColor = vec4( texColor * uSkyGain + nsky * uNightK, 1.0 ); }`); m.needsUpdate = true; } // midday Preetham sky is far hotter than the city it lights: scale it so the horizon isn't a white wall
@@ -217,9 +245,10 @@ export class Atmosphere {
     const golden = 1 - smoothstep(0.05, 0.35, Math.max(elev, 0));
     const cloudDim = 1 - this.w.cloud * 0.72;
     const u = this.sky.material.uniforms; u.sunPosition.value.copy(this.sunDir).multiplyScalar(1000);
-    u.turbidity.value = lerp(3, 11, this.w.cloud) + golden * 2; u.mieDirectionalG.value = 0.74; u.rayleigh.value = lerp(1.3, 3.2, golden) * (1 - this.w.dark * 0.5) + this.night * 0.0;
+    u.turbidity.value = lerp(3, 11, this.w.cloud) + golden * 2; u.mieDirectionalG.value = lerp(0.8, 0.75, golden); /* a tighter forward-scattering halo by day: the sun reads as a disc in a glow, not a white quarter of the sky */ u.rayleigh.value = lerp(1.3, 3.2, golden) * (1 - this.w.dark * 0.5) + this.night * 0.0;
     u.mieCoefficient.value = lerp(0.0018, 0.008, golden); u.uSkyGain.value = lerp(0.58, 1.0, Math.max(golden, this.night)); // tight sun halo: no white-out across the skyline
-    const sunCol = new THREE.Color().setRGB(1, lerp(0.95, 0.55, golden), lerp(0.88, 0.32, golden));
+    const warm = Math.max(golden, SUN_WARMTH * (1 - smoothstep(0.1, 0.6, Math.max(elev, 0)))); this.warmth = warm;
+    const sunCol = new THREE.Color().setRGB(1, lerp(0.95, 0.55, warm), lerp(0.88, 0.32, warm));
     this.sun.color.copy(sunCol);
     this.sun.intensity = Math.max(0, smoothstep(-0.02, 0.12, elev)) * 2.7 * cloudDim;
     // moon light at night (kept bright enough for readable night gameplay)
@@ -267,7 +296,7 @@ export class Atmosphere {
       this.envSkyline.material.color.setRGB(0.3, 0.31, 0.28).multiplyScalar((1 - this.night * 0.85) * (1 - this.w.dark * 0.35));
       if (this.envCity) { this.envCity.material.color.setRGB(1, 1, 1).multiplyScalar(Math.max(0.06, (1 - this.night * 0.9)) * (1 - this.w.dark * 0.4)); this.envCityLit.material.opacity = this.night * 0.9; }
       const prevFog = this.scene.fog; const old = this.envRT;
-      this.envRT = this.pmrem.fromScene(this.envScene, 0.02, 0.1, 200);
+      const sm = this.sky.material.uniforms; sm.uDiscMode.value = 0; this.envRT = this.pmrem.fromScene(this.envScene, 0.02, 0.1, 200); sm.uDiscMode.value = 1; // reflections keep the original disc
       this.scene.environment = this.envRT.texture; this.envBase = this.scene.environmentIntensity = 0.62 * (1 - this.night * 0.7) * (1 - this.w.dark * 0.3); // sky PMREM is HDR: full strength washed every facade
       if (old) old.dispose(); void prevFog;
     }
