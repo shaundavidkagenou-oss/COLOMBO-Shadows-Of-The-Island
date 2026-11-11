@@ -210,7 +210,7 @@ export class CustomsService {
   }
   get workLabel() { return this.work ? this.work.label : null; }
   get workK() { return this.work ? Math.min(1, this.work.t / this.work.dur) : 0; }
-  workStep(dt) { const W = this.work; if (!W) return; W.wait += dt; if (W.on || W.wait > 6) W.t += dt;
+  workStep(dt) { const W = this.work; if (!W) return; W.wait += dt; if ((W.on && (W.kind !== 'wheel' || W.on2 || W.wait > 6)) || W.wait > 9) W.t += dt; // wheel jobs: both fitters at their wheels before the clock runs (bounded, never stalls)
     if (this.ui && this.ui.open) this.ui.workTick(); if (W.t >= W.dur) { this.work = null; for (const m of this.mech) m.event('done'); if (this.ui && this.ui.open) this.ui.workTick(true); } }
   needsRepair(v = this.v) { return !!v && (!!v.vd || v.damage > 0.02 || v.health < 99 || (v.power ?? 1) < 0.99 || !!v.headOut || !!v.tailOut || (v.mesh.userData.doors || []).some((d) => d.gone)); } // VehicleDamage.repair() clears v.vd
   // ------------------------------------------------------------------------------------------------ cameras
@@ -253,6 +253,7 @@ export class CustomsService {
 // inspects it, works at the diagnostics cart, waves it off. Second: tyre changer / bench, comes to the wheels when they change.
 // They keep off the turntable while it turns and out of the drive path.
 const RECEPTION = { u: 14.7, w: H.w0 }; // the reception glass door at the end of the yellow walkway (CustomsGeo)
+const STANDBY = [-6.4, H.tt[1] + 1.4]; // tyre fitter's stand-by spot beside the turntable during a shop visit (clear of the cameras' sight lines by the shot rule below)
 const POSTS = [{ u: CG.cart.u - 0.9, w: CG.cart.w - 0.2, act: 'type', face: [CG.cart.u, CG.cart.w] }, { u: CG.changer.u + 0.9, w: CG.changer.w - 0.9, act: 'interact', face: [CG.changer.u, CG.changer.w] }];
 class Mechanic {
   constructor(svc, i) { this.svc = svc; this.i = i; this.p = null; this.mode = 'idle'; this.t = 0; this.target = null; this.act = null; this.face = null; this.spawnN = 0; this.job = { step: (p, dt) => this.step(dt), post: () => {}, interrupt: () => { this.interrupted = true; }, resume: () => { this.interrupted = false; this.go(this.mode); } }; }
@@ -279,11 +280,11 @@ class Mechanic {
     const p = this.p; if (!p || this.interrupted) return { desired: 0 }; this.t += dt; const svc = this.svc; let spot = null, act = null, face = null;
     const po = POSTS[this.i];
     switch (this.mode) {
-      case 'idle': spot = [po.u, po.w]; act = po.act; face = po.face; break;
+      case 'idle': if (this.i === 1 && svc.state === 'shop') { spot = STANDBY; act = 'crossarms'; face = [H.tt[0], H.tt[1]]; break; } spot = [po.u, po.w]; act = po.act; face = po.face; break; // while a customer is in the shop the tyre fitter waits by the turntable, ready for wheel work (his tyre-changer post is ~18 m away)
       case 'guide': spot = [-4.2, H.tt[1] + 3.2]; act = 'beckon'; face = [0, H.w0 - 2]; break; // beside the far side of the turntable, waving the car on
       case 'inspect': { const pts = [this.carSpot(-1, 0.75, 0.9), this.carSpot(1, 0.8, 0.9), this.carSpot(1, -0.75, 0.9), [po.u, po.w]]; const k = Math.min(pts.length - 1, Math.floor(this.t / 4.5)); spot = pts[k]; act = k < 3 ? (k === 1 ? 'medKneel' : 'look') : po.act; face = k < 3 ? [H.tt[0], H.tt[1]] : po.face; break; }
       case 'work': { const r = this.workPlan(dt); if (!r) { if (!svc.work) this.go('idle'); spot = [po.u, po.w]; act = po.act; face = po.face; break; } spot = r.spot; act = r.act; face = r.face; this.hands = r.hands; break; }
-      case 'focus': { const cat = svc.ui && svc.ui.catId; if (this.i === 0) { if (cat === 'wheels' || cat === 'brakes' || cat === 'suspension') { spot = this.carSpot(-(svc.wheelSide || 1), 0.55, 0.75); act = 'medKneel'; } else if (cat === 'engine' || cat === 'turbo' || cat === 'exhaust') { spot = this.carSpot(-1, cat === 'exhaust' ? -1.1 : 1.1, 0.4); act = 'look'; } else { spot = [po.u, po.w]; act = po.act; } face = act === 'medKneel' || act === 'look' ? [H.tt[0], H.tt[1]] : po.face; } else { spot = [po.u, po.w]; act = po.act; face = po.face; } break; }
+      case 'focus': { const cat = svc.ui && svc.ui.catId; if (this.i === 0) { if (cat === 'wheels' || cat === 'brakes' || cat === 'suspension') { spot = this.carSpot(-(svc.wheelSide || 1), 0.55, 0.75); act = 'medKneel'; } else if (cat === 'engine' || cat === 'turbo' || cat === 'exhaust') { spot = this.carSpot(-1, cat === 'exhaust' ? -1.1 : 1.1, 0.4); act = 'look'; } else { spot = [po.u, po.w]; act = po.act; } face = act === 'medKneel' || act === 'look' ? [H.tt[0], H.tt[1]] : po.face; } else if (svc.state === 'shop') { spot = STANDBY; act = 'crossarms'; face = [H.tt[0], H.tt[1]]; } else { spot = [po.u, po.w]; act = po.act; face = po.face; } break; }
       case 'clear': spot = this.i === 0 ? [-6.2, H.tt[1] - 1] : [po.u, po.w]; act = this.i === 0 ? 'crossarms' : po.act; face = [0, H.tt[1]]; break; // outside the turntable radius while it turns
       case 'wave': spot = [-5.6, H.w0 + 1.6]; act = this.t < 3.5 ? 'wave' : 'crossarms'; face = [0, H.w0 - 3]; if (this.t > 7) this.go('idle'); break;
     }
@@ -299,12 +300,12 @@ class Mechanic {
     if (B) { // the car's real footprint (+ clearance): never stand in it, never walk through it
       const P = this.toCar(B, p.x, p.z); if (Math.abs(P[0]) < B.hl && Math.abs(P[1]) < B.hw) { const o = this.pushOut(B, P); [p.x, p.z] = this.fromCar(B, o[0], o[1]); if (p.ch) p.ch.root.position.set(p.x, p.ch.root.position.y, p.z); }
       let T = this.toCar(B, x, z); if (Math.abs(T[0]) < B.hl && Math.abs(T[1]) < B.hw) { T = this.pushOut(B, T); [x, z] = this.fromCar(B, T[0], T[1]); }
-      const Pc = this.toCar(B, p.x, p.z); if (this.crosses(B, Pc, T)) { let best = null, bd = 1e9; for (const sf of [-1, 1]) for (const sl of [-1, 1]) { const c = [sf * (B.hl + 0.25), sl * (B.hw + 0.25)]; if (this.crosses(B, Pc, c)) continue; const dd = Math.hypot(c[0] - Pc[0], c[1] - Pc[1]) + Math.hypot(T[0] - c[0], T[1] - c[1]); if (dd < bd) { bd = dd; best = c; } }
+      const Pc = this.toCar(B, p.x, p.z); if (this.crosses(B, Pc, T)) { let best = null, bd = 1e9; for (const sf of [-1, 1]) for (const sl of [-1, 1]) { const c = [sf * (B.hl + 0.25), sl * (B.hw + 0.25)]; if (this.crosses(B, Pc, c) || Math.hypot(c[0] - Pc[0], c[1] - Pc[1]) < 0.3) continue; const dd = Math.hypot(c[0] - Pc[0], c[1] - Pc[1]) + Math.hypot(T[0] - c[0], T[1] - c[1]) + (this.crosses(B, c, T) ? 3 : 0); /* skip the corner we are standing on (stopped there for good before); prefer one with a clear run to the spot */ if (dd < bd) { bd = dd; best = c; } }
         if (best) [x, z] = this.fromCar(B, best[0], best[1]); } }
     const d = Math.hypot(x - p.x, z - p.z);
-    if (d > 0.18) { this.setAct(null); p.faceYaw = null; return { desired: Math.min(1.25, 0.3 + d * 1.1), tx: x, tz: z, avoid: true, accel: 3 }; }
+    if (d > 0.18) { this.setAct(null); p.faceYaw = null; return { desired: Math.min(this.mode === 'work' && d > 2.5 ? 2.6 : 1.25, 0.3 + d * 1.1), tx: x, tz: z, avoid: true, accel: 3 }; } // called to a job: a brisk jog over the longer distances
     if (face) { const [fx, fz] = svc.world(face[0], face[1]); p.faceYaw = Math.atan2(fx - p.x, fz - p.z); }
-    this.setAct(act); if (this.mode === 'work' && svc.work) { if (this.i === 0) svc.work.on = true; this.applyHands(dt); } return { desired: 0, tx: null, tz: null, avoid: false };
+    this.setAct(act); if (this.mode === 'work' && svc.work) { if (this.i === 0) svc.work.on = true; else svc.work.on2 = true; this.applyHands(dt); } return { desired: 0, tx: null, tz: null, avoid: false };
   }
   // car frame helpers without clearance: f along the car (+ front), l across (+ left), y above the floor
   carPt(f, l, y, out = new THREE.Vector3()) { const v = this.svc.v; const sy = Math.sin(v.yaw), cy = Math.cos(v.yaw); return out.set(v.x + sy * f + cy * l, S + y, v.z + cy * f - sy * l); }
