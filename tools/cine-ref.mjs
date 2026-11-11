@@ -21,7 +21,7 @@ const browser = await puppeteer.launch({ executablePath: await chromium.executab
   args: [...chromium.args, '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', `--window-size=${W},${H}`], defaultViewport: { width: W, height: H } });
 try {
   const page = await browser.newPage();
-  page.on('pageerror', (e) => errors.push(String(e.message || e))); page.on('console', (m) => { if ((m.type() === 'error' || m.type() === 'warning' || m.type() === 'warn') && !/favicon|404|GPU stall|ReadPixels|WebGL-|swiftshader/i.test(m.text())) errors.push(`${m.type()}: ${m.text().slice(0, 200)}`); });
+  page.on('pageerror', (e) => errors.push(String(e.message || e))); page.on('console', (m) => { if ((m.type() === 'error' || m.type() === 'warning' || m.type() === 'warn') && !/favicon|404|GPU stall|ReadPixels|WebGL-|swiftshader|willReadFrequently/i.test(m.text())) errors.push(`${m.type()}: ${m.text().slice(0, 200)}`); });
   await page.evaluateOnNewDocument((q) => { localStorage.setItem('colombo.settings.v1', JSON.stringify({ quality: q, showFps: false })); }, Q);
   await page.goto('http://localhost:' + (process.env.PORT || 5199) + '/?test&quick=play', { waitUntil: 'domcontentloaded', timeout: 300000 });
   await page.waitForFunction(() => window.__game && window.__game.stepSim && window.__game.mode === 'play', { timeout: 900000, polling: 1000 });
@@ -74,6 +74,9 @@ try {
       const orig = C.render; C.render = function (...a) { if (!during) { during = probe(); cm.uniforms.tC.value = a[2].texture; const prev = R.getRenderTarget(); R.setRenderTarget(rt); R.render(cs, cam); R.setRenderTarget(prev); const b = new Float32Array(32); R.readRenderTargetPixels(rt, 0, 0, 8, 1, b); hdr = []; for (let i = 0; i < 8; i++) hdr.push([b[i * 4], b[i * 4 + 1], b[i * 4 + 2]].map((v) => +v.toFixed(2))); } return orig.apply(this, a); };
       return new Promise((res) => setTimeout(() => { C.render = orig; res({ hdrAtSunUpwards: hdr, skyPatched: g.atmos.sky.material.fragmentShader.includes('uDiscMode > 0.5'), disc: [g.atmos.sky.material.uniforms.uDiscMode?.value, g.atmos.sky.material.uniforms.uSunRad?.value, g.atmos.sky.material.uniforms.showSunDisc?.value, g.atmos.sky.material.uniforms.uSkyGain.value], rev: C.rev, reversed: R.state.buffers.depth.getReversed(), afterFrame: after, insidePass: during, dtType: C.depthTex.type, passes: g.post.composer.passes.map((p) => p.constructor.name + (p.enabled ? '' : '(off)')) }); }, 6000)); })));
     const name = `${tag}-${time}-${pose}`; await page.screenshot({ path: `${outDir}/${name}.png` });
+    if (process.env.AB) { // same frame without the light shafts (A/B of the shaft contribution)
+      await page.evaluate(() => { window.__game.post.cine.raysOn = false; }); await new Promise((r) => setTimeout(r, 400)); await page.screenshot({ path: `${outDir}/${name}-norays.png` });
+      await page.evaluate(() => { window.__game.post.cine.raysOn = true; }); }
     if (process.env.PERF) console.log('perf', name, JSON.stringify(await page.evaluate((N) => { // per-pass time of the composer, GPU queue drained around each pass (SwiftShader: a CPU-raster proxy for relative cost)
       const g = window.__game, R = g.renderer, gl = R.getContext(), C = g.post.composer; g.noRender = true; const acc = new Map(), orig = [];
       const label = (p, i) => { const u = p.uniforms || (p.material && p.material.uniforms) || (p.fsQuad && p.fsQuad.material && p.fsQuad.material.uniforms) || {}; const k = Object.keys(u); return i + ':' + (p.scene ? 'render' : u.tLUT ? 'cine' : u.tDiffuse && k.length <= 2 ? 'output' : k.slice(0, 2).join('/') || (p.cine !== undefined ? 'depthtap' : 'pass')); };

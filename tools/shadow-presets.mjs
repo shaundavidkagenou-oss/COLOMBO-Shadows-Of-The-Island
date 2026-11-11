@@ -10,7 +10,7 @@ const browser = await puppeteer.launch({ executablePath: await chromium.executab
 const errors = [];
 try {
   const page = await browser.newPage();
-  page.on('pageerror', (e) => errors.push(String(e.message || e))); page.on('console', (m) => { if ((m.type() === 'error' || m.type() === 'warning') && !/favicon|404|GPU stall|ReadPixels|WebGL-/.test(m.text())) errors.push(m.type() + ': ' + m.text().slice(0, 200)); });
+  page.on('pageerror', (e) => errors.push(String(e.message || e))); page.on('console', (m) => { if ((m.type() === 'error' || m.type() === 'warning') && !/favicon|404|GPU stall|ReadPixels|WebGL-|willReadFrequently/.test(m.text())) errors.push(m.type() + ': ' + m.text().slice(0, 200)); });
   await page.evaluateOnNewDocument(() => { localStorage.setItem('colombo.settings.v1', JSON.stringify({ quality: 'low', showFps: false })); });
   await page.goto('http://localhost:' + (process.env.PORT || 5199) + '/?test&quick=play', { waitUntil: 'domcontentloaded', timeout: 300000 });
   await page.waitForFunction(() => window.__game && window.__game.stepSim && window.__game.mode === 'play', { timeout: 900000, polling: 1000 });

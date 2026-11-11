@@ -97,6 +97,8 @@ export function profileWeights(sunY, hour, night, dark, out = new Array(5)) {
 }
 
 const VS = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
+export const CINE = { sunRad: 0.0075, rayFall: 14.0, rayFade: 6.0, rayK: 0.2, rayDist: 120, flare: 1.0, streak: 0.45, gradeRate: 1.5 };
+// rayFade: the shafts fade with screen distance from the sun (no global lift of the lower frame); rayDist: in-scatter distance (m)
 const SKY_FN = `float isSky(vec2 uv) { float d = texture2D(tDepth, uv).x; return uRev > 0.5 ? step(d, 1e-9) : step(0.9999999, d); }`;
 // sun visibility: depth occlusion over the disc (palms, buildings, the player) × a cloud gate (the disc's brightness against
 // the sky just outside it), into a 1×1 target blended with the previous frames (smooth, no flicker); GPU-only, no readback
@@ -122,9 +124,9 @@ const MaskFS = `uniform sampler2D tDepth; uniform vec2 uSun, uTexel; uniform flo
     float s = 0.25 * (isSky(vUv + uTexel * vec2(-0.3, -0.3)) + isSky(vUv + uTexel * vec2(0.3, -0.3)) + isSky(vUv + uTexel * vec2(-0.3, 0.3)) + isSky(vUv + uTexel * vec2(0.3, 0.3)));
     vec2 d = vUv - uSun; d.x *= uAspect; float f = exp(-dot(d, d) * uFall);
     // in-scatter weight: the air between the camera and the surface (the nearest of the tap's footprint, so object edges stay clean)
-    vec2 o = uTexel * 0.5; float d = uRev > 0.5 ? max(max(texture2D(tDepth, vUv + vec2(-o.x, -o.y)).x, texture2D(tDepth, vUv + vec2(o.x, -o.y)).x), max(texture2D(tDepth, vUv + vec2(-o.x, o.y)).x, texture2D(tDepth, vUv + o).x))
+    vec2 o = uTexel * 0.5; float dz = uRev > 0.5 ? max(max(texture2D(tDepth, vUv + vec2(-o.x, -o.y)).x, texture2D(tDepth, vUv + vec2(o.x, -o.y)).x), max(texture2D(tDepth, vUv + vec2(-o.x, o.y)).x, texture2D(tDepth, vUv + o).x))
                                      : min(min(texture2D(tDepth, vUv + vec2(-o.x, -o.y)).x, texture2D(tDepth, vUv + vec2(o.x, -o.y)).x), min(texture2D(tDepth, vUv + vec2(-o.x, o.y)).x, texture2D(tDepth, vUv + o).x));
-    float dist = uRev > 0.5 ? (d <= 0.0 ? 1e6 : uNear / d) : (d >= 1.0 ? 1e6 : (uNear * uFar) / (uFar - (uFar - uNear) * d));
+    float dist = uRev > 0.5 ? (dz <= 0.0 ? 1e6 : uNear / dz) : (dz >= 1.0 ? 1e6 : (uNear * uFar) / (uFar - (uFar - uNear) * dz));
     gl_FragColor = vec4(s * f, 1.0 - exp(-dist / uRayDist), 0.0, 1.0);
   }`;
 // step 2/3: radial scattering towards the sun's screen position; interleaved-gradient jitter replaces stepping rings with fine
@@ -162,7 +164,7 @@ const FinalFS = `precision highp sampler3D;
   }
   void main() {
     vec3 col = texture2D(tDiffuse, vUv).rgb;
-    if (uUseRays > 0.5) { vec2 rg = texture2D(tRays, vUv).rg; col += rg.x * rg.y * uRayK * uSunCol; } // shafts × in-scatter weight: full against the
+    if (uUseRays > 0.5) { vec2 rg = texture2D(tRays, vUv).rg; vec2 ds = (vUv - uSun.xy) * vec2(uAspect, 1.0); col += rg.x * rg.y * exp(-dot(ds, ds) * ${CINE.rayFade.toFixed(2)}) * uRayK * uSunCol; } // shafts × in-scatter weight: full against the
     // sky / far geometry, a fraction on near objects (a palm crown or a car is not washed out by the shaft drawn across it)
     if (uSun.z > 0.0) { float vis = uUseVis > 0.5 ? texture2D(tVis, vec2(0.5)).r : 0.0; if (vis > 0.002) col += lensFlare(vUv) * vis; }
     col *= uExpo;
@@ -182,7 +184,6 @@ const FinalFS = `precision highp sampler3D;
 
 const _v4 = new THREE.Vector4(), _col = new THREE.Color();
 const sm = (a, b, x) => ss(a, b, x);
-export const CINE = { sunRad: 0.0075, rayFall: 9.0, rayK: 0.2, rayDist: 70, flare: 1.0, streak: 0.45, gradeRate: 1.5 };
 
 export class CinePass extends Pass {
   constructor(level = 1, w = 1, h = 1) {
