@@ -99,23 +99,72 @@ const TransitShader = {
 };
 export class PostFX {
   constructor(renderer, scene, camera) {
-    this.r = renderer; this.scene = scene; this.camera = camera; this.enabled = true; this.build();
+    this.r = renderer; this.scene = scene; this.camera = camera; this.enabled = true; this.passes = []; this.preset = null; this.build();
+  }
+  // The composer and every pass hold GPU memory (the main target alone is width*height*4 bytes at half-float, plus a
+  // 32-bit float depth texture, then bloom's ~10 half-res targets, GTAO's 3 full-res targets, SMAA's 2 full-res targets
+  // and the sense history buffer). build() used to replace all of that on every Quality / Resolution-scale change and
+  // never free the old one, so each switch leaked hundreds of MB of VRAM. A driver that runs out of VRAM drops the context
+  // (WebGL "context lost") - the game then never draws another frame and the loading screen never goes away. Build at most
+  // once per preset and free the previous chain first.
+  disposeChain() {
+    const c = this.composer; if (!c) return;
+    this.composer = null;
+    if (this.ao) { try { this.ao.dispose(); } catch (e) {} }
+    if (this.bloom) { try { this.bloom.dispose(); } catch (e) {} }
+    if (this.smaa) { try { this.smaa.dispose(); } catch (e) {} }
+    if (this.sense) { try { this.sense.dispose(); } catch (e) {} }
+    for (const p of this.passes) { try { if (p !== this.ao && p !== this.bloom && p !== this.smaa && p !== this.sense && p.dispose) p.dispose(); } catch (e) {} }
+    try { c.renderTarget1.dispose(); c.renderTarget2.dispose(); c.copyPass.dispose(); } catch (e) {}
+    this.ao = this.bloom = this.smaa = this.sense = null; this.transit = this.grade = null; this.passes = [];
+  }
+  // Build the post chain for a preset (bloom / ao / smaa). Reuses the existing chain when the requested preset is the same
+  // one already built - a Resolution-scale change only needs setSize(), not a whole new set of render targets.
+  rebuild(preset) {
+    const key = (preset.bloom ? 'b' : '') + (preset.ao ? 'a' : '') + (preset.smaa === false ? '' : 's');
+    if (this.composer && this.preset === key) return false;
+    this.disposeChain(); this.build(preset);
+    return true;
   }
   build(preset = { bloom: true, ao: false }) {
     const r = this.r, size = r.getSize(new THREE.Vector2()); const pr = r.getPixelRatio();
+    // SMAA's constructor takes no size (r186): its internal targets start at 1x1 and are only allocated once the composer
+    // calls pass.setSize(). Allocating them here with the viewport size (as this file used to) allocated them twice.
+    this.preset = (preset.bloom ? 'b' : '') + (preset.ao ? 'a' : '') + (preset.smaa === false ? '' : 's');
     const rt = new THREE.WebGLRenderTarget(size.x * pr, size.y * pr, { type: THREE.HalfFloatType, samples: 0, depthTexture: new THREE.DepthTexture(size.x * pr, size.y * pr, THREE.FloatType) }); // 32-bit float depth: with the reversed-Z renderer this removes distance z-fighting
     this.composer = new EffectComposer(r, rt);
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.composer.addPass(new ShaderPass(SanitizeShader));
-    if (preset.ao) { this.ao = new GTAOPass(this.scene, this.camera, size.x, size.y); this.ao.blendIntensity = 0.7; this.composer.addPass(this.ao); } else this.ao = null;
-    if (preset.bloom) { this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), 0.35, 0.55, 0.92); this.composer.addPass(this.bloom); } else this.bloom = null;
-    this.composer.addPass(new OutputPass());
-    this.grade = new ShaderPass(GradeShader); this.composer.addPass(this.grade);
-    this.transit = new ShaderPass(TransitShader); this.transit.enabled = false; this.composer.addPass(this.transit);
-    if (this.sense) this.sense.dispose(); this.sense = new SensePass(size.x * pr, size.y * pr); this.sense.enabled = false; this.composer.addPass(this.sense); this.shocks = this.shocks || []; this.conc = this.conc || 0; this.drunk = this.drunk || 0; this.glow = 0;
-    if (preset.smaa !== false) { this.smaa = new SMAAPass(size.x * pr, size.y * pr); this.composer.addPass(this.smaa); }
+    const add = (p) => { this.composer.addPass(p); this.passes.push(p); return p; };
+    add(new RenderPass(this.scene, this.camera));
+    add(new ShaderPass(SanitizeShader));
+    if (preset.ao) { this.ao = new GTAOPass(this.scene, this.camera, size.x, size.y); this.ao.blendIntensity = 0.7; add(this.ao); } else this.ao = null;
+    if (preset.bloom) { this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), 0.35, 0.55, 0.92); add(this.bloom); } else this.bloom = null;
+    add(new OutputPass());
+    this.grade = add(new ShaderPass(GradeShader));
+    this.transit = add(new ShaderPass(TransitShader)); this.transit.enabled = false;
+    this.sense = add(new SensePass(size.x * pr, size.y * pr)); this.sense.enabled = false; this.shocks = this.shocks || []; this.conc = this.conc || 0; this.drunk = this.drunk || 0; this.glow = 0;
+    if (preset.smaa !== false) { this.smaa = new SMAAPass(); add(this.smaa); } else this.smaa = null;
+    // allocate every pass's targets at the real viewport size once (the same path a window resize takes)
+    this._pr = pr; this.composer.setSize(size.x, size.y);
   }
-  setSize(w, h) { this.composer.setSize(w, h); }
+  // Approximate VRAM held by the post chain, in MB - shown by the `?diag` overlay so a leak is visible instead of guessed at.
+  vramMB() {
+    const b = this.composer && this.composer.renderTarget1; if (!b) return 0;
+    let px = b.width * b.height * 2; // main target, RGBA16F
+    const d = b.depthTexture; if (d) px += d.image.width * d.image.height * 4; // float depth
+    if (this.bloom) { const n = this.bloom.nMips || 5, w = b.width / 2, h = b.height / 2; for (let i = 0; i < n; i++) { const s = Math.pow(2, i); px += Math.max(1, (w / s) | 0) * Math.max(1, (h / s) | 0) * 4; } px += (w | 0) * (h | 0) * 4; px += (w | 0) * (h | 0) * 4; }
+    if (this.ao) px += b.width * b.height * 4 * 3;
+    if (this.smaa) px += b.width * b.height * 4 * 2;
+    if (this.sense) px += 8 * b.width * b.height;
+    return px / (1024 * 1024);
+  }
+  // EffectComposer caches the pixel ratio it was constructed with and multiplies by that cache in setSize(), so a reused
+  // composer would keep rendering the post chain at the OLD Resolution-scale. Keep the cache in step with the renderer.
+  setSize(w, h) {
+    const c = this.composer; if (!c) return;
+    const pr = this.r.getPixelRatio();
+    if (this._pr !== pr) { this._pr = pr; c.setPixelRatio(pr); }
+    c.setSize(w, h);
+  }
   // explosion hooks (Explosions.js) and the drunk level (Drinks): see SenseShader
   shock(x, y, a) { this.shocks.push({ x, y, a, t: 0 }); if (this.shocks.length > 3) this.shocks.shift(); this.glow = Math.max(this.glow, Math.min(1, a * 1.5)); }
   concuss(k) { this.conc = Math.max(this.conc, Math.min(1, k)); }

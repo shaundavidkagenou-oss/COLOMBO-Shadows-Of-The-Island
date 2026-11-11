@@ -31,6 +31,14 @@ class SettingsStore {
       const raw = localStorage.getItem(KEY);
       if (raw) { const p = JSON.parse(raw); Object.assign(this.v, p); this.v.bindings = { ...DEFAULT_BINDINGS, ...(p.bindings || {}) }; }
     } catch (e) { console.warn('settings load failed', e); }
+    // ?safe — start on the Low preset at 50% resolution for this session only, without touching the saved settings.
+    // For a machine where the saved Quality / Resolution scale is what the GPU cannot survive: open the game once with
+    // ?safe, change the settings from inside the menus (they save normally), then load it again without ?safe.
+    try {
+      const q = new URLSearchParams(location.search);
+      if (q.has('safe')) { this.v.quality = 'low'; this.v.resolutionScale = 0.5; this.v.showFps = true; this.safeMode = true; console.warn('[COLOMBO] safe mode: Low preset, 50% resolution (saved settings untouched)'); }
+      const qq = q.get('quality'); if (qq && QUALITY_PRESETS[qq]) this.v.quality = qq;
+    } catch (e) {}
   }
   get(k) { return this.v[k]; }
   set(k, val) { this.v[k] = val; this.save(); bus.emit('settings', k, val); }

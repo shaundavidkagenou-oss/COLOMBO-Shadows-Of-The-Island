@@ -70,7 +70,7 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 
 export class Game {
   constructor(root) {
-    this.root = root; this.bus = bus; this.clock = 0; this.dt = 0; this.mode = 'boot'; this.paused = false; this.radio = 0; this.autosaveT = 0; this.fps = 60; this.indoor = false;
+    this.root = root; this.bus = bus; this.clock = 0; this.dt = 0; this.mode = 'boot'; this.paused = false; this.radio = 0; this.autosaveT = 0; this.fps = 60; this.indoor = false; this.rendering = true;
     this.ghost = { x: 1e7, z: 1e7, y: 0, yaw: 0, speed: 0, vehicle: null, crouching: false, sprinting: false, ch: null, isGhost: true }; // stand-in player for menu/intro simulation
     const preset = Settings.preset;
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', stencil: false, reversedDepthBuffer: true }); // reversed-Z + float depth (PostFX target): uniform depth precision near and far, so windows, signs, glass and paving never z-fight (falls back to standard depth without EXT_clip_control)
@@ -88,6 +88,21 @@ export class Game {
     addEventListener('resize', () => this.resize());
     bus.on('settings', (k) => this.applySettings(k));
     this.canvas.addEventListener('click', () => { if (this.mode === 'play' && !this.paused && !this.editorHook) Input.requestLock(this.canvas); });
+    // A lost WebGL context is silent by default: every draw becomes a no-op, the loading screen never advances and the game
+    // looks frozen with nothing in the console. The usual cause is the GPU process dying (VRAM exhaustion, a driver reset, or
+    // the adapter being swapped). This makes the loss loud, stops the render loop from submitting dead draws, and recovers by
+    // reloading - the autosave/quickload path puts the player straight back where they were instead of on the intro.
+    this.canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault(); this.rendering = false;
+      const soft = gpuInfo(this.renderer).kind === 'software';
+      console.error('[COLOMBO] WebGL context lost.', soft ? 'Rendering was on the CPU (hardware acceleration off).' : 'Usually VRAM exhaustion or a driver reset.');
+      try { this.saveTo('auto'); } catch (err) {}
+      const d = document.createElement('div'); d.className = 'fatal';
+      d.innerHTML = '<h1>The graphics device stopped</h1><p>Your GPU context was lost' + (soft ? ' — the game is running on software rendering, so turn on hardware acceleration / use the desktop .exe.' : ' (usually out of video memory or a driver reset).') + '</p><p>Your progress was saved. Reloading…</p>';
+      this.ui.appendChild(d);
+      setTimeout(() => { sessionStorage.setItem('colombo.next', JSON.stringify({ action: 'load', slot: 'auto' })); location.reload(); }, 2600);
+    });
+    this.canvas.addEventListener('webglcontextrestored', () => { console.warn('[COLOMBO] WebGL context restored — rebuilding render state.'); location.reload(); });
     bus.on('pointerlock', (locked) => { if (!locked && this.mode === 'play' && !this.paused && !this.photo && !this.hud.bigMapOpen && !this.director.active && !this.ignoreUnlock && !this.gunShop?.open && !this.debugCon?.menuOpen && !this.debugCon?.open && !this.editorHook) this.openPause(); });
     bus.on('key', (code) => this.onKey(code));
   }
@@ -131,7 +146,7 @@ export class Game {
     this.health = new Health(this); this.phone = new Phone(this, this.hud.root); this.gunShop = new GunShopUI(this, this.hud.root); this.debug = newDebugState(); this.debugCon = new DebugConsole(this, this.hud.root);
     this.applyDensity();
     progress(0.9, 'Lighting'); await tick();
-    this.post = new PostFX(this.renderer, this.scene, this.camera); this.post.build({ bloom: Settings.preset.bloom, ao: Settings.preset.ao }); this.world.glintsOn = Settings.get('wetReflections') !== false; this.atmos.nightBoost = Settings.get('nightBrightness') ?? 1;
+    this.post = new PostFX(this.renderer, this.scene, this.camera); this.post.rebuild({ bloom: Settings.preset.bloom, ao: Settings.preset.ao }); this.world.glintsOn = Settings.get('wetReflections') !== false; this.atmos.nightBoost = Settings.get('nightBrightness') ?? 1;
     this.explosions = new Explosions(this); this.vdamage = new VehicleDamage(this); /* glass, bullets through bodywork, tyres, dents, fire → explosion, flung debris */ this.blood.useFx(this.explosions.U); this.grenades = new Grenades(this); // throwables (key B) + cinematic blasts
     this.drunk = new Drunk(this); // vodka in the hero rooms (HeroRooms.js)
     this.vsmoke = new VehicleSmoke(this, Settings.get('quality')); // tyre smoke + exhaust (one draw call, fixed pool)
@@ -167,6 +182,7 @@ export class Game {
       this.story.state = Story.freshState(); this.squad.reset(); this.mode = 'play'; this.atmos.hour = 17; this.setupRoomDoor(); this.world.warm(-140, -892); this.player.teleport(-140, -891.8, Math.PI / 2);
       this.player.cinematic = false; this.player.control = true; this.hud.show(true); this.hud.fade(0, 0.3); this.story.setupWorldActivities(); this.story.startMission('m0', 0); return;
     }
+    if (new URLSearchParams(location.search).has('diag')) { this.startDiagnostics(); window.diag = () => this.dumpRenderer(); }
     await this.screens.studioIntro((p) => this.load(p));
     if (window.__sdsTrailer) return this.playTrailer(); // "WATCH TRAILER" on the entry gate: plays, then reloads to the gate
     await this.montage();
@@ -379,7 +395,7 @@ export class Game {
       if (this.post && !mapOpen) {
         /* FPS (src/gfx/ViewSkip.js): one matrix pass per frame, skipping unseen people/vehicles on their off-frames; the reflection and main renders reuse it */
         refreshView(this.camera, this.atmos && this.atmos.sun, this.atmos ? this.atmos.night : 0); holdVehicles(LIVE_VEHICLES, this.player && this.player.vehicle); updateSceneMatrices(this.scene);
-        withMatricesDone(this.scene, () => { if (this.world && this.world.waterRefl) { const q = Settings.get('quality'); this.world.waterRefl.scale = q === 'ultra' ? 0.6 : 0.45; this.world.waterRefl.halfRate = q !== 'ultra'; this.world.waterRefl.update(this.renderer, this.scene, this.camera, (q === 'high' || q === 'ultra') && !this.indoor); } this.post.indoor = !!this.indoor || (this.seamK || 0) > 0.01 || this.mode !== 'play'; this.post.update(this.atmos); this.post.render(dt); });
+        withMatricesDone(this.scene, () => { if (this.world && this.world.waterRefl) { const q = Settings.get('quality'); this.world.waterRefl.scale = q === 'ultra' ? 0.6 : 0.45; this.world.waterRefl.halfRate = q !== 'ultra'; this.world.waterRefl.update(this.renderer, this.scene, this.camera, (q === 'high' || q === 'ultra') && !this.indoor); } this.post.indoor = !!this.indoor || (this.seamK || 0) > 0.01 || this.mode !== 'play'; this.post.update(this.atmos); if (this.rendering) this.post.render(dt); if (this._diagTick) this._diagTick(); });
       }
     } catch (e) { if (!this._errN || this._errN < 5) console.error(e && e.stack || e); this._errN = (this._errN || 0) + 1; this.lastError = e; }
     Input.endFrame();
@@ -532,7 +548,22 @@ export class Game {
   applyDensity() { const pr = Settings.preset; this.crowd.max = Math.round(pr.crowd * 0.45 * Settings.get('crowdDensity')); this.traffic.max = Math.round(pr.traffic * Settings.get('trafficDensity')); }
   applySettings(k) {
     const pr = Settings.preset; if (!this.post) return;
-    if (k === 'quality' || k === 'resolutionScale' || k === '*') { this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * pr.pixelRatio * Settings.get('resolutionScale')); this.renderer.shadowMap.enabled = pr.shadows; this.atmos.sun.castShadow = pr.shadows; this.atmos.drawDist = pr.drawDist; this.world.setQuality(Settings.get('quality')); this.post.build({ bloom: pr.bloom, ao: pr.ao }); this.resize(); this.scene.traverse((o) => { if (o.material && o.material.needsUpdate !== undefined && k === 'quality') o.material.needsUpdate = true; }); }
+    if (k === 'quality' || k === 'resolutionScale' || k === '*') {
+      this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * pr.pixelRatio * Settings.get('resolutionScale'));
+      this.renderer.shadowMap.enabled = pr.shadows; this.atmos.sun.castShadow = pr.shadows; this.atmos.drawDist = pr.drawDist;
+      // Quality also changes the sun shadow-map resolution (Settings.preset.shadowRes). It used to be read once in the
+      // constructor, so High->Ultra kept a 2048 map and Ultra->Low kept rendering 2048 shadows with shadows "off".
+      if (this.atmos && this.atmos.sun && this.atmos.sun.shadow.mapSize.x !== pr.shadowRes) {
+        this.atmos.sun.shadow.mapSize.set(pr.shadowRes, pr.shadowRes);
+        if (this.atmos.sun.shadow.map) { this.atmos.sun.shadow.map.dispose(); this.atmos.sun.shadow.map = null; } // reallocated at the new size on the next shadow render
+      }
+      this.world.setQuality(Settings.get('quality'));
+      // Rebuild the chain only when the pass set actually changes; a Resolution-scale change just resizes it. Either way the
+      // old targets are freed first (see PostFX.disposeChain) - this is the fix for the VRAM leak that killed the context.
+      this.post.rebuild({ bloom: pr.bloom, ao: pr.ao });
+      this.resize();
+      this.scene.traverse((o) => { if (o.material && o.material.needsUpdate !== undefined && k === 'quality') o.material.needsUpdate = true; });
+    }
     if (k === 'wetReflections' || k === '*') { if (this.world) this.world.glintsOn = Settings.get('wetReflections') !== false; }
     if (k === 'nightBrightness' || k === '*') { if (this.atmos) this.atmos.nightBoost = Settings.get('nightBrightness') ?? 1; }
     if (k === 'fov' || k === '*') { this.camera.fov = Settings.get('fov'); this.camera.updateProjectionMatrix(); }
@@ -542,4 +573,37 @@ export class Game {
     if (k === 'subtitleSize' || k === '*') document.documentElement.style.setProperty('--sub-scale', Settings.get('subtitleSize'));
   }
   resize() { const w = innerWidth, h = innerHeight; this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); this.renderer.setSize(w, h); if (this.post) this.post.setSize(w, h); }
+  // ================================================================= diagnostics (?diag)
+  // A one-line snapshot of everything that can eat a frame, refreshed once a second, plus a console table of the renderer's
+  // heaviest cumulative counters. Use it to see whether the cost is fill rate (frameMs high, draws low), draw calls (draws
+  // high), or a GPU context that died (context lost). Nothing here runs unless the URL contains ?diag.
+  startDiagnostics() {
+    if (this._diag) return; this._diag = true;
+    const el = document.createElement('div'); el.id = 'diag';
+    el.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:9999;font:11px/1.45 ui-monospace,Menlo,Consolas,monospace;color:#cfe8ff;background:rgba(4,8,14,.78);padding:7px 10px;border-radius:5px;pointer-events:none;white-space:pre;letter-spacing:.02em';
+    document.body.appendChild(el); this._diagEl = el;
+    let t = 0, frames = 0;
+    const tick = () => {
+      frames++;
+      if (++t < 30) return; t = 0;
+      const r = this.renderer, info = r.info, gl = r.getContext();
+      const sz = r.getDrawingBufferSize(new THREE.Vector2());
+      const gpu = gpuInfo(r).label;
+      el.textContent =
+        `${this.fps.toFixed(0)} fps  ·  ${(1000 / Math.max(1, this.fps)).toFixed(1)} ms/frame\n` +
+        `buffer ${sz.x}x${sz.y}  dpr ${r.getPixelRatio().toFixed(2)}  ${(sz.x * sz.y / 1e6).toFixed(2)} Mpx\n` +
+        `draws ${info.render.calls}  tris ${(info.render.triangles / 1e6).toFixed(2)}M  geo ${info.memory.geometries}  tex ${info.memory.textures}\n` +
+        `programs ${info.programs ? info.programs.length : '-'}  post ${this.post ? this.post.vramMB().toFixed(0) : 0} MB\n` +
+        `lost ${gl.isContextLost() ? 'YES' : 'no'}  ·  ${gpu}`;
+    };
+    this._diagTick = tick;
+    el.textContent = 'diag: booting…';
+  }
+  dumpRenderer() {
+    const r = this.renderer, i = r.info;
+    console.groupCollapsed(`[COLOMBO] ${this.fps.toFixed(0)} fps · ${i.render.calls} draws · ${(i.render.triangles / 1e6).toFixed(2)}M tris`);
+    console.table(i.render);
+    console.log('programs', i.programs ? i.programs.length : '-', '· textures', i.memory.textures, '· geometries', i.memory.geometries, '· post VRAM ~', this.post ? this.post.vramMB().toFixed(0) + ' MB' : '-');
+    console.groupEnd();
+  }
 }
