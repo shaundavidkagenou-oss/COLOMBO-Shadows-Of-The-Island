@@ -44,7 +44,7 @@ function sunDiscPatch(fs) {
         { vec3 sk = Lin * 0.04 * uSkyGain; float L = dot( sk, vec3( 0.2126, 0.7152, 0.0722 ) ); if ( L > ${SKY_KNEE.k.toFixed(3)} ) Lin *= ( ${SKY_KNEE.k.toFixed(3)} + ( L - ${SKY_KNEE.k.toFixed(3)} ) / ( 1.0 + ( L - ${SKY_KNEE.k.toFixed(3)} ) / ${SKY_KNEE.w.toFixed(3)} ) ) / L; }
       }`);
 }
-const _sf = new THREE.Vector3(), _sc = new THREE.Vector3(), _sx = new THREE.Vector3(), _sy = new THREE.Vector3(), _sl = new THREE.Vector3(), _UP = new THREE.Vector3(0, 1, 0);
+const _sf = new THREE.Vector3(), _sc = new THREE.Vector3(), _sx = new THREE.Vector3(), _sy = new THREE.Vector3(), _sl = new THREE.Vector3(), _slq = new THREE.Vector3(), _UP = new THREE.Vector3(0, 1, 0);
 const cloudVert = `varying vec3 vDir; void main(){ vDir = normalize((modelMatrix * vec4(position,1.0)).xyz - cameraPosition); vec4 p = projectionMatrix * viewMatrix * modelMatrix * vec4(position,1.0); gl_Position = p.xyww;
 #ifdef USE_REVERSED_DEPTH_BUFFER
  gl_Position.z = 0.0;
@@ -250,11 +250,17 @@ export class Atmosphere {
     const warm = Math.max(golden, SUN_WARMTH * (1 - smoothstep(0.1, 0.6, Math.max(elev, 0)))); this.warmth = warm;
     const sunCol = new THREE.Color().setRGB(1, lerp(0.95, 0.55, warm), lerp(0.88, 0.32, warm));
     this.sun.color.copy(sunCol);
-    this.sun.intensity = Math.max(0, smoothstep(-0.02, 0.12, elev)) * 2.7 * cloudDim;
+    this.sun.intensity = Math.max(0, smoothstep(0.0, 0.12, elev)) * 2.7 * cloudDim; // 35th (smooth transitions): reaches 0 exactly at the horizon, where the light hands over to the moon
     // moon light at night (kept bright enough for readable night gameplay)
-    if (elev < 0) { _sl.set(-0.4, 0.8, -0.3).normalize(); this.sun.color.setRGB(0.62, 0.72, 1.0); this.sun.intensity = 0.78 * this.night * (1 - this.w.cloud * 0.45); } // moonlight: readable silhouettes and road surface, still clearly night
+    if (elev < 0) { _sl.set(-0.4, 0.8, -0.3).normalize(); this.sun.color.setRGB(0.62, 0.72, 1.0); this.sun.intensity = 0.78 * this.night * (1 - this.w.cloud * 0.45) * smoothstep(0.0, 0.07, -elev); } // fades in from 0 below the horizon: the switch of direction / colour from sun to moon happens at zero intensity (it used to flip the shadows and the light colour in one frame at sunset / sunrise) // moonlight: readable silhouettes and road surface, still clearly night
     else _sl.copy(this.sunDir);
-    this.fitSunShadow(focus, camera, _sl); // places the sun / moon light and its shadow box
+    // 35th request (shadow errors): the light direction the shadow map is rendered along moves in small fixed steps (0.0025 rad ≈
+    // 0.14°: a 10 m pole's shadow tip jumps ~2–3 cm every half game minute) instead of rotating a little every frame — a rotating
+    // light basis re-rasterises every shadow edge each frame, which reads as constant crawling / shimmering on cars, walls and trees
+    // even with the texel-snapped box. Shading (the sky, the sun disc, leaf translucency) keeps the exact direction.
+    { const az = Math.atan2(_sl.z, _sl.x), el = Math.asin(Math.max(-1, Math.min(1, _sl.y))), q = 0.0025; const azq = Math.round(az / q) * q, elq = Math.round(el / q) * q;
+      _slq.set(Math.cos(elq) * Math.cos(azq), Math.sin(elq), Math.cos(elq) * Math.sin(azq)); }
+    this.fitSunShadow(focus, camera, _slq); // places the sun / moon light and its shadow box
     { const d = leafLight.dir.value, c = leafLight.col.value; const sd = _sl; d[0] = sd.x; d[1] = sd.y; d[2] = sd.z;
       c[0] = this.sun.color.r * this.sun.intensity; c[1] = this.sun.color.g * this.sun.intensity; c[2] = this.sun.color.b * this.sun.intensity; }
     const skyTop = new THREE.Color().setRGB(0.28, 0.48, 0.82).lerp(new THREE.Color(0.32, 0.36, 0.42), this.w.dark).lerp(new THREE.Color(0.02, 0.04, 0.1), this.night);

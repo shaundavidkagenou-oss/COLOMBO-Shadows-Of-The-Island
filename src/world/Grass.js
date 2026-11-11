@@ -12,6 +12,7 @@ import { CHUNK, NCX, NCZ, chunkCenter } from './CityPlan.js';
 import * as L from './Layout.js';
 import { onParkFeature } from './Parks.js';
 import { TEX } from '../gfx/Textures.js';
+import { leafLight } from './Wind.js';
 
 const CELL = 0.5, N = CHUNK / CELL;
 // materials of hard / non-lawn ground: grass never grows through these where they lie on the lawn
@@ -19,20 +20,32 @@ const PAVE = new Set(['road', 'roadTint', 'walk', 'walkGrey', 'kerb', 'concrete'
 const PROBES = [[0.5, 0.5], [0.05, 0.05], [0.95, 0.05], [0.05, 0.95], [0.95, 0.95]];
 const grassUniforms = { uGTime: { value: 0 }, uGWind: { value: 0.3 } };
 
+// 35th request (grass looked cartoonish): every blade used to be the same flat-shaded ribbon with one shared up-normal and one smooth
+// dark→light ramp, so a lawn read as a uniform green carpet of identical spikes. Each blade now has its own width / height / lean /
+// twist, its own tone (fresh blue-green, mid, yellowed, a few dry straw blades), a dark self-shadowed root, a lighter drying tip,
+// a normal that follows its own face and curvature (so neighbouring blades catch the sun differently), and in the shader sunlight
+// transmits through blades seen against the light. Same 12 blades × 3 segments per clump: no extra geometry.
 function bladeClump() {
   const pos = [], nor = [], col = [], idx = []; let rs = 1;
   const rnd = () => ((rs = (rs * 16807) % 2147483647) / 2147483647);
+  const TONES = [[0.86, 1.0, 0.8], [1.0, 1.0, 0.92], [1.08, 1.02, 0.78], [1.18, 1.06, 0.7], [1.32, 1.12, 0.66]]; // blue-green … mid … yellowed … straw
   for (let b = 0; b < 12; b++) {
-    const a = rnd() * Math.PI * 2, r = Math.sqrt(rnd()) * 0.3, ox = Math.cos(a) * r, oz = Math.sin(a) * r;
-    const yaw = rnd() * Math.PI * 2, w = 0.022 + rnd() * 0.014, h = 0.65 + rnd() * 0.5, lean = 0.12 + rnd() * 0.25;
-    const fx = Math.cos(yaw), fz = Math.sin(yaw), sx = -fz, sz = fx; const base = pos.length / 3;
-    const segs = 3;
+    const a = rnd() * Math.PI * 2, r = Math.pow(rnd(), 0.7) * 0.32, ox = Math.cos(a) * r, oz = Math.sin(a) * r;
+    const yaw = rnd() * Math.PI * 2, w = 0.012 + rnd() * 0.016, h = 0.45 + rnd() * 0.75 + (rnd() < 0.12 ? 0.35 : 0), lean = 0.08 + rnd() * 0.42, twist = (rnd() - 0.5) * 1.2;
+    const tone = TONES[Math.min(4, Math.floor(Math.pow(rnd(), 1.6) * 5))], dry = rnd() < 0.18 ? 0.25 + rnd() * 0.35 : rnd() * 0.12; const side = rnd() < 0.5 ? -1 : 1;
+    const base = pos.length / 3; const segs = 3;
     for (let k = 0; k <= segs; k++) {
-      const t = k / segs, ww = w * (1 - t * 0.85), y = h * t, bend = lean * t * t * h;
+      const t = k / segs, yw = yaw + twist * t, fx = Math.cos(yw), fz = Math.sin(yw), sx = -fz, sz = fx;
+      const ww = w * (1 - Math.pow(t, 1.4) * 0.92), y = h * t * (1 - lean * 0.25 * t), bend = lean * t * t * h;
+      // own face normal, tipping over with the bend; mixed with up so the lawn still shades as a surface
+      const tip = Math.min(1, lean * t * 2.2); const nx = sx * side * (1 - tip) + fx * tip, nz = sz * side * (1 - tip) + fz * tip; const ny = 0.75 + 0.25 * (1 - t);
+      const nl = Math.hypot(nx * 0.7, ny, nz * 0.7);
+      const ao = 0.4 + 0.7 * Math.pow(t, 0.7); // self-shadowed root (dense clump) → open tip
+      const dt = dry * t * t; const c = [mixc(tone[0], 1.42, dt), mixc(tone[1], 1.2, dt), mixc(tone[2], 0.62, dt)].map((q) => q * ao);
       for (const sd of [-1, 1]) {
         pos.push(ox + sx * ww * sd + fx * bend, y, oz + sz * ww * sd + fz * bend);
-        nor.push(fx * 0.35, 0.9, fz * 0.35); // mostly up: blades shade like the lawn they stand on
-        const g = 0.66 + t * 0.4; col.push(g, g, g * (0.97 - t * 0.1));
+        nor.push((nx * 0.7) / nl, ny / nl, (nz * 0.7) / nl);
+        col.push(c[0], c[1], c[2]);
       }
     }
     for (let k = 0; k < segs; k++) { const i = base + k * 2; idx.push(i, i + 1, i + 3, i, i + 3, i + 2); }
@@ -43,6 +56,7 @@ function bladeClump() {
   g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 1e5); // instances span the whole field
   return g;
 }
+const mixc = (a, b, t) => a + (b - a) * t;
 
 function texPixels(t) {
   const img = t && t.image; if (!img || !img.getContext) return null;
@@ -53,9 +67,14 @@ export class GrassField {
   constructor(world, collision) {
     this.world = world; this.collision = collision; this.masks = new Map(); this.radius = 30; this.max = 16000;
     this.px = { grass: texPixels(TEX.grass), lawn: texPixels(TEX.lawn) };
-    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0, side: THREE.DoubleSide });
+    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0, side: THREE.DoubleSide });
     mat.onBeforeCompile = (sh) => {
-      Object.assign(sh.uniforms, grassUniforms);
+      Object.assign(sh.uniforms, grassUniforms); sh.uniforms.uLeafDir = leafLight.dir; sh.uniforms.uLeafCol = leafLight.col;
+      // sunlight through thin blades seen against the light (the glow real grass has at low sun), only toward the open tip
+      sh.fragmentShader = 'uniform vec3 uLeafDir;\nuniform vec3 uLeafCol;\n' + sh.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        { vec3 Lv = normalize((viewMatrix * vec4(uLeafDir, 0.0)).xyz); vec3 Vv = normalize(vViewPosition); float through = pow(max(dot(-Vv, Lv), 0.0), 3.0);
+          float tipK = smoothstep(0.03, 0.2, diffuseColor.g); totalEmissiveRadiance += diffuseColor.rgb * uLeafCol * vec3(0.85, 1.0, 0.45) * through * 0.45 * tipK; }`)
+        .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n  reflectedLight.directSpecular *= 0.35;');
       // both faces of a blade keep the up-facing normal (default DoubleSide flips it on back faces → black spikes)
       sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', THREE.ShaderChunk.normal_fragment_begin.split('*= faceDirection').join('*= 1.0'));
       sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uGTime; uniform float uGWind;')

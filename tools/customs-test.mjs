@@ -1,4 +1,4 @@
-// Colombo Customs — Node regression test (no browser): catalogue rules, police / emergency exclusion, applying / previewing /
+// Street Customs — Node regression test (no browser): catalogue rules, police / emergency exclusion, applying / previewing /
 // restoring mods on real vehicle meshes of every customisable type, material / buffer bookkeeping over many previews, and release.
 // Usage: node tools/customs-test.mjs [type ...]
 import './node-dom-stub.mjs';

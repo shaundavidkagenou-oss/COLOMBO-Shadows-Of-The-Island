@@ -18,7 +18,7 @@ export const SMOKE_POOL = 1152;
 export const KIND = { TYRE: 0, EXHAUST: 1, DIESEL: 2, TWO_STROKE: 3, ENGINE: 4, TYRE_HAZE: 5 };
 const R_FAR = 70, R_NEAR = 30;
 
-// Colombo Customs: a tyre-smoke colour packed into the per-puff grey value (≥ 2 = RGB565 code; plain smoke stays 0..1)
+// Street Customs: a tyre-smoke colour packed into the per-puff grey value (≥ 2 = RGB565 code; plain smoke stays 0..1)
 const smokeCodes = new Map();
 function smokeCode(hex) { let c = smokeCodes.get(hex); if (c !== undefined) return c; const n = parseInt(hex.slice(1), 16); const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255; c = 2 + (((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)) / 65536; smokeCodes.set(hex, c); return c; }
 const VS = `
@@ -60,7 +60,7 @@ void main() {
   float lit = clamp(dot(nrm, uSunV) * 0.55 + 0.5, 0.0, 1.0);
   float scat = pow(max(0.0, -uSunV.z), 3.0) * (1.0 - n) * 0.45;            // thin smoke glows against the sun (forward scattering)
   vec3 base = vec3(vGA.x);
-  if (vGA.x >= 2.0) { float pk = floor((vGA.x - 2.0) * 65536.0 + 0.5); base = pow(vec3(floor(pk / 2048.0) / 31.0, mod(floor(pk / 32.0), 64.0) / 63.0, mod(pk, 32.0) / 31.0), vec3(2.2)) * 0.95; } // Colombo Customs coloured tyre smoke (RGB565 in the grey slot)
+  if (vGA.x >= 2.0) { float pk = floor((vGA.x - 2.0) * 65536.0 + 0.5); base = pow(vec3(floor(pk / 2048.0) / 31.0, mod(floor(pk / 32.0), 64.0) / 63.0, mod(pk, 32.0) / 31.0), vec3(2.2)) * 0.95; } // Street Customs coloured tyre smoke (RGB565 in the grey slot)
   if (vKind > 2.5 && vKind < 3.5) base *= vec3(0.9, 0.97, 1.13);            // two-stroke oil haze is bluish
   vec3 col = base * (uAmb + uSunC * (lit + scat)) * (0.8 + 0.4 * n);
   if (vKind < 0.5 || vKind > 4.5) {                                         // rubber smoke is thick: self-shadowed belly + dense core, bright rim
@@ -137,7 +137,7 @@ export class VehicleSmoke {
       const d2 = (v.x - cx) ** 2 + (v.z - cz) ** 2; let s = this.st.get(v);
       if (d2 > R_FAR * R_FAR) { if (s) s.ok = false; continue; }
       if (!s) { s = { ok: false, px: 0, pz: 0, pyaw: 0, pf: 0, acc: 0, ex: 0, tr: 0, tf: 0, en: 0, info: null, pe: [0, 0, 0], pw: null }; this.st.set(v, s); }
-      if (!s.info || v.smokeDirty) { s.info = this.info(v); v.smokeDirty = false; } // smokeDirty: Colombo Customs fitted a new exhaust tip
+      if (!s.info || v.smokeDirty) { s.info = this.info(v); v.smokeDirty = false; } // smokeDirty: Street Customs fitted a new exhaust tip
       const yaw = v.yaw, fx = Math.sin(yaw), fz = Math.cos(yaw), rx = fz, rz = -fx; // forward, left
       if (!s.ok) { s.ok = true; s.px = v.x; s.pz = v.z; s.pyaw = yaw; s.pf = v.speed || 0; s.acc = 0; s.pw = null; this.exPoint(v, s, s.pe); continue; }
       const mvx = (v.x - s.px) / dt, mvz = (v.z - s.pz) / dt; if (mvx * mvx + mvz * mvz > 90 * 90) { s.ok = false; continue; } // teleported / respawned

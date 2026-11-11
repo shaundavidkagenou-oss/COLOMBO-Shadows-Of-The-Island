@@ -1,4 +1,4 @@
-// COLOMBO CUSTOMS — reads a vehicle's actual body so bolt-on parts sit ON it (not floating, not buried).
+// STREET CUSTOMS — reads a vehicle's actual body so bolt-on parts sit ON it (not floating, not buried).
 //
 // Every customisable vehicle (procedural or real GLB body) is scanned once per type + body variant from its own baked geometry, in
 // vehicle space (origin on the ground under the centre, +z forward, +x = the vehicle's left). Triangles are splatted into four

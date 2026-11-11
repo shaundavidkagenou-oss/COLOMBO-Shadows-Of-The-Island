@@ -68,7 +68,7 @@ export const BLIP_STYLE = {
   hospital: { col: '#ff5a5a', cat: 'services', name: 'Hospital' }, station: { col: '#d9c7a0', cat: 'transit', name: 'Railway station' },
   worship: { col: '#f2d27a', cat: 'landmarks', name: 'Place of worship' }, school: { col: '#9fd3a8', cat: 'landmarks', name: 'School' }, home: { col: '#7fd6ff', cat: 'services', name: 'Safehouse' },
   pickup: { col: '#ffd34a', cat: 'missions', name: 'Friend waiting for a lift' },
-  customs: { col: '#ff7a1a', cat: 'services', name: 'Colombo Customs (vehicle workshop)' },
+  customs: { col: '#ff7a1a', cat: 'services', name: 'Street Customs (vehicle workshop)' },
 };
 export function drawIcon(g, kind, x, y, r = 9) {
   const st = BLIP_STYLE[kind] || { col: '#fff' }; g.save(); g.translate(x, y);

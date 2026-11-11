@@ -472,7 +472,7 @@ export function generatePlan() {
   // road are kept clear — no garden walls, back-lot trees, lamp posts / utility poles / bus halts in the driveways, no kerb
   // parking across them, no chat spots on the forecourt. Filtered after generation so the random layout of the rest of the
   // city (which shares the generators' RNG streams) is unchanged.
-  // Colombo Customs (Layout.CUSTOMS_SITE) is cleared the same way, plus the generated building that stood on its lot (removed from
+  // Street Customs (Layout.CUSTOMS_SITE) is cleared the same way, plus the generated building that stood on its lot (removed from
   // the lists without renumbering: every other building keeps its id)
   { const r = L.CUSTOMS_SITE.rect; const gone = new Set(plan.buildings.filter((b) => b.x1 > r[0] + 0.5 && b.x0 < r[1] - 0.5 && b.z1 > r[2] + 0.5 && b.z0 < r[3] - 0.5));
     if (gone.size) { plan.buildings = plan.buildings.filter((b) => !gone.has(b)); plan.colliders = plan.colliders.filter((c) => !(c.kind === 'building' && gone.has(c.b))); for (const ch of plan.byChunk) ch.buildings = ch.buildings.filter((b) => !gone.has(b)); }
@@ -519,7 +519,7 @@ export function generatePlan() {
     if (drop.size) { const cols = new Set([...drop].map((t) => t.col).filter(Boolean)); plan.trees = plan.trees.filter((t) => !drop.has(t)); plan.colliders = plan.colliders.filter((c) => !cols.has(c)); for (const ch of plan.byChunk) ch.trees = ch.trees.filter((t) => !drop.has(t)); } }
   greenPlants({ plan }); // shrubs, ferns, weeds (Greenery.js) → plan.plants
   plan.plants = (plan.plants || []).filter((p) => !L.customsSiteAt(p.x, p.z, 1));
-  L.addLateZones(); // zones that must not influence generation (Colombo Customs)
+  L.addLateZones(); // zones that must not influence generation (Street Customs)
   plan.stats = { buildings: plan.buildings.length, props: plan.props.length, trees: plan.trees.length, plants: plan.plants.length, parking: plan.parking.length, poi: plan.poi.length, ms: Math.round(performance.now() - t0) };
   return plan;
 }

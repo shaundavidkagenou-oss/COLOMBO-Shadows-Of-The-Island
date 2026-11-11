@@ -26,10 +26,11 @@ export function setHeadPoolNight(n) { const hp = headPool(); const k = Math.min(
 // Near-LOD switch for the high-detail kit (VehicleDetail.js): detail group + hi-res wheels within ud.lodR of the camera.
 import { syncDoors } from './DoorRig.js';
 import { nightLight } from '../gfx/LightSets.js';
+const _csE = new THREE.Euler(), _csQ = new THREE.Quaternion(), _csS = new THREE.Vector3(), _csP = new THREE.Vector3(), _csM = new THREE.Matrix4(), _csI = new THREE.Matrix4(); // contact-shadow placement (sync)
 export const VEH_HOOKS = { crash: null, impact: null, dispose: null }; // impact(v, speed, contact): VehicleDamage dents / scrapes / engine damage; dispose(v): its per-vehicle buffers // crash(v, by, dv): the player's vehicle hit this one (Traffic: the other driver's reaction — Mind.js road rage)
 // chassis LOD: the spring / terrain attitude only runs within CHASSIS.r of CHASSIS.focus (the player; set by Game each frame)
 export const CHASSIS = { focus: null, r: 160 };
-// Colombo Customs performance (CustomsCatalog.tuneOf → v.tune): per-vehicle multipliers on the vehicle's own numbers; wet = road
+// Street Customs performance (CustomsCatalog.tuneOf → v.tune): per-vehicle multipliers on the vehicle's own numbers; wet = road
 // wetness 0..1 (Game sets it each frame) for the semi-slick wet penalty. A vehicle without a tune drives exactly as before.
 export const TUNE_ENV = { wet: 0 };
 export const LIVE_VEHICLES = globalThis.__liveVehicles || (globalThis.__liveVehicles = new Set()); // global so dev hot-reloads share one registry
@@ -98,7 +99,7 @@ export class HeadlightRig {
       // the car and the viewer, which hid the car itself: oncoming beams run at 60 %, the player's own beam is unchanged
       let face = 1; if (v !== playerVeh) { const vx = Math.sin(v.yaw), vz = Math.cos(v.yaw), ddx = cx - v.x, ddz = cz - v.z, dl = Math.hypot(ddx, ddz) || 1; const toward = (vx * ddx + vz * ddz) / dl; face = 1 - 0.4 * clamp((toward - 0.3) / 0.5, 0, 1); }
       s.angle = bike ? 0.42 : 0.52; s.intensity = (bike ? 55 : 95) * k * face * (v.damage > 0.85 ? 0.3 : 1);
-      const bc = m.userData.beamCol || 0xfff0d8; if (s.color.getHex() !== bc) s.color.setHex(bc); // Colombo Customs headlight colour (LED / xenon / amber); a colour change never recompiles
+      const bc = m.userData.beamCol || 0xfff0d8; if (s.color.getHex() !== bc) s.color.setHex(bc); // Street Customs headlight colour (LED / xenon / amber); a colour change never recompiles
       m.userData.realBeam = true; if (m.userData.headPool) m.userData.headPool.visible = false; this.assigned.push(v); });
   }
 }
@@ -260,6 +261,13 @@ export class Vehicle {
     this.settle(dt); if (dt > 0) this.chassis(dt); const S = this.sus; const D = this.dropFit;
     const rr = Math.sin(this.roll + S.r - this.tRoll - (D ? D.r : 0)), pr = Math.sin(this.pitch - this.tPitch - (D ? D.p : 0)); // attitude relative to the road plane: the wheels are moved against it so they stay on the road
     const rh = this.tune && !this.wrecked ? this.tune.ride : 0; /* Customs ride height: body down / up on its springs, wheels stay on the road */ const m = this.mesh; m.position.set(this.x, this.y - S.h - (D ? D.h : 0) + (this.wreckLift || 0) + rh, this.z); const sp = m.userData.stand; m.rotation.set(this.pitch, this.yaw, this.roll + S.r - (sp ? LEAN * this.leanK : 0), 'YXZ'); if (sp) syncStand(sp, this.stand);
+    // contact shadow (35th request, "shadow under the vehicle while moving"): it was a child of the body, so every dive, squat, roll and
+    // ride-height change tilted the dark patch — half of it sank under the asphalt (cut off) and the other half floated and slid. It now
+    // lies on the road plane under the car (ground height, road pitch / roll only), whatever the body does on its springs.
+    { const ud = m.userData; if (ud.cs === undefined) ud.cs = m.getObjectByName('contactShadow') || null; const cs = ud.cs;
+      if (cs && cs.visible) { const gy = this.air ? L.groundY(this.x, this.z) : this.y; const lift = Math.max(0, this.y - gy); const k = Math.max(0.35, 1 - lift * 0.35);
+        m.updateMatrix(); _csE.set(this.tPitch || 0, this.yaw, this.T.entry === 'bike' ? 0 : this.tRoll || 0, 'YXZ'); _csQ.setFromEuler(_csE); _csS.copy(cs.scale).multiplyScalar(k); _csS.y = 1;
+        _csM.compose(_csP.set(this.x, gy + 0.015, this.z), _csQ, _csS); cs.matrix.copy(_csI.copy(m.matrix).invert()).multiply(_csM); cs.matrixWorldNeedsUpdate = true; } }
     this.wheelRot += (this.speed * dt) / this.T.wheelR;
     for (const w of m.userData.wheels) { const u = w.userData; u.spin.rotation.x = this.wheelRot; if (u.front) w.rotation.y = this.steer; if (u.baseY !== undefined) w.position.y = this.wrecked ? u.baseY : u.baseY + S.h - rh - w.position.x * rr + w.position.z * pr; } // a flat corner: the body (dropFit) carries that wheel down onto its rim // body moves on the springs, tyres stay on the road
     // lamps (per vehicle): headlights only when this vehicle has its lights on; tails red at night, brighter when braking;
@@ -277,5 +285,5 @@ export class Vehicle {
   seatWorld(seat) { const v = new THREE.Vector3(seat.x, seat.y, seat.z); this.mesh.updateMatrixWorld(); return v.applyMatrix4(this.mesh.matrixWorld); }
   // exit point on the driver's side (right-hand drive → right side = −x local)
   exitPoint(s = -1) { const [fx, fz] = this.forward(); const off = this.T.wid / 2 + 0.7; return { x: this.x + fz * s * off, z: this.z - fx * s * off }; } // local +x in world = (fz, -fx)
-  dispose() { if (VEH_HOOKS.dispose) VEH_HOOKS.dispose(this); if (this.mesh.userData.cust) this.mesh.userData.cust.release(); /* Colombo Customs: its per-vehicle materials */ this.disposed = true; LIVE_VEHICLES.delete(this); this.scene.remove(this.mesh); const ud = this.mesh.userData; ud.tailMat.dispose(); ud.indMat?.dispose(); ud.headMat?.dispose(); ud.revMat?.dispose(); }
+  dispose() { if (VEH_HOOKS.dispose) VEH_HOOKS.dispose(this); if (this.mesh.userData.cust) this.mesh.userData.cust.release(); /* Street Customs: its per-vehicle materials */ this.disposed = true; LIVE_VEHICLES.delete(this); this.scene.remove(this.mesh); const ud = this.mesh.userData; ud.tailMat.dispose(); ud.indMat?.dispose(); ud.headMat?.dispose(); ud.revMat?.dispose(); }
 }

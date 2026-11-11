@@ -54,7 +54,7 @@ class AudioEngine {
   footstep(sprint, wet) { this.noise(0.07, { f: wet ? 1800 : 900 + Math.random() * 300, q: 1.2, vol: sprint ? 0.12 : 0.07, type: 'bandpass' }); if (wet) this.noise(0.05, { f: 3500, q: 2, vol: 0.04, when: 0.02 }); }
   horn(type, x, z, style = null) {
     const [g, pan] = this.spatial(x, z, 60); if (g < 0.02) return; const v = 0.25 * g;
-    if (style) { // Colombo Customs horns
+    if (style) { // Street Customs horns
       if (style === 'dual') { this.tone(392, 0.4, { type: 'square', vol: v * 0.35, pan }); this.tone(494, 0.4, { type: 'square', vol: v * 0.3, pan }); }
       else if (style === 'sport') { this.tone(640, 0.28, { type: 'square', vol: v * 0.35, pan }); this.tone(800, 0.28, { type: 'square', vol: v * 0.28, pan }); }
       else if (style === 'air') { for (const f of [185, 233, 277]) this.tone(f, 1.0, { type: 'sawtooth', vol: v * 0.36, pan, attack: 0.03 }); }
@@ -78,6 +78,16 @@ class AudioEngine {
   ui(kind = 'click') { if (kind === 'click') this.tone(880, 0.05, { type: 'triangle', vol: 0.08 }); else if (kind === 'hover') this.tone(1320, 0.03, { type: 'sine', vol: 0.03 }); else if (kind === 'notify') { this.tone(660, 0.2, { vol: 0.1, verb: true }); this.tone(990, 0.3, { vol: 0.08, when: 0.1, verb: true }); } else if (kind === 'success') { [523, 659, 784, 1046].forEach((f, i) => this.tone(f, 0.4, { vol: 0.09, when: i * 0.09, verb: true, type: 'triangle' })); } else if (kind === 'fail') { [392, 330, 262].forEach((f, i) => this.tone(f, 0.4, { vol: 0.1, when: i * 0.14, type: 'triangle' })); } else if (kind === 'collect') { [988, 1319].forEach((f, i) => this.tone(f, 0.25, { vol: 0.09, when: i * 0.07, verb: true })); } else if (kind === 'camera') { this.noise(0.04, { f: 4000, vol: 0.2 }); this.noise(0.06, { f: 2500, vol: 0.15, when: 0.08 }); } else if (kind === 'door') { this.noise(0.3, { f: 300, q: 0.8, vol: 0.2, type: 'lowpass', buf: this.brownBuf }); } }
   doorOpen() { this.noise(0.03, { f: 2600, q: 3, vol: 0.06 }); this.noise(0.05, { f: 1400, q: 2, vol: 0.05, when: 0.04 }); this.noise(0.25, { f: 420, q: 0.7, vol: 0.03, type: 'lowpass', when: 0.08 }); } // latch release + seal letting go
   doorSlam(s = 2) { const k = clamp(s / 4, 0.25, 1); this.noise(0.22, { f: 160, q: 0.8, vol: 0.42 * k, type: 'lowpass', buf: this.brownBuf }); this.tone(70, 0.18, { type: 'sine', vol: 0.22 * k, glide: 48 }); this.noise(0.035, { f: 2200, q: 2.5, vol: 0.09 * k, when: 0.012 }); this.noise(0.4, { f: 900, q: 0.6, vol: 0.03 * k, type: 'lowpass', when: 0.04 }); } // body thump + latch clack
+  // workshop tools at a world point (Street Customs mechanics): pneumatic impact wrench (hammering bursts), ratchet (clicks), air
+  // line hiss, a spanner set down, the roller door's motor and slats
+  tool(kind, x, z) { if (!this.live) return; const [g, pan] = this.spatial(x, z, 14); if (g < 0.02) return;
+    if (kind === 'wrench') { const n = 2 + Math.floor(Math.random() * 2); let w = 0; for (let b = 0; b < n; b++) { const len = 0.25 + Math.random() * 0.45; for (let k = 0; k < len * 24; k++) this.noise(0.02, { f: 1900 + Math.random() * 500, q: 2.2, vol: 0.09 * g, pan, when: w + k / 24, attack: 0.001 }); this.noise(len, { f: 5200, q: 0.8, vol: 0.03 * g, pan, when: w, attack: 0.01 }); this.tone(118, len, { type: 'square', vol: 0.012 * g, pan, when: w }); w += len + 0.18 + Math.random() * 0.25; } }
+    else if (kind === 'ratchet') { for (let k = 0; k < 7; k++) this.noise(0.012, { f: 4200, q: 3, vol: 0.06 * g, pan, when: k * 0.075 + (k > 3 ? 0.25 : 0), attack: 0.0005 }); }
+    else if (kind === 'air') this.noise(0.6, { f: 6500, q: 0.6, type: 'highpass', vol: 0.05 * g, pan, attack: 0.02 });
+    else if (kind === 'clank') { this.tone(1900 + Math.random() * 600, 0.25, { type: 'triangle', vol: 0.05 * g, pan }); this.noise(0.05, { f: 2600, q: 1.5, vol: 0.06 * g, pan, attack: 0.001 }); }
+    else if (kind === 'door') { this.noise(2.4, { f: 220, q: 0.6, type: 'lowpass', vol: 0.09 * g, pan, attack: 0.25, buf: this.brownBuf }); this.tone(96, 2.4, { type: 'sawtooth', vol: 0.012 * g, pan, attack: 0.3 }); for (let k = 0; k < 26; k++) this.noise(0.03, { f: 900 + Math.random() * 700, q: 2, vol: 0.025 * g, pan, when: 0.1 + k * 0.09, attack: 0.002 }); }
+    else if (kind === 'doorStop') this.noise(0.25, { f: 260, q: 0.7, type: 'lowpass', vol: 0.12 * g, pan, attack: 0.002, buf: this.brownBuf });
+  }
   radioBlip() { if (!this.ready) return; this.noise(0.09, { f: 2400, q: 0.7, vol: 0.05 }); this.tone(1250, 0.07, { type: 'square', vol: 0.025, when: 0.08 }); this.noise(0.12, { f: 1800, q: 0.6, vol: 0.03, when: 2.6 }); } // police radio: squelch open, key beep, squelch tail
   talkBlip(lang, tone = null, fem = false) { const T = tone || { pitch: 1, rate: 1, vol: 1 }; const base = (lang === 'ta' ? 210 : lang === 'si' ? 190 : 200) * (fem ? 1.25 : 1) * T.pitch; const n = T.rate > 1.2 ? 4 : 3; /* frightened / angry voices: faster, higher, louder; sad: slower, lower, softer */
     for (let i = 0; i < n; i++) this.tone(base + Math.random() * 60 * T.pitch, 0.06 / T.rate, { type: 'triangle', vol: 0.025 * T.vol, when: i * 0.09 / T.rate, out: 'dlg' }); }
@@ -133,12 +143,31 @@ class AudioEngine {
   bird() { const f = 2500 + Math.random() * 2000; const pan = Math.random() * 2 - 1; const n = 2 + Math.floor(Math.random() * 4); for (let i = 0; i < n; i++) this.tone(f + Math.random() * 600, 0.07, { vol: 0.015, pan, when: i * 0.11, glide: f * 1.3 }); }
   cricket() { const pan = Math.random() * 2 - 1; for (let i = 0; i < 6; i++) this.tone(4200, 0.03, { vol: 0.008, pan, when: i * 0.05, type: 'triangle' }); }
   // engines: a few oscillator voices assigned to the nearest vehicles
-  // Colombo Customs turbo: a spool whistle that rises with boost and a blow-off valve when the throttle lifts off boost (player only)
+  // Street Customs turbo (player only). A real turbo is air, not a beep: the compressor whine is a narrow band of NOISE (blade-pass
+  // tone smeared by turbulence) whose pitch follows shaft speed — boost × engine load, rising through each gear and dipping at every
+  // shift — over a broadband intake rush; a sine partial adds only a faint core. Lifting off (or a shift) with pressure built dumps it:
+  // a blow-off "pssh" (high-passed burst sweeping down) followed by a short compressor flutter (amplitude-chopped air, 14–20 Hz).
   turbo(v, st) {
     const c = this.ctx, t = c.currentTime; let T = this.turboV;
-    if (!T) { if (!v) return; const o = c.createOscillator(); o.type = 'sine'; const f = c.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 6; const g = c.createGain(); g.gain.value = 0; o.connect(f); f.connect(g); g.connect(this.bus.sfx); o.start(); T = this.turboV = { o, f, g, last: 0 }; }
-    const b = v ? v.boost || 0 : 0; T.o.frequency.setTargetAtTime(1500 + b * 3200, t, 0.06); T.f.frequency.setTargetAtTime(1500 + b * 3200, t, 0.06); T.g.gain.setTargetAtTime(v ? b * b * 0.035 * (st.indoor ? 0.3 : 1) : 0, t, 0.08);
-    if (T.last > 0.6 && b < T.last - 0.08 && v && (v.throttle || 0) < 0.3) { this.noise(0.35, { f: 2600, q: 0.6, vol: 0.06 * T.last, attack: 0.005, sweep: 900 }); T.last = 0; } else T.last = b;
+    if (!T) { if (!v) return; const src = c.createBufferSource(); src.buffer = this.noiseBuf; src.loop = true;
+      const wf = c.createBiquadFilter(); wf.type = 'bandpass'; wf.Q.value = 28; const wg = c.createGain(); wg.gain.value = 0; // whine: high-Q noise band
+      const rf = c.createBiquadFilter(); rf.type = 'bandpass'; rf.Q.value = 0.7; rf.frequency.value = 1400; const rg = c.createGain(); rg.gain.value = 0; // intake rush
+      const o = c.createOscillator(); o.type = 'sine'; const og = c.createGain(); og.gain.value = 0; const vib = c.createOscillator(); vib.frequency.value = 5.3; const vibG = c.createGain(); vibG.gain.value = 9; vib.connect(vibG); vibG.connect(o.frequency);
+      const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 500; const out = c.createGain(); out.gain.value = 1;
+      src.connect(wf); wf.connect(wg); src.connect(rf); rf.connect(rg); o.connect(og); wg.connect(hp); rg.connect(hp); og.connect(hp); hp.connect(out); out.connect(this.bus.sfx); src.start(); o.start(); vib.start();
+      T = this.turboV = { wf, wg, rf, rg, o, og, out, last: 0, shaft: 0, rpm: 0, lastT: t }; }
+    const dt = Math.min(0.1, Math.max(0, t - T.lastT)); T.lastT = t;
+    const b = v ? v.boost || 0 : 0, thr = v ? Math.max(0, v.throttle || 0) : 0, sp = v ? Math.abs(v.speed) : 0;
+    const rpm = v && v.rev ? Math.min(1, v.rev) : (sp % 9) / 9; const shift = rpm < T.rpm - 0.45; T.rpm = rpm; // same gear model as the engine voice
+    const want = b * (0.35 + 0.65 * rpm) * (0.55 + 0.45 * thr); T.shaft += (want - T.shaft) * Math.min(1, dt / (want > T.shaft ? 0.35 : 0.6)); // the shaft has inertia: spools up, coasts down
+    const s = T.shaft, ind = st.indoor ? 0.3 : 1, f = 2300 + s * 5600;
+    T.wf.frequency.setTargetAtTime(f, t, 0.05); T.o.frequency.setTargetAtTime(f, t, 0.05); T.rf.frequency.setTargetAtTime(900 + s * 1600, t, 0.08);
+    T.wg.gain.setTargetAtTime(v ? s * s * 0.55 * ind : 0, t, 0.06); T.og.gain.setTargetAtTime(v ? s * s * 0.006 * ind : 0, t, 0.06); T.rg.gain.setTargetAtTime(v ? s * thr * 0.045 * ind : 0, t, 0.1);
+    const lift = v && ((T.last > 0.5 && b < T.last - 0.06 && thr < 0.3) || (shift && T.shaft > 0.45));
+    if (lift && t - (T.bovT || 0) > 0.6) { const k = Math.max(T.last, T.shaft) * ind; T.bovT = t;
+      this.noise(0.42, { f: 3200, q: 0.9, vol: 0.1 * k, attack: 0.004, sweep: 1100 }); this.noise(0.2, { f: 6000, q: 0.5, type: 'highpass', vol: 0.05 * k, attack: 0.002 }); // the valve venting
+      for (let i = 0; i < 5; i++) this.noise(0.035, { f: 700 + Math.random() * 250, q: 1.4, vol: 0.05 * k * (1 - i / 5), when: 0.18 + i * 0.058, attack: 0.004 }); // flutter as the pressure dies
+      T.shaft *= 0.55; T.last = 0; } else T.last = b;
   }
   updateEngines(st) {
     const c = this.ctx, t = c.currentTime; const want = st.vehicles || [];
@@ -152,7 +181,7 @@ class AudioEngine {
       else if (isHeavy(k)) { base = 28 + sp * 2.2; fc = 300 + sp * 20; vol = 0.16; e.lfo.frequency.value = 9; }
       else if (DIESEL.has(k)) { base = 29 + sp * 2.8; fc = 340 + sp * 28; vol = 0.1; e.lfo.frequency.value = 7.5; } // diesel SUVs, vans, pickups
       else { base = 32 + sp * 3.2; fc = 380 + sp * 35; vol = 0.08; e.lfo.frequency.value = 6; }
-      if (v.rev) { const r = v.rev; base *= 1 + r * 1.1; fc *= 1 + r * 1.6; vol *= 1 + r * 0.7; } // Colombo Customs: revving on the turntable (preview of engine / exhaust work)
+      if (v.rev) { const r = v.rev; base *= 1 + r * 1.1; fc *= 1 + r * 1.6; vol *= 1 + r * 0.7; } // Street Customs: revving on the turntable (preview of engine / exhaust work)
       const ex = v.tune && v.tune.exhaust; if (ex) { const X = { sport: [1.2, 1.15], twin: [1.25, 1.2], quad: [1.35, 1.3], titanium: [1.3, 1.55], straight: [1.55, 1.6], stack: [1.3, 1.1], carbon: [1.25, 1.35], full: [1.5, 1.6] }[ex] || [1.2, 1.2]; vol *= X[0]; fc *= X[1]; } // Customs exhaust: louder, more open
       const gearSp = v.player ? ((sp % 9) / 9) * 0.6 + 0.6 : 1; e.o.frequency.setTargetAtTime(base * gearSp, t, 0.08); e.o2.frequency.setTargetAtTime(base * gearSp * 0.5, t, 0.08); e.f.frequency.setTargetAtTime(fc, t, 0.1);
       const [g, pan] = v.player ? [1, 0] : this.spatial(v.x, v.z, 20); e.g.gain.setTargetAtTime(vol * g * (v.player ? 1.2 : 0.8) * (st.indoor ? 0.2 : 1), t, 0.1); e.p.pan.setTargetAtTime(pan, t, 0.1);

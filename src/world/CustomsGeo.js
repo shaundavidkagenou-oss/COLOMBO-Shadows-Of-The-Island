@@ -1,4 +1,4 @@
-// COLOMBO CUSTOMS — the workshop building (site: Layout.CUSTOMS_SITE, Duplication Road, Cinnamon Gardens). Built once at load
+// STREET CUSTOMS — the workshop building (site: Layout.CUSTOMS_SITE, Duplication Road, Cinnamon Gardens). Built once at load
 // (World.build); no browser-only imports at module level (Node tests build it; canvas signage is skipped without a DOM).
 //
 // A modern performance workshop on a 46 × 32 m lot: concrete forecourt with customer bays and a wide driveway, a 44 × 19 m steel
@@ -18,6 +18,7 @@ import * as L from './Layout.js';
 import { modelFloor, FLOOR_TOP } from './FloorKit.js';
 import { rimGeometry, makeRimMaterial, setRimMaterial, tyreGeometry } from '../customs/CustomsWheels.js';
 import { tyreMaterial } from '../vehicles/TyreMaterial.js';
+import { garageWallTextures, garageFloorTextures, oilSpillTexture } from '../gfx/RealTextures.js';
 
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 const S = L.CUSTOMS_SLAB, H = L.CUSTOMS_HALL, W2 = L.CUSTOMS_W / 2, D = L.CUSTOMS_D;
@@ -27,7 +28,7 @@ export const CG = { // layout the service (customs/CustomsService.js) and the me
   bays: [-19.5, -16.3, -13.1], // customer parking bays (u centres) on the forecourt, w 2.4–7.6
   yard: { u0: -4, u1: 16, w0: 32.6, w1: 40 },
 };
-const B = (mb, u0, u1, y0, y1, w0, w1, col, o = {}) => mb.box((u0 + u1) / 2, (y0 + y1) / 2, -(w0 + w1) / 2, Math.abs(u1 - u0), Math.abs(y1 - y0), Math.abs(w1 - w0), Object.assign({ col }, o));
+const B = (mb, u0, u1, y0, y1, w0, w1, col, o = {}) => mb.box((u0 + u1) / 2, (y0 + y1) / 2, -(w0 + w1) / 2, Math.abs(u1 - u0), Math.abs(y1 - y0), Math.abs(w1 - w0), Object.assign({ col, bottom: true }, o)); // closed underneath: inside the hall the ceiling, beams and lintels are seen from below
 const cyl = (mb, u, w, y0, h, r0, r1, seg, col, caps = true) => mb.cylinder(u, y0, -w, r0, r1, h, seg, { col, caps });
 function face(mb, dir, a0, a1, y0, y1, at, uv, col) { let P; if (dir === '-w') P = [[a0, y0, -at], [a1, y0, -at], [a1, y1, -at], [a0, y1, -at]]; else if (dir === '+w') P = [[a1, y0, -at], [a0, y0, -at], [a0, y1, -at], [a1, y1, -at]]; else if (dir === '-u') P = [[at, y0, -a1], [at, y0, -a0], [at, y1, -a0], [at, y1, -a1]]; else P = [[at, y0, -a0], [at, y0, -a1], [at, y1, -a1], [at, y1, -a0]]; mb.quad(P[0], P[1], P[2], P[3], uv, col); }
 function aoRect(mb, u0, u1, w0, w1, pad, k, y = S + 0.004) { const dark = [k, k, k], white = [1, 1, 1]; const base = mb.vcount; const I = [[u0, w0], [u1, w0], [u1, w1], [u0, w1]], O = [[u0 - pad, w0 - pad], [u1 + pad, w0 - pad], [u1 + pad, w1 + pad], [u0 - pad, w1 + pad]];
@@ -42,23 +43,23 @@ function signAtlas() {
   const logo = (x, y, s) => { a.save(); a.translate(x, y); a.scale(s, s); a.strokeStyle = OR; a.lineWidth = 7; a.beginPath(); a.arc(0, 0, 40, Math.PI * 0.8, Math.PI * 2.2); a.stroke(); for (let i = 0; i < 6; i++) { const t = Math.PI * 0.8 + (i / 5) * Math.PI * 1.4; a.beginPath(); a.moveTo(Math.cos(t) * 30, Math.sin(t) * 30); a.lineTo(Math.cos(t) * 40, Math.sin(t) * 40); a.stroke(); } a.fillStyle = OR; a.beginPath(); a.moveTo(-6, 6); a.lineTo(26, -20); a.lineTo(6, 6); a.closePath(); a.fill(); a.beginPath(); a.arc(0, 4, 8, 0, Math.PI * 2); a.fill(); a.restore(); }; // original gauge mark
   const fit = (txt, x, y, maxW, font) => { a.font = font; const w = a.measureText(txt).width; if (w > maxW) { a.save(); a.translate(x, y); a.scale(maxW / w, 1); a.fillText(txt, 0, 0); a.restore(); } else a.fillText(txt, x, y); };
   // fascia: charcoal, orange rule, white letters
-  { const [x, y, w, h] = R.fascia; a.fillStyle = CH; a.fillRect(x, y, w, h); a.fillStyle = OR; a.fillRect(x, y + h - 14, w, 8); logo(x + 92, y + 72, 1.05); a.fillStyle = '#ffffff'; a.textBaseline = 'middle'; a.textAlign = 'left'; fit('COLOMBO CUSTOMS', x + 170, y + 66, 780, `700 92px ${BC}`); a.fillStyle = '#c9ccd2'; fit('PERFORMANCE  ·  PAINT  ·  WHEELS  ·  LIGHTING', x + 174, y + 128, 760, `600 30px ${BC}`); }
+  { const [x, y, w, h] = R.fascia; a.fillStyle = CH; a.fillRect(x, y, w, h); a.fillStyle = OR; a.fillRect(x, y + h - 14, w, 8); logo(x + 92, y + 72, 1.05); a.fillStyle = '#ffffff'; a.textBaseline = 'middle'; a.textAlign = 'left'; fit('STREET CUSTOMS', x + 170, y + 66, 780, `700 92px ${BC}`); a.fillStyle = '#c9ccd2'; fit('PERFORMANCE  ·  PAINT  ·  WHEELS  ·  LIGHTING', x + 174, y + 128, 760, `600 30px ${BC}`); }
   // pylon face
-  { const [x, y, w, h] = R.pylon; a.fillStyle = CH; a.fillRect(x, y, w, h); a.fillStyle = OR; a.fillRect(x, y + 120, w, 6); logo(x + w / 2, y + 62, 0.9); a.fillStyle = '#fff'; a.textAlign = 'center'; a.textBaseline = 'middle'; fit('COLOMBO', x + w / 2, y + 160, 220, `700 50px ${BC}`); fit('CUSTOMS', x + w / 2, y + 206, 220, `700 50px ${BC}`);
+  { const [x, y, w, h] = R.pylon; a.fillStyle = CH; a.fillRect(x, y, w, h); a.fillStyle = OR; a.fillRect(x, y + 120, w, 6); logo(x + w / 2, y + 62, 0.9); a.fillStyle = '#fff'; a.textAlign = 'center'; a.textBaseline = 'middle'; fit('STREET', x + w / 2, y + 160, 220, `700 50px ${BC}`); fit('CUSTOMS', x + w / 2, y + 206, 220, `700 50px ${BC}`);
     a.fillStyle = '#c9ccd2'; for (const [k, t] of ['PERFORMANCE', 'PAINT', 'WHEELS'].entries()) fit(t, x + w / 2, y + 252 + k * 30, 220, `600 26px ${BC}`); a.fillStyle = OR; fit('OPEN 7 DAYS', x + w / 2, y + 336, 220, `700 22px ${BC}`); }
   // wall banner (inside)
   { const [x, y, w, h] = R.banner; a.fillStyle = '#16181b'; a.fillRect(x, y, w, h); a.fillStyle = OR; a.fillRect(x, y, 12, h); a.fillStyle = '#fff'; a.textAlign = 'left'; a.textBaseline = 'middle'; fit('BUILT IN COLOMBO.  TUNED FOR THE ISLAND.', x + 36, y + 46, w - 60, `700 46px ${BC}`); a.fillStyle = '#9aa0a8'; fit('Engine  ·  Turbo  ·  Transmission  ·  Suspension  ·  Brakes  ·  Armour  ·  Exhaust', x + 38, y + 92, w - 70, `500 26px ${BC}`); }
   // opening hours
-  { const [x, y, w, h] = R.hours; a.fillStyle = '#f2f2ee'; a.fillRect(x, y, w, h); a.fillStyle = CH; a.textAlign = 'center'; a.textBaseline = 'middle'; fit('COLOMBO CUSTOMS', x + w / 2, y + 30, w - 20, `700 30px ${BC}`); a.font = `500 22px ${BC}`; const L2 = ['Mon – Sat   8.00 – 20.00', 'Sunday   9.00 – 17.00', '', 'Drive-in service bay', 'Free inspection & preview', 'Prices in Sri Lankan rupees']; L2.forEach((t, i) => a.fillText(t, x + w / 2, y + 74 + i * 26)); }
+  { const [x, y, w, h] = R.hours; a.fillStyle = '#f2f2ee'; a.fillRect(x, y, w, h); a.fillStyle = CH; a.textAlign = 'center'; a.textBaseline = 'middle'; fit('STREET CUSTOMS', x + w / 2, y + 30, w - 20, `700 30px ${BC}`); a.font = `500 22px ${BC}`; const L2 = ['Mon – Sat   8.00 – 20.00', 'Sunday   9.00 – 17.00', '', 'Drive-in service bay', 'Free inspection & preview', 'Prices in Sri Lankan rupees']; L2.forEach((t, i) => a.fillText(t, x + w / 2, y + 74 + i * 26)); }
   // bay plate, safety plate, booth plate, reception plate
   const plate = (r, bg, fg, l1, l2) => { const [x, y, w, h] = r; a.fillStyle = bg; a.fillRect(x, y, w, h); a.fillStyle = fg; a.textAlign = 'center'; a.textBaseline = 'middle'; fit(l1, x + w / 2, y + h * 0.38, w - 16, `700 38px ${BC}`); if (l2) fit(l2, x + w / 2, y + h * 0.76, w - 16, `500 22px ${BC}`); };
-  plate(R.bay, '#1d4fa8', '#fff', 'CUSTOMER PARKING', 'Colombo Customs only'); plate(R.safety, '#f2c21b', '#151515', 'AUTHORISED STAFF', 'Lifts · compressed air · paint'); plate(R.booth, '#f4f4f0', '#c8141b', 'PAINT BOOTH', 'Respirator required'); plate(R.recep, OR, '#fff', 'RECEPTION', 'Quotes · bookings · pick-up');
+  plate(R.bay, '#1d4fa8', '#fff', 'CUSTOMER PARKING', 'Street Customs only'); plate(R.safety, '#f2c21b', '#151515', 'AUTHORISED STAFF', 'Lifts · compressed air · paint'); plate(R.booth, '#f4f4f0', '#c8141b', 'PAINT BOOTH', 'Respirator required'); plate(R.recep, OR, '#fff', 'RECEPTION', 'Quotes · bookings · pick-up');
   const t = new THREE.CanvasTexture(c.cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;
 }
 
 export function buildCustoms(site = L.CUSTOMS_SITE) {
-  const g = new THREE.Group(); g.name = 'colombo-customs'; g.position.set(site.O[0], 0, site.O[1]); g.rotation.y = site.rotY; g.updateMatrixWorld(true);
-  const mb = new MultiBuilder(); const paint = mb.get('paint'), metal = mb.get('metal'), conc = mb.get('concrete'), mark = mb.get('marking'), glass = mb.get('glass'), ao = mb.get('ao'), corr = mb.get('corrugated'), roof = mb.get('roofFlat');
+  const g = new THREE.Group(); g.name = 'street-customs'; g.position.set(site.O[0], 0, site.O[1]); g.rotation.y = site.rotY; g.updateMatrixWorld(true);
+  const mb = new MultiBuilder(); const paint = mb.get('paint'), metal = mb.get('metal'), conc = mb.get('concrete'), mark = mb.get('marking'), glass = mb.get('glass'), ao = mb.get('ao'), corr = mb.get('corrugated'), roof = mb.get('roofFlat'), gWall = mb.get('garageWall'), gFloor = mb.get('garageFloor'), deck = mb.get('garageDeck'), oilB = new MeshBuilder();
   const signs = new MultiBuilder(), sLit = signs.get('lit'), sFlat = signs.get('flat'); const ledB = new MeshBuilder();
   const colliders = [], crown = []; const col = (u0, u1, w0, w1, h, kind = 'prop', y0) => { const r = site.box(u0, u1, w0, w1); const c = { x0: r[0], x1: r[1], z0: r[2], z1: r[3], h, kind, customs: true }; if (y0 !== undefined) c.y0 = y0; colliders.push(c); return c; };
   const CH = C('#25272b'), CH2 = C('#33363b'), OR = C('#ff7a1a'), white = C('#f1f1ee'), offW = C('#e3e2dd'), steel = C('#b9bcc0'), darkS = C('#3a3d41'), black = C('#141416'), yellow = C('#f2c21b'), red = C('#b8141b'), grey = C('#8c8f92'), epoxy = C('#5c6066');
@@ -66,7 +67,7 @@ export function buildCustoms(site = L.CUSTOMS_SITE) {
 
   // ---------------------------------------------------------------- ground: forecourt, hall floor, driveway crossing, ramps
   g.add(modelFloor({ kind: 'concrete', size: 6, joint: 0.024, chamfer: 0.005, colors: ['#dedbd4', '#d6d3cb', '#e3e0d9'], grout: '#6f6c66', rough: 0.85, tone: 0.035, lip: 0, wet: [0.85, 0.45], seed: 4711 }, -W2, -w0, W2, 0, S - FLOOR_TOP));
-  g.add(modelFloor({ kind: 'concrete', size: 4, joint: 0.012, chamfer: 0.003, colors: ['#5d6167', '#585c62', '#61656b'], grout: '#2c2e31', rough: 0.42, tone: 0.02, lip: 0, wet: [0.6, 0.2], seed: 4712 }, -hu, -w1, hu, -w0, S - FLOOR_TOP)); // sealed epoxy hall floor
+  gFloor.hrect(-hu, -w1, hu, -w0, S, 4, [1, 1, 1]); // workshop floor: worn power-floated concrete, saw cuts, tyre scrub, soaked-in oil (RealTextures.garageFloorTextures)
   for (const [u0, u1, a0, a1] of [[-W2, -hu, w0, D], [hu, W2, w0, D], [-hu, hu, w1, D]]) conc.hrect(u0, -a1, u1, -a0, S, 3, C('#d2cfc8'));
   { const c0 = -L.CUSTOMS_DRIVE_HW, c1 = L.CUSTOMS_DRIVE_HW; conc.hrect(c0, 0, c1, site.walk, S, 3.2, C('#c9c6be'));
     const yR = L.ROAD_Y + 0.004, wr = site.walk + L.CUSTOMS_RAMP; conc.quad([c0, yR, wr], [c1, yR, wr], [c1, S, site.walk], [c0, S, site.walk], [c0 / 3.2, 0, c1 / 3.2, 0.3], C('#bdb9b0'));
@@ -87,17 +88,18 @@ export function buildCustoms(site = L.CUSTOMS_SITE) {
   const wallSeg = (u0, u1, a0, a1) => { B(corr, u0, u1, S, top, a0, a1, CH2, { uvScale: 0.5 }); };
   wallSeg(-hu, -H.door, w0, w0 + t); wallSeg(H.door, hu, w0, w0 + t); B(corr, -H.door, H.door, S + H.doorH, top, w0, w0 + t, CH2); // front with the roller-door opening
   wallSeg(-hu, hu, w1 - t, w1); wallSeg(-hu, -hu + t, w0, w1); wallSeg(hu - t, hu, w0, w1);
-  B(paint, -hu + t, hu - t, S, top - 0.6, w1 - t - 0.02, w1 - t, offW); B(paint, -hu + t, -hu + t + 0.02, S, top - 0.6, w0 + t, w1 - t, offW); B(paint, hu - t - 0.02, hu - t, S, top - 0.6, w0 + t, w1 - t, offW); // inner lining
-  for (const [u0, u1] of [[-hu + t, -H.door], [H.door, hu - t]]) B(paint, u0, u1, S, top - 0.6, w0 + t, w0 + t + 0.02, offW);
-  B(paint, -hu + t, hu - t, S, S + 1.1, w0 + t + 0.02, w0 + t + 0.03, C('#3a3d42')); // dado
-  B(paint, -hu - 0.02, hu + 0.02, top - 0.55, top - 0.25, w0 - 0.03, w0, OR); for (const s of [-1, 1]) B(paint, s * hu - 0.03 * s, s * hu, top - 0.55, top - 0.25, w0, w1, OR); // orange eaves band
+  const LH = top - S; B(gWall, -hu + t, hu - t, S, top, w1 - t - 0.02, w1 - t, [1, 1, 1], { uvScale: LH }); B(gWall, -hu + t, -hu + t + 0.02, S, top, w0 + t, w1 - t, [1, 1, 1], { uvScale: LH }); B(gWall, hu - t - 0.02, hu - t, S, top, w0 + t, w1 - t, [1, 1, 1], { uvScale: LH }); // inner lining, floor to deck: painted block, grimy (RealTextures.garageWallTextures: one tile = this height)
+  for (const [u0, u1] of [[-hu + t, -H.door], [H.door, hu - t]]) B(gWall, u0, u1, S, top, w0 + t, w0 + t + 0.02, [1, 1, 1], { uvScale: top - S });
+  B(paint, -H.door, H.door, S + H.doorH + 0.65, top, w0 + t, w0 + t + 0.02, C('#5b5853')); // over the door, inside (above the drum housing)
+    B(paint, -hu - 0.02, hu + 0.02, top - 0.55, top - 0.25, w0 - 0.03, w0, OR); for (const s of [-1, 1]) B(paint, s * hu - 0.03 * s, s * hu, top - 0.55, top - 0.25, w0, w1, OR); // orange eaves band
   B(roof, -hu - 0.1, hu + 0.1, top, top + 0.3, w0 - 0.1, w1 + 0.1, C('#9a9790')); B(paint, -hu - 0.1, hu + 0.1, top + 0.3, top + 0.75, w0 - 0.1, w0 + 0.1, CH); // roof slab + front parapet
-  B(paint, -hu + t, hu - t, top - 0.02, top, w0 + t, w1 - t, C('#d9d9d5')); // ceiling (underside, white)
+  B(deck, -hu + t, hu - t, top - 0.04, top, w0 + t, w1 - t, C('#8d9093'), { uvScale: 0.6 }); // ceiling: the underside of the profiled steel roof deck (closed: no sky through the hall)
+  for (let k = 0; k < 6; k++) { const w = w0 + t + 0.4 + k * ((w1 - w0 - 2 * t - 0.8) / 5); B(metal, -hu + t, hu - t, top - 0.62, top - 0.54, w - 0.05, w + 0.05, C('#5a5e63')); } // purlins
   for (let k = 0; k <= 8; k++) { const u = -hu + 1.2 + k * ((2 * hu - 2.4) / 8); B(metal, u - 0.1, u + 0.1, top - 0.5, top - 0.02, w0 + t, w1 - t, C('#4c5056')); B(metal, u - 0.16, u + 0.16, top - 0.52, top - 0.48, w0 + t, w1 - t, C('#4c5056')); } // roof steel
   // high glazing band on the front (frosted), mullions
   for (const [u0, u1] of [[-hu + 1, -H.door - 1], [H.door + 1, hu - 1]]) { B(glass, u0, u1, S + 5.3, S + 6.6, w0 - 0.02, w0 + t + 0.02, white); for (let u = u0; u <= u1 + 0.01; u += (u1 - u0) / 6) B(metal, u - 0.04, u + 0.04, S + 5.25, S + 6.65, w0 - 0.05, w0 + t + 0.05, CH); B(metal, u0, u1, S + 5.22, S + 5.3, w0 - 0.06, w0 + t + 0.06, CH); B(metal, u0, u1, S + 6.6, S + 6.68, w0 - 0.06, w0 + t + 0.06, CH); }
   // roller door: rolled up in its drum housing above the opening, guide rails down the jambs, yellow/black jamb guards
-  B(paint, -H.door - 0.2, H.door + 0.2, S + H.doorH, S + H.doorH + 0.65, w0 - 0.55, w0, C('#3b3e43')); for (const s of [-1, 1]) { B(metal, s * H.door - 0.09, s * H.door + 0.09, S, S + H.doorH, w0 - 0.12, w0 + 0.02, steel); for (let k = 0; k < 6; k++) B(paint, s * (H.door + 0.12) - 0.1, s * (H.door + 0.12) + 0.1, S + k * 0.2, S + k * 0.2 + 0.2, w0 - 0.22, w0 - 0.02, k % 2 ? black : yellow); }
+  B(metal, -H.door - 0.2, H.door + 0.2, S + H.doorH, S + H.doorH + 0.65, w0 + t + 0.02, w0 + t + 0.62, C('#6d7174')); /* drum housing, inside above the opening */ for (const s of [-1, 1]) { B(metal, s * H.door - 0.09, s * H.door + 0.09, S, S + H.doorH, w0 + t - 0.02, w0 + t + 0.14, steel); /* guide rail */ for (let k = 0; k < 6; k++) B(paint, s * (H.door + 0.12) - 0.1, s * (H.door + 0.12) + 0.1, S + k * 0.2, S + k * 0.2 + 0.2, w0 - 0.22, w0 - 0.02, k % 2 ? black : yellow); }
   // reception glass door (pedestrians) on the front right + canopy
   { const u0 = 13.9, u1 = 15.5; B(glass, u0, u1, S, S + 2.4, w0 - 0.02, w0 + t + 0.02, white); B(metal, u0 - 0.06, u1 + 0.06, S + 2.4, S + 2.5, w0 - 0.04, w0 + t + 0.04, CH); for (const u of [u0, (u0 + u1) / 2, u1]) B(metal, u - 0.04, u + 0.04, S, S + 2.4, w0 - 0.04, w0 + t + 0.04, CH); B(paint, u0 - 0.6, u1 + 0.6, S + 2.75, S + 2.9, w0 - 1.3, w0, CH); }
   // fascia sign over the door + small sign plates
@@ -162,10 +164,20 @@ export function buildCustoms(site = L.CUSTOMS_SITE) {
     face(sLit, '-w', u - 0.56, u + 0.56, S + 1.6, S + 6.15, w - 0.245, uvOf(R.pylon)); face(sLit, '+w', u - 0.56, u + 0.56, S + 1.6, S + 6.15, w + 0.245, uvOf(R.pylon)); col(u - 0.75, u + 0.75, w - 0.4, w + 0.4, 6.55); }
 
   // ---------------------------------------------------------------- meshes
-  for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) { if (m.name === 'ao') { m.castShadow = false; m.receiveShadow = false; m.renderOrder = 1; } if (m.name === 'marking' || m.name === 'glass') m.castShadow = false; g.add(m); }
+  // workshop surfaces (35th request): grimy painted block, oil-stained concrete, the grey steel deck; plain-colour fallbacks in Node
+  const WT = garageWallTextures(top - S), FT = garageFloorTextures();
+  const wallMat = new THREE.MeshStandardMaterial({ map: WT ? WT.map : null, normalMap: WT ? WT.normal : null, normalScale: new THREE.Vector2(0.9, 0.9), roughnessMap: WT ? WT.rough : null, roughness: 1, color: WT ? 0xffffff : 0x9c978e, vertexColors: true }); wallMat.name = 'customs-wall';
+  const floorMat = new THREE.MeshStandardMaterial({ map: FT ? FT.map : null, normalMap: FT ? FT.normal : null, normalScale: new THREE.Vector2(0.8, 0.8), roughnessMap: FT ? FT.rough : null, roughness: 1, color: FT ? 0xffffff : 0x6f6b64, vertexColors: true }); floorMat.name = 'customs-floor';
+  const deckMat = MAT.corrugated ? MAT.corrugated : MAT.metal;
+  const mats = Object.assign({}, MAT, { garageWall: wallMat, garageFloor: floorMat, garageDeck: deckMat });
+  for (const m of mb.toMeshes(mats, { cast: true, receive: true })) { if (m.name === 'garageFloor') m.castShadow = false; if (m.name === 'ao') { m.castShadow = false; m.receiveShadow = false; m.renderOrder = 1; } if (m.name === 'marking' || m.name === 'glass') m.castShadow = false; g.add(m); }
   const atlas = signAtlas(); const signLit = new THREE.MeshStandardMaterial({ map: atlas, emissiveMap: atlas, emissive: 0xffffff, emissiveIntensity: 0.15, roughness: 0.45, color: atlas ? 0xffffff : 0x303236, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
   const signFlat = new THREE.MeshStandardMaterial({ map: atlas, roughness: 0.55, color: atlas ? 0xffffff : 0xdddddd, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
   for (const m of signs.toMeshes({ lit: signLit, flat: signFlat }, { cast: false, receive: true })) g.add(m);
+  { const spills = [[CG.lift.u - 0.6, CG.lift.w + 0.3, 1.5, 0.3], [CG.lift.u + 0.9, CG.lift.w - 0.8, 0.7, 1.9], [-2.2, H.w0 + 3.6, 1.1, 2.6], [1.6, H.w0 + 6.2, 0.6, 0.9], [CG.changer.u + 1.4, CG.changer.w - 1.6, 0.9, 4.1], [-19.6, 25.4, 1.3, 5.2], [8.2, 27.6, 0.8, 3.3], [-9.5, 19.5, 0.55, 0.4], [CG.tt.u + 5.4, CG.tt.w + 1.8, 0.7, 2.2], [-15.6, 28.9, 1.0, 1.0]];
+    for (const [u, w, r, a] of spills) { const ca = Math.cos(a) * r, sa = Math.sin(a) * r; const y = S + 0.003; oilB.quad([u - ca + sa, y, -(w - sa - ca)], [u + ca + sa, y, -(w + sa - ca)], [u + ca - sa, y, -(w + sa + ca)], [u - ca - sa, y, -(w - sa + ca)], [0, 0, 1, 1], [1, 1, 1]); }
+    const ot = oilSpillTexture(); const og = oilB.build(); if (og && ot) { const om = new THREE.MeshStandardMaterial({ map: ot, transparent: true, depthWrite: false, roughness: 0.22, metalness: 0, envMapIntensity: 0.35, color: 0xd8d8d8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }); om.name = 'customs-oil';
+      const m = new THREE.Mesh(og, om); m.name = 'customs-oil'; m.castShadow = false; m.receiveShadow = true; m.renderOrder = 2; m.matrixAutoUpdate = false; m.updateMatrix(); g.add(m); } }
   const led = new THREE.MeshStandardMaterial({ color: 0xf4f6f8, emissive: 0xf4f8ff, emissiveIntensity: 1.6, roughness: 0.3 }); led.name = 'customs-led'; const ledG = ledB.build(); if (ledG) { const m = new THREE.Mesh(ledG, led); m.name = 'customsLED'; m.castShadow = false; m.receiveShadow = false; m.matrixAutoUpdate = false; m.updateMatrix(); g.add(m); }
   // real wheel geometry on the rim wall, the tyre rack and the yard stacks (merged: one mesh per material)
   const rimMats = [makeRimMaterial(), makeRimMaterial()]; setRimMaterial(rimMats[0], '#c9ccd0', 'chrome'); setRimMaterial(rimMats[1], '#1a1b1d', 'paint');
@@ -177,13 +189,27 @@ export function buildCustoms(site = L.CUSTOMS_SITE) {
   const tyres = new THREE.InstancedMesh(tyG, tyreMaterial(tyG, 0), tyAll.length); tyres.name = 'customs-tyres'; tyres.castShadow = true; tyres.receiveShadow = true;
   tyAll.forEach(([u, y, w, flat], i) => tyres.setMatrixAt(i, M4.compose(V.set(u, y, -w), flat ? Q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2) : Q.identity(), SC))); tyres.instanceMatrix.needsUpdate = true; tyres.computeBoundingSphere(); g.add(tyres);
   rimB.forEach((b, i) => { const geo = b.build(); if (!geo) return; const m = new THREE.Mesh(geo, rimMats[i]); m.name = 'customs-rims'; m.castShadow = true; m.receiveShadow = true; m.matrixAutoUpdate = false; m.updateMatrix(); g.add(m); });
+  // roller door (35th request: it opens as the player drives up, see CustomsService.doorTarget): 56 galvanised slats on a curtain that
+  // rolls up into the drum — it is lifted and clipped at the head of the opening (a world-space clip plane on its own material), so
+  // the rising curtain disappears into the housing exactly like a real one. A collider closes the bay while the door is down.
+  const doorG = new THREE.Group(); doorG.name = 'customs-door'; doorG.position.set(0, S + H.doorH, -(w0 + t + 0.07)); g.add(doorG);
+  const dB = new MeshBuilder(); const DP = 0.09, nSl = Math.ceil(H.doorH / DP) + 1, dw = 2 * H.door + 0.14;
+  for (let k = 0; k < nSl; k++) { const y = -(k + 0.5) * DP; const sh = k % 2 ? [0.93, 0.93, 0.93] : [1, 1, 1]; dB.box(0, y + 0.012, 0, dw, DP * 0.55, 0.03, { col: sh, bottom: true }); dB.box(0, y - 0.025, 0.006, dw, DP * 0.42, 0.024, { col: [sh[0] * 0.8, sh[1] * 0.8, sh[2] * 0.8], bottom: true }); }
+  dB.box(0, -H.doorH + 0.04, 0, dw, 0.08, 0.07, { col: [0.32, 0.33, 0.34], bottom: true }); // bottom rail + seal
+  const clipDoor = new THREE.Plane(new THREE.Vector3(0, -1, 0), S + H.doorH - 0.02);
+  const doorMat = new THREE.MeshStandardMaterial({ color: 0xa9adb0, metalness: 0.5, roughness: 0.48, vertexColors: true, clippingPlanes: [clipDoor], side: THREE.DoubleSide }); doorMat.name = 'customs-door';
+  const doorMesh = new THREE.Mesh(dB.build(), doorMat); doorMesh.name = 'customs-door'; doorMesh.castShadow = true; doorMesh.receiveShadow = true; doorG.add(doorMesh);
+  const doorCol = col(-H.door, H.door, w0 - 0.05, w0 + t + 0.15, H.doorH, 'wall', S); let doorOpen = -1;
+  const setDoor = (k) => { k = Math.max(0, Math.min(1, k)); if (k === doorOpen) return; doorOpen = k; doorMesh.position.y = k * (H.doorH + 0.1); doorMesh.visible = k < 0.999; doorMesh.updateMatrix();
+    if (k > 0.94) doorCol.h = 0; else { doorCol.y0 = S + H.doorH * k; doorCol.h = H.doorH * (1 - k); } }; // raised edge: a car fits under once it is high enough (the service waits for fully open anyway)
+  setDoor(0);
   // lights: six shadowless points (see header); their group is shown / hidden by the service with the distance rule
   const lights = new THREE.Group(); lights.name = 'customs-lights'; lights.visible = false; g.add(lights); const lightList = [];
   for (const [u, w, i] of [[0, 21.5, 26], [-13, 17, 16], [-13, 27, 16], [13, 17, 16], [13, 27.5, 16], [0, 14.6, 12]]) { const l = new THREE.PointLight(0xfff4e6, i, 18, 1.5); l.position.set(u, top - 1.6, -w); l.userData.wallD = Math.min(w - w0, w1 - w, hu - Math.abs(u)); l.userData.base = i; lights.add(l); lightList.push(l); }
   g.updateMatrixWorld(true);
   // world-space helpers for the service
   const toWorld = (u, w) => site.toWorld(u, w);
-  return { site, group: g, colliders, crownBoxes: crown, turntable, lights, lightList, mats: { led, signLit, rim: rimMats }, toWorld,
+  return { site, group: g, colliders, crownBoxes: crown, turntable, lights, lightList, mats: { led, signLit, rim: rimMats, wall: wallMat, floor: floorMat }, toWorld, setDoor, get doorOpen() { return doorOpen; }, doorCol,
     insideHall: (x, z) => { const [u, w] = site.toLocal(x, z); return Math.abs(u) < hu - t && w > w0 + t && w < w1 - t; },
-    update(night, camInside) { signLit.emissiveIntensity = 0.15 + night * 1.0; const k = camInside ? 1 : 0; for (const l of lightList) { const dw = Math.max(1.5, l.userData.wallD + 0.3); l.distance = dw + (18 - dw) * k; } } };
+    update(night, camInside, dt = 0.016) { signLit.emissiveIntensity = 0.15 + night * 1.0; this.inK = (this.inK ?? (camInside ? 1 : 0)) + ((camInside ? 1 : 0) - (this.inK ?? 0)) * Math.min(1, dt * 4); const k = this.inK; for (const l of lightList) { const dw = Math.max(1.5, l.userData.wallD + 0.3); l.distance = dw + (18 - dw) * k; } } }; // reach eases with the camera crossing the door line (no pop)
 }

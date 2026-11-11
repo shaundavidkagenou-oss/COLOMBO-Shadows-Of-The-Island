@@ -15,7 +15,7 @@ function tyreLettering() {
   for (const o of [0, 1024]) { put('GALEWAY', o + 30, 46, '900'); put('RADIAL TUBELESS', o + 330, 24); put('205/55 R16 91V', o + 590, 30); put('M+S', o + 860, 26); put('▲', o + 960, 22); }
   tyreTex = new THREE.CanvasTexture(c); tyreTex.wrapS = THREE.RepeatWrapping; tyreTex.colorSpace = THREE.NoColorSpace; tyreTex.anisotropy = 4; return tyreTex;
 }
-// kind (Colombo Customs tyres): 0 road (every stock tyre), 1 all-terrain, 2 mud-terrain, 3 semi-slick — a uniform, same program
+// kind (Street Customs tyres): 0 road (every stock tyre), 1 all-terrain, 2 mud-terrain, 3 semi-slick — a uniform, same program
 export function tyreMaterial(geo, kind = 0) {
   if (!geo || !geo.attributes || !geo.attributes.position) return fallback; const mk = kind ? (tyreMatsK.get(geo) || tyreMatsK.set(geo, new Map()).get(geo)) : null; let m = kind ? mk.get(kind) : tyreMats.get(geo); if (m) return m;
   if (!geo.boundingBox) geo.computeBoundingBox(); const bb = geo.boundingBox; const rOut = Math.max(bb.max.y, -bb.min.y, bb.max.z, -bb.min.z); let rIn = rOut * 0.62;

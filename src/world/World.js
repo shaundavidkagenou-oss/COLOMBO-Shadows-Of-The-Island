@@ -54,7 +54,7 @@ export class World {
     if (plan.missionShops.gunshop) { const s = plan.missionShops.gunshop; const f = buildGunShopFront(s, plan.buildings.find((b) => b.id === s.b)); this.root.add(f.group); this.collision.addAll(f.colliders); } // Ceylon Arms Co. shopfront
     if (plan.missionShops.club) { const s = plan.missionShops.club; const f = buildClubFront(s, plan.buildings.find((b) => b.id === s.b)); this.root.add(f.group); this.collision.addAll(f.colliders); } // The Velvet Monsoon club frontage
     { const fs = buildFuelStations(); this.fuel = fs; this.root.add(fs.group); this.collision.addAll(fs.colliders); } // four filling stations (FuelStations.js)
-    { const cs = buildCustoms(); this.customs = cs; this.root.add(cs.group); this.collision.addAll(cs.colliders); } // Colombo Customs workshop (CustomsGeo.js; service: customs/CustomsService.js)
+    { const cs = buildCustoms(); this.customs = cs; this.root.add(cs.group); this.collision.addAll(cs.colliders); } // Street Customs workshop (CustomsGeo.js; service: customs/CustomsService.js)
     { const fs = buildCityStreets(plan); this.fortStreets = this.cityStreets = fs; this.root.add(fs.group); this.collision.addAll(fs.colliders); } // Colombo Fort benchmark: trilingual street names, billboards, drains, bins (FortStreets.js)
     { // second crown-clearance pass against the landmark buildings (they only exist now): no leaves inside them either
       const boxes = landmarkTreeBoxes(this.collision.list.filter((c) => c.kind === 'landmark' && !c.fuel)).concat(this.fuel.crownBoxes, this.customs.crownBoxes); const r = refitTreeCrowns(boxes);
@@ -263,7 +263,7 @@ export class World {
         for (const c of ci) { if (Math.abs(c.cx - fx) > 300 || Math.abs(c.cz - fz) > 300) continue; for (const p of c.lamps) { const dx = p[0] - fx, dz = p[2] - fz, d2 = dx * dx + dz * dz; if (d2 > 110 * 110) continue;
           const inView = !cd || d2 < 400 || (dx * cd.x + dz * cd.z) / Math.sqrt(d2) > 0.35; near.push([d2 * (inView ? 1 : 3), p]); } }
         near.sort((a, b) => a[0] - b[0]); const want = new Set(near.slice(0, this.lampLights.length).map((n) => n[1]));
-        this.lampFade(dt, want, atmos.night * 44 * (1 - (this.indoorK || 0))); // inside a building the street lamps' light no longer passes through its walls
+        this.lampFade(dt, want, atmos.night * 44 * (1 - (this.indoorK || 0)) * Math.min(1, Math.max(0, (atmos.night - 0.3) / 0.3)) ** 2); // 35th: ramps up from 0 where the lamps switch on (night 0.3) instead of jumping to 13 // inside a building the street lamps' light no longer passes through its walls
       } else this.lampFade(dt, new Set(), 0);
     }
   }
@@ -334,7 +334,7 @@ export class World {
     const lit = new Set(); const _m = this._lampM || (this._lampM = new THREE.Matrix4());
     const decal = (lamp, on) => { const [x, , z, mesh, i] = lamp; if (!mesh) return; if (on) _m.makeTranslation(x, ROAD_Y + 0.03, z); else _m.makeScale(0, 0, 0); mesh.setMatrixAt(i, _m); mesh.instanceMatrix.needsUpdate = true; };
     for (const l of this.lampLights) { const u = l.userData; if (!u.lamp) continue;
-      if (want.has(u.lamp) && base > 0) { u.k = Math.min(1, u.k + dt * 4); lit.add(u.lamp); } else { u.k -= dt * 4; if (u.k <= 0) { decal(u.lamp, true); u.lamp = null; u.k = 0; } else lit.add(u.lamp); } }
+      if (want.has(u.lamp) && base > 0) { u.k = Math.min(1, u.k + dt * 2.2); lit.add(u.lamp); } else { u.k -= dt * 2.2; if (u.k <= 0) { decal(u.lamp, true); u.lamp = null; u.k = 0; } else lit.add(u.lamp); } }
     for (const lamp of want) { if (lit.has(lamp) || base <= 0) continue; const l = this.lampLights.find((q) => !q.userData.lamp); if (!l) break;
       l.userData.lamp = lamp; l.userData.k = 0; decal(lamp, false); l.position.set(lamp[0], lamp[1] - 0.4, lamp[2]); l.target.position.set(lamp[0], ROAD_Y, lamp[2] + 0.001); l.target.updateMatrixWorld(); lit.add(lamp); }
     for (const l of this.lampLights) { const u = l.userData; const I = u.lamp ? base * u.k : 0; if (l.intensity !== I) l.intensity = I; if (l.castShadow) l.shadow.autoUpdate = I > 0; } /* FPS: an unlit pooled lamp (all day, parked at y -600) no longer re-renders its shadow map every frame */

@@ -378,7 +378,7 @@ export function setGroundHook(fn) { groundHook = fn; }
 export function groundY(x, z) {
   if (groundHook) { const h = groundHook(x, z); if (h != null) return h; }
   { const f = fuelSurfaceAt(x, z); if (f != null) return f; } // filling-station forecourts + kerb ramps
-  { const f = customsSurfaceAt(x, z); if (f != null) return f; } // Colombo Customs lot + driveway ramp
+  { const f = customsSurfaceAt(x, z); if (f != null) return f; } // Street Customs lot + driveway ramp
   if (roadAt(x, z)) return ROAD_Y;
   if (isWater(x, z)) return bridgeWalkAt(x, z) ? LAND_Y : -1.2;
   const cp = copingAt(x, z); if (cp != null) return cp;
@@ -505,14 +505,14 @@ export function fuelSurfaceAt(x, z) {
   return null;
 }
 
-// ---------------------------------------------------------------- Colombo Customs (CustomsGeo.js builds it, customs/ runs it)
+// ---------------------------------------------------------------- Street Customs (CustomsGeo.js builds it, customs/ runs it)
 // The vehicle workshop on Duplication Road, Cinnamon Gardens: same road frame as a filling station (u along the near lane,
 // w from the property line into the lot). One wide driveway in the middle of the frontage serves the way in and the way out
 // (the forecourt is deep enough to turn); the hall stands at the back of the lot with its roller door facing the road.
 export const CUSTOMS_W = 46, CUSTOMS_D = 32, CUSTOMS_SLAB = LAND_Y + 0.02, CUSTOMS_RAMP = 0.9, CUSTOMS_DRIVE_HW = 5;
 export const CUSTOMS_HALL = { w0: 12, w1: 31, hu: 22, h: 7.5, door: 3.5, doorH: 5, tt: [0, 21.5], ttR: 4.6 }; // hall depth band, half width, eave height, roller door half width / height, turntable centre (u, w) + radius
 export const CUSTOMS_SITE = (() => {
-  const d = { id: 'customs', name: 'Colombo Customs', area: 'Cinnamon Gardens', x: -280, zc: 285, side: 1 };
+  const d = { id: 'customs', name: 'Street Customs', area: 'Cinnamon Gardens', x: -280, zc: 285, side: 1 };
   const i = XS.findIndex((l) => l.pos === d.x), j = findIndex(ZS, d.zc); const seg = getV(i, j); if (!seg) throw new Error('customs site without a road');
   const U = [0, d.side], Wv = [d.side, 0]; const O = [d.x + d.side * (seg.hw + seg.walk), d.zc];
   const site = { ...d, seg, hw: seg.hw, walk: seg.walk, U, Wv, O, yaw: Math.atan2(U[0], U[1]), rotY: Math.atan2(-U[1], U[0]) };
@@ -528,7 +528,7 @@ export const CUSTOMS_SITE = (() => {
 // registered only AFTER the city plan has been generated (CityPlan.generatePlan → addLateZones): the generators consult ZONES /
 // zoneAt with shared RNG streams and sequential building ids, so a zone present during generation would renumber every later
 // building (mission shops, hero rooms). The lot is cleared afterwards instead, exactly like the filling-station reserves.
-export const CUSTOMS_ZONE = { id: 'customs', name: 'Colombo Customs', rect: CUSTOMS_SITE.rect, blockRoads: false, kind: 'customs', customs: CUSTOMS_SITE };
+export const CUSTOMS_ZONE = { id: 'customs', name: 'Street Customs', rect: CUSTOMS_SITE.rect, blockRoads: false, kind: 'customs', customs: CUSTOMS_SITE };
 export function addLateZones() { if (!ZONES.includes(CUSTOMS_ZONE)) ZONES.push(CUSTOMS_ZONE); }
 export function customsSiteAt(x, z, pad = 0) { const r = CUSTOMS_SITE.reserve; return x > r[0] - pad && x < r[1] + pad && z > r[2] - pad && z < r[3] + pad ? CUSTOMS_SITE : null; }
 // any roadside site kept clear of street furniture / trees / kerb parking (filling stations + the workshop)
@@ -560,7 +560,7 @@ export const PLACES = {
   slaveFlat:     { x: -150, z: -150, name: "Dineth's room, Slave Island" },
   garage:        { x: 455, z: -790, name: 'Lanka Auto Care, Maradana' },
   gunshop:       { x: 380, z: -700, name: 'Ceylon Arms Co., Maradana' },
-  customs:       { x: -259, z: 285, name: 'Colombo Customs, Cinnamon Gardens' }, // forecourt in front of the roller door (CUSTOMS_SITE u 0, w 7.5)
+  customs:       { x: -259, z: 285, name: 'Street Customs, Cinnamon Gardens' }, // forecourt in front of the roller door (CUSTOMS_SITE u 0, w 7.5)
   club:          { x: -389, z: 215.5, name: 'The Velvet Monsoon, Kollupitiya' },
   tailor:        { x: -305, z: 470, name: 'Ceylon Threads, Bambalapitiya' },
   hospital:      { x: 660, z: -160, name: 'National Hospital' },

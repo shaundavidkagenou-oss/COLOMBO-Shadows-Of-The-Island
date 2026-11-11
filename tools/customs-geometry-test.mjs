@@ -1,4 +1,4 @@
-// Colombo Customs — geometry sanity for every customisable type: wheels (all designs / treads / calipers), body scan, paint frame,
+// Street Customs — geometry sanity for every customisable type: wheels (all designs / treads / calipers), body scan, paint frame,
 // and every bolt-on part option (triangles, NaNs, nothing below the road / outside the body envelope). Usage: node tools/customs-geometry-test.mjs [type ...]
 import './node-dom-stub.mjs';
 globalThis.localStorage ??= { getItem: () => null, setItem: () => {}, removeItem: () => {} };

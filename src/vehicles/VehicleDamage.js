@@ -263,7 +263,7 @@ export class VehicleDamage {
     return ch;
   }
   hurt(v, n, by) {
-    if (v.wrecked) return; const st = this.st(v); v.health = Math.max(0, v.health - n * armour(v) * (v.tune ? v.tune.armour : 1)); /* Colombo Customs armour */
+    if (v.wrecked) return; const st = this.st(v); v.health = Math.max(0, v.health - n * armour(v) * (v.tune ? v.tune.armour : 1)); /* Street Customs armour */
     const h = v.health; v.damage = Math.max(v.damage || 0, h < 40 ? 0.72 + (40 - h) / 40 * 0.28 : h < 70 ? 0.35 + (70 - h) / 30 * 0.3 : v.damage || 0);
     this.setPower(v);
     if (h <= 0 && !st.fire) this.ignite(v, rnd(6, 9), by, 'engine');
@@ -394,7 +394,7 @@ export class VehicleDamage {
   // toggling (DoorRig.setDoorLive) keeps using it
   own(v, e) {
     const st = this.st(v), ud = v.mesh.userData, B = ud.bake; const src = e.kind === 'bake' ? B.shared[e.name] : e.mesh.geometry; if (src.userData.vdOwner === v) return src;
-    const o = new THREE.BufferGeometry(); for (const k in src.attributes) o.setAttribute(k, (k === 'position' || k === 'normal' || k === 'color' || k === 'pmask') ? src.attributes[k].clone() : src.attributes[k]); /* pmask: Colombo Customs paint mask (scrapes take paint off) */ o.setIndex(src.index); for (const gr of src.groups) o.addGroup(gr.start, gr.count, gr.materialIndex);
+    const o = new THREE.BufferGeometry(); for (const k in src.attributes) o.setAttribute(k, (k === 'position' || k === 'normal' || k === 'color' || k === 'pmask') ? src.attributes[k].clone() : src.attributes[k]); /* pmask: Street Customs paint mask (scrapes take paint off) */ o.setIndex(src.index); for (const gr of src.groups) o.addGroup(gr.start, gr.count, gr.materialIndex);
     if (!src.boundingSphere) src.computeBoundingSphere(); o.boundingSphere = src.boundingSphere.clone(); o.boundingSphere.radius += 0.2; o.boundingBox = src.boundingBox; o.userData.vdOwner = v;
     st.owned.push({ o, src, mesh: e.mesh, name: e.name, kind: e.kind });
     if (e.kind === 'bake') { B.shared[e.name] = o; delete e.mesh.userData.view; const live = (ud.doors || []).find((d) => d.live); if (live) setDoorLive(ud, live, true); else e.mesh.geometry = o; }

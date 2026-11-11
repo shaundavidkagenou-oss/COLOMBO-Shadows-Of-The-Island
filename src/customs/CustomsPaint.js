@@ -1,4 +1,4 @@
-// COLOMBO CUSTOMS — paint. One shared shader program ('vpaint-custom'), one material instance per customised vehicle.
+// STREET CUSTOMS — paint. One shared shader program ('vpaint-custom'), one material instance per customised vehicle.
 //
 // A customised vehicle wears its custom look (VehicleModels.customizeMesh): the same buffers as its traffic look, but the paint is
 // baked white × its panel shade and flagged by a 'pmask' vertex attribute. This material colours those vertices from uniforms:
@@ -9,12 +9,12 @@
 // inside the paint mesh (black trims, rubber seals, lamp bezels) keep their own colour; glass, tyres, lamps and chrome are other
 // meshes and are untouched. Scrapes (VehicleDamage.scrape) lower pmask → bare metal shows through the custom paint as before.
 import * as THREE from 'three';
-import { vehicleMaterials } from '../vehicles/VehicleModels.js';
+import { vehicleMaterials, vehSpecPatch } from '../vehicles/VehicleModels.js';
 
 export const FINISH = {
-  gloss: { roughness: 0.3, metalness: 0.25, clearcoat: 1, clearcoatRoughness: 0.07, flake: 0.45, pearl: 0 },
-  metallic: { roughness: 0.34, metalness: 0.55, clearcoat: 1, clearcoatRoughness: 0.05, flake: 1.0, pearl: 0 },
-  pearl: { roughness: 0.28, metalness: 0.35, clearcoat: 1, clearcoatRoughness: 0.05, flake: 0.7, pearl: 1 },
+  gloss: { roughness: 0.42, metalness: 0.08, clearcoat: 1, clearcoatRoughness: 0.11, flake: 0.45, pearl: 0 },
+  metallic: { roughness: 0.38, metalness: 0.5, clearcoat: 1, clearcoatRoughness: 0.09, flake: 1.0, pearl: 0 },
+  pearl: { roughness: 0.34, metalness: 0.3, clearcoat: 1, clearcoatRoughness: 0.09, flake: 0.7, pearl: 1 },
   satin: { roughness: 0.55, metalness: 0.3, clearcoat: 0.35, clearcoatRoughness: 0.45, flake: 0.25, pearl: 0 },
   matte: { roughness: 0.84, metalness: 0.08, clearcoat: 0.0001, clearcoatRoughness: 0.9, flake: 0, pearl: 0 },
   chrome: { roughness: 0.06, metalness: 1.0, clearcoat: 0.0001, clearcoatRoughness: 0.1, flake: 0, pearl: 0 },
@@ -34,9 +34,9 @@ function decalAtlas() {
   // race number roundels
   [['07', 256], ['27', 512], ['94', 768]].forEach(([n, x]) => { g.save(); g.translate(x + 128, 128); g.fillStyle = '#f6f6f2'; g.beginPath(); g.arc(0, 0, 112, 0, Math.PI * 2); g.fill(); g.lineWidth = 10; g.strokeStyle = '#141414'; g.beginPath(); g.arc(0, 0, 100, 0, Math.PI * 2); g.stroke();
     g.fillStyle = '#141414'; g.font = 'bold 132px "Barlow Condensed", "Arial Narrow", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(n, 0, 8); g.restore(); });
-  // the workshop's own sticker: COLOMBO CUSTOMS
+  // the workshop's own sticker: STREET CUSTOMS
   { g.save(); g.translate(256, 384); const w = 470, h = 200; g.fillStyle = '#17181b'; g.beginPath(); g.roundRect(-w / 2, -h / 2, w, h, 26); g.fill(); g.fillStyle = '#ff7a1a'; g.beginPath(); g.roundRect(-w / 2 + 12, -h / 2 + 12, w - 24, 22, 8); g.fill(); g.beginPath(); g.roundRect(-w / 2 + 12, h / 2 - 34, w - 24, 22, 8); g.fill();
-    g.fillStyle = '#ffffff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = 'bold 74px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillText('COLOMBO', 0, -14); g.fillStyle = '#ff7a1a'; g.font = 'bold 44px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillText('CUSTOMS', 0, 40); g.restore(); }
+    g.fillStyle = '#ffffff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = 'bold 74px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillText('STREET', 0, -14); g.fillStyle = '#ff7a1a'; g.font = 'bold 44px "Barlow Condensed", "Arial Narrow", sans-serif'; g.fillText('CUSTOMS', 0, 40); g.restore(); }
   // flame licks: base at the left (front of the car), tongues streaming right (toward the rear)
   { g.save(); g.translate(512, 256); const grd = g.createLinearGradient(0, 0, 512, 0); grd.addColorStop(0, '#fff2a0'); grd.addColorStop(0.25, '#ffc21a'); grd.addColorStop(0.6, '#ff5a10'); grd.addColorStop(1, '#c8140a');
     const tongues = [[128, 330, 40], [92, 450, 34], [164, 400, 30], [60, 260, 26], [196, 300, 24], [120, 500, 22]];
@@ -80,12 +80,12 @@ function hook(mat) {
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, U);
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + VERT_HEAD).replace('#include <begin_vertex>', '#include <begin_vertex>\nvFlakeP = position; vPM = pmask; vObjN = objectNormal;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + FRAG_HEAD)
+    sh.fragmentShader = vehSpecPatch(sh.fragmentShader).replace('#include <common>', '#include <common>\n' + FRAG_HEAD)
       .replace('#include <color_fragment>', '#include <color_fragment>\nfloat cpTop = 0.0; if (vPM > 0.001) { vec3 pc = cpPaint(vFlakeP, normalize(vObjN), cpTop); diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * pc, vPM); }')
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nvec3 flakeC = floor(vFlakeP * 1400.0); float flakeA = clamp(1.6 - length(fwidth(vFlakeP)) * 1400.0, 0.0, 1.0) * cpF.x * step(0.5, vPM); roughnessFactor = clamp(roughnessFactor * (1.0 + (flakeH(flakeC) - 0.5) * 0.6 * flakeA), 0.04, 1.0);')
       .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nnormal = normalize(normal + (vec3(flakeH(flakeC + 1.3), flakeH(flakeC + 7.1), flakeH(flakeC + 3.7)) - 0.5) * 0.16 * flakeA);\nif (cpF.y > 0.5 && vPM > 0.5) { float fr = pow(1.0 - clamp(dot(normalize(vViewPosition), normal), 0.0, 1.0), 2.2); diffuseColor.rgb = mix(diffuseColor.rgb, cpC2 * max(vColor.r, 0.25), fr * 0.7); }');
   };
-  mat.customProgramCacheKey = () => 'vpaint-custom';
+  mat.customProgramCacheKey = () => 'vpaint-custom2';
 }
 const lin = (hex, out = new THREE.Color()) => out.set(hex); // THREE.Color.set(hex) converts sRGB hex → linear working space
 export function makePaintMaterial() {

@@ -80,6 +80,7 @@ export class Game {
     this.ghost = { x: 1e7, z: 1e7, y: 0, yaw: 0, speed: 0, vehicle: null, crouching: false, sprinting: false, ch: null, isGhost: true }; // stand-in player for menu/intro simulation
     const preset = Settings.preset;
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', stencil: false, reversedDepthBuffer: true }); // reversed-Z + float depth (PostFX target): uniform depth precision near and far, so windows, signs, glass and paving never z-fight (falls back to standard depth without EXT_clip_control)
+    this.renderer.localClippingEnabled = true; // Street Customs roller door (a clip plane on that one material only; nothing else pays for it)
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * preset.pixelRatio * Settings.get('resolutionScale'));
     this.renderer.setSize(innerWidth, innerHeight); this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1;
@@ -93,7 +94,7 @@ export class Game {
     this.screens = new Screens(this.ui, this);
     addEventListener('resize', () => this.resize());
     bus.on('settings', (k) => this.applySettings(k));
-    this.canvas.addEventListener('click', () => { if (this.mode === 'play' && !this.paused && !this.editorHook) Input.requestLock(this.canvas); });
+    this.canvas.addEventListener('click', () => { if (this.mode === 'play' && !this.paused && !this.editorHook && !this.customs?.uiOpen) Input.requestLock(this.canvas); });
     bus.on('pointerlock', (locked) => { if (!locked && this.mode === 'play' && !this.paused && !this.photo && !this.hud.bigMapOpen && !this.director.active && !this.ignoreUnlock && !this.gunShop?.open && !this.customs?.active && !this.debugCon?.menuOpen && !this.debugCon?.open && !this.editorHook) this.openPause(); });
     bus.on('key', (code) => this.onKey(code));
   }
@@ -134,7 +135,7 @@ export class Game {
     this.player = new Player(this.scene, this.camera, this.collision, bus); this.player.crowd = this.crowd;
     this.hud = new HUD(this.ui); this.hud.canSeeUnit = (u) => this.canSeeUnit(u); this.hud.mapExtras = () => this.miniExtras(); this.hud.satellite = new Satellite(this); this.director = new Director(this); this.story = new Story(this); this.interiors = new Interiors(this); this.weapons = new Weapons(this); this.player.weapons = this.weapons; this.squad = new Squad(this); this.police = new PoliceResponse(this);
     this.crowd.onStrike = (p, m, M) => { if (this.weapons) this.weapons.struckBy(p, m, M); }; // street fighters' punches land on the player
-    this.health = new Health(this); this.phone = new Phone(this, this.hud.root); this.gunShop = new GunShopUI(this, this.hud.root); this.garage = new Garage(this); /* Colombo Customs ownership records (story.state.garage) */ this.debug = newDebugState(); this.debugCon = new DebugConsole(this, this.hud.root);
+    this.health = new Health(this); this.phone = new Phone(this, this.hud.root); this.gunShop = new GunShopUI(this, this.hud.root); this.garage = new Garage(this); /* Street Customs ownership records (story.state.garage) */ this.debug = newDebugState(); this.debugCon = new DebugConsole(this, this.hud.root);
     this.applyDensity();
     progress(0.9, 'Lighting'); await tick();
     this.post = new PostFX(this.renderer, this.scene, this.camera); this.post.setCine(Settings.get('lensFlare') !== false, Settings.get('lightShafts') !== false); this.post.build({ bloom: Settings.preset.bloom, ao: Settings.preset.ao, cine: Settings.preset.cine }); this.world.glintsOn = Settings.get('wetReflections') !== false; this.atmos.nightBoost = Settings.get('nightBrightness') ?? 1;
@@ -290,7 +291,7 @@ export class Game {
     for (const [k, T] of Object.entries(VTYPES)) { const key = T.police ? 'police' : T.ambulance ? 'amb' : T.entry === 'bike' ? k : (T.base || k) + (T.family || ''); if (seen.has(key)) continue; seen.add(key);
       try { const m = createVehicleMesh(k, 1); if (m.userData.detail) setVehicleLOD(m.userData, true); g.add(m); } catch (e) { console.warn('warm set', k, e); } }
     if (this.vdamage) g.add(this.vdamage.warmGroup()); // damaged glass, charred shell, bullet holes, shards / fragments
-    for (const m of [...customsWarmMeshes(), wheelsWarmMesh(), paintWarmMesh()]) g.add(m); // Colombo Customs: neon strip / glow pool, custom rim, custom paint programs
+    for (const m of [...customsWarmMeshes(), wheelsWarmMesh(), paintWarmMesh()]) g.add(m); // Street Customs: neon strip / glow pool, custom rim, custom paint programs
     return g;
   }
   setupRoomDoor() { const r = this.story.state.flags.room; this.interiors.setupDoors(r || null); }
@@ -299,7 +300,7 @@ export class Game {
   saveTo(slot) {
     const P = this.player; let pos = { x: P.x, z: P.z, yaw: P.yaw };
     if (this.interiors.current) { const d = this.interiors.current.door; pos = { x: d.x, z: d.z, yaw: d.faceIn + Math.PI }; } else if (P.vehicle) { const e = P.vehicle.exitPoint(-1); pos = { x: e.x, z: e.z, yaw: P.vehicle.yaw }; }
-    const m = MISSIONS.find((q) => q.id === this.story.state.mission.id); if (this.garage) this.garage.snapshot(); // owned vehicles where they stand now (Colombo Customs)
+    const m = MISSIONS.find((q) => q.id === this.story.state.mission.id); if (this.garage) this.garage.snapshot(); // owned vehicles where they stand now (Street Customs)
     SaveSystem.write(slot, { minds: this.crowd.minds.save(), story: this.story.serialize(), atmos: this.atmos.serialize(), player: pos, weapons: this.weapons.save(), squad: this.squad.save(), police: this.police.save(), clock: this.clock, missionTitle: m ? m.title : 'Free roam', timeString: `Day ${this.atmos.day} · ${this.atmos.timeString}` });
   }
   async restUntil(hour) {
@@ -432,14 +433,14 @@ export class Game {
     const busy = D.active || this.photo || this.hud.bigMapOpen || this.paused || this.phone.open || this.health.busy || this.gunShop.open || !!(this.customs && this.customs.active) || this.debugCon.menuOpen || this.debugCon.open;
     if (this.gunShop.open && !warmOnly) this.gunShop.update();
     // global actions
-    if (!D.active && !warmOnly) {
+    if (!D.active && !warmOnly && !(this.customs && this.customs.active)) { // Street Customs has the keyboard while it runs (W/S/A/D, R, P, M, J …): the map / phone / pause / radio hot-keys would open over the shop and take the cursor
       if (Input.wasPressed('map') && !this.photo && !this.gunShop.open) { if (this.phone.open) this.phone.toggle(false); this.toggleMap(); }
       if (Input.wasPressed('phone') && !this.hud.bigMapOpen && !this.gunShop.open) { if (this.photo) this.togglePhoto(false); else this.phone.toggle(); }
       else this.phone.update();
-      if (this.mode === 'play') this.health.update(dt);
       if (Input.wasPressed('journal') && !this.gunShop.open) this.openPause();
       if (P.vehicle && Input.wasPressed('radio')) { this.radio = (this.radio + 1) % RADIO.length; this.hud.notify('Radio', RADIO[this.radio] ? RADIO[this.radio].name : 'Off', 'info', 1.6); }
     }
+    if (!D.active && !warmOnly && this.mode === 'play') this.health.update(dt);
     if (!warmOnly) { const can = !busy && P.control && !P.cinematic && !this.indoor; this.weapons.update(dt, can && !this.grenades.lockWeapons); this.grenades.update(dt, can); this.drunk.update(dt); if (this.interiors.current?.tick) this.interiors.current.tick(dt, P); }
     CHASSIS.focus = P; this.vdamage.update(dt); /* burning vehicles feed the explosion light + particles: before them */ this.explosions.update(dt);
     if (!warmOnly) this.heroSkin(dt);
@@ -453,7 +454,7 @@ export class Game {
     if (!busy && !warmOnly && P.control) localPrompt = this.updateInteractions(dt);
     const inRoom = this.interiors.current; const focus = inRoom && inRoom.door ? { x: inRoom.door.x, z: inRoom.door.z } : { x: P.x, z: P.z }; const fv = new THREE.Vector3(P.x, P.y, P.z); // inside a shop room (built away from the street) keep the city streamed around its street door, not around the hidden room
     this.world.simTime = this.clock; this.world.indoorK = this.indoor ? 1 : (this.seamK || 0); this.world.update(dt, focus, cam, A);
-    A.update(dt, fv, cam, dt); setVehicleNight(A.night); setHeadPoolNight(A.night); updateCustoms(A.night); // Colombo Customs lamps (underglow, aux lenses, cabin) follow each vehicle's lights
+    A.update(dt, fv, cam, dt); setVehicleNight(A.night); setHeadPoolNight(A.night); updateCustoms(A.night); // Street Customs lamps (underglow, aux lenses, cabin) follow each vehicle's lights
     // walk-in Police HQ: smooth outdoor → indoor light adaptation while the city keeps running outside
     { const I = this.interiors, cur = I.current; if (cur && this.player.indoor !== cur && !this.player.indoor) { cur.g.visible = false; I.current = null; this.setIndoor(false); } } // teleported out of a shop/flat: close it
     const sk = this.indoor || warmOnly ? 0 : this.interiors.updateSeamless(dt); this.seamK = sk;
@@ -467,7 +468,7 @@ export class Game {
     if (this.vsmoke && !warmOnly) this.vsmoke.update(dt); // after every vehicle moved this frame (player, mission cars, traffic, police)
     if (!this.indoor) this.crowd.update(dt, focus, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: P, armed: !!(this.weapons && this.weapons.drawn), hourFactor: this.hourFactor(), hour: A.hour, bodies: this.bodies, police: this.police, hero: this.squad?.activeMember?.def?.id });
     if (!this.indoor && this.world.fuel) { if (!this.fuelSvc) this.fuelSvc = new FuelService(this.world.fuel, { crowd: this.crowd, traffic: this.traffic, scene: this.scene, player: P }); this.fuelSvc.update(dt, { focus, night: A.night }); } // filling stations: refuelling traffic + attendants (FuelStations.js)
-    if (this.world.customs && !warmOnly) { if (!this.customs) this.customs = new CustomsService(this, this.world.customs); this.customs.update(dt, { night: A.night }); this.garage.update(dt); } // Colombo Customs (customs/CustomsService.js)
+    if (this.world.customs && !warmOnly) { if (!this.customs) this.customs = new CustomsService(this, this.world.customs); this.customs.update(dt, { night: A.night }); this.garage.update(dt); } // Street Customs (customs/CustomsService.js)
     if (P.vehicle && A.night > 0.5 && P.nightLights === undefined) { P.vehicle.lights = true; }
     if (!this.indoor) this.ragdolls.update(dt, this.traffic.all()); this.blood.update(dt);
     if (this.birds) this.birds.update(dt);

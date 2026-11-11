@@ -1,6 +1,7 @@
 // Shared materials. Time of day (night factor) and rain (wetness) drive emissive and roughness.
 import * as THREE from 'three';
 import { TEX } from './Textures.js';
+import { barkTextures } from './RealTextures.js';
 import { applyInteriorMapping, INTERIOR, occupancy } from './InteriorMapping.js';
 export const MAT = {};
 const facadeKeys = ['colonial', 'brick', 'glass', 'glass2', 'glass3', 'office', 'office2', 'office3', 'hotel', 'shop', 'shop2', 'shop3', 'apartment', 'apartment2', 'villa', 'warehouse'];
@@ -102,7 +103,12 @@ export function buildMaterials() {
   MAT.palm = std({ map: TEX.palm, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85, vertexColors: true });
   MAT.bark = std({ color: 0x6b5a48, roughness: 1, vertexColors: true });
   // trees / plants (Forest.js): real bark and palm-trunk textures, small-leaf sprigs (creepers, shrubs), banana blades, flowers
-  MAT.treeBark = std({ map: TEX.bark, bumpMap: TEX.bark, bumpScale: 2.2, color: 0xf2ece4, roughness: 0.95, vertexColors: true }); // mid grey-brown bark with relief (was ~3 % albedo: read as black sticks)
+  // 35th request: photographic bark (RealTextures.barkTextures): fissured ridges, flaking plates, lichen and damp streaks with a matching
+  // tangent normal map. Trunk UVs (TreeShapes.tubeGeo) run once around (u) and h/6 per tile up (v): repeat (2, 0.32) gives ~1.2 m of
+  // bark per tile around a 0.3–0.4 m trunk and ~2.4 m up, i.e. undistorted, real-size fissures. Node / no canvas: the old texture.
+  const RB = barkTextures();
+  if (RB) { for (const t of [RB.map, RB.normal]) t.repeat.set(2, 0.32); MAT.treeBark = std({ map: RB.map, normalMap: RB.normal, normalScale: new THREE.Vector2(1.6, 1.6), color: 0xffffff, roughness: 0.96, vertexColors: true }); }
+  else MAT.treeBark = std({ map: TEX.bark, bumpMap: TEX.bark, bumpScale: 2.2, color: 0xf2ece4, roughness: 0.95, vertexColors: true }); // mid grey-brown bark with relief (was ~3 % albedo: read as black sticks)
   MAT.palmBark = std({ map: TEX.palmBark, roughness: 1, vertexColors: true });
   MAT.leavesSmall = std({ map: TEX.leavesSmall, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9, vertexColors: true });
   MAT.banana = std({ map: TEX.banana, alphaTest: 0.4, side: THREE.DoubleSide, roughness: 0.75, vertexColors: true });

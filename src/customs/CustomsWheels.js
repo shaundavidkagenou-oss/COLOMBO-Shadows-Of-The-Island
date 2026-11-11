@@ -1,4 +1,4 @@
-// COLOMBO CUSTOMS — wheels, tyres, calipers.
+// STREET CUSTOMS — wheels, tyres, calipers.
 //
 // Rims are real geometry built per design (spokes, barrel, lip, hub, nuts, cap, brake disc), in the same hub space as the stock
 // wheels (axle = x, outer face toward +x; VehicleModels mirrors the left-side holders). They replace the geometry of the meshes

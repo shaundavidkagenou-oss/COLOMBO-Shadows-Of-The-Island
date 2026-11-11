@@ -17,7 +17,13 @@ export function addWind(mat, amp, leaf = false) {
         .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
           { vec3 Lv = normalize((viewMatrix * vec4(uLeafDir, 0.0)).xyz); vec3 Vv = normalize(vViewPosition);
             float through = pow(max(dot(-Vv, Lv), 0.0), 4.0), back = max(0.0, -dot(normal, Lv));
-            totalEmissiveRadiance += diffuseColor.rgb * uLeafCol * vec3(0.95, 1.08, 0.55) * (0.55 * through + 0.22 * back); }`);
+            float tk = 0.45 + 0.55 * smoothstep(0.1, 0.45, diffuseColor.g); // thin bright leaf tissue transmits, dark gaps / inner crown don't
+            totalEmissiveRadiance += diffuseColor.rgb * uLeafCol * vec3(0.9, 1.06, 0.5) * (0.36 * through + 0.16 * back) * tk; }`)
+        // 35th request ("leaves look like metal pieces in morning light"): a leaf card stands for dozens of small leaves at random
+        // angles, so its one flat normal must not produce a coherent mirror glint — at a low sun the full F0 / Fresnel specular of the
+        // plane lit whole cards up like sheet metal. Leaf specular is kept to the faint waxy sheen a real crown has (direct and sky).
+        .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+          reflectedLight.directSpecular *= 0.12; reflectedLight.indirectSpecular *= 0.2;`);
     }
     sh.vertexShader = 'uniform float uWind;\n' + (leaf ? 'varying float vLeafH;\n' : '') + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
       #ifdef USE_INSTANCING
@@ -31,7 +37,7 @@ export function addWind(mat, amp, leaf = false) {
       transformed.x += sin(uWind * 1.7 + ph + position.z * 0.3) * ${amp.toFixed(3)} * hgt;
       transformed.z += cos(uWind * 1.3 + ph * 1.3 + position.x * 0.3) * ${amp.toFixed(3)} * hgt * 0.7;`);
   };
-  mat.customProgramCacheKey = () => 'wind' + amp + (leaf ? '-leaf2' : '');
+  mat.customProgramCacheKey = () => 'wind' + amp + (leaf ? '-leaf3' : '');
 }
 export function buildTreeGeometries() {
   addWind(MAT.leaves, 0.012, true); addWind(MAT.leavesBright, 0.014, true); addWind(MAT.palm, 0.02); if (MAT.banana) addWind(MAT.banana, 0.02); if (MAT.leavesSmall) addWind(MAT.leavesSmall, 0.01, true); if (MAT.bloom) addWind(MAT.bloom, 0.012);

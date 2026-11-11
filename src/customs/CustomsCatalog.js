@@ -1,4 +1,4 @@
-// COLOMBO CUSTOMS — the modification catalogue (data + rules, no three.js objects).
+// STREET CUSTOMS — the modification catalogue (data + rules, no three.js objects).
 //
 // Nothing here is a list of vehicle ids. Every vehicle's customisation profile is DISCOVERED from the data the rest of the game
 // already uses: VTYPES (VehicleModels.js, filled from VehicleCatalog.js / BikeCatalog.js) gives the builder family, the catalogue
@@ -14,7 +14,7 @@
 // Rs. 4,500+), scaled per vehicle by its class and performance — a race-bred coupé costs more to fit out than a kei van.
 import { VTYPES } from '../vehicles/VehicleModels.js';
 
-export const SHOP_NAME = 'Colombo Customs';
+export const SHOP_NAME = 'Street Customs';
 export const MAX_OWNED = 12;
 
 // ------------------------------------------------------------------------------------------------ vehicle profiles
@@ -153,7 +153,7 @@ export const SLOTS = [
   { id: 'livery', cat: 'paint', name: 'Livery', opts: (P) => {
     const o = [O('none', 'None', 0, 'Plain paint.'), O('stripes', 'Twin racing stripes', 3500, 'Two stripes nose to tail in the second colour.'), O('centre', 'Centre stripe', 3000, 'One wide stripe over the top.'), O('band', 'Side band', 3000, 'A band along each side.'), O('hockey', 'Hockey stick', 3800, 'Side band that kicks up over the rear quarter.'), O('rally', 'Rally sash', 4000, 'Diagonal sash across the sides.'), O('fade', 'Colour fade', 4500, 'Primary fades into the second colour toward the rear.'), O('checker', 'Checker roof', 3500, 'Black and white chequers over the roof.')];
     return bike(P) ? o.filter((q) => q.id !== 'checker' && q.id !== 'hockey') : tuk(P) ? o.filter((q) => q.id !== 'checker') : o; } },
-  { id: 'decal', cat: 'paint', name: 'Door decals', opts: (P) => [O('none', 'None', 0, 'Clean flanks.'), O('lotus', 'Lotus emblem', 900, 'Original lotus emblem in white.'), O('n07', 'Race number 07', 1200, 'White roundel with 07.'), O('n27', 'Race number 27', 1200, 'White roundel with 27.'), O('n94', 'Race number 94', 1200, 'White roundel with 94.'), O('cc', 'Colombo Customs', 900, 'The workshop\'s own sticker.'), O('flame', 'Flame licks', 1800, 'Hand-drawn flames from the front arches.')].filter((q) => !(bike(P) && q.id === 'flame')) },
+  { id: 'decal', cat: 'paint', name: 'Door decals', opts: (P) => [O('none', 'None', 0, 'Clean flanks.'), O('lotus', 'Lotus emblem', 900, 'Original lotus emblem in white.'), O('n07', 'Race number 07', 1200, 'White roundel with 07.'), O('n27', 'Race number 27', 1200, 'White roundel with 27.'), O('n94', 'Race number 94', 1200, 'White roundel with 94.'), O('cc', 'Street Customs', 900, 'The workshop\'s own sticker.'), O('flame', 'Flame licks', 1800, 'Hand-drawn flames from the front arches.')].filter((q) => !(bike(P) && q.id === 'flame')) },
 
   // ---------------------------------------------------------------- wheels
   { id: 'rims', cat: 'wheels', name: 'Wheel design', opts: (P) => {

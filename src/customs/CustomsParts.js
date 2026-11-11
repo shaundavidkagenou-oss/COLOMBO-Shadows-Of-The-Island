@@ -1,4 +1,4 @@
-// COLOMBO CUSTOMS — bolt-on body parts, built ON the scanned body (BodyScan.js) of the vehicle that wears them.
+// STREET CUSTOMS — bolt-on body parts, built ON the scanned body (BodyScan.js) of the vehicle that wears them.
 //
 // Every part is fitted from the vehicle's own surfaces: a splitter follows the real front face line at the real bumper bottom, a
 // carbon bonnet / roof is a skin sampled from the real panel 5 mm above it, skirts follow the real sill between the real wheel

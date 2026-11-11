@@ -288,19 +288,35 @@ function contactShadowGeo() {
 // metallic paint: aluminium flakes under the clear coat. Object-space hash cells (~0.7 mm) jitter the BASE layer's normal and
 // roughness; the clearcoat keeps the unperturbed normal (smooth lacquer over a sparkly base, as on real paint). Flakes fade
 // out where a cell is smaller than a pixel (fwidth), so distant traffic never shimmers. One shared program, a few ALU ops.
+// Vehicle paint highlights (35th request: "too reflective when light hits them, unrealistic under headlights"). A clear coat is a
+// near-mirror, so a small bright source makes a GGX peak hundreds of times the surface's diffuse level: the sun turned whole panels
+// into white bloom blobs and every headlight / street lamp a car drove past left a glaring star on the next car. Each light's direct
+// specular (base + clear coat) on paint is capped — sun 1.6, lamps (point) 0.7, headlights / spots 0.45 in scene-linear units — so
+// highlights stay crisp and readable but never flare. Reflections of the sky (environment) and diffuse lighting are untouched.
+export function vehSpecPatch(fs) {
+  const C = THREE.ShaderChunk; let pars = C.lights_physical_pars_fragment;
+  const a = 'clearcoatSpecularDirect += ccIrradiance * BRDF_GGX_Clearcoat( directLight.direction, geometryViewDir, geometryClearcoatNormal, material );';
+  const b = 'reflectedLight.directSpecular += irradiance * specularBRDF * material.multiScatteringCompensation;';
+  if (!pars.includes(a) || !pars.includes(b)) return fs; // three changed its chunks: leave paint as it is
+  pars = pars.replace(a, 'clearcoatSpecularDirect += min( ccIrradiance * BRDF_GGX_Clearcoat( directLight.direction, geometryViewDir, geometryClearcoatNormal, material ), vec3( gVCap ) );').replace(b, 'reflectedLight.directSpecular += min( irradiance * specularBRDF * material.multiScatteringCompensation, vec3( gVCap ) );');
+  let beg = C.lights_fragment_begin; const call = 'RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );';
+  for (const [tag, cap] of [['#if ( NUM_POINT_LIGHTS > 0 ) && defined( RE_Direct )', 0.7], ['#if ( NUM_SPOT_LIGHTS > 0 ) && defined( RE_Direct )', 0.45]]) { const i = beg.indexOf(tag); const j = i >= 0 ? beg.indexOf(call, i) : -1; if (j >= 0) beg = beg.slice(0, j) + `gVCap = ${cap.toFixed(2)}; ` + call + ' gVCap = 1.6;' + beg.slice(j + call.length); }
+  return 'float gVCap = 1.6;\n' + fs.replace('#include <lights_physical_pars_fragment>', pars).replace('#include <lights_fragment_begin>', beg);
+}
 function paintFlakes(m) {
   m.onBeforeCompile = (sh) => {
+    sh.fragmentShader = vehSpecPatch(sh.fragmentShader);
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vFlakeP;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvFlakeP = position;');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vFlakeP;\nfloat flakeH(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }')
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nvec3 flakeC = floor(vFlakeP * 1400.0); float flakeA = clamp(1.6 - length(fwidth(vFlakeP)) * 1400.0, 0.0, 1.0); roughnessFactor = clamp(roughnessFactor * (1.0 + (flakeH(flakeC) - 0.5) * 0.6 * flakeA), 0.04, 1.0);')
       .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nnormal = normalize(normal + (vec3(flakeH(flakeC + 1.3), flakeH(flakeC + 7.1), flakeH(flakeC + 3.7)) - 0.5) * 0.16 * flakeA);');
   };
-  m.customProgramCacheKey = () => 'vpaint-flakes'; return m;
+  m.customProgramCacheKey = () => 'vpaint-flakes2'; return m;
 }
 export function vehicleMaterials() {
   if (!mats) {
     mats = {
-      vpaint: paintFlakes(new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.25, clearcoat: 1, clearcoatRoughness: 0.07, envMapIntensity: 1.0 })),
+      vpaint: paintFlakes(new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.08, clearcoat: 0.8, clearcoatRoughness: 0.11, envMapIntensity: 0.75 })), // solid factory paint: dielectric base (was 0.25 metal: read as bare metal), lacquer that reflects without mirroring
       vworn: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.15, envMapIntensity: 0.7 }),
       vglass: new THREE.MeshPhysicalMaterial({ color: 0x0c1215, roughness: 0.1, metalness: 0.0, specularIntensity: 0.38, transparent: true, opacity: 0.8, envMapIntensity: 0.5, depthWrite: false, side: THREE.DoubleSide }), // tinted automotive glass: weak Fresnel so sloped rear screens never read as white glowing panels against the sky
       vchrome: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.22, metalness: 0.8, envMapIntensity: 1.2 }),
@@ -1105,7 +1121,7 @@ function ensureModel(type, seed) {
   }
   return { T, color, variant, worn, cached };
 }
-// ---- COLOMBO CUSTOMS (src/customs): the look of a customised vehicle. The same shape as its traffic look (same buffers for
+// ---- STREET CUSTOMS (src/customs): the look of a customised vehicle. The same shape as its traffic look (same buffers for
 // position / normal / uv / index), but the paint is baked WHITE × its shade and carries a binary 'pmask' attribute (1 = paint), so
 // the vehicle's own paint shader (CustomsPaint.js) colours, two-tones, finishes and liveries it with uniforms: a new colour is a
 // uniform write, never a geometry rebuild. Built once per type + variant and shared by every customised vehicle of that look.

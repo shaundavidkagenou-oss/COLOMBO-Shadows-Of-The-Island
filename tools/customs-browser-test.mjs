@@ -1,4 +1,4 @@
-// Colombo Customs end-to-end browser test (needs a vite dev server on PORT, default 5199):
+// Street Customs end-to-end browser test (needs a vite dev server on PORT, default 5199):
 //   node tools/customs-browser-test.mjs [outDir] [quality]
 // Drives the real game: drive-in → repair gate → preview / cancel / buy (paint, wheels, exterior, lighting, engine, turbo, brakes,
 // suspension, armour, exhaust) → leave → save → reload → owned car respawned with its mods; motorcycle session; police vehicle refused;
