@@ -20,7 +20,7 @@ const DEFAULTS = {
   master: 0.85, music: 0.6, sfx: 0.85, ambience: 0.75, dialogue: 1.0, voiceTTS: false,
   subtitles: true, subtitleSize: 1.0, crowdDensity: 1.0, trafficDensity: 1.0,
   timeScale: 2.0, // real seconds per game minute
-  showFps: false, blood: true, /* blood effects (impact spray, splats, pools under bodies) */ wetReflections: true, /* wet-road light streaks (WetGlints) */ nightBrightness: 1.15, /* night exposure multiplier (Settings → Night brightness) */ lensFlare: true, lightShafts: true, /* cinematic sun effects, where the preset includes them (cine level: Medium flare, High/Ultra shafts) */
+  showFps: false, blood: true, /* blood effects (impact spray, splats, pools under bodies) */ wetReflections: true, /* wet-road light streaks (WetGlints) */ nightBrightness: 1.15, /* night exposure multiplier (Settings → Night brightness) */ lensFlare: true, lightShafts: true, dynamicRes: true, /* hold the frame rate by lowering the render scale (min 80 %) only while it drops */ /* cinematic sun effects, where the preset includes them (cine level: Medium flare, High/Ultra shafts) */
   switchStyle: 'auto', // squad switch camera: auto (transit, or jump-cut when far / blocked) | transit | cut
   bindings: { ...DEFAULT_BINDINGS },
 };

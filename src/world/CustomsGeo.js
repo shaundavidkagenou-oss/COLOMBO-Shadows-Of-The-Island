@@ -113,12 +113,14 @@ export function buildCustoms(site = L.CUSTOMS_SITE) {
   { const r = site.box(-hu, hu, w0, w1); crown.push([r[0] - 1.2, r[1] + 1.2, r[2] - 1.2, r[3] + 1.2, top + 1.6]); const p = site.box(-18, -16.4, 0.7, 1.5); crown.push([p[0] - 1, p[1] + 1, p[2] - 1, p[3] + 1, S + 7.2]); }
 
   // ---------------------------------------------------------------- turntable + preview light rig
-  const TT = CG.tt; const ttMb = new MeshBuilder(); { const n = 72, rr = TT.r; const base = ttMb.vcount; ttMb.vert(0, 0, 0, 0, 1, 0, 0.5, 0.5, C('#6c7077'));
-    for (let i = 0; i <= n; i++) { const a = (i / n) * Math.PI * 2; ttMb.vert(Math.cos(a) * rr, 0, Math.sin(a) * rr, 0, 1, 0, 0.5 + Math.cos(a) * 0.5, 0.5 + Math.sin(a) * 0.5, C(i % 12 < 6 ? '#70747b' : '#666a71')); }
+  const TT = CG.tt; const ttMb = new MeshBuilder(); { const n = 72, rr = TT.r; const base = ttMb.vcount; ttMb.vert(0, 0, 0, 0, 1, 0, 1.15, 1.15, C('#6c7077'));
+    for (let i = 0; i <= n; i++) { const a = (i / n) * Math.PI * 2; ttMb.vert(Math.cos(a) * rr, 0, Math.sin(a) * rr, 0, 1, 0, 1.15 + Math.cos(a) * 1.15, 1.15 + Math.sin(a) * 1.15, /* uv ×2.3: the grime texture at its real 4 m scale */ C(i % 12 < 6 ? '#70747b' : '#666a71')); }
     for (let i = 0; i < n; i++) ttMb.idx.push(base, base + 2 + i, base + 1 + i);
     for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2; const ca = Math.cos(a), sa = Math.sin(a); ttMb.quad([ca * 0.6 - sa * 0.012, 0.002, sa * 0.6 + ca * 0.012], [ca * rr * 0.97 - sa * 0.012, 0.002, sa * rr * 0.97 + ca * 0.012], [ca * rr * 0.97 + sa * 0.012, 0.002, sa * rr * 0.97 - ca * 0.012], [ca * 0.6 + sa * 0.012, 0.002, sa * 0.6 - ca * 0.012], [0, 0, 1, 1], C('#2e3135')); } // plate seams
     for (const r0 of [0.6, rr * 0.55]) for (let i = 0; i < 48; i++) { const a0 = (i / 48) * Math.PI * 2, a1 = ((i + 1) / 48) * Math.PI * 2; ttMb.quad([Math.cos(a0) * r0, 0.002, Math.sin(a0) * r0], [Math.cos(a1) * r0, 0.002, Math.sin(a1) * r0], [Math.cos(a1) * (r0 + 0.025), 0.002, Math.sin(a1) * (r0 + 0.025)], [Math.cos(a0) * (r0 + 0.025), 0.002, Math.sin(a0) * (r0 + 0.025)], [0, 0, 1, 1], C('#2e3135')); } }
-  const ttGeo = ttMb.build(); const turntable = new THREE.Mesh(ttGeo, MAT.metal); turntable.name = 'customs-turntable'; turntable.position.set(TT.u, S + 0.004, -TT.w); turntable.receiveShadow = true; turntable.castShadow = false; g.add(turntable);
+  const ttGeo = ttMb.build(); const FT = garageFloorTextures(), ttFT = FT; /* worn steel plate: the shop floor's grime / tyre scuffs / oil over dark steel, low sky reflection (MAT.metal mirrored the outdoor sky blue indoors) */
+  const ttMat = new THREE.MeshStandardMaterial({ vertexColors: true, map: ttFT ? ttFT.map : null, roughnessMap: ttFT ? ttFT.rough : null, normalMap: ttFT ? ttFT.normal : null, normalScale: new THREE.Vector2(0.5, 0.5), color: 0xb2b0aa, metalness: 0.22, roughness: 0.8, envMapIntensity: 0.2 }); ttMat.name = 'customs-turntable';
+  const turntable = new THREE.Mesh(ttGeo, ttMat); turntable.name = 'customs-turntable'; turntable.position.set(TT.u, S + 0.004, -TT.w); turntable.receiveShadow = true; turntable.castShadow = false; g.add(turntable);
   for (let i = 0; i < 64; i++) { const a0 = (i / 64) * Math.PI * 2, a1 = ((i + 1) / 64) * Math.PI * 2, r0 = TT.r, r1 = TT.r + 0.12; paint.quad([TT.u + Math.cos(a0) * r0, S + 0.003, -TT.w + Math.sin(a0) * r0], [TT.u + Math.cos(a1) * r0, S + 0.003, -TT.w + Math.sin(a1) * r0], [TT.u + Math.cos(a1) * r1, S + 0.003, -TT.w + Math.sin(a1) * r1], [TT.u + Math.cos(a0) * r1, S + 0.003, -TT.w + Math.sin(a0) * r1], [0, 0, 1, 1], i % 2 ? yellow : black); } // hazard ring
   { const y = top - 1.25, a = 3.7; for (const s of [-1, 1]) { B(metal, TT.u - a, TT.u + a, y - 0.12, y + 0.12, TT.w + s * a - 0.12, TT.w + s * a + 0.12, C('#2a2c30')); B(metal, TT.u + s * a - 0.12, TT.u + s * a + 0.12, y - 0.12, y + 0.12, TT.w - a, TT.w + a, C('#2a2c30')); } // truss square
     for (const [du, dw] of [[-a, -a], [a, -a], [-a, a], [a, a]]) B(metal, TT.u + du - 0.015, TT.u + du + 0.015, y + 0.12, top - 0.5, TT.w + dw - 0.015, TT.w + dw + 0.015, grey); // hangers
@@ -165,7 +167,7 @@ export function buildCustoms(site = L.CUSTOMS_SITE) {
 
   // ---------------------------------------------------------------- meshes
   // workshop surfaces (35th request): grimy painted block, oil-stained concrete, the grey steel deck; plain-colour fallbacks in Node
-  const WT = garageWallTextures(top - S), FT = garageFloorTextures();
+  const WT = garageWallTextures(top - S); // FT (floor textures) made once above, shared with the turntable
   const wallMat = new THREE.MeshStandardMaterial({ envMapIntensity: 0.4, map: WT ? WT.map : null, normalMap: WT ? WT.normal : null, normalScale: new THREE.Vector2(0.9, 0.9), roughnessMap: WT ? WT.rough : null, roughness: 1, color: WT ? 0xffffff : 0x9c978e, vertexColors: true }); wallMat.name = 'customs-wall';
   const floorMat = new THREE.MeshStandardMaterial({ envMapIntensity: 0.25, map: FT ? FT.map : null, normalMap: FT ? FT.normal : null, normalScale: new THREE.Vector2(0.8, 0.8), roughnessMap: FT ? FT.rough : null, roughness: 1, color: FT ? 0xffffff : 0x6f6b64, vertexColors: true }); floorMat.name = 'customs-floor';
   const deckMat = MAT.corrugated ? MAT.corrugated : MAT.metal;

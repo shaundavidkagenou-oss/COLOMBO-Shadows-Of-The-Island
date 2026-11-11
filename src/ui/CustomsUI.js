@@ -63,7 +63,7 @@ export class CustomsUI {
   }
   endPreview() { if (!this.v) return; if (this.pv) { restoreInstalled(this.v); this.pv = null; } }
   // ------------------------------------------------------------------------------------------------ actions
-  setCat(i) { this.endPreview(); this.ci = i; this.si = 0; this.level = 'slots'; const c = this.catId; setPreviewLights(this.v, c === 'lighting'); this.svc.setView(this.svc.viewFor(c)); for (const m of this.svc.mech) m.event('focus'); Audio.ui('click'); this.render(); }
+  setCat(i) { this.endPreview(); this.ci = i; this.si = 0; this.level = 'slots'; const c = this.catId; setPreviewLights(this.v, c === 'lighting'); this.svc.setView(this.svc.viewFor(c)); if (!this.svc.work) for (const m of this.svc.mech) m.event('focus'); /* browsing while a part is being fitted: the crew finishes that job first */ Audio.ui('click'); this.render(); }
   setSlot(i) { this.endPreview(); this.si = i; const sl = this.slot; if (!sl) return; if (slotLocked(sl.id, this.installed)) { this.flash = { bad: true, msg: NEEDS_TEXT[sl.id] || 'Not available yet' }; Audio.ui('fail'); this.render(); return; }
     this.level = 'opts'; const opts = this.options(sl), cur = this.curVal(sl); this.oi = Math.max(0, opts.findIndex((o) => (o.id ?? null) === (cur ?? null))); if (sl.kind === 'colour') this.colour = cur || (sl.presets[0] && sl.presets[0][1]) || '#888888';
     this.plateText = this.installed.plateText || ''; if (sl.id === 'rims' || sl.id === 'brakes' || sl.id === 'calCol' || sl.id === 'tyres') this.svc.setView('wheel'); Audio.ui('click'); this.render(); }

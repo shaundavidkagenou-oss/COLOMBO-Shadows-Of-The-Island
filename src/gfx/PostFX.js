@@ -137,7 +137,8 @@ export class PostFX {
     if (!this.gradeW || first || this.gradeSnap) { this.gradeW = tgt.slice(); this.gradeSnap = false; } else { const k = 1 - Math.exp(-dt * CINE.gradeRate); for (let i = 0; i < 5; i++) this.gradeW[i] += (tgt[i] - this.gradeW[i]) * k; }
     let expo = 0; for (let i = 0; i < 5; i++) expo += this.gradeW[i] * PROFILES[PROFILE_ORDER[i]].expo;
     const C = this.cine; C.rev = this.r.state.buffers.depth.getReversed ? (this.r.state.buffers.depth.getReversed() ? 1 : 0) : 0;
-    C.setFrame(this.camera, atmos, { weights: this.gradeW, expo: inside ? 1 : expo, indoor: inside, dt });
+    { const te = inside ? 1 : expo; this.expoS = this.expoS === undefined || first ? te : this.expoS + (te - this.expoS) * (1 - Math.exp(-dt * CINE.gradeRate)); } // eased like the grade: walking in / out never steps the exposure
+    C.setFrame(this.camera, atmos, { weights: this.gradeW, expo: this.expoS, indoor: inside, dt });
     const u = C.uniforms; u.uWet.value = atmos.wet; u.uFlash.value = atmos.flash * 0.25;
   }
   render(dt) { this.tickSenses(dt || 0.016); if (this.enabled) this.composer.render(dt); else this.r.render(this.scene, this.camera); }

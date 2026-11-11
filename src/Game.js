@@ -81,7 +81,7 @@ export class Game {
     const preset = Settings.preset;
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', stencil: false, reversedDepthBuffer: true }); // reversed-Z + float depth (PostFX target): uniform depth precision near and far, so windows, signs, glass and paving never z-fight (falls back to standard depth without EXT_clip_control)
     this.renderer.localClippingEnabled = true; // Street Customs roller door (a clip plane on that one material only; nothing else pays for it)
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * preset.pixelRatio * Settings.get('resolutionScale'));
+    this.dynK = 1; this.dynT = 0; this.dynHold = 0; this.dynUpAt = -1e9; this.renderer.setPixelRatio(this.basePR());
     this.renderer.setSize(innerWidth, innerHeight); this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1;
     this.renderer.shadowMap.enabled = preset.shadows; this.renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -386,7 +386,7 @@ export class Game {
     requestAnimationFrame(() => this.loop());
     if (this.noRender) return; // headless tests (TEST mode): step the sim with stepSim() without paying for frames
     const now = performance.now(); const raw = (now - this.last) / 1000; this.last = now; const dt = Math.min(TEST ? 0.5 : 0.05, Math.max(0.0005, raw));
-    this.fps = lerp(this.fps, 1 / Math.max(raw, 1e-3), 0.05);
+    this.fps = lerp(this.fps, 1 / Math.max(raw, 1e-3), 0.05); this.dynRes(Math.min(raw, 0.25));
     Input.pollGamepad();
     try {
       const mapOpen = this.mode === 'play' && this.hud.bigMapOpen; // the pause map freezes the world (and the hidden 3D view is not drawn)
@@ -553,7 +553,7 @@ export class Game {
   applyDensity() { const pr = Settings.preset; this.crowd.max = Math.round(pr.crowd * 0.45 * Settings.get('crowdDensity')); this.traffic.max = Math.round(pr.traffic * Settings.get('trafficDensity')); }
   applySettings(k) {
     const pr = Settings.preset; if (!this.post) return;
-    if (k === 'quality' || k === 'resolutionScale' || k === '*') { this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * pr.pixelRatio * Settings.get('resolutionScale')); this.renderer.shadowMap.enabled = pr.shadows; this.atmos.sun.castShadow = pr.shadows; { const sh = this.atmos.sun.shadow; if (sh.mapSize.x !== pr.shadowRes) { sh.mapSize.set(pr.shadowRes, pr.shadowRes); if (sh.map) { sh.map.dispose(); sh.map = null; } } } /* the preset's sun shadow resolution (was only applied at start-up) */ this.atmos.drawDist = pr.drawDist; this.world.setQuality(Settings.get('quality')); this.post.build({ bloom: pr.bloom, ao: pr.ao, cine: pr.cine }); this.resize(); this.scene.traverse((o) => { if (o.material && o.material.needsUpdate !== undefined && k === 'quality') o.material.needsUpdate = true; }); }
+    if (k === 'quality' || k === 'resolutionScale' || k === '*') { this.renderer.setPixelRatio(this.basePR() * this.dynK); this.renderer.shadowMap.enabled = pr.shadows; this.atmos.sun.castShadow = pr.shadows; { const sh = this.atmos.sun.shadow; if (sh.mapSize.x !== pr.shadowRes) { sh.mapSize.set(pr.shadowRes, pr.shadowRes); if (sh.map) { sh.map.dispose(); sh.map = null; } } } /* the preset's sun shadow resolution (was only applied at start-up) */ this.atmos.drawDist = pr.drawDist; this.world.setQuality(Settings.get('quality')); this.post.build({ bloom: pr.bloom, ao: pr.ao, cine: pr.cine }); this.resize(); this.scene.traverse((o) => { if (o.material && o.material.needsUpdate !== undefined && k === 'quality') o.material.needsUpdate = true; }); }
     if (k === 'wetReflections' || k === '*') { if (this.world) this.world.glintsOn = Settings.get('wetReflections') !== false; }
     if (k === 'lensFlare' || k === 'lightShafts' || k === '*') this.post.setCine(Settings.get('lensFlare') !== false, Settings.get('lightShafts') !== false);
     if (k === 'nightBrightness' || k === '*') { if (this.atmos) this.atmos.nightBoost = Settings.get('nightBrightness') ?? 1; }
@@ -563,5 +563,19 @@ export class Game {
     if (['master', 'music', 'sfx', 'ambience', 'dialogue', '*'].includes(k)) Audio.applyVolumes();
     if (k === 'subtitleSize' || k === '*') document.documentElement.style.setProperty('--sub-scale', Settings.get('subtitleSize'));
   }
+  /* FPS: render resolution. High-DPI screens (Windows 125-200 % scaling, laptops, 4K) used to render at up to 2x the pixels on every preset; now only Ultra
+     renders above 1 pixel per screen point (the Resolution scale setting still goes to 150 %). On a normal 100 % desktop this changes nothing. */
+  basePR() { const pr = Settings.preset; return Math.min(devicePixelRatio, Settings.get('quality') === 'ultra' ? 2 : 1) * pr.pixelRatio * Settings.get('resolutionScale'); }
+  /* Dynamic resolution (Settings → Graphics, on by default): only when the frame rate falls under ~55 fps for a while the render scale steps down 5 % at a
+     time (never below 80 %), and climbs back to 100 % once the frame rate holds at the display rate again. Nothing else changes (models, shadows,
+     effects, draw distance stay as the preset sets them). A level that failed right after a step up is held for 20 s, so it does not pump. */
+  dynRes(raw) {
+    if (TEST || this.mode !== 'play' || Settings.get('dynamicRes') === false) { if (this.dynK !== 1) { this.dynK = 1; this.applyPR(); } return; }
+    this.dynF = this.dynF === undefined ? raw : this.dynF + (raw - this.dynF) * 0.08; this.dynT += raw; this.dynHold = Math.max(0, this.dynHold - raw);
+    if (this.dynT < 1.5) return; this.dynT = 0; const fps = 1 / Math.max(1e-3, this.dynF);
+    if (fps < 54 && this.dynK > 0.8) { if (this.clock - this.dynUpAt < 6) this.dynHold = 20; this.dynK = Math.max(0.8, +(this.dynK - 0.05).toFixed(2)); this.applyPR(); }
+    else if (fps > 58.5 && this.dynK < 1 && this.dynHold <= 0) { this.dynK = Math.min(1, +(this.dynK + 0.05).toFixed(2)); this.dynUpAt = this.clock; this.applyPR(); }
+  }
+  applyPR() { const p = this.basePR() * this.dynK; this.renderer.setPixelRatio(p); if (this.post && this.post.composer) this.post.composer.setPixelRatio(p); this.resize(); }
   resize() { const w = innerWidth, h = innerHeight; this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); this.renderer.setSize(w, h); if (this.post) this.post.setSize(w, h); }
 }

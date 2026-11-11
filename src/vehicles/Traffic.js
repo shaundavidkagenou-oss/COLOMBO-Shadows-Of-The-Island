@@ -146,6 +146,7 @@ function obbHit(ax, az, ay, ahw, ahl, bx, bz, by, bhw, bhl) {
   }
   return true;
 }
+const PRED_T = [0.4, 0.8, 1.2]; // footprint-conflict look-ahead times (s)
 export class Traffic {
   constructor(scene, collision, events) {
     VEH_HOOKS.crash = (v, by, dv) => this.onCrash(v, by, dv); this.raging = []; this.reboarding = []; this.rageStats = { crashes: 0, honk: 0, out: 0, back: 0 };
@@ -401,10 +402,11 @@ export class Traffic {
     if (playerV && playerV.pax && playerV.pax.length) this.updateOccupants(playerV, dt, focus);
     this.updateDisembark(dt); if (this.crowd && this.crowd.traffic !== this) this.crowd.traffic = this; if (this.raging.length) this.updateRage(dt); if (this.reboarding.length) this.updateReboard(dt);
   }
+  reserve(nid, vid) { const r = this.res.get(nid); if (r) { r.id = vid; r.t = this.simTime; } else this.res.set(nid, { id: vid, t: this.simTime }); } // junction reservation, updated in place (was a new object per car per frame)
   step(v, dt, all, peds, playerV, player) {
     if (v.free) { this.stepFree(v, dt); return; }
     const ai = v.ai; if (!ai) return; if (ai.stopped) { v.speed = 0; v.brake = true; return; } if (ai.chase) { stepChase(this, v, dt, all); return; } /* police intercept mode (Pursuit.js) */ if (ai.fuel && this.fuel && this.fuel.hold(v, ai, dt)) return; /* parked at a pump (FuelStations.js) */ const p = ai.pieces[0]; // stopped = crew out of a police unit (handbrake on, nobody at the wheel)
-    const by = ai.rejoin ? v.yaw : v.yaw - (ai.hdg || 0); const [fx, fz] = [Math.sin(by), Math.cos(by)]; // lane direction (the body's lane-change yaw must not swing what counts as ahead / beside)
+    const by = ai.rejoin ? v.yaw : v.yaw - (ai.hdg || 0); const fx = Math.sin(by), fz = Math.cos(by); // lane direction (the body's lane-change yaw must not swing what counts as ahead / beside)
     // --- leader gap
     let gap = 60, leadV = 0; if (v.hold) gap = -1; // player is getting in: brake to a stop
     const consider = (ox, oz, ov, len, latTol) => {
@@ -444,7 +446,7 @@ export class Traffic {
     if (!em && !this.noConflict) { let conf = Infinity; const myS = Math.max(v.speed, 2.5); const fresh = ((this.fN | 0) + v.id) % 2 === 0; if (!fresh) conf = ai.conf ?? Infinity; /* recomputed on alternate frames */
       if (fresh) for (const o of all) { if (o === v || o.isTrain || o.parked || o.dead) continue; const rx = o.x - v.x, rz = o.z - v.z; if (Math.abs(rx) > 16 || Math.abs(rz) > 16) continue;
         const along = rx * fx + rz * fz; if (along < 0) continue; const ofx = Math.sin(o.yaw), ofz = Math.cos(o.yaw); if (ofx * fx + ofz * fz > 0.85 && Math.abs(rx * fz - rz * fx) < 1.7) continue; // same lane: the leader gap handles it
-        for (const t of [0.4, 0.8, 1.2]) { const os = o.speed * t, ms = myS * t;
+        for (const t of PRED_T) { const os = o.speed * t, ms = myS * t;
           if (obbHit(v.x + fx * ms, v.z + fz * ms, v.yaw, v.T.wid / 2 + 0.25, v.half + 0.3, o.x + ofx * os, o.z + ofz * os, o.yaw, o.T.wid / 2 + 0.25, o.half + 0.3)) {
             const right = (rx * fz - rz * fx) < 0; /* oncoming traffic: only the vehicle turning across it gives way */ const oEm = o.ai && o.ai.emergency && o.beaconsOn; const inWay = obbHit(v.x + fx * 1.5, v.z + fz * 1.5, v.yaw, v.T.wid / 2, v.half, o.x, o.z, o.yaw, o.T.wid / 2, o.half);
             if (inWay || oEm || o === playerV || (right && (ofx * fx + ofz * fz > -0.5 || p.type === 'curve')) || (!o.ai && o.speed < 0.5)) conf = Math.min(conf, Math.max(0.3, along - v.half - o.half));
@@ -464,12 +466,12 @@ export class Traffic {
         const st = L.signalState(node, p.seg.dir, this.simTime);
         if (st === 'red' || (st === 'yellow' && rem > v.speed * 1.2 + 4)) stopAt = rem - 0.5;
       } else if (next && next.type === 'curve' && node.segs.length >= 3) {
-        const myLevel = p.seg.level; const crossMin = Math.min(...node.segs.filter((s) => s.dir !== p.seg.dir).map((s) => s.level), 9);
+        const myLevel = p.seg.level; let crossMin = 9; for (const s of node.segs) if (s.dir !== p.seg.dir && s.level < crossMin) crossMin = s.level; // (no per-frame arrays)
         const r = this.res.get(node.id); const busy = r && r.id !== v.id && this.simTime - r.t < 3.5;
         if (busy || (myLevel > crossMin && rem < 14 && v.speed > 4)) { if (busy) stopAt = rem - 0.5; }
-        if (rem < 6 && !busy) this.res.set(node.id, { id: v.id, t: this.simTime });
+        if (rem < 6 && !busy) this.reserve(node.id, v.id);
       }
-    } else if (p.type === 'curve') this.res.set(p.node.id, { id: v.id, t: this.simTime });
+    } else if (p.type === 'curve') this.reserve(p.node.id, v.id);
     if (this.rail) { const d = this.rail.stopDistance(v); if (d < stopAt) stopAt = d; }
     if (ai.goal && ai.goal.piece) { const k = ai.pieces.indexOf(ai.goal.piece); if (k >= 0) { let dist = -ai.s; for (let q = 0; q < k; q++) dist += ai.pieces[q].len; dist += ai.goal.s; ai.goal.dist = dist; if (dist < stopAt && !ai.goal.soft) stopAt = Math.max(-1, dist); } } // soft goal = moving target (pursuit): steer there without braking for it // level crossing: lamps flashing / booms down
     if (ai.fuel && this.fuel) { const d = this.fuel.stopDist(v, ai); if (d < stopAt) stopAt = d; }

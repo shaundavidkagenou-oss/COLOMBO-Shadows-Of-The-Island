@@ -1676,9 +1676,9 @@ export class Animator {
       legs(lerp(-0.7 * wind, 0.25, dive), lerp(1.0 * wind, 0.1, dive), 0.9 * dive, lerp(-0.2 * wind, 0.35, dive), lerp(0.6 * wind, 0.2, dive), 0.9 * dive);
       b.spine.rotation.x = lerp(b.spine.rotation.x, 0.4 * wind, w);
     }
-    else if (act === 'medKneel') { const ln = this.medLean ?? 0.2; hips(kneelY - 0.03 * s - 0.04 * s * Math.max(0, ln - 0.3), 0.22 + ln * 0.5); legs(0.3, 1.62, 0.75, 0.3, 1.62, 0.75); b.spine.rotation.x = lerp(b.spine.rotation.x, ln * 0.55, w); b.chest.rotation.x = lerp(b.chest.rotation.x, ln * 0.3, w); } // both knees down beside a patient; medLean: CPR rocks from the hips over locked arms
+    else if (act === 'medKneel') { const ln = this.medLean ?? 0.2, P = 0.22 + ln * 0.5, th = 0.1 - P; hips(kneelY + 0.01 * s - 0.04 * s * Math.max(0, ln - 0.3), P); legs(th, 1.47, 0.75, th + 0.04, 1.47, 0.75); /* thigh +x swings the leg BACK, like the hip pitch: the thighs cancel the pitch so they stay near vertical, knees on the floor, shins flat behind (was thigh +0.3: legs swung back, feet in the air) */ b.spine.rotation.x = lerp(b.spine.rotation.x, ln * 0.55, w); b.chest.rotation.x = lerp(b.chest.rotation.x, ln * 0.3, w); } // both knees down beside a patient; medLean: CPR rocks from the hips over locked arms
     else if (act === 'medLift') { const up = this.medUp ?? 0; hips(lerp(kneelY - 0.03 * s, stand * 0.96, up), lerp(0.5, 0.18, up)); legs(lerp(0.3, -0.12, up), lerp(1.62, 0.22, up), lerp(0.75, 0.05, up), lerp(0.3, -0.12, up), lerp(1.62, 0.22, up), lerp(0.75, 0.05, up)); b.spine.rotation.x = lerp(b.spine.rotation.x, lerp(0.35, 0.2, up), w); } // lifting from kneeling to standing (medUp 0 → 1)
-    else if (act === 'cuffKneel') { hips(kneelY - 0.03 * s, 0.35); legs(0.27, 1.62, 0.75, 0.27, 1.62, 0.75); } // both knees down close beside the suspect, hinged forward at the hips (thighs kept vertical)
+    else if (act === 'cuffKneel') { hips(kneelY - 0.01 * s, 0.35); legs(-0.25, 1.47, 0.75, -0.25, 1.47, 0.75); } // both knees down close beside the suspect, hinged forward at the hips (thighs kept vertical)
   }
   // Hanging cloth (saree pallu, dupatta, shawl, towel down the back): a damped pendulum on the clothB hinge, driven by the
   // person's real motion — it lags behind when they speed up, lifts away with speed (air drag), swings out on turns and
