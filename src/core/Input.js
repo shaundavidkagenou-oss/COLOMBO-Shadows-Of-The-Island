@@ -5,9 +5,15 @@ class InputSystem {
   constructor() {
     this.down = new Set(); this.pressed = new Set(); this.released = new Set();
     this.mouseDX = 0; this.mouseDY = 0; this.wheel = 0; this.mouseButtons = new Set(); this.mousePressed = new Set();
-    this.locked = false; this.enabled = true; this.capture = null; this.typing = false;
+    this.locked = false; this.enabled = true; this.capture = null; this.typing = false; this.typingOwner = null;
+    this.stuck = false;
     this.pad = { lx: 0, ly: 0, rx: 0, ry: 0, lt: 0, rt: 0, buttons: [], prev: [] };
     addEventListener('keydown', (e) => {
+      // If something took the keyboard (developer console / debug editor) and closed without handing it back, every key
+      // would be swallowed forever and the game would look dead. The console is the only owner of `typing`, so when it is
+      // shut the flag is stale by definition - reclaim the keyboard on the first key pressed.
+      if (this.typing && !this.typingOwner) this.typing = false;
+      this.unstickInputs();
       if (this.capture) { e.preventDefault(); const c = this.capture; this.capture = null; c(e.code); return; }
       if (this.typing) return; // developer console has the keyboard
       if (['Space', 'Tab', 'ArrowUp', 'ArrowDown'].includes(e.code) && document.activeElement === document.body) e.preventDefault(); if (e.code === 'F1' || e.code === 'F2' || e.code === 'F3') e.preventDefault(); // squad switch keys (not browser help / search)
@@ -15,12 +21,26 @@ class InputSystem {
       this.down.add(e.code); bus.emit('key', e.code);
     });
     addEventListener('keyup', (e) => { this.down.delete(e.code); this.released.add(e.code); });
-    addEventListener('blur', () => { this.down.clear(); });
+    addEventListener('blur', () => { this.down.clear(); this.mouseButtons.clear(); this.capture = null; if (!this.typingOwner) this.typing = false; });
+    // tab hidden / window minimised: alt-tab or a screenshot can leave keys stuck down (keyup never arrives) and a pending
+    // rebind capture armed, which is one of the ways the game ends up ignoring the keyboard.
+    document.addEventListener('visibilitychange', () => { if (document.hidden) { this.down.clear(); this.mouseButtons.clear(); this.capture = null; } });
     addEventListener('mousemove', (e) => { if (this.locked) { this.mouseDX += e.movementX; this.mouseDY += e.movementY; } });
     addEventListener('mousedown', (e) => { this.mouseButtons.add(e.button); this.mousePressed.add(e.button); });
     addEventListener('mouseup', (e) => this.mouseButtons.delete(e.button));
     addEventListener('wheel', (e) => { this.wheel += Math.sign(e.deltaY); }, { passive: true });
-    document.addEventListener('pointerlockchange', () => { this.locked = document.pointerLockElement != null; bus.emit('pointerlock', this.locked); });
+    document.addEventListener('pointerlockchange', () => { this.locked = document.pointerLockElement != null; if (this.locked) this.stuck = false; bus.emit('pointerlock', this.locked); });
+  }
+  // Leaving pointer lock while the button that caused it is still held can leave the browser's lock pending: document
+  // .pointerLockElement stays null, so `locked` is false and the browser shows no cursor - the game then has an invisible
+  // mouse and no way to click any menu. Pressing a movement key while unlocked is proof that nothing is driving the camera,
+  // so drop any pending lock request and let the cursor come back.
+  unstickInputs() {
+    if (this.stuck || this.locked || !document.pointerLockElement) return;
+    this.stuck = true;
+    try { if (document.exitPointerLock) document.exitPointerLock(); } catch (e) {}
+    bus.emit('pointerlock', false);
+    console.warn('[COLOMBO] input: released a pending pointer lock so the cursor stays visible');
   }
   requestLock(el) { if (!this.locked && el.requestPointerLock) { try { const p = el.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) {} } }
   releaseLock() { if (document.exitPointerLock) document.exitPointerLock(); }

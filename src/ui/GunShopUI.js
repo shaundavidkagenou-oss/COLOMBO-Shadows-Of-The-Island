@@ -37,7 +37,7 @@ export class GunShopUI {
     else { P.control = this.prevControl ?? true; Audio.ui('click'); Input.mousePressed.clear(); Input.mouseButtons.clear(); Input.wheel = 0; g.ignoreUnlock = true; Input.requestLock(g.canvas); setTimeout(() => (g.ignoreUnlock = false), 300); } /* the click that closed the shop must not become a punch/shot */
   }
   update() {
-    if (!this.open) return; const k = (c) => Input.keyPressed(c); const n = this.list.length;
+    if (!this.open) return; const k = (c) => Input.keyPressed(c); if (!this.list || !this.list.length) { if (k('Escape') || k('Backspace')) this.toggle(false); return; } const n = this.list.length;
     if (k('Escape') || k('Backspace')) { this.toggle(false); return; }
     if (k('ArrowLeft') || k('KeyA')) { this.cat = (this.cat + CATEGORIES.length - 1) % CATEGORIES.length; this.row = 0; Audio.ui('click'); this.render(); }
     if (k('ArrowRight') || k('KeyD')) { this.cat = (this.cat + 1) % CATEGORIES.length; this.row = 0; Audio.ui('click'); this.render(); }

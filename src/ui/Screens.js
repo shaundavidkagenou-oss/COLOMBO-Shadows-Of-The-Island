@@ -75,8 +75,10 @@ export class Screens {
       const mission = MISSIONS.find((m) => m.id === st.mission.id);
       el('div', 'pause-head', p, `<h1>Paused</h1><div class="pause-sub">${mission ? `Current: <b>${mission.title}</b> — ${mission.desc}` : 'Story complete — Colombo is yours to explore.'}</div>`);
       const cols = el('div', 'pause-cols', p); const list = el('div', 'menu-list', cols); const info = el('div', 'pause-info', cols);
-      info.innerHTML = this.journalHTML();
       const done = (r) => { p.remove(); resolve(r); };
+      // The info column is decoration: a malformed save must not take the whole menu (and with it the Resume button) down.
+      try { info.innerHTML = this.journalHTML(); }
+      catch (e) { console.error('[COLOMBO] journal panel', e); info.innerHTML = '<h3>Journal</h3><p>This save is missing some journal data.</p>'; }
       for (const [id, label] of [['resume', 'Resume'], ['map', 'Map'], ['save', 'Save Game'], ['load', 'Load Game'], ['settings', 'Settings'], ['controls', 'Controls'], ['menu', 'Quit to Main Menu']]) {
         const b = el('button', 'menu-btn', list, label); b.onmouseenter = () => Audio.ui('hover');
         b.onclick = async () => { Audio.ui('click');
@@ -95,7 +97,7 @@ export class Screens {
     const done = MISSIONS.map((m) => `<li class="${s.done.includes(m.id) ? 'done' : s.mission.id === m.id ? 'cur' : ''}">${m.title}</li>`).join('');
     return `<h3>Story</h3><ol class="mlist">${done}</ol><h3>Relationships</h3>${rel}<h3>Progress</h3>
       <div class="stat">Money <b>Rs. ${s.money.toLocaleString('en-LK')}</b></div><div class="stat">Old Ceylon Stamps <b>${s.stamps.length}/20</b></div><div class="stat">Photo spots <b>${s.photos.length}/8</b></div>
-      <div class="stat">Taxi fares <b>${s.stats.taxi}</b></div><div class="stat">Deliveries <b>${s.stats.deliveries}</b></div><div class="stat">Time trials <b>${Object.keys(s.trials).length}/3</b></div>`;
+      <div class="stat">Taxi fares <b>${(s.stats || {}).taxi || 0}</b></div><div class="stat">Deliveries <b>${(s.stats || {}).deliveries || 0}</b></div><div class="stat">Time trials <b>${Object.keys(s.trials || {}).length}/3</b></div>`;
   }
   // ---------------------------------------------------------------- save / load
   saveLoad(mode) {

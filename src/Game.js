@@ -347,16 +347,35 @@ export class Game {
   }
   // ================================================================= input
   onKey(code) {
-    if (this.mode !== 'play' || this.paused) return;
+    if (this.mode !== 'play') return;
+    if (this.paused) { if (code === 'Escape' && !this.screens.root.querySelector('.screen.pause, .modal')) this.closePause(); return; } // a pause screen that lost its own handler must not trap the player
     if (code === 'Escape') { if (this.gunShop?.open || this.debugCon?.menuOpen || this.debugCon?.open || this.editorHook) return; if (this.phone?.open) this.phone.toggle(false); else if (this.photo) this.togglePhoto(false); else if (this.hud.bigMapOpen) this.toggleMap(false); else if (!this.director.active) this.openPause(); }
   }
   async openPause() {
     if (this.paused || this.director.active) return; this.paused = true; Input.releaseLock(); Audio.ui('click');
-    const r = await this.screens.pause(); this.paused = false; this.last = performance.now();
+    // The pause flag must never outlive the menu. If building the pause screen throws (or its promise never settles), the
+    // old code left `this.paused = true` behind: the loop skips updatePlay, onKey returns early and the escape key guard
+    // returns - the game ignores every key from then on. Resume on both paths, and tell the player what happened.
+    let r;
+    try { r = await this.screens.pause(); }
+    catch (e) {
+      console.error('[COLOMBO] pause screen failed - resuming', e);
+      try { this.screens.root.querySelectorAll('.screen.pause, .modal').forEach((n) => n.remove()); } catch (_) {}
+      this.hud.notify('Interface error', 'The pause menu could not be opened, so the game resumed. Details in the console.', 'warn', 6);
+      r = { action: 'resume' };
+    }
+    this.paused = false; this.last = performance.now();
     if (r.action === 'map') { this.toggleMap(true); }
     else if (r.action === 'load') { sessionStorage.setItem('colombo.next', JSON.stringify({ action: 'load', slot: r.slot })); location.reload(); }
     else if (r.action === 'menu') { this.autosave(); sessionStorage.setItem('colombo.next', JSON.stringify({ action: 'menu' })); location.reload(); }
     else { this.ignoreUnlock = true; Input.requestLock(this.canvas); setTimeout(() => (this.ignoreUnlock = false), 300); }
+  }
+  // Emergency exit for a pause screen that is up but no longer listening (its own Escape handler only fires while the
+  // element is connected and no modal is open; an orphaned modal would otherwise make the menu unclosable).
+  closePause() {
+    try { this.screens.root.querySelectorAll('.screen.pause, .modal').forEach((n) => n.remove()); } catch (e) {}
+    if (!this.paused) return; this.paused = false; this.last = performance.now();
+    this.ignoreUnlock = true; Input.requestLock(this.canvas); setTimeout(() => (this.ignoreUnlock = false), 300);
   }
   toggleMap(v) { const open = this.hud.toggleBigMap(v, this.player.x, this.player.z); this.hud.bigMapOpen = open; this.ignoreUnlock = true; if (open) Input.releaseLock(); else Input.requestLock(this.canvas); setTimeout(() => (this.ignoreUnlock = false), 300); this.player.control = !open && !this.photo; }
   togglePhoto(v) {
@@ -594,7 +613,8 @@ export class Game {
         `buffer ${sz.x}x${sz.y}  dpr ${r.getPixelRatio().toFixed(2)}  ${(sz.x * sz.y / 1e6).toFixed(2)} Mpx\n` +
         `draws ${info.render.calls}  tris ${(info.render.triangles / 1e6).toFixed(2)}M  geo ${info.memory.geometries}  tex ${info.memory.textures}\n` +
         `programs ${info.programs ? info.programs.length : '-'}  post ${this.post ? this.post.vramMB().toFixed(0) : 0} MB\n` +
-        `lost ${gl.isContextLost() ? 'YES' : 'no'}  ·  ${gpu}`;
+        `lost ${gl.isContextLost() ? 'YES' : 'no'}  ·  lock ${Input.locked ? 'on' : 'off'}  ·  keys ${Input.down.size}\n` +
+        `paused ${this.paused ? 'YES' : 'no'}  ·  typing ${Input.typing ? 'YES' : 'no'}  ·  ${gpu}`;
     };
     this._diagTick = tick;
     el.textContent = 'diag: booting…';
