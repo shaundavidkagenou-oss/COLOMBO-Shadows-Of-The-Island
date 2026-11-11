@@ -116,12 +116,16 @@ const VisFS = `uniform sampler2D tDepth; uniform sampler2D tColor; uniform vec2 
 // light shafts, step 1 (reduced resolution): open sky close to the sun (a tight radial falloff), 0 wherever geometry occludes it
 // (4 depth taps → soft occluder edges for palm fronds). Occlusion, not brightness: the scattered light only shows where palms,
 // buildings and wires cut it into shafts, and the open sky never turns into a uniform veil.
-const MaskFS = `uniform sampler2D tDepth; uniform vec2 uSun, uTexel; uniform float uAspect, uRev, uFall; varying vec2 vUv;
+const MaskFS = `uniform sampler2D tDepth; uniform vec2 uSun, uTexel; uniform float uAspect, uRev, uFall, uNear, uFar, uRayDist; varying vec2 vUv;
   ${SKY_FN}
   void main() {
     float s = 0.25 * (isSky(vUv + uTexel * vec2(-0.3, -0.3)) + isSky(vUv + uTexel * vec2(0.3, -0.3)) + isSky(vUv + uTexel * vec2(-0.3, 0.3)) + isSky(vUv + uTexel * vec2(0.3, 0.3)));
     vec2 d = vUv - uSun; d.x *= uAspect; float f = exp(-dot(d, d) * uFall);
-    gl_FragColor = vec4(s * f, 0.0, 0.0, 1.0);
+    // in-scatter weight: the air between the camera and the surface (the nearest of the tap's footprint, so object edges stay clean)
+    vec2 o = uTexel * 0.5; float d = uRev > 0.5 ? max(max(texture2D(tDepth, vUv + vec2(-o.x, -o.y)).x, texture2D(tDepth, vUv + vec2(o.x, -o.y)).x), max(texture2D(tDepth, vUv + vec2(-o.x, o.y)).x, texture2D(tDepth, vUv + o).x))
+                                     : min(min(texture2D(tDepth, vUv + vec2(-o.x, -o.y)).x, texture2D(tDepth, vUv + vec2(o.x, -o.y)).x), min(texture2D(tDepth, vUv + vec2(-o.x, o.y)).x, texture2D(tDepth, vUv + o).x));
+    float dist = uRev > 0.5 ? (d <= 0.0 ? 1e6 : uNear / d) : (d >= 1.0 ? 1e6 : (uNear * uFar) / (uFar - (uFar - uNear) * d));
+    gl_FragColor = vec4(s * f, 1.0 - exp(-dist / uRayDist), 0.0, 1.0);
   }`;
 // step 2/3: radial scattering towards the sun's screen position; interleaved-gradient jitter replaces stepping rings with fine
 // noise that the second (short) pass smooths out
@@ -130,7 +134,7 @@ const BlurFS = (N) => `uniform sampler2D tIn; uniform vec2 uSun; uniform float u
     vec2 delta = (uSun - vUv) * uLen / ${N}.0; float j = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
     vec2 p = vUv + delta * j; float w = 1.0, acc = 0.0, tot = 0.0;
     for (int i = 0; i < ${N}; i++) { acc += texture2D(tIn, p).r * w; tot += w; w *= uDecay; p += delta; }
-    gl_FragColor = vec4(acc / tot, 0.0, 0.0, 1.0);
+    gl_FragColor = vec4(acc / tot, texture2D(tIn, vUv).g, 0.0, 1.0); // .g (in-scatter weight) passes through unblurred
   }`;
 const FinalFS = `precision highp sampler3D;
   uniform sampler2D tDiffuse; uniform sampler2D tVis; uniform sampler2D tRays; uniform sampler3D tLUT;
@@ -158,7 +162,8 @@ const FinalFS = `precision highp sampler3D;
   }
   void main() {
     vec3 col = texture2D(tDiffuse, vUv).rgb;
-    if (uUseRays > 0.5) col += texture2D(tRays, vUv).r * uRayK * uSunCol;
+    if (uUseRays > 0.5) { vec2 rg = texture2D(tRays, vUv).rg; col += rg.x * rg.y * uRayK * uSunCol; } // shafts × in-scatter weight: full against the
+    // sky / far geometry, a fraction on near objects (a palm crown or a car is not washed out by the shaft drawn across it)
     if (uSun.z > 0.0) { float vis = uUseVis > 0.5 ? texture2D(tVis, vec2(0.5)).r : 0.0; if (vis > 0.002) col += lensFlare(vUv) * vis; }
     col *= uExpo;
     col = uTM > 0.5 ? acesFilmic(col) : clamp(col * toneMappingExposure, 0.0, 1.0);
@@ -177,7 +182,7 @@ const FinalFS = `precision highp sampler3D;
 
 const _v4 = new THREE.Vector4(), _col = new THREE.Color();
 const sm = (a, b, x) => ss(a, b, x);
-export const CINE = { sunRad: 0.0075, rayFall: 9.0, rayK: 0.2, flare: 1.0, streak: 0.45, gradeRate: 1.5 };
+export const CINE = { sunRad: 0.0075, rayFall: 9.0, rayK: 0.2, rayDist: 70, flare: 1.0, streak: 0.45, gradeRate: 1.5 };
 
 export class CinePass extends Pass {
   constructor(level = 1, w = 1, h = 1) {
@@ -195,7 +200,7 @@ export class CinePass extends Pass {
       this.rayScale = level >= 3 ? 0.5 : 0.25; const N1 = level >= 3 ? 24 : 16, N2 = level >= 3 ? 10 : 8; this.N1 = N1;
       const o = { type: THREE.HalfFloatType, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter };
       this.rtA = new THREE.WebGLRenderTarget(1, 1, o); this.rtB = new THREE.WebGLRenderTarget(1, 1, o);
-      this.maskMat = new THREE.ShaderMaterial({ name: 'CineRayMask', uniforms: { tDepth: { value: null }, uSun: { value: new THREE.Vector2() }, uTexel: { value: new THREE.Vector2() }, uAspect: { value: 1.78 }, uRev: { value: 1 }, uFall: { value: CINE.rayFall } }, vertexShader: VS, fragmentShader: MaskFS, depthTest: false, depthWrite: false });
+      this.maskMat = new THREE.ShaderMaterial({ name: 'CineRayMask', uniforms: { tDepth: { value: null }, uSun: { value: new THREE.Vector2() }, uTexel: { value: new THREE.Vector2() }, uAspect: { value: 1.78 }, uRev: { value: 1 }, uFall: { value: CINE.rayFall }, uNear: { value: 0.1 }, uFar: { value: 1000 }, uRayDist: { value: CINE.rayDist } }, vertexShader: VS, fragmentShader: MaskFS, depthTest: false, depthWrite: false });
       const blur = (N) => new THREE.ShaderMaterial({ name: 'CineRayBlur' + N, uniforms: { tIn: { value: null }, uSun: { value: new THREE.Vector2() }, uLen: { value: 1 }, uDecay: { value: 1 } }, vertexShader: VS, fragmentShader: BlurFS(N), depthTest: false, depthWrite: false });
       this.blur1 = blur(N1); this.blur2 = blur(N2); this.maskQuad = new FullScreenQuad(this.maskMat); this.b1Quad = new FullScreenQuad(this.blur1); this.b2Quad = new FullScreenQuad(this.blur2);
       U.tRays.value = this.rtA.texture;
@@ -225,6 +230,7 @@ export class CinePass extends Pass {
     this.sunRays = rays > 0.002; U.uUseRays.value = this.sunRays ? 1 : 0; U.uRayK.value = rays * CINE.rayK;
     this.sunInfoV = { on, sx: +sx.toFixed(3), sy: +sy.toFixed(3), flare: +flare.toFixed(3), rays: +rays.toFixed(3) };
     // disc radius in uv (vertical): angle / (2 tan(fov/2))
+    this.near = camera.near; this.far = camera.far;
     this.discR = CINE.sunRad / (2 * Math.tan((camera.fov * Math.PI / 180) / 2)); this.dt = opts.dt || 0.016;
   }
   sunInfo() { return this.sunInfoV || null; }
@@ -236,7 +242,7 @@ export class CinePass extends Pass {
       const ac = renderer.autoClear; renderer.autoClear = false; renderer.setRenderTarget(this.visRT); this.visQuad.render(renderer); renderer.autoClear = ac; // blended with the previous frames
     }
     if (depth && this.rtA && (this.sunRays || warm)) {
-      const sun = U.uSun.value, mk = this.maskMat.uniforms; mk.tDepth.value = depth; mk.uFall.value = CINE.rayFall; mk.uSun.value.set(sun.x, sun.y); mk.uTexel.value.set(1 / this.rtB.width, 1 / this.rtB.height); mk.uAspect.value = aspect; mk.uRev.value = this.rev;
+      const sun = U.uSun.value, mk = this.maskMat.uniforms; mk.tDepth.value = depth; mk.uFall.value = CINE.rayFall; mk.uSun.value.set(sun.x, sun.y); mk.uTexel.value.set(1 / this.rtB.width, 1 / this.rtB.height); mk.uAspect.value = aspect; mk.uRev.value = this.rev; mk.uNear.value = this.near || 0.1; mk.uFar.value = this.far || 1000; mk.uRayDist.value = CINE.rayDist;
       renderer.setRenderTarget(this.rtB); this.maskQuad.render(renderer);
       const b1 = this.blur1.uniforms; b1.tIn.value = this.rtB.texture; b1.uSun.value.set(sun.x, sun.y); b1.uLen.value = 0.92; b1.uDecay.value = 0.965; renderer.setRenderTarget(this.rtA); this.b1Quad.render(renderer);
       const b2 = this.blur2.uniforms; b2.tIn.value = this.rtA.texture; b2.uSun.value.set(sun.x, sun.y); b2.uLen.value = 0.92 / this.N1; b2.uDecay.value = 1; renderer.setRenderTarget(this.rtB); this.b2Quad.render(renderer);
