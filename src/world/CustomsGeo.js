@@ -113,8 +113,8 @@ export function buildCustoms(site = L.CUSTOMS_SITE) {
   { const r = site.box(-hu, hu, w0, w1); crown.push([r[0] - 1.2, r[1] + 1.2, r[2] - 1.2, r[3] + 1.2, top + 1.6]); const p = site.box(-18, -16.4, 0.7, 1.5); crown.push([p[0] - 1, p[1] + 1, p[2] - 1, p[3] + 1, S + 7.2]); }
 
   // ---------------------------------------------------------------- turntable + preview light rig
-  const TT = CG.tt; const ttMb = new MeshBuilder(); { const n = 72, rr = TT.r; const base = ttMb.vcount; ttMb.vert(0, 0, 0, 0, 1, 0, 1.15, 1.15, C('#6c7077'));
-    for (let i = 0; i <= n; i++) { const a = (i / n) * Math.PI * 2; ttMb.vert(Math.cos(a) * rr, 0, Math.sin(a) * rr, 0, 1, 0, 1.15 + Math.cos(a) * 1.15, 1.15 + Math.sin(a) * 1.15, /* uv ×2.3: the grime texture at its real 4 m scale */ C(i % 12 < 6 ? '#70747b' : '#666a71')); }
+  const TT = CG.tt; const ttMb = new MeshBuilder(); { const n = 72, rr = TT.r; const base = ttMb.vcount; ttMb.vert(0, 0, 0, 0, 1, 0, 1.15, 1.15, C('#8c8a85'));
+    for (let i = 0; i <= n; i++) { const a = (i / n) * Math.PI * 2; ttMb.vert(Math.cos(a) * rr, 0, Math.sin(a) * rr, 0, 1, 0, 1.15 + Math.cos(a) * 1.15, 1.15 + Math.sin(a) * 1.15, /* uv ×2.3: the grime texture at its real 4 m scale */ C(i % 12 < 6 ? '#908e88' : '#86847e')); }
     for (let i = 0; i < n; i++) ttMb.idx.push(base, base + 2 + i, base + 1 + i);
     for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2; const ca = Math.cos(a), sa = Math.sin(a); ttMb.quad([ca * 0.6 - sa * 0.012, 0.002, sa * 0.6 + ca * 0.012], [ca * rr * 0.97 - sa * 0.012, 0.002, sa * rr * 0.97 + ca * 0.012], [ca * rr * 0.97 + sa * 0.012, 0.002, sa * rr * 0.97 - ca * 0.012], [ca * 0.6 + sa * 0.012, 0.002, sa * 0.6 - ca * 0.012], [0, 0, 1, 1], C('#2e3135')); } // plate seams
     for (const r0 of [0.6, rr * 0.55]) for (let i = 0; i < 48; i++) { const a0 = (i / 48) * Math.PI * 2, a1 = ((i + 1) / 48) * Math.PI * 2; ttMb.quad([Math.cos(a0) * r0, 0.002, Math.sin(a0) * r0], [Math.cos(a1) * r0, 0.002, Math.sin(a1) * r0], [Math.cos(a1) * (r0 + 0.025), 0.002, Math.sin(a1) * (r0 + 0.025)], [Math.cos(a0) * (r0 + 0.025), 0.002, Math.sin(a0) * (r0 + 0.025)], [0, 0, 1, 1], C('#2e3135')); } }
