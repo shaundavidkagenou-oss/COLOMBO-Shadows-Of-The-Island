@@ -44,8 +44,9 @@ for (const setName of SETS.split(',')) {
           const q = pick((b) => b.style === (subj === 'brick' ? 'brick' : 'colonial') && b.h > 7); if (!q) return { skip: 'no ' + subj };
           const [, [n, p, hl]] = q; const t = [-n[1], n[0]]; const a = Math.min(hl * 0.6, 6);
           cam = [p[0] + n[0] * 6.5 + t[0] * a, 1.7, p[1] + n[1] * 6.5 + t[1] * a]; look = [p[0] - t[0] * 1.5, 3.4, p[1] - t[1] * 1.5]; at = [cam[0] + n[0] * 3, cam[2] + n[1] * 3];
-        } else if (subj === 'tiles' || subj === 'sheet') {
-          const b = B.filter((b) => b.roof === (subj === 'tiles' ? 'tile' : 'corrugated') && b.h < 12).sort((a, c) => String(a.id).localeCompare(String(c.id)))[0]; if (!b) return { skip: 'no ' + subj };
+        } else if (subj === 'tiles' || subj === 'sheet' || subj === 'tilesnear') {
+          const d2 = (b) => ((b.x0 + b.x1) / 2 + 392) ** 2 + ((b.z0 + b.z1) / 2 - 700) ** 2; // tilesnear: the tiled roof nearest the start area (less streaming)
+          const b = subj === 'tilesnear' ? B.filter((b) => b.roof === 'tile' && b.h < 12).sort((a, c) => d2(a) - d2(c))[0] : B.filter((b) => b.roof === (subj === 'tiles' ? 'tile' : 'corrugated') && b.h < 12).sort((a, c) => String(a.id).localeCompare(String(c.id)))[0]; if (!b) return { skip: 'no ' + subj };
           const cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2, y = 0.3 + b.h; cam = [cx + 7, y + 6.5, cz + 7]; look = [cx, y + 0.8, cz]; at = [cx, cz];
         } else if (subj === 'road' || subj === 'shadow') {
           let x = -392, z = 700; if (!road(x, z)) for (let k = 1; k < 40 && !road(x, z); k++) x += 1; let xe = x; while (road(xe + 0.5, z) && xe < x + 40) xe += 0.5; // road edge (kerb) east of the centre
