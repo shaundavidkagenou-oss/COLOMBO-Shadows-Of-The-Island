@@ -52,7 +52,7 @@ try {
       const { profile } = await cdp.send('Profiler.stop'); globalThis.__P = profile; const byId = new Map(profile.nodes.map((n) => [n.id, n])); const self = new Map(); let tot = 0;
       profile.samples.forEach((sid, i) => { const d = profile.timeDeltas[i] || 0; const cf = byId.get(sid).callFrame; const k = `${cf.functionName || '(anon)'} ${(cf.url.split('/').pop() || '').replace(/-[A-Za-z0-9_]{8}\.js/, '.js')}:${cf.lineNumber + 1}`; self.set(k, (self.get(k) || 0) + d); tot += d; });
       console.log('PROFILE top self (% of sampled main-thread time, ' + (tot / 1e6).toFixed(1) + ' s):'); [...self].sort((a, b) => b[1] - a[1]).slice(0, +process.env.PROF > 1 ? +process.env.PROF : 40).forEach(([k, t]) => console.log('  ' + (100 * t / tot).toFixed(1).padStart(5) + '%  ' + k)); }
-      { const par = new Map(); for (const n of byId.values()) for (const c of n.children || []) par.set(c, n.id); const key = (n) => { const cf = n.callFrame; return `${cf.functionName || '(anon)'} ${(cf.url.split('/').pop() || '').replace(/-[A-Za-z0-9_]{8}\\.js/, '.js')}:${cf.lineNumber + 1}`; }; const inc = new Map();
+      if (cdp) { const byId = new Map(globalThis.__P.nodes.map((n) => [n.id, n])), tot = globalThis.__P.timeDeltas.reduce((x, y) => x + y, 0); const par = new Map(); for (const n of byId.values()) for (const c of n.children || []) par.set(c, n.id); const key = (n) => { const cf = n.callFrame; return `${cf.functionName || '(anon)'} ${(cf.url.split('/').pop() || '').replace(/-[A-Za-z0-9_]{8}\\.js/, '.js')}:${cf.lineNumber + 1}`; }; const inc = new Map();
         globalThis.__P.samples.forEach((sid, i) => { const d = globalThis.__P.timeDeltas[i] || 0; const seen = new Set(); let q = sid; while (q != null) { const k = key(byId.get(q)); if (!seen.has(k)) { seen.add(k); inc.set(k, (inc.get(k) || 0) + d); } q = par.get(q); } });
         console.log('PROFILE inclusive top'); [...inc].sort((a, b) => b[1] - a[1]).slice(0, +process.env.PROFI || 60).forEach(([k, t]) => console.log('  ' + (100 * t / tot).toFixed(1).padStart(5) + '%  ' + k)); }
     const out = await page.evaluate((S) => { const g = window.__game, P = window.__perf; P.on = false; const F = P.frames.splice(0);
@@ -70,4 +70,4 @@ try {
     const np = out.newProgs; out.newProgs = np.map((k) => k.slice(0, 60)); if (process.env.PROGS) (await import('fs')).writeFileSync(`${process.env.PROGS}-${S.name}.json`, JSON.stringify(np, null, 1));
     console.log(JSON.stringify(out)); console.log('  wall', ((Date.now() - t0) / 1000).toFixed(0) + 's');
   }
-} catch (e) { console.log('ERR', e.message); } finally { console.log('errors:', errors.length ? errors.slice(0, 6).join(' | ') : 'none'); await browser.close(); }
+} catch (e) { console.log('ERR', (e.stack || e.message).split('\n').slice(0, 4).join(' / ')); } finally { console.log('errors:', errors.length ? errors.slice(0, 6).join(' | ') : 'none'); await browser.close(); }

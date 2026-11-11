@@ -37,12 +37,15 @@ class AudioEngine {
   makeNoise(sec, kind) { const c = this.ctx; const b = c.createBuffer(1, c.sampleRate * sec, c.sampleRate); const d = b.getChannelData(0); let last = 0; for (let i = 0; i < d.length; i++) { const w = Math.random() * 2 - 1; if (kind === 'brown') { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; } else d[i] = w; } return b; }
   impulse(sec) { const c = this.ctx; const b = c.createBuffer(2, c.sampleRate * sec, c.sampleRate); for (let ch = 0; ch < 2; ch++) { const d = b.getChannelData(ch); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 3); } return b; }
   env(g, t, a, peak, d, sus = 0) { g.gain.cancelScheduledValues(t); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(peak, 0.0002), t + a); g.gain.exponentialRampToValueAtTime(Math.max(sus, 0.0001), t + a + d); }
+  // one-shot sounds only while the context actually runs: a suspended context (background tab, no user gesture yet) would queue every
+  // node in native memory and fire them all at once on resume
+  get live() { return this.ready && this.ctx.state === 'running'; }
   tone(freq, dur, { type = 'sine', vol = 0.2, out = 'sfx', attack = 0.01, when = 0, detune = 0, pan = 0, verb = false, glide = null } = {}) {
-    if (!this.ready) return; const c = this.ctx, t = c.currentTime + when; const o = c.createOscillator(); o.type = type; o.frequency.setValueAtTime(freq, t); if (glide) o.frequency.exponentialRampToValueAtTime(glide, t + dur); o.detune.value = detune;
+    if (!this.live) return; const c = this.ctx, t = c.currentTime + when; const o = c.createOscillator(); o.type = type; o.frequency.setValueAtTime(freq, t); if (glide) o.frequency.exponentialRampToValueAtTime(glide, t + dur); o.detune.value = detune;
     const g = c.createGain(); this.env(g, t, attack, vol, dur); const p = c.createStereoPanner(); p.pan.value = pan; o.connect(g); g.connect(p); p.connect(this.bus[out]); if (verb) p.connect(this.verb); o.start(t); o.stop(t + attack + dur + 0.05);
   }
   noise(dur, { f = 1000, q = 1, type = 'bandpass', vol = 0.2, out = 'sfx', when = 0, attack = 0.005, pan = 0, buf = null, verb = false, sweep = null } = {}) {
-    if (!this.ready) return; const c = this.ctx, t = c.currentTime + when; const s = c.createBufferSource(); s.buffer = buf || this.noiseBuf; const fl = c.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q;
+    if (!this.live) return; const c = this.ctx, t = c.currentTime + when; const s = c.createBufferSource(); s.buffer = buf || this.noiseBuf; const fl = c.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q;
     const g = c.createGain(); this.env(g, t, attack, vol, dur); const p = c.createStereoPanner(); p.pan.value = pan; s.connect(fl); fl.connect(g); g.connect(p); p.connect(this.bus[out]); if (verb) p.connect(this.verb); if (sweep) fl.frequency.exponentialRampToValueAtTime(sweep, t + attack + dur); s.start(t, Math.random() * 2); s.stop(t + dur + attack + 0.1);
   }
   // ---- spatial helper: returns [gain, pan] for a world point relative to listener
@@ -92,7 +95,7 @@ class AudioEngine {
   }
   // ears ringing after a blast close by: everything muffled (low-pass sweep) with a high whine, recovering over a few seconds
   concuss(k) {
-    if (!this.ready || !(k > 0.02)) return; const c = this.ctx, t = c.currentTime; const f = this.lp.frequency; const lo = 22000 * Math.pow(0.02, k);
+    if (!this.live || !(k > 0.02)) return; const c = this.ctx, t = c.currentTime; const f = this.lp.frequency; const lo = 22000 * Math.pow(0.02, k);
     f.cancelScheduledValues(t); f.setValueAtTime(Math.max(lo, 300), t); f.exponentialRampToValueAtTime(Math.max(lo, 300) * 1.3, t + 0.6 + 1.5 * k); f.exponentialRampToValueAtTime(this.lpBase || 22000, t + 1.4 + 4 * k);
     const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = 3600 + Math.random() * 600; const g2 = c.createGain(); this.env(g2, t, 0.04, 0.05 * k, 1.2 + 3 * k); o.connect(g2); g2.connect(this.master); o.start(t); o.stop(t + 1.4 + 3 * k);
   }
@@ -194,6 +197,6 @@ class AudioEngine {
     }
   }
   drum(w, f, vol) { this.tone(f * 2.2, 0.25, { type: 'sine', vol, when: w, glide: f, out: 'music' }); this.noise(0.03, { f: 3000, vol: vol * 0.2, when: w, out: 'music' }); }
-  flute(freq, dur, w) { if (!this.ready) return; const c = this.ctx, t = c.currentTime + w; const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = freq; const vib = c.createOscillator(); vib.frequency.value = 5.2; const vg = c.createGain(); vg.gain.value = freq * 0.008; vib.connect(vg); vg.connect(o.frequency); const g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.03, t + 0.08); g.gain.setValueAtTime(0.03, t + dur * 0.7); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.connect(g); g.connect(this.bus.music); g.connect(this.verb); o.start(t); vib.start(t); o.stop(t + dur + 0.05); vib.stop(t + dur + 0.05); }
+  flute(freq, dur, w) { if (!this.live) return; const c = this.ctx, t = c.currentTime + w; const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = freq; const vib = c.createOscillator(); vib.frequency.value = 5.2; const vg = c.createGain(); vg.gain.value = freq * 0.008; vib.connect(vg); vg.connect(o.frequency); const g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.03, t + 0.08); g.gain.setValueAtTime(0.03, t + dur * 0.7); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.connect(g); g.connect(this.bus.music); g.connect(this.verb); o.start(t); vib.start(t); o.stop(t + dur + 0.05); vib.stop(t + dur + 0.05); }
 }
 export const Audio = new AudioEngine();
