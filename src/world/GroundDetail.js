@@ -14,7 +14,7 @@
 // Quality: off on 'low'; radius / ballast density grow with the setting.
 import * as THREE from 'three';
 import * as L from './Layout.js';
-import { MAT } from '../gfx/Materials.js';
+import { MAT, withNormal, NORMAL_SCALE } from '../gfx/Materials.js';
 import { TEX } from '../gfx/Textures.js';
 import * as RW from './Railway.js';
 
@@ -163,9 +163,9 @@ function patchDetail(m, { uvScale = 0, sink = 0, tag, sway = 0 }) {
   { vec4 ip = modelMatrix * instanceMatrix * vec4( 0.0, 0.0, 0.0, 1.0 ); float dd = distance( ip.xz, cameraPosition.xz );
     transformed.y -= ${sink.toFixed(4)} * smoothstep( uDetR - 3.0, uDetR, dd );
     ${sway ? `float sw = transformed.y * ${sway.toFixed(3)}; transformed.x += sw * sin( uDetT * 2.1 + ip.x * 1.7 + ip.z * 0.9 ); transformed.z += sw * 0.7 * sin( uDetT * 1.6 + ip.z * 1.9 );` : ''}
-    ${uvScale ? `vec4 wq = modelMatrix * instanceMatrix * vec4( transformed, 1.0 ); vMapUv = vec2( wq.x, -wq.z ) / ${uvScale.toFixed(3)};` : ''} }`);
+    ${uvScale ? `vec4 wq = modelMatrix * instanceMatrix * vec4( transformed, 1.0 ); vMapUv = vec2( wq.x, -wq.z ) / ${uvScale.toFixed(3)};${m.normalMap ? ' vNormalMapUv = vMapUv;' : ''}` : ''} }`); // normal map follows the same world-space UVs (else its relief would slide off the joints)
   };
-  m.customProgramCacheKey = () => 'gdet-' + tag;
+  m.customProgramCacheKey = () => 'gdet-' + tag + (m.normalMap ? '-n' : '');
   return m;
 }
 
@@ -179,9 +179,9 @@ export class GroundDetail {
     this.geo = { brick: brickGeometry(), kerb: kerbGeometry(), stones: [stoneGeometry(11), stoneGeometry(29), stoneGeometry(47)], fast: fasteningGeometry(), tufts: [tuftGeometry(5), tuftGeometry(17), tuftGeometry(41)], leaves: [leafGeometry(0.35), leafGeometry(0.9)], litter: litterGeometries(), man: manholeGeometry(), fish: fishplateGeometry() };
     const std = (o) => new THREE.MeshStandardMaterial(o);
     this.mat = {
-      walk: patchDetail(std({ map: TEX.pavers, roughness: 0.9 }), { uvScale: 2, sink: 0.012, tag: 'walk' }),
-      walkGrey: patchDetail(std({ map: TEX.paversGrey, roughness: 0.9 }), { uvScale: 2, sink: 0.012, tag: 'walkG' }),
-      kerb: patchDetail(std({ map: TEX.concrete, roughness: 0.85 }), { sink: 0.016, tag: 'kerb' }),
+      walk: patchDetail(withNormal(std({ map: TEX.pavers, roughness: 0.9 }), TEX.n_pavers, NORMAL_SCALE.walk), { uvScale: 2, sink: 0.012, tag: 'walk' }), // same relief as the flat pavement (MAT.walk)
+      walkGrey: patchDetail(withNormal(std({ map: TEX.paversGrey, roughness: 0.9 }), TEX.n_paversGrey, NORMAL_SCALE.walk), { uvScale: 2, sink: 0.012, tag: 'walkG' }),
+      kerb: patchDetail(withNormal(std({ map: TEX.concrete, roughness: 0.85 }), TEX.n_concrete, NORMAL_SCALE.kerb), { sink: 0.016, tag: 'kerb' }),
       stone: patchDetail(std({ color: 0x8d8a85, roughness: 0.93, flatShading: true }), { sink: 0.07, tag: 'stone' }), // plain granite tones per stone (the bed texture's dark joints made the stones read as specks)
       fast: patchDetail(std({ vertexColors: true, roughness: 0.6, metalness: 0.35 }), { sink: 0.07, tag: 'fast' }),
       tuft: patchDetail(std({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide }), { sink: 0.1, tag: 'tuft', sway: 0.12 }),

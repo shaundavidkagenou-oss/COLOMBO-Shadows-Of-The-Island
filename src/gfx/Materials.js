@@ -26,6 +26,12 @@ function roadSpotSpec(m) {
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = mix( max( roughnessFactor, 0.94 ), roughnessFactor, smoothstep( 0.05, 0.6, uRoadWet ) );'); };
   m.customProgramCacheKey = () => 'roadSpotSpec3';
 }
+// Surface relief (Visual upgrade phase 1): tangent-space normal maps baked from each procedural texture's own height field
+// (Textures.js heightToNormal). They share the albedo's UVs (and so its tiling / world-space mapping), so every road, wall and
+// roof keeps its look and gains depth that reacts to the sun, moon, street lamps and headlights. NORMAL_SCALE is the one place
+// the relief is tuned per surface; the geometry needs no tangents (three derives the frame from the UV derivatives).
+export const NORMAL_SCALE = { road: 1.15, walk: 1.2, kerb: 1, concrete: 1, sand: 1.6, roofTiles: 1.15, roofFlat: 1, corrugated: 1, facade: 1.25 };
+export function withNormal(m, tex, s) { if (!m || !tex) return m; m.normalMap = tex; m.normalScale = new THREE.Vector2(s, s); m.needsUpdate = true; return m; }
 export function buildMaterials() {
   const std = (o) => new THREE.MeshStandardMaterial(o);
   MAT.road = std({ map: TEX.asphalt, roughnessMap: TEX.asphaltRough, roughness: 1, metalness: 0, color: 0xffffff });
@@ -37,16 +43,20 @@ export function buildMaterials() {
   MAT.walkGrey = std({ map: TEX.paversGrey, roughness: 0.9 });
   MAT.kerb = std({ map: TEX.concrete, roughness: 0.85, vertexColors: true });
   MAT.concrete = std({ map: TEX.concrete, roughness: 0.9, vertexColors: true });
+  withNormal(MAT.road, TEX.n_asphalt, NORMAL_SCALE.road); withNormal(MAT.roadTint, TEX.n_asphalt, NORMAL_SCALE.road);
+  withNormal(MAT.walk, TEX.n_pavers, NORMAL_SCALE.walk); withNormal(MAT.walkGrey, TEX.n_paversGrey, NORMAL_SCALE.walk);
+  withNormal(MAT.kerb, TEX.n_concrete, NORMAL_SCALE.kerb); withNormal(MAT.concrete, TEX.n_concrete, NORMAL_SCALE.concrete);
   MAT.grass = std({ map: TEX.grass, roughness: 1 });
   MAT.ballast = std({ map: TEX.ballast, roughness: 1, vertexColors: true });
   MAT.lawn = std({ map: TEX.lawn, roughness: 1 });
   MAT.laterite = std({ map: TEX.laterite, roughness: 1 });
-  MAT.sand = std({ map: TEX.sand, roughness: 1 });
+  MAT.sand = withNormal(std({ map: TEX.sand, roughness: 1 }), TEX.n_sand, NORMAL_SCALE.sand);
   MAT.rocks = std({ map: TEX.rocks, roughness: 0.95, vertexColors: true });
   MAT.marking = std({ color: 0xf2f2ea, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, vertexColors: true });
   for (const k of facadeKeys) {
     const f = TEX['f_' + k];
     MAT['f_' + k] = std({ map: f.map, emissiveMap: f.emissive, emissive: 0xffffff, emissiveIntensity: 0, roughnessMap: f.rm, metalnessMap: f.rm, roughness: 1, metalness: k.startsWith('glass') ? 1 : 1, vertexColors: true, envMapIntensity: k.startsWith('glass') ? 1.0 : 0.8 });
+    withNormal(MAT['f_' + k], f.normal, NORMAL_SCALE.facade); // brick courses / mouldings / render; glass held flat in the map
     applyInteriorMapping(MAT['f_' + k], { office: /^(glass|office)/.test(k) }); // windows show parallax rooms with depth (offices: lit floor sections)
   }
   MAT.shops = std({ map: TEX.shops.map, emissiveMap: TEX.shops.emissive, emissive: 0xffffff, emissiveIntensity: 0.15, roughness: 0.8 });
@@ -72,9 +82,9 @@ export function buildMaterials() {
           diffuseColor.rgb = mix(diffuseColor.rgb, col, shut); totalEmissiveRadiance *= 1.0 - shut; } }`); };
   MAT.shops.customProgramCacheKey = () => 'shops-shutter-v3';
   MAT.signs = std({ map: TEX.signs.map, emissiveMap: TEX.signs.emissive, emissive: 0xffffff, emissiveIntensity: 0.05, roughness: 0.6, side: THREE.DoubleSide });
-  MAT.roofTiles = std({ map: TEX.roofTiles, roughness: 0.85, vertexColors: true });
-  MAT.roofFlat = std({ map: TEX.roofConcrete, roughness: 0.95, vertexColors: true });
-  MAT.corrugated = std({ map: TEX.corrugated, roughness: 0.6, metalness: 0.4, vertexColors: true, side: THREE.DoubleSide });
+  MAT.roofTiles = withNormal(std({ map: TEX.roofTiles, roughness: 0.85, vertexColors: true }), TEX.n_roofTiles, NORMAL_SCALE.roofTiles);
+  MAT.roofFlat = withNormal(std({ map: TEX.roofConcrete, roughness: 0.95, vertexColors: true }), TEX.n_roofConcrete, NORMAL_SCALE.roofFlat);
+  MAT.corrugated = withNormal(std({ map: TEX.corrugated, roughness: 0.6, metalness: 0.4, vertexColors: true, side: THREE.DoubleSide }), TEX.n_corrugated, NORMAL_SCALE.corrugated);
   MAT.paint = std({ roughness: 0.75, vertexColors: true });       // generic vertex-coloured props
   MAT.paintDS = std({ roughness: 0.8, vertexColors: true, side: THREE.DoubleSide });
   MAT.metal = std({ roughness: 0.45, metalness: 0.85, vertexColors: true });

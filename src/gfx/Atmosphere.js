@@ -7,6 +7,16 @@ import { updateMaterials } from './Materials.js';
 import { waterUniforms } from '../world/Water.js';
 import { RNG } from '../core/rng.js';
 
+// ---------------------------------------------------------------------------------------------------------------- sun shadow
+// One 2048² (preset) sun shadow map, fitted every frame to what the player can actually see up close instead of a fixed
+// 160 × 160 m box: ≈ 70 m across around the player, pushed ahead of the camera, fitted in light space (fitSunShadow).
+// The edge of the box fades the shadow out over its last few metres (directional lights only) so the boundary never shows
+// as a line; beyond it the city is unshadowed by the sun as before at 80 m.
+export const SUN_SHADOW = { range: 34, ahead: 0.3, wallH: 22, dist: 300, pcf: { 1024: 1.0, 2048: 1.5, 4096: 2.2 }, snap: true }; // snap: false only for the stability test
+{ const C = THREE.ShaderChunk; const a = 'directLight.color *= ( directLight.visible && receiveShadow ) ? getShadow( directionalShadowMap[ i ], directionalLightShadow.shadowMapSize, directionalLightShadow.shadowIntensity, directionalLightShadow.shadowBias, directionalLightShadow.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;';
+  if (C.lights_fragment_begin.includes(a)) C.lights_fragment_begin = C.lights_fragment_begin.replace(a, '{ vec2 sunEdge = abs( vDirectionalShadowCoord[ i ].xy / vDirectionalShadowCoord[ i ].w * 2.0 - 1.0 ); ' +
+    a.replace('? getShadow(', '? mix( getShadow(').replace('vDirectionalShadowCoord[ i ] ) : 1.0;', 'vDirectionalShadowCoord[ i ] ), 1.0, smoothstep( 0.86, 0.995, max( sunEdge.x, sunEdge.y ) ) ) : 1.0; }')); }
+const _sf = new THREE.Vector3(), _sc = new THREE.Vector3(), _sx = new THREE.Vector3(), _sy = new THREE.Vector3(), _sl = new THREE.Vector3(), _UP = new THREE.Vector3(0, 1, 0);
 const cloudVert = `varying vec3 vDir; void main(){ vDir = normalize((modelMatrix * vec4(position,1.0)).xyz - cameraPosition); vec4 p = projectionMatrix * viewMatrix * modelMatrix * vec4(position,1.0); gl_Position = p.xyww;
 #ifdef USE_REVERSED_DEPTH_BUFFER
  gl_Position.z = 0.0;
@@ -112,7 +122,7 @@ export class Atmosphere {
     // lights
     this.sun = new THREE.DirectionalLight(0xffffff, 3); this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048); const sc = this.sun.shadow.camera; sc.left = -80; sc.right = 80; sc.top = 80; sc.bottom = -80; sc.near = 1; sc.far = 600;
-    this.sun.shadow.bias = -0.0004; this.sun.shadow.normalBias = 0.6; scene.add(this.sun, this.sun.target);
+    this.sun.shadow.bias = -0.0001; this.sun.shadow.normalBias = 0.05; scene.add(this.sun, this.sun.target); // refitted every frame (fitSunShadow)
     this.hemi = new THREE.HemisphereLight(0xbfd8ff, 0x6b5a48, 0.8); scene.add(this.hemi);
     this.ambient = new THREE.AmbientLight(0x404a60, 0.0); scene.add(this.ambient);
     scene.fog = new THREE.Fog(0xbcc8d0, 200, 1400);
@@ -149,8 +159,37 @@ export class Atmosphere {
           if (aIdx >= uRN) transformed = vec3(0.0, -999.0, 0.0); }`); };
     this.rain = new THREE.LineSegments(rg, rmat);
     this.rain.frustumCulled = false; scene.add(this.rain);
-    this.flash = 0; this.listeners = { thunder: null };
+    this.flash = 0; this.listeners = { thunder: null }; this.shadowCfg = SUN_SHADOW;
     this.sunDir = new THREE.Vector3(); this.night = 0;
+  }
+  // Fit the sun (or moon) shadow to the area round the player, every frame, at no extra draw cost:
+  //  · centre: the player, pushed ~10 m ahead of where the camera looks (more coverage in view, less behind it);
+  //  · light-space box: ±range across the light, and along it exactly the span the ground disc + street-level receivers up to
+  //    wallH (facades, people, trees) occupy at the current sun elevation — high sun ≈ 68 × 70 m, low sun shrinks the box
+  //    along the light so the texels stay square on the ground and the long evening shadows keep their resolution;
+  //  · texel snapping: the box edges sit on the shadow map's texel grid in light space, so walking / driving / turning the
+  //    camera slides the box by whole texels and shadow edges never crawl or flicker (extents are quantised for the same reason);
+  //  · biases follow the texel size (≈ 1.5 texels of normal offset, ≈ 3 cm of depth bias) instead of the old 0.6 m normal bias
+  //    that lifted every contact shadow off the ground; PCF softness (shadow.radius: 5 rotated Vogel taps of hardware 2×2
+  //    comparisons in three r186) is set per shadow resolution for a ≈ 4–7 cm natural penumbra.
+  // Satellite map capture overrides the box for its tiles and restores it; the next frame refits it here anyway.
+  fitSunShadow(focus, camera, L) {
+    const S = SUN_SHADOW, sun = this.sun, sh = sun.shadow, sc = sh.camera, N = sh.mapSize.x || 2048, R = S.range;
+    _sf.set(0, 0, 0); if (camera) { camera.getWorldDirection(_sf); _sf.y = 0; const l = _sf.length(); if (l > 0.2) _sf.multiplyScalar((R * S.ahead) / l); else _sf.set(0, 0, 0); }
+    const C = _sc.copy(focus).add(_sf);
+    sun.position.copy(C).addScaledVector(L, S.dist); sun.target.position.copy(C); sun.target.updateMatrixWorld();
+    // light basis exactly as Object3D.lookAt builds the shadow camera (z = L, x = up × z, y = z × x)
+    _sx.crossVectors(_UP, L).normalize(); _sy.crossVectors(L, _sx);
+    const sinE = Math.min(1, Math.max(0.05, L.y)), cosE = Math.sqrt(1 - sinE * sinE);
+    const W = 2 * (R + 1), y0 = -R * sinE - 1, H = Math.ceil((2 * R * sinE + S.wallH * cosE + 2) / 2) * 2; // light-space extents (m)
+    const tx = W / N, ty = H / N, cx = C.dot(_sx), cy = C.dot(_sy);
+    const left = S.snap ? Math.floor((cx - W / 2) / tx) * tx - cx : -W / 2, bottom = S.snap ? Math.floor((cy + y0) / ty) * ty - cy : y0;
+    // (three marks the shadow camera reversed-depth on its first shadow pass but never rebuilds its projection: done here)
+    if (sc.left !== left || sc.bottom !== bottom || sc.right !== left + W || sc.top !== bottom + H || sc.far !== S.dist + R + 60 || sc.userData.rev !== sc.reversedDepth) {
+      sc.left = left; sc.right = left + W; sc.bottom = bottom; sc.top = bottom + H; sc.near = 1; sc.far = S.dist + R + 60; sc.userData.rev = sc.reversedDepth; sc.updateProjectionMatrix(); }
+    const pcf = S.pcf[N] ?? (N > 2048 ? 2.2 : N < 2048 ? 1.0 : 1.5), texel = Math.max(tx, ty);
+    sh.radius = pcf; sh.normalBias = Math.min(0.12, Math.max(0.025, texel * (1 + 0.35 * pcf)));
+    sh.bias = (sc.reversedDepth ? 1 : -1) * 0.03 / (sc.far - sc.near); // ≈ 3 cm towards the light (reversed-Z: nearer = larger depth)
   }
   setWeather(name, instant = false) { this.target = name; if (instant) { this.weather = name; this.w = { ...WEATHER[name] }; if (WEATHER[name].rain > 0.5) this.wet = 1; } }
   forceWeather(name) { this.forced = name; if (name) this.setWeather(name); }
@@ -184,12 +223,11 @@ export class Atmosphere {
     this.sun.color.copy(sunCol);
     this.sun.intensity = Math.max(0, smoothstep(-0.02, 0.12, elev)) * 2.7 * cloudDim;
     // moon light at night (kept bright enough for readable night gameplay)
-    if (elev < 0) { this.sun.position.copy(focus).addScaledVector(new THREE.Vector3(-0.4, 0.8, -0.3).normalize(), 300); this.sun.color.setRGB(0.62, 0.72, 1.0); this.sun.intensity = 0.78 * this.night * (1 - this.w.cloud * 0.45); } // moonlight: readable silhouettes and road surface, still clearly night
-    else this.sun.position.copy(focus).addScaledVector(this.sunDir, 300);
-    this.sun.target.position.copy(focus); this.sun.target.updateMatrixWorld();
-    { const d = leafLight.dir.value, c = leafLight.col.value; const sd = this.sun.position.clone().sub(focus).normalize(); d[0] = sd.x; d[1] = sd.y; d[2] = sd.z;
+    if (elev < 0) { _sl.set(-0.4, 0.8, -0.3).normalize(); this.sun.color.setRGB(0.62, 0.72, 1.0); this.sun.intensity = 0.78 * this.night * (1 - this.w.cloud * 0.45); } // moonlight: readable silhouettes and road surface, still clearly night
+    else _sl.copy(this.sunDir);
+    this.fitSunShadow(focus, camera, _sl); // places the sun / moon light and its shadow box
+    { const d = leafLight.dir.value, c = leafLight.col.value; const sd = _sl; d[0] = sd.x; d[1] = sd.y; d[2] = sd.z;
       c[0] = this.sun.color.r * this.sun.intensity; c[1] = this.sun.color.g * this.sun.intensity; c[2] = this.sun.color.b * this.sun.intensity; }
-    // snap shadow camera to texel grid to avoid shimmering
     const skyTop = new THREE.Color().setRGB(0.28, 0.48, 0.82).lerp(new THREE.Color(0.32, 0.36, 0.42), this.w.dark).lerp(new THREE.Color(0.02, 0.04, 0.1), this.night);
     const horizon = new THREE.Color().setRGB(0.75, 0.82, 0.88).lerp(new THREE.Color(1.0, 0.62, 0.38), golden * (1 - this.night) * (1 - this.w.dark)).lerp(new THREE.Color(0.5, 0.52, 0.55), this.w.dark * 0.7).lerp(new THREE.Color(0.06, 0.08, 0.14), this.night);
     this.hemi.color.copy(skyTop).lerp(new THREE.Color(1, 1, 1), 0.35); this.hemi.groundColor.setRGB(0.42, 0.36, 0.3).lerp(new THREE.Color(0.15, 0.115, 0.09), this.night); /* night bounce: warm street light off the roads */
