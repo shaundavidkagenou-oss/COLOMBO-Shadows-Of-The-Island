@@ -107,7 +107,7 @@ export function buildMaterials() {
   // tangent normal map. Trunk UVs (TreeShapes.tubeGeo) run once around (u) and h/6 per tile up (v): repeat (2, 0.32) gives ~1.2 m of
   // bark per tile around a 0.3–0.4 m trunk and ~2.4 m up, i.e. undistorted, real-size fissures. Node / no canvas: the old texture.
   const RB = barkTextures();
-  if (RB) { for (const t of [RB.map, RB.normal]) t.repeat.set(2, 0.32); MAT.treeBark = std({ map: RB.map, normalMap: RB.normal, normalScale: new THREE.Vector2(1.6, 1.6), color: 0xffffff, roughness: 0.96, vertexColors: true }); }
+  if (RB) { for (const t of [RB.map, RB.normal]) t.repeat.set(2, 0.32); MAT.treeBark = std({ map: RB.map, normalMap: RB.normal, normalScale: new THREE.Vector2(2.4, 2.4), color: 0xffffff, roughness: 0.96, vertexColors: true }); }
   else MAT.treeBark = std({ map: TEX.bark, bumpMap: TEX.bark, bumpScale: 2.2, color: 0xf2ece4, roughness: 0.95, vertexColors: true }); // mid grey-brown bark with relief (was ~3 % albedo: read as black sticks)
   MAT.palmBark = std({ map: TEX.palmBark, roughness: 1, vertexColors: true });
   MAT.leavesSmall = std({ map: TEX.leavesSmall, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9, vertexColors: true });

@@ -699,7 +699,7 @@ input[type="text"], input:not([type]), textarea { cursor: text !important; }
 .cc-row.dim { color: rgba(242, 242, 242, 0.45); } .cc-row.on.dim { color: rgba(11, 11, 11, 0.55); }
 .cc-nm { flex: 1; display: flex; align-items: center; gap: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cc-cur { font-size: 13.5px; display: flex; align-items: center; gap: 6px; max-width: 55%; text-align: right; white-space: nowrap; overflow: hidden; }
-.cc-row.sub .cc-cur::after { content: '›'; font-size: 18px; margin-left: 4px; opacity: 0.8; }
+.cc-row.cc-more .cc-cur::after { content: '›'; font-size: 18px; margin-left: 4px; opacity: 0.8; }
 .cc-cur em { font-style: normal; font-size: 12px; }
 .cc-n { font: 600 13px/1 var(--f-hud); opacity: 0.8; }
 .cc-dot { width: 13px; height: 13px; display: inline-block; flex: none; border: 1px solid rgba(255, 255, 255, 0.5); }

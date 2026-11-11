@@ -74,7 +74,7 @@ export function garageWallTextures(wallH = 6.9, size = 512, seed = 3501) {
 export function garageFloorTextures(size = 512, seed = 3511) {
   if (!hasDOM()) return null; const W = size, N = W * W, rng = new RNG(seed); const R = new Float32Array(N), G = new Float32Array(N), B = new Float32Array(N), Ht = new Float32Array(N), Ro = new Float32Array(N);
   const base = hex('#67635b'), dark = hex('#35302a'), oil = hex('#1a1612'), oilHalo = hex('#4a4136'), tyre = hex('#2a2826');
-  const stains = blobs(rng, 12, W, W, 18, 70); const drips = blobs(rng, 40, W, W, 1.5, 5);
+  const stains = blobs(rng, 4, W, W, 50, 120); const drips = blobs(rng, 10, W, W, 1.5, 4); // the tile repeats every 4 m: only faint, large, old soaking here — the distinct fresh stains are placed decals (CustomsGeo)
   const marks = []; for (let i = 0; i < 7; i++) marks.push({ cx: rng.range(0, W), cy: rng.range(0, W), r: rng.range(W * 0.3, W * 1.2), a0: rng.range(0, 6.28), span: rng.range(0.25, 0.7), w: rng.range(5, 11), k: rng.range(0.12, 0.3) });
   const cracks = []; for (let i = 0; i < 3; i++) { let x = rng.range(0, W), y = rng.range(0, W), a = rng.range(0, 6.28); const pts = []; for (let k = 0; k < 60; k++) { pts.push([x, y]); a += rng.range(-0.5, 0.5); x += Math.cos(a) * 3; y += Math.sin(a) * 3; } cracks.push(pts); }
   const crackMap = new Float32Array(N); for (const pts of cracks) for (const [px, py] of pts) for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const X = ((Math.round(px) + dx) % W + W) % W, Y = ((Math.round(py) + dy) % W + W) % W; const k = clamp01(1 - Math.hypot(dx, dy) / 2.2); crackMap[Y * W + X] = Math.max(crackMap[Y * W + X], k); }
@@ -91,10 +91,10 @@ export function garageFloorTextures(size = 512, seed = 3511) {
     // edges feather and fray into the concrete like real absorbed oil (no crisp splat outlines); drips are small and faint
     const wn = fb(x / W * 7 + 1.3, y / W * 7, 7, 7, seed + 12, 4), wn2 = fb(x / W * 22, y / W * 22, 22, 22, seed + 13, 3); let field = 0;
     for (const b of stains) { let dx = x - b.x, dy = y - b.y; if (dx > W / 2) dx -= W; else if (dx < -W / 2) dx += W; if (dy > W / 2) dy -= W; else if (dy < -W / 2) dy += W; const d = Math.hypot(dx, dy) / b.r; if (d < 1.8) field = Math.max(field, (1 - d / 1.8) ** 1.5 * b.k); }
-    let st = clamp01((field * (0.55 + 0.9 * wn) - 0.32) / 0.38) * (0.7 + 0.3 * wn2), halo = clamp01((field * (0.6 + 0.8 * wn) - 0.12) / 0.5);
+    let st = clamp01((field * (0.55 + 0.9 * wn) - 0.32) / 0.5) * (0.35 + 0.2 * wn2), halo = clamp01((field * (0.6 + 0.8 * wn) - 0.12) / 0.5);
     for (const b of drips) { const k = blobAt(b, x, y, W, W, 0.5); if (k * 0.55 > st) st = k * 0.55 * (0.7 + 0.3 * wn2); }
     c = c.map((v, q) => mix(v, dark[q], dk)); c = c.map((v, q) => mix(v, oilHalo[q], halo * 0.4)); c = c.map((v, q) => mix(v, oil[q], st * (0.7 + 0.25 * n2)));
-    rough = mix(rough, 0.72, halo * 0.3); rough = mix(rough, 0.55, st); // absorbed oil darkens far more than it shines (only fresh spills are glossy)
+    rough = mix(rough, 0.8, halo * 0.3); rough = mix(rough, 0.7, st); // absorbed oil darkens far more than it shines (only fresh spills are glossy)
     const ck = crackMap[i]; c = c.map((v) => v * (1 - joint * 0.6 - ck * 0.5 - spall * 0.15));
     R[i] = c[0]; G[i] = c[1]; B[i] = c[2]; Ro[i] = rough; Ht[i] = 0.6 - joint * 0.4 - ck * 0.3 - spall * 0.15 + (g - 0.5) * 0.04 + (n2 - 0.5) * 0.05; }
   const a = put(cv(W, W), R, G, B), h = put(cv(W, W), Ht), r = put(cv(W, W), Ro);
@@ -118,7 +118,7 @@ export function oilSpillTexture(size = 256, seed = 3521) {
 // pale-grey and yellow-green lichen, damp dark streaks. The height field is strong, so the normal map carries real relief.
 export function barkTextures(size = 512, seed = 3531) {
   if (!hasDOM()) return null; const W = size, Hh = size, N = W * Hh; const R = new Float32Array(N), G = new Float32Array(N), B = new Float32Array(N), Ht = new Float32Array(N);
-  const fiss = hex('#1f1712'), deep = hex('#4a3b2e'), mid = hex('#6f5f4f'), top = hex('#9a8f80'), lichA = hex('#a9ad98'), lichB = hex('#9ea463'), damp = hex('#2e2a22');
+  const fiss = hex('#1a140f'), deep = hex('#3e3227'), mid = hex('#5d5043'), top = hex('#7f7466'), lichA = hex('#959985'), lichB = hex('#9ea463'), damp = hex('#2e2a22');
   for (let y = 0; y < Hh; y++) for (let x = 0; x < W; x++) { const i = y * W + x; const u = x / W, v = y / Hh;
     // domain-warped, vertically stretched ridges: 9 ridges around, wandering
     const wx = (fb(u * 3, v * 2, 3, 2, seed + 1, 3) - 0.5) * 0.9 + (fb(u * 8, v * 5, 8, 5, seed + 2, 2) - 0.5) * 0.25;

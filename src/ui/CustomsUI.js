@@ -131,10 +131,10 @@ export class CustomsUI {
   // the rows of the current level: [{ act, i, name, right, cls }]
   rows() {
     if (this.level === 'repair') return [{ act: 'repair', i: 0, name: 'Repair vehicle', right: rs(REPAIR_PRICE), cls: '' }, { act: 'leave', i: 1, name: 'Leave', right: '', cls: '' }];
-    if (this.level === 'cats') return this.cats.map((c, i) => { const n = this.slotsOf(c.id).filter((s) => this.isModded(s)).length; return { act: 'cat', i, name: c.name, right: n ? `<span class="cc-n">${n}</span>` : '', cls: 'sub' }; });
+    if (this.level === 'cats') return this.cats.map((c, i) => { const n = this.slotsOf(c.id).filter((s) => this.isModded(s)).length; return { act: 'cat', i, name: c.name, right: n ? `<span class="cc-n">${n}</span>` : '', cls: 'cc-more' }; });
     if (this.level === 'slots') return this.slots.map((s, i) => { const lock = slotLocked(s.id, this.installed); const cv = this.curVal(s); const o = s.kind === 'colour' ? null : s.options.find((q) => q.id === cv);
       const cur = lock ? `<em>${esc(NEEDS_TEXT[s.id] || 'Locked')}</em>` : s.kind === 'colour' ? (cv ? `<i class="cc-dot" style="background:${cv}"></i>Custom` : 'Factory') : esc(o ? o.name : 'Stock');
-      return { act: 'slot', i, name: s.name, right: cur, cls: 'sub' + (lock ? ' dim' : '') }; });
+      return { act: 'slot', i, name: s.name, right: cur, cls: 'cc-more' + (lock ? ' dim' : '') }; });
     const sl = this.slot, cv = this.curVal(sl);
     return this.options(sl).map((o, i) => { const inst = (o.id ?? null) === (cv ?? null); const p = this.price(sl, o.id);
       return { act: 'opt', i, name: (o.swatch ? `<i class="cc-dot" style="background:${o.swatch}"></i>` : '') + esc(o.name), right: inst ? '<span class="cc-tick" title="Installed"></span>' : p ? rs(p) : 'Free', cls: inst ? 'inst' : '', raw: true }; });
@@ -143,7 +143,7 @@ export class CustomsUI {
   get title() { return this.level === 'repair' ? 'Inspection' : this.level === 'cats' ? 'Categories' : this.level === 'slots' ? (this.cats[this.ci] || {}).name || '' : (this.slot || {}).name || ''; }
   renderLeft() {
     const rows = this.rows(), sel = this.sel;
-    const head = `<div class="cc-banner"><span>STREET</span> CUSTOMS</div><div class="cc-sub"><b>${esc(this.title)}</b><span>${sel >= 0 && rows.length ? `${sel + 1} / ${rows.length}` : ''}</span></div>`;
+    const head = `<div class="cc-banner"><span>STREET</span>&nbsp;CUSTOMS</div><div class="cc-sub"><b>${esc(this.title)}</b><span>${sel >= 0 && rows.length ? `${sel + 1} / ${rows.length}` : ''}</span></div>`;
     let body = `<div class="cc-list">${rows.map((r) => `<button class="cc-row ${r.cls}${r.i === sel ? ' on' : ''}" data-act="${r.act}" data-i="${r.i}"><span class="cc-nm">${r.raw ? r.name : esc(r.name)}</span><span class="cc-cur">${r.right}</span></button>`).join('')}</div>`;
     if (this.level === 'opts') { const sl = this.slot;
       if (sl.kind === 'colour') { const h = this.colour || '#888888'; const rgb = [1, 3, 5].map((k) => parseInt(h.slice(k, k + 2), 16));

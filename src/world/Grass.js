@@ -31,7 +31,7 @@ function bladeClump() {
   const TONES = [[0.86, 1.0, 0.8], [1.0, 1.0, 0.92], [1.08, 1.02, 0.78], [1.18, 1.06, 0.7], [1.32, 1.12, 0.66]]; // blue-green … mid … yellowed … straw
   for (let b = 0; b < 12; b++) {
     const a = rnd() * Math.PI * 2, r = Math.pow(rnd(), 0.7) * 0.32, ox = Math.cos(a) * r, oz = Math.sin(a) * r;
-    const yaw = rnd() * Math.PI * 2, w = 0.012 + rnd() * 0.016, h = 0.45 + rnd() * 0.75 + (rnd() < 0.12 ? 0.35 : 0), lean = 0.08 + rnd() * 0.42, twist = (rnd() - 0.5) * 1.2;
+    const yaw = rnd() * Math.PI * 2, w = 0.009 + rnd() * 0.011, h = 0.5 + rnd() * 0.6 + (rnd() < 0.06 ? 0.3 : 0), lean = 0.08 + rnd() * 0.42, twist = (rnd() - 0.5) * 1.2;
     const tone = TONES[Math.min(4, Math.floor(Math.pow(rnd(), 1.6) * 5))], dry = rnd() < 0.18 ? 0.25 + rnd() * 0.35 : rnd() * 0.12; const side = rnd() < 0.5 ? -1 : 1;
     const base = pos.length / 3; const segs = 3;
     for (let k = 0; k <= segs; k++) {
@@ -39,12 +39,12 @@ function bladeClump() {
       const ww = w * (1 - Math.pow(t, 1.4) * 0.92), y = h * t * (1 - lean * 0.25 * t), bend = lean * t * t * h;
       // own face normal, tipping over with the bend; mixed with up so the lawn still shades as a surface
       const tip = Math.min(1, lean * t * 2.2); const nx = sx * side * (1 - tip) + fx * tip, nz = sz * side * (1 - tip) + fz * tip; const ny = 0.75 + 0.25 * (1 - t);
-      const nl = Math.hypot(nx * 0.7, ny, nz * 0.7);
-      const ao = 0.4 + 0.7 * Math.pow(t, 0.7); // self-shadowed root (dense clump) → open tip
+      const nl = Math.hypot(nx * 0.4, ny, nz * 0.4); // mostly up (lit like the lawn it grows from), a little of its own face
+      const ao = 0.58 + 0.5 * Math.pow(t, 0.7); // self-shadowed root (dense clump) → open tip
       const dt = dry * t * t; const c = [mixc(tone[0], 1.42, dt), mixc(tone[1], 1.2, dt), mixc(tone[2], 0.62, dt)].map((q) => q * ao);
       for (const sd of [-1, 1]) {
         pos.push(ox + sx * ww * sd + fx * bend, y, oz + sz * ww * sd + fz * bend);
-        nor.push((nx * 0.7) / nl, ny / nl, (nz * 0.7) / nl);
+        nor.push((nx * 0.4) / nl, ny / nl, (nz * 0.4) / nl);
         col.push(c[0], c[1], c[2]);
       }
     }

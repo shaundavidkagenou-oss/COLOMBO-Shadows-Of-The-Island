@@ -313,10 +313,10 @@ class Mechanic {
     const svc = this.svc, W = svc.work, v = svc.v; if (!W || !v) return null; const T = v.T, hl = T.len / 2, hw = T.wid / 2, wr = T.wheelR || 0.32, hg = T.hgt || 1.45; const t = this.t;
     const loc = (f, l) => { const [x, z] = [v.x + Math.sin(v.yaw) * f + Math.cos(v.yaw) * l, v.z + Math.cos(v.yaw) * f - Math.sin(v.yaw) * l]; return svc.local(x, z); };
     const two = W.kind === 'wheel'; if (this.i === 1 && !two) return null; // the second mechanic only joins wheel work (other side)
-    const side = (this.i === 0 ? -1 : 1) * (W.side || 1), front = this.i === 0 ? 1 : -1;
+    const side = (this.i === 0 ? 1 : -1) * (W.side || 1), front = this.i === 0 ? 1 : -1; // the lead works on the side the wheel camera shows
     if (W.kind === 'wheel') { const f = front * hl * 0.62, l = side * (hw + 0.62); const hub = [f, side * (hw - 0.02), wr]; const a = t * 5.5;
       const R = W.on || this.i ? [hub[0] + Math.cos(a) * 0.07, hub[1] + side * 0.12, hub[2] + Math.sin(a) * 0.07] : [hub[0], hub[1] + side * 0.1, hub[2]]; // impact wrench / ratchet circling the nut
-      return { spot: loc(f, l), face: loc(f, side * hw * 0.3), act: 'medKneel', lean: 0.3, hands: { L: [hub[0] - 0.16 * front, hub[1] + side * 0.06, hub[2] + 0.17], R }, snd: [['wrench', 2.4], ['ratchet', 3.1]] }; }
+      return { spot: loc(f, l), face: loc(f, side * hw * 0.3), act: 'medKneel', lean: 0.18, hands: { L: [hub[0] - 0.16 * front, hub[1] + side * 0.06, hub[2] + 0.17], R }, snd: [['wrench', 2.4], ['ratchet', 3.1]] }; }
     if (W.kind === 'engine') { const f = hl + 0.48; const sweep = Math.sin(t * 1.3) * 0.18, dip = Math.max(0, Math.sin(t * 3.1)) * 0.05;
       return { spot: loc(f, 0.15), face: loc(0, 0.15), act: 'medLift', up: 0.72, hands: { L: [hl - 0.35, 0.22, hg * 0.62], R: [hl - 0.42 - dip, -0.12 + sweep, hg * 0.6 - dip] }, snd: [['ratchet', 2.2], ['clank', 3.7]] }; }
     if (W.kind === 'rear') { const f = -(hl + 0.55), l = -0.35 * (W.side || 1); const a = t * 4.2;
