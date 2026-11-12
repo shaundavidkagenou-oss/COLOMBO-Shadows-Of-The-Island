@@ -79,6 +79,8 @@ export function districtIdAt(x, z) {
 export function districtAt(x, z) { return DISTRICTS[districtIdAt(x, z)]; }
 
 // ---------------------------------------------------------------- reserved zones (landmarks & parks)
+// rect = the generation reserve (roads / buildings / props keep out of it — unchanged so the street network and building ids stay
+// the same); map = the drawn footprint where the landmark was pulled back off the road (37th Stage 0)
 export const ZONES = [
   { id: 'vmpark', name: 'Viharamahadevi Park', rect: [-10, 190, -170, 40], blockRoads: true, kind: 'park' },
   { id: 'townhall', name: 'Colombo Town Hall', rect: [190, 300, -100, 40], blockRoads: true, kind: 'landmark' },
@@ -86,8 +88,8 @@ export const ZONES = [
   { id: 'lotus', name: 'Lotus Tower', rect: [250, 360, -560, -400], blockRoads: true, kind: 'landmark' },
   { id: 'gangaramaya', name: 'Gangaramaya Temple', rect: [-50, 20, -320, -240], blockRoads: true, kind: 'landmark' },
   { id: 'slpHQ', name: 'Police Headquarters', rect: [-60, 40, -240, -170], blockRoads: true, kind: 'landmark' },
-  { id: 'gfhotel', name: 'Galle Face Hotel', rect: [-470, -409, -240, -170], blockRoads: true, kind: 'landmark' },
-  { id: 'parliament', name: 'Old Parliament', rect: [-475, -409, -740, -668], blockRoads: true, kind: 'landmark' },
+  { id: 'gfhotel', name: 'Galle Face Hotel', rect: [-470, -409, -240, -170], map: [-470, -409, -226.5, -170], blockRoads: true, kind: 'landmark' },
+  { id: 'parliament', name: 'Old Parliament', rect: [-475, -409, -740, -668], map: [-466, -409, -731, -668], blockRoads: true, kind: 'landmark' },
   { id: 'wtc', name: 'Twin Towers', rect: [-340, -280, -1000, -900], blockRoads: true, kind: 'landmark' },
   { id: 'dutch', name: 'Dutch Hospital', rect: [-400, -340, -900, -830], blockRoads: false, kind: 'landmark' },
   { id: 'cargills', name: 'Cargrove Building', rect: [-280, -220, -900, -830], blockRoads: false, kind: 'landmark' },

@@ -35,7 +35,7 @@ const loc = (o, rot, lx, ly, lz) => { _v.set(lx, ly, lz).applyEuler(_e.set(...ro
 export function carDetail(dm, K, c) {
   const { beam, part, C, unitBox, unitCyl } = K;
   const { W, R, D, k, type, fz, rz, taper, gw0, gw1, fy, hy, nw, ty, sill, isVan, col, gh, roofF, roofR, seatY, sz, dz, floorY, variant } = c;
-  const ST = c.style || null; const X0 = c.sx0 ?? 0.38; const visors = c.visors ?? (!isVan || k === 'suv'); // styled catalogue models draw their own lamps / grille / bumpers (VehicleStyle.js)
+  const ST = c.style || null; const X0 = c.sx0 ?? 0.38; // styled catalogue models draw their own lamps / grille / bumpers (VehicleStyle.js)
   const rub = dm.get('rubber'), chr = dm.get('chrome'), refl = dm.get('vrefl'), lens = dm.get('lens'), head = dm.get('vlight'), tail = dm.get('vtail'), ind = dm.get('vind'), pnt = dm.get('paint'), I = dm.get('interior'), gl = dm.get('glass');
   const black = C('#0e0e10'), dark = C('#1b1c1e'), chrome = C('#cfd3d7'), satin = C('#8d9196'), amber = C('#c87a14'), red = C('#8a1010');
   const xAt = (z, y) => W * taper(z, y);
@@ -94,12 +94,8 @@ export function carDetail(dm, K, c) {
   const belt = gh[0][1] - 0.02;
   const doorsZ = [[D.door[0], D.door[1]]]; if (D.rearDoor) doorsZ.push([D.rearDoor[0], D.rearDoor[1]]);
   for (const sx of [-1, 1]) {
-    // rain visors over the side windows (dark smoked acrylic), very common on Colombo cars
-    if (visors) for (const [z0, z1] of doorsZ) { if (z0 !== null) continue; /* every door carries its own visor */ const ry = (z) => { for (let i = 1; i < gh.length; i++) { const A = gh[i - 1], B = gh[i]; if (z <= A[0] && z >= B[0]) return lerp(A[2], B[2], (A[0] - z) / (A[0] - B[0] || 1)); } return gh[1][2]; };
-      beam(gl, [sx * (gw1 + 0.035), ry(z0 - 0.04) - 0.05, z0 - 0.04], [sx * (gw1 + 0.035), ry(z1 + 0.03) - 0.05, z1 + 0.03], 0.006, 0.065, C('#fff')); }
-    // door-handle recesses + key cylinder on the front doors; inner-belt chrome strip
-    for (const [, d1] of doorsZ) { if (d1 !== null) continue; /* handles are on the doors */ const x = sx * (xAt(d1 + 0.18, belt - 0.12) + 0.004); rub.box(x, belt - 0.12, d1 + 0.18, 0.006, 0.05, 0.17, { col: C('#0c0c0d') }); }
-    if (false) part(chr, discX, [sx * (xAt(D.door[1] + 0.32, belt - 0.12) + 0.008), belt - 0.12, D.door[1] + 0.32], [0, 0, 0], [0.006, 0.014, 0.014], chrome);
+    // (the rain visors over the side windows, door-handle recesses and key cylinders are carried by the doors themselves)
+    // inner-belt chrome strip
     { const gA = [gh[0][0] - 0.05, belt + 0.012], gB = [gh[gh.length - 1][0] + 0.12, gh[gh.length - 1][1] + 0.012], bp = (z) => [sx * (gw0 + 0.012), lerp(gA[1], gB[1], (gA[0] - z) / (gA[0] - gB[0])), z];
       for (const [za, zb] of spansOutside(gB[0], gA[0], doorGaps(D, sx), 0.012)) beam(chr, bp(zb), bp(za), 0.008, 0.012, satin); /* stops short of the door shut lines */ } // inner-belt strip (not across any door)
     // mirror: aerodynamic cap + repeater + mirror glass bezel

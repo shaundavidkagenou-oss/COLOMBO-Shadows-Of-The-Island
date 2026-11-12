@@ -174,7 +174,7 @@ export class MapView {
     // district tint
     for (const c of L.cells) { if (c.water || !vis(c.x0, c.x1, c.z0, c.z1)) continue; const d = L.DISTRICTS[c.district]; if (!d) continue;
       g.fillStyle = d.style === 'green' ? '#2f4a2f' : d.style === 'villa' ? '#2a3230' : d.style === 'port' ? '#2c3136' : d.style === 'lake' ? '#283331' : '#2a2f33'; g.fillRect(X(c.x0), Y(c.z0), (c.x1 - c.x0) * z + 0.5, (c.z1 - c.z0) * z + 0.5); }
-    for (const zn of L.ZONES) { const [a0, a1, b0, b1] = zn.rect; if (!vis(a0, a1, b0, b1)) continue; g.fillStyle = zn.kind === 'park' ? '#2f4f31' : '#30302c'; g.fillRect(X(a0), Y(b0), (a1 - a0) * z, (b1 - b0) * z); }
+    for (const zn of L.ZONES) { const [a0, a1, b0, b1] = zn.map || zn.rect; if (!vis(a0, a1, b0, b1)) continue; g.fillStyle = zn.kind === 'park' ? '#2f4f31' : '#30302c'; g.fillRect(X(a0), Y(b0), (a1 - a0) * z, (b1 - b0) * z); }
     // lake / canals
     g.fillStyle = '#16465c'; for (const [cx, cz, rx, rz] of L.LAKE) { g.beginPath(); g.ellipse(X(cx), Y(cz), rx * z, rz * z, 0, 0, 7); g.fill(); }
     g.strokeStyle = 'rgba(120,200,220,0.3)'; g.lineWidth = Math.max(1, 2 * z); for (const [cx, cz, rx, rz] of L.LAKE) { g.beginPath(); g.ellipse(X(cx), Y(cz), rx * z, rz * z, 0, 0, 7); g.stroke(); }

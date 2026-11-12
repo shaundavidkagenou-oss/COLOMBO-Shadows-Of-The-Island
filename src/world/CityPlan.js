@@ -573,6 +573,7 @@ export function generatePlan() {
     plan.props = plan.props.filter((p) => !drop.has(p)); plan.trees = plan.trees.filter((t) => !dropT.has(t)); plan.walls = plan.walls.filter((w) => !dropW.has(w)); plan.colliders = plan.colliders.filter((c) => !cols.has(c));
     const dq = (q) => inRes(q.x, q.z); plan.poi = plan.poi.filter((q) => !dq(q)); plan.busStops = plan.busStops.filter((q) => !dq(q)); plan.parking = plan.parking.filter((q) => !dq(q));
     for (const ch of plan.byChunk) { ch.props = ch.props.filter((p) => !drop.has(p)); ch.trees = ch.trees.filter((t) => !dropT.has(t)); ch.walls = ch.walls.filter((w) => !dropW.has(w)); ch.poi = ch.poi.filter((q) => !dq(q)); } }
+  if (plan.stallFix) { const kept = plan.props.filter((p) => p.type === 'stall').length; plan.stallFix.removed = plan.stallFix.placed - kept; plan.stallFix.placed = kept; } // stalls cleared off mission-shop doors / station lots after placement
   greenTrees({ plan, addTree, onRailReserve, inSchool }); // more street trees + garden trees, banana clumps, areca palms (Greenery.js, own RNG)
   // no tree may grow inside (or through) a building. Garden/back-lot trees planted against a wall are moved out to 1.6 m
   // from it (crown no longer pushes through the facade); if there is no free spot they are dropped. Around the landmark

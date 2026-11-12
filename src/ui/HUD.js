@@ -51,7 +51,7 @@ export class HUD {
     // parks / green / landmark grounds
     const acc = {};
     for (const c of L.cells) { if (c.water) continue; (acc[c.district] ||= [0, 0, 0]); acc[c.district][0] += c.cx; acc[c.district][1] += c.cz; acc[c.district][2]++; if (c.district === 'gfgreen') { g.fillStyle = '#3a5a34'; g.fillRect(X(c.x0), Z(c.z0), (c.x1 - c.x0) * MAP_SCALE, (c.z1 - c.z0) * MAP_SCALE); } }
-    for (const zn of L.ZONES) { const [x0, x1, z0, z1] = zn.rect; g.fillStyle = zn.kind === 'park' ? '#2f4a32' : zn.kind === 'port' ? '#343c42' : '#3a3530'; g.fillRect(X(x0), Z(z0), (x1 - x0) * MAP_SCALE, (z1 - z0) * MAP_SCALE); }
+    for (const zn of L.ZONES) { const [x0, x1, z0, z1] = zn.map || zn.rect; g.fillStyle = zn.kind === 'park' ? '#2f4a32' : zn.kind === 'port' ? '#343c42' : '#3a3530'; g.fillRect(X(x0), Z(z0), (x1 - x0) * MAP_SCALE, (z1 - z0) * MAP_SCALE); }
     this.districtLabels = Object.entries(acc).map(([id, a]) => [id, a[0] / a[2], a[1] / a[2]]);
     // lake + canals
     g.fillStyle = '#1d4a5c'; for (const [cx, cz, rx, rz] of L.LAKE) { g.beginPath(); g.ellipse(X(cx), Z(cz), rx * MAP_SCALE, rz * MAP_SCALE, 0, 0, Math.PI * 2); g.fill(); }

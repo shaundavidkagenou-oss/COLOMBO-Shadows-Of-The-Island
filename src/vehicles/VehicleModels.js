@@ -1041,8 +1041,12 @@ function shellFit(A) { let f = shellCache.get(A); if (f) return f; const S = 0.0
     if (ix >= 0 && ix < nx && iz >= 0 && iz < nz) top[iz * nx + ix] = Math.max(top[iz * nx + ix], v.y); if (iy >= 0 && iy < ny && iz >= 0 && iz < nz) side[iz * ny + iy] = Math.max(side[iz * ny + iy], Math.abs(v.x)); } };
   for (const [n, g] of A.lod0.body) if (n === 'paint' || n === 'glass') add(g, null);
   A.meta.doors.forEach((d, i) => { const mx = new THREE.Matrix4().makeTranslation(d.hinge[0], 0, d.hinge[1]); for (const [n, g] of A.lod0.doors[i]) if (n === 'paint' || n === 'glass') add(g, mx); });
+  // the shut doors' own cards (innermost |x| per y, z cell): fitted trim outboard of a card would sit inside the closed door and
+  // stay behind, floating in the doorway, when the real door swings open
+  const card = new Float32Array(ny * nz).fill(9);
+  A.meta.doors.forEach((d, i) => { for (const [n, g] of A.lod0.doors[i]) { if (n !== 'interior') continue; const P = g.attributes.position; for (let k = 0; k < P.count; k++) { const z = P.getZ(k) + d.hinge[1], y = P.getY(k), iz = Math.round((z - lo[2]) / S), iy = Math.round(y / S); if (iy >= 0 && iy < ny && iz >= 0 && iz < nz) card[iz * ny + iy] = Math.min(card[iz * ny + iy], Math.abs(P.getX(k) + d.hinge[0])); } } });
   const at = (arr, w, a, b) => { let m = -1; for (let da = -1; da <= 1; da++) for (let db = -1; db <= 1; db++) { const k = (b + db) * w + a + da; if (a + da < 0 || a + da >= w || b + db < 0 || k < 0 || k >= arr.length) continue; m = Math.max(m, arr[k]); } return m; }; // the highest neighbour: lenient across cell edges
-  const out = (x, y, z) => { const iz = Math.round((z - lo[2]) / S); const t = at(top, nx, Math.round((x - lo[0]) / S), iz); if (t > 0 && y > t + 0.01) return true; if (y > 0.75) { const w = at(side, ny, Math.round(y / S), iz); if (w > 0 && Math.abs(x) > w + 0.01) return true; } return false; };
+  const out = (x, y, z) => { const iz = Math.round((z - lo[2]) / S); const t = at(top, nx, Math.round((x - lo[0]) / S), iz); if (t > 0 && y > t + 0.01) return true; if (y > 0.75) { const w = at(side, ny, Math.round(y / S), iz); if (w > 0 && Math.abs(x) > w + 0.01) return true; } { const iy = Math.round(y / S); if (iy >= 0 && iy < ny && iz >= 0 && iz < nz && card[iz * ny + iy] < 9 && Math.abs(x) > card[iz * ny + iy] - 0.004) return true; } return false; };
   // triangles of the fitted interior that stick out of the real shell are removed (the interior's shape itself is left alone)
   f = (g) => { if (globalThis.__noShellFit || !g.index) return 0; const P = g.attributes.position, I = g.index.array; const bad = new Uint8Array(P.count); for (let i = 0; i < P.count; i++) bad[i] = out(P.getX(i), P.getY(i), P.getZ(i)) ? 1 : 0;
     const keep = []; for (let t = 0; t < I.length; t += 3) if (!bad[I[t]] && !bad[I[t + 1]] && !bad[I[t + 2]]) keep.push(I[t], I[t + 1], I[t + 2]);
@@ -1163,7 +1167,14 @@ export { wheelParts };
 export function warmModel(type, seed = 1) { if (VTYPES[type]) ensureModel(type, seed); }
 export function warmShape(type, variant) { if (VTYPES[type]) shapeOf(type, variant); }
 export function cleanLook(type, color, variant) { const S = shapeOf(type, variant), col = C(color); const f = (L) => L.map(([n, g, k]) => [n, recolor(g, k, col)]); return { geos: f(S.geos), dgeos: f(S.dgeos), m: { ...S.m, doors: recolorMeta(S.m.doors, col), busDoor: recolorMeta(S.m.busDoor, col) } }; } // tests only
-export function directModel(type, color, variant) { const m = buildModel(type, color, variant); const f = (mbb) => [...mbb.b].map(([n, b]) => [n, b.build()]).filter((q) => q[1]); const body = { geos: f(m.mb), doors: m.doors }; if (m.doors && m.doors.length) bakeDoors(body, VTYPES[type], type, C(color)); return { geos: body.geos, dgeos: f(m.dm), m }; } // tests only (doors baked in the paint colour directly)
+export function directModel(type, color, variant) { // tests only: the same pipeline as shapeOf (body-shape field refine + warp included) but built and doors baked in the paint colour directly
+  const m = buildModel(type, color, variant); const f = (mbb) => [...mbb.b].map(([n, b]) => [n, b.build()]).filter((q) => q[1]);
+  const SF = m.shape && m.shape.outline && !globalThis.__noBodyWarp ? makeBodyWarp(m.shape) : null;
+  const body = { geos: f(m.mb), doors: m.doors, refine: SF ? SF.refine : null }; if (m.doors && m.doors.length) bakeDoors(body, VTYPES[type], type, C(color)); else if (SF) body.geos = body.geos.map(([n, g]) => [n, SF.refine(g, null, n)]);
+  if (SF) { if (m.doors) for (const d of m.doors) d.field = SF.field; for (const [, g] of body.geos) SF.warp(g); }
+  let dg = f(m.dm); if (SF) { dg = dg.map(([n, g]) => [n, SF.refine(g, null, n)]); for (const [, g] of dg) SF.warp(g); }
+  return { geos: body.geos, dgeos: dg, m };
+}
 // shadow pass: parts that sit flush on (or inside) the painted body add a draw call per vehicle but never change the shadow
 // (lamp lenses, indicators, plates, route boards: the body's own silhouette already covers theirs)
 const NO_CAST = new Set(['livery', 'glass', 'vlight', 'interior', 'badge', 'amb', 'vtail', 'vind', 'vrev', 'plate', 'route', 'mirror', 'dash']);

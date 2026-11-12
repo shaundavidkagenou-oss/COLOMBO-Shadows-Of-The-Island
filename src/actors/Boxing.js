@@ -85,11 +85,11 @@ const REACT = {
 // p: wrist target in that bone's frame (metres at body scale 1; written for the hand named, struck from the right — a
 // blow from the left mirrors x), pole: elbow direction, wr / wz: wrist bend, w: weight. The arm is solved by IK every
 // frame (Character.solveArmIK), so the palm follows the head as it drops / turns and fits every body size.
-export const CLUTCH = {
-  snap: { R: { bone: 'head', p: [-0.02, -0.03, 0.18], pole: [-0.5, -1, -0.1], wr: 0.05 } }, // palm over the mouth
-  hook: { R: { bone: 'head', p: [-0.15, 0.02, 0.1], pole: [-0.6, -1, -0.2], wr: 0.3, wz: -0.2 } }, // palm on the struck jaw
-  upper: { R: { bone: 'head', p: [-0.035, -0.06, 0.19], pole: [-0.45, -1, -0.1], wr: 0.05 }, L: { bone: 'chest', p: [0.1, 0.02, 0.2], pole: [0.5, -1, -0.2], wr: 0, w: 0.6 } }, // hand cupping the chin, the other half up
-  body: { L: { bone: 'chest', p: [0.195, 0, 0.085], pole: [0.5, -1, 0], wr: -0.25 }, R: { bone: 'spine', p: [-0.005, 0.12, 0.065], pole: [-0.5, -1, 0], wr: -0.33, w: 0.7 } }, // over the ribs / the stomach
+export const CLUTCH = { // re-tuned (node tools/clutch-test.mjs --tune) on the current crowd bodies: the old table left the hands hovering 7-12 cm off / sunk into the head
+  snap: { R: { bone: 'head', p: [-0.06, -0.03, 0.18], pole: [-0.5, -1, -0.1], wr: 0.25, wz: 0.25 } }, // palm over the mouth
+  hook: { R: { bone: 'head', p: [-0.19, 0.04, 0.06], pole: [-0.6, -1, -0.2], wr: -0.25, wz: 0.05 } }, // palm on the struck jaw
+  upper: { R: { bone: 'head', p: [-0.035, -0.08, 0.19], pole: [-0.45, -1, -0.1], wr: -0.45, wz: 0.5 }, L: { bone: 'chest', p: [0.1, 0.02, 0.2], pole: [0.5, -1, -0.2], wr: 0, w: 0.6 } }, // hand cupping the chin, the other half up
+  body: { L: { bone: 'chest', p: [0.225, -0.04, 0.085], pole: [0.5, -1, 0], wr: -0.1, wz: -0.45 }, R: { bone: 'spine', p: [-0.105, 0.2, 0.025], pole: [-0.5, -1, 0], wr: -0.18, wz: 0.15, w: 0.7 } }, // over the ribs / the stomach
 };
 export function reactDur(kind) { return (REACT[kind] || REACT.snap).dur; }
 

@@ -538,7 +538,7 @@ function shopAtlas(cw = 256) {
   const cellH = cw;
   for (let row = 0; row < 8; row++) for (let col = 0; col < 4; col++) {
     const x = col * cw, y = row * cellH; a.save(); a.beginPath(); a.rect(x, y, cw, cellH); a.clip();
-    a.fillStyle = '#e8e4da'; a.fillRect(x, y, cw, cellH);
+    a.fillStyle = '#d0cabd'; a.fillRect(x, y, cw, cellH); // settled plaster surround (was near-white #e8e4da: the ground floor read brighter than the weathered walls above)
     const inner = (top = 0.12) => { const ix = x + cw * 0.06, iy = y + cellH * top, iw = cw * 0.88, ih = cellH * (0.98 - top); return [ix, iy, iw, ih]; };
     const darkInterior = (ix, iy, iw, ih, lit = '#fff1cf') => {
       const g = a.createLinearGradient(0, iy, 0, iy + ih); g.addColorStop(0, '#2a2622'); g.addColorStop(1, '#4a4038'); a.fillStyle = g; a.fillRect(ix, iy, iw, ih);
@@ -549,31 +549,31 @@ function shopAtlas(cw = 256) {
       for (let k = 0; k < 9; k++) for (let s = 0; s < 5; s++) { a.fillStyle = `hsl(${rng.int(0, 360)},${rng.int(40, 80)}%,${rng.int(30, 60)}%)`; a.fillRect(ix + 6 + k * (iw - 12) / 9, iy + ih * 0.25 + s * ih * 0.12, (iw - 12) / 9 - 3, ih * 0.1); e.fillStyle = 'rgba(0,0,0,0.5)'; e.fillRect(ix + 6 + k * (iw - 12) / 9, iy + ih * 0.25 + s * ih * 0.12, (iw - 12) / 9 - 3, ih * 0.1); }
       for (let k = 0; k < 6; k++) { a.fillStyle = `hsl(${rng.int(0, 360)},70%,50%)`; a.beginPath(); const hx = ix + 10 + k * iw / 6; a.moveTo(hx, iy + 4); a.lineTo(hx + 18, iy + 4); a.lineTo(hx + 22, iy + ih * 0.22); a.lineTo(hx - 4, iy + ih * 0.22); a.fill(); }
     } else if (row === 1) { // roller shutter
-      const [ix, iy, iw, ih] = inner(0.08); const col0 = rng.pick(['#8c9294', '#6f8a7a', '#7a8a9a', '#9a8f78']);
-      for (let sy = iy; sy < iy + ih; sy += 5) { const g = a.createLinearGradient(0, sy, 0, sy + 5); g.addColorStop(0, shade(col0, 1.15)); g.addColorStop(1, shade(col0, 0.75)); a.fillStyle = g; a.fillRect(ix, sy, iw, 5); }
+      const [ix, iy, iw, ih] = inner(0.08); const col0 = rng.pick(['#7d8284', '#62796c', '#6c7a88', '#877e6a']); // dulled galvanised / painted steel
+      for (let sy = iy; sy < iy + ih; sy += 5) { const g = a.createLinearGradient(0, sy, 0, sy + 5); g.addColorStop(0, shade(col0, 1.06)); g.addColorStop(1, shade(col0, 0.74)); a.fillStyle = g; a.fillRect(ix, sy, iw, 5); }
       a.fillStyle = 'rgba(60,40,20,0.35)'; for (let k = 0; k < 4; k++) a.fillRect(ix + rng.range(0, iw), iy + ih * rng.range(0.4, 1), rng.range(10, 30), 3);
       a.fillStyle = '#333'; a.fillRect(ix + iw / 2 - 8, iy + ih - 10, 16, 6);
-      if (rng.chance(0.6)) { a.fillStyle = rng.pick(['#e9e2c0', '#f5f5f5', '#f1c40f']); a.fillRect(ix + rng.range(10, iw - 60), iy + rng.range(20, ih - 50), 44, 30); a.fillStyle = '#222'; a.font = 'bold 9px "Barlow Condensed", sans-serif'; a.fillText('TO LET', ix + 30, iy + 60); }
+      if (rng.chance(0.6)) { a.fillStyle = rng.pick(['#d9d2b2', '#dcdad4', '#d8b23a']); a.fillRect(ix + rng.range(10, iw - 60), iy + rng.range(20, ih - 50), 44, 30); a.fillStyle = '#222'; a.font = 'bold 9px "Barlow Condensed", sans-serif'; a.fillText('TO LET', ix + 30, iy + 60); }
     } else if (row === 2) { // electronics / phones — bright glass
-      const [ix, iy, iw, ih] = inner(); const g = a.createLinearGradient(0, iy, 0, iy + ih); g.addColorStop(0, '#dfe8ee'); g.addColorStop(1, '#8fa2ad'); a.fillStyle = g; a.fillRect(ix, iy, iw, ih);
+      const [ix, iy, iw, ih] = inner(); const g = a.createLinearGradient(0, iy, 0, iy + ih); g.addColorStop(0, '#bcc6cc'); g.addColorStop(1, '#7c8d97'); a.fillStyle = g; a.fillRect(ix, iy, iw, ih);
       e.fillStyle = '#e6f2ff'; e.fillRect(ix, iy, iw, ih);
       for (let k = 0; k < 10; k++) { a.fillStyle = rng.pick(['#111', '#333', '#2a2a2a']); a.fillRect(ix + 8 + (k % 5) * iw / 5, iy + ih * 0.3 + Math.floor(k / 5) * ih * 0.25, iw / 6, ih * 0.16); e.fillStyle = rng.pick(['#4af', '#f4a', '#fd4', '#5f8']); e.fillRect(ix + 10 + (k % 5) * iw / 5, iy + ih * 0.31 + Math.floor(k / 5) * ih * 0.25, iw / 6 - 4, ih * 0.13); }
-      a.fillStyle = 'rgba(255,255,255,0.25)'; a.beginPath(); a.moveTo(ix, iy); a.lineTo(ix + iw * 0.3, iy); a.lineTo(ix, iy + ih * 0.6); a.fill();
+      a.fillStyle = 'rgba(255,255,255,0.14)'; a.beginPath(); a.moveTo(ix, iy); a.lineTo(ix + iw * 0.3, iy); a.lineTo(ix, iy + ih * 0.6); a.fill();
       a.strokeStyle = '#999'; a.lineWidth = 3; a.strokeRect(ix, iy, iw, ih); a.beginPath(); a.moveTo(ix + iw / 2, iy); a.lineTo(ix + iw / 2, iy + ih); a.stroke();
     } else if (row === 3) { // produce / grocery
       const [ix, iy, iw, ih] = inner(); darkInterior(ix, iy, iw, ih, '#ffe0a0');
       for (let k = 0; k < 7; k++) { a.fillStyle = '#c2a36e'; a.fillRect(ix + k * iw / 7 + 2, iy + ih * 0.62, iw / 7 - 4, ih * 0.36); a.fillStyle = rng.pick(['#d33', '#e83', '#ec2', '#5a2', '#8b4513', '#f5f0e0']); a.beginPath(); a.ellipse(ix + k * iw / 7 + iw / 14, iy + ih * 0.63, iw / 16, ih * 0.06, 0, 0, 7); a.fill(); }
       for (let k = 0; k < 3; k++) { a.fillStyle = '#d9b520'; for (let b = 0; b < 6; b++) { a.beginPath(); a.ellipse(ix + 30 + k * iw / 3 + (b % 2) * 8, iy + 18 + b * 7, 6, 3, 0.5, 0, 7); a.fill(); } } // bananas
     } else if (row === 4) { // colonial arcade
-      a.fillStyle = '#efe6d4'; a.fillRect(x, y, cw, cellH);
+      a.fillStyle = '#d8cfbd'; a.fillRect(x, y, cw, cellH);
       a.fillStyle = '#1e1a16'; a.beginPath(); const ax = x + cw * 0.12, aw = cw * 0.76; a.moveTo(ax, y + cellH); a.lineTo(ax, y + cellH * 0.45); a.arc(ax + aw / 2, y + cellH * 0.45, aw / 2, Math.PI, 0); a.lineTo(ax + aw, y + cellH); a.fill();
       e.fillStyle = '#f7d79a'; e.globalAlpha = 0.55; e.beginPath(); e.moveTo(ax + 10, y + cellH); e.lineTo(ax + 10, y + cellH * 0.5); e.arc(ax + aw / 2, y + cellH * 0.5, aw / 2 - 10, Math.PI, 0); e.lineTo(ax + aw - 10, y + cellH); e.fill(); e.globalAlpha = 1;
-      a.fillStyle = '#d8ccb4'; a.fillRect(x, y, cw * 0.1, cellH); a.fillRect(x + cw * 0.9, y, cw * 0.1, cellH);
+      a.fillStyle = '#c6baa3'; a.fillRect(x, y, cw * 0.1, cellH); a.fillRect(x + cw * 0.9, y, cw * 0.1, cellH);
     } else if (row === 5) { // office lobby
       const [ix, iy, iw, ih] = inner(0.05); glassGrad(a, ix, iy, iw, ih, '#6a7f88', '#22323a'); e.fillStyle = '#c8d8e8'; e.globalAlpha = 0.6; e.fillRect(ix, iy, iw, ih); e.globalAlpha = 1;
       a.strokeStyle = '#bfc4c6'; a.lineWidth = 4; a.strokeRect(ix, iy, iw, ih); for (let k = 1; k < 4; k++) { a.beginPath(); a.moveTo(ix + k * iw / 4, iy); a.lineTo(ix + k * iw / 4, iy + ih); a.stroke(); }
     } else if (row === 6) { // compound wall + gate
-      a.fillStyle = '#ece6d8'; a.fillRect(x, y + cellH * 0.45, cw, cellH * 0.55); a.fillStyle = '#7a9c66'; a.fillRect(x, y, cw, cellH * 0.45);
+      a.fillStyle = '#d3ccbd'; a.fillRect(x, y + cellH * 0.45, cw, cellH * 0.55); a.fillStyle = '#7a9c66'; a.fillRect(x, y, cw, cellH * 0.45);
       for (let k = 0; k < 20; k++) { a.fillStyle = rng.pick(['#4d7a3a', '#6a9a50', '#3b6a2c', '#88b060']); a.beginPath(); a.arc(x + rng.next() * cw, y + rng.next() * cellH * 0.45, rng.range(8, 20), 0, 7); a.fill(); }
       if (col % 2 === 0) { a.fillStyle = '#2b2b2b'; a.fillRect(x + cw * 0.3, y + cellH * 0.35, cw * 0.4, cellH * 0.65); a.fillStyle = '#555'; for (let gx = x + cw * 0.32; gx < x + cw * 0.68; gx += 8) a.fillRect(gx, y + cellH * 0.37, 3, cellH * 0.6); }
       grime(a, W, H, { scale: 4, amount: 0, seed: 1 });
