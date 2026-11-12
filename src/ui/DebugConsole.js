@@ -87,7 +87,7 @@ export class DebugConsole {
     try {
       switch (c) {
         case 'help': ['debug.menu true|false — enable the debug menu (open it with Numpad 2)', 'time <0-24> · freeze [on|off]', `weather <${Object.keys(WEATHER).join('|')}>`, 'money <amount>', 'god [on|off] · ammo [on|off] (infinite) · nowanted [on|off]', 'mind · mind stats · mind off|on — NPC personality / feelings / memories',
-          `give <all|grenades|${WEAPONS.map((w) => w.id).join('|')}>`, 'tp <place> | tp <x> <z> | tp waypoint · places', 'drunk <0..1> · room <dineth|shashika|david>', 'vehicle info|repair|upright|open|close|dmg|shoot [n]|tyre|glass|dent|fire|explode — your vehicle, or the nearest within 10 m', 'bench [seconds] — frame-rate benchmark of real play (avg fps, 1 % / 0.1 % lows, worst frame); the console closes while it runs', `spawn ped [n] · spawn car [${VEH.join('|')}|<catalogue id>]`, 'cars — list the 40 catalogue vehicles (ids for spawn car)', `model <${MODELS.join('|')}|civilian|reset>`, 'dress [outfit] — re-dress pedestrians within 35 m · outfits', 'animations — animation editor (every animation in the game, keyframes, poses, speed …)', 'map — map editor (move / add / delete / repaint anything, save the map)', 'npc — NPC editor (remodel NPCs: every appearance parameter, proportions, paint on the model, fabric textures)', 'heal · clear · close'].forEach((s) => this.print('  ' + s)); break;
+          `give <all|grenades|${WEAPONS.map((w) => w.id).join('|')}>`, 'tp <place> | tp <x> <z> | tp waypoint · places', 'roadcheck · roadcheck tp <n> — list buildings / landmarks / stalls / walls standing on a road (incl. map-editor edits)', 'drunk <0..1> · room <dineth|shashika|david>', 'vehicle info|repair|upright|open|close|dmg|shoot [n]|tyre|glass|dent|fire|explode — your vehicle, or the nearest within 10 m', 'bench [seconds] — frame-rate benchmark of real play (avg fps, 1 % / 0.1 % lows, worst frame); the console closes while it runs', `spawn ped [n] · spawn car [${VEH.join('|')}|<catalogue id>]`, 'cars — list the 40 catalogue vehicles (ids for spawn car)', `model <${MODELS.join('|')}|civilian|reset>`, 'dress [outfit] — re-dress pedestrians within 35 m · outfits', 'animations — animation editor (every animation in the game, keyframes, poses, speed …)', 'map — map editor (move / add / delete / repaint anything, save the map)', 'npc — NPC editor (remodel NPCs: every appearance parameter, proportions, paint on the model, fabric textures)', 'heal · clear · close'].forEach((s) => this.print('  ' + s)); break;
         case 'debug.menu': this.D.menuEnabled = on(a[0], this.D.menuEnabled); if (!this.D.menuEnabled) this.toggleMenu(false); this.print(`debug menu ${this.D.menuEnabled ? 'ENABLED — press Numpad 2 to open it' : 'disabled'}`, 'ok'); break;
         case 'time': this.setTime(+a[0]); break;
         case 'freeze': this.D.freezeTime = on(a[0], this.D.freezeTime); this.print(`clock ${this.D.freezeTime ? 'frozen' : 'running'}`, 'ok'); break;
@@ -125,6 +125,7 @@ export class DebugConsole {
           for (const [h, r] of Object.entries(D.player)) this.print(`  ${h}: like ${r.like} · fear ${r.fear} · met ${r.met} · harassed ${r.harassed} · helped ${r.helped} · crimes seen ${r.crimesSeen}`);
           if (D.ties.length) this.print('  knows    ' + D.ties.map((t) => `${t.who} ${t.aff}`).join(' · '));
           break; }
+        case 'roadcheck': this.roadcheck(a); break;
         case 'clear': this.log = []; this.print(''); break;
         case 'close': case 'exit': this.toggle(false); break;
         default: this.print(`unknown command: ${cmd} (type help)`, 'err');
@@ -141,6 +142,19 @@ export class DebugConsole {
     for (const w of list) { const s = inv[WEAPONS.indexOf(w)]; s.owned = true; s.mag = w.mag; s.reserve = w.reserve; }
     const W = this.g.weapons; if (W.sel < 0 && !W.drawn) { W.sel = WEAPONS.indexOf(list[0]); W.showHolstered(); }
     this.say(`${list.length === 1 ? list[0].name : 'all weapons'} given to ${this.g.squad?.activeMember?.def?.name || 'player'}`);
+  }
+  // placement audit of the live city (PlacementCheck.js, loaded on demand): generated buildings, map-editor edits, stalls,
+  // garden walls and the landmark / forecourt structures in the collision world
+  roadcheck(a) {
+    if (a[0] === 'tp') { const r = (this.roadHits || [])[(+a[1] || 1) - 1]; if (!r) throw new Error('run roadcheck first (then roadcheck tp <n>)'); this.teleport(r.x, r.z, `${r.kind} #${(+a[1] || 1)}`); return; }
+    this.print('checking placement…', 'sys');
+    import('../world/PlacementCheck.js').then(({ auditPlacement, roadName }) => {
+      const W = this.g.world; const hits = auditPlacement(W.plan, W.collision.list || []); this.roadHits = hits;
+      if (!hits.length) { this.print('roadcheck: nothing stands on a road — buildings, landmarks, stalls and walls are all clear', 'ok'); return; }
+      this.print(`roadcheck: ${hits.length} object(s) on a road / pavement:`, 'err');
+      hits.slice(0, 20).forEach((r, i) => this.print(`  ${i + 1}. ${r.kind}${r.ref && r.ref.style ? ' (' + r.ref.style + ')' : ''}${r.ref && r.ref.added ? ' [added in map editor]' : r.ref && r.ref.eid ? ' ' + r.ref.eid : ''} on ${roadName(r.x, r.z)} at ${r.x}, ${r.z} — ${r.road} road / ${r.pave} pavement samples`));
+      if (hits.length > 20) this.print(`  … and ${hits.length - 20} more`); this.print('  roadcheck tp <n> teleports there', 'sys');
+    }).catch((e) => this.print('roadcheck failed: ' + e.message, 'err'));
   }
   teleport(x, z, label) {
     const g = this.g, P = g.player; if (g.interiors.current) throw new Error('leave the interior first'); if (P.vehicle) throw new Error('leave the vehicle first');

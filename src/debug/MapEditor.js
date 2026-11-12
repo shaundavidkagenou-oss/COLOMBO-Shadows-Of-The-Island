@@ -14,6 +14,7 @@ import { buildVines } from '../world/Vines.js';
 import { Forest } from '../world/Forest.js';
 import * as L from '../world/Layout.js';
 import { CHUNK } from '../world/CityPlan.js';
+import { checkObject, roadName } from '../world/PlacementCheck.js';
 import { MAP, KINDS, FIELDS, kindOf, assignIds, setFields, removeObj, createObj, saveMap, primMesh, placePrim, primCollider, PRIM_SHAPES, liveTexture, textureFor, setMatTexture, MAT_ORIG } from './MapRuntime.js';
 import { storeDel, storeSet, setSavedFlag } from './boot.js';
 import { Painter } from './Painter.js';
@@ -167,7 +168,10 @@ class MapEditor {
   meshOf(d) { return this.W.editorPrims.children.find((m) => m.userData.prim === d); }
   // ---------------------------------------------------------------- edit operations (each recorded in MAP.edits + undo)
   entryOf(o) { return o._eid && o._eid.startsWith('a:') ? MAP.edits.added.find((d) => 'a:' + d.uid === o._eid) : null; }
-  record(o) { const k = kindOf(o), en = this.entryOf(o); if (en) Object.assign(en, pick(o, FIELDS[k])); else MAP.edits.mods[o._eid] = pick(o, FIELDS[k]); this.unsaved = true; this.updateStatus(); }
+  record(o) { const k = kindOf(o), en = this.entryOf(o); if (en) Object.assign(en, pick(o, FIELDS[k])); else MAP.edits.mods[o._eid] = pick(o, FIELDS[k]); this.unsaved = true; this.updateStatus(); this.roadWarn(o, k); }
+  // placement check (PlacementCheck.js): warn when an edited building / wall / stall ends up on a road (or a building on the
+  // pavement); `roadcheck` in the console lists every such object in the whole map
+  roadWarn(o, k) { const pr = checkObject(o, k); if (pr) toast(`Warning: this ${pr.kind} stands on ${roadName(pr.x, pr.z)} at ${pr.x}, ${pr.z} — type roadcheck in the console for the full list`, 3500); }
   sync(out, k) { const W = this.W; const rs = new Set(out.removed); if (rs.size) W.collision.remove((c) => rs.has(c)); for (const c of out.added) W.collision.add(c); if (k === 't' || k === 'pl') this.forestDirty = true; else for (const c of out.chunks) if (c >= 0) this.dirtyChunks.add(c); this.flushAt = performance.now() + 250; }
   setSel(f, fromPanel = false) { const s = this.sel; if (!s) return; if (s.k === 'prim') return this.setPrim(s.o, f, false, fromPanel); const o = s.o, k = s.k; const before = pick(o, Object.keys(f).concat(FIELDS[k])); const prev = this.snapEntry(o);
     this.sync(setFields(plan, o, f), k); this.record(o); this.undo.push({ t: 'set', o, k, before, prev }); this.updateBox(); if (!fromPanel) this.inspect(); }
@@ -194,7 +198,7 @@ class MapEditor {
     if (pl.k === 'b') { const t = tpl('buildings', (b) => b.style === pl.type && !this.locked({ k: 'b', o: b })); if (!t) return toast('No template'); d = strip(t); const hx = Math.min(12, (t.x1 - t.x0) / 2), hz = Math.min(12, (t.z1 - t.z0) / 2); Object.assign(d, { x0: p.x - hx, x1: p.x + hx, z0: p.z - hz, z1: p.z + hz }); delete d.tower; }
     else if (pl.k === 'w') d = { x0: p.x - 5, x1: p.x + 5, z0: p.z - 0.1, z1: p.z + 0.1, h: 2, col: '#e8e0d0' };
     else { const arr = KINDS[pl.k][0]; const t = tpl(arr, (o) => o.type === pl.type); d = t ? strip(t) : { type: pl.type }; Object.assign(d, { x: p.x, z: p.z }); if (pl.k === 't' || pl.k === 'pl') d.yaw = Math.random() * 6.283; }
-    d.uid = uid; d.k = pl.k; MAP.edits.added.push(d); const { obj, out } = createObj(plan, d); this.sync(out, pl.k); this.undo.push({ t: 'add', o: obj, k: pl.k, d, out }); this.unsaved = true; this.updateStatus(); this.select({ k: pl.k, o: obj });
+    d.uid = uid; d.k = pl.k; MAP.edits.added.push(d); const { obj, out } = createObj(plan, d); this.sync(out, pl.k); this.undo.push({ t: 'add', o: obj, k: pl.k, d, out }); this.unsaved = true; this.updateStatus(); this.select({ k: pl.k, o: obj }); this.roadWarn(obj, pl.k);
   }
   addPrim(d) { if (!MAP.edits.added.includes(d)) MAP.edits.added.push(d); const m = primMesh(d); this.W.editorPrims.add(m); const c = primCollider(d); if (c) this.W.collision.add(c); this.undo.push({ t: 'addPrim', d }); this.unsaved = true; this.updateStatus(); this.select({ k: 'prim', o: d, mesh: m }); }
   setPrim(d, f, noUndo = false, fromPanel = false) {

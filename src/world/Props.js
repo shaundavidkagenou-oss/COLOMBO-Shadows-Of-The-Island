@@ -97,7 +97,7 @@ export function buildPropsForChunk(chunk) {
       list.forEach((p, i) => { const t = stallType(i, salt); if (!byT.has(t)) byT.set(t, []); byT.get(t).push(p); });
       for (const [t, ps] of byT) for (const prt of STALLS[t]) {
         if (!prt.geo) continue; const mesh = new THREE.InstancedMesh(prt.geo, prt.mat, ps.length);
-        ps.forEach((p, i) => { _p.set(p.x, LAND_Y, p.z); _q.setFromEuler(_e.set(0, p.rot || 0, 0)); _m.compose(_p, _q, _s.set(1, 1, 1)); mesh.setMatrixAt(i, _m); if (prt.tint) mesh.setColorAt(i, _c.set(STALL_CANOPY[((p.seed || 0) + t) % STALL_CANOPY.length])); });
+        ps.forEach((p, i) => { _p.set(p.x, LAND_Y, p.z); _q.setFromEuler(_e.set(0, p.rot || 0, 0)); _m.compose(_p, _q, _s.set(1, 1, p.sd || 1)); /* sd: shallower on narrow pavements (CityPlan.placeStalls) */ mesh.setMatrixAt(i, _m); if (prt.tint) mesh.setColorAt(i, _c.set(STALL_CANOPY[((p.seed || 0) + t) % STALL_CANOPY.length])); });
         mesh.castShadow = !prt.noShadow; mesh.receiveShadow = !prt.noShadow; mesh.computeBoundingSphere(); group.add(mesh);
       }
       continue;

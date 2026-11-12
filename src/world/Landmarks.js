@@ -170,8 +170,11 @@ export function buildLandmarks() {
 
   // ------------------------------------------------------------ OLD PARLIAMENT (Presidential Secretariat)
   {
-    const x0 = -468, x1 = -416, z0 = -734, z1 = -674, y0 = LAND_Y + 1.5;
-    box(conc, (x0 + x1) / 2 - 2, LAND_Y + 0.75, (z0 + z1) / 2, x1 - x0 + 10, 1.5, z1 - z0 + 4, '#cdbb92');
+    // the plinth (with the west portico on it) fills the block between the Chaithya Road pavement (x -465.5) and the east
+    // road's pavement (x -413.5), and stops at the north road's pavement (z -732.9): it used to stand 6 m out over Chaithya
+    // Road. Same design and proportions, 46 m instead of 52 m wide.
+    const x0 = -461, x1 = -415, z0 = -730.8, z1 = -674, y0 = LAND_Y + 1.5;
+    box(conc, (x0 + x1) / 2 - 1.5, LAND_Y + 0.75, (z0 + z1) / 2, x1 - x0 + 6, 1.5, z1 - z0 + 4, '#cdbb92');
     facade('colonial', x0, x1, z0, z1, y0, y0 + 16, '#e2cfa2');
     columns(x0 - 3, z0 + 8, x0 - 3, z1 - 8, 12, y0, 13, 0.75, '#e8d8b0');
     box(conc, x0 - 3, y0 + 13.8, (z0 + z1) / 2, 4.5, 1.6, z1 - z0 - 12, '#e2cfa2');
@@ -179,17 +182,20 @@ export function buildLandmarks() {
     columns(x0 + 10, z1 + 3, x1 - 10, z1 + 3, 8, y0, 13, 0.7, '#e8d8b0');
     box(conc, (x0 + x1) / 2, y0 + 13.8, z1 + 3, x1 - x0 - 16, 1.6, 4.5, '#e2cfa2');
     box(conc, (x0 + x1) / 2, y0 + 16.6, (z0 + z1) / 2, x1 - x0 + 1, 1.2, z1 - z0 + 1, '#d6c398');
-    coll(x0 - 5, x1, z0, z1 + 5, 18);
+    coll(x0 - 4.5, x1, z0, z1 + 5, 18);
   }
 
   // ------------------------------------------------------------ GALLE FACE HOTEL
   {
-    const x0 = -465, x1 = -414, z0 = -240, z1 = -205, y0 = LAND_Y; // south wing stops short of the coastal railway curve (track reserve ±7.5 m at z ≈ -190…-196)
+    // south wing stops short of the coastal railway curve (track reserve ±7.5 m at z ≈ -190…-196); the north front stands
+    // behind the Union Place pavement (z -226.5) — it used to sit on the road's centre line, 9 m into the carriageway.
+    // The hip keeps its pitch (rise scaled with the depth) and the seaward colonnade its column spacing.
+    const x0 = -465, x1 = -414, z0 = -226.5, z1 = -205, y0 = LAND_Y, D = z1 - z0;
     facade('colonial', x0, x1, z0, z1, y0, y0 + 15, '#f7f3ea');
-    hip(x0, x1, z0, z1, y0 + 15, 7);
-    columns(x0 - 2.5, z0 + 3, x0 - 2.5, z1 - 3, 14, y0, 4, 0.35, '#ffffff');
+    hip(x0, x1, z0, z1, y0 + 15, 7 * D / 35);
+    columns(x0 - 2.5, z0 + 3, x0 - 2.5, z1 - 3, Math.round((D - 6) / 2.23) + 1, y0, 4, 0.35, '#ffffff');
     box(conc, x0 - 2.5, y0 + 4.3, (z0 + z1) / 2, 4, 0.5, z1 - z0 - 4, '#f2eee4');
-    label([{ text: 'GALLE FACE HOTEL', font: EN(150), color: '#2a3b2e' }], x0 - 0.15, y0 + 12.5, (z0 + z1) / 2, 26, 3.2, -Math.PI / 2, { h: 220, w: 1600 });
+    { const lw = Math.min(26, D - 3); label([{ text: 'GALLE FACE HOTEL', font: EN(150), color: '#2a3b2e' }], x0 - 0.15, y0 + 12.5, (z0 + z1) / 2, lw, 3.2 * lw / 26, -Math.PI / 2, { h: 220, w: 1600 }); }
     label([{ text: 'GALLE FACE HOTEL', font: EN(150), color: '#2a3b2e' }], (x0 + x1) / 2, y0 + 12.5, z0 - 0.15, 26, 3.2, Math.PI, { h: 220, w: 1600 });
     coll(x0 - 4, x1, z0, z1, 22);
   }
@@ -319,8 +325,9 @@ export function buildLandmarks() {
   };
   {
     stupa(-15, -292, 7, LAND_Y); coll(-25, -5, -302, -282, 12);
-    facade('villa', -46, -26, -268, -248, LAND_Y, LAND_Y + 6, '#f7f1e3'); hip(-46, -26, -268, -248, LAND_Y + 6, 4); coll(-46, -26, -268, -248, 10);
-    label([{ text: 'GANGARAMAYA', font: EN(110), color: '#5a2a0a' }], -36, LAND_Y + 5, -268.2, 10, 1.2, Math.PI, { w: 1000, h: 120 });
+    // temple office: 5.5 m north of where it stood, clear of the Union Place pavement (z -253.5)
+    facade('villa', -46, -26, -273.5, -253.5, LAND_Y, LAND_Y + 6, '#f7f1e3'); hip(-46, -26, -273.5, -253.5, LAND_Y + 6, 4); coll(-46, -26, -273.5, -253.5, 10);
+    label([{ text: 'GANGARAMAYA', font: EN(110), color: '#5a2a0a' }], -36, LAND_Y + 5, -273.7, 10, 1.2, Math.PI, { w: 1000, h: 120 });
     // Seema Malaka: three platforms on the lake with blue-roofed pavilions
     const pads = [[-112, -300, 18], [-112, -323, 12], [-135, -300, 12]];
     const deckY = 0.45;
