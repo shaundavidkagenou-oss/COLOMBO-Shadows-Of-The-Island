@@ -115,7 +115,7 @@ export class Squad {
     this.cancelTransition(); this.unlocked = false; this.crumbs = [];
     if (this.active !== 0) this.switchInstant(0);
     for (const m of this.members) { m.hp = 100; m.inv = freshInventory(m.def); m.grenades = 0; m.sel = WEAPONS.findIndex((w) => w.id === m.def.loadout[0]); m.mode = 'follow'; m.hold = null; m.vehicle = null; this.clearCall(m); m.crew = null; m.board = null; m.unboard = null; if (m !== this.members[0] && m.ch && m.ch.root.parent) m.ch.root.parent.remove(m.ch.root); }
-    this.g.weapons.inv = this.members[0].inv; this.g.weapons.sel = this.members[0].sel; this.el.mini.classList.add('hide'); this.el.strip.classList.remove('on');
+    this.g.weapons.inv = this.members[0].inv; this.g.weapons.sel = this.members[0].sel; this.g.weapons.showHolstered?.(); /* the holster shows this kit (Dineth's service pistol), not the last one */ this.el.mini.classList.add('hide'); this.el.strip.classList.remove('on');
   }
   // the outfit / load path rebuilds one member's Character (Game.rebuildPlayer for the active one)
   replaceChar(id, ch) { const m = this.memberById(id); if (m) { m.ch = ch; ch.squadId = id; } if (this.unlocked) this.renderPortraits(); }
@@ -129,7 +129,7 @@ export class Squad {
     for (const m of this.members) { const d = s.members && s.members[m.def.id]; if (!d) continue; m.x = d.x ?? m.x; m.z = d.z ?? m.z; m.yaw = d.yaw ?? 0; m.hp = clamp(d.hp ?? 100, 1, 100); m.grenades = Math.max(0, Math.min(6, d.grenades | 0)); if (Array.isArray(d.inv)) d.inv.forEach((v, i) => { if (m.inv[i]) { m.inv[i].mag = v[0]; m.inv[i].reserve = v[1]; m.inv[i].owned = !!v[2]; } }); if (typeof d.sel === 'number') m.sel = d.sel; m.mode = 'follow'; m.hold = null; this.clearCall(m); m.crew = null; m.board = null; m.unboard = null; } // after a load everybody is back to his own day
     const ai = Math.max(0, SQUAD_IDS.indexOf(s.active)); if (s.unlocked) { this.unlocked = false; this.unlock(false); } else this.unlocked = false;
     if (ai !== this.active) this.switchInstant(ai, true);
-    else { this.g.weapons.inv = this.activeMember.inv; this.g.weapons.sel = this.activeMember.sel; }
+    else { this.g.weapons.inv = this.activeMember.inv; this.g.weapons.sel = this.activeMember.sel; this.g.weapons.showHolstered?.(); }
     this.g.story.state.health = this.activeMember.hp;
     if (!s.unlocked) { this.el.mini.classList.add('hide'); }
   }

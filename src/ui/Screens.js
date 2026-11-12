@@ -102,7 +102,7 @@ export class Screens {
     return new Promise((resolve) => {
       const m = el('div', 'modal', this.root); const panel = el('div', 'panel wide', m, `<h2>${mode === 'save' ? 'Save Game' : 'Load Game'}</h2>`); const list = el('div', 'slots', panel);
       const render = () => { list.innerHTML = ''; for (const slot of SLOTS) { if (mode === 'save' && slot === 'auto') continue; const d = SaveSystem.read(slot); const b = el('button', 'slot', list, `<b>${slot === 'auto' ? 'Autosave' : 'Slot ' + slot}</b><span>${d ? `${d.missionTitle || 'Free roam'} · ${d.timeString || ''} · Rs. ${(d.story?.money ?? 0).toLocaleString('en-LK')}<br><small>${new Date(d.savedAt).toLocaleString()}</small>` : '<small>Empty</small>'}</span>`); if (mode === 'load' && !d) b.disabled = true;
-        b.onclick = () => { Audio.ui('click'); if (mode === 'save') { this.g.saveTo(slot); render(); this.g.hud.notify('Game saved', slot === 'auto' ? '' : 'Slot ' + slot, 'success', 2); } else { m.remove(); resolve(slot); } }; } };
+        b.onclick = () => { Audio.ui('click'); if (mode === 'save') { const ok = this.g.saveTo(slot); render(); if (ok) this.g.hud.notify('Game saved', slot === 'auto' ? '' : 'Slot ' + slot, 'success', 2); else this.g.hud.notify('Save failed', 'Browser storage is full or blocked', 'warn', 3); } else { m.remove(); resolve(slot); } }; } };
       render(); const c = el('button', 'menu-btn', panel, 'Back'); c.onclick = () => { m.remove(); resolve(null); };
     });
   }

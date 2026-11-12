@@ -154,7 +154,7 @@ export class Game {
   }
   // ================================================================= presentation flow
   async boot() {
-    const next = JSON.parse(sessionStorage.getItem('colombo.next') || 'null'); sessionStorage.removeItem('colombo.next');
+    let next = null; try { next = JSON.parse(sessionStorage.getItem('colombo.next') || 'null'); sessionStorage.removeItem('colombo.next'); } catch (e) { next = null; } // a corrupt hand-off (or storage blocked) must not stop the game from booting
     if (next) { // returning from an in-game "load" or "quit to menu": short loading screen, no studio intro
       document.getElementById('gate')?.remove(); // the entry gate is only for a fresh start
       const s = document.createElement('div'); s.className = 'screen quickload'; s.innerHTML = '<div class="gt-main small">COLOMBO</div><div class="load show"><div class="load-bar"><i></i></div><div class="load-text"></div></div>'; this.ui.appendChild(s);
@@ -301,7 +301,7 @@ export class Game {
     const P = this.player; let pos = { x: P.x, z: P.z, yaw: P.yaw };
     if (this.interiors.current) { const d = this.interiors.current.door; pos = { x: d.x, z: d.z, yaw: d.faceIn + Math.PI }; } else if (P.vehicle) { const e = P.vehicle.exitPoint(-1); pos = { x: e.x, z: e.z, yaw: P.vehicle.yaw }; }
     const m = MISSIONS.find((q) => q.id === this.story.state.mission.id); if (this.garage) this.garage.snapshot(); // owned vehicles where they stand now (Street Customs)
-    SaveSystem.write(slot, { minds: this.crowd.minds.save(), story: this.story.serialize(), atmos: this.atmos.serialize(), player: pos, weapons: this.weapons.save(), squad: this.squad.save(), police: this.police.save(), clock: this.clock, missionTitle: m ? m.title : 'Free roam', timeString: `Day ${this.atmos.day} · ${this.atmos.timeString}` });
+    return SaveSystem.write(slot, { minds: this.crowd.minds.save(), story: this.story.serialize(), atmos: this.atmos.serialize(), player: pos, weapons: this.weapons.save(), squad: this.squad.save(), police: this.police.save(), clock: this.clock, missionTitle: m ? m.title : 'Free roam', timeString: `Day ${this.atmos.day} · ${this.atmos.timeString}` });
   }
   async restUntil(hour) {
     const P = this.player; P.control = false; await this.hud.fade(1, 0.8); let dh = hour - this.atmos.hour; if (dh < 0) dh += 24; this.atmos.advance(dh * 60);

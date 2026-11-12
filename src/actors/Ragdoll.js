@@ -253,6 +253,9 @@ export class Ragdoll {
     // the skinned bones are rebuilt from the torso frames at rest length, so mid-blend they can sit a little off the particles:
     // if a limb bone of the drawn body ends up in the ground, the whole pose rises by that much for this frame
     if (this.col) { const pen = this.bonePen(); if (pen > 0.005) { for (let i = 0; i < this.p.length; i++) { this.p[i].y += pen; this.o[i].copy(this.p[i]); } this.apply(0); } }
+    // the same off a wall: a drawn limb bone inside a solid (a foot past its ankle particle beside a garden wall) moves the
+    // whole pose out sideways by that much for this frame (stateless: it follows the penetration, so it eases in and out)
+    if (this.col && this.col.sweepSolid) { const w = this.boneWall(); if (w) { for (let i = 0; i < this.p.length; i++) { this.p[i].x += w.x; this.p[i].z += w.z; this.o[i].copy(this.p[i]); } this.apply(0); } }
     if (k >= 1 && !K.hold) { this.kin = null; this.sleepT = 0; this.asleep = false; if (K.done) K.done(); }
     else if (k >= 1 && K.done) { const d = K.done; K.done = null; d(); }
   }
@@ -260,6 +263,16 @@ export class Ragdoll {
     const b = this.ch.bones; this.ch.root.updateMatrixWorld(true); let pen = 0;
     for (const n of PEN_BONES) { const o = b[n]; if (!o) continue; _a.setFromMatrixPosition(o.matrixWorld); let g = this.col.groundAt(_a.x, _a.z, _a.y - 0.3, 0.6, true); if (g < -0.5) { const wf = waterFloor(_a.x, _a.z); if (wf !== null && wf > g) g = wf; } pen = Math.max(pen, g + 0.01 - _a.y); }
     return Math.min(pen, 0.35);
+  }
+  boneWall() {
+    const b = this.ch.bones; this.ch.root.updateMatrixWorld(true); let bx = 0, bz = 0, bd = 0;
+    for (let it = 0; it < 2; it++) { let mx = 0, mz = 0, md = 0;
+      const P = this.p[I.pelvis]; const px = P.x + bx, pz = P.z + bz; // measured from the pelvis out to each bone: a bone past a thin wall's middle goes back out the body's side, not the far one
+      for (const n of PEN_BONES) { const o = b[n]; if (!o) continue; _a.setFromMatrixPosition(o.matrixWorld); const x = _a.x + bx, z = _a.z + bz, L = Math.hypot(x - px, z - pz); if (L < 1e-4) continue;
+        const t = this.col.sweepSolid(px, pz, x, z, _a.y - 0.05, 0.3, 0.3); if (t >= 1) continue; const H = this.col.sweepHit; let dx, dz; /* straight out of the face it entered (outward normal points back at the pelvis), 5 cm clear */
+        if (H.axis === 0) { dx = H.face + H.nx * 0.05 - x; dz = 0; } else if (H.axis === 1) { dx = 0; dz = H.face + H.nz * 0.05 - z; } else { const k = Math.max(0, t - 0.05 / L); dx = px + (x - px) * k - x; dz = pz + (z - pz) * k - z; } /* a coping face: back along the line */ if (dx * (H.nx || 0) + dz * (H.nz || 0) < 0) continue; const d = Math.hypot(dx, dz); if (d > md) { md = d; mx = dx; mz = dz; } }
+      if (md < 0.003) break; bx += mx; bz += mz; bd = Math.hypot(bx, bz); }
+    if (bd < 0.003) return null; const k = bd > 0.25 ? 0.25 / bd : 1; return { x: bx * k, z: bz * k };
   }
   // blend from the current pose to a target pose given in world space (array or function returning one)
   blendTo(target, dur, done, opts) { const from = this.snapshot(); this.play((k, out) => { const T = typeof target === 'function' ? target() : target; for (let i = 0; i < out.length; i++) out[i].lerpVectors(from[i], T[i], k); }, dur, done, opts); }
@@ -297,11 +310,35 @@ export function supineFrame(rag) {
   const S = Keys.supine(rag.rest); const sp = S[I.pelvis]; const c = Math.cos(yaw), s = Math.sin(yaw);
   return { x: P.x - (sp.x * c + sp.z * s), z: P.z - (-sp.x * s + sp.z * c), yaw };
 }
+// slide a get-up frame (supineFrame) off any wall the key poses would put a limb into: lying alongside a garden wall, sitting
+// up / crouching / standing threw the legs or an arm into it (only one chain at a time is turned off a wall by untangle). The
+// whole frame moves out by the deepest joint's push-out (a person shuffles away from the wall as they get up); fr is changed in place.
+export function clearFrame(fr, rag, col, names = ['supine', 'sit', 'crouch', 'stand']) {
+  if (!col || !col.resolveCircle) return fr; const keys = names.map((n) => Keys[n](rag.rest)); const out = RAG_N.map(() => new THREE.Vector3());
+  for (let it = 0; it < 4; it++) { let bx = 0, bz = 0, bd = 0;
+    for (const k of keys) { Keys.toWorld(k, fr.x, fr.z, fr.yaw, col, out); for (let i = 0; i < out.length; i++) { const q = out[i], r = RAD[i] * rag.s + 0.01; const h = col.resolveCircle(q.x, q.z, r, q.y - r, 0.3, 0.3); if (!h.hit) continue; const dx = h.x - q.x, dz = h.z - q.z, d = Math.hypot(dx, dz); if (d > bd) { bd = d; bx = dx; bz = dz; } } }
+    if (bd < 0.005) break; fr.x += bx * 1.05; fr.z += bz * 1.05; }
+  return fr;
+}
 // signed roll angle (about the body's long axis) that turns the body face up
 export function rollAngle(rag) {
   const P = rag.p; const X = _a.copy(P[I.hipL]).sub(P[I.hipR]).add(_d.copy(P[I.shL]).sub(P[I.shR])), Y = _b.copy(P[I.chest]).sub(P[I.pelvis]);
   const F = _c.crossVectors(X, Y).normalize(); const ax = Y.clone().setY(0).normalize(); if (ax.lengthSq() < 0.5) return 0;
   const Fp = F.clone().addScaledVector(ax, -F.dot(ax)).normalize(); const up = new THREE.Vector3(0, 1, 0); let a = Math.acos(Math.max(-1, Math.min(1, Fp.dot(up)))); if (new THREE.Vector3().crossVectors(Fp, up).dot(ax) < 0) a = -a; return a;
+}
+// a roll onto the back (rotateAbout over k 0..1) next to a wall swings the limbs on the wall side into it: the sideways
+// offset that keeps every joint of the sampled roll path out of solids, applied in full from a third of the way in
+// (a person rolling over beside a wall pushes off it). Returns a Vector3 (y = 0); the caller adds off * rollShift(k).
+export const rollShift = (k) => { const u = Math.min(1, k * 3); return u * u * (3 - 2 * u); };
+export function rollClear(rag, src, origin, axis, ang, col) {
+  const off = new THREE.Vector3(); if (!col || !col.resolveCircle) return off; const out = src.map(() => new THREE.Vector3());
+  for (let it = 0; it < 4; it++) { let bx = 0, bz = 0, bd = 0;
+    for (const k of [0.15, 0.3, 0.45, 0.6, 0.75, 0.9, 1]) { const w = rollShift(k); rotateAbout(src, origin, axis, ang * k, out);
+      for (let i = 0; i < out.length; i++) { const q = out[i], r = RAD[i] * rag.s + 0.01, x = q.x + off.x * w, z = q.z + off.z * w; const h = col.resolveCircle(x, z, r, q.y - r, 0.3, 0.3); if (!h.hit) continue;
+        const dx = (h.x - x) / w, dz = (h.z - z) / w, d = Math.hypot(dx, dz); if (d > bd) { bd = d; bx = dx; bz = dz; } } }
+    if (bd < 0.005) break; off.x += bx * 1.05; off.z += bz * 1.05; }
+  if (off.length() > 0.6) off.setLength(0.6); // never a slide across a yard (a body wedged in a gap keeps the old behaviour)
+  return off;
 }
 export function rotateAbout(src, origin, axis, ang, out) { _q.setFromAxisAngle(axis, ang); for (let i = 0; i < src.length; i++) out[i].copy(src[i]).sub(origin).applyQuaternion(_q).add(origin); return out; }
 

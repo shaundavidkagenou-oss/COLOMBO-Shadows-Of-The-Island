@@ -372,7 +372,7 @@ class Station {
     const site = this.site; const cands = [];
     for (const v of T.vehicles) { const ai = v.ai; if (!ai || ai.fuel || v.free || ai.rejoin || ai.chase || ai.emergency || (ai.route && ai.route.length && v.fuelFor !== this) || ai.goal || ai.stopped || v.keep || v.police || v.towing || v.towedBy || v.isTrain || v.hold || v.dead) continue;
       if (!v.T || !ELIGIBLE.has(v.T.entry) || NO_FUEL.has(v.type) || v.T.len > 5.4) continue;
-      if ((v.speed || 0) < 1 || (ai.stuck || 0) > 1 || (ai.pieces[0] && ai.pieces[0].type === 'path')) continue; // passing traffic only: not a car standing in a queue, or one still on a forecourt / parking path (one just leaving here) if (Math.abs(ai.lat || 0) > 0.15 || Math.abs(ai.hdg || 0) > 0.04) continue;
+      if ((v.speed || 0) < 1 || (ai.stuck || 0) > 1 || (ai.pieces[0] && ai.pieces[0].type === 'path')) continue; /* passing traffic only: not a car standing in a queue, or one still on a forecourt / parking path (one just leaving here) */ if (Math.abs(ai.lat || 0) > 0.15 || Math.abs(ai.hdg || 0) > 0.04) continue; // nor one mid lane-change
       let k = -1; for (let i = 0; i < Math.min(3, ai.pieces.length); i++) if (this.isOurLine(ai.pieces[i])) { k = i; break; } if (k < 0) continue;
       const [u] = site.toLocal(v.x, v.z); if (k === 0 && u > this.uLatest(v) - 2.5) continue; const d = Math.hypot(v.x - site.O[0], v.z - site.O[1]); if (d > 95) continue;
       cands.push(v); }
@@ -476,7 +476,7 @@ class Station {
     if (v.free && f.phase !== 'approach' && f.phase !== 'out') { this.leave(f, 'knocked'); return; }
     // a car knocked out of its bay (or wedged on the way out) drives off from where it actually is: a fresh exit path from its
     // pose to the merge, clear of kerbs / islands / pylons; one still stuck after that is left for traffic to recycle out of view
-    if (f.phase === 'out' && !v.free) { const atYield = !f.go && ai.pieces[0] === f.exit && ai.s > f.yieldS - 3; const still = (v.speed || 0) < 0.2 && !atYield; // (waiting for a gap at the give-way is not stuck) f.stuckT = still ? (f.stuckT || 0) + dt : 0;
+    if (f.phase === 'out' && !v.free) { const atYield = !f.go && ai.pieces[0] === f.exit && ai.s > f.yieldS - 3; const still = (v.speed || 0) < 0.2 && !atYield; /* waiting for a gap at the give-way is not stuck */ f.stuckT = still ? (f.stuckT || 0) + dt : 0;
       if ((f.why === 'knocked' && !f.replans) || (f.stuckT > 6 && (f.replans || 0) < 4)) { f.replans = (f.replans || 0) + 1; f.stuckT = 0; this.replanOut(f); }
       else if (f.stuckT > 40) { this.endVisit(f); return; } }
     switch (f.phase) {

@@ -741,7 +741,10 @@ function buildBaseModel(type, color, variant, opts = {}) {
   const wins = openings.map((o) => { const [a, b] = winZ(o); return { side: o.side, i0: secI(a), i1: secI(b) }; });
   const wTop = (z, y1) => (D.winTop && z < D.gh[2][0] - 0.01 ? Math.min(y1, D.winTop) : y1);
   const glassSecs = ghSecs.map(([z, y0, y1]) => [z, y0, wTop(z, y1), gw0 - 0.01, D.winTop ? lerp(gw0, gw1, (wTop(z, y1) - y0) / Math.max(0.01, y1 - y0)) : gw1, 0.05]);
-  loft(glass, glassSecs, C('#fff'), { noBottom: true, skip: (i, k) => wins.some((w) => i >= w.i0 && i < w.i1 && (w.side < 0 ? k >= 7 : k >= 1 && k <= 3)) });
+  // the narrow bay between two door windows on one side is the B-pillar: painted beam + both door frames, no fixed glass
+  // left under it (a 3 cm strip of it stood inside the rear door's front frame on the saloons)
+  const bBay = (i, sx) => wins.some((w) => w.side === sx && w.i1 === i && wins.some((w2) => w2 !== w && w2.side === sx && w2.i0 === i + 1));
+  loft(glass, glassSecs, C('#fff'), { noBottom: true, skip: (i, k) => wins.some((w) => (w.side < 0 ? k >= 7 : k >= 1 && k <= 3) && ((i >= w.i0 && i < w.i1) || bBay(i, w.side))) });
   const winGlass = (o) => { const w = wins[openings.indexOf(o)]; return glassSecs.slice(w.i0, w.i1 + 1).map(loftRing); }; // −x orientation (+x doors are mirrored copies)
   // roof panel + pillars (A, B, C) + belt trim
   const gh = D.gh; const roofF = gh[2], roofR = gh[gh.length - 2];

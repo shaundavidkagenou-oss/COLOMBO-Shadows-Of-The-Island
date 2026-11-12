@@ -8,7 +8,7 @@ import { Character, randomSpec } from './Character.js';
 import { MOVES as FIGHT_MOVES } from './Boxing.js';
 import { StreetLife } from './StreetLife.js';
 import { separate } from './Bodies.js';
-import { Keys, supineFrame, rollAngle, rotateAbout } from './Ragdoll.js';
+import { Keys, supineFrame, clearFrame, rollAngle, rotateAbout, rollClear, rollShift } from './Ragdoll.js';
 import { PRESETS, lookKey, profileActivity } from './Appearance.js';
 import { offView, holdThisFrame } from '../gfx/ViewSkip.js';
 import { MindSystem, responseWeights, pickWeighted, reactDelay, feel, bond, EI, TI } from './Mind.js';
@@ -560,8 +560,8 @@ export class Crowd {
       // collision every frame near the camera; farther away whenever the person has moved 0.1 m
       p.mv = (p.mv || 0) + sp * dt; // distance since the last collision pass: far people are resolved every 0.1 m walked, so they can never tunnel into a trunk or wall
       if (p.bumped > 0) p.bumped -= dt;
-      if ((sp > 0.02 && (lod === 1 || p.mv > 0.1)) || (p.state === 'down' && lod < 3) || (p.bumped > 0 && !p.sit) || p.state === 'fight') { p.mv = 0; // nudged by the player / squared up in a fight: checked even when standing still // a body lying still is checked too (a car can nudge it without giving it speed)
-        const r = this.collision.resolveCircle(p.x, p.z, p.state === 'fight' ? 0.44 : 0.28, p.y || 0.15, 0.3); if (r.hit) { /* a fighting stance is wide (rear foot ~0.4 m back): more room off walls */ const cx = r.x - p.x, cz = r.z - p.z, cl = Math.hypot(cx, cz); if (cl > 1e-4) { const vn = (p.vx * cx + p.vz * cz) / cl; if (vn < 0) { p.vx -= cx / cl * vn; p.vz -= cz / cl * vn; }
+      if ((sp > 0.02 && (lod === 1 || p.mv > 0.1)) || (p.state === 'down' && lod < 3) || (p.bumped > 0 && !p.sit) || p.state === 'fight' || p.state === 'stumble') { p.mv = 0; // nudged by the player / squared up in a fight: checked even when standing still // a body lying still is checked too (a car can nudge it without giving it speed)
+        const r = this.collision.resolveCircle(p.x, p.z, p.state === 'fight' || p.state === 'stumble' ? 0.44 : 0.28, p.y || 0.15, 0.3); if (r.hit) { /* a fighting stance is wide (rear foot ~0.4 m back), and so is a stagger step back after a blow: more room off walls */ const cx = r.x - p.x, cz = r.z - p.z, cl = Math.hypot(cx, cz); if (cl > 1e-4) { const vn = (p.vx * cx + p.vz * cz) / cl; if (vn < 0) { p.vx -= cx / cl * vn; p.vz -= cz / cl * vn; }
           // running away into a wall: turn along it (a person would), instead of pressing on with arms and feet in the wall
           const fd = p.fleeDir; if (fd && (p.state === 'flee' || p.state === 'recover')) { const nx = cx / cl, nz = cz / cl, dn = fd[0] * nx + fd[1] * nz; if (dn < 0.2) { let tx = -nz, tz = nx; if (tx * (fd[0] + p.vx * 0.2) + tz * (fd[1] + p.vz * 0.2) < 0) { tx = -tx; tz = -tz; } const ux = tx + nx * 0.35, uz = tz + nz * 0.35, ul = Math.hypot(ux, uz); p.fleeDir = [ux / ul, uz / ul]; } } } } p.x = r.x; p.z = r.z; }
       if (lod < 3 && p.state !== 'down') { // bodies are solid: never pass through another person
@@ -709,12 +709,12 @@ export class Crowd {
     if (K.ph || K.t < K.lim + K.lie || (!r.asleep && K.t < K.lim + K.lie + 3)) return;
     const col = this.collision; K.ph = 'roll'; p.ch.face.set('concern', 8);
     const live = () => p.ch.rag === r && p.koRag === K && !p.dead && !p.awaitMedic;
-    const getUp = () => { if (!live()) return; const fr = supineFrame(r); const key = (n) => Keys.toWorld(Keys[n](r.rest), fr.x, fr.z, fr.yaw, col);
+    const getUp = () => { if (!live()) return; const fr = clearFrame(supineFrame(r), r, col); const key = (n) => Keys.toWorld(Keys[n](r.rest), fr.x, fr.z, fr.yaw, col);
       const stand = () => { if (!live()) return; const zA = Keys.standZ(r.rest); r.release(); const x = fr.x + Math.sin(fr.yaw) * zA, z = fr.z + Math.cos(fr.yaw) * zA; const q = col.resolveCircle(x, z, 0.3, (p.y || 0) + 0.3, 0.3);
         p.x = q.x; p.z = q.z; p.y = col.groundAt(p.x, p.z, (p.y || 0) + 0.5); p.yaw = fr.yaw; p.ch.root.position.set(p.x, p.y, p.z); p.ch.root.rotation.set(0, p.yaw, 0); p.ch.mesh.rotation.set(0, 0, 0); p.ch.mesh.position.set(0, 0, 0);
         p.koRag = null; p.noPool = false; p.timer = 0; p.downT = 0; p.hits = 0; p.ch.anim.set('stumble'); p.ch.face.set('fear', 3); };
       K.ph = 'up'; r.blendTo(key('supine'), 0.7, () => { if (live()) r.blendTo(key('sit'), 1.25, () => { if (live()) r.blendTo(key('crouch'), 1.0, () => { if (live()) r.blendTo(key('stand'), 0.85, stand, { hold: true }); }, { hold: true }); }, { hold: true }); }, { hold: true }); };
-    const ang = rollAngle(r); if (Math.abs(ang) > 1.2) { const snap = r.snapshot(); const P0 = r.pelvis().clone(); P0.y = col.groundAt(P0.x, P0.z, P0.y) + 0.15; const ax = r.part('chest').clone().sub(r.pelvis()).setY(0).normalize(); r.play((k, out) => rotateAbout(snap, P0, ax, ang * k, out), 1.2, getUp, { hold: true }); }
+    const ang = rollAngle(r); if (Math.abs(ang) > 1.2) { const snap = r.snapshot(); const P0 = r.pelvis().clone(); P0.y = col.groundAt(P0.x, P0.z, P0.y) + 0.15; const ax = r.part('chest').clone().sub(r.pelvis()).setY(0).normalize(); const off = rollClear(r, snap, P0, ax, ang, col); r.play((k, out) => { rotateAbout(snap, P0, ax, ang * k, out); const w = rollShift(k); for (const q of out) { q.x += off.x * w; q.z += off.z * w; } return out; }, 1.2, getUp, { hold: true }); }
     else getUp();
   }
   // who squares up: men only, not seniors; likelier for the young and hot-tempered (≈20–70 %)

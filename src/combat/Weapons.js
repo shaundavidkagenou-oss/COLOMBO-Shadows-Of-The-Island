@@ -40,7 +40,7 @@ function aimPose(def, ud) {
 export class Weapons {
   constructor(game) {
     this.g = game; this.P = game.player; this.inv = WEAPONS.map((d) => ({ mag: d.mag, reserve: d.reserve, owned: true }));
-    this.models = WEAPONS.map((d) => buildWeaponModel(d)); for (const m of this.models) { m.updateMatrixWorld(true); m.userData.buttZ = new THREE.Box3().setFromObject(m).min.z; } // rear end of the stock (grip-origin space) this.cur = -1; this.sel = 0; this.state = 'none'; this.t = 0; this.next = -1;
+    this.models = WEAPONS.map((d) => buildWeaponModel(d)); for (const m of this.models) { m.updateMatrixWorld(true); m.userData.buttZ = new THREE.Box3().setFromObject(m).min.z; } /* rear end of the stock (grip-origin space) */ this.cur = -1; this.sel = 0; this.state = 'none'; this.t = 0; this.next = -1;
     this.aimW = 0; this.bloom = 0; this.cool = 0; this.recoil = 0; this.recoilYaw = 0; this.quickAim = 0; this.scoped = false; this.breath = 1; this.heat = 0; this.heatT = 0; this.shotAlarm = 0; this.threatT = 0;
     this.wheelOpen = false; this.wheelSel = -1; this.wheelX = 0; this.wheelY = 0; this.cycleT = -1; this.reloadMagOut = false;
     // spring-damper weapon dynamics (body space): position/rotation offsets driven by recoil impulses, look sway, gait bob,
