@@ -1077,7 +1077,7 @@ function recolorMeta(o, col) { if (Array.isArray(o)) { if (o.length === 3 && o.e
 export function shapeCacheSize() { return shapeCache.size; }
 export function modelCached(type, seed = 1) { const T = VTYPES[type]; if (!T) return true; const r = new RNG(seed); const color = r.pick(T.colors); const variant = r.int(0, 3); return modelCache.has(type + color + variant) || shapeCache.has(type + '|' + variant); }
 // ---- doors baked into the body while shut (DoorRig.js brings a moving door out onto its pivot)
-function doorStripes(T, type) { const hy = T.base === 'suv' ? 0.78 : 0.66; return T.police ? [[hy + 0.035, 0.07, C('#1b3f94')], [hy - 0.0875, 0.025, C('#1b3f94')]] : T.ambulance ? [[0.71, 0.12, C(AMB_GREEN)], [0.57, 0.025, C(AMB_GREEN)]] : type === 'taxi' ? [[0.62, 0.08, C('#111'), 0.009]] : null; } // police bands / taxi stripe continue across the doors
+function doorStripes(T, type) { const hy = T.base === 'suv' ? 0.78 : 0.66; return T.police ? [[hy + 0.035, 0.07, C('#1b3f94')], [hy - 0.0875, 0.025, C('#1b3f94')]] : T.ambulance ? [[0.71, 0.12, C(AMB_GREEN), 0.006], [0.57, 0.025, C(AMB_GREEN), 0.006]] /* 6 mm off the skin like the body's bands (AmbulanceKit) */ : type === 'taxi' ? [[0.62, 0.08, C('#111'), 0.009]] : null; } // police bands / taxi stripe continue across the doors
 // concatenate indexed geometries (position / normal / uv / colour), each with an optional matrix (a mirroring matrix flips the winding)
 function concatGeos(parts) {
   let nv = 0, ni = 0; for (const p of parts) { nv += p.geo.attributes.position.count; ni += p.geo.index.count; }

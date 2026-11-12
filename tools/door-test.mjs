@@ -22,6 +22,16 @@ const { realAsset } = await import('../src/vehicles/RealModels.js');
 // triangles a mesh actually draws (geometry groups when the body is a view that skips live doors)
 function* tris(m) { const I = m.geometry.index, P = m.geometry.attributes.position; const n = I ? I.count : P.count; const gr = m.geometry.groups.length || Array.isArray(m.material) ? m.geometry.groups : [{ start: 0, count: n }]; /* a body view with every one of its ranges live draws nothing (multi-material, no groups) */
   for (const q of gr) for (let t = q.start; t < q.start + q.count; t += 3) yield I ? [I.getX(t), I.getX(t + 1), I.getX(t + 2)] : [t, t + 1, t + 2]; }
+// outermost (mx-mapped, negative = outboard) surface x of a paint mesh at heights y ± 5 mm, among the points nearest a door's
+// shut line on one side of it (sgn +1: z beyond zEdge in direction dir; −1: inside the door), within 8 cm, nearest 1 cm kept
+function envAt(mesh, M, yb, zEdge, dir, gap, win = 0.01) { const P = mesh.geometry.attributes.position, pa = new THREE.Vector3(), pb = new THREE.Vector3(), pc = new THREE.Vector3(); const cand = [];
+  const side = mesh.userData.__side; const take = (x, z) => { const d = (z - zEdge) * dir; if (d >= gap - 0.001 && d < 0.08) cand.push([Math.max(0, d), MX(x)]); };
+  for (const [ia, ib, ic] of tris(mesh)) { pa.fromBufferAttribute(P, ia); pb.fromBufferAttribute(P, ib); pc.fromBufferAttribute(P, ic); if (M) { pa.applyMatrix4(M); pb.applyMatrix4(M); pc.applyMatrix4(M); }
+    for (const yc of [yb - 0.005, yb, yb + 0.005]) for (const [p, q] of [[pa, pb], [pb, pc], [pc, pa]]) {
+      if (Math.abs(p.y - yc) < 0.0025) take(p.x, p.z);
+      if ((p.y - yc) * (q.y - yc) > 0 || p.y === q.y) continue; const t = (yc - p.y) / (q.y - p.y); take(p.x + (q.x - p.x) * t, p.z + (q.z - p.z) * t); } }
+  if (!cand.length) return 0; const e0 = Math.min(...cand.map((c) => c[0])); if (process.env.DBG2) console.log('env', mesh.name, yb.toFixed(3), zEdge.toFixed(3), dir, JSON.stringify(cand.filter((c) => c[0] < e0 + 0.02).map((c) => [+c[0].toFixed(4), +c[1].toFixed(4)]).slice(0, 30))); let x = 0; for (const c of cand) if (c[0] < e0 + win) x = Math.min(x, c[1]); return x; }
+let MX = (x) => x;
 function visVerts(m) { const s = new Set(); for (const t of tris(m)) for (const i of t) s.add(i); return s; }
 const kinds = {}; let nDoors = 0;
 let fails = 0, checks = 0; const bad = [];
@@ -39,7 +49,7 @@ for (const type of Object.keys(VTYPES).filter((t) => !process.env.TYPES || proce
     d0.ang = 0; d0.vel = 0; poseDoor(d0); syncDoors(ud); ok(!d0.live && P0.geometry === ud.bake.shared.paint, `${type}#${seed}: shut door not folded back into the body`); }
   allDoorsLive(ud, true); g.updateMatrixWorld(true);
   for (const door of ud.doors) { nDoors++; kinds[door.role + (door.side > 0 ? '+' : '-')] = (kinds[door.role + (door.side > 0 ? '+' : '-')] || 0) + 1;
-  const pv = door.pivot; const W = VTYPES[type].wid / 2; const s = door.side, mx = (x) => (s < 0 ? x : -x), tag = `${type}#${seed} ${door.role}${s > 0 ? '+' : '-'}`;
+  const pv = door.pivot; const W = VTYPES[type].wid / 2; const s = door.side, mx = (x) => (s < 0 ? x : -x); MX = mx; const _u = 0, tag = `${type}#${seed} ${door.role}${s > 0 ? '+' : '-'}`;
   const allPivots = ud.doors.map((d) => d.pivot);
   // closed door volume = bounds of the door's painted shell (model space)
   const box = new THREE.Box3(); for (const m of pv.children) if (m.material && m.geometry && (m.geometry.attributes.position)) { const gb = m.geometry.clone(); gb.applyMatrix4(m.matrixWorld); gb.computeBoundingBox(); if (m.name !== 'glass' && gb.boundingBox.max.y < 1.3) box.union(gb.boundingBox); else if (door.cab && m.name === 'paint') { const P = gb.attributes.position; for (let i = 0; i < P.count; i++) if (P.getY(i) < 1.85) box.expandByPoint(v3.fromBufferAttribute(P, i)); } } // lorry cab door: the panel below the belt (its window frame rises to the roof)
@@ -73,7 +83,13 @@ for (const type of Object.keys(VTYPES).filter((t) => !process.env.TYPES || proce
     if (!door.cab) { const all = skin.slice(); skin.length = 0; for (const p of all) { const o = Math.min(...all.filter((q) => Math.abs(q[0] - p[0]) < 0.03).map((q) => q[1])); if (p[1] <= o + 0.03) skin.push(p); } }
     let xd = 0; { const lo = skin.filter((p) => p[0] <= yb).sort((p, q) => q[0] - p[0] || p[1] - q[1])[0], hi = skin.filter((p) => p[0] >= yb).sort((p, q) => p[0] - q[0] || p[1] - q[1])[0];
       const outer = (yv) => Math.min(...skin.filter((p) => Math.abs(p[0] - yv) < 1e-4).map((p) => p[1]));
-      if (door.cab && skin.length) { const e = Math.min(...skin.map((p) => p[2])); xd = Math.min(...skin.filter((p) => p[2] < e + 0.002).map((p) => p[1])); } /* cab door: flat vertical panel per z — its outermost skin point at the edge */ else if (lo && hi) { const xl = outer(lo[0]), xh = outer(hi[0]); xd = hi[0] - lo[0] > 1e-4 ? xl + (xh - xl) * (yb - lo[0]) / (hi[0] - lo[0]) : Math.min(xl, xh); } }
+      if (door.cab && skin.length) { const e = Math.min(...skin.map((p) => p[2])); xd = Math.min(...skin.filter((p) => p[2] < e + 0.002).map((p) => p[1])); } /* cab door: flat vertical panel per z — its outermost skin point at the edge */ else if (lo && hi) { /* the door's outer envelope at y = yb: its paint triangles cut by that plane, within the edge band (a raised
+         stripe over the skin used to be interpolated against the skin vertices under it: taxi 9.3 mm reported, 0 real) */
+        const xl = outer(lo[0]), xh = outer(hi[0]); const xi = hi[0] - lo[0] > 1e-4 ? xl + (xh - xl) * (yb - lo[0]) / (hi[0] - lo[0]) : Math.min(xl, xh);
+        /* body and door compared the SAME way: each one's outer envelope cut at y = yb ± 5 mm, right at the shut line (a raised
+           stripe over the skin, or a nose / tumblehome that is wider a few cm back, used to read as a 6-9 mm step: 0 real) */
+        const eb = envAt(bodyPaint, null, yb, zEdge, dir, 0.002, 0.03) /* 3 cm: past the jamb return to the skin */, ed = envAt(paintM, paintM.matrixWorld, yb, zEdge, -dir, 0);
+        if (eb < 0 && ed < 0) { xb = eb; xd = ed; } else xd = xi; } }
     if (xb < 0 && xd < 0) { worst = Math.max(worst, Math.abs(xb - xd)); n2++; if (process.env.DBG && Math.abs(xb - xd) > 0.006) console.log(tag, 'yy', yy, 'yb', yb.toFixed(3), 'edge', zEdge.toFixed(3), dir, 'body', xb.toFixed(3), 'door', xd.toFixed(3)); } } }
   ok(n2 >= ((door.rects || []).length > 1 ? 1 : 2) && worst < 0.006, `${tag}: door skin not flush with the body (step ${(worst * 1000).toFixed(1)} mm, samples ${n2})`); }
   // 3. swing clearance: no door point pushes forward into the wing (ahead of the opening, inboard of the body side)
