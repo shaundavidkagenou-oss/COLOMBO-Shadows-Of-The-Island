@@ -86,6 +86,7 @@ export const WEATHER = {
   storm:    { cloud: 1.0, dark: 0.95, rain: 1.0, fog: 0.45, wind: 1.6 },
 };
 
+const _warmSky = new THREE.Color(0.98, 0.9, 0.78);
 export class Atmosphere {
   constructor(scene, renderer) {
     this.scene = scene; this.renderer = renderer;
@@ -265,7 +266,7 @@ export class Atmosphere {
       c[0] = this.sun.color.r * this.sun.intensity; c[1] = this.sun.color.g * this.sun.intensity; c[2] = this.sun.color.b * this.sun.intensity; }
     const skyTop = new THREE.Color().setRGB(0.28, 0.48, 0.82).lerp(new THREE.Color(0.32, 0.36, 0.42), this.w.dark).lerp(new THREE.Color(0.02, 0.04, 0.1), this.night);
     const horizon = new THREE.Color().setRGB(0.75, 0.82, 0.88).lerp(new THREE.Color(1.0, 0.62, 0.38), golden * (1 - this.night) * (1 - this.w.dark)).lerp(new THREE.Color(0.5, 0.52, 0.55), this.w.dark * 0.7).lerp(new THREE.Color(0.06, 0.08, 0.14), this.night);
-    this.hemi.color.copy(skyTop).lerp(new THREE.Color(1, 1, 1), 0.35); this.hemi.groundColor.setRGB(0.42, 0.36, 0.3).lerp(new THREE.Color(0.15, 0.115, 0.09), this.night); /* night bounce: warm street light off the roads */
+    this.hemi.color.copy(skyTop).lerp(new THREE.Color(1, 1, 1), 0.35).lerp(_warmSky, 0.22 * (1 - this.night) * (1 - this.w.dark)); /* daytime shade also gets light bounced off sunlit streets and facades, not only blue sky: shaded walls (Fort's north faces) read blue-grey otherwise. Light only — the grade / exposure are untouched */ this.hemi.groundColor.setRGB(0.42, 0.36, 0.3).lerp(new THREE.Color(0.15, 0.115, 0.09), this.night); /* night bounce: warm street light off the roads */
     this.hemi.intensity = lerp(0.55, 0.42, golden) * (1 + this.w.cloud * 0.5) * (1 - this.night * 0.55) + 0.12 + this.night * 0.17;
     this.ambient.intensity = this.night * 0.85; this.ambient.color.setRGB(0.34, 0.37, 0.55);
     // fog
