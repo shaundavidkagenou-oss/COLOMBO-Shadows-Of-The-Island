@@ -555,7 +555,7 @@ function shopAtlas(cw = 256) {
       a.fillStyle = '#333'; a.fillRect(ix + iw / 2 - 8, iy + ih - 10, 16, 6);
       if (rng.chance(0.6)) { a.fillStyle = rng.pick(['#d9d2b2', '#dcdad4', '#d8b23a']); a.fillRect(ix + rng.range(10, iw - 60), iy + rng.range(20, ih - 50), 44, 30); a.fillStyle = '#222'; a.font = 'bold 9px "Barlow Condensed", sans-serif'; a.fillText('TO LET', ix + 30, iy + 60); }
     } else if (row === 2) { // electronics / phones — bright glass
-      const [ix, iy, iw, ih] = inner(); const g = a.createLinearGradient(0, iy, 0, iy + ih); g.addColorStop(0, '#8a959b'); g.addColorStop(1, '#55636c'); // shop glass by day: the (darker) shop seen through it, not a white panel a.fillStyle = g; a.fillRect(ix, iy, iw, ih);
+      const [ix, iy, iw, ih] = inner(); const g = a.createLinearGradient(0, iy, 0, iy + ih); g.addColorStop(0, '#8a959b'); g.addColorStop(1, '#55636c'); a.fillStyle = g; a.fillRect(ix, iy, iw, ih); // shop glass by day: the (darker) shop seen through it, not a white panel
       e.fillStyle = '#c4d2e2'; e.fillRect(ix, iy, iw, ih);
       for (let k = 0; k < 10; k++) { a.fillStyle = rng.pick(['#111', '#333', '#2a2a2a']); a.fillRect(ix + 8 + (k % 5) * iw / 5, iy + ih * 0.3 + Math.floor(k / 5) * ih * 0.25, iw / 6, ih * 0.16); e.fillStyle = rng.pick(['#4af', '#f4a', '#fd4', '#5f8']); e.fillRect(ix + 10 + (k % 5) * iw / 5, iy + ih * 0.31 + Math.floor(k / 5) * ih * 0.25, iw / 6 - 4, ih * 0.13); }
       a.fillStyle = 'rgba(255,255,255,0.14)'; a.beginPath(); a.moveTo(ix, iy); a.lineTo(ix + iw * 0.3, iy); a.lineTo(ix, iy + ih * 0.6); a.fill();
