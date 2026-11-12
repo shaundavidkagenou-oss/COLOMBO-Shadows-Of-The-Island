@@ -115,6 +115,12 @@ function contactAO(mb, s, y0) {
 const FAC_VARIANTS = { office: ['office', 'office2', 'office3'], apartment: ['apartment', 'apartment2'], shop2: ['shop2', 'shop3'], shop: ['shop', 'shop', 'shop3'], glass: ['glass', 'glass3'], glass2: ['glass2', 'office3'] };
 export function facKey(style, b, salt = 0) { const v = FAC_VARIANTS[style]; if (!v) return style;
   const h = (Math.imul(Math.round(b.x0 * 10) + salt * 977, 73856093) ^ Math.imul(Math.round(b.z0 * 10), 19349663)) >>> 0; return v[h % v.length]; }
+// Stage 1 colour: sun-bleached / lichen-dulled Calicut tiles and aged sheet roofs (vertex tint over the shared texture —
+// no new texture or material). Cool tints pull the terracotta / rust toward grey; the Port's sheds get the least rust.
+const TILE_TONES = [[0.86, 0.84, 0.82], [0.8, 0.8, 0.8], [0.9, 0.86, 0.82], [0.76, 0.77, 0.78], [0.84, 0.83, 0.84]];
+const SHEET_TONES = [[0.92, 0.93, 0.94], [0.86, 0.87, 0.88], [0.95, 0.94, 0.92], [0.82, 0.84, 0.86]];
+const SHEET_TONES_PORT = [[0.84, 0.9, 0.95], [0.8, 0.86, 0.9], [0.88, 0.92, 0.95]];
+function roofTone(b, T) { return T[((b.id || 0) * 7 + 3) % T.length]; }
 export function buildBase(b, multi) {
   const paint = col(b.color || '#ffffff');
   const fac = multi.get('f_' + facKey(b.style, b));
@@ -131,8 +137,8 @@ export function buildBase(b, multi) {
   }
   // roof
   const roofCol = [0.78, 0.76, 0.72];
-  if (b.roof === 'tile') hipRoof(multi.get('roofTiles'), b.x0, b.x1, b.z0, b.z1, yTop, Math.min(b.x1 - b.x0, b.z1 - b.z0) * 0.32, 0.7, [1, 1, 1]);
-  else if (b.roof === 'corrugated') { gableRoof(multi.get('corrugated'), b.x0 - 0.3, b.x1 + 0.3, b.z0 - 0.3, b.z1 + 0.3, yTop, b.style === 'warehouse' ? 2.5 : 1.0, [1, 1, 1], (b.x1 - b.x0) >= (b.z1 - b.z0)); }
+  if (b.roof === 'tile') hipRoof(multi.get('roofTiles'), b.x0, b.x1, b.z0, b.z1, yTop, Math.min(b.x1 - b.x0, b.z1 - b.z0) * 0.32, 0.7, roofTone(b, TILE_TONES));
+  else if (b.roof === 'corrugated') { gableRoof(multi.get('corrugated'), b.x0 - 0.3, b.x1 + 0.3, b.z0 - 0.3, b.z1 + 0.3, yTop, b.style === 'warehouse' ? 2.5 : 1.0, roofTone(b, b.district === 'port' ? SHEET_TONES_PORT : SHEET_TONES), (b.x1 - b.x0) >= (b.z1 - b.z0)); }
   else multi.get('roofFlat').hrect(b.x0, b.z0, b.x1, b.z1, yTop, 6, roofCol);
   // tower on podium
   if (b.tower) {
@@ -160,8 +166,9 @@ export function buildBase(b, multi) {
   }
 }
 
-const AWNING = ['#2f6fa8', '#d9682a', '#3f8f4a', '#b8322f', '#e3b23c', '#5b5b9a', '#1f8a8a', '#c0c0c0', '#7a3f2a'];
-const TANK = ['#1b1b1b', '#1d3f7a', '#222222', '#e8e8e2', '#2a2a2a'];
+// sun-faded canvas / PVC awnings and water tanks (black and dull-blue polyethylene, the odd grey-white one) — same counts
+const AWNING = ['#4a6a86', '#b06a44', '#4d7652', '#94463f', '#c0a05a', '#5e5e7e', '#3e7474', '#a9aaa6', '#6e4a3a'];
+const TANK = ['#1e1e1e', '#2c4560', '#262626', '#c9c9c2', '#2d2d2d'];
 function signUV(idx) {
   const n = SIGN_COLS * SIGN_ROWS; idx = ((idx % n) + n) % n;
   const c = idx % SIGN_COLS, r = Math.floor(idx / SIGN_COLS);

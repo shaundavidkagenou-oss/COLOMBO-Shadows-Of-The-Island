@@ -317,7 +317,7 @@ export class MindSystem {
   }
   startChat(a, b) {
     const q = { type: 'chat', x: (a.x + b.x) / 2, z: (a.z + b.z) / 2, used: 2, temp: true }; const dur = 8 + this.rng.next() * 16; this.stats.chats++;
-    for (const [p, o] of [[a, b], [b, a]]) { p.routine = { state: 'walk', target: p.target, node: p.node, nextNode: p.nextNode, edge: p.edge, poi: null, x: p.x, z: p.z, timer: 0, via: p.via, toKerb: p.toKerb, route: p.route, goalPoi: p.goalPoi, crossing: p.crossing }; /* the walk resumes afterwards (no re-plan) */ p.state = 'idle'; p.poi = q; p.timer = dur + this.rng.next() * 3; p.lookAt = { x: o.x, z: o.z }; p.chatWith = o; p.speaking = p === a; p.chatT = 1.5 + this.rng.next() * 2; p.ch.anim.set(p === a ? 'talk' : 'listen'); p.ch.face.talking = p === a; p.act = null; p.vx *= 0.3; p.vz *= 0.3; }
+    for (const [p, o] of [[a, b], [b, a]]) { if (p.phone) { p.phone.parent?.remove(p.phone); p.phone = null; } /* hang up to chat: a ped already posed this frame would otherwise keep the phone at the ear for a frame */ p.routine = { state: 'walk', target: p.target, node: p.node, nextNode: p.nextNode, edge: p.edge, poi: null, x: p.x, z: p.z, timer: 0, via: p.via, toKerb: p.toKerb, route: p.route, goalPoi: p.goalPoi, crossing: p.crossing }; /* the walk resumes afterwards (no re-plan) */ p.state = 'idle'; p.poi = q; p.timer = dur + this.rng.next() * 3; p.lookAt = { x: o.x, z: o.z }; p.chatWith = o; p.speaking = p === a; p.chatT = 1.5 + this.rng.next() * 2; p.ch.anim.set(p === a ? 'talk' : 'listen'); p.ch.face.talking = p === a; p.act = null; p.vx *= 0.3; p.vz *= 0.3; }
   }
   // one turn of a conversation ended (Crowd's chat code): laughter, an argument, gossip about what they saw, friendship
   chatTurn(p) {

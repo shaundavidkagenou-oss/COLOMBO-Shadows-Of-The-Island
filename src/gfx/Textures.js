@@ -523,8 +523,8 @@ function facadeWarehouse(W, H, seed) {
   a.fillStyle = '#d8d8d4'; a.fillRect(0, 0, W, H);
   for (let x = 0; x < W; x += 8) { const g = a.createLinearGradient(x, 0, x + 8, 0); g.addColorStop(0, '#f0f0ec'); g.addColorStop(0.5, '#b8b8b2'); g.addColorStop(1, '#f0f0ec'); a.fillStyle = g; a.fillRect(x, 0, 8, H); }
   r.fillStyle = 'rgb(255,120,160)'; r.fillRect(0, 0, W, H);
-  grime(a, W, H, { scale: 6, amount: 0.3, seed, color: [140, 80, 40], bias: -0.1 }); // rust
-  stains(a, W, H, rng, 30, 'rgba(110,60,30,A)');
+  grime(a, W, H, { scale: 6, amount: 0.18, seed, color: [128, 92, 66], bias: -0.1 }); // restrained rust: maintained port sheds, not derelict
+  stains(a, W, H, rng, 30, 'rgba(96,70,50,A)'); // same draw count (same RNG use), browner-grey run-off instead of orange
   return f;
 }
 
@@ -721,6 +721,7 @@ function signAtlas(cw = 512) {
     // illuminated signs glow at night: lightboxes and acrylic always, painted boards about half the time
     if (style === 1 || style === 4 || k % 3 !== 2) { e.save(); e.globalAlpha = style === 1 ? 0.95 : 0.85; e.drawImage(A, x, y, cw, ch, x, y, cw, ch); e.restore(); }
   }
+  fadeCanvas(A, 0.85, [190, 182, 166], 0.05); // daylight face only: night illumination (E) unchanged
   return { map: toTex(A, { repeat: false }), emissive: toTex(E, { repeat: false }) };
 }
 function grimeRect(a, x, y, w, h, rng) { for (let k = 0; k < 6; k++) { a.fillStyle = `rgba(40,30,20,${rng.range(0.05, 0.18)})`; a.fillRect(x + rng.next() * w, y + rng.next() * h * 0.3, rng.range(3, 10), h * rng.range(0.2, 0.8)); } }
@@ -961,6 +962,23 @@ function facadeNormal(k, f) {
   const rd = rx.getImageData(0, 0, w, h).data, flat = new Float32Array(w * h); for (let i = 0; i < flat.length; i++) flat[i] = rd[i * 4 + 1] < 90 ? 0 : 1;
   return heightToNormal(hc, { strength, flat });
 }
+// Stage 1 colour (36th): the rendered facades were painted near-white (#f2efe8…#f6f3ec) so the per-building paint could
+// tint them — at full brightness that multiplies out to a chalk-white, plastic-looking wall. Settle the render to a real
+// aged cement / lime-plaster value with a slight warm-grey cast. Glass (rm green < 90) is left exactly as painted.
+const PLASTER_BASE = { f_shop: 0.9, f_shop2: 0.9, f_shop3: 0.92, f_apartment: 0.9, f_apartment2: 0.92, f_villa: 0.92, f_hotel: 0.93, f_office: 0.94, f_office2: 0.94, f_colonial: 0.92 };
+function weatherPlaster(f, k) {
+  const w = f.albedo.width, h = f.albedo.height, a = f.albedo.getContext('2d'), img = a.getImageData(0, 0, w, h), d = img.data;
+  const rx = document.createElement('canvas'); rx.width = w; rx.height = h; const rc = rx.getContext('2d'); rc.drawImage(f.rm, 0, 0, w, h); const rd = rc.getImageData(0, 0, w, h).data;
+  for (let i = 0; i < d.length; i += 4) { if (rd[i + 1] < 90) continue; d[i] = d[i] * k; d[i + 1] = d[i + 1] * (k - 0.012); d[i + 2] = d[i + 2] * (k - 0.035); }
+  a.putImageData(img, 0, 0);
+}
+// faded shop signs: sun-bleached paint / vinyl (slightly desaturated, a touch of dust) — the lettering is untouched in shape
+function fadeCanvas(c, sat = 0.82, dust = [196, 188, 172], dk = 0.06) {
+  const x = c.getContext('2d'), img = x.getImageData(0, 0, c.width, c.height), d = img.data;
+  for (let i = 0; i < d.length; i += 4) { const l = 0.3 * d[i] + 0.59 * d[i + 1] + 0.11 * d[i + 2];
+    for (let j = 0; j < 3; j++) d[i + j] = (l + (d[i + j] - l) * sat) * (1 - dk) + dust[j] * dk; }
+  x.putImageData(img, 0, 0);
+}
 export async function buildTextures(quality = 'high', progress = () => {}) {
   const hi = quality === 'high' || quality === 'ultra';
   const FW = hi ? 1024 : 512, FH = FW / 2, S = hi ? 1024 : 512;
@@ -992,7 +1010,7 @@ export async function buildTextures(quality = 'high', progress = () => {}) {
   }
   // facade wrappers → textures
   for (const k of Object.keys(TEX)) if (k.startsWith('f_') && TEX[k].albedo) {
-    const f = TEX[k]; TEX[k] = { map: toTex(f.albedo), emissive: toTex(f.emis), rm: toTex(f.rm, { srgb: false }), normal: facadeNormal(k, f) }; FACADE_WINDOWS[k] = f.windows;
+    const f = TEX[k]; if (PLASTER_BASE[k]) weatherPlaster(f, PLASTER_BASE[k]); TEX[k] = { map: toTex(f.albedo), emissive: toTex(f.emis), rm: toTex(f.rm, { srgb: false }), normal: facadeNormal(k, f) }; FACADE_WINDOWS[k] = f.windows;
   }
   progress(1, 'textures ready');
   return TEX;

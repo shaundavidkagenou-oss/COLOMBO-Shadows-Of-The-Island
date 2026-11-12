@@ -14,14 +14,42 @@ export function chunkIndex(x, z) { const [cx, cz] = chunkCoord(x, z); if (cx < 0
 export function chunkCenter(idx) { const cx = idx % NCX, cz = Math.floor(idx / NCX); return [L.BOUNDS.minX + (cx + 0.5) * CHUNK, L.BOUNDS.minZ + (cz + 0.5) * CHUNK]; }
 
 export const FLOOR_H = 3.3, GROUND_H = 4.2;
+// Stage 1 colour (36th): weathered-but-maintained paint. Colombo render is limewashed / emulsion-painted and fades fast in
+// the sun and monsoon, so nothing is bright white and no pastel is candy-saturated. Same array lengths as before → the
+// plan RNG sequence (and so every building / prop position) is unchanged; only the colour that comes out differs.
 const PAINTS = {
-  market: ['#f3e3b5', '#cfe3d8', '#f2c6b4', '#bcd4e6', '#f6f0e2', '#e8d07a', '#d7e8b0', '#f0b8c0', '#c4c8f0', '#ffffff', '#e6c79c', '#9ed2c6'],
-  dense: ['#efe6d2', '#d9e4dc', '#f0d6c4', '#d0dce8', '#f4f1ea', '#e3d6a8', '#cfdcc0', '#ead0d4', '#ffffff', '#d8cfc4'],
-  fort: ['#f2ead8', '#efe2c4', '#e9dcc0', '#f6f2e8', '#e6d6b4'],
-  villa: ['#ffffff', '#f7f3ea', '#f3efe6', '#efe8d6', '#f6efe0', '#e9f0ea'],
-  residential: ['#f4efe2', '#e6efe8', '#f2e2d2', '#e2e8f0', '#f8f6f0', '#efe2b8', '#dcead0'],
-  modern: ['#ffffff', '#f0f0f0', '#e8e6e0', '#dfe6ea'],
+  market: ['#dccfae', '#bfcfc2', '#d8bcab', '#b5c4cf', '#ddd6c6', '#cfbc86', '#c4cfa9', '#d2b2b3', '#b8bbd0', '#dedad0', '#cfb898', '#a9c3bb'],
+  dense: ['#dbd2bf', '#c7d0c8', '#dac7b7', '#c2cbd3', '#dedad0', '#cfc49f', '#c1cbb3', '#d4c3c3', '#e0dcd2', '#c9c0b4'],
+  fort: ['#e2d6ba', '#dccca8', '#d6c7a5', '#e4dccb', '#d3c19c'],
+  villa: ['#e4e0d6', '#e1dccf', '#ddd8cc', '#d9d0bc', '#e0d7c4', '#d6ddd6'],
+  residential: ['#dfd9ca', '#cfd8d1', '#dccbbb', '#ccd2da', '#e2dfd6', '#d8cba5', '#c9d6be'],
+  modern: ['#e0dfdb', '#d8d8d6', '#d4d1c9', '#cdd3d6'],
 };
+// district character (deterministic by building id — no RNG draw): Fort buff / cream colonial stucco, Pettah a jumble of
+// faded commercial paints, Wellawatte grey cement-rendered walk-ups, the Port grey / blue-grey industrial sheds
+const DISTRICT_PAINT = {
+  fort: ['#dcc8a0', '#d6c194', '#e0d0b0', '#cdb68a', '#d8c6a0', '#cbb894'],
+  pettah: ['#d6c39b', '#b7c7ba', '#d2b29f', '#b3c0c9', '#d9d1bf', '#c9b482', '#bfc9a5', '#ceaeab', '#b6b6cb', '#dcd6c9', '#c9b090', '#a6c0b7', '#cdbfa8', '#c4b8a0'],
+  wellawatte: ['#c4c1b9', '#cdc9bf', '#b9b8b2', '#d2cdc2', '#c6c4bc', '#d6d0c3', '#bfc2be', '#cbc3b4', '#c9ccc9', '#d3cbbb'],
+  port: ['#c4c3bd', '#b4bbbe', '#c9c0ae', '#a9b2b6', '#bdbfba', '#b9b2a4'],
+};
+const _ph = (n) => { let h = (n * 2654435761) >>> 0; h ^= h >>> 15; h = Math.imul(h, 2246822519) >>> 0; h ^= h >>> 13; return (h >>> 0) / 4294967296; };
+// Weather a paint: pull 15 % toward its own grey, cap the brightest channel (no #ffffff anywhere), ±4 % per-building tone.
+export function weatherPaint(hex, seed) {
+  const n = parseInt(String(hex).replace('#', '').padEnd(6, 'f').slice(0, 6), 16); let r = (n >> 16 & 255) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255;
+  const l = 0.3 * r + 0.59 * g + 0.11 * b; r = l + (r - l) * 0.85; g = l + (g - l) * 0.85; b = l + (b - l) * 0.85;
+  const m = Math.max(r, g, b), k = Math.min(1, 0.885 / m) * (0.96 + _ph(seed) * 0.08), warm = (_ph(seed + 7) - 0.5) * 0.02;
+  const to = (v) => Math.round(Math.max(0, Math.min(0.9, v)) * 255).toString(16).padStart(2, '0');
+  return '#' + to(r * k + warm) + to(g * k) + to(b * k - warm);
+}
+function paintFor(b) {
+  const id = b.id || 0, dp = DISTRICT_PAINT[b.district];
+  // brick (Fort) keeps its own fired-clay colour; office / hotel / glass blocks keep their designed neutral
+  let c = b.color || '#e0dfdb';
+  if (dp && b.style !== 'brick' && !/^(office|hotel|glass)/.test(b.style)) c = dp[Math.floor(_ph(id * 3 + 1) * dp.length)];
+  b.color = weatherPaint(c, id);
+  if (b.tower) b.tower.color = weatherPaint(b.tower.color || '#e0dfdb', id + 5000);
+}
 export const plan = {
   buildings: [], props: [], trees: [], plants: [], colliders: [], parking: [], busStops: [], poi: [], walls: [], vendors: [],
   byChunk: [], // { buildings:[], props:[], trees:[], poi:[] }
@@ -57,7 +85,7 @@ function clearJunctions(b) {
 }
 function addBuilding(b) {
   clearJunctions(b);
-  b.id = bid++; b.h = b.floors * FLOOR_H + (b.groundRow != null ? GROUND_H - FLOOR_H : 0);
+  b.id = bid++; paintFor(b); b.h = b.floors * FLOOR_H + (b.groundRow != null ? GROUND_H - FLOOR_H : 0);
   if (b.tower) b.totalH = b.h + b.tower.floors * FLOOR_H; else b.totalH = b.h;
   plan.buildings.push(b); addToChunk('buildings', b, (b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2);
   plan.colliders.push({ x0: b.x0, x1: b.x1, z0: b.z0, z1: b.z1, h: b.totalH, kind: 'building', b });

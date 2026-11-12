@@ -176,6 +176,19 @@ const FRAG_BODY = /* glsl */`
 #endif
 `;
 
+// Stage 1 colour (36th): the per-building paint is a vertex colour that multiplied the WHOLE facade map — a pink house had
+// pink-tinted glass and frames. Glazing is marked in every facade's rm map (green < 90), so the paint is only applied to the
+// wall: one extra texture fetch of a map the material already binds, no new uniforms / textures / draw calls.
+const GLASS_PAINT_MASK = /* glsl */`
+#if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
+#ifdef USE_ROUGHNESSMAP
+  { float glassK = 1.0 - smoothstep(0.3, 0.38, texture2D(roughnessMap, vRoughnessMapUv).g);
+    diffuseColor *= vec4(mix(vColor.rgb, vec3(1.0), glassK), vColor.a); }
+#else
+  diffuseColor *= vColor;
+#endif
+#endif
+`;
 export function applyInteriorMapping(mat, { office = false } = {}) {
   if (office) mat.defines = { ...(mat.defines || {}), INT_OFFICE: '' }; // office towers: floor-section lighting, cool tubes, uniform blinds
   mat.onBeforeCompile = (sh) => {
@@ -185,9 +198,10 @@ export function applyInteriorMapping(mat, { office = false } = {}) {
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + VERT_DECL)
       .replace('#include <project_vertex>', '#include <project_vertex>\n' + VERT_BODY);
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + FRAG_DECL)
-      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + FRAG_BODY);
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + FRAG_BODY)
+      .replace('#include <color_fragment>', GLASS_PAINT_MASK);
   };
-  mat.customProgramCacheKey = () => 'interior-v9' + (office ? '-office' : '');
+  mat.customProgramCacheKey = () => 'interior-v10' + (office ? '-office' : '');
   return mat;
 }
 
