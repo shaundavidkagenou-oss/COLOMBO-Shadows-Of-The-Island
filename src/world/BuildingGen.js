@@ -352,7 +352,8 @@ export function buildDetail(b, multi) {
   }
 }
 export function buildWall(w, multi) {
-  const c = col(w.col); const conc = multi.get('concrete');
+  const hv = Math.sin((w.x0 * 12.9898 + w.z0 * 78.233)) * 43758.5453, k = 0.94 + 0.08 * (hv - Math.floor(hv)); // each run of wall repainted at a different time
+  const c = col(w.col).map((v) => v * k); const conc = multi.get('concrete');
   conc.box((w.x0 + w.x1) / 2, LAND_Y + w.h / 2, (w.z0 + w.z1) / 2, w.x1 - w.x0, w.h, w.z1 - w.z0, { col: c, uvScale: 2 });
   conc.box((w.x0 + w.x1) / 2, LAND_Y + w.h + 0.05, (w.z0 + w.z1) / 2, w.x1 - w.x0 + 0.08, 0.1, w.z1 - w.z0 + 0.12, { col: c.map((v) => v * 0.85), uvScale: 2 });
 }

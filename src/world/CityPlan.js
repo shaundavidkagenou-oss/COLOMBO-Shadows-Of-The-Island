@@ -102,7 +102,7 @@ function onRailReserve(x, z) { if (L.distToRail(x, z) < 7.5 || (L.distToRail(x, 
 const inSchool = (x, z) => x > 247 && x < 341 && z > 328.5 && z < 388; // Johns school compound builds its own grounds
 function addTree(type, x, z, s = 1, extra = {}) { if (L.isWater(x, z) || L.roadAt(x, z) || onRailReserve(x, z) || inSchool(x, z)) return; const t = { type, x, z, s, ...extra }; plan.trees.push(t); addToChunk('trees', t, x, z); t.col = { x0: x - 0.35 * s, x1: x + 0.35 * s, z0: z - 0.35 * s, z1: z + 0.35 * s, h: 6, kind: 'tree' }; plan.colliders.push(t.col); }
 function addPOI(type, x, z, rot, extra = {}) { const p = { type, x, z, rot, used: 0, ...extra }; plan.poi.push(p); addToChunk('poi', p, x, z); return p; }
-function addWall(x0, x1, z0, z1, h, col = '#ece6d8') { if (inSchool((x0 + x1) / 2, (z0 + z1) / 2)) return; const w = { x0, x1, z0, z1, h, col }; plan.walls.push(w); addToChunk('walls', w, (x0 + x1) / 2, (z0 + z1) / 2); plan.colliders.push({ x0, x1, z0, z1, h, kind: 'wall' }); }
+function addWall(x0, x1, z0, z1, h, col = '#d6cfc0') { if (inSchool((x0 + x1) / 2, (z0 + z1) / 2)) return; const w = { x0, x1, z0, z1, h, col }; plan.walls.push(w); addToChunk('walls', w, (x0 + x1) / 2, (z0 + z1) / 2); plan.colliders.push({ x0, x1, z0, z1, h, kind: 'wall' }); }
 
 // ---------------------------------------------------------------- market stalls
 // Pettah pavement stalls stand against their shop's frontage (under its awning), on the pavement and never in the carriageway.
@@ -266,7 +266,7 @@ function genVilla(rng, cell, residential = false) {
   const sideList = [];
   if (cell.T) sideList.push('N'); if (cell.B) sideList.push('S');
   const depth = Math.min(residential ? 22 : 34, D / (cell.T && cell.B ? 2 : 1));
-  const wallCol = rng.pick(['#ece6d8', '#f2efe6', '#e2d8c4', '#d8d0c0']);
+  const wallCol = rng.pick(['#d6cfc0', '#dcd8cd', '#d2c7b1', '#c9c1b2']); // weathered lime-wash / cement render (36th Stage 4: was near-white)
   for (const side of sideList) {
     let t = 0, lastB = null; // lastB: x of the previous plot's east side wall (shared boundary → one wall, not two)
     while (t < W - 8) {

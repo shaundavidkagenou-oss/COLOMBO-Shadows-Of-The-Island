@@ -1,4 +1,5 @@
 // Shared materials. Time of day (night factor) and rain (wetness) drive emissive and roughness.
+import { applyWeathering } from './Weathering.js';
 import * as THREE from 'three';
 import { TEX } from './Textures.js';
 import { barkTextures } from './RealTextures.js';
@@ -31,7 +32,10 @@ function roadSpotSpec(m) {
 // (Textures.js heightToNormal). They share the albedo's UVs (and so its tiling / world-space mapping), so every road, wall and
 // roof keeps its look and gains depth that reacts to the sun, moon, street lamps and headlights. NORMAL_SCALE is the one place
 // the relief is tuned per surface; the geometry needs no tangents (three derives the frame from the UV derivatives).
-export const NORMAL_SCALE = { road: 1.15, walk: 1.2, kerb: 1, concrete: 1, sand: 1.6, roofTiles: 1.15, roofFlat: 1, corrugated: 1, facade: 1.25 };
+// 36th Stage 3: the building relief read as embossed plastic at street level (every render bump and moulding lit like a
+// relief map). Only the strengths change — same baked maps: facades 1.25 → 0.8, roof tiles 1.15 → 0.85, flat roofs 1 → 0.75,
+// corrugated sheet 1 → 0.8, building concrete (trims, boundary walls, plinths) 1 → 0.8. Ground surfaces keep theirs.
+export const NORMAL_SCALE = { road: 1.15, walk: 1.2, kerb: 1, concrete: 0.8, sand: 1.6, roofTiles: 0.85, roofFlat: 0.75, corrugated: 0.8, facade: 0.8 };
 export function withNormal(m, tex, s) { if (!m || !tex) return m; m.normalMap = tex; m.normalScale = new THREE.Vector2(s, s); m.needsUpdate = true; return m; }
 export function buildMaterials() {
   const std = (o) => new THREE.MeshStandardMaterial(o);
@@ -43,7 +47,7 @@ export function buildMaterials() {
   MAT.walk = std({ map: TEX.pavers, roughness: 0.9, color: 0xffffff });
   MAT.walkGrey = std({ map: TEX.paversGrey, roughness: 0.9 });
   MAT.kerb = std({ map: TEX.concrete, roughness: 0.85, vertexColors: true });
-  MAT.concrete = std({ map: TEX.concrete, roughness: 0.9, vertexColors: true });
+  MAT.concrete = applyWeathering(std({ map: TEX.concrete, roughness: 0.9, vertexColors: true }), 'wall'); // compound walls, plinths, trims: faded patches, rising damp (36th Stage 4)
   withNormal(MAT.road, TEX.n_asphalt, NORMAL_SCALE.road); withNormal(MAT.roadTint, TEX.n_asphalt, NORMAL_SCALE.road);
   withNormal(MAT.walk, TEX.n_pavers, NORMAL_SCALE.walk); withNormal(MAT.walkGrey, TEX.n_paversGrey, NORMAL_SCALE.walk);
   withNormal(MAT.kerb, TEX.n_concrete, NORMAL_SCALE.kerb); withNormal(MAT.concrete, TEX.n_concrete, NORMAL_SCALE.concrete);
@@ -83,9 +87,9 @@ export function buildMaterials() {
           diffuseColor.rgb = mix(diffuseColor.rgb, col, shut); totalEmissiveRadiance *= 1.0 - shut; } }`); };
   MAT.shops.customProgramCacheKey = () => 'shops-shutter-v3';
   MAT.signs = std({ map: TEX.signs.map, emissiveMap: TEX.signs.emissive, emissive: 0xffffff, emissiveIntensity: 0.05, roughness: 0.6, side: THREE.DoubleSide });
-  MAT.roofTiles = withNormal(std({ map: TEX.roofTiles, roughness: 0.85, vertexColors: true }), TEX.n_roofTiles, NORMAL_SCALE.roofTiles);
-  MAT.roofFlat = withNormal(std({ map: TEX.roofConcrete, roughness: 0.95, vertexColors: true }), TEX.n_roofConcrete, NORMAL_SCALE.roofFlat);
-  MAT.corrugated = withNormal(std({ map: TEX.corrugated, roughness: 0.6, metalness: 0.4, vertexColors: true, side: THREE.DoubleSide }), TEX.n_corrugated, NORMAL_SCALE.corrugated);
+  MAT.roofTiles = applyWeathering(withNormal(std({ map: TEX.roofTiles, roughness: 0.85, vertexColors: true }), TEX.n_roofTiles, NORMAL_SCALE.roofTiles), 'roof'); // lichen / soot blotches across a roof (36th Stage 4)
+  MAT.roofFlat = applyWeathering(withNormal(std({ map: TEX.roofConcrete, roughness: 0.95, vertexColors: true }), TEX.n_roofConcrete, NORMAL_SCALE.roofFlat), 'roof');
+  MAT.corrugated = withNormal(std({ map: TEX.corrugated, roughness: 0.6, metalness: 0.4, vertexColors: true, side: THREE.DoubleSide }), TEX.n_corrugated, NORMAL_SCALE.corrugated); applyWeathering(MAT.corrugated, 'roof');
   MAT.paint = std({ roughness: 0.75, vertexColors: true });       // generic vertex-coloured props
   MAT.paintDS = std({ roughness: 0.8, vertexColors: true, side: THREE.DoubleSide });
   MAT.metal = std({ roughness: 0.45, metalness: 0.85, vertexColors: true });
