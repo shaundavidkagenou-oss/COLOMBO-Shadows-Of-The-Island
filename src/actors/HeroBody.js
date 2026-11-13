@@ -87,6 +87,9 @@ export function buildHeroGarments(sb, sp, ctx) {
   // ---- one garment shell
   let shellTop = yTop; // level top edge of the shell being built (the coat's is its own neck line)
   let foldMax = 1; // coats: a shallow turned-under hem (a deep one would cut through the layers under it)
+  // the level top cut is a NECK line: only cloth round the neck is above it (shoulder tips on some builds sit higher and must stay)
+  const NE = NK.collarAt(cutY); const nearNeck = (u) => Math.hypot(P[u * 3] / NE.rx, (P[u * 3 + 2] - NE.cz) / NE.rz);
+  const aboveTop = (Q, u, d) => Q[u * 3 + 1] > shellTop + d && nearNeck(u) < 1.4;
   const shell = (has, ease, id, col, hemFor, post, clY = 0) => {
     const inG = new Uint8Array(NU); for (let u = 0; u < NU; u++) inG[u] = has(u, 0.013) ? 1 : 0;
     const tris = []; for (let t = 0; t < S.idx.length; t += 3) { const a = S.idx[t], b = S.idx[t + 1], c = S.idx[t + 2]; if (inG[a] && inG[b] && inG[c]) tris.push(a, b, c); }
@@ -110,7 +113,9 @@ export function buildHeroGarments(sb, sp, ctx) {
     const map = new Int32Array(NU).fill(-1);
     for (let u = 0; u < NU; u++) { if (!used[u]) continue; const sid = id === CLOTH.SHIRT && armW[u] >= 0.5 ? CLOTH.SLEEVE : id; sb.clv = [sid, clY];
       map[u] = sb.v([Q[u * 3], Q[u * 3 + 1], Q[u * 3 + 2]], [QN[u * 3], QN[u * 3 + 1], QN[u * 3 + 2]], col, uv0, W[u]); }
-    for (let t = 0; t < tris.length; t += 3) { const a = map[tris[t]], b = map[tris[t + 1]], c = map[tris[t + 2]]; if (Q[tris[t] * 3 + 1] > shellTop + 0.004 && Q[tris[t + 1] * 3 + 1] > shellTop + 0.004 && Q[tris[t + 2] * 3 + 1] > shellTop + 0.004) continue; sb.idx.push(a, b, c); }
+    const i0 = sb.idx.length, kept = [];
+    for (let t = 0; t < tris.length; t += 3) { const a = map[tris[t]], b = map[tris[t + 1]], c = map[tris[t + 2]]; if (aboveTop(Q, tris[t], 0.004) && aboveTop(Q, tris[t + 1], 0.004) && aboveTop(Q, tris[t + 2], 0.004)) continue; sb.idx.push(a, b, c); kept.push(tris[t], tris[t + 1], tris[t + 2]); }
+    const i1 = sb.idx.length;
     // turned-under hems: every open edge folds back towards the body by the local ease (+3 mm), slightly darker
     const hc = col.map((v) => v * 0.78);
     for (let i = 0; i < bEdges.length; i += 2) { const a = bEdges[i], b = bEdges[i + 1]; if (Q[a * 3 + 1] > shellTop - 0.002 && Q[b * 3 + 1] > shellTop - 0.002) continue;
@@ -118,7 +123,7 @@ export function buildHeroGarments(sb, sp, ctx) {
       sb.clv = [0, 0]; const oa = sb.v([Q[a * 3], Q[a * 3 + 1], Q[a * 3 + 2]], [0, -1, 0], hc, uv0, W[a]), ob = sb.v([Q[b * 3], Q[b * 3 + 1], Q[b * 3 + 2]], [0, -1, 0], hc, uv0, W[b]);
       sb.idx.push(ob, oa, ia[0], ob, ia[0], ib[0]); }
     sb.clv = [0, 0];
-    return { Q, used, map, E };
+    return { Q, used, map, E, i0, i1, kept };
   };
   // ---- trousers (first: the tucked shirt sits inside the waistband)
   const tr = shell(trouserHas, trouserEase, CLOTH.TROUSERS, bottom, (u) => (y(u) < 0.5 * s ? hemY : y(u) > 0.9 * s ? waistY : null), (Q, used) => {
@@ -179,8 +184,7 @@ export function buildHeroGarments(sb, sp, ctx) {
   if (CO) {
     const offOf = (G, u) => (G && G.used[u] ? (G.Q[u * 3] - P[u * 3]) * N[u * 3] + (G.Q[u * 3 + 1] - P[u * 3 + 1]) * N[u * 3 + 1] + (G.Q[u * 3 + 2] - P[u * 3 + 2]) * N[u * 3 + 2] : 0);
     const under = (u) => Math.max(offOf(sh, u), offOf(tr, u), offOf(vc, u), 0.006);
-    const NE = NK.collarAt(cutY); const nearNeck = (u) => Math.hypot(P[u * 3] / NE.rx, (P[u * 3 + 2] - NE.cz) / NE.rz); // the level top cut is only for the neck: the shoulder tops (above it on some builds) stay covered
-    const coatHas = (u, tol) => (armW[u] >= 0.5 ? handW[u] < 0.5 && y(u) >= sleeveC - tol : (legW[u] < 0.6 || y(u) >= 0.9 * s) && y(u) >= hemC - tol && (y(u) <= topC + tol || nearNeck(u) > 1.6)) && !(N[u * 3 + 2] > 0.3 && armW[u] < 0.5 && Math.abs(P[u * 3]) < halfVC(y(u)) - tol);
+    const coatHas = (u, tol) => (armW[u] >= 0.5 ? handW[u] < 0.5 && y(u) >= sleeveC - tol : (legW[u] < 0.6 || y(u) >= 0.9 * s) && y(u) >= hemC - tol && (y(u) <= topC + tol || nearNeck(u) > 1.2)) && !(N[u * 3 + 2] > 0.3 && armW[u] < 0.5 && Math.abs(P[u * 3]) < halfVC(y(u)) - tol);
     const ease = (u) => under(u) + (armW[u] >= 0.5 ? 0.0095 : 0.0115) + CO.puff * (armW[u] >= 0.5 ? 0.6 : 1);
     foldMax = 0.01; shellTop = topC;
     cc = shell(coatHas, ease, CLOTH.COAT, coatC, (u) => (armW[u] >= 0.5 ? (y(u) < 1.2 * s ? sleeveC : null) : y(u) < 1.06 * s ? hemC : null), (Q, used, bnd) => {
@@ -194,11 +198,22 @@ export function buildHeroGarments(sb, sp, ctx) {
         const tx = Math.cos(a) * (E0.rx + m), tz = E0.cz + Math.sin(a) * (E0.rz + m); const r0 = Math.hypot(Q[u * 3] / (E0.rx + m), (Q[u * 3 + 2] - E0.cz) / (E0.rz + m));
         if (r0 < 1 || (bnd[u] && yy > cutY - 0.03)) { Q[u * 3] = lerp(Q[u * 3], tx, t); Q[u * 3 + 2] = lerp(Q[u * 3 + 2], tz, t); } // pushed out to the collar line (never pulled into the shirt) — the top edge itself is drawn onto it, under the collar band
         Q[u * 3 + 1] = Math.min(yy, topC); }
+      { // shoulder line: the cloth levelled at topC rises smoothly to the shoulder tips (some builds carry them above the neck cut —
+        // left level, the tips stood up as points). Heights only, never below the level line; the neck edge stays put.
+        const fix = (u) => bnd[u] || armW[u] >= 0.5 || nearNeck(u) < 1.3; const H = new Float32Array(NU);
+        for (let it = 0; it < 24; it++) { for (let u = 0; u < NU; u++) H[u] = Q[u * 3 + 1];
+          for (let u = 0; u < NU; u++) { if (!used[u] || fix(u) || H[u] < topC - 0.0005) continue; let m = 0, n = 0; for (const v of S.nb[u]) { if (!used[v]) continue; m += H[v]; n++; } if (n) Q[u * 3 + 1] = Math.max(topC, m / n); } } }
       { // smooth out the folds the neck pass leaves in the shoulder cloth near the neck (edge held on the collar line)
         const T2 = new Float32Array(Q); for (let it = 0; it < 8; it++) { T2.set(Q); for (let u = 0; u < NU; u++) { if (!used[u] || bnd[u] || armW[u] >= 0.5 || y(u) < cutY - 0.06 || y(u) > cutY - 0.012) continue; let x = 0, yy = 0, z = 0, n = 0; for (const v of S.nb[u]) { if (!used[v]) continue; x += Q[v * 3]; yy += Q[v * 3 + 1]; z += Q[v * 3 + 2]; n++; }
           if (!n) continue; T2[u * 3] = lerp(Q[u * 3], x / n, 0.6); T2[u * 3 + 1] = Math.min(topC, lerp(Q[u * 3 + 1], yy / n, 0.6)); T2[u * 3 + 2] = lerp(Q[u * 3 + 2], z / n, 0.6); } Q.set(T2); } }
       for (let u = 0; u < NU; u++) { if (!used[u] || y(u) > cutY) continue; const d = (Q[u * 3] - P[u * 3]) * N[u * 3] + (Q[u * 3 + 1] - P[u * 3 + 1]) * N[u * 3 + 1] + (Q[u * 3 + 2] - P[u * 3 + 2]) * N[u * 3 + 2]; const m = under(u) + 0.0068;
         if (d < m) for (let k = 0; k < 3; k++) Q[u * 3 + k] += N[u * 3 + k] * (m - d); } }, CO.mat); // (the neck pass must not undo the gap over the shirt)
+    // the shirt under the coat is drawn only where it can show (the V, the neck inside the collar band, the cuffs): the hidden
+    // rest is dropped — it can't flicker through the coat's shoulders in any pose, and it is fewer triangles to draw
+    if (!open) { const showV = (u) => N[u * 3 + 2] > 0.3 && armW[u] < 0.5 && Math.abs(P[u * 3]) < halfVC(y(u)) + 0.035;
+      const hid = (u) => cc.used[u] && !showV(u) && (armW[u] >= 0.5 ? y(u) > sleeveC + 0.07 : y(u) > hemC + 0.07) && nearNeck(u) > 1.5;
+      const keep = []; for (let k = 0; k < sh.kept.length; k += 3) { if (hid(sh.kept[k]) && hid(sh.kept[k + 1]) && hid(sh.kept[k + 2])) continue; keep.push(sb.idx[sh.i0 + k], sb.idx[sh.i0 + k + 1], sb.idx[sh.i0 + k + 2]); }
+      const tail = sb.idx.slice(sh.i1); sb.idx.length = sh.i0; for (const v of keep) sb.idx.push(v); for (const v of tail) sb.idx.push(v); }
     foldMax = 1; shellTop = yTop; if (globalThis.__coatFitProbe) globalThis.__coatFitProbe({ cc, sh, tr, P, N, armW, legW, handW, NU, y, cutY });
     if (CO.rib) for (let u = 0; u < NU; u++) { const v = cc.map[u]; if (v < 0) continue; const yy = y(u); if (armW[u] >= 0.5 ? yy < sleeveC + 0.055 : yy < hemC + 0.055) { sb.cl[v * 2 + 1] = 4; for (let k = 0; k < 3; k++) sb.col[v * 3 + k] *= 0.82; } } // knitted cuffs + waistband
   }
