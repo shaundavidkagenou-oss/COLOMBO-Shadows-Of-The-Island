@@ -13,6 +13,7 @@ vec3 heliWashPush(vec3 wp, float tclk) {
   float k = uHeli.w * exp(-r * r / (reach * reach)) * clamp(1.0 - agl / 40.0, 0.0, 1.0) * (0.35 + 0.65 * smoothstep(0.0, 5.0, r + 2.0));
   float gust = 0.62 + 0.38 * sin(tclk * 17.0 + wp.x * 1.3 + wp.z * 1.1) * sin(tclk * 6.3 + r * 0.7); // blade-pass buffeting
   return vec3(rd / r, -0.3) * k * gust;
-}`;
+}
+`; // the trailing newline matters: callers prepend this to shaders that start with #define
 // Sun direction (world, towards the sun) and colour×intensity for leaf translucency; written by Atmosphere every frame.
 export const leafLight = { dir: { value: [0, 1, 0] }, col: { value: [0, 0, 0] } };
