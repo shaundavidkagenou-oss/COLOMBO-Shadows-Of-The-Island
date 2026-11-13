@@ -68,7 +68,8 @@ export class Player {
     this.sprinting = this.control && Input.isDown('sprint') && mag > 0.3 && this.stamina > 0.05 && !this.crouching && !this.aiming && !(this.drunk > 0.75);
     const pk = this.perk || { speed: 1, stamina: 1 }; // squad member: Dineth runs faster and longer, Shashika is heavier
     this.stamina = clamp(this.stamina + (this.sprinting ? -dt * 0.09 / pk.stamina : dt * 0.15), 0, 1);
-    const maxSp = (this.aiming ? (this.scoped ? 0.9 : 1.8) : this.crouching ? 1.4 : this.sprinting ? 6.6 : mag > 0.85 ? 3.4 : 1.5) * (this.aiming ? 1 : pk.speed) * (1 - 0.22 * (this.drunk || 0)) * (this.doorSlow ?? 1); // doorSlow: a hand on a shop door (WalkIn)
+    const maxSp0 = (this.aiming ? (this.scoped ? 0.9 : 1.8) : this.crouching ? 1.4 : this.sprinting ? 6.6 : mag > 0.85 ? 3.4 : 1.5) * (this.aiming ? 1 : pk.speed) * (1 - 0.22 * (this.drunk || 0)); this.baseSpeed = maxSp0;
+    const maxSp = maxSp0 * (this.doorSlow ?? 1); // doorSlow: a hand on a shop door (WalkIn)
     let dirYaw = this.yaw;
     if (mag > 0.05) { const camF = this.camYaw + Math.PI; dirYaw = camF + Math.atan2(-mx, my); }
     const target = mag > 0.05 ? maxSp * Math.max(mag, 0.5) : 0;

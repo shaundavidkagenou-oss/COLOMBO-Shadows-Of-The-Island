@@ -182,15 +182,17 @@ export class WalkIn {
     const onFoot = !P.vehicle && !P.entry && !P.exiting && !P.climb && P.control !== false && !P.dead;
     const inZone = onFoot && Math.abs(lx) < hw + 0.5 && lz > -1.15 && lz < 1.15 && Math.abs(P.y - s.y0) < 0.8;
     const side = lz >= LEAF_Z ? 1 : -1; const toward = -side * fz; // > 0: facing the door from this side
-    if (!D.engaged && inZone && toward > 0.35 && P.speed > 0.25 && Math.abs(lz - LEAF_Z) < 0.95 && (s.room || s.dist < BUILD_R)) { D.engaged = true; D.side = side; D.t = 0; if (!s.room) { try { this.buildRoom(s); } catch (e) { console.warn('walk-in build', e); } } this.sound(s, 'open'); }
+    if (!D.engaged && inZone && toward > 0.35 && P.speed > 0.25 && Math.abs(lz - LEAF_Z) < 1.4 && (s.room || s.dist < BUILD_R)) { D.engaged = true; D.side = side; D.t = 0; if (!s.room) { try { this.buildRoom(s); } catch (e) { console.warn('walk-in build', e); } } this.sound(s, 'open'); }
     if (D.engaged) {
       D.t += dt; const d = Math.abs(lz - LEAF_Z); const through = (lz - LEAF_Z) * D.side < -0.35; // passed to the far side
-      if (!inZone || through || (d > 1.05 && toward < 0.2)) D.engaged = false;
-      const need = Math.abs(lx) < hw + 0.15 ? clamp((1.02 - d) / 0.62, 0, 1) * 1.52 : 0.5; // leaf clears the body as he steps in
-      const tgt = Math.max(need, d < 0.3 ? 1.48 : 0) * D.side; // positive: swings into the shop (pushed from the street)
+      if (!inZone || through || (d > 1.5 && toward < 0.2)) D.engaged = false;
+      // the hand meets the plate at arm's length (~0.75 m from the leaf); from there the body's progress swings the leaf, which
+      // is clear of the shoulders by the time he reaches the threshold
+      const need = Math.abs(lx) < hw + 0.15 ? sstep(0.78, 0.22, d) * 1.52 : 0.5;
+      const tgt = Math.max(need, d < 0.25 ? 1.48 : 0) * D.side; // positive: swings into the shop (pushed from the street)
       const cur = D.ang; const maxW = 2.4 * dt; let nv = cur + clamp(tgt - cur, -maxW, maxW); if (Math.abs(tgt) < Math.abs(cur) && P.speed < 0.2) nv = cur; // standing still: it stays where it is
       D.vel = (nv - cur) / Math.max(dt, 1e-4); D.setAngle(nv); this.prevSide = D.side;
-      P.doorSlow = 0.62; // a hand on the door: a walking pace
+      P.doorSlow = clamp(1.45 / Math.max(1.45, P.baseSpeed || P.speed || 1.45), 0.35, 1); // a hand on the door: a walking pace (~1.45 m/s)
     } else {
       P.doorSlow = this.anyEngaged(s) ? P.doorSlow : 1;
       // closer: a damped spring (a double-acting door swings a little past centre before it settles)
@@ -200,13 +202,13 @@ export class WalkIn {
     // palm on the push plate (unarmed): weight in while the plate is within reach in front of him, out once it swings away
     let want = 0; let wp = null; const armed = !!(this.g.weapons && this.g.weapons.drawn);
     if (D.engaged && A && !armed && Math.abs(D.ang) < 1.25) {
-      const Lf = D.leafLine(); const r = D.w - 0.14; const sgn = D.side; const cx = Lf.hx + Lf.ux * r + Lf.nx * (0.03 + 0.025) * sgn, cz = Lf.hz + Lf.uz * r + Lf.nz * (0.03 + 0.025) * sgn;
+      const Lf = D.leafLine(); const r = D.w - 0.22; const sgn = D.side; const cx = Lf.hx + Lf.ux * r + Lf.nx * (0.03 + 0.025) * sgn, cz = Lf.hz + Lf.uz * r + Lf.nz * (0.03 + 0.025) * sgn;
       const s0 = P.ch.spec ? P.ch.spec.height / 1.72 : 1; const dxp = cx - lx, dzp = cz - lz, dist = Math.hypot(dxp, dzp);
-      const reach = sstep(0.95, 0.55, dist) * sstep(1.25, 0.95, Math.abs(D.ang)) * (dxp * fx + dzp * fz > 0.05 ? 1 : 0);
+      const reach = sstep(1.35, 0.85, dist) * sstep(1.3, 1.0, Math.abs(D.ang)) * (dxp * fx + dzp * fz > 0.05 ? 1 : 0); // the arm rises as he walks up and stays on the plate while the leaf swings
       if (reach > 0) { want = reach; const [wx, wz] = this.world(s, cx, cz); wp = { x: wx, z: wz, y: s.y0 + 1.08 * s0, nx: -Lf.nx * sgn, nz: -Lf.nz * sgn, lx: dxp, lz: dzp }; }
     }
     if (D.engaged || D === this.reachDoor) {
-      this.reachW = clamp(this.reachW + (want > 0.01 ? dt / 0.22 : -dt / 0.3), 0, 1); const w = this.reachW * (want || this.lastWant || 0); if (want) this.lastWant = want;
+      this.reachW = clamp((this.reachW || 0) + (want > 0.01 ? dt / 0.22 : -dt / 0.3), 0, 1); const w = this.reachW * (want || this.lastWant || 0); if (want) this.lastWant = want;
       if (A && w > 0.01 && (wp || this.lastWp)) { const q = wp || this.lastWp; this.lastWp = q; this.reachDoor = D; this.applyReach(P, A, s, q, w); }
       else if (A && A.reach && A.reach.door) { A.reach = null; this.reachDoor = null; }
     }

@@ -27,7 +27,7 @@ function plane(tex, w, h, { emissive = 0, rough = 0.7 } = {}) {
 }
 
 export function buildGunShopInterior(game, door, opts = {}) {
-  const D = GUNSHOP_DEF; const mb = new MultiBuilder(); const rng = new RNG(1847);
+  const D = opts.fit ? { ...GUNSHOP_DEF, w: Math.max(6.6, Math.min(GUNSHOP_DEF.w, opts.fit.w)), d: Math.max(9, Math.min(GUNSHOP_DEF.d, opts.fit.d)) } : GUNSHOP_DEF; const mb = new MultiBuilder(); const rng = new RNG(1847);
   const cx = door.x, cz = door.z - 200; const x0 = cx - D.w / 2, x1 = cx + D.w / 2, z0 = cz - D.d, z1 = cz; const H = 3.4;
   const paint = mb.get('paint'), conc = mb.get('concrete'), metal = mb.get('metal'), glass = mb.get('glass'), emis = mb.get('emissive');
   const obstacles = []; const ob = (bx, bz, w, d) => obstacles.push({ x0: bx - w / 2, x1: bx + w / 2, z0: bz - d / 2, z1: bz + d / 2 });

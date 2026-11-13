@@ -49,8 +49,9 @@ export class Interiors {
   }
   // the original story-shop rooms, built in their design frame (door at the origin) and re-based to the WalkIn local frame
   legacyWalkIn(id, site) {
-    const fake = { id, x: 0, z: 200, faceIn: site.door.faceIn };
-    const room = id === 'gunshop' ? buildGunShopInterior(this.g, fake, { walkIn: true }) : this.build(id, fake, true);
+    const b = site.b; let fit = null; if (b) { const ns = Math.abs(Math.cos(site.yaw)) > 0.7; fit = { w: (ns ? b.x1 - b.x0 : b.z1 - b.z0) - 0.5, d: (ns ? b.z1 - b.z0 : b.x1 - b.x0) - 0.6 }; } // the room fits inside its own building
+    const fake = { id, x: 0, z: 200, faceIn: site.door.faceIn, fit };
+    const room = id === 'gunshop' ? buildGunShopInterior(this.g, fake, { walkIn: true, fit }) : this.build(id, fake, true);
     room.g.visible = true; room.g.position.set(0, -Y, -REVEAL); // design: front wall at z = 0, floor at Y
     const sh = (o) => ({ x0: o.x0, x1: o.x1, z0: o.z0 - REVEAL, z1: o.z1 - REVEAL });
     const out = { id, g: room.g, H: room.H || (id === 'garage' ? 5 : 3.2), bounds: sh(room.bounds), obstacles: (room.obstacles || []).map(sh), legacy: room, name: site.name };
@@ -83,7 +84,7 @@ export class Interiors {
     if (id === 'gunshop') { const room = buildGunShopInterior(this.g, door); this.built.set(id, room); return room; }
     if (id === 'club') { const room = buildClub(this.g, door); this.built.set(id, room); return room; }
     if (isHeroRoom(id)) { const room = buildHeroRoom(this.g, id, door); this.built.set(id, room); return room; }
-    const D = DEFS[id]; const mb = new MultiBuilder(); const rng = new RNG(id.length * 97 + 5);
+    const D = door && door.fit ? { ...DEFS[id], w: Math.max(5, Math.min(DEFS[id].w, door.fit.w)), d: Math.max(7, Math.min(DEFS[id].d, door.fit.d)) } : DEFS[id]; const mb = new MultiBuilder(); const rng = new RNG(id.length * 97 + 5);
     const cx = door.x, cz = door.z - 200; // offset in z so rooms don't overlap the shop's own geometry footprint
     const x0 = cx - D.w / 2, x1 = cx + D.w / 2, z0 = cz - D.d, z1 = cz; const H = id === 'garage' ? 5 : 3.2;
     const paint = mb.get('paint'), conc = mb.get('concrete'); const wallC = C(D.wall);

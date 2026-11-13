@@ -29,7 +29,8 @@ export function porchPillars(b) {
 }
 export function colonnadeColumns(b) {
   if (!b.colonnade) return [];
-  const s = frontSide(b), n = Math.max(2, Math.floor(s.len / 4)), out = [];
+  const s = frontSide(b); let n = Math.max(2, Math.floor(s.len / 4)); const out = [];
+  if (b.walkIn && n % 2 === 0) n += 1; // a walk-in doorway sits mid-front: an odd bay count keeps a column from standing in front of it
   for (let k = 0; k <= n; k++) out.push([s.a[0] + (s.b[0] - s.a[0]) * k / n + s.n[0] * 0.6, s.a[1] + (s.b[1] - s.a[1]) * k / n + s.n[1] * 0.6, 0.32]);
   return out;
 }
