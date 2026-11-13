@@ -53,12 +53,12 @@ const PAINT = `{
   float rv = (1.0 - smoothstep(0.07, 0.13, length(vec2(fract(along / 0.032) - 0.5, (dz - 0.016) / 0.032)))) * kz * hAA(700.0) * nose;
   // weathering
   float big = hN(p * 1.7), mid = hN(p * 6.0 + 11.0);
-  float aft = smoothstep(-2.2, -2.9, p.z) * (1.0 - smoothstep(-3.6, -8.0, p.z));       // turbine soot from the two stacks, fanning aft
+  float aft = (1.0 - smoothstep(-2.9, -2.2, p.z)) * (1.0 - (1.0 - smoothstep(-8.0, -3.6, p.z)));       // turbine soot from the two stacks, fanning aft
   float wd = 0.22 + max(0.0, -2.6 - p.z) * 0.06;
-  float soot = aft * exp(-pow(max(0.0, abs(p.x) - 0.1), 2.0) / (wd * wd)) * smoothstep(1.95, 2.4, p.y) * (0.55 + 0.45 * hN(vec3(p.x * 9.0, p.y * 9.0, p.z * 1.3))) * (1.0 - 0.45 * smoothstep(-3.0, -6.5, p.z)); // densest just aft of the stacks
-  float oilR = step(0.6, an.x) * smoothstep(2.6, 2.3, p.y) * smoothstep(1.3, 2.1, p.y) * smoothstep(0.8, -0.3, p.z) * (1.0 - smoothstep(-2.2, -3.3, p.z));
+  float soot = aft * exp(-pow(max(0.0, abs(p.x) - 0.1), 2.0) / (wd * wd)) * smoothstep(1.95, 2.4, p.y) * (0.55 + 0.45 * hN(vec3(p.x * 9.0, p.y * 9.0, p.z * 1.3))) * (1.0 - 0.45 * (1.0 - smoothstep(-6.5, -3.0, p.z))); // densest just aft of the stacks
+  float oilR = step(0.6, an.x) * (1.0 - smoothstep(2.3, 2.6, p.y)) * smoothstep(1.3, 2.1, p.y) * (1.0 - smoothstep(-0.3, 0.8, p.z)) * (1.0 - (1.0 - smoothstep(-3.3, -2.2, p.z)));
   float oil = oilR * smoothstep(0.68, 0.9, hN(vec3((p.z + p.y * 0.35) * 15.0, p.y * 1.4, sign(p.x) * 5.0))) * (0.6 + 0.4 * mid);
-  float grime = smoothstep(1.02, 0.74, p.y) * (0.45 + 0.55 * mid) * step(-2.9, p.z);
+  float grime = (1.0 - smoothstep(0.74, 1.02, p.y)) * (0.45 + 0.55 * mid) * step(-2.9, p.z);
   vec3 c = diffuseColor.rgb;
   c *= (1.0 - seam * 0.3) * (0.975 + 0.05 * big);
   c = mix(c, c * vec3(0.4, 0.38, 0.35) + vec3(0.01), clamp(soot, 0.0, 1.0) * 0.8);
