@@ -19,7 +19,7 @@ const rs = (n) => (n ? 'Rs. ' + Math.round(n).toLocaleString('en-LK') : 'FREE');
 const ROWS = 10;
 // camera framing per category: bone to look at, distance, height offset, side angle (rad, 0 = straight in front)
 const FRAME = {
-  hats: ['head', 0.95, 0.06, 0.35], glasses: ['head', 0.62, 0.02, 0.25], hair: ['head', 0.78, 0.04, 0.55], color: ['head', 0.78, 0.04, 0.35], beard: ['head', 0.62, -0.02, 0.3],
+  hats: ['head', 0.95, 0.06, 0.35], glasses: ['head', 0.75, 0.02, 0.25], hair: ['head', 0.78, 0.04, 0.55], color: ['head', 0.78, 0.04, 0.35], beard: ['head', 0.8, -0.02, 0.3],
   tops: ['chest', 1.75, 0.05, 0.25], coats: ['chest', 1.85, 0.0, 0.3], pants: ['hips', 2.0, -0.3, 0.2], shoes: ['footL', 1.35, 0.25, 0.45], luxshoes: ['footL', 1.35, 0.25, 0.45],
   foreL: ['foreL', 0.85, -0.05, 0.9], foreR: ['foreR', 0.85, -0.05, -0.9], upperL: ['armL', 0.85, -0.05, 1.35], upperR: ['armR', 0.85, -0.05, -1.35], chest: ['chest', 0.95, 0.05, 0.1], back: ['chest', 1.0, 0.05, Math.PI],
   all: ['chest', 2.3, -0.15, 0.2],
@@ -69,7 +69,7 @@ export class StoreUI {
     // where the player is held: barber chair / tattoo bed / in front of the display
     this.pose = this.holdPose(room, spot); this.prevCam = P.camMode; P.camMode = 0; this.prevControl = P.control; P.control = false; P.posed = this.pose.world; P.camOverride = true;
     room.busy = true; room.keeperBusy = kind === 'barber' || kind === 'tattoo'; this.keeper = room.keeper; this.kpT = 0;
-    this.sit(); this.open = true; this.root.classList.remove('hidden'); Input.releaseLock(); this.snapCam = true; this.render(); Audio.ui('click');
+    this.sit(); this.open = true; this.root.classList.remove('hidden'); g.hud.root.classList.add('in-store'); Input.releaseLock(); this.snapCam = true; this.render(); Audio.ui('click');
     const hello = { barber: 'Take a seat. What are we doing today?', tattoo: 'Pick a spot and a design — the stencil goes on first.', clothing: 'Have a look around, try anything on.', luxury: 'Good afternoon. Everything here is made to be worn for years.' }[kind];
     g.hud.subtitle(room.def.keeperName || room.name, hello, '', 3);
     return true;
@@ -87,7 +87,7 @@ export class StoreUI {
     if (this.seat) A.sitIn(this.seat, 1); else A.standUp(); P.sync(); A.update(0.001, 0); }
 
   close() {
-    const g = this.g, P = g.player; if (!this.open) return; this.open = false; this.root.classList.add('hidden'); this.pending = null; this.busy = 0;
+    const g = this.g, P = g.player; if (!this.open) return; this.open = false; this.root.classList.add('hidden'); g.hud.root.classList.remove('in-store'); this.pending = null; this.busy = 0;
     // whatever was only previewed comes off again
     if (this.shownKey !== JSON.stringify(lookOf(this.state.outfits[this.who]))) g.rebuildPlayer();
     P.ch.anim.standUp(); P.posed = null; P.camOverride = false; P.control = this.prevControl ?? true; P.camMode = this.prevCam ?? 0;
@@ -159,7 +159,9 @@ export class StoreUI {
     this.W.clampCam(this.site, tgt, want);
     if (this.snapCam) { this.camPos.copy(want); this.camTgt.copy(tgt); this.snapCam = false; }
     const k = 1 - Math.exp(-dt * 6); this.camPos.lerp(want, k); this.camTgt.lerp(tgt, k);
-    cam.position.copy(this.camPos); cam.lookAt(this.camTgt); if (cam.fov !== 50) { cam.fov = damp(cam.fov, 50, 8, dt); cam.updateProjectionMatrix(); }
+    // the menu sits on the left: aim a little left of the subject so he stands right of centre (clear of the panel)
+    const fx = this.camTgt.x - this.camPos.x, fz = this.camTgt.z - this.camPos.z, fl = Math.hypot(fx, fz) || 1; const off = Math.hypot(fx, fz, this.camTgt.y - this.camPos.y) * 0.3;
+    cam.position.copy(this.camPos); cam.lookAt(this._v.set(this.camTgt.x - (-fz / fl) * off, this.camTgt.y, this.camTgt.z - (fx / fl) * off)); if (cam.fov !== 50) { cam.fov = damp(cam.fov, 50, 8, dt); cam.updateProjectionMatrix(); }
   }
 
   // ---- panel
@@ -172,7 +174,7 @@ export class StoreUI {
     const art = this.level === 1 && this.kind === 'tattoo' && cur && cur.design ? '<canvas class="sto-art" width="120" height="120"></canvas>' : '';
     this.root.innerHTML = `<div class="sto-panel"><div class="sto-banner sto-${this.kind}"><span>${this.room.name}</span></div>
       <div class="sto-sub"><b>${title.toUpperCase()}</b><i>${this.row + 1} / ${n}</i></div>
-      <div class="sto-list">${vis.map((r, j) => { const i = this.top + j; return `<div class="sto-row${i === this.row ? ' on' : ''}${r.worn ? ' worn' : ''}" data-i="${i}"><span>${r.name}</span><em>${r.cat ? '›' : r.worn ? '✔' : r.owned && r.price ? 'OWNED' : rs(r.price)}</em></div>`; }).join('')}</div>
+      <div class="sto-list">${vis.map((r, j) => { const i = this.top + j; return `<div class="sto-row${i === this.row ? ' on' : ''}${r.worn ? ' worn' : ''}" data-i="${i}"><span>${r.name}</span>${r.worn && !r.cat ? '<em class="tk"></em>' : `<em>${r.cat ? '›' : r.owned && r.price ? 'OWNED' : rs(r.price)}</em>`}</div>`; }).join('')}</div>
       ${n > ROWS ? `<div class="sto-more">${this.top > 0 ? '▲' : '&nbsp;'} ${this.top + ROWS < n ? '▼' : '&nbsp;'}</div>` : ''}
       <div class="sto-desc">${art}<span>${this.msg ? `<b class="${this.msg.bad ? 'bad' : ''}">${this.msg.msg}</b>` : desc}</span></div>
       <div class="sto-foot"><span>Rs. ${Math.round(money).toLocaleString('en-LK')}</span><span><kbd>Enter</kbd> ${this.level === 0 ? 'Select' : 'Buy'} · <kbd>Bksp</kbd> Back · <kbd>A</kbd>/<kbd>D</kbd> Turn</span></div></div>`;

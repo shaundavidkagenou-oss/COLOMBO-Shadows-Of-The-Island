@@ -1092,6 +1092,12 @@ export const HEROES = {
 
 // ------------------------------------------------------------------ Character instance
 const geoCache = new Map(); const headCache = new Map();
+// Protagonist geometry (body + head) is cached per look. Shop previews (StoreUI) build a new look per hovered item, so hero
+// entries are reference-counted and the unused ones beyond the newest few are freed (crowd NPC caching is unchanged).
+const HERO_KEEP = 4; const heroGeoKeys = [], heroHeadKeys = [];
+function heroRef(cache, order, key, d) { const e = cache.get(key); if (!e) return; const u = e.userData || (e.userData = {}); u.refs = Math.max(0, (u.refs || 0) + d); const i = order.indexOf(key); if (i >= 0) order.splice(i, 1); order.push(key); trimHero(cache, order); }
+function trimHero(cache, order) { const idle = order.filter((k) => !((cache.get(k) || {}).userData || {}).refs); while (idle.length > HERO_KEEP) { const k = idle.shift(); const e = cache.get(k); cache.delete(k); order.splice(order.indexOf(k), 1);
+    if (e) { const geo = e.isBufferGeometry ? e : e.geometry; if (geo) geo.dispose(); if (e.glasses) e.glasses.traverse((o) => o.geometry && o.geometry.dispose()); if (e.hats) for (const h of e.hats.values()) h.geometry.dispose(); } } }
 // crowd / police bodies are cached per look (≈130 looks × hi + lo): store skin weights as 8-bit and UVs as 16-bit normalised
 // (≈25 % less vertex memory, CPU and GPU). Positions / normals stay float (BloodStain reads them); skinIndex keeps its
 // format; getX()/fromBufferAttribute denormalise, so skinning helpers read the same weights (to 1/255).
@@ -1117,6 +1123,7 @@ export class Character {
     this.spec = spec; if (hasDancerBody(spec.dancerBody)) { this.initDancer(spec); return; }
     const key = JSON.stringify(spec); const skelKey = `${spec.sex}|${spec.height.toFixed(3)}|${spec.build.toFixed(3)}`;
     let geo = geoCache.get(key); if (!geo) { geo = buildBodyGeometry(spec); if (geo.userData.npcBody) compactNpcGeo(geo); geoCache.set(key, geo); }
+    if (spec.hero) { this.heroGeoKey = key; heroRef(geoCache, heroGeoKeys, key, 1); }
     const { bones, skeleton } = makeSkeleton(spec, skelKey);
     const fv = spec.faceV != null ? FACE_VARIANTS[spec.faceV] : null; let faceMat = null; const npcHead = !spec.hero;
     if (npcHead) { /* anatomical crowd head (attachNpcHead): no face texture */ } else if (fv) faceMat = getFaceMaterial(`v${spec.faceV}`, { female: spec.sex === 'f', stubble: fv.stubble || 0, seed: spec.faceV, lips: fv.lips, size: 192, v: fv });
@@ -1172,6 +1179,7 @@ export class Character {
   attachHeroHead(skeleton) {
     const sp = this.spec; const key = [sp.mh, sp.height, sp.skin, sp.hair, sp.hairColor, !!sp.beard, !!sp.moustache, !!sp.glasses, sp.hairline || 0, !!sp.hat, sp.stubble ?? '', !!sp.goatee, sp.beardShort === false ? 'full' : ''].join('|');
     let H = headCache.get(key); if (!H) { H = buildHeroHead(sp, { head: B.head, neck: B.neck, chest: B.chest }); headCache.set(key, H); }
+    this.heroHeadKey = key; heroRef(headCache, heroHeadKeys, key, 1);
     const mats = headMaterials(sp, H, this.heroU); for (const hm of Array.isArray(mats) ? mats : [mats]) if (hm && hm.isMeshStandardMaterial) addBloodStain(hm);
     const m = new THREE.SkinnedMesh(H.geometry, mats); m.name = 'heroHead'; m.userData.keys = H.keys;
     this.mesh.add(m); m.bind(skeleton, this.mesh.bindMatrix); m.castShadow = true; m.receiveShadow = false; m.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.9, 0), 1.3);
@@ -1210,7 +1218,7 @@ export class Character {
     this.bones.head.add(lod); this.head = m; this.headLo = lo; this.headMats = [mat];
     this.face.attachMorphs(m, null, NPC_MORPHS);
   }
-  dispose() { LIVE.delete(this); this.disposed = true; if (this.bloodMat) { this.bloodMat.dispose(); this.bloodMat = null; } if (this.dancer) this.dancer.dispose(); if (this.dancerRT) this.dancerRT.dispose(); this.mesh.skeleton.dispose(); this.face.dispose(); if (this.heroMats) for (const m of this.heroMats) m.dispose(); if (this.headMats) for (const m of this.headMats) m.dispose(); if (this.tattooMat) this.tattooMat.dispose(); if (this.shades) this.shades.traverse((o) => { if (o.isMesh) o.material.dispose(); }); }
+  dispose() { LIVE.delete(this); if (!this.disposed) { if (this.heroGeoKey) heroRef(geoCache, heroGeoKeys, this.heroGeoKey, -1); if (this.heroHeadKey) heroRef(headCache, heroHeadKeys, this.heroHeadKey, -1); } this.disposed = true; if (this.bloodMat) { this.bloodMat.dispose(); this.bloodMat = null; } if (this.dancer) this.dancer.dispose(); if (this.dancerRT) this.dancerRT.dispose(); this.mesh.skeleton.dispose(); this.face.dispose(); if (this.heroMats) for (const m of this.heroMats) m.dispose(); if (this.headMats) for (const m of this.headMats) m.dispose(); if (this.tattooMat) this.tattooMat.dispose(); if (this.shades) this.shades.traverse((o) => { if (o.isMesh) o.material.dispose(); }); }
   // convenience for gameplay code: expression for a while, or talking on/off
   express(name, dur = 2.5) { this.face.set(name, dur); }
   // damped spring for the chest secondary motion (see buildBodyGeometry, sp.bustSpring): driven by the chest bone's specific
