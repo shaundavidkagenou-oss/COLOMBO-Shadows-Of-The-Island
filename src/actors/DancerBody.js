@@ -189,8 +189,8 @@ export const DANCER_LOOK = {
   opal: { skin: '#a36a4a', lips: '#9a3a5a', shadow: '#4a3260', liner: 0.9, blush: '#b8545a', nails: '#c8bed8', gloss: 0.8 },
   saffron: { skin: '#7e4b2e', lips: '#8a3a26', shadow: '#6a4220', liner: 0.75, blush: '#a04a30', nails: '#c8701a', gloss: 0.6 },
 };
-export function dancerMaterials(id, U) {
-  const look = DANCER_LOOK[id] || DANCER_LOOK.ruby;
+export function dancerMaterials(id, U, lookOver = null) {
+  const look = lookOver || DANCER_LOOK[id] || DANCER_LOOK.ruby; // lookOver: a character's own skin / make-up (actors/Assassin.js)
   const skin = new THREE.MeshStandardMaterial({ color: new THREE.Color(look.skin), roughness: 0.55, metalness: 0 });
   patchHeroMaterial(skin, 'body', U, skinDetail); iblScale(skin, 0.55, 1.0, 0.5);
   const kp = skin.customProgramCacheKey; skin.customProgramCacheKey = () => kp() + '|dancerSkin';
@@ -272,7 +272,7 @@ export function queueDancerPaint(ch) { PAINT.push(ch); }
 export const dancerPaintPending = () => PAINT.length > 0;
 const lin = (hex) => { const c = new THREE.Color(hex); return new THREE.Vector3(c.r, c.g, c.b); }; // THREE.Color(hex) is already linear
 export function paintDancerSkin(renderer, ch, size = 2048) {
-  const id = ch.spec.dancerBody; const geo = ch.mesh.geometry; const look = DANCER_LOOK[id] || DANCER_LOOK.ruby; const J = dancerJoints(id), L = dancerLandmarks(id);
+  const id = ch.spec.dancerBody; const geo = ch.mesh.geometry; const look = ch.spec.look || DANCER_LOOK[id] || DANCER_LOOK.ruby; const J = dancerJoints(id), L = dancerLandmarks(id);
   const pg = new THREE.BufferGeometry(); for (const a of ['position', 'normal', 'uv', 'aMaskA', 'aMaskB']) pg.setAttribute(a, geo.attributes[a]);
   pg.setIndex(new THREE.BufferAttribute(geo.index.array.slice(0, geo.userData.skinTris), 1));
   const brow = []; for (let i = 0; i < 16; i++) { const b = browPath(id, i / 15); brow.push(new THREE.Vector4(b.x, b.y, b.th, 0)); }

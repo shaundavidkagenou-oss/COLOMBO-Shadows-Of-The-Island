@@ -1154,7 +1154,7 @@ export class Character {
   initDancer(spec) {
     const id = spec.dancerBody; const geo = dancerGeometry(id, spec.hairColor); const { bones, skeleton } = makeDancerSkeleton(id);
     if (!morphsMatchHeroes()) throw new Error('dancer morph order differs from the protagonists\' heads');
-    this.face = new FaceRig(this, null); this.heroU = heroUniforms(); const mats = dancerMaterials(id, this.heroU); this.heroMats = mats;
+    this.face = new FaceRig(this, null); this.heroU = heroUniforms(); const mats = dancerMaterials(id, this.heroU, spec.look || null); this.heroMats = mats;
     this.mesh = new THREE.SkinnedMesh(geo, mats); this.mesh.name = 'dancerBody';
     this.mesh.add(bones[0]); this.mesh.bind(skeleton); this.mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.9, 0), 1.3); this.mesh.castShadow = true; this.mesh.receiveShadow = false;
     this.root = new THREE.Group(); this.root.add(this.mesh);

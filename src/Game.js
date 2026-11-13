@@ -59,6 +59,7 @@ import { Story, MISSIONS } from './story/Story.js';
 import { playOpening } from './story/Opening.js';
 import { Weapons } from './combat/Weapons.js';
 import { Squad } from './actors/Squad.js';
+import { Assassin } from './actors/Assassin.js';
 import { Birds } from './world/Birds.js';
 import { RagdollWorld } from './actors/Ragdoll.js';
 import { Blood } from './gfx/Blood.js';
@@ -136,7 +137,7 @@ export class Game {
     this.cricket = new StreetCricket(this);
     this.birds = new Birds(this); // house crows, rock pigeons, rose-ringed parakeets
     this.player = new Player(this.scene, this.camera, this.collision, bus); this.player.crowd = this.crowd;
-    this.hud = new HUD(this.ui); this.hud.canSeeUnit = (u) => this.canSeeUnit(u); this.hud.mapExtras = () => this.miniExtras(); this.hud.satellite = new Satellite(this); this.director = new Director(this); this.story = new Story(this); this.interiors = new Interiors(this); this.weapons = new Weapons(this); this.player.weapons = this.weapons; this.squad = new Squad(this); this.police = new PoliceResponse(this); this.heli = new PoliceHelicopter(this); setBloomView(this.camera); /* Air Wing helicopter on the HQ roof pad (police/Helicopter.js): built now, before the shader warm-up — its searchlight is a fixed light */
+    this.hud = new HUD(this.ui); this.hud.canSeeUnit = (u) => this.canSeeUnit(u); this.hud.mapExtras = () => this.miniExtras(); this.hud.satellite = new Satellite(this); this.director = new Director(this); this.story = new Story(this); this.interiors = new Interiors(this); this.weapons = new Weapons(this); this.player.weapons = this.weapons; this.squad = new Squad(this); this.orchid = new Assassin(this); /* Black Orchid contractor (Global browser) */ this.police = new PoliceResponse(this); this.heli = new PoliceHelicopter(this); setBloomView(this.camera); /* Air Wing helicopter on the HQ roof pad (police/Helicopter.js): built now, before the shader warm-up — its searchlight is a fixed light */
     this.crowd.onStrike = (p, m, M) => { if (this.weapons) this.weapons.struckBy(p, m, M); }; // street fighters' punches land on the player
     this.health = new Health(this); this.phone = new Phone(this, this.hud.root); this.gunShop = new GunShopUI(this, this.hud.root); this.garage = new Garage(this); /* Street Customs ownership records (story.state.garage) */ this.debug = newDebugState(); this.debugCon = new DebugConsole(this, this.hud.root);
     this.applyDensity();
@@ -234,7 +235,7 @@ export class Game {
     if (!this.gpuWarned && (gpu.kind === 'software' || gpu.kind === 'integrated')) { this.gpuWarned = true; this.hud.notify(gpu.kind === 'software' ? 'Graphics card not in use' : 'Integrated graphics', gpuAdvice(gpu), 'warn', 9); }
   }
   async newGame() {
-    this.story.state = Story.freshState(); this.clock = 0; this.mode = 'play'; this.paused = false; this.squad.reset(); this.grenades?.clear(); this.rebuildPlayer(); if (this.customs && this.customs.active) this.customs.abort(); this.garage.restore(); /* no owned vehicles in a new game */
+    this.story.state = Story.freshState(); this.clock = 0; this.mode = 'play'; this.paused = false; this.squad.reset(); this.orchid.load(null); this.grenades?.clear(); this.rebuildPlayer(); if (this.customs && this.customs.active) this.customs.abort(); this.garage.restore(); /* no owned vehicles in a new game */
     this.hud.clearBlips(''); this.focus = null; this.setupRoomDoor();
     await playOpening(this);
     Input.requestLock(this.canvas);
@@ -242,7 +243,7 @@ export class Game {
   }
   async startLoaded(slot) {
     const d = SaveSystem.read(slot); if (!d) return this.menuLoop();
-    if (this.vsmoke && this.vsmoke.skid) this.vsmoke.skid.clear(); /* a loaded game starts with clean roads */ this.story.restore(d.story); this.atmos.restore(d.atmos); this.crowd.minds.load(d.minds); /* NPC memories / relationships (Mind.js); an older save has none */ this.clock = d.clock || 0; this.squad.load(d.squad); this.rebuildPlayer(); this.weapons.load(d.weapons); this.squad.load(d.squad); this.pendingWanted = d.police ? d.police.level : d.weapons ? d.weapons.heat : 0;
+    if (this.vsmoke && this.vsmoke.skid) this.vsmoke.skid.clear(); /* a loaded game starts with clean roads */ this.story.restore(d.story); this.atmos.restore(d.atmos); this.crowd.minds.load(d.minds); /* NPC memories / relationships (Mind.js); an older save has none */ this.clock = d.clock || 0; this.squad.load(d.squad); this.rebuildPlayer(); this.weapons.load(d.weapons); this.squad.load(d.squad); this.orchid.load(d.orchid); this.pendingWanted = d.police ? d.police.level : d.weapons ? d.weapons.heat : 0;
     const p = d.player || { x: L.PLACES.meeting.x, z: L.PLACES.meeting.z, yaw: 0 }; if (this.customs && this.customs.active) this.customs.abort(); { const P = this.player, veh = P.vehicle; if (veh) { veh.speed = 0; veh.mesh.remove(P.ch.root); this.scene.add(P.ch.root); veh.player = false; P.vehicle = null; P.exiting = null; P.entry = null; P.ch.anim.standUp(); this.traffic.release(veh); P.respawnReset(); } } /* loading a save while driving: the save's player is on foot (as Health.js does on respawn) */ this.world.warm(p.x, p.z); this.player.teleport(p.x, p.z, p.yaw); this.squad.regroup(); this.garage.restore(); // owned (customised) vehicles back where they were parked
     this.player.cinematic = false; this.player.control = true; this.mode = 'play'; this.paused = false; this.hud.show(true); this.director.active = false;
     if (this.pendingWanted) { this.police.restore(this.pendingWanted); this.pendingWanted = 0; }
@@ -305,7 +306,7 @@ export class Game {
     const P = this.player; let pos = { x: P.x, z: P.z, yaw: P.yaw };
     if (this.interiors.current) { const d = this.interiors.current.door; pos = { x: d.x, z: d.z, yaw: d.faceIn + Math.PI }; } else if (P.vehicle) { const e = P.vehicle.exitPoint(-1); pos = { x: e.x, z: e.z, yaw: P.vehicle.yaw }; }
     const m = MISSIONS.find((q) => q.id === this.story.state.mission.id); if (this.garage) this.garage.snapshot(); // owned vehicles where they stand now (Street Customs)
-    return SaveSystem.write(slot, { minds: this.crowd.minds.save(), story: this.story.serialize(), atmos: this.atmos.serialize(), player: pos, weapons: this.weapons.save(), squad: this.squad.save(), police: this.police.save(), clock: this.clock, missionTitle: m ? m.title : 'Free roam', timeString: `Day ${this.atmos.day} · ${this.atmos.timeString}` });
+    return SaveSystem.write(slot, { minds: this.crowd.minds.save(), story: this.story.serialize(), atmos: this.atmos.serialize(), player: pos, weapons: this.weapons.save(), squad: this.squad.save(), orchid: this.orchid.save(), police: this.police.save(), clock: this.clock, missionTitle: m ? m.title : 'Free roam', timeString: `Day ${this.atmos.day} · ${this.atmos.timeString}` });
   }
   async restUntil(hour) {
     const P = this.player; P.control = false; await this.hud.fade(1, 0.8); let dh = hour - this.atmos.hour; if (dh < 0) dh += 24; this.atmos.advance(dh * 60);
@@ -351,7 +352,7 @@ export class Game {
     });
     bus.on('pedHit', (p) => { if (p && p.knockedByCar) Audio.crash(4); });
     bus.on('pedReport', (e) => { if (this.police) this.police.report(e); });
-    bus.on('pedHit', (p) => { const P = this.player; if (!this.police || !p || this.mode !== 'play') return; const src = P.vehicle || P; if (Math.hypot(p.x - src.x, p.z - src.z) > 10) return; if (p.knockedByCar) { if (P.vehicle) this.police.crime(p.x, p.z, 'vehicle'); } else this.police.crime(p.x, p.z, 'assault'); }); // only incidents the player caused
+    bus.on('pedHit', (p) => { const P = this.player; if (!this.police || !p || this.mode !== 'play' || p.contractKill) return; const src = P.vehicle || P; if (Math.hypot(p.x - src.x, p.z - src.z) > 10) return; if (p.knockedByCar) { if (P.vehicle) this.police.crime(p.x, p.z, 'vehicle'); } else this.police.crime(p.x, p.z, 'assault'); }); // only incidents the player caused
   }
   // ================================================================= input
   onKey(code) {
@@ -453,6 +454,7 @@ export class Game {
     else if (!D.active) P.update(dt, this.traffic);
     this.squad.update(dt, busy || warmOnly || !!this.photo);
     D.update(dt);
+    if (!warmOnly) this.orchid.update(dt); // hired bodyguard / contract cinematic (owns the camera while it plays)
     // interactions on foot / vehicle
     let localPrompt = null;
     if (!busy && !warmOnly && P.control) localPrompt = this.updateInteractions(dt);
