@@ -14,6 +14,7 @@
 // Pure helpers are exported for the unit test (tools/squad-test.mjs).
 import * as THREE from 'three';
 import { Character, HEROES } from './Character.js';
+import { applyLook } from './Wardrobe.js';
 import { separate } from './Bodies.js';
 import { seatCharacter } from './Seating.js';
 import { boardCurve, poseBoard, npcBoardSetup, boardGroundFn, lapGrips, swingDoor, EXIT_K } from './Boarding.js';
@@ -105,7 +106,7 @@ export class Squad {
   get followers() { return this.members.filter((m, i) => i !== this.active); }
   memberById(id) { return this.members.find((m) => m.def.id === id); }
   // ------------------------------------------------------------------ lifecycle
-  ensureChars() { for (const m of this.members) if (!m.ch) { m.ch = new Character(HEROES[m.def.id]); m.ch.squadId = m.def.id; } this.members[this.active].ch = this.g.player.ch; }
+  ensureChars() { for (const m of this.members) if (!m.ch) { m.ch = new Character(applyLook(HEROES[m.def.id], (this.g.story?.state?.outfits || {})[m.def.id])); /* wardrobe look */ m.ch.squadId = m.def.id; } this.members[this.active].ch = this.g.player.ch; }
   unlock(placeAround = true) {
     if (this.unlocked) return; this.unlocked = true; this.ensureChars();
     for (const m of this.followers) { if (!m.ch.root.parent) this.g.scene.add(m.ch.root); if (placeAround) this.placeNear(m, false); }

@@ -18,7 +18,7 @@ import { MAT } from '../gfx/Materials.js';
 import * as L from './Layout.js';
 
 export const DOOR_W = 1.1, DOOR_H = 2.3, REVEAL = 0.22, LEAF_Z = -0.07;
-const BUILD_R = 7.5, HIDE_R = 16, R = 0.3;
+const BUILD_R = 7.5, HIDE_R = 16, FREE_R = 140, R = 0.3;
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
@@ -143,6 +143,12 @@ export class WalkIn {
     const t = Math.max(0.05, last - 0.06); want.lerpVectors(tgt, want, t);
   }
 
+  freeRoom(s) {
+    const r = s.room; if (!r) return; if (r.onExit && r.inside) r.onExit(); if (r.keeper && r.keeper.dispose) r.keeper.dispose();
+    const kit = new Set(); r.og.traverse((o) => { if (o.isMesh && !o.isSkinnedMesh && o.geometry) { o.geometry.dispose(); const m = o.material; if (m && m.userData && m.userData.own) kit.add(m); } });
+    for (const m of kit) m.dispose(); // (maps are cached canvas textures — kept)
+    r.og.parent && r.og.parent.remove(r.og); s.room = null;
+  }
   // ---- per frame (from Interiors.updateSeamless). Returns the indoor light blend (0 street … 1 inside)
   update(dt) {
     const g = this.g, P = g.player; if (!P || !this.sites.length) return 0;
@@ -151,6 +157,8 @@ export class WalkIn {
     // build on approach (one per frame), hide far rooms
     for (const s of this.sites) { if (!s.room && s.dist < BUILD_R && !P.vehicle && !this.builtThisFrame) { try { this.buildRoom(s); } catch (e) { console.warn('walk-in build', s.id, e); s.build = () => { throw e; }; } this.builtThisFrame = true; } }
     this.builtThisFrame = false;
+    // free rooms the player has left far behind (geometry + keeper; the shared kit materials / canvas textures stay cached)
+    for (const s of this.sites) { const r = s.room; if (!r || s.dist < FREE_R || P.indoor === r.proxy || this.active === r) continue; this.freeRoom(s); }
     for (const s of this.sites) this.updateDoor(s, dt, P);
     for (const s of this.sites) { const r = s.room; if (!r) continue; const inside = P.indoor === r.proxy; const vis = inside || (s.doorObj.open > 0.015 && s.dist < HIDE_R); r.og.visible = vis; r.visible = vis; }
     // the active site (the one whose room is drawn nearest / that holds the player)

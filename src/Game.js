@@ -45,6 +45,8 @@ import * as L from './world/Layout.js';
 import { Crowd } from './actors/Crowd.js';
 import { Player } from './actors/Player.js';
 import { Character, HEROES, CAM } from './actors/Character.js';
+import { applyLook } from './actors/Wardrobe.js';
+import { StoreUI } from './ui/StoreUI.js';
 import { makePoliceAppearance } from './actors/Appearance.js';
 import { Traffic } from './vehicles/Traffic.js';
 import { Trains } from './vehicles/Trains.js';
@@ -99,7 +101,7 @@ export class Game {
     addEventListener('resize', () => this.resize());
     bus.on('settings', (k) => this.applySettings(k));
     this.canvas.addEventListener('click', () => { if (this.mode === 'play' && !this.paused && !this.editorHook && !this.customs?.uiOpen) Input.requestLock(this.canvas); });
-    bus.on('pointerlock', (locked) => { if (!locked && this.mode === 'play' && !this.paused && !this.photo && !this.hud.bigMapOpen && !this.director.active && !this.ignoreUnlock && !this.gunShop?.open && !this.customs?.active && !this.debugCon?.menuOpen && !this.debugCon?.open && !this.editorHook) this.openPause(); });
+    bus.on('pointerlock', (locked) => { if (!locked && this.mode === 'play' && !this.paused && !this.photo && !this.hud.bigMapOpen && !this.director.active && !this.ignoreUnlock && !this.gunShop?.open && !this.store?.open && !this.customs?.active && !this.debugCon?.menuOpen && !this.debugCon?.open && !this.editorHook) this.openPause(); });
     bus.on('key', (code) => this.onKey(code));
   }
   // ================================================================= loading (genuine progress)
@@ -139,7 +141,7 @@ export class Game {
     this.player = new Player(this.scene, this.camera, this.collision, bus); this.player.crowd = this.crowd;
     this.hud = new HUD(this.ui); this.hud.canSeeUnit = (u) => this.canSeeUnit(u); this.hud.mapExtras = () => this.miniExtras(); this.hud.satellite = new Satellite(this); this.director = new Director(this); this.story = new Story(this); this.interiors = new Interiors(this); this.weapons = new Weapons(this); this.player.weapons = this.weapons; this.squad = new Squad(this); this.orchid = new Assassin(this); /* Black Orchid contractor (Global browser) */ this.police = new PoliceResponse(this); this.heli = new PoliceHelicopter(this); setBloomView(this.camera); /* Air Wing helicopter on the HQ roof pad (police/Helicopter.js): built now, before the shader warm-up — its searchlight is a fixed light */
     this.crowd.onStrike = (p, m, M) => { if (this.weapons) this.weapons.struckBy(p, m, M); }; // street fighters' punches land on the player
-    this.health = new Health(this); this.phone = new Phone(this, this.hud.root); this.gunShop = new GunShopUI(this, this.hud.root); this.garage = new Garage(this); /* Street Customs ownership records (story.state.garage) */ this.debug = newDebugState(); this.debugCon = new DebugConsole(this, this.hud.root);
+    this.health = new Health(this); this.phone = new Phone(this, this.hud.root); this.gunShop = new GunShopUI(this, this.hud.root); this.store = new StoreUI(this, this.hud.root); this.garage = new Garage(this); /* Street Customs ownership records (story.state.garage) */ this.debug = newDebugState(); this.debugCon = new DebugConsole(this, this.hud.root);
     this.applyDensity();
     progress(0.9, 'Lighting'); await tick();
     this.post = new PostFX(this.renderer, this.scene, this.camera); this.post.setCine(Settings.get('lensFlare') !== false, Settings.get('lightShafts') !== false); this.post.build({ bloom: Settings.preset.bloom, ao: Settings.preset.ao, cine: Settings.preset.cine }); this.world.glintsOn = Settings.get('wetReflections') !== false; this.atmos.nightBoost = Settings.get('nightBrightness') ?? 1;
@@ -314,8 +316,8 @@ export class Game {
     await this.hud.fade(0, 0.8); P.control = true; this.setupRoomDoor(); this.autosave();
   }
   async playEnding(kind, state) { this.player.control = false; await this.hud.fade(1, 1.2); this.hud.show(false); Input.releaseLock(); this.ignoreUnlock = true; await this.screens.ending(kind, state); this.ignoreUnlock = false; this.hud.show(true); await this.hud.fade(0, 1); this.player.control = true; Input.requestLock(this.canvas); this.autosave(); }
-  rebuildPlayer() {
-    const P = this.player; const id = this.squad ? this.squad.activeId : 'dineth'; const fits = this.story.state.outfits || {}; const spec = this.debug?.playerSpec || { ...HEROES[id], top: fits[id] || HEROES[id].top };
+  rebuildPlayer(lookOverride) {
+    const P = this.player; const id = this.squad ? this.squad.activeId : 'dineth'; const fits = this.story.state.outfits || {}; const spec = this.debug?.playerSpec || applyLook(HEROES[id], lookOverride !== undefined ? lookOverride : fits[id]); // wardrobe look (shops) or the tailor's jacket colour (older saves: a colour string)
     const old = P.ch; const parent = old.root.parent; const ch = new Character(spec); ch.root.position.copy(old.root.position); ch.root.rotation.copy(old.root.rotation);
     if (parent) { parent.add(ch.root); parent.remove(old.root); } if (this.grenades) this.grenades.end(); if (this.weapons) { this.weapons.forceHolster(); this.weapons.attach(ch); } old.dispose(); P.ch = ch; if (this.squad) this.squad.replaceChar(id, ch); if (P.vehicle) { const seat = P.vehicle.driverSeat(); ch.root.position.set(seat.x, seat.y, seat.z); ch.root.rotation.set(0, 0, 0); ch.anim.sitIn(seat, 1); ch.anim.update(0.001, 0); }
   }
@@ -434,15 +436,17 @@ export class Game {
     if (!D.active && !this.debug.freezeTime) A.advance(dt / Settings.get('timeScale'));
     if (!warmOnly) this.debugCon.update();
     if (this.phone.open && (D.active || this.health.busy)) this.phone.toggle(false); // cutscene / hospital: put the phone away
-    if (this.gunShop.open && (D.active || this.health.busy || !this.indoor)) this.gunShop.toggle(false);
-    const busy = D.active || this.photo || this.hud.bigMapOpen || this.paused || this.phone.open || this.health.busy || this.gunShop.open || !!(this.customs && this.customs.active) || this.debugCon.menuOpen || this.debugCon.open;
+    if (this.gunShop.open && (D.active || this.health.busy || !(this.indoor || (this.player.indoor && this.player.indoor.walkIn)))) this.gunShop.toggle(false); // (walk-in gun shops never set Game.indoor)
+    if (this.store && this.store.open && (D.active || this.health.busy)) this.store.close();
+    const busy = D.active || this.photo || this.hud.bigMapOpen || this.paused || this.phone.open || this.health.busy || this.gunShop.open || !!(this.store && this.store.open) || !!(this.customs && this.customs.active) || this.debugCon.menuOpen || this.debugCon.open;
     if (this.gunShop.open && !warmOnly) this.gunShop.update();
+    if (this.store && this.store.open && !warmOnly) this.store.update(this.dt);
     // global actions
     if (!D.active && !warmOnly && !(this.customs && this.customs.active)) { // Street Customs has the keyboard while it runs (W/S/A/D, R, P, M, J …): the map / phone / pause / radio hot-keys would open over the shop and take the cursor
-      if (Input.wasPressed('map') && !this.photo && !this.gunShop.open) { if (this.phone.open) this.phone.toggle(false); this.toggleMap(); }
-      if (Input.wasPressed('phone') && !this.hud.bigMapOpen && !this.gunShop.open) { if (this.photo) this.togglePhoto(false); else this.phone.toggle(); }
+      if (Input.wasPressed('map') && !this.photo && !this.gunShop.open && !(this.store && this.store.open)) { if (this.phone.open) this.phone.toggle(false); this.toggleMap(); }
+      if (Input.wasPressed('phone') && !this.hud.bigMapOpen && !this.gunShop.open && !(this.store && this.store.open)) { if (this.photo) this.togglePhoto(false); else this.phone.toggle(); }
       else this.phone.update();
-      if (Input.wasPressed('journal') && !this.gunShop.open) this.openPause();
+      if (Input.wasPressed('journal') && !this.gunShop.open && !(this.store && this.store.open)) this.openPause();
       if (P.vehicle && Input.wasPressed('radio')) { this.radio = (this.radio + 1) % RADIO.length; this.hud.notify('Radio', RADIO[this.radio] ? RADIO[this.radio].name : 'Off', 'info', 1.6); }
     }
     if (!D.active && !warmOnly && this.mode === 'play') this.health.update(dt);
@@ -501,7 +505,7 @@ export class Game {
     if (I.current && I.current.nearCounter && I.current.prompt && Input.wasPressed('interact')) { this.gunShop.toggle(true); return null; } // gun shop counter
     if (I.current) { const r = I.update(this.dt); if (r === 'exit' && !this.player.indoorBusy) { if (Input.wasPressed('enter')) I.exit(); return `${key('enter')} Leave ${I.current.D.name}` + (I.current.hero && I.current.prompt ? ` · ${I.current.prompt}` : ''); } return I.current.prompt || null; }
     { const wr = I.walkIn && I.walkIn.room; // standing in a walk-in shop (WalkIn.js): its counter / displays
-      if (wr && wr.prompt) { if (Input.wasPressed('interact')) { if (wr.gun || wr.nearCounter) this.gunShop.toggle(true, wr.gun ? { name: wr.name, sub: 'Licensed firearms dealer · Kollupitiya, Colombo 03' } : null); else if (wr.near && this.store) this.store.open(wr, wr.near); } return wr.prompt; } }
+      if (wr && wr.prompt) { if (Input.wasPressed('interact')) { if (wr.gun || wr.nearCounter) this.gunShop.toggle(true, wr.gun ? { name: wr.name, sub: 'Licensed firearms dealer · Kollupitiya, Colombo 03' } : null); else if (wr.near && this.store) this.store.openAt(wr, wr.near); } return wr.prompt; } }
     if (I.hq && P.indoor === I.hq && I.hq.prompt) { if (I.hq.oic?.near && Input.wasPressed('interact')) I.hq.oic.open = !I.hq.oic.open; return I.hq.prompt; } // seamless HQ: the OIC door
     if (P.entry || P.exiting) return null;
     if (P.vehicle) { if (Input.wasPressed('enter')) { if (!P.exitVehicle(this.traffic)) this.hud.notify('Slow down', 'Stop the vehicle to get out.', 'info', 1.5); } return null; }

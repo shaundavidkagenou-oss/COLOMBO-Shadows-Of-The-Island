@@ -68,7 +68,7 @@ export class Kit {
 export function imagePlane(key, pw, ph, cw, chh, draw, { emissive = 0, rough = 0.7, transparent = false } = {}) {
   const t = canvasTex(key, cw, chh, draw, { repeat: false }); if (!t) return null;
   const m = new THREE.MeshStandardMaterial({ map: t, roughness: rough, transparent, alphaTest: transparent ? 0.02 : 0 }); if (emissive) { m.emissive = new THREE.Color(0xffffff); m.emissiveMap = t; m.emissiveIntensity = emissive; }
-  return new THREE.Mesh(new THREE.PlaneGeometry(pw, ph), m);
+  m.userData.own = true; return new THREE.Mesh(new THREE.PlaneGeometry(pw, ph), m);
 }
 // a lathe solid (bottles, vases, mannequin forms, lamp shades) appended to a MeshBuilder at (x, y, z)
 export function lathe(mb, x, y, z, profile, seg = 16, col) {

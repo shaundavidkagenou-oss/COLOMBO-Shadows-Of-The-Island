@@ -1,4 +1,5 @@
 // Campaign, missions (checkpointed stages), relationships, side activities and collectibles.
+import { lookOf } from '../actors/Wardrobe.js';
 import * as THREE from 'three';
 import * as L from '../world/Layout.js';
 import { plan } from '../world/CityPlan.js';
@@ -425,7 +426,7 @@ export class Story {
     if (pr || !this.talkTarget) this.sidePrompt = pr; else this.sidePrompt = null;
   }
   buyFood() { if (this.state.money < 150) { this.hud.notify('Not enough money'); return; } this.pay(-150, 'Plain tea & rotti'); this.g.player.stamina = 1; this.g.health?.heal(25); this.hud.subtitle('Siri', 'Fresh rotti, extra pol sambol. On the house next time, maybe!', '', 3); }
-  buyOutfit() { if (this.state.money < 2000) { this.hud.notify('Not enough money'); return; } this.pay(-2000, 'Ceylon Threads'); const cols = ['#3c4536', '#5a2a2a', '#1f2a3a', '#6b5a3a', '#2a2a2a', '#3a5a6b']; const fits = this.state.outfits || (this.state.outfits = {}); const who = this.g.squad ? this.g.squad.activeId : 'dineth'; const i = (cols.indexOf(fits[who] || '#3c4536') + 1) % cols.length; fits[who] = cols[i]; this.g.rebuildPlayer(); this.hud.notify('New jacket', 'Looking sharp, machan.'); }
+  buyOutfit() { if (this.state.money < 2000) { this.hud.notify('Not enough money'); return; } this.pay(-2000, 'Ceylon Threads'); const cols = ['#3c4536', '#5a2a2a', '#1f2a3a', '#6b5a3a', '#2a2a2a', '#3a5a6b']; const fits = this.state.outfits || (this.state.outfits = {}); const who = this.g.squad ? this.g.squad.activeId : 'dineth'; const cur = lookOf(fits[who]); const i = (cols.indexOf(cur.topColor || '#3c4536') + 1) % cols.length; cur.topColor = cols[i]; delete cur.top; fits[who] = cur; /* keeps the rest of the wardrobe look */ this.g.rebuildPlayer(); this.hud.notify('New jacket', 'Looking sharp, machan.'); }
   // taxi: pick a pedestrian-side spot nearby, then a destination 400-900 m away
   startTaxi() {
     const rng = new RNG(Math.floor(this.g.clock * 1000)); const p = this.g.player; const pick = (min, max) => { for (let k = 0; k < 200; k++) { const n = L.pedNodes[Math.floor(rng.next() * L.pedNodes.length)]; const d = Math.hypot(n.x - p.x, n.z - p.z); if (d > min && d < max) return n; } return null; };
