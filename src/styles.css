@@ -784,3 +784,4 @@ button.cc-k { cursor: pointer; } button.cc-k:hover { background: rgba(0, 0, 0, 0
 .bo-top { flex: none; background: #121014; color: #ece4ea; padding: 6px 9px 0; } .bo-top .bo-sub { margin: 4px 0 4px; }
 .phone-screen .gb-page.gb-dark { background: #121014; color: #ece4ea; } .gb-page.gb-dark .ph-row.gb-row { background: #1d1820; color: #ece4ea; box-shadow: none; } .gb-page.gb-dark .ph-row.gb-row.sel { box-shadow: 0 0 0 2px #c0587e; background: #2a1f2c; }
 .gb-dark + .ph-hint { background: #121014; color: #ece4ea; }
+.gb-page .ph-row.gb-row.orchid { background: #17121a; color: #f0e6ee; box-shadow: none; } .gb-page .ph-row.gb-row.orchid.sel { background: #231a27; box-shadow: 0 0 0 2px #c0587e; }
