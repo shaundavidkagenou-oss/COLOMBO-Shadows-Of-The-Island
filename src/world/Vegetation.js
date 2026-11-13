@@ -3,11 +3,11 @@ import { MAT } from '../gfx/Materials.js';
 import { treeShapes } from './TreeShapes.js';
 
 export const TREES = {}; // exported for the crown-clearance table check (tools/tree-test.mjs)
-import { windUniform, leafLight } from './Wind.js';
+import { windUniform, leafLight, heliWash, HELI_WASH_GLSL } from './Wind.js';
 export { windUniform };
 export function addWind(mat, amp, leaf = false) {
   mat.onBeforeCompile = (sh) => {
-    sh.uniforms.uWind = windUniform;
+    sh.uniforms.uWind = windUniform; sh.uniforms.uHeli = heliWash;
     if (leaf) { sh.uniforms.uLeafDir = leafLight.dir; sh.uniforms.uLeafCol = leafLight.col;
       // leaves: per-tree colour variation (no two crowns the identical green) and translucency — sunlight glowing yellow-green
       // through leaves seen against the sun, and through the shaded side of every card
@@ -25,7 +25,7 @@ export function addWind(mat, amp, leaf = false) {
         .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
           reflectedLight.directSpecular *= 0.12; reflectedLight.indirectSpecular *= 0.2;`);
     }
-    sh.vertexShader = 'uniform float uWind;\n' + (leaf ? 'varying float vLeafH;\n' : '') + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+    sh.vertexShader = 'uniform float uWind;\nuniform vec4 uHeli;\n' + HELI_WASH_GLSL + (leaf ? 'varying float vLeafH;\n' : '') + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
       #ifdef USE_INSTANCING
         float ph = instanceMatrix[3].x * 0.13 + instanceMatrix[3].z * 0.11;
       #elif defined( USE_BATCHING )
@@ -35,9 +35,20 @@ export function addWind(mat, amp, leaf = false) {
       #endif
       float hgt = max(0.0, position.y - 2.5);${leaf ? 'vLeafH = fract(sin(ph * 91.7 + 3.1) * 43758.5453);' : ''}
       transformed.x += sin(uWind * 1.7 + ph + position.z * 0.3) * ${amp.toFixed(3)} * hgt;
-      transformed.z += cos(uWind * 1.3 + ph * 1.3 + position.x * 0.3) * ${amp.toFixed(3)} * hgt * 0.7;`);
+      transformed.z += cos(uWind * 1.3 + ph * 1.3 + position.x * 0.3) * ${amp.toFixed(3)} * hgt * 0.7;
+      if (uHeli.w > 0.0) { // helicopter downwash: crowns lean and thrash away from the rotor column (the trunk's base stays put)
+        #ifdef USE_INSTANCING
+          mat4 hwM = modelMatrix * instanceMatrix;
+        #elif defined( USE_BATCHING )
+          mat4 hwM = modelMatrix * batchingMatrix;
+        #else
+          mat4 hwM = modelMatrix;
+        #endif
+        vec3 hp = heliWashPush((hwM * vec4(transformed, 1.0)).xyz, uWind);
+        transformed += inverse(mat3(hwM)) * hp * (${(amp * 6).toFixed(3)} * hgt + ${leaf ? '0.12' : '0.05'});
+      }`);
   };
-  mat.customProgramCacheKey = () => 'wind' + amp + (leaf ? '-leaf3' : '');
+  mat.customProgramCacheKey = () => 'wind' + amp + (leaf ? '-leaf3' : '') + '-heli';
 }
 export function buildTreeGeometries() {
   addWind(MAT.leaves, 0.012, true); addWind(MAT.leavesBright, 0.014, true); addWind(MAT.palm, 0.02); if (MAT.banana) addWind(MAT.banana, 0.02); if (MAT.leavesSmall) addWind(MAT.leavesSmall, 0.01, true); if (MAT.bloom) addWind(MAT.bloom, 0.012);

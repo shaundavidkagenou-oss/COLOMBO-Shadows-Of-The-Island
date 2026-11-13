@@ -12,7 +12,7 @@ import { CHUNK, NCX, NCZ, chunkCenter } from './CityPlan.js';
 import * as L from './Layout.js';
 import { onParkFeature } from './Parks.js';
 import { TEX } from '../gfx/Textures.js';
-import { leafLight } from './Wind.js';
+import { leafLight, heliWash, HELI_WASH_GLSL } from './Wind.js';
 
 const CELL = 0.5, N = CHUNK / CELL;
 // materials of hard / non-lawn ground: grass never grows through these where they lie on the lawn
@@ -69,7 +69,7 @@ export class GrassField {
     this.px = { grass: texPixels(TEX.grass), lawn: texPixels(TEX.lawn) };
     const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0, side: THREE.DoubleSide });
     mat.onBeforeCompile = (sh) => {
-      Object.assign(sh.uniforms, grassUniforms); sh.uniforms.uLeafDir = leafLight.dir; sh.uniforms.uLeafCol = leafLight.col;
+      Object.assign(sh.uniforms, grassUniforms); sh.uniforms.uHeli = heliWash; sh.uniforms.uLeafDir = leafLight.dir; sh.uniforms.uLeafCol = leafLight.col;
       // sunlight through thin blades seen against the light (the glow real grass has at low sun), only toward the open tip
       sh.fragmentShader = 'uniform vec3 uLeafDir;\nuniform vec3 uLeafCol;\n' + sh.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         { vec3 Lv = normalize((viewMatrix * vec4(uLeafDir, 0.0)).xyz); vec3 Vv = normalize(vViewPosition); float through = pow(max(dot(-Vv, Lv), 0.0), 3.0);
@@ -77,7 +77,7 @@ export class GrassField {
         .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n  reflectedLight.directSpecular *= 0.35;');
       // both faces of a blade keep the up-facing normal (default DoubleSide flips it on back faces → black spikes)
       sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', THREE.ShaderChunk.normal_fragment_begin.split('*= faceDirection').join('*= 1.0'));
-      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uGTime; uniform float uGWind;')
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uGTime; uniform float uGWind; uniform vec4 uHeli;' + HELI_WASH_GLSL)
         .replace('#include <begin_vertex>', `#include <begin_vertex>
         {
           vec3 iw = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
@@ -87,6 +87,7 @@ export class GrassField {
           mat3 im = mat3(instanceMatrix); vec3 wl = normalize(transpose(im) * vec3(0.8, 0.0, 0.6));
           transformed += wl * sw * k * 0.22;
           transformed.y -= k * abs(sw) * 0.05;
+          if (uHeli.w > 0.0) { vec3 hp = heliWashPush(iw, uGTime); transformed += transpose(im) * vec3(hp.x, 0.0, hp.z) * k * 0.6; transformed.y -= k * length(hp.xz) * 0.3; } // rotor downwash flattens the blades outward
         }`);
     };
     this.mesh = new THREE.InstancedMesh(bladeClump(), mat, this.max); this.mesh.name = 'grassBlades';

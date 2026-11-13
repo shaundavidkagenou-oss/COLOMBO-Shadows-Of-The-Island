@@ -27,6 +27,7 @@ import { seatCharacter } from '../actors/Seating.js';
 import { boardCurve, poseBoard, npcBoardSetup, boardGroundFn, swingDoor, lapGrips, EXIT_K } from '../actors/Boarding.js';
 import { shutDoorLater, cancelShut, poseDoor } from '../vehicles/DoorRig.js';
 import { Audio } from '../audio/Audio.js';
+import { SoundBank } from '../audio/SoundBank.js';
 import { clamp, lerp } from '../core/math.js';
 import { FootNav } from './FootNav.js';
 import { Firefight } from './Firefight.js';
@@ -81,12 +82,15 @@ export function nearestRoad(segs, x, z) {
   if (best) best.d = Math.sqrt(best.d); return best;
 }
 // Dijkstra from `start` over drivable segments; `back` = node we came from (turning back there costs a U-turn penalty)
-export function shortest(start, drivable, back = null) {
-  const dist = new Map(), prev = new Map(), done = new Set(); dist.set(start, 0); const heap = [[0, start]];
+// `goals` (optional): stop as soon as every one of these nodes is settled — their distances / paths are already final then
+// (Dijkstra settles nodes in distance order), so a route to a nearby goal no longer floods the whole city's road graph
+export function shortest(start, drivable, back = null, goals = null) {
+  const dist = new Map(), prev = new Map(), done = new Set(); dist.set(start, 0); const heap = [[0, start]]; let left = goals ? goals.length : -1;
   const push = (d, n) => { heap.push([d, n]); let i = heap.length - 1; while (i > 0) { const j = (i - 1) >> 1; if (heap[j][0] <= heap[i][0]) break; [heap[i], heap[j]] = [heap[j], heap[i]]; i = j; } };
   const pop = () => { const top = heap[0]; const last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[i], heap[m]] = [heap[m], heap[i]]; i = m; } } return top; };
   while (heap.length) {
     const [d, n] = pop(); if (done.has(n)) continue; done.add(n);
+    if (left > 0 && goals.includes(n) && --left === 0) break;
     for (const s of n.segs) {
       if (!drivable.has(s)) continue; const o = otherEnd(s, n); const len = Math.hypot(o.x - n.x, o.z - n.z) * [1, 1.08, 1.25, 1.6][s.level || 0] + (n === start && o === back ? 60 : 0) + 4;
       const nd = d + len; if (nd < (dist.get(o) ?? Infinity)) { dist.set(o, nd); prev.set(o, n); push(nd, o); }
@@ -139,14 +143,14 @@ export class PoliceResponse {
     if (this.bodies.length) this.updateBodies(dt);
     if (this.cine) { this.cine.update(dt); this.updateSiren(dt, false); this.ff.update(dt); return; } // BUSTED sequence owns the officers and the camera
     if (g.director.active || this.busy) { this.updateSiren(dt, true); this.ff.update(dt); return; }
-    this.foot = []; for (const u of this.units.concat(this.civil)) for (const o of u.officers) if (o.mode === 'foot' || o.mode === 'down' || o.mode === 'return') this.foot.push(o);
+    const F = this.foot = []; for (const L of [this.units, this.civil]) for (const u of L) for (const o of u.officers) if (o.mode === 'foot' || o.mode === 'down' || o.mode === 'return') F.push(o); // (a fresh list: callers keep last frame's)
     this.updateGlobal(dt); this.recordTrail();
     for (const u of this.units.slice()) this.updateUnit(u, dt);
     for (const u of this.civil.slice()) this.updateCivil(u, dt);
     this.ems.update(dt);
     this.updateRoadblocks(dt); this.updateRadio(dt);
     this.updateStop(dt); this.g.player.policeStop = !!this.stop; this.pushPlayer(); this.updateSiren(dt, false);
-    this.stats.maxUnits = Math.max(this.stats.maxUnits, this.units.filter((u) => !u.patrol).length);
+    { let n = 0; for (const u of this.units) if (!u.patrol) n++; if (n > this.stats.maxUnits) this.stats.maxUnits = n; }
     this.ff.update(dt);
   }
   updateGlobal(dt) {
@@ -221,7 +225,7 @@ export class PoliceResponse {
   updateQueue() {
     if (!this.queue.length) return; this.queue.sort((a, b) => a.t - b.t);
     for (const q of this.queue.slice()) { if (q.t > this.t) break; const u = this.launch(q);
-      if (u) { this.queue.splice(this.queue.indexOf(q), 1); const pt = this.dispatchTarget(); if (pt) this.assign(u, 'drive', pt); }
+      if (u) { this.queue.splice(this.queue.indexOf(q), 1); const pt = this.dispatchTarget(); if (pt) this.assign(u, 'drive', pt); break; } // one car leaves per frame (a new car + crew + its route is the costliest police step: never several in one frame)
       else if (++q.tries > 10) { this.queue.splice(this.queue.indexOf(q), 1); this.release(q.src); const f = this.spawnUnit({ jeep: q.jeep }); if (f) { const pt = this.dispatchTarget(); if (pt) this.assign(f, 'drive', pt); } } // gate blocked for long: the old out-of-view fallback, never no response
       else q.t = this.t + 1.2; }
   }
@@ -289,12 +293,13 @@ export class PoliceResponse {
   }
   makeUnit(x, z, yaw, piece, s, patrol, jeep, ems = false) {
     const g = this.g, T = this.T, P = g.player; {
-      const type = ems ? 'ambulance' : jeep ? 'policejeep' : 'police'; const v = new Vehicle(type, 3000 + this.seed * 7, g.scene); v.place(x, z, yaw);
+      const tm0 = performance.now(); const type = ems ? 'ambulance' : jeep ? 'policejeep' : 'police'; const v = new Vehicle(type, 3000 + this.seed * 7, g.scene); v.place(x, z, yaw); const tm1 = performance.now();
       v.keep = true; v.ai = { pieces: [piece], s, v0: patrol ? 9 : 11, stuck: 0, honkCd: 99, bumped: 0, aggressive: 1.2, emergency: true }; T.extend(v);
       const u = { id: this.seed++, v, officers: [], task: patrol ? 'patrol' : 'idle', patrol, arrived: false, footT: 0, stuckT: 0, planT: 0, goalPt: null, enterT: 0 };
       v.police = u; const seats = v.mesh.userData.seats; const di = seats.findIndex((q) => q.driver); const pi = seats.map((q, i) => i).filter((i) => i !== di).sort((i, j) => Math.abs(seats[i].z - seats[di].z) - Math.abs(seats[j].z - seats[di].z))[0];
       for (const [k, si] of [[0, di], [1, pi]]) { if (si === undefined || si < 0) continue; const ch = new Character(crewSpec(u.id, k, ems)); seatCharacter(ch, v, seats[si]); ch.mesh.castShadow = false; const off = { ch, unit: u, seat: seats[si], si, mode: 'seated', x, z, y: v.y, yaw: v.yaw, t: 0, hits: 0, acc: 0 }; if (ems) { off.medic = true; off.noTorch = true; } else this.ff.arm(off); u.officers.push(off); } // every officer carries a T-56 (slung; hidden while seated)
       this.syncSeated(u); v.paxPlan = []; T.vehicles.push(v); this.units.push(u);
+      { const tm2 = performance.now(), M = this.stats.make || (this.stats.make = { n: 0, veh: 0, crew: 0, vehMax: 0, crewMax: 0 }); M.n++; M.veh += tm1 - tm0; M.crew += tm2 - tm1; M.vehMax = Math.max(M.vehMax, tm1 - tm0); M.crewMax = Math.max(M.crewMax, tm2 - tm1); } // spawn cost (dev stats)
       const dp = Math.hypot(x - P.x, z - P.z); this.stats.spawnMinDist = Math.min(this.stats.spawnMinDist, dp); this.note(`unit ${u.id} (${type}${patrol ? ', patrol' : ''}) spawned ${dp.toFixed(0)} m away`);
       return u;
     }
@@ -313,7 +318,7 @@ export class PoliceResponse {
     ai.pieces = ai.pieces[0].type === 'line' ? [ai.pieces[0]] : ai.pieces.slice(0, 2); const last = ai.pieces[ai.pieces.length - 1]; ai.route = null; ai.goal = null;
     const proj = (pc) => clamp((tgt.px - pc.p0[0]) * pc.d[0] + (tgt.pz - pc.p0[1]) * pc.d[1], 1.5, pc.len - 1.5);
     if (last.seg === tgt.seg) { const s = proj(last); const cur = last === ai.pieces[0] ? ai.s : -1; if (s > cur + 4) { ai.route = []; ai.goal = { seg: tgt.seg, from: last.from, piece: last, s, soft }; T.extend(v); u.goalRoad = tgt; return true; } }
-    const start = last.to; const { dist, prev } = shortest(start, T.drivable, last.from); const [a, b] = segNodes(tgt.seg);
+    const start = last.to; const [a, b] = segNodes(tgt.seg); const { dist, prev } = shortest(start, T.drivable, last.from, [a, b]); this.planN = (this.planN || 0) + 1; this.planFrame = this.t;
     const ca = (dist.get(a) ?? Infinity) + Math.hypot(tgt.px - a.x, tgt.pz - a.z), cb = (dist.get(b) ?? Infinity) + Math.hypot(tgt.px - b.x, tgt.pz - b.z);
     if (!isFinite(ca) && !isFinite(cb)) { this.note(`unit ${u.id}: no route`); return false; }
     const [from, to] = ca <= cb ? [a, b] : [b, a]; const path = from === start ? [] : pathTo(prev, start, from); if (!path) return false;
@@ -357,7 +362,7 @@ export class PoliceResponse {
         u.minD = Math.min(u.minD ?? 1e9, dToT); u.age = (u.age || 0) + dt;
         if ((u.minD < 250 || u.age > 50) && straggler(v, tg, dToT, this.inView(v))) { /* (a car still on its way in from a base is not a straggler) */ this.stats.recycled++; this.note(`unit ${u.id} fell behind, recycled`); this.leave(u); return; } /* topUp sends a fresh car from ahead */
       }
-      if (st === 'pursuing' && u.planT <= 0) { // chase: aim ~2.5 s ahead of a moving suspect (soft goal, no braking); hard stop only once they have stopped
+      if (st === 'pursuing' && u.planT <= 0 && this.planFrame !== this.t) { // chase (one unit re-plans per frame: no frame does every car's route at once): aim ~2.5 s ahead of a moving suspect (soft goal, no braking); hard stop only once they have stopped
         u.planT = 1.6; const live = this.seenT < 0.25; /* someone has eyes on the suspect right now */ const ls = live ? tg : this.lastSeen; const sp = live && tg.v ? Math.abs(tg.v.speed) : live ? (this.g.player.speed || 0) : 0;
         if (ls) { const h = live ? (tg.v ? tg.v.yaw : this.g.player.yaw) : (this.lastSeen.h || 0); const lead = live ? Math.min(45, sp * 2.5) : 0; const ax = ls.x + Math.sin(h) * lead, az = ls.z + Math.cos(h) * lead; const soft = sp > 2;
           if (!u.goalPt || Math.hypot(u.goalPt.x - ax, u.goalPt.z - az) > 10 || soft !== !!u.softGoal) { u.goalPt = { x: ax, z: az }; u.softGoal = soft; this.plan(u, ax, az, soft); } } }
@@ -849,16 +854,18 @@ export class PoliceResponse {
   // ------------------------------------------------------------------ siren (synthesised wail; nearest responding unit, spatialised)
   updateSiren(dt, mute) {
     if (!Audio.ready || !Audio.ctx) return; const c = Audio.ctx;
-    if (!this.siren) { const o1 = c.createOscillator(), o2 = c.createOscillator(); o1.type = 'square'; o2.type = 'sawtooth'; const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1100; f.Q.value = 0.8; const gn = c.createGain(); gn.gain.value = 0; const pan = c.createStereoPanner ? c.createStereoPanner() : null; o1.connect(f); o2.connect(f); f.connect(gn); if (pan) { gn.connect(pan); pan.connect(Audio.bus.sfx); } else gn.connect(Audio.bus.sfx); o1.start(); o2.start(); this.siren = { o1, o2, gn, pan, ph: 0 }; }
+    if (!this.siren) { const o1 = c.createOscillator(), o2 = c.createOscillator(); o1.type = 'square'; o2.type = 'sawtooth'; const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1100; f.Q.value = 0.8; const gn = c.createGain(); gn.gain.value = 0; const og = c.createGain(); const pan = c.createStereoPanner ? c.createStereoPanner() : null; o1.connect(f); o2.connect(f); f.connect(og); og.connect(gn); if (pan) { gn.connect(pan); pan.connect(Audio.bus.sfx); } else gn.connect(Audio.bus.sfx); o1.start(); o2.start(); this.siren = { o1, o2, og, gn, pan, ph: 0 }; }
     const S = this.siren; let best = null, bd = 1e9; if (!mute && this.stars() >= 2) for (const u of this.units) { if (!u.v || u.task === 'leave' || u.patrol) continue; const d = Math.hypot(u.v.x - this.g.camera.position.x, u.v.z - this.g.camera.position.z); if (d < bd) { bd = d; best = u.v; } }
     const now = c.currentTime; let gain = 0, pan = 0; if (best) { const [gg, pp] = Audio.spatial(best.x, best.z, 90); gain = 0.07 * gg * (this.g.indoor ? 0.3 : 1); pan = pp; }
     const yelp = best && bd < 45 && this.state === 'pursuing'; S.ph += dt; const k = 0.5 - 0.5 * Math.cos((S.ph / (yelp ? 0.36 : 3.4)) * Math.PI * 2); const fq = yelp ? 820 + 620 * k : 620 + 760 * k; // wail → yelp up close
     S.o1.frequency.setTargetAtTime(fq, now, 0.03); S.o2.frequency.setTargetAtTime(fq * 1.005, now, 0.03); S.gn.gain.setTargetAtTime(gain, now, 0.15); if (S.pan) S.pan.pan.setTargetAtTime(pan, now, 0.1);
+    const rec = !!SoundBank.syncLoop(S, 'siren.police', S.gn); if (rec !== !!S.rec) { S.rec = rec; S.og.gain.setTargetAtTime(rec ? 0 : 1, now, 0.05); } // the player's siren recording (looped) instead of the synthesised wail
   }
 
   // ------------------------------------------------------------------ HUD feed
   hudInfo() {
     const units = []; for (const u of this.units) { const p = u.v || u.officers[0]; if (p) units.push({ x: p.x, z: p.z, lights: !!(u.v && u.v.beaconsOn), patrol: u.patrol }); }
+    { const hm = this.g.heli && this.g.heli.hudMark && this.g.heli.hudMark(); if (hm) units.push(hm); } // the Air Wing helicopter
     const lv = this.stars(); let label = lv > 0 || this.state === 'return' ? STATE_LABEL[this.state] || '' : '';
     if (this.state === 'searching' && this.search) { const s = Math.max(0, Math.ceil(this.search.t)); label += ` ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
     if (this.stop) label = 'POLICE STOP';

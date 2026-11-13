@@ -7,6 +7,7 @@
 // Mouse works too when the pointer is not locked. The phone never pauses the world.
 import { Input } from '../core/Input.js';
 import { Audio } from '../audio/Audio.js';
+import { SoundBank } from '../audio/SoundBank.js';
 import { plan } from '../world/CityPlan.js';
 import * as L from '../world/Layout.js';
 import { callOptions, lines as friendLines } from '../actors/SquadCall.js';
@@ -98,7 +99,7 @@ export class Phone {
     if (id === 'bye') { sq.dismiss(m); return { ok: true, title: t, msg: Ln.bye }; }
     return { ok: false, title: t, msg: 'No answer.' };
   }
-  ring() { if (Audio.tone) { Audio.tone(425, 0.9, { type: 'sine', vol: 0.05, attack: 0.02 }); } }
+  ring() { if (SoundBank.play('phone.ring')) return; if (Audio.tone) { Audio.tone(425, 0.9, { type: 'sine', vol: 0.05, attack: 0.02 }); } }
   hangUp() { const c = this.call; this.call = null; this.row = 0; if (c && c.stage === 'done' && c.res) this.g.hud.notify(c.res.title || '119', c.res.msg, c.res.ok ? 'info' : 'warn', 6); this.toggle(false); }
   update() {
     if (!this.open) return;

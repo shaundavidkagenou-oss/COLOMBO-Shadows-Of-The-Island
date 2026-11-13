@@ -5,6 +5,7 @@ import { clamp, lerp } from '../core/math.js';
 import * as L from '../world/Layout.js';
 import { CATALOG, isHeavy } from '../vehicles/VehicleCatalog.js';
 import { BIKES } from '../vehicles/BikeCatalog.js';
+import { SoundBank as SB } from './SoundBank.js'; // player-supplied recordings replacing any of the sounds below (console: sounds)
 const DIESEL = new Set(['van', 'suv', 'policejeep', ...Object.keys(CATALOG).filter((k) => CATALOG[k].sound === 'van')]);
 
 class AudioEngine {
@@ -24,14 +25,14 @@ class AudioEngine {
     this.noiseBuf = this.makeNoise(3, 'white'); this.brownBuf = this.makeNoise(4, 'brown');
     // ambience loops
     this.layers = {};
-    const loop = (buf, f, q, type = 'lowpass') => { const s = c.createBufferSource(); s.buffer = buf; s.loop = true; const fl = c.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q; const g = c.createGain(); g.gain.value = 0; s.connect(fl); fl.connect(g); g.connect(this.bus.amb); s.start(); return { s, f: fl, g }; };
+    const loop = (buf, f, q, type = 'lowpass') => { const s = c.createBufferSource(); s.buffer = buf; s.loop = true; const fl = c.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q; const og = c.createGain(); const g = c.createGain(); g.gain.value = 0; s.connect(fl); fl.connect(og); og.connect(g); g.connect(this.bus.amb); s.start(); return { s, f: fl, og, g }; }; // og: the synthesised layer (muted while a recording replaces it)
     this.layers.city = loop(this.brownBuf, 420, 0.5);
     this.layers.rain = loop(this.noiseBuf, 2600, 0.4, 'bandpass');
     this.layers.rainLow = loop(this.brownBuf, 900, 0.3);
     this.layers.sea = loop(this.brownBuf, 600, 0.6);
     this.layers.wind = loop(this.noiseBuf, 500, 2.5, 'bandpass');
     this.applyVolumes(); bus.on('settings', () => this.applyVolumes());
-    this.ready = true;
+    this.ready = true; SB.attach(c, this);
   }
   applyVolumes() { if (!this.ctx) return; const S = (k) => Settings.get(k); this.master.gain.value = S('master'); this.bus.music.gain.value = S('music') * 0.55; this.bus.sfx.gain.value = S('sfx'); this.bus.amb.gain.value = S('ambience'); this.bus.dlg.gain.value = S('dialogue'); }
   makeNoise(sec, kind) { const c = this.ctx; const b = c.createBuffer(1, c.sampleRate * sec, c.sampleRate); const d = b.getChannelData(0); let last = 0; for (let i = 0; i < d.length; i++) { const w = Math.random() * 2 - 1; if (kind === 'brown') { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; } else d[i] = w; } return b; }
@@ -51,9 +52,10 @@ class AudioEngine {
   // ---- spatial helper: returns [gain, pan] for a world point relative to listener
   spatial(x, z, ref = 30) { if (!this.listener) return [1, 0]; const l = this.listener; const dx = x - l.x, dz = z - l.z; const d = Math.hypot(dx, dz); const g = clamp(ref / (ref + d * d * 0.08), 0, 1); const rx = Math.cos(l.yaw), rz = -Math.sin(l.yaw); const pan = clamp((dx * rx + dz * rz) / (d + 1), -1, 1) * -1; return [g, pan]; }
   // ---- sfx
-  footstep(sprint, wet) { this.noise(0.07, { f: wet ? 1800 : 900 + Math.random() * 300, q: 1.2, vol: sprint ? 0.12 : 0.07, type: 'bandpass' }); if (wet) this.noise(0.05, { f: 3500, q: 2, vol: 0.04, when: 0.02 }); }
+  footstep(sprint, wet) { if (SB.play('footstep', (sprint ? 1 : 0.6) * (0.85 + Math.random() * 0.3), 0, 0, { rate: 0.94 + Math.random() * 0.12 })) return; this.noise(0.07, { f: wet ? 1800 : 900 + Math.random() * 300, q: 1.2, vol: sprint ? 0.12 : 0.07, type: 'bandpass' }); if (wet) this.noise(0.05, { f: 3500, q: 2, vol: 0.04, when: 0.02 }); }
   horn(type, x, z, style = null) {
     const [g, pan] = this.spatial(x, z, 60); if (g < 0.02) return; const v = 0.25 * g;
+    if (SB.play(style ? 'horn.' + style : type === 'tuktuk' || type === 'bike' || BIKES[type] ? 'horn.small' : isHeavy(type) ? 'horn.heavy' : 'horn.car', g, pan)) return;
     if (style) { // Street Customs horns
       if (style === 'dual') { this.tone(392, 0.4, { type: 'square', vol: v * 0.35, pan }); this.tone(494, 0.4, { type: 'square', vol: v * 0.3, pan }); }
       else if (style === 'sport') { this.tone(640, 0.28, { type: 'square', vol: v * 0.35, pan }); this.tone(800, 0.28, { type: 'square', vol: v * 0.28, pan }); }
@@ -64,20 +66,20 @@ class AudioEngine {
     else if (isHeavy(type)) { for (const f of [233, 294, 349]) this.tone(f, 0.9, { type: 'sawtooth', vol: v * 0.35, pan, attack: 0.04 }); }
     else { this.tone(420, 0.35, { type: 'square', vol: v * 0.4, pan }); this.tone(520, 0.35, { type: 'square', vol: v * 0.3, pan }); }
   }
-  crash(v) { this.noise(0.5, { f: 600, q: 0.7, vol: clamp(v / 20, 0.1, 0.6), type: 'lowpass', buf: this.brownBuf }); this.noise(0.25, { f: 3000, q: 1, vol: clamp(v / 40, 0.05, 0.3), when: 0.02 }); for (let i = 0; i < 4; i++) this.tone(2000 + Math.random() * 3000, 0.15, { type: 'triangle', vol: 0.03, when: 0.05 + i * 0.04 }); }
+  crash(v) { if (SB.play('veh.crash', clamp(v / 20, 0.2, 1))) return; this.noise(0.5, { f: 600, q: 0.7, vol: clamp(v / 20, 0.1, 0.6), type: 'lowpass', buf: this.brownBuf }); this.noise(0.25, { f: 3000, q: 1, vol: clamp(v / 40, 0.05, 0.3), when: 0.02 }); for (let i = 0; i < 4; i++) this.tone(2000 + Math.random() * 3000, 0.15, { type: 'triangle', vol: 0.03, when: 0.05 + i * 0.04 }); }
   // ---- vehicle damage (VehicleDamage.js), all positional
-  glassShatter(x, z, big = 1) { if (!this.ready) return; const [g, pan] = this.spatial(x, z, 25); if (g < 0.01) return; const v = g * big; // tempered glass: a sharp burst, then the cubes raining down
+  glassShatter(x, z, big = 1) { if (!this.ready) return; const [g, pan] = this.spatial(x, z, 25); if (g < 0.01) return; const v = g * big; if (SB.play('veh.glass', Math.min(1, v), pan)) return; // tempered glass: a sharp burst, then the cubes raining down
     this.noise(0.06, { f: 5200, q: 0.7, type: 'highpass', vol: 0.3 * v, pan, attack: 0.001 }); this.noise(0.15 + 0.5 * big, { f: 7000, q: 0.6, vol: 0.07 * v, pan, when: 0.03, attack: 0.01 });
     for (let i = 0; i < 10; i++) this.tone(2800 + Math.random() * 6000, 0.04 + Math.random() * 0.1, { type: 'triangle', vol: 0.035 * v, when: 0.02 + Math.random() * (0.25 + 0.35 * big), pan: clamp(pan + (Math.random() - 0.5) * 0.3, -1, 1) }); }
-  glassCrack(x, z) { if (!this.ready) return; const [g, pan] = this.spatial(x, z, 25); if (g < 0.01) return; this.noise(0.04, { f: 3500, q: 1.5, vol: 0.2 * g, pan, attack: 0.001 }); this.tone(1500 + Math.random() * 500, 0.05, { type: 'triangle', vol: 0.04 * g, pan }); }
-  bulletMetal(x, z, heavy = false) { if (!this.ready) return; const [g, pan] = this.spatial(x, z, 30); if (g < 0.01) return; this.noise(0.07, { f: heavy ? 520 : 1100, q: 0.9, type: 'lowpass', vol: 0.3 * g, pan, attack: 0.001 }); const f = 1700 + Math.random() * 900; this.tone(f, 0.12, { type: 'sine', vol: 0.05 * g, pan, glide: f * 0.8 }); }
-  tyreBurst(x, z) { if (!this.ready) return; const [g, pan] = this.spatial(x, z, 35); if (g < 0.01) return; this.noise(0.12, { f: 1600, q: 0.6, type: 'lowpass', vol: 0.55 * g, pan, attack: 0.001 }); this.tone(90, 0.12, { type: 'sine', vol: 0.3 * g, pan, glide: 50 }); this.noise(0.9, { f: 4500, q: 0.8, vol: 0.1 * g, pan, when: 0.05, sweep: 2500 }); }
-  fireCrackle(x, z, k = 1) { if (!this.ready) return; const [g, pan] = this.spatial(x, z, 20); if (g < 0.02) return; this.noise(0.015 + Math.random() * 0.03, { f: 1200 + Math.random() * 2500, q: 2, vol: 0.12 * g * k, pan, attack: 0.001 }); if (Math.random() < 0.3) this.noise(0.4, { f: 300, type: 'lowpass', q: 0.5, vol: 0.08 * g * k, buf: this.brownBuf, pan }); }
-  debrisHit(x, z, k = 1) { if (!this.ready) return; const [g, pan] = this.spatial(x, z, 25); if (g < 0.02) return; this.noise(0.12, { f: 700, q: 0.7, type: 'lowpass', vol: 0.3 * g * k, pan, buf: this.brownBuf }); this.tone(400 + Math.random() * 600, 0.1, { type: 'triangle', vol: 0.04 * g * k, pan }); }
-  thunder(dist = 0.5) { this.noise(3.5, { f: 180, q: 0.5, type: 'lowpass', vol: 0.6 * (1 - dist * 0.5), attack: 0.08 + dist * 0.4, buf: this.brownBuf, out: 'amb', when: dist * 1.5 }); this.noise(1.2, { f: 900, q: 0.4, type: 'lowpass', vol: 0.2 * (1 - dist), when: dist * 1.5 }); }
-  ui(kind = 'click') { if (kind === 'click') this.tone(880, 0.05, { type: 'triangle', vol: 0.08 }); else if (kind === 'hover') this.tone(1320, 0.03, { type: 'sine', vol: 0.03 }); else if (kind === 'notify') { this.tone(660, 0.2, { vol: 0.1, verb: true }); this.tone(990, 0.3, { vol: 0.08, when: 0.1, verb: true }); } else if (kind === 'success') { [523, 659, 784, 1046].forEach((f, i) => this.tone(f, 0.4, { vol: 0.09, when: i * 0.09, verb: true, type: 'triangle' })); } else if (kind === 'fail') { [392, 330, 262].forEach((f, i) => this.tone(f, 0.4, { vol: 0.1, when: i * 0.14, type: 'triangle' })); } else if (kind === 'collect') { [988, 1319].forEach((f, i) => this.tone(f, 0.25, { vol: 0.09, when: i * 0.07, verb: true })); } else if (kind === 'camera') { this.noise(0.04, { f: 4000, vol: 0.2 }); this.noise(0.06, { f: 2500, vol: 0.15, when: 0.08 }); } else if (kind === 'door') { this.noise(0.3, { f: 300, q: 0.8, vol: 0.2, type: 'lowpass', buf: this.brownBuf }); } }
-  doorOpen() { this.noise(0.03, { f: 2600, q: 3, vol: 0.06 }); this.noise(0.05, { f: 1400, q: 2, vol: 0.05, when: 0.04 }); this.noise(0.25, { f: 420, q: 0.7, vol: 0.03, type: 'lowpass', when: 0.08 }); } // latch release + seal letting go
-  doorSlam(s = 2) { const k = clamp(s / 4, 0.25, 1); this.noise(0.22, { f: 160, q: 0.8, vol: 0.42 * k, type: 'lowpass', buf: this.brownBuf }); this.tone(70, 0.18, { type: 'sine', vol: 0.22 * k, glide: 48 }); this.noise(0.035, { f: 2200, q: 2.5, vol: 0.09 * k, when: 0.012 }); this.noise(0.4, { f: 900, q: 0.6, vol: 0.03 * k, type: 'lowpass', when: 0.04 }); } // body thump + latch clack
+  glassCrack(x, z) { if (!this.ready) return; const [g, pan] = this.spatial(x, z, 25); if (g < 0.01) return; if (SB.play('veh.glassCrack', g, pan)) return; this.noise(0.04, { f: 3500, q: 1.5, vol: 0.2 * g, pan, attack: 0.001 }); this.tone(1500 + Math.random() * 500, 0.05, { type: 'triangle', vol: 0.04 * g, pan }); }
+  bulletMetal(x, z, heavy = false) { if (!this.ready) return; const [g, pan] = this.spatial(x, z, 30); if (g < 0.01) return; if (SB.play('impact.metal', g * (heavy ? 1 : 0.8), pan, 0, { rate: heavy ? 0.85 : 1 })) return; this.noise(0.07, { f: heavy ? 520 : 1100, q: 0.9, type: 'lowpass', vol: 0.3 * g, pan, attack: 0.001 }); const f = 1700 + Math.random() * 900; this.tone(f, 0.12, { type: 'sine', vol: 0.05 * g, pan, glide: f * 0.8 }); }
+  tyreBurst(x, z) { if (!this.ready) return; const [g, pan] = this.spatial(x, z, 35); if (g < 0.01) return; if (SB.play('veh.tyreBurst', g, pan)) return; this.noise(0.12, { f: 1600, q: 0.6, type: 'lowpass', vol: 0.55 * g, pan, attack: 0.001 }); this.tone(90, 0.12, { type: 'sine', vol: 0.3 * g, pan, glide: 50 }); this.noise(0.9, { f: 4500, q: 0.8, vol: 0.1 * g, pan, when: 0.05, sweep: 2500 }); }
+  fireCrackle(x, z, k = 1) { if (!this.ready) return; const [g, pan] = this.spatial(x, z, 20); if (g < 0.02) return; if (SB.play('fire', g * k, pan, 0, { mono: true })) return; this.noise(0.015 + Math.random() * 0.03, { f: 1200 + Math.random() * 2500, q: 2, vol: 0.12 * g * k, pan, attack: 0.001 }); if (Math.random() < 0.3) this.noise(0.4, { f: 300, type: 'lowpass', q: 0.5, vol: 0.08 * g * k, buf: this.brownBuf, pan }); }
+  debrisHit(x, z, k = 1) { if (!this.ready) return; const [g, pan] = this.spatial(x, z, 25); if (g < 0.02) return; if (SB.play('debris', g * k, pan)) return; this.noise(0.12, { f: 700, q: 0.7, type: 'lowpass', vol: 0.3 * g * k, pan, buf: this.brownBuf }); this.tone(400 + Math.random() * 600, 0.1, { type: 'triangle', vol: 0.04 * g * k, pan }); }
+  thunder(dist = 0.5) { if (SB.play('thunder', 1 - dist * 0.5, 0, dist * 1.5, { out: 'amb' })) return; this.noise(3.5, { f: 180, q: 0.5, type: 'lowpass', vol: 0.6 * (1 - dist * 0.5), attack: 0.08 + dist * 0.4, buf: this.brownBuf, out: 'amb', when: dist * 1.5 }); this.noise(1.2, { f: 900, q: 0.4, type: 'lowpass', vol: 0.2 * (1 - dist), when: dist * 1.5 }); }
+  ui(kind = 'click') { if (SB.play('ui.' + kind)) return; if (kind === 'click') this.tone(880, 0.05, { type: 'triangle', vol: 0.08 }); else if (kind === 'hover') this.tone(1320, 0.03, { type: 'sine', vol: 0.03 }); else if (kind === 'notify') { this.tone(660, 0.2, { vol: 0.1, verb: true }); this.tone(990, 0.3, { vol: 0.08, when: 0.1, verb: true }); } else if (kind === 'success') { [523, 659, 784, 1046].forEach((f, i) => this.tone(f, 0.4, { vol: 0.09, when: i * 0.09, verb: true, type: 'triangle' })); } else if (kind === 'fail') { [392, 330, 262].forEach((f, i) => this.tone(f, 0.4, { vol: 0.1, when: i * 0.14, type: 'triangle' })); } else if (kind === 'collect') { [988, 1319].forEach((f, i) => this.tone(f, 0.25, { vol: 0.09, when: i * 0.07, verb: true })); } else if (kind === 'camera') { this.noise(0.04, { f: 4000, vol: 0.2 }); this.noise(0.06, { f: 2500, vol: 0.15, when: 0.08 }); } else if (kind === 'door') { this.noise(0.3, { f: 300, q: 0.8, vol: 0.2, type: 'lowpass', buf: this.brownBuf }); } }
+  doorOpen() { if (SB.play('veh.doorOpen')) return; this.noise(0.03, { f: 2600, q: 3, vol: 0.06 }); this.noise(0.05, { f: 1400, q: 2, vol: 0.05, when: 0.04 }); this.noise(0.25, { f: 420, q: 0.7, vol: 0.03, type: 'lowpass', when: 0.08 }); } // latch release + seal letting go
+  doorSlam(s = 2) { const k = clamp(s / 4, 0.25, 1); if (SB.play('veh.doorSlam', k)) return; this.noise(0.22, { f: 160, q: 0.8, vol: 0.42 * k, type: 'lowpass', buf: this.brownBuf }); this.tone(70, 0.18, { type: 'sine', vol: 0.22 * k, glide: 48 }); this.noise(0.035, { f: 2200, q: 2.5, vol: 0.09 * k, when: 0.012 }); this.noise(0.4, { f: 900, q: 0.6, vol: 0.03 * k, type: 'lowpass', when: 0.04 }); } // body thump + latch clack
   // workshop tools at a world point (Street Customs mechanics): pneumatic impact wrench (hammering bursts), ratchet (clicks), air
   // line hiss, a spanner set down, the roller door's motor and slats
   tool(kind, x, z) { if (!this.live) return; const [g, pan] = this.spatial(x, z, 14); if (g < 0.02) return;
@@ -88,7 +90,7 @@ class AudioEngine {
     else if (kind === 'door') { this.noise(2.4, { f: 220, q: 0.6, type: 'lowpass', vol: 0.09 * g, pan, attack: 0.25, buf: this.brownBuf }); this.tone(96, 2.4, { type: 'sawtooth', vol: 0.012 * g, pan, attack: 0.3 }); for (let k = 0; k < 26; k++) this.noise(0.03, { f: 900 + Math.random() * 700, q: 2, vol: 0.025 * g, pan, when: 0.1 + k * 0.09, attack: 0.002 }); }
     else if (kind === 'doorStop') this.noise(0.25, { f: 260, q: 0.7, type: 'lowpass', vol: 0.12 * g, pan, attack: 0.002, buf: this.brownBuf });
   }
-  radioBlip() { if (!this.ready) return; this.noise(0.09, { f: 2400, q: 0.7, vol: 0.05 }); this.tone(1250, 0.07, { type: 'square', vol: 0.025, when: 0.08 }); this.noise(0.12, { f: 1800, q: 0.6, vol: 0.03, when: 2.6 }); } // police radio: squelch open, key beep, squelch tail
+  radioBlip() { if (!this.ready) return; if (SB.play('police.radio')) return; this.noise(0.09, { f: 2400, q: 0.7, vol: 0.05 }); this.tone(1250, 0.07, { type: 'square', vol: 0.025, when: 0.08 }); this.noise(0.12, { f: 1800, q: 0.6, vol: 0.03, when: 2.6 }); } // police radio: squelch open, key beep, squelch tail
   talkBlip(lang, tone = null, fem = false) { const T = tone || { pitch: 1, rate: 1, vol: 1 }; const base = (lang === 'ta' ? 210 : lang === 'si' ? 190 : 200) * (fem ? 1.25 : 1) * T.pitch; const n = T.rate > 1.2 ? 4 : 3; /* frightened / angry voices: faster, higher, louder; sad: slower, lower, softer */
     for (let i = 0; i < n; i++) this.tone(base + Math.random() * 60 * T.pitch, 0.06 / T.rate, { type: 'triangle', vol: 0.025 * T.vol, when: i * 0.09 / T.rate, out: 'dlg' }); }
   // ---- explosion (grenade-size charge) heard from d metres: the sound arrives d/343 s after the flash. Close: a sharp crack,
@@ -96,6 +98,7 @@ class AudioEngine {
   explosion(x, z, power = 1) {
     if (!this.ready) return; const l = this.listener; const d = l ? Math.hypot(x - l.x, z - l.z) : 10; const [, pan] = this.spatial(x, z, 60);
     const w = Math.min(1.4, d / 343), g = Math.min(1, 26 / (26 + d)) * power, near = Math.max(0, 1 - d / 70);
+    if (SB.play('explosion', g, pan, w, { verb: true })) return;
     this.noise(0.05, { f: 3200, q: 0.5, vol: 0.85 * g * near, when: w, pan });                                                   // the crack of the detonation
     this.noise(0.9, { f: 2400 * (0.35 + 0.65 * near), q: 0.35, type: 'lowpass', vol: 0.95 * g, when: w, attack: 0.004, pan, sweep: 260, verb: true }); // blast
     this.tone(62, 0.85, { type: 'sine', vol: 0.95 * g, when: w, attack: 0.006, glide: 26, pan });                               // pressure thump
@@ -116,9 +119,9 @@ class AudioEngine {
     const t = this.ctx.currentTime; this.spkHP.frequency.setTargetAtTime(on ? 170 : 20, t, 0.05); this.spkLP.frequency.setTargetAtTime(on ? 5200 : 22000, t, 0.05); }
   boom() { this.tone(42, 3.5, { type: 'sine', vol: 0.55, attack: 0.6, glide: 30 }); this.noise(4, { f: 90, q: 0.5, type: 'lowpass', vol: 0.3, attack: 1.2, buf: this.brownBuf }); }
   riser(dur = 3) { if (!this.ready) return; this.noise(dur, { f: 400, q: 2, vol: 0.12, attack: dur * 0.9 }); this.tone(110, dur, { type: 'sawtooth', vol: 0.03, attack: dur * 0.9, glide: 440 }); }
-  trainHorn(x, z) { const [g, pan] = this.spatial(x, z, 400); if (g < 0.02) return; for (const f of [311, 370]) this.tone(f, 1.6, { type: 'sawtooth', vol: 0.12 * g, pan, attack: 0.1, verb: true }); }
+  trainHorn(x, z) { const [g, pan] = this.spatial(x, z, 400); if (g < 0.02) return; if (SB.play('train.horn', g, pan)) return; for (const f of [311, 370]) this.tone(f, 1.6, { type: 'sawtooth', vol: 0.12 * g, pan, attack: 0.1, verb: true }); }
   breadTuk(x, z) { // the bakery tuk-tuk chime (Beethoven's Für Elise, public domain)
-    const [g, pan] = this.spatial(x, z, 120); if (g < 0.03) return; const N = [659, 622, 659, 622, 659, 494, 587, 523, 440]; N.forEach((f, i) => this.tone(f * 2, 0.22, { type: 'square', vol: 0.04 * g, pan, when: i * 0.2 }));
+    const [g, pan] = this.spatial(x, z, 120); if (g < 0.03) return; if (SB.play('bread.tuk', g, pan, 0, { mono: true })) return; const N = [659, 622, 659, 622, 659, 494, 587, 523, 440]; N.forEach((f, i) => this.tone(f * 2, 0.22, { type: 'square', vol: 0.04 * g, pan, when: i * 0.2 }));
   }
   // ---- per-frame
   update(dt, st) {
@@ -127,6 +130,7 @@ class AudioEngine {
     const coast = Math.max(0, 1 - Math.abs(st.listener.x - L.coastX(st.listener.z)) / 140);
     const busy = clamp(st.traffic / 30, 0, 1);
     const set = (layer, v, f) => { layer.g.gain.setTargetAtTime(v, t, 0.6); if (f) layer.f.frequency.setTargetAtTime(f, t, 0.6); };
+    for (const k of ['city', 'rain', 'sea', 'wind']) { const ly = L_[k]; const on = !!SB.syncLoop(ly, 'amb.' + k, ly.g); if (on !== !!ly.rec) { ly.rec = on; ly.og.gain.setTargetAtTime(on ? 0 : 1, t, 0.3); if (k === 'rain') L_.rainLow.og.gain.setTargetAtTime(on ? 0 : 1, t, 0.3); } } // recordings replace the synthesised beds
     set(L_.city, (0.05 + busy * 0.12) * (1 - night * 0.4) * (st.indoor ? 0.25 : 1), 300 + busy * 300);
     set(L_.rain, rain * 0.22 * (st.indoor ? 0.35 : 1), st.indoor ? 900 : 2600); set(L_.rainLow, rain * 0.2, 700);
     set(L_.sea, coast * 0.22 * (st.indoor ? 0.2 : 1)); set(L_.wind, (0.02 + st.wind * 0.04) * (st.indoor ? 0.1 : 1), 400 + st.wind * 200);
@@ -139,9 +143,9 @@ class AudioEngine {
     }
     this.updateEngines(st); this.updateMusic(dt, st);
   }
-  crow() { const [g, pan] = [0.5 + Math.random() * 0.5, Math.random() * 2 - 1]; const n = 1 + Math.floor(Math.random() * 3); for (let i = 0; i < n; i++) { this.noise(0.22, { f: 1100 + Math.random() * 200, q: 6, vol: 0.05 * g, pan, when: i * 0.32 }); this.tone(520 + Math.random() * 60, 0.2, { type: 'sawtooth', vol: 0.012 * g, pan, when: i * 0.32, glide: 430 }); } }
-  bird() { const f = 2500 + Math.random() * 2000; const pan = Math.random() * 2 - 1; const n = 2 + Math.floor(Math.random() * 4); for (let i = 0; i < n; i++) this.tone(f + Math.random() * 600, 0.07, { vol: 0.015, pan, when: i * 0.11, glide: f * 1.3 }); }
-  cricket() { const pan = Math.random() * 2 - 1; for (let i = 0; i < 6; i++) this.tone(4200, 0.03, { vol: 0.008, pan, when: i * 0.05, type: 'triangle' }); }
+  crow() { const [g, pan] = [0.5 + Math.random() * 0.5, Math.random() * 2 - 1]; if (SB.play('bird.crow', g, pan, 0, { rate: 0.95 + Math.random() * 0.1 })) return; const n = 1 + Math.floor(Math.random() * 3); for (let i = 0; i < n; i++) { this.noise(0.22, { f: 1100 + Math.random() * 200, q: 6, vol: 0.05 * g, pan, when: i * 0.32 }); this.tone(520 + Math.random() * 60, 0.2, { type: 'sawtooth', vol: 0.012 * g, pan, when: i * 0.32, glide: 430 }); } }
+  bird() { const f = 2500 + Math.random() * 2000; const pan = Math.random() * 2 - 1; if (SB.play('bird.song', 0.6 + Math.random() * 0.4, pan, 0, { rate: 0.9 + Math.random() * 0.2 })) return; const n = 2 + Math.floor(Math.random() * 4); for (let i = 0; i < n; i++) this.tone(f + Math.random() * 600, 0.07, { vol: 0.015, pan, when: i * 0.11, glide: f * 1.3 }); }
+  cricket() { const pan = Math.random() * 2 - 1; if (SB.play('cricket', 1, pan, 0, { mono: true })) return; for (let i = 0; i < 6; i++) this.tone(4200, 0.03, { vol: 0.008, pan, when: i * 0.05, type: 'triangle' }); }
   // engines: a few oscillator voices assigned to the nearest vehicles
   // Street Customs turbo (player only). A real turbo is air, not a beep: the compressor whine is a narrow band of NOISE (blade-pass
   // tone smeared by turbulence) whose pitch follows shaft speed — boost × engine load, rising through each gear and dipping at every
@@ -164,34 +168,48 @@ class AudioEngine {
     T.wf.frequency.setTargetAtTime(f, t, 0.05); T.o.frequency.setTargetAtTime(f, t, 0.05); T.rf.frequency.setTargetAtTime(900 + s * 1600, t, 0.08);
     T.wg.gain.setTargetAtTime(v ? s * s * 0.55 * ind : 0, t, 0.06); T.og.gain.setTargetAtTime(v ? s * s * 0.006 * ind : 0, t, 0.06); T.rg.gain.setTargetAtTime(v ? s * thr * 0.045 * ind : 0, t, 0.1);
     const lift = v && ((T.last > 0.5 && b < T.last - 0.06 && thr < 0.3) || (shift && T.shaft > 0.45));
-    if (lift && t - (T.bovT || 0) > 0.6) { const k = Math.max(T.last, T.shaft) * ind; T.bovT = t;
+    if (lift && t - (T.bovT || 0) > 0.6 && SB.play('turbo.bov', Math.max(T.last, T.shaft) * ind)) { T.bovT = t; T.shaft *= 0.55; T.last = 0; }
+    else if (lift && t - (T.bovT || 0) > 0.6) { const k = Math.max(T.last, T.shaft) * ind; T.bovT = t;
       this.noise(0.42, { f: 3200, q: 0.9, vol: 0.1 * k, attack: 0.004, sweep: 1100 }); this.noise(0.2, { f: 6000, q: 0.5, type: 'highpass', vol: 0.05 * k, attack: 0.002 }); // the valve venting
       for (let i = 0; i < 5; i++) this.noise(0.035, { f: 700 + Math.random() * 250, q: 1.4, vol: 0.05 * k * (1 - i / 5), when: 0.18 + i * 0.058, attack: 0.004 }); // flutter as the pressure dies
       T.shaft *= 0.55; T.last = 0; } else T.last = b;
   }
   updateEngines(st) {
     const c = this.ctx, t = c.currentTime; const want = st.vehicles || [];
-    while (this.engines.length < 6) { const o = c.createOscillator(); o.type = 'sawtooth'; const o2 = c.createOscillator(); o2.type = 'square'; const f = c.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 2; const g = c.createGain(); g.gain.value = 0; const p = c.createStereoPanner(); const am = c.createGain(); const lfo = c.createOscillator(); lfo.frequency.value = 18; const lfoG = c.createGain(); lfoG.gain.value = 0.3; lfo.connect(lfoG); lfoG.connect(am.gain); o.connect(am); o2.connect(am); am.connect(f); f.connect(g); g.connect(p); p.connect(this.bus.sfx); o.start(); o2.start(); lfo.start(); this.engines.push({ o, o2, f, g, p, lfo }); }
+    while (this.engines.length < 6) { const o = c.createOscillator(); o.type = 'sawtooth'; const o2 = c.createOscillator(); o2.type = 'square'; const f = c.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 2; const g = c.createGain(); g.gain.value = 0; const p = c.createStereoPanner(); const am = c.createGain(); const lfo = c.createOscillator(); lfo.frequency.value = 18; const lfoG = c.createGain(); lfoG.gain.value = 0.3; lfo.connect(lfoG); lfoG.connect(am.gain); const og = c.createGain(); o.connect(am); o2.connect(am); am.connect(f); f.connect(og); og.connect(g); g.connect(p); p.connect(this.bus.sfx); o.start(); o2.start(); lfo.start(); this.engines.push({ o, o2, f, og, g, p, lfo }); }
     this.engines.forEach((e, i) => {
       const v = want[i]; if (!v) { e.g.gain.setTargetAtTime(0, t, 0.2); return; }
-      const sp = Math.abs(v.speed); const k = v.type; let base, fc, vol;
-      if (k === 'tuktuk') { base = 38 + sp * 5; fc = 900 + sp * 60; vol = 0.11; e.lfo.frequency.value = base * 0.5; }
+      const sp = Math.abs(v.speed); const k = v.type; let base, fc, vol, sid, idle;
+      if (k === 'tuktuk') { sid = 'engine.tuktuk'; idle = 38; base = 38 + sp * 5; fc = 900 + sp * 60; vol = 0.11; e.lfo.frequency.value = base * 0.5; }
       else if (k === 'bike' || BIKES[k]) { const cc = BIKES[k] ? BIKES[k].cc : 125; // two-wheelers: a 100 cc single thumps low; a 1000 cc four screams
+        sid = cc >= 800 ? 'engine.superbike' : cc >= 250 ? 'engine.bike250' : 'engine.bike'; idle = cc >= 800 ? 72 : cc >= 250 ? 60 : 55;
         if (cc >= 800) { base = 72 + sp * 8.5; fc = 2400 + sp * 55; vol = 0.11; e.lfo.frequency.value = base * 0.25; } else if (cc >= 250) { base = 60 + sp * 7.5; fc = 1800 + sp * 45; vol = 0.1; e.lfo.frequency.value = base * 0.5; } else { base = 55 + sp * 7; fc = 1400 + sp * 40; vol = 0.09; e.lfo.frequency.value = base * 0.5; } }
-      else if (isHeavy(k)) { base = 28 + sp * 2.2; fc = 300 + sp * 20; vol = 0.16; e.lfo.frequency.value = 9; }
-      else if (DIESEL.has(k)) { base = 29 + sp * 2.8; fc = 340 + sp * 28; vol = 0.1; e.lfo.frequency.value = 7.5; } // diesel SUVs, vans, pickups
-      else { base = 32 + sp * 3.2; fc = 380 + sp * 35; vol = 0.08; e.lfo.frequency.value = 6; }
+      else if (isHeavy(k)) { sid = 'engine.heavy'; idle = 28; base = 28 + sp * 2.2; fc = 300 + sp * 20; vol = 0.16; e.lfo.frequency.value = 9; }
+      else if (DIESEL.has(k)) { sid = 'engine.diesel'; idle = 29; base = 29 + sp * 2.8; fc = 340 + sp * 28; vol = 0.1; e.lfo.frequency.value = 7.5; } // diesel SUVs, vans, pickups
+      else { sid = 'engine.car'; idle = 32; base = 32 + sp * 3.2; fc = 380 + sp * 35; vol = 0.08; e.lfo.frequency.value = 6; }
       if (v.rev) { const r = v.rev; base *= 1 + r * 1.1; fc *= 1 + r * 1.6; vol *= 1 + r * 0.7; } // Street Customs: revving on the turntable (preview of engine / exhaust work)
       const ex = v.tune && v.tune.exhaust; if (ex) { const X = { sport: [1.2, 1.15], twin: [1.25, 1.2], quad: [1.35, 1.3], titanium: [1.3, 1.55], straight: [1.55, 1.6], stack: [1.3, 1.1], carbon: [1.25, 1.35], full: [1.5, 1.6] }[ex] || [1.2, 1.2]; vol *= X[0]; fc *= X[1]; } // Customs exhaust: louder, more open
-      const gearSp = v.player ? ((sp % 9) / 9) * 0.6 + 0.6 : 1; e.o.frequency.setTargetAtTime(base * gearSp, t, 0.08); e.o2.frequency.setTargetAtTime(base * gearSp * 0.5, t, 0.08); e.f.frequency.setTargetAtTime(fc, t, 0.1);
+      const gearSp = v.player ? ((sp % 9) / 9) * 0.6 + 0.6 : 1;
+      // a recording of this kind of engine: looped, pitched with the revs (1.0 = the recording's own pitch at a fast idle)
+      const smp = SB.syncLoop(e, sid, e.g); if (!!smp !== !!e.rec) { e.rec = !!smp; e.og.gain.setTargetAtTime(smp ? 0 : 1, t, 0.05); }
+      if (smp) smp.src.playbackRate.setTargetAtTime(clamp(0.85 + (base * gearSp / idle - 1) * 0.32, 0.6, 2.4), t, 0.08);
+      e.o.frequency.setTargetAtTime(base * gearSp, t, 0.08); e.o2.frequency.setTargetAtTime(base * gearSp * 0.5, t, 0.08); e.f.frequency.setTargetAtTime(fc, t, 0.1);
       const [g, pan] = v.player ? [1, 0] : this.spatial(v.x, v.z, 20); e.g.gain.setTargetAtTime(vol * g * (v.player ? 1.2 : 0.8) * (st.indoor ? 0.2 : 1), t, 0.1); e.p.pan.setTargetAtTime(pan, t, 0.1);
     });
     this.turbo(want.find((v) => v && v.player && v.tune && v.tune.turbo) || null, st);
   }
   // ---- generative original score
-  setMusic(mode) { if (mode === this.musicMode) return; this.musicMode = mode; this.step = 0; if (this.ctx) this.nextNote = this.ctx.currentTime + 0.1; }
+  setMusic(mode) { if (mode === this.musicMode) return; this.musicMode = mode; if (this.musicRec && this.musicRec.smp) this.musicRec.fade = true; this.step = 0; if (this.ctx) this.nextNote = this.ctx.currentTime + 0.1; }
   updateMusic(dt, st) {
-    if (this.musicMode === 'none' || !this.ctx) return; const c = this.ctx;
+    if (!this.ctx) return; const c = this.ctx;
+    { // a recording for this mode plays instead of the generative score (looped; a mode change cross-fades)
+      const id = 'music.' + this.musicMode; const has = this.musicMode !== 'none' && SB.has(id); const MR = (this.musicRec ||= {});
+      if (!this.musicGain) { this.musicGain = c.createGain(); this.musicGain.connect(this.bus.music); }
+      if (MR.smp && (MR.fade || !has || MR.smp.id !== id)) { const g = this.musicGain; g.gain.setTargetAtTime(0, c.currentTime, 0.4); MR.fadeT = (MR.fadeT || 0) + dt; if (MR.fadeT > 1.4 || !has) { SB.stopLoop(MR); MR.fade = false; MR.fadeT = 0; } }
+      else if (has) { if (!MR.smp) { this.musicGain.gain.cancelScheduledValues(c.currentTime); this.musicGain.gain.setValueAtTime(0, c.currentTime); } SB.syncLoop(MR, id, this.musicGain); this.musicGain.gain.setTargetAtTime(1, c.currentTime, 0.6); }
+      if (has) { this.nextNote = c.currentTime + 0.1; return; }
+    }
+    if (this.musicMode === 'none') return;
     const mode = this.musicMode; const bpm = { menu: 76, explore: 84, tension: 118, night: 68, radio1: 124, radio2: 92, chase: 132, intro: 60, club: 100 }[mode] || 80; const spb = 60 / bpm / 2; // eighth notes
     // scale: D Dorian-ish with a raised 4th flavour for colour
     const root = mode === 'tension' || mode === 'chase' ? 110 : 146.83; const SC = [0, 2, 3, 5, 7, 9, 10, 12, 14, 15];

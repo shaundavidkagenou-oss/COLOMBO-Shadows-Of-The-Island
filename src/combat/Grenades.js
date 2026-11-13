@@ -17,6 +17,7 @@
 import * as THREE from 'three';
 import { Input } from '../core/Input.js';
 import { Audio } from '../audio/Audio.js';
+import { SoundBank } from '../audio/SoundBank.js';
 import { buildGrenadeModel } from './GrenadeModel.js';
 import { GRENADE, GRENADE_CAP } from './Shop.js';
 import { solveArmIK } from '../actors/Character.js';
@@ -97,14 +98,14 @@ export class Grenades {
     this.preview(this.state === 'hold' && this.t > 0.08);
   }
   pullPin() {
-    this.pinOut = true; const ud = this.inHand.userData; const ch = this.ch; Audio.tone(2600, 0.02, { type: 'square', vol: 0.05 }); Audio.noise(0.05, { f: 4200, q: 4, vol: 0.06, when: 0.02 }); // the pin scraping out
+    this.pinOut = true; const ud = this.inHand.userData; const ch = this.ch; if (!SoundBank.play('grenade.pin')) { Audio.tone(2600, 0.02, { type: 'square', vol: 0.05 }); Audio.noise(0.05, { f: 4200, q: 4, vol: 0.06, when: 0.02 }); } // the pin scraping out
     ch.bones.handL.attach(ud.pin); this.pinDropT = 0.5;
     if (this.g.crowd) this.g.crowd.alarm(this.P.x, this.P.z, 14, 2, null, 'weapon', true); // people close by see a grenade come out
   }
   release() {
     this.thrown = true; this.stats.thrown++; const p = this.handWorld(); const vel = this.launchVel(); this.inHand.visible = false;
     const gnd = this.spawnLive(p, vel, 'player', 'thrown'); gnd.spin.set(9 + Math.random() * 4, Math.random() * 3, Math.random() * 3);
-    this.take(); Audio.noise(0.12, { f: 900, q: 0.8, vol: 0.05 }); // the swish of the throw
+    this.take(); SoundBank.play('grenade.throw') || Audio.noise(0.12, { f: 900, q: 0.8, vol: 0.05 }); // the swish of the throw
     // the pin falls from the left hand
     const ud = this.inHand.userData; if (ud.pin.parent && ud.pin.parent !== this.inHand) this.dropPart(ud.pin, V(0.3, 0.5, 0), 25);
     if (this.g.police && this.g.police.crime) this.g.police.crime(this.P.x, this.P.z, 'gunfire'); // an officer who sees a grenade thrown reacts like gunfire
@@ -152,7 +153,7 @@ export class Grenades {
       o.fuse -= dt;
       if (!o.rest) for (let i = 0; i < n; i++) {
         o.v.y -= 9.81 * h; o.v.multiplyScalar(1 - 0.03 * h); const wasV = o.v.length(); const hit = this.move(o, h);
-        if (hit && wasV > 1.6) { o.bounces++; this.stats.bounces++; Audio.tone(520 + Math.random() * 380, 0.05, { type: 'triangle', vol: clamp(wasV / 40, 0.02, 0.09) }); Audio.noise(0.04, { f: 1800, q: 1.5, vol: clamp(wasV / 60, 0.01, 0.05) }); o.spin.multiplyScalar(0.6); }
+        if (hit && wasV > 1.6) { o.bounces++; this.stats.bounces++; if (!SoundBank.play('grenade.bounce', clamp(wasV / 12, 0.2, 1))) { Audio.tone(520 + Math.random() * 380, 0.05, { type: 'triangle', vol: clamp(wasV / 40, 0.02, 0.09) }); Audio.noise(0.04, { f: 1800, q: 1.5, vol: clamp(wasV / 60, 0.01, 0.05) }); } o.spin.multiplyScalar(0.6); }
         if (o.onGround && o.v.lengthSq() < 0.02) { o.rest = true; o.v.set(0, 0, 0); }
       }
       if (!o.water && L.isWater(o.p.x, o.p.z) && o.p.y < L.groundY(o.p.x, o.p.z) + 0.4 && !(L.bridgeWalkAt && L.bridgeWalkAt(o.p.x, o.p.z))) { o.water = true; o.v.multiplyScalar(0.15); Audio.noise(0.25, { f: 700, q: 0.7, vol: 0.06 }); } // plop

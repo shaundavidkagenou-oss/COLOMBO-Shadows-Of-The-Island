@@ -16,12 +16,13 @@
 // Torches: at night, officers searching on foot carry a hand torch (armed officers: a torch clamped to the rifle). A fixed
 // pool of SpotLights (created once: light counts never change, so no shader recompiles) is handed each frame to the
 // torches nearest the camera; every other lit torch still shows its bright lens. Beams are clipped at walls.
-import { bloomHot } from '../gfx/BloomHot.js';
+import { bloomHotAt } from '../gfx/BloomHot.js';
 import * as THREE from 'three';
 import { nightLight } from '../gfx/LightSets.js';
 import { buildT56 } from '../combat/WeaponModels.js';
 import { POLICE_T56 } from '../combat/WeaponDefs.js';
 import { Audio } from '../audio/Audio.js';
+import { SoundBank } from '../audio/SoundBank.js';
 import { clamp, lerp } from '../core/math.js';
 
 const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
@@ -232,11 +233,12 @@ export class Firefight {
   }
   effects(o, mz, dir, hit) {
     const g = this.g, W = g.weapons; const def = POLICE_T56;
-    if (o.rifle) { const f = o.rifle.userData.flash; if (f) { bloomHot(); f.visible = true; f.rotation.z = Math.random() * 3; f.scale.setScalar(0.85 + Math.random() * 0.35); o.rp.flashT = 0.05; } }
+    if (o.rifle) { const f = o.rifle.userData.flash; if (f) { bloomHotAt(o.x, (o.y || 0) + 1.4, o.z); f.visible = true; f.rotation.z = Math.random() * 3; f.scale.setScalar(0.85 + Math.random() * 0.35); o.rp.flashT = 0.05; } }
     if (W && W.fx) { W.tracer(mz, hit.point, def); if (hit.kind === 'vehicle') W.sparks(hit.point, dir); else if (hit.kind === 'world' || hit.kind === 'ground') { W.puff(hit.point, hit.kind === 'ground' ? 0x6d6a64 : 0xb5ab9a, 4); W.decal(hit.point, dir, hit.kind); } else if (hit.kind === 'player' && !(g.blood && g.blood.spray(hit.point, dir, 0.6))) W.puff(hit.point, 0x8a8478, 2); }
     if (Audio.ctx && Audio.spatial) { const [gn, pan] = Audio.spatial(mz.x, mz.z, 70); const s = def.snd; const v = s.vol * Math.max(0.12, gn);
+      if (SoundBank.play('gun.t56', Math.max(0.12, gn), pan, 0, { rate: 0.97 + Math.random() * 0.06 })) { /* the player's T-56 recording */ } else {
       Audio.noise(s.dur, { f: s.crack, q: 0.6, vol: v, type: 'lowpass', attack: 0.001, pan }); Audio.tone(s.body * 2.2, s.dur * 1.3, { type: 'sine', vol: v * 0.5, attack: 0.002, glide: s.body * 0.6, pan });
-      Audio.noise(s.tail, { f: 480, q: 0.5, type: 'lowpass', vol: v * 0.3, attack: 0.02, when: 0.03 + Math.min(0.25, Math.hypot(mz.x - g.player.x, mz.z - g.player.z) / 340), buf: Audio.brownBuf, pan }); }
+      Audio.noise(s.tail, { f: 480, q: 0.5, type: 'lowpass', vol: v * 0.3, attack: 0.02, when: 0.03 + Math.min(0.25, Math.hypot(mz.x - g.player.x, mz.z - g.player.z) / 340), buf: Audio.brownBuf, pan }); } }
     if (g.crowd && g.crowd.alarm) { if ((this._alarmN = (this._alarmN || 0) + 1) % 3 === 1) g.crowd.alarm(mz.x, mz.z, def.loud, 2, null, 'gunshot'); }
     if (g.birds && g.birds.scare && this._alarmN % 3 === 1) g.birds.scare(mz.x, mz.z, 50);
   }
