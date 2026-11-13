@@ -72,7 +72,7 @@ export function buildHeroGarments(sb, sp, ctx) {
     W[u] = L; }
   const y = (u) => P[u * 3 + 1];
   // ---- garment extents (model space)
-  const cutY = NK.cutY; const yTop = open ? cutY + 0.034 : Math.max(cutY + 0.03, 1.5 * s);
+  const cutY = NK.cutY; const yTop = sp.coat && !open ? cutY + 0.004 /* under a coat: the shirt stops below the coat's neck line (the coat collar shows, the shirt can't poke through it) */ : open ? cutY + 0.034 : sp.collar ? Math.max(cutY + 0.03, 1.5 * s) : cutY + 0.017; // a crew-neck tee ends just above the neck cut (a collar stands higher)
   const shirtHem = (open ? 0.985 : 0.972) * s; const sleeveY = (longSleeve ? 0.905 : 1.205) * s; const waistY = 0.997 * s; const hemY = (boots ? 0.165 : 0.093) * s;
   const torso = (u) => armW[u] < 0.5 && legW[u] < 0.5;
   const shirtHas = (u, tol) => (armW[u] >= 0.5 ? handW[u] < 0.5 && y(u) >= sleeveY - tol : legW[u] < 0.5 && y(u) >= shirtHem - tol);
@@ -85,6 +85,7 @@ export function buildHeroGarments(sb, sp, ctx) {
   const uv0 = [0.01, 0.51];
   const out = {};
   // ---- one garment shell
+  let shellTop = yTop; // level top edge of the shell being built (the coat's is its own neck line)
   let foldMax = 1; // coats: a shallow turned-under hem (a deep one would cut through the layers under it)
   const shell = (has, ease, id, col, hemFor, post, clY = 0) => {
     const inG = new Uint8Array(NU); for (let u = 0; u < NU; u++) inG[u] = has(u, 0.013) ? 1 : 0;
@@ -109,10 +110,10 @@ export function buildHeroGarments(sb, sp, ctx) {
     const map = new Int32Array(NU).fill(-1);
     for (let u = 0; u < NU; u++) { if (!used[u]) continue; const sid = id === CLOTH.SHIRT && armW[u] >= 0.5 ? CLOTH.SLEEVE : id; sb.clv = [sid, clY];
       map[u] = sb.v([Q[u * 3], Q[u * 3 + 1], Q[u * 3 + 2]], [QN[u * 3], QN[u * 3 + 1], QN[u * 3 + 2]], col, uv0, W[u]); }
-    for (let t = 0; t < tris.length; t += 3) { const a = map[tris[t]], b = map[tris[t + 1]], c = map[tris[t + 2]]; if (Q[tris[t] * 3 + 1] > yTop + 0.004 && Q[tris[t + 1] * 3 + 1] > yTop + 0.004 && Q[tris[t + 2] * 3 + 1] > yTop + 0.004) continue; sb.idx.push(a, b, c); }
+    for (let t = 0; t < tris.length; t += 3) { const a = map[tris[t]], b = map[tris[t + 1]], c = map[tris[t + 2]]; if (Q[tris[t] * 3 + 1] > shellTop + 0.004 && Q[tris[t + 1] * 3 + 1] > shellTop + 0.004 && Q[tris[t + 2] * 3 + 1] > shellTop + 0.004) continue; sb.idx.push(a, b, c); }
     // turned-under hems: every open edge folds back towards the body by the local ease (+3 mm), slightly darker
     const hc = col.map((v) => v * 0.78);
-    for (let i = 0; i < bEdges.length; i += 2) { const a = bEdges[i], b = bEdges[i + 1]; if (Q[a * 3 + 1] > yTop - 0.002 && Q[b * 3 + 1] > yTop - 0.002) continue;
+    for (let i = 0; i < bEdges.length; i += 2) { const a = bEdges[i], b = bEdges[i + 1]; if (Q[a * 3 + 1] > shellTop - 0.002 && Q[b * 3 + 1] > shellTop - 0.002) continue;
       const ia = [], ib = []; for (const [u, arr] of [[a, ia], [b, ib]]) { const d = Math.min(E[u] + 0.003, foldMax); sb.clv = [0, 0]; arr.push(sb.v([Q[u * 3] - N[u * 3] * d, Q[u * 3 + 1] - N[u * 3 + 1] * d, Q[u * 3 + 2] - N[u * 3 + 2] * d], [-N[u * 3], -N[u * 3 + 1], -N[u * 3 + 2]], hc, uv0, W[u])); }
       sb.clv = [0, 0]; const oa = sb.v([Q[a * 3], Q[a * 3 + 1], Q[a * 3 + 2]], [0, -1, 0], hc, uv0, W[a]), ob = sb.v([Q[b * 3], Q[b * 3 + 1], Q[b * 3 + 2]], [0, -1, 0], hc, uv0, W[b]);
       sb.idx.push(ob, oa, ia[0], ob, ia[0], ib[0]); }
@@ -175,9 +176,9 @@ export function buildHeroGarments(sb, sp, ctx) {
   if (CO) {
     const offOf = (G, u) => (G && G.used[u] ? (G.Q[u * 3] - P[u * 3]) * N[u * 3] + (G.Q[u * 3 + 1] - P[u * 3 + 1]) * N[u * 3 + 1] + (G.Q[u * 3 + 2] - P[u * 3 + 2]) * N[u * 3 + 2] : 0);
     const under = (u) => Math.max(offOf(sh, u), offOf(tr, u), offOf(vc, u), 0.006);
-    const coatHas = (u, tol) => (armW[u] >= 0.5 ? handW[u] < 0.5 && y(u) >= sleeveC - tol : (legW[u] < 0.6 || y(u) >= 0.9 * s) && y(u) >= hemC - tol) && y(u) <= yTop + tol && !(N[u * 3 + 2] > 0.3 && armW[u] < 0.5 && Math.abs(P[u * 3]) < halfVC(y(u)) - tol);
+    const coatHas = (u, tol) => (armW[u] >= 0.5 ? handW[u] < 0.5 && y(u) >= sleeveC - tol : (legW[u] < 0.6 || y(u) >= 0.9 * s) && y(u) >= hemC - tol) && y(u) <= Math.max(cutY + 0.03, 1.5 * s) + tol && !(N[u * 3 + 2] > 0.3 && armW[u] < 0.5 && Math.abs(P[u * 3]) < halfVC(y(u)) - tol);
     const ease = (u) => under(u) + (armW[u] >= 0.5 ? 0.0095 : 0.0115) + CO.puff * (armW[u] >= 0.5 ? 0.6 : 1);
-    foldMax = 0.01;
+    foldMax = 0.01; shellTop = topC;
     cc = shell(coatHas, ease, CLOTH.COAT, coatC, (u) => (armW[u] >= 0.5 ? (y(u) < 1.2 * s ? sleeveC : null) : y(u) < 1.06 * s ? hemC : null), (Q, used, bnd) => {
       if (CO.v) for (let u = 0; u < NU; u++) { if (!used[u] || !bnd[u] || N[u * 3 + 2] < 0.2 || y(u) < CO.v * s - 0.02 || armW[u] > 0.08) continue; const hv = halfVC(Q[u * 3 + 1]); if (hv <= 0 || Math.abs(Q[u * 3]) > hv + 0.03) continue; Q[u * 3] = Math.sign(P[u * 3] || 1) * hv; }
       drape(Q, used, { y0: hemC - 0.03, free: true }); // hangs straight from the chest / shoulder blades
@@ -189,7 +190,7 @@ export function buildHeroGarments(sb, sp, ctx) {
         const tx = Math.cos(a) * (E0.rx + m), tz = E0.cz + Math.sin(a) * (E0.rz + m); const r0 = Math.hypot(Q[u * 3] / (E0.rx + m), (Q[u * 3 + 2] - E0.cz) / (E0.rz + m));
         if (r0 < 1) { Q[u * 3] = lerp(Q[u * 3], tx, t); Q[u * 3 + 2] = lerp(Q[u * 3 + 2], tz, t); } // only ever pushed out (never pulled into the shirt)
         Q[u * 3 + 1] = Math.min(yy, topC); } }, CO.mat);
-    foldMax = 1; if (globalThis.__coatFitProbe) globalThis.__coatFitProbe({ cc, sh, tr, P, N, armW, legW, handW, NU, y });
+    foldMax = 1; shellTop = yTop; if (globalThis.__coatFitProbe) globalThis.__coatFitProbe({ cc, sh, tr, P, N, armW, legW, handW, NU, y });
     if (CO.rib) for (let u = 0; u < NU; u++) { const v = cc.map[u]; if (v < 0) continue; const yy = y(u); if (armW[u] >= 0.5 ? yy < sleeveC + 0.055 : yy < hemC + 0.055) { sb.cl[v * 2 + 1] = 4; for (let k = 0; k < 3; k++) sb.col[v * 3 + k] *= 0.82; } } // knitted cuffs + waistband
   }
   // ---- skin: everything not deeply covered (2.5 cm past every garment edge stays, so no gap shows into a sleeve or collar)
