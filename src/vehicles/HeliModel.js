@@ -4,13 +4,16 @@
 // Main dimensions: fuselage 12.9 m nose to tail-rotor, 14 m four-blade main rotor (mast top 3.9 m), 2.6 m two-blade tail rotor on
 // the left of the fin, cabin 2.4 m wide, tubular skids 2.6 m apart.
 // Built procedurally from lofted cross-sections (smooth normals) with the vehicles' shared materials (vertex-coloured paint,
-// glass, rubber, metal, lamps) — no new textures except the shared police lettering and one small registration canvas.
+// glass, rubber, metal, lamps) plus the aircraft's own surfaces (HeliMaterials.js: polyurethane-on-riveted-skin paint with
+// seams, rivets, soot and oil streaks; clear acrylic canopy; composite blades with erosion strips; forged rotor-head steel) — no
+// new textures except the shared police lettering and one small registration canvas.
 // Local frame like the vehicles: +z forward (nose), +y up, +x LEFT. Returns { group, rotor, blades, disc, tail, tailBlades,
 // light (searchlight gimbal: yaw group → pitch group → lens at its tip), lamps { navR, navG, tail, beacon, belly, strobe },
 // crew (pilot + observer, hidden when parked), skidY (bottom of the skids, local 0), hub (mast top local y) }.
 import * as THREE from 'three';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { vehicleMaterials } from './VehicleModels.js';
+import { heliMaterials } from './HeliMaterials.js';
 
 export const HELI = { rotorR: 7.0, hubY: 3.9, tailR: 1.3, len: 12.9, skidW: 1.3, mass: 5400 };
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
@@ -38,13 +41,13 @@ function loft(mb, S, M, region, colour) {
     if (out) b.idx.push(a, c, bb, a, d, c); else b.idx.push(a, bb, c, a, c, d); // counter-clockwise seen from outside
   }
   // close the ends with fans (nose / tail of each loft)
-  for (const [k, sgn] of [[0, 1], [S.length - 1, -1]]) { const s = S[k]; if (s.hw < 0.02) continue; const b = mb.get(region(s.z, 0, s.yc, false) || 'vpaint'); const c0 = b.vert(0, s.yc, s.z, 0, 0, sgn, 0.5, 0.5, colour(s.z, 0, s.yc));
+  for (const [k, sgn] of [[0, 1], [S.length - 1, -1]]) { const s = S[k]; if (s.hw < 0.02) continue; const b = mb.get(region(s.z, 0, s.yc, false) || 'hpaint'); const c0 = b.vert(0, s.yc, s.z, 0, 0, sgn, 0.5, 0.5, colour(s.z, 0, s.yc));
     const base = b.vcount; for (let i = 0; i <= M; i++) { const p = ring[k][i]; b.vert(p[0], p[1], p[2], 0, 0, sgn, 0, 0, colour(p[2], p[0], p[1])); } for (let i = 0; i < M; i++) { if (sgn > 0) b.idx.push(c0, base + i, base + i + 1); else b.idx.push(c0, base + i + 1, base + i); } }
 }
 // a tube along a polyline (skids, cross tubes, exhaust pipes)
 function tube(b, pts, r, seg = 8, col) {
   for (let k = 0; k < pts.length - 1; k++) { const a = new THREE.Vector3(...pts[k]), c = new THREE.Vector3(...pts[k + 1]); const len = a.distanceTo(c); const g = new THREE.CylinderGeometry(r, r, len, seg, 1, true);
-    const m = new THREE.Matrix4(); const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), c.clone().sub(a).normalize()); m.compose(a.clone().add(c).multiplyScalar(0.5), q, new THREE.Vector3(1, 1, 1)); b.geometry(g.toNonIndexed(), m, col); g.dispose(); }
+    const m = new THREE.Matrix4(); const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), c.clone().sub(a).normalize()); m.compose(a.clone().add(c).multiplyScalar(0.5), q, new THREE.Vector3(1, 1, 1)); b.geometry(g.toNonIndexed(), m, col && Array.isArray(col[0]) ? col[Math.min(k, col.length - 1)] : col); g.dispose(); }
 }
 function geo(b, g, pos, rot = [0, 0, 0], scl = [1, 1, 1], col) { const m = new THREE.Matrix4().compose(new THREE.Vector3(...pos), new THREE.Quaternion().setFromEuler(new THREE.Euler(...rot)), new THREE.Vector3(...scl)); b.geometry(g, m, col); g.dispose(); }
 
@@ -59,7 +62,7 @@ function registrationMat(reg) {
 }
 
 export function buildHeliModel({ reg = '4R-SLP', crew = true } = {}) {
-  const { mats } = vehicleMaterials(); const mb = new MultiBuilder(); const group = new THREE.Group(); group.name = 'policeHeli';
+  const { mats } = vehicleMaterials(); const HM = heliMaterials(); const mb = new MultiBuilder(); const group = new THREE.Group(); group.name = 'policeHeli';
   // --------------------------------------------------------------------------------------------- fuselage (cabin + nose)
   const S = []; const sec = (z, yc, hw, ht, hb, n) => S.push({ z, yc, hw, ht, hb, n });
   // nose tip → cockpit → cabin → aft fairing (where the boom starts)
@@ -76,20 +79,24 @@ export function buildHeliModel({ reg = '4R-SLP', crew = true } = {}) {
     if (ax > 1.0 && y > 1.62 && y < 2.32) { if (z > 2.05 && z < 3.15) return true; if (z > 0.15 && z < 1.65) return true; if (z > -1.05 && z < -0.25) return true; } // cockpit door, sliding cabin door, rear cabin window
     return false;
   };
-  loft(mb, S, 36, (z, x, y, up) => (glassAt(z, x, y, up) ? 'vglass' : 'vpaint'), paint);
+  loft(mb, S, 36, (z, x, y, up) => (glassAt(z, x, y, up) ? 'hglass' : 'hpaint'), paint);
   // interior behind the glass (dark cabin), so the windows read as windows and not as see-through holes
-  { const ib = mb.get('vinterior'); ib.box(0, 1.55, 1.5, 1.9, 1.1, 4.8, { col: C('#2b2e33') }); ib.box(0, 1.05, 4.3, 1.2, 0.2, 1.3, { col: C('#1d1f22') }); /* floor + instrument panel */ ib.box(0, 1.55, 4.15, 1.7, 0.45, 0.35, { col: C('#141516') }); }
+  { const ib = mb.get('vinterior'); ib.box(0, 1.55, 1.5, 1.9, 1.1, 4.8, { col: C('#2b2e33') }); ib.box(0, 1.05, 4.3, 1.2, 0.2, 1.3, { col: C('#1d1f22') }); /* floor + instrument panel */ ib.box(0, 1.55, 4.15, 1.7, 0.45, 0.35, { col: C('#141516') });
+    for (const sx of [-1, 1]) { ib.box(sx * 0.48, 1.0, 3.72, 0.5, 0.12, 0.5, { col: C('#30343a') }); ib.box(sx * 0.48, 1.42, 3.45, 0.5, 0.8, 0.1, { col: C('#30343a') }); /* crew seats (crash-attenuating frames) */ }
+    ib.box(0, 1.0, 0.5, 1.9, 0.14, 0.55, { col: C('#3a3e44') }); ib.box(0, 1.45, 0.22, 1.9, 0.8, 0.1, { col: C('#3a3e44') }); /* rear-cabin bench */
+    ib.box(0, 1.79, 4.42, 1.5, 0.02, 0.28, { col: C('#0d0e0f') }); /* glare shield */ ib.box(0, 2.48, 3.3, 0.6, 0.05, 0.5, { col: C('#202226') }); /* overhead switch console */ }
   // --------------------------------------------------------------------------------------------- engine deck, cowlings, exhausts
   const E = []; const es = (z, yc, hw, ht, hb, n) => E.push({ z, yc, hw, ht, hb, n });
   es(2.6, 2.58, 0.05, 0.03, 0.05, 2.2); es(2.3, 2.62, 0.5, 0.18, 0.2, 2.4); es(1.6, 2.68, 0.72, 0.36, 0.22, 2.8); es(0.6, 2.72, 0.78, 0.46, 0.24, 3.2); es(-0.6, 2.74, 0.78, 0.48, 0.24, 3.2); es(-1.7, 2.66, 0.66, 0.4, 0.24, 2.8); es(-2.6, 2.46, 0.4, 0.22, 0.2, 2.3); es(-3.0, 2.34, 0.06, 0.04, 0.04, 2.2);
-  loft(mb, E, 24, () => 'vpaint', (z, x, y) => (y > 3.1 ? C('#e6e8e6') : WHITE));
+  loft(mb, E, 24, () => 'hpaint', (z, x, y) => (y > 3.1 ? C('#e6e8e6') : WHITE));
   { const w = mb.get('vworn'); for (const sx of [-1, 1]) { w.box(sx * 0.79, 2.86, 0.7, 0.03, 0.22, 1.1, { col: C('#3a3d42') }); /* intake grille */ for (let k = 0; k < 5; k++) w.box(sx * 0.795, 2.78 + k * 0.04, 0.7, 0.01, 0.012, 1.06, { col: DARK }); }
-    for (const sx of [-1, 1]) tube(mb.get('vengine'), [[sx * 0.42, 2.85, -1.9], [sx * 0.5, 2.98, -2.35], [sx * 0.56, 3.12, -2.65]], 0.13, 10, C('#5a5550')); // exhaust stacks (heat-stained)
-    mb.get('vworn').cylinder(0, 3.02, 0.25, 0.42, 0.36, 0.22, 16, { col: GREY }); /* transmission fairing under the mast */ }
+    for (const sx of [-1, 1]) tube(mb.get('vengine'), [[sx * 0.42, 2.85, -1.9], [sx * 0.5, 2.98, -2.35], [sx * 0.56, 3.12, -2.65]], 0.13, 10, [C('#7a6a55'), C('#4d4a52')]); // exhaust stacks: heat-tinted stainless (straw / bronze at the root, blue-grey toward the lip)
+    for (const sx of [-1, 1]) { const lip = mb.get('vrubber'); lip.cylinder(sx * 0.565, 3.135, -2.665, 0.118, 0.118, 0.04, 10, { col: C('#141312') }); } // sooted inside of each lip
+    mb.get('hpaint').cylinder(0, 3.02, 0.25, 0.42, 0.36, 0.22, 16, { col: C('#e2e4e2') }); /* transmission fairing under the mast (painted like the cowling) */ }
   // --------------------------------------------------------------------------------------------- tail boom, fins, stabiliser
   const B = []; for (let i = 0; i <= 10; i++) { const t = i / 10; const z = -2.6 - t * 5.3; B.push({ z, yc: 2.0 + 0.22 * t, hw: 0.46 - 0.24 * t, ht: 0.5 - 0.26 * t, hb: 0.42 - 0.22 * t, n: 2.3 }); }
-  loft(mb, B, 20, () => 'vpaint', (z, x, y) => (y < 1.98 + 0.02 * (-2.6 - z) - 0.12 ? NAVY : WHITE));
-  { const p = mb.get('vpaint'); const fin = new THREE.Shape(); fin.moveTo(-7.4, 2.0); fin.lineTo(-8.35, 2.05); fin.lineTo(-8.95, 4.15); fin.lineTo(-8.45, 4.2); fin.lineTo(-7.75, 2.75); fin.lineTo(-7.55, 2.3); fin.closePath();
+  loft(mb, B, 20, () => 'hpaint', (z, x, y) => (y < 1.98 + 0.02 * (-2.6 - z) - 0.12 ? NAVY : WHITE));
+  { const p = mb.get('hpaint'); const fin = new THREE.Shape(); fin.moveTo(-7.4, 2.0); fin.lineTo(-8.35, 2.05); fin.lineTo(-8.95, 4.15); fin.lineTo(-8.45, 4.2); fin.lineTo(-7.75, 2.75); fin.lineTo(-7.55, 2.3); fin.closePath();
     const fg = new THREE.ExtrudeGeometry(fin, { depth: 0.16, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.03, bevelSegments: 1 }); fg.translate(0, 0, -0.08); // shape in (z, y), extruded across x
     geo(p, fg, [0, 0, 0], [0, -Math.PI / 2, 0], [1, 1, 1], WHITE);
     const vf = new THREE.Shape(); vf.moveTo(-7.5, 1.92); vf.lineTo(-8.2, 1.95); vf.lineTo(-8.45, 1.45); vf.lineTo(-8.05, 1.5); vf.closePath(); const vg = new THREE.ExtrudeGeometry(vf, { depth: 0.1, bevelEnabled: false }); vg.translate(0, 0, -0.05); geo(p, vg, [0, 0, 0], [0, -Math.PI / 2, 0], [1, 1, 1], NAVY); // ventral fin + tail skid
@@ -114,7 +121,7 @@ export function buildHeliModel({ reg = '4R-SLP', crew = true } = {}) {
     for (const sx of [-1, 1]) tube(a, [[sx * 0.18, 1.48, 6.0], [sx * 0.18, 1.48, 6.45]], 0.012, 5, GREY); // pitot tubes
     w.box(0, 0.62, -0.4, 0.02, 0.28, 0.32, { col: DARK }); w.box(0, 3.25, -1.6, 0.02, 0.22, 0.3, { col: DARK }); w.box(0, 0.7, 2.2, 0.02, 0.18, 0.22, { col: DARK }); // antenna blades
     // FLIR / camera turret under the nose
-    geo(mb.get('vworn'), new THREE.SphereGeometry(0.24, 14, 10), [0, 0.42, 5.1], [0, 0, 0], [1, 1, 1], C('#3b3f44')); mb.get('vglass').box(0, 0.42, 5.33, 0.16, 0.1, 0.03, {});
+    geo(mb.get('vworn'), new THREE.SphereGeometry(0.24, 14, 10), [0, 0.42, 5.1], [0, 0, 0], [1, 1, 1], C('#3b3f44')); mb.get('hglass').box(0, 0.42, 5.33, 0.16, 0.1, 0.03, {});
     w.cylinder(0, 0.62, 5.1, 0.07, 0.07, 0.14, 8, { col: DARK });
   }
   // lettering: POLICE (shared material) on both boom sides, registration on the fin
@@ -125,33 +132,46 @@ export function buildHeliModel({ reg = '4R-SLP', crew = true } = {}) {
     const bz0 = -3.2, bz1 = -4.4, by0 = 1.95, by1 = 2.22, bx0 = 0.445, bx1 = 0.395;
     d.quad([bx0, by0, bz0], [bx1, by0, bz1], [bx1, by1, bz1], [bx0, by1, bz0], [0, 0, 1, 1], [1, 1, 1]); d.quad([-bx1, by0, bz1], [-bx0, by0, bz0], [-bx0, by1, bz0], [-bx1, by1, bz1], [0, 0, 1, 1], [1, 1, 1]);
     const rg = mb.get('reg'); const fx = 0.115; rg.quad([fx, 2.55, -7.8], [fx, 2.55, -8.45], [fx, 2.8, -8.45], [fx, 2.8, -7.8], [0, 0, 1, 1], [1, 1, 1]); rg.quad([-fx, 2.55, -8.45], [-fx, 2.55, -7.8], [-fx, 2.8, -7.8], [-fx, 2.8, -8.45], [0, 0, 1, 1], [1, 1, 1]); }
-  const M = { ...mats, reg: registrationMat(reg) };
-  for (const [name, b] of mb.b) { const g = b.build(); if (!g) continue; const m = new THREE.Mesh(g, M[name] || mats.vpaint); m.castShadow = name !== 'vglass' && name !== 'police' && name !== 'reg'; m.receiveShadow = true; m.name = 'heli.' + name; group.add(m); }
+  const M = { ...mats, ...HM, reg: registrationMat(reg) };
+  for (const [name, b] of mb.b) { const g = b.build(); if (!g) continue; const m = new THREE.Mesh(g, M[name] || mats.vpaint); m.castShadow = name !== 'vglass' && name !== 'hglass' && name !== 'police' && name !== 'reg'; m.receiveShadow = true; m.name = 'heli.' + name; group.add(m); }
   // --------------------------------------------------------------------------------------------- main rotor
   const rotor = new THREE.Group(); rotor.position.set(0, HELI.hubY, 0.25); group.add(rotor);
-  { const hb = new MultiBuilder(); const w = hb.get('vworn'); w.cylinder(0, -0.68, 0, 0.12, 0.12, 0.7, 12, { col: GREY }); /* mast */ w.cylinder(0, -0.05, 0, 0.36, 0.42, 0.2, 16, { col: DARK }); /* hub / yoke */ w.cylinder(0, -0.42, 0, 0.32, 0.32, 0.06, 16, { col: GREY }); /* swashplate */
-    for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2; const ca = Math.cos(a), sa = Math.sin(a); w.box(ca * 0.48, 0, sa * 0.48, 0.3 + Math.abs(ca) * 0.3, 0.12, 0.3 + Math.abs(sa) * 0.3, { col: DARK }); /* blade grips */ tube(w, [[ca * 0.3, -0.4, sa * 0.3], [ca * 0.42, -0.05, sa * 0.42]], 0.025, 5, GREY); /* pitch links */ }
-    for (const [name, b] of hb.b) { const m = new THREE.Mesh(b.build(), mats[name]); m.castShadow = true; rotor.add(m); } }
-  const blades = []; { const bg = new MultiBuilder(); const b = bg.get('vworn'); const L = HELI.rotorR - 0.55; // one blade along +x from the grip, then cloned 4×
-    const steps = 6; for (let i = 0; i < steps; i++) { const r0 = 0.55 + (i / steps) * L, r1 = 0.55 + ((i + 1) / steps) * L; const chord = 0.56 - 0.04 * (i / steps); b.box((r0 + r1) / 2, 0, 0, r1 - r0, 0.07 - 0.02 * (i / steps), chord, { col: i === steps - 1 ? BLADE : BLADE }); }
-    b.box(HELI.rotorR - 0.25, 0.001, 0, 0.5, 0.072, 0.54, { col: TIP }); // painted tips (visibility)
-    const bgeo = bg.get('vworn').build(); for (let k = 0; k < 4; k++) { const piv = new THREE.Group(); piv.rotation.y = k * Math.PI / 2; const m = new THREE.Mesh(bgeo, mats.vworn); m.castShadow = true; piv.add(m); rotor.add(piv); blades.push(m); } }
+  { const hb = new MultiBuilder(); const w = hb.get('hmetal'); w.cylinder(0, 0.07, 0, 0.18, 0.2, 0.08, 12, { col: C('#121212') }); /* elastomeric centre bearing */ w.cylinder(0, -0.68, 0, 0.12, 0.12, 0.7, 12, { col: C('#8d9298') }); /* mast */ w.cylinder(0, -0.05, 0, 0.36, 0.42, 0.2, 16, { col: DARK }); /* hub / yoke */ w.cylinder(0, -0.42, 0, 0.32, 0.32, 0.06, 16, { col: GREY }); /* swashplate */
+    for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2; const ca = Math.cos(a), sa = Math.sin(a); w.box(ca * 0.48, 0, sa * 0.48, 0.3 + Math.abs(ca) * 0.3, 0.12, 0.3 + Math.abs(sa) * 0.3, { col: C('#3b3e43') }); /* blade grips */ w.box(ca * 0.3, 0, sa * 0.3, 0.1 + Math.abs(ca) * 0.04, 0.14, 0.1 + Math.abs(sa) * 0.04, { col: C('#151515') }); /* lead-lag dampers */ tube(w, [[ca * 0.3, -0.4, sa * 0.3], [ca * 0.42, -0.05, sa * 0.42]], 0.025, 5, GREY); /* pitch links */ }
+    for (const [name, b] of hb.b) { const m = new THREE.Mesh(b.build(), HM[name] || mats[name]); m.castShadow = true; rotor.add(m); } }
+  const blades = []; { const bg = new MultiBuilder(); const b = bg.get('hblade'); const L = HELI.rotorR - 0.55; // one blade along +x from the grip, then cloned 4×
+    // symmetric 12 % aerofoil (NACA 0012 thickness law), leading edge at +z (the rotor turns clockwise seen from above), pitch
+    // axis at quarter chord, chord tapering slightly to the tip; the last 0.5 m is the painted (high-visibility) tip
+    const N = 14, foil = []; for (let i = 0; i <= N; i++) { const t = i / N, xc = 0.5 - 0.5 * Math.cos(t * Math.PI); const yt = 0.6 * (0.2969 * Math.sqrt(xc) - 0.126 * xc - 0.3516 * xc * xc + 0.2843 * xc ** 3 - 0.1036 * xc ** 4); foil.push([xc, yt]); }
+    const ring = []; for (let i = N; i >= 0; i--) ring.push([foil[i][0], foil[i][1]]); for (let i = 1; i < N; i++) ring.push([foil[i][0], -foil[i][1]]); // TE → LE over the top, back under
+    const nr = ring.length, nrm2 = ring.map((q, i) => { const a = ring[(i + 1) % nr], c = ring[(i - 1 + nr) % nr]; const dx = a[0] - c[0], dy = a[1] - c[1]; const l = Math.hypot(dx, dy) || 1; return [dy / l, -dx / l]; }); // outward (checked numerically: every face normal agrees with its vertex normals)
+    const stations = [0.55, 1.4, 2.6, 3.8, 5.0, 5.95, HELI.rotorR - 0.5, HELI.rotorR - 0.02];
+    const rows = stations.map((r, si) => { const ch = 0.56 - 0.04 * (r - 0.55) / L, col = si >= 6 ? TIP : BLADE; return ring.map((q, i) => { const n = nrm2[i]; return b.vert(r, q[1] * ch, ch * (0.25 - q[0]), 0, n[1], -n[0], 0, 0, col); }); });
+    for (let si = 0; si < rows.length - 1; si++) { if (si === 5) continue; for (let i = 0; i < nr; i++) { const a = rows[si][i], c = rows[si][(i + 1) % nr], d = rows[si + 1][(i + 1) % nr], e = rows[si + 1][i]; b.idx.push(a, d, e, a, c, d); } }
+    { const r2 = stations[6]; // the joint between the grey blade and the painted tip: a separate ring so the colours don't smear
+      const ch = 0.56 - 0.04 * (r2 - 0.55) / L; const ga = ring.map((q, i) => { const n = nrm2[i]; return b.vert(r2, q[1] * ch, ch * (0.25 - q[0]), 0, n[1], -n[0], 0, 0, BLADE); });
+      for (let i = 0; i < nr; i++) { const a = rows[5][i], c = rows[5][(i + 1) % nr], d = ga[(i + 1) % nr], e = ga[i]; b.idx.push(a, d, e, a, c, d); } }
+    { const last = rows[rows.length - 1]; const ch = 0.52, cz = ch * 0.25 - ch * 0.3; const c0 = b.vert(HELI.rotorR, 0, cz, 1, 0, 0, 0, 0, TIP); for (let i = 0; i < nr; i++) b.idx.push(c0, last[i], last[(i + 1) % nr]); } // tip cap
+    const bgeo = b.build(); for (let k = 0; k < 4; k++) { const piv = new THREE.Group(); piv.rotation.y = k * Math.PI / 2; const m = new THREE.Mesh(bgeo, HM.hblade); m.castShadow = true; piv.add(m); rotor.add(piv); blades.push(m); } }
   // blurred disc of the spinning blades (fades in with rotor speed)
-  const discMat = new THREE.MeshStandardMaterial({ color: 0x23262a, roughness: 0.6, metalness: 0.1, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
-  const dg = new THREE.RingGeometry(0.6, HELI.rotorR, 48, 1); dg.rotateX(-Math.PI / 2); const disc = new THREE.Mesh(dg, discMat); disc.renderOrder = 2; disc.visible = false; rotor.add(disc);
+  const discMat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.6, metalness: 0.1, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
+  const dg = new THREE.RingGeometry(0.6, HELI.rotorR, 48, 7); dg.rotateX(-Math.PI / 2);
+  { const P = dg.attributes.position, cols = []; for (let i = 0; i < P.count; i++) { const r = Math.hypot(P.getX(i), P.getZ(i)); const tip = r > HELI.rotorR - 0.6 ? 1 : 0; const a = Math.min(1, 1.5 / r) * (tip ? 0.85 : 1); // blade coverage ∝ 1/r; the painted tips leave a faint yellow ring
+      cols.push(tip ? 0.3 : 0.14, tip ? 0.27 : 0.15, tip ? 0.12 : 0.16, a); } dg.setAttribute('color', new THREE.Float32BufferAttribute(cols, 4)); } const disc = new THREE.Mesh(dg, discMat); disc.renderOrder = 2; disc.visible = false; rotor.add(disc);
   // --------------------------------------------------------------------------------------------- tail rotor (left side of the fin)
   const tail = new THREE.Group(); tail.position.set(0.24, 3.4, -8.4); group.add(tail);
   const tailBlades = new THREE.Group(); tail.add(tailBlades);
-  { const tb = new MultiBuilder(); const w = tb.get('vworn'); w.cylinder(0, 0, 0, 0.1, 0.1, 0.14, 10, { col: DARK }); for (const s of [-1, 1]) { w.box(0, s * HELI.tailR / 2, 0, 0.03, HELI.tailR - 0.08, 0.2, { col: BLADE }); w.box(0, s * (HELI.tailR - 0.12), 0, 0.032, 0.2, 0.2, { col: TIP }); }
-    const m = new THREE.Mesh(tb.get('vworn').build(), mats.vworn); tailBlades.add(m); m.castShadow = true; // blades along y, spun about x
+  { const tb = new MultiBuilder(); const w = tb.get('hblade'); w.cylinder(0, 0, 0, 0.1, 0.1, 0.14, 10, { col: DARK }); for (const s of [-1, 1]) { w.box(0, s * HELI.tailR / 2, 0, 0.03, HELI.tailR - 0.08, 0.2, { col: BLADE }); w.box(0, s * (HELI.tailR - 0.12), 0, 0.032, 0.2, 0.2, { col: TIP }); }
+    const m = new THREE.Mesh(tb.get('hblade').build(), HM.hblade); tailBlades.add(m); m.castShadow = true; // blades along y, spun about x
     const tdisc = new THREE.Mesh(new THREE.CircleGeometry(HELI.tailR, 24), discMat); tdisc.rotation.y = Math.PI / 2; tdisc.position.x = 0.02; tail.add(tdisc); tail.userData.disc = tdisc; tdisc.visible = false; }
   // --------------------------------------------------------------------------------------------- searchlight (right side, under the cabin)
   const light = new THREE.Group(); light.position.set(-1.05, 0.58, 3.3); group.add(light);
   const lightPitch = new THREE.Group(); light.add(lightPitch);
-  { const lb = new MultiBuilder(); const w = lb.get('vworn'); w.box(0.25, 0.12, 0, 0.5, 0.08, 0.12, { col: DARK }); /* mount arm */ w.cylinder(0, 0.06, 0, 0.05, 0.05, 0.12, 8, { col: DARK });
-    for (const [name, b] of lb.b) { const m = new THREE.Mesh(b.build(), mats[name]); light.add(m); }
+  { const lb = new MultiBuilder(); const w = lb.get('hmetal'); w.box(0.25, 0.12, 0, 0.5, 0.08, 0.12, { col: DARK }); /* mount arm */ w.cylinder(0, 0.06, 0, 0.05, 0.05, 0.12, 8, { col: DARK });
+    for (const [name, b] of lb.b) { const m = new THREE.Mesh(b.build(), HM[name] || mats[name]); light.add(m); }
     const hb = new MultiBuilder(); const h = hb.get('vworn'); h.cylinder(0, -0.2, 0, 0.19, 0.17, 0.42, 16, { col: C('#30343a') }); h.box(0, -0.2, 0, 0.44, 0.06, 0.06, { col: DARK }); // lamp barrel (axis along -y, turned to +z below)
-    const head = new THREE.Mesh(hb.get('vworn').build(), mats.vworn); head.rotation.x = Math.PI / 2; lightPitch.add(head); // barrel along +z (the beam axis)
+    const head = new THREE.Mesh(hb.get('vworn').build(), mats.vworn); /* painted lamp barrel */ head.rotation.x = Math.PI / 2; lightPitch.add(head); // barrel along +z (the beam axis)
+    const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.1, 0.06, 20, 1, true), mats.vrefl); bowl.rotation.x = Math.PI / 2; bowl.position.z = 0.19; lightPitch.add(bowl); // polished reflector ring round the lamp
     const lens = new THREE.Mesh(new THREE.CircleGeometry(0.16, 20), mats.vlight.clone()); lens.position.set(0, 0, 0.225); lightPitch.add(lens); light.userData.lens = lens; }
   // --------------------------------------------------------------------------------------------- lamps (navigation, anti-collision, police strobe)
   const lamp = (mat, x, y, z, s = 0.06) => { const m = new THREE.Mesh(new THREE.SphereGeometry(s, 8, 6), mat); m.position.set(x, y, z); group.add(m); return m; };
