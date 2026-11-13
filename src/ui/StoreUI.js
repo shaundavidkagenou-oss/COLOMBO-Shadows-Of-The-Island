@@ -20,7 +20,7 @@ const ROWS = 10;
 // camera framing per category: bone to look at, distance, height offset, side angle (rad, 0 = straight in front)
 const FRAME = {
   hats: ['head', 0.95, 0.06, 0.35], glasses: ['head', 0.75, 0.02, 0.25], hair: ['head', 0.78, 0.04, 0.55], color: ['head', 0.78, 0.04, 0.35], beard: ['head', 0.8, -0.02, 0.3],
-  tops: ['chest', 1.75, 0.05, 0.25], coats: ['chest', 1.85, 0.0, 0.3], pants: ['hips', 2.0, -0.3, 0.2], shoes: ['footL', 1.35, 0.25, 0.45], luxshoes: ['footL', 1.35, 0.25, 0.45],
+  tops: ['chest', 1.75, 0.05, 0.25], coats: ['chest', 1.85, 0.0, 0.3], pants: ['hips', 2.0, -0.3, 0.2], shoes: ['footL', 1.75, 0.3, 0.5], luxshoes: ['footL', 1.75, 0.3, 0.5],
   foreL: ['foreL', 0.85, -0.05, 0.9], foreR: ['foreR', 0.85, -0.05, -0.9], upperL: ['armL', 0.85, -0.05, 1.35], upperR: ['armR', 0.85, -0.05, -1.35], chest: ['chest', 0.95, 0.05, 0.1], back: ['chest', 1.0, 0.05, Math.PI],
   all: ['chest', 2.3, -0.15, 0.2],
 };

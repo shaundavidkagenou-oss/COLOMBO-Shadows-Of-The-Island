@@ -117,7 +117,7 @@ export function applyLook(base, look) {
   const hat = itemById(look.hat);
   if (hat) sp.hat = { kind: hat.kind, col: hat.col, band: hat.band || null };
   const coat = itemById(look.coat);
-  if (coat) { sp.coat = { kind: coat.kind, col: coat.col }; sp.kit = null; for (const k of ['vest', 'strap', 'zip', 'waist', 'vestBack', 'tacGloves', 'inner']) delete sp[k]; sp.collar = false; if (!(COAT_KINDS[coat.kind] || {}).v) delete sp.heroTie; } // everything worn over the shirt comes off under a coat; a closed jacket also covers the tie
+  if (coat) { sp.coat = { kind: coat.kind, col: coat.col }; sp.kit = null; for (const k of ['vest', 'strap', 'zip', 'waist', 'vestBack', 'tacGloves', 'inner']) delete sp[k]; sp.collar = false; if (!(COAT_KINDS[coat.kind] || {}).v) delete sp.heroTie; if (!top && base.kit === 'openShirt') { sp.top = base.inner || '#ece7dc'; sp.outfit = 'tee'; } } // Dineth's own jacket comes off: the white tee he wears under it stays // everything worn over the shirt comes off under a coat; a closed jacket also covers the tie
   if (look.hair) sp.hair = look.hair; if (look.hairColor) { const hc = HAIR_COLORS.find((h) => h.id === look.hairColor); if (hc) sp.hairColor = hc.col; }
   if (look.beard) { const b = BEARDS.find((q) => q.id === look.beard); if (b) Object.assign(sp, b.p); }
   if (look.tattoos && Object.keys(look.tattoos).some((k) => look.tattoos[k])) sp.tattoos = { ...look.tattoos };

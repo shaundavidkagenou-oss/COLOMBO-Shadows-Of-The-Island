@@ -170,20 +170,26 @@ export function buildHeroGarments(sb, sp, ctx) {
   // waistcoat) with sleeves to the wrist. Every vertex is the same body vertex as the layers under it with the same skin
   // weights, so the layers move together and keep their gap in any pose (nothing pokes through when he runs or aims).
   let cc = null; const CO = sp.coat ? COATS[sp.coat.kind] || COATS.blazer : null; const coatC = CO ? C(sp.coat.col) : null;
-  const hemC = CO ? CO.hem * s : 0, sleeveC = 0.915 * s, topC = NK.cutY - 0.005;
+  const hemC = CO ? CO.hem * s : 0, sleeveC = 0.915 * s, topC = NK.cutY + 0.012; // top edge: a level line round the neck, just under the shirt collar
   const halfVC = (yy) => (CO && CO.v ? (yy < CO.v * s ? -1 : 0.008 + ((yy - CO.v * s) / (1.43 * s - CO.v * s)) * 0.1) : -1);
   if (CO) {
     const offOf = (G, u) => (G && G.used[u] ? (G.Q[u * 3] - P[u * 3]) * N[u * 3] + (G.Q[u * 3 + 1] - P[u * 3 + 1]) * N[u * 3 + 1] + (G.Q[u * 3 + 2] - P[u * 3 + 2]) * N[u * 3 + 2] : 0);
     const under = (u) => Math.max(offOf(sh, u), offOf(tr, u), offOf(vc, u), 0.006);
-    const coatHas = (u, tol) => (armW[u] >= 0.5 ? handW[u] < 0.5 && y(u) >= sleeveC - tol : (legW[u] < 0.6 || y(u) >= 0.9 * s) && y(u) >= hemC - tol) && y(u) <= topC + tol && !(N[u * 3 + 2] > 0.3 && armW[u] < 0.5 && Math.abs(P[u * 3]) < halfVC(y(u)) - tol);
+    const coatHas = (u, tol) => (armW[u] >= 0.5 ? handW[u] < 0.5 && y(u) >= sleeveC - tol : (legW[u] < 0.6 || y(u) >= 0.9 * s) && y(u) >= hemC - tol) && y(u) <= yTop + tol && !(N[u * 3 + 2] > 0.3 && armW[u] < 0.5 && Math.abs(P[u * 3]) < halfVC(y(u)) - tol);
     const ease = (u) => under(u) + (armW[u] >= 0.5 ? 0.0095 : 0.0115) + CO.puff * (armW[u] >= 0.5 ? 0.6 : 1);
     foldMax = 0.01;
-    cc = shell(coatHas, ease, CLOTH.COAT, coatC, (u) => (armW[u] >= 0.5 ? sleeveC : y(u) < 1.06 * s ? hemC : null), (Q, used, bnd) => {
+    cc = shell(coatHas, ease, CLOTH.COAT, coatC, (u) => (armW[u] >= 0.5 ? (y(u) < 1.2 * s ? sleeveC : null) : y(u) < 1.06 * s ? hemC : null), (Q, used, bnd) => {
       if (CO.v) for (let u = 0; u < NU; u++) { if (!used[u] || !bnd[u] || N[u * 3 + 2] < 0.2 || y(u) < CO.v * s - 0.02 || armW[u] > 0.08) continue; const hv = halfVC(Q[u * 3 + 1]); if (hv <= 0 || Math.abs(Q[u * 3]) > hv + 0.03) continue; Q[u * 3] = Math.sign(P[u * 3] || 1) * hv; }
       drape(Q, used, { y0: hemC - 0.03, free: true }); // hangs straight from the chest / shoulder blades
       for (let u = 0; u < NU; u++) { if (!used[u]) continue; const d = (Q[u * 3] - P[u * 3]) * N[u * 3] + (Q[u * 3 + 1] - P[u * 3 + 1]) * N[u * 3 + 1] + (Q[u * 3 + 2] - P[u * 3 + 2]) * N[u * 3 + 2]; const m = under(u) + 0.0068;
-        if (d < m) for (let k = 0; k < 3; k++) Q[u * 3 + k] += N[u * 3 + k] * (m - d); } }, CO.mat);
-    foldMax = 1;
+        if (d < m) for (let k = 0; k < 3; k++) Q[u * 3 + k] += N[u * 3 + k] * (m - d); }
+      // neck: conformed to the head's collar ellipse OUTSIDE the shirt collar (shirt margin 6 mm → coat 17 mm), cut level at topC
+      for (let u = 0; u < NU; u++) { if (!used[u] || armW[u] >= 0.5) continue; const yy = Q[u * 3 + 1]; const t = sstep(cutY - 0.05, cutY + 0.004, yy); if (t <= 0) continue;
+        const yc = Math.min(yy, topC); const E0 = NK.collarAt(yc + 0.012); const m = 0.017; const a = Math.atan2((Q[u * 3 + 2] - E0.cz) / (E0.rz + m), Q[u * 3] / (E0.rx + m));
+        const tx = Math.cos(a) * (E0.rx + m), tz = E0.cz + Math.sin(a) * (E0.rz + m); const r0 = Math.hypot(Q[u * 3] / (E0.rx + m), (Q[u * 3 + 2] - E0.cz) / (E0.rz + m));
+        if (r0 < 1) { Q[u * 3] = lerp(Q[u * 3], tx, t); Q[u * 3 + 2] = lerp(Q[u * 3 + 2], tz, t); } // only ever pushed out (never pulled into the shirt)
+        Q[u * 3 + 1] = Math.min(yy, topC); } }, CO.mat);
+    foldMax = 1; if (globalThis.__coatFitProbe) globalThis.__coatFitProbe({ cc, sh, tr, P, N, armW, legW, handW, NU, y });
     if (CO.rib) for (let u = 0; u < NU; u++) { const v = cc.map[u]; if (v < 0) continue; const yy = y(u); if (armW[u] >= 0.5 ? yy < sleeveC + 0.055 : yy < hemC + 0.055) { sb.cl[v * 2 + 1] = 4; for (let k = 0; k < 3; k++) sb.col[v * 3 + k] *= 0.82; } } // knitted cuffs + waistband
   }
   // ---- skin: everything not deeply covered (2.5 cm past every garment edge stays, so no gap shows into a sleeve or collar)
@@ -280,7 +286,8 @@ export function buildHeroGarments(sb, sp, ctx) {
     // collar: a double-sided band round the neck enclosing the coat's top edge and the shirt neck under it
     { let zlo = 1e9, zhi = -1e9, xm = 0; const pts = []; const y0 = topC - 0.014, y1 = topC + CO.collar;
       for (const G of [cc, sh]) for (let u = 0; u < NU; u++) { if (!G.used[u] || armW[u] >= 0.5) continue; const qy = G.Q[u * 3 + 1]; if (qy < y0 - 0.01 || qy > y1 + 0.01) continue; pts.push(G.Q[u * 3], G.Q[u * 3 + 2]); if (G === cc && qy > topC - 0.02) { xm = Math.max(xm, Math.abs(G.Q[u * 3])); zlo = Math.min(zlo, G.Q[u * 3 + 2]); zhi = Math.max(zhi, G.Q[u * 3 + 2]); } }
-      if (pts.length > 8 && zhi > zlo) { const E0 = { cz: (zlo + zhi) / 2, rx: xm * 0.82, rz: (zhi - zlo) / 2 * 0.9 }; let e = 1; for (let i = 0; i < pts.length; i += 2) e = Math.max(e, Math.hypot(pts[i] / E0.rx, (pts[i + 1] - E0.cz) / E0.rz)); E0.rx *= e; E0.rz *= e;
+      if (pts.length > 8 && zhi > zlo) { const EN = NK.collarAt(topC + 0.012); const E0 = { cz: EN.cz, rx: EN.rx + 0.017, rz: EN.rz + 0.017 }; let e = 1; // round the neck: only the cloth near the neck (not the shoulders) sets its size
+        for (let i = 0; i < pts.length; i += 2) { const r = Math.hypot(pts[i] / (E0.rx + 0.035), (pts[i + 1] - E0.cz) / (E0.rz + 0.035)); if (r < 1) e = Math.max(e, Math.hypot(pts[i] / E0.rx, (pts[i + 1] - E0.cz) / E0.rz)); } E0.rx *= e; E0.rz *= e;
         const gap = CO.v ? 0.78 : 0.07, NC = 44; const rows = [[y0, 0.0025, 0], [y1 - 0.01, 0.004, 0.5], [y1, 0.0085, 1]]; const Pg = [], Ng = [], Wg = [];
         rows.forEach(([yy, m, k]) => { const row = [], nr = [], wr = []; for (let ci = 0; ci <= NC; ci++) { const a = Math.PI / 2 + gap + (ci / NC) * (2 * Math.PI - 2 * gap); const ca = Math.cos(a), sa = Math.sin(a); row.push([ca * (E0.rx + m), yy, E0.cz + sa * (E0.rz + m)]); nr.push([ca, 0.25 + k * 0.4, sa]); wr.push([[B.chest, 1 - k * 0.4], [B.neck, k * 0.4]]); }
           Pg.push(row); Ng.push(nr); Wg.push(wr); });
