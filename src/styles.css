@@ -815,6 +815,7 @@ button.cc-k { cursor: pointer; } button.cc-k:hover { background: rgba(0, 0, 0, 0
 .sto-foot span:first-child { color: #7fd36b; font-weight: 600; }
 .sto-foot kbd { background: #2a2a2a; border: 1px solid #444; border-radius: 3px; padding: 0 4px; font-size: 11px; color: #eee; }
 .hud.in-store .minimap, .hud.in-store .gps-info, .hud.in-store .objective, .hud.in-store .world-marker, .hud.in-store .vitals, .hud.in-store .street, .hud.in-store .district, .hud.in-store .prompt { visibility: hidden; }
+.subtitles.in-store { visibility: hidden; } /* the store panel carries its own hints; a caption over the preview hid the item being tried on */
 .sto-row em.tk { width: 6px; height: 13px; border: solid currentColor; border-width: 0 3px 3px 0; transform: rotate(45deg) translate(-3px, -2px); color: #7fd36b; }
 .sto-row.on em.tk { color: #2d8a1d; }
 @media (max-height: 760px) { .sto { top: 3vh; left: 2vw; } .sto-panel { transform: scale(0.7); transform-origin: top left; } }

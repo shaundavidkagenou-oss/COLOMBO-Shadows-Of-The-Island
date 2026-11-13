@@ -96,6 +96,12 @@ export function tattooAtlas(THREE, tattoos) {
   a.clearRect(0, 0, 1024, 512);
   TATTOO_ZONES.forEach((z, i) => { const id = tattoos[z.id]; if (!id) return; const cx = (i % 4) * 256, cy = Math.floor(i / 4) * 256; const d = designById(id);
     a.save(); a.beginPath(); a.rect(cx + 2, cy + 2, 252, 252); a.clip(); drawTattooDesign(a, id, cx + (d && d.band ? 0 : 20), cy + (d && d.band ? 40 : 20), d && d.band ? 256 : 216, d && d.band ? 176 : 216, { ink: 'rgba(22,26,34,0.9)', color: true }); a.restore(); });
+  // healed ink, not a sticker: colour washes muted and slightly see-through (skin tone shows under them), lines a touch
+  // soft where the ink has settled into the skin (a blurred copy under the crisp one)
+  try { const im = a.getImageData(0, 0, 1024, 512), d = im.data;
+    for (let i = 0; i < d.length; i += 4) { if (!d[i + 3]) continue; const l = d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11; for (let k = 0; k < 3; k++) d[i + k] = (d[i + k] + (l - d[i + k]) * 0.38) * 0.9; d[i + 3] *= 0.86; }
+    a.putImageData(im, 0, 0);
+    if ('filter' in a) { const c2 = document.createElement('canvas'); c2.width = 1024; c2.height = 512; const b = c2.getContext('2d'); b.filter = 'blur(1.2px)'; b.drawImage(cv, 0, 0); b.filter = 'none'; b.globalAlpha = 0.8; b.drawImage(cv, 0, 0); a.clearRect(0, 0, 1024, 512); a.drawImage(c2, 0, 0); } } catch (e) { /* tainted / no 2D readback: keep the crisp art */ }
   const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; ATLAS.set(key, t); if (ATLAS.size > 6) { const k0 = ATLAS.keys().next().value; if (k0 !== key) { ATLAS.get(k0).dispose(); ATLAS.delete(k0); } }
   return t;
 }

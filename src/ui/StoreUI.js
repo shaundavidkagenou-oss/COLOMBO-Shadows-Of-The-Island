@@ -17,11 +17,12 @@ import { HEROES } from '../actors/Character.js';
 
 const rs = (n) => (n ? 'Rs. ' + Math.round(n).toLocaleString('en-LK') : 'FREE');
 const ROWS = 10;
-// camera framing per category: bone to look at, distance, height offset, side angle (rad, 0 = straight in front)
+// camera framing per category: bone to look at, distance, height offset, side angle (rad, 0 = straight in front), camera lift
+// (seated forearms rest on the armrest: the camera looks down on them, a level view was blocked by the rest)
 const FRAME = {
   hats: ['head', 0.95, 0.06, 0.35], glasses: ['head', 0.75, 0.02, 0.25], hair: ['head', 0.78, 0.04, 0.55], color: ['head', 0.78, 0.04, 0.35], beard: ['head', 0.8, -0.02, 0.3],
   tops: ['chest', 1.75, 0.05, 0.25], coats: ['chest', 1.85, 0.0, 0.3], pants: ['hips', 2.0, -0.3, 0.2], shoes: ['footL', 1.75, 0.3, 0.5], luxshoes: ['footL', 1.75, 0.3, 0.5],
-  foreL: ['foreL', 0.85, -0.05, 0.9], foreR: ['foreR', 0.85, -0.05, -0.9], upperL: ['armL', 0.85, -0.05, 1.35], upperR: ['armR', 0.85, -0.05, -1.35], chest: ['chest', 0.95, 0.05, 0.1], back: ['chest', 1.0, 0.05, Math.PI],
+  foreL: ['foreL', 0.7, -0.08, 0.9, 0.55], foreR: ['foreR', 0.7, -0.08, -0.9, 0.55], upperL: ['armL', 0.85, -0.05, 1.35, 0.2], upperR: ['armR', 0.85, -0.05, -1.35, 0.2], chest: ['chest', 0.95, 0.05, 0.1], back: ['chest', 1.0, 0.05, Math.PI],
   all: ['chest', 2.3, -0.15, 0.2],
 };
 
@@ -69,7 +70,7 @@ export class StoreUI {
     // where the player is held: barber chair / tattoo bed / in front of the display
     this.pose = this.holdPose(room, spot); this.prevCam = P.camMode; P.camMode = 0; this.prevControl = P.control; P.control = false; P.posed = this.pose.world; P.camOverride = true;
     room.busy = true; room.keeperBusy = kind === 'barber' || kind === 'tattoo'; this.keeper = room.keeper; this.kpT = 0;
-    this.sit(); this.open = true; this.root.classList.remove('hidden'); g.hud.root.classList.add('in-store'); Input.releaseLock(); this.snapCam = true; this.render(); Audio.ui('click');
+    this.sit(); this.open = true; this.root.classList.remove('hidden'); g.hud.root.classList.add('in-store'); g.hud.subs?.classList.add('in-store'); Input.releaseLock(); this.snapCam = true; this.render(); Audio.ui('click');
     const hello = { barber: 'Take a seat. What are we doing today?', tattoo: 'Pick a spot and a design — the stencil goes on first.', clothing: 'Have a look around, try anything on.', luxury: 'Good afternoon. Everything here is made to be worn for years.' }[kind];
     g.hud.subtitle(room.def.keeperName || room.name, hello, '', 3);
     return true;
@@ -87,7 +88,7 @@ export class StoreUI {
     if (this.seat) A.sitIn(this.seat, 1); else A.standUp(); P.sync(); A.update(0.001, 0); }
 
   close() {
-    const g = this.g, P = g.player; if (!this.open) return; this.open = false; this.root.classList.add('hidden'); g.hud.root.classList.remove('in-store'); this.pending = null; this.busy = 0;
+    const g = this.g, P = g.player; if (!this.open) return; this.open = false; this.root.classList.add('hidden'); g.hud.root.classList.remove('in-store'); g.hud.subs?.classList.remove('in-store'); this.pending = null; this.busy = 0;
     // whatever was only previewed comes off again
     if (this.shownKey !== JSON.stringify(lookOf(this.state.outfits[this.who]))) g.rebuildPlayer();
     P.ch.anim.standUp(); P.posed = null; P.camOverride = false; P.control = this.prevControl ?? true; P.camMode = this.prevCam ?? 0;
@@ -155,7 +156,8 @@ export class StoreUI {
   camera(dt) {
     const g = this.g, P = g.player, cam = g.camera; const cid = this.level === 1 ? this.cats[this.cat].id : this.kind === 'barber' ? 'hair' : this.kind === 'tattoo' ? this.cats[this.row]?.id || 'all' : 'all';
     const F = FRAME[cid] || FRAME.all; const bone = P.ch.bones[F[0]] || P.ch.bones.chest; bone.updateWorldMatrix(true, false); const tgt = this._t.setFromMatrixPosition(bone.matrixWorld); tgt.y += F[2];
-    const yaw = P.yaw + F[3] + this.orbit; const want = this._v.set(tgt.x + Math.sin(yaw) * F[1], tgt.y + 0.04, tgt.z + Math.cos(yaw) * F[1]);
+    if (F[0] === 'foreL' || F[0] === 'foreR') { const h = P.ch.bones[F[0] === 'foreL' ? 'handL' : 'handR']; if (h) { h.updateWorldMatrix(true, false); const hx = h.matrixWorld.elements; tgt.x = (tgt.x + hx[12]) / 2; tgt.z = (tgt.z + hx[14]) / 2; tgt.y = (tgt.y - F[2] + hx[13]) / 2; } } // mid-forearm (the bone sits at the elbow)
+    const yaw = P.yaw + F[3] + this.orbit; const want = this._v.set(tgt.x + Math.sin(yaw) * F[1], tgt.y + 0.04 + (F[4] || 0), tgt.z + Math.cos(yaw) * F[1]);
     this.W.clampCam(this.site, tgt, want);
     if (this.snapCam) { this.camPos.copy(want); this.camTgt.copy(tgt); this.snapCam = false; }
     const k = 1 - Math.exp(-dt * 6); this.camPos.lerp(want, k); this.camTgt.lerp(tgt, k);
