@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { vehicleMaterials } from './VehicleModels.js';
-import { heliMaterials } from './HeliMaterials.js';
+import { heliMaterials, LIVERY_CABIN, LIVERY_BOOM } from './HeliMaterials.js';
 
 export const HELI = { rotorR: 7.0, hubY: 3.9, tailR: 1.3, len: 12.9, skidW: 1.3, mass: 5400 };
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
@@ -21,7 +21,7 @@ const WHITE = C('#eef0ee'), NAVY = C('#18306e'), GOLD = C('#c9a33a'), DARK = C('
 
 // lofted body: sections { z, yc (centre), hw (half width), ht (top above yc), hb (bottom below yc), n (squareness) }; the
 // ring is a superellipse, flattened at the bottom. region(z, x, y, upper) → builder name or null (skip: an opening)
-function loft(mb, S, M, region, colour) {
+function loft(mb, S, M, region, colour, inward = false) {
   const ring = []; const pts = (s) => { const out = []; for (let i = 0; i <= M; i++) { const a = (i / M) * Math.PI * 2; const c = Math.cos(a), sn = Math.sin(a); const e = 2 / s.n;
     const x = s.hw * Math.sign(c) * Math.pow(Math.abs(c), e), y = sn >= 0 ? s.ht * Math.pow(Math.abs(sn), e) : -s.hb * Math.pow(Math.abs(sn), e); out.push([x, s.yc + y, s.z, a]); } return out; };
   for (const s of S) ring.push(pts(s));
@@ -33,16 +33,16 @@ function loft(mb, S, M, region, colour) {
   for (let k = 0; k < S.length - 1; k++) for (let i = 0; i < M; i++) {
     const p00 = ring[k][i], p01 = ring[k][i + 1], p10 = ring[k + 1][i], p11 = ring[k + 1][i + 1];
     const zm = (p00[2] + p10[2]) / 2, xm = (p00[0] + p01[0] + p10[0] + p11[0]) / 4, ym = (p00[1] + p01[1] + p10[1] + p11[1]) / 4;
-    const name = region(zm, xm, ym, ym > (S[k].yc + S[k + 1].yc) / 2); if (!name) continue; const b = mb.get(name);
-    const v = (p, kk, ii) => { const n = nrm(kk, ii % M); return b.vert(p[0], p[1], p[2], n[0], n[1], n[2], p[3] / 6.283, kk / S.length, colour(p[2], p[0], p[1])); };
+    const name = region(zm, xm, ym, ym > (S[k].yc + S[k + 1].yc) / 2, (p00[3] + p01[3]) / 2); if (!name) continue; const b = mb.get(name); const sg = inward ? -1 : 1;
+    const v = (p, kk, ii) => { const n = nrm(kk, ii % M); return b.vert(p[0], p[1], p[2], n[0] * sg, n[1] * sg, n[2] * sg, p[3] / 6.283, kk / S.length, colour(p[2], p[0], p[1])); };
     const a = v(p00, k, i), bb = v(p01, k, i + 1), c = v(p11, k + 1, i + 1), d = v(p10, k + 1, i);
     const n0 = nrm(k, i); const e1 = [p11[0] - p00[0], p11[1] - p00[1], p11[2] - p00[2]], e2 = [p01[0] - p00[0], p01[1] - p00[1], p01[2] - p00[2]];
     const out = (e1[1] * e2[2] - e1[2] * e2[1]) * n0[0] + (e1[2] * e2[0] - e1[0] * e2[2]) * n0[1] + (e1[0] * e2[1] - e1[1] * e2[0]) * n0[2] >= 0;
-    if (out) b.idx.push(a, c, bb, a, d, c); else b.idx.push(a, bb, c, a, c, d); // counter-clockwise seen from outside
+    if (out !== inward) b.idx.push(a, c, bb, a, d, c); else b.idx.push(a, bb, c, a, c, d); // counter-clockwise seen from outside
   }
   // close the ends with fans (nose / tail of each loft)
-  for (const [k, sgn] of [[0, 1], [S.length - 1, -1]]) { const s = S[k]; if (s.hw < 0.02) continue; const b = mb.get(region(s.z, 0, s.yc, false) || 'hpaint'); const c0 = b.vert(0, s.yc, s.z, 0, 0, sgn, 0.5, 0.5, colour(s.z, 0, s.yc));
-    const base = b.vcount; for (let i = 0; i <= M; i++) { const p = ring[k][i]; b.vert(p[0], p[1], p[2], 0, 0, sgn, 0, 0, colour(p[2], p[0], p[1])); } for (let i = 0; i < M; i++) { if (sgn > 0) b.idx.push(c0, base + i, base + i + 1); else b.idx.push(c0, base + i + 1, base + i); } }
+  for (const [k, sgn] of [[0, 1], [S.length - 1, -1]]) { const s = S[k]; if (s.hw < 0.02) continue; const b = mb.get(region(s.z, 0, s.yc, false, -1) || 'hpaint'); const sn = inward ? -sgn : sgn; const c0 = b.vert(0, s.yc, s.z, 0, 0, sn, 0.5, 0.5, colour(s.z, 0, s.yc));
+    const base = b.vcount; for (let i = 0; i <= M; i++) { const p = ring[k][i]; b.vert(p[0], p[1], p[2], 0, 0, sn, 0, 0, colour(p[2], p[0], p[1])); } for (let i = 0; i < M; i++) { if (sn > 0) b.idx.push(c0, base + i, base + i + 1); else b.idx.push(c0, base + i + 1, base + i); } }
 }
 // a tube along a polyline (skids, cross tubes, exhaust pipes)
 function tube(b, pts, r, seg = 8, col) {
@@ -70,18 +70,25 @@ export function buildHeliModel({ reg = '4R-SLP', crew = true } = {}) {
   sec(5.15, 1.38, 0.96, 0.82, 0.7, 2.5); sec(4.7, 1.46, 1.07, 0.98, 0.77, 2.7); sec(4.2, 1.55, 1.13, 1.08, 0.82, 2.9); sec(3.6, 1.62, 1.17, 1.06, 0.86, 3.1);
   for (let z = 3.0; z >= -0.6; z -= 0.4) sec(+z.toFixed(2), 1.64, 1.2, 1.0, 0.9, 3.4);
   sec(-1.0, 1.66, 1.16, 0.98, 0.86, 3.2); sec(-1.45, 1.72, 1.02, 0.92, 0.72, 2.9); sec(-1.9, 1.82, 0.82, 0.8, 0.52, 2.6); sec(-2.35, 1.92, 0.62, 0.64, 0.4, 2.3); sec(-2.7, 1.98, 0.5, 0.54, 0.34, 2.1);
-  const band = (z) => 1.12 + 0.05 * Math.max(0, z - 2) - 0.03 * Math.max(0, -1 - z); // white over navy: the livery split rises toward the nose
-  const paint = (z, x, y) => { const b = band(z); if (y < b - 0.05) return NAVY; if (y < b + 0.04) return GOLD; return WHITE; };
-  const glassAt = (z, x, y, up) => {
-    const ax = Math.abs(x);
-    if (z > 3.2 && z < 5.95 && up && y > 1.62 + (z - 3.2) * -0.02 && !(ax < 0.045 && z > 4.0)) return !(z > 3.95 && z < 4.06); // windscreen + roof eyebrow, centre post
-    if (z > 4.9 && z < 5.85 && !up && y > 0.74 && y < 1.2 && ax > 0.2) return true; // chin windows (pilot's view down past the pedals)
+  // white over navy with a gold pin-stripe, the split rising toward the nose: drawn per pixel by the paint shader (HeliMaterials
+  // LIVERY_CABIN), so the line is crisp — vertex colours zig-zagged across the lofted grid on the tapering nose
+  const paint = () => LIVERY_CABIN;
+  // windscreen and chin windows follow the loft's own lines (ring angle × station: a = 0 left side, π/2 top, π right, 3π/2
+  // belly), so their frames run straight along the nose instead of stair-stepping across the grid
+  const glassAt = (z, x, y, up, a = -1) => {
+    const ax = Math.abs(x), P = Math.PI;
+    if (z > 3.2 && z < 5.9 && a > 0.21 * P && a < 0.79 * P) return true; // windscreen + roof eyebrow (one sweep, as on the type)
+    if (z > 4.9 && z < 5.75 && ((a > 1.17 * P && a < 1.42 * P) || (a > 1.58 * P && a < 1.83 * P))) return true; // chin windows (pilot's view down past the pedals)
     if (ax > 1.0 && y > 1.62 && y < 2.32) { if (z > 2.05 && z < 3.15) return true; if (z > 0.15 && z < 1.65) return true; if (z > -1.05 && z < -0.25) return true; } // cockpit door, sliding cabin door, rear cabin window
     return false;
   };
   loft(mb, S, 36, (z, x, y, up) => (glassAt(z, x, y, up) ? 'hglass' : 'hpaint'), paint);
   // interior behind the glass (dark cabin), so the windows read as windows and not as see-through holes
-  { const ib = mb.get('vinterior'); ib.box(0, 1.55, 1.5, 1.9, 1.1, 4.8, { col: C('#2b2e33') }); ib.box(0, 1.05, 4.3, 1.2, 0.2, 1.3, { col: C('#1d1f22') }); /* floor + instrument panel */ ib.box(0, 1.55, 4.15, 1.7, 0.45, 0.35, { col: C('#141516') });
+  // cabin lining: the hull's inside face (dark trim) from the rear bulkhead to the nose, open at every window, so through the
+  // clear canopy you see a cabin, not a black block — and never the sky through the far wall (the skin is single-sided)
+  { const k = 0.965, Sin = S.filter((q) => q.z >= -1.0 && q.z <= 5.9).map((q) => ({ ...q, hw: q.hw * k, ht: q.ht * k, hb: q.hb * k }));
+    loft(mb, Sin, 36, (z, x, y, up, a) => (glassAt(z, x / k, 1.64 + (y - 1.64) / k, up, a) ? null : 'vinterior'), () => C('#34373c'), true); }
+  { const ib = mb.get('vinterior'); ib.box(0, 0.92, 1.72, 1.8, 0.06, 5.35, { col: C('#26282b') }); /* cabin floor */ ib.box(0, 1.05, 4.3, 1.2, 0.2, 1.3, { col: C('#1d1f22') }); /* pedestal */ ib.box(0, 1.55, 4.15, 1.7, 0.45, 0.35, { col: C('#141516') });
     for (const sx of [-1, 1]) { ib.box(sx * 0.48, 1.0, 3.72, 0.5, 0.12, 0.5, { col: C('#30343a') }); ib.box(sx * 0.48, 1.42, 3.45, 0.5, 0.8, 0.1, { col: C('#30343a') }); /* crew seats (crash-attenuating frames) */ }
     ib.box(0, 1.0, 0.5, 1.9, 0.14, 0.55, { col: C('#3a3e44') }); ib.box(0, 1.45, 0.22, 1.9, 0.8, 0.1, { col: C('#3a3e44') }); /* rear-cabin bench */
     ib.box(0, 1.79, 4.42, 1.5, 0.02, 0.28, { col: C('#0d0e0f') }); /* glare shield */ ib.box(0, 2.48, 3.3, 0.6, 0.05, 0.5, { col: C('#202226') }); /* overhead switch console */ }
@@ -95,7 +102,7 @@ export function buildHeliModel({ reg = '4R-SLP', crew = true } = {}) {
     mb.get('hpaint').cylinder(0, 3.02, 0.25, 0.42, 0.36, 0.22, 16, { col: C('#e2e4e2') }); /* transmission fairing under the mast (painted like the cowling) */ }
   // --------------------------------------------------------------------------------------------- tail boom, fins, stabiliser
   const B = []; for (let i = 0; i <= 10; i++) { const t = i / 10; const z = -2.6 - t * 5.3; B.push({ z, yc: 2.0 + 0.22 * t, hw: 0.46 - 0.24 * t, ht: 0.5 - 0.26 * t, hb: 0.42 - 0.22 * t, n: 2.3 }); }
-  loft(mb, B, 20, () => 'hpaint', (z, x, y) => (y < 1.98 + 0.02 * (-2.6 - z) - 0.12 ? NAVY : WHITE));
+  loft(mb, B, 20, () => 'hpaint', () => LIVERY_BOOM);
   { const p = mb.get('hpaint'); const fin = new THREE.Shape(); fin.moveTo(-7.4, 2.0); fin.lineTo(-8.35, 2.05); fin.lineTo(-8.95, 4.15); fin.lineTo(-8.45, 4.2); fin.lineTo(-7.75, 2.75); fin.lineTo(-7.55, 2.3); fin.closePath();
     const fg = new THREE.ExtrudeGeometry(fin, { depth: 0.16, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.03, bevelSegments: 1 }); fg.translate(0, 0, -0.08); // shape in (z, y), extruded across x
     geo(p, fg, [0, 0, 0], [0, -Math.PI / 2, 0], [1, 1, 1], WHITE);

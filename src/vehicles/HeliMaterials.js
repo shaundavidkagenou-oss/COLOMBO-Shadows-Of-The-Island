@@ -34,6 +34,11 @@ vec3 hBump(vec3 n, float h, float s) { vec3 p = -vViewPosition; vec3 dpx = dFdx(
 
 const PAINT = `{
   vec3 p = vHp; vec3 an = abs(vHn); float px = length(fwidth(p));
+  { vec3 vc = vColor.rgb; float m1 = step(0.9, vc.r) * step(vc.g, 0.1) * step(0.9, vc.b), m2 = step(vc.r, 0.1) * step(0.9, vc.g) * step(0.9, vc.b);
+    if (m1 + m2 > 0.5) { float b = m1 > 0.5 ? 1.12 + 0.05 * max(0.0, p.z - 2.0) - 0.03 * max(0.0, -1.0 - p.z) : 1.86 - 0.02 * (2.6 + p.z) + 0.03;
+      float lo = m1 > 0.5 ? 0.05 : 0.02, hi = m1 > 0.5 ? 0.04 : 0.022; float fw = max(fwidth(p.y), 1e-4);
+      float s1 = smoothstep(b - lo - fw, b - lo + fw, p.y), s2 = smoothstep(b + hi - fw, b + hi + fw, p.y);
+      diffuseColor.rgb = mix(mix(vec3(0.0091, 0.0296, 0.1559), vec3(0.5841, 0.3663, 0.0423), s1), vec3(0.855, 0.8714, 0.855), s2) * diffuse; } }
   // panel seams: frame stations every 0.62 m along the airframe, longitudinal joints every 0.5 m up the sides (0.55 m across
   // the top / belly); a per-segment hash drops some seam segments so the panels vary in size like a real skin
   float side = step(an.y, 0.72);
@@ -84,6 +89,9 @@ function surface(mat, key, body, spec) {
   mat.customProgramCacheKey = () => key; return mat;
 }
 
+// livery markers: vertices of the cabin / boom skin carry these colours and the shader paints white over navy with a gold
+// pin-stripe per pixel (the split rises toward the nose: 1.12 m + 5 cm per metre ahead of z = 2, dipping 3 cm/m aft of z = −1)
+export const LIVERY_CABIN = [1, 0, 1], LIVERY_BOOM = [0, 1, 1];
 let H = null;
 export function heliMaterials() {
   if (H) return H;
