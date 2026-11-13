@@ -64,6 +64,7 @@ export class Player {
       this.y = lerp(c.y0, c.y1, Math.min(1, k * 1.6)); this.x = lerp(c.x0, c.x1, Math.max(0, (k - 0.4) / 0.6)); this.z = lerp(c.z0, c.z1, Math.max(0, (k - 0.4) / 0.6));
       A.set('handsup'); A.update(dt, 0); if (k >= 1) { this.climb = null; A.set(null); } this.sync(); return;
     }
+    if (this.posed) { const q = this.posed; this.x = q.x; this.y = q.y; this.z = q.z; this.yaw = q.yaw; this.speed = 0; A.update(dt, 0); this.sync(); return; } // held in place by a shop (barber chair / tattoo bench / fitting mirror — ui/StoreUI.js)
     this.crouching = this.control && Input.isDown('crouch');
     this.sprinting = this.control && Input.isDown('sprint') && mag > 0.3 && this.stamina > 0.05 && !this.crouching && !this.aiming && !(this.drunk > 0.75);
     const pk = this.perk || { speed: 1, stamina: 1 }; // squad member: Dineth runs faster and longer, Shashika is heavier

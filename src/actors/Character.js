@@ -11,10 +11,12 @@ import { TEX, faceAtlas, FACE_FRAMES } from '../gfx/Textures.js';
 import { RNG } from '../core/rng.js';
 import { makeAppearance, FACE_VARIANTS } from './Appearance.js';
 import { lerp, clamp, damp, smoothstep } from '../core/math.js';
-import { hasHeroBody, buildHeroGarments, clothShader } from './HeroBody.js';
+import { hasHeroBody, buildHeroGarments, clothShader, buildTattooGeometry } from './HeroBody.js';
+import { tattooAtlas, designById } from './TattooArt.js';
 import { hasNpcBody, buildNpcGarments, FAB } from './NpcBody.js';
 import { HERO_EXTRA, HERO_PARENT, heroJoints, fingerLayout, HeroRig, heroUniforms, patchHeroMaterial, faceNormals } from './HeroRig.js';
-import { hasHeroHead, heroHeadFit, buildHeroHead, headMaterials, iblScale, buildEyeball, EXPR_MORPHS, morphIndex, HEAD_MORPHS } from './HeroHead.js';
+import { hasHeroHead, heroHeadFit, buildHeroHead, headMaterials, iblScale, buildEyeball, EXPR_MORPHS, morphIndex, HEAD_MORPHS, buildHeroShades } from './HeroHead.js';
+import { buildHat } from './HeadWear.js';
 import { npcHeadFit, npcHeadGeometry, npcHeadMaterial, npcHeadOpts, npcScalp, NPC_MORPHS } from './NpcHead.js';
 import { hasDancerBody, dancerGeometry, makeDancerSkeleton, dancerMaterials, attachDancerEyes, dancerHeelFit, queueDancerPaint, morphsMatchHeroes } from './DancerBody.js';
 import { DancerRig } from './DancerRig.js';
@@ -194,7 +196,7 @@ export function heroShoe(sb, ft, side, sp, W1, W2, shoe) {
     const y = sn >= 0 ? yS(u) + H(u) * _sp(sn, 0.85) : yS(u) - 0.004 * -sn; return [x, y, zOf(u)]; },
   wf, (u, v, p) => { const a = v * Math.PI * 2, sn = Math.sin(a), c = Math.cos(a); const hgt = (p[1] - yS(u)) / Math.max(1e-4, H(u)); let col = up;
     if (hgt < 0.08) col = dk; // welt / stitch line where the upper meets the sole
-    if (kind === 'oxford') { if (Math.abs(u - 0.79) < 0.012 && sn > 0.15) col = up.map((x) => x * 0.55); // toe-cap seam
+    if (kind === 'oxford') { if (sp.shoeToe && u > 0.79 && hgt > 0.08) col = C3(sp.shoeToe); if (Math.abs(u - 0.79) < 0.012 && sn > 0.15) col = up.map((x) => x * 0.55); // toe-cap seam (two-tone spectators: contrasting cap)
       if (u < 0.3 && sn > 0.2 && Math.abs(c) > 0.3) col = up.map((x) => x * 0.88); // quarter panel
       if (u > 0.4 && u < 0.64 && sn > 0.82) col = up.map((x) => x * 0.7); } // facing / eyestay
     if (kind === 'sneaker') { if (u < 0.14 && sn > 0.45) col = C3('#8c9198'); // heel tab
@@ -711,7 +713,8 @@ export function buildBodyGeometry(sp) {
       sb.ellipsoid([0.015, 1.024 * s, surfZ(1.1 * s, 0, 1) + 0.016], 0.008, 0.008, 0.002, W1('fob2'), gold, { lat: 6, lon: 10 }); // fob medallion
     }
     const vestHB = HB && sp.kit === 'waistcoat'; // the fitted waistcoat covers the belt line
-    if (!vestHB) { band(0.962 * s, 0.992 * s, 0.004, C('#24180f'), W1('hips')); /* belt */ sb.boxPart([0, 0.977 * s, surfZ(0.977 * s, 0, 1) + 0.008], 0.044, 0.034, 0.007, W1('hips'), C('#a8a6a0')); } // buckle
+    if (sp.cargo && HB) for (const side of ['L', 'R']) { const th = J['thigh' + side], sx = Math.sign(th[0]); const x = th[0] + sx * 0.068 * w; sb.boxPart([x, 0.62 * s, 0.01], 0.022, 0.12, 0.105, W1('thigh' + side), dark(bottom, 0.9)); sb.boxPart([x + sx * 0.002, 0.685 * s, 0.01], 0.024, 0.024, 0.109, W1('thigh' + side), dark(bottom, 0.78)); } // cargo trousers: bellows thigh pockets with flaps
+    if (!vestHB && !(HB && HB.coat)) { band(0.962 * s, 0.992 * s, 0.004, C('#24180f'), W1('hips')); /* belt */ sb.boxPart([0, 0.977 * s, surfZ(0.977 * s, 0, 1) + 0.008], 0.044, 0.034, 0.007, W1('hips'), C('#a8a6a0')); } // buckle
     vstrip(0, 0.865 * s, vestHB ? 0.915 * s : 0.955 * s, 0.004, dark(bottom, 0.7)); // fly
     for (const sx of [-1, 1]) hstrip(0.9 * s, sx * 0.035 * w, sx * 0.118 * w, 0.072, dark(bottom, 0.86), -1); // back pockets
   }
@@ -1123,7 +1126,7 @@ export class Character {
     if (spec.hero) { // protagonists: own material instances with DQ skinning, subsurface skin, wetness / sweat, expression normals
       if (!geo.attributes.aSkin) geo.setAttribute('aSkin', new THREE.Float32BufferAttribute(skinMask(geo, spec), 1));
       this.heroU = heroUniforms(); const hb = getHairMaterial(); const fn = faceNormals();
-      const body = getBodyMaterial().clone(); patchHeroMaterial(body, 'body', this.heroU, geo.userData.heroBody ? clothShader({ inner: spec.inner, open: spec.kit === 'openShirt', s: spec.height / 1.72, denim: spec.kit === 'openShirt', stitch: '#b8873e', stripe: spec.stripe, vestBack: spec.vestBack, crease: spec.kit === 'waistcoat' }) : null); iblScale(body, 0.55, 1.0, 0.5);
+      const body = getBodyMaterial().clone(); patchHeroMaterial(body, 'body', this.heroU, geo.userData.heroBody ? clothShader({ inner: spec.inner, open: spec.kit === 'openShirt', s: spec.height / 1.72, denim: spec.denim ?? spec.kit === 'openShirt', stitch: '#b8873e', stripe: spec.stripe, vestBack: spec.vestBack, crease: spec.crease ?? spec.kit === 'waistcoat' }) : null); iblScale(body, 0.55, 1.0, 0.5);
       const fm = this.face.mat; if (fn.base) { fm.normalMap = fn.base; fm.normalScale = new THREE.Vector2(0.35, -0.35); } patchHeroMaterial(fm, 'face', this.heroU);
       const hm = hb.clone(); patchHeroMaterial(hm, 'hair', this.heroU, hb.onBeforeCompile); mats = [addBloodStain(body), fm, hm]; this.heroMats = [body, hm];
     }
@@ -1134,6 +1137,7 @@ export class Character {
     this.bones = Object.fromEntries(bones.map((b) => [b.name, b])); this.hipY = bones[0].position.y;
     this.clothHang = !!(geo.userData.npcBody && (spec.outfit === 'saree' || spec.outfit === 'salwar' || spec.shawl || spec.towel)); // drives the clothB pendulum (Animator.driveCloth)
     if (spec.hero && hasHeroHead(spec)) this.attachHeroHead(skeleton);
+    if (spec.hero && spec.tattoos && hasHeroBody(spec)) this.attachTattoos(skeleton);
     if (npcHead) this.attachNpcHead(fv);
     this.anim = new Animator(this); if (spec.hero) this.rig = new HeroRig(this);
     if (geo.userData.bustMorph) { this.mesh.updateMorphTargets(); this.bust = { p: null, v: new THREE.Vector3(), x: 0, vx: 0, y: 0, vy: 0 }; }
@@ -1166,7 +1170,7 @@ export class Character {
   // protagonist head (HeroHead.js): a second SkinnedMesh on the same skeleton (child of the body mesh, so visibility,
   // falls and the first-person head hide all apply), eyeballs + glasses as rigid children of the head bone
   attachHeroHead(skeleton) {
-    const sp = this.spec; const key = [sp.mh, sp.height, sp.skin, sp.hair, sp.hairColor, !!sp.beard, !!sp.moustache, !!sp.glasses, sp.hairline || 0].join('|');
+    const sp = this.spec; const key = [sp.mh, sp.height, sp.skin, sp.hair, sp.hairColor, !!sp.beard, !!sp.moustache, !!sp.glasses, sp.hairline || 0, !!sp.hat, sp.stubble ?? '', !!sp.goatee, sp.beardShort === false ? 'full' : ''].join('|');
     let H = headCache.get(key); if (!H) { H = buildHeroHead(sp, { head: B.head, neck: B.neck, chest: B.chest }); headCache.set(key, H); }
     const mats = headMaterials(sp, H, this.heroU); for (const hm of Array.isArray(mats) ? mats : [mats]) if (hm && hm.isMeshStandardMaterial) addBloodStain(hm);
     const m = new THREE.SkinnedMesh(H.geometry, mats); m.name = 'heroHead'; m.userData.keys = H.keys;
@@ -1174,7 +1178,20 @@ export class Character {
     this.head = m; this.headMats = mats; const hb = this.bones.head; const jh = joints(sp).head;
     this.eyes = H.eyes.map((e) => { const piv = new THREE.Object3D(); piv.position.set(e.pos[0] - jh[0], e.pos[1] - jh[1], e.pos[2] - jh[2]); piv.add(buildEyeball(e.r)); hb.add(piv); return piv; });
     if (H.glasses) { const gl = H.glasses.clone(); gl.position.set(H.fit.o[0] - jh[0], H.fit.o[1] - jh[1], H.fit.o[2] - jh[2]); hb.add(gl); this.glasses = gl; }
+    // wardrobe: sunglasses (fitted like the glasses) and a hat fitted round this head + its pressed-flat hair
+    if (sp.shades) { const sg = buildHeroShades(sp); if (sg) { sg.position.set(H.fit.o[0] - jh[0], H.fit.o[1] - jh[1], H.fit.o[2] - jh[2]); hb.add(sg); this.shades = sg; } }
+    if (sp.hat && H.hatMap) { if (!H.hats) H.hats = new Map(); const hk = sp.hat.kind + '|' + sp.hat.col + '|' + (sp.hat.band || ''); let hm = H.hats.get(hk); if (!hm) { hm = buildHat(sp.hat, H.hatMap); H.hats.set(hk, hm); }
+      if (hm) { const hat = new THREE.Mesh(hm.geometry, hm.material); hat.castShadow = true; hat.receiveShadow = true; hat.name = 'heroHat'; hat.scale.setScalar(H.fit.k); hat.position.set(H.fit.o[0] - jh[0], H.fit.o[1] - jh[1], H.fit.o[2] - jh[2]); hb.add(hat); this.hat = hat; } }
     this.face.attachMorphs(m, this.eyes);
+  }
+  // tattoos (wardrobe): a second skinned mesh of body-skin triangles under the ink, same skinning as the body (DQ patch)
+  attachTattoos(skeleton) {
+    const g = buildTattooGeometry(this.spec, { B, J: joints(this.spec) }, (id) => { const d = designById(id); return d && d.band; }); if (!g) return;
+    const tex = tattooAtlas(THREE, this.spec.tattoos); if (!tex) return;
+    const mat = new THREE.MeshStandardMaterial({ map: tex, transparent: true, depthWrite: false, roughness: 0.6, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    patchHeroMaterial(mat, 'body', this.heroU); iblScale(mat, 0.55, 1.0, 0.6);
+    const m = new THREE.SkinnedMesh(g, mat); m.name = 'heroTattoo'; m.castShadow = false; m.receiveShadow = true; m.renderOrder = 1; m.frustumCulled = false;
+    this.mesh.add(m); m.bind(skeleton, this.mesh.bindMatrix); this.tattooMat = mat;
   }
   // crowd head (NpcHead.js): a plain mesh rigid on the head bone — shared geometry (eyes, teeth, facial hair included), own small material
   attachNpcHead(fv) {
@@ -1193,7 +1210,7 @@ export class Character {
     this.bones.head.add(lod); this.head = m; this.headLo = lo; this.headMats = [mat];
     this.face.attachMorphs(m, null, NPC_MORPHS);
   }
-  dispose() { LIVE.delete(this); this.disposed = true; if (this.bloodMat) { this.bloodMat.dispose(); this.bloodMat = null; } if (this.dancer) this.dancer.dispose(); if (this.dancerRT) this.dancerRT.dispose(); this.mesh.skeleton.dispose(); this.face.dispose(); if (this.heroMats) for (const m of this.heroMats) m.dispose(); if (this.headMats) for (const m of this.headMats) m.dispose(); }
+  dispose() { LIVE.delete(this); this.disposed = true; if (this.bloodMat) { this.bloodMat.dispose(); this.bloodMat = null; } if (this.dancer) this.dancer.dispose(); if (this.dancerRT) this.dancerRT.dispose(); this.mesh.skeleton.dispose(); this.face.dispose(); if (this.heroMats) for (const m of this.heroMats) m.dispose(); if (this.headMats) for (const m of this.headMats) m.dispose(); if (this.tattooMat) this.tattooMat.dispose(); if (this.shades) this.shades.traverse((o) => { if (o.isMesh) o.material.dispose(); }); }
   // convenience for gameplay code: expression for a while, or talking on/off
   express(name, dur = 2.5) { this.face.set(name, dur); }
   // damped spring for the chest secondary motion (see buildBodyGeometry, sp.bustSpring): driven by the chest bone's specific

@@ -8,6 +8,7 @@
 //     over the outermost layer under it;
 //   • tops replace the kit's top layer, keeping only what fits under them.
 // Saved per protagonist in story.state.outfits[id]: the older format (a jacket colour string from the tailor) still works.
+import { COATS as COAT_KINDS } from './HeroBody.js';
 const T = (id, name, price, p) => ({ id, name, price, ...p });
 const col = (list, kind, pre, price, extra = {}) => list.map(([n, c, more], i) => T(`${kind}-${i}`, `${n} ${pre}`.trim(), typeof price === 'function' ? price(i) : price, { kind, col: c, ...extra, ...(more || {}) }));
 
@@ -103,19 +104,20 @@ export function applyLook(base, look) {
   const sp = { ...base }; if (!look) return sp;
   if (typeof look === 'string') { sp.top = look; return sp; } // tailor jacket colour (older saves)
   if (look.topColor) sp.top = look.topColor;
+  if (sp.denim === undefined) sp.denim = base.kit === 'openShirt'; if (sp.crease === undefined) sp.crease = base.kit === 'waistcoat'; // the protagonists' own trouser fabrics survive a kit change
   const top = itemById(look.top);
   if (top) { for (const k of KIT_EXTRAS) delete sp[k]; delete sp.tacGloves; sp.kit = top.kind === 'open' ? 'openShirt' : null; sp.top = top.col; if (top.stripe) sp.stripe = top.stripe; if (top.inner) sp.inner = top.inner;
     sp.longSleeve = top.kind === 'longtee' || top.kind === 'dress'; sp.collar = top.kind === 'polo' || top.kind === 'shirt' || top.kind === 'dress' || top.kind === 'open'; sp.outfit = sp.collar ? 'shirt' : 'tee'; }
   const pants = itemById(look.pants);
   if (pants) { sp.bottom = pants.col; sp.denim = !!pants.denim; sp.crease = !!pants.crease; sp.cargo = !!pants.cargo; }
   const shoes = itemById(look.shoes);
-  if (shoes) { sp.shoes = shoes.col; sp.sole = shoes.sole; sp.shoeKind = shoes.kind; sp.boots = shoes.kind === 'boot'; sp.sandals = false; if (shoes.toe) sp.shoeToe = shoes.toe; else delete sp.shoeToe; }
+  if (shoes) { sp.shoes = shoes.col; sp.sole = shoes.sole; sp.shoeKind = shoes.kind; sp.boots = shoes.kind === 'boot' && !shoes.lux && !/chelsea|suede|lace-up|oxblood|charcoal|chocolate/i.test(shoes.name); sp.sandals = false; /* work / combat / desert boots: trousers tucked into the shaft; dress boots sit under the trouser hem */ if (shoes.toe) sp.shoeToe = shoes.toe; else delete sp.shoeToe; }
   const gl = itemById(look.glasses);
   if (gl) { sp.glasses = false; sp.shades = { style: gl.style, frame: gl.frame, lens: gl.lens, metal: gl.metal, op: gl.op }; }
   const hat = itemById(look.hat);
   if (hat) sp.hat = { kind: hat.kind, col: hat.col, band: hat.band || null };
   const coat = itemById(look.coat);
-  if (coat) { sp.coat = { kind: coat.kind, col: coat.col }; if (sp.kit === 'openShirt' || sp.kit === 'tactical') sp.kit = null; delete sp.vest; delete sp.strap; delete sp.zip; if (!top && base.kit === 'openShirt') { sp.collar = true; } }
+  if (coat) { sp.coat = { kind: coat.kind, col: coat.col }; sp.kit = null; for (const k of ['vest', 'strap', 'zip', 'waist', 'vestBack', 'tacGloves', 'inner']) delete sp[k]; sp.collar = false; if (!(COAT_KINDS[coat.kind] || {}).v) delete sp.heroTie; } // everything worn over the shirt comes off under a coat; a closed jacket also covers the tie
   if (look.hair) sp.hair = look.hair; if (look.hairColor) { const hc = HAIR_COLORS.find((h) => h.id === look.hairColor); if (hc) sp.hairColor = hc.col; }
   if (look.beard) { const b = BEARDS.find((q) => q.id === look.beard); if (b) Object.assign(sp, b.p); }
   if (look.tattoos && Object.keys(look.tattoos).some((k) => look.tattoos[k])) sp.tattoos = { ...look.tattoos };

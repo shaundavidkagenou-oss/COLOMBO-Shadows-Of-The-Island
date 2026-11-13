@@ -188,7 +188,32 @@ const STYLES = {
   quiff: { th: (h) => { const top = sstep(0.04, 0.075, h.y); const front = sstep(-0.1, 0.0, h.z) * sstep(0.75, 0.15, Math.abs(h.th)); return lerp(0.005, 0.017, top) + 0.024 * top * front; },
     lift: (h) => { const top = sstep(0.045, 0.075, h.y); const front = sstep(-0.06, 0.01, h.z) * sstep(0.7, 0.1, Math.abs(h.th)); return [0, 0.006 * top * front, 0.008 * top * front]; },
     fur: [0.0016, 0.0032, 0.0048], freq: 1050 },
+  // barber cuts (wardrobe). cut(h): 0 = full length … 1 = clipped to the skin (fades / undercuts: no fur there, the scalp
+  // shows through as a clipper shadow); flow(p, whorl): comb direction; lift(h): extra offset of the hair mass
+  buzz: { th: (h) => 0.0015 + 0.0006 * sstep(0.03, 0.08, h.y), fur: [0.0007, 0.0014], freq: 1800, cut: (h) => 0.35 * sstep(0.6, 1.4, Math.abs(h.th)) * sstep(0.02, -0.04, h.y) },
+  fade: { th: (h) => { const top = sstep(0.035, 0.075, h.y); return lerp(0.0022, 0.0068, top) * (1 - fadeCut(h) * 0.85); }, fur: [0.0012, 0.0024, 0.0036], freq: 1400, cut: (h) => fadeCut(h) },
+  crop: { th: (h) => { const top = sstep(0.04, 0.075, h.y); return lerp(0.0025, 0.0105, top) * (1 - fadeCut(h) * 0.85); }, fur: [0.0016, 0.0032, 0.0048], freq: 1150, cut: (h) => fadeCut(h),
+    lift: (h) => [0, 0, 0.004 * sstep(0.045, 0.075, h.y) * sstep(-0.06, 0.01, h.z)], flow: (p) => (p[1] > 0.045 ? [0, -0.25, 1] : null) },
+  slick: { th: (h) => { const top = sstep(0.035, 0.075, h.y); return lerp(0.0042, 0.0105, top) + 0.003 * top * sstep(-0.05, 0.02, h.z); }, fur: [0.0012, 0.0024, 0.0036], freq: 880,
+    flow: (p) => [0, p[1] > 0.04 ? 0.08 : -0.6, -1] },
+  pomp: { th: (h) => { const top = sstep(0.04, 0.075, h.y); const front = sstep(-0.1, 0.0, h.z) * sstep(0.75, 0.15, Math.abs(h.th)); return (lerp(0.004, 0.016, top) + 0.03 * top * front) * (1 - fadeCut(h) * 0.8); },
+    lift: (h) => { const top = sstep(0.045, 0.075, h.y); const front = sstep(-0.06, 0.01, h.z) * sstep(0.7, 0.1, Math.abs(h.th)); return [0, 0.01 * top * front, 0.011 * top * front]; },
+    fur: [0.0016, 0.0032, 0.0048], freq: 1000, cut: (h) => fadeCut(h) * 0.8, flow: (p) => { const top = sstep(0.045, 0.075, p[1]); return [0, 0.15 * top - (1 - top), -top - 0.3 * (1 - top)]; } },
+  undercut: { th: (h) => { const c = undercutCut(h); return lerp(lerp(0.006, 0.016, sstep(0.05, 0.08, h.y)), 0.0011, c); }, fur: [0.0016, 0.0032, 0.0048], freq: 950, cut: (h) => undercutCut(h) * 0.9,
+    flow: (p) => (p[1] > 0.05 ? [-0.75, 0.05, -0.65] : null) },
+  curly: { th: (h) => { const top = sstep(0.03, 0.075, h.y); return lerp(0.004, 0.017, top) * (1 - fadeCut(h) * 0.75); }, fur: [0.002, 0.004, 0.006, 0.008], freq: 700, cut: (h) => fadeCut(h) * 0.75,
+    flow: (p) => [Math.sin(p[0] * 420 + p[2] * 260), Math.sin(p[1] * 380 + p[0] * 170), Math.cos(p[2] * 400 + p[1] * 220)], lean: 1.4 },
+  hawk: { th: (h) => { const ridge = Math.exp(-((h.x / 0.024) ** 2)) * sstep(0.03, 0.07, h.y) * sstep(-0.17, -0.02, h.z); return 0.0035 + 0.019 * ridge; }, fur: [0.0016, 0.0032, 0.0048], freq: 1000,
+    cut: (h) => fadeCut(h) * 0.85, lift: (h) => { const ridge = Math.exp(-((h.x / 0.024) ** 2)) * sstep(0.04, 0.075, h.y) * sstep(-0.15, -0.02, h.z); return [0, 0.004 * ridge, 0.002 * ridge]; },
+    flow: (p) => [-Math.sign(p[0]) * 0.55, 0.65, 0.25] },
+  afro: { th: (h) => 0.012 + 0.022 * sstep(-0.05, 0.05, h.y) * (1 - 0.25 * sstep(1.2, 2.6, Math.abs(h.th))), fur: [0.003, 0.006, 0.009, 0.012], freq: 600,
+    flow: (p) => [Math.sin(p[0] * 520 + p[1] * 300), Math.cos(p[1] * 470 + p[2] * 210), Math.sin(p[2] * 510 + p[0] * 190)], lean: 1.1 },
+  bald: { th: () => 0.0004, fur: [], freq: 1800 },
 };
+// skin fade: clipped on the sides / back from the temples down, blending up to the top length by ~4 cm above the eyes
+function fadeCut(h) { const side = sstep(0.45, 1.05, Math.abs(h.th)); return side * sstep(0.048, -0.012, h.y); }
+// disconnected undercut: a hard line round the head at the parting height, everything below clipped short
+function undercutCut(h) { const side = sstep(0.35, 0.8, Math.abs(h.th)); return side * sstep(0.054, 0.047, h.y); }
 
 // ------------------------------------------------------------------ build
 // bi: bone indices { head, neck, chest }. Returns { geometry, keys (material per group), eyes: [{pos, r}], glasses: Group|null, fit }.
@@ -201,7 +226,10 @@ export function buildHeroHead(sp, bi) {
   const pv = (i) => [P[i * 3], P[i * 3 + 1], P[i * 3 + 2]], nv = (i) => [NRM[i * 3], NRM[i * 3 + 1], NRM[i * 3 + 2]];
   const zc = (L.front + L.back) / 2, my = L.mouth[1];
   let lipZ = -1; for (let i = 0; i < N0; i++) if (S.part[i] === 0 && Math.abs(P[i * 3]) < 0.004 && Math.abs(P[i * 3 + 1] - my) < 0.012) lipZ = Math.max(lipZ, P[i * 3 + 2]);
-  const style = STYLES[sp.hair] || STYLES.crew; const theta = (p) => Math.atan2(p[0], p[2] - zc);
+  const style0 = STYLES[sp.hair] || STYLES.crew; const theta = (p) => Math.atan2(p[0], p[2] - zc);
+  // under a hat the hair is pressed flat (the hat crown is then fitted round this flattened hair, see hatMap below)
+  const style = sp.hat ? { ...style0, th: (h) => Math.min(style0.th(h), 0.0032), lift: null, fur: style0.fur.length ? [0.0009, 0.0018] : [] } : style0;
+  const cutOf = (p) => (style.cut ? clamp(style.cut({ x: p[0], y: p[1], z: p[2], th: theta(p) }), 0, 1) : 0);
   // ---- region masks on the skin
   const hairline = (p) => tab(HAIRLINE, theta(p)) + (sp.hairline || 0);
   const hairMask = (i) => { if (M.ears[i] > 0.04 || S.part[i] !== 0) return 0; const p = pv(i); if (p[1] < -0.09) return 0; return sstep(-0.003, 0.004, p[1] - hairline(p)); };
@@ -218,7 +246,7 @@ export function buildHeroHead(sp, bi) {
   const ex = Math.abs(L.eyeL[0]); const browY = sp.mh === 'shashika' ? -0.0015 : 0;
   const browPath = (t) => { const x = ex - 0.0185 + t * 0.047; const y = tab([[0, 0.0128], [0.35, 0.0172], [0.62, 0.0192], [1, 0.0152]], t) + browY; const th = tab([[0, 0.0095], [0.3, 0.0085], [0.62, 0.0068], [1, 0.0032]], t) * (sp.mh === 'shashika' ? 1.12 : 1); return { x, y, th }; };
   const browMask = (p) => { const ax = Math.abs(p[0]); const t = (ax - (ex - 0.0185)) / 0.047; if (t < -0.08 || t > 1.08 || p[2] < -0.04) return 0; const b = browPath(clamp(t, 0, 1)); const d = Math.abs(p[1] - b.y - b.th * 0.05) / (b.th * 0.55); return sstep(1.15, 0.6, d) * sstep(-0.08, 0.04, t) * sstep(1.08, 0.95, t); };
-  const stubble = sp.beard ? 0 : sp.mh === 'david' ? 0.42 : 0.3; // shaved shadow (Dineth, David); Shashika's beard is real hair
+  const stubble = sp.stubble ?? (sp.beard ? 0 : sp.mh === 'david' ? 0.42 : 0.3); // shaved shadow (Dineth, David); Shashika's beard is real hair; the barber sets it
   // ---- skin vertices (all baked parts)
   const A = new Acc();
   const vOfY = (() => { const pts = [[-0.3, 0], [L.chin[1], 0.2], [my, 0.335], [L.noseTip[1] + 0.004, 0.435], [0, 0.51], [0.019, 0.58], [0.06, 0.685], [L.crown, 1]]; return (y) => { if (y <= pts[0][0]) return 0; for (let i = 1; i < pts.length; i++) if (y <= pts[i][0]) { const a = pts[i - 1], b = pts[i]; return lerp(a[1], b[1], (y - a[0]) / (b[0] - a[0])); } return 1; }; })();
@@ -243,7 +271,7 @@ export function buildHeroHead(sp, bi) {
       const mm = sp.moustache ? moustacheMask(i) : 0; if (mm > 0) col = mix3(col, hairC, mm * 0.6);
       if (sp.beard && bm > 0) col = mix3(col, hairC, bm * 0.35);
       const bw = browMask(p); if (bw > 0) col = mix3(col, hairC, bw * 0.38);
-      const hm = sp.hair && sp.hair !== 'bald' ? hairMask(i) : 0; if (hm > 0) col = mix3(col, hairC, hm * 0.72);
+      const hm = sp.hair ? hairMask(i) : 0; if (hm > 0) { const ct = sp.hair === 'bald' ? 1 : cutOf(p); col = mix3(col, hairC, hm * (0.72 * (1 - ct) + (sp.hair === 'bald' ? 0.1 : 0.34) * ct)); } // clipped areas: a clipper shadow, not a full-colour scalp
       // T-zone shine: forehead and nose slightly glossier (sebum); cheeks / chin matte
       if (M.nose[i] > 0.1 || (p[1] > 0.02 && p[1] < 0.065 && Math.abs(p[0]) < 0.035 && p[2] > -0.03)) rough *= 0.9;
     } else if (part === 1 || part === 2) { const back = sstep(0.0, -0.025, p[2] - (lipZ - 0.006)); col = mix3([0.86, 0.82, 0.74], [0.5, 0.45, 0.4], back); rough = 0.35; }
@@ -318,8 +346,9 @@ export function buildHeroHead(sp, bi) {
   if (sp.beard) {
     const flowB = (i, n) => tangentize(addv([0, -1, 0], [0, 0, pv(i)[1] < L.chin[1] + 0.02 ? 0.6 : 0.2]), n);
     const colB = (i, m, li) => (li === 0 ? mix3(A.c.slice(i * 3, i * 3 + 3), hairC, (0.3 + 0.4 * m) * sstep(0.05, 0.7, m)) : mul3(hairC, [1 + li * 0.1 + hash(i, li) * 0.3, 1 + li * 0.08 + hash(i, li) * 0.25, 1 + li * 0.08 + hash(i, li) * 0.22]));
-    const mk = (i) => Math.max(beardMask(i), moustacheMask(i) * 0.95);
-    const L5 = shell(mk, [0.0004, 0.0012, 0.0021, 0.003, 0.0039], colB, flowB, { lean: 0.5, layerOf: (li) => (li === 0 ? 0.0 : 0.25 + li * 0.17) });
+    const goat = (i) => (sp.goatee ? sstep(0.036, 0.026, Math.abs(pv(i)[0])) : 1); const mk = (i) => Math.max(beardMask(i) * goat(i), moustacheMask(i) * 0.95);
+    const bl = sp.beardShort === false && !sp.goatee ? 1.75 : 1; // full beard: longer hair
+    const L5 = shell(mk, [0.0004, 0.0012, 0.0021, 0.003, 0.0039].map((v, k) => (k ? v * bl : v)), colB, flowB, { lean: 0.5, layerOf: (li) => (li === 0 ? 0.0 : 0.25 + li * 0.17) });
     groups.push(['beardBase', L5[0]], ['fur', [].concat(...L5.slice(1))]);
   } else if (sp.moustache) {
     const flowM = (i, n) => tangentize([pv(i)[0] > 0 ? 0.35 : -0.35, -1, 0.15], n);
@@ -333,6 +362,7 @@ export function buildHeroHead(sp, bi) {
     const flowH = (i, n) => { const p = pv(i); let f;
       if (sp.hair === 'sidepart') { const pd = p[0] - style.part; f = p[1] > 0.045 && p[2] > -0.13 ? (pd < 0 ? [-1, -0.25, 0.25] : [1, -0.6, 0]) : [0, -1, -0.35]; }
       else if (sp.hair === 'quiff') { const top = sstep(0.045, 0.075, p[1]); f = addv(scl([0, 0.15, -1], top), scl([0, -1, -0.3], 1 - top)); }
+      else if (style.flow) f = style.flow(p, whorl) || sub(p, whorl);
       else f = sub(p, whorl);
       return tangentize(f, n); };
     const hm = (i) => hairMask(i);
@@ -341,9 +371,21 @@ export function buildHeroHead(sp, bi) {
     const colH = (i, m, li) => { const v = 0.85 + 0.3 * hash(i, 5); return hairC.map((c) => Math.min(1, c * v * (1 + li * 0.08) + 0.004)); };
     const colV = (i, m, li) => mix3(A.c.slice(i * 3, i * 3 + 3), colH(i, m, li), sstep(0.05, 0.6, m)); // soft hairline: the shell edge fades into the scalp colour
     const vol = shell(hm, [0], colV, flowH, { thick, lift, minMask: 0.05 });
-    const fur = shell(hm, style.fur, colH, flowH, { thick, lift, lean: 0.8, minMask: 0.3, layerOf: (li) => 0.15 + (li / Math.max(1, style.fur.length - 1)) * 0.75 });
+    const hmFur = style.cut ? (i) => hairMask(i) * (1 - cutOf(pv(i))) : hm; // no strands where it is clipped
+    const fur = !style.fur.length ? [[]] : shell(hmFur, style.fur, colH, flowH, { thick, lift, lean: style.lean || 0.8, minMask: 0.3, layerOf: (li) => 0.15 + (li / Math.max(1, style.fur.length - 1)) * 0.75 });
     groups.push(['hair', vol[0]], ['hairFur', [].concat(...fur)]);
   }
+
+  // ---- hat fit (wardrobe hats, HeadWear.js): outermost head + hair surface per direction from a centre in the skull, so a
+  // hat crown built on it encloses everything under it (nothing pokes through)
+  let hatMap = null;
+  if (sp.hat) { const NA = 72, NE = 36, E0 = -0.7, E1 = Math.PI / 2, c = [0, 0.0, zc]; const R = new Float32Array(NA * NE); let earTop = -1;
+    for (let v = 0; v < A.count; v++) { const x = A.p[v * 3] - c[0], yy = A.p[v * 3 + 1] - c[1], z = A.p[v * 3 + 2] - c[2]; const r = Math.hypot(x, yy, z); if (r < 1e-4) continue; const el = Math.asin(clamp(yy / r, -1, 1)); if (el < E0) continue;
+      const i = Math.floor(((Math.atan2(x, z) / (2 * Math.PI)) + 1) % 1 * NA) % NA, j = Math.min(NE - 1, Math.floor((el - E0) / (E1 - E0) * NE)); if (r > R[j * NA + i]) R[j * NA + i] = r; }
+    for (let i = 0; i < N0; i++) if (S.part[i] === 0 && M.ears[i] > 0.15) earTop = Math.max(earTop, pv(i)[1]);
+    for (let j = NE - 1; j >= 0; j--) for (let i = 0; i < NA; i++) if (!R[j * NA + i]) R[j * NA + i] = j < NE - 1 ? R[(j + 1) * NA + i] : 0.06; // gaps take the bin above
+    const D = new Float32Array(R.length); for (let j = 0; j < NE; j++) for (let i = 0; i < NA; i++) { let m = 0; for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { const jj = clamp(j + dj, 0, NE - 1), ii = (i + di + NA) % NA; m = Math.max(m, R[jj * NA + ii]); } D[j * NA + i] = m; } // dilate one bin
+    hatMap = { NA, NE, E0, E1, c, R: D, earTop, crown: L.crown, front: L.front, back: L.back, zc }; }
 
   // ---- geometry (model space), skin weights + morphs inherited from each vertex's anchor skin vertex
   const NV = A.count; const k = F.k, o = F.o; const g = new THREE.BufferGeometry();
@@ -365,7 +407,7 @@ export function buildHeroHead(sp, bi) {
   let wa = 0, ua = 0; for (let t = 0; t < skinTris.length; t += 3) { const [a, b, c] = [skinTris[t], skinTris[t + 1], skinTris[t + 2]]; wa += Math.hypot(...crs(sub(pv(b), pv(a)), sub(pv(c), pv(a)))) / 2; const u0 = [S.uv[a * 2], S.uv[a * 2 + 1]], u1 = [S.uv[b * 2], S.uv[b * 2 + 1]], u2 = [S.uv[c * 2], S.uv[c * 2 + 1]]; ua += Math.abs((u1[0] - u0[0]) * (u2[1] - u0[1]) - (u2[0] - u0[0]) * (u1[1] - u0[1])) / 2; }
   const poreRepeat = Math.sqrt(wa / Math.max(ua, 1e-9)) * k / 0.025;
   const eyes = [F.eyeL, F.eyeR].map((p) => ({ pos: p, r: F.eyeRad }));
-  return { geometry: g, keys, eyes, fit: F, glasses: sp.glasses ? buildGlasses(sp, D, F, pv, nv, S) : null, poreRepeat };
+  return { geometry: g, keys, eyes, fit: F, glasses: sp.glasses ? buildGlasses(sp, D, F, pv, nv, S) : null, poreRepeat, hatMap };
 }
 
 // ------------------------------------------------------------------ materials per hero
@@ -441,6 +483,63 @@ function buildGlasses(sp, D, F, pv, nv, S) {
   for (const sx of [1, -1]) grp.add(new THREE.Mesh(new THREE.SphereGeometry(0.0022, 8, 6).scale(0.5, 1, 0.8).translate(sx * 0.0075, -0.004, nz - 0.004), lensM)); // nose pads
   grp.traverse((o) => { if (o.isMesh) { o.castShadow = o.material === frameM; } });
   grp.scale.setScalar(k); return grp; // positioned by the caller (head-local origin → model space)
+}
+
+// ------------------------------------------------------------------ sunglasses (wardrobe): the same fitting as David's glasses
+// (lens plane in front of the corneas, bridge on the nasal bridge, temples kept just outside the skin, over the ears),
+// seven frame shapes, acetate or metal, tinted lenses
+const SHADE_STYLES = {
+  aviator: { hw: 0.0275, hh: 0.0225, ex: 0.62, ey: 0.75, drop: 0.32, r: 0.00085, metal: true, bar: true },
+  wayfarer: { hw: 0.0262, hh: 0.0195, ex: 0.36, ey: 0.48, trap: 0.16, r: 0.0021, brow: 0.0012, tilt: 0.004 },
+  round: { hw: 0.0215, hh: 0.0215, ex: 1, ey: 1, r: 0.001 },
+  rect: { hw: 0.0262, hh: 0.0158, ex: 0.3, ey: 0.4, r: 0.0017 },
+  club: { hw: 0.0252, hh: 0.0192, ex: 0.42, ey: 0.6, trap: 0.08, r: 0.0009, brow: 0.0019 },
+  sport: { hw: 0.031, hh: 0.0195, ex: 0.4, ey: 0.62, drop: 0.12, r: 0.0014, wrap: 0.011 },
+  square: { hw: 0.0298, hh: 0.0245, ex: 0.32, ey: 0.4, r: 0.0023, brow: 0.0006 },
+};
+const SHADE_GEO = new Map();
+export function buildHeroShades(sp) {
+  const o = sp.shades; if (!o) return null; const St = SHADE_STYLES[o.style] || SHADE_STYLES.wayfarer;
+  const key = sp.mh + '|' + sp.height + '|' + o.style; let geos = SHADE_GEO.get(key);
+  const D = heroData(sp.mh), F = heroHeadFit(sp), S = shared(), L = D.L, P = D.pos; const pv = (i) => [P[i * 3], P[i * 3 + 1], P[i * 3 + 2]];
+  if (!geos) { geos = { frame: [], lens: [] };
+    const wrap = St.wrap || 0.003; const ez = L.eyeL[2] + L.eyeR_ * 0.93 + 0.0115 + (St.wrap ? 0.002 : 0);
+    const zAt = (x) => ez - wrap * (Math.abs(x) / 0.055) ** 2;
+    const rimPts = (cx, sx) => { const pts = []; const NS = 48; for (let i = 0; i < NS; i++) { const a = (i / NS) * Math.PI * 2; const ca = Math.cos(a), sa = Math.sin(a);
+        let x = St.hw * Math.sign(ca) * Math.pow(Math.abs(ca), St.ex), y = St.hh * Math.sign(sa) * Math.pow(Math.abs(sa), St.ey);
+        const outer = ca * sx > 0 ? Math.abs(ca) : 0; // the lens' outer side (away from the nose)
+        if (St.drop && sa < 0) y -= St.drop * St.hh * Math.pow(-sa, 1.5) * (0.4 + 0.6 * outer); // teardrop: deeper at the bottom outer corner
+        if (St.trap) x *= 1 + St.trap * (y / St.hh); // trapezoid: wider at the top
+        x = cx + x; y = 0.002 + y; pts.push(new THREE.Vector3(x, y, zAt(x) - (St.tilt || 0) * (y / St.hh))); }
+      return new THREE.CatmullRomCurve3(pts, true); };
+    for (const sx of [1, -1]) { const cx = sx * (Math.abs(L.eyeL[0]) + 0.0008); const c = rimPts(cx, sx);
+      geos.frame.push(new THREE.TubeGeometry(c, 96, St.r, 6, true));
+      if (St.brow) { const top = c.getPoints(96).filter((p) => p.y > 0.002 + St.hh * 0.35); top.sort((a, b) => a.x - b.x); if (top.length > 3) geos.frame.push(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(top), 40, St.r + St.brow, 6, false)); }
+      const lp = c.getPoints(48); const sh = new THREE.Shape(lp.map((v) => new THREE.Vector2(v.x, v.y))); const lg = new THREE.ShapeGeometry(sh, 3); const pa = lg.attributes.position;
+      for (let i = 0; i < pa.count; i++) pa.setZ(i, zAt(pa.getX(i)) - 0.0004 - (St.tilt || 0) * ((pa.getY(i) - 0.002) / St.hh) + 0.0015 * (1 - Math.min(1, Math.hypot((pa.getX(i) - cx) / St.hw, (pa.getY(i) - 0.002) / St.hh)))); // slight lens base curve
+      lg.computeVertexNormals(); geos.lens.push(lg);
+      // temple: hinge at the outer rim → along the side of the head (just outside the skin) → over and behind the ear
+      const hinge = new THREE.Vector3(sx * (Math.abs(cx) + St.hw + St.r * 0.6), 0.002 + St.hh * 0.45, zAt(Math.abs(cx) + St.hw) - 0.004);
+      const earTop = [sx * (Math.abs(L.ear[0]) - 0.004), L.ear[1] + 0.03, L.ear[2] + 0.012];
+      const path = [hinge]; for (let t = 0.2; t <= 1.001; t += 0.2) { const x0 = lerp(hinge.x, earTop[0], t), y0 = lerp(hinge.y, earTop[1], t), z0 = lerp(hinge.z, earTop[2], t);
+        let mx = 0; for (let i = 0; i < S.N; i++) { if (S.part[i] !== 0) continue; const p = pv(i); if (Math.sign(p[0]) !== sx || Math.abs(p[1] - y0) > 0.006 || Math.abs(p[2] - z0) > 0.006) continue; mx = Math.max(mx, Math.abs(p[0])); }
+        path.push(new THREE.Vector3(sx * Math.max(Math.abs(x0), mx + 0.0024 + St.r), y0, z0)); }
+      path.push(new THREE.Vector3(earTop[0] * 0.97, earTop[1] - 0.012, earTop[2] - 0.016), new THREE.Vector3(earTop[0] * 0.93, earTop[1] - 0.03, earTop[2] - 0.012));
+      geos.frame.push(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(path), 30, St.metal ? 0.0009 : Math.max(0.0013, St.r * 0.85), 6, false));
+      geos.frame.push(new THREE.BoxGeometry(0.004, St.metal ? 0.003 : 0.008, 0.007).translate(hinge.x - sx * 0.001, hinge.y, hinge.z + 0.001)); }
+    let nz = -1; for (let i = 0; i < S.N; i++) if (S.part[i] === 0 && Math.abs(pv(i)[0]) < 0.003 && Math.abs(pv(i)[1] - 0.002) < 0.004) nz = Math.max(nz, pv(i)[2]);
+    const bz = Math.max(ez - 0.004, nz + 0.002); const inner = Math.abs(L.eyeL[0]) + 0.0008 - St.hw * 0.92;
+    geos.frame.push(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([new THREE.Vector3(-inner, 0.008, zAt(inner) - 0.0005), new THREE.Vector3(0, 0.0105, bz), new THREE.Vector3(inner, 0.008, zAt(inner) - 0.0005)]), 12, St.metal ? 0.0009 : St.r, 6, false));
+    if (St.bar) geos.frame.push(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([new THREE.Vector3(-inner - 0.004, 0.002 + St.hh * 0.92, zAt(inner) - 0.0005), new THREE.Vector3(0, 0.002 + St.hh * 0.86, bz + 0.0005), new THREE.Vector3(inner + 0.004, 0.002 + St.hh * 0.92, zAt(inner) - 0.0005)]), 16, 0.0008, 6, false)); // aviator brow bar
+    if (St.metal) for (const sx of [1, -1]) geos.frame.push(new THREE.SphereGeometry(0.0024, 8, 6).scale(0.5, 1, 0.8).translate(sx * 0.0078, -0.004, nz - 0.004)); // nose pads
+    SHADE_GEO.set(key, geos); }
+  const grp = new THREE.Group(); grp.name = 'heroShades';
+  const metal = !!o.metal;
+  const frameM = new THREE.MeshStandardMaterial({ color: new THREE.Color(o.frame || '#121212'), roughness: metal ? 0.28 : 0.3, metalness: metal ? 0.92 : 0.05 });
+  const lensM = new THREE.MeshPhysicalMaterial({ color: new THREE.Color(o.lens || '#24262a'), roughness: 0.04, metalness: 0.1, transparent: true, opacity: o.op ?? 0.82, clearcoat: 1, clearcoatRoughness: 0.02, depthWrite: false, side: THREE.DoubleSide });
+  for (const g of geos.frame) { const m = new THREE.Mesh(g, frameM); m.castShadow = true; grp.add(m); }
+  for (const g of geos.lens) { const m = new THREE.Mesh(g, lensM); m.castShadow = false; m.renderOrder = 2; grp.add(m); }
+  grp.scale.setScalar(F.k); grp.userData.fitO = F.o; return grp;
 }
 
 // ------------------------------------------------------------------ expressions → morph influences
