@@ -48,12 +48,12 @@ export class Assassin {
   hours() { const A = this.g.atmos; return (A.day || 1) * 24 + A.hour; }
   money() { return this.g.story.state.money; }
   busyReason(guard = false) {
-    const g = this.g; if (g.director.active || this.cine) return 'Not now — she is busy.'; if (g.story.running) return 'Not available while you are on a job.';
+    const g = this.g; if (g.director.active || this.cine) return 'Not now — she is busy.';
     if (!guard && g.police && g.police.level > 0) return 'Not while the police are looking for you.'; return null;
   }
   activeHeroId() { const sq = this.g.squad; return (sq && sq.activeMember && sq.activeMember.def && sq.activeMember.def.id) || 'dineth'; }
   activeName() { const sq = this.g.squad; return (sq && sq.activeMember && sq.activeMember.def && sq.activeMember.def.name) || 'Dineth'; }
-  homeDoor() { const I = this.g.interiors; if (!I || !I.doors) return null; const id = this.activeHeroId(); return I.doors.find((d) => d.owner === id) || I.doors.find((d) => d.id === 'room') || null; }
+  homeDoor() { const I = this.g.interiors; if (!I || !I.doors) return null; const id = this.activeHeroId(); return I.doors.find((d) => d.owner === id) || I.doors.find((d) => d.id === 'room') || I.doors.find((d) => isHeroRoom(d.id)) || null; } // before Dineth has his room: a friend's place
   homeName() { const d = this.homeDoor(); const R = d && HERO_ROOMS[d.id]; return R ? `${R.name}, ${R.area}` : 'your home'; }
   msg(text) { const S = this.g.story.state; const A = this.g.atmos; (S.msgs || (S.msgs = [])).unshift({ from: 'Black Orchid · Nila', text, when: A ? `Day ${A.day} ${A.timeString}` : '' }); }
   guardLeft() { return this.guard ? Math.max(0, this.guard.until - this.hours()) : 0; }
@@ -188,7 +188,7 @@ export class Assassin {
     else { G.idleT = 0; if (A.action === 'crossarms' || A.action === 'watch') A.set(null); }
   }
   updateEvening() {
-    const g = this.g, P = g.player, E = this.evening; if (g.indoor || P.vehicle || g.story.running || (g.police && g.police.level > 0) || this.cine) return;
+    const g = this.g, P = g.player, E = this.evening; if (g.indoor || P.vehicle || (g.police && g.police.level > 0) || this.cine) return;
     if (Math.hypot(P.x - E.door.x, P.z - E.door.z) < 6) this.playEvening();
   }
   async playEvening() {
