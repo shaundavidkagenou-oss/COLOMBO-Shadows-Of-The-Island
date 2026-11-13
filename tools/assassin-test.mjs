@@ -1,5 +1,5 @@
 // Global browser + Black Orchid end-to-end test (production build, headless Chromium).
-//   node tools/assassin-test.mjs [shotsDir]     PORT env (default 5199)
+//   node tools/assassin-test.mjs [shotsDir]     PORT env (default 5199); ONLY=contract runs sections 1, 4, 5
 // Logic runs with rendering off; when shotsDir is given, a few frames are rendered at Low 640×360 (phone pages, guard at the
 // club door, each phase of the contract cinematic) and written there as PNG.
 import puppeteer from '/home/user/testenv/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js';
@@ -46,7 +46,8 @@ try {
   if (SHOTS) { await p.evaluate(async () => { const g = window.__game; g.noRender = false; g.player.teleport(-128, -891.8, 0); g.world.warm(-128, -892); await g.stepSim(20, 1 / 30); const ph = g.phone; ph.toggle(true); ph.launch('global'); }); await p.evaluate(() => new Promise((r) => setTimeout(r, 600))); await shot(p, 'p42-browser-home');
     await p.evaluate(() => { const ph = window.__game.phone; ph.row = 0; ph.activate(); }); await p.evaluate(() => new Promise((r) => setTimeout(r, 400))); await shot(p, 'p42-orchid-menu');
     await p.evaluate(() => { const g = window.__game; g.phone.toggle(false); g.noRender = true; }); }
-  // ---- 2. bodyguard
+  // ---- 2. bodyguard   (ONLY=contract skips 2–3: the whole run peaks near 3.8 GB in a 4 GB sandbox)
+  if (process.env.ONLY !== 'contract') {
   const r2 = await p.evaluate(async () => {
     const g = window.__game, O = g.orchid, P = g.player; const out = {}; g.story.state.money = 200000;
     P.teleport(-389, 222, Math.PI); g.world.warm(-389, 222); await g.stepSim(20, 0.05);
@@ -84,6 +85,7 @@ try {
   console.log(JSON.stringify(r3, null, 1));
   ok(r3.book.ok && r3.paid === 12000 && r3.wp, 'evening booked, Rs. 12,000 deducted, GPS to the home door');
   ok(r3.started && r3.ended && r3.card && r3.dh > 2.5 && r3.ctl, `door scene → fade-to-black card → +3 h, control returned (Δ${r3.dh} h)`);
+  }
   // ---- 4. contract
   const r4 = await p.evaluate(async () => {
     const g = window.__game, O = g.orchid, P = g.player; const out = { tries: [] }; g.atmos.hour = 10; g.story.state.money = 200000;

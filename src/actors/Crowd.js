@@ -271,7 +271,7 @@ export class Crowd {
     else if (k === 'cower') { this.react(p, 'cower', 1.8 + r.next() * 3); if (r.chance(0.2)) this.speak(p, 'helpShout', 1); }
     else if (k === 'hide') this.startHide(p, w);
     else if (k === 'freeze') { this.react(p, 'watch', 0.8 + r.next() * 1.2, { lookAt: { x: w.x, z: w.z }, after: 'flee' }); p.ch.face.set('surprise', 1.5); }
-    else if (k === 'report') { this.react(p, 'report', 6 + r.next() * 4, { fleeDir: this.spread(awayX / dd, awayZ / dd, 0.8), repPlayer: true }); }
+    else if (k === 'report') { this.react(p, 'report', 6 + r.next() * 4, { fleeDir: this.spread(awayX / dd, awayZ / dd, 0.8), repPlayer: !(w.src && w.src.contractKill) }); } // a hired long-range shot (Assassin.js) is reported, but nothing ties it to the player
     else { this.react(p, 'watch', 3, { lookAt: { x: w.x, z: w.z } }); p.ch.anim.set('photo'); }
   }
   // ---- crowd behaviour around an incident (Mind.js incidents): onlookers spread round it at their own distance
