@@ -326,7 +326,7 @@ export class Game {
   heroSkin(dt) {
     const A = this.atmos; const chars = this.squad ? this.squad.members.map((m) => m.ch) : [this.player.ch];
     for (const ch of chars) { const U = ch && ch.heroU; if (!U) continue; const P = this.player; const inVeh = ch === P.ch ? !!P.vehicle : !!ch.inVehicle;
-      const rain = this.indoor || inVeh ? 0 : A.w.rain || 0; const wet = U.uWet.value; TUNE_ENV.wet = wet; /* Customs semi-slick tyres lose grip on wet roads */ U.uWet.value = clamp(wet + (rain > 0.2 ? dt * 0.06 * rain : -dt * (this.indoor || inVeh ? 0.012 : 0.004)), 0, 1);
+      const roof = this.indoor || (ch === P.ch && !!P.indoor); /* walk-in shop / HQ: under a roof */ const rain = roof || inVeh ? 0 : A.w.rain || 0; const wet = U.uWet.value; TUNE_ENV.wet = wet; /* Customs semi-slick tyres lose grip on wet roads */ U.uWet.value = clamp(wet + (rain > 0.2 ? dt * 0.06 * rain : -dt * (roof || inVeh ? 0.012 : 0.004)), 0, 1);
       const spd = ch.anim ? ch.anim.speed || 0 : 0; const heat = A.night ? 0.4 : 0.6 + 0.4 * Math.max(0, 1 - Math.abs(A.hour - 13) / 4); const humid = 0.8 + 0.4 * Math.min(1, A.w.rain + (A.weather === 'overcast' ? 0.3 : 0));
       const exert = spd > 4.5 ? 1 : spd > 2.2 ? 0.35 : 0; const sw = U.uSweat.value; U.uSweat.value = clamp(sw + (exert * heat * humid * 0.02 - (exert ? 0 : 0.006)) * dt * (this.indoor ? 0.6 : 1) * 1, 0, 1); }
   }
@@ -338,7 +338,7 @@ export class Game {
   showOutdoor() { for (const c of this._hiddenOut || []) c.visible = true; this._hiddenOut = []; }
   // ================================================================= events → audio / HUD
   wireEvents() {
-    bus.on('footstep', (e) => Audio.footstep(e.sprint, this.atmos.wet > 0.3 && !this.indoor));
+    bus.on('footstep', (e) => Audio.footstep(e.sprint, this.atmos.wet > 0.3 && !this.indoor && !this.player.indoor));
     bus.on('horn', (v) => Audio.horn(v.type, v.x, v.z, v.tune ? v.tune.horn : null));
     bus.on('crash', (v) => Audio.crash(v));
     bus.on('land', () => Audio.footstep(true, false));
@@ -471,6 +471,7 @@ export class Game {
     if (!this.indoor && A.envBase !== undefined) this.scene.environmentIntensity = A.envBase * (1 - 0.8 * sk); // indoors, reflections would show the room, not the sky
     if (sk > 0.002) { A.sun.intensity *= 1 - 0.92 * sk; A.hemi.intensity = lerp(A.hemi.intensity, 0.8, sk); A.hemi.color.lerp(HQ_SKY, sk); A.hemi.groundColor.lerp(HQ_GND, sk); A.ambient.intensity = lerp(A.ambient.intensity, 0.3, sk); this.renderer.toneMappingExposure = lerp(this.renderer.toneMappingExposure, 1.0, sk); if (sk > 0.5) A.rain.visible = false; }
     if (this.indoor) { A.sun.intensity = 0; A.hemi.intensity *= 0.25; A.ambient.intensity = 0.25; this.scene.environmentIntensity = 0.12; A.rain.visible = false; this.renderer.toneMappingExposure = 1; }
+    if (!this.indoor && this.player.indoor) A.rain.visible = false; // in a walk-in shop / the HQ: no rain streaks in the room
     const camDir = new THREE.Vector3(); cam.getWorldDirection(camDir);
     if (this.indoor) this.hideOutdoor(); // anything spawned since entering (police units etc.) stays hidden too
     if (!this.indoor) this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; this.traffic.gameH = (A.day || 1) * 24 + A.hour; if (!this.indoor) this.traffic.update(dt, focus, camDir, this.clock, this.police.foot.length || this.squad.proxies.length ? this.pedsNearList() : this.crowd.peds, P); this.hqLife.update(dt); if (!this.indoor) { this.trafficDuty.update(dt); this.schoolLife.update(dt); this.cricket.update(dt); } if (!warmOnly) { this.police.update(dt); if (this.heli) this.heli.update(dt); }
@@ -531,7 +532,7 @@ export class Game {
     if (Input.wasPressed('more')) { const em = ['wave', 'stretch', 'clap', 'dance', 'look'][Math.floor(Math.random() * 5)]; P.ch.anim.play(em, em === 'dance' ? 5 : 2.2); P.emote = em; }
     return null;
   }
-  interiorName(id) { return { kade: 'Lucky Tea Kade', fathima: 'Fathima Textiles', selvaraj: 'Selvaraj Electronics', bandara: 'Bandara Spice Stores', tailor: 'Ceylon Threads', garage: 'Lanka Auto Care', gunshop: 'Ceylon Arms Co.', club: 'The Velvet Monsoon', hq: 'Police Headquarters' }[id] || id; }
+  interiorName(id) { return { kade: 'Lucky Tea Kade', fathima: 'Fathima Textiles', selvaraj: 'Selvaraj Electronics', bandara: 'Bandara Spice Stores', tailor: 'Ceylon Threads', garage: 'Lanka Auto Care', gunshop: 'Ceylon Arms Co.', club: 'The Velvet Monsoon', hq: 'Police Headquarters', gunshop2: 'Lanka Shooting Supplies', barber: 'Razor & Co. Barbers', tattoo: 'Black Lotus Tattoo', tattoo2: 'Serendib Ink', clothing: 'Marine Drive Clothing Co.', luxury: 'Maison Serendib' }[id] || id; }
   // what the player can actually see: vehicles / people / police units within range and not hidden behind a building or wall.
   // Only these get (small) marks on the minimap and the full map — the map is not a tracker of every NPC and car in the city.
   lineOfSight(ax, az, bx, bz) {
