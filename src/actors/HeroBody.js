@@ -156,7 +156,12 @@ export function buildHeroGarments(sb, sp, ctx) {
       const tx = Math.cos(a) * (E0.rx + m), tz = E0.cz + Math.sin(a) * (E0.rz + m);
       // under a coat only push OUT to the collar line (as the coat does): pulling the shoulder-top cloth in to the neck made a long
       // sheet from the neck to the shoulder that rose above the coat's own shoulder line
-      const w = sp.coat ? t * sstep(1.9, 1.45, Math.hypot(Q[u * 3] / (E0.rx + m), (Q[u * 3 + 2] - E0.cz) / (E0.rz + m))) : t; Q[u * 3] = lerp(Q[u * 3], tx, w); Q[u * 3 + 2] = lerp(Q[u * 3 + 2], tz, w); Q[u * 3 + 1] = Math.min(yy, yTop); } });
+      const w = open ? t : t * sstep(1.9, 1.45, Math.hypot(Q[u * 3] / (E0.rx + m), (Q[u * 3 + 2] - E0.cz) / (E0.rz + m))); Q[u * 3] = lerp(Q[u * 3], tx, w); Q[u * 3 + 2] = lerp(Q[u * 3 + 2], tz, w); Q[u * 3 + 1] = Math.min(yy, yTop); }
+    // only the neck is drawn in to the collar line; the shoulder cloth stays on the shoulders and rises smoothly from the level
+    // neckline to the shoulder tips (pulled in and levelled, it made a sheet from the neck to the tips, which stood up as horns)
+    if (!open) { const fix = (u) => bnd[u] || armW[u] >= 0.5 || nearNeck(u) < 1.3; const H = new Float32Array(NU);
+      for (let it = 0; it < 24; it++) { for (let u = 0; u < NU; u++) H[u] = Q[u * 3 + 1];
+        for (let u = 0; u < NU; u++) { if (!used[u] || fix(u) || H[u] < yTop - 0.0005) continue; let m = 0, n = 0; for (const v of S.nb[u]) { if (!used[v]) continue; m += H[v]; n++; } if (n) Q[u * 3 + 1] = Math.max(yTop, m / n); } } } });
   // ---- waistcoat (David): its own shell over the OUTERMOST layer under it (shirt or trousers) — it follows the real chest,
   // shoulder blades and waist, so nothing can poke through it (the old elliptical loft let the shirt show through in jagged
   // patches). Closed front below the top button, V opening above it, generous armholes, pointed front hem; the shell's
