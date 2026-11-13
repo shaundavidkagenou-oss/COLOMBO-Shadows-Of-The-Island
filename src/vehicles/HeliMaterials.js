@@ -61,11 +61,14 @@ const PAINT = `{
   float grime = (1.0 - smoothstep(0.74, 1.02, p.y)) * (0.45 + 0.55 * mid) * step(-2.9, p.z);
   vec3 c = diffuseColor.rgb;
   c *= (1.0 - seam * 0.3) * (0.975 + 0.05 * big);
-  c = mix(c, c * vec3(0.27, 0.25, 0.23) + vec3(0.008), clamp(soot * 1.15, 0.0, 1.0) * 0.85);
+  c = mix(c, c * vec3(0.2, 0.185, 0.17) + vec3(0.006), clamp(soot * 1.9, 0.0, 1.0) * 0.85); // core ≈ 0.25 albedo: soot (≈ 0.05) over white — lighter
+  // stains vanish in tropical noon sun, where the grade already puts a 0.5 albedo near white
   c = mix(c, c * vec3(0.56, 0.48, 0.37), oil * 0.55);
   c = mix(c, c * vec3(0.74, 0.7, 0.64), grime * 0.4);
   diffuseColor.rgb = c;
-  roughnessFactor = clamp(roughnessFactor + (big - 0.5) * 0.1 + seam * 0.25 + soot * 0.3 - oil * 0.12 + grime * 0.16, 0.08, 1.0);
+  roughnessFactor = clamp(roughnessFactor + (big - 0.5) * 0.1 + seam * 0.25 - oil * 0.12 + grime * 0.2, 0.08, 1.0);
+  roughnessFactor = mix(roughnessFactor, 0.95, clamp(soot * 1.4, 0.0, 1.0)); // soot is a matte deposit: it kills the gloss (a mildly rougher
+  // surface only spread the sun's highlight along the boom ridge and hid the darkening — checked with a soot / aft debug render)
   float peel = hN(p * 380.0) * hAA(380.0);
   normal = hBump(normal, peel * 0.05 - seam + rv * 0.6, 0.0009);
 }`;
