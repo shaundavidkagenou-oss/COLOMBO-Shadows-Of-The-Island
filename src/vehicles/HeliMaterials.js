@@ -38,7 +38,7 @@ const PAINT = `{
     if (m1 + m2 > 0.5) { float b = m1 > 0.5 ? 1.12 + 0.05 * max(0.0, p.z - 2.0) - 0.03 * max(0.0, -1.0 - p.z) : 1.86 - 0.02 * (2.6 + p.z) + 0.03;
       float lo = m1 > 0.5 ? 0.05 : 0.02, hi = m1 > 0.5 ? 0.04 : 0.022; float fw = max(fwidth(p.y), 1e-4);
       float s1 = smoothstep(b - lo - fw, b - lo + fw, p.y), s2 = smoothstep(b + hi - fw, b + hi + fw, p.y);
-      diffuseColor.rgb = mix(mix(vec3(0.0091, 0.0296, 0.1559), vec3(0.5841, 0.3663, 0.0423), s1), vec3(0.855, 0.8714, 0.855), s2) * diffuse; } }
+      diffuseColor.rgb = mix(mix(vec3(0.0091, 0.0296, 0.1559), vec3(0.5841, 0.3663, 0.0423), s1), vec3(0.7454, 0.7682, 0.7379), s2) * diffuse; } }
   // panel seams: frame stations every 0.62 m along the airframe, longitudinal joints every 0.5 m up the sides (0.55 m across
   // the top / belly); a per-segment hash drops some seam segments so the panels vary in size like a real skin
   float side = step(an.y, 0.72);
@@ -54,14 +54,14 @@ const PAINT = `{
   // weathering
   float big = hN(p * 1.7), mid = hN(p * 6.0 + 11.0);
   float aft = (1.0 - smoothstep(-2.9, -2.2, p.z)) * (1.0 - (1.0 - smoothstep(-8.0, -3.6, p.z)));       // turbine soot from the two stacks, fanning aft
-  float wd = 0.22 + max(0.0, -2.6 - p.z) * 0.06;
-  float soot = aft * exp(-pow(max(0.0, abs(p.x) - 0.1), 2.0) / (wd * wd)) * smoothstep(1.95, 2.4, p.y) * (0.55 + 0.45 * hN(vec3(p.x * 9.0, p.y * 9.0, p.z * 1.3))) * (1.0 - 0.45 * (1.0 - smoothstep(-6.5, -3.0, p.z))); // densest just aft of the stacks
+  float wd = 0.22 + max(0.0, -2.6 - p.z) * 0.06; // (sx * sx, not pow(sx, 2.0): pow(0, y) can be NaN on some GPUs — it blanked the soot core)
+  float sx = max(0.0, abs(p.x) - 0.1); float soot = aft * exp(-sx * sx / (wd * wd)) * smoothstep(1.95, 2.4, p.y) * (0.55 + 0.45 * hN(vec3(p.x * 9.0, p.y * 9.0, p.z * 1.3))) * (1.0 - 0.45 * (1.0 - smoothstep(-6.5, -3.0, p.z))); // densest just aft of the stacks
   float oilR = step(0.6, an.x) * (1.0 - smoothstep(2.3, 2.6, p.y)) * smoothstep(1.3, 2.1, p.y) * (1.0 - smoothstep(-0.3, 0.8, p.z)) * (1.0 - (1.0 - smoothstep(-3.3, -2.2, p.z)));
   float oil = oilR * smoothstep(0.68, 0.9, hN(vec3((p.z + p.y * 0.35) * 15.0, p.y * 1.4, sign(p.x) * 5.0))) * (0.6 + 0.4 * mid);
   float grime = (1.0 - smoothstep(0.74, 1.02, p.y)) * (0.45 + 0.55 * mid) * step(-2.9, p.z);
   vec3 c = diffuseColor.rgb;
   c *= (1.0 - seam * 0.3) * (0.975 + 0.05 * big);
-  c = mix(c, c * vec3(0.4, 0.38, 0.35) + vec3(0.01), clamp(soot, 0.0, 1.0) * 0.8);
+  c = mix(c, c * vec3(0.27, 0.25, 0.23) + vec3(0.008), clamp(soot * 1.15, 0.0, 1.0) * 0.85);
   c = mix(c, c * vec3(0.56, 0.48, 0.37), oil * 0.55);
   c = mix(c, c * vec3(0.74, 0.7, 0.64), grime * 0.4);
   diffuseColor.rgb = c;

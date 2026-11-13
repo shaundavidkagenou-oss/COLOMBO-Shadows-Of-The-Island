@@ -17,7 +17,7 @@ import { heliMaterials, LIVERY_CABIN, LIVERY_BOOM } from './HeliMaterials.js';
 
 export const HELI = { rotorR: 7.0, hubY: 3.9, tailR: 1.3, len: 12.9, skidW: 1.3, mass: 5400 };
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
-const WHITE = C('#eef0ee'), NAVY = C('#18306e'), GOLD = C('#c9a33a'), DARK = C('#2a2d31'), GREY = C('#7d8287'), BLADE = C('#33363a'), TIP = C('#d8b72a');
+const WHITE = C('#e0e3df'), NAVY = C('#18306e'), GOLD = C('#c9a33a'), DARK = C('#2a2d31'), GREY = C('#7d8287'), BLADE = C('#33363a'), TIP = C('#d8b72a');
 
 // lofted body: sections { z, yc (centre), hw (half width), ht (top above yc), hb (bottom below yc), n (squareness) }; the
 // ring is a superellipse, flattened at the bottom. region(z, x, y, upper) → builder name or null (skip: an opening)
@@ -95,7 +95,7 @@ export function buildHeliModel({ reg = '4R-SLP', crew = true } = {}) {
   // --------------------------------------------------------------------------------------------- engine deck, cowlings, exhausts
   const E = []; const es = (z, yc, hw, ht, hb, n) => E.push({ z, yc, hw, ht, hb, n });
   es(2.6, 2.58, 0.05, 0.03, 0.05, 2.2); es(2.3, 2.62, 0.5, 0.18, 0.2, 2.4); es(1.6, 2.68, 0.72, 0.36, 0.22, 2.8); es(0.6, 2.72, 0.78, 0.46, 0.24, 3.2); es(-0.6, 2.74, 0.78, 0.48, 0.24, 3.2); es(-1.7, 2.66, 0.66, 0.4, 0.24, 2.8); es(-2.6, 2.46, 0.4, 0.22, 0.2, 2.3); es(-3.0, 2.34, 0.06, 0.04, 0.04, 2.2);
-  loft(mb, E, 24, () => 'hpaint', (z, x, y) => (y > 3.1 ? C('#e6e8e6') : WHITE));
+  loft(mb, E, 24, () => 'hpaint', (z, x, y) => (y > 3.1 ? C('#d9dcd8') : WHITE));
   { const w = mb.get('vworn'); for (const sx of [-1, 1]) { w.box(sx * 0.79, 2.86, 0.7, 0.03, 0.22, 1.1, { col: C('#3a3d42') }); /* intake grille */ for (let k = 0; k < 5; k++) w.box(sx * 0.795, 2.78 + k * 0.04, 0.7, 0.01, 0.012, 1.06, { col: DARK }); }
     for (const sx of [-1, 1]) tube(mb.get('vengine'), [[sx * 0.42, 2.85, -1.9], [sx * 0.5, 2.98, -2.35], [sx * 0.56, 3.12, -2.65]], 0.13, 10, [C('#7a6a55'), C('#4d4a52')]); // exhaust stacks: heat-tinted stainless (straw / bronze at the root, blue-grey toward the lip)
     for (const sx of [-1, 1]) { const lip = mb.get('vrubber'); lip.cylinder(sx * 0.565, 3.135, -2.665, 0.118, 0.118, 0.04, 10, { col: C('#141312') }); } // sooted inside of each lip
