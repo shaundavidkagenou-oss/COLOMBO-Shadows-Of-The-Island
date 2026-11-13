@@ -223,8 +223,8 @@ export class Assassin {
     this.wasVisible = this.visible; this.place(v.x, v.z, v.yaw, v.y); this.show(true);
     ch.anim.set('kneel'); ch.anim.update(1.0, 0, 0); ch.handGrip = { L: true, R: true }; this.rifle.visible = true; ch.anim.postPose = (b) => this.poseRest(b);
     // the mark is unaware: stops for a phone call (seated people stay seated)
-    if (p.state === 'walk' || p.state === 'toPoi' || p.state === 'waitCross') { g.crowd.react(p, 'idle', 40); p.ch.anim.play('phone', 40); }
-    this.cine = { p, v, t: 0, phase: 'wide', fov0: cam.fov, near0: cam.near, zoom0: cam.zoom, fired: false, hit: false, aim: this.headPoint(p, V()) };
+    const held = p.state === 'walk' || p.state === 'toPoi' || p.state === 'waitCross'; if (held) { g.crowd.react(p, 'idle', 40); p.ch.anim.play('phone', 40); }
+    this.cine = { p, v, t: 0, phase: 'wide', fov0: cam.fov, near0: cam.near, zoom0: cam.zoom, fired: false, hit: false, held, aim: this.headPoint(p, V()) };
     cam.near = 0.05; cam.updateProjectionMatrix(); this.markCam = this.findMarkCam(p);
     g.hud.subtitle('Nila', 'In position. Light wind, left to right.', '', 2.8, 'en');
   }
@@ -256,6 +256,7 @@ export class Assassin {
     const g = this.g, C = this.cine, cam = g.camera, ch = this.ch, p = C.p; const slow = g.timeSlow || 1; const rdt = Math.min(0.1, dt / slow); C.t += rdt;
     if (!C.fired && (p.dead || !g.crowd.peds.includes(p))) { g.hud.notify('Black Orchid', 'The mark left the street before she could take the shot. Fee refunded.', 'warn', 5); g.story.pay(ORCHID.fees.contract, 'Black Orchid — refund (contract aborted)'); this.endCine(true); return; }
     ch.anim.update(dt, 0, 0);
+    if (!C.fired && C.held && p.state !== 'idle' && !p.dead && p.state !== 'down') { g.crowd.react(p, 'idle', 40); p.ch.anim.play('phone', 40); } // stays on the call until the shot
     const H = this.headPoint(p, V()); if (!C.fired) C.aim.copy(H);
     const v = C.v, fwd = V(Math.sin(v.yaw), 0, Math.cos(v.yaw)), side = V(Math.cos(v.yaw), 0, -Math.sin(v.yaw)); const head = ch.bones.head.getWorldPosition(V());
     const T_WIDE = 3.2, T_MARK = 2.6, T_SH = 2.6, T_SCOPE = 4.2;
@@ -266,7 +267,7 @@ export class Assassin {
     else if (C.phase === 'mark') { const k = C.t / T_MARK; const mc = this.markCam; cam.position.copy(mc).addScaledVector(side, 0.25 * k); cam.lookAt(H.x, H.y - 0.15, H.z); this.setLens(cam, lerp(26, 20, k));
       if (C.t > T_MARK) { C.phase = 'shoulder'; C.t = 0; g.hud.subtitle('Nila', 'Target confirmed.', '', 1.8, 'en'); } }
     else if (C.phase === 'shoulder') { const k = ease(clamp(C.t / T_SH, 0, 1)); const dir = C.dirW || fwd;
-      cam.position.copy(head).addScaledVector(dir, -0.75 + 0.3 * k).addScaledVector(side, -0.34 + 0.08 * k).setY(head.y + 0.16 - 0.05 * k); cam.lookAt(C.aim); this.setLens(cam, lerp(38, 18, k));
+      cam.position.copy(head).addScaledVector(dir, -1.45 + 0.35 * k).addScaledVector(side, 0.62 - 0.12 * k).setY(head.y + 0.42 - 0.12 * k); cam.lookAt(C.aim); this.setLens(cam, lerp(34, 16, k)); // over her right shoulder, the rifle and the street beyond
       if (C.t > T_SH) { C.phase = 'scope'; C.t = 0; this.showScope(true); this.breath(); } }
     else if (C.phase === 'scope') { const k = clamp(C.t / T_SCOPE, 0, 1); const M = C.muzzleW || v.muzzle; const dist = M.distanceTo(C.aim);
       // breathing sway settling as she holds her breath, a faint pulse tremor at the end
@@ -297,7 +298,7 @@ export class Assassin {
     if (g.weapons) { try { g.weapons.flash(M, dir, RIFLE); } catch (e) { /* effects not ready */ } g.weapons.gunSound(RIFLE, M.x, M.z); }
     if (Audio.ready) Audio.noise(2.4, { f: 420, q: 0.4, type: 'lowpass', vol: 0.14, attack: 0.04, when: 0.12, buf: Audio.brownBuf }); // the report rolling off the buildings
     // the round: a copper-jacketed bullet trailing a faint shock-wave streak
-    const bullet = new THREE.Group(); const cu = new THREE.MeshStandardMaterial({ color: 0xb87333, metalness: 1, roughness: 0.28 });
+    const bullet = new THREE.Group(); const cu = new THREE.MeshStandardMaterial({ color: 0xd08a55, metalness: 0.55, roughness: 0.3, emissive: 0x2a1306 }); // copper jacket (no env map on the street: full metalness would read black)
     const body = new THREE.Mesh(new THREE.CylinderGeometry(0.0039, 0.0039, 0.022, 14), cu); body.rotation.x = Math.PI / 2; bullet.add(body);
     const tip = new THREE.Mesh(new THREE.ConeGeometry(0.0039, 0.017, 14), cu); tip.rotation.x = Math.PI / 2; tip.position.z = 0.0195; bullet.add(tip);
     const trailM = new THREE.MeshBasicMaterial({ color: 0xdfe6ea, transparent: true, opacity: 0.12, depthWrite: false }); const trail = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.0015, 1, 10, 1, true), trailM);
