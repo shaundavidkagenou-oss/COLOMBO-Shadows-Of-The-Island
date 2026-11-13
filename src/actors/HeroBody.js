@@ -197,7 +197,7 @@ export function buildHeroGarments(sb, sp, ctx) {
         const yc = Math.min(yy, topC); const E0 = NK.collarAt(yc + 0.012); const m = 0.017; const a = Math.atan2((Q[u * 3 + 2] - E0.cz) / (E0.rz + m), Q[u * 3] / (E0.rx + m));
         const tx = Math.cos(a) * (E0.rx + m), tz = E0.cz + Math.sin(a) * (E0.rz + m); const r0 = Math.hypot(Q[u * 3] / (E0.rx + m), (Q[u * 3 + 2] - E0.cz) / (E0.rz + m));
         if (r0 < 1 || (bnd[u] && yy > cutY - 0.03)) { Q[u * 3] = lerp(Q[u * 3], tx, t); Q[u * 3 + 2] = lerp(Q[u * 3 + 2], tz, t); } // pushed out to the collar line (never pulled into the shirt) — the top edge itself is drawn onto it, under the collar band
-        Q[u * 3 + 1] = Math.min(yy, topC); }
+        Q[u * 3 + 1] = lerp(yy, Math.min(yy, topC), bnd[u] ? 1 : sstep(1.6, 1.2, r0)); } // level only at the neck edge: further out it keeps the trapezius line (levelled, the shoulder tips stood up as horns)
       { // shoulder line: the cloth levelled at topC rises smoothly to the shoulder tips (some builds carry them above the neck cut —
         // left level, the tips stood up as points). Heights only, never below the level line; the neck edge stays put.
         const fix = (u) => bnd[u] || armW[u] >= 0.5 || nearNeck(u) < 1.3; const H = new Float32Array(NU);
