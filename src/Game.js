@@ -111,7 +111,7 @@ export class Game {
     await this.world.build(step(0.24, 0.72), q);
     this.collision = this.world.collision;
     progress(0.73, 'Sky, sea and monsoon'); await tick();
-    this.atmos = new Atmosphere(this.scene, this.renderer); this.atmos.drawDist = Settings.preset.drawDist; this.atmos.sun.castShadow = Settings.preset.shadows; this.atmos.sun.shadow.mapSize.set(Settings.preset.shadowRes, Settings.preset.shadowRes);
+    this.atmos = new Atmosphere(this.scene, this.renderer); this.atmos.drawDist = Settings.preset.drawDist; this.atmos.setShadowQuality(Settings.preset.shadows, Settings.preset.shadowRes); /* near + far sun shadow maps */
     this.atmos.listeners.thunder = () => Audio.thunder(Math.random() * 0.7);
     this.flashRig = new FlashlightRig(this.scene, { count: Settings.get('quality') === 'low' ? 1 : 3 }); // police hand torches at night (pool created once)
     this.headRig = new HeadlightRig(this.scene, { count: Settings.get('quality') === 'low' ? 2 : 4, shadows: Settings.preset.shadows, shadowRes: Settings.get('quality') === 'ultra' ? 2048 : 1024 }); // real headlight beams (pool created once at load)
@@ -553,7 +553,7 @@ export class Game {
   applyDensity() { const pr = Settings.preset; this.crowd.max = Math.round(pr.crowd * 0.45 * Settings.get('crowdDensity')); this.traffic.max = Math.round(pr.traffic * Settings.get('trafficDensity')); }
   applySettings(k) {
     const pr = Settings.preset; if (!this.post) return;
-    if (k === 'quality' || k === 'resolutionScale' || k === '*') { this.renderer.setPixelRatio(this.basePR() * this.dynK); this.renderer.shadowMap.enabled = pr.shadows; this.atmos.sun.castShadow = pr.shadows; { const sh = this.atmos.sun.shadow; if (sh.mapSize.x !== pr.shadowRes) { sh.mapSize.set(pr.shadowRes, pr.shadowRes); if (sh.map) { sh.map.dispose(); sh.map = null; } } } /* the preset's sun shadow resolution (was only applied at start-up) */ this.atmos.drawDist = pr.drawDist; this.world.setQuality(Settings.get('quality')); this.post.build({ bloom: pr.bloom, ao: pr.ao, cine: pr.cine }); this.resize(); this.scene.traverse((o) => { if (o.material && o.material.needsUpdate !== undefined && k === 'quality') o.material.needsUpdate = true; }); }
+    if (k === 'quality' || k === 'resolutionScale' || k === '*') { this.renderer.setPixelRatio(this.basePR() * this.dynK); this.renderer.shadowMap.enabled = pr.shadows; this.atmos.setShadowQuality(pr.shadows, pr.shadowRes); /* the preset's sun shadow resolutions, near + far (was only applied at start-up) */ this.atmos.drawDist = pr.drawDist; this.world.setQuality(Settings.get('quality')); this.post.build({ bloom: pr.bloom, ao: pr.ao, cine: pr.cine }); this.resize(); this.scene.traverse((o) => { if (o.material && o.material.needsUpdate !== undefined && k === 'quality') o.material.needsUpdate = true; }); }
     if (k === 'wetReflections' || k === '*') { if (this.world) this.world.glintsOn = Settings.get('wetReflections') !== false; }
     if (k === 'lensFlare' || k === 'lightShafts' || k === '*') this.post.setCine(Settings.get('lensFlare') !== false, Settings.get('lightShafts') !== false);
     if (k === 'nightBrightness' || k === '*') { if (this.atmos) this.atmos.nightBoost = Settings.get('nightBrightness') ?? 1; }

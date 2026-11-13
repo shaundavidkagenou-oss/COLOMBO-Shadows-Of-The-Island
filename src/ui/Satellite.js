@@ -81,6 +81,7 @@ export class Satellite {
   enter() {
     const g = this.g, A = g.atmos, R = g.renderer, S = g.scene; const st = { vis: [], lights: [] };
     st.sun = { col: A.sun.color.clone(), int: A.sun.intensity, pos: A.sun.position.clone(), tgt: A.sun.target.position.clone(), cam: { ...A.sun.shadow.camera }, cast: A.sun.castShadow };
+    st.farI = A.sunFar ? A.sunFar.shadow.intensity : 1; if (A.sunFar) A.sunFar.shadow.intensity = 0; A.farOff = true; // the far sun-shadow map holds the game's sun direction round the player: not used under the studio sun
     st.hemi = { col: A.hemi.color.clone(), gnd: A.hemi.groundColor.clone(), int: A.hemi.intensity }; st.amb = A.ambient.intensity;
     st.exp = R.toneMappingExposure; st.fog = S.fog; st.envI = S.environmentIntensity; st.autoShadow = R.shadowMap.autoUpdate;
     st.water = { dir: waterUniforms.uSunDir.value.clone(), col: waterUniforms.uSunColor.value.clone(), night: waterUniforms.uNight.value, rain: waterUniforms.uRain.value, cloud: waterUniforms.uCloud.value, refl: waterUniforms.uReflOn.value };
@@ -109,6 +110,7 @@ export class Satellite {
     for (const [l, i] of st.lights) l.intensity = i;
     A.sun.color.copy(st.sun.col); A.sun.intensity = st.sun.int; A.sun.position.copy(st.sun.pos); A.sun.target.position.copy(st.sun.tgt); A.sun.target.updateMatrixWorld(); A.sun.castShadow = st.sun.cast;
     const sc = A.sun.shadow.camera; Object.assign(sc, { left: st.sun.cam.left, right: st.sun.cam.right, top: st.sun.cam.top, bottom: st.sun.cam.bottom, near: st.sun.cam.near, far: st.sun.cam.far }); sc.updateProjectionMatrix();
+    if (A.sunFar) { A.sunFar.shadow.intensity = st.farI; A.far.dirty = true; } A.farOff = false;
     A.hemi.color.copy(st.hemi.col); A.hemi.groundColor.copy(st.hemi.gnd); A.hemi.intensity = st.hemi.int; A.ambient.intensity = st.amb;
     R.toneMappingExposure = st.exp; st.fogBack(); S.environmentIntensity = st.envI; R.shadowMap.autoUpdate = st.autoShadow; R.shadowMap.needsUpdate = true;
     updateMaterials(A.night, A.indoor ? 0 : A.wet, A.hour);

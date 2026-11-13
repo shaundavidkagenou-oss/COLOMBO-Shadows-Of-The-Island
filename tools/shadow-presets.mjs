@@ -16,6 +16,7 @@ try {
   await page.waitForFunction(() => window.__game && window.__game.stepSim && window.__game.mode === 'play', { timeout: 900000, polling: 1000 });
   const state = () => page.evaluate(() => { const g = window.__game, s = g.atmos.sun, sh = s.shadow, sc = sh.camera;
     return { rendererShadows: g.renderer.shadowMap.enabled, cast: s.castShadow, mapSize: sh.mapSize.x, allocated: sh.map ? sh.map.width : null, radius: sh.radius, nb: +sh.normalBias.toFixed(3), bias: +sh.bias.toFixed(6), box: [+(sc.right - sc.left).toFixed(1), +(sc.top - sc.bottom).toFixed(1)],
+      far: g.atmos.sunFar ? { on: g.atmos.sunFar.visible, mapSize: g.atmos.sunFar.shadow.mapSize.x, allocated: g.atmos.sunFar.shadow.map ? g.atmos.sunFar.shadow.map.width : null, redraws: g.atmos.far.renders } : null,
       cine: g.post && g.post.cine ? { level: g.post.cine.level, flare: g.post.cine.flareOn, rays: g.post.cine.raysOn, rays_rt: g.post.cine.rtA ? [g.post.cine.rtA.width, g.post.cine.rtA.height] : null, passes: g.post.composer.passes.length, gradeIsCine: g.post.grade === g.post.cine } : null }; });
   // wait until the game has drawn with the new preset (shadow map re-allocated at the preset size, refitted), max 90 s
   const frames = () => page.evaluate(async () => { const g = window.__game; g.noRender = false; const t0 = performance.now(); await new Promise((r) => setTimeout(r, 4000));
