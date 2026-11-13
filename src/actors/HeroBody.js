@@ -75,7 +75,7 @@ export function buildHeroGarments(sb, sp, ctx) {
   const cutY = NK.cutY; const yTop = sp.coat && !open ? cutY + 0.004 /* under a coat: the shirt stops below the coat's neck line (the coat collar shows, the shirt can't poke through it) */ : open ? cutY + 0.034 : sp.collar ? Math.max(cutY + 0.03, 1.5 * s) : cutY + 0.017; // a crew-neck tee ends just above the neck cut (a collar stands higher)
   const shirtHem = (open ? 0.985 : 0.972) * s; const sleeveY = (longSleeve ? 0.905 : 1.205) * s; const waistY = 0.997 * s; const hemY = (boots ? 0.165 : 0.093) * s;
   const torso = (u) => armW[u] < 0.5 && legW[u] < 0.5;
-  const shirtHas = (u, tol) => (armW[u] >= 0.5 ? handW[u] < 0.5 && y(u) >= sleeveY - tol : legW[u] < 0.5 && y(u) >= shirtHem - tol && (!sp.coat || y(u) <= yTop + tol)); // under a coat the shirt ends at its neck line (no flattened top)
+  const shirtHas = (u, tol) => (armW[u] >= 0.5 ? handW[u] < 0.5 && y(u) >= sleeveY - tol : legW[u] < 0.5 && y(u) >= shirtHem - tol);
   const trouserHas = (u, tol) => armW[u] < 0.5 && y(u) <= waistY + tol && y(u) >= hemY - tol;
   // ---- ease (offset along the body normal)
   const shirtEase = (u) => { if (armW[u] >= 0.5) return longSleeve ? lerp(0.006, 0.011, sstep(0.95 * s, 1.15 * s, y(u))) : 0.009 + 0.013 * sstep(1.33 * s, 1.215 * s, y(u));
@@ -146,7 +146,7 @@ export function buildHeroGarments(sb, sp, ctx) {
   // ---- shirt / tee: neck conformed to the head's collar ellipse; the top edge is a level line at yTop
   const sh = shell(shirtHas, shirtEase, CLOTH.SHIRT, top, (u) => (armW[u] >= 0.5 ? sleeveY : y(u) < 1.2 * s ? shirtHem : null), (Q, used, bnd) => {
     drape(Q, used);
-    for (let u = 0; u < NU; u++) { if (!used[u] || armW[u] >= 0.5) continue; const yy = Q[u * 3 + 1]; const t = sp.coat && bnd[u] && yy > cutY - 0.04 ? 1 : sstep(cutY - 0.045, cutY + 0.004, yy); if (t <= 0) continue;
+    for (let u = 0; u < NU; u++) { if (!used[u] || armW[u] >= 0.5) continue; const yy = Q[u * 3 + 1]; const t = sstep(cutY - 0.045, cutY + 0.004, yy); if (t <= 0) continue;
       const yc = Math.min(yy, yTop); const E0 = NK.collarAt(yc + 0.012); const m = 0.006; const a = Math.atan2((Q[u * 3 + 2] - E0.cz) / (E0.rz + m), Q[u * 3] / (E0.rx + m));
       const tx = Math.cos(a) * (E0.rx + m), tz = E0.cz + Math.sin(a) * (E0.rz + m); Q[u * 3] = lerp(Q[u * 3], tx, t); Q[u * 3 + 2] = lerp(Q[u * 3 + 2], tz, t); Q[u * 3 + 1] = Math.min(yy, yTop); } });
   // ---- waistcoat (David): its own shell over the OUTERMOST layer under it (shirt or trousers) — it follows the real chest,
@@ -191,11 +191,11 @@ export function buildHeroGarments(sb, sp, ctx) {
         if (r0 < 1 || (bnd[u] && yy > cutY - 0.03)) { Q[u * 3] = lerp(Q[u * 3], tx, t); Q[u * 3 + 2] = lerp(Q[u * 3 + 2], tz, t); } // pushed out to the collar line (never pulled into the shirt) — the top edge itself is drawn onto it, under the collar band
         Q[u * 3 + 1] = Math.min(yy, topC); }
       { // smooth out the folds the neck pass leaves in the shoulder cloth near the neck (edge held on the collar line)
-        const T2 = new Float32Array(Q); for (let it = 0; it < 8; it++) { T2.set(Q); for (let u = 0; u < NU; u++) { if (!used[u] || bnd[u] || armW[u] >= 0.5 || y(u) < cutY - 0.06) continue; let x = 0, yy = 0, z = 0, n = 0; for (const v of S.nb[u]) { if (!used[v]) continue; x += Q[v * 3]; yy += Q[v * 3 + 1]; z += Q[v * 3 + 2]; n++; }
+        const T2 = new Float32Array(Q); for (let it = 0; it < 8; it++) { T2.set(Q); for (let u = 0; u < NU; u++) { if (!used[u] || bnd[u] || armW[u] >= 0.5 || y(u) < cutY - 0.06 || y(u) > cutY - 0.012) continue; let x = 0, yy = 0, z = 0, n = 0; for (const v of S.nb[u]) { if (!used[v]) continue; x += Q[v * 3]; yy += Q[v * 3 + 1]; z += Q[v * 3 + 2]; n++; }
           if (!n) continue; T2[u * 3] = lerp(Q[u * 3], x / n, 0.6); T2[u * 3 + 1] = Math.min(topC, lerp(Q[u * 3 + 1], yy / n, 0.6)); T2[u * 3 + 2] = lerp(Q[u * 3 + 2], z / n, 0.6); } Q.set(T2); } }
       for (let u = 0; u < NU; u++) { if (!used[u] || y(u) > cutY) continue; const d = (Q[u * 3] - P[u * 3]) * N[u * 3] + (Q[u * 3 + 1] - P[u * 3 + 1]) * N[u * 3 + 1] + (Q[u * 3 + 2] - P[u * 3 + 2]) * N[u * 3 + 2]; const m = under(u) + 0.0068;
         if (d < m) for (let k = 0; k < 3; k++) Q[u * 3 + k] += N[u * 3 + k] * (m - d); } }, CO.mat); // (the neck pass must not undo the gap over the shirt)
-    foldMax = 1; shellTop = yTop; if (globalThis.__coatFitProbe) globalThis.__coatFitProbe({ cc, sh, tr, P, N, armW, legW, handW, NU, y });
+    foldMax = 1; shellTop = yTop; if (globalThis.__coatFitProbe) globalThis.__coatFitProbe({ cc, sh, tr, P, N, armW, legW, handW, NU, y, cutY });
     if (CO.rib) for (let u = 0; u < NU; u++) { const v = cc.map[u]; if (v < 0) continue; const yy = y(u); if (armW[u] >= 0.5 ? yy < sleeveC + 0.055 : yy < hemC + 0.055) { sb.cl[v * 2 + 1] = 4; for (let k = 0; k < 3; k++) sb.col[v * 3 + k] *= 0.82; } } // knitted cuffs + waistband
   }
   // ---- skin: everything not deeply covered (2.5 cm past every garment edge stays, so no gap shows into a sleeve or collar)
@@ -293,7 +293,7 @@ export function buildHeroGarments(sb, sp, ctx) {
     { let zlo = 1e9, zhi = -1e9, xm = 0; const pts = []; const y0 = topC - 0.014, y1 = topC + CO.collar;
       for (const G of [cc, sh]) for (let u = 0; u < NU; u++) { if (!G.used[u] || armW[u] >= 0.5) continue; const qy = G.Q[u * 3 + 1]; if (qy < y0 - 0.01 || qy > y1 + 0.01) continue; pts.push(G.Q[u * 3], G.Q[u * 3 + 2]); if (G === cc && qy > topC - 0.02) { xm = Math.max(xm, Math.abs(G.Q[u * 3])); zlo = Math.min(zlo, G.Q[u * 3 + 2]); zhi = Math.max(zhi, G.Q[u * 3 + 2]); } }
       if (pts.length > 8 && zhi > zlo) { const EN = NK.collarAt(topC + 0.012); const E0 = { cz: EN.cz, rx: EN.rx + 0.017, rz: EN.rz + 0.017 }; let e = 1; // round the neck: only the cloth near the neck (not the shoulders) sets its size
-        for (let i = 0; i < pts.length; i += 2) { const r = Math.hypot(pts[i] / (E0.rx + 0.035), (pts[i + 1] - E0.cz) / (E0.rz + 0.035)); if (r < 1) e = Math.max(e, Math.hypot(pts[i] / E0.rx, (pts[i + 1] - E0.cz) / E0.rz)); } E0.rx *= e; E0.rz *= e;
+        for (let i = 0; i < pts.length; i += 2) { const r = Math.hypot(pts[i] / (E0.rx + 0.035), (pts[i + 1] - E0.cz) / (E0.rz + 0.035)); if (r < 1) e = Math.max(e, Math.hypot(pts[i] / E0.rx, (pts[i + 1] - E0.cz) / E0.rz)); } E0.rx = E0.rx * e + 0.0045; E0.rz = E0.rz * e + 0.0045; // clear of the outermost cloth (a band touching the tee z-fights with it)
         const gap = CO.v ? 0.78 : 0.07, NC = 44; const rows = [[y0, 0.0025, 0], [y1 - 0.01, 0.004, 0.5], [y1, 0.0085, 1]]; const Pg = [], Ng = [], Wg = [];
         rows.forEach(([yy, m, k]) => { const row = [], nr = [], wr = []; for (let ci = 0; ci <= NC; ci++) { const a = Math.PI / 2 + gap + (ci / NC) * (2 * Math.PI - 2 * gap); const ca = Math.cos(a), sa = Math.sin(a); row.push([ca * (E0.rx + m), yy, E0.cz + sa * (E0.rz + m)]); nr.push([ca, 0.25 + k * 0.4, sa]); wr.push([[B.chest, 1 - k * 0.4], [B.neck, k * 0.4]]); }
           Pg.push(row); Ng.push(nr); Wg.push(wr); });
