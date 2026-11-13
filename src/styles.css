@@ -780,3 +780,7 @@ button.cc-k { cursor: pointer; } button.cc-k:hover { background: rgba(0, 0, 0, 0
 .orchid-scope i { position: absolute; left: 50%; top: 50%; width: 68vh; height: 68vh; transform: translate(-50%, -50%); border-radius: 50%; box-shadow: inset 0 0 6vh 2vh rgba(0, 0, 0, 0.85); }
 .orchid-card { position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: #eadde4; opacity: 0; pointer-events: none; transition: opacity 0.8s; }
 .orchid-card.on { opacity: 1; } .orchid-card b { font: 600 34px 'Barlow Condensed', sans-serif; letter-spacing: 0.3em; } .orchid-card span { font: 500 14px Manrope, sans-serif; opacity: 0.75; }
+.gb-page { min-height: 0; } .ph-hint.gb-hint { padding: 5px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bo-top { flex: none; background: #121014; color: #ece4ea; padding: 6px 9px 0; } .bo-top .bo-sub { margin: 4px 0 4px; }
+.phone-screen .gb-page.gb-dark { background: #121014; color: #ece4ea; } .gb-page.gb-dark .ph-row.gb-row { background: #1d1820; color: #ece4ea; box-shadow: none; } .gb-page.gb-dark .ph-row.gb-row.sel { box-shadow: 0 0 0 2px #c0587e; background: #2a1f2c; }
+.gb-dark + .ph-hint { background: #121014; color: #ece4ea; }

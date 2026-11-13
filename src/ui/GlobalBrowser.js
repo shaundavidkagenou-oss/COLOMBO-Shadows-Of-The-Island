@@ -53,7 +53,7 @@ export class GlobalBrowser {
     if (st.id === 'orchid-result') return { url: ORCHID_URL + '/checkout', title: 'Black Orchid', html: head + `<div class="bo-card ${st.ok ? 'ok' : 'no'}"><b>${st.ok ? 'Confirmed' : 'Not booked'}</b><p>${esc(st.msg)}</p></div>`, rows: [{ t: 'Back to Black Orchid', act: () => { this.stack = this.stack.filter((q) => q.id === 'home' || q.id === 'orchid'); this.cur = null; this.phone.row = 0; return {}; } }] };
     if (st.id === 'orchid-map') {
       const n = this.tg.length; const rows = this.tg.slice(0, 12).map((q, i) => ({ t: `${i + 1}. ${O.describe(q.p)}`, s: `${Math.round(q.d)} m`, p: q.p, act: () => { if (q.p.dead || !g.crowd.peds.includes(q.p)) { this.refreshTargets(true); return {}; } this.go({ id: 'orchid-confirm', kind: 'contract', p: q.p }); return {}; } }));
-      return { url: ORCHID_URL + '/contract', title: 'Choose target', html: head + `<canvas class="bo-map" width="480" height="360"></canvas><div class="bo-sub">${n ? `${n} people within ${ORCHID.radius} m · ↑↓ or tap a dot · Enter to choose` : g.indoor ? 'You need to be outside.' : 'Nobody near you right now.'}</div>`, rows };
+      return { url: ORCHID_URL + '/contract', title: 'Choose target', html: '', top: `<div class="bo-top"><canvas class="bo-map" width="480" height="360"></canvas><div class="bo-sub">${n ? `${n} people within ${ORCHID.radius} m · ↑↓ or tap a dot · Enter to choose` : g.indoor ? 'You need to be outside.' : 'Nobody near you right now.'}</div></div>`, rows };
     }
     return { url: 'global://error', title: 'Not found', html: '<p class="gs-p">Page not found.</p>', rows: [] };
   }
@@ -75,7 +75,7 @@ export class GlobalBrowser {
   html(row) {
     const p = this.page(); const secure = p.url.startsWith('global') ? '◍' : '🔒';
     const rows = p.rows.map((r, i) => `<div class="ph-row gb-row${r.cls ? ' ' + r.cls : ''}${i === row ? ' sel' : ''}" data-i="${i}">${r.ico ? `<i style="background:${r.col}">${r.ico}</i>` : ''}<div><b>${esc(r.t)}</b>${r.s ? `<p>${esc(r.s)}</p>` : ''}</div></div>`).join('');
-    return `<div class="gb-chrome"><span class="gb-tab">${esc(p.title).slice(0, 28)}</span><div class="gb-url">${secure} ${esc(p.url)}</div></div><div class="ph-list gb-page">${p.html}${rows}</div><div class="ph-hint">↑↓ select · Enter open · Backspace back</div>`;
+    return `<div class="gb-chrome"><span class="gb-tab">${esc(p.title).slice(0, 28)}</span><div class="gb-url">${secure} ${esc(p.url)}</div></div>${p.top || ''}<div class="ph-list gb-page${p.top ? ' gb-dark' : ''}">${p.html}${rows}</div><div class="ph-hint gb-hint">↑↓ · Enter open · ⌫ back</div>`;
   }
   // ---------------------------------------------------------------- satellite target picker
   refreshTargets(force = false) {
