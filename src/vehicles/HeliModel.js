@@ -82,7 +82,7 @@ export function buildHeliModel({ reg = '4R-SLP', crew = true } = {}) {
     if (ax > 1.0 && y > 1.62 && y < 2.32) { if (z > 2.05 && z < 3.15) return true; if (z > 0.15 && z < 1.65) return true; if (z > -1.05 && z < -0.25) return true; } // cockpit door, sliding cabin door, rear cabin window
     return false;
   };
-  loft(mb, S, 36, (z, x, y, up) => (glassAt(z, x, y, up) ? 'hglass' : 'hpaint'), paint);
+  loft(mb, S, 36, (z, x, y, up, a) => (glassAt(z, x, y, up, a) ? 'hglass' : 'hpaint'), paint);
   // interior behind the glass (dark cabin), so the windows read as windows and not as see-through holes
   // cabin lining: the hull's inside face (dark trim) from the rear bulkhead to the nose, open at every window, so through the
   // clear canopy you see a cabin, not a black block — and never the sky through the far wall (the skin is single-sided)
