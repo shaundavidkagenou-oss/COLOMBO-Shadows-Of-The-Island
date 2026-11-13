@@ -267,7 +267,7 @@ export class Assassin {
     else if (C.phase === 'mark') { const k = C.t / T_MARK; const mc = this.markCam; cam.position.copy(mc).addScaledVector(side, 0.25 * k); cam.lookAt(H.x, H.y - 0.15, H.z); this.setLens(cam, lerp(26, 20, k));
       if (C.t > T_MARK) { C.phase = 'shoulder'; C.t = 0; g.hud.subtitle('Nila', 'Target confirmed.', '', 1.8, 'en'); } }
     else if (C.phase === 'shoulder') { const k = ease(clamp(C.t / T_SH, 0, 1)); const dir = C.dirW || fwd;
-      cam.position.copy(head).addScaledVector(dir, -1.45 + 0.35 * k).addScaledVector(side, 0.62 - 0.12 * k).setY(head.y + 0.42 - 0.12 * k); cam.lookAt(C.aim); this.setLens(cam, lerp(34, 16, k)); // over her right shoulder, the rifle and the street beyond
+      cam.position.copy(head).addScaledVector(dir, -1.9 + 0.4 * k).addScaledVector(side, -0.55 + 0.12 * k).setY(head.y + 0.62 - 0.16 * k); cam.lookAt(C.aim); this.setLens(cam, lerp(34, 16, k)); // over her right shoulder, the rifle and the street beyond
       if (C.t > T_SH) { C.phase = 'scope'; C.t = 0; this.showScope(true); this.breath(); } }
     else if (C.phase === 'scope') { const k = clamp(C.t / T_SCOPE, 0, 1); const M = C.muzzleW || v.muzzle; const dist = M.distanceTo(C.aim);
       // breathing sway settling as she holds her breath, a faint pulse tremor at the end
@@ -277,7 +277,8 @@ export class Assassin {
       if (C.t > T_SCOPE) this.fire(); }
     else if (C.phase === 'bullet') this.updateBullet(rdt, H);
     else if (C.phase === 'after') { const k = clamp(C.t / 2.8, 0, 1); // slow motion eases back to real time as the body goes down
-      g.timeSlow = lerp(0.05, 1, ease(clamp((C.t - 0.7) / 1.7, 0, 1))); const B = C.side; cam.position.copy(B.pos).addScaledVector(B.away, 1.2 * ease(k)).setY(B.pos.y + 0.4 * ease(k)); cam.lookAt(B.look.x, lerp(B.look.y, (p.y || 0) + 0.4, ease(k)), B.look.z); this.setLens(cam, lerp(30, 40, k));
+      g.timeSlow = lerp(0.05, 1, ease(clamp((C.t - 0.7) / 1.7, 0, 1))); const B = C.side; const bb = p.ch.bones; const tgt = (bb.chest || bb.spine || bb.head).getWorldPosition(V()).lerp(H, 0.35); B.look.lerp(tgt, 1 - Math.exp(-rdt * 4)); // keeps the falling body framed
+      cam.position.copy(B.pos).addScaledVector(B.away, 1.2 * ease(k)).setY(B.pos.y + 0.4 * ease(k)); cam.lookAt(B.look); this.setLens(cam, lerp(30, 40, k));
       if (C.t > 2.8) { g.timeSlow = 1; C.phase = 'roof'; C.t = 0; g.hud.subtitle('Nila', 'Contract complete. I was never here.', '', 2.6, 'en'); } }
     else if (C.phase === 'roof') { const k = ease(clamp(C.t / 3.4, 0, 1)); const base = V(v.x, v.y, v.z);
       cam.position.copy(base).addScaledVector(fwd, 0.45).addScaledVector(side, -2.2 - 0.5 * k).setY(v.y + 1.25 + 0.25 * k); cam.lookAt(head.x, head.y - 0.12, head.z); this.setLens(cam, 36);
@@ -316,7 +317,7 @@ export class Assassin {
     if (k < 0.82) { this.camRoll += rdt * 0.7; const off = side.clone().multiplyScalar(Math.cos(this.camRoll) * 0.045).addScaledVector(up, 0.03 + Math.sin(this.camRoll) * 0.025);
       cam.position.copy(pos).addScaledVector(dir, -0.22).add(off); cam.lookAt(pos.clone().addScaledVector(dir, 3)); this.setLens(cam, lerp(40, 30, k)); }
     else { if (!C.side) { const sp = H.clone().addScaledVector(side, -1.45).addScaledVector(dir, 0.35); sp.y = H.y + 0.06; C.side = { pos: sp, look: H.clone(), away: sp.clone().sub(H).setY(0).normalize() }; }
-      cam.position.copy(C.side.pos); cam.lookAt(C.side.look); this.setLens(cam, 30); }
+      C.side.look.lerp(H, 1 - Math.exp(-rdt * 7)); cam.position.copy(C.side.pos); cam.lookAt(C.side.look); this.setLens(cam, 30); } // follows the head as the round drives it sideways
     if (k >= 1 && !C.hit) this.impact(H, dir);
     if (C.hit) { C.after = (C.after || 0) + rdt; b.position.addScaledVector(dir, (rdt / C.flight) * M.distanceTo(H) * 0.6); if (C.after > 0.55) { g.scene.remove(b); C.phase = 'after'; C.t = 0; } }
   }
