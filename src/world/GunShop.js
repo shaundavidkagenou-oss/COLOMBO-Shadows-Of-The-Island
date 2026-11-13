@@ -26,7 +26,7 @@ function plane(tex, w, h, { emissive = 0, rough = 0.7 } = {}) {
   return new THREE.Mesh(new THREE.PlaneGeometry(w, h), m);
 }
 
-export function buildGunShopInterior(game, door) {
+export function buildGunShopInterior(game, door, opts = {}) {
   const D = GUNSHOP_DEF; const mb = new MultiBuilder(); const rng = new RNG(1847);
   const cx = door.x, cz = door.z - 200; const x0 = cx - D.w / 2, x1 = cx + D.w / 2, z0 = cz - D.d, z1 = cz; const H = 3.4;
   const paint = mb.get('paint'), conc = mb.get('concrete'), metal = mb.get('metal'), glass = mb.get('glass'), emis = mb.get('emissive');
@@ -37,15 +37,16 @@ export function buildGunShopInterior(game, door) {
   g.add(modelFloor({ kind: 'ceramic', size: 0.6, colors: ['#3d3f41', '#393b3d', '#414345'], grout: '#1c1d1e', rough: 0.16, tone: 0.03, seed: 1847 }, x0, z0, x1, z1, Y)); // modelled 60 cm tiles, real joints
   paint.hrect(x0, z0, x1, z1, Y + H, 1, C('#e8e6e0'), true);
   const wallC = C('#33413a'), woodC = C('#4a2f1e');
-  paint.wall(x0, z0, x1, z0, Y, Y + H, [0, 0, 1, 1], wallC); paint.wall(x0, z1, x0, z0, Y, Y + H, [0, 0, 1, 1], wallC); paint.wall(x1, z1, x0, z1, Y, Y + H, [0, 0, 1, 1], wallC); paint.wall(x1, z0, x1, z1, Y, Y + H, [0, 0, 1, 1], wallC);
+  paint.wall(x0, z0, x1, z0, Y, Y + H, [0, 0, 1, 1], wallC); paint.wall(x0, z1, x0, z0, Y, Y + H, [0, 0, 1, 1], wallC); paint.wall(x1, z0, x1, z1, Y, Y + H, [0, 0, 1, 1], wallC);
+  const dhw = 0.56; if (opts.walkIn) { paint.wall(x1, z1, cx + dhw, z1, Y, Y + H, [0, 0, 1, 1], wallC); paint.wall(cx - dhw, z1, x0, z1, Y, Y + H, [0, 0, 1, 1], wallC); paint.wall(cx + dhw, z1, cx - dhw, z1, Y + 2.31, Y + H, [0, 0, 1, 1], wallC); } else paint.wall(x1, z1, x0, z1, Y, Y + H, [0, 0, 1, 1], wallC); // walk-in: a real doorway
   // wainscot + dado rail on the customer-side walls
   paint.box(x0 + 0.02, Y + 0.55, cz - D.d / 2, 0.04, 1.1, D.d, { col: woodC }); paint.box(x1 - 0.02, Y + 0.55, cz - D.d / 2, 0.04, 1.1, D.d, { col: woodC });
-  paint.box(cx, Y + 0.55, z1 - 0.02, D.w, 1.1, 0.04, { col: woodC });
-  for (const [x, z, w, d] of [[x0 + 0.05, cz - D.d / 2, 0.05, D.d], [x1 - 0.05, cz - D.d / 2, 0.05, D.d], [cx, z1 - 0.05, D.w, 0.05]]) paint.box(x, Y + 1.12, z, w, 0.05, d, { col: C('#2e1c10') });
+  if (opts.walkIn) { for (const sg of [-1, 1]) paint.box(cx + sg * (dhw + (D.w / 2 - dhw) / 2), Y + 0.55, z1 - 0.02, D.w / 2 - dhw, 1.1, 0.04, { col: woodC }); } else paint.box(cx, Y + 0.55, z1 - 0.02, D.w, 1.1, 0.04, { col: woodC });
+  for (const [x, z, w, d] of [[x0 + 0.05, cz - D.d / 2, 0.05, D.d], [x1 - 0.05, cz - D.d / 2, 0.05, D.d], ...(opts.walkIn ? [[cx - (dhw + D.w / 2) / 2, z1 - 0.05, D.w / 2 - dhw, 0.05], [cx + (dhw + D.w / 2) / 2, z1 - 0.05, D.w / 2 - dhw, 0.05]] : [[cx, z1 - 0.05, D.w, 0.05]])]) paint.box(x, Y + 1.12, z, w, 0.05, d, { col: C('#2e1c10') });
   for (const [x, z, w, d] of [[x0 + 0.04, cz - D.d / 2, 0.06, D.d], [x1 - 0.04, cz - D.d / 2, 0.06, D.d], [cx, z0 + 0.04, D.w, 0.06]]) paint.box(x, Y + H - 0.06, z, w, 0.12, d, { col: C('#d8d4ca') }); // cornice
   // entrance: steel-framed glass door behind a folding security grille
-  paint.box(cx, Y + 1.15, z1 - 0.05, 1.5, 2.3, 0.06, { col: C('#202326') }); glass.box(cx, Y + 1.2, z1 - 0.09, 1.2, 1.9, 0.02);
-  for (let i = 0; i < 9; i++) metal.box(cx - 0.72 + i * 0.18, Y + 1.15, z1 - 0.12, 0.025, 2.25, 0.025, { col: C('#6b6e70') });
+  if (!opts.walkIn) { paint.box(cx, Y + 1.15, z1 - 0.05, 1.5, 2.3, 0.06, { col: C('#202326') }); glass.box(cx, Y + 1.2, z1 - 0.09, 1.2, 1.9, 0.02);
+    for (let i = 0; i < 9; i++) metal.box(cx - 0.72 + i * 0.18, Y + 1.15, z1 - 0.12, 0.025, 2.25, 0.025, { col: C('#6b6e70') }); }
   paint.box(cx, Y + 0.008, z1 - 0.8, 1.6, 0.016, 1.0, { col: C('#1d1f1c') }); // door mat
   { const t = labelTex(512, 128, (a, w, h) => { a.fillStyle = '#16100a'; a.fillRect(0, 0, w, h); a.fillStyle = '#e8c76a'; a.font = '700 64px "Barlow Condensed", sans-serif'; a.textAlign = 'center'; a.textBaseline = 'middle'; a.fillText('EXIT', w / 2, h / 2 + 2); });
     const m = plane(t, 0.5, 0.125, { emissive: 0.9 }); m.position.set(cx, Y + 2.48, z1 - 0.07); m.rotation.y = Math.PI; g.add(m); }
@@ -146,7 +147,7 @@ export function buildGunShopInterior(game, door) {
   g.visible = false; game.scene.add(g);
 
   const counterSpot = { x: ccx - 0.4, z: cz0 + 0.95 };
-  const room = { id: 'gunshop', D, g, fan: null, H, bounds: { x0: x0 + 0.3, x1: x1 - 0.3, z0: cz0 + 0.45, z1: z1 - 0.3 }, obstacles, spawn: [cx, z1 - 1.2], keeperPos: [cx - 0.2, z0 + 2.5], y: Y, door, counter: counterSpot, prompt: null,
+  const room = { id: 'gunshop', D, g, fan: null, H, obstaclesNote: 0, bounds: { x0: x0 + 0.3, x1: x1 - 0.3, z0: cz0 + 0.45, z1: z1 - 0.3 }, obstacles, spawn: [cx, z1 - 1.2], keeperPos: [cx - 0.2, z0 + 2.5], y: Y, door, counter: counterSpot, prompt: null,
     nearCounter: false,
     update(dt, P) { // the buy prompt at the counter (Game.updateInteractions shows room.prompt and opens the menu on interact)
       room.nearCounter = Math.abs(P.x - counterSpot.x) < cw / 2 + 0.2 && P.z < cz0 + 1.6; const shop = game.gunShop;

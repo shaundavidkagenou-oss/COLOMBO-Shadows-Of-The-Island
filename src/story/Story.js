@@ -414,9 +414,9 @@ export class Story {
     // prompts for shops and activities (only when not in a mission conversation)
     if (this.side) { this.side.update(dt); return; }
     if (this.g.phone?.open || this.g.health?.busy) { this.sidePrompt = null; return; } // E confirms inside the phone: never buy/start things behind it
-    const S = plan.missionShops; let pr = null;
-    if (!pv && S.kade && Math.hypot(p.x - S.kade.x, p.z - S.kade.z) < 3 && this.running !== 'm0') { pr = `${this.hud.key('interact')} Plain tea & rotti (Rs. 150) · ${this.hud.key('more')} Delivery job`; if (Input.wasPressed('interact')) this.buyFood(); if (Input.wasPressed('more')) this.startDelivery(); }
-    if (!pv && S.tailor && Math.hypot(p.x - S.tailor.x, p.z - S.tailor.z) < 3) { pr = `${this.hud.key('interact')} New jacket colour (Rs. 2,000)`; if (Input.wasPressed('interact')) this.buyOutfit(); }
+    const S = plan.missionShops; let pr = null; const inShop = (id) => { const r = this.g.interiors?.walkIn?.room; return !!(r && r.site && r.site.id === id); }; // walk-in shops: the prompt works anywhere inside
+    if (!pv && S.kade && (Math.hypot(p.x - S.kade.x, p.z - S.kade.z) < 3 || inShop('kade')) && this.running !== 'm0') { pr = `${this.hud.key('interact')} Plain tea & rotti (Rs. 150) · ${this.hud.key('more')} Delivery job`; if (Input.wasPressed('interact')) this.buyFood(); if (Input.wasPressed('more')) this.startDelivery(); }
+    if (!pv && S.tailor && (Math.hypot(p.x - S.tailor.x, p.z - S.tailor.z) < 3 || inShop('tailor'))) { pr = `${this.hud.key('interact')} New jacket colour (Rs. 2,000)`; if (Input.wasPressed('interact')) this.buyOutfit(); }
     if (pv && S.garage && Math.hypot(p.x - S.garage.x, p.z - S.garage.z) < 8) { pr = `${this.hud.key('interact')} Repair vehicle (Rs. 800)`; if (Input.wasPressed('interact')) { if (this.state.money >= 800) { this.pay(-800, 'Repairs'); if (this.g && this.g.vdamage) this.g.vdamage.repair(pv); pv.damage = 0; pv.health = 100; this.hud.notify('Vehicle repaired'); } else this.hud.notify('Not enough money'); } }
     if (pv && pv.type === 'tuktuk' && !this.running) { pr = pr || `${this.hud.key('more')} Start tuk-tuk taxi job`; if (Input.wasPressed('more')) this.startTaxi(); }
     for (const t of TRIALS) if (pv && Math.hypot(p.x - t.pts[0][0], p.z - t.pts[0][1]) < 10 && !this.running) { pr = `${this.hud.key('more')} Start time trial: ${t.name}`; if (Input.wasPressed('more')) this.startTrial(t); }

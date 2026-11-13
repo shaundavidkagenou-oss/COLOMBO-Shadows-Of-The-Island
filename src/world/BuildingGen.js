@@ -39,13 +39,18 @@ function facadeWall(mb, s, y0, y1, uOff, vStart, color) {
   const v0 = (y0 - vStart) / (2 * FLOOR_H), v1 = (y1 - vStart) / (2 * FLOOR_H);
   mb.wall(s.a[0], s.a[1], s.b[0], s.b[1], y0, y1, [u0, v0, u1, v1], color);
 }
-function shopWall(mb, s, y0, y1, row, colIdx, bid = 0) {
+function shopWall(mb, s, y0, y1, row, colIdx, bid = 0, hole = null) {
   const n = Math.max(1, Math.round(s.len / 5));
   const v0 = 1 - (row + 1) / 8 + 0.002, v1 = 1 - row / 8 - 0.002;
   // + a whole number of atlas widths per building (the atlas repeats, so it samples the same) → floor(u·4) is a unique
   // id for every shop unit, used by the night shader (each shop keeps its own hours and shutter)
   const K = 1 + (bid % 97); const u0 = K + colIdx / 4, u1 = K + colIdx / 4 + n / 4;
-  mb.wall(s.a[0], s.a[1], s.b[0], s.b[1], y0, y1, [u0, v0, u1, v1], [1, 1, 1]);
+  if (!hole) { mb.wall(s.a[0], s.a[1], s.b[0], s.b[1], y0, y1, [u0, v0, u1, v1], [1, 1, 1]); return; }
+  // walk-in shop (WalkIn.js): the doorway is a real opening — left / right of it and the lintel above, same atlas mapping
+  const P = (t) => [s.a[0] + (s.b[0] - s.a[0]) * t, s.a[1] + (s.b[1] - s.a[1]) * t], U = (t) => u0 + (u1 - u0) * t, V = (y) => v0 + (v1 - v0) * (y - y0) / (y1 - y0);
+  const ta = hole.t - hole.w / 2 / s.len, tb = hole.t + hole.w / 2 / s.len, yh = y0 + hole.h;
+  const q = (t0, t1, ya, yb) => { const A = P(t0), B = P(t1); mb.wall(A[0], A[1], B[0], B[1], ya, yb, [U(t0), V(ya), U(t1), V(yb)], [1, 1, 1]); };
+  q(0, ta, y0, y1); q(tb, 1, y0, y1); q(ta, tb, yh, y1);
 }
 function hipRoof(mb, x0, x1, z0, z1, y, rise, overhang, color) {
   x0 -= overhang; x1 += overhang; z0 -= overhang; z1 += overhang;
@@ -129,7 +134,7 @@ export function buildBase(b, multi) {
     if (s.len < 0.1) continue;
     const front = s.id === b.front;
     if (hasGround) {
-      if (front) shopWall(multi.get('shops'), s, y0, y0 + GROUND_H, b.groundRow, b.groundCol || 0, b.id || 0);
+      if (front) shopWall(multi.get('shops'), s, y0, y0 + GROUND_H, b.groundRow, b.groundCol || 0, b.id || 0, b.walkIn || null);
       else facadeWall(fac, s, y0, y0 + GROUND_H, b.uOff || 0, y0 + GROUND_H - 2 * FLOOR_H, paint);
       facadeWall(fac, s, y0 + GROUND_H, yTop, b.uOff || 0, y0 + GROUND_H, paint);
     } else facadeWall(fac, s, y0, yTop, b.uOff || 0, y0, paint);

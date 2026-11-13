@@ -500,6 +500,8 @@ export class Game {
     { const gp = this.schoolLife.guard?.interact(P, key); if (gp) return gp; } // Johns school night watchman
     if (I.current && I.current.nearCounter && I.current.prompt && Input.wasPressed('interact')) { this.gunShop.toggle(true); return null; } // gun shop counter
     if (I.current) { const r = I.update(this.dt); if (r === 'exit' && !this.player.indoorBusy) { if (Input.wasPressed('enter')) I.exit(); return `${key('enter')} Leave ${I.current.D.name}` + (I.current.hero && I.current.prompt ? ` · ${I.current.prompt}` : ''); } return I.current.prompt || null; }
+    { const wr = I.walkIn && I.walkIn.room; // standing in a walk-in shop (WalkIn.js): its counter / displays
+      if (wr && wr.prompt) { if (Input.wasPressed('interact')) { if (wr.gun || wr.nearCounter) this.gunShop.toggle(true, wr.gun ? { name: wr.name, sub: 'Licensed firearms dealer · Kollupitiya, Colombo 03' } : null); else if (wr.near && this.store) this.store.open(wr, wr.near); } return wr.prompt; } }
     if (I.hq && P.indoor === I.hq && I.hq.prompt) { if (I.hq.oic?.near && Input.wasPressed('interact')) I.hq.oic.open = !I.hq.oic.open; return I.hq.prompt; } // seamless HQ: the OIC door
     if (P.entry || P.exiting) return null;
     if (P.vehicle) { if (Input.wasPressed('enter')) { if (!P.exitVehicle(this.traffic)) this.hud.notify('Slow down', 'Stop the vehicle to get out.', 'info', 1.5); } return null; }

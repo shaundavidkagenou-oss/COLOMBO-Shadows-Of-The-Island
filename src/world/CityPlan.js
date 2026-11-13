@@ -544,12 +544,19 @@ export function generatePlan() {
   // story shops: give the nearest suitable shophouse the mission sign and record a frontage point
   plan.missionShops = {}; const taken = new Set();
   const WANT = { kade: [-78, -893], fathima: [-40, -905], selvaraj: [-175, -905], bandara: [-110, -868], tailor: [L.PLACES.tailor.x, L.PLACES.tailor.z], garage: [L.PLACES.garage.x, L.PLACES.garage.z], gunshop: [L.PLACES.gunshop.x, L.PLACES.gunshop.z], club: [L.PLACES.club.x, L.PLACES.club.z] };
+  // 43rd: new walk-in shops, appended after the story shops (so those keep the buildings they always had). Each wants a
+  // shophouse with enough frontage / depth for its interior; none uses the sign atlas (each builds its own fascia).
+  for (const [m, d] of Object.entries(NEW_SHOPS)) WANT[m] = d.at;
   for (const [m, [tx, tz]] of Object.entries(WANT)) {
-    let best = null, bd = 1e12;
-    for (const b of plan.buildings) { if (taken.has(b) || !b.front || b.groundRow === undefined || b.totalH > 40) continue; const [fx, fz] = frontPoint(b, 1.2); const d = (fx - tx) ** 2 + (fz - tz) ** 2; if (d < bd) { bd = d; best = b; } }
+    let best = null, bd = 1e12; const need = NEW_SHOPS[m];
+    for (const b of plan.buildings) { if (taken.has(b) || !b.front || b.groundRow === undefined || b.totalH > 40) continue;
+      if (need) { const wide = b.front === 'N' || b.front === 'S' ? b.x1 - b.x0 : b.z1 - b.z0, deep = b.front === 'N' || b.front === 'S' ? b.z1 - b.z0 : b.x1 - b.x0; if (wide < need.w || deep < need.d || b.mission) continue; }
+      const [fx, fz] = frontPoint(b, 1.2); const d = (fx - tx) ** 2 + (fz - tz) ** 2; if (d < bd) { bd = d; best = b; } }
     if (!best) continue; taken.add(best);
+    if (need) { best.sign = null; best.mission = m; best.awning = false; best.groundRow = SHOP_ROWS.lobby; best.walkIn = { t: 0.5, w: 1.12, h: 2.32 }; const [x, z, rot] = frontPoint(best, 1.3); plan.missionShops[m] = { x, z, rot, faceIn: facingIntoShop(best.front), b: best.id, name: need.name, walkIn: true }; continue; }
+    if (m !== 'club') best.walkIn = { t: 0.5, w: 1.12, h: 2.32 }; // every story shop but the club: a real doorway (WalkIn.js)
     best.sign = m === 'club' ? null : missionSigns[m]; best.mission = m; best.awning = m !== 'garage' && m !== 'gunshop' && m !== 'club'; /* the club's frontage is its own model (ClubFront.js) */ best.groundRow = { kade: SHOP_ROWS.cafe, fathima: SHOP_ROWS.textile, selvaraj: SHOP_ROWS.electronics, bandara: SHOP_ROWS.produce, tailor: SHOP_ROWS.textile, garage: SHOP_ROWS.gate, gunshop: SHOP_ROWS.electronics, club: SHOP_ROWS.lobby }[m];
-    const [x, z, rot] = frontPoint(best, 1.3); plan.missionShops[m] = { x, z, rot, faceIn: facingIntoShop(best.front), b: best.id, name: m === 'club' ? 'The Velvet Monsoon' : SIGNS[missionSigns[m]].en || m };
+    const [x, z, rot] = frontPoint(best, 1.3); plan.missionShops[m] = { x, z, rot, faceIn: facingIntoShop(best.front), b: best.id, name: m === 'club' ? 'The Velvet Monsoon' : SIGNS[missionSigns[m]].en || m, walkIn: m !== 'club' };
   }
   // keep story-shop frontages clear: no pavement stall (or its vendor) blocking the door of a mission shop
   { const near = (o) => Object.values(plan.missionShops).some((m) => Math.hypot(o.x - m.x, o.z - m.z) < 4.5);
@@ -614,3 +621,13 @@ export function generatePlan() {
   return plan;
 }
 export { missionSigns };
+// 43rd request: walk-in shops added to the city (WalkIn.js / ShopInteriors.js). at: wanted frontage point; w / d: minimum
+// frontage width / depth of the shophouse (m) so the interior fits inside its own building.
+export const NEW_SHOPS = {
+  barber: { name: 'Razor & Co. Barbers', at: [-332, 118], w: 6.5, d: 9 },
+  tattoo: { name: 'Black Lotus Tattoo', at: [-206, -878], w: 6, d: 9 },
+  tattoo2: { name: 'Serendib Ink', at: [-384, 1072], w: 6, d: 9 },
+  gunshop2: { name: 'Lanka Shooting Supplies', at: [632, 64], w: 6.5, d: 10 },
+  clothing: { name: 'Marine Drive Clothing Co.', at: [-318, 606], w: 9, d: 11 },
+  luxury: { name: 'Maison Serendib', at: [-412, -118], w: 8, d: 10 },
+};

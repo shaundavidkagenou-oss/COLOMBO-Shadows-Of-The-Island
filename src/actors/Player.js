@@ -68,7 +68,7 @@ export class Player {
     this.sprinting = this.control && Input.isDown('sprint') && mag > 0.3 && this.stamina > 0.05 && !this.crouching && !this.aiming && !(this.drunk > 0.75);
     const pk = this.perk || { speed: 1, stamina: 1 }; // squad member: Dineth runs faster and longer, Shashika is heavier
     this.stamina = clamp(this.stamina + (this.sprinting ? -dt * 0.09 / pk.stamina : dt * 0.15), 0, 1);
-    const maxSp = (this.aiming ? (this.scoped ? 0.9 : 1.8) : this.crouching ? 1.4 : this.sprinting ? 6.6 : mag > 0.85 ? 3.4 : 1.5) * (this.aiming ? 1 : pk.speed) * (1 - 0.22 * (this.drunk || 0));
+    const maxSp = (this.aiming ? (this.scoped ? 0.9 : 1.8) : this.crouching ? 1.4 : this.sprinting ? 6.6 : mag > 0.85 ? 3.4 : 1.5) * (this.aiming ? 1 : pk.speed) * (1 - 0.22 * (this.drunk || 0)) * (this.doorSlow ?? 1); // doorSlow: a hand on a shop door (WalkIn)
     let dirYaw = this.yaw;
     if (mag > 0.05) { const camF = this.camYaw + Math.PI; dirYaw = camF + Math.atan2(-mx, my); }
     const target = mag > 0.05 ? maxSp * Math.max(mag, 0.5) : 0;
@@ -79,7 +79,7 @@ export class Player {
     let nx = this.x + Math.sin(moveYaw) * this.speed * dt, nz = this.z + Math.cos(moveYaw) * this.speed * dt;
     let r;
     if (this.bodies && this.bodies.length) { const q = separate(this.bodies, nx, nz, this.y, 0.32, this.ch, 0.55); if (q.hit) { nx = q.x; nz = q.z; this.speed *= 0.92; } } // people are solid; crowd peds get nudged aside
-    if (this.indoor) r = this.resolveIndoor(nx, nz);
+    if (this.indoor) r = this.indoor.resolve ? this.indoor.resolve(nx, nz) : this.resolveIndoor(nx, nz); // walk-in shops resolve in their own (rotated) frame
     else {
       if (!this.collision.walkableWater(nx, nz, this.y) && this.collision.walkableWater(this.x, this.z, this.y)) { nx = this.x; nz = this.z; this.speed *= 0.5; }
       r = this.collision.resolveCircle(nx, nz, 0.32, this.y, 0.45, 1.75);
@@ -411,7 +411,8 @@ export class Player {
     const want = new THREE.Vector3(tgt.x + Math.sin(this.camYaw) * cp * dist, tgt.y + spch * dist, tgt.z + Math.cos(this.camYaw) * cp * dist);
     // camera collision
     let t = 1;
-    if (this.indoor) { const I = this.indoor, b = I.bounds, top = I.ceilAt ? I.ceilAt(this.y) : I.y + (I.id === 'garage' ? 4.6 : 2.9), fl = I.floorAt ? I.floorAt(this.x, this.z, this.y) : I.y; want.x = clamp(want.x, b.x0 + 0.05, b.x1 - 0.05); want.z = clamp(want.z, I.gap && this.z < b.z0 + 4 ? b.z0 - 4 : b.z0 + 0.05, b.z1 - 0.05); want.y = clamp(want.y, fl + 0.4, Math.max(top, fl + 0.6)); if (I.clampCam) I.clampCam(tgt, want); }
+    if (this.indoor && this.indoor.camWorld) this.indoor.camWorld(tgt, want); // walk-in shop: room box + doorway (WalkIn.clampCam)
+    else if (this.indoor) { const I = this.indoor, b = I.bounds, top = I.ceilAt ? I.ceilAt(this.y) : I.y + (I.id === 'garage' ? 4.6 : 2.9), fl = I.floorAt ? I.floorAt(this.x, this.z, this.y) : I.y; want.x = clamp(want.x, b.x0 + 0.05, b.x1 - 0.05); want.z = clamp(want.z, I.gap && this.z < b.z0 + 4 ? b.z0 - 4 : b.z0 + 0.05, b.z1 - 0.05); want.y = clamp(want.y, fl + 0.4, Math.max(top, fl + 0.6)); if (I.clampCam) I.clampCam(tgt, want); }
     else {
       // pad 0.35 + a further 0.3 m back along the ray: the near plane's corners (0.25 m out, ~0.4 m wide) must stay out of the
       // wall, or its inside shows (floating copings, see-through pillars). Low walls (> 1.3 m) count too, benches don't.

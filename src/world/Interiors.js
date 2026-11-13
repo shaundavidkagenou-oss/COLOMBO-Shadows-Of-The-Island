@@ -12,6 +12,8 @@ import { buildClub } from './Club.js';
 import { buildHeroRoom, isHeroRoom, heroDoorSpots, wallSpot } from './HeroRooms.js';
 import { buildHeroEntrance } from './HeroEntrance.js';
 import { modelFloor } from './FloorKit.js';
+import { WalkIn, REVEAL, DOOR_W } from './WalkIn.js';
+import { buildShopInterior, SHOP_DEFS } from './ShopInteriors.js';
 
 // modelled floors per shop, as such places are laid in Colombo (FloorKit: real bays / tiles / slabs with recessed joints)
 const SHOP_FLOOR = {
@@ -35,9 +37,33 @@ const DEFS = {
   room: { name: "Dineth's room", w: 5, d: 6, wall: '#c8d0c0', floor: '#7a6a5a', keeper: null, line: '' },
 };
 export class Interiors {
-  constructor(game) { this.g = game; this.current = null; this.built = new Map(); this.doors = []; this.fan = null; }
+  constructor(game) { this.g = game; this.current = null; this.built = new Map(); this.doors = []; this.fan = null; this.walkIn = new WalkIn(game); }
+  // walk-in shops (WalkIn.js): every story shop except the club, plus the 43rd-request shops; created once
+  setupWalkIns() {
+    if (this.walkInsDone) return; this.walkInsDone = true;
+    const STYLE = { kade: 'timberGlass', fathima: 'timberGlass', selvaraj: 'alu', bandara: 'timber', tailor: 'bronze', garage: 'wicket', gunshop: 'steel' };
+    for (const [id, s] of Object.entries(plan.missionShops)) { if (!s.walkIn) continue;
+      const def = SHOP_DEFS[id]; const b = plan.buildings.find((q) => q.id === s.b) || null;
+      this.walkIn.add({ id, name: def ? def.name : this.g.interiorName ? this.g.interiorName(id) : id, door: { x: s.x, z: s.z, faceIn: s.faceIn }, b, style: def ? def.door : STYLE[id] || 'alu', hinge: def && def.hinge ? def.hinge : -1,
+        build: (site) => (def ? buildShopInterior(this.g, id, site) : this.legacyWalkIn(id, site)) }); }
+  }
+  // the original story-shop rooms, built in their design frame (door at the origin) and re-based to the WalkIn local frame
+  legacyWalkIn(id, site) {
+    const fake = { id, x: 0, z: 200, faceIn: site.door.faceIn };
+    const room = id === 'gunshop' ? buildGunShopInterior(this.g, fake, { walkIn: true }) : this.build(id, fake, true);
+    room.g.visible = true; room.g.position.set(0, -Y, -REVEAL); // design: front wall at z = 0, floor at Y
+    const sh = (o) => ({ x0: o.x0, x1: o.x1, z0: o.z0 - REVEAL, z1: o.z1 - REVEAL });
+    const out = { id, g: room.g, H: room.H || (id === 'garage' ? 5 : 3.2), bounds: sh(room.bounds), obstacles: (room.obstacles || []).map(sh), legacy: room, name: site.name };
+    out.bounds.z1 = -REVEAL - 0.02;
+    if (room.D && room.D.keeper && room.keeperPos) { const spec = room.D.keeper.height ? room.D.keeper : randomSpec(room.D.keeper.seed, room.D.keeper); const ch = new Character(spec); ch.root.position.set(room.keeperPos[0], Y, room.keeperPos[1]); room.g.add(ch.root); out.keeper = ch; out.keeperPos = [room.keeperPos[0], room.keeperPos[1] - REVEAL]; }
+    if (room.D && room.D.line) out.greet = () => this.g.hud.subtitle(room.D.name.split(' ')[0] === 'Lucky' ? 'Siri' : room.D.name, room.D.line, '', 3.5);
+    out.update = (dt, pl) => { if (room.fan) room.fan.rotation.y += dt * 9; if (out.keeper) { out.keeper.root.rotation.y = Math.atan2(pl.x - out.keeperPos[0], pl.z - out.keeperPos[1]); out.keeper.anim.update(dt, 0); }
+      if (room.update) { room.update(dt, { x: pl.x, z: pl.z + REVEAL, y: pl.y }); } out.prompt = pl.inside ? room.prompt || null : null; out.nearCounter = !!room.nearCounter; };
+    return out;
+  }
   setupDoors(roomPos) {
-    this.doors = Object.entries(plan.missionShops).map(([id, s]) => ({ id, x: s.x, z: s.z, rot: s.rot, faceIn: s.faceIn }));
+    this.setupWalkIns(); // walk-in shops have no prompt: their doors are pushed open (WalkIn.js)
+    this.doors = Object.entries(plan.missionShops).filter(([, s]) => !s.walkIn).map(([id, s]) => ({ id, x: s.x, z: s.z, rot: s.rot, faceIn: s.faceIn }));
     if (roomPos) this.doors.push({ id: 'room', owner: 'dineth', x: roomPos[0], z: roomPos[1], rot: 0, faceIn: Math.PI });
     try { for (const d of heroDoorSpots(this.g)) this.doors.push(d); } catch (e) { console.warn('hero room doors', e); } // Shashika's + David's rooms (HeroRooms.js)
     this.buildEntrances(); // a real house-front around each protagonist's door (HeroEntrance.js)
@@ -51,8 +77,8 @@ export class Interiors {
         if (!e) { console.warn('hero entrance: no wall at', d.id); continue; } g.scene.add(e.group); g.collision.addAll(e.colliders); this.entrances.set(d.id, { key: `${d.x.toFixed(2)},${d.z.toFixed(2)}`, group: e.group, colliders: e.colliders, faceIn: d.faceIn }); } catch (err) { console.warn('hero entrance', d.id, err); } }
   }
   nearDoor(x, z) { for (const d of this.doors) if (Math.hypot(d.x - x, d.z - z) < 2.2) return d; return null; }
-  build(id, door) {
-    if (this.built.has(id)) return this.built.get(id);
+  build(id, door, walkIn = false) {
+    if (!walkIn && this.built.has(id)) return this.built.get(id);
     if (id === 'hq') { const room = buildHQInterior(this.g, door || { id: 'hq', ...HQ.door }, HQ.interior); this.built.set(id, room); return room; }
     if (id === 'gunshop') { const room = buildGunShopInterior(this.g, door); this.built.set(id, room); return room; }
     if (id === 'club') { const room = buildClub(this.g, door); this.built.set(id, room); return room; }
@@ -63,8 +89,9 @@ export class Interiors {
     const paint = mb.get('paint'), conc = mb.get('concrete'); const wallC = C(D.wall);
     paint.hrect(x0, z0, x1, z1, Y + H, 1, C('#f2efe8'), true);
     // walls with inward-facing normals (normal = (-dz, dx) of the a→b direction)
-    paint.wall(x0, z0, x1, z0, Y, Y + H, [0, 0, 1, 1], wallC); paint.wall(x0, z1, x0, z0, Y, Y + H, [0, 0, 1, 1], wallC); paint.wall(x1, z1, x0, z1, Y, Y + H, [0, 0, 1, 1], wallC); paint.wall(x1, z0, x1, z1, Y, Y + H, [0, 0, 1, 1], wallC);
-    paint.box(cx, Y + 1.1, z1 - 0.06, 1.4, 2.2, 0.08, { col: C('#6b4a2a') }); // door
+    paint.wall(x0, z0, x1, z0, Y, Y + H, [0, 0, 1, 1], wallC); paint.wall(x0, z1, x0, z0, Y, Y + H, [0, 0, 1, 1], wallC); paint.wall(x1, z0, x1, z1, Y, Y + H, [0, 0, 1, 1], wallC);
+    if (walkIn) { const hw = DOOR_W / 2 + 0.01; paint.wall(x1, z1, cx + hw, z1, Y, Y + H, [0, 0, 1, 1], wallC); paint.wall(cx - hw, z1, x0, z1, Y, Y + H, [0, 0, 1, 1], wallC); paint.wall(cx + hw, z1, cx - hw, z1, Y + 2.31, Y + H, [0, 0, 1, 1], wallC); } // a real doorway (WalkIn door in the facade)
+    else { paint.wall(x1, z1, x0, z1, Y, Y + H, [0, 0, 1, 1], wallC); paint.box(cx, Y + 1.1, z1 - 0.06, 1.4, 2.2, 0.08, { col: C('#6b4a2a') }); } // door
     const obstacles = []; const ob = (bx, bz, w, d) => obstacles.push({ x0: bx - w / 2, x1: bx + w / 2, z0: bz - d / 2, z1: bz + d / 2 });
     // furnishing per type
     const shelf = (sx, sz, w, d, h, fill) => { paint.box(sx, Y + h / 2, sz, w, h, d, { col: C('#5a3a22') }); for (let lvl = 0.4; lvl < h - 0.2; lvl += 0.45) for (let t = -w / 2 + 0.15; t < w / 2 - 0.1; t += 0.22) fill(sx + (d < w ? t : 0), Y + lvl + 0.12, sz + (d < w ? 0 : t)); ob(sx, sz, w, d); };
@@ -107,8 +134,8 @@ export class Interiors {
     const amb = new THREE.PointLight(0xffe0c0, 6, 12, 1.5); amb.position.set(cx, Y + 1.5, z1 - 1.5); g.add(amb);
     g.add(modelFloor(SHOP_FLOOR[id] || { kind: 'concrete', seed: id.length }, x0, z0, x1, z1, Y)); // modelled floor (no painted joints)
     g.visible = false; this.g.scene.add(g);
-    const room = { id, D, g, fan, bounds: { x0: x0 + 0.3, x1: x1 - 0.3, z0: z0 + 0.3, z1: z1 - 0.3 }, obstacles, spawn: [cx, z1 - 1.2], keeperPos: [cx + (id === 'garage' ? 2 : 0.6), z0 + (id === 'kade' ? 2.1 : 2.8)], y: Y, door };
-    this.built.set(id, room); return room;
+    const room = { id, D, g, fan, H, bounds: { x0: x0 + 0.3, x1: x1 - 0.3, z0: z0 + 0.3, z1: z1 - 0.3 }, obstacles, spawn: [cx, z1 - 1.2], keeperPos: [cx + (id === 'garage' ? 2 : 0.6), z0 + (id === 'kade' ? 2.1 : 2.8)], y: Y, door };
+    if (!walkIn) this.built.set(id, room); return room;
   }
   async enter(door) {
     const g = this.g; if (!this.built.has(door.id)) g.player.indoorBusy = true; await g.hud.fade(1, 0.5); const room = this.build(door.id, door); g.player.indoorBusy = false; /* first visit: build behind the black fade (the club creates its cast here) */
@@ -148,7 +175,8 @@ export class Interiors {
     // ceiling lights: point lights have no shadows, so from outside their reach is clamped to the nearest wall (the facade and
     // compound are not lit through the walls); once inside they light the whole floor
     if (r.lights) { const k = this.seamK; for (const l of r.lights) { const dw = Math.max(1.5, (l.userData.wallD || 16) + 0.3); l.distance = dw + (16 - dw) * k; l.intensity = 14 * (0.55 + 0.45 * k); } }
-    return this.seamK;
+    const wk = this.current ? 0 : this.walkIn.update(dt); // walk-in shops (doors, rooms, handover, light pool)
+    return Math.max(this.seamK, wk);
   }
   update(dt) {
     const r = this.current; if (!r) return null; if (r.fan && !r.hero) r.fan.rotation.y += dt * 9; if (r.update) r.update(dt, this.g.player); if (r.keeperCh) { const p = this.g.player; r.keeperCh.root.rotation.y = Math.atan2(p.x - r.keeperPos[0], p.z - r.keeperPos[1]); r.keeperCh.anim.update(dt, 0); }
