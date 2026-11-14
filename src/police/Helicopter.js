@@ -119,7 +119,7 @@ export class PoliceHelicopter {
     this.pose(dt); this.lights(dt); this.downwash(dt); this.sound(dt); this.spotPolice(dt);
   }
   // ------------------------------------------------------------------ pilot + flight dynamics
-  target() { const P = this.g.player; const v = P.vehicle; return v ? { x: v.x, z: v.z, vx: Math.sin(v.yaw) * v.speed, vz: Math.cos(v.yaw) * v.speed, y: v.y || 0 } : { x: P.x, z: P.z, vx: Math.sin(P.yaw || 0) * (P.speed || 0), vz: Math.cos(P.yaw || 0) * (P.speed || 0), y: P.y || 0 }; }
+  target() { if (this.targetOverride) return this.targetOverride; /* the cinematic trailer points the searchlight itself */ const P = this.g.player; const v = P.vehicle; return v ? { x: v.x, z: v.z, vx: Math.sin(v.yaw) * v.speed, vz: Math.cos(v.yaw) * v.speed, y: v.y || 0 } : { x: P.x, z: P.z, vx: Math.sin(P.yaw || 0) * (P.speed || 0), vz: Math.cos(P.yaw || 0) * (P.speed || 0), y: P.y || 0 }; }
   fly(dt) {
     const p = this.p, v = this.v, air = this.air; const vd = this._v.set(0, 0, 0); let yawD = this.yaw, faceK = 0; let gx = p.x, gz = p.z, alt = p.y, stopR = 0;
     const vh = Math.hypot(v.x, v.z);
@@ -199,7 +199,7 @@ export class PoliceHelicopter {
     // searchlight: night + 5★ chase (or a console call at night) — on the suspect, with the operator's slight hand wobble
     const stars = this.g.police && this.g.police.stars ? this.g.police.stars() : 0;
     const want = this.mission === 'chase' && (this.state === 'fly') && night > 0.4 && (stars >= 5 || this.forced) ? 1 : 0;
-    this.light += clamp(want - this.light, -dt * 2, dt * 0.7);
+    if (this.lightOverride != null) this.light = this.lightOverride; else this.light += clamp(want - this.light, -dt * 2, dt * 0.7); // lightOverride: set only by the cinematic trailer
     const T = this.target(); const wob = 0.6; const tx = T.x + T.vx * 0.35 + Math.sin(t * 0.9) * wob, tz = T.z + T.vz * 0.35 + Math.cos(t * 0.7) * wob, ty = (T.y || 0) + 0.6;
     this.aim.x += (tx - this.aim.x) * Math.min(1, dt * 3.5); this.aim.z += (tz - this.aim.z) * Math.min(1, dt * 3.5); this.aim.y = ty;
     const M = this.M; const lens = M.light.userData.lens; const lp = lens.getWorldPosition(this._lens);

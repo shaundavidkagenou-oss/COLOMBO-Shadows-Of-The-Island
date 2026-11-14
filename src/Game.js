@@ -181,18 +181,23 @@ export class Game {
     if (quick) { // test shortcuts: ?test&quick=new (opening cinematic) | ?test&quick=play (skip opening, free play at Main Street)
       await this.load((p, l) => { window.__progress = [p, l]; });
       if (quick === 'new') return this.newGame();
-      if (quick === 'trailer') return this.playTrailer();
+      if (quick === 'trailer') return this.playTrailer(1);
+      if (quick === 'trailer2') return this.playTrailer(2);
       if (new URLSearchParams(location.search).get('warm')) await this.enterLoading([[-140, -891.8]]); // &warm=1: the real enter-game loading (streaming, vehicle warm, shader compile) like a player gets
       this.story.state = Story.freshState(); this.squad.reset(); this.mode = 'play'; this.atmos.hour = 17; this.setupRoomDoor(); this.world.warm(-140, -892); this.player.teleport(-140, -891.8, Math.PI / 2);
       this.player.cinematic = false; this.player.control = true; this.hud.show(true); this.hud.fade(0, 0.3); this.story.setupWorldActivities(); this.story.startMission('m0', 0); return;
     }
     await this.screens.studioIntro((p) => this.load(p));
-    if (window.__sdsTrailer) return this.playTrailer(); // "WATCH TRAILER" on the entry gate: plays, then reloads to the gate
+    if (window.__sdsTrailer) return this.playTrailer(window.__sdsTrailer === 2 ? 2 : 1); // ORIGINAL TRAILER (1) / OFFICIAL CINEMATIC TRAILER (2) on the entry gate: plays, then reloads to the gate
     await this.montage();
     await this.menuLoop();
   }
-  // the official trailer (src/story/Trailer.js): its own lazily-loaded chunk, never loaded when the game is entered normally
-  async playTrailer() { const { runTrailer } = await import('./story/Trailer.js'); return runTrailer(this); }
+  // the trailers: 1 = the original trailer (src/story/Trailer.js), 2 = the official cinematic trailer (src/story/CineTrailer.js);
+  // each is its own lazily-loaded chunk, never loaded when the game is entered normally
+  async playTrailer(which = 1) {
+    if (which === 2) { const { runCineTrailer } = await import('./story/CineTrailer.js'); return runCineTrailer(this); }
+    const { runTrailer } = await import('./story/Trailer.js'); return runTrailer(this);
+  }
   async montage() {
     this.mode = 'intro'; const d = this.director; let skip = false; const off = bus.on('key', () => (skip = true)); const clk = () => (skip = true); addEventListener('mousedown', clk);
     const A = this.atmos; Audio.setMusic('intro');
