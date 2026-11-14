@@ -158,7 +158,7 @@ export class CineTrailer extends TrailerRuntime {
     if (dt > 1e-4 && !newShot) H.v.set((h.x - H.p.x) / dts, (h.y - H.p.y) / dts, (h.z - H.p.z) / dts);
     this.prevHeliY = h.y;
     H.p.set(h.x, h.y, h.z); H.yaw = h.yaw; H.pitch = h.pitch; H.roll = h.roll; H.rpm = h.rpm; H.mission = 'chase'; H.forced = false;
-    const onPad = Math.abs(h.y - HELIPAD.y) < 0.05 && Math.hypot(h.x - HELIPAD.x, h.z - HELIPAD.z) < 1; H.state = onPad ? (h.rpm >= 0.999 ? 'lift' : 'startup') : 'fly';
+    const onPad = h.y < HELIPAD.y + 0.3 && Math.hypot(h.x - HELIPAD.x, h.z - HELIPAD.z) < 1; H.state = onPad ? (h.rpm >= 0.999 ? 'lift' : 'startup') : 'fly';
     // the searchlight: on the scene's target (a car), or on a fixed aim point
     const tg = h.target && P[h.target]; let T = null;
     if (tg) { const sp = tg.speed || 0, hd = tg.hdg ?? tg.yaw ?? 0; T = { x: tg.x, z: tg.z, vx: Math.sin(hd) * sp, vz: Math.cos(hd) * sp, y: L.groundY(tg.x, tg.z) }; }
