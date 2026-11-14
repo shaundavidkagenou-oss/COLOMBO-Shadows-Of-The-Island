@@ -16,8 +16,42 @@ let checks = 0, fails = 0; const ok = (c, msg) => { checks++; if (!c) { fails++;
 const V = !!process.env.V; const col = (h) => new THREE.Color(h).convertSRGBToLinear();
 const near = (g, i, c) => Math.abs(g.getX(i) - c.r) + Math.abs(g.getY(i) - c.g) + Math.abs(g.getZ(i) - c.b) < 0.02;
 
+// Whole-body dancers: the bikini is a fitted garment mesh (DancerRig 'dancerWear') cut from her own skin; the skin it fully
+// covers is removed from the body's index; the chest secondary motion is a spring per breast bone (DancerRig.breasts).
+function dancerBodyChecks(d, sp, ch) {
+  const R = ch.dancer, wear = R.wear; const WG = wear?.geometry, C = WG?.attributes.color;
+  ok(!!wear && WG.attributes.position.count > 200, `${d.name}: fitted garment mesh present`);
+  ok(R.hidden > 50, `${d.name}: covered skin removed under the garments (${R.hidden} tris)`);
+  // fabric colour: the garment vertex colours of the fabric group must clearly differ from her skin
+  const grp = WG.groups.find((g) => g.materialIndex === 0) || { start: 0, count: WG.index ? WG.index.count : WG.attributes.position.count };
+  const idx = WG.index; const S = new THREE.Color(sp.skin); const Sl = S.clone().convertSRGBToLinear(); let far = 0, n = 0;
+  for (let k = grp.start; k < grp.start + grp.count; k += 3) { const i = idx ? idx.getX(k) : k; const r = C.getX(i), g = C.getY(i), b = C.getZ(i);
+    const dd = Math.min(Math.abs(r - S.r) + Math.abs(g - S.g) + Math.abs(b - S.b), Math.abs(r - Sl.r) + Math.abs(g - Sl.g) + Math.abs(b - Sl.b)); n++; if (dd > 0.25) far++; }
+  ok(n > 50 && far / n > 0.9, `${d.name}: garment colour clearly differs from her skin (${far}/${n})`);
+  ok(R.br?.length === 2 && ch.bones.breastL && ch.bones.breastR, `${d.name}: breast bones + spring state`);
+  const scene = new THREE.Scene(); scene.add(ch.root);
+  const pd = new PoleDancer(ch, { x: 0, z: 0, y0: 0, y1: 3.6 }, { seed: d.seed, audience: [0, -3], name: d.name });
+  const dt = 1 / 60, M = R.bmax; let bad = 0, maxAbs = 0, maxStep = 0, sum = 0, sum2 = 0, cnt = 0; const prev = [0, 0, 0, 0, 0, 0];
+  for (let f = 0; f < 3600; f++) {
+    pd.update(dt); scene.updateMatrixWorld(true);
+    R.br.forEach((B, j) => { const o = B.lim || [0, 0, 0]; for (let c = 0; c < 3; c++) { const v = o[c]; if (!Number.isFinite(v)) bad++; maxAbs = Math.max(maxAbs, Math.abs(v));
+      if (f > 30) maxStep = Math.max(maxStep, Math.abs(v - prev[j * 3 + c])); prev[j * 3 + c] = v; } });
+    if (f > 60) { const v = (R.br[0].lim || [0, 0, 0])[1]; sum += v; sum2 += v * v; cnt++; }
+  }
+  const sd = Math.sqrt(Math.max(0, sum2 / cnt - (sum / cnt) ** 2));
+  ok(bad === 0 && maxAbs <= M + 1e-6, `${d.name}: spring offsets finite and within the soft limit (max ${(maxAbs * 1000).toFixed(1)} mm ≤ ${(M * 1000).toFixed(1)})`);
+  ok(sd > M * 0.05, `${d.name}: the chest actually moves with the dance (lift std ${(sd * 1000).toFixed(2)} mm)`);
+  ok(maxStep < M * 0.6, `${d.name}: no frame-to-frame snapping (max step ${(maxStep * 1000).toFixed(2)} mm)`);
+  ch.root.position.set(5, 0, 5); ch.root.rotation.set(0, 0, 0); for (let f = 0; f < 240; f++) { ch.anim.update(dt, 0); R.update(dt); scene.updateMatrixWorld(true); }
+  const rest = Math.max(...R.br.flatMap((B) => (B.lim || [0, 0, 0]).map(Math.abs)));
+  ok(rest < M * 0.25, `${d.name}: settles at rest when still (${(rest * 1000).toFixed(2)} mm)`);
+  if (V) console.log(`${d.name.padEnd(8)} wear ${WG.attributes.position.count} v · hidden ${R.hidden} · fabric ${far}/${n} · lift std ${(sd * 1000).toFixed(2)} mm max ${(maxAbs * 1000).toFixed(1)} step ${(maxStep * 1000).toFixed(2)} rest ${(rest * 1000).toFixed(2)}`);
+}
+
 for (const d of DANCERS) {
-  const sp = dancerSpec(d); const ch = new Character(sp); const geo = ch.mesh.geometry; const P = geo.attributes.position, C = geo.attributes.color;
+  const sp = dancerSpec(d); const ch = new Character(sp);
+  if (ch.dancer) { dancerBodyChecks(d, sp, ch); continue; } // whole-body MakeHuman dancers (DancerBody.js / DancerRig.js)
+  const geo = ch.mesh.geometry; const P = geo.attributes.position, C = geo.attributes.color;
   const s = sp.height / 1.72; const cSkin = col(sp.skin);
   const pick = (c) => { let n = 0; for (let i = 0; i < C.count; i++) if (near(C, i, c)) n++; return n; };
   // whichever encoding Character.js uses (linear or sRGB), use the one that matches vertices

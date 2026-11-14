@@ -5,6 +5,7 @@ import { Audio } from '../audio/Audio.js';
 import { keyLabel } from '../core/Input.js';
 import { plan } from '../world/CityPlan.js';
 import { Gps, MapView, drawIcon, BLIP_STYLE } from './MapView.js';
+import { PauseTabs, segBar } from './PauseTabs.js';
 
 const el = (tag, cls, parent, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; if (parent) parent.appendChild(e); return e; };
 const MAP_SCALE = 1.0; // px per metre in the base map canvas
@@ -25,6 +26,7 @@ export class HUD {
     this.timerEl = el('div', 'mtimer hidden', this.root); this.veh = el('div', 'vehicle-info hidden', this.root); this.vehSpeed = el('div', 'veh-speed', this.veh); this.vehName = el('div', 'veh-name', this.veh); this.radioEl = el('div', 'veh-radio', this.veh);
     this.vitals = el('div', 'vitals', this.root); this.hp = el('div', 'vit hp', this.vitals); this.hpBar = el('i', '', this.hp); this.hpGhost = el('b', '', this.hp);
     this.stamina = el('div', 'vit st', this.vitals); this.staminaBar = el('i', '', this.stamina);
+    this.breathEl = el('div', 'vit br', this.vitals); this.breathBar = el('i', '', this.breathEl); this.uw = el('div', 'underwater hidden', root); root.prepend(this.uw); // swimming: breath + underwater tint
     this.hurtEl = el('div', 'hurt-fx', root); this._hpShown = 100;
     this.marker = el('div', 'world-marker hidden', this.root, '<div class="wm-dot"></div><div class="wm-d"></div>');
     this.fadeEl = el('div', 'fade', root); this.cine = el('div', 'cine-bars hidden', root, '<div></div><div></div>');
@@ -33,6 +35,8 @@ export class HUD {
     this.bmTitle = el('div', 'bm-title', this.bigMap, '<div class="bm-city">COLOMBO</div><div class="bm-sub">කොළඹ · கொழும்பு</div><div class="bm-where"></div>');
     this.bmLegend = el('div', 'bm-legend', this.bigMap); this.bmWay = el('div', 'bm-way', this.bigMap); this.bmTip = el('div', 'bm-tip hidden', this.bigMap);
     el('div', 'bigmap-help', this.bigMap, '<kbd>Right-click</kbd>/<kbd>Double-click</kbd> set waypoint · <kbd>Enter</kbd> waypoint at centre · <kbd>Backspace</kbd> clear · <kbd>C</kbd> centre on me · drag / <kbd>WASD</kbd> pan · wheel / <kbd>+</kbd><kbd>−</kbd> zoom · <kbd>M</kbd>/<kbd>Esc</kbd> close');
+    this.ptabs = new PauseTabs(this.bigMap, this); // MAP · <character> · STATS · SQUAD (Q / E)
+    this.bigMsg = el('div', 'big-msg', root); this.skillBox = el('div', 'skill-toast', this.root);
     this.gps = new Gps(); this.mapView = new MapView(); this.gpsEl = el('div', 'gps-info', this.root); this.waypoint = null;
     this.fps = el('div', 'fps hidden', root);
     this.blips = []; this.objective = null; this.subQueue = []; this.subTimer = 0;
@@ -51,7 +55,7 @@ export class HUD {
     // parks / green / landmark grounds
     const acc = {};
     for (const c of L.cells) { if (c.water) continue; (acc[c.district] ||= [0, 0, 0]); acc[c.district][0] += c.cx; acc[c.district][1] += c.cz; acc[c.district][2]++; if (c.district === 'gfgreen') { g.fillStyle = '#3a5a34'; g.fillRect(X(c.x0), Z(c.z0), (c.x1 - c.x0) * MAP_SCALE, (c.z1 - c.z0) * MAP_SCALE); } }
-    for (const zn of L.ZONES) { const [x0, x1, z0, z1] = zn.rect; g.fillStyle = zn.kind === 'park' ? '#2f4a32' : zn.kind === 'port' ? '#343c42' : '#3a3530'; g.fillRect(X(x0), Z(z0), (x1 - x0) * MAP_SCALE, (z1 - z0) * MAP_SCALE); }
+    for (const zn of L.ZONES) { const [x0, x1, z0, z1] = zn.map || zn.rect; g.fillStyle = zn.kind === 'park' ? '#2f4a32' : zn.kind === 'port' ? '#343c42' : '#3a3530'; g.fillRect(X(x0), Z(z0), (x1 - x0) * MAP_SCALE, (z1 - z0) * MAP_SCALE); }
     this.districtLabels = Object.entries(acc).map(([id, a]) => [id, a[0] / a[2], a[1] / a[2]]);
     // lake + canals
     g.fillStyle = '#1d4a5c'; for (const [cx, cz, rx, rz] of L.LAKE) { g.beginPath(); g.ellipse(X(cx), Z(cz), rx * MAP_SCALE, rz * MAP_SCALE, 0, 0, Math.PI * 2); g.fill(); }
@@ -161,6 +165,7 @@ export class HUD {
   }
   toggleBigMap(v, px, pz) {
     const show = v ?? this.bigMap.classList.contains('hidden'); this.bigMap.classList.toggle('hidden', !show);
+    if (show) { this.ptabs.tab = 0; this.ptabs.open(this.pauseData ? this.pauseData() : {}); }
     if (show) { this.mapView.t = performance.now() / 1000; this.mapView.open(px, pz); this.player = [px, pz]; this.bigMap.classList.remove('opening'); void this.bigMap.offsetWidth; this.bigMap.classList.add('opening');
       let last = performance.now(); const loop = () => { if (this.bigMap.classList.contains('hidden')) return; const now = performance.now(); const dt = Math.min(0.1, (now - last) / 1000); last = now; this.mapView.t = now / 1000; this.mapView.step(dt);
         if (this.satellite && this.mapView.style === 'satellite') this.satellite.pump(this.mapView.satReady < 1 ? 22 : 10); this.drawBig(); requestAnimationFrame(loop); }; loop(); }
@@ -198,6 +203,18 @@ export class HUD {
   }
   setTimer(sec) { if (sec === null || sec === undefined) { this.timerEl.classList.add('hidden'); return; } this.timerEl.classList.remove('hidden'); const m = Math.floor(sec / 60), s = Math.floor(sec % 60); this.timerEl.textContent = `${m}:${String(s).padStart(2, '0')}`; this.timerEl.classList.toggle('urgent', sec < 15); }
   fade(to, dur = 0.8) { return new Promise((r) => { this.fadeEl.style.transition = `opacity ${dur}s ease`; requestAnimationFrame(() => (this.fadeEl.style.opacity = to)); setTimeout(r, dur * 1000 + 30); }); }
+  // centre-screen result banner (stunt jump completed / failed …)
+  bigMessage(title, sub = '', kind = 'good', dur = 3.6) {
+    const b = this.bigMsg; b.className = 'big-msg ' + kind; b.innerHTML = `<div class="bm-band"><div class="bm-t">${title}</div>${sub ? `<div class="bm-s">${sub}</div>` : ''}</div>`;
+    void b.offsetWidth; b.classList.add('in'); clearTimeout(this._bmT); this._bmT = setTimeout(() => b.classList.remove('in'), dur * 1000);
+  }
+  // skill increase: name, five-segment bar filling from the old value to the new, +gain
+  skillToast(name, v, gain, why = '') {
+    const b = this.skillBox; const from = Math.max(0, v - gain); b.innerHTML = `<div class="sk-h"><span>${name.toUpperCase()}</span><b>${gain >= 0.95 ? '+' + Math.round(gain) : '+'}</b></div>${segBar(from)}${why ? `<div class="sk-w">${why}</div>` : ''}`;
+    b.classList.remove('in'); void b.offsetWidth; b.classList.add('in'); Audio.ui('collect');
+    setTimeout(() => { const n = b.querySelector('.pt-seg'); if (n) n.outerHTML = segBar(v); }, 450);
+    clearTimeout(this._skT); this._skT = setTimeout(() => b.classList.remove('in'), 4200);
+  }
   bars(on) { this.cine.classList.toggle('hidden', !on); }
   titleCard(html, dur = 4) { return new Promise((r) => { this.title.innerHTML = html; this.title.classList.remove('hidden'); this.title.classList.add('show'); setTimeout(() => { this.title.classList.remove('show'); setTimeout(() => { this.title.classList.add('hidden'); r(); }, 900); }, dur * 1000); }); }
   missionBanner(top, title, sub = '') { return this.titleCard(`<div class="mb-top">${top}</div><div class="mb-title">${title}</div>${sub ? `<div class="mb-sub">${sub}</div>` : ''}`, 3.2); }
@@ -217,6 +234,7 @@ export class HUD {
       const t = this.gps.target; if (t && this.gps.route) { this.gpsEl.className = 'gps-info show' + (t.kind === 'objective' ? ' obj' : ''); setHtml(this.gpsEl, `<b>${t.kind === 'objective' ? 'GPS · OBJECTIVE' : 'GPS · WAYPOINT'}</b> ${fmtDist(this.gps.remaining(st.x, st.z))}`); } else this.gpsEl.className = 'gps-info';
     }
     this.drawMini(st.x, st.z, st.camYaw - Math.PI, st.extras);
+    { const b = st.breath ?? 1; setStyle(this.breathEl, 'display', b < 0.999 ? '' : 'none'); setStyle(this.breathBar, 'width', `${b * 100}%`); this.breathEl.classList.toggle('low', b < 0.25); this.uw.classList.toggle('hidden', !st.underwater); }
     setStyle(this.stamina, 'opacity', st.stamina < 0.98 && !st.vehicle ? 1 : 0.35); setStyle(this.staminaBar, 'width', `${st.stamina * 100}%`);
     if (st.health != null) { const hp = st.health; setStyle(this.hpBar, 'width', `${hp}%`); this._hpShown += (hp - this._hpShown) * (hp < this._hpShown ? 0.04 : 1); setStyle(this.hpGhost, 'width', `${this._hpShown}%`); this.hp.classList.toggle('low', hp < 30); this.hurtEl.classList.toggle('low', hp < 25 && !st.healthBusy); }
     if (st.vehicle) { this.veh.classList.remove('hidden'); setHtml(this.vehSpeed, `${Math.round(Math.abs(st.vehicle.speed) * 3.6)}<small>km/h</small>`); setTxt(this.vehName, st.vehicleName); setTxt(this.radioEl, st.radio || ''); } else this.veh.classList.add('hidden');

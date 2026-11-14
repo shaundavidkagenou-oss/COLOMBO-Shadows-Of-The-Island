@@ -1,11 +1,13 @@
-// Post-processing: subtle bloom (night lights), optional GTAO, warm tropical colour grade + gentle vignette, SMAA, output.
+// Post-processing: subtle bloom (night lights), optional GTAO, the cinematic output pass (Cinematic.js: light shafts, lens flare,
+// ACES tone mapping + sRGB, time-of-day 32³ LUT grade, vignette), screen effects, SMAA.
 import * as THREE from 'three';
+import { bloomIsHot } from './BloomHot.js';
 const lerp = (a, b, t) => a + (b - a) * t;
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
-import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { CinePass, DepthTapPass, profileWeights, PROFILES, PROFILE_ORDER, CINE } from './Cinematic.js';
 import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { Pass, FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
@@ -38,6 +40,10 @@ const SenseShader = {
       gl_FragColor = vec4(col, 1.0);
     }`,
 };
+// FPS: by day the bloom runs at threshold 7 / strength 0.03 — measured: it changes no pixel at all (tools: identical frames
+// with and without it at 12:00 and 17:00, both view directions). Its ~13 half-res passes are skipped then. Anything that can
+// exceed the threshold keeps it on: night / dusk (lamps), storm darkness, a fireball (glow), interiors (club neon), a muzzle
+// flash or flashing beacons (bloomHot).
 const CopyFS = 'uniform sampler2D tDiffuse; varying vec2 vUv; void main(){ gl_FragColor = texture2D(tDiffuse, vUv); }';
 class SensePass extends Pass {
   constructor(w, h) {
@@ -54,18 +60,10 @@ class SensePass extends Pass {
   dispose() { this.hist.dispose(); this.mat.dispose(); this.copy.dispose(); this.quad.dispose(); this.cq.dispose(); }
 }
 
-const GradeShader = {
-  uniforms: { tDiffuse: { value: null }, uWarm: { value: 0.5 }, uSat: { value: 1.08 }, uVig: { value: 0.18 }, uWet: { value: 0 }, uFlash: { value: 0 } },
-  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-  fragmentShader: `uniform sampler2D tDiffuse; uniform float uWarm, uSat, uVig, uWet, uFlash; varying vec2 vUv;
-    void main(){ vec4 c = texture2D(tDiffuse, vUv); vec3 col = c.rgb;
-      float l = dot(col, vec3(0.2126, 0.7152, 0.0722)); col = mix(vec3(l), col, uSat - uWet * 0.12);
-      // split tone: warm highlights, slightly teal shadows
-      col += (vec3(0.035, 0.012, -0.03) * smoothstep(0.35, 1.0, l) + vec3(-0.012, 0.004, 0.014) * (1.0 - smoothstep(0.0, 0.35, l))) * uWarm * 2.0;
-      float v = smoothstep(0.85, 0.25, length(vUv - 0.5)); col *= mix(1.0 - uVig, 1.0, v);
-      col += uFlash * vec3(0.6, 0.65, 0.8);
-      gl_FragColor = vec4(col, c.a); }`,
-};
+// (The former GradeShader — saturation, warm/teal split tone, vignette, lightning flash — ran as a second full-screen pass AFTER
+// the OutputPass, on tone-mapped sRGB values: its additive split tone lifted pure black to a blue-tinted floor (+0.024 B) and
+// pushed clipped whites yellow (+0.06 R / −0.05 B). Its features now live in CinePass: saturation and split toning in the LUT
+// profiles, vignette, flash and the wet desaturation in the output shader — applied once, in the right colour space.)
 // Replaces NaN/Inf pixels (degenerate normals, half-float overflow) so bloom can't smear them across the frame.
 const SanitizeShader = {
   uniforms: { tDiffuse: { value: null } },
@@ -96,21 +94,26 @@ export class PostFX {
   constructor(renderer, scene, camera) {
     this.r = renderer; this.scene = scene; this.camera = camera; this.enabled = true; this.build();
   }
-  build(preset = { bloom: true, ao: false }) {
+  build(preset = { bloom: true, ao: false, cine: 1 }) {
+    if (this.composer) this.disposeComposer(); // a rebuild (start-up, quality change) used to leak the previous targets
     const r = this.r, size = r.getSize(new THREE.Vector2()); const pr = r.getPixelRatio();
     const rt = new THREE.WebGLRenderTarget(size.x * pr, size.y * pr, { type: THREE.HalfFloatType, samples: 0, depthTexture: new THREE.DepthTexture(size.x * pr, size.y * pr, THREE.FloatType) }); // 32-bit float depth: with the reversed-Z renderer this removes distance z-fighting
     this.composer = new EffectComposer(r, rt);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.cine = new CinePass(preset.cine ?? 1, size.x * pr, size.y * pr); this.cine.flareOn = this.flareOn !== false; this.cine.raysOn = this.raysOn !== false;
+    this.composer.addPass(new DepthTapPass(this.cine));
     this.composer.addPass(new ShaderPass(SanitizeShader));
     if (preset.ao) { this.ao = new GTAOPass(this.scene, this.camera, size.x, size.y); this.ao.blendIntensity = 0.7; this.composer.addPass(this.ao); } else this.ao = null;
     if (preset.bloom) { this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), 0.35, 0.55, 0.92); this.composer.addPass(this.bloom); } else this.bloom = null;
-    this.composer.addPass(new OutputPass());
-    this.grade = new ShaderPass(GradeShader); this.composer.addPass(this.grade);
+    this.composer.addPass(this.cine); this.grade = this.cine; // tone mapping + sRGB + grade in one pass (replaces OutputPass + GradeShader)
     this.transit = new ShaderPass(TransitShader); this.transit.enabled = false; this.composer.addPass(this.transit);
     if (this.sense) this.sense.dispose(); this.sense = new SensePass(size.x * pr, size.y * pr); this.sense.enabled = false; this.composer.addPass(this.sense); this.shocks = this.shocks || []; this.conc = this.conc || 0; this.drunk = this.drunk || 0; this.glow = 0;
     if (preset.smaa !== false) { this.smaa = new SMAAPass(size.x * pr, size.y * pr); this.composer.addPass(this.smaa); }
   }
   setSize(w, h) { this.composer.setSize(w, h); }
+  disposeComposer() { for (const p of this.composer.passes) if (p !== this.sense && p.dispose) p.dispose(); this.composer.dispose(); this.composer = null; }
+  // Settings → Lens flare / Light shafts (effective only where the preset includes them)
+  setCine(flare, rays) { this.flareOn = flare; this.raysOn = rays; if (this.cine) { this.cine.flareOn = flare; this.cine.raysOn = rays; } }
   // explosion hooks (Explosions.js) and the drunk level (Drinks): see SenseShader
   shock(x, y, a) { this.shocks.push({ x, y, a, t: 0 }); if (this.shocks.length > 3) this.shocks.shift(); this.glow = Math.max(this.glow, Math.min(1, a * 1.5)); }
   concuss(k) { this.conc = Math.max(this.conc, Math.min(1, k)); }
@@ -125,8 +128,18 @@ export class PostFX {
   }
   setTransit(blur, chroma, glitch) { const u = this.transit.uniforms; u.uBlur.value = blur; u.uChroma.value = chroma; u.uGlitch.value = glitch; u.uTime.value = performance.now() / 1000; this.transit.enabled = blur > 0.001 || chroma > 0.001 || glitch > 0.001; }
   update(atmos) {
-    if (this.bloom) { const gl = this.glow || 0; this.bloom.strength = 0.03 + atmos.night * 0.3 + gl * 0.35; this.bloom.threshold = lerp(lerp(7, 1.7, atmos.night), 2.2, gl); /* daylight: effectively off (no veil); night: lamps and windows glow; a fireball briefly glows in daylight too */ this.bloom.radius = 0.3 + gl * 0.25; }
-    const u = this.grade.uniforms; u.uWarm.value = 0.35 + atmos.golden * 0.5 * (1 - atmos.w.dark); u.uSat.value = 1.1 - atmos.w.dark * 0.12; u.uWet.value = atmos.wet; u.uFlash.value = atmos.flash * 0.25;
+    if (this.bloom) { const gl = this.glow || 0; this.bloom.enabled = atmos.night > 0.001 || gl > 0 || (atmos.w && atmos.w.dark > 0.15) || this.indoor || bloomIsHot(); this.bloom.strength = 0.03 + atmos.night * 0.3 + gl * 0.35; this.bloom.threshold = lerp(lerp(7, 1.7, atmos.night), 2.2, gl); /* daylight: effectively off (no veil); night: lamps and windows glow; a fireball briefly glows in daylight too */ this.bloom.radius = 0.3 + gl * 0.25; }
+    // time-of-day grade: profile weights from the sun and the weather, eased (≈ 0.7 s) so a time skip or a weather jump never
+    // pops the colours; snapped on the first frame and when a tool asks (gradeSnap)
+    const now = performance.now(), dt = this.lastUpd ? Math.min(0.25, (now - this.lastUpd) / 1000) : 0.016, first = !this.lastUpd || now - this.lastUpd > 1500; this.lastUpd = now;
+    const tgt = profileWeights(atmos.sunDir.y, atmos.hour, atmos.night, atmos.w.dark, this._wt || (this._wt = new Array(5)));
+    const inside = this.inside === undefined ? !!this.indoor : !!this.inside; if (inside) { tgt.fill(0); tgt[1] = 1; } // interiors: neutral grade, no sun effects
+    if (!this.gradeW || first || this.gradeSnap) { this.gradeW = tgt.slice(); this.gradeSnap = false; } else { const k = 1 - Math.exp(-dt * CINE.gradeRate); for (let i = 0; i < 5; i++) this.gradeW[i] += (tgt[i] - this.gradeW[i]) * k; }
+    let expo = 0; for (let i = 0; i < 5; i++) expo += this.gradeW[i] * PROFILES[PROFILE_ORDER[i]].expo;
+    const C = this.cine; C.rev = this.r.state.buffers.depth.getReversed ? (this.r.state.buffers.depth.getReversed() ? 1 : 0) : 0;
+    { const te = inside ? 1 : expo; this.expoS = this.expoS === undefined || first ? te : this.expoS + (te - this.expoS) * (1 - Math.exp(-dt * CINE.gradeRate)); } // eased like the grade: walking in / out never steps the exposure
+    C.setFrame(this.camera, atmos, { weights: this.gradeW, expo: this.expoS, indoor: inside, dt });
+    const u = C.uniforms; u.uWet.value = atmos.wet; u.uFlash.value = atmos.flash * 0.25;
   }
   render(dt) { this.tickSenses(dt || 0.016); if (this.enabled) this.composer.render(dt); else this.r.render(this.scene, this.camera); }
 }

@@ -45,7 +45,16 @@ function normalsOf(P, idx, n) {
 }
 
 // garment ids (aCloth.x): 1 shirt body, 3 shirt sleeve, 2 trousers, 4 skin, 5 waistcoat, 6 tie, 0 everything else (accessories, shoes…)
-export const CLOTH = { SHIRT: 1, TROUSERS: 2, SLEEVE: 3, SKIN: 4, VEST: 5, TIE: 6 };
+export const CLOTH = { SHIRT: 1, TROUSERS: 2, SLEEVE: 3, SKIN: 4, VEST: 5, TIE: 6, COAT: 7 };
+// wardrobe coats / jackets (sp.coat = { kind, col }): hem height, V-opening start (0 = closed to the neck), fabric (clv y:
+// 0 wool, 1 leather, 2 nylon, 3 cotton drill; 4 = rib knit), extra loft, lapel width, button heights (÷ s), collar height
+export const COATS = {
+  blazer: { hem: 0.935, v: 1.1, mat: 0, puff: 0, lapel: 0.052, buttons: [1.085, 0.995], pockets: 'flap', collar: 0.026 },
+  car: { hem: 0.915, v: 1.27, mat: 0, puff: 0.002, lapel: 0.044, buttons: [1.25, 1.14, 1.03], pockets: 'slant', collar: 0.03 },
+  leather: { hem: 0.975, v: 0, mat: 1, puff: 0.001, zip: true, pockets: 'zip', collar: 0.034 },
+  bomber: { hem: 0.965, v: 0, mat: 2, puff: 0.006, zip: true, rib: true, pockets: 'welt', collar: 0.03 },
+  field: { hem: 0.93, v: 0, mat: 3, puff: 0.002, buttons: [1.37, 1.28, 1.19, 1.1, 1.01], pockets: 'cargo', collar: 0.04 },
+};
 
 /**
  * Emit the body + garment shells into the SkinBuilder. ctx: { B (bone name → index), J, NK (heroHeadFit), C (hex → linear rgb) }.
@@ -63,7 +72,7 @@ export function buildHeroGarments(sb, sp, ctx) {
     W[u] = L; }
   const y = (u) => P[u * 3 + 1];
   // ---- garment extents (model space)
-  const cutY = NK.cutY; const yTop = open ? cutY + 0.034 : Math.max(cutY + 0.03, 1.5 * s);
+  const cutY = NK.cutY; const yTop = sp.coat && !open ? cutY + 0.004 /* under a coat: the shirt stops below the coat's neck line (the coat collar shows, the shirt can't poke through it) */ : open ? cutY + 0.034 : sp.collar ? Math.max(cutY + 0.03, 1.5 * s) : cutY + 0.017; // a crew-neck tee ends just above the neck cut (a collar stands higher)
   const shirtHem = (open ? 0.985 : 0.972) * s; const sleeveY = (longSleeve ? 0.905 : 1.205) * s; const waistY = 0.997 * s; const hemY = (boots ? 0.165 : 0.093) * s;
   const torso = (u) => armW[u] < 0.5 && legW[u] < 0.5;
   const shirtHas = (u, tol) => (armW[u] >= 0.5 ? handW[u] < 0.5 && y(u) >= sleeveY - tol : legW[u] < 0.5 && y(u) >= shirtHem - tol);
@@ -76,7 +85,12 @@ export function buildHeroGarments(sb, sp, ctx) {
   const uv0 = [0.01, 0.51];
   const out = {};
   // ---- one garment shell
-  const shell = (has, ease, id, col, hemFor, post) => {
+  let shellTop = yTop; // level top edge of the shell being built (the coat's is its own neck line)
+  let foldMax = 1; // coats: a shallow turned-under hem (a deep one would cut through the layers under it)
+  // the level top cut is a NECK line: only cloth round the neck is above it (shoulder tips on some builds sit higher and must stay)
+  const NE = NK.collarAt(cutY); const nearNeck = (u) => Math.hypot(P[u * 3] / NE.rx, (P[u * 3 + 2] - NE.cz) / NE.rz);
+  const aboveTop = (Q, u, d) => Q[u * 3 + 1] > shellTop + d && nearNeck(u) < 1.4;
+  const shell = (has, ease, id, col, hemFor, post, clY = 0) => {
     const inG = new Uint8Array(NU); for (let u = 0; u < NU; u++) inG[u] = has(u, 0.013) ? 1 : 0;
     const tris = []; for (let t = 0; t < S.idx.length; t += 3) { const a = S.idx[t], b = S.idx[t + 1], c = S.idx[t + 2]; if (inG[a] && inG[b] && inG[c]) tris.push(a, b, c); }
     const used = new Uint8Array(NU); for (const v of tris) used[v] = 1;
@@ -97,17 +111,19 @@ export function buildHeroGarments(sb, sp, ctx) {
     if (post) post(Q, used, bnd);
     const QN = normalsOf(Q, tris, NU);
     const map = new Int32Array(NU).fill(-1);
-    for (let u = 0; u < NU; u++) { if (!used[u]) continue; const sid = id === CLOTH.SHIRT && armW[u] >= 0.5 ? CLOTH.SLEEVE : id; sb.clv = [sid, 0];
+    for (let u = 0; u < NU; u++) { if (!used[u]) continue; const sid = id === CLOTH.SHIRT && armW[u] >= 0.5 ? CLOTH.SLEEVE : id; sb.clv = [sid, clY];
       map[u] = sb.v([Q[u * 3], Q[u * 3 + 1], Q[u * 3 + 2]], [QN[u * 3], QN[u * 3 + 1], QN[u * 3 + 2]], col, uv0, W[u]); }
-    for (let t = 0; t < tris.length; t += 3) { const a = map[tris[t]], b = map[tris[t + 1]], c = map[tris[t + 2]]; if (Q[tris[t] * 3 + 1] > yTop + 0.004 && Q[tris[t + 1] * 3 + 1] > yTop + 0.004 && Q[tris[t + 2] * 3 + 1] > yTop + 0.004) continue; sb.idx.push(a, b, c); }
+    const i0 = sb.idx.length, kept = [];
+    for (let t = 0; t < tris.length; t += 3) { const a = map[tris[t]], b = map[tris[t + 1]], c = map[tris[t + 2]]; if (aboveTop(Q, tris[t], 0.004) && aboveTop(Q, tris[t + 1], 0.004) && aboveTop(Q, tris[t + 2], 0.004)) continue; sb.idx.push(a, b, c); kept.push(tris[t], tris[t + 1], tris[t + 2]); }
+    const i1 = sb.idx.length;
     // turned-under hems: every open edge folds back towards the body by the local ease (+3 mm), slightly darker
     const hc = col.map((v) => v * 0.78);
-    for (let i = 0; i < bEdges.length; i += 2) { const a = bEdges[i], b = bEdges[i + 1]; if (Q[a * 3 + 1] > yTop - 0.002 && Q[b * 3 + 1] > yTop - 0.002) continue;
-      const ia = [], ib = []; for (const [u, arr] of [[a, ia], [b, ib]]) { const d = E[u] + 0.003; sb.clv = [0, 0]; arr.push(sb.v([Q[u * 3] - N[u * 3] * d, Q[u * 3 + 1] - N[u * 3 + 1] * d, Q[u * 3 + 2] - N[u * 3 + 2] * d], [-N[u * 3], -N[u * 3 + 1], -N[u * 3 + 2]], hc, uv0, W[u])); }
+    for (let i = 0; i < bEdges.length; i += 2) { const a = bEdges[i], b = bEdges[i + 1]; if (Q[a * 3 + 1] > shellTop - 0.002 && Q[b * 3 + 1] > shellTop - 0.002) continue;
+      const ia = [], ib = []; for (const [u, arr] of [[a, ia], [b, ib]]) { const d = Math.min(E[u] + 0.003, foldMax); sb.clv = [0, 0]; arr.push(sb.v([Q[u * 3] - N[u * 3] * d, Q[u * 3 + 1] - N[u * 3 + 1] * d, Q[u * 3 + 2] - N[u * 3 + 2] * d], [-N[u * 3], -N[u * 3 + 1], -N[u * 3 + 2]], hc, uv0, W[u])); }
       sb.clv = [0, 0]; const oa = sb.v([Q[a * 3], Q[a * 3 + 1], Q[a * 3 + 2]], [0, -1, 0], hc, uv0, W[a]), ob = sb.v([Q[b * 3], Q[b * 3 + 1], Q[b * 3 + 2]], [0, -1, 0], hc, uv0, W[b]);
       sb.idx.push(ob, oa, ia[0], ob, ia[0], ib[0]); }
     sb.clv = [0, 0];
-    return { Q, used, map, E };
+    return { Q, used, map, E, i0, i1, kept };
   };
   // ---- trousers (first: the tucked shirt sits inside the waistband)
   const tr = shell(trouserHas, trouserEase, CLOTH.TROUSERS, bottom, (u) => (y(u) < 0.5 * s ? hemY : y(u) > 0.9 * s ? waistY : null), (Q, used) => {
@@ -116,8 +132,8 @@ export function buildHeroGarments(sb, sp, ctx) {
   // ---- drape: a shirt hangs from the chest / shoulder blades and does not follow the waist in (the shell copied the body's
   // waist, which read as a cinched, flared peplum). Per angular sector round the torso axis, from the chest down, the cloth
   // radius never drops faster than the fabric can fall in (TAPER per metre of drop); only ever pushed outward.
-  const drape = (Q, used) => {
-    const NA = 72, DY = 0.01, Y0 = shirtHem - 0.03, Y1 = 1.34 * s, NYb = Math.ceil((Y1 - Y0) / DY) + 1, TAPER = 0.3;
+  const drape = (Q, used, o = {}) => {
+    const NA = 72, DY = 0.01, Y0 = o.y0 ?? shirtHem - 0.03, Y1 = 1.34 * s, NYb = Math.ceil((Y1 - Y0) / DY) + 1, TAPER = 0.3;
     const czB = new Float32Array(NYb), zlo = new Float32Array(NYb).fill(1e9), zhi = new Float32Array(NYb).fill(-1e9);
     for (let u = 0; u < NU; u++) { if (armW[u] >= 0.5 || legW[u] >= 0.5) continue; const j = Math.round((y(u) - Y0) / DY); if (j < 0 || j >= NYb) continue; zlo[j] = Math.min(zlo[j], P[u * 3 + 2]); zhi[j] = Math.max(zhi[j], P[u * 3 + 2]); }
     for (let j = 0; j < NYb; j++) czB[j] = zhi[j] > zlo[j] ? (zlo[j] + zhi[j]) / 2 : NaN;
@@ -127,17 +143,25 @@ export function buildHeroGarments(sb, sp, ctx) {
     for (let u = 0; u < NU; u++) { if (!used[u] || armW[u] >= 0.5) continue; const [r, a, yy] = polar(u); const j = Math.round((yy - Y0) / DY); if (j < 0 || j >= NYb) continue; const i = Math.floor(a * NA) % NA; if (r > R[j * NA + i]) R[j * NA + i] = r; }
     for (let i = 0; i < NA; i++) for (let j = NYb - 2; j >= 0; j--) { const up = R[(j + 1) * NA + i]; if (up > 0) R[j * NA + i] = Math.max(R[j * NA + i], up - TAPER * DY); }
     const Rs = new Float32Array(R.length); for (let j = 0; j < NYb; j++) for (let i = 0; i < NA; i++) { let m = 0, n = 0; for (let k = -2; k <= 2; k++) { const v = R[j * NA + (i + k + NA) % NA]; if (v > 0) { m += v * (3 - Math.abs(k)); n += 3 - Math.abs(k); } } Rs[j * NA + i] = n ? m / n : -1; }
-    for (let u = 0; u < NU; u++) { if (!used[u] || armW[u] >= 0.5) continue; const [r, a, yy] = polar(u); const w = sstep(1.3 * s, 1.18 * s, yy) * (open ? 1 : sstep(waistY + 0.01, waistY + 0.07, yy)); if (w <= 0 || r < 1e-4) continue; // a tucked shirt only blouses above the waistband (pushed out below it, it showed through the trousers)
+    for (let u = 0; u < NU; u++) { if (!used[u] || armW[u] >= 0.5) continue; const [r, a, yy] = polar(u); const w = sstep(1.3 * s, 1.18 * s, yy) * (open || o.free ? 1 : sstep(waistY + 0.01, waistY + 0.07, yy)); if (w <= 0 || r < 1e-4) continue; // a tucked shirt only blouses above the waistband (pushed out below it, it showed through the trousers)
       const fy = clamp((yy - Y0) / DY, 0, NYb - 1.001), j = Math.floor(fy), fa = a * NA, i = Math.floor(fa) % NA, i2 = (i + 1) % NA;
       const g = (jj, ii) => Rs[jj * NA + ii]; const t = lerp(lerp(g(j, i), g(j, i2), fa - Math.floor(fa)), lerp(g(j + 1, i), g(j + 1, i2), fa - Math.floor(fa)), fy - j); if (!(t > r)) continue;
       const k = (lerp(r, t, w)) / r; const c0 = cz(yy); Q[u * 3] *= k; Q[u * 3 + 2] = c0 + (Q[u * 3 + 2] - c0) * k; }
   };
   // ---- shirt / tee: neck conformed to the head's collar ellipse; the top edge is a level line at yTop
-  const sh = shell(shirtHas, shirtEase, CLOTH.SHIRT, top, (u) => (armW[u] >= 0.5 ? sleeveY : y(u) < 1.2 * s ? shirtHem : null), (Q, used) => {
+  const sh = shell(shirtHas, shirtEase, CLOTH.SHIRT, top, (u) => (armW[u] >= 0.5 ? sleeveY : y(u) < 1.2 * s ? shirtHem : null), (Q, used, bnd) => {
     drape(Q, used);
     for (let u = 0; u < NU; u++) { if (!used[u] || armW[u] >= 0.5) continue; const yy = Q[u * 3 + 1]; const t = sstep(cutY - 0.045, cutY + 0.004, yy); if (t <= 0) continue;
       const yc = Math.min(yy, yTop); const E0 = NK.collarAt(yc + 0.012); const m = 0.006; const a = Math.atan2((Q[u * 3 + 2] - E0.cz) / (E0.rz + m), Q[u * 3] / (E0.rx + m));
-      const tx = Math.cos(a) * (E0.rx + m), tz = E0.cz + Math.sin(a) * (E0.rz + m); Q[u * 3] = lerp(Q[u * 3], tx, t); Q[u * 3 + 2] = lerp(Q[u * 3 + 2], tz, t); Q[u * 3 + 1] = Math.min(yy, yTop); } });
+      const tx = Math.cos(a) * (E0.rx + m), tz = E0.cz + Math.sin(a) * (E0.rz + m);
+      // under a coat only push OUT to the collar line (as the coat does): pulling the shoulder-top cloth in to the neck made a long
+      // sheet from the neck to the shoulder that rose above the coat's own shoulder line
+      const w = open ? t : t * sstep(1.9, 1.45, Math.hypot(Q[u * 3] / (E0.rx + m), (Q[u * 3 + 2] - E0.cz) / (E0.rz + m))); Q[u * 3] = lerp(Q[u * 3], tx, w); Q[u * 3 + 2] = lerp(Q[u * 3 + 2], tz, w); Q[u * 3 + 1] = Math.min(yy, yTop); }
+    // only the neck is drawn in to the collar line; the shoulder cloth stays on the shoulders and rises smoothly from the level
+    // neckline to the shoulder tips (pulled in and levelled, it made a sheet from the neck to the tips, which stood up as horns)
+    if (!open && !sp.coat) { const fix = (u) => bnd[u] || armW[u] >= 0.5 || nearNeck(u) < 1.3; const H = new Float32Array(NU);
+      for (let it = 0; it < 24; it++) { for (let u = 0; u < NU; u++) H[u] = Q[u * 3 + 1];
+        for (let u = 0; u < NU; u++) { if (!used[u] || fix(u) || H[u] < yTop - 0.0005) continue; let m = 0, n = 0; for (const v of S.nb[u]) { if (!used[v]) continue; m += H[v]; n++; } if (n) Q[u * 3 + 1] = Math.max(yTop, m / n); } } } });
   // ---- waistcoat (David): its own shell over the OUTERMOST layer under it (shirt or trousers) — it follows the real chest,
   // shoulder blades and waist, so nothing can poke through it (the old elliptical loft let the shirt show through in jagged
   // patches). Closed front below the top button, V opening above it, generous armholes, pointed front hem; the shell's
@@ -155,6 +179,48 @@ export function buildHeroGarments(sb, sp, ctx) {
       for (let u = 0; u < NU; u++) { if (!used[u] || !bnd[u] || N[u * 3 + 2] < 0.2 || y(u) < 1.14 * s || armW[u] > 0.08) continue; const hv = halfV(Q[u * 3 + 1]); if (hv <= 0 || Math.abs(Q[u * 3]) > hv + 0.03) continue; Q[u * 3] = Math.sign(P[u * 3] || 1) * hv; }
       for (let u = 0; u < NU; u++) { if (!used[u]) continue; const d = (Q[u * 3] - P[u * 3]) * N[u * 3] + (Q[u * 3 + 1] - P[u * 3 + 1]) * N[u * 3 + 1] + (Q[u * 3 + 2] - P[u * 3 + 2]) * N[u * 3 + 2]; const m = under(u) + 0.004;
         if (d < m) for (let k = 0; k < 3; k++) Q[u * 3 + k] += N[u * 3 + k] * (m - d); } });
+  }
+  // ---- coat / jacket (wardrobe): like the waistcoat, its own shell over the OUTERMOST layer under it (shirt, trousers,
+  // waistcoat) with sleeves to the wrist. Every vertex is the same body vertex as the layers under it with the same skin
+  // weights, so the layers move together and keep their gap in any pose (nothing pokes through when he runs or aims).
+  let cc = null; const CO = sp.coat ? COATS[sp.coat.kind] || COATS.blazer : null; const coatC = CO ? C(sp.coat.col) : null;
+  const hemC = CO ? CO.hem * s : 0, sleeveC = 0.915 * s, topC = NK.cutY + 0.012; // top edge: a level line round the neck, just under the shirt collar
+  const halfVC = (yy) => (CO && CO.v ? (yy < CO.v * s ? -1 : 0.008 + ((yy - CO.v * s) / (1.43 * s - CO.v * s)) * 0.1) : -1);
+  if (CO) {
+    const offOf = (G, u) => (G && G.used[u] ? (G.Q[u * 3] - P[u * 3]) * N[u * 3] + (G.Q[u * 3 + 1] - P[u * 3 + 1]) * N[u * 3 + 1] + (G.Q[u * 3 + 2] - P[u * 3 + 2]) * N[u * 3 + 2] : 0);
+    const under = (u) => Math.max(offOf(sh, u), offOf(tr, u), offOf(vc, u), 0.006);
+    const coatHas = (u, tol) => (armW[u] >= 0.5 ? handW[u] < 0.5 && y(u) >= sleeveC - tol : (legW[u] < 0.6 || y(u) >= 0.9 * s) && y(u) >= hemC - tol && (y(u) <= topC + tol || nearNeck(u) > 1.2)) && !(N[u * 3 + 2] > 0.3 && armW[u] < 0.5 && Math.abs(P[u * 3]) < halfVC(y(u)) - tol);
+    const ease = (u) => under(u) + (armW[u] >= 0.5 ? 0.0095 : 0.0115) + CO.puff * (armW[u] >= 0.5 ? 0.6 : 1);
+    foldMax = 0.01; shellTop = topC;
+    cc = shell(coatHas, ease, CLOTH.COAT, coatC, (u) => (armW[u] >= 0.5 ? (y(u) < 1.2 * s ? sleeveC : null) : y(u) < 1.06 * s ? hemC : null), (Q, used, bnd) => {
+      if (CO.v) for (let u = 0; u < NU; u++) { if (!used[u] || !bnd[u] || N[u * 3 + 2] < 0.2 || y(u) < CO.v * s - 0.02 || armW[u] > 0.08) continue; const hv = halfVC(Q[u * 3 + 1]); if (hv <= 0 || Math.abs(Q[u * 3]) > hv + 0.03) continue; Q[u * 3] = Math.sign(P[u * 3] || 1) * hv; }
+      drape(Q, used, { y0: hemC - 0.03, free: true }); // hangs straight from the chest / shoulder blades
+      for (let u = 0; u < NU; u++) { if (!used[u]) continue; const d = (Q[u * 3] - P[u * 3]) * N[u * 3] + (Q[u * 3 + 1] - P[u * 3 + 1]) * N[u * 3 + 1] + (Q[u * 3 + 2] - P[u * 3 + 2]) * N[u * 3 + 2]; const m = under(u) + 0.0068;
+        if (d < m) for (let k = 0; k < 3; k++) Q[u * 3 + k] += N[u * 3 + k] * (m - d); }
+      // neck: conformed to the head's collar ellipse OUTSIDE the shirt collar (shirt margin 6 mm → coat 17 mm), cut level at topC
+      for (let u = 0; u < NU; u++) { if (!used[u] || armW[u] >= 0.5) continue; const yy = Q[u * 3 + 1]; const t = sstep(cutY - 0.05, cutY + 0.004, yy); if (t <= 0) continue;
+        const yc = Math.min(yy, topC); const E0 = NK.collarAt(yc + 0.012); const m = 0.017; const a = Math.atan2((Q[u * 3 + 2] - E0.cz) / (E0.rz + m), Q[u * 3] / (E0.rx + m));
+        const tx = Math.cos(a) * (E0.rx + m), tz = E0.cz + Math.sin(a) * (E0.rz + m); const r0 = Math.hypot(Q[u * 3] / (E0.rx + m), (Q[u * 3 + 2] - E0.cz) / (E0.rz + m));
+        if (r0 < 1 || (bnd[u] && yy > cutY - 0.03)) { Q[u * 3] = lerp(Q[u * 3], tx, t); Q[u * 3 + 2] = lerp(Q[u * 3 + 2], tz, t); } // pushed out to the collar line (never pulled into the shirt) — the top edge itself is drawn onto it, under the collar band
+        Q[u * 3 + 1] = lerp(yy, Math.min(yy, topC), bnd[u] ? 1 : sstep(1.6, 1.2, r0)); } // level only at the neck edge: further out it keeps the trapezius line (levelled, the shoulder tips stood up as horns)
+      { // shoulder line: the cloth levelled at topC rises smoothly to the shoulder tips (some builds carry them above the neck cut —
+        // left level, the tips stood up as points). Heights only, never below the level line; the neck edge stays put.
+        const fix = (u) => bnd[u] || armW[u] >= 0.5 || nearNeck(u) < 1.3; const H = new Float32Array(NU);
+        for (let it = 0; it < 24; it++) { for (let u = 0; u < NU; u++) H[u] = Q[u * 3 + 1];
+          for (let u = 0; u < NU; u++) { if (!used[u] || fix(u) || H[u] < topC - 0.0005) continue; let m = 0, n = 0; for (const v of S.nb[u]) { if (!used[v]) continue; m += H[v]; n++; } if (n) Q[u * 3 + 1] = Math.max(topC, m / n); } } }
+      { // smooth out the folds the neck pass leaves in the shoulder cloth near the neck (edge held on the collar line)
+        const T2 = new Float32Array(Q); for (let it = 0; it < 8; it++) { T2.set(Q); for (let u = 0; u < NU; u++) { if (!used[u] || bnd[u] || armW[u] >= 0.5 || y(u) < cutY - 0.06 || y(u) > cutY - 0.012) continue; let x = 0, yy = 0, z = 0, n = 0; for (const v of S.nb[u]) { if (!used[v]) continue; x += Q[v * 3]; yy += Q[v * 3 + 1]; z += Q[v * 3 + 2]; n++; }
+          if (!n) continue; T2[u * 3] = lerp(Q[u * 3], x / n, 0.6); T2[u * 3 + 1] = Math.min(topC, lerp(Q[u * 3 + 1], yy / n, 0.6)); T2[u * 3 + 2] = lerp(Q[u * 3 + 2], z / n, 0.6); } Q.set(T2); } }
+      for (let u = 0; u < NU; u++) { if (!used[u] || y(u) > cutY) continue; const d = (Q[u * 3] - P[u * 3]) * N[u * 3] + (Q[u * 3 + 1] - P[u * 3 + 1]) * N[u * 3 + 1] + (Q[u * 3 + 2] - P[u * 3 + 2]) * N[u * 3 + 2]; const m = under(u) + 0.0068;
+        if (d < m) for (let k = 0; k < 3; k++) Q[u * 3 + k] += N[u * 3 + k] * (m - d); } }, CO.mat); // (the neck pass must not undo the gap over the shirt)
+    // the shirt under the coat is drawn only where it can show (the V, the neck inside the collar band, the cuffs): the hidden
+    // rest is dropped — it can't flicker through the coat's shoulders in any pose, and it is fewer triangles to draw
+    if (!open) { const showV = (u) => N[u * 3 + 2] > 0.3 && armW[u] < 0.5 && Math.abs(P[u * 3]) < halfVC(y(u)) + 0.035;
+      const hid = (u) => cc.used[u] && !showV(u) && (armW[u] >= 0.5 ? y(u) > sleeveC + 0.07 : y(u) > hemC + 0.07) && nearNeck(u) > 1.5;
+      const keep = []; for (let k = 0; k < sh.kept.length; k += 3) { if (hid(sh.kept[k]) && hid(sh.kept[k + 1]) && hid(sh.kept[k + 2])) continue; keep.push(sb.idx[sh.i0 + k], sb.idx[sh.i0 + k + 1], sb.idx[sh.i0 + k + 2]); }
+      const tail = sb.idx.slice(sh.i1); sb.idx.length = sh.i0; for (const v of keep) sb.idx.push(v); for (const v of tail) sb.idx.push(v); }
+    foldMax = 1; shellTop = yTop; if (globalThis.__coatFitProbe) globalThis.__coatFitProbe({ cc, sh, tr, P, N, armW, legW, handW, NU, y, cutY });
+    if (CO.rib) for (let u = 0; u < NU; u++) { const v = cc.map[u]; if (v < 0) continue; const yy = y(u); if (armW[u] >= 0.5 ? yy < sleeveC + 0.055 : yy < hemC + 0.055) { sb.cl[v * 2 + 1] = 4; for (let k = 0; k < 3; k++) sb.col[v * 3 + k] *= 0.82; } } // knitted cuffs + waistband
   }
   // ---- skin: everything not deeply covered (2.5 cm past every garment edge stays, so no gap shows into a sleeve or collar)
   const hidden = (u) => (armW[u] >= 0.5 ? handW[u] < 0.5 && y(u) >= sleeveY + 0.03 : legW[u] < 0.5 ? y(u) >= shirtHem + 0.025 || (y(u) <= waistY - 0.02 && y(u) >= hemY) : y(u) <= waistY - 0.02 && y(u) >= hemY + 0.03) || (armW[u] < 0.5 && y(u) < hemY + 0.03);
@@ -223,7 +289,60 @@ export function buildHeroGarments(sb, sp, ctx) {
       for (let r = 0; r <= NR; r++) { const t = r / NR; const yy = lerp(y0, y1, t); const hw = lerp(0.012, 0.039, sstep(0, 0.75, t)) * (t > 0.93 ? 1 - (t - 0.93) * 6 : 1); const zc = zS(yy, 0) + 0.0028 + 0.004 * (1 - t);
         Pt.push([[-hw, yy, Math.max(zc, zS(yy, -hw) + 0.0025)], [hw, yy, Math.max(zc, zS(yy, hw) + 0.0025)]]); Nt.push([[0, 0.1, 1], [0, 0.1, 1]]); Wt.push(yy > 1.2 * s ? cw(0) : [[B.chest, 0.7], [B.spine, 0.3]]); }
       Pt.push([[0, y1 - 0.034, zS(y1 - 0.034, 0) + 0.0026], [0, y1 - 0.034, zS(y1 - 0.034, 0) + 0.0026]]); Nt.push([[0, 0.1, 1], [0, 0.1, 1]]); Wt.push([[B.chest, 0.7], [B.spine, 0.3]]); // pointed tip
-      sb.grid(Pt, Nt, Wt, tc, tc.map((v) => v * 0.7)); sb.clv = [0, 0]; }
+      sb.grid(Pt, Nt, Wt, tc, tc.map((v) => v * 0.7)); sb.clv = [0, 0];
+      // tie bar: a slim gold clip across the blade, inside the waistcoat's V
+      { const yb = 1.285 * s, hw = lerp(0.012, 0.039, sstep(0, 0.75, (y0 - yb) / (y0 - y1))) + 0.004; const zb = zS(yb, 0) + 0.0028 + 0.004 * (1 - (y0 - yb) / (y0 - y1)) + 0.0016; const gc = C('#c9a54a'); const tcSave = tc;
+        sb.clv = [0, 0]; const q8 = [[-hw, yb - 0.0025, zb + 0.0012], [hw, yb - 0.0025, zb + 0.0012], [hw, yb + 0.0025, zb + 0.0012], [-hw, yb + 0.0025, zb + 0.0012], [-hw, yb - 0.0025, zb - 0.002], [hw, yb - 0.0025, zb - 0.002], [hw, yb + 0.0025, zb - 0.002], [-hw, yb + 0.0025, zb - 0.002]];
+        const f = [[0, 1, 2, 3], [5, 4, 7, 6], [4, 0, 3, 7], [1, 5, 6, 2], [3, 2, 6, 7], [4, 5, 1, 0]]; const wb = [[B.chest, 0.7], [B.spine, 0.3]];
+        for (const q of f) { const A = q8[q[0]], Bq = q8[q[1]], Cq = q8[q[2]]; const ux = Bq[0] - A[0], uy = Bq[1] - A[1], uz = Bq[2] - A[2], vx = Cq[0] - A[0], vy = Cq[1] - A[1], vz = Cq[2] - A[2]; const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx, l = Math.hypot(nx, ny, nz) || 1;
+          const i = q.map((k) => sb.v(q8[k], [nx / l, ny / l, nz / l], gc, [0.01, 0.51], wb)); sb.idx.push(i[0], i[1], i[2], i[0], i[2], i[3]); } void tcSave; } }
+  }
+  // waistcoat shawl lapels: satin facings rolled back along both edges of the V (from the top button up to the shoulder),
+  // raised on the waistcoat front, the inner edge rolled highest. clv y = 2 marks satin for the shader.
+  if (vc) { const halfV = (yy) => 0.006 + ((yy - 1.16 * s) / (0.26 * s)) * 0.09; const NR = 12; const lc = C(sp.vestBack || '#4b4146');
+    for (const sx of [-1, 1]) { const P2 = [], N2 = [], W2 = [];
+      for (let r = 0; r <= NR; r++) { const t = r / NR; const yy = lerp(1.168 * s, 1.415 * s, t); const x0 = sx * halfV(yy), wd = lerp(0.006, 0.03, sstep(0, 0.55, t)) * (t > 0.94 ? 1 - (t - 0.94) * 10 : 1);
+        const cols = [[0, 0.0034], [0.5, 0.0031], [1, 0.0014]].map(([k, dz]) => { const x = x0 + sx * wd * k; return [x, yy, out.surfZ(yy, x, 1) + dz]; });
+        P2.push(cols); N2.push(cols.map((_, k) => [sx * (k === 0 ? -0.35 : 0.12), 0.05, 1])); W2.push(cols.map(() => (yy > 1.3 * s ? [[B.chest, 1]] : [[B.chest, 0.7], [B.spine, 0.3]]))); }
+      sb.clv = [CLOTH.VEST, 2]; sb.grid(sx > 0 ? P2 : P2.map((row) => row.slice().reverse()), sx > 0 ? N2 : N2.map((row) => row.slice().reverse()), W2, lc, lc.map((v) => v * 0.75)); sb.clv = [0, 0]; } }
+  // ---- coat details on the coat's own surface: collar, lapels, buttons / zip, pockets
+  if (cc) {
+    const FRu = FR.slice(), BKu = BK.slice(); raster(cc.Q, cc.used, (u) => armW[u] < 0.5); const FRc = FR.slice(), BKc = BK.slice(); FR.set(FRu); BK.set(BKu); // accessories under the coat keep the under-layer fields
+    const cz = (yy, x, sg = 1) => out.surfZ(yy, x, sg, sg > 0 ? FRc : BKc);
+    const tw = (yy) => (yy < 0.99 * s ? [[B.hips, 1]] : yy < 1.2 * s ? [[B.spine, 0.7], [B.chest, 0.3]] : [[B.chest, 1]]);
+    const dk = (k) => coatC.map((v) => v * k); const clY = CO.mat;
+    const strip = (pts, width, col, lift = 0.0024, cl = clY) => { sb.clv = [CLOTH.COAT, cl]; sb.strip(pts.map(([x, yy]) => ({ c: [x, yy, cz(yy, x) + lift], side: [0, 1, 0], w: tw(yy) })), width, () => [0, 0, 1], tw(pts[0][1]), col); sb.clv = [0, 0]; };
+    const vline = (x, y0, y1, width, col, lift = 0.0024) => { sb.clv = [CLOTH.COAT, clY]; const pts = []; for (let i = 0; i <= 10; i++) { const yy = lerp(y0, y1, i / 10); pts.push({ c: [x, yy, cz(yy, x) + lift], side: [1, 0, 0], w: tw(yy) }); } sb.strip(pts, width, () => [0, 0, 1], tw(y0), col); sb.clv = [0, 0]; };
+    // collar: a double-sided band round the neck enclosing the coat's top edge and the shirt neck under it
+    { let zlo = 1e9, zhi = -1e9, xm = 0; const pts = []; const y0 = topC - 0.014, y1 = topC + CO.collar;
+      for (const G of [cc]) for (let u = 0; u < NU; u++) { if (!G.used[u] || armW[u] >= 0.5) continue; const qy = G.Q[u * 3 + 1]; if (qy < y0 - 0.01 || qy > y1 + 0.01) continue; pts.push(G.Q[u * 3], G.Q[u * 3 + 2]); if (G === cc && qy > topC - 0.02) { xm = Math.max(xm, Math.abs(G.Q[u * 3])); zlo = Math.min(zlo, G.Q[u * 3 + 2]); zhi = Math.max(zhi, G.Q[u * 3 + 2]); } }
+      if (pts.length > 8 && zhi > zlo) { const EN = NK.collarAt(topC + 0.012); const E0 = { cz: EN.cz, rx: EN.rx + 0.017, rz: EN.rz + 0.017 }; let e = 1; // round the neck: only the cloth near the neck (not the shoulders) sets its size
+        for (let i = 0; i < pts.length; i += 2) { const r = Math.hypot(pts[i] / (E0.rx + 0.008), (pts[i + 1] - E0.cz) / (E0.rz + 0.008)); if (r < 1) e = Math.max(e, Math.hypot(pts[i] / E0.rx, (pts[i + 1] - E0.cz) / E0.rz)); } E0.rx = E0.rx * e + 0.0045; E0.rz = E0.rz * e + 0.0045; if (globalThis.__coatFitProbe) globalThis.__collar = { rx: E0.rx, rz: E0.rz, e, nrx: EN.rx }; // clear of the outermost cloth (a band touching the tee z-fights with it)
+        const gap = CO.v ? 0.78 : 0.07, NC = 44; const rows = [[y0, 0.0025, 0], [y1 - 0.01, 0.004, 0.5], [y1, 0.0085, 1]]; const Pg = [], Ng = [], Wg = [];
+        rows.forEach(([yy, m, k]) => { const row = [], nr = [], wr = []; for (let ci = 0; ci <= NC; ci++) { const a = Math.PI / 2 + gap + (ci / NC) * (2 * Math.PI - 2 * gap); const ca = Math.cos(a), sa = Math.sin(a); row.push([ca * (E0.rx + m), yy, E0.cz + sa * (E0.rz + m)]); nr.push([ca, 0.25 + k * 0.4, sa]); wr.push([[B.chest, 1 - k * 0.4], [B.neck, k * 0.4]]); }
+          Pg.push(row); Ng.push(nr); Wg.push(wr); });
+        sb.clv = [CLOTH.COAT, CO.rib ? 4 : clY]; sb.grid(Pg.slice().reverse(), Ng.slice().reverse(), Wg.slice().reverse(), CO.rib ? dk(0.82) : dk(0.96), dk(0.7)); sb.clv = [0, 0]; } }
+    // lapels along the V (notched at the collar), rolled: the inner edge highest
+    if (CO.v && CO.lapel) for (const sx of [-1, 1]) { const NR = 14; const P2 = [], N2 = [], W2 = [];
+      for (let r = 0; r <= NR; r++) { const t = r / NR; const yy = lerp(CO.v * s + 0.004, 1.425 * s, t); const x0 = sx * halfVC(yy); const notch = t > 0.74 && t < 0.8 ? 0.35 : t >= 0.8 ? 0.55 : 1; const wd = lerp(0.008, CO.lapel, sstep(0, 0.6, t)) * notch;
+        const cols = [[0, 0.0042], [0.5, 0.0036], [1, 0.0016]].map(([k, dz]) => { const x = x0 + sx * wd * k; return [x, yy, cz(yy, x) + dz]; });
+        P2.push(cols); N2.push(cols.map((_, k) => [sx * (k === 0 ? -0.35 : 0.12), 0.05, 1])); W2.push(cols.map(() => tw(yy))); }
+      sb.clv = [CLOTH.COAT, clY]; sb.grid(sx > 0 ? P2 : P2.map((row) => row.slice().reverse()), sx > 0 ? N2 : N2.map((row) => row.slice().reverse()), W2, dk(0.94), dk(0.7)); sb.clv = [0, 0]; }
+    // closure: buttons on the front edge (a slim placket line), or a zip with its slider
+    const btnC = CO.mat === 3 ? C('#3a3428') : C('#1b1612');
+    if (CO.buttons) { if (!CO.v) vline(0.012, hemC + 0.004, topC - 0.004, 0.0035, dk(0.7));
+      for (const by of CO.buttons) { const yy = by * s; const z = cz(yy, 0.003); sb.ellipsoid([0.003, yy, z + 0.0026], 0.0085, 0.0085, 0.0026, tw(yy), btnC, { lat: 4, lon: 12 }); sb.boxPart([0.003, yy, z + 0.0048], 0.003, 0.0008, 0.0006, tw(yy), btnC.map((v) => v * 0.5)); } }
+    if (CO.zip) { vline(0, hemC + 0.002, topC + CO.collar * 0.8, 0.0085, C('#26282b'), 0.0026); vline(0, hemC + 0.002, topC + CO.collar * 0.8, 0.0032, C('#8d9196'), 0.0032);
+      const zy = 1.2 * s; sb.boxPart([0, zy, cz(zy, 0) + 0.0055], 0.009, 0.016, 0.004, tw(zy), C('#a7abb0')); sb.boxPart([0, zy - 0.016, cz(zy - 0.016, 0) + 0.006], 0.005, 0.016, 0.0018, tw(zy), C('#a7abb0')); }
+    // pockets
+    const flap = (x, yy, w2, h, col) => { strip([[x - w2, yy], [x, yy], [x + w2, yy]], h, col, 0.0026); strip([[x - w2, yy - h / 2 - 0.001], [x + w2, yy - h / 2 - 0.001]], 0.0012, dk(0.6), 0.0032); };
+    if (CO.pockets === 'flap') { for (const sx of [-1, 1]) flap(sx * 0.105, 0.985 * s, 0.04, 0.02, dk(0.95)); strip([[0.07, 1.285 * s], [0.12, 1.29 * s]], 0.011, dk(0.88)); }
+    if (CO.pockets === 'slant') for (const sx of [-1, 1]) { strip([[sx * 0.085, 1.02 * s], [sx * 0.125, 0.965 * s]].map(([x, yy]) => [x, yy]), 0.012, dk(0.85)); }
+    if (CO.pockets === 'zip') { for (const sx of [-1, 1]) { strip([[sx * 0.075, 1.04 * s], [sx * 0.125, 0.995 * s]], 0.004, C('#8d9196'), 0.003); } strip([[0.06, 1.3 * s], [0.125, 1.24 * s]], 0.004, C('#8d9196'), 0.003); }
+    if (CO.pockets === 'welt') for (const sx of [-1, 1]) strip([[sx * 0.085, 1.07 * s], [sx * 0.11, 0.99 * s]], 0.013, dk(0.78));
+    if (CO.pockets === 'cargo') { for (const sx of [-1, 1]) { flap(sx * 0.085, 1.3 * s, 0.033, 0.028, dk(0.93)); flap(sx * 0.105, 1.0 * s, 0.04, 0.03, dk(0.93));
+      for (const [px, py] of [[sx * 0.085, 1.3 * s - 0.008], [sx * 0.105, 1.0 * s - 0.009]]) sb.ellipsoid([px, py, cz(py, px) + 0.0045], 0.0055, 0.0055, 0.002, tw(py), btnC, { lat: 3, lon: 10 }); } }
+    out.coat = { hem: hemC, kind: sp.coat.kind };
   }
   out.stats = { shirt: sh.used.reduce((a, b) => a + b, 0), trousers: tr.used.reduce((a, b) => a + b, 0), skinTris: bodyTris.length / 3 };
   return out;
@@ -237,12 +356,29 @@ export function clothShader(opts) {
   const U = { uInner: { value: new THREE.Color(opts.inner || '#e8e4da') }, uOpen: { value: opts.open ? 1 : 0 }, uS: { value: opts.s || 1 }, uDenim: { value: opts.denim ? 1 : 0 }, uStitch: { value: new THREE.Color(opts.stitch || '#b8873e') }, uStripe: { value: new THREE.Color(opts.stripe || '#000000') }, uStripeOn: { value: opts.stripe ? 1 : 0 }, uVestBack: { value: new THREE.Color(opts.vestBack || '#4a4040') }, uCrease: { value: opts.crease ? 1 : 0 } };
   return (sh) => {
     Object.assign(sh.uniforms, U);
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec2 aCloth;\nvarying vec2 vCloth;\nvarying vec3 vBP;\nvarying vec3 vBN;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvCloth = aCloth; vBP = position; vBN = normal;');
+    if (!sh.uniforms.uSway) sh.uniforms.uSway = { value: new THREE.Vector4() };
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec2 aCloth;\nvarying vec2 vCloth;\nvarying vec3 vBP;\nvarying vec3 vBN;\nuniform vec4 uSway;\nuniform float uOpen;\nuniform float uS;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+vCloth = aCloth; vBP = position; vBN = normal;
+  { // cloth secondary motion (bind space, before skinning): loose hems lag behind the body's accelerations and turns
+    // (spring in Anim.update) and flutter at speed; motion into the body is removed, so loose cloth only slides along
+    // or swings out from what is under it
+    float idc = floor( aCloth.x + 0.5 ); float yb = position.y / uS; float w = 0.0;
+    if ( idc == 1.0 && uOpen > 0.5 ) w = smoothstep( 1.03, 0.88, yb ) + 0.6 * smoothstep( 1.12, 0.95, yb ) * step( 0.0, position.z ) * smoothstep( 0.6, 1.0, abs( aCloth.y ) ); // untucked open shirt: hem + front edges
+    else if ( idc == 5.0 ) w = 0.55 * smoothstep( 1.0, 0.93, yb ); // waistcoat points
+    else if ( idc == 6.0 ) w = 1.1 * smoothstep( 1.38, 1.02, yb ); // tie blade
+    else if ( idc == 2.0 ) w = 0.3 * smoothstep( 0.3, 0.07, yb ); // trouser hems
+    if ( w > 0.0 ) {
+      vec2 d = uSway.xy * w; vec2 nh = normal.xz; float nl = length( nh );
+      if ( nl > 0.2 ) { nh /= nl; d -= nh * min( dot( d, nh ), 0.0 ); }
+      float fl = uSway.z * w * sin( uSway.w * 8.7 + position.x * 37.0 + position.z * 23.0 + yb * 14.0 );
+      transformed.xz += d; transformed += normal * ( 0.25 * length( uSway.xy ) * w + 0.5 * ( fl + abs( fl ) ) ); transformed.y += 0.2 * length( d );
+    }
+  }`);
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
 varying vec2 vCloth; varying vec3 vBP; varying vec3 vBN;
 uniform vec3 uInner; uniform float uOpen; uniform float uS; uniform float uDenim; uniform vec3 uStitch; uniform vec3 uStripe; uniform float uStripeOn; uniform vec3 uVestBack; uniform float uCrease;
-float hbH; float hbAO;
+float hbH; float hbAO; float hbRough;
 float hbHash( vec3 p ) { p = fract( p * 0.3183099 + 0.1 ); p *= 17.0; return fract( p.x * p.y * p.z * ( p.x + p.y + p.z ) ); }
 float hbNoise( vec3 x ) { vec3 i = floor( x ); vec3 f = fract( x ); f = f * f * ( 3.0 - 2.0 * f );
   return mix( mix( mix( hbHash( i ), hbHash( i + vec3( 1.0, 0.0, 0.0 ) ), f.x ), mix( hbHash( i + vec3( 0.0, 1.0, 0.0 ) ), hbHash( i + vec3( 1.0, 1.0, 0.0 ) ), f.x ), f.y ),
@@ -252,7 +388,7 @@ float hbFade( float period, float px ) { return 1.0 - smoothstep( 0.35 * period,
 vec3 hbBump( vec3 pos, vec3 n, float h ) { vec3 dpx = dFdx( pos ), dpy = dFdy( pos ); float hx = dFdx( h ), hy = dFdy( h );
   vec3 r1 = cross( dpy, n ), r2 = cross( n, dpx ); float det = dot( dpx, r1 ); vec3 g = sign( det ) * ( hx * r1 + hy * r2 ); return normalize( abs( det ) * n - g ); }`);
     sh.fragmentShader = sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
-  hbH = 0.0; hbAO = 1.0;
+  hbH = 0.0; hbAO = 1.0; hbRough = -1.0;
   {
     float idc = floor( vCloth.x + 0.5 ); vec3 bp = vBP / uS; vec3 bn = normalize( vBN ); float px = length( fwidth( vBP ) ) * 0.7;
     vec3 tng = normalize( cross( vec3( 0.0, 1.0, 0.0 ), bn ) + vec3( 1e-4, 0.0, 0.0 ) ); vec2 cu = vec2( dot( vBP, tng ), vBP.y );
@@ -304,6 +440,11 @@ vec3 hbBump( vec3 pos, vec3 n, float h ) { vec3 dpx = dFdx( pos ), dpy = dFdy( p
       } else {
         float P = 0.0010; float f = hbFade( P, px ); float d = cu.x * 0.707 + cu.y * 0.707; hbH += 0.00006 * f * ( sin( d * 6.2832 / P ) * 0.5 + 0.5 );
         diffuseColor.rgb *= 1.0 + 0.05 * ( hbNoise( vec3( cu.x * 300.0, bp.y * 12.0, 8.0 ) ) - 0.5 ) * hbFade( 0.005, px );
+        if ( uCrease > 0.5 ) { // suit trousers: the waistcoat's windowpane overcheck, quieter
+          vec2 cq = vec2( cu.x, cu.y ) + 0.5; float lw = 0.0022; vec2 dd = abs( fract( cq / 0.075 ) - 0.5 ) * 0.075; float aa = max( px, 0.0004 );
+          float ln = max( 1.0 - smoothstep( lw * 0.5 - aa * 0.5, lw * 0.5 + aa * 0.5, dd.x ), 1.0 - smoothstep( lw * 0.5 - aa * 0.5, lw * 0.5 + aa * 0.5, dd.y ) ) * min( 1.0, lw / aa );
+          vec3 wp = mix( vec3( dot( uStripe, vec3( 0.333 ) ) ), uStripe, 0.55 ); float st = fwidth( cu.x ) / max( fwidth( cu.y ), 1e-6 ); ln *= smoothstep( 3.0, 1.6, max( st, 1.0 / max( st, 1e-6 ) ) ); /* muted thread; fades where the cloth mapping is badly stretched (crotch / seams) */
+          diffuseColor.rgb = mix( diffuseColor.rgb, mix( diffuseColor.rgb, wp, 0.07 ), clamp( ln, 0.0, 1.0 ) ); }
         if ( uCrease > 0.5 && bp.y < 0.86 && bp.y > 0.12 ) { float c = abs( atan( bn.x, bn.z ) ); float cr = smoothstep( 0.09, 0.0, c ) + 0.7 * smoothstep( 0.09, 0.0, abs( c - 3.14159 ) ); // pressed front and back creases
           hbH += 0.0009 * cr; diffuseColor.rgb *= 1.0 + 0.07 * cr; }
       }
@@ -329,12 +470,46 @@ vec3 hbBump( vec3 pos, vec3 n, float h ) { vec3 dpx = dFdx( pos ), dpy = dFdy( p
       float hb = sin( ( cu.y + tri * 1.6 ) * 6.2832 / P ) * 0.5 + 0.5; float f = hbFade( P, px ), fc = hbFade( W, px );
       vec3 wool = diffuseColor.rgb * ( 0.9 + 0.2 * hb * f + 0.1 * ( 1.0 - f ) * 0.5 ) * ( 1.0 + 0.06 * ( hbNoise( vBP * 900.0 ) - 0.5 ) * fc );
       wool *= 1.0 - 0.08 * smoothstep( 0.45, 0.5, abs( fract( cu.x / W ) - 0.5 ) ) * fc; // chevron column breaks
+      // Prince-of-Wales check: glen-check blocks (alternating 4 mm / 16 mm tone fields) under a 7.5 cm blue windowpane
+      // overcheck, filtered against the pixel footprint so it still reads (as its average tone) at play distance
+      { vec2 cq = vec2( cu.x, cu.y ) + 0.5; float gf = hbFade( 0.004, px ); vec2 g4 = floor( cq / 0.004 ); vec2 g16 = floor( cq / 0.016 );
+        float glen = mod( g16.x + g16.y, 2.0 ) < 1.0 ? mod( g4.x + g4.y, 2.0 ) : mod( g4.x, 2.0 ) * 0.6 + 0.2; wool *= 1.0 + 0.12 * ( glen - 0.5 ) * gf;
+        float lw = 0.0026; vec2 dd = abs( fract( cq / 0.075 ) - 0.5 ) * 0.075; float aa = max( px, 0.0004 ); float lx = 1.0 - smoothstep( lw * 0.5 - aa * 0.5, lw * 0.5 + aa * 0.5, dd.x ), ly = 1.0 - smoothstep( lw * 0.5 - aa * 0.5, lw * 0.5 + aa * 0.5, dd.y );
+        float ln = max( lx, ly ) * min( 1.0, lw / aa ); vec3 wp = mix( vec3( dot( uStripe, vec3( 0.333 ) ) ), uStripe, 0.55 ); wool = mix( wool, mix( wool, wp, 0.2 ), clamp( ln, 0.0, 1.0 ) ); } /* muted blue-grey thread, not a bright line */
       vec3 satin = uVestBack * ( 1.0 + 0.5 * pow( 1.0 - ndv, 2.0 ) + 0.05 * sin( cu.y * 6.2832 / 0.0006 ) * hbFade( 0.0006, px ) );
+      back = max( back, step( 1.5, vCloth.y ) ); // shawl lapels (clv y = 2): satin facing
       diffuseColor.rgb = mix( wool, satin, back ); hbH += 0.00012 * hb * f * ( 1.0 - back );
       hbH += 0.002 * hbNoise( vec3( cu.x * 14.0, bp.y * 5.0, 3.7 ) ); // soft body drape
       float side = smoothstep( 0.05, 0.0, abs( bn.z + 0.3 ) ) * step( abs( bn.y ), 0.6 ); hbH -= 0.0005 * side; hbAO *= 1.0 - 0.25 * side; // side seam where front meets back
       float dart = smoothstep( 0.0025, 0.0, abs( abs( vBP.x ) - 0.085 * uS ) ) * smoothstep( 1.26, 1.18, bp.y ) * ( 1.0 - back ); hbH -= 0.0004 * dart; hbAO *= 1.0 - 0.15 * dart; // front darts
       diffuseColor.rgb *= 1.0 + 0.08 * pow( 1.0 - ndv, 3.0 );
+    } else if ( idc == 7.0 ) {
+      // coats: wool twill / leather / nylon / cotton drill / rib knit (clv y), elbow + waist folds, a soft vertical drape
+      float m = floor( vCloth.y + 0.5 ); float armR = smoothstep( 0.17, 0.21, abs( bp.x ) );
+      float elb = exp( -pow( ( bp.y - 1.12 ) / 0.07, 2.0 ) ) * armR; float ef = hbRidge( vec3( cu.x * 9.0, bp.y * 36.0 + cu.x * 6.0, 2.9 ) );
+      if ( m < 0.5 ) { // wool suiting: 2/2 twill, faint mélange, pressed look
+        float P = 0.0014; float f = hbFade( P, px ); float d = cu.x * 0.6 + cu.y * 0.8; hbH += 0.00008 * f * ( sin( d * 6.2832 / P ) * 0.5 + 0.5 );
+        diffuseColor.rgb *= 1.0 + 0.07 * ( hbNoise( vec3( cu * 1800.0, 2.0 ) ) - 0.5 ) * hbFade( 0.002, px ) + 0.03 * ( hbNoise( vec3( cu.x * 60.0, bp.y * 9.0, 1.0 ) ) - 0.5 );
+        hbH += 0.0018 * hbNoise( vec3( cu.x * 10.0, bp.y * 3.0, 4.4 ) ); hbH += 0.0022 * elb * ef; hbAO *= 1.0 - 0.18 * elb * ( 1.0 - ef );
+        diffuseColor.rgb *= 1.0 + 0.1 * pow( 1.0 - ndv, 3.0 );
+      } else if ( m < 1.5 ) { // leather: pebbled grain, creases at the elbows / waist, worn high points, a soft sheen
+        float g = hbNoise( vBP * 1400.0 ) * 0.6 + hbNoise( vBP * 3100.0 ) * 0.4; float f = hbFade( 0.0012, px );
+        hbH += 0.00012 * g * f; hbH += 0.003 * elb * ef + 0.0012 * hbRidge( vec3( cu.x * 26.0, bp.y * 14.0, 6.1 ) ) * ( 1.0 - armR );
+        float wear = smoothstep( 0.62, 0.9, hbNoise( vec3( cu.x * 40.0, bp.y * 40.0, 3.0 ) ) ) * ( elb * 0.8 + 0.25 );
+        diffuseColor.rgb *= ( 0.92 + 0.12 * g * f ) * ( 1.0 + 0.35 * wear );
+        hbRough = 0.42 + 0.18 * g + 0.15 * wear; hbAO *= 1.0 - 0.2 * elb * ( 1.0 - ef );
+      } else if ( m < 2.5 ) { // nylon flight jacket: smooth ripstop, puffed wrinkles, satin-ish sheen
+        float rs = max( 1.0 - smoothstep( 0.0001, 0.0003, abs( fract( cu.x / 0.005 ) - 0.5 ) * 0.005 ), 1.0 - smoothstep( 0.0001, 0.0003, abs( fract( cu.y / 0.005 ) - 0.5 ) * 0.005 ) ) * hbFade( 0.005, px );
+        hbH += 0.00005 * rs + 0.0032 * hbRidge( vec3( cu.x * 14.0, bp.y * 10.0, 7.7 ) ) + 0.003 * elb * ef; diffuseColor.rgb *= 1.0 + 0.25 * pow( 1.0 - ndv, 2.0 ); hbRough = 0.36;
+      } else if ( m < 3.5 ) { // cotton drill: 3/1 twill, washed-out high points
+        float P = 0.0018; float f = hbFade( P, px ); float d = cu.x * 0.45 + cu.y * 0.89; hbH += 0.0001 * f * ( sin( d * 6.2832 / P ) * 0.5 + 0.5 );
+        diffuseColor.rgb *= 0.94 + 0.12 * hbNoise( vec3( cu.x * 200.0, bp.y * 9.0, 5.0 ) ) * hbFade( 0.005, px ); hbH += 0.0025 * hbNoise( vec3( cu.x * 12.0, bp.y * 3.0, 1.4 ) ) + 0.003 * elb * ef;
+        diffuseColor.rgb *= 1.0 + 0.12 * pow( 1.0 - ndv, 3.0 );
+      } else { // rib knit (cuffs, waistband, collar)
+        float rib = hbFade( 0.0025, px ); hbH += 0.00025 * rib * ( sin( cu.x * 6.2832 / 0.0025 ) * 0.5 + 0.5 ); diffuseColor.rgb *= 0.95 + 0.06 * rib * ( sin( cu.x * 6.2832 / 0.0025 ) * 0.5 + 0.5 );
+      }
+      // side seams, shoulder seam
+      float sd = acos( clamp( abs( bn.x ), 0.0, 1.0 ) ) * 0.13; float seam = smoothstep( 0.002, 0.0005, sd ) * step( abs( bn.y ), 0.6 ) * ( 1.0 - armR ); hbH -= 0.0005 * seam; hbAO *= 1.0 - 0.2 * seam * hbFade( 0.004, px );
     } else if ( idc == 6.0 ) {
       // silk tie: woven diagonal repp stripes, fine twill, a silk sheen at grazing angles
       float d = ( vBP.x * 0.72 + vBP.y * 0.69 ); float st = fract( d / 0.011 ); float band = smoothstep( 0.0, 0.05, st ) * smoothstep( 0.24, 0.19, st );
@@ -362,7 +537,60 @@ vec3 hbBump( vec3 pos, vec3 n, float h ) { vec3 dpx = dFdx( pos ), dpy = dFdy( p
     }
     diffuseColor.rgb *= hbAO;
   }`);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+  if ( hbRough >= 0.0 ) roughnessFactor = hbRough;`);
     sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
   normal = hbBump( - vViewPosition, normal, hbH );`);
   };
+}
+
+// ------------------------------------------------------------------ tattoos (wardrobe): ink on the anatomical skin
+// For each tattooed zone, the body triangles of that zone facing the piece are copied, lifted 0.5 mm along the normal and
+// given a projected UV into the character's tattoo atlas cell (TattooArt.tattooAtlas, 4 × 2 cells in TATTOO_ZONES order).
+// Same vertices, same skin weights as the body, so with the same (dual-quaternion) skinning the ink stays on the skin in
+// every pose; sleeves / coats cover it like they cover the skin. Bands wrap round the limb (cylindrical UV).
+const TAT_GEO = new Map();
+const TAT_ZONE_ORDER = ['foreL', 'foreR', 'upperL', 'upperR', 'chest', 'back'];
+export function buildTattooGeometry(sp, { B, J }, bandOf) {
+  const zones = TAT_ZONE_ORDER.filter((z) => sp.tattoos && sp.tattoos[z]); if (!zones.length) return null;
+  const key = sp.mh + '|' + sp.height + '|' + zones.map((z) => z + (bandOf(sp.tattoos[z]) ? 'b' : 'p')).join(','); if (TAT_GEO.has(key)) return TAT_GEO.get(key);
+  const S = shared(), Bd = base(sp); const P = Bd.P, N = Bd.N, NU = S.NU; const s = sp.height / 1.72;
+  const share = (u, re) => { let w = 0; for (let k = 0; k < 4; k++) { const ww = S.sw[u * 4 + k] / 255; if (ww > 0 && re.test(S.bones[S.si[u * 4 + k]])) w += ww; } return w; };
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2], nrm = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return a.map((x) => x / l); };
+  const crs = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const pos = [], nor = [], uv = [], si = [], sw = [], idx = [];
+  zones.forEach((z) => {
+    const cell = TAT_ZONE_ORDER.indexOf(z); const u0 = (cell % 4) * 0.25, v0 = 1 - (Math.floor(cell / 4) + 1) * 0.5; const band = !!bandOf(sp.tattoos[z]);
+    const side = z.endsWith('L') ? 'L' : 'R', sx = side === 'L' ? 1 : -1;
+    let inZone, proj;
+    if (z.startsWith('fore') || z.startsWith('upper')) {
+      const A = z.startsWith('fore') ? J['fore' + side] : J['arm' + side], Bp = z.startsWith('fore') ? J['hand' + side] : J['fore' + side]; const ax = sub(Bp, A); const len = Math.hypot(...ax); const U = ax.map((x) => x / len);
+      const re = z.startsWith('fore') ? new RegExp('^(fore|foreTwist)' + side + '$') : new RegExp('^(arm|armTwist)' + side + '$');
+      const F = nrm(z.startsWith('fore') ? [sx * 0.55, 0, 1] : [sx * 1, 0, 0.3]); const Fp = nrm(sub(F, U.map((x) => x * dot(F, U)))); const Rt = crs(U, Fp);
+      const t0 = z.startsWith('fore') ? 0.14 : 0.16, t1 = z.startsWith('fore') ? 0.86 : 0.86, wd = band ? 0 : 0.085;
+      inZone = (u) => share(u, re) > 0.5;
+      proj = (u) => { const p = [P[u * 3], P[u * 3 + 1], P[u * 3 + 2]]; const d = sub(p, A); const t = dot(d, U) / len;
+        if (band) { const tb = (t - 0.38) / 0.2; const r = sub(d, U.map((x) => x * dot(d, U))); const ang = Math.atan2(dot(r, Rt), dot(r, Fp)); return { pu: ang / (2 * Math.PI) + 0.5, pv: 1 - tb, ok: true }; }
+        const n = [N[u * 3], N[u * 3 + 1], N[u * 3 + 2]]; return { pu: dot(d, Rt) / wd + 0.5, pv: 1 - (t - t0) / (t1 - t0), ok: dot(n, Fp) > 0.3 }; };
+    } else { // chest (left pec) / upper back
+      const back = z === 'back'; const C = back ? [0, 1.31 * s, -0.12] : [0.085, 1.31 * s, 0.12]; const W = back ? 0.26 : 0.15, Hh = back ? 0.26 : 0.15; const F = back ? [0, 0, -1] : [0, 0, 1];
+      inZone = (u) => share(u, /^(chest|spine|neck|sh[LR])$/) > 0.6;
+      proj = (u) => { const p = [P[u * 3], P[u * 3 + 1], P[u * 3 + 2]]; const n = [N[u * 3], N[u * 3 + 1], N[u * 3 + 2]]; return { pu: (back ? -(p[0] - C[0]) : p[0] - C[0]) / W + 0.5, pv: (p[1] - C[1]) / Hh + 0.5, ok: dot(n, F) > 0.25 && Math.sign(p[2] - (back ? 0.02 : -0.02)) === (back ? -1 : 1) }; };
+    }
+    const map = new Map(); const pr = new Map(); const at = (u) => { if (!pr.has(u)) pr.set(u, inZone(u) ? proj(u) : null); return pr.get(u); };
+    for (let t = 0; t < S.idx.length; t += 3) { const tri = [S.idx[t], S.idx[t + 1], S.idx[t + 2]]; const q = tri.map(at); if (q.some((x) => !x || !x.ok)) continue;
+      if (q.every((x) => x.pu < -0.02) || q.every((x) => x.pu > 1.02) || q.every((x) => x.pv < -0.02) || q.every((x) => x.pv > 1.02)) continue;
+      if (q.some((x) => x.pv < -0.25 || x.pv > 1.25 || (!band && (x.pu < -0.3 || x.pu > 1.3)))) continue;
+      if (band && Math.max(...q.map((x) => x.pu)) - Math.min(...q.map((x) => x.pu)) > 0.5) continue; // seam of the wrap
+      for (let k = 0; k < 3; k++) { const u = tri[k]; let v = map.get(u); if (v === undefined) { v = pos.length / 3; map.set(u, v); const o = 0.0005;
+          pos.push(P[u * 3] + N[u * 3] * o, P[u * 3 + 1] + N[u * 3 + 1] * o, P[u * 3 + 2] + N[u * 3 + 2] * o); nor.push(N[u * 3], N[u * 3 + 1], N[u * 3 + 2]);
+          uv.push(u0 + clamp(q[k].pu, 0.002, 0.998) * 0.25, v0 + clamp(q[k].pv, 0.002, 0.998) * 0.5);
+          const L = []; for (let kk = 0; kk < 4; kk++) { const w = S.sw[u * 4 + kk] / 255; if (w > 0) L.push([B[S.bones[S.si[u * 4 + kk]]], w]); } const tot = L.reduce((a, b) => a + b[1], 0) || 1;
+          for (let kk = 0; kk < 4; kk++) { si.push(L[kk] ? L[kk][0] : 0); sw.push(L[kk] ? L[kk][1] / tot : 0); } }
+        idx.push(v); } }
+  });
+  if (!idx.length) return null;
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(si, 4)); g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sw, 4)); g.setAttribute('aSkin', new THREE.Float32BufferAttribute(new Float32Array(pos.length / 3).fill(1), 1)); g.setIndex(idx); g.computeBoundingSphere();
+  TAT_GEO.set(key, g); return g;
 }

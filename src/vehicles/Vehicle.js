@@ -1,9 +1,11 @@
 // Vehicle entity: mesh + arcade physics (player) or kinematic path following (AI, see Traffic.js).
+import { bloomHotAt } from '../gfx/BloomHot.js';
 import * as THREE from 'three';
 import { createVehicleMesh, VTYPES } from './VehicleModels.js';
 import { setAmbRear } from './AmbulanceKit.js';
 import { clamp, lerp, damp, wrapAngle } from '../core/math.js';
 import * as L from '../world/Layout.js';
+import { rampAt } from '../world/StreetRamps.js';
 import { LEAN, syncStand } from './Kickstand.js';
 
 let NEXT_ID = 1;
@@ -24,12 +26,28 @@ function headPool() {
 export function setHeadPoolNight(n) { const hp = headPool(); const k = Math.min(1, Math.max(0, (n - 0.25) / 0.6)); hp.mat.opacity = 0.32 * k * k * (3 - 2 * k); } // painted pool for far vehicles (was 0.42: on wet asphalt it read as glare)
 // Near-LOD switch for the high-detail kit (VehicleDetail.js): detail group + hi-res wheels within ud.lodR of the camera.
 import { syncDoors } from './DoorRig.js';
+import { nightLight } from '../gfx/LightSets.js';
+const _csE = new THREE.Euler(), _csQ = new THREE.Quaternion(), _csS = new THREE.Vector3(), _csP = new THREE.Vector3(), _csM = new THREE.Matrix4(), _csI = new THREE.Matrix4(); // contact-shadow placement (sync)
+export const VEH_HOOKS = { crash: null, impact: null, dispose: null }; // impact(v, speed, contact): VehicleDamage dents / scrapes / engine damage; dispose(v): its per-vehicle buffers // crash(v, by, dv): the player's vehicle hit this one (Traffic: the other driver's reaction — Mind.js road rage)
+// chassis LOD: the spring / terrain attitude only runs within CHASSIS.r of CHASSIS.focus (the player; set by Game each frame)
+export const CHASSIS = { focus: null, r: 160 };
+const SUS_DROOP = 0.12, SUS_BUMP = 0.16; // wheel travel below / above the static ride height (m)
+// Street Customs performance (CustomsCatalog.tuneOf → v.tune): per-vehicle multipliers on the vehicle's own numbers; wet = road
+// wetness 0..1 (Game sets it each frame) for the semi-slick wet penalty. A vehicle without a tune drives exactly as before.
+export const TUNE_ENV = { wet: 0 };
 export const LIVE_VEHICLES = globalThis.__liveVehicles || (globalThis.__liveVehicles = new Set()); // global so dev hot-reloads share one registry
 // The hidden half of each LOD pair is also taken out of the scene graph (its host is kept in userData.host): three walks every
 // object of the scene each frame to update world matrices, visible or not, and the ~70 vehicles were half of all objects
 const host = (o, on) => { if (!o) return; const h = o.userData.host; if (on) { if (h && o.parent !== h) h.add(o); } else if (o.parent) o.parent.remove(o); };
 export function setVehicleLOD(ud, near) { if (ud.lodNear === near) return; ud.lodNear = near; ud.detail.visible = near; host(ud.detail, near); for (const w of ud.wheels) { const u = w.userData; u.lo.visible = !near; u.hi.visible = near; host(u.lo, !near); host(u.hi, near); if (u.cal) { u.cal.visible = near; host(u.cal, near); } } }
-export function updateVehicleLOD(cam) { const cx = cam.position.x, cy = cam.position.y, cz = cam.position.z; for (const v of LIVE_VEHICLES) { const m = v.mesh, ud = m.userData; if (ud.doors) syncDoors(ud); if (!ud.detail) continue; const r = ud.lodR, d2 = (m.position.x - cx) ** 2 + (m.position.y - cy) ** 2 + (m.position.z - cz) ** 2; setVehicleLOD(ud, d2 < (ud.lodNear ? (r + 5) * (r + 5) : r * r) && m.visible !== false); } }
+// real-car bodies (RealModels.js): 0 = LOD0 body meshes (doors cut out, interior), 1 = LOD1, 2 = LOD2 (doors shut); the hidden
+// levels leave the scene graph like the detail group. Any door off its seat keeps LOD0 (the door ranges live on those meshes).
+export function setRealLevel(ud, lvl) { const R = ud.real; if (!R || R.level === lvl) return; R.level = lvl; const hi = lvl === 0;
+  for (const m of R.hi) { m.visible = hi; host(m, hi); } R.mid.visible = lvl === 1; host(R.mid, lvl === 1); R.low.visible = lvl === 2; host(R.low, lvl === 2); }
+const doorOff = (ud) => { if (!ud.doors) return false; for (const d of ud.doors) if (d.live || (d.ang || 0) > 0) return true; return false; };
+export function updateVehicleLOD(cam) { const cx = cam.position.x, cy = cam.position.y, cz = cam.position.z; for (const v of LIVE_VEHICLES) { const m = v.mesh, ud = m.userData; if (ud.doors) syncDoors(ud, v); if (!ud.detail) continue; const r = ud.lodR, d2 = (m.position.x - cx) ** 2 + (m.position.y - cy) ** 2 + (m.position.z - cz) ** 2; setVehicleLOD(ud, d2 < (ud.lodNear ? (r + 5) * (r + 5) : r * r) && m.visible !== false);
+    const fr = ud.farR; if (fr) { const far = d2 > (ud.lodFar ? (fr - 10) * (fr - 10) : fr * fr); if (far !== ud.lodFar) { ud.lodFar = far; for (const fm of ud.farHide) fm.visible = !far; } }
+    if (ud.real) setRealLevel(ud, ud.lodNear || doorOff(ud) || (ud.dmgHi && !ud.lodFar) ? 0 : ud.lodFar ? 2 : 1); /* dmgHi: dented / burnt (VehicleDamage changes the LOD0 body only): full body out to the far LOD */ } } // third level: cabin / plate / badges off when far
 // ---- real headlight beams. A fixed pool of SpotLights is created once at load (light counts never change, so no shader
 // recompiles); every frame they are handed to the vehicles whose lights matter most: the player's own vehicle first (that
 // beam casts shadows: kerbs, poles, people and cars throw real shadows ahead of you), then the nearest lit vehicles that
@@ -41,7 +59,7 @@ export class HeadlightRig {
     for (let i = 0; i < count; i++) {
       const s = new THREE.SpotLight(0xfff0d8, 0, 60, 0.5, 0.6, 1.5); s.name = 'headBeam' + i; s.castShadow = !!shadows; // every pooled beam is stopped by walls (no light through the school / compound walls)
       if (s.castShadow) { const r = i === 0 ? shadowRes : Math.max(512, shadowRes / 2); s.shadow.mapSize.set(r, r); s.shadow.autoUpdate = false; s.shadow.needsUpdate = true; /* one initial render allocates the depth map: a shadow-casting light whose map never existed leaves an unbound shadow sampler and every lit draw call is rejected */ s.shadow.camera.near = 0.3; s.shadow.camera.far = 60; s.shadow.camera.userData.noFoliage = true; /* no coarse leaf shadows (MeshBuilder.skipLampShadow) */ s.shadow.bias = -0.0005; s.shadow.normalBias = 0.04; }
-      s.position.set(0, -500, 0); s.target.position.set(0, -501, 0); scene.add(s); scene.add(s.target); this.spots.push(s);
+      s.position.set(0, -500, 0); s.target.position.set(0, -501, 0); scene.add(nightLight(s)); scene.add(s.target); this.spots.push(s); /* dark by day: out of the shaders then (LightSets) */
     }
     this.assigned = []; this._p = new THREE.Vector3(); this._d = new THREE.Vector3();
   }
@@ -83,16 +101,18 @@ export class HeadlightRig {
       // the car and the viewer, which hid the car itself: oncoming beams run at 60 %, the player's own beam is unchanged
       let face = 1; if (v !== playerVeh) { const vx = Math.sin(v.yaw), vz = Math.cos(v.yaw), ddx = cx - v.x, ddz = cz - v.z, dl = Math.hypot(ddx, ddz) || 1; const toward = (vx * ddx + vz * ddz) / dl; face = 1 - 0.4 * clamp((toward - 0.3) / 0.5, 0, 1); }
       s.angle = bike ? 0.42 : 0.52; s.intensity = (bike ? 55 : 95) * k * face * (v.damage > 0.85 ? 0.3 : 1);
+      const bc = m.userData.beamCol || 0xfff0d8; if (s.color.getHex() !== bc) s.color.setHex(bc); // Street Customs headlight colour (LED / xenon / amber); a colour change never recompiles
       m.userData.realBeam = true; if (m.userData.headPool) m.userData.headPool.visible = false; this.assigned.push(v); });
   }
 }
 export class Vehicle {
   constructor(type, seed, scene) {
-    this.id = NEXT_ID++; this.type = type; this.T = VTYPES[type]; this.mesh = createVehicleMesh(type, seed); scene.add(this.mesh); this.scene = scene; LIVE_VEHICLES.add(this);
+    this.id = NEXT_ID++; this.type = type; this.seed = seed; this.T = VTYPES[type]; this.mesh = createVehicleMesh(type, seed); scene.add(this.mesh); this.scene = scene; LIVE_VEHICLES.add(this);
     this.x = 0; this.z = 0; this.y = 0; this.yaw = 0; this.speed = 0; this.steer = 0; this.lat = 0; this.wheelRot = 0; this.pitch = 0; this.roll = 0; this.stand = 0; this.leanK = 0; /* two-wheelers: side stand down / resting on it (Kickstand.js) */
     this.brake = false; this.lights = false; this.driver = null; this.player = false; this.ai = null; this.parked = false; this.horn = 0; this.damage = 0; this.health = 100;
     this.radius = this.T.wid * 0.55; this.half = this.T.len / 2;
     this.sus = { r: 0, rv: 0, h: 0, hv: 0 }; this.load = 0; // body on its springs: r = roll (+ = driver side down), h = sink (m)
+    this.power = 1; this.vy = 0; this.air = false; this.pv = 0; this.rv = 0; this.tPitch = 0; this.tRoll = 0; this.wreckLift = 0; this.dropFit = null; // engine output (VehicleDamage), airborne state, pitch / roll rates, terrain attitude, wreck lift, flat-tyre attitude
   }
   // suspension: under-damped springs (~1.6 Hz, like a family car) toward the static sag of the current load
   settle(dt) { if (!(dt > 0) || this.T.entry === 'bike' || this.T.rail) return; const S = this.sus, h = Math.min(dt, 1 / 30), k = 100, c = 6;
@@ -103,37 +123,45 @@ export class Vehicle {
   get pos() { return { x: this.x, z: this.z }; }
   // police light bar: alternating blue/red while responding, dark otherwise (no flashing on parked or patrolling units)
   rearDoors(k) { const r = this.mesh.userData.rear; if (r) setAmbRear(r, Math.max(0, Math.min(1, k))); } // ambulance twin rear doors (0 shut .. 1 open)
-  beacons(on, t = 0) { const b = this.mesh.userData.beacons; if (!b) return; this.beaconsOn = on; const ph = (t * 2.4) % 1, k = (t * 9.6) % 1 < 0.5; b.blue.emissiveIntensity = on ? (ph < 0.5 && k ? 7 : 0.15) : 0; b.red.emissiveIntensity = on ? (ph >= 0.5 && k ? 7 : 0.15) : 0; }
+  beacons(on, t = 0) { const b = this.mesh.userData.beacons; if (!b) return; this.beaconsOn = on; if (on) bloomHotAt(this.x, (this.y || 0) + 1.6, this.z, 0.3); const ph = (t * 2.4) % 1, k = (t * 9.6) % 1 < 0.5; b.blue.emissiveIntensity = on ? (ph < 0.5 && k ? 7 : 0.15) : 0; b.red.emissiveIntensity = on ? (ph >= 0.5 && k ? 7 : 0.15) : 0; }
   forward() { return [Math.sin(this.yaw), Math.cos(this.yaw)]; }
   place(x, z, yaw) { this.x = x; this.z = z; this.yaw = yaw; this.y = L.groundY(x, z); this.sync(0); }
   // circles along the length used for collision
   circles() { const [fx, fz] = this.forward(); const n = Math.max(2, Math.ceil((this.T.len - this.T.wid) / (this.T.wid * 0.7)) + 1); /* overlapping circles: no gaps along the body */ const out = []; for (let i = 0; i < n; i++) { const t = n === 1 ? 0 : (i / (n - 1) - 0.5) * (this.T.len - this.T.wid); out.push([this.x + fx * t, this.z + fz * t]); } return out; }
   // Player physics. input: {throttle (-1..1), steer (-1..1), handbrake}
   drive(dt, input, collision, others) {
+    if (this.wrecked) { this.speed = 0; this.lat = 0; if (!this.wreck || this.wreck.rest) this.sync(dt); return; } // a burnt-out shell (VehicleDamage moves it while it is in the air)
     const T = this.T; const fwd = input.throttle; const sp = this.speed;
     let acc = 0;
-    const flat = this.flat ? 1 : 0, top = T.maxSpeed * (flat ? 0.5 : 1); // punctured tyres (police spike strip): half the top speed, weak traction
-    if (fwd > 0) acc = sp < -0.5 ? 12 : T.accel * (flat ? 0.6 : 1) * fwd * (1 - Math.max(0, sp) / top);
-    else if (fwd < 0) acc = sp > 0.5 ? -12 : T.accel * 0.5 * fwd * (1 - Math.max(0, -sp) / (T.maxSpeed * 0.3));
-    else acc = -Math.sign(sp) * Math.min(Math.abs(sp) / dt, 1.5);
+    const K = this.tune; const flat = this.flat ? 1 : 0, pw = this.power ?? 1; const SK = this.player && this.sk ? this.sk : null; const top = T.maxSpeed * (K ? K.top : 1) * (flat ? 0.5 : 1) * (0.35 + 0.65 * pw) * (SK && T.pedal ? SK.bikeTop : 1);
+    let kA = 1; if (K) { kA = K.accel; // engine / exhaust / weight; turbo boost builds with throttle over the spool time; gearbox: mid-range pull + sharper launch
+      if (K.turbo) { const bt = fwd > 0.55 && sp > 1 ? 1 : 0; this.boost = (this.boost || 0) + (bt - (this.boost || 0)) * Math.min(1, dt / (bt ? K.turbo.spool * (K.trans ? 1 - K.trans.resp * 0.5 : 1) : 0.25)); kA *= 1 + K.turbo.k * this.boost * this.boost; }
+      if (K.trans) { const u = clamp(sp / Math.max(1, top), 0, 1); kA *= 1 + K.trans.pull * Math.exp(-((u - 0.5) ** 2) / 0.06) + K.trans.resp * 0.12 * (1 - u); } } // punctured tyres (police spike strip / shot out): half the top speed, weak traction; a damaged engine loses power
+    const kB = K ? K.brake : 1; if (SK && T.pedal) kA *= SK.bikeAccel; // Cycling skill: stronger legs
+    if (fwd > 0) acc = sp < -0.5 ? 12 * kB : pw <= 0.01 ? 0 : T.accel * kA * (flat ? 0.6 : 1) * pw * fwd * (1 - Math.max(0, sp) / top);
+    else if (fwd < 0) acc = sp > 0.5 ? -(T.pedal ? 5.5 : 12) * kB : T.accel * 0.5 * fwd * (1 - Math.max(0, -sp) / (T.maxSpeed * 0.3));
+    else acc = -Math.sign(sp) * Math.min(Math.abs(sp) / dt, T.pedal ? 0.12 : 1.5); // a bicycle freewheels (rolling resistance only)
     if (input.handbrake) acc -= Math.sign(sp) * Math.min(Math.abs(sp) / dt, 9);
     acc -= sp * Math.abs(sp) * 0.0012 * (T.mass > 3000 ? 2 : 1);
+    if (this.air) acc = -sp * Math.abs(sp) * 0.0012; // in the air: no drive, no brakes (only drag)
     this.speed += acc * dt; this.brake = (fwd < 0 && sp > 0.5) || input.handbrake;
     { // tyre smoke + exhaust drivers for VehicleSmoke (0..1; it reads and clears them each frame): flooring it from a standstill spins the
       // driven wheels for a moment (more on powerful cars), throttle against the handbrake is a burnout, a handbrake slide smokes the rears,
       // stamping on the brakes at speed briefly locks the fronts. Sideways sliding / spinning is read from the motion itself.
-      const ts = this.tireSmoke || (this.tireSmoke = { f: 0, r: 0, launch: 0 }); const heavy = T.mass > 3000, power = clamp((T.accel - 3.2) / 3.5, 0.15, 1);
+      const ts = this.tireSmoke || (this.tireSmoke = { f: 0, r: 0, launch: 0, spin: 0 }); const heavy = T.mass > 3000, power = clamp((T.accel - 3.2) / 3.5, 0.15, 1);
       if (fwd > 0.85 && !(this._thr > 0.5) && sp > -0.3 && sp < 1.5 && !heavy) ts.launch = 0.35 + 0.5 * power; this._thr = fwd;
-      if (ts.launch > 0) { ts.launch = fwd > 0.5 ? Math.max(0, ts.launch - dt) : 0; ts.r = Math.max(ts.r, Math.min(1, ts.launch * 1.6) * (0.35 + 0.65 * power) * (T.entry === 'bike' ? 0.5 : 1)); }
-      if (input.handbrake && fwd > 0.5 && Math.abs(sp) < 6 && !heavy) ts.r = Math.max(ts.r, 1);
+      if (ts.launch > 0) { ts.launch = fwd > 0.5 ? Math.max(0, ts.launch - dt) : 0; ts.r = Math.max(ts.r, Math.min(1, ts.launch * 1.6) * (0.35 + 0.65 * power) * (T.entry === 'bike' ? 0.5 : 1)); ts.spin = Math.max(ts.spin || 0, Math.min(1, ts.launch * 1.6)); }
+      if (input.handbrake && fwd > 0.5 && Math.abs(sp) < 6 && !heavy) { ts.r = Math.max(ts.r, 1); ts.spin = 1; } // spin = the tread runs ahead of the road (throws smoke back)
       else if (input.handbrake && Math.abs(sp) > 3) ts.r = Math.max(ts.r, clamp(Math.abs(sp) / 14, 0.35, 0.9));
       if (fwd < -0.5 && sp > 12) ts.f = Math.max(ts.f, 0.25 * clamp((sp - 12) / 12, 0, 1) * (heavy ? 0.5 : 1));
       this.throttle = Math.max(0, fwd); this.throttleFresh = true; }
-    const steerMax = T.steer * lerp(1, 0.35, clamp(Math.abs(sp) / T.maxSpeed, 0, 1));
+    if (!this.air && this.tPitch) { const gs = 9.81 * Math.sin(this.tPitch); this.speed += gs * dt; } // gravity along a slope: ramps and quarter-pipes slow you going up, speed you up coming down
+    const steerMax = T.steer * (K ? K.steer : 1) * (SK && !T.pedal ? SK.steer : 1) * lerp(1, 0.35, clamp(Math.abs(sp) / T.maxSpeed, 0, 1));
     this.steer = damp(this.steer, input.steer * steerMax + (flat ? Math.sin(performance.now() * 0.0071) * 0.05 * clamp(Math.abs(sp) / 8, 0, 1) : 0), 6, dt); // flats pull and wobble
-    const wb = T.len * 0.62; let yawRate = (this.speed * Math.tan(this.steer)) / wb;
+    const wb = T.len * 0.62; let yawRate = this.air ? 0 : (this.speed * Math.tan(this.steer)) / wb;
     // tyre grip limit: lateral acceleration v·ω can't exceed ~1.2 g (cars) / ~0.95 g (two-wheelers) — stops twitchy high-speed spins
-    const aMax = (T.entry === 'bike' ? 9.3 : T.mass > 3000 ? 6.5 : 11.5) * (input.handbrake ? 1.4 : 1); const yrMax = aMax / Math.max(Math.abs(this.speed), 1);
+    const kG = K ? K.grip * (TUNE_ENV.wet > 0.3 ? K.gripWet : 1) * (1 + K.wing * clamp(Math.abs(sp) / 30, 0, 1)) : 1; // tyres / suspension / wing downforce
+    const aMax = (T.entry === 'bike' ? 9.3 : T.mass > 3000 ? 6.5 : 11.5) * kG * (SK && !T.pedal ? SK.grip : 1) * (input.handbrake ? 1.4 : 1); const yrMax = aMax / Math.max(Math.abs(this.speed), 1);
     if (Math.abs(yawRate) > yrMax) yawRate = Math.sign(yawRate) * yrMax;
     // drift: with handbrake the rear slides (lateral velocity persists)
     const pit = this.pitT > 0; if (pit) this.pitT -= dt; // spun by a police PIT: the rear has broken away, little lateral grip for a moment
@@ -144,13 +172,21 @@ export class Vehicle {
     let nx = this.x + (fx * this.speed + rx * this.lat) * dt, nz = this.z + (fz * this.speed + rz * this.lat) * dt;
     // water: block like a wall
     if (L.isWater(nx, nz) && !L.bridgeWalkAt(nx, nz) && !L.roadAt(nx, nz)) { nx = this.x; nz = this.z; this.impact(Math.abs(this.speed)); this.speed *= -0.2; }
+    { // swept nose: at racer speeds (74 m/s ≈ 2.5 m per 30 fps frame) a single jump could land past a thin wall / fence and be
+      // pushed out the far side — sample the path and stop at the first contact so the impulse response below handles it
+      const dx = nx - this.x, dz = nz - this.z, dl = Math.hypot(dx, dz), rr = this.radius;
+      if (dl > rr * 0.8) { const nose = Math.max(0, this.half - rr), ox = this.x + fx * nose, oz = this.z + fz * nose;
+        if (!collision.resolveCircle(ox, oz, rr, this.y, 0.25, 2, { vehicle: true }).hit) { const n = Math.ceil(dl / (rr * 0.6));
+          for (let i = 1; i <= n; i++) { const t = i / n; if (collision.resolveCircle(ox + dx * t, oz + dz * t, rr, this.y, 0.25, 2, { vehicle: true }).hit) { nx = this.x + dx * t; nz = this.z + dz * t; break; } } } } }
+    if (!this.air) { const gN = L.groundY(nx, nz), gC = this.groundY ?? gN; // a step up taller than a tyre can climb (the side / back of a stunt ramp, the seawall coping) is a wall
+      if (gN > gC + 0.45) { const sg = Math.sign(this.speed) || 1; nx = this.x; nz = this.z; if (Math.abs(this.speed) > 3) this.impact(Math.abs(this.speed) * 0.8, { nx: -fx * sg, nz: -fz * sg, t: sg * T.len / 2 }); this.speed *= -0.2; this.lat *= 0.3; } }
     this.x = nx; this.z = nz;
     // ---- collisions: impulse response (restitution + tangential friction + yaw spin from off-centre contacts), mass-weighted against other vehicles
     const m1 = T.mass || 1100, I1 = (T.len * T.len + T.wid * T.wid) / 12; const nC = Math.max(2, Math.ceil((T.len - T.wid) / (T.wid * 0.7)) + 1); const tOf = (k) => (k / (nC - 1) - 0.5) * (T.len - T.wid);
-    let V = [fx * this.speed + rx * this.lat, fz * this.speed + rz * this.lat]; let maxJ = 0; this.spin = this.spin || 0;
+    let V = [fx * this.speed + rx * this.lat, fz * this.speed + rz * this.lat]; let maxJ = 0, hit = null; this.spin = this.spin || 0;
     const applyImpulse = (nx_, nz_, jv, t, mu) => { /* jv = velocity change along the normal (m/s) applied at body offset t */ const vtx = V[0] - nx_ * (V[0] * nx_ + V[1] * nz_), vtz = V[1] - nz_ * (V[0] * nx_ + V[1] * nz_); const vt = Math.hypot(vtx, vtz);
       V[0] += nx_ * jv; V[1] += nz_ * jv; if (vt > 1e-3) { const f = Math.min(1, mu * jv / vt); V[0] -= vtx * f; V[1] -= vtz * f; } /* scraping friction slows the slide along the obstacle */
-      this.spin = clamp(this.spin + 0.45 * jv * t * (nx_ * rx + nz_ * rz) / I1 * 0.25, -2.4, 2.4); maxJ = Math.max(maxJ, jv); };
+      this.spin = clamp(this.spin + 0.45 * jv * t * (nx_ * rx + nz_ * rz) / I1 * 0.25, -2.4, 2.4); if (jv > maxJ) hit = { nx: nx_, nz: nz_, t, slide: vt }; maxJ = Math.max(maxJ, jv); };
     // static world: gather the deepest push per circle → one combined normal, contact at the deepest circle
     let sx = 0, sz = 0, best = 0, bestT = 0; const cs = this.circles();
     for (let k = 0; k < cs.length; k++) { const [cx, cz] = cs[k]; const r = collision.resolveCircle(cx, cz, this.radius, this.y, 0.25, 2, { vehicle: true }); if (r.hit) { const dx = r.x - cx, dz = r.z - cz, dl = Math.hypot(dx, dz); this.x += dx; this.z += dz; sx += dx; sz += dz; if (dl > best) { best = dl; bestT = tOf(k); } } }
@@ -162,7 +198,7 @@ export class Vehicle {
         const px = hw + cr - Math.abs(lx), pz = hl + cr - Math.abs(lz); if (px <= 0 || pz <= 0) continue;
         let mx, mz, pen; if (px < pz) { pen = px; const sg = lx > 0 ? -1 : 1; mx = rx * sg; mz = rz * sg; } else { pen = pz; const sg = lz > 0 ? -1 : 1; mx = fx * sg; mz = fz * sg; }
         this.x += mx * pen; this.z += mz * pen; sx += mx * pen; sz += mz * pen; if (pen > best) { best = pen; bestT = clamp(lz, -hl, hl); } } }
-    if (best > 0.005) { const sl = Math.hypot(sx, sz) || 1, nx_ = sx / sl, nz_ = sz / sl; const vn = V[0] * nx_ + V[1] * nz_; if (vn < 0) applyImpulse(nx_, nz_, -(1 + 0.18) * vn, bestT, 0.35); }
+    if (best > 0.005) { const sl = Math.hypot(sx, sz) || 1, nx_ = sx / sl, nz_ = sz / sl; const vn = V[0] * nx_ + V[1] * nz_; if (vn < 0) applyImpulse(nx_, nz_, -(1 + 0.18) * vn, bestT, 0.35); else if (VEH_HOOKS.impact) { const vt = Math.abs(V[0] * nz_ - V[1] * nx_); if (vt > 2.5) VEH_HOOKS.impact(this, 0, { nx: nx_, nz: nz_, t: bestT, slide: vt, scrapeOnly: true }); } } // grinding along a wall: paint scraped off
     // other vehicles: relative velocity along the contact normal, impulse split by mass; the other car is shoved (leaves its lane, slides, spins)
     if (others) for (const o of others) {
       if (o === this) continue; const d2 = (o.x - this.x) ** 2 + (o.z - this.z) ** 2; if (d2 > (8 + (o.T ? o.T.len / 2 : 4)) ** 2) continue;
@@ -174,19 +210,31 @@ export class Vehicle {
       const ofw = o.forward ? o.forward() : [0, 0]; const Vo = o.free ? [o.free.vx, o.free.vz] : [ofw[0] * (o.speed || 0), ofw[1] * (o.speed || 0)];
       const vn = (V[0] - Vo[0]) * nx_ + (V[1] - Vo[1]) * nz_;
       if (vn < 0) { const J = -(1 + 0.22) * vn / (1 / m1 + (o.immovable ? 0 : 1 / m2)); applyImpulse(nx_, nz_, J / m1, ta, 0.25);
-        if (!o.immovable && o.shove) { const dv2 = J / m2; const orx = ofw[1], orz = -ofw[0]; const I2 = o.T ? (o.T.len ** 2 + o.T.wid ** 2) / 12 : 2; o.shove(-nx_ * dv2, -nz_ * dv2, clamp(0.45 * dv2 * tb * (-nx_ * orx - nz_ * orz) / I2 * 0.25, -2.4, 2.4), this); } }
+        if (!o.immovable && o.shove) { const dv2 = J / m2; const orx = ofw[1], orz = -ofw[0]; const I2 = o.T ? (o.T.len ** 2 + o.T.wid ** 2) / 12 : 2; o.shove(-nx_ * dv2, -nz_ * dv2, clamp(0.45 * dv2 * tb * (-nx_ * orx - nz_ * orz) / I2 * 0.25, -2.4, 2.4), this); }
+        if (VEH_HOOKS.impact && !o.isTrain) VEH_HOOKS.impact(o, -vn * 1.25 * (o.immovable ? 1 : m1 / (m1 + m2)) * 1.6, { nx: -nx_, nz: -nz_, t: tb, by: this }); } // the other car is dented where it was hit
       else if (o.bump) o.bump(0, 0, this);
     }
-    if (maxJ > 0.05) { this.speed = V[0] * fx + V[1] * fz; this.lat = V[0] * rx + V[1] * rz; this.impact(maxJ * 1.25); } /* damage + camera shake scale with the normal (closing) speed: a graze is light, a head-on is heavy */
+    if (maxJ > 0.05) { this.speed = V[0] * fx + V[1] * fz; this.lat = V[0] * rx + V[1] * rz; this.impact(maxJ * 1.25, hit); } /* damage + camera shake scale with the normal (closing) speed: a graze is light, a head-on is heavy */
     this.yaw = wrapAngle(this.yaw + this.spin * dt); this.spin *= Math.exp(-(pit ? 0.9 : 3.2) * dt); /* tyres scrub the spin off */
-    this.groundY = damp(this.groundY ?? L.groundY(this.x, this.z), L.groundY(this.x, this.z), 12, dt);
+    { // vertical: the body follows the road on its springs; when the road falls away faster than the car can follow (a kerb drop at
+      // speed, a ramp crest, an edge) it flies — gravity, no traction — and lands on its suspension (compression ∝ landing speed)
+      const gNow = L.groundY(this.x, this.z), gy0 = this.groundY ?? gNow; const ramp = rampAt(this.x, this.z), wasR = this.onRamp; this.onRamp = ramp;
+      const rate = dt > 0 ? (gNow - gy0) / dt : 0;
+      // stunt ramps: the surface is followed exactly (no lag) and the vehicle leaves it where the ground stops rising as fast as
+      // the vehicle is: off a kicker's lip, over a fun-box crest — it carries its vertical speed into the air
+      if (!this.air && (ramp || wasR) && (this.gyv || 0) > 1.2 && rate < this.gyv - 2.5) { this.air = true; this.vy = clamp(this.gyv, 0, 9.5); this.airT = 0; this.launch = { ramp: wasR || ramp, x: this.x, z: this.z, y: gy0, speed: this.speed, t: performance.now() }; }
+      else if (!this.air && T.entry !== 'bike' && gNow < gy0 - 0.35) { this.air = true; this.vy = clamp(this.gyv || 0, -4, 8); this.airT = 0; }
+      if (this.air) { this.vy -= 9.81 * dt; this.groundY = gy0 + this.vy * dt; this.airT += dt; this.pv += 0.25 * dt; /* the nose slowly drops in a long fall */
+        this.tPitch = damp(this.tPitch || 0, -Math.atan2(this.vy, Math.max(2, Math.abs(this.speed))) * (T.entry === 'bike' ? 0.8 : 0.45), 3, dt); // the body follows its flight path
+        if (this.groundY <= gNow) { let vImp = -this.vy; if (ramp) { const fx2 = Math.sin(this.yaw), fz2 = Math.cos(this.yaw); const sl = (L.groundY(this.x + fx2 * 0.5, this.z + fz2 * 0.5) - gNow) / 0.5; vImp = Math.max(0, vImp + this.speed * sl); } /* a landing ramp's down-slope takes most of the hit */
+          this.groundY = gNow; this.air = false; this.vy = 0; this.gyv = 0; const S = this.sus; S.hv += Math.min(2.4, vImp * 0.42); this.pv += clamp(vImp * 0.05, 0, 0.6) * (Math.random() < 0.5 ? 1 : 0.6); /* springs take the landing; a nose / tail-first touchdown rocks the body */
+          if (vImp > (this.launch ? 7.5 : 5.5)) this.impact((vImp - (this.launch ? 2 : 0)) * 1.4, { nx: 0, nz: 0, t: 0, land: true }); this.landed = { v: vImp, t: performance.now(), x: this.x, z: this.z, launch: this.launch || null }; this.launch = null; } }
+      else if (ramp || wasR) { this.groundY = gNow; this.gyv = this.gyv === undefined ? rate : this.gyv + (rate - this.gyv) * Math.min(1, dt * 30); }
+      else { const prev = gy0; this.groundY = damp(gy0, gNow, 12, dt); this.gyv = dt > 0 ? (this.groundY - prev) / dt : 0; } }
     // body attitude: cars pitch/roll a little on their suspension; two-wheelers lean into the turn about the tyre contact patch
     const latA = yawRate * this.speed; const twoWheel = this.T.entry === 'bike'; if (twoWheel && Math.abs(this.speed) > 0.3) { this.stand = 0; this.leanK = 0; } // never ridden on the stand
-    this.pitch = damp(this.pitch, clamp(-acc * 0.004, -0.05, 0.05), 5, dt);
-    this.roll = damp(this.roll, twoWheel ? clamp(Math.atan2(latA, 9.81) * 0.85, -0.55, 0.55) : clamp(-latA * 0.006, -0.06, 0.06), twoWheel ? 4 : 5, dt);
-    // the attitude rotates about the origin at road level → lift the body so the low side never sinks into the road
-    const lift = twoWheel ? 0 : (this.T.wid / 2) * Math.abs(Math.sin(this.roll)) + (this.T.len / 2) * Math.abs(Math.sin(this.pitch));
-    this.y = this.groundY + lift;
+    if (twoWheel) { this.pitch = damp(this.pitch, (this.tPitch || 0) + clamp(-acc * 0.004, -0.05, 0.05), 9, dt); this.roll = damp(this.roll, clamp(Math.atan2(latA, 9.81) * 0.85, -0.55, 0.55), 4, dt); } // cars: the spring chassis in sync()
+    this.y = this.groundY;
     this.sync(dt);
   }
   // push a walker's circle (radius r) out of this vehicle's body box (oriented rectangle); returns null if clear
@@ -202,21 +250,72 @@ export class Vehicle {
     else { const ex = hw - Math.abs(lx), ez = hl - Math.abs(lz); if (ex < ez) { nlx = Math.sign(lx || 1) * (hw + r); nlz = lz; } else { nlx = lx; nlz = Math.sign(lz || 1) * (hl + r); } } // centre inside: leave by the nearest side
     return { x: this.x + nlx * fz + nlz * fx, z: this.z - nlx * fx + nlz * fz };
   }
-  impact(v) { if (v > 4) { this.damage = Math.min(1, this.damage + v * 0.004); this.lastImpact = { v, t: performance.now() }; } }
+  impact(v, contact = null) { if (v > 4) { this.damage = Math.min(1, this.damage + v * 0.004); this.lastImpact = { v, t: performance.now() }; } if (VEH_HOOKS.impact && v > 2.5) VEH_HOOKS.impact(this, v, contact); }
   // impulse from a collision (AI / parked): leave the lane and slide freely until the energy is gone (Traffic.stepFree)
-  shove(dvx, dvz, dspin = 0) { if (this.player || this.immovable) return; const dv = Math.hypot(dvx, dvz); if (dv < 0.6 && !this.free) { this.bump(0, 0); return; } const [fx, fz] = this.forward(); const f = this.free || (this.free = { vx: fx * (this.speed || 0), vz: fz * (this.speed || 0), spin: 0, rest: 0, sev: 0 }); f.vx += dvx; f.vz += dvz; f.spin = clamp(f.spin + dspin, -2.4, 2.4); f.sev = Math.max(f.sev, dv); f.rest = 0; this.speed = 0; this.brake = true; if (this.ai) this.ai.bumped = 2.5; this.impact(dv * 1.25); }
+  shove(dvx, dvz, dspin = 0, by = null) { if (this.player || this.immovable) return; const dv = Math.hypot(dvx, dvz); if (by && by.player && VEH_HOOKS.crash) VEH_HOOKS.crash(this, by, dv); if (dv < 0.6 && !this.free) { this.bump(0, 0); return; } const [fx, fz] = this.forward(); const f = this.free || (this.free = { vx: fx * (this.speed || 0), vz: fz * (this.speed || 0), spin: 0, rest: 0, sev: 0 }); f.vx += dvx; f.vz += dvz; f.spin = clamp(f.spin + dspin, -2.4, 2.4); f.sev = Math.max(f.sev, dv); f.rest = 0; this.speed = 0; this.brake = true; if (this.ai) this.ai.bumped = 2.5; this.impact(dv * 1.25); }
   bump(dx, dz) { if (this.parked) { this.x += dx * 0.3; this.z += dz * 0.3; this.sync(0); } else if (this.ai) { this.ai.bumped = 2.5; } }
+  // Tyre contact (45th request: tyres sank into kerbs, pavements and ramps). The body used to be placed at the ground height under
+  // its CENTRE with the wheels kept on a road plane through that point, so a car with two wheels up on a 15 cm kerb had those
+  // wheels inside the paving and the other two under the asphalt. Now every wheel samples the ground right under it; a least-
+  // squares plane through the samples gives the body's ride height and terrain pitch / roll, the body follows that height on
+  // an under-damped spring (≈2.5 Hz, ζ≈0.4 — it lags a sudden kerb or hump and settles with a small overshoot), and each wheel
+  // takes the rest on its own suspension travel (droop 12 cm / bump 16 cm). A hit bigger than the travel bottoms out and
+  // throws the body up. In the air the wheels hang on their springs.
+  contact(dt) {
+    const m = this.mesh, W = m.userData.wheels; if (!W || !W.length || this.T.rail) return; const C = this.ct || (this.ct = { lift: 0, lv: 0, hc: null, init: false });
+    const F = CHASSIS.focus; const near = dt === 0 || !F || (this.x - F.x) ** 2 + (this.z - F.z) ** 2 < CHASSIS.r * CHASSIS.r;
+    if (!near || this.wrecked) { C.lift = 0; C.lv = 0; C.hc = null; C.init = false; for (const w of W) w.userData.gOff = 0; return; }
+    if (this.air) { for (const w of W) { const u = w.userData; u.gOff = damp(u.gOff || 0, -SUS_DROOP, 9, dt); } C.lift = damp(C.lift, 0, 8, dt); C.lv = 0; C.hc = null; return; } // wheels hang
+    const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw); const bike = this.T.entry === 'bike';
+    let n = 0, sx = 0, sz = 0, sxx = 0, szz = 0, sxz = 0, sg = 0, sxg = 0, szg = 0;
+    for (const w of W) { const u = w.userData, lx = w.position.x, lz = w.position.z; const g = L.surfaceY(this.x + fx * lz + fz * lx, this.z + fz * lz - fx * lx); u.g = g; n++; sx += lx; sz += lz; sxx += lx * lx; szz += lz * lz; sxz += lx * lz; sg += g; sxg += lx * g; szg += lz * g; }
+    let h, a = 0, b = 0; // plane g = h + a·x + b·z (x: the vehicle's left, z: forward)
+    const det3 = n * (sxx * szz - sxz * sxz) - sx * (sx * szz - sxz * sz) + sz * (sx * sxz - sxx * sz);
+    if (!bike && Math.abs(det3) > 1e-6) { h = (sg * (sxx * szz - sxz * sxz) - sx * (sxg * szz - sxz * szg) + sz * (sxg * sxz - sxx * szg)) / det3;
+      a = (n * (sxg * szz - sxz * szg) - sg * (sx * szz - sxz * sz) + sz * (sx * szg - sxg * sz)) / det3; b = (n * (sxx * szg - sxg * sxz) - sx * (sx * szg - sxg * sz) + sg * (sx * sxz - sxx * sz)) / det3; }
+    else { const d2 = n * szz - sz * sz; if (Math.abs(d2) > 1e-6) { b = (n * szg - sz * sg) / d2; h = (sg - b * sz) / n; } else h = sg / n; }
+    const lim = this.onRamp ? (bike ? 1.35 : 0.6) : 0.35; this.tPitch = clamp(Math.atan(-b), -lim, lim); this.tRoll = bike ? 0 : clamp(Math.atan(a), -0.35, 0.35);
+    const tgt = clamp(h - this.y, -0.6, 0.6); C.hc = h;
+    if (!C.init || !(dt > 0)) { C.lift = tgt; C.lv = 0; C.init = true; }
+    else { const k = bike ? 340 : 250, c = 2 * (bike ? 0.5 : 0.4) * Math.sqrt(k); const ns = Math.max(1, Math.ceil(dt * 120)), hs = dt / ns; for (let i = 0; i < ns; i++) { C.lv += (k * (tgt - C.lift) - c * C.lv) * hs; C.lift += C.lv * hs; } }
+    let bottom = 0; for (const w of W) { const u = w.userData; const o = u.g - this.y - C.lift - a * w.position.x - b * w.position.z; if (o > SUS_BUMP) bottom = Math.max(bottom, o - SUS_BUMP); u.gOff = clamp(o, -SUS_DROOP, SUS_BUMP); }
+    if (bottom > 0) { C.lift += bottom; if (dt > 0) C.lv = Math.min(3.5, Math.max(C.lv, bottom / dt * 0.35)); if (bottom > 0.05 && Math.abs(this.speed) > 6 && this.player) this.sus.hv += Math.min(0.8, bottom * 4); } // bottomed out: the bump stop throws the body
+    if (bike && !this.player) this.pitch = damp(this.pitch, this.tPitch, 12, dt || 1);
+  }
+  // Chassis (every car / van / truck, player or AI): body pitch and roll are under-damped springs (≈1.2 Hz pitch, ≈1.4 Hz roll,
+  // damping ratio ≈0.35 — a family car dives under hard braking and rocks back) toward the attitude the road and the load ask
+  // for: terrain from four contact points under the wheels, longitudinal load transfer (squat / dive) from the speed change,
+  // lateral from the cornering acceleration, plus the corner that sits low on a flat tyre (VehicleDamage sets dropFit).
+  chassis(dt) {
+    if (this.wrecked || this.T.entry === 'bike' || this.T.rail) return; const F = CHASSIS.focus;
+    if (F && (this.x - F.x) ** 2 + (this.z - F.z) ** 2 > CHASSIS.r * CHASSIS.r) { this.pitch = 0; this.roll = 0; this.pv = this.rv = 0; this._sp = this.speed; this._yaw = this.yaw; return; }
+    const T = this.T, sp = this.speed || 0, a = clamp((sp - (this._sp ?? sp)) / dt, -14, 14), yr = wrapAngle(this.yaw - (this._yaw ?? this.yaw)) / dt; this._sp = sp; this._yaw = this.yaw;
+    const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw), wb = T.len * 0.31, hw = T.wid * 0.42;
+    void fx; void fz; void wb; void hw; // terrain pitch / roll: contact() (per-wheel ground samples) sets tPitch / tRoll just before this
+    const D = this.dropFit, heavy = T.mass > 3000 ? 0.55 : 1; const latA = clamp(yr * sp, -12, 12);
+    const tp = this.tPitch + (D ? D.p : 0) + clamp(-a * 0.0042 * heavy, -0.065, 0.065), tr = this.tRoll + (D ? D.r : 0) + clamp(latA * 0.0062 * heavy * (this.tune ? this.tune.roll : 1), -0.075, 0.075) /* the top leans out of the turn (+roll moves it toward −x, the right) */;
+    const n = Math.max(1, Math.ceil(dt * 120)), h = dt / n, kp = 58, cp = 5.3, kr = 76, cr = 6.1;
+    for (let i = 0; i < n; i++) { this.pv += (kp * (tp - this.pitch) - cp * this.pv) * h; this.pitch += this.pv * h; this.rv += (kr * (tr - this.roll) - cr * this.rv) * h; this.roll += this.rv * h; } }
   sync(dt) {
-    this.settle(dt); const S = this.sus; const sr = Math.sin(S.r);
-    const m = this.mesh; m.position.set(this.x, this.y - S.h, this.z); const sp = m.userData.stand; m.rotation.set(this.pitch, this.yaw, this.roll + S.r - (sp ? LEAN * this.leanK : 0), 'YXZ'); if (sp) syncStand(sp, this.stand);
+    this.settle(dt); this.contact(dt); if (dt > 0) this.chassis(dt); const CT = this.ct; const lift = CT ? CT.lift : 0; const S = this.sus; const D = this.dropFit; if (this.T.noLamps) this.lights = false; // a bicycle: no lamps
+    const rr = Math.sin(this.roll + S.r - this.tRoll - (D ? D.r : 0)), pr = Math.sin(this.pitch - this.tPitch - (D ? D.p : 0)); // attitude relative to the road plane: the wheels are moved against it so they stay on the road
+    const rh = this.tune && !this.wrecked ? this.tune.ride : 0; /* Customs ride height: body down / up on its springs, wheels stay on the road */ const m = this.mesh; m.position.set(this.x, this.y + lift - S.h - (D ? D.h : 0) + (this.wreckLift || 0) + rh, this.z); const sp = m.userData.stand; m.rotation.set(this.pitch, this.yaw, this.roll + S.r - (sp ? LEAN * this.leanK : 0), 'YXZ'); if (sp) syncStand(sp, this.stand);
+    const stn = this.stunt; if (stn) { m.rotation.z += stn.roll || 0; const p = stn.pitch || 0; if (p) { m.rotation.x += p; const R = this.T.wheelR, zr = stn.zR, c = Math.cos(p), s = Math.sin(p); const dz = zr - (R * s + zr * c); m.position.y += R - (R * c - zr * s); m.position.x += Math.sin(this.yaw) * dz; m.position.z += Math.cos(this.yaw) * dz; } } // bicycle stunts (BicycleRide.js): wheelie about the rear axle, rock about the tyre line
+    // contact shadow (35th request, "shadow under the vehicle while moving"): it was a child of the body, so every dive, squat, roll and
+    // ride-height change tilted the dark patch — half of it sank under the asphalt (cut off) and the other half floated and slid. It now
+    // lies on the road plane under the car (ground height, road pitch / roll only), whatever the body does on its springs.
+    { const ud = m.userData; if (ud.cs === undefined) ud.cs = m.getObjectByName('contactShadow') || null; const cs = ud.cs;
+      if (cs && cs.visible) { const gy = this.air ? L.groundY(this.x, this.z) : CT && CT.hc !== null ? CT.hc : this.y; const lift = Math.max(0, this.y - gy); const k = Math.max(0.35, 1 - lift * 0.35);
+        m.updateMatrix(); _csE.set(this.tPitch || 0, this.yaw, this.T.entry === 'bike' ? 0 : this.tRoll || 0, 'YXZ'); _csQ.setFromEuler(_csE); _csS.copy(cs.scale).multiplyScalar(k); _csS.y = 1;
+        _csM.compose(_csP.set(this.x, gy + 0.015, this.z), _csQ, _csS); cs.matrix.copy(_csI.copy(m.matrix).invert()).multiply(_csM); cs.matrixWorldNeedsUpdate = true; } }
     this.wheelRot += (this.speed * dt) / this.T.wheelR;
-    for (const w of m.userData.wheels) { w.userData.spin.rotation.x = this.wheelRot; if (w.userData.front) w.rotation.y = this.steer; if (w.userData.baseY !== undefined) w.position.y = w.userData.baseY + S.h - w.position.x * sr; } // body moves on the springs, tyres stay on the road
+    for (const w of m.userData.wheels) { const u = w.userData; u.spin.rotation.x = this.wheelRot; if (u.front) w.rotation.y = this.steer; if (u.baseY !== undefined) w.position.y = this.wrecked ? u.baseY : u.baseY + (u.gOff || 0) + S.h - rh - w.position.x * rr + w.position.z * pr; } // a flat corner: the body (dropFit) carries that wheel down onto its rim // body moves on the springs, tyres stay on the road
     // lamps (per vehicle): headlights only when this vehicle has its lights on; tails red at night, brighter when braking;
     // reverse lamps only while reversing; parked/unattended vehicles are dark
     const ud = m.userData, tm = ud.tailMat, hm = ud.headMat, rm = ud.revMat; const occupied = !this.parked || this.player;
-    const wantT = !occupied ? 0.03 : this.brake ? (this.lights ? 2.2 : 1.6) : this.lights ? 0.9 : 0.05; if (tm && tm.emissiveIntensity !== wantT) tm.emissiveIntensity = wantT;
-    const wantH = this.lights && occupied ? 2.6 : 0.04; if (hm && hm.emissiveIntensity !== wantH) hm.emissiveIntensity = wantH;
-    const beam = this.lights && occupied && !this.T.rail;
+    const wantT = !occupied || this.tailOut ? 0.03 : this.brake ? (this.lights ? 2.2 : 1.6) : this.lights ? 0.9 : 0.05; if (tm && tm.emissiveIntensity !== wantT) tm.emissiveIntensity = wantT;
+    const wantH = this.lights && occupied && !this.headOut ? 2.6 : 0.04; /* headOut: lamps smashed (VehicleDamage) */ if (hm && hm.emissiveIntensity !== wantH) hm.emissiveIntensity = wantH;
+    const beam = this.lights && occupied && !this.T.rail && !this.headOut;
     if (beam && !ud.headPool) { const hp = headPool(); const bike = this.T.entry === 'bike'; const p = new THREE.Mesh(hp.geo, hp.mat); p.name = 'headPool';
       p.position.set(0, 0.07, this.T.len / 2 - 0.1); p.scale.set(bike ? 2.4 : Math.max(2.6, this.T.wid * 1.5), 1, bike ? 8 : 11); p.renderOrder = -1; /* before glass: seen through a windscreen it is tinted like everything else behind the glass */ p.castShadow = p.receiveShadow = false; m.add(p); ud.headPool = p; }
     const decal = beam && !ud.realBeam; if (ud.headPool && ud.headPool.visible !== decal) ud.headPool.visible = decal; // a pooled real beam replaces the decal
@@ -226,5 +325,5 @@ export class Vehicle {
   seatWorld(seat) { const v = new THREE.Vector3(seat.x, seat.y, seat.z); this.mesh.updateMatrixWorld(); return v.applyMatrix4(this.mesh.matrixWorld); }
   // exit point on the driver's side (right-hand drive → right side = −x local)
   exitPoint(s = -1) { const [fx, fz] = this.forward(); const off = this.T.wid / 2 + 0.7; return { x: this.x + fz * s * off, z: this.z - fx * s * off }; } // local +x in world = (fz, -fx)
-  dispose() { this.disposed = true; LIVE_VEHICLES.delete(this); this.scene.remove(this.mesh); const ud = this.mesh.userData; ud.tailMat.dispose(); ud.indMat?.dispose(); ud.headMat?.dispose(); ud.revMat?.dispose(); }
+  dispose() { if (VEH_HOOKS.dispose) VEH_HOOKS.dispose(this); if (this.mesh.userData.cust) this.mesh.userData.cust.release(); /* Street Customs: its per-vehicle materials */ this.disposed = true; LIVE_VEHICLES.delete(this); this.scene.remove(this.mesh); const ud = this.mesh.userData; ud.tailMat.dispose(); ud.indMat?.dispose(); ud.headMat?.dispose(); ud.revMat?.dispose(); }
 }

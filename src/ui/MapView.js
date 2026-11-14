@@ -68,6 +68,8 @@ export const BLIP_STYLE = {
   hospital: { col: '#ff5a5a', cat: 'services', name: 'Hospital' }, station: { col: '#d9c7a0', cat: 'transit', name: 'Railway station' },
   worship: { col: '#f2d27a', cat: 'landmarks', name: 'Place of worship' }, school: { col: '#9fd3a8', cat: 'landmarks', name: 'School' }, home: { col: '#7fd6ff', cat: 'services', name: 'Safehouse' },
   pickup: { col: '#ffd34a', cat: 'missions', name: 'Friend waiting for a lift' },
+  customs: { col: '#ff7a1a', cat: 'services', name: 'Street Customs (vehicle workshop)' },
+  stunt: { col: '#ffd34a', cat: 'activities', name: 'Stunt jump' }, bmx: { col: '#7fe0a0', cat: 'activities', name: 'Bicycle ramp' },
 };
 export function drawIcon(g, kind, x, y, r = 9) {
   const st = BLIP_STYLE[kind] || { col: '#fff' }; g.save(); g.translate(x, y);
@@ -83,6 +85,8 @@ export function drawIcon(g, kind, x, y, r = 9) {
     case 'stamp': for (let i = 0; i < 5; i++) { const a = -Math.PI / 2 + i * 2 * Math.PI / 5, b = a + Math.PI / 5; g.lineTo(Math.cos(a) * 5 * k, Math.sin(a) * 5 * k); g.lineTo(Math.cos(b) * 2.2 * k, Math.sin(b) * 2.2 * k); } g.closePath(); g.fill(); break;
     case 'photo': g.rect(-5 * k, -3 * k, 10 * k, 7 * k); g.fill(); g.fillStyle = 'rgba(8,10,14,0.9)'; g.beginPath(); g.arc(0, 0.5 * k, 2.2 * k, 0, 7); g.fill(); break;
     case 'enemy': g.arc(0, 0, 4 * k, 0, 7); g.fill(); break;
+    case 'stunt': g.moveTo(-5 * k, 3.5 * k); g.lineTo(4.5 * k, 3.5 * k); g.lineTo(4.5 * k, -1 * k); g.closePath(); g.fill(); g.beginPath(); g.arc(-1 * k, -3.2 * k, 1.6 * k, 0, 7); g.fill(); break;
+    case 'bmx': g.arc(-2.8 * k, 1.5 * k, 2.3 * k, 0, 7); g.stroke(); g.beginPath(); g.arc(2.8 * k, 1.5 * k, 2.3 * k, 0, 7); g.stroke(); g.beginPath(); g.moveTo(-2.8 * k, 1.5 * k); g.lineTo(0, -2.6 * k); g.lineTo(2.8 * k, 1.5 * k); g.stroke(); break;
     case 'pickup': g.arc(0, -2.4 * k, 2.3 * k, 0, 7); g.fill(); g.beginPath(); g.moveTo(-4.4 * k, 5 * k); g.quadraticCurveTo(-4.2 * k, 0.6 * k, 0, 0.6 * k); g.quadraticCurveTo(4.2 * k, 0.6 * k, 4.4 * k, 5 * k); g.closePath(); g.fill(); break;
     case 'waypoint': g.moveTo(-3 * k, 5 * k); g.lineTo(-3 * k, -5 * k); g.stroke(); g.beginPath(); g.moveTo(-3 * k, -5 * k); g.lineTo(5 * k, -2.5 * k); g.lineTo(-3 * k, 0); g.closePath(); g.fill(); break;
     case 'landmark': g.arc(0, -1.2 * k, 3.2 * k, 0, 7); g.fill(); g.beginPath(); g.moveTo(-2.6 * k, 0); g.lineTo(0, 5 * k); g.lineTo(2.6 * k, 0); g.fill(); break;
@@ -92,6 +96,7 @@ export function drawIcon(g, kind, x, y, r = 9) {
     case 'station': g.rect(-4 * k, -4.5 * k, 8 * k, 7 * k); g.fill(); g.fillStyle = 'rgba(8,10,14,0.9)'; g.fillRect(-2.8 * k, -3.2 * k, 5.6 * k, 2.4 * k); g.fillStyle = st.col; g.beginPath(); g.moveTo(-3 * k, 3 * k); g.lineTo(-4.5 * k, 5.5 * k); g.moveTo(3 * k, 3 * k); g.lineTo(4.5 * k, 5.5 * k); g.stroke(); break;
     case 'worship': g.moveTo(-4.5 * k, 4 * k); g.lineTo(4.5 * k, 4 * k); g.lineTo(4.5 * k, 1 * k); g.quadraticCurveTo(0, -7 * k, -4.5 * k, 1 * k); g.closePath(); g.fill(); break;
     case 'home': g.moveTo(-5 * k, 0); g.lineTo(0, -5 * k); g.lineTo(5 * k, 0); g.lineTo(3.5 * k, 0); g.lineTo(3.5 * k, 4.5 * k); g.lineTo(-3.5 * k, 4.5 * k); g.lineTo(-3.5 * k, 0); g.closePath(); g.fill(); break;
+    case 'customs': g.lineWidth = 2.2 * k; g.moveTo(-4 * k, 4 * k); g.lineTo(1.2 * k, -1.2 * k); g.stroke(); g.beginPath(); g.arc(2.6 * k, -2.6 * k, 2.4 * k, Math.PI * 0.95, Math.PI * 2.55); g.stroke(); break;
     default: g.arc(0, 0, 3.5 * k, 0, 7); g.fill();
   }
   g.restore();
@@ -99,7 +104,7 @@ export function drawIcon(g, kind, x, y, r = 9) {
 // fixed map points of interest (always shown, filterable)
 export const MAP_POI = [
   ['lotus', 'landmark'], ['gfHotel', 'landmark'], ['museum', 'landmark'], ['townhall', 'landmark'], ['vmpark', 'landmark'], ['clockTower', 'landmark'], ['seema', 'worship'],
-  ['mosque', 'worship'], ['stlucia', 'worship'], ['port', 'landmark'], ['hospital', 'hospital'], ['police', 'police'], ['policeHQ2', 'police'], ['slaveFlat', 'home'], ['johns', 'school'],
+  ['mosque', 'worship'], ['stlucia', 'worship'], ['port', 'landmark'], ['hospital', 'hospital'], ['police', 'police'], ['policeHQ2', 'police'], ['slaveFlat', 'home'], ['johns', 'school'], ['customs', 'customs'],
 ].map(([k, kind]) => ({ x: L.PLACES[k].x, z: L.PLACES[k].z, kind, label: L.PLACES[k].name }));
 
 // ----------------------------------------------------------------------------- map renderer
@@ -131,6 +136,13 @@ export class MapView {
     }
     g.globalAlpha = 1; return need ? have / need : 1;
   }
+  // the satellite tiles under the view are all there and faded in: the vector layers beneath them would be drawn for nothing
+  satCovered(x0, x1, z0, z1) {
+    const S = this.sat; if (!S || this.style !== 'satellite' || x0 < SAT.x0 || x1 > SAT.x1 || z0 < SAT.z0 || z1 > SAT.z1) return false;
+    const size = SAT.sizes[0], now = performance.now(); const i0 = Math.floor((x0 - SAT.x0) / size), i1 = Math.floor((x1 - SAT.x0) / size), j0 = Math.floor((z0 - SAT.z0) / size), j1 = Math.floor((z1 - SAT.z0) / size);
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const t = S.tiles.get(S.key(0, i, j)); if (!t || now - t.born < 420) return false; }
+    return true;
+  }
   // moving cloud shadows and sea glints over the imagery (subtle: the map should feel alive, not busy)
   drawAtmos(g, W, H) {
     const z = this.zoom, t = this.t;
@@ -160,10 +172,12 @@ export class MapView {
     // shoreline glow
     g.strokeStyle = 'rgba(120,200,220,0.35)'; g.lineWidth = Math.max(1, 3 * z); g.beginPath(); for (let q = zs; q <= ze; q += Math.max(4, 6 / z)) { const px = X(L.coastX(q)), py = Y(q); q === zs ? g.moveTo(px, py) : g.lineTo(px, py); } g.stroke();
     g.fillStyle = '#14445a'; g.fillRect(X(-3000), Y(-4000), X(230) - X(-3000), Y(-1180) - Y(-4000)); // harbour basin
+    const under = this.satCovered(x0, x1, z0, z1); // FPS: opaque imagery covers everything up to the street names
+    if (!under) {
     // district tint
     for (const c of L.cells) { if (c.water || !vis(c.x0, c.x1, c.z0, c.z1)) continue; const d = L.DISTRICTS[c.district]; if (!d) continue;
       g.fillStyle = d.style === 'green' ? '#2f4a2f' : d.style === 'villa' ? '#2a3230' : d.style === 'port' ? '#2c3136' : d.style === 'lake' ? '#283331' : '#2a2f33'; g.fillRect(X(c.x0), Y(c.z0), (c.x1 - c.x0) * z + 0.5, (c.z1 - c.z0) * z + 0.5); }
-    for (const zn of L.ZONES) { const [a0, a1, b0, b1] = zn.rect; if (!vis(a0, a1, b0, b1)) continue; g.fillStyle = zn.kind === 'park' ? '#2f4f31' : '#30302c'; g.fillRect(X(a0), Y(b0), (a1 - a0) * z, (b1 - b0) * z); }
+    for (const zn of L.ZONES) { const [a0, a1, b0, b1] = zn.map || zn.rect; if (!vis(a0, a1, b0, b1)) continue; g.fillStyle = zn.kind === 'park' ? '#2f4f31' : '#30302c'; g.fillRect(X(a0), Y(b0), (a1 - a0) * z, (b1 - b0) * z); }
     // lake / canals
     g.fillStyle = '#16465c'; for (const [cx, cz, rx, rz] of L.LAKE) { g.beginPath(); g.ellipse(X(cx), Y(cz), rx * z, rz * z, 0, 0, 7); g.fill(); }
     g.strokeStyle = 'rgba(120,200,220,0.3)'; g.lineWidth = Math.max(1, 2 * z); for (const [cx, cz, rx, rz] of L.LAKE) { g.beginPath(); g.ellipse(X(cx), Y(cz), rx * z, rz * z, 0, 0, 7); g.stroke(); }
@@ -197,6 +211,7 @@ export class MapView {
         if (z > 1.1) { g.strokeStyle = 'rgba(0,0,0,0.45)'; g.lineWidth = 1; g.strokeRect(X(b.x0) + 0.5, Y(b.z0) + 0.5, (b.x1 - b.x0) * z - 1, (b.z1 - b.z0) * z - 1); } }
       g.fillStyle = 'rgba(54,96,48,0.85)'; for (const t of plan.trees) { if (t.x < x0 || t.x > x1 || t.z < z0 || t.z > z1) continue; g.beginPath(); g.arc(X(t.x), Y(t.z), Math.max(1.2, 2.6 * t.s * z), 0, 7); g.fill(); }
     }
+    } // !under
     // satellite imagery over the vector base (the vector map shows through until tiles stream in)
     if (this.style === 'satellite' && this.sat) { this.satReady = this.drawSatellite(g, x0, x1, z0, z1); this.drawAtmos(g, W, H); g.fillStyle = 'rgba(6,10,16,0.10)'; g.fillRect(0, 0, W, H); } else this.satReady = 1;
     // stations

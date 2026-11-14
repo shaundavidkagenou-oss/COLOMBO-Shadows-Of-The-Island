@@ -25,8 +25,12 @@ export class Collision {
     return out;
   }
   // Height of walkable ground at (x,z) for something whose feet are at y (decks above feet+step are ignored).
-  groundAt(x, z, y = 0, step = 0.6) {
+  // faces: the raised copings along the seawall / lake are part of the terrain height, so by default they count as floor
+  // wherever x,z falls on them; with faces = true a coping top out of reach from y (more than `step` above) is a face, and
+  // the ground there is the land at its foot (ragdoll joints swung against the seawall stay beside it, not snapped on top)
+  groundAt(x, z, y = 0, step = 0.6, faces = false) {
     let g = L.surfaceY(x, z); // terrain or the paving laid on it
+    if (faces && g > y + step) { const cp = L.copingAt(x, z); if (cp !== null && g === cp) g = L.LAND_Y; }
     for (const c of this.query(x, z, x, z)) {
       if (x < c.x0 || x > c.x1 || z < c.z0 || z > c.z1) continue;
       if (SURFACE.has(c.kind) || c.h <= step + 0.05) { const top = c.y0 !== undefined ? c.y0 + c.h : c.h; if (top <= y + step && top > g) g = top; }
@@ -53,6 +57,11 @@ export class Collision {
         const px = Math.max(c.x0, Math.min(x, c.x1)), pz = Math.max(c.z0, Math.min(z, c.z1));
         let dx = x - px, dz = z - pz; const d2 = dx * dx + dz * dz;
         if (d2 >= r * r) continue;
+        if (c.front && x > c.x0 - r && x < c.x1 + r && z > c.z0 - r && z < c.z1 + r && ((x - (c.x0 + c.x1) / 2) * c.front[0] + (z - (c.z0 + c.z1) / 2) * c.front[1] > -0.05 || d2 < 1e-8)) {
+          // a bench: whoever is in it (sitting, getting up) steps out by the seat front, never through the backrest
+          const fx = c.front[0], fz = c.front[1]; const tx = fx > 1e-6 ? (c.x1 + r - x) / fx : fx < -1e-6 ? (c.x0 - r - x) / fx : Infinity, tz = fz > 1e-6 ? (c.z1 + r - z) / fz : fz < -1e-6 ? (c.z0 - r - z) / fz : Infinity;
+          const t = Math.min(tx, tz) + 0.001; if (t > 0 && t < 2) { x += fx * t; z += fz * t; hit = moved = true; continue; }
+        }
         if (d2 < 1e-8) { // centre inside box: push out the shortest way
           // the nearest side can be a seam shared with the next building of a terrace row: pushing out there lands inside the
           // neighbour, which pushes straight back (people ended up walking inside a block of shops). Take the nearest side
@@ -68,6 +77,34 @@ export class Collision {
     const B = L.BOUNDS; const nx = Math.max(B.minX + 2, Math.min(B.maxX - 2, x)), nz = Math.max(B.minZ + 2, Math.min(B.maxZ - 2, z));
     if (nx !== x || nz !== z) hit = true;
     return { x: nx, z: nz, hit };
+  }
+  // first entry of the segment a→b (plan view) into a box that resolveCircle treats as solid at height y: fraction t in [0,1]
+  // (1 = no entry; on a hit, this.sweepHit holds the entered face's outward normal and plane). Boxes that already contain a are skipped (that is resolveCircle's job). Ragdoll joints use it so a
+  // limb can never pass through a thin compound wall and come out on the far side.
+  sweepSolid(ax, az, bx, bz, y = 0, step = 0.45, height = 1.8) {
+    let best = 1; const dx = bx - ax, dz = bz - az; if (dx * dx + dz * dz < 1e-10) return 1; const hit = this.sweepHit || (this.sweepHit = { nx: 0, nz: 0, face: 0, axis: 0 });
+    for (const c of this.query(Math.min(ax, bx), Math.min(az, bz), Math.max(ax, bx), Math.max(az, bz))) {
+      if (SURFACE.has(c.kind) || !(c.h > 0) || c.walkUnder) continue; const base = c.y0 || 0; if (base + c.h <= y + step || base > y + height) continue;
+      if (ax > c.x0 && ax < c.x1 && az > c.z0 && az < c.z1) continue;
+      let t0 = 0, t1 = best, ax0 = -1;
+      if (Math.abs(dx) < 1e-9) { if (ax <= c.x0 || ax >= c.x1) continue; } else { let ta = (c.x0 - ax) / dx, tb = (c.x1 - ax) / dx; if (ta > tb) { const q = ta; ta = tb; tb = q; } if (ta > t0) { t0 = ta; ax0 = 0; } t1 = Math.min(t1, tb); }
+      if (Math.abs(dz) < 1e-9) { if (az <= c.z0 || az >= c.z1) continue; } else { let ta = (c.z0 - az) / dz, tb = (c.z1 - az) / dz; if (ta > tb) { const q = ta; ta = tb; tb = q; } if (ta > t0) { t0 = ta; ax0 = 1; } t1 = Math.min(t1, tb); }
+      if (t0 < t1 && t0 < best) { best = t0; // the face entered: its outward normal (towards a) and its plane coordinate
+        if (ax0 === 0) { hit.axis = 0; hit.nx = dx > 0 ? -1 : 1; hit.nz = 0; hit.face = dx > 0 ? c.x0 : c.x1; } else { hit.axis = 1; hit.nx = 0; hit.nz = dz > 0 ? -1 : 1; hit.face = dz > 0 ? c.z0 : c.z1; } }
+    }
+    return this.sweepCoping(ax, az, dx, dz, y, step, best, hit);
+  }
+  // the seawall / lake copings are terrain height, not boxes: a segment starting off one that runs into a coping top more
+  // than `step` above y meets its face (marched in 10 cm steps, the crossing bisected; the normal points to the open side)
+  sweepCoping(ax, az, dx, dz, y, step, best, hit) {
+    const cop = (x, z) => { const c = L.copingAt(x, z); return c !== null && c > y + step && L.surfaceY(x, z) === c; };
+    if (cop(ax, az)) return best; const len = Math.hypot(dx, dz), n = Math.max(1, Math.ceil(len * best / 0.1)); let t0 = 0;
+    for (let i = 1; i <= n; i++) { const t = best * i / n; if (!cop(ax + dx * t, az + dz * t)) { t0 = t; continue; }
+      let lo = t0, hi = t; for (let k = 0; k < 6; k++) { const m = (lo + hi) * 0.5; if (cop(ax + dx * m, az + dz * m)) hi = m; else lo = m; }
+      const px = ax + dx * lo, pz = az + dz * lo; let nx = 0, nz = 0; for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4, cx = Math.cos(a), cz = Math.sin(a); if (!cop(px + cx * 0.08, pz + cz * 0.08)) { nx += cx; nz += cz; } }
+      const nl = Math.hypot(nx, nz); if (nl < 1e-6) { nx = -dx / len; nz = -dz / len; } else { nx /= nl; nz /= nl; }
+      hit.axis = 2; hit.nx = nx; hit.nz = nz; hit.px = px; hit.pz = pz; hit.face = 0; return lo; }
+    return best;
   }
   // is (x, z) inside another box that resolveCircle treats as solid at this height (used to pick a clear way out)
   solidAt(x, z, except, y = 0, step = 0.45, height = 1.8, opts = {}) {

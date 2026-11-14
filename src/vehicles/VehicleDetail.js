@@ -23,6 +23,10 @@ export const ringX = (() => { const g = new THREE.TorusGeometry(1, 0.12, 6, 24);
 export const arcX = (() => { const g = new THREE.TorusGeometry(1, 0.07, 5, 18, Math.PI); g.rotateY(Math.PI / 2); return g; })(); // half ring in the z/y plane (wheel-arch lip)
 const hexX = (() => { const g = new THREE.CylinderGeometry(1, 1, 1, 6); g.rotateZ(Math.PI / 2); return g; })();
 const sphLo = new THREE.SphereGeometry(1, 10, 6);
+const gearX = new Map(); // toothed sprocket, axis x, unit radius
+function gearGeoX(teeth) { if (gearX.has(teeth)) return gearX.get(teeth); const g = new THREE.CylinderGeometry(1, 1, 1, teeth * 2, 1); const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) { const x = p.getX(i), z = p.getZ(i); if (x * x + z * z < 1e-9) continue; const a = Math.atan2(x, z); if (Math.round(((a + Math.PI) / (2 * Math.PI)) * teeth * 2) % 2 === 0) { p.setX(i, x * 0.9); p.setZ(i, z * 0.9); } }
+  g.computeVertexNormals(); g.rotateZ(Math.PI / 2); gearX.set(teeth, g); return g; }
 
 const _e = new THREE.Euler(), _v = new THREE.Vector3();
 const loc = (o, rot, lx, ly, lz) => { _v.set(lx, ly, lz).applyEuler(_e.set(...rot)); return [o[0] + _v.x, o[1] + _v.y, o[2] + _v.z]; };
@@ -31,7 +35,7 @@ const loc = (o, rot, lx, ly, lz) => { _v.set(lx, ly, lz).applyEuler(_e.set(...ro
 export function carDetail(dm, K, c) {
   const { beam, part, C, unitBox, unitCyl } = K;
   const { W, R, D, k, type, fz, rz, taper, gw0, gw1, fy, hy, nw, ty, sill, isVan, col, gh, roofF, roofR, seatY, sz, dz, floorY, variant } = c;
-  const ST = c.style || null; const X0 = c.sx0 ?? 0.38; const visors = c.visors ?? (!isVan || k === 'suv'); // styled catalogue models draw their own lamps / grille / bumpers (VehicleStyle.js)
+  const ST = c.style || null; const X0 = c.sx0 ?? 0.38; // styled catalogue models draw their own lamps / grille / bumpers (VehicleStyle.js)
   const rub = dm.get('rubber'), chr = dm.get('chrome'), refl = dm.get('vrefl'), lens = dm.get('lens'), head = dm.get('vlight'), tail = dm.get('vtail'), ind = dm.get('vind'), pnt = dm.get('paint'), I = dm.get('interior'), gl = dm.get('glass');
   const black = C('#0e0e10'), dark = C('#1b1c1e'), chrome = C('#cfd3d7'), satin = C('#8d9196'), amber = C('#c87a14'), red = C('#8a1010');
   const xAt = (z, y) => W * taper(z, y);
@@ -90,12 +94,8 @@ export function carDetail(dm, K, c) {
   const belt = gh[0][1] - 0.02;
   const doorsZ = [[D.door[0], D.door[1]]]; if (D.rearDoor) doorsZ.push([D.rearDoor[0], D.rearDoor[1]]);
   for (const sx of [-1, 1]) {
-    // rain visors over the side windows (dark smoked acrylic), very common on Colombo cars
-    if (visors) for (const [z0, z1] of doorsZ) { if (z0 !== null) continue; /* every door carries its own visor */ const ry = (z) => { for (let i = 1; i < gh.length; i++) { const A = gh[i - 1], B = gh[i]; if (z <= A[0] && z >= B[0]) return lerp(A[2], B[2], (A[0] - z) / (A[0] - B[0] || 1)); } return gh[1][2]; };
-      beam(gl, [sx * (gw1 + 0.035), ry(z0 - 0.04) - 0.05, z0 - 0.04], [sx * (gw1 + 0.035), ry(z1 + 0.03) - 0.05, z1 + 0.03], 0.006, 0.065, C('#fff')); }
-    // door-handle recesses + key cylinder on the front doors; inner-belt chrome strip
-    for (const [, d1] of doorsZ) { if (d1 !== null) continue; /* handles are on the doors */ const x = sx * (xAt(d1 + 0.18, belt - 0.12) + 0.004); rub.box(x, belt - 0.12, d1 + 0.18, 0.006, 0.05, 0.17, { col: C('#0c0c0d') }); }
-    if (false) part(chr, discX, [sx * (xAt(D.door[1] + 0.32, belt - 0.12) + 0.008), belt - 0.12, D.door[1] + 0.32], [0, 0, 0], [0.006, 0.014, 0.014], chrome);
+    // (the rain visors over the side windows, door-handle recesses and key cylinders are carried by the doors themselves)
+    // inner-belt chrome strip
     { const gA = [gh[0][0] - 0.05, belt + 0.012], gB = [gh[gh.length - 1][0] + 0.12, gh[gh.length - 1][1] + 0.012], bp = (z) => [sx * (gw0 + 0.012), lerp(gA[1], gB[1], (gA[0] - z) / (gA[0] - gB[0])), z];
       for (const [za, zb] of spansOutside(gB[0], gA[0], doorGaps(D, sx), 0.012)) beam(chr, bp(zb), bp(za), 0.008, 0.012, satin); /* stops short of the door shut lines */ } // inner-belt strip (not across any door)
     // mirror: aerodynamic cap + repeater + mirror glass bezel
@@ -231,7 +231,7 @@ export function heavyDetail(dm, K, c) {
     // mirror glass faces and second (kerb-view) mirror
     part(gl, unitBox, [sx * (W + (kind === 'lorry' ? 0.27 : 0.3)), kind === 'lorry' ? 2.0 : 1.78, fz + (kind === 'lorry' ? 0.03 : 0.127)], [0, 0, 0], [0.085, kind === 'lorry' ? 0.32 : 0.38, 0.006], C('#fff'));
     // headlamp bowls
-    if (kind === 'lorry') for (const dx of [-0.08, 0.08]) { const x = sx * (W - 0.3) + dx; part(head, cupGeo, [x, 0.95, fz + 0.065], [0, 0, 0], [0.065, 0.065, 0.02]); part(head, sphLo, [x, 0.95, fz + 0.057], [0, 0, 0], [0.013, 0.013, 0.013]); part(lens, discZ, [x, 0.95, fz + 0.068], [0, 0, 0], [0.07, 0.07, 0.004]); }
+    if (kind === 'lorry') for (const dx of [-0.08, 0.08]) { const x = sx * (W - 0.3) + dx; part(head, cupGeo, [x, 0.95, fz + 0.065], [0, 0, 0], [0.065, 0.065, 0.02]); part(head, sphLo, [x, 0.95, fz + 0.057], [0, 0, 0], [0.013, 0.013, 0.013]); part(lens, discZ, [x, 0.95, fz + 0.068], [0, 0, 0], [0.07, 0.07, 0.004]); part(chr, ringZ, [x, 0.95, fz + 0.067], [0, 0, 0], [0.074, 0.074, 0.07], chrome); }
     else for (const [dx, r] of [[0.28, 0.085], [0.48, 0.07]]) { const x = sx * (W - dx); part(head, cupGeo, [x, 0.85, fz + 0.078], [0, 0, 0], [r * 0.95, r * 0.95, 0.02]); part(head, sphLo, [x, 0.85, fz + 0.07], [0, 0, 0], [0.014, 0.014, 0.014]); part(lens, discZ, [x, 0.85, fz + 0.081], [0, 0, 0], [r, r, 0.004]); part(chr, ringZ, [x, 0.85, fz + 0.079], [0, 0, 0], [r * 1.05, r * 1.05, r], chrome); }
     // roof-edge rain gutter, cab / body marker lamps (unlit amber reflectors), mud flaps, reflectors, tow hooks
     beam(rub, [sx * (W - 0.01), (kind === 'lorry' ? 2.6 : winTop) + 0.02, rz + (kind === 'lorry' ? L - 1.95 : 0.1)], [sx * (W - 0.01), (kind === 'lorry' ? 2.55 : winTop) + 0.02, fz - 0.15], 0.02, 0.02, black);
@@ -264,8 +264,8 @@ export function heavyDetail(dm, K, c) {
 
 // ------------------------------------------------------------------------------------------------ high-detail wheels
 const hiCache = new Map();
-export function hiWheelParts(R, w, style, kind, K) {
-  const key = `${R}:${w}:${style}:${kind}`; if (hiCache.has(key)) return hiCache.get(key);
+export function hiWheelParts(R, w, style, kind, K, front = true) {
+  const key = `${R}:${w}:${style}:${kind}:${kind === 'bike' ? +front : ''}`; if (hiCache.has(key)) return hiCache.get(key);
   const { beam, part, C, unitBox, unitCyl } = K; const h = w / 2; const bike = kind === 'bike', heavy = kind === 'heavy';
   // tyre: rounded sidewalls, shoulders, three circumferential grooves; plus raised tread blocks and a sidewall ring
   const ri = bike ? 0.8 : 0.66, gd = R * 0.012, prof = bike ? [V2(R * 0.8, h * 0.9), V2(R * 0.9, h * 1.05), V2(R * 0.97, h * 0.85), V2(R, h * 0.4)] : [V2(R * 0.66, h * 0.92), V2(R * 0.8, h * 1.02), V2(R * 0.9, h * 1.0), V2(R * 0.965, h * 0.88), V2(R - gd, h * 0.66)];
@@ -279,13 +279,29 @@ export function hiWheelParts(R, w, style, kind, K) {
   if (!bike) part(tb, ringX, [h * 1.0, 0, 0], [0, 0, 0], [0.1, R * 0.83, R * 0.83], [1, 1, 1]);
   const tyre = tb.build(); tl.dispose();
   // rim (+ brake disc that spins with it)
-  const mb = new MeshBuilder(); const rc = style === 1 ? C(heavy ? '#d8dadc' : '#2a2a2c') : style === 2 ? C('#c9ccd0') : C('#a4aab0'); const dk = C('#3a3d40'); const rr = R * ri;
+  const mb = new MeshBuilder(); const rc = bike ? C(style === 1 ? '#c4c8cc' : '#1b1c1f') : style === 1 ? C(heavy ? '#d8dadc' : '#2a2a2c') : style === 2 ? C('#c9ccd0') : C('#a4aab0'); const dk = C('#3a3d40'); const rr = R * ri;
   const barrel = new THREE.LatheGeometry([V2(rr * 0.96, h * 0.85), V2(rr, h * 0.78), V2(rr * 0.97, h * 0.5), V2(rr * 0.9, h * 0.2), V2(rr * 0.9, -h * 0.6), V2(rr, -h * 0.8)], 36); barrel.rotateZ(-Math.PI / 2); mb.geometry(barrel, new THREE.Matrix4(), rc); barrel.dispose();
   part(mb, ringX, [h * 0.84, 0, 0], [0, 0, 0], [0.15, rr * 0.99, rr * 0.99], rc); // rim lip
-  if (bike) { // laced wire wheel: hub, 32 spokes, drum
-    part(mb, discX, [0, 0, 0], [0, 0, 0], [h * 1.1, R * 0.16, R * 0.16], C('#9a9ea2'));
-    for (let i = 0; i < 32; i++) { const a = (i / 32) * Math.PI * 2, s = i % 2 ? 1 : -1; beam(mb, [s * h * 0.45, Math.sin(a) * R * 0.14, Math.cos(a) * R * 0.14], [0, Math.sin(a + 0.25 * s) * rr * 0.9, Math.cos(a + 0.25 * s) * rr * 0.9], 0.004, 0.004, C('#c8ccd0'), unitCyl); }
-    part(mb, discX, [-h * 0.6, 0, 0], [0, 0, 0], [0.006, R * 0.42, R * 0.42], C('#9a9ea2')); part(mb, ringX, [-h * 0.6, 0, 0], [0, 0, 0], [0.1, R * 0.3, R * 0.3], C('#55595e'));
+  let bikeCal = null;
+  if (bike) { // motorcycle: laced (style 1), five-spoke cast commuter (0) or three split-spoke sport wheel (2); discs / drum; rear sprocket
+    const hub = C('#8d9196'), discC = C('#9a9ea4'), dk2 = C('#1b1c1f');
+    if (style === 1) { part(mb, discX, [0, 0, 0], [0, 0, 0], [h * 1.1, R * 0.16, R * 0.16], hub);
+      for (let i = 0; i < 32; i++) { const a = (i / 32) * Math.PI * 2, s = i % 2 ? 1 : -1; beam(mb, [s * h * 0.45, Math.sin(a) * R * 0.14, Math.cos(a) * R * 0.14], [0, Math.sin(a + 0.25 * s) * rr * 0.9, Math.cos(a + 0.25 * s) * rr * 0.9], 0.004, 0.004, C('#c8ccd0'), unitCyl); } }
+    else if (style === 0) { part(mb, discX, [0, 0, 0], [0, 0, 0], [h * 1.3, R * 0.15, R * 0.15], dk2);
+      for (let i = 0; i < 5; i++) { const a = (i / 5) * Math.PI * 2; for (const o of [-0.16, 0.16]) beam(mb, [0, Math.sin(a) * R * 0.13, Math.cos(a) * R * 0.13], [0, Math.sin(a + o) * rr * 0.93, Math.cos(a + o) * rr * 0.93], h * 0.5, R * 0.05, rc); } }
+    else { part(mb, discX, [0, 0, 0], [0, 0, 0], [h * 1.4, R * 0.13, R * 0.13], dk2);
+      for (let i = 0; i < 3; i++) { const a = (i / 3) * Math.PI * 2; for (const o of [-0.22, 0.22]) beam(mb, [0, Math.sin(a) * R * 0.12, Math.cos(a) * R * 0.12], [0, Math.sin(a + o) * rr * 0.95, Math.cos(a + o) * rr * 0.95], h * 0.42, R * 0.04, rc); }
+      part(mb, ringX, [h * 0.86, 0, 0], [0, 0, 0], [0.12, rr * 0.985, rr * 0.985], C('#c8102e')); } // rim stripe
+    // brakes: front discs (twin floating on sport wheels), rear disc (sport) or drum; calipers do not spin
+    const disc = (x, rd) => { part(mb, discX, [x, 0, 0], [0, 0, 0], [0.005, rd, rd], discC); part(mb, discX, [x, 0, 0], [0, 0, 0], [0.007, rd * 0.62, rd * 0.62], C('#2a2b2e'));
+      for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2; part(mb, discX, [x, Math.sin(a) * rd * 0.63, Math.cos(a) * rd * 0.63], [0, 0, 0], [0.01, rd * 0.04, rd * 0.04], C('#c9ccd0')); } // bobbins
+      for (let i = 0; i < 24; i++) { const a = (i / 24) * Math.PI * 2 + (i % 2) * 0.06; const r = rd * (i % 2 ? 0.78 : 0.88); part(mb, discX, [x, Math.sin(a) * r, Math.cos(a) * r], [0, 0, 0], [0.0055, rd * 0.025, rd * 0.025], C('#0a0a0a')); } }; // drilled
+    const cal = (x, rd, t, col, big) => { const cb = bikeCal || (bikeCal = new MeshBuilder()); part(cb, unitBox, [x, Math.sin(t) * rd * 0.9, Math.cos(t) * rd * 0.9], [-t, 0, 0], [big ? 0.034 : 0.028, big ? 0.11 : 0.075, big ? 0.045 : 0.035], col); part(cb, unitBox, [x + Math.sign(x || 1) * 0.008, Math.sin(t) * rd * 0.9, Math.cos(t) * rd * 0.9], [-t, 0, 0], [0.006, big ? 0.06 : 0.04, 0.02], C('#f2f2f0')); };
+    if (front) { if (style === 2) { for (const sx of [1, -1]) { disc(sx * (h + 0.008), rr * 0.68); cal(sx * (h + 0.012), rr * 0.68, 2.4, C('#c9a23a'), true); } }
+      else { disc(h + 0.006, rr * 0.62); cal(h + 0.01, rr * 0.62, 2.4, C('#3a3b3e'), false); } }
+    else { if (style === 2) { disc(-(h + 0.006), rr * 0.46); cal(-(h + 0.01), rr * 0.46, -0.6, C('#c9a23a'), false); }
+      else { part(mb, discX, [-h * 0.75, 0, 0], [0, 0, 0], [0.02, R * 0.36, R * 0.36], hub); part(mb, ringX, [-h * 0.85, 0, 0], [0, 0, 0], [0.1, R * 0.3, R * 0.3], C('#55595e')); } // drum
+      part(mb, gearGeoX(style === 2 ? 42 : 40), [h + 0.01, 0, 0], [0, 0, 0], [0.006, style === 2 ? 0.1 : 0.11, style === 2 ? 0.1 : 0.11], C('#55585c')); part(mb, discX, [h + 0.012, 0, 0], [0, 0, 0], [0.004, 0.06, 0.06], C('#2a2b2e')); } // rear sprocket
   } else if (style === 1) { // pressed steel wheel: dished disc, ventilation holes, hub cap, lug nuts
     const dish = new THREE.LatheGeometry([V2(0.001, h * 0.42), V2(R * 0.2, h * 0.46), V2(R * 0.26, h * 0.3), V2(rr * 0.75, h * 0.38), V2(rr * 0.9, h * 0.2)], 36); dish.rotateZ(-Math.PI / 2); mb.geometry(dish, new THREE.Matrix4(), rc); dish.dispose();
     const nh = heavy ? 10 : 8; for (let i = 0; i < nh; i++) { const a = (i / nh) * Math.PI * 2; part(mb, discX, [h * 0.395, Math.sin(a) * rr * 0.55, Math.cos(a) * rr * 0.55], [0, 0, 0], [0.006, R * 0.055, R * 0.055], C('#0a0a0a')); }
@@ -303,7 +319,7 @@ export function hiWheelParts(R, w, style, kind, K) {
   }
   const rim = mb.build();
   // caliper (does not spin): mounted behind the spokes at the trailing top
-  let caliper = null; if (!bike && style !== 1) { const cb = new MeshBuilder(); part(cb, unitBox, [-h * 0.02, rr * 0.62, -rr * 0.32], [0.5, 0, 0], [0.07, R * 0.14, R * 0.34], C(style === 2 ? '#a82020' : '#3a3c40')); caliper = cb.build(); }
+  let caliper = bike && bikeCal ? bikeCal.build() : null; if (!bike && style !== 1) { const cb = new MeshBuilder(); part(cb, unitBox, [-h * 0.02, rr * 0.62, -rr * 0.32], [0.5, 0, 0], [0.07, R * 0.14, R * 0.34], C(style === 2 ? '#a82020' : '#3a3c40')); caliper = cb.build(); }
   const out = { tyre, rim, caliper }; hiCache.set(key, out); return out;
 }
 const lerp = (a, b, t) => a + (b - a) * t;

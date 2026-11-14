@@ -203,11 +203,12 @@ const SSS_ADD = `${SSS_LINE}
   #endif`;
 
 // per-character uniforms: wetness (rain on clothes and skin), sweat (exertion / humidity), wrinkle (expression)
-export function heroUniforms() { return { uWet: { value: 0 }, uSweat: { value: 0 }, uWrinkle: { value: 0 } }; }
+// uSway: cloth secondary motion (Anim.update spring) — xy = lag of the loose cloth in root-local x / z (m), z = flutter amplitude (m), w = time
+export function heroUniforms() { return { uWet: { value: 0 }, uSweat: { value: 0 }, uWrinkle: { value: 0 }, uSway: { value: new THREE.Vector4() } }; }
 export function patchHeroMaterial(mat, kind, U, prev = null) {
   mat.onBeforeCompile = (sh, r) => {
     if (prev) prev(sh, r);
-    sh.uniforms.uWet = U.uWet; sh.uniforms.uSweat = U.uSweat; sh.uniforms.uWrinkle = U.uWrinkle; if (kind === 'face') sh.uniforms.wrinkleMap = { value: faceNormals().wrinkle };
+    sh.uniforms.uWet = U.uWet; sh.uniforms.uSweat = U.uSweat; sh.uniforms.uWrinkle = U.uWrinkle; if (U.uSway) sh.uniforms.uSway = U.uSway; if (kind === 'face') sh.uniforms.wrinkleMap = { value: faceNormals().wrinkle };
     sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>\nattribute float aSkin;\nvarying float vSkin;\n${DQ_FUNCS}`)
       .replace('#include <skinnormal_vertex>', DQ_NORMAL).replace('#include <skinning_vertex>', DQ_POS)
       .replace('#include <begin_vertex>', `#include <begin_vertex>\nvSkin = ${kind === 'hair' ? '0.0' : kind === 'face' ? '1.0' : 'aSkin'};`);

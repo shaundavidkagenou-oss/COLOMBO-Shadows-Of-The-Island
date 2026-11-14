@@ -9,10 +9,10 @@ export const DEFAULT_BINDINGS = {
   reload: 'KeyR', holster: 'KeyX', weaponWheel: 'Tab', grenade: 'KeyB',
 };
 export const QUALITY_PRESETS = {
-  low:    { pixelRatio: 0.75, shadows: false, shadowRes: 1024, bloom: false, ao: false, drawDist: 650,  crowd: 60,  traffic: 22, detailRadius: 1 },
-  medium: { pixelRatio: 1.0,  shadows: true,  shadowRes: 1024, bloom: true,  ao: false, drawDist: 950,  crowd: 110, traffic: 34, detailRadius: 2 },
-  high:   { pixelRatio: 1.0,  shadows: true,  shadowRes: 2048, bloom: true,  ao: false, drawDist: 1400, crowd: 170, traffic: 46, detailRadius: 2 },
-  ultra:  { pixelRatio: 1.5,  shadows: true,  shadowRes: 4096, bloom: true,  ao: true,  drawDist: 1900, crowd: 240, traffic: 60, detailRadius: 3 },
+  low:    { pixelRatio: 0.75, shadows: false, shadowRes: 1024, bloom: false, ao: false, cine: 0, drawDist: 650,  crowd: 60,  traffic: 22, detailRadius: 1 },
+  medium: { pixelRatio: 1.0,  shadows: true,  shadowRes: 1024, bloom: true,  ao: false, cine: 1, drawDist: 950,  crowd: 110, traffic: 34, detailRadius: 2 },
+  high:   { pixelRatio: 1.0,  shadows: true,  shadowRes: 2048, bloom: true,  ao: false, cine: 2, drawDist: 1400, crowd: 170, traffic: 46, detailRadius: 2 },
+  ultra:  { pixelRatio: 1.5,  shadows: true,  shadowRes: 4096, bloom: true,  ao: true,  cine: 3, drawDist: 1900, crowd: 240, traffic: 60, detailRadius: 3 },
 };
 const DEFAULTS = {
   quality: 'high', resolutionScale: 1.0, fullscreen: false, fov: 62,
@@ -20,7 +20,7 @@ const DEFAULTS = {
   master: 0.85, music: 0.6, sfx: 0.85, ambience: 0.75, dialogue: 1.0, voiceTTS: false,
   subtitles: true, subtitleSize: 1.0, crowdDensity: 1.0, trafficDensity: 1.0,
   timeScale: 2.0, // real seconds per game minute
-  showFps: false, blood: true, /* blood effects (impact spray, splats, pools under bodies) */ wetReflections: true, /* wet-road light streaks (WetGlints) */ nightBrightness: 1.15, /* night exposure multiplier (Settings → Night brightness) */
+  showFps: false, blood: true, /* blood effects (impact spray, splats, pools under bodies) */ wetReflections: true, /* wet-road light streaks (WetGlints) */ nightBrightness: 1.15, /* night exposure multiplier (Settings → Night brightness) */ lensFlare: true, lightShafts: true, dynamicRes: true, /* hold the frame rate by lowering the render scale (min 80 %) only while it drops */ /* cinematic sun effects, where the preset includes them (cine level: Medium flare, High/Ultra shafts) */
   switchStyle: 'auto', // squad switch camera: auto (transit, or jump-cut when far / blocked) | transit | cut
   bindings: { ...DEFAULT_BINDINGS },
 };

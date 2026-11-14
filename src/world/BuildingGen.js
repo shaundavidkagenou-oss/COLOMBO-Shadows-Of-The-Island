@@ -6,6 +6,10 @@ import { LAND_Y } from './Layout.js';
 import { FLOOR_H, GROUND_H } from './CityPlan.js';
 import { dressFort, fortCrown, fortHeritage } from './FortStyle.js';
 import { dressDistrict } from './DistrictStyle.js';
+// footprints of the roof clutter built below (tanks, stair hut, dish, lift overrun, plant units — no colliders, they are
+// thousands of small things): recorded on the building so the rooftop marksman (actors/Assassin.js) never kneels inside one.
+// A data record only: no RNG draws, so every city stream stays identical.
+function roofObs(b, x0, z0, x1, z1) { const L = b._roofObs || (b._roofObs = []); if (!L.some((o) => Math.abs(o[0] - x0) < 1e-3 && Math.abs(o[1] - z0) < 1e-3)) L.push([x0, z0, x1, z1]); }
 import { SIGN_COLS, SIGN_ROWS, SIGNS, FACADE_WINDOWS } from '../gfx/Textures.js';
 
 const BAY = 3.2;
@@ -29,7 +33,8 @@ export function porchPillars(b) {
 }
 export function colonnadeColumns(b) {
   if (!b.colonnade) return [];
-  const s = frontSide(b), n = Math.max(2, Math.floor(s.len / 4)), out = [];
+  const s = frontSide(b); let n = Math.max(2, Math.floor(s.len / 4)); const out = [];
+  if (b.walkIn && n % 2 === 0) n += 1; // a walk-in doorway sits mid-front: an odd bay count keeps a column from standing in front of it
   for (let k = 0; k <= n; k++) out.push([s.a[0] + (s.b[0] - s.a[0]) * k / n + s.n[0] * 0.6, s.a[1] + (s.b[1] - s.a[1]) * k / n + s.n[1] * 0.6, 0.32]);
   return out;
 }
@@ -39,13 +44,18 @@ function facadeWall(mb, s, y0, y1, uOff, vStart, color) {
   const v0 = (y0 - vStart) / (2 * FLOOR_H), v1 = (y1 - vStart) / (2 * FLOOR_H);
   mb.wall(s.a[0], s.a[1], s.b[0], s.b[1], y0, y1, [u0, v0, u1, v1], color);
 }
-function shopWall(mb, s, y0, y1, row, colIdx, bid = 0) {
+function shopWall(mb, s, y0, y1, row, colIdx, bid = 0, hole = null) {
   const n = Math.max(1, Math.round(s.len / 5));
   const v0 = 1 - (row + 1) / 8 + 0.002, v1 = 1 - row / 8 - 0.002;
   // + a whole number of atlas widths per building (the atlas repeats, so it samples the same) → floor(u·4) is a unique
   // id for every shop unit, used by the night shader (each shop keeps its own hours and shutter)
   const K = 1 + (bid % 97); const u0 = K + colIdx / 4, u1 = K + colIdx / 4 + n / 4;
-  mb.wall(s.a[0], s.a[1], s.b[0], s.b[1], y0, y1, [u0, v0, u1, v1], [1, 1, 1]);
+  if (!hole) { mb.wall(s.a[0], s.a[1], s.b[0], s.b[1], y0, y1, [u0, v0, u1, v1], [1, 1, 1]); return; }
+  // walk-in shop (WalkIn.js): the doorway is a real opening — left / right of it and the lintel above, same atlas mapping
+  const P = (t) => [s.a[0] + (s.b[0] - s.a[0]) * t, s.a[1] + (s.b[1] - s.a[1]) * t], U = (t) => u0 + (u1 - u0) * t, V = (y) => v0 + (v1 - v0) * (y - y0) / (y1 - y0);
+  const ta = hole.t - hole.w / 2 / s.len, tb = hole.t + hole.w / 2 / s.len, yh = y0 + hole.h;
+  const q = (t0, t1, ya, yb) => { const A = P(t0), B = P(t1); mb.wall(A[0], A[1], B[0], B[1], ya, yb, [U(t0), V(ya), U(t1), V(yb)], [1, 1, 1]); };
+  q(0, ta, y0, y1); q(tb, 1, y0, y1); q(ta, tb, yh, y1);
 }
 function hipRoof(mb, x0, x1, z0, z1, y, rise, overhang, color) {
   x0 -= overhang; x1 += overhang; z0 -= overhang; z1 += overhang;
@@ -115,6 +125,12 @@ function contactAO(mb, s, y0) {
 const FAC_VARIANTS = { office: ['office', 'office2', 'office3'], apartment: ['apartment', 'apartment2'], shop2: ['shop2', 'shop3'], shop: ['shop', 'shop', 'shop3'], glass: ['glass', 'glass3'], glass2: ['glass2', 'office3'] };
 export function facKey(style, b, salt = 0) { const v = FAC_VARIANTS[style]; if (!v) return style;
   const h = (Math.imul(Math.round(b.x0 * 10) + salt * 977, 73856093) ^ Math.imul(Math.round(b.z0 * 10), 19349663)) >>> 0; return v[h % v.length]; }
+// Stage 1 colour: sun-bleached / lichen-dulled Calicut tiles and aged sheet roofs (vertex tint over the shared texture —
+// no new texture or material). Cool tints pull the terracotta / rust toward grey; the Port's sheds get the least rust.
+const TILE_TONES = [[0.86, 0.84, 0.82], [0.8, 0.8, 0.8], [0.9, 0.86, 0.82], [0.76, 0.77, 0.78], [0.84, 0.83, 0.84]];
+const SHEET_TONES = [[0.92, 0.93, 0.94], [0.86, 0.87, 0.88], [0.95, 0.94, 0.92], [0.82, 0.84, 0.86]];
+const SHEET_TONES_PORT = [[0.84, 0.9, 0.95], [0.8, 0.86, 0.9], [0.88, 0.92, 0.95]];
+function roofTone(b, T) { return T[((b.id || 0) * 7 + 3) % T.length]; }
 export function buildBase(b, multi) {
   const paint = col(b.color || '#ffffff');
   const fac = multi.get('f_' + facKey(b.style, b));
@@ -123,7 +139,7 @@ export function buildBase(b, multi) {
     if (s.len < 0.1) continue;
     const front = s.id === b.front;
     if (hasGround) {
-      if (front) shopWall(multi.get('shops'), s, y0, y0 + GROUND_H, b.groundRow, b.groundCol || 0, b.id || 0);
+      if (front) shopWall(multi.get('shops'), s, y0, y0 + GROUND_H, b.groundRow, b.groundCol || 0, b.id || 0, b.walkIn || null);
       else facadeWall(fac, s, y0, y0 + GROUND_H, b.uOff || 0, y0 + GROUND_H - 2 * FLOOR_H, paint);
       facadeWall(fac, s, y0 + GROUND_H, yTop, b.uOff || 0, y0 + GROUND_H, paint);
     } else facadeWall(fac, s, y0, yTop, b.uOff || 0, y0, paint);
@@ -131,8 +147,8 @@ export function buildBase(b, multi) {
   }
   // roof
   const roofCol = [0.78, 0.76, 0.72];
-  if (b.roof === 'tile') hipRoof(multi.get('roofTiles'), b.x0, b.x1, b.z0, b.z1, yTop, Math.min(b.x1 - b.x0, b.z1 - b.z0) * 0.32, 0.7, [1, 1, 1]);
-  else if (b.roof === 'corrugated') { gableRoof(multi.get('corrugated'), b.x0 - 0.3, b.x1 + 0.3, b.z0 - 0.3, b.z1 + 0.3, yTop, b.style === 'warehouse' ? 2.5 : 1.0, [1, 1, 1], (b.x1 - b.x0) >= (b.z1 - b.z0)); }
+  if (b.roof === 'tile') hipRoof(multi.get('roofTiles'), b.x0, b.x1, b.z0, b.z1, yTop, Math.min(b.x1 - b.x0, b.z1 - b.z0) * 0.32, 0.7, roofTone(b, TILE_TONES));
+  else if (b.roof === 'corrugated') { gableRoof(multi.get('corrugated'), b.x0 - 0.3, b.x1 + 0.3, b.z0 - 0.3, b.z1 + 0.3, yTop, b.style === 'warehouse' ? 2.5 : 1.0, roofTone(b, b.district === 'port' ? SHEET_TONES_PORT : SHEET_TONES), (b.x1 - b.x0) >= (b.z1 - b.z0)); }
   else multi.get('roofFlat').hrect(b.x0, b.z0, b.x1, b.z1, yTop, 6, roofCol);
   // tower on podium
   if (b.tower) {
@@ -148,9 +164,10 @@ export function buildBase(b, multi) {
       if (!t.crown) {
         const lw = Math.min(8, w * 0.3), ld = Math.min(6, d * 0.25), lx = cx + rr.range(-0.15, 0.15) * w, lz = cz + rr.range(-0.15, 0.15) * d;
         cc.box(lx, ry + 2.2, lz, lw, 4.4, ld, { col: [0.8, 0.8, 0.79], uvScale: 3 }); // lift/stair overrun
+        roofObs(b, lx - lw / 2, lz - ld / 2, lx + lw / 2, lz + ld / 2);
         const nu = 2 + Math.floor(rr.next() * 4);
         for (let k = 0; k < nu; k++) { const ux = tx0 + 2.5 + rr.next() * (w - 5), uz = tz0 + 2.5 + rr.next() * (d - 5); if (Math.abs(ux - lx) < lw / 2 + 2 && Math.abs(uz - lz) < ld / 2 + 2) continue;
-          mt.box(ux, ry + 0.9, uz, 2.6, 1.8, 1.6, { col: [0.62, 0.64, 0.66] }); mt.cylinder(ux - 0.6, ry + 1.8, uz, 0.5, 0.5, 0.12, 14, { col: [0.2, 0.2, 0.22] }); mt.cylinder(ux + 0.6, ry + 1.8, uz, 0.5, 0.5, 0.12, 14, { col: [0.2, 0.2, 0.22] }); }
+          roofObs(b, ux - 1.3, uz - 0.8, ux + 1.3, uz + 0.8); mt.box(ux, ry + 0.9, uz, 2.6, 1.8, 1.6, { col: [0.62, 0.64, 0.66] }); mt.cylinder(ux - 0.6, ry + 1.8, uz, 0.5, 0.5, 0.12, 14, { col: [0.2, 0.2, 0.22] }); mt.cylinder(ux + 0.6, ry + 1.8, uz, 0.5, 0.5, 0.12, 14, { col: [0.2, 0.2, 0.22] }); }
         if (rr.chance(0.7)) { const kx = tx0 + 2 + rr.next() * (w - 4); mt.cylinder(kx, ry, tz1 - 2.5, 1.1, 1.1, 2.4, 16, { col: [0.85, 0.85, 0.83] }); mt.cylinder(kx + 2.6, ry, tz1 - 2.5, 1.1, 1.1, 2.4, 16, { col: [0.85, 0.85, 0.83] }); }
         if (rr.chance(0.6)) mt.cylinder(lx, ry + 4.4, lz, 0.08, 0.05, 9 + rr.next() * 8, 6, { col: [0.5, 0.5, 0.52] }); // antenna
       }
@@ -160,8 +177,9 @@ export function buildBase(b, multi) {
   }
 }
 
-const AWNING = ['#2f6fa8', '#d9682a', '#3f8f4a', '#b8322f', '#e3b23c', '#5b5b9a', '#1f8a8a', '#c0c0c0', '#7a3f2a'];
-const TANK = ['#1b1b1b', '#1d3f7a', '#222222', '#e8e8e2', '#2a2a2a'];
+// sun-faded canvas / PVC awnings and water tanks (black and dull-blue polyethylene, the odd grey-white one) — same counts
+const AWNING = ['#4a6a86', '#b06a44', '#4d7652', '#94463f', '#c0a05a', '#5e5e7e', '#3e7474', '#a9aaa6', '#6e4a3a'];
+const TANK = ['#1e1e1e', '#2c4560', '#262626', '#c9c9c2', '#2d2d2d'];
 function signUV(idx) {
   const n = SIGN_COLS * SIGN_ROWS; idx = ((idx % n) + n) % n;
   const c = idx % SIGN_COLS, r = Math.floor(idx / SIGN_COLS);
@@ -280,6 +298,7 @@ export function buildDetail(b, multi) {
       const n = rng.int(1, 3);
       for (let k = 0; k < n; k++) {
         const tx = rng.range(b.x0 + 1.2, b.x1 - 1.2), tz = rng.range(b.z0 + 1.2, b.z1 - 1.2);
+        roofObs(b, tx - 0.7, tz - 0.7, tx + 0.7, tz + 0.7);
         // steel stand (4 angle legs + platform) carrying a ribbed polyethylene tank with a screw lid (kept lean: thousands of roofs)
         const mt = multi.get('metal'), pm = multi.get('paint'), sc = [0.24, 0.24, 0.25], tc = col(rng.pick(TANK)), sh = rng.range(0.7, 1.4);
         for (const [ox, oz] of [[-0.58, -0.58], [0.58, -0.58], [-0.58, 0.58], [0.58, 0.58]]) mt.box(tx + ox, yTop + sh / 2, tz + oz, 0.06, sh, 0.06, { col: sc, top: false, bottom: false });
@@ -289,8 +308,8 @@ export function buildDetail(b, multi) {
         pm.cylinder(tx, yTop + sh + 1.28, tz, 0.2, 0.2, 0.07, 8, { col: tc.map((v) => v * 0.8) }); // lid
       }
     }
-    if (b.floors >= 3 && (b.x1 - b.x0) > 6 && (b.z1 - b.z0) > 6) conc.box(b.x0 + 2, yTop + 1.3, b.z0 + 2, 2.6, 2.6, 2.6, { col: darker, uvScale: 3 });
-    if (rng.chance(0.3)) { const dx = rng.range(b.x0 + 1, b.x1 - 1), dz = rng.range(b.z0 + 1, b.z1 - 1); multi.get('paint').cylinder(dx, yTop + 0.9, dz, 0.45, 0.05, 0.25, 10, { col: [0.85, 0.85, 0.85] }); multi.get('metal').box(dx, yTop + 0.45, dz, 0.06, 0.9, 0.06, { col: [0.4, 0.4, 0.4] }); }
+    if (b.floors >= 3 && (b.x1 - b.x0) > 6 && (b.z1 - b.z0) > 6) { conc.box(b.x0 + 2, yTop + 1.3, b.z0 + 2, 2.6, 2.6, 2.6, { col: darker, uvScale: 3 }); roofObs(b, b.x0 + 0.7, b.z0 + 0.7, b.x0 + 3.3, b.z0 + 3.3); }
+    if (rng.chance(0.3)) { const dx = rng.range(b.x0 + 1, b.x1 - 1), dz = rng.range(b.z0 + 1, b.z1 - 1); roofObs(b, dx - 0.5, dz - 0.5, dx + 0.5, dz + 0.5); multi.get('paint').cylinder(dx, yTop + 0.9, dz, 0.45, 0.05, 0.25, 10, { col: [0.85, 0.85, 0.85] }); multi.get('metal').box(dx, yTop + 0.45, dz, 0.06, 0.9, 0.06, { col: [0.4, 0.4, 0.4] }); }
   }
   // building fabric: rendered plinth course, rainwater downpipes (PVC grey or painted black/cast iron on heritage),
   // eave gutters on tiled roofs, and a CEB electricity meter box beside the entrance
@@ -345,7 +364,8 @@ export function buildDetail(b, multi) {
   }
 }
 export function buildWall(w, multi) {
-  const c = col(w.col); const conc = multi.get('concrete');
+  const hv = Math.sin((w.x0 * 12.9898 + w.z0 * 78.233)) * 43758.5453, k = 0.94 + 0.08 * (hv - Math.floor(hv)); // each run of wall repainted at a different time
+  const c = col(w.col).map((v) => v * k); const conc = multi.get('concrete');
   conc.box((w.x0 + w.x1) / 2, LAND_Y + w.h / 2, (w.z0 + w.z1) / 2, w.x1 - w.x0, w.h, w.z1 - w.z0, { col: c, uvScale: 2 });
   conc.box((w.x0 + w.x1) / 2, LAND_Y + w.h + 0.05, (w.z0 + w.z1) / 2, w.x1 - w.x0 + 0.08, 0.1, w.z1 - w.z0 + 0.12, { col: c.map((v) => v * 0.85), uvScale: 2 });
 }

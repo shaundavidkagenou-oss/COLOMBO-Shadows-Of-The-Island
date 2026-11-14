@@ -30,8 +30,8 @@ export class GunShopUI {
   get list() { const c = CATEGORIES[this.cat].id; return this.items.filter((it) => it.cat === c); }
   get member() { return this.g.squad?.activeMember?.def?.name || 'You'; }
   ctx() { const g = this.g; return { inv: g.weapons.inv, money: g.story.state.money, opts: { wanted: (g.police?.level || 0) > 0, grenades: g.grenades ? g.grenades.count : 0 } }; }
-  toggle(v = !this.open) {
-    const g = this.g, P = g.player; if (v === this.open) return; this.open = v; this.root.classList.toggle('hidden', !v);
+  toggle(v = !this.open, shop = null) {
+    const g = this.g, P = g.player; if (v === this.open) return; this.open = v; if (v) { this.shopName = shop ? shop.name : SHOP_NAME; this.shopSub = shop ? shop.sub : 'Licensed firearms dealer · Maradana, Colombo 10'; } this.root.classList.toggle('hidden', !v);
     if (v) { this.prevControl = P.control; P.control = false; Input.releaseLock(); this.flash = null; if (!this.previews) this.makePreviews(); this.render(); Audio.ui('click');
       if ((g.police?.level || 0) > 0) g.hud.subtitle(SHOP_NAME, 'Not today. Come back when the police are not looking for you.', '', 3.5); }
     else { P.control = this.prevControl ?? true; Audio.ui('click'); Input.mousePressed.clear(); Input.mouseButtons.clear(); Input.wheel = 0; g.ignoreUnlock = true; Input.requestLock(g.canvas); setTimeout(() => (g.ignoreUnlock = false), 300); } /* the click that closed the shop must not become a punch/shot */
@@ -97,7 +97,7 @@ export class GunShopUI {
         ${this.flash ? `<div class="gs-flash${this.flash.bad ? ' bad' : ''}">${this.flash.msg}</div>` : ''}`; }
     const oldList = this.root.querySelector('.gs-list'), oldDet = this.root.querySelector('.gs-det'); const keep = { list: oldList ? oldList.scrollTop : 0, det: oldDet && this._detKey === `${this.cat}:${this.row}` ? oldDet.scrollTop : 0 }; this._detKey = `${this.cat}:${this.row}`;
     this.root.innerHTML = `<div class="gs-panel">
-      <header class="gs-head"><div class="gs-brand"><div class="gs-logo">CA</div><div><h1>${SHOP_NAME}</h1><div class="gs-sub">Licensed firearms dealer · Maradana, Colombo 10</div></div></div>
+      <header class="gs-head"><div class="gs-brand"><div class="gs-logo">${(this.shopName || SHOP_NAME).split(/\s+/).slice(0, 2).map((w) => w[0]).join('')}</div><div><h1>${this.shopName || SHOP_NAME}</h1><div class="gs-sub">${this.shopSub || 'Licensed firearms dealer · Maradana, Colombo 10'}</div></div></div>
         <div class="gs-who"><div><small>Buying for</small><b>${this.member}</b></div><div><small>Cash</small><b class="gs-cash">${rs(c.money)}</b></div><button class="gs-x" data-act="close" title="Leave">✕</button></div></header>
       <nav class="gs-tabs">${tabs}</nav>
       <div class="gs-body"><div class="gs-list">${rows}</div><section class="gs-det">${det}</section></div>

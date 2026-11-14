@@ -4,7 +4,7 @@
 // thumb articulate, and the secondary-motion bones (shirt flaps, straps, fob) swing and settle without blowing up.
 import './node-dom-stub.mjs';
 const THREE = await import('three');
-const { Character, HEROES } = await import('../src/actors/Character.js');
+const { Character, HEROES, BONES } = await import('../src/actors/Character.js');
 const { HERO_EXTRA, DYN_BONES } = await import('../src/actors/HeroRig.js');
 
 let fails = 0; const ok = (c, msg) => { if (!c) { fails++; console.log('  FAIL', msg); } };
@@ -29,7 +29,7 @@ function skinDQ(mesh, i, out) {
 for (const id of ['dineth', 'shashika', 'david']) {
   const sp = HEROES[id]; ok(sp && sp.hero, `${id}: spec exists`); const ch = new Character(sp); const m = ch.mesh, g = m.geometry; const nb = m.skeleton.bones.length;
   console.log(`${id}: ${g.attributes.position.count} verts, ${nb} bones`);
-  ok(nb >= 55, `${id}: ${nb} bones (need 55+)`); ok(nb === 23 + HERO_EXTRA.length, `${id}: bone count matches the hero list`);
+  ok(nb >= 55, `${id}: ${nb} bones (need 55+)`); ok(nb === BONES.length + HERO_EXTRA.length, `${id}: bone count matches the hero list`);
   const pos = g.attributes.position, si = g.attributes.skinIndex, swt = g.attributes.skinWeight; let bad = 0, badW = 0, badI = 0; const used = new Set();
   for (let i = 0; i < pos.count; i++) { if (!Number.isFinite(pos.getX(i) + pos.getY(i) + pos.getZ(i))) bad++; let sum = 0; for (let k = 0; k < 4; k++) { const wt = swt.getComponent(i, k); sum += wt; if (wt > 0) { const b = si.getComponent(i, k); if (b >= nb) badI++; used.add(b); } } if (Math.abs(sum - 1) > 0.01) badW++; }
   ok(bad === 0, `${id}: ${bad} non-finite vertices`); ok(badW === 0, `${id}: ${badW} vertices with weights not summing to 1`); ok(badI === 0, `${id}: ${badI} out-of-range bone indices`);

@@ -26,8 +26,12 @@ const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _k = new THREE.Vector3
 // Returns { gamma (splay about +z), theta (forward swing of the thigh from straight down), knee (flexion) }.
 export function solveLeg(H, F, a, b) {
   const dx = F.x - H.x, dy = F.y - H.y, dz = F.z - H.z;
-  const down = Math.hypot(dx, dy); // distance in the splayed leg plane, "downward" component
-  const gamma = Math.atan2(dx, -dy); // rotate the leg plane about the forward axis so it contains the target
+  // rotate the leg plane about the forward axis so it contains the target, and take the target's "downward" distance in that
+  // plane. A foot level with (or above) the hip — legs out flat in a low sports car, a foot lifted over the sill — would flip
+  // atan2(dx, −dy) through ±π (the knee spinning round); below 8 cm of drop the plane stays upright and "down" goes negative
+  // instead (thigh pointing forward-up). With 8 cm or more of drop this is exactly the plain solve.
+  const gamma = Math.atan2(dx, Math.max(-dy, 0.08));
+  const down = dx * Math.sin(gamma) - dy * Math.cos(gamma); // distance in the splayed leg plane, "downward" component
   const D = clamp(Math.hypot(dz, down), Math.abs(a - b) + 1e-3, (a + b) * 0.999);
   const phi = Math.atan2(dz, down);
   const alpha = Math.acos(clamp((a * a + D * D - b * b) / (2 * a * D), -1, 1));
@@ -122,6 +126,8 @@ function poseSeat(A, dt, w, fitting = false) {
     const fo = sd === 'L' ? A.footOverL : null; if (fo && fo.w > 0) F.lerp(_fo.set(fo.x, fo.y + ankle, fo.z), Math.min(1, fo.w)); // kickstand: the left boot on the stand's tang
     const L = solveLeg(_v, F, a, bl);
     _e.set(-L.theta, 0, L.gamma, 'ZXY'); _qw.setFromEuler(_e); // world (root-space) thigh orientation
+    if (S.kneeOut) { // sport riding: swing the knee out round the hip→ankle axis (the ankle stays on its target) so it clears the tank/fairing
+      const ax = _fo.copy(F).sub(_v).normalize(); _qs.setFromAxisAngle(ax, -sx * S.kneeOut); _qw.premultiply(_qs); }
     _qt.copy(_qh).invert().multiply(_qw); tb.quaternion.slerp(_qt, w); // local = hips⁻¹ · world
     _e.set(L.knee, 0, 0, 'XYZ'); _qs.setFromEuler(_e); b['shin' + sd].quaternion.slerp(_qs, w);
     // foot flat (or slightly toe-down on pegs): local = (hips·thigh·shin)⁻¹ · desired

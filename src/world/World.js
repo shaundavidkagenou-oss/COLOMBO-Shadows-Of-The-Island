@@ -1,11 +1,13 @@
 // Builds and streams the static city: ground, buildings (base + streamed detail), landmarks, props, trees, water.
 import * as THREE from 'three';
+import { nightLight } from '../gfx/LightSets.js';
 import { MultiBuilder, SliceBuild, meshFor, FOLIAGE } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
-import { GroundDetail } from './GroundDetail.js';
+import { RangeBatch, rangesFor, disposeMesh } from '../gfx/CellBatch.js';
+import { GroundDetail, regTrees } from './GroundDetail.js';
 import { generatePlan, plan, NCX, NCZ, CHUNK, chunkCenter, refitTreeCrowns, landmarkTreeBoxes } from './CityPlan.js';
 import { buildGround } from './GroundBuilder.js';
-import { buildBase, buildDetail, buildWall, buildWindows, windowTasks, frontColumns } from './BuildingGen.js';
+import { buildBase, buildDetail, buildWall, windowTasks, frontColumns } from './BuildingGen.js';
 import { buildLandmarks } from './Landmarks.js';
 import { buildPropGeometries, buildPropsForChunk, updateSignals, initGlowTexture } from './Props.js';
 import { buildTreeGeometries, windUniform } from './Vegetation.js';
@@ -22,7 +24,9 @@ import { Collision } from './Collision.js';
 import { buildGunShopFront } from './GunShopFront.js';
 import { buildClubFront } from './ClubFront.js';
 import { buildFuelStations } from './FuelStations.js';
+import { buildCustoms } from './CustomsGeo.js';
 import { buildCityStreets } from './CityStreets.js';
+import { buildStreetRamps } from './StreetRamps.js';
 import { WetGlints } from '../gfx/WetGlints.js';
 import * as L from './Layout.js';
 import { RNG } from '../core/rng.js';
@@ -51,9 +55,11 @@ export class World {
     if (plan.missionShops.gunshop) { const s = plan.missionShops.gunshop; const f = buildGunShopFront(s, plan.buildings.find((b) => b.id === s.b)); this.root.add(f.group); this.collision.addAll(f.colliders); } // Ceylon Arms Co. shopfront
     if (plan.missionShops.club) { const s = plan.missionShops.club; const f = buildClubFront(s, plan.buildings.find((b) => b.id === s.b)); this.root.add(f.group); this.collision.addAll(f.colliders); } // The Velvet Monsoon club frontage
     { const fs = buildFuelStations(); this.fuel = fs; this.root.add(fs.group); this.collision.addAll(fs.colliders); } // four filling stations (FuelStations.js)
+    { const cs = buildCustoms(); this.customs = cs; this.root.add(cs.group); this.collision.addAll(cs.colliders); } // Street Customs workshop (CustomsGeo.js; service: customs/CustomsService.js)
+    { const sr = buildStreetRamps(); this.streetRamps = sr; this.root.add(sr.group); } // speed humps + stunt jumps / bicycle ramps (StreetRamps.js; ground surfaces via Layout.setRampHook)
     { const fs = buildCityStreets(plan); this.fortStreets = this.cityStreets = fs; this.root.add(fs.group); this.collision.addAll(fs.colliders); } // Colombo Fort benchmark: trilingual street names, billboards, drains, bins (FortStreets.js)
     { // second crown-clearance pass against the landmark buildings (they only exist now): no leaves inside them either
-      const boxes = landmarkTreeBoxes(this.collision.list.filter((c) => c.kind === 'landmark' && !c.fuel)).concat(this.fuel.crownBoxes); const r = refitTreeCrowns(boxes);
+      const boxes = landmarkTreeBoxes(this.collision.list.filter((c) => c.kind === 'landmark' && !c.fuel)).concat(this.fuel.crownBoxes, this.customs.crownBoxes); const r = refitTreeCrowns(boxes);
       if (r.changed.size) { this.collision.remove((c) => r.changed.has(c)); this.collision.addAll(r.keep); }
       plan.plants = (plan.plants || []).filter((p) => !boxes.some((b) => p.x > b[0] - 0.5 && p.x < b[1] + 0.5 && p.z > b[2] - 0.5 && p.z < b[3] + 0.5)); } // no shrub inside a landmark or forecourt
     progress(0.3, 'Street furniture and trees'); await tick();
@@ -79,7 +85,7 @@ export class World {
     this.parkLife = new ParkLife(this, this.parkFeatures, quality); this.root.add(this.parkLife.group); // fireflies, fountain water, fruit bats, oil lamps
     upgradeGroundGrass(MAT.grass, 0.8); upgradeGroundGrass(MAT.lawn, 0.3);
     this.grass = new GrassField(this, this.collision); this.grass.setQuality(this.quality || 'high'); this.root.add(this.grass.mesh);
-    this.groundDetail = new GroundDetail(); this.groundDetail.setQuality(this.quality || quality || 'high'); this.root.add(this.groundDetail.group); // modelled bricks / kerb stones / ballast / rail clips near the camera
+    regTrees(plan.trees); this.groundDetail = new GroundDetail(); this.groundDetail.setQuality(this.quality || quality || 'high'); this.root.add(this.groundDetail.group); // modelled bricks / kerb stones / ballast / rail clips near the camera
     progress(0.86, 'Filling the ocean and Beira Lake'); await tick();
     this.water = buildWater(); this.root.add(this.water); this.waterRefl = new WaterReflection(this.water);
     progress(0.9, 'Outer suburbs'); await tick();
@@ -92,7 +98,7 @@ export class World {
     const nLights = quality === 'low' ? 3 : quality === 'medium' ? 6 : quality === 'ultra' ? 10 : 8; const shadowed = quality === 'high' || quality === 'ultra' ? 2 : 0;
     for (let i = 0; i < nLights; i++) { const p = new THREE.SpotLight(0xffc98a, 0, 34, 1.08, 0.6, 1.5); p.castShadow = i < shadowed;
       if (p.castShadow) { p.shadow.mapSize.set(512, 512); p.shadow.camera.near = 0.5; p.shadow.camera.far = 30; p.shadow.bias = -0.0008; p.shadow.normalBias = 0.05; p.shadow.autoUpdate = true; p.shadow.needsUpdate = true; p.shadow.camera.userData.noFoliage = true; }
-      p.position.set(0, -600, 0); p.target.position.set(0, -601, 0); this.scene.add(p); this.scene.add(p.target); p.userData.lamp = null; p.userData.k = 0; this.lampLights.push(p); }
+      p.position.set(0, -600, 0); p.target.position.set(0, -601, 0); this.scene.add(nightLight(p)); this.scene.add(p.target); p.userData.lamp = null; p.userData.k = 0; this.lampLights.push(p); } // dark by day: out of the shaders then (LightSets)
     this.glints = new WetGlints(this.scene, 64); this.glints.max = WetGlints.budget(quality); this.glintsOn = true; this._glintSrc = []; // wet-road light streaks (WetGlints.js)
     // FPS: the city geometry never moves, so its ~9k scene nodes are frozen — matrices are computed once here instead of
     // every frame (updateMatrixWorld skips these subtrees). Visual output is identical.
@@ -259,7 +265,7 @@ export class World {
         for (const c of ci) { if (Math.abs(c.cx - fx) > 300 || Math.abs(c.cz - fz) > 300) continue; for (const p of c.lamps) { const dx = p[0] - fx, dz = p[2] - fz, d2 = dx * dx + dz * dz; if (d2 > 110 * 110) continue;
           const inView = !cd || d2 < 400 || (dx * cd.x + dz * cd.z) / Math.sqrt(d2) > 0.35; near.push([d2 * (inView ? 1 : 3), p]); } }
         near.sort((a, b) => a[0] - b[0]); const want = new Set(near.slice(0, this.lampLights.length).map((n) => n[1]));
-        this.lampFade(dt, want, atmos.night * 44 * (1 - (this.indoorK || 0))); // inside a building the street lamps' light no longer passes through its walls
+        this.lampFade(dt, want, atmos.night * 44 * (1 - (this.indoorK || 0)) * Math.min(1, Math.max(0, (atmos.night - 0.3) / 0.3)) ** 2); // 35th: ramps up from 0 where the lamps switch on (night 0.3) instead of jumping to 13 // inside a building the street lamps' light no longer passes through its walls
       } else this.lampFade(dt, new Set(), 0);
     }
   }
@@ -274,18 +280,25 @@ export class World {
   stepJob(J, budgetMs) {
     if (!J) return true; const t0 = performance.now(); const bs = plan.byChunk[J.c.idx].buildings; const det = J.kind === 'detail';
     while (J.i < bs.length || (J.tasks && J.tasks.length)) { // generate: one building (detail) / one facade (windows) at a time
-      if (det) buildDetail(bs[J.i++], J.B[0]); else { if (!J.tasks || !J.tasks.length) J.tasks = windowTasks(bs[J.i++], J.B[0], J.B[1]); const t = J.tasks.shift(); if (t) t(); }
+      if (det) { this.markJob(J); buildDetail(bs[J.i++], J.B[0]); } else { if (!J.tasks || !J.tasks.length) { this.markJob(J); J.tasks = windowTasks(bs[J.i++], J.B[0], J.B[1]); } const t = J.tasks.shift(); if (t) t(); }
       if (performance.now() - t0 > budgetMs) return false; }
-    if (!J.q) { J.q = []; J.B.forEach((mb, k) => { for (const name of mb.b.keys()) J.q.push([k, name]); }); }
-    while (J.q.length || J.sb) { // merge: one material at a time, large ones in slices
+    if (!J.q) { this.markJob(J); J.q = []; J.B.forEach((mb, k) => { for (const name of mb.b.keys()) J.q.push([k, name]); }); }
+    while (J.q.length || J.sb || J.rb) { // merge: one material at a time, large ones in slices
+      if (J.rb) { if (!J.rb.step(t0, budgetMs)) return false; const B = J.rb.mesh, o = J.rbOpts; J.rb = null; B.name = J.sn; B.castShadow = o.cast; B.receiveShadow = o.receive; B.matrixAutoUpdate = false; B.updateMatrix(); J.meshes.push(B); if ((J.q.length || J.sb) && performance.now() - t0 > budgetMs) return false; continue; }
       if (!J.sb) { const [k, name] = J.q.shift(); J.sb = new SliceBuild(J.B[k].b.get(name)); J.sk = k; J.sn = name; }
       if (!J.sb.step(t0, budgetMs)) return false;
       const g = J.sb.geometry(), k = J.sk; J.sb = null;
-      if (g) { const m = meshFor(J.sn, g, MAT, det ? { cast: true, receive: true } : k === 0 ? { cast: false, receive: true } : { cast: false, receive: false }); if (m) { if (!det && k === 1) m.renderOrder = 2; J.meshes.push(m); } }
+      if (g) { const opts = det ? { cast: true, receive: true } : k === 0 ? { cast: false, receive: true } : { cast: false, receive: false };
+        // opaque detail / window joinery: one BatchedMesh instance per building (per-building frustum culling, still one draw) — see CellBatch.RangeBatch
+        const mat = MAT[J.sn], ranges = (det || k === 0) && mat && !mat.isShaderMaterial && !FOLIAGE.has(J.sn) && J.sn !== 'pool' && J.sn !== 'lampHead' ? rangesFor(J.marks, J.sn) : null;
+        if (ranges && ranges.length >= 3 && g.index.count >= 18000) { J.rb = new RangeBatch(g, ranges, mat); J.rbOpts = opts; if (performance.now() - t0 > budgetMs) return false; continue; }
+        const m = meshFor(J.sn, g, MAT, opts); if (m) { if (!det && k === 1) m.renderOrder = 2; J.meshes.push(m); } }
       if ((J.q.length || J.sb) && performance.now() - t0 > budgetMs) return false; }
-    const c = J.c; if (det ? c.detail : c.win) { for (const m of J.meshes) m.geometry.dispose(); return true; } // built meanwhile by warm()
-    if (det) this.finishDetail(c, J.meshes, true); else this.finishWindows(c, J.meshes, true); return true;
+    const c = J.c; if (det ? c.detail : c.win) { for (const m of J.meshes) disposeMesh(m); return true; } // built meanwhile by warm()
+    if (det) this.finishDetail(c, J.meshes, !J.sync); else this.finishWindows(c, J.meshes, !J.sync); return true;
   }
+  // per-building range marks: each material builder's vertex / index count before every building (+ one at the end)
+  markJob(J) { const mb = J.B[0]; (J.marks || (J.marks = [])).push(new Map([...mb.b].map(([n, b]) => [n, [b.pos.length / 3, b.idx.length]]))); }
   finishWindows(c, meshes, staged = false) { const g = new THREE.Group(); g.name = 'windows' + c.idx; for (const m of meshes) g.add(m); c.win = g; c.group.add(g); refreshStatic(c.group); if (staged) this.stage(meshes); }
   // streamed meshes appear over the next frames within a vertex budget: the GPU uploads a mesh's buffers the first time it is
   // drawn, and a whole chunk's merged materials (several MB) arriving in one frame was a visible hitch while driving
@@ -297,23 +310,18 @@ export class World {
   }
   buildDetailFor(c) {
     if (this.job && this.job.c === c) { this.stepDetailJob(Infinity); if (c.detail) return; }
-    const ch = plan.byChunk[c.idx]; const mb = new MultiBuilder();
-    for (const b of ch.buildings) buildDetail(b, mb);
-    this.finishDetail(c, mb.toMeshes(MAT, { cast: true, receive: true }));
+    const J = this.newJob(c, 'detail'); J.sync = true; this.stepJob(J, Infinity); // one-shot (warm / loading): the same job code, unbudgeted
   }
   // near tier: 3D window joinery + reflective panes (see BuildingGen.buildWindows)
   buildWindowsFor(c) {
     if (this.wjob && this.wjob.c === c) { this.stepWinJob(Infinity); if (c.win) return; }
-    const ch = plan.byChunk[c.idx]; const solid = new MultiBuilder(), glass = new MultiBuilder();
-    for (const b of ch.buildings) buildWindows(b, solid, glass);
-    const meshes = [...solid.toMeshes(MAT, { cast: false, receive: true })]; for (const m of glass.toMeshes(MAT, { cast: false, receive: false })) { m.renderOrder = 2; meshes.push(m); }
-    this.finishWindows(c, meshes);
+    const J = this.newJob(c, 'win'); J.sync = true; this.stepJob(J, Infinity);
   }
-  disposeWindows(c) { c.group.remove(c.win); c.win.traverse((m) => m.geometry && m.geometry.dispose()); c.win = null; }
+  disposeWindows(c) { c.group.remove(c.win); c.win.traverse((m) => m.geometry && disposeMesh(m)); c.win = null; }
   // after a long jump (teleport / fast travel) release streamed chunk geometry well outside the new streaming radii at once,
   // instead of keeping it until the 630 m hysteresis — keeps memory flat when jumping across the city
   trim(x, z) { let n = 0; for (const c of this.chunks) { const d = Math.max(0, Math.hypot(c.cx - x, c.cz - z) - CHUNK * 0.7); if (c.detail && d > this.detailRadius + 60) { this.disposeDetail(c); n++; } if (c.win && d > this.windowRadius + 40) { this.disposeWindows(c); n++; } } return n; }
-  disposeDetail(c) { c.group.remove(c.detail); c.detail.traverse((m) => m.geometry && m.geometry.dispose()); c.detail = null; }
+  disposeDetail(c) { c.group.remove(c.detail); c.detail.traverse((m) => m.geometry && disposeMesh(m)); c.detail = null; }
   // Force detail around a point (used before cinematics / after teleport)
   warm(x, z) { for (const c of this.chunks) { const d = Math.hypot(c.cx - x, c.cz - z) - CHUNK * 0.7; if (!c.detail && d < this.detailRadius) this.buildDetailFor(c); if (!c.win && d < this.windowRadius) this.buildWindowsFor(c); } }
   // same as warm(), one chunk per frame with progress (used by the enter-game loading screen)
@@ -328,7 +336,7 @@ export class World {
     const lit = new Set(); const _m = this._lampM || (this._lampM = new THREE.Matrix4());
     const decal = (lamp, on) => { const [x, , z, mesh, i] = lamp; if (!mesh) return; if (on) _m.makeTranslation(x, ROAD_Y + 0.03, z); else _m.makeScale(0, 0, 0); mesh.setMatrixAt(i, _m); mesh.instanceMatrix.needsUpdate = true; };
     for (const l of this.lampLights) { const u = l.userData; if (!u.lamp) continue;
-      if (want.has(u.lamp) && base > 0) { u.k = Math.min(1, u.k + dt * 4); lit.add(u.lamp); } else { u.k -= dt * 4; if (u.k <= 0) { decal(u.lamp, true); u.lamp = null; u.k = 0; } else lit.add(u.lamp); } }
+      if (want.has(u.lamp) && base > 0) { u.k = Math.min(1, u.k + dt * 2.2); lit.add(u.lamp); } else { u.k -= dt * 2.2; if (u.k <= 0) { decal(u.lamp, true); u.lamp = null; u.k = 0; } else lit.add(u.lamp); } }
     for (const lamp of want) { if (lit.has(lamp) || base <= 0) continue; const l = this.lampLights.find((q) => !q.userData.lamp); if (!l) break;
       l.userData.lamp = lamp; l.userData.k = 0; decal(lamp, false); l.position.set(lamp[0], lamp[1] - 0.4, lamp[2]); l.target.position.set(lamp[0], ROAD_Y, lamp[2] + 0.001); l.target.updateMatrixWorld(); lit.add(lamp); }
     for (const l of this.lampLights) { const u = l.userData; const I = u.lamp ? base * u.k : 0; if (l.intensity !== I) l.intensity = I; if (l.castShadow) l.shadow.autoUpdate = I > 0; } /* FPS: an unlit pooled lamp (all day, parked at y -600) no longer re-renders its shadow map every frame */

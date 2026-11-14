@@ -19,6 +19,7 @@ export class Health {
   bind(P) { // Player is rebuilt on load/outfit change: (re)attach the event hooks
     if (!P || P.__healthBound === this) return; P.__healthBound = this;
     P.events.on('land', () => { const v = -P.lastLandVy; if (v > 9) { this.stats.falls++; this.damage((v - 9) * 9, 'fall'); } });
+    P.events.on('drown', () => { this.stats.drowned = (this.stats.drowned || 0) + 1; this.damage(11, 'drowned'); }); // out of breath underwater (Swim.js)
     P.events.on('hitByVehicle', (speed) => { this.stats.hits++; this.damage(Math.min(85, 8 + speed * 3.4), 'struck by a vehicle'); });
   }
   get hp() { const s = this.g.story.state; if (typeof s.health !== 'number' || !isFinite(s.health)) s.health = 100; return s.health; }
@@ -42,18 +43,18 @@ export class Health {
   // ambulance = voluntary admission via the phone (1990 Suwa Seriya): same care, lighter pharmacy bill
   async hospitalise(cause, ambulance = false) {
     const g = this.g, P = g.player, S = g.story; if (this.busy) return; this.busy = true; this.stats.admissions++;
-    g.weapons?.forceHolster?.(); P.control = false; P.speed = 0;
+    g.weapons?.forceHolster?.(); g.grenades?.interrupt?.(); P.abortVehicleTransition?.(); P.control = false; P.speed = 0; // dying mid-entry: stop boarding now (it used to carry on through the fade)
     if (S.side) { S.side = null; S.hud.setTimer(null); S.hud.setObjective('', ''); S.removeNPC?.('fare'); }
     if (S.running) { const err = S.fail(ambulance ? 'You called an ambulance.' : 'You were taken to hospital.'); for (const c of S.conds) c.rej(err); S.conds = []; }
-    if (!ambulance) P.ch.anim.set('stumble');
+    if (!ambulance && !P.vehicle) P.ch.anim.set('collapse'); // falls to the ground (was a stagger-and-recover)
     await this.wait(ambulance ? 0.2 : 1.2); await g.hud.fade(1, 0.9);
-    P.abortVehicleTransition?.(); // dying mid-entry
+    P.abortVehicleTransition?.(); P.control = false; // dying mid-entry (abort hands control back — not until the fade-in ends)
     if (P.vehicle) { const veh = P.vehicle; veh.speed = 0; veh.mesh.remove(P.ch.root); g.scene.add(P.ch.root); veh.player = false; P.vehicle = null; P.exiting = null; P.entry = null; P.ch.anim.standUp(); g.traffic.release(veh); }
     if (g.police && g.police.level > 0) { for (const u of g.police.units.slice()) g.police.removeUnit(u); g.police.level = 0; g.police.stop = null; g.police.search = null; g.police.incident = null; g.police.lastSeen = null; g.police.setState('patrol'); }
     if (g.interiors.current) { const room = g.interiors.current; room.g.visible = false; g.interiors.current = null; g.setIndoor(false); } // shop/flat interior: leave it
     P.indoor = null;
     g.atmos.advance(HOSPITAL.hours * 60);
-    const [hx, hz] = S.safeSpot(L.PLACES.hospital.x, L.PLACES.hospital.z); P.teleport(hx, hz, Math.PI); P.ch.anim.set(null); g.world.warm(hx, hz);
+    const [hx, hz] = S.safeSpot(L.PLACES.hospital.x, L.PLACES.hospital.z); P.teleport(hx, hz, Math.PI); g.world.warm(hx, hz); g.drunk?.reset?.(); P.respawnReset?.(); P.control = false; g.squad?.regroup?.();
     this.hp = 100; P.stamina = 1; this.lastHurt = -99;
     const want = ambulance ? HOSPITAL.ambulanceMedicines : HOSPITAL.medicines; const paid = Math.max(0, Math.min(want, S.state.money));
     if (paid > 0) S.pay(-paid, 'Pharmacy — medicines prescribed at the National Hospital (treatment there is free)');

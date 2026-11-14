@@ -107,7 +107,7 @@ for (let i = 0; i < 20 * 260 && F; i++) { step(0.05); t += 0.05; if (!F.handed &
     if (!police.civil.includes(unit) && seen.has('unit:leave')) { removed = true; break; } }
   if (F.ended && !F.unit && t > 120) break;
 }
-console.log(`fight: ${[...seen].join(' → ')} · prisoners ${[...qseen].join(' → ')} · seated after ${tArr ? tArr.toFixed(0) : '-'} s · car load ${carIn} · subtitles: ${[...new Set(subs)].slice(0, 6).join(' | ')}`);
+console.log(`fight: ${F && F.why ? '[ended: ' + F.why + '] ' : ''}${[...seen].join(' → ')} · prisoners ${[...qseen].join(' → ')} · seated after ${tArr ? tArr.toFixed(0) : '-'} s · car load ${carIn} · subtitles: ${[...new Set(subs)].slice(0, 6).join(' | ')}`);
 console.log(police.log.filter((l) => /civil|detained|leaving|removed/.test(l)).join('\n'));
 ok(seen.has('argue') && seen.has('brawl'), 'the fight escalates: argue → shove → exchange of blows');
 ok(onRoadFight === 0, `the fight stays on the pavement (${onRoadFight} samples on the road)`);

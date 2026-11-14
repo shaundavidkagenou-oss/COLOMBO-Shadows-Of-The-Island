@@ -9,6 +9,7 @@ import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
 import * as R from '../world/Railway.js';
 import { Audio } from '../audio/Audio.js';
+import { SoundBank } from '../audio/SoundBank.js';
 
 export const CAR_LEN = 19.6, CAR_GAP = 1.0, BOGIE = 14, CAR_W = 3.0, N_CARS = 5;
 export const TRAIN_LEN = N_CARS * CAR_LEN + (N_CARS - 1) * CAR_GAP;
@@ -151,7 +152,7 @@ class Train {
     }
   }
   horn(long = false) {
-    const c = R.sampleAt(this.front); const [g, pan] = Audio.spatial(c.x, c.z, 260); if (g < 0.015) return; const v = 0.2 * g, d = long ? 1.6 : 0.8;
+    const c = R.sampleAt(this.front); const [g, pan] = Audio.spatial(c.x, c.z, 260); if (g < 0.015) return; const v = 0.2 * g, d = long ? 1.6 : 0.8; if (SoundBank.play('train.horn', g, pan)) return;
     for (const [f, k] of [[311, 1], [370, 0.85], [466, 0.55]]) Audio.tone(f, d, { type: 'sawtooth', vol: v * k * 0.5, pan, attack: 0.06 });
   }
   // obstacles on the track ahead of the leading cab (player, player's vehicle, road vehicles): returns clear distance
@@ -193,7 +194,7 @@ class Train {
     // sound: diesel rumble + wheel clacks near the listener
     const c = R.sampleAt(this.centre); const [g] = Audio.spatial(c.x, c.z, 90);
     this.rumbleT -= dt; if (g > 0.03 && this.rumbleT <= 0) { this.rumbleT = 0.35; Audio.noise(0.45, { f: 90 + this.speed * 6, q: 0.6, type: 'lowpass', vol: g * (0.08 + this.speed * 0.012) }); }
-    if (this.speed > 2) { this.clackT -= dt * this.speed; if (this.clackT <= 0) { this.clackT = CAR_LEN + CAR_GAP; if (g > 0.05) for (const w of [0, 0.11]) Audio.noise(0.04, { f: 2200, q: 2, vol: g * 0.08, when: w }); } }
+    if (this.speed > 2) { this.clackT -= dt * this.speed; if (this.clackT <= 0) { this.clackT = CAR_LEN + CAR_GAP; if (g > 0.05 && !SoundBank.play('train.clack', g)) for (const w of [0, 0.11]) Audio.noise(0.04, { f: 2200, q: 2, vol: g * 0.08, when: w }); } }
   }
 }
 
@@ -261,7 +262,7 @@ export class Trains {
       c.lampMats[0].color.setRGB(c.active && ph === 0 ? 2.2 : 0.14, c.active && ph === 0 ? 0.12 : 0.0, 0.0); c.lampMats[1].color.setRGB(c.active && ph === 1 ? 2.2 : 0.14, c.active && ph === 1 ? 0.12 : 0.0, 0.0);
       const near = contacts.filter((v) => v && Math.abs(v.x - c.x) < 30 && Math.abs(v.z - c.z) < 30);
       for (const sd of c.sides) this.stepBoom(sd, c.boom, near, dt);
-      if (c.active && listener) { c.bellT -= dt; if (c.bellT <= 0) { c.bellT = 0.42; const [g, pan] = Audio.spatial(c.x, c.z, 50); if (g > 0.03) Audio.tone(1350, 0.16, { type: 'triangle', vol: 0.06 * g, pan }); } }
+      if (c.active && listener) { c.bellT -= dt; if (c.bellT <= 0) { c.bellT = 0.42; const [g, pan] = Audio.spatial(c.x, c.z, 50); if (g > 0.03) SoundBank.play('train.bell', g, pan, 0, { mono: true }) || Audio.tone(1350, 0.16, { type: 'triangle', vol: 0.06 * g, pan }); } }
     }
   }
   // AI drivers: distance to a stop line before an active crossing ahead (or Infinity)

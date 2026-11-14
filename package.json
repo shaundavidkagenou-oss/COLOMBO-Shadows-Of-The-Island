@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "COLOMBO: Shadows of the Island \u2014 an open-world action-adventure by Shaun David Studios",
+  "description": "COLOMBO: Shadows of the Island — an open-world action-adventure by Shaun David Studios",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
     "build": "vite build",
@@ -11,7 +11,7 @@
     "test:smoke": "node tools/smoke-test.mjs && node tools/rail-test.mjs && node tools/police-test.mjs && node tools/tow-test.mjs && node tools/duty-test.mjs && node tools/park-test.mjs && node tools/knock-test.mjs && node tools/crowd-test.mjs && node tools/streetlife-test.mjs && node tools/routine-test.mjs",
     "test:seats": "node tools/seat-ik-test.mjs",
     "test:anim": "node tools/anim-test.mjs",
-    "test": "node tools/ragdoll-test.mjs && node tools/seat-ik-test.mjs && node tools/vehicle-catalog-test.mjs && node tools/door-test.mjs && node tools/bus-door-test.mjs && node tools/entry-test.mjs && node tools/boarding-test.mjs && node tools/vehicle-entry-sim.mjs && node tools/npc-boarding-sim.mjs && node tools/traffic-disembark-test.mjs && node tools/edge-test.mjs && node tools/tree-test.mjs && node tools/bird-test.mjs && node tools/flower-test.mjs && node tools/hero-rig-test.mjs && node tools/hero-head-test.mjs && node tools/weapon-switch-test.mjs && node tools/squad-test.mjs && node tools/squad-call-test.mjs && node tools/shop-test.mjs && node tools/grenade-test.mjs && node tools/drunk-test.mjs && node tools/stall-test.mjs && node tools/punch-feet-test.mjs && node tools/anim-test.mjs && node tools/appearance-test.mjs && node tools/npc-head-test.mjs && node tools/clothing-test.mjs && node tools/smoke-test.mjs && node tools/rail-test.mjs && node tools/police-test.mjs && node tools/tow-test.mjs && node tools/duty-test.mjs && node tools/park-test.mjs && node tools/knock-test.mjs && node tools/routine-test.mjs && node tools/slide-test.mjs && node tools/crowd-test.mjs && node tools/streetlife-test.mjs && node tools/police-combat-test.mjs && node tools/glitch-test.mjs && node tools/stream-test.mjs && node tools/vmpark-test.mjs && node tools/railing-test.mjs && node tools/fall-test.mjs && node tools/fuel-station-test.mjs && node tools/punch-wall-test.mjs && node tools/fp-hands-test.mjs && node tools/hero-entrance-test.mjs && node tools/vehicle-recolor-test.mjs && node tools/vehicle-overlap-test.mjs 120 && node tools/club-test.mjs && node tools/grip-skin-test.mjs && node tools/drink-test.mjs && node tools/door-grab-test.mjs && node tools/door-open-test.mjs && node tools/bikini-test.mjs && node tools/tyre-smoke-test.mjs && node tools/forest-test.mjs && node tools/editor-test.mjs && node tools/trailer-test.mjs",
+    "test": "node tools/ragdoll-test.mjs && node tools/seat-ik-test.mjs && node tools/bike-leg-clearance-test.mjs && node tools/vehicle-catalog-test.mjs && node tools/door-test.mjs && node tools/bus-door-test.mjs && node tools/entry-test.mjs && node tools/boarding-test.mjs && node tools/vehicle-entry-sim.mjs && node tools/npc-boarding-sim.mjs && node tools/traffic-disembark-test.mjs && node tools/edge-test.mjs && node tools/placement-test.mjs && node tools/tree-test.mjs && node tools/bird-test.mjs && node tools/flower-test.mjs && node tools/hero-rig-test.mjs && node tools/hero-head-test.mjs && node tools/weapon-switch-test.mjs && node tools/squad-test.mjs && node tools/squad-call-test.mjs && node tools/shop-test.mjs && node tools/grenade-test.mjs && node tools/drunk-test.mjs && node tools/stall-test.mjs && node tools/punch-feet-test.mjs && node tools/anim-test.mjs && node tools/appearance-test.mjs && node tools/npc-head-test.mjs && node tools/clothing-test.mjs && node tools/smoke-test.mjs && node tools/rail-test.mjs && node tools/police-test.mjs && node tools/tow-test.mjs && node tools/duty-test.mjs && node tools/park-test.mjs && node tools/knock-test.mjs && node tools/void-test.mjs && node tools/lane-test.mjs && node tools/spawn-test.mjs && node tools/clutch-test.mjs && node tools/routine-test.mjs && node tools/slide-test.mjs && node tools/crowd-test.mjs && node tools/streetlife-test.mjs && node tools/police-combat-test.mjs && node tools/glitch-test.mjs && node tools/stream-test.mjs && node tools/cellbatch-test.mjs && node tools/vmpark-test.mjs && node tools/bench-test.mjs && node tools/railing-test.mjs && node tools/fall-test.mjs && node tools/fuel-station-test.mjs && node tools/punch-wall-test.mjs && node tools/fp-hands-test.mjs && node tools/hero-entrance-test.mjs && node tools/vehicle-recolor-test.mjs && node tools/vehicle-overlap-test.mjs 120 && node tools/club-test.mjs && node tools/grip-skin-test.mjs && node tools/drink-test.mjs && node tools/door-grab-test.mjs && node tools/door-open-test.mjs && node tools/bikini-test.mjs && node tools/tyre-smoke-test.mjs && node tools/blood-test.mjs && node tools/shot-anim-test.mjs && node tools/weapon-surface-test.mjs && node tools/bike-models-test.mjs && node tools/floor-kit-test.mjs && node tools/forest-test.mjs && node tools/editor-test.mjs && node tools/trailer-test.mjs",
     "test:appearance": "node tools/appearance-test.mjs",
     "test:rig": "node tools/hero-rig-test.mjs",
     "police-combat-test": "node tools/police-combat-test.mjs",
@@ -27,6 +27,12 @@
     "three": "0.186.1"
   },
   "devDependencies": {
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
+    "draco3dgltf": "^1.5.9",
+    "meshoptimizer": "^1.3.0",
+    "sharp": "^0.35.5",
     "vite": "8.3.5"
   }
 }

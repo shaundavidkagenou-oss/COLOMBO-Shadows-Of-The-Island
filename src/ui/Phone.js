@@ -3,13 +3,16 @@
 //   Wallet  -> balance + every transaction with its reason     Messages -> mission briefings received
 //   Jobs    -> live list of paid work, sets a GPS waypoint     Health   -> health/stamina, 1990 Suwa Seriya ambulance
 //   Weather -> current conditions and in-game time/day      Contacts -> 119 emergency: police or ambulance
+//   Global  -> web browser: twenty sites + the Black Orchid contractor (ui/GlobalBrowser.js)
 // Keyboard: arrows to move, Enter (or E) to open/confirm, Backspace to go back, P or Esc to put the phone away.
 // Mouse works too when the pointer is not locked. The phone never pauses the world.
 import { Input } from '../core/Input.js';
 import { Audio } from '../audio/Audio.js';
+import { SoundBank } from '../audio/SoundBank.js';
 import { plan } from '../world/CityPlan.js';
 import * as L from '../world/Layout.js';
 import { callOptions, lines as friendLines } from '../actors/SquadCall.js';
+import { GlobalBrowser } from './GlobalBrowser.js';
 
 const el = (tag, cls, parent, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; if (parent) parent.appendChild(e); return e; };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -23,6 +26,7 @@ const APPS = [
   { id: 'health', name: 'Health', icon: '✚', col: '#b83a4a' },
   { id: 'weather', name: 'Weather', icon: '☂', col: '#4f6fa0' },
   { id: 'contacts', name: 'Contacts', icon: '☎', col: '#3d8b5a' },
+  { id: 'global', name: 'Global', icon: '◍', col: '#1d63c9' },
 ];
 const CONTACTS = [{ n: '119', t: 'Police Emergency', d: 'Sri Lanka Police emergency line — police or ambulance' }];
 const WEATHER = { clear: 'Clear and sunny', cloudy: 'Cloudy', overcast: 'Overcast', rain: 'Rain', storm: 'Monsoon thunderstorm', drizzle: 'Drizzle' };
@@ -34,17 +38,19 @@ export class Phone {
     this.bar = el('div', 'phone-bar', body); this.screen = el('div', 'phone-screen', body); el('div', 'phone-home', body);
     this.root.addEventListener('click', (e) => { const t = e.target.closest('[data-i]'); if (!t) return; if (!this.app) { this.sel = +t.dataset.i; this.launch(APPS[this.sel].id); } else { this.row = +t.dataset.i; this.activate(); } });
     this.root.addEventListener('contextmenu', (e) => { e.preventDefault(); this.back(); });
+    this.browser = new GlobalBrowser(this, game);
   }
   toggle(v = !this.open) {
     const g = this.g; if (v && (g.photo || g.hud.bigMapOpen || g.director.active)) return;
     this.open = v; this.root.classList.toggle('hidden', !v); this.app = null; this.row = 0; this.confirm = false; this.call = null; Audio.ui('click');
     if (v) { g.weapons?.forceHolster?.(); this.render(); }
   }
-  back() { if (this.call) { this.hangUp(); return; } if (this.confirm) { this.confirm = false; this.render(); return; } if (this.app) { this.app = null; this.row = 0; this.render(); Audio.ui('click'); } else this.toggle(false); }
+  back() { if (this.call) { this.hangUp(); return; } if (this.app === 'global' && this.browser.back()) { Audio.ui('click'); this.render(); return; } if (this.confirm) { this.confirm = false; this.render(); return; } if (this.app) { this.app = null; this.row = 0; this.render(); Audio.ui('click'); } else this.toggle(false); }
   launch(id) {
     const g = this.g; Audio.ui('click');
     if (id === 'camera') { this.toggle(false); g.togglePhoto(true); return; }
     if (id === 'map') { this.toggle(false); g.toggleMap(true); return; }
+    if (id === 'global') this.browser.reset();
     this.app = id; this.row = 0; this.confirm = false; this.render();
   }
   jobs() {
@@ -61,12 +67,14 @@ export class Phone {
   }
   rows() { // selectable rows of the current app
     if (this.app === 'jobs') return this.jobs();
+    if (this.app === 'global') return this.browser.rows();
     if (this.app === 'health') return [{ t: 'Call 1990 Suwa Seriya' }, { t: 'GPS to National Hospital' }];
     if (this.app === 'contacts') { if (!this.call) return this.contacts(); if (this.call.stage === 'ask') return this.call.friend ? callOptions(this.friend(this.call.friend)) : [{ t: 'Police' }, { t: 'Ambulance' }, { t: 'Hang up' }]; return []; }
     return [];
   }
   activate() {
     const g = this.g;
+    if (this.app === 'global') { Audio.ui('click'); const r = this.browser.activate(this.row); if (r && r.close) { if (this.open) this.toggle(false); } else if (this.open) this.render(); return; }
     if (this.app === 'contacts') {
       if (!this.call) { const c = this.contacts()[this.row]; if (!c) return; this.call = { n: c.n, friend: c.friend || null, stage: 'ring', t: 0 }; this.row = 0; this.ring(); this.render(); return; }
       if (this.call.stage !== 'ask') return;
@@ -98,7 +106,7 @@ export class Phone {
     if (id === 'bye') { sq.dismiss(m); return { ok: true, title: t, msg: Ln.bye }; }
     return { ok: false, title: t, msg: 'No answer.' };
   }
-  ring() { if (Audio.tone) { Audio.tone(425, 0.9, { type: 'sine', vol: 0.05, attack: 0.02 }); } }
+  ring() { if (SoundBank.play('phone.ring')) return; if (Audio.tone) { Audio.tone(425, 0.9, { type: 'sine', vol: 0.05, attack: 0.02 }); } }
   hangUp() { const c = this.call; this.call = null; this.row = 0; if (c && c.stage === 'done' && c.res) this.g.hud.notify(c.res.title || '119', c.res.msg, c.res.ok ? 'info' : 'warn', 6); this.toggle(false); }
   update() {
     if (!this.open) return;
@@ -113,6 +121,7 @@ export class Phone {
     else if (n) { if (k('ArrowDown')) { this.row = (this.row + 1) % n; this.confirm = false; moved = true; } if (k('ArrowUp')) { this.row = (this.row + n - 1) % n; this.confirm = false; moved = true; } }
     else if (k('ArrowDown') || k('ArrowUp')) { const sc = this.screen.querySelector('.ph-list'); if (sc) sc.scrollTop += k('ArrowDown') ? 60 : -60; }
     if (moved) { Audio.ui('hover'); this.render(); }
+    else if (this.app === 'global' && this.browser.update()) this.render(); // target picker: live positions
     this.tick = (this.tick || 0) + 1; if (this.tick % 30 === 0) this.renderBar(); // clock in the status bar
   }
   renderBar() { const A = this.g.atmos; this.bar.innerHTML = `<span>${A.timeString}</span><span class="ph-sig">LK 4G ▮▮▮▯ ▭</span>`; }
@@ -144,11 +153,13 @@ export class Phone {
       else if (c.stage === 'done' && c.friend) h = `<div class="ph-call"><div class="ph-call-n">${c.n}</div><div class="ph-call-q ${c.res.ok ? 'ok' : 'no'}">“${esc(c.res.msg)}”</div><div class="ph-call-s">Call ended</div></div>`;
       else if (c.stage === 'ask') h = `<div class="ph-call"><div class="ph-call-n">${c.n} · Emergency</div><div class="ph-call-q">“119 Emergency. Police or ambulance?”</div></div>` + this.rows().map((r, i) => `<div class="ph-row${i === this.row ? ' sel' : ''}" data-i="${i}"><b>${r.t}</b></div>`).join('') + '<div class="ph-hint">↑↓ choose · Enter answer · Backspace hang up</div>';
       else h = `<div class="ph-call"><div class="ph-call-n">${c.n} · ${c.kind === 'police' ? 'Police' : 'Ambulance (1990 Suwa Seriya)'}</div><div class="ph-call-q ${c.res.ok ? 'ok' : 'no'}">${esc(c.res.msg)}</div><div class="ph-call-s">Call ended</div></div>`;
+    } else if (this.app === 'global') {
+      h = this.browser.html(this.row);
     } else if (this.app === 'weather') {
       const A = g.atmos; const w = A.w || {}; const kind = A.weather || A.w?.kind || (w.rain > 0.5 ? 'rain' : w.cloud > 0.6 ? 'cloudy' : 'clear');
       h = `<div class="ph-head">Weather · Colombo</div><div class="ph-wx"><b>${WEATHER[kind] || kind}</b><p>${Math.round(28 + 3 * Math.sin(((A.hour - 9) / 24) * Math.PI * 2) - (w.rain || 0) * 3)}°C · humidity ${Math.round(72 + (w.rain || 0) * 20)}%</p><p>Rain ${Math.round((w.rain || 0) * 100)}% · wind ${Math.round((w.wind || 0) * 30)} km/h</p><small>Day ${A.day} · ${A.timeString}</small></div>`;
     }
-    this.screen.innerHTML = h;
+    this.screen.innerHTML = h; if (this.app === 'global') this.browser.after(this.screen);
     const s = this.screen.querySelector('.sel'); if (s && s.scrollIntoView) s.scrollIntoView({ block: 'nearest' });
   }
 }

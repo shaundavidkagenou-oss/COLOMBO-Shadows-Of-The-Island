@@ -5,7 +5,7 @@
 // bed crosses a distance band, and the plants sway on the same wind clock as the trees.
 import * as THREE from 'three';
 import { RNG } from '../core/rng.js';
-import { windUniform } from './Wind.js';
+import { windUniform, heliWash, HELI_WASH_GLSL } from './Wind.js';
 
 const lin = (hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; }; // sRGB hex → linear vertex colour
 const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
@@ -177,8 +177,8 @@ export function plantBed(x, z, r, y, seed) {
 function windMaterial() {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.72, metalness: 0 });
   m.onBeforeCompile = (sh) => {
-    sh.uniforms.uWind = windUniform;
-    sh.vertexShader = 'uniform float uWind;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+    sh.uniforms.uWind = windUniform; sh.uniforms.uHeli = heliWash;
+    sh.vertexShader = 'uniform float uWind;\nuniform vec4 uHeli;\n' + HELI_WASH_GLSL + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
       #ifdef USE_INSTANCING
         float fph = instanceMatrix[3].x * 1.7 + instanceMatrix[3].z * 1.3;
       #else
@@ -186,9 +186,12 @@ function windMaterial() {
       #endif
       float fh = position.y * position.y;
       transformed.x += sin(uWind * 2.3 + fph) * 0.05 * fh;
-      transformed.z += cos(uWind * 1.9 + fph * 1.4) * 0.035 * fh;`);
+      transformed.z += cos(uWind * 1.9 + fph * 1.4) * 0.035 * fh;
+      #ifdef USE_INSTANCING
+        if (uHeli.w > 0.0) { vec3 hp = heliWashPush((modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz, uWind); transformed += transpose(mat3(instanceMatrix)) * vec3(hp.x, 0.0, hp.z) * min(1.0, fh * 2.0) * 0.5; }
+      #endif`);
   };
-  m.customProgramCacheKey = () => 'flowerWind';
+  m.customProgramCacheKey = () => 'flowerWind-heli';
   return m;
 }
 

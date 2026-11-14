@@ -2,7 +2,7 @@
 import { nearestS } from './Railway.js';
 import { RNG, hash2 } from '../core/rng.js';
 import * as L from './Layout.js';
-import { onParkFeature, parkColliders, parkLamps, PARK, BAT_TREES, PLAY_ITEMS } from './Parks.js';
+import { onParkFeature, parkColliders, parkLamps, PARK, BAT_TREES, PLAY_ITEMS, POND_BENCHES } from './Parks.js';
 import { SIGNS, SHOP_ROWS } from '../gfx/Textures.js';
 import { crownPoints } from './TreeShapes.js';
 import { greenTrees, greenPlants } from './Greenery.js';
@@ -14,14 +14,42 @@ export function chunkIndex(x, z) { const [cx, cz] = chunkCoord(x, z); if (cx < 0
 export function chunkCenter(idx) { const cx = idx % NCX, cz = Math.floor(idx / NCX); return [L.BOUNDS.minX + (cx + 0.5) * CHUNK, L.BOUNDS.minZ + (cz + 0.5) * CHUNK]; }
 
 export const FLOOR_H = 3.3, GROUND_H = 4.2;
+// Stage 1 colour (36th): weathered-but-maintained paint. Colombo render is limewashed / emulsion-painted and fades fast in
+// the sun and monsoon, so nothing is bright white and no pastel is candy-saturated. Same array lengths as before → the
+// plan RNG sequence (and so every building / prop position) is unchanged; only the colour that comes out differs.
 const PAINTS = {
-  market: ['#f3e3b5', '#cfe3d8', '#f2c6b4', '#bcd4e6', '#f6f0e2', '#e8d07a', '#d7e8b0', '#f0b8c0', '#c4c8f0', '#ffffff', '#e6c79c', '#9ed2c6'],
-  dense: ['#efe6d2', '#d9e4dc', '#f0d6c4', '#d0dce8', '#f4f1ea', '#e3d6a8', '#cfdcc0', '#ead0d4', '#ffffff', '#d8cfc4'],
-  fort: ['#f2ead8', '#efe2c4', '#e9dcc0', '#f6f2e8', '#e6d6b4'],
-  villa: ['#ffffff', '#f7f3ea', '#f3efe6', '#efe8d6', '#f6efe0', '#e9f0ea'],
-  residential: ['#f4efe2', '#e6efe8', '#f2e2d2', '#e2e8f0', '#f8f6f0', '#efe2b8', '#dcead0'],
-  modern: ['#ffffff', '#f0f0f0', '#e8e6e0', '#dfe6ea'],
+  market: ['#dccfae', '#bfcfc2', '#d8bcab', '#b5c4cf', '#ddd6c6', '#cfbc86', '#c4cfa9', '#d2b2b3', '#b8bbd0', '#dedad0', '#cfb898', '#a9c3bb'],
+  dense: ['#dbd2bf', '#c7d0c8', '#dac7b7', '#c2cbd3', '#dedad0', '#cfc49f', '#c1cbb3', '#d4c3c3', '#e0dcd2', '#c9c0b4'],
+  fort: ['#e2d6ba', '#dccca8', '#d6c7a5', '#e4dccb', '#d3c19c'],
+  villa: ['#e4e0d6', '#e1dccf', '#ddd8cc', '#d9d0bc', '#e0d7c4', '#d6ddd6'],
+  residential: ['#dfd9ca', '#cfd8d1', '#dccbbb', '#ccd2da', '#e2dfd6', '#d8cba5', '#c9d6be'],
+  modern: ['#e0dfdb', '#d8d8d6', '#d4d1c9', '#cdd3d6'],
 };
+// district character (deterministic by building id — no RNG draw): Fort buff / cream colonial stucco, Pettah a jumble of
+// faded commercial paints, Wellawatte grey cement-rendered walk-ups, the Port grey / blue-grey industrial sheds
+const DISTRICT_PAINT = {
+  fort: ['#dcc8a0', '#d6c194', '#e0d0b0', '#cdb68a', '#d8c6a0', '#cbb894'],
+  pettah: ['#d6c39b', '#b7c7ba', '#d2b29f', '#b3c0c9', '#d9d1bf', '#c9b482', '#bfc9a5', '#ceaeab', '#b6b6cb', '#dcd6c9', '#c9b090', '#a6c0b7', '#cdbfa8', '#c4b8a0'],
+  wellawatte: ['#c4c1b9', '#cdc9bf', '#b9b8b2', '#d2cdc2', '#c6c4bc', '#d6d0c3', '#bfc2be', '#cbc3b4', '#c9ccc9', '#d3cbbb'],
+  port: ['#c4c3bd', '#b4bbbe', '#c9c0ae', '#a9b2b6', '#bdbfba', '#b9b2a4'],
+};
+const _ph = (n) => { let h = (n * 2654435761) >>> 0; h ^= h >>> 15; h = Math.imul(h, 2246822519) >>> 0; h ^= h >>> 13; return (h >>> 0) / 4294967296; };
+// Weather a paint: pull 15 % toward its own grey, cap the brightest channel (no #ffffff anywhere), ±4 % per-building tone.
+export function weatherPaint(hex, seed) {
+  const n = parseInt(String(hex).replace('#', '').padEnd(6, 'f').slice(0, 6), 16); let r = (n >> 16 & 255) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255;
+  const l = 0.3 * r + 0.59 * g + 0.11 * b; r = l + (r - l) * 0.85; g = l + (g - l) * 0.85; b = l + (b - l) * 0.85;
+  const m = Math.max(r, g, b), k = Math.min(1, 0.885 / m) * (0.96 + _ph(seed) * 0.08), warm = (_ph(seed + 7) - 0.5) * 0.02;
+  const to = (v) => Math.round(Math.max(0, Math.min(0.9, v)) * 255).toString(16).padStart(2, '0');
+  return '#' + to(r * k + warm) + to(g * k) + to(b * k - warm);
+}
+function paintFor(b) {
+  const id = b.id || 0, dp = DISTRICT_PAINT[b.district];
+  // brick (Fort) keeps its own fired-clay colour; office / hotel / glass blocks keep their designed neutral
+  let c = b.color || '#e0dfdb';
+  if (dp && b.style !== 'brick' && !/^(office|hotel|glass)/.test(b.style)) c = dp[Math.floor(_ph(id * 3 + 1) * dp.length)];
+  b.color = weatherPaint(c, id);
+  if (b.tower) b.tower.color = weatherPaint(b.tower.color || '#e0dfdb', id + 5000);
+}
 export const plan = {
   buildings: [], props: [], trees: [], plants: [], colliders: [], parking: [], busStops: [], poi: [], walls: [], vendors: [],
   byChunk: [], // { buildings:[], props:[], trees:[], poi:[] }
@@ -40,19 +68,85 @@ function rectFree(x0, x1, z0, z1, margin = 1.5) {
   return true;
 }
 let bid = 0;
+// A block whose own edge roads are missing (dead ends, T-junctions) can still have a junction square reaching into its corner:
+// a footprint that stands on that square is trimmed back to the square plus a kerb margin (the side that loses the least
+// floor area). Only footprints that really overlap the carriageway change.
+function clearJunctions(b) {
+  const c = L.cellAt((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2); if (!c) return;
+  for (const [ni, nj] of [[c.i, c.j], [c.i + 1, c.j], [c.i, c.j + 1], [c.i + 1, c.j + 1]]) {
+    const n = L.nodeAt(ni, nj); if (!n || !n.segs.length || !(n.hwV > 0 && n.hwH > 0)) continue;
+    if (b.x1 <= n.x - n.hwV || b.x0 >= n.x + n.hwV || b.z1 <= n.z - n.hwH || b.z0 >= n.z + n.hwH) continue;
+    const m = 1.8, r = [n.x - n.hwV - m, n.x + n.hwV + m, n.z - n.hwH - m, n.z + n.hwH + m];
+    const W = b.x1 - b.x0, D = b.z1 - b.z0; const opts = [];
+    if (n.x < (b.x0 + b.x1) / 2) opts.push(['x0', r[1], (r[1] - b.x0) * D]); else opts.push(['x1', r[0], (b.x1 - r[0]) * D]);
+    if (n.z < (b.z0 + b.z1) / 2) opts.push(['z0', r[3], (r[3] - b.z0) * W]); else opts.push(['z1', r[2], (b.z1 - r[2]) * W]);
+    opts.sort((p, q) => p[2] - q[2]); b[opts[0][0]] = opts[0][1]; (plan.junctionTrim ||= []).push(b);
+  }
+}
 function addBuilding(b) {
-  b.id = bid++; b.h = b.floors * FLOOR_H + (b.groundRow != null ? GROUND_H - FLOOR_H : 0);
+  clearJunctions(b);
+  b.id = bid++; paintFor(b); b.h = b.floors * FLOOR_H + (b.groundRow != null ? GROUND_H - FLOOR_H : 0);
   if (b.tower) b.totalH = b.h + b.tower.floors * FLOOR_H; else b.totalH = b.h;
   plan.buildings.push(b); addToChunk('buildings', b, (b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2);
   plan.colliders.push({ x0: b.x0, x1: b.x1, z0: b.z0, z1: b.z1, h: b.totalH, kind: 'building', b });
   return b;
 }
 function addProp(type, x, z, rot = 0, extra = {}) { const p = { type, x, z, rot, ...extra }; plan.props.push(p); addToChunk('props', p, x, z); return p; }
+// a bench is solid (people walked straight through them): a 2 × 8 grid of small boxes stays tight to the slats at any yaw
+// (one axis-aligned box round a turned bench would be a big invisible wall reaching over the spot sitters walk up to).
+// Seat faces local +z, backrest at −z; the footprint covers the backrest and the seat up to its front edge.
+function benchColliders(x, z, rot) { const c = Math.cos(rot), s = Math.sin(rot);
+  for (const lz of [-0.19, 0.01]) for (let k = 0; k < 8; k++) { const lx = -0.805 + k * 0.23, hx = 0.115, hz = 0.1; const cx = x + lx * c + lz * s, cz = z - lx * s + lz * c;
+    const ex = Math.abs(c) * hx + Math.abs(s) * hz, ez = Math.abs(s) * hx + Math.abs(c) * hz; plan.colliders.push({ x0: cx - ex, x1: cx + ex, z0: cz - ez, z1: cz + ez, h: L.LAND_Y + 0.86, kind: 'bench', front: [s, c] }); } } // someone getting up leaves by the seat front
 function onRailReserve(x, z) { if (L.distToRail(x, z) < 7.5 || (L.distToRail(x, z) < 15 && nearestS(x, z).d < 7.5)) return true; for (const st of L.STATIONS) { if (st.along === 'x' ? Math.abs(x - st.x) < 95 && z > -633 && z < -610 : Math.abs(z - st.z) < 60 && Math.abs(x - st.x) < 10) return true; } return false; } // track corridor + platforms stay clear
 const inSchool = (x, z) => x > 247 && x < 341 && z > 328.5 && z < 388; // Johns school compound builds its own grounds
 function addTree(type, x, z, s = 1, extra = {}) { if (L.isWater(x, z) || L.roadAt(x, z) || onRailReserve(x, z) || inSchool(x, z)) return; const t = { type, x, z, s, ...extra }; plan.trees.push(t); addToChunk('trees', t, x, z); t.col = { x0: x - 0.35 * s, x1: x + 0.35 * s, z0: z - 0.35 * s, z1: z + 0.35 * s, h: 6, kind: 'tree' }; plan.colliders.push(t.col); }
 function addPOI(type, x, z, rot, extra = {}) { const p = { type, x, z, rot, used: 0, ...extra }; plan.poi.push(p); addToChunk('poi', p, x, z); return p; }
-function addWall(x0, x1, z0, z1, h, col = '#ece6d8') { if (inSchool((x0 + x1) / 2, (z0 + z1) / 2)) return; const w = { x0, x1, z0, z1, h, col }; plan.walls.push(w); addToChunk('walls', w, (x0 + x1) / 2, (z0 + z1) / 2); plan.colliders.push({ x0, x1, z0, z1, h, kind: 'wall' }); }
+function addWall(x0, x1, z0, z1, h, col = '#d6cfc0') { if (inSchool((x0 + x1) / 2, (z0 + z1) / 2)) return; const w = { x0, x1, z0, z1, h, col }; plan.walls.push(w); addToChunk('walls', w, (x0 + x1) / 2, (z0 + z1) / 2); plan.colliders.push({ x0, x1, z0, z1, h, kind: 'wall' }); }
+
+// ---------------------------------------------------------------- market stalls
+// Pettah pavement stalls stand against their shop's frontage (under its awning), on the pavement and never in the carriageway.
+// The stall's depth follows the real pavement width: its street edge stays clear of the walking line in the middle of the
+// pavement (Layout.pedNodes / Crowd walk there), so on the 1.8 m lanes it is a shallow shop-front display table and on the
+// 3.5 m arterials the full 2.2 x 1.24 m stall. It sits beside the shop door (never across it, nor a neighbour's door), clear
+// of utility poles, lamps and other stalls; the vendor stands at its outer end, facing the pavement. Resolved after the
+// street furniture exists (poles hug the building line in Pettah). The RNG draws of the generators are unchanged.
+const STALL_Q = [];
+const STALL_HW = 1.1, STALL_HD = 0.62, STALL_GAP = 0.06, DOOR_HW = 0.75;
+function refile(kind, o, ox, oz) { const a = chunkIndex(ox, oz), b = chunkIndex(o.x, o.z); if (a === b) return; if (a >= 0) { const l = plan.byChunk[a][kind]; const i = l.indexOf(o); if (i >= 0) l.splice(i, 1); } if (b >= 0) plan.byChunk[b][kind].push(o); }
+export function stallDepthScale(walk) { return Math.max(0.5, Math.min(1, (walk * 0.5 - 0.22 - STALL_GAP) / (2 * STALL_HD))); }
+function placeStalls() {
+  const stats = { placed: 0, shallow: 0, fallback: 0, failed: 0 };
+  const done = []; // rects of stalls already placed
+  for (const { p, b, cell } of STALL_Q) {
+    const seg = { N: cell.T, S: cell.B, W: cell.L, E: cell.R }[b.front]; const walk = seg ? seg.walk : 1.8;
+    const sd = stallDepthScale(walk), hd = STALL_HD * sd, off = STALL_GAP + hd;
+    const horiz = b.front === 'N' || b.front === 'S', sgn = b.front === 'N' || b.front === 'W' ? -1 : 1;
+    const line = b.front === 'N' ? b.z0 : b.front === 'S' ? b.z1 : b.front === 'W' ? b.x0 : b.x1; // the facade
+    const cU = horiz ? (b.x0 + b.x1) / 2 : (b.z0 + b.z1) / 2; const [lo, hi] = horiz ? [cell.lot[0], cell.lot[1]] : [cell.lot[2], cell.lot[3]];
+    const pt = (u, d) => (horiz ? [u, line + sgn * d] : [line + sgn * d, u]);
+    const rect = (u, hu, d0, d1) => { const a = line + sgn * d0, c = line + sgn * d1; const [m0, m1] = [Math.min(a, c), Math.max(a, c)]; return horiz ? [u - hu, u + hu, m0, m1] : [m0, m1, u - hu, u + hu]; };
+    const box = [cell.lot[0] - 6, cell.lot[1] + 6, cell.lot[2] - 6, cell.lot[3] + 6];
+    const solids = plan.colliders.filter((c) => c.kind !== 'building' && c !== p.col && c.kind !== 'stall' && c.x1 > box[0] && c.x0 < box[1] && c.z1 > box[2] && c.z0 < box[3]);
+    const pois = plan.poi.filter((q) => q !== p.vendor && (q.type === 'shop' || q.type === 'door' || q.type === 'vendor') && q.x > box[0] && q.x < box[1] && q.z > box[2] && q.z < box[3]);
+    const hit = (r, pad, withPoi) => solids.some((c) => c.x1 > r[0] - pad && c.x0 < r[1] + pad && c.z1 > r[2] - pad && c.z0 < r[3] + pad) || done.some((c) => c[1] > r[0] - 0.3 && c[0] < r[1] + 0.3 && c[3] > r[2] - 0.3 && c[2] < r[3] + 0.3)
+      || (withPoi && pois.some((q) => q.x > r[0] - 0.5 && q.x < r[1] + 0.5 && q.z > r[2] - 0.5 && q.z < r[3] + 0.5)) || L.roadAt(r[0], r[2]) || L.roadAt(r[1], r[3]) || L.roadAt(r[0], r[3]) || L.roadAt(r[1], r[2]);
+    const pref = (Math.imul(b.id + 1, 2654435761) >>> 0) & 1 ? 1 : -1; const cands = [];
+    for (let k = 0; k <= 14; k++) for (const s of [pref, -pref]) { const u = cU + s * (DOOR_HW + STALL_HW + k * 0.35); if (u - STALL_HW >= lo + 0.3 && u + STALL_HW <= hi - 0.3) cands.push(u); }
+    let u = cands.find((v) => !hit(rect(v, STALL_HW, STALL_GAP, STALL_GAP + 2 * hd), 0.12, true));
+    if (u === undefined) { u = cands.find((v) => !hit(rect(v, STALL_HW, STALL_GAP, STALL_GAP + 2 * hd), 0.12, false)); if (u !== undefined) stats.fallback++; }
+    if (u === undefined) { stats.failed++; u = cands[0] ?? cU; }
+    const ox = p.x, oz = p.z; [p.x, p.z] = pt(u, off); p.sd = sd; refile('props', p, ox, oz);
+    const r = rect(u, STALL_HW, STALL_GAP, STALL_GAP + 2 * hd); Object.assign(p.col, { x0: r[0], x1: r[1], z0: r[2], z1: r[3] }); done.push(r);
+    // the vendor: at the stall's outer end (away from the door), half a metre off the wall, facing the pavement
+    const v = p.vendor, vx = v.x, vz = v.z; const away = Math.sign(u - cU) || pref; let vs = null;
+    for (const s of [away, -away]) { const vu = u + s * (STALL_HW + 0.42), vr = rect(vu, 0.25, 0.2, 0.7); if (vu > lo + 0.3 && vu < hi - 0.3 && !hit(vr, 0.05, false) && !pois.some((q) => Math.hypot(q.x - pt(vu, 0.45)[0], q.z - pt(vu, 0.45)[1]) < 0.7)) { vs = pt(vu, 0.45); break; } }
+    if (!vs) vs = pt(u, STALL_GAP + 2 * hd + 0.35); // no room at either end: in front of the stall, on the pavement
+    [v.x, v.z] = vs; v.rot = p.rot; refile('poi', v, vx, vz);
+    stats.placed++; if (sd < 1) stats.shallow++;
+  }
+  plan.stallFix = stats; STALL_Q.length = 0;
+}
 
 const missionSigns = Object.fromEntries(SIGNS.map((s, i) => [s.mission, i]).filter(([m]) => m));
 const signsByKind = {}; SIGNS.forEach((s, i) => { if (!s.mission) (signsByKind[s.kind] ||= []).push(i); });
@@ -103,7 +197,7 @@ function genDense(rng, cell, d, kind) {
       awning: market ? r.chance(0.75) : r.chance(0.35), balconies: r.chance(0.5), tanks: r.chance(0.7), roof: r.chance(market ? 0.35 : 0.2) ? 'corrugated' : 'flat', uOff: r.int(0, 3) / 4 });
     if (shop) { const [px, pz] = frontPoint(bld, 1.0); addPOI('shop', px, pz, facingIntoShop(side), { b: bld.id, kind: shop.shopKind }); }
     if (r.chance(0.35)) { const [px, pz] = frontPoint(bld, 0.6); addPOI('door', px, pz, facingIntoShop(side), { b: bld.id }); }
-    if (market && r.chance(0.18)) { const [px, pz, rot] = frontPoint(bld, 2.2); const stp = addProp('stall', px, pz, rot, { seed: r.int(0, 999) }); { const c = Math.abs(Math.cos(rot)), sn = Math.abs(Math.sin(rot)); const hx = 1.1 * c + 0.62 * sn, hz = 1.1 * sn + 0.62 * c; stp.col = { x0: px - hx, x1: px + hx, z0: pz - hz, z1: pz + hz, h: 2.3, kind: 'stall' }; plan.colliders.push(stp.col); } /* solid table + canopy poles */ addPOI('vendor', px + Math.sin(rot) * 0.9, pz + Math.cos(rot) * 0.9, rot + Math.PI, {}); }
+    if (market && r.chance(0.18)) { const [px, pz, rot] = frontPoint(bld, 2.2); const stp = addProp('stall', px, pz, rot, { seed: r.int(0, 999) }); stp.col = { x0: px, x1: px, z0: pz, z1: pz, h: 2.3, kind: 'stall' }; plan.colliders.push(stp.col); /* solid table + canopy poles */ stp.vendor = addPOI('vendor', px, pz, rot, {}); STALL_Q.push({ p: stp, b: bld, cell }); } // final spot on the pavement: placeStalls()
   };
   const opts = { wMin: market ? 4.2 : 5, wMax: market ? 8 : 11, make };
   if (sides.N) frontageStrip(rng, cell, 'N', lx0, lx1, lz0, lz0 + depthN, opts);
@@ -172,7 +266,7 @@ function genVilla(rng, cell, residential = false) {
   const sideList = [];
   if (cell.T) sideList.push('N'); if (cell.B) sideList.push('S');
   const depth = Math.min(residential ? 22 : 34, D / (cell.T && cell.B ? 2 : 1));
-  const wallCol = rng.pick(['#ece6d8', '#f2efe6', '#e2d8c4', '#d8d0c0']);
+  const wallCol = rng.pick(['#d6cfc0', '#dcd8cd', '#d2c7b1', '#c9c1b2']); // weathered lime-wash / cement render (36th Stage 4: was near-white)
   for (const side of sideList) {
     let t = 0, lastB = null; // lastB: x of the previous plot's east side wall (shared boundary → one wall, not two)
     while (t < W - 8) {
@@ -315,7 +409,7 @@ function genStreetProps(seg, rng) {
       if (!rng.chance(0.45)) continue; const side = rng.chance(0.5) ? -1 : 1; // left-hand kerb parking
       const off = seg.hw - 1.3; const [x, z] = horizontal ? [seg.x0 + t, seg.z0 + side * off] : [seg.x0 + side * off, seg.z0 + t];
       if (L.distToRail(x, z) < 14) continue; // never on or beside a level crossing
-      const heading = horizontal ? (side > 0 ? 1 : -1) : (side < 0 ? 1 : -1); // drive direction consistent with left-hand traffic
+      const heading = horizontal ? (side > 0 ? -1 : 1) : (side < 0 ? -1 : 1); // facing the same way as the traffic in the lane beside it (left-hand traffic: the lane for +x is on the −z side, for +z on the +x side — Traffic.linePiece)
       const yaw = horizontal ? (heading > 0 ? Math.PI / 2 : -Math.PI / 2) : (heading > 0 ? 0 : Math.PI);
       plan.parking.push({ x, z, yaw, seg: seg.id, district: d });
     }
@@ -417,17 +511,17 @@ export function generatePlan() {
   // Galle Face Green: promenade palms, benches, food carts
   for (let z = -640; z < -250; z += 14) {
     const cx = L.coastX(z) + 16; addTree('palm', cx + rng.range(-1, 1), z, rng.range(0.9, 1.25));
-    if (Math.floor(z / 14) % 2 === 0) { addProp('bench', cx + 3, z + 7, -Math.PI / 2, {}); addPOI('bench', cx + 3, z + 7, -Math.PI / 2, { seats: 2 }); }
+    if (Math.floor(z / 14) % 2 === 0) { addProp('bench', cx + 3, z + 7, -Math.PI / 2, {}); benchColliders(cx + 3, z + 7, -Math.PI / 2); addPOI('bench', cx + 3, z + 7, -Math.PI / 2, { seats: 2 }); }
   }
   for (let k = 0; k < 9; k++) { const z = -400 + k * 16, x = L.coastX(z) + 24; addProp('foodcart', x, z, -Math.PI / 2, { seed: k }); addPOI('vendor', x + 1.4, z, -Math.PI / 2, { cart: true }); plan.colliders.push({ x0: x - 1.1, x1: x + 1.1, z0: z - 1.6, z1: z + 1.6, h: 2.2, kind: 'cart' }); }
   for (let k = 0; k < 40; k++) addPOI('lawn', rng.range(-490, -425), rng.range(-640, -260), rng.range(0, 6.28), {});
   // parks: Viharamahadevi
   const vm = [PARK.x0, PARK.x1, PARK.z0, PARK.z1]; // the lawn itself (zone rect minus boundary roads + pavements)
   for (let k = 0; k < 70; k++) { const x = rng.range(vm[0] + 6, vm[1] - 6), z = rng.range(vm[2] + 6, vm[3] - 6); if (Math.hypot(x - 90, z + 60) > 22 && !onParkFeature(x, z, 2.2) && !BAT_TREES.some(([bx, bz]) => Math.hypot(x - bx, z - bz) < 11)) addTree(rng.pick(['rain', 'rain', 'bo', 'palm', 'frangipani']), x, z, rng.range(0.9, 1.4)); }
-  for (let k = 0; k < 14; k++) { const a = k / 14 * Math.PI * 2; const x = 90 + Math.cos(a) * 30, z = -60 + Math.sin(a) * 30; addProp('bench', x, z, -a - Math.PI / 2, {}); addPOI('bench', x, z, -a - Math.PI / 2, { seats: 2 }); /* seat faces the fountain; sitters use the same facing */ }
+  for (let k = 0; k < 14; k++) { const a = k / 14 * Math.PI * 2; const x = 90 + Math.cos(a) * 30, z = -60 + Math.sin(a) * 30; addProp('bench', x, z, -a - Math.PI / 2, {}); benchColliders(x, z, -a - Math.PI / 2); addPOI('bench', x, z, -a - Math.PI / 2, { seats: 2 }); /* seat faces the fountain; sitters use the same facing */ }
   for (let k = 0; k < 30; k++) { const x = rng.range(vm[0] + 8, vm[1] - 8), z = rng.range(vm[2] + 8, vm[3] - 8); if (!onParkFeature(x, z, 1)) addPOI('lawn', x, z, rng.range(0, 6.28), {}); }
   for (const [x, z, sc] of BAT_TREES) addTree('rain', x, z, sc, { bats: true }); // the giant old rain trees the fruit-bat colony roosts in
-  for (const x of [135, 147]) { addProp('bench', x, -53.6, 0, {}); addPOI('bench', x, -53.6, 0, { seats: 2 }); } // on the lily pond's north bank, facing the water
+  for (const [x] of POND_BENCHES) { addProp('bench', x, -53.6, 0, {}); benchColliders(x, -53.6, 0); addPOI('bench', x, -53.6, 0, { seats: 2 }); } // on the lily pond's north bank, facing the water
   for (const [k, x, z, yaw] of PLAY_ITEMS) if (k === 'bench') { addProp('bench', x, z, yaw, {}); addPOI('bench', x, z, yaw, { seats: 2 }); } // benches for the adults by the play area (no child NPCs anywhere)
   // landscaping (Parks.js): hedges + flower-bed rims collide, heritage lamps light the paths at night
   plan.colliders.push(...parkColliders());
@@ -437,7 +531,7 @@ export function generatePlan() {
   // lakeside benches
   for (let k = 0; k < 40; k++) {
     const a = rng.next() * Math.PI * 2; const [cx, cz, rx, rz] = L.LAKE[0]; const x = cx + Math.cos(a) * (rx + 9), z = cz + Math.sin(a) * (rz + 9);
-    if (!L.inLake(x, z, 5) && !L.roadAt(x, z) && !L.zoneAt(x, z)) { addProp('bench', x, z, Math.atan2(cx - x, cz - z), {}); addPOI('bench', x, z, Math.atan2(cx - x, cz - z), { seats: 2 }); }
+    if (!L.inLake(x, z, 5) && !L.roadAt(x, z) && !L.zoneAt(x, z) && !plan.props.some((q) => q.type === 'bench' && Math.hypot(q.x - x, q.z - z) < 2.5)) { addProp('bench', x, z, Math.atan2(cx - x, cz - z), {}); benchColliders(x, z, Math.atan2(cx - x, cz - z)); addPOI('bench', x, z, Math.atan2(cx - x, cz - z), { seats: 2 }); }
   }
   // chat spots on sidewalks near intersections
   for (const pn of L.pedNodes) if (hash2(pn.id, 77) < 0.12) addPOI('chat', pn.x + (hash2(pn.id, 1) - 0.5) * 2, pn.z + (hash2(pn.id, 2) - 0.5) * 2, 0, {});
@@ -446,15 +540,23 @@ export function generatePlan() {
     const x = n.x + (n.hwV + 2.2) * (hash2(n.i, 1) < 0.5 ? -1 : 1), z = n.z + (n.hwH + 2.2) * (hash2(n.j, 2) < 0.5 ? -1 : 1);
     if (!L.isWater(x, z) && !L.roadAt(x, z) && !L.zoneAt(x, z, 2)) { addProp('shrine', x, z, Math.atan2(n.x - x, n.z - z), {}); plan.colliders.push({ x0: x - 0.8, x1: x + 0.8, z0: z - 0.8, z1: z + 0.8, h: 2.8, kind: 'shrine' }); }
   }
+  placeStalls(); // market stalls onto the pavement, against their shops (after all the street furniture: poles, signals, shrines)
   // story shops: give the nearest suitable shophouse the mission sign and record a frontage point
   plan.missionShops = {}; const taken = new Set();
   const WANT = { kade: [-78, -893], fathima: [-40, -905], selvaraj: [-175, -905], bandara: [-110, -868], tailor: [L.PLACES.tailor.x, L.PLACES.tailor.z], garage: [L.PLACES.garage.x, L.PLACES.garage.z], gunshop: [L.PLACES.gunshop.x, L.PLACES.gunshop.z], club: [L.PLACES.club.x, L.PLACES.club.z] };
+  // 43rd: new walk-in shops, appended after the story shops (so those keep the buildings they always had). Each wants a
+  // shophouse with enough frontage / depth for its interior; none uses the sign atlas (each builds its own fascia).
+  for (const [m, d] of Object.entries(NEW_SHOPS)) WANT[m] = d.at;
   for (const [m, [tx, tz]] of Object.entries(WANT)) {
-    let best = null, bd = 1e12;
-    for (const b of plan.buildings) { if (taken.has(b) || !b.front || b.groundRow === undefined || b.totalH > 40) continue; const [fx, fz] = frontPoint(b, 1.2); const d = (fx - tx) ** 2 + (fz - tz) ** 2; if (d < bd) { bd = d; best = b; } }
+    let best = null, bd = 1e12; const need = NEW_SHOPS[m];
+    for (const b of plan.buildings) { if (taken.has(b) || !b.front || b.groundRow === undefined || b.totalH > 40) continue;
+      if (need) { const wide = b.front === 'N' || b.front === 'S' ? b.x1 - b.x0 : b.z1 - b.z0, deep = b.front === 'N' || b.front === 'S' ? b.z1 - b.z0 : b.x1 - b.x0; if (wide < need.w || deep < need.d || b.mission) continue; }
+      const [fx, fz] = frontPoint(b, 1.2); const d = (fx - tx) ** 2 + (fz - tz) ** 2; if (d < bd) { bd = d; best = b; } }
     if (!best) continue; taken.add(best);
+    if (need) { best.sign = null; best.mission = m; best.awning = false; best.groundRow = SHOP_ROWS.lobby; best.walkIn = { t: 0.5, w: 1.12, h: 2.32 }; const [x, z, rot] = frontPoint(best, 1.3); plan.missionShops[m] = { x, z, rot, faceIn: facingIntoShop(best.front), b: best.id, name: need.name, walkIn: true }; continue; }
+    if (m !== 'club') best.walkIn = { t: 0.5, w: 1.12, h: 2.32 }; // every story shop but the club: a real doorway (WalkIn.js)
     best.sign = m === 'club' ? null : missionSigns[m]; best.mission = m; best.awning = m !== 'garage' && m !== 'gunshop' && m !== 'club'; /* the club's frontage is its own model (ClubFront.js) */ best.groundRow = { kade: SHOP_ROWS.cafe, fathima: SHOP_ROWS.textile, selvaraj: SHOP_ROWS.electronics, bandara: SHOP_ROWS.produce, tailor: SHOP_ROWS.textile, garage: SHOP_ROWS.gate, gunshop: SHOP_ROWS.electronics, club: SHOP_ROWS.lobby }[m];
-    const [x, z, rot] = frontPoint(best, 1.3); plan.missionShops[m] = { x, z, rot, faceIn: facingIntoShop(best.front), b: best.id, name: m === 'club' ? 'The Velvet Monsoon' : SIGNS[missionSigns[m]].en || m };
+    const [x, z, rot] = frontPoint(best, 1.3); plan.missionShops[m] = { x, z, rot, faceIn: facingIntoShop(best.front), b: best.id, name: m === 'club' ? 'The Velvet Monsoon' : SIGNS[missionSigns[m]].en || m, walkIn: m !== 'club' };
   }
   // keep story-shop frontages clear: no pavement stall (or its vendor) blocking the door of a mission shop
   { const near = (o) => Object.values(plan.missionShops).some((m) => Math.hypot(o.x - m.x, o.z - m.z) < 4.5);
@@ -466,18 +568,24 @@ export function generatePlan() {
   // road are kept clear — no garden walls, back-lot trees, lamp posts / utility poles / bus halts in the driveways, no kerb
   // parking across them, no chat spots on the forecourt. Filtered after generation so the random layout of the rest of the
   // city (which shares the generators' RNG streams) is unchanged.
-  { const inRes = (x, z) => !!L.fuelSiteAt(x, z);
+  // Street Customs (Layout.CUSTOMS_SITE) is cleared the same way, plus the generated building that stood on its lot (removed from
+  // the lists without renumbering: every other building keeps its id)
+  { const r = L.CUSTOMS_SITE.rect; const gone = new Set(plan.buildings.filter((b) => b.x1 > r[0] + 0.5 && b.x0 < r[1] - 0.5 && b.z1 > r[2] + 0.5 && b.z0 < r[3] - 0.5));
+    if (gone.size) { plan.buildings = plan.buildings.filter((b) => !gone.has(b)); plan.colliders = plan.colliders.filter((c) => !(c.kind === 'building' && gone.has(c.b))); for (const ch of plan.byChunk) ch.buildings = ch.buildings.filter((b) => !gone.has(b)); }
+    plan.customsCleared = [...gone].map((b) => b.id); }
+  { const inRes = (x, z) => !!L.fuelSiteAt(x, z) || !!L.customsSiteAt(x, z);
     const drop = new Set(plan.props.filter((p) => inRes(p.x, p.z))); const dropT = new Set(plan.trees.filter((t) => inRes(t.x, t.z))); const dropW = new Set(plan.walls.filter((w) => inRes((w.x0 + w.x1) / 2, (w.z0 + w.z1) / 2)));
     const cols = new Set([...drop].map((p) => p.col).filter(Boolean)); for (const t of dropT) cols.add(t.col);
     for (const c of plan.colliders) if (c.kind !== 'building' && inRes((c.x0 + c.x1) / 2, (c.z0 + c.z1) / 2)) cols.add(c);
     plan.props = plan.props.filter((p) => !drop.has(p)); plan.trees = plan.trees.filter((t) => !dropT.has(t)); plan.walls = plan.walls.filter((w) => !dropW.has(w)); plan.colliders = plan.colliders.filter((c) => !cols.has(c));
     const dq = (q) => inRes(q.x, q.z); plan.poi = plan.poi.filter((q) => !dq(q)); plan.busStops = plan.busStops.filter((q) => !dq(q)); plan.parking = plan.parking.filter((q) => !dq(q));
     for (const ch of plan.byChunk) { ch.props = ch.props.filter((p) => !drop.has(p)); ch.trees = ch.trees.filter((t) => !dropT.has(t)); ch.walls = ch.walls.filter((w) => !dropW.has(w)); ch.poi = ch.poi.filter((q) => !dq(q)); } }
+  if (plan.stallFix) { const kept = plan.props.filter((p) => p.type === 'stall').length; plan.stallFix.removed = plan.stallFix.placed - kept; plan.stallFix.placed = kept; } // stalls cleared off mission-shop doors / station lots after placement
   greenTrees({ plan, addTree, onRailReserve, inSchool }); // more street trees + garden trees, banana clumps, areca palms (Greenery.js, own RNG)
   // no tree may grow inside (or through) a building. Garden/back-lot trees planted against a wall are moved out to 1.6 m
   // from it (crown no longer pushes through the facade); if there is no free spot they are dropped. Around the landmark
   // buildings with walk-in interiors (Police HQ, Galle Face Hotel) the whole crown must stay outside the walls.
-  { const SOLID = [[-40, 18, -205, -183], [-467.5, -414, -240, -205]]; // PoliceHQ.HQ.building, Landmarks Galle Face Hotel
+  { const SOLID = [[-40, 18, -205, -183], [-467.5, -414, -226.5, -205]]; // PoliceHQ.HQ.building, Landmarks Galle Face Hotel
     const R = (b) => (b._r ||= [b.x0, b.x1, b.z0, b.z1]);
     const gapAt = (x, z, r) => Math.hypot(Math.max(r[0] - x, 0, x - r[1]), Math.max(r[2] - z, 0, z - r[3]));
     const MIN = 1.6; const near = (x, z) => { const out = []; const [cx, cz] = chunkCoord(x, z); // buildings are filed by centre: scan the 3x3 chunk block
@@ -504,8 +612,31 @@ export function generatePlan() {
       for (const ch of plan.byChunk) ch.trees = ch.trees.filter((t) => !drop.has(t)); }
     plan.treeFix = { moved, dropped: drop.size }; }
   fitTreeCrowns();
+  { const inC = (x, z) => !!L.customsSiteAt(x, z, 3); const drop = new Set(plan.trees.filter((t) => inC(t.x, t.z))); // greenery planted after the reserve pass: none on the workshop lot / frontage
+    if (drop.size) { const cols = new Set([...drop].map((t) => t.col).filter(Boolean)); plan.trees = plan.trees.filter((t) => !drop.has(t)); plan.colliders = plan.colliders.filter((c) => !cols.has(c)); for (const ch of plan.byChunk) ch.trees = ch.trees.filter((t) => !drop.has(t)); } }
   greenPlants({ plan }); // shrubs, ferns, weeds (Greenery.js) → plan.plants
+  plan.plants = (plan.plants || []).filter((p) => !L.customsSiteAt(p.x, p.z, 1));
+  L.addLateZones(); // zones that must not influence generation (Street Customs)
   plan.stats = { buildings: plan.buildings.length, props: plan.props.length, trees: plan.trees.length, plants: plan.plants.length, parking: plan.parking.length, poi: plan.poi.length, ms: Math.round(performance.now() - t0) };
   return plan;
 }
 export { missionSigns };
+// 43rd request: walk-in shops added to the city (WalkIn.js / ShopInteriors.js). at: wanted frontage point; w / d: minimum
+// frontage width / depth of the shophouse (m) so the interior fits inside its own building.
+export const NEW_SHOPS = {
+  barber: { name: 'Razor & Co. Barbers', at: [-332, 118], w: 6.5, d: 9 },
+  tattoo: { name: 'Black Lotus Tattoo', at: [-206, -878], w: 6, d: 9 },
+  tattoo2: { name: 'Serendib Ink', at: [-384, 1072], w: 6, d: 9 },
+  gunshop2: { name: 'Lanka Shooting Supplies', at: [632, 64], w: 6.5, d: 10 },
+  clothing: { name: 'Marine Drive Clothing Co.', at: [-318, 606], w: 9, d: 11 },
+  luxury: { name: 'Maison Serendib', at: [-412, -118], w: 8, d: 10 },
+  // 44th request: eight robbable stores (RobberyShops.js), spread over the city
+  rob_mart: { name: 'Lak Mini Mart', at: [420, -620], w: 6.5, d: 9 },
+  rob_pharmacy: { name: 'Lanka Care Pharmacy', at: [760, 200], w: 6.5, d: 9 },
+  rob_jewel: { name: 'Ratnapura Gems & Gold', at: [40, -760], w: 6.5, d: 9 },
+  rob_phone: { name: 'CellCity Mobile', at: [-420, 760], w: 6, d: 8.5 },
+  rob_liquor: { name: 'Galle Road Wine Stores', at: [520, -1100], w: 6, d: 8.5 },
+  rob_bakery: { name: 'Golden Crust Bakery', at: [-200, 1250], w: 6.5, d: 9 },
+  rob_hardware: { name: 'Sena Hardware', at: [300, 1000], w: 6.5, d: 9 },
+  rob_books: { name: 'Saraswathi Book Depot', at: [-430, 250], w: 6.5, d: 9 },
+};

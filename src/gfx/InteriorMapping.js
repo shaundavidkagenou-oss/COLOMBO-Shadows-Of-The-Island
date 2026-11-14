@@ -8,6 +8,7 @@
 // Rooms are aligned to the facade UV grid (4 bays x 2 floors per texture tile), so slabs and
 // partitions line up with the painted mullions/spandrels.
 import { FLOOR_H } from '../world/CityPlan.js';
+import { LAND_Y } from '../world/Layout.js';
 
 const BAY = 3.2;
 export const INTERIOR = {
@@ -35,6 +36,8 @@ uniform float uITime;
 // sine-free hash (stable for large inputs on every GPU: sin(x * 43758) amplifies tiny float differences into per-pixel noise)
 float iHash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float iBox(vec2 p, vec2 lo, vec2 hi) { vec2 s = step(lo, p) * step(p, hi); return s.x * s.y; }
+float iNoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(iHash(i), iHash(i + vec2(1.0, 0.0)), f.x), mix(iHash(i + vec2(0.0, 1.0)), iHash(i + vec2(1.0, 1.0)), f.x), f.y); }
 `;
 // Runs after <emissivemap_fragment>: roughnessFactor / metalnessFactor / diffuseColor are known and
 // lighting has not been evaluated yet.
@@ -176,6 +179,37 @@ const FRAG_BODY = /* glsl */`
 #endif
 `;
 
+// Stage 1 colour (36th): the per-building paint is a vertex colour that multiplied the WHOLE facade map — a pink house had
+// pink-tinted glass and frames. Glazing is marked in every facade's rm map (green < 90), so the paint is only applied to the
+// wall: one extra texture fetch of a map the material already binds, no new uniforms / textures / draw calls.
+// 36th Stage 2 (de-repetition): one facade tile is 12.8 x 6.6 m and its baked grime / patching repeated identically on every
+// tile of every wall. The wall (never the glass) now also gets world-space weathering that cannot repeat with the tile:
+// broad patchy fading of the paint (~10 m and ~3 m blotches, luminance +-5 %, a slight warm / cool drift), rain streaks
+// washed down from the parapet and the sills in irregular columns, and rising damp along the foot of the wall. Pure ALU
+// (value noise on the existing world-position varying): no texture, uniform, draw call or geometry is added.
+const GLASS_PAINT_MASK = /* glsl */`
+#if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
+#ifdef USE_ROUGHNESSMAP
+  { float glassK = 1.0 - smoothstep(0.3, 0.38, texture2D(roughnessMap, vRoughnessMapUv).g);
+    diffuseColor *= vec4(mix(vColor.rgb, vec3(1.0), glassK), vColor.a);
+    float wallK = (1.0 - glassK) * step(abs(normalize(vIWN).y), 0.3);
+    if (wallK > 0.001) {
+      float s = vIWPos.x + vIWPos.z, h = vIWPos.y - ${LAND_Y.toFixed(3)};               // along the wall (walls are axis-aligned) / height
+      float fwS = fwidth(s) + fwidth(h);                                                   // metres per pixel: fine detail fades out far away
+      float n1 = iNoise(vec2(s * 0.1, h * 0.12) + 17.0), n2 = iNoise(vec2(s * 0.33, h * 0.4) + 3.0);
+      float blot = (n1 - 0.5) * 0.07 + (n2 - 0.5) * 0.035 * (1.0 - smoothstep(0.08, 0.4, fwS));
+      vec3 wv = vec3(1.0 + blot) * vec3(1.0 + (n1 - 0.5) * 0.025, 1.0, 1.0 - (n1 - 0.5) * 0.025); // faded patches drift warm / cool
+      float col = iNoise(vec2(s * 1.6, 0.0) + 41.0), run = iNoise(vec2(s * 1.6, h * 0.22) + 9.0); // streak columns, uneven length
+      float streak = smoothstep(0.55, 0.85, col) * smoothstep(0.35, 0.75, run) * (1.0 - smoothstep(0.15, 0.6, fwS));
+      float damp = (1.0 - smoothstep(0.25, 0.7 + n2 * 0.5, h)) * step(-0.05, h);         // rising damp, ragged upper edge
+      wv *= 1.0 - 0.06 * streak - 0.08 * damp;
+      diffuseColor.rgb *= mix(vec3(1.0), wv, wallK);
+    } }
+#else
+  diffuseColor *= vColor;
+#endif
+#endif
+`;
 export function applyInteriorMapping(mat, { office = false } = {}) {
   if (office) mat.defines = { ...(mat.defines || {}), INT_OFFICE: '' }; // office towers: floor-section lighting, cool tubes, uniform blinds
   mat.onBeforeCompile = (sh) => {
@@ -185,9 +219,10 @@ export function applyInteriorMapping(mat, { office = false } = {}) {
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + VERT_DECL)
       .replace('#include <project_vertex>', '#include <project_vertex>\n' + VERT_BODY);
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + FRAG_DECL)
-      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + FRAG_BODY);
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + FRAG_BODY)
+      .replace('#include <color_fragment>', GLASS_PAINT_MASK);
   };
-  mat.customProgramCacheKey = () => 'interior-v9' + (office ? '-office' : '');
+  mat.customProgramCacheKey = () => 'interior-v11' + (office ? '-office' : '');
   return mat;
 }
 

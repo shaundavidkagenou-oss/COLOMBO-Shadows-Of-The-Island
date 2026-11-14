@@ -14,6 +14,7 @@
 // Pure helpers are exported for the unit test (tools/squad-test.mjs).
 import * as THREE from 'three';
 import { Character, HEROES } from './Character.js';
+import { applyLook } from './Wardrobe.js';
 import { separate } from './Bodies.js';
 import { seatCharacter } from './Seating.js';
 import { boardCurve, poseBoard, npcBoardSetup, boardGroundFn, lapGrips, swingDoor, EXIT_K } from './Boarding.js';
@@ -105,7 +106,7 @@ export class Squad {
   get followers() { return this.members.filter((m, i) => i !== this.active); }
   memberById(id) { return this.members.find((m) => m.def.id === id); }
   // ------------------------------------------------------------------ lifecycle
-  ensureChars() { for (const m of this.members) if (!m.ch) { m.ch = new Character(HEROES[m.def.id]); m.ch.squadId = m.def.id; } this.members[this.active].ch = this.g.player.ch; }
+  ensureChars() { for (const m of this.members) if (!m.ch) { m.ch = new Character(applyLook(HEROES[m.def.id], (this.g.story?.state?.outfits || {})[m.def.id])); /* wardrobe look */ m.ch.squadId = m.def.id; } this.members[this.active].ch = this.g.player.ch; }
   unlock(placeAround = true) {
     if (this.unlocked) return; this.unlocked = true; this.ensureChars();
     for (const m of this.followers) { if (!m.ch.root.parent) this.g.scene.add(m.ch.root); if (placeAround) this.placeNear(m, false); }
@@ -115,7 +116,7 @@ export class Squad {
     this.cancelTransition(); this.unlocked = false; this.crumbs = [];
     if (this.active !== 0) this.switchInstant(0);
     for (const m of this.members) { m.hp = 100; m.inv = freshInventory(m.def); m.grenades = 0; m.sel = WEAPONS.findIndex((w) => w.id === m.def.loadout[0]); m.mode = 'follow'; m.hold = null; m.vehicle = null; this.clearCall(m); m.crew = null; m.board = null; m.unboard = null; if (m !== this.members[0] && m.ch && m.ch.root.parent) m.ch.root.parent.remove(m.ch.root); }
-    this.g.weapons.inv = this.members[0].inv; this.g.weapons.sel = this.members[0].sel; this.el.mini.classList.add('hide'); this.el.strip.classList.remove('on');
+    this.g.weapons.inv = this.members[0].inv; this.g.weapons.sel = this.members[0].sel; this.g.weapons.showHolstered?.(); /* the holster shows this kit (Dineth's service pistol), not the last one */ this.el.mini.classList.add('hide'); this.el.strip.classList.remove('on');
   }
   // the outfit / load path rebuilds one member's Character (Game.rebuildPlayer for the active one)
   replaceChar(id, ch) { const m = this.memberById(id); if (m) { m.ch = ch; ch.squadId = id; } if (this.unlocked) this.renderPortraits(); }
@@ -129,7 +130,7 @@ export class Squad {
     for (const m of this.members) { const d = s.members && s.members[m.def.id]; if (!d) continue; m.x = d.x ?? m.x; m.z = d.z ?? m.z; m.yaw = d.yaw ?? 0; m.hp = clamp(d.hp ?? 100, 1, 100); m.grenades = Math.max(0, Math.min(6, d.grenades | 0)); if (Array.isArray(d.inv)) d.inv.forEach((v, i) => { if (m.inv[i]) { m.inv[i].mag = v[0]; m.inv[i].reserve = v[1]; m.inv[i].owned = !!v[2]; } }); if (typeof d.sel === 'number') m.sel = d.sel; m.mode = 'follow'; m.hold = null; this.clearCall(m); m.crew = null; m.board = null; m.unboard = null; } // after a load everybody is back to his own day
     const ai = Math.max(0, SQUAD_IDS.indexOf(s.active)); if (s.unlocked) { this.unlocked = false; this.unlock(false); } else this.unlocked = false;
     if (ai !== this.active) this.switchInstant(ai, true);
-    else { this.g.weapons.inv = this.activeMember.inv; this.g.weapons.sel = this.activeMember.sel; }
+    else { this.g.weapons.inv = this.activeMember.inv; this.g.weapons.sel = this.activeMember.sel; this.g.weapons.showHolstered?.(); }
     this.g.story.state.health = this.activeMember.hp;
     if (!s.unlocked) { this.el.mini.classList.add('hide'); }
   }
@@ -295,7 +296,7 @@ export class Squad {
       if (m.crew === 'with' && m.mode === 'life') this.setLife(m, false);
       if (m.mode === 'life') this.life.update(m, dt, k, bodies); else this.updateFollower(m, dt, k, bodies);
     } catch (e) { if (!this._fe) { console.error(e); this._fe = 1; } } });
-    this.proxies = this.followers.filter((m) => !m.vehicle && !m.hidden && m.ch.root.parent === this.g.scene).map((m) => ({ x: m.x, z: m.z, crossing: m.speed > 0.5 }));
+    this.proxies = this.followers.filter((m) => !m.vehicle && !m.hidden && m.ch && m.ch.root.parent === this.g.scene).map((m) => ({ x: m.x, z: m.z, crossing: m.speed > 0.5 }));
     this.hudUpdate(dt);
   }
   trail(P) { if (P.vehicle || this.g.indoor) return; const c = this.crumbs; const l = c[c.length - 1]; if (!l || Math.hypot(P.x - l.x, P.z - l.z) > 0.8) { c.push({ x: P.x, z: P.z, y: P.y }); if (c.length > 160) c.shift(); } }

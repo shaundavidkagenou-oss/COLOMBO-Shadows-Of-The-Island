@@ -21,6 +21,7 @@ import * as THREE from 'three';
 import { Keys, supineFrame, rollAngle, rotateAbout, RAG_N } from '../actors/Ragdoll.js';
 import { AMB } from '../vehicles/AmbulanceKit.js';
 import { Audio } from '../audio/Audio.js';
+import { SoundBank } from '../audio/SoundBank.js';
 
 const IX = Object.fromEntries(RAG_N.map((n, i) => [n, i]));
 const V = () => new THREE.Vector3();
@@ -224,6 +225,7 @@ export class EMS {
     const e = u.e, p = e.p, C = this.crowd; p.dead = false; p.awaitMedic = false; p.keep = false; p.hits = 0; p.deadT = 0; p.downT = 0; p.timer = 0; p.ch.mesh.rotation.set(0, 0, 0); p.ch.mesh.position.set(0, 0, 0);
     p.ch.face.set?.('concern', 6); p.ch.face.mood = 'concern'; const away = { x: Math.sin(p.yaw), z: Math.cos(p.yaw) };
     if (C && C.react) { C.react(p, 'recover', 6, { fleeDir: [away.x, away.z] }, true); p.ch.anim.set(null); }
+    if (p.mind) { p.mind.dead = false; if (C && C.minds) C.minds.playerAct(p, 'helped'); } // the player phoned the ambulance that saved them: remembered with gratitude (Mind.js)
     this.say('okay'); e.ph = 'leave'; e.t = 0; for (const o of u.officers) { o.want = null; o.ch.anim.set(null); o.ch.anim.holdWL = o.ch.anim.holdWR = null; o.mode = 'return'; o.goal = null; }
   }
   // ---------------------------------------------------------------- the stretcher (not revived)
@@ -336,8 +338,9 @@ export class EMS {
   // ---------------------------------------------------------------- siren: a two-tone wail of its own (distinct from the police)
   updateSiren(dt) {
     if (!Audio.ready || !Audio.ctx) return; const c = Audio.ctx; let best = null, bd = 1e9; for (const u of this.units) { if (!u.v || u.e.ph !== 'drive') continue; const d = Math.hypot(u.v.x - this.g.camera.position.x, u.v.z - this.g.camera.position.z); if (d < bd) { bd = d; best = u.v; } }
-    if (!this.siren) { if (!best) return; const o1 = c.createOscillator(); o1.type = 'triangle'; const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1000; f.Q.value = 0.7; const gn = c.createGain(); gn.gain.value = 0; const pan = c.createStereoPanner ? c.createStereoPanner() : null; o1.connect(f); f.connect(gn); if (pan) { gn.connect(pan); pan.connect(Audio.bus.sfx); } else gn.connect(Audio.bus.sfx); o1.start(); this.siren = { o1, gn, pan, ph: 0 }; }
+    if (!this.siren) { if (!best) return; const o1 = c.createOscillator(); o1.type = 'triangle'; const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1000; f.Q.value = 0.7; const gn = c.createGain(); gn.gain.value = 0; const og = c.createGain(); const pan = c.createStereoPanner ? c.createStereoPanner() : null; o1.connect(f); f.connect(og); og.connect(gn); if (pan) { gn.connect(pan); pan.connect(Audio.bus.sfx); } else gn.connect(Audio.bus.sfx); o1.start(); this.siren = { o1, og, gn, pan, ph: 0 }; }
     const S = this.siren, now = c.currentTime; let gain = 0, pan = 0; if (best) { const [gg, pp] = Audio.spatial(best.x, best.z, 100); gain = 0.06 * gg * (this.g.indoor ? 0.3 : 1); pan = pp; }
     S.ph += dt; const hi = Math.floor(S.ph / 0.62) % 2 === 0; S.o1.frequency.setTargetAtTime(hi ? 960 : 720, now, 0.02); S.gn.gain.setTargetAtTime(gain, now, 0.15); if (S.pan) S.pan.pan.setTargetAtTime(pan, now, 0.1);
+    const rec = !!SoundBank.syncLoop(S, 'siren.ambulance', S.gn); if (rec !== !!S.rec) { S.rec = rec; S.og.gain.setTargetAtTime(rec ? 0 : 1, now, 0.05); }
   }
 }

@@ -29,13 +29,13 @@ export const SLOTS = ['auto', '1', '2', '3'];
 export const SaveSystem = {
   write(slot, data) {
     const payload = { version: SAVE_VERSION, savedAt: Date.now(), ...data };
-    localStorage.setItem(PREFIX + slot, JSON.stringify(payload));
+    try { localStorage.setItem(PREFIX + slot, JSON.stringify(payload)); } catch (e) { console.warn('save failed', e); return null; } // storage full / blocked: the caller reports it, the game carries on
     return payload;
   },
   read(slot) {
     try { const r = localStorage.getItem(PREFIX + slot); return r ? migrate(JSON.parse(r)) : null; } catch (e) { return null; }
   },
-  remove(slot) { localStorage.removeItem(PREFIX + slot); },
+  remove(slot) { try { localStorage.removeItem(PREFIX + slot); } catch (e) { /* storage blocked */ } },
   list() { return SLOTS.map((s) => ({ slot: s, data: this.read(s) })); },
   latest() {
     let best = null;

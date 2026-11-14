@@ -1,4 +1,5 @@
 // Campaign, missions (checkpointed stages), relationships, side activities and collectibles.
+import { lookOf } from '../actors/Wardrobe.js';
 import * as THREE from 'three';
 import * as L from '../world/Layout.js';
 import { plan } from '../world/CityPlan.js';
@@ -26,7 +27,7 @@ const PHOTO_SPOTS = [
   { id: 'lotus', name: 'Lotus Tower', x: 305, y: 120, z: -480, view: [230, -560] },
   { id: 'mosque', name: 'Jami Ul-Alfar Mosque', x: 13, y: 14, z: -877, view: [-20, -905] },
   { id: 'clock', name: 'Fort Clock Tower', x: -385, y: 18, z: -915, view: [-400, -880] },
-  { id: 'gfhotel', name: 'Galle Face Hotel', x: -440, y: 12, z: -222, view: [-470, -280] },
+  { id: 'gfhotel', name: 'Galle Face Hotel', x: -440, y: 12, z: -227.5, view: [-470, -280] },
   { id: 'townhall', name: 'Town Hall', x: 246, y: 20, z: -30, view: [246, -110] },
   { id: 'seema', name: 'Seema Malaka', x: -112, y: 4, z: -300, view: [-150, -340] },
   { id: 'lighthouse', name: 'Colombo Lighthouse', x: -500, y: 18, z: -765, view: [-470, -700] },
@@ -88,7 +89,7 @@ export class Story {
   photoTarget(t, label) { this.photoTargets.push({ ...t, label }); return this.until(() => t.done); }
   rel(who, d) { this.state.rel[who] = clamp(this.state.rel[who] + d, 0, 100); if (d) this.hud.notify(`${who[0].toUpperCase() + who.slice(1)} ${d > 0 ? 'appreciated that' : 'will remember that'}`, `Relationship ${d > 0 ? '+' : ''}${d}`, d > 0 ? 'success' : 'info', 3); }
   message(from, text) { const M = this.state.msgs || (this.state.msgs = []); const A = this.g.atmos; M.unshift({ from, text, when: A ? `Day ${A.day} ${A.timeString}` : '' }); if (M.length > 30) M.length = 30; }
-  pay(n, why) { this.state.money += n; if (n) { const A = this.g.atmos; const L2 = this.state.ledger || (this.state.ledger = []); L2.unshift({ n, why: why || (n > 0 ? 'Income' : 'Payment'), bal: this.state.money, when: A ? `Day ${A.day} ${A.timeString}` : '' }); if (L2.length > 60) L2.length = 60; } if (n) this.hud.notify(`${n > 0 ? '+' : '−'} Rs. ${Math.abs(n).toLocaleString('en-LK')}`, why || '', n > 0 ? 'success' : 'info', 3); }
+  pay(n, why) { this.state.money += n; this.g.skills?.onPay(n, why); if (n) { const A = this.g.atmos; const L2 = this.state.ledger || (this.state.ledger = []); L2.unshift({ n, why: why || (n > 0 ? 'Income' : 'Payment'), bal: this.state.money, when: A ? `Day ${A.day} ${A.timeString}` : '' }); if (L2.length > 60) L2.length = 60; } if (n) this.hud.notify(`${n > 0 ? '+' : '−'} Rs. ${Math.abs(n).toLocaleString('en-LK')}`, why || '', n > 0 ? 'success' : 'info', 3); }
   cleanupStage() { for (const id of [...this.npcs.keys()]) this.removeNPC(id); this.photoTargets = []; this.clearPursuers(); this.clearGuards(); this.hud.setTimer(null); this.hud.clearBlips('m:'); if (this.follow) { this.g.traffic.remove(this.follow); this.follow = null; } this.g.director.clearVehicles(); }
   // ------------------------------------------------------------ squad: mission leads and free-switch stages
   squadFor(id) { const d = MISSIONS.find((m) => m.id === id); return !!(d && d.squad && this.state.flags.squad); } // the other two come along only on these missions
@@ -405,6 +406,7 @@ export class Story {
     PHOTO_SPOTS.forEach((s) => { if (!this.state.photos.includes(s.id)) this.hud.addBlip('photo' + s.id, s.view[0], s.view[1], 'photo'); });
     TRIALS.forEach((t) => this.hud.addBlip('trial' + t.id, t.pts[0][0], t.pts[0][1], 'side', t.name));
     const S = plan.missionShops; if (S.kade) this.hud.addBlip('shop_kade', S.kade.x, S.kade.z, 'shop', 'Tea Kade'); if (S.garage) this.hud.addBlip('shop_garage', S.garage.x, S.garage.z, 'shop', 'Garage'); if (S.club) this.hud.addBlip('shop_club', S.club.x, S.club.z, 'shop', 'The Velvet Monsoon (club)'); if (S.tailor) this.hud.addBlip('shop_tailor', S.tailor.x, S.tailor.z, 'shop', 'Tailor'); if (S.gunshop) this.hud.addBlip('shop_gunshop', S.gunshop.x, S.gunshop.z, 'shop', 'Gun shop · Ceylon Arms Co.');
+    for (const [m, label] of [['gunshop2', 'Gun shop · Lanka Shooting Supplies'], ['barber', 'Barber · Razor & Co. Barbers'], ['tattoo', 'Tattoo · Black Lotus Tattoo'], ['tattoo2', 'Tattoo · Serendib Ink'], ['clothing', 'Clothing · Marine Drive Clothing Co.'], ['luxury', 'Luxury fashion · Maison Serendib'], ['rob_mart', 'Store · Lak Mini Mart'], ['rob_pharmacy', 'Pharmacy · Lanka Care Pharmacy'], ['rob_jewel', 'Jewellers · Ratnapura Gems & Gold'], ['rob_phone', 'Mobile shop · CellCity Mobile'], ['rob_liquor', 'Wine store · Galle Road Wine Stores'], ['rob_bakery', 'Bakery · Golden Crust Bakery'], ['rob_hardware', 'Hardware · Sena Hardware'], ['rob_books', 'Bookshop · Saraswathi Book Depot']]) if (S[m]) this.hud.addBlip('shop_' + m, S[m].x, S[m].z, 'shop', label);
     this.stampMeshes = STAMPS.map(([x, z], i) => { if (this.state.stamps.includes(i)) return null; const m = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.4, 0.02), new THREE.MeshStandardMaterial({ color: 0xd8a0ff, emissive: 0x9a50ff, emissiveIntensity: 0.8 })); m.position.set(x, 1.1, z); this.g.scene.add(m); return m; });
   }
   updateSide(dt) {
@@ -414,10 +416,10 @@ export class Story {
     // prompts for shops and activities (only when not in a mission conversation)
     if (this.side) { this.side.update(dt); return; }
     if (this.g.phone?.open || this.g.health?.busy) { this.sidePrompt = null; return; } // E confirms inside the phone: never buy/start things behind it
-    const S = plan.missionShops; let pr = null;
-    if (!pv && S.kade && Math.hypot(p.x - S.kade.x, p.z - S.kade.z) < 3 && this.running !== 'm0') { pr = `${this.hud.key('interact')} Plain tea & rotti (Rs. 150) · ${this.hud.key('more')} Delivery job`; if (Input.wasPressed('interact')) this.buyFood(); if (Input.wasPressed('more')) this.startDelivery(); }
-    if (!pv && S.tailor && Math.hypot(p.x - S.tailor.x, p.z - S.tailor.z) < 3) { pr = `${this.hud.key('interact')} New jacket colour (Rs. 2,000)`; if (Input.wasPressed('interact')) this.buyOutfit(); }
-    if (pv && S.garage && Math.hypot(p.x - S.garage.x, p.z - S.garage.z) < 8) { pr = `${this.hud.key('interact')} Repair vehicle (Rs. 800)`; if (Input.wasPressed('interact')) { if (this.state.money >= 800) { this.pay(-800, 'Repairs'); pv.damage = 0; this.hud.notify('Vehicle repaired'); } else this.hud.notify('Not enough money'); } }
+    const S = plan.missionShops; let pr = null; const inShop = (id) => { const r = this.g.interiors?.walkIn?.room; return !!(r && r.site && r.site.id === id); }; // walk-in shops: the prompt works anywhere inside
+    if (!pv && S.kade && (Math.hypot(p.x - S.kade.x, p.z - S.kade.z) < 3 || inShop('kade')) && this.running !== 'm0') { pr = `${this.hud.key('interact')} Plain tea & rotti (Rs. 150) · ${this.hud.key('more')} Delivery job`; if (Input.wasPressed('interact')) this.buyFood(); if (Input.wasPressed('more')) this.startDelivery(); }
+    if (!pv && S.tailor && (Math.hypot(p.x - S.tailor.x, p.z - S.tailor.z) < 3 || inShop('tailor'))) { pr = `${this.hud.key('interact')} New jacket colour (Rs. 2,000)`; if (Input.wasPressed('interact')) this.buyOutfit(); }
+    if (pv && S.garage && Math.hypot(p.x - S.garage.x, p.z - S.garage.z) < 8) { pr = `${this.hud.key('interact')} Repair vehicle (Rs. 800)`; if (Input.wasPressed('interact')) { if (this.state.money >= 800) { this.pay(-800, 'Repairs'); if (this.g && this.g.vdamage) this.g.vdamage.repair(pv); pv.damage = 0; pv.health = 100; this.hud.notify('Vehicle repaired'); } else this.hud.notify('Not enough money'); } }
     if (pv && pv.type === 'tuktuk' && !this.running) { pr = pr || `${this.hud.key('more')} Start tuk-tuk taxi job`; if (Input.wasPressed('more')) this.startTaxi(); }
     for (const t of TRIALS) if (pv && Math.hypot(p.x - t.pts[0][0], p.z - t.pts[0][1]) < 10 && !this.running) { pr = `${this.hud.key('more')} Start time trial: ${t.name}`; if (Input.wasPressed('more')) this.startTrial(t); }
     for (const sp of PHOTO_SPOTS) if (!this.state.photos.includes(sp.id) && Math.hypot(p.x - sp.view[0], p.z - sp.view[1]) < 40 && !pv) pr = pr || `Photo spot: ${sp.name} — open the phone (${this.hud.key('phone')}) → Camera`;
@@ -425,7 +427,7 @@ export class Story {
     if (pr || !this.talkTarget) this.sidePrompt = pr; else this.sidePrompt = null;
   }
   buyFood() { if (this.state.money < 150) { this.hud.notify('Not enough money'); return; } this.pay(-150, 'Plain tea & rotti'); this.g.player.stamina = 1; this.g.health?.heal(25); this.hud.subtitle('Siri', 'Fresh rotti, extra pol sambol. On the house next time, maybe!', '', 3); }
-  buyOutfit() { if (this.state.money < 2000) { this.hud.notify('Not enough money'); return; } this.pay(-2000, 'Ceylon Threads'); const cols = ['#3c4536', '#5a2a2a', '#1f2a3a', '#6b5a3a', '#2a2a2a', '#3a5a6b']; const fits = this.state.outfits || (this.state.outfits = {}); const who = this.g.squad ? this.g.squad.activeId : 'dineth'; const i = (cols.indexOf(fits[who] || '#3c4536') + 1) % cols.length; fits[who] = cols[i]; this.g.rebuildPlayer(); this.hud.notify('New jacket', 'Looking sharp, machan.'); }
+  buyOutfit() { if (this.state.money < 2000) { this.hud.notify('Not enough money'); return; } this.pay(-2000, 'Ceylon Threads'); const cols = ['#3c4536', '#5a2a2a', '#1f2a3a', '#6b5a3a', '#2a2a2a', '#3a5a6b']; const fits = this.state.outfits || (this.state.outfits = {}); const who = this.g.squad ? this.g.squad.activeId : 'dineth'; const cur = lookOf(fits[who]); const i = (cols.indexOf(cur.topColor || '#3c4536') + 1) % cols.length; cur.topColor = cols[i]; delete cur.top; fits[who] = cur; /* keeps the rest of the wardrobe look */ this.g.rebuildPlayer(); this.hud.notify('New jacket', 'Looking sharp, machan.'); }
   // taxi: pick a pedestrian-side spot nearby, then a destination 400-900 m away
   startTaxi() {
     const rng = new RNG(Math.floor(this.g.clock * 1000)); const p = this.g.player; const pick = (min, max) => { for (let k = 0; k < 200; k++) { const n = L.pedNodes[Math.floor(rng.next() * L.pedNodes.length)]; const d = Math.hypot(n.x - p.x, n.z - p.z); if (d > min && d < max) return n; } return null; };

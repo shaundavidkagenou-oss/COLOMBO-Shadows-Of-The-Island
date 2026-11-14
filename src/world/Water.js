@@ -229,8 +229,12 @@ export function buildWater() {
   waterUniforms.uNormalMap.value = TEX.waterNormal;
   const group = new THREE.Group(); group.name = 'water';
   // near-shore ocean with real swell geometry (5 m grid)
-  const ocean = new THREE.Mesh(new THREE.PlaneGeometry(1400, 3200, 280, 640).rotateX(-Math.PI / 2), waterMat({ waves: 1, shallow: '#2d9a98', deep: '#0a3550', scatter: '#45c2b0', foam: 1, rough: 1.0 }));
-  ocean.position.set(-1180, -0.9, 100); group.add(ocean); ocean.material.uniforms.uBounds.value.set(-1880, -480, -1500, 1700);
+  // FPS: the 1400 × 3200 m swell mesh (358k triangles) was ONE mesh, so all of it was drawn whenever any of it was in view.
+  // Now 4 × 8 tiles of the very same 5 m grid (the waves are computed in world space, shared edge vertices coincide, so the
+  // surface is identical and seamless); tiles outside the view are frustum-culled, one shared material.
+  const oceanMat = waterMat({ waves: 1, shallow: '#2d9a98', deep: '#0a3550', scatter: '#45c2b0', foam: 1, rough: 1.0 }); oceanMat.uniforms.uBounds.value.set(-1880, -480, -1500, 1700);
+  { const tileGeo = new THREE.PlaneGeometry(350, 400, 70, 80).rotateX(-Math.PI / 2);
+    for (let i = 0; i < 4; i++) for (let j = 0; j < 8; j++) { const t = new THREE.Mesh(tileGeo, oceanMat); t.name = 'ocean'; t.position.set(-1880 + 175 + i * 350, -0.9, -1500 + 200 + j * 400); t.matrixAutoUpdate = false; t.updateMatrix(); group.add(t); } }
   // flat planes get a hole where the swell mesh is: its troughs (up to ~2-3 m in a monsoon) used to dip below them and the flat plane showed through as dark blotches
   const OH = [-1880 + 4, -480 - 4, -1500 + 4, 1700 - 4];
   const holed = (x0, x1, z0, z1, y) => { const sh = new THREE.Shape([new THREE.Vector2(x0, -z0), new THREE.Vector2(x1, -z0), new THREE.Vector2(x1, -z1), new THREE.Vector2(x0, -z1)]); const hx0 = Math.max(OH[0], x0), hx1 = Math.min(OH[1], x1), hz0 = Math.max(OH[2], z0), hz1 = Math.min(OH[3], z1);

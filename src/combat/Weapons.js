@@ -1,11 +1,14 @@
 // Nine-weapon system for the squad (each member has their own loadout, see Squad.js): inventory, wheel, draw/holster, aim (over-the-shoulder / scope), fire, recoil, reload,
 // effects, hit detection and the non-graphic reactions it triggers in the crowd. Hands are placed on each weapon by
 // two-bone IK (Animator.ik) using the grip/support points exposed by the model, so every animation keeps both hands on it.
+import { SKILL_FX } from '../story/Skills.js';
+import { bloomHot } from '../gfx/BloomHot.js';
 import * as THREE from 'three';
 import { Input } from '../core/Input.js';
 import { Settings } from '../core/Settings.js';
 import { clamp, lerp, wrapAngle } from '../core/math.js';
 import { Audio } from '../audio/Audio.js';
+import { SoundBank as SB } from '../audio/SoundBank.js';
 import { buildWeaponModel, weaponMaterials } from './WeaponModels.js';
 import { holdFor } from './GripSolver.js';
 import * as L from '../world/Layout.js';
@@ -39,7 +42,7 @@ function aimPose(def, ud) {
 export class Weapons {
   constructor(game) {
     this.g = game; this.P = game.player; this.inv = WEAPONS.map((d) => ({ mag: d.mag, reserve: d.reserve, owned: true }));
-    this.models = WEAPONS.map((d) => buildWeaponModel(d)); for (const m of this.models) { m.updateMatrixWorld(true); m.userData.buttZ = new THREE.Box3().setFromObject(m).min.z; } // rear end of the stock (grip-origin space) this.cur = -1; this.sel = 0; this.state = 'none'; this.t = 0; this.next = -1;
+    this.models = WEAPONS.map((d) => buildWeaponModel(d)); for (const m of this.models) { m.updateMatrixWorld(true); m.userData.buttZ = new THREE.Box3().setFromObject(m).min.z; } /* rear end of the stock (grip-origin space) */ this.cur = -1; this.sel = 0; this.state = 'none'; this.t = 0; this.next = -1;
     this.aimW = 0; this.bloom = 0; this.cool = 0; this.recoil = 0; this.recoilYaw = 0; this.quickAim = 0; this.scoped = false; this.breath = 1; this.heat = 0; this.heatT = 0; this.shotAlarm = 0; this.threatT = 0;
     this.wheelOpen = false; this.wheelSel = -1; this.wheelX = 0; this.wheelY = 0; this.cycleT = -1; this.reloadMagOut = false;
     // spring-damper weapon dynamics (body space): position/rotation offsets driven by recoil impulses, look sway, gait bob,
@@ -68,6 +71,7 @@ export class Weapons {
   }
   slotMatrixInChest(i, out) { const b = this.P.ch.bones; const slot = WEAPONS[i].cls === 'pistol' ? this.holsterP : this.holsterR; b.chest.updateWorldMatrix(true, false); slot.updateWorldMatrix(true, false); return out.copy(b.chest.matrixWorld).invert().multiply(slot.matrixWorld); }
   select(i) {
+    if (this.P.swim || this.P.diveIn) return; /* no weapon in the water: arms are swimming */
     if (!(i >= 0 && i <= 8) || !this.inv[i] || !this.inv[i].owned) { if (i >= 0 && i <= 8 && this.inv[i]) this.hudFlash(`${WEAPONS[i].name} not owned — buy it at a gun shop`); return; } this._toFists = false; if (this.state === 'reload') this.abortReload();
     this.scrollTarget = null; this._toFists = false;
     if (this.state === 'holster') { // already putting one away: retarget (or, back to the same weapon, bring it straight back up)
@@ -93,14 +97,14 @@ export class Weapons {
       const c = (dx * fx + dz * fz) / d; if (c < 0.35) continue; const sc = c * 2 - d + (p.state === 'fight' ? 1.5 : 0); if (sc > bs) { bs = sc; best = p; } }
     this.lock = best; P.yaw = best ? Math.atan2(best.x - P.x, best.z - P.z) : ay;
     if (best && C.incoming) C.incoming(best);
-    P.ch.anim.strike(move); Audio.noise(0.09, { f: move === 'jab' ? 900 : 650, q: 0.9, vol: 0.05, when: 0 });
+    P.ch.anim.strike(move); SB.play('punch.swing', 1, 0, 0, { rate: move === 'jab' ? 1.08 : 0.95 }) || Audio.noise(0.09, { f: move === 'jab' ? 900 : 650, q: 0.9, vol: 0.05, when: 0 });
   }
   punchHit() { // the locked target if still in reach and in front, else the nearest standing person in the cone of this technique
     const P = this.P, C = this.g.crowd; if (!C || !C.peds) return null; const M = FIGHT_MOVES[this.curMove] || FIGHT_MOVES.jab; const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
     const ok = (p) => { if (!p || p.state === 'down' || p.dead || !p.ch) return -1; const dx = p.x - P.x, dz = p.z - P.z, d = Math.hypot(dx, dz); if (d > M.reach || d < 0.05) return -1; if ((dx * fx + dz * fz) / d < 0.55) return -1; if (Math.abs((p.y || 0) - (P.y || 0)) > 0.9) return -1; return d; };
     let best = ok(this.lock) >= 0 ? this.lock : null; if (!best) { let bd = 1e9; for (const p of C.peds) { const d = ok(p); if (d >= 0 && d < bd) { bd = d; best = p; } } }
     if (!best) return null;
-    if (C.punched(best, P, this.curMove)) { this.landed = (this.landed || 0) + 1; Audio.noise(0.06, { f: 230 + (M.dmg > 20 ? -40 : 30), q: 1.4, vol: 0.13, when: 0 }); P.shake = Math.max(P.shake || 0, M.dmg > 20 ? 0.18 : 0.12); if (this.g.police) this.g.police.crime(best.x, best.z, 'assault'); }
+    if (C.punched(best, P, this.curMove, SKILL_FX.punch)) { this.landed = (this.landed || 0) + 1; this.g.skills?.onPunch(); SB.play('punch.hit', M.dmg > 20 ? 1 : 0.8, 0, 0, { rate: M.dmg > 20 ? 0.92 : 1.05 }) || Audio.noise(0.06, { f: 230 + (M.dmg > 20 ? -40 : 30), q: 1.4, vol: 0.13, when: 0 }); P.shake = Math.max(P.shake || 0, M.dmg > 20 ? 0.18 : 0.12); if (this.g.police) this.g.police.crime(best.x, best.z, 'assault'); }
     return best;
   }
   // per frame (fists): stance on while fighting, block, step in to the locked target during the throw
@@ -118,7 +122,7 @@ export class Weapons {
     const P = this.P; if (P.vehicle) return; const fy = Math.atan2(p.x - P.x, p.z - P.z); const covering = this.blocking && Math.cos(wrapAngle(fy - P.yaw)) > 0.6;
     const dmg = ({ jab: 3, cross: 5, hook: 6, upper: 7 }[move] || 4) * (covering ? 0.25 : 1); if (this.g.health) this.g.health.damage(dmg, 'street fight');
     P.ch.anim.takeHit(covering ? 'block' : M.react, M.dir || 1, (M.pow || 1) * 0.8); P.shake = Math.max(P.shake || 0, covering ? 0.06 : 0.2); this.fightT = Math.max(this.fightT || 0, 3);
-    Audio.noise(0.06, { f: covering ? 380 : 240, q: 1.3, vol: 0.12, when: 0 }); this.hitsTaken = (this.hitsTaken || 0) + 1;
+    SB.play('punch.taken', covering ? 0.6 : 1) || Audio.noise(0.06, { f: covering ? 380 : 240, q: 1.3, vol: 0.12, when: 0 }); this.hitsTaken = (this.hitsTaken || 0) + 1;
   }
   holster() { if (this.drawn && this.state !== 'holster') { this.next = -1; if (this.state === 'reload') this.abortReload(); this.setState('holster'); } }
   // draw / put-away timing. Long guns (and any weapon taken during a swap) come straight into the hands — a short raise
@@ -128,7 +132,7 @@ export class Weapons {
   setState(s) { const prev = this.state; this.state = s; this.t = 0; if (s === 'holster' || s === 'none') this.wantReload = false;
     const d = this.def; if (d && s === 'equip') { this.drawMode = d.cls === 'pistol' && this._fromUnarmed ? 'hip' : 'hands'; this.dur = this.drawMode === 'hip' ? d.equip : this.handsDur(d); this.appearK = 0; }
     if (d && s === 'holster') { const swap = this.next >= 0; this.drawMode = d.cls === 'pistol' && !swap ? 'hip' : 'hands'; this.dur = this.drawMode === 'hip' ? d.equip * 0.85 : swap ? 0.22 : 0.3; }
-    if (s === 'reload') { const iv = this.inv[this.cur], d = WEAPONS[this.cur]; this.reloadKind = iv && iv.mag > 0 ? 'tactical' : 'empty'; this.reloadDur = d ? d.reload * (this.reloadKind === 'tactical' ? 0.85 : 1) : 1; this._dropped = false; this._relFlick = 0; }
+    if (s === 'reload') { const iv = this.inv[this.cur], d = WEAPONS[this.cur]; this.reloadKind = iv && iv.mag > 0 ? 'tactical' : 'empty'; this.reloadDur = d ? d.reload * (this.reloadKind === 'tactical' ? 0.85 : 1) * SKILL_FX.reload : 1; this._dropped = false; this._relFlick = 0; }
     if (s === 'check') this._chkFlick = 0;
     const rig = this.P && this.P.ch && this.P.ch.rig; if (rig && ((s === 'ready' && prev === 'equip') || s === 'holster')) rig.thumbFlick('R'); // safety off once up / on before stowing
   }
@@ -149,7 +153,7 @@ export class Weapons {
   dynamics(dt, def) {
     const P = this.P, S = this.spr; const t = performance.now() / 1000; const h0 = Math.max(dt, 1e-3);
     const yawRate = this.lastCamYaw === null ? 0 : wrapAngle(P.camYaw - this.lastCamYaw) / h0; const pitchRate = (P.camPitch - this.lastCamPitch) / h0;
-    const ads = sm(this.aimW); const steady = (P.perk && P.perk.steady) || 1; const heavy = def.cls === 'pistol' ? 0.75 : def.cls === 'sniper' ? 1.25 : 1;
+    const ads = sm(this.aimW); const steady = ((P.perk && P.perk.steady) || 1) * SKILL_FX.sway; const heavy = def.cls === 'pistol' ? 0.75 : def.cls === 'sniper' ? 1.25 : 1;
     const swayK = (1 - 0.6 * ads) * (P.crouching ? 0.6 : 1) * heavy; const sp = Math.min(P.speed || 0, 7);
     const tr = new THREE.Vector3(clamp(pitchRate * 0.012, -0.08, 0.08), clamp(yawRate * 0.018, -0.12, 0.12), clamp(-yawRate * 0.014, -0.1, 0.1)).multiplyScalar(swayK); // look inertia
     const ph = t * (sp > 4 ? 9.5 : 6.4), mv = clamp(sp / 4, 0, 1.4) * swayK; // gait figure-of-eight
@@ -181,7 +185,7 @@ export class Weapons {
   update(dt, can) {
     const P = this.P, A = P.ch.anim;
     this.heatUpdate(dt);
-    if (!can || P.vehicle || P.entry || P.exiting || P.climb || P.indoor) { if (this.drawn || this.state !== 'none') this.forceHolster(); else { A.ik = null; A.aim = null; } this.wheelClose(false); this.hudUpdate(dt); this.fxUpdate(dt); return; }
+    if (!can || P.vehicle || P.entry || P.exiting || P.climb || (P.indoor && !this.robRoom())) { /* walk-in robbery stores (RobberyShops.js) allow a drawn weapon */ if (this.drawn || this.state !== 'none') this.forceHolster(); else { A.ik = null; A.aim = null; } this.wheelClose(false); this.hudUpdate(dt); this.fxUpdate(dt); return; }
     // ---- selection: wheel (hold Tab), number keys, mouse wheel, gamepad d-pad
     if (Input.isDown('weaponWheel')) this.wheelUpdate(); else if (this.wheelOpen) this.wheelClose(true);
     if (!this.wheelOpen) {
@@ -223,12 +227,12 @@ export class Weapons {
       if (trig && this.aimW < 0.8) { this.quickAim = 0.5; }
       else if (trig && this.cool <= 0) {
         if (iv.mag > 0) { this.fire(def); if (!this.g.debug?.infAmmo) iv.mag--; this.cool = 1 / def.rof; if (def.cycle && iv.mag > 0) this.cycleT = 0; if (iv.mag === 0 && iv.reserve > 0 && Settings.get('autoReload') !== false) { this.autoReloadT = 0.35; } }
-        else if (firePressed) { Audio.tone(1800, 0.03, { type: 'square', vol: 0.06 }); this.cool = 0.25; if (iv.reserve > 0) { this.setState('reload'); this.reloadSnd(def); } else this.hudFlash('No ammunition'); }
+        else if (firePressed) { SB.play('gun.dry') || Audio.tone(1800, 0.03, { type: 'square', vol: 0.06 }); this.cool = 0.25; if (iv.reserve > 0) { this.setState('reload'); this.reloadSnd(def); } else this.hudFlash('No ammunition'); }
       }
       if (fireHeld || aimHeld) this.quickAim = Math.max(this.quickAim, aimHeld ? 0 : 0.6);
     }
     if (this.autoReloadT !== undefined && this.autoReloadT > 0) { this.autoReloadT -= dt; if (this.autoReloadT <= 0 && this.state === 'ready') { this.setState('reload'); this.reloadSnd(def); } }
-    if (this.cycleT >= 0) { const was = this.cycleT; this.cycleT += dt; if (was < def.cycle * 0.5 && this.cycleT >= def.cycle * 0.5) { this.ejectShell(); Audio.noise(0.05, { f: 2200, q: 3, vol: 0.08, when: 0 }); Audio.noise(0.06, { f: 1500, q: 3, vol: 0.07, when: 0.12 }); } if (this.cycleT >= def.cycle) this.cycleT = -1; }
+    if (this.cycleT >= 0) { const was = this.cycleT; this.cycleT += dt; if (was < def.cycle * 0.5 && this.cycleT >= def.cycle * 0.5) { this.ejectShell(); if (!SB.play('gun.cycle')) { Audio.noise(0.05, { f: 2200, q: 3, vol: 0.08, when: 0 }); Audio.noise(0.06, { f: 1500, q: 3, vol: 0.07, when: 0.12 }); } } if (this.cycleT >= def.cycle) this.cycleT = -1; }
     // ---- point a weapon at someone: they react (hands up / back away / run) — non-graphic
     this.threatT -= dt; if (this.aimW > 0.8 && this.threatT <= 0) { this.threatT = 0.35; const hit = this.pickPed(70); if (hit && this.g.crowd.threaten) this.g.crowd.threaten(hit.p, P); }
     this.pose(dt, def);
@@ -291,7 +295,7 @@ export class Weapons {
       const u = clamp(k / this.dur, 0, 1); let a;
       if (this.state === 'equip') { a = sm(u); ikW = sm(seg(u, 0, 0.3)); hideW = u < 0.1; } else { a = 1 - sm(seg(u, 0, 0.65)); ikW = 1 - sm(seg(u, 0.65, 1)); hideW = u >= 0.65; }
       this.appearK = a; const dn = 1 - a; pos.y -= 0.12 * dn; pos.z -= 0.04 * dn; pos.x += (twoHand ? 0.03 : 0.02) * dn; rx += 0.65 * dn; ry += (twoHand ? 0.25 : 0.1) * dn;
-      if (this.state === 'equip' && k < dt * 1.5) Audio.noise(0.1, { f: 900, q: 0.8, vol: 0.05 });
+      if (this.state === 'equip' && k < dt * 1.5) SB.play('gun.equip') || Audio.noise(0.1, { f: 900, q: 0.8, vol: 0.05 });
     }
     // weapon matrix (body space), then chest space
     const wq = new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz, 'YXZ'));
@@ -313,7 +317,7 @@ export class Weapons {
       const reach = sm(seg(u, 0, 0.38)); const travel = sm(seg(u, 0.38, 1));
       if (u < 0.38) { handOnly = 1; this._reach = reach; } else { const a = new THREE.Vector3(), aq = new THREE.Quaternion(), b = new THREE.Vector3(), bq = new THREE.Quaternion(), sc = new THREE.Vector3(); slot.decompose(a, aq, sc); chestM.decompose(b, bq, sc); chestM = new THREE.Matrix4().compose(a.lerp(b, travel), aq.slerp(bq, travel), new THREE.Vector3(1, 1, 1)); }
       supW = twoHand ? sm(seg(u, 0.7, 1)) : supW * sm(seg(u, 0.8, 1));
-      if (this.state === 'equip' && k < dt * 1.5) Audio.noise(0.12, { f: 700, q: 0.8, vol: 0.06 });
+      if (this.state === 'equip' && k < dt * 1.5) SB.play('gun.equip') || Audio.noise(0.12, { f: 700, q: 0.8, vol: 0.06 });
       if (handOnly) { const slotM = slot; if (m.parent !== (def.cls === 'pistol' ? this.holsterP : this.holsterR)) { (def.cls === 'pistol' ? this.holsterP : this.holsterR).add(m); m.matrixAutoUpdate = true; m.position.set(0, 0, 0); m.quaternion.identity(); } m.visible = true;
         const g = (H ? H.R.wrist.clone() : new THREE.Vector3()).applyMatrix4(slotM); A.ik = { R: g, qR: new THREE.Quaternion().setFromRotationMatrix(slotM).multiply(H ? H.R.q : Q_GRIP), wR: this._reach, L: null }; P.ch.rig && P.ch.rig.hand('R', this._reach > 0.8 ? (H ? H.R.ready : 'grip') : 'open');
         return; }
@@ -350,7 +354,7 @@ export class Weapons {
   }
 
   // ------------------------------------------------------------------ firing
-  muzzleWorld(out) { const m = this.models[this.cur]; m.updateWorldMatrix(true, false); return out.copy(m.userData.muzzle).applyMatrix4(m.matrixWorld); }
+  muzzleWorld(out) { const m = this.models[this.cur]; m.updateWorldMatrix(true, false); out.copy(m.userData.muzzle).applyMatrix4(m.matrixWorld); const P = this.P; if (Math.hypot(out.x - P.x, out.z - P.z) > 2.5 || Math.abs(out.y - P.y - 1.3) > 2.5) out.set(P.x, P.y + 1.4, P.z); return out; } // guard: a stale hand matrix (the frame after a teleport / headless steps) must not fire from far away
   aimRay(spread) {
     const cam = this.g.camera; cam.updateMatrixWorld(); const o = cam.position.clone(); const d = new THREE.Vector3(); cam.getWorldDirection(d);
     if (spread > 0) { const r = Math.sqrt(Math.random()) * spread, a = Math.random() * Math.PI * 2; const up = new THREE.Vector3(0, 1, 0).applyQuaternion(cam.quaternion), rt = new THREE.Vector3(1, 0, 0).applyQuaternion(cam.quaternion); d.addScaledVector(up, Math.sin(a) * r).addScaledVector(rt, Math.cos(a) * r).normalize(); }
@@ -358,9 +362,13 @@ export class Weapons {
     return { o, d };
   }
   // nearest hit along a ray: world geometry, pedestrians (capsules), vehicles (bounding circles)
-  trace(o, d, range, skipNear = 0) {
-    let best = { t: range, kind: 'none' };
-    const s0 = o.clone().addScaledVector(d, skipNear), e = o.clone().addScaledVector(d, range); const tw = this.g.collision.raycast(s0.x, s0.y, s0.z, e.x, e.y, e.z, 0.02, true); if (tw < 1) best = { t: skipNear + tw * (range - skipNear), kind: 'world' };
+  trace(o, d, range, skipNear = 0, skipV = null) { // skipV: a vehicle the bullet already went through / past
+    let best = { t: range, kind: 'none' }; const rr = this.robRoom(); // inside a robbery store the room's own walls / counters are the world (the building's collider box would stop every shot)
+    const s0 = o.clone().addScaledVector(d, skipNear), e = o.clone().addScaledVector(d, range); const tw = rr ? 1 : this.g.collision.raycast(s0.x, s0.y, s0.z, e.x, e.y, e.z, 0.02, true); if (tw < 1) best = { t: skipNear + tw * (range - skipNear), kind: 'world' };
+    if (rr) { const t = rr.rob.rayRoom(o, d, range); if (t < best.t && t >= skipNear) best = { t, kind: 'world' };
+      const ex = rr.rob.exitT; if (ex !== null && ex !== undefined && best.t >= range) { // out through the doorway: the street's buildings stop it again (no hits through walls hundreds of metres off)
+        const a0 = Math.max(skipNear, ex + 0.35), s1 = o.clone().addScaledVector(d, a0); const tw2 = a0 < range ? this.g.collision.raycast(s1.x, s1.y, s1.z, e.x, e.y, e.z, 0.02, true) : 1; if (tw2 < 1) best = { t: a0 + tw2 * (range - a0), kind: 'world' }; }
+      /* a ray that stays in the room is already capped by its walls / counters, so nobody outside can be hit */ }
     if (o.y + d.y * best.t < this.groundY(o.x + d.x * best.t, o.z + d.z * best.t)) { // hits the street before anything else
       const tg = d.y < -1e-4 ? (this.groundY(o.x, o.z) - o.y) / d.y : best.t; if (tg > 0 && tg < best.t) best = { t: tg, kind: 'ground' }; }
     for (const p of this.g.crowd.peds) {
@@ -371,34 +379,50 @@ export class Weapons {
     }
     if (this.g.police) for (const p of this.g.police.foot) { const rx = p.x - o.x, rz = p.z - o.z; const dh = Math.hypot(d.x, d.z) || 1e-6; const t = (rx * d.x + rz * d.z) / (dh * dh); if (t < skipNear || t > best.t) continue; const cx = o.x + d.x * t - p.x, cz = o.z + d.z * t - p.z; if (cx * cx + cz * cz > 0.09) continue; const y = o.y + d.y * t - (p.y || 0); if (y < 0.05 || y > (p.mode === 'down' ? 0.45 : 1.8 - 0.65 * ((p.ch && p.ch.anim && p.ch.anim.crouch) || 0))) continue; best = { t, kind: 'officer', p, y }; } // an officer crouched in cover presents less
     const vs = this.g.traffic.all();
-    for (const v of vs) { if (Math.abs(v.x - o.x) > range || Math.abs(v.z - o.z) > range) continue; for (const [cx, cz] of v.circles()) { const rx = cx - o.x, ry = v.y + 0.9 - o.y, rz = cz - o.z; const t = rx * d.x + ry * d.y + rz * d.z; if (t < skipNear || t > best.t) continue; const qx = o.x + d.x * t - cx, qy = o.y + d.y * t - (v.y + 0.9), qz = o.z + d.z * t - cz; const rr = v.radius * 0.95; const dd = qx * qx + qy * qy * 1.8 + qz * qz; if (dd < rr * rr) { const back = Math.sqrt(rr * rr - dd); best = { t: Math.max(skipNear, t - back), kind: 'vehicle', v }; } } }
+    for (const v of vs) { if (v === skipV || Math.abs(v.x - o.x) > range || Math.abs(v.z - o.z) > range) continue; for (const [cx, cz] of v.circles()) { const rx = cx - o.x, ry = v.y + 0.9 - o.y, rz = cz - o.z; const t = rx * d.x + ry * d.y + rz * d.z; if (t < skipNear || t > best.t) continue; const qx = o.x + d.x * t - cx, qy = o.y + d.y * t - (v.y + 0.9), qz = o.z + d.z * t - cz; const rr = v.radius * 0.95; const dd = qx * qx + qy * qy * 1.8 + qz * qz; if (dd < rr * rr) { const back = Math.sqrt(rr * rr - dd); best = { t: Math.max(skipNear, t - back), kind: 'vehicle', v }; } } }
+    if (rr) { const h = rr.rob.rayKeeper(o, d, best.t, skipNear); if (h) best = { t: h.t, kind: 'keeper', room: rr, y: h.y }; }
     best.point = o.clone().addScaledVector(d, best.t); return best;
   }
+  robRoom() { const P = this.P; const r = P && P.indoor && P.indoor.walkIn ? P.indoor.room : null; return r && r.rob ? r : null; }
   groundY(x, z) { return L.groundY(x, z); }
   pickPed(range) { const { o, d } = this.aimRay(0); const camToPlayer = o.distanceTo(new THREE.Vector3(this.P.x, this.P.y + 1.5, this.P.z)); const h = this.trace(o, d, range, camToPlayer + 0.4); return h.kind === 'ped' ? h : null; }
   fire(def) {
-    const P = this.P; const moving = P.speed > 0.6 ? 1.7 : 1; const spread = (def.spread + this.bloom) * moving * (this.scoped ? 0.35 : 1);
+    const P = this.P; const moving = P.speed > 0.6 ? 1.7 : 1; const spread = (def.spread + this.bloom) * moving * (this.scoped ? 0.35 : 1) * SKILL_FX.spread; // Shooting skill
     const { o, d } = this.aimRay(spread); const camToPlayer = o.distanceTo(new THREE.Vector3(P.x, P.y + 1.5, P.z));
     const aimHit = this.trace(o, d, def.range, camToPlayer + 0.4);
     const mz = this.muzzleWorld(new THREE.Vector3());
     // the bullet leaves the muzzle toward the aim point; anything between the muzzle and that point takes the hit instead
-    const dir = aimHit.point.clone().sub(mz); const len = dir.length(); dir.normalize(); let hit = this.trace(mz, dir, Math.max(0.1, len + 0.05), 0.05); if (hit.kind === 'none') hit = aimHit;
+    const dir = aimHit.point.clone().sub(mz); const len = dir.length(); dir.normalize(); let hit = this.trace(mz, dir, Math.max(0.1, len + 0.05), 0.05); let hdir = dir, horg = mz; if (hit.kind === 'none') { hit = aimHit; hdir = d; horg = o; }
     this.bloom = Math.min(0.08, this.bloom + def.bloom); this.recoil = Math.min(0.12, this.recoil + 0.05); this.recoilYaw = Math.random() * 2 - 1;
-    { const st = (P.crouching ? 0.75 : 1) * (this.aimW > 0.8 ? 0.85 : 1) * (0.6 + 0.4 * ((P.perk && P.perk.steady) || 1)); const cls = def.cls;
+    { const st = (P.crouching ? 0.75 : 1) * (this.aimW > 0.8 ? 0.85 : 1) * (0.6 + 0.4 * ((P.perk && P.perk.steady) || 1)) * SKILL_FX.recoil; const cls = def.cls;
       P.camPitch = clamp(P.camPitch - def.recoil * 0.35 * st, -0.5, 1.2); // the part the shooter must pull down
       this.kick.v += def.recoil * 9 * st * (0.85 + Math.random() * 0.3); this.kick.yv += def.recoil * 3 * st * (Math.random() * 2 - 1); // rises, then mostly recovers
-      this.spr.pv.z -= (cls === 'pistol' ? 0.55 : cls === 'sniper' ? 1.1 : 0.7) * st; this.spr.pv.y += 0.12 * st; this.spr.rv.x -= (cls === 'pistol' ? 9 : cls === 'sniper' ? 7 : 4.5) * st; this.spr.rv.y += (Math.random() * 2 - 1) * 1.6 * st; this.spr.rv.z += (Math.random() * 2 - 1) * 1.2 * st;
+      if (P.ch && P.ch.anim.shotKick) P.ch.anim.shotKick(cls, st); this.spr.pv.z -= (cls === 'pistol' ? 0.55 : cls === 'sniper' ? 1.1 : 0.7) * st; this.spr.pv.y += 0.12 * st; this.spr.rv.x -= (cls === 'pistol' ? 9 : cls === 'sniper' ? 7 : 4.5) * st; this.spr.rv.y += (Math.random() * 2 - 1) * 1.6 * st; this.spr.rv.z += (Math.random() * 2 - 1) * 1.2 * st;
       this.trigT = 0.07; if (this.inv[this.cur].mag <= 1 && cls !== 'sniper') this.slideLock = true; } P.shake = Math.max(P.shake || 0, def.cls === 'sniper' ? 0.25 : 0.08);
-    this.gunSound(def, P.x, P.z); this.flash(mz, dir, def); if (!def.cycle) this.ejectShell(); this.tracer(mz, hit.point, def);
-    if (hit.kind === 'ped') { const p = hit.p; this.g.crowd.hitPed(p, dir.x, dir.z, def.dmg, hit.point); if (!(this.g.blood && this.g.blood.spray(hit.point, dir, def.dmg))) this.puff(hit.point, 0x8a8478, 3); this.hitMarker(); }
-    else if (hit.kind === 'officer') { this.g.police.officerHit(hit.p, dir.x, dir.z); if (!(this.g.blood && this.g.blood.spray(hit.point, dir, def.dmg))) this.puff(hit.point, 0x8a8478, 3); this.hitMarker(); } // stagger / down-and-recover
-    else if (hit.kind === 'vehicle') { this.sparks(hit.point, dir); Audio.tone(2400 + Math.random() * 1500, 0.07, { type: 'triangle', vol: 0.05 }); const v = hit.v; if (v.ai) v.ai.bumped = 2.5; this.g.crowd.alarm(v.x, v.z, 25, 2, null); }
-    else if (hit.kind === 'world' || hit.kind === 'ground') { this.puff(hit.point, hit.kind === 'ground' ? 0x6d6a64 : 0xb5ab9a, 5); this.decal(hit.point, dir, hit.kind); }
-    this.shotAlarm -= 1; if (this.shotAlarm <= 0) { this.shotAlarm = 3; this.g.crowd.alarm(P.x, P.z, def.loud, 2, null); }
-    this.g.crowd.alarm(hit.point.x, hit.point.z, 10, 2, null);
+    this.gunSound(def, P.x, P.z); this.flash(mz, dir, def); if (!def.cycle) this.ejectShell();
+    const fin = this.applyHit(hit, hdir, horg, def, 1, 0); this.tracer(mz, fin.point, def);
+    this.shotAlarm -= 1; if (this.shotAlarm <= 0) { this.shotAlarm = 3; this.g.crowd.alarm(P.x, P.z, def.loud, 2, null, 'gunshot', true); }
+    this.g.crowd.alarm(hit.point.x, hit.point.z, 10, 2, null, 'gunshot', true);
     this.g.birds?.scare(P.x, P.z, 50); // every bird nearby goes up at a gunshot
     if (this.g.police) this.g.police.gunfire(P.x, P.z, hit.point); else { this.heat = Math.min(5, this.heat + 0.05); this.heatT = 0; } this.lastShot = { x: P.x, z: P.z, t: performance.now() };
     if (this.onShot) this.onShot(def, hit);
+    this.g.skills?.onShot(hit);
+  }
+  // what one bullet does to what it hit (k: the fraction of its energy left after going through something). Vehicles: the exact
+  // test against the body (VehicleDamage) — a shot that only crossed the bounding circles flies on past the car; one that went
+  // through carries on from the exit hole with what is left. Returns the last thing it hit (for the tracer).
+  applyHit(hit, dir, org, def, k = 1, depth = 0) {
+    const dmg = def.dmg * k;
+    if (hit.kind === 'ped') { const p = hit.p; if (this.g.blood && p.ch) this.g.blood.wound(p.ch, hit.point, dir, dmg); this.g.crowd.hitPed(p, dir.x, dir.z, dmg, hit.point); if (!(this.g.blood && this.g.blood.spray(hit.point, dir, dmg))) this.puff(hit.point, 0x8a8478, 3); this.hitMarker(); }
+    else if (hit.kind === 'keeper') { hit.room.rob.shot(hit, dir, dmg); this.hitMarker(); } // a robbery-store keeper (RobberyShops.js)
+    else if (hit.kind === 'officer') { if (this.g.blood && hit.p.ch) this.g.blood.wound(hit.p.ch, hit.point, dir, dmg); this.g.police.officerHit(hit.p, dir.x, dir.z); if (!(this.g.blood && this.g.blood.spray(hit.point, dir, dmg))) this.puff(hit.point, 0x8a8478, 3); this.hitMarker(); } // stagger / down-and-recover
+    else if (hit.kind === 'vehicle') { const v = hit.v, VD = this.g.vdamage; const R = VD ? VD.bullet(v, org, dir, { cls: def.cls, dmg }, { by: 'player' }) : null;
+      if (VD && !R) { if (depth < 2) return this.applyHit(this.trace(org, dir, def.range, Math.max(0.05, hit.t + 0.01), v), dir, org, def, k, depth + 1); return hit; } // passed over / beside the body
+      if (R) hit.point.copy(R.point); if (!R || R.kind !== 'glass') this.sparks(hit.point, dir); if (!VD) SB.play('gun.ricochet', 1, 0, 0, { rate: 0.9 + Math.random() * 0.2 }) || Audio.tone(2400 + Math.random() * 1500, 0.07, { type: 'triangle', vol: 0.05 });
+      if (v.ai) v.ai.bumped = 2.5; this.g.crowd.alarm(v.x, v.z, 25, 2, null, 'gunshot', true); if (R && R.occupant) this.hitMarker();
+      if (R && R.exit && R.pass > 0.12 && depth < 2) { const rest = def.range - hit.t; const h2 = this.trace(R.exit, dir, Math.max(0.1, rest), 0.02, v); if (h2.kind !== 'none') return this.applyHit(h2, dir, R.exit, def, k * R.pass, depth + 1); } }
+    else if (hit.kind === 'world' || hit.kind === 'ground') { this.puff(hit.point, hit.kind === 'ground' ? 0x6d6a64 : 0xb5ab9a, 5); this.decal(hit.point, dir, hit.kind); }
+    return hit;
   }
   report(e) { // a witness phoned the police (several calls about the same incident only count once every few seconds)
     if (this.g.police) return this.g.police.report(e); // the police response system owns the wanted level
@@ -410,12 +434,13 @@ export class Weapons {
 
   // ------------------------------------------------------------------ sound
   gunSound(def, x, z) {
+    if (SB.play('gun.' + def.id, 1, 0, 0, { rate: 0.97 + Math.random() * 0.06 })) return; // the player's recording for this weapon
     const s = def.snd; Audio.noise(s.dur, { f: s.crack, q: 0.6, vol: s.vol, type: 'lowpass', attack: 0.001 }); Audio.noise(s.dur * 0.6, { f: s.crack * 2.2, q: 0.8, vol: s.vol * 0.35, attack: 0.001 });
     Audio.tone(s.body * 2.2, s.dur * 1.4, { type: 'sine', vol: s.vol * 0.55, attack: 0.002, glide: s.body * 0.6 });
     Audio.noise(s.tail, { f: 500, q: 0.5, type: 'lowpass', vol: s.vol * 0.25, attack: 0.02, when: 0.03, buf: Audio.brownBuf, out: 'sfx' });
     if (def.cls !== 'pistol') Audio.noise(0.04, { f: 4500, q: 2, vol: 0.05, when: 0.01 }); // action cycling
   }
-  reloadSnd(def) { const R = def.reload; Audio.noise(0.04, { f: 1600, q: 3, vol: 0.08, when: R * 0.15 }); Audio.noise(0.06, { f: 900, q: 2, vol: 0.06, when: R * 0.4 }); Audio.noise(0.05, { f: 1300, q: 3, vol: 0.1, when: R * 0.7 }); Audio.noise(0.06, { f: 2000, q: 3, vol: 0.1, when: R * 0.87 }); Audio.noise(0.05, { f: 1500, q: 3, vol: 0.09, when: R * 0.93 }); }
+  reloadSnd(def) { if (SB.play('reload.' + (def.cls === 'pistol' ? 'pistol' : def.cls === 'sniper' ? 'sniper' : 'rifle'))) return; const R = def.reload; Audio.noise(0.04, { f: 1600, q: 3, vol: 0.08, when: R * 0.15 }); Audio.noise(0.06, { f: 900, q: 2, vol: 0.06, when: R * 0.4 }); Audio.noise(0.05, { f: 1300, q: 3, vol: 0.1, when: R * 0.7 }); Audio.noise(0.06, { f: 2000, q: 3, vol: 0.1, when: R * 0.87 }); Audio.noise(0.05, { f: 1500, q: 3, vol: 0.09, when: R * 0.93 }); }
 
   // ------------------------------------------------------------------ effects (pooled, short-lived, non-graphic)
   fxInit() {
@@ -429,7 +454,7 @@ export class Weapons {
     this.puffTex = new THREE.CanvasTexture(pc); this.sparkMat = new THREE.SpriteMaterial({ map: this.puffTex, color: 0xffc070, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
     this.shellGeo = new THREE.CylinderGeometry(0.0045, 0.0045, 0.02, 6); this.decals = []; this.decalMat = new THREE.MeshBasicMaterial({ color: 0x1a1816, transparent: true, opacity: 0.75, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }); this.decalGeo = new THREE.CircleGeometry(0.035, 8);
   }
-  flash(p, d, def) { const f = this.flashMesh; f.position.copy(p); f.lookAt(p.clone().add(d)); const s = def.cls === 'pistol' ? 0.7 : def.cls === 'rifle' ? 1 : 1.4; f.scale.setScalar(s * (0.8 + Math.random() * 0.4)); f.rotation.z += Math.random() * 3; f.visible = true; this.flashT = 0.05; this.flashLight.position.copy(p); this.flashLight.intensity = 6 * s; }
+  flash(p, d, def) { bloomHot(); const f = this.flashMesh; f.position.copy(p); f.lookAt(p.clone().add(d)); const s = def.cls === 'pistol' ? 0.7 : def.cls === 'rifle' ? 1 : 1.4; f.scale.setScalar(s * (0.8 + Math.random() * 0.4)); f.rotation.z += Math.random() * 3; f.visible = true; this.flashT = 0.05; this.flashLight.position.copy(p); this.flashLight.intensity = 6 * s; }
   tracer(a, b, def) { if (def.cls === 'pistol' && Math.random() < 0.5) return; const m = new THREE.Mesh(this.tracerGeo, this.tracerMat); m.position.copy(a); m.lookAt(b); m.scale.z = a.distanceTo(b); this.g.scene.add(m); this.fx.push({ m, life: 0.05, kind: 'tracer' }); }
   puff(p, color, n) { for (let i = 0; i < n; i++) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.puffTex, color, transparent: true, depthWrite: false, opacity: 0.7 })); s.position.copy(p); s.scale.setScalar(0.12); this.g.scene.add(s); this.fx.push({ m: s, life: 0.6 + Math.random() * 0.3, max: 0.9, kind: 'puff', v: new THREE.Vector3((Math.random() - 0.5) * 0.8, 0.3 + Math.random() * 0.6, (Math.random() - 0.5) * 0.8) }); } }
   sparks(p, d) { for (let i = 0; i < 7; i++) { const s = new THREE.Sprite(this.sparkMat); s.position.copy(p); s.scale.setScalar(0.05); this.g.scene.add(s); this.fx.push({ m: s, life: 0.25 + Math.random() * 0.2, kind: 'spark', v: new THREE.Vector3(-d.x * 2 + (Math.random() - 0.5) * 4, Math.random() * 3, -d.z * 2 + (Math.random() - 0.5) * 4) }); } }
@@ -442,7 +467,7 @@ export class Weapons {
       else if (f.kind === 'spark') { f.v.y -= 9.8 * dt; m.position.addScaledVector(f.v, dt); }
       else if (f.kind === 'mag') { if (!f.rest) { f.v.y -= 9.8 * dt; m.position.addScaledVector(f.v, dt); m.rotation.x += f.spin.x * dt; m.rotation.y += f.spin.y * dt; m.rotation.z += f.spin.z * dt; const gy = this.groundY(m.position.x, m.position.z) + 0.012;
           if (m.position.y < gy) { m.position.y = gy; if (Math.abs(f.v.y) > 1.2) { f.v.y = Math.abs(f.v.y) * 0.22; f.v.x *= 0.4; f.v.z *= 0.4; f.spin.multiplyScalar(0.4); Audio.noise(0.04, { f: 900, q: 2, vol: 0.05 }); } else { f.rest = true; m.rotation.set(0, m.rotation.y, Math.PI / 2); } } } } // falls, bounces once, lies on its side
-      else if (f.kind === 'shell') { f.v.y -= 9.8 * dt; m.position.addScaledVector(f.v, dt); m.rotation.x += f.spin.x * dt; m.rotation.y += f.spin.y * dt; const gy = this.groundY(m.position.x, m.position.z) + 0.005; if (m.position.y < gy) { m.position.y = gy; f.v.multiplyScalar(0.3); f.v.y = Math.abs(f.v.y) * 0.4; if (!f.tink) { f.tink = 1; Audio.tone(3800 + Math.random() * 1500, 0.05, { type: 'triangle', vol: 0.03 }); } } }
+      else if (f.kind === 'shell') { f.v.y -= 9.8 * dt; m.position.addScaledVector(f.v, dt); m.rotation.x += f.spin.x * dt; m.rotation.y += f.spin.y * dt; const gy = this.groundY(m.position.x, m.position.z) + 0.005; if (m.position.y < gy) { m.position.y = gy; f.v.multiplyScalar(0.3); f.v.y = Math.abs(f.v.y) * 0.4; if (!f.tink) { f.tink = 1; SB.play('gun.shell', 1, 0, 0, { rate: 0.9 + Math.random() * 0.2 }) || Audio.tone(3800 + Math.random() * 1500, 0.05, { type: 'triangle', vol: 0.03 }); } } }
       if (f.life <= 0) { this.g.scene.remove(m); if (f.kind === 'puff') m.material.dispose(); this.fx.splice(i, 1); } }
   }
 
@@ -450,7 +475,7 @@ export class Weapons {
   setScope(on) {
     if (on === this.scoped) return; this.scoped = on; const cam = this.g.camera; this.P.scoped = on ? this.def : null;
     this.el.scope.classList.toggle('on', on); this.el.cross.classList.toggle('hide', on);
-    if (!on) { cam.zoom = 1; cam.updateProjectionMatrix(); } else { Audio.noise(0.05, { f: 900, q: 1, vol: 0.05 }); }
+    if (!on) { cam.zoom = 1; cam.updateProjectionMatrix(); } else { SB.play('gun.scope') || Audio.noise(0.05, { f: 900, q: 1, vol: 0.05 }); }
   }
   scopeCamera(dt) { // called by Player.updateCamera when scoped
     const def = this.def; const cam = this.g.camera; const P = this.P; const t = performance.now() / 1000;
@@ -484,7 +509,7 @@ export class Weapons {
   hudWeapon(i) { const d = WEAPONS[i]; this._cardPick = d ? i : -1; this.el.card.querySelector('.wc-name').innerHTML = d ? `${this.icon(d)}<span>${d.name}</span>` : `${this.fistIcon()}<span>Fists</span>`; this.el.card.classList.remove('hide'); this._cardT = 4; }
   fistIcon() { return '<svg viewBox="0 0 36 36" width="34" height="34"><path d="M9 15c0-2 1.5-3 3-3s3 1 3 3v-2c0-2 1.5-3 3-3s3 1 3 3v1c0-2 1.5-3 3-3s3 1 3 3v8c0 5-4 9-9 9h-2c-4 0-7-3-7-7v-4c0-1.5 1-2.5 2.5-2.5H9z" fill="currentColor"/></svg>'; }
   hudFlash(t) { this.el.msg.textContent = t; this.el.msg.classList.add('on'); clearTimeout(this._msgT); this._msgT = setTimeout(() => this.el.msg.classList.remove('on'), 1400); }
-  hitMarker() { this.el.hit.classList.remove('on'); void this.el.hit.offsetWidth; this.el.hit.classList.add('on'); Audio.tone(1400, 0.04, { type: 'triangle', vol: 0.04 }); }
+  hitMarker() { this.el.hit.classList.remove('on'); void this.el.hit.offsetWidth; this.el.hit.classList.add('on'); SB.play('gun.hitmarker') || Audio.tone(1400, 0.04, { type: 'triangle', vol: 0.04 }); }
   hudUpdate(dt) {
     const d = this.def; const on = !!d && this.drawn;
     this.el.cross.classList.toggle('hide', !on || this.scoped); this.el.cross.classList.toggle('aim', this.aimW > 0.5);

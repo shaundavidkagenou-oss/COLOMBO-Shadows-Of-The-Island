@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 const { createVehicleMesh, VTYPES } = await import('../src/vehicles/VehicleModels.js');
 const { CATALOG, BRANDS, SUV_IDS, OTHER_IDS, TRAFFIC_W, PARKED_W, displayName } = await import('../src/vehicles/VehicleCatalog.js');
 const { makeSkeleton } = await import('../src/actors/Character.js');
+const { REAL_TYPES } = await import('../src/vehicles/RealModels.js'); // real bodies: painted mirror caps count in the width, LOD0 is the measured scan
 const { applySeatPose, seatLocal } = await import('../src/actors/Seating.js');
 let fails = 0, checks = 0; const bad = [];
 const ok = (c, msg) => { checks++; if (!c) { fails++; bad.push(msg); } };
@@ -24,8 +25,8 @@ for (const [id, b] of Object.entries(BRANDS)) ok(!realRx.test(b.name) && !realRx
 for (const [id, T] of Object.entries(CATALOG)) { ok(!realRx.test(T.model) && !realRx.test(displayName(id, T)) && !realRx.test(T.ref || ''), `${id}: real name in model/ref`); ok(BRANDS[T.make], `${id}: unknown make ${T.make}`); }
 
 // ---------------------------------------------------------------- 2. builds, dimensions, budget
-ok(SUV_IDS.length === 10, `expected 10 SUVs, got ${SUV_IDS.length}`); ok(OTHER_IDS.length === 30, `expected 30 other vehicles, got ${OTHER_IDS.length}`);
-ok(new Set([...SUV_IDS, ...OTHER_IDS]).size === 40 && Object.keys(CATALOG).length === 40, 'catalogue ids are not 40 unique models');
+ok(SUV_IDS.length === 10, `expected 10 SUVs, got ${SUV_IDS.length}`); ok(OTHER_IDS.length === 32, `expected 32 other vehicles (30 + the 2 real-body sports coupes), got ${OTHER_IDS.length}`);
+ok(new Set([...SUV_IDS, ...OTHER_IDS]).size === 42 && Object.keys(CATALOG).length === 42, 'catalogue ids are not 42 unique models');
 for (const id of SUV_IDS) ok(CATALOG[id].family === 'suv', `${id} listed as SUV but family ${CATALOG[id].family}`);
 const tri = (o) => (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3;
 const P = (b, n) => new THREE.Vector3().setFromMatrixPosition(b[n].matrixWorld);
@@ -36,17 +37,17 @@ for (const id of Object.keys(CATALOG)) {
     let g; try { g = createVehicleMesh(id, v); } catch (e) { ok(false, `${id}/v${v} build error ${e.message}`); continue; }
     g.updateMatrixWorld(true); const bb = new THREE.Box3(), bbH = new THREE.Box3(); let n = 0, nanV = 0;
     g.traverse((o) => { if (!o.isMesh) return; n += tri(o); const pa = o.geometry.attributes.position.array; for (let i = 0; i < pa.length; i++) if (!Number.isFinite(pa[i])) { nanV++; break; } if (o.name === 'paint' && o.parent === g) { const v3 = new THREE.Vector3(); for (let i = 0; i < pa.length; i += 3) { v3.set(pa[i], pa[i + 1], pa[i + 2]).applyMatrix4(o.matrixWorld); if (v3.y > 0.3 && v3.y < 0.75) bb.expandByPoint(v3); else bbH.expandByPoint(v3); } } });
-    ok(nanV === 0, `${id}/v${v}: NaN vertices`); ok(n < 48000, `${id}/v${v}: ${Math.round(n)} triangles (budget 48k)`);
+    ok(nanV === 0, `${id}/v${v}: NaN vertices`); ok(n < (REAL_TYPES.includes(id) ? 100000 : 48000), `${id}/v${v}: ${Math.round(n)} triangles (budget ${REAL_TYPES.includes(id) ? '100k LOD0 real body (LOD1/LOD2 beyond 25 m)' : '48k'})`);
     if (v === 0) {
       const sz = bb.getSize(new THREE.Vector3()); bbH.union(bb); const szA = bbH.getSize(new THREE.Vector3());
-      if (!bb.isEmpty()) { ok(szA.z > T.len - 0.1 && szA.z < T.len + 0.4, `${id}: painted length ${szA.z.toFixed(2)} vs ${T.len}`); if (T.truck) ok(T.truck.cabW * 2 <= T.wid + 0.01 && T.truck.deckW * 2 <= T.wid + 0.01, `${id}: cab/deck wider than spec`); else ok(sz.x > T.wid - 0.12 && sz.x < T.wid + 0.1, `${id}: painted width ${sz.x.toFixed(2)} vs ${T.wid}`); ok(bbH.max.y < T.hgt + 0.12 && bbH.max.y > T.hgt - 0.25, `${id}: painted height ${bbH.max.y.toFixed(2)} vs ${T.hgt}`); }
+      if (!bb.isEmpty()) { ok(szA.z > T.len - 0.1 && szA.z < T.len + 0.4, `${id}: painted length ${szA.z.toFixed(2)} vs ${T.len}`); if (T.truck) ok(T.truck.cabW * 2 <= T.wid + 0.01 && T.truck.deckW * 2 <= T.wid + 0.01, `${id}: cab/deck wider than spec`); else ok(sz.x > T.wid - 0.12 && sz.x < T.wid + (REAL_TYPES.includes(id) ? 0.26 : 0.1), `${id}: painted width ${sz.x.toFixed(2)} vs ${T.wid}`); ok(bbH.max.y < T.hgt + 0.12 && bbH.max.y > T.hgt - 0.25, `${id}: painted height ${bbH.max.y.toFixed(2)} vs ${T.hgt}`); }
       // ------------------------------------------------------------ 3. seating
       const seats = g.userData.seats; ok(seats.length === T.seats, `${id}: ${seats.length} seats vs spec ${T.seats}`);
       const drv = seats.filter((s) => s.driver); ok(drv.length === 1 && drv[0].wheel && drv[0].x < 0, `${id}: needs exactly one right-hand (−x) driver seat with a wheel`);
       const innerHalf = T.wid / 2 - 0.1; const zFront = Math.max(...seats.map((s) => s.z));
       for (const [si, s] of seats.entries()) {
         ok(Math.abs(s.x) + 0.2 <= innerHalf + 0.001, `${id} seat${si}: x ${s.x.toFixed(2)} too close to the side (inner half-width ${innerHalf.toFixed(2)})`);
-        ok(s.y > s.floor + 0.08 && s.roof > s.y + 0.75, `${id} seat${si}: cushion/floor/roof heights implausible`);
+        ok(s.y > s.floor + 0.065 && s.roof > s.y + 0.75, /* sports-coupe cushions sit ~7 cm over the floor pan */ `${id} seat${si}: cushion/floor/roof heights implausible`);
         ok(Math.abs(s.exit[0]) > T.wid / 2 + 0.2 || Math.abs(s.exit[1]) > T.len / 2, `${id} seat${si}: exit point inside the body`);
         ok(Math.abs(s.z) < T.len / 2 - 0.3, `${id} seat${si}: seat outside the cabin length`);
         if (s.z < zFront - 0.3) { // rear-row occupant: a tall adult's knees must clear the front seat back (cushion z − 0.30)

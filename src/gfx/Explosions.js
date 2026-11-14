@@ -33,7 +33,7 @@ function noiseTexture() {
 const PUFF_VS = `
 attribute vec3 aP0; attribute vec3 aV; attribute vec4 aT; attribute vec4 aR; attribute vec3 aC;
 uniform float uTime; uniform vec3 uWind;
-varying vec2 vUv; varying float vK; varying float vSeed; varying float vKind; varying vec3 vCol; varying float vFade; varying float vAge;
+varying vec2 vUv; varying float vK; varying float vSeed; varying float vKind; varying vec3 vCol; varying float vFade; varying float vAge; varying float vGh;
 void main() {
   float age = uTime - aT.x; float k = age / aT.y;
   vUv = uv; vK = k; vSeed = aR.x; vKind = aR.y; vCol = aC; vAge = age;
@@ -49,18 +49,19 @@ void main() {
   float ang = aR.x * 6.2831 + age * (aR.x - 0.5) * 0.9;
   vec2 c = position.xy; c = vec2(c.x * cos(ang) - c.y * sin(ang), c.x * sin(ang) + c.y * cos(ang));
   mv.xy += c * sz;
+  vGh = (p.y + (c.x * viewMatrix[1][0] + c.y * viewMatrix[1][1]) * sz - aC.z) / max(0.2, sz * 0.6); // this corner's height over the ground, in sprite half-sizes
   vFade = clamp((-mv.z - 0.35) / 1.4, 0.0, 1.0);                       // fades as it reaches the camera (no hard clip)
   gl_Position = projectionMatrix * mv;
 }`;
 const FIRE_FS = `
 uniform sampler2D uNoise; uniform float uTime;
-varying vec2 vUv; varying float vK; varying float vSeed; varying float vKind; varying vec3 vCol; varying float vFade; varying float vAge;
+varying vec2 vUv; varying float vK; varying float vSeed; varying float vKind; varying vec3 vCol; varying float vFade; varying float vAge; varying float vGh;
 void main() {
   vec2 c = vUv - 0.5; float r = length(c) * 2.0;
   float n1 = texture2D(uNoise, vUv * 0.55 + vec2(vSeed * 7.13, vSeed * 3.31 - vAge * 0.9)).r;
   float n2 = texture2D(uNoise, vUv * 1.35 + vec2(vSeed * 2.71 + vAge * 0.35, vSeed * 5.93)).r;
   float n = n1 * 0.62 + n2 * 0.38;
-  float shape = smoothstep(1.0, 0.2, r + (n - 0.5) * 0.95);
+  float shape = smoothstep(1.0, 0.2, r + (n - 0.5) * 0.95) * (1.0 - smoothstep(0.8, 1.0, r)) * smoothstep(0.0, 1.0, vGh); // fades into the ground instead of being sliced by it
   if (shape < 0.003) discard;
   float T = clamp((1.0 - vK * 1.25) * (0.35 + n * 1.0) * (1.25 - r * 1.05) * vCol.g, 0.0, 1.2);   // temperature: hottest in the puff's core, cool red-black rim
   vec3 col = mix(vec3(0.22, 0.03, 0.0), vec3(1.0, 0.3, 0.035), smoothstep(0.08, 0.42, T));
@@ -73,13 +74,13 @@ void main() {
 }`;
 const SMOKE_FS = `
 uniform sampler2D uNoise; uniform vec3 uSunV; uniform vec3 uSunC; uniform vec3 uAmb;
-varying vec2 vUv; varying float vK; varying float vSeed; varying float vKind; varying vec3 vCol; varying float vFade; varying float vAge;
+varying vec2 vUv; varying float vK; varying float vSeed; varying float vKind; varying vec3 vCol; varying float vFade; varying float vAge; varying float vGh;
 void main() {
   vec2 c = vUv - 0.5; float r = length(c) * 2.0;
   float n1 = texture2D(uNoise, vUv * 0.5 + vec2(vSeed * 4.7, vSeed * 8.3 - vAge * 0.05)).r;
   float n2 = texture2D(uNoise, vUv * 1.2 + vec2(vSeed * 9.1 + vAge * 0.03, vSeed * 1.7)).r;
   float n = n1 * 0.6 + n2 * 0.4;
-  float edge = r + (n - 0.5) * 1.05; float shape = smoothstep(1.0, 0.3, edge);
+  float edge = r + (n - 0.5) * 1.05; float shape = smoothstep(1.0, 0.3, edge) * (1.0 - smoothstep(0.8, 1.0, r)) * smoothstep(0.0, 1.0, vGh); // the noise never reaches the quad's edge: no straight cut-off lines
   if (shape < 0.003) discard;
   vec3 nrm = normalize(vec3(c * 2.2 + (vec2(n1, n2) - 0.5) * 0.9, 0.55));
   float lit = clamp(dot(nrm, uSunV) * 0.6 + 0.45, 0.0, 1.0);
@@ -144,7 +145,7 @@ export class Explosions {
     this.debris = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0), new THREE.MeshStandardMaterial({ color: 0x2a2724, roughness: 0.9 }), DEBRIS_N); this.debris.frustumCulled = false; this.debris.castShadow = false; this.debris.userData.fx = true;
     this.chunks = []; const z = new THREE.Matrix4().makeScale(0, 0, 0); for (let i = 0; i < DEBRIS_N; i++) { this.debris.setMatrixAt(i, z); this.chunks.push(null); } this.debris.count = DEBRIS_N; scene.add(this.debris); this.dI = 0;
     // flash light: always present (constant light count → no shader recompiles); intensity 0 when idle
-    this.light = new THREE.PointLight(0xff8a3a, 0, 40, 2); this.light.position.set(0, -500, 0); scene.add(this.light); this.flashes = [];
+    this.light = new THREE.PointLight(0xff8a3a, 0, 40, 2); this.light.position.set(0, -500, 0); scene.add(this.light); this.flashes = []; this.burners = []; /* burning vehicles (VehicleDamage) light the street with the same light when no blast is flashing */
     // scorch decals
     const st = scorchTexture(); this.scorch = []; for (let i = 0; i < SCORCH_N; i++) { const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: st, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, opacity: 0 })); m.rotation.x = -Math.PI / 2; m.visible = false; m.userData.fx = true; m.renderOrder = 2; scene.add(m); this.scorch.push({ m, t: 0 }); } this.sI = 0; this.scorch[0].m.visible = true; this.scorch[0].m.position.y = -1000; /* compile primer (opacity 0, far below) */
     this.shock = []; // screen ripples
@@ -201,6 +202,15 @@ export class Explosions {
     if (!opts.noDamage) this.effects(c, gy, pow, opts);
     return { water, gy };
   }
+  // a sustained fire (a burning vehicle): call every frame with the seat of the fire; k = size (0.3 smoulder … 1 blaze), wind-bent
+  burn(p, k, gy, dt) {
+    this.burnAcc = (this.burnAcc || 0) + dt * (14 + 26 * k); const P = this._bp || (this._bp = new THREE.Vector3()), V = this._bv || (this._bv = new THREE.Vector3());
+    while (this.burnAcc >= 1) { this.burnAcc -= 1; const r = 0.25 + 0.45 * k;
+      this.emit(this.fire, 0, P.set(p.x + this.rnd(-r, r), p.y + this.rnd(0, 0.15), p.z + this.rnd(-r, r)), V.set(this.rnd(-0.3, 0.3), this.rnd(0.8, 1.8) * (0.6 + k), this.rnd(-0.3, 0.3)), this.rnd(0.45, 0.9), 0.22 + 0.25 * k, 0.7 + 0.9 * k, 0, 2.2, 1.8, [0.75, this.rnd(0.7, 0.9), gy]);
+      if (Math.random() < 0.35) this.emit(this.smoke, 1, P.set(p.x + this.rnd(-r, r), p.y + 0.5 + 0.6 * k, p.z + this.rnd(-r, r)), V.set(this.rnd(-0.4, 0.4), this.rnd(1.2, 2.4), this.rnd(-0.4, 0.4)), this.rnd(4, 7), 0.5 + 0.4 * k, 2.4 + 2.6 * k, 1, 0.9, 1.2, [this.rnd(0.08, 0.16), 0.25, gy]);
+      if (Math.random() < 0.06) this.sparkEmit(P.set(p.x, p.y + 0.3, p.z), V.set(this.rnd(-1, 1), this.rnd(2, 4.5), this.rnd(-1, 1)), this.rnd(0.6, 1.4), 0.02, gy + 0.02); }
+    this.flush(this.fire); this.flush(this.smoke); this.flush(this.spark);
+  }
   dustColor(x, z) { const road = L.roadAt && L.roadAt(x, z); return road ? [0.4, 0.45] : [0.5, 0.9]; } // [grey, tint]: asphalt grit is grey, earth / paving dust is tan
   chunk(c, gy) { const i = this.dI; this.dI = (this.dI + 1) % DEBRIS_N; const d = this.dirIn(0.3); const sp = this.rnd(5, 13); this.chunks[i] = { x: c.x, y: c.y, z: c.z, vx: d.x * sp, vy: d.y * sp, vz: d.z * sp, rx: Math.random() * 6, ry: Math.random() * 6, wx: this.rnd(-14, 14), wy: this.rnd(-14, 14), s: this.rnd(0.025, 0.07), t: 0, life: this.rnd(5, 9), rest: false }; }
   scorchAt(x, y, z, size) { const S = this.scorch[this.sI]; this.sI = (this.sI + 1) % SCORCH_N; S.m.position.set(x, y + 0.025, z); S.m.rotation.z = Math.random() * Math.PI * 2; S.m.scale.set(size, size, 1); S.m.material.opacity = 0.9; S.m.visible = true; S.t = 0; }
@@ -216,11 +226,11 @@ export class Explosions {
       if (p.ch.rag) { p.ch.rag.impulse(ux * 9 * f, 4 * f, uz * 9 * f); continue; } // a body is thrown about
       if (d < R1 || (d < R2 && Math.random() < 0.45 * (1 - (d - R1) / (R2 - R1)))) { // killed: thrown by the blast
         p.vx = ux * (6 + 8 * f); p.vz = uz * (6 + 8 * f); p.airVy = 3 + 5 * f; C.kill(p); if (p.ch.rag) p.ch.rag.impulse(ux * 2, 2.5 * f, uz * 2);
-        if (g.blood) g.blood.spray(new THREE.Vector3(p.x, (p.y || 0) + 1.0, p.z), { x: ux, y: 0.3, z: uz }, 1.4); this.stats.killed++; C.events?.emit?.('pedHit', p);
+        if (g.blood) { const bp = new THREE.Vector3(p.x - ux * 0.15, (p.y || 0) + 1.0, p.z - uz * 0.15); g.blood.wound(p.ch, bp, { x: ux, y: 0.3, z: uz }, 1.8); g.blood.spray(bp, { x: ux, y: 0.3, z: uz }, 1.4); } this.stats.killed++; C.events?.emit?.('pedHit', p);
       } else if (d < R2) { C.knock(p, ux, uz, 6 + 5 * f, 0); this.stats.downed++; }
       else if (p.state !== 'down') { C.react(p, 'stumble', 0.7, { punched: true }); p.vx = ux * 3 * f; p.vz = uz * 3 * f; }
     }
-    if (C) C.alarm(c.x, c.z, 90, 3, null);
+    if (C) C.alarm(c.x, c.z, 90, 3, null, 'explosion');
     g.birds?.scare(c.x, c.z, 140);
     // police: officers caught in it; anyone setting off explosives in the city is wanted (an officer or a witness reports it)
     const PR = g.police;
@@ -228,7 +238,7 @@ export class Explosions {
       if (opts.source === 'player' && !g.debug?.noWanted) { PR.reason = 'causing an explosion in a public place'; PR.incident = { x: c.x, z: c.z, t: PR.t }; PR.addHeat(PR.level < 2 ? 2 - PR.level + 0.01 : 1, PR.reason, 'Explosion reported.'); } }
     // vehicles: shoved, rocked on their springs, damaged; drivers floor it away
     const T = g.traffic; if (T) for (const v of T.all()) { const dx = v.x - c.x, dz = v.z - c.z, d = Math.hypot(dx, dz); if (d > R2 + 2) continue; const f = 1 - d / (R2 + 2), ux = dx / (d || 1), uz = dz / (d || 1); this.stats.vehicles++;
-      v.impact(10 + 30 * f); v.pitch = (v.pitch || 0) + (Math.random() - 0.5) * 0.12 * f; v.roll = (v.roll || 0) + (Math.random() < 0.5 ? -1 : 1) * 0.14 * f;
+      v.impact(10 + 30 * f, { nx: ux, nz: uz, t: 0, blast: f, pow, source: opts.source }); v.pitch = (v.pitch || 0) + (Math.random() - 0.5) * 0.12 * f; v.roll = (v.roll || 0) + (Math.random() < 0.5 ? -1 : 1) * 0.14 * f;
       if (!v.player && !v.immovable && v.shove) { v.shove(ux * 4.5 * f, uz * 4.5 * f, (Math.random() - 0.5) * 1.4 * f); if (v.ai) v.ai.bumped = 3; } }
     // the player
     const P = g.player; if (P && g.health) { const d = Math.hypot(P.x - c.x, P.z - c.z, P.y + 1 - c.y); if (d < R3 && los(P.x, P.y + 1.2, P.z)) { const dmg = d < 2.2 * pow ? 140 : Math.max(0, 115 * Math.pow(1 - (d - 2.2 * pow) / (R3 - 2.2 * pow), 1.6)); if (dmg > 0.5) g.health.damage(dmg, 'caught in an explosion'); if (d < R2 && !P.vehicle && P.ch?.anim && g.health.hp > 0) P.ch.anim.play?.('stumble', 0.8); } }
@@ -244,7 +254,11 @@ export class Explosions {
     // flash light: the brightest live blast
     let best = null, bi = 0; for (const f of this.flashes) { f.t += dt; const fl = f.t < 1.2 ? (900 * Math.exp(-f.t * 16) + 120 * Math.exp(-f.t * 2.6) * (0.75 + 0.25 * Math.sin(f.t * 47) * Math.sin(f.t * 23))) * f.pow : 0; if (fl > bi) { bi = fl; best = f; } }
     this.flashes = this.flashes.filter((f) => f.t < 1.2);
-    if (best) { this.light.position.set(best.x, best.y, best.z); this.light.intensity = bi; this.light.distance = 32 + 10 * best.pow; } else if (this.light.intensity) { this.light.intensity = 0; this.light.position.y = -500; }
+    if (best) { this.light.position.set(best.x, best.y, best.z); this.light.intensity = bi; this.light.distance = 32 + 10 * best.pow; } else if (this.burners.length) { // the closest burning wreck flickers (two incommensurate sines + noise: flames, not a strobe)
+      const cp = g.camera.position; let bb = null, bd = Infinity; for (const b of this.burners) { const d = (b.x - cp.x) ** 2 + (b.z - cp.z) ** 2; if (d < bd) { bd = d; bb = b; } }
+      const fl = (0.78 + 0.13 * Math.sin(this.t * 17.3) * Math.sin(this.t * 7.1) + 0.09 * Math.random()) * 70 * bb.pow; this.light.position.set(bb.x, bb.y, bb.z); this.light.intensity = fl; this.light.distance = 16 + 6 * bb.pow;
+    } else if (this.light.intensity) { this.light.intensity = 0; this.light.position.y = -500; }
+    this.burners.length = 0; // re-submitted every frame by VehicleDamage
     // debris
     let any = false; const m = this._m, col = g.collision;
     for (let i = 0; i < DEBRIS_N; i++) { const k = this.chunks[i]; if (!k) continue; any = true; k.t += dt;

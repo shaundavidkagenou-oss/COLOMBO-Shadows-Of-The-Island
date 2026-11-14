@@ -8,11 +8,17 @@ import { Character, randomSpec } from './Character.js';
 import { MOVES as FIGHT_MOVES } from './Boxing.js';
 import { StreetLife } from './StreetLife.js';
 import { separate } from './Bodies.js';
+import { Keys, supineFrame, clearFrame, rollAngle, rotateAbout, rollClear, rollShift } from './Ragdoll.js';
 import { PRESETS, lookKey, profileActivity } from './Appearance.js';
+import { offView, holdThisFrame } from '../gfx/ViewSkip.js';
+import { MindSystem, responseWeights, pickWeighted, reactDelay, feel, bond, EI, TI } from './Mind.js';
+const HOLD_OK = new Set(['walk', 'toPoi', 'idle', 'waitCross', 'shop', 'shelter', 'lawn', 'busStop', 'bench', 'chat', 'watch', 'flee', 'cower', 'scene', 'door', 'gather']); // ambient states that may be posed at a lower rate while unseen
 import { RNG } from '../core/rng.js';
 import { clamp, lerp, dampAngle, wrapAngle } from '../core/math.js';
 import { LINES, pick } from '../story/Lines.js';
 
+const SEV_KIND = ['panic', 'scuffle', 'gunshot', 'assault']; // alarm severity → kind of event, for callers that do not name one
+const GATHER_ACTS = [['crossarms', 3], ['look', 2], ['hips', 1.5], ['photo', 1.5], ['phone', 1.2], ['point', 0.6], [null, 1]];
 const IDLE_ACTS = [['phone', 3], ['text', 3], ['look', 2], ['stretch', 0.6], ['talk', 1], ['dance', 0.35], ['wave', 0.6], ['clap', 0.25], [null, 4]];
 export class Crowd {
   constructor(scene, collision, events) {
@@ -20,6 +26,8 @@ export class Crowd {
     this.specs = []; this.poiGrid = new Map(); this.frame = 0; this.stats = { goals: 0, planned: 0, fallback: 0, reversals: 0 };
     for (const p of plan.poi) { const k = this.key(p.x, p.z); let a = this.poiGrid.get(k); if (!a) this.poiGrid.set(k, (a = [])); a.push(p); }
     this.graphFix = this.repairGraph(); this.mainComp = this.largestComponent(); this.prepCrossings(); this.life = new StreetLife(this);
+    // NPC minds: personality, emotions, memory, relationships, event bus (Mind.js); a car horn nearby frays nerves
+    this.minds = new MindSystem(this); this._reboard = []; this._rw = []; if (events && events.on) events.on('horn', (v) => { if (v && v.x !== undefined) this.minds.stimulus('horn', v.x, v.z, 14, 0, null); });
   }
   // Which road crossings people use: a painted zebra (main / secondary roads at junctions), a signalised junction, or a
   // minor lane (no markings in real Colombo either). Junction corners on main roads without a zebra (bends, level
@@ -93,7 +101,7 @@ export class Crowd {
   // pre-built pool: one person of every adult preset first (so every type appears), then extra seeded variations
   // spec pool size: one person per preset (so every outfit in the wardrobe appears) plus random extras
   specTarget() { return PRESETS.length + 8; }
-  prepareSpecs(n = 8) { for (let i = 0; i < n; i++) { const k = this.specs.length; const sp = randomSpec(9000 + k * 17, k < PRESETS.length ? { preset: PRESETS[k].id } : {}); this.specs.push(sp); new Character(sp).dispose(); } }
+  prepareSpecs(n = 8) { for (let i = 0; i < n; i++) { const k = this.specs.length; const sp = randomSpec(9000 + k * 17, k < PRESETS.length ? { preset: PRESETS[k].id } : {}); sp._k = k; /* the look's index: a resident's identity is look × district (Mind.js) */ this.specs.push(sp); new Character(sp).dispose(); } }
   // who walks here now: profile activity for the hour (office rush, morning joggers, daytime tourists, few people late at night),
   // and never the same preset/look as someone within 25 m, so there are no side-by-side clones
   pickSpec(x, z) {
@@ -154,15 +162,15 @@ export class Crowd {
   }
   makePed(sp, x, z, nodeId) {
     const n = L.pedNodes[nodeId]; const ch = new Character(sp); this.scene.add(ch.root);
-    const p = { ch, x, z, yaw: this.rng.range(-3, 3), speed: 0, state: 'walk', node: nodeId, target: null, edge: null, lat: this.rng.range(-0.6, 0.6), pace: this.rng.range(1.15, 1.5) * (sp.age === 'elder' ? 0.75 : 1), timer: 0, act: null, react: 0, mood: 0, talkCd: 0, umbrella: this.rng.chance(0.5), crossing: false, id: this.rng.next(), sp, temper: this.rng.next(), vx: 0, vz: 0, stuckT: 0, stuckN: 0 };
+    const p = { ch, x, z, yaw: this.rng.range(-3, 3), speed: 0, state: 'walk', node: nodeId, target: null, edge: null, lat: this.rng.range(-0.6, 0.6), pace: this.rng.range(1.15, 1.5) * (sp.age === 'elder' ? 0.75 : 1), timer: 0, act: null, react: 0, mood: 0, talkCd: 0, umbrella: this.rng.chance(0.5), crossing: false, id: this.rng.next(), sp, temper: this.rng.next(), vx: 0, vz: 0, stuckT: 0, stuckN: 0, mind: null, emoPace: 1, gather: null, helpOf: null, helpI: null, helpOn: false, hideAt: null, hideFrom: null, chatWith: null, homeCar: null, reboardQ: false, repPlayer: undefined, awkT: 0, tcT: 0, helpedUp: false, lookT: 0, lookAtPt: null, pending: null, after: undefined, airVy: undefined, airY: undefined, blockT: undefined, chatT: undefined, cig: undefined, downT: undefined, faceYaw: undefined, fleeDir: undefined, fleeSide: undefined, fleeSp: 0, goalNode: undefined, goalPoi: undefined, heading: undefined, hits: undefined, jog: undefined, knockedByCar: undefined, koRag: undefined, lastEdge: undefined, lookAt: undefined, mv: 0, nearT: 0, nextNode: undefined, paper: undefined, phone: undefined, poi: undefined, route: undefined, routine: undefined, rt: 0, scene: undefined, sideDir: undefined, sit: undefined, slideTo: undefined, speaking: undefined, stuckSide: 0, talkFor: 0, toKerb: undefined, via: undefined, wallSide: undefined, y: undefined }; /* (Mind.js fields declared up front: one object shape for every pedestrian keeps the per-frame loop's property access monomorphic) */
     if (this.collision.blocked(p.x, p.z, 0.3) || L.roadAt(p.x, p.z)) { p.x = n.x; p.z = n.z; } // jitter never puts anyone inside a kiosk / tree / wall
     // runners: early morning and late afternoon along the roads and the park (Galle Face, Viharamahadevi)
     const h = this.hour ?? 12, jogK = (h >= 5 && h < 9) || (h >= 16 && h < 19) ? 0.09 : h >= 9 && h < 22 ? 0.015 : 0;
     if (sp.age !== 'elder' && !this.rain && this.rng.chance(jogK)) { p.jog = true; p.pace = this.rng.range(2.6, 3.2); p.umbrella = false; this.life.stats.jog++; }
-    ch.crowdPed = p; this.peds.push(p); this.place(p); return p;
+    this.minds.attach(p); ch.crowdPed = p; this.peds.push(p); this.place(p); return p;
   }
   // hand a person over to another system (police arrest): no longer updated or despawned by the crowd, not disposed
-  release(p) { const i = this.peds.indexOf(p); if (i >= 0) this.peds.splice(i, 1); this.life.forget(p); if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; } p.ch.crowdPed = null; p.ch.anim.nearLean = null; p.ch.anim.holdL = p.ch.anim.holdR = null; }
+  release(p) { const i = this.peds.indexOf(p); if (i >= 0) this.peds.splice(i, 1); this.life.forget(p); this.minds.detach(p); if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; } p.ch.crowdPed = null; p.ch.anim.nearLean = null; p.ch.anim.holdL = p.ch.anim.holdR = null; if (p.gather && p.gather.I) p.gather.I.n = Math.max(0, p.gather.I.n - 1); if (p.helpI) p.helpI.help = Math.max(0, p.helpI.help - 1); p.gather = null; p.helpI = null; p.helpOf = null; p.homeCar = null; }
   remove(p) { const i = this.peds.indexOf(p); if (i >= 0) this.peds.splice(i, 1); this.despawn(p); }
   place(p) { p.y = this.collision.groundAt(p.x, p.z, 0.2); p.ch.root.position.set(p.x, p.y, p.z); p.ch.root.rotation.y = p.yaw; }
   pickNext(p) {
@@ -194,7 +202,7 @@ export class Crowd {
     for (const v of this.vehicles) { const dx = mx - v.x, dz = mz - v.z; const d = Math.hypot(dx, dz); if (d > 35) continue; const closing = (dx * Math.sin(v.yaw) + dz * Math.cos(v.yaw)) / (d || 1); if (closing > 0.3 && v.speed > 1.5 && d / Math.max(v.speed, 0.1) < 5) return false; }
     return true;
   }
-  say(p, cat, prio = 0) { if (p.talkCd > 0) return; p.talkCd = 6 + this.rng.next() * 6; const line = pick(LINES[cat], () => this.rng.next()); this.events.emit('npcLine', { ped: p, line, prio }); }
+  say(p, cat, prio = 0) { if (p.talkCd > 0 || !LINES[cat]) return; p.talkCd = 6 + this.rng.next() * 6; const line = pick(LINES[cat], () => this.rng.next()); this.events.emit('npcLine', { ped: p, line, prio }); }
   // ------------------------------------------------------------------ routine vs reaction
   // Routine states: walk, toPoi, waitCross, idle, shelter. Reaction states overlay them; the routine is saved and
   // restored afterwards (or the ped rejoins the walk graph if it ended up elsewhere), so nobody stays stuck reacting.
@@ -208,10 +216,14 @@ export class Crowd {
     if (p.job && state !== 'job') p.job.interrupt(p, state);
     if (this.isRoutine(p.state)) p.routine = { state: p.state, target: p.target, node: p.node, nextNode: p.nextNode, edge: p.edge, poi: p.poi, x: p.x, z: p.z, timer: p.timer, via: p.via, toKerb: p.toKerb, route: p.route, goalPoi: p.goalPoi, crossing: p.crossing };
     if (p.sit) { p.sit = false; }
+    p.chatWith = null; p.speaking = false;
+    if (p.gather && state !== 'gather') { if (p.gather.I) p.gather.I.n = Math.max(0, p.gather.I.n - 1); p.gather = null; } /* leaving a crowd of onlookers / a helper's post by any route frees the slot */
+    if (p.helpI && state !== 'help') { p.helpI.help = Math.max(0, p.helpI.help - 1); p.helpI = null; p.helpOf = null; p.helpOn = false; }
     if (p.ch.anim.fight && state !== 'fight') p.ch.anim.fightOn(false, state === 'down');
     p.state = state; p.timer = timer; p.rt = 0; Object.assign(p, extra); p.ch.anim.set(null);
   }
   endReaction(p) {
+    if (p.homeCar && !p.dead && p.state !== 'toCar') { p.routine = null; p.ch.anim.set(null); p.act = null; p.lookAt = null; p.ch.face.talking = false; p.lookT = 0; p.state = 'toCar'; p.timer = 30; p.rt = 0; return; } // a driver out of their car after a crash goes back to it
     if (p.job && !p.dead) { p.routine = null; p.ch.anim.set(null); p.act = null; p.lookAt = null; p.ch.face.mood = 'neutral'; p.ch.face.talking = false; p.lookT = 0; p.stuckN = 0; p.stuckT = 0; p.state = 'job'; p.job.resume(p); return; } // back to work
     const r = p.routine; p.routine = null; p.ch.anim.set(null); p.act = null; p.lookAt = null; p.ch.face.mood = 'neutral'; p.ch.face.talking = false; p.lookT = 0;
     if (r && Math.hypot(r.x - p.x, r.z - p.z) < 4 && r.state !== 'idle') { p.state = r.state === 'shelter' ? 'walk' : r.state; p.target = r.target; p.node = r.node; p.nextNode = r.nextNode; p.edge = r.edge; p.via = r.via; p.toKerb = r.toKerb; p.route = r.route; p.goalPoi = r.goalPoi; p.crossing = r.crossing; p.poi = r.state === 'toPoi' ? r.poi : null; if (r.poi && r.state !== 'toPoi') r.poi.used = Math.max(0, r.poi.used - 1); if (p.state === 'waitCross') p.timer = 0; }
@@ -221,41 +233,79 @@ export class Crowd {
   speak(p, cat, prio = 0, dur = 2.2) { const before = p.talkCd; this.say(p, cat, prio); if (p.talkCd !== before) { p.ch.face.talking = true; p.talkFor = dur; } }
   // A disturbance at (x,z): sev 1 = scuffle/shouting, 2 = gunfire, 3 = someone hit nearby. Each witness reacts after its
   // own delay and picks its own response; panic directions are spread so the crowd scatters rather than herding.
-  alarm(x, z, r, sev, src = null) {
+  alarm(x, z, r, sev, src = null, kind = null, byPlayer = false) {
     for (const f of this.alarmHooks || []) f(x, z, r, sev);
+    kind = kind || SEV_KIND[Math.max(0, Math.min(3, sev | 0))]; this.minds.stimulus(kind, x, z, r, sev, src, byPlayer); // feelings + memories (Mind.js)
     for (const p of this.peds) {
       if (p.state === 'down' || p === src) continue; const d = Math.hypot(p.x - x, p.z - z); if (d > r) continue;
-      const delay = 0.15 + this.rng.next() * (sev >= 2 ? 0.7 : 1.3) + d * 0.04;
-      if (!p.pending || p.pending.sev < sev) p.pending = { t: delay, sev, x, z, d };
+      const delay = reactDelay(p.mind, sev, d, this.rng.next()); // personal reaction time: distance, wits, curiosity, fright
+      if (!p.pending || p.pending.sev < sev) p.pending = { t: delay, sev, x, z, d, kind, src, byPlayer };
     }
   }
+  // what a witness does is chosen from weights set by their personality and how they feel right now (Mind.responseWeights):
+  // the curious drift over to look or film, the fearful keep away, the honest phone it in, the kind-hearted go to help
   witness(p, w) {
     if (w.sev === 0) return; // just a glance (handled where it was queued)
-    const r = this.rng; const awayX = p.x - w.x, awayZ = p.z - w.z; const dd = Math.hypot(awayX, awayZ) || 1; const fearful = p.sp.age === 'elder' || p.temper < 0.3;
+    const r = this.rng; const awayX = p.x - w.x, awayZ = p.z - w.z; const dd = Math.hypot(awayX, awayZ) || 1; const kind = w.kind || (w.sev >= 2 ? 'gunshot' : 'scuffle');
     if (w.sev === 1) {
       if (!this.isRoutine(p.state)) return;
-      const k = r.weighted([['look', 5], ['watch', 3], ['film', p.sp.age === 'adult' ? (p.sp.band === 'young' ? 1.6 : 0.8) : 0], ['comment', 1.5], ['avoid', 1.5]]);
+      const k = pickWeighted(responseWeights(p.mind, 1, w.d, kind, p.sp, this._rw), r.next());
       p.ch.face.set(r.chance(0.5) ? 'surprise' : 'concern', 1.8);
       if (k === 'look') { p.lookT = 1.5 + r.next() * 2; p.lookAtPt = { x: w.x, z: w.z }; }
-      else if (k === 'watch' || k === 'film') { this.react(p, 'watch', 3 + r.next() * 4, { lookAt: { x: w.x, z: w.z } }); if (k === 'film') p.ch.anim.set('photo'); else if (r.chance(0.3)) this.speak(p, 'witness'); p.ch.face.mood = 'concern'; }
-      else if (k === 'comment') { p.lookT = 2; p.lookAtPt = { x: w.x, z: w.z }; this.speak(p, 'witness'); }
-      else { this.react(p, 'flee', 2 + r.next() * 2, { fleeDir: this.spread(awayX / dd, awayZ / dd, 1.0), fleeSp: 1.9 + r.next() * 0.6 }); }
+      else if (k === 'watch' || k === 'film') { this.react(p, 'watch', 3 + r.next() * 4, { lookAt: { x: w.x, z: w.z } }); if (k === 'film') p.ch.anim.set('photo'); else if (r.chance(0.3)) this.speak(p, kind === 'accident' || kind === 'crash' ? 'accident' : 'witness'); p.ch.face.mood = 'concern'; }
+      else if (k === 'comment') { p.lookT = 2; p.lookAtPt = { x: w.x, z: w.z }; this.speak(p, kind === 'accident' || kind === 'crash' ? 'accident' : kind === 'siren' ? 'siren' : 'witness'); }
+      else if (k === 'gather') this.startGather(p, w);
+      else if (k === 'help') this.startHelp(p, w);
+      else if (k === 'report') { this.react(p, 'report', 6 + r.next() * 4, { fleeDir: this.spread(awayX / dd, awayZ / dd, 0.8), repPlayer: !!w.byPlayer }); } // a street brawl between strangers is reported, but it is not on the player
+      else if (k === 'flee') { this.react(p, 'flee', 3 + r.next() * 3, { fleeDir: this.spread(awayX / dd, awayZ / dd, 0.9), fleeSp: 2.8 + r.next() * 1.2 }); p.ch.face.set('fear', 2.5); }
+      else { this.react(p, 'flee', 2 + r.next() * 2, { fleeDir: this.spread(awayX / dd, awayZ / dd, 1.0), fleeSp: 1.9 + r.next() * 0.6 }); } // avoid: walks briskly away
       return;
     }
     // gunfire / violence
-    if (p.state === 'cower' || p.state === 'flee') { p.timer = Math.max(p.timer, 3); return; }
-    const k = r.weighted([['flee', fearful ? 6 : 4.5], ['cower', fearful ? 3 : 2], ['freeze', 1.2], ['report', w.d > 15 ? 1.5 : 0.5], ['film', w.d > 25 ? 0.4 : 0]]);
+    if (p.state === 'cower' || p.state === 'flee' || p.state === 'hide') { p.timer = Math.max(p.timer, 3); return; }
+    if (p.state === 'gather' && p.gather && p.gather.I) { p.gather.I.n = Math.max(0, p.gather.I.n - 1); p.gather = null; } // the crowd breaks up
+    if (p.state === 'help' && p.helpI) { p.helpI.help = Math.max(0, p.helpI.help - 1); p.helpI = null; p.helpOf = null; }
+    const k = pickWeighted(responseWeights(p.mind, w.sev, w.d, kind, p.sp, this._rw), r.next());
     p.ch.face.set('fear', 3); p.ch.face.mood = 'fear';
-    if (k === 'flee') { this.react(p, 'flee', 4 + r.next() * 6, { fleeDir: this.spread(awayX / dd, awayZ / dd, 1.1), fleeSp: 3.2 + r.next() * 2.4 }); if (r.chance(0.3)) this.speak(p, 'panic', 1); }
-    else if (k === 'cower') this.react(p, 'cower', 1.8 + r.next() * 3);
+    if (k === 'flee') { const sp = 3.2 + r.next() * 2.4 * (0.6 + (p.mind ? p.mind.em[EI.FEA] : 0.5)); this.react(p, 'flee', 4 + r.next() * 6, { fleeDir: this.spread(awayX / dd, awayZ / dd, 1.1), fleeSp: sp }); if (r.chance(0.3)) this.speak(p, 'panic', 1); if (sp > 3.6) this.minds.contagion(p); }
+    else if (k === 'cower') { this.react(p, 'cower', 1.8 + r.next() * 3); if (r.chance(0.2)) this.speak(p, 'helpShout', 1); }
+    else if (k === 'hide') this.startHide(p, w);
     else if (k === 'freeze') { this.react(p, 'watch', 0.8 + r.next() * 1.2, { lookAt: { x: w.x, z: w.z }, after: 'flee' }); p.ch.face.set('surprise', 1.5); }
-    else if (k === 'report') { this.react(p, 'report', 6 + r.next() * 4, { fleeDir: this.spread(awayX / dd, awayZ / dd, 0.8) }); }
+    else if (k === 'report') { this.react(p, 'report', 6 + r.next() * 4, { fleeDir: this.spread(awayX / dd, awayZ / dd, 0.8), repPlayer: !(w.src && w.src.contractKill) }); } // a hired long-range shot (Assassin.js) is reported, but nothing ties it to the player
     else { this.react(p, 'watch', 3, { lookAt: { x: w.x, z: w.z } }); p.ch.anim.set('photo'); }
+  }
+  // ---- crowd behaviour around an incident (Mind.js incidents): onlookers spread round it at their own distance
+  startGather(p, w) {
+    const r = this.rng, M = this.minds; const I = M.incidentAt(w.x, w.z) || M.incident(kind0(w), w.x, w.z, 40); const t = p.mind ? p.mind.tr : null; const T = (i) => (t ? t[i] : 0.5);
+    if (I.n >= 10) { this.react(p, 'watch', 3 + r.next() * 4, { lookAt: { x: w.x, z: w.z } }); return; } // enough people already crowding round: watch from here
+    const base = Math.atan2(p.x - w.x, p.z - w.z); const rad = clamp(3 + 4 * T(TI.FEARF) - 1.5 * T(TI.CUR) + r.next() * 2.5, 2.4, 9);
+    for (let k = 0; k < 6; k++) {
+      const a = base + (r.next() - 0.5) * (0.9 + k * 0.35); const sa = Math.sin(a), ca = Math.cos(a); let gx = w.x + sa * rad, gz = w.z + ca * rad;
+      for (let s = 0; s < 8 && L.roadAt(gx, gz); s++) { gx += sa; gz += ca; } // watch from the pavement, never from the carriageway
+      if (L.roadAt(gx, gz) || L.isWater(gx, gz) || this.collision.blocked(gx, gz, 0.3) || this.crossesRoad(p.x, p.z, gx, gz)) continue;
+      I.n++; M.stats.gather++; const act = pickWeighted(GATHER_ACTS.map(([a2, wt]) => [a2, a2 === 'photo' ? wt * (0.4 + 2 * T(TI.CUR) * T(TI.RISK)) : a2 === 'phone' ? wt * (0.4 + T(TI.HON)) : a2 === 'hips' ? wt * (0.5 + T(TI.CONF)) : wt]), r.next());
+      this.react(p, 'gather', 14 + r.next() * 22 * (0.5 + T(TI.CUR)), { gather: { x: w.x, z: w.z, tx: gx, tz: gz, I, kind: I.kind, act, cT: 2 + r.next() * 4, hurry: 1 + 0.3 * (p.mind ? p.mind.em[EI.EXC] : 0), arrived: false } });
+      return;
+    }
+    this.react(p, 'watch', 3 + r.next() * 4, { lookAt: { x: w.x, z: w.z } });
+  }
+  // somebody is hurt: one or two kind souls go over and phone 1990 / stay with them
+  startHelp(p, w) {
+    const M = this.minds, I = M.incidentAt(w.x, w.z) || M.incident('accident', w.x, w.z, 45); const v = w.src && w.src.state === 'down' ? w.src : null;
+    if (!v || I.help >= 2) { this.startGather(p, w); return; } I.help++;
+    this.react(p, 'help', 14 + this.rng.next() * 10, { helpOf: v, helpI: I, helpOn: false });
+  }
+  // take cover: the nearest doorway / shopfront / bus shelter that is not towards the danger and not across a road
+  startHide(p, w) {
+    const ax = p.x - w.x, az = p.z - w.z, al = Math.hypot(ax, az) || 1; const cand = [];
+    for (const q of this.nearPOIs(p.x, p.z, 20)) { if (q.type !== 'door' && q.type !== 'shop' && q.type !== 'busStop') continue; const qx = q.x - p.x, qz = q.z - p.z, d = Math.hypot(qx, qz); if (d < 1.2 || d > 18) continue; if ((qx * ax + qz * az) / (d * al) < -0.2) continue; cand.push([d, q]); }
+    cand.sort((a, b) => a[0] - b[0]); for (let i = 0; i < Math.min(3, cand.length); i++) { const q = cand[i][1]; if (this.crossesRoad(p.x, p.z, q.x, q.z)) continue; this.react(p, 'hide', 6 + this.rng.next() * 7, { hideAt: { x: q.x, z: q.z }, hideFrom: { x: w.x, z: w.z } }); p.ch.face.set('fear', 4); return; }
+    this.react(p, 'cower', 1.8 + this.rng.next() * 3);
   }
   spread(x, z, a) { const t = (this.rng.next() - 0.5) * 2 * a; const c = Math.cos(t), s = Math.sin(t); return [x * c - z * s, x * s + z * c]; }
   // non-graphic hit (weapon): flinch, maybe fall and stay down for a while, then get up and get away
   hitPed(p, dx, dz, power = 1, at = null) {
-    if (p.ch.rag) { p.ch.rag.impulse(dx * 2.4 * power, 0.25 * power, dz * 2.4 * power, at); return; } // a body: the round shoves the limp limbs
+    if (p.ch.rag) { p.ch.rag.impulse(dx * 2.4 * power, 0.25 * power, dz * 2.4 * power, at); if (!p.dead) { p.hits = (p.hits || 0) + power; if (p.hits >= 1.2) this.kill(p); } return; } // a body: the round shoves the limp limbs (someone out cold can still be killed)
     if (p.state === 'down') { if (!p.dead) { p.hits = (p.hits || 0) + power; if (p.hits >= 1.2) this.kill(p); else p.timer = Math.max(p.timer, 4); } return; }
     p.knockedByCar = false; p.hits = (p.hits || 0) + power; p.vx = (p.vx || 0) + dx * 1.5; p.vz = (p.vz || 0) + dz * 1.5;
     // shot hard enough (one heavy round, or two light ones): they collapse and do NOT get up again (non-graphic)
@@ -267,6 +317,8 @@ export class Crowd {
     this.t += dt; this.frame++; this.simTime = ctx.simTime; this.vehicles = ctx.vehicles; this.rain = ctx.rain > 0.4; this.night = ctx.night; this.hour = ctx.hour ?? this.hour;
     const player = ctx.player; this.camDir = camDir; this.focus = focus; this.playerArmed = !!ctx.armed; if (ctx.police !== undefined) this.police = ctx.police;
     this.life.update(dt, ctx);
+    this.player = player; this.heroId = ctx.hero || this.heroId; { const pp = this._pp || (this._pp = { x: player.x, z: player.z }); this.playerSpeed = Math.hypot(player.x - pp.x, player.z - pp.z) / Math.max(dt, 1e-4); pp.x = player.x; pp.z = player.z; }
+    this.minds.update(dt, ctx); // budgets, sirens, incidents (Mind.js)
     // spawn / despawn (despawn only far away / out of view)
     for (let i = this.peds.length - 1; i >= 0; i--) { const p = this.peds[i]; if ((Math.hypot(p.x - focus.x, p.z - focus.z) > 165 && !p.keep) || p.recycle) { this.despawn(p); this.peds.splice(i, 1); } }
     const want = Math.round(this.max * (ctx.hourFactor ?? 1) * (this.rain ? 0.65 : 1));
@@ -281,16 +333,19 @@ export class Crowd {
     // nearby vehicles (incl. parked) as obstacles
     const vnear = []; for (const v of this.vehicles || []) if (Math.abs(v.x - focus.x) < 80 && Math.abs(v.z - focus.z) < 80) vnear.push(v); if (pv) vnear.push(pv);
     for (const p of this.peds) {
+      if (p.gather && p.state !== 'gather') { if (p.gather.I) p.gather.I.n = Math.max(0, p.gather.I.n - 1); p.gather = null; } /* knocked down / pulled into a fight / arrested straight out of a crowd of onlookers (state set without react()): free the slot */
+      if (p.helpI && p.state !== 'help') { p.helpI.help = Math.max(0, p.helpI.help - 1); p.helpI = null; p.helpOf = null; }
       const dist = Math.hypot(p.x - focus.x, p.z - focus.z); const lod = dist > 70 ? 3 : dist > 40 ? 2 : 1;
       p.talkCd -= dt; p.react -= dt; if (p.talkFor > 0) { p.talkFor -= dt; if (p.talkFor <= 0 && !['talk', 'argue', 'phone'].includes(p.ch.anim.action)) p.ch.face.talking = false; }
       if (p.pending) { p.pending.t -= dt; if (p.pending.t <= 0) { const w = p.pending; p.pending = null; if (p.state !== 'down') this.witness(p, w); } }
+      if (p.mind && this.t >= p.mind.nextT && !p.ch.rag && this.minds.enabled) this.minds.tick(p, dist); // staggered: 0.3 s near … 3 s far, ≤ 14 a frame
       let desired = 0; let tx = null, tz = null; let accel = 2.5; let avoid = true;
       // --- threats: player vehicle approaching fast
       if (pv && Math.abs(pv.speed) > 4) {
         const dx = p.x - pv.x, dz = p.z - pv.z; const d = Math.hypot(dx, dz); const fx = Math.sin(pv.yaw), fz = Math.cos(pv.yaw);
         const along = dx * fx + dz * fz, lat = Math.abs(dx * fz - dz * fx);
         const sgn = Math.sign(pv.speed), sweep = Math.abs(pv.speed) * dt + 0.45; /* swept box: the bumper's travel this frame, so 30 m/s can't skip a person */
-        if (p.state !== 'down' && lat < pv.T.wid / 2 + 0.32 && along * sgn > -pv.half - 0.2 && along * sgn < pv.half + sweep) { this.knock(p, fx * sgn, fz * sgn, Math.abs(pv.speed), (dx * fz - dz * fx) / (pv.T.wid / 2 + 0.32)); pv.speed *= 0.86; /* ~80 kg against ~1.2 t: the car loses a little speed */ }
+        if (p.state !== 'down' && lat < pv.T.wid / 2 + 0.32 && along * sgn > -pv.half - 0.2 && along * sgn < pv.half + sweep) { this.knock(p, fx * sgn, fz * sgn, Math.abs(pv.speed), (dx * fz - dz * fx) / (pv.T.wid / 2 + 0.32), true); pv.speed *= 0.86; /* ~80 kg against ~1.2 t: the car loses a little speed */ }
         else if (along > 0 && along < 14 && lat < 3.2 && p.state !== 'down' && p.state !== 'flee' && p.state !== 'dodge') { const side = (dx * fz - dz * fx) > 0 ? 1 : -1; this.react(p, 'dodge', 0.9 + this.rng.next() * 0.5, { dodge: [fz * side, -fx * side] }); p.ch.anim.set(this.rng.chance(0.35) ? 'cower' : null); p.ch.face.set('fear', 2.5); this.speak(p, 'scared', 1); this.events.emit('pedPanic', p); }
       }
       if (p.ch.rag) { this.ragPed(p, dt, focus, dist); continue; } // a dead body: the ragdoll owns the skeleton (src/actors/Ragdoll.js)
@@ -298,7 +353,7 @@ export class Crowd {
       switch (p.state) {
         case 'walk': case 'toPoi': {
           if (p.crossing && (!p.via || !p.via.length) && !L.roadAt(p.x, p.z)) p.crossing = false; // stepped up onto the far kerb
-          tx = p.target.x; tz = p.target.z; desired = p.pace * (this.rain && !p.umbrellaOpen ? 1.35 : 1);
+          tx = p.target.x; tz = p.target.z; desired = p.pace * (this.rain && !p.umbrellaOpen ? 1.35 : 1) * (p.emoPace || 1); // frightened / stressed people walk faster, sad ones slower
           if (p.act && p.ch.anim.action !== p.act) p.ch.anim.set(p.act);
           const d = Math.hypot(tx - p.x, tz - p.z);
           if (d < 1.4) desired *= clamp(d / 1.4, 0.45, 1); // ease in to targets
@@ -324,13 +379,13 @@ export class Crowd {
           if (p.lookAt) { p.yaw = dampAngle(p.yaw, Math.atan2(p.lookAt.x - p.x, p.lookAt.z - p.z), 3, dt); }
           if (p.poi && p.poi.type === 'busStop' && this.rng.chance(dt * 0.01)) this.speak(p, 'bus');
           if (p.poi && p.poi.type === 'chat') { // turn-taking: one talks (gestures, mouth), the other listens (nods), eye contact
-            p.chatT = (p.chatT ?? this.rng.next() * 3) - dt; if (p.chatT <= 0) { p.speaking = !p.speaking; p.chatT = 2 + this.rng.next() * 4; p.ch.anim.set(p.speaking ? 'talk' : 'listen'); p.ch.face.talking = p.speaking; if (!p.speaking && this.rng.chance(0.3)) p.ch.face.set('smile', 1.5); }
+            if (p.chatWith && !p.ch.anim.action) p.ch.anim.set(p.speaking ? 'talk' : 'listen'); /* a laugh / nod (Mind.js) ended: back to the conversation */ p.chatT = (p.chatT ?? this.rng.next() * 3) - dt; if (p.chatT <= 0) { p.speaking = !p.speaking; p.chatT = 2 + this.rng.next() * 4; p.ch.anim.set(p.speaking ? 'talk' : 'listen'); p.ch.face.talking = p.speaking; if (!p.speaking && this.rng.chance(0.3)) p.ch.face.set('smile', 1.5); if (dist < 40) this.minds.chatTurn(p); } /* laughter, arguments, gossip, friendship (Mind.js) */
             if (p.lookAt) p.ch.anim.look = clamp(wrapAngle(Math.atan2(p.lookAt.x - p.x, p.lookAt.z - p.z) - p.yaw), -1, 1);
             if (p.speaking && this.rng.chance(dt * 0.03) && dist < 25) this.speak(p, 'chat');
           }
           if (p.poi && p.poi.type === 'vendor' && this.rng.chance(dt * 0.03) && dist < 20) { this.speak(p, 'vendor'); p.ch.face.set('smile', 2); }
           if (p.poi && p.poi.type === 'vendor' && p.poi.cart && lod < 3) routine(p, p.ch, dt, 'vendor', () => this.rng.next()); // a cart vendor serves, calls out, waits — not one frozen pose for two minutes
-          if (p.timer <= 0 && !p.benchRead) { p.lastEdge = null; if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; } p.lookAt = null; p.ch.anim.set(null); p.ch.face.talking = false; p.act = null; p.sit = false; p.slideTo = null; p.speaking = false; this.pickNext(p); }
+          if (p.timer <= 0 && !p.benchRead) { p.lastEdge = null; const tmp = p.poi && p.poi.temp; if (p.poi && p.mind && (p.poi.type === 'shop' || p.poi.type === 'vendor')) feel(p.mind, EI.HAP, 0.12); /* errand done */ if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; } p.lookAt = null; p.ch.anim.set(null); p.ch.face.talking = false; p.act = null; p.sit = false; p.slideTo = null; p.speaking = false; p.chatWith = null; if (tmp) this.endReaction(p); else this.pickNext(p); } // an impromptu street chat (Mind.startChat) ends: the walk it interrupted resumes (no path re-plan)
           break;
         }
         case 'shelter': { p.timer -= dt; desired = Math.hypot(p.target.x - p.x, p.target.z - p.z) > 0.6 ? 2.6 : 0; tx = p.target.x; tz = p.target.z; if (desired === 0 && p.ch.anim.action !== 'phone' && p.ch.anim.action !== 'look') p.ch.anim.set(this.rng.chance(0.5) ? 'phone' : 'look'); if (!this.rain || p.timer <= 0) { p.ch.anim.set(null); p.state = 'walk'; this.returnToGraph(p); } break; }
@@ -346,19 +401,21 @@ export class Crowd {
         case 'cower': { p.timer -= dt; desired = 0; if (p.ch.anim.action !== 'cower' && p.ch.anim.action !== 'handsup') p.ch.anim.set('cower'); if (p.timer <= 0) { p.ch.anim.set(null); p.state = 'flee'; p.timer = 3 + this.rng.next() * 3; p.fleeSp = 3 + this.rng.next() * 1.5; if (!p.fleeDir) p.fleeDir = this.spread(Math.sin(p.yaw + Math.PI), Math.cos(p.yaw + Math.PI), 1.2); } break; }
         case 'watch': { p.timer -= dt; desired = 0; avoid = false; if (p.lookAt) p.yaw = dampAngle(p.yaw, Math.atan2(p.lookAt.x - p.x, p.lookAt.z - p.z), 4, dt); if (p.timer <= 0) { if (p.after === 'flee') { p.after = null; p.state = 'flee'; p.timer = 3 + this.rng.next() * 4; p.fleeSp = 3.5; const ax = p.x - p.lookAt.x, az = p.z - p.lookAt.z, d = Math.hypot(ax, az) || 1; p.fleeDir = this.spread(ax / d, az / d, 1); p.ch.anim.set(null); } else this.endReaction(p); } break; }
         case 'report': { // move a little away, then phone the police
-          p.timer -= dt; if (p.rt < 2.2) { const fd = p.fleeDir; tx = p.x + fd[0] * 4; tz = p.z + fd[1] * 4; desired = 3; accel = 5; } else { desired = 0; if (p.ch.anim.action !== 'phone') { p.ch.anim.set('phone'); this.speak(p, 'report', 1, 3); this.events.emit('pedReport', { x: p.x, z: p.z }); } }
-          if (p.timer <= 0) this.endReaction(p); break; }
+          p.timer -= dt; if (p.rt < 2.2) { const fd = p.fleeDir; tx = p.x + fd[0] * 4; tz = p.z + fd[1] * 4; desired = 3; accel = 5; } else { desired = 0; if (p.ch.anim.action !== 'phone') { p.ch.anim.set('phone'); this.speak(p, 'report', 1, 3); if (p.repPlayer !== false) this.events.emit('pedReport', { x: p.x, z: p.z }); p.repPlayer = undefined; } }
+          if (p.timer <= 0) { p.repPlayer = undefined; this.endReaction(p); } break; }
         case 'hit': { p.timer -= dt; desired = 0; if (p.timer <= 0) { p.state = 'flee'; p.timer = 5 + this.rng.next() * 4; p.fleeSp = 3 + this.rng.next(); const ax = p.x - player.x, az = p.z - player.z, d = Math.hypot(ax, az) || 1; p.fleeDir = this.spread(ax / d, az / d, 0.7); p.ch.anim.set(null); } break; }
         case 'down': { // fall (mesh tips over), lie still, then get up and stagger away — no injury detail
           p.timer -= dt; p.downT = (p.downT || 0) + dt; desired = 0; avoid = false; if (p.dead) { p.timer = 1e9; p.deadT = (p.deadT || 0) + dt; } else if (p.awaitMedic) p.timer = Math.max(p.timer, 1); // an ambulance is coming: they stay out cold until the crew wakes them
+          if (p.koRag && !p.koRag.limp && !p.dead) { p.koRag.t += dt; if (p.koRag.t >= p.koRag.lim && this.ragdolls && p.ch.root.parent) { this.koLimp(p); break; } }
           if (lod === 1 || (this.frame + p.id) % 4 === 0) this.fitBody(p, dt * (lod === 1 ? 1 : 4), p.downT < 0.05);
           if (p.dead && p.deadT > 150 && !this.visible(p) && Math.hypot(p.x - focus.x, p.z - focus.z) > 35) p.recycle = true; /* cleared away unseen */
           const fall = clamp(p.downT / 0.55, 0, 1), rise = p.dead ? 0 : clamp(1 - p.timer / 0.9, 0, 1); const k = fall * (1 - rise);
           if (p.airVy !== undefined && (p.airY > 0 || p.airVy > 0)) { p.airVy -= 9.81 * dt; p.airY = Math.max(0, (p.airY || 0) + p.airVy * dt); if (p.airY === 0) { p.airVy = undefined; p.vx *= 0.55; p.vz *= 0.55; } } /* thrown: ballistic arc, momentum lost on landing */
           else { const sl = Math.hypot(p.vx, p.vz); if (sl > 1e-3) { const f = Math.max(0, sl - 7 * dt) / sl; p.vx *= f; p.vz *= f; } } /* sliding along the ground: friction */
           p.ch.mesh.rotation.x = -1.45 * (k * k * (3 - 2 * k)); p.ch.mesh.position.y = 0.12 * k + (p.airY || 0);
-          if (p.timer <= 0) { p.ch.mesh.rotation.x = 0; p.ch.mesh.position.y = 0; p.hits = 0; p.downT = 0; p.airY = 0; p.airVy = undefined;
-            if (p.knockedByCar && p.temper > 0.55 && this.rng.chance(0.6)) { this.react(p, 'confront', 3.5, {}, true); p.ch.anim.set('argue'); p.ch.face.set('angry', 4); this.speak(p, 'annoyed', 1); }
+          if (p.timer <= 0) { p.ch.mesh.rotation.x = 0; p.ch.mesh.position.y = 0; p.hits = 0; p.downT = 0; p.airY = 0; p.airVy = undefined; p.koRag = null;
+            if (p.helpedUp && !p.dead) { p.helpedUp = false; this.react(p, 'talkPlayer', 3.5, {}, true); p.ch.anim.play('nod', 1.2); p.ch.face.set('smile', 3); this.speak(p, 'grateful', 1, 3); }
+            else if (p.knockedByCar && p.temper > 0.55 && this.rng.chance(0.6)) { this.react(p, 'confront', 3.5, {}, true); p.ch.anim.set('argue'); p.ch.face.set('angry', 4); this.speak(p, 'annoyed', 1); }
             else { p.state = 'flee'; p.timer = 3 + this.rng.next() * 3; p.fleeSp = 2.6 + this.rng.next(); const ax = p.x - player.x, az = p.z - player.z, d = Math.hypot(ax, az) || 1; p.fleeDir = this.spread(ax / d, az / d, 0.8); this.speak(p, 'scared', 1); }
             p.knockedByCar = false; }
           break; }
@@ -406,6 +463,41 @@ export class Crowd {
           if (p.timer <= 0) this.endReaction(p); break; }
         case 'shrugOff': { p.timer -= dt; desired = 0; if (p.timer <= 0) { if (this.rng.chance(0.4)) this.speak(p, 'okay'); this.endReaction(p); } break; }
         case 'argue': { p.timer -= dt; desired = 0; avoid = false; p.yaw = dampAngle(p.yaw, Math.atan2(player.x - p.x, player.z - p.z), 5, dt); if (p.timer <= 0) this.endReaction(p); break; }
+        case 'gather': { // onlookers: walk to a spot at their own distance round the incident, watch / film / phone / chat, drift off
+          p.timer -= dt; const G = p.gather; if (!G) { this.endReaction(p); break; } const gx = G.tx - p.x, gz = G.tz - p.z, gd = Math.hypot(gx, gz);
+          if (!G.arrived && gd > 0.6 && p.rt < 15) { tx = G.tx; tz = G.tz; desired = p.pace * G.hurry; accel = 3; avoid = true; }
+          else { desired = 0; avoid = gd > 1.5; if (!G.arrived) { G.arrived = true; p.ch.anim.set(G.act); if (G.act === 'phone' && G.kind === 'accident' && this.rng.chance(0.5)) this.speak(p, 'helpCall', 1, 3); }
+            p.yaw = dampAngle(p.yaw, Math.atan2(G.x - p.x, G.z - p.z), 3, dt); G.cT -= dt;
+            if (G.cT <= 0) { G.cT = 4 + this.rng.next() * 7; if (dist < 45 && this.rng.chance(0.35)) this.speak(p, G.kind === 'accident' || G.kind === 'crash' ? 'accident' : 'witness'); if (this.rng.chance(0.3)) { G.act = pickWeighted(GATHER_ACTS, this.rng.next()); p.ch.anim.set(G.act); } } }
+          if (p.timer <= 0 || (p.rt > 20 && !this.minds.incidentAt(G.x, G.z))) { if (G.I) G.I.n = Math.max(0, G.I.n - 1); p.gather = null; this.endReaction(p); }
+          break; }
+        case 'help': { // a kind passer-by goes to the person on the ground and phones 1990 / stays with them
+          p.timer -= dt; const v = p.helpOf; const ok = v && v.state === 'down' && !v.recycle && this.peds.includes(v);
+          if (ok) { const hx = v.x - p.x, hz = v.z - p.z, hd = Math.hypot(hx, hz);
+            if (hd > 1.4 && p.rt < 12) { tx = v.x; tz = v.z; desired = p.pace * 1.3; accel = 4; avoid = hd > 2.2; }
+            else { desired = 0; avoid = false; p.yaw = dampAngle(p.yaw, Math.atan2(hx, hz), 4, dt);
+              if (!p.helpOn) { p.helpOn = true; p.ch.anim.set(this.rng.chance(0.6) ? 'phone' : 'look'); p.ch.face.set('concern', 6); p.ch.face.mood = 'concern'; this.speak(p, 'helpCall', 1, 3); if (p.mind && v.mind) bond(p.mind, v.mind, 0.25); }
+              if (v.dead && p.mind) feel(p.mind, EI.SAD, 0.04 * dt); } }
+          if (p.timer <= 0 || !ok) { if (p.helpI) p.helpI.help = Math.max(0, p.helpI.help - 1); p.helpI = null; p.helpOf = null; p.helpOn = false; this.endReaction(p); }
+          break; }
+        case 'hide': { // run for the nearest doorway / shelter away from the danger, crouch there facing away, then slip off
+          p.timer -= dt; const H = p.hideAt; const hx = H.x - p.x, hz = H.z - p.z, hd = Math.hypot(hx, hz);
+          if (hd > 0.8 && p.rt < 8) { tx = H.x; tz = H.z; desired = 3.4; accel = 6; avoid = hd > 1.6; }
+          else { desired = 0; avoid = false; const F = p.hideFrom; p.yaw = dampAngle(p.yaw, Math.atan2(p.x - F.x, p.z - F.z), 5, dt); if (p.ch.anim.action !== 'cower') { p.ch.anim.set('cower'); p.ch.face.set('fear', 5); } }
+          if (p.timer <= 0) { p.ch.anim.set(null); p.state = 'recover'; p.timer = 2 + this.rng.next() * 2; p.hideAt = null; }
+          break; }
+        case 'toCar': { // a driver who got out after a crash walks back to the car door and is handed back to traffic (Traffic.reboard)
+          const v = p.homeCar, T = this.traffic; p.timer -= dt;
+          if (!v || !T || !v.mesh || !v.mesh.parent || v.player || v.driverChar || v.disembarking || p.timer <= 0) { p.homeCar = null; if (v) v.awayDriver = null; this.endReaction(p); break; }
+          const bp = T.boardPoint(v, p.ch); if (!bp) { p.homeCar = null; v.awayDriver = null; this.endReaction(p); break; }
+          const bx = bp.x - p.x, bz = bp.z - p.z, bd = Math.hypot(bx, bz);
+          const slow = p.rt > 1 && (p.speed || 0) < 0.25; p.tcT = slow ? (p.tcT || 0) + dt : Math.max(0, (p.tcT || 0) - dt); // blocked (another car, a crowd at the door)
+          if (bd > 1.1 && !(p.tcT > 2.5 && bd < 3)) { tx = bp.x; tz = bp.z; desired = Math.min(p.pace, 0.6 + bd); accel = 3; avoid = bd > 1.6; if (p.tcT > 9) p.timer = 0; } else { desired = 0; if (!p.reboardQ) { p.reboardQ = true; this._reboard.push(p); } } /* the last step to the door (inside the crowd's car clearance) is the boarding walk's */
+          break; }
+        case 'surrender': { // a weapon pointed at them: hands up, frozen, eyes on the gun; then backs away / flees
+          p.timer -= dt; desired = 0; avoid = false; if (p.ch.anim.action !== 'handsup') p.ch.anim.set('handsup'); p.ch.face.mood = 'fear'; p.yaw = dampAngle(p.yaw, Math.atan2(player.x - p.x, player.z - p.z), 4, dt);
+          if (p.timer <= 0) { p.ch.anim.set(null); p.state = 'flee'; p.timer = 4 + this.rng.next() * 3; p.fleeSp = 3.4 + this.rng.next(); const ax = p.x - player.x, az = p.z - player.z, d = Math.hypot(ax, az) || 1; p.fleeDir = this.spread(ax / d, az / d, 0.6); }
+          break; }
         case 'talkPlayer': { desired = 0; avoid = false; p.yaw = dampAngle(p.yaw, Math.atan2(player.x - p.x, player.z - p.z), 5, dt); p.ch.anim.look = 0; p.timer -= dt; if (p.timer <= 0) this.endReaction(p); break; }
       }
       // rain: umbrella or shelter
@@ -468,8 +560,8 @@ export class Crowd {
       // collision every frame near the camera; farther away whenever the person has moved 0.1 m
       p.mv = (p.mv || 0) + sp * dt; // distance since the last collision pass: far people are resolved every 0.1 m walked, so they can never tunnel into a trunk or wall
       if (p.bumped > 0) p.bumped -= dt;
-      if ((sp > 0.02 && (lod === 1 || p.mv > 0.1)) || (p.state === 'down' && lod < 3) || p.bumped > 0 || p.state === 'fight') { p.mv = 0; // nudged by the player / squared up in a fight: checked even when standing still // a body lying still is checked too (a car can nudge it without giving it speed)
-        const r = this.collision.resolveCircle(p.x, p.z, p.state === 'fight' ? 0.44 : 0.28, p.y || 0.15, 0.3); if (r.hit) { /* a fighting stance is wide (rear foot ~0.4 m back): more room off walls */ const cx = r.x - p.x, cz = r.z - p.z, cl = Math.hypot(cx, cz); if (cl > 1e-4) { const vn = (p.vx * cx + p.vz * cz) / cl; if (vn < 0) { p.vx -= cx / cl * vn; p.vz -= cz / cl * vn; }
+      if ((sp > 0.02 && (lod === 1 || p.mv > 0.1)) || (p.state === 'down' && lod < 3) || (p.bumped > 0 && !p.sit) || p.state === 'fight' || p.state === 'stumble') { p.mv = 0; // nudged by the player / squared up in a fight: checked even when standing still // a body lying still is checked too (a car can nudge it without giving it speed)
+        const r = this.collision.resolveCircle(p.x, p.z, p.state === 'fight' || p.state === 'stumble' ? 0.44 : 0.28, p.y || 0.15, 0.3); if (r.hit) { /* a fighting stance is wide (rear foot ~0.4 m back), and so is a stagger step back after a blow: more room off walls */ const cx = r.x - p.x, cz = r.z - p.z, cl = Math.hypot(cx, cz); if (cl > 1e-4) { const vn = (p.vx * cx + p.vz * cz) / cl; if (vn < 0) { p.vx -= cx / cl * vn; p.vz -= cz / cl * vn; }
           // running away into a wall: turn along it (a person would), instead of pressing on with arms and feet in the wall
           const fd = p.fleeDir; if (fd && (p.state === 'flee' || p.state === 'recover')) { const nx = cx / cl, nz = cz / cl, dn = fd[0] * nx + fd[1] * nz; if (dn < 0.2) { let tx = -nz, tz = nx; if (tx * (fd[0] + p.vx * 0.2) + tz * (fd[1] + p.vz * 0.2) < 0) { tx = -tx; tz = -tz; } const ux = tx + nx * 0.35, uz = tz + nz * 0.35, ul = Math.hypot(ux, uz); p.fleeDir = [ux / ul, uz / ul]; } } } } p.x = r.x; p.z = r.z; }
       if (lod < 3 && p.state !== 'down') { // bodies are solid: never pass through another person
@@ -483,13 +575,14 @@ export class Crowd {
         if (p.state === 'flee' || p.state === 'recover' || p.state === 'dodge') for (const a of [Math.PI / 2, -Math.PI / 2, Math.PI * 0.75, -Math.PI * 0.75, Math.PI]) { const c = Math.cos(a), sn = Math.sin(a); const nx = fd[0] * c - fd[1] * sn, nz = fd[0] * sn + fd[1] * c; if (!L.isWater(ox + nx * 2, oz + nz * 2) && !this.collision.blocked(ox + nx * 1.2, oz + nz * 1.2, 0.3)) { if (p.state === 'dodge') p.dodge = [nx, nz]; else p.fleeDir = [nx, nz]; break; } }
         p.vx *= 0.2; p.vz *= 0.2; }
       // the kerb is a hard edge for anyone not crossing: crowding at a crossing or side-stepping never pushes people onto the road
-      const calm = p.state === 'scene' || p.state === 'recover' || p.state === 'complain' || p.state === 'watch' || (p.state === 'flee' && (p.fleeSp || 0) < 2.6); // walking away from a scuffle is not a panic: they keep to the pavement
+      const calm = p.state === 'scene' || p.state === 'recover' || p.state === 'complain' || p.state === 'watch' || p.state === 'gather' || p.state === 'help' || p.state === 'hide' || (p.state === 'flee' && (p.fleeSp || 0) < 2.6); // walking away from a scuffle is not a panic: they keep to the pavement
       if (!p.crossing && (this.isRoutine(p.state) || calm) && L.roadAt(p.x, p.z) && !L.roadAt(ox, oz) && !this.collision.blocked(ox, oz, 0.2)) { p.x = ox; /* (never back into a wall: at a shopfront on the kerb the wall push-out and this snap fought every frame) */ p.z = oz; p.vx *= 0.3; p.vz *= 0.3; }
       const moved = Math.hypot(p.x - ox, p.z - oz) / Math.max(dt, 1e-4); p.speed = moved;
       // --- stuck detection & staged recovery: sidestep → rejoin graph → new route → (off-screen only) recycle
-      if (desired > 0.3 && p.state !== 'confront' && p.state !== 'job') { // (a job does its own unsticking — it must never be recycled or sent off along the street graph)
+      if (desired > 0.3 && p.state !== 'confront' && p.state !== 'job' && p.state !== 'toCar') { // (a job does its own unsticking — it must never be recycled or sent off along the street graph)
         if (moved < desired * 0.25 && !(blockedBy && blockedBy !== player && p.stuckT < 3)) p.stuckT = (p.stuckT || 0) + dt; else p.stuckT = Math.max(0, (p.stuckT || 0) - dt * 2);
         if (blockedBy === player) { p.blockT = (p.blockT || 0) + dt; if (p.blockT > 1.4) { p.blockT = -4; this.speak(p, 'excuse', 0); p.ch.face.set('concern', 1.5); p.lookT = 1.2; p.lookAtPt = null; } } else p.blockT = Math.max(0, (p.blockT || 0) - dt);
+        if (blockedBy && blockedBy !== player && blockedBy.mind && p.mind && dist < 40) { p.awkT = (p.awkT || 0) + dt; if (p.awkT > 1.1) { p.awkT = -8; this.minds.awkward(p, blockedBy); } } else if (p.awkT > 0) p.awkT = Math.max(0, p.awkT - dt); // the sidestep dance with a stranger
         if (p.stuckT > 1.3) {
           p.stuckT = 0; p.stuckN = (p.stuckN || 0) + 1; const fx = Math.sin(p.yaw), fz = Math.cos(p.yaw);
           if (p.stuckN === 1) { const sL = !this.collision.blocked(p.x + fz * 0.8, p.z - fx * 0.8, 0.25); p.sideDir = sL ? [fz, -fx] : [-fz, fx]; p.stuckSide = 0.8; }
@@ -504,15 +597,21 @@ export class Crowd {
       if (p.state === 'walk' && p.act && this.rng.chance(dt * 0.05)) { p.act = null; p.ch.anim.set(null); }
       // animate (lower rate when far); pass the real turn rate for lean
       const turnRate = wrapAngle(p.yaw - prevYaw) / Math.max(dt, 1e-4);
-      const posed = lod === 1 || (this.frame + (p.id * 7 | 0)) % lod === 0; if (posed) p.ch.anim.update(dt * (lod === 1 ? 1 : lod), p.state === 'down' ? 0 : sp, lod === 1 ? turnRate : 0);
-      p.y = lod === 1 ? this.collision.groundAt(p.x, p.z, (p.y || 0.15)) : (p.y || 0.15);
+      /* FPS (src/gfx/ViewSkip.js): unseen — outside the view and its turning margin, farther from it than any shadow can reach — ambient people are posed every 4th frame and skip the frame's matrix pass in between */
+      const unseen = !p.keep && !p.job && HOLD_OK.has(p.state) && offView(p.x, p.z, 1); const plod = unseen ? Math.max(lod, 4) : lod;
+      const posed = plod === 1 || (this.frame + (p.id * 7 | 0)) % plod === 0; if (posed) p.ch.anim.update(dt * (plod === 1 ? 1 : plod), p.state === 'down' ? 0 : sp, plod === 1 ? turnRate : 0);
+      if (unseen && !posed) holdThisFrame(p.ch.root);
+      p.y = lod === 1 || p.state === 'down' || (this.frame + p.id) % 4 === 0 ? this.collision.groundAt(p.x, p.z, (p.y || 0.15)) : (p.y || 0.15); /* far people too (every 4th frame): never left at an old height after walking or being thrown off a kerb */
+      if (!(p.y > -50)) { p.y = this.collision.groundAt(p.x, p.z, 0.5); p.vx = p.vz = 0; } /* safety net: a bad height (NaN / far under) never leaves anyone in the void */
       p.ch.root.position.set(p.x, p.y, p.z); p.ch.root.rotation.y = p.yaw;
       this.life.props(p, lod); if (posed && lod < 3) this.life.post(p); if (p.job) p.job.post(p, lod, posed); // hand/lip contact corrections need this frame's pose
       p.ch.mesh.castShadow = dist < 45;
     }
+    if (this._reboard.length) { for (const p of this._reboard) { p.reboardQ = false; const v = p.homeCar; if (p.state === 'toCar' && v && this.traffic && this.traffic.reboard(v, p)) continue; p.homeCar = null; if (v) v.awayDriver = null; if (p.state === 'toCar') this.endReaction(p); } this._reboard.length = 0; } // handed back to traffic outside the loop (release() splices peds)
   }
   // a ragdolled body: follows its pelvis, bleeds into a pool once it has settled, and is cleared away unseen much later
   ragPed(p, dt, focus, dist) {
+    if (!p.dead && p.koRag) { this.koRagPed(p, dt, dist); return; }
     const r = p.ch.rag; p.deadT = (p.deadT || 0) + dt; p.downT = (p.downT || 0) + dt; p.timer = 1e9; p.state = 'down'; p.vx = p.vz = 0;
     if (!r.kin) { const P = r.pelvis(); p.x = P.x; p.z = P.z; p.y = p.ch.root.position.y; p.yaw = p.ch.root.rotation.y; }
     if (this.blood && !p.pooled && !r.kin && (r.asleep || p.deadT > 3) && !p.noPool) { p.pooled = true; const P = r.pelvis(), C = r.part('chest'); this.blood.pool(P.x * 0.45 + C.x * 0.55, P.z * 0.45 + C.z * 0.55, 0.9 + Math.random() * 0.5, P.y); }
@@ -551,48 +650,102 @@ export class Crowd {
   // a directional reaction (head snaps back / turns / tips up), a push back of a step. Men who are not elderly may square
   // up and fight back (decided once per person, weighted by temper); everyone else gets away / calls it in. Fighters who
   // are covering up take a quarter. Non-graphic. Returns true when it landed.
-  punched(p, src, move = 'jab') {
+  punched(p, src, move = 'jab', mult = 1) { // mult: the attacker's Strength skill (Skills.js)
     if (!p || p.state === 'down' || p.dead) return false; const M = FIGHT_MOVES[move] || FIGHT_MOVES.jab; const now = this.t;
     p.ko = Math.min(100, (p.ko ?? 100) + (now - (p.koAt ?? now)) * 4); p.koAt = now;
     const dx = p.x - src.x, dz = p.z - src.z, d = Math.hypot(dx, dz) || 1; p.knockedByCar = false; p.lookAt = { x: src.x, z: src.z };
     const facing = Math.cos(wrapAngle(Math.atan2(-dx, -dz) - p.yaw)) > 0.5; const blocked = p.state === 'fight' && p.fblock > 0 && facing;
-    p.ko -= M.dmg * (blocked ? 0.25 : 1) * (p.sp.age === 'elder' ? 1.6 : p.sp.sex === 'f' ? 1.25 : 1);
-    this.events.emit('pedPunched', p); this.alarm(p.x, p.z, 18, 2, p);
+    p.ko -= M.dmg * mult * (blocked ? 0.25 : 1) * (p.sp.age === 'elder' ? 1.6 : p.sp.sex === 'f' ? 1.25 : 1);
+    const byP = !!(this.player && src === this.player); if (byP) this.minds.playerAct(p, 'punched'); else if (p.mind) feel(p.mind, EI.FEA, 0.3);
+    this.events.emit('pedPunched', p); this.alarm(p.x, p.z, 18, 2, p, 'assault', byP);
     if (blocked) { p.ch.anim.takeHit('block', 1, 1); p.vx = dx / d * 0.9; p.vz = dz / d * 0.9; p.fstun = 0.15; return true; }
     if (p.ko <= 0) { // knocked down (falls back away from the blow), gets up after a while and leaves
       p.ch.anim.takeHit(M.react, M.dir || 1, 1.3); this.react(p, 'down', 5 + this.rng.next() * 3, { yaw: Math.atan2(-dx, -dz) }); p.downT = 0; p.vx = dx / d * 1.6; p.vz = dz / d * 1.6;
-      p.ch.face.set('fear', 6); p.ko = 50; p.fightLost = true; return true; }
-    p.ch.anim.takeHit(M.react, M.dir || 1, M.pow || 1); const push = move === 'jab' ? 0.9 : move === 'upper' ? 1.2 : 1.6;
+      p.ch.face.set('blink', 0.4); p.ko = 50; p.fightLost = true; this.koStart(p, dx / d, dz / d, move, M); this.faceBleed(p, dx / d, dz / d, move, true); return true; }
+    p.ch.anim.takeHit(M.react, M.dir || 1, M.pow || 1); this.faceBleed(p, dx / d, dz / d, move, false); const push = move === 'jab' ? 0.9 : move === 'upper' ? 1.2 : 1.6; p.ch.face.set(p.ch.face.morph ? 'pain' : 'concern', 1.8);
     if (p.state === 'fight') { p.vx = dx / d * push; p.vz = dz / d * push; p.fstun = move === 'jab' ? 0.22 : 0.42; p.fq = null; p.fcd = Math.max(p.fcd || 0, 0.35); return true; }
     if (p.fighter === undefined) p.fighter = this.willFight(p);
     if (p.fighter && !p.fightLost && !p.sit) { this.startFight(p); p.vx = dx / d * push; p.vz = dz / d * push; return true; }
     this.react(p, 'stumble', 0.65 + this.rng.next() * 0.3, { punched: true }); p.vx = dx / d * push * 1.2; p.vz = dz / d * push * 1.2; p.ch.face.set('fear', 2.5); this.speak(p, 'scared', 2);
     return true;
   }
+  // a clean shot to the face can split a lip or start a nosebleed: after a few head shots, or the punch that drops them (no gore —
+  // a small stain at the nose / mouth that trickles, a few drops, a short drip; Settings → Blood effects)
+  faceBleed(p, ux, uz, move, ko) {
+    const B = this.blood; if (!B || !B.on || move === 'body' || !p.ch.bones || !p.ch.bones.head) return false;
+    p.headHits = (p.headHits || 0) + 1; if (p.bledAt != null && this.t - p.bledAt < 12) return false;
+    const chance = ko ? 0.75 : p.headHits >= 3 ? 0.4 : move === 'hook' || move === 'upper' ? 0.12 : 0; if (this.rng.next() >= chance) return false;
+    const hb = p.ch.bones.head; hb.updateWorldMatrix(true, false); const fx = Math.sin(p.yaw), fz = Math.cos(p.yaw);
+    const pt = new THREE.Vector3().setFromMatrixPosition(hb.matrixWorld); pt.x += fx * 0.11; pt.y += 0.06; pt.z += fz * 0.11;
+    if (!B.wound(p.ch, pt, { x: -fx, y: 0, z: -fz }, 0.3, { r: 0.017, run: 0.05, bleed: 7, rate: 0.55 })) return false;
+    p.bledAt = this.t; for (let k = 0; k < 4; k++) B.drop(pt.x, pt.y - 0.02, pt.z, ux * (0.8 + Math.random()) + (Math.random() - 0.5) * 0.5, 0.4 + Math.random() * 0.6, uz * (0.8 + Math.random()) + (Math.random() - 0.5) * 0.5, 0.006 + Math.random() * 0.005, 2);
+    return true;
+  }
+  // ---- knockouts with a body: the hit reaction starts on the feet (head snaps, knees go), then the legs give and the person
+  // drops as a ragdoll with the blow's momentum (head and chest pushed, the legs fold under), lies out cold on whatever is
+  // there (kerb, steps, slope — the body takes the ground's shape and can never end up in it), and after a while rolls onto
+  // the back, sits up, gets a foot under and stands (Ragdoll body keys), then the down state's own get-up logic hands them on.
+  // Far away (or without a ragdoll world) the older tipped-mesh fall is used.
+  koStart(p, ux, uz, move, M) {
+    const f = this.focus; if (!this.ragdolls || !p.ch.root.parent || (f && Math.hypot(p.x - f.x, p.z - f.z) > 60)) return;
+    p.koRag = { t: 0, lim: 0.14 + this.rng.next() * 0.08, ux, uz, move, pow: (M && M.pow) || 1, dir: (M && M.dir) || 1, lie: 3.5 + this.rng.next() * 3.5, limp: false, ph: null };
+  }
+  koLimp(p) {
+    const K = p.koRag; K.limp = true; const pw = K.pow, up = K.move === 'upper', hk = K.move === 'hook';
+    if (K.car) { // legs swept ahead of the trunk (the bumper strikes below the knee), the upper body lags and folds onto the bonnet
+      const r = this.ragdolls.add(p.ch, { vel: [p.vx, p.airVy || 0.2, p.vz], legK: 1.3, upK: 0.75 }); r.faceLive = true; p.noPool = true; const rt = p.ch.root; p.x = rt.position.x; p.z = rt.position.z; p.y = rt.position.y; p.yaw = rt.rotation.y;
+      p.vx = p.vz = 0; p.airVy = undefined; p.airY = 0; p.ch.anim.set(null); p.ch.face.set('blink', K.lie + 2); return; }
+    // carried back by the blow at walking pace; the legs barely move (they buckle in place), the trunk takes it
+    const r = this.ragdolls.add(p.ch, { vel: [K.ux * 1.1 * pw + p.vx * 0.4, up ? 0.6 : 0.05, K.uz * 1.1 * pw + p.vz * 0.4], legK: 0.25, upK: 1.25 });
+    const H = r.part('head'); const sx = hk ? -K.uz * K.dir : 0, sz = hk ? K.ux * K.dir : 0; // a hook spins the head / shoulders away
+    r.impulse(K.ux * 1.6 * pw + sx * 1.4, up ? 1.2 : 0.1, K.uz * 1.6 * pw + sz * 1.4, H);
+    r.faceLive = true; p.noPool = true; const rt = p.ch.root; p.x = rt.position.x; p.z = rt.position.z; p.y = rt.position.y; p.yaw = rt.rotation.y; p.vx = p.vz = 0; p.airVy = undefined; p.airY = 0; p.ch.anim.set(null); p.ch.face.set('blink', K.lie + 2);
+  }
+  koRagPed(p, dt, dist) {
+    const r = p.ch.rag, K = p.koRag; K.t += dt; p.state = 'down'; p.timer = 1e9; p.vx = p.vz = 0; p.downT = (p.downT || 0) + dt;
+    if (!r.kin) { const P = r.pelvis(); p.x = P.x; p.z = P.z; p.y = p.ch.root.position.y; p.yaw = p.ch.root.rotation.y; }
+    p.ch.mesh.castShadow = dist < 45;
+    if (p.awaitMedic) { K.medic = true; return; } // the ambulance crew owns the body now (EMS.js)
+    if (K.ph || K.t < K.lim + K.lie || (!r.asleep && K.t < K.lim + K.lie + 3)) return;
+    const col = this.collision; K.ph = 'roll'; p.ch.face.set('concern', 8);
+    const live = () => p.ch.rag === r && p.koRag === K && !p.dead && !p.awaitMedic;
+    const getUp = () => { if (!live()) return; const fr = clearFrame(supineFrame(r), r, col); const key = (n) => Keys.toWorld(Keys[n](r.rest), fr.x, fr.z, fr.yaw, col);
+      const stand = () => { if (!live()) return; const zA = Keys.standZ(r.rest); r.release(); const x = fr.x + Math.sin(fr.yaw) * zA, z = fr.z + Math.cos(fr.yaw) * zA; const q = col.resolveCircle(x, z, 0.3, (p.y || 0) + 0.3, 0.3);
+        p.x = q.x; p.z = q.z; p.y = col.groundAt(p.x, p.z, (p.y || 0) + 0.5); p.yaw = fr.yaw; p.ch.root.position.set(p.x, p.y, p.z); p.ch.root.rotation.set(0, p.yaw, 0); p.ch.mesh.rotation.set(0, 0, 0); p.ch.mesh.position.set(0, 0, 0);
+        p.koRag = null; p.noPool = false; p.timer = 0; p.downT = 0; p.hits = 0; p.ch.anim.set('stumble'); p.ch.face.set('fear', 3); };
+      K.ph = 'up'; r.blendTo(key('supine'), 0.7, () => { if (live()) r.blendTo(key('sit'), 1.25, () => { if (live()) r.blendTo(key('crouch'), 1.0, () => { if (live()) r.blendTo(key('stand'), 0.85, stand, { hold: true }); }, { hold: true }); }, { hold: true }); }, { hold: true }); };
+    const ang = rollAngle(r); if (Math.abs(ang) > 1.2) { const snap = r.snapshot(); const P0 = r.pelvis().clone(); P0.y = col.groundAt(P0.x, P0.z, P0.y) + 0.15; const ax = r.part('chest').clone().sub(r.pelvis()).setY(0).normalize(); const off = rollClear(r, snap, P0, ax, ang, col); r.play((k, out) => { rotateAbout(snap, P0, ax, ang * k, out); const w = rollShift(k); for (const q of out) { q.x += off.x * w; q.z += off.z * w; } return out; }, 1.2, getUp, { hold: true }); }
+    else getUp();
+  }
   // who squares up: men only, not seniors; likelier for the young and hot-tempered (≈20–70 %)
-  willFight(p) { const sp = p.sp || {}; if (sp.sex !== 'm' || sp.age === 'elder' || sp.band === 'senior') return false; const base = sp.band === 'mature' ? 0.1 : sp.band === 'young' ? 0.25 : 0.2; return this.rng.chance(base + (p.temper || 0) * 0.5); }
+  willFight(p) { const sp = p.sp || {}; if (sp.sex !== 'm' || sp.age === 'elder' || sp.band === 'senior') return false; const base = sp.band === 'mature' ? 0.1 : sp.band === 'young' ? 0.25 : 0.2; const m = p.mind; if (!m) return this.rng.chance(base + (p.temper || 0) * 0.5);
+    const t = m.tr, E = m.em; return this.rng.chance(clamp(base + 0.3 * t[TI.AGG] + 0.2 * t[TI.CONF] + 0.1 * t[TI.RISK] + 0.25 * E[EI.ANG] - 0.35 * E[EI.FEA] - 0.1, 0.03, 0.85)); } // personality + how angry / frightened they are right now
   startFight(p) {
     this.react(p, 'fight', 30 + this.rng.next() * 20, { fcd: 0.55 + this.rng.next() * 0.4, fstun: 0.4, fq: null, fside: 0, fsideT: 0, fblock: 0, fgone: 0, fmove: null, punched: false });
     p.ch.anim.fightOn(true); p.ch.face.set('angry', 40); p.ch.face.mood = 'angry'; this.speak(p, 'shoved', 1, 2.2); this.stats && (this.stats.fights = (this.stats.fights || 0) + 1);
   }
   // the player is throwing at this fighter: sometimes they cover up in time
   incoming(p) { if (!p || p.state !== 'fight' || (p.ch.anim.fight && p.ch.anim.fight.move) || p.fstun > 0) return; if (this.rng.chance(0.2 + (p.temper || 0) * 0.2)) { p.ch.anim.block(true); p.fblock = 0.5; } }
-  knock(p, fx, fz, speed, offset = 0) {
+  knock(p, fx, fz, speed, offset = 0, byPlayer = false) {
     if (p.state === 'down') return; this.react(p, 'down', 2.4 + Math.min(3, speed * 0.2), { yaw: Math.atan2(-fx, -fz) }); p.downT = 0; p.knockedByCar = true;
     // impulse: thrown ahead slightly faster than the car (so it can't run over them), deflected to the side they were struck on, and lifted at speed
-    const side = Math.max(-1, Math.min(1, offset || (Math.random() - 0.5))); const fwd = Math.min(12, speed * 1.0 + 1), lat = (0.25 + 0.35 * Math.abs(side)) * Math.min(9, speed * 0.5) * (side >= 0 ? 1 : -1);
-    p.vx = fx * fwd + fz * lat; p.vz = fz * fwd - fx * lat; p.airY = 0; p.airVy = speed > 6 ? Math.min(4.2, speed * 0.18) : undefined; p.ch.face.set('fear', 4);
+    // measured pedestrian throws: below ~20 km/h a person is shoved and falls (≈0.6 × car speed); above, the legs are swept,
+    // the body wraps onto the bonnet and leaves at ≈0.75–0.85 × the car's speed with a low arc — not launched faster than the car
+    const side = Math.max(-1, Math.min(1, offset || (Math.random() - 0.5))); const fwd = Math.min(11, speed * (speed > 6 ? 0.8 : 0.6) + 0.4), lat = (0.12 + 0.22 * Math.abs(side)) * Math.min(5, speed * 0.3) * (side >= 0 ? 1 : -1);
+    p.vx = fx * fwd + fz * lat; p.vz = fz * fwd - fx * lat; p.airY = 0; p.airVy = speed > 6 ? Math.min(2.6, speed * 0.12) : undefined; p.ch.face.set('fear', 4);
     if (speed > 13) this.kill(p); /* ~47 km/h and faster: they do not get up */
-    this.events.emit('pedHit', p); this.speak(p, 'scared', 2); this.alarm(p.x, p.z, 14, 1, p);
+    else { const f = this.focus; if (this.ragdolls && p.ch.root.parent && (!f || Math.hypot(p.x - f.x, p.z - f.z) < 60)) { p.koRag = { t: 0, lim: 0, ux: fx, uz: fz, move: 'car', pow: 1, dir: 1, lie: 3 + this.rng.next() * 3 + Math.min(3, speed * 0.25), limp: false, ph: null, car: true }; this.koLimp(p); } }
+    this.events.emit('pedHit', p); this.speak(p, 'scared', 2); if (byPlayer) this.minds.playerAct(p, 'hitByCar'); this.alarm(p.x, p.z, 22, 1, p, 'accident', byPlayer);
   }
   // ---- player-initiated interactions
   // incapacitated for good: stays on the ground (eyes closed, no reactions), the body stays solid and is cleared away
   // later when nobody is looking. Non-graphic.
   kill(p) {
-    if (p.dead) return; if (p.state !== 'down') { this.react(p, 'down', 1e9, {}, true); p.downT = 0; } // whoever calls kill(), the body is on the ground (never a 'dead' ped that walks on)
-    p.dead = true; p.deadT = 0; p.timer = 1e9; p.pending = null; p.knockedByCar = false; p.talkFor = 0; p.ch.face.talking = false;
+    if (p.dead) return; const byCar = !!p.knockedByCar; if (p.state !== 'down') { this.react(p, 'down', 1e9, {}, true); p.downT = 0; } // whoever calls kill(), the body is on the ground (never a 'dead' ped that walks on)
+    if (p.koRag) { if (p.ch.rag && p.ch.rag.kin) { p.ch.rag.kin = null; p.ch.rag.wake(); } p.koRag = null; p.noPool = false; } // out cold (or getting up) when it happened: the body goes limp where it is
+    p.dead = true; this.minds.died(p); p.deadT = 0; p.timer = 1e9; p.pending = null; p.knockedByCar = false; p.talkFor = 0; p.ch.face.talking = false;
     const f = this.focus; if (this.ragdolls && !p.ch.rag && p.ch.root.parent && (!f || Math.hypot(p.x - f.x, p.z - f.z) < 90)) { // goes limp: ragdoll with the momentum it had (thrown by a car, pushed by a round)
-      this.ragdolls.add(p.ch, { vel: [p.vx || 0, p.airVy || 0, p.vz || 0] }); p.airVy = undefined; p.airY = 0; p.vx = p.vz = 0; p.ch.anim.set(null); }
+      this.ragdolls.add(p.ch, { vel: [p.vx || 0, p.airVy || 0, p.vz || 0], legK: byCar ? 1.3 : 1.2, upK: byCar ? 0.75 : 0.7 }); p.airVy = undefined; p.airY = 0; p.vx = p.vz = 0; p.ch.anim.set(null); }
     if (p.ch.face.set) p.ch.face.set('blink', 1e9); if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; }
     if (p.partner && p.partner.partner === p) p.partner.partner = null; p.partner = null; this.stats && (this.stats.killed = (this.stats.killed || 0) + 1);
   }
@@ -600,47 +753,72 @@ export class Crowd {
   // heads and torsos sink into walls. Check the whole length of the body; turn the fall to a clear bearing, or slide the
   // feet out from the wall when no bearing is clear.
   bodyClear(x, z, yaw) { const bx = -Math.sin(yaw), bz = -Math.cos(yaw), C = this.collision; for (const s of [0.35, 0.75, 1.15, 1.55, 1.75]) if (C.blocked(x + bx * s, z + bz * s, 0.17)) return false;
-    for (const [s, l] of [[1.2, 0.36], [0.8, 0.4]]) for (const sd of [-1, 1]) if (C.blocked(x + bx * s - bz * l * sd, z + bz * s + bx * l * sd, 0.12)) return false; /* the arms fall out to the sides at the shoulders */ return true; }
+    for (const [s, l] of [[1.2, 0.36], [0.8, 0.4], [0.05, 0.44]]) for (const sd of [-1, 1]) if (C.blocked(x + bx * s - bz * l * sd, z + bz * s + bx * l * sd, 0.12)) return false; /* the arms fall out to the sides at the shoulders, and swing out beside the hips while going down */ return true; }
   fitBody(p, dt, snap) {
     if (this.bodyClear(p.x, p.z, p.yaw)) return;
     for (const da of [0.35, -0.35, 0.7, -0.7, 1.1, -1.1, 1.6, -1.6, 2.2, -2.2, Math.PI]) { const y = p.yaw + da; if (this.bodyClear(p.x, p.z, y)) { p.yaw = snap ? y : dampAngle(p.yaw, y, 14, dt); if (!snap && !this.bodyClear(p.x, p.z, p.yaw)) p.yaw = y; return; } }
     const fx = Math.sin(p.yaw), fz = Math.cos(p.yaw); for (let k = 1; k <= 8; k++) { const nx = p.x + fx * 0.2 * k, nz = p.z + fz * 0.2 * k; if (this.collision.blocked(nx, nz, 0.25)) break; if (this.bodyClear(nx, nz, p.yaw)) { p.x = nx; p.z = nz; return; } }
+    // hemmed in (a narrow alley between a building and a compound wall, a corner): no turn on the spot fits, so the fall also
+    // drifts the body a little way off the wall (never across one) to where it can lie down; a spot with no room is not
+    // searched again for half a second
+    const C = this.collision, now = this.t || 0; if (p.fitFail && now - p.fitFail < 0.5) return;
+    for (const rr of [0.25, 0.45, 0.65]) for (let a = 0; a < 8; a++) { const ang = a * Math.PI / 4, nx = p.x + Math.sin(ang) * rr, nz = p.z + Math.cos(ang) * rr;
+      if (C.blocked(nx, nz, 0.25) || C.sweepSolid(p.x, p.z, nx, nz, p.y || 0, 0.3, 1.8) < 1) continue;
+      for (const da of [0, 0.35, -0.35, 0.7, -0.7, 1.1, -1.1, 1.6, -1.6, 2.2, -2.2, Math.PI]) { const y = p.yaw + da; if (!this.bodyClear(nx, nz, y)) continue;
+        const f = snap ? 1 : Math.min(1, dt * 10); p.x += (nx - p.x) * f; p.z += (nz - p.z) * f; p.yaw = snap ? y : dampAngle(p.yaw, y, 14, dt); p.fitFail = 0; return; } }
+    p.fitFail = now || 1e-3;
   }
   nearest(x, z, r = 2.5) { let b = null, bd = r * r; for (const p of this.peds) { if (p.state === 'down') continue; const d = (p.x - x) ** 2 + (p.z - z) ** 2; if (d < bd) { bd = d; b = p; } } return b; }
   interact(p, kind, player) {
-    const face = p.ch.face; p.talkCd = 0;
-    if (kind === 'talk') { this.react(p, 'talkPlayer', 4); p.ch.anim.set('talk'); face.set('smile', 1.5); this.speak(p, this.rng.chance(0.3) ? 'directions' : 'greet', 1, 2.5); }
-    else if (kind === 'wave') { this.react(p, 'talkPlayer', 2.5); p.ch.anim.set('wave'); face.set('smile', 2.5); this.speak(p, 'greet', 1); }
-    else if (kind === 'insult') { if (this.rng.chance(0.6) && p.sp.age !== 'elder') { this.react(p, 'argue', 4); p.ch.anim.set('argue'); face.set('angry', 4); this.speak(p, 'annoyed', 1, 2.5); } else { const ax = p.x - player.x, az = p.z - player.z, d = Math.hypot(ax, az) || 1; this.react(p, 'flee', 3, { fleeDir: this.spread(ax / d, az / d, 0.5), fleeSp: 2.6 }); face.set('fear', 2); this.speak(p, 'scared', 1); } }
-    else if (kind === 'shove') {
-      const dx = p.x - player.x, dz = p.z - player.z, d = Math.hypot(dx, dz) || 1;
-      this.react(p, 'stumble', 0.75 + this.rng.next() * 0.35); p.vx = dx / d * 2.4; p.vz = dz / d * 2.4; p.ch.anim.set('stumble'); face.set('surprise', 1.2);
-      this.alarm(p.x, p.z, 12, 1, p);
+    const face = p.ch.face; p.talkCd = 0; const R = this.minds.playerAct(p, kind === 'help' ? 'helped' : kind); const m = p.mind, t = m ? m.tr : null; const T = (i) => (t ? t[i] : 0.5);
+    const ax = p.x - player.x, az = p.z - player.z, ad = Math.hypot(ax, az) || 1;
+    if (kind === 'help') { // helping someone up off the ground: they get up sooner and are grateful (remembered — Mind 'helped')
+      if (p.state !== 'down' || p.dead) return; p.helpedUp = true; if (p.koRag) { const K = p.koRag; K.lie = Math.min(K.lie, Math.max(0, K.t - K.lim) + 0.3); } else p.timer = Math.min(p.timer, 0.5); face.set('concern', 2); return; }
+    if (kind === 'talk') {
+      if (R && (R.like < -0.35 || R.fear > 0.5 || R.harass >= 3)) { // remembers the player: won't talk, keeps away
+        this.react(p, 'complain', 2.5 + this.rng.next()); face.set(R.fear > 0.5 ? 'fear' : 'angry', 2.5); this.speak(p, R.fear > 0.5 ? 'wary' : 'refuse', 1, 2.5); return; }
+      this.react(p, 'talkPlayer', 4); p.ch.anim.set('talk'); face.set('smile', 1.5);
+      this.speak(p, R && R.n > 2 && R.like > 0.25 ? (R.helped > 0 ? 'grateful' : 'rememberGood') : this.rng.chance(0.3 + 0.3 * T(TI.FRI)) ? 'directions' : 'greet', 1, 2.5); }
+    else if (kind === 'wave') { if (R && R.like < -0.3) { p.lookT = 1.5; p.lookAtPt = null; face.set('suspicious', 2); return; } this.react(p, 'talkPlayer', 2.5); p.ch.anim.set(T(TI.SOC) > 0.4 || this.rng.chance(0.5) ? 'wave' : 'nod'); face.set('smile', 2.5); this.speak(p, 'greet', 1); }
+    else if (kind === 'insult') {
+      const E = m ? m.em : null; const stand = p.sp.age !== 'elder' && this.rng.next() < clamp(0.15 + 0.45 * T(TI.AGG) + 0.3 * T(TI.CONF) + (E ? 0.3 * E[EI.ANG] - 0.4 * E[EI.FEA] : 0) - (R && R.fear > 0.4 ? 0.3 : 0), 0.05, 0.9);
+      if (stand) { this.react(p, 'argue', 4); p.ch.anim.set('argue'); face.set('angry', 4); this.speak(p, 'annoyed', 1, 2.5); }
+      else if (T(TI.FEARF) > 0.55 || (R && R.harass >= 3)) { this.react(p, 'flee', 3, { fleeDir: this.spread(ax / ad, az / ad, 0.5), fleeSp: 2.6 }); face.set('fear', 2); this.speak(p, 'scared', 1); }
+      else { this.react(p, 'complain', 2.5); face.set('embarrassed', 2.5); p.ch.anim.play('shrug', 1); } // hurt, embarrassed, walks off
+      if (R && R.harass >= 4 && T(TI.HON) > 0.5 && this.rng.chance(0.5)) { p.state = 'report'; p.timer = 7; p.rt = 0; p.fleeDir = this.spread(ax / ad, az / ad, 0.6); p.repPlayer = true; } // enough is enough: phones the police
     }
-    else if (kind === 'photo') { if (this.rng.chance(0.6)) { this.react(p, 'talkPlayer', 3); p.ch.anim.set(this.rng.chance(0.5) ? 'wave' : 'handsup'); face.set('smile', 3); } }
+    else if (kind === 'shove') {
+      this.react(p, 'stumble', 0.75 + this.rng.next() * 0.35); p.vx = ax / ad * 2.4; p.vz = az / ad * 2.4; p.ch.anim.set('stumble'); face.set('surprise', 1.2);
+      this.alarm(p.x, p.z, 12, 1, p, 'scuffle', true);
+    }
+    else if (kind === 'photo') { if (R && R.like < -0.2) { face.set('suspicious', 2); p.ch.anim.play('shrug', 1); return; } if (this.rng.chance(0.3 + 0.5 * T(TI.SOC))) { this.react(p, 'talkPlayer', 3); p.ch.anim.set(this.rng.chance(0.5) ? 'wave' : 'handsup'); face.set('smile', 3); } else { face.set('embarrassed', 2); p.lookT = 1.2; p.lookAtPt = null; } }
   }
   // a weapon is pointed at this pedestrian: hands up and freeze, back away, or run — varied, never a herd
   threaten(p, src) {
-    if (!p || p.state === 'down' || p.state === 'flee' || p.state === 'cower' || p.threatCd > performance.now()) return; p.threatCd = performance.now() + 2500;
-    const ax = p.x - src.x, az = p.z - src.z, d = Math.hypot(ax, az) || 1; const r = this.rng.next();
-    p.ch.face.set('fear', 4); p.lookAt = { x: src.x, z: src.z };
-    if (r < 0.45) { this.react(p, 'cower', 2.5 + this.rng.next() * 2.5, { after: 'flee', fleeDir: this.spread(ax / d, az / d, 0.6) }); p.ch.anim.set('handsup'); this.speak(p, 'scared', 2, 2.5); }
-    else if (r < 0.8 || d < 4) { this.react(p, 'flee', 5 + this.rng.next() * 4, { fleeDir: this.spread(ax / d, az / d, 0.6), fleeSp: 3.4 + this.rng.next() * 1.4 }); this.speak(p, 'panic', 2); }
-    else { this.react(p, 'report', 6); }
-    this.alarm(p.x, p.z, 9, 1, p);
+    if (!p || p.state === 'down' || p.state === 'flee' || p.state === 'cower' || p.state === 'surrender' || p.threatCd > this.t) return; p.threatCd = this.t + 2.5; // sim seconds (a wall-clock cooldown ran out early whenever the sim lagged real time)
+    const ax = p.x - src.x, az = p.z - src.z, d = Math.hypot(ax, az) || 1; const byP = !!(this.player && src === this.player); if (byP) this.minds.playerAct(p, 'threat'); else if (p.mind) feel(p.mind, EI.FEA, 0.6);
+    p.ch.face.set('fear', 4); p.ch.face.mood = 'fear'; p.lookAt = { x: src.x, z: src.z }; const t = p.mind ? p.mind.tr : null; const T = (i) => (t ? t[i] : 0.5);
+    // the weights differ person to person: the timid freeze or cower, quick thinkers run, the bold back off and phone it in
+    const k = pickWeighted([['surrender', 1 + 2.2 * (1 - T(TI.CONF)) * (d < 6 ? 1.4 : 0.6)], ['cower', 0.6 + 1.6 * T(TI.FEARF)], ['flee', 1.2 + 2 * T(TI.INT) + (d > 4 ? 1.2 : 0)], ['help', 0.3 + 1.2 * T(TI.SOC) * T(TI.CONF)], ['report', d > 6 ? 0.3 + 1.2 * T(TI.HON) * T(TI.RISK) : 0.05]], this.rng.next());
+    if (k === 'surrender') { this.react(p, 'surrender', 2.5 + this.rng.next() * 3); p.ch.anim.set('handsup'); this.speak(p, 'surrender', 2, 2.5); }
+    else if (k === 'cower') { this.react(p, 'cower', 2.5 + this.rng.next() * 2.5, { after: 'flee', fleeDir: this.spread(ax / d, az / d, 0.6) }); p.ch.anim.set('handsup'); this.speak(p, 'scared', 2, 2.5); }
+    else if (k === 'flee') { this.react(p, 'flee', 5 + this.rng.next() * 4, { fleeDir: this.spread(ax / d, az / d, 0.6), fleeSp: 3.4 + this.rng.next() * 1.4 }); this.speak(p, 'panic', 2); this.minds.contagion(p); }
+    else if (k === 'help') { this.react(p, 'flee', 4 + this.rng.next() * 3, { fleeDir: this.spread(ax / d, az / d, 0.7), fleeSp: 3.2 + this.rng.next() }); this.speak(p, 'helpShout', 2, 2.5); this.alarm(p.x, p.z, 16, 1, p, 'threat', byP); } // runs off shouting for help: the street hears it
+    else { this.react(p, 'report', 6, { fleeDir: this.spread(ax / d, az / d, 0.6), repPlayer: byP || undefined }); }
+    this.alarm(p.x, p.z, 9, 1, p, 'threat', byP);
   }
   // turn an existing character (e.g. a driver pulled out of a vehicle) into a pedestrian with a reaction
   adopt(ch, x, z, yaw, reaction = 'flee', from = null) {
     this.scene.add(ch.root); ch.root.position.set(x, this.collision.groundAt(x, z, 0.5), z); ch.root.rotation.set(0, yaw, 0); ch.anim.set(null); ch.mesh.castShadow = true;
-    const sp = ch.spec; const p = { ch, x, z, yaw, speed: 0, state: 'walk', node: 0, target: { x, z }, edge: null, lat: 0, pace: 1.3, timer: 0, act: null, react: 0, mood: 0, talkCd: 0, umbrella: false, crossing: false, id: this.rng.next(), sp, temper: reaction === 'confront' ? 0.9 : 0.3, vx: 0, vz: 0, stuckT: 0, stuckN: 0 };
-    ch.crowdPed = p; this.returnToGraph(p); this.peds.push(p); p.y = ch.root.position.y;
+    const sp = ch.spec; const p = { ch, x, z, yaw, speed: 0, state: 'walk', node: 0, target: { x, z }, edge: null, lat: 0, pace: 1.3, timer: 0, act: null, react: 0, mood: 0, talkCd: 0, umbrella: false, crossing: false, id: this.rng.next(), sp, temper: reaction === 'confront' ? 0.9 : 0.3, vx: 0, vz: 0, stuckT: 0, stuckN: 0, mind: null, emoPace: 1, gather: null, helpOf: null, helpI: null, helpOn: false, hideAt: null, hideFrom: null, chatWith: null, homeCar: null, reboardQ: false, repPlayer: undefined, awkT: 0, tcT: 0, helpedUp: false, lookT: 0, lookAtPt: null, pending: null, after: undefined, airVy: undefined, airY: undefined, blockT: undefined, chatT: undefined, cig: undefined, downT: undefined, faceYaw: undefined, fleeDir: undefined, fleeSide: undefined, fleeSp: 0, goalNode: undefined, goalPoi: undefined, heading: undefined, hits: undefined, jog: undefined, knockedByCar: undefined, koRag: undefined, lastEdge: undefined, lookAt: undefined, mv: 0, nearT: 0, nextNode: undefined, paper: undefined, phone: undefined, poi: undefined, route: undefined, routine: undefined, rt: 0, scene: undefined, sideDir: undefined, sit: undefined, slideTo: undefined, speaking: undefined, stuckSide: 0, talkFor: 0, toKerb: undefined, via: undefined, wallSide: undefined, y: undefined };
+    ch.crowdPed = p; this.returnToGraph(p); this.peds.push(p); p.y = ch.root.position.y; this.minds.attach(p, { anon: !sp || sp._k === undefined }); if (reaction === 'confront') { p.temper = Math.max(p.temper, 0.75); if (p.mind) feel(p.mind, EI.ANG, 0.6); } else if (reaction !== 'calm' && p.mind) feel(p.mind, EI.FEA, 0.5);
     const ax = from ? x - from.x : -Math.sin(yaw), az = from ? z - from.z : -Math.cos(yaw), d = Math.hypot(ax, az) || 1;
     if (reaction === 'confront') { this.react(p, 'confront', 4); p.ch.anim.set('argue'); ch.face.set('angry', 4); this.speak(p, 'shoved', 2, 2.5); }
     else if (reaction === 'calm') return p; // e.g. a taxi fare stepping out at their destination: just walks on
     else { this.react(p, 'flee', 4 + this.rng.next() * 3, { fleeDir: this.spread(ax / d, az / d, 0.5), fleeSp: 3.2 }); ch.face.set('fear', 3); this.speak(p, 'scared', 2); }
-    this.alarm(x, z, 14, 1, p); return p;
+    this.alarm(x, z, 14, 1, p, reaction === 'confront' ? 'dispute' : 'scuffle'); return p;
   }
-  despawn(p) { if (p.ch.rag && this.ragdolls) { this.ragdolls.remove(p.ch.rag); p.ch.rag = null; } this.life.forget(p); p.ch.crowdPed = null; if (p.poi) p.poi.used = Math.max(0, p.poi.used - 1); this.scene.remove(p.ch.root); p.ch.dispose(); }
+  despawn(p) { this.minds.detach(p); if (this.blood) this.blood.forget(p.ch); if (p.ch.rag && this.ragdolls) { this.ragdolls.remove(p.ch.rag); p.ch.rag = null; } this.life.forget(p); p.ch.crowdPed = null; if (p.poi) p.poi.used = Math.max(0, p.poi.used - 1); this.scene.remove(p.ch.root); p.ch.dispose(); }
   clear() { for (const p of this.peds) this.despawn(p); this.peds = []; this.life.clear(); }
 }
 let umbrellaGeos = null;
@@ -649,3 +827,4 @@ function umbrellaMesh(seed) {
   const g = new THREE.Group(); const m = new THREE.Mesh(umbrellaGeos.can, umbrellaGeos.mats[Math.floor(seed * 5) % 5]); m.castShadow = true; g.add(m, new THREE.Mesh(umbrellaGeos.stick, umbrellaGeos.mats[0])); g.position.set(0, -0.05, 0.02); g.rotation.x = 2.4; // hand axis in the umbrella pose → canopy points up
   return g;
 }
+function kind0(w) { return (w && w.kind) || 'fight'; }

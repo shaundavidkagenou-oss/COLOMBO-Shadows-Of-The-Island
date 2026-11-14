@@ -7,6 +7,76 @@ import { updateMaterials } from './Materials.js';
 import { waterUniforms } from '../world/Water.js';
 import { RNG } from '../core/rng.js';
 
+// ---------------------------------------------------------------------------------------------------------------- sun shadow
+// Two shadow maps for the one sun (or moon) light, no second light in the lighting:
+//  · NEAR: the preset's map (1024² / 2048² / 4096²), fitted every frame to ≈ 70 m round the player, pushed ahead of the camera,
+//    texel-snapped in light space (fitSunShadow) — the sharp contact shadows of people, cars, kerbs, poles;
+//  · FAR (39th request: every building casts a shadow, not only the ones near the player): a second, coarser map round the
+//    player out to ≈ ±FAR_SHADOW.range m. It belongs to an extra directional light that carries NO light of its own (intensity 0,
+//    and the patched loop below skips it entirely); the main light samples it where the near map fades out at its edge, so
+//    the blend from the near map to the far one is invisible and the far map itself fades out at its own edge. The far map is
+//    NOT redrawn every frame: only when the player has moved a grid step, when the sun has moved a shadow step, or once a
+//    second (it holds the static city — buildings, trees, street furniture, parked cars; people and moving vehicles beyond
+//    the near box are left out of it so their shadows never lag behind them) — so it adds no draw calls to normal frames.
+//  · Sun direction (39th: shadows follow the sun smoothly): the shadow maps are drawn along a direction quantised on the
+//    ground-plane shadow offset (how far a 1 m tall post's shadow tip sits from its foot), in steps of SUN_SHADOW.step
+//    (2 mm per metre of height: a 10 m wall's shadow edge advances 2 cm at a time, a few times a second, at every sun height).
+//    The old steps were in sun angle (0.0025 rad), which at a low evening sun moved a tall building's shadow by over a metre
+//    at once. Steps (not a per-frame rotation) still keep shadow edges from crawling on walls and cars (35th request).
+export const SUN_SHADOW = { range: 34, ahead: 0.3, wallH: 22, dist: 300, pcf: { 1024: 1.0, 2048: 1.5, 4096: 2.2 }, snap: true, step: 0.002 }; // snap: false only for the stability test
+export const FAR_SHADOW = { range: 150, ahead: 0.35, grid: 12, wallH: 48, dist: 900, step: 0.005, minGap: 0.25, maxAge: 1.0, res: { 1024: 1024, 2048: 2048, 4096: 2048 } };
+{ const C = THREE.ShaderChunk; const a = 'directLight.color *= ( directLight.visible && receiveShadow ) ? getShadow( directionalShadowMap[ i ], directionalLightShadow.shadowMapSize, directionalLightShadow.shadowIntensity, directionalLightShadow.shadowBias, directionalLightShadow.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;';
+  const call = 'RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );';
+  const tag = '#if ( NUM_DIR_LIGHTS > 0 ) && defined( RE_Direct )'; const b = C.lights_fragment_begin, ia = b.indexOf(a), it = b.indexOf(tag), ic = ia >= 0 ? b.indexOf(call, ia) : -1;
+  if (ia > it && it >= 0 && ic > ia) {
+    const FAR = '( defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 1 )';
+    const edge = 'vec2 sunEdge = abs( vDirectionalShadowCoord[ i ].xy / vDirectionalShadowCoord[ i ].w * 2.0 - 1.0 ); float sunFade = smoothstep( 0.86, 0.995, max( sunEdge.x, sunEdge.y ) );';
+    const near = a.replace('directLight.color *= ', 'float sunSh = ').replace('? getShadow(', '? ( sunFade < 1.0 ? mix( getShadow(').replace('vDirectionalShadowCoord[ i ] ) : 1.0;', 'vDirectionalShadowCoord[ i ] ), 1.0, sunFade ) : 1.0 ) : 1.0;');
+    const rep = `#if ${FAR} && UNROLLED_LOOP_INDEX == 1
+		directLight.color = vec3( 0.0 ); // far-shadow carrier: no light of its own (skipped below)
+		#else
+		{ ${edge} ${near}
+		#if ${FAR} && UNROLLED_LOOP_INDEX == 0
+		if ( sunFade > 0.0 && directLight.visible && receiveShadow ) { vec4 farC = vDirectionalShadowCoord[ 1 ]; vec2 farE = abs( farC.xy / farC.w * 2.0 - 1.0 ); float farFade = smoothstep( 0.8, 0.985, max( farE.x, farE.y ) );
+			float farSh = farFade < 1.0 ? mix( getShadow( directionalShadowMap[ 1 ], directionalLightShadows[ 1 ].shadowMapSize, directionalLightShadows[ 1 ].shadowIntensity, directionalLightShadows[ 1 ].shadowBias, directionalLightShadows[ 1 ].shadowRadius, farC ), 1.0, farFade ) : 1.0;
+			sunSh = mix( sunSh, farSh, sunFade ); }
+		#endif
+		directLight.color *= sunSh; }
+		#endif`;
+    const rd = `#if !( ${FAR} && UNROLLED_LOOP_INDEX == 1 )
+		${call}
+		#endif`;
+    C.lights_fragment_begin = b.slice(0, ia) + rep + b.slice(ia + a.length, ic) + rd + b.slice(ic + call.length);
+  } else console.warn('Atmosphere: shadow chunk patch not applied'); }
+// ----------------------------------------------------------------------------------------------------------------- sun disc
+// The Preetham disc was a 0.53°-radius circle of ~60 000 (HDR), clamped by the post sanitizer to a flat white dot whatever the
+// time of day. Now (uDiscMode 1, the main view): a 0.39° disc with a soft anti-aliased limb and limb darkening, tinted by the
+// atmosphere's own transmittance (white-gold high up, deep orange near the horizon), bright enough to drive the flare and
+// shafts but dimming as it sinks, plus a faint forward-scattering corona that blends it into the sky. The environment-map
+// capture keeps the original disc (uDiscMode 0) so reflections are unchanged.
+export const SUN_DISC = { rad: 0.0075, hdr: 30 };
+export const SKY_KNEE = { k: 0.55, w: 0.9 }; // sky in-scatter luminance (HDR, after the sky gain) where the roll-off starts, and its asymptotic headroom
+// sun light warmth: the light turns gold well before the last half hour (17:00 ≈ 18° sun is the golden hour; the old warmth
+// only started below ~13°), so buildings take the warm evening / morning light; 0 = the previous curve
+export const SUN_WARMTH = 0.8;
+function sunDiscPatch(fs) {
+  const a = 'vec3 sundiscColor = ( 760.0 * sundisc ) * min( vSunE * Fex, 80.0 );';
+  if (!fs.includes(a)) { console.warn('Sky: sun disc patch not applied'); return fs; }
+  return fs.replace(a, a + `
+      if ( uDiscMode > 0.5 ) {
+        float rr = sqrt( max( 2.0 * ( 1.0 - cosTheta ), 0.0 ) ) / uSunRad; float fw = max( fwidth( rr ), 1e-3 );
+        float disc = 1.0 - smoothstep( 1.0 - fw, 1.0 + fw, rr ); float mu = sqrt( max( 0.0, 1.0 - min( rr * rr, 1.0 ) ) );
+        vec3 tint = Fex / max( max( Fex.r, Fex.g ), max( Fex.b, 1e-5 ) ); float up = smoothstep( 0.0, 0.25, vSunDirection.y );
+        float k = mix( 5.0, uSunDisc, up ) * smoothstep( -0.03, 0.01, vSunDirection.y ) * showSunDisc;
+        float corona = exp( -max( rr - 1.0, 0.0 ) * 1.4 ) * ( 1.0 - disc ) * 0.05;
+        sundiscColor = tint * k * ( disc * ( 1.0 - 0.6 * ( 1.0 - mu ) ) + corona );
+        // sky highlight knee: Preetham's Mie peak is 8–12 (HDR) for degrees around the sun and the open sky ~1.5–2, which
+        // ACES turned into a flat white patch (the disc vanished into it) over a pale, washed-out blue. Above SKY_KNEE the sky's
+        // in-scattering rolls off smoothly with its hue kept: a deeper blue, a warm circumsolar glow, a disc that reads as one.
+        { vec3 sk = Lin * 0.04 * uSkyGain; float L = dot( sk, vec3( 0.2126, 0.7152, 0.0722 ) ); if ( L > ${SKY_KNEE.k.toFixed(3)} ) Lin *= ( ${SKY_KNEE.k.toFixed(3)} + ( L - ${SKY_KNEE.k.toFixed(3)} ) / ( 1.0 + ( L - ${SKY_KNEE.k.toFixed(3)} ) / ${SKY_KNEE.w.toFixed(3)} ) ) / L; }
+      }`);
+}
+const _sf = new THREE.Vector3(), _sc = new THREE.Vector3(), _sx = new THREE.Vector3(), _sy = new THREE.Vector3(), _sl = new THREE.Vector3(), _slq = new THREE.Vector3(), _slf = new THREE.Vector3(), _fc = new THREE.Vector3(), _UP = new THREE.Vector3(0, 1, 0);
 const cloudVert = `varying vec3 vDir; void main(){ vDir = normalize((modelMatrix * vec4(position,1.0)).xyz - cameraPosition); vec4 p = projectionMatrix * viewMatrix * modelMatrix * vec4(position,1.0); gl_Position = p.xyww;
 #ifdef USE_REVERSED_DEPTH_BUFFER
  gl_Position.z = 0.0;
@@ -48,6 +118,14 @@ export const WEATHER = {
   storm:    { cloud: 1.0, dark: 0.95, rain: 1.0, fog: 0.45, wind: 1.6 },
 };
 
+const _warmSky = new THREE.Color(0.98, 0.9, 0.78);
+// light direction → the ground-plane shadow offset of a 1 m post (Lx/Ly, Lz/Ly, pointing away from the sun when negated),
+// rounded to `step` m, → back to a unit direction.
+// (Elevation floored at 3°: below that the sun is fading out anyway.)
+export function quantShadowDir(L, step, out) {
+  const ly = Math.max(0.052, L.y), ox = Math.round(L.x / ly / step) * step, oz = Math.round(L.z / ly / step) * step;
+  return out.set(ox, 1, oz).normalize();
+}
 export class Atmosphere {
   constructor(scene, renderer) {
     this.scene = scene; this.renderer = renderer;
@@ -56,10 +134,10 @@ export class Atmosphere {
     this.weatherTimer = 240; this.drawDist = 1400; this.rng = new RNG(99);
     // sky
     this.sky = new Sky(); this.sky.scale.setScalar(18000); scene.add(this.sky);
-    { const m = this.sky.material; m.uniforms.uSkyGain = { value: 1 }; m.vertexShader = m.vertexShader.replace('gl_Position.z = gl_Position.w; // set z to camera.far', '#ifdef USE_REVERSED_DEPTH_BUFFER\n gl_Position.z = 0.0;\n#else\n gl_Position.z = gl_Position.w;\n#endif'); m.uniforms.uNightK = { value: 0 }; m.uniforms.uNZen = { value: new THREE.Color(0.0035, 0.0065, 0.018) }; m.uniforms.uNHor = { value: new THREE.Color(0.016, 0.02, 0.034) }; m.uniforms.uGlow = { value: new THREE.Color(0.05, 0.028, 0.014) }; m.uniforms.uMoonDir = { value: new THREE.Vector3(0, 1, 0) };
+    { const m = this.sky.material; m.uniforms.uSkyGain = { value: 1 }; m.vertexShader = m.vertexShader.replace('gl_Position.z = gl_Position.w; // set z to camera.far', '#ifdef USE_REVERSED_DEPTH_BUFFER\n gl_Position.z = 0.0;\n#else\n gl_Position.z = gl_Position.w;\n#endif'); m.uniforms.uNightK = { value: 0 }; m.uniforms.uNZen = { value: new THREE.Color(0.0035, 0.0065, 0.018) }; m.uniforms.uNHor = { value: new THREE.Color(0.016, 0.02, 0.034) }; m.uniforms.uGlow = { value: new THREE.Color(0.05, 0.028, 0.014) }; m.uniforms.uMoonDir = { value: new THREE.Vector3(0, 1, 0) }; m.uniforms.uDiscMode = { value: 1 }; m.uniforms.uSunRad = { value: SUN_DISC.rad }; m.uniforms.uSunDisc = { value: SUN_DISC.hdr };
       /* night sky (the Preetham model is black once the sun has set): navy zenith, a lighter horizon band, the warm sodium/LED light
          pollution dome over the city (strongest at the horizon) and the moon's scattering glow; also feeds the PMREM environment */
-      m.fragmentShader = 'uniform float uSkyGain; uniform float uNightK; uniform vec3 uNZen, uNHor, uGlow, uMoonDir;\n' + m.fragmentShader.replace('gl_FragColor = vec4( texColor, 1.0 );', `{ float ey = clamp( direction.y, 0.0, 1.0 ); vec3 nsky = mix( uNHor, uNZen, pow( ey, 0.42 ) );
+      m.fragmentShader = 'uniform float uSkyGain; uniform float uNightK; uniform vec3 uNZen, uNHor, uGlow, uMoonDir; uniform float uDiscMode, uSunRad, uSunDisc;\n' + sunDiscPatch(m.fragmentShader).replace('gl_FragColor = vec4( texColor, 1.0 );', `{ float ey = clamp( direction.y, 0.0, 1.0 ); vec3 nsky = mix( uNHor, uNZen, pow( ey, 0.42 ) );
         nsky += uGlow * ( exp( -ey * 7.0 ) * 0.85 + exp( -ey * 26.0 ) * 0.6 ); float md = max( dot( direction, uMoonDir ), 0.0 ); nsky += vec3( 0.55, 0.6, 0.75 ) * ( 0.012 * pow( md, 12.0 ) + 0.05 * pow( md, 300.0 ) );
         if ( direction.y < 0.0 ) nsky = uNHor * 0.8 + uGlow * 0.9;
         gl_FragColor = vec4( texColor * uSkyGain + nsky * uNightK, 1.0 ); }`); m.needsUpdate = true; } // midday Preetham sky is far hotter than the city it lights: scale it so the horizon isn't a white wall
@@ -112,7 +190,11 @@ export class Atmosphere {
     // lights
     this.sun = new THREE.DirectionalLight(0xffffff, 3); this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048); const sc = this.sun.shadow.camera; sc.left = -80; sc.right = 80; sc.top = 80; sc.bottom = -80; sc.near = 1; sc.far = 600;
-    this.sun.shadow.bias = -0.0004; this.sun.shadow.normalBias = 0.6; scene.add(this.sun, this.sun.target);
+    this.sun.shadow.bias = -0.0001; this.sun.shadow.normalBias = 0.05; scene.add(this.sun, this.sun.target); // refitted every frame (fitSunShadow)
+    // far shadow map (see FAR_SHADOW): an intensity-0 light added right after the sun, so it is always shadow light #1
+    this.sunFar = new THREE.DirectionalLight(0xffffff, 0); this.sunFar.name = 'sunFarShadow'; this.sunFar.castShadow = true; this.sunFar.shadow.autoUpdate = false;
+    this.sunFar.shadow.mapSize.set(1024, 1024); scene.add(this.sunFar, this.sunFar.target);
+    this.far = { key: '', t: 1e9, gap: 1e9, dirty: true, renders: 0, hidden: [] };
     this.hemi = new THREE.HemisphereLight(0xbfd8ff, 0x6b5a48, 0.8); scene.add(this.hemi);
     this.ambient = new THREE.AmbientLight(0x404a60, 0.0); scene.add(this.ambient);
     scene.fog = new THREE.Fog(0xbcc8d0, 200, 1400);
@@ -149,8 +231,76 @@ export class Atmosphere {
           if (aIdx >= uRN) transformed = vec3(0.0, -999.0, 0.0); }`); };
     this.rain = new THREE.LineSegments(rg, rmat);
     this.rain.frustumCulled = false; scene.add(this.rain);
-    this.flash = 0; this.listeners = { thunder: null };
+    this.flash = 0; this.listeners = { thunder: null }; this.shadowCfg = SUN_SHADOW;
     this.sunDir = new THREE.Vector3(); this.night = 0;
+  }
+  // Fit the sun (or moon) shadow to the area round the player, every frame, at no extra draw cost:
+  //  · centre: the player, pushed ~10 m ahead of where the camera looks (more coverage in view, less behind it);
+  //  · light-space box: ±range across the light, and along it exactly the span the ground disc + street-level receivers up to
+  //    wallH (facades, people, trees) occupy at the current sun elevation — high sun ≈ 68 × 70 m, low sun shrinks the box
+  //    along the light so the texels stay square on the ground and the long evening shadows keep their resolution;
+  //  · texel snapping: the box edges sit on the shadow map's texel grid in light space, so walking / driving / turning the
+  //    camera slides the box by whole texels and shadow edges never crawl or flicker (extents are quantised for the same reason);
+  //  · biases follow the texel size (≈ 1.5 texels of normal offset, ≈ 3 cm of depth bias) instead of the old 0.6 m normal bias
+  //    that lifted every contact shadow off the ground; PCF softness (shadow.radius: 5 rotated Vogel taps of hardware 2×2
+  //    comparisons in three r186) is set per shadow resolution for a ≈ 4–7 cm natural penumbra.
+  // Satellite map capture overrides the box for its tiles and restores it; the next frame refits it here anyway.
+  fitSunShadow(focus, camera, L) {
+    const S = SUN_SHADOW, R = S.range;
+    _sf.set(0, 0, 0); if (camera) { camera.getWorldDirection(_sf); _sf.y = 0; const l = _sf.length(); if (l > 0.2) _sf.multiplyScalar((R * S.ahead) / l); else _sf.set(0, 0, 0); }
+    this.fitShadowBox(this.sun, _sc.copy(focus).add(_sf), L, R, S.wallH, S.dist, S.snap);
+  }
+  // one light's orthographic shadow box round C along L (shared by the near and the far map)
+  fitShadowBox(light, C, L, R, wallH, dist, snap) {
+    const S = SUN_SHADOW, sh = light.shadow, sc = sh.camera, N = sh.mapSize.x || 2048;
+    light.position.copy(C).addScaledVector(L, dist); light.target.position.copy(C); light.target.updateMatrixWorld();
+    // light basis exactly as Object3D.lookAt builds the shadow camera (z = L, x = up × z, y = z × x)
+    _sx.crossVectors(_UP, L).normalize(); _sy.crossVectors(L, _sx);
+    const sinE = Math.min(1, Math.max(0.05, L.y)), cosE = Math.sqrt(1 - sinE * sinE);
+    const W = 2 * (R + 1), y0 = -R * sinE - 1, H = Math.ceil((2 * R * sinE + wallH * cosE + 2) / 2) * 2; // light-space extents (m)
+    const tx = W / N, ty = H / N, cx = C.dot(_sx), cy = C.dot(_sy);
+    const left = snap ? Math.floor((cx - W / 2) / tx) * tx - cx : -W / 2, bottom = snap ? Math.floor((cy + y0) / ty) * ty - cy : y0;
+    // (three marks the shadow camera reversed-depth on its first shadow pass but never rebuilds its projection: done here)
+    if (sc.left !== left || sc.bottom !== bottom || sc.right !== left + W || sc.top !== bottom + H || sc.far !== dist + R + 60 || sc.userData.rev !== sc.reversedDepth) {
+      sc.left = left; sc.right = left + W; sc.bottom = bottom; sc.top = bottom + H; sc.near = 1; sc.far = dist + R + 60; sc.userData.rev = sc.reversedDepth; sc.updateProjectionMatrix(); }
+    const pcf = S.pcf[N] ?? (N > 2048 ? 2.2 : N < 2048 ? 1.0 : 1.5), texel = Math.max(tx, ty);
+    sh.radius = pcf; sh.normalBias = Math.min(light === this.sun ? 0.12 : 0.3, Math.max(0.025, texel * (1 + 0.35 * pcf)));
+    sh.bias = (sc.reversedDepth ? 1 : -1) * (light === this.sun ? 0.03 : 0.12) / (sc.far - sc.near); // ≈ 3 cm (far map: 12 cm) towards the light (reversed-Z: nearer = larger depth)
+  }
+  // Quality preset → both shadow maps (Low: no shadows; the far map follows the near one, at most 2048²).
+  setShadowQuality(on, res) {
+    const sh = this.sun.shadow; this.sun.castShadow = on; if (sh.mapSize.x !== res) { sh.mapSize.set(res, res); if (sh.map) { sh.map.dispose(); sh.map = null; } }
+    const fr = FAR_SHADOW.res[res] ?? Math.min(res, 2048), fs = this.sunFar.shadow; this.sunFar.visible = on;
+    if (fs.mapSize.x !== fr) { fs.mapSize.set(fr, fr); if (fs.map) { fs.map.dispose(); fs.map = null; } } this.far.dirty = true;
+  }
+  // Draw one light's shadow map on its own, outside the frame's main render: three only draws shadow maps from inside
+  // renderer.render() (its draw calls need that render's state), so this renders an empty 1 × 1 scene whose single, zero-vertex
+  // mesh runs the shadow pass for `light` over the game scene from its onBeforeRender hook. No pixels, no extra lights.
+  drawShadowOnly(light, camera) {
+    const R = this.renderer;
+    if (!this._fd) { const sc = new THREE.Scene(), geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(9), 3)); geo.setDrawRange(0, 0);
+      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial()); m.frustumCulled = false; sc.add(m); this._fd = { scene: sc, rt: new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false }), job: null };
+      m.onBeforeRender = () => { const j = this._fd.job; this._fd.job = null; if (j) R.shadowMap.render([j.light], this.scene, j.camera); }; }
+    const fd = this._fd, prev = R.getRenderTarget(); fd.job = { light, camera };
+    try { R.setRenderTarget(fd.rt); R.render(fd.scene, camera); } finally { fd.job = null; R.setRenderTarget(prev); }
+  }
+  // Redraw the far map when its box (grid-snapped centre, quantised sun direction) changed, at most every minGap s, and at
+  // least every maxAge s (chunks streaming in, parked cars, doors). Only the static city goes in: people, trains and vehicles
+  // that are not parked are hidden for this one shadow pass (their own shadows come from the near map round the player).
+  updateFarShadow(dt, focus, camera, L) {
+    const F = FAR_SHADOW, f = this.far, lt = this.sunFar, R = this.renderer; f.t += dt; f.gap += dt;
+    if (!lt.visible || !this.sun.castShadow || !R.shadowMap.enabled || this.farOff) return;
+    _fc.set(0, 0, 0); if (camera) { camera.getWorldDirection(_fc); _fc.y = 0; const l = _fc.length(); if (l > 0.2) _fc.multiplyScalar((F.range * F.ahead) / l); else _fc.set(0, 0, 0); }
+    const gx = Math.round((focus.x + _fc.x) / F.grid) * F.grid, gz = Math.round((focus.z + _fc.z) / F.grid) * F.grid;
+    const key = gx + ',' + gz + ',' + L.x.toFixed(5) + ',' + L.y.toFixed(5) + ',' + L.z.toFixed(5);
+    const moved = key !== f.key;
+    if (!(f.dirty || !lt.shadow.map || (moved && f.gap >= F.minGap) || f.t >= F.maxAge)) return;
+    _fc.set(gx, 0, gz); this.fitShadowBox(lt, _fc, L, F.range, F.wallH, F.dist, true); lt.updateMatrixWorld();
+    const S = this.scene, hid = f.hidden; hid.length = 0; const hide = (o) => { if (o && o.visible) { o.visible = false; hid.push(o); } };
+    for (const c of S.children) { if (c.isLight || !c.visible) continue; if (c.name && c.name.startsWith('train')) hide(c); else if (c.children && c.children.some((m) => m.isSkinnedMesh)) hide(c); }
+    for (const v of globalThis.__liveVehicles || []) if (v.mesh && (!v.parked || v.player)) hide(v.mesh);
+    try { lt.shadow.needsUpdate = true; this.drawShadowOnly(lt, camera); } catch (e) { console.warn('far shadow', e && e.message, e && e.stack && e.stack.slice(0, 400)); } finally { for (const o of hid) o.visible = true; hid.length = 0; lt.shadow.needsUpdate = false; }
+    f.key = key; f.t = 0; f.gap = 0; f.dirty = false; f.renders++;
   }
   setWeather(name, instant = false) { this.target = name; if (instant) { this.weather = name; this.w = { ...WEATHER[name] }; if (WEATHER[name].rain > 0.5) this.wet = 1; } }
   forceWeather(name) { this.forced = name; if (name) this.setWeather(name); }
@@ -169,7 +319,7 @@ export class Atmosphere {
     const tgt = WEATHER[this.target]; const k = 1 - Math.exp(-dt * 0.08);
     for (const key of Object.keys(tgt)) this.w[key] = lerp(this.w[key], tgt[key], k);
     if (Math.abs(this.w.cloud - tgt.cloud) < 0.02) this.weather = this.target;
-    this.wet = clamp(this.wet + (this.w.rain > 0.2 ? dt * 0.05 : -dt * 0.0025), 0, 1); // roads stay wet a good while after a shower
+    this.wet = clamp(this.wet + (this.w.rain > 0.2 ? dt * 0.05 : -dt * 0.016), 0, 1); // wet only while it rains: the shine is gone about a minute after the rain stops (a road that still mirrored the sky minutes after a shower read as a bug)
     // sun & moon
     const th = ((this.hour - 6.15) / (18.3 - 6.15)) * Math.PI;
     this.sunDir.set(Math.cos(th), Math.sin(th) * 0.97, 0.22).normalize();
@@ -178,21 +328,28 @@ export class Atmosphere {
     const golden = 1 - smoothstep(0.05, 0.35, Math.max(elev, 0));
     const cloudDim = 1 - this.w.cloud * 0.72;
     const u = this.sky.material.uniforms; u.sunPosition.value.copy(this.sunDir).multiplyScalar(1000);
-    u.turbidity.value = lerp(3, 11, this.w.cloud) + golden * 2; u.mieDirectionalG.value = 0.74; u.rayleigh.value = lerp(1.3, 3.2, golden) * (1 - this.w.dark * 0.5) + this.night * 0.0;
+    u.turbidity.value = lerp(3, 11, this.w.cloud) + golden * 2; u.mieDirectionalG.value = lerp(0.8, 0.75, golden); /* a tighter forward-scattering halo by day: the sun reads as a disc in a glow, not a white quarter of the sky */ u.rayleigh.value = lerp(1.3, 3.2, golden) * (1 - this.w.dark * 0.5) + this.night * 0.0;
     u.mieCoefficient.value = lerp(0.0018, 0.008, golden); u.uSkyGain.value = lerp(0.58, 1.0, Math.max(golden, this.night)); // tight sun halo: no white-out across the skyline
-    const sunCol = new THREE.Color().setRGB(1, lerp(0.95, 0.55, golden), lerp(0.88, 0.32, golden));
+    const warm = Math.max(golden, SUN_WARMTH * (1 - smoothstep(0.1, 0.6, Math.max(elev, 0)))); this.warmth = warm;
+    const sunCol = new THREE.Color().setRGB(1, lerp(0.95, 0.55, warm), lerp(0.88, 0.32, warm));
     this.sun.color.copy(sunCol);
-    this.sun.intensity = Math.max(0, smoothstep(-0.02, 0.12, elev)) * 2.7 * cloudDim;
+    this.sun.intensity = Math.max(0, smoothstep(0.0, 0.12, elev)) * 2.7 * cloudDim; // 35th (smooth transitions): reaches 0 exactly at the horizon, where the light hands over to the moon
     // moon light at night (kept bright enough for readable night gameplay)
-    if (elev < 0) { this.sun.position.copy(focus).addScaledVector(new THREE.Vector3(-0.4, 0.8, -0.3).normalize(), 300); this.sun.color.setRGB(0.62, 0.72, 1.0); this.sun.intensity = 0.78 * this.night * (1 - this.w.cloud * 0.45); } // moonlight: readable silhouettes and road surface, still clearly night
-    else this.sun.position.copy(focus).addScaledVector(this.sunDir, 300);
-    this.sun.target.position.copy(focus); this.sun.target.updateMatrixWorld();
-    { const d = leafLight.dir.value, c = leafLight.col.value; const sd = this.sun.position.clone().sub(focus).normalize(); d[0] = sd.x; d[1] = sd.y; d[2] = sd.z;
+    if (elev < 0) { _sl.set(-0.4, 0.8, -0.3).normalize(); this.sun.color.setRGB(0.62, 0.72, 1.0); this.sun.intensity = 0.78 * this.night * (1 - this.w.cloud * 0.45) * smoothstep(0.0, 0.07, -elev); } // fades in from 0 below the horizon: the switch of direction / colour from sun to moon happens at zero intensity (it used to flip the shadows and the light colour in one frame at sunset / sunrise) // moonlight: readable silhouettes and road surface, still clearly night
+    else _sl.copy(this.sunDir);
+    // 35th request (shadow errors): the light direction the shadow map is rendered along moves in small fixed steps (0.0025 rad ≈
+    // 0.14°: a 10 m pole's shadow tip jumps ~2–3 cm every half game minute) instead of rotating a little every frame — a rotating
+    // light basis re-rasterises every shadow edge each frame, which reads as constant crawling / shimmering on cars, walls and trees
+    // even with the texel-snapped box. Shading (the sky, the sun disc, leaf translucency) keeps the exact direction.
+    // 39th: quantised on the ground-plane shadow offset (see SUN_SHADOW.step), so the steps are equally small at noon and at dusk.
+    quantShadowDir(_sl, SUN_SHADOW.step, _slq); quantShadowDir(_sl, FAR_SHADOW.step, _slf);
+    this.fitSunShadow(focus, camera, _slq); // places the sun / moon light and its shadow box
+    this.updateFarShadow(dt, focus, camera, _slf);
+    { const d = leafLight.dir.value, c = leafLight.col.value; const sd = _sl; d[0] = sd.x; d[1] = sd.y; d[2] = sd.z;
       c[0] = this.sun.color.r * this.sun.intensity; c[1] = this.sun.color.g * this.sun.intensity; c[2] = this.sun.color.b * this.sun.intensity; }
-    // snap shadow camera to texel grid to avoid shimmering
     const skyTop = new THREE.Color().setRGB(0.28, 0.48, 0.82).lerp(new THREE.Color(0.32, 0.36, 0.42), this.w.dark).lerp(new THREE.Color(0.02, 0.04, 0.1), this.night);
     const horizon = new THREE.Color().setRGB(0.75, 0.82, 0.88).lerp(new THREE.Color(1.0, 0.62, 0.38), golden * (1 - this.night) * (1 - this.w.dark)).lerp(new THREE.Color(0.5, 0.52, 0.55), this.w.dark * 0.7).lerp(new THREE.Color(0.06, 0.08, 0.14), this.night);
-    this.hemi.color.copy(skyTop).lerp(new THREE.Color(1, 1, 1), 0.35); this.hemi.groundColor.setRGB(0.42, 0.36, 0.3).lerp(new THREE.Color(0.15, 0.115, 0.09), this.night); /* night bounce: warm street light off the roads */
+    this.hemi.color.copy(skyTop).lerp(new THREE.Color(1, 1, 1), 0.35).lerp(_warmSky, 0.22 * (1 - this.night) * (1 - this.w.dark)); /* daytime shade also gets light bounced off sunlit streets and facades, not only blue sky: shaded walls (Fort's north faces) read blue-grey otherwise. Light only — the grade / exposure are untouched */ this.hemi.groundColor.setRGB(0.42, 0.36, 0.3).lerp(new THREE.Color(0.15, 0.115, 0.09), this.night); /* night bounce: warm street light off the roads */
     this.hemi.intensity = lerp(0.55, 0.42, golden) * (1 + this.w.cloud * 0.5) * (1 - this.night * 0.55) + 0.12 + this.night * 0.17;
     this.ambient.intensity = this.night * 0.85; this.ambient.color.setRGB(0.34, 0.37, 0.55);
     // fog
@@ -229,7 +386,7 @@ export class Atmosphere {
       this.envSkyline.material.color.setRGB(0.3, 0.31, 0.28).multiplyScalar((1 - this.night * 0.85) * (1 - this.w.dark * 0.35));
       if (this.envCity) { this.envCity.material.color.setRGB(1, 1, 1).multiplyScalar(Math.max(0.06, (1 - this.night * 0.9)) * (1 - this.w.dark * 0.4)); this.envCityLit.material.opacity = this.night * 0.9; }
       const prevFog = this.scene.fog; const old = this.envRT;
-      this.envRT = this.pmrem.fromScene(this.envScene, 0.02, 0.1, 200);
+      const sm = this.sky.material.uniforms; sm.uDiscMode.value = 0; this.envRT = this.pmrem.fromScene(this.envScene, 0.02, 0.1, 200); sm.uDiscMode.value = 1; // reflections keep the original disc
       this.scene.environment = this.envRT.texture; this.envBase = this.scene.environmentIntensity = 0.62 * (1 - this.night * 0.7) * (1 - this.w.dark * 0.3); // sky PMREM is HDR: full strength washed every facade
       if (old) old.dispose(); void prevFog;
     }

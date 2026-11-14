@@ -16,10 +16,13 @@
 // Torches: at night, officers searching on foot carry a hand torch (armed officers: a torch clamped to the rifle). A fixed
 // pool of SpotLights (created once: light counts never change, so no shader recompiles) is handed each frame to the
 // torches nearest the camera; every other lit torch still shows its bright lens. Beams are clipped at walls.
+import { bloomHotAt } from '../gfx/BloomHot.js';
 import * as THREE from 'three';
+import { nightLight } from '../gfx/LightSets.js';
 import { buildT56 } from '../combat/WeaponModels.js';
 import { POLICE_T56 } from '../combat/WeaponDefs.js';
 import { Audio } from '../audio/Audio.js';
+import { SoundBank } from '../audio/SoundBank.js';
 import { clamp, lerp } from '../core/math.js';
 
 const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
@@ -209,9 +212,10 @@ export class Firefight {
     const dir = aim.sub(mz).normalize(); const hit = this.trace(o, mz, dir, POLICE_T56.range);
     // check fire: someone else is in the line → do not shoot (sidestep a little instead)
     if (hit.kind === 'ped' || hit.kind === 'officer') { cb.holdT = 0.6; this.stats.holds++; if (cb.cover) cb.phase = 'hide'; else { const col = this.g.collision, nx = o.x + Math.cos(o.yaw) * 0.3, nz = o.z - Math.sin(o.yaw) * 0.3; if (!col || !col.blocked(nx, nz, 0.28)) { o.x = nx; o.z = nz; } } return; } // the sidestep never goes into a wall
-    cb.mag--; cb.burst++; this.stats.shots++; this.p.stats.policeShots = (this.p.stats.policeShots || 0) + 1; if (o.rp) o.rp.kick = 1;
+    cb.mag--; cb.burst++; this.stats.shots++; this.p.stats.policeShots = (this.p.stats.policeShots || 0) + 1; if (o.rp) o.rp.kick = 1; if (o.ch && o.ch.anim.shotKick) o.ch.anim.shotKick('rifle', 1);
     this.effects(o, mz, dir, hit);
     if (hit.kind === 'player') { this.stats.hits++; const dmg = POLICE_T56.dmg * (this.p.stars() >= 5 ? 1.15 : 1) * (0.85 + Math.random() * 0.3); g.health ? g.health.damage(dmg, 'shot by police') : (this.lastDamage = (this.lastDamage || 0) + dmg); }
+    else if (hit.kind === 'vehicle' && g.vdamage) { const R = g.vdamage.bullet(hit.v, mz, dir, { cls: 'rifle', dmg: 0.75 }, { by: 'police', playerHp: POLICE_T56.dmg * 0.85 }); if (R) { hit.point.copy(R.point); if (R.occupant === 'player') this.stats.hits++; } } // the real thing: glass, panels, tyres, the people inside (VehicleDamage)
     else if (hit.kind === 'vehicle' && hit.v === P.vehicle && Math.random() < 0.3) { this.stats.hits++; g.health && g.health.damage(POLICE_T56.dmg * 0.6, 'shot by police'); } // through the bodywork / glass
     else { const ax = hit.point.x - mz.x, az = hit.point.z - mz.z, L2 = ax * ax + az * az || 1; const t = clamp(((P.x - mz.x) * ax + (P.z - mz.z) * az) / L2, 0, 1); const nd = Math.hypot(mz.x + ax * t - P.x, mz.z + az * t - P.z); if (nd < 1.6 && Audio.ctx) Audio.noise(0.07, { f: 3200, q: 1.2, vol: 0.12 * (1 - nd / 1.6), attack: 0.002 }); } // supersonic crack of a near miss
   }
@@ -229,12 +233,13 @@ export class Firefight {
   }
   effects(o, mz, dir, hit) {
     const g = this.g, W = g.weapons; const def = POLICE_T56;
-    if (o.rifle) { const f = o.rifle.userData.flash; if (f) { f.visible = true; f.rotation.z = Math.random() * 3; f.scale.setScalar(0.85 + Math.random() * 0.35); o.rp.flashT = 0.05; } }
+    if (o.rifle) { const f = o.rifle.userData.flash; if (f) { bloomHotAt(o.x, (o.y || 0) + 1.4, o.z); f.visible = true; f.rotation.z = Math.random() * 3; f.scale.setScalar(0.85 + Math.random() * 0.35); o.rp.flashT = 0.05; } }
     if (W && W.fx) { W.tracer(mz, hit.point, def); if (hit.kind === 'vehicle') W.sparks(hit.point, dir); else if (hit.kind === 'world' || hit.kind === 'ground') { W.puff(hit.point, hit.kind === 'ground' ? 0x6d6a64 : 0xb5ab9a, 4); W.decal(hit.point, dir, hit.kind); } else if (hit.kind === 'player' && !(g.blood && g.blood.spray(hit.point, dir, 0.6))) W.puff(hit.point, 0x8a8478, 2); }
     if (Audio.ctx && Audio.spatial) { const [gn, pan] = Audio.spatial(mz.x, mz.z, 70); const s = def.snd; const v = s.vol * Math.max(0.12, gn);
+      if (SoundBank.play('gun.t56', Math.max(0.12, gn), pan, 0, { rate: 0.97 + Math.random() * 0.06 })) { /* the player's T-56 recording */ } else {
       Audio.noise(s.dur, { f: s.crack, q: 0.6, vol: v, type: 'lowpass', attack: 0.001, pan }); Audio.tone(s.body * 2.2, s.dur * 1.3, { type: 'sine', vol: v * 0.5, attack: 0.002, glide: s.body * 0.6, pan });
-      Audio.noise(s.tail, { f: 480, q: 0.5, type: 'lowpass', vol: v * 0.3, attack: 0.02, when: 0.03 + Math.min(0.25, Math.hypot(mz.x - g.player.x, mz.z - g.player.z) / 340), buf: Audio.brownBuf, pan }); }
-    if (g.crowd && g.crowd.alarm) { if ((this._alarmN = (this._alarmN || 0) + 1) % 3 === 1) g.crowd.alarm(mz.x, mz.z, def.loud, 2, null); }
+      Audio.noise(s.tail, { f: 480, q: 0.5, type: 'lowpass', vol: v * 0.3, attack: 0.02, when: 0.03 + Math.min(0.25, Math.hypot(mz.x - g.player.x, mz.z - g.player.z) / 340), buf: Audio.brownBuf, pan }); } }
+    if (g.crowd && g.crowd.alarm) { if ((this._alarmN = (this._alarmN || 0) + 1) % 3 === 1) g.crowd.alarm(mz.x, mz.z, def.loud, 2, null, 'gunshot'); }
     if (g.birds && g.birds.scare && this._alarmN % 3 === 1) g.birds.scare(mz.x, mz.z, 50);
   }
 
@@ -358,7 +363,7 @@ export class FlashlightRig {
       vertexShader: 'varying vec2 vUv; varying vec3 vN; varying vec3 vV; void main() { vUv = uv; vec4 mv = modelViewMatrix * vec4(position, 1.0); vV = -mv.xyz; vN = normalMatrix * normal; gl_Position = projectionMatrix * mv; }',
       fragmentShader: 'uniform vec3 color; uniform float opacity; varying vec2 vUv; varying vec3 vN; varying vec3 vV; void main() { float l = vUv.y * vUv.y * (0.3 + 0.7 * vUv.y); float e = abs(dot(normalize(vN), normalize(vV))); float a = l * pow(e, 1.8) * opacity; gl_FragColor = vec4(color, a);\n#include <tonemapping_fragment>\n#include <colorspace_fragment>\n}' });
     for (let i = 0; i < count; i++) {
-      const s = new THREE.SpotLight(0xfff2d8, 0, 26, 0.3, 0.5, 1.6); s.name = 'torch' + i; s.castShadow = false; s.position.set(0, -500, 0); s.target.position.set(0, -501, 0); scene.add(s); scene.add(s.target); this.spots.push(s);
+      const s = new THREE.SpotLight(0xfff2d8, 0, 26, 0.3, 0.5, 1.6); s.name = 'torch' + i; s.castShadow = false; s.position.set(0, -500, 0); s.target.position.set(0, -501, 0); scene.add(nightLight(s, 2)); scene.add(s.target); this.spots.push(s); /* night torches: out of the shaders while dark (LightSets) */
       const b = new THREE.Mesh(geo, this.beamMat); b.visible = false; b.frustumCulled = false; b.renderOrder = 3; scene.add(b); this.beams.push(b);
     }
     this.glowMat = new THREE.SpriteMaterial({ map: glowTexture() || null, color: 0xfff4dc, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }); this.glows = [];

@@ -1,25 +1,42 @@
 // Shared materials. Time of day (night factor) and rain (wetness) drive emissive and roughness.
+import { applyWeathering } from './Weathering.js';
 import * as THREE from 'three';
 import { TEX } from './Textures.js';
+import { barkTextures } from './RealTextures.js';
 import { applyInteriorMapping, INTERIOR, occupancy } from './InteriorMapping.js';
 export const MAT = {};
 const facadeKeys = ['colonial', 'brick', 'glass', 'glass2', 'glass3', 'office', 'office2', 'office3', 'hotel', 'shop', 'shop2', 'shop3', 'apartment', 'apartment2', 'villa', 'warehouse'];
 const wetTargets = [];
+// outdoor materials built elsewhere (modelled forecourt slabs …) join the rain response: white-based maps only (the colour is driven)
+export function addWetTarget(m, dryR, wetR) { if (!wetTargets.some((t) => t[0] === m)) wetTargets.push([m, dryR, wetR]); }
 // Road glare: on wet asphalt at night every oncoming headlight (a spot light pointed back at the viewer) became a white
 // mirror streak between the car and the camera, so bright that bloom turned it into a white halo hiding the car (tested:
 // bloom off → car visible behind a streak; beam off → no halo). On road surfaces each spot light's SPECULAR term is capped
 // (0.55, below the night bloom threshold of 1.7) and scaled by ROAD_SPOT_SPEC; the wet streak stays, it just never blooms.
 // Diffuse light (the lit road ahead) and every other light are untouched. Driven by updateMaterials.
 export const ROAD_SPOT_SPEC = { value: 1 };
+// Dry asphalt is matte: the roughness map's smoother (puddle-prone) patches only turn glossy once the road is actually wet
+// (ROAD_WET follows Atmosphere.wet, which now tracks the rain). Without this a dry road sheened like a wet one toward the sun.
+export const ROAD_WET = { value: 0 };
 function roadSpotSpec(m) {
-  m.onBeforeCompile = (sh) => { sh.uniforms.uRoadSpotSpec = ROAD_SPOT_SPEC;
+  m.onBeforeCompile = (sh) => { sh.uniforms.uRoadSpotSpec = ROAD_SPOT_SPEC; sh.uniforms.uRoadWet = ROAD_WET;
     const pars = THREE.ShaderChunk.lights_physical_pars_fragment.replace('reflectedLight.directSpecular += irradiance * specularBRDF * material.multiScatteringCompensation;', 'reflectedLight.directSpecular += min( irradiance * specularBRDF * material.multiScatteringCompensation, vec3( gSpotCap ) ) * gSpotSpec;');
     let beg = THREE.ShaderChunk.lights_fragment_begin; const i = beg.indexOf('#if ( NUM_SPOT_LIGHTS > 0 ) && defined( RE_Direct )'); const call = 'RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );';
     const j = i >= 0 ? beg.indexOf(call, i) : -1; if (j >= 0) beg = beg.slice(0, j) + 'gSpotSpec = uRoadSpotSpec; gSpotCap = 0.55; ' + call + ' gSpotSpec = 1.0; gSpotCap = 1e6;' + beg.slice(j + call.length);
     if (j < 0 || pars === THREE.ShaderChunk.lights_physical_pars_fragment) return; // three changed its chunks: leave the material as it is
-    sh.fragmentShader = 'uniform float uRoadSpotSpec;\nfloat gSpotSpec = 1.0;\nfloat gSpotCap = 1e6;\n' + sh.fragmentShader.replace('#include <lights_physical_pars_fragment>', pars).replace('#include <lights_fragment_begin>', beg); };
-  m.customProgramCacheKey = () => 'roadSpotSpec2';
+    sh.fragmentShader = 'uniform float uRoadSpotSpec;\nuniform float uRoadWet;\nfloat gSpotSpec = 1.0;\nfloat gSpotCap = 1e6;\n' + sh.fragmentShader.replace('#include <lights_physical_pars_fragment>', pars).replace('#include <lights_fragment_begin>', beg)
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = mix( max( roughnessFactor, 0.94 ), roughnessFactor, smoothstep( 0.05, 0.6, uRoadWet ) );'); };
+  m.customProgramCacheKey = () => 'roadSpotSpec3';
 }
+// Surface relief (Visual upgrade phase 1): tangent-space normal maps baked from each procedural texture's own height field
+// (Textures.js heightToNormal). They share the albedo's UVs (and so its tiling / world-space mapping), so every road, wall and
+// roof keeps its look and gains depth that reacts to the sun, moon, street lamps and headlights. NORMAL_SCALE is the one place
+// the relief is tuned per surface; the geometry needs no tangents (three derives the frame from the UV derivatives).
+// 36th Stage 3: the building relief read as embossed plastic at street level (every render bump and moulding lit like a
+// relief map). Only the strengths change — same baked maps: facades 1.25 → 0.8, roof tiles 1.15 → 0.85, flat roofs 1 → 0.75,
+// corrugated sheet 1 → 0.8, building concrete (trims, boundary walls, plinths) 1 → 0.8. Ground surfaces keep theirs.
+export const NORMAL_SCALE = { road: 1.15, walk: 1.2, kerb: 1, concrete: 0.8, sand: 1.6, roofTiles: 0.85, roofFlat: 0.75, corrugated: 0.8, facade: 0.8 };
+export function withNormal(m, tex, s) { if (!m || !tex) return m; m.normalMap = tex; m.normalScale = new THREE.Vector2(s, s); m.needsUpdate = true; return m; }
 export function buildMaterials() {
   const std = (o) => new THREE.MeshStandardMaterial(o);
   MAT.road = std({ map: TEX.asphalt, roughnessMap: TEX.asphaltRough, roughness: 1, metalness: 0, color: 0xffffff });
@@ -30,17 +47,21 @@ export function buildMaterials() {
   MAT.walk = std({ map: TEX.pavers, roughness: 0.9, color: 0xffffff });
   MAT.walkGrey = std({ map: TEX.paversGrey, roughness: 0.9 });
   MAT.kerb = std({ map: TEX.concrete, roughness: 0.85, vertexColors: true });
-  MAT.concrete = std({ map: TEX.concrete, roughness: 0.9, vertexColors: true });
+  MAT.concrete = applyWeathering(std({ map: TEX.concrete, roughness: 0.9, vertexColors: true }), 'wall'); // compound walls, plinths, trims: faded patches, rising damp (36th Stage 4)
+  withNormal(MAT.road, TEX.n_asphalt, NORMAL_SCALE.road); withNormal(MAT.roadTint, TEX.n_asphalt, NORMAL_SCALE.road);
+  withNormal(MAT.walk, TEX.n_pavers, NORMAL_SCALE.walk); withNormal(MAT.walkGrey, TEX.n_paversGrey, NORMAL_SCALE.walk);
+  withNormal(MAT.kerb, TEX.n_concrete, NORMAL_SCALE.kerb); withNormal(MAT.concrete, TEX.n_concrete, NORMAL_SCALE.concrete);
   MAT.grass = std({ map: TEX.grass, roughness: 1 });
   MAT.ballast = std({ map: TEX.ballast, roughness: 1, vertexColors: true });
   MAT.lawn = std({ map: TEX.lawn, roughness: 1 });
   MAT.laterite = std({ map: TEX.laterite, roughness: 1 });
-  MAT.sand = std({ map: TEX.sand, roughness: 1 });
+  MAT.sand = withNormal(std({ map: TEX.sand, roughness: 1 }), TEX.n_sand, NORMAL_SCALE.sand);
   MAT.rocks = std({ map: TEX.rocks, roughness: 0.95, vertexColors: true });
   MAT.marking = std({ color: 0xf2f2ea, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, vertexColors: true });
   for (const k of facadeKeys) {
     const f = TEX['f_' + k];
     MAT['f_' + k] = std({ map: f.map, emissiveMap: f.emissive, emissive: 0xffffff, emissiveIntensity: 0, roughnessMap: f.rm, metalnessMap: f.rm, roughness: 1, metalness: k.startsWith('glass') ? 1 : 1, vertexColors: true, envMapIntensity: k.startsWith('glass') ? 1.0 : 0.8 });
+    withNormal(MAT['f_' + k], f.normal, NORMAL_SCALE.facade); // brick courses / mouldings / render; glass held flat in the map
     applyInteriorMapping(MAT['f_' + k], { office: /^(glass|office)/.test(k) }); // windows show parallax rooms with depth (offices: lit floor sections)
   }
   MAT.shops = std({ map: TEX.shops.map, emissiveMap: TEX.shops.emissive, emissive: 0xffffff, emissiveIntensity: 0.15, roughness: 0.8 });
@@ -66,9 +87,9 @@ export function buildMaterials() {
           diffuseColor.rgb = mix(diffuseColor.rgb, col, shut); totalEmissiveRadiance *= 1.0 - shut; } }`); };
   MAT.shops.customProgramCacheKey = () => 'shops-shutter-v3';
   MAT.signs = std({ map: TEX.signs.map, emissiveMap: TEX.signs.emissive, emissive: 0xffffff, emissiveIntensity: 0.05, roughness: 0.6, side: THREE.DoubleSide });
-  MAT.roofTiles = std({ map: TEX.roofTiles, roughness: 0.85, vertexColors: true });
-  MAT.roofFlat = std({ map: TEX.roofConcrete, roughness: 0.95, vertexColors: true });
-  MAT.corrugated = std({ map: TEX.corrugated, roughness: 0.6, metalness: 0.4, vertexColors: true, side: THREE.DoubleSide });
+  MAT.roofTiles = applyWeathering(withNormal(std({ map: TEX.roofTiles, roughness: 0.85, vertexColors: true }), TEX.n_roofTiles, NORMAL_SCALE.roofTiles), 'roof'); // lichen / soot blotches across a roof (36th Stage 4)
+  MAT.roofFlat = applyWeathering(withNormal(std({ map: TEX.roofConcrete, roughness: 0.95, vertexColors: true }), TEX.n_roofConcrete, NORMAL_SCALE.roofFlat), 'roof');
+  MAT.corrugated = withNormal(std({ map: TEX.corrugated, roughness: 0.6, metalness: 0.4, vertexColors: true, side: THREE.DoubleSide }), TEX.n_corrugated, NORMAL_SCALE.corrugated); applyWeathering(MAT.corrugated, 'roof');
   MAT.paint = std({ roughness: 0.75, vertexColors: true });       // generic vertex-coloured props
   MAT.paintDS = std({ roughness: 0.8, vertexColors: true, side: THREE.DoubleSide });
   MAT.metal = std({ roughness: 0.45, metalness: 0.85, vertexColors: true });
@@ -86,7 +107,12 @@ export function buildMaterials() {
   MAT.palm = std({ map: TEX.palm, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85, vertexColors: true });
   MAT.bark = std({ color: 0x6b5a48, roughness: 1, vertexColors: true });
   // trees / plants (Forest.js): real bark and palm-trunk textures, small-leaf sprigs (creepers, shrubs), banana blades, flowers
-  MAT.treeBark = std({ map: TEX.bark, bumpMap: TEX.bark, bumpScale: 2.2, color: 0xf2ece4, roughness: 0.95, vertexColors: true }); // mid grey-brown bark with relief (was ~3 % albedo: read as black sticks)
+  // 35th request: photographic bark (RealTextures.barkTextures): fissured ridges, flaking plates, lichen and damp streaks with a matching
+  // tangent normal map. Trunk UVs (TreeShapes.tubeGeo) run once around (u) and h/6 per tile up (v): repeat (2, 0.32) gives ~1.2 m of
+  // bark per tile around a 0.3–0.4 m trunk and ~2.4 m up, i.e. undistorted, real-size fissures. Node / no canvas: the old texture.
+  const RB = barkTextures();
+  if (RB) { for (const t of [RB.map, RB.normal]) t.repeat.set(2, 0.32); MAT.treeBark = std({ map: RB.map, normalMap: RB.normal, normalScale: new THREE.Vector2(2.4, 2.4), color: 0xffffff, roughness: 0.96, vertexColors: true }); }
+  else MAT.treeBark = std({ map: TEX.bark, bumpMap: TEX.bark, bumpScale: 2.2, color: 0xf2ece4, roughness: 0.95, vertexColors: true }); // mid grey-brown bark with relief (was ~3 % albedo: read as black sticks)
   MAT.palmBark = std({ map: TEX.palmBark, roughness: 1, vertexColors: true });
   MAT.leavesSmall = std({ map: TEX.leavesSmall, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9, vertexColors: true });
   MAT.banana = std({ map: TEX.banana, alphaTest: 0.4, side: THREE.DoubleSide, roughness: 0.75, vertexColors: true });
@@ -118,6 +144,7 @@ export function updateMaterials(night, wet, t) {
   // wet roads at night: a film of water on real asphalt is not a mirror (the texture breaks it up); at 0.18 every oncoming
   // headlight smeared into a long white streak that hid the car behind it. Night keeps the wet look (darker, glossier)
   // but with a broader, dimmer highlight.
-  for (const [m, dryR, wetR] of wetTargets) { const wr = m === MAT.road || m === MAT.roadTint ? wetR + (0.26 - wetR) * n : wetR; m.roughness = dryR + (wr - dryR) * wet; m.color.copy(_dry).lerp(_wet, wet * 0.8); m.envMapIntensity = (0.6 + wet * 1.6) * (1 - 0.45 * n); }
+  for (const [m, dryR, wetR] of wetTargets) { const wr = m === MAT.road || m === MAT.roadTint ? wetR + (0.26 - wetR) * n : wetR; m.roughness = dryR + (wr - dryR) * wet; m.color.copy(_dry).lerp(_wet, wet * 0.8); m.envMapIntensity = (0.6 + wet * 1.6) * (1 - 0.45 * n); if (m === MAT.road || m === MAT.roadTint) m.envMapIntensity = (0.3 + wet * 1.9) * (1 - 0.45 * n); }
+  ROAD_WET.value = wet;
   ROAD_SPOT_SPEC.value = 1 - 0.45 * Math.min(1, wet * 1.5) * n - 0.2 * (1 - Math.min(1, wet * 1.5)) * n; // wet night 0.55, dry night 0.8, day 1 (and every spot highlight on the road capped below the bloom threshold, see roadSpotSpec)
 }

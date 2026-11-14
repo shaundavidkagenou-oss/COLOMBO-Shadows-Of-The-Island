@@ -21,6 +21,11 @@ function waterFloor(x, z) { if (!Lay.isWater(x, z) || Lay.bridgeWalkAt(x, z)) re
 export const RAG_N = ['pelvis', 'chest', 'neck', 'head', 'shL', 'shR', 'elL', 'elR', 'wrL', 'wrR', 'hipL', 'hipR', 'knL', 'knR', 'anL', 'anR'];
 const I = Object.fromEntries(RAG_N.map((n, i) => [n, i]));
 const BONE_OF = { pelvis: 'hips', chest: 'chest', neck: 'neck', head: 'head', shL: 'armL', shR: 'armR', elL: 'foreL', elR: 'foreR', wrL: 'handL', wrR: 'handR', hipL: 'thighL', hipR: 'thighR', knL: 'shinL', knR: 'shinR', anL: 'footL', anR: 'footR' };
+const CHAIN = [['chest', 'pelvis'], ['neck', 'chest'], ['head', 'neck'], ['shL', 'chest'], ['shR', 'chest'], ['elL', 'shL'], ['elR', 'shR'], ['wrL', 'elL'], ['wrR', 'elR'], ['hipL', 'pelvis'], ['hipR', 'pelvis'], ['knL', 'hipL'], ['knR', 'hipR'], ['anL', 'knL'], ['anR', 'knR']].map(([c, a]) => [RAG_N.indexOf(c), RAG_N.indexOf(a)]); // child, parent
+const PEN_BONES = ['head', 'chest', 'armL', 'armR', 'foreL', 'foreR', 'handL', 'handR', 'thighL', 'thighR', 'shinL', 'shinR', 'footL', 'footR'];
+const BONE_J = [['armL', 'shL'], ['armR', 'shR'], ['foreL', 'elL'], ['foreR', 'elR'], ['handL', 'wrL'], ['handR', 'wrR'], ['thighL', 'hipL'], ['thighR', 'hipR'], ['shinL', 'knL'], ['shinR', 'knR'], ['footL', 'anL'], ['footR', 'anR']].map(([bn, j]) => [bn, RAG_N.indexOf(j)]);
+const TORSO_TOP = ['chest', 'neck', 'head', 'shL', 'shR'].map((n) => RAG_N.indexOf(n));
+const PARENT = RAG_N.map((n, i) => { const e = CHAIN.find((q) => q[0] === i); return e ? e[1] : -1; });
 const RAD = [0.11, 0.12, 0.06, 0.1, 0.06, 0.06, 0.045, 0.045, 0.04, 0.04, 0.08, 0.08, 0.06, 0.06, 0.05, 0.05];
 const INVM = [0.35, 0.35, 0.8, 0.8, 0.8, 0.8, 1, 1, 1.2, 1.2, 0.6, 0.6, 0.9, 0.9, 1.1, 1.1]; // heavier trunk
 const UPPER = new Set(['chest', 'neck', 'head', 'shL', 'shR', 'elL', 'elR', 'wrL', 'wrR']);
@@ -29,6 +34,7 @@ const v3 = () => new THREE.Vector3();
 const _a = v3(), _b = v3(), _c = v3(), _d = v3(), _m = new THREE.Matrix4(), _inv = new THREE.Matrix4(), _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
 const CAPS = [[I.pelvis, I.chest, 0.17], [I.chest, I.neck, 0.15], [I.neck, I.head, 0.11], [I.shL, I.elL, 0.06], [I.shR, I.elR, 0.06], [I.elL, I.wrL, 0.05], [I.elR, I.wrR, 0.05], [I.hipL, I.knL, 0.09], [I.hipR, I.knR, 0.09], [I.knL, I.anL, 0.065], [I.knR, I.anR, 0.065]].map(([a, b, r]) => [a, b, r]);
 const smooth = (k) => k * k * (3 - 2 * k);
+const LEDGE = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
 // rest pose (identity bone rotations) particle positions in skeleton space; feet on y = 0
 export function restParticles(ch) {
@@ -45,7 +51,7 @@ export class Ragdoll {
     const b = ch.bones; ch.root.updateMatrixWorld(true);
     // current animated pose → world particles (includes any tilt the mesh had while falling)
     this.p = RAG_N.map((n) => { const bone = b[BONE_OF[n]]; const w = bone.getWorldPosition(v3()); if (n === 'head') { w.copy(bone.localToWorld(v3().set(0, 0.12 * this.s, 0.01 * this.s))); } return w; });
-    this.o = this.p.map((p) => p.clone()); this.gy = new Float32Array(RAG_N.length).fill(NaN); this.contact = new Uint8Array(RAG_N.length);
+    this.o = this.p.map((p) => p.clone()); this.gy = new Float32Array(RAG_N.length).fill(NaN); this.contact = new Uint8Array(RAG_N.length); this.untangle();
     // the mesh's own tilt / offset is replaced by the particle pose (root keeps its yaw and is re-based under the pelvis)
     ch.mesh.rotation.set(0, 0, 0); ch.mesh.position.set(0, 0, 0); ch.mesh.updateMatrixWorld(true);
     this.rest = restParticles(ch); const R = this.rest;
@@ -95,27 +101,50 @@ export class Ragdoll {
     this.age += dt;
     if (this.kin) { this.stepKin(dt); return; }
     if (this.asleep) { if (vehicles) for (const v of vehicles) { if (Math.abs(v.speed || 0) < 0.3) continue; const P = this.pelvis(); if (Math.hypot(v.x - P.x, v.z - P.z) < (v.half || 2.3) + 1.6 && v.pushOut(P.x, P.z, 0.9)) { this.wake(); break; } } if (this.asleep) return; }
+    const f0 = this.f0 || (this.f0 = new Float32Array(this.p.length * 3)); for (let i = 0; i < this.p.length; i++) { f0[i * 3] = this.p[i].x; f0[i * 3 + 1] = this.p[i].y; f0[i * 3 + 2] = this.p[i].z; } // frame start (settleOnBody)
     const h = 1 / 60; this.acc = Math.min((this.acc || 0) + dt, 3 * h); let maxD = 0, n = 0; // fixed 60 Hz steps (Verlet needs a constant step)
     while (this.acc >= h - 1e-6) { this.acc -= h; n++;
       for (let i = 0; i < this.p.length; i++) { const p = this.p[i], o = this.o[i]; const fr = this.contact[i] ? 0.82 : 0.995; const vx = (p.x - o.x) * fr, vy = (p.y - o.y) * 0.995, vz = (p.z - o.z) * fr; o.copy(p); p.x += vx; p.y += vy - 9.81 * h * h; p.z += vz; }
       for (let it = 0; it < 8; it++) { this.solveSticks(this.sticks); if (it % 2 === 1) this.collide(vehicles, it === 7, true); }
-      this.hinges(); this.solveSticks(this.sticks); this.solveSticks(this.sticks); this.collide(null, false, false); // lengths last, then only the ground (never left inside it)
+      this.hinges(); this.solveSticks(this.sticks); this.solveSticks(this.sticks); this.collide(null, false, false); this.solveSticks(this.sticks); this.collide(null, false, false); // lengths last, then only the ground (never left inside it); a second round holds a limb's length through a hard wall impact
       for (let i = 0; i < this.p.length; i++) maxD = Math.max(maxD, this.p[i].distanceToSquared(this.o[i]));
     }
     if (!n) return;
     this.guard();
-    if (Math.sqrt(maxD) < 0.0025 && this.age > 0.6) { this.sleepT += dt; if (this.sleepT > 0.8) { this.asleep = true; for (let i = 0; i < this.p.length; i++) this.o[i].copy(this.p[i]); } } else this.sleepT = 0;
-    this.rebase(); this.apply(dt);
+    // lying on another body: the push back up comes after this step (RagdollWorld.bodies), so sinking a few mm here and being
+    // lifted straight back is not motion: that body's sleep is judged on its net movement over the whole frame (settleOnBody)
+    if (this.onBody > 0) { this.onBody--; this.pendSleep = dt; }
+    else if (Math.sqrt(maxD) < 0.0025 && this.age > 0.6) { this.sleepT += dt; if (this.sleepT > 0.8) { this.asleep = true; for (let i = 0; i < this.p.length; i++) this.o[i].copy(this.p[i]); } } else this.sleepT = 0;
+    this.rebase(); this.apply(dt); this.fixBones();
   }
   // safety net: a pose that went NaN goes back to the last good one; a body that ended up under the ground (anything that
   // moved the ground or the body outside the solver) is lifted back onto it, at rest
   guard() {
     const P = this.p; let bad = false; for (let i = 0; i < P.length; i++) { const q = P[i]; if (!(q.x === q.x && q.y === q.y && q.z === q.z) || Math.abs(q.y) > 1e4) { bad = true; break; } }
     if (bad) { if (this.good) for (let i = 0; i < P.length; i++) { P[i].copy(this.good[i]); this.o[i].copy(this.good[i]); } this.gy.fill(NaN); const st = this.world && this.world.stats; if (st) st.restored = (st.restored || 0) + 1; return; }
-    const pel = P[I.pelvis]; if (this.col) { const rp = RAD[I.pelvis] * this.s; let gy = this.col.groundAt(pel.x, pel.z, pel.y - rp + 0.35); if (gy < -0.5) { const wf = waterFloor(pel.x, pel.z); if (wf !== null && wf > gy) gy = wf; }
+    const pel = P[I.pelvis]; if (this.col) { const rp = RAD[I.pelvis] * this.s; let gy = this.col.groundAt(pel.x, pel.z, pel.y - rp - 0.25, 0.6, true); if (gy < -0.5) { const wf = waterFloor(pel.x, pel.z); if (wf !== null && wf > gy) gy = wf; }
       const sink = gy + rp - 0.4 - pel.y; if (sink > 0) { const d = sink + 0.4; for (let i = 0; i < P.length; i++) { P[i].y += d; this.o[i].copy(P[i]); } this.gy.fill(NaN); } }
     if (!this.good) this.good = P.map((q) => q.clone()); else for (let i = 0; i < P.length; i++) this.good[i].copy(P[i]);
   }
+  // a pose handed over from an animation or a scripted path can lie across a thin wall (a body that went down in a narrow
+  // alley): walking out from the pelvis, a joint whose bone crosses a solid is brought back to its parent's side
+  untangle() {
+    const col = this.col; if (!col || !col.sweepSolid) return; const P = this.p, R = this.rest;
+    for (const [c, a] of CHAIN) { const A = P[a], C = P[c], r = RAD[c] * this.s; const y = Math.min(A.y, C.y) - r;
+      // the skinned bone keeps its rest length along A→C (a wrist also carries the hand), so the test is on that reach,
+      // and the fix turns the limb off the wall at full length (shortening it would leave the mesh in the wall)
+      let dx = C.x - A.x, dy = C.y - A.y, dz = C.z - A.z; const d = Math.hypot(dx, dy, dz); if (d < 1e-5) continue; dx /= d; dy /= d; dz /= d;
+      const reach = (R ? R[c].distanceTo(R[a]) : d) + (c === I.wrL || c === I.wrR ? 0.07 * this.s : 0) + r;
+      const t = col.sweepSolid(A.x, A.z, A.x + dx * reach, A.z + dz * reach, y, 0.3, 0.3); if (t >= 1) continue;
+      const H = col.sweepHit, h = H.axis === 0 ? Math.abs(A.x - H.face) : H.axis === 1 ? Math.abs(A.z - H.face) : Math.abs((A.x - H.px) * H.nx + (A.z - H.pz) * H.nz); // parent's distance from the face
+      const dn = dx * H.nx + dz * H.nz, need = -Math.max(0, h - 0.01) / reach; if (dn >= need) continue; // dn < 0: heading into the wall
+      const rest = Math.sqrt(Math.max(0, 1 - need * need) / Math.max(1e-6, 1 - dn * dn)); let ux = (dx - dn * H.nx) * rest + need * H.nx, uy = dy * rest, uz = (dz - dn * H.nz) * rest + need * H.nz;
+      if (Math.abs(1 - dn * dn) < 1e-4) { ux = need * H.nx; uy = Math.sqrt(Math.max(0, 1 - need * need)); uz = need * H.nz; } // straight at the wall: turn it upwards
+      C.set(A.x + ux * d, Math.max(C.y, A.y + uy * d), A.z + uz * d); this.o[c].copy(C); }
+  }
+  settleOnBody() { const dt = this.pendSleep; this.pendSleep = 0; if (!dt || this.kin || this.asleep) return; const f0 = this.f0; let m = 0;
+    for (let i = 0; i < this.p.length; i++) { const q = this.p[i]; m = Math.max(m, (q.x - f0[i * 3]) ** 2 + (q.y - f0[i * 3 + 1]) ** 2 + (q.z - f0[i * 3 + 2]) ** 2); }
+    if (Math.sqrt(m) < 0.0025 && this.age > 0.6) { this.sleepT += dt; if (this.sleepT > 0.8) { this.asleep = true; for (let i = 0; i < this.p.length; i++) this.o[i].copy(this.p[i]); this.rebase(); this.apply(0); } } else this.sleepT = 0; }
   solveSticks(list) {
     const P = this.p;
     for (const [a, c, L, k, lo, hi] of list) { const A = P[a], C = P[c]; const dx = C.x - A.x, dy = C.y - A.y, dz = C.z - A.z; const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-6;
@@ -125,11 +154,46 @@ export class Ragdoll {
   collide(vehicles, full, walls = full) {
     const col = this.col;
     for (let i = 0; i < this.p.length; i++) { const p = this.p[i], r = RAD[i] * this.s;
-      if (full || this.gy[i] !== this.gy[i]) { let gy = col ? col.groundAt(p.x, p.z, p.y - r + 0.35) : 0; if (gy < -0.5) { const wf = waterFloor(p.x, p.z); if (wf !== null && wf > gy) gy = wf; } this.gy[i] = gy; } const g = this.gy[i] + r;
+      const gq = this.gxz || (this.gxz = new Float32Array(this.p.length * 2)); const moved = (p.x - gq[i * 2]) ** 2 + (p.z - gq[i * 2 + 1]) ** 2 > 0.0064; // re-sample the ground under a joint that has moved 8 cm sideways since (a cached height from beside a coping let a knee swing into its face)
+      if (full || moved || this.gy[i] !== this.gy[i]) { gq[i * 2] = p.x; gq[i * 2 + 1] = p.z; let gy = col ? col.groundAt(p.x, p.z, p.y - r - 0.25, 0.6, true /* tops up to 0.35 m over the joint's underside: groundAt adds its 0.6 m step */) : 0; if (gy < -0.5) { const wf = waterFloor(p.x, p.z); if (wf !== null && wf > gy) gy = wf; } this.gy[i] = gy; } const g = this.gy[i] + r;
       this.contact[i] = 0; if (p.y < g) { p.y = g; this.contact[i] = 1; const o = this.o[i]; if (o.y < g) o.y = g; /* the snap is not speed: a particle lifted out of the ground (kerb edge, body starting in it) must not be launched */ } else if (p.y < g + 0.01) this.contact[i] = 1;
-      if (walls && col) { const q = col.resolveCircle(p.x, p.z, r, p.y - r, 0.3, 0.3); if (q.hit) { p.x = q.x; p.z = q.z; } }
+      if (walls && col) { const o = this.o[i]; const t = col.sweepSolid ? col.sweepSolid(o.x, o.z, p.x, p.z, p.y - r, 0.3, 0.3) : 1; if (t < 1) { const L = Math.hypot(p.x - o.x, p.z - o.z) || 1, k = Math.max(0, t - (r * 0.5 + 0.005) / L); p.x = o.x + (p.x - o.x) * k; p.z = o.z + (p.z - o.z) * k; } // never through a wall: stopped at the face it was moving into
+        const q = col.resolveCircle(p.x, p.z, r, p.y - r, 0.3, 0.3); if (q.hit) { p.x = q.x; p.z = q.z;
+          // a joint already inside a thin wall is pushed out of its nearest face, which can be the far one: it goes back out on
+          // the side its parent joint is on (parents come first in RAG_N, so the chain is settled from the pelvis outward)
+          const pa = PARENT[i]; if (pa >= 0 && col.sweepSolid) { const A = this.p[pa]; const t2 = col.sweepSolid(A.x, A.z, p.x, p.z, Math.min(A.y, p.y) - r, 0.3, 0.3); if (t2 < 1) { const L2 = Math.hypot(p.x - A.x, p.z - A.z) || 1, k2 = Math.max(0, t2 - (r + 0.01) / L2); p.x = A.x + (p.x - A.x) * k2; p.z = A.z + (p.z - A.z) * k2; const o = this.o[i]; o.x = p.x; o.z = p.z; } } } }
+      if (full && col) { const gi = this.gy[i]; for (let k = 0; k < 4; k++) { const ox = LEDGE[k][0] * r, oz = LEDGE[k][1] * r; const ge = col.groundAt(p.x + ox, p.z + oz, p.y + 0.35); // a kerb / step edge within the joint's radius that stands above its underside is a face, not a floor: slide off it
+        if (ge > gi + 0.04 && ge < gi + 0.25 && ge > p.y - r * 0.4) { p.x -= ox * 0.6; p.z -= oz * 0.6; const o = this.o[i]; o.x -= ox * 0.6; o.z -= oz * 0.6; } } }
+      // inside a raised block from the side (seawall / lake coping, plinth: a walkable top 0.2-0.8 m above the ground the joint
+      // sees): the ground query above skips a surface more than 0.35 m over the joint, so a limb swung into the coping's face
+      // stayed in the concrete. The face stops it where it came from; one already inside is set on the top (not launched).
+      if (full && col) { const gi = this.gy[i], gh = col.groundAt(p.x, p.z, p.y + 1.2); if (gh > gi + 0.2 && gh < gi + 0.8 && p.y - r < gh - 0.02) { const o = this.o[i]; const go = col.groundAt(o.x, o.z, o.y + 1.2);
+        if (go < gh - 0.2) { p.x = o.x; p.z = o.z; } else if (p.y - r < gh - 0.25 && this.outOfBlock(p, r, gh)) { o.x = p.x; o.z = p.z; } // deep in it: out of the nearest face, at its foot
+        else { p.y = gh + r; if (o.y < p.y) o.y = p.y; this.gy[i] = gh; this.contact[i] = 1; } } }
     }
     if (full && vehicles) { const P = this.pelvis(); for (const v of vehicles) { if (Math.abs(v.x - P.x) > 7 || Math.abs(v.z - P.z) > 7) continue; for (let i = 0; i < this.p.length; i++) { const p = this.p[i]; const q = v.pushOut(p.x, p.z, RAD[i] * this.s + 0.05); if (q) { p.x = q.x; p.z = q.z; } } } }
+  }
+  // the drawn limbs: the bones are rebuilt at rest length from the torso frames, so they can sit several cm off the particles.
+  // A limb bone that ends up inside a raised face (seawall coping, plinth) or under the ground moves the particle that drives
+  // it out by that much (its previous position too: no velocity), and the pose is re-applied, in the same frame
+  fixBones() {
+    const col = this.col; if (!col || !col.sweepSolid) return; const b = this.ch.bones;
+    for (let pass = 0; pass < 4; pass++) { this.ch.root.updateMatrixWorld(true); let moved = false;
+      for (const [bn, j] of BONE_J) { const o = b[bn]; if (!o) continue; _a.setFromMatrixPosition(o.matrixWorld); const P = this.p[j], O = this.o[j];
+        const top = col.groundAt(_a.x, _a.z, _a.y + 0.3); if (top - _a.y < 0.04) continue; const low = col.groundAt(_a.x, _a.z, _a.y - 0.3, 0.6, true);
+        if (top > low + 0.15) { const t = col.sweepSolid(P.x, P.z, _a.x, _a.z, _a.y - 0.05, 0.1, 0.3); if (t >= 1) continue; // inside a raised block from the side: back out of the face
+          const H = col.sweepHit, hx = P.x + (_a.x - P.x) * t, hz = P.z + (_a.z - P.z) * t, d = (hx - _a.x) * H.nx + (hz - _a.z) * H.nz + 0.015; if (!(d > 0)) continue;
+          P.x += H.nx * d; P.z += H.nz * d; O.x += H.nx * d; O.z += H.nz * d; moved = true;
+          if (j === I.shL || j === I.shR) for (const q of TORSO_TOP) if (q !== j) { this.p[q].x += H.nx * d; this.p[q].z += H.nz * d; this.o[q].x += H.nx * d; this.o[q].z += H.nz * d; } } // a shoulder bone hangs off the torso frame: the upper body moves with it
+        else if (top <= low + 0.02) { const d = top - _a.y; P.y += d; O.y += d; moved = true; } } // under flat ground: up
+      if (!moved) break; this.apply(0);
+    }
+  }
+  // a joint well inside a raised block (both now and last step) goes out through the nearest face to the low side, not up
+  outOfBlock(p, r, top) {
+    const col = this.col; for (let d = 0.04; d <= 0.72; d += 0.04) for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4, x = p.x + Math.cos(a) * d, z = p.z + Math.sin(a) * d;
+      if (col.groundAt(x, z, p.y - r - 0.25, 0.6, true) < top - 0.2 && col.groundAt(x, z, p.y + 1.2) < top - 0.2) { const e = d + r; p.x += Math.cos(a) * e; p.z += Math.sin(a) * e; return true; } }
+    return false;
   }
   // knees bend forward, elbows backward: a joint on the wrong side of its limb line is reflected through it (not into the ground)
   hinges() {
@@ -137,6 +201,7 @@ export class Ragdoll {
     const fix = (j0, j1, j2, sign) => { const A = P[j0], K = P[j1], C = P[j2]; const ax = _d.copy(C).sub(A); const l2 = ax.lengthSq(); if (l2 < 1e-6) return; const t = ((K.x - A.x) * ax.x + (K.y - A.y) * ax.y + (K.z - A.z) * ax.z) / l2; // foot of the perpendicular: the reflection keeps both segment lengths
       const cx = A.x + ax.x * t, cy = A.y + ax.y * t, cz = A.z + ax.z * t; const ox = K.x - cx, oy = K.y - cy, oz = K.z - cz; if ((ox * F.x + oy * F.y + oz * F.z) * sign < -0.015) { // reflect through the limb line (keeps both lengths) unless that would put it into the ground
         const ky = cy - oy, gy = this.gy[j1] === this.gy[j1] ? this.gy[j1] : -1e9; if (ky < gy + RAD[j1] * this.s - 0.005) return;
+        if (this.col && this.col.groundAt(cx - ox, cz - oz, ky + 1.2) > ky - RAD[j1] * this.s + 0.02) return; // nor into a raised block / coping (the cached height is from where the joint was)
         K.x = cx - ox; K.y = ky; K.z = cz - oz; const O = this.o[j1]; O.x = K.x; O.y = K.y; O.z = K.z; } };
     for (const sd of ['L', 'R']) { fix(I['hip' + sd], I['kn' + sd], I['an' + sd], 1); fix(I['sh' + sd], I['el' + sd], I['wr' + sd], -1); }
     // hip flexion limit: a thigh can't fold up into the chest (rotated back about the hip joint, its length kept)
@@ -178,10 +243,36 @@ export class Ragdoll {
     const K = this.kin; K.t += dt; const k = Math.min(1, K.t / K.dur); const out = this._out || (this._out = RAG_N.map(() => v3()));
     K.fn(K.ease ? smooth(k) : k, out); for (let i = 0; i < this.p.length; i++) this.p[i].copy(out[i]);
     for (let it = 0; it < 3; it++) this.solveSticks(this.limb);
+    this.untangle(); // a scripted roll / sit-up never sweeps a limb through a wall either (before the ground lift, which has the last word)
+    // scripted paths (rolling onto the back, sitting up, the medics' log roll) never take a limb through the ground: an arm
+    // that a roll sweeps under the body, or a hand planted on a kerb, stays on top of whatever is there
+    if (this.col) for (let pass = 0; pass < 4; pass++) { let lifted = false; for (let i = 0; i < this.p.length; i++) { const q = this.p[i], r = RAD[i] * this.s; let g = this.col.groundAt(q.x, q.z, q.y - r - 0.25, 0.6, true); if (g < -0.5) { const wf = waterFloor(q.x, q.z); if (wf !== null && wf > g) g = wf; } g += r * 0.7; if (q.y < g) { q.y = g; lifted = true; } }
+      if (!lifted || pass === 3) break; this.solveSticks(this.limb); } // the last pass is a lift only: a stick solve can't drag a joint back under
     for (let i = 0; i < this.p.length; i++) { this.o[i].copy(this.p[i]); this.gy[i] = NaN; }
     this.rebase(); this.apply(dt);
+    // the skinned bones are rebuilt from the torso frames at rest length, so mid-blend they can sit a little off the particles:
+    // if a limb bone of the drawn body ends up in the ground, the whole pose rises by that much for this frame
+    if (this.col) { const pen = this.bonePen(); if (pen > 0.005) { for (let i = 0; i < this.p.length; i++) { this.p[i].y += pen; this.o[i].copy(this.p[i]); } this.apply(0); } }
+    // the same off a wall: a drawn limb bone inside a solid (a foot past its ankle particle beside a garden wall) moves the
+    // whole pose out sideways by that much for this frame (stateless: it follows the penetration, so it eases in and out)
+    if (this.col && this.col.sweepSolid) { const w = this.boneWall(); if (w) { for (let i = 0; i < this.p.length; i++) { this.p[i].x += w.x; this.p[i].z += w.z; this.o[i].copy(this.p[i]); } this.apply(0); } }
     if (k >= 1 && !K.hold) { this.kin = null; this.sleepT = 0; this.asleep = false; if (K.done) K.done(); }
     else if (k >= 1 && K.done) { const d = K.done; K.done = null; d(); }
+  }
+  bonePen() {
+    const b = this.ch.bones; this.ch.root.updateMatrixWorld(true); let pen = 0;
+    for (const n of PEN_BONES) { const o = b[n]; if (!o) continue; _a.setFromMatrixPosition(o.matrixWorld); let g = this.col.groundAt(_a.x, _a.z, _a.y - 0.3, 0.6, true); if (g < -0.5) { const wf = waterFloor(_a.x, _a.z); if (wf !== null && wf > g) g = wf; } pen = Math.max(pen, g + 0.01 - _a.y); }
+    return Math.min(pen, 0.35);
+  }
+  boneWall() {
+    const b = this.ch.bones; this.ch.root.updateMatrixWorld(true); let bx = 0, bz = 0, bd = 0;
+    for (let it = 0; it < 2; it++) { let mx = 0, mz = 0, md = 0;
+      const P = this.p[I.pelvis]; const px = P.x + bx, pz = P.z + bz; // measured from the pelvis out to each bone: a bone past a thin wall's middle goes back out the body's side, not the far one
+      for (const n of PEN_BONES) { const o = b[n]; if (!o) continue; _a.setFromMatrixPosition(o.matrixWorld); const x = _a.x + bx, z = _a.z + bz, L = Math.hypot(x - px, z - pz); if (L < 1e-4) continue;
+        const t = this.col.sweepSolid(px, pz, x, z, _a.y - 0.05, 0.3, 0.3); if (t >= 1) continue; const H = this.col.sweepHit; let dx, dz; /* straight out of the face it entered (outward normal points back at the pelvis), 5 cm clear */
+        if (H.axis === 0) { dx = H.face + H.nx * 0.05 - x; dz = 0; } else if (H.axis === 1) { dx = 0; dz = H.face + H.nz * 0.05 - z; } else { const k = Math.max(0, t - 0.05 / L); dx = px + (x - px) * k - x; dz = pz + (z - pz) * k - z; } /* a coping face: back along the line */ if (dx * (H.nx || 0) + dz * (H.nz || 0) < 0) continue; const d = Math.hypot(dx, dz); if (d > md) { md = d; mx = dx; mz = dz; } }
+      if (md < 0.003) break; bx += mx; bz += mz; bd = Math.hypot(bx, bz); }
+    if (bd < 0.003) return null; const k = bd > 0.25 ? 0.25 / bd : 1; return { x: bx * k, z: bz * k };
   }
   // blend from the current pose to a target pose given in world space (array or function returning one)
   blendTo(target, dur, done, opts) { const from = this.snapshot(); this.play((k, out) => { const T = typeof target === 'function' ? target() : target; for (let i = 0; i < out.length; i++) out[i].lerpVectors(from[i], T[i], k); }, dur, done, opts); }
@@ -219,15 +310,59 @@ export function supineFrame(rag) {
   const S = Keys.supine(rag.rest); const sp = S[I.pelvis]; const c = Math.cos(yaw), s = Math.sin(yaw);
   return { x: P.x - (sp.x * c + sp.z * s), z: P.z - (-sp.x * s + sp.z * c), yaw };
 }
+// slide a get-up frame (supineFrame) off any wall the key poses would put a limb into: lying alongside a garden wall, sitting
+// up / crouching / standing threw the legs or an arm into it (only one chain at a time is turned off a wall by untangle). The
+// whole frame moves out by the deepest joint's push-out (a person shuffles away from the wall as they get up); fr is changed in place.
+export function clearFrame(fr, rag, col, names = ['supine', 'sit', 'crouch', 'stand']) {
+  if (!col || !col.resolveCircle) return fr; const keys = names.map((n) => Keys[n](rag.rest)); const out = RAG_N.map(() => new THREE.Vector3());
+  for (let it = 0; it < 4; it++) { let bx = 0, bz = 0, bd = 0;
+    for (const k of keys) { Keys.toWorld(k, fr.x, fr.z, fr.yaw, col, out); for (let i = 0; i < out.length; i++) { const q = out[i], r = RAD[i] * rag.s + 0.01; const h = col.resolveCircle(q.x, q.z, r, q.y - r, 0.3, 0.3); if (!h.hit) continue; const dx = h.x - q.x, dz = h.z - q.z, d = Math.hypot(dx, dz); if (d > bd) { bd = d; bx = dx; bz = dz; } } }
+    if (bd < 0.005) break; fr.x += bx * 1.05; fr.z += bz * 1.05; }
+  return fr;
+}
 // signed roll angle (about the body's long axis) that turns the body face up
 export function rollAngle(rag) {
   const P = rag.p; const X = _a.copy(P[I.hipL]).sub(P[I.hipR]).add(_d.copy(P[I.shL]).sub(P[I.shR])), Y = _b.copy(P[I.chest]).sub(P[I.pelvis]);
   const F = _c.crossVectors(X, Y).normalize(); const ax = Y.clone().setY(0).normalize(); if (ax.lengthSq() < 0.5) return 0;
   const Fp = F.clone().addScaledVector(ax, -F.dot(ax)).normalize(); const up = new THREE.Vector3(0, 1, 0); let a = Math.acos(Math.max(-1, Math.min(1, Fp.dot(up)))); if (new THREE.Vector3().crossVectors(Fp, up).dot(ax) < 0) a = -a; return a;
 }
+// a roll onto the back (rotateAbout over k 0..1) next to a wall swings the limbs on the wall side into it: the sideways
+// offset that keeps every joint of the sampled roll path out of solids, applied in full from a third of the way in
+// (a person rolling over beside a wall pushes off it). Returns a Vector3 (y = 0); the caller adds off * rollShift(k).
+export const rollShift = (k) => { const u = Math.min(1, k * 3); return u * u * (3 - 2 * u); };
+export function rollClear(rag, src, origin, axis, ang, col) {
+  const off = new THREE.Vector3(); if (!col || !col.resolveCircle) return off; const out = src.map(() => new THREE.Vector3());
+  for (let it = 0; it < 4; it++) { let bx = 0, bz = 0, bd = 0;
+    for (const k of [0.15, 0.3, 0.45, 0.6, 0.75, 0.9, 1]) { const w = rollShift(k); rotateAbout(src, origin, axis, ang * k, out);
+      for (let i = 0; i < out.length; i++) { const q = out[i], r = RAD[i] * rag.s + 0.01, x = q.x + off.x * w, z = q.z + off.z * w; const h = col.resolveCircle(x, z, r, q.y - r, 0.3, 0.3); if (!h.hit) continue;
+        const dx = (h.x - x) / w, dz = (h.z - z) / w, d = Math.hypot(dx, dz); if (d > bd) { bd = d; bx = dx; bz = dz; } } }
+    if (bd < 0.005) break; off.x += bx * 1.05; off.z += bz * 1.05; }
+  if (off.length() > 0.6) off.setLength(0.6); // never a slide across a yard (a body wedged in a gap keeps the old behaviour)
+  return off;
+}
 export function rotateAbout(src, origin, axis, ang, out) { _q.setFromAxisAngle(axis, ang); for (let i = 0; i < src.length; i++) out[i].copy(src[i]).sub(origin).applyQuaternion(_q).add(origin); return out; }
 
 // every live ragdoll; stepped once per frame by the game
+// closest points of segments P0P1 / Q0Q1 → [s, t] (0..1 along each)
+function segClosest(P0, P1, Q0, Q1) { const d1x = P1.x - P0.x, d1y = P1.y - P0.y, d1z = P1.z - P0.z, d2x = Q1.x - Q0.x, d2y = Q1.y - Q0.y, d2z = Q1.z - Q0.z, rx = P0.x - Q0.x, ry = P0.y - Q0.y, rz = P0.z - Q0.z;
+  const a = d1x * d1x + d1y * d1y + d1z * d1z, e = d2x * d2x + d2y * d2y + d2z * d2z, f = d2x * rx + d2y * ry + d2z * rz; let s = 0, t = 0;
+  if (a < 1e-9 && e < 1e-9) return [0, 0]; if (a < 1e-9) return [0, Math.min(1, Math.max(0, f / e))];
+  const c = d1x * rx + d1y * ry + d1z * rz; if (e < 1e-9) return [Math.min(1, Math.max(0, -c / a)), 0];
+  const b = d1x * d2x + d1y * d2y + d1z * d2z, den = a * e - b * b; s = den > 1e-9 ? Math.min(1, Math.max(0, (b * f - c * e) / den)) : 0; t = (b * s + f) / e;
+  if (t < 0) { t = 0; s = Math.min(1, Math.max(0, -c / a)); } else if (t > 1) { t = 1; s = Math.min(1, Math.max(0, (b - c) / a)); } return [s, t]; }
+const _pa = new THREE.Vector3(), _pb = new THREE.Vector3();
+// push two overlapping capsules (one from each ragdoll) apart; ka / kb: 1 = movable, 0 = fixed. Returns true if they touched.
+function capPush(A, ca, B, cb, ka, kb) { if (!ka && !kb) return false; const a0 = A.p[ca[0]], a1 = A.p[ca[1]], b0 = B.p[cb[0]], b1 = B.p[cb[1]];
+  const [s, t] = segClosest(a0, a1, b0, b1); _pa.copy(a0).lerp(a1, s); _pb.copy(b0).lerp(b1, t); const R = ca[2] * A.s + cb[2] * B.s;
+  let nx = _pa.x - _pb.x, ny = _pa.y - _pb.y, nz = _pa.z - _pb.z; let d = Math.hypot(nx, ny, nz); if (d >= R) return false;
+  if (d < 1e-5) { nx = 0; ny = 1; nz = 0; d = 1e-5; } else { nx /= d; ny /= d; nz /= d; } const pen = R - d; const wa = ka / (ka + kb), wb = kb / (ka + kb);
+  const mv = (P, O, i, w, sg) => { if (!w) return; const u = P === A ? s : t; const k = (sg * pen * w * (i === 0 ? 1 - u : u)) / ((1 - u) * (1 - u) + u * u); /* the capsule's contact point moves by exactly its share */ const p = P.p[i === 0 ? (P === A ? ca[0] : cb[0]) : (P === A ? ca[1] : cb[1])], o = P.o[i === 0 ? (P === A ? ca[0] : cb[0]) : (P === A ? ca[1] : cb[1])];
+    const j = i === 0 ? (P === A ? ca[0] : cb[0]) : (P === A ? ca[1] : cb[1]); let dy = ny * k; const dx = nx * k, dz = nz * k;
+    if (dy < 0) { const g = P.gy[j]; if (g === g) dy = Math.max(dy, Math.min(0, g + RAD[j] * P.s - p.y)); } // a limb caught under a settled body is pushed aside, never down into the ground
+    p.x += dx; p.y += dy; p.z += dz; o.x += dx * 0.5; o.y += dy * 0.5; o.z += dz * 0.5; };
+  mv(A, null, 0, wa, 1); mv(A, null, 1, wa, 1); mv(B, null, 0, wb, -1); mv(B, null, 1, wb, -1); const big = pen > 0.006; // resting contact (a body lying on another: gravity sinks it ~3 mm a step, pushed straight back out) must not keep it awake
+  if (ka && A.asleep === false) { if (big) A.sleepT = 0; if (ny > 0.5) A.onBody = 3; } if (kb && B.asleep === false) { if (big) B.sleepT = 0; if (ny < -0.5) B.onBody = 3; } return true; }
+
 export class RagdollWorld {
   constructor(collision) { this.collision = collision; this.list = []; this.stats = { made: 0 }; }
   add(ch, opts) { if (ch.rag) return ch.rag;
@@ -236,6 +371,14 @@ export class RagdollWorld {
     const par = ch.root.parent; if (par && !par.isScene) { let top = par; while (top.parent) top = top.parent; if (top.isScene) { top.attach(ch.root); const e = new THREE.Euler().setFromQuaternion(ch.root.quaternion, 'YXZ'); ch.root.rotation.set(0, e.y, 0); ch.root.updateMatrixWorld(true); } }
     const r = new Ragdoll(ch, this, opts); this.list.push(r); this.stats.made++; return r; }
   remove(r) { const i = this.list.indexOf(r); if (i >= 0) this.list.splice(i, 1); }
-  update(dt, vehicles) { dt = Math.min(dt, 1 / 20); for (const r of this.list.slice()) { if (!r.ch.root.parent && !r.kin) { this.remove(r); continue; } r.step(dt, vehicles); } }
+  update(dt, vehicles) { dt = Math.min(dt, 1 / 20); for (const r of this.list.slice()) { if (!r.ch.root.parent && !r.kin) { this.remove(r); continue; } r.step(dt, vehicles); } this.bodies(); }
+  // bodies never pass through each other: capsule-vs-capsule between ragdolls lying close together (two knocked down on
+  // the same spot, one falling across another). A settled or animated (getting-up) body does not move; the falling one
+  // comes to rest on top of / beside it.
+  bodies() { const L = this.list; if (L.length < 2) return; let n = 0;
+    for (let a = 0; a < L.length; a++) for (let b = a + 1; b < L.length; b++) { const A = L[a], B = L[b]; const fa = A.asleep || A.kin, fb = B.asleep || B.kin; if (fa && fb) continue;
+      const pa = A.pelvis(), pb = B.pelvis(); if ((pa.x - pb.x) ** 2 + (pa.z - pb.z) ** 2 > 2.6 * 2.6 || Math.abs(pa.y - pb.y) > 2) continue;
+      for (let it = 0; it < 2; it++) for (const ca of CAPS) for (const cb of CAPS) { if (capPush(A, ca, B, cb, fa ? 0 : 1, fb ? 0 : 1)) n++; } }
+    this.stats.bodyPush = (this.stats.bodyPush || 0) + n; for (const r of L) if (r.pendSleep) r.settleOnBody(); }
   clear() { this.list = []; }
 }
