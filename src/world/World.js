@@ -12,7 +12,7 @@ import { buildLandmarks } from './Landmarks.js';
 import { buildPropGeometries, buildPropsForChunk, updateSignals, initGlowTexture } from './Props.js';
 import { buildTreeGeometries, windUniform } from './Vegetation.js';
 import { Forest } from './Forest.js';
-import { buildVines } from './Vines.js';
+import { buildVines, vineFade } from './Vines.js';
 import { bootMap, bootMapWorld } from '../debug/boot.js';
 import { buildWater, WaterReflection } from './Water.js';
 import { buildParks } from './Parks.js';
@@ -59,7 +59,7 @@ export class World {
     { const sr = buildStreetRamps(); this.streetRamps = sr; this.root.add(sr.group); } // speed humps + stunt jumps / bicycle ramps (StreetRamps.js; ground surfaces via Layout.setRampHook)
     { const fs = buildCityStreets(plan); this.fortStreets = this.cityStreets = fs; this.root.add(fs.group); this.collision.addAll(fs.colliders); } // Colombo Fort benchmark: trilingual street names, billboards, drains, bins (FortStreets.js)
     { // second crown-clearance pass against the landmark buildings (they only exist now): no leaves inside them either
-      const boxes = landmarkTreeBoxes(this.collision.list.filter((c) => c.kind === 'landmark' && !c.fuel)).concat(this.fuel.crownBoxes, this.customs.crownBoxes); const r = refitTreeCrowns(boxes);
+      const boxes = landmarkTreeBoxes(this.collision.list.filter((c) => c.kind === 'landmark' && !c.fuel)).concat(this.fuel.crownBoxes, this.customs.crownBoxes); const planCols = new Set(plan.colliders); const obst = this.collision.list.filter((c) => !planCols.has(c) && !['landmark', 'tree', 'building', 'deck', 'platform'].includes(c.kind) && !c.fuel); const r = refitTreeCrowns(boxes, obst); // + walls / barriers / shopfronts / street furniture built after the plan
       if (r.changed.size) { this.collision.remove((c) => r.changed.has(c)); this.collision.addAll(r.keep); }
       plan.plants = (plan.plants || []).filter((p) => !boxes.some((b) => p.x > b[0] - 0.5 && p.x < b[1] + 0.5 && p.z > b[2] - 0.5 && p.z < b[3] + 0.5)); } // no shrub inside a landmark or forecourt
     progress(0.3, 'Street furniture and trees'); await tick();
@@ -225,16 +225,18 @@ export class World {
   update(dt, focus, camera, atmos) {
     this.t += dt; windUniform.value += dt * (0.6 + (atmos ? atmos.w.wind : 0.3));
     this.signalTimer -= dt; if (this.signalTimer <= 0) { this.signalTimer = 0.25; updateSignals(this.simTime ?? this.t); }
-    const fx = focus.x, fz = focus.z; let budget = 1;
+    const fx = focus.x, fz = focus.z; let budget = 1; vineFade.value.x = fx; vineFade.value.y = fz;
     for (const c of this.chunks) {
       const d = Math.max(0, Math.hypot(c.cx - fx, c.cz - fz) - CHUNK * 0.7);
-      { const v = d < this.propRadius; if (v !== c.props.visible) { c.props.visible = v; this.propDirty = true; } }
-      if (c.vines) c.vines.visible = d < this.vineRadius;
-      if (d < this.detailRadius) {
+      // every chunk toggle has hysteresis (shown inside R, hidden only beyond R + H): standing or driving along a boundary
+      // no longer flips a chunk's props / detail / windows on and off from frame to frame
+      { const v = c.props.visible ? d < this.propRadius + 25 : d < this.propRadius; if (v !== c.props.visible) { c.props.visible = v; this.propDirty = true; } }
+      if (c.vines) c.vines.visible = c.vines.visible ? d < this.vineRadius + 20 : d < this.vineRadius; /* the vine shader has already dissolved them by then (vineFade) */
+      if (d < this.detailRadius || (c.detail && c.detail.visible && d < this.detailRadius + 25)) {
         if (!c.detail && budget > 0 && !this.job) { budget--; this.startDetailJob(c); } /* built over several frames: see stepDetailJob */
         else if (c.detail) c.detail.visible = true;
       } else if (c.detail) { c.detail.visible = false; if (d > this.detailRadius + 300 && !c.keep) this.disposeDetail(c); } /* c.keep: set only by the trailer on the chunks its cuts jump between */
-      if (d < this.windowRadius) { if (!c.win && budget > 0 && !this.wjob) { budget--; this.wjob = this.newJob(c, 'win'); } else if (c.win) c.win.visible = true; } /* window joinery: also built over several frames */
+      if (d < this.windowRadius || (c.win && c.win.visible && d < this.windowRadius + 15)) { if (!c.win && budget > 0 && !this.wjob) { budget--; this.wjob = this.newJob(c, 'win'); } else if (c.win) c.win.visible = true; } /* window joinery: also built over several frames */
       else if (c.win) { c.win.visible = false; if (d > this.windowRadius + 120 && !c.keep) this.disposeWindows(c); }
     }
     if (this.propDirty && this.propPools) { this.propDirty = false; this.repackProps(); }

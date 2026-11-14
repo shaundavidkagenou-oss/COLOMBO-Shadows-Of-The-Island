@@ -441,19 +441,39 @@ const REACH = { rain: 13, mara: 9, bo: 9, palm: 7, mango: 6.6, jak: 6.2, frangip
 let EXTRA = null; // extra solid volumes (landmark buildings, from World) bucketed on a 50 m grid
 // Second pass, run by World once the landmark buildings exist: refit every tree against them too. Returns the trunk
 // colliders that moved or were removed so World can re-file them in the collision grid.
-export function refitTreeCrowns(boxes) {
+export function refitTreeCrowns(boxes, obst = []) { // obst: solid colliders built after the plan (landmark walls / barriers, shopfronts, forecourts, street furniture)
+  OBST_EXTRA = obst.filter((c) => !(c.y0 > 0.5) && c.h > 0.45 && c.x1 > c.x0 && c.z1 > c.z0);
   EXTRA = new Map(); for (const b of boxes) for (let i = Math.floor(b[0] / 50); i <= Math.floor(b[1] / 50); i++) for (let j = Math.floor(b[2] / 50); j <= Math.floor(b[3] / 50); j++) { const k = i * 100003 + j; if (!EXTRA.has(k)) EXTRA.set(k, []); EXTRA.get(k).push(b); }
-  const before = new Map(plan.trees.map((t) => [t, t.x + ',' + t.z])); const r = fitTreeCrowns(); EXTRA = null;
+  const before = new Map(plan.trees.map((t) => [t, t.x + ',' + t.z])); const r = fitTreeCrowns(); EXTRA = null; OBST_EXTRA = [];
   const changed = new Set(); for (const [t, k] of before) if (t.col && (r.drop.has(t) || k !== t.x + ',' + t.z)) changed.add(t.col);
   plan.crownFixLandmarks = r.stats; return { changed, keep: plan.trees.filter((t) => t.col && changed.has(t.col)).map((t) => t.col) };
 }
+// Walls and street furniture are solid too: a trunk standing in a compound wall, a bus shelter or a bench, or a crown whose
+// low fronds / leaves pass through a wall, was the "tree in the wall" bug (walls were never part of the crown test, only
+// buildings). Indexed once per pass on a 20 m grid; boxes as [x0, x1, z0, z1, top] (crown) with the real footprint for trunks.
+const OBST_KINDS = new Set(['wall', 'container', 'stall', 'shelter', 'railing', 'bench', 'cart', 'hedge', 'fence', 'shrine', 'pond', 'prop', 'rail', 'pole']);
+export function treeTrunkR(t) { const s = t.s || 1; return (t.type === 'rain' ? 0.6 : t.type === 'bo' ? 0.55 : t.type === 'palm' || t.type === 'areca' ? 0.22 : t.type === 'banana' ? 0.3 : 0.35) * s; }
+export function treeObstacles(extra = []) { // compound walls + solid furniture colliders (+ landmark walls / barriers given by World)
+  const L0 = []; const seen = new Set();
+  for (const w of plan.walls) { L0.push(w); seen.add(w); }
+  for (const c of plan.colliders) { if (seen.has(c) || !OBST_KINDS.has(c.kind) || !(c.h > 0.45)) continue; if (c.kind === 'wall' && plan.walls.some((w) => w.x0 === c.x0 && w.z0 === c.z0 && w.x1 === c.x1 && w.z1 === c.z1)) continue; L0.push(c); }
+  for (const c of extra) L0.push(c);
+  const G = new Map(); for (const o of L0) for (let i = Math.floor(o.x0 / 20); i <= Math.floor(o.x1 / 20); i++) for (let j = Math.floor(o.z0 / 20); j <= Math.floor(o.z1 / 20); j++) { const k = i * 100003 + j; if (!G.has(k)) G.set(k, []); G.get(k).push(o); }
+  return { G, near(x, z, R) { const out = new Set(); for (let i = Math.floor((x - R) / 20); i <= Math.floor((x + R) / 20); i++) for (let j = Math.floor((z - R) / 20); j <= Math.floor((z + R) / 20); j++) for (const o of G.get(i * 100003 + j) || []) if (x > o.x0 - R && x < o.x1 + R && z > o.z0 - R && z < o.z1 + R) out.add(o); return [...out]; } };
+}
+// the leaf-free box of an obstacle for the crown test (poles are skipped: a pole through a canopy is how Colombo looks)
+const obstBox = (o) => (o._tb ||= [o.x0 - 0.1, o.x1 + 0.1, o.z0 - 0.1, o.z1 + 0.1, o.h + 0.15]);
+let OBST = null, OBST_EXTRA = [];
 function fitTreeCrowns() {
+  OBST = treeObstacles(OBST_EXTRA);
+  const trunkHit = (x, z, t) => { const r = treeTrunkR(t) + 0.12; return OBST.near(x, z, r + 0.5).some((o) => Math.hypot(Math.max(o.x0 - x, 0, x - o.x1), Math.max(o.z0 - z, 0, z - o.z1)) < r); };
   const near = (x, z, R) => { const out = []; const [cx, cz] = chunkCoord(x, z);
     if (EXTRA) { const seen = new Set(); for (let i = Math.floor((x - R - 2) / 50); i <= Math.floor((x + R + 2) / 50); i++) for (let j = Math.floor((z - R - 2) / 50); j <= Math.floor((z + R + 2) / 50); j++) for (const b of EXTRA.get(i * 100003 + j) || []) { if (seen.has(b)) continue; seen.add(b); if (x > b[0] - R - 1.5 && x < b[1] + R + 1.5 && z > b[2] - R - 1.5 && z < b[3] + R + 1.5) out.push(b); } }
     for (let j = cz - 1; j <= cz + 1; j++) for (let i = cx - 1; i <= cx + 1; i++) { if (i < 0 || j < 0 || i >= NCX || j >= NCZ) continue;
       for (const b of plan.byChunk[j * NCX + i].buildings) if (x > b.x0 - R - 1.5 && x < b.x1 + R + 1.5 && z > b.z0 - R - 1.5 && z < b.z1 + R + 1.5) out.push(...(b._vol ||= buildingVolumes(b))); }
+    if (R > 0) for (const o of OBST.near(x, z, R + 0.5)) if (o.kind !== 'pole') out.push(obstBox(o));
     return out; };
-  const trunkClear = (x, z) => !L.isWater(x, z) && !L.roadAt(x, z) && !onRailReserve(x, z) && !inSchool(x, z) && near(x, z, 0).every((v) => Math.hypot(Math.max(v[0] - x, 0, x - v[1]), Math.max(v[2] - z, 0, z - v[3])) >= 1.2);
+  const trunkClear = (x, z, tt) => !L.isWater(x, z) && !L.roadAt(x, z) && !onRailReserve(x, z) && !inSchool(x, z) && near(x, z, 0).every((v) => Math.hypot(Math.max(v[0] - x, 0, x - v[1]), Math.max(v[2] - z, 0, z - v[3])) >= 1.2) && !trunkHit(x, z, tt);
   const stats = { ok: 0, turned: 0, pruned: 0, shrunk: 0, moved: 0, dropped: 0 }; const drop = new Set();
   const YAWS = 16;
   const tryFit = (t, x, z, sqs, ss, nYaw) => { const R = (REACH[t.type] || 9) * Math.max(...ss) + 0.5; const boxes = near(x, z, R); if (!boxes.length) return { yaw: t.yaw, sq: sqs[0], s: ss[0] };
@@ -462,15 +482,17 @@ function fitTreeCrowns() {
   for (const t of plan.trees) {
     if (t.yaw === undefined) { t.yaw = hash2(Math.round(t.x * 10), Math.round(t.z * 10), 71) * Math.PI * 2; t.sy = 0.9 + 0.2 * hash2(Math.round(t.x * 10), Math.round(t.z * 10), 72); t.sq = 1; }
     if (!crownPoints(t.type in REACH ? t.type : 'mara')) continue; if (!(t.type in REACH)) t.type = 'mara';
-    const s0 = t.s || 1;
-    let f = tryFit(t, t.x, t.z, [t.sq], [s0], 1); if (f) { stats.ok++; continue; }
+    const s0 = t.s || 1; const inObst = trunkHit(t.x, t.z, t); let f = null;
+    if (!inObst) {
+    f = tryFit(t, t.x, t.z, [t.sq], [s0], 1); if (f) { stats.ok++; continue; }
     f = tryFit(t, t.x, t.z, [1], [s0], YAWS); if (f) { t.yaw = f.yaw; stats.turned++; continue; }
     f = tryFit(t, t.x, t.z, [0.85, 0.72, 0.6], [s0], YAWS); if (f) { t.yaw = f.yaw; t.sq = f.sq; stats.pruned++; continue; }
     f = tryFit(t, t.x, t.z, [1, 0.8, 0.62, 0.5], [s0 * 0.85, Math.max(0.55, s0 * 0.7)], YAWS); if (f) { Object.assign(t, { yaw: f.yaw, sq: f.sq, s: f.s }); stats.shrunk++; continue; }
     { let sw = null; for (const type of ['jak', 'mango', 'frangipani', 'palm']) { if (type === t.type) continue; const tt = { ...t, type }; const g = tryFit(tt, t.x, t.z, type === 'palm' ? [1, 0.85] : [1, 0.8, 0.62], type === 'palm' ? [1, 1.2, 1.35] : [Math.min(1.1, s0), 0.8], YAWS); if (g) { sw = [type, g]; break; } }
       if (sw) { t.type = sw[0]; Object.assign(t, { yaw: sw[1].yaw, sq: sw[1].sq, s: sw[1].s }); stats.swapped = (stats.swapped || 0) + 1; continue; } } // a species that fits the spot (tall narrow jak, low mango, small araliya, or a coconut palm whose crown clears the eaves)
+    } else stats.trunkInObstacle = (stats.trunkInObstacle || 0) + 1; // trunk inside a wall / shelter / bench: it has to move
     let mv = null;
-    for (let r = 1; r <= 4.01 && !mv; r += 1) for (let k = 0; k < 8 && !mv; k++) { const x = t.x + Math.cos(k * Math.PI / 4) * r, z = t.z + Math.sin(k * Math.PI / 4) * r; if (!trunkClear(x, z)) continue; const g = tryFit(t, x, z, [1, 0.8, 0.62], [s0, Math.max(0.55, s0 * 0.75)], 8); if (g) mv = [x, z, g]; }
+    for (let r = 1; r <= 4.01 && !mv; r += 1) for (let k = 0; k < 8 && !mv; k++) { const x = t.x + Math.cos(k * Math.PI / 4) * r, z = t.z + Math.sin(k * Math.PI / 4) * r; if (!trunkClear(x, z, t)) continue; const g = tryFit(t, x, z, [1, 0.8, 0.62], [s0, Math.max(0.55, s0 * 0.75)], 8); if (g) mv = [x, z, g]; }
     if (!mv) { drop.add(t); stats.dropped++; continue; }
     const [x, z, g] = mv; const c0 = chunkIndex(t.x, t.z), dx = x - t.x, dz = z - t.z; t.x = x; t.z = z; Object.assign(t, { yaw: g.yaw, sq: g.sq, s: g.s }); stats.moved++;
     if (t.col) { t.col.x0 += dx; t.col.x1 += dx; t.col.z0 += dz; t.col.z1 += dz; }

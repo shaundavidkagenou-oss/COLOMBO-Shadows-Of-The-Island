@@ -14,7 +14,7 @@ let pass = 0, fail = 0; const ok = (c, m) => { if (c) pass++; else { fail++; if 
 
 CP.generatePlan(); const plan = CP.plan; const n0 = plan.trees.length;
 const lm = buildLandmarks(); const lmBoxes = CP.landmarkTreeBoxes(lm.colliders.map((c) => ({ kind: 'landmark', ...c })));
-const r = CP.refitTreeCrowns(lmBoxes);
+const lmObst = lm.colliders.filter((c) => !['landmark', 'deck', 'platform'].includes(c.kind || 'landmark')); const r = CP.refitTreeCrowns(lmBoxes, lmObst);
 // rendering uses the same geometry objects as the clearance check
 V.buildTreeGeometries(); const S = TS.treeShapes(); for (const k of Object.keys(S)) ok(V.TREES[k] && V.TREES[k].crown === S[k].crown, `${k}: rendered crown is the checked crown`);
 // every tree vs every building volume (brute force: every building within reach, not just the chunk neighbourhood) + landmark volumes
@@ -28,6 +28,13 @@ for (const t of plan.trees) {
 }
 // trunks never in a road, the water or a building
 for (const t of plan.trees) ok(!vols.some((v) => t.x > v[0] + 0.2 && t.x < v[1] - 0.2 && t.z > v[2] + 0.2 && t.z < v[3] - 0.2), `trunk inside a building at (${t.x.toFixed(1)}, ${t.z.toFixed(1)})`);
+// trees vs walls and street furniture (compound walls, shelters, benches, stalls, landmark walls / barriers): no trunk inside
+// one, no leaf or frond through one (a pole through a canopy is allowed)
+{ const O = CP.treeObstacles(lmObst); let tw = 0, cw = 0;
+  for (const t of plan.trees) { const r = CP.treeTrunkR(t) + 0.1; const near = O.near(t.x, t.z, 15 * t.s);
+    const th = near.find((o) => Math.hypot(Math.max(o.x0 - t.x, 0, t.x - o.x1), Math.max(o.z0 - t.z, 0, t.z - o.z1)) < r); if (th) { tw++; ok(false, `${t.type} trunk inside a ${th.kind || 'wall'} at (${t.x.toFixed(1)}, ${t.z.toFixed(1)})`); continue; }
+    const boxes = near.filter((o) => o.kind !== 'pole').map((o) => [o.x0 - 0.05, o.x1 + 0.05, o.z0 - 0.05, o.z1 + 0.05, o.h + 0.1]); const hit = boxes.length && CP.crownHits(t.type, t.x, t.z, t.yaw, t.s, t.sy, t.sq, boxes); if (hit) cw++; ok(!hit, `${t.type} at (${t.x.toFixed(1)}, ${t.z.toFixed(1)}): leaves through a wall / shelter`); }
+  console.log(`walls & furniture: ${tw} trunks inside, ${cw} crowns through (of ${plan.trees.length})`); }
 const f = plan.crownFix, g = plan.crownFixLandmarks;
 // bark is single-sided: a trunk / limb with an open end or a gap between sections shows as a see-through hole. Every edge of
 // the trunk mesh above ground must be shared by exactly two triangles (only the buried root ring, 25 cm down, may be open).

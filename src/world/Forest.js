@@ -9,7 +9,7 @@
 //     from the cells whose bounds intersect THAT camera's frustum — a few hundred sphere tests and plain array writes,
 //     no per-instance matrix maths; the street-lamp shadow cameras skip foliage entirely (as before);
 //   • near cells draw the detailed geometry (clumped crowns with twigs, V-folded fronds, flowers / fruit), far cells the light
-//     LOD (same silhouette, fewer bigger cards, no flowers), with a little hysteresis so trees don't flicker at the boundary.
+//     LOD (same silhouette, fewer bigger cards, no flowers), chosen per tree in the cells the LOD distance passes through.
 // Instance matrices / tints are written once at load; nothing is allocated per frame.
 import * as THREE from 'three';
 import { MAT } from '../gfx/Materials.js';
@@ -50,7 +50,7 @@ export class Forest {
     }
     // ---- instances, filed into cells
     this.cells = new Map(); const cellOf = (x, z) => { const i = Math.floor(x / CELL), j = Math.floor(z / CELL), k = i * 4099 + j; let c = this.cells.get(k);
-      if (!c) { c = { i, j, x: (i + 0.5) * CELL, z: (j + 0.5) * CELL, lists: [[], []], arr: null, lod: [1, 1], far: [true, true] }; this.cells.set(k, c); } return c; };
+      if (!c) { c = { i, j, x: (i + 0.5) * CELL, z: (j + 0.5) * CELL, lists: [[], []], xz: [[], []], arr: null, pos: null, lod: [1, 1], far: [true, true] }; this.cells.set(k, c); } return c; };
     const rng = new RNG(5151);
     for (const [cat, t] of all) {
       const parts = partsOf(cat, t.type), ci = cat === 'tree' ? 0 : 1; const cell = cellOf(t.x, t.z);
@@ -59,11 +59,12 @@ export class Forest {
       const hue = rng.range(-0.025, 0.03), lit = rng.range(0.9, 1.1); // each plant a slightly different green
       for (const pt of parts) { const bm = pt.grp.bm; const id = bm.addInstance(pt.grp.gid[pt.hi >= 0 ? pt.hi : pt.lo]); bm.setMatrixAt(id, _m);
         if (FOLIAGE.has(pt.grp.mk) && pt.grp.mk !== 'bloom') _c.setRGB(lit * (1 + hue), lit, lit * (1 - hue)); else _c.setRGB(lit, lit, lit); bm.setColorAt(id, _c);
-        cell.lists[ci].push(pt.grp.n, id, pt.hi >= 0 ? pt.grp.gid[pt.hi] : -1, pt.lo >= 0 ? pt.grp.gid[pt.lo] : -1); this.stats.instances++; }
+        cell.lists[ci].push(pt.grp.n, id, pt.hi >= 0 ? pt.grp.gid[pt.hi] : -1, pt.lo >= 0 ? pt.grp.gid[pt.lo] : -1); cell.xz[ci].push(pt.grp.n, t.x, t.z); this.stats.instances++; }
       cell.top = Math.max(cell.top || 0, ci === 0 ? 16 * s : 2);
     }
     // per cell, per category: entries grouped by mesh → typed arrays [mesh][inst, hi, lo, …]
-    for (const c of this.cells.values()) { c.arr = c.lists.map((L) => { const by = []; for (let k = 0; k < L.length; k += 4) { (by[L[k]] ||= []).push(L[k + 1], L[k + 2], L[k + 3]); } return by.map((a) => (a ? Int32Array.from(a) : null)); }); c.lists = null; }
+    for (const c of this.cells.values()) { c.arr = c.lists.map((L) => { const by = []; for (let k = 0; k < L.length; k += 4) { (by[L[k]] ||= []).push(L[k + 1], L[k + 2], L[k + 3]); } return by.map((a) => (a ? Int32Array.from(a) : null)); });
+      c.pos = c.xz.map((L) => { const by = []; for (let k = 0; k < L.length; k += 3) (by[L[k]] ||= []).push(L[k + 1], L[k + 2]); return by.map((a) => (a ? Float32Array.from(a) : null)); }); c.lists = null; c.xz = null; }
     this.cellList = [...this.cells.values()]; this.active = [[], []]; this.fx = 1e9; this.fz = 1e9;
     this.chunkCells = new Map();
   }
@@ -77,8 +78,12 @@ export class Forest {
     if (Math.hypot(fx - this.fx, fz - this.fz) > 4) { this.fx = fx; this.fz = fz; for (let ci = 0; ci < 2; ci++) { const R = this.R[ci] + CELL, A = this.active[ci]; A.length = 0;
         for (const c of this.cellList) { if (!c.arr[ci] || !c.arr[ci].length) continue; const dx = c.x - fx, dz = c.z - fz; if (dx * dx + dz * dz < R * R) A.push(c); } } }
     const cp = camera ? camera.position : focus; let n = 0;
-    for (let ci = 0; ci < 2; ci++) for (const c of this.active[ci]) { const d = Math.max(0, Math.hypot(c.x - cp.x, c.z - cp.z) - CELL * 0.6); const L = this.LOD[ci];
-      c.lod[ci] = c.lod[ci] ? (d < L - 8 ? 0 : 1) : (d > L + 8 ? 1 : 0); c.far[ci] = d > this.R[ci]; n++; }
+    // LOD per tree, not per 50 m cell: a cell wholly inside / beyond the LOD distance draws all detailed / all light; a cell
+    // the LOD circle passes through decides per tree from its own distance, so trees change one by one as you move instead
+    // of a whole block of them switching in the same frame (the visible "pop" when driving). Shadow passes reuse it.
+    this.cpx = cp.x; this.cpz = cp.z;
+    for (let ci = 0; ci < 2; ci++) for (const c of this.active[ci]) { const dc = Math.hypot(c.x - cp.x, c.z - cp.z); const L = this.LOD[ci], R = CELL * 0.72;
+      c.lod[ci] = dc + R < L ? 0 : dc - R > L ? 1 : 2; c.far[ci] = Math.max(0, dc - CELL * 0.6) > this.R[ci]; n++; }
     this.stats.cells = n;
   }
   // cells visible to one camera (cached per camera per frame: shared by all the batched meshes)
@@ -95,8 +100,9 @@ export class Forest {
     const ci = bm.castShadow ? 0 : 1; const n0 = this.meshes.indexOf(bm); const cells = this.visible(cam, ci);
     const starts = bm._multiDrawStarts, counts = bm._multiDrawCounts, ind = bm._indirectTexture.image.data, GI = bm._geometryInfo; const idx = bm.geometry.getIndex(); const bpe = idx ? idx.array.BYTES_PER_ELEMENT : 1;
     let n = 0; const forcedLo = this.forced.size > 0;
-    for (const c of cells) { const a = c.arr[ci][n0]; if (!a) continue; const lo = c.lod[ci] || (forcedLo && this.forced.has(c));
-      for (let k = 0; k < a.length; k += 3) { const g = lo ? a[k + 2] : a[k + 1]; if (g < 0) continue; const gi = GI[g]; starts[n] = gi.start * bpe; counts[n] = gi.count; ind[n] = a[k]; n++; } }
+    const L2 = this.LOD[ci] * this.LOD[ci], px = this.cpx, pz = this.cpz;
+    for (const c of cells) { const a = c.arr[ci][n0]; if (!a) continue; const forcedL = forcedLo && this.forced.has(c); const mode = forcedL ? 1 : c.lod[ci]; const xz = mode === 2 ? c.pos[ci][n0] : null;
+      for (let k = 0, q = 0; k < a.length; k += 3, q += 2) { const lo = xz ? (xz[q] - px) * (xz[q] - px) + (xz[q + 1] - pz) * (xz[q + 1] - pz) > L2 : mode === 1; const g = lo ? a[k + 2] : a[k + 1]; if (g < 0) continue; const gi = GI[g]; starts[n] = gi.start * bpe; counts[n] = gi.count; ind[n] = a[k]; n++; } }
     bm._multiDrawCount = n; bm._multiDrawBytesPerElement = bpe; bm._indirectTexture.needsUpdate = true; bm._visibilityChanged = false;
     if (!shadow) this.stats.draws += n;
   }

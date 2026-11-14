@@ -178,7 +178,10 @@ export class Player {
     const faceYawL = -e.side * Math.PI / 2; const doorAng = (k) => { if (E.door) { holdDoor(E.door); E.door.ang = k; E.door.vel = 0; E.door.pivot.rotation.y = E.door.max * k * (e.side < 0 ? 1 : -1); } };
     const door = (target, w, z) => this.driveDoor(v, E.door, e.side, target, dt, w, z); if (E.stage !== 'approach') v.sync(dt); // held vehicle is not stepped: keep its springs alive
     const next = (st) => { E.stage = st; E.t = 0; };
-    const walkTo = (wx, wz, sp) => { const dx = wx - this.x, dz = wz - this.z, d = Math.hypot(dx, dz); if (d > 0.05) { const st = Math.min(d, sp * dt); this.yaw = dampAngle(this.yaw, Math.atan2(dx, dz), 10, dt); const r = this.collision.resolveCircle(this.x + dx / d * st, this.z + dz / d * st, 0.3, this.y, 0.45, 1.75); this.x = r.x; this.z = r.z; if (E.stage === 'approach') { const q = v.pushOut(this.x, this.z, 0.32); if (q) { this.x = q.x; this.z = q.z; } } } this.y = this.collision.groundAt(this.x, this.z, this.y, 0.5); A.update(dt, d > 0.15 ? sp : 0, 0); this.sync(); return d; };
+    // turning while walking up to / squaring to the vehicle: damped, but never faster than 8 rad/s (an uncapped damp started
+    // a 90° turn at ~18 rad/s — a visible snap on the first frame)
+    const turnTo = (want, k) => { const ny = dampAngle(this.yaw, want, k, dt); const dy = wrapAngle(ny - this.yaw), m = 8 * dt; this.yaw += Math.max(-m, Math.min(m, dy)); };
+    const walkTo = (wx, wz, sp) => { const dx = wx - this.x, dz = wz - this.z, d = Math.hypot(dx, dz); if (d > 0.05) { const st = Math.min(d, sp * dt); turnTo(Math.atan2(dx, dz), 10); const r = this.collision.resolveCircle(this.x + dx / d * st, this.z + dz / d * st, 0.3, this.y, 0.45, 1.75); this.x = r.x; this.z = r.z; if (E.stage === 'approach') { const q = v.pushOut(this.x, this.z, 0.32); if (q) { this.x = q.x; this.z = q.z; } } } this.y = this.collision.groundAt(this.x, this.z, this.y, 0.5); A.update(dt, d > 0.15 ? sp : 0, 0); this.sync(); return d; };
     switch (E.stage) {
       case 'approach': {
         if ((Input.moveX || Input.moveY) && E.total > 0.2) { v.hold = false; this.entry = null; this.control = true; return; } // player cancelled
@@ -188,11 +191,16 @@ export class Player {
           const far = Math.sign(lp.x) !== sx || Math.abs(lp.x) < v.T.wid / 2; const end = Math.abs(lp.z - e.z) > 0.01 ? Math.sign(lp.z) || 1 : 1;
           if (far && Math.abs(lp.z) < hl) { E.wps.push([Math.sign(lp.x || -sx) * hw, end * hl], [sx * hw, end * hl]); } else if (far) E.wps.push([sx * hw, Math.sign(lp.z) * hl]);
           E.wps.push([e.x, e.z]); }
-        const wp = E.wps[0]; const p = this.local(v, wp[0], 0, wp[1]); const last = E.wps.length === 1; const d = walkTo(p.x, p.z, Math.min(3.2, 1.5 + E.total));
-        if (!last && d < 0.45) E.wps.shift(); else if (last && (d < 0.18 || E.t > 8)) { next('align'); this.x = p.x; this.z = p.z; } break; }
-      case 'align': { // square up to the door
-        const want = v.yaw + faceYawL; this.yaw = dampAngle(this.yaw, want, 12, dt); A.update(dt, 0, 0); this.sync();
-        if (Math.abs(wrapAngle(this.yaw - want)) < 0.05 || E.t > 0.5) { E.bus = isBus(v); if (E.bus) openBusDoor(v, e.z, true); next(E.door ? 'open' : E.bus ? (E.driver ? 'busWait' : 'busIn') : E.kind === 'bus' ? 'board' : 'step'); if (!E.bus) A.set('interact'); /* a bus's folding doors are powered: no handle to reach for */ E.hadDriver = E.traffic.takeOver(v, true); v.speed = 0; } break; }
+        const wp = E.wps[0]; const p = this.local(v, wp[0], 0, wp[1]); const last = E.wps.length === 1; const sp = Math.min(3.2, 1.5 + E.total);
+        // slow into the spot by the door (was: arrive at a jog, then stop dead and snap the last few cm in one frame)
+        const d = walkTo(p.x, p.z, last ? Math.min(sp, 0.7 + 2.2 * Math.hypot(p.x - this.x, p.z - this.z)) : sp);
+        if (!last && d < 0.45) E.wps.shift(); else if (last && (d < 0.18 || E.t > 8)) { next('align'); E.ax = p.x; E.az = p.z; } break; }
+      case 'align': { // square up to the door, gliding the last few cm onto the spot
+        const want = v.yaw + faceYawL; turnTo(want, 12);
+        if (E.ax !== undefined) { const k = 1 - Math.exp(-16 * dt); this.x += (E.ax - this.x) * k; this.z += (E.az - this.z) * k; }
+        A.update(dt, 0, 0); this.sync();
+        const settled = E.ax === undefined || Math.hypot(E.ax - this.x, E.az - this.z) < 0.01;
+        if ((Math.abs(wrapAngle(this.yaw - want)) < 0.05 && settled) || E.t > 0.65) { if (E.ax !== undefined) { this.x = E.ax; this.z = E.az; this.sync(); } E.bus = isBus(v); if (E.bus) openBusDoor(v, e.z, true); next(E.door ? 'open' : E.bus ? (E.driver ? 'busWait' : 'busIn') : E.kind === 'bus' ? 'board' : 'step'); if (!E.bus) A.set('interact'); /* a bus's folding doors are powered: no handle to reach for */ E.hadDriver = E.traffic.takeOver(v, true); v.speed = 0; } break; }
       case 'busWait': { A.update(dt, 0, 0); this.sync(); if (E.t > 0.55) { E.hadDriver = true; next('busPull'); } break; } // the folding doors swing open, then the driver is made to get out
       case 'busPull': { // the driver gets up out of his seat and leaves by the front door, down the treads; the player steps along the body out of his way
         const d = E.driver; if (E.t === dt) { E.handledLine = true; this.events.emit('npcLineRaw', { who: 'Driver', text: "Ado! What are you doing? This is my bus!" }); if (d && d.face) d.face.set('fear', 2); }

@@ -786,6 +786,25 @@ function palmFrond(size) { // alpha-tested leaflets
 // A sprig of real leaves (alpha-cut card): a forked twig with pointed-oval leaves along each branch, every leaf with a lit and a
 // shaded half either side of its midrib, a darker rim and a pale midrib; leaves overlap toward the middle, leaving natural gaps
 // at the edge (no disc of blobs). shape: 'oval' (mango / rain tree / bo-like), 'small' (dense small leaves: ficus, hedges, creepers)
+// bougainvillea bract spray (alpha card, near-white: the vertex colour makes it magenta / orange / white): papery heart-
+// shaped bracts in threes round a cream floret, veined and translucent at the rim, a few small leaves behind. Replaces the
+// flat untextured kites that read as coloured squares on the walls.
+function bractCluster(size = 256, seed = 131) {
+  const c = canvas(size, size), ctx = c.getContext('2d'), rng = new RNG(seed); const S = size / 256;
+  const leaf = (x, y, ang, len, wid) => { ctx.save(); ctx.translate(x, y); ctx.rotate(ang); const g = ctx.createLinearGradient(0, 0, len, 0); g.addColorStop(0, '#2b4f1a'); g.addColorStop(1, '#4f7d33'); ctx.fillStyle = g;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.bezierCurveTo(len * 0.3, wid, len * 0.75, wid * 0.8, len, 0); ctx.bezierCurveTo(len * 0.75, -wid * 0.8, len * 0.3, -wid, 0, 0); ctx.fill(); ctx.restore(); };
+  for (let k = 0; k < 7; k++) { const a = rng.next() * 6.283, r = (60 + rng.next() * 40) * S; leaf(128 * S + Math.cos(a) * r * 0.35, 128 * S + Math.sin(a) * r * 0.35, a, r, r * 0.34); }
+  const bract = (x, y, ang, len, k) => { ctx.save(); ctx.translate(x, y); ctx.rotate(ang); const w = len * 0.62;
+    const g = ctx.createRadialGradient(len * 0.15, 0, len * 0.05, len * 0.45, 0, len * 0.75); const v = (q) => Math.round(Math.min(255, q * k));
+    g.addColorStop(0, `rgb(${v(170)},${v(160)},${v(160)})`); g.addColorStop(0.55, `rgb(${v(242)},${v(236)},${v(238)})`); g.addColorStop(1, `rgb(${v(252)},${v(250)},${v(250)})`); ctx.fillStyle = g;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.bezierCurveTo(len * 0.15, w, len * 0.85, w * 1.05, len, w * 0.15); ctx.quadraticCurveTo(len * 0.9, 0, len, -w * 0.15); ctx.bezierCurveTo(len * 0.85, -w * 1.05, len * 0.15, -w, 0, 0); ctx.fill();
+    ctx.strokeStyle = `rgba(120,100,105,0.35)`; ctx.lineWidth = 1.1 * S; ctx.beginPath(); ctx.moveTo(len * 0.05, 0); ctx.lineTo(len * 0.88, 0); for (let i = 1; i < 4; i++) { const t = i / 4; ctx.moveTo(len * t * 0.9, 0); ctx.quadraticCurveTo(len * (t * 0.9 + 0.1), w * 0.35, len * (t * 0.9 + 0.18), w * 0.62); ctx.moveTo(len * t * 0.9, 0); ctx.quadraticCurveTo(len * (t * 0.9 + 0.1), -w * 0.35, len * (t * 0.9 + 0.18), -w * 0.62); } ctx.stroke(); ctx.restore(); };
+  // 5 triads: one in the middle, four around it, back ones darker (they sit in the shade of the front ones)
+  const triads = [[128, 128, 1, 46]]; for (let k = 0; k < 4; k++) { const a = k * 1.571 + 0.5 + rng.range(-0.3, 0.3), r = rng.range(52, 66); triads.unshift([128 + Math.cos(a) * r, 128 + Math.sin(a) * r, 0.86, rng.range(36, 42)]); }
+  for (const [x, y, k, len] of triads) { const a0 = rng.next() * 6.283; for (let i = 0; i < 3; i++) bract(x * S, y * S, a0 + i * 2.094 + rng.range(-0.2, 0.2), len * S * rng.range(0.9, 1.08), k * rng.range(0.92, 1.04));
+    ctx.fillStyle = '#efe6b0'; for (let i = 0; i < 3; i++) { const a = a0 + i * 2.094 + 1.047; ctx.beginPath(); ctx.arc(x * S + Math.cos(a) * 5 * S, y * S + Math.sin(a) * 5 * S, 2.6 * S, 0, 6.283); ctx.fill(); } }
+  return toTex(c, { repeat: false });
+}
 function leafCluster(size, hues = ['#2f5a1e', '#3d6e26', '#4c7f2e', '#28501a', '#5c8c38'], seed = 121, shape = 'oval') {
   const c = canvas(size, size), ctx = c.getContext('2d'), rng = new RNG(seed); const S = size / 256, C = size / 2;
   const shade = (hex, k) => { const n = parseInt(hex.slice(1), 16); const f = (v) => Math.max(0, Math.min(255, Math.round(v * k))); return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`; };
@@ -1000,7 +1019,7 @@ export async function buildTextures(quality = 'high', progress = () => {}) {
       TEX.glow = radial(128, [[0, 'rgba(255,255,255,1)'], [0.25, 'rgba(255,255,255,0.5)'], [1, 'rgba(255,255,255,0)']]);
       TEX.pool = radial(128, [[0, 'rgba(255,255,255,0.9)'], [0.5, 'rgba(255,255,255,0.35)'], [1, 'rgba(255,255,255,0)']]);
     }],
-    ['foliage', () => { TEX.palm = palmFrond(512); TEX.leaves = leafCluster(512); TEX.leavesBright = leafCluster(512, ['#4a7a2a', '#5f9236', '#6fa040', '#3e6a22', '#86b04e'], 123); TEX.leavesSmall = leafCluster(256, ['#2c5a1c', '#3a6a24', '#47782c', '#2a4f18', '#55863a'], 127, 'small'); TEX.banana = bananaLeaf(128, 512); TEX.bark = barkTex(256); TEX.palmBark = barkTex(256, true); }],
+    ['foliage', () => { TEX.palm = palmFrond(512); TEX.leaves = leafCluster(512); TEX.leavesBright = leafCluster(512, ['#4a7a2a', '#5f9236', '#6fa040', '#3e6a22', '#86b04e'], 123); TEX.leavesSmall = leafCluster(256, ['#2c5a1c', '#3a6a24', '#47782c', '#2a4f18', '#55863a'], 127, 'small'); TEX.bract = bractCluster(256); TEX.banana = bananaLeaf(128, 512); TEX.bark = barkTex(256); TEX.palmBark = barkTex(256, true); }],
     ['fabrics', () => { TEX.plaid = fabricPlaid(256); TEX.saree = fabricSaree(256); TEX.batik = fabricBatik(256); TEX.weave = fabricWeave(128); }],
   ];
   for (let i = 0; i < steps.length; i++) {

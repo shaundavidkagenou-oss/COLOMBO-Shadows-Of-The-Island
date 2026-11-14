@@ -73,8 +73,24 @@ export class Bicycles {
     this.syncCrank(v); return coast ? Math.min(0, throttle) : throttle;
   }
   // ------------------------------------------------------------------ rider pose (Animator.postPose, after the seated pose)
+  // Mount / dismount hand-over: the boarding curve ends (and the step-off starts) on the generic seated pose, whose hands
+  // fall ~12 cm short of these bars and whose back is upright, so switching this pose on / off in one frame was a visible
+  // pop (spine folds, hands jump). It now ramps in over 0.35 s after the mount and, at the step-off, the body blends from the
+  // last riding pose over 0.3 s (Animator clock; only during those few frames).
   pose(b) {
-    const ch = this.rider, v = this.v; if (!ch || !v) return; const A = ch.anim; if (!A.seated || A.board || A.seatW < 0.5 || ch.root.parent !== v.mesh) return;
+    const ch = this.rider, v = this.v; if (!ch || !v) return; const A = ch.anim; const T = A.t || 0;
+    const on = A.seated && !A.board && A.seatW >= 0.5 && ch.root.parent === v.mesh;
+    if (!on) { const off = T - (this.lastOnT ?? -9); if (this.snap && this.snapCh === ch && off < 0.3) { const w = 1 - sm(off / 0.3); this.blendBones(b, this.snap, w, false); } return; } /* rotations only: the step-off curve places the hips in its own frame */
+    if (this.snapCh !== ch || T - (this.lastOnT ?? -9) > 0.25) this.onT = T; /* (re)mounted */
+    const pw = Math.min(1, (T - this.onT) / 0.35), pre = pw < 1 ? this.grab(b, this.pre || (this.pre = new Map())) : null;
+    this.poseFull(b);
+    if (pre) this.blendBones(b, pre, 1 - sm(pw), true);
+    this.snap = this.grab(b, this.snap || new Map()); this.snapCh = ch; this.lastOnT = T;
+  }
+  grab(b, M) { for (const k in b) { const o = b[k]; if (!o || !o.quaternion) continue; let e = M.get(k); if (!e) M.set(k, (e = [new THREE.Quaternion(), new THREE.Vector3()])); e[0].copy(o.quaternion); e[1].copy(o.position); } return M; }
+  blendBones(b, M, w, pos) { if (w <= 0) return; for (const [k, e] of M) { const o = b[k]; if (!o) continue; o.quaternion.slerp(e[0], w); if (pos && k === 'hips') o.position.lerp(e[1], w); } }
+  poseFull(b) {
+    const ch = this.rider, v = this.v; const A = ch.anim;
     const st = this.st, k = st ? sm(st.w) : 0, kind = st ? st.kind : null; const s = A.s; const thighR = 0.075 * s * ch.spec.build;
     const hip0 = b.hips.position.clone(); const lean0 = A.seatLean ?? 0.42; const roll = v.stunt ? v.stunt.roll : 0;
     // ---- hips / trunk target per stunt (root space: saddle top, +z forward, +x left)

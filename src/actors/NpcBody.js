@@ -54,6 +54,22 @@ function normalsOf(P, idx, n) {
   return N;
 }
 
+// The baked MakeHuman male shapes come out of the skeleton fit with a wasp waist: waist 0.244 m wide against chest 0.308 and
+// hips 0.303 (an hourglass), and hips narrower than the thighs — in a tank top or polo every man read as a woman. A real
+// average man is close to straight (chest ~0.32, waist ~0.29–0.30, hips ~0.33). Fill the waist (more at the front: the
+// belly, less at the back) and a little at the hips, smoothly, in the canonical 1.72 m pose before the person's own scaling;
+// arms untouched. Garments are grown from this surface, so they follow. Positions only, no extra vertices.
+const _bins = new Float32Array(64), _binN = new Float32Array(64);
+function maleTorso(P, NU, armW) {
+  _bins.fill(0); _binN.fill(0); const Y0 = 0.7, DY = 0.02; // torso centre depth per 2 cm slice
+  for (let u = 0; u < NU; u++) { if (armW[u] >= 0.5) continue; const j = Math.floor((P[u * 3 + 1] - Y0) / DY); if (j < 0 || j >= 40) continue; _bins[j] += P[u * 3 + 2]; _binN[j]++; }
+  for (let j = 0; j < 40; j++) _bins[j] = _binN[j] ? _bins[j] / _binN[j] : 0;
+  for (let u = 0; u < NU; u++) { if (armW[u] >= 0.5) continue; const y = P[u * 3 + 1]; if (y < 0.78 || y > 1.3) continue;
+    const wf = sstep(0.9, 1.02, y) * sstep(1.3, 1.12, y), hf = sstep(0.78, 0.9, y) * sstep(1.04, 0.94, y); if (wf + hf <= 0) continue;
+    const j = clamp(Math.floor((y - Y0) / DY), 0, 39); const cz = _bins[j]; const z = P[u * 3 + 2];
+    P[u * 3] *= 1 + 0.17 * wf + 0.07 * hf; P[u * 3 + 2] = cz + (z - cz) * (1 + (z > cz ? 0.15 : 0.06) * wf + 0.03 * hf); }
+}
+
 /** Shape mix for a spec: build (0.9 slim … 1.14 heavy), belly, age band. */
 export function npcShapeWeights(sp) {
   const b = sp.build ?? 1, bel = sp.belly || 0;
@@ -89,6 +105,7 @@ export function buildNpcGarments(sb, sp, ctx) {
   // ---- body: shape blend → this person's height / build → neck tucked into the head's neck skirt
   const P = new Float32Array(NU * 3); const SW = npcShapeWeights(sp);
   for (const [k, wt] of Object.entries(SW)) { if (wt < 1e-4) continue; const A = S.shapes[k]; for (let i = 0; i < A.length; i++) P[i] += A[i] * wt; }
+  if (sex === 'm') maleTorso(P, NU, armW);
   const kx = s * bw, ky = s, kz = s * (1 + (bw - 1) * 0.45);
   for (let u = 0; u < NU; u++) { P[u * 3] *= kx; P[u * 3 + 1] *= ky; P[u * 3 + 2] *= kz; }
   const nk = NH.neck; const y0 = nk.y0; const cutY = y0 + 0.04;
@@ -111,7 +128,7 @@ export function buildNpcGarments(sb, sp, ctx) {
     const shirtHas = (u, tol) => (armW[u] >= 0.5 ? PL.sleeve !== 'none' && handW[u] < 0.5 && y(u) >= sleeveY - tol : legW[u] < 0.5 && y(u) >= shirtHem - tol);
   const trouserHas = (u, tol) => armW[u] < 0.5 && y(u) <= waistY + tol && y(u) >= legHem - tol;
   const shirtEase = (u) => { if (armW[u] >= 0.5) return PL.sleeve === 'long' ? lerp(0.006, 0.011, sstep(0.95 * s, 1.15 * s, y(u))) : 0.009 + 0.013 * sstep(1.33 * s, 1.215 * s, y(u));
-    return 0.0075 + 0.004 * sstep(1.1 * s, 1.0 * s, y(u)) * (PL.tucked ? 1 : 1.3); };
+    return 0.0105 + 0.005 * sstep(1.1 * s, 1.0 * s, y(u)) * (PL.tucked ? 1 : 1.4); }; // ~1-1.5 cm off the body: everyday cotton shirts / tees sit loose (7.5 mm read sprayed-on)
   const trouserEase = (u) => { const yy = y(u); if (PL.legs === 'briefs') return 0.003; if (boots && yy < 0.26 * s) return lerp(0.002, 0.008, sstep(0.17 * s, 0.26 * s, yy));
     return 0.0075 + 0.005 * sstep(0.88 * s, 0.7 * s, yy) + 0.006 * sstep(0.5 * s, 0.18 * s, yy) - 0.002 * sstep(0.93 * s, 0.99 * s, yy); };
   const uv0 = [0.01, 0.51];
@@ -189,7 +206,7 @@ export function buildNpcGarments(sb, sp, ctx) {
   // drops faster than TAPER per metre of drop, so the trouser falls from the seat / thigh past the knee and calf instead of
   // shrink-wrapping them (the copied body surface read as leggings). Only ever pushed outward.
   const legDrape = (Q, used) => {
-    const DY = 0.02, Y1 = 0.8 * s, Y0 = Math.max(legHem, 0.05 * s), NYb = Math.ceil((Y1 - Y0) / DY) + 1, NA = 16, TAPER = PL.legs === 'trousers' ? 0.2 : 0.35; if (NYb < 3) return;
+    const DY = 0.02, Y1 = 0.8 * s, Y0 = Math.max(legHem, 0.05 * s), NYb = Math.ceil((Y1 - Y0) / DY) + 1, NA = 16, TAPER = PL.legs === 'trousers' ? 0.13 : 0.3; if (NYb < 3) return; /* straighter fall (0.2 / 0.35 still traced the calf) */
     for (const sx of [1, -1]) {
       const cx = new Float32Array(NYb), cz = new Float32Array(NYb), cn = new Float32Array(NYb);
       for (let u = 0; u < NU; u++) { if (!used[u] || legW[u] < 0.5 || Math.sign(P[u * 3]) !== sx) continue; const j = Math.round((Q[u * 3 + 1] - Y0) / DY); if (j < 0 || j >= NYb) continue; cx[j] += Q[u * 3]; cz[j] += Q[u * 3 + 2]; cn[j]++; }
@@ -217,7 +234,7 @@ export function buildNpcGarments(sb, sp, ctx) {
     for (let u = 0; u < NU; u++) { if (!used[u] || Q[u * 3 + 1] > 0.215 * s) continue; const ft = ctx.J[P[u * 3] > 0 ? 'footL' : 'footR']; const dx = Q[u * 3] - ft[0], dz = Q[u * 3 + 2] + 0.008; const e = Math.hypot(dx / 0.042, dz / 0.046); if (e > 1) { Q[u * 3] = ft[0] + dx / e; Q[u * 3 + 2] = -0.008 + dz / e; } } }, null, PL.legs === 'briefs' && skHem != null); // briefs under a skirt: the skin there is culled / covered anyway
   // ---- drape: the top hangs from the chest / shoulder blades instead of following the waist in
   const drape = (Q, used) => {
-    const NA = 48, DY = 0.015, Y0 = shirtHem - 0.03, Y1 = 1.34 * s, NYb = Math.ceil((Y1 - Y0) / DY) + 1, TAPER = 0.3; if (NYb < 3) return;
+    const NA = 48, DY = 0.015, Y0 = shirtHem - 0.03, Y1 = 1.34 * s, NYb = Math.ceil((Y1 - Y0) / DY) + 1, TAPER = 0.2; if (NYb < 3) return; /* hangs straighter from the chest / blades: boxier, less waist-hugging */
     const czB = new Float32Array(NYb), zlo = new Float32Array(NYb).fill(1e9), zhi = new Float32Array(NYb).fill(-1e9);
     for (let u = 0; u < NU; u++) { if (armW[u] >= 0.5 || legW[u] >= 0.5) continue; const j = Math.round((y(u) - Y0) / DY); if (j < 0 || j >= NYb) continue; zlo[j] = Math.min(zlo[j], P[u * 3 + 2]); zhi[j] = Math.max(zhi[j], P[u * 3 + 2]); }
     for (let j = 0; j < NYb; j++) czB[j] = zhi[j] > zlo[j] ? (zlo[j] + zhi[j]) / 2 : NaN;

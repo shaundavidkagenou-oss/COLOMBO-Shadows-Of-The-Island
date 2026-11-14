@@ -40,7 +40,7 @@ export const FACE_VARIANTS = [
 ];
 
 const SKIN_LK = ['#8d5a3b', '#9b6644', '#7a4a2e', '#a8734f', '#6b4128', '#b07c56', '#82543a', '#5e3a24', '#93603f', '#714530', '#a06a48', '#4f3020'];
-const SKIN_EU = ['#e8c4a8', '#dcb08e', '#f0d0b8', '#d2a07c'];
+const SKIN_EU = ['#dfb495', '#d4a382', '#e3bb9c', '#c99673']; // visitors after a few days of Colombo sun: the old #f0d0b8 / #e8c4a8 read as white plaster under the crowd shading
 const SKIN_EA = ['#e0b890', '#d8ac84', '#cfa078'];
 const HAIR_DARK = ['#120d0a', '#1c140e', '#0b0908', '#2a1c12', '#16100c'];
 const HAIR_PEPPER = ['#3a3632', '#4a4642', '#2e2a26'];

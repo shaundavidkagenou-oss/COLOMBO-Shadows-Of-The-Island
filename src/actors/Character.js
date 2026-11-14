@@ -372,9 +372,9 @@ export function buildBodyGeometry(sp) {
     const hemY = skirtLen === 'ankle' ? 0.1 : skirtLen === 'mid' ? 0.32 : 0.48; const topY = o === 'saree' ? 0.93 : NB ? 0.985 : o === 'salwar' || o === 'kurti' || o === 'abaya' ? 1.2 : o === 'kurta' ? 1.02 : 0.97; // anatomical bodies: the tunic's top is the fitted top shell (over the bust), the cone starts at the hips
     const region = sp.pattern ?? 0; const N = Math.max(7, Math.ceil((topY - hemY) / 0.07) + 1); const rings = []; // ~7 cm ring spacing so the hip-hinge zone is resolved on long tunics too
     for (let i = 0; i < N; i++) {
-      const t = i / (N - 1), y = lerp(topY, hemY, t) * s; const flare = o === 'sarong' ? 0.045 : o === 'frock' ? 0.09 : o === 'skirt_top' ? 0.07 : o === 'abaya' ? 0.065 : o === 'office_f' ? (NB ? 0.1 : 0.065) : 0.05; /* office skirt: a slight A-line so a long stride (running) stays inside it */ // a sarong is a ~2 m cloth tube folded at the waist: loose at the hem
+      const t = i / (N - 1), y = lerp(topY, hemY, t) * s; const flare = o === 'sarong' ? 0.028 : o === 'saree' ? 0.036 : o === 'frock' ? 0.09 : o === 'skirt_top' ? 0.07 : o === 'abaya' ? 0.065 : o === 'office_f' ? (NB ? 0.1 : 0.065) : 0.05; /* office skirt: a slight A-line so a long stride (running) stays inside it */ // a sarong is a ~2 m cloth tube folded at the waist: it hangs almost straight, the stride is handled by the leg-following panels
       const ease = Math.sin(clamp((0.97 * s - y) / (0.3 * s), 0, 1) * Math.PI / 2); // cloth stands off the hips/thighs (real garments are not skin-tight there)
-      const rx = lerp(0.17 * w, 0.17 * w + flare + (skirtLen === 'ankle' ? 0.02 : 0), Math.pow(t, 0.8)) + 0.012 * w * ease, rz = lerp(0.12 * w, 0.13 * w + flare * 0.8, t) + 0.03 * w * ease;
+      const rx = lerp(0.17 * w, 0.17 * w + flare + (skirtLen === 'ankle' ? (o === 'sarong' ? 0.012 : 0.02) : 0), Math.pow(t, o === 'sarong' ? 1.3 : 0.8)) /* a sarong falls nearly straight from the hips and only opens towards the calves for the stride (it was a 0.5 m bell) */ + 0.012 * w * ease, rz = lerp(0.12 * w, 0.13 * w + flare * 0.8, t) + 0.03 * w * ease;
       // per-vertex skinning: each side of the garment follows the leg under it (stronger toward the hem), so a striding knee
       // pushes the cloth forward instead of poking through it; below the knee, long garments also follow the shins.
       // front panel → skirtF (hinged to the most forward part of either leg), back panel → skirtB (most rearward part),
@@ -566,7 +566,7 @@ export function buildBodyGeometry(sp) {
       const over = bobF ? L.lobe[1] - 0.012 : longF ? L.ear[1] + 0.004 : earTop;
       const TAB = [[0, front], [0.5, front], [aE - 0.6, (front + side) * 0.5 + 0.01], [aE - 0.32, side], [aE - 0.17, over], [aE + 0.28, over], [aE + 0.62, nape + 0.02], [Math.PI + 0.01, nape]];
       const hAt = (a) => { let i = 0; while (i < TAB.length - 2 && TAB[i + 1][0] < a) i++; const u = TAB[i], v = TAB[i + 1]; return lerp(u[1], v[1], smooth01((a - u[0]) / (v[0] - u[0]))); };
-      const TH = { crew: 0.0035, short: 0.006, grey: 0.0055, receding: 0.005, balding: 0.005, wavy: 0.01, curly: 0.014, quiff: 0.007, sidepart: 0.0075 }[hs] ?? (f ? 0.008 : 0.006);
+      const TH = ({ crew: 0.0035, short: 0.006, grey: 0.0055, receding: 0.005, balding: 0.005, wavy: 0.01, curly: 0.014, quiff: 0.007, sidepart: 0.0075 }[hs] ?? (f ? 0.008 : 0.006)) * (sp.cap || sp.hat ? 1 : 1.55); // bare heads: real short hair stands ~1 cm off the scalp (the thinner cap read painted on); under headwear the old thickness so caps never get poked through
       const covAt = (x, y, z, ears) => { const a = Math.abs(Math.atan2(x, z - ecz)); const h = hAt(a) + rec * 0.12 * smooth01((a - 0.15) / 0.35) * (1 - smooth01((a - 0.8) / 0.3));
         let c = smooth01((y - h + 0.005) / 0.013); if (hs === 'balding') c *= 1 - smooth01((y - (L.crown - 0.05)) / 0.02) * (1 - smooth01((a - 2.0) / 0.5));
         const qn = Math.hypot(x / er[0], (y - ecy) / er[1], (z - ecz) / er[2]); return c * (1 - smooth01((ears - 0.06) / 0.25) * smooth01((qn - 1.1) / 0.08)); }; // ear = the part standing off the skull
@@ -972,6 +972,7 @@ export function getHairMaterial() {
         }
         #endif`);
   };
+  iblScale(hairMat, 0.28, 0.9, 0.6); // near-black hair: the bright sky reflection turned every crowd head steel-blue (the heroes' hair has had this scale already)
   return hairMat;
 }
 export function getBodyMaterial() { if (!bodyMat) bodyMat = addBloodStain(new THREE.MeshStandardMaterial({ map: fabricAtlas(), vertexColors: true, roughness: 0.85 })); return bodyMat; } // 0 wounds; a wounded ped gets its own copy (BloodStain.js)
@@ -1051,6 +1052,7 @@ vec3 fbBump( vec3 pos, vec3 n, float h ) { vec3 dpx = dFdx( pos ), dpy = dFdy( p
       .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n  if ( fbR > 0.0 ) normal = fbBump( - vViewPosition, normal, fbH );');
   };
   m.customProgramCacheKey = () => 'npcfabric1';
+  iblScale(m, 0.55, 1.0, 0.6); // same image-light scale as the protagonists' bodies: cloth and skin no longer glaze over with sky
   npcBodyMat = addBloodStain(m); return npcBodyMat;
 }
 export function getFaceMaterial(key, opts) {
@@ -1661,7 +1663,10 @@ export class Animator {
     };
     if (this.fadeAct && this.fadeW > 0) applyAct(this.fadeAct, smooth01(this.fadeW), this.fadeT); // eased return to neutral
     if (A_ && aw > 0) applyAct(A_, aw, at);
-    if (this.air > 0) { aL = blend(aL, [-0.6, 0, 0.5], 0.7); aR = blend(aR, [-0.6, 0, -0.5], 0.7); b.thighL.rotation.x = -0.6; b.shinL.rotation.x = 0.9; b.thighR.rotation.x = -0.1; b.shinR.rotation.x = 0.4; b.footL.rotation.x = 0.2; b.footR.rotation.x = 0.1; }
+    // jump pose: weighted by a damped airW (air is set 0 / 1 in one frame at take-off / landing — the legs used to snap in and out)
+    { const tgt = this.air > 0 ? 1 : 0; const k = 1 - Math.exp(-(tgt > (this.airW || 0) ? 16 : 10) * Math.min(dt, 0.1)); this.airW = (this.airW || 0) + (tgt - (this.airW || 0)) * k; if (this.airW < 0.002) this.airW = 0; }
+    if (this.airW > 0) { const w = this.airW; aL = blend(aL, [-0.6, 0, 0.5], 0.7 * w); aR = blend(aR, [-0.6, 0, -0.5], 0.7 * w); const L = (o, v) => { o.rotation.x = lerp(o.rotation.x, v, w); };
+      L(b.thighL, -0.6); L(b.shinL, 0.9); L(b.thighR, -0.1); L(b.shinR, 0.4); L(b.footL, 0.2); L(b.footR, 0.1); }
     if (this.armOverride) { const o = this.armOverride; const k = o.w ?? 1; if (o.aL) aL = blend(aL, o.aL, k); if (o.aR) aR = blend(aR, o.aR, k); if (o.fL) fL = blend(fL, o.fL, k); if (o.fR) fR = blend(fR, o.fR, k); }
     R('armL', ...aL); R('armR', ...aR); R('foreL', ...fL); R('foreR', ...fR);
     R('handL', 0.12 + run * 0.1, 0, 0.05); R('handR', 0.12 + run * 0.1, 0, -0.05);
