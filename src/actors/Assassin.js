@@ -126,16 +126,34 @@ export class Assassin {
     for (const k of cands.slice(0, 80)) {
       const c = k.c; const dx = H.x - k.qx, dz = H.z - k.qz, dl = Math.hypot(dx, dz); const ux = dx / dl, uz = dz / dl;
       const tx = ux > 1e-6 ? (c.x1 - k.qx) / ux : ux < -1e-6 ? (c.x0 - k.qx) / ux : 1e9, tz = uz > 1e-6 ? (c.z1 - k.qz) / uz : uz < -1e-6 ? (c.z0 - k.qz) / uz : 1e9; const te = Math.min(tx, tz);
-      const ex = k.qx + ux * te, ez = k.qz + uz * te; // the roof edge on the line of fire
-      // no other building part standing on her spot (taller wing, neighbour overlapping the roof)
-      let blocked = false; for (const o of col.query(ex - 1.5, ez - 1.5, ex + 1.5, ez + 1.5)) { if (o === c || o.h <= 0) continue; if ((o.y0 || 0) + o.h > k.b.h - 0.5 && ex > o.x0 - 1 && ex < o.x1 + 1 && ez > o.z0 - 1 && ez < o.z1 + 1) { blocked = true; break; } } if (blocked) continue;
-      const mx = ex + ux * 0.45, mz = ez + uz * 0.45, my = k.top + 1.12; // muzzle out past the parapet, rifle at kneeling shoulder height
-      if (col.raycast(mx, my, mz, H.x, H.y, H.z, 0.04, true) < 0.995) continue;
-      // the rifle passes over the parapet (0.9 m; villas 0.5 m)
-      const slope = (H.y - my) / Math.hypot(H.x - mx, H.z - mz); if (1.12 + slope * 0.7 < (k.b.style === 'villa' ? 0.6 : 1.0)) continue;
-      return { x: ex - ux * 0.62, z: ez - uz * 0.62, y: k.top, yaw: Math.atan2(ux, uz), edge: V(ex, k.top, ez), u: V(ux, 0, uz), muzzle: V(mx, my, mz), dist: Math.hypot(H.x - mx, H.y - my, H.z - mz), c, b: k.b };
+      const ex0 = k.qx + ux * te, ez0 = k.qz + uz * te; // the roof edge on the line of fire
+      const alongX = tz < tx; // the roof edge she kneels at runs along x (hit the z0/z1 side) or along z
+      for (const off of [0, 1.2, -1.2, 2.4, -2.4, 3.6, -3.6]) { // slide along that edge to the nearest spot clear of roof clutter
+        const ex = alongX ? ex0 + off : ex0, ez = alongX ? ez0 : ez0 + off;
+        if (alongX ? (ex < c.x0 + 1.2 || ex > c.x1 - 1.2) : (ez < c.z0 + 1.2 || ez > c.z1 - 1.2)) continue;
+        const dx2 = H.x - ex, dz2 = H.z - ez, dl2 = Math.hypot(dx2, dz2); const ux2 = dx2 / dl2, uz2 = dz2 / dl2;
+        // no other building part standing on her spot (taller wing, neighbour overlapping the roof)
+        let blocked = false; for (const o of col.query(ex - 1.5, ez - 1.5, ex + 1.5, ez + 1.5)) { if (o === c || o.h <= 0) continue; if ((o.y0 || 0) + o.h > k.b.h - 0.5 && ex > o.x0 - 1 && ex < o.x1 + 1 && ez > o.z0 - 1 && ez < o.z1 + 1) { blocked = true; break; } } if (blocked) continue;
+        const mx = ex + ux2 * 0.45, mz = ez + uz2 * 0.45, my = k.top + 1.12; // muzzle out past the parapet, rifle at kneeling shoulder height
+        if (col.raycast(mx, my, mz, H.x, H.y, H.z, 0.04, true) < 0.995) continue;
+        // the rifle passes over the parapet (0.9 m; villas 0.5 m)
+        const slope = (H.y - my) / Math.hypot(H.x - mx, H.z - mz); if (1.12 + slope * 0.7 < (k.b.style === 'villa' ? 0.6 : 1.0)) continue;
+        const sx = ex - ux2 * 0.62, sz = ez - uz2 * 0.62; if (!this.roofSpotClear(k.b, sx, sz, k.top, ux2, uz2)) continue; // not kneeling inside a stair hut / tank stand / plant unit
+        return { x: sx, z: sz, y: k.top, yaw: Math.atan2(ux2, uz2), edge: V(ex, k.top, ez), u: V(ux2, 0, uz2), muzzle: V(mx, my, mz), dist: Math.hypot(H.x - mx, H.y - my, H.z - mz), c, b: k.b };
+      }
     }
     return null;
+  }
+  // Her kneeling footprint (feet ~0.6 m behind, rifle over the parapet ahead, ~0.45 m each side) must be free of the
+  // rooftop clutter BuildingGen puts on flat roofs without colliders: the 2.6 m stair hut in the x0/z0 corner of every 3+
+  // floor block, water-tank stands, dishes, lift overruns and plant units — their footprints are recorded on the building
+  // when its roof is built (BuildingGen roofObs); the stair hut is also tested directly in case the roof is not built yet.
+  roofSpotClear(b, sx, sz, top, ux, uz) {
+    const lx = uz, lz = -ux; const R = 0.75;
+    if (b.floors >= 3 && b.x1 - b.x0 > 6 && b.z1 - b.z0 > 6 && sx > b.x0 + 0.7 - R && sx < b.x0 + 3.3 + R && sz > b.z0 + 0.7 - R && sz < b.z0 + 3.3 + R) return false;
+    const pts = [[0, 0], [-0.6, 0], [-0.6, 0.45], [-0.6, -0.45], [0, 0.5], [0, -0.5], [0.3, 0.35], [0.3, -0.35]].map(([f, l]) => [sx + ux * f + lx * l, sz + uz * f + lz * l]);
+    for (const o of b._roofObs || []) for (const [px, pz] of pts) if (px > o[0] - 0.12 && px < o[2] + 0.12 && pz > o[1] - 0.12 && pz < o[3] + 0.12) return false;
+    return true;
   }
   contract(p) {
     const why = this.busyReason(); if (why) return { ok: false, msg: why };
@@ -151,13 +169,20 @@ export class Assassin {
     if (dancerPaintPending() && g.renderer) flushDancerPaint(g.renderer); // her skin texture is painted once on the GPU (the club does the same for its dancers)
     if (this.cine) { try { this.updateCine(dt); } catch (e) { console.error(e); this.endCine(true); } return; }
     if (g.director.active) return;
-    if (this.evening) this.updateEvening();
-    if (this.guard) this.updateGuard(dt);
-    else if (this.visible) { // walking off after the shift
+    // her per-frame logic is contained: a fault in it hides her for a moment (she rejoins from off screen) instead of
+    // throwing out of Game.updatePlay every frame and skipping everything updated after her
+    try { if (this.evening) this.updateEvening(); if (this.guard) this.updateGuard(dt); } catch (e) { this.fault(e); return; }
+    if (this.guard) return;
+    if (this.visible) { // walking off after the shift
       const P = g.player, m = this.m; this.leaveT -= dt; const ax = m.x - P.x, az = m.z - P.z, l = Math.hypot(ax, az) || 1;
       if (g.squad && g.squad.steer) g.squad.steer(m, dt, m.x + (ax / l) * 6, m.z + (az / l) * 6, 1.4, g.bodies || []);
       if (this.leaveT <= 0 && (!this.inView(m.x, m.y, m.z) || l > 35)) this.show(false);
     }
+  }
+  fault(e) {
+    this.faults = (this.faults || 0) + 1; if (this.faults <= 3) console.error('[Black Orchid] guard update failed — she rejoins off screen', e);
+    try { this.show(false); if (this.ch) { this.ch.anim.set(null); this.ch.anim.postPose = null; } } catch (e2) { /* keep the game running */ }
+    if (this.guard) { this.guard.away = true; this.guard.at = null; }
   }
   updateGuard(dt) {
     const g = this.g, P = g.player, G = this.guard, m = this.m, A = this.ch.anim;
@@ -169,6 +194,15 @@ export class Assassin {
         let x = d.x + fx * 1.1 + sx * 1.0, z = d.z + fz * 1.1 + sz * 1.0; if (g.collision.blocked(x, z, 0.3)) { x = d.x + fx * 1.4 - sx * 1.0; z = d.z + fz * 1.4 - sz * 1.0; }
         this.place(x, z, out + 0.35, g.collision.groundAt(x, z, 1)); this.show(true); A.play('crossarms', 1e6);
         const key = room.id || 'room'; if (!G.noted[key]) { G.noted[key] = 1; const nm = room.id === 'club' ? 'the club' : isHeroRoom(room.id) ? 'your door' : 'the door'; g.hud.notify('Black Orchid', `Nila is standing guard outside ${nm}.`, 'info', 4); } }
+      if (this.visible) A.update(dt, 0, 0); return;
+    }
+    const wi = P.indoor && P.indoor.walkIn ? P.indoor.site : null; const WI = g.interiors && g.interiors.walkIn;
+    if (wi && WI) { // a walk-in shop (push door, no loading): she waits beside its door outside, never follows him in
+      const key = 'walkin:' + wi.id;
+      if (G.at !== key) { G.at = key; const out = (wi.door && wi.door.faceIn != null ? wi.door.faceIn : 0) + Math.PI;
+        let [x, z] = WI.world(wi, 1.25, 1.3); if (g.collision.blocked(x, z, 0.3)) [x, z] = WI.world(wi, -1.25, 1.3); if (g.collision.blocked(x, z, 0.3)) [x, z] = WI.world(wi, 0.9, 2.4);
+        this.place(x, z, out + 0.35, g.collision.groundAt(x, z, (P.y || 0) + 1)); this.show(true); A.play('crossarms', 1e6);
+        if (!G.noted[key]) { G.noted[key] = 1; g.hud.notify('Black Orchid', 'Nila is waiting outside the shop.', 'info', 3.5); } }
       if (this.visible) A.update(dt, 0, 0); return;
     }
     if (G.at) { G.at = null; G.idleT = 0; A.set(null); } // he came back out: she is right there by the door

@@ -832,7 +832,7 @@ button.cc-k { cursor: pointer; } button.cc-k:hover { background: rgba(0, 0, 0, 0
 .pt-tab { flex: 1; max-width: 260px; padding: 9px 0 8px; background: rgba(20, 24, 30, 0.82); border: 0; border-top: 3px solid transparent; color: #cfcbc2; font-family: var(--f-hud); font-size: 17px; letter-spacing: 0.16em; font-weight: 600; cursor: pointer; transition: background 0.12s, color 0.12s; }
 .pt-tab:hover { background: rgba(48, 54, 62, 0.92); color: #fff; }
 .pt-tab.on { background: #f4efe6; color: #0c0f13; border-top-color: var(--gold); }
-.pt-k { align-self: center; margin: 0 8px; padding: 3px 8px; font-family: var(--f-hud); font-size: 13px; color: #fff; border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 3px; background: rgba(0, 0, 0, 0.35); }
+.pt-k { align-self: center; margin: 0 8px; padding: 3px 8px; font-family: var(--f-body); font-weight: 700; font-size: 13px; line-height: 1.2; /* Barlow Condensed's Q reads as a 0 at this size */ color: #fff; border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 3px; background: rgba(0, 0, 0, 0.35); }
 .bigmap .bm-title { top: 108px; } .bigmap .bm-legend { top: 118px; }
 .bigmap.pt-dim canvas { filter: blur(3px) brightness(0.45) saturate(0.7); }
 .bigmap.pt-dim .bm-title, .bigmap.pt-dim .bm-legend, .bigmap.pt-dim .bm-way, .bigmap.pt-dim .bm-tip, .bigmap.pt-dim .bigmap-help { display: none !important; }

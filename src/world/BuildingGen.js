@@ -6,6 +6,10 @@ import { LAND_Y } from './Layout.js';
 import { FLOOR_H, GROUND_H } from './CityPlan.js';
 import { dressFort, fortCrown, fortHeritage } from './FortStyle.js';
 import { dressDistrict } from './DistrictStyle.js';
+// footprints of the roof clutter built below (tanks, stair hut, dish, lift overrun, plant units — no colliders, they are
+// thousands of small things): recorded on the building so the rooftop marksman (actors/Assassin.js) never kneels inside one.
+// A data record only: no RNG draws, so every city stream stays identical.
+function roofObs(b, x0, z0, x1, z1) { const L = b._roofObs || (b._roofObs = []); if (!L.some((o) => Math.abs(o[0] - x0) < 1e-3 && Math.abs(o[1] - z0) < 1e-3)) L.push([x0, z0, x1, z1]); }
 import { SIGN_COLS, SIGN_ROWS, SIGNS, FACADE_WINDOWS } from '../gfx/Textures.js';
 
 const BAY = 3.2;
@@ -160,9 +164,10 @@ export function buildBase(b, multi) {
       if (!t.crown) {
         const lw = Math.min(8, w * 0.3), ld = Math.min(6, d * 0.25), lx = cx + rr.range(-0.15, 0.15) * w, lz = cz + rr.range(-0.15, 0.15) * d;
         cc.box(lx, ry + 2.2, lz, lw, 4.4, ld, { col: [0.8, 0.8, 0.79], uvScale: 3 }); // lift/stair overrun
+        roofObs(b, lx - lw / 2, lz - ld / 2, lx + lw / 2, lz + ld / 2);
         const nu = 2 + Math.floor(rr.next() * 4);
         for (let k = 0; k < nu; k++) { const ux = tx0 + 2.5 + rr.next() * (w - 5), uz = tz0 + 2.5 + rr.next() * (d - 5); if (Math.abs(ux - lx) < lw / 2 + 2 && Math.abs(uz - lz) < ld / 2 + 2) continue;
-          mt.box(ux, ry + 0.9, uz, 2.6, 1.8, 1.6, { col: [0.62, 0.64, 0.66] }); mt.cylinder(ux - 0.6, ry + 1.8, uz, 0.5, 0.5, 0.12, 14, { col: [0.2, 0.2, 0.22] }); mt.cylinder(ux + 0.6, ry + 1.8, uz, 0.5, 0.5, 0.12, 14, { col: [0.2, 0.2, 0.22] }); }
+          roofObs(b, ux - 1.3, uz - 0.8, ux + 1.3, uz + 0.8); mt.box(ux, ry + 0.9, uz, 2.6, 1.8, 1.6, { col: [0.62, 0.64, 0.66] }); mt.cylinder(ux - 0.6, ry + 1.8, uz, 0.5, 0.5, 0.12, 14, { col: [0.2, 0.2, 0.22] }); mt.cylinder(ux + 0.6, ry + 1.8, uz, 0.5, 0.5, 0.12, 14, { col: [0.2, 0.2, 0.22] }); }
         if (rr.chance(0.7)) { const kx = tx0 + 2 + rr.next() * (w - 4); mt.cylinder(kx, ry, tz1 - 2.5, 1.1, 1.1, 2.4, 16, { col: [0.85, 0.85, 0.83] }); mt.cylinder(kx + 2.6, ry, tz1 - 2.5, 1.1, 1.1, 2.4, 16, { col: [0.85, 0.85, 0.83] }); }
         if (rr.chance(0.6)) mt.cylinder(lx, ry + 4.4, lz, 0.08, 0.05, 9 + rr.next() * 8, 6, { col: [0.5, 0.5, 0.52] }); // antenna
       }
@@ -293,6 +298,7 @@ export function buildDetail(b, multi) {
       const n = rng.int(1, 3);
       for (let k = 0; k < n; k++) {
         const tx = rng.range(b.x0 + 1.2, b.x1 - 1.2), tz = rng.range(b.z0 + 1.2, b.z1 - 1.2);
+        roofObs(b, tx - 0.7, tz - 0.7, tx + 0.7, tz + 0.7);
         // steel stand (4 angle legs + platform) carrying a ribbed polyethylene tank with a screw lid (kept lean: thousands of roofs)
         const mt = multi.get('metal'), pm = multi.get('paint'), sc = [0.24, 0.24, 0.25], tc = col(rng.pick(TANK)), sh = rng.range(0.7, 1.4);
         for (const [ox, oz] of [[-0.58, -0.58], [0.58, -0.58], [-0.58, 0.58], [0.58, 0.58]]) mt.box(tx + ox, yTop + sh / 2, tz + oz, 0.06, sh, 0.06, { col: sc, top: false, bottom: false });
@@ -302,8 +308,8 @@ export function buildDetail(b, multi) {
         pm.cylinder(tx, yTop + sh + 1.28, tz, 0.2, 0.2, 0.07, 8, { col: tc.map((v) => v * 0.8) }); // lid
       }
     }
-    if (b.floors >= 3 && (b.x1 - b.x0) > 6 && (b.z1 - b.z0) > 6) conc.box(b.x0 + 2, yTop + 1.3, b.z0 + 2, 2.6, 2.6, 2.6, { col: darker, uvScale: 3 });
-    if (rng.chance(0.3)) { const dx = rng.range(b.x0 + 1, b.x1 - 1), dz = rng.range(b.z0 + 1, b.z1 - 1); multi.get('paint').cylinder(dx, yTop + 0.9, dz, 0.45, 0.05, 0.25, 10, { col: [0.85, 0.85, 0.85] }); multi.get('metal').box(dx, yTop + 0.45, dz, 0.06, 0.9, 0.06, { col: [0.4, 0.4, 0.4] }); }
+    if (b.floors >= 3 && (b.x1 - b.x0) > 6 && (b.z1 - b.z0) > 6) { conc.box(b.x0 + 2, yTop + 1.3, b.z0 + 2, 2.6, 2.6, 2.6, { col: darker, uvScale: 3 }); roofObs(b, b.x0 + 0.7, b.z0 + 0.7, b.x0 + 3.3, b.z0 + 3.3); }
+    if (rng.chance(0.3)) { const dx = rng.range(b.x0 + 1, b.x1 - 1), dz = rng.range(b.z0 + 1, b.z1 - 1); roofObs(b, dx - 0.5, dz - 0.5, dx + 0.5, dz + 0.5); multi.get('paint').cylinder(dx, yTop + 0.9, dz, 0.45, 0.05, 0.25, 10, { col: [0.85, 0.85, 0.85] }); multi.get('metal').box(dx, yTop + 0.45, dz, 0.06, 0.9, 0.06, { col: [0.4, 0.4, 0.4] }); }
   }
   // building fabric: rendered plinth course, rainwater downpipes (PVC grey or painted black/cast iron on heritage),
   // eave gutters on tiled roofs, and a CEB electricity meter box beside the entrance

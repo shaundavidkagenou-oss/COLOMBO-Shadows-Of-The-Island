@@ -134,6 +134,7 @@ export class DebugConsole {
           if (D.ties.length) this.print('  knows    ' + D.ties.map((t) => `${t.who} ${t.aff}`).join(' · '));
           break; }
         case 'roadcheck': this.roadcheck(a); break;
+        case 'undress': case 'undress.front': case 'undress.back': this.print('not available — the game has no nude or undressing content, debug or otherwise (characters stay clothed).', 'warn'); break;
         case 'clear': this.log = []; this.print(''); break;
         case 'close': case 'exit': this.toggle(false); break;
         default: this.print(`unknown command: ${cmd} (type help)`, 'err');
