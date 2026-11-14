@@ -55,6 +55,7 @@ class AudioEngine {
   footstep(sprint, wet) { if (SB.play('footstep', (sprint ? 1 : 0.6) * (0.85 + Math.random() * 0.3), 0, 0, { rate: 0.94 + Math.random() * 0.12 })) return; this.noise(0.07, { f: wet ? 1800 : 900 + Math.random() * 300, q: 1.2, vol: sprint ? 0.12 : 0.07, type: 'bandpass' }); if (wet) this.noise(0.05, { f: 3500, q: 2, vol: 0.04, when: 0.02 }); }
   horn(type, x, z, style = null) {
     const [g, pan] = this.spatial(x, z, 60); if (g < 0.02) return; const v = 0.25 * g;
+    if (type === 'dbike') { for (const w of [0, 0.17]) { this.tone(2380, 0.55, { type: 'sine', vol: v * 0.32, pan, when: w, attack: 0.002 }); this.tone(5950, 0.3, { type: 'sine', vol: v * 0.08, pan, when: w, attack: 0.002 }); } return; } // bicycle bell: two rings
     if (SB.play(style ? 'horn.' + style : type === 'tuktuk' || type === 'bike' || BIKES[type] ? 'horn.small' : isHeavy(type) ? 'horn.heavy' : 'horn.car', g, pan)) return;
     if (style) { // Street Customs horns
       if (style === 'dual') { this.tone(392, 0.4, { type: 'square', vol: v * 0.35, pan }); this.tone(494, 0.4, { type: 'square', vol: v * 0.3, pan }); }

@@ -27,7 +27,7 @@ const smooth = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
 const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const DRIVE = L.FUEL_DRIVE, SLAB = L.FUEL_SLAB;
 const ELIGIBLE = new Set(['car', 'van', 'tuk', 'bike']);
-const NO_FUEL = new Set(['police', 'policejeep', 'policebike', 'ambulance']);
+const NO_FUEL = new Set(['police', 'policejeep', 'policebike', 'ambulance', 'dbike']); // dbike: Dineth's bicycle has no tank
 const FUEL_TYPES = new Set(Object.keys(VTYPES).filter((k) => { const T = VTYPES[k]; return T && ELIGIBLE.has(T.entry) && !NO_FUEL.has(k) && T.len <= 5.4; }));
 // bays: lane, the side of the vehicle that faces the island (+1 = its left), island index, dispenser face side (−1 = the
 // island's −w face); lane C (between island 2 and the shop walkway) is too tight a turn for cars: three-wheelers/bikes only

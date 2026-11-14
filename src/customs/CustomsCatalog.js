@@ -29,6 +29,7 @@ export function exclusionReason(type) {
   const T = VTYPES[type]; if (!T) return 'unknown vehicle';
   if (T.police) return 'police vehicle'; if (T.ambulance) return 'emergency vehicle'; if (T.tow) return 'municipal service vehicle';
   if (T.rail || T.isTrain) return 'train';
+  if (T.pedal) return 'bicycle (no engine or bodywork to tune)';
   if (type === 'bus' || type === 'pbus' || T.base === 'bus' || T.entry === 'bus' && !T.family) return 'route bus (does not fit the bay)';
   if ((T.len || 0) > 7.5) return 'too long for the workshop bay';
   return null;

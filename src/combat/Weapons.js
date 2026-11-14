@@ -183,7 +183,7 @@ export class Weapons {
   update(dt, can) {
     const P = this.P, A = P.ch.anim;
     this.heatUpdate(dt);
-    if (!can || P.vehicle || P.entry || P.exiting || P.climb || P.indoor) { if (this.drawn || this.state !== 'none') this.forceHolster(); else { A.ik = null; A.aim = null; } this.wheelClose(false); this.hudUpdate(dt); this.fxUpdate(dt); return; }
+    if (!can || P.vehicle || P.entry || P.exiting || P.climb || (P.indoor && !this.robRoom())) { /* walk-in robbery stores (RobberyShops.js) allow a drawn weapon */ if (this.drawn || this.state !== 'none') this.forceHolster(); else { A.ik = null; A.aim = null; } this.wheelClose(false); this.hudUpdate(dt); this.fxUpdate(dt); return; }
     // ---- selection: wheel (hold Tab), number keys, mouse wheel, gamepad d-pad
     if (Input.isDown('weaponWheel')) this.wheelUpdate(); else if (this.wheelOpen) this.wheelClose(true);
     if (!this.wheelOpen) {
@@ -352,7 +352,7 @@ export class Weapons {
   }
 
   // ------------------------------------------------------------------ firing
-  muzzleWorld(out) { const m = this.models[this.cur]; m.updateWorldMatrix(true, false); return out.copy(m.userData.muzzle).applyMatrix4(m.matrixWorld); }
+  muzzleWorld(out) { const m = this.models[this.cur]; m.updateWorldMatrix(true, false); out.copy(m.userData.muzzle).applyMatrix4(m.matrixWorld); const P = this.P; if (Math.hypot(out.x - P.x, out.z - P.z) > 2.5 || Math.abs(out.y - P.y - 1.3) > 2.5) out.set(P.x, P.y + 1.4, P.z); return out; } // guard: a stale hand matrix (the frame after a teleport / headless steps) must not fire from far away
   aimRay(spread) {
     const cam = this.g.camera; cam.updateMatrixWorld(); const o = cam.position.clone(); const d = new THREE.Vector3(); cam.getWorldDirection(d);
     if (spread > 0) { const r = Math.sqrt(Math.random()) * spread, a = Math.random() * Math.PI * 2; const up = new THREE.Vector3(0, 1, 0).applyQuaternion(cam.quaternion), rt = new THREE.Vector3(1, 0, 0).applyQuaternion(cam.quaternion); d.addScaledVector(up, Math.sin(a) * r).addScaledVector(rt, Math.cos(a) * r).normalize(); }
@@ -361,8 +361,12 @@ export class Weapons {
   }
   // nearest hit along a ray: world geometry, pedestrians (capsules), vehicles (bounding circles)
   trace(o, d, range, skipNear = 0, skipV = null) { // skipV: a vehicle the bullet already went through / past
-    let best = { t: range, kind: 'none' };
-    const s0 = o.clone().addScaledVector(d, skipNear), e = o.clone().addScaledVector(d, range); const tw = this.g.collision.raycast(s0.x, s0.y, s0.z, e.x, e.y, e.z, 0.02, true); if (tw < 1) best = { t: skipNear + tw * (range - skipNear), kind: 'world' };
+    let best = { t: range, kind: 'none' }; const rr = this.robRoom(); // inside a robbery store the room's own walls / counters are the world (the building's collider box would stop every shot)
+    const s0 = o.clone().addScaledVector(d, skipNear), e = o.clone().addScaledVector(d, range); const tw = rr ? 1 : this.g.collision.raycast(s0.x, s0.y, s0.z, e.x, e.y, e.z, 0.02, true); if (tw < 1) best = { t: skipNear + tw * (range - skipNear), kind: 'world' };
+    if (rr) { const t = rr.rob.rayRoom(o, d, range); if (t < best.t && t >= skipNear) best = { t, kind: 'world' };
+      const ex = rr.rob.exitT; if (ex !== null && ex !== undefined && best.t >= range) { // out through the doorway: the street's buildings stop it again (no hits through walls hundreds of metres off)
+        const a0 = Math.max(skipNear, ex + 0.35), s1 = o.clone().addScaledVector(d, a0); const tw2 = a0 < range ? this.g.collision.raycast(s1.x, s1.y, s1.z, e.x, e.y, e.z, 0.02, true) : 1; if (tw2 < 1) best = { t: a0 + tw2 * (range - a0), kind: 'world' }; }
+      /* a ray that stays in the room is already capped by its walls / counters, so nobody outside can be hit */ }
     if (o.y + d.y * best.t < this.groundY(o.x + d.x * best.t, o.z + d.z * best.t)) { // hits the street before anything else
       const tg = d.y < -1e-4 ? (this.groundY(o.x, o.z) - o.y) / d.y : best.t; if (tg > 0 && tg < best.t) best = { t: tg, kind: 'ground' }; }
     for (const p of this.g.crowd.peds) {
@@ -374,8 +378,10 @@ export class Weapons {
     if (this.g.police) for (const p of this.g.police.foot) { const rx = p.x - o.x, rz = p.z - o.z; const dh = Math.hypot(d.x, d.z) || 1e-6; const t = (rx * d.x + rz * d.z) / (dh * dh); if (t < skipNear || t > best.t) continue; const cx = o.x + d.x * t - p.x, cz = o.z + d.z * t - p.z; if (cx * cx + cz * cz > 0.09) continue; const y = o.y + d.y * t - (p.y || 0); if (y < 0.05 || y > (p.mode === 'down' ? 0.45 : 1.8 - 0.65 * ((p.ch && p.ch.anim && p.ch.anim.crouch) || 0))) continue; best = { t, kind: 'officer', p, y }; } // an officer crouched in cover presents less
     const vs = this.g.traffic.all();
     for (const v of vs) { if (v === skipV || Math.abs(v.x - o.x) > range || Math.abs(v.z - o.z) > range) continue; for (const [cx, cz] of v.circles()) { const rx = cx - o.x, ry = v.y + 0.9 - o.y, rz = cz - o.z; const t = rx * d.x + ry * d.y + rz * d.z; if (t < skipNear || t > best.t) continue; const qx = o.x + d.x * t - cx, qy = o.y + d.y * t - (v.y + 0.9), qz = o.z + d.z * t - cz; const rr = v.radius * 0.95; const dd = qx * qx + qy * qy * 1.8 + qz * qz; if (dd < rr * rr) { const back = Math.sqrt(rr * rr - dd); best = { t: Math.max(skipNear, t - back), kind: 'vehicle', v }; } } }
+    if (rr) { const h = rr.rob.rayKeeper(o, d, best.t, skipNear); if (h) best = { t: h.t, kind: 'keeper', room: rr, y: h.y }; }
     best.point = o.clone().addScaledVector(d, best.t); return best;
   }
+  robRoom() { const P = this.P; const r = P && P.indoor && P.indoor.walkIn ? P.indoor.room : null; return r && r.rob ? r : null; }
   groundY(x, z) { return L.groundY(x, z); }
   pickPed(range) { const { o, d } = this.aimRay(0); const camToPlayer = o.distanceTo(new THREE.Vector3(this.P.x, this.P.y + 1.5, this.P.z)); const h = this.trace(o, d, range, camToPlayer + 0.4); return h.kind === 'ped' ? h : null; }
   fire(def) {
@@ -405,6 +411,7 @@ export class Weapons {
   applyHit(hit, dir, org, def, k = 1, depth = 0) {
     const dmg = def.dmg * k;
     if (hit.kind === 'ped') { const p = hit.p; if (this.g.blood && p.ch) this.g.blood.wound(p.ch, hit.point, dir, dmg); this.g.crowd.hitPed(p, dir.x, dir.z, dmg, hit.point); if (!(this.g.blood && this.g.blood.spray(hit.point, dir, dmg))) this.puff(hit.point, 0x8a8478, 3); this.hitMarker(); }
+    else if (hit.kind === 'keeper') { hit.room.rob.shot(hit, dir, dmg); this.hitMarker(); } // a robbery-store keeper (RobberyShops.js)
     else if (hit.kind === 'officer') { if (this.g.blood && hit.p.ch) this.g.blood.wound(hit.p.ch, hit.point, dir, dmg); this.g.police.officerHit(hit.p, dir.x, dir.z); if (!(this.g.blood && this.g.blood.spray(hit.point, dir, dmg))) this.puff(hit.point, 0x8a8478, 3); this.hitMarker(); } // stagger / down-and-recover
     else if (hit.kind === 'vehicle') { const v = hit.v, VD = this.g.vdamage; const R = VD ? VD.bullet(v, org, dir, { cls: def.cls, dmg }, { by: 'player' }) : null;
       if (VD && !R) { if (depth < 2) return this.applyHit(this.trace(org, dir, def.range, Math.max(0.05, hit.t + 0.01), v), dir, org, def, k, depth + 1); return hit; } // passed over / beside the body

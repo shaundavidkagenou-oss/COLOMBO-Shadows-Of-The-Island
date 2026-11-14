@@ -335,3 +335,5 @@ export function buildShopInterior(game, id, site) {
   const r = def.kind === 'barber' ? buildBarber(game, def, site) : def.kind === 'tattoo' ? buildTattoo(game, def, site) : def.kind === 'gun' ? buildGun(game, def, site) : def.kind === 'clothing' ? buildClothing(game, def, site) : buildLuxury(game, def, site);
   r.shop = id; return r;
 }
+// shared with the 44th-request robbery stores (RobberyShops.js)
+export { fit, shell, ob, keeperAt, pendant, frame, bottles, rngOf, base };

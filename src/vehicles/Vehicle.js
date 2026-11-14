@@ -137,8 +137,8 @@ export class Vehicle {
       if (K.trans) { const u = clamp(sp / Math.max(1, top), 0, 1); kA *= 1 + K.trans.pull * Math.exp(-((u - 0.5) ** 2) / 0.06) + K.trans.resp * 0.12 * (1 - u); } } // punctured tyres (police spike strip / shot out): half the top speed, weak traction; a damaged engine loses power
     const kB = K ? K.brake : 1;
     if (fwd > 0) acc = sp < -0.5 ? 12 * kB : pw <= 0.01 ? 0 : T.accel * kA * (flat ? 0.6 : 1) * pw * fwd * (1 - Math.max(0, sp) / top);
-    else if (fwd < 0) acc = sp > 0.5 ? -12 * kB : T.accel * 0.5 * fwd * (1 - Math.max(0, -sp) / (T.maxSpeed * 0.3));
-    else acc = -Math.sign(sp) * Math.min(Math.abs(sp) / dt, 1.5);
+    else if (fwd < 0) acc = sp > 0.5 ? -(T.pedal ? 5.5 : 12) * kB : T.accel * 0.5 * fwd * (1 - Math.max(0, -sp) / (T.maxSpeed * 0.3));
+    else acc = -Math.sign(sp) * Math.min(Math.abs(sp) / dt, T.pedal ? 0.12 : 1.5); // a bicycle freewheels (rolling resistance only)
     if (input.handbrake) acc -= Math.sign(sp) * Math.min(Math.abs(sp) / dt, 9);
     acc -= sp * Math.abs(sp) * 0.0012 * (T.mass > 3000 ? 2 : 1);
     this.speed += acc * dt; this.brake = (fwd < 0 && sp > 0.5) || input.handbrake;
@@ -258,9 +258,10 @@ export class Vehicle {
     const n = Math.max(1, Math.ceil(dt * 120)), h = dt / n, kp = 58, cp = 5.3, kr = 76, cr = 6.1;
     for (let i = 0; i < n; i++) { this.pv += (kp * (tp - this.pitch) - cp * this.pv) * h; this.pitch += this.pv * h; this.rv += (kr * (tr - this.roll) - cr * this.rv) * h; this.roll += this.rv * h; } }
   sync(dt) {
-    this.settle(dt); if (dt > 0) this.chassis(dt); const S = this.sus; const D = this.dropFit;
+    this.settle(dt); if (dt > 0) this.chassis(dt); const S = this.sus; const D = this.dropFit; if (this.T.noLamps) this.lights = false; // a bicycle: no lamps
     const rr = Math.sin(this.roll + S.r - this.tRoll - (D ? D.r : 0)), pr = Math.sin(this.pitch - this.tPitch - (D ? D.p : 0)); // attitude relative to the road plane: the wheels are moved against it so they stay on the road
     const rh = this.tune && !this.wrecked ? this.tune.ride : 0; /* Customs ride height: body down / up on its springs, wheels stay on the road */ const m = this.mesh; m.position.set(this.x, this.y - S.h - (D ? D.h : 0) + (this.wreckLift || 0) + rh, this.z); const sp = m.userData.stand; m.rotation.set(this.pitch, this.yaw, this.roll + S.r - (sp ? LEAN * this.leanK : 0), 'YXZ'); if (sp) syncStand(sp, this.stand);
+    const stn = this.stunt; if (stn) { m.rotation.z += stn.roll || 0; const p = stn.pitch || 0; if (p) { m.rotation.x += p; const R = this.T.wheelR, zr = stn.zR, c = Math.cos(p), s = Math.sin(p); const dz = zr - (R * s + zr * c); m.position.y += R - (R * c - zr * s); m.position.x += Math.sin(this.yaw) * dz; m.position.z += Math.cos(this.yaw) * dz; } } // bicycle stunts (BicycleRide.js): wheelie about the rear axle, rock about the tyre line
     // contact shadow (35th request, "shadow under the vehicle while moving"): it was a child of the body, so every dive, squat, roll and
     // ride-height change tilted the dark patch — half of it sank under the asphalt (cut off) and the other half floated and slid. It now
     // lies on the road plane under the car (ground height, road pitch / roll only), whatever the body does on its springs.

@@ -437,7 +437,7 @@ export class VehicleDamage {
   }
   // ================================================================ FIRE → EXPLOSION
   ignite(v, fuse, by, why) {
-    const st = this.st(v); if (st.fire || v.wrecked) return; st.fire = { t: 0, T: fuse, by, why, snd: 0 }; v.burning = true; this.burning.add(v); this.stats.fires++; v.damage = 1;
+    const st = this.st(v); if (st.fire || v.wrecked || v.T.pedal) return; /* a bicycle has nothing to burn */ st.fire = { t: 0, T: fuse, by, why, snd: 0 }; v.burning = true; this.burning.add(v); this.stats.fires++; v.damage = 1;
     const g = this.g; if (v.player && g.hud) g.hud.notify('Vehicle on fire', 'Get out — the tank is about to go.', 'warn', 3.5);
     if (!v.player) g.traffic?.abandon?.(v, { x: v.x, z: v.z }, true); g.crowd?.alarm?.(v.x, v.z, 30, 2, null, 'fire', true);
   }

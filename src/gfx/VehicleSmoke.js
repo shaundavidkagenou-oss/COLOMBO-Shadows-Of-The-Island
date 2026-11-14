@@ -125,7 +125,7 @@ export class VehicleSmoke {
     if (!ex) ex = { p: [-(wid / 2 - 0.3), heavy ? 0.4 : 0.3, -len / 2 - 0.04], d: [0, 0, -1], fuel: heavy ? 'diesel' : (T.mass || 0) > 1700 || T.fam === 'truck' ? 'dieselLight' : 'petrol' };
     const front = [], rear = []; for (const w of ud.wheels || []) { const p = w.position; (w.userData.front ? front : rear).push([p.x, p.z]); }
     if (!rear.length) rear.push([wid * 0.42, -len * 0.33], [-wid * 0.42, -len * 0.33]); if (!front.length) front.push([wid * 0.42, len * 0.33], [-wid * 0.42, len * 0.33]);
-    const bike = T.entry === 'bike'; return { ex, F: FUEL[ex.fuel] || FUEL.petrol, front, rear, bike, heavy, wid, len, scale: bike ? 0.55 : heavy ? 1.25 : 1 };
+    const bike = T.entry === 'bike'; return { pedal: !!T.pedal, ex, F: T.pedal ? null : FUEL[ex.fuel] || FUEL.petrol, /* a bicycle has no exhaust */ front, rear, bike, heavy, wid, len, scale: bike ? 0.55 : heavy ? 1.25 : 1 };
   }
   update(dt) {
     if (!(dt > 0)) return; dt = Math.min(dt, 0.1); this.t += dt; this.U.uTime.value = this.t;
@@ -151,7 +151,7 @@ export class VehicleSmoke {
       if (sp > 2.5 || Math.abs(latS) > 2.5) { const sl = clamp01((Math.abs(latS) - 1.4) / 4.5); tr = Math.max(tr, sl); tf = Math.max(tf, sl * 0.7); } // sliding sideways
       if (Math.abs(yr) > 1.3 && (sp > 3 || Math.abs(latS) > 2)) { const k = clamp01((Math.abs(yr) - 1.3) / 2); tr = Math.max(tr, k); tf = Math.max(tf, k * 0.8); } // spinning
       if (v.free && Math.hypot(v.free.vx, v.free.vz) > 3) { tr = Math.max(tr, 0.5); tf = Math.max(tf, 0.5); } // shoved across the road by a crash
-      const wet = 1 - 0.75 * clamp01(rain * 1.5); tr *= wet; tf *= wet;
+      const wet = 1 - 0.75 * clamp01(rain * 1.5); tr *= wet; tf *= wet; if (I.pedal) { tr = 0; tf = 0; } /* a bicycle's tyres don't smoke */
       if (tr > 0.05 || tf > 0.05 || s.pw) budget = this.tyres(v, s, I, tr, tf, fx, fz, rx, rz, mvx, mvz, gy, far, dt, budget, spin);
       // ---------------- badly damaged: smoke from under the bonnet (grey → black as it gets worse)
       if ((v.damage || 0) > 0.7 && budget > 0) { s.en += (4 + 10 * clamp01((v.damage - 0.7) / 0.3)) * this.rateK * far * dt;

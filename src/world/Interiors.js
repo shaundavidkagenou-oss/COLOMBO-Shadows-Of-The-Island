@@ -14,6 +14,7 @@ import { buildHeroEntrance } from './HeroEntrance.js';
 import { modelFloor } from './FloorKit.js';
 import { WalkIn, REVEAL, DOOR_W } from './WalkIn.js';
 import { buildShopInterior, SHOP_DEFS } from './ShopInteriors.js';
+import { ROB_DEFS, buildRobberyShop, buildRobSigns } from './RobberyShops.js';
 
 // modelled floors per shop, as such places are laid in Colombo (FloorKit: real bays / tiles / slabs with recessed joints)
 const SHOP_FLOOR = {
@@ -43,9 +44,10 @@ export class Interiors {
     if (this.walkInsDone) return; this.walkInsDone = true;
     const STYLE = { kade: 'timberGlass', fathima: 'timberGlass', selvaraj: 'alu', bandara: 'timber', tailor: 'bronze', garage: 'wicket', gunshop: 'steel' };
     for (const [id, s] of Object.entries(plan.missionShops)) { if (!s.walkIn) continue;
-      const def = SHOP_DEFS[id]; const b = plan.buildings.find((q) => q.id === s.b) || null;
+      const rob = ROB_DEFS[id]; const def = SHOP_DEFS[id] || rob; const b = plan.buildings.find((q) => q.id === s.b) || null;
       this.walkIn.add({ id, name: def ? def.name : this.g.interiorName ? this.g.interiorName(id) : id, door: { x: s.x, z: s.z, faceIn: s.faceIn }, b, style: def ? def.door : STYLE[id] || 'alu', hinge: def && def.hinge ? def.hinge : -1,
-        build: (site) => (def ? buildShopInterior(this.g, id, site) : this.legacyWalkIn(id, site)) }); }
+        build: (site) => (rob ? buildRobberyShop(this.g, id, site) : def ? buildShopInterior(this.g, id, site) : this.legacyWalkIn(id, site)) }); }
+    try { const sg = buildRobSigns(this.walkIn.sites); if (sg && this.g.scene) this.g.scene.add(sg); this.robSigns = sg; } catch (e) { console.warn('robbery store signs', e); } // 44th: lit box signs over the eight robbable stores (one mesh)
   }
   // the original story-shop rooms, built in their design frame (door at the origin) and re-based to the WalkIn local frame
   legacyWalkIn(id, site) {

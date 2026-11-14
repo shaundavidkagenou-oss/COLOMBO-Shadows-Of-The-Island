@@ -362,7 +362,8 @@ export class Player {
     const v = this.vehicle; const c = this.control;
     const throttle = c ? clamp((Input.isDown('forward') ? 1 : 0) - (Input.isDown('back') ? 1 : 0) + Input.pad.rt - Input.pad.lt, -1, 1) : 0;
     const dk = this.drunk || 0, tt = performance.now() / 1000; const steer = c ? clamp((Input.isDown('left') ? 1 : 0) - (Input.isDown('right') ? 1 : 0) - Input.pad.lx + (dk > 0.02 ? (Math.sin(tt * 0.7) * 0.32 + Math.sin(tt * 1.9 + 2) * 0.14) * dk : 0), -1, 1) : 0; /* drunk: the wheel drifts */
-    if (v.kin) v.kin(dt); /* Street Customs drives the car in / out (CustomsService.kinStep) */ else v.drive(dt, { throttle, steer, handbrake: c && Input.isDown('jump') }, this.collision, traffic.all());
+    const thr = v.pedalCtl && !v.kin ? v.pedalCtl.ride(dt, this, throttle) ?? throttle : throttle; // Dineth's bicycle: cranks, stunts (BicycleRide.js; no pedalling during the coasting stunts)
+    if (v.kin) v.kin(dt); /* Street Customs drives the car in / out (CustomsService.kinStep) */ else v.drive(dt, { throttle: thr, steer, handbrake: c && Input.isDown('jump') }, this.collision, traffic.all());
     { const A = this.ch.anim; A.steer = v.steer / v.T.steer; const acc = (v.speed - (this.lastVS ?? v.speed)) / Math.max(dt, 1e-3); this.lastVS = v.speed; A.vehSpeed = v.speed; A.brakeLean = damp(A.brakeLean, clamp(-acc * 0.012, -0.06, 0.08), 6, dt); A.cornerLean = clamp(-A.steer * v.speed * 0.004, -0.06, 0.06); A.update(dt, 0); }
     this.x = v.x; this.z = v.z; this.y = v.y; this.yaw = v.yaw;
     if (c && Input.wasPressed('horn')) this.events.emit('horn', v);

@@ -630,4 +630,13 @@ export const NEW_SHOPS = {
   gunshop2: { name: 'Lanka Shooting Supplies', at: [632, 64], w: 6.5, d: 10 },
   clothing: { name: 'Marine Drive Clothing Co.', at: [-318, 606], w: 9, d: 11 },
   luxury: { name: 'Maison Serendib', at: [-412, -118], w: 8, d: 10 },
+  // 44th request: eight robbable stores (RobberyShops.js), spread over the city
+  rob_mart: { name: 'Lak Mini Mart', at: [420, -620], w: 6.5, d: 9 },
+  rob_pharmacy: { name: 'Lanka Care Pharmacy', at: [760, 200], w: 6.5, d: 9 },
+  rob_jewel: { name: 'Ratnapura Gems & Gold', at: [40, -760], w: 6.5, d: 9 },
+  rob_phone: { name: 'CellCity Mobile', at: [-420, 760], w: 6, d: 8.5 },
+  rob_liquor: { name: 'Galle Road Wine Stores', at: [520, -1100], w: 6, d: 8.5 },
+  rob_bakery: { name: 'Golden Crust Bakery', at: [-200, 1250], w: 6.5, d: 9 },
+  rob_hardware: { name: 'Sena Hardware', at: [300, 1000], w: 6.5, d: 9 },
+  rob_books: { name: 'Saraswathi Book Depot', at: [-430, 250], w: 6.5, d: 9 },
 };
