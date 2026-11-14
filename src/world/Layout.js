@@ -35,6 +35,9 @@ export function inCanal(z) { for (const c of CANALS) if (z > c.z0 && z < c.z1) r
 export function inHarbour(x, z) { return z < -1180 && x < 230; }
 export function isSea(x, z) { return x < coastX(z) || inHarbour(x, z) || z < BOUNDS.minZ; }
 export function isWater(x, z) { return isSea(x, z) || inLake(x, z) || !!inCanal(z); }
+// surface height of the water at (x, z) (Water.js planes) and how deep a swimmer can go (the seabed plane is at −4)
+export function waterLevel(x, z) { if (inLake(x, z)) return -0.55; if (isSea(x, z)) return -0.9; if (inCanal(z)) return -1.0; return null; }
+export function waterBed(x, z) { if (inLake(x, z)) return -3.2; if (isSea(x, z)) return -3.9; return -2.6; }
 
 // ---------------------------------------------------------------- districts
 export const DISTRICTS = {
@@ -377,8 +380,11 @@ export function setSurfaceHook(fn) { surfHook = fn; }
 export function surfaceY(x, z) { const g = groundY(x, z); if (!surfHook) return g; const s = surfHook(x, z); return s > g ? s : g; }
 let groundHook = null; // Railway registers the ballast bed / level-crossing humps here (avoids an import cycle)
 export function setGroundHook(fn) { groundHook = fn; }
+let rampHook = null; // StreetRamps: speed humps + stunt ramps (surfaces vehicles, walkers and AI all ride)
+export function setRampHook(fn) { rampHook = fn; }
 export function groundY(x, z) {
   if (groundHook) { const h = groundHook(x, z); if (h != null) return h; }
+  if (rampHook) { const h = rampHook(x, z); if (h != null) return h; }
   { const f = fuelSurfaceAt(x, z); if (f != null) return f; } // filling-station forecourts + kerb ramps
   { const f = customsSurfaceAt(x, z); if (f != null) return f; } // Street Customs lot + driveway ramp
   if (roadAt(x, z)) return ROAD_Y;

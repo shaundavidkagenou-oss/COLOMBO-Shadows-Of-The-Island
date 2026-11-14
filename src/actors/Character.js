@@ -1319,7 +1319,8 @@ export function gaitProfile(sp) {
 // ------------------------------------------------------------------ two-bone arm IK (used for weapons)
 // target: point in CHEST space; q: optional hand orientation in chest space; w: blend with the animated pose.
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _v4 = new THREE.Vector3(), _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _m1 = new THREE.Matrix4();
-const BODY_POSES = new Set(['kneel', 'kneelCuffed', 'prone', 'tackled', 'collapse', 'tackle', 'cuffKneel', 'medKneel', 'medLift']);
+const BODY_POSES = new Set(['kneel', 'kneelCuffed', 'prone', 'tackled', 'collapse', 'tackle', 'cuffKneel', 'medKneel', 'medLift', 'swim', 'dive', 'pullup', 'vault']);
+const wrapPi = (a) => a - Math.round(a / (2 * Math.PI)) * 2 * Math.PI;
 const seg01 = (t, a, b) => Math.min(1, Math.max(0, (t - a) / (b - a)));
 export function solveArmIK(b, S, target, q, w = 1, poleDir = null) { // poleDir: preferred elbow direction (parent space), default down and out
   const arm = b['arm' + S], fore = b['fore' + S], hand = b['hand' + S], chest = b.chest, par = arm.parent;
@@ -1636,6 +1637,24 @@ export class Animator {
         // ---- paramedics (EMS.js): hands on world points (holdL / holdR, chest space, set every frame); medShake: head shake
         case 'medKneel': case 'medLift': case 'medCarry': { if (this.holdL) ikT('L', this.holdL.x, this.holdL.y, this.holdL.z, this.holdPoleL); else { tl = [-0.35, 0, 0.15]; tfl = [-0.9, 0, 0]; } if (this.holdR) ikT('R', this.holdR.x, this.holdR.y, this.holdR.z, this.holdPoleR); else { tr = [-0.35, 0, -0.15]; tfr = [-0.9, 0, 0]; }
           b.neck.rotation.x += (this.medLook ?? 0.35) * aw; head = this.medShake ? Math.sin(at * 7.5) * 0.38 * this.medShake : (this.medTurn || 0); break; }
+        // ---- swimming (Swim.js): swimLay 0 = treading upright → 1 = horizontal; swimBr 0 = front crawl → 1 = breaststroke (under);
+        // swimPh = stroke phase (one arm cycle per 2π). Arm x rotation runs forward through a full circle for the crawl:
+        // 0 at the thigh → +π/2 lifted out behind (recovery, elbow high) → ±π reaching ahead → −π/2 the pull under the chest
+        case 'swim': { const lay = this.swimLay ?? 1, br = this.swimBr || 0, ph = this.swimPh || 0, sc = Math.sin(t * 3.1);
+          const crawl = (a, sd) => { const rec = Math.max(0, Math.sin(a)), pull = Math.max(0, -Math.sin(a)); return [wrapPi(a), 0, sd * (0.16 + 0.55 * rec), -(0.25 + 1.25 * rec + 0.55 * pull)]; };
+          const breast = (sd) => { const u = ((ph % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI) / (2 * Math.PI); let x = -2.95, z = 0.12, f = -0.1;
+            if (u < 0.45) { const k = u / 0.45; x = -2.95 + 0.75 * k; z = 0.12 + 0.95 * k; f = -0.1 - 0.5 * k; } else if (u < 0.65) { const k = (u - 0.45) / 0.2; x = -2.2 + 0.7 * k; z = 1.07 - 0.75 * k; f = -0.6 - 1.4 * k; } else { const k = (u - 0.65) / 0.35; x = -1.5 - 1.45 * k; z = 0.32 - 0.2 * k; f = -2.0 + 1.9 * k; }
+            return [x, 0, sd * z, f]; };
+          const tread = (sd) => [-0.5, 0, sd * (0.9 + 0.22 * sc * sd), -0.55 - 0.18 * sc * sd];
+          const mix = (A, B, k) => A.map((v, i) => v + (B[i] - v) * k);
+          const R_ = mix(tread(-1), mix(crawl(ph, -1), breast(-1), br), lay), L_ = mix(tread(1), mix(crawl(ph + Math.PI, 1), breast(1), br), lay);
+          tr = [R_[0], 0, R_[2]]; tfr = [R_[3], 0, 0]; tl = [L_[0], 0, L_[2]]; tfl = [L_[3], 0, 0];
+          const breathe = Math.pow(Math.max(0, Math.sin(ph - 0.7)), 3) * lay * (1 - br); head = 1.05 * breathe; // turns the face out to breathe on the right-arm recovery
+          b.neck.rotation.x -= (lay * (0.55 - 0.3 * breathe) * (1 - br) + 0.75 * br * lay - 0.1 * (1 - lay)) * aw; break; }
+        case 'vault': { const k = clamp(at / 0.75, 0, 1), on = Math.sin(seg01(k, 0, 0.7) * Math.PI); tr = [-0.9 - 0.3 * on, 0, -0.25]; tl = [-0.9 - 0.3 * on, 0, 0.25]; tfr = tfl = [-0.3 - 0.4 * on, 0, 0]; b.spine.rotation.x += 0.3 * on * aw; break; } // hands on the rail
+        case 'dive': tr = [-2.95, 0, -0.12]; tl = [-2.95, 0, 0.12]; tfr = tfl = [-0.06, 0, 0]; b.neck.rotation.x += 0.15 * aw; break; // arms streamlined overhead
+        case 'pullup': { const k = clamp(at / 1.25, 0, 1), reach = 1 - seg01(k, 0.15, 0.55), press = Math.sin(seg01(k, 0.15, 0.7) * Math.PI); // hands planted on the coping, then press up
+          tr = [lerp(-0.25, -2.45, reach), 0, -0.32]; tl = [lerp(-0.25, -2.45, reach), 0, 0.32]; tfr = tfl = [-0.25 - 1.5 * press, 0, 0]; b.spine.rotation.x += 0.35 * press * aw; head = 0; break; }
         case 'cuffStand': ikT('L', 0.07, -0.1, 0.56); ikT('R', -0.08, -0.12, 0.55); b.spine.rotation.x += 0.35 * aw; b.neck.rotation.x -= 0.05 * aw; head = 0; break; // standing behind a kneeling suspect, cuffing
       }
       if (tl) aL = blend(aL, tl, aw); if (tr) aR = blend(aR, tr, aw); if (tfl) fL = blend(fL, tfl, aw); if (tfr) fR = blend(fR, tfr, aw); if (head !== null && head !== undefined) b.head.rotation.y = lerp(b.head.rotation.y, head, aw);
@@ -1688,6 +1707,23 @@ export class Animator {
     const kneelLegs = () => legs(-0.08, 1.62, 0.75, -0.08, 1.62, 0.75), proneLegs = () => legs(0.06, 0.14, 0.95, 0.02, 0.22, 0.95);
     if (act === 'kneel' || act === 'kneelCuffed') { hips(kneelY, 0.04); kneelLegs(); b.spine.rotation.x = lerp(b.spine.rotation.x, 0.02, w); }
     else if (act === 'prone') { hips(proneY, 1.48, proneZ); proneLegs(); }
+    else if (act === 'swim') { // see applyAct 'swim'
+      const A_ = this.swimLay ?? 1, br = this.swimBr || 0, ph = this.swimPh || 0, tt = this.t || 0, e = Math.sin(tt * 3.1);
+      hips(lerp(stand - 0.02 * s, 0.16 * s, A_), lerp(0.1, 1.33 + (this.swimDive || 0), A_), lerp(0, 0.34 * s, A_));
+      const f3 = Math.sin(ph * 3), fu = (((ph % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) / (2 * Math.PI); // flutter (6-beat) / frog-kick cycle
+      const frog = fu < 0.55 ? 0.05 : fu < 0.75 ? (fu - 0.55) / 0.2 : 1 - (fu - 0.75) / 0.25; // knees draw up late in the arm pull, snap back straight
+      const tread = [-0.85 + 0.22 * e, 1.25 - 0.3 * e, 0.35, -0.85 - 0.22 * e, 1.25 + 0.3 * e, 0.35]; // eggbeater
+      const crawl = [0.24 * f3, 0.18 + 0.28 * Math.max(0, Math.sin(ph * 3 + 0.9)), 1.05, -0.24 * f3, 0.18 + 0.28 * Math.max(0, -Math.sin(ph * 3 + 0.9)), 1.05];
+      const brs = [-0.85 * frog, 1.75 * frog, 1.0 - 1.4 * frog, -0.85 * frog, 1.75 * frog, 1.0 - 1.4 * frog];
+      const T_ = tread.map((v, i) => lerp(v, lerp(crawl[i], brs[i], br), A_)); legs(...T_);
+      const out = lerp(0.28 + 0.12 * e, 0.42 * frog * br, A_); b.thighL.rotation.z = lerp(b.thighL.rotation.z, out, w); b.thighR.rotation.z = lerp(b.thighR.rotation.z, -out, w);
+      b.hips.rotation.y += 0.36 * Math.sin(ph) * A_ * (1 - br) * w; b.chest.rotation.y -= 0.12 * Math.sin(ph) * A_ * (1 - br) * w; // body roll with the stroke
+    }
+    else if (act === 'dive') { const k = clamp(this.diveK ?? t / 0.8, 0, 1), crouch = Math.sin(seg01(k, 0, 0.2) * Math.PI), fly = smooth01(seg01(k, 0.12, 0.8));
+      hips(stand - 0.22 * s * crouch, 0.55 * crouch + 1.5 * fly, 0); legs(-0.7 * crouch + 0.08 * fly, 1.2 * crouch + 0.05 * fly, 0.6 * crouch + 0.9 * fly, -0.7 * crouch + 0.05 * fly, 1.2 * crouch + 0.1 * fly, 0.6 * crouch + 0.9 * fly); }
+    else if (act === 'vault') { const k = clamp(t / 0.75, 0, 1), tuck = Math.sin(seg01(k, 0.1, 0.85) * Math.PI); hips(stand - 0.08 * s * tuck, 0.25 * tuck, 0); legs(-1.1 * tuck, 1.5 * tuck, 0.3, -0.9 * tuck, 1.3 * tuck, 0.3); }
+    else if (act === 'pullup') { const k = clamp(t / 1.25, 0, 1), knee = Math.sin(seg01(k, 0.4, 0.95) * Math.PI), lean = Math.sin(seg01(k, 0.2, 0.9) * Math.PI);
+      hips(stand, 0.45 * lean, 0); legs(-0.25 - 1.35 * knee, 0.4 + 1.5 * knee, 0.4, -0.15 * lean, 0.35 + 0.3 * lean, 0.5); }
     else if (act === 'tackled' || act === 'collapse') {
       const buckle = act === 'collapse' ? smooth01(seg01(t, 0, 0.45)) : 0; const fall = smooth01(act === 'tackled' ? seg01(t, 0.12, 0.6) : seg01(t, 0.45, 1.05));
       const whip = act === 'tackled' ? Math.sin(seg01(t, 0, 0.2) * Math.PI) : 0; const bounce = Math.sin(seg01(t, act === 'tackled' ? 0.6 : 1.05, act === 'tackled' ? 0.8 : 1.25) * Math.PI) * 0.03 * s;

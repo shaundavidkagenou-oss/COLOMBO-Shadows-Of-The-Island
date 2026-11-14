@@ -650,12 +650,12 @@ export class Crowd {
   // a directional reaction (head snaps back / turns / tips up), a push back of a step. Men who are not elderly may square
   // up and fight back (decided once per person, weighted by temper); everyone else gets away / calls it in. Fighters who
   // are covering up take a quarter. Non-graphic. Returns true when it landed.
-  punched(p, src, move = 'jab') {
+  punched(p, src, move = 'jab', mult = 1) { // mult: the attacker's Strength skill (Skills.js)
     if (!p || p.state === 'down' || p.dead) return false; const M = FIGHT_MOVES[move] || FIGHT_MOVES.jab; const now = this.t;
     p.ko = Math.min(100, (p.ko ?? 100) + (now - (p.koAt ?? now)) * 4); p.koAt = now;
     const dx = p.x - src.x, dz = p.z - src.z, d = Math.hypot(dx, dz) || 1; p.knockedByCar = false; p.lookAt = { x: src.x, z: src.z };
     const facing = Math.cos(wrapAngle(Math.atan2(-dx, -dz) - p.yaw)) > 0.5; const blocked = p.state === 'fight' && p.fblock > 0 && facing;
-    p.ko -= M.dmg * (blocked ? 0.25 : 1) * (p.sp.age === 'elder' ? 1.6 : p.sp.sex === 'f' ? 1.25 : 1);
+    p.ko -= M.dmg * mult * (blocked ? 0.25 : 1) * (p.sp.age === 'elder' ? 1.6 : p.sp.sex === 'f' ? 1.25 : 1);
     const byP = !!(this.player && src === this.player); if (byP) this.minds.playerAct(p, 'punched'); else if (p.mind) feel(p.mind, EI.FEA, 0.3);
     this.events.emit('pedPunched', p); this.alarm(p.x, p.z, 18, 2, p, 'assault', byP);
     if (blocked) { p.ch.anim.takeHit('block', 1, 1); p.vx = dx / d * 0.9; p.vz = dz / d * 0.9; p.fstun = 0.15; return true; }

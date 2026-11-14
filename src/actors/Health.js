@@ -19,6 +19,7 @@ export class Health {
   bind(P) { // Player is rebuilt on load/outfit change: (re)attach the event hooks
     if (!P || P.__healthBound === this) return; P.__healthBound = this;
     P.events.on('land', () => { const v = -P.lastLandVy; if (v > 9) { this.stats.falls++; this.damage((v - 9) * 9, 'fall'); } });
+    P.events.on('drown', () => { this.stats.drowned = (this.stats.drowned || 0) + 1; this.damage(11, 'drowned'); }); // out of breath underwater (Swim.js)
     P.events.on('hitByVehicle', (speed) => { this.stats.hits++; this.damage(Math.min(85, 8 + speed * 3.4), 'struck by a vehicle'); });
   }
   get hp() { const s = this.g.story.state; if (typeof s.health !== 'number' || !isFinite(s.health)) s.health = 100; return s.health; }

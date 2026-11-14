@@ -26,6 +26,7 @@ import { buildClubFront } from './ClubFront.js';
 import { buildFuelStations } from './FuelStations.js';
 import { buildCustoms } from './CustomsGeo.js';
 import { buildCityStreets } from './CityStreets.js';
+import { buildStreetRamps } from './StreetRamps.js';
 import { WetGlints } from '../gfx/WetGlints.js';
 import * as L from './Layout.js';
 import { RNG } from '../core/rng.js';
@@ -55,6 +56,7 @@ export class World {
     if (plan.missionShops.club) { const s = plan.missionShops.club; const f = buildClubFront(s, plan.buildings.find((b) => b.id === s.b)); this.root.add(f.group); this.collision.addAll(f.colliders); } // The Velvet Monsoon club frontage
     { const fs = buildFuelStations(); this.fuel = fs; this.root.add(fs.group); this.collision.addAll(fs.colliders); } // four filling stations (FuelStations.js)
     { const cs = buildCustoms(); this.customs = cs; this.root.add(cs.group); this.collision.addAll(cs.colliders); } // Street Customs workshop (CustomsGeo.js; service: customs/CustomsService.js)
+    { const sr = buildStreetRamps(); this.streetRamps = sr; this.root.add(sr.group); } // speed humps + stunt jumps / bicycle ramps (StreetRamps.js; ground surfaces via Layout.setRampHook)
     { const fs = buildCityStreets(plan); this.fortStreets = this.cityStreets = fs; this.root.add(fs.group); this.collision.addAll(fs.colliders); } // Colombo Fort benchmark: trilingual street names, billboards, drains, bins (FortStreets.js)
     { // second crown-clearance pass against the landmark buildings (they only exist now): no leaves inside them either
       const boxes = landmarkTreeBoxes(this.collision.list.filter((c) => c.kind === 'landmark' && !c.fuel)).concat(this.fuel.crownBoxes, this.customs.crownBoxes); const r = refitTreeCrowns(boxes);

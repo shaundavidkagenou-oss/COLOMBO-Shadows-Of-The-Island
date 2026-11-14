@@ -1,5 +1,7 @@
 // Dineth: on-foot controller (walk/jog/sprint/crouch/jump/climb), vehicle enter/exit, and the third-person camera.
+import { SKILL_FX } from '../story/Skills.js';
 import { separate } from './Bodies.js';
+import { swimmable, startSwim, updateSwim, tryEnterWater, updateDiveIn, endSwim } from './Swim.js';
 import * as THREE from 'three';
 import { Character, HEROES } from './Character.js';
 import { Input } from '../core/Input.js';
@@ -27,7 +29,7 @@ export class Player {
   // a teleport out of the current room (arrest, hospital, mission skip, fast travel) releases it first, otherwise the room's
   // bounds clamp would pull the player straight back inside
   leaveRoomFor(x, z) { const I = this.indoor, b = I && I.bounds; if (b && (x < b.x0 - 1 || x > b.x1 + 1 || z < b.z0 - 1 || z > b.z1 + 1)) this.indoor = null; }
-  teleport(x, z, yaw = 0) { this.leaveRoomFor(x, z); this.x = x; this.z = z; this.y = this.collision.groundAt(x, z, 5, 10); this.yaw = yaw; this.camYaw = yaw + Math.PI; this.vy = 0; this.sync(); this.snapCamera(); }
+  teleport(x, z, yaw = 0) { if (this.swim || this.diveIn) endSwim(this); this.leaveRoomFor(x, z); this.x = x; this.z = z; this.y = this.collision.groundAt(x, z, 5, 10); this.yaw = yaw; this.camYaw = yaw + Math.PI; this.vy = 0; this.sync(); this.snapCamera(); }
   sync() { this.ch.root.position.set(this.x, this.y, this.z); this.ch.root.rotation.y = this.yaw; }
   // Respawn (hospital / released from custody): nothing of the moment of death may follow the player to the new spot. Before,
   // only the action was cleared — which cross-fades it: the collapse / cuffed / seated pose kept blending out on the body at the
@@ -36,7 +38,7 @@ export class Player {
   respawnReset() {
     const r = this.ch.root, A = this.ch.anim, cam = this.camera;
     if (r.parent && r.parent !== this.scene) { r.parent.remove(r); this.scene.add(r); }
-    this.entry = null; this.exiting = null; this.climb = null; this.transition = null; this.settling = 0; this.emote = null; this.cinematic = false; this.lookLock = false;
+    this.entry = null; this.exiting = null; this.climb = null; this.swim = null; this.diveIn = null; this.swimBreath = 1; this.transition = null; this.settling = 0; this.emote = null; this.cinematic = false; this.lookLock = false;
     this.vy = 0; this.grounded = true; this.speed = 0; this.crouching = false; this.sprinting = false; this.aiming = false; this.scoped = null; this.aimCam = 0;
     this.shake = 0; this.camFx = null; this.idleCam = 0; this.idleT = 0; this.camPitch = 0.18; this.camYaw = this.yaw + Math.PI;
     if (this.fpHead) { this.fpHead.scale.setScalar(1); this.fpHead = null; }
@@ -60,16 +62,19 @@ export class Player {
     const A = this.ch.anim; let mx = this.control ? Input.moveX : 0, my = this.control ? Input.moveY : 0; const mag = Math.min(1, Math.hypot(mx, my));
     if (this.drunk > 0.02 && mag > 0.05) { const t = performance.now() / 1000, k = this.drunk; const a = (Math.sin(t * 0.83) * 0.55 + Math.sin(t * 2.1 + 1) * 0.22) * k; const c = Math.cos(a), s_ = Math.sin(a); const nx = mx * c - my * s_, ny = mx * s_ + my * c; mx = nx; my = ny; } /* drunk: the path weaves (Drunk.js) */
     if (this.climb) { // ledge climb: lerp up and over
-      const c = this.climb; c.t += dt / 0.9; const k = Math.min(1, c.t);
-      this.y = lerp(c.y0, c.y1, Math.min(1, k * 1.6)); this.x = lerp(c.x0, c.x1, Math.max(0, (k - 0.4) / 0.6)); this.z = lerp(c.z0, c.z1, Math.max(0, (k - 0.4) / 0.6));
-      A.set('handsup'); A.update(dt, 0); if (k >= 1) { this.climb = null; A.set(null); } this.sync(); return;
+      const c = this.climb; c.t += dt / (c.dur || 0.9); const k = Math.min(1, c.t);
+      this.y = c.act === 'vault' ? lerp(c.y0, c.y1, k) + Math.sin(k * Math.PI) * 0.75 : lerp(c.y0, c.y1, Math.min(1, k * 1.6)); this.x = lerp(c.x0, c.x1, Math.max(0, (k - 0.4) / 0.6)); this.z = lerp(c.z0, c.z1, Math.max(0, (k - 0.4) / 0.6));
+      A.set(c.act || 'handsup'); A.update(dt, 0); if (k >= 1) { this.climb = null; A.set(null); } this.sync(); return;
     }
     if (this.posed) { const q = this.posed; this.x = q.x; this.y = q.y; this.z = q.z; this.yaw = q.yaw; this.speed = 0; A.update(dt, 0); this.sync(); return; } // held in place by a shop (barber chair / tattoo bench / fitting mirror — ui/StoreUI.js)
+    this.edgeHint = null;
+    if (this.diveIn) { updateDiveIn(this, dt); return; } // vaulting the rail / stepping off into the water (Swim.js)
+    if (this.swim || (swimmable(this, this.x, this.z) && this.y < (L.waterLevel(this.x, this.z) ?? -0.9) + 0.3)) { if (!this.swim) startSwim(this); updateSwim(this, dt, mx, my, mag); return; }
     this.crouching = this.control && Input.isDown('crouch');
     this.sprinting = this.control && Input.isDown('sprint') && mag > 0.3 && this.stamina > 0.05 && !this.crouching && !this.aiming && !(this.drunk > 0.75);
     const pk = this.perk || { speed: 1, stamina: 1 }; // squad member: Dineth runs faster and longer, Shashika is heavier
-    this.stamina = clamp(this.stamina + (this.sprinting ? -dt * 0.09 / pk.stamina : dt * 0.15), 0, 1);
-    const maxSp0 = (this.aiming ? (this.scoped ? 0.9 : 1.8) : this.crouching ? 1.4 : this.sprinting ? 6.6 : mag > 0.85 ? 3.4 : 1.5) * (this.aiming ? 1 : pk.speed) * (1 - 0.22 * (this.drunk || 0)); this.baseSpeed = maxSp0;
+    this.stamina = clamp(this.stamina + (this.sprinting ? -dt * 0.09 / pk.stamina * SKILL_FX.staminaDrain : dt * 0.15 * SKILL_FX.staminaRegen), 0, 1); // Stamina skill (Skills.js)
+    const maxSp0 = (this.aiming ? (this.scoped ? 0.9 : 1.8) : this.crouching ? 1.4 : this.sprinting ? 6.6 * SKILL_FX.sprint : mag > 0.85 ? 3.4 : 1.5) * (this.aiming ? 1 : pk.speed) * (1 - 0.22 * (this.drunk || 0)); this.baseSpeed = maxSp0;
     const maxSp = maxSp0 * (this.doorSlow ?? 1); // doorSlow: a hand on a shop door (WalkIn)
     let dirYaw = this.yaw;
     if (mag > 0.05) { const camF = this.camYaw + Math.PI; dirYaw = camF + Math.atan2(-mx, my); }
@@ -83,7 +88,8 @@ export class Player {
     if (this.bodies && this.bodies.length) { const q = separate(this.bodies, nx, nz, this.y, 0.32, this.ch, 0.55); if (q.hit) { nx = q.x; nz = q.z; this.speed *= 0.92; } } // people are solid; crowd peds get nudged aside
     if (this.indoor) r = this.indoor.resolve ? this.indoor.resolve(nx, nz) : this.resolveIndoor(nx, nz); // walk-in shops resolve in their own (rotated) frame
     else {
-      if (!this.collision.walkableWater(nx, nz, this.y) && this.collision.walkableWater(this.x, this.z, this.y)) { nx = this.x; nz = this.z; this.speed *= 0.5; }
+      if (!this.collision.walkableWater(this.x, this.z, this.y) && !L.isWater(this.x, this.z) && this.control && Input.wasPressed('jump') && L.isWater(this.x + Math.sin(moveYaw) * 2.4, this.z + Math.cos(moveYaw) * 2.4) && tryEnterWater(this, dt, moveYaw, Math.max(mag, 0.5))) { this.sync(); return; } // on the coping beyond the rail: Jump dives in
+      if (!this.collision.walkableWater(nx, nz, this.y) && this.collision.walkableWater(this.x, this.z, this.y)) { if (tryEnterWater(this, dt, moveYaw, mag)) { this.sync(); return; } nx = this.x; nz = this.z; this.speed *= 0.5; } else this.edgeT = 0;
       r = this.collision.resolveCircle(nx, nz, 0.32, this.y, 0.45, 1.75);
     }
     // auto-avoid other vehicles physically
@@ -363,6 +369,7 @@ export class Player {
     const throttle = c ? clamp((Input.isDown('forward') ? 1 : 0) - (Input.isDown('back') ? 1 : 0) + Input.pad.rt - Input.pad.lt, -1, 1) : 0;
     const dk = this.drunk || 0, tt = performance.now() / 1000; const steer = c ? clamp((Input.isDown('left') ? 1 : 0) - (Input.isDown('right') ? 1 : 0) - Input.pad.lx + (dk > 0.02 ? (Math.sin(tt * 0.7) * 0.32 + Math.sin(tt * 1.9 + 2) * 0.14) * dk : 0), -1, 1) : 0; /* drunk: the wheel drifts */
     const thr = v.pedalCtl && !v.kin ? v.pedalCtl.ride(dt, this, throttle) ?? throttle : throttle; // Dineth's bicycle: cranks, stunts (BicycleRide.js; no pedalling during the coasting stunts)
+    v.sk = SKILL_FX; // Driving / Cycling skill (read in Vehicle.drive)
     if (v.kin) v.kin(dt); /* Street Customs drives the car in / out (CustomsService.kinStep) */ else v.drive(dt, { throttle: thr, steer, handbrake: c && Input.isDown('jump') }, this.collision, traffic.all());
     { const A = this.ch.anim; A.steer = v.steer / v.T.steer; const acc = (v.speed - (this.lastVS ?? v.speed)) / Math.max(dt, 1e-3); this.lastVS = v.speed; A.vehSpeed = v.speed; A.brakeLean = damp(A.brakeLean, clamp(-acc * 0.012, -0.06, 0.08), 6, dt); A.cornerLean = clamp(-A.steer * v.speed * 0.004, -0.06, 0.06); A.update(dt, 0); }
     this.x = v.x; this.z = v.z; this.y = v.y; this.yaw = v.yaw;
@@ -422,10 +429,13 @@ export class Player {
       t = this.collision.raycast(tgt.x, tgt.y, tgt.z, want.x, want.y, want.z, 0.35, false, L.LAND_Y + 1.3);
       if (t < 1) want.lerpVectors(tgt, want, Math.max(0.04, t - 0.3 / Math.max(dist, 0.5)));
       const gy = L.groundY(want.x, want.z) + 0.3; if (want.y < gy) want.y = gy;
+      { const wl = L.waterLevel(want.x, want.z); if (wl != null && !L.bridgeWalkAt(want.x, want.z)) { // never straddle the water plane: above it, or (diving) fully under it
+        if (this.swim && this.swim.depth > 0.6) want.y = clamp(want.y, L.waterBed(want.x, want.z) + 0.4, wl - 0.25); else if (want.y < wl + 0.25) want.y = wl + 0.25; } }
     }
     if (snap) this.camPos.copy(want); else this.camPos.lerp(want, 1 - Math.exp(-dt * (t < 1 ? 25 : 12)));
     { const nr = t < 1 || this.indoor ? 0.08 : 0.25; if (cam.near !== nr) { cam.near = nr; cam.updateProjectionMatrix(); } } // pressed against a wall or indoors: a short near plane can't cut into the geometry
     cam.position.copy(this.camPos);
+    { const wl = L.waterLevel(cam.position.x, cam.position.z); this.camUnder = wl != null && cam.position.y < wl - 0.05 && !L.bridgeWalkAt(cam.position.x, cam.position.z); }
     if (this.shake > 0 && Settings.get('cameraShake')) { cam.position.x += (Math.random() - 0.5) * this.shake * 0.3; cam.position.y += (Math.random() - 0.5) * this.shake * 0.3; this.shake = Math.max(0, this.shake - dt * 2.5); }
     cam.lookAt(tgt);
     // back against a wall: collision pulls the camera into the body and the screen filled with the back of the head / shirt.

@@ -1,6 +1,7 @@
 // Nine-weapon system for the squad (each member has their own loadout, see Squad.js): inventory, wheel, draw/holster, aim (over-the-shoulder / scope), fire, recoil, reload,
 // effects, hit detection and the non-graphic reactions it triggers in the crowd. Hands are placed on each weapon by
 // two-bone IK (Animator.ik) using the grip/support points exposed by the model, so every animation keeps both hands on it.
+import { SKILL_FX } from '../story/Skills.js';
 import { bloomHot } from '../gfx/BloomHot.js';
 import * as THREE from 'three';
 import { Input } from '../core/Input.js';
@@ -70,6 +71,7 @@ export class Weapons {
   }
   slotMatrixInChest(i, out) { const b = this.P.ch.bones; const slot = WEAPONS[i].cls === 'pistol' ? this.holsterP : this.holsterR; b.chest.updateWorldMatrix(true, false); slot.updateWorldMatrix(true, false); return out.copy(b.chest.matrixWorld).invert().multiply(slot.matrixWorld); }
   select(i) {
+    if (this.P.swim || this.P.diveIn) return; /* no weapon in the water: arms are swimming */
     if (!(i >= 0 && i <= 8) || !this.inv[i] || !this.inv[i].owned) { if (i >= 0 && i <= 8 && this.inv[i]) this.hudFlash(`${WEAPONS[i].name} not owned — buy it at a gun shop`); return; } this._toFists = false; if (this.state === 'reload') this.abortReload();
     this.scrollTarget = null; this._toFists = false;
     if (this.state === 'holster') { // already putting one away: retarget (or, back to the same weapon, bring it straight back up)
@@ -102,7 +104,7 @@ export class Weapons {
     const ok = (p) => { if (!p || p.state === 'down' || p.dead || !p.ch) return -1; const dx = p.x - P.x, dz = p.z - P.z, d = Math.hypot(dx, dz); if (d > M.reach || d < 0.05) return -1; if ((dx * fx + dz * fz) / d < 0.55) return -1; if (Math.abs((p.y || 0) - (P.y || 0)) > 0.9) return -1; return d; };
     let best = ok(this.lock) >= 0 ? this.lock : null; if (!best) { let bd = 1e9; for (const p of C.peds) { const d = ok(p); if (d >= 0 && d < bd) { bd = d; best = p; } } }
     if (!best) return null;
-    if (C.punched(best, P, this.curMove)) { this.landed = (this.landed || 0) + 1; SB.play('punch.hit', M.dmg > 20 ? 1 : 0.8, 0, 0, { rate: M.dmg > 20 ? 0.92 : 1.05 }) || Audio.noise(0.06, { f: 230 + (M.dmg > 20 ? -40 : 30), q: 1.4, vol: 0.13, when: 0 }); P.shake = Math.max(P.shake || 0, M.dmg > 20 ? 0.18 : 0.12); if (this.g.police) this.g.police.crime(best.x, best.z, 'assault'); }
+    if (C.punched(best, P, this.curMove, SKILL_FX.punch)) { this.landed = (this.landed || 0) + 1; this.g.skills?.onPunch(); SB.play('punch.hit', M.dmg > 20 ? 1 : 0.8, 0, 0, { rate: M.dmg > 20 ? 0.92 : 1.05 }) || Audio.noise(0.06, { f: 230 + (M.dmg > 20 ? -40 : 30), q: 1.4, vol: 0.13, when: 0 }); P.shake = Math.max(P.shake || 0, M.dmg > 20 ? 0.18 : 0.12); if (this.g.police) this.g.police.crime(best.x, best.z, 'assault'); }
     return best;
   }
   // per frame (fists): stance on while fighting, block, step in to the locked target during the throw
@@ -130,7 +132,7 @@ export class Weapons {
   setState(s) { const prev = this.state; this.state = s; this.t = 0; if (s === 'holster' || s === 'none') this.wantReload = false;
     const d = this.def; if (d && s === 'equip') { this.drawMode = d.cls === 'pistol' && this._fromUnarmed ? 'hip' : 'hands'; this.dur = this.drawMode === 'hip' ? d.equip : this.handsDur(d); this.appearK = 0; }
     if (d && s === 'holster') { const swap = this.next >= 0; this.drawMode = d.cls === 'pistol' && !swap ? 'hip' : 'hands'; this.dur = this.drawMode === 'hip' ? d.equip * 0.85 : swap ? 0.22 : 0.3; }
-    if (s === 'reload') { const iv = this.inv[this.cur], d = WEAPONS[this.cur]; this.reloadKind = iv && iv.mag > 0 ? 'tactical' : 'empty'; this.reloadDur = d ? d.reload * (this.reloadKind === 'tactical' ? 0.85 : 1) : 1; this._dropped = false; this._relFlick = 0; }
+    if (s === 'reload') { const iv = this.inv[this.cur], d = WEAPONS[this.cur]; this.reloadKind = iv && iv.mag > 0 ? 'tactical' : 'empty'; this.reloadDur = d ? d.reload * (this.reloadKind === 'tactical' ? 0.85 : 1) * SKILL_FX.reload : 1; this._dropped = false; this._relFlick = 0; }
     if (s === 'check') this._chkFlick = 0;
     const rig = this.P && this.P.ch && this.P.ch.rig; if (rig && ((s === 'ready' && prev === 'equip') || s === 'holster')) rig.thumbFlick('R'); // safety off once up / on before stowing
   }
@@ -151,7 +153,7 @@ export class Weapons {
   dynamics(dt, def) {
     const P = this.P, S = this.spr; const t = performance.now() / 1000; const h0 = Math.max(dt, 1e-3);
     const yawRate = this.lastCamYaw === null ? 0 : wrapAngle(P.camYaw - this.lastCamYaw) / h0; const pitchRate = (P.camPitch - this.lastCamPitch) / h0;
-    const ads = sm(this.aimW); const steady = (P.perk && P.perk.steady) || 1; const heavy = def.cls === 'pistol' ? 0.75 : def.cls === 'sniper' ? 1.25 : 1;
+    const ads = sm(this.aimW); const steady = ((P.perk && P.perk.steady) || 1) * SKILL_FX.sway; const heavy = def.cls === 'pistol' ? 0.75 : def.cls === 'sniper' ? 1.25 : 1;
     const swayK = (1 - 0.6 * ads) * (P.crouching ? 0.6 : 1) * heavy; const sp = Math.min(P.speed || 0, 7);
     const tr = new THREE.Vector3(clamp(pitchRate * 0.012, -0.08, 0.08), clamp(yawRate * 0.018, -0.12, 0.12), clamp(-yawRate * 0.014, -0.1, 0.1)).multiplyScalar(swayK); // look inertia
     const ph = t * (sp > 4 ? 9.5 : 6.4), mv = clamp(sp / 4, 0, 1.4) * swayK; // gait figure-of-eight
@@ -385,14 +387,14 @@ export class Weapons {
   groundY(x, z) { return L.groundY(x, z); }
   pickPed(range) { const { o, d } = this.aimRay(0); const camToPlayer = o.distanceTo(new THREE.Vector3(this.P.x, this.P.y + 1.5, this.P.z)); const h = this.trace(o, d, range, camToPlayer + 0.4); return h.kind === 'ped' ? h : null; }
   fire(def) {
-    const P = this.P; const moving = P.speed > 0.6 ? 1.7 : 1; const spread = (def.spread + this.bloom) * moving * (this.scoped ? 0.35 : 1);
+    const P = this.P; const moving = P.speed > 0.6 ? 1.7 : 1; const spread = (def.spread + this.bloom) * moving * (this.scoped ? 0.35 : 1) * SKILL_FX.spread; // Shooting skill
     const { o, d } = this.aimRay(spread); const camToPlayer = o.distanceTo(new THREE.Vector3(P.x, P.y + 1.5, P.z));
     const aimHit = this.trace(o, d, def.range, camToPlayer + 0.4);
     const mz = this.muzzleWorld(new THREE.Vector3());
     // the bullet leaves the muzzle toward the aim point; anything between the muzzle and that point takes the hit instead
     const dir = aimHit.point.clone().sub(mz); const len = dir.length(); dir.normalize(); let hit = this.trace(mz, dir, Math.max(0.1, len + 0.05), 0.05); let hdir = dir, horg = mz; if (hit.kind === 'none') { hit = aimHit; hdir = d; horg = o; }
     this.bloom = Math.min(0.08, this.bloom + def.bloom); this.recoil = Math.min(0.12, this.recoil + 0.05); this.recoilYaw = Math.random() * 2 - 1;
-    { const st = (P.crouching ? 0.75 : 1) * (this.aimW > 0.8 ? 0.85 : 1) * (0.6 + 0.4 * ((P.perk && P.perk.steady) || 1)); const cls = def.cls;
+    { const st = (P.crouching ? 0.75 : 1) * (this.aimW > 0.8 ? 0.85 : 1) * (0.6 + 0.4 * ((P.perk && P.perk.steady) || 1)) * SKILL_FX.recoil; const cls = def.cls;
       P.camPitch = clamp(P.camPitch - def.recoil * 0.35 * st, -0.5, 1.2); // the part the shooter must pull down
       this.kick.v += def.recoil * 9 * st * (0.85 + Math.random() * 0.3); this.kick.yv += def.recoil * 3 * st * (Math.random() * 2 - 1); // rises, then mostly recovers
       if (P.ch && P.ch.anim.shotKick) P.ch.anim.shotKick(cls, st); this.spr.pv.z -= (cls === 'pistol' ? 0.55 : cls === 'sniper' ? 1.1 : 0.7) * st; this.spr.pv.y += 0.12 * st; this.spr.rv.x -= (cls === 'pistol' ? 9 : cls === 'sniper' ? 7 : 4.5) * st; this.spr.rv.y += (Math.random() * 2 - 1) * 1.6 * st; this.spr.rv.z += (Math.random() * 2 - 1) * 1.2 * st;
@@ -404,6 +406,7 @@ export class Weapons {
     this.g.birds?.scare(P.x, P.z, 50); // every bird nearby goes up at a gunshot
     if (this.g.police) this.g.police.gunfire(P.x, P.z, hit.point); else { this.heat = Math.min(5, this.heat + 0.05); this.heatT = 0; } this.lastShot = { x: P.x, z: P.z, t: performance.now() };
     if (this.onShot) this.onShot(def, hit);
+    this.g.skills?.onShot(hit);
   }
   // what one bullet does to what it hit (k: the fraction of its energy left after going through something). Vehicles: the exact
   // test against the body (VehicleDamage) — a shot that only crossed the bounding circles flies on past the car; one that went

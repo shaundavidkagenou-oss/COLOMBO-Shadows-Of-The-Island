@@ -1,5 +1,6 @@
 // AI traffic on the left-hand road grid: lanes, junction turns, signals, car-following (IDM), yielding to pedestrians,
 // horns, parked cars, and spawning/despawning around the player.
+import { HUMPS, humpAhead } from '../world/StreetRamps.js';
 import * as THREE from 'three';
 import * as L from '../world/Layout.js';
 import { plan } from '../world/CityPlan.js';
@@ -483,6 +484,7 @@ export class Traffic {
     if (ai.yieldT > 0) v0 = Math.min(v0, 2.5);
     if (ai.creep) { v0 = Math.min(v0, 4); ai.creep = 0; } /* still steering out round a parked car */
     if (ai.rejoin) v0 = Math.min(v0, Math.abs(ai.rjErr || 0) > 0.5 ? 3.5 : 7.5);
+    if (HUMPS.length && p.type === 'line') { const dH = humpAhead(v.x, v.z, fx, fz); if (dH < 36) v0 = Math.min(v0, lerp(em ? 7 : 4.2, v0, clamp((dH - 3) / 30, 0, 1))); } /* speed hump ahead: ease down to ~15 km/h (responding units ~25) and roll over it */
     if (p.vlim) v0 = Math.min(v0, pathV(p, ai.s)); if (ai.fuel && ai.fuel.vcap) v0 = Math.min(v0, ai.fuel.vcap); /* forecourt paths: curvature speed; slowing to turn in */
     const s0 = 2.2, T = 1.2 / ai.aggressive, a = v.T.accel * 0.8, b = 3.5; const sp = v.speed;
     const bodyG = this.bodyGap(v, ai, dt); ai.bodyBind = bodyG < Math.min(gap, stopAt) - 0.5; if (bodyG < gap) { gap = bodyG; leadV = 0; } // never into another vehicle's body
