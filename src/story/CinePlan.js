@@ -147,7 +147,7 @@ export function buildPlan() {
 
   // ======== FINALE: the crew at Galle Face, night; the helicopter passing the Lotus Tower ========
   const pedsGT = {
-    dineth: pedRig({ who: 'dineth', segs: [{ t1: 99, x: -506.0, z: -452.0, yaw: Math.PI * 1.5 - 0.1, act: null }] }),
+    dineth: pedRig({ who: 'dineth', segs: [{ t1: 99, x: -505.0, z: -474.0, yaw: Math.PI * 1.5 - 0.1, act: null }] }), /* on the open line of sight to the Lotus Tower (no tower block in between) */
     shashika: pedRig({ who: 'shashika', segs: [{ t1: 99, x: -506.4, z: -449.9, yaw: Math.PI * 1.5 + 0.12, act: 'crossarms' }] }),
     david: pedRig({ who: 'david', segs: [{ t1: 99, x: -505.8, z: -454.2, yaw: Math.PI * 1.5 - 0.22, act: 'hips' }] }),
   };
@@ -173,7 +173,7 @@ export function buildPlan() {
     GF: { env: { hour: 21.7, weather: 'clear', wet: 0 }, rigs: rigsGF, peds: pedsGF, traffic: false, hideRoadPeds: true, heli: heliGF, reserved: [[-410, -390, -780, -220]] },
     N1: { env: { hour: 21.8, weather: 'clear', wet: 0 }, focus: [330, -520], traffic: true, heli: heliL },
     N2: { env: { hour: 21.8, weather: 'clear', wet: 0 }, focus: [-150, -895], traffic: true },
-    GT: { env: { hour: 21.9, weather: 'clear', wet: 0 }, focus: [-500, -452], peds: pedsGT, traffic: true, noPeds: [[-506, -452, 6]] },
+    GT: { env: { hour: 21.9, weather: 'clear', wet: 0 }, focus: [-500, -474], peds: pedsGT, traffic: true, noPeds: [[-505, -474, 6]] },
   };
   for (const [id, s] of Object.entries(scenes)) { s.id = id; s.rigs ||= {}; s.peds ||= {}; s.fire ||= []; s.events ||= []; }
   for (const id of ['C', 'D', 'E', 'GF']) scenes[id].reservedSet = true;
@@ -227,10 +227,10 @@ export function buildPlan() {
     S('D', 117.5, 2.5, rigCam('crew', [-2.35, 0.5, 4.4], [0, 0.8, -1.5], 42, { hand: 0.6 }), { t0: 10.0, name: 'moving vehicle', blur: 0.6 }),
     S('N1', 120.0, 2.5, glide({ p: [120, 26, -380], l: [-430, 58, -470] }, { p: [108, 28, -372], l: [-430, 60, -470] }, 50, 49), { t0: 3, name: 'skyline night', focus: [-80, -430], blur: 0.3 }),
     S('N2', 122.5, 2.5, glide({ p: [-171.5, 1.6, -893.6], l: [-110, 2.6, -903] }, { p: [-167.4, 1.65, -894.8], l: [-110, 2.6, -903] }, 50, 48), { name: 'night city', focus: [-150, -897] }),
-    S('GT', 125.0, 2.5, glide({ p: [-508.6, 1.62, -453.0], l: [-506.0, 1.62, -452.0] }, { p: [-508.4, 1.62, -452.7], l: [-506.0, 1.63, -452.0] }, 32, 30), { name: 'dineth', key: ['dineth'], focus: [-500, -452], dof: { on: 'dineth', k: 10 } }),
-    S('N1', 127.5, 2.5, (t, P, u) => ({ p: [243.2, 1.8, -603 + 4 * u], l: [P.heli.x, P.heli.y + 14, P.heli.z], fov: 50, hand: 0.3 }), { t0: 4.5, name: 'heli and lotus', focus: [300, -580] }),
+    S('GT', 125.0, 2.5, glide({ p: [-507.6, 1.62, -475.0], l: [-505.0, 1.62, -474.0] }, { p: [-507.4, 1.62, -474.7], l: [-505.0, 1.63, -474.0] }, 32, 30), { name: 'dineth', key: ['dineth'], focus: [-500, -474], dof: { on: 'dineth', k: 10 } }),
+    S('N1', 127.5, 2.5, (t, P, u) => ({ p: [P.heli.x + 12 - 8 * u, 50 + 5 * u, P.heli.z - 40], l: [lerp(P.heli.x, 305, 0.22), lerp(P.heli.y, 215, 0.3), lerp(P.heli.z, -480, 0.22)], fov: 46, hand: 0.25 }), { t0: 4.5, name: 'heli and lotus', focus: [300, -560] }) /* a drone just below and behind the helicopter: the aircraft large in the foreground, the lit bud behind it */,
     S('N2', 130.0, 2.5, glide({ p: [480, 140, -380], l: [-300, 30, -500] }, { p: [462, 136, -392], l: [-300, 30, -505] }, 55, 53), { t0: 3, name: 'living city', blur: 0.25 }),
-    S('GT', 132.5, 3.5, (t, P, u) => { const k = ease3(u); return { p: [lerp(-513.2, -520, k), lerp(1.4, 9.5, k), lerp(-444, -436, k)], l: [lerp(-504, -420, k), lerp(1.5, 26, k), lerp(-452, -470, k)], fov: 48, hand: 0.15 }; }, { t0: 3, name: 'best shot', focus: [-490, -455], blur: 0.3 }),
+    S('GT', 132.5, 3.5, (t, P, u) => { const k = ease3(u); return { p: [lerp(-511, -516.5, k), lerp(1.2, 3.6, k), lerp(-472.5, -476.8, k)], l: [lerp(-505, -420, k), lerp(1.7, 12.5, k), lerp(-474, -478, k)], fov: 48, hand: 0.15 }; }, { t0: 3, name: 'best shot', focus: [-490, -476], blur: 0.3 }) /* low on Dineth, then up and back over his shoulder to the night skyline and the Lotus Tower */,
     // ===== ACT VI — REVEAL (136 – 146): black, the title, the studio, the sound logo (no picture: the last shot holds under black)
   ];
   // the vehicle-tracking shots stream the city around the car

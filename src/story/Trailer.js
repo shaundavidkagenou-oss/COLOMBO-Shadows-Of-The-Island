@@ -181,7 +181,7 @@ export class TrailerRuntime {
     const onV = new Set([...this.vehicles.values()].filter((o) => o.sid === id).map((o) => o.v));
     for (const o of this.vehicles.values()) { const on = onV.has(o.v); if (on && !o.v.mesh.parent) g.scene.add(o.v.mesh); else if (!on && o.v.mesh.parent) o.v.mesh.parent.remove(o.v.mesh); }
     const used = new Set(Object.values(S.peds).map((r) => (r.who === 'officer' ? null : r.who)).filter(Boolean)); for (const k of Object.keys(S.peds)) if (this.actors[k]) used.add(k);
-    for (const [k, o] of Object.entries(this.actors)) { const on = used.has(k); if (!on) { o.ch.root.parent?.remove(o.ch.root); o.parentV = null; } else if (!o.ch.root.parent) g.scene.add(o.ch.root); }
+    for (const [k, o] of Object.entries(this.actors)) { const on = used.has(k); if (!on) { o.ch.root.parent?.remove(o.ch.root); if (o.parentV && o.parentV.driverChar === o.ch) o.parentV.driverChar = null; if (o.mode === 'seated') { o.ch.anim.standUp(); o.mode = 'foot'; } o.parentV = null; } /* off stage: out of any seat, so a later scene that has him on foot does not get a seated pose dropped on the grass */ else if (!o.ch.root.parent) g.scene.add(o.ch.root); }
     // light & weather of the scene
     const A = g.atmos, env = S.env; A.hour = env.hour; A.forceWeather(env.weather); A.setWeather(env.weather, true); A.wet = env.wet;
     // traffic: the action scenes run on closed streets (no AI traffic, nothing parked on the driving lines)
