@@ -102,16 +102,20 @@ export function buildPlan() {
   // JL: room frame [lx, height above the floor, lz]; `grip` = the handle (where the palm closes). The runtime moves the prop and
   // puts the hands on it (A.reach: waist bend + knee bend + arm IK); between the keys it follows whichever hand holds it.
   const CASE = {
-    rest: [2.74, 0.355, -2.42], restRy: 0, // standing on the floor in front of him (he turns to face −z for it)
-    keeperYaw: [[16.15, -Math.PI / 2], [16.6, -Math.PI], [17.45, -Math.PI], [17.95, -Math.PI / 2]],
+    rest: [2.66, 0.355, -2.24], restRy: -Math.PI, counterRy: -Math.PI, // on the floor under the counter edge at his right hand, running fore-and-aft (as it is carried)
+    keeperYaw: [[16.15, -Math.PI / 2]], // he stays square to the counter: the case is at his right side, no turn with it in hand
     keeperKnee: [[16.25, 0], [16.75, 1], [17.15, 1], [17.65, 0]],
     keeperW: [[16.3, 0], [16.85, 1], [18.85, 1], [19.15, 0]],
-    keeperGrip: [[16.3, [2.74, 0.9, -2.2]], [16.9, [2.74, 0.355, -2.42]], [17.05, [2.74, 0.355, -2.42]], [17.4, [2.74, 0.62, -2.36]], [17.85, [2.6, 1.3, -2.15]], [18.15, [2.28, 1.46, -1.96]], [18.35, [2.12, 1.355, -1.93]], [18.45, [2.12, 1.355, -1.93]], [18.85, [1.95, 1.355, -1.93]]],
+    // a one-handed lift at his right side, fingers hooked down round the handle, palm in (the case runs fore-and-aft, like a bag
+    // carried at the side): straight up beside the body, elbow out above the hand — so neither the forearm nor his hip goes
+    // through it — then swung forward over the counter top; it stays clear of the counter front (lx 2.41) until its base is above
+    // the top (h 1.0)
+    keeperGrip: [[16.3, [2.7, 0.9, -2.22]], [16.9, [2.66, 0.355, -2.24]], [17.05, [2.66, 0.355, -2.24]], [17.4, [2.68, 0.62, -2.25]], [17.6, [2.7, 0.9, -2.26]], [17.82, [2.7, 1.2, -2.25]], [17.98, [2.66, 1.39, -2.22]], [18.14, [2.39, 1.385, -2.17]], [18.28, [2.17, 1.375, -1.96]], [18.35, [2.12, 1.355, -1.93]], [18.45, [2.12, 1.355, -1.93]], [18.85, [1.95, 1.355, -1.93]]],
     keeperHold: [17.05, 18.3], // the case rides in his hand
     onCounter: [18.35, 19.02], // resting on the counter top (he sets it down at 18.35, slides it across by 18.85)
     slide: [[18.35, [2.12, 1.355, -1.93]], [18.45, [2.12, 1.355, -1.93]], [18.85, [1.95, 1.355, -1.93]]],
     davidW: [[18.55, 0], [18.95, 1], [19.6, 1], [19.95, 0]],
-    davidGrip: [[18.55, [1.95, 1.355, -1.93]], [19.02, [1.95, 1.355, -1.93]], [19.3, [1.92, 1.46, -1.97]], [19.65, [1.56, 1.42, -2.02]]],
+    davidGrip: [[18.55, [1.95, 1.355, -1.93]], [19.02, [1.95, 1.355, -1.93]], [19.3, [1.9, 1.46, -1.9]], [19.65, [1.62, 1.2, -1.8]]] /* lifted, then lowered to his right side (clear of his chest) as the carry takes over */,
     davidHold: 19.02, // from here on it rides in David's right hand (lifted off the counter, then carried out at his side)
   };
   const sceneC = { rob: { site: 'rob_jewel', door: [[8.5, 0], [8.95, 1.35], [9.2, 1.42], [10.9, 1.4], [11.6, 0], [21.2, 0], [21.6, -1.35], [22.6, -1.42], [23.2, 0]] /* + swings into the shop (pushed from the street), − out onto the pavement */,
@@ -273,7 +277,7 @@ export function buildPlan() {
     S('C', 62.5, 1.25, glide({ p: JW(1.15, 0.95, -2.9), l: JW(-0.45, 2.05, -1.05) }, { p: JW(1.1, 0.92, -2.85), l: JW(-0.5, 2.2, -1.1) }, 46, 44), { t0: 9.75, name: 'warning shots', focus: [53, -748] }) /* low by the counter: Shashika puts three rounds into the ceiling */,
     S('C', 63.75, 3.75, glide({ p: JW(-2.15, 1.58, -6.4), l: JW(2.6, 1.35, -1.9) }, { p: JW(-1.95, 1.6, -5.9), l: JW(2.6, 1.4, -1.9) }, 44, 42), { t0: 11.0, name: 'inside', key: null, focus: [53, -748], dof: { on: 'keeperPt', k: 5 } }),
     S('C', 67.5, 2.5, glide({ p: JW(-0.95, 1.72, -3.45), l: JW(2.72, 1.3, -1.92) }, { p: JW(-0.8, 1.7, -3.3), l: JW(2.72, 1.32, -1.92) }, 40, 37), { t0: 14.75, name: 'keeper demand', focus: [53, -748], dof: { on: 'keeperPt', k: 7 } }),
-    S('C', 70.0, 2.5, glide({ p: JW(1.8, 1.5, -3.55), l: JW(2.05, 1.18, -1.9) }, { p: JW(1.74, 1.56, -3.5), l: JW(1.95, 1.3, -1.9) }, 42, 40), { t0: 17.25, name: 'the case', focus: [53, -748], dof: { on: 'keeperPt', k: 5 } }) /* down the counter from its far end: the keeper comes up with the case, sets it down, slides it across; David takes it */,
+    S('C', 70.0, 2.5, glide({ p: JW(1.8, 1.6, -4.05), l: JW(2.15, 1.22, -1.95) }, { p: JW(1.72, 1.64, -3.95), l: JW(1.95, 1.3, -1.95) }, 42, 40), { t0: 17.25, name: 'the case', focus: [53, -748], dof: { on: 'keeperPt', k: 5 } }) /* down the counter from its far end: the keeper comes up with the case, sets it down, slides it across; David takes it */,
     S('C', 72.5, 3.75, follow([49.6, 0.36, -741.4], null, 'crew', 0.6, 44, 0, 0.45), { t0: 25.1, name: 'burnout', focus: [70, -742] }),
     S('C', 76.25, 2.5, rigCam('crew', [2.7, 0.75, 0.6], [0, 0.6, 1.3], 40, { hand: 0.7 }), { t0: 28.9, name: 'side track', blur: 0.6 }),
     S('C', 78.75, 2.5, follow([244.6, 0.7, -727.0], null, 'crew', 0.6, 46, 2, 0.35), { t0: 32.2, name: 'corner', focus: [236, -735] }) /* low in the outer lane of Darley Road: the car slides round the corner and blasts past (the old kerb spot had a signal pole across the lens) */,
@@ -342,6 +346,22 @@ export function buildPlan() {
   return { LENGTH, BPM, BEAT, BAR, ACTS, scenes, shots, texts, black, flashes, voices, sighs, KEEP, robWorld, HJ, HE, HG, HD, STOP };
 }
 
+// [[t, [x, y, z]], …] → out at t: a monotone cubic (Fritsch–Carlson) per component, so a multi-key path (the case lifted over
+// the counter) moves continuously through its keys — no ease-to-a-stop at every key — and never overshoots between two keys
+// (a held key, two equal values, stays perfectly still)
+export function pathAt(keys, t, out) {
+  const n = keys.length; if (t <= keys[0][0] || n === 1) { const v = keys[0][1]; out[0] = v[0]; out[1] = v[1]; out[2] = v[2]; return out; }
+  if (t >= keys[n - 1][0]) { const v = keys[n - 1][1]; out[0] = v[0]; out[1] = v[1]; out[2] = v[2]; return out; }
+  let i = 1; while (keys[i][0] <= t) i++; const t0 = keys[i - 1][0], t1 = keys[i][0], h = t1 - t0, u = (t - t0) / h;
+  const h00 = 2 * u * u * u - 3 * u * u + 1, h10 = u * u * u - 2 * u * u + u, h01 = -2 * u * u * u + 3 * u * u, h11 = u * u * u - u * u;
+  for (let c = 0; c < 3; c++) {
+    const p0 = keys[i - 1][1][c], p1 = keys[i][1][c], d = (p1 - p0) / h;
+    const tan = (k) => { if (k <= 0 || k >= n - 1) return 0; const da = (keys[k][1][c] - keys[k - 1][1][c]) / (keys[k][0] - keys[k - 1][0]), db = (keys[k + 1][1][c] - keys[k][1][c]) / (keys[k + 1][0] - keys[k][0]); return da * db <= 0 ? 0 : (2 * da * db) / (da + db); }; // harmonic mean of the neighbouring slopes (0 at a turn or a hold)
+    let m0 = tan(i - 1), m1 = tan(i); if (d === 0) { m0 = 0; m1 = 0; } else { const a = m0 / d, b = m1 / d, r = a * a + b * b; if (r > 9) { const s3 = 3 / Math.sqrt(r); m0 = s3 * a * d; m1 = s3 * b * d; } }
+    out[c] = h00 * p0 + h10 * h * m0 + h01 * p1 + h11 * h * m1;
+  }
+  return out;
+}
 export function shotAt(plan, e) { let cur = plan.shots[0]; for (const s of plan.shots) if (e >= s.start) cur = s; return cur; }
 export function blackAt(plan, e) {
   for (const [a, b, c, d] of plan.black) { if (e < a || e > d) continue; if (e < b) return sm((e - a) / Math.max(1e-3, b - a)); if (e <= c) return 1; return 1 - sm((e - c) / Math.max(1e-3, d - c)); }

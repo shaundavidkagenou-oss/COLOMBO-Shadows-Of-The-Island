@@ -12,7 +12,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { TrailerRuntime } from './Trailer.js';
-import { buildPlan, shotAt, blackAt, posesAt, editTimeOf, LENGTH, ACTS } from './CinePlan.js';
+import { buildPlan, shotAt, blackAt, posesAt, editTimeOf, pathAt, LENGTH, ACTS } from './CinePlan.js';
 import { CineScore } from './CineScore.js';
 import { addLens } from '../gfx/LensFX.js';
 import { HELIPAD } from '../police/Helicopter.js';
@@ -31,17 +31,19 @@ const fmt = (s) => { s = Math.max(0, Math.floor(s)); return `${Math.floor(s / 60
 const keyAt = (keys, t) => { if (!keys || !keys.length) return null; if (t <= keys[0][0]) return keys[0][1]; for (let i = 1; i < keys.length; i++) { const [t1, v1] = keys[i]; if (t < t1) { const [t0, v0] = keys[i - 1]; return typeof v0 === 'number' && typeof v1 === 'number' ? lerp(v0, v1, sm((t - t0) / (t1 - t0))) : v0; } } return keys[keys.length - 1][1]; };
 
 // value of a key list of vectors [[t, [x, y, z]], …] at t: eased between keys, held outside
-const vecAt = (keys, t, out) => { if (t <= keys[0][0]) { const v = keys[0][1]; out[0] = v[0]; out[1] = v[1]; out[2] = v[2]; return out; } for (let i = 1; i < keys.length; i++) { const [t1, v1] = keys[i]; if (t < t1) { const [t0, v0] = keys[i - 1]; const k = sm((t - t0) / (t1 - t0)); out[0] = lerp(v0[0], v1[0], k); out[1] = lerp(v0[1], v1[1], k); out[2] = lerp(v0[2], v1[2], k); return out; } } const L2 = keys[keys.length - 1][1]; out[0] = L2[0]; out[1] = L2[1]; out[2] = L2[2]; return out; };
+// keyed prop / grip paths: monotone cubic (see CinePlan.pathAt), so a lift flows through its keys instead of stopping at each
+const vecAt = pathAt;
 const ramp = (t, a, b) => sm((t - a) / (b - a));
 const wrapPi = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 // the case the keeper hands over (49th): a hard briefcase — one merged mesh, one material (built behind the loading screen).
-// Origin = the handle, where the palm closes; the body hangs below it; latches on the +z face; long side along local x.
+// Origin = the handle, where the palm closes; the body hangs below it; latches on both faces (symmetric under a half turn,
+// so either hand can hold it from its own side of the counter); long side (and the handle) along local x.
 function makeCase() {
   const parts = []; const box = (w, h, d, x, y, z, hex) => { const g = new THREE.BoxGeometry(w, h, d); g.translate(x, y, z); const c = new THREE.Color(hex); const n = g.attributes.position.count, col = new Float32Array(n * 3); for (let i = 0; i < n; i++) { col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; } g.setAttribute('color', new THREE.BufferAttribute(col, 3)); parts.push(g); };
   box(0.42, 0.32, 0.11, 0, -0.195, 0, 0x1b1c1f); // shell (bottom at −0.355: it stands on the floor / counter top when the handle is 0.355 above it)
   box(0.426, 0.014, 0.116, 0, -0.07, 0, 0x55585e); box(0.426, 0.014, 0.116, 0, -0.33, 0, 0x55585e); // aluminium rims
   box(0.13, 0.02, 0.024, 0, 0, 0, 0x111214); for (const x of [-0.058, 0.058]) box(0.016, 0.034, 0.02, x, -0.02, 0, 0x2a2b2e); // handle + posts
-  for (const x of [-0.13, 0.13]) for (const z of [0.058]) box(0.034, 0.022, 0.007, x, -0.075, z, 0xc9a54a); // brass latches
+  for (const x of [-0.13, 0.13]) for (const z of [-0.058, 0.058]) box(0.034, 0.022, 0.007, x, -0.075, z, 0xc9a54a); // brass latches
   const geo = mergeGeometries(parts); for (const g of parts) g.dispose();
   const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.2 })); m.castShadow = true; m.receiveShadow = true; m.name = 'cine-case'; m.frustumCulled = true; return m;
 }
@@ -79,7 +81,7 @@ export class CineTrailer extends TrailerRuntime {
     // trailer — the office is lit by the walk-in shops' shared light pool, so the scene's light count is always a pre-compiled
     // set (no shader recompile at the cut); shown now so the shader compile covers it
     try { const hq = I.hq || (I.hq = I.build('hq')); this.hq = hq; for (const l of hq.lights || []) l.visible = false; hq.g.visible = true; } catch (e) { console.warn('cinematic trailer: HQ', e); this.hq = null; }
-    this.caseMesh = makeCase(); this.g.scene.add(this.caseMesh); this._cg = [0, 0, 0]; this._v1 = new THREE.Vector3(); this._kR = { S: 'R', p: new THREE.Vector3(), w: 0, knee: 0, maxLean: 0.95, pose: 'grip' }; this._dR = { S: 'R', p: new THREE.Vector3(), w: 0, maxLean: 0.35, pose: 'grip' };
+    this.caseMesh = makeCase(); this.g.scene.add(this.caseMesh); this._cg = [0, 0, 0]; this._v1 = new THREE.Vector3(); this._kR = { S: 'R', p: new THREE.Vector3(), q: new THREE.Quaternion(), pole: new THREE.Vector3(), w: 0, knee: 0, maxLean: 0.95, pose: 'grip' }; this._dR = { S: 'R', p: new THREE.Vector3(), q: new THREE.Quaternion(), w: 0, maxLean: 0.35, pose: 'grip' }; this._yq = new THREE.Quaternion(); this._up = new THREE.Vector3(0, 1, 0);
     pr(0.95); await this.loadVoices();
     pr(1);
   }
@@ -171,7 +173,7 @@ export class CineTrailer extends TrailerRuntime {
     const kp = room.keeper, C = R.case; if (kp) { const want = keyAt(R.keeper, t); if (want !== this.keeperAct) { this.keeperAct = want; kp.anim.set(want === 'idle' ? null : want); if (want === 'handsup' || want === 'cower' || want === 'flinch') kp.face && kp.face.set && kp.face.set('fear', 30); }
       if (C) { // the keeper turns for the case, crouches, lifts it over the counter and slides it across (one hand on the handle)
         const yW = keyAt(C.keeperYaw, t); const yaw0 = kp.root.rotation.y; kp.root.rotation.y = yW - (room.og ? room.og.rotation.y : 0); const yr = dt > 1e-4 ? wrapPi(kp.root.rotation.y - yaw0) / dt : 0;
-        const w = keyAt(C.keeperW, t) || 0; if (w > 0.001) { const K = this._kR; vecAt(C.keeperGrip, t, this._cg); this.robPoint(this._cg, K.p); K.p.y += 0.07; K.w = w; K.knee = keyAt(C.keeperKnee, t) || 0; kp.anim.reach = K; } else kp.anim.reach = null;
+        const w = keyAt(C.keeperW, t) || 0; if (w > 0.001) { const K = this._kR; vecAt(C.keeperGrip, t, this._cg); this.robPoint(this._cg, K.p); K.p.y += 0.07; K.w = w; K.knee = keyAt(C.keeperKnee, t) || 0; this.handQ(kp, 0, K.q); const u = ramp(this._cg[1], 0.85, 1.2); K.pole.set(lerp(-0.45, -0.5, u), lerp(-1, 0.8, u), lerp(-0.15, -0.5, u)); /* elbow up, out and back above the hand as it rises */ kp.anim.reach = K; } else kp.anim.reach = null;
         kp.anim.update(Math.max(dt, 1e-4), 0, clamp(yr, -6, 6)); this.placeCase(C, t, kp);
       } else kp.anim.update(Math.max(dt, 1e-4), 0, 0); }
     // the alarm bell: from the moment he trips it; inside the store first, then the bell box over the street
@@ -189,16 +191,21 @@ export class CineTrailer extends TrailerRuntime {
     const palm = (ch, out) => { const h = ch.bones.handR; h.updateWorldMatrix(true, false); out.setFromMatrixPosition(h.matrixWorld); out.y -= 0.075; return out; };
     const kK = ramp(t, C.keeperHold[0], C.keeperHold[0] + 0.15) * (1 - ramp(t, C.keeperHold[1] - 0.15, C.keeperHold[1])); if (kK > 0) pos.lerp(palm(kp, this._v1), kK);
     const kD = dv ? ramp(t, C.davidHold, C.davidHold + 0.28) : 0; if (kD > 0) pos.lerp(palm(D.ch, this._v1), kD);
+    // yaw: rigid with the gripping hand (case x = the handle = the hand's thumb axis: case yaw = body yaw − π/2 with the palm in);
+    // the case is symmetric under a half turn, so David's blend takes the nearest equivalent angle (no spin)
     const kpYaw = kp.root.rotation.y + (this.rob.room.og ? this.rob.room.og.rotation.y : 0);
-    let yaw = t < C.keeperHold[0] ? -1.5 * Math.PI : t < C.keeperHold[1] ? kpYaw - Math.PI / 2 : -Math.PI;
-    if (kD > 0) { let yd = D.yaw - 1.5 * Math.PI; yd = -Math.PI + wrapPi(yd + Math.PI); yaw = lerp(yaw, yd, kD); }
+    let yaw = t < C.keeperHold[0] ? C.restRy : t < C.keeperHold[1] ? kpYaw - Math.PI / 2 : C.counterRy;
+    if (kD > 0) { const yd = D.yaw - Math.PI / 2; yaw = lerp(yaw, yaw + wrapPi(2 * (yd - yaw)) / 2, kD); }
     M.rotation.set(0, yaw, 0); M.updateMatrixWorld();
   }
   pedHook(key, p, o) { // David's right hand onto the case handle (before his pose is solved this frame)
     const C = this.S.rob && this.S.rob.case; if (key !== 'david') return; const A = o.ch.anim;
     if (!C) { if (A.reach === this._dR) A.reach = null; return; }
-    const t = this.simT, w = keyAt(C.davidW, t) || 0; if (w > 0.001) { const K = this._dR; vecAt(C.davidGrip, t, this._cg); this.robPoint(this._cg, K.p); K.p.y += 0.07; K.w = w; A.reach = K; } else if (A.reach === this._dR) A.reach = null;
+    const t = this.simT, w = keyAt(C.davidW, t) || 0; if (w > 0.001) { const K = this._dR; vecAt(C.davidGrip, t, this._cg); this.robPoint(this._cg, K.p); K.p.y += 0.07; K.w = w; this.handQ(o.ch, 0, K.q); A.reach = K; } else if (A.reach === this._dR) A.reach = null;
   }
+  // world hand orientation for a reach: the bind hand (fingers down, palm inward, thumb forward — hooked round a handle that runs
+  // fore-and-aft) turned `off` about the vertical in the body's frame
+  handQ(ch, off, out) { ch.root.getWorldQuaternion(out); return out.multiply(this._yq.setFromAxisAngle(this._up, off)); }
   ringAlarm(pos, range) {
     const c = Audio.ctx, S = this.score; if (!c || !S.ok) return;
     if (!this.alarm) { // an electric bell: a bright square tone chopped by the clapper (~19 Hz)

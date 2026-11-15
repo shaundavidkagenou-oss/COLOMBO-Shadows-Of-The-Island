@@ -10,7 +10,7 @@ const CP = await import('../src/world/CityPlan.js');
 const L = await import('../src/world/Layout.js');
 const { VTYPES } = await import('../src/vehicles/VehicleModels.js');
 const { crownPoints } = await import('../src/world/TreeShapes.js');
-const { buildPlan, posesAt, blackAt, LENGTH, BEAT, ACTS } = await import('../src/story/CinePlan.js');
+const { buildPlan, posesAt, blackAt, pathAt, LENGTH, BEAT, ACTS } = await import('../src/story/CinePlan.js');
 
 let pass = 0, fail = 0; const bad = [];
 const ok = (c, msg) => { if (c) pass++; else { fail++; bad.push(msg); } };
@@ -135,6 +135,8 @@ ok(frames > 3000, `frames checked ${frames}`);
   const hu = C.rob.keeper.find(([, a]) => a === 'handsup'), fl = C.rob.keeper.find(([, a]) => a === 'flinch'); ok(fl && hu && fl[0] > rounds[0].a && hu[0] > fl[0], 'the keeper flinches at the shots, then raises his hands');
   const CS = C.rob.case; ok(JSON.stringify(CS.keeperGrip[CS.keeperGrip.length - 1][1]) === JSON.stringify(CS.slide[CS.slide.length - 1][1]) && JSON.stringify(CS.slide[CS.slide.length - 1][1]) === JSON.stringify(CS.davidGrip[0][1]), 'the case: counter key = slide end = David\'s grip');
   ok(CS.slide.every(([, q]) => q[0] > 1.69 + 0.21 && q[0] < 2.41 - 0.21 && Math.abs(q[1] - 1.355) < 1e-6), 'the case stands fully on the counter top while it slides');
+  // the lift: the case never passes through the counter (lx 1.69–2.41, top 1.0 above the floor) on its way up and over
+  { const o = [0, 0, 0]; let worst = 0; for (let t = CS.keeperHold[0]; t <= CS.onCounter[0]; t += 1 / 120) { pathAt(CS.keeperGrip, t, o); for (const sx of [-1, 1]) { const X = o[0] - 0.21 * sx; const bot = o[1] - 0.355; if (X > 1.69 && X < 2.41 && bot < 0.999) worst = Math.max(worst, Math.min(2.41 - X, 1.0 - bot)); } } ok(worst === 0, `the case clears the counter as he lifts it (${worst.toFixed(3)} m)`); }
   // muzzle discipline: once Shashika covers the keeper, David never walks through his line of fire
   { let worst = 9; for (let t = 11.4; t < 20.3; t += 0.05) { const q = posesAt(C, t), a = q.shashika, b = q.shTgt, d = q.david; const ux = b.x - a.x, uz = b.z - a.z, L2 = Math.hypot(ux, uz); const k = clamp01(((d.x - a.x) * ux + (d.z - a.z) * uz) / (L2 * L2)); if (k <= 0 || k >= 1) continue; worst = Math.min(worst, Math.hypot(a.x + ux * k - d.x, a.z + uz * k - d.z)); } ok(worst > 0.5, `David stays out of the line of fire (${worst.toFixed(2)} m)`); }
   // dialogue: the user's lines, in order, never overlapping, each inside its own scene's shots
