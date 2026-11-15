@@ -113,7 +113,7 @@ export class TrailerRuntime {
   start() {
     const g = this.g, P = g.player;
     for (const m of this.primers) m.parent?.remove(m);
-    for (const k of this.cast().armed) this.actors[k].rifle.userData.flash.visible = false;
+    for (const k of this.cast().armed) { const f = this.actors[k].rifle && this.actors[k].rifle.userData.flash; if (f) f.visible = false; } // a handgun (armPistol) has no rifle flash mesh
     g.mode = 'trailer'; g.paused = false; g.director.active = false; g.hud.show(false); g.hud.bars(false); g.hud.clearSubtitle?.();
     P.cinematic = true; P.control = false; if (P.ch) { P.ch.root.visible = false; P.ch.noBody = true; } P.x = 1e5; P.z = 1e5; // the player is not part of the trailer
     this.orig = { traffic: g.traffic.max, crowd: g.crowd.max, fov: g.camera.fov };
