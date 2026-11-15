@@ -71,7 +71,8 @@ export function buildPlan() {
   const SH_IN = [[57.2, -744.0], [53.2, -745.0], J(0.1, 0.6), J(0.0, -0.5), J(-0.35, -1.15)];
   const SH_POST = J(-0.35, -1.15), SH_IN_YAW = Math.atan2(-0.35, -0.65), SH_KEEP_YAW = Math.atan2(KEEP[0] - SH_POST[0], KEEP[1] - SH_POST[1]);
   const SH_OUT = [SH_POST, J(0.05, -0.4), J(0.1, 0.6), [55.0, -745.0], [57.2, -744.2]], SH_OUT_YAW = Math.atan2(0.4, 0.75);
-  const DV_IN = [[55.6, -744.1], [53.15, -745.0], J(0.1, 0.6), J(0.1, -0.4), J(0.55, -1.5), J(0.9, -2.12), J(1.42, -2.12)];
+  // David comes in round Shashika's back (never through his line of fire onto the keeper) and strides up to the counter
+  const DV_IN = [[55.6, -744.1], [53.15, -745.0], J(0.1, 0.6)], DV_IN2 = [J(0.1, 0.6), J(0.05, -0.2), J(-0.85, -0.55), J(-0.95, -1.6), J(0.5, -2.12), J(1.42, -2.12)];
   const DV_POST = J(1.42, -2.12), DV_OUT = [DV_POST, J(0.9, -1.55), J(0.3, -0.75), J(0.12, -0.2), J(0.1, 0.6), [55.6, -744.6]], DV_OUT_YAW = Math.atan2(-0.52, 0.57);
   const outside = (x, z) => ({ x, z });
   const pedsC = {
@@ -79,13 +80,14 @@ export function buildPlan() {
     shashika: pedRig({ who: 'shashika', segs: [
       { t1: 4.9, hidden: true },
       { t1: 9.75, walk: SH_IN, t0: 5.0, v: 1.56, rifle: { aim: (t) => (t > 9.15 ? 1 : 0.35), target: 'shTgt' } }, // pushes the door open at 8.5 – 9.2
-      { t1: 21.2, ...outside(...SH_POST), yaw: (t) => (t < 20.6 ? turn(10.6, 11.4, SH_IN_YAW, SH_KEEP_YAW)(t) : turn(20.6, 21.2, SH_KEEP_YAW, SH_OUT_YAW)(t)), rifle: { aim: (t) => (t < 20.65 ? 1 : 0.5), target: 'shTgt' } },
+      { t1: 21.2, ...outside(...SH_POST), yaw: (t) => (t < 20.6 ? turn(10.6, 11.4, SH_IN_YAW, SH_KEEP_YAW)(t) : turn(20.6, 21.2, SH_KEEP_YAW, SH_OUT_YAW)(t)), rifle: { aim: (t) => (t < 20.3 ? 1 : 0.5) /* muzzle down as David crosses to the door */, target: 'shTgt' } },
       { t1: 25.05, walk: SH_OUT, t0: 21.2, v: 1.8, rifle: { aim: () => 0.5 } },
       { t1: 99, hidden: true }] }),
     david: pedRig({ who: 'david', segs: [
       { t1: 5.3, hidden: true },
-      { t1: 13.4, walk: DV_IN, t0: 5.4, v: 0.94 }, // through the door at 10.5, talking
-      { t1: 20.35, ...outside(...DV_POST), yaw: (t) => turn(19.75, 20.35, Math.PI / 2, DV_OUT_YAW)(t), act: (t) => (t > 13.75 && t < 15.5 ? 'point' : t > 19.65 ? 'suitcase' : null) }, // square to the counter; points at the keeper on the demand
+      { t1: 9.77, walk: DV_IN, t0: 5.4, v: 0.94 },
+      { t1: 14.15, walk: DV_IN2, t0: 9.77, v: 1.25 }, // through the door at 10.25, talking; at the counter by 14.1
+      { t1: 20.35, ...outside(...DV_POST), yaw: (t) => turn(19.75, 20.35, Math.PI / 2, DV_OUT_YAW)(t), act: (t) => (t > 14.15 && t < 15.9 ? 'point' : t > 19.65 ? 'suitcase' : null) }, // square to the counter; points at the keeper on the demand
       { t1: 23.95, walk: DV_OUT, t0: 20.35, v: 1.75, act: () => 'suitcase' },
       { t1: 99, hidden: true }] }),
     // passers-by on the street (the store's neighbours): one ducks, one calls it in
@@ -93,7 +95,7 @@ export function buildPlan() {
     nalin: pedRig({ who: 'nalin', segs: [{ t1: 16.2 + RD, x: 68.0, z: -735.0, yaw: Math.PI, act: null }, { t1: 99, x: 68.0, z: -735.0, yaw: Math.PI + 0.35, act: 'phone' }] }),
   };
   // Shashika's aim point: the ceiling ahead of him for the three shots, then down onto the keeper's chest
-  const CEIL = [...J(-0.9, -3.3), 3.25];
+  const CEIL = [...J(-1.15, -4.5), 3.25]; // far enough into the room that the rifle rises ~30°, still shouldered
   const shAim = (t) => { const k = sm((t - 10.6) / 0.75); return { x: lerp(CEIL[0], KEEP[0], k), z: lerp(CEIL[1], KEEP[1], k), cy: lerp(CEIL[2], 1.3, k), cyMax: 3.27, spread: 0.3, vis: true, y: 0 }; };
   const fireC = [{ who: 'shashika', a: 9.85, b: 10.5, rof: 1 / 0.3, target: 'shTgt' }]; // 9.85, 10.15, 10.45
   // the case: under the counter (on the floor at the keeper's side) → his hand → the counter top → slid to David → David's hand.

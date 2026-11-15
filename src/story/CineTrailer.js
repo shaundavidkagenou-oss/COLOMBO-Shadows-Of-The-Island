@@ -187,7 +187,7 @@ export class CineTrailer extends TrailerRuntime {
     const key = t < 16.9 ? [[0, C.rest]] : t < C.onCounter[0] ? C.keeperGrip : t < C.onCounter[1] ? C.slide : C.davidGrip;
     vecAt(key, t, this._cg); const pos = this.robPoint(this._cg, M.position);
     const palm = (ch, out) => { const h = ch.bones.handR; h.updateWorldMatrix(true, false); out.setFromMatrixPosition(h.matrixWorld); out.y -= 0.075; return out; };
-    const kK = ramp(t, C.keeperHold[0], C.keeperHold[0] + 0.15) * (1 - ramp(t, C.keeperHold[1] - 0.15, C.keeperHold[1])); if (kK > 0) pos.lerp(palm(kp.ch, this._v1), kK);
+    const kK = ramp(t, C.keeperHold[0], C.keeperHold[0] + 0.15) * (1 - ramp(t, C.keeperHold[1] - 0.15, C.keeperHold[1])); if (kK > 0) pos.lerp(palm(kp, this._v1), kK);
     const kD = dv ? ramp(t, C.davidHold, C.davidHold + 0.28) : 0; if (kD > 0) pos.lerp(palm(D.ch, this._v1), kD);
     const kpYaw = kp.root.rotation.y + (this.rob.room.og ? this.rob.room.og.rotation.y : 0);
     let yaw = t < C.keeperHold[0] ? -1.5 * Math.PI : t < C.keeperHold[1] ? kpYaw - Math.PI / 2 : -Math.PI;

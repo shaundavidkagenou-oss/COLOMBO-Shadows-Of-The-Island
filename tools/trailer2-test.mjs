@@ -17,6 +17,7 @@ const ok = (c, msg) => { if (c) pass++; else { fail++; bad.push(msg); } };
 const plan = CP.generatePlan();
 const P = buildPlan();
 
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
 // ---------------------------------------------------------------- timeline: exactly 146 s, gap-free, on the beat
 ok(LENGTH === 146 && P.LENGTH === 146, 'length is exactly 2:26 (146 s)');
 let tEnd = 0;
@@ -134,6 +135,8 @@ ok(frames > 3000, `frames checked ${frames}`);
   const hu = C.rob.keeper.find(([, a]) => a === 'handsup'), fl = C.rob.keeper.find(([, a]) => a === 'flinch'); ok(fl && hu && fl[0] > rounds[0].a && hu[0] > fl[0], 'the keeper flinches at the shots, then raises his hands');
   const CS = C.rob.case; ok(JSON.stringify(CS.keeperGrip[CS.keeperGrip.length - 1][1]) === JSON.stringify(CS.slide[CS.slide.length - 1][1]) && JSON.stringify(CS.slide[CS.slide.length - 1][1]) === JSON.stringify(CS.davidGrip[0][1]), 'the case: counter key = slide end = David\'s grip');
   ok(CS.slide.every(([, q]) => q[0] > 1.69 + 0.21 && q[0] < 2.41 - 0.21 && Math.abs(q[1] - 1.355) < 1e-6), 'the case stands fully on the counter top while it slides');
+  // muzzle discipline: once Shashika covers the keeper, David never walks through his line of fire
+  { let worst = 9; for (let t = 11.4; t < 20.3; t += 0.05) { const q = posesAt(C, t), a = q.shashika, b = q.shTgt, d = q.david; const ux = b.x - a.x, uz = b.z - a.z, L2 = Math.hypot(ux, uz); const k = clamp01(((d.x - a.x) * ux + (d.z - a.z) * uz) / (L2 * L2)); if (k <= 0 || k >= 1) continue; worst = Math.min(worst, Math.hypot(a.x + ux * k - d.x, a.z + uz * k - d.z)); } ok(worst > 0.5, `David stays out of the line of fire (${worst.toFixed(2)} m)`); }
   // dialogue: the user's lines, in order, never overlapping, each inside its own scene's shots
   const want = ['Let’s finish this shit up and leave.', 'The money. All of it. In the case, now!', 'Sir! They are back! They robbed a jewellery store!', 'WHAT?!', 'What the hell are they doing?'];
   const vo = P.texts.filter((t) => t.kind === 'vo'); ok(vo.length === want.length && vo.every((t, i) => t.text === want[i]), 'the five recorded lines');
