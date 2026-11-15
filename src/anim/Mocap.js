@@ -106,3 +106,36 @@ export function mocapArms(A, b) {
   const M = A._mc; if (!M || M.armsW <= 0) return; const W = M.armsW;
   for (const n of ARMS) { const o = BI[n] * 4; _qa.set(M.pose[o], M.pose[o + 1], M.pose[o + 2], M.pose[o + 3]); b[n].quaternion.slerp(_qa, n.startsWith('hand') ? W * 0.6 : W); } // CMU hands are coarse (few markers): 60 %
 }
+// solid surfaces near the hands (A.handBlock: [{ x0, x1, z0, z1, top, bottom? }] world axis-aligned boxes, set by whoever
+// stages the actor — the trailer's jewellery-store counter): after every arm pass (clip, swing, act, IK, reach) a fingertip,
+// wrist or mid-forearm inside a box is moved out by the shortest way (over the top, or out through the nearest side) by
+// turning the whole arm about the shoulder — the elbow bend and the hand's grasp are kept, only the arm's aim changes.
+const _s = new THREE.Vector3(), _e = new THREE.Vector3(), _h = new THREE.Vector3(), _f = new THREE.Vector3(), _m = new THREE.Vector3(), _d1 = new THREE.Vector3(), _d2 = new THREE.Vector3(), _push = new THREE.Vector3(), _qd = new THREE.Quaternion(), _qw = new THREE.Quaternion(), _qp = new THREE.Quaternion();
+const MARGIN = 0.02;
+function pushOut(p, boxes, out) { // largest required push over all boxes for point p (0 if clear)
+  let best = 0;
+  for (const B of boxes) {
+    if (p.x < B.x0 - MARGIN || p.x > B.x1 + MARGIN || p.z < B.z0 - MARGIN || p.z > B.z1 + MARGIN || p.y > B.top + MARGIN || (B.bottom != null && p.y < B.bottom)) continue;
+    const c = [[B.top + MARGIN - p.y, 0, 1, 0], [p.x - (B.x0 - MARGIN), -1, 0, 0], [B.x1 + MARGIN - p.x, 1, 0, 0], [p.z - (B.z0 - MARGIN), 0, 0, -1], [B.z1 + MARGIN - p.z, 0, 0, 1]];
+    let k = c[0]; for (const q of c) if (q[0] < k[0]) k = q; if (k[0] > best) { best = k[0]; out.set(k[1] * k[0], k[2] * k[0], k[3] * k[0]); }
+  }
+  return best;
+}
+export function blockHands(A, b) {
+  const boxes = A.handBlock; if (!boxes || !boxes.length || A.ch.rag) return 0; let moved = 0;
+  A.ch.root.updateMatrixWorld(true);
+  for (const S of ['L', 'R']) {
+    const arm = b['arm' + S], fore = b['fore' + S], hand = b['hand' + S]; if (!arm || !fore || !hand || !arm.parent) continue;
+    for (let it = 0; it < 4; it++) {
+      arm.getWorldPosition(_s); fore.getWorldPosition(_e); hand.getWorldPosition(_h);
+      _f.copy(_h).sub(_e).normalize().multiplyScalar(0.1).add(_h); _m.copy(_e).add(_h).multiplyScalar(0.5); // fingertips ~10 cm past the wrist; mid forearm
+      let worst = 0, P = null;
+      for (const p of [_f, _h, _m]) { const d = pushOut(p, boxes, _d2); if (d > worst) { worst = d; P = p; _push.copy(_d2); } }
+      if (!P) break;
+      _d1.copy(P).sub(_s); const r = _d1.length(); if (r < 0.05) break; _d2.copy(P).add(_push).sub(_s).setLength(r); _d1.normalize(); _d2.normalize();
+      _qd.setFromUnitVectors(_d1, _d2); arm.getWorldQuaternion(_qw); arm.parent.getWorldQuaternion(_qp);
+      _qw.premultiply(_qd); arm.quaternion.copy(_qp.invert().multiply(_qw)); arm.updateMatrixWorld(true); moved = Math.max(moved, worst);
+    }
+  }
+  return moved;
+}

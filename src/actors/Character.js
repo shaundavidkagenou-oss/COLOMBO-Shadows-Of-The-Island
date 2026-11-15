@@ -1,7 +1,7 @@
 // Procedural skinned humans: one SkinnedMesh per person (body + head groups), 23-bone skeleton (70 for the three
 // protagonists: fingers, twist, toe and secondary-motion bones — see HeroRig.js),
 // Sri Lankan everyday clothing and a procedural animation layer (locomotion, idles, gestures, reactions).
-import { mocapBody, mocapArms } from '../anim/Mocap.js';
+import { mocapBody, mocapArms, blockHands } from '../anim/Mocap.js';
 import * as THREE from 'three';
 import { addBloodStain } from '../gfx/BloodStain.js';
 import { applyFight, fightState, MOVES as FIGHT_MOVES } from './Boxing.js';
@@ -742,6 +742,12 @@ export function buildBodyGeometry(sp) {
     else if (sp.capStyle === 'helmet') { const hw = W1('head'); // open-face motorcycle helmet with a peak
       sb.ellipsoid([hc[0], hc[1] + 0.04, hc[2] - 0.01], hr[0] * 1.28, hr[1] * 1.0, hr[2] * 1.24, hw, C(sp.cap), { lat: 8, lon: 16, p0: 0, p1: Math.PI * 0.56 });
       sb.boxPart([0, hc[1] + 0.052, hc[2] + hr[2] * 1.2 + 0.012], 0.13, 0.008, 0.05, hw, C('#1a1d24')); }
+    else if (sp.capStyle === 'flight') { const hw = W1('head'), dk = C('#1b1d21'); // aircrew flight helmet: shell down over the ears, visor housing, smoked visor down, ear cups, boom mic on the left
+      sb.ellipsoid([hc[0], hc[1] + 0.03, hc[2] - 0.012], hr[0] * 1.3, hr[1] * 1.1, hr[2] * 1.27, hw, C(sp.cap), { lat: 8, lon: 18, p0: 0, p1: Math.PI * 0.64 });
+      sb.boxPart([0, hc[1] + hr[1] * 0.86, hc[2] + hr[2] * 0.95], 0.12, 0.034, 0.07, hw, C(sp.cap)); /* visor housing */
+      sb.boxPart([0, hc[1] + 0.03, hc[2] + hr[2] * 1.22], 0.152, 0.062, 0.012, hw, C('#121417')); /* visor, lowered over the eyes */
+      for (const sx of [-1, 1]) sb.ellipsoid([sx * hr[0] * 1.24, hc[1] - 0.012, hc[2] - 0.006], 0.026, 0.042, 0.042, hw, C(sp.cap), { lat: 4, lon: 8 }); /* ear cups */
+      sb.boxPart([hr[0] * 1.08, hc[1] - 0.05, hc[2] + hr[2] * 0.62], 0.012, 0.012, 0.11, hw, dk); sb.boxPart([hr[0] * 0.62, hc[1] - 0.058, hc[2] + hr[2] * 1.12], 0.034, 0.022, 0.022, hw, dk); } /* boom mic */
     else if (sp.capStyle === 'bucket' || sp.capStyle === 'straw') { // cotton bucket hat (soft sloping brim) / woven straw sun hat (wide brim, dark band)
       const hw = W1('head'), st = sp.capStyle === 'straw', br = Math.max(1.09, hairLift + 0.03), b0 = hc[1] + 0.03, top = hc[1] + hr[1] * Math.max(1.0, hairLift) + (st ? 0.045 : 0.03);
       const cc = C(sp.cap), bandC = st ? C(sp.capBand || '#4a2e1c') : cc.map((v) => v * 0.88), ring = (y, k, col) => ({ c: [0, y, hc[2] - 0.004], rx: hr[0] * k, rz: hr[2] * k, w: hw, col });
@@ -1705,6 +1711,7 @@ export class Animator {
     if (!seated) { if (this.fadeAct && this.fadeW > 0 && BODY_POSES.has(this.fadeAct)) this.bodyPose(this.fadeAct, smooth01(this.fadeW), this.fadeT); if (A_ && aw > 0 && BODY_POSES.has(A_)) this.bodyPose(A_, aw, at); }
     if (!seated && (A_ === 'medKneel' || A_ === 'medLift' || A_ === 'medCarry') && aw > 0.05) for (const S of ['L', 'R']) { const W = this['holdW' + S]; if (!W) continue; b.chest.updateWorldMatrix(true, false); _ikv.copy(W); b.chest.worldToLocal(_ikv); solveArmIK(b, S, _ikv, null, aw, this['holdPole' + S] || null); } // EMS: hands exactly on world points (patient's chest / neck, stretcher handles), solved after the body pose
     if (!seated && A_ === 'pump' && aw > 0.05) for (const S of ['R', 'L']) { const W = this['holdW' + S], k = (this['holdK' + S] ?? 1) * aw; if (!W || k < 0.01) continue; b.chest.updateWorldMatrix(true, false); _ikv.copy(W); b.chest.worldToLocal(_ikv); const Q = this['holdQ' + S]; let q = null; if (Q) { b.chest.getWorldQuaternion(_ikq); q = _ikq.invert().multiply(Q); } solveArmIK(b, S, _ikv, q, Math.min(1, k), this['holdPole' + S] || null); } // fuel attendant: nozzle grip / keypad / filler flap / cash at the window, each hand blended in and out on its own (FuelStations.js)
+    if (this.handBlock && !seated) blockHands(this, b); // hands never through a solid surface the stager declared (a shop counter): anim/Mocap.js
     if (this.board) applyBoardPose(this); else if (seated) applySeatPose(this, dt);
     if (this.nearLean && !seated) { const l = this.nearLean; b.spine.rotation.x += l.s || 0; b.chest.rotation.x += l.c || 0; b.neck.rotation.x += l.p || 0; b.head.rotation.z += l.r || 0; b.head.rotation.y += l.y || 0; } // StreetLife: leaning in for a hug / kiss
     if (this.duck > 0.001) { const d = Math.min(1, this.duck); b.spine.rotation.x += 0.42 * d; b.chest.rotation.x += 0.22 * d; b.neck.rotation.x += 0.32 * d; } // ducking under a low roof line while getting in / out

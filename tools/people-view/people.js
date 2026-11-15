@@ -1,6 +1,7 @@
 // Dev tool: a line-up of game characters (police roles, civilians, a protagonist for reference) under daylight, rendered with
 // the game's own Character code, so body / clothing work can be judged without loading the city.
-//   /index.html?set=police|civ|mix&view=front|back|side|legs|face&w=1600&h=900&walk=0.4
+//   /index.html?set=police|civ|mix|none&view=front|back|side|legs|face|chest|feet|neck&w=1600&h=900&walk=0.4
+//   &hero=0 (no Dineth) · &heroes=dineth,david,shashika · &yaw=degrees (turn every character) · &cam=x,y,z&look=x,y,z&fov=deg
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { Character, HEROES } from '../../src/actors/Character.js';
@@ -19,18 +20,21 @@ const pid = (id) => PRESETS.find((p) => p.id === id) ? id : undefined;
 if (set === 'police' || set === 'mix') for (const [i, r] of ['patrol', 'traffic', 'supervisor', 'csru', 'motorcycle', 'patrol', 'staff'].entries()) if (!q.get('roles') || q.get('roles').split(',').includes(r)) specs.push({ label: r, sp: makePoliceAppearance(300 + i * 7, r, i === 5 ? { sex: 'f' } : {}) });
 if (set === 'civ' || set === 'mix') { const ids = (q.get('presets') || '').split(',').filter(Boolean); const pool = ids.length ? ids : PRESETS.filter((p) => p.band !== 'child').map((p) => p.id).filter((_, i) => i % Math.max(1, Math.floor(PRESETS.length / 8)) === 0).slice(0, 8);
   pool.forEach((id, i) => specs.push({ label: id, sp: makeAppearance(500 + i * 13, { preset: pid(id) }) })); }
-if (q.get('hero') !== '0') specs.push({ label: 'dineth (hero)', sp: HEROES.dineth });
+if (q.get('heroes')) for (const h of q.get('heroes').split(',')) { if (HEROES[h]) specs.push({ label: h, sp: HEROES[h] }); }
+else if (q.get('hero') !== '0') specs.push({ label: 'dineth (hero)', sp: HEROES.dineth });
 const n = specs.length, gap = 0.95; const walk = +(q.get('walk') || 0); const chars = [];
-specs.forEach((s, i) => { try { const ch = new Character(s.sp); ch.root.position.set((i - (n - 1) / 2) * gap, 0, 0); ch.root.rotation.y = view === 'back' || view === 'feet' ? Math.PI : view === 'side' ? Math.PI / 2 : 0; scene.add(ch.root);
+specs.forEach((s, i) => { try { const ch = new Character(s.sp); ch.root.position.set((i - (n - 1) / 2) * gap, 0, 0); ch.root.rotation.y = (view === 'back' || view === 'feet' ? Math.PI : view === 'side' ? Math.PI / 2 : 0) + (+(q.get('yaw') || 0)) * Math.PI / 180; scene.add(ch.root);
   ch.root.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } }); chars.push(ch); } catch (e) { errors.push(s.label + ': ' + e.message); } });
 for (let f = 0; f < 90; f++) { for (const ch of chars) ch.anim.update(1 / 60, walk, 0); }
 scene.updateMatrixWorld(true);
-const cam = new THREE.PerspectiveCamera(view === 'legs' || view === 'face' || view === 'chest' || view === 'feet' ? 22 : 30, W / H, 0.05, 100); const span = n * gap;
+const cam = new THREE.PerspectiveCamera(+(q.get('fov') || 0) || (view === 'neck' ? 12 : view === 'legs' || view === 'face' || view === 'chest' || view === 'feet' ? 22 : 30), W / H, 0.05, 100); const span = n * gap;
 if (view === 'feet') { cam.position.set(0, 0.35, span * 0.8); cam.lookAt(0, 0.12, 0); }
 else if (view === 'legs') { cam.position.set(0, 0.75, span * 1.15); cam.lookAt(0, 0.62, 0); }
 else if (view === 'chest') { cam.position.set(0, 1.3, span * 1.0); cam.lookAt(0, 1.22, 0); }
+else if (view === 'neck') { cam.position.set(0, 1.5, span * 1.6 + 0.6); cam.lookAt(0, 1.42, 0); }
 else if (view === 'face') { cam.position.set(0, 1.62, span * 1.05); cam.lookAt(0, 1.5, 0); }
 else { cam.position.set(0, 1.2, span * 1.18 + 1.5); cam.lookAt(0, 0.92, 0); }
+if (q.get('cam')) { cam.position.set(...q.get('cam').split(',').map(Number)); cam.lookAt(...(q.get('look') || '0,1.4,0').split(',').map(Number)); }
 renderer.render(scene, cam);
 const info = renderer.info; window.__result = { errors, n, labels: specs.map((s) => s.label), calls: info.render.calls, tris: info.render.triangles, perChar: chars.map((c) => { let t = 0; c.root.traverse((o) => { if (o.isMesh && o.geometry.index) t += o.geometry.index.count / 3; }); return t; }) };
 window.__ready = true;

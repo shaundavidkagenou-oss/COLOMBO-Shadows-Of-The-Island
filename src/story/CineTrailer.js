@@ -216,6 +216,10 @@ export class CineTrailer extends TrailerRuntime {
     const al = R.alarm ? R.alarm.filter((x) => t >= x[0]).pop() : null; if (al) this.ringAlarm(al[1], al[2]); else this.stopAlarm();
   }
   // room frame [lx, h, lz] (h above the store floor) → world
+  counterBox() {
+    if (this._ctr) return this._ctr; const a = this.robPoint([1.69, 1.0, -3.12], new THREE.Vector3()), c = this.robPoint([2.41, 1.0, -0.21], new THREE.Vector3());
+    this._ctr = [{ x0: Math.min(a.x, c.x), x1: Math.max(a.x, c.x), z0: Math.min(a.z, c.z), z1: Math.max(a.z, c.z), top: a.y, bottom: a.y - 1.05 }]; return this._ctr;
+  }
   robPoint(q, out) { const s = this.rob, w = this.plan.robWorld(q[0], q[2]); return out.set(w[0], s.y0 + q[1], w[1]); }
   // the case: keyed (floor → counter top → slid across) while nobody holds it; in a hand it rides with the palm (eased in and
   // out of each grip, so no hand / prop pop); hidden once David is in the car
@@ -238,6 +242,8 @@ export class CineTrailer extends TrailerRuntime {
     // motion-capture cues (anim/Mocap.js): the runner is already into his gestures as he blurts it out; the OIC, once up, stands
     // where the take left him (a step forward of the chair)
     if (key === 'runner') o.ch.anim.mocapOffset = 1.3; else if (key === 'oic') o.ch.anim.mocapBias = this.simT > 5.5 ? 0.19 : 0;
+    // the jewellery counter is solid for every hand in the store (local x 1.69–2.41, z −3.12…−0.21, top 1.0 above the floor)
+    o.ch.anim.handBlock = this.S.rob && this.rob ? this.counterBox() : null;
     const C = this.S.rob && this.S.rob.case; if (key !== 'david') return; const A = o.ch.anim;
     if (!C) { if (A.reach === this._dR) A.reach = null; return; }
     const t = this.simT, w = keyAt(C.davidW, t) || 0; if (w > 0.001) { const K = this._dR; vecAt(C.davidGrip, t, this._cg); this.robPoint(this._cg, K.p); K.p.y += 0.07; K.w = w; this.handQ(o.ch, 0, K.q); A.reach = K; } else if (A.reach === this._dR) A.reach = null;

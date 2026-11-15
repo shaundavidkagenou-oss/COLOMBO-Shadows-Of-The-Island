@@ -191,6 +191,9 @@ export class PoliceHelicopter {
     const cone = -0.03 + 0.085 * this.rpm * this.rpm * (this.state === 'fly' || this.state === 'lift' || this.state === 'land' ? 1 + this.ay / 20 : 0.6); for (const b of M.blades) b.rotation.z = cone; // blades droop at rest, cone up under thrust
     const blur = clamp((this.rpm - 0.3) / 0.5, 0, 1); M.disc.visible = blur > 0.02; M.discMat.opacity = 0.16 * blur; const td = M.tail.userData.disc; td.visible = blur > 0.02; M.tailBlades.visible = this.rpm < 0.55;
     M.crew.visible = this.state !== 'parked' || this.rpm > 0;
+    // the aircrew (real Character bodies, HeliModel.js) re-pose at 10 Hz and only within 90 m of the camera (their seated pose is
+    // nearly static; beyond 38 m the model's LOD shows a merged stand-in anyway), so the cost stays off the frame
+    if (M.crew.visible && M.updateCrew) { this._crewT = (this._crewT || 0) + dt; const cam = this.g.camera; if (this._crewT > 0.1 && (!cam || cam.position.distanceToSquared(this.p) < 8100)) { M.updateCrew(this._crewT); this._crewT = 0; } }
   }
   lights(dt) {
     const L_ = this.M.lamps, A = this.g.atmos, night = A ? A.night : 0, on = this.state !== 'parked' || this.rpm > 0.02;

@@ -86,7 +86,7 @@ try {
   // loading: the city, the cast, the cars and the shader warm-up (as behind the game's loading screen)
   const t0 = Date.now(); let lastP = '';
   for (;;) {
-    const s = await page.evaluate(() => ({ ready: !!window.__export, p: window.__progress ? window.__progress.join(' ') : '' })).catch(() => ({ ready: false, p: '' }));
+    const s = await page.evaluate(() => ({ ready: !!window.__export, p: window.__progress ? `${Math.round(window.__progress[0] * 100)}%  ${window.__progress[1] || ''}` : '' })).catch(() => ({ ready: false, p: '' }));
     if (s.ready) break; if (errors.length > 20) throw new Error('the game failed to load: ' + errors.slice(0, 3).join(' | '));
     if (s.p !== lastP) { lastP = s.p; process.stdout.write(`\r  loading ${s.p.slice(0, 70).padEnd(70)}`); }
     if (Date.now() - t0 > 3600e3) throw new Error('the game did not finish loading within an hour'); await new Promise((r) => setTimeout(r, 500));

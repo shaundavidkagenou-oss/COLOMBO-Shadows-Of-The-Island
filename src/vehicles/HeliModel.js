@@ -11,7 +11,9 @@
 // light (searchlight gimbal: yaw group → pitch group → lens at its tip), lamps { navR, navG, tail, beacon, belly, strobe },
 // crew (pilot + observer, hidden when parked), skidY (bottom of the skids, local 0), hub (mast top local y) }.
 import * as THREE from 'three';
-import { MultiBuilder } from '../gfx/MeshBuilder.js';
+import { MultiBuilder, MeshBuilder } from '../gfx/MeshBuilder.js';
+import { Character } from '../actors/Character.js';
+import { makePoliceAppearance } from '../actors/Appearance.js';
 import { vehicleMaterials } from './VehicleModels.js';
 import { heliMaterials, LIVERY_CABIN, LIVERY_BOOM } from './HeliMaterials.js';
 
@@ -66,10 +68,12 @@ export function buildHeliModel({ reg = '4R-SLP', crew = true } = {}) {
   // --------------------------------------------------------------------------------------------- fuselage (cabin + nose)
   const S = []; const sec = (z, yc, hw, ht, hb, n) => S.push({ z, yc, hw, ht, hb, n });
   // nose tip → cockpit → cabin → aft fairing (where the boom starts)
-  sec(6.15, 1.18, 0.02, 0.02, 0.02, 2.2); sec(6.05, 1.2, 0.34, 0.32, 0.36, 2.2); sec(5.85, 1.24, 0.6, 0.5, 0.52, 2.3); sec(5.55, 1.3, 0.8, 0.66, 0.62, 2.4);
-  sec(5.15, 1.38, 0.96, 0.82, 0.7, 2.5); sec(4.7, 1.46, 1.07, 0.98, 0.77, 2.7); sec(4.2, 1.55, 1.13, 1.08, 0.82, 2.9); sec(3.6, 1.62, 1.17, 1.06, 0.86, 3.1);
-  for (let z = 3.0; z >= -0.6; z -= 0.4) sec(+z.toFixed(2), 1.64, 1.2, 1.0, 0.9, 3.4);
-  sec(-1.0, 1.66, 1.16, 0.98, 0.86, 3.2); sec(-1.45, 1.72, 1.02, 0.92, 0.72, 2.9); sec(-1.9, 1.82, 0.82, 0.8, 0.52, 2.6); sec(-2.35, 1.92, 0.62, 0.64, 0.4, 2.3); sec(-2.7, 1.98, 0.5, 0.54, 0.34, 2.1);
+  // (50th request: the old body was a 2.4 m wide tube with a long pointed nose — a toy's proportions; this follows a modern light
+  // twin: 2.0 m cabin, flat floor, the canopy sweeping down into a short blunt nose, the belly rising into the tail cone)
+  sec(5.42, 1.16, 0.02, 0.02, 0.02, 2.2); sec(5.36, 1.17, 0.26, 0.24, 0.26, 2.2); sec(5.22, 1.21, 0.5, 0.42, 0.42, 2.3); sec(5.0, 1.28, 0.7, 0.6, 0.53, 2.4);
+  sec(4.7, 1.37, 0.85, 0.78, 0.61, 2.6); sec(4.3, 1.47, 0.95, 0.93, 0.67, 2.8); sec(3.85, 1.55, 1.0, 1.01, 0.71, 3.0); sec(3.4, 1.6, 1.02, 1.02, 0.73, 3.2);
+  for (let z = 3.0; z >= -0.6; z -= 0.4) sec(+z.toFixed(2), 1.62, 1.02, 1.0, 0.74, 3.4);
+  sec(-1.0, 1.66, 0.99, 0.96, 0.7, 3.2); sec(-1.45, 1.74, 0.88, 0.88, 0.6, 2.9); sec(-1.9, 1.84, 0.72, 0.76, 0.47, 2.6); sec(-2.35, 1.93, 0.56, 0.62, 0.37, 2.3); sec(-2.7, 1.98, 0.46, 0.52, 0.32, 2.1);
   // white over navy with a gold pin-stripe, the split rising toward the nose: drawn per pixel by the paint shader (HeliMaterials
   // LIVERY_CABIN), so the line is crisp — vertex colours zig-zagged across the lofted grid on the tapering nose
   const paint = () => LIVERY_CABIN;
@@ -77,9 +81,9 @@ export function buildHeliModel({ reg = '4R-SLP', crew = true } = {}) {
   // belly), so their frames run straight along the nose instead of stair-stepping across the grid
   const glassAt = (z, x, y, up, a = -1) => {
     const ax = Math.abs(x), P = Math.PI;
-    if (z > 3.2 && z < 5.9 && a > 0.21 * P && a < 0.79 * P) return true; // windscreen + roof eyebrow (one sweep, as on the type)
-    if (z > 4.9 && z < 5.75 && ((a > 1.17 * P && a < 1.42 * P) || (a > 1.58 * P && a < 1.83 * P))) return true; // chin windows (pilot's view down past the pedals)
-    if (ax > 1.0 && y > 1.62 && y < 2.32) { if (z > 2.05 && z < 3.15) return true; if (z > 0.15 && z < 1.65) return true; if (z > -1.05 && z < -0.25) return true; } // cockpit door, sliding cabin door, rear cabin window
+    if (z > 3.15 && z < 5.3 && a > 0.12 * P && a < 0.88 * P && !(z < 3.5 && a > 0.4 * P && a < 0.6 * P)) return true; // windscreen sweeping round the sides + roof eyebrow, a centre frame over the cabin roof
+    if (z > 4.45 && z < 5.15 && ((a > 1.16 * P && a < 1.42 * P) || (a > 1.58 * P && a < 1.84 * P))) return true; // chin windows (the pilot's view down past the pedals)
+    if (ax > 0.86 && y > 1.6 && y < 2.3) { if (z > 2.0 && z < 3.05) return true; if (z > 0.15 && z < 1.65) return true; if (z > -1.0 && z < -0.25) return true; } // cockpit door, sliding cabin door, rear cabin window
     return false;
   };
   loft(mb, S, 36, (z, x, y, up, a) => (glassAt(z, x, y, up, a) ? 'hglass' : 'hpaint'), paint);
@@ -87,11 +91,19 @@ export function buildHeliModel({ reg = '4R-SLP', crew = true } = {}) {
   // cabin lining: the hull's inside face (dark trim) from the rear bulkhead to the nose, open at every window, so through the
   // clear canopy you see a cabin, not a black block — and never the sky through the far wall (the skin is single-sided)
   { const k = 0.965, Sin = S.filter((q) => q.z >= -1.0 && q.z <= 5.9).map((q) => ({ ...q, hw: q.hw * k, ht: q.ht * k, hb: q.hb * k }));
-    loft(mb, Sin, 36, (z, x, y, up, a) => (glassAt(z, x / k, 1.64 + (y - 1.64) / k, up, a) ? null : 'vinterior'), () => C('#34373c'), true); }
-  { const ib = mb.get('vinterior'); ib.box(0, 0.92, 1.72, 1.8, 0.06, 5.35, { col: C('#26282b') }); /* cabin floor */ ib.box(0, 1.05, 4.3, 1.2, 0.2, 1.3, { col: C('#1d1f22') }); /* pedestal */ ib.box(0, 1.55, 4.15, 1.7, 0.45, 0.35, { col: C('#141516') });
-    for (const sx of [-1, 1]) { ib.box(sx * 0.48, 1.0, 3.72, 0.5, 0.12, 0.5, { col: C('#30343a') }); ib.box(sx * 0.48, 1.42, 3.45, 0.5, 0.8, 0.1, { col: C('#30343a') }); /* crew seats (crash-attenuating frames) */ }
-    ib.box(0, 1.0, 0.5, 1.9, 0.14, 0.55, { col: C('#3a3e44') }); ib.box(0, 1.45, 0.22, 1.9, 0.8, 0.1, { col: C('#3a3e44') }); /* rear-cabin bench */
-    ib.box(0, 1.79, 4.42, 1.5, 0.02, 0.28, { col: C('#0d0e0f') }); /* glare shield */ ib.box(0, 2.48, 3.3, 0.6, 0.05, 0.5, { col: C('#202226') }); /* overhead switch console */ }
+    loft(mb, Sin, 36, (z, x, y, up, a) => (glassAt(z, x / k, 1.62 + (y - 1.62) / k, up, a) ? null : 'vinterior'), () => C('#34373c'), true); }
+  { const ib = mb.get('vinterior'); const PANEL = C('#1a1c1f'), SEAT = C('#2c3036'), CUSH = C('#3a3f47'), STICK = C('#141414'), MFD = C('#0c1a24'), BEZ = C('#2b2e33');
+    ib.box(0, 0.99, 1.72, 1.86, 0.06, 5.2, { col: C('#26282b') }); /* cabin floor (top 1.02) */
+    ib.box(0, 1.12, 4.3, 0.36, 0.26, 0.9, { col: C('#1d1f22') }); /* centre console between the seats */ ib.box(0, 1.27, 4.42, 0.3, 0.04, 0.6, { col: BEZ }); /* radio / nav heads on it */
+    ib.box(0, 1.62, 4.55, 1.62, 0.42, 0.12, { col: PANEL }); ib.box(0, 1.85, 4.62, 1.66, 0.04, 0.32, { col: C('#0d0e0f') }); /* instrument panel + glare shield */
+    for (const sx of [-1, 1]) for (const k of [0, 1]) { const x = sx * (0.22 + k * 0.36); ib.box(x, 1.64, 4.485, 0.28, 0.24, 0.012, { col: BEZ }); ib.box(x, 1.645, 4.478, 0.24, 0.19, 0.006, { col: MFD }); } /* four flight / map displays */
+    ib.box(0, 2.56, 3.2, 0.52, 0.05, 0.62, { col: C('#202226') }); /* overhead switch console */
+    for (const sx of [-1, 1]) { const x = sx * 0.43; // crew seats (crash-attenuating frames), cushion top at 1.38; pedals; cyclic between the knees; collective on the left
+      ib.box(x, 1.34, 3.62, 0.5, 0.08, 0.5, { col: CUSH }); ib.box(x, 1.2, 3.62, 0.44, 0.2, 0.42, { col: SEAT }); ib.box(x, 1.76, 3.33, 0.5, 0.78, 0.09, { col: CUSH }); ib.box(x, 2.24, 3.34, 0.26, 0.2, 0.08, { col: CUSH }); /* headrest */
+      for (const px of [-0.13, 0.13]) { ib.box(x + px, 1.08, 4.36, 0.09, 0.03, 0.2, { col: STICK }); ib.box(x + px, 1.13, 4.45, 0.08, 0.1, 0.02, { col: STICK }); } /* pedals */
+      tube(ib, [[x, 1.02, 3.98], [x, 1.32, 3.97], [x, 1.5, 3.95]], 0.016, 6, STICK); ib.box(x, 1.54, 3.95, 0.04, 0.09, 0.04, { col: STICK }); /* cyclic + grip */
+      tube(ib, [[x + 0.3, 1.18, 3.55], [x + 0.3, 1.26, 3.75], [x + 0.3, 1.32, 3.92]], 0.018, 6, STICK); ib.box(x + 0.3, 1.34, 3.95, 0.04, 0.05, 0.08, { col: STICK }); } /* collective + throttle head */
+    ib.box(0, 1.27, 0.5, 1.84, 0.12, 0.52, { col: CUSH }); ib.box(0, 1.72, 0.22, 1.84, 0.8, 0.09, { col: CUSH }); /* rear-cabin bench */ }
   // --------------------------------------------------------------------------------------------- engine deck, cowlings, exhausts
   const E = []; const es = (z, yc, hw, ht, hb, n) => E.push({ z, yc, hw, ht, hb, n });
   es(2.6, 2.58, 0.05, 0.03, 0.05, 2.2); es(2.3, 2.62, 0.5, 0.18, 0.2, 2.4); es(1.6, 2.68, 0.72, 0.36, 0.22, 2.8); es(0.6, 2.72, 0.78, 0.46, 0.24, 3.2); es(-0.6, 2.74, 0.78, 0.48, 0.24, 3.2); es(-1.7, 2.66, 0.66, 0.4, 0.24, 2.8); es(-2.6, 2.46, 0.4, 0.22, 0.2, 2.3); es(-3.0, 2.34, 0.06, 0.04, 0.04, 2.2);
@@ -115,25 +127,25 @@ export function buildHeliModel({ reg = '4R-SLP', crew = true } = {}) {
   }
   // --------------------------------------------------------------------------------------------- skids
   { const m = mb.get('valloy'); for (const sx of [-1, 1]) { const x = sx * HELI.skidW; tube(m, [[x, 0.06, -2.3], [x, 0.06, 2.6], [x, 0.12, 3.05], [x, 0.32, 3.35], [x, 0.5, 3.45]], 0.05, 8, C('#9aa0a6'));
-      for (const z of [1.55, -1.25]) tube(m, [[x, 0.06, z], [x * 0.98, 0.32, z], [x * 0.9, 0.56, z], [x * 0.7, 0.72, z], [x * 0.45, 0.78, z]], 0.055, 8, C('#9aa0a6')); // curved cross tubes up to the belly
+      for (const z of [1.55, -1.25]) tube(m, [[x, 0.06, z], [x * 0.98, 0.36, z], [x * 0.9, 0.62, z], [x * 0.7, 0.82, z], [x * 0.45, 0.9, z]], 0.055, 8, C('#9aa0a6')); // curved cross tubes up to the belly
       m.box(x, 0.2, 2.4, 0.06, 0.04, 0.5, { col: DARK }); /* boarding step */ m.box(x * 0.93, 0.36, 2.4, 0.04, 0.32, 0.04, { col: C('#9aa0a6') }); }
-    for (const z of [1.55, -1.25]) tube(m, [[0.45, 0.78, z], [-0.45, 0.78, z]], 0.055, 8, C('#9aa0a6')); }
+    for (const z of [1.55, -1.25]) tube(m, [[0.45, 0.9, z], [-0.45, 0.9, z]], 0.055, 8, C('#9aa0a6')); }
   // --------------------------------------------------------------------------------------------- small details
   { const r = mb.get('vrubber'), w = mb.get('vworn'), a = mb.get('valloy');
     for (const sx of [-1, 1]) { // door seams, sliding-door rail, handles
-      const x = sx * 1.205; for (const z of [2.0, 3.2, 0.1, 1.72]) r.box(x, 1.55, z, 0.012, 1.25, 0.025, { col: DARK }); r.box(x, 2.38, 0.95, 0.03, 0.03, 3.4, { col: DARK }); r.box(x, 0.86, 0.95, 0.03, 0.03, 3.4, { col: DARK });
-      a.box(sx * 1.215, 1.5, 2.15, 0.02, 0.03, 0.16, { col: C('#c8ccd0') }); a.box(sx * 1.215, 1.5, 0.3, 0.02, 0.03, 0.2, { col: C('#c8ccd0') });
+      const x = sx * 1.024; for (const z of [1.95, 3.1, 0.1, 1.7]) r.box(x, 1.72, z, 0.012, 0.86, 0.022, { col: DARK }); r.box(sx * 0.975, 2.2, 0.95, 0.03, 0.03, 3.3, { col: DARK }); r.box(sx * 0.925, 1.1, 0.95, 0.03, 0.03, 3.3, { col: DARK }); /* door seams, sliding-door rails */
+      a.box(sx * 1.03, 1.52, 2.12, 0.02, 0.03, 0.16, { col: C('#c8ccd0') }); a.box(sx * 1.03, 1.52, 0.3, 0.02, 0.03, 0.2, { col: C('#c8ccd0') }); /* handles */
     }
-    a.box(0, 2.7, 5.15, 0.04, 0.5, 0.06, { col: GREY }); a.box(0, 0.5, 5.4, 0.04, 0.42, 0.06, { col: GREY }); // wire-strike cutters above / below the cockpit
-    for (const sx of [-1, 1]) tube(a, [[sx * 0.18, 1.48, 6.0], [sx * 0.18, 1.48, 6.45]], 0.012, 5, GREY); // pitot tubes
-    w.box(0, 0.62, -0.4, 0.02, 0.28, 0.32, { col: DARK }); w.box(0, 3.25, -1.6, 0.02, 0.22, 0.3, { col: DARK }); w.box(0, 0.7, 2.2, 0.02, 0.18, 0.22, { col: DARK }); // antenna blades
+    a.box(0, 2.62, 4.55, 0.04, 0.42, 0.06, { col: GREY }); a.box(0, 0.62, 5.0, 0.04, 0.36, 0.06, { col: GREY }); // wire-strike cutters above / below the cockpit
+    for (const sx of [-1, 1]) tube(a, [[sx * 0.16, 1.42, 5.25], [sx * 0.16, 1.42, 5.62]], 0.012, 5, GREY); // pitot tubes
+    w.box(0, 0.76, -0.4, 0.02, 0.28, 0.32, { col: DARK }); w.box(0, 3.25, -1.6, 0.02, 0.22, 0.3, { col: DARK }); w.box(0, 0.82, 2.2, 0.02, 0.18, 0.22, { col: DARK }); // antenna blades
     // FLIR / camera turret under the nose
-    geo(mb.get('vworn'), new THREE.SphereGeometry(0.24, 14, 10), [0, 0.42, 5.1], [0, 0, 0], [1, 1, 1], C('#3b3f44')); mb.get('hglass').box(0, 0.42, 5.33, 0.16, 0.1, 0.03, {});
-    w.cylinder(0, 0.62, 5.1, 0.07, 0.07, 0.14, 8, { col: DARK });
+    geo(mb.get('vworn'), new THREE.SphereGeometry(0.22, 14, 10), [0, 0.6, 4.62], [0, 0, 0], [1, 1, 1], C('#3b3f44')); mb.get('hglass').box(0, 0.6, 4.83, 0.15, 0.09, 0.03, {});
+    w.cylinder(0, 0.8, 4.62, 0.07, 0.07, 0.12, 8, { col: DARK });
   }
   // lettering: POLICE (shared material) on both boom sides, registration on the fin
   { // POLICE / පොලිසිය · பொலிஸ் on the white cabin side between the gold band and the windows (follows the side's tumblehome)
-    const d = mb.get('police'); const zA = -0.55, zB = 0.75, y0 = 1.19, y1 = 1.59, xb = 1.125, xt = 1.212;
+    const d = mb.get('police'); const zA = -0.55, zB = 0.75, y0 = 1.25, y1 = 1.59, xb = 0.99, xt = 1.027;
     d.quad([xb, y0, zB], [xb, y0, zA], [xt, y1, zA], [xt, y1, zB], [0, 0, 1, 1], [1, 1, 1]); d.quad([-xb, y0, zA], [-xb, y0, zB], [-xt, y1, zB], [-xt, y1, zA], [0, 0, 1, 1], [1, 1, 1]); // reads nose → tail on both sides
     // and smaller on the tail boom (white upper half), each side
     const bz0 = -3.2, bz1 = -4.4, by0 = 1.95, by1 = 2.22, bx0 = 0.445, bx1 = 0.395;
@@ -143,8 +155,13 @@ export function buildHeliModel({ reg = '4R-SLP', crew = true } = {}) {
   for (const [name, b] of mb.b) { const g = b.build(); if (!g) continue; const m = new THREE.Mesh(g, M[name] || mats.vpaint); m.castShadow = name !== 'vglass' && name !== 'hglass' && name !== 'police' && name !== 'reg'; m.receiveShadow = true; m.name = 'heli.' + name; group.add(m); }
   // --------------------------------------------------------------------------------------------- main rotor
   const rotor = new THREE.Group(); rotor.position.set(0, HELI.hubY, 0.25); group.add(rotor);
-  { const hb = new MultiBuilder(); const w = hb.get('hmetal'); w.cylinder(0, 0.07, 0, 0.18, 0.2, 0.08, 12, { col: C('#121212') }); /* elastomeric centre bearing */ w.cylinder(0, -0.68, 0, 0.12, 0.12, 0.7, 12, { col: C('#8d9298') }); /* mast */ w.cylinder(0, -0.05, 0, 0.36, 0.42, 0.2, 16, { col: DARK }); /* hub / yoke */ w.cylinder(0, -0.42, 0, 0.32, 0.32, 0.06, 16, { col: GREY }); /* swashplate */
-    for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2; const ca = Math.cos(a), sa = Math.sin(a); w.box(ca * 0.48, 0, sa * 0.48, 0.3 + Math.abs(ca) * 0.3, 0.12, 0.3 + Math.abs(sa) * 0.3, { col: C('#3b3e43') }); /* blade grips */ w.box(ca * 0.3, 0, sa * 0.3, 0.1 + Math.abs(ca) * 0.04, 0.14, 0.1 + Math.abs(sa) * 0.04, { col: C('#151515') }); /* lead-lag dampers */ tube(w, [[ca * 0.3, -0.4, sa * 0.3], [ca * 0.42, -0.05, sa * 0.42]], 0.025, 5, GREY); /* pitch links */ }
+  { const hb = new MultiBuilder(); const w = hb.get('hmetal'); // bearingless hub: a composite flex-beam star, pitch cuffs over each beam, swashplate and links below, a dome cap
+    w.cylinder(0, -0.68, 0, 0.11, 0.12, 0.7, 12, { col: C('#8d9298') }); /* mast */ w.cylinder(0, -0.4, 0, 0.3, 0.3, 0.05, 18, { col: GREY }); w.cylinder(0, -0.33, 0, 0.24, 0.26, 0.05, 18, { col: C('#5d6268') }); /* swashplate (fixed + rotating) */
+    w.cylinder(0, -0.02, 0, 0.24, 0.26, 0.12, 18, { col: DARK }); /* hub plate */ w.cylinder(0, 0.1, 0, 0.12, 0.2, 0.14, 14, { col: C('#d7dad6') }); /* dome cap */
+    for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2; const ca = Math.cos(a), sa = Math.sin(a);
+      w.box(ca * 0.38, -0.02, sa * 0.38, 0.06 + Math.abs(ca) * 0.5, 0.05, 0.06 + Math.abs(sa) * 0.5, { col: C('#2a2c2f') }); /* flex beam */
+      w.box(ca * 0.5, 0, sa * 0.5, 0.12 + Math.abs(ca) * 0.3, 0.1, 0.12 + Math.abs(sa) * 0.3, { col: C('#4a4e54') }); /* pitch cuff */
+      const px = -sa * 0.1, pz = ca * 0.1; w.box(ca * 0.36 + px, -0.06, sa * 0.36 + pz, 0.06, 0.04, 0.06, { col: C('#3b3e43') }); /* pitch horn */ tube(w, [[ca * 0.24 + px, -0.32, sa * 0.24 + pz], [ca * 0.36 + px, -0.08, sa * 0.36 + pz]], 0.02, 5, GREY); /* pitch link */ }
     for (const [name, b] of hb.b) { const m = new THREE.Mesh(b.build(), HM[name] || mats[name]); m.castShadow = true; rotor.add(m); } }
   const blades = []; { const bg = new MultiBuilder(); const b = bg.get('hblade'); const L = HELI.rotorR - 0.55; // one blade along +x from the grip, then cloned 4×
     // symmetric 12 % aerofoil (NACA 0012 thickness law), leading edge at +z (the rotor turns clockwise seen from above), pitch
@@ -186,9 +203,35 @@ export function buildHeliModel({ reg = '4R-SLP', crew = true } = {}) {
   const lamps = { navR: lamp(navRm, 1.56, 2.12, -5.45), navG: lamp(navGm, -1.56, 2.12, -5.45), tail: lamp(whiteM, 0, 1.95, -8.62, 0.05), beacon: lamp(mats.lbRed.clone(), 0, 3.24, -1.55, 0.09), belly: lamp(mats.lbRed.clone(), 0, 0.68, 0.6, 0.08), strobe: lamp(mats.lbBlue.clone(), 0, 0.7, 2.6, 0.08) };
   lamps.navR.material.emissiveIntensity = 0.6;
   // --------------------------------------------------------------------------------------------- crew: pilot (right seat) and observer (left), only in flight
-  const crewG = new THREE.Group(); group.add(crewG);
-  if (crew) { const cb = new MultiBuilder(); const suit = C('#1f2a3a'); for (const sx of [-1, 1]) { const x = sx * 0.48; const s = cb.get('vinterior'); s.box(x, 1.45, 3.75, 0.46, 0.62, 0.32, { col: suit }); /* torso */ s.box(x, 1.12, 4.05, 0.42, 0.18, 0.55, { col: suit }); /* thighs */ s.box(x, 1.82, 3.82, 0.12, 0.1, 0.12, { col: C('#8a6a52') }); /* neck */
-      geo(cb.get('vpaint'), new THREE.SphereGeometry(0.16, 12, 8), [x, 2.0, 3.83], [0, 0, 0], [1, 1.05, 1.1], C('#e8e8e4')); /* flight helmet */ cb.get('vglass').box(x, 1.98, 3.98, 0.24, 0.1, 0.02, {}); /* visor */ }
-    for (const [name, b] of cb.b) { const m = new THREE.Mesh(b.build(), mats[name]); crewG.add(m); } }
-  return { group, rotor, blades, disc, discMat, tail, tailBlades, light, lightPitch, lamps, crew: crewG, hub: HELI.hubY };
+  // real people (the game's own Character bodies, 50th request: the old crew were a box torso under a white ball): police air
+  // wing aircrew in navy flight suits, flight gloves and visored flight helmets. The pilot flies from the right seat (right hand on
+  // the cyclic between his knees, left on the collective); the observer sits left, hands on his lap.
+  // Distance LOD (renderer-driven, so it follows the camera that draws the frame, shadows included): the real crew within ~38 m;
+  // beyond that a person in the cockpit is a few pixels behind tinted glass, so a merged stand-in (navy suit, white helmet, dark
+  // visor: one draw call, ~300 triangles) replaces the two ~16k-triangle bodies.
+  const crewG = new THREE.LOD(); crewG.name = 'heliCrew'; crewG.position.set(0, 1.6, 3.6); group.add(crewG);
+  const crewHi = new THREE.Group(); crewHi.position.set(0, -1.6, -3.6); const crewLo = new THREE.Group(); crewLo.position.copy(crewHi.position);
+  crewG.addLevel(crewHi, 0, 0.06); crewG.addLevel(crewLo, 38, 0.06);
+  const crewChars = [];
+  if (crew) {
+    for (const [k, sx] of [[0, -1], [1, 1]]) { const x = sx * 0.43, pilot = k === 0;
+      const sp = makePoliceAppearance(7301 + k * 17, 'csru', { sex: 'm', band: 'adult' });
+      for (const key of ['vest', 'holster', 'pouch', 'strap', 'lanyard', 'cord']) delete sp[key];
+      Object.assign(sp, { outfit: 'security', top: '#2b3443', bottom: '#2b3443', longSleeve: true, collar: true, cap: '#e6e7e3', capStyle: 'flight', gloves: '#17181a', cuff: '#17181a', belt: '#1a1a1a', shoes: '#141414' });
+      const ch = new Character(sp); const seat = { x, y: 1.38, z: 3.62, floor: 1.02, fz: 0.72, fx: 0.11, roof: 2.5, lean: pilot ? 0.06 : -0.02, kind: 'sit',
+        hands: pilot ? 'bars' : 'lap', bars: pilot ? [[x + 0.3, 1.34, 3.92], [x, 1.54, 3.95]] : null };
+      ch.root.position.set(x, 1.38, 3.62); ch.anim.mocapOff = true; ch.anim.sitIn(seat, 1); for (let f = 0; f < 4; f++) ch.anim.update(1 / 30, 0, 0);
+      ch.root.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } }); crewHi.add(ch.root); crewChars.push(ch); }
+    const pb = new MeshBuilder(); const SUIT = C('#2b3443'), HELM = C('#e6e7e3'), VIS = C('#16181b'), GLOVE = C('#17181a');
+    for (const [k, sx] of [[0, -1], [1, 1]]) { const x = sx * 0.43, pilot = k === 0;
+      pb.box(x, 1.72, 3.6, 0.38, 0.56, 0.22, { col: SUIT }); /* torso against the seat back */ pb.box(x, 1.47, 3.85, 0.34, 0.15, 0.5, { col: SUIT }); /* thighs */
+      pb.box(x, 1.2, 4.12, 0.28, 0.42, 0.13, { col: SUIT }); /* shins to the pedals */ pb.box(x, 2.03, 3.62, 0.1, 0.07, 0.1, { col: SUIT }); /* neck */
+      pb.cylinder(x, 2.17, 3.62, 0.135, 0.13, 0.25, 10, { col: HELM }); /* flight helmet */ pb.box(x, 2.15, 3.74, 0.22, 0.09, 0.03, { col: VIS }); /* visor */
+      for (const s2 of [-1, 1]) { const hx = x + s2 * 0.24; pb.box(hx, 1.78, 3.66, 0.09, 0.3, 0.1, { col: SUIT }); /* upper arm */
+        const fwd = pilot ? 0.3 : 0.18; pb.box(hx - s2 * 0.04, 1.58, 3.7 + fwd / 2, 0.08, 0.08, fwd, { col: SUIT }); pb.box(hx - s2 * 0.05, 1.58, 3.72 + fwd, 0.08, 0.08, 0.08, { col: GLOVE }); } }
+    const pm = new THREE.Mesh(pb.build(), mats.vinterior); pm.castShadow = true; crewLo.add(pm);
+  }
+  // keep the crew's seated pose (and small head turns) alive; the owner calls it only when the aircraft is near the camera
+  const updateCrew = (dt) => { if (crewG.getCurrentLevel() !== 0) return; for (const ch of crewChars) ch.anim.update(dt, 0, 0); };
+  return { group, rotor, blades, disc, discMat, tail, tailBlades, light, lightPitch, lamps, crew: crewG, crewChars, updateCrew, hub: HELI.hubY };
 }
