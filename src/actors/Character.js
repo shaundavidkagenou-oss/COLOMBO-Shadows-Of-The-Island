@@ -1,6 +1,7 @@
 // Procedural skinned humans: one SkinnedMesh per person (body + head groups), 23-bone skeleton (70 for the three
 // protagonists: fingers, twist, toe and secondary-motion bones — see HeroRig.js),
 // Sri Lankan everyday clothing and a procedural animation layer (locomotion, idles, gestures, reactions).
+import { mocapBody, mocapArms } from '../anim/Mocap.js';
 import * as THREE from 'three';
 import { addBloodStain } from '../gfx/BloodStain.js';
 import { applyFight, fightState, MOVES as FIGHT_MOVES } from './Boxing.js';
@@ -1523,6 +1524,7 @@ export class Animator {
     R('neck', -g.stoop * 0.8 + g.headDown - run * 0.12 - crouch * 0.2 + eSl * 0.16 + eTe * 0.05 - ePr * 0.04, -trunkYaw * 0.5 + Math.sin(this.t * 9) * 0.14 * eSh, hipRoll * 0.3);
     const onCall = this.action === 'phone' ? 1 - 0.85 * this.actionW : 1; /* phone at the ear: the head stays with the hand (no free look-around) */
     R('head', -(this.hipYs - this.ch.hipY + gT * (this.ch.hipY - 0.45 - 0.12 * s)) * 0.6 * onCall, (this.look * 0.6 + this.idleLook * 0.5 - trunkYaw * 0.4) * onCall, hipRoll * 0.3 * onCall);
+    mocapBody(this, b, { dt, w, seatT, gT, crouch, act: A_, aw, at: this.actionT }); // real motion capture under the act layer (anim/Mocap.js): idle weight shifts, conversation gestures, standing up
     // arms: pendulum swing opposite to the legs, slightly lagging, bigger forward than back
     const armAmp = (0.1 + 0.2 * clamp(sp / 1.6, 0, 1) + run * 0.6) * g.arm * w * (1 + 0.35 * eAg - 0.4 * eSl - 0.15 * eTe);
     const sw = (p) => { const v = Math.cos(2 * Math.PI * (p - g.lag)); return v > 0 ? v : v * 0.75; };
@@ -1676,6 +1678,7 @@ export class Animator {
     if (this.armOverride) { const o = this.armOverride; const k = o.w ?? 1; if (o.aL) aL = blend(aL, o.aL, k); if (o.aR) aR = blend(aR, o.aR, k); if (o.fL) fL = blend(fL, o.fL, k); if (o.fR) fR = blend(fR, o.fR, k); }
     R('armL', ...aL); R('armR', ...aR); R('foreL', ...fL); R('foreR', ...fR);
     R('handL', 0.12 + run * 0.1, 0, 0.05); R('handR', 0.12 + run * 0.1, 0, -0.05);
+    mocapArms(this, b); // gesture clips drive the arms (before every IK pass: props, weapons and reaches still land)
     if (this._twW) { const T = HAND_TW[this._twA], k = this._twW; b.handR.rotation.x += T[0] * k; b.handR.rotation.y += T[1] * k; b.handR.rotation.z += T[2] * k; b.handL.rotation.x += T[3] * k; b.handL.rotation.y += T[4] * k; b.handL.rotation.z += T[5] * k; this._twW = 0; } /* phone poses: wrist bend / forearm twist so the screen faces the ear or the eyes */
     if (this.handOverride) { const o = this.handOverride; if (o.L) b.handL.rotation.set(...o.L); if (o.R) b.handR.rotation.set(...o.R); }
     if (this.aim) { // weapon stance: torso pitch follows the aim, chest bladed so the support shoulder leads; walk twist removed

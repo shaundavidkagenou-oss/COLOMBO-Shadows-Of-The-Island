@@ -5,3 +5,4 @@ dist/
 dev/mh-cache/
 desktop/app/
 desktop/release/
+.cache/

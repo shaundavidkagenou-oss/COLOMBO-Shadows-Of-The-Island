@@ -18,7 +18,9 @@ import { makePoliceAppearance } from '../actors/Appearance.js';
 import { seatCharacter } from '../actors/Seating.js';
 import { gatherBodies } from '../actors/Bodies.js';
 import { Firefight } from '../police/Firefight.js';
-import { POLICE_T56 } from '../combat/WeaponDefs.js';
+import { POLICE_T56, WEAPONS } from '../combat/WeaponDefs.js';
+import { buildWeaponModel } from '../combat/WeaponModels.js';
+import { holdFor } from '../combat/GripSolver.js';
 import { Audio } from '../audio/Audio.js';
 import * as L from '../world/Layout.js';
 
@@ -71,13 +73,14 @@ export class TrailerRuntime {
   async build(pr = () => {}) {
     const g = this.g, P = this.plan, scene = g.scene;
     const tick = () => new Promise((r) => setTimeout(r, 0));
-    const actor = (spec) => { const ch = new Character(spec); scene.add(ch.root); return { ch, mode: 'foot', x: 0, y: 0, z: 0, yaw: 0, sees: true, cineAim: false, _draw: false, _tp: { x: 0, y: 1, z: 0 } }; };
+    const actor = (spec) => { const ch = new Character(spec); ch.anim.mocapPhase = 0; /* motion-capture loops start at a fixed phase: every take of the trailer plays the same */ scene.add(ch.root); return { ch, mode: 'foot', x: 0, y: 0, z: 0, yaw: 0, sees: true, cineAim: false, _draw: false, _tp: { x: 0, y: 1, z: 0 } }; };
     this.actors = {};
     const cast = this.cast();
     for (const id of cast.heroes) { this.actors[id] = actor(HEROES[id]); pr(0.1 + 0.1 * Object.keys(this.actors).length); await tick(); }
     for (const [k, seed, role, look] of cast.officers) { this.actors[k] = actor(makePoliceAppearance(7700 + seed, role || 'patrol', Object.assign({ sex: 'm' }, look || {}))); await tick(); } // role / look: the second trailer's OIC (a senior officer, no cap indoors)
     pr(0.5);
-    for (const k of cast.armed) { const o = this.actors[k]; FF.arm.call(null, o); o.ff = { g: { camera: g.camera }, armed: () => !!o._draw, targetPoint: () => o._tp }; o.rifle.userData.flash.visible = true; /* compiled with the scene, hidden again at start */ }
+    for (const k of cast.pistol || []) { const o = this.actors[k]; this.armPistol(o); } // handgun (the second trailer's robbery): the player's own pistol model, held with the player's grip solve
+    for (const k of cast.armed) { const o = this.actors[k]; if (o.pistol) continue; FF.arm.call(null, o); o.ff = { g: { camera: g.camera }, armed: () => !!o._draw, targetPoint: () => o._tp }; o.rifle.userData.flash.visible = true; /* compiled with the scene, hidden again at start */ }
     // vehicles: one per scene rig (scene key + rig id); seated police / bus drivers stay put for the whole trailer
     this.vehicles = new Map();
     for (const [sid, S] of Object.entries(P.scenes)) for (const [id, r] of Object.entries(S.rigs)) {
@@ -250,7 +253,7 @@ export class TrailerRuntime {
           o.rifle.visible = true; o._draw = !p.rifle.sling; o.cineAim = !p.rifle.sling && p.rifle.aim > 0.5; o.mode = 'foot';
           const tg = p.rifle.target && P[p.rifle.target]; if (tg) { o._tp.x = tg.cx ?? tg.x; o._tp.y = L.groundY(tg.x, tg.z) + (tg.cy ?? 0.9); o._tp.z = tg.cz ?? tg.z; } else { o._tp.x = p.x + Math.sin(p.yaw) * 10; o._tp.y = 1.2; o._tp.z = p.z + Math.cos(p.yaw) * 10; }
           if (this.snap || this.snapPed) { o.rp.draw = o._draw ? 1 : 0; o.rp.aim = o.cineAim ? 1 : 0; }
-          FF.pose.call(o.ff, o, Math.max(dt, 1e-4));
+          if (o.pistol) this.posePistol(o, p, Math.max(dt, 1e-4)); else FF.pose.call(o.ff, o, Math.max(dt, 1e-4));
         }
       }
       // talking: lips move on the speaker's VO lines
@@ -261,6 +264,30 @@ export class TrailerRuntime {
     this.snapPed = false;
   }
   // ---------------------------------------------------------------- gunfire, blasts, fires
+  // ---------------------------------------------------------------- handgun (second trailer): same model, hold solve and
+  // two-hand stance as the player's pistol (Weapons.pose): a low, muzzle-down ready at the belly ↔ arms extended with the
+  // sights at eye line, the support hand wrapped over the firing hand; recoil flips the muzzle and settles
+  armPistol(o) {
+    const def = WEAPONS.find((d) => d.id === 'service'); const m = buildWeaponModel(def); m.matrixAutoUpdate = false; m.traverse((q) => { if (q.isMesh) q.castShadow = false; });
+    o.ch.bones.chest.add(m); o.rifle = m; o.pistol = def; o.rp = { draw: 1, aim: 0, kick: 0, flashT: 0, trigT: 0 }; o._tp = new THREE.Vector3(); m.visible = false;
+  }
+  _hold(o) { return holdFor(o.ch, o.rifle) || { R: { wrist: new THREE.Vector3(), q: new THREE.Quaternion(), ready: 'grip', trigger: 'trigger' }, L: { wrist: o.rifle.userData.support, q: new THREE.Quaternion(), pose: 'support' } }; }
+  posePistol(o, p, dt) {
+    const m = o.rifle, A = o.ch.anim, rp = o.rp, H = this._hold(o), ch = o.ch;
+    const want = clamp(p.rifle.aim, 0, 1); rp.aim = this.snap || this.snapPed ? want : rp.aim + (want - rp.aim) * Math.min(1, dt * 6); rp.kick = Math.max(0, rp.kick - dt * 9); rp.trigT = Math.max(0, (rp.trigT || 0) - dt);
+    const aw = sm(rp.aim), tp = o._tp, ey = (o.y || 0) + 1.45; const pitch = clamp(Math.atan2(tp.y - ey, Math.max(0.5, Math.hypot(tp.x - o.x, tp.z - o.z))), -0.9, 0.9);
+    const twist = 0.12 * aw; A.aim = { pitch: pitch * aw, twist, w: Math.max(aw, 0.3), headDown: 0 };
+    const low = new THREE.Vector3(-0.1, -0.12, 0.3), ap = new THREE.Vector3(-0.03, 0.2, 0.44); const ctrl = low.clone().lerp(ap, 0.5).add(new THREE.Vector3(0.02, 0.05, -0.06));
+    const u0 = 1 - aw; const pos = new THREE.Vector3().addScaledVector(low, u0 * u0).addScaledVector(ctrl, 2 * u0 * aw).addScaledVector(ap, aw * aw); // the player's ADS Bezier
+    let rx = lerp(0.75, 0, aw), ry = lerp(0.1, 0, aw); const rz = 0; const kk = rp.kick; pos.z -= 0.025 * kk; pos.y += 0.012 * kk; rx -= 0.16 * kk * (1 - 0.4 * (1 - kk)); // muzzle flip, settles as the kick decays
+    const body = new THREE.Matrix4().compose(pos, new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz, 'YXZ')), new THREE.Vector3(1, 1, 1));
+    const chestM = new THREE.Matrix4().multiplyMatrices(new THREE.Matrix4().makeRotationY(twist), body);
+    m.matrix.copy(chestM); m.matrixWorldNeedsUpdate = true; m.visible = true;
+    const wQ = new THREE.Quaternion().setFromRotationMatrix(chestM); const grip = H.R.wrist.clone().applyMatrix4(chestM), sup = H.L.wrist.clone().applyMatrix4(chestM);
+    const supW = sm((aw - 0.35) / 0.45); // one hand at the low ready, both once it comes up
+    A.ik = { R: grip, qR: wQ.clone().multiply(H.R.q), wR: 1, L: supW > 0.01 ? sup : null, qL: wQ.clone().multiply(H.L.q), wL: supW, poleR: null };
+    if (ch.rig) { ch.rig.hand('R', rp.trigT > 0 ? H.R.pull || 'grip' : aw > 0.7 ? H.R.trigger : H.R.ready, 1); if (A.ik.L) ch.rig.hand('L', H.L.pose); }
+  }
   skipEvents(upTo) { const S = this.S; S.events.forEach((ev, i) => { if (ev.t < upTo) this.fired.add('e' + i); }); this.shotsOf(S).forEach((s, i) => { if (s.t < upTo) this.fired.add('s' + i); }); }
   shotsOf(S) { if (!S._shots) { S._shots = []; for (const f of S.fire) for (let t = f.a; t < f.b; t += 1 / f.rof) S._shots.push({ t, who: f.who, target: f.target }); S._shots.sort((a, b) => a.t - b.t); } return S._shots; }
   events(P, t) {
@@ -276,6 +303,8 @@ export class TrailerRuntime {
     const gy = L.groundY(tg.x, tg.z); const aim = new THREE.Vector3(tg.cx ?? tg.x, gy + (tg.cy ?? 0.85), tg.cz ?? tg.z);
     const spread = tg.spread ?? (s.target === 'hero' ? 1.6 : 0.45); aim.x += (Math.random() - 0.5) * spread; aim.y += (Math.random() - 0.3) * spread * 0.5; aim.z += (Math.random() - 0.5) * spread; if (tg.cyMax != null) aim.y = Math.min(aim.y, gy + tg.cyMax); // cyMax: rounds into a ceiling stay under it
     const dir = aim.clone().sub(mz).normalize(); const far = aim.clone().addScaledVector(dir, s.target === 'hero' && Math.random() < 0.6 ? 25 : 0); // misses fly on past a moving car
+    if (o.pistol) { o.rp.kick = 1; if (W) { W.flash(mz, dir, o.pistol); W.tracer(mz, far, o.pistol); if (far.distanceToSquared(aim) < 0.01) W.sparks(aim, dir); W.flashLight.position.copy(mz); W.flashLight.intensity = 5; W.flashT = 0.05; } o.ch.rig && o.ch.rig.hand('R', this._hold(o).R.pull || 'grip');
+      const [gn, pan] = Audio.spatial ? Audio.spatial(mz.x, mz.z, 60) : [0.5, 0]; this.score.gun(Math.max(0.12, gn), pan, this.rate, this.g.camera.position.distanceTo(mz)); o.rp.trigT = 0.09; return; }
     const ud = o.rifle.userData; if (ud.flash) { bloomHot(); ud.flash.visible = true; ud.flash.rotation.z = Math.random() * 3; ud.flash.scale.setScalar(0.85 + Math.random() * 0.35); o.rp.flashT = 0.05; } o.rp.kick = 1;
     if (W) { W.tracer(mz, far, POLICE_T56); if (far.distanceToSquared(aim) < 0.01) W.sparks(aim, dir); W.flashLight.position.copy(mz); W.flashLight.intensity = 6; W.flashT = 0.05; }
     const [gn, pan] = Audio.spatial ? Audio.spatial(mz.x, mz.z, 60) : [0.5, 0]; const d = this.g.camera.position.distanceTo(mz); this.score.gun(Math.max(0.12, gn), pan, this.rate, d);

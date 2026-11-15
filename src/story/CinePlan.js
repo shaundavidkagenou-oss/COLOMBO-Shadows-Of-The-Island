@@ -44,7 +44,7 @@ export function buildPlan() {
   for (let a = 0; a <= 90; a += 10) { const r = 9.8, q = (a * Math.PI) / 180; arcC.push([-278.2 + r - r * Math.cos(q), 275.2 + r * Math.sin(q)]); }
   const CUP = new Path([[-278.2, 205], [-278.2, 240], [-278.2, 268], [-278.2, 275.2], ...arcC.slice(1), [-262, 285], [-256.5, 285]]);
   const cuS = curve([[0, 0], [2.4, 32], [4.2, 56], [5.6, CUP.length - 7], [7.0, CUP.length - 1.2], [9, CUP.length - 1.2]]);
-  const rigsCU = { car: vehicleRig({ type: 'kaizan', seed: 3, path: CUP, s: (t) => cuS.at(t), share: 'kz' /* the same car plays the chase behind Dineth (GT) */, driver: 'civ', lights: () => false }) };
+  const rigsCU = { car: vehicleRig({ type: 'raiden', seed: 3, path: CUP, s: (t) => cuS.at(t), share: 'kz' /* the same car plays the chase behind Dineth (GT) */, driver: 'civ', lights: () => false }) };
 
   // ======== ACT III: the jewellery store (rob_jewel, Fort) ========
   // the real walk-in store: door (53.03, −745.8), facing north into the shop; the room's local frame → world: (53.03 + lx, −747.1 + lz)
@@ -79,9 +79,9 @@ export function buildPlan() {
     dineth: pedRig({ who: 'dineth', segs: [{ t1: 99, seat: 'crew' }] }),
     shashika: pedRig({ who: 'shashika', segs: [
       { t1: 4.9, hidden: true },
-      { t1: 9.75, walk: SH_IN, t0: 5.0, v: 1.56, rifle: { aim: (t) => (t > 9.15 ? 1 : 0.35), target: 'shTgt' } }, // pushes the door open at 8.5 – 9.2
-      { t1: 21.2, ...outside(...SH_POST), yaw: (t) => (t < 20.6 ? turn(10.6, 11.4, SH_IN_YAW, SH_KEEP_YAW)(t) : turn(20.6, 21.2, SH_KEEP_YAW, SH_OUT_YAW)(t)), rifle: { aim: (t) => (t < 20.3 ? 1 : 0.5) /* muzzle down as David crosses to the door */, target: 'shTgt' } },
-      { t1: 25.05, walk: SH_OUT, t0: 21.2, v: 1.8, rifle: { aim: () => 0.5 } },
+      { t1: 9.75, walk: SH_IN, t0: 5.0, v: 1.56, rifle: { gun: 'pistol', aim: (t) => (t > 9.15 ? 1 : 0.35), target: 'shTgt' } }, // pushes the door open at 8.5 – 9.2
+      { t1: 21.2, ...outside(...SH_POST), yaw: (t) => (t < 20.6 ? turn(10.6, 11.4, SH_IN_YAW, SH_KEEP_YAW)(t) : turn(20.6, 21.2, SH_KEEP_YAW, SH_OUT_YAW)(t)), rifle: { gun: 'pistol', aim: (t) => (t < 20.3 ? 1 : 0.5) /* muzzle down as David crosses to the door */, target: 'shTgt' } },
+      { t1: 25.05, walk: SH_OUT, t0: 21.2, v: 1.8, rifle: { gun: 'pistol', aim: () => 0.5 } },
       { t1: 99, hidden: true }] }),
     david: pedRig({ who: 'david', segs: [
       { t1: 5.3, hidden: true },
@@ -190,7 +190,7 @@ export function buildPlan() {
   const RUN = [[-26.0, -196.55], [-23.6, -196.55], [-23.6, -198.5], [-24.0, -199.3], [-24.0, -199.6]]; // sprint (5.54 m at 3.8 m/s), then two braking steps
   const pedsO = {
     runner: pedRig({ who: 'officer', seed: 23, segs: [{ t1: 1.708, walk: RUN, t0: 0.25, v: 3.8, y: HQF }, { t1: 2.3, walk: [[-24.0, -199.6], [-24.0, -200.45]], t0: 1.708, v: 1.6, y: HQF }, { t1: 99, x: -24.0, z: -200.45, yaw: Math.PI, y: HQF, act: (t) => (t < 5.1 ? 'argue' : null) }] }),
-    oic: pedRig({ who: 'officer', seed: 31, role: 'supervisor', look: { cap: null, band: 'mature' }, segs: [{ t1: 99, x: -24.0, z: -203.35, yaw: 0, y: HQF, act: (t) => (t < 4.85 ? 'sit' : t < 5.75 ? 'rise' : null) }] }),
+    oic: pedRig({ who: 'officer', seed: 31, role: 'supervisor', look: { cap: null, band: 'mature' }, segs: [{ t1: 99, x: -24.0, z: -203.35, yaw: 0, y: HQF, act: (t) => (t < 4.85 ? 'sit' : t < 6.1 ? 'rise' : null) }] }), // standing up: a real take (anim/Mocap.js 'rise', 1.25 s)
   };
   const oicDoor = [[0, 0], [0.62, 0], [0.86, 1], [1.15, 0.9], [1.5, 0.94]]; // flung open by the runner, it bounces off the stop
 
@@ -210,7 +210,7 @@ export function buildPlan() {
   const CH = new Path([[-398.2, -900], [-398.2, -150]]); const chZ = (t) => -474 + 38 * (t - 1.5); const chS = (t, lag) => chZ(t - lag) + 900;
   const chVis = (t) => t < 9;
   const rigsGT = {
-    chase: vehicleRig({ type: 'kaizan', seed: 3, path: CH, s: (t) => chS(t, 0), share: 'kz', driver: 'civ', lights: () => true, vis: chVis }),
+    chase: vehicleRig({ type: 'raiden', seed: 3, path: CH, s: (t) => chS(t, 0), share: 'kz', driver: 'civ', lights: () => true, vis: chVis }),
     gpol1: vehicleRig({ type: 'police', seed: 5, path: CH, s: (t) => chS(t, 0.45), share: 'gp1', driver: 'officer', lights: () => true, beacons: () => true, vis: chVis }),
     gpol2: vehicleRig({ type: 'police', seed: 6, path: CH, s: (t) => chS(t, 0.85), lat: flat([[0, -3.2], [1, -3.2]]), share: 'gp2', driver: 'officer', lights: () => true, beacons: () => true, vis: chVis }),
   };

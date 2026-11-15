@@ -64,12 +64,13 @@ export class CineTrailer extends TrailerRuntime {
   }
   // everybody the edit uses (heroes by name, officers by key + seed) and who carries a rifle
   cast() {
-    if (this._cast) return this._cast; const heroes = new Set(), officers = new Map(), armed = new Set();
+    if (this._cast) return this._cast; const heroes = new Set(), officers = new Map(), armed = new Set(), pistol = new Set();
     for (const S of Object.values(this.plan.scenes)) for (const [k, r] of Object.entries(S.peds)) {
       if (r.who === 'officer') officers.set(k, [r.seed || 40, r.role || null, r.look || null]); else heroes.add(r.who);
       if (r.segs.some((q) => q.rifle)) armed.add(r.who === 'officer' ? k : r.who);
+      if (r.segs.some((q) => q.rifle && q.rifle.gun === 'pistol')) pistol.add(r.who === 'officer' ? k : r.who);
     }
-    this._cast = { heroes: [...heroes], officers: [...officers.entries()].map(([k, v]) => [k, ...v]), armed: [...armed] }; return this._cast;
+    this._cast = { heroes: [...heroes], officers: [...officers.entries()].map(([k, v]) => [k, ...v]), armed: [...armed], pistol: [...pistol] }; return this._cast;
   }
   makeScore() { const s = new CineScore(); if (s.ok) { s.build(); s.setVoices(this.plan.voices || [], this.voiceBufs || {}, this.plan.sighs || []); } return s; }
   // behind the loading screen: the cast and the cars (TrailerRuntime.build), then the walk-in stores and the jewellery
@@ -199,6 +200,9 @@ export class CineTrailer extends TrailerRuntime {
     M.rotation.set(0, yaw, 0); M.updateMatrixWorld();
   }
   pedHook(key, p, o) { // David's right hand onto the case handle (before his pose is solved this frame)
+    // motion-capture cues (anim/Mocap.js): the runner is already into his gestures as he blurts it out; the OIC, once up, stands
+    // where the take left him (a step forward of the chair)
+    if (key === 'runner') o.ch.anim.mocapOffset = 1.3; else if (key === 'oic') o.ch.anim.mocapBias = this.simT > 5.5 ? 0.19 : 0;
     const C = this.S.rob && this.S.rob.case; if (key !== 'david') return; const A = o.ch.anim;
     if (!C) { if (A.reach === this._dR) A.reach = null; return; }
     const t = this.simT, w = keyAt(C.davidW, t) || 0; if (w > 0.001) { const K = this._dR; vecAt(C.davidGrip, t, this._cg); this.robPoint(this._cg, K.p); K.p.y += 0.07; K.w = w; this.handQ(o.ch, 0, K.q); A.reach = K; } else if (A.reach === this._dR) A.reach = null;
