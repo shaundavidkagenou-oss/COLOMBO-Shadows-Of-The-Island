@@ -6,3 +6,5 @@ dev/mh-cache/
 desktop/app/
 desktop/release/
 .cache/
+/COLOMBO-Official-Cinematic-Trailer-*.mp4
+tools/trailer-export/package-lock.json

@@ -179,6 +179,9 @@ export class Game {
     }
     const quick = TEST && new URLSearchParams(location.search).get('quick');
     if (quick) { // test shortcuts: ?test&quick=new (opening cinematic) | ?test&quick=play (skip opening, free play at Main Street)
+      // &export=1 (tools/trailer-export, the MP4 export): the trailer's sound is rendered by an offline audio context that the
+      // exporter advances frame by frame with the picture, so music, dialogue and effects land on the exact video frame
+      if (quick === 'trailer2' && new URLSearchParams(location.search).get('export') && window.OfflineAudioContext) Audio.init(new OfflineAudioContext(2, 48000 * 150, 48000));
       await this.load((p, l) => { window.__progress = [p, l]; });
       if (quick === 'new') return this.newGame();
       if (quick === 'trailer') return this.playTrailer(1);
@@ -405,6 +408,12 @@ export class Game {
     const now = performance.now(); const raw = (now - this.last) / 1000; this.last = now; const dt = Math.min(TEST ? 0.5 : 0.05, Math.max(0.0005, raw));
     this.fps = lerp(this.fps, 1 / Math.max(raw, 1e-3), 0.05); this.dynRes(Math.min(raw, 0.25));
     Input.pollGamepad();
+    this.frameStep(dt);
+    Input.endFrame();
+  }
+  // one frame of simulation + drawing with a given timestep: the rAF loop above, and the trailer's MP4 export
+  // (tools/trailer-export: fixed 1/fps steps, every frame captured) which drives it directly while the loop idles (noRender)
+  frameStep(dt) {
     try {
       const mapOpen = this.mode === 'play' && this.hud.bigMapOpen; // the pause map freezes the world (and the hidden 3D view is not drawn)
       if (mapOpen) { if (Input.wasPressed('map')) this.toggleMap(false); }
@@ -419,7 +428,6 @@ export class Game {
         withMatricesDone(this.scene, () => { if (this.world && this.world.waterRefl) { const q = Settings.get('quality'); this.world.waterRefl.scale = q === 'ultra' ? 0.6 : 0.45; this.world.waterRefl.halfRate = q !== 'ultra'; this.world.waterRefl.update(this.renderer, this.scene, this.camera, (q === 'high' || q === 'ultra') && !this.indoor); } this.post.indoor = !!this.indoor || (this.seamK || 0) > 0.01 || this.mode !== 'play'; this.post.inside = !!this.indoor || (this.seamK || 0) > 0.5; /* cinematic pass: neutral grade + no sun effects only inside a room */ this.post.update(this.atmos); this.post.render(dt); });
       }
     } catch (e) { if (!this._errN || this._errN < 5) console.error(e && e.stack || e); this._errN = (this._errN || 0) + 1; this.lastError = e; }
-    Input.endFrame();
   }
   // menu / intro background: the living city without the player
   updateAmbient(dt) {

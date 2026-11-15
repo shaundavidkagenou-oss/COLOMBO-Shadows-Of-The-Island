@@ -1,0 +1,11 @@
+{
+  "name": "colombo-trailer-export",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Exports the OFFICIAL CINEMATIC TRAILER of COLOMBO: Shadows of the Island to an MP4 file (export-trailer-mp4.bat)",
+  "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "puppeteer-core": "^24.43.1"
+  }
+}

@@ -20,6 +20,7 @@ import { Audio } from '../audio/Audio.js';
 import * as L from '../world/Layout.js';
 
 const TEST = typeof location !== 'undefined' && new URLSearchParams(location.search).has('test');
+const EXPORT = TEST && !!new URLSearchParams(location.search).get('export'); // tools/trailer-export: the MP4 export drives the frames
 const BASE = import.meta.env ? import.meta.env.BASE_URL : './';
 const LOGO = `${BASE}assets/brand/sds-logo.jpg`;
 const VOICE = `${BASE}assets/voice/t2/`; // the recorded dialogue (49th)
@@ -97,7 +98,41 @@ export class CineTrailer extends TrailerRuntime {
     if (this.rob) { this.rob.room.og.visible = false; }
     this.buildControls();
     if (TEST) window.__cine = this;
+    if (EXPORT) this.exportHook();
     return p;
+  }
+  // ---------------------------------------------------------------- MP4 export (tools/trailer-export/export.mjs)
+  // The exporter owns the clock: the game's rAF loop idles (noRender) and every video frame i is one Game.frameStep(1/fps)
+  // at edit time exactly i/fps, captured by the exporter after this returns. The sound is the same score/dialogue/effects
+  // code on an OfflineAudioContext (Game.boot) that is rendered up to each frame's time before the frame runs, so every
+  // cue is scheduled on the audio timeline at its frame (t0 = 0: audio time == edit time). Nothing is skipped or sped
+  // up, however slow a frame is to draw; the player controls and the skip hint are hidden.
+  exportHook() {
+    const g = this.g; g.noRender = true; this.t0 = 0; this.score.start?.(0);
+    if (this.ctl) this.ctl.root.style.display = 'none'; if (this.ov.hint) this.ov.hint.style.display = 'none'; document.body.style.cursor = 'none';
+    const c = Audio.offline ? Audio.ctx : null; let aT = 0, render = null, wav = null;
+    window.__export = {
+      len: this.LEN, audio: !!c, sampleRate: c ? c.sampleRate : 0,
+      step: async (i, fps) => {
+        const dt = 1 / fps, e = i / fps;
+        if (c && i > 0) { const q = Math.round(e * c.sampleRate / 128) * 128 / c.sampleRate; // render-quantum boundary
+          if (q > aT) { const p = c.suspend(q); if (!render) render = c.startRendering(); else c.resume(); await p; aT = q; } }
+        this.e = e - dt; g.frameStep(dt);
+        return { e: +this.e.toFixed(4), done: this.done, shot: this.shot ? this.shot.name || '' : '', errors: g._errN || 0 };
+      },
+      // after the last frame: the rest of the sound, as 16-bit stereo PCM WAV (cut to the trailer's length by the exporter)
+      finishAudio: async () => {
+        if (!c) return 0; if (!this.done) { this.e = this.LEN; this.finish(); }
+        if (!render) render = c.startRendering(); else c.resume(); const buf = await render;
+        const n = Math.min(buf.length, Math.ceil((this.LEN + 0.5) * buf.sampleRate)), ch = [buf.getChannelData(0), buf.getChannelData(buf.numberOfChannels > 1 ? 1 : 0)];
+        const out = new DataView(new ArrayBuffer(44 + n * 4)); const str = (o, t) => { for (let k = 0; k < t.length; k++) out.setUint8(o + k, t.charCodeAt(k)); };
+        str(0, 'RIFF'); out.setUint32(4, 36 + n * 4, true); str(8, 'WAVEfmt '); out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 2, true);
+        out.setUint32(24, buf.sampleRate, true); out.setUint32(28, buf.sampleRate * 4, true); out.setUint16(32, 4, true); out.setUint16(34, 16, true); str(36, 'data'); out.setUint32(40, n * 4, true);
+        for (let k = 0, o = 44; k < n; k++, o += 4) { out.setInt16(o, Math.max(-1, Math.min(1, ch[0][k])) * 32767, true); out.setInt16(o + 2, Math.max(-1, Math.min(1, ch[1][k])) * 32767, true); }
+        wav = new Uint8Array(out.buffer); return wav.length;
+      },
+      wavChunk: (from, size) => { const b = wav.subarray(from, from + size); let s = ''; for (let k = 0; k < b.length; k += 32768) s += String.fromCharCode.apply(null, b.subarray(k, k + 32768)); return btoa(s); },
+    };
   }
   // ---------------------------------------------------------------- input: Space pause · ←/→ seek · F full screen · Esc exit
   bindInput() {
@@ -137,7 +172,7 @@ export class CineTrailer extends TrailerRuntime {
     return this.e;
   }
   frame(dt) { super.frame(dt); if (!this.done) { this.updateControls(); if (this.score.endFade) this.score.endFade(this.e); } }
-  finish() { if (this.done) return; if (this.g.atmos) this.g.atmos.shadowCaster = null; if (Audio.ctx && Audio.ctx.state === 'suspended') Audio.ctx.resume?.(); this.stopAlarm(); if (document.fullscreenElement && !TEST) document.exitFullscreen?.().catch?.(() => {}); super.finish(); }
+  finish() { if (this.done) return; if (this.g.atmos) this.g.atmos.shadowCaster = null; if (Audio.ctx && Audio.ctx.state === 'suspended' && !Audio.offline) Audio.ctx.resume?.(); this.stopAlarm(); if (document.fullscreenElement && !TEST) document.exitFullscreen?.().catch?.(() => {}); super.finish(); }
   // ---------------------------------------------------------------- scenes
   activateScene(id, shot) {
     super.activateScene(id, shot);

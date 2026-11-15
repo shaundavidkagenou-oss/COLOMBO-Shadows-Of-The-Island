@@ -10,10 +10,11 @@ const DIESEL = new Set(['van', 'suv', 'policejeep', ...Object.keys(CATALOG).filt
 
 class AudioEngine {
   constructor() { this.ctx = null; this.ready = false; this.engines = []; this.musicMode = 'none'; this.nextNote = 0; this.step = 0; this.radio = 0; }
-  init() {
-    if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
-    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
-    const c = (this.ctx = new AC());
+  // ctx0: an OfflineAudioContext for the trailer's MP4 export (Game.boot ?export); otherwise the live context
+  init(ctx0) {
+    if (this.ctx) { if (this.ctx.state === 'suspended' && !this.offline) this.ctx.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC && !ctx0) return;
+    const c = (this.ctx = ctx0 || new AC()); this.offline = !!ctx0;
     this.master = c.createGain(); this.master.connect(c.destination);
     const comp = c.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 3; this.out = comp;
     // concussion muffle (a close explosion): a low-pass between the mix and the master, wide open (inaudible) normally
@@ -40,7 +41,7 @@ class AudioEngine {
   env(g, t, a, peak, d, sus = 0) { g.gain.cancelScheduledValues(t); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(peak, 0.0002), t + a); g.gain.exponentialRampToValueAtTime(Math.max(sus, 0.0001), t + a + d); }
   // one-shot sounds only while the context actually runs: a suspended context (background tab, no user gesture yet) would queue every
   // node in native memory and fire them all at once on resume
-  get live() { return this.ready && this.ctx.state === 'running'; }
+  get live() { return this.ready && (this.offline || this.ctx.state === 'running'); } // offline (export): 'suspended' between frames, by design
   tone(freq, dur, { type = 'sine', vol = 0.2, out = 'sfx', attack = 0.01, when = 0, detune = 0, pan = 0, verb = false, glide = null } = {}) {
     if (!this.live) return; const c = this.ctx, t = c.currentTime + when; const o = c.createOscillator(); o.type = type; o.frequency.setValueAtTime(freq, t); if (glide) o.frequency.exponentialRampToValueAtTime(glide, t + dur); o.detune.value = detune;
     const g = c.createGain(); this.env(g, t, attack, vol, dur); const p = c.createStereoPanner(); p.pan.value = pan; o.connect(g); g.connect(p); p.connect(this.bus[out]); if (verb) p.connect(this.verb); o.start(t); o.stop(t + attack + dur + 0.05);
