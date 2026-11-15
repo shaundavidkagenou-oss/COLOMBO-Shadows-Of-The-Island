@@ -166,6 +166,20 @@ R is context-separated. Weapons are always holstered in a vehicle, and the radio
 
 **NPC reactions:** pedestrians react non-graphically. They stumble, go down, cower or flee. Witnesses report to the police, which raises heat stars. There is no gore or injury detail.
 
+## Export the cinematic trailer as an MP4
+Double-click **`export-trailer-mp4.bat`** (Windows 10/11, [Node.js 18+](https://nodejs.org), Google Chrome or Microsoft Edge installed, internet the first time). It builds the game, then renders the OFFICIAL CINEMATIC TRAILER **offline, frame by frame**, and writes `COLOMBO-Official-Cinematic-Trailer-1080p60.mp4` in the project folder (Explorer opens on it when done).
+
+- **Smooth whatever the PC's speed:** the game clock is stepped exactly 1/60 s per frame and every frame is captured, so there are no dropped or doubled frames even when a frame takes seconds to render. A full export takes much longer than 146 s (roughly 20–60 minutes on a GTX 1660 Super class PC, longer on weaker ones).
+- **Sound in sync:** the trailer's music, dialogue and effects are rendered by an offline audio context that is advanced in step with the picture, then muxed as 320 kbit/s AAC.
+- **Default output:** 1920×1080, 60 fps, H.264 (x264 `slow`, CRF 16), using the game's Ultra preset. The length is exactly 146 s.
+- **Options** (add after the script name, or run `node tools/trailer-export/export.mjs …` directly): `--width 2560 --height 1440`, `--fps 30`, `--crf 12` (lower = higher quality, bigger file), `--lossless`, `--quality high`, `--out my.mp4`, `--nobuild` (reuse the last build), `--show` (watch the browser render).
+- ffmpeg comes from the `@ffmpeg-installer/ffmpeg` npm package (no separate download). Set `CHROME_PATH` to use a specific browser, or `FFMPEG_PATH` for your own ffmpeg.
+- Exports run the real game in a hidden browser window with the trailer's own cameras. They do not touch your save games or settings.
+
+## Credits
+- **Motion capture:** the idle, talk, argue, point, shrug and stand-up layers on the characters are retargeted from the CMU Graphics Lab Motion Capture Database (BVH conversion by Bruce Hahne). *The data used in this project was obtained from mocap.cs.cmu.edu. The database was created with funding from NSF EIA-0196217.*
+- **Vehicle models:** Sketchfab and ztark-tint-visualizer models under CC BY 4.0 (logos removed), as listed in `public/assets/vehicles/CREDITS.md`.
+
 ## Technical notes
 
 | Area | Files |

@@ -78,7 +78,8 @@ process.on('SIGINT', async () => { console.log('\nCancelled.'); await cleanup();
 try {
   const page = await browser.newPage(); const errors = [];
   const note = (t) => { errors.push(t); process.stdout.write('\n  [page] ' + t + '\n'); }; // shown as it happens, so a stall can be traced
-  page.on('pageerror', (e) => note(String(e.message || e).split('\n')[0]));
+  let fatal = null; // an uncaught error while the trailer starts: it would never become ready, so stop and say why
+  page.on('pageerror', (e) => { const st = String(e.stack || e.message || e).split('\n').slice(0, 4).join(' | '); note(st); if (!fatal) fatal = st; });
   page.on('console', (m) => { const t = m.text(); if (m.type() === 'error' && !/favicon|404/.test(t)) note(t.slice(0, 300)); else if (m.type() === 'warning' && !/GPU stall|WebGL|swiftshader/i.test(t)) process.stdout.write('\n  [page warning] ' + t.slice(0, 200) + '\n'); });
   // the game's own quality preset at full resolution for this browser profile (a fresh one: no saved game is touched)
   await page.evaluateOnNewDocument((q) => { try { localStorage.setItem('colombo.settings.v1', JSON.stringify({ quality: q, resolutionScale: 1, showFps: false, subtitles: true })); } catch { /* storage */ } }, QUALITY);
@@ -88,7 +89,8 @@ try {
   const t0 = Date.now(); let lastP = '';
   for (;;) {
     const s = await page.evaluate(() => ({ ready: !!window.__export, p: window.__progress ? `${Math.round(window.__progress[0] * 100)}%  ${window.__progress[1] || ''}` : '' })).catch(() => ({ ready: false, p: '' }));
-    if (s.ready) break; if (errors.length > 20) throw new Error('the game failed to load: ' + errors.slice(0, 3).join(' | '));
+    if (s.ready) break; if (fatal && /Ready/.test(lastP)) { await new Promise((r) => setTimeout(r, 8000)); if (!(await page.evaluate(() => !!window.__export).catch(() => false))) throw new Error('the trailer failed to start: ' + fatal); }
+    if (errors.length > 20) throw new Error('the game failed to load: ' + errors.slice(0, 3).join(' | '));
     if (s.p !== lastP) { lastP = s.p; process.stdout.write(`\r  loading ${s.p.slice(0, 70).padEnd(70)}`); }
     if (Date.now() - t0 > 3600e3) throw new Error('the game did not finish loading within an hour'); await new Promise((r) => setTimeout(r, 500));
   }
