@@ -128,7 +128,7 @@ export function buildPlan() {
     x: flat([[0, PAD[0]], [4.6, PAD[0]], [6.0, PAD[0] + 2], [8.0, 20], [10, 62], [13, 140], [18, 270], [22, 375]]),
     z: flat([[0, PAD[2]], [4.6, PAD[2]], [6.0, PAD[2] - 4], [8.0, -222], [10, -236], [13, -241], [22, -241]]),
     y: flat([[0, PAD[1]], [4.2, PAD[1]], [5.4, PAD[1] + 4], [6.6, PAD[1] + 11], [8.4, 38], [11, 46], [22, 48]]),
-    yaw: flat([[0, -Math.PI / 2], [4.8, -Math.PI / 2], [6.0, -Math.PI * 0.05], [7.2, Math.PI * 0.42], [8.4, Math.PI / 2], [22, Math.PI / 2]]),
+    yaw: flat([[0, -Math.PI / 2], [4.3, -Math.PI / 2], [5.7, -Math.PI * 1.1], [7.2, -Math.PI * 1.2], [8.4, -Math.PI * 1.42], [10, -Math.PI * 1.5], [22, -Math.PI * 1.5]]), /* the pirouette turns the short way round (through south) into the direction it then flies, east */
     light: flat([[0, 0], [7.4, 0], [8.4, 1]]), target: 'crew',
   };
 
@@ -143,7 +143,7 @@ export function buildPlan() {
   const pedsGF = { dineth: pedRig({ who: 'dineth', segs: [{ t1: 99, seat: 'crew' }] }) };
   // the helicopter low over the green, the searchlight on the crew; it holds 34 m west of the road and slightly behind
   const heliGF = { rpm: () => 1, x: (t) => -432 + Math.sin(t * 0.35) * 3, z: (t) => HG.at(gS(t)).z - 26 + Math.sin(t * 0.5) * 4, y: (t) => 30 + Math.sin(t * 0.4) * 1.5,
-    yaw: () => Math.PI * 0.97, pitch: () => 0.12, roll: () => -0.05, light: () => 1, target: 'crew' };
+    yaw: () => 0.04, pitch: () => 0.12, roll: () => -0.05, light: () => 1, target: 'crew' }; /* nose south, the way it flies (it used to point north: tail first) */
 
   // ======== FINALE: the crew at Galle Face, night; the helicopter passing the Lotus Tower ========
   const pedsGT = {
@@ -272,7 +272,11 @@ export function posesAt(scene, t) {
   return P;
 }
 export function heliPose(H, t) {
-  const at = (f) => (typeof f === 'function' ? f(t) : f.at(t)); const x = at(H.x), z = at(H.z), y = at(H.y), yaw = at(H.yaw);
+  const at = (f) => (typeof f === 'function' ? f(t) : f.at(t)); const x = at(H.x), z = at(H.z), y = at(H.y); let yaw = at(H.yaw);
+  // a helicopter in forward flight points its nose where it is going: above ~4 m/s the scripted heading hands over to the
+  // direction of travel (velocity averaged over ±0.4 s), so no track can fly it sideways or tail first; hovering keeps the script
+  { const d = 0.4; const vx = (at2(H.x, t + d) - at2(H.x, t - d)) / (2 * d), vz = (at2(H.z, t + d) - at2(H.z, t - d)) / (2 * d), vh = Math.hypot(vx, vz);
+    const k = clamp((vh - 4) / 8, 0, 1); if (k > 0) { const vy = Math.atan2(vx, vz); const dA = Math.atan2(Math.sin(vy - yaw), Math.cos(vy - yaw)); yaw += dA * k * k * (3 - 2 * k); } }
   // attitude from the path itself: nose down into acceleration, bank into the turn (a real helicopter tilts its thrust)
   let pitch = H.pitch ? H.pitch(t) : 0, roll = H.roll ? H.roll(t) : 0;
   if (!H.pitch) { // accelerations averaged over ±0.7 s (a pilot flies smoothly), scaled to a police helicopter's gentle attitudes

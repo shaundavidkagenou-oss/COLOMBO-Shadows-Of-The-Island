@@ -1082,7 +1082,7 @@ export const HEROES = {
   // the three playable protagonists (high-detail build + 70-bone rig)
   dineth: { seed: 11, hero: true, mh: 'dineth', kit: 'openShirt', sex: 'm', age: 'adult', skin: '#8a5636', build: 0.98, height: 1.74, outfit: 'jacket', top: '#7b2d26', inner: '#ece7dc', bottom: '#28303d', shoes: '#e4e1da', sole: '#cfcac0', longSleeve: false, hair: 'quiff', hairColor: '#0f0b08', collar: true, sandals: false },
   shashika: { seed: 12, hero: true, mh: 'shashika', kit: 'tactical', sex: 'm', age: 'adult', skin: '#6b4228', build: 1.18, height: 1.8, outfit: 'shirt', top: '#4b5240', bottom: '#5b5745', shoes: '#1f1b17', boots: true, longSleeve: true, vest: '#2b2e27', strap: '#1b1c19', tacGloves: '#1c1c1a', hair: 'crew', hairColor: '#0c0a08', beard: true, beardShort: true, collar: true, sandals: false },
-  david: { seed: 13, hero: true, mh: 'david', kit: 'waistcoat', sex: 'm', age: 'adult', skin: '#94613f', build: 0.95, height: 1.78, outfit: 'shirt', top: '#cfdae6', stripe: '#6f8bb3', heroTie: '#5a1b28', vestBack: '#4b4146', bottom: '#2d2f33', shoes: '#3b1c12' /* oxblood oxfords */, longSleeve: true, waist: '#3a3d44', hair: 'sidepart', hairColor: '#120d0a', glasses: true, moustache: true, collar: true, sandals: false },
+  david: { seed: 13, hero: true, mh: 'david', kit: 'waistcoat', sex: 'm', age: 'adult', skin: '#94613f', build: 0.95, height: 1.78, outfit: 'shirt', top: '#cfdae6', stripe: '#6f8bb3', heroTie: '#5a1b28', vestBack: '#4b4146', bottom: '#2d2f33', shoes: '#3b1c12' /* oxblood oxfords */, longSleeve: true, waist: '#3a3d44', hair: 'sidepart', hairColor: '#0a0706', hairSheen: 0.4 /* 49th: jet black, not silver */, glasses: true, moustache: false /* 49th: clean-shaven */, collar: true, sandals: false },
   ruwan: { seed: 2, sex: 'm', age: 'adult', skin: '#7a4a2e', build: 1.1, height: 1.71, outfit: 'shirt', top: '#6d3b2c', bottom: '#3a3f4a', shoes: '#151515', hair: 'short', hairColor: '#0d0a08', moustache: true, collar: true, sandals: false },
   fathima: { seed: 3, sex: 'f', age: 'adult', skin: '#a8734f', build: 1.05, height: 1.58, outfit: 'salwar', top: '#1b6b6b', skirt: 'knee', skirtCol: '#1b6b6b', bottom: '#f2efe6', pattern: 2, hair: 'bun', hairColor: '#1c140e', longSleeve: true, sandals: true },
   selvaraj: { seed: 4, sex: 'm', age: 'elder', skin: '#5e3a24', build: 1.08, height: 1.68, outfit: 'shirt', top: '#f2f2ee', bottom: '#4a4036', hair: 'grey', hairColor: '#b8b6b0', moustache: true, glasses: true, collar: true, sandals: true },
@@ -1324,6 +1324,7 @@ const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vect
 const BODY_POSES = new Set(['kneel', 'kneelCuffed', 'prone', 'tackled', 'collapse', 'tackle', 'cuffKneel', 'medKneel', 'medLift', 'swim', 'dive', 'pullup', 'vault']);
 const wrapPi = (a) => a - Math.round(a / (2 * Math.PI)) * 2 * Math.PI;
 const seg01 = (t, a, b) => Math.min(1, Math.max(0, (t - a) / (b - a)));
+const PROTRACT_AXIS = 1; // +y on the right clavicle brings the right shoulder forward (dev-measured: +0.3 rad → +4.5 cm)
 export function solveArmIK(b, S, target, q, w = 1, poleDir = null) { // poleDir: preferred elbow direction (parent space), default down and out
   const arm = b['arm' + S], fore = b['fore' + S], hand = b['hand' + S], chest = b.chest, par = arm.parent;
   chest.updateWorldMatrix(true, false); par.updateWorldMatrix(false, false);
@@ -1683,9 +1684,14 @@ export class Animator {
         b.spine.rotation.x -= K.x * 0.4 * k; b.chest.rotation.x -= K.x * 0.6 * k; b.chest.rotation.y -= K.y * k; b.neck.rotation.x += K.x * 0.55 * k; b.head.rotation.x += K.x * 0.2 * k; b.neck.rotation.y += K.y * 0.6 * k;
         if (Math.abs(K.x) + Math.abs(K.y) < 2e-4 && Math.abs(K.v) + Math.abs(K.yv) < 2e-3) K.x = K.v = K.y = K.yv = 0; }
     }
+    { // firing shoulder pushed forward into the stock (shouldered long guns, 49th): the clavicle protracts, so the shoulder pocket
+      // meets the butt instead of the stock sinking into the chest / vest; shR is otherwise never animated (rest = identity)
+      const k = this.aim ? this.aim.w ?? 1 : 0, pr = this.aim && this.aim.protractR ? this.aim.protractR * k : 0, pl = this.aim && this.aim.protractL ? this.aim.protractL * k : 0;
+      if (b.shR && (pr || b.shR.rotation.y)) b.shR.rotation.set(0, PROTRACT_AXIS * pr, 0);
+      if (b.shL && (pl || b.shL.rotation.y)) b.shL.rotation.set(0, -PROTRACT_AXIS * pl, 0); } // support shoulder reaches forward to the forend the same way
     const seated = (this.seated && this.seatW > 0) || !!this.board; // boarding (getting in / out, Boarding.js) counts as seated: no gestures, fight or body poses layered on it
     if (!seated && !this.ik) for (const [S, x, y, z, w, pole] of actIK) solveArmIK(b, S, _ikv.set(x, y, z), null, w, pole);
-    if (this.ik && !seated) { if (this.ik.R) solveArmIK(b, 'R', this.ik.R, this.ik.qR, this.ik.wR ?? 1); if (this.ik.L) solveArmIK(b, 'L', this.ik.L, this.ik.qL, this.ik.wL ?? 1); }
+    if (this.ik && !seated) { if (this.ik.R) solveArmIK(b, 'R', this.ik.R, this.ik.qR, this.ik.wR ?? 1, this.ik.poleR || null); /* poleR: shouldered long guns lift the firing elbow out to the side, clear of the stock (49th) */ if (this.ik.L) solveArmIK(b, 'L', this.ik.L, this.ik.qL, this.ik.wL ?? 1); }
     if (this.reach && !seated) applyReach(this, b); else this._rLean = undefined; // one hand onto a world point with a solved grasp (opening a car door by its handle)
     if (this.fight) applyFight(this, dt, solveArmIK, seated);
     if (!seated) { if (this.fadeAct && this.fadeW > 0 && BODY_POSES.has(this.fadeAct)) this.bodyPose(this.fadeAct, smooth01(this.fadeW), this.fadeT); if (A_ && aw > 0 && BODY_POSES.has(A_)) this.bodyPose(A_, aw, at); }

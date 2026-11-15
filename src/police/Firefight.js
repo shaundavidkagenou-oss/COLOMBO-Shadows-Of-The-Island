@@ -18,6 +18,7 @@
 // torches nearest the camera; every other lit torch still shows its bright lens. Beams are clipped at walls.
 import { bloomHotAt } from '../gfx/BloomHot.js';
 import * as THREE from 'three';
+import { pocketFor, protractFor, protractLFor, elbowPole } from '../combat/Pocket.js';
 import { nightLight } from '../gfx/LightSets.js';
 import { buildT56 } from '../combat/WeaponModels.js';
 import { POLICE_T56 } from '../combat/WeaponDefs.js';
@@ -30,7 +31,7 @@ const sm = (x) => { const t = clamp(x, 0, 1); return t * t * (3 - 2 * t); };
 const seg = (t, a, b) => clamp((t - a) / (b - a), 0, 1);
 const qE = (x, y, z) => new THREE.Quaternion().setFromEuler(new THREE.Euler(x, y, z));
 const Q_GRIP = qE(-0.8, 0, 0), Q_SUP = qE(0.1, 0, -Math.PI / 2);
-const POCKET = new THREE.Vector3(-0.11, 0.1, 0.07); // right-shoulder pocket, body space (same as the player's rifles)
+const _pk = new THREE.Vector3(); // right-shoulder pocket, body space (same as the player's rifles; per body, see Pocket.js)
 export const ARMED_FROM = 4; // stars at which officers draw and use their rifles
 export const OCCLUDER_K = 0.86; // vehicle body height used for sight / cover (roof line is lower than the mirrors/racks)
 const HEAD_STAND = 1.6, HEAD_CROUCH = 0.98;
@@ -262,8 +263,8 @@ export class Firefight {
     if (!m.visible || rp.draw <= 0.001) { if (A.ik && A.ik.rifle) { A.ik = null; A.aim = null; } m.matrix.copy(rp.slingM); m.matrixWorldNeedsUpdate = true; ud.mag.visible = true; ud.mag.position.set(0, 0, 0); return; }
     // weapon pose in body space: low ready ↔ shouldered aim (pitched to the target), recoil, reload choreography
     const aw = sm(rp.aim); const tp = this.targetPoint(); const ey = (o.y || 0) + 1.45; const pitch = aiming && o.sees ? clamp(Math.atan2(tp.y - ey, Math.max(0.5, Math.hypot(tp.x - o.x, tp.z - o.z))), -0.9, 0.9) : -0.1;
-    A.aim = { pitch: pitch * aw - 0.05 * (1 - aw), twist: 0.5, w: Math.max(aw, 0.65) * sm(rp.draw), headDown: 0.12 * aw };
-    const lowQ = qE(0.6, 0.06, 0.18); const butt = new THREE.Vector3(POCKET.x - 0.02, POCKET.y - 0.03, POCKET.z); const low = butt.sub(new THREE.Vector3(0, 0, ud.buttZ).applyQuaternion(lowQ));
+    A.aim = { pitch: pitch * aw - 0.05 * (1 - aw), twist: 0.5, w: Math.max(aw, 0.65) * sm(rp.draw), headDown: 0.12 * aw, protractR: protractFor(o.ch) * aw, protractL: protractLFor(o.ch) * aw };
+    const POCKET = pocketFor(o.ch, m, _pk); const lowQ = qE(0.6, 0.06, 0.18); const butt = new THREE.Vector3(POCKET.x - 0.02, POCKET.y - 0.03, POCKET.z); const low = butt.sub(new THREE.Vector3(0, 0, ud.buttZ).applyQuaternion(lowQ));
     const aimP = new THREE.Vector3(POCKET.x, POCKET.y - ud.support.y, POCKET.z - ud.buttZ);
     const pos = low.clone().lerp(aimP, aw); let rx = lerp(0.6, 0, aw), ry = lerp(0.06, 0, aw), rz = lerp(0.18, 0, aw);
     pos.z -= 0.03 * rp.kick; rx -= 0.07 * rp.kick;
@@ -286,7 +287,7 @@ export class Firefight {
     if (!supTo) for (let it = 0; it < 6; it++) { const dd = sup.distanceTo(sh); if (dd <= armMax) break; sup.addScaledVector(fwd, -Math.min(0.06, (dd - armMax) * 1.05)); }
     // drawing: the right hand reaches over the shoulder for the sling, then both hands take the rifle
     const wR = k < 0.35 ? sm(k / 0.35) : 1, wL = sm(seg(k, 0.55, 1));
-    A.ik = { R: grip, qR: wQ.clone().multiply(Q_GRIP), wR, L: wL > 0.01 ? sup : null, qL: wQ.clone().multiply(Q_SUP), wL, rifle: true };
+    A.ik = { R: grip, qR: wQ.clone().multiply(Q_GRIP), wR, L: wL > 0.01 ? sup : null, qL: wQ.clone().multiply(Q_SUP), wL, rifle: true, poleR: elbowPole(aw * k, rp.pole || (rp.pole = new THREE.Vector3())) };
   }
 
   // ---------------------------------------------------------------- per-frame global work (torches, timers)

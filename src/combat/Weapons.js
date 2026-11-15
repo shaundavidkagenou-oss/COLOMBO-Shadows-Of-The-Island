@@ -11,6 +11,7 @@ import { Audio } from '../audio/Audio.js';
 import { SoundBank as SB } from '../audio/SoundBank.js';
 import { buildWeaponModel, weaponMaterials } from './WeaponModels.js';
 import { holdFor } from './GripSolver.js';
+import { pocketFor, protractFor, protractLFor, elbowPole } from './Pocket.js';
 import * as L from '../world/Layout.js';
 
 // cls: pistol | rifle | sniper. rof = rounds/second; spread in radians; recoil = camera kick (rad); dmg: 1.5+ incapacitates in one hit
@@ -30,10 +31,11 @@ const Q_GRIP = qE(-0.8, 0, 0), /* firing hand: palm on the grip side, fingers wr
 // hold poses in "body space at the chest" (chest frame with the stance twist removed). Rifles/snipers: the support point is
 // placed at a reachable spot and the rest of the weapon follows, so long and short guns both sit right in the hands.
 // right-shoulder pocket in body space (character faces +z, its right side is −x); tuned with tools in dev (see weapon pose test)
-const POCKET = new THREE.Vector3(-0.11, 0.1, 0.07);
+// (per body since the 49th: a broad chest under a vest moves it forward, see Pocket.js)
+const _pk = new THREE.Vector3();
 // low ready for long guns: pivot muzzle-down about the shoulder pocket (no cross-body yaw → the stock can't swing through the chest)
-function lowReady(ud) { const rot = [0.6, 0.06, 0.18]; const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(rot[0], rot[1], rot[2], 'YXZ')); const butt = new THREE.Vector3(POCKET.x - 0.02, POCKET.y - 0.03, POCKET.z); const back = new THREE.Vector3(0, 0, ud.buttZ).applyQuaternion(q); return { pos: butt.sub(back), rot }; }
-function aimPose(def, ud) {
+function lowReady(ud, POCKET) { const rot = [0.6, 0.06, 0.18]; const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(rot[0], rot[1], rot[2], 'YXZ')); const butt = new THREE.Vector3(POCKET.x - 0.02, POCKET.y - 0.03, POCKET.z); const back = new THREE.Vector3(0, 0, ud.buttZ).applyQuaternion(q); return { pos: butt.sub(back), rot }; }
+function aimPose(def, ud, POCKET) {
   if (def.cls === 'pistol') return { pos: new THREE.Vector3(-0.03, 0.2, 0.44), twist: 0.12 }; // arms extended, sights at eye line
   // long guns: the butt (rearmost point of the model) sits IN FRONT of the right shoulder, never inside the torso
   const sup = ud.support; return { pos: new THREE.Vector3(POCKET.x, POCKET.y - sup.y, POCKET.z - ud.buttZ), twist: 0.5 }; // bladed stance: left shoulder forward
@@ -244,12 +246,12 @@ export class Weapons {
     const P = this.P, A = P.ch.anim, m = this.models[this.cur], ud = m.userData; const k = this.t; const twoHand = def.cls !== 'pistol';
     for (let i = 0; i < 9; i++) if (i !== this.cur) this.models[i].visible = false; // only the weapon in use is on the body
     const pitch = P.camMode === 2 ? clamp(-P.camPitch, -1.0, 1.1) : clamp(-(P.camPitch - 0.12) * 1.15, -1.0, 1.1); // camera pitch → aim pitch (positive = up); first person: exactly the view
-    const ap = aimPose(def, ud); const aw = adsEase(this.aimW); this.dynamics(dt, def);
-    A.aim = { pitch: pitch * aw + (twoHand ? -0.05 : 0) * (1 - aw), twist: (twoHand ? ap.twist : ap.twist * aw), w: Math.max(aw, twoHand ? 0.65 : 0.3), headDown: twoHand ? 0.12 * aw : 0 };
+    const POCKET = pocketFor(P.ch, twoHand ? m : null, _pk); const ap = aimPose(def, ud, POCKET); const aw = adsEase(this.aimW); this.dynamics(dt, def);
+    A.aim = { pitch: pitch * aw + (twoHand ? -0.05 : 0) * (1 - aw), twist: (twoHand ? ap.twist : ap.twist * aw), w: Math.max(aw, twoHand ? 0.65 : 0.3), headDown: twoHand ? 0.12 * aw : 0, protractR: twoHand ? protractFor(P.ch) * aw : 0, protractL: twoHand ? protractLFor(P.ch) * aw : 0 };
     // body space → chest space: undo the stance twist so the weapon points straight ahead of the body
     const twist = A.aim.twist; const toChest = _m2.makeRotationY(twist);
     // ready (low) pose and aim pose
-    const low = def.cls === 'pistol' ? { pos: new THREE.Vector3(-0.1, -0.12, 0.3), rot: [0.75, 0.1, 0] } : lowReady(ud);
+    const low = def.cls === 'pistol' ? { pos: new THREE.Vector3(-0.1, -0.12, 0.3), rot: [0.75, 0.1, 0] } : lowReady(ud, POCKET);
     // ADS on a Bezier path: pistols come up and punch out, long guns lift then settle back into the shoulder. First person
     // carries the weapon at a raised ready (visible) instead of the low ready used over the shoulder.
     const awp = Math.max(aw, P.camMode === 2 && !P.sprinting && this.state !== 'equip' && this.state !== 'holster' ? 0.55 : 0); const u0 = 1 - awp;
@@ -344,7 +346,7 @@ export class Weapons {
     else if (supTarget === 'rack') { const rk = ud.rack.clone().applyMatrix4(chestM); sup = sup.clone().lerp(rk, this._supK * (this.state === 'reload' ? 1 - sm(seg(this._reloadR, 0.92, 1)) : 1)); if (this.state === 'reload' && ud.slide && def.cls !== 'pistol') ud.slide.position.z = -0.05 * Math.sin(seg(this._reloadR, 0.84, 0.94) * Math.PI); }
     if (gripTarget === 'bolt') { const c = this._cycK; const bh = ud.rack.clone(); bh.z += ud.bolt ? ud.bolt.position.z : 0; bh.y += 0.012 * sm(seg(c, 0.25, 0.35)) * (1 - sm(seg(c, 0.68, 0.78))); const bw = bh.applyMatrix4(chestM); grip.lerp(bw, sm(seg(c, 0, 0.22)) * (1 - sm(seg(c, 0.8, 1)))); }
     if (this.drawMode === 'hands' && (this.state === 'equip' || this.state === 'holster')) supW = twoHand ? ikW * sm(seg(ikW, 0.3, 1)) : supW * ikW;
-    A.ik = { R: grip, qR, wR: ikW, L: supW > 0.01 ? sup : null, qL, wL: supW };
+    A.ik = { R: grip, qR, wR: ikW, L: supW > 0.01 ? sup : null, qL, wL: supW, poleR: twoHand ? elbowPole(aw, this._pole || (this._pole = new THREE.Vector3())) : null };
     const rig = P.ch.rig; if (rig) { // fingers: trigger discipline (index along the frame) until aimed, a real pull per shot; support hand shapes per task
       const onTrig = aw > 0.7 && this.state === 'ready'; // finger on the trigger only when aimed; otherwise straight along the frame
       rig.hand('R', gripTarget === 'bolt' ? 'pinch' : this.trigT > 0 ? (H ? H.R.pull : TRIGGER_PULL) : onTrig ? (H ? H.R.trigger : 'trigger') : H ? H.R.ready : 'grip', ikW > 0.5 || !H ? 1 : 0.6);

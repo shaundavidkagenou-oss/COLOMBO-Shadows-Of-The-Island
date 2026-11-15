@@ -140,6 +140,7 @@ export function hairMaterial(kind, opts = {}) {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: kind === 'fur' ? 0.7 : 0.6, metalness: 0, side: kind === 'fur' ? THREE.DoubleSide : THREE.FrontSide });
   if (kind === 'volume') { m.polygonOffset = true; m.polygonOffsetFactor = -1; m.polygonOffsetUnits = -2; }
   const freq = opts.freq || 2400; // strand cross-sections per metre
+  const sheen = opts.sheen ?? 1; // strand highlight strength (49th: David's jet-black hair read silver with the full sheen)
   m.onBeforeCompile = (sh) => {
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 aFlow; attribute vec3 aRoot; attribute float aLayer;\nvarying vec3 vFlowV; varying vec3 vRoot; varying float vLayer; varying vec3 vFlowO;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFlowV = normalize(normalMatrix * aFlow); vRoot = aRoot; vLayer = aLayer; vFlowO = aFlow;');
@@ -153,11 +154,11 @@ export function hairMaterial(kind, opts = {}) {
       float sc = dot(vRoot, side) * ${(freq * 1.4).toFixed(1)} + vn3(pq * 0.3) * 6.0; float fws = fwidth(sc);
       float strand = mix(0.5 + 0.5 * sin(sc), 0.5, clamp(fws * 0.5, 0.0, 1.0));
       diffuseColor.rgb *= 0.78 + 0.34 * strand + ${kind === 'fur' ? 'vLayer * 0.18' : '0.0'};
-      float kkShift = (strand - 0.5) * 0.2; float kkGain = ${kind === 'fur' ? '0.6' : '1.0'} * (0.7 + 0.6 * strand);`);
+      float kkShift = (strand - 0.5) * 0.2; float kkGain = ${kind === 'fur' ? '0.6' : '1.0'} * ${sheen.toFixed(2)} * (0.7 + 0.6 * strand);`);
     fs = fs.replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n' + KK_GLSL);
     sh.fragmentShader = fs;
   };
-  m.customProgramCacheKey = () => 'herohair-' + kind + freq;
+  m.customProgramCacheKey = () => 'herohair-' + kind + freq + '_' + sheen.toFixed(2);
   return m;
 }
 
@@ -433,9 +434,10 @@ function materials(sp, U, style) {
   const brow = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 });
   const beardBase = hairMaterial('volume', { freq: 1500 });
   const fur = hairMaterial('fur', { freq: 1500 });
-  const hair = hairMaterial('volume', { freq: style.freq || 1100 });
-  const hairFur = hairMaterial('fur', { freq: style.freq || 1100 });
-  for (const m of [lash, brow, beardBase, fur, hair, hairFur]) iblScale(m, 0.28, 0.9, 0.6); // dark hair: the sky reflection must not out-shine its colour
+  const sheen = sp.hairSheen ?? 1; const hair = hairMaterial('volume', { freq: style.freq || 1100, sheen });
+  const hairFur = hairMaterial('fur', { freq: style.freq || 1100, sheen });
+  for (const m of [lash, brow, beardBase, fur]) iblScale(m, 0.28, 0.9, 0.6);
+  for (const m of [hair, hairFur]) iblScale(m, 0.28 * sheen, 0.9, 0.6); // dark hair: the sky reflection must not out-shine its colour
   iblScale(skin, 0.6, 1.0, 0.35); iblScale(mouth, 0.5, 1.0, 0.3);
   return { skin, mouth, lash, brow, beardBase, fur, hair, hairFur };
 }

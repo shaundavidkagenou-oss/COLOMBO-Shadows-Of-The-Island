@@ -297,7 +297,7 @@ export class Atmosphere {
     if (!(f.dirty || !lt.shadow.map || (moved && f.gap >= F.minGap) || f.t >= F.maxAge)) return;
     _fc.set(gx, 0, gz); this.fitShadowBox(lt, _fc, L, F.range, F.wallH, F.dist, true); lt.updateMatrixWorld();
     const S = this.scene, hid = f.hidden; hid.length = 0; const hide = (o) => { if (o && o.visible) { o.visible = false; hid.push(o); } };
-    for (const c of S.children) { if (c.isLight || !c.visible) continue; if (c.name && c.name.startsWith('train')) hide(c); else if (c.children && c.children.some((m) => m.isSkinnedMesh)) hide(c); }
+    for (const c of S.children) { if (c.isLight || !c.visible) continue; if (c.name && (c.name.startsWith('train') || c.name === 'policeHeli' /* the police helicopter: a moving aircraft baked into the once-a-second far map left a shadow that lagged behind it in steps */)) hide(c); else if (c.children && c.children.some((m) => m.isSkinnedMesh)) hide(c); }
     for (const v of globalThis.__liveVehicles || []) if (v.mesh && (!v.parked || v.player)) hide(v.mesh);
     try { lt.shadow.needsUpdate = true; this.drawShadowOnly(lt, camera); } catch (e) { console.warn('far shadow', e && e.message, e && e.stack && e.stack.slice(0, 400)); } finally { for (const o of hid) o.visible = true; hid.length = 0; lt.shadow.needsUpdate = false; }
     f.key = key; f.t = 0; f.gap = 0; f.dirty = false; f.renders++;
