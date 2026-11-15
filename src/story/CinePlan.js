@@ -73,8 +73,8 @@ export function buildPlan() {
     david: pedRig({ who: 'david', segs: [
       { t1: 5.3, hidden: true },
       { t1: 9.9, walk: [[55.6, -744.1], [53.0, -745.6]], t0: 5.4, v: 0.75 },
-      { t1: 15.0, walk: [J(0.25, -0.6), J(1.2, -1.2), J(1.12, -1.75)], t0: 10.0, v: 1.0, act: (t) => (t > 11.2 ? 'interact' : null) },
-      { t1: 18.9, walk: [J(1.12, -1.75), J(0.85, -0.85), J(0.15, -0.35), J(0.1, 0.9), [55.6, -744.6]], t0: 15.2, v: 1.9, act: () => 'carry' },
+      { t1: 15.0, walk: [J(0.25, -0.6), J(1.2, -1.2), J(1.12, -1.75), J(1.38, -1.78)], t0: 10.0, v: 1.0, act: (t) => (t > 11.9 ? 'interact' : null) }, /* the last step turns him square to the counter: he reaches across it for the cash, not into the air */
+      { t1: 18.9, walk: [J(1.38, -1.78), J(0.85, -0.85), J(0.15, -0.35), J(0.1, 0.9), [55.6, -744.6]], t0: 15.2, v: 1.9, act: () => 'carry' },
       { t1: 99, hidden: true }] }),
     // passers-by on the street (the store's neighbours): one ducks, one calls it in
     anjali: pedRig({ who: 'anjali', segs: [{ t1: 15.6, walk: [[72, -744.9], [63.5, -744.9]], t0: 11.5, v: 1.3 }, { t1: 99, x: 63.5, z: -744.9, yaw: -Math.PI / 2 + 0.6, act: 'cower' }] }),
@@ -212,14 +212,14 @@ export function buildPlan() {
     S('D', 81.25, 3.75, rigCam('crew', [5, 22, -20], [0, 0, 22], 50, { hand: 0.25 }), { t0: 2.2, name: 'aerial to lotus', blur: 0.4 }),
     // ===== ACT IV — THE CITY STRIKES BACK (85 – 115): Police HQ, the Air Wing, the pursuit
     S('E', 85.0, 2.5, glide({ p: [-25.5, 17.6, -199.8], l: [-9, 18.6, -194] }, { p: [-25.0, 17.5, -200.6], l: [-9, 18.8, -194] }, 40, 38), { t0: 0.2, name: 'heli on the pad', focus: [-9, -200] }),
-    S('E', 87.5, 2.5, follow([30, 0.5, -249.6], null, 'crew', 0.7, 44, 2, 0.3), { t0: 4.2, name: 'past the HQ', focus: [0, -240] }),
+    S('E', 87.5, 2.5, (t, P, u) => { const c = P.crew, h = P.heli, k = sm(u); return { p: [-40, 0.45, -251.6], l: [lerp(c.x, h.x, k), lerp(1.0, h.y + 1, k), lerp(c.z, h.z, k)], fov: lerp(46, 40, k), hand: 0.4 }; }, { t0: 4.2, name: 'past the HQ', focus: [-20, -225] }), /* low on the kerb: the crew car tears past, the camera tilts up to the helicopter leaving the Police HQ roof */
     S('E', 90.0, 1.25, rigCam('pol1', [-1.3, 0.55, 3.4], [0, 1.1, 0], 40, { hand: 0.7 }), { t0: 7.0, name: 'beacons', focus: [70, -243] }),
     S('E', 91.25, 1.25, (t, P) => { const o = P.off1; return { p: [o.x - 1.25, 1.66, o.z + 1.45], l: [P.crew.x, 1.0, P.crew.z], fov: 42, hand: 0.6 }; }, { t0: 6.85, name: 'officers fire', key: ['off1'], focus: [-10, -235] }),
     S('E', 92.5, 5.0, (t, P, u) => ({ p: L3([-27.0, 17.3, -184.8], [-26.0, 17.6, -186.0], sm(u)), l: [P.heli.x, P.heli.y + 1.6, P.heli.z], fov: lerp(48, 40, sm(u)), hand: 0.4 }), { t0: 3.6, rate: (u) => (u < 0.7 ? 0.92 : lerp(0.92, 1, smr(0.7, 1, u))), name: 'liftoff', focus: [-9, -200], blur: 0.35 }),
     S('E', 97.5, 2.5, (t, P, u) => { const h = P.heli; return { p: [h.x - 22 + 6 * u, h.y + 4, h.z - 13], l: [h.x, h.y + 1, h.z], fov: 44, hand: 0.3 }; }, { t0: 9.0, name: 'heli alongside', focus: [100, -240], blur: 0.4 }),
-    S('E', 100.0, 2.5, (t, P, u) => { const h = P.heli, c = P.crew; return { p: [c.x + 9 - 2 * u, 0.6, c.z + 6.6], l: [h.x, h.y, h.z], fov: 50, hand: 0.4 }; }, { t0: 12.2, name: 'searchlight', focus: [170, -240], blur: 0.4 }),
+    S('E', 100.0, 2.5, (t, P, u) => { const h = P.heli, c = P.crew; return { p: [h.x - 16 + 3 * u, h.y + 6, h.z + 10], l: [lerp(h.x, c.x, 0.55), lerp(h.y, 0.5, 0.55), lerp(h.z, c.z, 0.55)], fov: 50, hand: 0.35 }; }, { t0: 12.2, name: 'searchlight', /* behind the helicopter: its beam reaches down the road to the crew car */ focus: [170, -240], blur: 0.4 }),
     S('GF', 102.5, 2.5, rigCam('crew', [-2.9, 0.62, 5.6], [0, 0.65, -2], 40, { hand: 0.7 }), { t0: 1.0, name: 'pursuit front', blur: 0.6 }),
-    S('GF', 105.0, 1.25, rigCam('pol1', [2.6, 0.7, 0.8], [0, 0.7, 4], 44, { hand: 0.8 }), { t0: 4.0, name: 'police alongside', blur: 0.6 }),
+    S('GF', 105.0, 1.25, rigCam('pol1', [2.4, 0.75, 3.2], [-0.2, 0.8, 0.2], 44, { hand: 0.8 }), { t0: 4.0, name: 'police alongside', blur: 0.6 }),
     S('GF', 106.25, 1.25, (t, P) => { const c = P.crew; return { p: [-406.6, 0.55, c.z + 30], l: [P.heli.x, P.heli.y + 1, P.heli.z], fov: 54, hand: 0.4 }; }, { t0: 5.3, name: 'heli overhead', focus: [-405, -560] }),
     S('GF', 107.5, 7.5, (t, P, u) => { const c = P.crew, h = P.heli; return { p: [-470 + 10 * u, 58 - 10 * sm(u), c.z - 70 + 20 * sm(u)], l: [lerp(c.x, h.x, 0.35), 4, c.z + 10], fov: 46, hand: 0.25 }; }, { t0: 6.6, rate: (u) => (u < 0.25 ? 1 : u < 0.4 ? lerp(1, 0.45, smr(0.25, 0.4, u)) : 0.45), name: 'galle face wide', blur: 0.35 }),
     // ===== ACT V — FINALE (115 – 136): eight shots
@@ -230,7 +230,7 @@ export function buildPlan() {
     S('GT', 125.0, 2.5, glide({ p: [-507.6, 1.62, -475.0], l: [-505.0, 1.62, -474.0] }, { p: [-507.4, 1.62, -474.7], l: [-505.0, 1.63, -474.0] }, 32, 30), { name: 'dineth', key: ['dineth'], focus: [-500, -474], dof: { on: 'dineth', k: 10 } }),
     S('N1', 127.5, 2.5, (t, P, u) => ({ p: [P.heli.x + 12 - 8 * u, 50 + 5 * u, P.heli.z - 40], l: [lerp(P.heli.x, 305, 0.22), lerp(P.heli.y, 215, 0.3), lerp(P.heli.z, -480, 0.22)], fov: 46, hand: 0.25 }), { t0: 4.5, name: 'heli and lotus', focus: [300, -560] }) /* a drone just below and behind the helicopter: the aircraft large in the foreground, the lit bud behind it */,
     S('N2', 130.0, 2.5, glide({ p: [480, 140, -380], l: [-300, 30, -500] }, { p: [462, 136, -392], l: [-300, 30, -505] }, 55, 53), { t0: 3, name: 'living city', blur: 0.25 }),
-    S('GT', 132.5, 3.5, (t, P, u) => { const k = ease3(u); return { p: [lerp(-511, -516.5, k), lerp(1.2, 3.6, k), lerp(-472.5, -476.8, k)], l: [lerp(-505, -420, k), lerp(1.7, 12.5, k), lerp(-474, -478, k)], fov: 48, hand: 0.15 }; }, { t0: 3, name: 'best shot', focus: [-490, -476], blur: 0.3 }) /* low on Dineth, then up and back over his shoulder to the night skyline and the Lotus Tower */,
+    S('GT', 132.5, 3.5, (t, P, u) => { const k = ease3(u); return { p: [lerp(-510.6, -513.6, k), lerp(1.1, 2.7, k), lerp(-472.4, -476.0, k)], l: [lerp(-505, -420, k), lerp(1.7, 12.5, k), lerp(-474, -478, k)], fov: 48, hand: 0.15 }; }, { t0: 3, name: 'best shot', focus: [-490, -476], blur: 0.3 }) /* low on Dineth, then up and back over his shoulder to the night skyline and the Lotus Tower */,
     // ===== ACT VI — REVEAL (136 – 146): black, the title, the studio, the sound logo (no picture: the last shot holds under black)
   ];
   // the vehicle-tracking shots stream the city around the car
