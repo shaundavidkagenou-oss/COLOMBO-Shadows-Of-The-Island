@@ -95,8 +95,8 @@ export function buildHeliModel({ reg = '4R-SLP', crew = true } = {}) {
   { const ib = mb.get('vinterior'); const PANEL = C('#1a1c1f'), SEAT = C('#2c3036'), CUSH = C('#3a3f47'), STICK = C('#141414'), MFD = C('#0c1a24'), BEZ = C('#2b2e33');
     ib.box(0, 0.99, 1.72, 1.86, 0.06, 5.2, { col: C('#26282b') }); /* cabin floor (top 1.02) */
     ib.box(0, 1.12, 4.3, 0.36, 0.26, 0.9, { col: C('#1d1f22') }); /* centre console between the seats */ ib.box(0, 1.27, 4.42, 0.3, 0.04, 0.6, { col: BEZ }); /* radio / nav heads on it */
-    ib.box(0, 1.62, 4.55, 1.62, 0.42, 0.12, { col: PANEL }); ib.box(0, 1.85, 4.62, 1.66, 0.04, 0.32, { col: C('#0d0e0f') }); /* instrument panel + glare shield */
-    for (const sx of [-1, 1]) for (const k of [0, 1]) { const x = sx * (0.22 + k * 0.36); ib.box(x, 1.64, 4.485, 0.28, 0.24, 0.012, { col: BEZ }); ib.box(x, 1.645, 4.478, 0.24, 0.19, 0.006, { col: MFD }); } /* four flight / map displays */
+    ib.box(0, 1.6, 4.55, 1.36, 0.4, 0.12, { col: PANEL }); ib.box(0, 1.81, 4.6, 1.3, 0.035, 0.2, { col: C('#0d0e0f') }); /* instrument panel + glare shield (inside the canopy at its sides) */
+    for (const sx of [-1, 1]) for (const k of [0, 1]) { const x = sx * (0.18 + k * 0.3); ib.box(x, 1.62, 4.485, 0.25, 0.22, 0.012, { col: BEZ }); ib.box(x, 1.625, 4.478, 0.21, 0.17, 0.006, { col: MFD }); } /* four flight / map displays */
     ib.box(0, 2.56, 3.2, 0.52, 0.05, 0.62, { col: C('#202226') }); /* overhead switch console */
     for (const sx of [-1, 1]) { const x = sx * 0.43; // crew seats (crash-attenuating frames), cushion top at 1.38; pedals; cyclic between the knees; collective on the left
       ib.box(x, 1.34, 3.62, 0.5, 0.08, 0.5, { col: CUSH }); ib.box(x, 1.2, 3.62, 0.44, 0.2, 0.42, { col: SEAT }); ib.box(x, 1.76, 3.33, 0.5, 0.78, 0.09, { col: CUSH }); ib.box(x, 2.24, 3.34, 0.26, 0.2, 0.08, { col: CUSH }); /* headrest */

@@ -287,7 +287,12 @@ export function buildHeroHead(sp, bi) {
   { const bset = new Set(DATA.boundary); const ec = new Map(); const ek = (a, b) => (a < b ? a * 65536 + b : b * 65536 + a);
     for (let t = 0; t < skinIdx.length; t += 3) for (let j = 0; j < 3; j++) { const a = skinIdx[t + j], b = skinIdx[t + (j + 1) % 3]; const e = ek(a, b); const r = ec.get(e); if (r) r.n++; else ec.set(e, { n: 1, a, b }); }
     const yC = (F.cutY - F.o[1]) / F.k; const drop = new Map(); const sk = [];
-    const dv = (i) => { if (!drop.has(i)) { const p = pv(i), n = nv(i); const hn = nrm([n[0], 0, n[2]]); drop.set(i, A.add([p[0], yC, p[2]], hn, A.uv.slice(i * 2, i * 2 + 2), A.c.slice(i * 3, i * 3 + 3), i, { uv2: [S.uv[i * 2], S.uv[i * 2 + 1]] })); } return drop.get(i); };
+    // the dropped copy takes its texture / colour from the skin just INSIDE the rim (two rings in), not from the rim vertex: the
+    // bake's island edge is a pale padding texel, and stretched down the skirt it showed as a pale streaky band above the collar
+    const nb1 = new Map(); for (let t = 0; t < skinIdx.length; t += 3) for (let j = 0; j < 3; j++) { const a = skinIdx[t + j], b = skinIdx[t + (j + 1) % 3]; if (!nb1.has(a)) nb1.set(a, new Set()); if (!nb1.has(b)) nb1.set(b, new Set()); nb1.get(a).add(b); nb1.get(b).add(a); }
+    const inner = (i) => { const r1 = [...(nb1.get(i) || [])].filter((v) => !bset.has(v)); const r2 = new Set(); for (const v of r1) for (const w of nb1.get(v) || []) if (!bset.has(w) && w !== i) r2.add(w); const ids = r2.size ? [...r2] : r1.length ? r1 : [i];
+      const uv2 = [0, 0], c = [0, 0, 0]; for (const v of ids) { uv2[0] += S.uv[v * 2] / ids.length; uv2[1] += S.uv[v * 2 + 1] / ids.length; for (let k = 0; k < 3; k++) c[k] += A.c[v * 3 + k] / ids.length; } return { uv2, c }; };
+    const dv = (i) => { if (!drop.has(i)) { const p = pv(i), n = nv(i); const hn = nrm([n[0], n[1] * 0.5, n[2]]); /* close to the rim's own normal (flat horizontal normals lit the skirt as a paler band) */ const q = inner(i); drop.set(i, A.add([p[0], yC, p[2]], hn, A.uv.slice(i * 2, i * 2 + 2), q.c, i, { uv2: q.uv2 })); } return drop.get(i); };
     /* the baked boundary list misses a small notch behind each ear (it left a see-through slot in the side of the neck): the rim is
        every open skin edge connected to the baked boundary */
     const rim = new Set(bset); const openE = [...ec.values()].filter((e) => e.n === 1); for (let grow = true; grow;) { grow = false; for (const e of openE) if (rim.has(e.a) !== rim.has(e.b)) { rim.add(e.a); rim.add(e.b); grow = true; } }

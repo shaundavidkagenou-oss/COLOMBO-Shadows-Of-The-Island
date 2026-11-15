@@ -77,8 +77,9 @@ const cleanup = async () => { try { await browser.close(); } catch { /* closed *
 process.on('SIGINT', async () => { console.log('\nCancelled.'); await cleanup(); process.exit(130); });
 try {
   const page = await browser.newPage(); const errors = [];
-  page.on('pageerror', (e) => errors.push(String(e.message || e).split('\n')[0]));
-  page.on('console', (m) => { if (m.type() === 'error' && !/favicon|404/.test(m.text())) errors.push(m.text().slice(0, 300)); });
+  const note = (t) => { errors.push(t); process.stdout.write('\n  [page] ' + t + '\n'); }; // shown as it happens, so a stall can be traced
+  page.on('pageerror', (e) => note(String(e.message || e).split('\n')[0]));
+  page.on('console', (m) => { const t = m.text(); if (m.type() === 'error' && !/favicon|404/.test(t)) note(t.slice(0, 300)); else if (m.type() === 'warning' && !/GPU stall|WebGL|swiftshader/i.test(t)) process.stdout.write('\n  [page warning] ' + t.slice(0, 200) + '\n'); });
   // the game's own quality preset at full resolution for this browser profile (a fresh one: no saved game is touched)
   await page.evaluateOnNewDocument((q) => { try { localStorage.setItem('colombo.settings.v1', JSON.stringify({ quality: q, resolutionScale: 1, showFps: false, subtitles: true })); } catch { /* storage */ } }, QUALITY);
   console.log(`COLOMBO: Shadows of the Island  -  OFFICIAL CINEMATIC TRAILER  ->  MP4\n  ${W}x${H} @ ${FPS} fps, "${QUALITY}" graphics, H.264 CRF ${CRF} (${PRESET}), ${LOSSLESS ? 'PNG' : 'JPEG q97'} frames\n  browser: ${BROWSER}\n  output:  ${OUT}\n`);

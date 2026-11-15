@@ -93,8 +93,8 @@ export async function enterGameLoading(root, stages, { minMs = 6200, title = 'CO
   // real work, with an eased display value so the bar never jumps backwards
   let shown = 0, target = 0; const bar = setInterval(() => { shown += (target - shown) * 0.18; fill.style.width = `${(shown * 100).toFixed(1)}%`; pct.textContent = `${Math.round(shown * 100)}%`; }, 33);
   const n = stages.length; await wait(900);
-  for (let i = 0; i < n; i++) { const st = stages[i]; lab.textContent = st.label; target = i / n; await new Promise((r) => requestAnimationFrame(r)); try { await st.run((p) => { target = (i + Math.min(1, Math.max(0, p))) / n; }); } catch (e) { console.warn('loading stage', st.label, e); } target = (i + 1) / n; }
-  lab.textContent = 'Ready'; target = 1;
+  for (let i = 0; i < n; i++) { const st = stages[i]; lab.textContent = st.label; target = i / n; await new Promise((r) => requestAnimationFrame(r)); globalThis.__progress = [i / n, st.label]; try { await st.run((p) => { target = (i + Math.min(1, Math.max(0, p))) / n; globalThis.__progress = [target, st.label]; /* read by tools/trailer-export while it waits */ }); } catch (e) { console.warn('loading stage', st.label, e); } target = (i + 1) / n; }
+  lab.textContent = 'Ready'; target = 1; globalThis.__progress = [1, 'Ready'];
   const remain = Math.max(minMs, 5200) - (performance.now() - t0); if (remain > 0) await wait(remain);
   await wait(300); lightning(true); if (onFlash) onFlash(); s.classList.add('done'); await wait(650); // white-out strike, title punches through the lens
   s.classList.add('out'); await wait(800);

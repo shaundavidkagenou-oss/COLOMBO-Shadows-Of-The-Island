@@ -111,6 +111,7 @@ export class CineTrailer extends TrailerRuntime {
     const g = this.g; g.noRender = true; this.t0 = 0; this.score.start?.(0);
     if (this.ctl) this.ctl.root.style.display = 'none'; if (this.ov.hint) this.ov.hint.style.display = 'none'; document.body.style.cursor = 'none';
     const c = Audio.offline ? Audio.ctx : null; let aT = 0, render = null, wav = null;
+    if (c) Audio.offlineLive = true;
     window.__export = {
       len: this.LEN, audio: !!c, sampleRate: c ? c.sampleRate : 0,
       step: async (i, fps) => {

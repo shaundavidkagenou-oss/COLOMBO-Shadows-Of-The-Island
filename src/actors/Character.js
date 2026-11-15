@@ -672,7 +672,28 @@ export function buildBodyGeometry(sp) {
       const pl = top.map((v) => Math.min(1, v * 1.12)); for (const sx of [-1, 1]) vstrip(0, 1.05 * s, 1.425 * s, 0.014, pl, 1, (y) => sx * rxAt(y) * 0.39); // plackets
       for (let k = 0; k < 5; k++) { const y = (1.1 + k * 0.068) * s; const x = rxAt(y) * 0.39; sb.boxPart([x, y, surfZ(y, x, 1) + 0.004], 0.008, 0.008, 0.004, tw(y), C('#e6dfd0')); } // buttons
       hstrip(1.3 * s, 0.05 * w, 0.118 * w, 0.05, dark(top, 0.9)); // chest pocket
-      sb.loft([MH ? (() => { const r = encloseNeck({ rx: 0.112 * w, rz: 0.094 * w, cz: -0.004 }, 0.018, Math.max(1.428 * s, NK.cutY + 0.01)); return { c: [0, 1.428 * s, r.cz], rx: r.rx, rz: r.rz, w: W1('chest'), col: dark(top, 0.92) }; })() : { c: [0, 1.428 * s, -0.004], rx: 0.112 * w, rz: 0.094 * w, w: W1('chest'), col: dark(top, 0.92) }, MH ? { ...neckRing(NK.cutY + 0.044, 0.013), w: W2('chest', 'neck', 0.4), col: dark(top, 0.92) } : { c: [0, 1.462 * s, -0.008], rx: 0.074, rz: 0.07, w: W2('chest', 'neck', 0.3), col: dark(top, 0.92) }], 32, { colFn: (ri, a, r) => (Math.sin(a) > 0.86 ? C(sp.inner || '#e8e4da') : r.col) }); // camp collar, open at the throat
+      { // camp collar (50th request: it was a closed cone up the neck whose front was painted as the tee — a flat white slab under
+        // the chin): a STAND round the back and sides of the neck and a FALL folded down over it onto the shoulders, both open at the
+        // throat, the ends running down into the collar points where the fronts fall open, so the tee's crew neck shows between them
+        const base = MH ? (() => { const r = encloseNeck({ rx: 0.112 * w, rz: 0.094 * w, cz: -0.004 }, 0.018, Math.max(1.428 * s, NK.cutY + 0.01)); return { y: 1.428 * s, rx: r.rx, rz: r.rz, cz: r.cz }; })() : { y: 1.428 * s, rx: 0.112 * w, rz: 0.094 * w, cz: -0.004 };
+        const st = MH ? (() => { const r = neckRing(NK.cutY + 0.03, 0.011); return { y: r.c[1], rx: r.rx, rz: r.rz, cz: r.c[2] }; })() : { y: 1.455 * s, rx: 0.074, rz: 0.07, cz: -0.008 };
+        const OPEN = 0.6, NC = 36, cc = dark(top, 0.92), ci = dark(top, 0.62);
+        const ring = (R, y, ca, sa, ext = 0) => [ca * (R.rx + ext), y, R.cz + sa * (R.rz + ext)];
+        const build = (rows, wts) => { const P = [], N = [], Wr = [];
+          rows.forEach((fn, ri) => { const row = [], nr = [], wr = [];
+            for (let k = 0; k <= NC; k++) { const t = k / NC, a = Math.PI / 2 + OPEN + t * (2 * Math.PI - 2 * OPEN), ca = Math.cos(a), sa = Math.sin(a); const pt = smooth01(1 - Math.min(t, 1 - t) / 0.16); // 1 at the collar points
+              row.push(fn(ca, sa, pt)); nr.push([ca, 0.15 * ri, sa]); wr.push(wts[ri]); }
+            P.push(row); N.push(nr); Wr.push(wr); });
+          sb.grid(P, N, Wr, cc, ci); };
+        const lerpY = (a, b, k) => a + (b - a) * k;
+        // stand: from the shirt's shoulder line up round the neck (at the points it stays low: the fronts turn back there)
+        const up = (sa) => 0.022 * smooth01((-sa - 0.15) / 0.65); // the stand climbs the back of the neck (as a real collar does)
+        const stR = (ca, sa, yy, ext) => { const r = MH ? neckRing(yy, 0.011) : null; return r ? [ca * (r.rx + ext), yy, r.c[2] + sa * (r.rz + ext)] : ring(st, yy, ca, sa, ext); };
+        build([(ca, sa) => ring(base, base.y, ca, sa), (ca, sa, pt) => ring(base, lerpY(base.y, st.y + up(sa), 0.5 - 0.35 * pt), ca, sa, -0.012 * (1 - pt)), (ca, sa, pt) => stR(ca, sa, lerpY(st.y + up(sa), base.y + 0.012, pt), 0.012 * pt)],
+          [W1('chest'), W2('chest', 'neck', 0.2), W2('chest', 'neck', 0.4)]);
+        // fall: folded over the top of the stand and lying down over it; the outer edge flares out to the points
+        build([(ca, sa, pt) => stR(ca, sa, lerpY(st.y + up(sa) + 0.002, base.y + 0.014, pt), 0.003 + 0.012 * pt), (ca, sa, pt) => stR(ca, sa, lerpY(st.y + up(sa) - 0.034, base.y - 0.012, pt), 0.017 + 0.03 * pt)],
+          [W2('chest', 'neck', 0.4), W2('chest', 'neck', 0.15)]); }
       // untucked shirt tail: one continuous double-sided tube wrapped round the sides and back (front left open between
       // the plackets), hugging the hips with a slight flare. Front edges ride the flap bones, the back the hem bone, the
       // sides stay on the hips, so it swings a little without ever leaving the body as a separate board.
