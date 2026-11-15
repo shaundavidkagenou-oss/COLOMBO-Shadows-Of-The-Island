@@ -8,6 +8,7 @@
 // snare roll and riser into the cut to black. Act VI — the impact, the title chord and the studio's sound logo.
 // It reuses the original trailer's synth voices (TrailerScore) and adds a sub bass, tabla, choir and bell.
 import { TrailerScore } from './TrailerScore.js';
+import { Audio } from '../audio/Audio.js';
 
 const N = (semi) => 73.416 * Math.pow(2, semi / 12); // semitones above D2
 // C minor: roots relative to D2
@@ -54,11 +55,37 @@ export class CineScore extends TrailerScore {
     { const oldHall = this.hall; setTimeout(() => { try { oldHall.disconnect(); } catch { /* gone */ } }, 80); } // the old reverb (and its tail) is cut off too
     this.out = c.createGain(); this.out.gain.value = 1; this.out.connect(this.lvl);
     const hall = c.createConvolver(); hall.buffer = this.hall.buffer; this.hall = hall; this.hallOut = c.createGain(); this.hallOut.gain.value = 0.42; hall.connect(this.hallOut); this.hallOut.connect(this.lvl);
+    if (this.vout) { const old = this.vout; old.gain.cancelScheduledValues(now); old.gain.setValueAtTime(old.gain.value, now); old.gain.linearRampToValueAtTime(0, now + 0.05); setTimeout(() => { try { old.disconnect(); } catch { /* gone */ } }, 200); this.vout = c.createGain(); this.vout.gain.value = 1; this.vout.connect(Audio.bus.dlg); }
+    this.lvl.gain.cancelScheduledValues(now); this.lvl.gain.setValueAtTime(this.level || 1, now);
     this.t0 = t0; this.stopLoops();
   }
+  // ------------------------------------------------------------------ dialogue (49th): the recorded lines on the dialogue bus
+  // list: [{ e (edit s), file, dur }], bufs: { file: AudioBuffer }, sighs: [edit s]. The score ducks under every line.
+  setVoices(list, bufs, sighs = []) {
+    if (!this.ok) return; this.voices = list.map((v) => ({ ...v, buf: bufs[v.file] || null, done: false })); this.sighs = sighs.map((e) => ({ e, dur: 1.5, done: false, sigh: true }));
+    this.vout = this.c.createGain(); this.vout.gain.value = 1; this.vout.connect(Audio.bus.dlg);
+  }
+  playVoices(e) {
+    if (!this.vout) return; const c = this.c, now = c.currentTime + 0.005;
+    for (const v of [...this.voices, ...this.sighs]) {
+      if (v.done || e < v.e - 0.35 || e >= v.e + v.dur - 0.05) continue; v.done = true;
+      const when = this.t0 + v.e, off = Math.max(0, now - when), start = Math.max(now, when);
+      if (v.sigh) { this.sigh(start); continue; }
+      if (!v.buf || off >= v.buf.duration - 0.05) continue;
+      const src = c.createBufferSource(); src.buffer = v.buf; const g = c.createGain(); g.gain.value = 1.15; src.connect(g); g.connect(this.vout); src.start(start, off);
+      const L = this.lvl.gain, lv = this.level || 1; L.setTargetAtTime(lv * 0.5, Math.max(now, start - 0.08), 0.06); L.setTargetAtTime(lv, start + (v.buf.duration - off), 0.3); // duck the score under the line
+    }
+  }
+  sigh(t) { // a tired breath in, then a long sigh out: filtered noise (no sample)
+    const c = this.c; const gi = c.createGain(), fi = this.filt('bandpass', 1700, 0.8); this.env(gi, t, 0.18, 0.035, 0.1, 0.12); this.nz(t, t + 0.45).connect(fi); fi.connect(gi); gi.connect(this.vout);
+    const go = c.createGain(), fo = this.filt('bandpass', 1050, 0.9); fo.frequency.setValueAtTime(1050, t + 0.42); fo.frequency.exponentialRampToValueAtTime(480, t + 1.4); this.env(go, t + 0.42, 0.08, 0.075, 0.25, 0.65); this.nz(t + 0.42, t + 1.5).connect(fo); fo.connect(go); go.connect(this.vout);
+  }
+  seek(e) { super.seek(e); for (const v of [...(this.voices || []), ...(this.sighs || [])]) v.done = e >= v.e + v.dur - 0.05; }
   // section level: the score sits under the city in Act I, then full
   update(e) {
-    if (!this.ok || this.hold) return; // hold: the runtime is re-simulating up to a seek point const k = e < 3.6 ? 1.3 : e < 25 ? 1.6 : 1; if (k !== this.level) { this.level = k; this.lvl.gain.setTargetAtTime(k, this.c.currentTime, 0.05); }
+    if (!this.ok || this.hold) return; // hold: the runtime is re-simulating up to a seek point
+    const k = e < 3.6 ? 1.3 : e < 25 ? 1.6 : 1; if (k !== this.level) { this.level = k; this.lvl.gain.setTargetAtTime(k, this.c.currentTime, 0.05); }
+    this.playVoices(e);
     const E = this.ev; while (this.i < E.length && E[this.i].t < e + 0.35) { const ev = E[this.i++]; if (ev.t < e - 0.15) continue; try { ev.fn(Math.max(this.c.currentTime + 0.005, this.t0 + ev.t)); } catch (err) { console.warn('trailer score', err); } }
   }
   // ------------------------------------------------------------------ the cue sheet (edit seconds)
@@ -105,7 +132,7 @@ export class CineScore extends TrailerScore {
     at(55, (w) => { this.braam(w, CM, 3.2, 0.15); this.boom(w, 0.4, 3); this.sub(w, CM, 2.2, 0.18, CM + 12); });
     const dark = [CM, CM, AB, AB, FM, FM, GM, GM, CM, CM, AB, BB];
     for (let b = 22; b < 34; b++) {
-      const t0 = bar(b), r = dark[b - 22], inside = b >= 25 && b < 28, launch = b >= 29;
+      const t0 = bar(b), r = dark[b - 22], inside = b >= 25 && b < 29, launch = b >= 29;
       if (!inside) { at(t0, (w) => this.kick(w, 0.5)); at(t0 + 2 * B, (w) => { this.snare(w, 0.2); this.taiko(w, 0.32, 1.1); }); if (launch) for (const o of [1.5, 2.5, 3.25]) at(t0 + o * B, (w) => this.kick(w, 0.36)); }
       else { at(t0, (w) => this.heart(w, 0.3)); at(t0 + 2 * B, (w) => this.heart(w, 0.24)); }
       for (let k = 0; k < 16; k++) if (!inside || k % 4 === 2) at(t0 + k * (B / 4), (w) => this.tick(w, k % 4 === 0 ? 0.03 : 0.014));
@@ -113,41 +140,48 @@ export class CineScore extends TrailerScore {
       if (b % 2 === 0 && !inside) at(t0, (w) => this.braam(w, r, 2.2, 0.11));
       at(t0, (w) => this.pad(w, [r - 12, r - 5, r + (MINOR.has(r) ? 3 : 4)], BAR + 0.4, 0.028, { att: 0.25, lp: 700 }));
     }
-    at(bar(25) - 0.1, (w) => this.strings(w, [CM, CM + 1, GM], 7.6, 0.03)); // the robbery: tremolo strings, a semitone rub
-    at(bar(25), (w) => this.bell(w, GM, 0.035, 2.5)); // the shop door
-    at(70.0, (w) => this.braam(w, AB, 2.4, 0.12));
+    at(61.2, (w) => this.bell(w, GM, 0.035, 2.5)); // the shop door (Shashika pushes it open)
+    at(bar(25) + 0.9, (w) => this.strings(w, [CM, CM + 1, GM], 9.2, 0.026)); // after the three shots: tremolo strings, a semitone rub, under the dialogue
+    at(70.0, (w) => this.braam(w, AB, 2.4, 0.07)); // the case
     at(72.5, (w) => { this.boom(w, 0.4, 2.5); this.stab(w, triad(CM), 0.05, 0.4); });
     at(81.25, (w) => this.choir(w, [CM, GM, CM + 12], 3.6, 0.03, 1.2)); at(82.5, (w) => this.riser(w, 2.5, 0.08)); at(83.4, (w) => this.revCym(w, 1.6, 0.13));
     // ===== ACT IV (85 – 115): the city strikes back
     at(85, (w) => { this.hit(w, 0.22); this.sub(w, CM, 2.4, 0.2, CM + 12); });
-    for (let b = 34; b < 37; b++) { const t0 = bar(b); for (const o of [0, 0.75, 1.5, 2, 2.75, 3.5]) at(t0 + o * B, (w) => this.taiko(w, o === 0 || o === 2 ? 0.5 : 0.3, o === 0 ? 0.8 : 1.05)); for (let k = 0; k < 8; k++) at(t0 + k * (B / 2), (w) => this.dist(w, [CM, CM, AB][b - 34], 0.25, 0.045)); at(t0 + B, (w) => this.snare(w, 0.18)); at(t0 + 3 * B, (w) => this.snare(w, 0.2)); }
-    for (const t of [90.0, 91.25]) at(t, (w) => this.stab(w, triad(GM), 0.05, 0.35));
-    // the lift-off (92.5 – 97.5): the band drops out under the rotor; a held chord, a heartbeat, the choir rising
-    at(92.5, (w) => { this.boom(w, 0.3, 3); this.pad(w, [CM - 12, CM - 5, CM], 5.2, 0.04, { att: 0.6, lp: 520 }); this.choir(w, [CM, EB, GM], 5.2, 0.026, 2.2); });
-    for (const t of [93.1, 94.35, 95.6]) at(t, (w) => this.heart(w, 0.3));
-    at(95.0, (w) => this.riser(w, 2.5, 0.07)); at(96.0, (w) => this.revCym(w, 1.5, 0.14));
-    // the drop (97.5): the full beat + choir + strings
-    at(97.5, (w) => { this.hit(w, 0.24); this.stab(w, triad(CM), 0.06, 0.6); this.sub(w, CM, 2.4, 0.2, CM + 7); });
-    const big = [CM, AB, EB, BB];
-    for (let b = 39; b < 43; b++) { const t0 = bar(b), r = big[(b - 39) % 4]; for (const o of [0, 1.5, 2]) at(t0 + o * B, (w) => this.kick(w, 0.52)); for (const o of [1, 3]) at(t0 + o * B, (w) => { this.snare(w, 0.2); this.taiko(w, 0.28, 1.2); }); for (let k = 0; k < 8; k++) at(t0 + k * (B / 2), (w) => this.hat(w, 0.022)); at(t0, (w) => this.sub(w, r, 1.2, 0.17)); at(t0 + 2.5 * B, (w) => this.sub(w, r + 7, 0.5, 0.12)); at(t0, (w) => this.strings(w, triad(r).map((s) => s + 12), BAR, 0.024)); if (b > 39) at(t0, (w) => this.stab(w, triad(r), 0.045, 0.4)); }
-    // rapid cuts 105 – 107.5: a taiko roll
-    { let t = 105; let step = 0.2; while (t < 107.4) { const v = 0.25 + ((t - 105) / 2.5) * 0.3; at(t, (w) => this.taiko(w, v, 1.15)); t += step; step = Math.max(0.07, step * 0.9); } }
-    // the slow-motion wide (107.5 – 115): half time, soaring strings, the theme on the choir
-    at(107.5, (w) => { this.hit(w, 0.2); this.choir(w, [CM, EB, GM, CM + 12], 7.4, 0.034, 1.4); this.strings(w, [CM + 12, EB + 12, GM + 12], 7.4, 0.032); });
-    for (let b = 43; b < 46; b++) { const t0 = bar(b), r = [CM, AB, BB][b - 43]; at(t0, (w) => { this.kick(w, 0.4); this.sub(w, r, 2.2, 0.15); this.pad(w, triad(r).map((s) => s - 12), BAR + 0.4, 0.035, { att: 0.4, lp: 900 }); }); at(t0 + 2 * B, (w) => { this.snare(w, 0.16); this.taiko(w, 0.35, 0.9); }); }
+    for (let b = 34; b < 37; b++) { const t0 = bar(b), half = b === 36; /* 90 – 91.25 only: the band stops dead for the OIC's office */ for (const o of [0, 0.75, 1.5, 2, 2.75, 3.5]) if (!half || o < 2) at(t0 + o * B, (w) => this.taiko(w, o === 0 || o === 2 ? 0.5 : 0.3, o === 0 ? 0.8 : 1.05)); for (let k = 0; k < (half ? 4 : 8); k++) at(t0 + k * (B / 2), (w) => this.dist(w, [CM, CM, AB][b - 34], 0.25, 0.045)); at(t0 + B, (w) => this.snare(w, 0.18)); if (!half) at(t0 + 3 * B, (w) => this.snare(w, 0.2)); }
+    at(90.0, (w) => this.stab(w, triad(GM), 0.05, 0.35));
+    // the OIC's office (91.25 – 97.5): no band under the dialogue — a low held drone and a slow heartbeat; a hit on "WHAT?!"
+    at(91.25, (w) => { this.boom(w, 0.22, 2.5); this.pad(w, [CM - 12, CM - 5], 6.2, 0.026, { att: 0.5, lp: 420 }); });
+    for (const t of [92.5, 93.75, 95.0]) at(t, (w) => this.heart(w, 0.2));
+    at(96.2, (w) => { this.hit(w, 0.16); this.stab(w, triad(GM), 0.04, 0.5); this.sub(w, GM, 1.2, 0.14); });
+    // the lift-off (97.5 – 101.25): a held chord under the rotor, a heartbeat, the choir rising into the drop
+    at(97.5, (w) => { this.boom(w, 0.3, 3); this.pad(w, [CM - 12, CM - 5, CM], 4.0, 0.04, { att: 0.5, lp: 520 }); this.choir(w, [CM, EB, GM], 4.0, 0.026, 1.6); });
+    for (const t of [97.9, 99.15, 100.4]) at(t, (w) => this.heart(w, 0.3));
+    at(98.75, (w) => this.riser(w, 2.5, 0.07)); at(99.75, (w) => this.revCym(w, 1.5, 0.14));
+    // the drop (101.25): the full beat + choir + strings (bars counted from the drop)
+    at(101.25, (w) => { this.hit(w, 0.24); this.stab(w, triad(CM), 0.06, 0.6); this.sub(w, CM, 2.4, 0.2, CM + 7); });
+    const big = [CM, AB];
+    for (let i = 0; i < 2; i++) { const t0 = 101.25 + i * BAR, r = big[i]; for (const o of [0, 1.5, 2]) at(t0 + o * B, (w) => this.kick(w, 0.52)); for (const o of [1, 3]) at(t0 + o * B, (w) => { this.snare(w, 0.2); this.taiko(w, 0.28, 1.2); }); for (let k = 0; k < 8; k++) at(t0 + k * (B / 2), (w) => this.hat(w, 0.022)); at(t0, (w) => this.sub(w, r, 1.2, 0.17)); at(t0 + 2.5 * B, (w) => this.sub(w, r + 7, 0.5, 0.12)); at(t0, (w) => this.strings(w, triad(r).map((s) => s + 12), BAR, 0.024)); if (i > 0) at(t0, (w) => this.stab(w, triad(r), 0.045, 0.4)); }
+    // rapid cuts 106.25 – 110: a taiko roll
+    { let t = 106.25; let step = 0.22; while (t < 109.9) { const v = 0.22 + ((t - 106.25) / 3.65) * 0.33; at(t, (w) => this.taiko(w, v, 1.15)); t += step; step = Math.max(0.07, step * 0.93); } }
+    // the slow-motion wide (110 – 115): half time, soaring strings, the theme on the choir
+    at(110, (w) => { this.hit(w, 0.2); this.choir(w, [CM, EB, GM, CM + 12], 5.0, 0.034, 1.2); this.strings(w, [CM + 12, EB + 12, GM + 12], 5.0, 0.032); });
+    for (let b = 44; b < 46; b++) { const t0 = bar(b), r = [CM, BB][b - 44]; at(t0, (w) => { this.kick(w, 0.4); this.sub(w, r, 2.2, 0.15); this.pad(w, triad(r).map((s) => s - 12), BAR + 0.4, 0.035, { att: 0.4, lp: 900 }); }); at(t0 + 2 * B, (w) => { this.snare(w, 0.16); this.taiko(w, 0.35, 0.9); }); }
     at(111.25, (w) => this.flute(w, GM + 12, 1.4, 0.036)); at(112.8, (w) => this.flute(w, AB + 12, 0.5, 0.036)); at(113.3, (w) => this.flute(w, BB + 12, 1.3, 0.036));
     at(112.5, (w) => this.riser(w, 2.5, 0.08)); at(113.6, (w) => this.revCym(w, 1.4, 0.14));
     // ===== ACT V (115 – 136): the finale — eight shots, one bar each, the full theme
     const fin = [CM, AB, EB, BB, CM, AB, FM, GM];
+    const hush = (t) => t >= 123.7 && t < 127.45; // Dineth alone after the chase: the band drops out under his sigh and his line
     for (let b = 46; b < 54; b++) {
       const t0 = bar(b), r = fin[b - 46];
-      at(t0, (w) => { this.kick(w, 0.55); this.sub(w, r, 1.2, 0.18); this.stab(w, triad(r), 0.05, 0.5); this.strings(w, triad(r).map((s) => s + 12), BAR, 0.028); this.choir(w, triad(r), BAR + 0.3, 0.024, 0.15); });
-      for (const o of [1.5, 2]) at(t0 + o * B, (w) => this.kick(w, 0.46)); for (const o of [1, 3]) at(t0 + o * B, (w) => { this.snare(w, 0.22); this.taiko(w, 0.3, 1.1); });
-      for (let k = 0; k < 16; k++) at(t0 + k * (B / 4), (w) => this.hat(w, k % 2 ? 0.012 : 0.024));
-      at(t0 + 2.5 * B, (w) => this.sub(w, r + 7, 0.5, 0.12)); if (b % 2) at(t0 + 3.5 * B, (w) => this.tabla(w, 0.08, false));
+      if (b === 50) { at(t0 - 1.25, (w) => { this.pad(w, triad(r).map((s) => s - 12), 4.0, 0.03, { att: 0.5, lp: 700 }); this.choir(w, triad(r), 4.0, 0.016, 0.8); }); at(t0 + 1.9, (w) => this.riser(w, 0.6, 0.05)); continue; }
+      const at2 = (t, fn) => { if (!hush(t)) at(t, fn); };
+      at2(t0, (w) => { this.kick(w, 0.55); this.sub(w, r, 1.2, 0.18); this.stab(w, triad(r), 0.05, 0.5); this.strings(w, triad(r).map((s) => s + 12), b === 49 ? BAR / 2 : BAR, 0.028); this.choir(w, triad(r), b === 49 ? BAR / 2 + 0.3 : BAR + 0.3, 0.024, 0.15); });
+      for (const o of [1.5, 2]) at2(t0 + o * B, (w) => this.kick(w, 0.46)); for (const o of [1, 3]) at2(t0 + o * B, (w) => { this.snare(w, 0.22); this.taiko(w, 0.3, 1.1); });
+      for (let k = 0; k < 16; k++) at2(t0 + k * (B / 4), (w) => this.hat(w, k % 2 ? 0.012 : 0.024));
+      at2(t0 + 2.5 * B, (w) => this.sub(w, r + 7, 0.5, 0.12)); if (b % 2) at2(t0 + 3.5 * B, (w) => this.tabla(w, 0.08, false));
     }
     const theme = [[115.0, GM + 12, 0.6], [115.65, AB + 12, 0.6], [116.25, GM + 12, 1.2], [117.5, EB + 12, 0.6], [118.15, FM + 12, 0.6], [118.75, GM + 12, 1.2], [120.0, BB + 12, 0.6], [120.65, CM + 24, 0.6], [121.25, BB + 12, 1.2], [122.5, GM + 12, 2.2], [125.0, GM + 12, 0.6], [125.65, AB + 12, 0.6], [126.25, BB + 12, 1.2], [127.5, CM + 24, 0.6], [128.15, BB + 12, 0.6], [128.75, AB + 12, 1.2], [130.0, GM + 12, 0.6], [130.65, FM + 12, 0.6], [131.25, GM + 12, 1.1], [132.5, CM + 24, 3.0]];
-    for (const [t, s, d] of theme) at(t, (w) => this.flute(w, s, d, 0.04));
+    for (const [t, s, d] of theme) if (!hush(t) && !hush(t + d)) at(t, (w) => this.flute(w, s, d, 0.04));
     { let t = 130; let step = 0.3125; while (t < 135.9) { const v = 0.05 + ((t - 130) / 6) * 0.2; at(t, (w) => this.snare(w, v)); t += step; step = Math.max(0.05, step * 0.94); } }
     at(132.5, (w) => this.riser(w, 3.45, 0.1)); at(134.2, (w) => this.revCym(w, 1.75, 0.16));
     // ===== ACT VI (136 – 146): the cut to black, the title, the studio, the sound logo

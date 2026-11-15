@@ -133,13 +133,13 @@ export function pedRig(o) {
     const seg = r.segs.find((q) => t < q.t1) || r.segs[r.segs.length - 1];
     if (seg.seat) return { seat: seg.seat, vis: true, act: null, x: 0, z: 0, yaw: 0, speed: 0 };
     if (seg.hidden) return { vis: false, x: 0, z: 0, yaw: 0, speed: 0 };
-    let x = seg.x, z = seg.z, yaw = seg.yaw ?? 0, speed = 0;
+    let x = seg.x, z = seg.z, yaw = typeof seg.yaw === 'function' ? seg.yaw(t) : seg.yaw ?? 0, speed = 0; // a function yaw turns on the spot (the second trailer)
     if (seg.walk && seg.walk.length > 2) { // a polyline walk (the second trailer: round a counter, out through a doorway) — corners are rounded over 0.35 m
       const W = seg.walk, v = seg.v ?? 1.35; let tot = 0; const cum = [0]; for (let i = 1; i < W.length; i++) cum.push((tot += Math.hypot(W[i][0] - W[i - 1][0], W[i][1] - W[i - 1][1])));
       const d = clamp((t - seg.t0) * v, 0, tot); const at = (dd) => { dd = clamp(dd, 0, tot); let i = 1; while (i < W.length - 1 && cum[i] < dd) i++; const k = (dd - cum[i - 1]) / Math.max(1e-6, cum[i] - cum[i - 1]); return [lerp(W[i - 1][0], W[i][0], k), lerp(W[i - 1][1], W[i][1], k)]; };
-      const R = 0.35, A = at(d - R), B = at(d + R), C = at(d); x = (A[0] + B[0] + 2 * C[0]) / 4; z = (A[1] + B[1] + 2 * C[1]) / 4; const fd = at(Math.min(tot, d + 0.25)), bd = at(Math.max(0, d - 0.25)); yaw = Math.atan2(fd[0] - bd[0], fd[1] - bd[1]); speed = d < tot && t >= seg.t0 ? v : 0;
+      const R = Math.min(0.35, d, tot - d), A = at(d - R), B = at(d + R), C = at(d); /* corner rounding fades out at the ends: the walk stops exactly on its last point */ x = (A[0] + B[0] + 2 * C[0]) / 4; z = (A[1] + B[1] + 2 * C[1]) / 4; const fd = at(Math.min(tot, d + 0.25)), bd = at(Math.max(0, d - 0.25)); yaw = Math.atan2(fd[0] - bd[0], fd[1] - bd[1]); speed = d < tot && t >= seg.t0 ? v : 0;
     } else if (seg.walk) { const [a, b] = seg.walk, v = seg.v ?? 1.35; const len = Math.hypot(b[0] - a[0], b[1] - a[1]); const d = clamp((t - seg.t0) * v, 0, len); const k = d / len; x = lerp(a[0], b[0], k); z = lerp(a[1], b[1], k); yaw = Math.atan2(b[0] - a[0], b[1] - a[1]); speed = d < len && t >= seg.t0 ? v : 0; }
-    return { x, z, yaw, speed, act: typeof seg.act === 'function' ? seg.act(t) : seg.act || null, vis: true, rifle: seg.rifle ? { sling: !!seg.rifle.sling, aim: seg.rifle.aim ? seg.rifle.aim(t) : 0, target: seg.rifle.target || null } : null };
+    return { x, z, yaw, speed, fy: seg.y ?? null /* an upper floor (indoors) instead of the ground */, act: typeof seg.act === 'function' ? seg.act(t) : seg.act || null, vis: true, rifle: seg.rifle ? { sling: !!seg.rifle.sling, aim: seg.rifle.aim ? seg.rifle.aim(t) : 0, target: seg.rifle.target || null } : null };
   };
   return r;
 }

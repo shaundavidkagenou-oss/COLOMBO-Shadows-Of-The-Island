@@ -9,6 +9,8 @@
 //   · a cinematic lens (LensFX.js): depth of field on the subject and a film shutter's camera motion blur;
 //   · playback controls: pause, a scrubbable timeline, full screen, exit — the game is blocked while it plays.
 // Nothing here touches saves, settings or the story; when it ends (or Exit), the page reloads to the entry gate.
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { TrailerRuntime } from './Trailer.js';
 import { buildPlan, shotAt, blackAt, posesAt, editTimeOf, LENGTH, ACTS } from './CinePlan.js';
 import { CineScore } from './CineScore.js';
@@ -18,13 +20,31 @@ import { Audio } from '../audio/Audio.js';
 import * as L from '../world/Layout.js';
 
 const TEST = typeof location !== 'undefined' && new URLSearchParams(location.search).has('test');
-const LOGO = `${import.meta.env ? import.meta.env.BASE_URL : './'}assets/brand/sds-logo.jpg`;
+const BASE = import.meta.env ? import.meta.env.BASE_URL : './';
+const LOGO = `${BASE}assets/brand/sds-logo.jpg`;
+const VOICE = `${BASE}assets/voice/t2/`; // the recorded dialogue (49th)
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
 const sm = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
 const fmt = (s) => { s = Math.max(0, Math.floor(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 // value of a key list [[t, v], …] at t: linear between keys (numbers) or the last key reached (anything else)
 const keyAt = (keys, t) => { if (!keys || !keys.length) return null; if (t <= keys[0][0]) return keys[0][1]; for (let i = 1; i < keys.length; i++) { const [t1, v1] = keys[i]; if (t < t1) { const [t0, v0] = keys[i - 1]; return typeof v0 === 'number' && typeof v1 === 'number' ? lerp(v0, v1, sm((t - t0) / (t1 - t0))) : v0; } } return keys[keys.length - 1][1]; };
+
+// value of a key list of vectors [[t, [x, y, z]], …] at t: eased between keys, held outside
+const vecAt = (keys, t, out) => { if (t <= keys[0][0]) { const v = keys[0][1]; out[0] = v[0]; out[1] = v[1]; out[2] = v[2]; return out; } for (let i = 1; i < keys.length; i++) { const [t1, v1] = keys[i]; if (t < t1) { const [t0, v0] = keys[i - 1]; const k = sm((t - t0) / (t1 - t0)); out[0] = lerp(v0[0], v1[0], k); out[1] = lerp(v0[1], v1[1], k); out[2] = lerp(v0[2], v1[2], k); return out; } } const L2 = keys[keys.length - 1][1]; out[0] = L2[0]; out[1] = L2[1]; out[2] = L2[2]; return out; };
+const ramp = (t, a, b) => sm((t - a) / (b - a));
+const wrapPi = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+// the case the keeper hands over (49th): a hard briefcase — one merged mesh, one material (built behind the loading screen).
+// Origin = the handle, where the palm closes; the body hangs below it; latches on the +z face; long side along local x.
+function makeCase() {
+  const parts = []; const box = (w, h, d, x, y, z, hex) => { const g = new THREE.BoxGeometry(w, h, d); g.translate(x, y, z); const c = new THREE.Color(hex); const n = g.attributes.position.count, col = new Float32Array(n * 3); for (let i = 0; i < n; i++) { col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; } g.setAttribute('color', new THREE.BufferAttribute(col, 3)); parts.push(g); };
+  box(0.42, 0.32, 0.11, 0, -0.195, 0, 0x1b1c1f); // shell (bottom at −0.355: it stands on the floor / counter top when the handle is 0.355 above it)
+  box(0.426, 0.014, 0.116, 0, -0.07, 0, 0x55585e); box(0.426, 0.014, 0.116, 0, -0.33, 0, 0x55585e); // aluminium rims
+  box(0.13, 0.02, 0.024, 0, 0, 0, 0x111214); for (const x of [-0.058, 0.058]) box(0.016, 0.034, 0.02, x, -0.02, 0, 0x2a2b2e); // handle + posts
+  for (const x of [-0.13, 0.13]) for (const z of [0.058]) box(0.034, 0.022, 0.007, x, -0.075, z, 0xc9a54a); // brass latches
+  const geo = mergeGeometries(parts); for (const g of parts) g.dispose();
+  const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.2 })); m.castShadow = true; m.receiveShadow = true; m.name = 'cine-case'; m.frustumCulled = true; return m;
+}
 
 // ---------------------------------------------------------------- entry point (Game.playTrailer(2))
 export async function runCineTrailer(g) {
@@ -44,21 +64,32 @@ export class CineTrailer extends TrailerRuntime {
   cast() {
     if (this._cast) return this._cast; const heroes = new Set(), officers = new Map(), armed = new Set();
     for (const S of Object.values(this.plan.scenes)) for (const [k, r] of Object.entries(S.peds)) {
-      if (r.who === 'officer') officers.set(k, r.seed || 40); else heroes.add(r.who);
+      if (r.who === 'officer') officers.set(k, [r.seed || 40, r.role || null, r.look || null]); else heroes.add(r.who);
       if (r.segs.some((q) => q.rifle)) armed.add(r.who === 'officer' ? k : r.who);
     }
-    this._cast = { heroes: [...heroes], officers: [...officers.entries()], armed: [...armed] }; return this._cast;
+    this._cast = { heroes: [...heroes], officers: [...officers.entries()].map(([k, v]) => [k, ...v]), armed: [...armed] }; return this._cast;
   }
-  makeScore() { const s = new CineScore(); if (s.ok) s.build(); return s; }
+  makeScore() { const s = new CineScore(); if (s.ok) { s.build(); s.setVoices(this.plan.voices || [], this.voiceBufs || {}, this.plan.sighs || []); } return s; }
   // behind the loading screen: the cast and the cars (TrailerRuntime.build), then the walk-in stores and the jewellery
   // store's interior + keeper (built now so the loading screen's shader compile covers them)
   async build(pr = () => {}) {
     await super.build((k) => pr(k * 0.9));
     const I = this.g.interiors; try { I.setupWalkIns(); const s = I.walkIn.siteById('rob_jewel'); if (s) { if (!s.room) I.walkIn.buildRoom(s); this.rob = s; s.room.og.visible = true; s.doorObj.setAngle(0); } } catch (e) { console.warn('cinematic trailer: store', e); }
+    // Police HQ interior (the OIC's office scene): the game's own room model. Its six ceiling lights stay off for the whole
+    // trailer — the office is lit by the walk-in shops' shared light pool, so the scene's light count is always a pre-compiled
+    // set (no shader recompile at the cut); shown now so the shader compile covers it
+    try { const hq = I.hq || (I.hq = I.build('hq')); this.hq = hq; for (const l of hq.lights || []) l.visible = false; hq.g.visible = true; } catch (e) { console.warn('cinematic trailer: HQ', e); this.hq = null; }
+    this.caseMesh = makeCase(); this.g.scene.add(this.caseMesh); this._cg = [0, 0, 0]; this._v1 = new THREE.Vector3(); this._kR = { S: 'R', p: new THREE.Vector3(), w: 0, knee: 0, maxLean: 0.95, pose: 'grip' }; this._dR = { S: 'R', p: new THREE.Vector3(), w: 0, maxLean: 0.35, pose: 'grip' };
+    pr(0.95); await this.loadVoices();
     pr(1);
+  }
+  async loadVoices() {
+    this.voiceBufs = {}; const c = Audio.ctx; if (!c || !this.plan.voices) return;
+    await Promise.all(this.plan.voices.map(async (v) => { try { const r = await fetch(VOICE + v.file + '.mp3'); if (!r.ok) throw new Error(r.status); this.voiceBufs[v.file] = await c.decodeAudioData(await r.arrayBuffer()); } catch (e) { console.warn('cinematic trailer: voice', v.file, e); } }));
   }
   start() {
     const p = super.start();
+    if (this.hq) this.hq.g.visible = false; if (this.caseMesh) this.caseMesh.visible = false;
     try { this.lens = addLens(this.g.post, this.g.camera); } catch (e) { console.warn('cinematic trailer: lens', e); this.lens = null; }
     if (this.rob) { this.rob.room.og.visible = false; }
     this.buildControls();
@@ -111,10 +142,16 @@ export class CineTrailer extends TrailerRuntime {
     if (this.rob && wi) { const on = !!S.rob; this.rob.room.og.visible = on; wi.setActive(on ? this.rob.room : null); if (!on) this.rob.doorObj.setAngle(0); this.keeperAct = undefined; }
     this.stopAlarm(); this.prevHeliY = null; this.vy = 0;
     if (!S.heli) this.parkHeli();
+    if (this.caseMesh) this.caseMesh.visible = !!(S.rob && S.rob.case);
+    // the OIC's office: the HQ room model on, its own staff hidden (the scene's officers are cast), the shared light pool on
+    if (this.hq) { const on = !!S.hq; this.hq.g.visible = on; for (const n of this.hq.npcs) n.ch.root.visible = !on; for (const l of this.hq.lights || []) l.visible = false;
+      if (on && wi) { wi.poolOn = true; const LT = [[-24.0, 7.72, -201.6, 0xfff1dc, 9, 8.5], [-24.2, 7.72, -199.0, 0xfff1dc, 5, 6], [-24.8, 7.72, -196.6, 0xfff4e4, 7, 7.5]];
+        wi.pool.forEach((l, i) => { const d = LT[i]; l.visible = true; if (!d) { l.intensity = 0; l.position.set(-24, -800, -200); return; } l.position.set(d[0], d[1], d[2]); l.color.setHex(d[3]); l.intensity = d[4]; l.distance = d[5]; l.decay = 1.5; }); } }
   }
   sceneHook(P, simT, simDt, e, dt, newShot) {
     const S = this.S;
     if (S.rob && this.rob) this.robbery(S.rob, simT, simDt);
+    if (S.hq && this.hq && this.hq.oic) { const k = keyAt(S.hq.door, simT) || 0; this.hq.oic.k = k; this.hq.oic.hinge.rotation.y = -k * Math.PI * 0.5; } // the OIC's door, flung open
     if (S.heli) this.flyHeli(P, simT, simDt, newShot);
   }
   systemsHook(dt, simDt, shot, P) {
@@ -131,9 +168,36 @@ export class CineTrailer extends TrailerRuntime {
   // ---------------------------------------------------------------- the robbery: door, keeper, alarm
   robbery(R, t, dt) {
     const s = this.rob, room = s.room; const D = s.doorObj; const a = keyAt(R.door, t) || 0; if (Math.abs(a - D.ang) > 1e-4) D.setAngle(a);
-    const kp = room.keeper; if (kp) { const want = keyAt(R.keeper, t); if (want !== this.keeperAct) { this.keeperAct = want; kp.anim.set(want === 'idle' ? null : want); if (want === 'handsup' || want === 'cower') kp.face && kp.face.set && kp.face.set('fear', 30); } kp.anim.update(Math.max(dt, 1e-4), 0, 0); }
+    const kp = room.keeper, C = R.case; if (kp) { const want = keyAt(R.keeper, t); if (want !== this.keeperAct) { this.keeperAct = want; kp.anim.set(want === 'idle' ? null : want); if (want === 'handsup' || want === 'cower' || want === 'flinch') kp.face && kp.face.set && kp.face.set('fear', 30); }
+      if (C) { // the keeper turns for the case, crouches, lifts it over the counter and slides it across (one hand on the handle)
+        const yW = keyAt(C.keeperYaw, t); const yaw0 = kp.root.rotation.y; kp.root.rotation.y = yW - (room.og ? room.og.rotation.y : 0); const yr = dt > 1e-4 ? wrapPi(kp.root.rotation.y - yaw0) / dt : 0;
+        const w = keyAt(C.keeperW, t) || 0; if (w > 0.001) { const K = this._kR; vecAt(C.keeperGrip, t, this._cg); this.robPoint(this._cg, K.p); K.p.y += 0.07; K.w = w; K.knee = keyAt(C.keeperKnee, t) || 0; kp.anim.reach = K; } else kp.anim.reach = null;
+        kp.anim.update(Math.max(dt, 1e-4), 0, clamp(yr, -6, 6)); this.placeCase(C, t, kp);
+      } else kp.anim.update(Math.max(dt, 1e-4), 0, 0); }
     // the alarm bell: from the moment he trips it; inside the store first, then the bell box over the street
     const al = R.alarm ? R.alarm.filter((x) => t >= x[0]).pop() : null; if (al) this.ringAlarm(al[1], al[2]); else this.stopAlarm();
+  }
+  // room frame [lx, h, lz] (h above the store floor) → world
+  robPoint(q, out) { const s = this.rob, w = this.plan.robWorld(q[0], q[2]); return out.set(w[0], s.y0 + q[1], w[1]); }
+  // the case: keyed (floor → counter top → slid across) while nobody holds it; in a hand it rides with the palm (eased in and
+  // out of each grip, so no hand / prop pop); hidden once David is in the car
+  placeCase(C, t, kp) {
+    const M = this.caseMesh; if (!M) return; const D = this.actors.david;
+    const dv = D && D.ch.root.visible && D.ch.root.parent; if (!dv && t > C.davidHold) { M.visible = false; return; } M.visible = true;
+    const key = t < 16.9 ? [[0, C.rest]] : t < C.onCounter[0] ? C.keeperGrip : t < C.onCounter[1] ? C.slide : C.davidGrip;
+    vecAt(key, t, this._cg); const pos = this.robPoint(this._cg, M.position);
+    const palm = (ch, out) => { const h = ch.bones.handR; h.updateWorldMatrix(true, false); out.setFromMatrixPosition(h.matrixWorld); out.y -= 0.075; return out; };
+    const kK = ramp(t, C.keeperHold[0], C.keeperHold[0] + 0.15) * (1 - ramp(t, C.keeperHold[1] - 0.15, C.keeperHold[1])); if (kK > 0) pos.lerp(palm(kp.ch, this._v1), kK);
+    const kD = dv ? ramp(t, C.davidHold, C.davidHold + 0.28) : 0; if (kD > 0) pos.lerp(palm(D.ch, this._v1), kD);
+    const kpYaw = kp.root.rotation.y + (this.rob.room.og ? this.rob.room.og.rotation.y : 0);
+    let yaw = t < C.keeperHold[0] ? -1.5 * Math.PI : t < C.keeperHold[1] ? kpYaw - Math.PI / 2 : -Math.PI;
+    if (kD > 0) { let yd = D.yaw - 1.5 * Math.PI; yd = -Math.PI + wrapPi(yd + Math.PI); yaw = lerp(yaw, yd, kD); }
+    M.rotation.set(0, yaw, 0); M.updateMatrixWorld();
+  }
+  pedHook(key, p, o) { // David's right hand onto the case handle (before his pose is solved this frame)
+    const C = this.S.rob && this.S.rob.case; if (key !== 'david') return; const A = o.ch.anim;
+    if (!C) { if (A.reach === this._dR) A.reach = null; return; }
+    const t = this.simT, w = keyAt(C.davidW, t) || 0; if (w > 0.001) { const K = this._dR; vecAt(C.davidGrip, t, this._cg); this.robPoint(this._cg, K.p); K.p.y += 0.07; K.w = w; A.reach = K; } else if (A.reach === this._dR) A.reach = null;
   }
   ringAlarm(pos, range) {
     const c = Audio.ctx, S = this.score; if (!c || !S.ok) return;

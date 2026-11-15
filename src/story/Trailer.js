@@ -75,7 +75,7 @@ export class TrailerRuntime {
     this.actors = {};
     const cast = this.cast();
     for (const id of cast.heroes) { this.actors[id] = actor(HEROES[id]); pr(0.1 + 0.1 * Object.keys(this.actors).length); await tick(); }
-    for (const [k, seed] of cast.officers) { this.actors[k] = actor(makePoliceAppearance(7700 + seed, 'patrol', { sex: 'm' })); await tick(); }
+    for (const [k, seed, role, look] of cast.officers) { this.actors[k] = actor(makePoliceAppearance(7700 + seed, role || 'patrol', Object.assign({ sex: 'm' }, look || {}))); await tick(); } // role / look: the second trailer's OIC (a senior officer, no cap indoors)
     pr(0.5);
     for (const k of cast.armed) { const o = this.actors[k]; FF.arm.call(null, o); o.ff = { g: { camera: g.camera }, armed: () => !!o._draw, targetPoint: () => o._tp }; o.rifle.userData.flash.visible = true; /* compiled with the scene, hidden again at start */ }
     // vehicles: one per scene rig (scene key + rig id); seated police / bus drivers stay put for the whole trailer
@@ -240,7 +240,7 @@ export class TrailerRuntime {
         if (o.rifle) o.rifle.visible = false; A.update(Math.max(dt, 1e-4), 0); continue;
       }
       if (o.parentV || ch.root.parent !== g.scene) { if (o.parentV && o.parentV.driverChar === ch) o.parentV.driverChar = null; ch.root.parent?.remove(ch.root); A.standUp(); g.scene.add(ch.root); o.parentV = null; o.mode = 'foot'; this.snapPed = true; }
-      const y = g.collision.groundAt(p.x, p.z, 0.4); const yawRate = this.snap || dt < 1e-4 ? 0 : wrap(p.yaw - o.yaw) / dt;
+      const y = p.fy != null ? p.fy : g.collision.groundAt(p.x, p.z, 0.4); const yawRate = this.snap || dt < 1e-4 ? 0 : wrap(p.yaw - o.yaw) / dt;
       o.x = p.x; o.z = p.z; o.y = y; o.yaw = p.yaw; ch.root.position.set(p.x, y, p.z); ch.root.rotation.set(0, p.yaw, 0); ch.yaw = p.yaw;
       if ((p.act || null) !== (A.action || null) && !(p.act == null && A.action === 'talk')) A.set(p.act || null);
       // rifle: hidden / slung / low ready / aimed at the target (the police rifle-handling rig, Firefight.pose)
@@ -254,7 +254,8 @@ export class TrailerRuntime {
         }
       }
       // talking: lips move on the speaker's VO lines
-      if (ch.face) { const vo = this.plan.texts.find((x) => x.kind === 'vo' && e >= x.a && e <= x.b && x.who && x.who.toLowerCase().startsWith(r.who)); ch.face.talking = !!vo; }
+      if (ch.face) { const vo = this.plan.texts.find((x) => x.kind === 'vo' && e >= x.a && e <= x.b && (x.key ? x.key === key : x.who && x.who.toLowerCase().startsWith(r.who))); ch.face.talking = !!vo; } // key: the speaking ped (the second trailer)
+      if (this.pedHook) this.pedHook(key, p, o, t, dt); // per-ped extras before the pose is solved (the second trailer: hands on a prop)
       A.update(Math.max(dt, 1e-4), p.speed, yawRate);
     }
     this.snapPed = false;
@@ -273,7 +274,7 @@ export class TrailerRuntime {
     const g = this.g, o = this.actors[s.who]; if (!o || !o.rifle || !o.rifle.visible || !o.ch.root.visible) return; const W = g.weapons;
     const mz = FF.muzzle.call(null, o, new THREE.Vector3()); const tg = P[s.target]; if (!tg) return;
     const gy = L.groundY(tg.x, tg.z); const aim = new THREE.Vector3(tg.cx ?? tg.x, gy + (tg.cy ?? 0.85), tg.cz ?? tg.z);
-    const spread = s.target === 'hero' ? 1.6 : 0.45; aim.x += (Math.random() - 0.5) * spread; aim.y += (Math.random() - 0.3) * spread * 0.5; aim.z += (Math.random() - 0.5) * spread;
+    const spread = tg.spread ?? (s.target === 'hero' ? 1.6 : 0.45); aim.x += (Math.random() - 0.5) * spread; aim.y += (Math.random() - 0.3) * spread * 0.5; aim.z += (Math.random() - 0.5) * spread; if (tg.cyMax != null) aim.y = Math.min(aim.y, gy + tg.cyMax); // cyMax: rounds into a ceiling stay under it
     const dir = aim.clone().sub(mz).normalize(); const far = aim.clone().addScaledVector(dir, s.target === 'hero' && Math.random() < 0.6 ? 25 : 0); // misses fly on past a moving car
     const ud = o.rifle.userData; if (ud.flash) { bloomHot(); ud.flash.visible = true; ud.flash.rotation.z = Math.random() * 3; ud.flash.scale.setScalar(0.85 + Math.random() * 0.35); o.rp.flashT = 0.05; } o.rp.kick = 1;
     if (W) { W.tracer(mz, far, POLICE_T56); if (far.distanceToSquared(aim) < 0.01) W.sparks(aim, dir); W.flashLight.position.copy(mz); W.flashLight.intensity = 6; W.flashT = 0.05; }
@@ -355,7 +356,7 @@ export class TrailerRuntime {
     const rig = this.g.flashRig; if (!rig) return; const KEY = { dineth: ['dineth'], shashika: ['shashika'], david: ['david'], trio: ['dineth', 0.75], ambush: ['shashika'], 'walk away': ['dineth', 0.7] };
     for (const s of rig.spots) if (s.isKey) { s.intensity = 0; s.isKey = false; }
     const k = shot.key || KEY[shot.name], s = rig.spots[used]; if (!k || !s || night < 0.35) return; const p = P[k[0]]; if (!p || !p.vis || p.seat) return;
-    const cam = this.g.camera.position, gy = this.g.collision.groundAt(p.x, p.z, 0.4); let dx = cam.x - p.x, dz = cam.z - p.z; const d = Math.hypot(dx, dz) || 1; dx /= d; dz /= d;
+    const cam = this.g.camera.position, gy = p.fy != null ? p.fy : this.g.collision.groundAt(p.x, p.z, 0.4); let dx = cam.x - p.x, dz = cam.z - p.z; const d = Math.hypot(dx, dz) || 1; dx /= d; dz /= d;
     s.isKey = true; s.color.setHex(0xffd9b0); s.intensity = 16 * clamp((night - 0.35) / 0.3, 0, 1); s.angle = k[1] || 0.42; s.penumbra = 1; s.distance = 14; s.decay = 1.4;
     s.position.set(p.x + dx * 3.2 - dz * 1.4, gy + 3.4, p.z + dz * 3.2 + dx * 1.4); s.target.position.set(p.x, gy + 1.25, p.z); s.target.updateMatrixWorld();
   }
@@ -384,7 +385,7 @@ export class TrailerRuntime {
       const [gn, pan] = Audio.spatial ? Audio.spatial(v.x, v.z, 30) : [0.5, 0];
       const slipRate = Math.abs(p.slip || 0) > 0.1 && p.speed > 3 ? clamp((Math.abs(p.slip) - 0.1) / 0.35, 0, 1) : 0; const brake = o.acc < -7 && p.speed > 4 ? 0.6 : 0; const burn = p.smokeR || 0;
       const k = Math.max(slipRate, brake, burn) * gn; if (k > scr) { scr = k; scrPan = pan; }
-      if (o.r.type === 'police') { const d = Math.hypot(v.x - cam.x, v.z - cam.z); const pd = this.prevD[id] ?? d; const vr = dt > 1e-4 ? clamp((d - pd) / dt, -60, 60) : 0; this.prevD[id] = d; const dop = clamp(343 / (343 + vr), 0.85, 1.18); this.score.siren(id, !!p.beacons && this.simT > 4.5, gn, pan, dop, t, rate); }
+      if (o.r.type === 'police') { const d = Math.hypot(v.x - cam.x, v.z - cam.z); const pd = this.prevD[id] ?? d; const vr = dt > 1e-4 ? clamp((d - pd) / dt, -60, 60) : 0; this.prevD[id] = d; const dop = clamp(343 / (343 + vr), 0.85, 1.18); this.score.siren(id, !!p.beacons && this.simT > (this.S.sirenFrom ?? 4.5), gn, pan, dop, t, rate); }
     }
     this.score.screech(scr, scrPan, rate);
   }

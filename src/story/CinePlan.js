@@ -44,7 +44,7 @@ export function buildPlan() {
   for (let a = 0; a <= 90; a += 10) { const r = 9.8, q = (a * Math.PI) / 180; arcC.push([-278.2 + r - r * Math.cos(q), 275.2 + r * Math.sin(q)]); }
   const CUP = new Path([[-278.2, 205], [-278.2, 240], [-278.2, 268], [-278.2, 275.2], ...arcC.slice(1), [-262, 285], [-256.5, 285]]);
   const cuS = curve([[0, 0], [2.4, 32], [4.2, 56], [5.6, CUP.length - 7], [7.0, CUP.length - 1.2], [9, CUP.length - 1.2]]);
-  const rigsCU = { car: vehicleRig({ type: 'kaizan', seed: 3, path: CUP, s: (t) => cuS.at(t), driver: 'civ', lights: () => false }) };
+  const rigsCU = { car: vehicleRig({ type: 'kaizan', seed: 3, path: CUP, s: (t) => cuS.at(t), share: 'kz' /* the same car plays the chase behind Dineth (GT) */, driver: 'civ', lights: () => false }) };
 
   // ======== ACT III: the jewellery store (rob_jewel, Fort) ========
   // the real walk-in store: door (53.03, −745.8), facing north into the shop; the room's local frame → world: (53.03 + lx, −747.1 + lz)
@@ -53,35 +53,67 @@ export function buildPlan() {
   const arcJ = []; for (let a = 0; a <= 90; a += 10) { const r = 14.2, q = (a * Math.PI) / 180; arcJ.push([227.3 + r * Math.sin(q), LANE_J + r - r * Math.cos(q)]); }
   const HJ = new Path([[-60, LANE_J], [0, LANE_J], [58, LANE_J], [120, LANE_J], [200, LANE_J], [227.3, LANE_J], ...arcJ.slice(1), [241.5, -700], [241.5, -600]]);
   const STOP = HJ.project(58, LANE_J), TURN0 = HJ.project(227.3, LANE_J), TURN1 = HJ.project(241.5, -728);
-  const jS = curve([[0, STOP - 60], [2.2, STOP - 21], [4.3, STOP - 0.6], [4.6, STOP], [19.5, STOP], [20.6, STOP + 3.5], [22.0, STOP + 18], [24.5, STOP + 66], [27.0, TURN0 - 2], [28.6, TURN1], [30.0, TURN1 + 30], [33.5, TURN1 + 105]]);
+  // the robbery runs RD seconds longer than the 48th cut (ceiling shots, the demand, the case from under the counter): the getaway
+  // keys after the stop are shifted by it
+  const RD = 5.9;
+  const jS = curve([[0, STOP - 60], [2.2, STOP - 21], [4.3, STOP - 0.6], [4.6, STOP], [19.5 + RD, STOP], [20.6 + RD, STOP + 3.5], [22.0 + RD, STOP + 18], [24.5 + RD, STOP + 66], [27.0 + RD, TURN0 - 2], [28.6 + RD, TURN1], [30.0 + RD, TURN1 + 30], [33.5 + RD, TURN1 + 105]]);
   const KEEP = J(2.72, -1.92); // the keeper behind the counter (he faces −x, towards the customers)
   const rigsC = {
     crew: vehicleRig({ type: 'praetor', seed: 4, path: HJ, s: (t) => jS.at(t), share: 'crew', lights: () => true,
-      slip: flat([[27.0, 0], [27.5, 0.1], [28.0, 0.42], [28.5, 0.5], [29.1, 0.3], [29.8, 0.05], [30.2, 0]]),
-      smoke: (t) => (t >= 19.5 && t < 20.4 ? 1 : t >= 20.4 && t < 21.0 ? 1 - (t - 20.4) / 0.6 : 0) }),
+      slip: flat([[27.0 + RD, 0], [27.5 + RD, 0.1], [28.0 + RD, 0.42], [28.5 + RD, 0.5], [29.1 + RD, 0.3], [29.8 + RD, 0.05], [30.2 + RD, 0]]),
+      smoke: (t) => (t >= 19.5 + RD && t < 20.4 + RD ? 1 : t >= 20.4 + RD && t < 21.0 + RD ? 1 - (t - 20.4 - RD) / 0.6 : 0) }),
   };
+  // turning on the spot: yaw eased from a to b (the short way round) between t0 and t1
+  const turn = (t0, t1, a, b) => (t) => { const d = Math.atan2(Math.sin(b - a), Math.cos(b - a)); return a + d * sm((t - t0) / (t1 - t0)); };
+  // the store (room frame = J): the door leaf at lz −0.07 (1.1 m wide), the counter top lx 1.67 … 2.41 at 1.0 m, lz −0.52 … −3.12
+  // Shashika: in first, three rounds into the ceiling, then covers the keeper from beside the door (his line of fire stays clear
+  // of David at the counter), out last. David: in behind him with his line, straight to the counter, takes the case, out.
+  const SH_IN = [[57.2, -744.0], [53.2, -745.0], J(0.1, 0.6), J(0.0, -0.5), J(-0.35, -1.15)];
+  const SH_POST = J(-0.35, -1.15), SH_IN_YAW = Math.atan2(-0.35, -0.65), SH_KEEP_YAW = Math.atan2(KEEP[0] - SH_POST[0], KEEP[1] - SH_POST[1]);
+  const SH_OUT = [SH_POST, J(0.05, -0.4), J(0.1, 0.6), [55.0, -745.0], [57.2, -744.2]], SH_OUT_YAW = Math.atan2(0.4, 0.75);
+  const DV_IN = [[55.6, -744.1], [53.15, -745.0], J(0.1, 0.6), J(0.1, -0.4), J(0.55, -1.5), J(0.9, -2.12), J(1.42, -2.12)];
+  const DV_POST = J(1.42, -2.12), DV_OUT = [DV_POST, J(0.9, -1.55), J(0.3, -0.75), J(0.12, -0.2), J(0.1, 0.6), [55.6, -744.6]], DV_OUT_YAW = Math.atan2(-0.52, 0.57);
   const outside = (x, z) => ({ x, z });
   const pedsC = {
     dineth: pedRig({ who: 'dineth', segs: [{ t1: 99, seat: 'crew' }] }),
     shashika: pedRig({ who: 'shashika', segs: [
       { t1: 4.9, hidden: true },
-      { t1: 9.4, walk: [[57.2, -744.0], [53.1, -745.6]], t0: 5.0, v: 1.25, rifle: { aim: () => 0.35 } },
-      { t1: 9.5, ...outside(...J(0.05, -0.6)), yaw: Math.PI, rifle: { aim: () => 0.4 } },
-      { t1: 15.4, walk: [J(0.0, -1.0), J(-0.35, -2.55)], t0: 9.5, v: 1.4, rifle: { aim: () => 1, target: 'keeperPt' } },
-      { t1: 18.9, walk: [J(-0.35, -2.55), J(-0.05, -0.7), J(0.0, 0.9), [55.0, -745.0], [57.2, -744.2]], t0: 15.5, v: 2.0, rifle: { aim: () => 0.5 } },
+      { t1: 9.75, walk: SH_IN, t0: 5.0, v: 1.56, rifle: { aim: (t) => (t > 9.15 ? 1 : 0.35), target: 'shTgt' } }, // pushes the door open at 8.5 – 9.2
+      { t1: 21.2, ...outside(...SH_POST), yaw: (t) => (t < 20.6 ? turn(10.6, 11.4, SH_IN_YAW, SH_KEEP_YAW)(t) : turn(20.6, 21.2, SH_KEEP_YAW, SH_OUT_YAW)(t)), rifle: { aim: (t) => (t < 20.65 ? 1 : 0.5), target: 'shTgt' } },
+      { t1: 25.05, walk: SH_OUT, t0: 21.2, v: 1.8, rifle: { aim: () => 0.5 } },
       { t1: 99, hidden: true }] }),
     david: pedRig({ who: 'david', segs: [
       { t1: 5.3, hidden: true },
-      { t1: 9.9, walk: [[55.6, -744.1], [53.0, -745.6]], t0: 5.4, v: 0.75 },
-      { t1: 15.0, walk: [J(0.25, -0.6), J(1.2, -1.2), J(1.12, -1.75), J(1.38, -1.78)], t0: 10.0, v: 1.0, act: (t) => (t > 11.9 ? 'interact' : null) }, /* the last step turns him square to the counter: he reaches across it for the cash, not into the air */
-      { t1: 18.9, walk: [J(1.38, -1.78), J(0.85, -0.85), J(0.15, -0.35), J(0.1, 0.9), [55.6, -744.6]], t0: 15.2, v: 1.9, act: () => 'carry' },
+      { t1: 13.4, walk: DV_IN, t0: 5.4, v: 0.94 }, // through the door at 10.5, talking
+      { t1: 20.35, ...outside(...DV_POST), yaw: (t) => turn(19.75, 20.35, Math.PI / 2, DV_OUT_YAW)(t), act: (t) => (t > 13.75 && t < 15.5 ? 'point' : t > 19.65 ? 'suitcase' : null) }, // square to the counter; points at the keeper on the demand
+      { t1: 23.95, walk: DV_OUT, t0: 20.35, v: 1.75, act: () => 'suitcase' },
       { t1: 99, hidden: true }] }),
     // passers-by on the street (the store's neighbours): one ducks, one calls it in
-    anjali: pedRig({ who: 'anjali', segs: [{ t1: 15.6, walk: [[72, -744.9], [63.5, -744.9]], t0: 11.5, v: 1.3 }, { t1: 99, x: 63.5, z: -744.9, yaw: -Math.PI / 2 + 0.6, act: 'cower' }] }),
-    nalin: pedRig({ who: 'nalin', segs: [{ t1: 16.2, x: 68.0, z: -735.0, yaw: Math.PI, act: null }, { t1: 99, x: 68.0, z: -735.0, yaw: Math.PI + 0.35, act: 'phone' }] }),
+    anjali: pedRig({ who: 'anjali', segs: [{ t1: 15.6 + RD, walk: [[72, -744.9], [63.5, -744.9]], t0: 11.5 + RD, v: 1.3 }, { t1: 99, x: 63.5, z: -744.9, yaw: -Math.PI / 2 + 0.6, act: 'cower' }] }),
+    nalin: pedRig({ who: 'nalin', segs: [{ t1: 16.2 + RD, x: 68.0, z: -735.0, yaw: Math.PI, act: null }, { t1: 99, x: 68.0, z: -735.0, yaw: Math.PI + 0.35, act: 'phone' }] }),
   };
-  const sceneC = { rob: { site: 'rob_jewel', door: [[6.8, 0], [7.15, 1.3], [7.9, 1.42], [9.9, 1.4], [10.6, 0], [15.0, 0], [15.4, -1.35], [16.6, -1.4], [17.2, 0]] /* + swings into the shop (pushed from the street), − out onto the pavement */,
-    keeper: [[0, 'idle'], [9.85, 'handsup'], [16.8, 'cower']], alarm: [[9.6, J(0, 0), 32], [17.0, [55, -744], 45]] } };
+  // Shashika's aim point: the ceiling ahead of him for the three shots, then down onto the keeper's chest
+  const CEIL = [...J(-0.9, -3.3), 3.25];
+  const shAim = (t) => { const k = sm((t - 10.6) / 0.75); return { x: lerp(CEIL[0], KEEP[0], k), z: lerp(CEIL[1], KEEP[1], k), cy: lerp(CEIL[2], 1.3, k), cyMax: 3.27, spread: 0.3, vis: true, y: 0 }; };
+  const fireC = [{ who: 'shashika', a: 9.85, b: 10.5, rof: 1 / 0.3, target: 'shTgt' }]; // 9.85, 10.15, 10.45
+  // the case: under the counter (on the floor at the keeper's side) → his hand → the counter top → slid to David → David's hand.
+  // JL: room frame [lx, height above the floor, lz]; `grip` = the handle (where the palm closes). The runtime moves the prop and
+  // puts the hands on it (A.reach: waist bend + knee bend + arm IK); between the keys it follows whichever hand holds it.
+  const CASE = {
+    rest: [2.74, 0.355, -2.42], restRy: 0, // standing on the floor in front of him (he turns to face −z for it)
+    keeperYaw: [[16.15, -Math.PI / 2], [16.6, -Math.PI], [17.45, -Math.PI], [17.95, -Math.PI / 2]],
+    keeperKnee: [[16.25, 0], [16.75, 1], [17.15, 1], [17.65, 0]],
+    keeperW: [[16.3, 0], [16.85, 1], [18.85, 1], [19.15, 0]],
+    keeperGrip: [[16.3, [2.74, 0.9, -2.2]], [16.9, [2.74, 0.355, -2.42]], [17.05, [2.74, 0.355, -2.42]], [17.4, [2.74, 0.62, -2.36]], [17.85, [2.6, 1.3, -2.15]], [18.15, [2.28, 1.46, -1.96]], [18.35, [2.12, 1.355, -1.93]], [18.45, [2.12, 1.355, -1.93]], [18.85, [1.95, 1.355, -1.93]]],
+    keeperHold: [17.05, 18.3], // the case rides in his hand
+    onCounter: [18.35, 19.02], // resting on the counter top (he sets it down at 18.35, slides it across by 18.85)
+    slide: [[18.35, [2.12, 1.355, -1.93]], [18.45, [2.12, 1.355, -1.93]], [18.85, [1.95, 1.355, -1.93]]],
+    davidW: [[18.55, 0], [18.95, 1], [19.6, 1], [19.95, 0]],
+    davidGrip: [[18.55, [1.95, 1.355, -1.93]], [19.02, [1.95, 1.355, -1.93]], [19.3, [1.92, 1.46, -1.97]], [19.65, [1.56, 1.42, -2.02]]],
+    davidHold: 19.02, // from here on it rides in David's right hand (lifted off the counter, then carried out at his side)
+  };
+  const sceneC = { rob: { site: 'rob_jewel', door: [[8.5, 0], [8.95, 1.35], [9.2, 1.42], [10.9, 1.4], [11.6, 0], [21.2, 0], [21.6, -1.35], [22.6, -1.42], [23.2, 0]] /* + swings into the shop (pushed from the street), − out onto the pavement */,
+    keeper: [[0, 'idle'], [9.87, 'flinch'], [10.2, 'cower'], [11.3, 'handsup'], [16.2, 'idle'], [19.0, 'handsup'], [22.6, 'cower']], alarm: [[21.6, [55, -744], 45]], aim: shAim, case: CASE } };
 
   // ======== ACT III night drive: Olcott Mawatha → the Lotus Tower ========
   const arcD = []; for (let a = 0; a <= 90; a += 10) { const r = 8.5, q = (a * Math.PI) / 180; arcD.push([241.5 + r - r * Math.cos(q), -570.75 + r * Math.sin(q)]); }
@@ -137,20 +169,52 @@ export function buildPlan() {
   const gS = (t) => 26 + 31 * t; const gp1 = curve([[0, 0], [2, 52], [14, 52 + 30.6 * 12]]); const gp2 = curve([[0, 0], [2, 40], [14, 40 + 30.2 * 12]]);
   const rigsGF = {
     crew: vehicleRig({ type: 'praetor', seed: 4, path: HG, s: gS, share: 'crew', lights: () => true }),
-    pol1: vehicleRig({ type: 'police', seed: 5, path: HG, s: (t) => gp1.at(t) - 2, lat: flat([[0, 0], [4, 0], [5.5, -3.2], [8, -3.2], [9.5, 0]]), driver: 'officer', lights: () => true, beacons: () => true }),
-    pol2: vehicleRig({ type: 'police', seed: 6, path: HG, s: (t) => gp2.at(t) - 12, lat: flat([[0, -3.2], [14, -3.2]]), driver: 'officer', lights: () => true, beacons: () => true }),
+    pol1: vehicleRig({ type: 'police', seed: 5, path: HG, s: (t) => gp1.at(t) - 2, share: 'gp1' /* also the chase behind Dineth (GT) */, lat: flat([[0, 0], [4, 0], [5.5, -3.2], [8, -3.2], [9.5, 0]]), driver: 'officer', lights: () => true, beacons: () => true }),
+    pol2: vehicleRig({ type: 'police', seed: 6, path: HG, s: (t) => gp2.at(t) - 12, share: 'gp2', lat: flat([[0, -3.2], [14, -3.2]]), driver: 'officer', lights: () => true, beacons: () => true }),
   };
   const pedsGF = { dineth: pedRig({ who: 'dineth', segs: [{ t1: 99, seat: 'crew' }] }) };
   // the helicopter low over the green, the searchlight on the crew; it holds 34 m west of the road and slightly behind
   const heliGF = { rpm: () => 1, x: (t) => -432 + Math.sin(t * 0.35) * 3, z: (t) => HG.at(gS(t)).z - 26 + Math.sin(t * 0.5) * 4, y: (t) => 30 + Math.sin(t * 0.4) * 1.5,
     yaw: () => 0.04, pitch: () => 0.12, roll: () => -0.05, light: () => 1, target: 'crew' }; /* nose south, the way it flies (it used to point north: tail first) */
 
+  // ======== ACT IV: Police HQ, the Officer-in-Charge's office (first floor; HQInterior.js: world x = −11 − u, z = −204.85 + v) ========
+  // an officer sprints up the corridor, bursts through the OIC's door (the one real door in the building) and shouts the news;
+  // the OIC, at his desk, gets up: "WHAT?!"
+  const HQF = 4.67; // first-floor level (HQ ground 1.07 + one 3.6 m storey)
+  const RUN = [[-26.0, -196.55], [-23.6, -196.55], [-23.6, -198.5], [-24.0, -199.3], [-24.0, -199.6]]; // sprint (5.54 m at 3.8 m/s), then two braking steps
+  const pedsO = {
+    runner: pedRig({ who: 'officer', seed: 23, segs: [{ t1: 1.708, walk: RUN, t0: 0.25, v: 3.8, y: HQF }, { t1: 2.3, walk: [[-24.0, -199.6], [-24.0, -200.45]], t0: 1.708, v: 1.6, y: HQF }, { t1: 99, x: -24.0, z: -200.45, yaw: Math.PI, y: HQF, act: (t) => (t < 5.1 ? 'argue' : null) }] }),
+    oic: pedRig({ who: 'officer', seed: 31, role: 'supervisor', look: { cap: null, band: 'mature' }, segs: [{ t1: 99, x: -24.0, z: -203.35, yaw: 0, y: HQF, act: (t) => (t < 4.85 ? 'sit' : t < 5.75 ? 'rise' : null) }] }),
+  };
+  const oicDoor = [[0, 0], [0.62, 0], [0.86, 1], [1.15, 0.9], [1.5, 0.94]]; // flung open by the runner, it bounces off the stop
+
   // ======== FINALE: the crew at Galle Face, night; the helicopter passing the Lotus Tower ========
   const pedsGT = {
-    dineth: pedRig({ who: 'dineth', segs: [{ t1: 99, x: -505.0, z: -474.0, yaw: Math.PI * 1.5 - 0.1, act: null }] }), /* on the open line of sight to the Lotus Tower (no tower block in between) */
-    shashika: pedRig({ who: 'shashika', segs: [{ t1: 99, x: -506.4, z: -449.9, yaw: Math.PI * 1.5 + 0.12, act: 'crossarms' }] }),
-    david: pedRig({ who: 'david', segs: [{ t1: 99, x: -505.8, z: -454.2, yaw: Math.PI * 1.5 - 0.22, act: 'hips' }] }),
+    // on the open line of sight to the Lotus Tower (no tower block in between). The chase tears north up Galle Face Centre Road
+    // behind him: he turns his head after it (act 'track': the runtime aims his head at the police cars), then turns back, sighs
+    // and asks what the hell they are doing
+    dineth: pedRig({ who: 'dineth', segs: [{ t1: 99, x: -505.0, z: -474.0, yaw: (t) => dinethYaw(t), act: (t) => (t > 3.55 && t < 4.4 ? 'sigh' : t > 4.75 && t < 6.0 ? 'shrug' : null) }] }),
+    // the others join him later (the closing shot)
+    shashika: pedRig({ who: 'shashika', segs: [{ t1: 10, hidden: true }, { t1: 99, x: -506.4, z: -449.9, yaw: Math.PI * 1.5 + 0.12, act: 'crossarms' }] }),
+    david: pedRig({ who: 'david', segs: [{ t1: 10, hidden: true }, { t1: 99, x: -505.8, z: -454.2, yaw: Math.PI * 1.5 - 0.22, act: 'hips' }] }),
   };
+  // the chase behind Dineth: a sports car flat out down Galle Face Centre Road (x −398.2, the southbound lane, +z), two patrol
+  // cars 0.45 / 0.85 s behind it (the second one lane over), the Air Wing helicopter low over the green just behind them with
+  // its searchlight on the car. 38 m/s (137 km/h); the car passes Dineth's line (z −474) at t 1.5.
+  const CH = new Path([[-398.2, -900], [-398.2, -150]]); const chZ = (t) => -474 + 38 * (t - 1.5); const chS = (t, lag) => chZ(t - lag) + 900;
+  const chVis = (t) => t < 9;
+  const rigsGT = {
+    chase: vehicleRig({ type: 'kaizan', seed: 3, path: CH, s: (t) => chS(t, 0), share: 'kz', driver: 'civ', lights: () => true, vis: chVis }),
+    gpol1: vehicleRig({ type: 'police', seed: 5, path: CH, s: (t) => chS(t, 0.45), share: 'gp1', driver: 'officer', lights: () => true, beacons: () => true, vis: chVis }),
+    gpol2: vehicleRig({ type: 'police', seed: 6, path: CH, s: (t) => chS(t, 0.85), lat: flat([[0, -3.2], [1, -3.2]]), share: 'gp2', driver: 'officer', lights: () => true, beacons: () => true, vis: chVis }),
+  };
+  const heliGT = { rpm: () => 1, x: (t) => -413 + Math.sin(t * 0.6) * 1.2, z: (t) => chZ(t - 0.6), y: (t) => 26 + Math.sin(t * 0.5) * 0.8, yaw: () => 0, light: () => 1, target: 'chase' };
+  // eased keys [[t, v], …] (smoothstep between keys, held outside)
+  const smk = (K) => (t) => { if (t <= K[0][0]) return K[0][1]; for (let i = 1; i < K.length; i++) if (t < K[i][0]) return lerp(K[i - 1][1], K[i][1], sm((t - K[i - 1][0]) / (K[i][0] - K[i - 1][0]))); return K[K.length - 1][1]; };
+  // Dineth: hears the sirens, turns round to the road (through −z, where they come from), watches them tear past and away
+  // south, turns back, sighs; then the line. Yaw unwrapped: 4.61 (facing the camera, west) → π (south-west) → east → back.
+  const DY0 = Math.PI * 1.5 - 0.1;
+  const dinethYaw = smk([[0, DY0], [0.75, 3.35], [1.6, 1.75], [2.55, 1.05], [2.95, 0.95], [3.75, DY0 - 2 * Math.PI]]);
   const heliL = { rpm: () => 1, x: (t) => 360 - 14 * t, z: (t) => -548 + 1.5 * t, y: () => 92, yaw: () => -Math.PI / 2 - 0.1, pitch: () => 0.1, roll: () => 0.04, light: () => 1, aim: (t) => [300 - 9 * t, 0, -566] };
 
   // ---------------------------------------------------------------- scenes
@@ -167,13 +231,14 @@ export function buildPlan() {
     PK: { env: { hour: 17.1, weather: 'clear', wet: 0 }, focus: [172, -30], traffic: true },
     GF0: { env: { hour: 17.9, weather: 'clear', wet: 0 }, focus: [-495, -445], traffic: true },
     DK: { env: { hour: 18.5, weather: 'clear', wet: 0, toHour: 18.95 }, focus: [-120, -430], traffic: true },
-    C: { env: NIGHT, rigs: rigsC, peds: pedsC, traffic: false, hideRoadPeds: true, rob: sceneC.rob, reserved: [[-70, 260, -746, -734], [226, 250, -746, -560]] },
+    C: { env: NIGHT, rigs: rigsC, peds: pedsC, fire: fireC, traffic: false, hideRoadPeds: true, rob: sceneC.rob, reserved: [[-70, 260, -746, -734], [226, 250, -746, -560]] },
     D: { env: { hour: 21.5, weather: 'clear', wet: 0 }, rigs: rigsD, peds: pedsD, traffic: false, hideRoadPeds: true, reserved: [[236, 247, -760, -555], [236, 480, -567, -557]] },
     E: { env: { hour: 21.6, weather: 'clear', wet: 0 }, rigs: rigsE, peds: pedsE, fire: fireE, traffic: false, hideRoadPeds: true, heli: heliE, reserved: [[-68, -56, -260, -140], [-68, 660, -250, -232]] },
+    O: { env: { hour: 21.6, weather: 'clear', wet: 0 }, peds: pedsO, traffic: false, focus: [-24, -201], hq: { door: oicDoor } },
     GF: { env: { hour: 21.7, weather: 'clear', wet: 0 }, rigs: rigsGF, peds: pedsGF, traffic: false, hideRoadPeds: true, heli: heliGF, reserved: [[-410, -390, -780, -220]] },
     N1: { env: { hour: 21.8, weather: 'clear', wet: 0 }, focus: [330, -520], traffic: true, heli: heliL },
     N2: { env: { hour: 21.8, weather: 'clear', wet: 0 }, focus: [-150, -895], traffic: true },
-    GT: { env: { hour: 21.9, weather: 'clear', wet: 0 }, focus: [-500, -474], peds: pedsGT, traffic: true, noPeds: [[-505, -474, 6]] },
+    GT: { env: { hour: 21.9, weather: 'clear', wet: 0 }, focus: [-500, -474], peds: pedsGT, rigs: rigsGT, heli: heliGT, traffic: true, sirenFrom: 0, noPeds: [[-505, -474, 6]], reserved: [[-411, -386, -950, -100]] },
   };
   for (const [id, s] of Object.entries(scenes)) { s.id = id; s.rigs ||= {}; s.peds ||= {}; s.fire ||= []; s.events ||= []; }
   for (const id of ['C', 'D', 'E', 'GF']) scenes[id].reservedSet = true;
@@ -200,37 +265,39 @@ export function buildPlan() {
     S('GF0', 50.0, 2.5, glide({ p: [-506.5, 1.15, -482], l: [-492, 1.6, -420] }, { p: [-506.0, 1.25, -476.5], l: [-492, 1.7, -414] }, 48, 47), { name: 'promenade sunset', focus: [-500, -450] }),
     S('DK', 52.5, 2.5, glide({ p: [62, 30, -332], l: [-420, 60, -520] }, { p: [50, 33, -346], l: [-420, 64, -522] }, 50, 48), { name: 'dusk', blur: 0.3 }),
     // ===== ACT III — THE UNDERWORLD (55 – 85): night; the jewellery store robbery, the getaway, night driving
-    S('C', 55.0, 3.75, follow([72.0, 0.48, -745.0], [71.2, 0.5, -745.0], 'crew', 0.7, 40, 1.0, 0.3), { t0: 0.3, name: 'arrival', focus: [55, -742] }),
-    S('C', 58.75, 2.5, (t, P, u) => { const s = P.shashika; return { p: [51.5 - 0.15 * u, 1.62, -745.25], l: [s.vis ? s.x : 56, 1.45, s.vis ? s.z : -744], fov: 36, hand: 0.5 }; }, { t0: 5.0, name: 'shashika', key: ['shashika'], focus: [54, -744], dof: { on: 'shashika', k: 8 } }),
-    S('C', 61.25, 2.5, glide({ p: [45.5, 1.7, -734.6], l: [53.3, 2.1, -746] }, { p: [46.5, 1.72, -734.7], l: [53.3, 2.15, -746] }, 44, 42), { t0: 7.2, name: 'store front', focus: [53, -742] }),
-    S('C', 63.75, 3.75, glide({ p: JW(-2.15, 1.58, -6.4), l: JW(2.6, 1.35, -1.9) }, { p: JW(-1.95, 1.6, -5.9), l: JW(2.6, 1.4, -1.9) }, 44, 42), { t0: 9.6, name: 'inside', key: null, focus: [53, -748], dof: { on: 'keeperPt', k: 5 } }),
-    S('C', 67.5, 2.5, glide({ p: JW(-0.95, 1.72, -3.45), l: JW(2.72, 1.3, -1.92) }, { p: JW(-0.8, 1.7, -3.3), l: JW(2.72, 1.32, -1.92) }, 40, 37), { t0: 13.4, name: 'keeper', focus: [53, -748], dof: { on: 'keeperPt', k: 7 } }),
-    S('C', 70.0, 2.5, glide({ p: [66.6, 1.45, -735.2], l: [63.5, 1.1, -745] }, { p: [66.2, 1.45, -735.3], l: [63.0, 1.1, -745] }, 40, 39), { t0: 15.6, name: 'reaction', key: ['anjali'], focus: [60, -742], dof: { on: 'anjali', k: 6 } }),
-    S('C', 72.5, 3.75, follow([49.6, 0.36, -741.4], null, 'crew', 0.6, 44, 0, 0.45), { t0: 19.2, name: 'burnout', focus: [70, -742] }),
-    S('C', 76.25, 2.5, rigCam('crew', [2.7, 0.75, 0.6], [0, 0.6, 1.3], 40, { hand: 0.7 }), { t0: 23.0, name: 'side track', blur: 0.6 }),
-    S('C', 78.75, 2.5, follow([244.6, 0.7, -727.0], null, 'crew', 0.6, 46, 2, 0.35), { t0: 26.3, name: 'corner', focus: [236, -735] }) /* low in the outer lane of Darley Road: the car slides round the corner and blasts past (the old kerb spot had a signal pole across the lens) */,
+    S('C', 55.0, 2.5, follow([72.0, 0.48, -745.0], [71.2, 0.5, -745.0], 'crew', 0.7, 40, 1.0, 0.3), { t0: 1.8, name: 'arrival', focus: [55, -742] }),
+    S('C', 57.5, 2.5, (t, P, u) => { const s = P.shashika; return { p: [51.5 - 0.15 * u, 1.62, -745.25], l: [s.vis ? s.x : 56, 1.45, s.vis ? s.z : -744], fov: 36, hand: 0.5 }; }, { t0: 5.0, name: 'shashika', key: ['shashika'], focus: [54, -744], dof: { on: 'shashika', k: 8 } }),
+    S('C', 60.0, 2.5, glide({ p: [45.5, 1.7, -734.6], l: [53.3, 2.1, -746] }, { p: [46.5, 1.72, -734.7], l: [53.3, 2.15, -746] }, 44, 42), { t0: 7.3, name: 'store front', focus: [53, -742] }),
+    S('C', 62.5, 1.25, glide({ p: JW(1.15, 0.95, -2.9), l: JW(-0.45, 2.05, -1.05) }, { p: JW(1.1, 0.92, -2.85), l: JW(-0.5, 2.2, -1.1) }, 46, 44), { t0: 9.75, name: 'warning shots', focus: [53, -748] }) /* low by the counter: Shashika puts three rounds into the ceiling */,
+    S('C', 63.75, 3.75, glide({ p: JW(-2.15, 1.58, -6.4), l: JW(2.6, 1.35, -1.9) }, { p: JW(-1.95, 1.6, -5.9), l: JW(2.6, 1.4, -1.9) }, 44, 42), { t0: 11.0, name: 'inside', key: null, focus: [53, -748], dof: { on: 'keeperPt', k: 5 } }),
+    S('C', 67.5, 2.5, glide({ p: JW(-0.95, 1.72, -3.45), l: JW(2.72, 1.3, -1.92) }, { p: JW(-0.8, 1.7, -3.3), l: JW(2.72, 1.32, -1.92) }, 40, 37), { t0: 14.75, name: 'keeper demand', focus: [53, -748], dof: { on: 'keeperPt', k: 7 } }),
+    S('C', 70.0, 2.5, glide({ p: JW(1.8, 1.5, -3.55), l: JW(2.05, 1.18, -1.9) }, { p: JW(1.74, 1.56, -3.5), l: JW(1.95, 1.3, -1.9) }, 42, 40), { t0: 17.25, name: 'the case', focus: [53, -748], dof: { on: 'keeperPt', k: 5 } }) /* down the counter from its far end: the keeper comes up with the case, sets it down, slides it across; David takes it */,
+    S('C', 72.5, 3.75, follow([49.6, 0.36, -741.4], null, 'crew', 0.6, 44, 0, 0.45), { t0: 25.1, name: 'burnout', focus: [70, -742] }),
+    S('C', 76.25, 2.5, rigCam('crew', [2.7, 0.75, 0.6], [0, 0.6, 1.3], 40, { hand: 0.7 }), { t0: 28.9, name: 'side track', blur: 0.6 }),
+    S('C', 78.75, 2.5, follow([244.6, 0.7, -727.0], null, 'crew', 0.6, 46, 2, 0.35), { t0: 32.2, name: 'corner', focus: [236, -735] }) /* low in the outer lane of Darley Road: the car slides round the corner and blasts past (the old kerb spot had a signal pole across the lens) */,
     S('D', 81.25, 3.75, rigCam('crew', [5, 22, -20], [0, 0, 22], 50, { hand: 0.25 }), { t0: 2.2, name: 'aerial to lotus', blur: 0.4 }),
     // ===== ACT IV — THE CITY STRIKES BACK (85 – 115): Police HQ, the Air Wing, the pursuit
     S('E', 85.0, 2.5, glide({ p: [-25.5, 17.6, -199.8], l: [-9, 18.6, -194] }, { p: [-25.0, 17.5, -200.6], l: [-9, 18.8, -194] }, 40, 38), { t0: 0.2, name: 'heli on the pad', focus: [-9, -200] }),
     S('E', 87.5, 2.5, (t, P, u) => { const c = P.crew, h = P.heli, k = smr(0.42, 1, u); return { p: [-40, 0.45, -251.6], l: [lerp(c.x, h.x, k), lerp(0.8, h.y + 1, k), lerp(c.z, h.z, k)], fov: lerp(46, 40, k), hand: 0.4 }; }, { t0: 4.2, name: 'past the HQ', focus: [-20, -225] }), /* low on the kerb: the crew car tears past, the camera tilts up to the helicopter leaving the Police HQ roof */
     S('E', 90.0, 1.25, rigCam('pol1', [-1.3, 0.55, 3.4], [0, 1.1, 0], 40, { hand: 0.7 }), { t0: 7.0, name: 'beacons', focus: [70, -243] }),
-    S('E', 91.25, 1.25, (t, P) => { const o = P.off1; return { p: [o.x - 1.25, 1.66, o.z + 1.45], l: [P.crew.x, 1.0, P.crew.z], fov: 42, hand: 0.6 }; }, { t0: 6.85, name: 'officers fire', key: ['off1'], focus: [-10, -235] }),
-    S('E', 92.5, 5.0, (t, P, u) => ({ p: L3([-27.0, 17.3, -184.8], [-26.0, 17.6, -186.0], sm(u)), l: [P.heli.x, P.heli.y + 1.6, P.heli.z], fov: lerp(48, 40, sm(u)), hand: 0.4 }), { t0: 3.6, rate: (u) => (u < 0.7 ? 0.92 : lerp(0.92, 1, smr(0.7, 1, u))), name: 'liftoff', focus: [-9, -200], blur: 0.35 }),
-    S('E', 97.5, 2.5, (t, P, u) => { const h = P.heli; return { p: [h.x - 22 + 6 * u, h.y + 4, h.z - 13], l: [h.x, h.y + 1, h.z], fov: 44, hand: 0.3 }; }, { t0: 9.0, name: 'heli alongside', focus: [100, -240], blur: 0.4 }),
-    S('E', 100.0, 2.5, (t, P, u) => { const c = P.crew, h = P.heli; return { p: [c.x + 14 - 2 * u, 1.1, c.z - 2.6], l: [c.x - 30, 12, lerp(c.z, h.z, 0.5)], fov: 52, hand: 0.5 }; }, { t0: 12.2, name: 'searchlight', /* tracking ahead of the crew car, looking back: the helicopter's beam comes down the road onto it */ focus: [170, -240], blur: 0.4 }),
-    S('GF', 102.5, 2.5, rigCam('crew', [-2.9, 0.62, 5.6], [0, 0.65, -2], 40, { hand: 0.7 }), { t0: 1.0, name: 'pursuit front', blur: 0.6 }),
-    S('GF', 105.0, 1.25, rigCam('pol1', [2.4, 0.75, 3.2], [-0.2, 0.8, 0.2], 44, { hand: 0.8 }), { t0: 4.0, name: 'police alongside', blur: 0.6 }),
-    S('GF', 106.25, 1.25, (t, P) => { const c = P.crew; return { p: [-406.6, 0.55, c.z + 30], l: [P.heli.x, P.heli.y + 1, P.heli.z], fov: 54, hand: 0.4 }; }, { t0: 5.3, name: 'heli overhead', focus: [-405, -560] }),
-    S('GF', 107.5, 7.5, (t, P, u) => { const c = P.crew, h = P.heli; return { p: [-470 + 10 * u, 58 - 10 * sm(u), c.z - 70 + 20 * sm(u)], l: [lerp(c.x, h.x, 0.35), 4, c.z + 10], fov: 46, hand: 0.25 }; }, { t0: 6.6, rate: (u) => (u < 0.25 ? 1 : u < 0.4 ? lerp(1, 0.45, smr(0.25, 0.4, u)) : 0.45), name: 'galle face wide', blur: 0.35 }),
+    S('O', 91.25, 3.75, glide({ p: [-25.45, 6.02, -204.3], l: [-23.55, 5.85, -197.85] }, { p: [-25.3, 6.0, -204.15], l: [-23.7, 5.82, -199.0] }, 46, 44), { t0: 0.25, name: 'oic office', key: ['runner'], focus: [-24, -201] }) /* behind the OIC's desk: the door flies open, an officer sprints in */,
+    S('O', 95.0, 2.5, (t, P, u) => ({ p: [-23.32, 6.3, -199.8], l: [-24.05, lerp(5.86, 6.22, smr(0.3, 0.75, u)), -203.25], fov: 40, hand: 0.4 }), { t0: 4.0, name: 'oic rises', key: ['oic'], focus: [-24, -201], dof: { on: 'oic', k: 6 } }) /* over the runner's shoulder: the OIC gets up — "WHAT?!" */,
+    S('E', 97.5, 3.75, (t, P, u) => ({ p: L3([-27.0, 17.3, -184.8], [-26.0, 17.6, -186.0], sm(u)), l: [P.heli.x, P.heli.y + 1.6, P.heli.z], fov: lerp(48, 40, sm(u)), hand: 0.4 }), { t0: 3.6, rate: (u) => (u < 0.7 ? 0.92 : lerp(0.92, 1, smr(0.7, 1, u))), name: 'liftoff', focus: [-9, -200], blur: 0.35 }),
+    S('E', 101.25, 2.5, (t, P, u) => { const h = P.heli; return { p: [h.x - 22 + 6 * u, h.y + 4, h.z - 13], l: [h.x, h.y + 1, h.z], fov: 44, hand: 0.3 }; }, { t0: 9.0, name: 'heli alongside', focus: [100, -240], blur: 0.4 }),
+    S('E', 103.75, 2.5, (t, P, u) => { const c = P.crew, h = P.heli; return { p: [c.x + 14 - 2 * u, 1.1, c.z - 2.6], l: [c.x - 30, 12, lerp(c.z, h.z, 0.5)], fov: 52, hand: 0.5 }; }, { t0: 12.2, name: 'searchlight', /* tracking ahead of the crew car, looking back: the helicopter's beam comes down the road onto it */ focus: [170, -240], blur: 0.4 }),
+    S('GF', 106.25, 1.25, rigCam('crew', [-2.9, 0.62, 5.6], [0, 0.65, -2], 40, { hand: 0.7 }), { t0: 1.0, name: 'pursuit front', blur: 0.6 }),
+    S('GF', 107.5, 1.25, rigCam('pol1', [2.4, 0.75, 3.2], [-0.2, 0.8, 0.2], 44, { hand: 0.8 }), { t0: 4.0, name: 'police alongside', blur: 0.6 }),
+    S('GF', 108.75, 1.25, (t, P) => { const c = P.crew; return { p: [-406.6, 0.55, c.z + 30], l: [P.heli.x, P.heli.y + 1, P.heli.z], fov: 54, hand: 0.4 }; }, { t0: 5.3, name: 'heli overhead', focus: [-405, -560] }),
+    S('GF', 110.0, 5.0, (t, P, u) => { const c = P.crew, h = P.heli; return { p: [-470 + 10 * u, 58 - 10 * sm(u), c.z - 70 + 20 * sm(u)], l: [lerp(c.x, h.x, 0.35), 4, c.z + 10], fov: 46, hand: 0.25 }; }, { t0: 6.6, rate: (u) => (u < 0.25 ? 1 : u < 0.4 ? lerp(1, 0.45, smr(0.25, 0.4, u)) : 0.45), name: 'galle face wide', blur: 0.35 }),
     // ===== ACT V — FINALE (115 – 136): eight shots
     S('N1', 115.0, 2.5, glide({ p: [402, 30, -604], l: [305, 150, -480] }, { p: [396, 40, -598], l: [305, 172, -480] }, 52, 48), { t0: 0, name: 'lotus night', focus: [330, -540] }) /* a rising drone: the lit bud with the helicopter crossing in front of it */,
     S('D', 117.5, 2.5, rigCam('crew', [-2.35, 0.5, 4.4], [0, 0.8, -1.5], 42, { hand: 0.6 }), { t0: 10.0, name: 'moving vehicle', blur: 0.6 }),
-    S('N1', 120.0, 2.5, glide({ p: [120, 26, -380], l: [-430, 58, -470] }, { p: [108, 28, -372], l: [-430, 60, -470] }, 50, 49), { t0: 3, name: 'skyline night', focus: [-80, -430], blur: 0.3 }),
-    S('N2', 122.5, 2.5, glide({ p: [-171.5, 1.6, -893.6], l: [-110, 2.6, -903] }, { p: [-167.4, 1.65, -894.8], l: [-110, 2.6, -903] }, 50, 48), { name: 'night city', focus: [-150, -897] }),
-    S('GT', 125.0, 2.5, glide({ p: [-507.6, 1.62, -475.0], l: [-505.0, 1.62, -474.0] }, { p: [-507.4, 1.62, -474.7], l: [-505.0, 1.63, -474.0] }, 32, 30), { name: 'dineth', key: ['dineth'], focus: [-500, -474], dof: { on: 'dineth', k: 10 } }),
+    S('N1', 120.0, 1.25, glide({ p: [120, 26, -380], l: [-430, 58, -470] }, { p: [108, 28, -372], l: [-430, 60, -470] }, 50, 49), { t0: 3, name: 'skyline night', focus: [-80, -430], blur: 0.3 }),
+    S('GT', 121.25, 2.5, glide({ p: [-512.5, 1.35, -476.8], l: [-470, 3.0, -472.5] }, { p: [-512.3, 1.38, -476.4], l: [-470, 3.2, -471.0] }, 34, 33), { t0: 0.2, name: 'dineth chase', key: ['dineth'], focus: [-470, -474] }) /* the chase tears down Centre Road behind Dineth */,
+    S('GT', 123.75, 3.75, glide({ p: [-507.6, 1.62, -475.0], l: [-505.0, 1.62, -474.0] }, { p: [-507.4, 1.62, -474.7], l: [-505.0, 1.63, -474.0] }, 32, 30), { t0: 2.7, name: 'dineth', key: ['dineth'], focus: [-500, -474], dof: { on: 'dineth', k: 10 } }) /* he watches them go, turns back, sighs: "What the hell are they doing?" */,
     S('N1', 127.5, 2.5, (t, P, u) => ({ p: [P.heli.x + 12 - 8 * u, 50 + 5 * u, P.heli.z - 40], l: [lerp(P.heli.x, 305, 0.22), lerp(P.heli.y, 215, 0.3), lerp(P.heli.z, -480, 0.22)], fov: 46, hand: 0.25 }), { t0: 4.5, name: 'heli and lotus', focus: [300, -560] }) /* a drone just below and behind the helicopter: the aircraft large in the foreground, the lit bud behind it */,
     S('N2', 130.0, 2.5, glide({ p: [480, 140, -380], l: [-300, 30, -500] }, { p: [462, 136, -392], l: [-300, 30, -505] }, 55, 53), { t0: 3, name: 'living city', blur: 0.25 }),
-    S('GT', 132.5, 3.5, (t, P, u) => { const k = ease3(u); return { p: [lerp(-510.6, -513.6, k), lerp(1.1, 2.7, k), lerp(-472.4, -476.0, k)], l: [lerp(-505, -420, k), lerp(1.7, 12.5, k), lerp(-474, -478, k)], fov: 48, hand: 0.15 }; }, { t0: 3, name: 'best shot', focus: [-490, -476], blur: 0.3 }) /* low on Dineth, then up and back over his shoulder to the night skyline and the Lotus Tower */,
+    S('GT', 132.5, 3.5, (t, P, u) => { const k = ease3(u); return { p: [lerp(-510.6, -513.6, k), lerp(1.1, 2.7, k), lerp(-472.4, -476.0, k)], l: [lerp(-505, -420, k), lerp(1.7, 12.5, k), lerp(-474, -478, k)], fov: 48, hand: 0.15 }; }, { t0: 12, name: 'best shot', focus: [-490, -476], blur: 0.3 }) /* low on Dineth, then up and back over his shoulder to the night skyline and the Lotus Tower */,
     // ===== ACT VI — REVEAL (136 – 146): black, the title, the studio, the sound logo (no picture: the last shot holds under black)
   ];
   // the vehicle-tracking shots stream the city around the car
@@ -253,10 +320,24 @@ export function buildPlan() {
     { kind: 'title', a: 137.0, b: 141.4, fi: 0.5, fo: 0.5 },
     { kind: 'studio', a: 142.1, b: 145.25, text: 'SHAUN DAVID STUDIOS', fi: 0.45, fo: 0.55 },
   ];
+  // ---------------------------------------------------------------- dialogue (49th): recorded lines (public/assets/voice/t2,
+  // played on the dialogue bus by CineScore), timed in the scene's own time so they stay on the actors' lips through the cuts;
+  // the subtitle (kind 'vo', key = the speaking actor) drives the lip movement and reads at the bottom of the frame
+  const edAt = (sc, t) => { for (const q of shots) if (q.scene === sc && t >= q.t0 - 1e-6 && t <= q.t0 + q.simLen + 1e-6) return q.start + (t - q.t0) / (typeof q.rate === 'number' ? q.rate : 1); return null; };
+  const LINES = [
+    ['C', 10.5, 'david', 'David', 'Let’s finish this shit up and leave.', 'david_finish', 2.81],
+    ['C', 13.75, 'david', 'David', 'The money. All of it. In the case, now!', 'david_demand', 3.89],
+    ['O', 0.85, 'runner', 'Officer', 'Sir! They are back! They robbed a jewellery store!', 'officer_back', 4.3],
+    ['O', 5.2, 'oic', 'OIC', 'WHAT?!', 'oic_what', 1.25],
+    ['GT', 4.0, 'dineth', 'Dineth', 'What the hell are they doing?', 'dineth_what', 2.42],
+  ];
+  const voices = [];
+  for (const [sc, t, key, who, text, file, dur] of LINES) { const a = edAt(sc, t); if (a == null) continue; texts.push({ kind: 'vo', a, b: a + dur, who, text, key }); voices.push({ e: a, file, dur, scene: sc, t }); }
+  const sighs = [edAt('GT', 3.6)].filter((x) => x != null); // Dineth's sigh before his line (a breath, synthesised)
   const flashes = [85.0, 115.0];
   // rob scene helpers for the runtime / test
   const robWorld = (lx, lz) => J(lx, lz);
-  return { LENGTH, BPM, BEAT, BAR, ACTS, scenes, shots, texts, black, flashes, KEEP, robWorld, HJ, HE, HG, HD, STOP };
+  return { LENGTH, BPM, BEAT, BAR, ACTS, scenes, shots, texts, black, flashes, voices, sighs, KEEP, robWorld, HJ, HE, HG, HD, STOP };
 }
 
 export function shotAt(plan, e) { let cur = plan.shots[0]; for (const s of plan.shots) if (e >= s.start) cur = s; return cur; }
@@ -269,6 +350,7 @@ export function posesAt(scene, t) {
   const P = {}; for (const [id, r] of Object.entries(scene.rigs)) P[id] = r.pose(t); for (const [id, r] of Object.entries(scene.peds)) P[id] = r.pose(t);
   const H = scene.heli; if (H) P.heli = heliPose(H, t);
   if (scene.rob) P.keeperPt = { x: 55.75, z: -749.02, vis: true, y: 0, cy: 1.3 }; // the store keeper's chest (aim / focus point)
+  if (scene.rob && scene.rob.aim) P.shTgt = scene.rob.aim(t); // Shashika's aim point (the ceiling, then the keeper)
   return P;
 }
 export function heliPose(H, t) {

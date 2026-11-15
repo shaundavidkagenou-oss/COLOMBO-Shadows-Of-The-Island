@@ -1588,6 +1588,11 @@ export class Animator {
         case 'interact': tr = [-1.2, 0, -0.1]; tfr = [-0.4, 0, 0]; break;
         case 'pray': tr = [-0.75, 0, 0.55]; tl = [-0.75, 0, -0.55]; tfr = tfl = [-1.9, 0, 0]; b.neck.rotation.x += 0.2 * aw; break;
         case 'photo': tr = [-1.25, 0, 0.25]; tl = [-1.25, 0, -0.25]; tfr = tfl = [-1.7, 0, 0]; break;
+        case 'suitcase': tr = [0.04, 0, -0.2]; tfr = [-0.14, 0, 0]; break; // carrying a case in the right hand: arm hanging, held a little out so the case clears the leg
+        case 'sigh': { // a weary sigh: a breath in (chest up, head back), then out — shoulders drop, head drops and shakes slightly
+          const inh = Math.sin(clamp(at / 0.45, 0, 1) * Math.PI * 0.5) * (1 - smooth01(clamp((at - 0.42) / 0.35, 0, 1))), exh = smooth01(clamp((at - 0.42) / 0.35, 0, 1)) * (1 - smooth01(clamp((at - 1.15) / 0.5, 0, 1)));
+          b.chest.rotation.x -= 0.07 * inh * aw; b.neck.rotation.x -= 0.1 * inh * aw; b.spine.rotation.x += 0.09 * exh * aw; b.neck.rotation.x += 0.26 * exh * aw;
+          tl = [0.04 * exh, 0, 0.05]; tr = [0.04 * exh, 0, -0.05]; tfl = tfr = [-0.2, 0, 0]; head = Math.sin(at * 6) * 0.1 * exh; break; }
         case 'shrug': { const k = Math.sin(clamp(at / 1.2, 0, 1) * Math.PI); tr = [-0.3 * k, 0, -0.5 * k]; tl = [-0.3 * k, 0, 0.5 * k]; tfr = tfl = [-1.4 * k, 0, 0]; head = 0.1 * k; break; }
         case 'nod': { const k = Math.sin(clamp(at / 1.1, 0, 1) * Math.PI); b.neck.rotation.x += (0.05 + Math.max(0, Math.sin(at * 8.5)) * 0.2) * k * aw; head = 0; break; } // a friendly nod (Mind.js greetings)
         case 'laugh': { const k = clamp(at / 0.3, 0, 1) * clamp((this.actionDur || 9) - at, 0, 0.4) / 0.4, sh = Math.abs(Math.sin(at * 13)); b.chest.rotation.x -= (0.07 + 0.05 * sh) * k * aw; b.neck.rotation.x -= (0.1 + 0.07 * sh) * k * aw; b.spine.rotation.x += 0.05 * sh * k * aw; // head back, shoulders shaking

@@ -42,7 +42,7 @@ const inAct = (i) => P.shots.filter((s) => s.act === i);
 for (let i = 0; i < 5; i++) ok(inAct(i).length >= 4, `act ${i + 1} has shots`);
 ok(inAct(4).length === 8, `the finale is eight shots (${inAct(4).length})`);
 const names = P.shots.map((s) => s.name).join('|');
-for (const w of ['lotus', 'sea', 'pettah', 'street customs', 'train', 'buddha', 'inside', 'keeper', 'reaction', 'liftoff', 'heli', 'searchlight', 'police', 'best shot']) ok(names.includes(w), `a shot of: ${w}`);
+for (const w of ['lotus', 'sea', 'pettah', 'street customs', 'train', 'buddha', 'warning shots', 'inside', 'keeper', 'the case', 'oic office', 'oic rises', 'liftoff', 'heli', 'searchlight', 'police', 'dineth chase', 'best shot']) ok(names.includes(w), `a shot of: ${w}`);
 // no repeated footage: no two shots show the same scene at overlapping sim time from (nearly) the same camera
 for (let i = 0; i < P.shots.length; i++) for (let j = i + 1; j < P.shots.length; j++) {
   const a = P.shots[i], b = P.shots[j]; if (a.scene !== b.scene) continue; const ov = Math.min(a.t0 + a.simLen, b.t0 + b.simLen) - Math.max(a.t0, b.t0); if (ov <= 0) continue;
@@ -73,6 +73,10 @@ const vbox = (rig, p) => { const T = VTYPES[rig.type]; return obb(p.cx ?? p.x, p
 const RB = { x0: -3.5, x1: 3.5, z0: -9.72, z1: 1.3 }; const ROBS = [[-1.92, 0.72, -8.44, -7.8], [-3.27, -2.63, -6.89, -3.65], [2.59, 3.31, -9.61, -8.93], [1.69, 2.41, -3.12, -0.21], [2.05, 3.5, -3.2, -3.04]];
 const inRoom = (x, z, m = 0) => { const lx = x - 53.03, lz = z + 747.1; return lx > RB.x0 + m && lx < RB.x1 - m && lz > RB.z0 + m && lz < (lz > -0.3 ? 1.3 : RB.z1) && (lz < -0.3 || Math.abs(lx) < 0.75); };
 const inRoomBox = (x, z) => { const lx = x - 53.03, lz = z + 747.1; return lx > -3.5 && lx < 3.5 && lz > -9.72 && lz < 0.05; };
+// Police HQ, first floor (scene O): the OIC's office (x −28 … −20, z −204.85 … −197.85) and the corridor outside it; its desk
+const HQO = { x0: -27.92, x1: -20.08, z0: -204.77, z1: -197.93 }, HQC = { x0: -28.4, x1: -11.5, z0: -197.77, z1: -195.43 }, HQDESK = [-25.1, -22.9, -202.95, -201.95];
+const inBox = (B, x, z, m) => x > B.x0 + m && x < B.x1 - m && z > B.z0 + m && z < B.z1 - m;
+const hqPedOk = (x, z) => (inBox(HQO, x, z, 0.22) || inBox(HQC, x, z, 0.22) || (Math.abs(x + 23.5) < 0.28 && Math.abs(z + 197.85) < 0.4)) && !(x > HQDESK[0] - 0.22 && x < HQDESK[1] + 0.22 && z > HQDESK[2] - 0.22 && z < HQDESK[3] + 0.22);
 const roomHit = (x, z, r) => { const lx = x - 53.03, lz = z + 747.1; if (lx < RB.x0 + r || lx > RB.x1 - r || lz < RB.z0 + r) return 'room wall'; for (const o of ROBS) if (lx > o[0] - r && lx < o[1] + r && lz > o[2] - r && lz < o[3] + r) return 'room furniture'; return null; };
 
 let frames = 0, camChecks = 0;
@@ -93,6 +97,7 @@ for (const s of P.shots) {
     for (const [id] of Object.entries(S.peds)) {
       const p = Q[id]; if (!p.vis || p.seat) continue;
       if (S.rob && inRoom(p.x, p.z)) { const h = roomHit(p.x, p.z, 0.22); ok(!h, `${where}: ${id} in the ${h}`); continue; }
+      if (S.hq) { ok(hqPedOk(p.x, p.z) && Math.abs((p.fy ?? 0) - 4.67) < 0.01, `${where}: ${id} outside the HQ office / corridor or off the first floor`); continue; }
       const W = local(p.x, p.z);
       for (const c of W.c) ok(!(p.x > c.x0 - 0.25 && p.x < c.x1 + 0.25 && p.z > c.z0 - 0.25 && p.z < c.z1 + 0.25), `${where}: ${id} inside ${c.kind || 'collider'} ${c.x0.toFixed(1)},${c.z0.toFixed(1)}`);
       for (const tr of W.t) ok(Math.hypot(p.x - tr.x, p.z - tr.z) > tr.r + 0.25, `${where}: ${id} in tree`);
@@ -104,6 +109,7 @@ for (const s of P.shots) {
     const c = s.cam(t, Q, k / N); const [cx, cy, cz] = c.p; camChecks++;
     ok(cy > L.groundY(cx, cz) + 0.1, `${where}: camera under ground`);
     if (S.rob && inRoomBox(cx, cz)) { const h = roomHit(cx, cz, 0.15); ok(!h && cy < 3.1, `${where}: camera in the ${h || 'ceiling'}`); }
+    else if (S.hq) { ok(inBox(HQO, cx, cz, 0.15) && !(cx > HQDESK[0] - 0.15 && cx < HQDESK[1] + 0.15 && cz > HQDESK[2] - 0.15 && cz < HQDESK[3] + 0.15) && cy > 4.67 + 0.3 && cy < 4.67 + 3.2, `${where}: camera outside the OIC's office`); }
     else {
       const W = local(cx, cz);
       for (const q of W.c) if (cy < (q.h ?? 3) + 0.3) ok(!(cx > q.x0 - 0.2 && cx < q.x1 + 0.2 && cz > q.z0 - 0.2 && cz < q.z1 + 0.2), `${where}: camera inside ${q.kind || 'collider'} ${q.x0.toFixed(1)},${q.z0.toFixed(1)} h${(q.h ?? 3).toFixed(1)}`);
@@ -122,6 +128,18 @@ ok(frames > 3000, `frames checked ${frames}`);
   ok(P.scenes.C.rob.keeper.some(([, a]) => a === 'handsup'), 'the keeper puts his hands up');
   let vmax = 0; for (let t = 0; t < 22; t += 0.1) vmax = Math.max(vmax, posesAt(P.scenes.GF, t).crew.speed); ok(vmax > 25 && vmax < 45, `pursuit speed ${vmax.toFixed(1)} m/s`);
   const hp = posesAt(P.scenes.E, 2).heli, hq = posesAt(P.scenes.E, 12).heli; ok(Math.hypot(hp.x + 9, hp.z + 194) < 0.5 && hq.y > 35, 'the helicopter lifts off the HQ pad');
+  // 49th: the robbery — three rounds into the ceiling, then the keeper's hands go up; the case changes hands without a jump
+  const rounds = P.scenes.C.fire.filter((f) => f.who === 'shashika'); let n = 0; for (const f of rounds) for (let t = f.a; t < f.b; t += 1 / f.rof) n++; ok(n === 3, `three warning shots (${n})`);
+  ok(rounds.every((f) => f.target === 'shTgt') && posesAt(C, 10.1).shTgt.cy > 3 && posesAt(C, 12).shTgt.cy < 1.5, 'the shots go into the ceiling, then he covers the keeper');
+  const hu = C.rob.keeper.find(([, a]) => a === 'handsup'), fl = C.rob.keeper.find(([, a]) => a === 'flinch'); ok(fl && hu && fl[0] > rounds[0].a && hu[0] > fl[0], 'the keeper flinches at the shots, then raises his hands');
+  const CS = C.rob.case; ok(JSON.stringify(CS.keeperGrip[CS.keeperGrip.length - 1][1]) === JSON.stringify(CS.slide[CS.slide.length - 1][1]) && JSON.stringify(CS.slide[CS.slide.length - 1][1]) === JSON.stringify(CS.davidGrip[0][1]), 'the case: counter key = slide end = David\'s grip');
+  ok(CS.slide.every(([, q]) => q[0] > 1.69 + 0.21 && q[0] < 2.41 - 0.21 && Math.abs(q[1] - 1.355) < 1e-6), 'the case stands fully on the counter top while it slides');
+  // dialogue: the user's lines, in order, never overlapping, each inside its own scene's shots
+  const want = ['Let’s finish this shit up and leave.', 'The money. All of it. In the case, now!', 'Sir! They are back! They robbed a jewellery store!', 'WHAT?!', 'What the hell are they doing?'];
+  const vo = P.texts.filter((t) => t.kind === 'vo'); ok(vo.length === want.length && vo.every((t, i) => t.text === want[i]), 'the five recorded lines');
+  ok(P.voices.length === 5 && P.voices.every((v, i) => !i || v.e >= P.voices[i - 1].e + P.voices[i - 1].dur), 'dialogue lines never overlap');
+  for (const v of P.voices) { const sh = P.shots.filter((q) => q.start < v.e + v.dur - 0.3 && q.start + q.dur > v.e); ok(sh.every((q) => q.scene === v.scene), `${v.file} plays over its own scene`); ok(fs.existsSync(new URL(`../public/assets/voice/t2/${v.file}.mp3`, import.meta.url)), `${v.file}.mp3 shipped`); }
+  { const G = P.scenes.GT; const z = (t) => posesAt(G, t).chase.z; ok(z(0.2) < -500 && z(2.7) > -440 && posesAt(G, 1.5).chase.x > -400, 'the chase passes behind Dineth on Centre Road'); ok(posesAt(G, 4.0).dineth.vis && P.voices.find((v) => v.file === 'dineth_what').scene === 'GT', 'then Dineth\'s line'); }
   const heliShots = P.shots.filter((s) => P.scenes[s.scene].heli && /heli|liftoff|searchlight|galle face wide/.test(s.name)); ok(heliShots.reduce((a, s) => a + s.dur, 0) >= 15, 'the helicopter gets a major cinematic moment (≥ 15 s)'); }
 
 // ---------------------------------------------------------------- isolation from the game
