@@ -87,7 +87,7 @@ export function buildPlan() {
       { t1: 5.3, hidden: true },
       { t1: 9.77, walk: DV_IN, t0: 5.4, v: 0.94 },
       { t1: 14.15, walk: DV_IN2, t0: 9.77, v: 1.25 }, // through the door at 10.25, talking; at the counter by 14.1
-      { t1: 20.35, ...outside(...DV_POST), yaw: (t) => turn(19.75, 20.35, Math.PI / 2, DV_OUT_YAW)(t), act: (t) => (t > 14.15 && t < 15.9 ? 'point' : t > 19.65 ? 'suitcase' : null) }, // square to the counter; points at the keeper on the demand
+      { t1: 20.35, ...outside(...DV_POST), yaw: (t) => turn(19.75, 20.35, Math.PI / 2, DV_OUT_YAW)(t), act: (t) => (t > 14.15 && t < 15.9 ? 'point' : t > 19.75 ? 'suitcase' : null) }, // square to the counter; points at the keeper on the demand
       { t1: 23.95, walk: DV_OUT, t0: 20.35, v: 1.75, act: () => 'suitcase' },
       { t1: 99, hidden: true }] }),
     // passers-by on the street (the store's neighbours): one ducks, one calls it in
@@ -105,18 +105,18 @@ export function buildPlan() {
     rest: [2.66, 0.355, -2.24], restRy: -Math.PI, counterRy: -Math.PI, // on the floor under the counter edge at his right hand, running fore-and-aft (as it is carried)
     keeperYaw: [[16.15, -Math.PI / 2]], // he stays square to the counter: the case is at his right side, no turn with it in hand
     keeperKnee: [[16.25, 0], [16.75, 1], [17.15, 1], [17.65, 0]],
-    keeperW: [[16.3, 0], [16.85, 1], [18.85, 1], [19.15, 0]],
+    keeperW: [[16.3, 0], [16.85, 1], [18.85, 1], [19.05, 0]], // lets go once it has slid across, before David's hand arrives (never two hands on the handle)
     // a one-handed lift at his right side, fingers hooked down round the handle, palm in (the case runs fore-and-aft, like a bag
     // carried at the side): straight up beside the body, elbow out above the hand — so neither the forearm nor his hip goes
     // through it — then swung forward over the counter top; it stays clear of the counter front (lx 2.41) until its base is above
     // the top (h 1.0)
     keeperGrip: [[16.3, [2.7, 0.9, -2.22]], [16.9, [2.66, 0.355, -2.24]], [17.05, [2.66, 0.355, -2.24]], [17.4, [2.68, 0.62, -2.25]], [17.6, [2.7, 0.9, -2.26]], [17.82, [2.7, 1.2, -2.25]], [17.98, [2.66, 1.39, -2.25]], [18.14, [2.39, 1.385, -2.22]], [18.28, [2.17, 1.375, -1.96]], [18.35, [2.12, 1.355, -1.93]], [18.45, [2.12, 1.355, -1.93]], [18.85, [1.95, 1.355, -1.93]]],
     keeperHold: [17.05, 18.3], // the case rides in his hand
-    onCounter: [18.35, 19.02], // resting on the counter top (he sets it down at 18.35, slides it across by 18.85)
+    onCounter: [18.35, 19.12], // resting on the counter top (he sets it down at 18.35, slides it across by 18.85)
     slide: [[18.35, [2.12, 1.355, -1.93]], [18.45, [2.12, 1.355, -1.93]], [18.85, [1.95, 1.355, -1.93]]],
-    davidW: [[18.55, 0], [18.95, 1], [19.6, 1], [19.95, 0]],
-    davidGrip: [[18.55, [1.95, 1.355, -1.93]], [19.02, [1.95, 1.355, -1.93]], [19.3, [1.9, 1.46, -1.9]], [19.65, [1.62, 1.2, -1.8]]] /* lifted, then lowered to his right side (clear of his chest) as the carry takes over */,
-    davidHold: 19.02, // from here on it rides in David's right hand (lifted off the counter, then carried out at his side)
+    davidW: [[18.75, 0], [19.1, 1], [19.7, 1], [20.05, 0]],
+    davidGrip: [[18.75, [1.95, 1.355, -1.93]], [19.12, [1.95, 1.355, -1.93]], [19.4, [1.9, 1.46, -1.9]], [19.75, [1.62, 1.2, -1.8]]] /* lifted, then lowered to his right side (clear of his chest) as the carry takes over */,
+    davidHold: 19.12, // from here on it rides in David's right hand (lifted off the counter, then carried out at his side)
   };
   const sceneC = { rob: { site: 'rob_jewel', door: [[8.5, 0], [8.95, 1.35], [9.2, 1.42], [10.9, 1.4], [11.6, 0], [21.2, 0], [21.6, -1.35], [22.6, -1.42], [23.2, 0]] /* + swings into the shop (pushed from the street), − out onto the pavement */,
     keeper: [[0, 'idle'], [9.87, 'flinch'], [10.2, 'cower'], [11.3, 'handsup'], [16.2, 'idle'], [19.0, 'handsup'], [22.6, 'cower']], alarm: [[21.6, [55, -744], 45]], aim: shAim, case: CASE } };
