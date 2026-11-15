@@ -103,6 +103,9 @@ export class PoliceHelicopter {
   // ------------------------------------------------------------------ per frame
   update(dt) {
     if (!(dt > 0)) return; dt = Math.min(dt, 0.05); this.t += dt; const g = this.g, P = g.police;
+    // airborne: its shadow comes from the per-frame near sun map (kept out of the once-a-second far map, where it trailed the
+    // aircraft in steps); the near box widens to take it only while it is close (≤ 56 m), so the street shadows keep their detail
+    if (g.atmos && !(g.atmos.shadowCaster && g.atmos.shadowCaster.cine)) { const A = g.atmos; if (this.state !== 'parked' && !g.indoor) { const c = A.shadowCaster && A.shadowCaster.heli ? A.shadowCaster : (A.shadowCaster = { heli: true, x: 0, y: 0, z: 0, ground: 0, max: 56 }); c.x = this.p.x; c.y = this.p.y; c.z = this.p.z; c.ground = L.groundY(this.p.x, this.p.z); } else if (A.shadowCaster && A.shadowCaster.heli) A.shadowCaster = null; }
     // dispatch: 4★+ while the police are chasing or searching (and the player is outdoors); back to base after 20 s of calm
     const stars = P && P.stars ? P.stars() : 0; const chase = P && (P.state === 'pursuing' || P.state === 'searching' || P.state === 'detected');
     const want = (stars >= 4 && chase && !g.indoor) || this.forced;

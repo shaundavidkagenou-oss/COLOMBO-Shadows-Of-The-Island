@@ -246,9 +246,14 @@ export class Atmosphere {
   //    comparisons in three r186) is set per shadow resolution for a ≈ 4–7 cm natural penumbra.
   // Satellite map capture overrides the box for its tiles and restores it; the next frame refits it here anyway.
   fitSunShadow(focus, camera, L) {
-    const S = SUN_SHADOW, R = S.range;
+    const S = SUN_SHADOW; let R = S.range;
     _sf.set(0, 0, 0); if (camera) { camera.getWorldDirection(_sf); _sf.y = 0; const l = _sf.length(); if (l > 0.2) _sf.multiplyScalar((R * S.ahead) / l); else _sf.set(0, 0, 0); }
-    this.fitShadowBox(this.sun, _sc.copy(focus).add(_sf), L, R, S.wallH, S.dist, S.snap);
+    _sc.copy(focus).add(_sf);
+    // shadowCaster (the trailer's helicopter, 49th): a moving caster whose shadow must stay in the per-frame near map — its
+    // ground shadow point (along the light) is kept inside the box by widening it (≤ 90 m); the far map, redrawn about once
+    // a second, made that shadow trail behind the aircraft in steps
+    const sc = this.shadowCaster; if (sc && L.y > 0.05) { const gy = sc.ground ?? 0, k = Math.max(0, sc.y - gy) / L.y; const dx = sc.x - L.x * k - _sc.x, dz = sc.z - L.z * k - _sc.z; const need = Math.hypot(dx, dz) + 12; if (need <= (sc.max ?? 90)) R = Math.max(R, need); }
+    this.fitShadowBox(this.sun, _sc, L, R, S.wallH, S.dist, S.snap);
   }
   // one light's orthographic shadow box round C along L (shared by the near and the far map)
   fitShadowBox(light, C, L, R, wallH, dist, snap) {

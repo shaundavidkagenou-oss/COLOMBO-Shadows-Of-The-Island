@@ -103,7 +103,7 @@ export class CineTrailer extends TrailerRuntime {
     return this.e;
   }
   frame(dt) { super.frame(dt); if (!this.done) { this.updateControls(); if (this.score.endFade) this.score.endFade(this.e); } }
-  finish() { if (this.done) return; if (Audio.ctx && Audio.ctx.state === 'suspended') Audio.ctx.resume?.(); this.stopAlarm(); if (document.fullscreenElement && !TEST) document.exitFullscreen?.().catch?.(() => {}); super.finish(); }
+  finish() { if (this.done) return; if (this.g.atmos) this.g.atmos.shadowCaster = null; if (Audio.ctx && Audio.ctx.state === 'suspended') Audio.ctx.resume?.(); this.stopAlarm(); if (document.fullscreenElement && !TEST) document.exitFullscreen?.().catch?.(() => {}); super.finish(); }
   // ---------------------------------------------------------------- scenes
   activateScene(id, shot) {
     super.activateScene(id, shot);
@@ -166,10 +166,11 @@ export class CineTrailer extends TrailerRuntime {
     H.targetOverride = T; H.lightOverride = h.light;
     if (newShot && T) { H.aim.set(T.x, (T.y || 0) + 0.6, T.z); }
     H.t += dt; H.pose(dt); H.lights(dts); H.downwash(dt);
+    const A = this.g.atmos; if (A) A.shadowCaster = { cine: true, x: H.p.x, y: H.p.y, z: H.p.z, ground: L.groundY(H.p.x, H.p.z), max: 90 }; // its shadow stays in the per-frame near map (Atmosphere.fitSunShadow)
     const r0 = H.rpm; H.rpm = r0 * clamp(this.rate, 0.5, 1); H.sound(); H.rpm = r0; // slow motion pitches the rotor down with the picture
   }
   parkHeli() {
-    const H = this.g.heli; if (!H || this.heliParked) return; this.heliParked = true;
+    const H = this.g.heli; if (this.g.atmos) this.g.atmos.shadowCaster = null; if (!H || this.heliParked) return; this.heliParked = true;
     H.p.set(HELIPAD.x, HELIPAD.y, HELIPAD.z); H.v.set(0, 0, 0); H.yaw = HELIPAD.yaw; H.pitch = 0; H.roll = 0; H.rpm = 0; H.ay = 0; H.state = 'parked'; H.mission = null; H.lightOverride = 0; H.targetOverride = null;
     H.pose(0); H.lights(0.016); H.downwash(0); H.sound();
   }
