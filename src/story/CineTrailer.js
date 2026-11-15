@@ -197,7 +197,7 @@ export class CineTrailer extends TrailerRuntime {
     root.innerHTML = `<button class="ct-b ct-play" type="button" aria-label="Pause"><span class="ct-ico"></span></button>
       <div class="ct-time"><b class="ct-cur">0:00</b> / ${fmt(this.LEN)}</div>
       <div class="ct-track" role="slider" aria-label="Seek" tabindex="-1"><div class="ct-fill"></div>${acts}<div class="ct-knob"></div></div>
-      <button class="ct-b ct-full" type="button" aria-label="Full screen">⛶</button>
+      <button class="ct-b ct-full" type="button" aria-label="Full screen" title="Full screen (F)"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square"><path d="M1.5 5.5v-4h4M10.5 1.5h4v4M14.5 10.5v4h-4M5.5 14.5h-4v-4"/></svg></button>
       <button class="ct-b ct-exit" type="button" aria-label="Exit trailer">EXIT</button>
       <div class="ct-name">OFFICIAL CINEMATIC TRAILER</div>`;
     this.ov.root.appendChild(root);
@@ -242,6 +242,7 @@ body.ct-cursor.tr-on .ct-track { cursor: pointer !important; }
 .ct-ctl.on { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
 .ct-ctl .ct-name { grid-column: 1 / -1; grid-row: 1; font-size: 10px; letter-spacing: .42em; color: rgba(232,163,58,.85); }
 .ct-ctl .ct-b { grid-row: 2; height: 30px; min-width: 34px; padding: 0 10px; border: 1px solid rgba(255,240,215,.25); background: rgba(255,255,255,.06); color: inherit; font: inherit; border-radius: 4px; }
+.ct-ctl .ct-full { display: inline-flex; align-items: center; justify-content: center; }
 .ct-ctl .ct-b:hover { background: rgba(232,163,58,.25); border-color: rgba(232,163,58,.7); }
 .ct-ctl .ct-ico { display: inline-block; width: 10px; height: 12px; border-left: 3px solid currentColor; border-right: 3px solid currentColor; box-sizing: border-box; vertical-align: -1px; }
 .ct-ctl.paused .ct-ico { width: 0; height: 0; border-right: 0; border-left: 11px solid currentColor; border-top: 7px solid transparent; border-bottom: 7px solid transparent; }
