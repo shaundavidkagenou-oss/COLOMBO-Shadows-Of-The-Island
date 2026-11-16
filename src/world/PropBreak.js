@@ -60,10 +60,20 @@ export class PropBreak {
     if (S.lie !== 'heads') { const a = S.lie === 'flat' ? Math.atan2(dz, -dx) : Math.atan2(dx, dz); yaw = Math.abs(wrap(a - r0)) < Math.abs(wrap(a + Math.PI - r0)) ? a : a + Math.PI; } // lamp arm (local +z) ⟂ fall; heritage crossbar (local x) ⟂ fall
     else yaw = Math.atan2(-dx, -dz) - Math.PI / 4; // local (1, 0, 1) → −fall direction
     const d = { p, c, root, inner, stub, S, x: p.x, z: p.z, by, dx, dz, th: 0.02, w: 0.55 + 0.035 * sp, vx: dx * sp * 0.42 + fx * sp * 0.1, vz: dz * sp * 0.42 + fz * sp * 0.1, yaw0: r0, dyaw: wrap(yaw - r0), t: 0, hits: 0, rest: false, lean: false };
-    this.down.push(d);
+    d.S = this.clearance(d); this.down.push(d);
     const A = this.g.audio || Audio; if (A && A.ready) { A.debrisHit(p.x, p.z, 1.2); if (A.bulletMetal) A.bulletMetal(p.x, p.z, true); }
     this.sparks(p.x, by + 0.3, p.z, p.type === 'signal' ? 8 : 12); // the cable in the base shorts out
     return d;
+  }
+  // how far the real parts reach below the shaft's axis once the pole lies flat (LED head, signal heads, base flange): the base
+  // half sets how high the base rides, the far half how high the far end lies — so no part of the model ends up in the ground.
+  // Measured on this pole's own geometry, once, when it breaks (a few hundred vertices).
+  clearance(d) {
+    const S = d.S, th0 = d.th; d.th = Math.PI / 2; this.pose(d); d.root.position.set(0, 0, 0); d.root.updateMatrixWorld(true);
+    let B = S.base, T = S.tip; const v = _v;
+    d.inner.traverse((o) => { if (!o.isMesh) return; const P = o.geometry.attributes.position; for (let i = 0; i < P.count; i++) { v.fromBufferAttribute(P, i).applyMatrix4(o.matrixWorld); const r = v.x * d.dx + v.z * d.dz; if (r < S.len * 0.5) B = Math.max(B, -v.y); else T = Math.max(T, -v.y); } });
+    d.th = th0; this.pose(d); d.root.updateMatrixWorld(true);
+    return { ...S, base: Math.min(B, 0.6), tip: Math.min(T, 0.6), _drop: [+B.toFixed(3), +T.toFixed(3)] };
   }
   // hide / show the standing pole: its instances in the pooled meshes, its signal lamps, its street light (decal, glow, real light)
   hide(p, off) {
@@ -115,7 +125,9 @@ export class PropBreak {
     _ax.set(d.dz, 0, -d.dx); _q.setFromAxisAngle(_ax, d.th); d.root.quaternion.copy(_q); // up → fall direction
     d.root.position.set(d.x, d.by, d.z);
   }
-  repair(d) { this.group.remove(d.root); this.group.remove(d.stub); d.c.h = d.c._h || 4; d.p._down = false; this.hide(d.p, false); this.stats.repaired++; }
+  // forget fallen poles whose standing props are being rebuilt (MapEditor): remove the wreck without restoring the old instances
+  drop(test) { this.down = this.down.filter((d) => { if (!test(d)) return true; this.group.remove(d.root); this.group.remove(d.stub); if (d.c && d.c._h) d.c.h = d.c._h; return false; }); }
+    repair(d) { this.group.remove(d.root); this.group.remove(d.stub); d.c.h = d.c._h || 4; d.p._down = false; this.hide(d.p, false); this.stats.repaired++; }
   // debug / tests: knock down the nearest breakable pole to (x, z) as if hit at speed sp heading (vx, vz)
   debugKnock(x, z, sp = 14, yaw = 0) { const col = this.g.world.collision; let best = null, bd = 1e9; for (const c of col.query(x - 30, z - 30, x + 30, z + 30)) { if (!c.brk || c.brk._down || !(c.h > 0)) continue; const dd = Math.hypot((c.x0 + c.x1) / 2 - x, (c.z0 + c.z1) / 2 - z); if (dd < bd) { bd = dd; best = c; } } if (!best) return null; return this.knock(best.brk, best, Math.sin(yaw) * sp, Math.cos(yaw) * sp, 1, sp); }
   info() { return { down: this.down.length, ...this.stats, poles: this.down.map((d) => ({ type: d.p.type, x: +d.x.toFixed(2), z: +d.z.toFixed(2), th: +d.th.toFixed(3), rest: d.rest, lean: d.lean, by: +d.by.toFixed(3), ground: +L.surfaceY(d.x, d.z).toFixed(3) })) }; }

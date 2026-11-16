@@ -152,7 +152,7 @@ class AudioEngine {
   }
   // ---- per-frame
   update(dt, st) {
-    if (!this.ready) return; const c = this.ctx, t = c.currentTime; this.listener = st.listener; const L_ = this.layers;
+    this.listener = st.listener; if (!this.ready) return; const c = this.ctx, t = c.currentTime; const L_ = this.layers;
     if (this.tracked && this.tracked.length) for (let i = this.tracked.length - 1; i >= 0; i--) { const T = this.tracked[i], V = T.voice; if (!V || V.end <= t || !T.src) { this.tracked.splice(i, 1); continue; } // horns / voices following their source
       const [g, pan] = this.spatial(T.src.x, T.src.z, T.ref); if (V.end - t > 0.05) V.g.gain.setTargetAtTime(Math.max(0.0001, V.lvl * g / Math.max(1e-3, T.g0)), t, 0.05); V.p.pan.setTargetAtTime(pan, t, 0.05); }
     const night = st.night, rain = st.rain;
@@ -279,3 +279,4 @@ class AudioEngine {
   flute(freq, dur, w) { if (!this.live) return; const c = this.ctx, t = c.currentTime + w; const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = freq; const vib = c.createOscillator(); vib.frequency.value = 5.2; const vg = c.createGain(); vg.gain.value = freq * 0.008; vib.connect(vg); vg.connect(o.frequency); const g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.03, t + 0.08); g.gain.setValueAtTime(0.03, t + dur * 0.7); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.connect(g); g.connect(this.bus.music); g.connect(this.verb); o.start(t); vib.start(t); o.stop(t + dur + 0.05); vib.stop(t + dur + 0.05); }
 }
 export const Audio = new AudioEngine();
+if (typeof window !== 'undefined') window.__audio = Audio; // console / tests (like window.__sounds)

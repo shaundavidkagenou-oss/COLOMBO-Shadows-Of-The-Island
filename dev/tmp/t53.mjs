@@ -12,6 +12,10 @@ ok(Audio.hornFree(b) && Audio.hornFree(c) && !Audio.hornFree(d), 'at most 3 NPC 
 ok(Audio.hornFree(P, true) && !Audio.hornFree(P, true), 'player horn always allowed past the cap, but not stacked');
 await sleep(2050);
 ok(Audio.hornFree(a) && Audio.hornFree(P, true), 'after 2 s the same vehicles can horn again');
+// --- distance cues
+Audio.update(0.016, { listener: { x: 0, z: 0, yaw: 0 } });
+const n5 = Audio.at(5, 0, 14), f150 = Audio.at(150, 0, 14);
+ok(n5.g > f150.g * 20 && n5.delay < 0.02 && Math.abs(f150.delay - 150 / 343) < 1e-6 && n5.lp === 0 && f150.lp > 0 && f150.lp < 4000 && f150.wet > n5.wet, `near ${JSON.stringify(n5)} far ${JSON.stringify(f150)}`);
 // --- variations
 ok(VARIED.length === 4 && VARIED.every((v) => SOUND_BY_ID[v].vars.length === 3), 'four varied sounds × 3 variation slots');
 const B = (n) => ({ duration: n });

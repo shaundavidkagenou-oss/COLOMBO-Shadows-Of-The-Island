@@ -240,6 +240,7 @@ class MapEditor {
     for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) { m.userData.layer = 'bld'; m.userData.edBld = true; if (m.name === 'ao') { m.castShadow = false; m.receiveShadow = false; m.renderOrder = 1; } m.updateMatrix(); m.updateMatrixWorld(true); m.matrixAutoUpdate = false; c.group.add(m); }
     if (W.job && W.job.c === c) W.job = null; if (c.detail) W.disposeDetail(c); if (W.wjob && W.wjob.c === c) W.wjob = null; if (c.win) W.disposeWindows(c); // facade detail + windows rebuild as you look at them
     for (const part of c.pooled || []) { const i = part.P.parts.indexOf(part); if (i >= 0) part.P.parts.splice(i, 1); } c.pooled = [];
+    if (this.g.propBreak && c.props) { const old = new Set(); c.props.traverse((m) => { if (m.userData.props) for (const p of m.userData.props) old.add(p); }); if (old.size) this.g.propBreak.drop((d) => old.has(d.p)); } // knocked-down poles of the old props go with them (the rebuilt chunk stands its poles anew)
     if (c.props) { c.group.remove(c.props); c.props.traverse((m) => { if (m.isInstancedMesh) m.dispose(); }); }
     c.props = buildPropsForChunk(ch); c.props.traverse((m) => { m.updateMatrixWorld(true); }); c.group.add(c.props); c.lamps = c.props.userData.lamps || []; W.propDirty = true;
     if (c.vines) { c.group.remove(c.vines); c.vines.traverse((m) => m.geometry && m.geometry.dispose()); c.vines = null; } const st = buildVines(plan, [c]); st.warm?.geometry.dispose(); if (c.vines) c.vines.updateMatrixWorld(true);
