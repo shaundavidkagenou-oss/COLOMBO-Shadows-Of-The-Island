@@ -79,12 +79,14 @@ try {
       window.__boat = s; return out; });
     console.log('sails', JSON.stringify(r)); await shot('sail-holes-60m', 4000);
     await ev(async () => { const g = window.__game, s = window.__boat; const sp = s.worldPoint([0, 7, 0.6], new (g.player.ch.root.position.constructor)()); g.camera.position.set(s.x + 30 * Math.cos(s.yaw), s.y + 3, s.z - 30 * Math.sin(s.yaw)); g.camera.lookAt(sp.x, sp.y, sp.z); g.camera.updateMatrixWorld(); await g.stepSim(1, 0.05); }); await shot('sail-holes-30m', 3000);
+  }
+  if (PH.includes('w')) {
     const w = await ev(async () => {
       const g = window.__game, B = g.boats, P = g.player; const out = {}; P.camOverride = false;
-      while (B.slipBoat.id !== 'dondra26') B.switchNext(); const bt = B.slipBoat; const bp = bt.worldPoint(bt.model.board, new (P.ch.root.position.constructor)());
-      P.teleport(bp.x, bp.z - 1.2, 0); await g.stepSim(10, 0.05); B.board(P, bt); await g.stepSim(40, 0.05); bt.place(60, -1400, -Math.PI / 2, true); await g.stepSim(20, 0.05);
+      const bt = B.spawnNear('dondra26', { x: 60, z: -1400, yaw: -Math.PI / 2 }); bt.mode = 'moored'; const bp = bt.worldPoint(bt.model.board, new (P.ch.root.position.constructor)());
+      P.teleport(bp.x, bp.z - 1.2, 0); await g.stepSim(10, 0.05); B.board(P, bt); out.ride = !!B.ride; await g.stepSim(40, 0.05); bt.place(60, -1400, -Math.PI / 2, true); await g.stepSim(20, 0.05);
       const I = window.__Input, isDown = I.isDown.bind(I); I.isDown = (a) => a === 'forward' || isDown(a); await g.stepSim(120, 0.05);
-      I.isDown = (a) => a === 'forward' || a === 'left' || isDown(a); await g.stepSim(90, 0.05); I.isDown = isDown;
+      I.isDown = (a) => a === 'forward' || a === 'left' || isDown(a); await g.stepSim(90, 0.05); out.v = +bt.speed.toFixed(1); out.mode = bt.mode; out.stage = B.ride && B.ride.stage; I.isDown = isDown;
       P.camOverride = true; g.camera.position.set(bt.x + 6, bt.y + 34, bt.z + 6); g.camera.lookAt(bt.x, bt.y, bt.z); g.camera.updateMatrixWorld(); await g.stepSim(1, 0.05); out.trails = B.wakes.trails.size; return out; });
     console.log('wake', JSON.stringify(w)); await shot('wake-turn-top', 3000);
     await ev(() => { window.__game.player.camOverride = false; });
