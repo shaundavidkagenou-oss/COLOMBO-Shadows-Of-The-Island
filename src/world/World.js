@@ -9,6 +9,7 @@ import { generatePlan, plan, NCX, NCZ, CHUNK, chunkCenter, refitTreeCrowns, land
 import { buildGround } from './GroundBuilder.js';
 import { buildBase, buildDetail, buildWall, windowTasks, frontColumns } from './BuildingGen.js';
 import { buildLandmarks } from './Landmarks.js';
+import { FORT } from './FortStationData.js';
 import { buildPropGeometries, buildPropsForChunk, updateSignals, initGlowTexture } from './Props.js';
 import { buildTreeGeometries, windUniform } from './Vegetation.js';
 import { Forest } from './Forest.js';
@@ -59,7 +60,7 @@ export class World {
     { const sr = buildStreetRamps(); this.streetRamps = sr; this.root.add(sr.group); this.collision.addAll(sr.colliders); } // speed humps + stunt jumps / bicycle ramps (StreetRamps.js; ground surfaces via Layout.setRampHook)
     { const fs = buildCityStreets(plan); this.fortStreets = this.cityStreets = fs; this.root.add(fs.group); this.collision.addAll(fs.colliders); } // Colombo Fort benchmark: trilingual street names, billboards, drains, bins (FortStreets.js)
     { // second crown-clearance pass against the landmark buildings (they only exist now): no leaves inside them either
-      const boxes = landmarkTreeBoxes(this.collision.list.filter((c) => c.kind === 'landmark' && !c.fuel)).concat(this.fuel.crownBoxes, this.customs.crownBoxes); const planCols = new Set(plan.colliders); const obst = this.collision.list.filter((c) => !planCols.has(c) && !['landmark', 'tree', 'building', 'deck', 'platform'].includes(c.kind) && !c.fuel); const r = refitTreeCrowns(boxes, obst); // + walls / barriers / shopfronts / street furniture built after the plan
+      const boxes = landmarkTreeBoxes(this.collision.list.filter((c) => c.kind === 'landmark' && !c.fuel)).concat(this.fuel.crownBoxes, this.customs.crownBoxes, FORT.clear.map((r) => [r.x0, r.x1, r.z0, r.z1, FORT.shed.eave + FORT.shed.rise + 2])); const planCols = new Set(plan.colliders); const obst = this.collision.list.filter((c) => !planCols.has(c) && !['landmark', 'tree', 'building', 'deck', 'platform'].includes(c.kind) && !c.fuel); const r = refitTreeCrowns(boxes, obst); // + walls / barriers / shopfronts / street furniture built after the plan
       if (r.changed.size) { this.collision.remove((c) => r.changed.has(c)); this.collision.addAll(r.keep); }
       plan.plants = (plan.plants || []).filter((p) => !boxes.some((b) => p.x > b[0] - 0.5 && p.x < b[1] + 0.5 && p.z > b[2] - 0.5 && p.z < b[3] + 0.5)); } // no shrub inside a landmark or forecourt
     progress(0.3, 'Street furniture and trees'); await tick();
@@ -259,6 +260,7 @@ export class World {
       this.glints.update(camera, src, on ? atmos.wet : 0, atmos.night, (x, z) => !!L.roadAt(x, z), ROAD_Y); }
     if (an.lotusUpdate && atmos) an.lotusUpdate(this.t, atmos.night); // Lotus Tower LED show (LotusTower.js)
     if (an.clockTower && atmos) an.clockTower.update(atmos.hour, atmos.night); // Fort clock tower: the hands follow the game clock, dials lit at night
+    if (an.fortStation && atmos) an.fortStation.update(atmos.hour, atmos.night); // Fort railway station: clocks, red LED clock, signs lit at night
     for (const m of this.landmarks.labels) if (m.emissiveIntensity !== undefined && atmos) m.emissiveIntensity = 0.2 + atmos.night * 0.9;
     // street-lamp point lights near the focus
     if (this.lampLights.length && atmos) {

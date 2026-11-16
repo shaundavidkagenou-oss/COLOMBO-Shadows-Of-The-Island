@@ -22,10 +22,12 @@ import * as THREE from 'three';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { FORT } from './FortStationData.js';
 import { RAIL_TOP, BALLAST_Y, GAUGE } from './Railway.js';
-import { buildClassicCoach, buildDmuCar, ebox, beam, rod, COACH_LEN, CAR_LEN as DMU_LEN } from '../vehicles/TrainModels.js';
+import { buildClassicCoach, buildDmuCar, ebox, beam, solids, COACH_LEN, CAR_LEN as DMU_LEN } from '../vehicles/TrainModels.js';
+// thin bars (window bars, railings, balusters): a square-section beam reads the same at these sizes for 12 triangles instead of 32
+const rod = (b, ax, ay, az, bx, by, bz, r, col) => beam(b, ax, ay, az, bx, by, bz, r * 2, r * 2, col);
 
 const W = '#f1ede2', CREAM = '#e6dcc4', DADO = '#5d7c6b', DADO_D = '#466253', PLINTH = '#6e6c66', SHUT = '#2f4a3a', WOOD = '#4a2c1a', SILL = '#6b3f22', BENCH = '#7a4e2c';
-const TERRA = '#a65a3e', OCHRE = '#c8842e', TACT = '#e2bf1c', COPING = '#d9d5c9', IRON = '#2c3a33', STEEL = '#b9bdbf', DARK = '#1c1c1c', ROOF = '#8a5a40';
+const TERRA = '#a65a3e', OCHRE = '#c8842e', TACT = '#e2bf1c', COPING = '#d9d5c9', IRON = '#2c3a33', STEEL = '#b9bdbf', DARK = '#1c1c1c', ROOF = '#76503a';
 
 // ---------------------------------------------------------------- sign atlases (canvas, 1024 × 256)
 function atlasCanvas() { const c = document.createElement('canvas'); c.width = 1024; c.height = 256; return [c, c.getContext('2d')]; }
@@ -99,9 +101,9 @@ const FACE_N = { '-z': [0, 0, -1], '+z': [0, 0, 1], '+x': [1, 0, 0], '-x': [-1, 
 const FACE_R = { '-z': [-1, 0, 0], '+z': [1, 0, 0], '+x': [0, 0, -1], '-x': [0, 0, 1] }; // viewer's right
 
 export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
-  const F = FORT, Y = F.Y, FL = F.FL, TOP = F.bld.top;
+  const F = FORT, Y = F.Y, FL = F.FL, TOP = F.bld.top, ZF0 = F.bld.z0;
   const cc = (c) => (Array.isArray(c) ? c : C(c));
-  const wallM = mb.get('kerb'), paint = mb.get('paint'), metal = mb.get('metal'), wglass = mb.get('winGlass'), glass = mb.get('glass'), emis = mb.get('emissive'), corr = mb.get('corrugated');
+  const stone = mb.get('kerb'), wallM = mb.get('paint'), paint = mb.get('paint'), metal = mb.get('metal'), wglass = mb.get('winGlass'), glass = mb.get('glass'), emis = mb.get('emissive'), corr = mb.get('corrugated');
   // box from bounds
   const B = (b, x0, x1, y0, y1, z0, z1, col, o = {}) => { if (x1 < x0) [x0, x1] = [x1, x0]; if (y1 < y0) [y0, y1] = [y1, y0]; if (z1 < z0) [z0, z1] = [z1, z0]; if (x1 - x0 < 1e-4 || y1 - y0 < 1e-4 || z1 - z0 < 1e-4) return; b.box((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, x1 - x0, y1 - y0, z1 - z0, { col: cc(col), uvScale: o.uv || 3, bottom: o.bottom ?? true, top: o.top ?? true }); };
   const coll = (x0, x1, z0, z1, h, extra = {}) => colliders.push({ x0, x1, z0, z1, h, kind: 'landmark', ...extra });
@@ -113,7 +115,18 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   const anim = { clocks, ledMeshes: [] };
 
   // ================================================================ 1. building: plinth, floors, walls with real openings
-  B(wallM, F.bld.x0, F.bld.x1, Y - 0.05, FL, F.bld.z0, F.bld.z1, '#8e8a80'); surf(F.bld.x0, F.bld.x1, F.bld.z0, F.bld.z1, FL); // plinth = floor slab
+  // Olcott Mawatha's footway is only ~1 m wide in front of the frontage (the carriageway edge is at z −651), so the five steps
+  // from the street up to the hall floor sit INSIDE each entrance (through the wall and into a stair well in the slab)
+  const STEP_R = 0.2, STEP_T = 0.3, NSTEP = Math.round((FL - Y) / STEP_R), RUN = NSTEP * STEP_T;
+  const PZ = ZF0 - 0.8; // outer face of the two pavilions
+  const stairs = F.entrances.map((e) => ({ x0: e.x - e.w / 2, x1: e.x + e.w / 2, z0: e.main ? PZ : ZF0, z1: (e.main ? PZ : ZF0) + RUN })).concat([{ x0: F.res.portalX - 1.6, x1: F.res.portalX + 1.6, z0: PZ, z1: PZ + RUN }]);
+  // a rectangle minus the stair wells → pieces (x split at the wells' edges, z intervals subtracted)
+  const minusStairs = (x0, x1, z0, z1) => { const xs = [x0, x1]; for (const h of stairs) for (const v of [h.x0, h.x1]) if (v > x0 && v < x1) xs.push(v); xs.sort((a, b) => a - b); const out = [];
+    for (let i = 0; i < xs.length - 1; i++) { const a = xs[i], b = xs[i + 1]; if (b - a < 1e-4) continue; const m = (a + b) / 2; const hz = stairs.filter((h) => m > h.x0 && m < h.x1).map((h) => [h.z0, h.z1]); for (const [c, d] of solids(z0, z1, hz)) out.push([a, b, c, d]); } return out; };
+  const upC = (b, x0, x1, z0, z1, y, col) => { for (const [a, c, d, e] of minusStairs(x0, x1, z0, z1)) up(b, a, c, d, e, y, col); };
+  for (const [a, b, c, d] of minusStairs(F.bld.x0, F.bld.x1, F.bld.z0, F.bld.z1)) { B(stone, a, b, Y - 0.05, FL, c, d, '#8e8a80'); surf(a, b, c, d, FL); } // plinth = floor slab
+  for (const h of stairs) { for (let k = 0; k < NSTEP; k++) { const z0 = h.z0 + k * STEP_T, top = Y + STEP_R * (k + 1); B(stone, h.x0, h.x1, Y - 0.05, top, z0, h.z1, k % 2 ? '#b7b2a6' : '#b1aca0'); B(paint, h.x0, h.x1, top - 0.03, top + 0.002, z0, z0 + 0.05, '#6e6a62'); surf(h.x0, h.x1, z0, h.z1, top, 'deck'); }
+    for (const xe of [h.x0 + 0.06, h.x1 - 0.06]) { if (h.z1 <= ZF0 + 0.45) continue; const za = ZF0 + 0.45; for (const zz of [za, h.z1]) metal.cylinder(xe, FL, zz, 0.025, 0.025, 1.0, 8, { col: cc(STEEL) }); rod(metal, xe, FL + 0.98, za, xe, FL + 0.98, h.z1, 0.02, cc(STEEL)); rod(metal, xe, FL + 0.5, za, xe, FL + 0.5, h.z1, 0.015, cc(STEEL)); coll(xe - 0.04, xe + 0.04, za, h.z1, FL + 1.0); } } // well-side handrails in the hall
   B(paint, F.bld.x0 - 0.02, F.bld.x1 + 0.02, Y, FL - 0.02, F.bld.z0 - 0.03, F.bld.z0, PLINTH, { top: false });
   // a wall along x (face planes z0 / z1) with openings [x0, x1, top, arch?]: solid piers full height, lintels / arch spandrels
   const wallX = (z0, z1, xa, xb, holes, col, o = {}) => {
@@ -150,9 +163,9 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   down(paint, -9.8, 7.8, ZF + 0.4, ZB - 0.4, FL + 4.2, '#efede6'); down(paint, 8.2, 17.8, -637.8, ZB - 0.4, FL + 3.2, '#efede6');
   for (let x = -9.8; x < 7.8; x += 0.6) B(paint, x, x + 0.02, FL + 4.17, FL + 4.19, ZF + 0.4, ZB - 0.4, '#c9c6bc'); for (let z = ZF + 0.4; z < ZB - 0.4; z += 0.6) B(paint, -9.8, 7.8, FL + 4.17, FL + 4.19, z, z + 0.02, '#c9c6bc'); // tiled ceiling grid
   // floors: hall checker tiles (cream / terracotta-grey terrazzo), office vinyl
-  up(paint, -60, -10.2, ZF + 0.4, ZB - 0.4, FL + 0.003, '#cfc6b0');
-  for (let x = -60, i = 0; x < -10.2 - 0.01; x += 0.6, i++) for (let z = ZF + 0.4, j = 0; z < ZB - 0.4 - 0.01; z += 0.6, j++) if ((i + j) % 2) up(paint, x, Math.min(x + 0.6, -10.2), z, Math.min(z + 0.6, ZB - 0.4), FL + 0.005, '#9a8f7c');
-  up(paint, -9.8, 7.8, ZF + 0.4, ZB - 0.4, FL + 0.003, '#b9b1a0'); up(paint, 8.2, 17.8, -637.8, ZB - 0.4, FL + 0.003, '#a49c8c'); up(paint, -63.8, -60.4, ZF + 0.4, ZB - 0.4, FL + 0.003, '#8f8676');
+  upC(paint, -60, -10.2, ZF + 0.4, ZB - 0.4, FL + 0.003, '#cfc6b0');
+  for (let x = -60, i = 0; x < -10.2 - 0.01; x += 0.6, i++) for (let z = ZF + 0.4, j = 0; z < ZB - 0.4 - 0.01; z += 0.6, j++) if ((i + j) % 2) upC(paint, x, Math.min(x + 0.6, -10.2), z, Math.min(z + 0.6, ZB - 0.4), FL + 0.005, '#9a8f7c');
+  upC(paint, -9.8, 7.8, ZF + 0.4, ZB - 0.4, FL + 0.003, '#b9b1a0'); up(paint, 8.2, 17.8, -637.8, ZB - 0.4, FL + 0.003, '#a49c8c'); up(paint, -63.8, -60.4, ZF + 0.4, ZB - 0.4, FL + 0.003, '#8f8676');
   // interior mosaic dado (green-grey) with a dark top trim, all round the hall and the reservations office
   const dado = (x0, x1, z0, z1) => { B(paint, x0, x1, FL, FL + 1.2, z0, z1, DADO, { bottom: false }); const dx = x1 - x0 > z1 - z0; B(paint, dx ? x0 : x0 - 0.005, dx ? x1 : x1 + 0.005, FL + 1.2, FL + 1.26, dx ? z0 - 0.005 : z0, dx ? z1 + 0.005 : z1, DADO_D); };
   for (const [a, b] of [[-60, -53.5], [-50.5, -37.5], [-32.5, -19.5], [-16.5, -10.2]]) dado(a, b, ZF + 0.4, ZF + 0.42);
@@ -179,7 +192,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   // outside mosaic dado on the front (green), with a dark capping line
   for (const [a, b] of (() => { const o = []; let x = X0; for (const h of [...frontHoles].sort((p, q) => p[0] - q[0])) { o.push([x, h[0]]); x = h[1]; } o.push([x, X1]); return o; })()) { B(paint, a, b, FL, FL + 1.1, ZF - 0.03, ZF, DADO, { bottom: false }); B(paint, a, b, FL + 1.1, FL + 1.16, ZF - 0.05, ZF, DADO_D); }
   // cantilevered canopy on curved iron brackets, white fascia board (trilingual lettering on it)
-  const CY = FL + 3.7, CD = 3.2;
+  const CY = FL + 3.7, CD = 2.0; // the cantilever stops 1 m out over the kerb (the footway here is narrow)
   const canopy = (xa, xb) => {
     B(paint, xa, xb, CY, CY + 0.1, ZF - CD, ZF, '#e8e8e2'); corr.box((xa + xb) / 2, CY + 0.16, ZF - CD / 2, xb - xa, 0.03, CD, { col: [0.78, 0.8, 0.8], uvScale: 3 });
     B(paint, xa, xb, CY - 0.45, CY + 0.45, ZF - CD - 0.08, ZF - CD, '#f6f4ee'); B(paint, xa, xb, CY - 0.5, CY - 0.45, ZF - CD - 0.1, ZF - CD, '#2a2a2a');
@@ -189,9 +202,9 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   for (const [a, b] of [[X0 + 0.3, -93], [-83, -41.2], [-28.8, -4.8], [2.8, X1 - 0.3]]) canopy(a, b);
   signQuad(SA, -63, CY, ZF - CD - 0.09, 16, 0.86, '-z', T.fascia(0)); signQuad(SA, -16.8, CY, ZF - CD - 0.09, 16, 0.86, '-z', T.fascia(1)); signQuad(SA, 15.6, CY, ZF - CD - 0.09, 16, 0.86, '-z', T.fascia(2));
   // central clock pavilion: protruding frontispiece, pilasters, cornice, balustrade + ball finials, curved scrolled pediment with the clock
-  { const xa = -41, xb = -29, zf = ZF - 1.2, ht = Y + 11.1;
-    B(wallM, xa, -37.5, FL, ht, zf, ZF, W); B(wallM, -32.5, xb, FL, ht, zf, ZF, W); B(wallM, -37.5, -32.5, FL + 4.0, ht, zf, ZF, W); coll(xa, -37.5, zf, ZF, ht); coll(-32.5, xb, zf, ZF, ht); surf(-37.5, -32.5, zf, ZF, FL);
-    B(wallM, xa, xb, Y, FL, zf, ZF, '#8e8a80');
+  { const xa = -41, xb = -29, zf = PZ, ht = Y + 11.1;
+    B(wallM, xa, -37.5, FL, ht, zf, ZF, W); B(wallM, -32.5, xb, FL, ht, zf, ZF, W); B(wallM, -37.5, -32.5, FL + 4.0, ht, zf, ZF, W); coll(xa, -37.5, zf, ZF, ht); coll(-32.5, xb, zf, ZF, ht);
+    B(stone, xa, -37.5, Y, FL, zf, ZF, '#8e8a80'); B(stone, -32.5, xb, Y, FL, zf, ZF, '#8e8a80');
     for (const px of [-40.55, -38.15, -31.85, -29.45]) { B(wallM, px - 0.3, px + 0.3, FL, ht - 0.5, zf - 0.15, zf, '#f7f4ec'); B(wallM, px - 0.4, px + 0.4, ht - 0.75, ht - 0.5, zf - 0.25, zf, '#ebe5d4'); B(wallM, px - 0.4, px + 0.4, FL, FL + 0.5, zf - 0.22, zf, '#ebe5d4'); }
     B(wallM, xa - 0.3, xb + 0.3, ht - 0.5, ht, zf - 0.45, ZF, '#efe9da'); // entablature
     for (const [a, b] of [[-37.5, -37.2], [-32.8, -32.5]]) B(paint, a, b, FL, FL + 4.0, zf - 0.02, ZF + 0.4, '#e7e1d0'); B(paint, -37.5, -32.5, FL + 3.8, FL + 4.1, zf - 0.06, zf, '#e7e1d0');
@@ -204,14 +217,10 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
     const pw = 3.6, py = ht + 0.14; const n = 16; for (let k = 0; k < n; k++) { const u0 = -1 + (2 * k) / n, u1 = -1 + (2 * (k + 1)) / n, um = (u0 + u1) / 2; const yt = py + 1.2 + Math.sqrt(1 - um * um) * 1.15; B(wallM, -35 + u0 * pw / 2, -35 + u1 * pw / 2, py, yt, zf - 0.1, zf + 0.25, W); B(wallM, -35 + u0 * pw / 2 - 0.02, -35 + u1 * pw / 2 + 0.02, yt, yt + 0.16, zf - 0.22, zf + 0.25, '#e7e0cd'); }
     for (const e of [-1, 1]) { const g = new THREE.CylinderGeometry(0.34, 0.34, 0.4, 14); const m = new THREE.Matrix4().makeRotationX(Math.PI / 2).setPosition(-35 + e * (pw / 2 + 0.1), py + 0.45, zf - 0.02); wallM.geometry(g, m, cc('#ece6d6')); const g2 = new THREE.CylinderGeometry(0.16, 0.16, 0.42, 10); wallM.geometry(g2, new THREE.Matrix4().makeRotationX(Math.PI / 2).setPosition(-35 + e * (pw / 2 + 0.1), py + 0.45, zf - 0.04), cc('#d9d1bb')); g.dispose(); g2.dispose(); }
     paint.cylinder(-35, py + 1.9, zf - 0.12, 0.98, 0.98, 0.02, 24, { col: cc('#2a2a2a'), caps: false }); clocks.push({ x: -35, y: py + 1.9, z: zf - 0.125, face: '-z', r: 0.9 });
-    // steps up to the entrance
-    for (let k = 0; k < 5; k++) { const z0 = zf - 1.75 + k * 0.35, top = Y + 0.2 * (k + 1); B(wallM, -38.6, -31.4, Y - 0.05, top, z0, zf, '#b7b2a6'); surf(-38.6, -31.4, z0, zf, top, 'deck'); }
-    // palms in planters either side of the steps
-    for (const px of [-43.4, -26.6]) planterPalm(mb, px, zf - 0.9, Y, C); coll(-44.1, -42.7, zf - 1.6, zf - 0.2, Y + 0.75); coll(-27.3, -25.9, zf - 1.6, zf - 0.2, Y + 0.75);
   }
   // round-arched entrance pavilion (reservations office): pilasters, entablature, urn finials, archivolt
-  { const cx = F.res.portalX, xa = cx - 3.6, xb = cx + 3.6, zf = ZF - 1.0, ht = Y + 9.2, r = 1.6, spring = FL + 2.6;
-    B(wallM, xa, cx - r, FL, ht, zf, ZF, W); B(wallM, cx + r, xb, FL, ht, zf, ZF, W); coll(xa, cx - r, zf, ZF, ht); coll(cx + r, xb, zf, ZF, ht); surf(cx - r, cx + r, zf, ZF, FL); B(wallM, xa, xb, Y, FL, zf, ZF, '#8e8a80');
+  { const cx = F.res.portalX, xa = cx - 3.6, xb = cx + 3.6, zf = PZ, ht = Y + 9.2, r = 1.6, spring = FL + 2.6;
+    B(wallM, xa, cx - r, FL, ht, zf, ZF, W); B(wallM, cx + r, xb, FL, ht, zf, ZF, W); coll(xa, cx - r, zf, ZF, ht); coll(cx + r, xb, zf, ZF, ht); B(stone, xa, cx - r, Y, FL, zf, ZF, '#8e8a80'); B(stone, cx + r, xb, Y, FL, zf, ZF, '#8e8a80');
     const n = 14; for (let k = 0; k < n; k++) { const xa2 = cx - r + (2 * r * k) / n, xb2 = cx - r + (2 * r * (k + 1)) / n, u = ((xa2 + xb2) / 2 - cx) / r; B(wallM, xa2, xb2, spring + Math.sqrt(Math.max(0, 1 - u * u)) * r, ht, zf, ZF, W); }
     for (let k = 0; k < 12; k++) { const a0 = Math.PI - (k / 12) * Math.PI, a1 = Math.PI - ((k + 1) / 12) * Math.PI; beam(wallM, cx + Math.cos(a0) * (r + 0.12), spring + Math.sin(a0) * (r + 0.12), zf - 0.06, cx + Math.cos(a1) * (r + 0.12), spring + Math.sin(a1) * (r + 0.12), zf - 0.06, 0.26, 0.12, cc('#e6dfcc')); } // archivolt
     B(wallM, cx - 0.2, cx + 0.2, spring + r - 0.1, spring + r + 0.45, zf - 0.14, zf, '#e3dccb');
@@ -219,22 +228,22 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
     B(wallM, xa - 0.3, xb + 0.3, ht - 0.8, ht, zf - 0.42, ZF, '#efe9da'); B(wallM, xa, xb, ht, ht + 0.5, zf, ZF, '#f2eee3');
     for (const px of [xa + 0.4, xb - 0.4]) { B(wallM, px - 0.32, px + 0.32, ht + 0.5, ht + 0.9, zf + 0.1, zf + 0.74, '#ede7d8'); wallM.cylinder(px, ht + 0.9, zf + 0.42, 0.12, 0.3, 0.3, 12, { col: cc('#e9e2d1') }); wallM.cylinder(px, ht + 1.2, zf + 0.42, 0.3, 0.2, 0.32, 12, { col: cc('#e9e2d1') }); wallM.cylinder(px, ht + 1.52, zf + 0.42, 0.1, 0.02, 0.22, 8, { col: cc('#e9e2d1') }); } // urn finials
     signQuad(SC, cx, FL + 5.0, zf - 0.02, 3.4, 1.7, '-z', T.intercity);
-    for (let k = 0; k < 5; k++) { const z0 = zf - 1.75 + k * 0.35, top = Y + 0.2 * (k + 1); B(wallM, cx - 1.9, cx + 1.9, Y - 0.05, top, z0, zf, '#b7b2a6'); surf(cx - 1.9, cx + 1.9, z0, zf, top, 'deck'); }
   }
-  // side entrances: steps
-  for (const e of F.entrances) { if (e.main) continue; for (let k = 0; k < 5; k++) { const z0 = ZF - 1.75 + k * 0.35, top = Y + 0.2 * (k + 1); B(wallM, e.x - e.w / 2 - 0.3, e.x + e.w / 2 + 0.3, Y - 0.05, top, z0, ZF, '#b7b2a6'); surf(e.x - e.w / 2 - 0.3, e.x + e.w / 2 + 0.3, z0, ZF, top, 'deck'); } signQuad(SD, e.x, FL + 3.55, ZF - 0.03, 2.9, 0.72, '-z', T.sign(2)); }
+  // side entrances: signs over the doors (their steps are inside, see the stair wells above)
+  for (const e of F.entrances) { if (e.main) continue; signQuad(SD, e.x, FL + 3.55, ZF - 0.03, 2.9, 0.72, '-z', T.sign(2)); }
   // outside counters under the white barrel awning (11 season tickets, 16 special counter) + the red LED clock
-  { const xs = [-90.4, -85.6]; xs.forEach((x, i) => { ticketWindow(x, ZF, '-z'); signQuad(SD, x, FL + 2.55, ZF - 0.05, 2.0, 0.5, '-z', T.sign(4 + i)); });
-    const ax = -88, r = 0.75, y0 = FL + 2.9, L = 9; const ds = mb.get('paintDS'); for (let k = 0; k < 10; k++) { const a0 = (k / 10) * Math.PI, a1 = ((k + 1) / 10) * Math.PI; const p0 = [ZF - r + Math.cos(a0) * r, y0 + Math.sin(a0) * r * 0.9], p1 = [ZF - r + Math.cos(a1) * r, y0 + Math.sin(a1) * r * 0.9]; ds.quad([ax - L / 2, p0[1], p0[0]], [ax + L / 2, p0[1], p0[0]], [ax + L / 2, p1[1], p1[0]], [ax - L / 2, p1[1], p1[0]], [0, 0, 1, 1], cc('#f4f4f0')); }
+  { const xs = [-90.4, -85.6]; xs.forEach((x, i) => { ticketWindow(x, ZF, '-z'); signQuad(SD, x, Y + 2.6, ZF - 0.08, 2.0, 0.5, '-z', T.sign(4 + i)); });
+    const ax = -88, r = 0.75, y0 = Y + 2.95, L = 9; const ds = mb.get('paintDS'); for (let k = 0; k < 10; k++) { const a0 = (k / 10) * Math.PI, a1 = ((k + 1) / 10) * Math.PI; const p0 = [ZF - r + Math.cos(a0) * r, y0 + Math.sin(a0) * r * 0.9], p1 = [ZF - r + Math.cos(a1) * r, y0 + Math.sin(a1) * r * 0.9]; ds.quad([ax - L / 2, p0[1], p0[0]], [ax + L / 2, p0[1], p0[0]], [ax + L / 2, p1[1], p1[0]], [ax - L / 2, p1[1], p1[0]], [0, 0, 1, 1], cc('#f4f4f0')); }
     for (const e of [-1, 1]) for (let k = 0; k < 10; k++) { const a0 = (k / 10) * Math.PI, a1 = ((k + 1) / 10) * Math.PI; ds.quad([ax + e * L / 2, y0, ZF - r], [ax + e * L / 2, y0 + Math.sin(a0) * r * 0.9, ZF - r + Math.cos(a0) * r], [ax + e * L / 2, y0 + Math.sin(a1) * r * 0.9, ZF - r + Math.cos(a1) * r], [ax + e * L / 2, y0 + Math.sin(a1) * r * 0.9, ZF - r + Math.cos(a1) * r], [0, 0, 1, 1], cc('#ecece6')); }
     for (const e of [-1, 1]) beam(metal, ax + e * (L / 2 - 0.2), y0 - 0.4, ZF, ax + e * (L / 2 - 0.2), y0, ZF - 1.4, 0.04, 0.04, cc(IRON));
     anim.ledSpots = [{ x: ax, y: FL + 4.15, z: ZF - 0.05, face: '-z', w: 1.6, h: 0.42 }, { x: -59.96, y: FL + 6.0, z: -640, face: '+x', w: 1.6, h: 0.42 }];
   }
   function ticketWindow(x, zf, face) { // an outside ticket window on a facade (timber frame, bars, sill)
-    const s = face === '-z' ? -1 : 1, z = zf + s * 0.02;
-    B(wglass, x - 0.7, x + 0.7, FL + 0.95, FL + 2.2, z - 0.01, z + 0.01, '#000'); for (const e of [-1, 1]) B(paint, x + e * 0.75 - 0.06, x + e * 0.75 + 0.06, FL + 0.9, FL + 2.3, z - 0.06, z + 0.06, WOOD);
-    B(paint, x - 0.81, x + 0.81, FL + 2.24, FL + 2.34, z - 0.06, z + 0.06, WOOD); B(paint, x - 0.85, x + 0.85, FL + 0.86, FL + 0.95, z - 0.3, z + 0.02, SILL);
-    for (let k = 0; k < 8; k++) rod(metal, x - 0.62 + k * 0.177, FL + 0.95, z + s * 0.03, x - 0.62 + k * 0.177, FL + 2.24, z + s * 0.03, 0.012, cc('#3a3a3a'));
+    const s = face === '-z' ? -1 : 1, z = zf + s * 0.08, G = Y; // served from the footway: sill at counter height above the street
+    B(paint, x - 0.9, x + 0.9, G + 0.3, G + 2.4, zf + s * 0.02, z, '#2a1d14'); // timber surround, proud of the dado
+    B(wglass, x - 0.7, x + 0.7, G + 0.95, G + 2.2, z - 0.01, z + 0.01, '#000'); for (const e of [-1, 1]) B(paint, x + e * 0.75 - 0.06, x + e * 0.75 + 0.06, G + 0.9, G + 2.3, z - 0.06, z + 0.06, WOOD);
+    B(paint, x - 0.81, x + 0.81, G + 2.24, G + 2.34, z - 0.06, z + 0.06, WOOD); B(paint, x - 0.85, x + 0.85, G + 0.86, G + 0.95, z - 0.3, z + 0.02, SILL);
+    for (let k = 0; k < 8; k++) rod(metal, x - 0.62 + k * 0.177, G + 0.95, z + s * 0.03, x - 0.62 + k * 0.177, G + 2.24, z + s * 0.03, 0.012, cc('#3a3a3a'));
   }
   // roofs: brown hipped roofs (hall higher), small hips on the pavilions
   hip(X0, -60, ZF, ZB, TOP, 3.0, ROOF); hip(-60, -10, ZF, ZB, TOP + 0.6, 3.4, ROOF); hip(-10, X1, ZF, ZB, TOP, 3.0, ROOF);
@@ -313,21 +322,21 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
 
   // ================================================================ 5. platforms, sidings, stabled trains
   const platform = (x0, x1, z0, z1, faces) => { // faces: list of z planes that front a track
-    B(wallM, x0, x1, Y - 0.05, FL - 0.06, z0, z1, '#9f9a90', { top: false }); up(wallM, x0, x1, z0, z1, FL, TERRA); surf(x0, x1, z0, z1, FL);
+    B(stone, x0, x1, Y - 0.05, FL - 0.06, z0, z1, '#9f9a90', { top: false }); up(stone, x0, x1, z0, z1, FL, TERRA); surf(x0, x1, z0, z1, FL);
     for (const zf of faces) { const s = Math.abs(zf - z0) < 0.01 ? 1 : -1; // s: +1 if the face is the z0 side
-      B(paint, x0, x1, Y, FL - 0.06, s > 0 ? zf - 0.02 : zf, s > 0 ? zf : zf + 0.02, OCHRE, { top: false }); B(wallM, x0, x1, FL - 0.06, FL + 0.005, s > 0 ? zf - 0.03 : zf - 0.32, s > 0 ? zf + 0.32 : zf + 0.03, COPING);
-      const tz = zf + s * 0.85; B(paint, x0, x1, FL, FL + 0.008, tz - 0.3, tz + 0.3, TACT); for (let x = x0 + 0.1; x < x1; x += 0.6) B(paint, x, x + 0.012, FL + 0.008, FL + 0.01, tz - 0.3, tz + 0.3, '#c9a810'); }
+      B(paint, x0, x1, Y, FL - 0.06, s > 0 ? zf - 0.02 : zf, s > 0 ? zf : zf + 0.02, OCHRE, { top: false }); B(stone, x0, x1, FL - 0.06, FL + 0.005, s > 0 ? zf - 0.03 : zf - 0.32, s > 0 ? zf + 0.32 : zf + 0.03, COPING);
+      const tz = zf + s * 0.85; B(paint, x0, x1, FL, FL + 0.008, tz - 0.3, tz + 0.3, TACT); }
     for (let x = x0 + 0.6; x < x1; x += 1.2) B(paint, x, x + 0.01, FL + 0.001, FL + 0.003, z0, z1, '#8e4d35');
   };
   const P1 = F.p1; platform(P1.x0, P1.x1, P1.z0, P1.z1, [P1.z1]);
-  B(wallM, P1.x0, X0, Y, FL - 0.06, P1.z0 - 0.02, P1.z0, '#9f9a90'); for (let x = P1.x0 + 0.2; x < X0; x += 1.8) metal.cylinder(x, FL, P1.z0 + 0.1, 0.03, 0.03, 1.1, 6, { col: cc(IRON) }); rod(metal, P1.x0, FL + 1.05, P1.z0 + 0.1, X0, FL + 1.05, P1.z0 + 0.1, 0.025, cc(IRON)); coll(P1.x0, X0, P1.z0, P1.z0 + 0.15, FL + 1.1);
+  B(stone, P1.x0, X0, Y, FL - 0.06, P1.z0 - 0.02, P1.z0, '#9f9a90'); for (let x = P1.x0 + 0.2; x < X0; x += 1.8) metal.cylinder(x, FL, P1.z0 + 0.1, 0.03, 0.03, 1.1, 6, { col: cc(IRON) }); rod(metal, P1.x0, FL + 1.05, P1.z0 + 0.1, X0, FL + 1.05, P1.z0 + 0.1, 0.025, cc(IRON)); coll(P1.x0, X0, P1.z0, P1.z0 + 0.15, FL + 1.1);
   for (const I of F.islands) platform(I.x0, I.x1, I.z0, I.z1, [I.z0, I.z1]);
-  const endSteps = (xe, dir, z0, z1) => { for (let k = 0; k < 5; k++) { const h = (FL - Y) * (1 - (k + 1) / 6), xa = xe + dir * 0.45 * k, xb = xa + dir * 0.45; B(wallM, Math.min(xa, xb), Math.max(xa, xb), Y - 0.05, Y + h, z0 + 0.5, z1 - 0.5, '#9f9a90'); surf(Math.min(xa, xb), Math.max(xa, xb), z0 + 0.5, z1 - 0.5, Y + h, 'deck'); } };
+  const endSteps = (xe, dir, z0, z1) => { for (let k = 0; k < 5; k++) { const h = (FL - Y) * (1 - (k + 1) / 6), xa = xe + dir * 0.45 * k, xb = xa + dir * 0.45; B(stone, Math.min(xa, xb), Math.max(xa, xb), Y - 0.05, Y + h, z0 + 0.5, z1 - 0.5, '#9f9a90'); surf(Math.min(xa, xb), Math.max(xa, xb), z0 + 0.5, z1 - 0.5, Y + h, 'deck'); } };
   endSteps(P1.x0, -1, P1.z0 + 2, P1.z1 - 1); endSteps(P1.x1, 1, P1.z0 + 2, P1.z1 - 1); for (const I of F.islands) { endSteps(I.x0, -1, I.z0 + 1, I.z1 - 1); endSteps(I.x1, 1, I.z0 + 1, I.z1 - 1); }
   // sidings: ballast bed, concrete sleepers, rails, buffer stops at both ends
   const ball = mb.get('ballast');
   for (const S of F.sidings) { ball.box((S.x0 + S.x1) / 2, (Y + BALLAST_Y) / 2, S.z, S.x1 - S.x0, BALLAST_Y - Y + 0.02, 3.4, { col: [0.82, 0.8, 0.77], uvScale: 2 }); surf(S.x0, S.x1, S.z - 1.7, S.z + 1.7, BALLAST_Y, 'deck');
-    for (let x = S.x0 + 0.3; x < S.x1 - 0.2; x += 0.65) B(wallM, x - 0.12, x + 0.12, BALLAST_Y - 0.04, BALLAST_Y + 0.15, S.z - 1.3, S.z + 1.3, '#8f8b84', { bottom: false });
+    for (let x = S.x0 + 0.3; x < S.x1 - 0.2; x += 0.65) B(stone, x - 0.12, x + 0.12, BALLAST_Y - 0.04, BALLAST_Y + 0.15, S.z - 1.3, S.z + 1.3, '#8f8b84', { bottom: false });
     for (const e of [-1, 1]) { B(metal, S.x0, S.x1, BALLAST_Y + 0.15, RAIL_TOP, S.z + e * GAUGE / 2 - 0.035, S.z + e * GAUGE / 2 + 0.035, '#6a625a', { bottom: false }); B(metal, S.x0, S.x1, RAIL_TOP - 0.02, RAIL_TOP, S.z + e * GAUGE / 2 - 0.036, S.z + e * GAUGE / 2 + 0.036, '#b8b4ae'); }
     for (const [xe, d] of [[S.x0 + 0.4, 1], [S.x1 - 0.4, -1]]) { B(paint, xe - 0.25, xe + 0.25, BALLAST_Y, 1.25, S.z - 1.3, S.z + 1.3, '#b81f1f'); for (let k = 0; k < 6; k++) B(paint, xe - 0.26, xe + 0.26, 1.0, 1.25, S.z - 1.3 + k * 0.52, S.z - 1.04 + k * 0.52, k % 2 ? '#f2f2ee' : '#b81f1f'); for (const e of [-1, 1]) { rod(metal, xe, 1.05, S.z + e * 0.87, xe + d * 0.45, 1.05, S.z + e * 0.87, 0.07, cc('#222')); rod(metal, xe + d * 0.45, 1.05, S.z + e * 0.87, xe + d * 0.5, 1.05, S.z + e * 0.87, 0.2, cc('#333')); } beam(metal, xe - d * 2.2, BALLAST_Y, S.z, xe, 1.1, S.z, 0.25, 0.25, cc('#7a1515')); coll(xe - 0.3, xe + 0.3, S.z - 1.35, S.z + 1.35, 1.3); }
   }
@@ -363,7 +372,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   }
   for (const z of colZ) B(metal, S.x0 - 0.6, S.x1 + 0.6, EAV - 0.05, EAV + 0.2, z - 0.25, z + 0.25, '#4a4f4c');
   corr.quad([S.x0 - 0.6, TOP - 0.2, S.zA - 0.3], [S.x1 + 0.6, TOP - 0.2, S.zA - 0.3], [S.x1 + 0.6, EAV + 0.25, S.zA - 0.3], [S.x0 - 0.6, EAV + 0.25, S.zA - 0.3], [0, 0, 50, 1], [0.76, 0.77, 0.76]);
-  B(wallM, S.x0 - 6, S.x1 + 6, Y, Y + 2.4, S.zB + 0.6, S.zB + 0.85, '#a8846a'); coll(S.x0 - 6, S.x1 + 6, S.zB + 0.6, S.zB + 0.85, Y + 2.4); // boundary wall beyond the outer siding
+  B(stone, S.x0 - 6, S.x1 + 6, Y, Y + 2.4, S.zB + 0.6, S.zB + 0.85, '#a8846a'); coll(S.x0 - 6, S.x1 + 6, S.zB + 0.6, S.zB + 0.85, Y + 2.4); // boundary wall beyond the outer siding
   // platform signs (red numerals), LCD boards, clocks, PA horn speakers
   for (let k = 1; k < S.frames; k += 2) { const x = S.x0 + 2 + k * S.dx + 1.0;
     for (const [z, nums] of [[-621.5, [0]], [-606, [1, 2]], [-594, [3, 4]]]) { const y = FL + 3.7; metal.cylinder(x, y + 0.4, z, 0.01, 0.01, arcY(z, z < S.zM ? S.zA : S.zM, z < S.zM ? S.zM : S.zB, S.rise - 1.0) - y - 0.4, 4, { col: cc('#555') });
@@ -375,12 +384,14 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   for (const s of F.speakers) { const onCol = Math.abs(s.z - (S.zA + 0.4)) < 0.01 || Math.abs(s.z - S.zM) < 0.01; const y = onCol ? FL + 3.5 : s.z < ZF ? FL + 3.4 : FL + 5.4; const dir = s.z < ZF ? -1 : 1;
     for (const d of Math.abs(s.z - S.zM) < 0.01 ? [-1, 1] : [dir]) { const m = new THREE.Matrix4().makeRotationX(d * Math.PI / 2 * 0.9).setPosition(s.x, y, s.z + d * 0.35); metal.geometry(horn, m, cc('#bfc3c2')); metal.box(s.x, y, s.z + d * 0.15, 0.06, 0.06, 0.3, { col: cc('#888') }); } }
   horn.dispose();
+  // areca palms in square planters against the building on platform 1 (the frontage has no forecourt for them in this city)
+  for (const px of [-62.6, 20.5]) { planterPalm(mb, px, ZB + 0.9, FL, cc); coll(px - 0.75, px + 0.75, ZB + 0.15, ZB + 1.65, FL + 0.75); }
   // staff kiosk on platform 1 (mesh cage) by the footbridge
   { const x0 = -84, x1 = -81.4, z0 = -628.4, z1 = -626.2; B(paint, x0, x1, FL, FL + 0.9, z0, z1, '#4a5a4a'); B(paint, x0, x1, FL + 2.3, FL + 2.4, z0 - 0.1, z1 + 0.1, '#3a4a3a'); for (let x = x0; x <= x1; x += 0.15) rod(metal, x, FL + 0.9, z1, x, FL + 2.3, z1, 0.006, cc('#666')); for (let y = FL + 0.9; y <= FL + 2.3; y += 0.15) rod(metal, x0, y, z1, x1, y, z1, 0.006, cc('#666')); for (const z of [z0, z1]) for (const x of [x0, x1]) metal.cylinder(x, FL, z, 0.03, 0.03, 2.3, 6, { col: cc('#3a4a3a') }); coll(x0, x1, z0, z1, FL + 2.4); }
 
   // ================================================================ 7. footbridge with stairs to platform 1 and both islands
   { const Bd = F.bridge, D = Bd.deck, xa = Bd.x0, xb = Bd.x1;
-    B(paint, xa, xb, D - 0.25, D, Bd.z0, Bd.z1, '#7a7a74'); up(wallM, xa, xb, Bd.z0, Bd.z1, D + 0.002, '#9a5a44'); surf(xa, xb, Bd.z0, Bd.z1, 0.25, 'deck', { y0: D - 0.25 });
+    B(paint, xa, xb, D - 0.25, D, Bd.z0, Bd.z1, '#7a7a74'); up(stone, xa, xb, Bd.z0, Bd.z1, D + 0.002, '#9a5a44'); surf(xa, xb, Bd.z0, Bd.z1, 0.25, 'deck', { y0: D - 0.25 });
     for (const xe of [xa, xb]) B(metal, xe - 0.08, xe + 0.08, D - 0.9, D - 0.25, Bd.z0, Bd.z1, '#3c4a42');
     const openE = Bd.stairs.map((s) => [s.zc - Bd.w / 2, s.zc + Bd.w / 2]);
     for (const [xe, opens] of [[xa, []], [xb, openE]]) { let z = Bd.z0; for (const [o0, o1] of [...opens, [Bd.z1, Bd.z1]]) { if (o0 > z) { for (let zz = z; zz < o0 - 0.01; zz += 1.4) metal.box(xe, D + 0.55, Math.min(zz + 0.02, o0), 0.06, 1.1, 0.06, { col: cc('#3c4a42') }); rod(metal, xe, D + 1.1, z, xe, D + 1.1, o0, 0.03, cc('#3c4a42')); for (let zz = z; zz < o0; zz += 0.12) rod(metal, xe, D + 0.08, zz, xe, D + 1.05, zz, 0.008, cc('#55625a')); coll(xe - 0.06, xe + 0.06, z, o0, 1.15, { y0: D }); } z = o1; } }
@@ -388,7 +399,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
     for (const zsup of [-617.2, -603.0, -597.4, -591.0]) for (const xe of [xa + 0.2, xb - 0.2]) { const base = zsup < -612 || (zsup > -610.3 && zsup < -601.7) || zsup > -598.3 ? FL : Y; metal.box(xe, (base + D - 0.9) / 2, zsup, 0.3, D - 0.9 - base, 0.3, { col: cc('#3c4a42') }); colliders.push({ x0: xe - 0.16, x1: xe + 0.16, z0: zsup - 0.16, z1: zsup + 0.16, h: D - 0.9, kind: 'pole' }); }
     const nSt = Math.round((D - FL) / 0.172), rise = (D - FL) / nSt, run = Bd.run / nSt;
     for (const st of Bd.stairs) { const z0 = st.zc - Bd.w / 2, z1 = st.zc + Bd.w / 2;
-      for (let k = 0; k < nSt; k++) { const top = D - rise * (k + 1) + rise, xa2 = xb + run * k, xb2 = xa2 + run; const yb = Math.max(FL, top - 0.3); B(wallM, xa2, xb2, yb, top, z0, z1, '#9a948a'); surf(xa2, xb2, z0, z1, top - yb, 'deck', { y0: yb }); }
+      for (let k = 0; k < nSt; k++) { const top = D - rise * (k + 1) + rise, xa2 = xb + run * k, xb2 = xa2 + run; const yb = Math.max(FL, top - 0.3); B(stone, xa2, xb2, yb, top, z0, z1, '#9a948a'); surf(xa2, xb2, z0, z1, top - yb, 'deck', { y0: yb }); }
       for (const ze of [z0, z1]) { beam(metal, xb, D - 0.3, ze, xb + Bd.run, FL - 0.05, ze, 0.08, 0.35, cc('#3c4a42')); beam(metal, xb, D + 1.0, ze, xb + Bd.run, FL + 1.0, ze, 0.05, 0.05, cc('#3c4a42')); for (let k = 0; k <= 8; k++) { const t = k / 8; rod(metal, xb + Bd.run * t, D + (FL - D) * t, ze, xb + Bd.run * t, D + (FL - D) * t + 1.0, ze, 0.02, cc('#3c4a42')); }
         for (let k = 0; k < 6; k++) { const ta = k / 6, tb = (k + 1) / 6, ya = D + (FL - D) * tb; colliders.push({ x0: xb + Bd.run * ta, x1: xb + Bd.run * tb, z0: ze - 0.05, z1: ze + 0.05, h: 1.0 + (D - FL) / 6, y0: ya, kind: 'landmark' }); } }
       metal.box(xb + Bd.run * 0.55, (FL + D * 0.5) / 2 + 0.2, st.zc, 0.25, D * 0.5 - FL + 0.4, 0.25, { col: cc('#3c4a42') }); }

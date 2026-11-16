@@ -10,6 +10,7 @@ import { buildPoliceHQ } from './PoliceHQ.js';
 import { buildJohnsSchool } from './JohnsSchool.js';
 import { discColliders } from './Parks.js';
 import { buildClockTower } from './ClockTower.js';
+import { buildFortStation } from './FortStation.js';
 
 const C = (hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; };
 const M4 = new THREE.Matrix4();
@@ -258,7 +259,12 @@ export function buildLandmarks() {
     coll(x0, x1, z0, z1, 12); colliders.push({ x0: qa, x1: qb, z0: pz1, z1: pz0, h: PH, kind: 'platform' });
     for (const ex of [-1, 1]) for (let k = 0; k < 5; k++) { const sx = ex < 0 ? qa - 0.45 * (k + 0.5) : qb + 0.45 * (k + 0.5), h = PH * (1 - (k + 1) / 6); box(conc, sx, LAND_Y + h / 2, pzc - 3, 0.45, h, pd - 6, '#9f9a90'); colliders.push({ x0: sx - 0.225, x1: sx + 0.225, z0: pzc - 3 - (pd - 6) / 2, z1: pzc - 3 + (pd - 6) / 2, h, kind: 'deck' }); } // steps at both ends
   };
-  station(-100, 30, -650, -630, 15, 'COLOMBO FORT', 'කොටුව', 'கோட்டை');
+  // 54th: Colombo Fort is built in full (FortStation.js). Its own builder → its own meshes, so the ~110k triangles of the
+  // station are frustum-culled as one unit instead of being drawn with every landmark in the city (and in every shadow pass)
+  { const fmb = new MultiBuilder(); const fg = new THREE.Group(); fg.name = 'fort-station';
+    anim.fortStation = buildFortStation({ mb: fmb, colliders, group: fg, C, hip, lightPool });
+    for (const m of fmb.toMeshes(MAT, { cast: true, receive: true })) { m.name = 'fort-' + m.name; if (m.name === 'fort-emissive') m.castShadow = false; fg.add(m); }
+    group.add(fg); }
   station(432, 528, -650, -630, 22, 'MARADANA', 'මරදාන', 'மருதானை');
   for (const st of STATIONS.slice(2)) { // small halts
     const alongZ = st.along === 'z'; const off = 1.65 + 3; const px = alongZ ? st.x + off : st.x, pz = alongZ ? st.z : st.z - off; // face 1.65 m from the track centre

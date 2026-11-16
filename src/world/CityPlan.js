@@ -6,6 +6,7 @@ import { onParkFeature, parkColliders, parkLamps, PARK, BAT_TREES, PLAY_ITEMS, P
 import { SIGNS, SHOP_ROWS } from '../gfx/Textures.js';
 import { crownPoints } from './TreeShapes.js';
 import { greenTrees, greenPlants } from './Greenery.js';
+import { fortClearAt } from './FortStationData.js';
 
 export const CHUNK = 200;
 export const NCX = Math.ceil((L.BOUNDS.maxX - L.BOUNDS.minX) / CHUNK), NCZ = Math.ceil((L.BOUNDS.maxZ - L.BOUNDS.minZ) / CHUNK);
@@ -595,7 +596,7 @@ export function generatePlan() {
   { const r = L.CUSTOMS_SITE.rect; const gone = new Set(plan.buildings.filter((b) => b.x1 > r[0] + 0.5 && b.x0 < r[1] - 0.5 && b.z1 > r[2] + 0.5 && b.z0 < r[3] - 0.5));
     if (gone.size) { plan.buildings = plan.buildings.filter((b) => !gone.has(b)); plan.colliders = plan.colliders.filter((c) => !(c.kind === 'building' && gone.has(c.b))); for (const ch of plan.byChunk) ch.buildings = ch.buildings.filter((b) => !gone.has(b)); }
     plan.customsCleared = [...gone].map((b) => b.id); }
-  { const inRes = (x, z) => !!L.fuelSiteAt(x, z) || !!L.customsSiteAt(x, z);
+  { const inRes = (x, z) => !!L.fuelSiteAt(x, z) || !!L.customsSiteAt(x, z) || fortClearAt(x, z, 0.5); // + Colombo Fort station (54th: the train shed, platforms and sidings stand there)
     const drop = new Set(plan.props.filter((p) => inRes(p.x, p.z))); const dropT = new Set(plan.trees.filter((t) => inRes(t.x, t.z))); const dropW = new Set(plan.walls.filter((w) => inRes((w.x0 + w.x1) / 2, (w.z0 + w.z1) / 2)));
     const cols = new Set([...drop].map((p) => p.col).filter(Boolean)); for (const t of dropT) cols.add(t.col);
     for (const c of plan.colliders) if (c.kind !== 'building' && inRes((c.x0 + c.x1) / 2, (c.z0 + c.z1) / 2)) cols.add(c);

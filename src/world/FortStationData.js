@@ -29,7 +29,7 @@ export const FORT = {
   shed: { x0: -112, x1: 26, zA: -628.8, zM: -606, zB: -584.8, eave: Y + 9.45, rise: 3.4, frames: 15, dx: 9.5 },
   bridge: { x0: -76.5, x1: -73.5, z0: -622.7, z1: -592.8, deck: FL + 6.2, stairs: [{ zc: -621.5 }, { zc: -607.8 }, { zc: -594 }], run: 10.8, w: 2.4 },
   // passengers' waypoints
-  street: [{ x: -35, z: -655.5 }, { x: -52, z: -654.5 }, { x: -18, z: -654.5 }], // on the Olcott Mawatha footway, in front of each entrance
+  street: [{ x: -35, z: -650.55 }, { x: -52, z: -650.5 }, { x: -18, z: -650.5 }], // on the (narrow) Olcott Mawatha footway, at the foot of each entrance's steps
   inside: [{ x: -35, z: -647.8 }, { x: -52, z: -647.8 }, { x: -18, z: -647.8 }],
   queueX: -57.6, // where the queue for a window starts (people stand at window.stand, the rest line up along +x)
   // where waiting passengers stand on platform 1 (the trains stop with their centre at x −35 → doors in x −86 … 16)
@@ -46,7 +46,7 @@ export const FORT = {
 };
 // benches: hall (4 rows across the middle, facing the platforms and the counters) + platform 1 (backs to the building)
 for (const x of [-48, -44.2, -26.2, -22.4]) for (const [z, yaw] of [[-640.6, 0], [-641.4, Math.PI]]) for (const o of [-1, 0, 1]) FORT.benches.push({ x: x + o * 0.95, z: z + (yaw ? -0.05 : 0.05), yaw, y: FL + 0.45, where: 'hall' });
-for (const x of [-108, -96, -84, -58, -42.5, -27.5, -12, 0, 12, 24]) { for (const o of [-1, 0, 1]) FORT.benches.push({ x: x + o * 0.95, z: -627.2, yaw: 0, y: FL + 0.45, where: 'p1' }); }
+for (const x of [-108, -96, -89.5, -58, -42.5, -27.5, -12, 0, 12, 24]) { for (const o of [-1, 0, 1]) FORT.benches.push({ x: x + o * 0.95, z: -627.2, yaw: 0, y: FL + 0.45, where: 'p1' }); }
 
 export const inRect = (r, x, z, pad = 0) => x > r.x0 - pad && x < r.x1 + pad && z > r.z0 - pad && z < r.z1 + pad;
 export function fortClearAt(x, z, pad = 0) { return FORT.clear.some((r) => inRect(r, x, z, pad)); }

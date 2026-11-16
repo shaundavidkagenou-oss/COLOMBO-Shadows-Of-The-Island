@@ -10,8 +10,10 @@ import { MAT } from '../gfx/Materials.js';
 import * as R from '../world/Railway.js';
 import { Audio } from '../audio/Audio.js';
 import { SoundBank } from '../audio/SoundBank.js';
+import { buildDmuCar, makeTrainMaterials, protoMeshes, doorZs, CAR_LEN as MODEL_LEN, BOGIE as MODEL_BOGIE, CAR_W as MODEL_W, FLOOR_Y } from './TrainModels.js';
 
-export const CAR_LEN = 19.6, CAR_GAP = 1.0, BOGIE = 14, CAR_W = 3.0, N_CARS = 5;
+export const CAR_LEN = MODEL_LEN, CAR_GAP = 1.0, BOGIE = MODEL_BOGIE, CAR_W = MODEL_W, N_CARS = 5;
+export { FLOOR_Y };
 export const TRAIN_LEN = N_CARS * CAR_LEN + (N_CARS - 1) * CAR_GAP;
 const VMAX = 15, ACC = 0.55, BRAKE = 0.75, EBRAKE = 1.4, DWELL = 25;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -29,62 +31,8 @@ const VLIM = (() => {
 })();
 export function speedLimitAt(s) { return VLIM[clamp(Math.round(s / STEP), 0, VLIM.length - 1)]; }
 
-// ---------------------------------------------------------------- shared car geometry (local: +z = car front, y = 0 at rail top)
-const COL = { blue: [0.11, 0.27, 0.6], red: [0.74, 0.12, 0.13], cream: [0.9, 0.88, 0.8], roof: [0.55, 0.57, 0.59], under: [0.16, 0.16, 0.17], door: [0.14, 0.22, 0.42], bogie: [0.12, 0.12, 0.12], gang: [0.1, 0.1, 0.1], yellow: [0.92, 0.75, 0.1] };
-let PROTO = null;
-function makeMaterials() {
-  return Object.assign(Object.create(MAT), {
-    trainWin: new THREE.MeshStandardMaterial({ color: 0x1a242c, roughness: 0.12, metalness: 0.4, emissive: 0xffdcaa, emissiveIntensity: 0 }),
-    trainCabGlass: new THREE.MeshStandardMaterial({ color: 0x10171c, roughness: 0.06, metalness: 0.6 }),
-  });
-}
-function buildCar(cab) {
-  const mb = new MultiBuilder(); const P = mb.get('paint'), M = mb.get('metal'), W = mb.get('trainWin'), G = mb.get('trainCabGlass');
-  const L2 = CAR_LEN / 2, hw = CAR_W / 2;
-  // underframe + bogies + wheels
-  P.box(0, 1.12, 0, CAR_W - 0.06, 0.26, CAR_LEN - 0.1, { col: COL.under, bottom: true });
-  P.box(0, 0.78, 0, 2.2, 0.45, 6.5, { col: COL.under }); P.box(0, 0.8, 0, 2.5, 0.3, 1.2, { col: [0.22, 0.22, 0.23] });
-  const wheel = new THREE.CylinderGeometry(0.46, 0.46, 0.13, 14); wheel.rotateZ(Math.PI / 2);
-  for (const bz of [-BOGIE / 2, BOGIE / 2]) {
-    P.box(0, 0.6, bz, 2.35, 0.32, 3.1, { col: COL.bogie, bottom: true }); P.box(0, 0.88, bz, 1.6, 0.2, 1.4, { col: COL.bogie });
-    for (const az of [-1.3, 1.3]) for (const sx of [-1, 1]) M.geometry(wheel, new THREE.Matrix4().makeTranslation(sx * 0.87, 0.46, bz + az), [0.3, 0.29, 0.28]);
-    for (const az of [-1.3, 1.3]) P.box(0, 0.46, bz + az, 1.74, 0.12, 0.12, { col: COL.bogie });
-  }
-  // body bands
-  P.box(0, 1.65, 0, CAR_W, 0.8, CAR_LEN, { col: COL.blue });
-  P.box(0, 2.11, 0, CAR_W + 0.01, 0.12, CAR_LEN - 0.02, { col: COL.red });
-  P.box(0, 2.66, 0, CAR_W - 0.02, 0.98, CAR_LEN, { col: COL.cream });
-  P.box(0, 3.4, 0, CAR_W - 0.04, 0.5, CAR_LEN, { col: COL.cream });
-  // roof (stepped camber) + roof equipment
-  P.box(0, 3.72, 0, CAR_W - 0.16, 0.16, CAR_LEN - 0.06, { col: COL.roof }); P.box(0, 3.86, 0, CAR_W - 0.7, 0.12, CAR_LEN - 0.2, { col: COL.roof }); P.box(0, 3.95, 0, CAR_W - 1.4, 0.07, CAR_LEN - 0.4, { col: COL.roof });
-  for (const z of [-5.5, 5.5]) P.box(0, 4.06, z, 1.3, 0.18, 2.0, { col: [0.7, 0.71, 0.72] });
-  // doors (two per side) and windows
-  const doorZ = [-L2 + 4.0, L2 - 4.0]; if (cab) doorZ[1] = L2 - 4.6;
-  for (const sx of [-1, 1]) {
-    for (const dz of doorZ) {
-      P.box(sx * (hw + 0.006), 2.15, dz, 0.03, 2.05, 1.35, { col: COL.door });
-      for (const lz of [-0.34, 0.34]) W.box(sx * (hw + 0.02), 2.62, dz + lz, 0.02, 0.8, 0.46);
-      P.box(sx * (hw + 0.012), 1.17, dz, 0.04, 0.06, 1.35, { col: COL.yellow }); // step edge
-    }
-    const winEnd = cab ? L2 - 3.0 : L2 - 1.2;
-    for (let z = -L2 + 1.2; z < winEnd - 0.6; z += 1.62) { if (doorZ.some((d) => Math.abs(z + 0.65 - d) < 1.35)) continue; W.box(sx * (hw + 0.01), 2.66, z + 0.65, 0.02, 0.82, 1.24); }
-  }
-  // ends
-  if (!cab) P.box(0, 2.3, L2 + 0.26, 1.3, 2.3, 0.52, { col: COL.gang });
-  P.box(0, 2.3, -L2 - 0.26, 1.3, 2.3, 0.52, { col: COL.gang }); // rear gangway (cab cars keep one at the inner end)
-  if (cab) {
-    P.box(0, 1.62, L2 + 0.03, CAR_W - 0.08, 0.86, 0.06, { col: COL.red }); // red front apron
-    P.box(0, 1.2, L2 + 0.05, CAR_W - 0.2, 0.18, 0.06, { col: COL.yellow }); // yellow warning band
-    G.box(0, 2.78, L2 + 0.02, CAR_W - 0.5, 1.02, 0.04); P.box(0, 2.78, L2 + 0.025, 0.08, 1.02, 0.05, { col: COL.cream }); // windscreen + pillar
-    P.box(0, 3.5, L2 + 0.025, CAR_W - 0.1, 0.42, 0.04, { col: COL.cream });
-    P.box(0, 0.5, L2 + 0.15, 2.5, 0.55, 0.14, { col: COL.under }); // plough
-    P.box(0, 1.05, L2 + 0.35, 0.32, 0.26, 0.7, { col: COL.under }); // coupler
-    for (const sx of [-1, 1]) G.box(sx * (hw + 0.012), 2.7, L2 - 1.6, 0.02, 0.8, 1.6); // cab side windows
-  }
-  return mb;
-}
-function protoMeshes(cab, mats) { return buildCar(cab).toMeshes(mats, { cast: true, receive: true }); }
-
+// ---------------------------------------------------------------- car geometry: vehicles/TrainModels.js (54th: S11-style DMU
+// shell with real window openings, open doorways, a full interior and seats people can sit in)
 function destTexture(st) {
   const c = document.createElement('canvas'); c.width = 512; c.height = 64; const x = c.getContext('2d');
   x.fillStyle = '#0b0b0b'; x.fillRect(0, 0, 512, 64); x.fillStyle = '#ffa31a'; x.textBaseline = 'middle'; x.textAlign = 'center';
@@ -123,13 +71,13 @@ class Train {
       if (cab) {
         const end = i === 0 ? 0 : 1; const em = this.endMats[end]; const L2 = CAR_LEN / 2;
         for (const sx of [-1, 1]) {
-          const h = new THREE.Mesh(sys.lampGeo, em.head); h.position.set(sx * 0.95, 1.55, L2 + 0.07); inner.add(h);
-          const t = new THREE.Mesh(sys.tailGeo, em.tail); t.position.set(sx * 1.27, 1.55, L2 + 0.07); inner.add(t);
+          const h = new THREE.Mesh(sys.lampGeo, em.head); h.position.set(sx * 0.98, 2.06, L2 + 0.04); inner.add(h); // in the black housings of the cab front
+          const t = new THREE.Mesh(sys.tailGeo, em.tail); t.position.set(sx * 1.36, 2.06, L2 + 0.02); inner.add(t);
         }
-        const d = new THREE.Mesh(sys.destGeo, em.dest); d.position.set(0, 3.5, L2 + 0.05); inner.add(d);
+        const d = new THREE.Mesh(sys.destGeo, em.dest); d.position.set(0, 3.55, L2 - 0.28); inner.add(d); // destination blind in the red cap band
         if (i === 0) inner.rotation.y = Math.PI;
       }
-      this.group.add(g); this.cars.push(g); const b = new TrainCar(this, i); this.bodies.push(b);
+      g.userData.inner = inner; g.userData.cab = cab; this.group.add(g); this.cars.push(g); const b = new TrainCar(this, i); this.bodies.push(b);
     }
     this.nextStop = this.findNextStop(); this.place(); this.updateLamps();
   }
@@ -233,9 +181,11 @@ function buildCrossing(sys, c) {
 export class Trains {
   constructor(scene, opts = {}) {
     this.scene = scene; this.night = 0; this.crossings = R.CROSSINGS; this.obstacles = [];
-    const mats = makeMaterials(); this.mats = mats;
-    this.protoCab = protoMeshes(true, mats); this.protoTrailer = protoMeshes(false, mats);
-    this.lampGeo = new THREE.BoxGeometry(0.32, 0.2, 0.04); this.tailGeo = new THREE.BoxGeometry(0.16, 0.16, 0.04); this.destGeo = new THREE.PlaneGeometry(1.7, 0.26);
+    const mats = makeTrainMaterials(); this.mats = mats;
+    const cab = buildDmuCar(true), tr = buildDmuCar(false);
+    this.protoCab = protoMeshes(cab.mb, mats); this.protoTrailer = protoMeshes(tr.mb, mats);
+    this.seatsCab = cab.seats; this.seatsTrailer = tr.seats; this.doorsCab = doorZs(true); this.doorsTrailer = doorZs(false); // car-local (+z = car front) for the station's passengers
+    this.lampGeo = new THREE.BoxGeometry(0.42, 0.18, 0.03); this.tailGeo = new THREE.BoxGeometry(0.12, 0.12, 0.03); this.destGeo = new THREE.PlaneGeometry(1.34, 0.26);
     this.destTex = [destTexture(R.STOPS[0]), destTexture(R.STOPS[R.STOPS.length - 1])];
     // The line is single-track with no passing loops, so ONE train works the full line (Wellawatte ↔ Maradana).
     // A second train in the opposite direction would inevitably meet it head-on; obstacleAhead() also treats other
@@ -308,7 +258,7 @@ export class Trains {
     const t = Math.max(0.3, t0); return Math.asin(Math.min(0.999, (top - sd.py) / t));
   }
   update(dt, { focus, night = 0, player = null, playerVehicle = null, vehicles = [], listener = null } = {}) {
-    this.night = night; for (const m of [this.mats.trainWin]) m.emissiveIntensity = night * 0.85;
+    this.night = night; { const k = 0.54 + night * 0.62, L = this.mats.trainLamp.color; if (Math.abs(L.r - k) > 0.01) L.setRGB(k, k * 0.985, k * 0.94); } // the saloon tubes: grey by day, lit after dark
     const obstacles = [playerVehicle || player, ...vehicles.filter((v) => !v.isTrain && (v.speed || 0) < 1.5), ...(this.trains.length > 1 ? this.bodies : [])];
     for (const t of this.trains) { t.update(dt, { obstacles }); if (t._night !== Math.round(night * 4)) { t._night = Math.round(night * 4); t.updateLamps(); } }
     this.updateCrossings(dt, listener, playerVehicle ? [playerVehicle, ...vehicles] : vehicles);
