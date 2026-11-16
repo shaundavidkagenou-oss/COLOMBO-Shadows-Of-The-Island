@@ -23,6 +23,7 @@ import { WEAPONS } from '../combat/WeaponDefs.js';
 import { buildWeaponModel } from '../combat/WeaponModels.js';
 import { holdFor } from '../combat/GripSolver.js';
 import { Audio } from '../audio/Audio.js';
+import { Voices } from '../audio/Voices.js';
 import { bloomHotAt } from '../gfx/BloomHot.js';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 
@@ -401,7 +402,8 @@ function robLogic(game, room, id, def, o) {
   const clock = () => game.clock || performance.now() / 1000;
   const toWorld = (x, y, z, out = new THREE.Vector3()) => { out.set(x, y, z); return room.og ? room.og.localToWorld(out) : out; };
   const keeperYaw = (want, dt, rate = 6) => { const cur = kp.root.rotation.y; let d = want - cur; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; kp.root.rotation.y = cur + d * Math.min(1, dt * rate); return Math.abs(d); };
-  const say = (line, dur = 3) => game.hud && game.hud.subtitle && game.hud.subtitle(def.name, line, '', dur);
+  const say = (line, dur = 3, sit = 'surrender') => { let vd = 0; if (Voices.any()) { const w = kp.root.getWorldPosition(new THREE.Vector3()); vd = Voices.say(kp.spec || def.keeper, sit, w.x, w.z, kp, 'shopkeeper'); } // recorded keeper voice (console: dialogs → Shopkeepers)
+    if (game.hud && game.hud.subtitle) game.hud.subtitle(def.name, line, '', Math.max(dur, vd + 0.3)); };
   // ---- ray tests in the room's frame (Weapons.trace while the player is inside)
   const toLocalRay = (oW, dW) => { const og = room.og; if (!og) return null; const inv = new THREE.Matrix4().copy(og.matrixWorld).invert(); const lo = oW.clone().applyMatrix4(inv); const ld = dW.clone().transformDirection(inv); return { lo, ld }; };
   R.rayRoom = (oW, dW, range) => { const L = toLocalRay(oW, dW); if (!L) return range; const { lo, ld } = L; let t = range; const hw = DOOR_W / 2; R.exitT = null;
@@ -464,7 +466,7 @@ function robLogic(game, room, id, def, o) {
     switch (R.state) {
       case 'idle': if (pl.inside && (ka || shot)) begin(); break;
       case 'empty': room.keeperBusy = false; if (R.t > 6 && R.seenGun < -3) { A.set('cower'); } break;
-      case 'scared': { room.keeperBusy = false; if (R.surprise && R.t > 1.1 + Math.random() * 0.02 + (R.delay ?? (R.delay = Math.random() * 0.8))) { R.state = 'draw'; R.t = 0; A.set(null); say(['You think you can rob me?!', 'Not today!', 'Get out of my shop!'][Math.floor(Math.random() * 3)], 2); break; }
+      case 'scared': { room.keeperBusy = false; if (R.surprise && R.t > 1.1 + Math.random() * 0.02 + (R.delay ?? (R.delay = Math.random() * 0.8))) { R.state = 'draw'; R.t = 0; A.set(null); say(['You think you can rob me?!', 'Not today!', 'Get out of my shop!'][Math.floor(Math.random() * 3)], 2, 'angry'); break; }
         if (!R.surprise && R.t > 0.9) { R.state = 'turn'; R.t = 0; room.keeperBusy = true; A.set(null); } break; }
       case 'turn': { const want = Math.atan2(o.till.x - o.kx, o.till.z - o.kz); if (keeperYaw(want, dt, 7) < 0.08 || R.t > 0.7) { R.state = 'grab'; R.t = 0; } break; }
       case 'grab': { const u = R.t / 1.1; o.drawer.position.x = o.till.x + 0.02 + 0.22 * sm(u / 0.3); handIK({ x: o.till.x + 0.24, y: o.till.y + 0.12 - 0.06 * Math.sin(Math.min(1, u) * Math.PI), z: o.till.z }, sm(u / 0.35) * (1 - sm((u - 0.8) / 0.2)));

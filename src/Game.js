@@ -52,6 +52,7 @@ import { makePoliceAppearance } from './actors/Appearance.js';
 import { Traffic } from './vehicles/Traffic.js';
 import { Trains } from './vehicles/Trains.js';
 import { Audio } from './audio/Audio.js';
+import { Voices } from './audio/Voices.js';
 import { HUD } from './ui/HUD.js';
 import { Satellite } from './ui/Satellite.js';
 const HQ_SKY = new THREE.Color(0xfff3e4), HQ_GND = new THREE.Color(0x8a8478); // walk-in HQ indoor fill
@@ -356,18 +357,21 @@ export class Game {
   // ================================================================= events → audio / HUD
   wireEvents() {
     bus.on('footstep', (e) => Audio.footstep(e.sprint, this.atmos.wet > 0.3 && !this.indoor && !this.player.indoor));
-    bus.on('horn', (v) => Audio.horn(v.type, v.x, v.z, v.tune ? v.tune.horn : null));
+    bus.on('horn', (v) => Audio.horn(v.type, v.x, v.z, v.tune ? v.tune.horn : null, v)); // emitters gate it first with Audio.hornFree (one 2 s horn per vehicle)
     bus.on('crash', (v) => Audio.crash(v));
     bus.on('land', () => Audio.footstep(true, false));
     bus.on('towed', (v) => this.hud.notify('Vehicle towed', `Your ${VNAMES[v.type] || 'vehicle'} was left unattended for 5 minutes and a CMC tow truck has taken it away.`, 'info', 5));
-    bus.on('enterVehicle', ({ v, hadDriver }) => { if (v && v.T && v.T.pedal) return; /* the bicycle shows its own hint (BicycleRide.js) */ if (hadDriver) this.hud.subtitle('Driver', 'Ado! What are you doing? That\'s my vehicle!', '', 2.8); this.hud.notify(VNAMES[v.type] || 'Vehicle', `${this.hud.key('enter')} exit · ${this.hud.key('horn')} horn · ${this.hud.key('lights')} lights · ${this.hud.key('radio')} radio`, 'info', 3.5); Audio.ui('door'); });
-    bus.on('npcLineRaw', ({ who, text }) => this.hud.subtitle(who, text, '', 2.4));
+    bus.on('enterVehicle', ({ v, hadDriver }) => { if (v && v.T && v.T.pedal) return; /* the bicycle shows its own hint (BicycleRide.js) */ if (hadDriver) { this.hud.subtitle('Driver', 'Ado! What are you doing? That\'s my vehicle!', '', 2.8); Voices.say(null, 'carjack', v.x, v.z, null, 'driver'); } this.hud.notify(VNAMES[v.type] || 'Vehicle', `${this.hud.key('enter')} exit · ${this.hud.key('horn')} horn · ${this.hud.key('lights')} lights · ${this.hud.key('radio')} radio`, 'info', 3.5); Audio.ui('door'); });
+    bus.on('npcLineRaw', ({ who, text, voice }) => { const d = voice && voice.spec ? Voices.say(voice.spec, voice.sit, voice.x, voice.z, voice.who || null, voice.group) : 0; this.hud.subtitle(who, text, '', Math.max(2.4, d + 0.3)); }); // carjacked driver (console: dialogs → Car stolen)
     bus.on('exitVehicle', () => { if (this.radio) { this.radio = 0; } });
     bus.on('doorOpen', () => Audio.doorOpen()); bus.on('doorSlam', ({ s }) => Audio.doorSlam(s));
-    bus.on('npcLine', ({ ped, line, prio }) => {
+    bus.on('npcLine', ({ ped, line, prio, cat, group }) => {
+      // a recorded voice for this speaker / situation (console: dialogs) is heard out to ~40 m, subtitles or not; without one the
+      // synthesised blip below stays as it was
+      let voiced = 0; { const P = this.player; const d = Math.hypot(ped.x - P.x, ped.z - P.z); if (d < 40 && !this.director.active && !this.indoor) { voiced = Voices.line(ped.sp, cat, ped.x, ped.z, ped.voice || (ped.ch ? ped : null), group); if (voiced && ped.ch) ped.voiceDur = voiced; } }
       if (!Settings.get('subtitles') && prio < 1) return; const P = this.player; const d = Math.hypot(ped.x - P.x, ped.z - P.z); if (d > (prio ? 16 : 9) || this.director.active || this.indoor) return;
       if ((this.hud.subUntil || 0) > performance.now() && (!prio || this.story.running)) return; const lang = line.si ? 'si' : line.ta ? 'ta' : 'en'; const who = ped.sp?.profile === 'tourist' ? 'Tourist' : ped.sp?.sex === 'f' ? (ped.sp.age === 'elder' ? 'Aunty' : 'Woman') : (ped.sp?.age === 'elder' ? 'Uncle' : 'Man');
-      this.hud.subtitle(who, line.si || line.ta || line.en, line.tr || '', 3, lang); Audio.talkBlip(lang, voiceTone(ped.mind), ped.sp?.sex === 'f'); // pitch / tempo / loudness follow the speaker's feelings
+      this.hud.subtitle(who, line.si || line.ta || line.en, line.tr || '', Math.max(3, voiced + 0.4), lang); if (!voiced) Audio.talkBlip(lang, voiceTone(ped.mind), ped.sp?.sex === 'f'); // pitch / tempo / loudness follow the speaker's feelings
     });
     bus.on('pedHit', (p) => { if (p && p.knockedByCar) Audio.crash(4); });
     bus.on('pedReport', (e) => { if (this.police) this.police.report(e); });

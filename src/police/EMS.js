@@ -21,6 +21,7 @@ import * as THREE from 'three';
 import { Keys, supineFrame, rollAngle, rotateAbout, RAG_N } from '../actors/Ragdoll.js';
 import { AMB } from '../vehicles/AmbulanceKit.js';
 import { Audio } from '../audio/Audio.js';
+import { Voices } from '../audio/Voices.js';
 import { SoundBank } from '../audio/SoundBank.js';
 
 const IX = Object.fromEntries(RAG_N.map((n, i) => [n, i]));
@@ -114,7 +115,7 @@ export class EMS {
     this.dropProps(u); e.ph = 'leave'; e.t = 0; for (const o of u.officers) { o.want = null; if (o.mode === 'foot') { o.mode = 'return'; o.goal = null; o.ch.anim.set(null); } }
     if (!u.v || u.v.player) { this.units = this.units.filter((q) => q !== u); for (const o of u.officers) if (o.mode !== 'seated') { o.ch.root.parent?.remove(o.ch.root); o.ch.dispose(); } if (u.v) { u.v.police = null; u.v.ems = false; } }
   }
-  say(kind, who = 'EMT') { const arr = MEDIC_LINES[kind]; if (!arr) return; const l = arr[Math.floor(Math.random() * arr.length)]; const lang = l.si ? 'si' : l.ta ? 'ta' : 'en'; const P = this.g.player; const u = this.units[0]; if (u && u.officers[0] && Math.hypot(u.officers[0].x - P.x, u.officers[0].z - P.z) > 45) return; this.g.hud.subtitle(`${who} · 1990 Suwa Seriya`, l.si || l.ta || l.en, l.tr || '', 3, lang); Audio.talkBlip?.(lang); }
+  say(kind, who = 'EMT') { const arr = MEDIC_LINES[kind]; if (!arr) return; const l = arr[Math.floor(Math.random() * arr.length)]; const lang = l.si ? 'si' : l.ta ? 'ta' : 'en'; const P = this.g.player; const u = this.units[0]; if (u && u.officers[0] && Math.hypot(u.officers[0].x - P.x, u.officers[0].z - P.z) > 45) return; const m = u && u.officers[0]; const vd = m ? Voices.say(m.ch && m.ch.spec, 'order', m.x, m.z, m, 'medic') : 0; this.g.hud.subtitle(`${who} · 1990 Suwa Seriya`, l.si || l.ta || l.en, l.tr || '', Math.max(3, vd + 0.3), lang); if (!vd) Audio.talkBlip?.(lang); }
   // ---------------------------------------------------------------- per frame
   update(dt) {
     this.t += dt; if (this.waits && this.waits.length) { const due = this.waits.filter((w) => (w.t -= dt) <= 0); this.waits = this.waits.filter((w) => w.t > 0); for (const w of due) w.fn(); }

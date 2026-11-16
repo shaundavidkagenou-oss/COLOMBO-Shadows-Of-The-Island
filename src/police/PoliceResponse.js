@@ -27,6 +27,7 @@ import { seatCharacter } from '../actors/Seating.js';
 import { boardCurve, poseBoard, npcBoardSetup, boardGroundFn, swingDoor, lapGrips, EXIT_K } from '../actors/Boarding.js';
 import { shutDoorLater, cancelShut, poseDoor } from '../vehicles/DoorRig.js';
 import { Audio } from '../audio/Audio.js';
+import { Voices } from '../audio/Voices.js';
 import { SoundBank } from '../audio/SoundBank.js';
 import { clamp, lerp } from '../core/math.js';
 import { FootNav } from './FootNav.js';
@@ -772,7 +773,7 @@ export class PoliceResponse {
     for (const b of gone) { if (b.ch.rag) { this.g.ragdolls?.remove(b.ch.rag); b.ch.rag = null; } b.ch.root.parent?.remove(b.ch.root); b.ch.dispose(); } if (gone.length) this.bodies = this.bodies.filter((b) => !gone.includes(b));
   }
   pushPlayer() { const P = this.g.player; if (P.vehicle) return; for (const o of this.foot) { const dx = P.x - o.x, dz = P.z - o.z, d = Math.hypot(dx, dz); if (d < 0.55 && d > 1e-3) { P.x = o.x + (dx / d) * 0.55; P.z = o.z + (dz / d) * 0.55; } } }
-  say(o, kind, who) { const arr = LINES[kind]; if (!arr) return; const l = arr[Math.floor(Math.random() * arr.length)]; const lang = l.si ? 'si' : l.ta ? 'ta' : 'en'; this.g.hud.subtitle(who || 'Police officer', l.si || l.ta || l.en, l.tr || '', 2.6, lang); Audio.talkBlip?.(lang); }
+  say(o, kind, who) { const arr = LINES[kind]; if (!arr) return; const l = arr[Math.floor(Math.random() * arr.length)]; const lang = l.si ? 'si' : l.ta ? 'ta' : 'en'; const vd = o && o.x !== undefined ? Voices.say(o.ch && o.ch.spec, 'order', o.x, o.z, o, 'police') : 0; this.g.hud.subtitle(who || 'Police officer', l.si || l.ta || l.en, l.tr || '', Math.max(2.6, vd + 0.3), lang); if (!vd) Audio.talkBlip?.(lang); } // recorded police voice (console: dialogs → Police officers · Orders), else the blip
 
   // ------------------------------------------------------------------ stop → fine (1★)
   beginStop(o) { this.stop = { o, t: 0, still: 0, fled: false, warned: true }; this.say(o, 'stop', 'Police officer'); this.note('stop issued'); }

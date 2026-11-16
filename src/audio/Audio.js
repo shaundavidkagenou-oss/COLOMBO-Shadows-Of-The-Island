@@ -6,6 +6,7 @@ import * as L from '../world/Layout.js';
 import { CATALOG, isHeavy } from '../vehicles/VehicleCatalog.js';
 import { BIKES } from '../vehicles/BikeCatalog.js';
 import { SoundBank as SB } from './SoundBank.js'; // player-supplied recordings replacing any of the sounds below (console: sounds)
+const HORN_LEN = 2.0, NPC_HORNS = 3; // s · NPC horns sounding at once
 const DIESEL = new Set(['van', 'suv', 'policejeep', ...Object.keys(CATALOG).filter((k) => CATALOG[k].sound === 'van')]);
 
 class AudioEngine {
@@ -54,12 +55,26 @@ class AudioEngine {
   }
   // ---- spatial helper: returns [gain, pan] for a world point relative to listener
   spatial(x, z, ref = 30) { if (!this.listener) return [1, 0]; const l = this.listener; const dx = x - l.x, dz = z - l.z; const d = Math.hypot(dx, dz); const g = clamp(ref / (ref + d * d * 0.08), 0, 1); const rx = Math.cos(l.yaw), rz = -Math.sin(l.yaw); const pan = clamp((dx * rx + dz * rz) / (d + 1), -1, 1) * -1; return [g, pan]; }
+  // distance cues for a one-shot at a world point (52nd): gain + pan as spatial(), plus the speed-of-sound delay, a low-pass
+  // (air and the buildings in between take the highs off a far sound) and how much of it is reverb (far = mostly reflections)
+  at(x, z, ref = 30) { const [g, pan] = this.spatial(x, z, ref); const l = this.listener; const d = l ? Math.hypot(x - l.x, z - l.z) : 0;
+    return { g, pan, d, delay: Math.min(1.5, d / 343), lp: d < 8 ? 0 : clamp(20000 / (1 + (d - 8) / 22), 700, 20000), wet: clamp(0.25 + d / 70, 0.25, 1.3) }; }
+  // ---- horns (52nd): a horn is exactly HORN_LEN long (the players' horn recordings are 2 s; a longer file is cut there with a
+  // short fade) and a vehicle can't sound it again until it has finished — no stacking when the key is hammered or a stuck NPC
+  // leans on it. At most NPC_HORNS NPC horns sound at once (a jam used to become a wall of horns); the player's always sounds.
+  // The horn follows its vehicle while it plays (gain / pan updated every frame).
+  hornFree(src, player = false) {
+    const now = performance.now() / 1000; if (src && (src._hornT || 0) > now) return false;
+    this.hornsOn = (this.hornsOn || []).filter((t) => t > now); if (!player && this.hornsOn.length >= NPC_HORNS) return false;
+    if (src) src._hornT = now + HORN_LEN; if (!player) this.hornsOn.push(now + HORN_LEN); return true;
+  }
   // ---- sfx
   footstep(sprint, wet) { if (SB.play('footstep', (sprint ? 1 : 0.6) * (0.85 + Math.random() * 0.3), 0, 0, { rate: 0.94 + Math.random() * 0.12 })) return; this.noise(0.07, { f: wet ? 1800 : 900 + Math.random() * 300, q: 1.2, vol: sprint ? 0.12 : 0.07, type: 'bandpass' }); if (wet) this.noise(0.05, { f: 3500, q: 2, vol: 0.04, when: 0.02 }); }
-  horn(type, x, z, style = null) {
+  horn(type, x, z, style = null, src = null) {
     const [g, pan] = this.spatial(x, z, 60); if (g < 0.02) return; const v = 0.25 * g;
     if (type === 'dbike') { for (const w of [0, 0.17]) { this.tone(2380, 0.55, { type: 'sine', vol: v * 0.32, pan, when: w, attack: 0.002 }); this.tone(5950, 0.3, { type: 'sine', vol: v * 0.08, pan, when: w, attack: 0.002 }); } return; } // bicycle bell: two rings
-    if (SB.play(style ? 'horn.' + style : type === 'tuktuk' || type === 'bike' || BIKES[type] ? 'horn.small' : isHeavy(type) ? 'horn.heavy' : 'horn.car', g, pan)) return;
+    const id = style ? 'horn.' + style : type === 'tuktuk' || type === 'bike' || BIKES[type] ? 'horn.small' : isHeavy(type) ? 'horn.heavy' : 'horn.car';
+    const tr = src ? { src, ref: 60, g0: g } : null; if (SB.play(id, g, pan, 0, { dur: HORN_LEN, lp: this.at(x, z).lp, track: tr, key: src ? null : id })) { if (tr && tr.voice) (this.tracked ||= []).push(tr); return; }
     if (style) { // Street Customs horns
       if (style === 'dual') { this.tone(392, 0.4, { type: 'square', vol: v * 0.35, pan }); this.tone(494, 0.4, { type: 'square', vol: v * 0.3, pan }); }
       else if (style === 'sport') { this.tone(640, 0.28, { type: 'square', vol: v * 0.35, pan }); this.tone(800, 0.28, { type: 'square', vol: v * 0.28, pan }); }
@@ -72,10 +87,18 @@ class AudioEngine {
   }
   crash(v) { if (SB.play('veh.crash', clamp(v / 20, 0.2, 1))) return; this.noise(0.5, { f: 600, q: 0.7, vol: clamp(v / 20, 0.1, 0.6), type: 'lowpass', buf: this.brownBuf }); this.noise(0.25, { f: 3000, q: 1, vol: clamp(v / 40, 0.05, 0.3), when: 0.02 }); for (let i = 0; i < 4; i++) this.tone(2000 + Math.random() * 3000, 0.15, { type: 'triangle', vol: 0.03, when: 0.05 + i * 0.04 }); }
   // ---- vehicle damage (VehicleDamage.js), all positional
-  glassShatter(x, z, big = 1) { if (!this.ready) return; const [g, pan] = this.spatial(x, z, 25); if (g < 0.01) return; const v = g * big; if (SB.play('veh.glass', Math.min(1, v), pan)) return; // tempered glass: a sharp burst, then the cubes raining down
+  glassShatter(x, z, big = 1) { if (!this.ready) return; const [g, pan] = this.spatial(x, z, 25); if (g < 0.01) return; const v = g * big; if (SB.play('veh.glass', Math.min(1, v), pan, 0, { lp: this.at(x, z).lp })) return; // tempered glass: a sharp burst, then the cubes raining down
     this.noise(0.06, { f: 5200, q: 0.7, type: 'highpass', vol: 0.3 * v, pan, attack: 0.001 }); this.noise(0.15 + 0.5 * big, { f: 7000, q: 0.6, vol: 0.07 * v, pan, when: 0.03, attack: 0.01 });
     for (let i = 0; i < 10; i++) this.tone(2800 + Math.random() * 6000, 0.04 + Math.random() * 0.1, { type: 'triangle', vol: 0.035 * v, when: 0.02 + Math.random() * (0.25 + 0.35 * big), pan: clamp(pan + (Math.random() - 0.5) * 0.3, -1, 1) }); }
-  glassCrack(x, z) { if (!this.ready) return; const [g, pan] = this.spatial(x, z, 25); if (g < 0.01) return; if (SB.play('veh.glassCrack', g, pan)) return; this.noise(0.04, { f: 3500, q: 1.5, vol: 0.2 * g, pan, attack: 0.001 }); this.tone(1500 + Math.random() * 500, 0.05, { type: 'triangle', vol: 0.04 * g, pan }); }
+  glassCrack(x, z) { if (!this.ready) return; const [g, pan] = this.spatial(x, z, 25); if (g < 0.01) return; if (SB.play('veh.glassCrack', g, pan, 0, { lp: this.at(x, z).lp })) return; this.noise(0.04, { f: 3500, q: 1.5, vol: 0.2 * g, pan, attack: 0.001 }); this.tone(1500 + Math.random() * 500, 0.05, { type: 'triangle', vol: 0.04 * g, pan }); }
+  // a grenade bouncing / clattering at (x, z), k = impact strength 0..1: heard from where it lands (the grenade's own sound
+  // used to play at the player's ear wherever it was)
+  grenadeBounce(x, z, k = 1) { if (!this.ready) return; const A = this.at(x, z, 14); if (A.g < 0.008) return; const v = A.g * k;
+    if (SB.play('grenade.bounce', v, A.pan, A.delay, { lp: A.lp, verb: A.d > 25, wet: A.wet * 0.5 })) return;
+    this.tone(520 + Math.random() * 380, 0.05, { type: 'triangle', vol: clamp(0.09 * v, 0.004, 0.09), pan: A.pan, when: A.delay }); this.noise(0.04, { f: Math.min(1800, A.lp || 1800), q: 1.5, vol: 0.05 * v, pan: A.pan, when: A.delay }); }
+  // an NPC's recorded voice at (x, z) (Voices.js): through the dialogue bus, distance-shaped, following the speaker while it plays
+  voice(id, x, z, { src = null, k = 1, rate = 1, ref = 18 } = {}) { if (!this.ready) return 0; const A = this.at(x, z, ref); if (A.g < 0.01) return 0; const tr = src ? { src, ref, g0: A.g } : null;
+    if (!SB.play(id, k * A.g, A.pan, 0, { out: 'dlg', rate, lp: A.lp, verb: A.d > 20, wet: A.wet * 0.4, track: tr, key: 'dlg' })) return 0; if (tr && tr.voice) (this.tracked ||= []).push(tr); return SB.lastDur || 1; }
   bulletMetal(x, z, heavy = false) { if (!this.ready) return; const [g, pan] = this.spatial(x, z, 30); if (g < 0.01) return; if (SB.play('impact.metal', g * (heavy ? 1 : 0.8), pan, 0, { rate: heavy ? 0.85 : 1 })) return; this.noise(0.07, { f: heavy ? 520 : 1100, q: 0.9, type: 'lowpass', vol: 0.3 * g, pan, attack: 0.001 }); const f = 1700 + Math.random() * 900; this.tone(f, 0.12, { type: 'sine', vol: 0.05 * g, pan, glide: f * 0.8 }); }
   tyreBurst(x, z) { if (!this.ready) return; const [g, pan] = this.spatial(x, z, 35); if (g < 0.01) return; if (SB.play('veh.tyreBurst', g, pan)) return; this.noise(0.12, { f: 1600, q: 0.6, type: 'lowpass', vol: 0.55 * g, pan, attack: 0.001 }); this.tone(90, 0.12, { type: 'sine', vol: 0.3 * g, pan, glide: 50 }); this.noise(0.9, { f: 4500, q: 0.8, vol: 0.1 * g, pan, when: 0.05, sweep: 2500 }); }
   fireCrackle(x, z, k = 1) { if (!this.ready) return; const [g, pan] = this.spatial(x, z, 20); if (g < 0.02) return; if (SB.play('fire', g * k, pan, 0, { mono: true })) return; this.noise(0.015 + Math.random() * 0.03, { f: 1200 + Math.random() * 2500, q: 2, vol: 0.12 * g * k, pan, attack: 0.001 }); if (Math.random() < 0.3) this.noise(0.4, { f: 300, type: 'lowpass', q: 0.5, vol: 0.08 * g * k, buf: this.brownBuf, pan }); }
@@ -102,7 +125,7 @@ class AudioEngine {
   explosion(x, z, power = 1) {
     if (!this.ready) return; const l = this.listener; const d = l ? Math.hypot(x - l.x, z - l.z) : 10; const [, pan] = this.spatial(x, z, 60);
     const w = Math.min(1.4, d / 343), g = Math.min(1, 26 / (26 + d)) * power, near = Math.max(0, 1 - d / 70);
-    if (SB.play('explosion', g, pan, w, { verb: true })) return;
+    if (SB.play('explosion', g, pan, w, { verb: true, lp: this.at(x, z).lp, wet: clamp(0.4 + d / 60, 0.4, 1.6) })) return; // a recorded blast from 150 m: late, dull, mostly the echo off the buildings
     this.noise(0.05, { f: 3200, q: 0.5, vol: 0.85 * g * near, when: w, pan });                                                   // the crack of the detonation
     this.noise(0.9, { f: 2400 * (0.35 + 0.65 * near), q: 0.35, type: 'lowpass', vol: 0.95 * g, when: w, attack: 0.004, pan, sweep: 260, verb: true }); // blast
     this.tone(62, 0.85, { type: 'sine', vol: 0.95 * g, when: w, attack: 0.006, glide: 26, pan });                               // pressure thump
@@ -130,6 +153,8 @@ class AudioEngine {
   // ---- per-frame
   update(dt, st) {
     if (!this.ready) return; const c = this.ctx, t = c.currentTime; this.listener = st.listener; const L_ = this.layers;
+    if (this.tracked && this.tracked.length) for (let i = this.tracked.length - 1; i >= 0; i--) { const T = this.tracked[i], V = T.voice; if (!V || V.end <= t || !T.src) { this.tracked.splice(i, 1); continue; } // horns / voices following their source
+      const [g, pan] = this.spatial(T.src.x, T.src.z, T.ref); if (V.end - t > 0.05) V.g.gain.setTargetAtTime(Math.max(0.0001, V.lvl * g / Math.max(1e-3, T.g0)), t, 0.05); V.p.pan.setTargetAtTime(pan, t, 0.05); }
     const night = st.night, rain = st.rain;
     const coast = Math.max(0, 1 - Math.abs(st.listener.x - L.coastX(st.listener.z)) / 140);
     const busy = clamp(st.traffic / 30, 0, 1);
@@ -143,7 +168,7 @@ class AudioEngine {
       if (!night && Math.random() < dt * 0.35) this.crow();
       if (!night && rain < 0.3 && Math.random() < dt * 0.5) this.bird();
       if (night && Math.random() < dt * 0.4) this.cricket();
-      if (Math.random() < dt * 0.05 * busy) this.horn(Math.random() < 0.6 ? 'tuktuk' : 'car', st.listener.x + (Math.random() - 0.5) * 200, st.listener.z + (Math.random() - 0.5) * 200);
+      if (Math.random() < dt * 0.05 * busy && this.hornFree(this.ambHorn || (this.ambHorn = {}))) this.horn(Math.random() < 0.6 ? 'tuktuk' : 'car', st.listener.x + (Math.random() - 0.5) * 200, st.listener.z + (Math.random() - 0.5) * 200);
     }
     this.updateEngines(st); this.updateMusic(dt, st);
   }

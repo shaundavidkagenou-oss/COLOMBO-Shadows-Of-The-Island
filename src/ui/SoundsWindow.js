@@ -16,6 +16,7 @@ const CSS = `
 .snd-cat{position:sticky;top:0;background:#1d222c;color:#e0a030;font-weight:600;padding:4px 8px;border-bottom:1px solid #2c3340;z-index:1}
 .snd-row{display:grid;grid-template-columns:26px minmax(150px,1.5fr) minmax(120px,1.2fr) auto 74px auto;gap:6px;align-items:center;padding:4px 8px;border-bottom:1px solid #1a1f28}
 .snd-row:hover{background:#151a22}
+.snd-row.var{background:#0c0e12}.snd-row.var .nm{padding-left:14px}
 .snd-row .nm small{display:block;color:#6f7a88;font-family:ui-monospace,Consolas,monospace;font-size:10px}
 .snd-row .st{color:#7f8a98;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .snd-row .st.cus{color:#7fd0a0}.snd-row .st.pend{color:#f0c060}.snd-row .st.bad{color:#f0866e}
@@ -29,6 +30,7 @@ const ACCEPT = '.mp3,.wav,.ogg,audio/mpeg,audio/wav,audio/x-wav,audio/ogg';
 
 // how each original (synthesised) sound is heard in the preview; recordings are bypassed while it plays
 function demoOriginal(g, id) {
+  if (SOUND_BY_ID[id] && SOUND_BY_ID[id].varOf) id = SOUND_BY_ID[id].varOf; // a variation's original is its sound's
   const A = Audio, l = A.listener || { x: 0, z: 0 }, W = g.weapons; const run = (f) => { SoundBank.bypass = true; try { f(); } finally { SoundBank.bypass = false; } };
   const gun = id.startsWith('gun.') && (WEAPONS.find((w) => 'gun.' + w.id === id) || (id === 'gun.t56' ? POLICE_T56 : null));
   if (gun && W && W.gunSound) { run(() => W.gunSound(gun, l.x, l.z)); return true; }
@@ -94,7 +96,8 @@ export async function open(game) {
   const decodes = async (data) => { try { await Audio.ctx.decodeAudioData(data.slice(0)); return true; } catch { return false; } };
 
   const search = h('input', { type: 'text', placeholder: 'Search sounds…', style: { flex: 1, minWidth: '160px' } });
-  const cats = [...new Set(SOUND_DEFS.map((d) => d.cat))];
+  const DEFS = SOUND_DEFS.filter((d) => !d.dlg); // NPC voices have their own window (console: dialogs)
+  const cats = [...new Set(DEFS.map((d) => d.cat))];
   const catSel = h('select', {}, h('option', { value: '' }, 'All categories'), cats.map((c) => h('option', { value: c }, c)));
   const onlyCus = h('input', { type: 'checkbox' });
   const info = h('div', { cls: 'snd-info' }, 'Checking where sounds are saved…');
@@ -130,7 +133,7 @@ export async function open(game) {
     if (!files.length) { toast('No replaced sounds to export yet', 2400); return; }
     files.push({ name: 'sounds/sounds.json', data: new TextEncoder().encode(JSON.stringify(meta, null, 2) + '\n') });
     const a = h('a', { href: URL.createObjectURL(makeZip(files)), download: 'colombo-custom-sounds.zip' }); document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 800);
-    toast(`Exported ${files.length - 1} sound(s). Unzip into the project folder (it creates sounds/), then run build-exe.bat`, 5200);
+    toast(`Exported ${files.length - 1} recording(s) (sounds + NPC voices). Unzip into the project folder (it creates sounds/), then run build-exe.bat`, 5200);
   }
   async function save() {
     if (!pend.size) return; saveB.disabled = true; let n = 0; const errs = [];
@@ -155,18 +158,18 @@ export async function open(game) {
     vol.addEventListener('change', () => { const v = +vol.value; if (p && p.op === 'set') p.vol = v; else pend.set(d.id, { op: 'vol', vol: v }); render(); });
     const reset = btn('Reset', () => { if (p) pend.delete(d.id); if (cur && cur.src === 'user' && !(p && p.op === 'remove')) pend.set(d.id, { op: 'remove' }); render(); }, { title: 'Back to the original sound', cls: 'warn' });
     if (!p && (!cur || cur.src === 'pack')) { reset.disabled = true; if (cur) reset.title = 'Built into the game from the project\'s sounds/ folder — remove the file there to undo'; }
-    return h('div', { cls: 'snd-row' }, play, h('div', { cls: 'nm' }, d.name, h('small', {}, d.id + (d.kind === 'loop' ? ' · loop' : ''))), h('div', { cls: 'st ' + st.cls, title: st.txt }, st.txt),
+    return h('div', { cls: 'snd-row' + (d.varOf ? ' var' : '') }, play, h('div', { cls: 'nm' }, d.name, h('small', {}, d.id + (d.kind === 'loop' ? ' · loop' : '') + (d.vars ? ' · + 3 variation slots below — they play in turn: this → 1 → 2 → 3 → this …' : d.varOf ? ' · empty = the original plays in its turn' : ''))), h('div', { cls: 'st ' + st.cls, title: st.txt }, st.txt),
       h('span', { style: { display: 'flex', gap: '4px' } }, btn('Choose file…', () => choose(d.id), { title: '.mp3 / .wav / .ogg' }), orig), vol, reset);
   }
   function render() {
     const q = search.value.trim().toLowerCase(), cat = catSel.value; const top = list.scrollTop; list.textContent = ''; let last = null, shown = 0;
-    for (const d of SOUND_DEFS) {
+    for (const d of DEFS) {
       if (cat && d.cat !== cat) continue; if (q && !(d.name.toLowerCase().includes(q) || d.id.includes(q))) continue; if (onlyCus.checked && !SoundBank.info(d.id) && !pend.has(d.id)) continue;
       if (d.cat !== last) { last = d.cat; list.append(h('div', { cls: 'snd-cat' }, d.cat)); } list.append(row(d)); shown++;
     }
     if (!shown) list.append(h('div', { style: { padding: '14px', color: '#7f8a98' } }, 'No sounds match.'));
-    list.scrollTop = top; const nCus = SOUND_DEFS.filter((d) => SoundBank.info(d.id)).length;
-    counter.textContent = `${SOUND_DEFS.length} sounds · ${nCus} replaced` + (pend.size ? ` · ${pend.size} unsaved change(s)` : ''); saveB.disabled = !pend.size; discardB.disabled = !pend.size;
+    list.scrollTop = top; const nCus = DEFS.filter((d) => SoundBank.info(d.id)).length;
+    counter.textContent = `${DEFS.length} sounds · ${nCus} replaced` + (pend.size ? ` · ${pend.size} unsaved change(s)` : ''); saveB.disabled = !pend.size; discardB.disabled = !pend.size;
   }
   render();
   dev = await devServer();

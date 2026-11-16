@@ -12,6 +12,21 @@ File names are the sound id plus `.mp3`, `.wav` or `.ogg` (e.g. `gun.assault.mp3
 by the window) keeps each recording's display name and volume. Loops (engines, sirens, rotor, ambience, music) should be
 seamless loops; engine recordings are pitched with the revs (record them at a fast idle).
 
+**Horns** (`horn.car`, `horn.small`, `horn.heavy` …) last 2 seconds: a longer file is cut at 2 s with a short fade, and a
+vehicle can't sound its horn again until the 2 s are over (at most 3 NPC horns at once; the player's horn always sounds).
+
+**Variations:** window cracking, window shattering, dry fire and vehicle crash each have three extra slots (`.var1` … `.var3`).
+They play in turn — original → 1 → 2 → 3 → original … — and an empty variation slot plays the original recording in its turn.
+
+**NPC voices** have their own window: the **`dialogs`** console command. Every kind of NPC (everyone, men, women, elderly
+men / women, drivers, police, paramedics, shopkeepers, vendors, tourists, office workers, labourers, students, guards,
+joggers, nurses & doctors) × every situation (talking, greeting, laughing, angry, scared, screaming, running away, calling
+for help, hurt, dying, hands up, car stolen, orders) has up to four clips: `dlg.<kind>.<situation>.mp3` and
+`dlg.<kind>.<situation>.var1` … `.var3`, e.g. `dlg.woman.scream.mp3`, `dlg.police.order.var2.wav`. The clips of one slot take
+turns in a shuffled order. An NPC uses the most specific kind that has a clip for the situation (police → man → everyone …);
+with none, the game keeps its own voice blip (talking) or stays silent. The window saves into this folder exactly like
+`sounds` does.
+
 | id | sound | type |
 |---|---|---|
 | `gun.compact` | Compact Pistol — gunshot | one-shot |
@@ -29,6 +44,9 @@ seamless loops; engine recordings are pitched with the revs (record them at a fa
 | `reload.sniper` | Reload — sniper rifle | one-shot |
 | `gun.cycle` | Bolt / slide cycling | one-shot |
 | `gun.dry` | Dry fire (empty click) | one-shot |
+| `gun.dry.var1` | Dry fire (empty click) — variation 1 | one-shot |
+| `gun.dry.var2` | Dry fire (empty click) — variation 2 | one-shot |
+| `gun.dry.var3` | Dry fire (empty click) — variation 3 | one-shot |
 | `gun.equip` | Weapon drawn / holstered | one-shot |
 | `gun.scope` | Scope / aim in | one-shot |
 | `gun.shell` | Shell casing on the ground | one-shot |
@@ -58,8 +76,17 @@ seamless loops; engine recordings are pitched with the revs (record them at a fa
 | `horn.air` | Horn — Customs air horn | one-shot |
 | `horn.tune` | Horn — Customs musical | one-shot |
 | `veh.crash` | Vehicle crash | one-shot |
+| `veh.crash.var1` | Vehicle crash — variation 1 | one-shot |
+| `veh.crash.var2` | Vehicle crash — variation 2 | one-shot |
+| `veh.crash.var3` | Vehicle crash — variation 3 | one-shot |
 | `veh.glass` | Window shattering | one-shot |
+| `veh.glass.var1` | Window shattering — variation 1 | one-shot |
+| `veh.glass.var2` | Window shattering — variation 2 | one-shot |
+| `veh.glass.var3` | Window shattering — variation 3 | one-shot |
 | `veh.glassCrack` | Window cracking | one-shot |
+| `veh.glassCrack.var1` | Window cracking — variation 1 | one-shot |
+| `veh.glassCrack.var2` | Window cracking — variation 2 | one-shot |
+| `veh.glassCrack.var3` | Window cracking — variation 3 | one-shot |
 | `veh.tyreBurst` | Tyre burst | one-shot |
 | `veh.doorOpen` | Car door — open | one-shot |
 | `veh.doorSlam` | Car door — slam | one-shot |

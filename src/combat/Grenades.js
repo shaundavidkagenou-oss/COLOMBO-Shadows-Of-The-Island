@@ -153,10 +153,10 @@ export class Grenades {
       o.fuse -= dt;
       if (!o.rest) for (let i = 0; i < n; i++) {
         o.v.y -= 9.81 * h; o.v.multiplyScalar(1 - 0.03 * h); const wasV = o.v.length(); const hit = this.move(o, h);
-        if (hit && wasV > 1.6) { o.bounces++; this.stats.bounces++; if (!SoundBank.play('grenade.bounce', clamp(wasV / 12, 0.2, 1))) { Audio.tone(520 + Math.random() * 380, 0.05, { type: 'triangle', vol: clamp(wasV / 40, 0.02, 0.09) }); Audio.noise(0.04, { f: 1800, q: 1.5, vol: clamp(wasV / 60, 0.01, 0.05) }); } o.spin.multiplyScalar(0.6); }
+        if (hit && wasV > 1.6) { o.bounces++; this.stats.bounces++; Audio.grenadeBounce(o.p.x, o.p.z, clamp(wasV / 12, 0.2, 1)); /* heard from where it lands: distance, delay, muffled far off */ o.spin.multiplyScalar(0.6); }
         if (o.onGround && o.v.lengthSq() < 0.02) { o.rest = true; o.v.set(0, 0, 0); }
       }
-      if (!o.water && L.isWater(o.p.x, o.p.z) && o.p.y < L.groundY(o.p.x, o.p.z) + 0.4 && !(L.bridgeWalkAt && L.bridgeWalkAt(o.p.x, o.p.z))) { o.water = true; o.v.multiplyScalar(0.15); Audio.noise(0.25, { f: 700, q: 0.7, vol: 0.06 }); } // plop
+      if (!o.water && L.isWater(o.p.x, o.p.z) && o.p.y < L.groundY(o.p.x, o.p.z) + 0.4 && !(L.bridgeWalkAt && L.bridgeWalkAt(o.p.x, o.p.z))) { o.water = true; o.v.multiplyScalar(0.15); { const A = Audio.at(o.p.x, o.p.z, 14); if (A.g > 0.01) Audio.noise(0.25, { f: 700, q: 0.7, vol: 0.06 * Math.min(1, A.g * 1.5), pan: A.pan, when: A.delay }); } } // plop
       if (!o.warned && (o.onGround || o.rest)) { o.warned = true; const C = this.g.crowd; if (C) C.alarm(o.p.x, o.p.z, 12, 3, null, 'weapon', true); } // "grenade!" — everyone near scatters
       // spin: rolls along the ground, tumbles in the air
       if (!o.rest) { const s = o.onGround ? _w.set(o.v.z, 0, -o.v.x).multiplyScalar(1 / R) : o.spin; const a = s.length() * dt; if (a > 1e-5) { _q.setFromAxisAngle(_v.copy(s).normalize(), a); o.q.premultiply(_q); } }

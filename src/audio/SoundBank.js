@@ -8,6 +8,7 @@
 //   2. recordings saved in the `sounds` window on this machine (IndexedDB of the browser / of the desktop app)
 // Nothing is fetched or decoded unless a pack or a saved recording exists (one fetch of a small manifest at start-up).
 import { savedFlags, setSavedFlag, storeGet, storeSet, storeDel } from '../debug/boot.js';
+import { voiceDefs } from './VoiceDefs.js';
 
 // id, label, category, kind ('shot' one-shot | 'loop' continuous), lvl = playback gain of a full-scale recording (matches the
 // loudness of the synthesised sound it replaces)
@@ -43,17 +44,40 @@ export const SOUND_DEFS = [
   ...[['explore', 'Free roam (day)'], ['night', 'Free roam (night)'], ['tension', 'Wanted'], ['chase', 'Police chase'], ['menu', 'Main menu'], ['intro', 'Intro'], ['radio1', 'Car radio — station 1'], ['radio2', 'Car radio — station 2'], ['club', 'Night club PA']]
     .map(([m, n]) => ({ id: 'music.' + m, name: 'Music — ' + n + ' (loop)', cat: 'Music', kind: 'loop', lvl: 0.7 })),
 ];
+// variations (52nd): a few sounds that repeat a lot get three more slots. Every filled slot of the sound (its own recording and
+// any variation) is used, in a shuffled order that never repeats the last one; empty variations simply aren't used, so with
+// only the main recording nothing changes.
+export const VARIED = ['veh.crash', 'veh.glass', 'veh.glassCrack', 'gun.dry'];
+for (const base of VARIED) { const i = SOUND_DEFS.findIndex((d) => d.id === base); const b = SOUND_DEFS[i]; b.vars = [];
+  const vs = [1, 2, 3].map((n) => { const id = `${base}.var${n}`; b.vars.push(id); return { id, name: `${b.name} — variation ${n}`, cat: b.cat, lvl: b.lvl, kind: b.kind, varOf: base }; });
+  SOUND_DEFS.splice(i + 1, 0, ...vs); }
+// NPC voices (console: dialogs) — see VoiceDefs.js; listed in their own window, not in `sounds`
+SOUND_DEFS.push(...voiceDefs());
 for (const d of SOUND_DEFS) d.kind ||= 'shot';
 export const SOUND_BY_ID = Object.fromEntries(SOUND_DEFS.map((d) => [d.id, d]));
 export const SOUND_EXT = /\.(mp3|wav|ogg)$/i;
 const MAX_VOICES = 8; // overlapping copies of one recording (an automatic rifle with a 2 s recording)
+const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
 class Bank {
-  constructor() { this.raw = new Map(); this.buf = new Map(); this.ctx = null; this.audio = null; this.bypass = false; this.voices = new Map(); this.listeners = new Set(); this.loaded = null; this.pack = new Map(); }
-  has(id) { return !this.bypass && this.buf.has(id); }
+  constructor() { this.raw = new Map(); this.buf = new Map(); this.ctx = null; this.audio = null; this.bypass = false; this.voices = new Map(); this.listeners = new Set(); this.loaded = null; this.pack = new Map(); this.bags = new Map(); this.turn = new Map(); this.lastPick = new Map(); this.lastDur = 0; }
+  has(id) { if (this.bypass) return false; if (this.buf.has(id)) return true; const d = SOUND_BY_ID[id]; return !!(d && d.vars && d.vars.some((k) => this.buf.has(k))); }
+  // which recording of id plays now: id itself, or one of its filled variations (shuffle bag: each filled slot once per round,
+  // never the same twice in a row across rounds)
+  pick(id) {
+    const d = SOUND_BY_ID[id]; if (!d || !d.vars) return id;
+    // sound variations (window crack, glass, dry fire, crash): strictly in turn — original → 1 → 2 → 3 → original …; an empty
+    // variation slot plays the original custom sound in its turn
+    if (!d.dlg) { const n = ((this.turn.get(id) ?? -1) + 1) % (d.vars.length + 1); this.turn.set(id, n); const k = n ? d.vars[n - 1] : id; return this.buf.has(k) ? k : id; }
+    const pool = [id, ...d.vars].filter((k) => this.buf.has(k)); if (pool.length <= 1) return pool[0] || id;
+    let bag = this.bags.get(id); if (!bag || !bag.length || bag.some((k) => !this.buf.has(k))) { bag = shuffle(pool.slice()); if (bag[0] === this.lastPick.get(id)) bag.push(bag.shift()); this.bags.set(id, bag); }
+    const k = bag.shift(); this.lastPick.set(id, k); return k;
+  }
+  // duration (s) of what id would play (its main recording, else the first filled variation) — 0 without a recording
+  duration(id) { const d = SOUND_BY_ID[id]; const k = this.buf.has(id) ? id : d && d.vars ? d.vars.find((v) => this.buf.has(v)) : null; const b = k && this.buf.get(k); return b ? b.duration : 0; }
   level(id) { const r = this.raw.get(id); return (SOUND_BY_ID[id] ? SOUND_BY_ID[id].lvl : 0.4) * (r && r.vol != null ? r.vol : 1); }
   onChange(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
-  emit(id) { for (const fn of this.listeners) try { fn(id); } catch (e) { console.warn('[sounds]', e); } }
+  emit(id) { this.bags.clear(); for (const fn of this.listeners) try { fn(id); } catch (e) { console.warn('[sounds]', e); } }
   // ---- start-up: the built-in pack, then this machine's saved recordings (they win)
   load() {
     if (this.loaded) return this.loaded;
@@ -74,15 +98,23 @@ class Bank {
   }
   // ---- playback
   // one-shot: returns true when a recording replaced the synthesised sound (the caller then skips its own synthesis)
-  play(id, k = 1, pan = 0, when = 0, { out = 'sfx', rate = 1, verb = false, mono = false } = {}) {
-    if (this.bypass) return false; const b = this.buf.get(id); if (!b) return false; const A = this.audio; if (!A || !A.live) return true;
+  //   dur: hard length in s (faded over the last 40 ms) · lp: low-pass cut-off in Hz (distance: air + buildings eat the highs)
+  //   wet: reverb send level when verb (far sounds are mostly reflections) · track: object that receives { g, p, end } so the
+  //   caller can keep the gain / pan following a moving source (horns) · voice key: shares the MAX_VOICES pool (default id)
+  play(id, k = 1, pan = 0, when = 0, { out = 'sfx', rate = 1, verb = false, mono = false, dur = 0, lp = 0, wet = 1, track = null, key = null } = {}) {
+    if (this.bypass) return false; const pid = this.pick(id); const b = this.buf.get(pid); if (!b) return false; const A = this.audio; this.lastDur = dur > 0 ? Math.min(dur, b.duration / rate) : b.duration / rate; if (!A || !A.live) return true; id = key || id;
     let V = this.voices.get(id); if (!V) this.voices.set(id, (V = []));
     const c = this.ctx, now = c.currentTime; for (let i = V.length - 1; i >= 0; i--) if (V[i].end <= now) V.splice(i, 1);
     if (mono && V.length) return true; // continuous texture (fire): let the playing copy finish
     if (V.length >= MAX_VOICES) { const o = V.shift(); try { o.g.gain.setTargetAtTime(0, now, 0.02); o.src.stop(now + 0.1); } catch { /* already stopped */ } }
-    const t = now + Math.max(0, when); const src = c.createBufferSource(); src.buffer = b; src.playbackRate.value = rate; const g = c.createGain(); g.gain.value = Math.max(0, k) * this.level(id);
-    const p = c.createStereoPanner(); p.pan.value = Math.max(-1, Math.min(1, pan || 0)); src.connect(g); g.connect(p); p.connect(A.bus[out] || A.bus.sfx); if (verb && A.verb) p.connect(A.verb);
-    src.start(t); V.push({ src, g, end: t + b.duration / rate }); src.onended = () => { try { p.disconnect(); } catch { /* gone */ } };
+    const t = now + Math.max(0, when); const src = c.createBufferSource(); src.buffer = b; src.playbackRate.value = rate; const g = c.createGain(); const lvl = Math.max(0, k) * this.level(pid); g.gain.value = lvl;
+    const p = c.createStereoPanner(); p.pan.value = Math.max(-1, Math.min(1, pan || 0)); let head = src;
+    if (lp > 0 && lp < 19000) { const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = lp; f.Q.value = 0.5; src.connect(f); head = f; }
+    head.connect(g); g.connect(p); p.connect(A.bus[out] || A.bus.sfx);
+    if (verb && A.verb) { if (wet === 1) p.connect(A.verb); else { const s = c.createGain(); s.gain.value = Math.max(0, wet); p.connect(s); s.connect(A.verb); } }
+    let end = t + b.duration / rate;
+    if (dur > 0 && dur < b.duration / rate) { end = t + dur; g.gain.setTargetAtTime(0.0001, Math.max(t, end - 0.045), 0.012); src.stop(end + 0.01); /* from whatever gain it has then (a horn's follows its car) */ }
+    src.start(t); const vo = { src, g, p, end, lvl }; V.push(vo); if (track) track.voice = vo; src.onended = () => { try { p.disconnect(); } catch { /* gone */ } };
     return true;
   }
   // continuous: keeps holder.smp = a looping source of id's recording feeding dest (null when id has no recording). The caller

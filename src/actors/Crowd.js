@@ -16,6 +16,7 @@ const HOLD_OK = new Set(['walk', 'toPoi', 'idle', 'waitCross', 'shop', 'shelter'
 import { RNG } from '../core/rng.js';
 import { clamp, lerp, dampAngle, wrapAngle } from '../core/math.js';
 import { LINES, pick } from '../story/Lines.js';
+import { Voices } from '../audio/Voices.js';
 
 const SEV_KIND = ['panic', 'scuffle', 'gunshot', 'assault']; // alarm severity → kind of event, for callers that do not name one
 const GATHER_ACTS = [['crossarms', 3], ['look', 2], ['hips', 1.5], ['photo', 1.5], ['phone', 1.2], ['point', 0.6], [null, 1]];
@@ -202,7 +203,7 @@ export class Crowd {
     for (const v of this.vehicles) { const dx = mx - v.x, dz = mz - v.z; const d = Math.hypot(dx, dz); if (d > 35) continue; const closing = (dx * Math.sin(v.yaw) + dz * Math.cos(v.yaw)) / (d || 1); if (closing > 0.3 && v.speed > 1.5 && d / Math.max(v.speed, 0.1) < 5) return false; }
     return true;
   }
-  say(p, cat, prio = 0) { if (p.talkCd > 0 || !LINES[cat]) return; p.talkCd = 6 + this.rng.next() * 6; const line = pick(LINES[cat], () => this.rng.next()); this.events.emit('npcLine', { ped: p, line, prio }); }
+  say(p, cat, prio = 0) { if (p.talkCd > 0 || !LINES[cat]) return; p.talkCd = 6 + this.rng.next() * 6; const line = pick(LINES[cat], () => this.rng.next()); this.events.emit('npcLine', { ped: p, line, prio, cat }); }
   // ------------------------------------------------------------------ routine vs reaction
   // Routine states: walk, toPoi, waitCross, idle, shelter. Reaction states overlay them; the routine is saved and
   // restored afterwards (or the ped rejoins the walk graph if it ended up elsewhere), so nobody stays stuck reacting.
@@ -221,6 +222,16 @@ export class Crowd {
     if (p.helpI && state !== 'help') { p.helpI.help = Math.max(0, p.helpI.help - 1); p.helpI = null; p.helpOf = null; p.helpOn = false; }
     if (p.ch.anim.fight && state !== 'fight') p.ch.anim.fightOn(false, state === 'down');
     p.state = state; p.timer = timer; p.rt = 0; Object.assign(p, extra); p.ch.anim.set(null);
+    this.voiceReact(p, state, timer);
+  }
+  // recorded voices (console: dialogs → Voices.js) for reactions that have no line of their own: running away, screaming,
+  // cowering, being hit / knocked down. Nothing plays (as before) without a recording for that speaker.
+  voiceReact(p, state, timer) {
+    if (p.dead || timer > 1e8 || !Voices.any()) return; const r = this.rng; let sit = null;
+    if (state === 'flee' && (p.fleeSp || 0) >= 2.6) { if (r.chance(0.55)) { const fear = p.mind ? p.mind.em[EI.FEA] : 0.5; sit = fear > 0.6 && r.chance(0.5) ? 'scream' : 'run'; } }
+    else if (state === 'cower') sit = r.chance(0.5) ? 'scream' : r.chance(0.6) ? 'scared' : null;
+    else if (state === 'hit' || state === 'down' || state === 'stumble') sit = r.chance(state === 'stumble' ? 0.6 : 0.9) ? 'hurt' : null;
+    if (!sit) return; const d = Voices.say(p.sp, sit, p.x, p.z, p); if (d) { p.ch.face.talking = true; p.talkFor = Math.max(p.talkFor || 0, d); }
   }
   endReaction(p) {
     if (p.homeCar && !p.dead && p.state !== 'toCar') { p.routine = null; p.ch.anim.set(null); p.act = null; p.lookAt = null; p.ch.face.talking = false; p.lookT = 0; p.state = 'toCar'; p.timer = 30; p.rt = 0; return; } // a driver out of their car after a crash goes back to it
@@ -230,7 +241,7 @@ export class Crowd {
     else { if (r && r.poi) r.poi.used = Math.max(0, r.poi.used - 1); p.poi = null; this.returnToGraph(p); }
     p.stuckN = 0; p.stuckT = 0;
   }
-  speak(p, cat, prio = 0, dur = 2.2) { const before = p.talkCd; this.say(p, cat, prio); if (p.talkCd !== before) { p.ch.face.talking = true; p.talkFor = dur; } }
+  speak(p, cat, prio = 0, dur = 2.2) { const before = p.talkCd; this.say(p, cat, prio); if (p.talkCd !== before) { p.ch.face.talking = true; p.talkFor = Math.max(dur, p.voiceDur || 0); p.voiceDur = 0; } } // a recorded voice (Voices.js) keeps the mouth going as long as the clip
   // A disturbance at (x,z): sev 1 = scuffle/shouting, 2 = gunfire, 3 = someone hit nearby. Each witness reacts after its
   // own delay and picks its own response; panic directions are spread so the crowd scatters rather than herding.
   alarm(x, z, r, sev, src = null, kind = null, byPlayer = false) {
@@ -743,7 +754,7 @@ export class Crowd {
   kill(p) {
     if (p.dead) return; const byCar = !!p.knockedByCar; if (p.state !== 'down') { this.react(p, 'down', 1e9, {}, true); p.downT = 0; } // whoever calls kill(), the body is on the ground (never a 'dead' ped that walks on)
     if (p.koRag) { if (p.ch.rag && p.ch.rag.kin) { p.ch.rag.kin = null; p.ch.rag.wake(); } p.koRag = null; p.noPool = false; } // out cold (or getting up) when it happened: the body goes limp where it is
-    p.dead = true; this.minds.died(p); p.deadT = 0; p.timer = 1e9; p.pending = null; p.knockedByCar = false; p.talkFor = 0; p.ch.face.talking = false;
+    p.dead = true; this.minds.died(p); Voices.say(p.sp, 'die', p.x, p.z, null); p.deadT = 0; p.timer = 1e9; p.pending = null; p.knockedByCar = false; p.talkFor = 0; p.ch.face.talking = false;
     const f = this.focus; if (this.ragdolls && !p.ch.rag && p.ch.root.parent && (!f || Math.hypot(p.x - f.x, p.z - f.z) < 90)) { // goes limp: ragdoll with the momentum it had (thrown by a car, pushed by a round)
       this.ragdolls.add(p.ch, { vel: [p.vx || 0, p.airVy || 0, p.vz || 0], legK: byCar ? 1.3 : 1.2, upK: byCar ? 0.75 : 0.7 }); p.airVy = undefined; p.airY = 0; p.vx = p.vz = 0; p.ch.anim.set(null); }
     if (p.ch.face.set) p.ch.face.set('blink', 1e9); if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; }

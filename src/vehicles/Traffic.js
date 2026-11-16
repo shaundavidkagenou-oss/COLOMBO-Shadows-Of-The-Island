@@ -1,6 +1,7 @@
 // AI traffic on the left-hand road grid: lanes, junction turns, signals, car-following (IDM), yielding to pedestrians,
 // horns, parked cars, and spawning/despawning around the player.
 import { HUMPS, humpAhead } from '../world/StreetRamps.js';
+import { Audio } from '../audio/Audio.js';
 import * as THREE from 'three';
 import * as L from '../world/Layout.js';
 import { plan } from '../world/CityPlan.js';
@@ -293,8 +294,8 @@ export class Traffic {
       this.raging.splice(i, 1);
       const P = C && C.player; const pv = P && P.vehicle; const pd = P ? Math.hypot(P.x - v.x, P.z - v.z) : 1e9; const lvl = C && C.police ? C.police.level || 0 : 0;
       const safe = C && R.out && pd < 30 && (!pv || Math.abs(pv.speed) < 3.5) && !C.playerArmed && lvl < 2 && !(C.focus && Math.hypot(C.focus.x - v.x, C.focus.z - v.z) > 60);
-      if (!safe) { if (R.held) v.hold = false; if (this.events) this.events.emit('horn', v); this.rageStats.honk++; // stays in the car: a long horn and a shout through the window
-        if (C && pd < 16 && R.anger > 0.5 && this.events) this.events.emit('npcLine', { ped: { x: v.x, z: v.z, sp: v.driverChar.spec, mind: null }, line: pick(LINES.roadRage, () => this.rng.next()), prio: 1 }); continue; }
+      if (!safe) { if (R.held) v.hold = false; if (this.events && Audio.hornFree(v)) this.events.emit('horn', v); this.rageStats.honk++; // stays in the car: a long horn and a shout through the window
+        if (C && pd < 16 && R.anger > 0.5 && this.events) this.events.emit('npcLine', { ped: { x: v.x, z: v.z, sp: v.driverChar.spec, mind: null, voice: v }, line: pick(LINES.roadRage, () => this.rng.next()), prio: 1, cat: 'roadRage', group: 'driver' }); continue; }
       // gets out by his own door (the parking step-out), passengers stay in their seats
       const seats = v.mesh.userData.seats; const ds = Math.max(0, seats.indexOf(v.driverSeat())); const keep = v.pax || [], keepPlan = v.paxPlan || [];
       v.rageDriver = v.driverChar; v.pax = [v.driverChar]; v.paxPlan = [{ si: ds, spec: v.driverChar.spec, mode: 'lap' }]; v.driverChar = null; this.paxCount++;
@@ -506,7 +507,7 @@ export class Traffic {
     v.speed = Math.max(0, sp + acc * dt); v.brake = acc < -1.0 || v.speed < 0.2;
     // horn when blocked by something other than a red light
     ai.honkCd -= dt;
-    if (v.speed < 0.5 && gap < 8 && stopAt === Infinity) { ai.stuck += dt; if (ai.stuck > 2.5 / ai.aggressive && ai.honkCd <= 0) { ai.honkCd = 3 + this.rng.next() * 4; this.events.emit('horn', v); } } else ai.stuck = Math.max(0, ai.stuck - dt);
+    if (v.speed < 0.5 && gap < 8 && stopAt === Infinity) { ai.stuck += dt; if (ai.stuck > 2.5 / ai.aggressive && ai.honkCd <= 0) { ai.honkCd = 4 + this.rng.next() * 5; if (Audio.hornFree(v)) this.events.emit('horn', v); } } else ai.stuck = Math.max(0, ai.stuck - dt);
     if (ai.stuck > 25 && !v.police && !ai.fuel && !this.seen(v.x, v.z)) { v.keep = false; this.remove(v); this.vehicles.splice(this.vehicles.indexOf(v), 1); return; } // hopelessly stuck → recycle out of view
     // --- advance along pieces
     if (ai.rejoin) { this.driveRejoin(v, dt); return; }

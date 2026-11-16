@@ -289,7 +289,7 @@ export class Boats {
     if (Input.wasPressed('enter')) { if (Math.abs(b.speed) > 2.2) this.g.hud.notify('Slow down', 'Slow the boat down to get off.', 'info', 1.5); else this.leave(P); return null; }
     if (b.sails.length && Input.wasPressed('interact')) { b.setSailsVisible(!b.sailsUp); this.g.hud.notify(boatName(b.id), b.sailsUp ? 'Sails up — the wind drives her when it allows' : 'Sails furled', 'info', 2); }
     if (Input.wasPressed('lights')) { b.navOff = !b.navOff; this.g.hud.notify(boatName(b.id), b.navOff ? 'Navigation lights off' : 'Navigation lights on', 'info', 1.5); }
-    if (Input.wasPressed('horn')) Audio.horn && Audio.horn(b.len > 14 ? 'bus' : 'car', b.x, b.z);
+    if (Input.wasPressed('horn') && Audio.hornFree(b, true)) Audio.horn(b.len > 14 ? 'bus' : 'car', b.x, b.z, null, b);
     const hp = Math.round((b.hp / b.maxHp) * 100);
     return `${kn.toFixed(0)} kn · hull ${hp}%${b.sails.length ? ` · ${key('interact')} ${b.sailsUp ? 'Furl' : 'Hoist'} sails` : ''} · ${key('enter')} Get off`;
   }

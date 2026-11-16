@@ -1,5 +1,6 @@
 // Dineth: on-foot controller (walk/jog/sprint/crouch/jump/climb), vehicle enter/exit, and the third-person camera.
 import { SKILL_FX } from '../story/Skills.js';
+import { Audio } from '../audio/Audio.js';
 import { separate } from './Bodies.js';
 import { swimmable, startSwim, updateSwim, tryEnterWater, updateDiveIn, endSwim } from './Swim.js';
 import * as THREE from 'three';
@@ -203,7 +204,7 @@ export class Player {
         if ((Math.abs(wrapAngle(this.yaw - want)) < 0.05 && settled) || E.t > 0.65) { if (E.ax !== undefined) { this.x = E.ax; this.z = E.az; this.sync(); } E.bus = isBus(v); if (E.bus) openBusDoor(v, e.z, true); next(E.door ? 'open' : E.bus ? (E.driver ? 'busWait' : 'busIn') : E.kind === 'bus' ? 'board' : 'step'); if (!E.bus) A.set('interact'); /* a bus's folding doors are powered: no handle to reach for */ E.hadDriver = E.traffic.takeOver(v, true); v.speed = 0; } break; }
       case 'busWait': { A.update(dt, 0, 0); this.sync(); if (E.t > 0.55) { E.hadDriver = true; next('busPull'); } break; } // the folding doors swing open, then the driver is made to get out
       case 'busPull': { // the driver gets up out of his seat and leaves by the front door, down the treads; the player steps along the body out of his way
-        const d = E.driver; if (E.t === dt) { E.handledLine = true; this.events.emit('npcLineRaw', { who: 'Driver', text: "Ado! What are you doing? This is my bus!" }); if (d && d.face) d.face.set('fear', 2); }
+        const d = E.driver; if (E.t === dt) { E.handledLine = true; this.events.emit('npcLineRaw', { who: 'Driver', text: "Ado! What are you doing? This is my bus!", voice: { spec: E.driver && E.driver.spec, x: v.x, z: v.z, sit: 'carjack', group: 'driver' } }); if (d && d.face) d.face.set('fear', 2); }
         { const q = this.local(v, e.x + e.side * 0.2, 0, e.z + 1.05); walkTo(q.x, q.z, 1.3); }
         if (d) { const T = STAND_T * 0.85; if (!E.dG) { E.dG = riseGeom(v, seat, d.anim, Math.PI / 2, busDriverStand(seat)); d.anim.set(null); d.anim.standUp(); d.anim.duck = 0; E.dt0 = 0; } E.dt0 += dt;
           if (E.dt0 < T) { const fl = E.dG.fl; poseBoard(d.anim, E.dG, boardCurve(E.dG, 1 - E.dt0 / T), v.mesh, () => fl, Math.PI / 2, Math.min(1, Math.max(0, T + 0.05 - E.dt0) / 0.25)); d.anim.update(dt, 0, 0); }
@@ -243,9 +244,9 @@ export class Player {
         if ((t > 1.4 && E.door.ang > hold - 0.08) || t > 2.0) { A.reach = null; next(E.driver ? (Math.random() < 0.25 ? 'resist' : 'pull') : E.bk ? 'toSill' : 'sit'); } break; }
       case 'resist': { // driver grabs the door / pushes back briefly before giving in
         A.set('shove'); if (E.driver) { E.driver.anim.set('argue'); E.driver.face.set('angry', 2); E.driver.anim.update(dt, 0); } door(0.7 + Math.sin(E.t * 5.2) * 0.13 + Math.sin(E.t * 11.3) * 0.04, 13, 0.55); A.update(dt, 0, 0); this.sync(); /* tug of war on the door: smooth pulls, not a jitter */
-        if (E.t === dt) this.events.emit('npcLineRaw', { who: 'Driver', text: 'Ado! Let go! This is my vehicle!' }); if (E.t > 1.3) next('pull'); break; }
+        if (E.t === dt) this.events.emit('npcLineRaw', { who: 'Driver', text: 'Ado! Let go! This is my vehicle!', voice: { spec: E.driver && E.driver.spec, x: v.x, z: v.z, sit: 'carjack', group: 'driver' } }); if (E.t > 1.3) next('pull'); break; }
       case 'pull': { // driver is pulled out of the seat and steps away (no teleport swap)
-        const d = E.driver; const k = Math.min(1, E.t / 0.9); A.set('shove'); E.hadDriver = true; if (d && E.t === dt) { E.handledLine = true; this.events.emit('npcLineRaw', { who: 'Driver', text: "Ado! What are you doing? That's my vehicle!" }); if (d.face) d.face.set('fear', 2); }
+        const d = E.driver; const k = Math.min(1, E.t / 0.9); A.set('shove'); E.hadDriver = true; if (d && E.t === dt) { E.handledLine = true; this.events.emit('npcLineRaw', { who: 'Driver', text: "Ado! What are you doing? That's my vehicle!", voice: { spec: E.driver && E.driver.spec, x: v.x, z: v.z, sit: 'carjack', group: 'driver' } }); if (d.face) d.face.set('fear', 2); }
         if (d && E.bk) { // no door to stand behind (tuk-tuk, bike): step forward and out of the rider's way while he climbs off backwards
           let mv = 0; { const sx = E.bk === 'bike' ? 1 : e.side; const q = E.door ? this.local(v, e.x + sx * 0.15, 0, e.z) : this.local(v, e.x + sx * 0.3, 0, e.z + 0.75); /* door: half a step out, clear of his way out */ const dx = q.x - this.x, dz = q.z - this.z, dd = Math.hypot(dx, dz); if (dd > 0.03) { const st = Math.min(dd, 1.3 * dt); this.x += dx / dd * st; this.z += dz / dd * st; mv = 1.3; } this.y = this.collision.groundAt(this.x, this.z, this.y, 0.5); }
           if (E.door) door(1, 8.5, 0.62); /* yanked wide open */ this.pullOut(E, v, seat, d, dt); A.update(dt, mv, 0); this.sync(); if (!E.driver) next('toSill'); break; }
@@ -384,7 +385,7 @@ export class Player {
     if (v.kin) v.kin(dt); /* Street Customs drives the car in / out (CustomsService.kinStep) */ else v.drive(dt, { throttle: thr, steer, handbrake: c && Input.isDown('jump') }, this.collision, traffic.all());
     { const A = this.ch.anim; A.steer = v.steer / v.T.steer; const acc = (v.speed - (this.lastVS ?? v.speed)) / Math.max(dt, 1e-3); this.lastVS = v.speed; A.vehSpeed = v.speed; A.brakeLean = damp(A.brakeLean, clamp(-acc * 0.012, -0.06, 0.08), 6, dt); A.cornerLean = clamp(-A.steer * v.speed * 0.004, -0.06, 0.06); A.update(dt, 0); }
     this.x = v.x; this.z = v.z; this.y = v.y; this.yaw = v.yaw;
-    if (c && Input.wasPressed('horn')) this.events.emit('horn', v);
+    if (c && Input.wasPressed('horn') && Audio.hornFree(v, true)) this.events.emit('horn', v); // one 2 s horn at a time (hammering the key no longer stacks horns)
     if (c && Input.wasPressed('lights')) { v.lights = !v.lights; this.nightLights = v.lights; }
     if (v.lastImpact && performance.now() - v.lastImpact.t < 50) { this.shake = Math.min(1, v.lastImpact.v / 20); this.events.emit('crash', v.lastImpact.v); v.lastImpact = null; }
   }
