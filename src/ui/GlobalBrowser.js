@@ -127,7 +127,7 @@ export class GlobalBrowser {
     const p = this.page(); const secure = p.url.startsWith('global') ? '◍' : '🔒';
     if (this.typing && !p.rows.some((r) => r.input)) this.releaseTyping();
     const rows = p.rows.map((r, i) => { const sec = p.sec && p.sec[i] ? `<div class="gb-sec">${p.sec[i]}</div>` : ''; const on = i === row ? ' sel' : '';
-      if (r.input) return `${sec}<div class="ph-row gb-row gb-srow${on}" data-i="${i}"><span class="gb-mag">🔍</span><input class="gb-q" type="text" spellcheck="false" autocomplete="off" maxlength="60" placeholder="Search Global or type an address" value="${esc(r.t)}"></div>`;
+      if (r.input) return `${sec}<div class="ph-row gb-row gb-srow${on}" data-i="${i}"><span class="gb-mag">🔍</span><input class="gb-q" type="text" spellcheck="false" autocomplete="off" maxlength="60" placeholder="Search or type an address" value="${esc(r.t)}"></div>`;
       if (r.url) return `${sec}<div class="ph-row gb-row gb-res${on}" data-i="${i}"><div><span class="gb-u">${r.ico ? `<i style="background:${r.col}">${r.ico}</i>` : ''}${esc(r.url)}</span><b>${esc(r.t)}</b>${r.s ? `<p>${esc(r.s)}</p>` : ''}</div></div>`;
       return `${sec}<div class="ph-row gb-row${r.cls ? ' ' + r.cls : ''}${on}" data-i="${i}">${r.ico ? `<i style="background:${r.col}">${r.ico}</i>` : ''}<div><b>${esc(r.t)}</b>${r.s ? `<p>${esc(r.s)}</p>` : ''}</div></div>`; }).join('');
     const hint = p.rows[row] && p.rows[row].input ? (this.typing ? 'Type · Enter search · Esc done' : 'Enter: type in the search bar') : '↑↓ · Enter open · ⌫ back';

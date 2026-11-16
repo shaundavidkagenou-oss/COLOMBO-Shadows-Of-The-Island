@@ -260,4 +260,10 @@ These were observed during testing.
 - A failed mission restarts automatically after 8 seconds.
 - The first objective's rain prompt also shows in clear weather.
 
+**Boats and marina:**
+- Marina skippers steer by waypoints with a simple pivot/thruster model, not a planner. Big catamarans (trinco44) can take 3–4 minutes to come into an E berth, and a boat that stays boxed in for 25 s gives up its departure or is moved to the start of its route out of sight.
+- The automated ride test drives in open harbour. Leaving the marina is covered by the AI departure checks, not by a player-driven run.
+- Bullet holes in sails are small; past about 50 m they are hard to see.
+- Wakes, bow waves and lamp reflections are lit with the scene's sun, sky and lamp colour. They have only been checked in software-rendered screenshots.
+
 **Performance:** frame rate on real GPUs has not been measured. All automated runs used a software (SwiftShader) renderer.

@@ -54,7 +54,7 @@ try {
     bt.place(60, -1400, -Math.PI / 2, true); /* out in the open harbour (the throttle / steering numbers, not the way out of the marina) */ await g.stepSim(Math.round((1) * 20), 0.05); out.followed = Math.hypot(P.x - 60, P.z + 1400) < 6;
     const I = window.__Input, isDown = I.isDown.bind(I); const x0 = bt.x, z0 = bt.z; I.isDown = (a) => a === 'forward' || isDown(a);
     let maxV = 0; for (let i = 0; i < 40; i++) { await g.stepSim(Math.round((0.25) * 20), 0.05); maxV = Math.max(maxV, Math.abs(bt.speed)); }
-    out.maxV = +maxV.toFixed(1); out.moved = +Math.hypot(bt.x - x0, bt.z - z0).toFixed(1); out.wakes = B.wakes.trails.size; out.hp = bt.hp;
+    out.maxV = +maxV.toFixed(1); out.moved = +Math.hypot(bt.x - x0, bt.z - z0).toFixed(1); out.wakes = B.wakes.trails.size; { const W = B.wakes, ix = W.geo.index.array, P = W.pos; let up = 0, dn = 0; for (let t = 0; t < W.geo.drawRange.count; t += 3) { const a = ix[t] * 3, b = ix[t + 1] * 3, c = ix[t + 2] * 3; const ny = (P[b + 2] - P[a + 2]) * (P[c] - P[a]) - (P[b] - P[a]) * (P[c + 2] - P[a + 2]); if (ny > 1e-6) up++; else if (ny < -1e-6) dn++; } out.wakeTris = [up, dn]; /* the ribbon must face up (FrontSide) */ } out.hp = bt.hp;
     I.isDown = (a) => a === 'forward' || a === 'left' || isDown(a); const y0 = bt.yaw; await g.stepSim(Math.round((3) * 20), 0.05); out.turned = +Math.abs(Math.atan2(Math.sin(bt.yaw - y0), Math.cos(bt.yaw - y0))).toFixed(2);
     I.isDown = (a) => a === 'back' || isDown(a); for (let i = 0; i < 60 && Math.abs(bt.speed) > 0.8; i++) await g.stepSim(Math.round((0.25) * 20), 0.05); I.isDown = isDown; await g.stepSim(Math.round((2) * 20), 0.05);
     out.water = window.__L.isSea(bt.x, bt.z); B.leave(P); await g.stepSim(Math.round((2.5) * 20), 0.05); out.offBoat = !P.boat && !B.ride; out.swim = !!P.swim; out.py = +P.y.toFixed(2);
@@ -63,7 +63,7 @@ try {
     return out;
   }, (r2) => {
   ok(r2.near && r2.stage === 'ride' && r2.pBoat, 'boarded at the boarding point, seated at the helm'); ok(r2.followed, 'the player goes with the boat');
-  ok(r2.maxV > 8 && r2.moved > 40, `throttle: ${r2.maxV} m/s, ${r2.moved} m`); ok(r2.wakes >= 1, 'wake laid behind her'); ok(r2.turned > 0.5, `steers (${r2.turned} rad in 3 s)`);
+  ok(r2.maxV > 8 && r2.moved > 40, `throttle: ${r2.maxV} m/s, ${r2.moved} m`); ok(r2.wakes >= 1, 'wake laid behind her'); ok(r2.wakeTris[0] > 0 && r2.wakeTris[1] === 0, `wake ribbon faces up (${r2.wakeTris})`); ok(r2.turned > 0.5, `steers (${r2.turned} rad in 3 s)`);
   ok(r2.offBoat && r2.water && r2.swim, `got off at sea into the water and swims (y ${r2.py})`); ok(r2.back, 'the pedestal brings her back to the berth');
   });
   // ---- 3. bullets: hull → wreck → sinks; sails holed and torn

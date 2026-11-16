@@ -85,7 +85,7 @@ export class Wakes {
   constructor(group) {
     const nv = MAXTR * MAXP * NA; this.pos = new Float32Array(nv * 3); this.w = new Float32Array(nv * 4); this.d = new Float32Array(nv);
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage)); g.setAttribute('aW', new THREE.BufferAttribute(this.w, 4).setUsage(THREE.DynamicDrawUsage)); g.setAttribute('aD', new THREE.BufferAttribute(this.d, 1).setUsage(THREE.DynamicDrawUsage));
-    const idx = []; for (let t = 0; t < MAXTR; t++) for (let p = 0; p < MAXP - 1; p++) for (let a = 0; a < NA - 1; a++) { const o = (t * MAXP + p) * NA + a; idx.push(o, o + NA, o + 1, o + 1, o + NA, o + NA + 1); }
+    const idx = []; for (let t = 0; t < MAXTR; t++) for (let p = 0; p < MAXP - 1; p++) for (let a = 0; a < NA - 1; a++) { const o = (t * MAXP + p) * NA + a; idx.push(o, o + 1, o + NA, o + 1, o + NA + 1, o + NA); } /* counter-clockwise seen from above (the ribbon's +u side is to starboard of the trail), so FrontSide keeps it */
     g.setIndex(idx); g.setDrawRange(0, 0); g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5); this.geo = g;
     this.U = { uNoise: { value: noiseTex() }, uTime: waterUniforms.uTime, uSunDir: waterUniforms.uSunDir, uSunColor: waterUniforms.uSunColor, uSkyTop: waterUniforms.uSkyTop, uNight: waterUniforms.uNight, uLit: { value: new THREE.Color(0, 0, 0) } };
     const mat = new THREE.ShaderMaterial({ uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {}]), vertexShader: wakeVert, fragmentShader: wakeFrag, transparent: true, depthWrite: false, fog: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 });
