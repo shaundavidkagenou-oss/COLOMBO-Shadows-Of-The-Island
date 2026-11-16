@@ -37,7 +37,14 @@ export const FORT = {
   edgeZ: -613.65, // platform 1 face
   // vendor beat (platform 1 and the hall), and the PA horn speakers (on the shed columns, in the hall, outside)
   vendorLoop: [[-60.5, -619.5], [-35, -620.5], [8, -619.5], [8, -624.6], [-19.6, -624.6], [-19.6, -633], [-35, -644.5], [-51, -633], [-51, -624.6], [-60.5, -624.6]], // clear of the benches, the bridge stairs and the shed columns (tools/fort-station-test.mjs)
-  speakers: [[-105, -628.4], [-81.5, -628.4], [-62.5, -628.4], [-43.5, -628.4], [-24.5, -628.4], [-5.5, -628.4], [13.5, -628.4], [-91, -606], [-53, -606], [-15, -606], [-35, -637], [-35, -651.2], [-1, -651.2], [-80, -651.2]].map(([x, z]) => ({ x, z })),
+  // 55th: every horn is mounted on something — a shed column (on a clamp, the horn facing the platform), a wall bracket in the
+  // hall, or the pavilion piers outside (beside the openings, never in front of a doorway). x, z = the horn (sound source).
+  speakers: [
+    ...[-100.5, -81.5, -62.5, -43.5, -24.5, -5.5, 13.5].map((x) => ({ x, z: -628.8 + 0.35, y: FL + 3.5, mount: 'col', at: -628.8, dirs: [1] })),
+    ...[-91, -53, -15].map((x) => ({ x, z: -606, y: FL + 3.5, mount: 'col', at: -606, dirs: [-1, 1] })),
+    { x: -42.5, z: -630.4 - 0.35, y: FL + 4.6, mount: 'wall', at: -630.4, dirs: [-1] }, { x: -27.5, z: -649.6 + 0.35, y: FL + 4.6, mount: 'wall', at: -649.6, dirs: [1] },
+    { x: -39.35, z: -650.8 - 0.35, y: FL + 3.3, mount: 'wall', at: -650.8, dirs: [-1] }, { x: -3.67, z: -650.8 - 0.35, y: FL + 3.3, mount: 'wall', at: -650.8, dirs: [-1] }, { x: -80, z: -650 - 0.35, y: FL + 3.0, mount: 'wall', at: -650.1, dirs: [-1] },
+  ],
   // hall benches and platform benches: seats (sit pose roots) [x, z, yaw]
   benches: [],
   // plan clearance: no plan trees / plants / props inside the station (the shed, platforms and sidings stand here now)

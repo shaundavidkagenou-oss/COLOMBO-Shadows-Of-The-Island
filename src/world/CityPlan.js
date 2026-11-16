@@ -599,7 +599,8 @@ export function generatePlan() {
     if (gone.size) { plan.buildings = plan.buildings.filter((b) => !gone.has(b)); plan.colliders = plan.colliders.filter((c) => !(c.kind === 'building' && gone.has(c.b))); for (const ch of plan.byChunk) ch.buildings = ch.buildings.filter((b) => !gone.has(b)); }
     plan.customsCleared = [...gone].map((b) => b.id); }
   { const inRes = (x, z) => !!L.fuelSiteAt(x, z) || !!L.customsSiteAt(x, z) || fortClearAt(x, z, 0.5); // + Colombo Fort station (54th: the train shed, platforms and sidings stand there)
-    const keepSig = (p) => p.type === 'signal' && !L.fuelSiteAt(p.x, p.z) && !L.customsSiteAt(p.x, p.z); // the Olcott Mawatha traffic signals stand on the kerb in front of the station: they stay
+    const underFortCanopy = (p) => p.x > FORT.bld.x0 - 1.5 && p.x < FORT.bld.x1 + 1.5 && p.z > FORT.bld.z0 - 2.6 && p.z < FORT.bld.z1; // 55th: the four on the station's own footway stood 20 cm off the facade, through the canopy and its fascia
+    const keepSig = (p) => p.type === 'signal' && !L.fuelSiteAt(p.x, p.z) && !L.customsSiteAt(p.x, p.z) && !underFortCanopy(p); // the Olcott Mawatha signals on the far kerb stay
     const drop = new Set(plan.props.filter((p) => inRes(p.x, p.z) && !keepSig(p))); const keptCols = new Set(plan.props.filter((p) => inRes(p.x, p.z) && keepSig(p)).map((p) => p.col).filter(Boolean)); const dropT = new Set(plan.trees.filter((t) => inRes(t.x, t.z))); const dropW = new Set(plan.walls.filter((w) => inRes((w.x0 + w.x1) / 2, (w.z0 + w.z1) / 2)));
     const cols = new Set([...drop].map((p) => p.col).filter(Boolean)); for (const t of dropT) cols.add(t.col);
     for (const c of plan.colliders) if (c.kind !== 'building' && !keptCols.has(c) && inRes((c.x0 + c.x1) / 2, (c.z0 + c.z1) / 2)) cols.add(c);

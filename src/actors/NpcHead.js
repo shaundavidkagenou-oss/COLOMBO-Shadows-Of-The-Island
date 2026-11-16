@@ -13,6 +13,7 @@
 //  • expressions are 12 morph targets + 2 gaze morphs (eyeballs rotate inside the sockets), driven by FaceRig only
 //    within ~28 m like before.
 import * as THREE from 'three';
+import { patchInterior } from '../gfx/InteriorLight.js';
 import DATA from './npcHeadData.js';
 import DATA_LO from './npcHeadDataLo.js'; // distance LOD: same variants / landmarks / masks / morphs, ~1/3 of the triangles
 const SETS = [DATA, DATA_LO];
@@ -191,7 +192,7 @@ export function npcHeadMaterial(sp, fv, geo) {
     uBr: { value: new THREE.Vector4(Math.abs(DATA.variants[geo.userData.v].L.eyeL[0]), DATA.variants[geo.userData.v].L.eyeL[1], DATA.variants[geo.userData.v].L.er, (f ? 0.8 : 1) * clamp(bw, 0.75, 1.3)) },
     uPot: { value: pottu ? new THREE.Vector4(geo.userData.pottu[0], geo.userData.pottu[1], geo.userData.pottu[2] + 0.001, 0.0042) : new THREE.Vector4(0, 0, 0, 0) } };
   const m = new THREE.MeshStandardMaterial({ color: skin, vertexColors: true, roughness: 0.6, metalness: 0 });
-  m.userData.u = u; m.onBeforeCompile = patch; m.customProgramCacheKey = cacheKey; m.name = 'npcHead';
+  m.userData.u = u; m.onBeforeCompile = patch; m.customProgramCacheKey = cacheKey; m.name = 'npcHead'; patchInterior(m);
   return m;
 }
 

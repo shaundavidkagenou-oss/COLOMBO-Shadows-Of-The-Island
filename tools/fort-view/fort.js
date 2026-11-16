@@ -49,5 +49,6 @@ if (q.get('train') !== '0') { try { const mats = makeTrainMaterials(); const P =
 scene.updateMatrixWorld(true);
 const cam = new THREE.PerspectiveCamera(+(q.get('fov') || 50), W / H, 0.1, 3000); cam.position.set(...v3(q.get('cam'), [-35, 12, -700])); cam.lookAt(new THREE.Vector3(...v3(q.get('at'), [-35, 4, -630])));
 renderer.render(scene, cam); renderer.render(scene, cam);
-const info = renderer.info; window.__result = { errors, calls: info.render.calls, tris: info.render.triangles, colliders: colliders.length };
+const picks = []; if (q.get('pick')) { const rc = new THREE.Raycaster(); for (const pp of q.get('pick').split(';')) { const [px, py] = pp.split(',').map(Number); rc.setFromCamera(new THREE.Vector2(px * 2 - 1, 1 - py * 2), cam); const h = rc.intersectObjects(scene.children, true)[0]; if (!h) { picks.push(null); continue; } const ca = h.object.geometry.attributes.color; const c = ca && h.face ? [ca.getX(h.face.a), ca.getY(h.face.a), ca.getZ(h.face.a)].map((v) => +v.toFixed(3)) : null; picks.push({ px, py, mesh: h.object.name, p: h.point.toArray().map((v) => +v.toFixed(2)), n: h.face ? h.face.normal.toArray().map((v) => +v.toFixed(2)) : null, c }); } }
+const info = renderer.info; window.__result = { picks, errors, calls: info.render.calls, tris: info.render.triangles, colliders: colliders.length };
 window.__ready = true;

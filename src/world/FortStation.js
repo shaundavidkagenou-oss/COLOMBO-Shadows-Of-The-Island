@@ -20,6 +20,9 @@
 // 128×32 canvas. No lights are created (the tubes are emissive, the light pools are the landmarks' existing decal).
 import * as THREE from 'three';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
+import { LayerRouter, mergeLayered, stationMaterial, colKey } from '../gfx/StationPBR.js';
+import { setInterior, setInteriorNight, patchInterior } from '../gfx/InteriorLight.js';
+import { MAT } from '../gfx/Materials.js';
 import { FORT } from './FortStationData.js';
 import { RAIL_TOP, BALLAST_Y, GAUGE } from './Railway.js';
 import { buildClassicCoach, buildDmuCar, ebox, beam, solids, COACH_LEN, CAR_LEN as DMU_LEN } from '../vehicles/TrainModels.js';
@@ -43,7 +46,9 @@ function buildAtlases() {
     txt(x, 'FORT  RAILWAY  STATION', 512, 33, FS(700, 54, '"Cormorant Garamond", "Times New Roman", serif'), '#151515', 1000);
     txt(x, 'කොටුව දුම්රිය ස්ථානය', 512, 97, SI(46), '#151515', 1000);
     txt(x, 'கோட்டை புகையிரத நிலையம்', 512, 161, TA(42), '#151515', 1000);
-    txt(x, 'COLOMBO FORT  ·  කොටුව  ·  கோட்டை', 512, 225, FS(700, 46), '#1b2b3a', 1000);
+    { // the pavilion frieze: Latin, Sinhala and Tamil each in its own face (Barlow has no Sinhala / Tamil glyphs: the old line lost them)
+      const parts = [['COLOMBO FORT', FS(700, 46)], ['  ·  ', FS(700, 46)], ['කොටුව', SI(40)], ['  ·  ', FS(700, 46)], ['கோட்டை', TA(36)]]; let w = 0; for (const [t, f] of parts) { x.font = f; w += x.measureText(t).width; }
+      let px = 512 - w / 2; x.fillStyle = '#1b2b3a'; x.textAlign = 'left'; x.textBaseline = 'middle'; for (const [t, f] of parts) { x.font = f; x.fillText(t, px, 226); px += x.measureText(t).width; } }
     A.a = c;
   }
   { // B: the counter boards — big red number, trilingual destination
@@ -90,6 +95,13 @@ const T = { // tile uv rects
   lcd: (k) => UVR(k * 512, 0, 512, 128), sign: (k) => UVR((k % 4) * 256, 128 + Math.floor(k / 4) * 64, 256, 64),
 };
 // vertical sign quad facing one axis direction, CCW from the front (see MeshBuilder.quad)
+// round sign (clock dial) facing one axis direction: a fan over the uv rect's inscribed circle
+function signDisc(B, cx, cy, cz, r, face, uv, seg = 40) {
+  const n = FACE_N[face], rt = FACE_R[face]; const uc = (uv[0] + uv[2]) / 2, vc = (uv[1] + uv[3]) / 2, ur = (uv[2] - uv[0]) / 2 * (60 / 64), vr = (uv[3] - uv[1]) / 2 * (60 / 64);
+  for (let k = 0; k < seg; k++) { const a0 = (k / seg) * Math.PI * 2, a1 = ((k + 1) / seg) * Math.PI * 2; const P = (a) => [cx + rt[0] * Math.cos(a) * r, cy + Math.sin(a) * r, cz + rt[2] * Math.cos(a) * r];
+    const b = B.vcount; const pc = [cx, cy, cz], p0 = P(a0), p1 = P(a1);
+    B.vert(...pc, ...n, uc, vc); B.vert(...p0, ...n, uc + Math.cos(a0) * ur, vc + Math.sin(a0) * vr); B.vert(...p1, ...n, uc + Math.cos(a1) * ur, vc + Math.sin(a1) * vr); B.idx.push(b, b + 1, b + 2); }
+}
 function signQuad(B, cx, cy, cz, w, h, face, uv) {
   const a = cy - h / 2, b = cy + h / 2, hw = w / 2;
   if (face === '-z') B.quad([cx + hw, a, cz], [cx - hw, a, cz], [cx - hw, b, cz], [cx + hw, b, cz], uv);
@@ -103,7 +115,16 @@ const FACE_R = { '-z': [-1, 0, 0], '+z': [1, 0, 0], '+x': [0, 0, -1], '-x': [0, 
 export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   const F = FORT, Y = F.Y, FL = F.FL, TOP = F.bld.top, ZF0 = F.bld.z0;
   const cc = (c) => (Array.isArray(c) ? c : C(c));
-  const stone = mb.get('kerb'), wallM = mb.get('paint'), paint = mb.get('paint'), metal = mb.get('metal'), wglass = mb.get('winGlass'), glass = mb.get('glass'), emis = mb.get('emissive'), corr = mb.get('corrugated');
+  // 55th: every opaque surface of the station is on the layered PBR material (gfx/StationPBR.js): the builder routes each
+  // part to a real surface (plaster, mosaic, terrazzo, timber, cast iron, stainless …) from its colour
+  const lmb = new MultiBuilder(); const LK = new Map(); const lay = (layer, ...hex) => { for (const h of hex) LK.set(colKey(cc(h)), layer); };
+  lay('wood', WOOD, SILL, BENCH, '#5a4a38', '#6d5a44', '#5a3a22', '#6b4428', '#3e2a18', '#6b4a2c', '#5d4a36', '#2a1d14', '#7a6a52', '#5a3520');
+  lay('timberPaint', SHUT, '#7a2a1c', '#6a1a14', '#3a2618', '#e8e4d8'); lay('mosaic', DADO, DADO_D); lay('pavers', TERRA, '#9a5a44', '#8e4d35'); lay('rubber', TACT, '#111', '#1b1b1d', '#1e1e1e', '#2b2d30', '#2c2c2c', '#151515', '#1a1a1a', '#121212');
+  lay('terrazzo', '#cfc6b0', '#9a8f7c'); lay('vinyl', '#b9b1a0', '#a49c8c', '#8f8676'); lay('enamel', '#2a2a2a', '#f0f0ec', '#fff', '#1c1c1c', '#d8d8d4'); lay('brass', '#b08d57'); lay('fabric', '#1f2a44'); lay('concrete', '#7a7a74', COPING, '#9f9a90', '#8e8a80', '#9a948a', '#a8846a', '#8f8b84', PLINTH, '#b7b2a6', '#b1aca0', '#6e6a62', '#d8d2c2');
+  lay('iron', IRON, '#3c4a42', '#2c3a33', '#4a5a4a', '#3a4a3a', '#2d4a3c', '#4a4f4c', '#222', '#333', '#3a3a3a', '#7a1515'); lay('steel', STEEL, '#ddd', '#ccc', '#888', '#bfc3c2', '#555', '#666', '#b8b4ae', '#444'); lay('under', '#6a625a');
+  const pick = (c) => LK.get(colKey(c));
+  const stone = new LayerRouter(lmb, 'concrete', pick), wallM = new LayerRouter(lmb, 'plaster', (c) => { const k = pick(c); return k === 'mosaic' || k === 'concrete' ? k : null; }), paint = new LayerRouter(lmb, 'paint', pick), metal = new LayerRouter(lmb, 'iron', (c) => { const k = pick(c); return k === 'steel' || k === 'under' || k === 'rubber' || k === 'enamel' || k === 'wood' ? k : null; });
+  const wglass = mb.get('winGlass'), glass = mb.get('glass'), emis = mb.get('emissive'), corr = mb.get('corrugated');
   // box from bounds
   const B = (b, x0, x1, y0, y1, z0, z1, col, o = {}) => { if (x1 < x0) [x0, x1] = [x1, x0]; if (y1 < y0) [y0, y1] = [y1, y0]; if (z1 < z0) [z0, z1] = [z1, z0]; if (x1 - x0 < 1e-4 || y1 - y0 < 1e-4 || z1 - z0 < 1e-4) return; b.box((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, x1 - x0, y1 - y0, z1 - z0, { col: cc(col), uvScale: o.uv || 3, bottom: o.bottom ?? true, top: o.top ?? true }); };
   const coll = (x0, x1, z0, z1, h, extra = {}) => colliders.push({ x0, x1, z0, z1, h, kind: 'landmark', ...extra });
@@ -113,6 +134,15 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   const sb = new MultiBuilder(); const SA = sb.get('sA'), SBd = sb.get('sB'), SC = sb.get('sC'), SD = sb.get('sD');
   const clocks = []; // {x, y, z, face, r}
   const anim = { clocks, ledMeshes: [] };
+  // a round station clock (55th): case behind the dial plane, a moulded / brass rim proud of it, the round enamel dial
+  // (atlas C, cut round — no square corners), glass over the dial; the hands are the animated InstancedMesh (anim.hands)
+  const ORI = (face) => { const m = new THREE.Matrix4(); if (face === '-z' || face === '+z') m.makeRotationX(Math.PI / 2); else m.makeRotationZ(Math.PI / 2); return m; };
+  const clockFace = (x, y, z, face, r, o = {}) => { const n = FACE_N[face], d = o.depth ?? 0.1, rw = o.rimW ?? 0.06; const rimB = o.plaster ? wallM : paint;
+    const cg = new THREE.CylinderGeometry(r + rw * 0.3, r + rw * 0.45, d, 36, 1, false); paint.geometry(cg, ORI(face).setPosition(x - n[0] * d / 2, y, z - n[2] * d / 2), cc(o.case || '#1c1c1c')); cg.dispose();
+    const tg = new THREE.TorusGeometry(r + rw * 0.25, rw * 0.5, 8, 44); const tm = new THREE.Matrix4(); if (n[0]) tm.makeRotationY(Math.PI / 2); tm.setPosition(x + n[0] * 0.012, y, z + n[2] * 0.012); rimB.geometry(tg, tm, cc(o.rim || '#b08d57')); tg.dispose();
+    signDisc(SC, x + n[0] * 0.004, y, z + n[2] * 0.004, r, face, T.dial);
+    if (o.glass !== false) { const gg = new THREE.CylinderGeometry(r, r, 0.006, 32); glass.geometry(gg, ORI(face).setPosition(x + n[0] * 0.04, y, z + n[2] * 0.04), cc('#dfe8ea')); gg.dispose(); }
+    clocks.push({ x, y, z, face, r: r * 0.95 }); };
 
   // ================================================================ 1. building: plinth, floors, walls with real openings
   // Olcott Mawatha's footway is only ~1 m wide in front of the frontage (the carriageway edge is at z −651), so the five steps
@@ -171,7 +201,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   for (const [a, b] of [[-60, -53.5], [-50.5, -37.5], [-32.5, -19.5], [-16.5, -10.2]]) dado(a, b, ZF + 0.4, ZF + 0.42);
   for (const [a, b] of [[-60, -52.5], [-47.5, -37.5], [-32.5, -22.5], [-17.5, -10.2]]) dado(a, b, ZB - 0.42, ZB - 0.4);
   dado(-10.22, -10.2, ZF + 0.4, F.res.door.z - 1); dado(-10.22, -10.2, F.res.door.z + 1, ZB - 0.4);
-  dado(-9.8, -2.6, ZF + 0.4, ZF + 0.42); dado(-0.6 + 1.2, 7.8, ZF + 0.4, ZF + 0.42); dado(-9.8, 7.8, ZB - 0.42, ZB - 0.4); dado(-9.8, -9.78, ZF + 0.4, ZB - 0.4);
+  dado(-9.8, -2.6, ZF + 0.4, ZF + 0.42); dado(-0.6 + 1.2, 7.8, ZF + 0.4, ZF + 0.42); dado(-9.8, 7.8, ZB - 0.42, ZB - 0.4); dado(-9.8, -9.78, ZF + 0.4, F.res.door.z - 1); dado(-9.8, -9.78, F.res.door.z + 1, ZB - 0.4); // (55th: this one ran straight across the waiting-room doorway)
 
   // ================================================================ 2. facade: windows, pilasters, cornice, dado, canopy, pavilions
   const fx = (x, zf, sgn) => { // decorative tall window with segmental arch head on a facade plane (sgn −1: facing −z)
@@ -196,7 +226,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   const canopy = (xa, xb) => {
     B(paint, xa, xb, CY, CY + 0.1, ZF - CD, ZF, '#e8e8e2'); corr.box((xa + xb) / 2, CY + 0.16, ZF - CD / 2, xb - xa, 0.03, CD, { col: [0.78, 0.8, 0.8], uvScale: 3 });
     B(paint, xa, xb, CY - 0.45, CY + 0.45, ZF - CD - 0.08, ZF - CD, '#f6f4ee'); B(paint, xa, xb, CY - 0.5, CY - 0.45, ZF - CD - 0.1, ZF - CD, '#2a2a2a');
-    for (let x = xa + 0.6; x < xb - 0.3; x += 3) { const pts = []; for (let k = 0; k <= 6; k++) { const a = (k / 6) * Math.PI / 2; pts.push([ZF - Math.sin(a) * (CD - 0.4), CY - 1.3 + (1 - Math.cos(a)) * 1.3]); }
+    for (let x0 = xa + 0.6; x0 < xb - 0.3; x0 += 3) { const hole = frontHoles.find((h) => x0 > h[0] - 0.25 && x0 < h[1] + 0.25); const x = hole ? (x0 - hole[0] < hole[1] - x0 ? hole[0] - 0.35 : hole[1] + 0.35) : x0; if (x < xa + 0.2 || x > xb - 0.2) continue; const pts = []; for (let k = 0; k <= 6; k++) { const a = (k / 6) * Math.PI / 2; pts.push([ZF - Math.sin(a) * (CD - 0.4), CY - 1.3 + (1 - Math.cos(a)) * 1.3]); }
       for (let k = 0; k < 6; k++) beam(metal, x, pts[k][1], pts[k][0], x, pts[k + 1][1], pts[k + 1][0], 0.06, 0.08, cc(IRON)); beam(metal, x, CY - 1.3, ZF, x, CY - 0.02, ZF - CD + 0.4, 0.04, 0.04, cc(IRON)); metal.cylinder(x, CY - 0.75, ZF - 0.75, 0.12, 0.12, 0.04, 10, { col: cc(IRON) }); }
   };
   for (const [a, b] of [[X0 + 0.3, -93], [-83, -41.2], [-28.8, -4.8], [2.8, X1 - 0.3]]) canopy(a, b);
@@ -208,15 +238,22 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
     for (const px of [-40.55, -38.15, -31.85, -29.45]) { B(wallM, px - 0.3, px + 0.3, FL, ht - 0.5, zf - 0.15, zf, '#f7f4ec'); B(wallM, px - 0.4, px + 0.4, ht - 0.75, ht - 0.5, zf - 0.25, zf, '#ebe5d4'); B(wallM, px - 0.4, px + 0.4, FL, FL + 0.5, zf - 0.22, zf, '#ebe5d4'); }
     B(wallM, xa - 0.3, xb + 0.3, ht - 0.5, ht, zf - 0.45, ZF, '#efe9da'); // entablature
     for (const [a, b] of [[-37.5, -37.2], [-32.8, -32.5]]) B(paint, a, b, FL, FL + 4.0, zf - 0.02, ZF + 0.4, '#e7e1d0'); B(paint, -37.5, -32.5, FL + 3.8, FL + 4.1, zf - 0.06, zf, '#e7e1d0');
-    signQuad(SA, -35, FL + 5.2, zf - 0.02, 9.4, 0.6, '-z', T.fascia(3));
+    B(wallM, xa - 0.12, xb + 0.12, FL + 4.78, FL + 5.62, zf - 0.22, zf, '#f4f0e6'); B(wallM, xa - 0.16, xb + 0.16, FL + 5.62, FL + 5.7, zf - 0.27, zf, '#e6dfcc'); B(wallM, xa - 0.16, xb + 0.16, FL + 4.72, FL + 4.78, zf - 0.25, zf, '#e6dfcc'); // frieze band across the pilasters (the lettering is painted on it, never behind a pilaster)
+    signQuad(SA, -35, FL + 5.2, zf - 0.225, 9.4, 0.6, '-z', T.fascia(3));
     // balustrade
     B(wallM, xa - 0.2, xb + 0.2, ht, ht + 0.14, zf - 0.3, ZF, '#eee8da'); B(wallM, xa - 0.2, xb + 0.2, ht + 0.82, ht + 0.95, zf - 0.3, zf + 0.05, '#eee8da');
     for (let x = xa + 0.2; x <= xb - 0.2; x += 0.32) { if (x > -36.7 && x < -33.3) continue; wallM.cylinder(x, ht + 0.14, zf - 0.13, 0.06, 0.09, 0.34, 8, { col: cc('#f1ece0') }); wallM.cylinder(x, ht + 0.48, zf - 0.13, 0.09, 0.05, 0.34, 8, { col: cc('#f1ece0') }); }
     for (const px of [xa, -37.2, -32.8, xb]) { B(wallM, px - 0.3, px + 0.3, ht, ht + 1.1, zf - 0.35, zf + 0.25, '#ede7d8'); wallM.cylinder(px, ht + 1.1, zf - 0.05, 0.12, 0.24, 0.18, 10, { col: cc('#ede7d8') }); wallM.cylinder(px, ht + 1.28, zf - 0.05, 0.24, 0.12, 0.2, 10, { col: cc('#ede7d8') }); wallM.cylinder(px, ht + 1.48, zf - 0.05, 0.05, 0.05, 0.12, 6, { col: cc('#ede7d8') }); } // pedestals + ball finials
     // curved scrolled pediment: a segmental crown over the clock with scrolls (volutes) at its feet
-    const pw = 3.6, py = ht + 0.14; const n = 16; for (let k = 0; k < n; k++) { const u0 = -1 + (2 * k) / n, u1 = -1 + (2 * (k + 1)) / n, um = (u0 + u1) / 2; const yt = py + 1.2 + Math.sqrt(1 - um * um) * 1.15; B(wallM, -35 + u0 * pw / 2, -35 + u1 * pw / 2, py, yt, zf - 0.1, zf + 0.25, W); B(wallM, -35 + u0 * pw / 2 - 0.02, -35 + u1 * pw / 2 + 0.02, yt, yt + 0.16, zf - 0.22, zf + 0.25, '#e7e0cd'); }
+    const pw = 4.0, py = ht + 0.14; // the pediment: one smooth extruded segmental crown (55th: it was a staircase of 16 boxes)
+    { const sh = new THREE.Shape(); sh.moveTo(-pw / 2, 0); sh.lineTo(pw / 2, 0); sh.lineTo(pw / 2, 1.7); for (let k = 1; k <= 32; k++) { const u = 1 - (2 * k) / 32; sh.lineTo(u * pw / 2, 1.7 + Math.sqrt(Math.max(0, 1 - u * u)) * 1.45); } sh.lineTo(-pw / 2, 0);
+      const g = new THREE.ExtrudeGeometry(sh, { depth: 0.35, bevelEnabled: false, curveSegments: 1 }); wallM.geometry(g, new THREE.Matrix4().makeTranslation(-35, py, zf - 0.1), cc(W)); g.dispose();
+      for (let k = 0; k < 28; k++) { const u0 = -1 + (2 * k) / 28, u1 = -1 + (2 * (k + 1)) / 28; const y0 = py + 1.7 + Math.sqrt(Math.max(0, 1 - u0 * u0)) * 1.45, y1 = py + 1.7 + Math.sqrt(Math.max(0, 1 - u1 * u1)) * 1.45; beam(wallM, -35 + u0 * pw / 2, y0 + 0.08, zf - 0.03, -35 + u1 * pw / 2, y1 + 0.08, zf - 0.03, 0.42, 0.18, cc('#e7e0cd')); } // crown moulding
+      for (const e of [-1, 1]) beam(wallM, -35 + e * pw / 2, py + 1.62, zf - 0.03, -35 + e * pw / 2, py + 1.9, zf - 0.03, 0.42, 0.22, cc('#e7e0cd')); }
     for (const e of [-1, 1]) { const g = new THREE.CylinderGeometry(0.34, 0.34, 0.4, 14); const m = new THREE.Matrix4().makeRotationX(Math.PI / 2).setPosition(-35 + e * (pw / 2 + 0.1), py + 0.45, zf - 0.02); wallM.geometry(g, m, cc('#ece6d6')); const g2 = new THREE.CylinderGeometry(0.16, 0.16, 0.42, 10); wallM.geometry(g2, new THREE.Matrix4().makeRotationX(Math.PI / 2).setPosition(-35 + e * (pw / 2 + 0.1), py + 0.45, zf - 0.04), cc('#d9d1bb')); g.dispose(); g2.dispose(); }
-    paint.cylinder(-35, py + 1.9, zf - 0.12, 0.98, 0.98, 0.02, 24, { col: cc('#2a2a2a'), caps: false }); clocks.push({ x: -35, y: py + 1.9, z: zf - 0.125, face: '-z', r: 0.9 });
+    // the clock is set INTO the pediment face (55th: it used to stand proud of the crown and cut through it): a moulded round
+    // surround, the white enamel dial under glass, black hands — the whole dial inside the pediment's outline
+    clockFace(-35, py + 1.95, zf - 0.1, '-z', 0.66, { rim: '#e3dccb', rimW: 0.12, depth: 0.08, glass: true });
   }
   // round-arched entrance pavilion (reservations office): pilasters, entablature, urn finials, archivolt
   { const cx = F.res.portalX, xa = cx - 3.6, xb = cx + 3.6, zf = PZ, ht = Y + 9.2, r = 1.6, spring = FL + 2.6;
@@ -284,7 +321,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   for (const x of [-52, -35, -18]) for (const z of [-645, -636]) { metal.cylinder(x, F.hall.ceil - 0.6, z, 0.015, 0.015, 0.6, 6, { col: cc('#ddd') }); paint.cylinder(x, F.hall.ceil - 0.72, z, 0.13, 0.13, 0.14, 10, { col: cc('#e8e8e0') }); for (let k = 0; k < 3; k++) { const a = k * 2.094 + x; ebox(paint, x + Math.cos(a) * 0.45, F.hall.ceil - 0.68, z + Math.sin(a) * 0.45, 0.72, 0.012, 0.13, 0, -a, 0, cc('#e9e7df')); } }
   for (let x = -57; x < -12; x += 5) for (const z of [-648, -641, -633]) { B(emis, x - 0.6, x + 0.6, F.hall.ceil - 0.05, F.hall.ceil - 0.01, z - 0.03, z + 0.03, [1, 0.98, 0.92]); if ((x + z) % 2 === 0) lightPool(x, z, FL + 0.012, 4); }
   for (const [x, z, f, k] of [[-35, -636.8, '-z', 0], [-35, -637.0, '+z', 1], [-40, -645.5, '+x', 0]]) { const n = FACE_N[f]; B(paint, x - (n[0] ? 0.05 : 1.15), x + (n[0] ? 0.05 : 1.15), FL + 3.55, FL + 4.25, z - (n[2] ? 0.05 : 1.15), z + (n[2] ? 0.05 : 1.15), '#111'); signQuad(SD, x + n[0] * 0.052, FL + 3.9, z + n[2] * 0.052, 2.2, 0.55, f, T.lcd(k)); for (const e of [-0.9, 0.9]) metal.cylinder(x + (n[0] ? 0 : e), FL + 4.25, z + (n[2] ? 0 : e), 0.012, 0.012, F.hall.ceil - FL - 4.25, 4, { col: cc('#888') }); }
-  paint.box(-10.21, FL + 4.2, -637, 0.02, 0.95, 0.95, { col: cc('#2a2a2a') }); clocks.push({ x: -10.23, y: FL + 4.2, z: -637, face: '-x', r: 0.42 });
+  clockFace(-10.29, FL + 4.2, -637, '-x', 0.42, { depth: 0.09 });
   for (const x of F.backArches) signQuad(SD, x, FL + 3.25, ZB - 0.43, 2.4, 0.6, '+z', T.sign(2)); signQuad(SD, -35, FL + 3.25, ZF + 0.43, 2.4, 0.6, '+z', T.sign(3));
   signQuad(SD, -10.23, FL + 2.95, F.res.door.z, 2.0, 0.5, '-x', T.sign(7));
 
@@ -298,7 +335,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
     for (const z of [-646, -641.5, -637]) { B(paint, cxw + 0.45, cxw + 1.2, FL + 0.72, FL + 0.76, z - 0.7, z + 0.7, '#5d4a36'); B(paint, cxw + 0.5, cxw + 0.75, FL + 0.76, FL + 1.05, z + 0.1, z + 0.45, '#1b1b1d'); }
     // AC unit, wall clock, fans, tubes, barred window (back wall), benches for the queue
     B(paint, 7.55, 7.78, FL + 3.0, FL + 3.32, -645.5, -644.4, '#f0f0ec'); for (let k = 0; k < 5; k++) B(paint, 7.53, 7.55, FL + 3.04 + k * 0.05, FL + 3.06 + k * 0.05, -645.45, -644.45, '#bbb');
-    paint.box(7.79, FL + 2.8, -640.2, 0.02, 0.62, 0.62, { col: cc('#2a2a2a') }); clocks.push({ x: 7.77, y: FL + 2.8, z: -640.2, face: '-x', r: 0.28 });
+    clockFace(7.73, FL + 2.8, -640.2, '-x', 0.27, { depth: 0.07, case: '#f0f0ec', rim: '#d8d8d4' });
     for (const z of [-645, -636]) { metal.cylinder(-1, FL + 3.8, z, 0.015, 0.015, 0.4, 6, { col: cc('#ddd') }); paint.cylinder(-1, FL + 3.7, z, 0.12, 0.12, 0.12, 10, { col: cc('#e8e8e0') }); for (let k = 0; k < 3; k++) { const a = k * 2.094 + z; ebox(paint, -1 + Math.cos(a) * 0.42, FL + 3.74, z + Math.sin(a) * 0.42, 0.66, 0.012, 0.12, 0, -a, 0, cc('#e9e7df')); } }
     for (const z of [-647, -640, -633]) B(emis, -5.6, -4.4, FL + 4.12, FL + 4.16, z - 0.03, z + 0.03, [1, 0.98, 0.92]);
     for (let k = 0; k < 6; k++) rod(metal, -5.8 + k * 0.7, FL + 1.2, ZB - 0.45, -5.8 + k * 0.7, FL + 2.6, ZB - 0.45, 0.012, cc('#2a2a2a')); B(wglass, -6, -2, FL + 1.2, FL + 2.6, ZB - 0.21, ZB - 0.19, '#000');
@@ -312,7 +349,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
     B(paint, 12.95, 13.45, FL + 0.77, FL + 1.12, ZB - 0.98, ZB - 0.6, '#1b1b1d'); B(emis, 12.97, 13.43, FL + 0.82, FL + 1.08, ZB - 1.0, ZB - 0.99, [0.3, 0.5, 0.75]);
     paint.cylinder(A.chair.x, FL, A.chair.z, 0.24, 0.24, 0.05, 10, { col: cc('#222') }); metal.cylinder(A.chair.x, FL + 0.05, A.chair.z, 0.025, 0.025, 0.37, 6, { col: cc('#555') }); B(paint, A.chair.x - 0.24, A.chair.x + 0.24, FL + 0.4, FL + 0.47, A.chair.z - 0.24, A.chair.z + 0.22, '#1f2a44'); B(paint, A.chair.x - 0.22, A.chair.x + 0.22, FL + 0.5, FL + 1.05, A.chair.z - 0.3, A.chair.z - 0.24, '#1f2a44');
     B(paint, 8.21, 8.23, FL + 1.2, FL + 2.2, -636.6, -634.6, '#f7f6ef'); for (let r = 0; r < 9; r++) B(paint, 8.23, 8.235, FL + 1.3 + r * 0.1, FL + 1.32 + r * 0.1, -636.5, -634.7, '#6d7a90');
-    paint.box(8.21, FL + 2.45, -633, 0.02, 0.5, 0.5, { col: cc('#2a2a2a') }); clocks.push({ x: 8.23, y: FL + 2.45, z: -633, face: '+x', r: 0.22 });
+    clockFace(8.27, FL + 2.45, -633, '+x', 0.21, { depth: 0.07, case: '#f0f0ec', rim: '#d8d8d4' });
     B(paint, 17.55, 17.78, FL + 1.6, FL + 2.0, -633, -632.6, '#2b2b2b'); B(emis, 12.4, 13.6, FL + 3.15, FL + 3.18, -634.5, -634.44, [1, 0.98, 0.92]);
     B(glass, A.win[0], A.win[1], FL + 1.0, FL + 2.3, ZB - 0.21, ZB - 0.19, '#9fb8c0'); for (const x of [A.win[0], (A.win[0] + A.win[1]) / 2, A.win[1]]) B(paint, x - 0.04, x + 0.04, FL + 1.0, FL + 2.3, ZB - 0.25, ZB - 0.15, '#e8e4d8');
     signQuad(SC, (A.win[0] + A.win[1]) / 2, FL + 2.85, ZB + 0.03, 1.8, 0.9, '+z', T.announce);
@@ -327,6 +364,10 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
       B(paint, x0, x1, Y, FL - 0.06, s > 0 ? zf - 0.02 : zf, s > 0 ? zf : zf + 0.02, OCHRE, { top: false }); B(stone, x0, x1, FL - 0.06, FL + 0.005, s > 0 ? zf - 0.03 : zf - 0.32, s > 0 ? zf + 0.32 : zf + 0.03, COPING);
       const tz = zf + s * 0.85; B(paint, x0, x1, FL, FL + 0.008, tz - 0.3, tz + 0.3, TACT); }
     for (let x = x0 + 0.6; x < x1; x += 1.2) B(paint, x, x + 0.01, FL + 0.001, FL + 0.003, z0, z1, '#8e4d35');
+    // 55th: the platform body is solid from the track (its top is a walkable surface only from above — walking off the ballast
+    // you used to walk into the platform, under its floor): a solid band along every track face and the ends beside the steps
+    for (const zf of faces) { const s = Math.abs(zf - z0) < 0.01 ? 1 : -1; coll(x0, x1, s > 0 ? zf : zf - 0.7, s > 0 ? zf + 0.7 : zf, FL); }
+    const sz = z0 === F.p1.z0 ? [z0 + 2, z1 - 1] : [z0 + 1, z1 - 1]; for (const [xa, xb] of [[x0, x0 + 0.7], [x1 - 0.7, x1]]) { coll(xa, xb, z0, sz[0], FL); coll(xa, xb, sz[1], z1, FL); }
   };
   const P1 = F.p1; platform(P1.x0, P1.x1, P1.z0, P1.z1, [P1.z1]);
   B(stone, P1.x0, X0, Y, FL - 0.06, P1.z0 - 0.02, P1.z0, '#9f9a90'); for (let x = P1.x0 + 0.2; x < X0; x += 1.8) metal.cylinder(x, FL, P1.z0 + 0.1, 0.03, 0.03, 1.1, 6, { col: cc(IRON) }); rod(metal, P1.x0, FL + 1.05, P1.z0 + 0.1, X0, FL + 1.05, P1.z0 + 0.1, 0.025, cc(IRON)); coll(P1.x0, X0, P1.z0, P1.z0 + 0.15, FL + 1.1);
@@ -378,14 +419,21 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
     for (const [z, nums] of [[-621.5, [0]], [-606, [1, 2]], [-594, [3, 4]]]) { const y = FL + 3.7; metal.cylinder(x, y + 0.4, z, 0.01, 0.01, arcY(z, z < S.zM ? S.zA : S.zM, z < S.zM ? S.zM : S.zB, S.rise - 1.0) - y - 0.4, 4, { col: cc('#555') });
       paint.box(x, y, z, 0.04, 0.82, 0.82, { col: cc('#fff') }); signQuad(SC, x + 0.025, y, z, 0.78, 0.78, '+x', T.num(nums[0])); signQuad(SC, x - 0.025, y, z, 0.78, 0.78, '-x', T.num(nums[nums.length - 1])); } }
   for (const [x, z, f, k] of [[-44, -623.5, '+x', 0], [-44, -623.5, '-x', 1], [8, -606.8, '+x', 0], [8, -606.8, '-x', 1]]) { const n = FACE_N[f]; B(paint, x - 0.06, x + 0.06, FL + 3.45, FL + 4.15, z - 1.15, z + 1.15, '#111'); signQuad(SD, x + n[0] * 0.065, FL + 3.8, z, 2.2, 0.55, f, T.lcd(k)); }
-  paint.box(-27.5, FL + 4.6, ZB + 0.01, 1.1, 1.1, 0.02, { col: cc('#2a2a2a') }); clocks.push({ x: -27.5, y: FL + 4.6, z: ZB + 0.03, face: '+z', r: 0.5 });
-  paint.box(-53, FL + 4.3, -606, 0.08, 0.9, 0.9, { col: cc('#2a2a2a') }); clocks.push({ x: -52.95, y: FL + 4.3, z: -606, face: '+x', r: 0.4 }, { x: -53.05, y: FL + 4.3, z: -606, face: '-x', r: 0.4 });
+  clockFace(-27.5, FL + 4.6, ZB + 0.1, '+z', 0.5, { depth: 0.1 });
+  { // the island platform's double-faced clock: a drum on a cast-iron bracket arm off the column (55th: it used to sit
+    // inside the column), dials facing both ways along the platform
+    const cx = -53, cz = S.zM + 0.78, cy = FL + 4.55; clockFace(cx + 0.13, cy, cz, '+x', 0.4, { depth: 0.13 }); clockFace(cx - 0.13, cy, cz, '-x', 0.4, { depth: 0.13 });
+    beam(metal, cx, cy + 0.62, S.zM + 0.1, cx, cy + 0.62, cz + 0.1, 0.06, 0.09, cc(IRON)); metal.cylinder(cx, cy + 0.41, cz, 0.02, 0.02, 0.21, 6, { col: cc(IRON) }); // arm + hanger
+    const pts = []; for (let i = 0; i <= 6; i++) { const a = (i / 6) * Math.PI / 2; pts.push([S.zM + 0.12 + (1 - Math.cos(a)) * 0.55, cy - 0.15 + Math.sin(a) * 0.74]); } for (let i = 0; i < 6; i++) beam(metal, cx, pts[i][1], pts[i][0], cx, pts[i + 1][1], pts[i + 1][0], 0.035, 0.05, cc(IRON)); // scroll strut
+    metal.cylinder(cx, cy + 0.66, cz + 0.1, 0.05, 0.03, 0.08, 8, { col: cc(IRON) }); B(metal, cx - 0.16, cx + 0.16, cy + 0.5, cy + 0.66, S.zM + 0.08, S.zM + 0.2, IRON); } // finial, collar on the column
   const horn = new THREE.CylinderGeometry(0.2, 0.05, 0.36, 10, 1, true);
-  for (const s of F.speakers) { const onCol = Math.abs(s.z - (S.zA + 0.4)) < 0.01 || Math.abs(s.z - S.zM) < 0.01; const y = onCol ? FL + 3.5 : s.z < ZF ? FL + 3.4 : FL + 5.4; const dir = s.z < ZF ? -1 : 1;
-    for (const d of Math.abs(s.z - S.zM) < 0.01 ? [-1, 1] : [dir]) { const m = new THREE.Matrix4().makeRotationX(d * Math.PI / 2 * 0.9).setPosition(s.x, y, s.z + d * 0.35); metal.geometry(horn, m, cc('#bfc3c2')); metal.box(s.x, y, s.z + d * 0.15, 0.06, 0.06, 0.3, { col: cc('#888') }); } }
+  for (const s of F.speakers) for (const d of s.dirs) { // horn + its bracket back to the column / wall (s.at = the mounting plane / column axis)
+    const back = s.mount === 'col' ? s.at + d * 0.12 : s.at; const hz = s.mount === 'col' ? s.at + d * 0.35 : s.z;
+    const m = new THREE.Matrix4().makeRotationX(d * (Math.PI / 2 + 0.22)).setPosition(s.x, s.y, hz); metal.geometry(horn, m, cc('#bfc3c2')); metal.cylinder(s.x, s.y - 0.05, hz - d * 0.18, 0.07, 0.07, 0.1, 8, { col: cc('#8a8f8e') }); // horn + driver
+    B(metal, s.x - 0.025, s.x + 0.025, s.y - 0.03, s.y + 0.03, back, hz - d * 0.18, '#666'); B(metal, s.x - 0.06, s.x + 0.06, s.y - 0.12, s.y + 0.12, back - (s.mount === 'col' ? 0 : d * 0.015), back + d * 0.015, '#666'); }
   horn.dispose();
   // areca palms in square planters against the building on platform 1 (the frontage has no forecourt for them in this city)
-  for (const px of [-62.6, 20.5]) { planterPalm(mb, px, ZB + 0.9, FL, cc); coll(px - 0.75, px + 0.75, ZB + 0.15, ZB + 1.65, FL + 0.75); }
+  for (const px of [-62.6, 20.5]) { planterPalm(mb, lmb, px, ZB + 0.9, FL, cc); coll(px - 0.75, px + 0.75, ZB + 0.15, ZB + 1.65, FL + 0.75); }
   // staff kiosk on platform 1 (mesh cage) by the footbridge
   { const x0 = -84, x1 = -81.4, z0 = -628.4, z1 = -626.2; B(paint, x0, x1, FL, FL + 0.9, z0, z1, '#4a5a4a'); B(paint, x0, x1, FL + 2.3, FL + 2.4, z0 - 0.1, z1 + 0.1, '#3a4a3a'); for (let x = x0; x <= x1; x += 0.15) rod(metal, x, FL + 0.9, z1, x, FL + 2.3, z1, 0.006, cc('#666')); for (let y = FL + 0.9; y <= FL + 2.3; y += 0.15) rod(metal, x0, y, z1, x1, y, z1, 0.006, cc('#666')); for (const z of [z0, z1]) for (const x of [x0, x1]) metal.cylinder(x, FL, z, 0.03, 0.03, 2.3, 6, { col: cc('#3a4a3a') }); coll(x0, x1, z0, z1, FL + 2.4); }
 
@@ -408,9 +456,20 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   // ================================================================ 8. atlases → meshes, clock hands, LED clock
   const at = buildAtlases(); const tex = (c) => { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; };
   const mk = (c, lit) => { const t = tex(c); return new THREE.MeshStandardMaterial({ map: t, roughness: 0.62, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: lit ? 0.75 : 0, side: THREE.FrontSide }); };
-  const smats = { sA: mk(at.a), sB: mk(at.b), sC: mk(at.c), sD: mk(at.d, true) }; anim.signMats = smats;
-  for (const k of clocks) signQuad(SC, k.x + FACE_N[k.face][0] * 0.004, k.y, k.z + FACE_N[k.face][2] * 0.004, k.r * 2, k.r * 2, k.face, T.dial); // clock dials (atlas C)
+  const smats = { sA: mk(at.a), sB: mk(at.b), sC: mk(at.c), sD: mk(at.d, true) }; anim.signMats = smats; for (const k in smats) patchInterior(smats[k]);
+  for (const k of ['corrugated', 'roofTiles', 'winGlass', 'glass']) if (MAT[k] && !MAT[k].userData.interior) { patchInterior(MAT[k]); MAT[k].userData.interior = true; } // the shed roof's underside, the glazing: dim under the roofs too
   for (const m of sb.toMeshes(smats, { cast: false, receive: true })) { m.name = 'fort-' + m.name; group.add(m); }
+  { const g = mergeLayered(lmb); const m = new THREE.Mesh(g, stationMaterial()); m.name = 'fort-pbr'; m.castShadow = true; m.receiveShadow = true; m.matrixAutoUpdate = false; m.updateMatrix(); group.add(m); anim.pbr = m; }
+  // covered spaces: sky visibility falls off inside the halls / under the shed, the tubes and pendant lamps light them
+  { const S = F.shed, hc = F.hall.ceil;
+    const shedRows = [S.zA, S.zM].flatMap((za, i) => { const zb = i ? S.zB : S.zM; return [za + (zb - za) * 0.25, za + (zb - za) * 0.75]; }).map((zl) => ({ start: S.x0 + 2, step: S.dx, n: S.frames, y: FL + 4.2, at: zl, axis: 'x', I: 5.5, R: 9, clip: [S.x0 - 4, S.zA, S.x1 + 4, S.zB] }));
+    setInterior({
+      zones: [{ x0: X0, z0: ZF, x1: X1, z1: ZB, top: hc + 0.2, base: 0.16, edge: 0.34, soft: 4 }, { x0: S.x0 - 0.6, z0: S.zA, x1: S.x1 + 0.6, z1: S.zB + 0.6, top: S.eave + S.rise + 1.2, roofY: S.eave - 0.3, base: 0.42, edge: 0.75, soft: 7 },
+        { x0: X0 - 0.3, z0: ZF - 2.0, x1: X1 + 0.3, z1: ZF, top: FL + 3.68, base: 0.62, edge: 0.8, soft: 0.6 }],
+      portals: [...F.entrances.map((e) => ({ x: e.x, z: ZF + 0.2, y: FL, r: e.w * 0.85, s: 0.55 })), ...F.backArches.map((x) => ({ x, z: ZB - 0.2, y: FL, r: 4.2, s: 0.7 })), { x: F.res.portalX, z: ZF + 0.2, y: FL, r: 2.6, s: 0.5 }, { x: (F.ann.win[0] + F.ann.win[1]) / 2, z: ZB - 0.2, y: FL + 1.0, r: 2.4, s: 0.45 }, { x: F.ann.door.x, z: ZB - 0.2, y: FL, r: 1.5, s: 0.35 }],
+      rows: [{ start: -57, step: 5, n: 9, y: hc - 0.05, at: -648, axis: 'x', I: 5, R: 9, clip: [-60, ZF + 0.4, -10.2, ZB - 0.4] }, { start: -57, step: 5, n: 9, y: hc - 0.05, at: -641, axis: 'x', I: 5, R: 9, clip: [-60, ZF + 0.4, -10.2, ZB - 0.4] }, { start: -57, step: 5, n: 9, y: hc - 0.05, at: -633, axis: 'x', I: 5, R: 9, clip: [-60, ZF + 0.4, -10.2, ZB - 0.4] },
+        { start: -647, step: 7, n: 3, y: FL + 4.12, at: -5, axis: 'z', I: 2.6, R: 8, clip: [-9.8, ZF + 0.4, 7.8, ZB - 0.4] }, { start: -634.47, step: 1, n: 1, y: FL + 3.15, at: 13, axis: 'z', I: 1.6, R: 6, clip: [8.2, -637.8, 17.8, ZB - 0.4] },
+        { start: ZF + 2, step: 4, n: 5, y: FL + 3.36, at: -62.05, axis: 'z', I: 1.3, R: 5, clip: [-63.8, ZF + 0.4, -60.4, ZB - 0.4] }, ...shedRows] }); }
   // clock hands: one InstancedMesh, hour + minute per dial
   { const g = new THREE.BoxGeometry(1, 1, 1); g.translate(0, 0.5, 0); const hands = new THREE.InstancedMesh(g, new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.5 }), clocks.length * 2); hands.name = 'fort-clock-hands'; hands.castShadow = false; hands.frustumCulled = false; group.add(hands); anim.hands = hands; }
   // red LED clock (128 × 32 canvas, redrawn once a game minute)
@@ -428,15 +487,16 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
     anim.hands.instanceMatrix.needsUpdate = true;
     const mm = Math.floor(mins) % 1440; const L = anim.led; if (L && mm !== L.last) { L.last = mm; const x = L.x; x.fillStyle = '#080000'; x.fillRect(0, 0, 128, 32); x.font = '700 28px "Courier New", monospace'; x.fillStyle = '#ff2a12'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(`${String(Math.floor(mm / 60)).padStart(2, '0')}:${String(mm % 60).padStart(2, '0')}`, 64, 17); L.t.needsUpdate = true; }
     for (const k of ['sA', 'sB', 'sC']) smats[k].emissiveIntensity = 0.22 * (night || 0);
+    setInteriorNight(night || 0);
   };
   anim.update(12, 0);
   return anim;
 }
 
 // ---------------------------------------------------------------- an areca palm in a square planter (forecourt)
-function planterPalm(mb, x, z, y0, C) {
-  const P = mb.get('kerb'), bark = mb.get('bark'), leaf = mb.get('palm');
-  P.box(x, y0 + 0.35, z, 1.4, 0.7, 1.4, { col: C('#d8d2c4'), uvScale: 2 }); P.box(x, y0 + 0.72, z, 1.5, 0.06, 1.5, { col: C('#c8c1b0') }); mb.get('paint').box(x, y0 + 0.69, z, 1.3, 0.02, 1.3, { col: C('#3a2a1e') });
+function planterPalm(mb, lmb, x, z, y0, C) {
+  const P = lmb.get('concrete'), bark = mb.get('bark'), leaf = mb.get('palm');
+  P.box(x, y0 + 0.35, z, 1.4, 0.7, 1.4, { col: C('#d8d2c4'), uvScale: 2 }); P.box(x, y0 + 0.72, z, 1.5, 0.06, 1.5, { col: C('#c8c1b0') }); lmb.get('concrete').box(x, y0 + 0.69, z, 1.3, 0.02, 1.3, { col: C('#3a2a1e') });
   const stems = [[0, 0, 3.4], [0.25, 0.18, 2.6], [-0.22, 0.2, 2.9], [0.1, -0.25, 2.2]];
   for (const [ox, oz, h] of stems) { bark.cylinder(x + ox, y0 + 0.7, z + oz, 0.07, 0.055, h, 7, { col: C('#7d8a5a') }); for (let r = 0.4; r < h; r += 0.35) bark.cylinder(x + ox, y0 + 0.7 + r, z + oz, 0.075, 0.075, 0.025, 7, { col: C('#5e6a44'), caps: false });
     const tx = x + ox, ty = y0 + 0.7 + h, tz = z + oz;

@@ -3,6 +3,7 @@
 // Sri Lankan everyday clothing and a procedural animation layer (locomotion, idles, gestures, reactions).
 import { mocapBody, mocapArms, blockHands } from '../anim/Mocap.js';
 import * as THREE from 'three';
+import { patchInterior } from '../gfx/InteriorLight.js';
 import { addBloodStain } from '../gfx/BloodStain.js';
 import { applyFight, fightState, MOVES as FIGHT_MOVES } from './Boxing.js';
 import { LIVE } from './Bodies.js';
@@ -1001,10 +1002,10 @@ export function getHairMaterial() {
         }
         #endif`);
   };
-  iblScale(hairMat, 0.28, 0.9, 0.6); // near-black hair: the bright sky reflection turned every crowd head steel-blue (the heroes' hair has had this scale already)
+  patchInterior(hairMat); iblScale(hairMat, 0.28, 0.9, 0.6); // near-black hair: the bright sky reflection turned every crowd head steel-blue (the heroes' hair has had this scale already)
   return hairMat;
 }
-export function getBodyMaterial() { if (!bodyMat) bodyMat = addBloodStain(new THREE.MeshStandardMaterial({ map: fabricAtlas(), vertexColors: true, roughness: 0.85 })); return bodyMat; } // 0 wounds; a wounded ped gets its own copy (BloodStain.js)
+export function getBodyMaterial() { if (!bodyMat) bodyMat = addBloodStain(patchInterior(new THREE.MeshStandardMaterial({ map: fabricAtlas(), vertexColors: true, roughness: 0.85 }))); return bodyMat; } // 0 wounds; a wounded ped gets its own copy (BloodStain.js)
 // Crowd / police bodies (NpcBody): the same atlas + vertex-colour material, plus cloth surfaces per garment from the 1-byte
 // aFab attribute (NpcBody.js FAB) — woven / knitted relief as a bump (plain weave, twill, denim wales, jersey knit, ripstop,
 // hi-vis mesh, leather grain), soft drape folds, thread slub, per-cloth roughness and the grazing-angle fibre sheen of cotton /
@@ -1082,10 +1083,10 @@ vec3 fbBump( vec3 pos, vec3 n, float h ) { vec3 dpx = dFdx( pos ), dpy = dFdy( p
   };
   m.customProgramCacheKey = () => 'npcfabric1';
   iblScale(m, 0.55, 1.0, 0.6); // same image-light scale as the protagonists' bodies: cloth and skin no longer glaze over with sky
-  npcBodyMat = addBloodStain(m); return npcBodyMat;
+  npcBodyMat = addBloodStain(patchInterior(m)); return npcBodyMat;
 }
 export function getFaceMaterial(key, opts) {
-  if (!faceMats.has(key)) faceMats.set(key, new THREE.MeshStandardMaterial({ map: faceAtlas(opts), vertexColors: true, roughness: 0.62 }));
+  if (!faceMats.has(key)) faceMats.set(key, patchInterior(new THREE.MeshStandardMaterial({ map: faceAtlas(opts), vertexColors: true, roughness: 0.62 })));
   return faceMats.get(key);
 }
 

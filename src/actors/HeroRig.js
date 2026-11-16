@@ -4,6 +4,7 @@
 // Also owns the protagonist-only shading: dual-quaternion skinning (no volume collapse at elbows / shoulders / knees),
 // a wrapped-light subsurface term tuned for brown skin, rain wetness / exertion sweat, and expression wrinkle normals.
 import * as THREE from 'three';
+import { patchInterior } from '../gfx/InteriorLight.js';
 import { clamp, lerp, damp } from '../core/math.js';
 
 export const FINGERS = ['idx', 'mid', 'rng', 'pnk'];
@@ -224,7 +225,7 @@ export function patchHeroMaterial(mat, kind, U, prev = null) {
     sh.fragmentShader = sh.fragmentShader.replace('#include <lights_physical_pars_fragment>', THREE.ShaderChunk.lights_physical_pars_fragment.replace(SSS_LINE, SSS_ADD));
   };
   mat.customProgramCacheKey = () => 'hero-' + kind + (prev ? '-p' : '');
-  return mat;
+  return patchInterior(mat); // 55th: dim indoors like everything else under a roof (InteriorLight.js)
 }
 
 // ------------------------------------------------------------------ face normal maps (procedural, original)
