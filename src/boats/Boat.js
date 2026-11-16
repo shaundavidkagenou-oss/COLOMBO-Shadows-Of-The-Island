@@ -12,7 +12,12 @@
 //     the boat heels to leeward; holes and tears (BoatMaterial sail shader) cost drive
 import * as THREE from 'three';
 import { BOATS } from './BoatCatalog.js';
-import { boatModel, sailGeometry } from './BoatModels.js';
+import { boatModel, sailGeometry, policeDecalGeometry } from './BoatModels.js';
+let POLICE_MAT = null, POLICE_GEO = null;
+function policeMat() { if (POLICE_MAT || typeof document === 'undefined') return POLICE_MAT; const c = document.createElement('canvas'); c.width = 512; c.height = 64; const x = c.getContext('2d');
+  x.clearRect(0, 0, 512, 64); x.fillStyle = '#123a7a'; x.textBaseline = 'middle'; x.textAlign = 'center'; x.font = 'bold 44px Arial, Helvetica, sans-serif'; x.fillText('POLICE', 200, 30); x.font = 'bold 15px Arial, Helvetica, sans-serif'; x.fillStyle = '#c4242a'; x.fillText('MARINE DIVISION', 200, 56);
+  x.fillStyle = '#123a7a'; x.font = 'bold 26px Arial, Helvetica, sans-serif'; x.fillText('M-07', 440, 32);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; POLICE_MAT = new THREE.MeshStandardMaterial({ map: t, transparent: true, roughness: 0.3, polygonOffset: true, polygonOffsetFactor: -2, depthWrite: false }); POLICE_MAT.name = 'policeBoatDecal'; return POLICE_MAT; }
 import { boatUniforms, boatMaterial, sailMaterial, MAX_HOLES } from './BoatMaterial.js';
 import { waterAt, spray } from './BoatWater.js';
 
@@ -21,6 +26,11 @@ const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t 
 const dampTo = (a, b, k, dt) => a + (b - a) * (1 - Math.exp(-k * dt));
 export const WIND = { x: 0.93, z: -0.37 }; // where the air is going: the south-west monsoon blows from the WSW onto the coast
 let UID = 1;
+// least-squares cubic through the hull's sheer line, sheer(s) ≈ a + b s + c s² + d s³ (the stripe band follows it in the shader)
+function sheerFit(H) { const N = 4, A = Array.from({ length: N }, () => new Array(N + 1).fill(0));
+  for (let i = 0; i <= 40; i++) { const s = i / 40, y = H.sheer(s); const p = [1, s, s * s, s * s * s]; for (let r = 0; r < N; r++) { for (let c = 0; c < N; c++) A[r][c] += p[r] * p[c]; A[r][N] += p[r] * y; } }
+  for (let c = 0; c < N; c++) { let m = c; for (let r = c + 1; r < N; r++) if (Math.abs(A[r][c]) > Math.abs(A[m][c])) m = r; [A[c], A[m]] = [A[m], A[c]]; for (let r = 0; r < N; r++) if (r !== c) { const f = A[r][c] / A[c][c]; for (let k = c; k <= N; k++) A[r][k] -= f * A[c][k]; } }
+  return A.map((row, i) => row[N] / row[i]); }
 const _w = { y: 0, dx: 0, dz: 0, a: 0 }, _ray = new THREE.Raycaster(), _m = new THREE.Matrix4(), _o = new THREE.Vector3(), _d = new THREE.Vector3(), _p = new THREE.Vector3();
 
 export class Boat {
@@ -29,10 +39,11 @@ export class Boat {
     this.uid = o.uid || `${id}-${Date.now().toString(36)}-${UID++}`; this.role = o.role || 'npc';
     const c = { ...d.col, ...(o.col || {}) }; const Ft = M.H.h.Ft;
     this.U = boatUniforms({ hull: c.hull, boot: c.boot || c.hull, anti: c.anti || c.hull, sheer: c.sheer || c.hull, wl: d.cat === 'jetski' ? -9 : 0.03, bootTop: d.cat === 'jetski' ? -9 : 0.15,
-      sheerLo: c.sheer && c.sheer !== c.hull ? Ft - 0.17 : 9, sheerHi: c.sheer && c.sheer !== c.hull ? Ft - 0.07 : 9, cabinCol: o.cabinCol });
+      stripeTop: c.sheer && c.sheer !== c.hull ? clamp(Ft * 0.07, 0.05, 0.22) : 0, stripeBot: c.sheer && c.sheer !== c.hull ? clamp(Ft * 0.07, 0.05, 0.22) + clamp(Ft * 0.1, 0.06, 0.3) : 0, sheerFit: sheerFit(M.H), len: M.len, cabinCol: o.cabinCol });
     this.mat = boatMaterial(this.U);
     this.root = new THREE.Group(); this.root.name = 'boat:' + id; this.root.rotation.order = 'YXZ';
     this.mesh = new THREE.Mesh(M.geo, this.mat); this.mesh.name = 'boatBody'; this.mesh.castShadow = true; this.mesh.receiveShadow = true; this.root.add(this.mesh);
+    if (M.police && policeMat()) { if (!POLICE_GEO) POLICE_GEO = policeDecalGeometry(M); const dm = new THREE.Mesh(POLICE_GEO, POLICE_MAT); dm.name = 'policeDecal'; this.root.add(dm); }
     // sails (+ the boom / yards swinging with the main), furled while moored
     this.sails = []; for (let i = 0; i < M.sails.length; i++) { const s = M.sails[i]; const piv = new THREE.Group(); piv.position.set(s.pivot[0], s.pivot[1], s.pivot[2]); this.root.add(piv);
       const sm = sailMaterial(s.col || '#f1ede2'); const g = sailGeometry(s); const mesh = new THREE.Mesh(g, sm); mesh.name = 'sail'; mesh.position.set(s.tack[0] - s.pivot[0], s.tack[1] - s.pivot[1], s.tack[2] - s.pivot[2]); mesh.castShadow = true; piv.add(mesh);

@@ -17,7 +17,8 @@ export function boatUniforms(o = {}) {
   return {
     uHull: { value: new THREE.Color(o.hull || '#f2f2ee') }, uBoot: { value: new THREE.Color(o.boot || '#1d2b45') }, uAnti: { value: new THREE.Color(o.anti || '#3a1f22') },
     uSheer: { value: new THREE.Color(o.sheer || o.hull || '#f2f2ee') },
-    uWL: { value: new THREE.Vector4(o.wl ?? 0.02, o.bootTop ?? 0.13, o.sheerLo ?? 9, o.sheerHi ?? 9) }, // antifoul top, boot top, sheer stripe y-range
+    uWL: { value: new THREE.Vector4(o.wl ?? 0.02, o.bootTop ?? 0.13, o.stripeTop ?? 0, o.stripeBot ?? 0) }, // antifoul top, boot top, sheer stripe (depths below the sheer line)
+    uSF: { value: new THREE.Vector4(...(o.sheerFit || [9, 0, 0, 0])) }, uSL: { value: o.len || 10 }, // the sheer line as a cubic in s = (z + L/2) / L, so the stripe follows it
     uCabin: { value: 0 }, uLamps: { value: 0 }, uBeacon: { value: new THREE.Vector2(0, 0) }, uDamage: { value: 0 }, uUwl: { value: 0 }, uFend: { value: 0 },
     uCabinCol: { value: new THREE.Color(o.cabinCol || '#ffc98a') },
   };
@@ -30,11 +31,12 @@ export function boatMaterial(U) {
     s.vertexShader = s.vertexShader.replace('#include <common>', '#include <common>\nattribute float aMat; varying float vMat; varying vec3 vLoc; uniform float uFend;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvMat = aMat; vLoc = position; if (abs(aMat - 14.0) < 0.5 && uFend < 0.5) transformed = vec3(0.0);');
     s.fragmentShader = s.fragmentShader.replace('#include <common>', `#include <common>
-      varying float vMat; varying vec3 vLoc; uniform vec3 uHull, uBoot, uAnti, uSheer, uCabinCol; uniform vec4 uWL; uniform float uCabin, uLamps, uDamage, uUwl; uniform vec2 uBeacon;
+      varying float vMat; varying vec3 vLoc; uniform vec3 uHull, uBoot, uAnti, uSheer, uCabinCol; uniform vec4 uWL, uSF; uniform float uSL; uniform float uCabin, uLamps, uDamage, uUwl; uniform vec2 uBeacon;
       float bHash(float n) { return fract(sin(n * 91.345) * 47453.5453); }
       bool isM(float id) { return abs(vMat - id) < 0.5; }`)
       .replace('#include <color_fragment>', `#include <color_fragment>
-      if (isM(1.0)) { float y = vLoc.y; diffuseColor.rgb = y < uWL.x ? uAnti : y < uWL.y ? uBoot : (y > uWL.z && y < uWL.w) ? uSheer : uHull;
+      if (isM(1.0)) { float y = vLoc.y; float ss = clamp((vLoc.z + uSL * 0.5) / uSL, 0.0, 1.0); float sy = uSF.x + ss * (uSF.y + ss * (uSF.z + ss * uSF.w));
+        diffuseColor.rgb = y < uWL.x ? uAnti : y < uWL.y ? uBoot : (y < sy - uWL.z && y > sy - uWL.w) ? uSheer : uHull;
         diffuseColor.rgb *= 1.0 - uDamage * 0.35 * step(0.6, bHash(floor(vLoc.z * 1.7) + floor(vLoc.y * 3.0) * 7.0)); }
       if (isM(2.0)) { float pw = 0.115; float row = floor(vLoc.x / pw); float f = fract(vLoc.x / pw); float seg = floor((vLoc.z + bHash(row) * 4.0) / 3.6);
         float tone = 0.86 + 0.24 * bHash(row * 13.0 + seg); float seam = smoothstep(0.0, 0.07, f) * smoothstep(1.0, 0.93, f);

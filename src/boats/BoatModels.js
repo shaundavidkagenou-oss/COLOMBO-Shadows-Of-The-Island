@@ -12,6 +12,7 @@ import { BoatBuilder, Hull, deck, cockpit, rail, seat, wheel, outboard, canopy, 
 import { SURF } from './BoatMaterial.js';
 import { BOATS } from './BoatCatalog.js';
 
+const SADDLE = new THREE.CapsuleGeometry(0.5, 1, 4, 14).rotateX(Math.PI / 2); // unit saddle: radius 0.5, 2 long along z
 const RED = '#ff2c1c', GREEN = '#22ff6e', WHITE = '#fff4dc';
 const GLASS = '#18222b', SS = '#d6dade', BLACK = '#18191b', TEAK = '#a8774d', CREAM = '#ece6d6', OFF = '#f4f3ee';
 // combined bicolour lantern on the bow (red to port, green to starboard), screened down the middle
@@ -46,7 +47,7 @@ const LAYOUTS = {
     bb.box(SURF.paint, OFF, 0, fy + ch / 2, cz, cw, ch, 1.05); bb.box(SURF.paint, OFF, 0, fy + ch + 0.08, cz - 0.12, cw - 0.04, 0.16, 0.8, { rx: 0.35 });
     bb.box(SURF.paint, BLACK, 0, fy + ch + 0.12, cz - 0.18, cw - 0.12, 0.02, 0.5, { rx: 0.42 }); // dash panel
     bb.box(SURF.glass, '#1d2830', 0.0, fy + ch + 0.08, cz - 0.24, 0.32, 0.18, 0.012, { rx: 0.42 }); bb.box(SURF.glass, '#1d2830', 0.33, fy + ch + 0.08, cz - 0.24, 0.24, 0.16, 0.012, { rx: 0.42 }); // MFD screens
-    const ws = [[0.56, fy + ch + 0.14, cz + 0.46], [-0.56, fy + ch + 0.14, cz + 0.46], [-0.46, fy + ch + 0.62, cz + 0.2], [0.46, fy + ch + 0.62, cz + 0.2]]; bb.quad(SURF.glass, '#2c3a40', ...ws); bb.tube(SURF.steel, SS, [[0.56, fy + ch + 0.14, cz + 0.48], [0.47, fy + ch + 0.64, cz + 0.2], [-0.47, fy + ch + 0.64, cz + 0.2], [-0.56, fy + ch + 0.14, cz + 0.48]], 0.014);
+    const ws = [[0.5, fy + ch + 0.14, cz + 0.3], [-0.5, fy + ch + 0.14, cz + 0.3], [-0.44, fy + ch + 0.46, cz + 0.08], [0.44, fy + ch + 0.46, cz + 0.08]]; bb.quad2(SURF.glass, '#4a5a60', ...ws); bb.tube(SURF.steel, SS, [[0.5, fy + ch + 0.14, cz + 0.32], [0.45, fy + ch + 0.48, cz + 0.08], [-0.45, fy + ch + 0.48, cz + 0.08], [-0.5, fy + ch + 0.14, cz + 0.32]], 0.014); // a short acrylic windscreen on a stainless grab rail
     const wh = wheel(bb, [0, fy + ch + 0.08, cz - 0.6], 0.19, 0.95);
     bb.box(SURF.paint, '#2a2c30', -0.34, fy + ch - 0.02, cz - 0.62, 0.1, 0.12, 0.14); bb.cyl(SURF.steel, SS, [-0.34, fy + ch + 0.04, cz - 0.62], [-0.34, fy + ch + 0.2, cz - 0.56], 0.012, 0.012, 5, false); // throttle box + levers
     seat(bb, 0, fy + 0.62, cz + 0.85, 0.9, 0.55, { back: 0.35, col: police ? '#2f3540' : CREAM, ry: Math.PI }); // seat on the console front
@@ -217,7 +218,7 @@ const LAYOUTS = {
     const L = d.len, B = d.beam; const hb = 1.15; const off = B / 2 - hb / 2 - 0.05; const Hs = [];
     for (const sd of [1, -1]) { const H = new Hull({ kind: 'round', L, B: hb, T: 0.75, Ft: 1.25, Fm: 1.28, Fb: 1.45, tw: 0.78, fine: 1.2, rake: 0.0, keelRise: 1.0, maxAt: 0.45, forefoot: 0.8, flare: 0.0, xOff: sd * off, NS: 32 }); H.build(bb, { col: d.col.hull }); Hs.push(H); deck(bb, H, 0.0, 1.0, { surf: SURF.nonskid, col: '#e8e6df', camber: 0.02 });
       // a long hull window band (owner's hull) and the mini keel
-      for (const s2 of [1, -1]) { const x = sd * off + s2 * (hb / 2 - 0.02); const P = [[x, 0.62, H.z(0.3)], [x, 0.62, H.z(0.62)], [x, 0.78, H.z(0.6)], [x, 0.78, H.z(0.32)]]; if (s2 > 0) bb.pane(SURF.cabin, P[0], P[1], P[2], P[3], 0.01); else bb.pane(SURF.cabin, P[1], P[0], P[3], P[2], 0.01); }
+      for (const s2 of [1, -1]) { const x = sd * off + s2 * (hb / 2 - 0.02); const P = [[x, 0.62, H.z(0.3)], [x, 0.62, H.z(0.62)], [x, 0.78, H.z(0.6)], [x, 0.78, H.z(0.32)]]; bb.pane(SURF.cabin, P[0], P[1], P[2], P[3], 0.01, undefined, [sd * off, H.z(0.46)]); }
       bb.prism(SURF.hull, d.col.anti, [[sd * off + 0.05, H.z(0.4)], [sd * off - 0.05, H.z(0.4)], [sd * off - 0.04, H.z(0.62)], [sd * off + 0.04, H.z(0.62)]], [[sd * off + 0.03, H.z(0.45)], [sd * off - 0.03, H.z(0.45)], [sd * off - 0.02, H.z(0.6)], [sd * off + 0.02, H.z(0.6)]], -0.7, -1.25, { cap: true });
       bb.box(SURF.teak, TEAK, sd * off, 0.25, H.z(0) - 0.35, hb * 0.85, 0.06, 0.7); // sugar-scoop steps
       sternLight(bb, sd * off, 1.1, H.z(0) - 0.01); void 0; }
@@ -448,7 +449,8 @@ const LAYOUTS = {
     for (let i = 0; i < 12; i++) { const a = lerp(0.04, 0.62, i / 12), b = lerp(0.04, 0.62, (i + 1) / 12); for (const sd of [1, -1]) bb.quad(SURF.nonskid, '#2a2c30', [sd * (H.hb(a) - 0.04), H.sheer(a) - fw, H.z(a)], [sd * 0.22, H.sheer(a) - fw, H.z(a)], [sd * 0.22, H.sheer(b) - fw, H.z(b)], [sd * (H.hb(b) - 0.04), H.sheer(b) - fw, H.z(b)]); }
     const spineP = []; for (let i = 0; i <= 10; i++) { const s = lerp(0.04, 0.66, i / 10); spineP.push([0.24, s]); } const sb = spineP.map(([x, s]) => [x, H.z(s)]); const spine = [...sb, ...sb.slice().reverse().map(([x, z]) => [-x, z])];
     bb.prism(SURF.paint, c.deck, spine, spine.map(([x, z]) => [x * 0.86, z]), H.sheer(0.3) - fw - 0.02, H.sheer(0.3) + 0.12, {});
-    const s0 = v === 3 ? 0.1 : 0.16, s1 = 0.6; const seatH = H.sheer(0.4) + 0.22 + (v === 2 ? 0.04 : 0); for (let i = 0; i < 10; i++) { const a = lerp(s0, s1, i / 10), b = lerp(s0, s1, (i + 1) / 10); const wa = 0.2 + 0.03 * Math.sin(((a - s0) / (s1 - s0)) * Math.PI), wb = 0.2 + 0.03 * Math.sin(((b - s0) / (s1 - s0)) * Math.PI); bb.box(SURF.vinyl, c.seat, 0, seatH - 0.05, (H.z(a) + H.z(b)) / 2, (wa + wb), 0.17, H.z(b) - H.z(a) + 0.005); }
+    const s0 = v === 3 ? 0.1 : 0.16, s1 = 0.6; const seatH = H.sheer(0.4) + 0.22 + (v === 2 ? 0.04 : 0); { const zl = H.z(s1) - H.z(s0), zc = (H.z(s0) + H.z(s1)) / 2; const m = new THREE.Matrix4().compose(new THREE.Vector3(0, seatH - 0.04, zc), new THREE.Quaternion(), new THREE.Vector3(0.46, 0.2, zl / 2)); bb.geom(SURF.vinyl, c.seat, SADDLE, m); // one padded saddle
+      const m2 = new THREE.Matrix4().compose(new THREE.Vector3(0, seatH - 0.1, zc), new THREE.Quaternion(), new THREE.Vector3(0.5, 0.12, zl / 2 + 0.03)); bb.geom(SURF.paint, c.trim, SADDLE, m2); } // its moulded base
     if (v === 3) { bb.box(SURF.vinyl, c.seat, 0, seatH + 0.2, H.z(0.12), 0.42, 0.3, 0.1, { rx: -0.2 }); bb.box(SURF.teak, TEAK, 0, H.sheer(0) - 0.05, H.z(0) - 0.18, B * 0.8, 0.04, 0.36); } // touring backrest + platform
     const hoodS0 = 0.62; const hP = planPoly(H, hoodS0, 0.97, 0.08, 8); bb.prism(SURF.paint, c.deck, hP, hP.map(([x, z]) => [x * 0.72, z - 0.05]), H.sheer(0.75) - 0.06, H.sheer(0.75) + 0.2, {});
     const podZ = H.z(0.63), podY = seatH + 0.28; bb.box(SURF.paint, c.trim, 0, podY - 0.1, podZ, 0.42, 0.22, 0.32, { rx: -0.3 }); bb.box(SURF.glass, '#1a2128', 0, podY + 0.03, podZ + 0.08, 0.3, 0.12, 0.01, { rx: -0.6 });
@@ -483,4 +485,12 @@ export function sailGeometry(s, NI = 10, NJ = 14) { // a sail as a cloth grid in
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals(); return g;
 }
 export const BOAT_LAYOUTS = Object.keys(LAYOUTS);
+// POLICE lettering strip conforming to both topsides (one mesh: uv.x along the strip, the far side mirrored so it reads)
+export function policeDecalGeometry(M, s0 = 0.3, s1 = 0.68, yTop = 0.4, h = 0.3) {
+  const H = M.H, N = 12, pos = [], uv = [], idx = [];
+  for (const sd of [1, -1]) { const base = pos.length / 3;
+    for (let i = 0; i <= N; i++) { const t = i / N, s = lerp(s0, s1, t); const yt = H.sheer(s) - yTop, yb = yt - h; for (const [y, v] of [[yb, 0], [yt, 1]]) { pos.push(sd * (H.beamAt(s, y) + 0.012), y, H.z(s)); uv.push(sd > 0 ? 1 - t : t, v); } }
+    for (let i = 0; i < N; i++) { const a = base + i * 2; if (sd > 0) idx.push(a, a + 1, a + 2, a + 2, a + 1, a + 3); else idx.push(a, a + 2, a + 1, a + 2, a + 3, a + 1); } }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals(); return g;
+}
 void C;

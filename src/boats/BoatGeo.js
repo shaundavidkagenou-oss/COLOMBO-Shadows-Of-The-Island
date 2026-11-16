@@ -48,7 +48,9 @@ export class BoatBuilder {
     return this;
   }
   // a band of glass let into a slanted/vertical face: quad slightly proud of the surface along its normal
-  pane(surf, a, b, c, d, out = 0.012, col = '#1a242c') { const n = new THREE.Vector3().subVectors(new THREE.Vector3(...b), new THREE.Vector3(...a)).cross(new THREE.Vector3().subVectors(new THREE.Vector3(...d), new THREE.Vector3(...a))).normalize().multiplyScalar(out);
+  // (always pushed OUT of the body it is let into: away from the boat's centre line, or from `from` = [x, z] of a demihull)
+  pane(surf, a, b, c, d, out = 0.012, col = '#1a242c', from = null) { const n = new THREE.Vector3().subVectors(new THREE.Vector3(...b), new THREE.Vector3(...a)).cross(new THREE.Vector3().subVectors(new THREE.Vector3(...d), new THREE.Vector3(...a))).normalize();
+    const cx = (a[0] + b[0] + c[0] + d[0]) / 4 - (from ? from[0] : 0), cz = (a[2] + b[2] + c[2] + d[2]) / 4 - (from ? from[1] : 0); if (n.x * cx + n.z * cz < 0) n.negate(); n.multiplyScalar(Math.abs(out));
     const o = (p) => [p[0] + n.x, p[1] + n.y, p[2] + n.z]; return this.quad(surf, col, o(a), o(b), o(c), o(d)); }
   geom(surf, col, g, m) { this.mb(surf).geometry(g, m || new THREE.Matrix4(), C(col)); return this; }
   // ---- finish: one geometry, aMat per vertex
@@ -72,7 +74,7 @@ export class Hull {
   hb(s) { const h = this.h; const m = h.maxAt; if (s <= m) { const t = s / m; return (h.B / 2) * (h.tw + (1 - h.tw) * Math.pow(Math.sin((t * Math.PI) / 2), 0.7)); }
     const t = (s - m) / (1 - m); return (h.B / 2) * Math.pow(Math.max(0, 1 - Math.pow(t, h.fine)), 0.62); }
   sheer(s) { const h = this.h; return s < 0.5 ? lerp(h.Ft, h.Fm, sstep(0, 0.5, s)) : lerp(h.Fm, h.Fb, Math.pow((s - 0.5) / 0.5, 1.7)); }
-  keel(s) { const h = this.h; const r = sstep(h.forefoot, 1, s); return lerp(-h.T, this.sheer(1) * h.keelRise, Math.pow(r, 1.35)); }
+  keel(s) { const h = this.h; const r = Math.max(0, (s - h.forefoot) / (1 - h.forefoot)); return lerp(-h.T, this.sheer(1) * h.keelRise * 0.35, Math.pow(r, 2.1)); } // forefoot curving up ever faster to the stem foot, a little above the waterline (the stem then rakes up to the sheer)
   dr(s) { const h = this.h; return lerp(h.dr0, h.dr1, Math.pow(s, 1.6)); }
   // half section at station s: list of [x, y] from the keel up to the sheer, and the index of the chine
   section(s) {
