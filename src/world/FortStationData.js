@@ -51,4 +51,6 @@ for (const x of [-108, -96, -89.5, -58, -42.5, -27.5, -12, 0, 12, 24]) { for (co
 export const inRect = (r, x, z, pad = 0) => x > r.x0 - pad && x < r.x1 + pad && z > r.z0 - pad && z < r.z1 + pad;
 export function fortClearAt(x, z, pad = 0) { return FORT.clear.some((r) => inRect(r, x, z, pad)); }
 export function inAnnouncerRoom(x, z) { return inRect(FORT.ann, x, z, -0.05); }
+// under the station's roofs (the frontage block with the halls, the platform-1 canopy and the train shed): no rain falls here
+export function underFortRoof(x, z) { return x > FORT.shed.x0 && x < FORT.shed.x1 && z > FORT.bld.z0 && z < FORT.shed.zB && (x > FORT.bld.x0 || z > FORT.shed.zA); }
 export function inStation(x, z) { return x > -125 && x < 36 && z > -656 && z < -583; }

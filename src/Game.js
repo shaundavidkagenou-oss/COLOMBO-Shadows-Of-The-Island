@@ -2,6 +2,7 @@
 import { preloadRealModels } from './vehicles/RealModels.js';
 import { FuelService } from './world/FuelStations.js';
 import { StationLife, stationSpecs } from './world/StationLife.js';
+import { underFortRoof } from './world/FortStationData.js';
 import { gatherBodies, setBodiesCollision } from './actors/Bodies.js';
 import { PoliceHQLife } from './police/PoliceHQLife.js';
 import { PoliceResponse, crewSpec, CREW_LOOKS } from './police/PoliceResponse.js';
@@ -513,6 +514,7 @@ export class Game {
     if (!this.indoor && A.envBase !== undefined) this.scene.environmentIntensity = A.envBase * (1 - 0.8 * sk); // indoors, reflections would show the room, not the sky
     if (sk > 0.002) { A.sun.intensity *= 1 - 0.92 * sk; A.hemi.intensity = lerp(A.hemi.intensity, 0.8, sk); A.hemi.color.lerp(HQ_SKY, sk); A.hemi.groundColor.lerp(HQ_GND, sk); A.ambient.intensity = lerp(A.ambient.intensity, 0.3, sk); this.renderer.toneMappingExposure = lerp(this.renderer.toneMappingExposure, 1.0, sk); if (sk > 0.5) A.rain.visible = false; }
     if (this.indoor) { A.sun.intensity = 0; A.hemi.intensity *= 0.25; A.ambient.intensity = 0.25; this.scene.environmentIntensity = 0.12; A.rain.visible = false; this.renderer.toneMappingExposure = 1; }
+    if (!this.indoor && (this.player.indoor || underFortRoof(cam.position.x, cam.position.z))) A.rain.visible = false; // (or under the Fort station's roofs: the halls and the train shed)
     if (!this.indoor && this.player.indoor) A.rain.visible = false; // in a walk-in shop / the HQ: no rain streaks in the room
     const camDir = new THREE.Vector3(); cam.getWorldDirection(camDir);
     if (this.indoor) this.hideOutdoor(); // anything spawned since entering (police units etc.) stays hidden too
