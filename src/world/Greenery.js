@@ -9,8 +9,9 @@
 //                 doorstep or gateway, a parking bay, a bus halt or a vendor's pitch.
 import { RNG } from '../core/rng.js';
 import * as L from './Layout.js';
-import { onParkFeature } from './Parks.js';
+import { onParkFeature, PARK } from './Parks.js';
 import { plantShapes } from './TreeShapes.js';
+import { CLOCK_TOWER } from './ClockTower.js';
 
 const ROAD_TREES = { // district: [spacing (m), [type, weight]…]
   cinnamon: [26, [['rain', 4], ['mara', 2], ['mango', 1.5], ['bo', 1], ['jak', 0.8]]], beira: [30, [['rain', 3], ['mara', 2], ['palm', 1]]], lake: [30, [['rain', 3], ['palm', 1.5], ['mara', 1]]],
@@ -74,6 +75,35 @@ export function greenTrees(ctx) {
       if (!inLot(x, z, 1.2) || !okTrunk(x, z) || L.zoneAt(x, z, 1)) continue; if (I.bldGap(x, z) < 2.2 || I.wallGap(x, z) < 1.0 || !I.clear(x, z, 1.8, 1) || !I.treeGap(x, z, 4.2)) continue;
       const type = pickW(rng, GARDEN_TREES); if (plant(type, x, z, type === 'banana' || type === 'areca' ? rng.range(0.85, 1.15) : rng.range(0.7, 1.05))) k++; } }
   plan.greenTreeStats = { street, garden: plan.trees.length - n0 - street };
+  newSpecies(plan, I, okTrunk, plant);
+}
+// 52nd request: five more species, on their own random stream after everything above (the existing trees keep their places):
+// mast-tree (ashoka) rows and flamboyants / tropical almonds along the leafy boulevards, king coconuts and the odd almond or
+// flamboyant in house gardens, and a few giant banyans, flamboyants and almonds on the Viharamahadevi lawns.
+const NEW_ROAD = { // district: [spacing, [type, weight]…]
+  cinnamon: [30, [['ashoka', 3], ['flamboyant', 2], ['kottamba', 1]]], kollupitiya: [36, [['ashoka', 2], ['kottamba', 2], ['flamboyant', 1]]], havelock: [34, [['flamboyant', 2], ['ashoka', 2]]],
+  bambalapitiya: [40, [['kottamba', 2], ['flamboyant', 1.5], ['ashoka', 1]]], wellawatte: [44, [['kottamba', 2], ['flamboyant', 1]]], beira: [36, [['kottamba', 2], ['flamboyant', 1.5]]], lake: [36, [['flamboyant', 2], ['kottamba', 1.5]]],
+  borella: [44, [['kottamba', 1.5], ['flamboyant', 1], ['ashoka', 1]]], slave: [46, [['kottamba', 2], ['ashoka', 1]]], fort: [60, [['ashoka', 1.5], ['kottamba', 1]]], kotahena: [60, [['kottamba', 1]]], maradana: [60, [['kottamba', 1], ['ashoka', 1]]],
+};
+const NEW_GARDEN = [['kingcoconut', 3], ['kottamba', 0.6], ['flamboyant', 0.5], ['ashoka', 0.5]];
+function newSpecies(plan, I, okTrunk, plant) {
+  const rng = new RNG(7474); const n0 = plan.trees.length; const st = { street: 0, garden: 0, park: 0 };
+  for (const seg of L.segments) { if (seg.level > 2 || seg.bridge) continue; const horizontal = seg.dir === 'h'; const len = horizontal ? seg.x1 - seg.x0 : seg.z1 - seg.z0;
+    const spec = NEW_ROAD[L.districtIdAt((seg.x0 + seg.x1) / 2, (seg.z0 + seg.z1) / 2)]; if (!spec) continue; const off = seg.hw + seg.walk * 0.55; const row = rng.chance(0.3) ? 'ashoka' : null; // some streets get a uniform mast-tree row
+    for (let t = 9; t < len - 9; t += spec[0] * rng.range(0.7, 1.1)) for (const side of [-1, 1]) { const x = horizontal ? seg.x0 + t : seg.x0 + side * off, z = horizontal ? seg.z0 + side * off : seg.z0 + t;
+      if (!okTrunk(x, z) || L.zoneAt(x, z, -2) || L.distToRail(x, z) < 6) continue; if (!I.clear(x, z, 2.0, 1) || !I.treeGap(x, z, 7)) continue; if (I.bldGap(x, z) < 1.8) continue;
+      const type = row && spec[1].some(([k]) => k === row) ? row : pickW(rng, spec[1]); if (rng.chance(0.75) && plant(type, x, z, type === 'ashoka' ? rng.range(0.85, 1.05) : rng.range(0.75, 1.05))) st.street++; } }
+  for (const b of plan.buildings) { if (!garden(b) || !rng.chance(0.55)) continue;
+    for (let tries = 0; tries < 6; tries++) { const side = rng.int(0, 3), t = rng.range(0.08, 0.92), dd = rng.range(2.6, 7); const [x, z] = around(b, side, t, dd);
+      if (!inLot(x, z, 1.2) || !okTrunk(x, z) || L.zoneAt(x, z, 1)) continue; if (I.bldGap(x, z) < 2.4 || I.wallGap(x, z) < 1.0 || !I.clear(x, z, 1.8, 1) || !I.treeGap(x, z, 4.5)) continue;
+      const type = pickW(rng, NEW_GARDEN); if (plant(type, x, z, type === 'kingcoconut' ? rng.range(0.85, 1.15) : rng.range(0.65, 0.9))) { st.garden++; break; } } }
+  { const P = PARK; const want = [['nuga', 3, 14], ['flamboyant', 7, 9], ['kottamba', 4, 8], ['ashoka', 6, 5]];
+    for (const [type, n, gap] of want) for (let k = 0, tries = 0; k < n && tries < 200; tries++) { const x = rng.range(P.x0 + 10, P.x1 - 10), z = rng.range(P.z0 + 10, P.z1 - 10);
+      if (Math.hypot(x - 90, z + 60) < 26 || onParkFeature(x, z, type === 'nuga' ? 4 : 2.4) || !I.treeGap(x, z, gap) || !I.clear(x, z, 3, 1)) continue; if (plan.poi.some((q) => q.type === 'lawn' && Math.hypot(q.x - x, q.z - z) < 3)) continue;
+      if (plant(type, x, z, type === 'nuga' ? rng.range(0.95, 1.15) : rng.range(0.85, 1.1))) { k++; st.park++; } } }
+  // the Fort clock tower's corner garden (ClockTower.js): two king coconuts, a flamboyant over the lawn, an araliya by the bench
+  for (const [type, x, z, sc] of [['kingcoconut', -376.8, -931.5, 1.0], ['kingcoconut', -365.2, -930.2, 1.1], ['flamboyant', -370.5, -925.2, 0.8], ['frangipani', -377.2, -920.6, 0.9], ['ashoka', -363.8, -921, 0.85]]) if (plant(type, x, z, sc)) st.clock = (st.clock || 0) + 1;
+  plan.greenTreeStats.newSpecies = { ...st, total: plan.trees.length - n0 };
 }
 
 export function greenPlants(ctx) {
@@ -102,4 +132,23 @@ export function greenPlants(ctx) {
     for (let k = 0; k < n; k++) { const a = rng.next() * 6.28, d = rng.range(0.9, 2.2) * Math.max(0.8, t.s || 1); const x = t.x + Math.cos(a) * d, z = t.z + Math.sin(a) * d; const type = rng.chance(0.6) ? 'fern' : 'weed';
       if (okGround(x, z, 0.2) && add(type, x, z, rng.range(0.8, 1.2))) c[type]++; } }
   plan.plantStats = c;
+  newPlants(plan, I, okGround, add, PS);
+}
+// 52nd request: five more plants (heliconia, snake plant, elephant ear, ti plant, screw pine), own random stream, after the rest
+const NEW_BEDS = [['heliconia', 2], ['alocasia', 2], ['cordyline', 2], ['sansevieria', 1.5], ['pandanus', 0.6]];
+function newPlants(plan, I, okGround, add, PS) {
+  const rng = new RNG(7373); const c = { heliconia: 0, sansevieria: 0, alocasia: 0, cordyline: 0, pandanus: 0 };
+  for (const b of plan.buildings) { if (!garden(b)) continue; const f = FRONT[b.front] || [0, -1];
+    for (let side = 0; side < 4; side++) { const len = side % 2 ? b.z1 - b.z0 : b.x1 - b.x0; const isFront = (side === 0 && f[1] < 0) || (side === 2 && f[1] > 0) || (side === 1 && f[0] > 0) || (side === 3 && f[0] < 0);
+      if (isFront && rng.chance(0.5)) for (const t of [0.5 - 0.2, 0.5 + 0.2]) { const [x, z] = around(b, side, t + rng.range(-0.03, 0.03), 0.45); if (okGround(x, z, 0.2) && add('sansevieria', x, z, rng.range(0.85, 1.15))) c.sansevieria++; } // either side of the front path
+      for (let u = 1.2; u < len - 1.2; u += rng.range(2.6, 4.2)) { const t = u / len; if (isFront && Math.abs(t - 0.5) < 0.24) continue; if (!rng.chance(0.4)) continue;
+        const type = pickW(rng, NEW_BEDS), s = rng.range(0.8, 1.1); const [x, z] = around(b, side, t, PS[type].r * s * 0.9 + 0.3); if (okGround(x, z) && add(type, x, z, s)) c[type]++; } } }
+  { const P = PARK; // Viharamahadevi: planted groups at the foot of the big trees (never on a path, hedge, bed or a lawn-sitter's spot)
+    for (const t of plan.trees) { if (t.x < P.x0 + 6 || t.x > P.x1 - 6 || t.z < P.z0 + 6 || t.z > P.z1 - 6 || !rng.chance(0.45)) continue; const n = rng.int(2, 4); const type = rng.pick(['heliconia', 'alocasia', 'cordyline', 'heliconia']);
+      for (let k = 0; k < n; k++) { const a = rng.next() * 6.28, d = rng.range(1.6, 3.2) * Math.max(0.8, t.s || 1); const x = t.x + Math.cos(a) * d, z = t.z + Math.sin(a) * d;
+        if (onParkFeature(x, z, 1.2) || L.roadAt(x, z) || plan.poi.some((q) => q.type === 'lawn' && Math.hypot(q.x - x, q.z - z) < 2.2)) continue; if (add(type, x, z, rng.range(0.85, 1.15))) c[type]++; } } }
+  { const [x0, x1, z0, z1] = CLOCK_TOWER.garden; // clock tower garden: heliconia and ti plants along the hedges, elephant ears under the palms
+    const G = [['heliconia', -364.3, -933.4], ['heliconia', -364.3, -926.5], ['cordyline', -364.0, -916.6], ['cordyline', -364.0, -913.2], ['alocasia', -375.8, -933.4], ['alocasia', -366.5, -933.5], ['heliconia', -378.7, -927.6], ['cordyline', -378.9, -922.8], ['pandanus', -373.8, -912.4], ['sansevieria', -372.9, -911.6], ['sansevieria', -369.1, -911.6], ['alocasia', -366.3, -929]];
+    for (const [type, x, z] of G) if (x > x0 && x < x1 && z > z0 && z < z1 && add(type, x, z, rng.range(0.9, 1.1))) c[type]++; }
+  plan.plantStats.newPlants = c;
 }

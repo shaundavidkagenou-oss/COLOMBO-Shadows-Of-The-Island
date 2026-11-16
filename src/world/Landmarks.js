@@ -9,6 +9,7 @@ import { RNG } from '../core/rng.js';
 import { buildPoliceHQ } from './PoliceHQ.js';
 import { buildJohnsSchool } from './JohnsSchool.js';
 import { discColliders } from './Parks.js';
+import { buildClockTower } from './ClockTower.js';
 
 const C = (hex) => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; };
 const M4 = new THREE.Matrix4();
@@ -202,14 +203,7 @@ export function buildLandmarks() {
 
   // ------------------------------------------------------------ FORT CLOCK TOWER (old lighthouse)
   {
-    const x = -385, z = -915, y0 = LAND_Y;
-    box(conc, x, y0 + 3, z, 5.5, 6, 5.5, '#efe6d0');
-    lathe(conc, [[2.6, 0], [2.4, 10], [2.2, 20], [2.4, 20.5], [2.4, 21.5]], 12, x, y0 + 6, z, '#f4ecd8');
-    box(conc, x, y0 + 28.3, z, 5.8, 0.6, 5.8, '#e2d6bc');
-    box(conc, x, y0 + 30.5, z, 4, 4, 4, '#f4ecd8');
-    for (const [dx, dz, r] of [[0, 2.05, 0], [2.05, 0, Math.PI / 2], [0, -2.05, Math.PI], [-2.05, 0, -Math.PI / 2]]) label([{ text: '◷', font: '400 200px serif', color: '#111' }], x + dx, y0 + 30.5, z + dz, 2.8, 2.8, r, { w: 256, h: 256, bg: '#fbf6e8', glow: false });
-    lathe(paint, [[2.4, 0], [2.6, 0.6], [1.6, 2.6], [0.2, 4.2]], 12, x, y0 + 32.5, z, '#5a5f55');
-    coll(x - 2.8, x + 2.8, z - 2.8, z + 2.8, 34);
+    anim.clockTower = buildClockTower({ mb, coll, group, label, C, LAND_Y }); // 52nd: hyper-detailed rebuild with a working clock + corner garden (ClockTower.js)
   }
 
   // ------------------------------------------------------------ TWIN TOWERS (WTC)

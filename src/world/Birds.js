@@ -66,7 +66,7 @@ export class Birds {
       const P = birdParts(sp); const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: SPECIES[sp].rough, metalness: 0, side: THREE.DoubleSide, envMapIntensity: sp === 'crow' ? 1.3 : 0.8 });
       this.meshes[sp] = PART_NAMES.map((n) => { const m = new THREE.InstancedMesh(P[n], mat, MAXN[sp]); m.count = 0; m.castShadow = true; m.receiveShadow = false; m.frustumCulled = false; m.instanceMatrix.setUsage(THREE.DynamicDrawUsage); m.name = `bird:${sp}:${n}`; this.root.add(m); return m; });
     }
-    this.treeTop = {}; for (const t of ['palm', 'rain', 'mara', 'mango', 'jak', 'bo', 'frangipani']) { const pts = crownPoints(t); let my = 0; for (let i = 1; i < pts.length; i += 3) my = Math.max(my, pts[i]); this.treeTop[t] = my; }
+    this.treeTop = {}; for (const t of ['palm', 'rain', 'mara', 'mango', 'jak', 'bo', 'frangipani', 'nuga', 'kottamba', 'flamboyant', 'ashoka', 'kingcoconut']) { const pts = crownPoints(t); let my = 0; for (let i = 1; i < pts.length; i += 3) my = Math.max(my, pts[i]); this.treeTop[t] = my; }
     game.events?.on?.('gunshot', (e) => this.scare(e?.x ?? game.player.x, e?.z ?? game.player.z, 45));
   }
   // ---------------------------------------------------------------- spots

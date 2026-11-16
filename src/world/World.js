@@ -56,7 +56,7 @@ export class World {
     if (plan.missionShops.club) { const s = plan.missionShops.club; const f = buildClubFront(s, plan.buildings.find((b) => b.id === s.b)); this.root.add(f.group); this.collision.addAll(f.colliders); } // The Velvet Monsoon club frontage
     { const fs = buildFuelStations(); this.fuel = fs; this.root.add(fs.group); this.collision.addAll(fs.colliders); } // four filling stations (FuelStations.js)
     { const cs = buildCustoms(); this.customs = cs; this.root.add(cs.group); this.collision.addAll(cs.colliders); } // Street Customs workshop (CustomsGeo.js; service: customs/CustomsService.js)
-    { const sr = buildStreetRamps(); this.streetRamps = sr; this.root.add(sr.group); } // speed humps + stunt jumps / bicycle ramps (StreetRamps.js; ground surfaces via Layout.setRampHook)
+    { const sr = buildStreetRamps(); this.streetRamps = sr; this.root.add(sr.group); this.collision.addAll(sr.colliders); } // speed humps + stunt jumps / bicycle ramps (StreetRamps.js; ground surfaces via Layout.setRampHook)
     { const fs = buildCityStreets(plan); this.fortStreets = this.cityStreets = fs; this.root.add(fs.group); this.collision.addAll(fs.colliders); } // Colombo Fort benchmark: trilingual street names, billboards, drains, bins (FortStreets.js)
     { // second crown-clearance pass against the landmark buildings (they only exist now): no leaves inside them either
       const boxes = landmarkTreeBoxes(this.collision.list.filter((c) => c.kind === 'landmark' && !c.fuel)).concat(this.fuel.crownBoxes, this.customs.crownBoxes); const planCols = new Set(plan.colliders); const obst = this.collision.list.filter((c) => !planCols.has(c) && !['landmark', 'tree', 'building', 'deck', 'platform'].includes(c.kind) && !c.fuel); const r = refitTreeCrowns(boxes, obst); // + walls / barriers / shopfronts / street furniture built after the plan
@@ -258,6 +258,7 @@ export class World {
         src.sort((a, b) => a[7] - b[7]); }
       this.glints.update(camera, src, on ? atmos.wet : 0, atmos.night, (x, z) => !!L.roadAt(x, z), ROAD_Y); }
     if (an.lotusUpdate && atmos) an.lotusUpdate(this.t, atmos.night); // Lotus Tower LED show (LotusTower.js)
+    if (an.clockTower && atmos) an.clockTower.update(atmos.hour, atmos.night); // Fort clock tower: the hands follow the game clock, dials lit at night
     for (const m of this.landmarks.labels) if (m.emissiveIntensity !== undefined && atmos) m.emissiveIntensity = 0.2 + atmos.night * 0.9;
     // street-lamp point lights near the focus
     if (this.lampLights.length && atmos) {

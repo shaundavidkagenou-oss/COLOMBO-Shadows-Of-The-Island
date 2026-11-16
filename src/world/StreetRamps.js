@@ -172,20 +172,45 @@ function buildHump(mb, h) {
   const P = (t, s, dy = 0) => { const c = Math.cos(Math.PI * t / HUMP_L); return [h.x + h.ux * t + px * s, L.ROAD_Y + HUMP_H * c * c + 0.004 + dy, h.z + h.uz * t + pz * s]; };
   for (let i = 0; i < n; i++) { const t0 = -HUMP_L / 2 + (i / n) * HUMP_L, t1 = -HUMP_L / 2 + ((i + 1) / n) * HUMP_L; R.quad(P(t0, h.hw), P(t0, -h.hw), P(t1, -h.hw), P(t1, h.hw), [(h.x + h.ux * t0) / 4, -h.hw / 4, (h.x + h.ux * t1) / 4, h.hw / 4]); }
   const W = 0.45; for (let s = -h.hw + 0.2; s + W < h.hw - 0.1; s += W * 2) for (let i = 1; i < n - 1; i++) { const t0 = -HUMP_L / 2 + (i / n) * HUMP_L, t1 = -HUMP_L / 2 + ((i + 1) / n) * HUMP_L; const sk = (i - n / 2) * 0.06; K.quad(P(t0, s + W + sk, 0.003), P(t0, s + sk, 0.003), P(t1, s + sk + 0.06, 0.003), P(t1, s + W + sk + 0.06, 0.003), [0, 0, 1, 1], [0.93, 0.93, 0.9]); } // painted diagonal bars
-  // warning sign on the kerb each approach: triangular, red border, white field, black hump symbol
-  const M = mb.get('metal'), S = mb.get('paint');
-  for (const sg of [1, -1]) { const t = -sg * 14, s = sg * (h.hw + 0.6); const bx = h.x + h.ux * t + px * s, bz = h.z + h.uz * t + pz * s, by = L.LAND_Y;
-    M.cylinder(bx, by, bz, 0.035, 0.035, 2.35, 6, { col: [0.55, 0.57, 0.58] });
-    const fx = -sg * h.ux, fz = -sg * h.uz; const ax = -fz, az = fx; const cy = by + 2.05; const tri = (rad, off, col) => { const pts = [0, 1, 2].map((k) => { const a = Math.PI / 2 + k * 2 * Math.PI / 3; return [bx + fx * off + ax * Math.cos(a) * rad, cy + Math.sin(a) * rad, bz + fz * off + az * Math.cos(a) * rad]; }); S.quad(pts[0], pts[2], pts[1], pts[1], [0, 0, 1, 1], col); S.quad(pts[0], pts[1], pts[2], pts[2], [0, 0, 1, 1], [0.35, 0.36, 0.37]); };
-    tri(0.42, 0.045, [0.72, 0.06, 0.05]); tri(0.31, 0.05, [0.95, 0.95, 0.93]);
-    const hump = []; for (let k = 0; k <= 6; k++) { const q = k / 6; hump.push([(q - 0.5) * 0.34, Math.sin(q * Math.PI) * 0.07 - 0.1]); }
-    for (let k = 0; k < 6; k++) { const [u0, v0] = hump[k], [u1, v1] = hump[k + 1]; const q = (u, v) => [bx + fx * 0.056 + ax * u, cy + v, bz + fz * 0.056 + az * u]; S.quad(q(u0, -0.12), q(u1, -0.12), q(u1, v1), q(u0, v0), [0, 0, 1, 1], [0.05, 0.05, 0.05]); }
+  // warning sign on the kerb each approach (52nd request: they "showed nothing" and could be walked through). A real sign now:
+  // a 900 mm reflective aluminium triangle (printed face: red border, white field, black hump symbol — a canvas texture, so
+  // it reads at distance instead of three thin coplanar triangles), rolled edge, galvanised back with two U-bolt clamps on a
+  // 60 mm post with a ground sleeve; a solid collider on the post.
+  const M = mb.get('metal'), F = mb.get('roadSign');
+  for (const sg of [1, -1]) { const t = -sg * 14, s = sg * (h.hw + 0.75); const bx = h.x + h.ux * t + px * s, bz = h.z + h.uz * t + pz * s, by = L.LAND_Y;
+    if (L.isWater(bx, bz)) continue;
+    M.cylinder(bx, by, bz, 0.03, 0.03, 2.62, 10, { col: [0.6, 0.62, 0.63] }); M.cylinder(bx, by + 2.62, bz, 0.034, 0.034, 0.02, 10, { col: [0.25, 0.25, 0.26] }); // post + cap
+    M.cylinder(bx, by - 0.02, bz, 0.06, 0.06, 0.1, 10, { col: [0.45, 0.45, 0.44] }); // concrete-set ground sleeve
+    const fx = -sg * h.ux, fz = -sg * h.uz; const ax = -fz, az = fx; const cy = by + 2.1, R = 0.52; // face normal (toward oncoming traffic), across
+    const pt = (a, rad, off, dy = 0) => [bx + fx * off + ax * Math.cos(a) * rad, cy + dy + Math.sin(a) * rad, bz + fz * off + az * Math.cos(a) * rad];
+    const A = [0, 1, 2].map((k) => Math.PI / 2 + k * 2 * Math.PI / 3); // top, lower left, lower right (seen from the front)
+    const uvOf = (a) => [0.5 - Math.cos(a) * 0.49, 0.5 + Math.sin(a) * 0.49]; // inscribed in the texture square (+across is the viewer's left)
+    { const p0 = pt(A[0], R, 0.06), p1 = pt(A[1], R, 0.06), p2 = pt(A[2], R, 0.06); const u0 = uvOf(A[0]), u1 = uvOf(A[1]), u2 = uvOf(A[2]);
+      const i0 = F.vcount; F.quad(p0, p2, p1, p1, [0, 0, 1, 1], [1, 1, 1]); const uv = F.uv; // triangle facing +f: per-vertex UVs set below
+      const set = (i, u) => { uv[i * 2] = u[0]; uv[i * 2 + 1] = u[1]; }; set(i0, u0); set(i0 + 1, u2); set(i0 + 2, u1); set(i0 + 3, u1); }
+    for (let k = 0; k < 3; k++) { const a0 = A[k], a1 = A[(k + 1) % 3]; // rolled edge (front ring → back) and the galvanised back plate
+      M.quad(pt(a0, R, 0.06), pt(a1, R, 0.06), pt(a1, R, 0.035), pt(a0, R, 0.035), [0, 0, 1, 1], [0.7, 0.72, 0.73]); } // outward
+    M.quad(pt(A[0], R, 0.035), pt(A[1], R, 0.035), pt(A[2], R, 0.035), pt(A[2], R, 0.035), [0, 0, 1, 1], [0.52, 0.54, 0.55]); // back, facing −f
+    for (const dy of [-0.16, 0.14]) { const c = [bx + fx * 0.012, cy + dy, bz + fz * 0.012]; M.box(c[0], c[1], c[2], Math.abs(ax) * 0.2 + Math.abs(fx) * 0.05 + 0.02, 0.035, Math.abs(az) * 0.2 + Math.abs(fz) * 0.05 + 0.02, { col: [0.5, 0.5, 0.5] }); } // U-bolt clamp straps
+    h.signs = h.signs || []; h.signs.push({ x0: bx - 0.09, x1: bx + 0.09, z0: bz - 0.09, z1: bz + 0.09, h: 2.7, kind: 'pole', sign: true });
   }
 }
+// the printed face of the hump warning sign (256², one small texture for every sign)
+function humpSignTex() {
+  const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d'); const cx = 128, cy = 128, R = 125;
+  const tri = (r, rr) => { g.beginPath(); for (let k = 0; k < 3; k++) { const a = -Math.PI / 2 + k * 2 * Math.PI / 3; const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r; if (k) g.lineTo(x, y); else g.moveTo(x, y); } g.closePath(); g.lineJoin = 'round'; g.lineWidth = rr; };
+  g.clearRect(0, 0, 256, 256);
+  tri(R - 7, 14); g.fillStyle = '#c4161c'; g.strokeStyle = '#c4161c'; g.fill(); g.stroke(); // red border (rounded corners)
+  tri(R - 36, 8); g.fillStyle = '#f6f5f0'; g.strokeStyle = '#f6f5f0'; g.fill(); g.stroke(); // white field
+  g.fillStyle = '#111'; g.beginPath(); g.moveTo(cx - 52, cy + 34); g.quadraticCurveTo(cx, cy - 40, cx + 52, cy + 34); g.closePath(); g.fill(); // the hump
+  g.fillRect(cx - 62, cy + 34, 124, 8); // road line
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; tex.generateMipmaps = true; return tex;
+}
 export function buildStreetRamps() {
-  const mats = { ...MAT, rPly: new THREE.MeshStandardMaterial({ map: plywoodTex(), roughness: 0.85 }), rSteel: new THREE.MeshStandardMaterial({ map: steelTex(), roughness: 0.6, metalness: 0.15 }) /* galvanised tread plate: no env map in the city, so a high metalness renders near-black */ };
+  const mats = { ...MAT, rPly: new THREE.MeshStandardMaterial({ map: plywoodTex(), roughness: 0.85 }), rSteel: new THREE.MeshStandardMaterial({ map: steelTex(), roughness: 0.6, metalness: 0.15 }) /* galvanised tread plate: no env map in the city, so a high metalness renders near-black */,
+    roadSign: new THREE.MeshStandardMaterial({ map: humpSignTex(), alphaTest: 0.5, roughness: 0.38, metalness: 0.0, vertexColors: true }) /* retro-reflective sheeting: a touch glossy */ };
   for (const k of ['rPly', 'rSteel']) mats[k].map.repeat.set(1, 1);
   const mb = new MultiBuilder(); for (const r of RAMPS) buildRamp(mb, r); for (const h of HUMPS) buildHump(mb, h);
   const group = new THREE.Group(); group.name = 'streetRamps'; for (const m of mb.toMeshes(mats, { cast: true, receive: true })) { if (m.name === 'road' || m.name === 'marking') m.castShadow = false; group.add(m); }
-  return { group, ramps: RAMPS, humps: HUMPS, stunts: STUNTS };
+  return { group, ramps: RAMPS, humps: HUMPS, stunts: STUNTS, colliders: HUMPS.flatMap((h) => h.signs || []) };
 }

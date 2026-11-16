@@ -8,6 +8,7 @@
 // local axes are x = u, z = −w (a proper rotation of the world for both road sides).
 import * as THREE from 'three';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
+import { hedgeBox } from './HedgeBush.js';
 import { MAT } from '../gfx/Materials.js';
 import * as L from './Layout.js';
 import { modelFloor, FLOOR_TOP } from './FloorKit.js';
@@ -253,7 +254,7 @@ export function buildFuelStation(site) {
   { const P = FS.planter; for (const [a0, a1, b0, b1] of [[P.u0, P.u1, P.w0, P.w0 + 0.14], [P.u0, P.u1, P.w1 - 0.14, P.w1], [P.u0, P.u0 + 0.14, P.w0, P.w1], [P.u1 - 0.14, P.u1, P.w0, P.w1]]) B(conc, a0, a1, S, S + 0.42, b0, b1, C('#d9d6cf'));
     B(paint, P.u0, P.u0 + 0.14, S + 0.02, S + 0.4, P.w0 - 0.002, P.w1 + 0.002, yellow); B(paint, P.u1 - 0.14, P.u1, S + 0.02, S + 0.4, P.w0 - 0.002, P.w1 + 0.002, yellow); // ends painted for the drivers
     B(mb.get('soil'), P.u0 + 0.14, P.u1 - 0.14, S, S + 0.34, P.w0 + 0.14, P.w1 - 0.14, null);
-    for (let u = P.u0 + 0.4; u < P.u1 - 0.4; u += 2.1) { if (Math.abs(u - FS.pylon.u) < 1.2) continue; B(hedge, u, Math.min(u + 1.9, P.u1 - 0.3), S + 0.34, S + 0.95 + Math.sin(u) * 0.06, P.w0 + 0.22, P.w1 - 0.22, C('#7f9a62')); }
+    for (let u = P.u0 + 0.4; u < P.u1 - 0.4; u += 2.1) { if (Math.abs(u - FS.pylon.u) < 1.2) continue; { const u1 = Math.min(u + 1.9, P.u1 - 0.3); hedgeBox(mb, (u + u1) / 2, S + 0.3, -(P.w0 + P.w1) / 2, u1 - u, 0.65 + Math.sin(u) * 0.06, P.w1 - P.w0 - 0.44, 0, { col: [0.82, 0.92, 0.72], core: true, seed: Math.round(u * 10) }); } } // 52nd: leafy hedge, not a block
     col(P.u0, P.u1, P.w0, P.w1, S + 0.9, 'prop'); }
   { const p = FS.pylon, w0 = p.w - 1.0, w1 = p.w + 1.0, top = S + 7.2, u0 = p.u - 0.24, u1 = p.u + 0.24; // monolith price pylon facing up and down the road
     B(conc, u0 - 0.14, u1 + 0.14, S, S + 0.45, w0 - 0.12, w1 + 0.12, C('#bcb8b0')); B(paint, u0, u1, S + 0.45, top, w0, w1, main); B(paint, u0 - 0.02, u1 + 0.02, top - 0.02, top + 0.14, w0 - 0.04, w1 + 0.04, accent);

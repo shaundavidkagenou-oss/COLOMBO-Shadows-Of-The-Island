@@ -2,6 +2,7 @@
 // diagonals) with concrete edging, raised flower beds, clipped hedges with entrance gaps and heritage lamps; worn
 // desire-line footpaths across Galle Face Green. The path/hedge description lives here so CityPlan (tree, bench, lamp and
 // collider placement), the grass blade field (no blades on paths or beds) and the renderer all agree.
+import { hedgeBox } from './HedgeBush.js';
 import * as THREE from 'three';
 import { LAND_Y, cellAt, setSurfaceHook } from './Layout.js';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
@@ -235,14 +236,14 @@ export function buildParks(MAT) {
     mb.get('soil').hpoly(ringPoly(x, z, r, 28), LAND_Y + 0.26, 1.5);
     /* plants: real 3D canna / marigold / salvia / periwinkle from Flowers.js (instanced, LOD) — added below */
   }
-  // clipped hedges (Murraya / ixora type): rounded top, leaf-textured
+  // clipped hedges (Murraya / ixora type): rounded shoulders, uneven growth
   for (const [ax, az, bx, bz] of HEDGES) {
     const l = Math.hypot(bx - ax, bz - az), r = Math.atan2(bz - az, bx - ax) * -1; const cx = (ax + bx) / 2, cz = (az + bz) / 2;
-    mb.get('hedge').box(cx, LAND_Y + 0.45, cz, l, 0.9, 0.95, { rotY: r, uvScale: 1.2, col: [1, 1, 1] });
-    mb.get('hedge').box(cx, LAND_Y + 0.95, cz, l - 0.1, 0.16, 0.7, { rotY: r, uvScale: 1.2, col: [1.05, 1.08, 1] });
+    // 52nd: real foliage — a shell of leaf sprays over a dark inner core (HedgeBush.js), not a grass-textured block
+    hedgeBox(mb, cx, LAND_Y, cz, l, 1.05, 0.95, r, { col: [0.8, 0.93, 0.74], seed: Math.round(cx * 3 + cz) & 0xfff });
   }
   const g = new THREE.Group(); g.name = 'parks';
-  for (const m of mb.toMeshes(MAT, { cast: false, receive: true })) { if (m.name === 'hedge' || m.name === 'foliage') m.castShadow = true; g.add(m); }
+  for (const m of mb.toMeshes(MAT, { cast: false, receive: true })) { if (m.name === 'hedge' || m.name === 'foliage' || m.name === 'leavesSmall') m.castShadow = true; g.add(m); }
   const flowers = new FlowerBeds(BEDS, LAND_Y + 0.26); g.add(flowers.group); g.userData.flowers = flowers;
   return g;
 }

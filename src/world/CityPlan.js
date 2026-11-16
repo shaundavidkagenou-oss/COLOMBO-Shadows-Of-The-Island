@@ -100,7 +100,7 @@ function benchColliders(x, z, rot) { const c = Math.cos(rot), s = Math.sin(rot);
     const ex = Math.abs(c) * hx + Math.abs(s) * hz, ez = Math.abs(s) * hx + Math.abs(c) * hz; plan.colliders.push({ x0: cx - ex, x1: cx + ex, z0: cz - ez, z1: cz + ez, h: L.LAND_Y + 0.86, kind: 'bench', front: [s, c] }); } } // someone getting up leaves by the seat front
 function onRailReserve(x, z) { if (L.distToRail(x, z) < 7.5 || (L.distToRail(x, z) < 15 && nearestS(x, z).d < 7.5)) return true; for (const st of L.STATIONS) { if (st.along === 'x' ? Math.abs(x - st.x) < 95 && z > -633 && z < -610 : Math.abs(z - st.z) < 60 && Math.abs(x - st.x) < 10) return true; } return false; } // track corridor + platforms stay clear
 const inSchool = (x, z) => x > 247 && x < 341 && z > 328.5 && z < 388; // Johns school compound builds its own grounds
-function addTree(type, x, z, s = 1, extra = {}) { if (L.isWater(x, z) || L.roadAt(x, z) || onRailReserve(x, z) || inSchool(x, z)) return; const t = { type, x, z, s, ...extra }; plan.trees.push(t); addToChunk('trees', t, x, z); t.col = { x0: x - 0.35 * s, x1: x + 0.35 * s, z0: z - 0.35 * s, z1: z + 0.35 * s, h: 6, kind: 'tree' }; plan.colliders.push(t.col); }
+function addTree(type, x, z, s = 1, extra = {}) { if (L.isWater(x, z) || L.roadAt(x, z) || onRailReserve(x, z) || inSchool(x, z)) return; const t = { type, x, z, s, ...extra }; plan.trees.push(t); addToChunk('trees', t, x, z); const cr = type === 'nuga' ? 1.1 : 0.35; /* the banyan's fused trunk */ t.col = { x0: x - cr * s, x1: x + cr * s, z0: z - cr * s, z1: z + cr * s, h: 6, kind: 'tree' }; plan.colliders.push(t.col); }
 function addPOI(type, x, z, rot, extra = {}) { const p = { type, x, z, rot, used: 0, ...extra }; plan.poi.push(p); addToChunk('poi', p, x, z); return p; }
 function addWall(x0, x1, z0, z1, h, col = '#d6cfc0') { if (inSchool((x0 + x1) / 2, (z0 + z1) / 2)) return; const w = { x0, x1, z0, z1, h, col }; plan.walls.push(w); addToChunk('walls', w, (x0 + x1) / 2, (z0 + z1) / 2); plan.colliders.push({ x0, x1, z0, z1, h, kind: 'wall' }); }
 
@@ -437,7 +437,7 @@ export function crownHits(type, x, z, yaw, s, sy, sq, boxes) {
     for (let k = 0; k < boxes.length; k++) { const b = boxes[k]; if (ly < b[4] && wx > b[0] && wx < b[1] && wz > b[2] && wz < b[3]) return true; } }
   return false;
 }
-const REACH = { rain: 13, mara: 9, bo: 9, palm: 7, mango: 6.6, jak: 6.2, frangipani: 4.5, areca: 4.2, banana: 3.4 };
+const REACH = { rain: 13, mara: 9, bo: 9, palm: 7, mango: 6.6, jak: 6.2, frangipani: 4.5, areca: 4.2, banana: 3.4, nuga: 14, kottamba: 6.6, ashoka: 2.6, flamboyant: 9.5, kingcoconut: 6 };
 let EXTRA = null; // extra solid volumes (landmark buildings, from World) bucketed on a 50 m grid
 // Second pass, run by World once the landmark buildings exist: refit every tree against them too. Returns the trunk
 // colliders that moved or were removed so World can re-file them in the collision grid.
@@ -452,7 +452,7 @@ export function refitTreeCrowns(boxes, obst = []) { // obst: solid colliders bui
 // low fronds / leaves pass through a wall, was the "tree in the wall" bug (walls were never part of the crown test, only
 // buildings). Indexed once per pass on a 20 m grid; boxes as [x0, x1, z0, z1, top] (crown) with the real footprint for trunks.
 const OBST_KINDS = new Set(['wall', 'container', 'stall', 'shelter', 'railing', 'bench', 'cart', 'hedge', 'fence', 'shrine', 'pond', 'prop', 'rail', 'pole']);
-export function treeTrunkR(t) { const s = t.s || 1; return (t.type === 'rain' ? 0.6 : t.type === 'bo' ? 0.55 : t.type === 'palm' || t.type === 'areca' ? 0.22 : t.type === 'banana' ? 0.3 : 0.35) * s; }
+export function treeTrunkR(t) { const s = t.s || 1; return (t.type === 'rain' ? 0.6 : t.type === 'nuga' ? 1.25 : t.type === 'bo' ? 0.55 : t.type === 'palm' || t.type === 'areca' || t.type === 'kingcoconut' ? 0.22 : t.type === 'ashoka' ? 0.25 : t.type === 'banana' ? 0.3 : 0.35) * s; }
 export function treeObstacles(extra = []) { // compound walls + solid furniture colliders (+ landmark walls / barriers given by World)
   const L0 = []; const seen = new Set();
   for (const w of plan.walls) { L0.push(w); seen.add(w); }
