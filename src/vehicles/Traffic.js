@@ -32,11 +32,15 @@ const PAX_NEAR = 90, PAX_FAR = 120, PAX_CAP = 60; // passengers exist only near 
 const V0 = [13.5, 12, 9, 6.5];
 const CAT_W = Object.fromEntries(Object.entries(TRAFFIC_W).map(([k, o]) => [k, Object.entries(o)]));
 const PARKED_LIST = Object.entries(PARKED_W);
+// the look a (type, seed) pair gets — the same draw as VehicleModels.createVehicleMesh / modelCached (paint colour, body variant)
+function lookOf(type, seed) { const T = VTYPES[type]; if (!T || !T.colors) return type; const r = new RNG(seed); const c = r.pick(T.colors); return type + c + r.int(0, 3); }
 const MIX = {
   // 'cat' = one of the 40 catalogue models (fictional makes), picked by the district's own catalogue weights
-  default: [['tuktuk', 34], ['car', 7], ['sedan', 3], ['van', 6], ['bike', 12], ['bus', 5], ['pbus', 4], ['lorry', 3], ['taxi', 4], ['cat', 22]],
-  port: [['lorry', 26], ['van', 8], ['tuktuk', 20], ['car', 5], ['bike', 10], ['bus', 3], ['cat', 24]],
-  cinnamon: [['car', 9], ['sedan', 5], ['van', 7], ['tuktuk', 22], ['bike', 8], ['suv', 2], ['taxi', 6], ['cat', 41]],
+  // 54th: the three-wheeler is still the most common single vehicle (as on Colombo's streets) but no longer every third one,
+  // and the 40 catalogue models get the share the generic 'car' had — the street reads as many different vehicles
+  default: [['tuktuk', 24], ['car', 4], ['sedan', 3], ['van', 5], ['bike', 12], ['bus', 5], ['pbus', 4], ['lorry', 3], ['taxi', 4], ['cat', 36]],
+  port: [['lorry', 22], ['van', 7], ['tuktuk', 16], ['car', 3], ['bike', 10], ['bus', 3], ['cat', 34]],
+  cinnamon: [['car', 5], ['sedan', 4], ['van', 6], ['tuktuk', 17], ['bike', 8], ['suv', 2], ['taxi', 5], ['cat', 53]],
 };
 
 // lane centre from the centre line. Arterials (18 m): 1.8 / 5.0. Main streets (12 m): 1.5 / 4.3 — the kerb lane used to sit at
@@ -159,7 +163,19 @@ export class Traffic {
   setDensity(d) { this.max = Math.round(10 + d * 45); }
   all() { const o = this.obstacles; if (!this.parked.length && !(o && o.length)) return this.vehicles; return o && o.length ? this.vehicles.concat(this.parked, o) : this.vehicles.concat(this.parked); } // obstacles = train cars (solid, not enterable)
   pickType(x, z) { const d = L.districtIdAt(x, z); const night = this.night > 0.6; const mix = MIX[d] || MIX.default; const m = night ? mix.map(([t, w]) => [t, t === 'bus' || t === 'pbus' ? w * 0.4 : w]) : mix; const t = this.rng.weighted(m); return t === 'cat' ? this.rng.weighted(CAT_W[d] || CAT_W.default) : t === 'bike' ? this.rng.weighted(BIKE_LISTS[d] || BIKE_LISTS.default) : t; } // two-wheelers: one of the 20 kinds (BikeCatalog.js)
+  // 54th variety: what is already on the road around the player. A type that is already over its share nearby is re-rolled
+  // (a cluster of the same model is what read as 'the same vehicle again and again'), and a vehicle never takes the exact look
+  // (model + paint + body variant) of one already in view range if another paint / variant is free.
+  nearMix(focus) { const types = new Map(), looks = new Set(); let n = 0;
+    for (const v of this.vehicles) { if ((v.x - focus.x) ** 2 + (v.z - focus.z) ** 2 > 220 * 220) continue; n++; types.set(v.type, (types.get(v.type) || 0) + 1); if (v.look) looks.add(v.look); }
+    for (const v of this.parked) { if ((v.x - focus.x) ** 2 + (v.z - focus.z) ** 2 > 90 * 90) continue; if (v.look) looks.add(v.look); }
+    return { types, looks, n }; }
+  variedType(type, x, z, mix) { const cap = (t) => (t === 'tuktuk' ? Math.max(3, Math.ceil((mix.n + 1) * 0.3)) : Math.max(1, Math.floor((mix.n + 1) * 0.04)));
+    for (let k = 0; k < 6 && (mix.types.get(type) || 0) >= cap(type); k++) type = this.pickType(x, z); return type; }
+  variedSeed(type, seed, mix) { if (!mix.looks.has(lookOf(type, seed))) return seed;
+    for (let k = 0; k < 6; k++) { const s2 = Math.floor(this.rng.next() * 1e6); if (!mix.looks.has(lookOf(type, s2))) return s2; } return seed; }
   spawn(focus, camDir, forceNear = false) {
+    const mix = this.nearMix(focus);
     for (let tries = 0; tries < 12; tries++) {
       const hint = tries < 4 ? this.spawnHint : null; // a fuel station asking for a customer on its approach road
       const seg = hint ? hint.seg : this.flowSegs[Math.floor(this.rng.next() * this.flowSegs.length)];
@@ -167,7 +183,7 @@ export class Traffic {
       if (!hint && (d > (forceNear ? 170 : 260) || d < (forceNear ? 45 : 70))) continue;
       const [a, b] = segNodes(seg); const fwd = this.rng.chance(0.5); const from = hint ? hint.from : fwd ? a : b, to = hint ? hint.to : fwd ? b : a;
       const lanes = seg.level <= 1 ? 2 : 1; const lane = hint ? hint.lane : Math.floor(this.rng.next() * lanes);
-      let type = this.pickType(mx, mz); if (hint) { for (let k = 0; k < 10 && !hint.types.has(type); k++) type = this.pickType(mx, mz); if (!hint.types.has(type)) continue; }
+      let type = this.pickType(mx, mz); if (!hint) type = this.variedType(type, mx, mz, mix); if (hint) { for (let k = 0; k < 10 && !hint.types.has(type); k++) type = this.pickType(mx, mz); if (!hint.types.has(type)) continue; }
       if (seg.level >= 3 && (type === 'bus' || type === 'pbus' || type === 'lorry' || NO_LANES.has(type))) continue;
       const piece = linePiece(seg, from, to, lane); const s = this.rng.range(0, piece.len * (hint ? 0.6 : 0.8));
       const [x, z, yaw] = evalPiece(piece, s);
@@ -175,10 +191,10 @@ export class Traffic {
       if (this.vehicles.some((v) => (v.x - x) ** 2 + (v.z - z) ** 2 < 14 * 14)) continue;
       if (this.bodyAt(x, z, yaw, VTYPES[type])) continue; // not onto a parked vehicle either
       if (this.player && this.player.vehicle && (this.player.vehicle.x - x) ** 2 + (this.player.vehicle.z - z) ** 2 < 15 * 15) continue;
-      let seed = Math.floor(this.rng.next() * 1e6);
+      let seed = this.variedSeed(type, Math.floor(this.rng.next() * 1e6), mix);
       if (!modelCached(type, seed)) { // a first-time look costs a 10-30 ms model build: at most one every 2 s, otherwise reuse a built look (the loading screen builds one of every type)
         const now = performance.now(); if (now - (this.lastBuild || -1e9) < 2000) { const known = this.looks && this.looks.get(type); let alt = known && known.length ? known[Math.floor(this.rng.next() * known.length)] : -1; for (let k = 0; k < 8 && alt < 0; k++) { const s2 = Math.floor(this.rng.next() * 1e6); if (modelCached(type, s2)) alt = s2; } if (alt < 0) continue; seed = alt; } else this.lastBuild = now; }
-      const v = new Vehicle(type, seed, this.scene); this.noteLook(type, seed); v.place(x, z, yaw);
+      const v = new Vehicle(type, seed, this.scene); this.noteLook(type, seed); v.look = lookOf(type, seed); mix.looks.add(v.look); mix.types.set(type, (mix.types.get(type) || 0) + 1); mix.n++; v.place(x, z, yaw);
       const T = VTYPES[type]; v.ai = { pieces: [piece], s, v0: Math.min(V0[seg.level], T.maxSpeed * 0.42) * this.rng.range(0.88, 1.12), stuck: 0, honkCd: 0, bumped: 0, aggressive: type === 'tuktuk' || type === 'pbus' ? 1.3 : 1 };
       if (hint) v.ai.route = hint.route.slice(); // straight on to the station's road
       v.speed = v.ai.v0 * 0.7; this.extend(v); this.addDriver(v); this.vehicles.push(v); if (hint) { v.fuelFor = hint.tag; this.spawnHint = undefined; } return v;
@@ -650,7 +666,7 @@ export class Traffic {
       if (!st.occ || st.until > gH || st.claim || this.parkedSet.has(p)) continue; if (have >= SPOT_CAP) break;
       if (!fresh && d < SPOT_SEEN && this.seen(p.x, p.z, d)) continue; // in plain view: it waits until nobody is looking
       if (made >= 2 || (made > 0 && performance.now() - t0 > 2.5)) { this.parkedTimer = 0; break; } /* ~2.5 ms of new parked cars per frame (at least one), the rest next frame */ const { type, seed } = st.look || this.parkedLook(p); if (this.spotTaken(p, type)) continue; /* st.look: the car somebody drove in and parked there today */ const fr = !modelCached(type, seed); if (fr && (made > 0 || performance.now() - (this.lastBuild || -1e9) < 300)) { this.parkedTimer = 0.05; continue; } if (fr) this.lastBuild = performance.now(); made += fr ? 2 : 1; /* a first-time model build is the only one this frame; otherwise two per frame (~3 ms each) until the street is filled */
-      const v = new Vehicle(type, seed, this.scene); this.noteLook(type, seed); parkOnStand(v); v.place(p.x, p.z, p.yaw); v.parked = true; v.spot = p; this.parked.push(v); this.parkedSet.add(p); have++;
+      const v = new Vehicle(type, seed, this.scene); this.noteLook(type, seed); v.look = lookOf(type, seed); parkOnStand(v); v.place(p.x, p.z, p.yaw); v.parked = true; v.spot = p; this.parked.push(v); this.parkedSet.add(p); have++;
     }
   }
   // People come and park: now and then a car / tuk / bike in the kerb lane of a local street (level 1-2) near the player picks a
