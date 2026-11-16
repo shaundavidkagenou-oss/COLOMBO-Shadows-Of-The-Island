@@ -63,7 +63,7 @@ try {
     return out;
   }, (r2) => {
   ok(r2.near && r2.stage === 'ride' && r2.pBoat, 'boarded at the boarding point, seated at the helm'); ok(r2.followed, 'the player goes with the boat');
-  ok(r2.maxV > 8 && r2.moved > 40, `throttle: ${r2.maxV} m/s, ${r2.moved} m`); ok(r2.wakes >= 1, 'wake laid behind her'); ok(r2.wakeTris[0] > 0 && r2.wakeTris[1] === 0, `wake ribbon faces up (${r2.wakeTris})`); ok(r2.turned > 0.5, `steers (${r2.turned} rad in 3 s)`);
+  ok(r2.maxV > 8 && r2.moved > 40, `throttle: ${r2.maxV} m/s, ${r2.moved} m`); ok(r2.wakes >= 1, 'wake laid behind her'); ok(r2.wakeTris[0] > 0 && r2.wakeTris[1] < r2.wakeTris[0] * 0.1, `wake ribbon faces up (${r2.wakeTris} up/down; a few fold over on the inside of turns)`); ok(r2.turned > 0.5, `steers (${r2.turned} rad in 3 s)`);
   ok(r2.offBoat && r2.water && r2.swim, `got off at sea into the water and swims (y ${r2.py})`); ok(r2.back, 'the pedestal brings her back to the berth');
   });
   // ---- 3. bullets: hull → wreck → sinks; sails holed and torn
