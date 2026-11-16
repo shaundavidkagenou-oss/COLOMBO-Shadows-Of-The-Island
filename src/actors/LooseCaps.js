@@ -3,14 +3,14 @@
 // and drops an exact loose copy of it — same triangles, colours and material, cut out of the officer's own body geometry
 // once per body build — into a small rigid-body simulation:
 //   * mass 0.18 kg, inertia from the cap's own extent, air drag + a light flutter torque while it tumbles through the air;
-//   * contacts at ~26 support points of the real cap shape (band rim, crown edge, visor tip) against the ground / paving /
+//   * contacts at ~22 support points of the real cap shape (band rim, crown edge, visor tip) against the ground / paving /
 //     kerbs (Collision.groundAt): impulse with restitution (a felt-and-plastic cap bounces low), Coulomb friction and rolling
 //     resistance, so it lands, skips, rolls on its rim in an arc and wobbles flat — crown up or upside down, as it happens;
 //   * walls push it back (resolveCircle), it floats where it falls into the harbour / lake / canal, a moving car flicks it
 //     away (pushOut + the car's speed), and a resting cap sleeps (no cost) until something wakes it.
 // Triggers: going down as a ragdoll (shot dead, knocked down, hit by a car, blown over — the head's own velocity), a blast
-// nearby, a heavy punch to the head, a bullet through the cap. An officer who gets back up with his cap within reach picks it
-// up again. At most 12 loose caps; a resting one far from the player is tidied away after a few minutes.
+// nearby, a heavy punch to the head, a bullet through the cap. An officer who gets back up carries on bare-headed (the cap stays
+// where it fell — no pop back onto the head; pickUp is there for a scripted pick-up). At most 12 loose caps; a resting one far from the player is tidied away after a few minutes.
 import * as THREE from 'three';
 import * as Lay from '../world/Layout.js';
 import { getBodyMaterial, getNpcBodyMaterial } from './Character.js';

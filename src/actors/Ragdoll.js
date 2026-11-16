@@ -277,7 +277,7 @@ export class Ragdoll {
   // blend from the current pose to a target pose given in world space (array or function returning one)
   blendTo(target, dur, done, opts) { const from = this.snapshot(); this.play((k, out) => { const T = typeof target === 'function' ? target() : target; for (let i = 0; i < out.length; i++) out[i].lerpVectors(from[i], T[i], k); }, dur, done, opts); }
   // put the character back under the Animator (bones reset to rest; the caller places the root)
-  release() { if (this.world && this.world.caps && this.ch.capOff) this.world.caps.pickUp(this.ch); const b = this.ch.bones; for (const n of Object.keys(b)) { if (b[n].isBone) b[n].quaternion.identity(); } b.hips.position.set(0, this.ch.hipY, 0); this.ch.rag = null; this.kin = null; if (this.world) this.world.remove(this); }
+  release() { /* a cap that came off stays where it fell: no snapping it back onto the head as he stands (LooseCaps.pickUp is for a scripted pick-up) */ const b = this.ch.bones; for (const n of Object.keys(b)) { if (b[n].isBone) b[n].quaternion.identity(); } b.hips.position.set(0, this.ch.hipY, 0); this.ch.rag = null; this.kin = null; if (this.world) this.world.remove(this); }
 }
 
 // ---------------------------------------------------------------- body-frame keys (positions relative to the ground)
@@ -375,10 +375,10 @@ export class RagdollWorld {
     return r; }
   // the cap leaves the head when the head strikes something or is flung fast (its own velocity), within 4 s of going down
   watchCaps(dt) { const W = this.capWatch; if (!W.length) return;
-    for (let i = W.length - 1; i >= 0; i--) { const e = W[i], r = e.r; e.t += dt; const h = r.p[I.head], o = r.o[I.head], d = Math.max(dt, 1 / 120);
+    for (let i = W.length - 1; i >= 0; i--) { const e = W[i], r = e.r; e.t += dt; const h = r.p[I.head], o = r.o[I.head], d = 1 / 60; /* p − o is one fixed 60 Hz Verlet step */
       if (r.ch.capOff || !r.ch.root.parent || e.t > 4) { W.splice(i, 1); continue; }
       const vx = (h.x - o.x) / d, vy = (h.y - o.y) / d, vz = (h.z - o.z) / d; const sp = Math.hypot(vx, vy, vz);
-      if (r.contact[I.head] || sp > 4.5 || (e.t > 0.25 && vy < -2.2)) { this.caps.knock(r.ch, { x: vx * 0.9, y: Math.max(vy * 0.4, 0) + 0.6, z: vz * 0.9 }, 4 + sp); W.splice(i, 1); } } }
+      if (r.contact[I.head] || (e.t > 0.12 && sp > 4.5) || (e.t > 0.25 && vy < -2.2)) { this.caps.knock(r.ch, { x: vx * 0.9, y: Math.max(vy * 0.4, 0) + 0.6, z: vz * 0.9 }, 4 + sp); W.splice(i, 1); } } }
   remove(r) { const i = this.list.indexOf(r); if (i >= 0) this.list.splice(i, 1); }
   update(dt, vehicles) { dt = Math.min(dt, 1 / 20); for (const r of this.list.slice()) { if (!r.ch.root.parent && !r.kin) { this.remove(r); continue; } r.step(dt, vehicles); } this.bodies(); this.watchCaps(dt); }
   // bodies never pass through each other: capsule-vs-capsule between ragdolls lying close together (two knocked down on

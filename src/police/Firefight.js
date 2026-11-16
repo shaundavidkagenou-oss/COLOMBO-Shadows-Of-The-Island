@@ -236,10 +236,13 @@ export class Firefight {
     const g = this.g, W = g.weapons; const def = POLICE_T56;
     if (o.rifle) { const f = o.rifle.userData.flash; if (f) { bloomHotAt(o.x, (o.y || 0) + 1.4, o.z); f.visible = true; f.rotation.z = Math.random() * 3; f.scale.setScalar(0.85 + Math.random() * 0.35); o.rp.flashT = 0.05; } }
     if (W && W.fx) { W.tracer(mz, hit.point, def); if (hit.kind === 'vehicle') W.sparks(hit.point, dir); else if (hit.kind === 'world' || hit.kind === 'ground') { W.puff(hit.point, hit.kind === 'ground' ? 0x6d6a64 : 0xb5ab9a, 4); W.decal(hit.point, dir, hit.kind); } else if (hit.kind === 'player' && !(g.blood && g.blood.spray(hit.point, dir, 0.6))) W.puff(hit.point, 0x8a8478, 2); }
-    if (Audio.ctx && Audio.spatial) { const [gn, pan] = Audio.spatial(mz.x, mz.z, 70); const s = def.snd; const v = s.vol * Math.max(0.12, gn);
-      if (SoundBank.play('gun.t56', Math.max(0.12, gn), pan, 0, { rate: 0.97 + Math.random() * 0.06 })) { /* the player's T-56 recording */ } else {
-      Audio.noise(s.dur, { f: s.crack, q: 0.6, vol: v, type: 'lowpass', attack: 0.001, pan }); Audio.tone(s.body * 2.2, s.dur * 1.3, { type: 'sine', vol: v * 0.5, attack: 0.002, glide: s.body * 0.6, pan });
-      Audio.noise(s.tail, { f: 480, q: 0.5, type: 'lowpass', vol: v * 0.3, attack: 0.02, when: 0.03 + Math.min(0.25, Math.hypot(mz.x - g.player.x, mz.z - g.player.z) / 340), buf: Audio.brownBuf, pan }); } }
+    // 54th: a police rifle heard from afar by DISTANCE ONLY — gain fall-off (no loudness floor any more), the speed-of-sound delay
+    // and the air's high-cut (Audio.at). No reverb / echo is added: the players' T-56 recording already carries its echo.
+    if (Audio.ctx && Audio.at) { const A = Audio.at(mz.x, mz.z, 70), pan = A.pan, when = A.delay; const s = def.snd; const v = s.vol * A.g;
+      if (SoundBank.play('gun.t56', A.g, pan, when, { rate: 0.97 + Math.random() * 0.06, lp: A.lp })) { /* the player's T-56 recording */ } else {
+      const f = A.lp ? Math.min(s.crack, A.lp) : s.crack;
+      Audio.noise(s.dur, { f, q: 0.6, vol: v, type: 'lowpass', attack: 0.001, pan, when }); Audio.tone(s.body * 2.2, s.dur * 1.3, { type: 'sine', vol: v * 0.5, attack: 0.002, glide: s.body * 0.6, pan, when });
+      Audio.noise(s.tail, { f: 480, q: 0.5, type: 'lowpass', vol: v * 0.3, attack: 0.02, when: when + 0.03, buf: Audio.brownBuf, pan }); } }
     if (g.crowd && g.crowd.alarm) { if ((this._alarmN = (this._alarmN || 0) + 1) % 3 === 1) g.crowd.alarm(mz.x, mz.z, def.loud, 2, null, 'gunshot'); }
     if (g.birds && g.birds.scare && this._alarmN % 3 === 1) g.birds.scare(mz.x, mz.z, 50);
   }
@@ -256,7 +259,7 @@ export class Firefight {
   pose(o, dt) {
     const m = o.rifle; if (!m) return; const A = o.ch.anim, ud = m.userData, rp = o.rp, cb = o.cb;
     const onFoot = o.mode === 'foot' || o.mode === 'return'; const cam = this.g.camera; const far = cam ? (cam.position.x - o.x) ** 2 + (cam.position.z - o.z) ** 2 > 8100 : false; m.visible = o.mode !== 'seated' && o.mode !== 'enter' && o.mode !== 'exit' && !far; // slung rifle stays on a downed officer; hidden beyond 90 m
-    const want = onFoot && this.armed() && !o.cuffing && !o.tackle && o.mode === 'foot' ? 1 : 0; rp.draw = clamp(rp.draw + (want ? dt / 0.7 : -dt / 0.8), 0, 1);
+    const want = onFoot && this.armed() && !o.cuffing && !o.tackle && !o.evade && o.mode === 'foot' ? 1 : 0; rp.draw = clamp(rp.draw + (want ? dt / 0.7 : -dt / 0.8), 0, 1);
     const aiming = (cb && (cb.st === 'close' || cb.st === 'open' || (cb.st === 'cover' && cb.phase === 'peek')) && cb.aimT > 0.08) || (o.torchOn && rp.draw > 0.5) || (o.cineAim && rp.draw > 0.5); // (cineAim: covering the suspect during the arrest sequence) night search: rifle shouldered, sweeping with the clamp-on torch
     rp.aim = clamp(rp.aim + (aiming ? dt * 5 : -dt * 3.5), 0, 1); rp.kick = Math.max(0, rp.kick - dt * 14);
     if (rp.flashT > 0) { rp.flashT -= dt; if (rp.flashT <= 0 && ud.flash) ud.flash.visible = false; }

@@ -402,7 +402,7 @@ export class Weapons {
       this.kick.v += def.recoil * 9 * st * (0.85 + Math.random() * 0.3); this.kick.yv += def.recoil * 3 * st * (Math.random() * 2 - 1); // rises, then mostly recovers
       if (P.ch && P.ch.anim.shotKick) P.ch.anim.shotKick(cls, st); this.spr.pv.z -= (cls === 'pistol' ? 0.55 : cls === 'sniper' ? 1.1 : 0.7) * st; this.spr.pv.y += 0.12 * st; this.spr.rv.x -= (cls === 'pistol' ? 9 : cls === 'sniper' ? 7 : 4.5) * st; this.spr.rv.y += (Math.random() * 2 - 1) * 1.6 * st; this.spr.rv.z += (Math.random() * 2 - 1) * 1.2 * st;
       this.trigT = 0.07; if (this.inv[this.cur].mag <= 1 && cls !== 'sniper') this.slideLock = true; } P.shake = Math.max(P.shake || 0, def.cls === 'sniper' ? 0.25 : 0.08);
-    this.gunSound(def, P.x, P.z); this.flash(mz, dir, def); if (!def.cycle) this.ejectShell();
+    this.gunSound(def, P.x, P.z, true); this.flash(mz, dir, def); if (!def.cycle) this.ejectShell();
     const fin = this.applyHit(hit, hdir, horg, def, 1, 0); this.tracer(mz, fin.point, def);
     this.shotAlarm -= 1; if (this.shotAlarm <= 0) { this.shotAlarm = 3; this.g.crowd.alarm(P.x, P.z, def.loud, 2, null, 'gunshot', true); }
     this.g.crowd.alarm(hit.point.x, hit.point.z, 10, 2, null, 'gunshot', true);
@@ -442,12 +442,17 @@ export class Weapons {
   heatUpdate(dt) { if (this.g.police) return; this.heatT += dt; if (this.heatT > 25 && this.heat > 0) this.heat = Math.max(0, this.heat - dt * 0.05); }
 
   // ------------------------------------------------------------------ sound
-  gunSound(def, x, z) {
-    if (SB.play('gun.' + def.id, 1, 0, 0, { rate: 0.97 + Math.random() * 0.06 })) return; // the player's recording for this weapon
-    const s = def.snd; Audio.noise(s.dur, { f: s.crack, q: 0.6, vol: s.vol, type: 'lowpass', attack: 0.001 }); Audio.noise(s.dur * 0.6, { f: s.crack * 2.2, q: 0.8, vol: s.vol * 0.35, attack: 0.001 });
-    Audio.tone(s.body * 2.2, s.dur * 1.4, { type: 'sine', vol: s.vol * 0.55, attack: 0.002, glide: s.body * 0.6 });
-    Audio.noise(s.tail, { f: 500, q: 0.5, type: 'lowpass', vol: s.vol * 0.25, attack: 0.02, when: 0.03, buf: Audio.brownBuf, out: 'sfx' });
-    if (def.cls !== 'pistol') Audio.noise(0.04, { f: 4500, q: 2, vol: 0.05, when: 0.01 }); // action cycling
+  // A gunshot. 54th: NO echo / reverb is ever added to a gun — the players' recordings carry their own. The shooter's own gun
+  // plays dry and centred (own); any other gun (a shopkeeper, the assassin's sniper, the sounds-window preview at the listener)
+  // is placed by distance only: gain fall-off, the speed-of-sound delay and the air's high-cut (Audio.at) — no reverb send.
+  gunSound(def, x, z, own = false) {
+    const A = !own && x !== undefined && Audio.listener ? Audio.at(x, z, 70) : null; const k = A ? A.g : 1, pan = A ? A.pan : 0, when = A ? A.delay : 0;
+    if (SB.play('gun.' + def.id, k, pan, when, { rate: 0.97 + Math.random() * 0.06, lp: A ? A.lp : 0 })) return; // the player's recording for this weapon
+    const s = def.snd; const cut = (f) => (A && A.lp ? Math.min(f, A.lp) : f);
+    Audio.noise(s.dur, { f: cut(s.crack), q: 0.6, vol: s.vol * k, type: 'lowpass', attack: 0.001, pan, when }); Audio.noise(s.dur * 0.6, { f: cut(s.crack * 2.2), q: 0.8, vol: s.vol * 0.35 * k * (A && A.lp ? 0.3 : 1), attack: 0.001, pan, when });
+    Audio.tone(s.body * 2.2, s.dur * 1.4, { type: 'sine', vol: s.vol * 0.55 * k, attack: 0.002, glide: s.body * 0.6, pan, when });
+    Audio.noise(s.tail, { f: 500, q: 0.5, type: 'lowpass', vol: s.vol * 0.25 * k, attack: 0.02, when: when + 0.03, buf: Audio.brownBuf, out: 'sfx', pan }); // the report's own low body (dry: no reverb send)
+    if (def.cls !== 'pistol' && k > 0.2) Audio.noise(0.04, { f: 4500, q: 2, vol: 0.05 * k, when: when + 0.01, pan }); // action cycling (inaudible from afar)
   }
   reloadSnd(def) { if (SB.play('reload.' + (def.cls === 'pistol' ? 'pistol' : def.cls === 'sniper' ? 'sniper' : 'rifle'))) return; const R = def.reload; Audio.noise(0.04, { f: 1600, q: 3, vol: 0.08, when: R * 0.15 }); Audio.noise(0.06, { f: 900, q: 2, vol: 0.06, when: R * 0.4 }); Audio.noise(0.05, { f: 1300, q: 3, vol: 0.1, when: R * 0.7 }); Audio.noise(0.06, { f: 2000, q: 3, vol: 0.1, when: R * 0.87 }); Audio.noise(0.05, { f: 1500, q: 3, vol: 0.09, when: R * 0.93 }); }
 

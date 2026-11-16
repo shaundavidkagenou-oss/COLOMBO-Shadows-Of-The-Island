@@ -789,7 +789,7 @@ export class PoliceResponse {
       o.tackle = null; A.aim = null; if (!this._gShout || this.t - this._gShout > 1.2) { this._gShout = this.t; this.say(o, 'grenade', null, 'grenade'); }
       const SAFE = 9.5, RUN = 5.6;
       if (d >= SAFE) E.kind = 'brace';
-      else { const c = this.coverFrom(o, gr.p, SAFE, gr.fuse - 0.3, RUN); if (c) { E.kind = 'run'; E.tx = c.x; E.tz = c.z; E.cover = c.cover; this.stats.grenadeRun = (this.stats.grenadeRun || 0) + 1; }
+      else { const c = this.coverFrom(o, gr.p, SAFE + 0.8, gr.fuse - 0.3, RUN); /* aim past the edge: he stops within ~0.6 m of the spot */ if (c) { E.kind = 'run'; E.tx = c.x; E.tz = c.z; E.cover = c.cover; this.stats.grenadeRun = (this.stats.grenadeRun || 0) + 1; }
         else { this.diveFrom(o, ux, uz, gr); return true; } }
     }
     if (E.kind === 'run') {
