@@ -219,7 +219,7 @@ export class Explosions {
   effects(c, gy, pow, opts) {
     const g = this.g, col = g.collision; const R1 = 3.6 * pow, R2 = 7 * pow, R3 = 11 * pow;
     const los = (x, y, z) => !col || col.raycast(c.x, c.y + 0.3, c.z, x, y, z, 0.05) >= 0.98;
-    const C = g.crowd;
+    const C = g.crowd, PR0 = g.police;
     if (C) for (const p of C.peds.slice()) {
       const dx = p.x - c.x, dz = p.z - c.z, d = Math.hypot(dx, dz, (p.y || 0) + 1 - c.y); if (d > R3) continue; if (!los(p.x, (p.y || 0) + 1.1, p.z)) continue;
       const ux = dx / (Math.hypot(dx, dz) || 1), uz = dz / (Math.hypot(dx, dz) || 1); const f = 1 - d / R3;
@@ -227,14 +227,21 @@ export class Explosions {
       if (d < R1 || (d < R2 && Math.random() < 0.45 * (1 - (d - R1) / (R2 - R1)))) { // killed: thrown by the blast
         p.vx = ux * (6 + 8 * f); p.vz = uz * (6 + 8 * f); p.airVy = 3 + 5 * f; C.kill(p); if (p.ch.rag) p.ch.rag.impulse(ux * 2, 2.5 * f, uz * 2);
         if (g.blood) { const bp = new THREE.Vector3(p.x - ux * 0.15, (p.y || 0) + 1.0, p.z - uz * 0.15); g.blood.wound(p.ch, bp, { x: ux, y: 0.3, z: uz }, 1.8); g.blood.spray(bp, { x: ux, y: 0.3, z: uz }, 1.4); } this.stats.killed++; C.events?.emit?.('pedHit', p);
-      } else if (d < R2) { C.knock(p, ux, uz, 6 + 5 * f, 0); this.stats.downed++; }
-      else if (p.state !== 'down') { C.react(p, 'stumble', 0.7, { punched: true }); p.vx = ux * 3 * f; p.vz = uz * 3 * f; }
+      } else if (d < R2) { if (C.blastKnock) C.blastKnock(p, ux, uz, 1 - (d - R1) / (R2 - R1)); else C.knock(p, ux, uz, 6 + 5 * f, 0); this.stats.downed++; }
+      else if (p.state !== 'down') { C.react(p, 'stumble', 0.7, { punched: true }); p.vx = ux * 3 * f; p.vz = uz * 3 * f; p.ch.face?.set?.('fear', 3); }
     }
+    if (g.caps) { const heads = []; if (C) for (const p of C.peds) if (!p.dead) heads.push(p.ch); if (PR0) for (const u of PR0.units.concat(PR0.civil)) for (const o of u.officers) if (!o.dead && o.mode !== 'seated') heads.push(o.ch); g.caps.blast(c.x, c.y, c.z, R2 + 1, heads); } // police caps blown off heads (LooseCaps.js)
     if (C) C.alarm(c.x, c.z, 90, 3, null, 'explosion');
     g.birds?.scare(c.x, c.z, 140);
     // police: officers caught in it; anyone setting off explosives in the city is wanted (an officer or a witness reports it)
     const PR = g.police;
-    if (PR) { for (const u of PR.units.concat(PR.civil)) for (const o of u.officers.slice()) { if (o.dead || (o.mode !== 'foot' && o.mode !== 'down' && o.mode !== 'return')) continue; const dx = o.x - c.x, dz = o.z - c.z, d = Math.hypot(dx, dz); if (d > R2 || !los(o.x, 1.1, o.z)) continue; const ux = dx / (d || 1), uz = dz / (d || 1); this.stats.officers++; if (d < R1 + 1) PR.killOfficer(o, ux * 4, uz * 4); else if (opts.source === 'player') PR.officerHit(o, ux, uz); else { o.x += ux * 0.6; o.z += uz * 0.6; } }
+    if (PR) { for (const u of PR.units.concat(PR.civil)) for (const o of u.officers.slice()) { if (o.dead || (o.mode !== 'foot' && o.mode !== 'down' && o.mode !== 'return' && o.mode !== 'blown')) continue; const dx = o.x - c.x, dz = o.z - c.z, d = Math.hypot(dx, dz); if (d > R2 || !los(o.x, 1.1, o.z)) continue; const ux = dx / (d || 1), uz = dz / (d || 1); this.stats.officers++; const f = 1 - d / R2;
+        // lethal ring: thrown limp, lifted off the ground; knock-down ring: blown over, dazed, gets up (PoliceResponse.blastKnock); outer ring: staggered
+        if (d < R1 + 0.6) PR.killOfficer(o, ux * (5 + 7 * f) / 1.8, uz * (5 + 7 * f) / 1.8, 2.5 + 4 * f);
+        else if (PR.blastKnock) PR.blastKnock(o, ux, uz, Math.min(1, 1 - (d - R1 - 0.6) / (R2 - R1 - 0.6)), opts.source === 'player');
+        else if (opts.source === 'player') PR.officerHit(o, ux, uz); else { o.x += ux * 0.6; o.z += uz * 0.6; } }
+      for (const u of PR.units.concat(PR.civil)) for (const o of u.officers) { if (o.dead || o.mode !== 'foot' && o.mode !== 'return') continue; const d = Math.hypot(o.x - c.x, o.z - c.z); if (d < R2 || d > R3 || !los(o.x, 1.1, o.z)) continue;
+        const ux = (o.x - c.x) / d, uz = (o.z - c.z) / d; const col2 = g.collision; const q = col2 ? col2.resolveCircle(o.x + ux * 0.45, o.z + uz * 0.45, 0.3, o.y || 0.15, 0.3) : { x: o.x + ux * 0.45, z: o.z + uz * 0.45 }; o.x = q.x; o.z = q.z; o.ch.anim.set('stumble'); o.ch.face?.set?.('fear', 3); }
       if (opts.source === 'player' && !g.debug?.noWanted) { PR.reason = 'causing an explosion in a public place'; PR.incident = { x: c.x, z: c.z, t: PR.t }; PR.addHeat(PR.level < 2 ? 2 - PR.level + 0.01 : 1, PR.reason, 'Explosion reported.'); } }
     // vehicles: shoved, rocked on their springs, damaged; drivers floor it away
     const T = g.traffic; if (T) for (const v of T.all()) { const dx = v.x - c.x, dz = v.z - c.z, d = Math.hypot(dx, dz); if (d > R2 + 2) continue; const f = 1 - d / (R2 + 2), ux = dx / (d || 1), uz = dz / (d || 1); this.stats.vehicles++;

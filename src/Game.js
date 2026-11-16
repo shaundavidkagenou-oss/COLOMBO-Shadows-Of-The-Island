@@ -66,6 +66,7 @@ import { Squad } from './actors/Squad.js';
 import { Assassin } from './actors/Assassin.js';
 import { Birds } from './world/Birds.js';
 import { RagdollWorld } from './actors/Ragdoll.js';
+import { LooseCaps } from './actors/LooseCaps.js';
 import { Blood } from './gfx/Blood.js';
 import { Explosions } from './gfx/Explosions.js';
 import { PropBreak } from './world/PropBreak.js';
@@ -133,7 +134,8 @@ export class Game {
     this.headRig.collision = this.collision; // headlight light-pool decals stop at trunks, poles and walls
     progress(0.76, 'People of Colombo'); await tick();
     this.crowd = new Crowd(this.scene, this.collision, bus);
-    this.ragdolls = new RagdollWorld(this.collision); this.crowd.ragdolls = this.ragdolls; // dead NPCs go limp: verlet ragdolls (src/actors/Ragdoll.js)
+    this.ragdolls = new RagdollWorld(this.collision); this.crowd.ragdolls = this.ragdolls; this.caps = new LooseCaps(this.scene, this.collision); this.ragdolls.caps = this.caps; // police caps that come off (src/actors/LooseCaps.js)
+    // dead NPCs go limp: verlet ragdolls (src/actors/Ragdoll.js)
     this.blood = new Blood(this.scene, this.collision); this.crowd.blood = this.blood; // impact spray, splats, pools (Settings → Blood effects)
     { const N = this.crowd.specTarget(); for (let i = 0; i < N; i += 8) { this.crowd.prepareSpecs(Math.min(8, N - i)); progress(0.76 + 0.1 * (i / N), 'People of Colombo'); await tick(); } }
     { // police / ambulance crews: their looks are a fixed set (PoliceResponse.crewSpec) — build the bodies now, not mid-chase
@@ -248,6 +250,7 @@ export class Game {
       { label: 'Streaming Colombo districts', run: (pr) => this.world.warmAsync(points, pr) },
       { label: 'Vehicles of Colombo', run: (pr) => this.traffic.warmModels(points, pr) },
       { label: 'Compiling shaders', run: async (pr) => { this.camera.position.set(points[0][0], 3, points[0][1] + 6); this.camera.lookAt(points[0][0], 1.5, points[0][1]); this.camera.updateMatrixWorld(); for (const v of LIVE_VEHICLES) setVehicleLOD(v.mesh.userData, true); /* near-LOD parts too (the next frame's LOD pass puts them back) */ const ws = this.shaderWarmSet(); this.scene.add(ws); const lv0 = lightLevel(); try { for (const lv of [lv0, ...LIGHT_LEVELS.filter((l) => l !== lv0)]) { forceNightSet(lv); await this.compileForGame(this.scene, 8000); } /* every light level (LightSets): dusk / dawn / a torch only rebinds */ } catch (e) { console.warn('compile', e); } finally { forceNightSet(null); markWarm(this.scene); this.scene.remove(ws); } pr(0.5); await this.warmLightSets((k) => pr(0.5 + k * 0.5)); try { captureToCanvas(this.renderer, this.scene, this.camera, 0, 0, 2, 2); /* the map / busted capture output program */ } catch (e) { console.warn('capture warm', e); } pr(1); } },
+      { label: 'Furnishing shop interiors', run: async (pr) => { try { const W = this.interiors && this.interiors.walkIn; if (W) { this.interiors.setupWalkIns(); await W.preloadAll(pr, (root) => this.compileForGame(root, 4000)); } } catch (e) { console.warn('shop preload', e); } } }, // 54th: every walk-in room built, uploaded and compiled now — no hitch at the door
       { label: 'Waking the city', run: async (pr) => { for (let i = 0; i < 4; i++) { this.camera.rotation.y += Math.PI / 2; this.camera.updateMatrixWorld(); this.warmLevelFrames(); /* through the real post chain, once per light level: the main-pass target's programs, shadow-depth programs and every post pass */ pr((i + 1) / 4); await new Promise((r) => requestAnimationFrame(r)); } } },
     ], { minMs: TEST ? 1500 : 6200, onFlash: () => Audio.boom() });
     this.hud.fade(1, 0); await new Promise((r) => requestAnimationFrame(r));
@@ -519,7 +522,7 @@ export class Game {
     if (this.world.customs && !warmOnly) { if (!this.customs) this.customs = new CustomsService(this, this.world.customs); this.customs.update(dt, { night: A.night }); this.garage.update(dt); } // Street Customs (customs/CustomsService.js)
     if (P.vehicle && A.night > 0.5 && P.nightLights === undefined) { P.vehicle.lights = true; }
     if (!this.indoor && !warmOnly) this.bicycles.update(dt, Vehicle);
-    if (!this.indoor) this.ragdolls.update(dt, this.traffic.all()); this.blood.update(dt);
+    if (!this.indoor) { this.ragdolls.update(dt, this.traffic.all()); this.caps.update(dt, this.traffic.all(), P.pos || null); } this.blood.update(dt);
     if (this.birds) this.birds.update(dt);
     this.updateSight(dt);
     // story & prompts

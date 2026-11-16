@@ -67,7 +67,7 @@ export function install() {
 export function newClip(key) { return { key, mode: 'add', weight: 1, speed: 1, length: LOCO.includes(key) && key !== 'idle' ? 1 : 2, loop: true, tracks: {}, scale: null }; }
 // characters currently alive and what each is doing (for the editor's detection list)
 export function liveStates() { const m = new Map(); for (const ch of LIVE) { if (!ch.anim) continue; const k = keyOf(ch.anim); m.set(k, (m.get(k) || 0) + 1); } return m; }
-export const BONE_LIST = ['hipPos', ...BONES.filter((b) => !b.startsWith('skirt'))];
+export const BONE_LIST = ['hipPos', ...BONES.filter((b) => !b.startsWith('skirt') && b !== 'cap')];
 
 export async function saveAnims() { await storeSet('anims', JSON.parse(JSON.stringify(ANIM.clips))); setSavedFlag('anim', Object.keys(ANIM.clips).length > 0); }
 export async function loadSavedAnims() { const c = await storeGet('anims'); if (c && typeof c === 'object') ANIM.clips = c; install(); return ANIM.clips; }

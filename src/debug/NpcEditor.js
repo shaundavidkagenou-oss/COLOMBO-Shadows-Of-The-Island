@@ -13,7 +13,7 @@ import { Win, Viewport, h, btn, num, color, select, text, section, propGrid, beg
 let ed = null;
 export async function open(game) { if (ed && !ed.win.closed) return ed; await loadSavedNpcs(game); install(); ed = new NpcEditor(game); return ed; }
 const clone = (o) => JSON.parse(JSON.stringify(o));
-const SCALE_BONES = BONES.filter((b) => !b.startsWith('skirt'));
+const SCALE_BONES = BONES.filter((b) => !b.startsWith('skirt') && b !== 'cap');
 
 class NpcEditor {
   constructor(game) {

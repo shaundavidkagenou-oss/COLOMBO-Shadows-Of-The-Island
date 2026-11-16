@@ -17,6 +17,7 @@
 import * as THREE from 'three';
 import { Input } from '../core/Input.js';
 import { Audio } from '../audio/Audio.js';
+import { Voices } from '../audio/Voices.js';
 import { SoundBank } from '../audio/SoundBank.js';
 import { buildGrenadeModel } from './GrenadeModel.js';
 import { GRENADE, GRENADE_CAP } from './Shop.js';
@@ -157,7 +158,7 @@ export class Grenades {
         if (o.onGround && o.v.lengthSq() < 0.02) { o.rest = true; o.v.set(0, 0, 0); }
       }
       if (!o.water && L.isWater(o.p.x, o.p.z) && o.p.y < L.groundY(o.p.x, o.p.z) + 0.4 && !(L.bridgeWalkAt && L.bridgeWalkAt(o.p.x, o.p.z))) { o.water = true; o.v.multiplyScalar(0.15); { const A = Audio.at(o.p.x, o.p.z, 14); if (A.g > 0.01) Audio.noise(0.25, { f: 700, q: 0.7, vol: 0.06 * Math.min(1, A.g * 1.5), pan: A.pan, when: A.delay }); } } // plop
-      if (!o.warned && (o.onGround || o.rest)) { o.warned = true; const C = this.g.crowd; if (C) C.alarm(o.p.x, o.p.z, 12, 3, null, 'weapon', true); } // "grenade!" — everyone near scatters
+      if (!o.warned && (o.onGround || o.rest)) { o.warned = true; const C = this.g.crowd; if (C) { C.alarm(o.p.x, o.p.z, 12, 3, null, 'weapon', true); let nb = null, nd = 11; for (const p of C.peds) { if (p.dead) continue; const d = Math.hypot(p.x - o.p.x, p.z - o.p.z); if (d < nd) { nd = d; nb = p; } } if (nb) Voices.say(nb.sp, 'grenade', nb.x, nb.z, null); } } // the nearest bystander shouts it (console: dialogs → … · Grenade warning) // "grenade!" — everyone near scatters
       // spin: rolls along the ground, tumbles in the air
       if (!o.rest) { const s = o.onGround ? _w.set(o.v.z, 0, -o.v.x).multiplyScalar(1 / R) : o.spin; const a = s.length() * dt; if (a > 1e-5) { _q.setFromAxisAngle(_v.copy(s).normalize(), a); o.q.premultiply(_q); } }
       o.m.position.copy(o.p); o.m.quaternion.copy(o.q);

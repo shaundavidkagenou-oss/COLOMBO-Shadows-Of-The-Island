@@ -277,7 +277,7 @@ export class Ragdoll {
   // blend from the current pose to a target pose given in world space (array or function returning one)
   blendTo(target, dur, done, opts) { const from = this.snapshot(); this.play((k, out) => { const T = typeof target === 'function' ? target() : target; for (let i = 0; i < out.length; i++) out[i].lerpVectors(from[i], T[i], k); }, dur, done, opts); }
   // put the character back under the Animator (bones reset to rest; the caller places the root)
-  release() { const b = this.ch.bones; for (const n of Object.keys(b)) { if (b[n].isBone) b[n].quaternion.identity(); } b.hips.position.set(0, this.ch.hipY, 0); this.ch.rag = null; this.kin = null; if (this.world) this.world.remove(this); }
+  release() { if (this.world && this.world.caps && this.ch.capOff) this.world.caps.pickUp(this.ch); const b = this.ch.bones; for (const n of Object.keys(b)) { if (b[n].isBone) b[n].quaternion.identity(); } b.hips.position.set(0, this.ch.hipY, 0); this.ch.rag = null; this.kin = null; if (this.world) this.world.remove(this); }
 }
 
 // ---------------------------------------------------------------- body-frame keys (positions relative to the ground)
@@ -364,14 +364,23 @@ function capPush(A, ca, B, cb, ka, kb) { if (!ka && !kb) return false; const a0 
   if (ka && A.asleep === false) { if (big) A.sleepT = 0; if (ny > 0.5) A.onBody = 3; } if (kb && B.asleep === false) { if (big) B.sleepT = 0; if (ny < -0.5) B.onBody = 3; } return true; }
 
 export class RagdollWorld {
-  constructor(collision) { this.collision = collision; this.list = []; this.stats = { made: 0 }; }
+  constructor(collision) { this.collision = collision; this.list = []; this.stats = { made: 0 }; this.caps = null; this.capWatch = []; }
   add(ch, opts) { if (ch.rag) return ch.rag;
     // someone seated in a car (or any other moving parent) is taken out into the world first, where they are: the body's
     // particles and its root live in world space (a root left inside the car put the body somewhere else entirely)
     const par = ch.root.parent; if (par && !par.isScene) { let top = par; while (top.parent) top = top.parent; if (top.isScene) { top.attach(ch.root); const e = new THREE.Euler().setFromQuaternion(ch.root.quaternion, 'YXZ'); ch.root.rotation.set(0, e.y, 0); ch.root.updateMatrixWorld(true); } }
-    const r = new Ragdoll(ch, this, opts); this.list.push(r); this.stats.made++; return r; }
+    const r = new Ragdoll(ch, this, opts); this.list.push(r); this.stats.made++;
+    // a police service cap usually comes off as the officer goes down (most often as the head meets the ground)
+    if (this.caps && ch.bones && ch.bones.cap && !ch.capOff && Math.random() < (opts.capOff ?? 0.85)) this.capWatch.push({ r, t: 0 });
+    return r; }
+  // the cap leaves the head when the head strikes something or is flung fast (its own velocity), within 4 s of going down
+  watchCaps(dt) { const W = this.capWatch; if (!W.length) return;
+    for (let i = W.length - 1; i >= 0; i--) { const e = W[i], r = e.r; e.t += dt; const h = r.p[I.head], o = r.o[I.head], d = Math.max(dt, 1 / 120);
+      if (r.ch.capOff || !r.ch.root.parent || e.t > 4) { W.splice(i, 1); continue; }
+      const vx = (h.x - o.x) / d, vy = (h.y - o.y) / d, vz = (h.z - o.z) / d; const sp = Math.hypot(vx, vy, vz);
+      if (r.contact[I.head] || sp > 4.5 || (e.t > 0.25 && vy < -2.2)) { this.caps.knock(r.ch, { x: vx * 0.9, y: Math.max(vy * 0.4, 0) + 0.6, z: vz * 0.9 }, 4 + sp); W.splice(i, 1); } } }
   remove(r) { const i = this.list.indexOf(r); if (i >= 0) this.list.splice(i, 1); }
-  update(dt, vehicles) { dt = Math.min(dt, 1 / 20); for (const r of this.list.slice()) { if (!r.ch.root.parent && !r.kin) { this.remove(r); continue; } r.step(dt, vehicles); } this.bodies(); }
+  update(dt, vehicles) { dt = Math.min(dt, 1 / 20); for (const r of this.list.slice()) { if (!r.ch.root.parent && !r.kin) { this.remove(r); continue; } r.step(dt, vehicles); } this.bodies(); this.watchCaps(dt); }
   // bodies never pass through each other: capsule-vs-capsule between ragdolls lying close together (two knocked down on
   // the same spot, one falling across another). A settled or animated (getting-up) body does not move; the falling one
   // comes to rest on top of / beside it.
@@ -381,4 +390,18 @@ export class RagdollWorld {
       for (let it = 0; it < 2; it++) for (const ca of CAPS) for (const cb of CAPS) { if (capPush(A, ca, B, cb, fa ? 0 : 1, fb ? 0 : 1)) n++; } }
     this.stats.bodyPush = (this.stats.bodyPush || 0) + n; for (const r of L) if (r.pendSleep) r.settleOnBody(); }
   clear() { this.list = []; }
+}
+
+// Getting back up from a body lying limp (the crowd's knock-outs do the same inline, Crowd.koRagPed): roll onto the back if
+// face down / on the side, then supine → sit → crouch → stand along the measured key poses, clear of walls. live() is
+// asked before every stage (a stage is dropped if the body was killed / taken meanwhile); done(frame) gets the standing
+// frame { x, z, yaw } after the ragdoll has been released.
+export function standUpFrom(r, col, live, done) {
+  const getUp = () => { if (!live()) return; const fr = clearFrame(supineFrame(r), r, col); const key = (n) => Keys.toWorld(Keys[n](r.rest), fr.x, fr.z, fr.yaw, col);
+    const stand = () => { if (!live()) return; const zA = Keys.standZ(r.rest); r.release(); done({ x: fr.x + Math.sin(fr.yaw) * zA, z: fr.z + Math.cos(fr.yaw) * zA, yaw: fr.yaw }); };
+    r.blendTo(key('supine'), 0.7, () => { if (live()) r.blendTo(key('sit'), 1.25, () => { if (live()) r.blendTo(key('crouch'), 1.0, () => { if (live()) r.blendTo(key('stand'), 0.85, stand, { hold: true }); }, { hold: true }); }, { hold: true }); }, { hold: true }); };
+  const ang = rollAngle(r);
+  if (Math.abs(ang) > 1.2) { const snap = r.snapshot(); const P0 = r.pelvis().clone(); P0.y = col.groundAt(P0.x, P0.z, P0.y) + 0.15; const ax = r.part('chest').clone().sub(r.pelvis()).setY(0).normalize(); const off = rollClear(r, snap, P0, ax, ang, col);
+    r.play((k, out) => { rotateAbout(snap, P0, ax, ang * k, out); const w = rollShift(k); for (const q of out) { q.x += off.x * w; q.z += off.z * w; } return out; }, 1.2, getUp, { hold: true }); }
+  else getUp();
 }

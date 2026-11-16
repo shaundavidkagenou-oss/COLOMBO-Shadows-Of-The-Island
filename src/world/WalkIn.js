@@ -3,9 +3,10 @@
 //    (BuildingGen leaves the doorway out of the shopfront wall for these buildings). The door is double-acting: walk into
 //    it and the protagonist puts his palm on the push plate (Animator reach IK) and shoves it open as he walks through;
 //    behind him it swings back on its closer and settles.
-//  • The interior is built in place, inside the shop's own building behind the facade, only when the player comes within
-//    range of the door (nothing of it exists before that), and it is only drawn while the door is open or the player is
-//    inside — otherwise it is hidden, so a closed shop costs nothing.
+//  • The interior is built in place, inside the shop's own building behind the facade. Since the 54th every room is built,
+//    texture-uploaded and shader-compiled on the enter-game loading screen (preloadAll) and stays resident; quick test boots
+//    that skip the loading screen still build on approach. A room is only drawn while the door is open or the player is
+//    inside — otherwise it is hidden, so a closed shop costs no draw calls.
 //  • Inside, the player is handed to the room's collision model (room box + the doorway corridor + the jambs + the door
 //    leaf), the camera is kept in the room / doorway, and the outdoor → indoor light adaptation reuses the Police HQ blend.
 //  • Lights: shops share ONE pool of six point lights. While a shop is open the HQ's six interior lights are switched off
@@ -143,8 +144,25 @@ export class WalkIn {
     const t = Math.max(0.05, last - 0.06); want.lerpVectors(tgt, want, t);
   }
 
-  freeRoom(s) {
-    const r = s.room; if (!r) return; if (r.onExit && r.inside) r.onExit(); if (r.keeper && r.keeper.dispose) r.keeper.dispose();
+  // ---- 54th: preload every interior on the enter-game loading screen (geometry, keeper, shader programs, texture uploads), so
+  // walking up to a shop door never builds a room, compiles a program or uploads a canvas texture in the middle of play. The
+  // rooms stay resident (hidden rooms are not drawn: og.visible is false until the door opens), so they are never rebuilt.
+  async preloadAll(pr = () => {}, compile = null) {
+    const todo = this.sites.filter((s) => !s.room); const n = Math.max(1, todo.length); let i = 0;
+    for (const s of todo) { try { this.buildRoom(s); } catch (e) { console.warn('walk-in preload', s.id, e); s.build = () => { throw e; }; }
+      pr((++i / n) * 0.7); await new Promise((r) => setTimeout(r, 0)); }
+    const rooms = this.sites.map((s) => s.room).filter(Boolean); for (const r of rooms) r.keep = true;
+    const R = this.g.renderer; const tex = new Set(); const KEYS = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap', 'alphaMap', 'aoMap', 'bumpMap'];
+    for (const r of rooms) r.og.traverse((o) => { const ms = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : []; for (const m of ms) for (const k of KEYS) if (m[k] && m[k].isTexture) tex.add(m[k]); });
+    if (R && R.initTexture) for (const t of tex) { try { R.initTexture(t); } catch (e) { /* a texture the GPU path cannot pre-upload: it uploads on first draw as before */ } }
+    pr(0.8);
+    if (compile) { const vis = rooms.map((r) => r.og.visible); for (const r of rooms) r.og.visible = true; this.setActive(rooms[0] || null); // compile with the shop light pool on: the light set a room is drawn with
+      try { for (let k = 0; k < rooms.length; k++) { await compile(rooms[k].og); pr(0.8 + 0.2 * (k + 1) / rooms.length); } } catch (e) { console.warn('walk-in compile', e); }
+      finally { rooms.forEach((r, k) => { r.og.visible = vis[k]; }); this.setActive(null); } }
+    pr(1); return rooms.length;
+  }
+  freeRoom(s, force = false) {
+    const r = s.room; if (!r || (r.keep && !force)) return; if (r.keep) s.rebuild = true; // a resident room that was used up (robbed / keeper down) is rebuilt fresh while the player is far away if (r.onExit && r.inside) r.onExit(); if (r.keeper && r.keeper.dispose) r.keeper.dispose();
     const kit = new Set(); r.og.traverse((o) => { if (o.isMesh && !o.isSkinnedMesh && o.geometry) { o.geometry.dispose(); const m = o.material; if (m && m.userData && m.userData.own) kit.add(m); } });
     for (const m of kit) m.dispose(); // (maps are cached canvas textures — kept)
     r.og.parent && r.og.parent.remove(r.og); s.room = null;
@@ -155,10 +173,10 @@ export class WalkIn {
     let best = null, bd = 1e9; for (const s of this.sites) { const d = Math.hypot(P.x - s.F.x, P.z - s.F.z); s.dist = d; if (d < bd) { bd = d; best = s; } }
     if (P.indoor && P.indoor.walkIn) best = P.indoor.site;
     // build on approach (one per frame), hide far rooms
-    for (const s of this.sites) { if (!s.room && s.dist < BUILD_R && !P.vehicle && !this.builtThisFrame) { try { this.buildRoom(s); } catch (e) { console.warn('walk-in build', s.id, e); s.build = () => { throw e; }; } this.builtThisFrame = true; } }
+    for (const s of this.sites) { const far = s.rebuild && s.dist > FREE_R; if (!s.room && (far || (s.dist < BUILD_R && !P.vehicle)) && !this.builtThisFrame) { try { this.buildRoom(s); if (far) { s.room.keep = true; s.rebuild = false; } } catch (e) { console.warn('walk-in build', s.id, e); s.build = () => { throw e; }; } this.builtThisFrame = true; } }
     this.builtThisFrame = false;
     // free rooms the player has left far behind (geometry + keeper; the shared kit materials / canvas textures stay cached)
-    for (const s of this.sites) { const r = s.room; if (!r || s.dist < FREE_R || P.indoor === r.proxy || this.active === r) continue; this.freeRoom(s); }
+    for (const s of this.sites) { const r = s.room; const used = r && r.keep && r.rob && r.rob.state !== 'idle'; if (!r || (r.keep && !used) || s.dist < FREE_R || P.indoor === r.proxy || this.active === r) continue; this.freeRoom(s, used); }
     for (const s of this.sites) this.updateDoor(s, dt, P);
     for (const s of this.sites) { const r = s.room; if (!r) continue; const inside = P.indoor === r.proxy; const vis = inside || (s.doorObj.open > 0.015 && s.dist < HIDE_R); r.og.visible = vis; r.visible = vis; }
     // the active site (the one whose room is drawn nearest / that holds the player)

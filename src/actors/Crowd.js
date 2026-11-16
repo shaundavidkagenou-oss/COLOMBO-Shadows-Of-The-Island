@@ -712,6 +712,18 @@ export class Crowd {
     r.impulse(K.ux * 1.6 * pw + sx * 1.4, up ? 1.2 : 0.1, K.uz * 1.6 * pw + sz * 1.4, H);
     r.faceLive = true; p.noPool = true; const rt = p.ch.root; p.x = rt.position.x; p.z = rt.position.z; p.y = rt.position.y; p.yaw = rt.rotation.y; p.vx = p.vz = 0; p.airVy = undefined; p.airY = 0; p.ch.anim.set(null); p.ch.face.set('blink', K.lie + 2);
   }
+  // blown over by a blast (f: 0 at the edge of the knock-down ring … 1 at the lethal radius): the whole body lifted and carried
+  // away from the charge (legs and trunk together, unlike a car's leg sweep), the shock spinning it; out cold for a few
+  // seconds, then up again (koRagPed), shaken
+  blastKnock(p, ux, uz, f) {
+    if (p.dead || p.state === 'down' && p.koRag) { if (p.ch.rag) p.ch.rag.impulse(ux * (2 + 4 * f), 0.8 + 1.5 * f, uz * (2 + 4 * f)); return; }
+    const sp = 3 + 6.5 * f; p.vx = ux * sp; p.vz = uz * sp; p.airVy = 1.2 + 3 * f; this.react(p, 'down', 1e9, { yaw: Math.atan2(-ux, -uz) }); p.downT = 0;
+    const fc = this.focus; if (!this.ragdolls || !p.ch.root.parent || (fc && Math.hypot(p.x - fc.x, p.z - fc.z) > 60)) { p.timer = 3 + 3 * f; return; }
+    p.koRag = { t: 0, lim: 0, ux, uz, move: 'blast', pow: 1, dir: 1, lie: 3.5 + 4 * f + this.rng.next() * 2.5, limp: true, ph: null };
+    const r = this.ragdolls.add(p.ch, { vel: [p.vx, p.airVy, p.vz], legK: 0.95, upK: 1.08, capOff: 0.95 }); if (r) { const H = r.part('head'); r.impulse(-uz * (this.rng.next() - 0.5) * 3 * f, 0.4 * f, ux * (this.rng.next() - 0.5) * 3 * f, H); r.faceLive = true; }
+    p.noPool = true; const rt = p.ch.root; p.x = rt.position.x; p.z = rt.position.z; p.y = rt.position.y; p.yaw = rt.rotation.y; p.vx = p.vz = 0; p.airVy = undefined; p.airY = 0; p.ch.anim.set(null); p.ch.face.set('blink', p.koRag.lie + 2);
+    Voices.say(p.sp, 'hurt', p.x, p.z, null); this.events.emit('pedHit', p);
+  }
   koRagPed(p, dt, dist) {
     const r = p.ch.rag, K = p.koRag; K.t += dt; p.state = 'down'; p.timer = 1e9; p.vx = p.vz = 0; p.downT = (p.downT || 0) + dt;
     if (!r.kin) { const P = r.pelvis(); p.x = P.x; p.z = P.z; p.y = p.ch.root.position.y; p.yaw = p.ch.root.rotation.y; }

@@ -22,9 +22,9 @@ import { npcHeadFit, npcHeadGeometry, npcHeadMaterial, npcHeadOpts, npcScalp, NP
 import { hasDancerBody, dancerGeometry, makeDancerSkeleton, dancerMaterials, attachDancerEyes, dancerHeelFit, queueDancerPaint, morphsMatchHeroes } from './DancerBody.js';
 import { DancerRig } from './DancerRig.js';
 
-export const BONES = ['hips', 'spine', 'chest', 'neck', 'head', 'shL', 'armL', 'foreL', 'handL', 'shR', 'armR', 'foreR', 'handR', 'thighL', 'shinL', 'footL', 'thighR', 'shinR', 'footR', 'skirtF', 'skirtB', 'skirtF2', 'skirtB2', 'clothB'];
+export const BONES = ['hips', 'spine', 'chest', 'neck', 'head', 'shL', 'armL', 'foreL', 'handL', 'shR', 'armR', 'foreR', 'handR', 'thighL', 'shinL', 'footL', 'thighR', 'shinR', 'footR', 'skirtF', 'skirtB', 'skirtF2', 'skirtB2', 'clothB', 'cap'];
 const B = Object.fromEntries([...BONES, ...HERO_EXTRA].map((n, i) => [n, i])); // protagonist-only bones are appended after the shared 23, so crowd indices are unchanged
-const PARENT = { hips: null, spine: 'hips', chest: 'spine', neck: 'chest', head: 'neck', shL: 'chest', armL: 'shL', foreL: 'armL', handL: 'foreL', shR: 'chest', armR: 'shR', foreR: 'armR', handR: 'foreR', thighL: 'hips', shinL: 'thighL', footL: 'shinL', thighR: 'hips', shinR: 'thighR', footR: 'shinR', skirtF: 'hips', skirtB: 'hips', skirtF2: 'skirtF', skirtB2: 'skirtB', clothB: 'chest' };
+const PARENT = { hips: null, spine: 'hips', chest: 'spine', neck: 'chest', head: 'neck', shL: 'chest', armL: 'shL', foreL: 'armL', handL: 'foreL', shR: 'chest', armR: 'shR', foreR: 'armR', handR: 'foreR', thighL: 'hips', shinL: 'thighL', footL: 'shinL', thighR: 'hips', shinR: 'thighR', footR: 'shinR', skirtF: 'hips', skirtB: 'hips', skirtF2: 'skirtF', skirtB2: 'skirtB', clothB: 'chest', cap: 'head' }; // cap: a police service cap's own bone (LooseCaps.js knocks it off: the baked cap folds away into the head, a loose copy falls)
 
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 const smooth01 = (x) => { const t = clamp(x, 0, 1); return t * t * (3 - 2 * t); };
@@ -149,6 +149,7 @@ export function joints(sp) {
   const j = {
     hips: [0, 0.95 * s, 0], spine: [0, 1.08 * s, 0], chest: [0, 1.25 * s, 0], neck: [0, 1.46 * s, 0], head: [0, 1.55 * s, 0.01 * s],
     shL: [0.07 * s, 1.41 * s, 0], armL: [(f ? 0.17 : 0.19) * s * wide, 1.40 * s, 0], foreL: [(f ? 0.2 : 0.225) * s * wide, 1.12 * s, -0.01 * s], handL: [(f ? 0.215 : 0.24) * s * wide, 0.87 * s, 0.0],
+    cap: [0, 1.645 * s, 0.012 * s],
     thighL: [0.095 * s * wide, 0.93 * s, 0], shinL: [0.1 * s * wide, 0.5 * s, 0.005 * s], footL: [0.1 * s * wide, 0.085 * s, -0.01 * s],
   };
   for (const k of ['shL', 'armL', 'foreL', 'handL', 'thighL', 'shinL', 'footL']) { const r = k.replace('L', 'R'); j[r] = [-j[k][0], j[k][1], j[k][2]]; }
@@ -753,7 +754,7 @@ export function buildBodyGeometry(sp) {
     if (sp.capStyle === 'skull') sb.ellipsoid([hc[0], hc[1] + 0.036, hc[2] - 0.004], hr[0] * Math.max(1.07, hairLift + 0.02), hr[1] * 0.8, hr[2] * Math.max(1.07, hairLift + 0.02), W1('head'), C(sp.cap), { lat: 6, lon: 16, p0: 0, p1: Math.PI * 0.36 });
     else if (sp.capStyle === 'nurse') { sb.boxPart([0, hc[1] + hr[1] * 0.98, hc[2] + 0.01], 0.11, 0.03, 0.08, W1('head'), C('#ffffff')); sb.boxPart([0, hc[1] + hr[1] * 0.98 + 0.012, hc[2] + 0.052], 0.1, 0.012, 0.006, W1('head'), C('#2a4a8a')); }
     else if (sp.capStyle === 'peaked') { // police service cap: band, flared crown, black visor, gold badge
-      const br = Math.max(1.075, hairLift + 0.015), top = hc[1] + hr[1] * Math.max(1.0, hairLift) + 0.022, b0 = hc[1] + 0.036, bandC = C(sp.capBand || '#141821'), crownC = C(sp.cap), hw = W1('head');
+      const br = Math.max(1.075, hairLift + 0.015), top = hc[1] + hr[1] * Math.max(1.0, hairLift) + 0.022, b0 = hc[1] + 0.036, bandC = C(sp.capBand || '#141821'), crownC = C(sp.cap), hw = W1('cap');
       const ring = (y, k, col) => ({ c: [0, y, hc[2] - 0.004 * (k - 1)], rx: hr[0] * k, rz: hr[2] * k, w: hw, col });
       sb.loft([ring(b0, br, bandC), ring(b0 + 0.042, br + 0.005, bandC), ring(b0 + 0.046, br + 0.01, crownC), ring(top - 0.016, br + 0.22, crownC), ring(top - 0.004, br + 0.2, crownC), ring(top, br + 0.12, crownC)], 16, { capEnd: true });
       sb.boxPart([0, b0 + 0.006, hc[2] + hr[2] * br + 0.028], 0.16, 0.008, 0.068, hw, C('#08090b')); // visor

@@ -35,6 +35,7 @@ import { Firefight } from './Firefight.js';
 import { EMS } from './EMS.js';
 import { BustedCinematic } from './Busted.js';
 import { HOSPITAL } from '../actors/Health.js';
+import { standUpFrom } from '../actors/Ragdoll.js';
 import { chaseAim, rejoinLane, applyPit, roadblockSite, makeSpikeStrip, overStrip, radioLine, compass, catchUpSpeed, straggler } from './Pursuit.js';
 // crew looks cycle through a fixed set (12 police units, 6 ambulances × driver / partner) so their bodies are built once at
 // load (Game.js prewarm) and cached — a squad car arriving mid-chase never stalls a frame building two new people
@@ -62,6 +63,7 @@ export const ARREST_FINE = [0, 2500, 5000, 10000, 20000, 30000];
 export const HOLD_HOURS = [0, 1, 2, 4, 6, 8];
 const STATE_LABEL = { detected: 'CALL RECEIVED', investigating: 'INVESTIGATING', responding: 'RESPONDING', pursuing: 'PURSUIT', searching: 'SEARCHING', return: 'STANDING DOWN' };
 const LINES = {
+  grenade: [{ si: 'බෝම්බයක්! බිමට වෙන්න!', tr: 'A bomb! Get down!' }, { en: 'Grenade! Get down!' }, { si: 'ග්‍රැනේඩ් එකක්! පැනගන්න!', tr: 'Grenade! Jump clear!' }, { en: 'Grenade — take cover!' }, { ta: 'குண்டு! கீழே படுங்கள்!', tr: 'Bomb! Get down!' }],
   stop: [{ si: 'නවතින්න! පොලිසිය!', tr: 'Stop! Police!' }, { ta: 'நில்லுங்கள்! பொலிஸ்!', tr: 'Stop! Police!' }, { en: 'Police! Stop right there.' }],
   comply: [{ en: 'Stay where you are. Hands where I can see them.' }, { si: 'හොඳයි, එතන ඉන්න.', tr: 'Good, stay there.' }],
   chase: [{ si: 'අල්ලගන්න!', tr: 'Catch him!' }, { en: 'Suspect running — on foot!' }],
@@ -522,7 +524,9 @@ export class PoliceResponse {
       return;
     }
     if (o.vault) { this.stepVault(o, dt); return; }
+    if (o.mode === 'blown') { this.blownOfficer(o, dt); return; } // flat on the ground: dived away from a grenade / thrown by a blast
     if (o.mode === 'down') { o.downT -= dt; if (o.downT <= 0) { o.mode = 'foot'; A.set(null); o.hits = 0; } this.animOfficer(o, dt, 0); return; }
+    if ((o.mode === 'foot' || o.mode === 'return') && !o.cuffing && this.evadeGrenade(o, dt)) return; // a grenade nearby comes before everything else
     // on foot
     const tg = this.target(); const P = g.player; const st = this.state; const dP = this.distTo(o, tg);
     if (o.mode === 'return' || u.task === 'leave' || u.task === 'mount') {
@@ -750,14 +754,97 @@ export class PoliceResponse {
   }
   // incapacitated: the body stays where it fell (it no longer belongs to the unit, so a unit driving off or being removed
   // never makes it vanish in view) and is cleared away later, unseen. A unit with nobody left leaves its car parked.
-  killOfficer(o, dx = 0, dz = 0) {
-    if (o.dead) return; if (o.boarding || o.ch.anim.board) { const r = o.ch.root; o.ch.anim.board = null; o.boarding = false; if (r.parent && r.parent !== this.g.scene) { const p = r.getWorldPosition(new THREE.Vector3()); r.parent.remove(r); this.g.scene.add(r); r.position.copy(p); r.rotation.set(0, o.yaw || 0, 0); o.x = p.x; o.z = p.z; } }
+  killOfficer(o, dx = 0, dz = 0, vy = 0) {
+    if (o.dead) return; if (o.ch.rag && o.ch.rag.kin) { o.ch.rag.kin = null; o.ch.rag.wake(); } o.blown = null; o.evade = null; if (o.boarding || o.ch.anim.board) { const r = o.ch.root; o.ch.anim.board = null; o.boarding = false; if (r.parent && r.parent !== this.g.scene) { const p = r.getWorldPosition(new THREE.Vector3()); r.parent.remove(r); this.g.scene.add(r); r.position.copy(p); r.rotation.set(0, o.yaw || 0, 0); o.x = p.x; o.z = p.z; } }
     o.dead = true; o.mode = 'dead'; o.tackle = null; o.cuffing = false; o.torchOn = false; if (o.torchM) o.torchM.visible = false;
     o.ch.anim.ik = null; o.ch.anim.aim = null; o.ch.anim.set('down'); o.ch.face?.set?.('blink', 1e9); this.ff.disarm?.(o);
     const u = o.unit; if (u) u.officers = u.officers.filter((q) => q !== o);
-    const R = this.g.ragdolls; if (R && o.ch.root.parent && !o.ch.rag) R.add(o.ch, { vel: [dx * 1.8, 0, dz * 1.8] }); // goes limp (ragdoll)
+    const R = this.g.ragdolls; if (R && o.ch.root.parent && !o.ch.rag) R.add(o.ch, { vel: [dx * 1.8, vy, dz * 1.8] }); // goes limp (ragdoll)
     this.bodies.push({ o, ch: o.ch, x: o.x, z: o.z, t: 0 }); this.stats.officersDown = (this.stats.officersDown || 0) + 1; this.note('officer down (incapacitated)');
     if (u && !u.officers.length) this.abandonUnit(u);
+  }
+  // ------------------------------------------------------------------ grenades
+  // An officer on foot who sees a grenade come down near him (line of sight, after a human reaction time of 0.2–0.55 s) shouts
+  // a warning (console: dialogs → Police officers · Grenade warning) and gets out of the blast: with time to spare he sprints
+  // for the nearest solid cover out of its line of sight (or simply out of range); too close and too late he throws himself
+  // flat away from it — a dive that lands him prone — and gets up once it has gone off; further out he turns his back to it
+  // and hunches, arms over his head. Nobody runs towards a grenade, and a grenade still climbing (nobody can tell where it
+  // will land) or behind a wall is not reacted to.
+  grenadeNear(o) {
+    const G = this.g.grenades; if (!G || !G.live || !G.live.length) return null; let best = null, bd = 1e9;
+    for (const gr of G.live) { if (gr.gone || gr.water) continue; if (!(gr.onGround || gr.rest) && gr.v.y > 0) continue;
+      const d = Math.hypot(gr.p.x - o.x, gr.p.z - o.z); if (d < bd && d < 16 && Math.abs(gr.p.y - (o.y || 0)) < 6) { bd = d; best = gr; } }
+    return best ? { gr: best, d: bd } : null;
+  }
+  evadeGrenade(o, dt) {
+    const E = o.evade, col = this.g.collision, A = o.ch.anim;
+    if (!E) { const n = this.grenadeNear(o); if (!n) return false;
+      if (col && col.raycast && col.raycast(o.x, (o.y || 0) + 1.6, o.z, n.gr.p.x, n.gr.p.y + 0.1, n.gr.p.z, 0.05) < 0.97) return false; // can't see it
+      o.evade = { gr: n.gr, t: 0, react: 0.2 + Math.random() * 0.35, kind: null, tx: 0, tz: 0 }; this.stats.grenadeSeen = (this.stats.grenadeSeen || 0) + 1; return false; }
+    E.t += dt; const gr = E.gr;
+    if (gr.gone || !this.g.grenades.live.includes(gr)) { o.evade = null; if (A.action === 'cower' || A.action === 'cover') A.set(null); return false; }
+    if (E.t < E.react) return false; // still taking it in
+    const dx = o.x - gr.p.x, dz = o.z - gr.p.z, d = Math.hypot(dx, dz) || 0.01, ux = dx / d, uz = dz / d;
+    if (!E.kind) {
+      o.tackle = null; A.aim = null; if (!this._gShout || this.t - this._gShout > 1.2) { this._gShout = this.t; this.say(o, 'grenade', null, 'grenade'); }
+      const SAFE = 9.5, RUN = 5.6;
+      if (d >= SAFE) E.kind = 'brace';
+      else { const c = this.coverFrom(o, gr.p, SAFE, gr.fuse - 0.3, RUN); if (c) { E.kind = 'run'; E.tx = c.x; E.tz = c.z; E.cover = c.cover; this.stats.grenadeRun = (this.stats.grenadeRun || 0) + 1; }
+        else { this.diveFrom(o, ux, uz, gr); return true; } }
+    }
+    if (E.kind === 'run') {
+      if (gr.fuse < 0.4 && d < 7) { this.diveFrom(o, ux, uz, gr); return true; } // not going to make it: down flat
+      const sp = this.moveTo(o, E.tx, E.tz, 5.6, dt);
+      if (Math.hypot(E.tx - o.x, E.tz - o.z) < 0.6 || (sp === 0 && E.t > E.react + 0.6)) E.kind = E.cover ? 'cover' : 'brace';
+      else { this.animOfficer(o, dt, sp); return true; }
+    }
+    // braced: back to the blast — crouched behind cover, or hunched with the arms over the head in the open
+    o.yaw = Math.atan2(ux, uz); this.placeOfficer(o); const want = E.kind === 'cover' ? 'cover' : 'cower'; if (A.action !== want) A.set(want);
+    this.animOfficer(o, dt, 0); return true;
+  }
+  // where to run: a reachable spot out of the grenade's line of sight (behind a wall, a pillar, a car body counts too via the
+  // collision boxes), else straight away from it to a safe distance — whichever he can reach in the time left; null: no time
+  coverFrom(o, gp, SAFE, tLeft, RUN) {
+    const col = this.g.collision; if (tLeft <= 0) return null; let best = null, bs = 1e9; const reach = Math.min(12, tLeft * RUN);
+    const away = Math.atan2(o.x - gp.x, o.z - gp.z);
+    for (let i = 0; i < 16; i++) { const a = away + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * (Math.PI / 8); for (const r of [2.5, 4, 6, 8.5, 11]) { if (r > reach) break;
+      const x = o.x + Math.sin(a) * r, z = o.z + Math.cos(a) * r; const dg = Math.hypot(x - gp.x, z - gp.z); if (dg < 2.2) continue;
+      if (col && (col.blocked ? col.blocked(x, z, 0.3) : false)) continue; if (col && col.sweepSolid && col.sweepSolid(o.x, o.z, x, z, (o.y || 0), 0.45, 1.8) < 0.999) continue;
+      const hidden = col && col.raycast ? col.raycast(gp.x, gp.y + 0.25, gp.z, x, (o.y || 0) + 0.7, z, 0.02, true) < 0.95 : false;
+      if (!hidden && dg < SAFE) continue; const sc = r + (hidden ? 0 : 6) + Math.max(0, SAFE - dg) * 2; if (sc < bs) { bs = sc; best = { x, z, cover: hidden }; } } }
+    return best;
+  }
+  // the dive: turned away from the grenade, launched forward and up — the trunk travels faster than the legs, so the body
+  // pitches over and lands face down, arms out in front (the ragdoll); he stays down until it has gone off, then gets up
+  diveFrom(o, ux, uz, gr) {
+    const R = this.g.ragdolls; if (!R || !o.ch.root.parent) return;
+    o.evade = null; o.tackle = null; o.cuffing = false; const A = o.ch.anim; A.ik = null; A.aim = null; A.set(null);
+    o.yaw = Math.atan2(ux, uz); this.placeOfficer(o); o.ch.root.updateMatrixWorld(true);
+    o.mode = 'blown'; o.blown = { t: 0, gr, lie: 1.2 + Math.random() * 1.6, ph: null };
+    R.add(o.ch, { vel: [ux * 4.4, 2.2, uz * 4.4], legK: 0.5, upK: 1.35, capOff: 0.55 }); o.ch.face?.set?.('fear', 6);
+    this.stats.grenadeDive = (this.stats.grenadeDive || 0) + 1;
+  }
+  // thrown by a blast (f: 0 at the edge of the knock-down ring … 1 at the lethal radius): the whole body lifted and carried
+  // away from the charge, spun by the shock front; down for a few seconds (dazed), then up again
+  blastKnock(o, ux, uz, f, byPlayer) {
+    const R = this.g.ragdolls; if (!R || !o.ch.root.parent || o.dead) return;
+    if (byPlayer) { this.reason = 'assaulting a police officer'; this.incident = { x: this.g.player.x, z: this.g.player.z, t: this.t }; this.addHeat(1, this.reason, 'You attacked an officer.'); this.spotted(); }
+    if (o.mode === 'blown' && o.ch.rag) { const r = o.ch.rag; if (r.kin) { r.kin = null; r.wake(); o.blown.ph = null; } r.impulse(ux * (3 + 5 * f), 1 + 2 * f, uz * (3 + 5 * f)); o.blown.lie = Math.max(o.blown.lie, o.blown.t + 2.5 + 3 * f); o.blown.gr = null; return; }
+    o.evade = null; o.tackle = null; o.cuffing = false; const A = o.ch.anim; A.ik = null; A.aim = null; A.set(null);
+    o.mode = 'blown'; o.blown = { t: 0, gr: null, lie: 3 + 4 * f + Math.random() * 2, ph: null };
+    const sp = 3 + 6.5 * f; const r = R.add(o.ch, { vel: [ux * sp, 1.2 + 3 * f, uz * sp], legK: 0.95, upK: 1.08, capOff: 0.95 });
+    if (r) { const H = r.part('head'); r.impulse(-uz * (Math.random() - 0.5) * 3 * f, 0.4 * f, ux * (Math.random() - 0.5) * 3 * f, H); }
+    o.ch.face?.set?.('pain', 4); this.stats.blastDowned = (this.stats.blastDowned || 0) + 1;
+  }
+  blownOfficer(o, dt) {
+    const B = o.blown, r = o.ch.rag; if (!B || !r) { o.mode = 'foot'; o.blown = null; return; }
+    B.t += dt; if (!r.kin) { const P = r.pelvis(); o.x = P.x; o.z = P.z; o.y = o.ch.root.position.y; }
+    if (B.ph) return; if (B.gr && !B.gr.gone && this.g.grenades && this.g.grenades.live.includes(B.gr)) return; // head down until it goes off
+    if (B.t < B.lie || (!r.asleep && B.t < B.lie + 3)) return;
+    B.ph = 'up'; const col = this.g.collision;
+    standUpFrom(r, col, () => o.ch.rag === r && o.mode === 'blown' && !o.dead, (fr) => {
+      const q = col.resolveCircle(fr.x, fr.z, 0.3, (o.y || 0) + 0.3, 0.3); o.x = q.x; o.z = q.z; o.y = col.groundAt(o.x, o.z, (o.y || 0) + 0.5); o.yaw = fr.yaw;
+      o.ch.mesh.rotation.set(0, 0, 0); o.ch.mesh.position.set(0, 0, 0); this.placeOfficer(o); o.mode = 'foot'; o.blown = null; o.hits = 0; o.goal = null; o.losT = 0; o.ch.anim.set('stumble'); o.ch.face?.set?.('concern', 4); });
   }
   abandonUnit(u) {
     const T = this.T; this.dropStrip(u); const v = u.v;
@@ -773,7 +860,7 @@ export class PoliceResponse {
     for (const b of gone) { if (b.ch.rag) { this.g.ragdolls?.remove(b.ch.rag); b.ch.rag = null; } b.ch.root.parent?.remove(b.ch.root); b.ch.dispose(); } if (gone.length) this.bodies = this.bodies.filter((b) => !gone.includes(b));
   }
   pushPlayer() { const P = this.g.player; if (P.vehicle) return; for (const o of this.foot) { const dx = P.x - o.x, dz = P.z - o.z, d = Math.hypot(dx, dz); if (d < 0.55 && d > 1e-3) { P.x = o.x + (dx / d) * 0.55; P.z = o.z + (dz / d) * 0.55; } } }
-  say(o, kind, who) { const arr = LINES[kind]; if (!arr) return; const l = arr[Math.floor(Math.random() * arr.length)]; const lang = l.si ? 'si' : l.ta ? 'ta' : 'en'; const vd = o && o.x !== undefined ? Voices.say(o.ch && o.ch.spec, 'order', o.x, o.z, o, 'police') : 0; this.g.hud.subtitle(who || 'Police officer', l.si || l.ta || l.en, l.tr || '', Math.max(2.6, vd + 0.3), lang); if (!vd) Audio.talkBlip?.(lang); } // recorded police voice (console: dialogs → Police officers · Orders), else the blip
+  say(o, kind, who, sit = 'order') { const arr = LINES[kind]; if (!arr) return; const l = arr[Math.floor(Math.random() * arr.length)]; const lang = l.si ? 'si' : l.ta ? 'ta' : 'en'; const vd = o && o.x !== undefined ? Voices.say(o.ch && o.ch.spec, sit, o.x, o.z, o, 'police') : 0; this.g.hud.subtitle(who || 'Police officer', l.si || l.ta || l.en, l.tr || '', Math.max(2.6, vd + 0.3), lang); if (!vd) Audio.talkBlip?.(lang); } // recorded police voice (console: dialogs → Police officers · Orders), else the blip
 
   // ------------------------------------------------------------------ stop → fine (1★)
   beginStop(o) { this.stop = { o, t: 0, still: 0, fled: false, warned: true }; this.say(o, 'stop', 'Police officer'); this.note('stop issued'); }
