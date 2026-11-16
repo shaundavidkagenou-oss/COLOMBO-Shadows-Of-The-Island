@@ -225,7 +225,7 @@ class Vendor extends Agent {
   }
   hold(on) { const A = this.p && this.p.ch.anim; if (!A) return; A.ik = on ? { R: HAND_ON_LOAD[this.ware.prop], qR: null, wR: 1, poleR: ELBOW_OUT, L: null } : null; }
   think(dt) {
-    const S = this.sys, p = this.p, A = p.ch.anim;
+    const S = this.sys, p = this.p;
     if (this.customer === 'player') { const P = S.player; this.faceTo(Math.atan2(P.x - p.x, P.z - p.z)); if ((this.custT -= dt) <= 0) this.customer = null; return null; }
     switch (this.phase) {
       case 'walk': {
@@ -287,7 +287,7 @@ export class StationLife {
   // ---- places on platform 1: free standing spots + the bench seats (each with its approach point), all checked against the
   //      station's colliders (and a clear straight walk to it from the hall's arches)
   buildSpots() {
-    const col = this.collision, y = FL; this.spots = [];
+    const col = this.collision; this.spots = [];
     // clear = nothing in the way from knee to head height (as Collision.resolveCircle moves people; Collision.blocked() is 2-D
     // and would count the footbridge parapets 6 m up as walls): the underside of the bridge stairs counts — nobody ducks
     const head = (x, z, r, y = FL) => { for (const c of col.query(x - r, z - r, x + r, z + r)) { if (!(x + r > c.x0 && x - r < c.x1 && z + r > c.z0 && z - r < c.z1)) continue; const y0 = c.y0 || 0; if (y0 + c.h > y + 0.4 && y0 < y + 2.1) return false; } return true; };
