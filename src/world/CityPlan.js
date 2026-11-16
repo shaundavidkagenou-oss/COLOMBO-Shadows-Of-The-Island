@@ -597,9 +597,10 @@ export function generatePlan() {
     if (gone.size) { plan.buildings = plan.buildings.filter((b) => !gone.has(b)); plan.colliders = plan.colliders.filter((c) => !(c.kind === 'building' && gone.has(c.b))); for (const ch of plan.byChunk) ch.buildings = ch.buildings.filter((b) => !gone.has(b)); }
     plan.customsCleared = [...gone].map((b) => b.id); }
   { const inRes = (x, z) => !!L.fuelSiteAt(x, z) || !!L.customsSiteAt(x, z) || fortClearAt(x, z, 0.5); // + Colombo Fort station (54th: the train shed, platforms and sidings stand there)
-    const drop = new Set(plan.props.filter((p) => inRes(p.x, p.z))); const dropT = new Set(plan.trees.filter((t) => inRes(t.x, t.z))); const dropW = new Set(plan.walls.filter((w) => inRes((w.x0 + w.x1) / 2, (w.z0 + w.z1) / 2)));
+    const keepSig = (p) => p.type === 'signal' && !L.fuelSiteAt(p.x, p.z) && !L.customsSiteAt(p.x, p.z); // the Olcott Mawatha traffic signals stand on the kerb in front of the station: they stay
+    const drop = new Set(plan.props.filter((p) => inRes(p.x, p.z) && !keepSig(p))); const keptCols = new Set(plan.props.filter((p) => inRes(p.x, p.z) && keepSig(p)).map((p) => p.col).filter(Boolean)); const dropT = new Set(plan.trees.filter((t) => inRes(t.x, t.z))); const dropW = new Set(plan.walls.filter((w) => inRes((w.x0 + w.x1) / 2, (w.z0 + w.z1) / 2)));
     const cols = new Set([...drop].map((p) => p.col).filter(Boolean)); for (const t of dropT) cols.add(t.col);
-    for (const c of plan.colliders) if (c.kind !== 'building' && inRes((c.x0 + c.x1) / 2, (c.z0 + c.z1) / 2)) cols.add(c);
+    for (const c of plan.colliders) if (c.kind !== 'building' && !keptCols.has(c) && inRes((c.x0 + c.x1) / 2, (c.z0 + c.z1) / 2)) cols.add(c);
     plan.props = plan.props.filter((p) => !drop.has(p)); plan.trees = plan.trees.filter((t) => !dropT.has(t)); plan.walls = plan.walls.filter((w) => !dropW.has(w)); plan.colliders = plan.colliders.filter((c) => !cols.has(c));
     const dq = (q) => inRes(q.x, q.z); plan.poi = plan.poi.filter((q) => !dq(q)); plan.busStops = plan.busStops.filter((q) => !dq(q)); plan.parking = plan.parking.filter((q) => !dq(q));
     for (const ch of plan.byChunk) { ch.props = ch.props.filter((p) => !drop.has(p)); ch.trees = ch.trees.filter((t) => !dropT.has(t)); ch.walls = ch.walls.filter((w) => !dropW.has(w)); ch.poi = ch.poi.filter((q) => !dq(q)); } }
