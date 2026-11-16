@@ -67,18 +67,20 @@ const wakeFrag = /* glsl */`
     float n2 = texture2D(uNoise, vWorld.xz * 0.23 - vec2(0.0, uTime * 0.01)).g;
     float n3 = texture2D(uNoise, vWorld.xz * 0.9 + vec2(uTime * 0.03)).r;
     float core = 1.0 / ratio;                                                   // the hull's own width within the ribbon
-    float wash = (1.0 - smoothstep(core * 0.35, core * 1.25 + 0.04, u)) * exp(-age * 0.16) * smoothstep(0.05, 0.3, spd);
-    float washF = wash * smoothstep(0.3, 0.62, n1 * 0.55 + n2 * 0.45 + n3 * 0.25 + wash * 0.35 - age * 0.012);
+    float band = 1.0 - smoothstep(core * 0.35, core * 1.25 + 0.04, u); float wash = band * exp(-age * 0.3) * smoothstep(0.05, 0.3, spd);
+    float aer = (1.0 - smoothstep(core * 0.4, core * 1.7 + 0.06, u)) * exp(-age * 0.085) * smoothstep(0.05, 0.3, spd) * (0.6 + 0.4 * n1);   // aerated water left by the props: paler, not foam
+    float washF = wash * smoothstep(0.3, 0.62, n1 * 0.55 + n2 * 0.45 + n3 * 0.25 + wash * 0.35 - age * 0.028);
     float armW = mix(0.05, 0.11, smoothstep(0.0, 12.0, age));                 // each Kelvin arm: a crest line near the ribbon edge
     float arm = exp(-pow((u - 0.86) / armW, 2.0)) * exp(-age * 0.09) * smoothstep(0.08, 0.5, spd);
     float armF = arm * smoothstep(0.38, 0.72, n2 * 0.8 + n3 * 0.35);
     float trans = (0.5 + 0.5 * sin(vD * 1.1)) * (1.0 - smoothstep(0.55, 0.9, u)) * exp(-age * 0.22) * spd;   // transverse crests
     float edge = 1.0 - smoothstep(0.93, 1.0, u);
-    float a = clamp(washF * 0.95 + armF * 0.6 + arm * 0.07 + trans * 0.06, 0.0, 0.94) * edge * (1.0 - smoothstep(${(LIFE * 0.75).toFixed(1)}, ${LIFE.toFixed(1)}, age));
+    float foam = clamp(washF * 0.95 + armF * 0.6 + arm * 0.07 + trans * 0.06, 0.0, 0.94); float a0 = max(foam, aer * 0.2); float a = a0 * edge * (1.0 - smoothstep(${(LIFE * 0.75).toFixed(1)}, ${LIFE.toFixed(1)}, age));
     if (a < 0.004) discard;
     vec3 light = uSkyTop * 0.55 + uSunColor * max(uSunDir.y, 0.0) * 0.9;     // white water lit by sky + sun
     light = light * (1.0 - 0.93 * uNight) + uLit;                             // at night only what the lamps give it
-    gl_FragColor = vec4(vec3(0.93, 0.96, 0.97) * light, a);
+    vec3 col = mix(vec3(0.42, 0.78, 0.80), vec3(0.93, 0.96, 0.97), clamp(foam / max(a0, 1e-3), 0.0, 1.0));   // foam white, aerated water pale turquoise
+    gl_FragColor = vec4(col * light, a);
     #include <fog_fragment>
   }`;
 export class Wakes {
