@@ -138,7 +138,7 @@ class Agent {
     const p = this.p; if (!r || !this.walking) { this.stuckT = Math.max(0, this.stuckT - this.dt * 2); return r; }
     if (Math.hypot(p.x - this.lastX, p.z - this.lastZ) < 0.15 * this.dt) this.stuckT += this.dt; else this.stuckT = Math.max(0, this.stuckT - this.dt * 2);
     if (this.stuckT > 1.4 && this.stuckT < 3) { r.tx = p.x + Math.cos(p.yaw) * 1.1 + (r.tx - p.x) * 0.3; r.tz = p.z - Math.sin(p.yaw) * 1.1 + (r.tz - p.z) * 0.3; }
-    else if (this.stuckT > 6 && this.route && this.route.length && !this.sys.crowd.visible(p)) { const [x, z] = this.route[0]; p.x = x; p.z = z; this.sys.crowd.place(p); this.stuckT = 0; }
+    else if (this.stuckT > 6 && this.route && this.route.length && !this.sys.crowd.visible(p)) { const [x, z] = this.route[0]; p.x = x; p.z = z; this.sys.crowd.place(p); setFloor(this.sys.collision, p); this.stuckT = 0; }
     return r;
   }
   // sitting down on / getting up from a seat {x, z, y, yaw} (approached from its front)
@@ -151,7 +151,8 @@ class Agent {
     if (k > 0.001) A.sitIn(this.seatPose, k, this.seatMode || null); else { A.standUp(); }
     if (!this.sitGoal && this.sitW <= 0) { A.standUp(); if (s.used === this) s.used = null; this.seat = null; this.sitFrom = null; p.sit = false; }
   }
-  post() { const p = this.p; if (this.seat && this.sitW > 0) p.ch.root.position.y = p.y + (this.seat.y - p.y) * sm(this.sitW); }
+  post() { const p = this.p; if (!p) return; if (p.x > F.p1.x0 && p.x < F.p1.x1 && p.z > F.edgeZ - 0.32 && p.z < F.edgeZ + 0.6 && p.state === 'job') { p.z = F.edgeZ - 0.32; if (p.vz > 0) p.vz = 0; p.ch.root.position.z = p.z; setFloor(this.sys.collision, p); } // nobody is jostled off the platform edge onto the line
+    if (this.seat && this.sitW > 0) p.ch.root.position.y = p.y + (this.seat.y - p.y) * sm(this.sitW); }
   interrupt(state) { // shoved, frightened, shot at: off the seat at once, out of any queue / door
     const p = this.p; this.scared = true; if (this.seat) { if (this.seat.used === this) this.seat.used = null; this.seat = null; this.sitW = 0; } if (p) { p.sit = false; p.ch.anim.standUp(); p.ch.face.talking = false; }
     this.sys.leaveQueue(this); this.door = null; this.onInterrupt?.(state);
