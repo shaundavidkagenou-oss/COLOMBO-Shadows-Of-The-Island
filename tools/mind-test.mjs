@@ -4,6 +4,8 @@
 // staggered reactions (no herd) · emotions that rise and decay gradually · player memory (harassment → avoidance, help →
 // gratitude) · road rage (out of the car, confront, back in, drive on) · memory / persona caps · save/load round trip ·
 // no NaN, no teleports · bounded heap over a long soak · per-frame cost of the minds.
+import v8 from 'node:v8'; import vm from 'node:vm';
+if (!globalThis.gc) { v8.setFlagsFromString('--expose-gc'); globalThis.gc = vm.runInNewContext('gc'); } // real collections around the heap soak (without them garbage read as growth: flaky)
 import './node-dom-stub.mjs';
 import * as THREE from 'three';
 await import('../src/core/fastMath.js');
@@ -112,7 +114,8 @@ console.log('4. player memory');
 // ---- 5. road rage: out of the car (when safe), confronts, back in, drives on
 console.log('5. road rage');
 { let out = null; const tried = []; T.rageStats.crashes = 0;
-  for (const v of T.vehicles.filter((w) => w.ai && w.driverChar && !w.police && Math.hypot(w.x - focus.x, w.z - focus.z) < 45).slice(0, 14)) {
+  const dF = (w) => Math.hypot(w.x - focus.x, w.z - focus.z); /* the nearest AI cars (the player is put beside each one): a fixed 45 m radius sometimes held none and the stage tested nothing */
+  for (const v of T.vehicles.filter((w) => w.ai && w.driverChar && !w.police && dF(w) < 250).sort((a, b) => dF(a) - dF(b)).slice(0, 14)) {
     player.x = v.x + 3; player.z = v.z; v.rageCd = 0; VEH_HOOKS.crash(v, { player: true }, 2.2); tried.push(v);
     for (let i = 0; i < 240 && !v.awayDriver; i++) { step(); player.x = v.x + 3; player.z = v.z; }
     if (v.awayDriver) { out = v; break; } }

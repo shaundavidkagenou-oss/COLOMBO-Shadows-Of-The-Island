@@ -6,6 +6,8 @@ import * as THREE from 'three';
 const { createVehicleMesh, VTYPES } = await import('../src/vehicles/VehicleModels.js');
 const { makeSkeleton } = await import('../src/actors/Character.js');
 const { applySeatPose, seatLocal } = await import('../src/actors/Seating.js');
+globalThis.addEventListener ||= () => {}; if (globalThis.document) { document.addEventListener ||= () => {}; document.removeEventListener ||= () => {}; } globalThis.removeEventListener ||= () => {}; globalThis.localStorage ||= { getItem: () => null, setItem() {}, removeItem() {} }; // Input.js / Settings.js (pulled in by BicycleRide) in Node
+const { Bicycles } = await import('../src/vehicles/BicycleRide.js'); // Dineth's bicycle: the game layers its rider pose (pedals, bars) on the seated pose
 let fails = 0, checks = 0; const bad = []; const worst = {};
 const P = (b, n) => new THREE.Vector3().setFromMatrixPosition(b[n].matrixWorld);
 for (const type of Object.keys(VTYPES)) for (let variant = 0; variant < 4; variant++) {
@@ -16,6 +18,7 @@ for (const type of Object.keys(VTYPES)) for (let variant = 0; variant < 4; varia
     root.position.set(seat.x, seat.y, seat.z); // vehicle frame == world frame here
     const s = height / 1.72; const A = { ch: { bones: b, root, spec: sp }, s, ankle: 0.085 * s, seatW: 1, seatL: seatLocal(seat), t: 0, seed: 0.3, vehSpeed: 0, seatLookT: 9, steer: 0 };
     applySeatPose(A, 0.016); root.updateMatrixWorld(true);
+    if (seat.pedal) { A.ch.anim = A; const BR = Object.create(Bicycles.prototype); BR.rider = A.ch; BR.v = { stunt: null }; BR.crank = 0; BR.st = null; BR.poseFull(b); root.updateMatrixWorld(true); } // as BicycleRide.pose does every frame
     const L = seatLocal(seat); const issues = [];
     const tgt = new THREE.Vector3(seat.x + seat.fx, seat.floor + 0.085 * s, seat.z + seat.fz); const ae = P(b, 'footL').distanceTo(tgt); if (ae > 0.035) issues.push('ankle ' + ae.toFixed(3));
     const hj = P(b, 'thighL').y - seat.y; if (hj < 0.03 || hj > 0.15) issues.push('hip ' + hj.toFixed(3));
