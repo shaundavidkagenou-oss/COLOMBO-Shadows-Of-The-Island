@@ -52,7 +52,7 @@ export class PropBreak {
     let dx = fx * 0.72 + sx * 0.7, dz = fz * 0.72 + sz * 0.7; const dl = Math.hypot(dx, dz); dx /= dl; dz /= dl;
     const root = new THREE.Group(), inner = new THREE.Group(); root.add(inner);
     for (const prt of GEO[p.type]) { const mat = prt.mat === MAT.lampHead ? MAT.metal : prt.mat; const m = new THREE.Mesh(prt.geo, mat); m.castShadow = true; m.receiveShadow = true; inner.add(m); } // the broken lamp's head is dark
-    const by = L.LAND_Y; root.position.set(p.x, by, p.z); // where Props.js stands it inner.rotation.y = p.rot || 0; this.group.add(root);
+    const by = L.LAND_Y; root.position.set(p.x, by, p.z); inner.rotation.y = p.rot || 0; this.group.add(root); /* where Props.js stands it */
     const stub = new THREE.Mesh(this.stubGeo, MAT.metal); stub.position.set(p.x, by, p.z); stub.castShadow = true; this.group.add(stub); // the sheared base plate stays bolted down
     // how the parts lie once down: a lamp's arm and a heritage post's crossbar lie flat (perpendicular to the fall); signal
     // heads end up facing the sky (the bisector of their two faces points back along the fall)

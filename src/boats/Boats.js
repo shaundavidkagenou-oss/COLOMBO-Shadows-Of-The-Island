@@ -144,19 +144,30 @@ export class Boats {
   // ---------------------------------------------------------------------------------------------------- AI helm
   pilot(b, dt) {
     const R = b.route; if (!R || !R.length) return { thr: 0, steer: 0 };
-    const w = R[0]; const dx = w.x - b.x, dz = w.z - b.z; const d = Math.hypot(dx, dz); const rev = !!w.rev;
+    if (b._pyT !== this.t) { b._yr = dt > 0 ? wrap(b.yaw - (b._py ?? b.yaw)) / dt : 0; b._py = b.yaw; b._pyT = this.t; } // yaw rate (once per step, not per recursive call)
+    const w = R[0]; let dx = w.x - b.x, dz = w.z - b.z; let d = Math.hypot(dx, dz); const rev = !!w.rev;
+    if (w.line && !rev) { const [ux, uz] = w.line, nx = -uz, nz = ux; const along = dx * ux + dz * uz, cross = (b.x - w.x) * nx + (b.z - w.z) * nz, c = clamp(cross * 0.35, -0.7, 0.7); d = Math.max(0, along); dx = ux - nx * c; dz = uz - nz * c; } // lined-up legs: follow the berth's centreline (steer back onto it), not a beeline that swings wide past it
     const reach = w.r ?? (w.stop ? 1.6 : rev ? 2.2 : Math.max(5, b.len * 0.7));
-    if (d < reach) { R.shift(); if (!R.length) return { thr: 0, steer: 0, done: true }; return this.pilot(b, dt); }
+    if (d < reach) { R.shift(); if (!R.length) { b.unjams = 0; return { thr: 0, steer: 0, done: true }; } return this.pilot(b, dt); }
     const want = rev ? Math.atan2(-dx, -dz) : Math.atan2(dx, dz); const err = wrap(want - b.yaw);
     const inMarina = b.x > 140 && b.x < 232 && b.z > -1300 && b.z < -1185;
     const vmax = w.v ?? (inMarina ? 2.4 : b.role === 'police' ? 7 : Math.min(9, b.def.max * 0.6));
-    let steer = clamp(err * 2.4, -1, 1); if (rev && b.u < -0.3) steer = -steer;
+    let steer = clamp(err * 2.4 - (inMarina && !rev ? (b._yr || 0) * 1.6 : 0), -1, 1); if (rev && b.u < -0.3) steer = -steer; /* in the marina the swing is checked as it nears the heading: a pivot used to carry a long hull 45° past it, bow onto the next finger */
     const sp = rev ? -b.u : b.u; let target = vmax * clamp(1.25 - Math.abs(err) * 0.85, rev ? 0.4 : 0.22, 1); if (w.stop || rev) target = Math.min(target, 0.4 + d * 0.3);
     let thr = clamp((target - sp) * 0.9, -1, 1); if (rev) thr = -thr;
     const pivot = inMarina && !rev && Math.abs(err) > 0.5 ? (w.turn && Math.abs(err) > 1.2 ? w.turn : Math.sign(err)) : 0; if (pivot) { thr = Math.min(thr, 0.25); if (w.turn) steer = pivot; } /* w.turn: which way to swing (the bow away from a wall) */ /* tight corners at the berths: turn on the spot first */
     // stuck behind something (another boat crossing): back off a little, then try again
     b.slowT = Math.abs(b.u) < 0.3 ? (b.slowT || 0) + dt : 0; /* read by the owner logic: hemmed in for long → it gives up gracefully */
-    b.stuckT = (Math.abs(b.u) < 0.25 && Math.abs(thr) > 0.3) ? (b.stuckT || 0) + dt : 0; if (b.stuckT > 4) { thr = -thr; steer = -steer; if (b.stuckT > 6) b.stuckT = 0; }
+    b.stuckT = (Math.abs(b.u) < 0.25 && Math.abs(thr) > 0.3) ? (b.stuckT || 0) + dt : 0;
+    // 52nd: jammed on a finger pier / the neighbour while swinging into a berth off its centreline (a wide catamaran used to grind
+    // there for up to a minute): back straight out along the berth's axis to a point on the centreline, then come in square
+    // (also a pivot turn the finger / neighbour blocks: no way on, no swing — the thrust is too low for stuckT)
+    b.stallT = inMarina && Math.abs(b.u) < 0.15 && Math.abs(b._yr || 0) < 0.02 && (Math.abs(thr) > 0.1 || pivot) ? (b.stallT || 0) + dt : 0;
+    if (w.unjam && (b.stuckT > 3 || b.stallT > 3)) { R.shift(); b.stuckT = 0; b.stallT = 0; return this.pilot(b, dt); } // can't back out either: give that up, carry on
+    if (inMarina && w.line && (b.stuckT > 2.5 || b.stallT > 3) && !rev && (b.unjams || 0) < 4) { const [ux, uz] = w.line; // only on the lined-up berth legs: elsewhere the normal stuck reverse does
+      const t = (b.x - w.x) * ux + (b.z - w.z) * uz, back = Math.max(4, b.len * 0.35); // the boat's foot on the berth's centreline, then a few metres further out
+      R.unshift({ x: w.x + ux * (t - back), z: w.z + uz * (t - back), rev: true, r: 1.5, v: 1.0, unjam: true }); b.unjams = (b.unjams || 0) + 1; b.stuckT = 0; b.stallT = 0; return this.pilot(b, dt); }
+    if (b.stuckT > 4) { thr = -thr; steer = -steer; if (b.stuckT > 6) b.stuckT = 0; }
     return { thr, steer, pivot };
   }
   // ---------------------------------------------------------------------------------------------------- owners at the marina
@@ -176,7 +187,10 @@ export class Boats {
     const M = b.model; const out = berthRoute(B, M.len); const back = out.slice().reverse().filter((p) => !p.rev).map((p) => ({ x: p.x, z: p.z }));
     const bx = B.x(M.len, M.halfBeam);
     if (B.side === 'Q') { back.pop(); back.pop(); /* not the swing off the wall */ const tx = Math.min(bx - 4, 228 - M.len / 2); back.push({ x: tx, z: B.zc + M.len * 0.2, v: 1.5, r: 3 }, { x: tx, z: B.zc - M.len * 0.25, stop: true, turn: -1 }); } // down the fairway bow first, turn round beside the berth (thrusters), the lines walk her in
-    else { const sd = B.side === 'W' ? -1 : 1; back.push({ x: bx + sd * (M.len * 0.6 + 8), z: B.zc, v: 1.6, r: 1.2 }, { x: bx + sd * (M.len * 0.6 + 1), z: B.zc, v: 1.0, r: 1.0 }, { x: bx, z: B.zc, stop: true }); } // lined up on the slot first, then straight in
+    else { const sd = B.side === 'W' ? -1 : 1; const zs = B.zc - Math.max(0, M.len / 2 + M.halfBeam + 1 - (MARINA.head.z0 - B.zc)); /* the inner slot: swing short of the head walkway, the centreline leg takes up the offset */ back.push({ x: bx + sd * (M.len * 0.6 + 8), z: zs, v: 1.6, r: 1.2 }, { x: bx + sd * (M.len * 0.6 + 1), z: B.zc, v: 1.0, r: 1.0, line: [-sd, 0] }, { x: bx, z: B.zc, stop: true, line: [-sd, 0] }); } // lined up on the slot first, then straight in
+    // a slow boat (a cruising catamaran makes ~5 knots) starts at the harbour-entrance waypoint instead of 250 m out when nobody can
+    // see it appear there — arrivals took up to four minutes
+    if (b.def && b.def.max < 6 && back.length > 4) { const nx = back[1]; if (!this.seen(nx.x, 1, nx.z, M.len, 900) || this.camDist(nx.x, nx.z) >= 500) back.shift(); }
     const st = back.shift(); if (this.seen(st.x, 1, st.z, M.len, 900) && this.camDist(st.x, st.z) < 500) return false; // never pops into view
     ch.busy = true; b.away = false; b.root.visible = true; b.mode = 'drive'; b.place(st.x, st.z, Math.atan2(back[0].x - st.x, back[0].z - st.z), true); b.route = back;
     this.seat(ch, b, b.model.seat); const O = { ch, b, B, stage: 'inbound', t: 0 }; b.owner = O; this.owners.push(O); return true;
