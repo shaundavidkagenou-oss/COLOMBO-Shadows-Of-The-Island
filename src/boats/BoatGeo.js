@@ -105,7 +105,7 @@ export class Hull {
     // transom: fan across the aft section (both sides joined), facing aft
     const t0 = secs[0].pts; const ring = [...t0.map((p) => [h.xOff + p[0], p[1], p[2]]).reverse(), ...t0.slice(1).map((p) => [h.xOff - p[0], p[1], p[2]])];
     const m = bb.mb(transomCol ? SURF.paint : surf); const kc = C(transomCol || col); const base = m.vcount;
-    for (const p of ring) m.vert(p[0], p[1], p[2], 0, 0, -1, 0, 0, kc); let tw = 0; for (let i = 0; i < ring.length; i++) { const p = ring[i], q = ring[(i + 1) % ring.length]; tw += p[0] * q[1] - q[0] * p[1]; } // x-y area: CCW → fan (0, i+1, i) faces −z for (let i = 1; i < ring.length - 1; i++) { if (tw > 0) m.idx.push(base, base + i + 1, base + i); else m.idx.push(base, base + i, base + i + 1); }
+    for (const p of ring) m.vert(p[0], p[1], p[2], 0, 0, -1, 0, 0, kc); let tw = 0; for (let i = 0; i < ring.length; i++) { const p = ring[i], q = ring[(i + 1) % ring.length]; tw += p[0] * q[1] - q[0] * p[1]; } /* x-y area: CCW → fan (0, i+1, i) faces −z */ for (let i = 1; i < ring.length - 1; i++) { if (tw > 0) m.idx.push(base, base + i + 1, base + i); else m.idx.push(base, base + i, base + i + 1); }
     this.secs = secs; return this;
   }
   // half-beam of the hull at station s and height y (for fitting decks / rails / lights to the actual skin)

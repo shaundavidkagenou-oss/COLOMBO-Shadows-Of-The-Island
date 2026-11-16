@@ -181,7 +181,7 @@ const LAYOUTS = {
     // rig: mast stepped on the coachroof, boom, shrouds, forestay, backstay, spreaders
     const mz = H.z(day ? 0.62 : 0.6), mh = day ? 8.6 : 18.5, my0 = by + ch, mTop = my0 + mh; const boomY = my0 + (day ? 0.85 : 1.35), boomL = day ? 3.0 : 5.6;
     bb.cyl(SURF.alu, '#cfd3d6', [0, my0, mz], [0, mTop, mz], day ? 0.06 : 0.11, day ? 0.045 : 0.075, 10);
-    bb.cyl(SURF.alu, '#cfd3d6', [0, boomY, mz - 0.05], [0, boomY - 0.05, mz - boomL], day ? 0.045 : 0.075, day ? 0.04 : 0.065, 8);
+    bb.spars = [{ a: [0, boomY, mz - 0.05], b: [0, boomY - 0.05, mz - boomL], r0: day ? 0.045 : 0.075, r1: day ? 0.04 : 0.065 }]; // the boom swings with the mainsail (Boat.js)
     const sp = [[mTop * 0.45 + my0 * 0.55, day ? 0.6 : 1.1], [mTop * 0.72 + my0 * 0.28, day ? 0.4 : 0.75]]; for (const [y, w] of sp) bb.cyl(SURF.alu, '#cfd3d6', [w, y, mz], [-w, y, mz], 0.02, 0.02, 5, false);
     const chainS = (sd) => [sd * (H.hb(0.52) - 0.05), H.sheer(0.52), H.z(0.52)]; const W = 0.007;
     for (const sd of [1, -1]) { const cp = chainS(sd); bb.tube(SURF.steel, '#b9bec2', [cp, [sd * sp[0][1], sp[0][0], mz], [sd * sp[1][1], sp[1][0], mz], [0, mTop - 0.3, mz]], W, 3); bb.cyl(SURF.steel, '#b9bec2', cp, [0, sp[0][0], mz], W, W, 3, false); }
@@ -238,7 +238,7 @@ const LAYOUTS = {
     bb.cyl(SURF.alu, '#cfd3d6', [B / 2 - 0.6, 1.3, tz1], [-B / 2 + 0.6, 1.3, tz1], 0.09, 0.09, 8, false); bb.cyl(SURF.alu, '#cfd3d6', [0, 1.3, tz1], [0, 1.4, tz0], 0.07, 0.07, 6, false);
     // rig: mast on the coachroof, boom, shrouds to the hulls, forestay to the crossbeam, steaming + masthead lights
     const mz = H.z(0.56), my0 = by + 2.05, mTop = my0 + 17.5, boomY = my0 + 0.6, boomL = 5.0;
-    bb.cyl(SURF.alu, '#cfd3d6', [0, my0, mz], [0, mTop, mz], 0.12, 0.08, 10); bb.cyl(SURF.alu, '#cfd3d6', [0, boomY, mz - 0.05], [0, boomY, mz - boomL], 0.08, 0.07, 8);
+    bb.cyl(SURF.alu, '#cfd3d6', [0, my0, mz], [0, mTop, mz], 0.12, 0.08, 10); bb.spars = [{ a: [0, boomY, mz - 0.05], b: [0, boomY, mz - boomL], r0: 0.08, r1: 0.07 }];
     for (const sd of [1, -1]) bb.tube(SURF.steel, '#b9bec2', [[sd * off, 1.3, mz - 0.4], [sd * 1.0, my0 + 7, mz], [0, mTop - 0.4, mz]], 0.008, 3); bb.cyl(SURF.alu, '#cfd3d6', [1.05, my0 + 7, mz], [-1.05, my0 + 7, mz], 0.025, 0.025, 5, false);
     bb.cyl(SURF.steel, '#b9bec2', [0, 1.35, tz1], [0, mTop - 0.5, mz], 0.009, 0.009, 3, false);
     bb.box(SURF.paint, BLACK, 0, mTop + 0.05, mz + 0.06, 0.1, 0.08, 0.1); bb.cyl(SURF.lens, '#fff', [0, mTop + 0.09, mz + 0.06], [0, mTop + 0.17, mz + 0.06], 0.035, 0.035, 8); bb.light('tri', 0, mTop + 0.12, mz + 0.06); bb.light('anchor', 0, mTop + 0.22, mz + 0.06);
@@ -383,7 +383,7 @@ const LAYOUTS = {
     const fx = 3.4; for (const s of [0.36, 0.62]) { const z = H.z(s), y = H.sheer(s) + 0.3; bb.tube(SURF.paint, '#7b5a3c', [[-0.3, y, z], [0.5, y + 0.15, z], [fx * 0.6, y + 0.1, z], [fx, 0.25, z]], 0.05, 5); bb.cyl(SURF.paint, '#6a4c33', [fx, 0.25, z], [fx, 0.0, z], 0.04, 0.04, 5, false); }
     bb.cyl(SURF.paint, '#4a3626', [fx, 0.0, H.z(0.2)], [fx, 0.0, H.z(0.78)], 0.17, 0.17, 10); bb.cyl(SURF.paint, '#4a3626', [fx, 0.0, H.z(0.78)], [fx, 0.12, H.z(0.86)], 0.17, 0.05, 10); bb.cyl(SURF.paint, '#4a3626', [fx, 0.0, H.z(0.2)], [fx, 0.1, H.z(0.12)], 0.17, 0.05, 10);
     // mast + yard: a tall rectangular cotton sail
-    const mz = H.z(0.56), mTop = 6.8; bb.cyl(SURF.paint, '#6d5137', [0, 0.1, mz], [0, mTop, mz], 0.07, 0.05, 8); bb.cyl(SURF.paint, '#6d5137', [0, mTop - 0.2, mz + 1.9], [0, mTop - 0.45, mz - 1.9], 0.04, 0.04, 6, false); bb.cyl(SURF.paint, '#6d5137', [0, 0.95, mz + 1.6], [0, 0.85, mz - 1.8], 0.035, 0.035, 6, false);
+    const mz = H.z(0.56), mTop = 6.8; bb.cyl(SURF.paint, '#6d5137', [0, 0.1, mz], [0, mTop, mz], 0.07, 0.05, 8); bb.spars = [{ a: [0, mTop - 0.2, mz + 1.9], b: [0, mTop - 0.45, mz - 1.9], r0: 0.04, r1: 0.04, wood: true }, { a: [0, 0.95, mz + 1.6], b: [0, 0.85, mz - 1.8], r0: 0.035, r1: 0.035, wood: true }]; // yards turn with the sail
     bb.cyl(SURF.paint, '#c9b892', [0, mTop - 0.1, mz], [0, H.sheer(0.95) + 0.25, H.z(0.95)], 0.006, 0.006, 3, false); bb.cyl(SURF.paint, '#c9b892', [0, mTop - 0.1, mz], [fx * 0.8, 0.5, H.z(0.5)], 0.006, 0.006, 3, false);
     bb.light('allround', 0, mTop - 0.6, mz + 0.06); bb.box(SURF.lens, '#ffe7b0', 0, mTop - 0.6, mz + 0.08, 0.08, 0.12, 0.06); // a hurricane lamp hung on the mast
     const sails = [{ id: 'main', tack: [0, 0.95, mz + 1.6], head: [0, mTop - 0.22, mz + 1.85], headL: [0, mTop - 0.22, mz + 1.85], headR: [0, mTop - 0.45, mz - 1.85], clew: [0, 0.85, mz - 1.75], pivot: [0, 0, mz], roach: 0, square: true, col: '#e7dcc4' }];
@@ -469,8 +469,9 @@ const CACHE = new Map();
 export function boatModel(id) {
   let m = CACHE.get(id); if (m) return m; const d = BOATS[id]; if (!d) throw new Error('boat type: ' + id);
   const bb = new BoatBuilder(); const R = LAYOUTS[d.layout](d, bb); const H = R.H; const geo = bb.build();
+  let sparGeo = null; if (bb.spars && R.sails) { const sb = new BoatBuilder(); const pv = R.sails[0].pivot; for (const sp of bb.spars) { const a = [sp.a[0] - pv[0], sp.a[1] - pv[1], sp.a[2] - pv[2]], b = [sp.b[0] - pv[0], sp.b[1] - pv[1], sp.b[2] - pv[2]]; sb.cyl(sp.wood ? SURF.paint : SURF.alu, sp.wood ? '#6d5137' : '#cfd3d6', a, b, sp.r0, sp.r1, 8); } sparGeo = sb.build(); } // in the main sail's pivot frame
   const bbx = geo.boundingBox; const len = d.len, beam = d.beam;
-  m = { id, def: d, geo, H, seat: R.seat, crew: R.crew || [], lights: bb.lights, boxes: bb.boxes, sails: R.sails || [], mast: R.mast || null, engines: R.engines || [], deckY: R.deckY, board: R.board,
+  m = { id, def: d, geo, sparGeo, H, seat: R.seat, crew: R.crew || [], lights: bb.lights, boxes: bb.boxes, sails: R.sails || [], mast: R.mast || null, engines: R.engines || [], deckY: R.deckY, board: R.board,
     len, beam, halfBeam: R.halfBeam || beam / 2, draft: -bbx.min.y, height: bbx.max.y, bow: [0, H.sheer(1), H.z(1)], stern: [0, H.sheer(0), H.z(0)], cat: !!R.cat, ski: !!R.ski, police: !!R.police,
     tris: (geo.index ? geo.index.count : geo.attributes.position.count) / 3 };
   CACHE.set(id, m); return m;
