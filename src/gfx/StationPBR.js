@@ -64,8 +64,8 @@ function paintLayers() {
 
   // 0 plaster: lime-washed render — soft blotches, brush marks, fine grit, hairline cracks, dirt streaks running down
   layers.push(make(({ A, H, R, O }) => { for (let i = 0; i < N * N; i++) { const x = i % N, y = (i / N) | 0; const crack = sm(0.012, 0.0, Math.abs(F2[i] - 0.5)) * sm(0.55, 0.75, F1[i]); const streak = sm(0.55, 0.8, at(S2, x, y)) * 0.6;
-    const v = 0.955 + 0.06 * (F1[i] - 0.5) + 0.05 * (F3[i] - 0.5) - 0.07 * streak - 0.22 * crack - 0.04 * sm(0.6, 0.9, F4[i]); set(A, i, v * 1.0, v * 0.99, v * 0.965);
-    H[i] = 0.5 + 0.35 * (F3[i] - 0.5) + 0.2 * (F2[i] - 0.5) - 0.5 * crack; R[i] = 0.9 + 0.08 * (F3[i] - 0.5); O[i] = 1 - 0.5 * crack; } }));
+    const v = 0.955 + 0.06 * (F1[i] - 0.5) + 0.05 * (F3[i] - 0.5) - 0.025 * streak - 0.22 * crack - 0.04 * sm(0.6, 0.9, F4[i]); set(A, i, v * 1.0, v * 0.99, v * 0.965);
+    H[i] = 0.5 + 0.07 * (F3[i] - 0.5) + 0.09 * (F2[i] - 0.5) + 0.12 * (F1[i] - 0.5) - 0.25 * crack; /* 55th: smooth painted render with a soft undulation — the old grit read as rough stucco */ R[i] = 0.9 + 0.08 * (F3[i] - 0.5); O[i] = 1 - 0.5 * crack; } }));
   // 1 paint: eggshell wall / board paint — faint roller texture, scuffs
   layers.push(make(({ A, H, R }) => { for (let i = 0; i < N * N; i++) { const scuff = sm(0.7, 0.85, F4[i]) * 0.5; const v = 0.98 + 0.03 * (F1[i] - 0.5) + 0.02 * (F3[i] - 0.5) - 0.05 * scuff; set(A, i, v, v, v * 0.99); H[i] = 0.5 + 0.25 * (F3[i] - 0.5); R[i] = 0.55 + 0.12 * (F1[i] - 0.5) + 0.15 * scuff; } }));
   // 2 iron: gloss-painted cast iron, layers of old paint, chips to rust at the edges, rust bleeding

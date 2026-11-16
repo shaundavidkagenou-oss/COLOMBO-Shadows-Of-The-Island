@@ -257,6 +257,33 @@ export class Trains {
     if (t0 > t1 || t1 < 0.3 || t0 > sd.len) return 0;
     const t = Math.max(0.3, t0); return Math.asin(Math.min(0.999, (top - sd.py) / t));
   }
+  // 55th: the station's departure / arrival screens are fed from here. Projects every running train forward along the line
+  // (the same speed limits, acceleration, braking and dwell times the trains really use, reversing at the termini) and
+  // returns its next n calls at the named station: { t: s until arrival (< 0 = arrived t s ago), dep: s until departure,
+  // dir, from, to, train, here (standing at the platform now), late (held by something on the track) }.
+  forecast(name, n = 4) {
+    const S = R.STOPS, target = S.find((st) => st.name === name), out = []; if (!target) return out;
+    const term = (st) => st === S[0] || st === S[S.length - 1];
+    const nextFrom = (c, dir) => { if (dir > 0) return S.find((st) => st.s > c + 1) || S[S.length - 1]; for (let i = S.length - 1; i >= 0; i--) if (S[i].s < c - 1) return S[i]; return S[0]; };
+    const leg = (a, b, v0) => { const d = Math.abs(b - a), sg = Math.sign(b - a) || 1; let t = 0;
+      for (let x = 0; x < d; x += STEP) { const ss = a + sg * x; const v = Math.max(0.6, Math.min(speedLimitAt(ss), Math.sqrt(v0 * v0 + 2 * ACC * x), Math.sqrt(2 * BRAKE * Math.max(0, d - x)) + 0.6)); t += Math.min(STEP, d - x) / v; }
+      return t; };
+    const ends = (dir) => (dir > 0 ? [S[0], S[S.length - 1]] : [S[S.length - 1], S[0]]);
+    for (const tr of this.trains) {
+      let c = tr.centre, dir = tr.dir, v = tr.speed, t = 0, next = tr.nextStop, k = 0; const late = tr.state !== 'dwell' && (tr.emergency || tr.obstacleDist < 140);
+      if (tr.state === 'dwell') {
+        const near = Math.abs(next.s - c) < 3, dw = term(next) ? DWELL + 15 : DWELL;
+        if (near && next === target) { const [from, to] = ends(dir); out.push({ t: -(dw - tr.dwell), dep: Math.max(0, tr.dwell), dir, from, to, train: tr, here: true, late: false }); k++; }
+        t = Math.max(0, tr.dwell); v = 0; if (near && term(next)) dir = next === S[0] ? 1 : -1; next = nextFrom(c, dir);
+      }
+      for (let guard = 0; k < n && guard < 60; guard++) {
+        t += leg(c, next.s, v); v = 0; c = next.s; const dw = term(next) ? DWELL + 15 : DWELL;
+        if (next === target) { const [from, to] = ends(dir); out.push({ t, dep: t + dw, dir, from, to, train: tr, here: false, late: late && k === 0 }); k++; }
+        t += dw; if (term(next)) dir = next === S[0] ? 1 : -1; next = nextFrom(c, dir);
+      }
+    }
+    return out.sort((a, b) => a.t - b.t).slice(0, n);
+  }
   update(dt, { focus, night = 0, player = null, playerVehicle = null, vehicles = [], listener = null } = {}) {
     this.night = night; { const k = 0.54 + night * 0.62, L = this.mats.trainLamp.color; if (Math.abs(L.r - k) > 0.01) L.setRGB(k, k * 0.985, k * 0.94); } // the saloon tubes: grey by day, lit after dark
     const obstacles = [playerVehicle || player, ...vehicles.filter((v) => !v.isTrain && (v.speed || 0) < 1.5), ...(this.trains.length > 1 ? this.bodies : [])];

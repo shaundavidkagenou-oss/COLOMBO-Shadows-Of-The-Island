@@ -403,7 +403,7 @@ export class Weapons {
       if (P.ch && P.ch.anim.shotKick) P.ch.anim.shotKick(cls, st); this.spr.pv.z -= (cls === 'pistol' ? 0.55 : cls === 'sniper' ? 1.1 : 0.7) * st; this.spr.pv.y += 0.12 * st; this.spr.rv.x -= (cls === 'pistol' ? 9 : cls === 'sniper' ? 7 : 4.5) * st; this.spr.rv.y += (Math.random() * 2 - 1) * 1.6 * st; this.spr.rv.z += (Math.random() * 2 - 1) * 1.2 * st;
       this.trigT = 0.07; if (this.inv[this.cur].mag <= 1 && cls !== 'sniper') this.slideLock = true; } P.shake = Math.max(P.shake || 0, def.cls === 'sniper' ? 0.25 : 0.08);
     this.gunSound(def, P.x, P.z, true); this.flash(mz, dir, def); if (!def.cycle) this.ejectShell();
-    const fin = this.applyHit(hit, hdir, horg, def, 1, 0); this.tracer(mz, fin.point, def);
+    const fin = this.applyHit(hit, hdir, horg, def, 1, 0); this.tracer(mz, fin.point, def); { const fs = this.g.world && this.g.world.landmarks && this.g.world.landmarks.anim.fortStation; if (fs && fs.shot && Math.abs(mz.x + 35) < 140 && Math.abs(mz.z + 625) < 80) fs.shot(mz, fin.point); } // hanging station signs swing when hit
     this.shotAlarm -= 1; if (this.shotAlarm <= 0) { this.shotAlarm = 3; this.g.crowd.alarm(P.x, P.z, def.loud, 2, null, 'gunshot', true); }
     this.g.crowd.alarm(hit.point.x, hit.point.z, 10, 2, null, 'gunshot', true);
     this.g.birds?.scare(P.x, P.z, 50); // every bird nearby goes up at a gunshot

@@ -132,6 +132,19 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   const up = (b, x0, x1, z0, z1, y, col) => b.quad([x0, y, z1], [x1, y, z1], [x1, y, z0], [x0, y, z0], [x0 / 3, z0 / 3, x1 / 3, z1 / 3], cc(col)); // upward rectangle
   const down = (b, x0, x1, z0, z1, y, col) => b.quad([x0, y, z0], [x1, y, z0], [x1, y, z1], [x0, y, z1], [0, 0, 1, 1], cc(col)); // downward (ceilings)
   const sb = new MultiBuilder(); const SA = sb.get('sA'), SBd = sb.get('sB'), SC = sb.get('sC'), SD = sb.get('sD');
+  // 55th: LCD departure / arrival screens — a 16:8 panel in a slim black bezel behind a glass cover, hung on two rods; the
+  // picture is one live canvas (top half departures, bottom half arrivals) redrawn from the running trains (anim.live)
+  const LB = new MultiBuilder().get('lcd');
+  const lcdScreen = (x, y, z, f, k, hang) => { const n = FACE_N[f], W = 1.9, H = 0.95, hw = W / 2 + 0.06, hh = H / 2 + 0.06;
+    const bx = n[0] ? [x - n[0] * 0.1, x] : [x - hw, x + hw], bz = n[2] ? [z - n[2] * 0.1, z] : [z - hw, z + hw];
+    B(paint, Math.min(...bx), Math.max(...bx), y - hh, y + hh, Math.min(...bz), Math.max(...bz), '#141516'); // bezel + back box
+    B(paint, Math.min(...bx) + (n[0] ? 0 : 0.6), Math.max(...bx) - (n[0] ? 0 : 0.6), y - hh - 0.035, y - hh, Math.min(...bz) + (n[2] ? 0 : 0.6), Math.max(...bz) - (n[2] ? 0 : 0.6), '#202224'); // chin with the status LED
+    B(emis, x + n[0] * 0.002 - (n[0] ? 0.004 : -0.75), x + n[0] * 0.002 + (n[0] ? 0.004 : 0.77), y - hh - 0.022, y - hh - 0.012, z + n[2] * 0.002 - (n[2] ? 0.004 : -0.75), z + n[2] * 0.002 + (n[2] ? 0.004 : 0.77), [0.1, 0.9, 0.3]);
+    signQuad(LB, x + n[0] * 0.004, y, z + n[2] * 0.004, W, H, f, k ? [0, 0, 1, 0.5] : [0, 0.5, 1, 1]);
+    signQuad(glass, x + n[0] * 0.012, y, z + n[2] * 0.012, W + 0.04, H + 0.04, f, [0, 0, 1, 1]); // cover glass: catches the lamps
+    if (hang) for (const e of [-0.65, 0.65]) { const hx = x + (n[0] ? -n[0] * 0.05 : e), hz = z + (n[2] ? -n[2] * 0.05 : e); metal.cylinder(hx, y + hh, hz, 0.012, 0.012, Math.max(0.1, hang - y - hh), 6, { col: cc('#8a8d8f') }); B(metal, hx - 0.04, hx + 0.04, y + hh, y + hh + 0.03, hz - 0.04, hz + 0.04, '#5a5d5f'); }
+    lcdSpots.push({ x, y, z, f, k }); };
+  const lcdSpots = [], hangSigns = [];
   const clocks = []; // {x, y, z, face, r}
   const anim = { clocks, ledMeshes: [] };
   // a round station clock (55th): case behind the dial plane, a moulded / brass rim proud of it, the round enamel dial
@@ -158,12 +171,15 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   for (const h of stairs) { for (let k = 0; k < NSTEP; k++) { const z0 = h.z0 + k * STEP_T, top = Y + STEP_R * (k + 1); B(stone, h.x0, h.x1, Y - 0.05, top, z0, h.z1, k % 2 ? '#b7b2a6' : '#b1aca0'); B(paint, h.x0, h.x1, top - 0.03, top + 0.002, z0, z0 + 0.05, '#6e6a62'); surf(h.x0, h.x1, z0, h.z1, top, 'deck'); }
     for (const xe of [h.x0 + 0.06, h.x1 - 0.06]) { if (h.z1 <= ZF0 + 0.45) continue; const za = ZF0 + 0.45; for (const zz of [za, h.z1]) metal.cylinder(xe, FL, zz, 0.025, 0.025, 1.0, 8, { col: cc(STEEL) }); rod(metal, xe, FL + 0.98, za, xe, FL + 0.98, h.z1, 0.02, cc(STEEL)); rod(metal, xe, FL + 0.5, za, xe, FL + 0.5, h.z1, 0.015, cc(STEEL)); coll(xe - 0.04, xe + 0.04, za, h.z1, FL + 1.0); } } // well-side handrails in the hall
   B(paint, F.bld.x0 - 0.02, F.bld.x1 + 0.02, Y, FL - 0.02, F.bld.z0 - 0.03, F.bld.z0, PLINTH, { top: false });
+  // the masonry above a round arch in a wall along x: centre cx, springing line sy, radius r, up to `top`, between z0 and z1
+  const archFill = (b, cx, sy, r, top, z0, z1, col) => { const sh = new THREE.Shape(); sh.moveTo(-r, 0); sh.lineTo(-r, top - sy); sh.lineTo(r, top - sy); sh.lineTo(r, 0); for (let k = 1; k < 24; k++) { const a = (k / 24) * Math.PI; sh.lineTo(Math.cos(a) * r, Math.sin(a) * r); } sh.lineTo(-r, 0);
+    const g = new THREE.ExtrudeGeometry(sh, { depth: z1 - z0, bevelEnabled: false, curveSegments: 1 }); b.geometry(g, new THREE.Matrix4().makeTranslation(cx, sy, z0), typeof col === 'string' ? cc(col) : col); g.dispose(); };
   // a wall along x (face planes z0 / z1) with openings [x0, x1, top, arch?]: solid piers full height, lintels / arch spandrels
   const wallX = (z0, z1, xa, xb, holes, col, o = {}) => {
     const hs = holes.filter((h) => h[1] > xa && h[0] < xb).sort((p, q) => p[0] - q[0]); let x = xa;
     for (const h of hs) { if (h[0] > x) { B(wallM, x, h[0], FL, TOP, z0, z1, col); if (!o.noColl) coll(x, h[0], z0, z1, TOP); } x = Math.max(x, h[1]);
       const [h0, h1, ht, arch, sill] = h; if (sill) B(wallM, h0, h1, FL, sill, z0, z1, col);
-      if (arch) { const r = (h1 - h0) / 2, n = 14; for (let k = 0; k < n; k++) { const xa2 = h0 + (k / n) * (h1 - h0), xb2 = h0 + ((k + 1) / n) * (h1 - h0), u = ((xa2 + xb2) / 2 - (h0 + r)) / r; const ya = ht - r + Math.sqrt(Math.max(0, 1 - u * u)) * r; B(wallM, xa2, xb2, ya, TOP, z0, z1, col); } }
+      if (arch) { const r = (h1 - h0) / 2; archFill(wallM, h0 + r, ht - r, r, TOP, z0, z1, col); } // 55th: a true semicircular arch (it was 14 stepped boxes)
       else B(wallM, h0, h1, ht, TOP, z0, z1, col);
       if (o.noColl !== true && sill && o.sillColl) coll(h0, h1, z0, z1, TOP); }
     if (xb > x) { B(wallM, x, xb, FL, TOP, z0, z1, col); if (!o.noColl) coll(x, xb, z0, z1, TOP); }
@@ -258,13 +274,14 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   // round-arched entrance pavilion (reservations office): pilasters, entablature, urn finials, archivolt
   { const cx = F.res.portalX, xa = cx - 3.6, xb = cx + 3.6, zf = PZ, ht = Y + 9.2, r = 1.6, spring = FL + 2.6;
     B(wallM, xa, cx - r, FL, ht, zf, ZF, W); B(wallM, cx + r, xb, FL, ht, zf, ZF, W); coll(xa, cx - r, zf, ZF, ht); coll(cx + r, xb, zf, ZF, ht); B(stone, xa, cx - r, Y, FL, zf, ZF, '#8e8a80'); B(stone, cx + r, xb, Y, FL, zf, ZF, '#8e8a80');
-    const n = 14; for (let k = 0; k < n; k++) { const xa2 = cx - r + (2 * r * k) / n, xb2 = cx - r + (2 * r * (k + 1)) / n, u = ((xa2 + xb2) / 2 - cx) / r; B(wallM, xa2, xb2, spring + Math.sqrt(Math.max(0, 1 - u * u)) * r, ht, zf, ZF, W); }
+    { const sh = new THREE.Shape(); sh.moveTo(-r, 0); sh.lineTo(-r, ht - spring); sh.lineTo(r, ht - spring); sh.lineTo(r, 0); for (let k = 1; k < 24; k++) { const a = (k / 24) * Math.PI; sh.lineTo(Math.cos(a) * r, Math.sin(a) * r); } sh.lineTo(-r, 0); // 55th: a true round arch (it was 14 stepped boxes)
+      const g = new THREE.ExtrudeGeometry(sh, { depth: ZF - zf, bevelEnabled: false, curveSegments: 1 }); wallM.geometry(g, new THREE.Matrix4().makeTranslation(cx, spring, zf), cc(W)); g.dispose(); }
     for (let k = 0; k < 12; k++) { const a0 = Math.PI - (k / 12) * Math.PI, a1 = Math.PI - ((k + 1) / 12) * Math.PI; beam(wallM, cx + Math.cos(a0) * (r + 0.12), spring + Math.sin(a0) * (r + 0.12), zf - 0.06, cx + Math.cos(a1) * (r + 0.12), spring + Math.sin(a1) * (r + 0.12), zf - 0.06, 0.26, 0.12, cc('#e6dfcc')); } // archivolt
     B(wallM, cx - 0.2, cx + 0.2, spring + r - 0.1, spring + r + 0.45, zf - 0.14, zf, '#e3dccb');
     for (const px of [xa + 0.4, cx - r - 0.55, cx + r + 0.55, xb - 0.4]) { B(wallM, px - 0.3, px + 0.3, FL, ht - 0.8, zf - 0.16, zf, '#f7f4ec'); B(wallM, px - 0.4, px + 0.4, ht - 1.05, ht - 0.8, zf - 0.26, zf, '#ebe5d4'); }
     B(wallM, xa - 0.3, xb + 0.3, ht - 0.8, ht, zf - 0.42, ZF, '#efe9da'); B(wallM, xa, xb, ht, ht + 0.5, zf, ZF, '#f2eee3');
     for (const px of [xa + 0.4, xb - 0.4]) { B(wallM, px - 0.32, px + 0.32, ht + 0.5, ht + 0.9, zf + 0.1, zf + 0.74, '#ede7d8'); wallM.cylinder(px, ht + 0.9, zf + 0.42, 0.12, 0.3, 0.3, 12, { col: cc('#e9e2d1') }); wallM.cylinder(px, ht + 1.2, zf + 0.42, 0.3, 0.2, 0.32, 12, { col: cc('#e9e2d1') }); wallM.cylinder(px, ht + 1.52, zf + 0.42, 0.1, 0.02, 0.22, 8, { col: cc('#e9e2d1') }); } // urn finials
-    signQuad(SC, cx, FL + 5.0, zf - 0.02, 3.4, 1.7, '-z', T.intercity);
+    signQuad(SC, cx, FL + 5.55, zf - 0.02, 3.2, 1.6, '-z', T.intercity); // above the keystone, clear of the archivolt
   }
   // side entrances: signs over the doors (their steps are inside, see the stair wells above)
   for (const e of F.entrances) { if (e.main) continue; signQuad(SD, e.x, FL + 3.55, ZF - 0.03, 2.9, 0.72, '-z', T.sign(2)); }
@@ -315,12 +332,15 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   // kiosks: food & drinks (glass display, shelves of packets), books & newspapers
   const kiosk = (x0, x1, z0, z1, sign) => { B(paint, x0, x1, FL, FL + 1.0, z0, z1, '#7a2a1c'); B(glass, x0 + 0.05, x1 - 0.05, FL + 1.0, FL + 1.45, z0 - 0.01, z0 + 0.5, '#9fb8c0'); B(paint, x0, x1, FL + 2.5, FL + 2.62, z0 - 0.3, z1, '#f2f0e8');
     for (const xx of [x0, x1]) B(metal, xx - 0.03, xx + 0.03, FL + 1.0, FL + 2.5, z0, z0 + 0.06, STEEL); for (let r = 0; r < 3; r++) { B(paint, x0 + 0.1, x1 - 0.1, FL + 1.25 + r * 0.38, FL + 1.28 + r * 0.38, z1 - 0.45, z1 - 0.05, '#c8b89a'); for (let k = 0; k < 9; k++) B(paint, x0 + 0.15 + k * (x1 - x0 - 0.3) / 9, x0 + 0.15 + (k + 0.7) * (x1 - x0 - 0.3) / 9, FL + 1.28 + r * 0.38, FL + 1.5 + r * 0.38, z1 - 0.35, z1 - 0.12, ['#e0b030', '#c02020', '#2060b0', '#20a050', '#f0f0e0'][(k + r) % 5]); }
-    signQuad(SD, (x0 + x1) / 2, FL + 2.85, z0 - 0.32, Math.min(2.4, x1 - x0 + 0.3), 0.6, '-z', T.sign(sign)); coll(x0, x1, z0, z1, FL + 2.6); };
+    { const w = Math.min(2.4, x1 - x0 + 0.3), cx = (x0 + x1) / 2, sy = FL + 2.98; // 55th: the name board stands ON the kiosk roof in a channel frame with two back struts (it used to float in front of the roof edge)
+      B(paint, cx - w / 2 - 0.03, cx + w / 2 + 0.03, FL + 2.62, sy + 0.33, z0 - 0.27, z0 - 0.22, '#2a2a2a'); signQuad(SD, cx, sy, z0 - 0.272, w, 0.6, '-z', T.sign(sign));
+      for (const e of [-w / 2 + 0.2, w / 2 - 0.2]) { beam(metal, cx + e, sy + 0.15, z0 - 0.22, cx + e, FL + 2.62, z0 + 0.35, 0.03, 0.03, cc('#555')); B(metal, cx + e - 0.04, cx + e + 0.04, FL + 2.62, FL + 2.64, z0 + 0.3, z0 + 0.42, '#555'); } }
+    coll(x0, x1, z0, z1, FL + 2.6); };
   kiosk(-14.5, -11.2, -636.2, -632.2, 0); kiosk(-14.5, -11.2, -648.6, -645.6, 1);
   // ceiling fans + tube lights, hanging LCD screens, the hall clock, the red LED clock on the counter wall, wayfinding
   for (const x of [-52, -35, -18]) for (const z of [-645, -636]) { metal.cylinder(x, F.hall.ceil - 0.6, z, 0.015, 0.015, 0.6, 6, { col: cc('#ddd') }); paint.cylinder(x, F.hall.ceil - 0.72, z, 0.13, 0.13, 0.14, 10, { col: cc('#e8e8e0') }); for (let k = 0; k < 3; k++) { const a = k * 2.094 + x; ebox(paint, x + Math.cos(a) * 0.45, F.hall.ceil - 0.68, z + Math.sin(a) * 0.45, 0.72, 0.012, 0.13, 0, -a, 0, cc('#e9e7df')); } }
   for (let x = -57; x < -12; x += 5) for (const z of [-648, -641, -633]) { B(emis, x - 0.6, x + 0.6, F.hall.ceil - 0.05, F.hall.ceil - 0.01, z - 0.03, z + 0.03, [1, 0.98, 0.92]); if ((x + z) % 2 === 0) lightPool(x, z, FL + 0.012, 4); }
-  for (const [x, z, f, k] of [[-35, -636.8, '-z', 0], [-35, -637.0, '+z', 1], [-40, -645.5, '+x', 0]]) { const n = FACE_N[f]; B(paint, x - (n[0] ? 0.05 : 1.15), x + (n[0] ? 0.05 : 1.15), FL + 3.55, FL + 4.25, z - (n[2] ? 0.05 : 1.15), z + (n[2] ? 0.05 : 1.15), '#111'); signQuad(SD, x + n[0] * 0.052, FL + 3.9, z + n[2] * 0.052, 2.2, 0.55, f, T.lcd(k)); for (const e of [-0.9, 0.9]) metal.cylinder(x + (n[0] ? 0 : e), FL + 4.25, z + (n[2] ? 0 : e), 0.012, 0.012, F.hall.ceil - FL - 4.25, 4, { col: cc('#888') }); }
+  lcdScreen(-35, FL + 3.9, -637.0, '-z', 0, F.hall.ceil); lcdScreen(-35, FL + 3.9, -636.8, '+z', 1, F.hall.ceil); lcdScreen(-40, FL + 3.9, -645.5, '+x', 0, F.hall.ceil); // live departure / arrival screens (section 8)
   clockFace(-10.29, FL + 4.2, -637, '-x', 0.42, { depth: 0.09 });
   for (const x of F.backArches) signQuad(SD, x, FL + 3.25, ZB - 0.43, 2.4, 0.6, '+z', T.sign(2)); signQuad(SD, -35, FL + 3.25, ZF + 0.43, 2.4, 0.6, '+z', T.sign(3));
   signQuad(SD, -10.23, FL + 2.95, F.res.door.z, 2.0, 0.5, '-x', T.sign(7));
@@ -415,10 +435,11 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   corr.quad([S.x0 - 0.6, TOP - 0.2, S.zA - 0.3], [S.x1 + 0.6, TOP - 0.2, S.zA - 0.3], [S.x1 + 0.6, EAV + 0.25, S.zA - 0.3], [S.x0 - 0.6, EAV + 0.25, S.zA - 0.3], [0, 0, 50, 1], [0.76, 0.77, 0.76]);
   B(stone, S.x0 - 6, S.x1 + 6, Y, Y + 2.4, S.zB + 0.6, S.zB + 0.85, '#a8846a'); coll(S.x0 - 6, S.x1 + 6, S.zB + 0.6, S.zB + 0.85, Y + 2.4); // boundary wall beyond the outer siding
   // platform signs (red numerals), LCD boards, clocks, PA horn speakers
-  for (let k = 1; k < S.frames; k += 2) { const x = S.x0 + 2 + k * S.dx + 1.0;
-    for (const [z, nums] of [[-621.5, [0]], [-606, [1, 2]], [-594, [3, 4]]]) { const y = FL + 3.7; metal.cylinder(x, y + 0.4, z, 0.01, 0.01, arcY(z, z < S.zM ? S.zA : S.zM, z < S.zM ? S.zM : S.zB, S.rise - 1.0) - y - 0.4, 4, { col: cc('#555') });
-      paint.box(x, y, z, 0.04, 0.82, 0.82, { col: cc('#fff') }); signQuad(SC, x + 0.025, y, z, 0.78, 0.78, '+x', T.num(nums[0])); signQuad(SC, x - 0.025, y, z, 0.78, 0.78, '-x', T.num(nums[nums.length - 1])); } }
-  for (const [x, z, f, k] of [[-44, -623.5, '+x', 0], [-44, -623.5, '-x', 1], [8, -606.8, '+x', 0], [8, -606.8, '-x', 1]]) { const n = FACE_N[f]; B(paint, x - 0.06, x + 0.06, FL + 3.45, FL + 4.15, z - 1.15, z + 1.15, '#111'); signQuad(SD, x + n[0] * 0.065, FL + 3.8, z, 2.2, 0.55, f, T.lcd(k)); }
+  // 55th: the platform-number signs hang from the truss's bottom chord on two rods with clamps and eye bolts, in a steel
+  // frame; they live in their own mesh (section 8) so they can sway — a slow breeze, and a real swing when a bullet hits
+  for (let k = 1; k < S.frames; k += 2) { const x = S.x0 + 2 + k * S.dx;
+    for (const [z, nums] of [[-621.5, [0]], [-606, [1, 2]], [-594, [3, 4]]]) hangSigns.push({ x, y: FL + 3.7, z, top: arcY(z, z < S.zM ? S.zA : S.zM, z < S.zM ? S.zM : S.zB, S.rise - 1.0), a: nums[0], b: nums[nums.length - 1] }); }
+  for (const [x, z, f, k] of [[-43.9, -623.5, '+x', 0], [-44.1, -623.5, '-x', 1], [8.1, -606.8, '+x', 0], [7.9, -606.8, '-x', 1]]) lcdScreen(x, FL + 3.8, z, f, k, arcY(z, z < S.zM ? S.zA : S.zM, z < S.zM ? S.zM : S.zB, S.rise - 1.0));
   clockFace(-27.5, FL + 4.6, ZB + 0.1, '+z', 0.5, { depth: 0.1 });
   { // the island platform's double-faced clock: a drum on a cast-iron bracket arm off the column (55th: it used to sit
     // inside the column), dials facing both ways along the platform
@@ -459,6 +480,29 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   const smats = { sA: mk(at.a), sB: mk(at.b), sC: mk(at.c), sD: mk(at.d, true) }; anim.signMats = smats; for (const k in smats) patchInterior(smats[k]);
   for (const k of ['corrugated', 'roofTiles', 'winGlass', 'glass']) if (MAT[k] && !MAT[k].userData.interior) { patchInterior(MAT[k]); MAT[k].userData.interior = true; } // the shed roof's underside, the glazing: dim under the roofs too
   for (const m of sb.toMeshes(smats, { cast: false, receive: true })) { m.name = 'fort-' + m.name; group.add(m); }
+  { // swinging signs: one mesh, one draw call — every vertex carries its sign's pivot + index, the vertex shader turns it
+    const HB = new MultiBuilder().get('hang'), WU = [773 / 1024, 1 - 7 / 256]; const swv = []; const sw = [];
+    const flat = (v0) => { for (let v = v0; v < HB.vcount; v++) { HB.uv[v * 2] = WU[0]; HB.uv[v * 2 + 1] = WU[1]; } };
+    hangSigns.forEach((h, i) => { const v0 = HB.vcount, ty = h.y + 0.43, dark = cc('#2a2c2e');
+      for (const e of [-0.3, 0.3]) { HB.cylinder(h.x, ty + 0.03, h.z + e, 0.009, 0.009, h.top - ty - 0.06, 5, { col: dark, caps: false }); HB.box(h.x, h.top - 0.03, h.z + e, 0.12, 0.06, 0.08, { col: dark }); HB.box(h.x, ty + 0.02, h.z + e, 0.03, 0.05, 0.05, { col: dark }); } // rods, chord clamps, eye bolts
+      HB.box(h.x, h.y, h.z, 0.05, 0.86, 0.86, { col: cc('#3a3d40') }); HB.box(h.x, h.y, h.z, 0.056, 0.8, 0.8, { col: cc('#f4f4f0') }); flat(v0); // frame + enamel board
+      signQuad(HB, h.x + 0.029, h.y, h.z, 0.78, 0.78, '+x', T.num(h.a)); signQuad(HB, h.x - 0.029, h.y, h.z, 0.78, 0.78, '-x', T.num(h.b));
+      for (let v = v0; v < HB.vcount; v++) swv.push(h.x, h.top, h.z, i); sw.push({ x: h.x, y: h.y, z: h.z, L: h.top - h.y, ax: 0, az: 0, vx: 0, vz: 0, ph: i * 1.7 + h.x * 0.13 }); });
+    const g = HB.build(); if (g) { g.setAttribute('swing', new THREE.Float32BufferAttribute(swv, 4));
+      const U = { uSw: { value: sw.map(() => new THREE.Vector2()) } };
+      const mat = new THREE.MeshStandardMaterial({ map: smats.sC.map, vertexColors: true, roughness: 0.55, metalness: 0.0 });
+      mat.onBeforeCompile = (sh) => { Object.assign(sh.uniforms, U);
+        sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>\nattribute vec4 swing;\nuniform vec2 uSw[${sw.length}];\nvec3 swRot(vec3 d, vec2 a) { float cx = cos(a.x), sx = sin(a.x), cz = cos(a.y), sz = sin(a.y); d = vec3(d.x * cz - d.y * sz, d.x * sz + d.y * cz, d.z); return vec3(d.x, d.y * cx - d.z * sx, d.y * sx + d.z * cx); }`)
+          .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\nobjectNormal = swRot(objectNormal, uSw[int(swing.w + 0.5)]);')
+          .replace('#include <begin_vertex>', '#include <begin_vertex>\ntransformed = swing.xyz + swRot(transformed - swing.xyz, uSw[int(swing.w + 0.5)]);'); };
+      mat.customProgramCacheKey = () => 'fort-swing-' + sw.length; patchInterior(mat);
+      const m = new THREE.Mesh(g, mat); m.name = 'fort-hang-signs'; m.frustumCulled = false; m.matrixAutoUpdate = false; m.updateMatrix(); group.add(m);
+      anim.swing = { list: sw, U, last: 0, t: 0 }; } }
+  // a bullet path (a → b) passing a sign kicks it: angular velocity from the bullet's direction, more when it hits low
+  anim.shot = (a, b) => { const S2 = anim.swing; if (!S2) return false; const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z, L2 = dx * dx + dy * dy + dz * dz || 1; let hitAny = false;
+    for (const s of S2.list) { const t = Math.max(0, Math.min(1, ((s.x - a.x) * dx + (s.y - a.y) * dy + (s.z - a.z) * dz) / L2)); const px = a.x + dx * t - s.x, py = a.y + dy * t - s.y, pz = a.z + dz * t - s.z;
+      if (px * px + py * py + pz * pz > 0.45 * 0.45) continue; const l = Math.sqrt(L2), k = 1.6 * (1 + (s.y - (a.y + dy * t)) / 0.8 * 0.4); s.vz += (dx / l) * k; s.vx -= (dz / l) * k * 0.35; hitAny = true; }
+    return hitAny; };
   { const g = mergeLayered(lmb); const m = new THREE.Mesh(g, stationMaterial()); m.name = 'fort-pbr'; m.castShadow = true; m.receiveShadow = true; m.matrixAutoUpdate = false; m.updateMatrix(); group.add(m); anim.pbr = m; }
   // covered spaces: sky visibility falls off inside the halls / under the shed, the tubes and pendant lamps light them
   { const S = F.shed, hc = F.hall.ceil;
@@ -477,6 +521,13 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
     for (const s of anim.ledSpots) { const n = FACE_N[s.face]; const box = new THREE.Mesh(new THREE.BoxGeometry(n[0] ? 0.08 : s.w + 0.1, s.h + 0.1, n[2] ? 0.08 : s.w + 0.1), new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.6 })); box.position.set(s.x - n[0] * 0.04, s.y, s.z - n[2] * 0.04); group.add(box);
       const p = new THREE.Mesh(new THREE.PlaneGeometry(s.w, s.h), mat); p.position.set(s.x + n[0] * 0.002, s.y, s.z + n[2] * 0.002); p.rotation.y = Math.atan2(n[0], n[2]); group.add(p); anim.ledMeshes.push(p); } }
 
+  { const c = document.createElement('canvas'); c.width = 512; c.height = 512; const t = tex(c); t.anisotropy = 8; t.generateMipmaps = true;
+    const mat = new THREE.MeshBasicMaterial({ map: t, color: 0xdedede, toneMapped: false }); const g = LB.build(); if (g) { const m = new THREE.Mesh(g, mat); m.name = 'fort-lcd'; m.matrixAutoUpdate = false; m.updateMatrix(); group.add(m); }
+    anim.lcd = { c, x: c.getContext('2d'), t, last: -1e9, tick: 0 }; drawBoards(anim.lcd, [], 12, 0); }
+  // anim.live(trains, hour, gameMinutesPerSecond, px, pz): redraws the screens twice a second while the player is near the station
+  anim.live = (trains, hour, mps, px, pz) => { const L = anim.lcd; if (!L || !trains || !trains.forecast) return; const now = performance.now(); if (now - L.last < 500) return;
+    if (px !== undefined && Math.hypot(px - (X0 + X1) / 2, pz - (ZF + F.shed.zB) / 2) > 320) return; L.last = now; L.tick++;
+    drawBoards(L, trains.forecast(FORT.stopName || 'Colombo Fort', 4), hour, mps); };
   const _m = new THREE.Matrix4(), _x = new THREE.Vector3(), _y = new THREE.Vector3(), _z = new THREE.Vector3();
   anim.update = (hour, night) => {
     const h = ((hour % 24) + 24) % 24, mins = h * 60;
@@ -488,9 +539,57 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
     const mm = Math.floor(mins) % 1440; const L = anim.led; if (L && mm !== L.last) { L.last = mm; const x = L.x; x.fillStyle = '#080000'; x.fillRect(0, 0, 128, 32); x.font = '700 28px "Courier New", monospace'; x.fillStyle = '#ff2a12'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(`${String(Math.floor(mm / 60)).padStart(2, '0')}:${String(mm % 60).padStart(2, '0')}`, 64, 17); L.t.needsUpdate = true; }
     for (const k of ['sA', 'sB', 'sC']) smats[k].emissiveIntensity = 0.22 * (night || 0);
     setInteriorNight(night || 0);
+    const SW = anim.swing; if (SW) { const now = performance.now() / 1000, dt = Math.min(0.05, SW.last ? now - SW.last : 0); SW.last = now; SW.t += dt;
+      SW.list.forEach((s, i) => { const w = Math.sqrt(9.81 / Math.max(0.5, s.L)); // a pendulum on its rods; across the board it swings freely, in its plane the two rods hold it stiff
+        const breeze = 0.004 * Math.sin(SW.t * 0.37 + s.ph) + 0.003 * Math.sin(SW.t * 0.91 + s.ph * 2.3); // ≈ ±0.4°: you have to look for it
+        s.vz += (-w * w * (s.az - breeze) - 0.55 * s.vz) * dt; s.vx += (-((w * 3) ** 2) * s.ax - 2.5 * s.vx) * dt; s.az = Math.max(-0.9, Math.min(0.9, s.az + s.vz * dt)); s.ax += s.vx * dt;
+        SW.U.uSw.value[i].set(s.ax, s.az); }); }
   };
   anim.update(12, 0);
   return anim;
+}
+
+// ---------------------------------------------------------------- the live LCD boards (55th)
+// Modelled on the screens at Fort: a dark navy board, header with the board name in three languages and the clock, a
+// column-header row, alternating blue rows (time, destination in English with Sinhala / Tamil under it, train type,
+// platform, remarks), the train-type legend and a scrolling notice line. Every row is a real call of a running train.
+const hhmm = (m) => { m = ((Math.round(m) % 1440) + 1440) % 1440; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
+const TICKER = 'Please stand behind the yellow line  ·  කරුණාකර කහ ඉරෙන් පිටුපසින් සිටින්න  ·  தயவுசெய்து மஞ்சள் கோட்டின் பின்னால் நிற்கவும்  ·  Keep your belongings with you  ·  Smoking is prohibited in the station  ·  ';
+function drawBoards(L, calls, hour, mps) {
+  const x = L.x, nowM = hour * 60, blink = L.tick % 2 === 0;
+  const font = (w, px, fam = '"Barlow Condensed", "Noto Sans", sans-serif') => `${w} ${px}px ${fam}`;
+  const T = (s, cx, cy, f, col, al = 'left', maxW) => { x.font = f; x.fillStyle = col; x.textAlign = al; x.textBaseline = 'middle'; x.fillText(s, cx, cy, maxW); };
+  for (const [oy, arr] of [[0, false], [256, true]]) {
+    // backplate + header
+    x.fillStyle = '#040a18'; x.fillRect(0, oy, 512, 256);
+    let g = x.createLinearGradient(0, oy, 0, oy + 36); g.addColorStop(0, '#163f86'); g.addColorStop(1, '#0c2a5e'); x.fillStyle = g; x.fillRect(0, oy, 512, 36);
+    T(arr ? 'ARRIVALS' : 'DEPARTURES', 10, oy + 13, font(800, 21), '#ffffff'); T(arr ? 'පැමිණීම්  ·  வருகை' : 'පිටත්වීම්  ·  புறப்பாடு', 10, oy + 29, '600 10px "Noto Sans Sinhala", "Noto Sans Tamil", sans-serif', '#bcd2ff');
+    T('COLOMBO FORT', 256, oy + 13, font(700, 15), '#dfe8ff', 'center'); T('කොටුව  ·  கோட்டை', 256, oy + 28, '600 10px "Noto Sans Sinhala", "Noto Sans Tamil", sans-serif', '#9fb6e6', 'center');
+    const hm = hhmm(Math.floor(nowM)); x.fillStyle = '#06142e'; x.fillRect(420, oy + 5, 86, 26); T(blink ? hm : hm.replace(':', ' '), 463, oy + 19, font(700, 24, '"Barlow Condensed", monospace'), '#ffd23a', 'center');
+    // column headers
+    x.fillStyle = '#1f56b0'; x.fillRect(0, oy + 36, 512, 18); const hf = font(700, 12), hc = '#ffe27a';
+    T('TIME', 10, oy + 45, hf, hc); T(arr ? 'FROM' : 'DESTINATION', 66, oy + 45, hf, hc); T('TYPE', 300, oy + 45, hf, hc); T('PF', 352, oy + 45, hf, hc); T('REMARKS', 392, oy + 45, hf, hc);
+    // rows
+    const rows = calls.slice(0, 4);
+    for (let i = 0; i < 4; i++) { const y = oy + 54 + i * 40; x.fillStyle = i % 2 ? '#0e2f6e' : '#0a2456'; x.fillRect(0, y, 512, 40); x.fillStyle = 'rgba(255,255,255,0.05)'; x.fillRect(0, y, 512, 1);
+      const c = rows[i]; if (!c) { T('—', 10, y + 20, font(600, 16), '#5f78a8'); continue; }
+      const st = arr ? c.from : c.to, tm = nowM + (arr ? c.t : c.dep) * mps;
+      T(hhmm(tm), 10, y + 20, font(700, 22), '#ffffff'); T(st.name.toUpperCase(), 66, y + 14, font(700, 19), '#ffffff', 'left', 226);
+      T(`${st.si}  ·  ${st.ta}`, 66, y + 31, '500 11px "Noto Sans Sinhala", "Noto Sans Tamil", sans-serif', '#a9c4ff', 'left', 226);
+      T('Slow', 300, y + 20, font(600, 16), '#e6ecff'); T('1', 358, y + 20, font(800, 22), '#ffd23a', 'center');
+      let rm = 'On time', rc = '#5be36b';
+      if (c.here) { if (arr) { rm = 'Arrived'; } else if (c.dep < 8) { rm = 'Departing'; rc = '#ffb21a'; } else { rm = 'Boarding'; } }
+      else if (c.late) { rm = 'Delayed'; rc = '#ff5a4a'; } else if (c.t < 60) { rm = arr ? 'Arriving' : 'On time'; rc = arr ? '#ffb21a' : rc; if (arr && !blink) rc = '#a86f10'; }
+      T(rm, 392, y + 20, font(700, 17), rc); }
+    // legend + scrolling notice
+    x.fillStyle = '#071936'; x.fillRect(0, oy + 214, 512, 20); T('S – Slow    E – Express    I – Intercity', 10, oy + 224, font(600, 12), '#c8d6f5'); T('Sri Lanka Railways', 502, oy + 224, font(600, 12), '#8fa6d6', 'right');
+    x.fillStyle = '#020611'; x.fillRect(0, oy + 234, 512, 22); x.save(); x.beginPath(); x.rect(0, oy + 234, 512, 22); x.clip();
+    x.font = '600 13px "Noto Sans", "Noto Sans Sinhala", "Noto Sans Tamil", sans-serif'; const w = Math.max(1, x.measureText(TICKER).width); const off = (L.tick * 14) % w;
+    for (let k = -1; k < 3; k++) T(TICKER, 512 - off + k * w - 512, oy + 245, x.font, '#ffcf4a'); x.restore();
+    // LCD look: a faint vertical sheen and darker edges (backlight falloff)
+    g = x.createLinearGradient(0, 0, 512, 0); g.addColorStop(0, 'rgba(0,0,0,0.22)'); g.addColorStop(0.12, 'rgba(0,0,0,0)'); g.addColorStop(0.88, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.22)'); x.fillStyle = g; x.fillRect(0, oy, 512, 256);
+  }
+  L.t.needsUpdate = true;
 }
 
 // ---------------------------------------------------------------- an areca palm in a square planter (forecourt)

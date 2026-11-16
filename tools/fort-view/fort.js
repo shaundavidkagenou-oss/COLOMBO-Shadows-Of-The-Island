@@ -12,7 +12,8 @@ import { buildMaterials, MAT, updateMaterials } from '../../src/gfx/Materials.js
 import { MultiBuilder } from '../../src/gfx/MeshBuilder.js';
 import { buildFortStation } from '../../src/world/FortStation.js';
 import { buildDmuCar, makeTrainMaterials, protoMeshes, CAR_LEN } from '../../src/vehicles/TrainModels.js';
-import { RAIL_TOP } from '../../src/world/Railway.js';
+import { RAIL_TOP, STOPS } from '../../src/world/Railway.js';
+import { Trains } from '../../src/vehicles/Trains.js';
 
 const q = new URLSearchParams(location.search); const W = +(q.get('w') || 1280), H = +(q.get('h') || 720); const night = q.get('night') === '1';
 const v3 = (s, d) => (s ? s.split(',').map(Number) : d);
@@ -39,7 +40,7 @@ const hip = (x0, x1, z0, z1, y, rise, col = '#ffffff', mat = 'roofTiles') => {
 };
 const lightPool = (x, z, y, size) => { const h = size / 2; mb.get('pool').hrect(x - h, z - h, x + h, z + h, y, size, null, false, [-(x - h) / size, (z + h) / size]); };
 let anim = null;
-try { anim = buildFortStation({ mb, colliders, group, C, hip, lightPool }); anim.update(+(q.get('hour') || 9.5), night ? 1 : 0); } catch (e) { errors.push(e.message + ' ' + (e.stack || '').split('\n').slice(1, 3).join(' ')); }
+try { anim = buildFortStation({ mb, colliders, group, C, hip, lightPool }); anim.update(+(q.get('hour') || 9.5), night ? 1 : 0); { const fort = STOPS.find((st) => st.name === 'Colombo Fort'); const ft = { centre: fort.s, dir: 1, speed: 0, state: 'dwell', dwell: 14, nextStop: fort }; anim.live({ forecast: (n, k) => Trains.prototype.forecast.call({ trains: [ft] }, n, k) }, +(q.get('hour') || 9.5), 0.5); } /* the screens fed by the real forecast (train standing at platform 1) */ } catch (e) { errors.push(e.message + ' ' + (e.stack || '').split('\n').slice(1, 3).join(' ')); }
 for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) { if (m.name === 'emissive' || m.name === 'pool') m.castShadow = false; if (m.name === 'pool' && !night) m.visible = false; group.add(m); }
 // ground: footway / road / ballast strips (enough context for the review)
 const gnd = (x0, x1, z0, z1, y, col) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, z1 - z0), new THREE.MeshStandardMaterial({ color: col, roughness: 0.95 })); m.rotation.x = -Math.PI / 2; m.position.set((x0 + x1) / 2, y, (z0 + z1) / 2); m.receiveShadow = true; scene.add(m); };
