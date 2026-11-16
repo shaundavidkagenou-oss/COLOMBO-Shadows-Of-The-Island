@@ -145,7 +145,7 @@ export class Boats {
   pilot(b, dt) {
     const R = b.route; if (!R || !R.length) return { thr: 0, steer: 0 };
     const w = R[0]; const dx = w.x - b.x, dz = w.z - b.z; const d = Math.hypot(dx, dz); const rev = !!w.rev;
-    const reach = w.stop ? 1.6 : rev ? 2.2 : Math.max(5, b.len * 0.7);
+    const reach = w.r ?? (w.stop ? 1.6 : rev ? 2.2 : Math.max(5, b.len * 0.7));
     if (d < reach) { R.shift(); if (!R.length) return { thr: 0, steer: 0, done: true }; return this.pilot(b, dt); }
     const want = rev ? Math.atan2(-dx, -dz) : Math.atan2(dx, dz); const err = wrap(want - b.yaw);
     const inMarina = b.x > 140 && b.x < 232 && b.z > -1300 && b.z < -1185;
@@ -153,9 +153,11 @@ export class Boats {
     let steer = clamp(err * 2.4, -1, 1); if (rev && b.u < -0.3) steer = -steer;
     const sp = rev ? -b.u : b.u; let target = vmax * clamp(1.25 - Math.abs(err) * 0.85, rev ? 0.4 : 0.22, 1); if (w.stop || rev) target = Math.min(target, 0.4 + d * 0.3);
     let thr = clamp((target - sp) * 0.9, -1, 1); if (rev) thr = -thr;
+    const pivot = inMarina && !rev && Math.abs(err) > 0.5 ? (w.turn && Math.abs(err) > 1.2 ? w.turn : Math.sign(err)) : 0; if (pivot) { thr = Math.min(thr, 0.25); if (w.turn) steer = pivot; } /* w.turn: which way to swing (the bow away from a wall) */ /* tight corners at the berths: turn on the spot first */
     // stuck behind something (another boat crossing): back off a little, then try again
+    b.slowT = Math.abs(b.u) < 0.3 ? (b.slowT || 0) + dt : 0; /* read by the owner logic: hemmed in for long → it gives up gracefully */
     b.stuckT = (Math.abs(b.u) < 0.25 && Math.abs(thr) > 0.3) ? (b.stuckT || 0) + dt : 0; if (b.stuckT > 4) { thr = -thr; steer = -steer; if (b.stuckT > 6) b.stuckT = 0; }
-    return { thr, steer };
+    return { thr, steer, pivot };
   }
   // ---------------------------------------------------------------------------------------------------- owners at the marina
   freeCiv() { return this.people.civ.find((c) => !c.busy) || null; }
@@ -172,7 +174,9 @@ export class Boats {
   startArrival(b) {
     const B = b.home; const ch = this.freeCiv(); if (!B || !ch) return false;
     const M = b.model; const out = berthRoute(B, M.len); const back = out.slice().reverse().filter((p) => !p.rev).map((p) => ({ x: p.x, z: p.z }));
-    const bx = B.x(M.len, M.halfBeam); back.push({ x: B.side === 'W' ? bx - M.len * 0.6 - 2 : B.side === 'E' ? bx + M.len * 0.6 + 2 : bx - 4, z: B.side === 'Q' ? B.zc - M.len * 0.8 : B.zc, v: 2 }); back.push({ x: bx, z: B.zc, stop: true });
+    const bx = B.x(M.len, M.halfBeam);
+    if (B.side === 'Q') { back.pop(); back.pop(); /* not the swing off the wall */ const tx = Math.min(bx - 4, 228 - M.len / 2); back.push({ x: tx, z: B.zc + M.len * 0.2, v: 1.5, r: 3 }, { x: tx, z: B.zc - M.len * 0.25, stop: true, turn: -1 }); } // down the fairway bow first, turn round beside the berth (thrusters), the lines walk her in
+    else { const sd = B.side === 'W' ? -1 : 1; back.push({ x: bx + sd * (M.len * 0.6 + 8), z: B.zc, v: 1.6, r: 1.2 }, { x: bx + sd * (M.len * 0.6 + 1), z: B.zc, v: 1.0, r: 1.0 }, { x: bx, z: B.zc, stop: true }); } // lined up on the slot first, then straight in
     const st = back.shift(); if (this.seen(st.x, 1, st.z, M.len, 900) && this.camDist(st.x, st.z) < 500) return false; // never pops into view
     ch.busy = true; b.away = false; b.root.visible = true; b.mode = 'drive'; b.place(st.x, st.z, Math.atan2(back[0].x - st.x, back[0].z - st.z), true); b.route = back;
     this.seat(ch, b, b.model.seat); const O = { ch, b, B, stage: 'inbound', t: 0 }; b.owner = O; this.owners.push(O); return true;
@@ -195,9 +199,11 @@ export class Boats {
       this.seat(ch, b, seat); O.stage = 'aboard'; O.t = 0; return;
     }
     if (O.stage === 'aboard') { if (O.t > 4) { const M = b.model; b.mode = 'drive'; b.route = berthRoute(O.B, M.len).map((p) => ({ ...p })); b.route.push({ x: AWAY_PT.x, z: AWAY_PT.z }); O.B.boat = null; O.stage = 'outbound'; if (b.sails.length) b.setSailsVisible(false); } return; }
-    if (O.stage === 'outbound') { if (!b.route || !b.route.length || (b.z < -1420 && this.camDist(b.x, b.z) > 260 && !this.seen(b.x, 2, b.z, b.len, 600))) { b.away = true; b.root.visible = false; b.mode = 'moored'; b.awayT = 300 + rnd() * 420; O.B.boat = b; /* the berth is still hers */ this.release(O); } return; }
-    if (O.stage === 'inbound') { if (!b.route || !b.route.length) { const B = O.B, M = b.model; const x = B.x(M.len, M.halfBeam); b.berth = { x, z: B.zc, yaw: B.yaw }; b.mode = 'moored'; B.boat = b; O.stage = 'moor'; O.t = 0; } return; }
-    if (O.stage === 'moor') { if (O.t > 5) { const B = O.B; const tgt = B.walk ? B.walk : [231.4, B.zc]; const y = this.col.groundAt(tgt[0], tgt[1], 2, 3);
+    if (O.stage === 'outbound') { if (!b.route || !b.route.length || (b.slowT > 25 && !this.seen(b.x, 2, b.z, b.len, 400)) || (b.z < -1420 && this.camDist(b.x, b.z) > 260 && !this.seen(b.x, 2, b.z, b.len, 600))) { b.away = true; b.root.visible = false; b.mode = 'moored'; b.awayT = 300 + rnd() * 420; O.B.boat = b; /* the berth is still hers */ this.release(O); } return; }
+    if (O.stage === 'inbound') { if (b.slowT > 25 && b.route && b.route.length) { const B = O.B; if (Math.hypot(b.x - B.x(b.len, b.model.halfBeam), b.z - B.zc) < 35) b.route.length = 0; else if (!this.seen(b.x, 2, b.z, b.len, 500)) { const w = b.route[0]; b.place(w.x, w.z, b.yaw, true); b.slowT = 0; } } /* hemmed in: the lines / a nudge from the marina RIB */
+      if (!b.route || !b.route.length) { const B = O.B, M = b.model; const x = B.x(M.len, M.halfBeam); b.berth = { x: b.x, z: b.z, yaw: B.yaw }; O.to = { x, z: B.zc }; b.mode = 'moored'; B.boat = b; O.stage = 'moor'; O.t = 0; } return; }
+    if (O.stage === 'moor') { const bb = b.berth, dx = O.to.x - bb.x, dz = O.to.z - bb.z, dd = Math.hypot(dx, dz); if (dd > 0.02) { const st = Math.min(dd, 0.7 * dt); bb.x += (dx / dd) * st; bb.z += (dz / dd) * st; O.t = 0; } /* thrusters + lines walk her alongside */
+      if (O.t > 4) { const B = O.B; const tgt = B.walk ? B.walk : [231.4, B.zc]; const y = this.col.groundAt(tgt[0], tgt[1], 2, 3);
       this.unseat(ch, tgt[0], y, tgt[1], 0); O.x = tgt[0]; O.z = tgt[1]; O.y = y; const wr = B.walk ? walkRoute(B).slice().reverse().slice(1) : []; const sp = this.walkSpot() || [232.5, -1186]; O.path = [...wr, sp].map((p) => [p[0], p[1]]); O.stage = 'walkOut'; O.t = 0; b.owner = null; } }
   }
   updateMarinaLife(dt) {

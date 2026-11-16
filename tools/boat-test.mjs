@@ -51,6 +51,7 @@ try {
     while (B.slipBoat.id !== 'dondra26') B.switchNext(); const bt = B.slipBoat; const bp = bt.worldPoint(bt.model.board, new (P.ch.root.position.constructor)());
     P.teleport(bp.x, bp.z - 1.2, 0); await g.stepSim(Math.round((0.5) * 20), 0.05); out.near = !!B.nearestBoard(P);
     B.board(P, bt); await g.stepSim(Math.round((2) * 20), 0.05); out.stage = B.ride && B.ride.stage; out.pBoat = P.boat === bt; out.seatDy = +(P.y - bt.y).toFixed(2);
+    bt.place(60, -1400, -Math.PI / 2, true); /* out in the open harbour (the throttle / steering numbers, not the way out of the marina) */ await g.stepSim(Math.round((1) * 20), 0.05); out.followed = Math.hypot(P.x - 60, P.z + 1400) < 6;
     const I = window.__Input, isDown = I.isDown.bind(I); const x0 = bt.x, z0 = bt.z; I.isDown = (a) => a === 'forward' || isDown(a);
     let maxV = 0; for (let i = 0; i < 40; i++) { await g.stepSim(Math.round((0.25) * 20), 0.05); maxV = Math.max(maxV, Math.abs(bt.speed)); }
     out.maxV = +maxV.toFixed(1); out.moved = +Math.hypot(bt.x - x0, bt.z - z0).toFixed(1); out.wakes = B.wakes.trails.size; out.hp = bt.hp;
@@ -61,7 +62,7 @@ try {
     P.teleport(191, -1286.6, 0); await g.stepSim(Math.round((0.5) * 20), 0.05); B.switchNext(); B.switchNext(); B.switchNext(); await g.stepSim(Math.round((0.5) * 20), 0.05); out.back = B.slipBoat && B.slipBoat.mode === 'moored' && Math.hypot(B.slipBoat.x - 190, B.slipBoat.z - B.slipBoat.berth.z) < 1;
     return out;
   }, (r2) => {
-  ok(r2.near && r2.stage === 'ride' && r2.pBoat, 'boarded at the boarding point, seated at the helm');
+  ok(r2.near && r2.stage === 'ride' && r2.pBoat, 'boarded at the boarding point, seated at the helm'); ok(r2.followed, 'the player goes with the boat');
   ok(r2.maxV > 8 && r2.moved > 40, `throttle: ${r2.maxV} m/s, ${r2.moved} m`); ok(r2.wakes >= 1, 'wake laid behind her'); ok(r2.turned > 0.5, `steers (${r2.turned} rad in 3 s)`);
   ok(r2.offBoat && r2.water && r2.swim, `got off at sea into the water and swims (y ${r2.py})`); ok(r2.back, 'the pedestal brings her back to the berth');
   });
@@ -84,9 +85,9 @@ try {
   });
   // ---- 4. police patrol, owners, lamps
   await stage(p, 'patrol', async () => {
-    const g = window.__game, B = g.boats, P = g.player; const out = {};
+    const g = window.__game, B = g.boats, P = g.player; const out = {}; if (g.police) { g.police.standDown('test'); out.stars0 = g.police.stars(); }
     P.teleport(232.5, -1199.5, -Math.PI / 2); g.atmos.hour = 14; await g.stepSim(Math.round((2) * 20), 0.05); out.noonActive = B.police.filter((b) => b.active && !b.leaving).length;
-    g.atmos.hour = 8; await g.stepSim(Math.round((4) * 20), 0.05); const act = B.police.filter((b) => b.active); out.morning = act.length; out.crew = act.every((b) => b.crewChars && b.crewChars[0].root.parent === b.root);
+    g.atmos.hour = 8; await g.stepSim(Math.round((4) * 20), 0.05); const act = B.police.filter((b) => b.active && !b.leaving); out.morning = act.length; out.pol = B.police.map((b) => ({ a: b.active, l: b.leaving, vis: b.root.visible, x: Math.round(b.x), z: Math.round(b.z) })); out.stars8 = g.police ? g.police.stars() : -1; out.crew = act.every((b) => b.crewChars && b.crewChars[0].root.parent === b.root);
     const p0 = act[0] ? [act[0].x, act[0].z] : [0, 0]; await g.stepSim(Math.round((20) * 20), 0.05); out.patrolMoved = act[0] ? +Math.hypot(act[0].x - p0[0], act[0].z - p0[1]).toFixed(0) : 0; out.dayBeacon = act.some((b) => !!b.lights.beacon);
     g.atmos.hour = 21.5; await g.stepSim(Math.round((3) * 20), 0.05); out.nightBeacon = B.police.filter((b) => b.active).every((b) => !!b.lights.beacon && b.lights.nav === 'motor'); out.night = g.atmos.night;
     out.lamps = B.lamps.n; out.lampsRange = B.lamps.geo.drawRange.count;

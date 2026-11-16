@@ -37,17 +37,20 @@ export function marinaBerths() {
     out.push({ id: `W${k}`, side: 'W', zc, maxLen: 11.5, yaw: Math.PI / 2, x: (len) => MARINA.spine.x0 - 0.8 - len / 2, walk: [MARINA.spine.x0 + 0.6, zc] });
     out.push({ id: `E${k}`, side: 'E', zc, maxLen: 14, yaw: -Math.PI / 2, x: (len) => MARINA.spine.x1 + 0.8 + len / 2, walk: [MARINA.spine.x1 - 0.6, zc] });
   }
-  // alongside the east harbour wall (big motor yachts), bow south (into the marina)
+  // alongside the east harbour wall (big motor yachts), bow north (out toward the T-head); 20 m+ between them so the inner one can swing out
   out.push({ id: 'Q1', side: 'Q', zc: -1220, maxLen: 24, yaw: Math.PI, x: (len, hb) => 230 - 0.7 - hb, walk: null });
-  out.push({ id: 'Q2', side: 'Q', zc: -1252, maxLen: 18, yaw: Math.PI, x: (len, hb) => 230 - 0.7 - hb, walk: null });
+  out.push({ id: 'Q2', side: 'Q', zc: -1263, maxLen: 18, yaw: Math.PI, x: (len, hb) => 230 - 0.7 - hb, walk: null });
   return out;
 }
 // the way out of a berth (and, reversed, in): boat-space-free world points; `rev` = go astern on that leg
 export function berthRoute(b, len) {
   const bx = b.x(len, 1.5), z = b.zc;
-  if (b.side === 'W') return [{ x: bx - len * 0.9, z, rev: true }, { x: 162, z: z - 4 }, { x: 160, z: -1296 }, { x: 150, z: -1330 }, { x: 40, z: -1420 }];
-  if (b.side === 'E') return [{ x: bx + len * 0.9, z, rev: true }, { x: 215, z: z - 5 }, { x: 218, z: -1296 }, { x: 205, z: -1330 }, { x: 120, z: -1430 }];
-  return [{ x: bx - 6, z: z - 10 }, { x: 218, z: -1296 }, { x: 200, z: -1330 }, { x: 110, z: -1430 }];
+  // astern until the bow is clear of the finger ends (W fingers end at x 172, E at 200.5), then out along the fairway
+  const zr = Math.min(z, MARINA.head.z0 - len / 2 - 1.5); // the inner berths: astern a little north too, so a long boat can swing clear of the head walkway
+  if (b.side === 'W') return [{ x: 172 - len / 2 - 0.5, z, rev: true, r: 1.2 }, { x: 172 - len / 2 - 2.5, z: zr, rev: true }, { x: 162, z: z - 4 }, { x: 160, z: -1296 }, { x: 150, z: -1330 }, { x: 40, z: -1420 }];
+  if (b.side === 'E') return [{ x: 200.5 + len / 2 + 0.5, z, rev: true, r: 1.2 }, { x: 200.5 + len / 2 + 2.5, z: zr, rev: true }, { x: 215, z: zr - 5 }, { x: 218, z: Math.min(zr - 10, -1282), r: 3 }, { x: 218, z: -1296 }, { x: 205, z: -1330 }, { x: 120, z: -1430 }];
+  // alongside the wall: straight ahead first (any swing puts the stern into the wall), then ease off it
+  return [{ x: b.x(len, 1.5) + 0.7, z: z - len * 0.4, v: 1.2 }, { x: bx - 4, z: z - len * 0.5 - 12 }, { x: 217, z: z - len * 0.5 - 22 }, { x: 218, z: -1296 }, { x: 200, z: -1330 }, { x: 110, z: -1430 }];
 }
 // the owner's walk from the head of the gangway to a finger berth (and back)
 export function walkRoute(b) {

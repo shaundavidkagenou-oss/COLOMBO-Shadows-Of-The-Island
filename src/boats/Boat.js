@@ -67,7 +67,7 @@ export class Boat {
   // boat-space point → world (x, z only, ignores pitch / roll)
   local(lx, lz) { const s = Math.sin(this.yaw), c = Math.cos(this.yaw); return [this.x + lz * s + lx * c, this.z + lz * c - lx * s]; }
   worldPoint(p, out = new THREE.Vector3()) { return out.set(p[0], p[1], p[2]).applyMatrix4(this.root.matrixWorld); }
-  circles() { const M = this.model; const n = clamp(Math.ceil(M.len / (M.halfBeam * 2.2)), 2, 9); const r = M.halfBeam * 0.95; const out = []; for (let i = 0; i < n; i++) { const lz = -M.len * 0.42 + (M.len * 0.84 * i) / (n - 1); const [x, z] = this.local(0, lz); out.push([x, z, r]); } return out; }
+  circles() { const M = this.model; const n = clamp(Math.ceil(M.len / (M.halfBeam * 2.2)), 2, 9); const r = M.halfBeam * 0.95; const e = Math.max(M.len * 0.2, M.len / 2 - r * 0.9); /* end circles stay inside bow / stern (a wide catamaran's would poke out) */ const out = []; for (let i = 0; i < n; i++) { const lz = -e + (2 * e * i) / (n - 1); const [x, z] = this.local(0, lz); out.push([x, z, r]); } return out; }
   // ---------------------------------------------------------------------------------------------------------- update
   // ctl: { thr, steer } (only while driven) · env: { dt, E, wakes, blocked(x, z, r) → bool, near (camera distance), wind }
   update(dt, ctl, env) {
@@ -105,10 +105,12 @@ export class Boat {
       // steering authority: rudder / outboard / jet
       let auth = clamp((au + Math.abs(thr) * (M.ski ? 3.2 : 1.6)) / 4.5, 0, 1); if (M.ski) auth *= 0.3 + 0.7 * Math.abs(thr);
       const rT = st * d.turn * auth * (this.u < -0.3 ? -1 : 1) * (this.air ? 0.1 : 1); const yr = 2.4 * clamp(9 / M.len, 0.35, 1.6);
-      this.r = dampTo(this.r, rT, yr, dt); this.yaw += this.r * dt;
+      const piv = ctl && ctl.pivot && au < 1.6 ? clamp(ctl.pivot, -1, 1) * 0.2 * clamp(10 / M.len, 0.5, 1.3) : 0; /* AI at walking pace in the marina: twin engines split / bow thruster turn her nearly on the spot */
+      this.r = dampTo(this.r, rT + piv, yr, dt); const oyaw = this.yaw; this.yaw += this.r * dt;
       // move + collide (land, quays, ships, pontoons, other boats)
       const vx = fx * this.u + px * this.v, vz = fz * this.u + pz * this.v; const ox = this.x, oz = this.z; this.x += vx * dt; this.z += vz * dt;
-      if (env.blocked && env.blocked(this)) { const imp = Math.hypot(vx, vz); this.x = ox; this.z = oz; this.u *= -0.25; this.v *= 0.2; this.r *= 0.4;
+      if (env.blocked && env.blocked(this)) { const imp = Math.hypot(vx, vz); const nx = this.x, nz = this.z, ny = this.yaw; this.x = ox; this.z = oz; this.yaw = oyaw; /* the whole move is undone (turning in place into a finger must not creep through it) */
+        if (env.blocked(this)) { this.x = nx; this.z = nz; this.yaw = ny; } /* already touching (spawned / pushed against something): let her work free */ else { this.u *= -0.25; this.v *= 0.2; this.r *= 0.4; }
         if (imp > 3.5) { this.damage((imp - 3) * 4 * clamp(M.len / 10, 0.5, 2), 'hull', null, 'crash'); this.lastImpact = { t: performance.now(), v: imp }; } }
     }
     this.speed = this.u;
