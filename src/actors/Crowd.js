@@ -612,7 +612,7 @@ export class Crowd {
       const unseen = !p.keep && !p.job && HOLD_OK.has(p.state) && offView(p.x, p.z, 1); const plod = unseen ? Math.max(lod, 4) : lod;
       const posed = plod === 1 || (this.frame + (p.id * 7 | 0)) % plod === 0; if (posed) p.ch.anim.update(dt * (plod === 1 ? 1 : plod), p.state === 'down' ? 0 : sp, plod === 1 ? turnRate : 0);
       if (unseen && !posed) holdThisFrame(p.ch.root);
-      p.y = lod === 1 || p.state === 'down' || (this.frame + p.id) % 4 === 0 ? this.collision.groundAt(p.x, p.z, (p.y || 0.15)) : (p.y || 0.15); /* far people too (every 4th frame): never left at an old height after walking or being thrown off a kerb */
+      p.y = lod === 1 || p.state === 'down' || (this.frame + (p.id * 7 | 0)) % 4 === 0 ? /* (p.id is a fraction: frame + id was never a multiple of 4, so far people never followed steps / kerbs) */ this.collision.groundAt(p.x, p.z, (p.y || 0.15)) : (p.y || 0.15); /* far people too (every 4th frame): never left at an old height after walking or being thrown off a kerb */
       if (!(p.y > -50)) { p.y = this.collision.groundAt(p.x, p.z, 0.5); p.vx = p.vz = 0; } /* safety net: a bad height (NaN / far under) never leaves anyone in the void */
       p.ch.root.position.set(p.x, p.y, p.z); p.ch.root.rotation.y = p.yaw;
       this.life.props(p, lod); if (posed && lod < 3) this.life.post(p); if (p.job) p.job.post(p, lod, posed); // hand/lip contact corrections need this frame's pose

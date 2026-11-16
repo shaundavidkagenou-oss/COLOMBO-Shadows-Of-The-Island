@@ -41,16 +41,16 @@ const S = new StationLife(g);
 ok(S.stop && S.stop.name === 'Colombo Fort', 'Fort stop found on the line');
 const free = S.spots.filter((s) => !s.seat), seats = S.spots.filter((s) => s.seat);
 ok(free.length >= 25, `standing spots on platform 1 (${free.length})`); ok(seats.length >= 12, `bench seats usable (${seats.length})`);
-ok(S.spots.every((s) => !col.blocked(s.ax, s.az, 0.3, FL)), 'every spot / bench approach is clear');
+ok(S.spots.every((s) => S.headClear(s.ax, s.az, 0.3, FL)), 'every spot / bench approach is clear');
 // a walk is clear: every 0.25 m, at the floor height found by walking (steps up/down ≤ 0.35 m, the entrance stairs)
 const walkClear = (pts, from, label) => { let [x, z] = from; let y = col.groundAt(x, z, FL + 0.2); let bad = null;
-  for (const [tx, tz] of pts) { const n = Math.max(1, Math.ceil(Math.hypot(tx - x, tz - z) / 0.25)); for (let k = 1; k <= n; k++) { const sx = x + (tx - x) * k / n, sz = z + (tz - z) * k / n; const ny = col.groundAt(sx, sz, y + 0.1, 0.4); if (Math.abs(ny - y) > 0.36 && !bad) bad = `step ${(ny - y).toFixed(2)} m at ${sx.toFixed(1)},${sz.toFixed(1)}`; y = ny; if (!bad && col.blocked(sx, sz, 0.26, y)) bad = `blocked at ${sx.toFixed(1)},${sz.toFixed(1)} (y ${y.toFixed(2)})`; } x = tx; z = tz; }
+  for (const [tx, tz] of pts) { const n = Math.max(1, Math.ceil(Math.hypot(tx - x, tz - z) / 0.25)); for (let k = 1; k <= n; k++) { const sx = x + (tx - x) * k / n, sz = z + (tz - z) * k / n; const ny = col.groundAt(sx, sz, y + 0.1, 0.4); if (Math.abs(ny - y) > 0.36 && !bad) bad = `step ${(ny - y).toFixed(2)} m at ${sx.toFixed(1)},${sz.toFixed(1)}`; y = ny; if (!bad && !S.headClear(sx, sz, 0.26, y)) bad = `blocked at ${sx.toFixed(1)},${sz.toFixed(1)} (y ${y.toFixed(2)})`; } x = tx; z = tz; }
   ok(!bad, `${label}${bad ? ': ' + bad : ''}`); return !bad; };
 for (let e = 0; e < 3; e++) {
   for (const w of [0, 1, 3, 4, 7]) walkClear(S.routeToQueue(e, w), [F.street[e].x, F.street[e].z], `street ${e} → queue lane ${w + 1}`);
   walkClear([...S.routeIn(e), ...S.routeToPlatform(S.colX(e), -645.6)], [F.street[e].x, F.street[e].z], `street ${e} → platform 1 (season ticket)`);
 }
-for (const w of [0, 1, 3, 4, 7]) { for (let i = 0; i < 6; i++) { const [x, z] = S.queueSlot(w, i); ok(!col.blocked(x, z, 0.26, FL), `queue ${w + 1} slot ${i} clear`); } walkClear(S.routeToPlatform(0, 0, w), S.queueSlot(w, 0), `window ${w + 1} → platform`); }
+for (const w of [0, 1, 3, 4, 7]) { for (let i = 0; i < 6; i++) { const [x, z] = S.queueSlot(w, i); ok(S.headClear(x, z, 0.26, FL), `queue ${w + 1} slot ${i} clear`); } walkClear(S.routeToPlatform(0, 0, w), S.queueSlot(w, 0), `window ${w + 1} → platform`); }
 { let bad = 0; for (const s of S.spots) { const a = S.archFor(s.ax); const pth = S.platformPath(a, -625.6, s.ax, s.az, true); if (!pth) { bad++; continue; } if (!walkClear(S.routeOut(s.ax, s.az), [s.ax, s.az], `spot ${s.ax.toFixed(1)},${s.az.toFixed(1)} → street`)) bad++; } ok(!bad, 'every spot has a clear way in and out'); }
 walkClear(F.vendorLoop.slice(1).concat([F.vendorLoop[0]]), F.vendorLoop[0], 'vendors\' beat (platform 1 ↔ hall)');
 ok(inAnnouncerRoom(F.ann.chair.x, F.ann.chair.z) && !inAnnouncerRoom(F.ann.chair.x, F.ann.z1 + 1), 'announcer\'s room test');
@@ -65,16 +65,18 @@ const origAnn = S.announce.bind(S); S.announce = (slot, tr) => { slots.add(slot)
 let worstIn = null, maxRiderOut = 0, stuckMax = 0; const lastPos = new Map(); let seatedAnn = 0, seatErr = 1, vendorProps = 0, wpMoves = 0, clerkCount = 0;
 const step = () => {
   T.update(dt, { focus, night: 0, player, vehicles: [] }); C.update(dt, focus, camDir, ctx()); S.update(dt, { focus, night: 0, hour: 9, player }); tm += dt;
-  for (const a of [...S.pax, ...S.vendors, S.announcer]) { const p = a.p; if (!p || p.dead || p.sit || a.seat) continue; if (col.blocked(p.x, p.z, 0.12, p.y)) worstIn = worstIn || `${a.role} ${a.phase} at ${p.x.toFixed(2)},${p.z.toFixed(2)} y ${p.y.toFixed(2)}`;
+  for (const a of [...S.pax, ...S.vendors, S.announcer]) { const p = a.p; if (!p || p.dead || p.sit || a.seat) continue; if (!S.headClear(p.x, p.z, 0.12, col.groundAt(p.x, p.z, (p.y || 0) + 0.25, 0.45))) { /* the floor under them (Crowd refreshes p.y every few frames: on the entrance steps it trails by a step) */ if (!worstIn && process.env.V) console.log('BLOCKED', p.y, col.groundAt(p.x, p.z, (p.y || 0) + 0.25, 0.45), col.query(p.x - 0.12, p.z - 0.12, p.x + 0.12, p.z + 0.12).filter((c) => p.x + 0.12 > c.x0 && p.x - 0.12 < c.x1 && p.z + 0.12 > c.z0 && p.z - 0.12 < c.z1).map((c) => c.kind + ':' + (c.y0 || 0) + '+' + c.h + ' z' + c.z0.toFixed(2) + '..' + c.z1.toFixed(2)).join(' '), a.role, a.phase, JSON.stringify(a.route), a.spot && [a.spot.ax, a.spot.az, !!a.spot.seat], a.door && [a.door.x, a.door.z], p.state); worstIn = worstIn || `${a.role} ${a.phase} at ${p.x.toFixed(2)},${p.z.toFixed(2)}`; }
     const walking = ['toQueue', 'toPlatform', 'toSpot', 'leave', 'walk', 'toDoor', 'back'].includes(a.phase) && a.route && a.route.length; const lp = lastPos.get(a) || { x: p.x, z: p.z, t: 0 }; if (walking && Math.hypot(p.x - lp.x, p.z - lp.z) < 0.02) lp.t += dt; else { lp.t = 0; lp.x = p.x; lp.z = p.z; } lastPos.set(a, lp); stuckMax = Math.max(stuckMax, lp.t); }
   for (const r of S.riders) if (r.ch.root.parent !== sc && r.state !== 'stepIn') { const q = r.ch.root.position; maxRiderOut = Math.max(maxRiderOut, Math.abs(q.x) - (1.5 - 0.15), Math.abs(q.z) - (CAR_LEN / 2 - 0.3)); }
   const an = S.announcer; if (an.p && an.phase === 'seated' && an.sitW >= 1) { seatedAnn++; seatErr = Math.hypot(an.p.x - F.ann.chair.x, an.p.z - F.ann.chair.z); }
-  vendorProps = S.vendors.filter((v) => v.p && v.prop && v.prop.parent === v.p.ch.bones.chest && v.p.ch.anim.ik).length; clerkCount = Math.max(clerkCount, S.clerks.length);
+  for (const v of S.vendors) (v.wpSeen ??= new Set()).add(v.wp); vendorProps = S.vendors.filter((v) => v.p && v.prop && v.prop.parent === v.p.ch.bones.chest && v.p.ch.anim.ik).length; clerkCount = Math.max(clerkCount, S.clerks.length);
 };
-sendTrain(1200); // the train far off: the station fills up first
-const wp0 = S.vendors.map((v) => v.wp);
-for (let i = 0; i < 150 / dt; i++) step();
-wpMoves = S.vendors.filter((v, i) => v.wp !== wp0[i]).length;
+sendTrain(200); const hold = t0.sLow; // the train held 200 m off (riders aboard, in reach) while the station fills up
+const wp0 = S.vendors.map((v) => v.wp); let earlyFort = false;
+for (let i = 0; i < 150 / dt; i++) { step(); t0.sLow = hold; t0.speed = 0; t0.state = 'run'; t0.place(); if (S.atFort(t0)) earlyFort = true; }
+ok(!earlyFort, 'the train held off during the fill-up');
+if (process.env.V) for (const v of S.vendors) console.log('vendor', v.phase, v.wp, v.p && v.p.x.toFixed(1), v.p && v.p.z.toFixed(1), v.p && v.p.state);
+wpMoves = S.vendors.filter((v) => v.wpSeen && v.wpSeen.size >= 3).length;
 ok(clerkCount === 5, `5 clerks on duty at the open windows (${clerkCount})`);
 ok(S.clerks.every((c) => c.ch.anim.seated && Math.abs(c.ch.root.position.y - (FL + 0.69)) < 0.01), 'clerks sit on their high stools');
 ok(seatedAnn > 30 && seatErr < 0.05, `announcer seated in her chair (${seatErr.toFixed(3)} m)`);

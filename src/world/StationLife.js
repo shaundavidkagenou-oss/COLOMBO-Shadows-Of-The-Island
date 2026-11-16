@@ -27,6 +27,10 @@ import { SoundBank as SB } from '../audio/SoundBank.js';
 import { Audio } from '../audio/Audio.js';
 import { Voices } from '../audio/Voices.js';
 import { RNG } from '../core/rng.js';
+// someone put down on the station's floor (the halls and platform 1 stand 1 m above the street — Crowd.place() looks for the
+// ground from street level and would leave them standing inside the platform)
+const onFloor = (x, z) => x > -118 && x < 31 && z > -649.4 && z < -613.6;
+function setFloor(col, p) { if (!col) return; p.y = col.groundAt(p.x, p.z, onFloor(p.x, p.z) ? FORT.FL + 0.05 : 0.2); p.ch.root.position.y = p.y; }
 
 const F = FORT, FL = F.FL;
 const CX = -35, CZ = -628; // middle of the station
@@ -111,9 +115,9 @@ class Agent {
   spawn(sp, x, z, yaw) {
     const C = this.sys.crowd; const p = C.makePed(sp, x, z, this.sys.node);
     Object.assign(p, { x, z, yaw, state: 'job', job: this.job, keep: true, umbrella: false, umbrellaOpen: false, jog: false, pace: 1.2, target: null, edge: null, route: null, stationRole: this.role });
-    C.place(p); this.p = p; this.lastX = x; this.lastZ = z; return p;
+    C.place(p); setFloor(this.sys.collision, p); this.p = p; this.lastX = x; this.lastZ = z; return p;
   }
-  adopt(p) { Object.assign(p, { state: 'job', job: this.job, keep: true, umbrella: false, jog: false, pace: 1.2, stationRole: this.role }); this.p = p; this.lastX = p.x; this.lastZ = p.z; }
+  adopt(p) { Object.assign(p, { state: 'job', job: this.job, keep: true, umbrella: false, jog: false, pace: 1.2, stationRole: this.role }); setFloor(this.sys.collision, p); this.p = p; this.lastX = p.x; this.lastZ = p.z; }
   alive() { const p = this.p; return !!(p && !p.dead && p.ch.crowdPed === p); }
   setPhase(ph, route = null) { this.phase = ph; this.t = 0; this.route = route; this.stuckT = 0; this.bestD = undefined; this.stallT = 0; }
   moveTo(x, z, final = true, speed = 1.25) {
@@ -254,10 +258,10 @@ class Vendor extends Agent {
 // ---------------------------------------------------------------- the announcer
 class Announcer extends Agent {
   constructor(sys) { super(sys, 'announcer'); this.talkT = 0; }
-  spawnAnn() { const c = F.ann.chair; const p = this.spawn(staffSpec(STAFF.announcer), c.x, c.z + 0.55, Math.PI); this.chair = { x: c.x, z: c.z, y: FL + 0.47, yaw: c.yaw }; this.setPhase('toChair'); return p; }
+  spawnAnn() { const c = F.ann.chair; const p = this.spawn(staffSpec(STAFF.announcer), c.x, c.z - 0.6, c.yaw); this.chair = { x: c.x, z: c.z, y: FL + 0.47, yaw: c.yaw }; this.setPhase('toChair'); return p; }
   think(dt) {
     const c = this.chair, p = this.p;
-    if (this.phase === 'toChair') { if (!this.route) this.route = [[c.x, c.z + 0.55]]; const r = this.follow(this.route, 0.9); if (r) return r; this.sitDown(c, SEAT_ANN); this.setPhase('seated'); return null; }
+    if (this.phase === 'toChair') { if (!this.route) this.route = [[c.x, c.z - 0.6]]; /* behind the chair: the desk is in front of it */ const r = this.follow(this.route, 0.9); if (r) return r; this.sitDown(c, SEAT_ANN); this.setPhase('seated'); return null; }
     if (this.phase === 'seated') { this.talkT -= dt; p.ch.face.talking = this.talkT > 0; return null; }
     if (this.phase === 'leave') { const r = this.follow(this.route, 1.2); if (r) return r; this.setPhase('toChair'); return null; }
     return null;
@@ -283,9 +287,12 @@ export class StationLife {
   //      station's colliders (and a clear straight walk to it from the hall's arches)
   buildSpots() {
     const col = this.collision, y = FL; this.spots = [];
-    const clear = (x, z, r = 0.38) => !col || !col.blocked(x, z, r, y);
+    // clear = nothing in the way from knee to head height (as Collision.resolveCircle moves people; Collision.blocked() is 2-D
+    // and would count the footbridge parapets 6 m up as walls): the underside of the bridge stairs counts — nobody ducks
+    const head = (x, z, r, y = FL) => { for (const c of col.query(x - r, z - r, x + r, z + r)) { if (!(x + r > c.x0 && x - r < c.x1 && z + r > c.z0 && z - r < c.z1)) continue; const y0 = c.y0 || 0; if (y0 + c.h > y + 0.4 && y0 < y + 2.1) return false; } return true; };
+    const clear = (x, z, r = 0.38) => !col || head(x, z, r);
     const lineClear = (ax, az, bx, bz) => { const n = Math.ceil(Math.hypot(bx - ax, bz - az) / 0.4); for (let k = 1; k <= n; k++) if (!clear(ax + (bx - ax) * k / n, az + (bz - az) * k / n, 0.3)) return false; return true; };
-    this.lineClear = lineClear;
+    this.lineClear = lineClear; this.headClear = head;
     for (let x = -70; x <= 10; x += 1.7) for (let z = -624.4; z <= -617.2; z += 1.45) { const jx = x + (Math.abs(x * 7 + z * 3) % 1) * 0.5, jz = z; if (!clear(jx, jz, 0.45)) continue; const a = this.archFor(jx); if (!this.platformPath(a, -625.6, jx, jz, true)) continue; this.spots.push({ x: jx, z: jz, ax: jx, az: jz, used: null, seat: null }); }
     for (const b of F.benches) if (b.where === 'p1' && b.x > -72 && b.x < 14) { const ax = b.x, az = b.z + 0.62; if (!clear(ax, az, 0.3) || !this.platformPath(this.archFor(ax), -625.6, ax, az, true)) continue; const seat = { x: b.x, z: b.z, y: b.y, yaw: b.yaw, used: null }; this.spots.push({ x: b.x, z: b.z, ax, az, used: null, seat }); }
   }
@@ -303,7 +310,7 @@ export class StationLife {
   // benches and signs stand in the way of some straight lines)
   platformPath(x, z, tx, tz, strict = false) {
     const Lc = this.lineClear; if (!Lc) return [[tx, tz]];
-    const cands = [[[tx, tz]]]; for (const lz of [-625.6, -615.3, -620.5, -623]) cands.push([[x, lz], [tx, lz], [tx, tz]]); cands.push([[x, -615.3], [-71.5, -615.3], [-71.5, -625.6], [tx, -625.6], [tx, tz]]);
+    const cands = [[[tx, tz]]]; for (const lz of [-625.6, -615.3, -618.6, -624.4]) cands.push([[x, lz], [tx, lz], [tx, tz]]); cands.push([[x, -615.3], [-71.5, -615.3], [-71.5, -625.6], [tx, -625.6], [tx, tz]]);
     for (const c of cands) { let px = x, pz = z, ok = true; for (const [qx, qz] of c) { if (!Lc(px, pz, qx, qz)) { ok = false; break; } px = qx; pz = qz; } if (ok) return c; }
     return strict ? null : cands[1];
   }

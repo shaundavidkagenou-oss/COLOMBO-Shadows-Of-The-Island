@@ -6,7 +6,7 @@ import { onParkFeature, parkColliders, parkLamps, PARK, BAT_TREES, PLAY_ITEMS, P
 import { SIGNS, SHOP_ROWS } from '../gfx/Textures.js';
 import { crownPoints } from './TreeShapes.js';
 import { greenTrees, greenPlants } from './Greenery.js';
-import { fortClearAt } from './FortStationData.js';
+import { fortClearAt, FORT } from './FortStationData.js';
 
 export const CHUNK = 200;
 export const NCX = Math.ceil((L.BOUNDS.maxX - L.BOUNDS.minX) / CHUNK), NCZ = Math.ceil((L.BOUNDS.maxZ - L.BOUNDS.minZ) / CHUNK);
@@ -389,9 +389,11 @@ function genStreetProps(seg, rng) {
   if (seg.level === 0 && (d === 'pettah' || d === 'fort' || d === 'maradana')) {
     // continuous runs of 3 m sections (posts at both ends, so sections join without gaps) along the kerb, solid to walk into;
     // openings only where they belong: the junction ends, bus stops (people board there), side entrances (ok() fails) and
+    // (54th) open in front of each Colombo Fort station entrance: the steps come right down to the kerb
+    const atFortDoor = (x, z) => z > FORT.bld.z0 - 3 && z < FORT.bld.z0 + 0.5 && FORT.entrances.some((e) => Math.abs(x - e.x) < e.w / 2 + 2.6);
     // a 2.4 m pedestrian gap after every 24 m, as on the real barriers (also lets police and medics reach the pavement)
     const off = seg.hw + 0.25, rot = horizontal ? 0 : Math.PI / 2, stops = plan.busStops.filter((q) => q.seg === seg.id);
-    const shut = (t, side) => { const [x, z] = P(t, side, off); return !ok(x, z) || stops.some((q) => q.side === side && Math.abs(q.t - t) < 4.2); };
+    const shut = (t, side) => { const [x, z] = P(t, side, off); return !ok(x, z) || stops.some((q) => q.side === side && Math.abs(q.t - t) < 4.2) || atFortDoor(x, z); };
     for (const side of [-1, 1]) { const runs = []; let a = null;
       for (let t = 14; t <= len - 14 + 1e-6; t += 0.5) { const no = shut(t, side); if (!no && a === null) a = t; if (a !== null && (no || t + 0.5 > len - 14 + 1e-6)) { const e = no ? t - 0.5 : t; if (e - a >= 3) runs.push([a, e]); a = null; } }
       for (const [a0, a1] of runs) { let t = a0;
