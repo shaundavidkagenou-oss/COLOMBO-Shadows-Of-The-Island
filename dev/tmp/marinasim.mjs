@@ -42,3 +42,22 @@ if (mode === 'patrol') {
   for (let i = 0; i < 20 * 900; i++) { const dt = 0.05; t += dt; waterUniforms.uTime.value = t; const c = F.pilot(b, dt); if (!b.route.length) { k = (k + 1) % PATROL.length; b.route = [{ x: PATROL[k][0], z: PATROL[k][1] }]; log.push(`${t.toFixed(0)}s reached → wp${k}`); } b.update(dt, c, env(b)); if (b.slowT > 10) { log.push(`${t.toFixed(0)}s STUCK at (${b.x.toFixed(0)},${b.z.toFixed(0)}) going to wp${k} ${PATROL[k]}`); break; } }
   console.log(log.join('\n'));
 }
+if (mode === 'ride') {
+  // the player's own boat in the marina (raw throttle / steering like the keyboard, not the AI pilot): out of the delivered T-head
+  // slip and down the fairway, and full-throttle rams into the finger pontoons / T-head / spine — never inside a collider, never through
+  const { MARINA } = await import('../../src/boats/Marina.js'); let fails = 0;
+  const inside = (b) => F.blocked(b);
+  const run = (id, x, z, yaw, ctl, secs, label, check) => { const b = new Boat(id, { mode: 'drive', x, z, yaw }); let t = 0, hits = 0, pen = 0, maxV = 0; const st = { b };
+    for (let i = 0; i < secs * 20; i++) { const dt = 0.05; t += dt; F.t = t; waterUniforms.uTime.value = t; const u0 = b.u; b.update(dt, ctl(b, t), env(b)); maxV = Math.max(maxV, Math.abs(b.u)); if (u0 > 0.5 && b.u < 0) hits++; if (inside(b) && t > 0.3) pen++; }
+    const ok = pen === 0 && (!check || check(b)); if (!ok) fails++; console.log((ok ? 'OK  ' : 'FAIL') + ' ' + label.padEnd(34), id.padEnd(11), `end (${b.x.toFixed(1)}, ${b.z.toFixed(1)}) yaw ${(b.yaw * 57.3).toFixed(0)} · max ${maxV.toFixed(1)} m/s · bumps ${hits} · inside-collider frames ${pen}`); return st; };
+  const pursue = (wps) => { let k = 0; return (b) => { let w = wps[k]; if (Math.hypot(w[0] - b.x, w[1] - b.z) < 8 && k < wps.length - 1) w = wps[++k]; const want = Math.atan2(w[0] - b.x, w[1] - b.z); const e = Math.atan2(Math.sin(want - b.yaw), Math.cos(want - b.yaw)); return { thr: Math.abs(e) > 1 ? 0.35 : 0.75, steer: Math.max(-1, Math.min(1, e * 2)) }; }; };
+  for (const id of ['dondra26', 'mirissa46', 'meridian72', 'wjgti', 'police36']) { const M = boatModel(id); const s = MARINA.slip(M.len, M.halfBeam);
+    run(id, s.x, s.z, s.yaw, pursue([[214, s.z - 4], [216, -1300], [205, -1330], [150, -1380], [60, -1420]]), 120, 'slip → fairway → sea', (b) => b.z < -1360); }
+  const fz = MARINA.head.z0 - 11 * 3; // finger 3 (PITCH 11)
+  for (const id of ['dondra26', 'wjgti', 'meridian72']) {
+    run(id, 150, fz, Math.PI / 2, () => ({ thr: 1, steer: 0 }), 12, 'ram W finger 3 end-on (east)', (b) => b.x < 172);
+    run(id, 190, -1340, 0, () => ({ thr: 1, steer: 0 }), 14, 'ram T-head from the north', (b) => b.z < -1288);
+    run(id, 217, fz, -Math.PI / 2, () => ({ thr: 1, steer: 0 }), 12, 'ram E finger 3 end-on (west)', (b) => b.x > 200.5);
+    run(id, 160, -1300, 0, () => ({ thr: 1, steer: 0 }), 14, 'full speed up W fairway into head', (b) => b.z < MARINA.head.z0); }
+  console.log(fails ? `ride: ${fails} FAILED` : 'ride: ALL OK');
+}

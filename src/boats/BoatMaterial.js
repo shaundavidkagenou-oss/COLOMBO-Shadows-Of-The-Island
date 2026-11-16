@@ -79,9 +79,11 @@ export function sailMaterial(color = '#f1ede2') {
       float sHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float sNoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(sHash(i), sHash(i + vec2(1, 0)), f.x), mix(sHash(i + vec2(0, 1)), sHash(i + vec2(1, 1)), f.x), f.y); }`)
       .replace('#include <color_fragment>', `#include <color_fragment>
-      { float rim = 0.0; for (int i = 0; i < ${MAX_HOLES}; i++) { vec3 h = uHoles[i]; if (h.z <= 0.0) continue; vec2 d = (vSail - h.xy) * vec2(1.0, 1.6);
+      { float rim = 0.0; float px = length(fwidth(vSail)); /* sail-space size of a screen pixel: far off, a hole and its frayed rim
+          never shrink below ~1 / ~2.5 px, so the damage still reads at 100 m+ (as the eye picks out a light gap in cloth) instead of vanishing */
+        for (int i = 0; i < ${MAX_HOLES}; i++) { vec3 h = uHoles[i]; if (h.z <= 0.0) continue; vec2 d = (vSail - h.xy) * vec2(1.0, 1.6);
           float ang = atan(d.y, d.x); float r = h.z * (0.75 + 0.5 * sNoise(vec2(ang * 2.2 + float(i) * 3.1, float(i)))); float l = length(d);
-          if (l < r) discard; rim = max(rim, 1.0 - smoothstep(r, r * 1.6, l)); }
+          float rd = max(r, px * 0.6); if (l < rd) discard; float ro = max(r * 1.6, rd + px * 1.9); rim = max(rim, 1.0 - smoothstep(rd, ro, l)); }
         if (uTear > 0.0) { float n = sNoise(vSail * vec2(5.0, 9.0) + uSeed) * 0.65 + sNoise(vSail * vec2(17.0, 23.0) + uSeed * 2.0) * 0.35;
           float lane = abs(fract(vSail.y * 3.0 + vSail.x * 0.8 + uSeed * 0.1) - 0.5);                  // tears run along the panel seams
           if (n < uTear * 0.5 - 0.02 || lane < uTear * 0.05 * n) discard; rim = max(rim, 1.0 - smoothstep(0.0, 0.08, n - uTear * 0.5)); }
