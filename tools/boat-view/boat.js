@@ -12,7 +12,9 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffe
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.shadowMap.enabled = true; document.body.appendChild(renderer.domElement);
 const scene = new THREE.Scene(); scene.background = new THREE.Color(night ? 0x060a12 : 0xa9bccb);
 const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; scene.environmentIntensity = night ? 0.0 : 0.8; if (night) scene.environment = null;
-scene.add(new THREE.HemisphereLight(night ? 0x223044 : 0xdfe8f0, night ? 0x05070a : 0x4a5258, night ? 0.25 : 0.7));
+scene.add(new THREE.HemisphereLight(night ? 0x5f6672 : 0xdfe8f0, night ? 0x10141a : 0x4a5258, night ? 0.54 : 0.7));
+/* night: the same fill the game's Atmosphere gives at full night (hemi ≈ 0.54 of a grey-blue sky, ambient 0.85 of moonlit blue) so the review matches what you see in game */
+if (night) { const am = new THREE.AmbientLight(0xffffff, 0.85); am.color.setRGB(0.34, 0.37, 0.55); scene.add(am); }
 const sun = new THREE.DirectionalLight(night ? 0x8090b0 : 0xfff2e0, night ? 0.12 : 2.6); sun.position.set(14, 22, 10); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -25, right: 25, top: 25, bottom: -25, far: 120 }); scene.add(sun);
 const water = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshStandardMaterial({ color: night ? 0x0b1c26 : 0x1f5c6a, roughness: night ? 0.55 : 0.18, metalness: 0.0 })); water.rotation.x = -Math.PI / 2; water.position.y = -0.95; water.receiveShadow = true; scene.add(water);
 const errors = []; let B = null; const lamps = new BoatLamps(scene);
