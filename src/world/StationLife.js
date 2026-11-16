@@ -22,6 +22,7 @@ import { Character } from '../actors/Character.js';
 import { makeAppearance } from '../actors/Appearance.js';
 import { MeshBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
+import * as goods from '../gfx/Goods.js';
 import { CAR_W, FLOOR_Y } from '../vehicles/TrainModels.js';
 import { SoundBank as SB } from '../audio/SoundBank.js';
 import { Audio } from '../audio/Audio.js';
@@ -94,12 +95,14 @@ function propGeometries() {
     b.cylinder(x, y + 0.13, 0, 0.17, 0.05, 0.07, 10, { col: [0.78, 0.6, 0.3] }); // the heap
     for (let k = 0; k < 6; k++) { const a = k * 1.05 + 0.4; b.cylinder(x + Math.cos(a) * 0.16, y + 0.12, Math.sin(a) * 0.16, 0.022, 0.004, 0.11, 6, { col: [0.95, 0.93, 0.85] }); }
     out.basket = b.build(); }
-  { const b = new MeshBuilder(); // cold drinks: a red plastic crate of 2 × 4 bottles
-    const x = -0.215, y = 0.235, w = 0.2, d = 0.4, h = 0.16; const red = [0.7, 0.1, 0.08];
-    b.box(x, y + 0.008, 0, w, 0.016, d, { col: red, bottom: true }); for (const sx of [-1, 1]) b.box(x + sx * (w / 2 - 0.008), y + h / 2, 0, 0.016, h, d, { col: red }); for (const sz of [-1, 1]) b.box(x, y + h / 2, sz * (d / 2 - 0.008), w, h, 0.016, { col: red });
-    for (let r = 0; r < 2; r++) for (let k = 0; k < 4; k++) { const cx = x + (r ? 0.048 : -0.048), cz = -0.15 + k * 0.1; const col = [[0.2, 0.45, 0.25], [0.85, 0.85, 0.82], [0.55, 0.25, 0.1], [0.75, 0.82, 0.86]][(r + k) % 4];
-      b.cylinder(cx, y + 0.016, cz, 0.032, 0.032, 0.2, 8, { col }); b.cylinder(cx, y + 0.216, cz, 0.032, 0.013, 0.05, 8, { col }); b.cylinder(cx, y + 0.266, cz, 0.014, 0.014, 0.016, 6, { col: [0.85, 0.75, 0.2] }); }
-    out.crate = b.build(); }
+  { const G = new MeshBuilder(), GL = new MeshBuilder(); // cold drinks (55th: real bottles): a moulded red crate of 2 × 4 glass bottles with liquid, labels and caps
+    const x = -0.215, y = 0.235, w = 0.2, d = 0.4, h = 0.16;
+    goods.solid(G, () => { G.box(x, y + 0.008, 0, w, 0.016, d, { col: [1, 1, 1], bottom: true });
+      for (const sx of [-1, 1]) { const xs = x + sx * (w / 2 - 0.008); G.box(xs, y + 0.045, 0, 0.016, 0.06, d, { col: [1, 1, 1] }); G.box(xs, y + h - 0.02, 0, 0.016, 0.04, d, { col: [1, 1, 1] }); for (let k = -2; k <= 2; k++) G.box(xs, y + 0.1, k * 0.085, 0.016, 0.04, 0.03, { col: [1, 1, 1] }); } // ribbed sides with slots
+      for (const sz of [-1, 1]) { const zs = sz * (d / 2 - 0.008); G.box(x, y + 0.05, zs, w, 0.07, 0.016, { col: [1, 1, 1] }); G.box(x - 0.07, y + h - 0.02, zs, 0.06, 0.04, 0.016, { col: [1, 1, 1] }); G.box(x + 0.07, y + h - 0.02, zs, 0.06, 0.04, 0.016, { col: [1, 1, 1] }); G.box(x, y + h - 0.006, zs, 0.08, 0.012, 0.016, { col: [1, 1, 1] }); } // ends with the hand-hole
+      G.box(x, y + 0.11, 0, 0.008, 0.08, d - 0.03, { col: [1, 1, 1] }); for (let k = -1; k <= 1; k++) G.box(x, y + 0.11, k * 0.1, w - 0.03, 0.08, 0.008, { col: [1, 1, 1] }); }, goods.SW.crateRed); // dividers
+    for (let r = 0; r < 2; r++) for (let k = 0; k < 4; k++) goods.bottle(G, GL, x + (r ? 0.048 : -0.048), y + 0.016, -0.15 + k * 0.1, [1, 2, 3, 7][(r + k) % 4], 1);
+    out.crate = G.build(); out.crateGlass = GL.build(); }
   return (PROPS = out);
 }
 const HAND_ON_LOAD = { box: new THREE.Vector3(-0.355, 0.33, 0.06), basket: new THREE.Vector3(-0.39, 0.32, 0.05), crate: new THREE.Vector3(-0.355, 0.33, 0.06) }; // chest space: the right hand on the outer side of the load
@@ -221,7 +224,7 @@ class Vendor extends Agent {
   constructor(sys, idx) { super(sys, 'vendor'); this.idx = idx; this.ware = WARES[idx % WARES.length]; this.wp = (idx * 4) % F.vendorLoop.length; this.pause = 0; this.callT = 4 + idx * 3; this.prop = null; this.customer = null; }
   spawnVendor() {
     const [x, z] = F.vendorLoop[this.wp]; const p = this.spawn(staffSpec(STAFF.vendors[this.idx]), x, z, 0); p.pace = 1.0;
-    const m = new THREE.Mesh(propGeometries()[this.ware.prop], MAT.paint); m.castShadow = true; m.name = 'vendorLoad'; p.ch.bones.chest.add(m); this.prop = m; this.hold(true); this.setPhase('walk');
+    const PG = propGeometries(), crate = this.ware.prop === 'crate'; const m = new THREE.Mesh(PG[this.ware.prop], crate ? goods.goodsMaterial() : MAT.paint); m.castShadow = true; if (crate) { const gl = new THREE.Mesh(PG.crateGlass, goods.bottleGlassMaterial()); gl.renderOrder = 3; gl.name = 'vendorLoadGlass'; m.add(gl); } m.name = 'vendorLoad'; p.ch.bones.chest.add(m); this.prop = m; this.hold(true); this.setPhase('walk');
   }
   hold(on) { const A = this.p && this.p.ch.anim; if (!A) return; A.ik = on ? { R: HAND_ON_LOAD[this.ware.prop], qR: null, wR: 1, poleR: ELBOW_OUT, L: null } : null; }
   think(dt) {

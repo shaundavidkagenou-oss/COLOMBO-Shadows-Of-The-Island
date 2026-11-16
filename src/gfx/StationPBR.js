@@ -69,15 +69,15 @@ function paintLayers() {
   // 1 paint: eggshell wall / board paint — faint roller texture, scuffs
   layers.push(make(({ A, H, R }) => { for (let i = 0; i < N * N; i++) { const scuff = sm(0.7, 0.85, F4[i]) * 0.5; const v = 0.98 + 0.03 * (F1[i] - 0.5) + 0.02 * (F3[i] - 0.5) - 0.05 * scuff; set(A, i, v, v, v * 0.99); H[i] = 0.5 + 0.06 * (F3[i] - 0.5) + 0.04 * (F1[i] - 0.5); R[i] = 0.55 + 0.12 * (F1[i] - 0.5) + 0.15 * scuff; } }));
   // 2 iron: gloss-painted cast iron, layers of old paint, chips to rust at the edges, rust bleeding
-  layers.push(make(({ A, M, H, R, O }) => { for (let i = 0; i < N * N; i++) { const chip = sm(0.66, 0.7, F2[i] * 0.7 + F3[i] * 0.3), rust = sm(0.6, 0.85, F4[i]) * 0.5 + chip;
+  layers.push(make(({ A, M, H, R, O }) => { for (let i = 0; i < N * N; i++) { const chip = sm(0.75, 0.78, F2[i] * 0.7 + F3[i] * 0.3), rust = sm(0.6, 0.85, F4[i]) * 0.5 + chip;
     const v = 0.97 + 0.05 * (F1[i] - 0.5); const r = v * (1 - chip) + chip * 1.55, g = v * (1 - chip) + chip * 0.95, b = v * (1 - chip) + chip * 0.6; set(A, i, r * (1 - 0.15 * rust) + 0.12 * rust, g * (1 - 0.2 * rust), b * (1 - 0.3 * rust));
-    M[i] = 0.15 * chip; H[i] = 0.55 + 0.25 * (F3[i] - 0.5) - 0.35 * chip; R[i] = 0.38 + 0.1 * (F1[i] - 0.5) + 0.45 * chip + 0.15 * rust; O[i] = 1 - 0.25 * chip; } }));
+    M[i] = 0.15 * chip; H[i] = 0.55 + 0.06 * (F3[i] - 0.5) - 0.2 * chip; R[i] = 0.46 + 0.08 * (F1[i] - 0.5) + 0.45 * chip + 0.15 * rust; O[i] = 1 - 0.25 * chip; } }));
   // 3 steel: brushed stainless, directional grain, finger smudges
   layers.push(make(({ A, M, H, R }) => { for (let i = 0; i < N * N; i++) { const g = S1[i], smudge = sm(0.6, 0.8, F1[i]) * 0.5; const v = 0.94 + 0.12 * (g - 0.5) - 0.05 * smudge; set(A, i, v, v * 1.005, v * 1.01); M[i] = 1; H[i] = 0.5 + 0.1 * (g - 0.5); R[i] = 0.28 + 0.14 * (g - 0.5) + 0.18 * smudge; } }));
   // 4 wood: varnished teak-like timber — growth rings along the board, pores, worn varnish
-  layers.push(make(({ A, H, R, O }) => { for (let i = 0; i < N * N; i++) { const x = i % N, y = (i / N) | 0; const t = y / N * 22 + (at(F1, x, y) - 0.5) * 6 + (at(S1, x, y) - 0.5) * 1.5; const ring = t - Math.floor(t); const late = sm(0.55, 0.95, ring) * (1 - sm(0.95, 1.0, ring));
+  layers.push(make(({ A, H, R, O }) => { for (let i = 0; i < N * N; i++) { const x = i % N, y = (i / N) | 0; const t = y / N * 22 + (at(F1, x, y) - 0.5) * 3 + (at(S1, x, y) - 0.5) * 1.0; const ring = t - Math.floor(t); const late = sm(0.55, 0.95, ring) * (1 - sm(0.95, 1.0, ring));
     const pore = sm(0.62, 0.7, at(S1, (x * 3) % N, (y * 2) % N)) * 0.4, wear = sm(0.68, 0.85, F4[i]);
-    const v = 1.04 - 0.22 * late - 0.08 * pore + 0.05 * (F3[i] - 0.5) + 0.06 * wear; set(A, i, v * 1.03, v * 0.98, v * 0.9); H[i] = 0.5 - 0.25 * late - 0.3 * pore; R[i] = 0.42 + 0.1 * late + 0.25 * wear; O[i] = 1 - 0.2 * pore; } }));
+    const v = 1.04 - 0.22 * late - 0.08 * pore + 0.05 * (F3[i] - 0.5) + 0.06 * wear; set(A, i, v * 1.03, v * 0.98, v * 0.9); H[i] = 0.5 - 0.07 * late - 0.12 * pore; R[i] = 0.42 + 0.1 * late + 0.25 * wear; O[i] = 1 - 0.2 * pore; } }));
   // 5 pavers: terracotta / cement pavers 30 cm (8 × 8 per 2.4 m), sanded joints, each slab its own shade, grime, pits
   { const C = cells(8, 8, false); layers.push(make(({ A, H, R, O }) => { for (let i = 0; i < N * N; i++) { const e = C.ed[i], id = C.id[i]; const joint = sm(3.2, 1.4, e); const s = hash(id, 3, 5), s2 = hash(id, 9, 7); const pit = sm(0.8, 0.9, F3[i]) * 0.6;
     const v = (0.9 + 0.18 * (s - 0.5) + 0.08 * (F2[i] - 0.5) - 0.12 * sm(0.62, 0.85, F1[i]) - 0.1 * pit) * (1 - 0.45 * joint); set(A, i, v * (1 + 0.05 * (s2 - 0.5)), v, v * (1 - 0.05 * (s2 - 0.5)));
@@ -87,7 +87,7 @@ function paintLayers() {
     for (let k = 0; k < 5200; k++) { const cx = r() * N, cy = r() * N, rad = 1.2 + r() * r() * 5.5, tone = [[1.18, 1.16, 1.1], [0.62, 0.62, 0.62], [0.32, 0.31, 0.3], [1.1, 0.95, 0.75], [0.85, 0.84, 0.82]][(r() * 5) | 0]; const ax = 0.6 + r() * 0.8;
       for (let dy = -Math.ceil(rad); dy <= Math.ceil(rad); dy++) for (let dx = -Math.ceil(rad * ax); dx <= Math.ceil(rad * ax); dx++) { if ((dx / ax) ** 2 + dy * dy > rad * rad) continue; const x = ((Math.floor(cx) + dx) % N + N) % N, y = ((Math.floor(cy) + dy) % N + N) % N, j = (y * N + x) * 3; chip[j] = tone[0]; chip[j + 1] = tone[1]; chip[j + 2] = tone[2]; } }
     for (let i = 0; i < N * N; i++) { const base = 0.97 + 0.05 * (F2[i] - 0.5); const has = chip[i * 3] >= 0; const wear = sm(0.55, 0.8, F1[i]);
-      set(A, i, has ? chip[i * 3] : base, has ? chip[i * 3 + 1] : base * 0.99, has ? chip[i * 3 + 2] : base * 0.97); H[i] = 0.5 + 0.04 * (F3[i] - 0.5); R[i] = 0.16 + 0.22 * wear + 0.05 * (F3[i] - 0.5); } }));
+      set(A, i, has ? chip[i * 3] : base, has ? chip[i * 3 + 1] : base * 0.99, has ? chip[i * 3 + 2] : base * 0.97); H[i] = 0.5 + 0.015 * (F3[i] - 0.5); R[i] = 0.34 + 0.24 * wear + 0.05 * (F3[i] - 0.5); /* 55th: worn station terrazzo is satin, not a wet mirror */ } }));
   // 7 concrete: cast concrete / stone coping — pitting, form marks, dark weathering
   layers.push(make(({ A, H, R, O }) => { for (let i = 0; i < N * N; i++) { const pit = sm(0.78, 0.86, F3[i]); const v = 0.95 + 0.14 * (F1[i] - 0.5) + 0.08 * (F2[i] - 0.5) - 0.18 * pit - 0.1 * sm(0.6, 0.85, F4[i]); set(A, i, v, v * 0.99, v * 0.97); H[i] = 0.55 + 0.2 * (F2[i] - 0.5) + 0.15 * (F3[i] - 0.5) - 0.4 * pit; R[i] = 0.9 - 0.05 * F1[i]; O[i] = 1 - 0.4 * pit; } }));
   // 8 mosaic: 25 mm glass / ceramic mosaic (48 per 1.2 m), each tessera its own shade, grout lines

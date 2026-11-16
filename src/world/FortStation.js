@@ -128,6 +128,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   const wglass = mb.get('winGlass'), glass = mb.get('glass'), emis = mb.get('emissive'), corr = mb.get('corrugated');
   // box from bounds
   const B = (b, x0, x1, y0, y1, z0, z1, col, o = {}) => { if (x1 < x0) [x0, x1] = [x1, x0]; if (y1 < y0) [y0, y1] = [y1, y0]; if (z1 < z0) [z0, z1] = [z1, z0]; if (x1 - x0 < 1e-4 || y1 - y0 < 1e-4 || z1 - z0 < 1e-4) return; b.box((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, x1 - x0, y1 - y0, z1 - z0, { col: cc(col), uvScale: o.uv || 3, bottom: o.bottom ?? true, top: o.top ?? true }); };
+  const XC = new THREE.CylinderGeometry(1, 1, 1, 18); const xcyl = (b, xa, xb2, y, z, r, col) => b.geometry(XC, new THREE.Matrix4().makeRotationZ(Math.PI / 2).premultiply(new THREE.Matrix4().makeScale(Math.abs(xb2 - xa), r, r)).setPosition((xa + xb2) / 2, y, z), col); // round bar along x
   const coll = (x0, x1, z0, z1, h, extra = {}) => colliders.push({ x0, x1, z0, z1, h, kind: 'landmark', ...extra });
   const surf = (x0, x1, z0, z1, h, kind = 'platform', extra = {}) => colliders.push({ x0, x1, z0, z1, h, kind, ...extra });
   const up = (b, x0, x1, z0, z1, y, col) => b.quad([x0, y, z1], [x1, y, z1], [x1, y, z0], [x0, y, z0], [x0 / 3, z0 / 3, x1 / 3, z1 / 3], cc(col)); // upward rectangle
@@ -327,10 +328,24 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   for (let k = 0; k <= 8; k++) { const z = k === 0 ? F.windows[0].z - 1.1 : F.windows[k - 1].z + 1.1; if (z < ZF + 0.6 || z > ZB - 0.6) continue; const xa = -59.6, xb = -55.6;
     for (let p = 0; p <= 3; p++) metal.cylinder(xa + (p / 3) * (xb - xa), FL, z, 0.025, 0.025, 1.0, 8, { col: cc(STEEL) }); for (const h of [0.5, 0.98]) rod(metal, xa, FL + h, z, xb, FL + h, z, 0.018, cc(STEEL)); coll(xa, xb, z - 0.05, z + 0.05, FL + 1.0); }
   // benches (hall + platform 1): slatted wooden seat and back on cast-iron ends
+  // 55th: a real station bench — cast-iron ends (curved front leg on a foot, raked rear leg running up into the back post, seat
+  // rail, armrests on the outer ends), hardwood seat slats with gaps and a rounded nose, raked back slats, carriage bolts at
+  // every slat / end crossing, an iron stretcher under the seat. s: the side the back is on (±z); seat top at FL + 0.45.
+  const bench = (x0, x1, zc, s) => { const ends = [x0 + 0.1, (x0 + x1) / 2, x1 - 0.1], Z = (d) => zc + s * d, BOLT = '#1c1c1a';
+    for (let q = 0; q < 4; q++) { const d0 = -0.235 + q * 0.105; B(paint, x0, x1, FL + 0.415, FL + 0.45, Z(d0), Z(d0 + 0.085), BENCH); }
+    xcyl(paint, x0, x1, FL + 0.432, Z(-0.24), 0.018, cc(BENCH)); // rounded nose of the front slat
+    for (let q = 0; q < 3; q++) { const y = FL + 0.56 + q * 0.13, d = 0.215 + (y - FL - 0.45) * 0.2; B(paint, x0, x1, y, y + 0.095, Z(d), Z(d + 0.028), BENCH); } // raked back
+    for (const ex of ends) { const outer = ex !== ends[1], R = (ax, ay, ad, bx2, by2, bd, w, h) => beam(metal, ex, FL + ay, Z(ad), ex, FL + by2, Z(bd), w, h, cc(IRON));
+      R(0, 0.02, -0.25, 0, 0.2, -0.27, 0.05, 0.035); R(0, 0.2, -0.27, 0, 0.4, -0.235, 0.05, 0.035); // curved front leg (two segments)
+      B(metal, ex - 0.035, ex + 0.035, FL, FL + 0.025, Z(-0.3), Z(-0.2), IRON); B(metal, ex - 0.035, ex + 0.035, FL, FL + 0.025, Z(0.2), Z(0.3), IRON); // feet
+      R(0, 0.02, 0.25, 0, 0.4, 0.2, 0.05, 0.035); R(0, 0.4, 0.2, 0, 0.98, 0.32, 0.05, 0.035); // rear leg + back post
+      R(0, 0.39, -0.26, 0, 0.395, 0.21, 0.035, 0.05); // seat rail
+      if (outer) { R(0, 0.395, -0.2, 0, 0.64, -0.21, 0.04, 0.03); R(0, 0.66, -0.25, 0, 0.66, 0.26, 0.05, 0.03); paint.cylinder(ex, FL + 0.645, Z(-0.255), 0.022, 0.022, 0.03, 8, { col: cc(BENCH) }); } // armrest + its scroll cap
+      for (let q = 0; q < 4; q++) { const d = -0.235 + q * 0.105 + 0.042; B(metal, ex - 0.008, ex + 0.008, FL + 0.45, FL + 0.455, Z(d) - 0.008, Z(d) + 0.008, BOLT); }
+      for (let q = 0; q < 3; q++) { const y = FL + 0.6 + q * 0.13, d = 0.215 + (y - FL - 0.45) * 0.2; B(metal, ex - 0.008, ex + 0.008, y - 0.008, y + 0.008, Z(d) - 0.005 * s, Z(d), BOLT); } }
+    beam(metal, x0 + 0.1, FL + 0.18, Z(0.0), x1 - 0.1, FL + 0.18, Z(0.0), 0.03, 0.03, cc(IRON)); }
   for (let i = 0; i < F.benches.length; i += 3) { const a = F.benches[i], c = F.benches[i + 2]; const x0 = Math.min(a.x, c.x) - 0.5, x1 = Math.max(a.x, c.x) + 0.5, zc = a.z, s = a.yaw ? 1 : -1; // s: side of the backrest
-    for (let k = 0; k < 3; k++) B(paint, x0, x1, FL + 0.42, FL + 0.45, zc - 0.22 + k * 0.15, zc - 0.12 + k * 0.15, BENCH); for (let k = 0; k < 3; k++) B(paint, x0, x1, FL + 0.55 + k * 0.13, FL + 0.64 + k * 0.13, zc + s * 0.27, zc + s * 0.3, BENCH);
-    for (const ex of [x0 + 0.1, (x0 + x1) / 2, x1 - 0.1]) { B(metal, ex - 0.03, ex + 0.03, FL, FL + 0.42, zc - 0.22, zc - 0.18, IRON); B(metal, ex - 0.03, ex + 0.03, FL, FL + 0.95, zc + s * 0.26, zc + s * 0.31, IRON); B(metal, ex - 0.03, ex + 0.03, FL + 0.38, FL + 0.42, zc - 0.25, zc + 0.3, IRON); }
-    coll(x0, x1, zc - 0.25, zc + 0.31, FL + 0.48); }
+    bench(x0, x1, zc, s); coll(x0, x1, zc - 0.25, zc + 0.31, FL + 0.48); }
   // kiosks: food & drinks (glass display, shelves of packets), books & newspapers
   // kiosks (55th: rebuilt as real booths): painted steel side and back panels, a counter with a laminate top and a stainless
   // kick plate, a framed glass display case on it, a roof with an overhang and its tube light, strips of snack sachets
@@ -392,7 +407,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
     for (const z of [-645, -636]) { metal.cylinder(-1, FL + 3.8, z, 0.015, 0.015, 0.4, 6, { col: cc('#ddd') }); paint.cylinder(-1, FL + 3.7, z, 0.12, 0.12, 0.12, 10, { col: cc('#e8e8e0') }); for (let k = 0; k < 3; k++) { const a = k * 2.094 + z; ebox(paint, -1 + Math.cos(a) * 0.42, FL + 3.74, z + Math.sin(a) * 0.42, 0.66, 0.012, 0.12, 0, -a, 0, cc('#e9e7df')); } }
     for (const z of [-647, -640, -633]) B(emis, -5.6, -4.4, FL + 4.12, FL + 4.16, z - 0.03, z + 0.03, [1, 0.98, 0.92]);
     for (let k = 0; k < 6; k++) rod(metal, -5.8 + k * 0.7, FL + 1.2, ZB - 0.45, -5.8 + k * 0.7, FL + 2.6, ZB - 0.45, 0.012, cc('#2a2a2a')); B(wglass, -6, -2, FL + 1.2, FL + 2.6, ZB - 0.21, ZB - 0.19, '#000');
-    for (const z of [-646.5, -642.5]) { B(paint, -8.6, -5.4, FL + 0.42, FL + 0.46, z - 0.22, z + 0.22, BENCH); B(paint, -8.6, -5.4, FL + 0.55, FL + 0.9, z + 0.24, z + 0.28, BENCH); B(metal, -8.6, -5.4, FL, FL + 0.42, z - 0.05, z + 0.05, IRON); coll(-8.6, -5.4, z - 0.25, z + 0.3, FL + 0.48); }
+    for (const z of [-646.5, -642.5]) { bench(-8.6, -5.4, z, 1); coll(-8.6, -5.4, z - 0.25, z + 0.3, FL + 0.48); }
   }
   { const A = F.ann; // the announcer's room: desk under the window onto platform 1, gooseneck mic, PA console, phone, timetable, clock, fan
     B(paint, 9.0, 13.6, FL + 0.72, FL + 0.77, ZB - 1.2, ZB - 0.42, '#6d5a44'); B(paint, 9.05, 9.15, FL, FL + 0.72, ZB - 1.15, ZB - 0.45, '#5a4a38'); B(paint, 13.45, 13.55, FL, FL + 0.72, ZB - 1.15, ZB - 0.45, '#5a4a38'); coll(9.0, 13.6, ZB - 1.2, ZB - 0.42, FL + 0.8);
@@ -429,7 +444,6 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   endSteps(P1.x0, -1, P1.z0 + 2, P1.z1 - 1); endSteps(P1.x1, 1, P1.z0 + 2, P1.z1 - 1); for (const I of F.islands) { endSteps(I.x0, -1, I.z0 + 1, I.z1 - 1); endSteps(I.x1, 1, I.z0 + 1, I.z1 - 1); }
   // sidings: ballast bed, concrete sleepers, rails, buffer stops at both ends
   const ball = mb.get('ballast');
-  const XC = new THREE.CylinderGeometry(1, 1, 1, 18); const xcyl = (b, xa, xb2, y, z, r, col) => b.geometry(XC, new THREE.Matrix4().makeRotationZ(Math.PI / 2).premultiply(new THREE.Matrix4().makeScale(Math.abs(xb2 - xa), r, r)).setPosition((xa + xb2) / 2, y, z), col); // round bar along x
   for (const S of F.sidings) { ball.box((S.x0 + S.x1) / 2, (Y + BALLAST_Y) / 2, S.z, S.x1 - S.x0, BALLAST_Y - Y + 0.02, 3.4, { col: [0.82, 0.8, 0.77], uvScale: 2 }); surf(S.x0, S.x1, S.z - 1.7, S.z + 1.7, BALLAST_Y, 'deck');
     for (let x = S.x0 + 0.3; x < S.x1 - 0.2; x += 0.65) B(stone, x - 0.12, x + 0.12, BALLAST_Y - 0.04, BALLAST_Y + 0.15, S.z - 1.3, S.z + 1.3, '#8f8b84', { bottom: false });
     for (const e of [-1, 1]) { B(metal, S.x0, S.x1, BALLAST_Y + 0.15, RAIL_TOP, S.z + e * GAUGE / 2 - 0.035, S.z + e * GAUGE / 2 + 0.035, '#6a625a', { bottom: false }); B(metal, S.x0, S.x1, RAIL_TOP - 0.02, RAIL_TOP, S.z + e * GAUGE / 2 - 0.036, S.z + e * GAUGE / 2 + 0.036, '#b8b4ae'); }
