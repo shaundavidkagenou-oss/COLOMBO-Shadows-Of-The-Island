@@ -67,7 +67,7 @@ function paintLayers() {
     const v = 0.955 + 0.06 * (F1[i] - 0.5) + 0.05 * (F3[i] - 0.5) - 0.025 * streak - 0.22 * crack - 0.04 * sm(0.6, 0.9, F4[i]); set(A, i, v * 1.0, v * 0.99, v * 0.965);
     H[i] = 0.5 + 0.07 * (F3[i] - 0.5) + 0.09 * (F2[i] - 0.5) + 0.12 * (F1[i] - 0.5) - 0.25 * crack; /* 55th: smooth painted render with a soft undulation — the old grit read as rough stucco */ R[i] = 0.9 + 0.08 * (F3[i] - 0.5); O[i] = 1 - 0.5 * crack; } }));
   // 1 paint: eggshell wall / board paint — faint roller texture, scuffs
-  layers.push(make(({ A, H, R }) => { for (let i = 0; i < N * N; i++) { const scuff = sm(0.7, 0.85, F4[i]) * 0.5; const v = 0.98 + 0.03 * (F1[i] - 0.5) + 0.02 * (F3[i] - 0.5) - 0.05 * scuff; set(A, i, v, v, v * 0.99); H[i] = 0.5 + 0.25 * (F3[i] - 0.5); R[i] = 0.55 + 0.12 * (F1[i] - 0.5) + 0.15 * scuff; } }));
+  layers.push(make(({ A, H, R }) => { for (let i = 0; i < N * N; i++) { const scuff = sm(0.7, 0.85, F4[i]) * 0.5; const v = 0.98 + 0.03 * (F1[i] - 0.5) + 0.02 * (F3[i] - 0.5) - 0.05 * scuff; set(A, i, v, v, v * 0.99); H[i] = 0.5 + 0.06 * (F3[i] - 0.5) + 0.04 * (F1[i] - 0.5); R[i] = 0.55 + 0.12 * (F1[i] - 0.5) + 0.15 * scuff; } }));
   // 2 iron: gloss-painted cast iron, layers of old paint, chips to rust at the edges, rust bleeding
   layers.push(make(({ A, M, H, R, O }) => { for (let i = 0; i < N * N; i++) { const chip = sm(0.66, 0.7, F2[i] * 0.7 + F3[i] * 0.3), rust = sm(0.6, 0.85, F4[i]) * 0.5 + chip;
     const v = 0.97 + 0.05 * (F1[i] - 0.5); const r = v * (1 - chip) + chip * 1.55, g = v * (1 - chip) + chip * 0.95, b = v * (1 - chip) + chip * 0.6; set(A, i, r * (1 - 0.15 * rust) + 0.12 * rust, g * (1 - 0.2 * rust), b * (1 - 0.3 * rust));

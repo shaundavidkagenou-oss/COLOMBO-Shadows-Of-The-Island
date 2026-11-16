@@ -23,6 +23,7 @@ import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { LayerRouter, mergeLayered, stationMaterial, colKey } from '../gfx/StationPBR.js';
 import { setInterior, setInteriorNight, patchInterior } from '../gfx/InteriorLight.js';
 import { MAT } from '../gfx/Materials.js';
+import * as goods from '../gfx/Goods.js';
 import { FORT } from './FortStationData.js';
 import { RAIL_TOP, BALLAST_Y, GAUGE } from './Railway.js';
 import { buildClassicCoach, buildDmuCar, ebox, beam, solids, COACH_LEN, CAR_LEN as DMU_LEN } from '../vehicles/TrainModels.js';
@@ -145,6 +146,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
     if (hang) for (const e of [-0.65, 0.65]) { const hx = x + (n[0] ? -n[0] * 0.05 : e), hz = z + (n[2] ? -n[2] * 0.05 : e); metal.cylinder(hx, y + hh, hz, 0.012, 0.012, Math.max(0.1, hang - y - hh), 6, { col: cc('#8a8d8f') }); B(metal, hx - 0.04, hx + 0.04, y + hh, y + hh + 0.03, hz - 0.04, hz + 0.04, '#5a5d5f'); }
     lcdSpots.push({ x, y, z, f, k }); };
   const lcdSpots = [], hangSigns = [];
+  const GB = new MultiBuilder(), GD = GB.get('goods'), BG = GB.get('bottleGlass'); // printed goods + bottle glass (section 8)
   const clocks = []; // {x, y, z, face, r}
   const anim = { clocks, ledMeshes: [] };
   // a round station clock (55th): case behind the dial plane, a moulded / brass rim proud of it, the round enamel dial
@@ -330,13 +332,44 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
     for (const ex of [x0 + 0.1, (x0 + x1) / 2, x1 - 0.1]) { B(metal, ex - 0.03, ex + 0.03, FL, FL + 0.42, zc - 0.22, zc - 0.18, IRON); B(metal, ex - 0.03, ex + 0.03, FL, FL + 0.95, zc + s * 0.26, zc + s * 0.31, IRON); B(metal, ex - 0.03, ex + 0.03, FL + 0.38, FL + 0.42, zc - 0.25, zc + 0.3, IRON); }
     coll(x0, x1, zc - 0.25, zc + 0.31, FL + 0.48); }
   // kiosks: food & drinks (glass display, shelves of packets), books & newspapers
-  const kiosk = (x0, x1, z0, z1, sign) => { B(paint, x0, x1, FL, FL + 1.0, z0, z1, '#7a2a1c'); B(glass, x0 + 0.05, x1 - 0.05, FL + 1.0, FL + 1.45, z0 - 0.01, z0 + 0.5, '#9fb8c0'); B(paint, x0, x1, FL + 2.5, FL + 2.62, z0 - 0.3, z1, '#f2f0e8');
-    for (const xx of [x0, x1]) B(metal, xx - 0.03, xx + 0.03, FL + 1.0, FL + 2.5, z0, z0 + 0.06, STEEL); for (let r = 0; r < 3; r++) { B(paint, x0 + 0.1, x1 - 0.1, FL + 1.25 + r * 0.38, FL + 1.28 + r * 0.38, z1 - 0.45, z1 - 0.05, '#c8b89a'); for (let k = 0; k < 9; k++) B(paint, x0 + 0.15 + k * (x1 - x0 - 0.3) / 9, x0 + 0.15 + (k + 0.7) * (x1 - x0 - 0.3) / 9, FL + 1.28 + r * 0.38, FL + 1.5 + r * 0.38, z1 - 0.35, z1 - 0.12, ['#e0b030', '#c02020', '#2060b0', '#20a050', '#f0f0e0'][(k + r) % 5]); }
-    { const w = Math.min(2.4, x1 - x0 + 0.3), cx = (x0 + x1) / 2, sy = FL + 2.98; // 55th: the name board stands ON the kiosk roof in a channel frame with two back struts (it used to float in front of the roof edge)
-      B(paint, cx - w / 2 - 0.03, cx + w / 2 + 0.03, FL + 2.62, sy + 0.33, z0 - 0.27, z0 - 0.22, '#2a2a2a'); signQuad(SD, cx, sy, z0 - 0.272, w, 0.6, '-z', T.sign(sign));
-      for (const e of [-w / 2 + 0.2, w / 2 - 0.2]) { beam(metal, cx + e, sy + 0.15, z0 - 0.22, cx + e, FL + 2.62, z0 + 0.35, 0.03, 0.03, cc('#555')); B(metal, cx + e - 0.04, cx + e + 0.04, FL + 2.62, FL + 2.64, z0 + 0.3, z0 + 0.42, '#555'); } }
-    coll(x0, x1, z0, z1, FL + 2.6); };
-  kiosk(-14.5, -11.2, -636.2, -632.2, 0); kiosk(-14.5, -11.2, -648.6, -645.6, 1);
+  // kiosks (55th: rebuilt as real booths): painted steel side and back panels, a counter with a laminate top and a stainless
+  // kick plate, a framed glass display case on it, a roof with an overhang and its tube light, strips of snack sachets
+  // clipped along the front, back shelves of printed goods (bottles with liquid, labels and caps; packets; bars), a
+  // drinks cooler (food) or a book / magazine wall and a newspaper rack (books). sf: the side the counter faces (−1 = −z).
+  const kiosk = (x0, x1, za, zb, sign, sf) => { const zf = sf < 0 ? za : zb, zk = sf < 0 ? zb : za, I = (d) => zf - sf * d; // I(d): d metres in from the counter front
+    const zr = (a, b) => [Math.min(I(a), I(b)), Math.max(I(a), I(b))]; const RD = '#7a2a1c', food = sign === 0;
+    for (const xe of [x0, x1 - 0.05]) { B(paint, xe, xe + 0.05, FL, FL + 2.5, ...zr(0, Math.abs(zk - zf)), RD); } // side panels
+    B(paint, x0, x1, FL, FL + 2.5, ...zr(Math.abs(zk - zf) - 0.05, Math.abs(zk - zf)), RD); // back panel
+    B(paint, x0 + 0.05, x1 - 0.05, FL, FL + 1.0, ...zr(0, 0.55), RD); B(metal, x0 + 0.05, x1 - 0.05, FL, FL + 0.16, ...zr(-0.004, 0.0), STEEL); // counter front + kick plate
+    B(paint, x0 - 0.02, x1 + 0.02, FL + 1.0, FL + 1.04, ...zr(-0.04, 0.6), '#5a3520'); // laminate top (wood)
+    { const [c0, c1] = zr(0.04, 0.5), y0 = FL + 1.04, y1 = FL + 1.42; // display case: steel frame, glass panes, two tiers of goods
+      for (const xe of [x0 + 0.08, x1 - 0.08]) for (const ze of [c0, c1]) B(metal, xe - 0.015, xe + 0.015, y0, y1, ze - 0.015, ze + 0.015, STEEL);
+      for (const ze of [c0, c1]) B(metal, x0 + 0.08, x1 - 0.08, y1 - 0.02, y1, ze - 0.015, ze + 0.015, STEEL); B(metal, x0 + 0.08, x1 - 0.08, y1 - 0.004, y1, c0, c1, '#ccc');
+      B(glass, x0 + 0.08, x1 - 0.08, y0, y1 - 0.02, I(0.045) - 0.003, I(0.045) + 0.003, '#9fb8c0'); for (const xe of [x0 + 0.08, x1 - 0.08]) B(glass, xe - 0.003, xe + 0.003, y0, y1 - 0.02, c0, c1, '#9fb8c0');
+      B(paint, x0 + 0.1, x1 - 0.1, y0 + 0.17, y0 + 0.18, c0 + 0.02, c1 - 0.02, '#e8e4d8'); // glass shelf (seen as a white edge)
+      let k = 0; for (let x = x0 + 0.18; x < x1 - 0.2; x += 0.13, k++) { goods.packet(GD, x, y0, (c0 + c1) / 2 + ((k % 2) - 0.5) * 0.12, 0.1, 0.03, 0.15, goods.GOODS.small(k % 8)); goods.packet(GD, x, y0 + 0.18, (c0 + c1) / 2, 0.1, 0.11, 0.025, goods.GOODS.small((k + 3) % 8), sf < 0 ? 0 : Math.PI); }
+      if (food) for (let r = 0; r < 2; r++) for (let q = 0; q < 6; q++) paint.cylinder(x0 + 0.35 + q * 0.09, y0 + 0.012 + r * 0.02, I(0.12 + r * 0.07), 0.04, 0.04, 0.02, 10, { col: cc('#a8641e') }); } // isso wade on a tray
+    B(paint, x0 - 0.05, x1 + 0.05, FL + 2.5, FL + 2.62, ...zr(-0.3, Math.abs(zk - zf) + 0.05), '#f2f0e8'); B(emis, x0 + 0.3, x1 - 0.3, FL + 2.47, FL + 2.5, ...zr(0.1, 0.14), [1, 0.98, 0.92]); // roof + tube
+    rod(metal, x0 + 0.05, FL + 2.42, I(-0.15), x1 - 0.05, FL + 2.42, I(-0.15), 0.006, cc('#888')); for (let q = 0; q < 7; q++) goods.strip(GD, x0 + 0.3 + q * ((x1 - x0 - 0.6) / 6), FL + 2.42, I(-0.15), 4 + (q % 3), (q * 3) % 8, sf < 0 ? 'z' : 'z', q); // clip line + sachet strips
+    // back shelves: steel uprights, 4 timber boards, each a row of goods
+    const zs0 = Math.abs(zk - zf) - 0.45, zs1 = Math.abs(zk - zf) - 0.05; const [s0, s1] = zr(zs0, zs1); const xr0 = x0 + 0.08 + (food ? 0.72 : 0), xr1 = x1 - 0.08;
+    for (const xe of [xr0, xr1 - 0.03]) B(metal, xe, xe + 0.03, FL + 1.0, FL + 2.4, s0, s1, '#888');
+    for (let r = 0; r < 4; r++) { const y = FL + 1.05 + r * 0.34; B(paint, xr0, xr1, y, y + 0.022, s0, s1, '#6b4a2c'); const yy = y + 0.022;
+      if (food) { if (r === 3) { let k = 0; for (let x = xr0 + 0.07; x < xr1 - 0.05; x += 0.075, k++) goods.bottle(GD, BG, x, yy, I(zs0 + 0.2), k % 8, 1); } // bottles
+        else if (r === 2) { let k = 0; for (let x = xr0 + 0.06; x < xr1 - 0.06; x += 0.11, k++) goods.packet(GD, x, yy, I(zs0 + 0.2), 0.095, 0.19, 0.055, goods.GOODS.pack(k % 8), sf < 0 ? 0 : Math.PI); }
+        else if (r === 1) { let k = 0; for (let x = xr0 + 0.06; x < xr1 - 0.06; x += 0.1, k++) for (let st = 0; st < 3; st++) goods.packet(GD, x, yy + st * 0.032, I(zs0 + 0.2), 0.085, 0.03, 0.06, goods.GOODS.small((k + st) % 8), sf < 0 ? 0 : Math.PI); }
+        else { let k = 0; for (let x = xr0 + 0.07; x < xr1 - 0.06; x += 0.12, k++) goods.packet(GD, x, yy, I(zs0 + 0.18), 0.1, 0.25, 0.07, goods.GOODS.pack((k + 2) % 8), sf < 0 ? 0 : Math.PI); } }
+      else { let k = 0; for (let x = xr0 + 0.04; x < xr1 - 0.04; k++) { const w = 0.025 + ((k * 7) % 5) * 0.008, h = 0.2 + ((k * 3) % 4) * 0.025; B(paint, x, x + w, yy, yy + h, I(zs0 + 0.08) - 0.1, I(zs0 + 0.08) + 0.1, ['#7a1e12', '#1d4fae', '#1f6a3a', '#e8e0c8', '#3a2a1a', '#c9a227', '#5a2a6a'][k % 7]); x += w + 0.004; } } } // books, spines out
+    if (food) { const cx = x0 + 0.42, [q0, q1] = zr(zs0 - 0.2, zs1); B(paint, cx - 0.34, cx + 0.34, FL, FL + 1.85, q0, q1, '#f0f0ec'); const zg = I(zs0 - 0.2); // drinks cooler: white cabinet, lit inside, glass door, 4 shelves of bottles
+      B(emis, cx - 0.28, cx + 0.28, FL + 1.74, FL + 1.76, Math.min(zg, zg - sf * 0.4), Math.max(zg, zg - sf * 0.4), [0.9, 0.95, 1]); B(paint, cx - 0.3, cx + 0.3, FL + 1.55, FL + 1.8, zg - 0.002 * sf - 0.001, zg - 0.002 * sf + 0.001, '#b3121a');
+      for (let r = 0; r < 4; r++) { const y = FL + 0.2 + r * 0.33; B(metal, cx - 0.3, cx + 0.3, y - 0.01, y, Math.min(zg, zg + sf * 0.5), Math.max(zg, zg + sf * 0.5), '#ccc'); for (let q = 0; q < 6; q++) goods.bottle(GD, BG, cx - 0.24 + q * 0.095, y, I(zs0 - 0.3), (q + r * 2) % 8, 1); }
+      B(glass, cx - 0.32, cx + 0.32, FL + 0.1, FL + 1.52, zg - sf * 0.004 - 0.003, zg - sf * 0.004 + 0.003, '#9fb8c0'); for (const xe of [cx - 0.33, cx + 0.31]) B(metal, xe, xe + 0.02, FL + 0.1, FL + 1.52, zg - 0.01, zg + 0.01, '#bbb'); }
+    else { const [r0, r1] = zr(-0.75, -0.15); for (const xe of [x0 + 0.2, x1 - 0.23]) for (const ze of [r0, r1 - 0.03]) B(metal, xe, xe + 0.03, FL, FL + 0.75, ze, ze + 0.03, '#2e2e2e'); B(metal, x0 + 0.2, x1 - 0.2, FL + 0.72, FL + 0.75, r0, r1, '#2e2e2e'); B(metal, x0 + 0.2, x1 - 0.2, FL + 0.2, FL + 0.22, r0, r1, '#2e2e2e'); for (let k = 0; k < 6; k++) goods.paper(GD, x0 + 0.42 + (k % 3) * 0.8, FL + 0.22 + Math.floor(k / 3) * 0.02, (r0 + r1) / 2, (k + 1) % 4, Math.PI / 2); for (let k = 0; k < 8; k++) goods.paper(GD, x0 + 0.42 + (k % 4) * 0.62, FL + 0.75 + Math.floor(k / 4) * 0.014, (r0 + r1) / 2, k % 4, Math.PI / 2 + (k * 0.07 - 0.2)); } // newspaper rack in front
+    { const w = Math.min(2.4, x1 - x0 + 0.3), cx = (x0 + x1) / 2, sy = FL + 2.98, zS = I(-0.25), fs = sf < 0 ? '-z' : '+z'; // name board on the roof
+      B(paint, cx - w / 2 - 0.03, cx + w / 2 + 0.03, FL + 2.62, sy + 0.33, Math.min(zS, zS - sf * 0.05), Math.max(zS, zS - sf * 0.05), '#2a2a2a'); signQuad(SD, cx, sy, zS + sf * 0.002, w, 0.6, fs, T.sign(sign));
+      for (const e of [-w / 2 + 0.2, w / 2 - 0.2]) beam(metal, cx + e, sy + 0.15, zS - sf * 0.05, cx + e, FL + 2.62, I(0.4), 0.03, 0.03, cc('#555')); }
+    coll(x0, x1, za, zb, FL + 2.6); if (!food) coll(x0 + 0.2, x1 - 0.2, ...zr(-0.75, -0.15), FL + 0.8); };
+  kiosk(-14.5, -11.2, -636.2, -632.2, 0, -1); kiosk(-14.5, -11.2, -648.6, -645.6, 1, 1);
   // ceiling fans + tube lights, hanging LCD screens, the hall clock, the red LED clock on the counter wall, wayfinding
   for (const x of [-52, -35, -18]) for (const z of [-645, -636]) { metal.cylinder(x, F.hall.ceil - 0.6, z, 0.015, 0.015, 0.6, 6, { col: cc('#ddd') }); paint.cylinder(x, F.hall.ceil - 0.72, z, 0.13, 0.13, 0.14, 10, { col: cc('#e8e8e0') }); for (let k = 0; k < 3; k++) { const a = k * 2.094 + x; ebox(paint, x + Math.cos(a) * 0.45, F.hall.ceil - 0.68, z + Math.sin(a) * 0.45, 0.72, 0.012, 0.13, 0, -a, 0, cc('#e9e7df')); } }
   for (let x = -57; x < -12; x += 5) for (const z of [-648, -641, -633]) { B(emis, x - 0.6, x + 0.6, F.hall.ceil - 0.05, F.hall.ceil - 0.01, z - 0.03, z + 0.03, [1, 0.98, 0.92]); if ((x + z) % 2 === 0) lightPool(x, z, FL + 0.012, 4); }
@@ -396,10 +429,26 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   endSteps(P1.x0, -1, P1.z0 + 2, P1.z1 - 1); endSteps(P1.x1, 1, P1.z0 + 2, P1.z1 - 1); for (const I of F.islands) { endSteps(I.x0, -1, I.z0 + 1, I.z1 - 1); endSteps(I.x1, 1, I.z0 + 1, I.z1 - 1); }
   // sidings: ballast bed, concrete sleepers, rails, buffer stops at both ends
   const ball = mb.get('ballast');
+  const XC = new THREE.CylinderGeometry(1, 1, 1, 18); const xcyl = (b, xa, xb2, y, z, r, col) => b.geometry(XC, new THREE.Matrix4().makeRotationZ(Math.PI / 2).premultiply(new THREE.Matrix4().makeScale(Math.abs(xb2 - xa), r, r)).setPosition((xa + xb2) / 2, y, z), col); // round bar along x
   for (const S of F.sidings) { ball.box((S.x0 + S.x1) / 2, (Y + BALLAST_Y) / 2, S.z, S.x1 - S.x0, BALLAST_Y - Y + 0.02, 3.4, { col: [0.82, 0.8, 0.77], uvScale: 2 }); surf(S.x0, S.x1, S.z - 1.7, S.z + 1.7, BALLAST_Y, 'deck');
     for (let x = S.x0 + 0.3; x < S.x1 - 0.2; x += 0.65) B(stone, x - 0.12, x + 0.12, BALLAST_Y - 0.04, BALLAST_Y + 0.15, S.z - 1.3, S.z + 1.3, '#8f8b84', { bottom: false });
     for (const e of [-1, 1]) { B(metal, S.x0, S.x1, BALLAST_Y + 0.15, RAIL_TOP, S.z + e * GAUGE / 2 - 0.035, S.z + e * GAUGE / 2 + 0.035, '#6a625a', { bottom: false }); B(metal, S.x0, S.x1, RAIL_TOP - 0.02, RAIL_TOP, S.z + e * GAUGE / 2 - 0.036, S.z + e * GAUGE / 2 + 0.036, '#b8b4ae'); }
-    for (const [xe, d] of [[S.x0 + 0.4, 1], [S.x1 - 0.4, -1]]) { B(paint, xe - 0.25, xe + 0.25, BALLAST_Y, 1.25, S.z - 1.3, S.z + 1.3, '#b81f1f'); for (let k = 0; k < 6; k++) B(paint, xe - 0.26, xe + 0.26, 1.0, 1.25, S.z - 1.3 + k * 0.52, S.z - 1.04 + k * 0.52, k % 2 ? '#f2f2ee' : '#b81f1f'); for (const e of [-1, 1]) { rod(metal, xe, 1.05, S.z + e * 0.87, xe + d * 0.45, 1.05, S.z + e * 0.87, 0.07, cc('#222')); rod(metal, xe + d * 0.45, 1.05, S.z + e * 0.87, xe + d * 0.5, 1.05, S.z + e * 0.87, 0.2, cc('#333')); } beam(metal, xe - d * 2.2, BALLAST_Y, S.z, xe, 1.1, S.z, 0.25, 0.25, cc('#7a1515')); coll(xe - 0.3, xe + 0.3, S.z - 1.35, S.z + 1.35, 1.3); }
+    // 55th: welded rail-built buffer stops (as at Fort): two I-section posts on the running rails, raking I-section back stays
+    // bolted to the rails behind with clamp plates, diagonal bracing, a red headstock with white chevrons, two sprung
+    // buffers (housing, plunger, round head) and the red / white end-of-track board on its own post
+    for (const [x0, d] of [[S.x0 + 2.6, 1], [S.x1 - 2.6, -1]]) { const xb = x0 - d * 2.3, HY = 1.08, I = '#3a3a3a';
+      for (const e of [-1, 1]) { const z = S.z + e * GAUGE / 2;
+        beam(metal, x0, RAIL_TOP, z, x0, HY + 0.2, z, 0.2, 0.012, cc(I)); for (const f of [-1, 1]) beam(metal, x0 + f * 0.1, RAIL_TOP, z, x0 + f * 0.1, HY + 0.2, z, 0.016, 0.16, cc(I)); // post (web + flanges)
+        const L = Math.hypot(x0 - xb, HY - RAIL_TOP), px = -(HY - RAIL_TOP) / L * d, py = (x0 - xb) / L * 1; // stay: web in the vertical plane, flanges either side of it
+        beam(metal, x0, HY, z, xb, RAIL_TOP + 0.02, z, 0.012, 0.2, cc(I)); for (const f of [-1, 1]) beam(metal, x0 + px * f * 0.1 * d, HY + py * f * 0.1, z, xb + px * f * 0.1 * d, RAIL_TOP + 0.02 + py * f * 0.1, z, 0.16, 0.016, cc(I));
+        for (const cx of [x0, xb + d * 0.15]) { B(metal, cx - 0.2, cx + 0.2, RAIL_TOP - 0.16, RAIL_TOP + 0.03, z - 0.11, z - 0.05, '#2c2c2c'); B(metal, cx - 0.2, cx + 0.2, RAIL_TOP - 0.16, RAIL_TOP + 0.03, z + 0.05, z + 0.11, '#2c2c2c'); for (const bx of [-0.12, 0.12]) rod(metal, cx + bx, RAIL_TOP - 0.08, z - 0.15, cx + bx, RAIL_TOP - 0.08, z + 0.15, 0.022, cc('#4a4a4a')); } // fishplate clamps + bolts
+        beam(metal, x0 - d * 0.1, HY - 0.05, z, xb + d * 0.4, RAIL_TOP + 0.1, z === S.z - GAUGE / 2 ? S.z + GAUGE / 2 : S.z - GAUGE / 2, 0.06, 0.01, cc(I)); } // cross bracing (flat bar)
+      beam(metal, x0 + d * 0.11, HY, S.z - 1.2, x0 + d * 0.11, HY, S.z + 1.2, 0.012, 0.32, cc(I)); for (const f of [-1, 1]) beam(metal, x0 + d * 0.11, HY + f * 0.16, S.z - 1.2, x0 + d * 0.11, HY + f * 0.16, S.z + 1.2, 0.2, 0.016, cc(I)); // headstock I-beam
+      B(paint, Math.min(x0 + d * 0.21, x0 + d * 0.33), Math.max(x0 + d * 0.21, x0 + d * 0.33), HY - 0.17, HY + 0.17, S.z - 1.25, S.z + 1.25, '#b81f1f'); // timber baulk, signal red
+      for (let k = -2; k <= 2; k++) ebox(paint, x0 + d * 0.335, HY, S.z + k * 0.5, 0.008, 0.36, 0.09, 0.55 * Math.sign(k || 1), 0, 0, cc('#f2f2ee')); // white chevrons
+      for (const e of [-1, 1]) { const zb = S.z + e * 0.98; xcyl(metal, x0 + d * 0.33, x0 + d * 0.6, HY, zb, 0.13, cc('#2a2a2a')); xcyl(metal, x0 + d * 0.6, x0 + d * 0.78, HY, zb, 0.075, cc('#b9bdbf')); xcyl(metal, x0 + d * 0.78, x0 + d * 0.84, HY, zb, 0.22, cc('#333')); B(metal, Math.min(x0 + d * 0.33, x0 + d * 0.35), Math.max(x0 + d * 0.33, x0 + d * 0.35), HY - 0.2, HY + 0.2, zb - 0.2, zb + 0.2, '#2c2c2c'); } // sprung buffers: housing on a base plate, plunger, round head
+      { const bx = x0 - d * 0.5, bz = S.z + 1.55; metal.cylinder(bx, BALLAST_Y, bz, 0.04, 0.04, 2.1 - BALLAST_Y, 8, { col: cc('#666') }); B(paint, bx - 0.02, bx + 0.02, 1.75, 2.35, bz - 0.3, bz + 0.3, '#b81f1f'); B(paint, bx - d * 0.024 - 0.001, bx - d * 0.024 + 0.001, 1.89, 2.21, bz - 0.16, bz + 0.16, '#f2f2ee'); B(paint, bx + d * 0.024 - 0.001, bx + d * 0.024 + 0.001, 1.89, 2.21, bz - 0.16, bz + 0.16, '#f2f2ee'); } // end-of-track board
+      coll(Math.min(x0, x0 + d * 0.85), Math.max(x0, x0 + d * 0.85), S.z - 1.3, S.z + 1.3, 1.3); coll(Math.min(x0, xb), Math.max(x0, xb), S.z - 1.0, S.z + 1.0, 0.9); }
   }
   // stabled maroon rake (siding A) and a parked blue S11-style set (siding B): merged into the landmarks mesh (static)
   const MAPN = { paint: 'paint', metal: 'metal', trainGlass: 'glass', trainCabGlass: 'winGlass', trainLamp: 'emissive' };
@@ -480,6 +529,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   const smats = { sA: mk(at.a), sB: mk(at.b), sC: mk(at.c), sD: mk(at.d, true) }; anim.signMats = smats; for (const k in smats) patchInterior(smats[k]);
   for (const k of ['corrugated', 'roofTiles', 'winGlass', 'glass']) if (MAT[k] && !MAT[k].userData.interior) { patchInterior(MAT[k]); MAT[k].userData.interior = true; } // the shed roof's underside, the glazing: dim under the roofs too
   for (const m of sb.toMeshes(smats, { cast: false, receive: true })) { m.name = 'fort-' + m.name; group.add(m); }
+  { const g1 = GD.build(); if (g1) { const m = new THREE.Mesh(g1, goods.goodsMaterial()); m.name = 'fort-goods'; m.castShadow = true; m.receiveShadow = true; group.add(m); } const g2 = BG.build(); if (g2) { const m = new THREE.Mesh(g2, goods.bottleGlassMaterial()); m.name = 'fort-bottle-glass'; m.renderOrder = 3; group.add(m); } }
   { // swinging signs: one mesh, one draw call — every vertex carries its sign's pivot + index, the vertex shader turns it
     const HB = new MultiBuilder().get('hang'), WU = [773 / 1024, 1 - 7 / 256]; const swv = []; const sw = [];
     const flat = (v0) => { for (let v = v0; v < HB.vcount; v++) { HB.uv[v * 2] = WU[0]; HB.uv[v * 2 + 1] = WU[1]; } };

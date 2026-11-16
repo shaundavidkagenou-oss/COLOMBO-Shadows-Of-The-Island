@@ -145,7 +145,7 @@ class Train {
     } else {
       // target speed: line limits over the whole train + braking curve to the next stop, curves ahead and obstacles
       let vt = VMAX; for (let s = this.sLow; s <= this.sLow + TRAIN_LEN; s += STEP * 2) vt = Math.min(vt, speedLimitAt(s));
-      for (let k = 2; k < 160; k += 4) { const s = this.front + this.dir * k; if (s < 0 || s > R.PATH.total) break; vt = Math.min(vt, Math.sqrt(speedLimitAt(s) ** 2 + 2 * BRAKE * k)); }
+      for (let k = 2; k < 160; k += 4) { const s = this.front + this.dir * k; if (s < 0 || s > R.PATH.total) break; vt = Math.min(vt, Math.sqrt(speedLimitAt(s) ** 2 + 2 * BRAKE * 0.7 * k)); } // planned at 70 % of the service brake: the jerk-limited brake needs the margin
       const rem = (this.nextStop.s - this.centre) * this.dir; vt = Math.min(vt, Math.sqrt(2 * BRAKE * Math.max(0, rem - 0.3)) + (rem > 1.5 ? 0.6 : 0));
       const obs = this.obstacleAhead(ctx.obstacles); this.obstacleDist = obs;
       if (obs < 140) { vt = Math.min(vt, Math.sqrt(2 * EBRAKE * Math.max(0, obs - 6))); if (this.hornCd <= 0) { this.horn(true); this.hornCd = 2.5; } }
@@ -154,7 +154,7 @@ class Train {
       // changes at a limited jerk (harder only in an emergency), so starts ease in and stops ease out
       const aT = clamp((vt - this.speed) * 1.2, -(emergencyBrake ? EBRAKE : BRAKE) * 1.3, ACC * (this.speed < 3 ? 0.8 + this.speed / 15 : 1)); const J = emergencyBrake ? 3 : 0.45;
       this.acc += clamp(aT - this.acc, -J * dt, J * dt); if (vt < this.speed - 0.4 && this.acc > 0) this.acc = Math.max(0, this.acc - 2 * J * dt);
-      this.speed = Math.max(0, this.speed + this.acc * dt); if (this.speed > vt + 0.8) this.speed = Math.max(vt + 0.8, this.speed - EBRAKE * dt);
+      this.speed = Math.max(0, this.speed + this.acc * dt); if (this.speed > vt + 0.35) this.speed = Math.max(vt + 0.35, this.speed - EBRAKE * dt);
       this.sLow += this.dir * this.speed * dt; this.sLow = clamp(this.sLow, 0, R.PATH.total - TRAIN_LEN);
       // approaching a level crossing: sound the horn
       for (const c of this.sys.crossings) { const a = (c.s - this.front) * this.dir; if (a > 60 && a < 60 + this.speed * dt * 1.01 + 0.01) this.horn(true); }
