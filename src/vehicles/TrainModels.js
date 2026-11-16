@@ -15,6 +15,7 @@
 import * as THREE from 'three';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
+import { LayerRouter, mergeLayered, stationMaterial, colKey } from '../gfx/StationPBR.js';
 
 export const CAR_LEN = 19.6, BOGIE = 14, CAR_W = 3.0;
 export const FLOOR_Y = 1.3; // car floor above the rail top
@@ -26,6 +27,22 @@ export const COL = {
   floor: [0.3, 0.31, 0.32], seat: [0.13, 0.27, 0.52], seatDk: [0.1, 0.2, 0.4], frameAl: [0.78, 0.79, 0.8], bar: [0.62, 0.63, 0.64], black: [0.05, 0.05, 0.05],
   maroon: [0.42, 0.1, 0.09], maroonDk: [0.3, 0.07, 0.06], wood: [0.45, 0.3, 0.17], woodDk: [0.33, 0.21, 0.12], liningOld: [0.78, 0.74, 0.6],
 };
+
+// 55th: real surfaces — every paint / metal call lands on a layered PBR material picked from its colour (carriage enamel
+// with grime and rain streaks, greasy underframe steel, galvanised roof, sheet vinyl floor and seats, rubber, brushed
+// steel, varnished wood). The layer builders live in the car's MultiBuilder under '@layer' keys.
+const TRAIN_LAYER = new Map([
+  ...['blue', 'red', 'white', 'cream', 'maroon', 'maroonDk'].map((k) => [colKey(COL[k]), 'carPaint']),
+  ...['under', 'bogie'].map((k) => [colKey(COL[k]), 'under']), [colKey([0.3, 0.29, 0.28]), 'under'], [colKey([0.2, 0.2, 0.21]), 'under'], [colKey([0.22, 0.22, 0.23]), 'under'], [colKey([0.18, 0.18, 0.18]), 'under'], [colKey([0.5, 0.48, 0.2]), 'under'],
+  [colKey(COL.gang), 'rubber'], [colKey(COL.black), 'rubber'], [colKey([0.15, 0.15, 0.15]), 'rubber'],
+  [colKey(COL.floor), 'vinyl'], [colKey(COL.seat), 'vinyl'], [colKey(COL.seatDk), 'vinyl'], [colKey([0.6, 0.62, 0.6]), 'vinyl'],
+  [colKey(COL.lining), 'paint'], [colKey(COL.ceiling), 'paint'], [colKey(COL.liningOld), 'paint'], [colKey([0.86, 0.84, 0.74]), 'paint'], [colKey([0.55, 0.57, 0.58]), 'paint'],
+  [colKey(COL.frameAl), 'steel'], [colKey(COL.bar), 'steel'], [colKey(COL.yellow), 'enamel'],
+  [colKey(COL.wood), 'wood'], [colKey(COL.woodDk), 'wood'],
+  [colKey(COL.roof), 'galv'], [colKey(COL.roofDk), 'galv'], [colKey([0.3, 0.27, 0.26]), 'galv'], [colKey([0.22, 0.2, 0.19]), 'galv'], [colKey([0.25, 0.23, 0.22]), 'galv'], [colKey([0.3, 0.31, 0.32]), 'galv'],
+]);
+class LayerMB { constructor(mb) { this.mb = mb; } get(n) { return this.mb.get('@' + n); } }
+const routers = (mb) => { const lm = new LayerMB(mb), pick = (c) => TRAIN_LAYER.get(colKey(c)); return { P: new LayerRouter(lm, 'carPaint', pick), M: new LayerRouter(lm, 'steel', pick) }; };
 
 // ---------------------------------------------------------------- helpers
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _d = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
@@ -50,7 +67,7 @@ function spreadWindows(segs, pitch, ww) { const out = []; for (const [a, b] of s
 
 // ---------------------------------------------------------------- generic car shell with real openings
 function shell(mb, o) {
-  const P = mb.get('paint'), M = mb.get('metal'), G = mb.get('trainGlass'), E = mb.get('trainLamp');
+  const { P, M } = routers(mb), G = mb.get('trainGlass'), E = mb.get('trainLamp');
   const L2 = o.len / 2, hw = o.hw, inner = hw - WALL; const sill = o.sill ?? SILL, head = o.head ?? HEAD, doorTop = o.doorTop ?? DOOR_TOP;
   const cabBack = o.cabLen ? L2 - o.cabLen : L2;
   const doorHoles = o.doors.map((z) => [z - DOOR_W / 2, z + DOOR_W / 2]);
@@ -94,7 +111,7 @@ function shell(mb, o) {
       P.box(xr, doorTop + 0.02, dz, WALL + 0.01, 0.04, DOOR_W + 0.08, { col: o.frame, bottom: true });
       for (const e of [-1, 1]) rod(M, sx * (hw - 0.16), FLOOR_Y + 0.05, dz + e * (DOOR_W / 2 - 0.06), sx * (hw - 0.16), doorTop - 0.05, dz + e * (DOOR_W / 2 - 0.06), 0.017, COL.yellow);
       P.box(sx * (hw + 0.05), 0.97, dz, 0.2, 0.05, DOOR_W - 0.05, { col: [0.2, 0.2, 0.21], bottom: true });
-      P.box(sx * (hw + 0.145), 0.985, dz, 0.012, 0.02, DOOR_W - 0.05, { col: COL.yellow });
+      P.box(sx * (hw + 0.146), 0.99, dz, 0.014, 0.026, DOOR_W - 0.05, { col: COL.yellow });
       P.box(sx * (hw - 0.02), (0.97 + FLOOR_Y) / 2, dz, 0.04, FLOOR_Y - 0.97, DOOR_W - 0.05, { col: [0.2, 0.2, 0.21] });
     }
   }
@@ -145,31 +162,44 @@ function shell(mb, o) {
 }
 
 // ---------------------------------------------------------------- running gear
-function runningGear(mb, bogie, power) {
-  const P = mb.get('paint'), M = mb.get('metal');
+// a wheelset: two wheels (dished web, rim, polished tread band, flange on the inside), the axle, a balance weight and hub bolts
+// on each outer face (so the turning is visible). y = 0 at the axle centre.
+const WPROF = [[0.0, -0.09], [0.11, -0.09], [0.34, -0.035], [0.4, -0.065], [0.455, -0.065], [0.46, 0.035], [0.49, 0.055], [0.44, 0.07], [0.34, 0.03], [0.11, 0.09], [0.0, 0.09]].map(([r, a]) => new THREE.Vector2(r, a));
+const WLATHE = new THREE.LatheGeometry(WPROF, 16), WTREAD = new THREE.CylinderGeometry(0.4615, 0.4615, 0.095, 16, 1, true), WAXLE = new THREE.CylinderGeometry(0.075, 0.075, 1.62, 10);
+export function addWheelset(mb, M4) {
+  const lm = new LayerMB(mb), U = lm.get('under'), S = lm.get('steel'); const m = new THREE.Matrix4(), r = new THREE.Matrix4(), t = new THREE.Matrix4();
+  for (const sx of [-1, 1]) { r.makeRotationZ(sx < 0 ? -Math.PI / 2 : Math.PI / 2); t.makeTranslation(sx * 0.87, 0, 0); const W = new THREE.Matrix4().multiplyMatrices(M4, t).multiply(r);
+    U.geometry(WLATHE, W, [0.3, 0.29, 0.28]); S.geometry(WTREAD, m.copy(W).multiply(new THREE.Matrix4().makeTranslation(0, -0.015, 0)), [0.62, 0.6, 0.58]);
+    U.geometry(UNIT, m.copy(W).multiply(new THREE.Matrix4().compose(new THREE.Vector3(0.25, -0.05, 0), new THREE.Quaternion(), new THREE.Vector3(0.12, 0.03, 0.07))), [0.24, 0.23, 0.22]); // balance weight
+    for (let k = 0; k < 5; k++) { const a = (k / 5) * Math.PI * 2; U.geometry(UNIT, m.copy(W).multiply(new THREE.Matrix4().compose(new THREE.Vector3(Math.cos(a) * 0.065, -0.095, Math.sin(a) * 0.065), new THREE.Quaternion(), new THREE.Vector3(0.022, 0.014, 0.022))), [0.4, 0.39, 0.37]); } }
+  r.makeRotationZ(Math.PI / 2); U.geometry(WAXLE, m.multiplyMatrices(M4, r), [0.3, 0.29, 0.28]);
+}
+// the running train's wheelsets are one InstancedMesh per train (Trains.js), turned by the distance run
+export function wheelsetGeometry() { const mb = new MultiBuilder(); addWheelset(mb, new THREE.Matrix4()); return mergeLayered(layerParts(mb).lay); }
+export function wheelsetSpots(bogie) { const out = []; for (const bz of [-bogie / 2, bogie / 2]) for (const az of [-1.3, 1.3]) out.push(bz + az); return out; }
+function runningGear(mb, bogie, power, liveWheels = false) {
+  const { P, M } = routers(mb);
   if (power) { P.box(0, 0.78, 0, 2.2, 0.45, 6.5, { col: COL.under }); P.box(0, 0.8, 0, 2.5, 0.3, 1.2, { col: [0.22, 0.22, 0.23] }); } // engine + fuel tank
   else P.box(0, 0.86, 0, 1.6, 0.3, 2.4, { col: COL.under }); // brake cylinder / battery box
   for (const z of [-2.2, 2.4]) P.box(0.7, 0.8, z, 0.9, 0.34, 1.1, { col: [0.2, 0.2, 0.21] });
-  const wheel = new THREE.CylinderGeometry(0.46, 0.46, 0.13, 14); wheel.rotateZ(Math.PI / 2);
   for (const bz of [-bogie / 2, bogie / 2]) {
-    P.box(0, 0.6, bz, 1.6, 0.26, 2.6, { col: COL.bogie, bottom: true }); P.box(0, 0.88, bz, 1.6, 0.2, 1.4, { col: COL.bogie });
+    P.box(0, 0.6, bz, 1.4, 0.26, 2.0, { col: COL.bogie, bottom: true }); P.box(0, 0.88, bz, 1.4, 0.2, 1.4, { col: COL.bogie }); for (const sx of [-1, 1]) P.box(sx * 0.95, 0.66, bz, 0.26, 0.14, 0.5, { col: COL.bogie }); // transom + bolster clear of the wheels (55th: they cut through them), transom arms to the side frames
     for (const sx of [-1, 1]) { P.box(sx * 1.12, 0.62, bz, 0.12, 0.42, 2.9, { col: COL.bogie }); for (const az of [-0.6, 0.6]) M.cylinder(sx * 1.12, 0.66, bz + az, 0.09, 0.09, 0.36, 8, { col: [0.5, 0.48, 0.2] }); }
-    for (const az of [-1.3, 1.3]) { for (const sx of [-1, 1]) M.geometry(wheel, new THREE.Matrix4().makeTranslation(sx * 0.87, 0.46, bz + az), [0.3, 0.29, 0.28]); P.box(0, 0.46, bz + az, 1.74, 0.12, 0.12, { col: COL.bogie }); for (const sx of [-1, 1]) P.box(sx * 1.08, 0.46, bz + az, 0.16, 0.22, 0.3, { col: [0.18, 0.18, 0.18] }); }
+    for (const az of [-1.3, 1.3]) { if (!liveWheels) addWheelset(mb, new THREE.Matrix4().makeTranslation(0, 0.46, bz + az)); for (const sx of [-1, 1]) { P.box(sx * 1.08, 0.46, bz + az, 0.16, 0.22, 0.3, { col: [0.18, 0.18, 0.18] }); } } // axle boxes
   }
-  wheel.dispose();
 }
 
 // ---------------------------------------------------------------- the DMU car (local: +z = car front, y = 0 at rail top)
 export function doorZs(cab) { const L2 = CAR_LEN / 2; return [-L2 + 3.4, cab ? L2 - 4.7 : L2 - 3.4]; }
-export function buildDmuCar(cab) {
-  const mb = new MultiBuilder(); const P = mb.get('paint'), M = mb.get('metal'), C = mb.get('trainCabGlass'); const L2 = CAR_LEN / 2, hw = CAR_W / 2;
-  runningGear(mb, BOGIE, cab);
+export function buildDmuCar(cab, { liveWheels = false } = {}) {
+  const mb = new MultiBuilder(); const { P, M } = routers(mb), C = mb.get('trainCabGlass'); const L2 = CAR_LEN / 2, hw = CAR_W / 2;
+  runningGear(mb, BOGIE, cab, liveWheels);
   const r = shell(mb, {
     len: CAR_LEN, hw, doors: doorZs(cab), cabLen: cab ? 2.7 : 0, windowW: 1.06, pitch: 1.5, interior: 'dmu', glazedEvery: 4,
     bands: [[1.0, 1.4, COL.red], [1.4, 1.45, COL.white], [1.45, 1.78, COL.red], [1.78, 1.83, COL.white], [1.83, SILL, COL.blue]],
     body: COL.blue, frame: COL.cream, lining: COL.lining, liningLow: [0.6, 0.62, 0.6], cantStripe: COL.white, endCol: COL.blue,
   });
-  for (const s of cab ? [-1] : [-1, 1]) { P.box(0, 2.3, s * (L2 + 0.25), 1.3, 2.3, 0.5, { col: COL.gang }); for (const e of [-1, 1]) P.box(e * 0.7, 2.3, s * (L2 + 0.22), 0.06, 2.2, 0.44, { col: [0.15, 0.15, 0.15] }); P.box(0, 1.05, s * (L2 + 0.3), 0.3, 0.24, 0.6, { col: COL.under }); }
+  for (const s of cab ? [-1] : [-1, 1]) { P.box(0, 2.3, s * (L2 + 0.22), 1.3, 2.3, 0.44, { col: COL.gang }); for (const e of [-1, 1]) P.box(e * 0.68, 2.3, s * (L2 + 0.2), 0.06, 2.2, 0.4, { col: [0.15, 0.15, 0.15] }); for (let k = 0; k < 6; k++) P.box(0, 2.3, s * (L2 + 0.04 + k * 0.07), 1.34, 2.34, 0.025, { col: [0.15, 0.15, 0.15] }); P.box(0, 1.05, s * (L2 + 0.21), 0.3, 0.24, 0.42, { col: COL.under }); } // 55th: bellows end 4 cm short of the gap's middle (the two cars' gangways used to meet face to face and flicker); bellows folds
   for (let z = -L2 + 1.8; z < L2 - (cab ? 3.2 : 1.5); z += 2.4) { P.cylinder(0, ROOF_TOP - 0.02, z, 0.17, 0.2, 0.12, 10, { col: COL.roofDk }); P.cylinder(0, ROOF_TOP + 0.1, z, 0.24, 0.24, 0.05, 10, { col: COL.roof }); }
   if (cab) {
     P.box(0, ROOF_TOP + 0.08, -2.5, 1.3, 0.22, 2.4, { col: [0.3, 0.31, 0.32] }); M.cylinder(0.35, ROOF_TOP, -4.4, 0.09, 0.09, 0.42, 8, { col: [0.15, 0.15, 0.15] }); // radiator housing + exhaust
@@ -182,10 +212,10 @@ export function buildDmuCar(cab) {
     P.box(0, 3.55, zf - 0.33, CAR_W - 0.04, 0.42, 0.06, { col: Rd }); P.box(0, 3.55, zf - 0.295, 1.4, 0.3, 0.02, { col: COL.black }); // red cap band + destination blind
     const pf = []; for (let k = 0; k <= 6; k++) { const a = (k / 6) * Math.PI; pf.push([Math.cos(a) * hw, EAVE + Math.sin(a) * (ROOF_TOP - EAVE)]); }
     for (let k = 0; k < 6; k++) { const [x0, y0] = pf[k], [x1, y1] = pf[k + 1]; P.quad([0, 3.4, zf - 0.34], [x0, y0, zf - 0.34], [x1, y1, zf - 0.34], [x1, y1, zf - 0.34], [0, 0, 1, 1], Rd); }
-    P.box(0, ROOF_TOP - 0.02, zf - 1.3, CAR_W * 0.6, 0.06, 1.9, { col: Rd }); P.box(0, 3.82, zf - 0.42, 0.42, 0.2, 0.14, { col: COL.black });
+    P.box(0, ROOF_TOP + 0.005, zf - 1.3, CAR_W * 0.6, 0.06, 1.9, { col: Rd }); P.box(0, 3.82, zf - 0.42, 0.42, 0.2, 0.14, { col: COL.black });
     for (const sx of [-1, 1]) {
-      P.box(sx * (hw + 0.004), 2.6, zf - 1.5, 0.012, 1.6, 2.3, { col: Rd }); P.box(sx * (hw + 0.006), 1.55, zf - 1.35, 0.012, 1.1, 2.6, { col: W });
-      P.box(sx * (hw + 0.01), 2.2, zf - 1.55, 0.012, 2.0, 0.72, { col: [0.6, 0.08, 0.09] }); C.box(sx * (hw + 0.016), 2.75, zf - 1.55, 0.01, 0.62, 0.5); C.box(sx * (hw + 0.016), 2.75, zf - 0.75, 0.01, 0.62, 0.6);
+      P.box(sx * (hw + 0.005), 2.75, zf - 1.5, 0.01, 1.3, 2.3, { col: Rd }); P.box(sx * (hw + 0.005), 1.55, zf - 1.35, 0.01, 1.1, 2.6, { col: W }); // red over white, edge to edge (they overlapped 2 mm apart: flicker)
+      P.box(sx * (hw + 0.016), 2.2, zf - 1.55, 0.012, 2.0, 0.72, { col: [0.6, 0.08, 0.09] }); C.box(sx * (hw + 0.028), 2.75, zf - 1.55, 0.008, 0.62, 0.5); C.box(sx * (hw + 0.016), 2.75, zf - 0.75, 0.008, 0.62, 0.6); // cab door 1 cm proud, its droplight 1 cm proud of that
       rod(M, sx * (hw + 0.07), 1.6, zf - 1.1, sx * (hw + 0.07), 2.9, zf - 1.1, 0.015, COL.bar); rod(M, sx * (hw + 0.07), 1.6, zf - 2.0, sx * (hw + 0.07), 2.9, zf - 2.0, 0.015, COL.bar);
     }
     P.box(0, 0.72, zf + 0.12, 2.6, 0.62, 0.14, { col: Rd, bottom: true }); for (let k = -9; k <= 9; k++) M.box(k * 0.13, 0.66, zf + 0.2, 0.035, 0.42, 0.03, { col: [0.5, 0.07, 0.08] }); // pilot with bars
@@ -201,11 +231,11 @@ export function buildDmuCar(cab) {
 // ---------------------------------------------------------------- classic maroon coach (stabled in the yard)
 export const COACH_LEN = 18.6;
 export function buildClassicCoach() {
-  const mb = new MultiBuilder(); const L2 = COACH_LEN / 2; const P = mb.get('paint'), M = mb.get('metal');
+  const mb = new MultiBuilder(); const L2 = COACH_LEN / 2; const { P, M } = routers(mb);
   runningGear(mb, 13, false);
   shell(mb, { len: COACH_LEN, hw: 1.45, doors: [-L2 + 1.0, L2 - 1.0], windowW: 0.72, pitch: 1.18, interior: 'classic', sill: 2.02, head: 2.74, doorTop: 3.05, bars: 3, shutters: true, glazedEvery: 0,
     bands: [[1.0, 1.95, COL.maroon], [1.95, 2.02, COL.maroonDk]], body: COL.maroon, frame: COL.maroonDk, lining: COL.liningOld, liningLow: COL.woodDk, roof: [0.3, 0.27, 0.26], roofDk: [0.22, 0.2, 0.19], endCol: COL.maroonDk, ceiling: [0.86, 0.84, 0.74] });
-  for (const s of [-1, 1]) { P.box(0, 2.25, s * (L2 + 0.22), 1.2, 2.1, 0.44, { col: COL.gang }); for (const sx of [-1, 1]) rod(M, sx * 1.1, 1.05, s * L2, sx * 1.1, 1.05, s * (L2 + 0.38), 0.18, [0.22, 0.22, 0.22]); }
+  for (const s of [-1, 1]) { P.box(0, 2.25, s * (L2 + 0.21), 1.2, 2.1, 0.42, { col: COL.gang }); for (const sx of [-1, 1]) rod(M, sx * 1.1, 1.05, s * L2, sx * 1.1, 1.05, s * (L2 + 0.38), 0.18, [0.22, 0.22, 0.22]); }
   for (let z = -L2 + 1.5; z < L2 - 1.2; z += 2.2) P.box(0, ROOF_TOP + 0.02, z, 0.36, 0.1, 0.36, { col: [0.25, 0.23, 0.22] });
   return mb;
 }
@@ -219,4 +249,6 @@ export function makeTrainMaterials() {
   });
 }
 // meshes of a prototype: glass/tubes never cast shadows (the sun comes in through the windows)
-export function protoMeshes(mb, mats) { const out = mb.toMeshes(mats, { cast: true, receive: true }); for (const m of out) if (m.name === 'trainGlass' || m.name === 'trainLamp') { m.castShadow = false; m.receiveShadow = m.name === 'trainGlass' ? false : m.receiveShadow; m.renderOrder = 2; } return out; }
+export function layerParts(mb) { const plain = new MultiBuilder(), lay = { b: new Map() }; for (const [k, b] of mb.b) { if (k[0] === '@') lay.b.set(k.slice(1), b); else plain.b.set(k, b); } return { plain, lay }; }
+export function protoMeshes(mb, mats) { const { plain, lay } = layerParts(mb); const out = plain.toMeshes(mats, { cast: true, receive: true });
+  { const g = mergeLayered(lay); if (g) { const m = new THREE.Mesh(g, stationMaterial()); m.name = 'trainPBR'; m.castShadow = true; m.receiveShadow = true; out.unshift(m); } } for (const m of out) if (m.name === 'trainGlass' || m.name === 'trainLamp') { m.castShadow = false; m.receiveShadow = m.name === 'trainGlass' ? false : m.receiveShadow; m.renderOrder = 2; } return out; }

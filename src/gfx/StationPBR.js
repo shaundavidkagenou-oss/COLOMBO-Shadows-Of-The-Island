@@ -115,7 +115,7 @@ function paintLayers() {
   { const C = cells(14, 11, true); layers.push(make(({ A, M, H, R }) => { for (let i = 0; i < N * N; i++) { const s = hash(C.id[i], 5, 9), wr = sm(0.6, 0.85, F1[i]); const v = 0.92 + 0.12 * (s - 0.5) + 0.12 * wr; set(A, i, v, v, v * 1.01); M[i] = 0.85 - 0.5 * wr; H[i] = 0.5 + 0.06 * (s - 0.5); R[i] = 0.42 + 0.15 * (s - 0.5) + 0.35 * wr; } })); }
   // 17 timberPaint: painted timber (window frames, shutters, kiosks) — grain showing through the paint, brush strokes, wear
   layers.push(make(({ A, H, R, O }) => { for (let i = 0; i < N * N; i++) { const x = i % N, y = (i / N) | 0; const t = y / N * 18 + (at(F1, x, y) - 0.5) * 5; const ring = t - Math.floor(t); const grain = sm(0.6, 0.95, ring) * 0.6; const brush = at(S1, x, (y * 3) % N); const wear = sm(0.7, 0.88, F4[i]);
-    const v = 0.98 - 0.05 * grain + 0.04 * (brush - 0.5) - 0.18 * wear; set(A, i, v * (1 + 0.1 * wear), v, v * (1 - 0.12 * wear)); H[i] = 0.5 - 0.2 * grain + 0.12 * (brush - 0.5) - 0.15 * wear; R[i] = 0.5 + 0.1 * grain + 0.3 * wear; O[i] = 1 - 0.1 * grain; } }));
+    const v = 0.98 - 0.05 * grain + 0.04 * (brush - 0.5) - 0.18 * wear; set(A, i, v * (1 + 0.1 * wear), v, v * (1 - 0.12 * wear)); H[i] = 0.5 - 0.06 * grain + 0.05 * (brush - 0.5) - 0.08 * wear; R[i] = 0.5 + 0.1 * grain + 0.3 * wear; O[i] = 1 - 0.1 * grain; } }));
   return layers;
 }
 

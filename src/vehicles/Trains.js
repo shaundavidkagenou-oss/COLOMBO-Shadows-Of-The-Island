@@ -10,7 +10,8 @@ import { MAT } from '../gfx/Materials.js';
 import * as R from '../world/Railway.js';
 import { Audio } from '../audio/Audio.js';
 import { SoundBank } from '../audio/SoundBank.js';
-import { buildDmuCar, makeTrainMaterials, protoMeshes, doorZs, CAR_LEN as MODEL_LEN, BOGIE as MODEL_BOGIE, CAR_W as MODEL_W, FLOOR_Y } from './TrainModels.js';
+import { stationMaterial } from '../gfx/StationPBR.js';
+import { buildDmuCar, makeTrainMaterials, protoMeshes, doorZs, wheelsetGeometry, wheelsetSpots, CAR_LEN as MODEL_LEN, BOGIE as MODEL_BOGIE, CAR_W as MODEL_W, FLOOR_Y } from './TrainModels.js';
 
 export const CAR_LEN = MODEL_LEN, CAR_GAP = 1.0, BOGIE = MODEL_BOGIE, CAR_W = MODEL_W, N_CARS = 5;
 export { FLOOR_Y };
@@ -59,6 +60,7 @@ class TrainCar {
 }
 
 // ---------------------------------------------------------------- one train
+const _wm = new THREE.Matrix4(), _wq = new THREE.Quaternion(), _wr = new THREE.Quaternion(), _wp = new THREE.Vector3(), _ws = new THREE.Vector3(1, 1, 1), _wy = new THREE.Vector3(0, 1, 0), _wx = new THREE.Vector3(1, 0, 0);
 class Train {
   constructor(sys, id, sLow, dir) {
     this.sys = sys; this.id = id; this.sLow = sLow; this.dir = dir; this.speed = 0; this.state = 'dwell'; this.dwell = 6 + id * 9; this.emergency = 0; this.hornCd = 0; this.clackT = 0; this.rumbleT = 0;
@@ -67,18 +69,22 @@ class Train {
     this.cars = []; this.bodies = [];
     for (let i = 0; i < N_CARS; i++) {
       const cab = i === 0 || i === N_CARS - 1; const g = new THREE.Group(); const inner = new THREE.Group(); g.add(inner); // inner flips cab car 0 to face −s
-      for (const m of cab ? sys.protoCab : sys.protoTrailer) { const mm = new THREE.Mesh(m.geometry, m.material); mm.castShadow = true; mm.receiveShadow = true; inner.add(mm); }
+      for (const m of cab ? sys.protoCab : sys.protoTrailer) { const mm = new THREE.Mesh(m.geometry, m.material); mm.castShadow = m.castShadow; mm.receiveShadow = m.receiveShadow; mm.renderOrder = m.renderOrder; inner.add(mm); } // (glass / tubes keep their no-shadow, draw-late flags)
       if (cab) {
         const end = i === 0 ? 0 : 1; const em = this.endMats[end]; const L2 = CAR_LEN / 2;
         for (const sx of [-1, 1]) {
           const h = new THREE.Mesh(sys.lampGeo, em.head); h.position.set(sx * 0.98, 2.06, L2 + 0.04); inner.add(h); // in the black housings of the cab front
           const t = new THREE.Mesh(sys.tailGeo, em.tail); t.position.set(sx * 1.36, 2.06, L2 + 0.02); inner.add(t);
         }
-        const d = new THREE.Mesh(sys.destGeo, em.dest); d.position.set(0, 3.55, L2 - 0.28); inner.add(d); // destination blind in the red cap band
+        const d = new THREE.Mesh(sys.destGeo, em.dest); d.position.set(0, 3.55, L2 - 0.272); inner.add(d); // destination blind in the red cap band
         if (i === 0) inner.rotation.y = Math.PI;
       }
-      g.userData.inner = inner; g.userData.cab = cab; this.group.add(g); this.cars.push(g); const b = new TrainCar(this, i); this.bodies.push(b);
+      g.userData.inner = inner; g.userData.cab = cab; g.userData.flip = i === 0 && cab ? -1 : 1; g.userData.roll = 0; g.userData.rv = 0; g.userData.pitch = 0; g.userData.pv = 0; g.userData.ph = i * 2.3 + id * 5.1;
+      this.group.add(g); this.cars.push(g); const b = new TrainCar(this, i); this.bodies.push(b);
     }
+    // 55th: the wheelsets turn — one InstancedMesh per train, 4 per car, rolled by the distance run
+    this.wheelZ = wheelsetSpots(BOGIE); this.wheelAng = 0; this.acc = 0; this.slack = 0;
+    this.wheels = new THREE.InstancedMesh(sys.wheelGeo, stationMaterial(), N_CARS * this.wheelZ.length); this.wheels.castShadow = true; this.wheels.receiveShadow = true; this.wheels.frustumCulled = false; this.wheels.name = 'train-wheels'; this.group.add(this.wheels);
     this.nextStop = this.findNextStop(); this.place(); this.updateLamps();
   }
   get front() { return this.dir > 0 ? this.sLow + TRAIN_LEN : this.sLow; }
@@ -91,13 +97,25 @@ class Train {
     const dst = this.dir > 0 ? R.STOPS[R.STOPS.length - 1] : R.STOPS[0]; const tex = this.sys.destTex[this.dir > 0 ? 1 : 0]; this.endMats.forEach((m) => { if (m.dest.map !== tex) { m.dest.map = tex; m.dest.needsUpdate = true; } }); this.destination = dst;
   }
   place() {
-    const pa = {}, pb = {};
+    const pa = {}, pb = {}; const lead = this.dir > 0 ? N_CARS - 1 : 0;
     for (let i = 0; i < N_CARS; i++) {
-      const s0 = this.sLow + i * (CAR_LEN + CAR_GAP), sa = s0 + (CAR_LEN - BOGIE) / 2, sb = sa + BOGIE; R.sampleAt(sa, pa); R.sampleAt(sb, pb);
+      const s0 = this.sLow + i * (CAR_LEN + CAR_GAP) - this.dir * this.slack * Math.abs(i - lead) /* couplers: stretched under power, bunched under the brakes */, sa = s0 + (CAR_LEN - BOGIE) / 2, sb = sa + BOGIE; R.sampleAt(sa, pa); R.sampleAt(sb, pb);
       const x = (pa.x + pb.x) / 2, z = (pa.z + pb.z) / 2, yaw = Math.atan2(pb.x - pa.x, pb.z - pa.z);
       const g = this.cars[i]; g.position.set(x, R.RAIL_TOP, z); g.rotation.y = yaw;
       const b = this.bodies[i]; b.x = x; b.z = z; b.yaw = yaw; b.speed = this.speed * this.dir;
+      // the body on its suspension (the wheelsets stay on the rails): roll into the curve's lateral acceleration plus the
+      // track's small irregularities, pitch on the brakes / power, each a damped spring so it settles with a rock after a stop
+      const u = g.userData, dt = this._dt || 0; if (dt > 0) { const v = this.speed, dyw = (((yaw - (u.lastYaw ?? yaw)) + 3 * Math.PI) % (2 * Math.PI)) - Math.PI, curv = dyw / Math.max(1e-3, Math.abs(this.sLow - (u.lastS ?? this.sLow)) || 1e9);
+        const lat = v * v * (Number.isFinite(curv) ? curv : 0) * this.dir, k = Math.min(1, v / 12), sAl = this.sLow + i * 21;
+        const rollT = Math.max(-0.03, Math.min(0.03, lat * 0.012)) + k * (0.0035 * Math.sin(sAl * 0.71 + u.ph) + 0.002 * Math.sin(sAl * 2.3 + u.ph * 1.7));
+        u.rv += (-(16) * (u.roll - rollT) - 2 * 0.25 * 4 * u.rv) * dt; u.roll += u.rv * dt;
+        const pitchT = -this.acc * 0.0035 * this.dir + k * 0.0012 * Math.sin(sAl * 1.3 + u.ph); u.pv += (-(25) * (u.pitch - pitchT) - 2 * 0.3 * 5 * u.pv) * dt; u.pitch += u.pv * dt;
+        u.inner.rotation.z = u.roll * u.flip; u.inner.rotation.x = u.pitch * u.flip; u.inner.position.y = k * 0.006 * Math.sin(sAl * 1.9 + u.ph * 0.6); }
+      u.lastYaw = yaw; u.lastS = this.sLow;
+      for (let w = 0; w < this.wheelZ.length; w++) { const wz = this.wheelZ[w], sw = s0 + CAR_LEN / 2 + wz; R.sampleAt(sw, pa); _wq.setFromAxisAngle(_wy, Math.atan2(pa.dx, pa.dz)); _wr.setFromAxisAngle(_wx, this.wheelAng); _wq.multiply(_wr);
+        _wm.compose(_wp.set(pa.x, R.RAIL_TOP + 0.46, pa.z), _wq, _ws); this.wheels.setMatrixAt(i * this.wheelZ.length + w, _wm); }
     }
+    this.wheels.instanceMatrix.needsUpdate = true;
   }
   horn(long = false) {
     const c = R.sampleAt(this.front); const [g, pan] = Audio.spatial(c.x, c.z, 260); if (g < 0.015) return; const v = 0.2 * g, d = long ? 1.6 : 0.8; if (SoundBank.play('train.horn', g, pan)) return;
@@ -117,7 +135,7 @@ class Train {
     return best;
   }
   update(dt, ctx) {
-    this.hornCd -= dt;
+    this.hornCd -= dt; this._dt = dt; this.slack += (clamp(this.acc * 0.05, -0.03, 0.03) - this.slack) * Math.min(1, dt * 1.5); this.wheelAng += this.dir * this.speed * dt / 0.46;
     if (this.state === 'dwell') {
       this.speed = 0; this.dwell -= dt;
       if (this.dwell <= 0) {
@@ -132,11 +150,15 @@ class Train {
       const obs = this.obstacleAhead(ctx.obstacles); this.obstacleDist = obs;
       if (obs < 140) { vt = Math.min(vt, Math.sqrt(2 * EBRAKE * Math.max(0, obs - 6))); if (this.hornCd <= 0) { this.horn(true); this.hornCd = 2.5; } }
       const emergencyBrake = obs < 140 && this.speed > vt + 0.5; this.emergency = emergencyBrake ? 1 : 0;
-      this.speed = clamp(vt - this.speed, -(emergencyBrake ? EBRAKE : BRAKE) * 1.3 * dt, ACC * dt) + this.speed; this.speed = Math.max(0, this.speed);
+      // 55th: a real train doesn't snap between full power and full brake: the commanded acceleration follows the speed error and
+      // changes at a limited jerk (harder only in an emergency), so starts ease in and stops ease out
+      const aT = clamp((vt - this.speed) * 1.2, -(emergencyBrake ? EBRAKE : BRAKE) * 1.3, ACC * (this.speed < 3 ? 0.8 + this.speed / 15 : 1)); const J = emergencyBrake ? 3 : 0.45;
+      this.acc += clamp(aT - this.acc, -J * dt, J * dt); if (vt < this.speed - 0.4 && this.acc > 0) this.acc = Math.max(0, this.acc - 2 * J * dt);
+      this.speed = Math.max(0, this.speed + this.acc * dt); if (this.speed > vt + 0.8) this.speed = Math.max(vt + 0.8, this.speed - EBRAKE * dt);
       this.sLow += this.dir * this.speed * dt; this.sLow = clamp(this.sLow, 0, R.PATH.total - TRAIN_LEN);
       // approaching a level crossing: sound the horn
       for (const c of this.sys.crossings) { const a = (c.s - this.front) * this.dir; if (a > 60 && a < 60 + this.speed * dt * 1.01 + 0.01) this.horn(true); }
-      if (rem < 0.35 && this.speed < 0.25) { this.state = 'dwell'; this.dwell = this.isTerminus(this.nextStop) ? DWELL + 15 : DWELL; this.speed = 0; this.stoppedAt = this.nextStop.name; this.stops = (this.stops || 0) + 1; }
+      if (rem < 0.35 && this.speed < 0.25) { this.acc = 0; this.state = 'dwell'; this.dwell = this.isTerminus(this.nextStop) ? DWELL + 15 : DWELL; this.speed = 0; this.stoppedAt = this.nextStop.name; this.stops = (this.stops || 0) + 1; }
     }
     this.place();
     // sound: diesel rumble + wheel clacks near the listener
@@ -182,8 +204,8 @@ export class Trains {
   constructor(scene, opts = {}) {
     this.scene = scene; this.night = 0; this.crossings = R.CROSSINGS; this.obstacles = [];
     const mats = makeTrainMaterials(); this.mats = mats;
-    const cab = buildDmuCar(true), tr = buildDmuCar(false);
-    this.protoCab = protoMeshes(cab.mb, mats); this.protoTrailer = protoMeshes(tr.mb, mats);
+    const cab = buildDmuCar(true, { liveWheels: true }), tr = buildDmuCar(false, { liveWheels: true });
+    this.protoCab = protoMeshes(cab.mb, mats); this.protoTrailer = protoMeshes(tr.mb, mats); this.wheelGeo = wheelsetGeometry();
     this.seatsCab = cab.seats; this.seatsTrailer = tr.seats; this.doorsCab = doorZs(true); this.doorsTrailer = doorZs(false); // car-local (+z = car front) for the station's passengers
     this.lampGeo = new THREE.BoxGeometry(0.42, 0.18, 0.03); this.tailGeo = new THREE.BoxGeometry(0.12, 0.12, 0.03); this.destGeo = new THREE.PlaneGeometry(1.34, 0.26);
     this.destTex = [destTexture(R.STOPS[0]), destTexture(R.STOPS[R.STOPS.length - 1])];

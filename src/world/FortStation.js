@@ -403,7 +403,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   }
   // stabled maroon rake (siding A) and a parked blue S11-style set (siding B): merged into the landmarks mesh (static)
   const MAPN = { paint: 'paint', metal: 'metal', trainGlass: 'glass', trainCabGlass: 'winGlass', trainLamp: 'emissive' };
-  const place = (sub, x, z, yaw) => { const m = new THREE.Matrix4().makeRotationY(yaw).setPosition(x, RAIL_TOP, z); for (const [name, b] of sub.b) { const g = b.build(); if (!g) continue; mb.get(MAPN[name] || name).geometry(g, m, [1, 1, 1]); g.dispose(); } };
+  const place = (sub, x, z, yaw) => { const m = new THREE.Matrix4().makeRotationY(yaw).setPosition(x, RAIL_TOP, z); for (const [name, b] of sub.b) { const g = b.build(); if (!g) continue; (name[0] === '@' ? lmb.get(name.slice(1)) : mb.get(MAPN[name] || name)).geometry(g, m, [1, 1, 1]); g.dispose(); } }; // '@layer' = the cars' layered PBR surfaces
   { const coach = buildClassicCoach(); for (let k = 0; k < 3; k++) { const x = -96 + k * (COACH_LEN + 1.0); place(coach, x, F.sidings[0].z, Math.PI / 2); coll(x - COACH_LEN / 2, x + COACH_LEN / 2, F.sidings[0].z - 1.45, F.sidings[0].z + 1.45, RAIL_TOP + 3.9); } }
   { const cab = buildDmuCar(true).mb, tr = buildDmuCar(false).mb; const z = F.sidings[1].z; const xs = [-40, -40 - (DMU_LEN + 1), -40 - 2 * (DMU_LEN + 1)]; place(cab, xs[0], z, Math.PI / 2); place(tr, xs[1], z, Math.PI / 2); place(cab, xs[2], z, -Math.PI / 2); for (const x of xs) coll(x - DMU_LEN / 2, x + DMU_LEN / 2, z - 1.5, z + 1.5, RAIL_TOP + 4.0); }
 
