@@ -220,6 +220,7 @@ export class Boats {
         const pick = pts[Math.min(pts.length - 1, Math.floor(rnd() * 3))]; if (!pick) return;
         b.active = true; b.leaving = false; b.root.visible = true; b.mode = 'drive'; b.away = false; const nx = PATROL[(pick.k + 1) % PATROL.length]; b.place(pick.p[0], pick.p[1], Math.atan2(nx[0] - pick.p[0], nx[1] - pick.p[1]), true); b.pk = (pick.k + 1) % PATROL.length; b.dir = 1;
         b.route = [{ x: nx[0], z: nx[1] }]; this.crewUp(b, i);
+      } else if (i < want && b.active && b.leaving) { b.leaving = false; b.route = null; /* back on watch before she was out of sight: carry on patrolling */
       } else if (i >= want && b.active && !b.leaving) { b.leaving = true; b.route = [{ x: AWAY_PT.x, z: AWAY_PT.z }]; }
       if (!b.active) return;
       if (!b.route || !b.route.length) { if (b.leaving) { this.stowPolice(b); return; } b.pk = (b.pk + b.dir + PATROL.length) % PATROL.length; if (rnd() < 0.08) b.dir = -b.dir; const p = PATROL[b.pk]; b.route = [{ x: p[0] + (rnd() - 0.5) * 40, z: p[1] + (rnd() - 0.5) * 40 }]; }
