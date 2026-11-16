@@ -11,10 +11,10 @@ const q = new URLSearchParams(location.search); const W = +(q.get('w') || 1200),
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); renderer.setSize(W, H); renderer.setPixelRatio(1);
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.shadowMap.enabled = true; document.body.appendChild(renderer.domElement);
 const scene = new THREE.Scene(); scene.background = new THREE.Color(night ? 0x060a12 : 0xa9bccb);
-const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; scene.environmentIntensity = night ? 0.04 : 0.8;
+const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; scene.environmentIntensity = night ? 0.0 : 0.8; if (night) scene.environment = null;
 scene.add(new THREE.HemisphereLight(night ? 0x223044 : 0xdfe8f0, night ? 0x05070a : 0x4a5258, night ? 0.25 : 0.7));
 const sun = new THREE.DirectionalLight(night ? 0x8090b0 : 0xfff2e0, night ? 0.12 : 2.6); sun.position.set(14, 22, 10); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -25, right: 25, top: 25, bottom: -25, far: 120 }); scene.add(sun);
-const water = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshStandardMaterial({ color: night ? 0x0a1a24 : 0x1f5c6a, roughness: 0.18, metalness: 0.1 })); water.rotation.x = -Math.PI / 2; water.position.y = -0.95; water.receiveShadow = true; scene.add(water);
+const water = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshStandardMaterial({ color: night ? 0x0b1c26 : 0x1f5c6a, roughness: night ? 0.55 : 0.18, metalness: 0.0 })); water.rotation.x = -Math.PI / 2; water.position.y = -0.95; water.receiveShadow = true; scene.add(water);
 const errors = []; let B = null; const lamps = new BoatLamps(scene);
 const t = 7.3;
 try {
@@ -39,7 +39,7 @@ cam.position.set(...V[0]); const tgt = new THREE.Vector3(...V[1]);
 if (q.get('yawc')) { const a = (+q.get('yawc') * Math.PI) / 180; const r = Math.hypot(cam.position.x, cam.position.z); cam.position.x = Math.sin(a) * r; cam.position.z = Math.cos(a) * r; }
 if (q.get('dist')) { const d = cam.position.clone().sub(tgt); cam.position.copy(tgt).addScaledVector(d, +q.get('dist') / d.length()); }
 cam.lookAt(tgt);
-if (B && night) { lamps.begin(cam, H); lamps.addBoat(B, B.lights, 1); lamps.end(); const dl = B.model.lights.filter((l) => l.kind === 'deck'); if (dl.length && B.lights.deck) { const p = B.worldPoint(dl[0].p); lamps.pool({ p }, null, 1); } }
+if (B && night) { lamps.begin(cam, H, t); lamps.addBoat(B, B.lights, 1); lamps.end(); const dl = B.model.lights.filter((l) => l.kind === 'deck'); if (dl.length && B.lights.deck) { const p = B.worldPoint(dl[0].p); lamps.pool({ p }, null, 1); } }
 renderer.render(scene, cam); renderer.render(scene, cam);
 const info = renderer.info; window.__result = { errors, calls: info.render.calls, tris: info.render.triangles, lamps: lamps.n };
 window.__ready = true;

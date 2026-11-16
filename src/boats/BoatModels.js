@@ -131,7 +131,7 @@ const LAYOUTS = {
     bb.box(SURF.vinyl, '#25282c', 0, fy + 0.55, cz - 0.95, 0.42, 0.25, 0.85); bb.box(SURF.paint, OFF, 0, fy + 0.2, cz - 0.95, 0.4, 0.45, 0.6); // jockey seat
     bb.cyl(SURF.steel, SS, [0, fy + 0.9, cz + 0.3], [0, fy + 1.5, cz + 0.3], 0.012, 0.012, 5, false);
     outboard(bb, 0, H.sheer(0) - 0.3, H.z(0) - 0.02, { size: 0.82, col: '#2b2d31' }); allround(bb, 0.0, H.sheer(0) + 0.05, H.sheer(0) + 1.25, H.z(0.05));
-    bicolour(bb, 0, H.sheer(0.95) + 0.25, H.z(0.95)); bb.cyl(SURF.steel, SS, [0, H.sheer(0.95), H.z(0.95)], [0, H.sheer(0.95) + 0.22, H.z(0.95)], 0.012, 0.012, 5, false);
+    { const ly = H.sheer(0.95) + tubeR * 2 + 0.16; bicolour(bb, 0, ly, H.z(0.95)); bb.cyl(SURF.steel, SS, [0, H.sheer(0.95), H.z(0.95)], [0, ly - 0.03, H.z(0.95)], 0.012, 0.012, 5, false); } /* staff clears the bow tube, so the bicolour is seen from ahead and abeam */
     bb.hit(-B / 2, B / 2, -0.4, 0.7, H.z(0) - 0.3, H.z(1) + 0.2, 'hull'); bb.hit(-0.4, 0.4, -0.5, 0.9, H.z(0) - 0.6, H.z(0), 'engine');
     return { H, seat: { x: 0, y: fy + 0.66, z: cz - 0.9, floor: fy, fz: 0.42, fx: 0.18, roof: 9, lean: 0.1, hands: 'wheel', wheel: wh, kind: 'ride', ride: true, driver: true, kneeOut: 0.3 }, crew: [], engines: [[0, 0.2, H.z(0) - 0.35]], deckY: fy, board: [0, fy, H.z(0.3)] };
   },
@@ -345,12 +345,13 @@ const LAYOUTS = {
     // sun deck: the mast with radar arrays, domes, masthead + anchor lights; spa pool, loungers, hard top
     const sd0 = tops[2]; const mz = H.z(0.52); bb.prism(SURF.paint, '#f3f3f1', [[0.6, mz - 1.0], [-0.6, mz - 1.0], [-0.4, mz + 0.8], [0.4, mz + 0.8]], [[0.4, mz - 1.3], [-0.4, mz - 1.3], [-0.25, mz], [0.25, mz]], sd0, sd0 + 3.2);
     bb.box(SURF.paint, '#2c3038', 0, sd0 + 3.3, mz - 0.6, 2.6, 0.14, 0.3); for (const sd of [1, -1]) bb.cyl(SURF.paint, '#f0f0ee', [sd * 1.0, sd0 + 3.2, mz - 1.5], [sd * 1.0, sd0 + 3.5, mz - 1.5], 0.45, 0.45, 14);
-    masthead(bb, 0, sd0 + 2.8, mz + 0.03); masthead(bb, 0, sd0 + 2.2, mz + 0.12); allround(bb, 0, sd0 + 3.37, sd0 + 3.9, mz - 0.6, 'anchor'); antenna(bb, 0.8, sd0 + 3.37, mz - 0.7, 2.6); antenna(bb, -0.8, sd0 + 3.37, mz - 0.7, 2.6);
+    bb.cyl(SURF.steel, SS, [0, sd0 + 3.2, mz - 0.05], [0, sd0 + 3.86, mz - 0.05], 0.025, 0.025, 6, false); masthead(bb, 0, sd0 + 3.9, mz + 0.0); /* aft masthead light, the higher one (vessel >= 50 m: two, the aft >= 4.5 m above the forward) */
+    { const fz = H.z(0.672), fy2 = tops[1]; bb.cyl(SURF.paint, '#f3f3f1', [0, fy2, fz], [0, fy2 + 0.85, fz], 0.06, 0.05, 8, false); masthead(bb, 0, fy2 + 0.9, fz + 0.04); } allround(bb, 0, sd0 + 3.37, sd0 + 3.9, mz - 0.6, 'anchor'); antenna(bb, 0.8, sd0 + 3.37, mz - 0.7, 2.6); antenna(bb, -0.8, sd0 + 3.37, mz - 0.7, 2.6);
     bb.box(SURF.paint, '#f3f3f1', 0, sd0 + 2.7, H.z(0.42), 4.6, 0.14, 5.0); for (const sd of [1, -1]) for (const zz of [H.z(0.36), H.z(0.48)]) bb.cyl(SURF.steel, SS, [sd * 2.1, sd0, zz], [sd * 2.1, sd0 + 2.65, zz], 0.06, 0.06, 8, false);
     bb.box(SURF.paint, '#58a3b9', 0, sd0 + 0.38, H.z(0.6), 2.6, 0.04, 1.8); bb.box(SURF.paint, '#f3f3f1', 0, sd0 + 0.2, H.z(0.6), 2.8, 0.4, 2.0); // spa pool
     for (let k = 0; k < 4; k++) bb.box(SURF.vinyl, '#efe9da', (k - 1.5) * 0.9, sd0 + 0.3, H.z(0.4) - 1.2, 0.7, 0.18, 1.9);
     for (let k = 0; k < 4; k++) bb.light('deck', (k - 1.5) * 1.1, sd0 + 2.6, H.z(0.42), { col: '#ffe1b4', soft: 1, down: 1 });
-    sternLight(bb, 0, md - 0.3, H.z(0.06) - 0.15); bb.light('deck', 0, 2.4, H.z(0) - 1.2, { col: '#ffe1b4', soft: 1, down: 1 });
+    sternLight(bb, 0, md + 1.02, H.z(0.06) - 0.1); /* on the aft bulwark capping, over the beach club */ bb.light('deck', 0, 2.4, H.z(0) - 1.2, { col: '#ffe1b4', soft: 1, down: 1 });
     for (const sd of [1, -1]) for (let k = 0; k < 3; k++) { bb.box(SURF.uwl, '#2a3238', sd * (0.8 + k * 0.9), -0.45, H.z(0) + 0.02, 0.18, 0.12, 0.03); }
     bb.light('uwl', 1.6, -0.5, H.z(0) - 1.2); bb.light('uwl', -1.6, -0.5, H.z(0) - 1.2); bb.light('uwl', 0, -0.5, H.z(0.03) - 1.6);
     bb.box(SURF.steel, SS, 0, H.sheer(1) + 0.05, H.z(1) - 0.4, 0.5, 0.25, 1.4); for (const sd of [1, -1]) { cleat(bb, sd * (H.hb(0.95) - 0.25), H.sheer(0.95), H.z(0.95)); cleat(bb, sd * (H.hb(0.08) - 0.25), H.sheer(0.08), H.z(0.08)); bb.cyl(SURF.steel, SS, [sd * 0.4, H.sheer(0.97), H.z(0.97)], [sd * 0.4, H.sheer(0.97) + 0.3, H.z(0.97)], 0.12, 0.12, 10); }
@@ -370,7 +371,7 @@ const LAYOUTS = {
     outboard(bb, 0, H.sheer(0) - 0.22, H.z(0) - 0.01, { size: 0.55, col: '#1d4f9c', trim: '#2b2d31' }); bb.box(SURF.paint, '#d4c9a8', 0.3, fy + 0.18, H.z(0.12), 0.3, 0.34, 0.4); // fuel can
     bb.box(SURF.paint, '#c9b9a0', 0, fy + 0.15, H.z(0.5), 0.6, 0.2, 1.2); // folded net
     allround(bb, 0.0, H.sheer(0.92), H.sheer(0.92) + 1.4, H.z(0.92), 'allround'); bb.cyl(SURF.paint, '#1e1e1e', [0.0, H.sheer(0.92) + 1.4, H.z(0.92)], [0.0, H.sheer(0.92) + 2.0, H.z(0.92)], 0.008, 0.008, 4, false); bb.box(SURF.vinyl, '#d23a2a', 0.18, H.sheer(0.92) + 1.85, H.z(0.92), 0.36, 0.22, 0.01); // flag pole + red flag
-    bicolour(bb, 0, H.sheer(0.96) + 0.05, H.z(0.96));
+    bicolour(bb, 0, H.sheer(0.96) + 0.2, H.z(0.96)); bb.cyl(SURF.steel, SS, [0, H.sheer(0.96), H.z(0.96)], [0, H.sheer(0.96) + 0.17, H.z(0.96)], 0.01, 0.01, 5, false); /* on a bracket over the stem head */
     bb.hit(-B / 2, B / 2, -0.3, H.sheer(0.5), H.z(0), H.z(1), 'hull'); bb.hit(-0.3, 0.3, -0.4, 0.5, H.z(0) - 0.5, H.z(0), 'engine');
     return { H, seat: { x: 0.2, y: fy + 0.4, z: H.z(0.09), floor: fy, fz: 0.35, fx: 0.15, roof: 9, lean: 0, hands: 'tiller', kind: 'sit', driver: true, tiller: [0, H.sheer(0) + 0.05, H.z(0) + 0.45] }, crew: [{ x: 0, y: H.sheer(0.42) - 0.16, z: H.z(0.42), floor: fy, fz: 0.35, fx: 0.15, roof: 9, lean: 0, hands: 'lap', kind: 'sit', yaw: 0 }], engines: [[0, 0.1, H.z(0) - 0.25]], deckY: fy, board: [0, fy, H.z(0.3)] };
   },
@@ -401,7 +402,7 @@ const LAYOUTS = {
     for (const sd of [1, -1]) { const y0 = 0.68, y1 = 0.84; const P2 = [[sd * (H.beamAt(0.6, 0.76) + 0.004), y0, H.z(0.6)], [sd * (H.beamAt(0.78, 0.76) + 0.004), y0 + 0.05, H.z(0.78)], [sd * (H.beamAt(0.78, 0.9) + 0.003), y1 + 0.05, H.z(0.78)], [sd * (H.beamAt(0.6, 0.9) + 0.003), y1, H.z(0.6)]]; if (sd > 0) bb.quad(SURF.cabin, GLASS, ...P2); else bb.quad(SURF.cabin, GLASS, P2[1], P2[0], P2[3], P2[2]); }
     const wz = H.z(0.5), ty = fy + 2.0; for (const sd of [1, -1]) { bb.quad(SURF.glass, '#2c3a42', [sd * (H.hb(0.5) - 0.18), H.sheer(0.5), wz], [sd * 0.05, H.sheer(0.5) + 0.05, wz + 0.15], [sd * 0.05, ty - 0.05, wz - 0.45], [sd * (H.hb(0.45) - 0.22), ty - 0.05, wz - 0.6]); bb.cyl(SURF.steel, SS, [sd * (H.hb(0.5) - 0.18), H.sheer(0.5), wz], [sd * (H.hb(0.45) - 0.22), ty, wz - 0.6], 0.035, 0.035, 6, false); bb.cyl(SURF.steel, SS, [sd * (H.hb(0.3) - 0.2), fy, H.z(0.3)], [sd * (H.hb(0.3) - 0.2), ty, H.z(0.3)], 0.035, 0.035, 6, false); }
     bb.box(SURF.paint, OFF, 0, ty + 0.04, (wz - 0.5 + H.z(0.28)) / 2, B - 0.35, 0.09, wz - 0.5 - H.z(0.28)); bb.box(SURF.glass, '#2a3a44', 0, ty + 0.1, wz - 0.85, 0.9, 0.01, 0.5); // hardtop + skylight
-    masthead(bb, 0, ty + 0.2, wz - 0.55); bb.box(SURF.paint, BLACK, 0, ty + 0.14, wz - 0.6, 0.12, 0.12, 0.1); sternLight(bb, 0, H.sheer(0) - 0.08, H.z(0) - 0.01); antenna(bb, -0.9, ty + 0.09, H.z(0.3) + 0.2, 2.4);
+    masthead(bb, 0, ty + 0.2, wz - 0.55); bb.box(SURF.paint, BLACK, 0, ty + 0.14, wz - 0.6, 0.12, 0.12, 0.1); sternLight(bb, 0, ty - 0.03, H.z(0.28) - 0.04); /* under the hardtop's aft edge: clear over the outboards */ antenna(bb, -0.9, ty + 0.09, H.z(0.3) + 0.2, 2.4);
     for (const sd of [1, -1]) sidelight(bb, sd * (H.hb(0.47) - 0.18), H.sheer(0.47) + 0.08, H.z(0.47), sd);
     const hx = -0.55; bb.box(SURF.paint, OFF, hx, fy + 0.5, wz - 0.65, 0.8, 1.0, 0.6); bb.box(SURF.paint, BLACK, hx, fy + 1.02, wz - 0.78, 0.76, 0.02, 0.36, { rx: 0.45 }); const wh = wheel(bb, [hx, fy + 1.0, wz - 1.12], 0.19, 0.95);
     seat(bb, hx, fy + 0.5, wz - 1.65, 0.65, 0.55, { back: 0.5, col: '#ece4d0' }); seat(bb, -hx, fy + 0.5, wz - 1.65, 0.65, 0.55, { back: 0.5, col: '#ece4d0' }); seat(bb, 0, fy + 0.42, H.z(0.06) + 0.35, B - 0.5, 0.55, { back: 0.45, col: '#ece4d0' });
