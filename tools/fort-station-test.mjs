@@ -113,6 +113,15 @@ ok(subs.some(([w]) => w === 'Station announcement'), 'without a recording the an
   ok(out.length >= 2 && out.every((c) => c.hp > 0 && c.lp > 0 && c.lp <= 5200 && c.id === 'station.announce4'), `on the platform: through ${out.length} PA speakers (horn-speaker band)`);
   ok(out.every((c, i) => i === 0 || c.when >= out[0].when - 1e-6), 'the farther speakers arrive later (distance delay)');
   SoundBank.play = orig; player.x = -35; player.z = -575; Audio.listener = null; }
+// the player standing on platform 1 looking towards the hall and the street: people still come in off the street (the front
+// wall hides the entrances), vendors spawned out of sight never hold up the arrivals, nobody appears in front of the camera
+{ for (const v of S.vendors) if (v.p) { v.release(); v.p = null; } // vendors to be put back while the player watches
+  for (const a of S.pax.slice(0, Math.max(0, S.pax.length - 4))) a.release(); // most passengers gone (on the last train): room for new arrivals (the cap)
+  player.x = focus.x = -30; player.z = focus.z = -621; camDir.x = 0; camDir.z = -1; const a0 = S.stats.arrivals; let popped = 0; const known = new Set(C.peds);
+  for (let i = 0; i < 90 / dt; i++) { step(); for (const p of C.peds) if (!known.has(p)) { known.add(p); if (p.stationRole && S.seen(p.x, p.z)) popped++; } }
+  ok(S.stats.arrivals - a0 >= 3, `arrivals continue with the player on the platform (${S.stats.arrivals - a0})`);
+  ok(S.vendors.filter((v) => v.p).length >= 1, `vendors back on their beat (${S.vendors.filter((v) => v.p).length})`); ok(!popped, `nobody pops up in view (${popped})`);
+  player.x = -35; player.z = -575; focus.x = -35; focus.z = -575; camDir.z = 1; }
 focus.x += 500; for (let i = 0; i < 3 / dt; i++) step();
 ok(!S.active && S.pax.length === 0 && S.clerks.length === 0 && !C.peds.some((p) => p.stationRole), 'the player gone: the station\'s people are put away');
 console.log(`stats ${JSON.stringify(S.stats)}`);

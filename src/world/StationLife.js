@@ -138,7 +138,7 @@ class Agent {
     const p = this.p; if (!r || !this.walking) { this.stuckT = Math.max(0, this.stuckT - this.dt * 2); return r; }
     if (Math.hypot(p.x - this.lastX, p.z - this.lastZ) < 0.15 * this.dt) this.stuckT += this.dt; else this.stuckT = Math.max(0, this.stuckT - this.dt * 2);
     if (this.stuckT > 1.4 && this.stuckT < 3) { r.tx = p.x + Math.cos(p.yaw) * 1.1 + (r.tx - p.x) * 0.3; r.tz = p.z - Math.sin(p.yaw) * 1.1 + (r.tz - p.z) * 0.3; }
-    else if (this.stuckT > 6 && this.route && this.route.length && !this.sys.crowd.visible(p)) { const [x, z] = this.route[0]; p.x = x; p.z = z; this.sys.crowd.place(p); setFloor(this.sys.collision, p); this.stuckT = 0; }
+    else if (this.stuckT > 6 && this.route && this.route.length && !this.sys.seen(p.x, p.z) && !this.sys.seen(...this.route[0])) { const [x, z] = this.route[0]; p.x = x; p.z = z; this.sys.crowd.place(p); setFloor(this.sys.collision, p); this.stuckT = 0; }
     return r;
   }
   // sitting down on / getting up from a seat {x, z, y, yaw} (approached from its front)
@@ -450,6 +450,15 @@ export class StationLife {
     g.hud?.subtitle('Vendor', ['Isthuthi! Enjoy, sir.', 'Here you go — still hot.', 'Thank you! Safe journey.'][Math.floor(Math.random() * 3)], '', 2.5); return true;
   }
   // ---- per frame
+  // could the player see someone appear here? (Crowd.visible: in front of the camera within 60 m.) The long front wall stands
+  // between the street and the halls / platform 1: from inside, the street is only seen through an entrance from the hall
+  // near it (and the other way round)
+  seen(x, z) {
+    if (!this.crowd || !this.crowd.visible({ x, z })) return false; const P = this.player; if (!P) return true;
+    const pin = onFloor(P.x, P.z), qin = onFloor(x, z); if (pin === qin) return true;
+    const st = pin ? { x, z } : P, ins = pin ? P : { x, z }; if (ins.z > -632) return false;
+    return F.entrances.some((e) => Math.abs(st.x - e.x) < 7 && Math.abs(ins.x - e.x) < 10);
+  }
   update(dt, { focus, night = 0, hour = 12, player = null } = {}) {
     this.t += dt; this.frame++; this.player = player; this.hour = hour; this.night = night;
     const d = Math.hypot(focus.x - CX, focus.z - CZ);
@@ -476,7 +485,9 @@ export class StationLife {
     const build = () => { if (this.buildCd2 > 0) return false; this.buildCd2 = 0.15; return true; }; this.buildCd2 = (this.buildCd2 || 0) - dt;
     if (this.clerks.length < 5 && build()) this.spawnClerks();
     else if (!this.announcer.alive() && !this.announcer.p && this.announcer.gone !== 'dead' && build()) { this.announcer = new Announcer(this); this.announcer.spawnAnn(); }
-    else { const nv = hour >= 5 && hour < 22 ? 3 : 1; const v = this.vendors.slice(0, nv).find((q) => !q.p && !q.dead); if (v && build()) { const [x, z] = F.vendorLoop[v.wp]; if (!this.crowd.visible({ x, z }) || this.t < 1) v.spawnVendor(); } }
+    else { const nv = hour >= 5 && hour < 22 ? 3 : 1; const v = this.vendors.slice(0, nv).find((q) => !q.p && !q.dead);
+      if (v) { const n = F.vendorLoop.length; let wp = v.wp; for (let k = 0; k < n && this.seen(...F.vendorLoop[wp]); k++) wp = (wp + 1) % n; // start somewhere on the beat out of sight
+        if (!this.seen(...F.vendorLoop[wp]) && build()) { v.wp = wp; v.spawnVendor(); } } }
     this.updateClerks(dt, focus);
     // passengers: arrivals off the street (never popping up in view), the platform filled up a little when the station wakes up
     for (let i = this.pax.length - 1; i >= 0; i--) { const a = this.pax[i]; if (a.gone || !a.p) { this.pax.splice(i, 1); continue; } if (a.p.dead) { a.p.job = null; a.p.keep = false; a.p = null; a.gone = true; this.pax.splice(i, 1); } }
@@ -487,8 +498,8 @@ export class StationLife {
       this.spawnCd = cap > 10 ? 3 + this.rng.next() * 6 : 8 + this.rng.next() * 10;
       const settle = this.t < 25 && this.pax.length < cap * 0.6; // the station just came into range: some people are already here
       const a = new Passenger(this);
-      if (settle) { const s = this.freeSpot(this.rng.range(-70, 10), this.rng.next() < 0.45); if (s && !this.crowd.visible({ x: s.ax, z: s.az })) { a.spawn(this.paxSpec(), s.ax, s.az, 0); a.spot = s; s.used = a; if (s.seat) { s.seat.used = a; a.sitDown(s.seat, SEAT_BENCH); a.sitW = 0.99; } a.setPhase('wait'); a.waitYaw = s.seat ? s.seat.yaw : 0; a.waitT = this.rng.next() * 100; this.pax.push(a); this.stats.arrivals++; } }
-      else { const order = [0, 1, 2].sort(() => this.rng.next() - 0.5); const e = order.find((k) => !this.crowd.visible(F.street[k])); if (e !== undefined) { const st = F.street[e]; a.spawn(this.paxSpec(), st.x, st.z, 0); this.stats.arrivals++; this.pax.push(a);
+      if (settle) { const s = this.freeSpot(this.rng.range(-70, 10), this.rng.next() < 0.45); if (s && !this.seen(s.ax, s.az)) { a.spawn(this.paxSpec(), s.ax, s.az, 0); a.spot = s; s.used = a; if (s.seat) { s.seat.used = a; a.sitDown(s.seat, SEAT_BENCH); a.sitW = 0.99; } a.setPhase('wait'); a.waitYaw = s.seat ? s.seat.yaw : 0; a.waitT = this.rng.next() * 100; this.pax.push(a); this.stats.arrivals++; } }
+      else { const order = [0, 1, 2].sort(() => this.rng.next() - 0.5); const e = order.find((k) => !this.seen(F.street[k].x, F.street[k].z)); if (e !== undefined) { const st = F.street[e]; a.spawn(this.paxSpec(), st.x, st.z, 0); this.stats.arrivals++; this.pax.push(a);
         if (this.rng.next() < 0.62 && a.p && this.joinQueue(a)) { a.setPhase('toQueue', this.routeToQueue(e, a.win)); this.stats.queued = (this.stats.queued || 0) + 1; } else a.setPhase('toPlatform', [...this.routeIn(e), ...this.routeToPlatform(this.colX(e), -645.6)]); } } // season-ticket holders go straight through
     }
     this.updateAnnouncements(dt, t);
