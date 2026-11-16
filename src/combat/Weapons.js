@@ -112,7 +112,7 @@ export class Weapons {
   // per frame (fists): stance on while fighting, block, step in to the locked target during the throw
   fistsUpdate(dt, aimHeld) {
     const P = this.P, A = P.ch.anim, C = this.g.crowd; this.comboT = Math.max(0, (this.comboT || 0) - dt); this.fightT = Math.max(0, (this.fightT || 0) - dt);
-    const able = this.fistsReady && !P.vehicle && !P.sprinting && !P.climb && !P.swimming && !P.indoorSeat && !P.busy;
+    const able = this.fistsReady && !P.vehicle && !P.boat && !P.sprinting && !P.climb && !P.swimming && !P.indoorSeat && !P.busy;
     this.engageCd = (this.engageCd || 0) - dt; if (this.engageCd <= 0 && C && C.peds) { this.engageCd = 0.3; this.engaged = C.peds.some((p) => p.state === 'fight' && Math.hypot(p.x - P.x, p.z - P.z) < 5); }
     this.blocking = able && aimHeld; A.block(this.blocking); if (this.blocking || this.engaged) this.fightT = Math.max(this.fightT, 1);
     A.fightOn(able && this.fightT > 0); if (!able && A.fight && A.fight.w > 0 && (P.vehicle || P.climb)) A.fightOn(false, true);
@@ -141,7 +141,7 @@ export class Weapons {
   // squad switch takeover: the incoming character brings their primary up and checks it — rack (rifle), press-check (pistol)
   // or works the bolt (bolt-action). Returns false when it can't (vehicle, indoors, nothing owned).
   arrivalCheck(sd) {
-    const P = this.P; if (P.vehicle || P.indoor || P.climb) return false;
+    const P = this.P; if (P.vehicle || P.boat || P.indoor || P.climb) return false;
     let i = WEAPONS.findIndex((w) => w.id === sd.primary); if (i < 0 || !this.inv[i] || !this.inv[i].owned) i = this.sel; if (i < 0 || !this.inv[i] || !this.inv[i].owned) return false;
     this.forceHolster(); this.sel = i; this.cur = i; this.aimW = 0; this.setState('check'); if (WEAPONS[i].cycle) this.cycleT = 0; this._cardT = 2.5; return true;
   }
@@ -187,7 +187,7 @@ export class Weapons {
   update(dt, can) {
     const P = this.P, A = P.ch.anim;
     this.heatUpdate(dt);
-    if (!can || P.vehicle || P.entry || P.exiting || P.climb || (P.indoor && !this.robRoom())) { /* walk-in robbery stores (RobberyShops.js) allow a drawn weapon */ if (this.drawn || this.state !== 'none') this.forceHolster(); else { A.ik = null; A.aim = null; } this.wheelClose(false); this.hudUpdate(dt); this.fxUpdate(dt); return; }
+    if (!can || P.vehicle || P.boat || P.entry || P.exiting || P.climb || (P.indoor && !this.robRoom())) { /* walk-in robbery stores (RobberyShops.js) allow a drawn weapon */ if (this.drawn || this.state !== 'none') this.forceHolster(); else { A.ik = null; A.aim = null; } this.wheelClose(false); this.hudUpdate(dt); this.fxUpdate(dt); return; }
     // ---- selection: wheel (hold Tab), number keys, mouse wheel, gamepad d-pad
     if (Input.isDown('weaponWheel')) this.wheelUpdate(); else if (this.wheelOpen) this.wheelClose(true);
     if (!this.wheelOpen) {
@@ -382,6 +382,7 @@ export class Weapons {
     if (this.g.police) for (const p of this.g.police.foot) { const rx = p.x - o.x, rz = p.z - o.z; const dh = Math.hypot(d.x, d.z) || 1e-6; const t = (rx * d.x + rz * d.z) / (dh * dh); if (t < skipNear || t > best.t) continue; const cx = o.x + d.x * t - p.x, cz = o.z + d.z * t - p.z; if (cx * cx + cz * cz > 0.09) continue; const y = o.y + d.y * t - (p.y || 0); if (y < 0.05 || y > (p.mode === 'down' ? 0.45 : 1.8 - 0.65 * ((p.ch && p.ch.anim && p.ch.anim.crouch) || 0))) continue; best = { t, kind: 'officer', p, y }; } // an officer crouched in cover presents less
     const vs = this.g.traffic.all();
     for (const v of vs) { if (v === skipV || Math.abs(v.x - o.x) > range || Math.abs(v.z - o.z) > range) continue; for (const [cx, cz] of v.circles()) { const rx = cx - o.x, ry = v.y + 0.9 - o.y, rz = cz - o.z; const t = rx * d.x + ry * d.y + rz * d.z; if (t < skipNear || t > best.t) continue; const qx = o.x + d.x * t - cx, qy = o.y + d.y * t - (v.y + 0.9), qz = o.z + d.z * t - cz; const rr = v.radius * 0.95; const dd = qx * qx + qy * qy * 1.8 + qz * qz; if (dd < rr * rr) { const back = Math.sqrt(rr * rr - dd); best = { t: Math.max(skipNear, t - back), kind: 'vehicle', v }; } } }
+    if (this.g.boats && !rr) { const h = this.g.boats.rayHit(o, d, skipNear, best.t); if (h) best = { t: h.t, kind: 'boat', boat: h.boat, part: h.part, sail: h.sail, uv: h.uv }; } // boats: hull / cabin / engine boxes and the sail cloth (boats/Boat.rayHit)
     if (rr) { const h = rr.rob.rayKeeper(o, d, best.t, skipNear); if (h) best = { t: h.t, kind: 'keeper', room: rr, y: h.y }; }
     best.point = o.clone().addScaledVector(d, best.t); return best;
   }
@@ -416,6 +417,12 @@ export class Weapons {
   applyHit(hit, dir, org, def, k = 1, depth = 0) {
     const dmg = def.dmg * k;
     if (hit.kind === 'ped') { const p = hit.p; if (this.g.blood && p.ch) this.g.blood.wound(p.ch, hit.point, dir, dmg); this.g.crowd.hitPed(p, dir.x, dir.z, dmg, hit.point); if (!(this.g.blood && this.g.blood.spray(hit.point, dir, dmg))) this.puff(hit.point, 0x8a8478, 3); this.hitMarker(); }
+    else if (hit.kind === 'boat') { const b = hit.boat; // a boat: GRP / aluminium takes the hit like a car body; enough of them and she burns and sinks
+      if (hit.part === 'sail') { b.sailHit(hit.sail, hit.uv); if (depth < 3) return this.applyHit(this.trace(org, dir, def.range, hit.t + 0.05), dir, org, def, k, depth + 1); return hit; } // through the cloth: a hole (they rip into tears), the bullet flies on
+      b.damage(dmg * 0.35, hit.part, hit.point, 'player'); if (hit.part === 'engine' || b.role === 'police') this.sparks(hit.point, dir); else this.puff(hit.point, 0xe2dfd6, 3);
+      SB.play('gun.ricochet', 0.7, 0, 0, { rate: 0.8 + Math.random() * 0.2 }) || Audio.tone(1900 + Math.random() * 900, 0.05, { type: 'triangle', vol: 0.035 });
+      const now = performance.now(); if ((b.role === 'police' || b.role === 'debugPolice') && this.g.police && !this.g.debug?.noWanted && now - (b.heatT || 0) > 4000) { b.heatT = now; this.g.police.addHeat(1, 'shooting at a police boat', 'Shots fired at a police boat.'); }
+      this.g.crowd.alarm(b.x, b.z, 30, 2, null, 'gunshot', true); if (b.owner || b.crewChars) this.hitMarker(); }
     else if (hit.kind === 'keeper') { hit.room.rob.shot(hit, dir, dmg); this.hitMarker(); } // a robbery-store keeper (RobberyShops.js)
     else if (hit.kind === 'officer') { if (this.g.blood && hit.p.ch) this.g.blood.wound(hit.p.ch, hit.point, dir, dmg); this.g.police.officerHit(hit.p, dir.x, dir.z); if (!(this.g.blood && this.g.blood.spray(hit.point, dir, dmg))) this.puff(hit.point, 0x8a8478, 3); this.hitMarker(); } // stagger / down-and-recover
     else if (hit.kind === 'vehicle') { const v = hit.v, VD = this.g.vdamage; const R = VD ? VD.bullet(v, org, dir, { cls: def.cls, dmg }, { by: 'player' }) : null;

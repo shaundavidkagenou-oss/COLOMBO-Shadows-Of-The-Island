@@ -14,7 +14,7 @@ import { HARBOUR_Y } from './BoatWater.js';
 export const MARINA = {
   name: 'Fort Harbour Marina',
   deckY: HARBOUR_Y + 0.52,                    // pontoon walking surface
-  quayY: 0.55,                                 // top of the harbour wall the gangway starts from
+  quayY: 0.17,                                 // the quay top (LAND_Y 0.15) the gangway starts from
   gang: { x0: 221, x1: 230.4, z0: -1200.75, z1: -1198.25 },
   head: { x0: 150, x1: 221, z0: -1201, z1: -1198 },
   spine: { x0: 183.5, x1: 186.5, z0: -1285, z1: -1201 },
@@ -116,7 +116,7 @@ export function buildMarina(scene, collision) {
 
   const g = new THREE.Group(); g.name = 'marina';
   const add = (mb, mat, name, shadow = true) => { const geo = mb.build(); if (!geo) return; const m = new THREE.Mesh(geo, mat); m.name = name; m.castShadow = shadow; m.receiveShadow = true; m.matrixAutoUpdate = false; g.add(m); };
-  add(deck, MAT.paint || new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }), 'marinaDeck', false); add(paint, MAT.paint || new THREE.MeshStandardMaterial({ vertexColors: true }), 'marinaPaint'); add(metal, MAT.metal || new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.8 }), 'marinaMetal');
+  add(deck, MAT.concrete || MAT.paint, 'marinaDeck', false); /* composite decking: the weathered concrete map tinted warm grey */ add(paint, MAT.paint || new THREE.MeshStandardMaterial({ vertexColors: true }), 'marinaPaint'); add(metal, MAT.metal || new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.8 }), 'marinaMetal');
   if (sign) g.add(sign);
   scene.add(g); g.updateMatrixWorld(true);
   if (collision) collision.addAll(colliders);

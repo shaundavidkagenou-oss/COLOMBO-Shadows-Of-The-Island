@@ -21,7 +21,7 @@ export class Player {
   constructor(scene, camera, collision, events) {
     this.scene = scene; this.camera = camera; this.collision = collision; this.events = events;
     this.ch = new Character(HEROES.dineth); scene.add(this.ch.root);
-    this.x = 0; this.z = 0; this.y = 0.15; this.vy = 0; this.yaw = 0; this.speed = 0; this.grounded = true; this.vehicle = null; this.sprinting = false; this.crouching = false; this.stamina = 1;
+    this.x = 0; this.z = 0; this.y = 0.15; this.vy = 0; this.yaw = 0; this.speed = 0; this.grounded = true; this.vehicle = null; this.boat = null; this.sprinting = false; this.crouching = false; this.stamina = 1;
     this.camYaw = 0; this.camPitch = 0.18; this.camDist = 4.2; this.camPos = new THREE.Vector3(); this.camMode = 0; this.control = true; this.climb = null; this.transition = null;
     this.camTarget = new THREE.Vector3(); this.lookAhead = 0; this.shake = 0; this.fpYaw = 0;
   }
@@ -38,7 +38,7 @@ export class Player {
   respawnReset() {
     const r = this.ch.root, A = this.ch.anim, cam = this.camera;
     if (r.parent && r.parent !== this.scene) { r.parent.remove(r); this.scene.add(r); }
-    this.entry = null; this.exiting = null; this.climb = null; this.swim = null; this.diveIn = null; this.swimBreath = 1; this.transition = null; this.settling = 0; this.emote = null; this.cinematic = false; this.lookLock = false;
+    this.entry = null; this.exiting = null; this.boat = null; this.climb = null; this.swim = null; this.diveIn = null; this.swimBreath = 1; this.transition = null; this.settling = 0; this.emote = null; this.cinematic = false; this.lookLock = false;
     this.vy = 0; this.grounded = true; this.speed = 0; this.crouching = false; this.sprinting = false; this.aiming = false; this.scoped = null; this.aimCam = 0;
     this.shake = 0; this.camFx = null; this.idleCam = 0; this.idleT = 0; this.camPitch = 0.18; this.camYaw = this.yaw + Math.PI;
     if (this.fpHead) { this.fpHead.scale.setScalar(1); this.fpHead = null; }
@@ -49,12 +49,12 @@ export class Player {
     const f = Settings.get('fov'); cam.fov = f; cam.near = 0.25; cam.updateProjectionMatrix(); this.snapCamera();
   }
   update(dt, traffic) {
-    { const A = this.ch.anim; A.fp = this.camMode === 2 && !this.vehicle && !this.cinematic; A.fpYaw = this.camYaw + Math.PI; A.fpPitch = this.camPitch; } // first-person fists stay in front of the lens (Boxing.fpClear)
+    { const A = this.ch.anim; A.fp = this.camMode === 2 && !this.vehicle && !this.boat && !this.cinematic; A.fpYaw = this.camYaw + Math.PI; A.fpPitch = this.camPitch; } // first-person fists stay in front of the lens (Boxing.fpClear)
     const sens = 0.0024 * Settings.get('mouseSens'); const inv = Settings.get('invertY') ? -1 : 1;
     if (this.control && !this.lookLock) { const zs = this.scoped ? 1 / this.scoped.zoom : this.aiming ? 0.75 : 1; this.camYaw -= (Input.mouseDX * sens + Input.pad.rx * dt * 2.6) * zs; this.camPitch = clamp(this.camPitch + (Input.mouseDY * sens + Input.pad.ry * dt * 2) * inv * zs, -0.5, 1.2); }
     if (Input.wasPressed('camera') && this.control) this.camMode = (this.camMode + 1) % 3;
     if (this.settling) { const S = this.settling; S.t += dt; if (S.t > 1.5 || S.v === this.vehicle || S.v.player || S.v.ai) this.settling = null; else S.v.sync(dt); } // a car just left keeps rocking on its springs for a moment
-    if (this.exiting) this.updateExit(dt); else if (this.entry) this.updateEntry(dt); else if (this.vehicle) this.updateVehicle(dt, traffic); else this.updateFoot(dt, traffic);
+    if (this.boat) this.updateBoat(dt); else if (this.exiting) this.updateExit(dt); else if (this.entry) this.updateEntry(dt); else if (this.vehicle) this.updateVehicle(dt, traffic); else this.updateFoot(dt, traffic);
     this.updateCamera(dt);
   }
   updateFoot(dt, traffic) {
@@ -371,6 +371,9 @@ export class Player {
     if (X.stage === 'close') { const ev = door(-0.4, 7.5, 0.85); A.update(dt, 0, 0); this.sync(); if (ev === 'latched' || X.t > 1.2) { X.stage = 'end'; } return; } // pushed shut from outside: slams
     doorAng(0); this.settling = { v, t: 0 }; this.exiting = null; this.control = true; this.events.emit('exitVehicle', v);
   }
+  // aboard a boat (boats/Boats.js moves the boat, seats / unseats the body): follow it, keep the seated pose alive
+  updateBoat(dt) { const b = this.boat; const A = this.ch.anim; A.steer = b.steer || 0; A.vehSpeed = b.speed || 0; A.brakeLean = 0; A.cornerLean = 0; A.update(dt, 0);
+    const p = this._bp || (this._bp = new THREE.Vector3()); this.ch.root.getWorldPosition(p); this.x = p.x; this.z = p.z; this.y = p.y; this.yaw = b.yaw; this.speed = 0; }
   teleportKeepCam(x, z, yaw) { this.leaveRoomFor(x, z); this.x = x; this.z = z; this.y = this.collision.groundAt(x, z, 1); this.yaw = yaw; this.sync(); }
   updateVehicle(dt, traffic) {
     const v = this.vehicle; const c = this.control;
@@ -391,13 +394,14 @@ export class Player {
   snapCamera() { this.updateCamera(1, true); }
   updateCamera(dt, snap = false) {
     if (this.camHid) { this.ch.root.visible = true; this.camHid = false; } // set again below while the camera is still inside the body
-    if (this.cinematic || this.camOverride) return; const cam = this.camera; const v = this.vehicle;
+    if (this.cinematic || this.camOverride) return; const cam = this.camera; const v = this.vehicle || this.boat;
     if (this.scoped && this.weapons && !v) { this.weapons.scopeCamera(dt); return; }
     this.aimCam = damp(this.aimCam || 0, this.aiming && !v ? 1 : 0, 10, dt);
     const distMul = Settings.get('cameraDistance');
     let dist, height, tgt;
     if (v) {
       const big = v.T.len > 6; dist = (big ? 11 : v.T.entry === 'bike' || v.type === 'tuktuk' ? 4.8 : 6.2) * distMul * (this.camMode === 1 ? 1.5 : 1); height = big ? 3.4 : 1.6;
+      if (v.type === 'boat') { dist = v.camDist * distMul * (this.camMode === 1 ? 1.4 : 1); height = v.camHeight; } // boats: from a jet ski (6.5 m) to the superyacht (34 m)
       // chase cam: drift behind vehicle heading unless the player is looking around
       if (Math.abs(Input.mouseDX) < 0.5 && Math.abs(Input.pad.rx) < 0.1) { this.idleCam = (this.idleCam || 0) + dt; if (this.idleCam > 1.2 || Math.abs(v.speed) > 6) this.camYaw = dampAngle(this.camYaw, v.yaw + Math.PI + (v.speed < -1 ? Math.PI : 0), 2.5, dt); } else this.idleCam = 0;
       tgt = new THREE.Vector3(v.x, v.y + height, v.z);

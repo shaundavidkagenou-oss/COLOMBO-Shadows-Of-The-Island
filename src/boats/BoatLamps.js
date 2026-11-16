@@ -14,6 +14,7 @@ import { nightLight } from '../gfx/LightSets.js';
 
 const MAXP = 1400;
 const D2R = Math.PI / 180;
+const IDENT = new THREE.Matrix4();
 // kind → [colour, intensity, size (m), centre angle (rad, from ahead toward port), half arc (rad)]
 const KIND = {
   port: [[1.0, 0.1, 0.05], 5.5, 0.55, 56.25 * D2R, 56.25 * D2R], stbd: [[0.1, 1.0, 0.35], 5.0, 0.55, -56.25 * D2R, 56.25 * D2R],
@@ -84,6 +85,8 @@ export class BoatLamps {
       if (on > 0.01) this.push(l.p, k, mw, fx, fz, night, on);
     }
   }
+  // fixed lamps (marina pontoon lights): [x, y, z, kind] in world space, reflected on the harbour plane
+  addStatic(pts, night) { if (night <= 0.02) return; this._wl = -0.95; this._sunk = false; for (const q of pts) this.push(q, q[3], IDENT, 0, 1, night, 1); }
   push(p, k, mw, fx, fz, night, on) {
     if (this.n >= MAXP) return; const K = KIND[k]; if (!K) return; const i = this.n++; const v = this._v.set(p[0], p[1], p[2]).applyMatrix4(mw); if (k === 'uwl' && this._wl != null) v.y = Math.max(v.y, this._wl + 0.05); /* underwater lights glow up through the surface */
     this.pos[i * 3] = v.x; this.pos[i * 3 + 1] = v.y; this.pos[i * 3 + 2] = v.z; const I = K[1] * night * on;

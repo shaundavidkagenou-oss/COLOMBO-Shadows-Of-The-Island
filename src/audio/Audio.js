@@ -184,7 +184,10 @@ class AudioEngine {
     this.engines.forEach((e, i) => {
       const v = want[i]; if (!v) { e.g.gain.setTargetAtTime(0, t, 0.2); return; }
       const sp = Math.abs(v.speed); const k = v.type; let base, fc, vol, sid, idle;
-      if (k === 'tuktuk') { sid = 'engine.tuktuk'; idle = 38; base = 38 + sp * 5; fc = 900 + sp * 60; vol = 0.11; e.lfo.frequency.value = base * 0.5; }
+      if (k === 'boat') { const ski = v.model.ski, ob = ['cc', 'rib', 'offshore', 'police', 'bowrider'].includes(v.def.layout); const th = Math.abs(v.thr || 0); /* boats: revs follow the throttle (the prop loads the engine), a little with speed */
+        sid = ski ? 'engine.jetski' : ob ? 'engine.outboard' : 'engine.boat'; idle = ski ? 62 : ob ? 46 : 27;
+        base = idle * (1 + th * (ski ? 1.6 : ob ? 1.5 : 0.9)) + sp * (ski ? 1.2 : ob ? 0.9 : 0.4); fc = (ski ? 1500 : ob ? 1000 : 320) * (1 + th * 1.4) + sp * 20; vol = (ski ? 0.09 : ob ? 0.1 : 0.12) * (0.55 + 0.45 * th); e.lfo.frequency.value = ski ? base * 0.5 : ob ? base * 0.25 : 7; }
+      else if (k === 'tuktuk') { sid = 'engine.tuktuk'; idle = 38; base = 38 + sp * 5; fc = 900 + sp * 60; vol = 0.11; e.lfo.frequency.value = base * 0.5; }
       else if (k === 'bike' || BIKES[k]) { const cc = BIKES[k] ? BIKES[k].cc : 125; // two-wheelers: a 100 cc single thumps low; a 1000 cc four screams
         sid = cc >= 800 ? 'engine.superbike' : cc >= 250 ? 'engine.bike250' : 'engine.bike'; idle = cc >= 800 ? 72 : cc >= 250 ? 60 : 55;
         if (cc >= 800) { base = 72 + sp * 8.5; fc = 2400 + sp * 55; vol = 0.11; e.lfo.frequency.value = base * 0.25; } else if (cc >= 250) { base = 60 + sp * 7.5; fc = 1800 + sp * 45; vol = 0.1; e.lfo.frequency.value = base * 0.5; } else { base = 55 + sp * 7; fc = 1400 + sp * 40; vol = 0.09; e.lfo.frequency.value = base * 0.5; } }
@@ -193,7 +196,7 @@ class AudioEngine {
       else { sid = 'engine.car'; idle = 32; base = 32 + sp * 3.2; fc = 380 + sp * 35; vol = 0.08; e.lfo.frequency.value = 6; }
       if (v.rev) { const r = v.rev; base *= 1 + r * 1.1; fc *= 1 + r * 1.6; vol *= 1 + r * 0.7; } // Street Customs: revving on the turntable (preview of engine / exhaust work)
       const ex = v.tune && v.tune.exhaust; if (ex) { const X = { sport: [1.2, 1.15], twin: [1.25, 1.2], quad: [1.35, 1.3], titanium: [1.3, 1.55], straight: [1.55, 1.6], stack: [1.3, 1.1], carbon: [1.25, 1.35], full: [1.5, 1.6] }[ex] || [1.2, 1.2]; vol *= X[0]; fc *= X[1]; } // Customs exhaust: louder, more open
-      const gearSp = v.player ? ((sp % 9) / 9) * 0.6 + 0.6 : 1;
+      const gearSp = v.player && k !== 'boat' ? ((sp % 9) / 9) * 0.6 + 0.6 : 1; /* boats have no gearbox */
       // a recording of this kind of engine: looped, pitched with the revs (1.0 = the recording's own pitch at a fast idle)
       const smp = SB.syncLoop(e, sid, e.g); if (!!smp !== !!e.rec) { e.rec = !!smp; e.og.gain.setTargetAtTime(smp ? 0 : 1, t, 0.05); }
       if (smp) smp.src.playbackRate.setTargetAtTime(clamp(0.85 + (base * gearSp / idle - 1) * 0.32, 0.6, 2.4), t, 0.08);
