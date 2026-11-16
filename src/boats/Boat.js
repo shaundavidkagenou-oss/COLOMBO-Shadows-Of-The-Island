@@ -67,7 +67,7 @@ export class Boat {
   // boat-space point → world (x, z only, ignores pitch / roll)
   local(lx, lz) { const s = Math.sin(this.yaw), c = Math.cos(this.yaw); return [this.x + lz * s + lx * c, this.z + lz * c - lx * s]; }
   worldPoint(p, out = new THREE.Vector3()) { return out.set(p[0], p[1], p[2]).applyMatrix4(this.root.matrixWorld); }
-  circles() { const M = this.model; const n = clamp(Math.ceil(M.len / (M.halfBeam * 2.2)), 2, 9); const r = M.halfBeam * 0.95; const out = []; for (let i = 0; i < n; i++) { const lz = -M.len * 0.42 + (M.len * 0.84 * i) / (n - 1); const [x, z] = this.local(this.model.cat ? 0 : 0, lz); out.push([x, z, r]); } return out; }
+  circles() { const M = this.model; const n = clamp(Math.ceil(M.len / (M.halfBeam * 2.2)), 2, 9); const r = M.halfBeam * 0.95; const out = []; for (let i = 0; i < n; i++) { const lz = -M.len * 0.42 + (M.len * 0.84 * i) / (n - 1); const [x, z] = this.local(0, lz); out.push([x, z, r]); } return out; }
   // ---------------------------------------------------------------------------------------------------------- update
   // ctl: { thr, steer } (only while driven) · env: { dt, E, wakes, blocked(x, z, r) → bool, near (camera distance), wind }
   update(dt, ctl, env) {

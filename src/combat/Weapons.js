@@ -419,7 +419,7 @@ export class Weapons {
     if (hit.kind === 'ped') { const p = hit.p; if (this.g.blood && p.ch) this.g.blood.wound(p.ch, hit.point, dir, dmg); this.g.crowd.hitPed(p, dir.x, dir.z, dmg, hit.point); if (!(this.g.blood && this.g.blood.spray(hit.point, dir, dmg))) this.puff(hit.point, 0x8a8478, 3); this.hitMarker(); }
     else if (hit.kind === 'boat') { const b = hit.boat; // a boat: GRP / aluminium takes the hit like a car body; enough of them and she burns and sinks
       if (hit.part === 'sail') { b.sailHit(hit.sail, hit.uv); if (depth < 3) return this.applyHit(this.trace(org, dir, def.range, hit.t + 0.05), dir, org, def, k, depth + 1); return hit; } // through the cloth: a hole (they rip into tears), the bullet flies on
-      b.damage(dmg * 0.35, hit.part, hit.point, 'player'); if (hit.part === 'engine' || b.role === 'police') this.sparks(hit.point, dir); else this.puff(hit.point, 0xe2dfd6, 3);
+      b.damage(dmg * 2.2, hit.part, hit.point, 'player'); /* same scale as a car body (VehicleDamage: 2.2 per dmg) */ if (hit.part === 'engine' || b.role === 'police') this.sparks(hit.point, dir); else this.puff(hit.point, 0xe2dfd6, 3);
       SB.play('gun.ricochet', 0.7, 0, 0, { rate: 0.8 + Math.random() * 0.2 }) || Audio.tone(1900 + Math.random() * 900, 0.05, { type: 'triangle', vol: 0.035 });
       const now = performance.now(); if ((b.role === 'police' || b.role === 'debugPolice') && this.g.police && !this.g.debug?.noWanted && now - (b.heatT || 0) > 4000) { b.heatT = now; this.g.police.addHeat(1, 'shooting at a police boat', 'Shots fired at a police boat.'); }
       this.g.crowd.alarm(b.x, b.z, 30, 2, null, 'gunshot', true); if (b.owner || b.crewChars) this.hitMarker(); }

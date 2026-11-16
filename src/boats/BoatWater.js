@@ -112,7 +112,7 @@ export class Wakes {
       const pts = live ? [{ x: H.x, z: H.z, t: this.t, d: T.dist + (T.pts[0] ? Math.hypot(H.x - T.pts[0].x, H.z - T.pts[0].z) : 0), s: Math.min(1, H.s / 14), hb: T.hb }, ...T.pts] : T.pts;
       if (pts.length < 2 || k >= MAXTR) continue; const dNow = pts[0].d; const base = k * MAXP * NA;
       for (let i = 0; i < MAXP; i++) {
-        const p = pts[Math.min(i, pts.length - 1)]; const a = pts[Math.max(0, i - 1)], c = pts[Math.min(pts.length - 1, i + 1)];
+        const p = pts[Math.min(i, pts.length - 1)]; const a = pts[Math.min(pts.length - 1, Math.max(0, i - 1))], c = pts[Math.min(pts.length - 1, i + 1)]; /* past the end: the last point repeated (age LIFE → invisible) */
         let tx = a.x - c.x, tz = a.z - c.z; const tl = Math.hypot(tx, tz) || 1; tx /= tl; tz /= tl; if (i === 0 && live) { tx = Math.sin(H.yaw); tz = Math.cos(H.yaw); }
         const nx = tz, nz = -tx; const age = this.t - p.t; const hw = Math.min(46, p.hb + SPREAD * Math.max(0, dNow - p.d) * Math.min(1, 0.35 + p.s * 1.6)); const ratio = hw / Math.max(0.3, p.hb);
         for (let j = 0; j < NA; j++) { const o = base + i * NA + j; const u = ACROSS[j]; const x = p.x + nx * u * hw, z = p.z + nz * u * hw;

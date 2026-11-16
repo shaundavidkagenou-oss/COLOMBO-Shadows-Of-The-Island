@@ -3,7 +3,7 @@
 // real ones you see in Sri Lankan waters and marinas. Prices in Sri Lankan rupees.
 //   layout: which builder in BoatModels.js draws it · max: top speed (m/s) · acc: thrust (m/s²) · turn: rate (rad/s)
 //   plane: speed at which the hull gets on the plane (0 = displacement hull) · sail: carries sails (they can be shot through)
-//   hp: hits it takes before it is wrecked (scaled by the weapon) · seats: people aboard when an owner takes it out
+//   hp: hull strength (a service-pistol hit on the hull costs 1.65, like a car body; engine hits ×1.6) · seats: people aboard when an owner takes it out
 export const BOATS = {
   // ------------------------------------------------------------------------------------------------ luxury yachts
   mirissa46: { cat: 'yacht', make: 'Mirissa Yachts', model: '46 Sloop', kind: 'Sailing yacht · 14.0 m', price: 185000000, layout: 'sloop', len: 14.0, beam: 4.3,
