@@ -1,17 +1,60 @@
-// "Global" — the phone's web browser. A start page with twenty everyday sites (ui/GlobalSites.js) plus one private
-// site: Black Orchid, which books Nila, the contractor in actors/Assassin.js (long-range contract with a satellite
-// target picker, bodyguard for a day, a private evening). Keyboard: ↑↓ choose, Enter open, Backspace back; on the
-// target picker the map is also clickable when the pointer is free.
+// "Global" — the phone's web browser and search engine. The start page is a search page: a search bar (Enter on it to
+// type, Enter again to search) over the bookmarks — twenty everyday sites (ui/GlobalSites.js) and the marine sites
+// (ui/MarineSites.js: yachts, boats, jet skis, the marina). Search results look like a search engine's: favicon, the
+// site's address › path, a blue title and a snippet, and every result opens a real page. Black Orchid (Nila, the
+// contractor in actors/Assassin.js: long-range contract with a satellite target picker, bodyguard for a day, a private
+// evening) is NOT bookmarked any more: you find it by searching (or by typing its address). Keyboard: ↑↓ choose, Enter
+// open, Backspace back; on the target picker the map is also clickable when the pointer is free.
 import { SITES, esc } from './GlobalSites.js';
 import { ORCHID } from '../actors/Assassin.js';
 import { SAT } from './Satellite.js';
+import { marineSites, marinePage } from './MarineSites.js';
+import { BOATS, boatName } from '../boats/BoatCatalog.js';
+import { Input } from '../core/Input.js';
 
 const rs = (n) => `Rs. ${Math.round(n).toLocaleString('en-LK')}`;
 const ORCHID_URL = 'blackorchid.lk';
+const ORCHID_HIT = { title: 'Black Orchid — Discreet professional services, Colombo', url: ORCHID_URL, crumbs: [], ico: '🌸', col: '#5a2a40', go: { id: 'orchid' },
+  kw: 'black orchid blackorchid assassin assassins hitman hit man hitmen contract contracts killer kill sniper marksman bodyguard bodyguards protection private services discreet professional nila 18+ adult',
+  desc: 'Discreet professional services for adults. Long-range contracts, close protection for a day, private evenings. Payment up front. 18+ only.' };
+const STOP = new Set(['the', 'a', 'an', 'in', 'of', 'to', 'for', 'and', 'on', 'at', 'buy', 'sri', 'lanka', 'colombo', 'lk', 'www', 'com', 'near', 'me', 'best']);
+const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 28);
+const plain = (h) => String(h || '').replace(/<small>[\s\S]*?<\/small>/g, ' ').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/g, ' ').replace(/\s+/g, ' ').trim();
 
 export class GlobalBrowser {
   constructor(phone, game) { this.phone = phone; this.g = game; this.reset(); }
-  reset() { this.stack = [{ id: 'home' }]; this.cur = null; this.tg = []; this.tgT = 0; this.sel = null; this.frame = 0; }
+  reset() { this.releaseTyping(); this.stack = [{ id: 'home' }]; this.cur = null; this.tg = []; this.tgT = 0; this.sel = null; this.frame = 0; this.q = ''; this.wantFocus = false; }
+  get sites() { return this._sites || (this._sites = [...SITES, ...marineSites()]); }
+  siteById(id) { return this.sites.find((q) => q.id === id) || null; }
+  releaseTyping() { if (this.typing) { Input.typing = false; this.typing = false; } const el = typeof document !== 'undefined' ? document.activeElement : null; if (el && el.classList && el.classList.contains('gb-q')) el.blur(); }
+  // ---------------------------------------------------------------- search
+  // the index: every site, the articles / listings inside them, every boat for sale, and Black Orchid (only found by search)
+  index() {
+    const g = this.g; const out = [];
+    for (const s of this.sites) { let p = null; try { p = s.page(g); } catch (e) { p = null; }
+      const text = p ? plain(p.html).slice(0, 220) : '';
+      out.push({ title: s.name + (s.tag ? ` — ${s.tag}` : ''), url: s.url, crumbs: [], ico: s.icon, col: s.col, go: { id: 'site', site: s.id }, kw: `${s.name} ${s.tag || ''} ${s.kw || ''} ${s.url}`, desc: text || s.tag || '' });
+      if (p) for (const r of p.rows || []) { if (r.page && r.page.article) { const a = r.page.article; out.push({ title: a.title, url: s.url, crumbs: [slug(a.title)], ico: s.icon, col: s.col, go: { id: 'article', site: s.id, article: a }, kw: `${a.title} ${s.name} ${s.tag || ''}`, desc: plain(a.html).slice(0, 160) }); } } }
+    for (const s of this.sites) if (s.marine) for (const id of s.marine.ids) { const d = BOATS[id]; out.push({ title: `${boatName(id)} for sale — ${s.name}`, url: s.url, crumbs: [s.marine === s.marine && d.cat === 'jetski' ? 'watercraft' : d.cat === 'yacht' ? 'yachts' : 'boats', id], ico: s.icon, col: s.col, go: { id: 'mboat', boat: id, site: s.id }, kw: `${boatName(id)} ${d.kind} ${d.cat} ${s.marine.kw}`, desc: `${d.kind}. Rs. ${Math.round(d.price).toLocaleString('en-LK')}. ${d.blurb || ''}`.slice(0, 170) }); }
+    out.push(ORCHID_HIT);
+    return out;
+  }
+  results(q) {
+    const toks = q.toLowerCase().split(/[^a-z0-9+]+/).filter((t) => t.length > 1 && !STOP.has(t)); if (!toks.length) return [];
+    const scored = [];
+    for (const e of this.index()) { const T = e.title.toLowerCase(), K = (e.kw + ' ' + e.desc).toLowerCase(); let sc = 0, hit = 0;
+      for (const t of toks) { const re = new RegExp('\\b' + t.replace(/[^a-z0-9]/g, '')); if (re.test(T)) { sc += 3; hit++; } else if (re.test(K)) { sc += 1; hit++; } }
+      if (hit && hit >= Math.ceil(toks.length / 2)) scored.push({ e, sc: sc + (e.crumbs.length ? 0 : 0.5) }); }
+    scored.sort((a, b) => b.sc - a.sc); return scored.slice(0, 14).map((q2) => q2.e);
+  }
+  search(raw) {
+    const q = String(raw || '').trim(); if (!q) return; this.q = q;
+    const addr = q.toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, ''); // a typed address opens the site
+    if (addr === ORCHID_URL) { this.go({ id: 'orchid' }); return; }
+    const site = this.sites.find((s) => s.url.split('/')[0] === addr); if (site) { this.go({ id: 'site', site: site.id }); return; }
+    if (this.top.id === 'search') this.stack.pop(); this.go({ id: 'search', q });
+  }
+  searchRow() { return { t: this.q || '', input: true, act: () => { this.wantFocus = true; return {}; } }; }
   get top() { return this.stack[this.stack.length - 1]; }
   go(st) { this.stack.push(st); this.cur = null; this.phone.row = 0; if (st.id === 'orchid-map') { this.refreshTargets(true); } }
   back() { if (this.stack.length <= 1) return false; this.stack.pop(); this.cur = null; this.phone.row = this.top.row0 || 0; return true; }
@@ -20,11 +63,19 @@ export class GlobalBrowser {
   build() {
     const g = this.g, st = this.top, S = g.story.state;
     if (st.id === 'home') {
-      const rows = [{ t: '🌸 Black Orchid', s: 'Private services · 18+', go: { id: 'orchid' }, cls: 'orchid' }, ...SITES.map((s) => ({ t: `${s.name}`, s: `${s.url} · ${s.tag}`, go: { id: 'site', site: s.id }, ico: s.icon, col: s.col }))];
-      return { url: 'global://start', title: 'Global', html: `<div class="gb-logo"><b>Global</b><small>Your island, one tap away</small></div><div class="gb-sec">Bookmarks</div>`, rows };
+      const rows = [this.searchRow(), ...this.sites.map((s) => ({ t: `${s.name}`, s: `${s.url} · ${s.tag}`, go: { id: 'site', site: s.id }, ico: s.icon, col: s.col }))];
+      return { url: 'global.lk', title: 'Global', html: `<div class="gb-logo"><b>Global</b><small>Search the island</small></div>`, rows, sec: { 1: 'Bookmarks', [SITES.length + 1]: 'Marine' } };
     }
-    if (st.id === 'site') { const s = SITES.find((q) => q.id === st.site); const p = s.page(g); return { url: s.url, title: s.name, html: p.html, rows: p.rows.map((r) => (r.page ? { ...r, go: { id: 'article', site: s.id, article: r.page.article } } : r)) }; }
-    if (st.id === 'article') { const s = SITES.find((q) => q.id === st.site); const a = st.article; return { url: `${s ? s.url : ''}/${a.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 28)}`, title: a.title, html: `<div class="gb-article"><h3>${esc(a.title)}</h3>${a.html}</div>`, rows: [] }; }
+    if (st.id === 'search') {
+      const res = this.results(st.q); const ms = (0.18 + (st.q.length % 7) * 0.031).toFixed(2);
+      const rows = [this.searchRow(), ...res.map((e) => ({ t: e.title, s: e.desc, url: [e.url, ...e.crumbs].join(' › '), ico: e.ico, col: e.col, go: e.go }))];
+      if (!res.length) for (const sug of ['yachts for sale', 'jet ski', 'speed boat', 'marina berth', 'news', 'weather', 'recipes', 'radio']) rows.push({ t: `🔍 ${sug}`, s: 'Search for this', act: () => { this.search(sug); return {}; } });
+      return { url: `global.lk/search?q=${encodeURIComponent(st.q).replace(/%20/g, '+')}`, title: `${st.q} - Global Search`, html: `<div class="gb-logo gb-logo-s"><b>Global</b></div>`, rows,
+        sec: { 1: res.length ? `About ${(res.length * 1370 + st.q.length * 211).toLocaleString('en-LK')} results (${ms} seconds)` : `No results for “${esc(st.q)}”. Try:` } };
+    }
+    if (st.id === 'mboat' || st.id === 'mbuy' || st.id === 'mresult') { const p = marinePage(this, st); if (p) return p; }
+    if (st.id === 'site') { const s = this.siteById(st.site); const p = s.page(g); return { url: s.url, title: s.name, html: p.html, rows: p.rows.map((r) => (r.page ? { ...r, go: { id: 'article', site: s.id, article: r.page.article } } : r)) }; }
+    if (st.id === 'article') { const s = this.siteById(st.site); const a = st.article; return { url: `${s ? s.url : ''}/${a.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 28)}`, title: a.title, html: `<div class="gb-article"><h3>${esc(a.title)}</h3>${a.html}</div>`, rows: [] }; }
     // ---- Black Orchid
     const O = this.orchid(); const F = ORCHID.fees;
     const head = `<div class="bo-head"><b>BLACK ORCHID</b><small>Discreet professional services · Colombo</small></div>`;
@@ -74,8 +125,13 @@ export class GlobalBrowser {
   // ---------------------------------------------------------------- html
   html(row) {
     const p = this.page(); const secure = p.url.startsWith('global') ? '◍' : '🔒';
-    const rows = p.rows.map((r, i) => `<div class="ph-row gb-row${r.cls ? ' ' + r.cls : ''}${i === row ? ' sel' : ''}" data-i="${i}">${r.ico ? `<i style="background:${r.col}">${r.ico}</i>` : ''}<div><b>${esc(r.t)}</b>${r.s ? `<p>${esc(r.s)}</p>` : ''}</div></div>`).join('');
-    return `<div class="gb-chrome"><span class="gb-tab">${esc(p.title).slice(0, 28)}</span><div class="gb-url">${secure} ${esc(p.url)}</div></div>${p.top || ''}<div class="ph-list gb-page${p.top ? ' gb-dark' : ''}">${p.html}${rows}</div><div class="ph-hint gb-hint">↑↓ · Enter open · ⌫ back</div>`;
+    if (this.typing && !p.rows.some((r) => r.input)) this.releaseTyping();
+    const rows = p.rows.map((r, i) => { const sec = p.sec && p.sec[i] ? `<div class="gb-sec">${p.sec[i]}</div>` : ''; const on = i === row ? ' sel' : '';
+      if (r.input) return `${sec}<div class="ph-row gb-row gb-srow${on}" data-i="${i}"><span class="gb-mag">🔍</span><input class="gb-q" type="text" spellcheck="false" autocomplete="off" maxlength="60" placeholder="Search Global or type an address" value="${esc(r.t)}"></div>`;
+      if (r.url) return `${sec}<div class="ph-row gb-row gb-res${on}" data-i="${i}"><div><span class="gb-u">${r.ico ? `<i style="background:${r.col}">${r.ico}</i>` : ''}${esc(r.url)}</span><b>${esc(r.t)}</b>${r.s ? `<p>${esc(r.s)}</p>` : ''}</div></div>`;
+      return `${sec}<div class="ph-row gb-row${r.cls ? ' ' + r.cls : ''}${on}" data-i="${i}">${r.ico ? `<i style="background:${r.col}">${r.ico}</i>` : ''}<div><b>${esc(r.t)}</b>${r.s ? `<p>${esc(r.s)}</p>` : ''}</div></div>`; }).join('');
+    const hint = p.rows[row] && p.rows[row].input ? (this.typing ? 'Type · Enter search · Esc done' : 'Enter: type in the search bar') : '↑↓ · Enter open · ⌫ back';
+    return `<div class="gb-chrome"><span class="gb-tab">${esc(p.title).slice(0, 28)}</span><div class="gb-url">${secure} ${esc(p.url)}</div></div>${p.top || ''}<div class="ph-list gb-page${p.top ? ' gb-dark' : ''}">${p.html}${rows}</div><div class="ph-hint gb-hint">${hint}</div>`;
   }
   // ---------------------------------------------------------------- satellite target picker
   refreshTargets(force = false) {
@@ -85,6 +141,13 @@ export class GlobalBrowser {
     return true;
   }
   after(screen) {
+    const q = screen.querySelector('input.gb-q'); if (q) { // the search bar: a real text field; while it has focus the game's keys are off (Input.typing)
+      q.onfocus = () => { Input.typing = true; this.typing = true; const h = screen.querySelector('.gb-hint'); if (h) h.textContent = 'Type · Enter search · Esc done'; };
+      q.onblur = () => { if (this.typing) { Input.typing = false; this.typing = false; } };
+      q.oninput = () => { this.q = q.value; };
+      q.onkeydown = (e) => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); const v = q.value; q.blur(); this.search(v); this.cur = null; this.phone.row = 0; this.phone.render(); } else if (e.key === 'Escape') { e.preventDefault(); q.blur(); } };
+      q.onkeyup = (e) => e.stopPropagation();
+      if (this.wantFocus) { this.wantFocus = false; q.focus(); const n = q.value.length; try { q.setSelectionRange(n, n); } catch (e) { /* older engines */ } } }
     const cv = screen.querySelector('canvas.bo-map'); if (!cv) return; this.cv = cv;
     cv.onclick = (e) => { const b = cv.getBoundingClientRect(); const x = ((e.clientX - b.left) / b.width) * cv.width, y = ((e.clientY - b.top) / b.height) * cv.height; let best = -1, bd = 26 * 26;
       this.tg.forEach((q, i) => { const s = this.toScreen(q.p.x, q.p.z); const d = (s[0] - x) ** 2 + (s[1] - y) ** 2; if (d < bd) { bd = d; best = i; } });

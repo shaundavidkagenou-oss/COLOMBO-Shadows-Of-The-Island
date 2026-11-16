@@ -42,6 +42,7 @@ export class Phone {
   }
   toggle(v = !this.open) {
     const g = this.g; if (v && (g.photo || g.hud.bigMapOpen || g.director.active)) return;
+    if (!v && this.browser) this.browser.releaseTyping(); /* the Global search bar had the keyboard */
     this.open = v; this.root.classList.toggle('hidden', !v); this.app = null; this.row = 0; this.confirm = false; this.call = null; Audio.ui('click');
     if (v) { g.weapons?.forceHolster?.(); this.render(); }
   }

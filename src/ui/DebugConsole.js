@@ -15,6 +15,8 @@ import { Audio } from '../audio/Audio.js';
 import { WEAPONS } from '../combat/WeaponDefs.js';
 import { WEATHER } from '../gfx/Atmosphere.js';
 import { PLACES } from '../world/Layout.js';
+import { BOATS, YACHT_IDS, BOAT_IDS, JETSKI_IDS, boatName } from '../boats/BoatCatalog.js';
+import { MARINA } from '../boats/Marina.js';
 import { HEROES, Character } from '../actors/Character.js';
 import { Vehicle, LIVE_VEHICLES } from '../vehicles/Vehicle.js';
 import { driveDoor, shutDoorLater } from '../vehicles/DoorRig.js';
@@ -169,6 +171,37 @@ export class DebugConsole {
     const g = this.g, P = g.player; if (g.interiors.current) throw new Error('leave the interior first'); if (P.vehicle) throw new Error('leave the vehicle first');
     const [sx, sz] = g.story.safeSpot ? g.story.safeSpot(x, z) : [x, z]; P.teleport(sx, sz, P.yaw); if (g.world.trim) g.world.trim(sx, sz); this.say(`teleported to ${label}`);
   }
+  // ---- boats (boats/Boats.js): spawning, the marina, your berth and fleet, damage, the police patrol, owners coming and going
+  boatsB() { const B = this.g.boats; if (!B) throw new Error('boats are not loaded'); return B; }
+  boatTarget() { const B = this.boatsB(), P = this.g.player; if (B.ride) return B.ride.b; let best = null, bd = 40; for (const b of B.all) { if (!b.root.visible || b.away || b.mode === 'sunk') continue; const d = Math.hypot(b.x - P.x, b.z - P.z); if (d < bd) { bd = d; best = b; } } if (!best) throw new Error('no boat within 40 m'); return best; }
+  tpMarina(where = 'gang') { const g = this.g, P = g.player; if (g.interiors.current) throw new Error('leave the interior first'); if (P.vehicle) throw new Error('leave the vehicle first'); if (P.boat) throw new Error('get off the boat first');
+    const p = where === 'berth' ? { x: MARINA.terminal.x + 1.5, z: MARINA.terminal.z, yaw: Math.PI } : where === 'office' ? { x: MARINA.office.counter.x, z: MARINA.office.counter.z - 0.6, yaw: 0 } : { x: MARINA.gangTop.x, z: MARINA.gangTop.z, yaw: -Math.PI / 2 };
+    P.teleport(p.x, p.z, p.yaw); if (g.world.trim) g.world.trim(p.x, p.z); this.say(`teleported to ${MARINA.name}${where === 'berth' ? ' · ' + MARINA.slipName : where === 'office' ? ' · office' : ''}`); }
+  spawnBoat(id) { const B = this.boatsB(), P = this.g.player; if (P.vehicle || P.boat) throw new Error('get out first'); let b = B.spawnNear(id, P, false);
+    if (!b) { this.tpMarina('berth'); b = B.spawnNear(id, P, false); } if (!b) throw new Error('no open water near you for a ' + boatName(id)); this.toggleMenu(false); this.say(`${boatName(id)} in the water — walk to her and press Enter to board`); }
+  boatsMenu() { const g = this.g; const B = this.boatsB(); const st = B.state(); const list = (ids) => ids.map((id) => ({ label: `${boatName(id)} · ${BOATS[id].kind}`, act: () => this.spawnBoat(id) }));
+    return { title: 'Boats & marina', items: [
+      { label: 'Status', val: () => B.info(), act: () => this.say(B.info()) },
+      { label: `Spawn luxury yacht (${YACHT_IDS.length})`, sub: () => ({ title: 'Spawn yacht', items: list(YACHT_IDS) }) },
+      { label: `Spawn boat (${BOAT_IDS.length})`, sub: () => ({ title: 'Spawn boat', items: list(BOAT_IDS) }) },
+      { label: `Spawn jet ski (${JETSKI_IDS.length})`, sub: () => ({ title: 'Spawn jet ski', items: list(JETSKI_IDS) }) },
+      { label: 'Spawn harbour police boat', act: () => this.spawnBoat('police36') },
+      { label: 'Teleport: Fort Harbour Marina (gangway)', act: () => { this.toggleMenu(false); this.tpMarina('gang'); } },
+      { label: 'Teleport: marina office counter', act: () => { this.toggleMenu(false); this.tpMarina('office'); } },
+      { label: `Teleport: your berth (${MARINA.slipName} pedestal)`, act: () => { this.toggleMenu(false); this.tpMarina('berth'); } },
+      { label: `Give ${MARINA.slipName} (free)`, val: () => (st.slip ? 'owned' : ''), act: () => { const r = B.buyBerth(true); this.say(r.msg); } },
+      { label: 'Order a boat free (delivered after sleeping / next day)', sub: () => ({ title: 'Free order', items: [...YACHT_IDS, ...BOAT_IDS, ...JETSKI_IDS].map((id) => ({ label: boatName(id), val: () => (B.owns(id) ? 'owned' : ''), act: () => { if (!B.state().slip) B.buyBerth(true); const r = B.order(id, true); this.say(r.msg); } })) }) },
+      { label: 'Deliver orders now', act: () => { const n = B.state().pending.length; B.deliver(true); this.say(n ? `${n} boat(s) delivered` : 'nothing on order'); } },
+      { label: 'Give every boat (berth + all 19, delivered)', act: () => { if (!B.state().slip) B.buyBerth(true); for (const id of [...YACHT_IDS, ...BOAT_IDS, ...JETSKI_IDS]) if (!B.owns(id)) B.order(id, true); B.deliver(true); this.say(`${B.state().owned.length} boats owned`); } },
+      { label: 'Switch the boat at your berth', act: () => { const n = B.switchNext(); if (!n) throw new Error('you own no boats'); this.say(`${boatName(n.id)} is alongside`); } },
+      { label: 'Nearest boat: damage 25 %', act: () => { const b = this.boatTarget(); b.damage(b.maxHp * 0.25, 'hull', null, 'debug'); this.say(`${boatName(b.id)} hull ${Math.max(0, Math.round((b.hp / b.maxHp) * 100))} %`); } },
+      { label: 'Nearest boat: wreck (fire, sinks)', act: () => { const b = this.boatTarget(); b.damage(b.maxHp * 2, 'engine', null, 'debug'); this.say(`${boatName(b.id)} wrecked`); } },
+      { label: 'Nearest boat: shoot 12 holes in the sails', act: () => { const b = this.boatTarget(); if (!b.sails.length) throw new Error('no sails on a ' + boatName(b.id)); b.setSailsVisible(true); for (let i = 0; i < 12; i++) b.sailHit(i % b.sails.length, new THREE.Vector2(0.15 + Math.random() * 0.7, 0.1 + Math.random() * 0.75)); this.say('sails holed / torn'); } },
+      { label: 'Nearest boat: sails up / down', act: () => { const b = this.boatTarget(); if (!b.sails.length) throw new Error('no sails'); b.setSailsVisible(!b.sailsUp); this.say(b.sailsUp ? 'sails up' : 'sails furled'); } },
+      { label: 'Harbour police patrol: force on', val: () => (B.forcePatrol ? 'ON' : 'OFF (schedule)'), act: () => { B.forcePatrol = !B.forcePatrol; this.say(B.forcePatrol ? 'police patrol on (2 boats)' : 'police patrol back on its schedule (mornings / nights, no wanted level)'); } },
+      { label: 'Marina: an owner takes a boat out now', act: () => { const c = B.berths.filter((q) => q.boat && !q.boat.away && !q.boat.owner && q.boat.mode === 'moored'); if (!c.length || !B.startDeparture(c[Math.floor(Math.random() * c.length)])) throw new Error('nobody free right now (try again)'); this.say('an owner is walking down to his boat'); } },
+      { label: 'Marina: a boat comes back now', act: () => { const b = B.all.find((q) => q.away && q.home && !q.owner); if (!b) throw new Error('no boat is out'); if (!B.startArrival(b)) throw new Error('could not bring her in unseen (look away / try again)'); this.say(`${boatName(b.id)} is coming in`); } },
+    ] }; }
   tpWaypoint() { const w = this.g.hud.waypoint; if (!w) throw new Error('no waypoint set (set one on the map)'); this.teleport(w.x, w.z, 'waypoint'); }
   room(who) { const id = { dineth: 'room', shashika: 'room_shashika', david: 'room_david' }[who || 'dineth']; if (!id) throw new Error('room <dineth|shashika|david>'); const I = this.g.interiors; const d = I.doors.find((x) => x.id === id) || (id === 'room' ? { id: 'room', x: this.g.player.x, z: this.g.player.z, rot: 0, faceIn: Math.PI } : null); if (!d) throw new Error('no such room door'); if (I.current) throw new Error('leave the current interior first'); I.enter(d); this.print('entering ' + id, 'ok'); }
   // the player's vehicle, else the nearest live vehicle within 10 m
@@ -279,6 +312,7 @@ export class DebugConsole {
         { label: 'Show FPS counter', val: () => t(Settings.get('showFps')), act: () => Settings.set('showFps', !Settings.get('showFps')) },
         { label: 'Editors', sub: () => ({ title: 'Editors (loaded on demand)', items: [['animations', 'Animation editor'], ['map', 'Map editor'], ['npc', 'NPC editor']].map(([k, n]) => ({ label: n, act: () => { this.toggleMenu(false); this.exec(k); } })) }) },
       ] }) },
+      { label: 'Boats & marina', sub: () => this.boatsMenu() },
       { label: 'Pedestrian clothing', sub: () => ({ title: 'Re-dress pedestrians (35 m)', items: [{ label: 'Random outfits', act: () => this.dress() }, ...this.outfits().map((o) => ({ label: o, act: () => this.dress(o) }))] }) },
       { label: 'Teleport', sub: () => ({ title: 'Teleport', items: [{ label: 'To map waypoint', act: () => this.tpWaypoint() }, ...Object.values(PLACES).map((p) => ({ label: p.name, act: () => this.teleport(p.x, p.z, p.name) }))] }) },
       { label: 'Disable debug menu', act: () => { D.menuEnabled = false; this.toggleMenu(false); this.print('debug menu disabled', 'ok'); } },

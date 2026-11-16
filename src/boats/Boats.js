@@ -21,7 +21,7 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const rs = (n) => `Rs. ${Math.round(n).toLocaleString('en-LK')}`;
 const OUTBOARD = new Set(['cc', 'rib', 'offshore', 'police', 'bowrider']);
-const COMPANY = { yacht: 'Serendib Yacht Brokers', boat: 'Lanka Marine Mart', jetski: 'Wave Rider Lanka' };
+const COMPANY = { yacht: 'Ceylon Blue Yacht Brokers', boat: 'Lanka Marine Mart', jetski: 'Wave Rider Lanka' };
 export const BOAT_COMPANY = COMPANY;
 // the harbour police patrol: a loop through the harbour and down the Fort / Galle Face coast (all clear of the moored ships,
 // the crane booms and the marina)

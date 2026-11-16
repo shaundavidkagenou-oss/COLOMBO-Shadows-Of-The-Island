@@ -25,26 +25,34 @@ try {
       pg.rows.forEach((r, j) => { if (!r.go && !r.act && !r.page) out.dead.push(`${pg.url} row ${j}`); });
       const n = pg.rows.length; for (let j = 0; j < n; j++) { const r = B.rows()[j]; if (r.go && r.go.id === 'article') { ph.row = j; ph.activate(); const a = B.page(); if (a.html.length > 100) out.articles++; ph.back(); } }
     } catch (e) { out.errs.push(String(e)); } }
-    out.urls = home.map((r) => r.s.split(' · ')[0]);
+    out.urls = home.filter((r) => !r.input).map((r) => r.s.split(' · ')[0]); out.orchidOnHome = home.some((r) => /Orchid/i.test(r.t)); out.searchBar = !!home[0].input && /input class="gb-q"/.test((B.reset(), ph.render(), ph.screen.innerHTML));
     // radio row on foot gives a message instead of acting
     B.reset(); ph.row = home.findIndex((r) => /Island Radio/.test(r.t)); ph.activate(); const before = g.radio; ph.row = 0; ph.activate(); out.radioOnFoot = g.radio === before;
     // GPS link sets a waypoint and closes the phone
     ph.toggle(true); ph.launch('global'); ph.row = home.findIndex((r) => /Velvet/.test(r.t)); ph.activate(); ph.row = 0; ph.activate(); out.gps = !!g.hud.waypoint; out.closedAfterGps = !ph.open; g.hud.clearWaypoint();
     // Black Orchid: age gate then the menu
-    ph.toggle(true); ph.launch('global'); ph.row = 0; ph.activate(); out.gate = /18\+/.test(ph.screen.innerHTML); ph.row = 0; ph.activate(); out.menu = B.rows().map((r) => r.t);
+    // search (51st): results like a search engine's; Black Orchid only through search / its address
+    ph.toggle(true); ph.launch('global'); B.search('yachts for sale'); out.yachtRes = B.rows().filter((r) => r.url).map((r) => r.url); B.reset(); B.search('jet ski'); out.skiRes = B.rows().filter((r) => r.url).length; B.reset(); B.search('qqzzxx'); out.noRes = B.rows().length > 1 && B.rows().every((r) => r.input || r.act);
+    B.reset(); B.search('blackorchid.lk'); out.addr = B.top.id === 'orchid'; B.reset(); B.search('hitman for hire'); out.hitRes = B.rows().filter((r) => r.url).map((r) => r.url);
+    B.reset(); B.search('assassin'); ph.row = B.rows().findIndex((r) => r.go && r.go.id === 'orchid'); out.orchidRow = ph.row; ph.activate(); out.gate = /18\+/.test(ph.screen.innerHTML); ph.row = 0; ph.activate(); out.menu = B.rows().map((r) => r.t);
     return out;
   });
   console.log(JSON.stringify(r1, null, 1));
-  ok(r1.homeRows === 21, `start page: Black Orchid + 20 bookmarks (${r1.homeRows})`);
-  ok(r1.sites === 20 && !r1.errs.length, `all 20 sites render (${r1.sites}) ${r1.errs.join(';')}`);
+  ok(r1.homeRows === 25 && r1.searchBar, `start page: search bar + 20 bookmarks + 4 marine sites (${r1.homeRows})`);
+  ok(!r1.orchidOnHome, 'Black Orchid is not on the start page');
+  ok(r1.sites === 24 && !r1.errs.length, `all 24 sites render (${r1.sites}) ${r1.errs.join(';')}`);
+  ok(r1.yachtRes.length >= 5 && r1.yachtRes.some((u) => /ceylonblueyachts/.test(u)), `search "yachts for sale" finds the yacht broker (${r1.yachtRes.length})`);
+  ok(r1.skiRes >= 4, `search "jet ski" (${r1.skiRes} results)`); ok(r1.noRes, 'no results: suggestions that search');
+  ok(r1.addr, 'typing blackorchid.lk opens it'); ok(r1.hitRes.some((u) => /blackorchid/.test(u)), `search "hitman for hire" finds Black Orchid (${r1.hitRes.join(' | ')})`); ok(r1.orchidRow >= 1, 'search "assassin" lists Black Orchid');
   ok(!r1.dead.length, `no dead pages / buttons ${r1.dead.join(', ')}`);
-  ok(new Set(r1.urls).size === 21, 'distinct site addresses');
+  ok(new Set(r1.urls).size === 24, 'distinct site addresses');
   ok(r1.articles >= 20, `articles open (${r1.articles})`);
   ok(r1.radioOnFoot, 'radio link on foot does not tune');
   ok(r1.gps && r1.closedAfterGps, 'GPS link sets a waypoint and closes the phone');
   ok(r1.gate && r1.menu.length >= 4, 'Black Orchid: 18+ gate then the service menu');
   if (SHOTS) { await p.evaluate(async () => { const g = window.__game; g.noRender = false; g.player.teleport(-128, -891.8, 0); g.world.warm(-128, -892); await g.stepSim(20, 1 / 30); const ph = g.phone; ph.toggle(true); ph.launch('global'); }); await p.evaluate(() => new Promise((r) => setTimeout(r, 600))); await shot(p, 'p42-browser-home');
-    await p.evaluate(() => { const ph = window.__game.phone; ph.row = 0; ph.activate(); }); await p.evaluate(() => new Promise((r) => setTimeout(r, 400))); await shot(p, 'p42-orchid-menu');
+    await p.evaluate(() => { const ph = window.__game.phone; ph.browser.search('assassin'); ph.row = 0; ph.render(); }); await p.evaluate(() => new Promise((r) => setTimeout(r, 400))); await shot(p, 'p51-search-assassin');
+    await p.evaluate(() => { const ph = window.__game.phone, B = ph.browser; ph.row = B.rows().findIndex((r) => r.go && r.go.id === 'orchid'); ph.activate(); }); await p.evaluate(() => new Promise((r) => setTimeout(r, 400))); await shot(p, 'p42-orchid-menu');
     await p.evaluate(() => { const g = window.__game; g.phone.toggle(false); g.noRender = true; }); }
   // ---- 2. bodyguard   (ONLY=contract skips 2–3: the whole run peaks near 3.8 GB in a 4 GB sandbox)
   if (process.env.ONLY !== 'contract') {
