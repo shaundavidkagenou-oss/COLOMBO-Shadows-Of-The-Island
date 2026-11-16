@@ -73,7 +73,7 @@ export class HUD {
     // landmarks labels
     g.font = '600 13px "Barlow Condensed", sans-serif'; g.textAlign = 'center';
     const lbl = (x, z, t, col = '#f4efe6') => { g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillText(t, X(x) + 1, Z(z) + 1); g.fillStyle = col; g.fillText(t, X(x), Z(z)); };
-    for (const [id, x, z] of this.districtLabels) lbl(x, z, L.DISTRICTS[id].name.split(' · ')[0].toUpperCase(), '#c9d4dc');
+    void lbl; this.miniLabels = this.districtLabels.map(([id, x, z]) => [x, z, L.DISTRICTS[id].name.split(' · ')[0].toUpperCase()]); // district names: drawn upright on the minimap each frame (baked into the rotating base they turned upside down / mirrored when heading south)
     for (const k of ['lotus', 'mosque', 'gfHotel', 'fortStation', 'museum', 'townhall', 'seema', 'clockTower', 'stlucia', 'port', 'hospital', 'johns']) { const p = L.PLACES[k]; g.fillStyle = '#e07b39'; g.beginPath(); g.arc(X(p.x), Z(p.z), 3, 0, 7); g.fill(); }
     this.X = X; this.Z = Z;
   }
@@ -89,6 +89,9 @@ export class HUD {
       g.strokeStyle = 'rgba(0,0,0,0.55)'; g.lineWidth = 9 / zoom; g.stroke(); g.strokeStyle = this.gps.target && this.gps.target.kind === 'objective' ? '#ffb020' : '#33d4c0'; g.lineWidth = 5.5 / zoom; g.stroke(); }
     g.restore();
     const toMini = (x, z) => { const dx = (x - px) * MAP_SCALE * zoom, dz = (z - pz) * MAP_SCALE * zoom; const a = yaw + Math.PI; const rx = dx * Math.cos(a) - dz * Math.sin(a), rz = dx * Math.sin(a) + dz * Math.cos(a); return [S / 2 + rx, S / 2 + rz]; };
+    if (this.miniLabels) { g.save(); g.beginPath(); g.arc(S / 2, S / 2, S / 2 - 2, 0, 7); g.clip(); g.font = '600 13px "Barlow Condensed", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      for (const [x, z, t] of this.miniLabels) { const [mx, my] = toMini(x, z); if ((mx - S / 2) ** 2 + (my - S / 2) ** 2 > (S / 2 + 40) ** 2) continue; g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillText(t, mx + 1, my + 1); g.fillStyle = '#c9d4dc'; g.fillText(t, mx, my); }
+      g.restore(); }
     const pol = this.police; if (pol) { // search area (pulsing ring) and police units (flashing red/blue while responding)
       const now = performance.now() / 1000;
       if (pol.search) { const [x, y] = toMini(pol.search.x, pol.search.z); const r = pol.search.r * MAP_SCALE * zoom; g.save(); g.beginPath(); g.arc(S / 2, S / 2, S / 2 - 2, 0, 7); g.clip(); g.fillStyle = `rgba(70,130,255,${0.13 + 0.06 * Math.sin(now * 3)})`; g.strokeStyle = 'rgba(120,170,255,0.85)'; g.lineWidth = 2; g.setLineDash([6, 4]); g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); g.stroke(); g.setLineDash([]); g.restore(); }

@@ -67,6 +67,28 @@ try {
     for (const a of [0, 1.3]) { await ev(async (a) => { const g = window.__game, cs = g.customs; const tt = cs.geo.turntable; tt.rotation.y = a; const p = tt.getWorldPosition(tt.position.clone()); cs.v.mesh.visible = false; cs.state_ = cs.state; cs.state = 'freeze'; g.player.camOverride = true; g.camera.position.set(p.x + 0.01, p.y + 9.5, p.z); g.camera.lookAt(p.x, p.y, p.z); g.camera.updateMatrixWorld(); await g.stepSim(1, 0.05); }, a); await shot(`customs-turntable-${a}`, 4000); }
     await ev(() => { const g = window.__game, cs = g.customs; cs.state = cs.state_; cs.v.mesh.visible = true; g.player.camOverride = false; });
   }
+  if (PH.includes('s')) { // sail holes at range + wake on a tight turn (52nd shader fixes), screenshots
+    const r = await ev(async () => {
+      const g = window.__game, B = g.boats, P = g.player, W = g.weapons; const V = P.ch.root.position.constructor; const out = {}; g.atmos && g.atmos.setHour && g.atmos.setHour(10.5);
+      const s = B.spawnNear('mirissa46', { x: 120, z: -1320, yaw: 0 }); s.setSailsVisible(true); s.mode = 'anchored'; s.berth = { x: s.x, z: s.z, yaw: s.yaw }; await g.stepSim(10, 0.05);
+      const def = { dmg: 1.05, cls: 'rifle', range: 120 }; const sp = s.worldPoint([0, 7, 0.6], new V());
+      for (let i = 0; i < 22; i++) { const o2 = new V(sp.x + 25 * Math.cos(s.yaw), sp.y - 2 + (i % 6) * 0.9, sp.z - 25 * Math.sin(s.yaw) + ((i % 5) - 2) * 0.6); const d = new V(sp.x - o2.x, sp.y + (i % 3) - 1 - o2.y, sp.z - o2.z).normalize(); const h = W.trace(o2, d, 120, 0.1); if (h.kind === 'boat') W.applyHit(h, d, o2, def, 1, 0); }
+      let holes = 0; for (const q of s.sails) holes += q.holes; out.holes = holes; out.tear = +Math.max(...s.sails.map((q) => q.tear)).toFixed(2);
+      P.teleport(s.x + 62 * Math.cos(s.yaw), s.z - 62 * Math.sin(s.yaw), 0); await g.stepSim(4, 0.05);
+      P.camOverride = true; g.camera.position.set(s.x + 60 * Math.cos(s.yaw), s.y + 4, s.z - 60 * Math.sin(s.yaw)); g.camera.lookAt(sp.x, sp.y, sp.z); g.camera.updateMatrixWorld(); await g.stepSim(1, 0.05);
+      window.__boat = s; return out; });
+    console.log('sails', JSON.stringify(r)); await shot('sail-holes-60m', 4000);
+    await ev(async () => { const g = window.__game, s = window.__boat; const sp = s.worldPoint([0, 7, 0.6], new (g.player.ch.root.position.constructor)()); g.camera.position.set(s.x + 30 * Math.cos(s.yaw), s.y + 3, s.z - 30 * Math.sin(s.yaw)); g.camera.lookAt(sp.x, sp.y, sp.z); g.camera.updateMatrixWorld(); await g.stepSim(1, 0.05); }); await shot('sail-holes-30m', 3000);
+    const w = await ev(async () => {
+      const g = window.__game, B = g.boats, P = g.player; const out = {}; P.camOverride = false;
+      while (B.slipBoat.id !== 'dondra26') B.switchNext(); const bt = B.slipBoat; const bp = bt.worldPoint(bt.model.board, new (P.ch.root.position.constructor)());
+      P.teleport(bp.x, bp.z - 1.2, 0); await g.stepSim(10, 0.05); B.board(P, bt); await g.stepSim(40, 0.05); bt.place(60, -1400, -Math.PI / 2, true); await g.stepSim(20, 0.05);
+      const I = window.__Input, isDown = I.isDown.bind(I); I.isDown = (a) => a === 'forward' || isDown(a); await g.stepSim(120, 0.05);
+      I.isDown = (a) => a === 'forward' || a === 'left' || isDown(a); await g.stepSim(90, 0.05); I.isDown = isDown;
+      P.camOverride = true; g.camera.position.set(bt.x + 6, bt.y + 34, bt.z + 6); g.camera.lookAt(bt.x, bt.y, bt.z); g.camera.updateMatrixWorld(); await g.stepSim(1, 0.05); out.trails = B.wakes.trails.size; return out; });
+    console.log('wake', JSON.stringify(w)); await shot('wake-turn-top', 3000);
+    await ev(() => { window.__game.player.camOverride = false; });
+  }
   if (PH.includes('d')) { // 53rd: dialogs window + NPC voices + horn gate + distant grenade, in the real build
     const r = await ev(async () => {
       const g = window.__game, SB = window.__sounds, V = window.__voices, A = window.__audio; const out = {};
