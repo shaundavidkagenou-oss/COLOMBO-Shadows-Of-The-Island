@@ -36,7 +36,7 @@ export const FORT = {
   wait: { x0: -82, x1: 12, z0: -626.5, z1: -616.8 },
   edgeZ: -613.65, // platform 1 face
   // vendor beat (platform 1 and the hall), and the PA horn speakers (on the shed columns, in the hall, outside)
-  vendorLoop: [[-80, -619.5], [-35, -620.5], [8, -619.5], [8, -625], [-20, -627.6], [-20, -633], [-35, -644.5], [-50, -633], [-50, -627.6], [-80, -625]],
+  vendorLoop: [[-70, -619.5], [-35, -620.5], [8, -619.5], [8, -624.6], [-19.6, -624.6], [-19.6, -633], [-35, -644.5], [-51, -633], [-51, -624.6], [-70, -624.6]], // clear of the benches, the bridge stairs and the shed columns (tools/fort-station-test.mjs)
   speakers: [[-105, -628.4], [-81.5, -628.4], [-62.5, -628.4], [-43.5, -628.4], [-24.5, -628.4], [-5.5, -628.4], [13.5, -628.4], [-91, -606], [-53, -606], [-15, -606], [-35, -637], [-35, -651.2], [-1, -651.2], [-80, -651.2]].map(([x, z]) => ({ x, z })),
   // hall benches and platform benches: seats (sit pose roots) [x, z, yaw]
   benches: [],

@@ -33,6 +33,9 @@ export const SOUND_DEFS = [
   { id: 'veh.tyreBurst', name: 'Tyre burst', cat: 'Vehicles', lvl: 0.6 }, { id: 'veh.doorOpen', name: 'Car door — open', cat: 'Vehicles', lvl: 0.3 }, { id: 'veh.doorSlam', name: 'Car door — slam', cat: 'Vehicles', lvl: 0.45 },
   { id: 'siren.police', name: 'Police siren (loop)', cat: 'Emergency', kind: 'loop', lvl: 0.45 }, { id: 'siren.ambulance', name: 'Ambulance siren (loop)', cat: 'Emergency', kind: 'loop', lvl: 0.45 },
   { id: 'heli.rotor', name: 'Police helicopter — rotor & turbines (loop)', cat: 'Emergency', kind: 'loop', lvl: 0.7 }, { id: 'police.radio', name: 'Police radio squelch', cat: 'Emergency', lvl: 0.3 },
+  { id: 'station.announce1', name: 'Fort station announcement 1 — train approaching platform 1', cat: 'Station announcements', lvl: 0.85 }, { id: 'station.announce2', name: 'Fort station announcement 2 — train arrived at platform 1', cat: 'Station announcements', lvl: 0.85 },
+  { id: 'station.announce3', name: 'Fort station announcement 3 — train about to depart', cat: 'Station announcements', lvl: 0.85 }, { id: 'station.announce4', name: 'Fort station announcement 4 — general (e.g. unattended luggage)', cat: 'Station announcements', lvl: 0.85 },
+  { id: 'station.announce5', name: 'Fort station announcement 5 — general (e.g. tickets / information)', cat: 'Station announcements', lvl: 0.85 }, // 54th: the announcer's voice — heard directly in her room, through the PA speakers everywhere else (world/StationLife.js)
   { id: 'train.horn', name: 'Train horn', cat: 'Trains', lvl: 0.5 }, { id: 'train.bell', name: 'Level-crossing bell', cat: 'Trains', lvl: 0.3 }, { id: 'train.clack', name: 'Wheels over rail joints', cat: 'Trains', lvl: 0.3 },
   { id: 'amb.city', name: 'City traffic hum (loop)', cat: 'Ambience', kind: 'loop', lvl: 0.6 }, { id: 'amb.rain', name: 'Rain (loop)', cat: 'Ambience', kind: 'loop', lvl: 0.6 }, { id: 'amb.sea', name: 'Sea waves (loop)', cat: 'Ambience', kind: 'loop', lvl: 0.6 },
   { id: 'amb.wind', name: 'Wind (loop)', cat: 'Ambience', kind: 'loop', lvl: 0.6 }, { id: 'thunder', name: 'Thunder', cat: 'Ambience', lvl: 0.8 }, { id: 'bird.crow', name: 'House crow', cat: 'Ambience', lvl: 0.25 },
@@ -101,7 +104,7 @@ class Bank {
   //   dur: hard length in s (faded over the last 40 ms) · lp: low-pass cut-off in Hz (distance: air + buildings eat the highs)
   //   wet: reverb send level when verb (far sounds are mostly reflections) · track: object that receives { g, p, end } so the
   //   caller can keep the gain / pan following a moving source (horns) · voice key: shares the MAX_VOICES pool (default id)
-  play(id, k = 1, pan = 0, when = 0, { out = 'sfx', rate = 1, verb = false, mono = false, dur = 0, lp = 0, wet = 1, track = null, key = null } = {}) {
+  play(id, k = 1, pan = 0, when = 0, { out = 'sfx', rate = 1, verb = false, mono = false, dur = 0, lp = 0, hp = 0, wet = 1, track = null, key = null } = {}) {
     if (this.bypass) return false; const pid = this.pick(id); const b = this.buf.get(pid); if (!b) return false; const A = this.audio; this.lastDur = dur > 0 ? Math.min(dur, b.duration / rate) : b.duration / rate; if (!A || !A.live) return true; id = key || id;
     let V = this.voices.get(id); if (!V) this.voices.set(id, (V = []));
     const c = this.ctx, now = c.currentTime; for (let i = V.length - 1; i >= 0; i--) if (V[i].end <= now) V.splice(i, 1);
@@ -110,6 +113,7 @@ class Bank {
     const t = now + Math.max(0, when); const src = c.createBufferSource(); src.buffer = b; src.playbackRate.value = rate; const g = c.createGain(); const lvl = Math.max(0, k) * this.level(pid); g.gain.value = lvl;
     const p = c.createStereoPanner(); p.pan.value = Math.max(-1, Math.min(1, pan || 0)); let head = src;
     if (lp > 0 && lp < 19000) { const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = lp; f.Q.value = 0.5; src.connect(f); head = f; }
+    if (hp > 0) { const f = c.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = hp; f.Q.value = 0.6; head.connect(f); head = f; } // a PA horn speaker has no bass (station announcements)
     head.connect(g); g.connect(p); p.connect(A.bus[out] || A.bus.sfx);
     if (verb && A.verb) { if (wet === 1) p.connect(A.verb); else { const s = c.createGain(); s.gain.value = Math.max(0, wet); p.connect(s); s.connect(A.verb); } }
     let end = t + b.duration / rate;

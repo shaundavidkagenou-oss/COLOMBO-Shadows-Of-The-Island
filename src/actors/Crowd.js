@@ -332,7 +332,7 @@ export class Crowd {
     this.minds.update(dt, ctx); // budgets, sirens, incidents (Mind.js)
     // spawn / despawn (despawn only far away / out of view)
     for (let i = this.peds.length - 1; i >= 0; i--) { const p = this.peds[i]; if ((Math.hypot(p.x - focus.x, p.z - focus.z) > 165 && !p.keep) || p.recycle) { this.despawn(p); this.peds.splice(i, 1); } }
-    const want = Math.round(this.max * (ctx.hourFactor ?? 1) * (this.rain ? 0.65 : 1));
+    const want = Math.round(this.max * (ctx.hourFactor ?? 1) * (this.rain ? 0.65 : 1)) - (this.extra || 0); // extra: people run elsewhere (the Fort station's train riders and clerks) — the same number of characters overall
     let budget = this.peds.length < want * 0.5 ? 2 : 1; /* one Character build per frame unless the street is badly under-populated */ while (this.peds.length < want && budget-- > 0) this.spawn(focus, camDir, this.peds.length < want * 0.5);
     // neighbour grid (2 m cells)
     /* neighbour grid reused across frames (no per-frame Map + arrays for the GC); emptied cells are dropped every ~10 s */

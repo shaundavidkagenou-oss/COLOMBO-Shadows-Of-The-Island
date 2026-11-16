@@ -48,6 +48,7 @@ export const VOICE_SITS = [
   { id: 'surrender', name: 'Hands up / begging', note: 'Gun pointed at them, store robbery (“Don’t shoot! Take it!”)' },
   { id: 'carjack', name: 'Car stolen', note: 'Dragged out of their own car / tuk-tuk / bus by the player' },
   { id: 'grenade', name: 'Grenade warning', note: 'A grenade lands nearby: police shout “Grenade! Get down!” as they dive or run for cover; bystanders yell it as they scatter' },
+  { id: 'sell', name: 'Selling / calling out wares', note: 'Vendors calling out what they sell (the Fort station shoulder vendors: “Isso wade!”, “Kadala!”, “Cold drinks!”)' },
   { id: 'order', name: 'Orders', note: 'Police: stop, hands up, under arrest · paramedics: calls at the patient' },
 ];
 export const SIT_BY_ID = Object.fromEntries(VOICE_SITS.map((s) => [s.id, s]));

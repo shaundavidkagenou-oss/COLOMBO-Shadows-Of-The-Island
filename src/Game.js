@@ -1,6 +1,7 @@
 // Game: boot/loading, presentation flow (intro → montage → menu), the play loop, interactions, save/load.
 import { preloadRealModels } from './vehicles/RealModels.js';
 import { FuelService } from './world/FuelStations.js';
+import { StationLife, stationSpecs } from './world/StationLife.js';
 import { gatherBodies, setBodiesCollision } from './actors/Bodies.js';
 import { PoliceHQLife } from './police/PoliceHQLife.js';
 import { PoliceResponse, crewSpec, CREW_LOOKS } from './police/PoliceResponse.js';
@@ -140,6 +141,7 @@ export class Game {
     { const N = this.crowd.specTarget(); for (let i = 0; i < N; i += 8) { this.crowd.prepareSpecs(Math.min(8, N - i)); progress(0.76 + 0.1 * (i / N), 'People of Colombo'); await tick(); } }
     { // police / ambulance crews: their looks are a fixed set (PoliceResponse.crewSpec) — build the bodies now, not mid-chase
       const crews = []; for (let id = 0; id < CREW_LOOKS.police; id++) for (let k = 0; k < 2; k++) crews.push([id, k, false]); for (let id = 0; id < CREW_LOOKS.ems; id++) for (let k = 0; k < 2; k++) crews.push([id, k, true]);
+      for (const sp of stationSpecs()) { try { new Character(sp).dispose(); } catch (e) { console.warn('station staff prewarm', e); } } // Fort station clerks, announcer, vendors (StationLife.js)
       for (let i = 0; i < crews.length; i++) { const [id, k, ems] = crews[i]; try { new Character(crewSpec(id, k, ems)).dispose(); } catch (e) { console.warn('crew prewarm', e); } if (i % 6 === 5) { progress(0.86, 'Police and ambulance crews'); await tick(); } } }
     progress(0.86, 'Tuk-tuks, buses and traffic'); await tick();
     this.traffic = new Traffic(this.scene, this.collision, bus); this.traffic.crowd = this.crowd; setBodiesCollision(this.collision); // nudged people never pushed into walls (Bodies.separate)
@@ -519,6 +521,7 @@ export class Game {
     if (this.vsmoke && !warmOnly) this.vsmoke.update(dt); // after every vehicle moved this frame (player, mission cars, traffic, police)
     if (!this.indoor) this.crowd.update(dt, focus, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: P, armed: !!(this.weapons && this.weapons.drawn), hourFactor: this.hourFactor(), hour: A.hour, bodies: this.bodies, police: this.police, hero: this.squad?.activeMember?.def?.id });
     if (!this.indoor && this.world.fuel) { if (!this.fuelSvc) this.fuelSvc = new FuelService(this.world.fuel, { crowd: this.crowd, traffic: this.traffic, scene: this.scene, player: P }); this.fuelSvc.update(dt, { focus, night: A.night }); } // filling stations: refuelling traffic + attendants (FuelStations.js)
+    if (!this.indoor && this.trains && this.world.fortStation !== false) { if (!this.station) this.station = new StationLife(this); this.station.update(dt, { focus, night: A.night, hour: A.hour, player: P }); } // Colombo Fort station: passengers, train riders, clerks, vendors, announcer (StationLife.js)
     if (this.world.customs && !warmOnly) { if (!this.customs) this.customs = new CustomsService(this, this.world.customs); this.customs.update(dt, { night: A.night }); this.garage.update(dt); } // Street Customs (customs/CustomsService.js)
     if (P.vehicle && A.night > 0.5 && P.nightLights === undefined) { P.vehicle.lights = true; }
     if (!this.indoor && !warmOnly) this.bicycles.update(dt, Vehicle);
@@ -559,6 +562,7 @@ export class Game {
     if (door && (!veh || Math.hypot(door.x - P.x, door.z - P.z) < 1.6)) { const H = HERO_ROOMS[door.id]; const me = this.squad?.activeMember?.def?.id || 'dineth'; if (H && door.owner && door.owner !== me) return `${H.name} · locked (switch to ${H.name.split("'")[0]})`; const name = H ? 'your room' : this.interiorName(door.id); if (Input.wasPressed('enter')) I.enter(door); return `${key('enter')} Enter ${name}`; }
     if (veh) { if (Input.wasPressed('enter')) P.enterVehicle(veh, this.traffic); return `${key('enter')} ${veh.driverChar ? 'Take' : 'Get in'} ${VNAMES[veh.type] || 'vehicle'}`; }
     if (this.weapons && this.weapons.drawn) return null; // armed: no small talk (holster with X)
+    { const sp = this.station && this.station.interact(P, key, () => Input.wasPressed('interact')); if (sp) return sp; } // a Fort station shoulder vendor: buy from them
     // pedestrians: nearest in front within 2.6 m
     let best = null, bd = 2.6; const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
     for (const p of this.crowd.peds) { if (p.dead) continue; const dx = p.x - P.x, dz = p.z - P.z; const d = Math.hypot(dx, dz); if (d < bd && (dx * fx + dz * fz) / (d || 1) > 0.2) { bd = d; best = p; } }
