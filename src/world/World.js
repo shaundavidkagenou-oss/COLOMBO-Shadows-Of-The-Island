@@ -209,7 +209,7 @@ export class World {
       if (!m.isInstancedMesh || m.userData.dynamic || !m.frustumCulled || Array.isArray(m.material) || m.onBeforeShadow !== own || m.count === 0) continue;
       const col = !!m.instanceColor; const key = m.geometry.uuid + '|' + m.material.uuid + '|' + m.castShadow + m.receiveShadow + '|' + m.renderOrder + '|' + col + '|' + m.layers.mask;
       let P = pools.get(key); if (!P) pools.set(key, (P = { geo: m.geometry, mat: m.material, cast: m.castShadow, recv: m.receiveShadow, order: m.renderOrder, col, layers: m.layers.mask, total: 0, parts: [] }));
-      const part = { P, c, n: m.count, mat: m.instanceMatrix.array.slice(0, m.count * 16), color: col ? m.instanceColor.array.slice(0, m.count * 3) : null }; P.total += m.count; P.parts.push(part); c.pooled.push(part); c.props.remove(m); m.dispose(); } }
+      const part = { P, c, n: m.count, mat: m.instanceMatrix.array.slice(0, m.count * 16), color: col ? m.instanceColor.array.slice(0, m.count * 3) : null, props: m.userData.props || null }; /* props: lamp / signal instances a crash can knock down (PropBreak.js) */ P.total += m.count; P.parts.push(part); c.pooled.push(part); c.props.remove(m); m.dispose(); } }
     this.propGroup = new THREE.Group(); this.propGroup.name = 'propPools'; this.root.add(this.propGroup); this.propPools = [];
     for (const P of pools.values()) { const m = new THREE.InstancedMesh(P.geo, P.mat, P.total); m.count = 0; m.castShadow = P.cast; m.receiveShadow = P.recv; m.renderOrder = P.order; m.layers.mask = P.layers;
       if (P.col) m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(P.total * 3), 3); m.matrixAutoUpdate = false; P.mesh = m; this.propGroup.add(m); this.propPools.push(P); }

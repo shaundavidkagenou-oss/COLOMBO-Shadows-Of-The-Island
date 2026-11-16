@@ -152,29 +152,42 @@ export function buildGround(progress) {
   // harbour quay walls
   for (let x = L.coastX(-1180); x < 230; x += 4) { const mb = at(x, -1170); mb.get('concrete').quad([x + 4, -2.5, -1180], [x, -2.5, -1180], [x, LY + 0.4, -1180], [x + 4, LY + 0.4, -1180], [0, 0, 2, 1.4], [0.6, 0.6, 0.58]); if (Math.floor(x / 4) % 5 === 0) mb.get('metal').cylinder(x, LY, -1181, 0.25, 0.2, 0.6, 8, { col: [0.15, 0.15, 0.15] }); }
   for (let z = -1300; z < -1180; z += 4) { const mb = at(235, z); mb.get('concrete').quad([230, -2.5, z], [230, -2.5, z + 4], [230, LY + 0.4, z + 4], [230, LY + 0.4, z], [0, 0, 2, 1.4], [0.6, 0.6, 0.58]); }
-  // Beira Lake embankment
-  for (let e = 0; e < L.LAKE.length; e++) {
-    const [cx, cz, rx, rz] = L.LAKE[e]; const n = Math.ceil((Math.PI * (rx + rz)) / 3);
-    for (let k = 0; k < n; k++) {
-      const a0 = (k / n) * Math.PI * 2, a1 = ((k + 1) / n) * Math.PI * 2;
-      const p0 = [cx + Math.cos(a0) * rx, cz + Math.sin(a0) * rz], p1 = [cx + Math.cos(a1) * rx, cz + Math.sin(a1) * rz];
-      const mid = [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2];
-      let inside = false; for (let o = 0; o < L.LAKE.length; o++) if (o !== e) { const [ox, oz, orx, orz] = L.LAKE[o]; const dx = (mid[0] - ox) / orx, dz = (mid[1] - oz) / orz; if (dx * dx + dz * dz < 0.98) inside = true; }
-      if (inside) continue;
-      const mb = at(mid[0], mid[1]);
-      mb.get('concrete').quad([p1[0], -1.6, p1[1]], [p0[0], -1.6, p0[1]], [p0[0], LY + 0.3, p0[1]], [p1[0], LY + 0.3, p1[1]], [0, 0, 1.5, 1], [0.74, 0.72, 0.68]);
-      mb.get('concrete').quad([p0[0], -1.6, p0[1]], [p1[0], -1.6, p1[1]], [p1[0], LY + 0.3, p1[1]], [p0[0], LY + 0.3, p0[1]], [0, 0, 1.5, 1], [0.74, 0.72, 0.68]); // lake-facing side
-      const ox = Math.cos((a0 + a1) / 2), oz = Math.sin((a0 + a1) / 2);
-      { const cq = [[p1[0], LY + 0.3, p1[1]], [p0[0], LY + 0.3, p0[1]], [p0[0] + ox * 0.9, LY + 0.3, p0[1] + oz * 0.9], [p1[0] + ox * 0.9, LY + 0.3, p1[1] + oz * 0.9]];
-        mb.get('concrete').quad(cq[0], cq[1], cq[2], cq[3], [0, 0, 1.5, 0.3], [0.82, 0.8, 0.76]); mb.get('concrete').quad(cq[3], cq[2], cq[1], cq[0], [0, 0, 1.5, 0.3], [0.82, 0.8, 0.76]);
-        // coping's inner riser down to the paving so the 0.15 m step reads as a kerb
-        mb.get('concrete').quad([p0[0] + ox * 0.9, LY, p0[1] + oz * 0.9], [p1[0] + ox * 0.9, LY, p1[1] + oz * 0.9], [p1[0] + ox * 0.9, LY + 0.3, p1[1] + oz * 0.9], [p0[0] + ox * 0.9, LY + 0.3, p0[1] + oz * 0.9], [0, 0, 1.5, 0.1], [0.78, 0.76, 0.72]);
-        mb.get('concrete').quad([p1[0] + ox * 0.9, LY, p1[1] + oz * 0.9], [p0[0] + ox * 0.9, LY, p0[1] + oz * 0.9], [p0[0] + ox * 0.9, LY + 0.3, p0[1] + oz * 0.9], [p1[0] + ox * 0.9, LY + 0.3, p1[1] + oz * 0.9], [0, 0, 1.5, 0.1], [0.78, 0.76, 0.72]); }
-      if (k % 2 === 0) mb.get('metal').box(p0[0] + ox * 0.4, LY + 0.85, p0[1] + oz * 0.4, 0.08, 1.0, 0.08, { col: [0.25, 0.27, 0.25] });
-      { const ax = p0[0] + ox * 0.4, az = p0[1] + oz * 0.4, bx = p1[0] + ox * 0.4, bz = p1[1] + oz * 0.4, l = Math.hypot(bx - ax, bz - az) + 0.06, ry = -Math.atan2(bz - az, bx - ax); // solid top + mid rails (visible from both sides)
-        mb.get('metal').box((ax + bx) / 2, LY + 1.29, (az + bz) / 2, l, 0.07, 0.06, { col: [0.25, 0.27, 0.25], rotY: ry }); mb.get('metal').box((ax + bx) / 2, LY + 0.82, (az + bz) / 2, l, 0.05, 0.04, { col: [0.25, 0.27, 0.25], rotY: ry }); }
-    }
-  }
+  // Beira Lake embankment. The lake is a union of ellipses; where two of them meet (the east lobe by the Lotus Tower, the
+  // Gangaramaya arm…) each wall, coping and railing is now CLIPPED exactly at the other ellipse instead of whole 3 m segments
+  // being kept or dropped by their midpoint (52nd request: walls poking into the water, copings overlapping and z-fighting,
+  // railings crossing in an X at the junctions). Features at an offset d from the water's edge (railing 0.4, coping 0.9) are
+  // clipped against the other ellipses grown by d, and the copings narrow into the corner so the two meet without overlap.
+  { const LK = L.LAKE;
+    const outside = (x, z, e, d) => { for (let o = 0; o < LK.length; o++) if (o !== e) { const [ox, oz, orx, orz] = LK[o]; const dx = (x - ox) / (orx + d), dz = (z - oz) / (orz + d); if (dx * dx + dz * dz < 1) return false; } return true; };
+    for (let e = 0; e < LK.length; e++) {
+      const [cx, cz, rx, rz] = LK[e]; const n = Math.ceil((Math.PI * (rx + rz)) / 3);
+      const nrm = (a) => { const x = Math.cos(a) / rx, z = Math.sin(a) / rz, l = Math.hypot(x, z); return [x / l, z / l]; };
+      const q = (a, d) => { const nn = nrm(a); return [cx + Math.cos(a) * rx + nn[0] * d, cz + Math.sin(a) * rz + nn[1] * d]; };
+      const ok = (a, d) => { const p = q(a, d); return outside(p[0], p[1], e, d); };
+      const clip = (a0, a1, d) => { const o0 = ok(a0, d), o1 = ok(a1, d), om = ok((a0 + a1) / 2, d); if (o0 && o1 && om) return [a0, a1]; if (!o0 && !o1) return null;
+        if (o0 && o1) return null; let lo = o0 ? a0 : a1, hi = o0 ? a1 : a0; for (let i = 0; i < 22; i++) { const m = (lo + hi) / 2; if (ok(m, d)) lo = m; else hi = m; } return o0 ? [a0, lo] : [lo, a1]; };
+      const reach = (a, dMax) => { if (ok(a, dMax)) return dMax; let lo = 0, hi = dMax; for (let i = 0; i < 16; i++) { const m = (lo + hi) / 2; if (ok(a, m)) lo = m; else hi = m; } return lo; }; // widest coping that stays clear of the neighbour
+      const yc = LY + 0.3 + e * 0.002; // a hair apart per ellipse: no coplanar fighting where two copings touch
+      for (let k = 0; k < n; k++) {
+        const A0 = (k / n) * Math.PI * 2, A1 = ((k + 1) / n) * Math.PI * 2; const W = clip(A0, A1, 0); if (!W) continue; const [a0, a1] = W;
+        const p0 = q(a0, 0), p1 = q(a1, 0); const mid = [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2]; if (Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) < 0.02) continue;
+        const mb = at(mid[0], mid[1]);
+        mb.get('concrete').quad([p1[0], -1.6, p1[1]], [p0[0], -1.6, p0[1]], [p0[0], yc, p0[1]], [p1[0], yc, p1[1]], [0, 0, 1.5, 1], [0.74, 0.72, 0.68]);
+        mb.get('concrete').quad([p0[0], -1.6, p0[1]], [p1[0], -1.6, p1[1]], [p1[0], yc, p1[1]], [p0[0], yc, p0[1]], [0, 0, 1.5, 1], [0.74, 0.72, 0.68]); // lake-facing side
+        { const d0 = reach(a0, 0.9), d1 = reach(a1, 0.9); const o0 = q(a0, d0), o1 = q(a1, d1);
+          const cq = [[p1[0], yc, p1[1]], [p0[0], yc, p0[1]], [o0[0], yc, o0[1]], [o1[0], yc, o1[1]]];
+          mb.get('concrete').quad(cq[0], cq[1], cq[2], cq[3], [0, 0, 1.5, 0.3], [0.82, 0.8, 0.76]); mb.get('concrete').quad(cq[3], cq[2], cq[1], cq[0], [0, 0, 1.5, 0.3], [0.82, 0.8, 0.76]);
+          // coping's inner riser down to the paving so the 0.15 m step reads as a kerb
+          mb.get('concrete').quad([o0[0], LY, o0[1]], [o1[0], LY, o1[1]], [o1[0], yc, o1[1]], [o0[0], yc, o0[1]], [0, 0, 1.5, 0.1], [0.78, 0.76, 0.72]);
+          mb.get('concrete').quad([o1[0], LY, o1[1]], [o0[0], LY, o0[1]], [o0[0], yc, o0[1]], [o1[0], yc, o1[1]], [0, 0, 1.5, 0.1], [0.78, 0.76, 0.72]); }
+        const R = clip(a0, a1, 0.4); if (!R) continue;
+        { const r0 = q(R[0], 0.4), r1 = q(R[1], 0.4);
+          if (k % 2 === 0 && R[0] === A0) mb.get('metal').box(r0[0], LY + 0.85, r0[1], 0.08, 1.0, 0.08, { col: [0.25, 0.27, 0.25] });
+          if (R[0] !== A0 || R[1] !== A1) { const rp = R[0] !== A0 ? r0 : r1; mb.get('metal').box(rp[0], LY + 0.85, rp[1], 0.09, 1.0, 0.09, { col: [0.25, 0.27, 0.25] }); } // end post where the railing meets the neighbour's
+          const ax = r0[0], az = r0[1], bx = r1[0], bz = r1[1], l = Math.hypot(bx - ax, bz - az) + 0.06, ry = -Math.atan2(bz - az, bx - ax); // solid top + mid rails (visible from both sides)
+          if (l > 0.1) { mb.get('metal').box((ax + bx) / 2, LY + 1.29, (az + bz) / 2, l, 0.07, 0.06, { col: [0.25, 0.27, 0.25], rotY: ry }); mb.get('metal').box((ax + bx) / 2, LY + 0.82, (az + bz) / 2, l, 0.05, 0.04, { col: [0.25, 0.27, 0.25], rotY: ry }); } }
+      }
+    } }
   // canals
   for (const cn of L.CANALS) for (let x = -520; x < 900; x += 4) {
     const mb = at(x + 2, cn.z0 - 5);

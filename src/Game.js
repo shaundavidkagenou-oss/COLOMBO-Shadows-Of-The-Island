@@ -67,6 +67,7 @@ import { Birds } from './world/Birds.js';
 import { RagdollWorld } from './actors/Ragdoll.js';
 import { Blood } from './gfx/Blood.js';
 import { Explosions } from './gfx/Explosions.js';
+import { PropBreak } from './world/PropBreak.js';
 import { Grenades } from './combat/Grenades.js';
 import { Drunk } from './actors/Drunk.js';
 import { VehicleSmoke } from './gfx/VehicleSmoke.js';
@@ -152,7 +153,7 @@ export class Game {
     this.applyDensity();
     progress(0.9, 'Lighting'); await tick();
     this.post = new PostFX(this.renderer, this.scene, this.camera); this.post.setCine(Settings.get('lensFlare') !== false, Settings.get('lightShafts') !== false); this.post.build({ bloom: Settings.preset.bloom, ao: Settings.preset.ao, cine: Settings.preset.cine }); this.world.glintsOn = Settings.get('wetReflections') !== false; this.atmos.nightBoost = Settings.get('nightBrightness') ?? 1;
-    this.explosions = new Explosions(this); this.vdamage = new VehicleDamage(this); /* glass, bullets through bodywork, tyres, dents, fire → explosion, flung debris */ this.blood.useFx(this.explosions.U); this.grenades = new Grenades(this); // throwables (key B) + cinematic blasts
+    this.explosions = new Explosions(this); this.vdamage = new VehicleDamage(this); this.propBreak = new PropBreak(this); /* breakaway lamp posts / signal poles */ /* glass, bullets through bodywork, tyres, dents, fire → explosion, flung debris */ this.blood.useFx(this.explosions.U); this.grenades = new Grenades(this); // throwables (key B) + cinematic blasts
     try { this.boats = new Boats(this); } catch (e) { console.error('boats', e); this.boats = null; } /* Fort Harbour Marina, the moored fleet, harbour police boats, your boats (boats/Boats.js) */
     this.drunk = new Drunk(this); // vodka in the hero rooms (HeroRooms.js)
     this.vsmoke = new VehicleSmoke(this, Settings.get('quality')); // tyre smoke + exhaust (one draw call, fixed pool)
@@ -481,7 +482,7 @@ export class Game {
     }
     if (!D.active && !warmOnly && this.mode === 'play') this.health.update(dt);
     if (!warmOnly) { const can = !busy && P.control && !P.cinematic && !this.indoor; this.weapons.update(dt, can && !this.grenades.lockWeapons); this.grenades.update(dt, can); this.drunk.update(dt); if (this.interiors.current?.tick) this.interiors.current.tick(dt, P); }
-    CHASSIS.focus = P; this.vdamage.update(dt); /* burning vehicles feed the explosion light + particles: before them */ this.explosions.update(dt);
+    CHASSIS.focus = P; this.vdamage.update(dt); if (this.propBreak) this.propBreak.update(dt, P); /* burning vehicles feed the explosion light + particles: before them */ this.explosions.update(dt);
     if (!warmOnly) this.heroSkin(dt);
     this.bodies = gatherBodies(this.scene); P.bodies = this.bodies;
     if (this.boats && !D.active) this.boats.update(dt, P); /* before the player: the boat he rides moves first, the camera follows it this frame */

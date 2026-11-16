@@ -172,6 +172,14 @@ export class Vehicle {
     let nx = this.x + (fx * this.speed + rx * this.lat) * dt, nz = this.z + (fz * this.speed + rz * this.lat) * dt;
     // water: block like a wall
     if (L.isWater(nx, nz) && !L.bridgeWalkAt(nx, nz) && !L.roadAt(nx, nz)) { nx = this.x; nz = this.z; this.impact(Math.abs(this.speed)); this.speed *= -0.2; }
+    if (VEH_HOOKS.breakProp && Math.abs(this.speed) > 3.5 && !this.air) { // breakaway lamp posts / signal poles (PropBreak.js): hit hard enough they shear off their base instead of acting as a wall
+      const hw = T.wid / 2 + 0.04, hl = T.len / 2 + 0.04, ext = hl + 0.6; const cand = collision.query(Math.min(this.x, nx) - ext, Math.min(this.z, nz) - ext, Math.max(this.x, nx) + ext, Math.max(this.z, nz) + ext).filter((c) => c.brk && c.h > 0.4);
+      for (const c of cand) { const cx = (c.x0 + c.x1) / 2, cz = (c.z0 + c.z1) / 2, cr = (c.x1 - c.x0) / 2; const ns = Math.max(1, Math.ceil(Math.hypot(nx - this.x, nz - this.z) / 0.25));
+        for (let i = 1; i <= ns; i++) { const t = i / ns, px = this.x + (nx - this.x) * t, pz = this.z + (nz - this.z) * t, dx = cx - px, dz = cz - pz; const lx = dx * rx + dz * rz, lz = dx * fx + dz * fz;
+          if (Math.abs(lx) >= hw + cr || Math.abs(lz) >= hl + cr) continue;
+          const vx = fx * this.speed + rx * this.lat, vz = fz * this.speed + rz * this.lat; const keep = VEH_HOOKS.breakProp(this, c, { vx, vz, side: lx >= 0 ? 1 : -1 });
+          if (keep > 0) { const sv = Math.abs(this.speed); this.speed *= keep; this.lat *= keep; const sg = Math.sign(lz) || 1; this.impact(Math.max(4.5, sv * (1 - keep) * 2.2), { nx: -fx * sg, nz: -fz * sg, t: clamp(lz, -T.len / 2, T.len / 2) }); }
+          break; } } }
     { // swept nose: at racer speeds (74 m/s ≈ 2.5 m per 30 fps frame) a single jump could land past a thin wall / fence and be
       // pushed out the far side — sample the path and stop at the first contact so the impulse response below handles it
       const dx = nx - this.x, dz = nz - this.z, dl = Math.hypot(dx, dz), rr = this.radius;

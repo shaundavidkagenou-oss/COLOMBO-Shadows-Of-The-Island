@@ -8,7 +8,7 @@ import { RNG } from '../core/rng.js';
 import { buildStallGeometries, stallType, STALL_CANOPY } from './Stalls.js';
 
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
-const GEO = {}; // type -> [{geo, mat}]
+export const GEO = {}; // type -> [{geo, mat}] (PropBreak.js reuses the lamp / signal parts for a knocked-down pole)
 let STALLS = null; // [type][parts] from Stalls.js
 function part(mb, mat) { return { geo: mb.build(), mat }; }
 function canvasTex(w, h, draw) { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; }
@@ -81,6 +81,7 @@ const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vect
 export const signalLamps = []; // { mesh, entries:[{node, axis, idx0}] }
 const SIG_MAT = new THREE.MeshBasicMaterial({ toneMapped: false, side: THREE.DoubleSide });
 
+const BREAKABLE = new Set(['lamp', 'lampHeritage', 'signal']);
 export function buildPropsForChunk(chunk) {
   const group = new THREE.Group(); const byType = new Map();
   for (const p of chunk.props) { if (!GEO[p.type]) continue; if (!byType.has(p.type)) byType.set(p.type, []); byType.get(p.type).push(p); if (p.type === 'pole' && p.transformer) { if (!byType.has('transformer')) byType.set('transformer', []); byType.get('transformer').push(p); } }
@@ -105,7 +106,7 @@ export function buildPropsForChunk(chunk) {
     for (const prt of GEO[type]) {
       const mesh = new THREE.InstancedMesh(prt.geo, prt.mat, list.length);
       list.forEach((p, i) => { _p.set(p.x, LAND_Y, p.z); _q.setFromEuler(_e.set(0, p.rot || 0, 0)); _m.compose(_p, _q, _s.set(1, 1, 1)); mesh.setMatrixAt(i, _m); });
-      mesh.castShadow = type !== 'railing'; mesh.receiveShadow = true; mesh.computeBoundingSphere(); group.add(mesh);
+      mesh.castShadow = type !== 'railing'; mesh.receiveShadow = true; mesh.computeBoundingSphere(); if (BREAKABLE.has(type)) mesh.userData.props = list; group.add(mesh); /* which prop each instance is: a knocked-down pole hides its own (PropBreak.js) */
     }
   }
   // signal lamps: per signal pole 2 heads × 3 lamps
@@ -122,7 +123,7 @@ export function buildPropsForChunk(chunk) {
       // which axis does each head serve? head A faces along local +z: world dir = (sin rot, cos rot)
       const dA = [Math.sin(p.rot), Math.cos(p.rot)];
       const axisA = Math.abs(dA[1]) > Math.abs(dA[0]) ? 'v' : 'h';
-      entries.push({ node: nodes[p.node], axes: [axisA, axisA === 'v' ? 'h' : 'v'], base: i * 6 });
+      entries.push({ node: nodes[p.node], axes: [axisA, axisA === 'v' ? 'h' : 'v'], base: i * 6 }); p._sig = { mesh, base: i * 6 };
     });
     mesh.computeBoundingSphere(); mesh.userData.dynamic = true; group.add(mesh); signalLamps.push({ mesh, entries, group }); // per-instance colours change: stays per chunk (not pooled)
   }
@@ -161,7 +162,7 @@ export function buildPropsForChunk(chunk) {
     pools.computeBoundingSphere(); pools.userData.dynamic = true; group.add(pools); // per-lamp decals hide / show: stays per chunk
     const pts = new THREE.BufferGeometry(); pts.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     const glow = new THREE.Points(pts, GLOW_MAT); group.add(glow);
-    group.userData.lamps = lamps.map((p, i) => [pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2], pools, i]); // [x, y, z, pool decal mesh, instance] — the decal is hidden while a real light is on the lamp
+    group.userData.lamps = lamps.map((p, i) => (p._lamp = [pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2], pools, i, pts.attributes.position])); // [x, y, z, pool decal mesh, instance] — the decal is hidden while a real light is on the lamp
   }
   return group;
 }

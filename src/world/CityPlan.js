@@ -351,7 +351,7 @@ function genStreetProps(seg, rng) {
   for (let t = 16; t < len - 12; t += lampSpacing) {
     for (const side of seg.level === 0 ? [-1, 1] : [((Math.floor(t / lampSpacing) % 2) ? 1 : -1)]) {
       const [x, z] = P(t + (side > 0 ? lampSpacing / 2 : 0), side); if (t + lampSpacing / 2 > len - 10 && side > 0) continue;
-      if (ok(x, z)) { addProp(heritage ? 'lampHeritage' : 'lamp', x, z, rotFor(side), { arm: Math.min(seg.hw * 0.6, 4) }); plan.colliders.push({ x0: x - 0.15, x1: x + 0.15, z0: z - 0.15, z1: z + 0.15, h: 7, kind: 'pole' }); }
+      if (ok(x, z)) { const p = addProp(heritage ? 'lampHeritage' : 'lamp', x, z, rotFor(side), { arm: Math.min(seg.hw * 0.6, 4) }); plan.colliders.push((p.col = { x0: x - 0.15, x1: x + 0.15, z0: z - 0.15, z1: z + 0.15, h: 7, kind: 'pole', brk: p })); } // brk: a car can knock it down (PropBreak.js)
     }
   }
   // utility poles + cables in dense / residential districts
@@ -527,7 +527,7 @@ export function generatePlan() {
   for (const n of L.nodes) if (n.signal) {
     for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
       const x = n.x + sx * (n.hwV + 0.8), z = n.z + sz * (n.hwH + 0.8);
-      if (!L.isWater(x, z) && !L.roadAt(x, z)) { addProp('signal', x, z, sx > 0 ? (sz > 0 ? 0 : Math.PI / 2) : (sz > 0 ? -Math.PI / 2 : Math.PI), { node: n.id }); plan.colliders.push({ x0: x - 0.15, x1: x + 0.15, z0: z - 0.15, z1: z + 0.15, h: 4, kind: 'pole' }); }
+      if (!L.isWater(x, z) && !L.roadAt(x, z)) { const p = addProp('signal', x, z, sx > 0 ? (sz > 0 ? 0 : Math.PI / 2) : (sz > 0 ? -Math.PI / 2 : Math.PI), { node: n.id }); plan.colliders.push((p.col = { x0: x - 0.15, x1: x + 0.15, z0: z - 0.15, z1: z + 0.15, h: 4, kind: 'pole', brk: p })); }
     }
   }
   // Galle Face Green: promenade palms, benches, food carts
@@ -547,7 +547,7 @@ export function generatePlan() {
   for (const [k, x, z, yaw] of PLAY_ITEMS) if (k === 'bench') { addProp('bench', x, z, yaw, {}); addPOI('bench', x, z, yaw, { seats: 2 }); } // benches for the adults by the play area (no child NPCs anywhere)
   // landscaping (Parks.js): hedges + flower-bed rims collide, heritage lamps light the paths at night
   plan.colliders.push(...parkColliders());
-  for (const [x, z, r] of parkLamps()) { addProp('lampHeritage', x, z, r, {}); plan.colliders.push({ x0: x - 0.2, x1: x + 0.2, z0: z - 0.2, z1: z + 0.2, h: 5, kind: 'pole' }); }
+  for (const [x, z, r] of parkLamps()) { const p = addProp('lampHeritage', x, z, r, {}); plan.colliders.push((p.col = { x0: x - 0.2, x1: x + 0.2, z0: z - 0.2, z1: z + 0.2, h: 5, kind: 'pole', brk: p })); }
   // Police Headquarters compound: palms along the fence and by the sign, shade trees on the rear lawn
   for (const [x, z, t, sc] of [[1, -224.5, 'palm', 1.1], [19, -221, 'palm', 1.0], [26, -224, 'palm', 1.15], [27.5, -215, 'palm', 1.05], [-49.5, -183, 'rain', 1.2], [-38, -180.5, 'palm', 1.0], [-20, -180.5, 'palm', 1.1], [-2, -180.5, 'palm', 0.95], [14, -180.5, 'palm', 1.05], [27.5, -181, 'rain', 1.1], [-49.6, -209, 'palm', 1.0], [5, -216.5, 'frangipani', 1.0], [-26, -216.2, 'frangipani', 0.9]]) addTree(t, x, z, sc);
   // lakeside benches

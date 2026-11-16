@@ -16,6 +16,7 @@ import { VTYPES, ensureCustomModel } from '../vehicles/VehicleModels.js';
 const CELL = 0.035; const cache = new Map();
 const TOPS = new Set(['paint', 'glass', 'chrome', 'rubber', 'canvas', 'carbon', 'livery', 'police', 'amb']);
 const SIDES = new Set(['paint', 'chrome', 'rubber', 'canvas', 'carbon', 'livery']);
+const SEE = new Set(['glass', 'lens', 'vlight', 'vtail', 'vrev', 'vind', 'mirror', 'plate']); // see-through / lamp surfaces: never under a bonnet or roof skin
 const ENDS = new Set(['paint', 'chrome', 'rubber', 'vlight', 'vtail', 'plate', 'carbon', 'livery', 'lens']);
 
 class Field { // a 2-D max field over (a, b) with cell CELL
@@ -44,12 +45,17 @@ export function scanVehicle(mesh) {
   const body = {}; for (const [n, g] of K.geos) if (!body[n]) body[n] = { geometry: g }; const dnames = new Set(K.dgeos.map(([n]) => n));
   let x0 = Infinity, x1 = -Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
   for (const [n, g] of geos) { if (!TOPS.has(n) && !ENDS.has(n)) continue; const bb = bboxOf(g); if (!bb || bb.isEmpty()) continue; x0 = Math.min(x0, bb.min.x); x1 = Math.max(x1, bb.max.x); y1 = Math.max(y1, bb.max.y); z0 = Math.min(z0, bb.min.z); z1 = Math.max(z1, bb.max.z); }
-  const hw = Math.max(-x0, x1); const top = new Field(-hw, hw, z0, z1, -1), side = new Field(z0, z1, 0, y1, -1), front = new Field(-hw, hw, 0, y1, -99), rear = new Field(-hw, hw, 0, y1, 99), bot = new Field(-hw, hw, z0, z1, 99);
+  const hw = Math.max(-x0, x1); const ptop = new Field(-hw, hw, z0, z1, -1); const top = new Field(-hw, hw, z0, z1, -1), side = new Field(z0, z1, 0, y1, -1), front = new Field(-hw, hw, 0, y1, -99), rear = new Field(-hw, hw, 0, y1, 99), bot = new Field(-hw, hw, z0, z1, 99);
   for (const [n, g] of geos) { const t = TOPS.has(n), s = SIDES.has(n), e = ENDS.has(n); if (!t && !s && !e) continue;
-    splat(g, (x, y, z) => { if (t) top.max(x, z, y); if (s) { side.max(z, y, Math.abs(x)); if (n === 'paint') bot.min(x, z, y); } if (e) { front.max(x, y, z); rear.min(x, y, z); } }); }
+    const pp = !SEE.has(n); splat(g, (x, y, z) => { if (t) { top.max(x, z, y); if (pp) ptop.max(x, z, y); } if (s) { side.max(z, y, Math.abs(x)); if (n === 'paint') bot.min(x, z, y); } if (e) { front.max(x, y, z); rear.min(x, y, z); } }); }
   rear.get = function (a, b, r = 1) { const i0 = Math.round((a - this.a0) / CELL), j0 = Math.round((b - this.b0) / CELL); let out = null; for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++) { const i = i0 + di, j = j0 + dj; if (i < 0 || j < 0 || i >= this.na || j >= this.nb) continue; const v = this.v[j * this.na + i]; if (v !== 99) out = out === null ? v : Math.min(out, v); } return out === null ? 99 : out; };
   bot.get = function (a, b, r = 1) { const i0 = Math.round((a - this.a0) / CELL), j0 = Math.round((b - this.b0) / CELL); let out = 99; for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++) { const i = i0 + di, j = j0 + dj; if (i < 0 || j < 0 || i >= this.na || j >= this.nb) continue; out = Math.min(out, this.v[j * this.na + i]); } return out; };
   const S = { key, type: ud.type, hw, zF: z1, zR: z0, H: y1, topAt: (x, z) => { let v = top.get(x, z, 2); for (let k = 1; v < 0 && k <= 12; k++) v = top.get(x * (1 - k / 12), z, 2); return v; }, /* off the panel edge: walk in toward the centreline */ sideAt: (z, y) => side.get(z, y, 2), frontAt: (x, y) => front.get(x, y, 2), rearAt: (x, y) => rear.get(x, y, 2), botAt: (x, z) => bot.get(x, z, 2) };
+  // is the top surface at (x, z) painted body (not glass, a lamp lens, a mirror)? A real-car body's windscreen, glass roof and lamp
+  // covers sit in the same height field as its panels: bonnet / roof skins must stop where the paint does
+  S.paintAt = (x, z) => { const a = ptop.get(x, z, 2), b = top.get(x, z, 2); return a > 0 && a >= b - 0.012; };
+  // half-width of the panel round (0, z): out from the centre while it stays painted and within `drop` of the centre height
+  S.panelW = (z, drop, cap) => { const y0 = S.topAt(0, z); let w = 0; for (let x = 0; x <= cap; x += 0.02) { if (S.topAt(x, z) < y0 - drop || !S.paintAt(x, z) || !S.paintAt(-x, z)) break; w = x; } return w; };
   const bike = !!(T && T.entry === 'bike');
   const wheels = (ud.wheels || []).map((w) => ({ x: w.position.x, y: w.userData.baseY ?? w.position.y, z: w.position.z, front: w.userData.front }));
   S.wheels = wheels; const R = wheels.length ? Math.max(...wheels.map((w) => w.y)) : 0.3; S.wheelR = R;
@@ -83,11 +89,14 @@ export function scanVehicle(mesh) {
   // belt line: bottom of the side windows (two-tone split for a contrast roof / upper half)
   if (body.glass) { const P = body.glass.geometry.attributes.position; let yb = 9; for (let i = 0; i < P.count; i++) if (Math.abs(P.getX(i)) > hw * 0.7 && P.getY(i) > R * 1.3) yb = Math.min(yb, P.getY(i)); if (yb < 9) S.belt = yb; }
   // roof: the flat top panel above the glass
-  { let ymax = -1, zA = null, zB = null; for (let z = z0; z <= z1; z += CELL) { const y = S.topAt(0, z); if (y > ymax) ymax = y; }
-    for (let z = z0; z <= z1; z += CELL) { const y = S.topAt(0, z); if (y > ymax - 0.07) { if (zA === null) zA = z; zB = z; } }
-    if (zA !== null && zB - zA > 0.5 && ymax > R * 2.4) { let w = 0; const zc = (zA + zB) / 2; for (let x = 0; x <= hw; x += 0.02) if (S.topAt(x, zc) > ymax - 0.08) w = x; S.roof = { y: ymax, z0: zA, z1: zB, w, zc, at: (x, z) => S.topAt(x, z) }; } }
+  { let ymax = -1, zA = null, zB = null, zM = 0; for (let z = z0; z <= z1; z += CELL) { const y = S.topAt(0, z); if (y > ymax) { ymax = y; zM = z; } }
+    // the painted run round the highest point (a real car's windscreen / rear glass top out level with the roof: they are not roof)
+    const roofRow = (z) => S.topAt(0, z) > ymax - 0.07 && S.paintAt(0, z);
+    if (roofRow(zM)) { zA = zB = zM; while (zA - CELL >= z0 && roofRow(zA - CELL)) zA -= CELL; while (zB + CELL <= z1 && roofRow(zB + CELL)) zB += CELL; }
+    else for (let z = z0; z <= z1; z += CELL) { if (roofRow(z)) { if (zA === null) zA = z; zB = z; } }
+    if (zA !== null && zB - zA > 0.5 && ymax > R * 2.4) { let w = 0; const zc = (zA + zB) / 2; for (let x = 0; x <= hw; x += 0.02) if (S.topAt(x, zc) > ymax - 0.08) w = x; const W0 = w; S.roof = { y: ymax, z0: zA, z1: zB, w, zc, at: (x, z) => S.topAt(x, z), wAt: (z) => Math.min(W0, S.panelW(z, 0.08, W0)) }; } }
   // bonnet: from the windscreen base forward, above the lamps; a cab-over (van / truck) has none worth a part
-  if (ws && S.front && S.roof) { const zA = S.front.z - 0.1, zB = ws.z - 0.06; if (zA - zB > 0.55) { let w = 0; const zc = (zA + zB) / 2, yc = S.topAt(0, zc); for (let x = 0; x <= hw; x += 0.02) if (S.topAt(x, zc) > yc - 0.12) w = x; if (w > 0.35 && yc < S.roof.y - 0.3) S.hood = { z0: zB, z1: zA, w: w - 0.04, zc, y: yc, at: (x, z) => S.topAt(x, z) }; } }
+  if (ws && S.front && S.roof) { const zA = S.front.z - 0.1; let zB = ws.z - 0.06; while (zB < zA && !S.paintAt(0, zB)) zB += CELL; /* off the windscreen foot onto paint */ zB += 0.02; if (zA - zB > 0.55) { let w = 0; const zc = (zA + zB) / 2, yc = S.topAt(0, zc); for (let x = 0; x <= hw; x += 0.02) if (S.topAt(x, zc) > yc - 0.12) w = x; if (w > 0.35 && yc < S.roof.y - 0.3) { const W0 = w - 0.04; S.hood = { z0: zB, z1: zA, w: W0, zc, y: yc, at: (x, z) => S.topAt(x, z), wAt: (z) => Math.max(0.12, Math.min(W0, S.panelW(z, 0.06, W0) - 0.03)) }; } } } // wAt: the bonnet panel narrows where the nose drops to the lamps / the wings rise
   // tail: a boot lid (deck spoiler) or a tall tailgate (roof spoiler)
   if (S.roof && S.rear) { const zt = z0 + 0.18, yt = S.topAt(0, zt); if (yt > 0 && yt < S.roof.y - 0.3 && S.roof.z0 - z0 > 0.6) { let w = 0; for (let x = 0; x <= hw; x += 0.02) if (S.topAt(x, zt) > yt - 0.07) w = x; S.tail = { roof: false, z: zt, y: yt, w: Math.max(0.4, w - 0.05), at: (x) => S.topAt(x, zt) }; }
     else S.tail = { roof: true, z: S.roof.z0 + 0.04, y: S.roof.y, w: Math.max(0.4, S.roof.w - 0.04) }; }

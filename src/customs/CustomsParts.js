@@ -20,6 +20,8 @@ function slab(mb, a, b, tx, tz, col) { _v.set(...a); _w.set(...b); const len = _
 const polyline = (mb, pts, r, col) => { for (let i = 1; i < pts.length; i++) tube(mb, pts[i - 1], pts[i], r, col); for (let i = 1; i < pts.length - 1; i++) part(mb, unitSph, pts[i], [0, 0, 0], [r, r, r], col); };
 
 // an indexed grid surface P(i, j) with smooth normals, wound so its normals agree with out(p) (a rough outward direction)
+// 3-tap median along a row list (one bad sample — a wiper, a washer jet — does not notch the skin's outline)
+function med3(a) { const b = a.slice(); for (let i = 0; i < a.length; i++) { const p = b[Math.max(0, i - 1)], q = b[i], r = b[Math.min(a.length - 1, i + 1)]; a[i] = Math.max(Math.min(p, q), Math.min(Math.max(p, q), r)); } if (a.length > 2) { a[0] = Math.max(a[0], Math.min(a[1], a[2])); } return a; }
 function grid(mb, nu, nv, P, out, col, closedU = false) {
   const pos = []; for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) pos.push(...P(i, j)); const W = nu + 1; const idx = [];
   for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) { const a = j * W + i, b = a + 1, c = a + W + 1, d = a + W; idx.push(a, b, c, a, c, d); }
@@ -101,7 +103,7 @@ function spoiler(S, id, M) {
 function loftX(mb, secs, col) { loft(mb, secs, col, true); }
 function hood(S, id, M) {
   const H = S.hood; if (!H) return; const zc = H.zc;
-  if (id === 'carbon') { const nx = 22, nz = 16, x0 = -H.w, x1 = H.w, z0 = H.z0 + 0.03, z1 = H.z1 - 0.02; grid(M.carbon, nx, nz, (i, j) => { const x = x0 + ((x1 - x0) * i) / nx, z = z0 + ((z1 - z0) * j) / nz; return [x, S.topAt(x, z) + 0.006, z]; }, () => new THREE.Vector3(0, 1, 0), CARBON); }
+  if (id === 'carbon') { const nx = 22, nz = 16, z0 = H.z0 + 0.03, z1 = H.z1 - 0.02; const wz = []; for (let j = 0; j <= nz; j++) wz.push(H.wAt ? H.wAt(z0 + ((z1 - z0) * j) / nz) : H.w); med3(wz); grid(M.carbon, nx, nz, (i, j) => { const w = wz[j], x = -w + (2 * w * i) / nx, z = z0 + ((z1 - z0) * j) / nz; return [x, S.topAt(x, z) + 0.006, z]; } /* follows the bonnet panel's own outline (a real car's nose / wings / lamps are not bonnet) */, () => new THREE.Vector3(0, 1, 0), CARBON); }
   else if (id === 'scoop') { const L = Math.min(0.48, (H.z1 - H.z0) * 0.5), W = Math.min(0.24, H.w * 0.35), z0 = zc - L / 2, z1 = zc + L / 2; const n = 8; const secs = [];
     for (let j = 0; j <= n; j++) { const z = z0 + ((z1 - z0) * j) / n, t = j / n, ht = 0.075 * Math.min(1, t * 1.6) * (t < 0.95 ? 1 : 0.6); const yb = S.topAt(0, z) - 0.005; secs.push([[-W - 0.04, yb, z], [-W, yb + ht * 0.9, z], [0, yb + ht, z], [W, yb + ht * 0.9, z], [W + 0.04, yb, z]]); }
     loftAlongZ(M.paint, secs, WHITE); const yb = S.topAt(0, z1); part(M.black, unitBox, [0, yb + 0.035, z1 + 0.002], [0, 0, 0], [W * 1.85, 0.05, 0.006], BLACK); } // dark mouth
@@ -121,7 +123,7 @@ function loftRing(mb, secs, col) { loft(mb, secs, col, true); }
 function roof(S, id, M, P) {
   if (P.kind === 'tuk') { const y = S.H + 0.02, z0 = -0.5, z1 = 0.5, x = 0.42; for (const sx of [-1, 1]) { tube(M.chrome, [sx * x, y + 0.08, z0], [sx * x, y + 0.08, z1], 0.012, CHROME); for (const z of [z0 + 0.05, z1 - 0.05]) tube(M.chrome, [sx * x, y - 0.02, z], [sx * x, y + 0.08, z], 0.01, CHROME); } for (let k = 0; k < 4; k++) tube(M.chrome, [-x, y + 0.08, z0 + (k * (z1 - z0)) / 3], [x, y + 0.08, z0 + (k * (z1 - z0)) / 3], 0.01, CHROME); return; }
   const Rf = S.roof; if (!Rf) return; const rails = (h = 0.05) => { const x = Math.max(0.3, Rf.w - 0.07); for (const sx of [-1, 1]) { const za = Rf.z0 + 0.08, zb = Rf.z1 - 0.08; const ya = Rf.at(sx * x, za), yb = Rf.at(sx * x, zb); tube(M.black, [sx * x, ya + h, za], [sx * x, yb + h, zb], 0.014, BLACK); for (const t of [0, 1]) { const z = t ? zb : za, y = t ? yb : ya; part(M.black, unitBox, [sx * x, y + h / 2, z], [0, 0, 0], [0.03, h + 0.01, 0.06], BLACK); } } return x; };
-  if (id === 'carbon') { const nx = 16, nz = 16, x0 = -(Rf.w - 0.05), x1 = Rf.w - 0.05, z0 = Rf.z0 + 0.06, z1 = Rf.z1 - 0.06; grid(M.carbon, nx, nz, (i, j) => { const x = x0 + ((x1 - x0) * i) / nx, z = z0 + ((z1 - z0) * j) / nz; return [x, Rf.at(x, z) + 0.005, z]; }, () => new THREE.Vector3(0, 1, 0), CARBON); }
+  if (id === 'carbon') { const nx = 16, nz = 16, z0 = Rf.z0 + 0.06, z1 = Rf.z1 - 0.06; const wz = []; for (let j = 0; j <= nz; j++) wz.push(Math.max(0.2, (Rf.wAt ? Rf.wAt(z0 + ((z1 - z0) * j) / nz) : Rf.w) - 0.05)); med3(wz); grid(M.carbon, nx, nz, (i, j) => { const w = wz[j], x = -w + (2 * w * i) / nx, z = z0 + ((z1 - z0) * j) / nz; return [x, Rf.at(x, z) + 0.005, z]; }, () => new THREE.Vector3(0, 1, 0), CARBON); }
   else if (id === 'rack' && P.klass !== 'van') rails();
   else if (id === 'box') { const x = rails(); const za = Rf.z0 + 0.15, zb = Math.min(Rf.z1 - 0.1, za + 1.5); const yb = Math.max(Rf.at(0, za), Rf.at(0, zb)) + 0.065; const L = zb - za;
     for (const t of [0.25, 0.75]) tube(M.black, [-x, yb - 0.01, za + L * t], [x, yb - 0.01, za + L * t], 0.012, BLACK);

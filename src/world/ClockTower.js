@@ -39,7 +39,7 @@ function handGeometry() { // spade (Breguet-ish) hand pointing +y from the arbor
 }
 
 export function buildClockTower({ mb, coll, group, label, C, LAND_Y }) {
-  const T = CLOCK_TOWER, X = T.x, Z = T.z, y0 = LAND_Y; const conc = mb.get('concrete'), paint = mb.get('paint'), metal = mb.get('metal'), glass = mb.get('glass'), ds = mb.get('paintDS'), walk = mb.get('walkGrey'), lawn = mb.get('lawn');
+  const T = CLOCK_TOWER, X = T.x, Z = T.z, y0 = LAND_Y; const conc = mb.get('kerb') /* clean limewashed render: the weathered 'concrete' (rising damp, grime) made the well-kept tower look grey and dirty */, paint = mb.get('paint'), metal = mb.get('metal'), glass = mb.get('glass'), ds = mb.get('paintDS'), walk = mb.get('walkGrey'), lawn = mb.get('lawn');
   // ---- face frames: k = 0..3, outward normal n, right (as seen from outside) r; P(u, y, d) on the face plane at half-width hw
   const F = [0, 1, 2, 3].map((k) => { const a = k * Math.PI / 2, nx = Math.sin(a), nz = Math.cos(a); return { a, nx, nz, rx: nz, rz: -nx }; });
   const P = (f, hw, u, y, d = 0) => [X + f.rx * u + f.nx * (hw + d), y0 + y, Z + f.rz * u + f.nz * (hw + d)];
