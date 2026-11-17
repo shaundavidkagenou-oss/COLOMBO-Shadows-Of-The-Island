@@ -85,6 +85,7 @@ import { STUNTS, HUMPS } from './world/StreetRamps.js';
 import { SQUAD_DEFS } from './actors/Squad.js';
 import { Boats } from './boats/Boats.js';
 import { MARINA } from './boats/Marina.js';
+import { ClubSound } from './audio/ClubSound.js';
 
 const VNAMES = { tuktuk: 'Three-wheeler', car: 'Hatchback', sedan: 'Sedan', taxi: 'Taxi', van: 'Van', suv: 'SUV', bus: 'SLTB bus', pbus: 'Private bus', lorry: 'Lorry', tow: 'Tow truck', bike: 'Motorcycle', dbike: "Dineth's Bike", police: 'Police car', policejeep: 'Police jeep', policebike: 'Police motorcycle' };
 for (const [id, T] of Object.entries(CATALOG)) VNAMES[id] = displayName(id, T); // fictional make + model, e.g. "HOSHIDA Kaizan"
@@ -430,6 +431,7 @@ export class Game {
   frameStep(dt) {
     try {
       const mapOpen = this.mode === 'play' && this.hud.bigMapOpen; // the pause map freezes the world (and the hidden 3D view is not drawn)
+      if ((this.mode !== 'play' || this.paused) && ClubSound.live) ClubSound.halt(); // the club's PA stops with the game (pause, menu, trailer)
       if (mapOpen) { if (Input.wasPressed('map')) this.toggleMap(false); Audio.updateMusic(dt, {}); } // the map's music keeps playing while the world is frozen
       else if (this.mode === 'play' && this.editorHook) this.editorHook(dt); // a debug editor (src/debug, loaded only when typed) has the frame: the world is frozen, still drawn
       else if (this.mode === 'play' && !this.paused) this.updatePlay(dt * (this.timeSlow || 1)); // weapon wheel / squad selector slow time
@@ -535,12 +537,13 @@ export class Game {
     this.hud.prompt(D.active || this.photo || (this.customs && this.customs.active) ? '' : storyPrompt || this.police.prompt || localPrompt || (this.customs && this.customs.prompt) || this.bicycles.prompt || '');
     // music
     this.musicT = (this.musicT || 0) - dt;
-    if (this.musicT <= 0) { this.musicT = 1; if (!(Audio.musicMode === 'chase' && this.story.pursuers.length) && !D.active) { let m = A.night > 0.5 ? 'night' : 'explore'; if (this.story.guards.length) m = 'tension'; if (this.story.pursuers.length) m = 'chase'; if (P.vehicle && this.radio) m = RADIO[this.radio].mode; if (this.indoor) m = this.interiors.current?.musicMode || 'none'; Audio.setMusic(m); } }
+    if (this.musicT <= 0) { this.musicT = 1; if (!(Audio.musicMode === 'chase' && this.story.pursuers.length) && !D.active) { let m = A.night > 0.5 ? 'night' : 'explore'; if (this.story.guards.length) m = 'tension'; if (this.story.pursuers.length) m = 'chase'; if (P.vehicle && this.radio) m = RADIO[this.radio].mode; if (this.indoor) m = this.interiors.current?.musicMode || 'none'; if (m === 'club' && ClubSound.live) m = 'none'; /* the DJ's own songs play through the club speakers instead */ Audio.setMusic(m); } }
     // HUD
     const v = P.vehicle; const dist = L.districtAt(P.x, P.z);
     this.hud.update({ breath: this.player.swim ? this.player.swim.breath : (this.player.swimBreath ?? 1), underwater: !!this.player.camUnder, health: this.health.hp, healthBusy: this.health.busy, time: A.timeString, money: this.story.state.money, district: this.indoor ? this.interiors.current.D.name : this.seamK > 0.5 ? this.interiors.hq.D.name : dist ? dist.name.split(' · ')[0] : '', street: this.indoor ? '' : L.roadNameAt(P.x, P.z) || '', x: P.x, z: P.z, camYaw: this.photo ? this.photoYaw + Math.PI : P.camYaw, stamina: P.stamina, vehicle: v, vehicleName: v ? this.vehicleName(v.type) : '', radio: v && this.radio ? `♪ ${RADIO[this.radio].name}` : '', camera: cam, police: this.police.hudInfo(), projector: (x, y, z) => this.project(x, y, z), fps: this.fps, draws: this.renderer.info.render.calls, extras: this.miniExtras(), indoor: !!this.indoor });
     // audio
     const near = v && !v.T.pedal ? [v] : []; if (this.boats) for (const b of this.boats.voices(P)) near.push(b); /* boat engines: outboard / inboard / jet */ for (const o of this.traffic.vehicles) { if (near.length >= 6) break; if (!o.T.pedal && Math.hypot(o.x - P.x, o.z - P.z) < 45) near.push(o); } // engine voices (a bicycle has none)
+    ClubSound.update(dt, this); // the club DJ's songs through the PA (in the club) / muffled bass on the street outside
     Audio.update(dt, { listener: { x: P.x, z: P.z, yaw: P.camYaw + Math.PI }, night: A.night, rain: A.w.rain, wind: A.w.wind, traffic: this.traffic.vehicles.length, vehicles: near, indoor: this.indoor || this.seamK > 0.6 });
     // autosave every 4 minutes of play while free-roaming
     this.autosaveT += dt; if (this.autosaveT > 240 && !this.story.running && !D.active) { this.autosaveT = 0; this.autosave(); }

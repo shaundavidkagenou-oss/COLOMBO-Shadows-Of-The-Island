@@ -149,7 +149,7 @@ const DRAW = {
   }),
   // Mk 23 Mod 0 — .45 ACP special-operations pistol: large polymer frame with a long dust cover and accessory grooves,
   // big squared trigger guard, rounded heavy slide, threaded barrel protruding for a suppressor, decocker behind the safety
-  mk23: (m) => ({ seatDy: -11, thumbK: 0, trigShift: 5, L: 245, slideTop: 16, slideBot: -13, slideW: 27, frameW: 26, gripW: 36,
+  mk23: (m) => ({ seatDy: -11, thumbK: 0, thumbDz: -6, trigShift: 5, L: 245, slideTop: 16, slideBot: -13, slideW: 27, frameW: 26, gripW: 36,
     slide: [[-1, -13], [229, -13, 1], [234, -9, 3], [234, 10, 5], [226, 16, 4], [6, 16, 3], [-1, 11, 3]], slideMat: m.oxide, taper: [-13, 16, 0.84],
     serr: [8, 38, 10, -11, 12], sight: { rz: 11, rh: 5, fz: 223, fy: 16, fh: 5, dots: true },
     barrel: [[220, 8], [234, 8], [236, 7.4], [248, 7.4], [249, 6.8], [249, 5], [238, 5]], port: [64, 108, 14],

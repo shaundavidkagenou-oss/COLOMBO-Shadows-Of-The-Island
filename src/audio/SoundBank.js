@@ -55,6 +55,9 @@ export const SOUND_DEFS = [
     .map(([m, n]) => ({ id: 'music.' + m, name: 'Music — ' + n + ' (loop)', cat: 'Music', kind: 'loop', lvl: 0.7 })),
   // 57th: background music while the pause map is open — two slots; which one plays is picked in the sounds window (Music)
   { id: 'music.map1', name: 'Music — Map screen, track 1 (loop)', cat: 'Music', kind: 'loop', lvl: 0.7 }, { id: 'music.map2', name: 'Music — Map screen, track 2 (loop)', cat: 'Music', kind: 'loop', lvl: 0.7 },
+  // 58th: the club DJ's set — seven song slots played by the DJ through the club's PA speakers (ClubSound.js), one after the
+  // other with a DJ cross-fade. Songs are long, so they are STREAMED from the saved file (never decoded whole into memory).
+  ...[1, 2, 3, 4, 5, 6, 7].map((n) => ({ id: 'music.club' + n, name: `Club DJ — song ${n} (through the club speakers)`, cat: 'Music', kind: 'song', stream: true, lvl: 0.9 })),
 ];
 // variations (52nd): a few sounds that repeat a lot get three more slots. Every filled slot of the sound (its own recording and
 // any variation) is used, in a shuffled order that never repeats the last one; empty variations simply aren't used, so with
@@ -73,7 +76,7 @@ const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math
 
 class Bank {
   constructor() { this.raw = new Map(); this.buf = new Map(); this.ctx = null; this.audio = null; this.bypass = false; this.voices = new Map(); this.listeners = new Set(); this.loaded = null; this.pack = new Map(); this.bags = new Map(); this.turn = new Map(); this.lastPick = new Map(); this.lastDur = 0; }
-  has(id) { if (this.bypass) return false; if (this.buf.has(id)) return true; const d = SOUND_BY_ID[id]; return !!(d && d.vars && d.vars.some((k) => this.buf.has(k))); }
+  has(id) { if (this.bypass) return false; if (this.buf.has(id)) return true; const d = SOUND_BY_ID[id]; if (d && d.stream) return this.raw.has(id); return !!(d && d.vars && d.vars.some((k) => this.buf.has(k))); }
   // which recording of id plays now: id itself, or one of its filled variations (shuffle bag: each filled slot once per round,
   // never the same twice in a row across rounds)
   pick(id) {
@@ -103,7 +106,9 @@ class Bank {
     })());
   }
   attach(ctx, audio) { this.ctx = ctx; this.audio = audio; if (this.raw.size) this.decodeAll(); }
-  async decodeAll() { await Promise.all([...this.raw.keys()].map((id) => this.decode(id))); }
+  async decodeAll() { await Promise.all([...this.raw.keys()].filter((id) => !(SOUND_BY_ID[id] && SOUND_BY_ID[id].stream)).map((id) => this.decode(id))); }
+  // streamed songs (club DJ): a blob URL of the saved file for an <audio> element — the browser decodes it as it plays
+  url(id) { const r = this.bypass ? null : this.raw.get(id); if (!r || !r.data) return null; if (!r.url) { const ty = { mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg' }[r.type || (r.name.match(SOUND_EXT) || ['', 'mp3'])[1].toLowerCase()] || 'audio/mpeg'; r.url = URL.createObjectURL(new Blob([r.data], { type: ty })); } return r.url; }
   async decode(id) {
     const r = this.raw.get(id); if (!r || !this.ctx) return null;
     try { const b = await this.ctx.decodeAudioData(r.data.slice(0)); if (this.raw.get(id) === r) { this.buf.set(id, b); this.emit(id); } return b; } catch (e) { console.warn('[sounds] could not decode', id, r.name, e); return null; }
@@ -145,15 +150,17 @@ class Bank {
   async set(id, data, name, vol = 1) {
     if (!SOUND_BY_ID[id]) throw new Error('unknown sound ' + id);
     const e = { data, name, vol, type: (name.match(SOUND_EXT) || ['', 'mp3'])[1].toLowerCase(), t: Date.now() };
-    this.raw.set(id, { ...e, src: 'user' }); this.buf.delete(id);
-    if (this.ctx) { const b = await this.decode(id); if (!b) { this.raw.delete(id); throw new Error(`"${name}" could not be decoded as audio`); } }
+    this.buf.delete(id);
+    const old = this.raw.get(id); if (old && old.url) URL.revokeObjectURL(old.url);
+    if (SOUND_BY_ID[id].stream) { this.raw.set(id, { ...e, src: 'user' }); if (this.ctx) { try { await this.ctx.decodeAudioData(data.slice(0)); } catch { this.raw.delete(id); throw new Error(`"${name}" could not be decoded as audio`); } } this.emit(id); } // checked once, then streamed
+    else { this.raw.set(id, { ...e, src: 'user' }); if (this.ctx) { const b = await this.decode(id); if (!b) { this.raw.delete(id); throw new Error(`"${name}" could not be decoded as audio`); } } }
     await storeSet('sound:' + id, e); await this.saveIndex(); return true;
   }
   async setVolume(id, vol) { const r = this.raw.get(id); if (!r) return; r.vol = vol; if (r.src === 'user') { const e = await storeGet('sound:' + id); if (e) { e.vol = vol; await storeSet('sound:' + id, e); } } }
-  async remove(id) { const r = this.raw.get(id); this.raw.delete(id); this.buf.delete(id); if (r && r.src === 'user') { await storeDel('sound:' + id); await this.saveIndex(); }
-    const P = this.pack.get(id); if (P && r !== P) { this.raw.set(id, P); await this.decode(id); } this.emit(id); } // a saved recording removed: the built-in pack's (if any) is used again
+  async remove(id) { const r = this.raw.get(id); if (r && r.url) { URL.revokeObjectURL(r.url); r.url = null; } this.raw.delete(id); this.buf.delete(id); if (r && r.src === 'user') { await storeDel('sound:' + id); await this.saveIndex(); }
+    const P = this.pack.get(id); if (P && r !== P) { this.raw.set(id, P); if (!SOUND_BY_ID[id].stream) await this.decode(id); } this.emit(id); } // a saved recording removed: the built-in pack's (if any) is used again
   async saveIndex() { const ids = [...this.raw.entries()].filter(([, r]) => r.src === 'user').map(([k]) => k); await storeSet('sound:index', ids); setSavedFlag('sounds', ids.length > 0); }
-  info(id) { const r = this.raw.get(id); return r ? { name: r.name, vol: r.vol ?? 1, src: r.src, ok: this.buf.has(id), bytes: r.data ? r.data.byteLength : 0, pack: this.pack.has(id) } : null; }
+  info(id) { const r = this.raw.get(id); return r ? { name: r.name, vol: r.vol ?? 1, src: r.src, ok: this.buf.has(id) || !!(SOUND_BY_ID[id] && SOUND_BY_ID[id].stream), bytes: r.data ? r.data.byteLength : 0, pack: this.pack.has(id) } : null; }
 }
 export const SoundBank = new Bank();
 if (typeof window !== 'undefined') window.__sounds = SoundBank;

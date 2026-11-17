@@ -234,7 +234,7 @@ export class Firefight {
   }
   effects(o, mz, dir, hit) {
     const g = this.g, W = g.weapons; const def = POLICE_T56;
-    if (o.rifle) { const f = o.rifle.userData.flash; if (f) { bloomHotAt(o.x, (o.y || 0) + 1.4, o.z); f.visible = true; f.rotation.z = Math.random() * 3; f.scale.setScalar(0.85 + Math.random() * 0.35); o.rp.flashT = 0.05; } }
+    if (o.rifle) { const f = o.rifle.userData.flash; if (f) { bloomHotAt(o.x, (o.y || 0) + 1.4, o.z); f.visible = true; f.rotation.z = Math.random() * 3; f.scale.setScalar(0.85 + Math.random() * 0.35); o.rp.flashT = 0.03; } }
     if (W && W.fx) { W.tracer(mz, hit.point, def); if (hit.kind === 'vehicle') W.sparks(hit.point, dir); else if (hit.kind === 'world' || hit.kind === 'ground') { W.puff(hit.point, hit.kind === 'ground' ? 0x6d6a64 : 0xb5ab9a, 4); W.decal(hit.point, dir, hit.kind); } else if (hit.kind === 'player' && !(g.blood && g.blood.spray(hit.point, dir, 0.6))) W.puff(hit.point, 0x8a8478, 2); }
     // 54th: a police rifle heard from afar by DISTANCE ONLY — gain fall-off (no loudness floor any more), the speed-of-sound delay
     // and the air's high-cut (Audio.at). No reverb / echo is added: the players' T-56 recording already carries its echo.

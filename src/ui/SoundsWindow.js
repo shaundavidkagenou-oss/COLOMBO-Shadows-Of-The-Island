@@ -153,7 +153,7 @@ export async function open(game) {
   const playOriginal = (id) => { stopPreview(); if (!demoOriginal(game, id)) toast('Continuous sound (engine / siren / rotor / ambience / music) — the original is heard in the game itself', 2600); };
   function row(d) {
     const st = state(d.id), p = pend.get(d.id), cur = SoundBank.info(d.id);
-    const play = btn('▶', () => { if (p && p.op === 'set') return playBuf(p.data, p.vol, d.id); if (p && p.op === 'remove') return playOriginal(d.id); const b = SoundBank.buf.get(d.id); if (b) return playBuf(b, st.vol, d.id); return playOriginal(d.id); }, { title: 'Play what the game will use', cls: 'snd-play' });
+    const play = btn('▶', () => { if (p && p.op === 'set') return playBuf(p.data, p.vol, d.id); if (p && p.op === 'remove') return playOriginal(d.id); const b = SoundBank.buf.get(d.id); if (b) return playBuf(b, st.vol, d.id); if (d.stream && SoundBank.raw.get(d.id)) return playBuf(SoundBank.raw.get(d.id).data, st.vol, d.id); if (d.stream) return toast('Empty song slot — choose a file (.mp3 / .wav / .ogg)', 2400); return playOriginal(d.id); }, { title: 'Play what the game will use', cls: 'snd-play' });
     const orig = btn('Original', () => playOriginal(d.id), { title: 'Play the original synthesised sound' });
     const vol = h('input', { type: 'range', min: 0, max: 2, step: 0.05, value: st.vol, title: 'Volume of the recording' }); vol.disabled = !st.custom;
     vol.addEventListener('change', () => { const v = +vol.value; if (p && p.op === 'set') p.vol = v; else pend.set(d.id, { op: 'vol', vol: v }); render(); });
@@ -168,11 +168,17 @@ export async function open(game) {
     sel.value = Settings.get('mapMusic') || 'track1'; sel.addEventListener('change', () => { Settings.set('mapMusic', sel.value); toast('Map music: ' + sel.options[sel.selectedIndex].text, 2200); });
     return h('div', { cls: 'snd-row', style: { gridTemplateColumns: 'auto 1fr' } }, h('div', { cls: 'nm' }, 'Map screen music', h('small', {}, 'plays while the pause map is open (the game sounds go quiet); give the tracks below a recording')), sel);
   }
+  // 58th: the club DJ's set — the order the seven songs are played in (applies from the next song)
+  function clubPick() {
+    const sel = h('select', {}, [['order', 'In order (song 1 → 7, then again)'], ['shuffle', 'Shuffle (never the same song twice in a row)']].map(([v, t]) => h('option', { value: v }, t)));
+    sel.value = Settings.get('clubOrder') || 'order'; sel.addEventListener('change', () => { Settings.set('clubOrder', sel.value); toast('Club DJ: ' + sel.options[sel.selectedIndex].text, 2200); });
+    return h('div', { cls: 'snd-row', style: { gridTemplateColumns: 'auto 1fr' } }, h('div', { cls: 'nm' }, 'Club DJ set (The Velvet Monsoon)', h('small', {}, 'the DJ mixes your songs one into the next through the club speakers; outside, the bass is heard from the street; empty slots are skipped')), sel);
+  }
   function render() {
     const q = search.value.trim().toLowerCase(), cat = catSel.value; const top = list.scrollTop; list.textContent = ''; let last = null, shown = 0;
     for (const d of DEFS) {
       if (cat && d.cat !== cat) continue; if (q && !(d.name.toLowerCase().includes(q) || d.id.includes(q))) continue; if (onlyCus.checked && !SoundBank.info(d.id) && !pend.has(d.id)) continue;
-      if (d.cat !== last) { last = d.cat; list.append(h('div', { cls: 'snd-cat' }, d.cat)); } if (d.id === 'music.map1') list.append(mapPick()); list.append(row(d)); shown++;
+      if (d.cat !== last) { last = d.cat; list.append(h('div', { cls: 'snd-cat' }, d.cat)); } if (d.id === 'music.map1') list.append(mapPick()); if (d.id === 'music.club1') list.append(clubPick()); list.append(row(d)); shown++;
     }
     if (!shown) list.append(h('div', { style: { padding: '14px', color: '#7f8a98' } }, 'No sounds match.'));
     list.scrollTop = top; const nCus = DEFS.filter((d) => SoundBank.info(d.id)).length;
