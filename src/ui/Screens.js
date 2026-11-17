@@ -5,6 +5,7 @@ import { SaveSystem, SLOTS } from '../core/SaveSystem.js';
 import { Input, keyLabel } from '../core/Input.js';
 import { Audio } from '../audio/Audio.js';
 import { MISSIONS } from '../story/Story.js';
+import { TEXTURE_STUDIO } from '../debug/boot.js'; // tiny always-loaded part of the debug tools
 
 const el = (tag, cls, parent, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; if (parent) parent.appendChild(e); return e; };
 const LOGO = `${import.meta.env.BASE_URL}assets/brand/sds-logo.jpg`;
@@ -77,10 +78,12 @@ export class Screens {
       const cols = el('div', 'pause-cols', p); const list = el('div', 'menu-list', cols); const info = el('div', 'pause-info', cols);
       info.innerHTML = this.journalHTML();
       const done = (r) => { p.remove(); resolve(r); };
-      for (const [id, label] of [['resume', 'Resume'], ['map', 'Map'], ['save', 'Save Game'], ['load', 'Load Game'], ['settings', 'Settings'], ['controls', 'Controls'], ['menu', 'Quit to Main Menu']]) {
-        const b = el('button', 'menu-btn', list, label); b.onmouseenter = () => Audio.ui('hover');
+      const items = [['resume', 'Resume'], ['map', 'Map'], ['save', 'Save Game'], ['load', 'Load Game'], ['settings', 'Settings'], ['controls', 'Controls'], ['menu', 'Quit to Main Menu']];
+      if (TEXTURE_STUDIO) items.splice(6, 0, ['textures', 'Texture Studio']); // 59th: development builds only (never in npm run build / the .exe)
+      for (const [id, label] of items) {
+        const b = el('button', 'menu-btn', list, label); b.onmouseenter = () => Audio.ui('hover'); if (id === 'textures') { b.title = 'Development tool: inspect any object and replace its textures / material settings'; b.style.borderLeft = '3px solid #e0a030'; b.dataset.dev = '1'; }
         b.onclick = async () => { Audio.ui('click');
-          if (id === 'resume') done({ action: 'resume' }); else if (id === 'map') done({ action: 'map' });
+          if (id === 'resume') done({ action: 'resume' }); else if (id === 'map') done({ action: 'map' }); else if (id === 'textures') done({ action: 'textures' });
           else if (id === 'save') { await this.saveLoad('save'); }
           else if (id === 'load') { const slot = await this.saveLoad('load'); if (slot) done({ action: 'load', slot }); }
           else if (id === 'settings') await this.settings(); else if (id === 'controls') await this.controls();

@@ -27,6 +27,23 @@ export async function bootRuntime(game) {
   if (f.anim) try { await (await import('./AnimRuntime.js')).loadSavedAnims(); } catch (e) { console.warn('[editor] saved animations not applied', e); }
   if (f.npc) try { await (await import('./NpcRuntime.js')).loadSavedNpcs(game); } catch (e) { console.warn('[editor] saved NPCs not applied', e); }
 }
+// ---- Texture Studio (59th, src/debug/TextureStudio.js): a development tool. Enabled by the Vite dev server (npm run dev) or a
+// build made with VITE_TEXTURE_STUDIO=1 (npm run build:studio); an ordinary production build (npm run build, build-exe.bat)
+// constant-folds this to false, so the Studio's code is not even in it. Texture packs made with it still apply there.
+export const TEXTURE_STUDIO = !!(import.meta.env && (import.meta.env.DEV || import.meta.env.VITE_TEXTURE_STUDIO === '1'));
+export async function bootTextures(game) {
+  try {
+    let pack = null; // texture-pack/manifest.json: the dev server's project folder, or the copy built into dist / the .exe
+    if (typeof fetch === 'function' && typeof location !== 'undefined') try { const r = await fetch('texture-pack/manifest.json', { cache: 'no-cache' }); if (r.ok) pack = await r.json(); } catch { /* no pack (file:// or offline) */ }
+    const has = pack && pack.rules && Object.keys(pack.rules).length > 0;
+    if (!has && !(TEXTURE_STUDIO && savedFlags().textures)) return null;
+    const rt = await import('./TexRuntime.js'); globalThis.__texRuntime = rt; return await rt.boot(game, { pack }); // (inspectable from the browser console)
+  } catch (e) { console.warn('[texture studio] saved texture replacements not applied', e); return null; }
+}
+export async function openTextureStudio(game) {
+  if (TEXTURE_STUDIO) { const mod = await import('./TextureStudio.js'); const ed = await mod.open(game); (globalThis.__editors ||= {}).textures = ed; return ed; }
+  throw new Error('the Texture Studio is a development tool — not part of this build (npm run dev, or npm run build:studio)');
+}
 // console entry points (dynamic import = loaded on demand)
 export async function openEditor(kind, game) {
   const mod = kind === 'animations' ? await import('./AnimEditor.js') : kind === 'map' ? await import('./MapEditor.js') : await import('./NpcEditor.js');

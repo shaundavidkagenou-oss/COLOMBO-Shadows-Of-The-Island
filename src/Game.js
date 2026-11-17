@@ -75,7 +75,7 @@ import { PropBreak } from './world/PropBreak.js';
 import { Grenades } from './combat/Grenades.js';
 import { Drunk } from './actors/Drunk.js';
 import { VehicleSmoke } from './gfx/VehicleSmoke.js';
-import { bootRuntime } from './debug/boot.js';
+import { bootRuntime, bootTextures, openTextureStudio } from './debug/boot.js';
 import { SoundBank } from './audio/SoundBank.js';
 import { HERO_ROOMS } from './world/HeroRooms.js';
 import { voiceTone } from './actors/Mind.js';
@@ -167,6 +167,7 @@ export class Game {
     this.atmos.update(0.016, new THREE.Vector3(-300, 0, -500), this.camera, 0);
     progress(0.93, 'Compiling shaders'); await tick();
     await bootRuntime(this); // saved animation / NPC edits (src/debug, only loaded when some were saved)
+    await bootTextures(this); // 59th: Texture Studio replacements (texture-pack/ or the Studio's saved manifest; nothing is loaded when there are none)
     SoundBank.load().catch((e) => console.warn('[sounds]', e)); // replacement recordings: the built-in pack + any saved with the `sounds` window (decoded once audio starts)
     this.world.warm(-500, -400); this.world.update(0.016, { x: -500, z: -400 }, this.camera, this.atmos);
     try { await this.compileForGame(this.scene, 15000); } catch (e) { console.warn('compile', e); } // the main pass's programs (see compileForGame)
@@ -394,6 +395,7 @@ export class Game {
     const r = await this.screens.pause(); this.paused = false; this.last = performance.now();
     if (r.action === 'map') { this.toggleMap(true); }
     else if (r.action === 'load') { sessionStorage.setItem('colombo.next', JSON.stringify({ action: 'load', slot: r.slot })); location.reload(); }
+    else if (r.action === 'textures') { openTextureStudio(this).catch((e) => { console.error(e); this.hud.notify('Texture Studio failed to load', String((e && e.message) || e), 'warn'); }); } // dev builds only (src/debug/boot.js TEXTURE_STUDIO)
     else if (r.action === 'menu') { this.autosave(); sessionStorage.setItem('colombo.next', JSON.stringify({ action: 'menu' })); location.reload(); }
     else { this.ignoreUnlock = true; Input.requestLock(this.canvas); setTimeout(() => (this.ignoreUnlock = false), 300); }
   }

@@ -8,3 +8,7 @@ desktop/release/
 .cache/
 /COLOMBO-Official-Cinematic-Trailer-*.mp4
 tools/trailer-export/package-lock.json
+
+# Texture Studio work (59th): images + manifest live in texture-pack/ on disk, not in git (export a pack to share)
+texture-pack/*
+!texture-pack/README.md

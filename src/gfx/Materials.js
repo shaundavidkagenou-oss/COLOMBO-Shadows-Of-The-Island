@@ -8,6 +8,9 @@ export const MAT = {};
 const facadeKeys = ['colonial', 'brick', 'glass', 'glass2', 'glass3', 'office', 'office2', 'office3', 'hotel', 'shop', 'shop2', 'shop3', 'apartment', 'apartment2', 'villa', 'warehouse'];
 const wetTargets = [];
 // outdoor materials built elsewhere (modelled forecourt slabs …) join the rain response: white-based maps only (the colour is driven)
+// Texture Studio (src/debug/TexRuntime.js): a weather-driven material's entry [m, dryR, wetR, tint?] — its edits change the dry
+// roughness / multiply a tint over the weather colour instead of being overwritten every frame
+export function wetTarget(m) { return wetTargets.find((t) => t[0] === m) || null; }
 export function addWetTarget(m, dryR, wetR) { if (!wetTargets.some((t) => t[0] === m)) wetTargets.push([m, dryR, wetR]); }
 // Road glare: on wet asphalt at night every oncoming headlight (a spot light pointed back at the viewer) became a white
 // mirror streak between the car and the camera, so bright that bloom turned it into a white halo hiding the car (tested:
@@ -144,7 +147,7 @@ export function updateMaterials(night, wet, t) {
   // wet roads at night: a film of water on real asphalt is not a mirror (the texture breaks it up); at 0.18 every oncoming
   // headlight smeared into a long white streak that hid the car behind it. Night keeps the wet look (darker, glossier)
   // but with a broader, dimmer highlight.
-  for (const [m, dryR, wetR] of wetTargets) { const wr = m === MAT.road || m === MAT.roadTint ? wetR + (0.26 - wetR) * n : wetR; m.roughness = dryR + (wr - dryR) * wet; m.color.copy(_dry).lerp(_wet, wet * 0.8); m.envMapIntensity = (0.6 + wet * 1.6) * (1 - 0.45 * n); if (m === MAT.road || m === MAT.roadTint) m.envMapIntensity = (0.3 + wet * 1.9) * (1 - 0.45 * n); }
+  for (const t of wetTargets) { const [m, dryR, wetR] = t; const wr = m === MAT.road || m === MAT.roadTint ? wetR + (0.26 - wetR) * n : wetR; m.roughness = dryR + (wr - dryR) * wet; m.color.copy(_dry).lerp(_wet, wet * 0.8); if (t[3]) m.color.multiply(t[3]); m.envMapIntensity = (0.6 + wet * 1.6) * (1 - 0.45 * n); if (m === MAT.road || m === MAT.roadTint) m.envMapIntensity = (0.3 + wet * 1.9) * (1 - 0.45 * n); }
   ROAD_WET.value = wet;
   ROAD_SPOT_SPEC.value = 1 - 0.45 * Math.min(1, wet * 1.5) * n - 0.2 * (1 - Math.min(1, wet * 1.5)) * n; // wet night 0.55, dry night 0.8, day 1 (and every spot highlight on the road capped below the bloom threshold, see roadSpotSpec)
 }
