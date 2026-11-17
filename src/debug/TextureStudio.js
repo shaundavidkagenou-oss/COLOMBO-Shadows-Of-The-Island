@@ -365,7 +365,7 @@ class Studio {
     const list = Object.entries(T).filter(([hh, t]) => (this.libCat === 'All' || t.category === this.libCat) && (!q || (t.name + ' ' + t.tags.join(' ') + ' ' + t.ext + ' ' + hh).toLowerCase().includes(q))).sort((a, b) => String(b[1].added).localeCompare(String(a[1].added)));
     for (const [hh, t] of list) { const n = RT.assignments(hh).length; const tile = h('div', { cls: 'ts-tile' + (hh === this.libSel ? ' sel' : ''), title: t.name + '\n' + t.w + '×' + t.h + ' ' + t.ext.toUpperCase() + ' · ' + fmtB(t.bytes) + '\nDouble-click: apply to the active slot', onclick: () => { this.libSel = hh; this.fillGrid(grid); this.renderLibDetail(); this.renderRight(); }, ondblclick: () => this.assign(hh) },
       h('img', { src: t.thumb || '', alt: '' }), h('div', {}, t.name), h('small', {}, t.w + '×' + t.h + ' ' + t.ext.toUpperCase() + (n ? ' · used ' + n + '×' : ''))); grid.append(tile); }
-    if (!list.length) grid.append(h('div', { cls: 'ed-hint' }, Object.keys(T).length ? 'No match.' : 'Empty — import images, or use "Replace…" on a slot.'));
+    if (!list.length) grid.append(h('div', { cls: 'ed-hint', style: { gridColumn: '1 / -1' } }, Object.keys(T).length ? 'No match.' : 'Empty — import images, or use "Replace…" on a slot.'));
   }
   renderLibDetail() {
     const D = this.libDetail; if (!D) return; D.replaceChildren(); const hh = this.libSel; const t = hh && RT.S.manifest.textures[hh]; if (!t) return;
