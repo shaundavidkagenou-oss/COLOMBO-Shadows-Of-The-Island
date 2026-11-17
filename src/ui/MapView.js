@@ -69,6 +69,7 @@ export const BLIP_STYLE = {
   worship: { col: '#f2d27a', cat: 'landmarks', name: 'Place of worship' }, school: { col: '#9fd3a8', cat: 'landmarks', name: 'School' }, home: { col: '#7fd6ff', cat: 'services', name: 'Safehouse' },
   pickup: { col: '#ffd34a', cat: 'missions', name: 'Friend waiting for a lift' },
   customs: { col: '#ff7a1a', cat: 'services', name: 'Street Customs (vehicle workshop)' },
+  marina: { col: '#4ab0ff', cat: 'services', name: 'Marina berth for sale' }, berth: { col: '#33e0a0', cat: 'services', name: 'Your berth' },
   stunt: { col: '#ffd34a', cat: 'activities', name: 'Stunt jump' }, bmx: { col: '#7fe0a0', cat: 'activities', name: 'Bicycle ramp' },
 };
 export function drawIcon(g, kind, x, y, r = 9) {
@@ -97,6 +98,7 @@ export function drawIcon(g, kind, x, y, r = 9) {
     case 'worship': g.moveTo(-4.5 * k, 4 * k); g.lineTo(4.5 * k, 4 * k); g.lineTo(4.5 * k, 1 * k); g.quadraticCurveTo(0, -7 * k, -4.5 * k, 1 * k); g.closePath(); g.fill(); break;
     case 'home': g.moveTo(-5 * k, 0); g.lineTo(0, -5 * k); g.lineTo(5 * k, 0); g.lineTo(3.5 * k, 0); g.lineTo(3.5 * k, 4.5 * k); g.lineTo(-3.5 * k, 4.5 * k); g.lineTo(-3.5 * k, 0); g.closePath(); g.fill(); break;
     case 'customs': g.lineWidth = 2.2 * k; g.moveTo(-4 * k, 4 * k); g.lineTo(1.2 * k, -1.2 * k); g.stroke(); g.beginPath(); g.arc(2.6 * k, -2.6 * k, 2.4 * k, Math.PI * 0.95, Math.PI * 2.55); g.stroke(); break;
+    case 'marina': case 'berth': g.lineWidth = 1.7 * k; g.arc(0, -3.6 * k, 1.3 * k, 0, 7); g.moveTo(0, -2.3 * k); g.lineTo(0, 4.4 * k); g.moveTo(-2.6 * k, -1 * k); g.lineTo(2.6 * k, -1 * k); g.moveTo(-4 * k, 1.6 * k); g.quadraticCurveTo(-3 * k, 4.6 * k, 0, 4.6 * k); g.quadraticCurveTo(3 * k, 4.6 * k, 4 * k, 1.6 * k); g.stroke(); break; // anchor
     default: g.arc(0, 0, 3.5 * k, 0, 7); g.fill();
   }
   g.restore();

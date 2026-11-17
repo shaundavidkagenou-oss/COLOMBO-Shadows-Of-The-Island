@@ -155,6 +155,9 @@ function poseSeat(A, dt, w, fitting = false) {
   solveArmIK(b, 'L', tL, null, w); solveArmIK(b, 'R', tR, null, w);
   const grip = S.hands === 'wheel' || S.hands === 'bars';
   R('handL', grip ? 0.25 : 0.1, 0, grip ? -0.3 : 0.15); R('handR', grip ? 0.25 : 0.1, 0, grip ? 0.3 : -0.15);
+  // 58th drive-by (Weapons.driveByUpdate): the right hand leaves the wheel / bars with the gun — wrist + hand orientation from the
+  // solved hold, chest space; the left hand stays where it is
+  const DB = A.driveBy; if (DB && DB.w > 0.01 && !fitting) { solveArmIK(b, 'R', DB.R, DB.qR, Math.min(1, DB.w) * w); if (ch.rig && DB.pose) ch.rig.hand('R', DB.pose, DB.w); }
 }
 
 // Getting out of a seat (and, run backwards, getting in) in two phases so nobody passes through the bodywork or the roof:

@@ -404,8 +404,9 @@ export class Player {
       const big = v.T.len > 6; dist = (big ? 11 : v.T.entry === 'bike' || v.type === 'tuktuk' ? 4.8 : 6.2) * distMul * (this.camMode === 1 ? 1.5 : 1); height = big ? 3.4 : 1.6;
       if (v.type === 'boat') { dist = v.camDist * distMul * (this.camMode === 1 ? 1.4 : 1); height = v.camHeight; } // boats: from a jet ski (6.5 m) to the superyacht (34 m)
       // chase cam: drift behind vehicle heading unless the player is looking around
-      if (Math.abs(Input.mouseDX) < 0.5 && Math.abs(Input.pad.rx) < 0.1) { this.idleCam = (this.idleCam || 0) + dt; if (this.idleCam > 1.2 || Math.abs(v.speed) > 6) this.camYaw = dampAngle(this.camYaw, v.yaw + Math.PI + (v.speed < -1 ? Math.PI : 0), 2.5, dt); } else this.idleCam = 0;
+      if (Math.abs(Input.mouseDX) < 0.5 && Math.abs(Input.pad.rx) < 0.1 && !this.driveBy) { this.idleCam = (this.idleCam || 0) + dt; if (this.idleCam > 1.2 || Math.abs(v.speed) > 6) this.camYaw = dampAngle(this.camYaw, v.yaw + Math.PI + (v.speed < -1 ? Math.PI : 0), 2.5, dt); } else this.idleCam = 0;
       tgt = new THREE.Vector3(v.x, v.y + height, v.z);
+      this.dbCam = damp(this.dbCam || 0, this.driveBy && this.aiming ? 1 : 0, 8, dt); if (this.dbCam > 0.001 && v.type !== 'boat') { const a = this.dbCam; dist *= 1 - 0.28 * a; tgt.y += 0.15 * a; tgt.x += Math.cos(this.camYaw) * 0.45 * a; tgt.z += -Math.sin(this.camYaw) * 0.45 * a; } // drive-by: a little closer, over the shoulder
     } else {
       dist = (this.camMode === 1 ? 6.5 : 3.6) * distMul; height = this.crouching ? 1.1 : 1.55; tgt = new THREE.Vector3(this.x, this.y + height, this.z);
       if (this.indoor) dist = Math.min(dist, 2.6);

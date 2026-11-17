@@ -195,6 +195,8 @@ export class Weapons {
   update(dt, can) {
     const P = this.P, A = P.ch.anim;
     this.heatUpdate(dt);
+    if (can && (P.vehicle || P.boat) && !P.entry && !P.exiting && !P.climb) return this.driveByUpdate(dt); // 58th: drive-by (pistols / compact carbines, one hand out of the window)
+    if (this.db) this.driveByOff();
     if (!can || P.vehicle || P.boat || P.entry || P.exiting || P.climb || (P.indoor && !this.robRoom())) { /* walk-in robbery stores (RobberyShops.js) allow a drawn weapon */ if (this.drawn || this.state !== 'none') this.forceHolster(); else { A.ik = null; A.aim = null; } this.wheelClose(false); this.hudUpdate(dt); this.fxUpdate(dt); return; }
     // ---- selection: wheel (hold Tab), number keys, mouse wheel, gamepad d-pad
     if (Input.isDown('weaponWheel')) this.wheelUpdate(); else if (this.wheelOpen) this.wheelClose(true);
@@ -246,6 +248,57 @@ export class Weapons {
     // ---- point a weapon at someone: they react (hands up / back away / run) — non-graphic
     this.threatT -= dt; if (this.aimW > 0.8 && this.threatT <= 0) { this.threatT = 0.35; const hit = this.pickPed(70); if (hit && this.g.crowd.threaten) this.g.crowd.threaten(hit.p, P); }
     this.pose(dt, def);
+    this.hudUpdate(dt); this.fxUpdate(dt);
+  }
+
+  // ------------------------------------------------------------------ 58th: drive-by
+  // In a car, on a bike or at a boat's helm: hold aim (RMB / LT) and the driver brings a pistol or a compact carbine up in his
+  // right hand and points it where the camera looks (the left hand stays on the wheel / bars, you can still steer); fire with
+  // LMB / RT. The arc is limited the way a seated driver can really point a gun: forward, the right side and back over the right
+  // shoulder, across to the front-left — never straight back through his own head. 1–4 pick the type (pistols / carbine);
+  // an empty magazine is reloaded with the gun lowered. Bullets ignore the player's own vehicle / boat.
+  dbAllowed(i) { const d = WEAPONS[i]; return !!d && this.inv[i] && this.inv[i].owned && (d.cls === 'pistol' || d.type === 'carbine'); }
+  driveByOff() { const A = this.P.ch.anim; A.driveBy = null; this.P.driveBy = false; if (this.db && this.db.on) { if (this.cur >= 0) this.models[this.cur].visible = false; this.cur = -1; this.state = 'none'; this.aimW = 0; this.P.aiming = false; this.showHolstered(); } this.db = null; }
+  driveByUpdate(dt) {
+    const P = this.P, A = P.ch.anim, v = P.vehicle || P.boat; const D = this.db || (this.db = { w: 0, on: false, reload: 0 });
+    if (this.wheelOpen) this.wheelClose(false);
+    // type keys: 1–3 pistols, 4 carbine (cycles owned weapons of the type, as on foot)
+    for (let ti = 0; ti < 4; ti++) if (Input.keyPressed('Digit' + (ti + 1))) { const ty = WEAPON_TYPES[ti]; const own = WEAPONS_OF_TYPE[ty.id].filter((k) => this.inv[k] && this.inv[k].owned);
+      if (!own.length) this.hudFlash(`No ${ty.label.toLowerCase()} owned`); else { const j = own.includes(this.sel) ? own[(own.indexOf(this.sel) + 1) % own.length] : own[0]; this.typePick[ty.id] = j; this.sel = j; } }
+    let idx = this.dbAllowed(this.sel) ? this.sel : -1; if (idx < 0) for (let k = 0; k < WEAPONS.length && idx < 0; k++) if (this.dbAllowed(k) && WEAPONS[k].cls === 'pistol') idx = k; if (idx < 0) for (let k = 0; k < WEAPONS.length && idx < 0; k++) if (this.dbAllowed(k)) idx = k;
+    const aimHeld = Input.mouseButtons.has(2) || Input.pad.lt > 0.4; const firePressed = Input.mousePressed.has(0) || (Input.pad.rt > 0.4 && !this._rtPrev); const fireHeld = Input.mouseButtons.has(0) || Input.pad.rt > 0.4; this._rtPrev = Input.pad.rt > 0.4;
+    if (aimHeld && idx < 0 && !D.told) { D.told = true; this.hudFlash('Drive-by: pistols and compact carbines only'); } if (!aimHeld) D.told = false;
+    this.cool = Math.max(0, this.cool - dt); this.bloom = Math.max(0, this.bloom - dt * 0.06); this.trigT = Math.max(0, this.trigT - dt); this.t += dt;
+    if (D.reload > 0) { D.reload -= dt; if (D.reload <= 0 && this.cur >= 0) { const iv = this.inv[this.cur], d0 = WEAPONS[this.cur]; const take = Math.min(d0.mag - iv.mag, iv.reserve); iv.mag += take; iv.reserve -= take; } }
+    const want = aimHeld && idx >= 0 && D.reload <= 0 ? 1 : 0; D.w = clamp(D.w + (want ? dt * 4.5 : -dt * 5), 0, 1);
+    if (D.w <= 0.001 && !want) { if (D.on) { if (this.cur >= 0) this.models[this.cur].visible = false; this.cur = -1; this.state = 'none'; D.on = false; this.showHolstered(); } A.driveBy = null; P.driveBy = D.reload > 0; P.aiming = false; this.aimW = 0; this.hudUpdate(dt); this.fxUpdate(dt); return; }
+    if (this.cur !== idx && idx >= 0) { if (this.cur >= 0) this.models[this.cur].visible = false; this.cur = idx; this.sel = idx; this.state = 'ready'; this.t = 0; } D.on = true;
+    const def = WEAPONS[this.cur], m = this.models[this.cur], ud = m.userData; const H = holdFor(P.ch, m); const b = P.ch.bones;
+    for (const i of this.built) if (i !== this.cur) this.models[i].visible = false;
+    // where he points: the camera's aim point, clamped to the arc a seated right-handed driver can reach
+    b.chest.updateWorldMatrix(true, false); b.armR.updateWorldMatrix(true, false); const sh = new THREE.Vector3().setFromMatrixPosition(b.armR.matrixWorld);
+    const { o, d } = this.aimRay(0); const aimPt = o.clone().addScaledVector(d, 35); let dir = aimPt.clone().sub(sh).normalize();
+    const rel = wrapAngle(Math.atan2(dir.x, dir.z) - v.yaw); const relC = clamp(rel, -2.75, 1.45); D.blocked = Math.abs(rel - relC) > 0.05;
+    if (relC !== rel) { const hz = Math.hypot(dir.x, dir.z); const a = v.yaw + relC; dir.set(Math.sin(a) * hz, dir.y, Math.cos(a) * hz); } dir.y = clamp(dir.y, -0.55, 0.6); dir.normalize();
+    const fW = new THREE.Vector3().setFromMatrixPosition(b.foreR.matrixWorld), hW = new THREE.Vector3().setFromMatrixPosition(b.handR.matrixWorld); const armL = sh.distanceTo(fW) + fW.distanceTo(hW);
+    const reachK = 0.86 + 0.06 * Math.max(0, Math.cos(relC + 1.2)); // a little less stretch reaching across to the left
+    const wristW = sh.clone().addScaledVector(dir, armL * reachK * (0.55 + 0.45 * sm(D.w))); wristW.y -= (1 - sm(D.w)) * 0.18; // comes up from the lap
+    // recoil: the springs used on foot kick the wrist / muzzle (spring state integrates here)
+    this.dynamics(dt, def); const kick = this.spr.r.x; const up = new THREE.Vector3(0, 1, 0); const gx = new THREE.Vector3().crossVectors(up, dir).normalize(); const gy = new THREE.Vector3().crossVectors(dir, gx).normalize();
+    const gz = dir.clone().applyAxisAngle(gx, clamp(kick, -0.5, 0.5)); const gyK = new THREE.Vector3().crossVectors(gz, gx).normalize();
+    const cant = def.cls === 'pistol' ? -0.18 : -0.08; const qG = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(gx, gyK, gz)).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), cant)); void gy;
+    const wLocal = (H ? H.R.wrist.clone() : new THREE.Vector3()).applyQuaternion(qG); const pG = wristW.clone().sub(wLocal).addScaledVector(gz, this.spr.p.z * 0.6);
+    const gunW = new THREE.Matrix4().compose(pG, qG, new THREE.Vector3(1, 1, 1)); const chestM = new THREE.Matrix4().copy(b.chest.matrixWorld).invert().multiply(gunW);
+    if (m.parent !== this.inHand) this.inHand.add(m); m.matrixAutoUpdate = false; m.matrix.copy(chestM); m.matrixWorldNeedsUpdate = true; this.inHand.matrix.identity(); m.visible = D.w > 0.3;
+    const wQ = new THREE.Quaternion().setFromRotationMatrix(chestM); const R = (H ? H.R.wrist.clone() : new THREE.Vector3()).applyMatrix4(chestM); const qR = wQ.clone().multiply(H ? H.R.q : Q_GRIP);
+    A.driveBy = { R, qR, w: sm(D.w), pose: this.trigT > 0 ? (H ? H.R.pull : TRIGGER_PULL) : D.w > 0.8 ? (H ? H.R.trigger : 'trigger') : (H ? H.R.ready : 'grip') };
+    this.aimW = D.w; P.aiming = D.w > 0.5; P.aimW = D.w; P.driveBy = true; this.aimHeld = aimHeld;
+    // fire / reload
+    const iv = this.inv[this.cur]; if (Input.wasPressed('reload') && iv.mag < def.mag && iv.reserve > 0 && D.reload <= 0) { D.reload = def.cls === 'pistol' ? 1.5 : 2.1; this.reloadSnd?.(def); }
+    if (D.w > 0.85 && D.reload <= 0 && !D.blocked) { const trig = def.auto ? fireHeld : firePressed;
+      if (trig && this.cool <= 0) { if (iv.mag > 0) { this.fire(def); if (!this.g.debug?.infAmmo) iv.mag--; this.cool = 1 / def.rof; if (iv.mag === 0 && iv.reserve > 0 && Settings.get('autoReload') !== false) { D.reload = def.cls === 'pistol' ? 1.5 : 2.1; this.reloadSnd?.(def); } }
+        else if (firePressed) { SB.play('gun.dry') || Audio.tone(1800, 0.03, { type: 'square', vol: 0.06 }); this.cool = 0.25; if (iv.reserve > 0) { D.reload = def.cls === 'pistol' ? 1.5 : 2.1; this.reloadSnd?.(def); } else this.hudFlash('No ammunition'); } } }
+    this.threatT = (this.threatT || 0) - dt; if (D.w > 0.8 && this.threatT <= 0) { this.threatT = 0.35; const hit = this.pickPed(60); if (hit && this.g.crowd.threaten) this.g.crowd.threaten(hit.p, P); }
     this.hudUpdate(dt); this.fxUpdate(dt);
   }
 
@@ -364,7 +417,7 @@ export class Weapons {
   }
 
   // ------------------------------------------------------------------ firing
-  muzzleWorld(out) { const m = this.models[this.cur]; m.updateWorldMatrix(true, false); out.copy(m.userData.muzzle).applyMatrix4(m.matrixWorld); const P = this.P; if (Math.hypot(out.x - P.x, out.z - P.z) > 2.5 || Math.abs(out.y - P.y - 1.3) > 2.5) out.set(P.x, P.y + 1.4, P.z); return out; } // guard: a stale hand matrix (the frame after a teleport / headless steps) must not fire from far away
+  muzzleWorld(out) { const m = this.models[this.cur]; m.updateWorldMatrix(true, false); out.copy(m.userData.muzzle).applyMatrix4(m.matrixWorld); const P = this.P; const lim = P.vehicle || P.boat ? 24 : 2.5; if (Math.hypot(out.x - P.x, out.z - P.z) > lim || Math.abs(out.y - P.y - 1.3) > (P.vehicle || P.boat ? 12 : 2.5)) out.set(P.x, P.y + 1.4, P.z); return out; } // guard (from a vehicle: the seat is off the vehicle's centre): a stale hand matrix (the frame after a teleport / headless steps) must not fire from far away
   aimRay(spread) {
     const cam = this.g.camera; cam.updateMatrixWorld(); const o = cam.position.clone(); const d = new THREE.Vector3(); cam.getWorldDirection(d);
     if (spread > 0) { const r = Math.sqrt(Math.random()) * spread, a = Math.random() * Math.PI * 2; const up = new THREE.Vector3(0, 1, 0).applyQuaternion(cam.quaternion), rt = new THREE.Vector3(1, 0, 0).applyQuaternion(cam.quaternion); d.addScaledVector(up, Math.sin(a) * r).addScaledVector(rt, Math.cos(a) * r).normalize(); }
@@ -389,7 +442,7 @@ export class Weapons {
     }
     if (this.g.police) for (const p of this.g.police.foot) { const rx = p.x - o.x, rz = p.z - o.z; const dh = Math.hypot(d.x, d.z) || 1e-6; const t = (rx * d.x + rz * d.z) / (dh * dh); if (t < skipNear || t > best.t) continue; const cx = o.x + d.x * t - p.x, cz = o.z + d.z * t - p.z; if (cx * cx + cz * cz > 0.09) continue; const y = o.y + d.y * t - (p.y || 0); if (y < 0.05 || y > (p.mode === 'down' ? 0.45 : 1.8 - 0.65 * ((p.ch && p.ch.anim && p.ch.anim.crouch) || 0))) continue; best = { t, kind: 'officer', p, y }; } // an officer crouched in cover presents less
     const vs = this.g.traffic.all();
-    for (const v of vs) { if (v === skipV || Math.abs(v.x - o.x) > range || Math.abs(v.z - o.z) > range) continue; for (const [cx, cz] of v.circles()) { const rx = cx - o.x, ry = v.y + 0.9 - o.y, rz = cz - o.z; const t = rx * d.x + ry * d.y + rz * d.z; if (t < skipNear || t > best.t) continue; const qx = o.x + d.x * t - cx, qy = o.y + d.y * t - (v.y + 0.9), qz = o.z + d.z * t - cz; const rr = v.radius * 0.95; const dd = qx * qx + qy * qy * 1.8 + qz * qz; if (dd < rr * rr) { const back = Math.sqrt(rr * rr - dd); best = { t: Math.max(skipNear, t - back), kind: 'vehicle', v }; } } }
+    for (const v of vs) { if (v === skipV || v === this.P.vehicle || Math.abs(v.x - o.x) > range || Math.abs(v.z - o.z) > range) continue; for (const [cx, cz] of v.circles()) { const rx = cx - o.x, ry = v.y + 0.9 - o.y, rz = cz - o.z; const t = rx * d.x + ry * d.y + rz * d.z; if (t < skipNear || t > best.t) continue; const qx = o.x + d.x * t - cx, qy = o.y + d.y * t - (v.y + 0.9), qz = o.z + d.z * t - cz; const rr = v.radius * 0.95; const dd = qx * qx + qy * qy * 1.8 + qz * qz; if (dd < rr * rr) { const back = Math.sqrt(rr * rr - dd); best = { t: Math.max(skipNear, t - back), kind: 'vehicle', v }; } } }
     if (this.g.boats && !rr) { const h = this.g.boats.rayHit(o, d, skipNear, best.t); if (h) best = { t: h.t, kind: 'boat', boat: h.boat, part: h.part, sail: h.sail, uv: h.uv }; } // boats: hull / cabin / engine boxes and the sail cloth (boats/Boat.rayHit)
     if (rr) { const h = rr.rob.rayKeeper(o, d, best.t, skipNear); if (h) best = { t: h.t, kind: 'keeper', room: rr, y: h.y }; }
     best.point = o.clone().addScaledVector(d, best.t); return best;

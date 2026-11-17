@@ -493,7 +493,7 @@ export class Game {
       if (P.vehicle && !P.vehicle.T.pedal && Input.wasPressed('radio')) { this.radio = (this.radio + 1) % RADIO.length; this.hud.notify('Radio', RADIO[this.radio] ? RADIO[this.radio].name : 'Off', 'info', 1.6); }
     }
     if (!D.active && !warmOnly && this.mode === 'play') this.health.update(dt);
-    if (!warmOnly) { const can = !busy && P.control && !P.cinematic && !this.indoor; this.weapons.update(dt, can && !this.grenades.lockWeapons); this.grenades.update(dt, can); this.drunk.update(dt); if (this.interiors.current?.tick) this.interiors.current.tick(dt, P); }
+    if (!warmOnly) { const can = !busy && P.control && !P.cinematic && !this.indoor && !this.clickClaim; this.clickClaim = false; /* a click a prompt uses (berth sign) is not a punch / shot */ this.weapons.update(dt, can && !this.grenades.lockWeapons); this.grenades.update(dt, can); this.drunk.update(dt); if (this.interiors.current?.tick) this.interiors.current.tick(dt, P); }
     CHASSIS.focus = P; this.vdamage.update(dt); if (this.propBreak) this.propBreak.update(dt, P); /* burning vehicles feed the explosion light + particles: before them */ this.explosions.update(dt);
     if (!warmOnly) this.heroSkin(dt);
     this.bodies = gatherBodies(this.scene); P.bodies = this.bodies;

@@ -25,6 +25,7 @@ export const MARINA = {
   // where an owned boat is delivered / switched in: alongside the north face of the T-head, bow east
   slip: (len, halfBeam) => ({ x: 190, z: -1288 - 0.75 - halfBeam, yaw: Math.PI / 2, side: 'tee' }),
   terminal: { x: 172.5, z: -1286.5 },        // the berth's service pedestal (switch / bring back your boat)
+  saleSign: { x: 190, z: -1285.9 },          // 58th: the For Sale board on the T-head (the berth is bought in person, here or at the office)
   gangTop: { x: 232.5, z: -1199.5 },           // on the sidewalk at the head of the gangway
 };
 const FINGERS = 7, PITCH = 11;
@@ -63,20 +64,37 @@ export function buildMarina(scene, collision) {
   const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
   const DECK = C('#8f8476'), DECK2 = C('#7f7468'), FLOAT = C('#3a3f44'), RUB = C('#2d2a27'), PILE = C('#55595e'), WHITE = C('#e9e9e6'), ALU = C('#a9adb1');
   const colliders = []; const lamps = [];
-  // a floating pontoon: walking deck + float + rubbing strip; walkable collider on its top
-  const pontoon = (x0, x1, z0, z1) => {
-    const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, w = x1 - x0, d = z1 - z0;
-    deck.box(cx, PT - 0.06, cz, w, 0.12, d, { col: DECK, uvScale: 0.5 });
-    // board joints: darker strips across the deck every 1.2 m (one quad each, slightly above)
-    const along = w > d; const n = Math.floor((along ? w : d) / 1.2);
-    for (let i = 1; i < n; i++) { const t = i / n; if (along) deck.hrect(x0 + w * t - 0.02, z0 + 0.05, x0 + w * t + 0.02, z1 - 0.05, PT + 0.002, 1, DECK2); else deck.hrect(x0 + 0.05, z0 + d * t - 0.02, x1 - 0.05, z0 + d * t + 0.02, PT + 0.002, 1, DECK2); }
-    paint.box(cx, PT - 0.37, cz, w - 0.12, 0.5, d - 0.12, { col: FLOAT });
-    paint.box(cx, PT - 0.13, z0 + 0.04, w, 0.12, 0.09, { col: RUB }); paint.box(cx, PT - 0.13, z1 - 0.04, w, 0.12, 0.09, { col: RUB });
-    paint.box(x0 + 0.04, PT - 0.13, cz, 0.09, 0.12, d, { col: RUB }); paint.box(x1 - 0.04, PT - 0.13, cz, 0.09, 0.12, d, { col: RUB });
-    colliders.push({ x0, x1, z0, z1, y0: PT - 0.6, h: 0.6, kind: 'deck', marina: true });
+  // a floating pontoon (58th rebuild, after real concrete marina pontoons): a light broom-finished concrete deck with a smooth
+  // trowelled margin, module joints with galvanised cover plates, the concrete float hull standing ~0.5 m out of the water
+  // (weed / tide stain at the waterline), hardwood walers bolted along every edge and a black rubber D-fender on them;
+  // walkable collider on its top (and solid down to the float bottom for swimmers, see Swim.js)
+  const CONC = C('#b7b3a9'), MARGIN = C('#c8c4ba'), JOINT = C('#5a5852'), HULL = C('#9c998f'), WEED = C('#4c5440'), WALER = C('#5a4331'), WALER2 = C('#4a3727'), PLATE = C('#8e9397'), BOLT = C('#6f7377');
+  const WL = HARBOUR_Y; // waterline
+  const pontoon = (x0, x1, z0, z1, opt = {}) => {
+    const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, w = x1 - x0, d = z1 - z0; const along = w > d; const L = along ? w : d, Wd = along ? d : w;
+    deck.box(cx, PT - 0.06, cz, w - 0.1, 0.12, d - 0.1, { col: CONC, uvScale: 0.35 });
+    // trowelled margin round the slab
+    const m = 0.11; deck.hrect(x0 + 0.05, z0 + 0.05, x1 - 0.05, z0 + 0.05 + m, PT + 0.002, 1, MARGIN); deck.hrect(x0 + 0.05, z1 - 0.05 - m, x1 - 0.05, z1 - 0.05, PT + 0.002, 1, MARGIN);
+    deck.hrect(x0 + 0.05, z0 + 0.05 + m, x0 + 0.05 + m, z1 - 0.05 - m, PT + 0.002, 1, MARGIN); deck.hrect(x1 - 0.05 - m, z0 + 0.05 + m, x1 - 0.05, z1 - 0.05 - m, PT + 0.002, 1, MARGIN);
+    // module joints (a unit every ~12 m on walkways, none on short fingers) with a galvanised cover plate
+    const nm = L > 14 ? Math.round(L / 12) : 1; for (let i = 1; i < nm; i++) { const t = i / nm; if (along) { const x = x0 + w * t; deck.hrect(x - 0.015, z0 + 0.05, x + 0.015, z1 - 0.05, PT + 0.003, 1, JOINT); metal.box(x, PT + 0.004, cz, 0.24, 0.008, d - 0.3, { col: PLATE }); } else { const z = z0 + d * t; deck.hrect(x0 + 0.05, z - 0.015, x1 - 0.05, z + 0.015, PT + 0.003, 1, JOINT); metal.box(cx, PT + 0.004, z, w - 0.3, 0.008, 0.24, { col: PLATE }); } }
+    // the float hull: concrete sides from the deck down past the waterline, a weed / tide band at the water
+    deck.box(cx, (PT - 0.12 + WL - 0.42) / 2, cz, w - 0.14, PT - 0.12 - (WL - 0.42), d - 0.14, { col: HULL, uvScale: 0.5 });
+    paint.box(cx, WL + 0.04, cz, w - 0.125, 0.14, d - 0.125, { col: WEED });
+    // hardwood walers (bolted, 0.1 × 0.24) and the rubber D-fender along them; ends wrapped
+    const wal = (bx, bz, lx, lz) => { paint.box(bx, PT - 0.15, bz, lx, 0.24, lz, { col: WALER }); paint.box(bx, PT - 0.015, bz, lx, 0.03, lz, { col: WALER2 }); };
+    wal(cx, z0 + 0.05, w, 0.1); wal(cx, z1 - 0.05, w, 0.1); wal(x0 + 0.05, cz, 0.1, d - 0.2); wal(x1 - 0.05, cz, 0.1, d - 0.2);
+    if (!opt.noFender) { const fs = (bx, bz, lx, lz) => paint.box(bx, PT - 0.18, bz, lx, 0.09, lz, { col: RUB }); if (along) { fs(cx, z0 - 0.02, w - 0.3, 0.05); fs(cx, z1 + 0.02, w - 0.3, 0.05); } else { fs(x0 - 0.02, cz, 0.05, d - 0.3); fs(x1 + 0.02, cz, 0.05, d - 0.3); } }
+    // through-bolts on the walers every 1.2 m (tiny, merged)
+    const nb = Math.floor(L / 1.2); for (let i = 1; i < nb; i++) { const t = i / nb; if (along) { const x = x0 + w * t; metal.box(x, PT - 0.1, z0 - 0.002, 0.035, 0.035, 0.01, { col: BOLT }); metal.box(x, PT - 0.1, z1 + 0.002, 0.035, 0.035, 0.01, { col: BOLT }); } else { const z = z0 + d * t; metal.box(x0 - 0.002, PT - 0.1, z, 0.01, 0.035, 0.035, { col: BOLT }); metal.box(x1 + 0.002, PT - 0.1, z, 0.01, 0.035, 0.035, { col: BOLT }); } }
+    void Wd;
+    colliders.push({ x0, x1, z0, z1, y0: PT - 1.15, h: 1.15, kind: 'deck', marina: true }); // deck top + the float under it (~0.6 m draft)
   };
-  const pile = (x, z) => { metal.cylinder(x, (PT + 1.5 + -3.6) / 2, z, 0.17, 0.17, 1.5 + 3.6, 10, { col: PILE }); metal.cylinder(x, PT + 1.52, z, 0.19, 0.19, 0.05, 10, { col: C('#d9b52a') }); colliders.push({ x0: x - 0.18, x1: x + 0.18, z0: z - 0.18, z1: z + 0.18, y0: PT - 0.6, h: 2.2, kind: 'pole', marina: true }); };
-  const cleat = (x, z, rot) => { metal.box(x, PT + 0.05, z, rot ? 0.06 : 0.28, 0.07, rot ? 0.28 : 0.06, { col: ALU }); };
+  // finger tip: white PVC corner bumpers; finger root: a concrete knee (gusset) into the main walkway
+  const tipBumpers = (x, z0, z1, dir) => { paint.box(x + dir * 0.04, PT - 0.16, z0 + 0.08, 0.14, 0.26, 0.2, { col: WHITE }); paint.box(x + dir * 0.04, PT - 0.16, z1 - 0.08, 0.14, 0.26, 0.2, { col: WHITE }); };
+  const knee = (x, zc, dir) => { for (const sz of [-1, 1]) { const z = zc + sz * 0.6; const m = new THREE.Matrix4().compose(new THREE.Vector3(x + dir * 0.36, PT - 0.07, z + sz * 0.25), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, sz * dir * Math.PI / 4, 0)), new THREE.Vector3(1, 1, 1)); deck.geometry(new THREE.BoxGeometry(0.5, 0.12, 0.5), m, CONC); colliders.push({ x0: Math.min(x, x + dir * 0.7), x1: Math.max(x, x + dir * 0.7), z0: Math.min(z, z + sz * 0.5), z1: Math.max(z, z + sz * 0.5), y0: PT - 1.15, h: 1.15, kind: 'deck', marina: true }); } };
+  const pile = (x, z) => { metal.cylinder(x, (PT + 1.5 + -3.6) / 2, z, 0.17, 0.17, 1.5 + 3.6, 12, { col: PILE }); metal.cylinder(x, PT + 1.52, z, 0.19, 0.19, 0.05, 12, { col: C('#d9b52a') }); metal.cylinder(x, PT - 0.08, z, 0.25, 0.25, 0.2, 12, { col: C('#9da3a6') }); /* galvanised pile hoop (the guide the pontoon rides on) */ metal.cylinder(x, WL + 0.1, z, 0.175, 0.175, 0.3, 12, { col: WEED }); /* tide band */ colliders.push({ x0: x - 0.18, x1: x + 0.18, z0: z - 0.18, z1: z + 0.18, y0: PT - 0.6, h: 2.2, kind: 'pole', marina: true }); };
+  const cleat = (x, z, rot) => { metal.box(x, PT + 0.02, z, rot ? 0.08 : 0.14, 0.04, rot ? 0.14 : 0.08, { col: ALU }); metal.box(x, PT + 0.075, z, rot ? 0.05 : 0.34, 0.035, rot ? 0.34 : 0.05, { col: ALU }); }; // base + horns
   // service pedestal: shore power + water, a small lamp on top (lit at night)
   const pedestal = (x, z) => { paint.box(x, PT + 0.45, z, 0.32, 0.9, 0.26, { col: WHITE }); paint.box(x, PT + 0.93, z, 0.36, 0.06, 0.3, { col: C('#2a2c2e') }); lamps.push([x, PT + 1.0, z, 'courtesy']); colliders.push({ x0: x - 0.18, x1: x + 0.18, z0: z - 0.15, z1: z + 0.15, y0: PT, h: 1.0, kind: 'prop', marina: true }); };
   // low bollard light along the walkways
@@ -93,8 +111,8 @@ export function buildMarina(scene, collision) {
   }
   // pontoons
   const H = M.head, S = M.spine, T = M.tee; pontoon(H.x0, H.x1, H.z0, H.z1); pontoon(S.x0, S.x1, S.z0, H.z0); pontoon(T.x0, T.x1, T.z0, T.z1);
-  for (let k = 1; k <= FINGERS; k++) { const zf = fingerZ(k); pontoon(172, S.x0, zf - 0.45, zf + 0.45); pontoon(S.x1, 200.5, zf - 0.45, zf + 0.45);
-    pile(172.5, zf + (k % 2 ? 0.75 : -0.75)); pile(200, zf + (k % 2 ? -0.75 : 0.75)); cleat(173, zf, false); cleat(178, zf, false); cleat(199.8, zf, false); cleat(194, zf, false);
+  for (let k = 1; k <= FINGERS; k++) { const zf = fingerZ(k); pontoon(172, S.x0, zf - 0.6, zf + 0.6); pontoon(S.x1, 200.5, zf - 0.6, zf + 0.6); tipBumpers(172, zf - 0.6, zf + 0.6, -1); tipBumpers(200.5, zf - 0.6, zf + 0.6, 1); knee(S.x0, zf, -1); knee(S.x1, zf, 1);
+    pile(172.6, zf + (k % 2 ? 0.84 : -0.84)); pile(199.9, zf + (k % 2 ? -0.84 : 0.84)); cleat(173, zf, false); cleat(178, zf, false); cleat(199.8, zf, false); cleat(194, zf, false);
     pedestal(S.x0 - 0.5, zf - 0.2); pedestal(S.x1 + 0.5, zf + 0.2); }
   // marina office platform + cabin on the head walkway (counter window facing the walkway)
   { const O = M.office; pontoon(O.x0 - 2, O.x1 + 2, H.z1, O.z1 + 0.4);
@@ -121,9 +139,23 @@ export function buildMarina(scene, collision) {
   const add = (mb, mat, name, shadow = true) => { const geo = mb.build(); if (!geo) return; const m = new THREE.Mesh(geo, mat); m.name = name; m.castShadow = shadow; m.receiveShadow = true; m.matrixAutoUpdate = false; g.add(m); };
   add(deck, MAT.concrete || MAT.paint, 'marinaDeck', false); /* composite decking: the weathered concrete map tinted warm grey */ add(paint, MAT.paint || new THREE.MeshStandardMaterial({ vertexColors: true }), 'marinaPaint'); add(metal, MAT.metal || new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.8 }), 'marinaMetal');
   if (sign) g.add(sign);
+  // 58th: the berth's For Sale board on the T-head (two posts, a printed board facing the spine); turns into a "private berth"
+  // plate once it is bought (setSold)
+  const saleBoard = (() => { if (typeof document === 'undefined') return null; const mk = (sold) => { const c = document.createElement('canvas'); c.width = 512; c.height = 320; const x = c.getContext('2d');
+      x.fillStyle = '#f6f3ea'; x.fillRect(0, 0, 512, 320); x.fillStyle = sold ? '#1f4a72' : '#c4161c'; x.fillRect(0, 0, 512, 92); x.fillStyle = '#ffffff'; x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.font = 'bold 64px Arial, Helvetica, sans-serif'; x.fillText(sold ? 'PRIVATE BERTH' : 'FOR SALE', 256, 50); x.fillStyle = '#1b1b1b'; x.font = 'bold 44px Arial, Helvetica, sans-serif'; x.fillText(M.slipName.toUpperCase(), 256, 134);
+      x.font = '26px Arial, Helvetica, sans-serif'; x.fillText(sold ? 'Berth holder only · no mooring' : 'T-head alongside · boats up to 42 m', 256, 182); x.fillText(sold ? 'Shore power & water · 24 h security' : 'Shore power, water, 24 h security', 256, 218);
+      x.fillStyle = sold ? '#1f4a72' : '#c4161c'; x.font = 'bold 36px Arial, Helvetica, sans-serif'; x.fillText(sold ? M.name : 'Rs. ' + M.berthPrice.toLocaleString('en-US'), 256, 270); x.strokeStyle = '#1b1b1b'; x.lineWidth = 6; x.strokeRect(3, 3, 506, 314);
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; };
+    const forSale = mk(false), sold = mk(true); const m = new THREE.MeshStandardMaterial({ map: forSale, roughness: 0.55 }); m.name = 'berthSale';
+    const grp = new THREE.Group(); grp.name = 'berthSaleSign'; const S0 = M.saleSign; grp.position.set(S0.x, PT, S0.z);
+    const board = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.94, 0.03), [MAT.metal || m, MAT.metal || m, MAT.metal || m, MAT.metal || m, m, MAT.metal || m]); board.position.y = 1.35; board.castShadow = true; grp.add(board);
+    const postM = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, metalness: 0.85, roughness: 0.35 }); for (const sx of [-0.6, 0.6]) { const pst = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1.85, 8), postM); pst.position.set(sx, 0.925, -0.03); pst.castShadow = true; grp.add(pst); const ft = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.012, 0.14), postM); ft.position.set(sx, 0.006, -0.03); grp.add(ft); }
+    grp.userData.setSold = (v) => { m.map = v ? sold : forSale; m.needsUpdate = true; }; colliders.push({ x0: S0.x - 0.75, x1: S0.x + 0.75, z0: S0.z - 0.1, z1: S0.z + 0.06, y0: PT, h: 1.9, kind: 'prop', marina: true }); return grp; })();
+  if (saleBoard) g.add(saleBoard);
   scene.add(g); g.updateMatrixWorld(true);
   if (collision) collision.addAll(colliders);
-  return { group: g, colliders, lamps };
+  return { group: g, colliders, lamps, saleBoard };
 }
 // is (x, z) on (or within `pad` of) a marina pontoon / gangway? (boats keep off them)
 export function marinaRects(colliders) { return colliders.filter((c) => c.kind === 'deck' || c.kind === 'pole' || c.kind === 'building'); }

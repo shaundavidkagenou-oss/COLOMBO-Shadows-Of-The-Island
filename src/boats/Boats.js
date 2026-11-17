@@ -15,6 +15,7 @@ import { MARINA, buildMarina, marinaBerths, berthRoute, walkRoute } from './Mari
 import { Character } from '../actors/Character.js';
 import { makeAppearance, makePoliceAppearance } from '../actors/Appearance.js';
 import { Input } from '../core/Input.js';
+import { DockCrew } from './DockCrew.js';
 import { Audio } from '../audio/Audio.js';
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -46,6 +47,7 @@ export class Boats {
     this.people = { police: [], civ: [] };
     for (let i = 0; i < 4; i++) { const sp = makePoliceAppearance(7700 + i * 29, 'patrol', { sex: 'm', band: i % 2 ? 'adult' : 'young' }); this.people.police.push(this.person(sp)); }
     for (let i = 0; i < 3; i++) { const sp = makeAppearance(8800 + i * 37, { sex: 'm', band: i === 2 ? 'mature' : 'adult' }); this.people.civ.push(this.person(sp)); }
+    this.dock = new DockCrew(this); // 58th: the marina's guard, dock hands and boat cleaner
     for (let i = 0; i < 2; i++) { const b = this.add('police36', { role: 'police', mode: 'drive', x: AWAY_PT.x, z: AWAY_PT.z }); b.root.visible = false; b.active = false; this.police.push(b); }
     this.eventT = 50 + rnd() * 40; this.patrolN = 1 + (rnd() < 0.5 ? 1 : 0); this.patrolDay = -1; this.slipBoat = null;
     this.wind = 0.4;
@@ -65,19 +67,40 @@ export class Boats {
       const b = this.add(id, { role: 'moored', mode: 'moored', x, z: B.zc, yaw: B.yaw, col, berth: { x, z: B.zc, yaw: B.yaw } }); b.home = B; B.boat = b; b.cabinNight = rnd() < 0.35; // some owners aboard in the evening (cabin lit)
     }
   }
+  // ---------------------------------------------------------------------------------------------------- 58th: buying the berth in person
+  // map: the berth for sale (anchor) until it is bought, then "your berth" at the slip; the sign shows FOR SALE / PRIVATE BERTH
+  berthBlips() { const H = this.g.hud; if (!H || !H.addBlip) return; const own = !!this.state().slip; if (this.blipsFor === own) return; this.blipsFor = own; this.marina.saleBoard?.userData.setSold(own);
+    if (own) { H.removeBlip('marina:sale'); const s = MARINA.slip(20, 3); H.addBlip('marina:berth', s.x, s.z, 'berth', `Your berth — ${MARINA.slipName}, ${MARINA.name}`); }
+    else { H.removeBlip('marina:berth'); H.addBlip('marina:sale', MARINA.saleSign.x, MARINA.saleSign.z, 'marina', `${MARINA.slipName} for sale — ${MARINA.name}`); } }
+  saleNear(P) { const S = MARINA.saleSign; return !this.state().slip && Math.hypot(P.x - S.x, P.z - S.z) < 3.2 && Math.abs(P.y - MARINA.deckY) < 1.2; }
+  // the purchase: money, then a short cinematic of the new berth (crane-style sweep from the T-head out over the water to a
+  // low view along the pontoon), letterboxed; any key (Enter / Space / Esc) skips it
+  startBerthCine(P) {
+    const g = this.g; const s = MARINA.slip(30, 3.5); this.cine = { t: 0, P, x: s.x, z: s.z, y: MARINA.deckY, ctl: P.control, hud: !g.hud.root.classList.contains('hidden') };
+    P.control = false; P.camOverride = true; P.speed = 0; g.hud.bars(true); g.hud.show(false); g.hud.subtitle?.(MARINA.name, `${MARINA.slipName} — yours. Alongside the T-head, boats up to 42 m.`, '', 5.5);
+  }
+  updateBerthCine(dt, P) {
+    const C = this.cine; if (!C) return; C.t += dt; const g = this.g, cam = g.camera; const T = 7.5; const u = Math.min(1, C.t / T); const e = u * u * (3 - 2 * u);
+    // path: high over the T-head looking down at the empty berth → swings round the berth's water → low along the pontoon edge
+    const a = -2.4 + e * 2.1, r = 26 - e * 12, h = 15 - e * 12.5; cam.position.set(C.x + Math.sin(a) * r, C.y + h, C.z + Math.cos(a) * r - 4);
+    cam.lookAt(C.x - 4 + e * 10, C.y + 0.4 + e * 0.8, C.z + 0.6); cam.updateMatrixWorld();
+    const skip = C.t > 0.8 && (Input.wasPressed('enter') || Input.wasPressed('jump'));
+    if (u >= 1 || skip) { this.cine = null; P.camOverride = false; P.control = true; g.hud.bars(false); if (C.hud) g.hud.show(true); g.hud.clearSubtitle?.(); P.updateCamera?.(1, true);
+      g.hud.notify(MARINA.slipName, 'Marked on your map. Buy boats and yachts on Global — they are delivered to this berth.', 'info', 5); }
+  }
   // ---------------------------------------------------------------------------------------------------- the player's fleet (story.state.boats)
   state() { const S = this.g.story.state; if (!S.boats) S.boats = { slip: false, owned: [], active: null, pending: [], uid: 1 }; return S.boats; }
   owns(id) { return this.state().owned.some((o) => o.id === id) || this.state().pending.some((o) => o.id === id); }
   buyBerth(free = false) {
     const st = this.state(); if (st.slip) return { ok: false, msg: 'You already hold ' + MARINA.slipName + '.' };
     const S = this.g.story.state; if (!free && S.money < MARINA.berthPrice) return { ok: false, msg: `Not enough money (${rs(MARINA.berthPrice)}).` };
-    if (!free) this.g.story.pay(-MARINA.berthPrice, MARINA.name + ' · ' + MARINA.slipName); st.slip = true;
+    if (!free) this.g.story.pay(-MARINA.berthPrice, MARINA.name + ' · ' + MARINA.slipName); st.slip = true; this.marina.saleBoard?.userData.setSold(true); this.blipsFor = null;
     this.g.story.message(MARINA.name, `Welcome aboard! ${MARINA.slipName} (the T-head alongside berth, up to 42 m) is yours. Shore power, water and 24 h security included. Boats you buy are delivered straight to your berth.`);
     return { ok: true, msg: `${MARINA.slipName} at ${MARINA.name} is yours.` };
   }
   order(id, free = false) {
     const d = BOATS[id]; if (!d) return { ok: false, msg: 'Unknown boat.' }; const st = this.state(); const S = this.g.story.state;
-    if (!st.slip) return { ok: false, msg: `You need a berth first — buy ${MARINA.slipName} at ${MARINA.name} (fortharbourmarina.lk).` };
+    if (!st.slip) return { ok: false, msg: `You need a berth first — ${MARINA.slipName} is for sale at ${MARINA.name}: buy it in person at the For Sale sign on the T-head.` };
     if (this.owns(id)) return { ok: false, msg: `You already own a ${boatName(id)}.` };
     if (!free && S.money < d.price) return { ok: false, msg: `Not enough money: ${rs(d.price)} needed.` };
     if (!free) this.g.story.pay(-d.price, `${COMPANY[d.cat] || 'Boat dealer'} · ${boatName(id)}`);
@@ -232,18 +255,19 @@ export class Boats {
   updatePatrol(dt) {
     const A = this.g.atmos; const h = A ? A.hour : 12; const stars = this.g.police && this.g.police.stars ? this.g.police.stars() : 0;
     if (A && A.day !== this.patrolDay) { this.patrolDay = A.day; this.patrolN = 1 + (rnd() < 0.5 ? 1 : 0); }
-    const want = this.forcePatrol ? 2 : stars === 0 && PATROL_HOURS(h) ? this.patrolN : 0;
+    const want = this.forcePatrol || this.chase ? 2 : stars === 0 && PATROL_HOURS(h) ? this.patrolN : 0;
     this.police.forEach((b, i) => {
       if (b.wrecked) { if (b.mode === 'sunk' && !this.seen(b.x, 1, b.z, 10, 900)) { this.respawnPolice(i); } return; }
       if (i < want && !b.active) { // come on watch: appear at a patrol point the camera can't see
-        const pts = PATROL.map((p, k) => ({ p, k, d: this.camDist(p[0], p[1]) })).filter((q) => q.d > 160 && !this.seen(q.p[0], 2, q.p[1], 8, 1200)).sort((a, b2) => a.d - b2.d);
+        const pts = PATROL.map((p, k) => ({ p, k, d: this.camDist(p[0], p[1]) })).filter((q) => q.d > (this.chase ? 120 : 160) && !this.seen(q.p[0], 2, q.p[1], 8, 1200)).sort((a, b2) => a.d - b2.d);
         const pick = pts[Math.min(pts.length - 1, Math.floor(rnd() * 3))]; if (!pick) return;
         b.active = true; b.leaving = false; b.root.visible = true; b.mode = 'drive'; b.away = false; const nx = PATROL[(pick.k + 1) % PATROL.length]; b.place(pick.p[0], pick.p[1], Math.atan2(nx[0] - pick.p[0], nx[1] - pick.p[1]), true); b.pk = (pick.k + 1) % PATROL.length; b.dir = 1;
         b.route = [{ x: nx[0], z: nx[1] }]; this.crewUp(b, i);
       } else if (i < want && b.active && b.leaving) { b.leaving = false; b.route = null; /* back on watch before she was out of sight: carry on patrolling */
       } else if (i >= want && b.active && !b.leaving) { b.leaving = true; b.route = [{ x: AWAY_PT.x, z: AWAY_PT.z }]; }
       if (!b.active) return;
-      if (!b.route || !b.route.length) { if (b.leaving) { this.stowPolice(b); return; } b.pk = (b.pk + b.dir + PATROL.length) % PATROL.length; if (rnd() < 0.08) b.dir = -b.dir; const p = PATROL[b.pk]; b.route = [{ x: p[0] + (rnd() - 0.5) * 40, z: p[1] + (rnd() - 0.5) * 40 }]; }
+      if (b.chasing && !this.chase) { b.chasing = false; b.route = null; }
+      if (!b.route || !b.route.length) { if (b.leaving) { this.stowPolice(b); return; } if (b.chasing) return; /* updateChase re-aims her every frame */ b.pk = (b.pk + b.dir + PATROL.length) % PATROL.length; if (rnd() < 0.08) b.dir = -b.dir; const p = PATROL[b.pk]; b.route = [{ x: p[0] + (rnd() - 0.5) * 40, z: p[1] + (rnd() - 0.5) * 40 }]; }
       if (b.leaving && this.camDist(b.x, b.z) > 280 && !this.seen(b.x, 2, b.z, 10, 900)) this.stowPolice(b);
     });
   }
@@ -257,13 +281,49 @@ export class Boats {
       const bp = b.worldPoint(b.model.board, _v); const d = Math.hypot(bp.x - P.x, bp.z - P.z); if (d < bd && Math.abs(bp.y - P.y) < 2.6) { bd = d; best = b; } }
     return best;
   }
-  canDrive(b) { return b.owned || b.free || b.role === 'owned'; }
+  canDrive(b) { return b.owned || b.free || b.role === 'owned' || b.stolen; }
+  // 58th: someone else's boat can be stolen (not a police boat). Marina security calls it in: 2★ for boat theft and the harbour
+  // police boats come out for you whatever the hour — they chase, and once they are alongside a boat that has stopped (or slowed
+  // right down) you are arrested and brought ashore. Losing them (out of sight long enough for the stars to go) ends it.
+  steal(P, b) {
+    b.stolen = true; this.board(P, b); const pol = this.g.police;
+    if (pol) { pol.reason = 'boat theft'; pol.addHeat(Math.max(0, 2.2 - pol.level), 'boat theft', 'Marina security saw you take her and called the harbour police.'); }
+    this.chase = { b, t: 0, near: 0, seen: 0 }; this.g.hud.notify('Harbour police', 'Police boats are on the way. Stop and they will board you — outrun them and stay out of sight.', 'warn', 5);
+  }
+  updateChase(dt, P) {
+    const C = this.chase; if (!C) return; C.t += dt; const pol = this.g.police; const b = C.b;
+    const onIt = this.ride && this.ride.b === b; if (!onIt) C.off = (C.off || 0) + dt; else C.off = 0;
+    if ((pol && pol.stars() === 0 && C.t > 3) || C.off > 20 || b.mode === 'sunk' || b.wrecked) { this.chase = null; for (const q of this.police) if (q.active) q.route = null; return; } // got away / abandoned her / sank her
+    if (!onIt) return; let best = null, bd = 1e9;
+    for (const q of this.police) { if (!q.active || q.wrecked || q.leaving) continue; const d = Math.hypot(q.x - b.x, q.z - b.z); if (d < bd) { bd = d; best = q; }
+      // close the gap: aim ahead of the stolen boat (lead by her speed), come alongside when near
+      const lead = Math.min(25, d * 0.25); const fx = Math.sin(b.yaw), fz = Math.cos(b.yaw); const side = d < 25 ? (q === this.police[0] ? 1 : -1) * (b.model.halfBeam + 3) : 0;
+      q.route = [{ x: b.x + fx * lead * Math.sign(b.u || 1) + Math.cos(b.yaw) * side, z: b.z + fz * lead * Math.sign(b.u || 1) - Math.sin(b.yaw) * side, v: d < 30 ? Math.max(2, Math.abs(b.u) + 1.5) : 12, r: 3 }]; q.chasing = true; }
+    if (best && bd < 160 && pol) { C.seen += dt; if (C.seen > 0.5) { C.seen = 0; pol.spotted?.(); pol.level = Math.max(pol.level, 2); } } // in sight of the boat crew: the search stays on
+    if (best && bd < 11 && Math.abs(b.speed) < 2.5) { C.near += dt; if (C.near > 0.6 && !C.told) { C.told = true; this.g.hud.subtitle?.('Harbour police', 'Police! Engine off, hands where we can see them!', '', 3); } } else C.near = Math.max(0, C.near - dt * 0.5);
+    if (C.near > 2.5 && !this.arresting) this.arrestAtSea(P, b);
+  }
+  async arrestAtSea(P, b) {
+    this.arresting = true; const g = this.g; try {
+      if (g.hud.fade) await g.hud.fade(1, 0.6);
+      const q = MARINA.gangTop; const y = this.col.groundAt(q.x, q.z, 3, 6); this.endRide(P, { x: q.x, y, z: q.z }); P.teleport?.(q.x, q.z, Math.PI); P.speed = 0;
+      this.returnHome(b); this.chase = null; for (const pb of this.police) { pb.chasing = false; pb.route = null; }
+      if (g.hud.fade) await g.hud.fade(0, 0.4);
+      g.police?.arrest(null, 'grab');
+    } finally { this.arresting = false; }
+  }
+  // a stolen boat (caught, or left somewhere nobody is looking) goes back to her berth
+  returnHome(b) { b.stolen = false; b.stolenLeft = false; const B = b.home; if (!B) return; const M = b.model; const x = B.x(M.len, M.halfBeam); b.mode = 'moored'; b.route = null; b.speed = 0; b.u = 0; b.berth = { x, z: B.zc, yaw: B.yaw }; b.place(x, B.zc, B.yaw, true); B.boat = b; }
   interact(P, key) {
     if (this.ride) return this.rideInteract(P, key);
     if (P.vehicle || P.entry || P.exiting) return null;
+    // 58th: the For Sale sign on the T-head — walk up, click (or the interact key) to buy the berth on the spot
+    if (this.saleNear(P)) { this.g.clickClaim = true; if (!this.saleTold) { this.saleTold = true; this.g.hud.notify(`${MARINA.slipName} — for sale`, `Click to purchase · ${rs(MARINA.berthPrice)}`, 'info', 4); }
+      if ((Input.wasPressed('interact') || Input.mousePressed.has(0)) && !this.cine) { Input.mousePressed.delete(0); const r = this.buyBerth(); if (r.ok) this.startBerthCine(P); else this.g.hud.notify(MARINA.name, r.msg, 'warn', 4); }
+      return `Click / ${key('interact')} Purchase ${MARINA.slipName} — ${rs(MARINA.berthPrice)}`; } else this.saleTold = false;
     // marina office counter: buy the berth
     { const c = MARINA.office.counter; if (Math.hypot(P.x - c.x, P.z - c.z) < 1.6 && Math.abs(P.y - MARINA.deckY) < 1) { const st = this.state();
-      if (!st.slip) { if (Input.wasPressed('interact')) { const r = this.buyBerth(); this.g.hud.notify(MARINA.name, r.msg, r.ok ? 'info' : 'warn', 4); } return `${key('interact')} Buy ${MARINA.slipName} — ${rs(MARINA.berthPrice)}`; }
+      if (!st.slip) { if (Input.wasPressed('interact')) { const r = this.buyBerth(); if (r.ok) this.startBerthCine(P); else this.g.hud.notify(MARINA.name, r.msg, 'warn', 4); } return `${key('interact')} Buy ${MARINA.slipName} — ${rs(MARINA.berthPrice)}`; }
       return `${MARINA.name} · ${MARINA.slipName} is yours · ${st.owned.length} boat${st.owned.length === 1 ? '' : 's'} owned`; } }
     // the berth's service pedestal: switch boats / bring yours back
     { const T = MARINA.terminal; const st = this.state(); if (st.slip && Math.hypot(P.x - T.x, P.z - T.z) < 1.8 && Math.abs(P.y - MARINA.deckY) < 1.2) {
@@ -273,7 +333,8 @@ export class Boats {
       if (Input.wasPressed('interact') && !(this.slipBoat && this.slipBoat.driverP)) { const n = this.switchNext(); if (n) this.g.hud.notify(MARINA.slipName, `${boatName(n.id)} is alongside`, 'info', 3); }
       return one ? `${key('interact')} ${away || !this.slipBoat ? 'Bring back' : 'Re-moor'} your ${boatName(cur ? cur.id : nx.id)}` : `${key('interact')} Switch boat: ${boatName(nx.id)} (now ${cur ? boatName(cur.id) : 'none'})`; } }
     const b = this.nearestBoard(P); if (!b) return null;
-    if (!this.canDrive(b)) return b.role === 'police' ? 'Harbour police boat' : `${boatName(b.id)} · moored (not yours)`;
+    if (!this.canDrive(b)) { if (b.role === 'police' || b.role === 'debugPolice') return 'Harbour police boat';
+      if (Input.wasPressed('enter')) this.steal(P, b); return `${key('enter')} Steal ${boatName(b.id)} (not yours — the harbour police will come)`; }
     if (Input.wasPressed('enter')) this.board(P, b);
     return `${key('enter')} Board ${boatName(b.id)}`;
   }
@@ -332,7 +393,7 @@ export class Boats {
     const st = { nav: null, anchor: false, deck: false, uwl: false, beacon: null, cabin: 0 };
     const t = this.t; const flash = (ph) => (i) => { const q = (t * 1.6 + ph + i * 0.06) % 1; return q < 0.12 || (q > 0.2 && q < 0.32) ? 1 : 0.04; }; // double-flash, the two colours alternating
     if (b.mode === 'drive' && !b.wrecked) {
-      if (b.role === 'police' || b.role === 'debugPolice') { st.nav = night > 0.25 ? 'motor' : null; if (night > 0.25 || (b.role === 'debugPolice' && b.lightsOn)) st.beacon = { b: flash(0), r: flash(0.5) }; st.deck = false; }
+      if (b.role === 'police' || b.role === 'debugPolice') { st.nav = night > 0.25 ? 'motor' : null; if (night > 0.25 || b.chasing || (b.role === 'debugPolice' && b.lightsOn)) st.beacon = { b: flash(0), r: flash(0.5) }; st.deck = false; }
       else { const lit = night > 0.25 && !b.navOff; st.nav = lit ? (b.sails.length && b.sailsUp ? 'sail' : 'motor') : null; st.cabin = night > 0.3 ? 0.6 : 0; }
     } else if (b.mode === 'moored') {
       if (b.owned) { st.deck = night > 0.3; st.cabin = night > 0.3 ? 0.8 : 0; st.uwl = night > 0.4 && b.def.cat === 'yacht'; }
@@ -343,10 +404,11 @@ export class Boats {
   // ---------------------------------------------------------------------------------------------------- frame
   update(dt, P) {
     const g = this.g, A = g.atmos; this.t += dt; const night = A ? A.night : 0; this.wind = A && A.w ? clamp(A.w.wind ?? 0.4, 0, 1) : 0.4;
-    this.frustum(); this.deliverCheck();
+    this.frustum(); this.deliverCheck(); this.berthBlips(); this.updateBerthCine(dt, P);
     if (this.state().slip && !this.slipBoat) this.syncSlip();
-    this.updateRide(dt, P);
-    this.updateMarinaLife(dt); this.updatePatrol(dt);
+    this.updateRide(dt, P); this.updateChase(dt, P);
+    for (const sb of this.all) if (sb.stolen && !(this.ride && this.ride.b === sb) && !(this.chase && this.chase.b === sb)) { sb.stolenT = (sb.stolenT || 0) + dt; if (sb.stolenT > 60 && this.camDist(sb.x, sb.z) > 220 && !this.seen(sb.x, 2, sb.z, sb.len, 900)) { sb.stolenT = 0; this.returnHome(sb); } } else if (sb.stolen) sb.stolenT = 0; // abandoned: the marina recovers her
+    this.updateMarinaLife(dt); this.updatePatrol(dt); this.dock?.update(dt);
     for (const O of this.owners) this.updateOwner(O, dt); if (this.owners.some((o) => o.done)) this.owners = this.owners.filter((o) => !o.done);
     const cam = g.camera.position;
     for (const b of this.all) {
@@ -382,7 +444,7 @@ export class Boats {
   voices(P) { const out = []; if (this.ride) out.push(this.ride.b); const c = this.g.camera.position;
     for (const b of this.all) { if (out.length >= 3) break; if (b === (this.ride && this.ride.b) || b.mode !== 'drive' || !b.root.visible || b.wrecked) continue; if (Math.hypot(b.x - c.x, b.z - c.z) < 140) out.push(b); } return out; }
   // bullets (combat/Weapons.trace): nearest boat hit along the ray
-  rayHit(o, d, tMin, tMax) { let best = null; for (const b of this.all) { if (!b.root.visible || b.away) continue; const h = b.rayHit(o, d, tMin, best ? best.t : tMax); if (h) { h.boat = b; best = h; } } return best; }
+  rayHit(o, d, tMin, tMax) { let best = null; for (const b of this.all) { if (!b.root.visible || b.away || (this.ride && this.ride.b === b)) continue; /* never the boat the player is driving (his own drive-by shots) */ const h = b.rayHit(o, d, tMin, best ? best.t : tMax); if (h) { h.boat = b; best = h; } } return best; }
   // debug helpers
   info() { const st = this.state(); return `${this.all.filter((b) => b.root.visible && !b.away).length} boats on the water · berth ${st.slip ? 'owned' : 'not owned'} · ${st.owned.length} owned · ${st.pending.length} on order · police ${this.police.filter((b) => b.active).length}`; }
 }

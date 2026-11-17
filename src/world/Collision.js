@@ -49,7 +49,7 @@ export class Collision {
     for (let it = 0; it < 3; it++) {
       let moved = false;
       for (const c of this.query(x - r, z - r, x + r, z + r)) {
-        if (SURFACE.has(c.kind)) continue;
+        if (SURFACE.has(c.kind) && !(opts.solidDecks && c.marina)) continue; // a swimmer can't pass through a marina float
         const base = c.y0 || 0, top = base + c.h;
         if (top <= y + step) continue; // can step onto / over it
         if (base > y + height) continue; // overhead (shelter roofs etc.)

@@ -24,18 +24,18 @@ function spec(id) { const d = BOATS[id]; const M = boatModel(id);
 export function marineSites() {
   const shop = (S) => ({ id: S.id, url: S.url, name: S.name, tag: S.tag, col: S.col, icon: S.icon, kw: S.kw, marine: S,
     page(g) { const B = g.boats; const st = B ? B.state() : { slip: false };
-      const head = `<div class="gs-mast" style="--c:${S.col}">${esc(S.name.toUpperCase())}<small>${esc(S.sub)}</small></div>` + (st.slip ? '' : `<p class="gs-p ms-warn">Delivery goes to your berth. You need one first: <b>${esc(MARINA.slipName)}</b> at ${esc(MARINA.name)} (fortharbourmarina.lk).</p>`);
+      const head = `<div class="gs-mast" style="--c:${S.col}">${esc(S.name.toUpperCase())}<small>${esc(S.sub)}</small></div>` + (st.slip ? '' : `<p class="gs-p ms-warn">Delivery goes to your berth. You need one first: <b>${esc(MARINA.slipName)}</b> is for sale at ${esc(MARINA.name)} — buy it in person at the berth's For Sale sign on the T-head (or the marina office).</p>`);
       const rows = S.ids.map((id) => { const own = B && B.owns(id); return { t: `${boatName(id)} — ${rs(BOATS[id].price)}${own ? ' · owned' : ''}`, s: `${BOATS[id].kind} · ${kn(BOATS[id].max)} kn`, go: { id: 'mboat', boat: id, site: S.id } }; });
-      if (!st.slip) rows.push({ t: `⚓ ${MARINA.name} — buy a berth`, s: 'fortharbourmarina.lk', go: { id: 'site', site: 'marina' } });
+      if (!st.slip) rows.push({ t: `⚓ ${MARINA.name} — berth for sale (buy it at the marina)`, s: 'fortharbourmarina.lk', go: { id: 'site', site: 'marina' } });
       return { html: head, rows }; } });
   const marina = { id: 'marina', url: 'fortharbourmarina.lk', name: MARINA.name, tag: 'Marina', col: '#28507a', icon: '⚓', kw: 'marina berth dock slip mooring harbour harbor pontoon fort boat yacht moor park',
     page(g) { const B = g.boats; const st = B ? B.state() : { slip: false, owned: [], pending: [] };
       const html = `<div class="gs-mast" style="--c:#28507a">FORT HARBOUR MARINA<small>Colombo Port, east basin · 24 h security · shore power & water</small></div>
         <p class="gs-p">Floating pontoons in the sheltered east basin of Colombo harbour, a short walk from Fort. Finger berths to 14 m, alongside berths for motor yachts and the T-head for superyachts to 42 m.</p>
-        <div class="gs-list"><div class="gs-item"><b>${esc(MARINA.slipName)} · T-head alongside, up to 42 m</b><span>${st.slip ? 'Yours' : rs(MARINA.berthPrice)}</span><small>Freehold berth. Boats bought from our partner dealers are delivered here; switch between your boats at the berth's service pedestal.</small></div></div>
+        <div class="gs-list"><div class="gs-item"><b>${esc(MARINA.slipName)} · T-head alongside, up to 42 m</b><span>${st.slip ? 'Yours' : rs(MARINA.berthPrice) + ' · FOR SALE'}</span><small>Freehold berth, sold on site only: walk down to the For Sale sign on the T-head (or the marina office counter) to buy it. Boats bought from our partner dealers are delivered here; switch between your boats at the berth's service pedestal.</small></div></div>
         ${st.slip ? `<p class="gs-p">Your fleet: <b>${st.owned.length}</b> boat${st.owned.length === 1 ? '' : 's'}${st.pending.length ? ` · ${st.pending.length} on order` : ''}.</p>` : ''}`;
       const rows = [];
-      if (!st.slip) rows.push({ t: `Buy ${MARINA.slipName} — ${rs(MARINA.berthPrice)}`, s: 'Pay now · yours immediately', go: { id: 'mbuy', berth: true, site: 'marina' } });
+      if (!st.slip) rows.push({ t: `${MARINA.slipName} is for sale — viewing on site`, s: 'Set the GPS to the For Sale sign on the T-head', act: () => { g.hud.setWaypoint(MARINA.saleSign.x, MARINA.saleSign.z); g.hud.notify('GPS', `Route set: ${MARINA.slipName} (for sale)`, 'info', 3); return { close: true }; } });
       rows.push({ t: '📍 Directions to the marina', s: 'Gangway on the quay, Colombo Port east basin', act: () => { g.hud.setWaypoint(MARINA.gangTop.x, MARINA.gangTop.z); g.hud.notify('GPS', `Route set: ${MARINA.name}`, 'info', 3); return { close: true }; } });
       for (const S of Object.values(MARINE_SHOPS)) rows.push({ t: `${S.icon} ${S.name}`, s: `${S.url} · ${S.tag}`, go: { id: 'site', site: S.id } });
       return { html, rows }; } };

@@ -15,6 +15,8 @@ import { clamp, lerp, damp, dampAngle, wrapAngle } from '../core/math.js';
 
 const BED_PAD = 0.9; // the body never sinks closer than this to the bottom
 // water a body can swim in at (x, z): any water cell once you're down in it (canal bridges / piers pass overhead)
+// the marina pontoon (walkable deck over the harbour) at x, z, if any
+function marinaDeck(P, x, z) { const q = P.collision.query ? P.collision.query(x, z, x, z) : []; for (const c of q) if (c.marina && c.kind === 'deck' && x > c.x0 && x < c.x1 && z > c.z0 && z < c.z1) return c; return null; }
 export function swimmable(P, x, z) { return L.isWater(x, z) && (P.y < -0.3 || !P.collision.walkableWater(x, z, P.y)); }
 
 function splash(x, z, big) {
@@ -74,6 +76,16 @@ export function updateSwim(P, dt, mx, my, mag) {
   const turnRate = wrapAngle(P.yaw - prevYaw) / Math.max(dt, 1e-4);
   const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw);
   let nx = P.x + fx * P.speed * dt, nz = P.z + fz * P.speed * dt;
+  // 58th: a marina pontoon ahead (floats ~0.6 m deep): solid to a swimmer at the surface — climb up onto it (move into it or
+  // press jump), or dive under it; never swim through the float
+  const pon = marinaDeck(P, nx + fx * 0.4, nz + fz * 0.4);
+  if (pon && P.y + 1.6 > pon.y0) {
+    if (S.depth < 0.4 && moving) { S.outT += dt; P.edgeHint = 'climb';
+      if (S.outT > 0.35 || (ctl && Input.wasPressed('jump'))) { const lx = clamp(P.x + fx * 0.9, pon.x0 + 0.3, pon.x1 - 0.3), lz = clamp(P.z + fz * 0.9, pon.z0 + 0.3, pon.z1 - 0.3); const h = pon.y0 + pon.h;
+        P.swimBreath = S.breath; P.swim = null; P.speed = 0; P.climb = { t: 0, dur: 0.9 + (h - surf) * 0.35, act: 'pullup', x0: P.x, z0: P.z, y0: surf - 1.25, x1: lx, z1: lz, y1: h };
+        A.set('pullup'); splash(P.x, P.z, false); P.events.emit('swimEnd'); return; } } else S.outT = 0;
+    nx = P.x; nz = P.z; P.speed *= 0.5;
+  } else
   // the edge: land ahead → pull yourself out if it is low enough, otherwise it is a wall
   if (!swimmable(P, nx + fx * 0.35, nz + fz * 0.35)) {
     let land = null;
@@ -89,7 +101,7 @@ export function updateSwim(P, dt, mx, my, mag) {
     } else S.outT = 0;
     nx = P.x; nz = P.z; P.speed *= 0.5;
   } else S.outT = 0;
-  const r = P.collision.resolveCircle(nx, nz, 0.34, P.y, 0.45, 1.75); P.x = r.x; P.z = r.z;
+  const r = P.collision.resolveCircle(nx, nz, 0.34, P.y, 0.45, 1.75, { solidDecks: true }); P.x = r.x; P.z = r.z; // marina floats are solid in the water
   // vertical: dive, rise, float back up
   const d0 = S.depth;
   if (diveDown && maxDepth > 0.5) S.depth += dt * 1.35;
