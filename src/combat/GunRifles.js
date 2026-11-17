@@ -143,7 +143,7 @@ const DRAW = {
     for (const gg of rail(250, 400, 26.5, 21)) { gg.rotateZ(Math.PI); K.add(m.alu, gg); }
     K.add(m.oxide, lathe([[204, 11], [520, 11], [540, 10], [712, 9.5], [714, 11], [756, 11], [756, 7.5], [720, 7.5]], 0, 0, 22)); for (let i = 0; i < 4; i++) K.add(m.slot, bx(3.6, 3.2, 30, Math.cos(i * 1.57 + 0.78) * 10.5, Math.sin(i * 1.57 + 0.78) * 10.5, 736));
     scope(K, m, 95, 58, 330, 15, 25, 21, [40, 150], 23); bipodFolded(K, m, 440, 640, -28);
-    return { grip: g, trig: [78, -40], guard: [58, 119, -43, -65], recv: [100, 0, 28, 34, 204], fore: [360, 0, 56, 56, 14], muzzle: 756, sight: [-70, 58], rack: [-9, 14, 0], eject: [112, 2, -17], magWell: [152, -87], scoped: true };
+    return { grip: g, trig: [78, -40], guard: [58, 119, -43, -65], recv: [100, 0, 28, 34, 204], fore: [300, 0, 56, 56, 14], muzzle: 756, sight: [-70, 58], rack: [-9, 14, 0], eject: [112, 2, -17], magWell: [152, -87], scoped: true };
   },
   // AK-47 — 7.62×39 mm: stamped receiver and ribbed top cover, wooden stock / handguards / grip, 45° gas block, hooded
   // front sight, cleaning rod, muzzle nut, the long right-hand safety lever and the deeply curved steel magazine
@@ -196,10 +196,10 @@ const DRAW = {
     K.add(m.polyOD, tube([{ z: 236, y: 12, hw: 15, hd: 9, n: 2.6 }, { z: 450, y: 12, hw: 15, hd: 9, n: 2.6 }], { vertical: true, sub: 1, seg: 24 })); for (let i = 0; i < 4; i++) for (const s of [1, -1]) K.add(m.slot, slab([[260 + i * 46, 10], [290 + i * 46, 10], [290 + i * 46, 16, 2], [260 + i * 46, 16, 2]], 0.6, { cx: s * 14.6, bev: 0.15 }));
     K.add(m.park, lathe([[232, 13], [240, 10], [800, 8.5]], 0, 0, 20), lathe([[560, 9], [650, 9]], -18, 0, 16), slab([[560, 0], [600, 0], [600, -28, 3], [560, -28, 3]], 18, { bev: 2 }));
     K.add(m.park, lathe([[795, 10.5], [840, 10.5], [844, 8], [844, 5], [830, 5]], 0, 0, 24), slab([[818, 6], [834, 6], [832, 40, 1], [826, 40, 1]], 10, { bev: 1 })); for (let i = 0; i < 5; i++) K.add(m.slot, bx(2, 3, 16, Math.cos(i * 1.26 - 1.6) * 10, Math.sin(i * 1.26 - 1.6) * 10, 826));
-    K.add(m.park, guardRing(28, 112, -36, -64, 10)); curvedTrigger(K, m, 70, -36, 18, 6);
+    K.add(m.park, guardRing(12, 98, -40, -66, 10)); curvedTrigger(K, m, 44, -40, 18, 6);
     magazine(K, m.park, q2([176, -38], [178, -100], [180, -150]), q2([118, -38], [118, -100], [120, -154]), 26, { ribs: true });
     const g = { front: [[6, -42], [-12, -96]], back: [[-30, -6], [-48, -82]] };
-    return { grip: g, trig: [70, -36], guard: [28, 112, -36, -64], recv: [116, 2, 30, 24, 232], blocks: [[120, -24, 44, 26, 260]], fore: [420, -14, 44, 40, 14], muzzle: 844, sight: [15, 30], rack: [250, 0, -26], eject: [100, 4, -16], magWell: [148, -40], scoped: false };
+    return { grip: g, gripW: 44, trig: [44, -40], guard: [12, 98, -40, -66], recv: [116, 2, 30, 24, 232], blocks: [[120, -24, 44, 26, 260]], fore: [320, -16, 44, 44, 14], muzzle: 844, sight: [15, 30], rack: [250, 0, -26], eject: [100, 4, -16], magWell: [148, -40], scoped: false };
   },
   // Mk 14 EBR — the M14 action in an aluminium chassis: rails all round, AR-style pistol grip, collapsible stock on a
   // buffer tube, 18" barrel with flash suppressor, scope, folded bipod
@@ -210,11 +210,11 @@ const DRAW = {
     K.add(m.alu, tube([{ z: 236, y: 2, hw: 25, hd: 22, n: 6 }, { z: 460, y: 2, hw: 25, hd: 22, n: 6 }], { vertical: true, sub: 1, seg: 32 })); for (const r of [Math.PI / 2, -Math.PI / 2]) for (const gg of rail(260, 452, 24.5, 21)) { gg.rotateZ(r); gg.translate(0, 0.002, 0); K.add(m.alu, gg); }
     K.add(m.alu, ...rail(-10, 456, 25, 21));
     K.add(m.park, lathe([[232, 13], [240, 10], [720, 9]], 0, 0, 20), lathe([[716, 10.5], [760, 10.5], [764, 8], [764, 5], [750, 5]], 0, 0, 24)); for (let i = 0; i < 5; i++) K.add(m.slot, bx(2, 3, 16, Math.cos(i * 1.26 - 1.6) * 10, Math.sin(i * 1.26 - 1.6) * 10, 746));
-    K.add(m.alu, guardRing(28, 112, -40, -64, 10)); curvedTrigger(K, m, 70, -40, 18, 6); const g = pgrip(30, -40, 32, 98, 0.44, 'ergo'); K.add(m.poly, slab(g.pts, 27, { bev: 8 }));
+    K.add(m.alu, guardRing(48, 112, -40, -64, 10)); curvedTrigger(K, m, 70, -40, 18, 6); const g = pgrip(54, -40, 32, 98, 0.44, 'ergo'); K.add(m.poly, slab(g.pts, 27, { bev: 8 }));
     K.add(m.oxide, lathe([[-200, 14.5], [-20, 14.5]], -8, 0, 24)); K.add(m.poly, slab([[-110, 11], [-250, 12], [-258, 14, 3], [-260, -100, 3], [-250, -104, 4], [-232, -94], [-140, -30, 10], [-110, -26, 3]], 40, { bev: 7 })); K.add(m.rubber, slab([[-258, 16], [-268, 16, 3], [-270, -102, 3], [-258, -106, 3]], 42, { bev: 3 }));
     magazine(K, m.park, q2([176, -42], [178, -100], [180, -152]), q2([118, -42], [118, -100], [120, -156]), 26);
     scope(K, m, 80, 60, 300, 15, 23, 20, [30, 130], 29); bipodFolded(K, m, 400, 590, -42);
-    return { grip: g, trig: [70, -40], guard: [28, 112, -40, -64], recv: [116, 2, 30, 24, 232], blocks: [[200, -26, 38, 30, 470]], fore: [380, 0, 52, 46, 14], muzzle: 764, sight: [-80, 60], rack: [250, 0, -28], eject: [100, 4, -16], magWell: [148, -44], scoped: true };
+    return { grip: g, trig: [70, -40], guard: [48, 112, -40, -64], recv: [116, 2, 30, 24, 232], blocks: [[200, -26, 38, 30, 470]], fore: [300, 2, 60, 52, 10], muzzle: 764, sight: [-80, 60], rack: [250, 0, -28], eject: [100, 4, -16], magWell: [148, -44], scoped: true };
   },
   // L1A1 — 7.62×51 mm self-loading rifle: tall two-part receiver, folding cocking handle on the left, black synthetic
   // stock / grip / ventilated handguard, carrying handle, long slotted flash hider, 20-round magazine
@@ -234,7 +234,7 @@ const DRAW = {
     K.add(m.park, guardRing(40, 106, -40, -60, 9)); curvedTrigger(K, m, 74, -38, 18, 6); const g = pgrip(36, -40, 32, 96, 0.36, 'ak'); K.add(m.poly, slab(g.pts, 28, { bev: 8 }));
     K.add(m.steel, slab([[22, -26], [36, -22], [37, -26, 2], [24, -30, 2]], 2.4, { cx: 14.6, bev: 0.6 })); pin(K, m, 8, -22, 28, 2.4);
     magazine(K, m.park, q2([174, -42], [176, -110], [184, -160]), q2([114, -42], [112, -110], [118, -166]), 26);
-    return { grip: g, trig: [74, -38], guard: [40, 106, -40, -60], recv: [125, 2, 30, 34, 250], blocks: [[86, -28, 28, 30, 180]], fore: [370, -10, 44, 40, 14], muzzle: 838, sight: [15, 30], rack: [160, 10, 20], eject: [130, 4, -16], magWell: [144, -54], scoped: false };
+    return { grip: g, trig: [74, -38], guard: [40, 106, -40, -60], recv: [125, 2, 30, 34, 250], blocks: [[86, -28, 28, 30, 180]], fore: [340, -10, 44, 40, 14], muzzle: 838, sight: [15, 30], rack: [160, 10, 20], eject: [130, 4, -16], magWell: [144, -54], scoped: false };
   },
   // G3A3 — 7.62×51 mm: stamped receiver with the cocking tube running over the barrel, cocking handle up front on the
   // left, rotary-drum rear sight, slim ventilated handguard, slim fixed stock, polymer trigger pack, 20-round magazine
@@ -248,17 +248,17 @@ const DRAW = {
     K.add(m.oxide, lathe([[270, 14], [282, 11], [720, 8.8]], 0, 0, 20)); K.add(m.oxide, slab([[512, 36], [534, 36], [532, 58, 3], [514, 58, 3]], 18, { bev: 2, holes: [[[518, 44], [528, 44], [528, 54], [518, 54]]] }), bx(2, 12, 2, 0, 50, 523));
     K.add(m.oxide, lathe([[720, 11], [770, 11], [772, 9], [772, 6], [756, 6]], 0, 0, 24)); for (let i = 0; i < 4; i++) K.add(m.slot, bx(2.4, 3, 30, Math.cos(i * 1.57) * 10.6, Math.sin(i * 1.57) * 10.6, 750));
     K.add(m.poly, slab([[-4, -12], [100, -12], [104, -30, 4], [100, -66, 6], [80, -68, 6], [44, -40], [20, -38], [-4, -30, 6]], 30, { bev: 3, holes: [[[52, -38], [96, -38], [94, -60, 4], [80, -62, 4], [56, -44, 3]]] })); // trigger pack + guard
-    curvedTrigger(K, m, 70, -36, 18, 6); const g = pgrip(44, -38, 32, 96, 0.4, 'ergo'); K.add(m.poly, slab(g.pts, 28, { bev: 8 }));
+    curvedTrigger(K, m, 58, -36, 18, 6); const g = pgrip(44, -38, 32, 96, 0.4, 'ergo'); K.add(m.poly, slab(g.pts, 28, { bev: 8 }));
     K.add(m.poly, slab([[-4, 12], [-14, 12], [-300, 4, 4], [-310, 2], [-312, -104, 3], [-300, -110, 4], [-170, -64, 30], [-40, -30, 16], [-4, -24]], 40, { bev: 9 })); K.add(m.rubber, slab([[-308, 4], [-320, 3, 2], [-322, -106, 2], [-308, -111]], 44, { bev: 2.4 }));
     K.add(m.steel, slab([[22, -26], [34, -22], [36, -27, 2], [24, -31, 2]], 2.4, { cx: 15.6, bev: 0.6 })); pin(K, m, 10, -22, 30, 2.4); pin(K, m, 92, -22, 30, 2.4);
     magazine(K, m.alu, q2([174, -46], [176, -110], [184, -164]), q2([112, -46], [112, -110], [116, -170]), 26);
-    return { grip: g, trig: [70, -36], guard: [52, 98, -38, -64], recv: [135, 2, 32, 30, 270], blocks: [[50, -40, 30, 50, 100]], fore: [390, -8, 44, 40, 14], muzzle: 772, sight: [18, 42], rack: [415, 30, 20], eject: [140, 4, -17], magWell: [144, -54], scoped: false };
+    return { grip: g, trig: [58, -36], guard: [52, 98, -38, -64], recv: [135, 2, 32, 30, 270], fore: [350, -8, 44, 40, 14], muzzle: 772, sight: [18, 42], rack: [415, 30, 20], eject: [140, 4, -17], magWell: [144, -54], scoped: false };
   },
   // SVD — 7.62×54R mm: the long AK-type receiver, skeletonised wooden thumbhole stock with cheek rest, ventilated
   // wooden handguard, long barrel with slotted flash hider, side-mounted 4× scope with sunshade, 10-round ribbed magazine
-  semi: (K, m) => { akReceiver(K, m, { L: 300, noGrip: true, ribs: 0 });
-    K.add(m.woodBirch, slab([[0, 4], [-20, 4], [-90, 14, 6], [-240, 14, 6], [-300, 4, 6], [-330, 2], [-334, -116, 3], [-322, -124, 3], [-270, -110], [-150, -70, 20], [-46, -100, 10], [-26, -96, 6], [-6, -40], [0, -34]], 40, { bev: 9,
-      holes: [[[-30, -18], [-150, -18, 12], [-150, -54, 10], [-60, -78, 10], [-36, -70, 6]], [[-190, -10], [-280, -12, 10], [-286, -60, 12], [-200, -66, 12]]] }));
+  semi: (K, m) => { const g = akReceiver(K, m, { L: 300, grip: m.woodBirch, ribs: 0 });
+    K.add(m.woodBirch, slab([[0, 4], [-20, 4], [-90, 14, 6], [-240, 14, 6], [-300, 4, 6], [-330, 2], [-334, -116, 3], [-322, -124, 3], [-270, -112], [-150, -104, 20], [-30, -122, 10], [-2, -118, 4], [6, -96], [0, -34]], 40, { bev: 9,
+      holes: [[[-26, -14], [-150, -18, 12], [-150, -76, 10], [-40, -100, 10], [-10, -66, 6]], [[-190, -10], [-280, -12, 10], [-286, -60, 12], [-200, -70, 12]]] }));
     K.add(m.rubber, slab([[-330, 4], [-340, 4, 2], [-344, -118, 2], [-330, -126]], 42, { bev: 2 }));
     K.add(m.woodBirch, slab([[-100, 14], [-220, 14], [-220, 30, 6], [-100, 30, 6]], 30, { bev: 7 })); // cheek rest
     K.add(m.woodBirch, tube([{ z: 316, y: 4, hw: 22, hd: 22, n: 2.4 }, { z: 330, y: 4, hw: 24, hd: 24, n: 2.4 }, { z: 520, y: 4, hw: 23, hd: 22, n: 2.4 }, { z: 532, y: 4, hw: 20, hd: 19, n: 2.4 }], { vertical: true, seg: 28 }));
@@ -268,8 +268,7 @@ const DRAW = {
     K.add(m.oxide, lathe([[920, 10.5], [1000, 10.5], [1002, 8], [1002, 5], [986, 5]], 0, 0, 24)); for (let i = 0; i < 5; i++) K.add(m.slot, bx(2.2, 3, 50, Math.cos(i * 1.26) * 10.2, Math.sin(i * 1.26) * 10.2, 966));
     K.add(m.oxide, slab([[40, -6], [200, -6], [200, 34], [40, 34]], 8, { cx: 17, bev: 1.2 })); scope(K, m, 110, 66, 375, 13, 19, 18, [60, 170], 34, { x: 10, shade: 40, side: true });
     magazine(K, m.blued, q2([176, -30], [178, -100], [186, -150]), q2([118, -30], [116, -100], [122, -156]), 26);
-    const g = { front: [[-6, -40], [-26, -96]], back: [[-34, -18], [-50, -78]] };
-    return { grip: g, trig: [76, -32], guard: [48, 128, -36, -58], recv: [150, -14, 30, 40, 300], fore: [430, 4, 46, 44, 18], muzzle: 1002, sight: [-60, 66], rack: [200, 0, -26], eject: [180, 0, -18], magWell: [148, -30], scoped: true };
+    return { grip: g, trig: [76, -32], guard: [48, 128, -36, -58], recv: [150, -14, 30, 40, 300], fore: [360, 4, 46, 44, 18], muzzle: 1002, sight: [-60, 66], rack: [200, 0, -26], eject: [180, 0, -18], magWell: [148, -30], scoped: true };
   },
 };
 
@@ -288,11 +287,11 @@ const DRAW2 = {
     K.add(m.polyOD, slab([[230, -12], [600, -10], [606, -14, 4], [606, -40, 8], [560, -46], [230, -50], [200, -54], [110, -54], [100, -48], [40, -46], [8, -58, 10], [-14, -110, 10], [-40, -112, 8], [-50, -96], [-58, -54, 20], [-140, -86, 20], [-290, -116, 4], [-298, -112], [-300, -6, 3], [-290, 0, 4], [-60, 4, 10], [0, -12]], 50, { bev: 11 }));
     K.add(m.rubber, slab([[-298, -4], [-312, -4, 3], [-314, -114, 3], [-298, -118, 3]], 50, { bev: 3 })); K.add(m.oxide, slab([[-286, -8], [-296, -8], [-296, -112], [-286, -112]], 44, { bev: 1.5 }));
     K.add(m.oxide, lathe([[220, 15], [232, 14], [240, 13], [600, 12], [820, 10.5], [826, 10], [826, 4], [814, 4]], 0, 0, 24));
-    K.add(m.oxide, guardRing(20, 108, -52, -76, 10)); curvedTrigger(K, m, 66, -50, 18, 6); K.add(m.steel, slab([[110, -50], [210, -50], [210, -56, 2], [110, -56, 2]], 30, { bev: 1.5 }));
+    K.add(m.oxide, guardRing(0, 90, -52, -76, 10)); curvedTrigger(K, m, 40, -50, 18, 6); K.add(m.steel, slab([[110, -50], [210, -50], [210, -56, 2], [110, -56, 2]], 30, { bev: 1.5 }));
     K.add(m.oxide, slab([[-10, 14], [222, 14], [222, 22], [-10, 22]], 20, { bev: 1.5 })); scope(K, m, 100, 58, 320, 15, 25, 21, [40, 170], 22);
     K.add(m.steel, cyl(5, 18, 0, -48, 550, 'z', 12), lathe([[540, 2], [560, 2]], -50, 0, 8));
     const g = { front: [[8, -58], [-14, -110]], back: [[-36, -10], [-56, -96]] };
-    return { grip: g, trig: [66, -50], guard: [20, 108, -52, -76], recv: [110, 1, 34, 34, 220], blocks: [[200, -32, 50, 36, 400]], fore: [380, -30, 50, 36, 16], muzzle: 826, sight: [-60, 58], rack: [30, 1, -46], eject: [120, 4, -18], magWell: [160, -54], scoped: true, boltY: 1 };
+    return { grip: g, gripW: 50, trig: [40, -50], guard: [0, 90, -52, -76], recv: [110, 1, 34, 34, 220], blocks: [[200, -32, 50, 36, 400]], fore: [340, -30, 50, 36, 16], muzzle: 826, sight: [-60, 58], rack: [30, 1, -46], eject: [120, 4, -18], magWell: [160, -54], scoped: true, boltY: 1 };
   },
   // M40A5 — 7.62×51 mm: woodland-green fibreglass stock with an adjustable cheek piece and spacer butt, detachable box
   // magazine, threaded muzzle with suppressor mount, scope on a one-piece rail
@@ -301,11 +300,11 @@ const DRAW2 = {
     K.add(m.polyGreen, slab([[-80, 4], [-250, 2], [-254, 22, 4], [-84, 22, 4]], 34, { bev: 7 })); for (const z of [-120, -210]) K.add(m.steel, cyl(3, 10, 0, 12, z, 'y', 10));
     K.add(m.rubber, slab([[-290, -8], [-304, -8, 3], [-306, -108, 3], [-290, -112, 3]], 50, { bev: 3 })); K.add(m.steel, slab([[-282, -10], [-290, -10], [-290, -108], [-282, -108]], 44, { bev: 1 }));
     K.add(m.oxide, lathe([[220, 15], [232, 14], [240, 13], [620, 12], [846, 10.5], [848, 12.5], [880, 12.5], [882, 10], [882, 4], [870, 4]], 0, 0, 24)); for (let i = 0; i < 3; i++) for (const s of [1, -1]) K.add(m.slot, cyl(3, 1, s * 12.3, 0, 856 + i * 9, 'x', 10));
-    K.add(m.oxide, guardRing(20, 108, -52, -76, 10)); curvedTrigger(K, m, 66, -50, 18, 6);
+    K.add(m.oxide, guardRing(0, 90, -52, -76, 10)); curvedTrigger(K, m, 40, -50, 18, 6);
     magazine(K, m.oxide, q2([170, -40], [170, -70], [171, -96]), q2([112, -40], [112, -70], [113, -96]), 24, { ribs: false });
     K.add(m.alu, ...rail(-10, 226, 15, 21)); scope(K, m, 100, 60, 340, 15, 27, 21, [40, 180], 22, { shade: 30 });
     const g = { front: [[10, -58], [-10, -106]], back: [[-36, -10], [-54, -94]] };
-    return { grip: g, trig: [66, -50], guard: [20, 108, -52, -76], recv: [110, 1, 34, 34, 220], blocks: [[200, -32, 50, 36, 400]], fore: [380, -30, 50, 36, 16], muzzle: 882, sight: [-70, 60], rack: [30, 1, -46], eject: [120, 4, -18], magWell: [141, -96], scoped: true, boltY: 1 };
+    return { grip: g, gripW: 50, trig: [40, -50], guard: [0, 90, -52, -76], recv: [110, 1, 34, 34, 220], blocks: [[200, -32, 50, 36, 400]], fore: [350, -30, 50, 36, 16], muzzle: 882, sight: [-70, 60], rack: [30, 1, -46], eject: [120, 4, -18], magWell: [141, -96], scoped: true, boltY: 1 };
   },
   // M91/30 sniper — 7.62×54R mm: long shellac-finished wooden stock with two barrel bands, hexagonal receiver ring,
   // turned-down bolt handle, straight wrist, steel buttplate, short PU scope on its side mount, hooded front sight
@@ -315,10 +314,10 @@ const DRAW2 = {
     K.add(m.steel, slab([[-338, -22], [-348, -23, 2], [-350, -132, 2], [-338, -136]], 44, { bev: 2 }));
     for (const z of [380, 610]) K.add(m.steel, slab([[z, -8], [z + 14, -8], [z + 14, -30, 3], [z, -30, 3]], 44, { bev: 2 }), lathe([[z, 10.5], [z + 14, 10.5]], 0, 0, 20));
     K.add(m.blued, lathe([[214, 13], [230, 12], [700, 9], [760, 8.5]], 0, 0, 20)); K.add(m.blued, lathe([[734, 10], [752, 10]], 0, 0, 20), slab([[736, 6], [750, 6], [750, 26, 1], [736, 26, 1]], 6, { bev: 1 })); K.add(m.blued, lathe([[732, 12], [754, 12], [754, 11], [732, 11]], 18, 0, 20));
-    K.add(m.blued, guardRing(14, 96, -38, -62, 9)); curvedTrigger(K, m, 60, -36, 16, 6);
+    K.add(m.blued, guardRing(-8, 70, -38, -62, 9)); curvedTrigger(K, m, 18, -36, 16, 6);
     K.add(m.blued, slab([[30, -10], [150, -10], [150, 38], [30, 38]], 6, { cx: 22, bev: 1 })); scope(K, m, 90, 52, 170, 11, 13, 14, [50, 130], 34, { x: 0 });
-    const g = { front: [[0, -40], [-36, -82]], back: [[-40, -14], [-80, -60]] };
-    return { grip: g, trig: [60, -36], guard: [14, 96, -38, -62], recv: [90, 1, 34, 34, 214], blocks: [[300, -22, 42, 28, 600]], fore: [330, -20, 42, 30, 14], muzzle: 760, sight: [-10, 52], rack: [30, -10, -46], eject: [100, 4, -18], magWell: [130, -40], scoped: true, boltY: 1 };
+    const g = { front: [[2, -42], [-22, -88]], back: [[-34, -16], [-58, -66]] };
+    return { grip: g, gripW: 42, trig: [18, -36], guard: [-8, 70, -38, -62], recv: [90, 1, 34, 34, 214], blocks: [[330, -22, 42, 28, 540]], fore: [330, -20, 42, 30, 14], muzzle: 760, sight: [-10, 52], rack: [30, -10, -46], eject: [100, 4, -18], magWell: [130, -40], scoped: true, boltY: 1 };
   },
   // M2010 — .300 Win Mag: coyote chassis with a free-float forend, folding stock with adjustable comb and length of pull,
   // AR-type grip, long suppressor, large scope, folded bipod
@@ -343,11 +342,11 @@ const DRAW2 = {
     K.add(m.polyGreen, slab([[-90, 6], [-260, 4], [-264, 24, 4], [-94, 24, 4]], 34, { bev: 7 })); K.add(m.rubber, slab([[-310, -6], [-324, -6, 3], [-326, -108, 3], [-310, -112, 3]], 50, { bev: 3 }));
     K.add(m.oxide, lathe([[230, 15], [242, 14], [560, 13]], 0, 0, 24), lathe([[560, 13], [900, 11]], 0, 0, 48)); K.add(m.oxide, flutedZ(0.0112, 0.6, 0.88, 0, 6, 0.0018, 0.03));
     K.add(m.oxide, slab([[900, -14], [960, -14], [960, 14], [900, 14]], 36, { bev: 4 })); for (let i = 0; i < 3; i++) for (const s of [1, -1]) K.add(m.slot, slab([[910 + i * 16, -10], [920 + i * 16, -10], [920 + i * 16, 10], [910 + i * 16, 10]], 0.6, { cx: s * 18.1, bev: 0.15 }));
-    K.add(m.polyGreen, guardRing(28, 110, -52, -76, 10)); curvedTrigger(K, m, 70, -50, 18, 6);
+    K.add(m.polyGreen, guardRing(6, 96, -52, -76, 10)); curvedTrigger(K, m, 44, -50, 18, 6);
     magazine(K, m.oxide, q2([176, -44], [176, -80], [177, -108]), q2([112, -44], [112, -80], [113, -108]), 28, { ribs: false });
     K.add(m.oxide, ...rail(-10, 236, 15, 21)); scope(K, m, 100, 66, 400, 17, 30, 22, [30, 180], 22, { shade: 50, side: true }); bipodFolded(K, m, 460, 660, -46);
     const g = { front: [[10, -60], [-10, -110]], back: [[-30, -18], [-46, -96]] };
-    return { grip: g, trig: [70, -50], guard: [28, 110, -52, -76], recv: [115, 1, 34, 34, 230], blocks: [[300, -30, 50, 36, 520]], fore: [400, -30, 50, 36, 16], muzzle: 960, sight: [-100, 66], rack: [30, 1, -46], eject: [120, 4, -18], magWell: [144, -108], scoped: true, boltY: 1 };
+    return { grip: g, gripW: 50, trig: [44, -50], guard: [6, 96, -52, -76], recv: [115, 1, 34, 34, 230], blocks: [[300, -30, 50, 36, 520]], fore: [350, -30, 50, 36, 16], muzzle: 960, sight: [-100, 66], rack: [30, 1, -46], eject: [120, 4, -18], magWell: [144, -108], scoped: true, boltY: 1 };
   },
   // M107 — .50 BMG semi-automatic anti-materiel rifle: big stamped upper and lower receivers, fluted barrel recoiling in
   // the upper, double-chamber arrowhead muzzle brake, carry handle, monopod butt, scope rail, 10-round box, bipod
@@ -361,12 +360,12 @@ const DRAW2 = {
     K.add(m.oxide, lathe([[-200, 8], [-120, 8]], -64, 0, 14), slab([[-206, -64], [-194, -64], [-194, -110, 3], [-206, -110, 3]], 16, { bev: 2 })); // monopod
     K.add(m.oxide, lathe([[580, 18], [620, 17]], 0, 0, 40), flutedZ(0.0166, 0.62, 1.2, 0, 8, 0.0022, 0.04));
     K.add(m.park, slab([[1200, -26], [1220, -34], [1260, -34], [1290, -18], [1300, 0], [1290, 18], [1260, 34], [1220, 34], [1200, 26]].map(([z, y]) => [z, y]), 26, { bev: 4, holes: [[[1214, -24], [1236, -24], [1236, 24], [1214, 24]], [[1248, -24], [1270, -20], [1270, 20], [1248, 24]]] }));
-    K.add(m.park, guardRing(40, 120, -54, -84, 12)); curvedTrigger(K, m, 82, -54, 20, 7); const g = pgrip(40, -56, 36, 104, 0.4, 'ergo'); K.add(m.poly, slab(g.pts, 30, { bev: 8 }));
+    K.add(m.park, guardRing(60, 124, -54, -84, 12)); curvedTrigger(K, m, 80, -50, 18, 7); const g = pgrip(68, -58, 32, 100, 0.44, 'ergo'); K.add(m.poly, slab(g.pts, 30, { bev: 8 }));
     K.to('bolt', m.steel, slab([[120, 6], [150, 6], [150, 20], [120, 20]], 6, { cx: -24, bev: 1.4 }));
     magazine(K, m.park, q2([178, -60], [178, -110], [180, -150]), q2([102, -60], [102, -110], [104, -154]), 42, { ribs: false });
     scope(K, m, 140, 80, 380, 17, 29, 22, [70, 220], 37, { shade: 40, side: true });
     K.add(m.oxide, slab([[540, -18], [580, -18], [580, -40, 4], [540, -40, 4]], 50, { bev: 4 })); for (const s of [1, -1]) { K.add(m.oxide, lathe([[580, 6], [800, 6], [802, 5], [860, 5]], -36, s * 18, 14)); K.add(m.rubber, lathe([[860, 8], [880, 8]], -36, s * 18, 14)); }
-    const g2 = g; return { grip: g2, trig: [82, -54], guard: [40, 120, -54, -84], recv: [270, 4, 44, 52, 620], blocks: [[0, -40, 40, 30, 300]], fore: [500, -10, 44, 52, 16], muzzle: 1300, sight: [-50, 80], rack: [135, 13, -27], eject: [180, 10, -24], magWell: [140, -76], scoped: true };
+    const g2 = g; return { grip: g2, trig: [80, -50], guard: [60, 124, -56, -84], recv: [270, 4, 44, 52, 620], fore: [360, -10, 44, 52, 16], muzzle: 1300, sight: [-50, 80], rack: [135, 13, -27], eject: [180, 10, -24], magWell: [140, -76], scoped: true };
   },
 };
 for (const k of Object.keys(DRAW2)) DRAW[k] = DRAW2[k];
@@ -374,13 +373,14 @@ export const RIFLE_MODELS = Object.keys(DRAW);
 
 export function buildRifle(def) {
   const m = weaponMaterials(); const K = new Kit(); const id = def.model || def.id; const R = DRAW[id](K, m);
-  const gb = gripBox(R.grip.front, R.grip.back, 28); const off = new THREE.Vector3(G1.x, G1.y - gb.c[1] * MM, G1.z - gb.c[0] * MM);
+  const gb = gripBox(R.grip.front, R.grip.back, R.gripW || 28); /* stock-wrist rifles: the hand closes round the full width of the wood */ const off = new THREE.Vector3(G1.x, G1.y - gb.c[1] * MM, G1.z - gb.c[0] * MM);
   const parts = K.build(off); const g = parts.body; const mag = parts.mag || new THREE.Group(); const bolt = parts.bolt || new THREE.Group(); g.add(mag); g.add(bolt);
   const T = (z, y, x = 0) => new THREE.Vector3(x * MM + off.x, y * MM + off.y, z * MM + off.z);
   if (R.boltY != null) { const py = R.boltY * MM + off.y; for (const c of bolt.children) c.geometry.translate(0, -py, 0); bolt.position.y = py; } // turn-bolt: rotates about the bore
   const [rz, ry, rw, rh, rd] = R.recv; const blocks = [[rz, ry, rw, rh, rd], ...(R.blocks || [])];
   const spec = { grip: gb, trigger: { z: R.trig[0], y: R.trig[1] }, guard: { z0: R.guard[0], z1: R.guard[1], yb: R.guard[3] + 3, yt: R.guard[2], w: 9 }, blocks, fore: R.fore, thumbR: null, thumbL: null };
-  const hold = holdFrom(spec, off); if (def.cls === 'sniper' || R.scoped) hold.thumbR = T(gb.c[0] - 30, gb.c[1] + 46, -16); // marksman: thumb laid along the right of the stock
+  const hold = holdFrom(spec, off);
+  if (R.gripW) { hold.thumbR = T(R.trig[0] - 34, R.trig[1] + 4, -(R.gripW / 2 + 9)); } // stock-wrist rifles: the firing thumb lies along the right side of the wrist (marksman's grip), not wrapped through the wood
   const fz = R.fore[0], fy = R.fore[1] - R.fore[3] / 2;
   g.userData = { muzzle: T(R.muzzle + 2, 0), support: T(fz, fy - 6), magWell: T(R.magWell[0], R.magWell[1]), rack: T(R.rack[0], R.rack[1], R.rack[2]), mag, slide: bolt, bolt: def.cls === 'sniper' ? bolt : undefined, eject: T(R.eject[0], R.eject[1], R.eject[2]), stockZ: 0, sight: T(R.sight[0], R.sight[1]), hold, model: id };
   g.updateMatrixWorld(true); g.userData.stockZ = new THREE.Box3().setFromObject(g).min.z;

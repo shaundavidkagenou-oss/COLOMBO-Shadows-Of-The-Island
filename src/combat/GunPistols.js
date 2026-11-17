@@ -55,7 +55,7 @@ const DRAW = {
   }),
   // M17 — 9×19 mm striker-fired modular pistol: coyote polymer frame with an accessory rail and textured grip, squared
   // black nitride slide with front and rear cocking serrations, ambidextrous thumb safety, squared trigger guard
-  m17: (m) => ({ L: 203, slideTop: 15, slideBot: -12, slideW: 25.5, frameW: 25, gripW: 31,
+  m17: (m) => ({ seatDy: -4, thumbK: 0, L: 203, slideTop: 15, slideBot: -12, slideW: 25.5, frameW: 25, gripW: 31,
     slide: [[-1, -12], [199, -12, 1], [203, -8, 2], [203, 10, 4], [196, 15, 3], [4, 15, 2], [-1, 11, 2]], slideMat: m.oxide, taper: [-12, 15, 0.9],
     serr: [6, 32, 9, -10, 12], serrF: [160, 186, 8, -10, 12], sight: { rz: 9, rh: 4.8, fz: 192, fy: 15, fh: 5, dots: true },
     barrel: [[150, 6.2], [203.5, 6.2], [203.5, 4.6], [195, 4.6]], port: [56, 98, 13],
@@ -132,7 +132,7 @@ const DRAW = {
   // M1911A1 — .45 ACP single-action: parkerized finish, flat-topped slide with fine rear grooves and the round barrel
   // bushing, wide spur hammer over a short grip safety, thumb safety + slide stop on the left, arched mainspring housing,
   // short trigger, brown chequered panels with two screws each
-  heavy: (m) => ({ L: 216, slideTop: 12, slideBot: -12, slideW: 23.5, frameW: 22, gripW: 33,
+  heavy: (m) => ({ seatDy: -10, thumbK: 0.5, thumbDz: -10, L: 216, slideTop: 12, slideBot: -12, slideW: 23.5, frameW: 22, gripW: 33,
     slide: [[2, -12], [209, -12, 1], [210, -9], [210, 9], [206, 12, 2], [5, 12, 1.5], [1, 9, 1.5]], slideMat: m.park, taper: [-12, 12, 0.9],
     serr: [7, 30, 14, -10, 10], sight: { rz: 10, rh: 3.8, fz: 199, fy: 12, fh: 4.2 },
     barrel: [[205, 9.2], [214, 9.2], [215, 8.6], [215, 5.8], [208, 5.8]], port: [64, 112],
@@ -149,7 +149,7 @@ const DRAW = {
   }),
   // Mk 23 Mod 0 — .45 ACP special-operations pistol: large polymer frame with a long dust cover and accessory grooves,
   // big squared trigger guard, rounded heavy slide, threaded barrel protruding for a suppressor, decocker behind the safety
-  mk23: (m) => ({ L: 245, slideTop: 16, slideBot: -13, slideW: 27, frameW: 26, gripW: 36,
+  mk23: (m) => ({ seatDy: -11, thumbK: 0, trigShift: 5, L: 245, slideTop: 16, slideBot: -13, slideW: 27, frameW: 26, gripW: 36,
     slide: [[-1, -13], [229, -13, 1], [234, -9, 3], [234, 10, 5], [226, 16, 4], [6, 16, 3], [-1, 11, 3]], slideMat: m.oxide, taper: [-13, 16, 0.84],
     serr: [8, 38, 10, -11, 12], sight: { rz: 11, rh: 5, fz: 223, fy: 16, fh: 5, dots: true },
     barrel: [[220, 8], [234, 8], [236, 7.4], [248, 7.4], [249, 6.8], [249, 5], [238, 5]], port: [64, 108, 14],
@@ -165,7 +165,7 @@ const DRAW = {
   }),
   // M45A1 — .45 ACP close-quarters 1911: coyote cerakote, rail on the dust cover, front + rear angled serrations, high
   // beavertail grip safety with memory bump, ring hammer, ambidextrous safety, tan textured panels, night sights
-  m45a1: (m) => ({ L: 218, slideTop: 12, slideBot: -12, slideW: 23.5, frameW: 22, gripW: 33,
+  m45a1: (m) => ({ seatDy: -8, thumbK: 0, L: 218, slideTop: 12, slideBot: -12, slideW: 23.5, frameW: 22, gripW: 33,
     slide: [[2, -12], [211, -12, 1], [212, -9], [212, 8], [207, 12, 2], [5, 12, 1.5], [1, 9, 1.5]], slideMat: m.coat, taper: [-12, 12, 0.88],
     serr: [7, 32, 9, -10, 10, 0.6, 3], serrF: [158, 190, 8, -10, 10], sight: { rz: 11, rh: 4.6, fz: 200, fy: 12, fh: 4.8, dots: true },
     barrel: [[207, 9.2], [216, 9.2], [216, 5.8], [210, 5.8]], port: [64, 112],
@@ -200,7 +200,7 @@ export function buildPistol(def) {
   else for (const s of [1, -1]) K.add(D.panelMat, slab(D.panel, (pw - D.frameW) / 2 + 1, { cx: s * (D.frameW / 2 + (pw - D.frameW) / 4 - 0.5), bev: 1.1 }));
   for (const [z, y] of D.screws || []) for (const s of [1, -1]) screw(K, m, z, y, s * (pw / 2 + 0.3));
   if (D.medallion) for (const s of [1, -1]) K.add(D.panelMat, disc(D.medallion[0], D.medallion[1], D.medallion[2], 0.8, s * (pw / 2 + 0.25)));
-  (D.trigFlat ? flatTrigger : curvedTrigger)(K, m, D.trig[0] + 2, D.trig[1], D.trigLen, 6);
+  (D.trigFlat ? flatTrigger : curvedTrigger)(K, m, D.trig[0] + 2 - (D.trigShift || 0), D.trig[1], D.trigLen, 6);
   if (D.hammer) D.hammer(K);
   D.parts(K, D);
   // magazine: baseplate (always visible under the grip) + body (inside the grip, seen when it drops out)
@@ -211,11 +211,11 @@ export function buildPistol(def) {
   const T = (z, y, x = 0) => new THREE.Vector3(x * MM + off.x, y * MM + off.y, z * MM + off.z);
   const muzZ = D.barrel.reduce((a, p) => Math.max(a, p[0]), 0);
   const gy = Math.min(...D.guardHole.map((p) => p[1]));
-  const spec = { grip: gb, trigger: { z: D.trig[0], y: D.trig[1] }, guard: { z0: D.guardHole[0][0], z1: Math.max(...D.guardHole.map((p) => p[0])) + 3, yb: gy - 3, yt: D.trig[1], w: 8 },
+  const spec = { grip: gb, trigger: { z: D.trig[0] - (D.trigShift || 0), y: D.trig[1] }, guard: { z0: D.guardHole[0][0], z1: Math.max(...D.guardHole.map((p) => p[0])) + 3, yb: gy - 3, yt: D.trig[1], w: 8 },
     blocks: [[(D.frame[0][0] + D.frame[1][0]) / 2, D.slideBot - 6, D.frameW, 12, D.frame[1][0] - D.frame[0][0]], [D.L / 2, (D.slideTop + D.slideBot) / 2, D.slideW, D.slideTop - D.slideBot, D.L]],
-    thumbR: [gb.c[0], gb.c[1] + 57, D.gripW / 2 + 3], thumbL: [gb.c[0] + 104, gb.c[1] + 38, D.gripW / 2 + 11], wrap: 0.55 };
+    thumbR: [gb.c[0] + (D.thumbDz || 0), gb.c[1] + 57 + (D.seatDy || 0) * (D.thumbK ?? 1), D.gripW / 2 + 3 + (D.thumbDx || 0)], thumbL: [gb.c[0] + 104, gb.c[1] + 38, D.gripW / 2 + 11], wrap: 0.55 };
   const mb = [(D.mag.base[0][0] + D.mag.base[1][0]) / 2, D.mag.base[0][1]];
   g.userData = { muzzle: T(muzZ + 1, 0), support: new THREE.Vector3(0.024, -0.03, 0.004), magWell: T(mb[0], mb[1] + 8), rack: T(16, D.slideTop + 2), mag, slide, eject: T((D.port || [60, 90])[0] + 16, 6, -D.slideW / 2 - 2), stockZ: 0,
-    sight: T(D.sight.rz + 2, D.slideTop + D.sight.rh - 0.6), hold: holdFrom(spec, off), model: def.model || def.id };
+    sight: T(D.sight.rz + 2, D.slideTop + D.sight.rh - 0.6), hold: Object.assign(holdFrom(spec, off), { seatDy: (D.seatDy || 0) * MM }), model: def.model || def.id };
   return g;
 }

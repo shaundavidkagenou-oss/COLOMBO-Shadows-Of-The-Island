@@ -37,7 +37,7 @@ export class GunShopUI {
     else { P.control = this.prevControl ?? true; Audio.ui('click'); Input.mousePressed.clear(); Input.mouseButtons.clear(); Input.wheel = 0; g.ignoreUnlock = true; Input.requestLock(g.canvas); setTimeout(() => (g.ignoreUnlock = false), 300); } /* the click that closed the shop must not become a punch/shot */
   }
   update() {
-    if (!this.open) return; const k = (c) => Input.keyPressed(c); const n = this.list.length;
+    if (!this.open) return; if (this.pvQueue && this.pvQueue.length) this.previewStep(); const k = (c) => Input.keyPressed(c); const n = this.list.length;
     if (k('Escape') || k('Backspace')) { this.toggle(false); return; }
     if (k('ArrowLeft') || k('KeyA')) { this.cat = (this.cat + CATEGORIES.length - 1) % CATEGORIES.length; this.row = 0; Audio.ui('click'); this.render(); }
     if (k('ArrowRight') || k('KeyD')) { this.cat = (this.cat + 1) % CATEGORIES.length; this.row = 0; Audio.ui('click'); this.render(); }
@@ -63,19 +63,28 @@ export class GunShopUI {
       sc.add(new THREE.HemisphereLight(0xfff4e6, 0x3a3430, 1.6)); const key = new THREE.DirectionalLight(0xffffff, 2.6); key.position.set(2, 3, 4); sc.add(key); const rim = new THREE.DirectionalLight(0xc8dcff, 1.4); rim.position.set(-3, 1, -2); sc.add(rim);
       const cam = new THREE.PerspectiveCamera(24, W / H, 0.05, 20); cam._reversedDepth = !!R.state?.buffers?.depth?.getReversed?.(); cam.updateProjectionMatrix(); /* the game renders reversed-Z: without this every preview clipped to nothing */ const px = new Uint8Array(W * H * 4);
       const cv = document.createElement('canvas'); cv.width = W; cv.height = H; const a = cv.getContext('2d'); const img = a.createImageData(W, H);
-      const prevRT = R.getRenderTarget(), prevTM = R.toneMapping, prevCol = new THREE.Color(); R.getClearColor(prevCol); const prevA = R.getClearAlpha();
+      // 27 guns: rendered a few per frame while the counter is open (the visible category first), not all at once
+      this.pvCtx = { R, W, H, rt, sc, cam, px, cv, a, img }; this.pvQueue = [...WEAPONS, GRENADE];
+    } catch (e) { console.warn('gun shop previews unavailable', e); this.previews = {}; this.pvQueue = null; }
+  }
+  previewStep() {
+    const C = this.pvCtx; if (!C) return; const { R, W, H, rt, sc, cam, px, cv, a, img } = C; const want = new Set(this.list.map((x) => x.w)); // visible rows first
+    const prevRT = R.getRenderTarget(), prevTM = R.toneMapping, prevCol = new THREE.Color(); R.getClearColor(prevCol); const prevA = R.getClearAlpha(); let done = 0;
+    try {
       R.toneMapping = THREE.NoToneMapping; R.setClearColor(0x000000, 0);
-      for (const w of [...WEAPONS, GRENADE]) {
+      for (let n = 0; n < 2 && this.pvQueue.length; n++) { let qi = this.pvQueue.findIndex((w) => want.has(w)); if (qi < 0) qi = 0; const w = this.pvQueue.splice(qi, 1)[0]; done++;
         const m = w === GRENADE ? buildGrenadeModel() : buildWeaponModel(w); if (w === GRENADE) { m.rotation.set(0.15, 0.6, -0.25); m.scale.setScalar(1); } m.rotation.y = -Math.PI / 2; sc.add(m); m.updateMatrixWorld(true);
         const box = new THREE.Box3().setFromObject(m), ctr = box.getCenter(new THREE.Vector3()), sz = box.getSize(new THREE.Vector3());
         const fit = Math.max(sz.x / (2 * Math.tan(THREE.MathUtils.degToRad(12)) * (W / H)), sz.y / (2 * Math.tan(THREE.MathUtils.degToRad(12)))) * (w === GRENADE ? 2.6 : 1.18); /* the panel crops tall images: the grenade gets extra margin */
         cam.position.set(ctr.x + fit * 0.08, ctr.y + fit * 0.12, ctr.z + fit); cam.lookAt(ctr); cam.updateMatrixWorld();
         R.setRenderTarget(rt); R.clear(); R.render(sc, cam); R.readRenderTargetPixels(rt, 0, 0, W, H, px); let any = false; for (let i = 3; i < px.length; i += 28) if (px[i] > 8) { any = true; break; } if (!any) { sc.remove(m); continue; } /* empty render: keep the vector icon */
         for (let y = 0; y < H; y++) img.data.set(px.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4); // flip rows
-        a.putImageData(img, 0, 0); this.previews[w.id] = cv.toDataURL('image/png'); sc.remove(m);
+        a.putImageData(img, 0, 0); this.previews[w.id] = cv.toDataURL('image/png'); sc.remove(m); m.traverse((q) => { if (q.isMesh) q.geometry.dispose(); });
       }
-      R.setRenderTarget(prevRT); R.toneMapping = prevTM; R.setClearColor(prevCol, prevA); rt.dispose();
-    } catch (e) { console.warn('gun shop previews unavailable', e); this.previews = {}; }
+    } catch (e) { console.warn('gun shop preview failed', e); this.pvQueue = []; }
+    R.setRenderTarget(prevRT); R.toneMapping = prevTM; R.setClearColor(prevCol, prevA);
+    if (!this.pvQueue.length) { rt.dispose(); this.pvCtx = null; }
+    if (done) this.render();
   }
   render() {
     const g = this.g; const c = this.ctx(); const list = this.list; this.row = Math.min(this.row, list.length - 1); const it = list[this.row];

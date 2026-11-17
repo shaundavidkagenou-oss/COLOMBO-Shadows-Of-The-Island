@@ -1,4 +1,4 @@
-// Nine-weapon system for the squad (each member has their own loadout, see Squad.js): inventory, wheel, draw/holster, aim (over-the-shoulder / scope), fire, recoil, reload,
+// 27-weapon system (nine types × three real weapons, see WeaponDefs.js) for the squad (each member has their own loadout, see Squad.js): inventory, wheel, draw/holster, aim (over-the-shoulder / scope), fire, recoil, reload,
 // effects, hit detection and the non-graphic reactions it triggers in the crowd. Hands are placed on each weapon by
 // two-bone IK (Animator.ik) using the grip/support points exposed by the model, so every animation keeps both hands on it.
 import { SKILL_FX } from '../story/Skills.js';
@@ -15,7 +15,7 @@ import { pocketFor, protractFor, protractLFor, elbowPole } from './Pocket.js';
 import * as L from '../world/Layout.js';
 
 // cls: pistol | rifle | sniper. rof = rounds/second; spread in radians; recoil = camera kick (rad); dmg: 1.5+ incapacitates in one hit
-import { WEAPONS } from './WeaponDefs.js';
+import { WEAPONS, WEAPON_TYPES, WEAPONS_OF_TYPE, typeOf } from './WeaponDefs.js';
 import { MOVES as FIGHT_MOVES, COMBO } from '../actors/Boxing.js';
 export { WEAPONS };
 
@@ -44,7 +44,11 @@ function aimPose(def, ud, POCKET) {
 export class Weapons {
   constructor(game) {
     this.g = game; this.P = game.player; this.inv = WEAPONS.map((d) => ({ mag: d.mag, reserve: d.reserve, owned: true }));
-    this.models = WEAPONS.map((d) => buildWeaponModel(d)); for (const m of this.models) { m.updateMatrixWorld(true); m.userData.buttZ = new THREE.Box3().setFromObject(m).min.z; } /* rear end of the stock (grip-origin space) */ this.cur = -1; this.sel = 0; this.state = 'none'; this.t = 0; this.next = -1;
+    // models are built the first time a weapon is needed (27 detailed guns would cost startup time and memory for guns the
+    // player may never own); this.models[i] builds on access, this.built lists the ones that exist
+    const built = this.built = []; const cache = [];
+    this.models = new Proxy(cache, { get: (t, k) => { if (typeof k === 'string' && /^\d+$/.test(k)) { const i = +k; if (!t[i] && WEAPONS[i]) { const m = buildWeaponModel(WEAPONS[i]); m.updateMatrixWorld(true); m.userData.buttZ = new THREE.Box3().setFromObject(m).min.z; /* rear end of the stock (grip-origin space) */ m.visible = false; t[i] = m; built.push(i); } return t[i]; } return k === 'length' ? WEAPONS.length : t[k]; } });
+    this.typePick = Object.fromEntries(WEAPON_TYPES.map((ty) => [ty.id, WEAPONS_OF_TYPE[ty.id][0]])); /* the weapon each wheel slice / number key brings up */ this.cur = -1; this.sel = 0; this.state = 'none'; this.t = 0; this.next = -1;
     this.aimW = 0; this.bloom = 0; this.cool = 0; this.recoil = 0; this.recoilYaw = 0; this.quickAim = 0; this.scoped = false; this.breath = 1; this.heat = 0; this.heatT = 0; this.shotAlarm = 0; this.threatT = 0;
     this.wheelOpen = false; this.wheelSel = -1; this.wheelX = 0; this.wheelY = 0; this.cycleT = -1; this.reloadMagOut = false;
     // spring-damper weapon dynamics (body space): position/rotation offsets driven by recoil impulses, look sway, gait bob,
@@ -59,7 +63,6 @@ export class Weapons {
       this.holsterR.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(xw, yw, b));
       this.holsterR.position.set(0.125, -0.32, -0.21); } // grip; the rifle's middle (≈0.25 m up the barrel) lands on the spine
     this.inHand = new THREE.Group(); this.inHand.matrixAutoUpdate = false; this.attach(this.P.ch);
-    for (const m of this.models) m.visible = false;
     this.fxInit(); this.hudInit(); this.showHolstered();
   }
   attach(ch) { const b = ch.bones; b.hips.add(this.holsterP); b.chest.add(this.holsterR); b.chest.add(this.inHand); if (this.P.ch !== ch) { ch.anim.ik = null; ch.anim.aim = null; } }
@@ -69,13 +72,14 @@ export class Weapons {
 
   // ------------------------------------------------------------------ helpers
   showHolstered() { // the selected weapon rides in its holster/sling when not in the hands
-    for (let i = 0; i < 9; i++) { const m = this.models[i]; if (i === this.sel && this.state === 'none' && this.inv[i] && this.inv[i].owned) { const slot = WEAPONS[i].cls === 'pistol' ? this.holsterP : this.holsterR; if (m.parent !== slot) slot.add(m); m.position.set(0, 0, 0); m.quaternion.identity(); m.visible = true; m.matrixAutoUpdate = true; } else if (i !== this.cur || this.state === 'none') { if (i !== this.sel) m.visible = false; } }
+    const idx = new Set(this.built); if (this.sel >= 0 && this.inv[this.sel] && this.inv[this.sel].owned && this.state === 'none') idx.add(this.sel);
+    for (const i of idx) { const m = this.models[i]; if (i === this.sel && this.state === 'none' && this.inv[i] && this.inv[i].owned) { const slot = WEAPONS[i].cls === 'pistol' ? this.holsterP : this.holsterR; if (m.parent !== slot) slot.add(m); m.position.set(0, 0, 0); m.quaternion.identity(); m.visible = true; m.matrixAutoUpdate = true; } else if (i !== this.cur || this.state === 'none') { if (i !== this.sel) m.visible = false; } }
   }
   slotMatrixInChest(i, out) { const b = this.P.ch.bones; const slot = WEAPONS[i].cls === 'pistol' ? this.holsterP : this.holsterR; b.chest.updateWorldMatrix(true, false); slot.updateWorldMatrix(true, false); return out.copy(b.chest.matrixWorld).invert().multiply(slot.matrixWorld); }
   select(i) {
     if (this.P.swim || this.P.diveIn) return; /* no weapon in the water: arms are swimming */
-    if (!(i >= 0 && i <= 8) || !this.inv[i] || !this.inv[i].owned) { if (i >= 0 && i <= 8 && this.inv[i]) this.hudFlash(`${WEAPONS[i].name} not owned — buy it at a gun shop`); return; } this._toFists = false; if (this.state === 'reload') this.abortReload();
-    this.scrollTarget = null; this._toFists = false;
+    if (!(i >= 0 && i < WEAPONS.length) || !this.inv[i] || !this.inv[i].owned) { if (i >= 0 && i < WEAPONS.length && this.inv[i]) this.hudFlash(`${WEAPONS[i].name} not owned — buy it at a gun shop`); return; } this._toFists = false; if (this.state === 'reload') this.abortReload();
+    this.scrollTarget = null; this._toFists = false; this.typePick[WEAPONS[i].type] = i;
     if (this.state === 'holster') { // already putting one away: retarget (or, back to the same weapon, bring it straight back up)
       if (i === this.cur && this.drawMode === 'hands') { const a = this.appearK ?? 1; this.next = -1; this.state = 'equip'; this.drawMode = 'hands'; this.dur = this.handsDur(WEAPONS[i]); let lo = 0, hi = 1; for (let it = 0; it < 12; it++) { const md = (lo + hi) / 2; if (sm(md) < a) lo = md; else hi = md; } this.t = lo * this.dur; }
       else this.next = i; this.hudWeapon(i); return; }
@@ -192,10 +196,10 @@ export class Weapons {
     if (Input.isDown('weaponWheel')) this.wheelUpdate(); else if (this.wheelOpen) this.wheelClose(true);
     if (!this.wheelOpen) {
       const dbgPad = this.g.debug && this.g.debug.menuEnabled; // Numpad2 opens the debug menu once it is enabled
-      for (let i = 0; i < 9; i++) if (Input.keyPressed('Digit' + (i + 1)) || (Input.keyPressed('Numpad' + (i + 1)) && !(dbgPad && i === 1))) this.select(i);
+      for (let i = 0; i < 9; i++) if (Input.keyPressed('Digit' + (i + 1)) || (Input.keyPressed('Numpad' + (i + 1)) && !(dbgPad && i === 1))) this.selectType(i); // number key = weapon type; pressed again, the next owned weapon of that type
       if (Input.keyPressed('Digit0') || Input.keyPressed('Numpad0')) this.selectFists();
       // mouse wheel / d-pad: step a pending target through OWNED weapons; commit once the wheel settles (fast scrolling = one clean switch)
-      const step = Input.wheel && !this.scoped ? clamp(Input.wheel, -9, 9) : Input.pad.buttons[15] && !Input.pad.prev[15] ? 1 : Input.pad.buttons[14] && !Input.pad.prev[14] ? -1 : 0; // every notch of a fast flick counts
+      const step = Input.wheel && !this.scoped ? clamp(Input.wheel, -WEAPONS.length, WEAPONS.length) : Input.pad.buttons[15] && !Input.pad.prev[15] ? 1 : Input.pad.buttons[14] && !Input.pad.prev[14] ? -1 : 0; // every notch of a fast flick counts
       if (step) { const ring = [-1, ...WEAPONS.map((_, k) => k).filter((k) => this.inv[k].owned)]; /* fists + owned weapons */ const from = this.scrollTarget ?? (this.state === 'holster' && this.next >= 0 ? this.next : this.cur >= 0 ? this.cur : this.sel); const at = Math.max(0, ring.indexOf(from)); const j = ring[(((at + step) % ring.length) + ring.length) % ring.length]; this.scrollTarget = j; this.scrollT = 0.1; this.hudWeapon(j); }
       const clickPick = this.scrollTarget != null && (Input.mousePressed.has(0) || (Input.pad.rt > 0.4 && !this._rtPrev)); if (clickPick) this._eatFire = true; // a click while scrolling picks the highlighted weapon (and does not fire / draw the old one)
       if (this.scrollTarget != null) { this.scrollT -= dt; if (this.scrollT <= 0 || clickPick) { const j = this.scrollTarget; this.scrollTarget = null; if (j < 0) this.selectFists(); else this.select(j); } }
@@ -244,7 +248,7 @@ export class Weapons {
   // ------------------------------------------------------------------ pose + IK
   pose(dt, def) {
     const P = this.P, A = P.ch.anim, m = this.models[this.cur], ud = m.userData; const k = this.t; const twoHand = def.cls !== 'pistol';
-    for (let i = 0; i < 9; i++) if (i !== this.cur) this.models[i].visible = false; // only the weapon in use is on the body
+    for (const i of this.built) if (i !== this.cur) this.models[i].visible = false; // only the weapon in use is on the body
     const pitch = P.camMode === 2 ? clamp(-P.camPitch, -1.0, 1.1) : clamp(-(P.camPitch - 0.12) * 1.15, -1.0, 1.1); // camera pitch → aim pitch (positive = up); first person: exactly the view
     const POCKET = pocketFor(P.ch, twoHand ? m : null, _pk); const ap = aimPose(def, ud, POCKET); const aw = adsEase(this.aimW); this.dynamics(dt, def);
     A.aim = { pitch: pitch * aw + (twoHand ? -0.05 : 0) * (1 - aw), twist: (twoHand ? ap.twist : ap.twist * aw), w: Math.max(aw, twoHand ? 0.65 : 0.3), headDown: twoHand ? 0.12 * aw : 0, protractR: twoHand ? protractFor(P.ch) * aw : 0, protractL: twoHand ? protractLFor(P.ch) * aw : 0 };
@@ -447,7 +451,7 @@ export class Weapons {
   // is placed by distance only: gain fall-off, the speed-of-sound delay and the air's high-cut (Audio.at) — no reverb send.
   gunSound(def, x, z, own = false) {
     const A = !own && x !== undefined && Audio.listener ? Audio.at(x, z, 70) : null; const k = A ? A.g : 1, pan = A ? A.pan : 0, when = A ? A.delay : 0;
-    if (SB.play('gun.' + def.id, k, pan, when, { rate: 0.97 + Math.random() * 0.06, lp: A ? A.lp : 0 })) return; // the player's recording for this weapon
+    const so = { rate: 0.97 + Math.random() * 0.06, lp: A ? A.lp : 0 }; if (SB.play('gun.' + def.id, k, pan, when, so) || (def.type && def.type !== def.id && SB.play('gun.' + def.type, k, pan, when, so))) return; // the player's recording for this weapon (else the one for its type)
     const s = def.snd; const cut = (f) => (A && A.lp ? Math.min(f, A.lp) : f);
     Audio.noise(s.dur, { f: cut(s.crack), q: 0.6, vol: s.vol * k, type: 'lowpass', attack: 0.001, pan, when }); Audio.noise(s.dur * 0.6, { f: cut(s.crack * 2.2), q: 0.8, vol: s.vol * 0.35 * k * (A && A.lp ? 0.3 : 1), attack: 0.001, pan, when });
     Audio.tone(s.body * 2.2, s.dur * 1.4, { type: 'sine', vol: s.vol * 0.55 * k, attack: 0.002, glide: s.body * 0.6, pan, when });
@@ -512,7 +516,9 @@ export class Weapons {
     this.el.breath = this.el.scope.querySelector('.sc-breath i');
     this.el.heat = el('heat hide', root, '<span>POLICE</span><b></b><i></i>'); this.el.heatLabel = this.el.heat.querySelector('i');
     this.el.wheel = el('weap-wheel', root, '<div class="ww-center"><div class="ww-name"></div><div class="ww-ammo"></div><div class="ww-hint">Move the mouse · centre = fists · release <kbd>Tab</kbd></div></div>');
-    this.el.slots = WEAPONS.map((d, i) => { const a = (i / 9) * Math.PI * 2 - Math.PI / 2; const s = el('ww-slot ' + d.cls, this.el.wheel, `<div class="ww-icon">${this.icon(d)}</div><div class="ww-label">${i + 1} · ${d.name}</div>`); s.style.left = `calc(50% + ${Math.cos(a) * 190}px)`; s.style.top = `calc(50% + ${Math.sin(a) * 190}px)`; return s; });
+    // nine slices, one per weapon type (number keys 1–9); each shows the variant picked for it — scroll while the wheel is
+    // open to step through the owned weapons of the highlighted type
+    this.el.slots = WEAPON_TYPES.map((ty, i) => { const a = (i / 9) * Math.PI * 2 - Math.PI / 2; const d = WEAPONS[WEAPONS_OF_TYPE[ty.id][0]]; const s = el('ww-slot ' + d.cls, this.el.wheel, `<div class="ww-icon">${this.icon(d)}</div><div class="ww-label"></div><div class="ww-var"></div>`); s.style.left = `calc(50% + ${Math.cos(a) * 190}px)`; s.style.top = `calc(50% + ${Math.sin(a) * 190}px)`; return s; });
     this.el.msg = el('weap-msg', root);
   }
   icon(d) { // small original silhouettes for the wheel / card
@@ -540,12 +546,23 @@ export class Weapons {
     this.el.heat.classList.toggle('hide', h <= 0 && !lab); this.el.heat.querySelector('b').textContent = h > 0 ? '★'.repeat(h) + '☆'.repeat(5 - h) : ''; this.el.heatLabel.textContent = lab; this.el.heat.classList.toggle('calm', h <= 0);
   }
   wheelUpdate() {
-    if (!this.wheelOpen) { this.wheelOpen = true; this.wheelX = 0; this.wheelY = 0; this.wheelMoved = false; this.wheelSel = this.cur >= 0 ? this.cur : this.sel; for (let i = 0; i < 9; i++) this.el.slots[i].classList.toggle('locked', !this.inv[i].owned); this.el.wheel.classList.add('on'); this.P.lookLock = true; this.g.timeSlow = 0.3; }
+    if (!this.wheelOpen) { this.wheelOpen = true; this.wheelX = 0; this.wheelY = 0; this.wheelMoved = false; this.wheelSel = this.cur >= 0 ? this.cur : this.sel; const cw = WEAPONS[this.wheelSel]; if (cw) this.typePick[cw.type] = this.wheelSel; this.wheelLabels(); this.el.wheel.classList.add('on'); this.P.lookLock = true; this.g.timeSlow = 0.3; }
     this.wheelX += Input.mouseDX + Input.pad.rx * 12; this.wheelY += Input.mouseDY + Input.pad.ry * 12; const r = Math.hypot(this.wheelX, this.wheelY); if (r > 120) { this.wheelX *= 120 / r; this.wheelY *= 120 / r; }
-    if (r > 30) { this.wheelMoved = true; let a = Math.atan2(this.wheelY, this.wheelX) + Math.PI / 2; if (a < 0) a += Math.PI * 2; this.wheelSel = Math.round(a / (Math.PI * 2 / 9)) % 9; } else if (this.wheelMoved && r < 18) this.wheelSel = -1; // back to the centre: fists
-    for (let i = 0; i < 9; i++) this.el.slots[i].classList.toggle('sel', i === this.wheelSel);
+    if (r > 30) { this.wheelMoved = true; let a = Math.atan2(this.wheelY, this.wheelX) + Math.PI / 2; if (a < 0) a += Math.PI * 2; const ti = Math.round(a / (Math.PI * 2 / 9)) % 9; this.wheelSel = this.typePick[WEAPON_TYPES[ti].id]; } else if (this.wheelMoved && r < 18) this.wheelSel = -1; // back to the centre: fists
+    const step = Input.wheel ? Math.sign(Input.wheel) : 0; const ws = WEAPONS[this.wheelSel]; if (step && ws) { const list = WEAPONS_OF_TYPE[ws.type]; const own = list.filter((k) => this.inv[k].owned); const ring = own.length ? own : list; const at = Math.max(0, ring.indexOf(this.wheelSel)); this.wheelSel = ring[(at + step + ring.length) % ring.length]; this.typePick[ws.type] = this.wheelSel; this.wheelLabels(); }
+    const selT = WEAPONS[this.wheelSel] ? WEAPONS[this.wheelSel].type : null; WEAPON_TYPES.forEach((ty, i) => this.el.slots[i].classList.toggle('sel', ty.id === selT));
     const d = WEAPONS[this.wheelSel], iv = this.inv[this.wheelSel]; this.el.wheel.querySelector('.ww-name').textContent = d ? d.name : 'Fists'; this.el.wheel.querySelector('.ww-ammo').textContent = !d ? 'Unarmed · click to punch' : !iv.owned ? 'Not owned · buy it at a gun shop' : `${iv.mag} / ${iv.reserve} · ${d.auto ? 'automatic' : d.cycle ? 'bolt / manual' : 'semi-automatic'}`;
   }
+  wheelLabels() { // slice captions: type, the picked variant (n of 3) and whether it is owned
+    WEAPON_TYPES.forEach((ty, i) => { const list = WEAPONS_OF_TYPE[ty.id]; const j = this.typePick[ty.id]; const d = WEAPONS[j]; const s = this.el.slots[i]; const own = list.some((k) => this.inv[k].owned);
+      s.querySelector('.ww-label').textContent = `${i + 1} · ${d.name}`; s.querySelector('.ww-var').textContent = `${ty.label} · ${list.indexOf(j) + 1}/${list.length}`; s.classList.toggle('locked', !this.inv[j].owned && !own); s.classList.toggle('dim', !this.inv[j].owned && own); });
+  }
+  // number key k: the weapon of type k picked last (pressing it again while that type is in the hands moves on to the next owned one)
+  selectType(ti) { const ty = WEAPON_TYPES[ti]; if (!ty) return; const list = WEAPONS_OF_TYPE[ty.id]; const own = list.filter((k) => this.inv[k] && this.inv[k].owned);
+    if (!own.length) { this.hudFlash(`No ${ty.label.toLowerCase()} owned — buy one at a gun shop`); return; }
+    const curT = WEAPONS[this.cur] && WEAPONS[this.cur].type === ty.id; let j = this.typePick[ty.id];
+    if (curT) j = own[(own.indexOf(this.cur) + 1) % own.length]; else if (!own.includes(j)) j = own[0];
+    this.typePick[ty.id] = j; this.select(j); }
   wheelClose(apply) { if (!this.wheelOpen) return; this.wheelOpen = false; this.el.wheel.classList.remove('on'); this.P.lookLock = false; this.g.timeSlow = 1; if (apply) { if (this.wheelSel >= 0) this.select(this.wheelSel); else if (this.wheelSel === -1) this.selectFists(); } }
 
   // ------------------------------------------------------------------ save / load

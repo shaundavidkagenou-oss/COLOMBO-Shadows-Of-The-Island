@@ -8,6 +8,7 @@ import { weaponSurface } from './WeaponSurface.js';
 import { sweep, latheZ, ringZ, flutedZ } from './WeaponLoft.js';
 import { buildPistol } from './GunPistols.js';
 import { buildRifle } from './GunRifles.js';
+import { clearThumb } from './GunKit.js';
 
 let MATS = null;
 export function weaponMaterials() {
@@ -172,7 +173,11 @@ export function buildT56() { const g = t56(); g.name = 'weapon-t56'; return g; }
 // the player's Type 56 (gun-shop rifle): the same rifle without the police torch and sling, with hand surfaces for the grip solver
 function t56Player() { const g = t56(true); const ud = g.userData; if (ud.torch) { g.remove(ud.torch); ud.torch = null; ud.torchLens = null; } ud.sling = false;
   const rx0 = -0.085, rx1 = 0.21; ud.hold = makeHold(boxShape(V3(0, -0.022, -0.017), 0.27, [0.0138, 0.054, 0.0205], 0.007), 0.022, 0.016,
-    [boxShape(V3(0, 0.045, (rx0 + rx1) / 2), 0, [0.016, 0.03, (rx1 - rx0) / 2], 0.003), boxShape(V3(0, -0.05, 0.13), 0.5, [0.0135, 0.06, 0.03], 0.003)], { fore: foreShape(0.056, rx1 + 0.13, 0.024, 0.026, 0.012) });
+    [boxShape(V3(0, 0.041, (rx0 + rx1) / 2), 0, [0.0225, 0.035, (rx1 - rx0) / 2], 0.003), boxShape(V3(0, -0.05, 0.13), 0.5, [0.0135, 0.06, 0.03], 0.003)], { fore: foreShape(0.056, rx1 + 0.13, 0.024, 0.026, 0.012) });
   ud.support = new THREE.Vector3(0, 0.03, rx1 + 0.13); ud.model = 'type56'; return g; }
 
-export function buildWeaponModel(def) { const g = def.cls === 'pistol' ? buildPistol(def) : (def.model || def.id) === 'type56' ? t56Player() : buildRifle(def); g.name = 'weapon-' + def.id; return g; }
+export function buildWeaponModel(def) {
+  const g = def.cls === 'pistol' ? buildPistol(def) : (def.model || def.id) === 'type56' ? t56Player() : buildRifle(def); g.name = 'weapon-' + def.id;
+  const h = g.userData.hold; const mag = g.userData.mag; if (h) { clearThumb(g, h.thumbR, 0.0085, (o) => mag && o.parent === mag); if (h.thumbL) clearThumb(g, h.thumbL, 0.0085, (o) => mag && o.parent === mag); }
+  return g;
+}

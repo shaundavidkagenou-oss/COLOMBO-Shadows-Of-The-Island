@@ -125,7 +125,7 @@ function solve(bones, ud) {
   const HR = new Hand(bones, 'R'); const beta = hold.wrap ?? 0.36; // turn about the grip axis: backstrap into the web of the thumb
   const FR = frame(xw.clone().multiplyScalar(Math.cos(beta)).addScaledVector(fwd, Math.sin(beta)), u);
   const along = (y) => (y - G.c.y) / u.y; // grip-axis coordinate at a given height
-  const idxAt = G.c.clone().addScaledVector(u, along(hold.trig.y - 0.003)).addScaledVector(fwd, G.h[2] - 0.017).addScaledVector(xw, -G.h[0] - 0.017);
+  const idxAt = G.c.clone().addScaledVector(u, along(hold.trig.y - 0.003 + (hold.seatDy || 0))) /* seatDy: a high-tang frame seats the hand a little lower */.addScaledVector(fwd, G.h[2] - 0.017).addScaledVector(xw, -G.h[0] - 0.017);
   seat(FR, HR, HR.mcp, idxAt, [G]);
   const wrapShapes = [G, ...shapes.slice(1, 3)]; // fingers close on the grip (and stay under the trigger guard); the magazine sits ahead of them
   const gripPose = [1, 2, 3].map((fi) => close(FR, HR, fi, wrapShapes));

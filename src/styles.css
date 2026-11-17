@@ -306,6 +306,9 @@ select { background: #0e1318; color: var(--paper); border: 1px solid rgba(255, 2
 .ww-slot.locked::after { content: 'NOT OWNED'; position: absolute; top: 4px; right: 6px; font: 700 9px/1 'Barlow Condensed', sans-serif; letter-spacing: 0.12em; color: #e6b65c; }
 .ww-slot.sel { transform: scale(1.12); border-color: var(--gold); color: #fff; background: rgba(40, 30, 14, 0.85); }
 .ww-label { font-size: 11px; letter-spacing: 0.06em; text-align: center; margin-top: 2px; }
+.ww-var { font-size: 9px; letter-spacing: 0.05em; text-align: center; opacity: 0.6; margin-top: 1px; }
+.ww-slot.dim { opacity: 0.7; }
+.ww-slot.dim::after { content: 'NOT OWNED · SCROLL'; position: absolute; top: 4px; right: 6px; font: 700 8px/1 'Barlow Condensed', sans-serif; letter-spacing: 0.1em; color: #e6b65c; }
 
 /* ===================================================================== Enter-game loading screen (Shaun David Studios) */
 .enterload { z-index: 60; background: radial-gradient(ellipse at 50% 42%, #1a130c 0%, #0b0907 42%, #030303 78%); overflow: hidden; opacity: 0; transition: opacity 0.6s ease; cursor: progress; }

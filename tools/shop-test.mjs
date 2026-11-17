@@ -13,7 +13,8 @@ let pass = 0, fail = 0; const ok = (c, m) => { if (c) pass++; else { fail++; con
 
 // catalogue
 const cat = Shop.catalogue();
-ok(cat.length === 20 && cat.filter((i) => i.kind === 'weapon').length === 9 && cat.filter((i) => i.kind === 'ammo').length === 9, 'catalogue: nine weapons + nine ammunition packs + two grenade packs');
+ok(cat.length === 56 && cat.filter((i) => i.kind === 'weapon').length === 27 && cat.filter((i) => i.kind === 'ammo').length === 27, 'catalogue: 27 weapons + 27 ammunition packs + two grenade packs')
+ok(WEAPONS.every((w) => cat.some((i) => i.key === 'w:' + w.id) && cat.some((i) => i.key === 'a:' + w.id)), 'every weapon (and its rounds) is on sale');
 { // grenades: separate throwable, counted per character (opts.grenades), capped, never a weapon slot
   const g1 = cat.find((i) => i.key === 'g:frag'), g3 = cat.find((i) => i.key === 'g:frag3'); const inv0 = Shop.catalogue && WEAPONS.map(() => ({ mag: 0, reserve: 0, owned: false }));
   ok(g1 && g3 && g1.kind === 'grenade' && g1.slot === null && g3.qty === 3 && g3.price < g1.price * 3, 'grenade items: single + discounted three-pack, no weapon slot');

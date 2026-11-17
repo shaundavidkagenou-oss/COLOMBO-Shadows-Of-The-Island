@@ -101,3 +101,16 @@ function mergeFlat(list) { let n = 0; for (const g of list) n += g.attributes.po
   for (const g of list) { P.set(g.attributes.position.array, o * 3); N.set(g.attributes.normal.array, o * 3); o += g.attributes.position.count; g.dispose(); }
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.BufferAttribute(N, 3));
   g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(n * 2), 2)); return g; }
+
+// thumb clearance: a thumb spot must sit ON the weapon's surface, not inside it. Scans the built model's vertices around the
+// spot (± 13 mm along the gun, ± 11 mm up/down) and moves the spot out sideways until the thumb pad (≈ 8.5 mm to its
+// centre) clears the widest part there — a wide stock wrist or chassis gets the thumb laid over its side, not through it.
+export function clearThumb(g, p, pad = 0.0085, exclude = null) {
+  if (!p) return p; const s = Math.sign(p.x) || 1; const v = new THREE.Vector3(); g.updateMatrixWorld(true); const inv = new THREE.Matrix4().copy(g.matrixWorld).invert(); const M = new THREE.Matrix4();
+  const pts = []; g.traverse((o) => { if (!o.isMesh || (exclude && exclude(o))) return; M.multiplyMatrices(inv, o.matrixWorld); const P = o.geometry.attributes.position;
+    for (let i = 0; i < P.count; i++) { v.fromBufferAttribute(P, i).applyMatrix4(M); if (Math.abs(v.z - p.z) < 0.04 && Math.abs(v.y - p.y) < 0.04) pts.push(v.x * s, v.y, v.z); } });
+  const extAt = (y, z) => { let e = 0; for (let i = 0; i < pts.length; i += 3) if (Math.abs(pts[i + 2] - z) < 0.013 && Math.abs(pts[i + 1] - y) < 0.011) e = Math.max(e, pts[i]); return e; };
+  // a wide receiver / stock wrist right at the spot: try the thumb a little lower (on the grip, under the receiver) or further forward first
+  let best = null; for (const [dy, dz] of [[0, 0], [-0.008, 0], [-0.014, 0], [0, 0.01], [-0.008, 0.01]]) { const e = extAt(p.y + dy, p.z + dz); const push = Math.max(0, e + pad - s * p.x); const cost = push + Math.hypot(dy, dz) * 0.5; if (!best || cost < best.cost - 1e-4) best = { cost, dy, dz, e }; }
+  p.y += best.dy; p.z += best.dz; if (s * p.x < best.e + pad) p.x = s * (best.e + pad); return p;
+}

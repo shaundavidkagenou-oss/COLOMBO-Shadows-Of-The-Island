@@ -14,8 +14,14 @@ import { voiceDefs } from './VoiceDefs.js';
 // loudness of the synthesised sound it replaces)
 const W = (id, name, lvl = 0.55) => ({ id: 'gun.' + id, name: name + ' — gunshot', cat: 'Weapons', lvl });
 export const SOUND_DEFS = [
-  W('compact', 'Compact Pistol', 0.45), W('service', 'Service Pistol', 0.5), W('heavy', 'Heavy Pistol', 0.6), W('carbine', 'Carbine Rifle'), W('assault', 'Assault Rifle'), W('battle', 'Battle Rifle', 0.62),
-  W('bolt', 'Bolt-Action Sniper', 0.7), W('semi', 'Semi-Auto Sniper', 0.65), W('precision', 'Precision Sniper', 0.7), W('t56', 'Police T-56 rifle', 0.55),
+  // one slot per weapon (58th: 27 guns). The first nine are also their TYPE's slot: a weapon whose own slot is empty plays its type's recording
+  W('compact', 'PM (compact pistols — also used for PSM / M11 when theirs are empty)', 0.45), W('service', 'M9 (service pistols — also M17 / Type 54)', 0.5), W('heavy', 'M1911A1 (heavy pistols — also Mk 23 / M45A1)', 0.6),
+  W('carbine', 'M4A1 (carbines — also Mk 18 / AKS-74U)'), W('assault', 'AK-47 (assault rifles — also Type 56 / AK-74M)'), W('battle', 'M14 (battle rifles — also L1A1 / G3A3)', 0.62),
+  W('bolt', 'M24 (bolt-action — also M40A5 / M91/30)', 0.7), W('semi', 'SVD (semi-auto sniper — also M110 / Mk 14)', 0.65), W('precision', 'M2010 (precision — also L115A3 / M107)', 0.7),
+  W('psm', 'PSM', 0.42), W('m11', 'M11', 0.45), W('m17', 'M17', 0.5), W('type54', 'Type 54', 0.52), W('mk23', 'Mk 23 Mod 0', 0.6), W('m45a1', 'M45A1', 0.6),
+  W('mk18', 'Mk 18 Mod 0'), W('aks74u', 'AKS-74U'), W('type56', 'Type 56'), W('ak74m', 'AK-74M'), W('l1a1', 'L1A1', 0.62), W('g3a3', 'G3A3', 0.62),
+  W('m40a5', 'M40A5', 0.7), W('m9130', 'M91/30', 0.7), W('m110', 'M110', 0.65), W('mk14', 'Mk 14 EBR', 0.65), W('l115a3', 'L115A3', 0.72), W('m107', 'M107 (.50)', 0.8),
+  W('t56', 'Police T-56 rifle', 0.55),
   { id: 'reload.pistol', name: 'Reload — pistol', cat: 'Weapons', lvl: 0.35 }, { id: 'reload.rifle', name: 'Reload — rifle', cat: 'Weapons', lvl: 0.35 }, { id: 'reload.sniper', name: 'Reload — sniper rifle', cat: 'Weapons', lvl: 0.35 },
   { id: 'gun.cycle', name: 'Bolt / slide cycling', cat: 'Weapons', lvl: 0.3 }, { id: 'gun.dry', name: 'Dry fire (empty click)', cat: 'Weapons', lvl: 0.25 }, { id: 'gun.equip', name: 'Weapon drawn / holstered', cat: 'Weapons', lvl: 0.25 },
   { id: 'gun.scope', name: 'Scope / aim in', cat: 'Weapons', lvl: 0.2 }, { id: 'gun.shell', name: 'Shell casing on the ground', cat: 'Weapons', lvl: 0.2 }, { id: 'gun.hitmarker', name: 'Hit marker', cat: 'Weapons', lvl: 0.2 },

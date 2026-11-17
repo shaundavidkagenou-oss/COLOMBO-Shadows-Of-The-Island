@@ -68,7 +68,7 @@ until(() => W.state === 'ready'); ok(W.cur === 1, 'pistol ready');
 
 // ---- 8. holds: contact + IK reach when aiming, for every weapon
 const b = ch.bones; const v = new THREE.Vector3();
-for (let i = 0; i < 9; i++) {
+for (let i = 0; i < WEAPONS.length; i++) {
   const h = holdFor(ch, W.models[i]); ok(!!h, `${WEAPONS[i].id}: hold solved`); if (!h) continue;
   ok(h.R.trigErr < 0.025, `${WEAPONS[i].id}: trigger pad ${(h.R.trigErr * 100).toFixed(1)} cm from the trigger`);
   ok(h.R.thumbErr < 0.025, `${WEAPONS[i].id}: firing thumb ${(h.R.thumbErr * 100).toFixed(1)} cm from its spot`);
