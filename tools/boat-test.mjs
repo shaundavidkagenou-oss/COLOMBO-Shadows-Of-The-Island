@@ -94,8 +94,8 @@ try {
     if (g.police) { g.police.addHeat(1, 'test'); await g.stepSim(Math.round((2) * 20), 0.05); out.leaving = B.police.filter((b) => b.active).every((b) => b.leaving); g.police.standDown('test'); }
     g.atmos.hour = 10; await g.stepSim(Math.round((1) * 20), 0.05);
     const c = B.berths.filter((q) => q.boat && !q.boat.away && !q.boat.owner && q.boat.mode === 'moored' && q.side !== 'Q'); const Bq = c[0]; const bt = Bq.boat; out.dep = B.startDeparture(Bq);
-    const O = B.owners.find((o) => o.b === bt); const st = []; const t0 = performance.now(); for (let i = 0; i < 40 && O && !O.done; i++) { await g.stepSim(Math.round((2.5) * 20), 0.05); if (st[st.length - 1] !== O.stage) st.push(O.stage); if (O.stage === 'outbound' && Math.hypot(bt.x - bt.home.x(bt.len, bt.model.halfBeam), bt.z - bt.home.zc) > 20) break; } out.simT = +(performance.now() - t0) / 1000;
-    out.ownerStages = st; out.left = +Math.hypot(bt.x - bt.home.x(bt.len, bt.model.halfBeam), bt.z - bt.home.zc).toFixed(0);
+    const O = B.owners.find((o) => o.b === bt); const st = []; const t0 = performance.now(); const x0 = bt.x, z0 = bt.z; /* where she lay (alongside her finger) */ for (let i = 0; i < 60 && O && !O.done; i++) { await g.stepSim(Math.round((2.5) * 20), 0.05); if (st[st.length - 1] !== O.stage) st.push(O.stage); if (O.stage === 'outbound' && Math.hypot(bt.x - x0, bt.z - z0) > 20) break; } out.simT = +(performance.now() - t0) / 1000;
+    out.ownerStages = st; out.left = +Math.hypot(bt.x - x0, bt.z - z0).toFixed(0);
     return out;
   }, (r4) => {
   ok(r4.noonActive === 0, 'no police boats at 2 pm'); ok(r4.morning >= 1 && r4.morning <= 2 && r4.crew, `${r4.morning} police boat(s) on the morning patrol, crewed`);

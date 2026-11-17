@@ -99,6 +99,10 @@ function trigger(F, H, shapes, target) {
   for (let a1 = -0.2; a1 <= 1.2; a1 += 0.05) for (let a2 = 0; a2 <= 1.6; a2 += 0.05) {
     const a = [a1, a2, a2 * 0.6]; H.finger(0, a, pts); const pad = toW(F, pts[7].p, new THREE.Vector3()); let pen = 0; for (const s of pts) pen += Math.max(0, R_FINGER * 0.8 - sdf(toW(F, s.p, _v), shapes));
     const c = pad.distanceTo(target) + pen * 6; if (c < bc) { bc = c; best = a; } }
+  // fine pass round the coarse optimum (the 0.05 rad grid left the pad up to ~2.5 cm off on larger hands)
+  const b0 = best.slice(); for (let d1 = -0.05; d1 <= 0.0501; d1 += 0.01) for (let d2 = -0.05; d2 <= 0.0501; d2 += 0.01) for (let d3 = -0.06; d3 <= 0.0601; d3 += 0.03) {
+    const a = [b0[0] + d1, Math.max(0, b0[1] + d2), Math.max(0, b0[2] + d3)]; H.finger(0, a, pts); const pad = toW(F, pts[7].p, new THREE.Vector3()); let pen = 0; for (const s of pts) pen += Math.max(0, R_FINGER * 0.8 - sdf(toW(F, s.p, _v), shapes));
+    const c = pad.distanceTo(target) + pen * 6; if (c < bc) { bc = c; best = a; } }
   return { a: best.map((v) => +v.toFixed(3)), err: bc };
 }
 function ready(F, H, shapes) {
@@ -114,6 +118,10 @@ function thumb(F, H, shapes, target) {
   for (let t = -0.6; t <= TR[0]; t += 0.1) for (let ox = -TR[1]; ox <= TR[1]; ox += 0.1) for (let oy = -TR[2]; oy <= TR[2]; oy += 0.15) {
     const r = H.thumb(t, ox, oy); let pen = 0; for (const p of r.pts) pen += Math.max(0, R_FINGER * 0.9 - sdf(toW(F, p, _v), shapes));
     const c = toW(F, r.tip, _v).distanceTo(target) + pen * 5 + (Math.abs(ox) + Math.abs(oy)) * 0.004; if (c < bc) { bc = c; best = [t, ox, oy]; } }
+  // fine pass: only a closer tip with no more penetration than the coarse optimum (never trades contact for reach)
+  const ev = (t, ox, oy) => { const r = H.thumb(t, ox, oy); let pen = 0; for (const p of r.pts) pen += Math.max(0, R_FINGER * 0.9 - sdf(toW(F, p, _v), shapes)); return [toW(F, r.tip, _v).distanceTo(target), pen]; };
+  const b0 = best.slice(); let [bd, bp] = ev(...b0); for (let dt = -0.1; dt <= 0.1001; dt += 0.025) for (let dx = -0.1; dx <= 0.1001; dx += 0.025) for (let dy = -0.15; dy <= 0.1501; dy += 0.05) {
+    const c = [b0[0] + dt, b0[1] + dx, b0[2] + dy]; const [d, pn] = ev(...c); if (d < bd - 1e-4 && pn <= bp + 1e-5) { bd = d; bp = pn; best = c; } }
   return best.map((v) => +v.toFixed(3));
 }
 const pose = (f, th) => ({ f, th });
