@@ -11,6 +11,9 @@
 //   • UVs are box-projected from the position and normal at merge time, in metres × a per-layer scale, so nothing
 //     stretches (a 19 m carriage side gets the same texel density as a bench slat)
 //   • the albedo layer is a detail multiplier around 1 on top of the vertex colour, so the authored colours stay
+//   • 56th: anti-tiling macro variation — the same layer read again at ~1/5 the frequency, rotated, from a blurred mip
+//     (lod 4.5) minus its mean (lod 9): broad blotches of shade and sheen (a wall is never one flat tone, a floor has
+//     duller worn lanes) so the 512² repeat stops reading as wallpaper. 4 low-mip fetches, no extra texture or draw call
 // The interior light (InteriorLight.js) is applied on top: sky visibility under the roofs + the fluorescent tubes.
 import * as THREE from 'three';
 import { patchInterior } from './InteriorLight.js';
@@ -95,7 +98,7 @@ function paintLayers() {
     set(A, i, v, v * (1 + 0.04 * (hash(id, 4, 4) - 0.5)), v); H[i] = 0.6 - 0.5 * grout + 0.05 * (F3[i] - 0.5); R[i] = 0.22 + 0.65 * grout + 0.08 * F1[i]; O[i] = 1 - 0.35 * grout; } })); }
   // 9 carPaint: carriage enamel — orange-peel, grime collecting and rain streaks running down, faded patches
   layers.push(make(({ A, H, R }) => { for (let i = 0; i < N * N; i++) { const x = i % N, y = (i / N) | 0; const streak = sm(0.55, 0.85, at(S2, x, y)); const dirt = sm(0.5, 0.85, F1[i]) * 0.5 + streak * 0.35;
-    const v = 0.99 + 0.03 * (F2[i] - 0.5) - 0.13 * dirt; set(A, i, v * (1 - 0.02 * dirt), v * (1 - 0.04 * dirt), v * (1 - 0.08 * dirt)); H[i] = 0.5 + 0.12 * (F3[i] - 0.5); R[i] = 0.34 + 0.32 * dirt + 0.05 * (F3[i] - 0.5); } }));
+    const v = 0.99 + 0.03 * (F2[i] - 0.5) - 0.13 * dirt; set(A, i, v * (1 - 0.02 * dirt), v * (1 - 0.04 * dirt), v * (1 - 0.08 * dirt)); H[i] = 0.5 + 0.022 * (F3[i] - 0.5) + 0.05 * (F2[i] - 0.5); /* 56th: smooth enamel over slightly wavy panels — the 4 cm bump read as hammered metal */ R[i] = 0.34 + 0.32 * dirt + 0.05 * (F3[i] - 0.5); } }));
   // 10 under: underframe / bogie steel — grease, brake dust, rust
   layers.push(make(({ A, M, H, R, O }) => { for (let i = 0; i < N * N; i++) { const rust = sm(0.55, 0.8, F4[i]), grease = sm(0.5, 0.75, F2[i]); const v = 0.9 + 0.3 * (F1[i] - 0.5) - 0.25 * grease;
     set(A, i, v * (1 + 0.45 * rust), v * (1 + 0.12 * rust), v * (1 - 0.15 * rust)); M[i] = 0.55 - 0.4 * rust - 0.2 * grease; H[i] = 0.5 + 0.3 * (F3[i] - 0.5) + 0.15 * rust; R[i] = 0.6 + 0.3 * rust - 0.25 * grease; O[i] = 1 - 0.2 * grease; } }));
@@ -112,7 +115,7 @@ function paintLayers() {
   // 15 brass: clock bezels, fittings — polished with tarnish in the hollows
   layers.push(make(({ A, M, H, R }) => { for (let i = 0; i < N * N; i++) { const tarn = sm(0.5, 0.8, F2[i]); const v = 1.02 - 0.25 * tarn + 0.05 * (F3[i] - 0.5); set(A, i, v, v * (1 - 0.05 * tarn), v * (1 - 0.15 * tarn)); M[i] = 1 - 0.3 * tarn; H[i] = 0.5 + 0.05 * (F3[i] - 0.5); R[i] = 0.24 + 0.35 * tarn; } }));
   // 16 galv: galvanised steel — spangle crystals, white rust, dull
-  { const C = cells(14, 11, true); layers.push(make(({ A, M, H, R }) => { for (let i = 0; i < N * N; i++) { const s = hash(C.id[i], 5, 9), wr = sm(0.6, 0.85, F1[i]); const v = 0.92 + 0.12 * (s - 0.5) + 0.12 * wr; set(A, i, v, v, v * 1.01); M[i] = 0.85 - 0.5 * wr; H[i] = 0.5 + 0.06 * (s - 0.5); R[i] = 0.42 + 0.15 * (s - 0.5) + 0.35 * wr; } })); }
+  { const C = cells(56, 44, true); /* 56th: spangle crystals ~3 cm, low contrast — the 11 cm cells read as tiles */ layers.push(make(({ A, M, H, R }) => { for (let i = 0; i < N * N; i++) { const s = hash(C.id[i], 5, 9), wr = sm(0.6, 0.85, F1[i]); const v = 0.93 + 0.05 * (s - 0.5) + 0.04 * (F2[i] - 0.5) + 0.12 * wr; set(A, i, v, v, v * 1.01); M[i] = 0.85 - 0.5 * wr; H[i] = 0.5 + 0.02 * (s - 0.5); R[i] = 0.42 + 0.08 * (s - 0.5) + 0.35 * wr; } })); }
   // 17 timberPaint: painted timber (window frames, shutters, kiosks) — grain showing through the paint, brush strokes, wear
   layers.push(make(({ A, H, R, O }) => { for (let i = 0; i < N * N; i++) { const x = i % N, y = (i / N) | 0; const t = y / N * 18 + (at(F1, x, y) - 0.5) * 5; const ring = t - Math.floor(t); const grain = sm(0.6, 0.95, ring) * 0.6; const brush = at(S1, x, (y * 3) % N); const wear = sm(0.7, 0.88, F4[i]);
     const v = 0.98 - 0.05 * grain + 0.04 * (brush - 0.5) - 0.18 * wear; set(A, i, v * (1 + 0.1 * wear), v, v * (1 - 0.12 * wear)); H[i] = 0.5 - 0.06 * grain + 0.05 * (brush - 0.5) - 0.08 * wear; R[i] = 0.5 + 0.1 * grain + 0.3 * wear; O[i] = 1 - 0.1 * grain; } }));
@@ -140,21 +143,21 @@ export function stationMaterial(opts = {}) {
   const T = buildTextures();
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 1, side: opts.side || THREE.FrontSide, envMapIntensity: opts.env ?? 0.9 });
   m.name = 'stationPBR';
-  const U = { uLAlb: { value: T.alb }, uLNrm: { value: T.nrm }, uLNS: { value: opts.normal ?? 1.0 } };
+  const U = { uLAlb: { value: T.alb }, uLNrm: { value: T.nrm }, uLNS: { value: opts.normal ?? 1.0 }, uLMac: { value: opts.macro ?? 1.0 } };
   m.onBeforeCompile = (sh) => { Object.assign(sh.uniforms, U);
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vLUv; flat varying float vLL;')
       .replace('#include <color_vertex>', '#if defined( USE_COLOR )\n  float lL = floor(color.r * 0.5); vColor = vec4(color.r - 2.0 * lL, color.g, color.b, 1.0); vLL = lL;\n#endif')
       .replace('#include <uv_vertex>', '#include <uv_vertex>\nvLUv = uv;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nprecision highp sampler2DArray;\nuniform sampler2DArray uLAlb; uniform sampler2DArray uLNrm; uniform float uLNS;\nvarying vec2 vLUv; flat varying float vLL;\nvec4 lA; vec4 lN;')
-      .replace('#include <color_fragment>', '#include <color_fragment>\n{ lA = texture(uLAlb, vec3(vLUv, vLL)); lN = texture(uLNrm, vec3(vLUv, vLL)); diffuseColor.rgb *= lA.rgb * 2.0; }')
-      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = roughness * lN.b;')
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nprecision highp sampler2DArray;\nuniform sampler2DArray uLAlb; uniform sampler2DArray uLNrm; uniform float uLNS;\nvarying vec2 vLUv; flat varying float vLL;\nvec4 lA; vec4 lN; float lMacR = 1.0; uniform float uLMac;')
+      .replace('#include <color_fragment>', '#include <color_fragment>\n{ lA = texture(uLAlb, vec3(vLUv, vLL)); lN = texture(uLNrm, vec3(vLUv, vLL)); diffuseColor.rgb *= lA.rgb * 2.0;\n  vec2 mUv = mat2(0.83, 0.56, -0.56, 0.83) * vLUv * 0.19 + 0.37; vec4 mA = textureLod(uLAlb, vec3(mUv, vLL), 4.5) - textureLod(uLAlb, vec3(mUv, vLL), 9.0); vec4 mN = textureLod(uLNrm, vec3(mUv, vLL), 4.5) - textureLod(uLNrm, vec3(mUv, vLL), 9.0);\n  float mL = dot(mA.rgb, vec3(0.333)); diffuseColor.rgb *= clamp(1.0 + uLMac * (mA.rgb * 1.5 + mL * 7.0), 0.8, 1.2); lMacR = clamp(1.0 + uLMac * 7.0 * mN.b - uLMac * 3.0 * mL, 0.75, 1.3); }')
+      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = min(1.0, roughness * lN.b * lMacR);')
       .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = metalness * lA.a;')
       .replace('#include <normal_fragment_maps>', `{ vec3 q0 = dFdx(-vViewPosition), q1 = dFdy(-vViewPosition); vec2 st0 = dFdx(vLUv), st1 = dFdy(vLUv); vec3 Nn = normal;
   vec3 q1p = cross(q1, Nn), q0p = cross(Nn, q0); vec3 Tt = q1p * st0.x + q0p * st1.x, Bt = q1p * st0.y + q0p * st1.y; float det = max(dot(Tt, Tt), dot(Bt, Bt)); float sc = det == 0.0 ? 0.0 : inversesqrt(det);
   vec2 nxy = (lN.rg * 2.0 - 1.0) * uLNS; vec3 mn = vec3(nxy, sqrt(max(0.0, 1.0 - dot(nxy, nxy)))); normal = normalize(Tt * (mn.x * sc) + Bt * (mn.y * sc) + Nn * mn.z); }`)
       .replace('#include <aomap_fragment>', '#include <aomap_fragment>\nreflectedLight.indirectDiffuse *= lN.a; reflectedLight.indirectSpecular *= lN.a;');
   };
-  m.customProgramCacheKey = () => 'stationPBR1';
+  m.customProgramCacheKey = () => 'stationPBR2';
   if (opts.interior !== false) patchInterior(m);
   _mats.set(key, m); return m;
 }
