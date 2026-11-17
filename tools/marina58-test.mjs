@@ -104,16 +104,16 @@ try {
     const g = window.__game, B = g.boats, P = g.player; const tick = () => new Promise((r) => setTimeout(r, 5)); const out = { runs: [] }; g.atmos.hour = 10;
     P.teleport(232.5, -1199.5, Math.PI); await g.stepSim(4, 0.05); B.eventT = 1e9;
     for (const sd of ['W', 'E']) { const Bq = B.berths.find((q) => q.side === sd && q.boat && !q.boat.away && !q.boat.owner && q.boat.mode === 'moored'); if (!Bq) continue; const b = Bq.boat; const o = { id: b.id, side: sd };
-      b.away = true; b.root.visible = false; b.awayT = 0; B.startArrival(b); const stages = [];
+      b.away = true; b.root.visible = false; b.awayT = 0; P.teleport(234, -1199.5, Math.PI / 2); P.camYaw = Math.PI / 2; await g.stepSim(6, 0.05); /* looking inland: she must not pop into view */ o.started = B.startArrival(b); const stages = [];
       for (let i = 0; i < 6000; i++) { await g.stepSim(1, 0.05); if (i % 10 === 0) await tick(); const s2 = b.owner ? b.owner.stage : 'gone'; if (stages[stages.length - 1] !== s2) stages.push(s2); if (s2 === 'walkOut' || s2 === 'gone') break; }
       o.stages = stages; o.dz = +(b.z - Bq.zAt(b.model.halfBeam)).toFixed(2); o.dx = +(b.x - Bq.x(b.len, b.model.halfBeam)).toFixed(2); o.mode = b.mode; o.wrecked = !!b.wrecked; out.runs.push(o); }
     return out;
   }, (r) => { for (const o of r.runs) { ok(o.stages.includes('moor') && o.mode === 'moored', `${o.id} (${o.side}) comes home: ${o.stages.join('→')}`); ok(Math.abs(o.dz) < 0.3 && Math.abs(o.dx) < 0.5, `${o.id}: lies alongside her finger (off by ${o.dx}, ${o.dz} m)`); ok(!o.wrecked, `${o.id}: undamaged`); } });
 
   await stage(p, 'crew', async () => {
-    const g = window.__game, B = g.boats, P = g.player; g.atmos.hour = 11; P.teleport(209, -1199.5, Math.PI); g.camera.position.set(209, 3, -1195); await g.stepSim(Math.round(25 * 20), 0.05);
-    return { crew: B.dock.info() };
-  }, (r) => { ok(r.crew.length === 4 && r.crew.every((c) => c.vis), 'four marina workers on the pontoons by day'); ok(r.crew.some((c) => c.walking) || r.crew.some((c) => c.pose), 'they walk / work (' + r.crew.map((c) => c.job + ':' + (c.walking ? 'walk' : c.pose)).join(', ') + ')'); });
+    const g = window.__game, B = g.boats, P = g.player; g.atmos.hour = 11; P.teleport(209, -1199.5, Math.PI); g.camera.position.set(209, 3, -1195); const poses = new Set(); for (let i = 0; i < 180; i++) { await g.stepSim(20, 0.05); for (const c of B.dock.info()) if (c.pose) poses.add(c.job + ':' + c.pose); }
+    return { crew: B.dock.info(), poses: [...poses] };
+  }, (r) => { ok(r.crew.length === 4 && r.crew.every((c) => c.vis), 'four marina workers on the pontoons by day'); ok(r.poses.some((q) => /lines:medKneel|wash:pump/.test(q)), 'at work: ' + r.poses.join(', ')); ok(r.crew.some((c) => c.walking) || r.crew.some((c) => c.pose), 'they walk / work (' + r.crew.map((c) => c.job + ':' + (c.walking ? 'walk' : c.pose)).join(', ') + ')'); });
 
   await stage(p, 'driveby', async () => {
     const g = window.__game, P = g.player, I = window.__Input, W = g.weapons; const out = {}; g.debugCon.exec('give all');

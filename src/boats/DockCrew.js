@@ -49,7 +49,7 @@ export class DockCrew {
       const full = B.berths.filter((b) => b.boat && !b.boat.away && b.walk); const pick = full.length ? full[Math.floor(Math.random() * full.length)] : null;
       if (pick) { const k = Math.round((MARINA.head.z0 - pick.zc) / PITCH + 0.5); const side = pick.side === 'W' ? -1 : 1; const kk = Math.max(1, Math.min(FINGERS, k)); const zf = fingerZ(kk);
         const along = 3 + Math.random() * 6; const x = side < 0 ? MARINA.spine.x0 - along : MARINA.spine.x1 + along; this.go(w, [[SX, zf], [x, zf]]);
-        w.face = Math.atan2(0, pick.zc - zf); w.pose = 'crouch'; w.after = 7 + Math.random() * 6; }
+        w.face = Math.atan2(0, pick.zc - zf); w.pose = 'medKneel' /* kneeling at the cleat, hands on the line */; w.after = 7 + Math.random() * 6; }
       else { this.go(w, P_GANG()); w.pose = 'hips'; w.after = 15; w.face = null; } return; }
     if (w.job === 'rounds') { const opts = [() => P_TEE(MARINA.terminal.x + 1), () => P_HEAD(MARINA.head.x0 + 6 + Math.random() * 25), () => P_FINGER(1 + Math.floor(Math.random() * FINGERS), Math.random() < 0.5 ? -1 : 1, 0.4), () => P_TEE(MARINA.tee.x1 - 3), () => P_GANG()];
       this.go(w, opts[Math.floor(Math.random() * opts.length)]()); w.pose = Math.random() < 0.5 ? 'hips' : null; w.after = 8 + Math.random() * 12; w.face = null; return; }
