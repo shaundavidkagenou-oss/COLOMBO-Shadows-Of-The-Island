@@ -12,7 +12,7 @@ import * as RT from './TexRuntime.js';
 import { writeZip, readZip } from './TexPack.js';
 import { Win, h, btn, num, color, check, select, text, section, beginSession, toast, download, pickFile } from './ui.js';
 import { plan } from '../world/CityPlan.js';
-import { MultiBuilder } from '../gfx/MeshBuilder.js';
+import { MultiBuilder, tagOfFace } from '../gfx/MeshBuilder.js';
 import { buildBase, buildDetail, buildWall, buildWindows } from '../world/BuildingGen.js';
 import { ensureMat, materialLabel, splitKey, parentKey, splittable, ROLE_DEFS, SPLIT } from '../gfx/Materials.js';
 import * as L from '../world/Layout.js';
@@ -115,7 +115,7 @@ class Studio {
     hits.sort((a, c) => a.distance - c.distance);
     const seen = new Set(); const out = [];
     for (const it of hits) { const ms = matsOf(it.object); const mi = Array.isArray(it.object.material) ? (it.face && it.face.materialIndex) || 0 : 0; const m = ms[mi]; if (!m || m.visible === false || (m.transparent && m.opacity < 0.03)) continue;
-      const id = it.object.uuid + ':' + (it.instanceId ?? it.batchId ?? '') + ':' + mi; if (seen.has(id)) continue; seen.add(id); out.push({ obj: it.object, inst: it.instanceId ?? null, batch: it.batchId ?? null, idx: mi, point: it.point.clone(), dist: it.distance, ray: rc.ray.clone() }); if (out.length >= 14) break; }
+      const id = it.object.uuid + ':' + (it.instanceId ?? it.batchId ?? '') + ':' + mi; if (seen.has(id)) continue; seen.add(id); out.push({ obj: it.object, inst: it.instanceId ?? null, batch: it.batchId ?? null, idx: mi, point: it.point.clone(), dist: it.distance, ray: rc.ray.clone(), face: it.faceIndex ?? null }); if (out.length >= 14) break; }
     const same = this.lastPick && Math.hypot(this.lastPick[0] - x, this.lastPick[1] - y) < 4; this.lastPick = [x, y];
     this.hits = out; this.hitIdx = deeper && same ? (this.hitIdx + 1) % Math.max(1, out.length) : deeper ? Math.min(1, out.length - 1) : 0;
     if (!out.length) { this.select(null); toast('Nothing there (sky / empty)', 900); return; }
@@ -147,7 +147,8 @@ class Studio {
   // (same generator + seeds → identical geometry) with one throw-away mesh per part key, and the same ray picks the part.
   inCity(o) { for (let p = o; p; p = p.parent) if (p.name === 'cityBatched' || /^chunk\d+$/.test(p.name || '')) return true; return false; }
   partOf(hit) {
-    if (!hit || !hit.ray || !this.inCity(hit.obj) || !plan.buildings) return null; const p = hit.point, M = 1.4;
+    if (hit && !this.inCity(hit.obj)) { const t = tagOfFace(hit.obj, hit.face); return t ? { building: null, tag: t } : null; } // a landmark site's part (merged mesh ranges)
+    if (!hit || !hit.ray || !plan.buildings) return null; const p = hit.point, M = 1.4;
     let best = null, ba = 1e18; for (const b of plan.buildings) { if (p.x < b.x0 - M || p.x > b.x1 + M || p.z < b.z0 - M || p.z > b.z1 + M) continue; const a = (b.x1 - b.x0) * (b.z1 - b.z0); if (a < ba) { ba = a; best = b; } }
     const walls = []; for (const ch of plan.byChunk) for (const w of ch.walls || []) if (p.x > w.x0 - 0.3 && p.x < w.x1 + 0.3 && p.z > w.z0 - 0.3 && p.z < w.z1 + 0.3) walls.push(w);
     if (!best && !walls.length) return null;
@@ -163,6 +164,7 @@ class Studio {
   partOptions(part) {
     if (!part || !part.tag) return []; const out = []; const sp = splitKey(part.tag); const role = sp && sp.building != null ? sp.base : part.tag; const base = parentKey(role);
     const kind = (k) => materialLabel(k); const ok = (k) => !parentKey(k) || splittable(k);
+    if (sp && sp.scope) { if (ok(part.tag)) out.push({ k: part.tag, label: 'Only ' + sp.scope + ' — ' + kind(sp.base), hint: 'its own copy for this site' }); out.push({ k: sp.base, label: 'Base material: ' + kind(sp.base), hint: 'every site / object using it' }); return out; }
     if (ok(role)) out.push({ k: role, label: kind(role) + ' — every building', hint: ROLE_DEFS[role] ? 'own material of this kind of part' : 'every building with this facade / roof' });
     if (sp && sp.building != null && ok(part.tag)) out.push({ k: part.tag, label: 'Only building #' + sp.building + ' — ' + kind(role), hint: 'its own copy (its chunk is rebuilt with it)' });
     if (base) out.push({ k: base, label: 'Base material: ' + kind(base), hint: 'everything that has no material of its own' });
@@ -222,7 +224,7 @@ class Studio {
   // settings) — only when the material had no base colour texture of its own and the rule doesn't set them already.
   adaptForTexture(r) {
     const m = this.m, b = RT.originalOf(m); const origMap = b ? b.slots.map : m.map; if (origMap) return ''; const did = [];
-    const vc = b && b.props.vertexColors != null ? b.props.vertexColors : m.vertexColors; if (vc && r.props.vertexColors == null) { r.props.vertexColors = false; did.push('per-object tint off'); }
+    const vc = b && b.props.vertexColors != null ? b.props.vertexColors : m.vertexColors; if (!vc) return ''; if (r.props.vertexColors == null) { r.props.vertexColors = false; did.push('per-object tint off'); }
     const mt = b && b.props.metalness != null ? b.props.metalness : m.metalness; if (mt >= 0.5 && r.props.metalness == null) { r.props.metalness = 0.3; did.push('metalness ' + mt.toFixed(2) + ' → 0.30'); }
     const ro = b && b.props.roughness != null ? b.props.roughness : m.roughness; if (did.length && ro < 0.5 && r.props.roughness == null) { r.props.roughness = 0.55; did.push('roughness → 0.55'); }
     return did.length ? 'Texture shown as-is: ' + did.join(', ') + ' (Material settings — change back any time)' : '';

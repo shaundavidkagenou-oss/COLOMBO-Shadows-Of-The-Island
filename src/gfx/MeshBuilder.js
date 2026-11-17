@@ -1,6 +1,6 @@
 // Accumulates triangles into one indexed BufferGeometry (positions, normals, uvs, colours).
 import * as THREE from 'three';
-import { MAT, ensureMat, canCopy, effKey, markSplit } from './Materials.js';
+import { MAT, ensureMat, canCopy, effKey } from './Materials.js';
 const _v = new THREE.Vector3(), _n = new THREE.Vector3(), _m3 = new THREE.Matrix3();
 export class MeshBuilder {
   constructor() { this.pos = []; this.nor = []; this.uv = []; this.col = []; this.idx = []; this.color = [1, 1, 1]; }
@@ -113,18 +113,49 @@ export class MeshBuilder {
 // code looking at mesh names is unaffected; Landmarks.js switches `scope` between sites). Each part is merged into the builder
 // of the material that draws it (Materials.effKey: unsplit roles fall back to their base → the old draw layout). raw: one
 // builder per tag, nothing merged (the Texture Studio's part picker rebuilds a building that way to tell its parts apart).
+// 60th: `scope` (Landmarks.js: one per site) tags every copyable material as 'Scope.base' ('Lotus Tower.concrete'). Those parts
+// are drawn with the base material (merged, same draw calls as before) until a Texture Studio rule gives that site its own copy:
+// split before the build (pack rules, TexRuntime.preload) or live — `live` builders remember which index ranges of each merged
+// mesh belong to which tag, and splitLive() moves a tag's ranges into a mesh of its own (shared vertex buffers, +1 draw per split).
+const LIVE = new Set();
 export class MultiBuilder {
-  constructor(scope = null, { raw = false } = {}) { this.b = new Map(); this.scope = scope; this.raw = raw; this.plain = new Map(); }
-  tag(name) { if (this.scope && !name.includes('.') && !name.includes('@') && canCopy(name)) { const k = this.scope + '.' + name; markSplit(k); return k; } return name; }
+  constructor(scope = null, { raw = false, live = false } = {}) { this.b = new Map(); this.scope = scope; this.raw = raw; this.plain = new Map(); this.seg = live ? new Map() : null; }
+  tag(name) { if (this.scope && !name.includes('.') && !name.includes('@') && canCopy(name)) return this.scope + '.' + name; return name; }
   key(name) { const t = this.tag(name); return this.raw ? t : effKey(t); }
-  get(name) { const k = this.key(name); let b = this.b.get(k); if (!b) { this.b.set(k, (b = new MeshBuilder())); const d = k.indexOf('.'); this.plain.set(k, d > 0 && !k.includes('@') ? k.slice(d + 1) : k); } return b; }
+  get(name) {
+    const t = this.tag(name), k = this.raw ? t : effKey(t); let b = this.b.get(k);
+    if (!b) { this.b.set(k, (b = new MeshBuilder())); const d = k.indexOf('.'); this.plain.set(k, d > 0 && !k.includes('@') ? k.slice(d + 1) : k); }
+    if (this.seg) { let S = this.seg.get(k); if (!S) this.seg.set(k, (S = [])); const L = S[S.length - 1]; if (!L || L[0] !== t) { if (L && L[1] === b.idx.length) S.pop(); const L2 = S[S.length - 1]; if (!L2 || L2[0] !== t) S.push([t, b.idx.length]); } }
+    return b;
+  }
   // a handle that always draws into get(name) under the CURRENT scope (Landmarks.js keeps conc / paint / metal across sites)
   lazy(name) { const self = this; return new Proxy({}, { get(_, p) { const t = self.get(name); const v = t[p]; return typeof v === 'function' ? v.bind(t) : v; } }); }
   toMeshes(materials, opts = {}) {
     const out = [];
-    for (const [name, mb] of this.b) { const g = mb.build(); if (!g) continue; const m = meshFor(name, g, materials, opts); if (m) { m.name = this.plain.get(name) || name; if (m.name !== name) m.userData.matKey = name; out.push(m); } }
+    for (const [name, mb] of this.b) { const n = mb.idx.length; const g = mb.build(); if (!g) continue; const m = meshFor(name, g, materials, opts); if (!m) continue; m.name = this.plain.get(name) || name; if (m.name !== name) m.userData.matKey = name;
+      if (this.seg && materials === MAT) { const segs = []; const S = this.seg.get(name) || []; for (let i = 0; i < S.length; i++) { const a = S[i][1], e = i + 1 < S.length ? S[i + 1][1] : n; if (e <= a) continue; const L = segs[segs.length - 1]; if (L && L[0] === S[i][0] && L[1] + L[2] === a) L[2] += e - a; else segs.push([S[i][0], a, e - a]); }
+        if (segs.some((x) => x[0] !== name)) { m.userData.segs = segs; LIVE.add(m); } }
+      out.push(m); }
     return out;
   }
+}
+// the tag (e.g. 'Lotus Tower.concrete') of triangle `face` of a live mesh, or null
+export function tagOfFace(mesh, face) { const segs = mesh && mesh.userData.segs; if (!segs || face == null) return null; const i = face * 3; for (const s of segs) if (i >= s[1] && i < s[1] + s[2]) return s[0]; return null; }
+// move the ranges tagged with `keys` (just split, Materials.markSplit) out of their merged meshes into meshes of their own
+export function splitLive(keys) {
+  const ks = new Set(keys); let made = 0;
+  for (const m of [...LIVE]) {
+    const segs = m.userData.segs; if (!segs || !m.parent || !segs.some((x) => ks.has(x[0]))) continue;
+    const g = m.geometry, I = g.index.array;
+    const sub = (list) => { let len = 0; for (const x of list) len += x[2]; const A = new I.constructor(len); const out = []; let o = 0; for (const x of list) { A.set(I.subarray(x[1], x[1] + x[2]), o); out.push([x[0], o, x[2]]); o += x[2]; } return [A, out]; };
+    const byTag = new Map(); for (const x of segs) if (ks.has(x[0])) { if (!byTag.has(x[0])) byTag.set(x[0], []); byTag.get(x[0]).push(x); }
+    for (const [t, list] of byTag) { const mat = ensureMat(t); if (!mat) continue; const [A, s2] = sub(list); const ng = new THREE.BufferGeometry(); for (const [an, at] of Object.entries(g.attributes)) ng.setAttribute(an, at); ng.setIndex(new THREE.BufferAttribute(A, 1)); ng.computeBoundingBox(); ng.computeBoundingSphere();
+      const nm = new THREE.Mesh(ng, mat); nm.name = m.name; nm.castShadow = m.castShadow; nm.receiveShadow = m.receiveShadow; nm.renderOrder = m.renderOrder; nm.layers.mask = m.layers.mask; nm.matrixAutoUpdate = false; nm.matrix.copy(m.matrix); nm.userData = { matKey: t, segs: s2 };
+      m.parent.add(nm); nm.updateMatrixWorld(true); LIVE.add(nm); made++; }
+    const keep = segs.filter((x) => !ks.has(x[0]) || !byTag.has(x[0]) || !MAT[x[0]]);
+    if (keep.length) { const [A, s2] = sub(keep); g.setIndex(new THREE.BufferAttribute(A, 1)); g.computeBoundingSphere(); m.userData.segs = s2; } else { m.visible = false; m.userData.segs = []; LIVE.delete(m); }
+  }
+  return made;
 }
 // material for a builder key: role / scoped / per-building keys are made on demand from MAT (Materials.ensureMat); other
 // material tables fall back to the base name ('Scope.paint' → paint)

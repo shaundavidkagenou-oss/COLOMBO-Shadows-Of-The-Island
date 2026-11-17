@@ -86,6 +86,7 @@ export function ensureMat(key) {
 }
 export function roleKeys() { return [...ROLES.keys()]; }
 const FACADE_WIN = new Map(); // facade material → its window layer uniforms (copies share them; see InteriorMapping.applyInteriorMapping)
+export function facadeWindowLayer(m) { return FACADE_WIN.get(m) || null; } // { uWinMap, uWinRM, normal }: the facade's own painted windows
 const facadeKeys = ['colonial', 'brick', 'glass', 'glass2', 'glass3', 'office', 'office2', 'office3', 'hotel', 'shop', 'shop2', 'shop3', 'apartment', 'apartment2', 'villa', 'warehouse'];
 const wetTargets = [];
 // outdoor materials built elsewhere (modelled forecourt slabs …) join the rain response: white-based maps only (the colour is driven)
@@ -214,7 +215,7 @@ export function buildMaterials() {
   for (const k of facadeKeys) MAT['f_' + k].name = 'Building walls · ' + k + ' facade';
   return MAT;
 }
-const BASE_LABEL = { concrete: 'Concrete (base — parts without their own material)', metal: 'Metal (base)', paint: 'Painted surfaces (base)', awning: 'Awnings', roofTiles: 'Clay tile roofs', roofFlat: 'Flat concrete roofs', corrugated: 'Corrugated sheet roofs', shops: 'Shop fronts', signs: 'Shop signs', winGlass: 'Window glass (reflection)',
+const BASE_LABEL = { concrete: 'Concrete', metal: 'Metal', paint: 'Painted surfaces', awning: 'Awnings', roofTiles: 'Clay tile roofs', roofFlat: 'Flat concrete roofs', corrugated: 'Corrugated sheet roofs', shops: 'Shop fronts', signs: 'Shop signs', winGlass: 'Window glass (reflection)',
   kerb: 'Kerbs', walk: 'Pavement (pavers)', walkGrey: 'Pavement (grey pavers)', road: 'Road asphalt', roadTint: 'Road wear overlay', marking: 'Road markings', treeBark: 'Tree bark', palmBark: 'Palm trunks',
   leaves: 'Leaves (universal)', leavesBright: 'Leaves, bright (universal)', palm: 'Palm fronds (universal)' };
 const SHOP_SHUT = { value: 0 };

@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { nightLight } from '../gfx/LightSets.js';
 import { MultiBuilder, SliceBuild, meshFor, matFor, FOLIAGE } from '../gfx/MeshBuilder.js';
-import { MAT } from '../gfx/Materials.js';
+import { MAT, ROLE_DEFS } from '../gfx/Materials.js';
 import { RangeBatch, rangesFor, disposeMesh } from '../gfx/CellBatch.js';
 import { GroundDetail, regTrees } from './GroundDetail.js';
 import { generatePlan, plan, NCX, NCZ, CHUNK, chunkCenter, refitTreeCrowns, landmarkTreeBoxes } from './CityPlan.js';
@@ -210,8 +210,9 @@ export class World {
   // On start, saved rules split their keys before the city is generated, so this only runs while editing.
   rebuildForKeys(keys) {
     const ids = new Set(); let all = false;
-    for (const k of keys) { const m = /@b(\d+)$/.exec(k); if (m) ids.add(+m[1]); else all = true; }
+    for (const k of keys) { const m = /@b(\d+)$/.exec(k); if (m) ids.add(+m[1]); else if (ROLE_DEFS[k]) all = true; } // (landmark site keys 'Scope.base': MeshBuilder.splitLive)
     const list = all ? this.chunks : this.chunks.filter((c) => plan.byChunk[c.idx].buildings.some((b) => ids.has(b.id)));
+    const again = [];
     for (const c of list) {
       const ch = plan.byChunk[c.idx];
       for (const e of c.base || []) if (e.layer === 'bld' && !e.off) { e.batch.setVisibleAt(e.iid, false); e.off = true; } // the batched originals go dark
@@ -219,11 +220,14 @@ export class World {
       for (const m of [...c.group.children]) if (m.isMesh && m.userData.layer === 'bld') { c.group.remove(m); disposeMesh(m); }
       const mb = new MultiBuilder(); for (const b of ch.buildings) buildBase(b, mb); for (const w of ch.walls || []) buildWall(w, mb);
       for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) { m.userData.layer = 'bld'; if (m.name === 'ao') { m.castShadow = false; m.receiveShadow = false; m.renderOrder = 1; } c.group.add(m); }
+      const had = { c, det: !!c.detail, win: !!c.win }; if (had.det || had.win) again.push(had);
       if (this.job && this.job.c === c) this.job = null; if (c.detail) this.disposeDetail(c);
       if (this.wjob && this.wjob.c === c) this.wjob = null; if (c.win) this.disposeWindows(c);
     }
     if (!list.length) return 0;
     this.batchStatic(list, true); for (const c of list) refreshStatic(c.group);
+    // the detail / window joinery that was on screen comes straight back on its new materials (no streaming pop-in while editing)
+    for (const { c, det, win } of again) { if (det && !c.detail) this.buildDetailFor(c); if (win && !c.win) this.buildWindowsFor(c); }
     // batches whose every instance was replaced: removed (no empty draws left behind)
     this.batches = this.batches.filter((B) => { const I = B._instanceInfo; if (Array.isArray(I) && I.some((i) => i && i.active && i.visible)) return true; this.batched.remove(B); B.dispose(); return false; });
     return list.length;

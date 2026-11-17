@@ -25,6 +25,7 @@
 import * as THREE from 'three';
 import { MAT, wetTarget, SPLIT, markSplit, splittable, ensureMat, materialLabel, splitKey } from '../gfx/Materials.js';
 import { vehicleMaterials } from '../vehicles/VehicleModels.js';
+import { splitLive } from '../gfx/MeshBuilder.js';
 import { storeGet, storeSet, setSavedFlag, TEXTURE_STUDIO } from './boot.js';
 
 export const MANIFEST_FORMAT = 'colombo.texture-manifest';
@@ -313,8 +314,17 @@ export function restoreMaterial(m) {
   restoreProps(m, b.props); const w = b.wet && wetTarget(m); if (w) { w[1] = b.wet[0]; w[2] = b.wet[1]; w[3] = b.wet[2]; }
   if (prog) m.needsUpdate = true; APPLIED.delete(m);
 }
+// 60th: a colour texture on a material that had none (plain vertex-coloured metal / paint): shown as the picture itself — the
+// per-object tint off, a high metalness lowered (else a dark mirror: lamp posts went pitch black). Same as the Studio's assign
+// (TextureStudio.adaptForTexture); here for rules saved before the 60th. Only fills settings the rule leaves unset.
+function adaptLegacy(r, b) {
+  const sm = r.slots && r.slots.map; if (!sm || sm.clear || !sm.tex || b.slots.map || !r.props) return;
+  if (!b.props.vertexColors) return; // vehicles / unique materials: untouched (their colour is the material's own)
+  if (r.props.vertexColors == null) r.props.vertexColors = false;
+  if (b.props.metalness >= 0.5 && r.props.metalness == null) { r.props.metalness = 0.3; if (b.props.roughness < 0.5 && r.props.roughness == null) r.props.roughness = 0.55; }
+}
 async function applyRuleTo(m, key, r) {
-  const b = backup(m); const rev = r.__rev = r.__rev || 1; const values = { slots: {}, props: {} }; APPLIED.set(m, { key, rev, values }); let prog = false;
+  const b = backup(m); adaptLegacy(r, b); const rev = r.__rev = r.__rev || 1; const values = { slots: {}, props: {} }; APPLIED.set(m, { key, rev, values }); let prog = false;
   // settings (sync)
   restoreProps(m, b.props); const w = b.wet && wetTarget(m); if (w) { w[1] = b.wet[0]; w[2] = b.wet[1]; w[3] = b.wet[2]; }
   for (const p of PROPS) { const v = r.props[p.k]; if (v == null || !(p.k in m)) continue; setProp(m, p.k, v); values.props[p.k] = v;
@@ -480,7 +490,7 @@ export function setAssetBase(url) { S.manifest.assetBase = String(url || '').tri
 // a rule for a part / per-building key gives those parts their own draw: mark it split and rebuild what draws it (World)
 export function ensureSplit(keys) {
   const fresh = []; for (const k of keys) if (!SPLIT.has(k) && splittable(k) && markSplit(k)) { ensureMat(k); fresh.push(k); }
-  if (fresh.length) { const W = S.game && S.game.world; if (W && W.rebuildForKeys && W.chunks && W.chunks.length) { const n = W.rebuildForKeys(fresh); if (n) console.info(`[texture studio] ${fresh.join(', ')}: own material — ${n} chunk(s) rebuilt`); } MATKEY = null; }
+  if (fresh.length) { const W = S.game && S.game.world; if (W && W.rebuildForKeys && W.chunks && W.chunks.length) { const n = W.rebuildForKeys(fresh); if (n) console.info(`[texture studio] ${fresh.join(', ')}: own material — ${n} chunk(s) rebuilt`); } const nl = splitLive(fresh); if (nl) console.info(`[texture studio] ${fresh.join(', ')}: own material — ${nl} landmark mesh(es) split off`); MATKEY = null; if (S.ready) scan(); } // users of the new materials (Studio: "Shared by")
   return fresh;
 }
 // before the city is generated (Game.init → boot.preloadTextures): read the manifest and split the keys its rules use, so the
@@ -501,6 +511,7 @@ export async function boot(game, { pack = null } = {}) {
   S.game = game; if (S.ready) return S;
   await preload({ pack });
   ensureSplit(Object.keys(S.manifest.rules).filter((k) => k.startsWith('mat:') && S.manifest.rules[k].enabled !== false).map((k) => k.slice(4))); // keys not split before the city was built (rules made in another session): rebuilt now
+  for (const k of Object.keys(S.manifest.rules)) if (k.startsWith('mat:') && splitKey(k.slice(4))) ensureMat(k.slice(4)); // parts streamed in later (window joinery, detail) find their material ready, rule applied
   S.ready = true; scan(); const keys = Object.keys(S.manifest.rules);
   if (keys.length) await Promise.race([Promise.all(keys.map((k) => applyKey(k))), new Promise((r) => setTimeout(r, 4000))]); // loading keeps going after 4 s
   if (!timer) timer = setInterval(() => { if (Object.keys(S.manifest.rules).length || studioOpen) scan(); }, 1500);

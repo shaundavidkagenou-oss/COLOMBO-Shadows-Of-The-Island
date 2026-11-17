@@ -22,7 +22,7 @@ import * as THREE from 'three';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { LayerRouter, mergeLayered, stationMaterial, colKey } from '../gfx/StationPBR.js';
 import { setInterior, setInteriorNight, patchInterior } from '../gfx/InteriorLight.js';
-import { MAT } from '../gfx/Materials.js';
+import { MAT, roleInfo } from '../gfx/Materials.js';
 import * as goods from '../gfx/Goods.js';
 import { officeChair } from '../gfx/OfficeChair.js';
 import { RNG } from '../core/rng.js';
@@ -687,7 +687,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   const at = buildAtlases(); const tex = (c) => { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; };
   const mk = (c, lit) => { const t = tex(c); return new THREE.MeshStandardMaterial({ map: t, roughness: 0.62, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: lit ? 0.75 : 0, side: THREE.FrontSide }); };
   const smats = { sA: mk(at.a), sB: mk(at.b), sC: mk(at.c), sD: mk(at.d, true) }; anim.signMats = smats; for (const k in smats) patchInterior(smats[k]);
-  for (const k of ['corrugated', 'roofTiles', 'winGlass', 'glass']) if (MAT[k] && !MAT[k].userData.interior) { patchInterior(MAT[k]); MAT[k].userData.interior = true; } // the shed roof's underside, the glazing: dim under the roofs too
+  for (const k of Object.keys(MAT)) { const ri = roleInfo(k), root = ri ? ri.root : k; if (!['corrugated', 'roofTiles', 'winGlass', 'glass'].includes(root)) continue; if (MAT[k] && MAT[k].isMaterial && !MAT[k].userData.interior) { patchInterior(MAT[k]); MAT[k].userData.interior = true; } } // + their own-material copies made so far (60th; later copies inherit it) // the shed roof's underside, the glazing: dim under the roofs too
   for (const m of sb.toMeshes(smats, { cast: false, receive: true })) { m.name = 'fort-' + m.name; group.add(m); }
   const fine = []; // 55th: shelf goods and bottles (small, dense) are drawn only within 30 m of the camera — see anim.update
   { const g1 = GD.build(); if (g1) { const m = new THREE.Mesh(g1, goods.goodsMaterial()); m.name = 'fort-goods'; fine.push(m); m.castShadow = true; m.receiveShadow = true; group.add(m); } const g2 = BG.build(); if (g2) { const m = new THREE.Mesh(g2, goods.bottleGlassMaterial()); m.name = 'fort-bottle-glass'; m.renderOrder = 3; fine.push(m); group.add(m); } }

@@ -79,13 +79,13 @@ function hipRoof(mb, x0, x1, z0, z1, y, rise, overhang, color) {
 function gableRoof(mb, x0, x1, z0, z1, y, rise, color, alongX = true) {
   const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
   if (alongX) {
-    mb.quad([x0, y, z1], [x1, y, z1], [x1, y + rise, cz], [x0, y + rise, cz], [0, 0, (x1 - x0) / 4, 1], color);
-    mb.quad([x1, y, z0], [x0, y, z0], [x0, y + rise, cz], [x1, y + rise, cz], [0, 0, (x1 - x0) / 4, 1], color);
-    const sv = 1 / Math.hypot((z1 - z0) / 2, rise); mb.planar([[x1, y, z1], [x1, y, z0], [x1, y + rise, cz]], color, 0.25, sv); mb.planar([[x0, y, z0], [x0, y, z1], [x0, y + rise, cz]], color, 0.25, sv); // gable ends: world-scale (60th)
+    mb.planar([[x0, y, z1], [x1, y, z1], [x1, y + rise, cz], [x0, y + rise, cz]], color);
+    mb.planar([[x1, y, z0], [x0, y, z0], [x0, y + rise, cz], [x1, y + rise, cz]], color);
+    mb.planar([[x1, y, z1], [x1, y, z0], [x1, y + rise, cz]], color); mb.planar([[x0, y, z0], [x0, y, z1], [x0, y + rise, cz]], color); // slopes + gable ends: world-scale, level courses (60th)
   } else {
-    mb.quad([x1, y, z1], [x1, y, z0], [cx, y + rise, z0], [cx, y + rise, z1], [0, 0, (z1 - z0) / 4, 1], color);
-    mb.quad([x0, y, z0], [x0, y, z1], [cx, y + rise, z1], [cx, y + rise, z0], [0, 0, (z1 - z0) / 4, 1], color);
-    const sv = 1 / Math.hypot((x1 - x0) / 2, rise); mb.planar([[x0, y, z1], [x1, y, z1], [cx, y + rise, z1]], color, 0.25, sv); mb.planar([[x1, y, z0], [x0, y, z0], [cx, y + rise, z0]], color, 0.25, sv); // gable ends: world-scale (60th)
+    mb.planar([[x1, y, z1], [x1, y, z0], [cx, y + rise, z0], [cx, y + rise, z1]], color);
+    mb.planar([[x0, y, z0], [x0, y, z1], [cx, y + rise, z1], [cx, y + rise, z0]], color);
+    mb.planar([[x0, y, z1], [x1, y, z1], [cx, y + rise, z1]], color); mb.planar([[x1, y, z0], [x0, y, z0], [cx, y + rise, z0]], color); // slopes + gable ends: world-scale, level courses (60th)
   }
 }
 

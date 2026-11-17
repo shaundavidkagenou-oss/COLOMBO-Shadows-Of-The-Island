@@ -68,7 +68,7 @@ function gopuramTexture() { // colourful tiers of sculpted figures (abstracted)
 const smooth01 = (t) => { t = Math.min(1, Math.max(0, t)); return t * t * (3 - 2 * t); };
 export function buildLandmarks() {
   const group = new THREE.Group(); group.name = 'landmarks';
-  const mb = new MultiBuilder(); const colliders = []; const anim = {};
+  const mb = new MultiBuilder(null, { live: true }); const colliders = []; const anim = {};
   const conc = mb.lazy('concrete'), paint = mb.lazy('paint'), metal = mb.lazy('metal'); // 60th: each landmark below sets mb.scope → its own copies ('Lotus Tower.concrete' …) for the Texture Studio
   const box = (b, cx, cy, cz, sx, sy, sz, col, o = {}) => b.box(cx, cy, cz, sx, sy, sz, { col: C(col), uvScale: o.uv || 3, bottom: true, ...o }); // closed boxes: canopies, lintels and slabs stay solid when seen from below
   const coll = (x0, x1, z0, z1, h, extra = {}) => colliders.push({ x0, x1, z0, z1, h, kind: 'landmark', ...extra });
@@ -270,7 +270,7 @@ export function buildLandmarks() {
   };
   // 54th: Colombo Fort is built in full (FortStation.js). Its own builder → its own meshes, so the ~110k triangles of the
   // station are frustum-culled as one unit instead of being drawn with every landmark in the city (and in every shadow pass)
-  { const fmb = new MultiBuilder('Fort Railway Station'); const fg = new THREE.Group(); fg.name = 'fort-station';
+  { const fmb = new MultiBuilder('Fort Railway Station', { live: true }); const fg = new THREE.Group(); fg.name = 'fort-station';
     anim.fortStation = buildFortStation({ mb: fmb, colliders, group: fg, C, hip, lightPool });
     for (const m of fmb.toMeshes(MAT, { cast: true, receive: true })) { m.name = 'fort-' + m.name; if (m.name === 'fort-emissive') m.castShadow = false; fg.add(m); }
     group.add(fg); }
