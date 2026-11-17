@@ -55,6 +55,18 @@ for (const w of [0, 1, 3, 4, 7]) { for (let i = 0; i < 6; i++) { const [x, z] = 
 walkClear(F.vendorLoop.slice(1).concat([F.vendorLoop[0]]), F.vendorLoop[0], 'vendors\' beat (platform 1 ↔ hall)');
 ok(inAnnouncerRoom(F.ann.chair.x, F.ann.chair.z) && !inAnnouncerRoom(F.ann.chair.x, F.ann.z1 + 1), 'announcer\'s room test');
 
+// 55th: the player can't walk into a platform body from the tracks (it used to be a floor only from above), nor through the
+// palisade gates closing the platform-end staff ramps. A walker with the player's own collision (r 0.32, step 0.45, height
+// 1.75, ground snap step 0.5) starts on the track bed and heads at every platform face / end
+{ const plats = [F.p1, ...F.islands]; const inBody = (x, z, y) => plats.some((P) => x > P.x0 + 0.05 && x < P.x1 - 0.05 && z > P.z0 + 0.05 && z < P.z1 - 0.05 && y < FL - 0.3);
+  const walk = (x, z, dx, dz, n = 160) => { let y = col.groundAt(x, z, 0.6, 0.5); for (let i = 0; i < n; i++) { const r = col.resolveCircle(x + dx * 0.05, z + dz * 0.05, 0.32, y, 0.45, 1.75); x = r.x; z = r.z; y = col.groundAt(x, z, y, 0.5); if (inBody(x, z, y)) return `inside a platform at ${x.toFixed(2)},${z.toFixed(2)} y ${y.toFixed(2)}`; } return { x, z, y }; };
+  const gaps = [[F.p1.z1, F.islands[0].z0], [F.islands[0].z1, F.islands[1].z0]]; let bad = null, n = 0;
+  for (const [za, zb] of gaps) for (let x = F.islands[0].x0 + 3; x < F.islands[0].x1 - 3; x += 9.7) for (const [zs, dz] of [[(za + zb) / 2, -1], [(za + zb) / 2, 1], [(za + zb) / 2, -0.7], [(za + zb) / 2, 0.7]]) { n++; const r = walk(x, zs, dz * 0.4, dz, 120); if (typeof r === 'string' && !bad) bad = r; }
+  ok(!bad, `track bed → platform faces: never inside a platform body (${n} walks)${bad ? ': ' + bad : ''}`);
+  // ends: from the ballast beyond each platform end, straight at it (ramps are walkable up to the gate, the gate holds)
+  let badE = null, through = 0; for (const P of plats) for (const [xe, dir] of [[P.x0, -1], [P.x1, 1]]) for (const zf of [0.3, 0.5, 0.7]) { const z = P.z0 + (P.z1 - P.z0) * zf; const r = walk(xe + dir * 4.5, z, -dir, 0, 200);
+    if (typeof r === 'string') { badE = badE || r; continue; } if ((r.x - xe) * dir < -0.4) through++; }
+  ok(!badE, `platform ends: never inside a platform body${badE ? ': ' + badE : ''}`); ok(through === 0, `platform-end gates hold (${through} walked through)`); }
 // ---------------------------------------------------------------- 2. live
 const t0 = T.trains[0]; const st = S.stop;
 const sendTrain = (lead) => { const dir = st.s + lead + TRAIN_LEN < R.PATH.total ? -1 : 1; t0.dir = dir; t0.sLow = st.s - TRAIN_LEN / 2 - dir * lead; t0.state = 'run'; t0.speed = 8; t0.nextStop = st; t0.updateLamps(); t0.place(); };
