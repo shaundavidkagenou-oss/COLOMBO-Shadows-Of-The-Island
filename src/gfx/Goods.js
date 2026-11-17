@@ -92,7 +92,10 @@ const PROF = {
   water: [[0.0, 0.0], [0.03, 0.0], [0.033, 0.01], [0.033, 0.07], [0.031, 0.08], [0.033, 0.09], [0.033, 0.15], [0.026, 0.18], [0.0135, 0.205], [0.0135, 0.215], [0.0, 0.215]],
   milk: [[0.0, 0.0], [0.024, 0.0], [0.026, 0.006], [0.026, 0.1], [0.02, 0.12], [0.014, 0.135], [0.014, 0.142], [0.0, 0.142]],
 };
-const LATHE = {}; const lathe = (k, s) => { const key = k + s; if (!LATHE[key]) LATHE[key] = new THREE.LatheGeometry(PROF[k].map(([r, h]) => new THREE.Vector2(r * s, h)), 14); return LATHE[key]; };
+const LATHE = {}; const lathe = (k, s) => { const key = k + s; if (!LATHE[key]) LATHE[key] = new THREE.LatheGeometry(PROF[k].map(([r, h]) => new THREE.Vector2(r * s, h)), 10); return LATHE[key]; };
+// the liquid: its own short profile — the inner wall (90 %) up to the fill line, then flat across (55th triangle budget: the old
+// liquid was the whole inner lathe with the points above the line collapsed onto it, ~250 triangles of which half had no area)
+const LIQ = {}; const liquid = (k, s, lim) => { const key = k + s + ':' + lim.toFixed(3); if (!LIQ[key]) { const pts = []; for (const [r, h] of PROF[k]) { if (h >= lim) { const lr = pts.length ? pts[pts.length - 1].x : r * s * 0.9; pts.push(new THREE.Vector2(lr, lim)); break; } pts.push(new THREE.Vector2(r * s * 0.9, h)); } pts.push(new THREE.Vector2(0, lim)); LIQ[key] = new THREE.LatheGeometry(pts, 8); } return LIQ[key]; };
 // kinds: label index, liquid swatch, cap swatch, profile, fill level (0..1 of the body)
 export const DRINKS = [
   { label: 0, liquid: SW.water, cap: SW.capBlue, prof: 'water', fill: 0.88 }, { label: 1, liquid: SW.cola, cap: SW.capRed, prof: 'soda', fill: 0.86 }, { label: 2, liquid: SW.orange, cap: SW.capGold, prof: 'soda', fill: 0.86 },
@@ -105,10 +108,10 @@ export function bottle(G, GL, x, y, z, kind = 0, s = 1) {
   _m.makeTranslation(x, y, z); GL.geometry(lathe(D.prof, s), _m, [1, 1, 1]);
   { const v0 = G.vcount; const g = lathe(D.prof, s * 0.9); const lim = body * D.fill; const pos = g.attributes.position; const m2 = new THREE.Matrix4().makeTranslation(x, y + 0.002, z);
     // the liquid: the inner lathe clipped to the fill line (its vertices above the line are pulled down onto it: a flat surface)
-    const tmp = g.clone(); const p2 = tmp.attributes.position; for (let i = 0; i < p2.count; i++) if (p2.getY(i) > lim) p2.setY(i, lim); G.geometry(tmp, m2, WHITE); tmp.dispose(); flat(G, v0, GOODS.sw(D.liquid)); void pos; }
-  { const r = P[2][0] * s + 0.0008, h0 = body * 0.3, h1 = body * 0.82; const v0 = G.vcount; G.cylinder(x, y + h0, z, r, r, h1 - h0, 16, { col: WHITE, caps: false }); // label band
+    G.geometry(liquid(D.prof, s, lim), m2, WHITE); flat(G, v0, GOODS.sw(D.liquid)); void pos; void g; }
+  { const r = P[2][0] * s + 0.0008, h0 = body * 0.3, h1 = body * 0.82; const v0 = G.vcount; G.cylinder(x, y + h0, z, r, r, h1 - h0, 12, { col: WHITE, caps: false }); // label band
     for (let v = v0; v < G.vcount; v++) { G.uv[v * 2] = G.uv[v * 2] / (Math.PI * 2 * r); G.uv[v * 2 + 1] = G.uv[v * 2 + 1] / (h1 - h0); } remap(G, v0, GOODS.label(D.label)); }
-  { const rn = P[P.length - 2][0] * s + 0.0012; const v0 = G.vcount; G.cylinder(x, y + top - 0.012, z, rn, rn, 0.014, 10, { col: WHITE }); flat(G, v0, GOODS.sw(D.cap)); } // cap
+  { const rn = P[P.length - 2][0] * s + 0.0012; const v0 = G.vcount; G.cylinder(x, y + top - 0.012, z, rn, rn, 0.014, 8, { col: WHITE }); flat(G, v0, GOODS.sw(D.cap)); } // cap
   return top;
 }
 // a strip of sachets hanging from a clip line: n packets one under the other, slightly turned

@@ -129,7 +129,16 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   const stone = new LayerRouter(lmb, 'concrete', pick), wallM = new LayerRouter(lmb, 'plaster', (c) => { const k = pick(c); return k === 'mosaic' || k === 'concrete' ? k : null; }), paint = new LayerRouter(lmb, 'paint', pick), metal = new LayerRouter(lmb, 'iron', (c) => { const k = pick(c); return k === 'steel' || k === 'under' || k === 'rubber' || k === 'enamel' || k === 'wood' ? k : null; });
   const wglass = mb.get('winGlass'), glass = mb.get('glass'), emis = mb.get('emissive'), corr = mb.get('corrugated');
   // box from bounds
-  const B = (b, x0, x1, y0, y1, z0, z1, col, o = {}) => { if (x1 < x0) [x0, x1] = [x1, x0]; if (y1 < y0) [y0, y1] = [y1, y0]; if (z1 < z0) [z0, z1] = [z1, z0]; if (x1 - x0 < 1e-4 || y1 - y0 < 1e-4 || z1 - z0 < 1e-4) return; b.box((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, x1 - x0, y1 - y0, z1 - z0, { col: cc(col), uvScale: o.uv || 3, bottom: o.bottom ?? true, top: o.top ?? true }); };
+  const B = (b, x0, x1, y0, y1, z0, z1, col, o = {}) => { if (x1 < x0) [x0, x1] = [x1, x0]; if (y1 < y0) [y0, y1] = [y1, y0]; if (z1 < z0) [z0, z1] = [z1, z0]; if (x1 - x0 < 1e-4 || y1 - y0 < 1e-4 || z1 - z0 < 1e-4) return; const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0, TH = 0.012; // 55th triangle budget: faces that can never be seen are not built —
+    // a paper-thin piece (poster, joint strip, card, slat < 1.2 cm) keeps only its two broad faces; a thin bar loses its end caps;
+    // anything standing on the hall / platform floor or the ground loses its bottom
+    let top = o.top ?? true, bottom = o.bottom ?? true, sides = 15; const onFloor = (Math.abs(y0 - FL) < 0.012 || Math.abs(y0 - Y) < 0.012 || y0 < Y - 0.02);
+    if (onFloor && o.bottom === undefined) bottom = false;
+    const tx = dx < TH, ty = dy < TH, tz = dz < TH;
+    if (tx && !ty && !tz) sides = 12; else if (tz && !tx && !ty) sides = 3; else if (ty && !tx && !tz) { sides = 0; top = true; bottom = o.bottom === true || !onFloor; }
+    else if (tx && tz && !ty) { top = false; bottom = false; } else if (tx && ty && !tz) sides = 12; else if (ty && tz && !tx) sides = 3;
+    if (o.sides !== undefined) sides = o.sides;
+    b.box((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, dx, dy, dz, { col: cc(col), uvScale: o.uv || 3, bottom, top, sides }); };
   const XC = new THREE.CylinderGeometry(1, 1, 1, 18); const xcyl = (b, xa, xb2, y, z, r, col) => b.geometry(XC, new THREE.Matrix4().makeRotationZ(Math.PI / 2).premultiply(new THREE.Matrix4().makeScale(Math.abs(xb2 - xa), r, r)).setPosition((xa + xb2) / 2, y, z), col); // round bar along x
   const coll = (x0, x1, z0, z1, h, extra = {}) => colliders.push({ x0, x1, z0, z1, h, kind: 'landmark', ...extra });
   const surf = (x0, x1, z0, z1, h, kind = 'platform', extra = {}) => colliders.push({ x0, x1, z0, z1, h, kind, ...extra });
@@ -229,7 +238,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
     const z = zf + sgn * 0.02, w = 1.7, y0 = FL + 1.35, y1 = FL + 3.9;
     B(wglass, x - w / 2 + 0.06, x + w / 2 - 0.06, y0 + 0.05, y1, z - 0.01, z + 0.01, '#000');
     for (const e of [-1, 1]) B(paint, x + e * (w / 2 - 0.05) - 0.05, x + e * (w / 2 - 0.05) + 0.05, y0, y1 + 0.2, z - 0.04, z + 0.04, SHUT);
-    for (let k = 0; k < 11; k++) { const yy = y0 + 0.12 + k * 0.155; B(paint, x - w / 2 + 0.1, x + w / 2 - 0.1, yy, yy + 0.07, z - 0.05, z + 0.05, SHUT); } // louvred lower shutters (upper part glazed fanlight)
+    for (let k = 0; k < 11; k++) { const yy = y0 + 0.12 + k * 0.155; B(paint, x - w / 2 + 0.1, x + w / 2 - 0.1, yy, yy + 0.07, z - 0.05, z + 0.05, SHUT, { sides: 3 }); } /* slat ends are inside the frame */ // louvred lower shutters (upper part glazed fanlight)
     B(paint, x - 0.025, x + 0.025, y0, y0 + 1.85, z - 0.05, z + 0.05, SHUT);
     B(paint, x - w / 2 - 0.12, x + w / 2 + 0.12, y0 - 0.1, y0, z - 0.14 * -sgn, z, '#d8d2c2'); // sill
     const R = 1.6; for (let k = 0; k < 9; k++) { const a0 = -0.56 + (k / 9) * 1.12, a1 = -0.56 + ((k + 1) / 9) * 1.12; const xa = x + Math.sin(a0) * R, xb = x + Math.sin(a1) * R, ya = y1 - R + Math.cos(a0) * R + 0.38, yb = y1 - R + Math.cos(a1) * R + 0.38; beam(paint, xa, ya, z + sgn * 0.04, xb, yb, z + sgn * 0.04, 0.18, 0.08, cc('#e9e4d6')); } // segmental arch moulding
@@ -322,7 +331,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
     B(paint, -61.0, -60.7, FL + 0.92, FL + 1.04, z - 0.7, z - 0.4, '#d4d2cc'); B(paint, -60.95, -60.55, FL + 0.92, FL + 0.96, z - 0.2, z + 0.15, '#7a6a52');
     metal.cylinder(-61.75, FL, z, 0.025, 0.025, 0.7, 6, { col: cc('#3a3a3a') }); paint.cylinder(-61.75, FL + 0.66, z, 0.2, 0.2, 0.06, 10, { col: cc('#2c2c2c') }); metal.cylinder(-61.75, FL + 0.26, z, 0.2, 0.2, 0.02, 10, { col: cc('#555'), caps: false });
     B(paint, -63.8, -63.5, FL + 1.1, FL + 2.3, z - 0.7, z + 0.7, '#6b4a2c'); for (let r = 0; r < 6; r++) B(paint, -63.52, -63.48, FL + 1.12 + r * 0.2, FL + 1.14 + r * 0.2, z - 0.68, z + 0.68, '#3e2a18'); for (let c = 0; c < 8; c++) B(paint, -63.52, -63.48, FL + 1.1, FL + 2.3, z - 0.68 + c * 0.19, z - 0.66 + c * 0.19, '#3e2a18');
-    for (let r = 0; r < 6; r++) for (let c = 0; c < 7; c++) if ((r * 7 + c * 3 + i) % 4) B(paint, -63.5, -63.46, FL + 1.15 + r * 0.2, FL + 1.27 + r * 0.2, z - 0.63 + c * 0.19, z - 0.53 + c * 0.19, ['#d9c25a', '#c8d8e8', '#e8b0b0', '#b8d8b0'][(r + c + i) % 4]);
+    for (let r = 0; r < 6; r++) for (let c = 0; c < 7; c++) if ((r * 7 + c * 3 + i) % 4) B(paint, -63.5, -63.49, FL + 1.15 + r * 0.2, FL + 1.27 + r * 0.2, z - 0.63 + c * 0.19, z - 0.53 + c * 0.19, ['#d9c25a', '#c8d8e8', '#e8b0b0', '#b8d8b0'][(r + c + i) % 4]);
   });
   for (let z = ZF + 2; z < ZB - 1; z += 4) B(emis, -62.2, -61.9, FL + 3.36, FL + 3.4, z - 0.6, z + 0.6, [1, 0.98, 0.92]);
   // fare boards high on the counter wall + the trilingual TICKETS board, queue rails
@@ -527,7 +536,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
     const post = (zz) => { B(metal, x - 0.045, x + 0.045, y0, y0 + 1.5, zz - 0.045, zz + 0.045, IRON); B(metal, x - 0.065, x + 0.065, y0 + 1.5, y0 + 1.54, zz - 0.065, zz + 0.065, IRON); };
     for (let zz = za; zz <= zb + 1e-3; zz += 2.4) post(Math.min(zz, zb)); post(zb); post(zm - gw - 0.05); post(zm + gw + 0.05);
     for (const yr of [y0 + 0.14, y0 + 1.3]) B(metal, x - 0.02, x + 0.02, yr - 0.025, yr + 0.025, za, zb, IRON);
-    for (let zz = za + 0.08; zz < zb - 0.04; zz += 0.125) { B(metal, x - 0.009, x + 0.009, y0 + 0.06, y0 + 1.42, zz - 0.009, zz + 0.009, IRON); B(metal, x - 0.016, x + 0.016, y0 + 1.42, y0 + 1.47, zz - 0.016, zz + 0.016, IRON); }
+    for (let zz = za + 0.08; zz < zb - 0.04; zz += 0.13) { B(metal, x - 0.009, x + 0.009, y0 + 0.06, y0 + 1.42, zz - 0.009, zz + 0.009, IRON, { sides: 12, top: false, bottom: false }); B(metal, x - 0.016, x + 0.016, y0 + 1.42, y0 + 1.47, zz - 0.016, zz + 0.016, IRON, { sides: 12, bottom: false }); } /* bars: the two faces seen through the fence (street / platform side), spear tips with their tops */
     for (const sg of [-1, 1]) { const zo = zm + sg * 0.03, zf = zm + sg * gw; rod(metal, x, y0 + 0.16, zf, x, y0 + 1.28, zo, 0.014, cc(IRON)); }
     B(metal, x - 0.04 * dir, x - 0.01 * dir, y0 + 0.92, y0 + 1.06, zm - 0.09, zm + 0.09, '#6e6a62'); B(metal, x - 0.07 * dir, x - 0.04 * dir, y0 + 0.86, y0 + 0.96, zm - 0.03, zm + 0.03, '#a88a3a');
     coll(Math.min(x - 0.08, x + 0.08), Math.max(x - 0.08, x + 0.08), z0, z1, FL + 1.5); };
@@ -558,8 +567,8 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   // stabled maroon rake (siding A) and a parked blue S11-style set (siding B): merged into the landmarks mesh (static)
   const MAPN = { paint: 'paint', metal: 'metal', trainGlass: 'glass', trainCabGlass: 'winGlass', trainLamp: 'emissive' };
   const place = (sub, x, z, yaw) => { const m = new THREE.Matrix4().makeRotationY(yaw).setPosition(x, RAIL_TOP, z); for (const [name, b] of sub.b) { const g = b.build(); if (!g) continue; (name[0] === '@' ? lmb.get(name.slice(1)) : mb.get(MAPN[name] || name)).geometry(g, m, [1, 1, 1]); g.dispose(); } }; // '@layer' = the cars' layered PBR surfaces
-  { const coach = buildClassicCoach(); for (let k = 0; k < 3; k++) { const x = -96 + k * (COACH_LEN + 1.0); place(coach, x, F.sidings[0].z, Math.PI / 2); coll(x - COACH_LEN / 2, x + COACH_LEN / 2, F.sidings[0].z - 1.45, F.sidings[0].z + 1.45, RAIL_TOP + 3.9); } }
-  { const cab = buildDmuCar(true).mb, tr = buildDmuCar(false).mb; const z = F.sidings[1].z; const xs = [-40, -40 - (DMU_LEN + 1), -40 - 2 * (DMU_LEN + 1)]; place(cab, xs[0], z, Math.PI / 2); place(tr, xs[1], z, Math.PI / 2); place(cab, xs[2], z, -Math.PI / 2); for (const x of xs) coll(x - DMU_LEN / 2, x + DMU_LEN / 2, z - 1.5, z + 1.5, RAIL_TOP + 4.0); }
+  { const coach = buildClassicCoach({ lod: true }); for (let k = 0; k < 3; k++) { const x = -96 + k * (COACH_LEN + 1.0); place(coach, x, F.sidings[0].z, Math.PI / 2); coll(x - COACH_LEN / 2, x + COACH_LEN / 2, F.sidings[0].z - 1.45, F.sidings[0].z + 1.45, RAIL_TOP + 3.9); } }
+  { const cab = buildDmuCar(true, { lod: true }).mb, tr = buildDmuCar(false, { lod: true }).mb; const z = F.sidings[1].z; const xs = [-40, -40 - (DMU_LEN + 1), -40 - 2 * (DMU_LEN + 1)]; place(cab, xs[0], z, Math.PI / 2); place(tr, xs[1], z, Math.PI / 2); place(cab, xs[2], z, -Math.PI / 2); for (const x of xs) coll(x - DMU_LEN / 2, x + DMU_LEN / 2, z - 1.5, z + 1.5, RAIL_TOP + 4.0); }
 
   // ================================================================ 6. the train shed: columns, lattice arched trusses, roof + clerestory
   const onPlat = (z) => (z > F.p1.z0 + 1 && z < F.p1.z1 - 1) || F.islands.some((I) => z > I.z0 + 1 && z < I.z1 - 1);
@@ -634,7 +643,8 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   const smats = { sA: mk(at.a), sB: mk(at.b), sC: mk(at.c), sD: mk(at.d, true) }; anim.signMats = smats; for (const k in smats) patchInterior(smats[k]);
   for (const k of ['corrugated', 'roofTiles', 'winGlass', 'glass']) if (MAT[k] && !MAT[k].userData.interior) { patchInterior(MAT[k]); MAT[k].userData.interior = true; } // the shed roof's underside, the glazing: dim under the roofs too
   for (const m of sb.toMeshes(smats, { cast: false, receive: true })) { m.name = 'fort-' + m.name; group.add(m); }
-  { const g1 = GD.build(); if (g1) { const m = new THREE.Mesh(g1, goods.goodsMaterial()); m.name = 'fort-goods'; m.castShadow = true; m.receiveShadow = true; group.add(m); } const g2 = BG.build(); if (g2) { const m = new THREE.Mesh(g2, goods.bottleGlassMaterial()); m.name = 'fort-bottle-glass'; m.renderOrder = 3; group.add(m); } }
+  const fine = []; // 55th: shelf goods and bottles (small, dense) are drawn only within 30 m of the camera — see anim.update
+  { const g1 = GD.build(); if (g1) { const m = new THREE.Mesh(g1, goods.goodsMaterial()); m.name = 'fort-goods'; fine.push(m); m.castShadow = true; m.receiveShadow = true; group.add(m); } const g2 = BG.build(); if (g2) { const m = new THREE.Mesh(g2, goods.bottleGlassMaterial()); m.name = 'fort-bottle-glass'; m.renderOrder = 3; fine.push(m); group.add(m); } }
   { // swinging signs: one mesh, one draw call — every vertex carries its sign's pivot + index, the vertex shader turns it
     const HB = new MultiBuilder().get('hang'), WU = [773 / 1024, 1 - 7 / 256]; const swv = []; const sw = [];
     const flat = (v0) => { for (let v = v0; v < HB.vcount; v++) { HB.uv[v * 2] = WU[0]; HB.uv[v * 2 + 1] = WU[1]; } };
@@ -684,7 +694,9 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
     if (px !== undefined && Math.hypot(px - (X0 + X1) / 2, pz - (ZF + F.shed.zB) / 2) > 320) return; L.last = now; L.tick++;
     drawBoards(L, trains.forecast(FORT.stopName || 'Colombo Fort', 4), hour, mps); };
   const _m = new THREE.Matrix4(), _x = new THREE.Vector3(), _y = new THREE.Vector3(), _z = new THREE.Vector3();
-  anim.update = (hour, night) => {
+  anim.fine = fine.map((m) => { m.geometry.computeBoundingBox(); return { m, box: m.geometry.boundingBox.clone() }; });
+  anim.update = (hour, night, cam) => {
+    if (cam) for (const f of anim.fine) { const b = f.box, dx = Math.max(b.min.x - cam.x, 0, cam.x - b.max.x), dy = Math.max(b.min.y - cam.y, 0, cam.y - b.max.y), dz = Math.max(b.min.z - cam.z, 0, cam.z - b.max.z); f.m.visible = dx * dx + dy * dy + dz * dz < 30 * 30; }
     const h = ((hour % 24) + 24) % 24, mins = h * 60;
     clocks.forEach((k, i) => { const n = FACE_N[k.face], r = FACE_R[k.face];
       for (const [j, a, len, w] of [[0, ((mins / 720) % 1) * Math.PI * 2, k.r * 0.55, 0.06 * k.r / 0.5], [1, ((mins % 60) / 60) * Math.PI * 2, k.r * 0.85, 0.04 * k.r / 0.5]]) {

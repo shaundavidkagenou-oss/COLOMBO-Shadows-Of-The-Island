@@ -260,7 +260,7 @@ export class World {
       this.glints.update(camera, src, on ? atmos.wet : 0, atmos.night, (x, z) => !!L.roadAt(x, z), ROAD_Y); }
     if (an.lotusUpdate && atmos) an.lotusUpdate(this.t, atmos.night); // Lotus Tower LED show (LotusTower.js)
     if (an.clockTower && atmos) an.clockTower.update(atmos.hour, atmos.night); // Fort clock tower: the hands follow the game clock, dials lit at night
-    if (an.fortStation && atmos) an.fortStation.update(atmos.hour, atmos.night); // Fort railway station: clocks, red LED clock, signs lit at night
+    if (an.fortStation && atmos) an.fortStation.update(atmos.hour, atmos.night, camera && camera.position); // Fort railway station: clocks, red LED clock, signs lit at night
     for (const m of this.landmarks.labels) if (m.emissiveIntensity !== undefined && atmos) m.emissiveIntensity = 0.2 + atmos.night * 0.9;
     // street-lamp point lights near the focus
     if (this.lampLights.length && atmos) {

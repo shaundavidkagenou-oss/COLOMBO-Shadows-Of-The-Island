@@ -166,6 +166,15 @@ function shell(mb, o) {
 // on each outer face (so the turning is visible). y = 0 at the axle centre.
 const WPROF = [[0.0, -0.09], [0.11, -0.09], [0.34, -0.035], [0.4, -0.065], [0.455, -0.065], [0.46, 0.035], [0.49, 0.055], [0.44, 0.07], [0.34, 0.03], [0.11, 0.09], [0.0, 0.09]].map(([r, a]) => new THREE.Vector2(r, a));
 const WLATHE = new THREE.LatheGeometry(WPROF, 16), WTREAD = new THREE.CylinderGeometry(0.4615, 0.4615, 0.095, 16, 1, true), WAXLE = new THREE.CylinderGeometry(0.075, 0.075, 1.62, 10);
+// parked / stabled stock (static, merged into the station): the same wheel silhouette from a 6-point profile at 10 segments,
+// no hub bolts or balance weight (55th triangle budget: ~1/4 of the running wheelset)
+const WPROF_LO = [[0.0, -0.09], [0.34, -0.035], [0.455, -0.065], [0.49, 0.055], [0.34, 0.03], [0.0, 0.09]].map(([r, a]) => new THREE.Vector2(r, a));
+const WLATHE_LO = new THREE.LatheGeometry(WPROF_LO, 10), WAXLE_LO = new THREE.CylinderGeometry(0.075, 0.075, 1.62, 6, 1, true);
+export function addWheelsetLo(mb, M4) {
+  const lm = new LayerMB(mb), U = lm.get('under'); const r = new THREE.Matrix4(), t = new THREE.Matrix4();
+  for (const sx of [-1, 1]) { r.makeRotationZ(sx < 0 ? -Math.PI / 2 : Math.PI / 2); t.makeTranslation(sx * 0.87, 0, 0); U.geometry(WLATHE_LO, new THREE.Matrix4().multiplyMatrices(M4, t).multiply(r), [0.36, 0.35, 0.33]); }
+  r.makeRotationZ(Math.PI / 2); U.geometry(WAXLE_LO, new THREE.Matrix4().multiplyMatrices(M4, r), [0.3, 0.29, 0.28]);
+}
 export function addWheelset(mb, M4) {
   const lm = new LayerMB(mb), U = lm.get('under'), S = lm.get('steel'); const m = new THREE.Matrix4(), r = new THREE.Matrix4(), t = new THREE.Matrix4();
   for (const sx of [-1, 1]) { r.makeRotationZ(sx < 0 ? -Math.PI / 2 : Math.PI / 2); t.makeTranslation(sx * 0.87, 0, 0); const W = new THREE.Matrix4().multiplyMatrices(M4, t).multiply(r);
@@ -177,7 +186,7 @@ export function addWheelset(mb, M4) {
 // the running train's wheelsets are one InstancedMesh per train (Trains.js), turned by the distance run
 export function wheelsetGeometry() { const mb = new MultiBuilder(); addWheelset(mb, new THREE.Matrix4()); return mergeLayered(layerParts(mb).lay); }
 export function wheelsetSpots(bogie) { const out = []; for (const bz of [-bogie / 2, bogie / 2]) for (const az of [-1.3, 1.3]) out.push(bz + az); return out; }
-function runningGear(mb, bogie, power, liveWheels = false) {
+function runningGear(mb, bogie, power, liveWheels = false, lod = false) {
   const { P, M } = routers(mb);
   if (power) { P.box(0, 0.78, 0, 2.2, 0.45, 6.5, { col: COL.under }); P.box(0, 0.8, 0, 2.5, 0.3, 1.2, { col: [0.22, 0.22, 0.23] }); } // engine + fuel tank
   else P.box(0, 0.86, 0, 1.6, 0.3, 2.4, { col: COL.under }); // brake cylinder / battery box
@@ -185,15 +194,15 @@ function runningGear(mb, bogie, power, liveWheels = false) {
   for (const bz of [-bogie / 2, bogie / 2]) {
     P.box(0, 0.6, bz, 1.4, 0.26, 2.0, { col: COL.bogie, bottom: true }); P.box(0, 0.88, bz, 1.4, 0.2, 1.4, { col: COL.bogie }); for (const sx of [-1, 1]) P.box(sx * 0.95, 0.66, bz, 0.26, 0.14, 0.5, { col: COL.bogie }); // transom + bolster clear of the wheels (55th: they cut through them), transom arms to the side frames
     for (const sx of [-1, 1]) { P.box(sx * 1.12, 0.62, bz, 0.12, 0.42, 2.9, { col: COL.bogie }); for (const az of [-0.6, 0.6]) M.cylinder(sx * 1.12, 0.66, bz + az, 0.09, 0.09, 0.36, 8, { col: [0.5, 0.48, 0.2] }); }
-    for (const az of [-1.3, 1.3]) { if (!liveWheels) addWheelset(mb, new THREE.Matrix4().makeTranslation(0, 0.46, bz + az)); for (const sx of [-1, 1]) { P.box(sx * 1.08, 0.46, bz + az, 0.16, 0.22, 0.3, { col: [0.18, 0.18, 0.18] }); } } // axle boxes
+    for (const az of [-1.3, 1.3]) { if (!liveWheels) (lod ? addWheelsetLo : addWheelset)(mb, new THREE.Matrix4().makeTranslation(0, 0.46, bz + az)); for (const sx of [-1, 1]) { P.box(sx * 1.08, 0.46, bz + az, 0.16, 0.22, 0.3, { col: [0.18, 0.18, 0.18] }); } } // axle boxes
   }
 }
 
 // ---------------------------------------------------------------- the DMU car (local: +z = car front, y = 0 at rail top)
 export function doorZs(cab) { const L2 = CAR_LEN / 2; return [-L2 + 3.4, cab ? L2 - 4.7 : L2 - 3.4]; }
-export function buildDmuCar(cab, { liveWheels = false } = {}) {
+export function buildDmuCar(cab, { liveWheels = false, lod = false } = {}) {
   const mb = new MultiBuilder(); const { P, M } = routers(mb), C = mb.get('trainCabGlass'); const L2 = CAR_LEN / 2, hw = CAR_W / 2;
-  runningGear(mb, BOGIE, cab, liveWheels);
+  runningGear(mb, BOGIE, cab, liveWheels, lod);
   const r = shell(mb, {
     len: CAR_LEN, hw, doors: doorZs(cab), cabLen: cab ? 2.7 : 0, windowW: 1.06, pitch: 1.5, interior: 'dmu', glazedEvery: 4,
     bands: [[1.0, 1.4, COL.red], [1.4, 1.45, COL.white], [1.45, 1.78, COL.red], [1.78, 1.83, COL.white], [1.83, SILL, COL.blue]],
@@ -230,9 +239,9 @@ export function buildDmuCar(cab, { liveWheels = false } = {}) {
 
 // ---------------------------------------------------------------- classic maroon coach (stabled in the yard)
 export const COACH_LEN = 18.6;
-export function buildClassicCoach() {
+export function buildClassicCoach({ lod = false } = {}) {
   const mb = new MultiBuilder(); const L2 = COACH_LEN / 2; const { P, M } = routers(mb);
-  runningGear(mb, 13, false);
+  runningGear(mb, 13, false, false, lod);
   shell(mb, { len: COACH_LEN, hw: 1.45, doors: [-L2 + 1.0, L2 - 1.0], windowW: 0.72, pitch: 1.18, interior: 'classic', sill: 2.02, head: 2.74, doorTop: 3.05, bars: 3, shutters: true, glazedEvery: 0,
     bands: [[1.0, 1.95, COL.maroon], [1.95, 2.02, COL.maroonDk]], body: COL.maroon, frame: COL.maroonDk, lining: COL.liningOld, liningLow: COL.woodDk, roof: [0.3, 0.27, 0.26], roofDk: [0.22, 0.2, 0.19], endCol: COL.maroonDk, ceiling: [0.86, 0.84, 0.74] });
   for (const s of [-1, 1]) { P.box(0, 2.25, s * (L2 + 0.21), 1.2, 2.1, 0.42, { col: COL.gang }); for (const sx of [-1, 1]) rod(M, sx * 1.1, 1.05, s * L2, sx * 1.1, 1.05, s * (L2 + 0.38), 0.18, [0.22, 0.22, 0.22]); }

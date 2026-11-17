@@ -39,15 +39,15 @@ export class MeshBuilder {
   // vertical wall from (x0,z0) to (x1,z1), outward normal on the right-hand side when walking a→b viewed from above (CCW footprint => outward)
   wall(x0, z0, x1, z1, y0, y1, uv, col) { return this.quad([x0, y0, z0], [x1, y0, z1], [x1, y1, z1], [x0, y1, z0], uv, col); }
   // axis-aligned box; uvMode 'world' tiles every `uvScale` metres
-  box(cx, cy, cz, sx, sy, sz, { col, uvScale = 1, top = true, bottom = false, rotY = 0, uvRect = null } = {}) {
+  box(cx, cy, cz, sx, sy, sz, { col, uvScale = 1, top = true, bottom = false, rotY = 0, uvRect = null, sides = 15 } = {}) { // sides: bit mask of the four side faces (1 +z, 2 −z, 4 +x, 8 −x), default all
     const hx = sx / 2, hy = sy / 2, hz = sz / 2;
     const c = Math.cos(rotY), s = Math.sin(rotY);
     const P = (x, y, z) => [cx + x * c + z * s, cy + y, cz - x * s + z * c];
     const U = (len, h) => (uvRect ? uvRect : [0, 0, len / uvScale, h / uvScale]);
-    this.quad(P(-hx, -hy, hz), P(hx, -hy, hz), P(hx, hy, hz), P(-hx, hy, hz), U(sx, sy), col);
-    this.quad(P(hx, -hy, -hz), P(-hx, -hy, -hz), P(-hx, hy, -hz), P(hx, hy, -hz), U(sx, sy), col);
-    this.quad(P(hx, -hy, hz), P(hx, -hy, -hz), P(hx, hy, -hz), P(hx, hy, hz), U(sz, sy), col);
-    this.quad(P(-hx, -hy, -hz), P(-hx, -hy, hz), P(-hx, hy, hz), P(-hx, hy, -hz), U(sz, sy), col);
+    if (sides & 1) this.quad(P(-hx, -hy, hz), P(hx, -hy, hz), P(hx, hy, hz), P(-hx, hy, hz), U(sx, sy), col);
+    if (sides & 2) this.quad(P(hx, -hy, -hz), P(-hx, -hy, -hz), P(-hx, hy, -hz), P(hx, hy, -hz), U(sx, sy), col);
+    if (sides & 4) this.quad(P(hx, -hy, hz), P(hx, -hy, -hz), P(hx, hy, -hz), P(hx, hy, hz), U(sz, sy), col);
+    if (sides & 8) this.quad(P(-hx, -hy, -hz), P(-hx, -hy, hz), P(-hx, hy, hz), P(-hx, hy, -hz), U(sz, sy), col);
     if (top) this.quad(P(-hx, hy, hz), P(hx, hy, hz), P(hx, hy, -hz), P(-hx, hy, -hz), U(sx, sz), col);
     if (bottom) this.quad(P(-hx, -hy, -hz), P(hx, -hy, -hz), P(hx, -hy, hz), P(-hx, -hy, hz), U(sx, sz), col);
     return this;
