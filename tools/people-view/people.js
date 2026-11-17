@@ -4,7 +4,7 @@
 //   &hero=0 (no Dineth) · &heroes=dineth,david,shashika · &yaw=degrees (turn every character) · &cam=x,y,z&look=x,y,z&fov=deg
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { Character, HEROES } from '../../src/actors/Character.js';
+import { Character, HEROES, setSkirtLap } from '../../src/actors/Character.js';
 import { officeChair } from '../../src/gfx/OfficeChair.js';
 import { MeshBuilder } from '../../src/gfx/MeshBuilder.js';
 import { makePoliceAppearance, makeAppearance, PRESETS } from '../../src/actors/Appearance.js';
@@ -29,6 +29,7 @@ specs.forEach((s, i) => { try { const ch = new Character(s.sp); ch.root.position
   ch.root.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } }); chars.push(ch); } catch (e) { errors.push(s.label + ': ' + e.message); } });
 // sit=1: seat every character as the station announcer (StationLife SEAT_ANN) on the announcer's office chair (55th saree check)
 window.__annChair = () => { const b = new MeshBuilder(); officeChair(b, (h) => new THREE.Color(h).toArray(), 0, 0, 0, 0); return new THREE.Mesh(b.build(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6 })); };
+if (q.get('lap')) setSkirtLap(...q.get('lap').split(',').map(Number)); // lap=dy,dz: seated front-panel gather (tuning)
 if (q.get('sit')) { const SEAT = { x: 0, y: 0, z: 0, floor: -0.47, fz: 0.4, fx: 0.12, lean: 0.08, hands: 'lap', kind: 'sit' };
   for (const ch of chars) { ch.root.position.y = 0.47; ch.anim.sitIn(SEAT, 1); if (q.get('chair') !== '0') { const c = window.__annChair(); c.position.set(ch.root.position.x, 0, 0); c.rotation.y = ch.root.rotation.y; scene.add(c); } } }
 const stop = +(q.get('stop') || 0); // stop=N: walk for N frames (at walk= m/s, default 1.4), then stand idle for 240 (55th raised-foot check)
@@ -50,5 +51,14 @@ else { cam.position.set(0, 1.2, span * 1.18 + 1.5); cam.lookAt(0, 0.92, 0); }
 if (q.get('cam')) { cam.position.set(...q.get('cam').split(',').map(Number)); cam.lookAt(...(q.get('look') || '0,1.4,0').split(',').map(Number)); }
 renderer.render(scene, cam);
 const info = renderer.info; const _fv = new THREE.Vector3(); const feet = chars.map((c) => ['footL', 'footR'].map((n) => c.bones && c.bones[n] ? +c.bones[n].getWorldPosition(_fv).y.toFixed(3) : null));
-window.__result = { sweep: window.__sweep, feet, errors, n, labels: specs.map((s) => s.label), calls: info.render.calls, tris: info.render.triangles, perChar: chars.map((c) => { let t = 0; c.root.traverse((o) => { if (o.isMesh && o.geometry.index) t += o.geometry.index.count / 3; }); return t; }) };
+// skirt=1: the skinned garment's worst spike — per vertex, how far it sits off the midpoint of its two ring neighbours
+// (posed) minus the same in the bind pose; a crumpled / torn rim shows as a large value. Reports [cm, ring, seg] per character
+const skirtSpikes = q.get('skirt') === '1' ? chars.map((c) => { const m = c.mesh, P = m && m.geometry.userData.parts; if (!P || !P.skirt) return null; m.updateMatrixWorld(true); m.skeleton.update();
+  const [k0, k1] = P.skirt, nV = k1 - k0, pos = m.geometry.attributes.position; let per = 0; for (const cand of [19, 18, 20]) if (nV % cand === 0) { per = cand; break; } if (!per) return 'n' + nV;
+  const R = nV / per, V = (i) => m.getVertexPosition(i, new THREE.Vector3()), V0 = (i) => new THREE.Vector3().fromBufferAttribute(pos, i); let worst = [0, 0, 0], lap = [];
+  for (let r = 0; r < R; r++) for (let j = 0; j < per; j++) { const i = k0 + r * per + j, a = k0 + r * per + (j + per - 1) % per, b = k0 + r * per + (j + 1) % per;
+    const d = V(i).sub(V(a).add(V(b)).multiplyScalar(0.5)).length() - V0(i).sub(V0(a).add(V0(b)).multiplyScalar(0.5)).length(); if (d > worst[0]) worst = [+(d * 100).toFixed(1), r, j]; }
+  const dump = [0, 1, 2].map((r) => Array.from({ length: per }, (_, j) => { const v = V(k0 + r * per + j), v0 = V0(k0 + r * per + j); return [+v0.x.toFixed(2), +v0.z.toFixed(2), '>', +v.x.toFixed(2), +v.y.toFixed(2), +v.z.toFixed(2)]; }));
+  return { worst, rings: R, per, dump, root: [c.root.position.toArray().map((x) => +x.toFixed(2)), +c.root.rotation.y.toFixed(2)], hipsY: +c.bones.hips.getWorldPosition(new THREE.Vector3()).y.toFixed(3) }; }) : null;
+window.__result = { skirt: skirtSpikes, sweep: window.__sweep, feet, errors, n, labels: specs.map((s) => s.label), calls: info.render.calls, tris: info.render.triangles, perChar: chars.map((c) => { let t = 0; c.root.traverse((o) => { if (o.isMesh && o.geometry.index) t += o.geometry.index.count / 3; }); return t; }) };
 window.__ready = true;

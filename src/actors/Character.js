@@ -1406,6 +1406,7 @@ function applyReach(A, b) {
 export const PHONE_T = [-0.12, 0.235, 0.085], TEXT_T = [-0.04, -0.1, 0.27, 0.03, -0.1, 0.27];
 export const PHONE_POLE = new THREE.Vector3(-0.3, -0.75, 0.6); // on a call the elbow hangs forward and down in front of the chest, not out like a wing
 export const HAND_TW = { phone: [0, 1.2, 0, 0, 0, 0], text: [-0.35, -1.5, 0, 0, 0, 0] }; // [R x,y,z, L x,y,z] added to the hand rotations
+let SKF_DY = -0.02, SKF_DZ = 0.12; export const setSkirtLap = (dy, dz) => { SKF_DY = dy; SKF_DZ = dz; }; // seated lap gather (people-view tunes it)
 export class Animator {
   // one shot fired from the weapon in hand: impulse into the torso recoil spring (applied in the aim stance); cls pistol | rifle | sniper
   shotKick(cls = 'pistol', strength = 1) {
@@ -1831,6 +1832,12 @@ export class Animator {
     // seat; the cloth is sat ON, so its hinge rides up by that much (the bind position is kept in userData).
     const sw = this.seated ? clamp(this.seatW, 0, 1) * clamp((-uB - 0.6) / 0.6, 0, 1) : 0; const sbB = b.skirtB; if (!sbB.userData.p0) sbB.userData.p0 = sbB.position.clone();
     sbB.position.set(sbB.userData.p0.x, sbB.userData.p0.y + 0.065 * sw * this.s, sbB.userData.p0.z + 0.02 * sw * this.s);
+    // 55th (saree glitching at the lap): the front panel hinges on the cloth surface (z +0.12) but the sides follow the thighs,
+    // which hinge on the body axis (z 0). Seated (thighs ~85° up) the two lifted by different amounts and the lap cloth broke
+    // into 2–3 cm ridges where front and sides meet — upturned jags whose silk facets caught the sky as pale streaks and an
+    // open lip. Seated, the front hinge eases back onto the thigh axis (and 2 cm up): worst ridge 2.3 → 1.2 cm (people-view skirt=1)
+    const swF = this.seated ? clamp(this.seatW, 0, 1) * clamp((-uF - 0.6) / 0.6, 0, 1) : 0; const sbF = b.skirtF; if (!sbF.userData.p0) sbF.userData.p0 = sbF.position.clone();
+    sbF.position.set(sbF.userData.p0.x, sbF.userData.p0.y - SKF_DY * swF * this.s, sbF.userData.p0.z - SKF_DZ * swF * this.s);
     if (b.skirtF2) {
       if (dS > 0.05) { // long garments: aim each lower panel from its (already swung) knee-line hinge at the ankles, plus cloth clearance
         const h2 = (P1, P2, u) => { const c = Math.cos(u), sn = Math.sin(u); return [P1.y + P2.y * c - P2.z * sn, P1.z + P2.y * sn + P2.z * c]; };
