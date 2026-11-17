@@ -516,7 +516,23 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   B(stone, P1.x0, X0, Y, FL - 0.06, P1.z0 - 0.02, P1.z0, '#9f9a90'); for (let x = P1.x0 + 0.2; x < X0; x += 1.8) metal.cylinder(x, FL, P1.z0 + 0.1, 0.03, 0.03, 1.1, 6, { col: cc(IRON) }); rod(metal, P1.x0, FL + 1.05, P1.z0 + 0.1, X0, FL + 1.05, P1.z0 + 0.1, 0.025, cc(IRON)); coll(P1.x0, X0, P1.z0, P1.z0 + 0.15, FL + 1.1);
   for (const I of F.islands) platform(I.x0, I.x1, I.z0, I.z1, [I.z0, I.z1]);
   const endSteps = (xe, dir, z0, z1) => { for (let k = 0; k < 5; k++) { const h = (FL - Y) * (1 - (k + 1) / 6), xa = xe + dir * 0.45 * k, xb = xa + dir * 0.45; B(stone, Math.min(xa, xb), Math.max(xa, xb), Y - 0.05, Y + h, z0 + 0.5, z1 - 0.5, '#9f9a90'); surf(Math.min(xa, xb), Math.max(xa, xb), z0 + 0.5, z1 - 0.5, Y + h, 'deck'); } };
+  // 55th (outside of the station looked unfinished): each platform end is a staff ramp of steps, closed off from the street at
+  // its head by a painted iron palisade with a padlocked double gate (the real station is fenced; the public comes in through
+  // the booking hall and over the footbridge) — bars with spear tips on two rails, square posts with caps, a diagonal brace in
+  // each gate leaf, a hasp; galvanised handrails down both sides of the steps and a yellow anti-slip nosing on every tread.
+  // All merged into the existing station meshes (no new draw calls); one collider per fence line
+  const endGate = (xe, dir, z0, z1) => { const za = z0 + 0.5, zb = z1 - 0.5, x = xe + dir * 0.06, y0 = FL, zm = (za + zb) / 2, gw = 1.2;
+    for (let k = 0; k < 5; k++) { const xa = xe + dir * 0.45 * k, xn = xa + dir * 0.04, h = (FL - Y) * (1 - k / 6); B(paint, Math.min(xa, xn), Math.max(xa, xn), Y + h - 0.004, Y + h + 0.003, za, zb, TACT); }
+    for (const zr of [za + 0.06, zb - 0.06]) { const xL = xe + dir * 2.3; rod(metal, x, FL + 0.95, zr, xL, Y + 0.95, zr, 0.022, cc(STEEL)); for (const xx of [x, xe + dir * 1.15, xL]) { const yb = xx === x ? FL : xx === xL ? Y : Y + (FL - Y) * 0.5; metal.cylinder(xx, yb, zr, 0.022, 0.022, 0.95, 6, { col: cc(STEEL) }); } }
+    const post = (zz) => { B(metal, x - 0.045, x + 0.045, y0, y0 + 1.5, zz - 0.045, zz + 0.045, IRON); B(metal, x - 0.065, x + 0.065, y0 + 1.5, y0 + 1.54, zz - 0.065, zz + 0.065, IRON); };
+    for (let zz = za; zz <= zb + 1e-3; zz += 2.4) post(Math.min(zz, zb)); post(zb); post(zm - gw - 0.05); post(zm + gw + 0.05);
+    for (const yr of [y0 + 0.14, y0 + 1.3]) B(metal, x - 0.02, x + 0.02, yr - 0.025, yr + 0.025, za, zb, IRON);
+    for (let zz = za + 0.08; zz < zb - 0.04; zz += 0.125) { B(metal, x - 0.009, x + 0.009, y0 + 0.06, y0 + 1.42, zz - 0.009, zz + 0.009, IRON); B(metal, x - 0.016, x + 0.016, y0 + 1.42, y0 + 1.47, zz - 0.016, zz + 0.016, IRON); }
+    for (const sg of [-1, 1]) { const zo = zm + sg * 0.03, zf = zm + sg * gw; rod(metal, x, y0 + 0.16, zf, x, y0 + 1.28, zo, 0.014, cc(IRON)); }
+    B(metal, x - 0.04 * dir, x - 0.01 * dir, y0 + 0.92, y0 + 1.06, zm - 0.09, zm + 0.09, '#6e6a62'); B(metal, x - 0.07 * dir, x - 0.04 * dir, y0 + 0.86, y0 + 0.96, zm - 0.03, zm + 0.03, '#a88a3a');
+    coll(Math.min(x - 0.08, x + 0.08), Math.max(x - 0.08, x + 0.08), z0, z1, FL + 1.5); };
   endSteps(P1.x0, -1, P1.z0 + 2, P1.z1 - 1); endSteps(P1.x1, 1, P1.z0 + 2, P1.z1 - 1); for (const I of F.islands) { endSteps(I.x0, -1, I.z0 + 1, I.z1 - 1); endSteps(I.x1, 1, I.z0 + 1, I.z1 - 1); }
+  endGate(P1.x0, -1, P1.z0 + 2, P1.z1 - 1); endGate(P1.x1, 1, P1.z0 + 2, P1.z1 - 1); for (const I of F.islands) { endGate(I.x0, -1, I.z0 + 1, I.z1 - 1); endGate(I.x1, 1, I.z0 + 1, I.z1 - 1); }
   // sidings: ballast bed, concrete sleepers, rails, buffer stops at both ends
   const ball = mb.get('ballast');
   for (const S of F.sidings) { ball.box((S.x0 + S.x1) / 2, (Y + BALLAST_Y) / 2, S.z, S.x1 - S.x0, BALLAST_Y - Y + 0.02, 3.4, { col: [0.82, 0.8, 0.77], uvScale: 2 }); surf(S.x0, S.x1, S.z - 1.7, S.z + 1.7, BALLAST_Y, 'deck');
