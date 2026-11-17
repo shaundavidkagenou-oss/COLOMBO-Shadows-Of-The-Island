@@ -144,6 +144,13 @@ export function mocapBody(A, b, ctx) {
     // shift slides the hips — feet included — a few cm; under the take the feet stay put and only the body above them moves)
     const L = M.plant || (M.plant = { L: { p: new THREE.Vector3(), q: new THREE.Quaternion() }, R: { p: new THREE.Vector3(), q: new THREE.Quaternion() }, ok: false });
     for (const S2 of ['L', 'R']) { anklePos(b, S2, PLANT[S2].p); footQ(b, S2, PLANT[S2].q); if (!L.ok) { L[S2].p.copy(PLANT[S2].p); L[S2].q.copy(PLANT[S2].q); }
+      else { // 55th ("one foot raised all the time"): the latch is taken the first frame the layer fades in, which on a gradual stop is
+        // still mid-stride — a heel up, a foot swinging — and the take then held that foot there for the whole idle. A latched foot
+        // above its procedural stance foot (> 1 cm) or off its spot (> 6 cm) now settles onto it, a short glide at 0.9 m/s; a
+        // planted foot is left exactly where it is (the procedural weight shift still never slides the feet)
+        const Lp = L[S2].p, Pp = PLANT[S2].p, up = Lp.y - Pp.y, hd = Math.hypot(Pp.x - Lp.x, Pp.z - Lp.z);
+        if (up > 0.01 || hd > 0.06 * sc) { const d = Math.hypot(hd, up), k = Math.min(1, (0.9 * Math.min(ctx.dt, 0.1)) / Math.max(d, 1e-4)); Lp.lerp(Pp, k); L[S2].q.slerp(PLANT[S2].q, Math.min(1, ctx.dt * 6)); }
+        else if (Math.abs(up) > 0.002) L[S2].q.slerp(PLANT[S2].q, Math.min(1, ctx.dt * 2)); }
       PLANT[S2].p.lerp(L[S2].p, W); PLANT[S2].q.slerp(L[S2].q, W); }
     L.ok = true;
     const mn = c.mean;

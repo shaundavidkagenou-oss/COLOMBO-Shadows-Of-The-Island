@@ -32,7 +32,12 @@ window.__annChair = () => { const b = new MeshBuilder(); officeChair(b, (h) => n
 if (q.get('sit')) { const SEAT = { x: 0, y: 0, z: 0, floor: -0.47, fz: 0.4, fx: 0.12, lean: 0.08, hands: 'lap', kind: 'sit' };
   for (const ch of chars) { ch.root.position.y = 0.47; ch.anim.sitIn(SEAT, 1); if (q.get('chair') !== '0') { const c = window.__annChair(); c.position.set(ch.root.position.x, 0, 0); c.rotation.y = ch.root.rotation.y; scene.add(c); } } }
 const stop = +(q.get('stop') || 0); // stop=N: walk for N frames (at walk= m/s, default 1.4), then stand idle for 240 (55th raised-foot check)
-if (stop) { for (let f = 0; f < stop; f++) for (const ch of chars) ch.anim.update(1 / 60, walk || 1.4, 0); for (let f = 0; f < 240; f++) for (const ch of chars) ch.anim.update(1 / 60, 0, 0); }
+const decel = +(q.get('decel') || 0); // decel=N: the speed ramps to 0 over N frames (the player's deceleration) instead of snapping
+const sweep = q.get('sweep'); // sweep=a,b,step: run the walk-stop for every stop frame count and report the worst foot-height gap
+const feetGap = (c) => { const v = new THREE.Vector3(); c.root.updateMatrixWorld(true); const l = c.bones.footL.getWorldPosition(v).y, r = c.bones.footR.getWorldPosition(v).y; return Math.abs(l - r); };
+const runStop = (n) => { for (const ch of chars) { ch.anim.standUp(); } for (let f = 0; f < n; f++) for (const ch of chars) ch.anim.update(1 / 60, walk || 1.4, 0); for (let f = 0; f < decel; f++) for (const ch of chars) ch.anim.update(1 / 60, (walk || 1.4) * (1 - (f + 1) / decel), 0); for (let f = 0; f < 240; f++) for (const ch of chars) ch.anim.update(1 / 60, 0, 0); };
+if (sweep) { const [a0, b0, st] = sweep.split(',').map(Number); const worst = chars.map(() => [0, 0]); for (let n = a0; n <= b0; n += st) { runStop(n); chars.forEach((c, i) => { const g = feetGap(c); if (g > worst[i][0]) worst[i] = [+g.toFixed(3), n]; }); } window.__sweep = worst; }
+else if (stop) runStop(stop);
 else for (let f = 0; f < 90; f++) { for (const ch of chars) ch.anim.update(1 / 60, walk, 0); }
 scene.updateMatrixWorld(true);
 const cam = new THREE.PerspectiveCamera(+(q.get('fov') || 0) || (view === 'neck' ? 12 : view === 'legs' || view === 'face' || view === 'chest' || view === 'feet' ? 22 : 30), W / H, 0.05, 100); const span = n * gap;
@@ -45,5 +50,5 @@ else { cam.position.set(0, 1.2, span * 1.18 + 1.5); cam.lookAt(0, 0.92, 0); }
 if (q.get('cam')) { cam.position.set(...q.get('cam').split(',').map(Number)); cam.lookAt(...(q.get('look') || '0,1.4,0').split(',').map(Number)); }
 renderer.render(scene, cam);
 const info = renderer.info; const _fv = new THREE.Vector3(); const feet = chars.map((c) => ['footL', 'footR'].map((n) => c.bones && c.bones[n] ? +c.bones[n].getWorldPosition(_fv).y.toFixed(3) : null));
-window.__result = { feet, errors, n, labels: specs.map((s) => s.label), calls: info.render.calls, tris: info.render.triangles, perChar: chars.map((c) => { let t = 0; c.root.traverse((o) => { if (o.isMesh && o.geometry.index) t += o.geometry.index.count / 3; }); return t; }) };
+window.__result = { sweep: window.__sweep, feet, errors, n, labels: specs.map((s) => s.label), calls: info.render.calls, tris: info.render.triangles, perChar: chars.map((c) => { let t = 0; c.root.traverse((o) => { if (o.isMesh && o.geometry.index) t += o.geometry.index.count / 3; }); return t; }) };
 window.__ready = true;
