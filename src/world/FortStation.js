@@ -556,6 +556,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   // the booking hall and over the footbridge) — bars with spear tips on two rails, square posts with caps, a diagonal brace in
   // each gate leaf, a hasp; galvanised handrails down both sides of the steps and a yellow anti-slip nosing on every tread.
   // All merged into the existing station meshes (no new draw calls); one collider per fence line
+  const LINK = new THREE.TorusGeometry(0.011, 0.0032, 4, 8), SHACKLE = new THREE.TorusGeometry(0.016, 0.0042, 4, 8, Math.PI); // chain link / padlock shackle (shared)
   const endGate = (xe, dir, z0, z1) => { const za = z0 + 0.5, zb = z1 - 0.5, x = xe + dir * 0.06, y0 = FL, zm = (za + zb) / 2, gw = 1.2;
     for (let k = 0; k < 5; k++) { const xa = xe + dir * 0.45 * k, xn = xa + dir * 0.04, h = (FL - Y) * (1 - k / 6); B(paint, Math.min(xa, xn), Math.max(xa, xn), Y + h - 0.004, Y + h + 0.003, za, zb, TACT); }
     for (const zr of [za + 0.06, zb - 0.06]) { const xL = xe + dir * 2.3; rod(metal, x, FL + 0.95, zr, xL, Y + 0.95, zr, 0.022, cc(STEEL)); for (const xx of [x, xe + dir * 1.15, xL]) { const yb = xx === x ? FL : xx === xL ? Y : Y + (FL - Y) * 0.5; metal.cylinder(xx, yb, zr, 0.022, 0.022, 0.95, 6, { col: cc(STEEL) }); } }
@@ -564,7 +565,26 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
     for (const yr of [y0 + 0.14, y0 + 1.3]) B(metal, x - 0.02, x + 0.02, yr - 0.025, yr + 0.025, za, zb, IRON);
     for (let zz = za + 0.08; zz < zb - 0.04; zz += 0.13) { B(metal, x - 0.009, x + 0.009, y0 + 0.06, y0 + 1.42, zz - 0.009, zz + 0.009, IRON, { sides: 12, top: false, bottom: false }); B(metal, x - 0.016, x + 0.016, y0 + 1.42, y0 + 1.47, zz - 0.016, zz + 0.016, IRON, { sides: 12, bottom: false }); } /* bars: the two faces seen through the fence (street / platform side), spear tips with their tops */
     for (const sg of [-1, 1]) { const zo = zm + sg * 0.03, zf = zm + sg * gw; rod(metal, x, y0 + 0.16, zf, x, y0 + 1.28, zo, 0.014, cc(IRON)); }
-    B(metal, x - 0.04 * dir, x - 0.01 * dir, y0 + 0.92, y0 + 1.06, zm - 0.09, zm + 0.09, '#6e6a62'); B(metal, x - 0.07 * dir, x - 0.04 * dir, y0 + 0.86, y0 + 0.96, zm - 0.03, zm + 0.03, '#a88a3a');
+    // 57th: the meeting stiles, a galvanised chain wrapped round both, a brass padlock through its end links, and a drop bolt
+    // into a floor socket (it was a grey box floating on the braces)
+    for (const sg of [-1, 1]) { const zs = zm + sg * 0.035; B(metal, x - 0.014, x + 0.014, y0 + 0.1, y0 + 1.36, zs - 0.0125, zs + 0.0125, IRON); }
+    { const CH = cc('#8e908c'), up = new THREE.Vector3(0, 1, 0), M = new THREE.Matrix4(), S = new THREE.Matrix4(), t = new THREE.Vector3(), nrm = new THREE.Vector3();
+      const yc = y0 + 1.0, hx = 0.034, hz = 0.066, pts = []; // a rounded loop round the two stiles (plan view)
+      for (let k = 0; k < 14; k++) { const a = (k / 14) * Math.PI * 2, c = Math.cos(a), s = Math.sin(a); pts.push([x + Math.sign(c) * Math.pow(Math.abs(c), 0.6) * hx, yc - 0.004 * c, zm + Math.sign(s) * Math.pow(Math.abs(s), 0.6) * hz]); }
+      const link = (px, py, pz, tx, ty, tz, vert) => { t.set(tx, ty, tz).normalize(); nrm.crossVectors(t, up); if (nrm.lengthSq() < 1e-6) nrm.set(1, 0, 0); nrm.normalize(); const e2 = vert ? new THREE.Vector3().crossVectors(nrm, t) : nrm.clone(), e3 = new THREE.Vector3().crossVectors(t, e2);
+        M.makeBasis(t, e2, e3).setPosition(px, py, pz); S.makeScale(1.55, 1, 1); metal.geometry(LINK, M.multiply(S), CH); };
+      for (let k = 0; k < pts.length; k++) { const p0 = pts[k], p1 = pts[(k + 1) % pts.length]; link(p0[0], p0[1], p0[2], p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2], k % 2 === 1); }
+      const xl = x - dir * (hx + 0.012); // two hanging links on the platform side, then the lock
+      link(xl, yc - 0.022, zm - 0.004, 0, -1, 0.0001, false); link(xl, yc - 0.046, zm, 0, -1, 0.0001, true);
+      const ys = yc - 0.075; M.makeRotationY(Math.PI / 2).setPosition(xl, ys, zm); metal.geometry(SHACKLE, M, cc('#b9bcbc'));
+      for (const zz of [zm - 0.016, zm + 0.016]) metal.cylinder(xl, ys - 0.012, zz, 0.004, 0.004, 0.012, 5, { col: cc('#b9bcbc') });
+      B(metal, xl - 0.011, xl + 0.011, ys - 0.064, ys - 0.012, zm - 0.024, zm + 0.024, '#a8843a'); // brass body
+      B(metal, xl - 0.0115, xl + 0.0115, ys - 0.05, ys - 0.044, zm - 0.0245, zm + 0.0245, '#8a6a2a'); // the seam band
+      B(metal, xl - dir * 0.0118 - 0.0015, xl - dir * 0.0118 + 0.0015, ys - 0.042, ys - 0.03, zm - 0.004, zm + 0.004, '#2a2620'); // keyway
+      const zb0 = zm + 0.075; // drop bolt on the far leaf: guides, rod, cranked handle, socket in the paving
+      for (const yy of [y0 + 0.16, y0 + 0.42]) B(metal, x - 0.024, x + 0.024, yy - 0.012, yy + 0.012, zb0 - 0.016, zb0 + 0.016, IRON);
+      metal.cylinder(x, y0 - 0.02, zb0, 0.009, 0.009, 0.5, 6, { col: cc('#5a5752') }); rod(metal, x, y0 + 0.47, zb0, x - dir * 0.06, y0 + 0.47, zb0, 0.007, cc('#5a5752'));
+      metal.cylinder(x, y0 - 0.002, zb0, 0.02, 0.02, 0.006, 8, { col: cc('#3a3834') }); }
     coll(Math.min(x - 0.08, x + 0.08), Math.max(x - 0.08, x + 0.08), z0, z1, FL + 1.5); };
   endSteps(P1.x0, -1, P1.z0 + 2, P1.z1 - 1); endSteps(P1.x1, 1, P1.z0 + 2, P1.z1 - 1); for (const I of F.islands) { endSteps(I.x0, -1, I.z0 + 1, I.z1 - 1); endSteps(I.x1, 1, I.z0 + 1, I.z1 - 1); }
   endGate(P1.x0, -1, P1.z0 + 2, P1.z1 - 1); endGate(P1.x1, 1, P1.z0 + 2, P1.z1 - 1); for (const I of F.islands) { endGate(I.x0, -1, I.z0 + 1, I.z1 - 1); endGate(I.x1, 1, I.z0 + 1, I.z1 - 1); }
