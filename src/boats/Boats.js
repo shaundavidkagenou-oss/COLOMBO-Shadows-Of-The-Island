@@ -278,9 +278,14 @@ export class Boats {
   nearestBoard(P) {
     let best = null, bd = 3.2;
     for (const b of this.all) { if (!b.root.visible || b.mode === 'sunk' || b.wrecked || b.owner || (b.role === 'police' && b.active)) continue; if (Math.abs(b.x - P.x) > b.len + 6 || Math.abs(b.z - P.z) > b.len + 6) continue;
-      const bp = b.worldPoint(b.model.board, _v); const d = Math.hypot(bp.x - P.x, bp.z - P.z); if (d < bd && Math.abs(bp.y - P.y) < 2.6) { bd = d; best = b; } }
+      // 58th: the boarding point (swim platform / transom gate) or anywhere along her side decks — a 22 m yacht lies with her
+      // stern well past the end of a finger, so from the pontoon you step aboard over the side where you stand
+      for (const e of this.entryPoints(b)) { const bp = b.worldPoint(e, _v); const d = Math.hypot(bp.x - P.x, bp.z - P.z) - (e.side ? 1.0 : 0); if (d < bd && Math.abs(bp.y - P.y) < 2.6) { bd = d; best = b; b._entry = e; } } }
     return best;
   }
+  entryPoints(b) { const M = b.model; if (M._entries) return M._entries; const H = M.H; const out = [Object.assign([...M.board], { side: false })];
+    if (H && H.sheer && H.z && M.len > 4) for (let s = 0.2; s <= 0.76; s += 0.08) for (const sd of [1, -1]) { const hw = M.cat ? M.halfBeam - 0.12 : H.hb ? H.hb(s) : M.halfBeam * 0.9; out.push(Object.assign([sd * Math.max(0.3, Math.min(M.halfBeam, hw) - 0.18), (M.cat ? M.deckY : H.sheer(s)) - 0.08, H.z(s)], { side: true })); }
+    return (M._entries = out); }
   canDrive(b) { return b.owned || b.free || b.role === 'owned' || b.stolen; }
   // 58th: someone else's boat can be stolen (not a police boat). Marina security calls it in: 2★ for boat theft and the harbour
   // police boats come out for you whatever the hour — they chase, and once they are alongside a boat that has stopped (or slowed
@@ -343,7 +348,8 @@ export class Boats {
     const from = b.root.worldToLocal(ch.root.getWorldPosition(new THREE.Vector3()));
     ch.root.parent && ch.root.parent.remove(ch.root); b.root.add(ch.root); ch.root.position.copy(from);
     if (b.mode === 'moored') { b.mode = 'drive'; b.berth = null; } b.free = b.free || false; b.player = true; b.driverP = true; if (b.role === 'debugPolice') b.lightsOn = true;
-    this.ride = { b, stage: 'in', t: 0, from: from.clone(), seat, sails: b.sailsUp }; P.boat = b; P.control = true; P.camYaw = b.yaw + Math.PI; if (P.swim || P.diveIn) { P.swimBreath = P.swim ? P.swim.breath : P.swimBreath; P.swim = null; P.diveIn = null; } ch.anim.set(null);
+    const E = b._entry ? new THREE.Vector3(...b._entry) : new THREE.Vector3(...b.model.board); const far = E.distanceTo(new THREE.Vector3(seat.x, seat.y, seat.z)) > 3.2 || seat.y - E.y > 1.2; // the helm is up on a flybridge / inside: step aboard, then a quick cut to the helm
+    this.ride = { b, stage: 'in', t: 0, from: from.clone(), seat, sails: b.sailsUp, E, far, leg: 0 }; P.boat = b; P.control = true; P.camYaw = b.yaw + Math.PI; if (P.swim || P.diveIn) { P.swimBreath = P.swim ? P.swim.breath : P.swimBreath; P.swim = null; P.diveIn = null; } ch.anim.set(null);
   }
   rideInteract(P, key) {
     const R = this.ride, b = R.b; if (R.stage !== 'ride') return null; const kn = Math.abs(b.speed) * 1.944;
@@ -360,7 +366,7 @@ export class Boats {
     for (const side of [1, -1]) for (const lz of [0, -M.len * 0.25, M.len * 0.25, -M.len * 0.45]) { const [x, z] = b.local(side * (M.halfBeam + 0.9), lz); const y = this.col.groundAt(x, z, MARINA.deckY + 1.5, 2.5);
       if (y > -0.6 && Math.abs(y - b.y) < 2.6) { spot = { x, y, z }; break; } if (spot) break; }
     if (!spot) { const [x, z] = b.local(M.halfBeam + 1.2, -M.len * 0.2); spot = { x, y: waterAt(x, z).y - 0.6, z, water: true }; }
-    R.stage = 'out'; R.t = 0; R.to = spot; R.fromW = P.ch.root.getWorldPosition(new THREE.Vector3());
+    R.stage = 'out'; R.t = 0; R.to = spot; R.fromW = P.ch.root.getWorldPosition(new THREE.Vector3()); R.farOut = R.fromW.distanceTo(_v.set(spot.x, spot.y, spot.z)) > 3.5; if (R.farOut) this.g.hud.fade?.(1, 0.15); // from a flybridge / inside helm: a quick cut to the deck edge
   }
   endRide(P, spot) {
     const R = this.ride; if (!R) return; const b = R.b; const ch = P.ch; ch.root.parent && ch.root.parent.remove(ch.root); this.scene.add(ch.root);
@@ -373,10 +379,16 @@ export class Boats {
     if (P.boat !== b || P.ch.root.parent !== b.root && R.stage !== 'out') { // the player was moved (respawn, cutscene, teleport): let go of the boat
       if (P.boat === b) P.boat = null; b.player = false; b.driverP = false; this.ride = null; return; }
     R.t += dt; const seat = R.seat;
-    if (R.stage === 'in') { const k = Math.min(1, R.t / 1.1); const e = k * k * (3 - 2 * k);
-      ch.root.position.set(R.from.x + (seat.x - R.from.x) * e, R.from.y + (seat.y - R.from.y) * e + Math.sin(k * Math.PI) * 0.3, R.from.z + (seat.z - R.from.z) * e); ch.root.rotation.set(0, wrap(Math.atan2(seat.x - R.from.x, seat.z - R.from.z) * (1 - e)), 0);
-      ch.anim.sitIn(seat, Math.max(0.001, e)); if (k >= 1) { ch.root.position.set(seat.x, seat.y, seat.z); ch.root.rotation.set(0, 0, 0); ch.anim.sitIn(seat, 1); R.stage = 'ride'; this.g.hud.notify(boatName(b.id), `W/S throttle · A/D steer${b.sails.length ? ' · E sails' : ''} · ${this.g.hud.key ? this.g.hud.key('lights') : 'H'} lights`, 'info', 4); }
+    if (R.stage === 'in') { const E = R.E || new THREE.Vector3(seat.x, seat.y, seat.z);
+      let done = false;
+      if (R.leg === 0) { // step aboard: from where he stood (pontoon / water) up / across onto the deck at the entry point
+        const k = Math.min(1, R.t / 0.6), e = k * k * (3 - 2 * k); ch.root.position.set(R.from.x + (E.x - R.from.x) * e, R.from.y + (E.y - R.from.y) * e + Math.sin(k * Math.PI) * 0.35, R.from.z + (E.z - R.from.z) * e);
+        ch.root.rotation.set(0, Math.atan2(E.x - R.from.x, E.z - R.from.z) || 0, 0); if (k >= 1) { R.leg = 1; R.t = 0; if (R.far) this.g.hud.fade?.(1, 0.15); } }
+      else if (R.far) { if (R.t > 0.2 && !R.placed) { R.placed = true; this.g.hud.fade?.(0, 0.3); done = true; } } // a quick cut to the helm (no walking through the saloon / up the flybridge ladder in a straight line)
+      else { const k = Math.min(1, R.t / 0.6), e = k * k * (3 - 2 * k); ch.root.position.set(E.x + (seat.x - E.x) * e, E.y + (seat.y - E.y) * e, E.z + (seat.z - E.z) * e); ch.root.rotation.set(0, wrap((ch.root.rotation.y || 0) * (1 - e)), 0); ch.anim.sitIn(seat, Math.max(0.001, e)); if (k >= 1) done = true; }
+      if (done) { ch.root.position.set(seat.x, seat.y, seat.z); ch.root.rotation.set(0, 0, 0); ch.anim.sitIn(seat, 1); R.stage = 'ride'; this.g.hud.notify(boatName(b.id), `W/S throttle · A/D steer${b.sails.length ? ' · E sails' : ''} · ${this.g.hud.key ? this.g.hud.key('lights') : 'H'} lights`, 'info', 4); }
       b.update(dt, { thr: 0, steer: 0 }, this.env(b)); return; }
+    if (R.stage === 'out' && R.farOut) { b.update(dt, { thr: 0, steer: 0 }, this.env(b)); if (R.t > 0.2) { this.endRide(P, R.to); this.g.hud.fade?.(0, 0.3); } return; }
     if (R.stage === 'out') { const k = Math.min(1, R.t / 0.9); const to = R.to; const lp = b.root.worldToLocal(_v.set(to.x, to.y, to.z));
       const e = k * k * (3 - 2 * k); ch.root.position.set(seat.x + (lp.x - seat.x) * e, seat.y + (lp.y - seat.y) * e + Math.sin(k * Math.PI) * 0.35, seat.z + (lp.z - seat.z) * e); ch.anim.sitIn(seat, Math.max(0.001, 1 - e));
       b.update(dt, { thr: 0, steer: 0 }, this.env(b)); if (k >= 1) this.endRide(P, to); return; }

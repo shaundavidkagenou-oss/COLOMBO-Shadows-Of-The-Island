@@ -29,8 +29,16 @@ function cleat(bb, x, y, z, ry = 0) { bb.box(SURF.steel, SS, x, y + 0.03, z, 0.0
 function fenders(bb, H, sd, s0, s1, n, col = '#1d2c4a', r = 0.11, len = 0.55) { for (let i = 0; i < n; i++) { const s = lerp(s0, s1, n === 1 ? 0.5 : i / (n - 1)); const x = H.h.xOff + sd * (H.hb(s) + r * 0.8), z = H.z(s), y = H.sheer(s); bb.cyl(SURF.fender, col, [x, y - 0.15 - len, z], [x, y - 0.15, z], r, r, 10); bb.cyl(SURF.fender, '#e9e9e4', [x, y - 0.15, z], [x - sd * 0.1, y + 0.04, z], 0.006, 0.006, 3, false); } }
 function antenna(bb, x, y, z, h = 2.4) { bb.cyl(SURF.paint, '#f2f2ee', [x, y, z], [x, y + h, z], 0.018, 0.006, 6); bb.box(SURF.steel, SS, x, y + 0.04, z, 0.05, 0.08, 0.05); }
 // a set of windows along one side of a cabin (glass panes let into a face between y0..y1 and z0..z1, at half-width x)
-function sideWindows(bb, x0, x1, y0, y1, z0, z1, sd, surf = SURF.glass, n = 1, gap = 0.12) { const L = z1 - z0; const w = (L - gap * (n - 1)) / n;
-  for (let i = 0; i < n; i++) { const a = z0 + i * (w + gap), b = a + w; const xa = lerp(x0, x1, (a - z0) / L), xb = lerp(x0, x1, (b - z0) / L); const P = sd > 0 ? [[xa, y0, a], [xb, y0, b], [xb, y1, b], [xa, y1, a]] : [[xb, y0, b], [xa, y0, a], [xa, y1, a], [xb, y1, b]]; P.forEach((p) => (p[0] *= sd)); bb.pane(surf, ...P, 0.012); } }
+
+// 58th: side glazing that follows a curved / sloping cabin wall. Each window is split into short segments along the hull, every
+// corner put on the wall (xAt(s, y) = the wall's half-width at station s, height y) a hair outside it — flat panes laid as a
+// chord across a curved wall sank into it in the middle and showed as black slivers / holes at the ends ("gaps")
+function wallWindows(bb, H, sA, sB, y0, y1, sd, surf, n, gapS, xAt, out = 0.014) {
+  const w = (sB - sA - gapS * (n - 1)) / n;
+  for (let i = 0; i < n; i++) { const a = sA + i * (w + gapS), b = a + w; const m = Math.max(2, Math.ceil(Math.abs(H.z(b) - H.z(a)) / 0.6));
+    for (let j = 0; j < m; j++) { const u = a + (b - a) * j / m, v = a + (b - a) * (j + 1) / m;
+      const P = [[xAt(u, y0) + out, y0, H.z(u)], [xAt(v, y0) + out, y0, H.z(v)], [xAt(v, y1) + out, y1, H.z(v)], [xAt(u, y1) + out, y1, H.z(u)]];
+      P.forEach((p) => (p[0] *= sd)); if (sd > 0) bb.quad(surf, GLASS, ...P); else bb.quad(surf, GLASS, P[1], P[0], P[3], P[2]); } } }
 
 // =====================================================================================================================
 const LAYOUTS = {
@@ -177,7 +185,7 @@ const LAYOUTS = {
     const fy = H.sheer(0.15) - (day ? 0.32 : 0.45); cockpit(bb, H, day ? 0.06 : 0.0, day ? 0.42 : 0.33, fy, { gw: day ? 0.28 : 0.42, floorSurf: SURF.teak, floorCol: TEAK, wallCol: OFF, capSurf: SURF.teak, capCol: TEAK, aftWall: !day });
     const c0 = day ? 0.42 : 0.34, c1 = day ? 0.62 : 0.68; const ch = day ? 0.32 : 0.48; const P0 = planPoly(H, c0, c1, day ? 0.35 : 0.55, 8), P1 = P0.map(([x, z]) => [x * 0.9, z]); const by = H.sheer((c0 + c1) / 2) - 0.02;
     bb.prism(SURF.paint, OFF, P0, P1.map(([x, z]) => [x, z - (z > H.z((c0 + c1) / 2) ? 0.2 : 0)]), by, by + ch, { capSurf: SURF.nonskid, capCol: '#e6e3da' });
-    for (const sd of [1, -1]) { const x0 = Math.abs(P0[0][0]) * 0.96, zA = H.z(c0) + 0.4, zB = H.z(c1) - 0.6; sideWindows(bb, x0, x0 * 0.92, by + ch * 0.35, by + ch * 0.75, zA, zB, sd, day ? SURF.glass : SURF.cabin, day ? 2 : 3, 0.25); }
+    for (const sd of [1, -1]) { const x0 = Math.abs(P0[0][0]) * 0.96, zA = H.z(c0) + 0.4, zB = H.z(c1) - 0.6; void x0; void zA; void zB; const ins = day ? 0.35 : 0.55; wallWindows(bb, H, c0 + 0.4 / (H.z(1) - H.z(0)), c1 - 0.6 / (H.z(1) - H.z(0)), by + ch * 0.35, by + ch * 0.75, sd, day ? SURF.glass : SURF.cabin, day ? 2 : 3, 0.25 / (H.z(1) - H.z(0)), (q, yy) => Math.max(0.05, H.hb(q) - ins) * (1 - 0.1 * (yy - by) / ch)); }
     bb.box(SURF.cabin, GLASS, 0, by + ch * 0.55, H.z(c1) - 0.32, Math.abs(P0[0][0]) * 1.2, ch * 0.4, 0.02, { rx: -0.6 });
     // rig: mast stepped on the coachroof, boom, shrouds, forestay, backstay, spreaders
     const mz = H.z(day ? 0.62 : 0.6), mh = day ? 8.6 : 18.5, my0 = by + ch, mTop = my0 + mh; const boomY = my0 + (day ? 0.85 : 1.35), boomL = day ? 3.0 : 5.6;
@@ -288,12 +296,12 @@ const LAYOUTS = {
     deck(bb, H, 0.2, 1.0, { surf: SURF.teak, col: TEAK, camber: 0.05 });
     bb.box(SURF.teak, TEAK, 0, 0.42, H.z(0) - 0.9, B * 0.96, 0.08, 1.8); bb.box(SURF.paint, OFF, 0, 0.28, H.z(0) - 0.9, B * 0.96, 0.2, 1.78); // swim platform
     for (const sd of [1, -1]) { // long hull glazing for the full-beam owner's suite + portholes forward
-      const P = [[sd * (H.beamAt(0.38, 1.0) + 0.005), 0.85, H.z(0.38)], [sd * (H.beamAt(0.58, 1.0) + 0.005), 0.85, H.z(0.58)], [sd * (H.beamAt(0.58, 1.2) + 0.002), 1.22, H.z(0.58)], [sd * (H.beamAt(0.38, 1.2) + 0.002), 1.22, H.z(0.38)]]; if (sd > 0) bb.quad(SURF.cabin, GLASS, ...P); else bb.quad(SURF.cabin, GLASS, P[1], P[0], P[3], P[2]);
+      wallWindows(bb, H, 0.38, 0.58, 0.85, 1.22, sd, SURF.cabin, 1, 0, (s, y) => H.beamAt(s, y), 0.008);
       for (let k = 0; k < 3; k++) { const s = 0.68 + k * 0.05; bb.cyl(SURF.cabin, GLASS, [sd * (H.beamAt(s, 1.1) - 0.02), 1.1, H.z(s)], [sd * (H.beamAt(s, 1.1) + 0.02), 1.1, H.z(s)], 0.1, 0.1, 10); } }
     // main-deck saloon: wide glass sides, raked windscreen forward, overhang aft over the cockpit
     const s0 = 0.18, s1 = 0.7; const P0 = planPoly(H, s0, s1, 0.32, 8).map(([x, z]) => [x, z]); const top = P0.map(([x, z]) => [x * 0.93, z > H.z(0.55) ? z - (z - H.z(0.55)) * 0.55 : z]);
     const sy = H.sheer(0.4); const sh = 2.05; bb.prism(SURF.paint, OFF, P0, top, sy, sy + sh, { capSurf: SURF.paint, capCol: '#e9e9e5' });
-    for (const sd of [1, -1]) { const xA = H.hb(0.24) - 0.32, xB = H.hb(0.62) - 0.32; sideWindows(bb, xA, xB * 0.97, sy + 0.62, sy + 1.82, H.z(0.24), H.z(0.62), sd, SURF.cabin, 3, 0.18); }
+    for (const sd of [1, -1]) wallWindows(bb, H, 0.24, 0.6, sy + 0.62, sy + 1.82, sd, SURF.cabin, 3, 0.012, (s, y) => Math.max(0.05, H.hb(s) - 0.32) * (1 - 0.07 * (y - sy) / sh));
     { const zf = H.z(s1); const xF = H.hb(s1) - 0.32; bb.pane(SURF.cabin, [xF * 0.98, sy + 0.7, zf + 0.01], [-xF * 0.98, sy + 0.7, zf + 0.01], [-xF * 0.6, sy + sh - 0.1, H.z(0.55) + (zf - H.z(0.55)) * 0.45 + 0.02], [xF * 0.6, sy + sh - 0.1, H.z(0.55) + (zf - H.z(0.55)) * 0.45 + 0.02], 0.02); }
     bb.pane(SURF.cabin, [H.hb(0.2) - 0.5, fy + 0.05, H.z(s0) + 0.01], [-(H.hb(0.2) - 0.5), fy + 0.05, H.z(s0) + 0.01], [-(H.hb(0.2) - 0.5), fy + 2.0, H.z(s0) + 0.01], [H.hb(0.2) - 0.5, fy + 2.0, H.z(s0) + 0.01], -0.02); // aft glass doors
     // flybridge: deck on the saloon roof, its helm forward with a low screen, seating, the radar mast; overhang aft on posts
@@ -327,13 +335,13 @@ const LAYOUTS = {
     for (const sd of [1, -1]) bb.box(SURF.steel, SS, sd * 1.8, 1.1, H.z(0) - 0.05, 0.8, 1.0, 0.03); bb.pane(SURF.cabin, [1.3, 0.75, H.z(0) - 0.02], [-1.3, 0.75, H.z(0) - 0.02], [-1.3, 1.85, H.z(0) - 0.02], [1.3, 1.85, H.z(0) - 0.02], -0.02);
     for (let k = 0; k < 4; k++) bb.box(SURF.teak, TEAK, 0, 0.75 + k * 0.33, H.z(0) - 0.1 + k * 0.32, 2.2, 0.06, 0.32); // steps up to the main deck
     // hull ports + the boot stripe from the material, a white sheer band
-    for (const sd of [1, -1]) for (let k = 0; k < 9; k++) { const s = 0.2 + k * 0.065; const w = k % 3 === 2 ? 0.0 : 1; if (!w) continue; const y = 1.25; const x = sd * (H.beamAt(s, y) + 0.004); const P = [[x, y - 0.18, H.z(s) - 0.6], [x, y - 0.18, H.z(s) + 0.6], [x, y + 0.18, H.z(s) + 0.6], [x, y + 0.18, H.z(s) - 0.6]]; if (sd > 0) bb.quad(SURF.cabin, GLASS, ...P); else bb.quad(SURF.cabin, GLASS, P[1], P[0], P[3], P[2]); }
+    for (const sd of [1, -1]) for (let k = 0; k < 9; k++) { const s = 0.2 + k * 0.065; const w = k % 3 === 2 ? 0.0 : 1; if (!w) continue; const y = 1.25; const ds = 0.6 / (H.z(1) - H.z(0)); wallWindows(bb, H, s - ds, s + ds, y - 0.18, y + 0.18, sd, SURF.cabin, 1, 0, (q, yy) => H.beamAt(q, yy), 0.006); }
     // three decks of superstructure stepping back, each with long dark window bands (lit warm at night) and white bulwarks
     const levels = [{ s0: 0.12, s1: 0.78, inset: 0.55, h: 2.55, win: [0.75, 2.2] }, { s0: 0.24, s1: 0.7, inset: 0.75, h: 2.45, win: [0.8, 2.15] }, { s0: 0.38, s1: 0.64, inset: 1.1, h: 2.35, win: [0.65, 2.05] }];
     let y = md; const tops = [];
     for (let li = 0; li < levels.length; li++) { const lv = levels[li]; const P = planPoly(H, lv.s0, lv.s1, lv.inset, 10); const zF = H.z(lv.s1), zM = H.z(lv.s1 - 0.08);
       const T = P.map(([x, z]) => [x * 0.985, z > zM ? zM + (z - zM) * 0.25 : z]); bb.prism(SURF.paint, '#f3f3f1', P, T, y, y + lv.h, { capSurf: SURF.paint, capCol: '#ebebe8' });
-      for (const sd of [1, -1]) { const xa = H.hb(lv.s0 + 0.02) - lv.inset, xb = H.hb(lv.s1 - 0.1) - lv.inset; sideWindows(bb, xa, xb, y + lv.win[0], y + lv.win[1], H.z(lv.s0 + 0.02), H.z(lv.s1 - 0.1), sd, SURF.cabin, li === 2 ? 2 : 4, 0.3); }
+      for (const sd of [1, -1]) { const yb = y, hh = lv.h; wallWindows(bb, H, lv.s0 + 0.02, lv.s1 - 0.1, y + lv.win[0], y + lv.win[1], sd, SURF.cabin, li === 2 ? 2 : 4, 0.3 / (H.z(1) - H.z(0)), (q, yy) => Math.max(0.05, H.hb(q) - lv.inset) * (1 - 0.015 * (yy - yb) / hh)); }
       const xf = H.hb(lv.s1) - lv.inset; bb.pane(SURF.cabin, [xf * 0.9, y + lv.win[0], zF - 0.02], [-xf * 0.9, y + lv.win[0], zF - 0.02], [-xf * 0.85, y + lv.win[1], zM + (zF - zM) * 0.35], [xf * 0.85, y + lv.win[1], zM + (zF - zM) * 0.35], 0.03);
       // aft deck overhang above (the next deck reaches aft over this one's terrace) on slim posts
       bb.box(SURF.paint, '#f3f3f1', 0, y + lv.h - 0.08, H.z(lv.s0) - 1.4, (H.hb(lv.s0) - lv.inset) * 2, 0.16, 2.8); for (const sd of [1, -1]) bb.cyl(SURF.steel, SS, [sd * (H.hb(lv.s0) - lv.inset - 0.2), y, H.z(lv.s0) - 2.6], [sd * (H.hb(lv.s0) - lv.inset - 0.2), y + lv.h - 0.15, H.z(lv.s0) - 2.6], 0.06, 0.06, 8, false);
@@ -420,7 +428,7 @@ const LAYOUTS = {
     H.build(bb, { col: d.col.hull });
     const fy = 0.55; cockpit(bb, H, 0.0, 0.32, fy, { gw: 0.15, floorSurf: SURF.teak, floorCol: TEAK, capSurf: SURF.teak, capCol: TEAK, foreWall: false }); deck(bb, H, 0.32, 1.0, { surf: SURF.nonskid, col: '#e8e6df', camber: 0.07 });
     const P = planPoly(H, 0.32, 0.74, 0.22, 8); const sy = H.sheer(0.45) - 0.02; const sh = 1.95; bb.prism(SURF.paint, OFF, P, P.map(([x, z]) => [x * 0.94, z > H.z(0.62) ? z - (z - H.z(0.62)) * 0.6 : z]), sy, sy + sh, { capSurf: SURF.paint, capCol: '#ebebe7' });
-    for (const sd of [1, -1]) sideWindows(bb, H.hb(0.36) - 0.22, H.hb(0.64) - 0.24, sy + 0.95, sy + 1.6, H.z(0.36), H.z(0.62), sd, SURF.cabin, 2, 0.2);
+    for (const sd of [1, -1]) wallWindows(bb, H, 0.36, 0.62, sy + 0.95, sy + 1.6, sd, SURF.cabin, 2, 0.2 / (H.z(1) - H.z(0)), (q, yy) => Math.max(0.05, H.hb(q) - 0.22) * (1 - 0.06 * (yy - sy) / sh));
     { const zf = H.z(0.74), zm = H.z(0.62) + (zf - H.z(0.62)) * 0.4, xF = H.hb(0.74) - 0.22; bb.pane(SURF.cabin, [xF, sy + 1.0, zf], [-xF, sy + 1.0, zf], [-xF * 0.8, sy + 1.75, zm], [xF * 0.8, sy + 1.75, zm], 0.02); }
     bb.pane(SURF.cabin, [B / 2 - 0.55, fy + 0.05, H.z(0.32) + 0.01], [-(B / 2 - 0.55), fy + 0.05, H.z(0.32) + 0.01], [-(B / 2 - 0.55), fy + 1.85, H.z(0.32) + 0.01], [B / 2 - 0.55, fy + 1.85, H.z(0.32) + 0.01], -0.02);
     // flybridge + tuna tower + outriggers
