@@ -34,29 +34,31 @@ const fingerZ = (k) => MARINA.head.z0 - PITCH * k; // k = 1..7
 export function marinaBerths() {
   const out = [];
   for (let k = 1; k <= FINGERS; k++) {
-    const zc = (fingerZ(k - 1) + fingerZ(k)) / 2 + (k === 1 ? -0.6 : 0);
-    out.push({ id: `W${k}`, side: 'W', zc, maxLen: 11.5, yaw: Math.PI / 2, x: (len) => MARINA.spine.x0 - 0.8 - len / 2, walk: [MARINA.spine.x0 + 0.6, zc] });
-    out.push({ id: `E${k}`, side: 'E', zc, maxLen: 14, yaw: -Math.PI / 2, x: (len) => MARINA.spine.x1 + 0.8 + len / 2, walk: [MARINA.spine.x1 - 0.6, zc] });
+    // 58th: the slot centre (routes, crew) and where a boat actually lies — alongside finger k, her hull ~0.55 m off the float
+    // (fenders out, lines on its cleats) so she can be stepped onto / off from the finger, not floating mid-slot
+    const zc = (fingerZ(k - 1) + fingerZ(k)) / 2; const zf = fingerZ(k); const zAt = (hb) => zf + 0.6 + 0.55 + hb;
+    out.push({ id: `W${k}`, side: 'W', zc, zAt, maxLen: 11.5, yaw: Math.PI / 2, x: (len) => MARINA.spine.x0 - 0.8 - len / 2, walk: [MARINA.spine.x0 - 4, zf] });
+    out.push({ id: `E${k}`, side: 'E', zc, zAt, maxLen: 14, yaw: -Math.PI / 2, x: (len) => MARINA.spine.x1 + 0.8 + len / 2, walk: [MARINA.spine.x1 + 4, zf] });
   }
   // alongside the east harbour wall (big motor yachts), bow north (out toward the T-head); 20 m+ between them so the inner one can swing out
-  out.push({ id: 'Q1', side: 'Q', zc: -1220, maxLen: 24, yaw: Math.PI, x: (len, hb) => 230 - 0.7 - hb, walk: null });
-  out.push({ id: 'Q2', side: 'Q', zc: -1263, maxLen: 18, yaw: Math.PI, x: (len, hb) => 230 - 0.7 - hb, walk: null });
+  out.push({ id: 'Q1', side: 'Q', zc: -1220, zAt: () => -1220, maxLen: 24, yaw: Math.PI, x: (len, hb) => 230 - 0.7 - hb, walk: null });
+  out.push({ id: 'Q2', side: 'Q', zc: -1263, zAt: () => -1263, maxLen: 18, yaw: Math.PI, x: (len, hb) => 230 - 0.7 - hb, walk: null });
   return out;
 }
 // the way out of a berth (and, reversed, in): boat-space-free world points; `rev` = go astern on that leg
-export function berthRoute(b, len) {
-  const bx = b.x(len, 1.5), z = b.zc;
+export function berthRoute(b, len, hb = null) {
+  const bx = b.x(len, 1.5), z = b.zc; const zl = hb !== null && b.zAt ? b.zAt(hb) : z; // 58th: she lies alongside the finger — back straight out along that line (any swing puts her bow into the finger), then ease over
   // astern until the bow is clear of the finger ends (W fingers end at x 172, E at 200.5), then out along the fairway
   const zr = Math.min(z, MARINA.head.z0 - len / 2 - 1.5); // the inner berths: astern a little north too, so a long boat can swing clear of the head walkway
-  if (b.side === 'W') return [{ x: 172 - len / 2 - 0.5, z, rev: true, r: 1.2 }, { x: 172 - len / 2 - 2.5, z: zr, rev: true }, { x: 162, z: z - 4 }, { x: 160, z: -1296 }, { x: 150, z: -1330 }, { x: 40, z: -1420 }];
-  if (b.side === 'E') return [{ x: 200.5 + len / 2 + 0.5, z, rev: true, r: 1.2 }, { x: 200.5 + len / 2 + 2.5, z: zr, rev: true }, { x: 215, z: zr - 5 }, { x: 218, z: Math.min(zr - 10, -1282), r: 3 }, { x: 218, z: -1296 }, { x: 205, z: -1330 }, { x: 120, z: -1430 }];
+  if (b.side === 'W') return [{ x: 172 - len / 2 - 0.5, z: zl, rev: true, r: 1.2, line: null }, { x: 172 - len / 2 - 2.5, z: zr, rev: true }, { x: 162, z: z - 4 }, { x: 160, z: -1296 }, { x: 150, z: -1330 }, { x: 40, z: -1420 }];
+  if (b.side === 'E') return [{ x: 200.5 + len / 2 + 0.5, z: zl, rev: true, r: 1.2, line: null }, { x: 200.5 + len / 2 + 2.5, z: zr, rev: true }, { x: 215, z: zr - 5 }, { x: 218, z: Math.min(zr - 10, -1282), r: 3 }, { x: 218, z: -1296 }, { x: 205, z: -1330 }, { x: 120, z: -1430 }];
   // alongside the wall: straight ahead first (any swing puts the stern into the wall), then ease off it
   return [{ x: b.x(len, 1.5) + 0.7, z: z - len * 0.4, v: 1.2 }, { x: bx - 4, z: z - len * 0.5 - 12 }, { x: 217, z: z - len * 0.5 - 22 }, { x: 218, z: -1296 }, { x: 200, z: -1330 }, { x: 110, z: -1430 }];
 }
 // the owner's walk from the head of the gangway to a finger berth (and back)
 export function walkRoute(b) {
   const g = MARINA.gang, s = MARINA.spine, h = MARINA.head; const gy = (g.z0 + g.z1) / 2; const sx = (s.x0 + s.x1) / 2;
-  return [[MARINA.gangTop.x, MARINA.gangTop.z], [g.x0 - 0.5, gy], [sx, (h.z0 + h.z1) / 2], [sx, b.zc], b.walk];
+  return [[MARINA.gangTop.x, MARINA.gangTop.z], [g.x0 - 0.5, gy], [sx, (h.z0 + h.z1) / 2], [sx, b.walk[1]], b.walk]; // down the spine, then out along her finger
 }
 
 export function buildMarina(scene, collision) {
@@ -112,7 +114,7 @@ export function buildMarina(scene, collision) {
   // pontoons
   const H = M.head, S = M.spine, T = M.tee; pontoon(H.x0, H.x1, H.z0, H.z1); pontoon(S.x0, S.x1, S.z0, H.z0); pontoon(T.x0, T.x1, T.z0, T.z1);
   for (let k = 1; k <= FINGERS; k++) { const zf = fingerZ(k); pontoon(172, S.x0, zf - 0.6, zf + 0.6); pontoon(S.x1, 200.5, zf - 0.6, zf + 0.6); tipBumpers(172, zf - 0.6, zf + 0.6, -1); tipBumpers(200.5, zf - 0.6, zf + 0.6, 1); knee(S.x0, zf, -1); knee(S.x1, zf, 1);
-    pile(172.6, zf + (k % 2 ? 0.84 : -0.84)); pile(199.9, zf + (k % 2 ? -0.84 : 0.84)); cleat(173, zf, false); cleat(178, zf, false); cleat(199.8, zf, false); cleat(194, zf, false);
+    pile(172.6, zf - 0.84); pile(199.9, zf - 0.84); /* the open side of the finger: boats lie alongside its north face */ cleat(173, zf, false); cleat(178, zf, false); cleat(199.8, zf, false); cleat(194, zf, false);
     pedestal(S.x0 - 0.5, zf - 0.2); pedestal(S.x1 + 0.5, zf + 0.2); }
   // marina office platform + cabin on the head walkway (counter window facing the walkway)
   { const O = M.office; pontoon(O.x0 - 2, O.x1 + 2, H.z1, O.z1 + 0.4);
@@ -124,7 +126,7 @@ export function buildMarina(scene, collision) {
     lamps.push([(O.x0 + O.x1) / 2, PT + 2.45, O.z0 - 0.3, 'deck']);
     colliders.push({ x0: O.x0, x1: O.x1, z0: O.z0, z1: O.z1, y0: PT, h: 2.8, kind: 'building', marina: true }); }
   // piles along the spine / head / T-head, bollard lights, the T-head's service pedestal for the owner's berth
-  for (let z = S.z0 + 6; z < H.z0; z += 11) { pile(S.x0 - 0.25, z + 2); bollard(S.x1 - 0.2, z - 3); }
+  for (let z = S.z0 + 6; z < H.z0; z += 11) { pile(S.x0 - 0.25, z); /* 1 m south of each finger, clear of the bows */ bollard(S.x1 - 0.2, z - 3); }
   for (let x = H.x0 + 4; x < H.x1; x += 12) { pile(x, H.z0 - 0.25); bollard(x + 6, H.z1 - 0.2); }
   for (let x = T.x0 + 3; x < T.x1; x += 9) { pile(x, T.z1 + 0.25); cleat(x + 3, T.z0 + 0.25, false); }
   pedestal(M.terminal.x, M.terminal.z); bollard(T.x1 - 0.3, T.z1 - 0.3); bollard(T.x0 + 0.3, T.z1 - 0.3);
