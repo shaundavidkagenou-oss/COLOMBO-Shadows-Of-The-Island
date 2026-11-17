@@ -35,7 +35,7 @@ function roadSpotSpec(m) {
 // 36th Stage 3: the building relief read as embossed plastic at street level (every render bump and moulding lit like a
 // relief map). Only the strengths change — same baked maps: facades 1.25 → 0.8, roof tiles 1.15 → 0.85, flat roofs 1 → 0.75,
 // corrugated sheet 1 → 0.8, building concrete (trims, boundary walls, plinths) 1 → 0.8. Ground surfaces keep theirs.
-export const NORMAL_SCALE = { road: 1.15, walk: 1.2, kerb: 1, concrete: 0.8, sand: 1.6, roofTiles: 0.85, roofFlat: 0.75, corrugated: 0.8, facade: 0.8 };
+export const NORMAL_SCALE = { road: 1.6, walk: 1.2, kerb: 1, concrete: 0.8, sand: 1.6, roofTiles: 0.85, roofFlat: 0.75, corrugated: 0.8, facade: 0.8 };
 export function withNormal(m, tex, s) { if (!m || !tex) return m; m.normalMap = tex; m.normalScale = new THREE.Vector2(s, s); m.needsUpdate = true; return m; }
 export function buildMaterials() {
   const std = (o) => new THREE.MeshStandardMaterial(o);

@@ -10,6 +10,33 @@ let maxAniso = 4;
 export function setAniso(a) { maxAniso = a; }
 
 function canvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+const texBaseUrl = () => { try { return import.meta.env.BASE_URL; } catch { return './'; } };
+function loadImageTex(relPath, { repeat = true, srgb = true, mips = true, scale = 1 } = {}) {
+  if (typeof Image === 'undefined') return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image(); img.decoding = 'async';
+    img.onload = () => {
+      const t = new THREE.Texture(img);
+      if (repeat) t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      if (scale !== 1) t.repeat.set(scale, scale);
+      t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+      t.anisotropy = maxAniso; t.generateMipmaps = mips;
+      t.minFilter = mips ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter;
+      t.magFilter = THREE.LinearFilter; t.needsUpdate = true;
+      resolve(t);
+    };
+    img.onerror = () => resolve(null);
+    img.src = `${texBaseUrl()}assets/textures/${relPath}`;
+  });
+}
+async function loadPBRSet(dir, { suffix = '', scale = 1 } = {}) {
+  const [map, normal, rough] = await Promise.all([
+    loadImageTex(`${dir}/color${suffix}.jpg`, { srgb: true, scale }),
+    loadImageTex(`${dir}/normal${suffix}.jpg`, { srgb: false, scale }),
+    loadImageTex(`${dir}/rough${suffix}.jpg`, { srgb: false, scale }),
+  ]);
+  return map && normal && rough ? { map, normal, rough } : null;
+}
 function toTex(c, { repeat = true, srgb = true, mips = true } = {}) {
   const t = new THREE.CanvasTexture(c);
   if (repeat) t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -1002,7 +1029,11 @@ export async function buildTextures(quality = 'high', progress = () => {}) {
   const hi = quality === 'high' || quality === 'ultra';
   const FW = hi ? 1024 : 512, FH = FW / 2, S = hi ? 1024 : 512;
   const steps = [
-    ['asphalt', () => { const a = asphalt(S); TEX.asphalt = a.map; TEX.asphaltRough = a.rough; TEX.n_asphalt = heightToNormal(a.height, { strength: S > 512 ? 5 : 3.5 }); }],
+    ['asphalt', async () => {
+      const real = await loadPBRSet('asphalt', { suffix: quality === 'low' ? '_1k' : '', scale: 1.5 });
+      if (real) { TEX.asphalt = real.map; TEX.asphaltRough = real.rough; TEX.n_asphalt = real.normal; return; }
+      const a = asphalt(S); TEX.asphalt = a.map; TEX.asphaltRough = a.rough; TEX.n_asphalt = heightToNormal(a.height, { strength: S > 512 ? 5 : 3.5 });
+    }],
     ['pavers', () => { TEX.pavers = pavers(512); TEX.paversGrey = pavers(512, ['#8a8780', '#7d7a73', '#96928a', '#6f6c66'], 6); bakeNormal('pavers', 4); bakeNormal('paversGrey', 4); }],
     ['concrete', () => { TEX.concrete = concrete(512); TEX.roofConcrete = roofConcrete(512); bakeNormal('concrete', 3); bakeNormal('roofConcrete', 3); }],
     ['grass', () => { TEX.grass = grass(512, 21, 0.3); TEX.lawn = grass(512, 22, 0.08); TEX.laterite = laterite(512); TEX.hedge = hedgeTex(256); TEX.sand = sand(512); bakeNormal('sand', 3); TEX.rocks = rocks(512); TEX.ballast = ballast(512); }],
@@ -1024,7 +1055,7 @@ export async function buildTextures(quality = 'high', progress = () => {}) {
   ];
   for (let i = 0; i < steps.length; i++) {
     progress(i / steps.length, steps[i][0]);
-    steps[i][1]();
+    await steps[i][1]();
     await new Promise((r) => setTimeout(r, 0));
   }
   // facade wrappers → textures
