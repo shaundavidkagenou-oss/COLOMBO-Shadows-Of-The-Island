@@ -67,6 +67,12 @@ const BODY = {
     diffuseColor.rgb *= shade; roughnessFactor = clamp(mix(roughnessFactor, mix(0.5, 0.22, sheen), a), 0.1, 1.0); normal = wsBump(normal, crown * a, 0.0003); }`,
   cast: `{ float a = wsAA(900.0); float h = wsN(vWsP * 900.0); float t = wsF(vWsP * 30.0);
     diffuseColor.rgb *= 0.92 + 0.14 * t; roughnessFactor = clamp(roughnessFactor + (h - 0.5) * 0.18 * a + (t - 0.5) * 0.1, 0.15, 1.0); normal = wsBump(normal, h * a, 0.0001); }`,
+  // chequered grip panels (and the front strap of some frames): ~20 lines per inch diamond checkering on the flat sides —
+  // pyramids in relief with dark grooves, a smooth border where the face turns away; rest of the panel = moulded polymer
+  grip: `{ float side = smoothstep(0.72, 0.95, abs(vWsN.x)); const float F = 560.0; float a = wsAA(F * 1.5) * side;
+    vec2 q = vec2(vWsP.z + vWsP.y, vWsP.z - vWsP.y) * F; vec2 f = abs(fract(q) - 0.5); float h = (0.5 - max(f.x, f.y)) * 2.0;
+    float t = wsF(vWsP * 60.0); diffuseColor.rgb *= (0.93 + 0.12 * t) * mix(1.0, 0.62 + 0.42 * h, a);
+    roughnessFactor = clamp(roughnessFactor + (0.12 - h * 0.16) * a + (t - 0.5) * 0.08, 0.2, 1.0); normal = wsBump(normal, h * a, 0.0007); }`,
   rubber: `{ float a = wsAA(1200.0); float h = wsN(vWsP * 1200.0); roughnessFactor = clamp(roughnessFactor + (h - 0.5) * 0.08, 0.5, 1.0); normal = wsBump(normal, h * a, 0.00016); }`,
 };
 export function weaponSurface(mat, kind) {
