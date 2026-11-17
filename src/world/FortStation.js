@@ -218,9 +218,28 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   wallZ(7.8, 8.2, ZF + 0.4, ZB - 0.4, [], W);
   B(wallM, 8.2, 18.2, FL, TOP, -638.2, -637.8, W); coll(8.2, 18.2, -638.2, -637.8, TOP); B(wallM, 17.8, 18.2, FL, TOP, -637.8, ZB - 0.4, W);
   B(wallM, -64.2, -63.8, FL, TOP, ZF + 0.4, ZB - 0.4, CREAM); // clerks' strip back wall
+  // the offices' tube rows for setInterior (one tube per room at its centre): [start, step, n, z, clip x0, z0, x1, z1]
+  const OFFICE_ROWS = [[-95.3, 8.9, 4, -640, X0 + 0.4, ZF + 0.4, -64.2, ZB - 0.4], [21.1, 5.7, 2, -640, 18.2, ZF + 0.4, X1 - 0.4, ZB - 0.4], [13.2, 1, 1, (ZF + 0.4 - 638.2) / 2, 8.2, ZF + 0.4, 18.2, -638.2]];
   // ceilings
   down(paint, -60, -10.2, ZF + 0.4, ZB - 0.4, F.hall.ceil, '#f4f2ea'); down(paint, -63.8, -60.4, ZF + 0.4, ZB - 0.4, FL + 3.4, '#ece8dc');
   down(paint, -9.8, 7.8, ZF + 0.4, ZB - 0.4, FL + 4.2, '#efede6'); down(paint, 8.2, 17.8, -637.8, ZB - 0.4, FL + 3.2, '#efede6');
+  // 55th: the station offices either side (west wing, the east end bay, the strip in front of the announcer's room) were an open
+  // shell under single-sided hip roofs — the fanlights and louvre gaps showed a sunlit, roofless box. They are closed offices
+  // (not enterable): ceiling, cross partitions into rooms, a tube light, a desk and a steel almirah by the windows of each room
+  { const OC = FL + 4.2; down(paint, X0 + 0.3, -64.1, ZF + 0.3, ZB - 0.3, OC, '#ebe8de'); down(paint, 18.1, X1 - 0.3, ZF + 0.3, ZB - 0.3, OC, '#ebe8de'); down(paint, 8.1, 18.3, ZF + 0.3, -638.1, OC, '#ebe8de'); /* 10 cm into the walls: no light seam */
+    const rooms = [[X0 + 0.4, -91], [-91, -82], [-82, -73], [-73, -64.2], [8.2, 18.2, -638.2], [18.2, 24], [24, X1 - 0.4]]; /* the tube at each room centre (xm) is a lamp of OFFICE_ROWS */
+    for (const xp of [-91, -82, -73, 24]) B(wallM, xp - 0.1, xp + 0.1, FL, OC + 0.15, ZF + 0.3, ZB - 0.3, '#e6e1d2'); /* through the ceiling and into the outer walls: no shadow-map seam */
+    rooms.forEach(([x0, x1, zb = ZB - 0.4], i) => { const xm = (x0 + x1) / 2, w = x1 - x0, zd = ZF + 1.6;
+      B(emis, xm - 0.6, xm + 0.6, OC - 0.05, OC - 0.02, (ZF + zb) / 2 - 0.04, (ZF + zb) / 2 + 0.04, [1, 0.97, 0.9]); B(paint, xm - 0.65, xm + 0.65, OC - 0.06, OC - 0.05, (ZF + zb) / 2 - 0.07, (ZF + zb) / 2 + 0.07, '#d8d8d4'); // tube + batten
+      const dx = xm + (i % 2 ? -1 : 1) * Math.min(1.2, w * 0.2); B(paint, dx - 0.7, dx + 0.7, FL + 0.72, FL + 0.76, zd - 0.4, zd + 0.4, '#6b4a2c'); for (const [lx, lz] of [[-0.64, -0.34], [0.64, -0.34], [-0.64, 0.34], [0.64, 0.34]]) B(paint, dx + lx - 0.025, dx + lx + 0.025, FL, FL + 0.72, zd + lz - 0.025, zd + lz + 0.025, '#4a3420'); // office desk
+      B(paint, dx - 0.9, dx - 0.82, FL + 0.76, FL + 1.06, zd + 0.1, zd + 0.3, '#2c2f33'); // a box file on the desk
+      const zf0 = ZF + 0.4, xa0 = x0 + (i === 4 ? 0 : 0.1), xa1 = x1 - 0.1, DADO = '#a3bba9'; // government-office oil-paint dado (pale green to 1.2 m, dark green line)
+      B(paint, xa0, xa1, FL, FL + 1.2, zf0, zf0 + 0.012, DADO); B(paint, xa0, xa1, FL, FL + 1.2, zb - 0.012, zb, DADO); B(paint, xa0, xa0 + 0.012, FL, FL + 1.2, zf0, zb, DADO); B(paint, xa1 - 0.012, xa1, FL, FL + 1.2, zf0, zb, DADO);
+      B(paint, xa0, xa1, FL + 1.2, FL + 1.24, zf0, zf0 + 0.016, '#3f6b52'); B(paint, xa0, xa1, FL + 1.2, FL + 1.24, zb - 0.016, zb, '#3f6b52');
+      const cz = zd + 0.75; B(paint, dx - 0.22, dx + 0.22, FL + 0.44, FL + 0.48, cz - 0.2, cz + 0.2, '#5a3a22'); B(paint, dx - 0.22, dx + 0.22, FL + 0.48, FL + 0.95, cz + 0.18, cz + 0.22, '#5a3a22'); for (const [lx, lz] of [[-0.19, -0.17], [0.19, -0.17], [-0.19, 0.19], [0.19, 0.19]]) B(paint, dx + lx - 0.02, dx + lx + 0.02, FL, FL + 0.44, cz + lz - 0.02, cz + lz + 0.02, '#3e2716'); // wooden office chair
+      const nx = (x0 + x1) / 2 - 1.2; B(paint, nx - 0.6, nx + 0.6, FL + 1.45, FL + 2.25, zb - 0.03, zb - 0.012, '#8a6a46'); B(paint, nx - 0.45, nx - 0.15, FL + 1.6, FL + 2.0, zb - 0.034, zb - 0.03, '#f1efe6'); B(paint, nx + 0.05, nx + 0.4, FL + 1.75, FL + 2.15, zb - 0.034, zb - 0.03, '#e8e2c8'); // notice board with circulars
+      B(paint, xa0 + 0.03, xa0 + 0.5, FL, FL + 1.32, zf0 + 2.2, zf0 + 3.1, '#6d7a72'); B(paint, xa0 + 0.5, xa0 + 0.504, FL + 0.05, FL + 1.28, zf0 + 2.24, zf0 + 3.06, '#59645d'); // 4-drawer filing cabinet against the side wall
+      const ax = x1 - 0.55; B(metal, ax - 0.45, ax + 0.45, FL, FL + 1.9, zb - 0.6, zb - 0.05, '#7d8a80'); B(metal, ax - 0.004, ax + 0.004, FL + 0.1, FL + 1.8, zb - 0.61, zb - 0.6, '#5b665e'); }); } // steel almirah against the back wall
   for (let x = -9.8; x < 7.8; x += 0.6) B(paint, x, x + 0.02, FL + 4.17, FL + 4.19, ZF + 0.4, ZB - 0.4, '#c9c6bc'); for (let z = ZF + 0.4; z < ZB - 0.4; z += 0.6) B(paint, -9.8, 7.8, FL + 4.17, FL + 4.19, z, z + 0.02, '#c9c6bc'); // tiled ceiling grid
   // floors: hall checker tiles (cream / terracotta-grey terrazzo), office vinyl
   upC(paint, -60, -10.2, ZF + 0.4, ZB - 0.4, FL + 0.003, '#cfc6b0');
@@ -678,7 +697,8 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
       portals: [...F.entrances.map((e) => ({ x: e.x, z: ZF + 0.2, y: FL, r: e.w * 0.85, s: 0.55 })), ...F.backArches.map((x) => ({ x, z: ZB - 0.2, y: FL, r: 4.2, s: 0.7 })), { x: F.res.portalX, z: ZF + 0.2, y: FL, r: 2.6, s: 0.5 }, { x: (F.ann.win[0] + F.ann.win[1]) / 2, z: ZB - 0.2, y: FL + 1.0, r: 2.4, s: 0.45 }, { x: F.ann.door.x, z: ZB - 0.2, y: FL, r: 1.5, s: 0.35 }],
       rows: [{ start: -57, step: 5, n: 9, y: hc - 0.05, at: -648, axis: 'x', I: 5, R: 9, clip: [-60, ZF + 0.4, -10.2, ZB - 0.4] }, { start: -57, step: 5, n: 9, y: hc - 0.05, at: -641, axis: 'x', I: 5, R: 9, clip: [-60, ZF + 0.4, -10.2, ZB - 0.4] }, { start: -57, step: 5, n: 9, y: hc - 0.05, at: -633, axis: 'x', I: 5, R: 9, clip: [-60, ZF + 0.4, -10.2, ZB - 0.4] },
         { start: -647, step: 7, n: 3, y: FL + 4.12, at: -5, axis: 'z', I: 2.6, R: 8, clip: [-9.8, ZF + 0.4, 7.8, ZB - 0.4] }, { start: -634.47, step: 1, n: 1, y: FL + 3.15, at: 13, axis: 'z', I: 1.6, R: 6, clip: [8.2, -637.8, 17.8, ZB - 0.4] },
-        { start: ZF + 2, step: 4, n: 5, y: FL + 3.36, at: -62.05, axis: 'z', I: 1.3, R: 5, clip: [-63.8, ZF + 0.4, -60.4, ZB - 0.4] }, ...shedRows] }); }
+        { start: ZF + 2, step: 4, n: 5, y: FL + 3.36, at: -62.05, axis: 'z', I: 1.3, R: 5, clip: [-63.8, ZF + 0.4, -60.4, ZB - 0.4] },
+        ...OFFICE_ROWS.map(([x0, step, n, at, cx0, cz0, cx1, cz1]) => ({ start: x0, step, n, y: FL + 4.12, at, axis: 'x', I: 1.8, R: 7, clip: [cx0, cz0, cx1, cz1] })), ...shedRows] }); }
   // clock hands: one InstancedMesh, hour + minute per dial
   { const g = new THREE.BoxGeometry(1, 1, 1); g.translate(0, 0.5, 0); const hands = new THREE.InstancedMesh(g, new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.5 }), clocks.length * 2); hands.name = 'fort-clock-hands'; hands.castShadow = false; hands.frustumCulled = false; group.add(hands); anim.hands = hands; }
   // red LED clock (128 × 32 canvas, redrawn once a game minute)
