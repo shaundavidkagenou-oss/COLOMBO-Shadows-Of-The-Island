@@ -146,7 +146,7 @@ export class Game {
       for (let i = 0; i < crews.length; i++) { const [id, k, ems] = crews[i]; try { new Character(crewSpec(id, k, ems)).dispose(); } catch (e) { console.warn('crew prewarm', e); } if (i % 6 === 5) { progress(0.86, 'Police and ambulance crews'); await tick(); } } }
     progress(0.86, 'Tuk-tuks, buses and traffic'); await tick();
     this.traffic = new Traffic(this.scene, this.collision, bus); this.traffic.crowd = this.crowd; setBodiesCollision(this.collision); // nudged people never pushed into walls (Bodies.separate)
-    this.trains = new Trains(this.scene); this.traffic.obstacles = this.trains.bodies; this.traffic.rail = this.trains; // running trains + level crossings
+    this.trains = new Trains(this.scene); this.traffic.obstacles = this.trains.bodies; this.traffic.rail = this.trains; if (this.headRig) this.headRig.rail = this.trains; // running trains + level crossings (57th: their headlights take a pooled real beam)
     this.hqLife = new PoliceHQLife(this);
     this.trafficDuty = new TrafficDuty(this);
     this.schoolLife = new SchoolLife(this);

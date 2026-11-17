@@ -34,6 +34,18 @@ export function speedLimitAt(s) { return VLIM[clamp(Math.round(s / STEP), 0, VLI
 
 // ---------------------------------------------------------------- car geometry: vehicles/TrainModels.js (54th: S11-style DMU
 // shell with real window openings, open doorways, a full interior and seats people can sit in)
+// 57th: the headlamp face — a twin sealed-beam cluster: black housing, two round chrome reflectors with a lamp core and a
+// faceted lens, so lit it reads as two real lamps (it was a flat white bar). Multiplied by the lamp material's colour (HDR when lit).
+let LAMP_TEX = null;
+function lampTexture() {
+  if (LAMP_TEX) return LAMP_TEX; const c = document.createElement('canvas'); c.width = 128; c.height = 56; const x = c.getContext('2d');
+  x.fillStyle = '#121212'; x.fillRect(0, 0, 128, 56);
+  for (const cx of [32, 96]) { let g = x.createRadialGradient(cx, 28, 2, cx, 28, 25); g.addColorStop(0, '#ffffff'); g.addColorStop(0.18, '#fffbf0'); g.addColorStop(0.32, '#d8d4cc'); g.addColorStop(0.62, '#8c8a86'); g.addColorStop(0.86, '#b8b6b0'); g.addColorStop(1, '#3a3a3a');
+    x.fillStyle = g; x.beginPath(); x.arc(cx, 28, 25, 0, Math.PI * 2); x.fill();
+    x.strokeStyle = 'rgba(255,255,255,0.18)'; x.lineWidth = 1; for (let k = -3; k <= 3; k++) { x.beginPath(); x.moveTo(cx + k * 6, 5); x.lineTo(cx + k * 6, 51); x.stroke(); } // lens flutes
+    x.strokeStyle = '#2a2a2a'; x.lineWidth = 2.5; x.beginPath(); x.arc(cx, 28, 25.5, 0, Math.PI * 2); x.stroke(); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return (LAMP_TEX = t);
+}
 function destTexture(st) {
   const c = document.createElement('canvas'); c.width = 512; c.height = 64; const x = c.getContext('2d');
   x.fillStyle = '#0b0b0b'; x.fillRect(0, 0, 512, 64); x.fillStyle = '#ffa31a'; x.textBaseline = 'middle'; x.textAlign = 'center';
@@ -65,7 +77,7 @@ class Train {
   constructor(sys, id, sLow, dir) {
     this.sys = sys; this.id = id; this.sLow = sLow; this.dir = dir; this.speed = 0; this.state = 'dwell'; this.dwell = 6 + id * 9; this.emergency = 0; this.hornCd = 0; this.clackT = 0; this.rumbleT = 0;
     this.group = new THREE.Group(); this.group.name = 'train' + id; sys.scene.add(this.group);
-    this.endMats = [0, 1].map(() => ({ head: new THREE.MeshBasicMaterial({ color: 0x222222 }), tail: new THREE.MeshBasicMaterial({ color: 0x220000 }), dest: new THREE.MeshBasicMaterial({ map: sys.destTex[0] }) }));
+    this.endMats = [0, 1].map(() => ({ head: new THREE.MeshBasicMaterial({ color: 0x222222, map: lampTexture() }), tail: new THREE.MeshBasicMaterial({ color: 0x220000 }), dest: new THREE.MeshBasicMaterial({ map: sys.destTex[0] }) }));
     this.cars = []; this.bodies = [];
     for (let i = 0; i < N_CARS; i++) {
       const cab = i === 0 || i === N_CARS - 1; const g = new THREE.Group(); const inner = new THREE.Group(); g.add(inner); // inner flips cab car 0 to face −s
@@ -73,7 +85,7 @@ class Train {
       if (cab) {
         const end = i === 0 ? 0 : 1; const em = this.endMats[end]; const L2 = CAR_LEN / 2;
         for (const sx of [-1, 1]) {
-          const h = new THREE.Mesh(sys.lampGeo, em.head); h.position.set(sx * 0.98, 2.06, L2 + 0.04); inner.add(h); // in the black housings of the cab front
+          const h = new THREE.Mesh(sys.lampGeo, em.head); h.position.set(sx * 0.98, 2.06, L2 + 0.056); inner.add(h); // in the black housings of the cab front
           const t = new THREE.Mesh(sys.tailGeo, em.tail); t.position.set(sx * 1.36, 2.06, L2 + 0.02); inner.add(t);
         }
         const d = new THREE.Mesh(sys.destGeo, em.dest); d.position.set(0, 3.55, L2 - 0.272); inner.add(d); // destination blind in the red cap band
@@ -91,9 +103,12 @@ class Train {
   get centre() { return this.sLow + TRAIN_LEN / 2; }
   findNextStop() { const S = R.STOPS, c = this.centre; if (this.dir > 0) return S.find((s) => s.s > c + 1) || S[S.length - 1]; for (let i = S.length - 1; i >= 0; i--) if (S[i].s < c - 1) return S[i]; return S[0]; }
   isTerminus(st) { return st === R.STOPS[0] || st === R.STOPS[R.STOPS.length - 1]; }
+  // the cast headlight (57th): world position / aim point of the lead cab's twin lamps, for the pooled shadowed beam (HeadlightRig)
+  beamPose(pos, tgt) { const car = this.cars[this.dir > 0 ? N_CARS - 1 : 0], inner = car.userData.inner; inner.updateWorldMatrix(true, false); const L2 = CAR_LEN / 2;
+    pos.set(0, 2.06, L2 + 0.25).applyMatrix4(inner.matrixWorld); tgt.set(0, 0.95, L2 + 40).applyMatrix4(inner.matrixWorld); return car; }
   updateLamps() {
     const lead = this.dir > 0 ? 1 : 0; const night = this.sys.night;
-    this.endMats.forEach((m, e) => { const on = e === lead; m.head.color.setRGB(on ? 1.6 : 0.12, on ? 1.55 : 0.12, on ? 1.4 : 0.12); m.tail.color.setRGB(on ? 0.15 : 1.2 + night * 0.8, on ? 0.02 : 0.05, on ? 0.02 : 0.05); });
+    this.endMats.forEach((m, e) => { const on = e === lead; m.head.color.setRGB(on ? 1.5 + night * 1.3 : 0.16, on ? 1.46 + night * 1.25 : 0.16, on ? 1.36 + night * 1.1 : 0.16); /* HDR at night: blooms like a car's lamps */ m.tail.color.setRGB(on ? 0.15 : 1.2 + night * 0.8, on ? 0.02 : 0.05, on ? 0.02 : 0.05); });
     const dst = this.dir > 0 ? R.STOPS[R.STOPS.length - 1] : R.STOPS[0]; const tex = this.sys.destTex[this.dir > 0 ? 1 : 0]; this.endMats.forEach((m) => { if (m.dest.map !== tex) { m.dest.map = tex; m.dest.needsUpdate = true; } }); this.destination = dst;
   }
   place() {
@@ -216,7 +231,7 @@ export class Trains {
     const cab = buildDmuCar(true, { liveWheels: true }), tr = buildDmuCar(false, { liveWheels: true });
     this.protoCab = protoMeshes(cab.mb, mats); this.protoTrailer = protoMeshes(tr.mb, mats); this.wheelGeo = wheelsetGeometry();
     this.seatsCab = cab.seats; this.seatsTrailer = tr.seats; this.doorsCab = doorZs(true); this.doorsTrailer = doorZs(false); // car-local (+z = car front) for the station's passengers
-    this.lampGeo = new THREE.BoxGeometry(0.42, 0.18, 0.03); this.tailGeo = new THREE.BoxGeometry(0.12, 0.12, 0.03); this.destGeo = new THREE.PlaneGeometry(1.34, 0.26);
+    this.lampGeo = new THREE.PlaneGeometry(0.42, 0.18); this.tailGeo = new THREE.BoxGeometry(0.12, 0.12, 0.03); this.destGeo = new THREE.PlaneGeometry(1.34, 0.26);
     this.destTex = [destTexture(R.STOPS[0]), destTexture(R.STOPS[R.STOPS.length - 1])];
     // The line is single-track with no passing loops, so ONE train works the full line (Wellawatte ↔ Maradana).
     // A second train in the opposite direction would inevitably meet it head-on; obstacleAhead() also treats other

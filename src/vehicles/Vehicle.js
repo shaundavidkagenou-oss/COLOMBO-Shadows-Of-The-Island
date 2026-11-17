@@ -84,6 +84,11 @@ export class HeadlightRig {
       const ahead = (dx * cd.x + dz * cd.z) / Math.max(d, 1e-3); if (v !== playerVeh && d > 25 && ahead < 0.2) continue; // behind / beside the view: its beam can't be seen
       cand.push([v === playerVeh ? -1 : d, v]);
     }
+    // 57th: the trains' headlights are real beams too (lead cab, along the track, a longer and stronger throw than a car's);
+    // a train near the view outranks cars because its beam lights so much more of the scene
+    if (k > 0 && this.rail) for (const t of this.rail.trains) { if (!t.group.visible) continue; t.beamPose(this._p, this._d2 || (this._d2 = new THREE.Vector3())); const dx = this._p.x - cx, dz = this._p.z - cz, d = Math.hypot(dx, dz); if (d > 200) continue;
+      const fx = this._d2.x - this._p.x, fz = this._d2.z - this._p.z, fl = Math.hypot(fx, fz) || 1; const toView = (dx * cd.x + dz * cd.z) / Math.max(d, 1e-3), beamAhead = -((fx * dx + fz * dz) / fl) / Math.max(d, 1e-3);
+      if (d > 30 && toView < 0.1 && beamAhead < 0.3) continue; cand.push([d * 0.4, { train: t }]); }
     cand.sort((a, b) => a[0] - b[0]);
     // the painted light pool of vehicles without a pooled beam has no shadows: clip it at the first solid thing in the beam corridor
     // (tree trunk, pole, wall, parked car body) so no light lands on the road behind it. Re-checked a third of the vehicles per frame.
@@ -93,6 +98,11 @@ export class HeadlightRig {
     this.spots.forEach((s, i) => { const c = cand[i];
       if (!c) { if (s.intensity !== 0) s.intensity = 0; s.shadow.autoUpdate = false; return; }
       if (s.castShadow) s.shadow.autoUpdate = true; // shadow maps only re-render for beams that are actually lit
+      if (c[1].train) { const t = c[1].train; t.beamPose(s.position, s.target.position); s.target.updateMatrixWorld(); const ddx = cx - s.position.x, ddz = cz - s.position.z, dl = Math.hypot(ddx, ddz) || 1, bx = s.target.position.x - s.position.x, bz = s.target.position.z - s.position.z, bl = Math.hypot(bx, bz) || 1;
+        const toward = (bx * ddx + bz * ddz) / (bl * dl), face = 1 - 0.45 * clamp((toward - 0.3) / 0.5, 0, 1); // oncoming: the hot streak on the ballast between it and the viewer is held down, as for cars
+        s.angle = 0.3; s.penumbra = 0.55; s.distance = 95; s.decay = 1.5; s.intensity = 190 * k * face;
+        if (s.color.getHex() !== 0xfff4e2) s.color.setHex(0xfff4e2); return; } // sealed-beam halogen, aimed to light the rails ~5–60 m ahead
+      if (s.distance !== 60) { s.distance = 60; s.penumbra = 0.6; }
       const v = c[1], T = v.T, m = v.mesh; m.updateMatrixWorld(); const y = HeadlightRig.lampY(T), bike = T.entry === 'bike';
       // dipped beam, left-hand traffic: aimed down and toward the kerb (local +x is the vehicle's left), so it lights the road
       // ahead of the car instead of the oncoming lane — real low beams have exactly this asymmetric cut-off
