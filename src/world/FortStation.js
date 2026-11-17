@@ -656,7 +656,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   // a bullet path (a → b) passing a sign kicks it: angular velocity from the bullet's direction, more when it hits low
   anim.shot = (a, b) => { const S2 = anim.swing; if (!S2) return false; const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z, L2 = dx * dx + dy * dy + dz * dz || 1; let hitAny = false;
     for (const s of S2.list) { const t = Math.max(0, Math.min(1, ((s.x - a.x) * dx + (s.y - a.y) * dy + (s.z - a.z) * dz) / L2)); const px = a.x + dx * t - s.x, py = a.y + dy * t - s.y, pz = a.z + dz * t - s.z;
-      if (px * px + py * py + pz * pz > 0.45 * 0.45) continue; const l = Math.sqrt(L2), k = 1.6 * (1 + (s.y - (a.y + dy * t)) / 0.8 * 0.4); s.vz += (dx / l) * k; s.vx -= (dz / l) * k * 0.35; hitAny = true; }
+      if (px * px + py * py + pz * pz > 0.45 * 0.45) continue; const l = Math.sqrt(L2), k = 0.55 * (1 + (s.y - (a.y + dy * t)) / 0.8 * 0.4); /* 55th: a jolt of ~15–20°, not a 50° swing */ s.vz += (dx / l) * k; s.vx -= (dz / l) * k * 0.35; hitAny = true; }
     return hitAny; };
   { const g = mergeLayered(lmb); const m = new THREE.Mesh(g, stationMaterial()); m.name = 'fort-pbr'; m.castShadow = true; m.receiveShadow = true; m.matrixAutoUpdate = false; m.updateMatrix(); group.add(m); anim.pbr = m; }
   // covered spaces: sky visibility falls off inside the halls / under the shed, the tubes and pendant lamps light them
