@@ -61,6 +61,7 @@ vec3 intLamps(vec3 p, vec3 n) {
 export function patchInterior(m) {
   const prev = m.onBeforeCompile, prevKey = m.customProgramCacheKey;
   m.onBeforeCompile = function (sh, r) { if (prev) prev.call(this, sh, r); Object.assign(sh.uniforms, INTERIOR);
+    if (sh.vertexShader.includes('varying vec3 vIW;')) return; // already patched further down the chain (a material re-wrapped by patchHeroMaterial): injecting twice is a shader compile error
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vIW;')
       .replace('#include <project_vertex>', `#include <project_vertex>
 { vec4 iw = vec4(transformed, 1.0);
@@ -77,6 +78,6 @@ if (uIOn > 0.5 && (uIZn > 0 || uIRn > 0)) { vec3 wn = normalize((vec4(normal, 0.
   reflectedLight.indirectDiffuse *= iv; reflectedLight.indirectSpecular *= mix(0.3, 1.0, iv);
   vec3 lampI = intLamps(vIW, wn); reflectedLight.indirectDiffuse += lampI * BRDF_Lambert(material.diffuseColor); }`);
   };
-  m.customProgramCacheKey = function () { return (prevKey ? prevKey.call(this) : '') + '|interior1'; };
+  m.customProgramCacheKey = function () { const k = prevKey ? prevKey.call(this) : ''; return k.includes('|interior1') ? k : k + '|interior1'; };
   m.needsUpdate = true; return m;
 }

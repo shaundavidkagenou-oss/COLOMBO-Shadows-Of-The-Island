@@ -31,7 +31,9 @@ specs.forEach((s, i) => { try { const ch = new Character(s.sp); ch.root.position
 window.__annChair = () => { const b = new MeshBuilder(); officeChair(b, (h) => new THREE.Color(h).toArray(), 0, 0, 0, 0); return new THREE.Mesh(b.build(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6 })); };
 if (q.get('sit')) { const SEAT = { x: 0, y: 0, z: 0, floor: -0.47, fz: 0.4, fx: 0.12, lean: 0.08, hands: 'lap', kind: 'sit' };
   for (const ch of chars) { ch.root.position.y = 0.47; ch.anim.sitIn(SEAT, 1); if (q.get('chair') !== '0') { const c = window.__annChair(); c.position.set(ch.root.position.x, 0, 0); c.rotation.y = ch.root.rotation.y; scene.add(c); } } }
-for (let f = 0; f < 90; f++) { for (const ch of chars) ch.anim.update(1 / 60, walk, 0); }
+const stop = +(q.get('stop') || 0); // stop=N: walk for N frames (at walk= m/s, default 1.4), then stand idle for 240 (55th raised-foot check)
+if (stop) { for (let f = 0; f < stop; f++) for (const ch of chars) ch.anim.update(1 / 60, walk || 1.4, 0); for (let f = 0; f < 240; f++) for (const ch of chars) ch.anim.update(1 / 60, 0, 0); }
+else for (let f = 0; f < 90; f++) { for (const ch of chars) ch.anim.update(1 / 60, walk, 0); }
 scene.updateMatrixWorld(true);
 const cam = new THREE.PerspectiveCamera(+(q.get('fov') || 0) || (view === 'neck' ? 12 : view === 'legs' || view === 'face' || view === 'chest' || view === 'feet' ? 22 : 30), W / H, 0.05, 100); const span = n * gap;
 if (view === 'feet') { cam.position.set(0, 0.35, span * 0.8); cam.lookAt(0, 0.12, 0); }
@@ -42,5 +44,6 @@ else if (view === 'face') { cam.position.set(0, 1.62, span * 1.05); cam.lookAt(0
 else { cam.position.set(0, 1.2, span * 1.18 + 1.5); cam.lookAt(0, 0.92, 0); }
 if (q.get('cam')) { cam.position.set(...q.get('cam').split(',').map(Number)); cam.lookAt(...(q.get('look') || '0,1.4,0').split(',').map(Number)); }
 renderer.render(scene, cam);
-const info = renderer.info; window.__result = { errors, n, labels: specs.map((s) => s.label), calls: info.render.calls, tris: info.render.triangles, perChar: chars.map((c) => { let t = 0; c.root.traverse((o) => { if (o.isMesh && o.geometry.index) t += o.geometry.index.count / 3; }); return t; }) };
+const info = renderer.info; const _fv = new THREE.Vector3(); const feet = chars.map((c) => ['footL', 'footR'].map((n) => c.bones && c.bones[n] ? +c.bones[n].getWorldPosition(_fv).y.toFixed(3) : null));
+window.__result = { feet, errors, n, labels: specs.map((s) => s.label), calls: info.render.calls, tris: info.render.triangles, perChar: chars.map((c) => { let t = 0; c.root.traverse((o) => { if (o.isMesh && o.geometry.index) t += o.geometry.index.count / 3; }); return t; }) };
 window.__ready = true;
