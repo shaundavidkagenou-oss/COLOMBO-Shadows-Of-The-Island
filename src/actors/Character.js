@@ -391,11 +391,16 @@ export function buildBodyGeometry(sp) {
         // 55th: the back panel stays with the pelvis down to the gluteal fold (it used to follow the thighs from just under the
         // waistband, so seated the seat of the saree swung forward under the thighs and left the buttocks bare)
         const kB = Math.min(k, smooth01((0.84 * s - y) / (0.12 * s))), hipW = 1 - k * (1 - fB) - kB * fB;
-        const out = [[B.hips, hipW]]; const add = (bn, x) => { if (x > 1e-4) out.push([bn, x]); };
+        const out = [[B.hips, hipW]]; const add = (bn, x) => { if (x > 1e-4) { const e = out.find((q) => q[0] === bn); if (e) e[1] += x; else out.push([bn, x]); } };
         add(B.skirtF, k * fF * (1 - kk)); add(B.skirtF2, k * fF * kk); add(B.skirtB, kB * fB * (1 - kk)); add(B.skirtB2, kB * fB * kk);
         // sides: the thigh under them down to the knee line; below it (55th) the lower front / back panels, which hang from the
         // knee line to the ankles — so with the thighs raised (seated) the sides fall to the floor instead of jutting out as wings
-        const sF = smooth01((sa + 0.6) / 1.2); add(B.thighL, k * side * sL * (1 - kk)); add(B.thighR, k * side * (1 - sL) * (1 - kk));
+        // 55th (saree jags at the hip when seated): in the top band (hip → upper thigh) the sides follow the front panel (or
+        // stay with the pelvis behind) instead of a thigh — a seated thigh also splays and twists, which the front panel doesn't,
+        // so the two made a zig-zag where they met. Lower down the sides follow the thighs as before (the stride needs it)
+        const sF = smooth01((sa + 0.6) / 1.2), uB0 = smooth01((y - 0.8 * s) / (0.07 * s)), sideT = k * side * (1 - kk) * (1 - uB0);
+        add(B.thighL, sideT * sL); add(B.thighR, sideT * (1 - sL)); add(B.skirtF, k * side * (1 - kk) * uB0 * sF);
+        out[0][1] = Math.max(0, 1 - out.slice(1).reduce((t, q) => t + q[1], 0) - (B.skirtF2 ? k * side * kk : 0)); /* the rest stays with the pelvis */
         if (B.skirtF2) { add(B.skirtF2, k * side * kk * sF); add(B.skirtB2, k * side * kk * (1 - sF)); } else { add(B.thighL, k * side * sL * kk); add(B.thighR, k * side * (1 - sL) * kk); }
         return out.sort((p, q) => q[1] - p[1]).slice(0, 4); };
       let rxF = rx + (y > 0.9 * s ? 0.005 : 0), rzF = rz, czF = 0.005;
@@ -1406,7 +1411,7 @@ function applyReach(A, b) {
 export const PHONE_T = [-0.12, 0.235, 0.085], TEXT_T = [-0.04, -0.1, 0.27, 0.03, -0.1, 0.27];
 export const PHONE_POLE = new THREE.Vector3(-0.3, -0.75, 0.6); // on a call the elbow hangs forward and down in front of the chest, not out like a wing
 export const HAND_TW = { phone: [0, 1.2, 0, 0, 0, 0], text: [-0.35, -1.5, 0, 0, 0, 0] }; // [R x,y,z, L x,y,z] added to the hand rotations
-let SKF_DY = -0.02, SKF_DZ = 0.12; export const setSkirtLap = (dy, dz) => { SKF_DY = dy; SKF_DZ = dz; }; // seated lap gather (people-view tunes it)
+let SKF_DY = -0.02, SKF_DZ = 0.12, SKF_K = 0; export const setSkirtLap = (dy, dz, k = SKF_K) => { SKF_DY = dy; SKF_DZ = dz; SKF_K = k; }; // seated lap gather (people-view tunes it)
 export class Animator {
   // one shot fired from the weapon in hand: impulse into the torso recoil spring (applied in the aim stance); cls pistol | rifle | sniper
   shotKick(cls = 'pistol', strength = 1) {
@@ -1835,14 +1840,14 @@ export class Animator {
     // 55th (saree glitching at the lap): the front panel hinges on the cloth surface (z +0.12) but the sides follow the thighs,
     // which hinge on the body axis (z 0). Seated (thighs ~85° up) the two lifted by different amounts and the lap cloth broke
     // into 2–3 cm ridges where front and sides meet — upturned jags whose silk facets caught the sky as pale streaks and an
-    // open lip. Seated, the front hinge eases back onto the thigh axis (and 2 cm up): worst ridge 2.3 → 1.2 cm (people-view skirt=1)
+    // open lip. Seated, the front hinge eases back onto the thigh axis (2 cm up); with the top-band sides on the front panel (skin weights) the worst ridge is 2.3 → 0.7 cm and the petticoat never shows at the waist (people-view skirt=1)
     const swF = this.seated ? clamp(this.seatW, 0, 1) * clamp((-uF - 0.6) / 0.6, 0, 1) : 0; const sbF = b.skirtF; if (!sbF.userData.p0) sbF.userData.p0 = sbF.position.clone();
-    sbF.position.set(sbF.userData.p0.x, sbF.userData.p0.y - SKF_DY * swF * this.s, sbF.userData.p0.z - SKF_DZ * swF * this.s);
+    sbF.position.set(sbF.userData.p0.x, sbF.userData.p0.y - SKF_DY * swF * this.s, sbF.userData.p0.z - SKF_DZ * swF * this.s); b.skirtF.rotation.x = uF * (1.04 - SKF_K * swF); // seated: the same swing as the thigh, so the front/side blend can't zig-zag
     if (b.skirtF2) {
       if (dS > 0.05) { // long garments: aim each lower panel from its (already swung) knee-line hinge at the ankles, plus cloth clearance
         const h2 = (P1, P2, u) => { const c = Math.cos(u), sn = Math.sin(u); return [P1.y + P2.y * c - P2.z * sn, P1.z + P2.y * sn + P2.z * c]; };
         const clr = this.ch.mesh?.geometry?.userData?.npcBody ? 0.24 : 0.15; // anatomical calves / shins are fuller than the old tube legs
-        const uf = uF * 1.04, ub = uB * 1.04, hf = h2(b.skirtF.position, b.skirtF2.position, uf), hb = h2(b.skirtB.position, b.skirtB2.position, ub); let lf = Math.max(uf, -0.45), lb = ub; // 55th: with the thighs raised (seated, stairs) the lower front panel falls from the knees instead of carrying on along the thigh like a board
+        const uf = b.skirtF.rotation.x, ub = uB * 1.04, hf = h2(b.skirtF.position, b.skirtF2.position, uf), hb = h2(b.skirtB.position, b.skirtB2.position, ub); let lf = Math.max(uf, -0.45), lb = ub; // 55th: with the thighs raised (seated, stairs) the lower front panel falls from the knees instead of carrying on along the thigh like a board
         for (const [y, z] of ank) { let af = Math.atan2(-(z - hf[1]), -(y - hf[0])), ab = Math.atan2(-(z - hb[1]), -(y - hb[0])); if (af > 1.6) af -= 2 * Math.PI; if (ab < -1.6) ab += 2 * Math.PI; // heel above the hinge: keep the angle continuous past ±π
           lf = Math.min(lf, af - clr); lb = Math.max(lb, ab + clr); }
         b.skirtF2.rotation.set(clamp(lf - uf, -1.3, 1.6), 0, 0); b.skirtB2.rotation.set(clamp(lb - ub, 0, 1.3), 0, 0);
