@@ -5,6 +5,8 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { Character, HEROES } from '../../src/actors/Character.js';
+import { officeChair } from '../../src/gfx/OfficeChair.js';
+import { MeshBuilder } from '../../src/gfx/MeshBuilder.js';
 import { makePoliceAppearance, makeAppearance, PRESETS } from '../../src/actors/Appearance.js';
 
 const q = new URLSearchParams(location.search); const W = +(q.get('w') || 1600), H = +(q.get('h') || 900); const view = q.get('view') || 'front'; const set = q.get('set') || 'police';
@@ -25,6 +27,10 @@ else if (q.get('hero') !== '0') specs.push({ label: 'dineth (hero)', sp: HEROES.
 const n = specs.length, gap = 0.95; const walk = +(q.get('walk') || 0); const chars = [];
 specs.forEach((s, i) => { try { const ch = new Character(s.sp); ch.root.position.set((i - (n - 1) / 2) * gap, 0, 0); ch.root.rotation.y = (view === 'back' || view === 'feet' ? Math.PI : view === 'side' ? Math.PI / 2 : 0) + (+(q.get('yaw') || 0)) * Math.PI / 180; scene.add(ch.root);
   ch.root.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } }); chars.push(ch); } catch (e) { errors.push(s.label + ': ' + e.message); } });
+// sit=1: seat every character as the station announcer (StationLife SEAT_ANN) on the announcer's office chair (55th saree check)
+window.__annChair = () => { const b = new MeshBuilder(); officeChair(b, (h) => new THREE.Color(h).toArray(), 0, 0, 0, 0); return new THREE.Mesh(b.build(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6 })); };
+if (q.get('sit')) { const SEAT = { x: 0, y: 0, z: 0, floor: -0.47, fz: 0.4, fx: 0.12, lean: 0.08, hands: 'lap', kind: 'sit' };
+  for (const ch of chars) { ch.root.position.y = 0.47; ch.anim.sitIn(SEAT, 1); if (q.get('chair') !== '0') { const c = window.__annChair(); c.position.set(ch.root.position.x, 0, 0); c.rotation.y = ch.root.rotation.y; scene.add(c); } } }
 for (let f = 0; f < 90; f++) { for (const ch of chars) ch.anim.update(1 / 60, walk, 0); }
 scene.updateMatrixWorld(true);
 const cam = new THREE.PerspectiveCamera(+(q.get('fov') || 0) || (view === 'neck' ? 12 : view === 'legs' || view === 'face' || view === 'chest' || view === 'feet' ? 22 : 30), W / H, 0.05, 100); const span = n * gap;

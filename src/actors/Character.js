@@ -388,9 +388,15 @@ export function buildBodyGeometry(sp) {
       const kk = smooth01((0.56 * s - y) / (0.12 * s));
       const wFn = follow <= 0 ? W1('hips') : (ca, sa) => { const sL = smooth01((ca + 0.55) / 1.1); const k = follow; // ca > 0 → character's left (+x), sa > 0 → front
         const fF = smooth01((sa - 0.15) / 0.75), fB = smooth01((-sa - 0.15) / 0.75), side = 1 - fF - fB;
-        const out = [[B.hips, 1 - k]]; const add = (bn, x) => { if (x > 1e-4) out.push([bn, x]); };
-        add(B.skirtF, k * fF * (1 - kk)); add(B.skirtF2, k * fF * kk); add(B.skirtB, k * fB * (1 - kk)); add(B.skirtB2, k * fB * kk);
-        add(B.thighL, k * side * sL); add(B.thighR, k * side * (1 - sL));
+        // 55th: the back panel stays with the pelvis down to the gluteal fold (it used to follow the thighs from just under the
+        // waistband, so seated the seat of the saree swung forward under the thighs and left the buttocks bare)
+        const kB = Math.min(k, smooth01((0.84 * s - y) / (0.12 * s))), hipW = 1 - k * (1 - fB) - kB * fB;
+        const out = [[B.hips, hipW]]; const add = (bn, x) => { if (x > 1e-4) out.push([bn, x]); };
+        add(B.skirtF, k * fF * (1 - kk)); add(B.skirtF2, k * fF * kk); add(B.skirtB, kB * fB * (1 - kk)); add(B.skirtB2, kB * fB * kk);
+        // sides: the thigh under them down to the knee line; below it (55th) the lower front / back panels, which hang from the
+        // knee line to the ankles — so with the thighs raised (seated) the sides fall to the floor instead of jutting out as wings
+        const sF = smooth01((sa + 0.6) / 1.2); add(B.thighL, k * side * sL * (1 - kk)); add(B.thighR, k * side * (1 - sL) * (1 - kk));
+        if (B.skirtF2) { add(B.skirtF2, k * side * kk * sF); add(B.skirtB2, k * side * kk * (1 - sF)); } else { add(B.thighL, k * side * sL * kk); add(B.thighR, k * side * (1 - sL) * kk); }
         return out.sort((p, q) => q[1] - p[1]).slice(0, 4); };
       let rxF = rx + (y > 0.9 * s ? 0.005 : 0), rzF = rz, czF = 0.005;
       if (NB && y > 0.66 * s) { const br = NB.ringAt(y); const pv = rings[rings.length - 1]; // anatomical hips / seat: the skirt always encloses the body (+ ease) and never pinches in below a wider ring
@@ -1821,14 +1827,18 @@ export class Animator {
     // upper panels track the most forward / rearward thigh; the knee-line hinge adds the rest so the lower panels reach the
     // shins (a swinging heel lifts only the lower back panel instead of levering the whole panel up off the other thigh)
     b.skirtF.rotation.set(uF * 1.04, 0, 0); b.skirtB.rotation.set(uB * 1.04, 0, 0);
+    // 55th (saree through the chair): seated, the back panel swings forward about the hip joint and would lie ~5 cm inside the
+    // seat; the cloth is sat ON, so its hinge rides up by that much (the bind position is kept in userData).
+    const sw = this.seated ? clamp(this.seatW, 0, 1) * clamp((-uB - 0.6) / 0.6, 0, 1) : 0; const sbB = b.skirtB; if (!sbB.userData.p0) sbB.userData.p0 = sbB.position.clone();
+    sbB.position.set(sbB.userData.p0.x, sbB.userData.p0.y + 0.065 * sw * this.s, sbB.userData.p0.z + 0.02 * sw * this.s);
     if (b.skirtF2) {
       if (dS > 0.05) { // long garments: aim each lower panel from its (already swung) knee-line hinge at the ankles, plus cloth clearance
         const h2 = (P1, P2, u) => { const c = Math.cos(u), sn = Math.sin(u); return [P1.y + P2.y * c - P2.z * sn, P1.z + P2.y * sn + P2.z * c]; };
         const clr = this.ch.mesh?.geometry?.userData?.npcBody ? 0.24 : 0.15; // anatomical calves / shins are fuller than the old tube legs
-        const uf = uF * 1.04, ub = uB * 1.04, hf = h2(b.skirtF.position, b.skirtF2.position, uf), hb = h2(b.skirtB.position, b.skirtB2.position, ub); let lf = uf, lb = ub;
+        const uf = uF * 1.04, ub = uB * 1.04, hf = h2(b.skirtF.position, b.skirtF2.position, uf), hb = h2(b.skirtB.position, b.skirtB2.position, ub); let lf = Math.max(uf, -0.45), lb = ub; // 55th: with the thighs raised (seated, stairs) the lower front panel falls from the knees instead of carrying on along the thigh like a board
         for (const [y, z] of ank) { let af = Math.atan2(-(z - hf[1]), -(y - hf[0])), ab = Math.atan2(-(z - hb[1]), -(y - hb[0])); if (af > 1.6) af -= 2 * Math.PI; if (ab < -1.6) ab += 2 * Math.PI; // heel above the hinge: keep the angle continuous past ±π
           lf = Math.min(lf, af - clr); lb = Math.max(lb, ab + clr); }
-        b.skirtF2.rotation.set(clamp(lf - uf, -1.3, 0), 0, 0); b.skirtB2.rotation.set(clamp(lb - ub, 0, 1.3), 0, 0);
+        b.skirtF2.rotation.set(clamp(lf - uf, -1.3, 1.6), 0, 0); b.skirtB2.rotation.set(clamp(lb - ub, 0, 1.3), 0, 0);
       } else { b.skirtF2.rotation.set((fwd - uF) * 1.04, 0, 0); b.skirtB2.rotation.set((back - uB) * 1.04, 0, 0); }
     }
   }
