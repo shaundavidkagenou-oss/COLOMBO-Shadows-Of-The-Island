@@ -16,10 +16,14 @@
 //     Texture objects (a clone of the original keeps its image when only the tiling changes).
 //   • One decoded image per library texture and one GPU upload per (texture, size, colour adjustment): every slot that uses
 //     it is a clone sharing the same THREE.Source (three.js uploads a source once). Releasing the last user disposes it.
+//   • 60th: every kind of part has its own `mat:` key (Materials.ROLE_DEFS — 'mat:winFrame', 'mat:lampPole' …), landmarks have
+//     their own copies ('mat:Lotus Tower.concrete') and any building part can have one building's own ('mat:winFrame@b234').
+//     A rule for such a key SPLITS it: its parts get their own draw with that material (World.rebuildForKeys while editing;
+//     on start the saved rules are read before the city is generated — preload()).
 //   • Storage: the dev server's project folder `texture-pack/` (tools/vite/texturePack.mjs: real files, kept out of git,
 //     built into the game), else this browser's IndexedDB; textures missing locally come from the manifest's asset base URL.
 import * as THREE from 'three';
-import { MAT, wetTarget } from '../gfx/Materials.js';
+import { MAT, wetTarget, SPLIT, markSplit, splittable, ensureMat, materialLabel, splitKey } from '../gfx/Materials.js';
 import { vehicleMaterials } from '../vehicles/VehicleModels.js';
 import { storeGet, storeSet, setSavedFlag, TEXTURE_STUDIO } from './boot.js';
 
@@ -42,6 +46,10 @@ export const PROPS = [
   { k: 'normalScale', label: 'Normal strength', kind: 'vec', min: -3, max: 3, step: 0.01 },
   { k: 'aoMapIntensity', label: 'AO intensity', kind: 'num', min: 0, max: 2, step: 0.01 },
   { k: 'envMapIntensity', label: 'Reflection intensity', kind: 'num', min: 0, max: 4, step: 0.01 },
+  // 60th: the game tints most city parts per object with vertex colours (a dark lamp post is a white material × near-black
+  // vertex colour). A real photo texture multiplied by that went pitch black — off by default once a texture replaces a plain
+  // vertex-coloured material (TextureStudio.assign), switchable back here.
+  { k: 'vertexColors', label: 'Per-object tint (vertex colours)', kind: 'bool' },
 ];
 export const CATEGORIES = ['Building', 'Road', 'Pavement', 'Roof', 'Vehicle', 'Character', 'Vegetation', 'Prop', 'Interior', 'Environment', 'Signage', 'Water', 'Other'];
 const MIME = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif', bmp: 'image/bmp', ktx2: 'image/ktx2', dds: 'image/vnd-ms.dds' };
@@ -131,7 +139,7 @@ function sanitizeSlot(s) {
 
 // ------------------------------------------------------------------------------------------------- material identity
 let MATKEY = null;
-function matKey(m) { if (!MATKEY) { MATKEY = new Map(); for (const [k, v] of Object.entries(MAT)) if (v && v.isMaterial && !MATKEY.has(v)) MATKEY.set(v, k); } return MATKEY.get(m) || null; }
+function matKey(m) { const n = Object.keys(MAT).length; if (MATKEY && MATKEY.n !== n) MATKEY = null; /* role / per-building copies are added on demand */ if (!MATKEY) { MATKEY = new Map(); MATKEY.n = n; for (const [k, v] of Object.entries(MAT)) if (v && v.isMaterial && !MATKEY.has(v)) MATKEY.set(v, k); } return MATKEY.get(m) || null; }
 export function vehOf(o) { for (let p = o; p; p = p.parent) if (p.userData && p.userData.seats && p.userData.type && typeof p.userData.type === 'string') return p; return null; }
 export function snapProps(m) { const o = {}; for (const p of PROPS) if (p.k in m && m[p.k] != null) { const v = m[p.k]; o[p.k] = v.isColor ? v.getHex() : v.isVector2 ? [v.x, v.y] : v; } return o; }
 const ORIG = new WeakMap(); // material → { slots, props, wet } exactly as the game made it (first Studio touch)
@@ -149,7 +157,9 @@ export function keyOf(m, o, i = 0) {
 }
 export function describeKey(k) {
   const [kind, ...r] = k.split(':'); const rest = r.join(':');
-  if (kind === 'mat') return { kind, scope: 'Shared city material MAT.' + rest, persist: true };
+  if (kind === 'mat') { const sp = splitKey(rest); const lab = materialLabel(rest);
+    if (!sp) return { kind, scope: 'Base city material MAT.' + rest + (lab !== rest ? ' (' + lab + ')' : '') + ' — every part that has no material of its own', persist: true };
+    return { kind, scope: lab + (sp.building != null ? '' : sp.scope ? '' : ' — every building / object of this kind') + (SPLIT.has(rest) ? '' : ' (gets its own draw when edited)'), persist: true }; }
   if (kind === 'veh') { const [type, ...p] = rest.split(':'); return { kind, scope: `Every "${type}" vehicle · part "${p.join(':')}" (its own copy of the shared vehicle material)`, persist: true }; }
   if (kind === 'name') return { kind, scope: 'Every material named "' + rest.split(':').slice(1).join(':') + '"', persist: true };
   if (kind === 'sig') return { kind, scope: 'Unnamed generated material (identified by its creation parameters: ' + rest + ')', persist: true };
@@ -295,7 +305,7 @@ function transform(tex, sr, ref) {
 }
 // ------------------------------------------------------------------------------------------------- applying rules
 function backup(m) { let b = ORIG.get(m); if (b) return b; b = { slots: {}, props: snapProps(m), wet: null }; for (const s of SLOTS) if (s.k in m) b.slots[s.k] = m[s.k]; const w = wetTarget(m); if (w) b.wet = [w[1], w[2], w[3] ? w[3].clone() : null]; ORIG.set(m, b); return b; }
-function setProp(m, k, v) { if (!(k in m) || m[k] == null && k !== 'envMapIntensity') return; const cur = m[k]; if (cur && cur.isColor) cur.set(v); else if (cur && cur.isVector2) Array.isArray(v) ? cur.set(v[0], v[1]) : cur.set(v, v); else m[k] = v; }
+function setProp(m, k, v) { if (!(k in m) || m[k] == null && k !== 'envMapIntensity') return; if (typeof m[k] === 'boolean') { if (m[k] !== !!v) { m[k] = !!v; m.needsUpdate = true; } return; } const cur = m[k]; if (cur && cur.isColor) cur.set(v); else if (cur && cur.isVector2) Array.isArray(v) ? cur.set(v[0], v[1]) : cur.set(v, v); else m[k] = v; }
 function restoreProps(m, props) { for (const [k, v] of Object.entries(props)) setProp(m, k, v); }
 export function restoreMaterial(m) {
   const b = ORIG.get(m); if (!b) return; let prog = false;
@@ -409,6 +419,7 @@ export async function setRule(k, r, { label = 'edit', merge = null, record = tru
   await writeRule(k, after);
 }
 async function writeRule(k, r) {
+  if (r && k.startsWith('mat:')) ensureSplit([k.slice(4)]);
   if (r) { r.modified = new Date().toISOString(); const old = S.manifest.rules[k]; r.__rev = old ? old.__rev || 0 : 0; S.manifest.rules[k] = r; } else delete S.manifest.rules[k];
   S.manifest.modified = new Date().toISOString(); scheduleSave(); await applyKey(k); emit('rules', k);
 }
@@ -465,14 +476,31 @@ export async function importManifest(raw, files = new Map(), mode = 'merge') {
 }
 export function setAssetBase(url) { S.manifest.assetBase = String(url || '').trim(); DECODED.clear(); scheduleSave(); emit('library'); }
 
-// ------------------------------------------------------------------------------------------------- boot
-let timer = 0;
-export async function boot(game, { pack = null } = {}) {
-  S.game = game; if (S.ready) return S;
+// ------------------------------------------------------------------------------------------------- 60th: split keys
+// a rule for a part / per-building key gives those parts their own draw: mark it split and rebuild what draws it (World)
+export function ensureSplit(keys) {
+  const fresh = []; for (const k of keys) if (!SPLIT.has(k) && splittable(k) && markSplit(k)) { ensureMat(k); fresh.push(k); }
+  if (fresh.length) { const W = S.game && S.game.world; if (W && W.rebuildForKeys && W.chunks && W.chunks.length) { const n = W.rebuildForKeys(fresh); if (n) console.info(`[texture studio] ${fresh.join(', ')}: own material — ${n} chunk(s) rebuilt`); } MATKEY = null; }
+  return fresh;
+}
+// before the city is generated (Game.init → boot.preloadTextures): read the manifest and split the keys its rules use, so the
+// buildings are generated with those parts on their own material from the start (no rebuild at load)
+export async function preload({ pack = null } = {}) {
+  if (S.manifestLoaded) return S;
   let m = null;
   if (TEXTURE_STUDIO) { try { m = await FolderBackend.init(); S.backend = FolderBackend; } catch { m = await IdbBackend.init(); S.backend = IdbBackend; } if (!m && pack && pack.rules) m = pack; }
   else { S.backend = PackBackend; m = pack; }
   if (m) try { S.manifest = sanitizeManifest(m); } catch (e) { console.warn('[texture studio] manifest ignored:', e.message); S.manifest = emptyManifest(); }
+  S.manifestLoaded = true;
+  for (const k of Object.keys(S.manifest.rules)) if (k.startsWith('mat:') && S.manifest.rules[k].enabled !== false) markSplit(k.slice(4)); // SPLIT only (materials exist later)
+  return S;
+}
+// ------------------------------------------------------------------------------------------------- boot
+let timer = 0;
+export async function boot(game, { pack = null } = {}) {
+  S.game = game; if (S.ready) return S;
+  await preload({ pack });
+  ensureSplit(Object.keys(S.manifest.rules).filter((k) => k.startsWith('mat:') && S.manifest.rules[k].enabled !== false).map((k) => k.slice(4))); // keys not split before the city was built (rules made in another session): rebuilt now
   S.ready = true; scan(); const keys = Object.keys(S.manifest.rules);
   if (keys.length) await Promise.race([Promise.all(keys.map((k) => applyKey(k))), new Promise((r) => setTimeout(r, 4000))]); // loading keeps going after 4 s
   if (!timer) timer = setInterval(() => { if (Object.keys(S.manifest.rules).length || studioOpen) scan(); }, 1500);

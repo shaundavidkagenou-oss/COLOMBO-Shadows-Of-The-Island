@@ -31,12 +31,21 @@ export async function bootRuntime(game) {
 // build made with VITE_TEXTURE_STUDIO=1 (npm run build:studio); an ordinary production build (npm run build, build-exe.bat)
 // constant-folds this to false, so the Studio's code is not even in it. Texture packs made with it still apply there.
 export const TEXTURE_STUDIO = !!(import.meta.env && (import.meta.env.DEV || import.meta.env.VITE_TEXTURE_STUDIO === '1'));
+let PACK; // undefined = not fetched yet
+async function fetchPack() {
+  if (PACK !== undefined) return PACK; PACK = null; // texture-pack/manifest.json: the dev server's project folder, or the copy built into dist / the .exe
+  if (typeof fetch === 'function' && typeof location !== 'undefined') try { const r = await fetch('texture-pack/manifest.json', { cache: 'no-cache' }); if (r.ok) PACK = await r.json(); } catch { /* no pack (file:// or offline) */ }
+  return PACK;
+}
+const hasRules = (pack) => !!(pack && pack.rules && Object.keys(pack.rules).length > 0) || (TEXTURE_STUDIO && !!savedFlags().textures);
+// 60th: before the city is generated — parts with their own material in the saved rules are built that way from the start
+export async function preloadTextures() {
+  try { const pack = await fetchPack(); if (!hasRules(pack)) return null; const rt = await import('./TexRuntime.js'); globalThis.__texRuntime = rt; return await rt.preload({ pack }); }
+  catch (e) { console.warn('[texture studio] texture manifest not read early', e); return null; }
+}
 export async function bootTextures(game) {
   try {
-    let pack = null; // texture-pack/manifest.json: the dev server's project folder, or the copy built into dist / the .exe
-    if (typeof fetch === 'function' && typeof location !== 'undefined') try { const r = await fetch('texture-pack/manifest.json', { cache: 'no-cache' }); if (r.ok) pack = await r.json(); } catch { /* no pack (file:// or offline) */ }
-    const has = pack && pack.rules && Object.keys(pack.rules).length > 0;
-    if (!has && !(TEXTURE_STUDIO && savedFlags().textures)) return null;
+    const pack = await fetchPack(); if (!hasRules(pack)) return null;
     const rt = await import('./TexRuntime.js'); globalThis.__texRuntime = rt; return await rt.boot(game, { pack }); // (inspectable from the browser console)
   } catch (e) { console.warn('[texture studio] saved texture replacements not applied', e); return null; }
 }

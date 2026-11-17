@@ -13,50 +13,50 @@ let STALLS = null; // [type][parts] from Stalls.js
 function part(mb, mat) { return { geo: mb.build(), mat }; }
 function canvasTex(w, h, draw) { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; }
 
-export function buildPropGeometries() {
+export function buildPropGeometries() { // 60th: every prop type draws with its OWN material (Materials.ROLE_DEFS — copies of metal / paint / concrete; same look)
   // street lamp: tapered galvanised pole, curved arm, LED head (head is a separate emissive part)
   { const p = new MeshBuilder(); p.cylinder(0, 0, 0, 0.14, 0.08, 8, 8, { col: C('#9aa0a4') }); p.box(0, 8.0, 0.9, 0.08, 0.08, 1.9, { col: C('#9aa0a4') }); p.box(0, 0.4, 0, 0.32, 0.8, 0.32, { col: C('#8a8a86') });
     const h = new MeshBuilder(); h.box(0, 7.92, 1.85, 0.32, 0.12, 0.7, {});
-    GEO.lamp = [part(p, MAT.metal), part(h, MAT.lampHead)]; }
+    GEO.lamp = [part(p, MAT.lampPole), part(h, MAT.lampHead)]; }
   { const p = new MeshBuilder(); p.cylinder(0, 0, 0, 0.2, 0.09, 5.2, 10, { col: C('#1d1f1d') }); p.box(0, 0.35, 0, 0.5, 0.7, 0.5, { col: C('#1d1f1d') }); p.box(0, 5.2, 0, 1.2, 0.1, 0.1, { col: C('#1d1f1d') });
     const h = new MeshBuilder(); for (const s of [-0.55, 0.55]) h.box(s, 4.85, 0, 0.32, 0.5, 0.32, {});
-    GEO.lampHeritage = [part(p, MAT.metal), part(h, MAT.lampHead)]; }
+    GEO.lampHeritage = [part(p, MAT.heritageLampPole), part(h, MAT.lampHead)]; }
   // concrete utility pole with crossarm + insulators
   { const p = new MeshBuilder(); p.box(0, 4.5, 0, 0.26, 9, 0.22, { col: C('#a7a39a'), uvScale: 2 }); p.box(0, 8.4, 0, 1.8, 0.12, 0.12, { col: C('#6a6a66') }); for (const s of [-0.8, 0, 0.8]) p.cylinder(s, 8.46, 0, 0.05, 0.05, 0.16, 6, { col: C('#d8d8d0') });
     p.box(0, 6.6, 0, 1.0, 0.1, 0.1, { col: C('#6a6a66') });
-    GEO.pole = [part(p, MAT.concrete)];
+    GEO.pole = [part(p, MAT.utilityPole)];
     const t = new MeshBuilder(); t.box(0, 6.1, 0.35, 0.7, 0.9, 0.5, { col: C('#7d8580') }); t.cylinder(0, 6.55, 0.35, 0.08, 0.08, 0.3, 6, { col: C('#ddd') });
-    GEO.transformer = [part(t, MAT.metal)]; }
+    GEO.transformer = [part(t, MAT.transformer)]; }
   // traffic signal pole (heads are separate dynamic lamps)
   { const p = new MeshBuilder(); p.cylinder(0, 0, 0, 0.1, 0.09, 3.2, 8, { col: C('#2b2d2b') });
     p.box(0, 2.85, 0.18, 0.34, 1.0, 0.24, { col: C('#151515') }); p.box(0.18, 2.85, 0, 0.24, 1.0, 0.34, { col: C('#151515') });
     for (const [x, z] of [[0, 0.3075], [0.3075, 0]]) p.box(x, 2.85, z, x ? 0.015 : 0.4, 1.1, z ? 0.015 : 0.4, { col: C('#e8c21a') }); // backboard face at 0.315: lamps float 1.8 cm in front (no coplanar flicker)
-    GEO.signal = [part(p, MAT.metal)]; }
+    GEO.signal = [part(p, MAT.signalPole)]; }
   // bus halt shelter
   { const busSign = canvasTex(512, 160, (a, w, h) => { a.fillStyle = '#0e5e35'; a.fillRect(0, 0, w, h); a.fillStyle = '#fff'; a.textAlign = 'center'; a.textBaseline = 'middle'; a.font = '700 54px "Barlow Condensed", sans-serif'; a.fillText('BUS HALT', w / 2, 40); a.font = '700 34px "Noto Sans Sinhala", sans-serif'; a.fillText('බස් නැවතුම', w * 0.28, 115); a.font = '700 30px "Noto Sans Tamil", sans-serif'; a.fillText('பஸ் தரிப்பு', w * 0.74, 115); });
     MAT.busSign = new THREE.MeshStandardMaterial({ map: busSign, roughness: 0.6, side: THREE.DoubleSide });
     const p = new MeshBuilder(); for (const x of [-2, 2]) for (const z of [-0.6]) p.box(x, 1.25, z, 0.1, 2.5, 0.1, { col: C('#4a4f4c') });
     p.box(0, 2.55, 0, 4.6, 0.1, 1.8, { col: C('#c9cfc9') }); p.box(0, 1.3, -0.65, 4.2, 1.5, 0.05, { col: C('#b8c0bf') }); p.box(0, 0.48, -0.35, 3.4, 0.08, 0.45, { col: C('#5a6a74') }); for (const x of [-1.5, 1.5]) p.box(x, 0.24, -0.35, 0.1, 0.48, 0.4, { col: C('#555') });
     const s = new MeshBuilder(); s.quad([-1.1, 2.62, 0.92], [1.1, 2.62, 0.92], [1.1, 3.3, 0.92], [-1.1, 3.3, 0.92], [0, 0, 1, 1]);
-    GEO.busStop = [part(p, MAT.paint), part(s, MAT.busSign)]; }
+    GEO.busStop = [part(p, MAT.busShelter), part(s, MAT.busSign)]; }
   // bench
   { const p = new MeshBuilder(); // seat faces local +z: three seat slats centred on the origin (sitters' hips land on z = 0), backrest behind (−z)
     for (let k = 0; k < 3; k++) p.box(0, 0.44, -0.15 + k * 0.15, 1.8, 0.05, 0.12, { col: C('#7a5532'), bottom: true });
     for (const y of [0.62, 0.8]) p.box(0, y, -0.25, 1.8, 0.11, 0.04, { col: C('#7a5532'), bottom: true });
     for (const x of [-0.75, 0.75]) { p.box(x, 0.21, 0, 0.12, 0.42, 0.5, { col: C('#9a958a') }); p.box(x, 0.66, -0.25, 0.08, 0.5, 0.06, { col: C('#9a958a') }); }
-    GEO.bench = [part(p, MAT.paint)]; }
+    GEO.bench = [part(p, MAT.bench)]; }
   // pedestrian railing (yellow/black)
   { const p = new MeshBuilder(); for (let k = 0; k < 6; k++) p.box(-1.25 + k * 0.5, 0.95, 0, 0.5, 0.08, 0.06, { col: k % 2 ? C('#111') : C('#e8c21a') }); for (const x of [-1.5, 1.5]) p.box(x, 0.5, 0, 0.07, 1.0, 0.07, { col: C('#222') }); p.box(0, 0.55, 0, 2.93, 0.05, 0.04, { col: C('#d8b818') }); p.box(0, 0.16, 0, 2.93, 0.05, 0.04, { col: C('#d8b818') }); for (let k = 0; k < 8; k++) p.box(-1.17 + k * 0.334, 0.535, 0, 0.03, 0.76, 0.03, { col: C('#c9ab17') }); /* a 3 m section with a post at each end: sections join post to post; bottom rail + vertical bars make it read as the solid guard rail it is */
-    GEO.railing = [part(p, MAT.paint)]; }
+    GEO.railing = [part(p, MAT.pedRailing)]; }
   // gate
   { const p = new MeshBuilder(); p.box(-2.1, 1.1, 0, 0.35, 2.2, 0.35, { col: C('#e8e2d4') }); p.box(2.1, 1.1, 0, 0.35, 2.2, 0.35, { col: C('#e8e2d4') }); for (let k = 0; k < 14; k++) p.box(-1.8 + k * 0.28, 0.95, 0, 0.04, 1.7, 0.04, { col: C('#1d1d1d') }); p.box(0, 1.75, 0, 3.8, 0.08, 0.06, { col: C('#1d1d1d') }); p.box(0, 0.25, 0, 3.8, 0.08, 0.06, { col: C('#1d1d1d') });
-    GEO.gate = [part(p, MAT.metal)]; }
+    GEO.gate = [part(p, MAT.gate)]; }
   // Pettah pavement stall: table, goods, tarp canopy
   { const p = new MeshBuilder(); const rng = new RNG(5); p.box(0, 0.8, 0, 2.0, 0.08, 1.1, { col: C('#6b4a2e') }); for (const [x, z] of [[-0.9, -0.45], [0.9, -0.45], [-0.9, 0.45], [0.9, 0.45]]) p.box(x, 0.4, z, 0.06, 0.8, 0.06, { col: C('#444') });
     for (let k = 0; k < 10; k++) p.box(-0.8 + (k % 5) * 0.4, 0.92 + Math.floor(k / 5) * 0.12, -0.25 + Math.floor(k / 5) * 0.4, 0.34, 0.16, 0.3, { col: C(rng.pick(['#c0392b', '#2471a3', '#f1c40f', '#27ae60', '#e67e22', '#8e44ad', '#ecf0f1'])) });
     for (const [x, z] of [[-1.05, -0.6], [1.05, -0.6], [-1.05, 0.6], [1.05, 0.6]]) p.box(x, 1.2, z, 0.04, 2.4, 0.04, { col: C('#555') });
     const t = new MeshBuilder(); t.quad([-1.2, 2.2, 0.75], [1.2, 2.2, 0.75], [1.2, 2.45, -0.75], [-1.2, 2.45, -0.75], [0, 0, 1, 1], C('#2f6fa8'));
-    GEO.stall = [part(p, MAT.paint), part(t, MAT.awning)];
+    GEO.stall = [part(p, MAT.stall), part(t, MAT.awning)];
     /* ten modelled stall types (Stalls.js) replace the single generic table when they build */
     try { STALLS = buildStallGeometries(MAT.awning); } catch (e) { console.warn('stall types', e); STALLS = null; } }
   // Galle Face food cart (isso vadai / kadala)
@@ -65,14 +65,14 @@ export function buildPropGeometries() {
     p.box(0, 1.75, 0.6, 1.2, 0.5, 1.0, { col: C('#c7d7dc') }); for (const [x, z] of [[-0.65, -1.2], [0.65, -1.2], [-0.65, 1.2], [0.65, 1.2]]) p.box(x, 2.0, z, 0.05, 1.1, 0.05, { col: C('#555') });
     const t = new MeshBuilder(); t.box(0, 2.6, 0, 1.7, 0.06, 2.9, { col: C('#e3b23c') });
     const l = new MeshBuilder(); l.box(0, 2.45, 0, 0.18, 0.18, 0.18, {});
-    GEO.foodcart = [part(p, MAT.paint), part(t, MAT.awning), part(l, MAT.lampHead)]; }
+    GEO.foodcart = [part(p, MAT.foodCart), part(t, MAT.awning), part(l, MAT.lampHead)]; }
   // shipping container (instance-coloured)
   { const p = new MeshBuilder(); p.box(0, 1.3, 0, 12.1, 2.58, 2.44, { col: [1, 1, 1], uvScale: 2.6 }); GEO.containers = [part(p, MAT.corrugated)]; }
   // junction shrine (glass-fronted, golden figure abstracted)
   { const p = new MeshBuilder(); p.box(0, 0.6, 0, 1.4, 1.2, 1.4, { col: C('#f4f1ea') }); p.box(0, 2.6, 0, 1.6, 0.12, 1.6, { col: C('#f4f1ea') }); for (const [x, z] of [[-0.62, -0.62], [0.62, -0.62], [-0.62, 0.62], [0.62, 0.62]]) p.box(x, 1.9, z, 0.08, 1.4, 0.08, { col: C('#e8e2d4') });
     p.cylinder(0, 2.66, 0, 0.9, 0.05, 0.5, 8, { col: C('#e8dcc0') });
     const g = new MeshBuilder(); g.cylinder(0, 1.2, 0, 0.28, 0.12, 0.45, 10, { col: C('#d4af37') }); g.cylinder(0, 1.65, 0, 0.11, 0.06, 0.2, 8, { col: C('#d4af37') });
-    GEO.shrine = [part(p, MAT.paint), part(g, MAT.lampHead)]; }
+    GEO.shrine = [part(p, MAT.shrine), part(g, MAT.lampHead)]; }
   // signal lamp disc (dynamic colour)
   { const g = new THREE.CircleGeometry(0.11, 12); GEO.signalLamp = g; }
 }

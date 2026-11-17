@@ -296,6 +296,27 @@ function facadeColonial(W, H, seed) {
   hx.setTransform(1, 0, 0, 1, 0, 0); blurHeight(hc, 1); plasterRelief(hc, seed);
   f.height = hc; f.relief = 2.2; return f;
 }
+// 60th: window-opening mask in the rm map's RED channel (roughness uses green, metalness blue; red was unused): 1 inside every
+// painted opening the facade recorded (glass, frame, glazing bars, shutters — arched heads included, 2 px over the frame
+// stroke) and on all glass, 0 on the wall. The facade shader's window layer (InteriorMapping.js) keeps those pixels from the
+// original art, so a replacement wall texture never paints over the windows.
+function openingMask(f) {
+  try {
+    const W = f.rm.width, H = f.rm.height; const mc = canvas(W, H), x = mc.getContext('2d'); x.fillStyle = '#000'; x.fillRect(0, 0, W, H); x.fillStyle = '#fff';
+    for (const w of f.windows || []) {
+      const X0 = w.u0 * W - 2, X1 = w.u1 * W + 2, Yt = (1 - w.v1) * H - 2, Yb = (1 - w.v0) * H + 2; const ah = w.arch ? w.arch * (w.v1 - w.v0) * H : 0;
+      x.beginPath();
+      const hd = w.head ? w.head * (w.v1 - w.v0) * H : 0; // round head ABOVE the recorded rectangle (shophouse arches)
+      if (ah > 0.5) { const yS = Yt + 2 + ah; x.moveTo(X0, Yb); x.lineTo(X0, yS); x.ellipse((X0 + X1) / 2, yS, (X1 - X0) / 2, ah + 2, 0, Math.PI, 0); x.lineTo(X1, Yb); x.closePath(); }
+      else if (hd > 0.5) { const yS = Yt + 2; x.moveTo(X0, Yb); x.lineTo(X0, yS); x.ellipse((X0 + X1) / 2, yS, (X1 - X0) / 2, hd + 2, 0, Math.PI, 0); x.lineTo(X1, Yb); x.closePath(); }
+      else x.rect(X0, Yt, X1 - X0, Yb - Yt);
+      x.fill();
+    }
+    const md = x.getImageData(0, 0, W, H).data, rc = f.rm.getContext('2d'), id = rc.getImageData(0, 0, W, H), d = id.data;
+    for (let i = 0; i < d.length; i += 4) d[i] = d[i + 1] < 90 ? 255 : md[i];
+    rc.putImageData(id, 0, 0);
+  } catch { /* no 2D canvas (Node tests): mask stays 1 everywhere → shader shows the original art, as before */ }
+}
 // hand-floated lime / cement render: soft trowel waves, sand grain, the odd hairline crack (height canvas, in place)
 function plasterRelief(hc, seed) {
   reliefNoise(hc, { scale: 10, amp: 6, oct: 3, seed: seed + 31 }); reliefNoise(hc, { scale: 48, amp: 5, oct: 2, seed: seed + 32, grain: 7, grainSeed: seed + 33 });
@@ -410,7 +431,7 @@ function facadeShop3(W, H, seed) {
       if (shut) { a.fillStyle = sc; a.fillRect(wx, wy - rad, ww, wh + rad); a.fillStyle = 'rgba(0,0,0,0.3)'; for (let y = wy - rad + 3; y < wy + wh; y += 4) a.fillRect(wx, y, ww, 1.4); a.fillRect(wx + ww / 2 - 1, wy - rad, 2, wh + rad); }
       else { glassGrad(a, wx, wy - rad, ww, wh + rad, '#3b4447', '#101416'); r.fillStyle = 'rgb(255,60,0)'; r.fillRect(wx, wy, ww, wh); a.fillStyle = 'rgba(240,235,220,0.85)'; a.fillRect(wx + ww / 2 - 1.5, wy - rad, 3, wh + rad); a.fillRect(wx, wy + wh * 0.45, ww, 3); }
       a.restore();
-      recWin(wx, wy, ww, wh, shut ? 'shutter' : 'sash', { frame: '#efe8d8', bar: 0.45 }); if (shut) _win[_win.length - 1].shut = sc; else windowLights(e, rng, wx, wy, ww, wh, 0.45);
+      recWin(wx, wy, ww, wh, shut ? 'shutter' : 'sash', { frame: '#efe8d8', bar: 0.45, head: rad / wh }); if (shut) _win[_win.length - 1].shut = sc; else windowLights(e, rng, wx, wy, ww, wh, 0.45);
       a.fillStyle = 'rgba(0,0,0,0.2)'; a.fillRect(wx - 8, wy + wh + 3, ww + 16, 5); // sill
       if (rng.chance(0.35)) { a.fillStyle = 'rgba(150,140,120,0.5)'; a.beginPath(); a.ellipse(x0 + rng.range(6, bw - 6), y0 + rng.range(fh * 0.2, fh * 0.9), rng.range(6, 16), rng.range(4, 10), 0, 0, 7); a.fill(); } // flaked plaster
     } }
@@ -1029,7 +1050,7 @@ export async function buildTextures(quality = 'high', progress = () => {}) {
   }
   // facade wrappers → textures
   for (const k of Object.keys(TEX)) if (k.startsWith('f_') && TEX[k].albedo) {
-    const f = TEX[k]; if (PLASTER_BASE[k]) weatherPlaster(f, PLASTER_BASE[k]); TEX[k] = { map: toTex(f.albedo), emissive: toTex(f.emis), rm: toTex(f.rm, { srgb: false }), normal: facadeNormal(k, f) }; FACADE_WINDOWS[k] = f.windows;
+    const f = TEX[k]; if (PLASTER_BASE[k]) weatherPlaster(f, PLASTER_BASE[k]); openingMask(f); TEX[k] = { map: toTex(f.albedo), emissive: toTex(f.emis), rm: toTex(f.rm, { srgb: false }), normal: facadeNormal(k, f) }; FACADE_WINDOWS[k] = f.windows;
   }
   progress(1, 'textures ready');
   return TEX;

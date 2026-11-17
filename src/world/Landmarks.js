@@ -69,7 +69,7 @@ const smooth01 = (t) => { t = Math.min(1, Math.max(0, t)); return t * t * (3 - 2
 export function buildLandmarks() {
   const group = new THREE.Group(); group.name = 'landmarks';
   const mb = new MultiBuilder(); const colliders = []; const anim = {};
-  const conc = mb.get('concrete'), paint = mb.get('paint'), metal = mb.get('metal');
+  const conc = mb.lazy('concrete'), paint = mb.lazy('paint'), metal = mb.lazy('metal'); // 60th: each landmark below sets mb.scope → its own copies ('Lotus Tower.concrete' …) for the Texture Studio
   const box = (b, cx, cy, cz, sx, sy, sz, col, o = {}) => b.box(cx, cy, cz, sx, sy, sz, { col: C(col), uvScale: o.uv || 3, bottom: true, ...o }); // closed boxes: canopies, lintels and slabs stay solid when seen from below
   const coll = (x0, x1, z0, z1, h, extra = {}) => colliders.push({ x0, x1, z0, z1, h, kind: 'landmark', ...extra });
   const lathe = (b, pts, seg, x, y, z, col, phiStart = 0, phiLen = Math.PI * 2) => { const g = new THREE.LatheGeometry(pts.map(([r, h]) => new THREE.Vector2(r, h)), seg, phiStart, phiLen); M4.makeTranslation(x, y, z); b.geometry(g, M4, C(col)); g.dispose(); };
@@ -92,15 +92,16 @@ export function buildLandmarks() {
     const b = mb.get(mat); const ov = 0.8; x0 -= ov; x1 += ov; z0 -= ov; z1 += ov; const w = x1 - x0, d = z1 - z0, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2; const rh = Math.abs(w - d) / 2; const c = C(col);
     const r0 = w >= d ? [cx - rh, y + rise, cz] : [cx, y + rise, cz - rh], r1 = w >= d ? [cx + rh, y + rise, cz] : [cx, y + rise, cz + rh];
     const A = [x0, y, z1], B = [x1, y, z1], Cc = [x1, y, z0], D = [x0, y, z0];
-    const T = (p, q, r) => { const i = b.vcount; const ux = q[0] - p[0], uy = q[1] - p[1], uz = q[2] - p[2], vx = r[0] - p[0], vy = r[1] - p[1], vz = r[2] - p[2]; let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx; const l = Math.hypot(nx, ny, nz) || 1; b.vert(...p, nx / l, ny / l, nz / l, 0, 0, c); b.vert(...q, nx / l, ny / l, nz / l, Math.hypot(ux, uz) / 4, 0, c); b.vert(...r, nx / l, ny / l, nz / l, 0.5, rise / 2, c); b.idx.push(i, i + 1, i + 2); };
-    if (w >= d) { b.quad(A, B, r1, r0, [0, 0, w / 4, d / 6], c); b.quad(Cc, D, r0, r1, [0, 0, w / 4, d / 6], c); T(B, Cc, r1); T(D, A, r0); }
-    else { b.quad(B, Cc, r0, r1, [0, 0, d / 4, w / 6], c); b.quad(D, A, r1, r0, [0, 0, d / 4, w / 6], c); T(A, B, r1); T(Cc, D, r0); }
+    // 60th: world-scale planar UVs per slope / hip end (MeshBuilder.planar) — a real tile texture runs level along every eave
+    if (w >= d) { b.planar([A, B, r1, r0], c); b.planar([Cc, D, r0, r1], c); b.planar([B, Cc, r1], c); b.planar([D, A, r0], c); }
+    else { b.planar([B, Cc, r0, r1], c); b.planar([D, A, r1, r0], c); b.planar([A, B, r1], c); b.planar([Cc, D, r0], c); }
   };
   const labels = [];
   const label = (lines, x, y, z, w, h, rotY, o) => { const m = labelMesh(labelMaterial(lines, o), x, y, z, w, h, rotY); group.add(m); labels.push(m.material); return m; };
   const EN = (px) => `700 ${px}px "Cormorant Garamond", serif`, SANS = (px) => `700 ${px}px "Barlow Condensed", sans-serif`, SI = (px) => `700 ${px}px "Noto Sans Sinhala", "Noto Sans Tamil", sans-serif`, TA = (px) => `700 ${px}px "Noto Sans Tamil", sans-serif`;
 
   // ------------------------------------------------------------ LOTUS TOWER (Nelum Kuluna)
+  mb.scope = 'Lotus Tower';
   {
     const x = 305, z = -480; const y0 = LAND_Y;
     // podium: stepped exhibition halls
@@ -139,6 +140,7 @@ export function buildLandmarks() {
   }
 
   // ------------------------------------------------------------ JAMI UL-ALFAR MOSQUE (Pettah)
+  mb.scope = 'Jami Ul-Alfar Mosque';
   {
     const mt = mosqueTexture();
     const mosqueMat = new THREE.MeshStandardMaterial({ map: mt.map, emissiveMap: mt.emis, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.75 });
@@ -171,6 +173,7 @@ export function buildLandmarks() {
   }
 
   // ------------------------------------------------------------ OLD PARLIAMENT (Presidential Secretariat)
+  mb.scope = 'Old Parliament';
   {
     // the plinth (with the west portico on it) fills the block between the Chaithya Road pavement (x -465.5) and the east
     // road's pavement (x -413.5), and stops at the north road's pavement (z -732.9): it used to stand 6 m out over Chaithya
@@ -188,6 +191,7 @@ export function buildLandmarks() {
   }
 
   // ------------------------------------------------------------ GALLE FACE HOTEL
+  mb.scope = 'Galle Face Hotel';
   {
     // south wing stops short of the coastal railway curve (track reserve ±7.5 m at z ≈ -190…-196); the north front stands
     // behind the Union Place pavement (z -226.5) — it used to sit on the road's centre line, 9 m into the carriageway.
@@ -203,11 +207,13 @@ export function buildLandmarks() {
   }
 
   // ------------------------------------------------------------ FORT CLOCK TOWER (old lighthouse)
+  mb.scope = 'Fort Clock Tower';
   {
     anim.clockTower = buildClockTower({ mb, coll, group, label, C, LAND_Y }); // 52nd: hyper-detailed rebuild with a working clock + corner garden (ClockTower.js)
   }
 
   // ------------------------------------------------------------ TWIN TOWERS (WTC)
+  mb.scope = 'Twin Towers';
   {
     const y0 = LAND_Y;
     facade('office', -334, -286, -990, -912, y0, y0 + 16, '#ece9e2');
@@ -220,6 +226,7 @@ export function buildLandmarks() {
   }
 
   // ------------------------------------------------------------ DUTCH HOSPITAL (courtyard, tiled roofs, verandas)
+  mb.scope = 'Dutch Hospital';
   {
     const y0 = LAND_Y, X0 = -384, X1 = -350, Z0 = -888, Z1 = -833, wd = 9;
     const wings = [[X0, X1, Z0, Z0 + wd], [X0, X1, Z1 - wd, Z1], [X0, X0 + wd, Z0 + wd, Z1 - wd], [X1 - wd, X1, Z0 + wd, Z1 - wd]];
@@ -230,6 +237,7 @@ export function buildLandmarks() {
   }
 
   // ------------------------------------------------------------ CARGROVE & CO. (fictional; red brick, York Street)
+  mb.scope = 'Cargrove & Co';
   {
     const y0 = LAND_Y, x0 = -268, x1 = -230, z0 = -888, z1 = -843;
     facade('brick', x0, x1, z0, z1, y0, y0 + 16, '#ffffff');
@@ -239,6 +247,7 @@ export function buildLandmarks() {
   }
 
   // ------------------------------------------------------------ RAILWAY STATIONS
+  mb.scope = 'Railway stations';
   // night light pool on a floor (same fading ground-glow material as the street lamps, MAT.pool)
   const lightPool = (x, z, y, size) => { const h = size / 2; mb.get('pool').hrect(x - h, z - h, x + h, z + h, y, size, null, false, [-(x - h) / size, (z + h) / size]); };
   const station = (x0, x1, z0, z1, towerH, name, si, ta) => {
@@ -261,7 +270,7 @@ export function buildLandmarks() {
   };
   // 54th: Colombo Fort is built in full (FortStation.js). Its own builder → its own meshes, so the ~110k triangles of the
   // station are frustum-culled as one unit instead of being drawn with every landmark in the city (and in every shadow pass)
-  { const fmb = new MultiBuilder(); const fg = new THREE.Group(); fg.name = 'fort-station';
+  { const fmb = new MultiBuilder('Fort Railway Station'); const fg = new THREE.Group(); fg.name = 'fort-station';
     anim.fortStation = buildFortStation({ mb: fmb, colliders, group: fg, C, hip, lightPool });
     for (const m of fmb.toMeshes(MAT, { cast: true, receive: true })) { m.name = 'fort-' + m.name; if (m.name === 'fort-emissive') m.castShadow = false; fg.add(m); }
     group.add(fg); }
@@ -278,6 +287,7 @@ export function buildLandmarks() {
   }
 
   // ------------------------------------------------------------ TOWN HALL (white dome facing the park)
+  mb.scope = 'Town Hall';
   {
     const y0 = LAND_Y, x0 = 206, x1 = 286, z0 = -72, z1 = 12;
     box(conc, (x0 + x1) / 2, y0 + 0.6, (z0 + z1) / 2, x1 - x0 + 8, 1.2, z1 - z0 + 8, '#e6e2d8');
@@ -295,6 +305,7 @@ export function buildLandmarks() {
   }
 
   // ------------------------------------------------------------ NATIONAL MUSEUM
+  mb.scope = 'National Museum';
   {
     const y0 = LAND_Y, x0 = 14, x1 = 166, z0 = 96, z1 = 134;
     box(conc, 90, y0 + 0.5, 115, 160, 1, 44, '#e6e2d8');
@@ -307,6 +318,7 @@ export function buildLandmarks() {
   }
 
   // ------------------------------------------------------------ VIHARAMAHADEVI PARK: fountain + paths
+  mb.scope = 'Viharamahadevi Park';
   {
     const cx = 90, cz = -60, y0 = LAND_Y;
     lathe(conc, [[11, 0], [11.4, 0.7], [10.6, 0.8], [10.6, 0.3]], 32, cx, y0, cz, '#d8d4ca');
@@ -317,6 +329,7 @@ export function buildLandmarks() {
   }
 
   // ------------------------------------------------------------ GANGARAMAYA & SEEMA MALAKA
+  mb.scope = 'Gangaramaya';
   const stupa = (x, z, r, y0, col = '#fbfbf6') => {
     lathe(conc, [[r * 1.35, 0], [r * 1.35, r * 0.2], [r * 1.22, r * 0.2], [r * 1.22, r * 0.38], [r * 1.1, r * 0.38], [r * 1.1, r * 0.5]], 24, x, y0, z, col);
     lathe(conc, [[r * 1.05, 0], [r * 1.0, r * 0.35], [r * 0.85, r * 0.75], [r * 0.55, r * 1.0], [r * 0.3, r * 1.08], [0.01, r * 1.1]], 24, x, y0 + r * 0.5, z, col);
@@ -347,6 +360,7 @@ export function buildLandmarks() {
   }
 
   // ------------------------------------------------------------ ST. LUCIA'S CATHEDRAL (Kotahena)
+  mb.scope = "St Lucia's Cathedral";
   {
     const y0 = LAND_Y, col = '#efe4c4';
     facade('colonial', 338, 382, -1182, -1112, y0, y0 + 20, col);
@@ -362,6 +376,7 @@ export function buildLandmarks() {
   }
 
   // ------------------------------------------------------------ NATIONAL HOSPITAL
+  mb.scope = 'National Hospital';
   {
     const y0 = LAND_Y;
     facade('office', 610, 700, -290, -250, y0, y0 + 26, '#f4f4f0'); facade('apartment', 610, 650, -250, -180, y0, y0 + 13, '#f2f2ee');
@@ -370,6 +385,7 @@ export function buildLandmarks() {
   }
 
   // ------------------------------------------------------------ SRI MURUGAN KOVIL (gopuram)
+  mb.scope = 'Sri Murugan Kovil';
   {
     const gMat = new THREE.MeshStandardMaterial({ map: gopuramTexture(), roughness: 0.8, vertexColors: true }); MAT.gopuram = gMat;
     const kv = mb.get('gopuram'); const y0 = LAND_Y; const cx = -190, cz = 568;
@@ -387,6 +403,7 @@ export function buildLandmarks() {
   }
 
   // ------------------------------------------------------------ BORELLA VIHARA (dagoba)
+  mb.scope = 'Borella Vihara';
   {
     box(conc, 755, LAND_Y + 0.6, 215, 48, 1.2, 48, '#d6d0c2'); stupa(755, 215, 11, LAND_Y + 1.2);
     for (let k = 0; k < 40; k++) { const t = k / 40 * 4; const s = Math.floor(t), f = t - s; const p = [[-24, -24], [24, -24], [24, 24], [-24, 24], [-24, -24]]; const x = 755 + p[s][0] + (p[s + 1][0] - p[s][0]) * f, z = 215 + p[s][1] + (p[s + 1][1] - p[s][1]) * f; metal.box(x, LAND_Y + 1.7, z, 0.15, 1, 0.15, { col: C('#f2f0e8') }); }
@@ -394,6 +411,7 @@ export function buildLandmarks() {
   }
 
   // ------------------------------------------------------------ MAJESTIC ARCADE (mall) + POLICE
+  mb.scope = 'Majestic Arcade';
   {
     const y0 = LAND_Y; facade('glass2', -384, -350, 620, 670, y0, y0 + 24, '#ffffff');
     label([{ text: 'MAJESTIC ARCADE', font: SANS(140), color: '#ffffff' }], -384.2, y0 + 20, 645, 24, 3.2, -Math.PI / 2, { w: 1400, h: 180, bg: '#8b1a1a' });
@@ -404,6 +422,7 @@ export function buildLandmarks() {
   }
 
   // ------------------------------------------------------------ COLOMBO LIGHTHOUSE (Fort seafront)
+  mb.scope = 'Colombo Lighthouse';
   {
     const x = -500, z = -765, y0 = LAND_Y; box(conc, x, y0 + 1.5, z, 18, 3, 18, '#dcd6c8');
     lathe(conc, [[3.2, 0], [2.6, 24], [3.4, 24.4], [3.4, 25]], 12, x, y0 + 3, z, '#f8f8f4');
@@ -413,6 +432,7 @@ export function buildLandmarks() {
   }
 
   // ------------------------------------------------------------ PORT: gantry cranes and container ships
+  mb.scope = 'Port cranes + ships';
   {
     const rng = new RNG(919);
     for (let k = 0; k < 7; k++) {
@@ -432,10 +452,12 @@ export function buildLandmarks() {
   }
 
   // ------------------------------------------------------------ SRI LANKA POLICE HEADQUARTERS (Kompannaveediya)
+  mb.scope = 'Police Headquarters';
   buildPoliceHQ({ mb, box, coll, label, group, LAND_Y, SANS, SI, TA, columns, anim, C });
   buildJohnsSchool({ mb, box, coll, label, group, LAND_Y, SANS, SI, TA, EN, hip, anim, C });
 
   // ------------------------------------------------------------ finalize
+  mb.scope = null;
   const mats = { ...MAT };
   for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) { if (m.name === 'pool' || m.name === 'emissive' || m.name === 'lampHead') { m.castShadow = false; if (m.name === 'pool') m.receiveShadow = false; } group.add(m); }
   return { group, colliders, anim, labels };

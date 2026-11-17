@@ -207,7 +207,7 @@ export function buildGround(progress) {
 // and road studs along the median line of dual carriageways.
 function roadWear(mb, s, dir, a, b, n0, n1) {
   const len = b - a; if (len < 6 || s.crossing) return; // level crossings keep their own deck surface
-  const T = mb.get('roadTint'), M = mb.get('metal'), P = mb.get('paint'); const r = new RNG(9300 + s.id * 17);
+  const T = mb.get('roadTint'); const r = new RNG(9300 + s.id * 17); // 60th: covers, collars, grates, sumps, studs: each its own material (Materials.ROLE_DEFS)
   const cx = s.x0, cz = s.z0; const y = RY + 0.003;
   // rect in road space: t along [t0,t1], lateral [o0,o1]
   const rect = (t0, t1, o0, o1, yy, col) => { t0 = Math.max(0, t0); t1 = Math.min(len, t1); if (t1 - t0 < 0.05) return;
@@ -234,16 +234,16 @@ function roadWear(mb, s, dir, a, b, n0, n1) {
   for (let t = r.range(10, 30); t < len - 6; t += r.range(38, 70)) {
     const o = (r.chance(0.5) ? -1 : 1) * (lanes[Math.floor(r.next() * lanes.length)] + r.range(-0.5, 0.5)); if (Math.abs(o) > s.hw - 0.8) continue;
     const [x, z] = dir === 'v' ? [cx + o, a + t] : [a + t, cz + o];
-    mb.get('concrete').cylinder(x, RY - 0.01, z, 0.46, 0.44, 0.022, 16, { col: [0.62, 0.6, 0.56] }); /* weathered concrete collar (was in the white road-paint mesh) */ M.cylinder(x, RY - 0.01, z, 0.33, 0.33, 0.03, 16, { col: [0.2, 0.19, 0.18] }); regManhole(x, z);
+    mb.get('manholeCollar').cylinder(x, RY - 0.01, z, 0.46, 0.44, 0.022, 16, { col: [0.62, 0.6, 0.56] }); /* weathered concrete collar (was in the white road-paint mesh) */ mb.get('manholeCover').cylinder(x, RY - 0.01, z, 0.33, 0.33, 0.03, 16, { col: [0.2, 0.19, 0.18] }); regManhole(x, z);
   }
   // kerb-side drain gratings (both edges): dark sump with cast bars
   if (s.level <= 2 && !s.bridge) for (let t = r.range(6, 16); t < len - 3; t += r.range(18, 28)) for (const sg of [-1, 1]) {
     const o = sg * (s.hw - 0.24); const [x, z] = dir === 'v' ? [cx + o, a + t] : [a + t, cz + o];
-    const along = dir === 'v'; P.box(x, RY + 0.003, z, along ? 0.36 : 0.95, 0.006, along ? 0.95 : 0.36, { col: [0.05, 0.05, 0.05] });
-    for (let q = -3; q <= 3; q++) { const d = q * 0.12; M.box(along ? x : x + d, RY + 0.011, along ? z + d : z, along ? 0.34 : 0.035, 0.012, along ? 0.035 : 0.34, { col: [0.24, 0.23, 0.22] }); }
+    const along = dir === 'v'; mb.get('drainSump').box(x, RY + 0.003, z, along ? 0.36 : 0.95, 0.006, along ? 0.95 : 0.36, { col: [0.05, 0.05, 0.05] });
+    for (let q = -3; q <= 3; q++) { const d = q * 0.12; mb.get('drainGrate').box(along ? x : x + d, RY + 0.011, along ? z + d : z, along ? 0.34 : 0.035, 0.012, along ? 0.035 : 0.34, { col: [0.24, 0.23, 0.22] }); }
   }
   // road studs on the double centre line (dual carriageways), with a little reflective face toward each direction
-  if (s.level === 0) for (let t = 4; t < len - 2; t += 9) { const [x, z] = dir === 'v' ? [cx, a + t] : [a + t, cz]; P.box(x, RY + 0.015, z, dir === 'v' ? 0.1 : 0.14, 0.03, dir === 'v' ? 0.14 : 0.1, { col: [0.85, 0.82, 0.6] }); }
+  if (s.level === 0) for (let t = 4; t < len - 2; t += 9) { const [x, z] = dir === 'v' ? [cx, a + t] : [a + t, cz]; mb.get('roadStud').box(x, RY + 0.015, z, dir === 'v' ? 0.1 : 0.14, 0.03, dir === 'v' ? 0.14 : 0.1, { col: [0.85, 0.82, 0.6] }); }
 }
 function markings(mk, s, dir, a, b, n0, n1) {
   const cx = s.x0, cz = s.z0; const len = b - a; if (len < 2) return;

@@ -75,7 +75,7 @@ import { PropBreak } from './world/PropBreak.js';
 import { Grenades } from './combat/Grenades.js';
 import { Drunk } from './actors/Drunk.js';
 import { VehicleSmoke } from './gfx/VehicleSmoke.js';
-import { bootRuntime, bootTextures, openTextureStudio } from './debug/boot.js';
+import { bootRuntime, bootTextures, preloadTextures, openTextureStudio } from './debug/boot.js';
 import { SoundBank } from './audio/SoundBank.js';
 import { HERO_ROOMS } from './world/HeroRooms.js';
 import { voiceTone } from './actors/Mind.js';
@@ -126,6 +126,7 @@ export class Game {
     await buildTextures(q, step(0.04, 0.22));
     buildMaterials(); progress(0.23, 'Mixing materials'); await tick();
     progress(0.235, 'Vehicles of Colombo'); await realCars; // before anything builds a vehicle: a type with a real body never caches its procedural one
+    await preloadTextures(); // 60th: parts given their own material in the Texture Studio are generated on it (src/debug/TexRuntime.js preload)
     this.world = new World(this.scene); this.world.setQuality(q);
     await this.world.build(step(0.24, 0.72), q);
     this.collision = this.world.collision;

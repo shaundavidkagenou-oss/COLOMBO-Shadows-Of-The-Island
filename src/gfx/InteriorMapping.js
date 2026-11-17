@@ -210,20 +210,58 @@ const GLASS_PAINT_MASK = /* glsl */`
 #endif
 #endif
 `;
-export function applyInteriorMapping(mat, { office = false } = {}) {
+// ---- window layer (60th request). Facade textures paint the windows into the wall art. A replacement wall texture (Texture
+// Studio, map editor) used to paint straight over them: windows turned into wall. Now every pixel inside a painted opening
+// (rm red = 1: glass, frame, glazing bars, shutters — Textures.openingMask) takes its colour, roughness, metalness and glass mask
+// from the facade's ORIGINAL textures (uWinMap / uWinRM, sampled with the raw facade UV so a re-tiled wall texture never moves
+// them), and the interior mapping keys off those too: the windows keep their glass and the lit rooms behind them whatever the
+// wall becomes. Untouched facades render exactly as before (uWinMap IS the map, uWinRM IS the roughness map, same UVs).
+// A replaced normal map is kept off the windows (uWinFlat, per material — set by Materials.updateMaterials).
+const WINFLAG = new WeakMap();
+export function winFlag(m) { let f = WINFLAG.get(m); if (!f) WINFLAG.set(m, (f = { value: 0 })); return f; }
+const WIN_FRAG_DECL = /* glsl */`
+varying vec2 vFacUv;
+uniform sampler2D uWinMap;
+uniform sampler2D uWinRM;
+uniform float uWinFlat;
+vec4 gWinRM = vec4(0.0);
+float gWinM = 0.0;
+`;
+const WIN_MAP = /* glsl */`
+#include <map_fragment>
+gWinRM = texture2D(uWinRM, vFacUv); gWinM = gWinRM.r;
+diffuseColor.rgb = mix(diffuseColor.rgb, texture2D(uWinMap, vFacUv).rgb, gWinM);
+`;
+const WIN_GLASS_PAINT_MASK = GLASS_PAINT_MASK.replace('#ifdef USE_ROUGHNESSMAP', '#if 1').replace('texture2D(roughnessMap, vRoughnessMapUv).g', 'gWinRM.g');
+const WIN_FRAG_BODY = FRAG_BODY.replace('#ifdef USE_MAP', '#if 1').replace(/vMapUv/g, 'vFacUv')
+  .replace('smoothstep(0.2, 0.3, roughnessFactor)', 'smoothstep(0.2, 0.3, mix(1.0, gWinRM.g, gWinM))'); // rooms only behind the ORIGINAL glass (a glossy replacement wall map is not a window)
+if (!WIN_FRAG_BODY.includes('mix(1.0, gWinRM.g, gWinM)') || !WIN_GLASS_PAINT_MASK.includes('gWinRM.g')) console.warn('[interior] window layer patch did not match');
+export function applyInteriorMapping(mat, { office = false, win = null } = {}) {
   if (office) mat.defines = { ...(mat.defines || {}), INT_OFFICE: '' }; // office towers: floor-section lighting, cool tubes, uniform blinds
-  mat.onBeforeCompile = (sh) => {
+  const W = win ? { uWinMap: { value: win.map }, uWinRM: { value: win.rm }, normal: win.normal || null } : null;
+  mat.onBeforeCompile = function (sh) { // (a function: `this` is the material being compiled — copies of a facade share the program, each has its own uWinFlat)
     sh.uniforms.uIntDay = INTERIOR.uIntDay;
     sh.uniforms.uIntNight = INTERIOR.uIntNight;
     sh.uniforms.uOcc = INTERIOR.uOcc; sh.uniforms.uITime = INTERIOR.uITime;
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + VERT_DECL)
-      .replace('#include <project_vertex>', '#include <project_vertex>\n' + VERT_BODY);
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + FRAG_DECL)
-      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + FRAG_BODY)
-      .replace('#include <color_fragment>', GLASS_PAINT_MASK);
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + VERT_DECL + (W ? 'varying vec2 vFacUv;\n' : ''))
+      .replace('#include <project_vertex>', '#include <project_vertex>\n' + VERT_BODY + (W ? 'vFacUv = uv;\n' : ''));
+    if (!W) {
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + FRAG_DECL)
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + FRAG_BODY)
+        .replace('#include <color_fragment>', GLASS_PAINT_MASK);
+      return;
+    }
+    sh.uniforms.uWinMap = W.uWinMap; sh.uniforms.uWinRM = W.uWinRM; sh.uniforms.uWinFlat = winFlag(this);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + FRAG_DECL + WIN_FRAG_DECL)
+      .replace('#include <map_fragment>', WIN_MAP)
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, gWinRM.g, gWinM);')
+      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = mix(metalnessFactor, gWinRM.b, gWinM);')
+      .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nnormal = normalize(mix(normal, nonPerturbedNormal, gWinM * uWinFlat));')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + WIN_FRAG_BODY)
+      .replace('#include <color_fragment>', WIN_GLASS_PAINT_MASK);
   };
-  mat.customProgramCacheKey = () => 'interior-v11' + (office ? '-office' : '');
-  return mat;
+  mat.customProgramCacheKey = () => 'interior-v12' + (W ? '-win' : '') + (office ? '-office' : '');
+  return W;
 }
 
 // Share of rooms with their lights on by hour: busy evenings, fewer after 11 pm, a handful at 3 am, early risers before dawn.

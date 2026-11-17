@@ -1,5 +1,6 @@
 // Accumulates triangles into one indexed BufferGeometry (positions, normals, uvs, colours).
 import * as THREE from 'three';
+import { MAT, ensureMat, canCopy, effKey, markSplit } from './Materials.js';
 const _v = new THREE.Vector3(), _n = new THREE.Vector3(), _m3 = new THREE.Matrix3();
 export class MeshBuilder {
   constructor() { this.pos = []; this.nor = []; this.uv = []; this.col = []; this.idx = []; this.color = [1, 1, 1]; }
@@ -20,6 +21,20 @@ export class MeshBuilder {
     this.idx.push(i0, i1, i2, i0, i2, i3); return this;
   }
   // horizontal rectangle facing up (or down)
+  // 60th: a flat 3- or 4-corner face (roof slope, hip end, gable) with true world-scale planar UVs: u runs along the first edge
+  // P0→P1 (the eave), v up the face away from it, su / sv texture repeats per metre. Unlike quad()'s rectangle UVs, a texture is
+  // never sheared on a trapezoid or squeezed into a triangle, and every slope's rows start level at its eave. Same normal +
+  // winding as quad() / a fan triangle.
+  planar(P, col, su = 0.25, sv = su) {
+    const a = P[0], b = P[1], z = P[P.length - 1];
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = z[0] - a[0], vy = z[1] - a[1], vz = z[2] - a[2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx; const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+    const el = Math.hypot(ux, uy, uz) || 1, ex = ux / el, ey = uy / el, ez = uz / el;
+    let cx = 0, cy = 0, cz = 0; for (const p of P) { cx += p[0] / P.length; cy += p[1] / P.length; cz += p[2] / P.length; }
+    cx -= a[0]; cy -= a[1]; cz -= a[2]; const d = cx * ex + cy * ey + cz * ez; let tx = cx - ex * d, ty = cy - ey * d, tz = cz - ez * d; const tl = Math.hypot(tx, ty, tz) || 1; tx /= tl; ty /= tl; tz /= tl;
+    const u0 = a[0] * ex + a[1] * ey + a[2] * ez; const I = P.map((p) => this.vert(p[0], p[1], p[2], nx, ny, nz, (p[0] * ex + p[1] * ey + p[2] * ez - u0) * su, ((p[0] - a[0]) * tx + (p[1] - a[1]) * ty + (p[2] - a[2]) * tz) * sv, col));
+    for (let i = 1; i < I.length - 1; i++) this.idx.push(I[0], I[i], I[i + 1]); return this;
+  }
   hrect(x0, z0, x1, z1, y, uvScale = 1, col, down = false, uvOff = [0, 0]) {
     const u0 = x0 / uvScale + uvOff[0], u1 = x1 / uvScale + uvOff[0], v0 = -z0 / uvScale + uvOff[1], v1 = -z1 / uvScale + uvOff[1];
     if (!down) this.quad([x0, y, z1], [x1, y, z1], [x1, y, z0], [x0, y, z0], [u0, v1, u1, v0], col);
@@ -92,19 +107,37 @@ export class MeshBuilder {
   }
 }
 // Hold several builders keyed by material name.
+// 60th — material keys. get(name) accepts a base material ('concrete'), a role ('winFrame'), a building-tagged role
+// ('winFrame@b234') or, with a scope, a site's own copy: scope 'Lotus Tower' turns 'concrete' into 'Lotus Tower.concrete'
+// (MAT copy made on demand; same textures and look until edited in the Texture Studio; meshes keep the plain name 'concrete' so
+// code looking at mesh names is unaffected; Landmarks.js switches `scope` between sites). Each part is merged into the builder
+// of the material that draws it (Materials.effKey: unsplit roles fall back to their base → the old draw layout). raw: one
+// builder per tag, nothing merged (the Texture Studio's part picker rebuilds a building that way to tell its parts apart).
 export class MultiBuilder {
-  constructor() { this.b = new Map(); }
-  get(name) { if (!this.b.has(name)) this.b.set(name, new MeshBuilder()); return this.b.get(name); }
+  constructor(scope = null, { raw = false } = {}) { this.b = new Map(); this.scope = scope; this.raw = raw; this.plain = new Map(); }
+  tag(name) { if (this.scope && !name.includes('.') && !name.includes('@') && canCopy(name)) { const k = this.scope + '.' + name; markSplit(k); return k; } return name; }
+  key(name) { const t = this.tag(name); return this.raw ? t : effKey(t); }
+  get(name) { const k = this.key(name); let b = this.b.get(k); if (!b) { this.b.set(k, (b = new MeshBuilder())); const d = k.indexOf('.'); this.plain.set(k, d > 0 && !k.includes('@') ? k.slice(d + 1) : k); } return b; }
+  // a handle that always draws into get(name) under the CURRENT scope (Landmarks.js keeps conc / paint / metal across sites)
+  lazy(name) { const self = this; return new Proxy({}, { get(_, p) { const t = self.get(name); const v = t[p]; return typeof v === 'function' ? v.bind(t) : v; } }); }
   toMeshes(materials, opts = {}) {
     const out = [];
-    for (const [name, mb] of this.b) { const g = mb.build(); if (!g) continue; const m = meshFor(name, g, materials, opts); if (m) out.push(m); }
+    for (const [name, mb] of this.b) { const g = mb.build(); if (!g) continue; const m = meshFor(name, g, materials, opts); if (m) { m.name = this.plain.get(name) || name; if (m.name !== name) m.userData.matKey = name; out.push(m); } }
     return out;
   }
 }
+// material for a builder key: role / scoped / per-building keys are made on demand from MAT (Materials.ensureMat); other
+// material tables fall back to the base name ('Scope.paint' → paint)
+export function matFor(name, materials) {
+  let mat = materials[name]; if (mat) return mat;
+  if (materials === MAT) return ensureMat(name);
+  const dot = name.lastIndexOf('.'), at = name.lastIndexOf('@b'); const base = at > 0 ? name.slice(0, at) : dot > 0 ? name.slice(dot + 1) : null;
+  return base ? matFor(base, materials) : null;
+}
 export function meshFor(name, g, materials, opts = {}) {
-  const mat = materials[name]; if (!mat) { console.warn('missing material', name); return null; }
+  const mat = matFor(name, materials); if (!mat) { console.warn('missing material', name); return null; }
   const m = new THREE.Mesh(g, mat); m.castShadow = opts.cast ?? true; m.receiveShadow = opts.receive ?? true; m.matrixAutoUpdate = false; m.updateMatrix(); m.name = name;
-  if (FOLIAGE.has(name)) skipLampShadow(m); // alpha-cut leaves: no coarse street-lamp shadows (see skipLampShadow)
+  if (FOLIAGE.has(name) || FOLIAGE.has(name.slice(name.lastIndexOf('.') + 1))) skipLampShadow(m); // alpha-cut leaves: no coarse street-lamp shadows (see skipLampShadow)
   return m;
 }
 // MeshBuilder.build() done in slices (identical geometry): a chunk's window frames can be ~1M vertices in ONE material,

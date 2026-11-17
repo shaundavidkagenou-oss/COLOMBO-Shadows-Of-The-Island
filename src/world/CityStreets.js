@@ -110,7 +110,10 @@ const BOARDS = [
 export function buildCityStreets(plan) {
   const group = new THREE.Group(); group.name = 'city-streets'; const colliders = []; const rng = new RNG(1958);
   // one MultiBuilder per district → separate meshes, so frustum culling still drops whole districts behind the camera
-  const MBS = {}; const B = (x, z) => { const d = L.districtIdAt(x, z); const mb = (MBS[d] ||= new MultiBuilder()); return { metal: mb.get('metal'), paint: mb.get('paint'), lamp: mb.get('lampHead'), d }; };
+  // 60th: one builder for the whole city, one material per kind of part (sign posts, banded feet, manhole covers, drain grates,
+  // litter bins, billboard frames — Materials.ROLE_DEFS). The meshes are cell-batched (50 m cells, CellBatch), so the old
+  // per-district split added no culling — and this is fewer draws than district × material.
+  const SMB = new MultiBuilder(); const B = (x, z) => ({ d: L.districtIdAt(x, z), lamp: SMB.get('lampHead'), post: SMB.get('signPost'), band: SMB.get('signPostBand'), cover: SMB.get('manholeCover'), grate: SMB.get('drainGrate'), bin: SMB.get('litterBin'), frame: SMB.get('billboardFrame') });
   // ---------------- street-name boards
   const signs = []; // [x, z, rotY, name]
   for (const n of L.nodes) {
@@ -119,9 +122,9 @@ export function buildCityStreets(plan) {
     for (const [sx, sz] of [[1, 1], [-1, -1]]) { // two diagonal corners, each with a board for both streets
       const x = n.x + sx * (n.hwV + 0.6), z = n.z + sz * (n.hwH + 3.2); if (L.isWater(x, z) || L.roadAt(x, z) || L.zoneAt(x, z, 0.5)) continue;
       const names = [[h.name, 0], [v.name, Math.PI / 2]].filter(([nm]) => NAMES[nm]); if (!names.length) continue;
-      const { metal, paint, d } = B(x, z); const pc = POST[d] || '01';
-      metal.cylinder(x, L.LAND_Y, z, 0.045, 0.045, 3.15, 8, { col: [0.62, 0.64, 0.66] });
-      for (let k = 0; k < 6; k++) paint.cylinder(x, L.LAND_Y + k * 0.2, z, 0.05, 0.05, 0.1, 8, { col: [0.05, 0.05, 0.05], caps: false }); // black/white banded foot
+      const { post, band, d } = B(x, z); const pc = POST[d] || '01';
+      post.cylinder(x, L.LAND_Y, z, 0.045, 0.045, 3.15, 8, { col: [0.62, 0.64, 0.66] });
+      for (let k = 0; k < 6; k++) band.cylinder(x, L.LAND_Y + k * 0.2, z, 0.05, 0.05, 0.1, 8, { col: [0.05, 0.05, 0.05], caps: false }); // black/white banded foot
       names.forEach(([nm, rot], k) => signs.push([x, z, rot, nm + '|' + pc, L.LAND_Y + 2.62 - k * 0.66]));
       colliders.push({ x0: x - 0.08, x1: x + 0.08, z0: z - 0.08, z1: z + 0.08, h: 3.2, kind: 'pole' });
     }
@@ -134,22 +137,22 @@ export function buildCityStreets(plan) {
       const ox = W / 2 + 0.06; // board hangs off the post on the side of its own street
       sb.quad(P(ox - W / 2, y - H / 2, 0.012), P(ox + W / 2, y - H / 2, 0.012), P(ox + W / 2, y + H / 2, 0.012), P(ox - W / 2, y + H / 2, 0.012), [u0, v0, u1, v1]);
       sb.quad(P(ox + W / 2, y - H / 2, -0.012), P(ox - W / 2, y - H / 2, -0.012), P(ox - W / 2, y + H / 2, -0.012), P(ox + W / 2, y + H / 2, -0.012), [u0, v0, u1, v1]);
-      const { metal } = B(x, z); const ctr = P(ox, y, 0); metal.box(ctr[0], ctr[1], ctr[2], W + 0.04, H + 0.04, 0.02, { col: [0.75, 0.77, 0.8], rotY: rot });
-      const br = P(0.06, y + 0.2, 0); metal.box(br[0], br[1], br[2], 0.12, 0.05, 0.05, { col: [0.6, 0.6, 0.62], rotY: rot }); }
+      const { post } = B(x, z); const ctr = P(ox, y, 0); post.box(ctr[0], ctr[1], ctr[2], W + 0.04, H + 0.04, 0.02, { col: [0.75, 0.77, 0.8], rotY: rot });
+      const br = P(0.06, y + 0.2, 0); post.box(br[0], br[1], br[2], 0.12, 0.05, 0.05, { col: [0.6, 0.6, 0.62], rotY: rot }); }
     const m = new THREE.Mesh(sb.build(), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.42, metalness: 0.05 })); m.castShadow = true; m.receiveShadow = true; m.name = 'street-names'; group.add(m);
   }
   // ---------------- manholes, gully grates, litter bins along Fort streets
   for (const seg of L.segments) {
-    const mx = (seg.x0 + seg.x1) / 2, mz = (seg.z0 + seg.z1) / 2; if (seg.bridge || L.isWater(mx, mz)) continue; const { metal, paint } = B(mx, mz);
+    const mx = (seg.x0 + seg.x1) / 2, mz = (seg.z0 + seg.z1) / 2; if (seg.bridge || L.isWater(mx, mz)) continue; const { cover, grate, bin } = B(mx, mz);
     const horiz = seg.dir === 'h', len = horiz ? seg.x1 - seg.x0 : seg.z1 - seg.z0; const P = (t, o) => horiz ? [seg.x0 + t, seg.z0 + o] : [seg.x0 + o, seg.z0 + t];
     for (let t = 14; t < len - 14; t += 26 + rng.next() * 8) { const [x, z] = P(t, (rng.chance(0.5) ? 1 : -1) * seg.hw * 0.45); if (!L.roadAt(x, z)) continue;
-      metal.cylinder(x, L.ROAD_Y - 0.002, z, 0.34, 0.34, 0.016, 16, { col: [0.2, 0.19, 0.18] }); metal.cylinder(x, L.ROAD_Y + 0.008, z, 0.27, 0.27, 0.008, 16, { col: [0.13, 0.125, 0.12] }); }
+      cover.cylinder(x, L.ROAD_Y - 0.002, z, 0.34, 0.34, 0.016, 16, { col: [0.2, 0.19, 0.18] }); cover.cylinder(x, L.ROAD_Y + 0.008, z, 0.27, 0.27, 0.008, 16, { col: [0.13, 0.125, 0.12] }); }
     for (const side of [-1, 1]) for (let t = 10; t < len - 10; t += 18) { const [x, z] = P(t, side * (seg.hw - 0.25)); if (!L.roadAt(x, z)) continue;
-      metal.box(x, L.ROAD_Y + 0.004, z, horiz ? 0.8 : 0.36, 0.012, horiz ? 0.36 : 0.8, { col: [0.1, 0.1, 0.1] });
-      for (let k = -3; k <= 3; k++) metal.box(x + (horiz ? k * 0.1 : 0), L.ROAD_Y + 0.011, z + (horiz ? 0 : k * 0.1), horiz ? 0.03 : 0.34, 0.006, horiz ? 0.34 : 0.03, { col: [0.22, 0.22, 0.21] }); }
+      grate.box(x, L.ROAD_Y + 0.004, z, horiz ? 0.8 : 0.36, 0.012, horiz ? 0.36 : 0.8, { col: [0.1, 0.1, 0.1] });
+      for (let k = -3; k <= 3; k++) grate.box(x + (horiz ? k * 0.1 : 0), L.ROAD_Y + 0.011, z + (horiz ? 0 : k * 0.1), horiz ? 0.03 : 0.34, 0.006, horiz ? 0.34 : 0.03, { col: [0.22, 0.22, 0.21] }); }
     if (seg.level <= 2) for (let t = 30; t < len - 20; t += 55 + rng.next() * 20) { const side = rng.chance(0.5) ? 1 : -1; const [x, z] = P(t, side * (seg.hw + seg.walk - 0.45)); if (L.roadAt(x, z) || L.zoneAt(x, z) || L.isWater(x, z)) continue;
       if (plan.colliders.some((c) => x > c.x0 - 0.5 && x < c.x1 + 0.5 && z > c.z0 - 0.5 && z < c.z1 + 0.5)) continue;
-      paint.cylinder(x, L.LAND_Y, z, 0.26, 0.29, 0.86, 12, { col: [0.13, 0.36, 0.2] }); paint.cylinder(x, L.LAND_Y + 0.86, z, 0.31, 0.31, 0.06, 12, { col: [0.09, 0.25, 0.14] });
+      bin.cylinder(x, L.LAND_Y, z, 0.26, 0.29, 0.86, 12, { col: [0.13, 0.36, 0.2] }); bin.cylinder(x, L.LAND_Y + 0.86, z, 0.31, 0.31, 0.06, 12, { col: [0.09, 0.25, 0.14] });
       colliders.push({ x0: x - 0.3, x1: x + 0.3, z0: z - 0.3, z1: z + 0.3, h: 0.95, kind: 'prop' }); }
   }
   // ---------------- rooftop billboards on Fort blocks facing the main roads
@@ -160,7 +163,7 @@ export function buildCityStreets(plan) {
   const bb = new MultiBuilder().get('b'); const picked = [], boards = [];
   const cand = plan.buildings.filter((b) => BILLBOARD_DISTRICTS.has(b.district) && !b.tower && (b.roof === 'flat' || !b.roof) && b.floors >= 3 && b.floors <= 6 && Math.min(b.x1 - b.x0, b.z1 - b.z0) > 10);
   for (const b of cand.sort((a, c) => (a.id * 7919 % 101) - (c.id * 7919 % 101))) {
-    if (picked.length >= 28) break; const cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2; const { metal, lamp } = B(cx, cz);
+    if (picked.length >= 28) break; const cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2; const { frame: metal, lamp } = B(cx, cz);
     if (picked.some((p) => Math.hypot(p[0] - cx, p[1] - cz) < 110)) continue;
     const n = { N: [0, -1], S: [0, 1], E: [1, 0], W: [-1, 0] }[b.front]; if (!n) continue; const seg = L.roadAt(cx + n[0] * ((b.x1 - b.x0) / 2 + 8), cz + n[1] * ((b.z1 - b.z0) / 2 + 8)); if (!seg) continue;
     const i = picked.length; picked.push([cx, cz]); boards.push({ x: cx + n[0] * ((b.x1 - b.x0) / 2), z: cz + n[1] * ((b.z1 - b.z0) / 2), y: L.LAND_Y + b.h + 6.1, n }); const yTop = L.LAND_Y + b.h; const rot = Math.atan2(n[0], n[1]);
@@ -173,7 +176,7 @@ export function buildCityStreets(plan) {
     for (const a of [-W * 0.33, 0, W * 0.33]) { const p = P(a, y - H / 2 - 0.05, 0.75); lamp.box(p[0], p[1], p[2], 0.42, 0.12, 0.2, { rotY: rot, bottom: true }); } // flood lamps
   }
   if (picked.length) { const m = new THREE.Mesh(bb.build(), bmat); m.name = 'billboards'; m.castShadow = true; group.add(m); }
-  for (const [d, mb] of Object.entries(MBS)) for (const m of mb.toMeshes(MAT)) { m.name = 'street-dressing-' + d; group.add(cellBatch(m, 50)); } // a district's dressing in 50 m cells: culled per cell (CellBatch), still one draw
+  for (const m of SMB.toMeshes(MAT)) { m.name = 'street-dressing-' + m.name; group.add(cellBatch(m, 50)); } // in 50 m cells: culled per cell (CellBatch), still one draw per material
   group.updateMatrixWorld(true);
   return { group, colliders, boards, signs: signs.map(([x, z, rot, nm, y]) => ({ x, z, y, rot, name: nm.split('|')[0] })), update: (night) => { bmat.emissiveIntensity = 0.04 + night * 0.85; } };
 }

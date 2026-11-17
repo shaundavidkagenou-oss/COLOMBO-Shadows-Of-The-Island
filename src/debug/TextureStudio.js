@@ -12,6 +12,9 @@ import * as RT from './TexRuntime.js';
 import { writeZip, readZip } from './TexPack.js';
 import { Win, h, btn, num, color, check, select, text, section, beginSession, toast, download, pickFile } from './ui.js';
 import { plan } from '../world/CityPlan.js';
+import { MultiBuilder } from '../gfx/MeshBuilder.js';
+import { buildBase, buildDetail, buildWall, buildWindows } from '../world/BuildingGen.js';
+import { ensureMat, materialLabel, splitKey, parentKey, splittable, ROLE_DEFS, SPLIT } from '../gfx/Materials.js';
 import * as L from '../world/Layout.js';
 
 const clone = (o) => (o == null ? o : JSON.parse(JSON.stringify(o)));
@@ -112,19 +115,20 @@ class Studio {
     hits.sort((a, c) => a.distance - c.distance);
     const seen = new Set(); const out = [];
     for (const it of hits) { const ms = matsOf(it.object); const mi = Array.isArray(it.object.material) ? (it.face && it.face.materialIndex) || 0 : 0; const m = ms[mi]; if (!m || m.visible === false || (m.transparent && m.opacity < 0.03)) continue;
-      const id = it.object.uuid + ':' + (it.instanceId ?? it.batchId ?? '') + ':' + mi; if (seen.has(id)) continue; seen.add(id); out.push({ obj: it.object, inst: it.instanceId ?? null, batch: it.batchId ?? null, idx: mi, point: it.point.clone(), dist: it.distance }); if (out.length >= 14) break; }
+      const id = it.object.uuid + ':' + (it.instanceId ?? it.batchId ?? '') + ':' + mi; if (seen.has(id)) continue; seen.add(id); out.push({ obj: it.object, inst: it.instanceId ?? null, batch: it.batchId ?? null, idx: mi, point: it.point.clone(), dist: it.distance, ray: rc.ray.clone() }); if (out.length >= 14) break; }
     const same = this.lastPick && Math.hypot(this.lastPick[0] - x, this.lastPick[1] - y) < 4; this.lastPick = [x, y];
     this.hits = out; this.hitIdx = deeper && same ? (this.hitIdx + 1) % Math.max(1, out.length) : deeper ? Math.min(1, out.length - 1) : 0;
     if (!out.length) { this.select(null); toast('Nothing there (sky / empty)', 900); return; }
     this.select(out[this.hitIdx]);
   }
   select(hit) {
-    this.endPeek(); this.sel = hit; this.node = hit ? hit.obj : null;
+    this.endPeek(); this.sel = hit; this.node = hit ? hit.obj : null; this.part = null; this.partKey = null;
     if (hit) { const ms = matsOf(hit.obj); this.setMaterial(Math.min(hit.idx || 0, ms.length - 1), false); } else { this.m = null; this.key = null; }
+    if (hit) { try { this.part = this.partOf(hit); } catch (e) { console.warn('[texture studio] part lookup', e); this.part = null; } const o = this.part && this.partOptions(this.part)[0]; if (o) this.choosePart(o.k, false); }
     this.updateBox(); this.renderLeft(); this.renderRight();
   }
   setMaterial(i, render = true) {
-    this.endPeek(); const o = this.sel && this.sel.obj; const ms = matsOf(o); const m = ms[i]; if (!m) return; this.sel.idx = i; this.m = m; this.key = RT.keyOf(m, o, i);
+    this.endPeek(); this.partKey = null; const o = this.sel && this.sel.obj; const ms = matsOf(o); const m = ms[i]; if (!m) return; this.sel.idx = i; this.m = m; this.key = RT.keyOf(m, o, i);
     const avail = RT.SLOTS.filter((s) => s.k in m); if (!avail.find((s) => s.k === this.slot)) this.slot = avail[0] ? avail[0].k : 'map';
     if (render) { this.renderLeft(); this.renderRight(); }
   }
@@ -138,16 +142,47 @@ class Studio {
     this.box.visible = !b.isEmpty(); this.box.updateMatrixWorld(true);
     const bd = this.building(); if (bd) { const gy = L.groundY((bd.x0 + bd.x1) / 2, (bd.z0 + bd.z1) / 2); this.bbox.box.set(new THREE.Vector3(bd.x0, gy, bd.z0), new THREE.Vector3(bd.x1, gy + (bd.totalH || 10), bd.z1)); this.bbox.visible = true; this.bbox.updateMatrixWorld(true); }
   }
+  // ---- 60th: which PART of a generated building was clicked. The city draws a building's parts merged per material (one draw
+  // for many buildings), so the merged mesh can't tell a window frame from a downpipe. The clicked building is generated again
+  // (same generator + seeds → identical geometry) with one throw-away mesh per part key, and the same ray picks the part.
+  inCity(o) { for (let p = o; p; p = p.parent) if (p.name === 'cityBatched' || /^chunk\d+$/.test(p.name || '')) return true; return false; }
+  partOf(hit) {
+    if (!hit || !hit.ray || !this.inCity(hit.obj) || !plan.buildings) return null; const p = hit.point, M = 1.4;
+    let best = null, ba = 1e18; for (const b of plan.buildings) { if (p.x < b.x0 - M || p.x > b.x1 + M || p.z < b.z0 - M || p.z > b.z1 + M) continue; const a = (b.x1 - b.x0) * (b.z1 - b.z0); if (a < ba) { ba = a; best = b; } }
+    const walls = []; for (const ch of plan.byChunk) for (const w of ch.walls || []) if (p.x > w.x0 - 0.3 && p.x < w.x1 + 0.3 && p.z > w.z0 - 0.3 && p.z < w.z1 + 0.3) walls.push(w);
+    if (!best && !walls.length) return null;
+    const mb = new MultiBuilder(null, { raw: true });
+    if (best) { const keep = { s: best._signSpans && best._signSpans.slice(), i: best.signIdx }; try { buildBase(best, mb); buildDetail(best, mb); buildWindows(best, mb, mb); } finally { best._signSpans = keep.s; best.signIdx = keep.i; } }
+    for (const w of walls) buildWall(w, mb);
+    const rc = new THREE.Raycaster(); rc.ray.copy(hit.ray); rc.far = hit.dist + 3; const tm = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }); let tag = null, bd = 1e9;
+    for (const [k, B] of mb.b) { const g = B.build(); if (!g) continue; const m = new THREE.Mesh(g, tm); m.updateMatrixWorld(true); const hs = []; m.raycast(rc, hs); for (const x of hs) { const d = Math.abs(x.distance - hit.dist); if (d < bd) { bd = d; tag = k; } } g.dispose(); }
+    tm.dispose(); if (!tag || bd > 0.3) return best ? { building: best, tag: null } : null;
+    const sp = splitKey(tag); return { building: sp && sp.building != null ? plan.buildings.find((b) => b.id === sp.building) || best : null, tag };
+  }
+  // the keys a clicked part can be edited under: its kind for every building, this building only, the base material
+  partOptions(part) {
+    if (!part || !part.tag) return []; const out = []; const sp = splitKey(part.tag); const role = sp && sp.building != null ? sp.base : part.tag; const base = parentKey(role);
+    const kind = (k) => materialLabel(k); const ok = (k) => !parentKey(k) || splittable(k);
+    if (ok(role)) out.push({ k: role, label: kind(role) + ' — every building', hint: ROLE_DEFS[role] ? 'own material of this kind of part' : 'every building with this facade / roof' });
+    if (sp && sp.building != null && ok(part.tag)) out.push({ k: part.tag, label: 'Only building #' + sp.building + ' — ' + kind(role), hint: 'its own copy (its chunk is rebuilt with it)' });
+    if (base) out.push({ k: base, label: 'Base material: ' + kind(base), hint: 'everything that has no material of its own' });
+    return out;
+  }
+  choosePart(k, render = true) {
+    const m = ensureMat(k); if (!m) return; this.endPeek(); this.partKey = k; this.m = m; this.key = 'mat:' + k;
+    const avail = RT.SLOTS.filter((s) => s.k in m); if (!avail.find((s) => s.k === this.slot)) this.slot = avail[0] ? avail[0].k : 'map';
+    if (render) { this.renderLeft(); this.renderRight(); }
+  }
   // the generated building under a click on a merged city batch (the batch itself is one mesh for a whole cell)
   building() {
-    const s = this.sel; if (!s || !s.obj.isBatchedMesh || !plan.buildings) return null; const p = s.point; let best = null, bd = 1e9;
+    const s = this.sel; if (this.part && this.part.building) return this.part.building; if (!s || !s.obj.isBatchedMesh || !plan.buildings) return null; const p = s.point; let best = null, bd = 1e9;
     for (const b of plan.buildings) { if (p.x < b.x0 - 0.6 || p.x > b.x1 + 0.6 || p.z < b.z0 - 0.6 || p.z > b.z1 + 0.6) continue; const d = Math.abs((b.x0 + b.x1) / 2 - p.x) + Math.abs((b.z0 + b.z1) / 2 - p.z); if (d < bd) { bd = d; best = b; } }
     return best;
   }
   // ------------------------------------------------------------------ rules
   labelFor() {
     const k = this.key, m = this.m, o = this.sel && this.sel.obj; const [kind, ...r] = k.split(':');
-    if (kind === 'mat') return 'City material ' + r[0]; if (kind === 'veh') return 'Vehicle ' + r[0] + ' · ' + r.slice(1).join(':');
+    if (kind === 'mat') return materialLabel(r.join(':')); if (kind === 'veh') return 'Vehicle ' + r[0] + ' · ' + r.slice(1).join(':');
     if (kind === 'obj') return (o ? objLabel(o) : 'object') + ' · ' + (m.name || m.type) + ' (unique copy)'; if (kind === 'name') return m.name + ' (' + m.type + ')';
     return (o ? objLabel(o) : 'object') + ' · unnamed ' + m.type;
   }
@@ -158,7 +193,7 @@ class Studio {
   }
   rule() { return this.key ? RT.getRule(this.key) : null; }
   // a vehicle type's first edit swaps its meshes to their own copy of the shared material: follow it (and back after restore)
-  syncSel() { const s = this.sel; if (!s) return; const cur = matsOf(s.obj)[s.idx]; if (cur && cur !== this.m) { this.endPeek(); this.m = cur; this.key = RT.keyOf(cur, s.obj, s.idx); this.renderLeft(); this.renderRight(); } }
+  syncSel() { const s = this.sel; if (!s || this.partKey) return; const cur = matsOf(s.obj)[s.idx]; if (cur && cur !== this.m) { this.endPeek(); this.m = cur; this.key = RT.keyOf(cur, s.obj, s.idx); this.renderLeft(); this.renderRight(); } }
   async edit(label, fn, merge = null) {
     if (!this.m || !this.key) return; this.endPeek(); const k = this.key; const cur = RT.getRule(k);
     const r = cur ? clone(cur) : RT.newRule(k, this.labelFor(), this.targetFor()); delete r.__rev; fn(r);
@@ -176,9 +211,21 @@ class Studio {
   async assign(hash, slot = this.slot) {
     if (!this.m) { toast('Select an object first'); return; } if (!(slot in this.m)) { toast('This material has no ' + slot + ' slot'); return; }
     const t = RT.S.manifest.textures[hash]; this.slot = slot;
-    await this.slotEdit('assign texture', (sr) => { sr.tex = hash; sr.clear = false; if (t && RT.COMPRESSED.has(t.ext) && sr.flipV == null) sr.flipV = true; });
+    let adapted = '';
+    await this.slotEdit('assign texture', (sr, r) => { sr.tex = hash; sr.clear = false; if (t && RT.COMPRESSED.has(t.ext) && sr.flipV == null) sr.flipV = true; if (slot === 'map') adapted = this.adaptForTexture(r); });
+    if (adapted) toast(adapted, 5200);
     const err = RT.S.errors.get(this.key); if (err) toast(err, 4000); else toast('Applied ' + (t ? t.name : hash.slice(0, 8)) + ' → ' + RT.SLOTS.find((s) => s.k === slot).label);
     this.renderLeft(); this.renderRight();
+  }
+  // 60th: a photo texture on a plain vertex-coloured material: the game's per-object tint multiplied it (dark lamp posts went
+  // pitch black) and a high metalness turned it into a dark mirror. Both are set in the rule (visible + switchable in Material
+  // settings) — only when the material had no base colour texture of its own and the rule doesn't set them already.
+  adaptForTexture(r) {
+    const m = this.m, b = RT.originalOf(m); const origMap = b ? b.slots.map : m.map; if (origMap) return ''; const did = [];
+    const vc = b && b.props.vertexColors != null ? b.props.vertexColors : m.vertexColors; if (vc && r.props.vertexColors == null) { r.props.vertexColors = false; did.push('per-object tint off'); }
+    const mt = b && b.props.metalness != null ? b.props.metalness : m.metalness; if (mt >= 0.5 && r.props.metalness == null) { r.props.metalness = 0.3; did.push('metalness ' + mt.toFixed(2) + ' → 0.30'); }
+    const ro = b && b.props.roughness != null ? b.props.roughness : m.roughness; if (did.length && ro < 0.5 && r.props.roughness == null) { r.props.roughness = 0.55; did.push('roughness → 0.55'); }
+    return did.length ? 'Texture shown as-is: ' + did.join(', ') + ' (Material settings — change back any time)' : '';
   }
   async replaceFromFile(slot = this.slot) {
     if (!this.m) return; const files = await this.pickFiles(false); if (!files.length) return;
@@ -240,6 +287,12 @@ class Studio {
       for (const c of meshes) { const m0 = matsOf(c)[0]; ml.append(h('div', { onclick: () => this.select({ obj: c, inst: null, batch: null, idx: 0, point: c.getWorldPosition(new THREE.Vector3()), dist: c.getWorldPosition(new THREE.Vector3()).distanceTo(this.pos) }) }, objLabel(c), h('small', {}, c.type + ' · ' + (m0 ? m0.name || m0.type : '')))); }
       hier.b.append(h('div', { cls: 'ed-hint' }, 'Meshes inside ' + objLabel(this.node) + ' (' + meshes.length + (meshes.length >= 300 ? '+' : '') + '):'), ml); }
     B.append(hier);
+    // 60th: the clicked part of a building (see partOf) — edit it for every building, for this building only, or the base
+    const po = this.partOptions(this.part);
+    if (po.length) { const pl = h('div', { cls: 'ed-list', style: { maxHeight: 'none' } });
+      for (const o of po) { const r = RT.getRule('mat:' + o.k); pl.append(h('div', { cls: this.partKey === o.k ? 'sel' : '', onclick: () => this.choosePart(o.k) }, o.label, r ? h('span', { cls: 'ts-badge ed' }, 'edited') : null, h('small', {}, o.hint + (SPLIT.has(o.k) || !parentKey(o.k) ? '' : ' · gets its own draw when edited')))); }
+      B.append(section('Part: ' + materialLabel(splitKey(this.part.tag) && splitKey(this.part.tag).building != null ? splitKey(this.part.tag).base : this.part.tag), true, h('div', { cls: 'ed-hint' }, 'Edit this part for:'), pl)); }
+    else if (this.part && this.part.building) B.append(h('div', { cls: 'ed-hint' }, 'Building #' + this.part.building.id + ': the clicked surface could not be matched to a part — the materials below apply.'));
     // materials of the mesh
     const ms = matsOf(o); const ml = h('div');
     ms.forEach((m, i) => { const k = RT.keyOf(m, o, i); const r = RT.getRule(k); const cv = h('canvas', { cls: 'ts-thumb', width: 34, height: 34 }); drawInto(cv, m.map || m.emissiveMap || null, m.color ? '#' + m.color.getHexString() : '');
@@ -258,7 +311,8 @@ class Studio {
     sec.b.append(info);
     if ((u.meshes > 1 || set.length > 1) && !k.startsWith('veh:')) sec.b.append(h('div', { cls: 'ts-warn' }, 'Shared material — edits change every object listed above.' + (RT.canMakeUnique(this.sel.obj) && !k.startsWith('obj:') ? ' Use "Make unique" to edit only this object.' : '')));
     if (k.startsWith('veh:')) sec.b.append(h('div', { cls: 'ed-hint' }, 'Vehicle materials are shared by every car in the game (paint colour is per vertex). An edit here gives this vehicle type its own copy — other models keep theirs; cars of this type spawned later get it too.'));
-    if (this.sel.obj.isBatchedMesh) sec.b.append(h('div', { cls: 'ed-hint' }, 'This is a merged city batch (one draw call per cell): its material is shared by every building of this style — per-building copies would need the cell rebuilt, so edits here apply to the whole style.'));
+    if (this.partKey) sec.b.append(h('div', { cls: 'ed-hint' }, 'Part material (60th): ' + (SPLIT.has(this.partKey) || !parentKey(this.partKey) ? 'drawn with its own material.' : 'drawn merged with its base material until edited — the first edit gives it its own draw (the affected buildings are regenerated, identical geometry).')));
+    else if (this.sel.obj.isBatchedMesh) sec.b.append(h('div', { cls: 'ed-hint' }, 'Merged city batch (one draw call per material). Click a building part to edit only that kind of part, or one building\'s own copy (Part section).'));
     const err = RT.S.errors.get(k); if (err) sec.b.append(h('div', { cls: 'ts-err' }, '⚠ ' + err));
     const dr = RT.S.driven.get(k); if (dr && dr.length) sec.b.append(h('div', { cls: 'ts-warn' }, 'Changed by the game at runtime (lighting / weather / effects): ' + dr.join(', ') + ' — the game overrides these values.'));
     const bar = h('div', { cls: 'ts-bar' });
@@ -282,7 +336,7 @@ class Studio {
     const props = h('div'); const b = RT.originalOf(m);
     for (const p of RT.PROPS) { if (!(p.k in m) || m[p.k] == null) continue; const cur = r && r.props[p.k] != null ? r.props[p.k] : (p.kind === 'color' ? '#' + m[p.k].getHexString() : p.kind === 'vec' ? m[p.k].x : m[p.k]);
       const onv = (val) => this.edit('set ' + p.label, (x) => { x.props[p.k] = val; }, 'prop:' + p.k);
-      const w = p.kind === 'color' ? color(p.label, cur, onv) : num(p.label, typeof cur === 'number' ? cur : 0, { min: p.min, max: p.max, step: p.step }, onv);
+      const w = p.kind === 'color' ? color(p.label, cur, onv) : p.kind === 'bool' ? check(p.label, !!cur, onv) : num(p.label, typeof cur === 'number' ? cur : 0, { min: p.min, max: p.max, step: p.step }, onv);
       if (r && r.props[p.k] != null) { const reset = h('button', { cls: 'ed-btn', title: 'Back to the original value' + (b ? ' (' + JSON.stringify(b.props[p.k]) + ')' : ''), onclick: () => this.edit('reset ' + p.label, (x) => { delete x.props[p.k]; }).then(() => this.renderLeft()) }, '↺'); w.append(reset); }
       props.append(w); }
     if (props.children.length) sec.b.append(section('Material settings', true, props));

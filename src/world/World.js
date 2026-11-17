@@ -1,7 +1,7 @@
 // Builds and streams the static city: ground, buildings (base + streamed detail), landmarks, props, trees, water.
 import * as THREE from 'three';
 import { nightLight } from '../gfx/LightSets.js';
-import { MultiBuilder, SliceBuild, meshFor, FOLIAGE } from '../gfx/MeshBuilder.js';
+import { MultiBuilder, SliceBuild, meshFor, matFor, FOLIAGE } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
 import { RangeBatch, rangesFor, disposeMesh } from '../gfx/CellBatch.js';
 import { GroundDetail, regTrees } from './GroundDetail.js';
@@ -184,22 +184,49 @@ export class World {
   // each chunk's piece against the camera and the GPU draws every visible piece of that material in ONE multi-draw call.
   // Identical geometry, materials and shadows; only the number of CPU→GPU commands changes. Foliage keeps its own meshes
   // (street-lamp shadows skip it per draw), and the streamed detail / window meshes stay per chunk.
-  batchStatic() {
+  // extra (60th): batch only the building pieces rebuilt since (rebuildForKeys), adding to the existing batches' group
+  batchStatic(chunks = this.chunks, extra = false) {
     const SIG = 'position,normal,uv,color'; const groups = new Map();
-    for (const c of this.chunks) { c.base = []; for (const m of [...c.group.children]) {
+    for (const c of chunks) { if (!extra || !c.base) c.base = []; for (const m of [...c.group.children]) {
+      if (extra && m.userData.layer !== 'bld') continue;
       if (!m.isMesh || m.isInstancedMesh || m.isBatchedMesh || FOLIAGE.has(m.name) || !m.geometry.index || Object.keys(m.geometry.attributes).sort().join(',') !== SIG.split(',').sort().join(',') || Array.isArray(m.material)) continue;
       const key = m.material.uuid + '|' + m.castShadow + m.receiveShadow + '|' + m.renderOrder + '|' + m.layers.mask; let G = groups.get(key);
       if (!G) groups.set(key, (G = { mat: m.material, name: m.name, cast: m.castShadow, recv: m.receiveShadow, order: m.renderOrder, layers: m.layers.mask, list: [], nv: 0, ni: 0 }));
       G.list.push({ c, m }); G.nv += m.geometry.attributes.position.count; G.ni += m.geometry.index.count; } }
-    this.batched = new THREE.Group(); this.batched.name = 'cityBatched'; this.root.add(this.batched); this.batches = [];
+    if (!extra) { this.batched = new THREE.Group(); this.batched.name = 'cityBatched'; this.root.add(this.batched); this.batches = []; }
     for (const G of groups.values()) {
       if (G.list.length < 2) continue; // nothing to gain
       const B = new THREE.BatchedMesh(G.list.length, G.nv, G.ni, G.mat); B.name = G.name; B.castShadow = G.cast; B.receiveShadow = G.recv; B.renderOrder = G.order; B.layers.mask = G.layers;
       for (const { c, m } of G.list) { m.updateMatrix(); const gid = B.addGeometry(m.geometry); const iid = B.addInstance(gid); B.setMatrixAt(iid, m.matrix);
         const r = B.getGeometryRangeAt(gid); c.base.push({ name: m.name, batch: B, gid, iid, r, layer: m.userData.layer }); c.group.remove(m); m.geometry.dispose(); }
-      B.computeBoundingSphere(); B.computeBoundingBox(); this.batched.add(B); this.batches.push(B); }
+      B.computeBoundingSphere(); B.computeBoundingBox(); this.batched.add(B); this.batches.push(B); if (extra) { B.matrixAutoUpdate = false; B.updateMatrixWorld(true); } }
     // read access for code that scans a chunk's ground triangles (grass masks): mesh-like views into the batch buffers
-    for (const c of this.chunks) c.baseViews = c.base.map(({ name, batch, r }) => { const ga = batch.geometry; return { isMesh: true, name, geometry: { attributes: { position: ga.attributes.position, uv: ga.attributes.uv }, index: { array: ga.index.array.subarray(r.indexStart, r.indexStart + r.indexCount) } } }; });
+    for (const c of chunks) c.baseViews = c.base.map(({ name, batch, r }) => { const ga = batch.geometry; return { isMesh: true, name, geometry: { attributes: { position: ga.attributes.position, uv: ga.attributes.uv }, index: { array: ga.index.array.subarray(r.indexStart, r.indexStart + r.indexCount) } } }; });
+  }
+  // 60th (Texture Studio): parts that just got a material of their own (Materials.markSplit) move to it. The buildings concerned
+  // are generated again — same generator, same plan, same seeds, so identical geometry — with their parts now merged under the
+  // new keys: building shells + compound walls of their chunks (re-batched), and their streamed detail / window joinery (rebuilt
+  // as you look at it). keys: the newly split keys ('winFrame' = every building, 'winFrame@b234' = building 234's chunk only).
+  // On start, saved rules split their keys before the city is generated, so this only runs while editing.
+  rebuildForKeys(keys) {
+    const ids = new Set(); let all = false;
+    for (const k of keys) { const m = /@b(\d+)$/.exec(k); if (m) ids.add(+m[1]); else all = true; }
+    const list = all ? this.chunks : this.chunks.filter((c) => plan.byChunk[c.idx].buildings.some((b) => ids.has(b.id)));
+    for (const c of list) {
+      const ch = plan.byChunk[c.idx];
+      for (const e of c.base || []) if (e.layer === 'bld' && !e.off) { e.batch.setVisibleAt(e.iid, false); e.off = true; } // the batched originals go dark
+      if (c.base) c.base = c.base.filter((e) => !e.off);
+      for (const m of [...c.group.children]) if (m.isMesh && m.userData.layer === 'bld') { c.group.remove(m); disposeMesh(m); }
+      const mb = new MultiBuilder(); for (const b of ch.buildings) buildBase(b, mb); for (const w of ch.walls || []) buildWall(w, mb);
+      for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) { m.userData.layer = 'bld'; if (m.name === 'ao') { m.castShadow = false; m.receiveShadow = false; m.renderOrder = 1; } c.group.add(m); }
+      if (this.job && this.job.c === c) this.job = null; if (c.detail) this.disposeDetail(c);
+      if (this.wjob && this.wjob.c === c) this.wjob = null; if (c.win) this.disposeWindows(c);
+    }
+    if (!list.length) return 0;
+    this.batchStatic(list, true); for (const c of list) refreshStatic(c.group);
+    // batches whose every instance was replaced: removed (no empty draws left behind)
+    this.batches = this.batches.filter((B) => { const I = B._instanceInfo; if (Array.isArray(I) && I.some((i) => i && i.active && i.visible)) return true; this.batched.remove(B); B.dispose(); return false; });
+    return list.length;
   }
   // GPU instancing across chunks: each chunk had its own InstancedMesh per prop part (bollard, railing, pole, stall
   // canopy…) — ~220 draws in the main pass. One shared InstancedMesh per part now holds the instances of every chunk
@@ -295,7 +322,7 @@ export class World {
       const g = J.sb.geometry(), k = J.sk; J.sb = null;
       if (g) { const opts = det ? { cast: true, receive: true } : k === 0 ? { cast: false, receive: true } : { cast: false, receive: false };
         // opaque detail / window joinery: one BatchedMesh instance per building (per-building frustum culling, still one draw) — see CellBatch.RangeBatch
-        const mat = MAT[J.sn], ranges = (det || k === 0) && mat && !mat.isShaderMaterial && !FOLIAGE.has(J.sn) && J.sn !== 'pool' && J.sn !== 'lampHead' ? rangesFor(J.marks, J.sn) : null;
+        const mat = matFor(J.sn, MAT), ranges = (det || k === 0) && mat && !mat.isShaderMaterial && !FOLIAGE.has(J.sn) && J.sn !== 'pool' && J.sn !== 'lampHead' ? rangesFor(J.marks, J.sn) : null;
         if (ranges && ranges.length >= 3 && g.index.count >= 18000) { J.rb = new RangeBatch(g, ranges, mat); J.rbOpts = opts; if (performance.now() - t0 > budgetMs) return false; continue; }
         const m = meshFor(J.sn, g, MAT, opts); if (m) { if (!det && k === 1) m.renderOrder = 2; J.meshes.push(m); } }
       if ((J.q.length || J.sb) && performance.now() - t0 > budgetMs) return false; }

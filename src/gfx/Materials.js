@@ -3,8 +3,89 @@ import { applyWeathering } from './Weathering.js';
 import * as THREE from 'three';
 import { TEX } from './Textures.js';
 import { barkTextures } from './RealTextures.js';
-import { applyInteriorMapping, INTERIOR, occupancy } from './InteriorMapping.js';
+import { applyInteriorMapping, INTERIOR, occupancy, winFlag } from './InteriorMapping.js';
 export const MAT = {};
+// ---------------------------------------------------------------------------------------------- own material per object type
+// 60th request: every kind of object has its OWN material (Texture Studio: select a part, retexture only that part). They start
+// as copies of a few base materials (same textures, same values, same shader patches → same GPU program, no extra texture
+// memory, identical look); they only differ once someone edits them. ROLE_DEFS = role → [base material, label shown in the
+// Studio]. Builders name every part with its role (BuildingGen, GroundBuilder, Props, CityStreets …). Two more kinds of key:
+//   'Scope.base'  (e.g. 'Lotus Tower.concrete')   — a landmark's / site's own copy of a base material (MultiBuilder scope)
+//   'role@b<id>'  (e.g. 'winFrame@b234')          — ONE building's own copy ("This building only" in the Studio)
+// Draw calls: a key only gets its own draw (its own merged mesh / GPU batch) once it is SPLIT. Unsplit parts are merged into
+// the draw of the nearest split ancestor (winFrame@b234 → winFrame → paint), which is exactly the old geometry/material/draw
+// layout. The Texture Studio splits a key the moment a rule is made for it (World.rebuildForKeys rebuilds the affected
+// buildings), and on start the saved rules split their keys before the city is generated. Props, landmarks and the street
+// parts that already draw on their own are split from the start (EAGER): that costs no extra draws.
+export const ROLE_DEFS = {
+  // building shell (base LOD) + rooftop
+  bldParapet: ['concrete', 'Building parapets + copings'], bldRoofHut: ['concrete', 'Rooftop stair / lift huts'], bldRoofPlant: ['metal', 'Rooftop plant, tanks + antennas'],
+  bldTrim: ['concrete', 'Facade mouldings (cornices, bands, pilasters, crowns)'], bldPlinth: ['concrete', 'Building plinths (wall base course)'],
+  bldColumn: ['concrete', 'Building columns + arcade beams'], bldOrnament: ['paint', 'Heritage ornaments (roundels, urns, finials)'],
+  balcony: ['concrete', 'Balcony slabs + solid balustrades'], balconyRail: ['metal', 'Balcony steel railings'], planterBox: ['paint', 'Balcony planters'],
+  porch: ['concrete', 'Porch roofs + pillars'], porchFloor: ['concrete', 'Porch floors (floor concrete)'],
+  acUnit: ['paint', 'AC condenser casings'], acGrille: ['metal', 'AC grilles + wall brackets'], waterTank: ['paint', 'Rooftop water tanks'], tankStand: ['metal', 'Water tank stands'],
+  satDish: ['paint', 'Satellite dishes'], downpipe: ['paint', 'Rainwater downpipes + gutters'], meterBox: ['paint', 'Electricity meter boxes + cables'],
+  lampBracket: ['metal', 'House lamp brackets'], signBoard: ['concrete', 'Shop sign mounting boards + brackets'], rebar: ['metal', 'Rebar stubs on roofs'],
+  // windows (near LOD joinery; the painted windows in the facade are kept by the facade's window layer, see InteriorMapping.js)
+  winSurround: ['concrete', 'Window surrounds (reveals, sills, hoods)'], winFrame: ['paint', 'Window frames + glazing bars'], winShutter: ['paint', 'Window shutters (louvres)'],
+  winGrill: ['metal', 'Window security grills'],
+  // compound walls
+  compoundWall: ['concrete', 'Compound / boundary walls'], wallCoping: ['concrete', 'Compound wall copings'],
+  // streets
+  manholeCover: ['metal', 'Manhole covers (cast iron)'], manholeCollar: ['concrete', 'Manhole concrete collars'], drainGrate: ['metal', 'Kerb drain grates'],
+  drainSump: ['paint', 'Drain sumps (dark pit under the grate)'], roadStud: ['paint', 'Road studs'],
+  lampPole: ['metal', 'Street lamp poles'], heritageLampPole: ['metal', 'Heritage lamp posts'], utilityPole: ['concrete', 'Concrete utility poles'], transformer: ['metal', 'Pole transformers'],
+  signalPole: ['metal', 'Traffic signal poles + heads'], busShelter: ['paint', 'Bus shelters'], bench: ['paint', 'Benches'], pedRailing: ['paint', 'Pedestrian railings'],
+  gate: ['metal', 'Gates'], stall: ['paint', 'Pavement stalls (tables + goods)'], foodCart: ['paint', 'Food carts'], shrine: ['paint', 'Junction shrines'],
+  signPost: ['metal', 'Street-name sign posts + frames'], signPostBand: ['paint', 'Sign post banded feet'], litterBin: ['paint', 'Litter bins'], billboardFrame: ['metal', 'Rooftop billboard frames'],
+};
+const ROLES = new Map(); // key → { base, label } for every copy made (roles, scoped, per building)
+const EAGER = ['signPost', 'signPostBand', 'litterBin', 'billboardFrame', 'manholeCover', 'manholeCollar', 'drainGrate', 'drainSump', 'roadStud', 'lampPole', 'heritageLampPole', 'utilityPole', 'transformer', 'signalPole', 'busShelter', 'bench', 'pedRailing', 'gate', 'stall', 'foodCart', 'shrine'];
+export const SPLIT = new Set(EAGER); // keys drawn with their own material (see above)
+export function parentKey(k) { const sp = splitKey(k); return sp ? sp.base : null; }
+// the key whose material actually draws part `k` right now
+export function effKey(k) { let x = k; for (let i = 0; i < 5; i++) { if (SPLIT.has(x)) return x; const p = parentKey(x); if (!p) return x; x = p; } return x; }
+// can `k` get a material of its own? (its root base must be copyable — not the road / foliage / emissive helpers the game checks by identity)
+export function splittable(k) { if (!parentKey(k)) return false; let x = k; for (let i = 0; i < 5; i++) { const p = parentKey(x); if (!p) return canCopy(x); x = p; } return false; }
+// a building part's key: its role tagged with the building ('winFrame@b234'); MultiBuilder draws it with effKey() of that
+export function partKey(role, b) { return b && b.id != null ? role + '@b' + b.id : role; }
+export function markSplit(k) { if (SPLIT.has(k) || !parentKey(k)) return false; SPLIT.add(k); return true; }
+const NO_COPY = new Set(['road', 'roadTint', 'pool', 'glow', 'ao', 'emissive', 'lampHead', 'leaves', 'leavesBright', 'palm', 'foliage', 'leavesSmall', 'banana', 'bloom']); // identity-checked by game code / universal leaves
+export function canCopy(base) { const m = MAT[base]; return !!m && !NO_COPY.has(base) && !m.isShaderMaterial && !m.isSpriteMaterial; }
+// a copy that keeps the game's shader patches (onBeforeCompile + program cache key: same program, so no new shader compile)
+export function cloneMaterial(src, name) {
+  const ud = src.userData; src.userData = {}; let c; try { c = src.clone(); } finally { src.userData = ud; }
+  c.userData = Object.assign({}, ud); c.onBeforeCompile = src.onBeforeCompile; c.customProgramCacheKey = src.customProgramCacheKey; if (name) c.name = name;
+  return c;
+}
+// role / scoped / per-building material (made once; `src` = a ready copy to register instead of cloning MAT[base])
+export function roleMaterial(key, base, label, src = null) {
+  if (MAT[key]) return MAT[key]; if (!src && !canCopy(base)) return MAT[base] || null;
+  const m = src || cloneMaterial(MAT[base]); m.name = label || key; MAT[key] = m;
+  let root = base; for (let i = 0; i < 4 && ROLES.has(root); i++) root = ROLES.get(root).base;
+  ROLES.set(key, { base, root, label: m.name, drive: root.startsWith('f_') || root === 'shops' || root === 'signs' ? ['emissiveIntensity'] : root === 'winGlass' ? ['envMapIntensity'] : null });
+  const wt = wetTarget(MAT[base]); if (wt) wetTargets.push([m, wt[1], wt[2]]); // rain response like its base
+  if (FACADE_WIN.has(MAT[base])) FACADE_WIN.set(m, FACADE_WIN.get(MAT[base]));
+  return m;
+}
+// base material of a role key ('winFrame' → 'paint', 'Lotus Tower.concrete' → 'concrete', 'f_colonial@b12' → 'f_colonial')
+export function splitKey(key) {
+  const at = key.lastIndexOf('@b'); if (at > 0 && /^\d+$/.test(key.slice(at + 2))) return { base: key.slice(0, at), building: +key.slice(at + 2) };
+  const dot = key.lastIndexOf('.'); if (dot > 0) return { base: key.slice(dot + 1), scope: key.slice(0, dot) };
+  if (ROLE_DEFS[key]) return { base: ROLE_DEFS[key][0] };
+  return null;
+}
+export function materialLabel(key) { const r = ROLES.get(key); if (r) return r.label; if (ROLE_DEFS[key]) return ROLE_DEFS[key][1]; if (BASE_LABEL[key]) return BASE_LABEL[key]; const m = MAT[key]; return m && m.name ? m.name : key; }
+export function roleInfo(key) { return ROLES.get(key) || null; }
+// MAT[key], made on demand for role / scoped / per-building keys (MeshBuilder.meshFor)
+export function ensureMat(key) {
+  if (MAT[key]) return MAT[key]; const sp = splitKey(key); if (!sp) return null; const base = ensureMat(sp.base); if (!base) return null;
+  const label = sp.building != null ? materialLabel(sp.base) + ' — building #' + sp.building + ' only' : sp.scope ? sp.scope + ' · ' + materialLabel(sp.base) : materialLabel(key);
+  return roleMaterial(key, sp.base, label);
+}
+export function roleKeys() { return [...ROLES.keys()]; }
+const FACADE_WIN = new Map(); // facade material → its window layer uniforms (copies share them; see InteriorMapping.applyInteriorMapping)
 const facadeKeys = ['colonial', 'brick', 'glass', 'glass2', 'glass3', 'office', 'office2', 'office3', 'hotel', 'shop', 'shop2', 'shop3', 'apartment', 'apartment2', 'villa', 'warehouse'];
 const wetTargets = [];
 // outdoor materials built elsewhere (modelled forecourt slabs …) join the rain response: white-based maps only (the colour is driven)
@@ -65,7 +146,9 @@ export function buildMaterials() {
     const f = TEX['f_' + k];
     MAT['f_' + k] = std({ map: f.map, emissiveMap: f.emissive, emissive: 0xffffff, emissiveIntensity: 0, roughnessMap: f.rm, metalnessMap: f.rm, roughness: 1, metalness: k.startsWith('glass') ? 1 : 1, vertexColors: true, envMapIntensity: k.startsWith('glass') ? 1.0 : 0.8 });
     withNormal(MAT['f_' + k], f.normal, NORMAL_SCALE.facade); // brick courses / mouldings / render; glass held flat in the map
-    applyInteriorMapping(MAT['f_' + k], { office: /^(glass|office)/.test(k) }); // windows show parallax rooms with depth (offices: lit floor sections)
+    // windows show parallax rooms with depth (offices: lit floor sections). The window layer keeps the painted windows (glass,
+    // frames, shutters + the rooms behind) from the facade's ORIGINAL art, so a new wall texture (Texture Studio) never paints over them
+    FACADE_WIN.set(MAT['f_' + k], applyInteriorMapping(MAT['f_' + k], { office: /^(glass|office)/.test(k), win: { map: f.map, rm: f.rm, normal: f.normal } }));
   }
   MAT.shops = std({ map: TEX.shops.map, emissiveMap: TEX.shops.emissive, emissive: 0xffffff, emissiveIntensity: 0.15, roughness: 0.8 });
   // after closing time each shop unit pulls down its own roller shutter (galvanised or painted; ~14% trade late)
@@ -126,13 +209,21 @@ export function buildMaterials() {
   MAT.pool = new THREE.MeshBasicMaterial({ map: TEX.pool, color: 0xffc98a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
   MAT.glow = new THREE.SpriteMaterial({ map: TEX.glow, color: 0xffd7a0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0 });
   wetTargets.push([MAT.road, 1.0, 0.18], [MAT.roadTint, 0.95, 0.14], [MAT.walk, 0.9, 0.35], [MAT.walkGrey, 0.9, 0.35], [MAT.kerb, 0.85, 0.4], [MAT.concrete, 0.9, 0.45], [MAT.roofFlat, 0.95, 0.5]);
+  for (const [k, [base, label]] of Object.entries(ROLE_DEFS)) roleMaterial(k, base, label); // every object type's own material
+  for (const k of ['concrete', 'metal', 'paint', 'awning', 'roofTiles', 'roofFlat', 'corrugated', 'shops', 'signs', 'winGlass', 'kerb', 'walk', 'walkGrey', 'road', 'roadTint', 'marking', 'treeBark', 'palmBark', 'leaves', 'leavesBright', 'palm']) if (MAT[k] && !MAT[k].name) MAT[k].name = BASE_LABEL[k];
+  for (const k of facadeKeys) MAT['f_' + k].name = 'Building walls · ' + k + ' facade';
   return MAT;
 }
+const BASE_LABEL = { concrete: 'Concrete (base — parts without their own material)', metal: 'Metal (base)', paint: 'Painted surfaces (base)', awning: 'Awnings', roofTiles: 'Clay tile roofs', roofFlat: 'Flat concrete roofs', corrugated: 'Corrugated sheet roofs', shops: 'Shop fronts', signs: 'Shop signs', winGlass: 'Window glass (reflection)',
+  kerb: 'Kerbs', walk: 'Pavement (pavers)', walkGrey: 'Pavement (grey pavers)', road: 'Road asphalt', roadTint: 'Road wear overlay', marking: 'Road markings', treeBark: 'Tree bark', palmBark: 'Palm trunks',
+  leaves: 'Leaves (universal)', leavesBright: 'Leaves, bright (universal)', palm: 'Palm fronds (universal)' };
 const SHOP_SHUT = { value: 0 };
 const _dry = new THREE.Color(1, 1, 1), _wet = new THREE.Color(0.62, 0.62, 0.64);
 export function updateMaterials(night, wet, t) {
   const n = night;
   for (const k of facadeKeys) MAT['f_' + k].emissiveIntensity = n * 1.25;
+  for (const [m, W] of FACADE_WIN) winFlag(m).value = m.normalMap === W.normal ? 0 : 1; // window layer: painted windows stay flat under a replaced normal map
+  for (const [k, R] of ROLES) { const d = R.drive; if (!d) continue; const m = MAT[k], b = MAT[R.base]; if (m && b) for (const p of d) m[p] = b[p]; } // copies follow the night / weather values the game drives on their base
   INTERIOR.uIntDay.value = (1 - n) * 0.24; INTERIOR.uIntNight.value = n * 0.8; INTERIOR.uOcc.value = occupancy(t ?? 21); INTERIOR.uITime.value = performance.now() / 1000;
   // shop fronts are lit while trading (until ~9 pm, shutters down by 10:30) and dark until early morning; illuminated
   // signboards stay on but many are switched off after midnight
