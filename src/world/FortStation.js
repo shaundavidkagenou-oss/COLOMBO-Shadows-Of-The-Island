@@ -24,6 +24,8 @@ import { LayerRouter, mergeLayered, stationMaterial, colKey } from '../gfx/Stati
 import { setInterior, setInteriorNight, patchInterior } from '../gfx/InteriorLight.js';
 import { MAT } from '../gfx/Materials.js';
 import * as goods from '../gfx/Goods.js';
+import { officeChair } from '../gfx/OfficeChair.js';
+import { RNG } from '../core/rng.js';
 import { FORT } from './FortStationData.js';
 import { RAIL_TOP, BALLAST_Y, GAUGE } from './Railway.js';
 import { buildClassicCoach, buildDmuCar, ebox, beam, solids, COACH_LEN, CAR_LEN as DMU_LEN } from '../vehicles/TrainModels.js';
@@ -410,13 +412,80 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
     for (const z of [-646.5, -642.5]) { bench(-8.6, -5.4, z, 1); coll(-8.6, -5.4, z - 0.25, z + 0.3, FL + 0.48); }
   }
   { const A = F.ann; // the announcer's room: desk under the window onto platform 1, gooseneck mic, PA console, phone, timetable, clock, fan
-    B(paint, 9.0, 13.6, FL + 0.72, FL + 0.77, ZB - 1.2, ZB - 0.42, '#6d5a44'); B(paint, 9.05, 9.15, FL, FL + 0.72, ZB - 1.15, ZB - 0.45, '#5a4a38'); B(paint, 13.45, 13.55, FL, FL + 0.72, ZB - 1.15, ZB - 0.45, '#5a4a38'); coll(9.0, 13.6, ZB - 1.2, ZB - 0.42, FL + 0.8);
-    B(paint, 11.6, 12.9, FL + 0.77, FL + 0.9, ZB - 1.0, ZB - 0.55, '#2b2d30'); for (let k = 0; k < 8; k++) B(emis, 11.7 + k * 0.15, 11.76 + k * 0.15, FL + 0.9, FL + 0.91, ZB - 0.9, ZB - 0.85, k % 3 ? [0.2, 0.9, 0.3] : [0.95, 0.3, 0.2]); for (let k = 0; k < 6; k++) metal.cylinder(11.75 + k * 0.2, FL + 0.9, ZB - 0.7, 0.025, 0.025, 0.03, 8, { col: cc('#ccc') });
-    metal.cylinder(10.9, FL + 0.77, ZB - 0.75, 0.07, 0.08, 0.03, 10, { col: cc('#222') }); rod(metal, 10.9, FL + 0.8, ZB - 0.75, 10.95, FL + 1.12, ZB - 0.98, 0.008, cc('#333')); rod(metal, 10.95, FL + 1.12, ZB - 0.98, 11.0, FL + 1.2, ZB - 1.12, 0.008, cc('#333')); paint.cylinder(11.0, FL + 1.17, ZB - 1.14, 0.025, 0.03, 0.08, 8, { col: cc('#111') }); // gooseneck mic
-    B(paint, 9.3, 9.6, FL + 0.77, FL + 0.85, ZB - 0.95, ZB - 0.7, '#1e1e1e'); B(paint, 10.1, 10.5, FL + 0.77, FL + 0.79, ZB - 1.05, ZB - 0.75, '#f4f2ea'); B(paint, 10.15, 10.55, FL + 0.79, FL + 0.8, ZB - 1.0, ZB - 0.72, '#f4f2ea');
-    B(paint, 12.95, 13.45, FL + 0.77, FL + 1.12, ZB - 0.98, ZB - 0.6, '#1b1b1d'); B(emis, 12.97, 13.43, FL + 0.82, FL + 1.08, ZB - 1.0, ZB - 0.99, [0.3, 0.5, 0.75]);
-    paint.cylinder(A.chair.x, FL, A.chair.z, 0.24, 0.24, 0.05, 10, { col: cc('#222') }); metal.cylinder(A.chair.x, FL + 0.05, A.chair.z, 0.025, 0.025, 0.37, 6, { col: cc('#555') }); B(paint, A.chair.x - 0.24, A.chair.x + 0.24, FL + 0.4, FL + 0.47, A.chair.z - 0.24, A.chair.z + 0.22, '#1f2a44'); B(paint, A.chair.x - 0.22, A.chair.x + 0.22, FL + 0.5, FL + 1.05, A.chair.z - 0.3, A.chair.z - 0.24, '#1f2a44');
-    B(paint, 8.21, 8.23, FL + 1.2, FL + 2.2, -636.6, -634.6, '#f7f6ef'); for (let r = 0; r < 9; r++) B(paint, 8.23, 8.235, FL + 1.3 + r * 0.1, FL + 1.32 + r * 0.1, -636.5, -634.7, '#6d7a90');
+    // 55th: rebuilt as a real SLR station operator's office. Walls: oil-painted lower wall with a dado rail, timber skirting;
+    // floor: vinyl tiles. Furniture: a twin-pedestal office desk, an operator office chair (gfx/OfficeChair.js), a steel
+    // almirah, a red plastic visitor chair, a 19-inch PA rack, a cork notice board, a calendar, a ceiling fan, the framed
+    // fare / timetable sheets. On the desk: the PA mixer (faders, knobs, VU meters), the gooseneck paging mic on its
+    // push-to-talk base, a monitor showing the live departures (the same canvas as the hall boards: no extra draw call),
+    // keyboard and mouse, the desk phone, the open train register, files, a cup of tea, a bottle of water.
+    const RX0 = 8.2, RX1 = 17.8, RZ0 = -637.8, RZ1 = ZB - 0.4, OIL = '#a9c4b4', OIL_D = '#6f8f7e', SK = '#3e2a18';
+    for (const [a0, a1, b0, b1, ax] of [[RX0, RX0 + 0.012, RZ0, RZ1, 1], [RX1 - 0.012, RX1, RZ0, RZ1, 1], [RX0, RX1, RZ0, RZ0 + 0.012, 0], [RX0, A.door.x - 0.56, RZ1 - 0.012, RZ1, 0], [A.door.x + 0.56, RX1, RZ1 - 0.012, RZ1, 0]]) {
+      const top = ax === 0 && b0 > -632 ? FL + 0.95 : FL + 1.2; B(paint, a0, a1, FL + 0.1, top, b0, b1, OIL, { bottom: false }); // oil-paint lower wall (under the window: to the sill)
+      const g = 0.012; B(paint, ax ? a0 - (a0 < 13 ? 0 : g) : a0, ax ? a1 + (a0 < 13 ? g : 0) : a1, top, top + 0.035, ax ? b0 : b0 - (b0 < -634 ? 0 : g), ax ? b1 : b1 + (b0 < -634 ? g : 0), OIL_D); // dado rail
+      B(paint, ax ? a0 - (a0 < 13 ? 0 : 0.008) : a0, ax ? a1 + (a0 < 13 ? 0.008 : 0) : a1, FL, FL + 0.1, ax ? b0 : b0 - (b0 < -634 ? 0 : 0.008), ax ? b1 : b1 + (b0 < -634 ? 0.008 : 0), SK); } // skirting
+    for (let x = RX0, ii = 0; x < RX1 - 0.01; x += 0.3, ii++) for (let z = RZ0, jj = 0; z < RZ1 - 0.01; z += 0.3, jj++) if ((ii + jj) % 2) up(paint, x, Math.min(x + 0.3, RX1), z, Math.min(z + 0.3, RZ1), FL + 0.005, '#8f8676'); // vinyl tiles
+    // desk: laminate top with an edge band, two drawer pedestals, a modesty panel against the wall
+    const DT = FL + 0.75, dz0 = ZB - 1.2, dz1 = ZB - 0.42;
+    B(paint, 9.0, 13.6, DT - 0.035, DT, dz0, dz1, '#6d5a44'); B(paint, 9.0, 13.6, DT - 0.04, DT - 0.035, dz0 - 0.004, dz1, '#3e2a18');
+    for (const [p0, p1] of [[9.04, 9.5], [13.1, 13.56]]) { B(paint, p0, p1, FL + 0.02, DT - 0.04, dz0 + 0.04, dz1 - 0.02, '#5a4a38'); B(paint, p0, p1, FL, FL + 0.02, dz0 + 0.06, dz1 - 0.04, SK);
+      for (let d = 0; d < 3; d++) { const y0 = FL + 0.05 + d * 0.215, y1 = y0 + 0.2; B(paint, p0 + 0.015, p1 - 0.015, y0, y1, dz0 + 0.03, dz0 + 0.04, '#6b4a2c'); B(metal, (p0 + p1) / 2 - 0.06, (p0 + p1) / 2 + 0.06, y1 - 0.05, y1 - 0.035, dz0 + 0.012, dz0 + 0.03, '#bfc3c2'); B(metal, (p0 + p1) / 2 - 0.012, (p0 + p1) / 2 + 0.012, y1 - 0.03, y1 - 0.012, dz0 + 0.028, dz0 + 0.031, '#b08d57'); } }
+    B(paint, 9.5, 13.1, FL + 0.25, DT - 0.04, dz1 - 0.04, dz1 - 0.02, '#5a4a38'); coll(9.0, 13.6, dz0, dz1, FL + 0.8);
+    // PA mixer: a sloped panel (back edge up, towards the window) with 8 channel strips
+    { const mx0 = 11.55, mx1 = 12.95, mz0 = dz0 + 0.12, mz1 = dz0 + 0.5, sl = 0.2, Y = (z) => DT + 0.035 + (z - mz0) * Math.tan(sl);
+      ebox(paint, (mx0 + mx1) / 2, DT + 0.035 + (mz1 - mz0) * Math.tan(sl) / 2, (mz0 + mz1) / 2, mx1 - mx0, 0.02, (mz1 - mz0) / Math.cos(sl), -sl, 0, 0, cc('#2b2d30'));
+      for (const [xa, xb] of [[mx0, mx0 + 0.02], [mx1 - 0.02, mx1]]) ebox(paint, (xa + xb) / 2, DT + 0.02 + (mz1 - mz0) * Math.tan(sl) / 2, (mz0 + mz1) / 2, 0.02, 0.04 + (mz1 - mz0) * Math.tan(sl), mz1 - mz0, 0, 0, 0, cc('#1b1b1d')); // cheeks
+      B(paint, mx0, mx1, DT, DT + 0.035, mz0 - 0.01, mz1, '#1b1b1d'); B(paint, mx0, mx1, DT, Y(mz1) + 0.01, mz1, mz1 + 0.02, '#1b1b1d'); // base + back
+      for (let c = 0; c < 8; c++) { const x = mx0 + 0.09 + c * 0.15; const zf = mz0 + 0.07; B(paint, x - 0.004, x + 0.004, Y(zf) + 0.012, Y(zf) + 0.013, zf - 0.05, zf + 0.06, '#111'); // fader slot
+        const fp = zf + (-0.04 + ((c * 37) % 9) * 0.01); B(paint, x - 0.012, x + 0.012, Y(fp) + 0.012, Y(fp) + 0.026, fp - 0.008, fp + 0.008, c === 7 ? '#7a1515' : '#d8d8d4'); // fader cap (master red)
+        for (let r = 0; r < 3; r++) { const kz = mz0 + 0.17 + r * 0.06; paint.cylinder(x, Y(kz) + 0.01, kz, 0.011, 0.01, 0.016, 10, { col: cc(r === 0 ? '#1e1e1e' : '#1c1c1c') }); B(paint, x - 0.001, x + 0.001, Y(kz) + 0.026, Y(kz) + 0.027, kz - 0.009, kz - 0.002, '#fff'); } // pots with pointer lines
+        B(emis, x - 0.01, x + 0.01, Y(mz0 + 0.13) + 0.011, Y(mz0 + 0.13) + 0.016, mz0 + 0.125, mz0 + 0.135, c % 3 ? [0.2, 0.9, 0.3] : [0.95, 0.3, 0.2]); }
+      for (const vx of [mx1 - 0.2, mx1 - 0.1]) { B(emis, vx - 0.035, vx + 0.035, Y(mz1 - 0.04) + 0.012, Y(mz1 - 0.04) + 0.05, mz1 - 0.045, mz1 - 0.035, [1.0, 0.75, 0.35]); B(paint, vx - 0.002, vx + 0.002, Y(mz1 - 0.04) + 0.014, Y(mz1 - 0.04) + 0.045, mz1 - 0.047, mz1 - 0.046, '#111'); } } // VU meters
+    // gooseneck paging mic on its base: push-to-talk bar, on-air LED
+    B(paint, 10.8, 11.0, DT, DT + 0.035, dz0 + 0.1, dz0 + 0.26, '#1e1e1e'); B(paint, 10.82, 10.98, DT + 0.035, DT + 0.045, dz0 + 0.11, dz0 + 0.15, '#7a1515'); B(emis, 10.955, 10.975, DT + 0.035, DT + 0.042, dz0 + 0.2, dz0 + 0.215, [0.1, 1.0, 0.25]);
+    { const bx2 = 10.9, bz2 = dz0 + 0.22; let px = bx2, py = DT + 0.04, pz = bz2; for (let k = 1; k <= 10; k++) { const t = k / 10, nx = bx2 + 0.02 * t, ny = DT + 0.04 + Math.sin(t * Math.PI * 0.55) * 0.34, nz = bz2 - 0.25 * t * t; rod(metal, px, py, pz, nx, ny, nz, 0.006, cc('#222')); px = nx; py = ny; pz = nz; }
+      paint.cylinder(px, py - 0.01, pz - 0.035, 0.016, 0.022, 0.08, 10, { col: cc('#111') }); B(metal, px - 0.012, px + 0.012, py - 0.025, py - 0.015, pz - 0.075, pz - 0.07, '#888'); } // capsule + grille band
+    // monitor (live departures), keyboard, mouse + pad
+    { const mx = 13.0, mz = dz0 + 0.45, sy = DT + 0.33; B(paint, mx - 0.29, mx + 0.29, sy - 0.17, sy + 0.17, mz, mz + 0.03, '#141516'); signQuad(LB, mx, sy, mz - 0.002, 0.52, 0.26, '-z', [0, 0.5, 1, 1]); signQuad(glass, mx, sy, mz - 0.004, 0.54, 0.28, '-z', [0, 0, 1, 1]);
+      B(paint, mx - 0.03, mx + 0.03, DT, sy - 0.12, mz + 0.03, mz + 0.06, '#1b1b1d'); B(paint, mx - 0.12, mx + 0.12, DT, DT + 0.012, mz - 0.06, mz + 0.1, '#1b1b1d'); B(emis, mx + 0.25, mx + 0.255, sy - 0.162, sy - 0.157, mz - 0.003, mz - 0.001, [0.2, 0.6, 1]);
+      B(paint, mx - 0.24, mx + 0.18, DT, DT + 0.02, dz0 + 0.06, dz0 + 0.2, '#1c1c1c'); for (let r = 0; r < 5; r++) for (let k = 0; k < 14; k++) B(paint, mx - 0.23 + k * 0.0285, mx - 0.23 + k * 0.0285 + 0.024, DT + 0.02, DT + 0.028, dz0 + 0.07 + r * 0.026, dz0 + 0.07 + r * 0.026 + 0.022, '#2b2d30'); // keys
+      B(paint, mx + 0.24, mx + 0.46, DT, DT + 0.003, dz0 + 0.06, dz0 + 0.26, '#1a1a1a'); ebox(paint, mx + 0.35, DT + 0.015, dz0 + 0.14, 0.06, 0.03, 0.1, 0, 0.1, 0, cc('#2b2d30')); }
+    // desk phone: wedge base, keypad, handset in its cradle, curly cord
+    { const px = 9.75, pz = dz0 + 0.2; ebox(paint, px, DT + 0.03, pz, 0.2, 0.06, 0.2, 0.25, 0, 0, cc('#1e1e1e')); for (let r = 0; r < 4; r++) for (let k = 0; k < 3; k++) B(paint, px - 0.035 + k * 0.03, px - 0.035 + k * 0.03 + 0.022, DT + 0.062 - r * 0.01, DT + 0.068 - r * 0.01, pz - 0.05 + r * 0.025, pz - 0.05 + r * 0.025 + 0.018, '#d8d8d4');
+      ebox(paint, px + 0.065, DT + 0.075, pz, 0.05, 0.035, 0.21, 0, 0, 0, cc('#1e1e1e')); for (const e of [-1, 1]) paint.cylinder(px + 0.065, DT + 0.07, pz + e * 0.09, 0.026, 0.026, 0.035, 10, { col: cc('#1e1e1e') });
+      let cx2 = px + 0.065, cy2 = DT + 0.06, cz2 = pz - 0.1; for (let k = 1; k <= 16; k++) { const t = k / 16, nx = px + 0.065 - 0.12 * t + Math.cos(k * 2.2) * 0.008, ny = DT + 0.06 - 0.05 * Math.sin(t * Math.PI) + Math.sin(k * 2.2) * 0.008, nz = pz - 0.1 - 0.05 * t; rod(metal, cx2, cy2, cz2, nx, ny, nz, 0.004, cc('#222')); cx2 = nx; cy2 = ny; cz2 = nz; } }
+    // the open train register, pen, files with a tape, a cup of tea on its saucer, a bottle of water
+    { const lx = 10.3, lz = dz0 + 0.18; for (const e of [-1, 1]) { ebox(paint, lx + e * 0.105, DT + 0.012, lz, 0.21, 0.012, 0.3, 0, 0, -e * 0.04, cc('#7a1515')); ebox(paint, lx + e * 0.1, DT + 0.022, lz, 0.195, 0.008, 0.285, 0, 0, -e * 0.04, cc('#f0f0ec')); }
+      for (let r = 0; r < 9; r++) B(paint, lx - 0.19, lx + 0.19, DT + 0.0275, DT + 0.028, lz - 0.12 + r * 0.028, lz - 0.119 + r * 0.028, '#6d7a90'); ebox(paint, lx + 0.06, DT + 0.032, lz + 0.02, 0.006, 0.006, 0.14, 0, 0.5, 0, cc('#1d4fae'));
+      for (let k = 0; k < 4; k++) ebox(paint, 9.75, DT + 0.012 + k * 0.022, dz0 + 0.5, 0.25, 0.02, 0.32, 0, 0.05 * (k - 1.5), 0, cc(k % 2 ? '#c9a86a' : '#b8925a')); B(paint, 9.74, 9.76, DT, DT + 0.1, dz0 + 0.34, dz0 + 0.66, '#f0f0ec');
+      paint.cylinder(11.25, DT, dz0 + 0.28, 0.065, 0.07, 0.008, 14, { col: cc('#fff') }); paint.cylinder(11.25, DT + 0.008, dz0 + 0.28, 0.038, 0.03, 0.07, 14, { col: cc('#fff') }); paint.cylinder(11.25, DT + 0.068, dz0 + 0.28, 0.035, 0.035, 0.002, 14, { col: cc('#7a3a12') }); // tea
+      goods.bottle(GD, BG, 13.45, DT, dz0 + 0.12, 0, 1.1); }
+    officeChair(paint, cc, A.chair.x, FL, A.chair.z, A.chair.yaw); // the operator chair (seat top at FL + SEAT_Y = the announcer's sit height)
+    // steel almirah (north wall): grey enamel, two doors, handle, keyhole, louvres, plinth
+    { const ax0 = 8.35, ax1 = 9.35, az0 = RZ0, az1 = RZ0 + 0.5, h = FL + 1.85; B(metal, ax0, ax1, FL + 0.06, h, az0, az1, '#8f8b84'); B(metal, ax0 + 0.02, ax1 - 0.02, FL, FL + 0.06, az0, az1 - 0.03, SK);
+      B(metal, (ax0 + ax1) / 2 - 0.003, (ax0 + ax1) / 2 + 0.003, FL + 0.1, h - 0.04, az1, az1 + 0.002, '#444'); for (const yy of [FL + 0.1, h - 0.04]) B(metal, ax0 + 0.03, ax1 - 0.03, yy - 0.002, yy + 0.002, az1, az1 + 0.002, '#444');
+      B(metal, (ax0 + ax1) / 2 + 0.03, (ax0 + ax1) / 2 + 0.045, FL + 0.9, FL + 1.12, az1, az1 + 0.03, '#bfc3c2'); paint.cylinder((ax0 + ax1) / 2 + 0.09, FL + 1.0, az1 + 0.002, 0.008, 0.008, 0.004, 8, { col: cc('#b08d57') });
+      for (let k = 0; k < 6; k++) B(metal, ax1 - 0.25, ax1 - 0.08, h - 0.25 + k * 0.025, h - 0.24 + k * 0.025, az1, az1 + 0.002, '#555'); coll(ax0, ax1, az0, az1, h); }
+    // red plastic visitor chair by the almirah
+    { const cx = 10.2, cz = RZ0 + 0.55, R = '#a8241c'; B(paint, cx - 0.22, cx + 0.22, FL + 0.43, FL + 0.46, cz - 0.2, cz + 0.22, R); for (const sx of [-1, 1]) for (const sz of [-1, 1]) beam(paint, cx + sx * 0.19, FL + 0.44, cz + sz * 0.18, cx + sx * 0.23, FL, cz + sz * 0.23, 0.035, 0.035, cc(R));
+      ebox(paint, cx, FL + 0.72, cz - 0.23, 0.42, 0.34, 0.02, -0.12, 0, 0, cc(R)); for (let k = 0; k < 4; k++) ebox(paint, cx - 0.12 + k * 0.08, FL + 0.74, cz - 0.231, 0.03, 0.16, 0.022, -0.12, 0, 0, cc('#7a1515')); for (const sx of [-1, 1]) beam(paint, cx + sx * 0.2, FL + 0.46, cz - 0.2, cx + sx * 0.2, FL + 0.6, cz - 0.22, 0.03, 0.03, cc(R)); }
+    // 19-inch PA rack on the east wall: amplifier units with power LEDs, level knobs, vent slots, rack ears with screws
+    { const rx0 = RX1 - 0.6, rz0 = -634.9, rz1 = -634.3, h = FL + 1.3; B(paint, rx0, RX1, FL, h, rz0, rz1, '#1b1b1d'); coll(rx0, RX1, rz0, rz1, h);
+      for (let u = 0; u < 5; u++) { const y0 = FL + 0.25 + u * 0.19, y1 = y0 + 0.16, fx = rx0 - 0.004; B(paint, fx, fx + 0.004, y0, y1, rz0 + 0.02, rz1 - 0.02, u === 0 ? '#2b2d30' : '#2c2c2c');
+        for (const zz of [rz0 + 0.035, rz1 - 0.035]) paint.cylinder(fx - 0.002, (y0 + y1) / 2, zz, 0.006, 0.006, 0.004, 6, { col: cc('#ccc') });
+        B(emis, fx - 0.003, fx, y1 - 0.03, y1 - 0.02, rz1 - 0.09, rz1 - 0.08, u % 2 ? [0.1, 0.9, 0.3] : [1, 0.55, 0.1]); for (let k = 0; k < 3; k++) paint.cylinder(fx - 0.006, y0 + 0.07, rz0 + 0.12 + k * 0.08, 0.016, 0.016, 0.012, 10, { col: cc('#1c1c1c') });
+        for (let k = 0; k < 8; k++) B(paint, fx - 0.001, fx, y0 + 0.03, y0 + 0.13, rz1 - 0.3 + k * 0.022, rz1 - 0.29 + k * 0.022, '#111'); } }
+    // cable trunking from the desk to the rack (up and over the door, not across it); switch plate by the door
+    { const TR = '#f0f0ec', tz0 = RZ1 - 0.035, tz1 = RZ1 - 0.012, dx0 = A.door.x - 0.62, ty = FL + 2.4;
+      B(paint, 13.6, dx0, FL + 0.95, FL + 0.99, tz0, tz1, TR); B(paint, dx0 - 0.04, dx0, FL + 0.95, ty, tz0, tz1, TR); B(paint, dx0 - 0.04, RX1 - 0.012, ty - 0.04, ty, tz0, tz1, TR);
+      B(paint, RX1 - 0.035, RX1 - 0.012, ty - 0.04, ty, -634.4, tz1, TR); B(paint, RX1 - 0.035, RX1 - 0.012, FL + 1.3, ty, -634.45, -634.35, TR); }
+    B(paint, A.door.x - 0.9, A.door.x - 0.7, FL + 1.25, FL + 1.4, RZ1 - 0.015, RZ1 - 0.012, '#f0f0ec'); for (let k = 0; k < 3; k++) B(paint, A.door.x - 0.88 + k * 0.06, A.door.x - 0.85 + k * 0.06, FL + 1.3, FL + 1.35, RZ1 - 0.02, RZ1 - 0.015, '#1c1c1c');
+    // cork notice board with pinned circulars; wall calendar; ceiling fan
+    { const nx0 = 11.4, nx1 = 13.6, ny0 = FL + 1.35, ny1 = FL + 2.15, z = RZ0 + 0.012; B(paint, nx0, nx1, ny0, ny1, z, z + 0.015, '#6b4428'); B(paint, nx0 + 0.03, nx1 - 0.03, ny0 + 0.03, ny1 - 0.03, z + 0.015, z + 0.02, '#a8846a');
+      const r2 = new RNG(77); for (let k = 0; k < 9; k++) { const w = 0.2 + r2.next() * 0.1, hh = 0.26 + r2.next() * 0.06, px = nx0 + 0.18 + (k % 5) * 0.4 + r2.next() * 0.05, py = ny0 + 0.2 + Math.floor(k / 5) * 0.36; ebox(paint, px, py, z + 0.022, w, hh, 0.002, 0, 0, (r2.next() - 0.5) * 0.08, cc(k % 4 === 3 ? '#f4e04a' : '#f0f0ec')); paint.cylinder(px, py + hh / 2 - 0.02, z + 0.024, 0.006, 0.006, 0.006, 6, { col: cc(k % 2 ? '#7a1515' : '#1d4fae') }); } }
+    { const cx = 14.6, cy = FL + 1.75, z = RZ0 + 0.012; B(paint, cx - 0.2, cx + 0.2, cy - 0.3, cy + 0.25, z, z + 0.004, '#f0f0ec'); B(paint, cx - 0.2, cx + 0.2, cy + 0.12, cy + 0.25, z + 0.004, z + 0.006, '#7a1515'); for (let r = 0; r < 5; r++) for (let k = 0; k < 7; k++) B(paint, cx - 0.17 + k * 0.05, cx - 0.14 + k * 0.05, cy - 0.27 + r * 0.06, cy - 0.24 + r * 0.06, z + 0.004, z + 0.005, '#555'); }
+    { const fx = 13.0, fz = -634.2, fy = FL + 3.2; metal.cylinder(fx, fy - 0.45, fz, 0.012, 0.012, 0.45, 6, { col: cc('#ddd') }); paint.cylinder(fx, fy - 0.56, fz, 0.11, 0.11, 0.11, 12, { col: cc('#f0f0ec') }); for (let k = 0; k < 3; k++) { const a = k * 2.094 + 0.4; ebox(paint, fx + Math.cos(a) * 0.48, fy - 0.53, fz + Math.sin(a) * 0.48, 0.66, 0.008, 0.12, 0, -a, 0.08, cc('#f0f0ec')); } }
+    // two printed fare / timetable sheets in a timber frame on the west wall (they were blue stripes)
+    B(paint, 8.21, 8.235, FL + 1.3, FL + 2.36, -636.43, -634.77, '#6b4428'); for (const [k, zc] of [[0, -636.05], [1, -635.15]]) { B(paint, 8.235, 8.24, FL + 1.35, FL + 2.31, zc - 0.4, zc + 0.4, '#f7f6ef'); signQuad(SC, 8.242, FL + 1.83, zc, 0.78, 0.78, '+x', T.fare(k)); }
     clockFace(8.27, FL + 2.45, -633, '+x', 0.21, { depth: 0.07, case: '#f0f0ec', rim: '#d8d8d4' });
     B(paint, 17.55, 17.78, FL + 1.6, FL + 2.0, -633, -632.6, '#2b2b2b'); B(emis, 12.4, 13.6, FL + 3.15, FL + 3.18, -634.5, -634.44, [1, 0.98, 0.92]);
     B(glass, A.win[0], A.win[1], FL + 1.0, FL + 2.3, ZB - 0.21, ZB - 0.19, '#9fb8c0'); for (const x of [A.win[0], (A.win[0] + A.win[1]) / 2, A.win[1]]) B(paint, x - 0.04, x + 0.04, FL + 1.0, FL + 2.3, ZB - 0.25, ZB - 0.15, '#e8e4d8');
