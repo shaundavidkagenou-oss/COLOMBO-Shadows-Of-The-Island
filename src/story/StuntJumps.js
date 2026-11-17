@@ -19,7 +19,9 @@ const _t = new THREE.Vector3(), _c = new THREE.Vector3();
 export class StuntJumps {
   constructor(game) { this.g = game; this.active = null; this.qp = null; this.blips = false; }
   get state() { const st = this.g.story.state; if (!st.stunts) st.stunts = {}; return st.stunts; }
-  addBlips() { if (this.blips) return; this.blips = true; const H = this.g.hud; for (const s of STUNTS) { const r = s.ramp; H.addBlip('stunt_' + s.id, r.x + r.dx * r.len / 2, r.z + r.dz * r.len / 2, s.kind === 'car' ? 'stunt' : 'bmx', (s.kind === 'car' ? 'Stunt jump · ' : 'Bicycle ramp · ') + s.name); } }
+  // 58th: stunt jumps and bicycle ramps are NOT shown on the map / radar / satellite view ("unwanted to show up in the map") —
+  // they are found by driving the city, and any blips an older build added are taken off
+  addBlips() { if (this.blips) return; this.blips = true; const H = this.g.hud; for (const s of STUNTS) if (H.removeBlip) H.removeBlip('stunt_' + s.id); }
   fits(s, v) { return s.kind === 'car' ? v.T.entry !== 'bike' && v.T.entry !== 'tuk' : v.T.entry === 'bike'; } // car jumps: cars / vans / SUVs; bicycle ramps: bicycles and motorbikes
   update(dt) {
     const g = this.g, P = g.player; if (!this.blips && g.hud && g.mode === 'play') this.addBlips();
