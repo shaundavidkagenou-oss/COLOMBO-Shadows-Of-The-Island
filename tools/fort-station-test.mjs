@@ -121,9 +121,12 @@ ok(subs.some(([w]) => w === 'Station announcement'), 'without a recording the an
 { const calls = []; const orig = SoundBank.play.bind(SoundBank); SoundBank.play = (id, k, pan, when, o = {}) => { calls.push({ id, k, when, ...o }); return true; };
   Audio.listener = { x: 12, z: -634, yaw: 0 }; player.x = 12; player.z = -634; origAnn(4); const inRoom = calls.splice(0);
   ok(inRoom.length === 1 && inRoom[0].key === 'pa.direct' && !inRoom[0].lp && !inRoom[0].hp, 'in the announcer\'s room: her voice directly, clean');
-  Audio.listener = { x: -40, z: -620, yaw: 0 }; player.x = -40; player.z = -620; origAnn(4); const out = calls.splice(0);
-  ok(out.length >= 2 && out.every((c) => c.hp > 0 && c.lp > 0 && c.lp <= 5200 && c.id === 'station.announce4'), `on the platform: through ${out.length} PA speakers (horn-speaker band)`);
-  ok(out.every((c, i) => i === 0 || c.when >= out[0].when - 1e-6), 'the farther speakers arrive later (distance delay)');
+  // 57th: one copy from the nearest horn speaker (several delayed copies of one voice combed into a garbled, phasey sound),
+  // and never two announcements over each other
+  S.annBusy = 0; Audio.listener = { x: -40, z: -620, yaw: 0 }; player.x = -40; player.z = -620; origAnn(4); const out = calls.splice(0);
+  ok(out.length === 1 && out.every((c) => c.hp > 0 && c.lp > 0 && c.lp <= 6500 && c.id === 'station.announce4'), `on the platform: one clean copy from the nearest PA speaker, horn-speaker band (${out.length})`);
+  origAnn(5); const over = calls.splice(0); ok(over.length === 0 && S.annQueue && S.annQueue.slot === 5, 'an announcement during another one waits for it (no overlap)');
+  S.annQueue = null; S.annBusy = 0;
   SoundBank.play = orig; player.x = -35; player.z = -575; Audio.listener = null; }
 // the player standing on platform 1 looking towards the hall and the street: people still come in off the street (the front
 // wall hides the entrances), vendors spawned out of sight never hold up the arrivals, nobody appears in front of the camera
