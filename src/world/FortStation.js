@@ -140,6 +140,13 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
     if (o.sides !== undefined) sides = o.sides;
     b.box((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, dx, dy, dz, { col: cc(col), uvScale: o.uv || 3, bottom, top, sides }); };
   const XC = new THREE.CylinderGeometry(1, 1, 1, 18); const xcyl = (b, xa, xb2, y, z, r, col) => b.geometry(XC, new THREE.Matrix4().makeRotationZ(Math.PI / 2).premultiply(new THREE.Matrix4().makeScale(Math.abs(xb2 - xa), r, r)).setPosition((xa + xb2) / 2, y, z), col); // round bar along x
+  // 57th: a ceiling-mounted twin-tube fluorescent batten (white enamel body, end caps, two round glowing tubes under it) —
+  // the old fittings were a single flat emissive strip that read as a line drawn on the ceiling. ax: 'x' | 'z' (tube direction)
+  const TUBE = new THREE.CylinderGeometry(1, 1, 1, 8, 1, true);
+  const batten = (cx, yc, cz, len, ax = 'x') => { const X = ax === 'x', hl = len / 2 + 0.05, hw = 0.085, BODY = '#ecebe6';
+    const bx = (a0, a1, w0, w1, y0, y1, col) => B(paint, X ? cx + a0 : cx + w0, X ? cx + a1 : cx + w1, y0, y1, X ? cz + w0 : cz + a0, X ? cz + w1 : cz + a1, col);
+    bx(-hl, hl, -hw, hw, yc - 0.055, yc, BODY); for (const e of [-1, 1]) bx(e > 0 ? hl - 0.035 : -hl, e > 0 ? hl : -hl + 0.035, -hw + 0.01, hw - 0.01, yc - 0.1, yc - 0.055, '#d9d8d2'); // body + lamp-holder end caps
+    for (const o of [-0.042, 0.042]) { const m = new THREE.Matrix4().makeScale(0.0135, len, 0.0135); m.premultiply(new THREE.Matrix4().makeRotationZ(X ? Math.PI / 2 : 0)); if (!X) m.premultiply(new THREE.Matrix4().makeRotationX(Math.PI / 2)); m.setPosition(X ? cx : cx + o, yc - 0.078, X ? cz + o : cz); emis.geometry(TUBE, m, [1, 0.98, 0.94]); } };
   const coll = (x0, x1, z0, z1, h, extra = {}) => colliders.push({ x0, x1, z0, z1, h, kind: 'landmark', ...extra });
   const surf = (x0, x1, z0, z1, h, kind = 'platform', extra = {}) => colliders.push({ x0, x1, z0, z1, h, kind, ...extra });
   const up = (b, x0, x1, z0, z1, y, col) => b.quad([x0, y, z1], [x1, y, z1], [x1, y, z0], [x0, y, z0], [x0 / 3, z0 / 3, x1 / 3, z1 / 3], cc(col)); // upward rectangle
@@ -230,7 +237,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
     const rooms = [[X0 + 0.4, -91], [-91, -82], [-82, -73], [-73, -64.2], [8.2, 18.2, -638.2], [18.2, 24], [24, X1 - 0.4]]; /* the tube at each room centre (xm) is a lamp of OFFICE_ROWS */
     for (const xp of [-91, -82, -73, 24]) B(wallM, xp - 0.1, xp + 0.1, FL, OC + 0.15, ZF + 0.3, ZB - 0.3, '#e6e1d2'); /* through the ceiling and into the outer walls: no shadow-map seam */
     rooms.forEach(([x0, x1, zb = ZB - 0.4], i) => { const xm = (x0 + x1) / 2, w = x1 - x0, zd = ZF + 1.6;
-      B(emis, xm - 0.6, xm + 0.6, OC - 0.05, OC - 0.02, (ZF + zb) / 2 - 0.04, (ZF + zb) / 2 + 0.04, [1, 0.97, 0.9]); B(paint, xm - 0.65, xm + 0.65, OC - 0.06, OC - 0.05, (ZF + zb) / 2 - 0.07, (ZF + zb) / 2 + 0.07, '#d8d8d4'); // tube + batten
+      batten(xm, OC, (ZF + zb) / 2, 1.2); // twin-tube batten
       const dx = xm + (i % 2 ? -1 : 1) * Math.min(1.2, w * 0.2); B(paint, dx - 0.7, dx + 0.7, FL + 0.72, FL + 0.76, zd - 0.4, zd + 0.4, '#6b4a2c'); for (const [lx, lz] of [[-0.64, -0.34], [0.64, -0.34], [-0.64, 0.34], [0.64, 0.34]]) B(paint, dx + lx - 0.025, dx + lx + 0.025, FL, FL + 0.72, zd + lz - 0.025, zd + lz + 0.025, '#4a3420'); // office desk
       B(paint, dx - 0.9, dx - 0.82, FL + 0.76, FL + 1.06, zd + 0.1, zd + 0.3, '#2c2f33'); // a box file on the desk
       const zf0 = ZF + 0.4, xa0 = x0 + (i === 4 ? 0 : 0.1), xa1 = x1 - 0.1, DADO = '#a3bba9'; // government-office oil-paint dado (pale green to 1.2 m, dark green line)
@@ -352,7 +359,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
     B(paint, -63.8, -63.5, FL + 1.1, FL + 2.3, z - 0.7, z + 0.7, '#6b4a2c'); for (let r = 0; r < 6; r++) B(paint, -63.52, -63.48, FL + 1.12 + r * 0.2, FL + 1.14 + r * 0.2, z - 0.68, z + 0.68, '#3e2a18'); for (let c = 0; c < 8; c++) B(paint, -63.52, -63.48, FL + 1.1, FL + 2.3, z - 0.68 + c * 0.19, z - 0.66 + c * 0.19, '#3e2a18');
     for (let r = 0; r < 6; r++) for (let c = 0; c < 7; c++) if ((r * 7 + c * 3 + i) % 4) B(paint, -63.5, -63.49, FL + 1.15 + r * 0.2, FL + 1.27 + r * 0.2, z - 0.63 + c * 0.19, z - 0.53 + c * 0.19, ['#d9c25a', '#c8d8e8', '#e8b0b0', '#b8d8b0'][(r + c + i) % 4]);
   });
-  for (let z = ZF + 2; z < ZB - 1; z += 4) B(emis, -62.2, -61.9, FL + 3.36, FL + 3.4, z - 0.6, z + 0.6, [1, 0.98, 0.92]);
+  for (let z = ZF + 2; z < ZB - 1; z += 4) batten(-62.05, FL + 3.4, z, 1.2, 'z');
   // fare boards high on the counter wall + the trilingual TICKETS board, queue rails
   signQuad(SC, -59.96, FL + 4.6, -644.2, 2.6, 2.6, '+x', T.fare(0)); signQuad(SC, -59.96, FL + 4.6, -635.4, 2.6, 2.6, '+x', T.fare(1)); signQuad(SC, -59.96, FL + 4.6, -639.8, 1.6, 1.6, '+x', T.tickets);
   for (let k = 0; k <= 8; k++) { const z = k === 0 ? F.windows[0].z - 1.1 : F.windows[k - 1].z + 1.1; if (z < ZF + 0.6 || z > ZB - 0.6) continue; const xa = -59.6, xb = -55.6;
@@ -417,7 +424,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   kiosk(-14.5, -11.2, -636.2, -632.2, 0, -1); kiosk(-14.5, -11.2, -648.6, -645.6, 1, 1);
   // ceiling fans + tube lights, hanging LCD screens, the hall clock, the red LED clock on the counter wall, wayfinding
   for (const x of [-52, -35, -18]) for (const z of [-645, -636]) { metal.cylinder(x, F.hall.ceil - 0.6, z, 0.015, 0.015, 0.6, 6, { col: cc('#ddd') }); paint.cylinder(x, F.hall.ceil - 0.72, z, 0.13, 0.13, 0.14, 10, { col: cc('#e8e8e0') }); for (let k = 0; k < 3; k++) { const a = k * 2.094 + x; ebox(paint, x + Math.cos(a) * 0.45, F.hall.ceil - 0.68, z + Math.sin(a) * 0.45, 0.72, 0.012, 0.13, 0, -a, 0, cc('#e9e7df')); } }
-  for (let x = -57; x < -12; x += 5) for (const z of [-648, -641, -633]) { B(emis, x - 0.6, x + 0.6, F.hall.ceil - 0.05, F.hall.ceil - 0.01, z - 0.03, z + 0.03, [1, 0.98, 0.92]); if ((x + z) % 2 === 0) lightPool(x, z, FL + 0.012, 4); }
+  for (let x = -57; x < -12; x += 5) for (const z of [-648, -641, -633]) { batten(x, F.hall.ceil, z, 1.2); } /* 57th: no painted light-pool decals — the tubes light the hall through the interior light (diffuse + glossy reflection) */
   lcdScreen(-35, FL + 3.9, -637.0, '-z', 0, F.hall.ceil); lcdScreen(-35, FL + 3.9, -636.8, '+z', 1, F.hall.ceil); lcdScreen(-40, FL + 3.9, -645.5, '+x', 0, F.hall.ceil); // live departure / arrival screens (section 8)
   clockFace(-10.29, FL + 4.2, -637, '-x', 0.42, { depth: 0.09 });
   for (const x of F.backArches) signQuad(SD, x, FL + 3.25, ZB - 0.43, 2.4, 0.6, '+z', T.sign(2)); signQuad(SD, -35, FL + 3.25, ZF + 0.43, 2.4, 0.6, '+z', T.sign(3));
@@ -435,7 +442,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
     B(paint, 7.55, 7.78, FL + 3.0, FL + 3.32, -645.5, -644.4, '#f0f0ec'); for (let k = 0; k < 5; k++) B(paint, 7.53, 7.55, FL + 3.04 + k * 0.05, FL + 3.06 + k * 0.05, -645.45, -644.45, '#bbb');
     clockFace(7.73, FL + 2.8, -640.2, '-x', 0.27, { depth: 0.07, case: '#f0f0ec', rim: '#d8d8d4' });
     for (const z of [-645, -636]) { metal.cylinder(-1, FL + 3.8, z, 0.015, 0.015, 0.4, 6, { col: cc('#ddd') }); paint.cylinder(-1, FL + 3.7, z, 0.12, 0.12, 0.12, 10, { col: cc('#e8e8e0') }); for (let k = 0; k < 3; k++) { const a = k * 2.094 + z; ebox(paint, -1 + Math.cos(a) * 0.42, FL + 3.74, z + Math.sin(a) * 0.42, 0.66, 0.012, 0.12, 0, -a, 0, cc('#e9e7df')); } }
-    for (const z of [-647, -640, -633]) B(emis, -5.6, -4.4, FL + 4.12, FL + 4.16, z - 0.03, z + 0.03, [1, 0.98, 0.92]);
+    for (const z of [-647, -640, -633]) batten(-5, FL + 4.17, z, 1.2);
     for (let k = 0; k < 6; k++) rod(metal, -5.8 + k * 0.7, FL + 1.2, ZB - 0.45, -5.8 + k * 0.7, FL + 2.6, ZB - 0.45, 0.012, cc('#2a2a2a')); B(wglass, -6, -2, FL + 1.2, FL + 2.6, ZB - 0.21, ZB - 0.19, '#000');
     for (const z of [-646.5, -642.5]) { bench(-8.6, -5.4, z, 1); coll(-8.6, -5.4, z - 0.25, z + 0.3, FL + 0.48); }
   }
@@ -603,7 +610,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
       const top = [], bot = []; for (let i = 0; i <= n; i++) { const z = za + ((zb - za) * i) / n; top.push([z, arcY(z, za, zb, rise)]); bot.push([z, arcY(z, za, zb, rise - 1.0) - (i === 0 || i === n ? 0 : 0.0)]); }
       for (let i = 0; i < n; i++) { beam(metal, x, top[i][1], top[i][0], x, top[i + 1][1], top[i + 1][0], 0.12, 0.22, cc(IRON)); beam(metal, x, bot[i][1], bot[i][0], x, bot[i + 1][1], bot[i + 1][0], 0.1, 0.14, cc(IRON)); const a = i % 2 ? top : bot, b = i % 2 ? bot : top; beam(metal, x, a[i][1], a[i][0], x, b[i + 1][1], b[i + 1][0], 0.06, 0.06, cc(IRON)); if (i) beam(metal, x, bot[i][1], bot[i][0], x, top[i][1], top[i][0], 0.05, 0.05, cc(IRON)); }
       // pendant lamps under the truss + platform numbers / LCD boards on alternate frames
-      for (const zl of [za + (zb - za) * 0.25, za + (zb - za) * 0.75]) { const yb = arcY(zl, za, zb, rise - 1.0); const yl = FL + 4.4; if (yl > yb - 0.2) continue; metal.cylinder(x, yl, zl, 0.008, 0.008, yb - yl, 4, { col: cc('#444') }); paint.cylinder(x, yl - 0.18, zl, 0.3, 0.07, 0.2, 10, { col: cc('#2d4a3c'), caps: false }); B(emis, x - 0.14, x + 0.14, yl - 0.2, yl - 0.17, zl - 0.14, zl + 0.14, [1, 0.95, 0.85]); if (onPlat(zl)) lightPool(x, zl, FL + 0.012, 6); }
+      for (const zl of [za + (zb - za) * 0.25, za + (zb - za) * 0.75]) { const yb = arcY(zl, za, zb, rise - 1.0); const yl = FL + 4.4; if (yl > yb - 0.2) continue; metal.cylinder(x, yl, zl, 0.008, 0.008, yb - yl, 4, { col: cc('#444') }); paint.cylinder(x, yl - 0.18, zl, 0.3, 0.07, 0.2, 10, { col: cc('#2d4a3c'), caps: false }); B(emis, x - 0.14, x + 0.14, yl - 0.2, yl - 0.17, zl - 0.14, zl + 0.14, [1, 0.95, 0.85]); }
     }
   }
   // purlins + corrugated roof with the glazed ridge clerestory, gutters, the gable valances
@@ -620,7 +627,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   // 55th: the platform-number signs hang from the truss's bottom chord on two rods with clamps and eye bolts, in a steel
   // frame; they live in their own mesh (section 8) so they can sway — a slow breeze, and a real swing when a bullet hits
   for (let k = 1; k < S.frames; k += 2) { const x = S.x0 + 2 + k * S.dx;
-    for (const [z, nums] of [[-621.5, [0]], [-606, [1, 2]], [-594, [3, 4]]]) hangSigns.push({ x, y: FL + 3.7, z, top: arcY(z, z < S.zM ? S.zA : S.zM, z < S.zM ? S.zM : S.zB, S.rise - 1.0), a: nums[0], b: nums[nums.length - 1] }); }
+    for (const [z, nums] of [[-621.5, [0]], [-608.6, [1]], [-603.4, [2]], [-594, [3, 4]]]) /* 57th: the island-1 sign hung on the column line (z = zM) — inside the pillars; now one sign over each of its two platform edges, clear of the columns and brackets */ hangSigns.push({ x, y: FL + 3.7, z, top: arcY(z, z < S.zM ? S.zA : S.zM, z < S.zM ? S.zM : S.zB, S.rise - 1.0), a: nums[0], b: nums[nums.length - 1] }); }
   for (const [x, z, f, k] of [[-43.9, -623.5, '+x', 0], [-44.1, -623.5, '-x', 1], [8.1, -606.8, '+x', 0], [7.9, -606.8, '-x', 1]]) lcdScreen(x, FL + 3.8, z, f, k, arcY(z, z < S.zM ? S.zA : S.zM, z < S.zM ? S.zM : S.zB, S.rise - 1.0));
   clockFace(-27.5, FL + 4.6, ZB + 0.1, '+z', 0.5, { depth: 0.1 });
   { // the island platform's double-faced clock: a drum on a cast-iron bracket arm off the column (55th: it used to sit
@@ -692,7 +699,7 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   { const S = F.shed, hc = F.hall.ceil;
     const shedRows = [S.zA, S.zM].flatMap((za, i) => { const zb = i ? S.zB : S.zM; return [za + (zb - za) * 0.25, za + (zb - za) * 0.75]; }).map((zl) => ({ start: S.x0 + 2, step: S.dx, n: S.frames, y: FL + 4.2, at: zl, axis: 'x', I: 5.5, R: 9, clip: [S.x0 - 4, S.zA, S.x1 + 4, S.zB] }));
     setInterior({
-      zones: [{ x0: X0, z0: ZF, x1: X1, z1: ZB, top: hc + 0.2, base: 0.16, edge: 0.34, soft: 4 }, { x0: S.x0 - 0.6, z0: S.zA, x1: S.x1 + 0.6, z1: S.zB + 0.6, top: S.eave + S.rise + 1.2, roofY: S.eave - 0.3, base: 0.42, edge: 0.75, soft: 7 },
+      zones: [{ x0: X0, z0: ZF, x1: X1, z1: ZB, top: hc + 0.2, base: 0.16, edge: 0.34, soft: 4, solid: true }, { x0: S.x0 - 0.6, z0: S.zA, x1: S.x1 + 0.6, z1: S.zB + 0.6, top: S.eave + S.rise + 1.2, roofY: S.eave - 0.3, base: 0.42, edge: 0.75, soft: 7 },
         { x0: X0 - 0.3, z0: ZF - 2.0, x1: X1 + 0.3, z1: ZF, top: FL + 3.68, base: 0.62, edge: 0.8, soft: 0.6 }],
       portals: [...F.entrances.map((e) => ({ x: e.x, z: ZF + 0.2, y: FL, r: e.w * 0.85, s: 0.55 })), ...F.backArches.map((x) => ({ x, z: ZB - 0.2, y: FL, r: 4.2, s: 0.7 })), { x: F.res.portalX, z: ZF + 0.2, y: FL, r: 2.6, s: 0.5 }, { x: (F.ann.win[0] + F.ann.win[1]) / 2, z: ZB - 0.2, y: FL + 1.0, r: 2.4, s: 0.45 }, { x: F.ann.door.x, z: ZB - 0.2, y: FL, r: 1.5, s: 0.35 }],
       rows: [{ start: -57, step: 5, n: 9, y: hc - 0.05, at: -648, axis: 'x', I: 5, R: 9, clip: [-60, ZF + 0.4, -10.2, ZB - 0.4] }, { start: -57, step: 5, n: 9, y: hc - 0.05, at: -641, axis: 'x', I: 5, R: 9, clip: [-60, ZF + 0.4, -10.2, ZB - 0.4] }, { start: -57, step: 5, n: 9, y: hc - 0.05, at: -633, axis: 'x', I: 5, R: 9, clip: [-60, ZF + 0.4, -10.2, ZB - 0.4] },
@@ -707,7 +714,18 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
       const p = new THREE.Mesh(new THREE.PlaneGeometry(s.w, s.h), mat); p.position.set(s.x + n[0] * 0.002, s.y, s.z + n[2] * 0.002); p.rotation.y = Math.atan2(n[0], n[2]); group.add(p); anim.ledMeshes.push(p); } }
 
   { const c = document.createElement('canvas'); c.width = 512; c.height = 512; const t = tex(c); t.anisotropy = 8; t.generateMipmaps = true;
-    const mat = new THREE.MeshBasicMaterial({ map: t, color: 0xdedede, toneMapped: false }); const g = LB.build(); if (g) { const m = new THREE.Mesh(g, mat); m.name = 'fort-lcd'; m.matrixAutoUpdate = false; m.updateMatrix(); group.add(m); }
+    // 57th: a real backlit LCD — full panel brightness (was dimmed to ~73 %), bright text / figures pushed just past white so the
+    // bloom gives them the soft glow of a lit display, a faint RGB pixel structure up close (fades out before it can shimmer)
+    const mat = new THREE.MeshBasicMaterial({ map: t, color: 0xffffff, toneMapped: false });
+    mat.onBeforeCompile = (sh) => { sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+{ float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114)); diffuseColor.rgb *= 1.0 + 0.32 * smoothstep(0.42, 0.85, lum);
+#ifdef USE_MAP
+  vec2 px = vMapUv * vec2(1024.0, 512.0); float fw = max(fwidth(px.x), fwidth(px.y)); float near = 1.0 - smoothstep(0.25, 0.6, fw);
+  float sub = fract(px.x * 1.5); vec3 rgb = vec3(step(sub, 0.333), step(0.333, sub) * step(sub, 0.666), step(0.666, sub)); float gap = step(0.86, fract(px.y));
+  diffuseColor.rgb *= mix(vec3(1.0), (0.55 + 0.9 * rgb) * (1.0 - 0.45 * gap), 0.35 * near);
+#endif
+} `); };
+    mat.customProgramCacheKey = () => 'fort-lcd-2'; const g = LB.build(); if (g) { const m = new THREE.Mesh(g, mat); m.name = 'fort-lcd'; m.matrixAutoUpdate = false; m.updateMatrix(); group.add(m); }
     anim.lcd = { c, x: c.getContext('2d'), t, last: -1e9, tick: 0 }; drawBoards(anim.lcd, [], 12, 0); }
   // anim.live(trains, hour, gameMinutesPerSecond, px, pz): redraws the screens twice a second while the player is near the station
   anim.live = (trains, hour, mps, px, pz) => { const L = anim.lcd; if (!L || !trains || !trains.forecast) return; const now = performance.now(); if (now - L.last < 500) return;
@@ -745,7 +763,7 @@ const TICKER = 'Please stand behind the yellow line  ·  කරුණාකර �
 function drawBoards(L, calls, hour, mps) {
   const x = L.x, nowM = hour * 60, blink = L.tick % 2 === 0;
   const font = (w, px, fam = '"Barlow Condensed", "Noto Sans", sans-serif') => `${w} ${px}px ${fam}`;
-  const T = (s, cx, cy, f, col, al = 'left', maxW) => { x.font = f; x.fillStyle = col; x.textAlign = al; x.textBaseline = 'middle'; x.fillText(s, cx, cy, maxW); };
+  const T = (s, cx, cy, f, col, al = 'left', maxW) => { x.font = f; x.fillStyle = col; x.textAlign = al; x.textBaseline = 'middle'; x.shadowColor = col; x.shadowBlur = 3; x.fillText(s, cx, cy, maxW); x.shadowBlur = 0; }; // lit pixels bleed a little light (57th)
   for (const [oy, arr] of [[0, false], [256, true]]) {
     // backplate + header
     x.fillStyle = '#040a18'; x.fillRect(0, oy, 512, 256);

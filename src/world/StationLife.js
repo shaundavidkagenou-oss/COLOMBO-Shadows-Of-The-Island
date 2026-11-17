@@ -413,11 +413,15 @@ export class StationLife {
     const P = this.player; if (!P) return false; const def = ANNOUNCE[slot - 1]; const dest = (train && train.destination && train.destination.name) || 'Maradana';
     const id = `station.announce${slot}`; const inRoom = inAnnouncerRoom(P.x, P.z); const nearStation = Math.hypot(P.x - CX, P.z - CZ) < 140;
     if (!nearStation) return false;
+    // 57th: never two announcements over each other (approach + arrival + a general one could collide): wait for the current one
+    if (this.t < (this.annBusy || 0)) { this.annQueue = { slot, train }; return false; }
     let played = false, dur = 6;
     if (inRoom) { played = SB.play(id, 1.0, 0, 0, { key: 'pa.direct' }); dur = SB.lastDur || dur; } // in her room: her own voice, clean
     else { // through the PA: the nearest horn speakers, each from its own place (distance gain + delay + the horn's band)
-      const sp = F.speakers.map((s) => ({ s, d: Math.hypot(s.x - P.x, s.z - P.z) })).sort((a, b) => a.d - b.d).slice(0, 3);
-      sp.forEach(({ s, d }, i) => { if (d > 95) return; const a = Audio.at(s.x, s.z, 16); const g = a.g * (i ? 0.7 : 1); if (g < 0.01) return; if (SB.play(id, g, a.pan, a.delay, { key: 'pa.' + i, lp: Math.min(a.lp || 20000, 5200), hp: 260 })) { played = true; dur = SB.lastDur || dur; } });
+      // 57th: ONE copy, from the nearest speaker. Three delayed copies of the same voice (each speaker its own distance) combed
+      // and echoed into a garbled, phasey voice in the booking hall, where three speakers are 5–30 m away
+      const sp = F.speakers.map((s) => ({ s, d: Math.hypot(s.x - P.x, s.z - P.z) })).sort((a, b) => a.d - b.d).slice(0, 1);
+      sp.forEach(({ s, d }) => { if (d > 95) return; const a = Audio.at(s.x, s.z, 16); const g = Math.max(a.g, d < 40 ? 0.35 : 0); if (g < 0.01) return; if (SB.play(id, g, a.pan * 0.5, 0, { key: 'pa.0', lp: Math.min(a.lp || 20000, 6500), hp: 200 })) { played = true; dur = SB.lastDur || dur; } });
     }
     if (!played) { // no recording in the slot yet: the PA chime and the words on screen
       const near = inRoom || F.speakers.some((s) => Math.hypot(s.x - P.x, s.z - P.z) < 70);
@@ -425,7 +429,7 @@ export class StationLife {
         try { Audio.tone(659, 0.55, { vol: 0.12 * a.g, pan: a.pan }); Audio.tone(523, 0.8, { vol: 0.12 * a.g, pan: a.pan, when: 0.5 }); } catch { /* audio not running */ }
         this.g.hud?.subtitle(inRoom ? 'Announcer' : 'Station announcement', def.text(dest), '', 6.5); }
     }
-    this.announcer.speak(dur); this.lastAnn = this.t; this.stats.announcements++; return true;
+    this.announcer.speak(dur); this.lastAnn = this.t; this.annBusy = this.t + dur + 1.5; this.stats.announcements++; return true;
   }
   updateAnnouncements(dt, t) {
     const S = this.stop; if (!t || !S) return;
@@ -434,6 +438,7 @@ export class StationLife {
     if (this.atFort(t)) { if (!this.annFlags.arrived) { this.annFlags.arrived = true; this.annFlags.departing = false; this.announce(2, t); } if (t.dwell < 9 && !this.annFlags.departing) { this.annFlags.departing = true; this.announce(3, t); } }
     else this.annFlags.arrived = false;
     if ((this.annT -= dt) <= 0) { this.annT = 100 + this.rng.next() * 70; if (this.t - this.lastAnn > 25) this.announce(this.genNext = this.genNext === 4 ? 5 : 4); }
+    if (this.annQueue && this.t >= (this.annBusy || 0)) { const q = this.annQueue; this.annQueue = null; if (q.slot > 3 || !q.train || q.slot !== 1 || q.train.state === 'run') this.announce(q.slot, q.train); } // the one that had to wait
   }
   // ---- the player buying from a vendor (Game.updateInteractions)
   interact(P, key, pressed) {

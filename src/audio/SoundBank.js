@@ -37,6 +37,7 @@ export const SOUND_DEFS = [
   { id: 'station.announce3', name: 'Fort station announcement 3 — train about to depart', cat: 'Station announcements', lvl: 0.85 }, { id: 'station.announce4', name: 'Fort station announcement 4 — general (e.g. unattended luggage)', cat: 'Station announcements', lvl: 0.85 },
   { id: 'station.announce5', name: 'Fort station announcement 5 — general (e.g. tickets / information)', cat: 'Station announcements', lvl: 0.85 }, // 54th: the announcer's voice — heard directly in her room, through the PA speakers everywhere else (world/StationLife.js)
   { id: 'train.horn', name: 'Train horn', cat: 'Trains', lvl: 0.5 }, { id: 'train.bell', name: 'Level-crossing bell', cat: 'Trains', lvl: 0.3 }, { id: 'train.clack', name: 'Wheels over rail joints', cat: 'Trains', lvl: 0.3 },
+  { id: 'train.run', name: 'Train moving — running sound (loop; follows the speed)', cat: 'Trains', kind: 'loop', lvl: 0.6 }, // 57th: a continuous running sound (a recording longer than ~1.5 s in "Wheels over rail joints" is played this way too)
   { id: 'amb.city', name: 'City traffic hum (loop)', cat: 'Ambience', kind: 'loop', lvl: 0.6 }, { id: 'amb.rain', name: 'Rain (loop)', cat: 'Ambience', kind: 'loop', lvl: 0.6 }, { id: 'amb.sea', name: 'Sea waves (loop)', cat: 'Ambience', kind: 'loop', lvl: 0.6 },
   { id: 'amb.wind', name: 'Wind (loop)', cat: 'Ambience', kind: 'loop', lvl: 0.6 }, { id: 'thunder', name: 'Thunder', cat: 'Ambience', lvl: 0.8 }, { id: 'bird.crow', name: 'House crow', cat: 'Ambience', lvl: 0.25 },
   { id: 'bird.song', name: 'Songbird', cat: 'Ambience', lvl: 0.12 }, { id: 'cricket', name: 'Crickets (night)', cat: 'Ambience', lvl: 0.1 }, { id: 'fire', name: 'Fire crackling', cat: 'Ambience', lvl: 0.4 },
@@ -46,6 +47,8 @@ export const SOUND_DEFS = [
   { id: 'ui.success', name: 'Success', cat: 'Interface', lvl: 0.3 }, { id: 'ui.fail', name: 'Failure', cat: 'Interface', lvl: 0.3 }, { id: 'ui.collect', name: 'Pick-up', cat: 'Interface', lvl: 0.3 }, { id: 'ui.door', name: 'Door (building)', cat: 'Interface', lvl: 0.3 }, { id: 'ui.camera', name: 'Camera shutter', cat: 'Interface', lvl: 0.3 },
   ...[['explore', 'Free roam (day)'], ['night', 'Free roam (night)'], ['tension', 'Wanted'], ['chase', 'Police chase'], ['menu', 'Main menu'], ['intro', 'Intro'], ['radio1', 'Car radio — station 1'], ['radio2', 'Car radio — station 2'], ['club', 'Night club PA']]
     .map(([m, n]) => ({ id: 'music.' + m, name: 'Music — ' + n + ' (loop)', cat: 'Music', kind: 'loop', lvl: 0.7 })),
+  // 57th: background music while the pause map is open — two slots; which one plays is picked in the sounds window (Music)
+  { id: 'music.map1', name: 'Music — Map screen, track 1 (loop)', cat: 'Music', kind: 'loop', lvl: 0.7 }, { id: 'music.map2', name: 'Music — Map screen, track 2 (loop)', cat: 'Music', kind: 'loop', lvl: 0.7 },
 ];
 // variations (52nd): a few sounds that repeat a lot get three more slots. Every filled slot of the sound (its own recording and
 // any variation) is used, in a shuffled order that never repeats the last one; empty variations simply aren't used, so with

@@ -230,6 +230,17 @@ class AudioEngine {
     });
     this.turbo(want.find((v) => v && v.player && v.tune && v.tune.turbo) || null, st);
   }
+  // 57th: the pause map — the world's sound drops to a murmur (sfx / ambience / voices ducked) and, when the player has given
+  // the chosen map track a recording (sounds window → Music), that track plays in the background; closing the map restores both
+  mapScreen(open) {
+    if (open) { const pick = Settings.get('mapMusic') || 'track1'; let id = null;
+      if (pick === 'alternate') { this.mapAlt = ((this.mapAlt ?? 1) + 1) % 2; id = 'map' + (this.mapAlt + 1); if (!SB.has('music.' + id)) id = 'map' + (2 - this.mapAlt); }
+      else if (pick === 'track1' || pick === 'track2') id = 'map' + pick.slice(-1);
+      this.mapPrev = this.musicMode; if (id && SB.has('music.' + id)) this.setMusic(id); }
+    else if (this.mapPrev !== undefined) { if (/^map[12]$/.test(this.musicMode)) this.setMusic(this.mapPrev); this.mapPrev = undefined; }
+    if (!this.ctx) return; const t = this.ctx.currentTime;
+    for (const k of ['sfx', 'amb', 'dlg']) { const g = this.bus[k].gain; g.cancelScheduledValues(t); const v = Settings.get(k === 'amb' ? 'ambience' : k === 'dlg' ? 'dialogue' : 'sfx'); g.setTargetAtTime(open ? v * 0.12 : v, t, 0.15); }
+  }
   // ---- generative original score
   setMusic(mode) { if (mode === this.musicMode) return; this.musicMode = mode; if (this.musicRec && this.musicRec.smp) this.musicRec.fade = true; this.step = 0; if (this.ctx) this.nextNote = this.ctx.currentTime + 0.1; }
   updateMusic(dt, st) {

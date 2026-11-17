@@ -163,6 +163,15 @@ class Train {
     this.place();
     // sound: diesel rumble + wheel clacks near the listener
     const c = R.sampleAt(this.centre); const [g] = Audio.spatial(c.x, c.z, 90);
+    // 57th: the player's running sound — "Train moving" (train.run), or a long recording put in "Wheels over rail joints" — plays
+    // as one continuous loop (gain and pitch follow the speed) instead of being restarted every car length (which cut it to ~1 s)
+    const runId = SoundBank.has('train.run') ? 'train.run' : SoundBank.duration('train.clack') > 1.5 ? 'train.clack' : null;
+    if (runId && g > 0.01 && Audio.ctx && Audio.live) { const c2 = Audio.ctx, now = c2.currentTime; let S = this.runSnd;
+      if (!S) { const gn = c2.createGain(); gn.gain.value = 0; const pan = c2.createStereoPanner(); gn.connect(pan); pan.connect(Audio.bus.sfx); S = this.runSnd = { gn, pan }; }
+      const [, pp] = Audio.spatial(c.x, c.z, 90); const k = Math.min(1, this.speed / 5); S.gn.gain.setTargetAtTime(g * k, now, 0.25); S.pan.pan.setTargetAtTime(pp, now, 0.2);
+      const smp = SoundBank.syncLoop(S, runId, S.gn); if (smp && smp.src) smp.src.playbackRate.setTargetAtTime(0.75 + 0.35 * Math.min(1, this.speed / VMAX), now, 0.3); }
+    else if (this.runSnd && this.runSnd.smp) { this.runSnd.gn.gain.setTargetAtTime(0, Audio.ctx.currentTime, 0.2); if (g <= 0.01 || !runId) SoundBank.stopLoop(this.runSnd); }
+    if (runId) return; // the recording replaces the synthesised rumble and clacks
     this.rumbleT -= dt; if (g > 0.03 && this.rumbleT <= 0) { this.rumbleT = 0.35; Audio.noise(0.45, { f: 90 + this.speed * 6, q: 0.6, type: 'lowpass', vol: g * (0.08 + this.speed * 0.012) }); }
     if (this.speed > 2) { this.clackT -= dt * this.speed; if (this.clackT <= 0) { this.clackT = CAR_LEN + CAR_GAP; if (g > 0.05 && !SoundBank.play('train.clack', g)) for (const w of [0, 0.11]) Audio.noise(0.04, { f: 2200, q: 2, vol: g * 0.08, when: w }); } }
   }

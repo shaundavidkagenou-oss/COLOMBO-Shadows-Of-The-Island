@@ -6,6 +6,7 @@
 import { Win, h, btn, beginSession, toast } from '../debug/ui.js';
 import { SOUND_DEFS, SOUND_BY_ID, SOUND_EXT, SoundBank } from '../audio/SoundBank.js';
 import { Audio } from '../audio/Audio.js';
+import { Settings } from '../core/Settings.js';
 import { WEAPONS, POLICE_T56 } from '../combat/WeaponDefs.js';
 
 const CSS = `
@@ -161,11 +162,17 @@ export async function open(game) {
     return h('div', { cls: 'snd-row' + (d.varOf ? ' var' : '') }, play, h('div', { cls: 'nm' }, d.name, h('small', {}, d.id + (d.kind === 'loop' ? ' · loop' : '') + (d.vars ? ' · + 3 variation slots below — they play in turn: this → 1 → 2 → 3 → this …' : d.varOf ? ' · empty = the original plays in its turn' : ''))), h('div', { cls: 'st ' + st.cls, title: st.txt }, st.txt),
       h('span', { style: { display: 'flex', gap: '4px' } }, btn('Choose file…', () => choose(d.id), { title: '.mp3 / .wav / .ogg' }), orig), vol, reset);
   }
+  // 57th: which of the two map-screen tracks plays when the pause map opens (applies at once, kept in the settings)
+  function mapPick() {
+    const sel = h('select', {}, [['track1', 'Track 1'], ['track2', 'Track 2'], ['alternate', 'Alternate (1, 2, 1 … each time the map opens)'], ['off', 'Off (no map music)']].map(([v, t]) => h('option', { value: v }, t)));
+    sel.value = Settings.get('mapMusic') || 'track1'; sel.addEventListener('change', () => { Settings.set('mapMusic', sel.value); toast('Map music: ' + sel.options[sel.selectedIndex].text, 2200); });
+    return h('div', { cls: 'snd-row', style: { gridTemplateColumns: 'auto 1fr' } }, h('div', { cls: 'nm' }, 'Map screen music', h('small', {}, 'plays while the pause map is open (the game sounds go quiet); give the tracks below a recording')), sel);
+  }
   function render() {
     const q = search.value.trim().toLowerCase(), cat = catSel.value; const top = list.scrollTop; list.textContent = ''; let last = null, shown = 0;
     for (const d of DEFS) {
       if (cat && d.cat !== cat) continue; if (q && !(d.name.toLowerCase().includes(q) || d.id.includes(q))) continue; if (onlyCus.checked && !SoundBank.info(d.id) && !pend.has(d.id)) continue;
-      if (d.cat !== last) { last = d.cat; list.append(h('div', { cls: 'snd-cat' }, d.cat)); } list.append(row(d)); shown++;
+      if (d.cat !== last) { last = d.cat; list.append(h('div', { cls: 'snd-cat' }, d.cat)); } if (d.id === 'music.map1') list.append(mapPick()); list.append(row(d)); shown++;
     }
     if (!shown) list.append(h('div', { style: { padding: '14px', color: '#7f8a98' } }, 'No sounds match.'));
     list.scrollTop = top; const nCus = DEFS.filter((d) => SoundBank.info(d.id)).length;

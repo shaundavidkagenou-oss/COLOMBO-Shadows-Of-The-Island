@@ -396,7 +396,7 @@ export class Game {
     else if (r.action === 'menu') { this.autosave(); sessionStorage.setItem('colombo.next', JSON.stringify({ action: 'menu' })); location.reload(); }
     else { this.ignoreUnlock = true; Input.requestLock(this.canvas); setTimeout(() => (this.ignoreUnlock = false), 300); }
   }
-  toggleMap(v) { const open = this.hud.toggleBigMap(v, this.player.x, this.player.z); this.hud.bigMapOpen = open; this.ignoreUnlock = true; if (open) Input.releaseLock(); else Input.requestLock(this.canvas); setTimeout(() => (this.ignoreUnlock = false), 300); this.player.control = !open && !this.photo; }
+  toggleMap(v) { const open = this.hud.toggleBigMap(v, this.player.x, this.player.z); this.hud.bigMapOpen = open; if (open !== this.mapAudio) { this.mapAudio = open; Audio.mapScreen(open); if (!open) this.musicT = 0; } /* 57th: map music + ducked world */ this.ignoreUnlock = true; if (open) Input.releaseLock(); else Input.requestLock(this.canvas); setTimeout(() => (this.ignoreUnlock = false), 300); this.player.control = !open && !this.photo; }
   togglePhoto(v) {
     const P = this.player; this.photo = v ?? !this.photo; this.hud.photoUI.classList.toggle('hidden', !this.photo); this.hud.root.classList.toggle('hidden', this.photo);
     if (this.photo) { if (P.vehicle) { this.photo = false; this.hud.photoUI.classList.add('hidden'); this.hud.root.classList.remove('hidden'); this.hud.notify('Phone camera', 'Step out of the vehicle first.'); return; } P.control = false; P.ch.anim.set('photo'); this.photoYaw = P.camYaw + Math.PI; this.photoPitch = 0; P.cinematic = true; Input.requestLock(this.canvas); }
@@ -430,7 +430,7 @@ export class Game {
   frameStep(dt) {
     try {
       const mapOpen = this.mode === 'play' && this.hud.bigMapOpen; // the pause map freezes the world (and the hidden 3D view is not drawn)
-      if (mapOpen) { if (Input.wasPressed('map')) this.toggleMap(false); }
+      if (mapOpen) { if (Input.wasPressed('map')) this.toggleMap(false); Audio.updateMusic(dt, {}); } // the map's music keeps playing while the world is frozen
       else if (this.mode === 'play' && this.editorHook) this.editorHook(dt); // a debug editor (src/debug, loaded only when typed) has the frame: the world is frozen, still drawn
       else if (this.mode === 'play' && !this.paused) this.updatePlay(dt * (this.timeSlow || 1)); // weapon wheel / squad selector slow time
       else if (this.mode === 'menu' || this.mode === 'intro') this.updateAmbient(dt);
