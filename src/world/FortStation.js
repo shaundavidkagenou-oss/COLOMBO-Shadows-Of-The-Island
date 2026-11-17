@@ -487,11 +487,17 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
     // two printed fare / timetable sheets in a timber frame on the west wall (they were blue stripes)
     B(paint, 8.21, 8.235, FL + 1.3, FL + 2.36, -636.43, -634.77, '#6b4428'); for (const [k, zc] of [[0, -636.05], [1, -635.15]]) { B(paint, 8.235, 8.24, FL + 1.35, FL + 2.31, zc - 0.4, zc + 0.4, '#f7f6ef'); signQuad(SC, 8.242, FL + 1.83, zc, 0.78, 0.78, '+x', T.fare(k)); }
     clockFace(8.27, FL + 2.45, -633, '+x', 0.21, { depth: 0.07, case: '#f0f0ec', rim: '#d8d8d4' });
-    B(paint, 17.55, 17.78, FL + 1.6, FL + 2.0, -633, -632.6, '#2b2b2b'); B(emis, 12.4, 13.6, FL + 3.15, FL + 3.18, -634.5, -634.44, [1, 0.98, 0.92]);
+    { const sx = 17.78, sz = -632.8, sy = FL + 2.35; B(metal, sx - 0.02, sx, sy - 0.04, sy + 0.04, sz - 0.03, sz + 0.03, '#555'); rod(metal, sx - 0.02, sy, sz, sx - 0.12, sy - 0.04, sz, 0.008, cc('#555')); ebox(paint, sx - 0.2, sy - 0.12, sz, 0.18, 0.28, 0.18, 0, 0, 0.35, cc('#2b2b2b')); ebox(paint, sx - 0.292, sy - 0.15, sz, 0.008, 0.24, 0.15, 0, 0, 0.35, cc('#1a1a1a')); } // wall PA monitor speaker on its bracket, tilted down at the desk B(paint, 12.3, 13.7, FL + 3.12, FL + 3.2, -634.56, -634.38, '#f0f0ec'); B(emis, 12.38, 13.62, FL + 3.115, FL + 3.12, -634.52, -634.42, [1, 0.98, 0.92]); // batten fitting + its tube
     B(glass, A.win[0], A.win[1], FL + 1.0, FL + 2.3, ZB - 0.21, ZB - 0.19, '#9fb8c0'); for (const x of [A.win[0], (A.win[0] + A.win[1]) / 2, A.win[1]]) B(paint, x - 0.04, x + 0.04, FL + 1.0, FL + 2.3, ZB - 0.25, ZB - 0.15, '#e8e4d8');
     signQuad(SC, (A.win[0] + A.win[1]) / 2, FL + 2.85, ZB + 0.03, 1.8, 0.9, '+z', T.announce);
     B(paint, A.door.x - 0.55, A.door.x - 0.5, FL, FL + 2.2, ZB - 0.4, ZB, '#5a3a22'); B(paint, A.door.x + 0.5, A.door.x + 0.55, FL, FL + 2.2, ZB - 0.4, ZB, '#5a3a22');
-    const dg = new THREE.BoxGeometry(0.04, 2.1, 1.0); paint.geometry(dg, new THREE.Matrix4().makeRotationY(-1.1).setPosition(A.door.x - 0.55 + Math.cos(1.1) * 0.5, FL + 1.05, ZB - 0.4 - Math.sin(1.1) * 0.5), cc('#6b4428')); dg.dispose(); // the door stands open, swung into the room
+    { // the door stands open, swung 63° into the room — 55th: hung on its hinges (the leaf used to stand off the frame: its
+      // rotation did not match its offset), with two raised panels a side, lever handles and three butt hinges
+      const ph = 1.1, hx = A.door.x - 0.5, hz = ZB - 0.4, dx = Math.cos(ph), dz = -Math.sin(ph), th = Math.atan2(dx, dz), nx = Math.cos(th), nz = -Math.sin(th);
+      const at = (u, v) => [hx + dx * u + nx * v, hz + dz * u + nz * v]; const [cx, cz] = at(0.5, 0); ebox(paint, cx, FL + 1.05, cz, 0.04, 2.1, 0.98, 0, th, 0, cc('#6b4428'));
+      for (const sd of [-1, 1]) { for (const [py, ph2] of [[FL + 1.5, 0.8], [FL + 0.5, 0.7]]) { const [px, pz] = at(0.5, sd * 0.022); ebox(paint, px, py, pz, 0.006, ph2, 0.68, 0, th, 0, cc('#5a3a22')); }
+        const [lx, lz] = at(0.88, sd * 0.03); ebox(metal, lx, FL + 1.0, lz, 0.02, 0.15, 0.04, 0, th, 0, cc('#bfc3c2')); const [gx, gz] = at(0.8, sd * 0.055); ebox(metal, gx, FL + 1.0, gz, 0.02, 0.02, 0.12, 0, th, 0, cc('#bfc3c2')); }
+      for (const hy of [FL + 0.25, FL + 1.05, FL + 1.85]) { const [bx3, bz3] = at(0.0, 0); metal.cylinder(bx3, hy - 0.05, bz3, 0.008, 0.008, 0.1, 6, { col: cc('#b08d57') }); } }
   }
 
   // ================================================================ 5. platforms, sidings, stabled trains
