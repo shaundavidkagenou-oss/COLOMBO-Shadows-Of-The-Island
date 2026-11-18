@@ -507,6 +507,9 @@ export function buildBankInterior(game, site) {
       game.hud.subtitle(open ? 'Bank officer' : B.name, open ? 'Good day! Cash withdrawals and deposits are quickest at our ATMs by the entrance — no queue, and they update your account at once.' : i === 3 ? 'Counter 4 is closed today. Please use counters 1 to 3 or the ATMs.' : 'The counters are closed after banking hours. The ATMs are open 24 hours.', '', 4); }
   };
   room.atmPose = (m) => ({ local: { x: m.stand[0], z: m.stand[1], yaw: -Math.PI / 2 } });
+  // freed by WalkIn when the player is far away: staff and the customers still in the pool (customers handed to the street crowd
+  // left the pool and belong to the crowd now), the ATM screen textures; the room tone is stopped outright
+  room.dispose = () => { BankSound.stopNow(); for (const p of [...stand.tellers, stand.recep, stand.mgr, stand.sup, stand.guard]) if (p && p.ch && p.ch.dispose) p.ch.dispose(); for (const c of pool) if (c.ch && c.ch.dispose) c.ch.dispose(); pool.length = 0; for (const m of atms) if (m.screen && m.screen.tex) m.screen.tex.dispose(); };
   room.reseed();
   return room;
 }

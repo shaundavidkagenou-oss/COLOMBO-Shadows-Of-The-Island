@@ -162,7 +162,8 @@ export class WalkIn {
     pr(1); return rooms.length;
   }
   freeRoom(s, force = false) {
-    const r = s.room; if (!r || (r.keep && !force)) return; if (r.keep) s.rebuild = true; // a resident room that was used up (robbed / keeper down) is rebuilt fresh while the player is far away if (r.onExit && r.inside) r.onExit(); if (r.keeper && r.keeper.dispose) r.keeper.dispose();
+    const r = s.room; if (!r || (r.keep && !force)) return; if (r.keep) s.rebuild = true; /* a resident room that was used up (robbed / keeper down) is rebuilt fresh while the player is far away */
+    if (r.onExit && (r.inside || this.g.player.indoor === r.proxy)) r.onExit(); if (r.keeper && r.keeper.dispose) r.keeper.dispose(); if (r.dispose) r.dispose(); // (67th: these two were swallowed by the comment above)
     const kit = new Set(); r.og.traverse((o) => { if (o.isMesh && !o.isSkinnedMesh && o.geometry) { o.geometry.dispose(); const m = o.material; if (m && m.userData && m.userData.own) kit.add(m); } });
     for (const m of kit) m.dispose(); // (maps are cached canvas textures — kept)
     r.og.parent && r.og.parent.remove(r.og); s.room = null;

@@ -64,7 +64,7 @@ export const BLIP_STYLE = {
   side: { col: '#5ac8a8', cat: 'activities', name: 'Side activity' }, shop: { col: '#9ad06a', cat: 'services', name: 'Shop / service' },
   stamp: { col: '#d8a0ff', cat: 'collect', name: 'Heritage stamp' }, photo: { col: '#7ab8ff', cat: 'collect', name: 'Photo spot' },
   enemy: { col: '#ff4a3a', cat: 'missions', name: 'Target' }, waypoint: { col: '#33d4c0', cat: 'missions', name: 'Waypoint' },
-  landmark: { col: '#e8a33a', cat: 'landmarks', name: 'Landmark' }, police: { col: '#5b8cff', cat: 'services', name: 'Police' },
+  landmark: { col: '#e8a33a', cat: 'landmarks', name: 'Landmark' }, police: { col: '#5b8cff', cat: 'services', name: 'Police' }, bank: { col: '#cdb57a', cat: 'services', name: 'Bank / ATM' }, // 67th: Ceylon Meridian Bank
   hospital: { col: '#ff5a5a', cat: 'services', name: 'Hospital' }, station: { col: '#d9c7a0', cat: 'transit', name: 'Railway station' },
   worship: { col: '#f2d27a', cat: 'landmarks', name: 'Place of worship' }, school: { col: '#9fd3a8', cat: 'landmarks', name: 'School' }, home: { col: '#7fd6ff', cat: 'services', name: 'Safehouse' },
   pickup: { col: '#ffd34a', cat: 'missions', name: 'Friend waiting for a lift' },
@@ -91,6 +91,7 @@ export function drawIcon(g, kind, x, y, r = 9) {
     case 'pickup': g.arc(0, -2.4 * k, 2.3 * k, 0, 7); g.fill(); g.beginPath(); g.moveTo(-4.4 * k, 5 * k); g.quadraticCurveTo(-4.2 * k, 0.6 * k, 0, 0.6 * k); g.quadraticCurveTo(4.2 * k, 0.6 * k, 4.4 * k, 5 * k); g.closePath(); g.fill(); break;
     case 'waypoint': g.moveTo(-3 * k, 5 * k); g.lineTo(-3 * k, -5 * k); g.stroke(); g.beginPath(); g.moveTo(-3 * k, -5 * k); g.lineTo(5 * k, -2.5 * k); g.lineTo(-3 * k, 0); g.closePath(); g.fill(); break;
     case 'landmark': g.arc(0, -1.2 * k, 3.2 * k, 0, 7); g.fill(); g.beginPath(); g.moveTo(-2.6 * k, 0); g.lineTo(0, 5 * k); g.lineTo(2.6 * k, 0); g.fill(); break;
+    case 'bank': g.moveTo(-5 * k, -2 * k); g.lineTo(0, -5 * k); g.lineTo(5 * k, -2 * k); g.closePath(); g.fill(); for (let i = 0; i < 4; i++) g.fillRect((-4.2 + i * 2.4) * k, -1.2 * k, 1.2 * k, 4.6 * k); g.fillRect(-5 * k, 3.6 * k, 10 * k, 1.4 * k); break; // pediment over four columns
     case 'police': g.moveTo(0, -5 * k); g.lineTo(4.5 * k, -3 * k); g.lineTo(3.5 * k, 2 * k); g.lineTo(0, 5 * k); g.lineTo(-3.5 * k, 2 * k); g.lineTo(-4.5 * k, -3 * k); g.closePath(); g.fill(); break;
     case 'school': g.moveTo(-5.5 * k, -1 * k); g.lineTo(0, -4.5 * k); g.lineTo(5.5 * k, -1 * k); g.lineTo(0, 2.5 * k); g.closePath(); g.fill(); g.beginPath(); g.moveTo(-3 * k, 0.6 * k); g.lineTo(-3 * k, 3.6 * k); g.quadraticCurveTo(0, 5.6 * k, 3 * k, 3.6 * k); g.lineTo(3 * k, 0.6 * k); g.lineTo(0, 2.5 * k); g.closePath(); g.fill(); break; /* mortarboard */
     case 'hospital': g.rect(-1.5 * k, -5 * k, 3 * k, 10 * k); g.rect(-5 * k, -1.5 * k, 10 * k, 3 * k); g.fill(); break;

@@ -59,6 +59,8 @@ export class ATMUI {
     this.room = null; this.atm = null; this.req = null; this.page = 'welcome'; this.entry = ''; // nothing of the screen state survives
   }
 
+  // nothing of the screen survives a load / new game: closed, back to the card-read page, no pending request
+  reset() { if (this.open) this.close(true); this.page = 'welcome'; this.sel = 0; this.entry = ''; this.req = null; this.result = null; this.msg = null; this.busyT = 0; this.after = null; }
   // ---- pages: { title, lines, opts: [{ label, act, key }] , entry? }
   view() {
     const B = this.bank, a = B.account, cash = this.g.story.state.money, p = this.page; const L = (label, act, key) => ({ label, act, key });
