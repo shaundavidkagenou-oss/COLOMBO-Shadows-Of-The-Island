@@ -67,8 +67,8 @@ export async function applySavedMap(P = plan, packMap = null) { let E = null; tr
 export async function saveMap() {
   MAP.edits.saved = new Date().toISOString(); const doc = JSON.parse(JSON.stringify(MAP.edits)); await storeSet('map', doc); const E = MAP.edits; setSavedFlag('map', Object.keys(E.mods).length + E.added.length > 0);
   let baked = false; // into the project folder → built into the game / .exe (dev server only)
-  if (import.meta.env && import.meta.env.DEV) { const MP = await import('./ModelPack.js'); const m = await MP.loadPack(); m.map = doc; await MP.savePack(); baked = true; }
-  return { baked };
+  let err = null; if (import.meta.env && import.meta.env.DEV) try { const MP = await import('./ModelPack.js'); const m = await MP.loadPack(); m.map = doc; await MP.savePack(); baked = true; } catch (e) { err = (e && e.message) || String(e); console.warn('[model pack] not written', e); }
+  return { baked, err };
 }
 
 // ---- placed primitives (boxes, cylinders, ramps … with colour / painted texture), built after the world

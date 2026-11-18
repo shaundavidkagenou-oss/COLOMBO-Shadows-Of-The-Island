@@ -93,8 +93,8 @@ export const BONE_LIST = ['hipPos', ...BONES.filter((b) => !b.startsWith('skirt'
 
 export async function saveAnims() {
   await storeSet('anims', JSON.parse(JSON.stringify(ANIM.clips))); setSavedFlag('anim', Object.keys(ANIM.clips).length > 0); const at = new Date().toISOString(); try { localStorage.setItem('colombo.editor.animAt', at); } catch { /* private */ }
-  let baked = false; if (import.meta.env && import.meta.env.DEV) { const MP = await import('./ModelPack.js'); const m = await MP.loadPack(); m.anims = Object.assign(m.anims || {}, { clips: JSON.parse(JSON.stringify(ANIM.clips)), saved: at }); await MP.savePack(); baked = true; }
-  return { baked };
+  let baked = false; let err = null; if (import.meta.env && import.meta.env.DEV) try { const MP = await import('./ModelPack.js'); const m = await MP.loadPack(); m.anims = Object.assign(m.anims || {}, { clips: JSON.parse(JSON.stringify(ANIM.clips)), saved: at }); await MP.savePack(); baked = true; } catch (e) { err = (e && e.message) || String(e); console.warn('[model pack] not written', e); }
+  return { baked, err };
 }
 export async function loadSavedAnims() { const c = await storeGet('anims'); if (c && typeof c === 'object') ANIM.clips = c; install(); return ANIM.clips; }
 // 68th: the pack's copy (built into the game): its target sets always; its global clips when newer than this browser's

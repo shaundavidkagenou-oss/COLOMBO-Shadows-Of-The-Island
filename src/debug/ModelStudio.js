@@ -25,7 +25,7 @@ import { VTYPES, createVehicleMesh } from '../vehicles/VehicleModels.js';
 import { setVehicleLOD } from '../vehicles/Vehicle.js';
 import { displayName } from '../vehicles/VehicleCatalog.js';
 import { FUEL_BRANDS } from '../world/Layout.js';
-import { buildDmuCar, buildClassicCoach, makeTrainMaterials, protoMeshes } from '../vehicles/TrainModels.js';
+import { buildDmuCar, makeTrainMaterials, protoMeshes } from '../vehicles/TrainModels.js';
 import { buildHeliModel } from '../vehicles/HeliModel.js';
 import { BOATS } from '../boats/BoatCatalog.js';
 import { Character, HEROES, randomSpec } from '../actors/Character.js';
@@ -36,7 +36,6 @@ import { Input } from '../core/Input.js';
 
 const MODES = [['weapons', 'Weapons'], ['player', 'Player (3 heroes)'], ['vehicles', 'Vehicles'], ['npc', 'NPCs']];
 const HERO_IDS = ['dineth', 'shashika', 'david'].filter((k) => HEROES[k]);
-const deg = (r) => +(r * 180 / Math.PI).toFixed(1);
 const clean = (o) => { for (const k of Object.keys(o)) if (o[k] == null || o[k] === '' || (typeof o[k] === 'object' && !Array.isArray(o[k]) && !Object.keys(o[k]).length)) delete o[k]; return o; };
 const vName = (k, T) => { try { if (T.make) return displayName(k, T); } catch { /* bike brands */ } return T.make && T.model ? T.make[0].toUpperCase() + T.make.slice(1) + ' ' + T.model : T.label || T.name || k; };
 const isMesh = (o) => o.isMesh || o.isSkinnedMesh;

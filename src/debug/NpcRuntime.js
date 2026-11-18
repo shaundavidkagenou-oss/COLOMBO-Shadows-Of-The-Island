@@ -35,8 +35,8 @@ export function addToCrowd(game) {
 }
 export async function saveNpcs(game) {
   const list = NPCS.list.map(({ fabricMat, ...e }) => { void fabricMat; return e; }); await storeSet('npcs', list); setSavedFlag('npc', NPCS.list.length > 0); addToCrowd(game); const at = new Date().toISOString(); try { localStorage.setItem('colombo.editor.npcAt', at); } catch { /* private */ }
-  let baked = false; if (import.meta.env && import.meta.env.DEV) { const MP = await import('./ModelPack.js'); const m = await MP.loadPack(); m.npcs = Object.assign(m.npcs || { rules: [] }, { list: JSON.parse(JSON.stringify(list)), saved: at }); await MP.savePack(); baked = true; } // 68th: built into the game
-  return { baked };
+  let baked = false; let err = null; if (import.meta.env && import.meta.env.DEV) try { const MP = await import('./ModelPack.js'); const m = await MP.loadPack(); m.npcs = Object.assign(m.npcs || { rules: [] }, { list: JSON.parse(JSON.stringify(list)), saved: at }); await MP.savePack(); baked = true; } catch (e) { err = (e && e.message) || String(e); console.warn('[model pack] not written', e); } // 68th: built into the game
+  return { baked, err };
 }
 // 68th: the pack's custom NPCs (built into the game) when newer than this browser's
 export function adoptPack(N, game) {

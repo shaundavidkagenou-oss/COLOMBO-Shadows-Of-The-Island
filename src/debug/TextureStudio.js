@@ -15,6 +15,7 @@ import * as THREE from 'three';
 import * as RT from './TexRuntime.js';
 import { writeZip, readZip } from './TexPack.js';
 import { storeGet, storeSet } from './boot.js';
+import { openTextureMaker } from './TextureMaker.js';
 import { Win, h, btn, num, color, check, select, text, section, beginSession, toast, download, pickFile } from './ui.js';
 import { plan } from '../world/CityPlan.js';
 import { MultiBuilder, tagOfFace } from '../gfx/MeshBuilder.js';
@@ -236,6 +237,13 @@ class Studio {
     const mt = b && b.props.metalness != null ? b.props.metalness : m.metalness; if (mt >= 0.5 && r.props.metalness == null) { r.props.metalness = 0.3; did.push('metalness ' + mt.toFixed(2) + ' → 0.30'); }
     const ro = b && b.props.roughness != null ? b.props.roughness : m.roughness; if (did.length && ro < 0.5 && r.props.roughness == null) { r.props.roughness = 0.55; did.push('roughness → 0.55'); }
     return did.length ? 'Texture shown as-is: ' + did.join(', ') + ' (Material settings — change back any time)' : '';
+  }
+  // 68th: the texture maker → the library (+ this slot)
+  makeTexture(apply, base = null) {
+    const size = base ? Math.min(512, Math.max(64, 2 ** Math.round(Math.log2(base.width || 256)))) : 256;
+    openTextureMaker({ name: base ? 'painted texture' : 'new texture', base, size, onSave: async (file, { name }) => {
+      try { const r = await RT.importFile(file, { category: this.guessCategory(), name }); this.libSel = r.hash; if (apply && this.m) await this.assign(r.hash); else this.renderRight(); toast(apply && this.m ? 'Texture created and applied' : 'Texture added to the library'); } catch (e) { toast(e.message || String(e), 4000); }
+    } });
   }
   async replaceFromFile(slot = this.slot) {
     if (!this.m) return; const files = await this.pickFiles(false); if (!files.length) return;
@@ -518,6 +526,8 @@ class Studio {
     this.drawPreviews();
     const bar = h('div', { cls: 'ts-bar' }, btn('Replace from file…', () => this.replaceFromFile(), { title: 'PNG, JPG, WEBP, GIF, AVIF, BMP, KTX2 or DDS — copied into the library, then applied' }),
       this.libSel ? btn('Use selected library texture', () => this.assign(this.libSel), { title: 'Assign the texture selected in the library below' }) : null,
+      btn('Create new…', () => this.makeTexture(true), { title: '68th: draw / generate a new seamless texture (layers, patterns, brush) — saved into the library and applied to this slot' }),
+      (orig && orig.image && orig.image.width) ? btn('Paint over…', () => this.makeTexture(true, orig.image), { title: 'Open the current original texture in the texture maker and paint / layer over it (the original stays untouched)' }) : null,
       orig || (sr && sr.tex) ? btn('Clear slot', () => this.slotEdit('clear slot', (s) => { s.clear = true; s.tex = null; }).then(() => { this.renderLeft(); this.renderRight(); }), { title: 'Remove the texture from this slot (the material uses its plain settings)' }) : null,
       sr ? btn('Restore slot', () => this.edit('restore slot', (x) => { delete x.slots[this.slot]; }).then(() => { this.renderLeft(); this.renderRight(); }), { cls: 'warn' }) : null);
     sec.b.append(bar);
@@ -563,7 +573,7 @@ class Studio {
     const sec = this.libSec; if (!sec || !sec.isConnected) return; sec.b.replaceChildren(); const T = RT.S.manifest.textures;
     const q = h('input', { type: 'text', value: this.libQ, placeholder: 'Search name / tag / format…', style: { flex: 1 } }); q.addEventListener('input', () => { this.libQ = q.value; this.fillGrid(grid); });
     const cat = h('select', {}, ['All', ...RT.CATEGORIES].map((c) => { const o = h('option', { value: c }, c); if (c === this.libCat) o.selected = true; return o; })); cat.addEventListener('change', () => { this.libCat = cat.value; this.fillGrid(grid); });
-    sec.b.append(h('div', { cls: 'ts-row' }, q, cat), h('div', { cls: 'ts-bar' }, btn('Import images…', () => this.importMany(), { title: 'Add files to the library (stored in ' + (RT.S.backend ? RT.S.backend.label : '?') + ')' }), h('span', { cls: 'ed-hint' }, Object.keys(T).length + ' texture(s)')));
+    sec.b.append(h('div', { cls: 'ts-row' }, q, cat), h('div', { cls: 'ts-bar' }, btn('Import images…', () => this.importMany(), { title: 'Add files to the library (stored in ' + (RT.S.backend ? RT.S.backend.label : '?') + ')' }), btn('Create texture…', () => this.makeTexture(false), { title: 'Make a new texture (generators, layers, brush) and add it to the library' }), h('span', { cls: 'ed-hint' }, Object.keys(T).length + ' texture(s)')));
     const grid = h('div', { cls: 'ts-grid' }); sec.b.append(grid); this.fillGrid(grid);
     this.libDetail = h('div'); sec.b.append(this.libDetail); this.renderLibDetail();
   }

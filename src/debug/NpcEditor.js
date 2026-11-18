@@ -121,7 +121,7 @@ class NpcEditor {
   }
   currentEntry(weight) { const id = this.entry?.id || 'c' + Date.now().toString(36); const col = this.ch.mesh.geometry.getAttribute('color');
     return { id, name: this.name || 'Custom NPC', weight, spec: { ...clone(this.spec), _custom: id }, bones: clone(this.bones), vpaint: this.painted || this.entry?.vpaint ? b64FromColors(col) : null, fabric: this.fabricCv ? this.fabricCv.toDataURL('image/png') : this.fabricURL || null }; }
-  async save(weight) { const e = this.currentEntry(weight); forgetMaterial(e.id); const i = NPCS.list.findIndex((x) => x.id === e.id); if (i >= 0) NPCS.list[i] = e; else NPCS.list.push(e); this.entry = e; await saveNpcs(this.g); this.fillLeft(); this.buildRight(); toast(`Saved “${e.name}” — it now spawns in the crowd`); }
+  async save(weight) { const e = this.currentEntry(weight); forgetMaterial(e.id); const i = NPCS.list.findIndex((x) => x.id === e.id); if (i >= 0) NPCS.list[i] = e; else NPCS.list.push(e); this.entry = e; const r = await saveNpcs(this.g); this.fillLeft(); this.buildRight(); toast(`Saved “${e.name}” — it now spawns in the crowd${r && r.baked ? ' · written into model-pack/ (built into the .exe)' : r && r.err ? ' · NOT written into model-pack/: ' + r.err : ''}`, 3500); }
   applyToWorld(peds) {
     if (!peds.length) { toast('Pick an NPC from the “near you” list first'); return; } const e = this.currentEntry(this.entry?.weight || 3); e.fabricMat = this.fabricMat ? this.fabricMat.clone() : null; if (e.fabricMat) e.fabricMat.map = this.fabricMat.map;
     let n = 0; for (const p of peds) { const sp = clone(e.spec); const ch = new Character(sp); applyCustom(ch, e); ch.root.position.copy(p.ch.root.position); ch.root.rotation.copy(p.ch.root.rotation);

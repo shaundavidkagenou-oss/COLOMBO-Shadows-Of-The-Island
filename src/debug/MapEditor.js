@@ -15,7 +15,8 @@ import { Forest } from '../world/Forest.js';
 import * as L from '../world/Layout.js';
 import { CHUNK } from '../world/CityPlan.js';
 import { checkObject, roadName } from '../world/PlacementCheck.js';
-import { MAP, KINDS, FIELDS, kindOf, assignIds, setFields, removeObj, createObj, saveMap, primMesh, placePrim, primCollider, PRIM_SHAPES, liveTexture, textureFor, setMatTexture, MAT_ORIG } from './MapRuntime.js';
+import { MAP, KINDS, FIELDS, kindOf, assignIds, setFields, removeObj, createObj, saveMap, primMesh, placePrim, primCollider, PRIM_SHAPES, liveTexture, textureFor, setMatTexture, MAT_ORIG, modelMesh, placeModel, setModelClip, modelCollider } from './MapRuntime.js';
+import { PACK, loadPack, markDirty, addAsset, pickFiles, ACCEPT_MODEL, fileURL } from './ModelPack.js';
 import { storeDel, storeSet, setSavedFlag } from './boot.js';
 import { Painter } from './Painter.js';
 import { Win, h, btn, num, color, check, select, text, section, propGrid, beginSession, toast, download, pickFile } from './ui.js';
@@ -23,9 +24,16 @@ import { Win, h, btn, num, color, check, select, text, section, propGrid, beginS
 let ed = null;
 export async function open(game) { if (ed) return ed; assignIds(plan); ed = new MapEditor(game); return ed; }
 const pick = (o, keys) => { const r = {}; for (const k of keys) if (o[k] !== undefined) r[k] = typeof o[k] === 'object' ? JSON.parse(JSON.stringify(o[k])) : o[k]; return r; };
-const LABEL = { b: 'Building', w: 'Wall', p: 'Prop', t: 'Tree', pl: 'Plant', prim: 'Object' };
+const LABEL = { b: 'Building', w: 'Wall', p: 'Prop', t: 'Tree', pl: 'Plant', prim: 'Object', model: 'Model' };
 const ctr = (o) => (o.x0 !== undefined ? [(o.x0 + o.x1) / 2, (o.z0 + o.z1) / 2] : [o.x, o.z]);
 let uidN = Date.now() % 1e7;
+// 68th: placed objects are primitives (k 'prim') or uploaded models (k 'model'); both live in world.editorPrims and are selected as 'prim'
+const isModel = (d) => d && d.k === 'model';
+const placeAny = (m, d) => (isModel(d) ? placeModel(m, d) : placePrim(m, d));
+const colliderOf = (m, d) => (isModel(d) ? (m ? modelCollider(m, d) : null) : primCollider(d));
+const makeMesh = async (d) => (isModel(d) ? modelMesh(d) : primMesh(d));
+// models share geometry / materials with the loaded file (other copies): only primitives own theirs
+const dropMesh = (m) => { if (!m) return; m.parent && m.parent.remove(m); if (m.userData.model) { const M = m.userData.model; if (M.action) M.action.stop(); return; } m.geometry && m.geometry.dispose(); m.material && m.material.dispose && m.material.dispose(); };
 
 class MapEditor {
   constructor(game) {
@@ -48,13 +56,15 @@ class MapEditor {
     const fillTypes = () => { typeSel.replaceChildren(select('Type', kinds[addK], addT, (v) => { addT = v; })); }; addT = kinds[addK][0]; fillTypes();
     const add = section('Add', true, select('Kind', Object.keys(kinds).map((k) => [k, LABEL[k]]), addK, (v) => { addK = v; addT = kinds[v][0]; fillTypes(); }), typeSel,
       btn('+ Place (click on the ground)', () => { this.place = { k: addK, type: addT }; toast('Click where it goes (right-click cancels)'); }));
+    // 68th: uploaded 3D models (with or without textures) — kept in model-pack/ and built into the game / .exe
+    this.modelSec = section('Models (upload & place)', true); this.fillModels();
     this.status = h('div', { cls: 'ed-hint' });
     const file = section('Save', true, h('div', { cls: 'ed-tabs' }, btn('Save map', () => this.save()), btn('Export', () => this.exportMap()), btn('Import', () => this.importMap())),
       h('div', { cls: 'ed-tabs' }, btn('Undo', () => this.doUndo()), btn('Revert to generated city…', () => this.revertAll(), { cls: 'warn' })), this.status);
     const tex = section('Textures', false, btn('Repaint a city texture (roads, walls, roofs …)', () => this.matWindow()));
     const view = section('View', false, num('Fly speed', this.speed, { min: 2, max: 200, step: 1 }, (v) => { this.speed = v; }), btn('Fly to player', () => { const P = this.g.player; this.pos.set(P.x, (P.y || 0) + 12, P.z + 14); this.pitch = -0.6; this.yaw = Math.PI; }),
       btn('Exit editor', () => this.main.close()));
-    this.main.body.append(hint, add, filt, tex, file, view); this.updateStatus();
+    this.main.body.append(hint, add, this.modelSec, filt, tex, file, view); this.updateStatus();
     this.insp = new Win('Inspector', { x: innerWidth - 372, y: 12, w: 360, h: Math.min(innerHeight - 24, 640) }); this.insp.body.append(h('div', { cls: 'ed-hint' }, 'Click something in the city to edit it.'));
     this.insp.onClose = () => { this.insp = null; };
   }
@@ -62,10 +72,10 @@ class MapEditor {
   inspect() {
     if (!this.insp || this.insp.closed) { this.insp = new Win('Inspector', { x: innerWidth - 372, y: 12, w: 360, h: Math.min(innerHeight - 24, 640) }); this.insp.onClose = () => { this.insp = null; }; }
     const B = this.insp.body; B.replaceChildren(); const s = this.sel; if (!s || !s.o) { this.sel = null; B.append(h('div', { cls: 'ed-hint' }, 'Nothing selected.')); return; }
-    const { k, o } = s; const name = k === 'prim' ? o.shape : o.style || o.type || 'wall';
-    B.append(h('div', { style: { fontWeight: 600, color: '#e0a030', marginBottom: '6px' } }, `${LABEL[k]} — ${name}  `, h('small', { style: { color: '#999' } }, k === 'prim' ? 'placed object' : o._eid)));
+    const { k, o } = s; const name = k === 'prim' ? (isModel(o) ? o.name || 'model' : o.shape) : o.style || o.type || 'wall';
+    B.append(h('div', { style: { fontWeight: 600, color: '#e0a030', marginBottom: '6px' } }, `${isModel(o) ? LABEL.model : LABEL[k]} — ${name}  `, h('small', { style: { color: '#999' } }, k === 'prim' ? 'placed object' : o._eid)));
     if (this.locked(s)) B.append(h('div', { cls: 'ed-hint', style: { color: '#f0a060' } }, 'Linked to a mission / shop / interior: it can be edited but not deleted. Its shopfront / interior follows after a reload.'));
-    if (k === 'prim') { B.append(this.primPanel(o)); }
+    if (k === 'prim') { B.append(isModel(o) ? this.modelPanel(o) : this.primPanel(o)); }
     else {
       const f = pick(o, FIELDS[k]); const opts = (key) => [...new Set(plan[KINDS[k][0]].map((x) => x[key]).filter((v) => typeof v === 'string'))].sort();
       const H = { style: { options: opts('style') }, roof: { options: opts('roof') }, front: { options: ['N', 'S', 'E', 'W'] }, type: { options: opts('type') }, floors: { min: 1, max: 40, step: 1 }, s: { min: 0.3, max: 3, step: 0.01 }, sy: { min: 0.5, max: 2, step: 0.01 }, sq: { min: 0.5, max: 2, step: 0.01 },
@@ -75,6 +85,34 @@ class MapEditor {
       B.append(propGrid(f, (p, v) => this.setSel({ [p.split('.')[0]]: f[p.split('.')[0]] ?? v }, true), H));
     }
     B.append(h('div', { cls: 'ed-tabs', style: { marginTop: '8px' } }, btn('Grab (G)', () => this.startGrab()), btn('Duplicate', () => this.duplicate()), btn('Focus (F)', () => this.focus()), btn('Delete', () => this.del(), { cls: 'warn' })));
+  }
+  async fillModels() {
+    const S = this.modelSec; const P = await loadPack().catch(() => null); S.b.replaceChildren(); if (!P) { S.b.append(h('div', { cls: 'ed-hint' }, 'model-pack/ is not available')); return; }
+    const lib = Object.entries(P.objects || {}); let pickId = this.modelPick && P.objects[this.modelPick] ? this.modelPick : lib[0] ? lib[0][0] : '';
+    S.b.append(h('div', { cls: 'ed-hint' }, 'GLB / GLTF (+ .bin + textures), FBX, OBJ + MTL + textures, DAE, STL, PLY, 3MF, USDZ — pick the model file together with its textures. Saved with the map into model-pack/ (built into the .exe).'),
+      btn('⬆ Upload a model…', () => this.uploadModel()),
+      lib.length ? select('Library', lib.map(([id, o]) => [id, o.name]), pickId, (v) => { pickId = v; this.modelPick = v; }) : h('div', { cls: 'ed-hint' }, 'No models uploaded yet.'),
+      lib.length ? btn('+ Place this model (click on the ground)', () => { if (!pickId) return; this.place = { k: 'model', type: pickId }; toast('Click where it goes (Shift+click places more, right-click cancels)'); }) : null);
+  }
+  async uploadModel() {
+    const fs = await pickFiles(ACCEPT_MODEL, true); if (!fs.length) return; try { toast('Uploading ' + fs.length + ' file(s)…'); await loadPack(); const a = await addAsset(fs, 'model'); const id = 'm' + a.main.slice(0, 12); PACK.m.objects[id] = { name: a.name, asset: { main: a.main, files: a.files }, added: new Date().toISOString() }; markDirty();
+      this.modelPick = id; await this.fillModels(); this.place = { k: 'model', type: id }; this.unsaved = true; this.updateStatus(); toast('Uploaded “' + a.name + '” — click on the ground to place it', 3000); } catch (e) { toast(e.message || String(e), 5000); }
+  }
+  modelPanel(d) {
+    const out = h('div'); const ch = (f) => this.setPrim(d, f, false, true); const m = this.meshOf(d); const clips = (m && m.userData.model && m.userData.model.clips) || [];
+    out.append(h('div', { cls: 'ed-hint' }, '📦 ' + (d.name || d.asset.main) + (m ? '' : ' (loading…)')));
+    for (const [k, lab] of [['x', 'X'], ['y', 'Height'], ['z', 'Z']]) out.append(num(lab, d[k], { min: d[k] - 50, max: d[k] + 50, step: 0.02 }, (v) => ch({ [k]: v })));
+    out.append(num('Size', d.s ?? 1, { min: 0.001, max: 100, step: 0.001 }, (v) => ch({ s: v })));
+    for (const [k, lab] of [['sx', 'Stretch X'], ['sy', 'Stretch Y'], ['sz', 'Stretch Z']]) out.append(num(lab, d[k] ?? 1, { min: 0.05, max: 10, step: 0.01 }, (v) => ch({ [k]: v })));
+    for (const [k, lab] of [['rx', 'Tilt X'], ['ry', 'Turn'], ['rz', 'Tilt Z']]) out.append(num(lab, d[k] || 0, { min: -Math.PI, max: Math.PI, step: 0.01 }, (v) => ch({ [k]: v })));
+    out.append(h('div', { cls: 'ed-tabs' }, btn('Size ×10', () => ch({ s: (d.s ?? 1) * 10 })), btn('÷10', () => ch({ s: (d.s ?? 1) / 10 })), btn('cm → m', () => ch({ s: (d.s ?? 1) / 100 })), btn('On the ground', () => ch({ y: L.groundY(d.x, d.z) }))),
+      check('Solid (collides)', !!d.solid, (v) => ch({ solid: v })), check('Casts shadow', d.shadow !== false, (v) => ch({ shadow: v ? undefined : false })), check('Stand on its lowest point', d.base !== false, (v) => ch({ base: v ? undefined : false })),
+      color('Tint (× its textures)', d.tint || '#ffffff', (v) => ch({ tint: v === '#ffffff' ? undefined : v })));
+    out.append(section('Animation (' + clips.length + ' clip' + (clips.length === 1 ? '' : 's') + ')', true, clips.length ? select('Play', [['', '— still —'], ...clips.map((c) => [c.name, c.name + ' (' + c.duration.toFixed(1) + ' s)'])], d.clip || '', (v) => ch({ clip: v || undefined })) : h('div', { cls: 'ed-hint' }, 'This file has no animation clips.'),
+      clips.length ? num('Speed', d.clipSpeed ?? 1, { min: 0, max: 4, step: 0.05 }, (v) => ch({ clipSpeed: v })) : null));
+    out.append(h('div', { cls: 'ed-tabs' }, btn('Replace file…', async () => { const fs = await pickFiles(ACCEPT_MODEL, true); if (!fs.length) return; try { const a = await addAsset(fs, 'model'); ch({ asset: { main: a.main, files: a.files }, name: a.name }); } catch (e) { toast(e.message, 5000); } }),
+      ...Object.entries(d.asset.files || {}).map(([orig, n]) => btn('⬇ ' + orig, () => { const a = h('a', { href: fileURL(n), download: orig }); document.body.append(a); a.click(); a.remove(); }))));
+    return out;
   }
   primPanel(d) {
     const out = h('div'); const ch = (f) => this.setPrim(d, f, false, true);
@@ -153,7 +191,8 @@ class MapEditor {
     for (let dz = -nx; dz <= nx; dz++) for (let dx = -nx; dx <= nx; dx++) { const c = chunkIndex(O.x + dx * CHUNK, O.z + dz * CHUNK); if (c >= 0) near.add(c); } void ci;
     for (const c of near) { const ch = plan.byChunk[c]; if (this.filter.b) for (const o of ch.buildings) test('b', o); if (this.filter.w) for (const o of ch.walls || []) test('w', o); if (this.filter.p) for (const o of ch.props) test('p', o); if (this.filter.t) for (const o of ch.trees) test('t', o); }
     if (this.filter.pl) for (const o of plan.plants || []) if (Math.abs(o.x - O.x) < 250 && Math.abs(o.z - O.z) < 250) test('pl', o);
-    if (this.filter.prim) { const hs = rc.intersectObjects(this.W.editorPrims.children, false); if (hs[0] && hs[0].distance < bt + 0.5) best = { k: 'prim', o: hs[0].object.userData.prim, mesh: hs[0].object }; }
+    if (this.filter.prim) { const hs = []; this.W.editorPrims.traverseVisible((o) => { if (!o.isMesh) return; try { o.raycast(rc, hs); } catch { /* unindexed geometry */ } }); hs.sort((a, b) => a.distance - b.distance); // models are groups: hit any of their meshes, select the placed object
+      for (const hh of hs) { let top = hh.object; while (top && top.parent !== this.W.editorPrims) top = top.parent; if (top && top.userData.prim && hh.distance < bt + 0.5) { best = { k: 'prim', o: top.userData.prim, mesh: top }; break; } } }
     return best;
   }
   click(e) {
@@ -183,16 +222,17 @@ class MapEditor {
     else if (s.k === 'b') { const F = ['N', 'E', 'S', 'W']; const i = F.indexOf(o.front); this.setSel({ front: F[(i + (dir > 0 ? 1 : 3)) % 4] }); }
     else if (s.k === 'w') { const cx = (o.x0 + o.x1) / 2, cz = (o.z0 + o.z1) / 2, hx = (o.x1 - o.x0) / 2, hz = (o.z1 - o.z0) / 2; this.setSel({ x0: cx - hz, x1: cx + hz, z0: cz - hx, z1: cz + hx }); } }
   scaleBy(dir) { const s = this.sel; if (!s) return; const o = s.o, f = dir > 0 ? 1.1 : 1 / 1.1;
-    if (s.k === 'prim') this.setPrim(o, { sx: (o.sx || 1) * f, sy: (o.sy || 1) * f, sz: (o.sz || 1) * f }); else if (s.k === 't' || s.k === 'pl') this.setSel({ s: Math.max(0.2, Math.min(4, (o.s || 1) * f)) });
+    if (s.k === 'prim') this.setPrim(o, isModel(o) ? { s: (o.s || 1) * f } : { sx: (o.sx || 1) * f, sy: (o.sy || 1) * f, sz: (o.sz || 1) * f }); else if (s.k === 't' || s.k === 'pl') this.setSel({ s: Math.max(0.2, Math.min(4, (o.s || 1) * f)) });
     else if (o.x0 !== undefined) { const g = dir * 0.5; this.setSel({ x0: o.x0 - g, x1: o.x1 + g, z0: o.z0 - g, z1: o.z1 + g }); } }
   raiseBy(dir, st) { const s = this.sel; if (!s) return; const o = s.o; if (s.k === 'prim') this.setPrim(o, { y: o.y + dir * st }); else if (s.k === 'b') this.setSel({ floors: Math.max(1, o.floors + dir) }); else if (s.k === 'w') this.setSel({ h: Math.max(0.3, (o.h || 2) + dir * 0.25) }); else if (s.k === 't') this.setSel({ sy: Math.max(0.5, Math.min(2, (o.sy || 1) + dir * 0.05)) }); }
   del() { const s = this.sel; if (!s) return; if (this.locked(s)) { toast('This building is linked to a mission / shop / interior — it can’t be deleted'); return; }
-    if (s.k === 'prim') { const d = s.o, i = MAP.edits.added.indexOf(d); MAP.edits.added.splice(i, 1); const m = this.meshOf(d); if (m) { this.W.editorPrims.remove(m); m.geometry.dispose(); m.material.dispose(); } this.W.collision.remove((c) => c.prim === d.uid); this.undo.push({ t: 'addPrim', d, undoDel: true }); }
+    if (s.k === 'prim') { const d = s.o, i = MAP.edits.added.indexOf(d); MAP.edits.added.splice(i, 1); dropMesh(this.meshOf(d)); this.W.collision.remove((c) => c.prim === d.uid); this.undo.push({ t: 'addPrim', d, undoDel: true }); }
     else { const o = s.o, k = s.k; const prev = this.snapEntry(o); const en = this.entryOf(o); const out = removeObj(plan, o); this.sync(out, k); if (en) MAP.edits.added.splice(MAP.edits.added.indexOf(en), 1); else MAP.edits.mods[o._eid] = { del: true }; this.undo.push({ t: 'del', o, k, out, prev, en }); }
     this.unsaved = true; this.updateStatus(); this.select(null); }
   placeAt(pl, p) {
     const uid = 'u' + (uidN++).toString(36); let d;
     if (pl.k === 'prim') { d = { uid, k: 'prim', shape: pl.type, x: p.x, y: p.y, z: p.z, sx: 2, sy: 2, sz: 2, ry: this.yaw, color: '#d8d2c4', solid: true }; return this.addPrim(d); }
+    if (pl.k === 'model') { const o = PACK.m && PACK.m.objects[pl.type]; if (!o) return toast('That model is not in the library'); d = { uid, k: 'model', name: o.name, asset: JSON.parse(JSON.stringify(o.asset)), x: p.x, y: p.y, z: p.z, ry: this.yaw + Math.PI, s: 1, solid: true }; return this.addPrim(d); }
     const tpl = (arr, f) => { const all = plan[arr].filter(f); let b = null, bd = Infinity; for (const o of all) { const [x, z] = ctr(o); const dd = (x - p.x) ** 2 + (z - p.z) ** 2; if (dd < bd) { bd = dd; b = o; } } return b; };
     const strip = (o) => { const c = JSON.parse(JSON.stringify(o, (k, v) => (k.startsWith('_') || k === 'col' || k === 'id' || k === 'h' || k === 'totalH' ? undefined : v))); return c; };
     if (pl.k === 'b') { const t = tpl('buildings', (b) => b.style === pl.type && !this.locked({ k: 'b', o: b })); if (!t) return toast('No template'); d = strip(t); const hx = Math.min(12, (t.x1 - t.x0) / 2), hz = Math.min(12, (t.z1 - t.z0) / 2); Object.assign(d, { x0: p.x - hx, x1: p.x + hx, z0: p.z - hz, z1: p.z + hz }); delete d.tower; }
@@ -200,14 +240,25 @@ class MapEditor {
     else { const arr = KINDS[pl.k][0]; const t = tpl(arr, (o) => o.type === pl.type); d = t ? strip(t) : { type: pl.type }; Object.assign(d, { x: p.x, z: p.z }); if (pl.k === 't' || pl.k === 'pl') d.yaw = Math.random() * 6.283; }
     d.uid = uid; d.k = pl.k; MAP.edits.added.push(d); const { obj, out } = createObj(plan, d); this.sync(out, pl.k); this.undo.push({ t: 'add', o: obj, k: pl.k, d, out }); this.unsaved = true; this.updateStatus(); this.select({ k: pl.k, o: obj }); this.roadWarn(obj, pl.k);
   }
-  addPrim(d) { if (!MAP.edits.added.includes(d)) MAP.edits.added.push(d); const m = primMesh(d); this.W.editorPrims.add(m); const c = primCollider(d); if (c) this.W.collision.add(c); this.undo.push({ t: 'addPrim', d }); this.unsaved = true; this.updateStatus(); this.select({ k: 'prim', o: d, mesh: m }); }
+  addPrim(d) { if (!MAP.edits.added.includes(d)) MAP.edits.added.push(d); this.undo.push({ t: 'addPrim', d }); this.unsaved = true; this.updateStatus(); this.select({ k: 'prim', o: d }); return this.spawn(d); }
+  // build + add a placed object's mesh (models load asynchronously) and its collider
+  async spawn(d) { let m; try { m = await makeMesh(d); } catch (e) { toast('Model not loaded: ' + (e.message || e), 5000); return null; } if (!MAP.edits.added.includes(d) || this.meshOf(d)) return m; this.W.editorPrims.add(m); this.W.collision.remove((c) => c.prim === d.uid); const c = colliderOf(m, d); if (c) this.W.collision.add(c); if (this.sel && this.sel.o === d) { this.inspect(); this.updateBox(); } return m; }
   setPrim(d, f, noUndo = false, fromPanel = false) {
     if (!noUndo) this.undo.push({ t: 'setPrim', d, before: pick(d, Object.keys(f).concat(['x', 'y', 'z', 'sx', 'sy', 'sz', 'rx', 'ry', 'rz'])) });
+    if (isModel(d)) return this.setModel(d, f, fromPanel);
     const needMesh = ['shape', 'color', 'rough', 'metal', 'glow', 'opacity', 'tex', 'rep', 'shadow'].some((k) => k in f); Object.assign(d, f); let m = this.meshOf(d);
     if (needMesh && m) { this.W.editorPrims.remove(m); m.geometry.dispose(); m.material.dispose(); if (d.tex && this.texCv.has(d.tex)) { MAP.edits.textures[d.tex] = this.texCv.get(d.tex).toDataURL(); } m = primMesh(d); if (d.tex && this.texCv.has(d.tex)) { m.material.map = liveTexture(d.tex, this.texCv.get(d.tex)); m.material.map.repeat.set(d.rep || 1, d.rep || 1); } this.W.editorPrims.add(m); }
     else if (m) placePrim(m, d);
     this.W.collision.remove((c) => c.prim === d.uid); const c = primCollider(d); if (c) this.W.collision.add(c); this.unsaved = true; this.updateStatus(); this.updateBox(); if (!fromPanel || 'shape' in f || 'tex' in f) this.inspect();
   }
+  setModel(d, f, fromPanel) {
+    for (const [k, v] of Object.entries(f)) { if (v === undefined) delete d[k]; else d[k] = v; } const m = this.meshOf(d);
+    const rebuild = ['asset', 'tint', 'shadow', 'base'].some((k) => k in f);
+    if (rebuild) { dropMesh(m); this.W.collision.remove((c) => c.prim === d.uid); this.spawn(d); }
+    else if (m) { placeAny(m, d); if ('clip' in f || 'clipSpeed' in f) { setModelClip(m, d); this.ensureModelTick(); } this.W.collision.remove((c) => c.prim === d.uid); const c = colliderOf(m, d); if (c) this.W.collision.add(c); }
+    this.unsaved = true; this.updateStatus(); this.updateBox(); if (!fromPanel || 'asset' in f || 'clip' in f) this.inspect();
+  }
+  async ensureModelTick() { const { HOOKS } = await import('../core/Hooks.js'); const { tickModels } = await import('./MapRuntime.js'); if (!HOOKS._mapModels) { HOOKS._mapModels = (dt) => tickModels(dt, globalThis.__game && globalThis.__game.camera); HOOKS.preRender.add(HOOKS._mapModels); } }
   duplicate() { const s = this.sel; if (!s) return; if (s.k === 'prim') { const d = { ...JSON.parse(JSON.stringify(s.o)), uid: 'u' + (uidN++).toString(36) }; d.x += 2; d.z += 2; return this.addPrim(d); }
     const [x, z] = ctr(s.o); const k = s.k; const o = s.o; const d = JSON.parse(JSON.stringify(o, (kk, v) => (kk.startsWith('_') || kk === 'col' || kk === 'id' || kk === 'h' || kk === 'totalH' ? undefined : v))); const off = k === 'b' ? (o.x1 - o.x0) + 2 : k === 'w' ? 0 : 2;
     if (d.x0 !== undefined) { d.x0 += off; d.x1 += off; if (k === 'w') { d.z0 += 1; d.z1 += 1; } } else { d.x = x + off; d.z = z; }
@@ -217,17 +268,17 @@ class MapEditor {
     if (u.t === 'set') { this.sync(setFields(plan, u.o, u.before), u.k); this.restoreEntry(u.o, u.prev); }
     else if (u.t === 'del') { const o = u.o, [arr, bk] = KINDS[u.k]; plan[arr].push(o); const [x, z] = ctr(o); const ci = chunkIndex(x, z); if (bk && ci >= 0) plan.byChunk[ci][bk].push(o); plan.colliders.push(...u.out.removed); this.sync({ removed: [], added: u.out.removed, chunks: u.out.chunks }, u.k); if (u.en) MAP.edits.added.push(u.en); else this.restoreEntry(o, u.prev); }
     else if (u.t === 'add') { const out = removeObj(plan, u.o); this.sync(out, u.k); MAP.edits.added.splice(MAP.edits.added.indexOf(u.d), 1); }
-    else if (u.t === 'addPrim') { if (u.undoDel) { MAP.edits.added.push(u.d); const m = primMesh(u.d); this.W.editorPrims.add(m); const c = primCollider(u.d); if (c) this.W.collision.add(c); } else { const i = MAP.edits.added.indexOf(u.d); if (i >= 0) MAP.edits.added.splice(i, 1); const m = this.meshOf(u.d); if (m) { this.W.editorPrims.remove(m); m.geometry.dispose(); m.material.dispose(); } this.W.collision.remove((c) => c.prim === u.d.uid); } }
+    else if (u.t === 'addPrim') { if (u.undoDel) { MAP.edits.added.push(u.d); this.spawn(u.d); } else { const i = MAP.edits.added.indexOf(u.d); if (i >= 0) MAP.edits.added.splice(i, 1); dropMesh(this.meshOf(u.d)); this.W.collision.remove((c) => c.prim === u.d.uid); if (this.sel && this.sel.o === u.d) this.sel = null; } }
     else if (u.t === 'setPrim') this.setPrim(u.d, u.before, true);
     this.unsaved = true; this.updateStatus(); if (this.sel) { this.inspect(); this.updateBox(); }
   }
   // grab: the object follows the cursor on the ground; click drops it, right-click / Esc puts it back
   startGrab() { const s = this.sel; if (!s || !this.mouse) return; const p = this.groundAt(this.mouse); if (!p) return; const [x, z] = s.k === 'prim' ? [s.o.x, s.o.z] : ctr(s.o); this.grab = { off: [x - p.x, z - p.z], start: [x, z], cur: [x, z] }; toast('Move the mouse — click to drop'); }
   dragGrab(e) { const G = this.grab, s = this.sel; const p = this.groundAt(e); if (!p) return; const nx = p.x + G.off[0], nz = p.z + G.off[1]; G.cur = [nx, nz];
-    if (s.k === 'prim') { s.o.x = nx; s.o.z = nz; s.o.y = L.groundY(nx, nz); const m = this.meshOf(s.o); if (m) placePrim(m, s.o); }
+    if (s.k === 'prim') { s.o.x = nx; s.o.z = nz; s.o.y = L.groundY(nx, nz); const m = this.meshOf(s.o); if (m) placeAny(m, s.o); }
     const [cx, cz] = s.k === 'prim' ? G.start : ctr(s.o); this.box.position.x += 0; this.updateBox(); if (s.k !== 'prim') { this.box.position.x += nx - cx; this.box.position.z += nz - cz; } }
   endGrab() { const G = this.grab; this.grab = null; const s = this.sel; if (!s) return; if (s.k === 'prim') { const cur = { x: s.o.x, y: s.o.y, z: s.o.z }; Object.assign(s.o, { x: G.start[0], z: G.start[1] }); this.setPrim(s.o, cur); } else { const [cx, cz] = ctr(s.o); this.moveBy(G.cur[0] - cx, G.cur[1] - cz); } this.inspect(); }
-  cancelGrab() { const G = this.grab; this.grab = null; const s = this.sel; if (s && s.k === 'prim') { s.o.x = G.start[0]; s.o.z = G.start[1]; s.o.y = L.groundY(s.o.x, s.o.z); const m = this.meshOf(s.o); if (m) placePrim(m, s.o); } this.updateBox(); }
+  cancelGrab() { const G = this.grab; this.grab = null; const s = this.sel; if (s && s.k === 'prim') { s.o.x = G.start[0]; s.o.z = G.start[1]; s.o.y = L.groundY(s.o.x, s.o.z); const m = this.meshOf(s.o); if (m) placeAny(m, s.o); } this.updateBox(); }
   focus() { const s = this.sel; if (!s) return; const [x, z] = s.k === 'prim' ? [s.o.x, s.o.z] : ctr(s.o); const b = s.k === 'prim' ? null : this.boxOf(s.k, s.o); const hgt = b ? b[4] - b[1] : 3, diag = b ? Math.hypot(b[3] - b[0], b[5] - b[2]) : 3;
     const P = 0.62, d = Math.max(10, hgt * 1.1 + diag * 1.2); const gy = L.groundY(x, z); // look down at ~35° from above the neighbours
     this.pos.set(x + Math.sin(this.yaw) * d * Math.cos(P), gy + hgt * 0.5 + d * Math.sin(P), z + Math.cos(this.yaw) * d * Math.cos(P)); this.pitch = -P; }
