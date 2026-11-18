@@ -20,6 +20,11 @@
 //     their own copies ('mat:Lotus Tower.concrete') and any building part can have one building's own ('mat:winFrame@b234').
 //     A rule for such a key SPLITS it: its parts get their own draw with that material (World.rebuildForKeys while editing;
 //     on start the saved rules are read before the city is generated — preload()).
+//   • 61st: Height / Bump and Displacement slots (+ strength, scale / bias), "Visible" (untick = remove those surfaces), texture
+//     SETS (one pick of a downloaded PBR set: diffuse / albedo, normal GL|DX, roughness / gloss, metal, AO, ARM / ORM, height /
+//     displacement, emission — sorted into the slots by file name), CREATED MATERIALS (`um:<id>` rules: a named material of
+//     its own — slots + settings — that any target can use: `rule.use = 'um:<id>'`; editing it updates every user) and OBJECT
+//     SIZE (`xf:<scene path>|o` / `|i<instance>` rules: a scale per axis or hidden, applied to one mesh / group / instance).
 //   • Storage: the dev server's project folder `texture-pack/` (tools/vite/texturePack.mjs: real files, kept out of git,
 //     built into the game), else this browser's IndexedDB; textures missing locally come from the manifest's asset base URL.
 import * as THREE from 'three';
@@ -31,13 +36,18 @@ import { storeGet, storeSet, setSavedFlag, TEXTURE_STUDIO } from './boot.js';
 export const MANIFEST_FORMAT = 'colombo.texture-manifest';
 export const MANIFEST_VERSION = 1;
 export const SLOTS = [
-  { k: 'map', label: 'Base Color', short: 'BC', srgb: true },
+  { k: 'map', label: 'Base Color / Diffuse', short: 'BC', srgb: true },
   { k: 'normalMap', label: 'Normal', short: 'N', srgb: false },
   { k: 'roughnessMap', label: 'Roughness', short: 'R', srgb: false },
   { k: 'metalnessMap', label: 'Metallic', short: 'M', srgb: false },
   { k: 'aoMap', label: 'Ambient Occlusion', short: 'AO', srgb: false },
   { k: 'emissiveMap', label: 'Emissive', short: 'E', srgb: true },
+  // 61st: height maps. Bump = per-pixel relief from the height image (no extra geometry — right for the low-poly city);
+  // Displacement = the vertices really move (only shows on dense meshes, the city's big flat quads mostly shift as a whole)
+  { k: 'bumpMap', label: 'Height / Bump', short: 'H', srgb: false },
+  { k: 'displacementMap', label: 'Displacement (moves vertices)', short: 'D', srgb: false },
 ];
+const SIG_SLOTS = SLOTS.slice(0, 6); // material signatures (sig: keys saved before the 61st) stay what they were
 export const PROPS = [
   { k: 'color', label: 'Base colour', kind: 'color' },
   { k: 'roughness', label: 'Roughness', kind: 'num', min: 0, max: 1, step: 0.01 },
@@ -51,6 +61,11 @@ export const PROPS = [
   // vertex colour). A real photo texture multiplied by that went pitch black — off by default once a texture replaces a plain
   // vertex-coloured material (TextureStudio.assign), switchable back here.
   { k: 'vertexColors', label: 'Per-object tint (vertex colours)', kind: 'bool' },
+  // 61st
+  { k: 'bumpScale', label: 'Height / bump strength', kind: 'num', min: -8, max: 8, step: 0.01 },
+  { k: 'displacementScale', label: 'Displacement scale (m)', kind: 'num', min: 0, max: 1, step: 0.002 },
+  { k: 'displacementBias', label: 'Displacement bias (m)', kind: 'num', min: -1, max: 1, step: 0.002 },
+  { k: 'visible', label: 'Visible (untick = remove these surfaces)', kind: 'bool', opt: true }, // opt: only put back when a rule set it (the game toggles some)
 ];
 export const CATEGORIES = ['Building', 'Road', 'Pavement', 'Roof', 'Vehicle', 'Character', 'Vegetation', 'Prop', 'Interior', 'Environment', 'Signage', 'Water', 'Other'];
 const MIME = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif', bmp: 'image/bmp', ktx2: 'image/ktx2', dds: 'image/vnd-ms.dds' };
@@ -64,7 +79,7 @@ export const S = {
   settings: loadSettings(), listeners: new Set(), errors: new Map(), driven: new Map(), saveState: 'saved', lastSaveError: '',
 };
 export function emptyManifest() { return { format: MANIFEST_FORMAT, version: MANIFEST_VERSION, created: new Date().toISOString(), modified: null, assetBase: '', textures: {}, rules: {} }; }
-function loadSettings() { let s = {}; try { s = JSON.parse(globalThis.localStorage?.getItem(SETTINGS_KEY) || '{}') || {}; } catch { /* none */ } return { maxSize: s.maxSize || 512, budgetMB: s.budgetMB || 96 }; }
+function loadSettings() { let s = {}; try { s = JSON.parse(globalThis.localStorage?.getItem(SETTINGS_KEY) || '{}') || {}; } catch { /* none */ } return { maxSize: s.maxSize || 512, budgetMB: s.budgetMB || 96, linkUV: s.linkUV !== false, heightAs: ['bump', 'displacement', 'both'].includes(s.heightAs) ? s.heightAs : 'bump' }; }
 export function saveSettings() { try { globalThis.localStorage?.setItem(SETTINGS_KEY, JSON.stringify(S.settings)); } catch { /* private mode */ } }
 export function on(fn) { S.listeners.add(fn); return () => S.listeners.delete(fn); }
 function emit(type, data) { for (const f of S.listeners) try { f(type, data); } catch (e) { console.error(e); } }
@@ -124,7 +139,9 @@ export function sanitizeManifest(m) {
   if (m.version > MANIFEST_VERSION) throw new Error(`manifest version ${m.version} is newer than this game supports (${MANIFEST_VERSION})`);
   const out = emptyManifest(); out.created = m.created || out.created; out.modified = m.modified || null; out.assetBase = typeof m.assetBase === 'string' ? m.assetBase : '';
   for (const [h, t] of Object.entries(m.textures || {})) { if (!/^[0-9a-f]{16,64}$/.test(h) || !t || !MIME[t.ext]) continue; out.textures[h] = { name: String(t.name || h).slice(0, 120), category: CATEGORIES.includes(t.category) ? t.category : 'Other', tags: Array.isArray(t.tags) ? t.tags.map(String).slice(0, 12) : [], w: +t.w || 0, h: +t.h || 0, ext: t.ext, bytes: +t.bytes || 0, added: t.added || null, thumb: typeof t.thumb === 'string' && t.thumb.startsWith('data:image/') ? t.thumb : '' }; }
-  for (const [k, r] of Object.entries(m.rules || {})) { if (!r || typeof r !== 'object' || !/^(mat|veh|name|sig|obj):/.test(k)) continue; out.rules[k] = { label: String(r.label || k).slice(0, 160), target: r.target || null, enabled: r.enabled !== false, slots: {}, props: {}, created: r.created || null, modified: r.modified || null };
+  for (const [k, r] of Object.entries(m.rules || {})) { if (!r || typeof r !== 'object' || !/^(mat|veh|name|sig|obj|um|xf):/.test(k)) continue; out.rules[k] = { label: String(r.label || k).slice(0, 160), target: r.target || null, enabled: r.enabled !== false, slots: {}, props: {}, created: r.created || null, modified: r.modified || null };
+    if (typeof r.use === 'string' && /^um:[a-z0-9-]{1,40}$/.test(r.use)) out.rules[k].use = r.use;
+    if (k.startsWith('xf:')) { const sc = Array.isArray(r.scale) ? r.scale.slice(0, 3).map((v) => (Number.isFinite(+v) ? Math.max(0.01, Math.min(20, +v)) : 1)) : [1, 1, 1]; while (sc.length < 3) sc.push(1); out.rules[k].scale = sc; out.rules[k].hidden = !!r.hidden; }
     for (const s of SLOTS) if (r.slots && r.slots[s.k]) out.rules[k].slots[s.k] = sanitizeSlot(r.slots[s.k]);
     for (const p of PROPS) if (r.props && r.props[p.k] != null) out.rules[k].props[p.k] = p.kind === 'color' ? String(r.props[p.k]).slice(0, 9) : +r.props[p.k]; }
   return out;
@@ -146,7 +163,7 @@ export function snapProps(m) { const o = {}; for (const p of PROPS) if (p.k in m
 const ORIG = new WeakMap(); // material → { slots, props, wet } exactly as the game made it (first Studio touch)
 function sigOf(m) {
   const b = ORIG.get(m); const col = b ? b.props.color : m.color && m.color.getHex();
-  const slots = SLOTS.map((s) => { const t = b ? b.slots[s.k] : m[s.k]; const im = t && t.image; return t ? (im ? (im.width | 0) + 'x' + (im.height | 0) : 't') : '-'; }).join(',');
+  const slots = SIG_SLOTS.map((s) => { const t = b ? b.slots[s.k] : m[s.k]; const im = t && t.image; return t ? (im ? (im.width | 0) + 'x' + (im.height | 0) : 't') : '-'; }).join(',');
   return fnv([m.type, col, slots, m.transparent ? 1 : 0, m.side, m.vertexColors ? 1 : 0, m.alphaTest, m.flatShading ? 1 : 0].join('|')).slice(0, 10);
 }
 export function keyOf(m, o, i = 0) {
@@ -191,6 +208,8 @@ export function scan() {
   INDEX = idx; for (const [m, u] of users) USERS.set(m, u);
   // late objects: rules apply to materials that appeared since the last scan (vehicles, people, streamed chunks)
   for (const [k, r] of Object.entries(S.manifest.rules)) {
+    if (k.startsWith('xf:')) { applyXf(k, r); continue; }
+    if (k.startsWith('um:')) continue; // its users are rules of their own
     if (k.startsWith('obj:')) { ensureObj(k, r); const o = OBJ.get(k); if (o) syncDriven(o.orig, o.clone, r); continue; }
     if (k.startsWith('veh:')) { if (r.enabled && S.enabled) vehPass(k, r); continue; }
     if (!r.enabled || !S.enabled) continue; const set = idx.get(k); if (!set) continue;
@@ -198,7 +217,7 @@ export function scan() {
   }
 }
 function batchCount(o) { const I = o._instanceInfo; if (Array.isArray(I)) { let n = 0; for (const i of I) if (i && i.active !== false) n++; return n; } return o.instanceCount || 1; }
-export function materialsFor(k) { if (k.startsWith('obj:')) { const c = OBJ.get(k); return c ? [c.clone] : []; } if (k.startsWith('veh:') && VCLONE.has(k)) return [...new Set([...VCLONE.get(k).values(), ...(INDEX.get(k) || [])].filter((m) => m.userData.__tsKey === k || !sharedVehMat(m)))]; return [...(INDEX.get(k) || [])]; }
+export function materialsFor(k) { if (k.startsWith('um:')) { const m = umMaterial(k, !!S.manifest.rules[k]); return m ? [m] : []; } if (k.startsWith('xf:')) return []; if (k.startsWith('obj:')) { const c = OBJ.get(k); return c ? [c.clone] : []; } if (k.startsWith('veh:') && VCLONE.has(k)) return [...new Set([...VCLONE.get(k).values(), ...(INDEX.get(k) || [])].filter((m) => m.userData.__tsKey === k || !sharedVehMat(m)))]; return [...(INDEX.get(k) || [])]; }
 export function usersOf(m) { return USERS.get(m) || { meshes: 0, instances: 0, objects: [] }; }
 export function originalOf(m) { return ORIG.get(m) || null; }
 
@@ -306,13 +325,15 @@ function transform(tex, sr, ref) {
 }
 // ------------------------------------------------------------------------------------------------- applying rules
 function backup(m) { let b = ORIG.get(m); if (b) return b; b = { slots: {}, props: snapProps(m), wet: null }; for (const s of SLOTS) if (s.k in m) b.slots[s.k] = m[s.k]; const w = wetTarget(m); if (w) b.wet = [w[1], w[2], w[3] ? w[3].clone() : null]; ORIG.set(m, b); return b; }
-function setProp(m, k, v) { if (!(k in m) || m[k] == null && k !== 'envMapIntensity') return; if (typeof m[k] === 'boolean') { if (m[k] !== !!v) { m[k] = !!v; m.needsUpdate = true; } return; } const cur = m[k]; if (cur && cur.isColor) cur.set(v); else if (cur && cur.isVector2) Array.isArray(v) ? cur.set(v[0], v[1]) : cur.set(v, v); else m[k] = v; }
-function restoreProps(m, props) { for (const [k, v] of Object.entries(props)) setProp(m, k, v); }
+function setProp(m, k, v) { if (!(k in m) || m[k] == null && k !== 'envMapIntensity') return; if (k === 'visible') { m.visible = !!v; return; } if (typeof m[k] === 'boolean') { if (m[k] !== !!v) { m[k] = !!v; m.needsUpdate = true; } return; } const cur = m[k]; if (cur && cur.isColor) cur.set(v); else if (cur && cur.isVector2) Array.isArray(v) ? cur.set(v[0], v[1]) : cur.set(v, v); else m[k] = v; }
+const OPT = new Set(PROPS.filter((p) => p.opt).map((p) => p.k));
+// back to the game's values; the `opt` ones only when the last rule had set them (else the game's own toggling is kept)
+function restoreProps(m, props, prev = undefined) { const pv = prev === undefined ? (APPLIED.get(m) || {}).values : prev; for (const [k, v] of Object.entries(props)) if (!OPT.has(k) || (pv && pv.props && pv.props[k] != null)) setProp(m, k, v); }
 export function restoreMaterial(m) {
   const b = ORIG.get(m); if (!b) return; let prog = false;
   for (const [k, t] of Object.entries(b.slots)) { if (m[k] !== t) { if (!!m[k] !== !!t) prog = true; m[k] = t; } releaseSlot(m, k); }
   restoreProps(m, b.props); const w = b.wet && wetTarget(m); if (w) { w[1] = b.wet[0]; w[2] = b.wet[1]; w[3] = b.wet[2]; }
-  if (prog) m.needsUpdate = true; APPLIED.delete(m);
+  if (prog) m.needsUpdate = true; APPLIED.delete(m); if (UMAT_OF.has(m)) UMAT_OF.delete(m);
 }
 // 60th: a colour texture on a material that had none (plain vertex-coloured metal / paint): shown as the picture itself — the
 // per-object tint off, a high metalness lowered (else a dark mirror: lamp posts went pitch black). Same as the Studio's assign
@@ -323,10 +344,21 @@ function adaptLegacy(r, b) {
   if (r.props.vertexColors == null) r.props.vertexColors = false;
   if (b.props.metalness >= 0.5 && r.props.metalness == null) { r.props.metalness = 0.3; if (b.props.roughness < 0.5 && r.props.roughness == null) r.props.roughness = 0.55; }
 }
-async function applyRuleTo(m, key, r) {
-  const b = backup(m); adaptLegacy(r, b); const rev = r.__rev = r.__rev || 1; const values = { slots: {}, props: {} }; APPLIED.set(m, { key, rev, values }); let prog = false;
+// 61st: a rule that uses a created material (r.use = 'um:<id>') gets that material's slots + settings; what the rule sets itself
+// (per-target tiling, a setting) wins, a slot entry without an image of its own keeps the material's image
+export function effRule(r) {
+  const u = r && r.use && S.manifest.rules[r.use]; if (!u || u.enabled === false) return r;
+  const slots = {}; for (const s of SLOTS) { const a = u.slots && u.slots[s.k], o = r.slots && r.slots[s.k]; if (!a && !o) continue; if (!o) { slots[s.k] = a; continue; } if (!a || o.clear || o.tex) { slots[s.k] = o; continue; }
+    const m = { ...a }; for (const [kk, v] of Object.entries(o)) if (v != null && kk !== 'tex' && kk !== 'clear') m[kk] = v; slots[s.k] = m; }
+  return { ...r, slots, props: { ...(u.props || {}), ...(r.props || {}) } };
+}
+const UMAT_OF = new WeakMap(); // material → the created material it shows (for the inspector)
+export function usesOf(m) { return UMAT_OF.get(m) || null; }
+async function applyRuleTo(m, key, r0) {
+  const r = effRule(r0); if (r !== r0) { r.__rev = r0.__rev = r0.__rev || 1; UMAT_OF.set(m, r0.use); } else UMAT_OF.delete(m);
+  const b = backup(m); adaptLegacy(r, b); const rev = r.__rev = r.__rev || 1; const values = { slots: {}, props: {} }; const prevA = APPLIED.get(m); APPLIED.set(m, { key, rev, values }); let prog = false;
   // settings (sync)
-  restoreProps(m, b.props); const w = b.wet && wetTarget(m); if (w) { w[1] = b.wet[0]; w[2] = b.wet[1]; w[3] = b.wet[2]; }
+  restoreProps(m, b.props, prevA ? prevA.values : null); const w = b.wet && wetTarget(m); if (w) { w[1] = b.wet[0]; w[2] = b.wet[1]; w[3] = b.wet[2]; }
   for (const p of PROPS) { const v = r.props[p.k]; if (v == null || !(p.k in m)) continue; setProp(m, p.k, v); values.props[p.k] = v;
     if (w && p.k === 'roughness') w[1] = +v; // weather (src/gfx/Materials.js updateMaterials) drives these: edit its dry value / tint instead of fighting it
     if (w && p.k === 'color') { const o = new THREE.Color(b.props.color), n = new THREE.Color(v); w[3] = new THREE.Color(o.r > 1e-3 ? n.r / o.r : 1, o.g > 1e-3 ? n.g / o.g : 1, o.b > 1e-3 ? n.b / o.b : 1); } }
@@ -352,6 +384,11 @@ function checkDrift(m, k, a) {
 }
 export async function applyKey(k) {
   const r = S.manifest.rules[k];
+  if (k.startsWith('xf:')) { applyXf(k, r); emit('applied', k); return; }
+  if (k.startsWith('um:')) { // a created material: its preview copy, then every rule that uses it
+    const pm = umMaterial(k, !!r); if (pm) { if (r && r.enabled !== false) { r.__rev = (r.__rev || 0) + 1; await applyRuleTo(pm, k, r); } else restoreMaterial(pm); }
+    for (const [k2, r2] of Object.entries(S.manifest.rules)) if (r2 && r2.use === k) await applyKey(k2);
+    if (!r && pm) { UM.delete(k); pm.dispose(); } emit('applied', k); return; }
   if (k.startsWith('veh:')) { if (r && r.enabled && S.enabled) r.__rev = (r.__rev || 0) + 1; await vehPass(k, r); emit('applied', k); return; }
   if (k.startsWith('obj:')) { if (!r) { dropObj(k); return; } ensureObj(k, r); const c = OBJ.get(k); if (c) { if (r.enabled && S.enabled) { r.__rev = (r.__rev || 0) + 1; await applyRuleTo(c.clone, k, r); } else restoreMaterial(c.clone); } return; }
   const mats = materialsFor(k);
@@ -485,6 +522,135 @@ export async function importManifest(raw, files = new Map(), mode = 'merge') {
   scheduleSave(); emit('library'); return { rules: Object.keys(m.rules).length, files: added, missing };
 }
 export function setAssetBase(url) { S.manifest.assetBase = String(url || '').trim(); DECODED.clear(); scheduleSave(); emit('library'); }
+
+// ------------------------------------------------------------------------------------------------- 61st: created materials
+// A created material is a rule under its own key 'um:<id>' (label = its name, slots + settings like any rule). It is shown and
+// edited on a private preview MeshStandardMaterial; targets use it with rule.use (effRule). Applying it to a target edits the
+// target's material IN PLACE like every other rule (shader patches, sharing and weather driving kept).
+const UM = new Map(); // key → preview material
+function umMaterial(k, create) {
+  let m = UM.get(k); if (m || !create) return m || null;
+  m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0 }); m.name = 'created material'; m.userData.__tsKey = k; UM.set(k, m); return m;
+}
+export function newMaterialKey() { let id; do id = 'm' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36); while (S.manifest.rules['um:' + id]); return 'um:' + id; }
+export function materialUsers(k) { return Object.entries(S.manifest.rules).filter(([, r]) => r && r.use === k).map(([kk, r]) => ({ k: kk, label: r.label })); }
+export function createdMaterials() { return Object.entries(S.manifest.rules).filter(([k]) => k.startsWith('um:')).map(([k, r]) => ({ k, name: r.label, rule: r, users: materialUsers(k).length })); }
+// ------------------------------------------------------------------------------------------------- 61st: texture sets
+// sort the files of a downloaded PBR set into slots by name (Poly Haven / ambientCG / Substance style suffixes; the last
+// recognised word wins, so "metal_plate_diff_2k" is a diffuse map, not a metalness map)
+const SET_WORDS = [
+  [['arm', 'orm'], { slots: ['aoMap', 'roughnessMap', 'metalnessMap'], packed: true }], // three.js reads AO = R, roughness = G, metalness = B
+  [['diffuse', 'diff', 'albedo', 'basecolor', 'basecolour', 'color', 'colour', 'col', 'base', 'dif', 'alb'], { slots: ['map'] }],
+  [['normalgl', 'norgl', 'nrmgl', 'gl', 'opengl'], { slots: ['normalMap'], gl: true }],
+  [['normaldx', 'nordx', 'nrmdx', 'dx', 'directx'], { slots: ['normalMap'], flipGreen: true }],
+  [['normal', 'nor', 'nrm', 'norm', 'normals', 'nml'], { slots: ['normalMap'] }],
+  [['roughness', 'rough', 'rgh'], { slots: ['roughnessMap'] }],
+  [['gloss', 'glossiness', 'smoothness'], { slots: ['roughnessMap'], invert: true }],
+  [['metalness', 'metallic', 'metal', 'mtl', 'met'], { slots: ['metalnessMap'] }],
+  [['ao', 'ambientocclusion', 'occlusion', 'occ'], { slots: ['aoMap'] }],
+  [['displacement', 'disp', 'height', 'heightmap', 'depth', 'parallax'], { slots: ['bumpMap'], height: true }],
+  [['bump', 'bmp'], { slots: ['bumpMap'] }],
+  [['emissive', 'emission', 'emit', 'glow', 'illum'], { slots: ['emissiveMap'] }],
+];
+export function classifyTexture(name) {
+  const base = String(name || '').toLowerCase().replace(/\.[a-z0-9]+$/, ''); const words = base.split(/[^a-z0-9]+/).filter(Boolean);
+  for (let i = words.length - 1; i >= 0; i--) { const w = words[i];
+    // "nor" + "gl" / "dx" as separate words: the qualifier is last
+    if ((w === 'gl' || w === 'dx') && i > 0 && /^(nor|normal|nrm)$/.test(words[i - 1])) return { ...SET_WORDS[w === 'gl' ? 2 : 3][1] };
+    if (w === 'gl' || w === 'dx' || w === 'base') continue; // only meaningful next to "normal" / as part of "base color"
+    for (const [ws, d] of SET_WORDS) if (ws.includes(w)) { if (w === 'col' && words[i + 1] === 'var') continue; return { ...d }; } }
+  const j = base.replace(/[^a-z]/g, ''); // glued names ("BricksNormalGL", "WoodRoughness")
+  if (/normaldx$|nordx$/.test(j)) return { ...SET_WORDS[3][1] }; if (/normal(gl)?$|nor(gl)?$/.test(j)) return { ...SET_WORDS[4][1] };
+  if (/roughness$/.test(j)) return { ...SET_WORDS[5][1] }; if (/(metalness|metallic)$/.test(j)) return { ...SET_WORDS[7][1] }; if (/(ambientocclusion|occlusion)$/.test(j)) return { ...SET_WORDS[8][1] };
+  if (/(displacement|height)$/.test(j)) return { ...SET_WORDS[9][1] }; if (/(basecolou?r|albedo|diffuse|color)$/.test(j)) return { ...SET_WORDS[1][1] }; if (/(emissive|emission)$/.test(j)) return { ...SET_WORDS[11][1] };
+  return null;
+}
+// slots for a classified set. heightAs: 'bump' (per-pixel relief, the default — the city's meshes are low-poly), 'displacement'
+// (moves vertices) or 'both'
+export function setSlots(list, heightAs = 'bump') {
+  const out = {}; const skipped = [];
+  for (const it of list) { const c = it.cls; if (!c) { skipped.push(it.name); continue; }
+    const slots = c.height ? (heightAs === 'displacement' ? ['displacementMap'] : heightAs === 'both' ? ['bumpMap', 'displacementMap'] : ['bumpMap']) : c.slots;
+    for (const k of slots) { const cur = out[k]; if (cur && !(cur.packed && !c.packed)) continue; // first file per slot; a separate AO / roughness / metal map beats the packed ARM
+      out[k] = { tex: it.hash, name: it.name, packed: !!c.packed, flipGreen: !!c.flipGreen, invert: !!c.invert }; } }
+  return { slots: out, skipped };
+}
+// ------------------------------------------------------------------------------------------------- 61st: object size
+// 'xf:<scene path>|o' scales a mesh / group around its own origin, 'xf:<path>|i<n>' one instance of an instanced mesh (trees,
+// street props). Visual only: the collision boxes of the city are not changed by it (the Studio says so).
+const XF = new Map(); // key → { obj, inst, base (Vector3 scale | Matrix4), applied (Vector3 | Matrix4) }
+const _m4 = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3();
+// Street props (lamps, poles, signs, benches …) are drawn from shared per-part pools (World.poolProps) that are repacked when
+// chunks stream: an instance number there is not an identity. Those are keyed by chunk + pooled part + index in that part
+// ('xf:pool:<chunk>:<part>|i<n>') and resized in the part's own matrices, so every repack keeps it.
+function poolOf(mesh) { const W = S.game && S.game.world; return W && W.propPools ? W.propPools.find((P) => P.mesh === mesh) || null : null; }
+export function poolLocate(mesh, inst) {
+  const P = poolOf(mesh); if (!P || inst == null) return null; const W = S.game.world; let n = 0;
+  for (const part of P.parts) { if (!part.c.props.visible) continue; if (inst < n + part.n) return { P, part, local: inst - n, ci: W.chunks.indexOf(part.c), pi: part.c.pooled.indexOf(part) }; n += part.n; }
+  return null;
+}
+function poolPacked(part, local) { let n = 0; for (const q of part.P.parts) { if (!q.c.props.visible) continue; if (q === part) return n + local; n += q.n; } return null; }
+export function xfKey(obj, inst = null, at = null) { const loc = at || (obj.isInstancedMesh && inst != null ? poolLocate(obj, inst) : null); if (loc) return 'xf:pool:' + loc.ci + ':' + loc.pi + '|i' + loc.local; return 'xf:' + pathOf(obj) + '|' + (inst == null ? 'o' : 'i' + inst); }
+export function xfFingerprint(obj, inst = null, at = null) {
+  const g = obj.geometry; const vc = g && g.attributes && g.attributes.position ? g.attributes.position.count : obj.children.length; const loc = at || (obj.isInstancedMesh && inst != null ? poolLocate(obj, inst) : null);
+  if (loc) return 'pool:' + loc.part.n + ':' + vc; return [obj.type, vc, obj.isInstancedMesh ? obj.count : 0].join(':');
+}
+export function canResize(obj, inst = null) {
+  // an instance of a mesh whose instances come and go (flowers, grass, birds, debris pools): no stable identity
+  if (obj && obj.isInstancedMesh && inst != null && !poolOf(obj) && (obj.count !== obj.instanceMatrix.count || obj.userData.dynamic)) return false;
+  return !!obj && !obj.isBatchedMesh && !obj.isSkinnedMesh && !vehOf(obj) && obj !== (S.game && S.game.scene) && !(obj.userData && obj.userData.__tsHelper) && !/^(chunk\d+|cityBatched)$/.test(obj.name || ''); }
+function xfFactor(r) { if (r.hidden) return [0, 0, 0]; return (r.scale || [1, 1, 1]).map((v) => (Number.isFinite(+v) ? +v : 1)); }
+function xfRestore(e) {
+  if (!e || !e.obj) return; if (e.inst != null) { if (e.inst < e.obj.count) { e.obj.setMatrixAt(e.inst, e.base); e.obj.instanceMatrix.needsUpdate = true; e.obj.boundingSphere = null; e.obj.boundingBox = null; } }
+  else e.obj.scale.copy(e.base);
+}
+const ZERO16 = (a, o) => { for (let i = 0; i < 16; i++) if (a[o + i] !== 0) return false; return true; };
+function applyXf(k, r) {
+  if (k.startsWith('xf:pool:')) { applyPoolXf(k, r); return; }
+  const mm = k.match(/^xf:(.*)\|(o|i(\d+))$/); if (!mm) return; let e = XF.get(k);
+  if (!r || !r.enabled || !S.enabled) { if (e) { xfRestore(e); XF.delete(k); } S.errors.delete(k); return; }
+  const obj = resolvePath(mm[1]); const inst = mm[3] != null ? +mm[3] : null;
+  if (!obj) { if (e) XF.delete(k); return; } // not streamed in (yet): tried again by the next scan
+  const fp = r.target && r.target.fp; if (fp && xfFingerprint(obj) !== fp) { S.errors.set(k, 'object not found (the scene changed: fingerprint ' + fp + ')'); return; }
+  if (inst != null && (!obj.isInstancedMesh || inst >= obj.count)) { S.errors.set(k, 'instance #' + inst + ' not found'); return; }
+  if (e && e.obj !== obj) { XF.delete(k); e = null; } // the object was rebuilt (streaming): start from the new one
+  const f = xfFactor(r);
+  if (inst != null) {
+    obj.getMatrixAt(inst, _m4);
+    if (!e) { e = { obj, inst, base: _m4.clone(), applied: null }; XF.set(k, e); } else if (e.applied && !_m4.equals(e.applied)) e.base.copy(_m4); // the game moved it: that is the new base
+    e.base.decompose(_p, _q, _s); _s.set(_s.x * f[0], _s.y * f[1], _s.z * f[2]); const nm = new THREE.Matrix4().compose(_p, _q, _s);
+    if (!e.applied || !nm.equals(e.applied)) { obj.setMatrixAt(inst, nm); obj.instanceMatrix.needsUpdate = true; obj.boundingSphere = null; obj.boundingBox = null; e.applied = nm; }
+  } else {
+    if (!e) { e = { obj, inst: null, base: obj.scale.clone(), applied: null }; XF.set(k, e); } else if (e.applied && !obj.scale.equals(e.applied)) e.base.copy(obj.scale);
+    const ns = new THREE.Vector3(e.base.x * f[0], e.base.y * f[1], e.base.z * f[2]); if (f.every((v) => v === 0)) ns.setScalar(1e-6); // a zero scale breaks matrix inverses (picking, shadows)
+    if (!e.applied || !ns.equals(e.applied)) { obj.scale.copy(ns); obj.updateMatrixWorld(true); e.applied = ns.clone(); }
+  }
+  S.errors.delete(k);
+}
+function applyPoolXf(k, r) {
+  const mm = k.match(/^xf:pool:(\d+):(\d+)\|i(\d+)$/); const W = S.game && S.game.world; if (!mm || !W || !W.chunks) return; const c = W.chunks[+mm[1]]; const part = c && c.pooled && c.pooled[+mm[2]]; const i = +mm[3]; let e = XF.get(k);
+  const write = (arr) => { part.mat.set(arr, i * 16); W.propDirty = true; };
+  if (!r || !r.enabled || !S.enabled) { if (e) { if (e.part.mat && !ZERO16(e.part.mat, e.i * 16)) { e.part.mat.set(e.base, e.i * 16); W.propDirty = true; } XF.delete(k); } S.errors.delete(k); return; }
+  if (!part || i >= part.n) { S.errors.set(k, 'street prop not found (chunk ' + mm[1] + ' part ' + mm[2] + ' #' + i + ')'); return; }
+  const fp = r.target && r.target.fp; const vc = part.P.geo.attributes.position ? part.P.geo.attributes.position.count : 0; if (fp && fp !== 'pool:' + part.n + ':' + vc) { S.errors.set(k, 'street prop not found (the city changed: fingerprint ' + fp + ')'); return; }
+  if (ZERO16(part.mat, i * 16)) return; // knocked down (PropBreak hides it with a zero matrix): leave it, its saved matrix is ours
+  const cur = part.mat.slice(i * 16, i * 16 + 16);
+  if (!e || e.part !== part) { e = { part, i, base: cur, applied: null }; XF.set(k, e); } else if (e.applied && !cur.every((v, j) => v === e.applied[j])) e.base = cur; // changed by the game: the new base
+  _m4.fromArray(e.base); _m4.decompose(_p, _q, _s); const f = xfFactor(r); _s.set(_s.x * f[0], _s.y * f[1], _s.z * f[2]); const nm = new THREE.Matrix4().compose(_p, _q, _s); const arr = Float32Array.from(nm.elements);
+  if (!e.applied || !arr.every((v, j) => v === e.applied[j])) { write(arr); e.applied = arr; }
+  S.errors.delete(k);
+}
+export function xfState(k) {
+  const e = XF.get(k); if (!e) return null; if (e.part) return { obj: e.part.P.mesh, inst: poolPacked(e.part, e.i), part: e.part, local: e.i }; // inst null: its chunk's props are not shown right now
+  return { obj: e.obj, inst: e.inst };
+}
+// ------------------------------------------------------------------------------------------------- 61st: replace a texture everywhere
+export async function replaceTextureEverywhere(from, to) {
+  if (!S.manifest.textures[to]) throw new Error('replacement texture is not in the library'); const batch = [];
+  for (const [k, r] of Object.entries(S.manifest.rules)) { if (!Object.values(r.slots || {}).some((sr) => sr && sr.tex === from)) continue; const before = strip(r); const after = strip(r); for (const sr of Object.values(after.slots)) if (sr && sr.tex === from) sr.tex = to; batch.push({ k, before, after, label: 'replace texture' }); }
+  for (const b of batch) await writeRule(b.k, clone(b.after)); if (batch.length) { H.undo.push({ batch, label: 'replace texture everywhere', t: performance.now(), k: '*' }); H.redo.length = 0; }
+  return batch.length;
+}
 
 // ------------------------------------------------------------------------------------------------- 60th: split keys
 // a rule for a part / per-building key gives those parts their own draw: mark it split and rebuild what draws it (World)

@@ -4,9 +4,14 @@
 // material settings in place (shared material objects and shader patches kept, originals untouched), tiling / colour /
 // undo / redo / restore, "Make unique" on one prop, a zip pack round trip, saves to texture-pack/, then RELOADS the game
 // and checks that every replacement is back (including a vehicle spawned after the restart).
+// 61st: a PBR texture SET sorted into slots by file name (diffuse, DirectX normal, roughness, ARM, displacement) made into a
+// CREATED MATERIAL, used by two parts and edited once for both; Height / Bump and Displacement slots (displacement defaults);
+// "Texture size" linked across all slots; "Visible" (remove surfaces); OBJECT SIZE on a mesh (kept after the restart) and on
+// one instance (hidden + reset); replace a texture everywhere (+ undo); and the production pack (buildManifest) keeping all of it.
 // texture-pack/ is moved aside during the test and put back afterwards (the user's own work is never touched).
 //   node tools/texture-studio-test.mjs        PORT env (default 5199) — needs `npm run dev`-style server on that port
 import fs from 'node:fs';
+import { buildManifest } from './vite/texturePack.mjs';
 import puppeteer from '/home/user/testenv/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js';
 import chromium from '/home/user/testenv/node_modules/@sparticuz/chromium/build/index.js';
 const PACK = new URL('../texture-pack/', import.meta.url).pathname; const ASIDE = PACK.replace(/\/$/, '') + '.test-aside';
@@ -140,6 +145,73 @@ try {
   }, (r) => { ok(r.found, `a shared-material prop found (${r.obj}, ${r.users} users, ${r.sharedKey})`); if (!r.found) return; ok(r.picked, 'the prop is picked by clicking it on screen'); ok(r.cloneOnMesh && r.otherStillShared, `"Make unique": only this mesh gets a copy (${r.uniqueKey}); the others keep the shared material`);
     ok(r.applied && r.sharedUntouched && r.patch, 'texture on the unique copy only; shared material unchanged; shader patch kept'); ok(!r.err, 'no apply errors ' + (r.err || '')); });
 
+  await stage(p, '61st', async () => {
+    const g = window.__game, ed = globalThis.__editors.textures, RT = window.__texRuntime; const out = {}; const T3 = window.__THREE; const { ensureMat } = await import('/src/gfx/Materials.js');
+    const names = ['Bricks_diff_1k.png', 'Bricks_nor_dx_1k.png', 'Bricks_rough_1k.png', 'Bricks_arm_1k.png', 'Bricks_disp_1k.png', 'Bricks_preview.png']; const list = [];
+    for (let i = 0; i < names.length; i++) { const f = await window.__mkPng(i === 0 ? 1024 : 256, i === 0 ? 1024 : 256, 20 + i); const n = names[i]; const cls = RT.classifyTexture(n); if (!cls) { list.push({ name: n, cls: null }); continue; } const r = await RT.importFile(new File([f], n, { type: 'image/png' }), {}); list.push({ name: n, cls, hash: r.hash }); }
+    const H = Object.fromEntries(list.filter((x) => x.hash).map((x) => [x.name.split('_')[1], x.hash]));
+    out.both = Object.keys(RT.setSlots(list, 'both').slots).sort().join(',');
+    // 1. texture set → a new created material (the studio switches to editing it; the prop's unique copy is remembered)
+    const prevKey = ed.key; const res = await ed.applySet(list, true, names); const uk = res.key; const ur = RT.getRule(uk); const S = ur.slots;
+    out.umName = ur.label; out.editing = ed.key === uk && ed.umBack && ed.umBack.key === prevKey; out.skipped = res.skipped;
+    out.setOk = S.map.tex === H.diff && S.normalMap.tex === H.nor && !!S.normalMap.flipGreen && S.roughnessMap.tex === H.rough && S.aoMap.tex === H.arm && S.metalnessMap.tex === H.arm && S.bumpMap.tex === H.disp && !S.displacementMap && ur.props.roughness === 1 && ur.props.metalness === 1;
+    const pm = RT.materialsFor(uk)[0]; out.preview = !!pm && /^texstudio:/.test(pm.map?.name || '') && !!pm.bumpMap && !!pm.aoMap;
+    await ed.edit('bump', (x) => { x.props.bumpScale = 2; });
+    out.ui = /Materials \(created\)/.test(ed.right.body.textContent) && ed.right.body.textContent.includes(ur.label) && /Load texture set/.test(ed.left.body.textContent) && /Edited \(/.test(ed.right.body.textContent);
+    // 2. used by the prop (unique copy) and by every lamp pole
+    await ed.useMaterial(uk); const propM = RT.materialsFor(window.__T.prop.key)[0]; out.propUses = ed.key === window.__T.prop.key && RT.getRule(ed.key).use === uk && /^texstudio:/.test(propM.map?.name || '') && !!propM.bumpMap && Math.abs(propM.bumpScale - 2) < 1e-6 && !!propM.normalMap;
+    ed.editRule('mat:lampPole'); const lp = ensureMat('lampPole'); out.lpEditing = ed.key === 'mat:lampPole' && ed.m === lp; await ed.useMaterial(uk);
+    out.lpUses = RT.getRule('mat:lampPole').use === uk && /^texstudio:/.test(lp.map?.name || '') && !!lp.bumpMap && lp.vertexColors === false;
+    // 3. edit the created material once → both parts follow
+    ed.editMaterial(uk); await ed.edit('colour', (x) => { x.props.color = '#ff8800'; }); out.bothFollow = propM.color.getHexString() === 'ff8800' && lp.color.getHexString() === 'ff8800';
+    ed.backFromMaterial(); out.back = ed.key === 'mat:lampPole';
+    // 4. displacement slot on the lamp poles' own rule (on top of the material): safe defaults
+    ed.slot = 'displacementMap'; await ed.assign(H.disp, 'displacementMap'); const lr = RT.getRule('mat:lampPole');
+    out.disp = !!lp.displacementMap && Math.abs(lp.displacementScale - 0.03) < 1e-6 && Math.abs(lp.displacementBias + 0.015) < 1e-6 && lr.props.displacementScale === 0.03 && lr.use === uk;
+    // 5. texture size, linked across every slot (the material's maps keep their images)
+    ed.slot = 'map'; const base = ed.defaultSlot('map').repeat || [1, 1]; await ed.uvEdit('texture size', (sr, sk) => { const d = ed.defaultSlot(sk); const b2 = d.repeat || [1, 1]; sr.repeat = [b2[0] / 2, b2[1] / 2]; });
+    out.linked = ['map', 'normalMap', 'roughnessMap', 'aoMap', 'bumpMap', 'displacementMap'].every((k) => lp[k] && Math.abs(lp[k].repeat.x - base[0] / 2) < 1e-6) && /^texstudio:/.test(lp.map.name) && RT.getRule('mat:lampPole').slots.map.tex == null;
+    out.lpMapSame = lp.map.source === propM.map.source; // still the material's image (one upload)
+    // 6. remove the surfaces (Visible off) and put them back
+    await ed.edit('hide', (x) => { x.props.visible = false; }); out.hidden = lp.visible === false; await ed.undo(); out.shown = lp.visible === true;
+    // 7. object size: the prop mesh ×1.5 (kept), one instance of an instanced mesh hidden then reset
+    RT.scan(); const mesh = RT.usersOf(propM).objects[0]; const s0 = mesh.scale.toArray(); const pt = mesh.getWorldPosition(new T3.Vector3());
+    ed.select({ obj: mesh, inst: null, batch: null, idx: 0, point: pt, dist: 5 }); const t = ed.sizeTarget(); const xk = RT.xfKey(t.node, t.inst);
+    out.sizeUi = /Object size/.test(ed.left.body.textContent); await ed.xfEdit(xk, t, 'size', (x) => { x.scale = [1.5, 1.5, 1.5]; });
+    out.scaled = Math.abs(mesh.scale.x - s0[0] * 1.5) < 1e-6 && Math.abs(mesh.scale.y - s0[1] * 1.5) < 1e-6;
+    // street props are drawn from shared pools repacked as chunks stream: keyed by chunk + part + index, kept across repacks
+    const P = (g.world.propPools || []).find((q) => q.mesh.visible && q.mesh.count > 6); out.inst = !!P;
+    if (P) { const im = P.mesh; const W = g.world; const dec = (arr, o = 0) => { const m = new T3.Matrix4().fromArray(arr, o); const sc = new T3.Vector3(), pp = new T3.Vector3(); m.decompose(pp, new T3.Quaternion(), sc); return { sc, pp }; };
+      // (the studio keeps streaming chunks while it is open, so the packed index of a prop can change between two reads: the
+      // checks read the chunk part's own matrices, which every repack copies)
+      const pick = (i) => { const m = new T3.Matrix4(); im.getMatrixAt(i, m); ed.select({ obj: im, inst: i, batch: null, idx: 0, point: new T3.Vector3().setFromMatrixPosition(m), dist: 5 }); const t = ed.sizeTarget(); return { t, k: RT.xfKey(t.node, t.inst, t.at), loc: t.at }; };
+      const A = pick(2); out.poolKey = A.k; const orig = A.loc.part.mat.slice(A.loc.local * 16, A.loc.local * 16 + 16);
+      await ed.xfEdit(A.k, A.t, 'hide object', (x) => { x.hidden = true; }); const st = RT.xfState(A.k); const h = dec(st.part.mat, st.local * 16);
+      W.repackProps(); const pk = RT.xfState(A.k).inst; const inMesh = pk == null || (() => { const m = new T3.Matrix4(); im.getMatrixAt(pk, m); return m.elements.every((v, j) => Math.abs(v - st.part.mat[st.local * 16 + j]) < 1e-5); })();
+      out.instHidden = /^xf:pool:\d+:\d+\|i\d+$/.test(A.k) && st.part === A.loc.part && [0, 4, 8].every((c) => Math.hypot(st.part.mat[st.local * 16 + c], st.part.mat[st.local * 16 + c + 1], st.part.mat[st.local * 16 + c + 2]) < 1e-6) && /* three's decompose reports 1 for a zero matrix: columns read directly */ h.pp.distanceTo(dec(orig).pp) < 1e-4 && inMesh;
+      await RT.setRule(A.k, null, { label: 'reset size' }); out.instBack = A.loc.part.mat.slice(A.loc.local * 16, A.loc.local * 16 + 16).every((v, j) => v === orig[j]) && !RT.getRule(A.k);
+      const B = pick(3); const sx = dec(B.loc.part.mat, B.loc.local * 16).sc.x;
+      await ed.xfEdit(B.k, B.t, 'size', (x) => { x.scale = [2, 2, 2]; }); W.repackProps(); W.repackProps(); const s2 = RT.xfState(B.k);
+      out.poolScaled = Math.abs(dec(s2.part.mat, s2.local * 16).sc.x - sx * 2) < 1e-4; window.__T.pool = { k: B.k, sx }; }
+    // 8. replace a texture everywhere (+ undo)
+    const other = H.preview || list.find((x) => x.hash && x.hash !== H.diff).hash; const n = await RT.replaceTextureEverywhere(H.diff, other); out.replaced = n >= 1 && RT.getRule(uk).slots.map.tex === other; await ed.undo(); out.replaceUndo = RT.getRule(uk).slots.map.tex === H.diff;
+    // 9. the manifest keeps it all (sanitize round trip)
+    const sm = RT.sanitizeManifest(RT.exportManifest(false)); out.sanitized = sm.rules[uk] && sm.rules['mat:lampPole'].use === uk && sm.rules[xk] && sm.rules[xk].scale[0] === 1.5 && sm.rules['mat:lampPole'].props.displacementScale === 0.03;
+    await RT.saveNow(); window.__T.u61 = { uk, xk, s0, lpRep: base[0] / 2 }; out.errs = [...RT.S.errors.entries()].filter(([k]) => k === uk || k === xk || k === 'mat:lampPole');
+    return out;
+  }, (r) => { ok(r.setOk && r.skipped.join() === 'Bricks_preview.png', `texture set sorted by file name: diffuse → Base Color, nor_dx → Normal (green flipped), rough → Roughness, arm → AO + Metallic, disp → Height / Bump (${r.umName})`);
+    ok(r.both === 'aoMap,bumpMap,displacementMap,map,metalnessMap,normalMap,roughnessMap', 'height maps can go to bump, displacement or both (' + r.both + ')');
+    ok(r.editing && r.preview && r.ui, 'the set becomes a created material, edited in the studio (preview material with every map; listed under Materials (created) / Edited)');
+    ok(r.propUses && r.lpEditing && r.lpUses, 'the created material is used by the prop\'s unique copy and by every lamp pole (per-object tint switched off for the photo texture)');
+    ok(r.bothFollow && r.back, 'editing the created material once changes both parts');
+    ok(r.disp, 'Displacement slot: map applied with safe defaults (scale 0.03 m, bias −0.015 m), on top of the created material');
+    ok(r.linked && r.lpMapSame, '"Texture size ×2" tiles every slot together (base colour, normal, roughness, AO, bump, displacement) and keeps the material\'s images');
+    ok(r.hidden && r.shown, '"Visible" off removes the surfaces; undo brings them back');
+    ok(r.sizeUi && r.scaled, 'object size: the prop mesh scaled ×1.5');
+    ok(r.inst && r.instHidden && r.instBack, `object size on one street prop of a shared pool (${r.poolKey}): hidden in place, reset puts the exact matrix back`); ok(r.poolScaled, 'a street prop scaled ×2 stays scaled through a pool repack');
+    ok(r.replaced && r.replaceUndo, 'replace a texture everywhere it is used, undo');
+    ok(r.sanitized, 'manifest round trip keeps created materials, "use", object sizes and the new settings'); ok(!r.errs.length, 'no apply errors ' + JSON.stringify(r.errs)); });
+
   await stage(p, 'library+pack', async () => {
     const ed = globalThis.__editors.textures, RT = window.__texRuntime; const out = {}; const { writeZip, readZip } = await import('/src/debug/TexPack.js');
     out.lib = Object.keys(RT.S.manifest.textures).length; out.assigned = RT.assignments(window.__T.building.hash).length; ed.libQ = 'test-2'; ed.renderRight(); out.tiles = ed.right.body.querySelectorAll('.ts-tile').length; ed.libQ = ''; ed.renderRight();
@@ -164,6 +236,11 @@ try {
   }, (r) => { ok(r.offOrig && r.onAgain, 'replacements off/on comparison'); ok(r.allOrig && r.undoBack, `restore all → originals; undo brings back all ${r.n}`); ok(r.closed, 'studio closes cleanly (gameplay gets the frame back)'); });
 
   const T = await p.evaluate(() => window.__T);
+  { // 61st: what a production build ships (tools/vite/texturePack.mjs buildManifest): created materials, their users, object sizes, every texture they need
+    const disk = JSON.parse(fs.readFileSync(PACK + 'manifest.json', 'utf8')); const out = buildManifest(disk); const U = T.u61 || {};
+    const um = out.rules[U.uk]; const need = Object.values((um && um.slots) || {}).map((sr) => sr.tex).filter(Boolean);
+    ok(!!um && out.rules['mat:lampPole'] && out.rules['mat:lampPole'].use === U.uk && out.rules[U.xk] && out.rules[U.xk].scale[0] === 1.5 && need.length >= 5 && need.every((hh) => out.textures[hh] && !out.textures[hh].thumb),
+      `production pack keeps the created material (${need.length} maps), its users and the object size`); }
   // ---------------------------------------------------------------------------- restart
   const p2 = await b.newPage(); p2.on('pageerror', (e) => errs.push(String(e.stack || e).split('\n').slice(0, 3).join(' | ')));
   await p2.evaluateOnNewDocument(() => { localStorage.setItem('colombo.settings.v1', JSON.stringify({ quality: 'low', showFps: false })); }); await p2.evaluateOnNewDocument(HELPERS);
@@ -177,10 +254,14 @@ try {
     RT.scan(); await new Promise((r) => setTimeout(r, 800)); let paint = null; if (v) v.mesh.traverse((o) => { if (!paint && o.isMesh && o.name === 'paint') paint = [].concat(o.material)[0]; });
     out.vehicle = !!paint && /^texstudio:/.test(paint.map?.name || '') && Math.abs(paint.metalness - 0.55) < 1e-6;
     const om = RT.materialsFor(T.prop.key)[0]; out.prop = !!om && /^texstudio:/.test(om.map?.name || '') && om.userData.__tsKey === T.prop.key;
+    const U = T.u61; const { ensureMat } = await import('/src/gfx/Materials.js'); const lp = ensureMat('lampPole');
+    out.u61 = /^texstudio:/.test(lp.map?.name || '') && !!lp.bumpMap && !!lp.displacementMap && lp.color.getHexString() === 'ff8800' && Math.abs(lp.map.repeat.x - U.lpRep) < 1e-6 && Math.abs(lp.displacementScale - 0.03) < 1e-6 && !!om && !!om.bumpMap && om.color.getHexString() === 'ff8800';
+    const xs = RT.xfState(U.xk); out.xf = !!xs && Math.abs(xs.obj.scale.x - U.s0[0] * 1.5) < 1e-6;
+    if (T.pool) { const ps = RT.xfState(T.pool.k); const T3 = window.__THREE; if (ps && ps.part) { const m = new T3.Matrix4().fromArray(ps.part.mat, ps.local * 16); const sc = new T3.Vector3(); m.decompose(new T3.Vector3(), new T3.Quaternion(), sc); out.pool = Math.abs(sc.x - T.pool.sx * 2) < 1e-4; } else out.pool = 'no state'; }
     out.rules = Object.keys(RT.S.manifest.rules).length; out.errors = [...RT.S.errors.entries()];
     return out;
   }, (r) => { ok(r.runtime, 'after a restart the texture runtime loads by itself (texture-pack/manifest.json has rules)'); ok(r.building, 'building facade replacement back after restart (texture, 512 px, tiling, roughness)'); ok(r.road, 'road base colour + normal map back after restart');
-    ok(r.vehicle, 'vehicle: a car of that type spawned after the restart gets the paint texture + metalness' + (r.spawnErr ? ' (' + r.spawnErr + ')' : '')); ok(r.prop, 'unique prop copy recreated on the same object after restart'); ok(!r.errors.length, 'no apply errors ' + JSON.stringify(r.errors)); }, T);
+    ok(r.vehicle, 'vehicle: a car of that type spawned after the restart gets the paint texture + metalness' + (r.spawnErr ? ' (' + r.spawnErr + ')' : '')); ok(r.prop, 'unique prop copy recreated on the same object after restart'); ok(r.u61, '61st: created material (texture set, colour, bump) on the lamp poles and the prop, the lamp poles\' displacement + linked texture size — all back after restart'); ok(r.xf, '61st: the prop\'s object size (×1.5) back after restart'); ok(r.pool === true, '61st: the street prop\'s size (×2) back after restart (' + r.pool + ')'); ok(!r.errors.length, 'no apply errors ' + JSON.stringify(r.errors)); }, T);
 
   await stage(p2, 'reopen + clean', async () => {
     const g = window.__game; const { openTextureStudio } = await import('/src/debug/boot.js'); const ed = await openTextureStudio(g); const RT = window.__texRuntime; const out = {};

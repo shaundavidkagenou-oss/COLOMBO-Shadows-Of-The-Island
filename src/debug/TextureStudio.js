@@ -7,6 +7,10 @@
 //   Right window — slot editor (original | replacement preview, tiling, offset, rotation, wrap, flip, colour adjustment,
 //                  max size), texture library (search, categories, thumbnails, resolution, format, assignments), storage
 //                  (save, export / import pack, asset base URL, memory budget, on/off comparison, restore all).
+//   61st — Object size (scale per axis / hide, one mesh, group or instance), texture sets (one pick of a PBR set: diffuse,
+//   normal, roughness / gloss, metal, AO, ARM, height / displacement, emission), Height / Bump + Displacement slots, a
+//   "Texture size" control with tiling linked across the slots, "Visible" (remove surfaces), created materials (your own
+//   named materials, used by any number of parts), texture replace-everywhere and an "Edited" list to get back to any rule.
 import * as THREE from 'three';
 import * as RT from './TexRuntime.js';
 import { writeZip, readZip } from './TexPack.js';
@@ -18,6 +22,8 @@ import { ensureMat, materialLabel, splitKey, parentKey, splittable, ROLE_DEFS, S
 import * as L from '../world/Layout.js';
 
 const clone = (o) => (o == null ? o : JSON.parse(JSON.stringify(o)));
+// a material name from a texture set's file names ("Bricks076C_1K-PNG_Color.png" … → "Bricks076C")
+function setName(names) { const st = names.map((n) => n.replace(/\.[a-z0-9]+$/i, '')); if (!st.length) return ''; let p = st[0]; for (const n of st) while (p && !n.startsWith(p)) p = p.slice(0, -1); p = p.replace(/[_\-. ]*(\d+k|png|jpg|jpeg)?[_\-. ]*$/i, '').replace(/[_\-. ]+$/, ''); return (p || st[0]).slice(0, 60); }
 const CSS = `
 .ts-row{display:flex;align-items:center;gap:6px;margin:3px 0}
 .ts-thumb{width:34px;height:34px;flex:none;border:1px solid #3a4250;border-radius:3px;background:#161a21;image-rendering:auto}
@@ -122,7 +128,8 @@ class Studio {
     this.select(out[this.hitIdx]);
   }
   select(hit) {
-    this.endPeek(); this.sel = hit; this.node = hit ? hit.obj : null; this.part = null; this.partKey = null;
+    this.endPeek(); this.sel = hit; this.node = hit ? hit.obj : null; this.part = null; this.partKey = null; this.umBack = null;
+    if (hit && hit.inst != null && hit.obj.isInstancedMesh && !hit.poolLoc) hit.poolLoc = RT.poolLocate(hit.obj, hit.inst); // a street-prop pool is repacked as chunks stream: remember WHICH prop was clicked
     if (hit) { const ms = matsOf(hit.obj); this.setMaterial(Math.min(hit.idx || 0, ms.length - 1), false); } else { this.m = null; this.key = null; }
     if (hit) { try { this.part = this.partOf(hit); } catch (e) { console.warn('[texture studio] part lookup', e); this.part = null; } const o = this.part && this.partOptions(this.part)[0]; if (o) this.choosePart(o.k, false); }
     this.updateBox(); this.renderLeft(); this.renderRight();
@@ -185,7 +192,7 @@ class Studio {
   labelFor() {
     const k = this.key, m = this.m, o = this.sel && this.sel.obj; const [kind, ...r] = k.split(':');
     if (kind === 'mat') return materialLabel(r.join(':')); if (kind === 'veh') return 'Vehicle ' + r[0] + ' · ' + r.slice(1).join(':');
-    if (kind === 'obj') return (o ? objLabel(o) : 'object') + ' · ' + (m.name || m.type) + ' (unique copy)'; if (kind === 'name') return m.name + ' (' + m.type + ')';
+    if (kind === 'um') return (this.rule() && this.rule().label) || 'Created material'; if (kind === 'obj') return (o ? objLabel(o) : 'object') + ' · ' + (m.name || m.type) + ' (unique copy)'; if (kind === 'name') return m.name + ' (' + m.type + ')';
     return (o ? objLabel(o) : 'object') + ' · unnamed ' + m.type;
   }
   targetFor() {
@@ -195,12 +202,12 @@ class Studio {
   }
   rule() { return this.key ? RT.getRule(this.key) : null; }
   // a vehicle type's first edit swaps its meshes to their own copy of the shared material: follow it (and back after restore)
-  syncSel() { const s = this.sel; if (!s || this.partKey) return; const cur = matsOf(s.obj)[s.idx]; if (cur && cur !== this.m) { this.endPeek(); this.m = cur; this.key = RT.keyOf(cur, s.obj, s.idx); this.renderLeft(); this.renderRight(); } }
+  syncSel() { const s = this.sel; if (!s || this.partKey || (this.key && this.key.startsWith('um:'))) return; const cur = matsOf(s.obj)[s.idx]; if (cur && cur !== this.m) { this.endPeek(); this.m = cur; this.key = RT.keyOf(cur, s.obj, s.idx); this.renderLeft(); this.renderRight(); } }
   async edit(label, fn, merge = null) {
     if (!this.m || !this.key) return; this.endPeek(); const k = this.key; const cur = RT.getRule(k);
     const r = cur ? clone(cur) : RT.newRule(k, this.labelFor(), this.targetFor()); delete r.__rev; fn(r);
     for (const s of Object.keys(r.slots)) if (!r.slots[s]) delete r.slots[s]; for (const p of Object.keys(r.props)) if (r.props[p] == null) delete r.props[p];
-    const empty = !Object.keys(r.slots).length && !Object.keys(r.props).length && !k.startsWith('obj:');
+    const empty = !Object.keys(r.slots).length && !Object.keys(r.props).length && !r.use && !k.startsWith('obj:') && !k.startsWith('um:');
     try { await RT.setRule(k, empty ? null : r, { label, merge }); } catch (e) { toast('Failed: ' + (e.message || e), 3500); }
     this.syncSel(); this.live();
   }
@@ -214,7 +221,7 @@ class Studio {
     if (!this.m) { toast('Select an object first'); return; } if (!(slot in this.m)) { toast('This material has no ' + slot + ' slot'); return; }
     const t = RT.S.manifest.textures[hash]; this.slot = slot;
     let adapted = '';
-    await this.slotEdit('assign texture', (sr, r) => { sr.tex = hash; sr.clear = false; if (t && RT.COMPRESSED.has(t.ext) && sr.flipV == null) sr.flipV = true; if (slot === 'map') adapted = this.adaptForTexture(r); });
+    await this.slotEdit('assign texture', (sr, r) => { sr.tex = hash; sr.clear = false; if (t && RT.COMPRESSED.has(t.ext) && sr.flipV == null) sr.flipV = true; if (slot === 'map') adapted = this.adaptForTexture(r); if (slot === 'displacementMap') adapted = this.dispDefaults(r); });
     if (adapted) toast(adapted, 5200);
     const err = RT.S.errors.get(this.key); if (err) toast(err, 4000); else toast('Applied ' + (t ? t.name : hash.slice(0, 8)) + ' → ' + RT.SLOTS.find((s) => s.k === slot).label);
     this.renderLeft(); this.renderRight();
@@ -273,7 +280,8 @@ class Studio {
     const res = h('div', { cls: 'ed-list ts-list', style: { display: 'none' } });
     const q = h('input', { type: 'text', placeholder: 'Find objects / materials by name…', style: { flex: 1 } }); q.addEventListener('change', () => this.search(q.value, res));
     B.append(section('Find', !s, h('div', { cls: 'ts-row' }, q, btn('Search', () => this.search(q.value, res))), res));
-    if (!s) { B.append(h('div', { cls: 'ed-hint' }, 'Nothing selected. Click a building, road, vehicle, person, tree, prop, interior wall or the sky.')); this.left.body.scrollTop = sc; return; }
+    if (!s) { if (this.m && this.key) { B.append(h('div', { cls: 'ed-hint' }, this.key.startsWith('um:') ? 'Editing a created material (no object selected).' : 'Editing a saved rule (no object selected) — ' + this.key), this.inspector()); }
+      else B.append(h('div', { cls: 'ed-hint' }, 'Nothing selected. Click a building, road, vehicle, person, tree, prop, interior wall or the sky.')); this.left.body.scrollTop = sc; return; }
     // hierarchy
     const o = s.obj; const crumb = h('div', { cls: 'ts-crumb' }); const chain = []; for (let p = o; p; p = p.parent) chain.unshift(p);
     chain.forEach((p, i) => { if (i) crumb.append(h('i', {}, '›')); crumb.append(h('a', { title: p.type, onclick: () => { this.node = p; this.renderLeft(); } }, p === this.g.scene ? 'scene' : objLabel(p))); });
@@ -289,6 +297,7 @@ class Studio {
       for (const c of meshes) { const m0 = matsOf(c)[0]; ml.append(h('div', { onclick: () => this.select({ obj: c, inst: null, batch: null, idx: 0, point: c.getWorldPosition(new THREE.Vector3()), dist: c.getWorldPosition(new THREE.Vector3()).distanceTo(this.pos) }) }, objLabel(c), h('small', {}, c.type + ' · ' + (m0 ? m0.name || m0.type : '')))); }
       hier.b.append(h('div', { cls: 'ed-hint' }, 'Meshes inside ' + objLabel(this.node) + ' (' + meshes.length + (meshes.length >= 300 ? '+' : '') + '):'), ml); }
     B.append(hier);
+    const xs = this.sizeSection(); if (xs) B.append(xs); // 61st
     // 60th: the clicked part of a building (see partOf) — edit it for every building, for this building only, or the base
     const po = this.partOptions(this.part);
     if (po.length) { const pl = h('div', { cls: 'ed-list', style: { maxHeight: 'none' } });
@@ -305,24 +314,25 @@ class Studio {
     this.left.body.scrollTop = sc;
   }
   inspector() {
-    const m = this.m, k = this.key, r = this.rule(), d = RT.describeKey(k); const u = RT.usersOf(m); const sec = section('Material: ' + (m.name || '(unnamed ' + m.type + ')'), true);
+    const m = this.m, k = this.key, r = this.rule(), d = RT.describeKey(k); const u = RT.usersOf(m); const sec = section(k.startsWith('um:') ? 'Created material: ' + ((r && r.label) || '') : 'Material: ' + (m.name || '(unnamed ' + m.type + ')'), true); const so = this.sel ? this.sel.obj : null;
     const info = h('div', { cls: 'ts-kv' }); const kv = (a, b) => info.append(h('span', {}, a), h('span', { title: String(b) }, String(b)));
     kv('Type', m.type); kv('Saved as', k); kv('Applies to', d.scope); kv('Shared by', u.meshes + ' mesh' + (u.meshes === 1 ? '' : 'es') + ' · ' + u.instances.toLocaleString() + ' drawn instance' + (u.instances === 1 ? '' : 's'));
     const set = RT.materialsFor(k); if (set.length > 1) kv('Key matches', set.length + ' material objects');
     if (m.onBeforeCompile && m.onBeforeCompile.toString() !== 'onBeforeCompile( /* shaderobject, renderer */ ) {}') kv('Shader', 'game shader patch kept (edited in place)');
     sec.b.append(info);
-    if ((u.meshes > 1 || set.length > 1) && !k.startsWith('veh:')) sec.b.append(h('div', { cls: 'ts-warn' }, 'Shared material — edits change every object listed above.' + (RT.canMakeUnique(this.sel.obj) && !k.startsWith('obj:') ? ' Use "Make unique" to edit only this object.' : '')));
+    if ((u.meshes > 1 || set.length > 1) && !k.startsWith('veh:')) sec.b.append(h('div', { cls: 'ts-warn' }, 'Shared material — edits change every object listed above.' + (RT.canMakeUnique(so) && !k.startsWith('obj:') ? ' Use "Make unique" to edit only this object.' : '')));
     if (k.startsWith('veh:')) sec.b.append(h('div', { cls: 'ed-hint' }, 'Vehicle materials are shared by every car in the game (paint colour is per vertex). An edit here gives this vehicle type its own copy — other models keep theirs; cars of this type spawned later get it too.'));
     if (this.partKey) sec.b.append(h('div', { cls: 'ed-hint' }, 'Part material (60th): ' + (SPLIT.has(this.partKey) || !parentKey(this.partKey) ? 'drawn with its own material.' : 'drawn merged with its base material until edited — the first edit gives it its own draw (the affected buildings are regenerated, identical geometry).')));
-    else if (this.sel.obj.isBatchedMesh) sec.b.append(h('div', { cls: 'ed-hint' }, 'Merged city batch (one draw call per material). Click a building part to edit only that kind of part, or one building\'s own copy (Part section).'));
+    else if ((so && so.isBatchedMesh)) sec.b.append(h('div', { cls: 'ed-hint' }, 'Merged city batch (one draw call per material). Click a building part to edit only that kind of part, or one building\'s own copy (Part section).'));
     const err = RT.S.errors.get(k); if (err) sec.b.append(h('div', { cls: 'ts-err' }, '⚠ ' + err));
     const dr = RT.S.driven.get(k); if (dr && dr.length) sec.b.append(h('div', { cls: 'ts-warn' }, 'Changed by the game at runtime (lighting / weather / effects): ' + dr.join(', ') + ' — the game overrides these values.'));
     const bar = h('div', { cls: 'ts-bar' });
-    if (RT.canMakeUnique(this.sel.obj) && !k.startsWith('obj:') && !this.sel.obj.isInstancedMesh) bar.append(btn('Make unique for this object', () => this.makeUnique(), { title: 'Give only this mesh a private copy of the material (the shared one stays unchanged for everything else)' }));
+    if (RT.canMakeUnique(so) && !k.startsWith('obj:') && !k.startsWith('um:') && !(so && so.isInstancedMesh)) bar.append(btn('Make unique for this object', () => this.makeUnique(), { title: 'Give only this mesh a private copy of the material (the shared one stays unchanged for everything else)' }));
     const pk = btn('Hold: original', () => {}, { title: 'Hold to see the game\'s original material in the world' }); pk.addEventListener('pointerdown', () => { this.startPeek(); pk.classList.add('on'); }); for (const ev of ['pointerup', 'pointerleave']) pk.addEventListener(ev, () => { this.endPeek(); pk.classList.remove('on'); });
     bar.append(pk);
     if (r) { bar.append(check('Enabled', r.enabled, (v) => this.edit(v ? 'enable' : 'disable', (x) => { x.enabled = v; })), btn(k.startsWith('obj:') ? 'Remove unique copy' : 'Restore original', () => (k.startsWith('obj:') ? this.dropUnique() : this.edit('restore material', (x) => { x.slots = {}; x.props = {}; }).then(() => { this.renderLeft(); this.renderRight(); })), { cls: 'warn', title: k.startsWith('obj:') ? 'Give the object back its shared material (undoable)' : 'Remove every change on this material (undoable)' })); }
     sec.b.append(bar);
+    sec.b.append(this.materialBar(k, r)); // 61st: texture sets, created materials
     // slots
     const sl = h('div'); this.slotThumbs = [];
     for (const s of RT.SLOTS) { if (!(s.k in m)) continue; const cur = m[s.k]; const sr = r && r.slots[s.k]; const cv = h('canvas', { cls: 'ts-thumb', width: 34, height: 34 }); drawInto(cv, cur); this.slotThumbs.push([cv, s.k]);
@@ -344,6 +354,120 @@ class Studio {
     if (props.children.length) sec.b.append(section('Material settings', true, props));
     return sec;
   }
+  // ------------------------------------------------------------------ 61st: object size
+  sizeTarget() { const s = this.sel; if (!s) return null; const node = this.node && this.node !== s.obj && this.node !== this.g.scene ? this.node : s.obj; const inst = node === s.obj && s.obj.isInstancedMesh && s.inst != null ? s.inst : null; return { node, inst, at: inst != null ? s.poolLoc || null : null }; }
+  sizeSection() {
+    const t = this.sizeTarget(); if (!t) return null; const sec = section('Object size', false);
+    if (!RT.canResize(t.node, t.inst)) { sec.b.append(h('div', { cls: 'ed-hint' }, t.node.isInstancedMesh && t.inst != null && RT.canResize(t.node) ? 'Its instances come and go while you play (flowers, grass, birds, debris): one of them has no lasting identity to resize.' : RT.vehOf(t.node) || t.node.isSkinnedMesh ? 'Vehicles and people are not resized here (their seats, doors, animation and physics are fitted to the model).' : 'Merged city geometry (buildings, walls, roads, pavements): one mesh for a whole city cell, sized by the city generator — it can\'t be scaled per object. Pick a prop, tree, sign, landmark part or interior object, or a group in the hierarchy.')); return sec; }
+    const k = RT.xfKey(t.node, t.inst, t.at); const r = RT.getRule(k); const sc = r ? r.scale : [1, 1, 1]; const uni = sc[0] === sc[1] && sc[1] === sc[2];
+    const loc = t.at; const what = loc ? 'Street prop (pooled part, chunk ' + loc.ci + ' · #' + loc.local + ')' : t.inst != null ? 'Instance #' + t.inst + ' of ' + objLabel(t.node) + ' (' + t.node.count + ' drawn by this mesh)' : t.node === this.sel.obj ? 'Mesh ' + objLabel(t.node) : 'Group ' + objLabel(t.node) + ' (picked in the hierarchy — all its parts)';
+    const set = (label, fn, merge) => this.xfEdit(k, t, label, fn, merge);
+    sec.b.append(h('div', { cls: 'ed-hint' }, what),
+      num('Uniform ×', uni ? sc[0] : 1, { min: 0.05, max: 10, step: 0.01 }, (v) => set('size', (x) => { x.scale = [v, v, v]; }, 'xf:u')),
+      num('Width (X) ×', sc[0], { min: 0.05, max: 10, step: 0.01 }, (v) => set('size', (x) => { x.scale = [v, x.scale[1], x.scale[2]]; }, 'xf:x')),
+      num('Height (Y) ×', sc[1], { min: 0.05, max: 10, step: 0.01 }, (v) => set('size', (x) => { x.scale = [x.scale[0], v, x.scale[2]]; }, 'xf:y')),
+      num('Depth (Z) ×', sc[2], { min: 0.05, max: 10, step: 0.01 }, (v) => set('size', (x) => { x.scale = [x.scale[0], x.scale[1], v]; }, 'xf:z')),
+      check('Hidden (removes it from view)', !!(r && r.hidden), (v) => set(v ? 'hide object' : 'show object', (x) => { x.hidden = v; })),
+      h('div', { cls: 'ts-bar' }, r ? btn('Reset size', () => RT.setRule(k, null, { label: 'reset size' }).then(() => { this.updateBox(); this.renderLeft(); }), { cls: 'warn' }) : null),
+      h('div', { cls: 'ed-hint' }, 'Scaled around the object\'s own origin. Visual only — its collision box is unchanged. Saved, re-applied after a restart and built into the game like the texture rules.'));
+    const err = RT.S.errors.get(k); if (err) sec.b.append(h('div', { cls: 'ts-err' }, '⚠ ' + err));
+    return sec;
+  }
+  async xfEdit(k, t, label, fn, merge) {
+    const cur = RT.getRule(k); const r = cur ? clone(cur) : Object.assign(RT.newRule(k, (t.inst != null ? 'Instance #' + t.inst + ' of ' : '') + objLabel(t.node) + ' · size', { kind: 'xf', object: objLabel(t.node), fp: RT.xfFingerprint(t.node, t.inst, t.at) }), { scale: [1, 1, 1], hidden: false });
+    delete r.__rev; fn(r); const neutral = !r.hidden && r.scale.every((v) => Math.abs(v - 1) < 1e-6);
+    try { await RT.setRule(k, neutral ? null : r, { label, merge }); } catch (e) { toast('Failed: ' + (e.message || e), 3500); } this.updateBox(); if (!merge) this.renderLeft();
+  }
+  // ------------------------------------------------------------------ 61st: linked UV edits, displacement defaults
+  uvEdit(label, fn, merge) {
+    const cur = this.slot; return this.edit(label, (r) => { const ks = new Set([cur]);
+      if (RT.S.settings.linkUV !== false) for (const s of RT.SLOTS) if (s.k in this.m && (this.m[s.k] || (r.slots[s.k] && r.slots[s.k].tex))) ks.add(s.k);
+      for (const k of ks) { if (r.slots[k] && r.slots[k].clear) continue; const sr = r.slots[k] || (r.slots[k] = this.defaultSlot(k)); fn(sr, k); } }, merge);
+  }
+  dispDefaults(r) { const did = []; if (r.props.displacementScale == null) { r.props.displacementScale = 0.03; did.push('scale 0.03 m'); } if (r.props.displacementBias == null) { r.props.displacementBias = -0.015; did.push('bias −0.015 m'); } return did.length ? 'Displacement: ' + did.join(', ') + ' (the three.js default of 1 m would tear the mesh apart) — Material settings' : ''; }
+  // ------------------------------------------------------------------ 61st: texture sets + created materials
+  materialBar(k, r) {
+    const bar = h('div', { cls: 'ts-bar' }); const isUM = k.startsWith('um:');
+    bar.append(btn('Load texture set…', () => this.loadSet(false), { title: 'Pick every file of a PBR set at once (diffuse / albedo, normal GL or DX, roughness or gloss, metallic, AO, ARM / ORM, height / displacement, emission) — sorted into the slots by file name' }));
+    if (!isUM) bar.append(btn('Save as new material', () => this.saveAsMaterial(), { title: 'Turn these slots + settings into a named material of your own that other parts can use' }));
+    if (r && r.use) { const u = RT.getRule(r.use); bar.append(h('span', { cls: 'ts-badge ok' }, 'uses ' + (u ? u.label : r.use)), btn('Edit material', () => this.editMaterial(r.use)), btn('Detach', () => this.edit('detach material', (x) => { delete x.use; }).then(() => { this.renderLeft(); this.renderRight(); }), { title: 'Stop using the created material (back to this part\'s own settings)' })); }
+    if (isUM) { const n = RT.materialUsers(k).length;
+      bar.append(text('Name', (r && r.label) || '', (v) => this.edit('rename material', (x) => { x.label = (v || 'Material').slice(0, 80); }).then(() => this.renderRight())), h('span', { cls: 'ed-hint' }, 'Used by ' + n + ' part(s) — edits here change them all.'),
+        this.umBack ? btn('← Back to the selected object', () => this.backFromMaterial()) : null, btn('Delete material', () => this.deleteMaterial(k), { cls: 'warn' })); }
+    return bar;
+  }
+  async loadSet(asMaterial) {
+    if (!asMaterial && !this.m) { toast('Select an object first'); return; } const files = await this.pickFiles(true); if (!files.length) return;
+    const list = []; for (const f of files) { const cls = RT.classifyTexture(f.name); if (!cls) { list.push({ name: f.name, cls: null }); continue; } try { const r = await RT.importFile(f, { category: asMaterial ? 'Other' : this.guessCategory() }); list.push({ name: f.name, cls, hash: r.hash }); } catch (e) { toast(f.name + ': ' + (e.message || e), 3500); } }
+    return this.applySet(list, asMaterial, files.map((f) => f.name));
+  }
+  // list: [{ name, cls, hash }] (also used by the test with library hashes)
+  async applySet(list, asMaterial, names = []) {
+    const { slots, skipped } = RT.setSlots(list, RT.S.settings.heightAs || 'bump');
+    if (!Object.keys(slots).length) { toast('No file recognised by its name (…_diffuse / _albedo / _normal / _roughness / _metallic / _ao / _arm / _disp / _height …)', 4500); return null; }
+    const fill = (r, m) => { const set = []; for (const [k, v] of Object.entries(slots)) { if (m && !(k in m)) continue; const sr = r.slots[k] && !r.slots[k].clear ? r.slots[k] : (r.slots[k] = m ? this.defaultSlot(k) : { tex: null, maxSize: RT.S.settings.maxSize });
+        sr.tex = v.tex; sr.clear = false; if (v.flipGreen) sr.flipGreen = true; else delete sr.flipGreen; if (v.invert) sr.adjust = { bright: 0, contrast: 0, sat: 0, hue: 0, tint: '#ffffff', invert: true }; else delete sr.adjust; set.push(k); }
+      if (slots.displacementMap && (!m || 'displacementScale' in m)) this.dispDefaults(r);
+      if (slots.roughnessMap && r.props.roughness == null && (!m || 'roughness' in m)) r.props.roughness = 1; // three.js multiplies the map by the setting: 1 = as authored
+      if (slots.metalnessMap && r.props.metalness == null && (!m || 'metalness' in m)) r.props.metalness = 1;
+      return set; };
+    const lab = (k) => RT.SLOTS.find((s) => s.k === k).label + (slots[k].flipGreen ? ' (DirectX → green flipped)' : '') + (slots[k].invert ? ' (gloss → inverted)' : '') + (slots[k].packed ? ' (ARM)' : '');
+    let set = [], adapted = '', key = this.key;
+    if (asMaterial) { key = RT.newMaterialKey(); const r = RT.newRule(key, setName(names) || 'Texture set', { kind: 'um' }); set = fill(r, null); await RT.setRule(key, r, { label: 'new material from texture set' }); this.editMaterial(key); }
+    else await this.edit('load texture set', (r) => { set = fill(r, this.m); if (slots.map) adapted = this.adaptForTexture(r); });
+    toast('Texture set → ' + set.map(lab).join(', ') + (skipped.length ? ' · not recognised: ' + skipped.join(', ') : '') + (adapted ? ' · ' + adapted : ''), 6500);
+    this.renderLeft(); this.renderRight(); return { key, set, skipped };
+  }
+  async newMaterial() { const k = RT.newMaterialKey(); const r = RT.newRule(k, 'Material ' + (RT.createdMaterials().length + 1), { kind: 'um' }); r.props.color = '#ffffff'; await RT.setRule(k, r, { label: 'new material' }); this.editMaterial(k); return k; }
+  editMaterial(k) {
+    const m = RT.materialsFor(k)[0]; if (!m) { toast('Material not found'); return; } this.endPeek();
+    if (this.key && !this.key.startsWith('um:') && this.m) this.umBack = { m: this.m, key: this.key, partKey: this.partKey };
+    this.m = m; this.key = k; this.partKey = null; this.slot = 'map'; this.renderLeft(); this.renderRight();
+  }
+  backFromMaterial() { const b = this.umBack; this.umBack = null; if (!b) return; this.m = b.m; this.key = b.key; this.partKey = b.partKey; this.renderLeft(); this.renderRight(); }
+  async useMaterial(k) {
+    if (this.key && this.key.startsWith('um:')) { if (!this.umBack) { toast('Select an object (or part) first'); return; } this.backFromMaterial(); }
+    if (!this.m || !this.key) { toast('Select an object (or part) first'); return; }
+    await this.edit('use material', (r) => { r.use = k; r.slots = {}; r.props = {}; }); const u = RT.getRule(k); toast('Using “' + (u ? u.label : k) + '” here (edit the material to change every part that uses it)', 3500); this.renderLeft(); this.renderRight();
+  }
+  async saveAsMaterial() {
+    if (!this.m || !this.key) return; const cur = this.rule(); const eff = cur ? RT.effRule(cur) : null; const k = RT.newMaterialKey();
+    const r = RT.newRule(k, (this.labelFor() || 'Material').slice(0, 60), { kind: 'um' }); if (eff) { r.slots = clone(eff.slots); r.props = clone(eff.props); }
+    else { const m = this.m; if (m.color) r.props.color = '#' + m.color.getHexString(); if ('roughness' in m) r.props.roughness = m.roughness; if ('metalness' in m) r.props.metalness = m.metalness; }
+    await RT.setRule(k, r, { label: 'save as material' }); await this.edit('use material', (x) => { x.use = k; x.slots = {}; x.props = {}; });
+    toast('Saved as “' + r.label + '” — this part uses it; use it on others from Materials (created)', 4000); this.renderLeft(); this.renderRight(); return k;
+  }
+  async deleteMaterial(k) {
+    const us = RT.materialUsers(k); if (us.length && !confirm('“' + (RT.getRule(k)?.label || k) + '” is used by ' + us.length + ' part(s). They go back to their own settings. Delete it?')) return;
+    for (const u of us) { const r = clone(RT.getRule(u.k)); delete r.__rev; delete r.use; const empty = !Object.keys(r.slots).length && !Object.keys(r.props).length && !u.k.startsWith('obj:'); await RT.setRule(u.k, empty ? null : r, { label: 'detach material' }); }
+    await RT.setRule(k, null, { label: 'delete material' }); if (this.key === k) { if (this.umBack) this.backFromMaterial(); else { this.m = null; this.key = null; } } this.renderLeft(); this.renderRight();
+  }
+  materialsSec() {
+    const sec = section('Materials (created)', true); const list = RT.createdMaterials();
+    sec.b.append(h('div', { cls: 'ts-bar' }, btn('New material', () => this.newMaterial()), btn('New from texture set…', () => this.loadSet(true), { title: 'Pick the files of a PBR set: a new material with every map in its slot' }), this.m && this.key && !this.key.startsWith('um:') ? btn('Save selected as material', () => this.saveAsMaterial()) : null));
+    if (!list.length) sec.b.append(h('div', { cls: 'ed-hint' }, 'None yet. A created material is your own: base colour / diffuse, normal, roughness, metallic, AO, height / displacement, emission and its settings. Use it on any number of parts — editing it changes them all.'));
+    const target = this.key && !this.key.startsWith('um:') ? this.key : this.umBack ? this.umBack.key : null;
+    for (const it of list) { const pm = RT.materialsFor(it.k)[0]; const cv = h('canvas', { cls: 'ts-thumb', width: 34, height: 34 }); drawInto(cv, pm && pm.map, pm && pm.color ? '#' + pm.color.getHexString() : '');
+      if (pm && !pm.map && pm.color) { const g = cv.getContext('2d'); g.fillStyle = '#' + pm.color.getHexString(); g.fillRect(4, 4, 26, 26); }
+      const nSlots = Object.keys(it.rule.slots || {}).length; const used = target && RT.getRule(target)?.use === it.k;
+      sec.b.append(h('div', { cls: 'ts-slot' + (this.key === it.k ? ' act' : '') }, cv, h('div', { cls: 't' }, h('b', {}, it.name, used ? h('span', { cls: 'ts-badge ok' }, 'on selection') : null), h('small', {}, it.users + ' part(s) · ' + nSlots + ' map(s)')),
+        btn('Edit', () => this.editMaterial(it.k)), target && !used ? btn('Use', () => this.useMaterial(it.k), { title: 'Use it on the selected part / material' }) : null)); }
+    return sec;
+  }
+  editedList() {
+    const S = RT.S; const keys = Object.keys(S.manifest.rules); const sec = section('Edited (' + keys.length + ')', false); if (!keys.length) { sec.b.append(h('div', { cls: 'ed-hint' }, 'Nothing edited yet.')); return sec; }
+    const kind = (k) => ({ mat: 'city material', veh: 'vehicle', name: 'named material', sig: 'material', obj: 'unique copy', um: 'created material', xf: 'object size' })[k.split(':')[0]] || '';
+    const l = h('div', { cls: 'ed-list', style: { maxHeight: '180px' } });
+    for (const k of keys) { const r = S.manifest.rules[k]; l.append(h('div', { title: k }, (r.enabled === false ? '(off) ' : '') + r.label + (r.hidden ? ' — hidden' : '') + (r.props && r.props.visible === false ? ' — surfaces removed' : ''), h('small', {}, kind(k)),
+      btn('Edit', (e) => { e.stopPropagation(); this.editRule(k); }), btn('↺', (e) => { e.stopPropagation(); RT.setRule(k, null, { label: 'restore ' + r.label }).then(() => { if (this.key === k) this.select(null); this.renderLeft(); this.renderRight(); }); }, { title: 'Restore (undo: Ctrl+Z)' }))); }
+    sec.b.append(h('div', { cls: 'ed-hint' }, 'Every saved rule — also the ones you can no longer click (removed surfaces, hidden objects).'), l); return sec;
+  }
+  editRule(k) {
+    if (k.startsWith('um:')) { this.editMaterial(k); return; }
+    if (k.startsWith('xf:')) { const st = RT.xfState(k); if (!st || (st.part && st.inst == null)) { toast('That object is not in the scene right now (it is resized when it streams in)'); return; } const p = st.obj.getWorldPosition(new THREE.Vector3()); this.select({ obj: st.obj, inst: st.inst, batch: null, idx: 0, point: p, dist: p.distanceTo(this.pos) }); this.node = st.obj; this.renderLeft(); return; }
+    const m = k.startsWith('mat:') ? ensureMat(k.slice(4)) : RT.materialsFor(k)[0]; if (!m) { toast('Not in the scene right now (applies when it streams in)'); return; }
+    this.select(null); this.m = m; this.key = k; this.partKey = k.startsWith('mat:') ? k.slice(4) : null; const avail = RT.SLOTS.filter((s) => s.k in m); if (!avail.find((s) => s.k === this.slot)) this.slot = avail[0] ? avail[0].k : 'map'; this.renderLeft(); this.renderRight();
+  }
   async makeUnique() {
     const o = this.sel.obj, i = this.sel.idx; const shared = this.rule(); const k = RT.makeUnique(o, i); const ms = matsOf(o); this.m = ms[i]; this.key = k;
     const r = RT.newRule(k, this.labelFor(), this.targetFor()); if (shared) { r.slots = clone(shared.slots); r.props = clone(shared.props); } r.unique = true;
@@ -360,7 +484,7 @@ class Studio {
   // ------------------------------------------------------------------ right window
   renderRight() {
     if (!this.rightBody) return; const sc = this.right.body.scrollTop; const B = this.rightBody; B.replaceChildren();
-    B.append(this.slotEditor()); this.libSec = section('Texture library', true); B.append(this.libSec); this.renderLibrary(); B.append(this.storage()); this.drawPreviews(); this.right.body.scrollTop = sc;
+    B.append(this.slotEditor()); this.libSec = section('Texture library', true); B.append(this.libSec); this.renderLibrary(); B.append(this.materialsSec()); B.append(this.storage()); this.drawPreviews(); this.right.body.scrollTop = sc;
   }
   slotEditor() {
     const m = this.m; const sec = section('Slot editor' + (m ? ' — ' + RT.SLOTS.find((s) => s.k === this.slot).label : ''), true);
@@ -377,16 +501,21 @@ class Studio {
     sec.b.append(bar);
     const has = (sr && (sr.tex || (!sr.clear && orig))) || (!sr && orig); if (!has) { sec.b.append(h('div', { cls: 'ed-hint' }, 'The slot is empty — replace it from a file or the library to edit tiling and colour.')); return sec; }
     const cur = sr || this.defaultSlot(this.slot); const lib = sr && sr.tex ? RT.S.manifest.textures[sr.tex] : null; const comp = lib && RT.COMPRESSED.has(lib.ext);
+    if (this.slot === 'displacementMap') { const g = this.sel && this.sel.obj.geometry; const vc = g && g.attributes && g.attributes.position ? g.attributes.position.count : 0; sec.b.append(h('div', { cls: 'ts-warn' }, 'Displacement moves the vertices along their normals (scale / bias in Material settings). It only shows on meshes with many vertices' + (vc ? ' (this mesh: ' + vc.toLocaleString() + ')' : '') + ' — on the city\'s flat walls and roads use Height / Bump, which gives the same relief per pixel at no geometry cost.')); }
+    if (this.slot === 'bumpMap') sec.b.append(h('div', { cls: 'ed-hint' }, 'Height / bump: per-pixel relief from a grey height (or displacement) image — strength in Material settings. Cheap: no extra geometry, one texture read.'));
+    const d0 = this.defaultSlot(this.slot); const br = d0.repeat || [1, 1]; const tsz = cur.repeat ? br[0] / (cur.repeat[0] || 1) : 1;
     const tr = section('UV transform (keeps the mesh UVs)', true,
-      num('Tiling X', cur.repeat ? cur.repeat[0] : 1, { min: 0.05, max: 16, step: 0.01 }, (v) => this.slotEdit('tiling', (s) => { s.repeat = [v, (s.repeat || [1, 1])[1]]; }, 'tile')),
-      num('Tiling Y', cur.repeat ? cur.repeat[1] : 1, { min: 0.05, max: 16, step: 0.01 }, (v) => this.slotEdit('tiling', (s) => { s.repeat = [(s.repeat || [1, 1])[0], v]; }, 'tile')),
-      num('Offset X', cur.offset ? cur.offset[0] : 0, { min: -1, max: 1, step: 0.005 }, (v) => this.slotEdit('offset', (s) => { s.offset = [v, (s.offset || [0, 0])[1]]; }, 'off')),
-      num('Offset Y', cur.offset ? cur.offset[1] : 0, { min: -1, max: 1, step: 0.005 }, (v) => this.slotEdit('offset', (s) => { s.offset = [(s.offset || [0, 0])[0], v]; }, 'off')),
-      num('Rotation °', cur.rotation || 0, { min: -180, max: 180, step: 1 }, (v) => this.slotEdit('rotation', (s) => { s.rotation = v; }, 'rot')),
-      select('Wrap', [['repeat', 'Repeat'], ['mirror', 'Mirrored repeat'], ['clamp', 'Clamp to edge']], cur.wrap || 'repeat', (v) => this.slotEdit('wrap', (s) => { s.wrap = v; })),
+      num('Texture size ×', +tsz.toFixed(3), { min: 0.05, max: 20, step: 0.01 }, (v) => this.uvEdit('texture size', (s, sk) => { const d = this.defaultSlot(sk); const b2 = d.repeat || [1, 1]; s.repeat = [b2[0] / v, b2[1] / v]; }, 'tsize')),
+      check('Link tiling / offset / rotation across all slots (keeps a texture set aligned)', RT.S.settings.linkUV !== false, (v) => { RT.S.settings.linkUV = v; RT.saveSettings(); }),
+      num('Tiling X', cur.repeat ? cur.repeat[0] : 1, { min: 0.05, max: 16, step: 0.01 }, (v) => this.uvEdit('tiling', (s) => { s.repeat = [v, (s.repeat || [1, 1])[1]]; }, 'tile')),
+      num('Tiling Y', cur.repeat ? cur.repeat[1] : 1, { min: 0.05, max: 16, step: 0.01 }, (v) => this.uvEdit('tiling', (s) => { s.repeat = [(s.repeat || [1, 1])[0], v]; }, 'tile')),
+      num('Offset X', cur.offset ? cur.offset[0] : 0, { min: -1, max: 1, step: 0.005 }, (v) => this.uvEdit('offset', (s) => { s.offset = [v, (s.offset || [0, 0])[1]]; }, 'off')),
+      num('Offset Y', cur.offset ? cur.offset[1] : 0, { min: -1, max: 1, step: 0.005 }, (v) => this.uvEdit('offset', (s) => { s.offset = [(s.offset || [0, 0])[0], v]; }, 'off')),
+      num('Rotation °', cur.rotation || 0, { min: -180, max: 180, step: 1 }, (v) => this.uvEdit('rotation', (s) => { s.rotation = v; }, 'rot')),
+      select('Wrap', [['repeat', 'Repeat'], ['mirror', 'Mirrored repeat'], ['clamp', 'Clamp to edge']], cur.wrap || 'repeat', (v) => this.uvEdit('wrap', (s) => { s.wrap = v; })),
       check('Flip vertically', !!cur.flipV, (v) => this.slotEdit('flip', (s) => { s.flipV = v; })),
       this.slot === 'normalMap' ? check('Flip green (DirectX normal map)', !!cur.flipGreen, (v) => this.slotEdit('flip green', (s) => { s.flipGreen = v; })) : null,
-      btn('Reset transform to original', () => this.slotEdit('reset transform', (s) => { const d = this.defaultSlot(this.slot); s.repeat = d.repeat; s.offset = d.offset; s.rotation = d.rotation; s.wrap = d.wrap; }).then(() => this.renderRight())));
+      btn('Reset transform to original', () => this.uvEdit('reset transform', (s, sk) => { const d = this.defaultSlot(sk); s.repeat = d.repeat; s.offset = d.offset; s.rotation = d.rotation; s.wrap = d.wrap; }).then(() => this.renderRight())));
     sec.b.append(tr);
     if (comp) sec.b.append(h('div', { cls: 'ed-hint' }, lib.ext.toUpperCase() + ' is GPU-compressed: used at its own resolution, no colour adjustment (re-encode the source instead).'));
     else {
@@ -431,6 +560,7 @@ class Studio {
     D.append(section('Selected: ' + t.name, true, text('Name', t.name, (v) => RT.updateTexture(hh, { name: v.slice(0, 120) || t.name })), select('Category', RT.CATEGORIES, t.category, (v) => RT.updateTexture(hh, { category: v })),
       text('Tags', t.tags.join(', '), (v) => RT.updateTexture(hh, { tags: v.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 12) })), info,
       h('div', { cls: 'ed-hint' }, as.length ? 'Assigned to ' + as.length + ' slot(s):' : 'Not assigned yet.'), as.length ? al : null,
+      as.length && Object.keys(RT.S.manifest.textures).length > 1 ? select('Replace everywhere with', [['', '— pick a library texture —'], ...Object.entries(RT.S.manifest.textures).filter(([x]) => x !== hh).map(([x, tt]) => [x, tt.name])], '', async (v) => { if (!v) return; try { const n = await RT.replaceTextureEverywhere(hh, v); toast('Replaced in ' + n + ' rule(s) (undo: Ctrl+Z)'); this.libSel = v; this.renderLeft(); this.renderRight(); } catch (e) { toast(e.message || String(e), 3000); } }) : null,
       h('div', { cls: 'ts-bar' }, this.m ? btn('Apply to ' + (RT.SLOTS.find((s) => s.k === this.slot)?.label || this.slot), () => this.assign(hh)) : null,
         btn('Remove from library', async () => { try { await RT.removeTexture(hh); this.libSel = null; toast('Removed (file moved to texture-pack/trash in the project folder)'); this.renderRight(); } catch (e) { toast(e.message || String(e), 3000); } }, { cls: 'warn', title: as.length ? 'Clear its assignments first' : 'Remove it from the library' }))));
   }
@@ -443,14 +573,16 @@ class Studio {
     const S = RT.S; const be = S.backend; const sec = section('Project · storage', true);
     const kv = h('div', { cls: 'ts-kv' }); const add = (a, b) => kv.append(h('span', {}, a), h('span', { title: String(b) }, String(b)));
     add('Stored in', be ? be.label : 'none'); if (be && be.folder) add('Folder', be.folder); if (be && be.kind === 'idb') add('Persistence', be.persisted ? 'granted by the browser' : 'best effort (the browser may evict it under storage pressure) — export a pack to keep a copy');
-    add('Rules', Object.keys(S.manifest.rules).length + ' material(s) edited'); add('Manifest', 'v' + S.manifest.version + (S.manifest.modified ? ' · ' + S.manifest.modified.slice(0, 19).replace('T', ' ') : ''));
+    add('Rules', Object.keys(S.manifest.rules).length + ' rule(s) (materials, created materials, object sizes)'); add('Manifest', 'v' + S.manifest.version + (S.manifest.modified ? ' · ' + S.manifest.modified.slice(0, 19).replace('T', ' ') : ''));
     sec.b.append(kv, this.statusEl, h('div', { cls: 'ed-hint' }, 'Picked files are copied into storage (content-hashed) when imported — the game never refers to the file on your computer, so moving or deleting it later changes nothing.'));
     sec.b.append(h('div', { cls: 'ts-bar' }, btn('Save now', () => this.save()), btn('Export pack (.zip)', () => this.exportPack(), { title: 'manifest.json + every library texture — unzip into texture-pack/ or upload to your asset host' }), btn('Export manifest (.json)', () => download('colombo-textures.json', JSON.stringify(RT.exportManifest(false), null, 1)), { title: 'Rules + library index only (textures come from the asset base URL)' })),
       h('div', { cls: 'ts-bar' }, btn('Import (merge)…', () => this.importPack('merge'), { title: 'Add a pack / manifest: its rules replace the same materials, others stay' }), btn('Import (replace)…', () => this.importPack('replace'), { cls: 'warn', title: 'Use only the imported rules (undoable)' })));
+    sec.b.append(this.editedList());
     sec.b.append(text('Asset base URL', S.manifest.assetBase, (v) => { RT.setAssetBase(v); toast(v ? 'Missing textures load from ' + v : 'Asset base URL cleared'); }), h('div', { cls: 'ed-hint' }, 'Optional external hosting: textures not in local storage are fetched from <URL>/<hash>.<ext> (the host must allow CORS).'));
     this.meter = h('i'); this.meterTxt = h('div', { cls: 'ed-hint' });
     sec.b.append(section('Performance · settings', false, h('div', { cls: 'ts-meter' }, this.meter), this.meterTxt,
       select('Default max size', [128, 256, 512, 1024, 2048].map((n) => [n, n + ' px']), S.settings.maxSize, (v) => { S.settings.maxSize = +v; RT.saveSettings(); }),
+      select('Height / displacement maps of a texture set go to', [['bump', 'Height / Bump (per-pixel relief — recommended)'], ['displacement', 'Displacement (moves vertices)'], ['both', 'Both']], S.settings.heightAs || 'bump', (v) => { S.settings.heightAs = v; RT.saveSettings(); }),
       num('Texture memory budget (MB)', S.settings.budgetMB, { min: 16, max: 1024, step: 8 }, (v) => { S.settings.budgetMB = Math.round(v); RT.saveSettings(); this.renderStatus(); })));
     sec.b.append(h('div', { cls: 'ts-bar' }, check('Replacements on (untick to compare with the original game)', S.enabled, (v) => RT.setEnabled(v)),
       btn('Restore all…', async () => { if (!confirm('Restore every edited material to the original game textures? (Undo brings them back.)')) return; const n = await RT.restoreAll(); toast(n + ' material(s) restored'); this.renderLeft(); this.renderRight(); }, { cls: 'warn' }), btn('Close studio', () => this.close())));
