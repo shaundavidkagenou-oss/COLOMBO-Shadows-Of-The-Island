@@ -52,8 +52,11 @@ export function tidyWalls(plan) {
       if (oax === ax) { const same = ax ? Math.abs(o.z0 - w.z0) < 0.02 && Math.abs(o.z1 - w.z1) < 0.02 : Math.abs(o.x0 - w.x0) < 0.02 && Math.abs(o.x1 - w.x1) < 0.02; if (!same) continue;
         const [o0, o1] = ax ? [o.x0, o.x1] : [o.z0, o.z1]; if (Math.abs(o1 - w0) < 0.02 || (o0 < w0 && o1 > w0)) { w.e0 = w.e0 || 'abut'; st.abut++; } if (Math.abs(o0 - w1) < 0.02 || (o0 < w1 && o1 > w1)) { w.e1 = w.e1 || 'abut'; st.abut++; } continue; }
       if (!ovl(w, o, -0.005)) continue;
-      // perpendicular: the z-running run gives way to the x-running one (consistent, so a corner is never drawn twice)
-      if (ax) continue; const [o0, o1] = [o.z0, o.z1];
+      // perpendicular: at a corner the z-running run gives way to the x-running one (consistent, so a corner is never drawn
+      // twice); at a T (a run ending against the side of another, mid-span) the ending run gives way
+      const [o0, o1] = ax ? [o.x0, o.x1] : [o.z0, o.z1]; const [p0, p1] = ax ? [o.z0, o.z1] : [o.x0, o.x1]; const [t0, t1] = ax ? [w.z0, w.z1] : [w.x0, w.x1];
+      const oEnds = (p0 >= t0 - 0.02 && p0 <= t1 + 0.02) || (p1 >= t0 - 0.02 && p1 <= t1 + 0.02); // the other run ends inside this one's thickness
+      if (ax && oEnds) continue; // corner (both end here): the z-running one is flagged when it is visited; a T with the other ending: likewise
       if (w0 >= o0 - 0.02 && w0 <= o1 + 0.02) { w.e0 = 'under'; st.corner++; } if (w1 >= o0 - 0.02 && w1 <= o1 + 0.02) { w.e1 = 'under'; st.corner++; } } }
   plan.wallTidy = st; return st;
 }
@@ -111,3 +114,17 @@ export function walkLineDist(x, z) {
 }
 // the clearance a trunk of radius r needs from a walking line
 export const walkNeed = (r) => r + 0.32 + 0.12;
+// the smallest distance from a box to any walking line near it
+export function walkBoxGap(x0, x1, z0, z1) { walkLineDist(x0, z0); let m = 1e9; const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, R = Math.max(x1 - x0, z1 - z0) / 2 + 4;
+  for (let i = Math.floor((cx - R) / 16); i <= Math.floor((cx + R) / 16); i++) for (let j = Math.floor((cz - R) / 16); j <= Math.floor((cz + R) / 16); j++) for (const s of WL.get(i * 100003 + j) || []) {
+    const n = Math.max(2, Math.ceil(Math.hypot(s[2] - s[0], s[3] - s[1]) / 0.1)); for (let k = 0; k <= n; k++) { const x = s[0] + (s[2] - s[0]) * k / n, z = s[1] + (s[3] - s[1]) * k / n; if (Math.abs(x - cx) > R || Math.abs(z - cz) > R) continue;
+      const g = Math.hypot(Math.max(x0 - x, 0, x - x1), Math.max(z0 - z, 0, z - z1)); if (g < m) m = g; } }
+  return m; }
+// head-room corridors over the walking lines near (x, z): [x0, x1, z0, z1, top] boxes (the crown fit keeps leaves out of them
+// below 2.15 m — people walk under the street trees, not through their foliage). Axis-aligned lines only (all but a few links).
+export function walkBoxes(x, z, R) { walkLineDist(x, z); const out = []; const seen = new Set();
+  for (let i = Math.floor((x - R) / 16); i <= Math.floor((x + R) / 16); i++) for (let j = Math.floor((z - R) / 16); j <= Math.floor((z + R) / 16); j++) for (const s of WL.get(i * 100003 + j) || []) {
+    if (seen.has(s)) continue; seen.add(s); const x0 = Math.min(s[0], s[2]), x1 = Math.max(s[0], s[2]), z0 = Math.min(s[1], s[3]), z1 = Math.max(s[1], s[3]);
+    if (x1 - x0 > 0.3 && z1 - z0 > 0.3) continue; if (x1 < x - R || x0 > x + R || z1 < z - R || z0 > z + R) continue;
+    out.push([x0 - 0.45, x1 + 0.45, z0 - 0.45, z1 + 0.45, 2.15]); }
+  return out; }

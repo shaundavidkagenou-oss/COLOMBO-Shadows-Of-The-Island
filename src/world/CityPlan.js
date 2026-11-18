@@ -6,7 +6,7 @@ import { onParkFeature, parkColliders, parkLamps, PARK, BAT_TREES, PLAY_ITEMS, P
 import { SIGNS, SHOP_ROWS } from '../gfx/Textures.js';
 import { crownPoints } from './TreeShapes.js';
 import { greenTrees, greenPlants } from './Greenery.js';
-import { tidyWalls, clearWalkLines, walkLineDist, walkNeed } from './MapTidy.js';
+import { tidyWalls, clearWalkLines, walkLineDist, walkNeed, walkBoxGap, walkBoxes } from './MapTidy.js';
 import { fortClearAt, FORT } from './FortStationData.js';
 
 export const CHUNK = 200;
@@ -476,6 +476,7 @@ function fitTreeCrowns() {
     for (let j = cz - 1; j <= cz + 1; j++) for (let i = cx - 1; i <= cx + 1; i++) { if (i < 0 || j < 0 || i >= NCX || j >= NCZ) continue;
       for (const b of plan.byChunk[j * NCX + i].buildings) if (x > b.x0 - R - 1.5 && x < b.x1 + R + 1.5 && z > b.z0 - R - 1.5 && z < b.z1 + R + 1.5) out.push(...(b._vol ||= buildingVolumes(b))); }
     if (R > 0) for (const o of OBST.near(x, z, R + 0.5)) if (o.kind !== 'pole') out.push(obstBox(o));
+    if (R > 0) out.push(...walkBoxes(x, z, R + 0.5)); // 61st: head room over the walking lines
     return out; };
   const trunkClear = (x, z, tt) => !L.isWater(x, z) && !L.roadAt(x, z) && !onRailReserve(x, z) && !inSchool(x, z) && near(x, z, 0).every((v) => Math.hypot(Math.max(v[0] - x, 0, x - v[1]), Math.max(v[2] - z, 0, z - v[3])) >= 1.2) && !trunkHit(x, z, tt) && walkLineDist(x, z)[0] >= walkNeed(treeTrunkR(tt)); // 61st: never onto a walking line
   const stats = { ok: 0, turned: 0, pruned: 0, shrunk: 0, moved: 0, dropped: 0 }; const drop = new Set();
@@ -492,7 +493,7 @@ function fitTreeCrowns() {
     f = tryFit(t, t.x, t.z, [1], [s0], YAWS); if (f) { t.yaw = f.yaw; stats.turned++; continue; }
     f = tryFit(t, t.x, t.z, [0.85, 0.72, 0.6], [s0], YAWS); if (f) { t.yaw = f.yaw; t.sq = f.sq; stats.pruned++; continue; }
     f = tryFit(t, t.x, t.z, [1, 0.8, 0.62, 0.5], [s0 * 0.85, Math.max(0.55, s0 * 0.7)], YAWS); if (f) { Object.assign(t, { yaw: f.yaw, sq: f.sq, s: f.s }); stats.shrunk++; continue; }
-    { let sw = null; for (const type of ['jak', 'mango', 'frangipani', 'palm']) { if (type === t.type) continue; const tt = { ...t, type }; const g = tryFit(tt, t.x, t.z, type === 'palm' ? [1, 0.85] : [1, 0.8, 0.62], type === 'palm' ? [1, 1.2, 1.35] : [Math.min(1.1, s0), 0.8], YAWS); if (g) { sw = [type, g]; break; } }
+    { let sw = null; for (const type of ['jak', 'mango', 'frangipani', 'palm']) { if (type === t.type) continue; const tt = { ...t, type }; const g = tryFit(tt, t.x, t.z, type === 'palm' ? [1, 0.85] : [1, 0.8, 0.62], type === 'palm' ? [1, 1.2, 1.35] : [Math.min(1.1, s0), 0.8], YAWS); if (g && walkLineDist(t.x, t.z)[0] < walkNeed(treeTrunkR({ type, s: g.s }))) continue; /* 61st: a thicker trunk than the line allows */ if (g) { sw = [type, g]; break; } }
       if (sw) { t.type = sw[0]; Object.assign(t, { yaw: sw[1].yaw, sq: sw[1].sq, s: sw[1].s }); stats.swapped = (stats.swapped || 0) + 1; continue; } } // a species that fits the spot (tall narrow jak, low mango, small araliya, or a coconut palm whose crown clears the eaves)
     } else stats.trunkInObstacle = (stats.trunkInObstacle || 0) + 1; // trunk inside a wall / shelter / bench: it has to move
     let mv = null;
@@ -534,6 +535,15 @@ export function generatePlan() {
       if (!L.isWater(x, z) && !L.roadAt(x, z)) { const p = addProp('signal', x, z, sx > 0 ? (sz > 0 ? 0 : Math.PI / 2) : (sz > 0 ? -Math.PI / 2 : Math.PI), { node: n.id }); plan.colliders.push((p.col = { x0: x - 0.15, x1: x + 0.15, z0: z - 0.15, z1: z + 0.15, h: 4, kind: 'pole', brk: p })); }
     }
   }
+  // 61st: a street lamp could stand 0.3 m from a traffic-signal pole at the junction corner (two poles through each other):
+  // the lamp steps 1.6 m along its kerb, away from the junction
+  { const sigs = plan.props.filter((p) => p.type === 'signal'); let n = 0;
+    for (const p of plan.props) { if (p.type !== 'lamp' && p.type !== 'lampHeritage') continue; const sg = sigs.find((q) => Math.abs(q.x - p.x) < 1.2 && Math.abs(q.z - p.z) < 1.2); if (!sg) continue;
+      const nd = L.nodes[sg.node]; const alongXr = Math.abs(Math.sin(p.rot)) < 0.5; // arm across the road: the kerb runs along x for rot 0 / π
+      const dx = alongXr ? Math.sign(p.x - nd.x) * 1.6 : 0, dz = alongXr ? 0 : Math.sign(p.z - nd.z) * 1.6; const x = p.x + dx, z = p.z + dz;
+      if (L.roadAt(x, z) || L.isWater(x, z)) continue; const c0 = chunkIndex(p.x, p.z); p.x = x; p.z = z; if (p.col) { p.col.x0 += dx; p.col.x1 += dx; p.col.z0 += dz; p.col.z1 += dz; }
+      const c1 = chunkIndex(x, z); if (c1 !== c0) { if (c0 >= 0) plan.byChunk[c0].props = plan.byChunk[c0].props.filter((q) => q !== p); if (c1 >= 0) plan.byChunk[c1].props.push(p); } n++; }
+    plan.lampSignalFix = n; }
   // Galle Face Green: promenade palms, benches, food carts
   for (let z = -640; z < -250; z += 14) {
     const cx = L.coastX(z) + 16; addTree('palm', cx + rng.range(-1, 1), z, rng.range(0.9, 1.25));
@@ -563,8 +573,12 @@ export function generatePlan() {
   for (const pn of L.pedNodes) if (hash2(pn.id, 77) < 0.12) addPOI('chat', pn.x + (hash2(pn.id, 1) - 0.5) * 2, pn.z + (hash2(pn.id, 2) - 0.5) * 2, 0, {});
   // small Buddha shrines at a few junctions (glass-fronted, as found across Colombo)
   for (const n of L.nodes) if (n.segs.length === 3 && hash2(n.i, n.j, 55) < 0.05) {
-    const x = n.x + (n.hwV + 2.2) * (hash2(n.i, 1) < 0.5 ? -1 : 1), z = n.z + (n.hwH + 2.2) * (hash2(n.j, 2) < 0.5 ? -1 : 1);
-    if (!L.isWater(x, z) && !L.roadAt(x, z) && !L.zoneAt(x, z, 2)) { addProp('shrine', x, z, Math.atan2(n.x - x, n.z - z), {}); plan.colliders.push({ x0: x - 0.8, x1: x + 0.8, z0: z - 0.8, z1: z + 0.8, h: 2.8, kind: 'shrine' }); }
+    const x0 = n.x + (n.hwV + 2.2) * (hash2(n.i, 1) < 0.5 ? -1 : 1), z0 = n.z + (n.hwH + 2.2) * (hash2(n.j, 2) < 0.5 ? -1 : 1);
+    // 61st: the corner spot often stood right on the pavement's walking line (people walked through the shrine): the nearest
+    // spot within 6 m that clears every walking line, the carriageway and anything solid; none → no shrine at this junction
+    const okAt = (x, z) => !L.isWater(x, z) && !L.zoneAt(x, z, 2) && [[-0.8, -0.8], [0.8, -0.8], [-0.8, 0.8], [0.8, 0.8], [0, 0]].every(([dx, dz]) => !L.roadAt(x + dx, z + dz)) && walkBoxGap(x - 0.8, x + 0.8, z - 0.8, z + 0.8) >= 0.4 && !plan.colliders.some((c) => c.x1 > x - 1.0 && c.x0 < x + 1.0 && c.z1 > z - 1.0 && c.z0 < z + 1.0);
+    let x = null, z = null; { const cand = []; for (let dx = -6; dx <= 6.001; dx += 0.25) for (let dz = -6; dz <= 6.001; dz += 0.25) cand.push([dx * dx + dz * dz, x0 + dx, z0 + dz]); cand.sort((a, b) => a[0] - b[0]); for (const [, cx, cz] of cand) if (okAt(cx, cz)) { x = cx; z = cz; break; } }
+    if (x !== null) { addProp('shrine', x, z, Math.atan2(n.x - x, n.z - z), {}); plan.colliders.push({ x0: x - 0.8, x1: x + 0.8, z0: z - 0.8, z1: z + 0.8, h: 2.8, kind: 'shrine' }); }
   }
   placeStalls(); // market stalls onto the pavement, against their shops (after all the street furniture: poles, signals, shrines)
   // story shops: give the nearest suitable shophouse the mission sign and record a frontage point
