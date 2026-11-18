@@ -88,6 +88,9 @@ export function holdDoor(d) { if (d) d.holdT = CLOCK; } // someone's hand is on 
 export function doorHeld(d) { return closers.has(d) || drivers.has(d) || CLOCK - (d.holdT ?? -9) < 0.25; }
 export function freeDoorNow(v, d) { if (d && !d.gone && !d.slide && !d.leaf) { OPEN.set(d, v); d.holdT = -9; } } // a crash popped the latch
 export function _doorTesting() { return { OPEN, clock: () => CLOCK }; }
+// 66th: a pooled police car going back to the pool — every door shut on its latch, no closer / driver / free-door physics
+// left on it, folded back into the body (torn-off doors are refitted by VehicleDamage.repair first)
+export function resetDoors(v) { const ud = v.mesh.userData; for (const d of ud.doors || []) { closers.delete(d); drivers.delete(d); OPEN.delete(d); d.ang = 0; d.vel = 0; d.holdT = -9; d.strapW = 0; poseDoor(d); if (d.live && !d.gone) setDoorLive(ud, d, false); } }
 const AIR = 0.05, FRICTION = 1.6, TEAR_W = 4.8, PIN_A = 16; // + the sustained strap load the hinges hold (rad/s²: reversing at ~68 km/h) // air (rad/s² per (m/s)²), hinge friction (1/s), strap hit that tears the hinges (rad/s)
 const gL = new THREE.Vector3(), qI = new THREE.Quaternion();
 function kin(v) { // the car's velocity / acceleration (world, from its positions), smoothed; one update per frame per car

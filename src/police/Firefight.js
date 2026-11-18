@@ -18,6 +18,7 @@
 // torches nearest the camera; every other lit torch still shows its bright lens. Beams are clipped at walls.
 import { bloomHotAt } from '../gfx/BloomHot.js';
 import * as THREE from 'three';
+import { THINK } from './AIThrottle.js';
 import { pocketFor, protractFor, protractLFor, elbowPole } from '../combat/Pocket.js';
 import { nightLight } from '../gfx/LightSets.js';
 import { buildT56 } from '../combat/WeaponModels.js';
@@ -70,9 +71,15 @@ export class Firefight {
     const col = this.g.collision; if (col.raycast(ax, ay, az, bx, by, bz, 0.05, false, 1.0) < 0.985) return false;
     return !vehicleBlocks(this.vehicles(), ax, ay, az, bx, by, bz, skipA, skipB);
   }
-  // can officer o see the suspect right now? (throttled; cached on o.sees)
+  // can officer o see the suspect? In play the answer is the cached o.sees, refreshed by PoliceResponse's rotating sight
+  // queue (66th: at most SIGHT.perFrame checks per frame for the whole force); dt = 0 checks right now (tools / tests)
   sees(o, dt = 0) {
-    o.seeT = (o.seeT || 0) - dt; if (o.seeT > 0 && dt > 0) return !!o.sees; o.seeT = 0.12 + Math.random() * 0.06;
+    if (o.mode !== 'foot' || this.g.indoor) return (o.sees = false);
+    if (dt === 0) { this.p.stats && this.p.stats.sight && this.p.stats.sight.forced++; return this.look(o); }
+    return !!o.sees;
+  }
+  // the check itself: range (night / rain / crouching), field of view, then rays against walls and vehicle bodies
+  look(o) {
     const g = this.g; if (g.indoor || o.mode !== 'foot') return (o.sees = false);
     const tp = this.targetPoint(); const P = g.player; const lv = this.p.stars(); const A = g.atmos;
     const dx = tp.x - o.x, dz = tp.z - o.z, d = Math.hypot(dx, dz);
@@ -148,13 +155,13 @@ export class Firefight {
     if (armed && sees && dK < 6.5) { cb.cover = null; if (A.action === 'cover') A.set(null); this.faceTo(o, tp.x, tp.z, dt, 8); cb.st = 'close'; this.aimFire(o, cb, tp, dt, true); return 0; }
     // pick / keep cover
     const needCover = cb.suppressed > 0 || (armed && dK > 6.5);
-    if (needCover && (!cb.cover || (cb.reT <= 0 && !this.coverHolds(cb.cover, know)))) {
-      cb.reT = 0.7; const prev = cb.cover; cb.cover = this.findCover(o, know, prev);
+    if (needCover && p.t - (cb.findT ?? -9) >= THINK.officer && (!cb.cover || (cb.reT <= 0 && !this.coverHolds(cb.cover, know)))) { // (66th: a search at most every THINK.officer s — with no cover in reach it used to run every frame)
+      cb.reT = 0.7; cb.findT = p.t; const prev = cb.cover; cb.cover = this.findCover(o, know, prev);
       if (cb.cover && cb.cover !== prev) { this.stats.covers++; cb.phase = 'hide'; cb.phaseT = 0.6 + Math.random() * 0.6; p.note && p.note(`officer to cover (${cb.cover.v.police === u ? 'own car' : cb.cover.v.parked ? 'parked car' : 'stopped car'})`); }
       else if (!cb.cover) this.stats.coverBlocked++;
     }
     // occasional flank: the second officer of a unit moves to another car while the first keeps the suspect busy
-    if (armed && cb.cover && u.officers.indexOf(o) === 1 && (cb.flankT -= dt) <= 0) { cb.flankT = 9 + Math.random() * 6; const alt = this.findCover(o, know, cb.cover); if (alt && Math.hypot(alt.x - cb.cover.x, alt.z - cb.cover.z) > 4) { cb.cover = alt; this.stats.flanks++; cb.phase = 'hide'; } }
+    if (armed && cb.cover && u.officers.indexOf(o) === 1 && (cb.flankT -= dt) <= 0) { cb.flankT = 9 + Math.random() * 6; cb.findT = p.t; const alt = this.findCover(o, know, cb.cover); if (alt && Math.hypot(alt.x - cb.cover.x, alt.z - cb.cover.z) > 4) { cb.cover = alt; this.stats.flanks++; cb.phase = 'hide'; } }
     if (cb.cover) {
       const c = cb.cover; const dc = Math.hypot(c.x - o.x, c.z - o.z);
       if (dc > 0.45) { cb.st = 'toCover'; if (A.action === 'cover') A.set(null); const w = this.route(o, c); const sp = p.moveTo(o, w.x, w.z, dc > 2 ? 5.6 : 2.4, dt); if (o.blockedT > 1.5) { cb.cover = null; cb.reT = 0; } return sp; }

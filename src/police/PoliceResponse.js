@@ -37,7 +37,9 @@ import { EMS } from './EMS.js';
 import { BustedCinematic } from './Busted.js';
 import { HOSPITAL } from '../actors/Health.js';
 import { standUpFrom } from '../actors/Ragdoll.js';
-import { chaseAim, rejoinLane, applyPit, roadblockSite, makeSpikeStrip, overStrip, radioLine, compass, catchUpSpeed, straggler } from './Pursuit.js';
+import { chaseAim, rejoinLane, applyPit, roadblockSite, makeSpikeStrip, overStrip, radioLine, compass, catchUpSpeed, straggler, behindBy, aheadSpot } from './Pursuit.js';
+import { UnitPool, crewSeats } from './UnitPool.js';
+import { THINK, SIGHT, thinkTick, pickStalest } from './AIThrottle.js';
 // crew looks cycle through a fixed set (12 police units, 6 ambulances × driver / partner) so their bodies are built once at
 // load (Game.js prewarm) and cached — a squad car arriving mid-chase never stalls a frame building two new people
 export const CREW_LOOKS = { police: 12, ems: 6 };
@@ -57,6 +59,9 @@ export const POLICE_BASES = [
 ];
 export const DISPATCH = { scramble: [3.5, 6.5], gap: [9, 14], edgeK: 1.35, edgeAdd: 160, edgeDelay: 4 };
 export const CHASE_V0 = [9, 12, 19, 23, 26, 28]; // lane cruising speed by level (m/s)
+// 66th: recycling a unit that fell behind (recycleAhead): ≥ dist m away, ≥ behind m behind the suspect, out of view, suspect
+// doing ≥ minSpeed m/s, unit out ≥ minAge s; respawned lo..hi m ahead; at most one every gap s for the whole force
+export const RECYCLE = { dist: 170, behind: 150, lo: 180, hi: 300, minSpeed: 5, minAge: 3, gap: 0.5 };
 export const LOSE_AFTER = (stars) => 5 + stars * 1.5; // seconds out of every unit's sight before a pursuit becomes a search
 export const SEARCH_TIME = (lv) => 32 + lv * 16;
 export const FINE_ON_SPOT = 2500;
@@ -112,6 +117,9 @@ export class PoliceResponse {
     this.queue = []; this.baseState = {}; this.edges = null; this.reason = 'disturbance'; this.stop = null; this.t = 0; this.siren = null; this.waits = []; this.radioCd = 4; this.radioN = 0; this.blockCd = 12;
     Object.assign(this.stats, { intercepts: 0, pits: 0, roadblocks: 0, spikes: 0, flats: 0, recycled: 0, tackles: 0, tackleHits: 0, busted: { grab: 0, tackle: 0, shot: 0 } });
     this.ff = new Firefight(this); this.ems = new EMS(this); this.cine = null; this.bodies = []; this.nav = new FootNav(this.g.collision, () => this.T.all());
+    // 66th: pooled units (UnitPool.js), the rotating sight queue and per-unit think timers (AIThrottle.js)
+    this.pool = new UnitPool(this, crewSpec); this.lookers = []; this.lookPick = []; this.frame = 0;
+    Object.assign(this.stats, { recycledAhead: 0, sight: { checks: 0, frames: 0, maxPerFrame: 0, forced: 0 }, thinks: 0, poolWaits: 0 });
   }
   get T() { return this.g.traffic; }
   stars() { return Math.ceil(this.level - 0.01); }
@@ -143,7 +151,7 @@ export class PoliceResponse {
 
   // ------------------------------------------------------------------ main update
   update(dt) {
-    const g = this.g; this.t += dt; this.stateT += dt; this.prompt = ''; this.tickWaits();
+    const g = this.g; this.t += dt; this.stateT += dt; this.prompt = ''; this.tickWaits(); this.frame++; this.pool.update(dt);
     if (this.bodies.length) this.updateBodies(dt);
     if (this.cine) { this.cine.update(dt); this.updateSiren(dt, false); this.ff.update(dt); return; } // BUSTED sequence owns the officers and the camera
     if (g.director.active || this.busy) { this.updateSiren(dt, true); this.ff.update(dt); return; }
@@ -159,8 +167,8 @@ export class PoliceResponse {
   }
   updateGlobal(dt) {
     this.updateQueue(); const want = UNITS_FOR[this.stars()] || 0; const active = this.units.filter((u) => u.task !== 'leave' && !u.patrol);
-    // visibility
-    let seen = false; for (const u of this.units) if (u.task !== 'leave' && this.unitSees(u)) { seen = true; break; }
+    // visibility: at most SIGHT.perFrame line-of-sight checks this frame (the stalest lookers); everyone else answers from cache
+    this.updateSight(); let seen = false; for (const u of this.units) if (u.task !== 'leave' && this.unitSees(u)) { seen = true; break; }
     if (seen && this.level > 0) this.spotted(); else this.seenT += dt;
     switch (this.state) {
       case 'patrol': {
@@ -260,18 +268,38 @@ export class PoliceResponse {
   // does anyone in unit u see the suspect? Officers on foot use their own eyes (Firefight.sees: range, field of view, walls of
   // any height ≥ 1 m and vehicle bodies block, torch beams extend the night range). A crew in the car sees through the
   // windows: shorter range behind, and the same walls / vehicles block the line. mult > 1 = drawn by a gunshot.
+  // Answers from the cached checks (updateSight): an officer on foot from his own eyes (Firefight.look), a crew in the car
+  // from the car's view (carLook: the line test is cached, the range / field test with this mult is live). mult > 1: gunshot.
   unitSees(u, mult = 1) {
-    const g = this.g; if (g.indoor) return false; const tg = this.target(); const P = g.player; const A = g.atmos;
-    for (const o of u.officers) if (o.mode === 'foot' && this.ff.sees(o, 1e-6)) return true;
-    if (u.v && u.officers.some((o) => o.mode === 'seated')) {
-      const v = u.v; const env = (1 - 0.35 * (A ? A.night : 0)) * (1 - 0.15 * (A && A.w ? A.w.rain : 0)) * (P.crouching && !P.vehicle ? 0.7 : 1) * (tg.v ? 1.25 : 1) * mult;
-      const dx = tg.x - v.x, dz = tg.z - v.z, d = Math.hypot(dx, dz); const c = d > 0.1 ? (Math.sin(v.yaw) * dx + Math.cos(v.yaw) * dz) / d : 1;
-      const R = (46 + this.stars() * 7) * env * (c < -0.3 ? 0.5 : 1); // mirrors only, behind
-      if (d < R) { const ey = (v.y || 0) + 1.25; const ty = (tg.y || 0) + (tg.v ? 1.1 : P.crouching ? 0.8 : 1.3);
-        if (this.ff.clear(v.x, ey, v.z, tg.x, ty, tg.z, v, tg.v || null)) return true;
-        if (!tg.v && !P.crouching && this.ff.clear(v.x, ey, v.z, tg.x, (tg.y || 0) + 1.62, tg.z, v, null)) return true; }
-    }
+    const g = this.g; if (g.indoor) return false;
+    for (const o of u.officers) if (o.mode === 'foot' && o.sees) return true;
+    if (u.v && u.los && u.officers.some((o) => o.mode === 'seated')) { const r = this.carRange(u, mult); return r.d < r.R; }
     return false;
+  }
+  carRange(u, mult = 1) {
+    const g = this.g, tg = this.target(), P = g.player, A = g.atmos, v = u.v;
+    const env = (1 - 0.35 * (A ? A.night : 0)) * (1 - 0.15 * (A && A.w ? A.w.rain : 0)) * (P.crouching && !P.vehicle ? 0.7 : 1) * (tg.v ? 1.25 : 1) * mult;
+    const dx = tg.x - v.x, dz = tg.z - v.z, d = Math.hypot(dx, dz); const c = d > 0.1 ? (Math.sin(v.yaw) * dx + Math.cos(v.yaw) * dz) / d : 1;
+    return { d, R: (46 + this.stars() * 7) * env * (c < -0.3 ? 0.5 : 1), tg }; // mirrors only, behind
+  }
+  // the crew's line of sight from the car (walls ≥ 1 m and vehicle bodies block it): cast only within the widest range a
+  // gunshot gives (× 1.6), so unitSees can apply any mult to the cached result
+  carLook(u) {
+    const P = this.g.player; const v = u.v; const r = this.carRange(u, 1.6), tg = r.tg; u.los = false; if (this.g.indoor || r.d >= r.R) return false;
+    const ey = (v.y || 0) + 1.25; const ty = (tg.y || 0) + (tg.v ? 1.1 : P.crouching ? 0.8 : 1.3);
+    u.los = this.ff.clear(v.x, ey, v.z, tg.x, ty, tg.z, v, tg.v || null) || (!tg.v && !P.crouching && this.ff.clear(v.x, ey, v.z, tg.x, (tg.y || 0) + 1.62, tg.z, v, null));
+    return u.los;
+  }
+  // the rotating sight queue: lookers = every wanted-level crew still in its car + every officer on foot; the stalest
+  // SIGHT.perFrame of them whose last check is ≥ SIGHT.minAge old are checked this frame, the rest keep their result
+  updateSight() {
+    const L = this.lookers; L.length = 0;
+    for (const u of this.units) { if (u.task === 'leave') continue; let seated = false;
+      for (const o of u.officers) { if (o.mode === 'foot') L.push(o); else { if (o.sees) o.sees = false; if (o.mode === 'seated') seated = true; } }
+      if (u.v && seated) L.push(u); else u.los = false; }
+    const pick = pickStalest(L, this.t, SIGHT.perFrame, SIGHT.minAge, this.lookPick);
+    for (const x of pick) { if (x.officers) this.carLook(x); else this.ff.look(x); x.lookAt = this.t; }
+    const S = this.stats.sight; S.checks += pick.length; S.frames++; S.last = pick.length; if (pick.length > S.maxPerFrame) S.maxPerFrame = pick.length;
   }
 
   // ------------------------------------------------------------------ units
@@ -297,11 +325,17 @@ export class PoliceResponse {
   }
   makeUnit(x, z, yaw, piece, s, patrol, jeep, ems = false) {
     const g = this.g, T = this.T, P = g.player; {
-      const tm0 = performance.now(); const type = ems ? 'ambulance' : jeep ? 'policejeep' : 'police'; const v = new Vehicle(type, 3000 + this.seed * 7, g.scene); v.place(x, z, yaw); const tm1 = performance.now();
+      const tm0 = performance.now(); const want = ems ? 'ambulance' : jeep ? 'policejeep' : 'police';
+      // 66th: police cars + crews come out of the pool (built while loading); with the pool in use and empty, no car is built
+      const pe = ems ? null : this.pool.acquire(want, x, z, yaw); if (!pe && !ems && this.pool.ready) { this.stats.poolWaits++; this.note(`no free unit in the pool (${want})`); return null; }
+      const v = pe ? pe.v : new Vehicle(want, 3000 + this.seed * 7, g.scene); const type = v.type; if (!pe) v.place(x, z, yaw); const tm1 = performance.now();
       v.keep = true; v.ai = { pieces: [piece], s, v0: patrol ? 9 : 11, stuck: 0, honkCd: 99, bumped: 0, aggressive: 1.2, emergency: true }; T.extend(v);
       const u = { id: this.seed++, v, officers: [], task: patrol ? 'patrol' : 'idle', patrol, arrived: false, footT: 0, stuckT: 0, planT: 0, goalPt: null, enterT: 0 };
-      v.police = u; const seats = v.mesh.userData.seats; const di = seats.findIndex((q) => q.driver); const pi = seats.map((q, i) => i).filter((i) => i !== di).sort((i, j) => Math.abs(seats[i].z - seats[di].z) - Math.abs(seats[j].z - seats[di].z))[0];
-      for (const [k, si] of [[0, di], [1, pi]]) { if (si === undefined || si < 0) continue; const ch = new Character(crewSpec(u.id, k, ems)); seatCharacter(ch, v, seats[si]); ch.mesh.castShadow = false; const off = { ch, unit: u, seat: seats[si], si, mode: 'seated', x, z, y: v.y, yaw: v.yaw, t: 0, hits: 0, acc: 0 }; if (ems) { off.medic = true; off.noTorch = true; } else this.ff.arm(off); u.officers.push(off); } // every officer carries a T-56 (slung; hidden while seated)
+      v.police = u; const seats = v.mesh.userData.seats; const [di, pi] = crewSeats(seats); u.pooled = !!pe;
+      for (const [k, si] of [[0, di], [1, pi]]) { if (si === undefined || si < 0) continue; const rec = pe && pe.crew[k]; const ch = rec ? rec.ch : new Character(crewSpec(u.id, k, ems)); if (!rec) { seatCharacter(ch, v, seats[si]); ch.mesh.castShadow = false; }
+        const off = { ch, unit: u, k, seat: seats[si], si, mode: 'seated', x, z, y: v.y, yaw: v.yaw, t: 0, hits: 0, acc: 0 }; if (rec) { off.rifle = rec.rifle; off.rp = rec.rp; off.torchM = rec.torchM; }
+        if (ems) { off.medic = true; off.noTorch = true; } else this.ff.arm(off); u.officers.push(off); } // every officer carries a T-56 (slung; hidden while seated) — a pooled officer already has his
+      if (pe) pe.crew = [null, null]; // (the unit owns them while it is out; release hands the survivors back)
       this.syncSeated(u); v.paxPlan = []; T.vehicles.push(v); this.units.push(u);
       { const tm2 = performance.now(), M = this.stats.make || (this.stats.make = { n: 0, veh: 0, crew: 0, vehMax: 0, crewMax: 0 }); M.n++; M.veh += tm1 - tm0; M.crew += tm2 - tm1; M.vehMax = Math.max(M.vehMax, tm1 - tm0); M.crewMax = Math.max(M.crewMax, tm2 - tm1); } // spawn cost (dev stats)
       const dp = Math.hypot(x - P.x, z - P.z); this.stats.spawnMinDist = Math.min(this.stats.spawnMinDist, dp); this.note(`unit ${u.id} (${type}${patrol ? ', patrol' : ''}) spawned ${dp.toFixed(0)} m away`);
@@ -336,7 +370,10 @@ export class PoliceResponse {
     for (const o of u.officers) if (o.mode === 'foot') o.goal = null; this.note(`unit ${u.id} leaving`);
   }
   removeUnit(u) {
-    const T = this.T; this.dropStrip(u); for (const o of u.officers) { if (o.mode !== 'seated') { o.ch.root.parent?.remove(o.ch.root); o.ch.dispose(); } }
+    const T = this.T; this.dropStrip(u);
+    if (u.v && !u.v.player && u.v.poolEntry) { const v = u.v; this.syncSeated(u); const i = T.vehicles.indexOf(v); if (i >= 0) T.vehicles.splice(i, 1); const pi = T.parked.indexOf(v); if (pi >= 0) T.parked.splice(pi, 1);
+      if (this.pool.release(u)) { u.v = null; u.officers = []; this.units = this.units.filter((q) => q !== u); this.civil = this.civil.filter((q) => q !== u); this.note(`unit ${u.id} back in the pool`); if (u.base) { this.release({ id: u.base }); u.base = null; } return; } } // 66th: car + living crew back to the pool, nothing disposed
+    for (const o of u.officers) { if (o.mode !== 'seated') { o.ch.root.parent?.remove(o.ch.root); o.ch.dispose(); } }
     if (u.v && !u.v.player) { const i = T.vehicles.indexOf(u.v); if (i >= 0) T.vehicles.splice(i, 1); const pi = T.parked.indexOf(u.v); if (pi >= 0) T.parked.splice(pi, 1); this.syncSeated(u); T.remove(u.v); }
     else if (u.v) { u.v.police = null; }
     this.units = this.units.filter((q) => q !== u); this.note(`unit ${u.id} removed`); if (u.base) { this.release({ id: u.base }); u.base = null; }
@@ -350,6 +387,9 @@ export class PoliceResponse {
     if (v && v.player) { this.note(`unit ${u.id}: vehicle taken by the player`); v.police = null; v.beacons(false); u.v = null; this.reason = 'stealing a police vehicle'; this.addHeat(1, this.reason, 'Officers saw you take their car.'); }
     const lights = !u.patrol && u.task !== 'leave' && this.level > 0; if (u.v) { u.v.beacons(lights, this.t); u.v.lights = g.atmos.night > 0.4; }
     for (const o of u.officers) this.updateOfficer(o, u, dt);
+    // 66th: the unit's decisions (routes, intercept role / aim, recycling, despawn) 4× a second on its own phase; between
+    // them the car keeps driving on the lane follower / intercept steering toward the latest decision (followChase)
+    { const tdt = thinkTick(u, dt, THINK.unit, u.id, this.t); if (!tdt) { if (u.v && !u.v.player && u.v.ai && u.v.ai.chase) this.followChase(u, tg); return; } dt = tdt; this.stats.thinks++; }
     if (u.task === 'leave') { // drive off / walk off and despawn out of view
       u.leaveT += dt; const allIn = !u.v || this.allSeated(u); if (u.v && allIn) u.v.ai.stopped = false; if (u.v && !allIn) { for (const o of u.officers) if (o.mode === 'foot') { o.mode = 'return'; o.goal = null; } if (u.leaveT < 60) return; }
       const ref = u.v || u.officers[0]; const d = ref ? Math.hypot(ref.x - tg.x, ref.z - tg.z) : 999; if ((d > 140 && !this.inView(ref)) || d > 300 || u.leaveT > 90) this.removeUnit(u); return;
@@ -360,10 +400,11 @@ export class PoliceResponse {
     if (u.task === 'block') { u.blockT = (u.blockT || 0) + dt; if ((dToT > 170 && !this.inView(v)) || u.blockT > 90 || (this.state !== 'pursuing' && u.blockT > 25) || this.level <= 0) this.leave(u); return; }
     if (u.task === 'drive' && this.updateIntercept(u, dt, tg, dToT)) return;
     if (u.task === 'drive') {
-      const st = this.state; u.planT -= dt;
+      const st = this.state; u.planT -= dt; u.age = (u.age || 0) + dt;
+      if (st === 'pursuing' && this.stars() >= 2 && this.recycleAhead(u, tg, dToT)) return; // 66th: > 170 m and > 150 m behind, out of view → straight back in ahead of the suspect
       if (st === 'pursuing' && this.stars() >= 3) { // 3★+: no cruising — a unit that is behind drives faster than the suspect to close the gap
         ai.v0 = catchUpSpeed(this.stars(), tg.v ? Math.abs(tg.v.speed) : 0, dToT, CHASE_V0[this.stars()]);
-        u.minD = Math.min(u.minD ?? 1e9, dToT); u.age = (u.age || 0) + dt;
+        u.minD = Math.min(u.minD ?? 1e9, dToT);
         if ((u.minD < 250 || u.age > 50) && straggler(v, tg, dToT, this.inView(v))) { /* (a car still on its way in from a base is not a straggler) */ this.stats.recycled++; this.note(`unit ${u.id} fell behind, recycled`); this.leave(u); return; } /* topUp sends a fresh car from ahead */
       }
       if (st === 'pursuing' && u.planT <= 0 && this.planFrame !== this.t) { // chase (one unit re-plans per frame: no frame does every car's route at once): aim ~2.5 s ahead of a moving suspect (soft goal, no braking); hard stop only once they have stopped
@@ -428,17 +469,49 @@ export class PoliceResponse {
       if (rejoinLane(this.T, v)) { u.planT = 0; u.goalPt = null; u.stuckT = 0; this.note(`unit ${u.id} back on the road`); return false; }
       const nr = nearestRoad(this.T.drivableSegs, v.x, v.z); if (nr) { ch.ax = nr.px; ch.az = nr.pz; ch.speed = 6; ch.stop = false; ch.blockT = 0; } return true;
     }
-    if (this.seenT > 0.25 && this.lastSeen) { const tp = this.trailAim(v, ch); ch.ax = tp ? tp.x : this.lastSeen.x; ch.az = tp ? tp.z : this.lastSeen.z; ch.speed = Math.max(10, Math.abs(P.speed) + 2); ch.stop = false; ch.contact = false; return true; } // momentarily out of sight: follow the line they took (saw them turn), not a frozen point
+    ch.live = false; if (this.seenT > 0.25 && this.lastSeen) { const tp = this.trailAim(v, ch); ch.ax = tp ? tp.x : this.lastSeen.x; ch.az = tp ? tp.z : this.lastSeen.z; ch.speed = Math.max(10, Math.abs(P.speed) + 2); ch.stop = false; ch.contact = false; return true; } // momentarily out of sight: follow the line they took (saw them turn), not a frozen point
     const aim = chaseAim(ch.role, P, v, lv, ch.t); ch.ax = aim.x; ch.az = aim.z; ch.speed = aim.speed; ch.contact = aim.contact;
     ch.losT = (ch.losT || 0) - dt; if (ch.losT <= 0) { ch.losT = 0.2; ch.blocked = this.lineBlocked(v, aim.x, aim.z); }
-    if (ch.blocked) { const tp = this.trailAim(v, ch); if (tp) { ch.ax = tp.x; ch.az = tp.z; ch.speed = Math.max(aim.speed, Math.abs(P.speed) + 3); ch.contact = false; } } else ch.ti = null; // a building between them (round a corner): follow the suspect's path round it instead of ploughing into the corner
+    ch.live = true; if (ch.blocked) { const tp = this.trailAim(v, ch); if (tp) { ch.live = false; ch.ax = tp.x; ch.az = tp.z; ch.speed = Math.max(aim.speed, Math.abs(P.speed) + 3); ch.contact = false; } } else ch.ti = null; // a building between them (round a corner): follow the suspect's path round it instead of ploughing into the corner
     ch.stop = Math.abs(P.speed) < 1.5 && d < 18; // suspect stopped: pull up beside them, crew out
     if (ch.stop && v.speed < 1) { this.dismount(u, 'chase'); this.say(u.officers[0], 'chase', 'Officer'); return true; }
-    if (ch.role === 'pit' && aim.contact && aim.along < 0 && ch.pitCd <= 0 && Math.abs(P.speed) > 6 && this.touching(v, P)) {
-      applyPit(P, v, aim.lat >= 0 ? 1 : -1); ch.pitCd = 7; this.stats.pits++; this.note(`unit ${u.id} PIT`); this.radio('spun', u, true);
-    }
+    this.tryPit(u, ch, P, aim);
     return true;
   }
+  tryPit(u, ch, P, aim) { const v = u.v;
+    if (ch.role === 'pit' && aim.contact && aim.along < 0 && ch.pitCd <= 0 && Math.abs(P.speed) > 6 && this.touching(v, P)) {
+      applyPit(P, v, aim.lat >= 0 ? 1 : -1); ch.pitCd = 7; this.stats.pits++; this.note(`unit ${u.id} PIT`); this.radio('spun', u, true);
+    } }
+  // 66th: between two decisions an intercepting car steers at the suspect it has in sight: its aim point is recomputed
+  // from the role it was given (chaseAim: a few multiplications, no searches / rays) so the car tracks smoothly; a car
+  // following the trail / last-seen point keeps that point. The PIT contact is tested every frame (it lasts a moment).
+  followChase(u, tg) {
+    const v = u.v, ch = v.ai.chase, P = tg.v; if (!ch || !P || !ch.live || ch.stop) return;
+    const aim = chaseAim(ch.role, P, v, this.stars(), ch.t); ch.ax = aim.x; ch.az = aim.z; ch.speed = aim.speed; ch.contact = aim.contact; this.tryPit(u, ch, P, aim);
+  }
+  // 66th: GTA-style recycling. A unit chasing a moving suspect that has dropped > RECYCLE.dist away and > RECYCLE.behind
+  // behind (along the suspect's direction of travel), with its car out of the camera's view, is not left to trail along: the
+  // same car and crew are put back on the road ahead of the suspect (RECYCLE.lo..hi m ahead on the road they are driving,
+  // on the lane coming toward them, also out of view), and pick up the chase from there. No car is built or destroyed.
+  recycleAhead(u, tg, d) {
+    const v = u.v, P = tg.v; if (!P || Math.abs(P.speed) < RECYCLE.minSpeed || u.patrol || u.task !== 'drive' || !this.allSeated(u) || u.officers.some((o) => o.mode !== 'seated')) return false;
+    if (d < RECYCLE.dist || (u.age || 0) < RECYCLE.minAge || this.t - (this.recycleT ?? -9) < RECYCLE.gap) return false;
+    const h = P.speed >= 0 ? P.yaw : P.yaw + Math.PI; if (behindBy(v, tg, h) < RECYCLE.behind || this.inView(v) || !this.hiddenAt(v.x, v.z, 300)) return false;
+    const T = this.T; const spot = aheadSpot({ segNodes, linePiece, drivable: T.drivable }, nearestRoad(T.drivableSegs, tg.x, tg.z), h, RECYCLE.lo, RECYCLE.hi,
+      (x, z) => Math.hypot(x - tg.x, z - tg.z) >= RECYCLE.lo * 0.8 && this.hiddenAt(x, z, 260) && !T.vehicles.some((o) => o !== v && (o.x - x) ** 2 + (o.z - z) ** 2 < 15 * 15) && !(this.g.player.vehicle && Math.hypot(x - P.x, z - P.z) < 120));
+    this.recycleT = this.t; if (!spot) { this.stats.recycleMiss = (this.stats.recycleMiss || 0) + 1; return false; }
+    const ai = v.ai; const from = { x: v.x, z: v.z }; this.dropStrip(u);
+    v.place(spot.x, spot.z, spot.yaw); v.speed = Math.min(14, Math.max(8, Math.abs(P.speed) * 0.5)); v.vy = 0; v.air = false; delete v._dk; v.sus.r = v.sus.rv = v.sus.h = v.sus.hv = 0;
+    Object.assign(ai, { pieces: [spot.piece], s: spot.s, route: null, goal: null, chase: null, stopped: false, stuck: 0, v0: CHASE_V0[this.stars()] }); T.extend(v);
+    Object.assign(u, { planT: 0, goalPt: null, softGoal: false, stuckT: 0, replans: 0, arrived: false, age: 0, minD: undefined }); // (it keeps its think phase) v.lights = this.g.atmos.night > 0.4;
+    this.stats.recycledAhead++; this.stats.recycled++; this.note(`unit ${u.id} fell ${behindBy({ x: from.x, z: from.z }, tg, h).toFixed(0)} m behind (${d.toFixed(0)} m away), recycled ${spot.dist.toFixed(0)} m ahead`);
+    return true;
+  }
+  // a car-sized spot the player cannot see: outside the camera's view cone (or beyond `far`), or with a building between the
+  // camera and both the bottom and the roof of a car standing there
+  hiddenAt(x, z, far = 260) { const g = this.g, cam = g.camera; const cd = new THREE.Vector3(); cam.getWorldDirection(cd); const dx = x - cam.position.x, dz = z - cam.position.z, dd = Math.hypot(dx, dz) || 1;
+    if (dd > far || (dx * cd.x + dz * cd.z) / dd <= 0.25) return true; const c = g.collision; if (!c.raycast) return false; const y = L.groundY ? L.groundY(x, z) : 0; const p = cam.position;
+    return c.raycast(p.x, p.y, p.z, x, y + 0.6, z, 0.1) < 0.97 && c.raycast(p.x, p.y, p.z, x, y + 2.2, z, 0.1) < 0.97; }
   // the suspect's driven path while units have eyes on it (and a moment after): intercept cars follow it round corners
   recordTrail() {
     const tg = this.target(); if (this.state !== 'pursuing') { if (this.trail && this.trail.length) this.trail = []; return; }
@@ -720,7 +793,7 @@ export class PoliceResponse {
     if (o.losT <= 0) { o.losT = 0.3 + Math.random() * 0.1; o.direct = d0 < 0.6 || N.lineClear(o.x, o.z, tx, tz, N.nearCars(Math.min(o.x, tx) - 3, Math.min(o.z, tz) - 3, Math.max(o.x, tx) + 3, Math.max(o.z, tz) + 3)); if (o.direct) N.stats.direct++; }
     if (!o.direct) {
       const P = o.path; const stale = !P || Math.hypot(P.gx - tx, P.gz - tz) > 1.5 || this.t - P.t > (P.reached ? 2 : 4) || (o.blockedT || 0) > 0.6;
-      if (stale && this.navT !== this.t) { this.navT = this.t; o.path = N.plan(o.x, o.z, tx, tz); o.path.t = this.t; o.path.i = 0; o.blockedT = 0; } // at most one search per frame for the whole force (no frame spikes)
+      if (stale && this.navT !== this.t && (!P || this.t - (o.navAt ?? -9) >= THINK.officer)) { this.navT = this.t; o.navAt = this.t; o.path = N.plan(o.x, o.z, tx, tz); o.path.t = this.t; o.path.i = 0; o.blockedT = 0; this.stats.footPlans = (this.stats.footPlans || 0) + 1; } // at most one search per frame for the whole force (no frame spikes), and (66th) one per officer per THINK.officer s: a moving goal no longer re-plans every frame
       const Q = o.path || { pts: [{ x: tx, z: tz }], i: 0, reached: true, ex: tx, ez: tz }; while (Q.i < Q.pts.length - 1 && Math.hypot(Q.pts[Q.i].x - o.x, Q.pts[Q.i].z - o.z) < (Q.pts[Q.i].vault ? 0.45 : 0.5)) { const w = Q.pts[Q.i]; if (w.vault) { this.startVault(o, w); Q.i++; return 0; } Q.i++; }
       const w = Q.pts[Math.min(Q.i, Q.pts.length - 1)]; if (w) { wx = w.x; wz = w.z; }
       if (!Q.reached && Q.i >= Q.pts.length - 1 && Math.hypot(Q.ex - o.x, Q.ez - o.z) < 0.6) { // as close as anyone on foot can get: hold here, facing the goal

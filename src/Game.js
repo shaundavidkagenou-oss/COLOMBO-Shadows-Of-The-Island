@@ -171,6 +171,9 @@ export class Game {
     this.loot = new Loot(this); // 64th: cash / belongings / weapons dropped by defeated NPCs (world/Loot.js)
     this.vsmoke = new VehicleSmoke(this, Settings.get('quality')); // tyre smoke + exhaust (one draw call, fixed pool)
     this.atmos.update(0.016, new THREE.Vector3(-300, 0, -500), this.camera, 0);
+    // 66th: the police units — squad cars, jeeps and their crews — are built now and kept off the map; wanted levels, patrols
+    // and roadblocks take them from this pool and hand them back (PoliceResponse / UnitPool): nothing is built mid-chase
+    try { await this.police.pool.prepare((k) => progress(0.9 + 0.03 * k, 'Police units'), tick); } catch (e) { console.warn('police pool', e); }
     progress(0.93, 'Compiling shaders'); await tick();
     await bootRuntime(this); // saved animation / NPC edits (src/debug, only loaded when some were saved)
     await bootTextures(this); // 59th: Texture Studio replacements (texture-pack/ or the Studio's saved manifest; nothing is loaded when there are none)
