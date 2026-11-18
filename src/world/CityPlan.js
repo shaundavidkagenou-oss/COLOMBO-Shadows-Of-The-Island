@@ -620,6 +620,9 @@ export function generatePlan() {
     const cols = new Set([...drop].map((p) => p.col).filter(Boolean)); for (const t of dropT) cols.add(t.col);
     for (const c of plan.colliders) if (c.kind !== 'building' && !keptCols.has(c) && inRes((c.x0 + c.x1) / 2, (c.z0 + c.z1) / 2)) cols.add(c);
     plan.props = plan.props.filter((p) => !drop.has(p)); plan.trees = plan.trees.filter((t) => !dropT.has(t)); plan.walls = plan.walls.filter((w) => !dropW.has(w)); plan.colliders = plan.colliders.filter((c) => !cols.has(c));
+    // 61st: a barrier run whose sections were all dropped here (the kerb chicanes under the Fort canopy) took its run collider
+    // along — an invisible 21 m wall in front of the station otherwise
+    { const rl = plan.props.filter((p) => p.type === 'railing'); plan.colliders = plan.colliders.filter((c) => c.kind !== 'railing' || rl.some((p) => p.x >= c.x0 - 0.01 && p.x <= c.x1 + 0.01 && p.z >= c.z0 - 0.01 && p.z <= c.z1 + 0.01)); }
     const dq = (q) => inRes(q.x, q.z); plan.poi = plan.poi.filter((q) => !dq(q)); plan.busStops = plan.busStops.filter((q) => !dq(q)); plan.parking = plan.parking.filter((q) => !dq(q));
     for (const ch of plan.byChunk) { ch.props = ch.props.filter((p) => !drop.has(p)); ch.trees = ch.trees.filter((t) => !dropT.has(t)); ch.walls = ch.walls.filter((w) => !dropW.has(w)); ch.poi = ch.poi.filter((q) => !dq(q)); } }
   if (plan.stallFix) { const kept = plan.props.filter((p) => p.type === 'stall').length; plan.stallFix.removed = plan.stallFix.placed - kept; plan.stallFix.placed = kept; } // stalls cleared off mission-shop doors / station lots after placement
