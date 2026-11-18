@@ -38,7 +38,7 @@ console.log('painted bands (px):', bands.map((b) => b.join('–')).join(', '), '
 const F = Math.round(W * 0.03); const clean = (x) => bands.every(([a, b]) => x < a - M - F - 2 || x > b + M + F + 2);
 const wrap = (v, n) => ((v % n) + n) % n;
 for (const [a, b] of bands) {
-  const x0 = a - M - F, x1 = b + M + F, bw = x1 - x0 + 1; let dx = 0;
+  const x0 = a - M - F, x1 = b + M + F; let dx = 0;
   for (const cand of [W * 0.16, -W * 0.16, W * 0.27, -W * 0.27, W * 0.38, -W * 0.38].map(Math.round)) { let okd = true; for (let x = x0; x <= x1; x++) if (!clean(wrap(x + cand, W))) { okd = false; break; } if (okd) { dx = cand; break; } }
   if (!dx) throw new Error('no clean donor strip for band ' + a + '–' + b);
   const dy = Math.round(H * 0.379);
