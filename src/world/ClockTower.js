@@ -52,7 +52,7 @@ export function buildClockTower({ mb, coll, group, label, C, LAND_Y }) {
     B.quad(P(f, hw, o.u0, o.sill, 0), P(f, hw, o.u0, o.sill, -dep), P(f, hw, o.u0, o.spring, -dep), P(f, hw, o.u0, o.spring, 0), [0, 0, 0.3, 1], C(o.reveal)); // left jamb (faces +r)
     B.quad(P(f, hw, o.u1, o.sill, -dep), P(f, hw, o.u1, o.sill, 0), P(f, hw, o.u1, o.spring, 0), P(f, hw, o.u1, o.spring, -dep), [0, 0, 0.3, 1], C(o.reveal)); // right jamb (faces −r)
     for (let i = 0; i < ARC; i++) { const a = A[i], b = A[i + 1]; B.quad(P(f, hw, a[0], a[1], -dep), P(f, hw, b[0], b[1], -dep), P(f, hw, b[0], b[1], 0), P(f, hw, a[0], a[1], 0), [0, 0, 0.3, 0.3], C(o.reveal)); } // soffit
-    if (o.sill > 0.01) { const sb = o.sillMat || conc; sb.quad(P(f, hw, o.u0, o.sill, 0), P(f, hw, o.u1, o.sill, 0), P(f, hw, o.u1, o.sill, -dep), P(f, hw, o.u0, o.sill, -dep), [0, 0, 1, 0.2], C(o.sillCol || STONE)); }
+    if (o.sill > 0.01) { const sb = o.sillMat || conc, sy = o.sill + 0.003; /* 63rd: 3 mm proud of the plinth top it lies on (was coplanar → z-fighting) */ sb.quad(P(f, hw, o.u0, sy, 0), P(f, hw, o.u1, sy, 0), P(f, hw, o.u1, sy, -dep), P(f, hw, o.u0, sy, -dep), [0, 0, 1, 0.2], C(o.sillCol || STONE)); }
     const bp = o.back || paint; const bc = C(o.backCol || DARK); // back panel: rectangle + arch fan
     bp.quad(P(f, hw, o.u0, o.sill, -dep), P(f, hw, o.u1, o.sill, -dep), P(f, hw, o.u1, o.spring, -dep), P(f, hw, o.u0, o.spring, -dep), [0, 0, 1, 1], bc);
     const cpt = P(f, hw, uc, o.spring, -dep); for (let i = 0; i < ARC; i++) { const a = A[i], b = A[i + 1]; bp.quad(cpt, P(f, hw, b[0], b[1], -dep), P(f, hw, a[0], a[1], -dep), P(f, hw, a[0], a[1], -dep), [0, 0, 1, 1], bc); }

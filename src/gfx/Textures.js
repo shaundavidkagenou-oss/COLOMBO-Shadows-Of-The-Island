@@ -116,6 +116,26 @@ function asphalt(size) {
   rc.putImageData(img, 0, 0);
   return { map, rough: toTex(r, { srgb: false }), height: hc };
 }
+// 63rd: the roads use the Road007 PBR set (public/assets/road, made by tools/road007-prep.mjs from the user's 2K Color /
+// NormalGL / Roughness / Displacement maps: painted lines lifted out — the game paints its own per road class — lengthwise
+// streaks flattened, cavity from the displacement baked into the albedo, 512²). One tile = ROAD_TILE metres of carriageway:
+// the road meshes carry world-space uvs at 10 m per unit (GroundBuilder), so each map repeats 10 / ROAD_TILE. TEX.roadPaint
+// is the marking paint over the same asphalt (marking meshes: 1 m per uv unit). Same texture slots as before (map,
+// roughnessMap in G, normalMap): no extra samplers, no extra draw calls.
+export const ROAD_TILE = 4;
+function roadAssetBase() { try { return import.meta.env.BASE_URL || './'; } catch { return './'; } }
+async function loadRoad007() {
+  if (typeof document === 'undefined' || typeof Image === 'undefined') return false;
+  const load = (f, srgb, rep) => new Promise((res) => new THREE.TextureLoader().load(roadAssetBase() + 'assets/road/' + f, (t) => {
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; t.anisotropy = 8; t.repeat.set(rep, rep); t.name = 'road007:' + f; res(t); }, undefined, () => res(null)));
+  const R = 10 / ROAD_TILE;
+  const [map, rough, normal, paint] = await Promise.all([load('road007_color.jpg', true, R), load('road007_rough.jpg', false, R), load('road007_normal.jpg', false, R), load('road007_paint.jpg', true, 1 / ROAD_TILE)]);
+  if (!map || !rough || !normal) { console.warn('Road007 textures missing — procedural asphalt used'); return false; }
+  TEX.asphalt = map; TEX.asphaltRough = rough; TEX.n_asphalt = normal; TEX.roadPaint = paint;
+  // the marking paint sits on the same asphalt relief: the normal map again (shared image, 1 m uvs → ×1/ROAD_TILE)
+  if (paint) { const n = normal.clone(); n.repeat.set(1 / ROAD_TILE, 1 / ROAD_TILE); n.needsUpdate = true; TEX.n_roadPaint = n; }
+  return true;
+}
 // 62nd: footpath SLABS — the interlocking brick pavers (and their modelled bricks, GroundDetail) are gone. Two types:
 //   1  cement flagstones, 0.5 × 0.5 m, warm weathered grey (most of the city)            → MAT.walk
 //   2  grey concrete slabs, 1.0 × 0.5 m in running bond, cooler with exposed aggregate   → MAT.walkGrey (Fort, Galle Face, Cinnamon Gardens, Kollupitiya)
@@ -1058,7 +1078,7 @@ export async function buildTextures(quality = 'high', progress = () => {}) {
   const hi = quality === 'high' || quality === 'ultra';
   const FW = hi ? 1024 : 512, FH = FW / 2, S = hi ? 1024 : 512;
   const steps = [
-    ['asphalt', () => { const a = asphalt(S); TEX.asphalt = a.map; TEX.asphaltRough = a.rough; TEX.n_asphalt = heightToNormal(a.height, { strength: S > 512 ? 5 : 3.5 }); }],
+    ['asphalt', async () => { if (await loadRoad007()) return; const a = asphalt(S); TEX.asphalt = a.map; TEX.asphaltRough = a.rough; TEX.n_asphalt = heightToNormal(a.height, { strength: S > 512 ? 5 : 3.5 }); }], // 63rd: the Road007 set; the procedural asphalt only if it cannot load
     ['pavement', () => { TEX.pave1 = paveSlabs(512, 1, 5); TEX.pave2 = paveSlabs(512, 2, 6); bakeNormal('pave1', 3.5); bakeNormal('pave2', 3.5); TEX.jointGrass = jointGrassTex(); }], // 62nd: slabs, not brick pavers
     ['concrete', () => { TEX.concrete = concrete(512); TEX.roofConcrete = roofConcrete(512); bakeNormal('concrete', 3); bakeNormal('roofConcrete', 3); }],
     ['grass', () => { TEX.grass = grass(512, 21, 0.3); TEX.lawn = grass(512, 22, 0.08); TEX.laterite = laterite(512); TEX.hedge = hedgeTex(256); TEX.sand = sand(512); bakeNormal('sand', 3); TEX.rocks = rocks(512); TEX.ballast = ballast(512); }],
@@ -1080,7 +1100,7 @@ export async function buildTextures(quality = 'high', progress = () => {}) {
   ];
   for (let i = 0; i < steps.length; i++) {
     progress(i / steps.length, steps[i][0]);
-    steps[i][1]();
+    await steps[i][1]();
     await new Promise((r) => setTimeout(r, 0));
   }
   // facade wrappers → textures

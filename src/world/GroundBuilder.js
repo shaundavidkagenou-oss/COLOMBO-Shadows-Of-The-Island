@@ -227,36 +227,44 @@ function roadWear(mb, s, dir, a, b, n0, n1) {
   const np = Math.floor(len / 45 + r.next() * 2.2);
   for (let k = 0; k < np; k++) {
     const t = r.range(4, len - 4), o = r.range(-s.hw + 0.8, s.hw - 0.8), fresh = r.chance(0.45), tone = fresh ? r.range(0.8, 0.87) : r.range(1.05, 1.11); // subtle: deep-black squares read as holes at night
-    if (r.chance(0.25)) { const side = o < 0 ? -1 : 1; rect(t, t + r.range(0.6, 0.9), side < 0 ? -s.hw + 0.3 : 0.2, side < 0 ? -0.2 : s.hw - 0.3, y + 0.005, [tone, tone, tone * 0.98]); }
-    else { const wl = r.range(1.0, 3.6), wo = r.range(0.7, 2.2); rect(t, t + wl, o - wo / 2, o + wo / 2, y + 0.005, [tone, tone, tone * 0.98]); }
+    const yP = y + 0.005 + Math.min(k, 9) * 0.0003; // 63rd: every patch on its own layer — two overlapping patches were coplanar (z-fighting)
+    if (r.chance(0.25)) { const side = o < 0 ? -1 : 1; rect(t, t + r.range(0.6, 0.9), side < 0 ? -s.hw + 0.3 : 0.2, side < 0 ? -0.2 : s.hw - 0.3, yP, [tone, tone, tone * 0.98]); }
+    else { const wl = r.range(1.0, 3.6), wo = r.range(0.7, 2.2); rect(t, t + wl, o - wo / 2, o + wo / 2, yP, [tone, tone, tone * 0.98]); }
   }
   // manhole covers (cast iron in a concrete collar) near lane centres
   for (let t = r.range(10, 30); t < len - 6; t += r.range(38, 70)) {
     const o = (r.chance(0.5) ? -1 : 1) * (lanes[Math.floor(r.next() * lanes.length)] + r.range(-0.5, 0.5)); if (Math.abs(o) > s.hw - 0.8) continue;
     const [x, z] = dir === 'v' ? [cx + o, a + t] : [a + t, cz + o];
-    mb.get('manholeCollar').cylinder(x, RY - 0.01, z, 0.46, 0.44, 0.022, 16, { col: [0.62, 0.6, 0.56] }); /* weathered concrete collar (was in the white road-paint mesh) */ mb.get('manholeCover').cylinder(x, RY - 0.01, z, 0.33, 0.33, 0.03, 16, { col: [0.2, 0.19, 0.18] }); regManhole(x, z);
+    mb.get('manholeCollar').cylinder(x, RY - 0.0105, z, 0.46, 0.44, 0.022, 16, { col: [0.62, 0.6, 0.56] }); /* weathered concrete collar (was in the white road-paint mesh) */ mb.get('manholeCover').cylinder(x, RY - 0.01, z, 0.33, 0.33, 0.03, 16, { col: [0.2, 0.19, 0.18] }); regManhole(x, z);
   }
   // kerb-side drain gratings (both edges): dark sump with cast bars
   if (s.level <= 2 && !s.bridge) for (let t = r.range(6, 16); t < len - 3; t += r.range(18, 28)) for (const sg of [-1, 1]) {
     const o = sg * (s.hw - 0.24); const [x, z] = dir === 'v' ? [cx + o, a + t] : [a + t, cz + o];
-    const along = dir === 'v'; mb.get('drainSump').box(x, RY + 0.003, z, along ? 0.36 : 0.95, 0.006, along ? 0.95 : 0.36, { col: [0.05, 0.05, 0.05] });
+    const along = dir === 'v'; mb.get('drainSump').box(x, RY + 0.0095, z, along ? 0.36 : 0.95, 0.006, along ? 0.95 : 0.36, { col: [0.05, 0.05, 0.05] });
     for (let q = -3; q <= 3; q++) { const d = q * 0.12; mb.get('drainGrate').box(along ? x : x + d, RY + 0.011, along ? z + d : z, along ? 0.34 : 0.035, 0.012, along ? 0.035 : 0.34, { col: [0.24, 0.23, 0.22] }); }
   }
   // road studs on the double centre line (dual carriageways), with a little reflective face toward each direction
   if (s.level === 0) for (let t = 4; t < len - 2; t += 9) { const [x, z] = dir === 'v' ? [cx, a + t] : [a + t, cz]; mb.get('roadStud').box(x, RY + 0.015, z, dir === 'v' ? 0.1 : 0.14, 0.03, dir === 'v' ? 0.14 : 0.1, { col: [0.85, 0.82, 0.6] }); }
 }
+// 63rd: carriageway layers, bottom → top, each on its own height so no two overlapping surfaces are ever coplanar (the
+// cause of the crossing / line flicker: a white stop line and a yellow edge line, two repair patches, a manhole collar and a
+// lane line all lay at exactly the same height). Float reversed-Z depth resolves 0.2 mm at any distance in the city.
+//   asphalt RY · wheel paths +3/+5 mm · oil zones +6/+7 mm · repair patches +8…+10.7 mm (one layer each) · manhole collar
+//   +11.5 mm · lane / edge lines +12 mm · stop lines +13.5 mm · zebra crossings +15 mm (over the edge lines they cross) ·
+//   drain sumps +12.5 mm (over the edge line, as a grating interrupts it) with their bars and the manhole cover above
+const M_LINE = RY + 0.012, M_STOP = RY + 0.0135, M_ZEBRA = RY + 0.015;
 function markings(mk, s, dir, a, b, n0, n1) {
   const cx = s.x0, cz = s.z0; const len = b - a; if (len < 2) return;
   // paint age varies per road: most lines are fresh, about a third are visibly worn toward the asphalt grey
   const fr = new RNG(7700 + s.id * 31); const fade = fr.next() < 0.35 ? fr.range(0.22, 0.45) : fr.range(0, 0.1);
   const mix = (c) => c.map((v, k) => v + ([0.36, 0.36, 0.37][k] - v) * fade); const WHITE = mix(WHITE0), YELLOW = mix(YELLOW0);
   const strip = (off, t0, t1, w, col) => { // along-road strip at lateral offset
-    if (dir === 'v') mk.hrect(cx + off - w / 2, a + t0, cx + off + w / 2, a + t1, RY + 0.012, 1, col);
-    else mk.hrect(a + t0, cz + off - w / 2, a + t1, cz + off + w / 2, RY + 0.012, 1, col);
+    if (dir === 'v') mk.hrect(cx + off - w / 2, a + t0, cx + off + w / 2, a + t1, M_LINE, 1, col);
+    else mk.hrect(a + t0, cz + off - w / 2, a + t1, cz + off + w / 2, M_LINE, 1, col);
   };
   const across = (t, w, o0, o1, col) => { // across-road bar at position t
-    if (dir === 'v') mk.hrect(cx + o0, a + t - w / 2, cx + o1, a + t + w / 2, RY + 0.012, 1, col);
-    else mk.hrect(a + t - w / 2, cz + o0, a + t + w / 2, cz + o1, RY + 0.012, 1, col);
+    if (dir === 'v') mk.hrect(cx + o0, a + t - w / 2, cx + o1, a + t + w / 2, M_STOP, 1, col);
+    else mk.hrect(a + t - w / 2, cz + o0, a + t + w / 2, cz + o1, M_STOP, 1, col);
   };
   const dashed = (off, dash, gap, w, col, s0 = 0, s1 = len) => { for (let t = s0 + 1; t < s1 - dash; t += dash + gap) strip(off, t, t + dash, w, col); };
   const junction0 = n0.segs.length >= 3, junction1 = n1.segs.length >= 3;
@@ -271,7 +279,7 @@ function markings(mk, s, dir, a, b, n0, n1) {
   // yellow pedestrian crossings + stop lines (left-hand traffic: approach lane is on the left of travel)
   const zebra = (t0, dirSign) => {
     const w = s.w - 0.6, n = Math.floor(w / 1.0);
-    for (let k = 0; k < n; k++) { const o = -w / 2 + k * 1.0 + 0.25; if (dir === 'v') mk.hrect(cx + o, a + t0, cx + o + 0.5, a + t0 + cw, RY + 0.013, 1, YELLOW); else mk.hrect(a + t0, cz + o, a + t0 + cw, cz + o + 0.5, RY + 0.013, 1, YELLOW); }
+    for (let k = 0; k < n; k++) { const o = -w / 2 + k * 1.0 + 0.25; if (dir === 'v') mk.hrect(cx + o, a + t0, cx + o + 0.5, a + t0 + cw, M_ZEBRA, 1, YELLOW); else mk.hrect(a + t0, cz + o, a + t0 + cw, cz + o + 0.5, M_ZEBRA, 1, YELLOW); }
     const stopT = dirSign > 0 ? t0 + cw + 0.9 : t0 - 0.9;
     // traffic travelling toward node0 (decreasing coordinate) is on its left: for 'v' moving north, left = west (-x). For 'h' moving west, left = south (+z).
     if (dir === 'v') across(stopT, 0.35, dirSign > 0 ? -s.hw + 0.3 : 0, dirSign > 0 ? 0 : s.hw - 0.3, WHITE);
@@ -287,9 +295,9 @@ function bridge(mb, s, dir) {
     const z0 = cn.z0 - 1, z1 = cn.z1 + 1, x = s.x0;
     for (const side of [-1, 1]) {
       const xa = x + side * s.hw, xb = x + side * (s.hw + s.walk);
-      mb.get('walk').hrect(Math.min(xa, xb), z0, Math.max(xa, xb), z1, LY, 2);
+      mb.get('walk').hrect(Math.min(xa, xb), z0, Math.max(xa, xb), z1, LY + 0.005, 2); // 63rd: 5 mm proud — its ends overlap the shore paving (was coplanar → z-fighting)
       mb.get('concrete').box(x + side * (s.hw + s.walk + 0.15), LY + 0.6, (z0 + z1) / 2, 0.3, 1.2, z1 - z0, { col: [0.85, 0.84, 0.8] });
-      mb.get('kerb').wall(side < 0 ? xa : xa, side < 0 ? z1 : z0, xa, side < 0 ? z0 : z1, RY - 0.02, LY, [0, 0, 1, 0.1], [0.8, 0.78, 0.75]);
+      mb.get('kerb').wall(side < 0 ? xa : xa, side < 0 ? z1 : z0, xa, side < 0 ? z0 : z1, RY - 0.02, LY + 0.005, [0, 0, 1, 0.1], [0.8, 0.78, 0.75]);
     }
     mb.get('concrete').box(x, -0.5, (z0 + z1) / 2, s.w + s.walk * 2 + 0.6, 1.0, z1 - z0, { col: [0.6, 0.58, 0.55], top: false, bottom: true });
   }

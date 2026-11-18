@@ -271,15 +271,15 @@ export class GroundDetail {
       const ax = P.xs[k], az = P.zs[k], bx = P.xs[k + 1], bz = P.zs[k + 1]; if (Math.max(ax, bx) < x0 - 3.2 || Math.min(ax, bx) > x1 + 3.2 || Math.max(az, bz) < z0 - 3.2 || Math.min(az, bz) > z1 + 3.2) continue;
       const mx = (ax + bx) / 2, mz = (az + bz) / 2; if (L.isWater(mx, mz)) continue; if (deckAt((k + 0.5) * STEP)) continue;
       const l = Math.hypot(bx - ax, bz - az) || 1; const dx = (bx - ax) / l, dz = (bz - az) / l, nx = -dz, nz = dx; const yaw = Math.atan2(dx, dz);
-      // fastenings on every sleeper (GroundBuilder/Railway lay sleepers every 0.65 m from each segment's start)
-      for (let s = 0; s < l; s += 0.65) { const sx = ax + dx * s, sz = az + dz * s; for (const sd of [-1, 1]) { const fx = sx + nx * sd * RW.RAIL_OFF, fz = sz + nz * sd * RW.RAIL_OFF; if (fx < x0 || fx >= x1 || fz < z0 || fz >= z1) continue;
+      // fastenings on every sleeper (Railway lays them every SLEEPER_GAP from each segment's start)
+      for (let s = 0; s < l - 0.05; s += RW.SLEEPER_GAP) { const sx = ax + dx * s, sz = az + dz * s; for (const sd of [-1, 1]) { const fx = sx + nx * sd * RW.RAIL_OFF, fz = sz + nz * sd * RW.RAIL_OFF; if (fx < x0 || fx >= x1 || fz < z0 || fz >= z1) continue;
         q.setFromEuler(e.set(0, yaw, 0)); p.set(fx, RW.SLEEPER_TOP, fz); /* local x → across the track */ sc.set(1, 1, 1); M.compose(p, q, sc); fast.push(...M.elements); } }
       if (k % 6 === 3) for (const sd of [-1, 1]) { const fx = ax + nx * sd * RW.RAIL_OFF, fz = az + nz * sd * RW.RAIL_OFF; if (fx >= x0 && fx < x1 && fz >= z0 && fz < z1) { q.setFromEuler(e.set(0, yaw, 0)); p.set(fx, RW.SLEEPER_TOP + 0.06, fz); sc.set(1, 1, 1); M.compose(p, q, sc); fish.push(...M.elements); } } /* rail joint every 12 m */
       // loose stones: jittered grid over the bed (±1.9 m) and its shoulders (to ±3.1 m)
       const dens = 80 * this.ballastK, cell = 1 / Math.sqrt(dens);
       for (let s = cell / 2; s < l; s += cell) for (let w = -2.85; w <= 2.85; w += cell) {
         const ss = s + (rnd() - 0.5) * cell, ww = w + (rnd() - 0.5) * cell; const x = ax + dx * ss + nx * ww, z = az + dz * ss + nz * ww; if (x < x0 || x >= x1 || z < z0 || z >= z1) continue;
-        const aw = Math.abs(ww); const sl = ((ss % 0.65) + 0.65) % 0.65; const onSleeper = aw < 1.34 && (sl < 0.15 || sl > 0.5); if (onSleeper) continue;
+        const aw = Math.abs(ww); const G = RW.SLEEPER_GAP, sl = ((ss % G) + G) % G; const onSleeper = aw < 1.34 && (sl < 0.15 || sl > G - 0.15); if (onSleeper) continue;
         const nearRail = Math.abs(aw - RW.RAIL_OFF) < 0.1; const r = (0.03 + rnd() * 0.03) * (nearRail ? 0.7 : 1);
         const gy = aw <= 1.9 ? RW.BALLAST_Y : RW.BALLAST_Y + (L.LAND_Y - 0.03 - RW.BALLAST_Y) * Math.min(1, (aw - 1.9) / 1.2); if (aw > 2.85) continue;
         const v = (rnd() * 3) | 0; q.setFromEuler(e.set((rnd() - 0.5) * 0.7, rnd() * 6.28, (rnd() - 0.5) * 0.7)); p.set(x, gy - r * 0.12, z); /* lying flat-ish, bedded in */ sc.set(2 * r * (0.9 + rnd() * 0.4), 2 * r * (0.8 + rnd() * 0.4), 2 * r * (0.9 + rnd() * 0.4)); /* unit icosahedron has radius 0.5 */ M.compose(p, q, sc); stones[v].push(...M.elements);

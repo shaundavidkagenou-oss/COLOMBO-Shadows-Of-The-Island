@@ -103,15 +103,31 @@ export const ROAD_SPOT_SPEC = { value: 1 };
 // Dry asphalt is matte: the roughness map's smoother (puddle-prone) patches only turn glossy once the road is actually wet
 // (ROAD_WET follows Atmosphere.wet, which now tracks the rain). Without this a dry road sheened like a wet one toward the sun.
 export const ROAD_WET = { value: 0 };
+// 63rd: the Road007 asphalt tiles every ROAD_TILE (4 m). Two extra lookups of the SAME albedo (no new texture) at 7.3× and
+// 19.6× the tile size, rotated, modulate its brightness by ±~8 %: broad, irregular tonal drift across the carriageway (older /
+// newer surfacing, sun-bleached and darker stretches) that hides the 4 m repeat at a distance. Any map the Texture Studio puts
+// on the road gets the same treatment (it samples whatever `map` is); without a map nothing changes.
+// In the rain the same term varies the wet film: the darker, lower-lying patches hold water (glossier), the lighter ones drain.
+const ROAD_MACRO = `#include <map_fragment>
+#ifdef USE_MAP
+  { vec2 q = vMapUv * 0.137 + vec2( 0.31, 0.17 ); vec2 q2 = mat2( 0.8, -0.6, 0.6, 0.8 ) * vMapUv * 0.051 + vec2( 0.62, 0.05 );
+    float a = dot( texture2D( map, q ).rgb, vec3( 0.333 ) ), b = dot( texture2D( map, q2 ).rgb, vec3( 0.333 ) );
+    gRoadMacro = ( ( a + b ) * 0.5 - uRoadMapMean ) / max( uRoadMapMean, 0.01 );
+    diffuseColor.rgb *= clamp( 1.0 + 0.3 * gRoadMacro, 0.86, 1.12 ); }
+#endif
+`;
+// mean linear brightness of the road albedo (Road007 ≈ 0.075); the macro term is relative to it
+export const ROAD_MAP_MEAN = { value: 0.075 };
 function roadSpotSpec(m) {
-  m.onBeforeCompile = (sh) => { sh.uniforms.uRoadSpotSpec = ROAD_SPOT_SPEC; sh.uniforms.uRoadWet = ROAD_WET;
+  m.onBeforeCompile = (sh) => { sh.uniforms.uRoadSpotSpec = ROAD_SPOT_SPEC; sh.uniforms.uRoadWet = ROAD_WET; sh.uniforms.uRoadMapMean = ROAD_MAP_MEAN;
     const pars = THREE.ShaderChunk.lights_physical_pars_fragment.replace('reflectedLight.directSpecular += irradiance * specularBRDF * material.multiScatteringCompensation;', 'reflectedLight.directSpecular += min( irradiance * specularBRDF * material.multiScatteringCompensation, vec3( gSpotCap ) ) * gSpotSpec;');
     let beg = THREE.ShaderChunk.lights_fragment_begin; const i = beg.indexOf('#if ( NUM_SPOT_LIGHTS > 0 ) && defined( RE_Direct )'); const call = 'RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );';
     const j = i >= 0 ? beg.indexOf(call, i) : -1; if (j >= 0) beg = beg.slice(0, j) + 'gSpotSpec = uRoadSpotSpec; gSpotCap = 0.55; ' + call + ' gSpotSpec = 1.0; gSpotCap = 1e6;' + beg.slice(j + call.length);
     if (j < 0 || pars === THREE.ShaderChunk.lights_physical_pars_fragment) return; // three changed its chunks: leave the material as it is
-    sh.fragmentShader = 'uniform float uRoadSpotSpec;\nuniform float uRoadWet;\nfloat gSpotSpec = 1.0;\nfloat gSpotCap = 1e6;\n' + sh.fragmentShader.replace('#include <lights_physical_pars_fragment>', pars).replace('#include <lights_fragment_begin>', beg)
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = mix( max( roughnessFactor, 0.94 ), roughnessFactor, smoothstep( 0.05, 0.6, uRoadWet ) );'); };
-  m.customProgramCacheKey = () => 'roadSpotSpec3';
+    sh.fragmentShader = 'uniform float uRoadSpotSpec;\nuniform float uRoadWet;\nuniform float uRoadMapMean;\nfloat gRoadMacro = 0.0;\nfloat gSpotSpec = 1.0;\nfloat gSpotCap = 1e6;\n' + sh.fragmentShader.replace('#include <lights_physical_pars_fragment>', pars).replace('#include <lights_fragment_begin>', beg)
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = mix( max( roughnessFactor, 0.94 ), roughnessFactor * clamp( 1.0 + 0.9 * gRoadMacro, 0.55, 1.35 ), smoothstep( 0.05, 0.6, uRoadWet ) );')
+      .replace('#include <map_fragment>', ROAD_MACRO); };
+  m.customProgramCacheKey = () => 'roadSpotSpec5';
 }
 // Surface relief (Visual upgrade phase 1): tangent-space normal maps baked from each procedural texture's own height field
 // (Textures.js heightToNormal). They share the albedo's UVs (and so its tiling / world-space mapping), so every road, wall and
@@ -120,7 +136,7 @@ function roadSpotSpec(m) {
 // 36th Stage 3: the building relief read as embossed plastic at street level (every render bump and moulding lit like a
 // relief map). Only the strengths change — same baked maps: facades 1.25 → 0.8, roof tiles 1.15 → 0.85, flat roofs 1 → 0.75,
 // corrugated sheet 1 → 0.8, building concrete (trims, boundary walls, plinths) 1 → 0.8. Ground surfaces keep theirs.
-export const NORMAL_SCALE = { road: 1.15, walk: 1.2, kerb: 1, concrete: 0.8, sand: 1.6, roofTiles: 0.85, roofFlat: 0.75, corrugated: 0.8, facade: 0.8 };
+export const NORMAL_SCALE = { road: 1.6 /* 63rd: Road007's NormalGL is gentle — this brings its aggregate out in low sun */, walk: 1.2, kerb: 1, concrete: 0.8, sand: 1.6, roofTiles: 0.85, roofFlat: 0.75, corrugated: 0.8, facade: 0.8 };
 export function withNormal(m, tex, s) { if (!m || !tex) return m; m.normalMap = tex; m.normalScale = new THREE.Vector2(s, s); m.needsUpdate = true; return m; }
 export function buildMaterials() {
   const std = (o) => new THREE.MeshStandardMaterial(o);
@@ -145,7 +161,10 @@ export function buildMaterials() {
   MAT.laterite = std({ map: TEX.laterite, roughness: 1 });
   MAT.sand = withNormal(std({ map: TEX.sand, roughness: 1 }), TEX.n_sand, NORMAL_SCALE.sand);
   MAT.rocks = std({ map: TEX.rocks, roughness: 0.95, vertexColors: true });
-  MAT.marking = std({ color: 0xf2f2ea, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, vertexColors: true });
+  // 63rd: road paint = worn thermoplastic over the Road007 asphalt (TEX.roadPaint: the asphalt's pits show through), on the
+  // asphalt's own relief (same normal image) and smoother than the asphalt, as the set's roughness map has it for its lines
+  MAT.marking = std({ color: 0xf2f2ea, map: TEX.roadPaint || null, roughness: 0.62, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, vertexColors: true });
+  if (TEX.n_roadPaint) withNormal(MAT.marking, TEX.n_roadPaint, 0.7);
   for (const k of facadeKeys) {
     const f = TEX['f_' + k];
     MAT['f_' + k] = std({ map: f.map, emissiveMap: f.emissive, emissive: 0xffffff, emissiveIntensity: 0, roughnessMap: f.rm, metalnessMap: f.rm, roughness: 1, metalness: k.startsWith('glass') ? 1 : 1, vertexColors: true, envMapIntensity: k.startsWith('glass') ? 1.0 : 0.8 });
