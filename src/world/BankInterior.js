@@ -33,7 +33,7 @@ import { seatTopFor } from './ClubCast.js';
 import { CMB, FONTS, drawLogo, tracked, fitFont, hasCanvas, drawATMScreen, ATM_IDLE_VIEW } from './BankBrand.js';
 import { BankSound } from '../audio/BankAudio.js';
 
-export const BANK_ROOM = Object.freeze({ name: 'Ceylon Meridian Bank', W: 14, D: 13.4, H: 3.6, windows: [-4.95, -1.65, 1.65, 4.95], staffed: [0, 1, 2], atmD: [1.6, 3.2], atmFace: -6.45, atmStandX: -5.92, open: [7.5, 19.5] });
+export const BANK_ROOM = Object.freeze({ name: 'Ceylon Meridian Bank', W: 14, D: 13.4, H: 3.6, windows: [-4.95, -1.65, 1.65, 4.95], staffed: [0, 1, 2], atmD: [1.6, 3.2], atmFace: -6.45, atmStandX: -5.84, open: [7.5, 19.5] });
 const ZF = -REVEAL; const Z = (d) => ZF - d;
 const WHITE = [1, 1, 1];
 const R5 = (x0, y0, x1, y1) => [x0 / 512, 1 - y1 / 512, x1 / 512, 1 - y0 / 512];
@@ -184,7 +184,7 @@ export function buildBankInterior(game, site) {
 
   // ---- ATM lobby: navy surround with two through-the-wall ATMs, glass privacy fin, bin
   const AX = B.atmFace; { const d0 = 0.7, d1 = 4.1; paint.box((xL + AX) / 2, 1.25, Z((d0 + d1) / 2), AX - xL, 2.5, d1 - d0, { col: navy }); metal.box((xL + AX) / 2 + 0.01, 2.51, Z((d0 + d1) / 2), AX - xL + 0.02, 0.02, d1 - d0 + 0.02, { col: gold });
-    paint.box(AX + 0.012, 0.05, Z((d0 + d1) / 2), 0.025, 0.1, d1 - d0, { col: C('#0b1528') }); ob(xL, AX + 0.25, d0, d1); }
+    paint.box(AX + 0.012, 0.05, Z((d0 + d1) / 2), 0.025, 0.1, d1 - d0, { col: C('#0b1528') }); ob(xL, AX + 0.3, d0, d1); }
   const atms = B.atmD.map((d, i) => { const z = Z(d);
     face(sign, AX + 0.004, 2.18, z, 0.78, 0.2, IN_UV.atmHead, '+x');
     metal.box(AX + 0.035, 1.25, z, 0.07, 1.4, 0.72, { col: C('#c3c7cb') }); paint.box(AX + 0.075, 0.28, z, 0.15, 0.56, 0.76, { col: C('#1a2c4c') }); // fascia · kick panel
@@ -250,7 +250,7 @@ export function buildBankInterior(game, site) {
     }
 
   // ---- manager's office (glass partition, open doorway on the hall side); counter 4's queue space in front of it stays open
-  const OF = { x0: 4.6, x1: xR, d0: 4.8, d1: 7.4, door: [6.45, 7.35] }; {
+  const OF = { x0: 4.6, x1: xR, d0: 4.8, d1: 7.3, door: [6.35, 7.22] }; {
     const band = (cx, cz, w, d) => { for (const s2 of [-1, 1]) paint.box(cx + (d > w ? s2 * 0.012 : 0), 1.25, cz + (w >= d ? s2 * 0.012 : 0), Math.max(w, 0.004), 0.32, Math.max(d, 0.004), { col: C('#f4f4f2') }); }; // frosted manifestation band
     const gx = (zz, xa, xb) => { const cx = (xa + xb) / 2, w = xb - xa; cglass.box(cx, H / 2, zz, w, H - 0.02, 0.02); paint.box(cx, 0.04, zz, w, 0.08, 0.06, { col: bronze }); paint.box(cx, H - 0.03, zz, w, 0.06, 0.06, { col: bronze }); band(cx, zz, w, 0.004); };
     const gz = (xx, da, db) => { const cz = Z((da + db) / 2), d = db - da; cglass.box(xx, H / 2, cz, 0.02, H - 0.02, d); paint.box(xx, 0.04, cz, 0.06, 0.08, d, { col: bronze }); paint.box(xx, H - 0.03, cz, 0.06, 0.06, d, { col: bronze }); band(xx, cz, 0.004, d); };
@@ -348,7 +348,7 @@ export function buildBankInterior(game, site) {
   };
   atms.forEach((m) => { LOC['atm' + m.i] = { chain: [m.stand, P2(-4.3, m.d), P2(-3.0, 1.4)], direct: true, at: m.stand, yaw: -Math.PI / 2 }; });
   seats.forEach((s, i) => { LOC['seat' + i] = { chain: [[s.x, Z(s.lane)], [-0.95, Z(s.lane)]], at: [s.x, Z(s.lane)], yaw: Math.PI }; });
-  WINX.forEach((wx, i) => { LOC['win' + i] = { chain: [P2(wx, 8.12), P2(wx, 7.6), P2(-0.95, 7.6)], at: P2(wx, 8.12), yaw: Math.PI }; });
+  WINX.forEach((wx, i) => { LOC['win' + i] = { chain: [P2(wx, 8.12), P2(wx, 7.78), P2(-0.95, 7.78)], at: P2(wx, 8.12), yaw: Math.PI }; });
   room.LOC = LOC;
   const route = (from, to) => { const A = LOC[from], Bq = LOC[to]; if (from === to) return [Bq.at || Bq.chain[0]];
     if (from === 'door' && Bq.direct) return [DOOR_IN, ...Bq.chain.slice().reverse()];
@@ -419,6 +419,9 @@ export function buildBankInterior(game, site) {
   // ---- one customer, one frame
   const turn = (a, b, k) => { let d = b - a; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return a + d * Math.min(1, k); };
   const door = () => site && site.doorObj;
+  const clearAt = (x, z) => { if (z < ZF && (x < xL + 0.3 || x > xR - 0.3 || z < z0 + 0.3)) return false; if (z > ZF - 0.05 && z < 0.1 && Math.abs(x) > 0.3) return false; for (let i = 0; i < nStatic; i++) { const o = obs[i]; if (x > o.x0 - 0.25 && x < o.x1 + 0.25 && z > o.z0 - 0.25 && z < o.z1 + 0.25) return false; } return true; };
+  const nearPlayer = (ax, az, bx, bz) => { const P = room.pl; if (!P || !(P.inside || Math.abs(P.z) < 2.5)) return false; const vx = bx - ax, vz = bz - az, L2 = vx * vx + vz * vz || 1; const t = Math.max(0, Math.min(1, ((P.x - ax) * vx + (P.z - az) * vz) / L2)); return Math.hypot(ax + vx * t - P.x, az + vz * t - P.z) < 0.65; };
+  const clearLine = (ax, az, bx, bz) => { const L = Math.hypot(bx - ax, bz - az); for (let t = 0; t <= L; t += 0.1) if (!clearAt(ax + (bx - ax) * t / L, az + (bz - az) * t / L)) return false; return true; };
   const stepCustomer = (c, dt, pl) => {
     if (!c.cmd) { const r = c.gen ? c.gen.next() : { done: true }; if (r.done) { hide(c); return; } c.cmd = Object.assign({ t: 0 }, r.value); if (c.cmd.walk) { c.cmd.path = c.cmd.walk; c.cmd.pi = 0; } }
     const m = c.cmd; m.t += dt; const A = c.ch.anim;
@@ -426,18 +429,31 @@ export function buildBankInterior(game, site) {
       if (game.crowd && game.crowd.adopt && P && W2 && Math.hypot(P.x - site.F.x, P.z - site.F.z) < 40) { try { const [wx, wz] = W2.world(site, c.x, c.z); const ch = c.ch; pool.splice(pool.indexOf(c), 1); game.crowd.adopt(ch, wx, wz, site.yaw + c.yaw, 'calm'); room.stats.handed++; room.stats.left++; return; } catch (e) { console.warn('[bank] crowd hand-off', e); } }
       hide(c); room.stats.left++; return; }
     if (m.walk) {
+      // string-pulling (4×/s): a corner is skipped when the point after it is in clear view (natural lines, and a corner
+      // someone is standing on never holds a crowd up)
+      if ((c.pullT = (c.pullT || 0) - dt) <= 0) { c.pullT = 0.25; while (m.pi + 1 < m.path.length && !m.path[m.pi][2] && clearLine(c.x, c.z, m.path[m.pi + 1][0], m.path[m.pi + 1][1]) && !nearPlayer(c.x, c.z, m.path[m.pi + 1][0], m.path[m.pi + 1][1])) m.pi++; }
       const tgt = m.path[m.pi]; if (!tgt) { c.cmd = null; return; }
       const dx = tgt[0] - c.x, dz = tgt[1] - c.z, dd = Math.hypot(dx, dz);
-      if (dd < 0.07) { m.pi++; if (m.pi >= m.path.length) { c.cmd = null; c.speed = 0; } A.update(dt, c.speed); return; }
+      if (dd < 0.07) { m.pi++; m.detoured = false; if (m.pi >= m.path.length) { c.cmd = null; c.speed = 0; } A.update(dt, c.speed); return; }
       const want = Math.atan2(dx, dz); c.yaw = turn(c.yaw, want, dt * 7); const fx = Math.sin(want), fz = Math.cos(want);
       // the door: ask it open (WalkIn pushes it like the player does), hold at arm's length until it has swung clear
       let hold = false; const D = door(); const cross = (c.z - LEAF_Z) * (tgt[1] - LEAF_Z) < 0;
-      if (D && cross && Math.abs(c.x) < 0.9 && c.z > ZF - 1.4 && c.z < 1.4) { const side = c.z > LEAF_Z ? 1 : -1; site.npcDoor = { side, f: game.interiors.walkIn.frame }; if (Math.abs(D.ang) < 1.15 && Math.abs(c.z - LEAF_Z) < 0.62) hold = true;
+      // the doorway is one person wide: one customer at a time (a token); the next waits just outside the door zone
+      const inDZ = (x, z) => Math.abs(x) < 1.0 && z > -1.55 && z < 1.3; const nowIn = inDZ(c.x, c.z), nextIn = inDZ(c.x + fx * 0.12, c.z + fz * 0.12);
+      if (room.doorBy && (!room.doorBy.on || !inDZ(room.doorBy.x, room.doorBy.z))) room.doorBy = null;
+      if (nextIn && !nowIn && room.doorBy && room.doorBy !== c) hold = true; else if (nowIn || nextIn) { if (!room.doorBy) room.doorBy = c; }
+      if (!hold && D && cross && Math.abs(c.x) < 0.9 && c.z > ZF - 1.4 && c.z < 1.4) { const side = c.z > LEAF_Z ? 1 : -1; site.npcDoor = { side, f: game.interiors.walkIn.frame }; if (Math.abs(D.ang) < 1.15 && Math.abs(c.z - LEAF_Z) < 0.62) hold = true;
         if (D.engaged) hold = true; }
-      // stop for the player (never walk through him) and, for up to 3 s, for each other
-      const P = room.pl; if (P && (P.inside || Math.abs(P.z) < 2.5)) { const ox = P.x - c.x, oz = P.z - c.z, od = Math.hypot(ox, oz); if (od < 0.7 && ox * fx + oz * fz > od * 0.3) hold = true; }
-      if (!hold) { for (const o of others(c)) { const ox = o.x - c.x, oz = o.z - c.z, od = Math.hypot(ox, oz); if (od < 0.6 && ox * fx + oz * fz > od * 0.4) { c.blockT += dt; if (c.blockT < 3) hold = true; break; } } if (!hold) c.blockT = Math.max(0, c.blockT - dt); }
-      c.speed = hold ? Math.max(0, c.speed - dt * 5) : Math.min(1.2, c.speed + dt * 2.2); const st = Math.min(dd, c.speed * dt); c.x += fx * st; c.z += fz * st; A.update(dt, c.speed); place(c); return;
+      // the player is solid: stop for him; someone standing still in the way: the same; after a moment, step round (below)
+      let by = null; const P = room.pl; if (!hold && P && (P.inside || Math.abs(P.z) < 2.5)) { const ox = P.x - c.x, oz = P.z - c.z, od = Math.hypot(ox, oz); if (od < 0.7 && ox * fx + oz * fz > od * 0.3) { hold = true; by = P; } }
+      let sx = 0, sz = 0; if (!hold) for (const o of others(c)) { const ox = o.x - c.x, oz = o.z - c.z, od = Math.hypot(ox, oz); if (od > 0.6 || od < 1e-3) continue; const ahead = ox * fx + oz * fz;
+        const moving = o.cmd && o.cmd.walk && o.speed > 0.2; if (!moving && ahead > od * 0.4 && od < 0.55 && !(nowIn && room.doorBy === c)) { hold = true; by = o; break; }
+        if (moving && ahead > -0.1) { const lat = ox * -fz + oz * fx; const k = (0.6 - od) / 0.6; const sgn = lat > 0 ? -1 : 1; sx += -fz * sgn * k; sz += fx * sgn * k; } } // two people walking: each eases to the side and passes
+      if (by) { c.blockT += dt; if (c.blockT > 1.2 && !m.detoured && (m.nDet || 0) < 6) { const lat = (by.x - c.x) * -fz + (by.z - c.z) * fx; const first = lat > 0 ? -1 : 1; for (const sg of [first, -first]) { const px = by.x - fz * sg * 0.75 + fx * 0.15, pz = by.z + fx * sg * 0.75 + fz * 0.15; if (clearAt(px, pz) && clearLine(c.x, c.z, px, pz) && clearLine(px, pz, tgt[0], tgt[1])) { m.path = m.path.slice(); m.path.splice(m.pi, 0, [px, pz, 1]); const nx2 = m.path[m.pi + 1]; if (nx2 && m.pi + 2 < m.path.length && Math.hypot(nx2[0] - by.x, nx2[1] - by.z) < 0.8) m.path.splice(m.pi + 1, 1); /* a corner the blocker stands on is cut */ m.detoured = true; m.nDet = (m.nDet || 0) + 1; c.blockT = 0; break; } } }
+        if (c.blockT > 6) { c.blockT = 0; m.detoured = false; } } else c.blockT = Math.max(0, c.blockT - dt * 2);
+      c.speed = hold ? Math.max(0, c.speed - dt * 5) : Math.min(sx || sz ? 0.8 : 1.2, c.speed + dt * 2.2); const st = Math.min(dd, c.speed * dt); let nx = c.x + fx * st, nz = c.z + fz * st;
+      if ((sx || sz) && !hold && !nowIn) { const ex = nx + sx * 0.7 * dt, ez = nz + sz * 0.7 * dt; if (clearAt(ex, ez)) { nx = ex; nz = ez; } }
+      c.x = nx; c.z = nz; A.update(dt, c.speed); place(c); return;
     }
     if (m.idle !== undefined) { c.speed = 0; c.yaw = turn(c.yaw, m.yaw ?? c.yaw, dt * 5); act(c, m.act || null); if (m.beeps && pl && pl.inside && Math.random() < dt * 1.6) BankSound.beep(0.35);
       A.update(dt, 0); place(c); if (m.t >= m.idle || (m.until && m.until())) { act(c, null); c.cmd = null; } return; }
