@@ -216,7 +216,8 @@ export class WalkIn {
       // the hand meets the plate at arm's length (~0.75 m from the leaf); from there the body's progress swings the leaf, which
       // is clear of the shoulders by the time he reaches the threshold
       const need = Math.abs(lx) < hw + 0.15 ? sstep(0.78, 0.22, d) * 1.52 : 0.5;
-      const tgt = Math.max(need, d < 0.25 ? 1.48 : 0) * D.side; // positive: swings into the shop (pushed from the street)
+      let tgt = Math.max(need, d < 0.25 ? 1.48 : 0) * D.side; // positive: swings into the shop (pushed from the street)
+      { const nd = s.npcDoor; if (nd && this.frame - nd.f <= 2 && nd.side === D.side) tgt = Math.max(Math.abs(tgt), 1.42) * D.side; } // 67th: a customer ahead of him on his side pushes it the same way
       const cur = D.ang; const maxW = 2.4 * dt; let nv = cur + clamp(tgt - cur, -maxW, maxW); if (Math.abs(tgt) < Math.abs(cur) && P.speed < 0.2) nv = cur; // standing still: it stays where it is
       D.vel = (nv - cur) / Math.max(dt, 1e-4); D.setAngle(nv); this.prevSide = D.side;
       P.doorSlow = clamp(1.45 / Math.max(1.45, P.baseSpeed || P.speed || 1.45), 0.35, 1); // a hand on the door: a walking pace (~1.45 m/s)

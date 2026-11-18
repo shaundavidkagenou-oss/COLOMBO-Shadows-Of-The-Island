@@ -443,9 +443,14 @@ export function buildBankInterior(game, site) {
       if (room.doorBy && (!room.doorBy.on || !inDZ(room.doorBy.x, room.doorBy.z))) room.doorBy = null;
       if (nextIn && !nowIn && room.doorBy && room.doorBy !== c) hold = true; else if (nowIn || nextIn) { if (!room.doorBy) room.doorBy = c; }
       if (!hold && D && cross && Math.abs(c.x) < 0.9 && c.z > ZF - 1.4 && c.z < 1.4) { const side = c.z > LEAF_Z ? 1 : -1; site.npcDoor = { side, f: game.interiors.walkIn.frame }; if (Math.abs(D.ang) < 1.15 && Math.abs(c.z - LEAF_Z) < 0.62) hold = true;
-        if (D.engaged) hold = true; }
+        // the player has the door: wait for him — unless this customer is ahead of him on his side (between him and the leaf,
+        // so he cannot reach it): then the customer pushes it (WalkIn honours a same-side NPC push while he is engaged)
+        if (D.engaged) { const P0 = room.pl; const ahead = P0 && D.side === side && Math.abs(P0.z - LEAF_Z) > Math.abs(c.z - LEAF_Z) + 0.1; if (!ahead) hold = true; } }
       // the player is solid: stop for him; someone standing still in the way: the same; after a moment, step round (below)
       let by = null; const P = room.pl; if (!hold && P && (P.inside || Math.abs(P.z) < 2.5)) { const ox = P.x - c.x, oz = P.z - c.z, od = Math.hypot(ox, oz); if (od < 0.7 && ox * fx + oz * fz > od * 0.3) { hold = true; by = P; } }
+      // in the doorway (one person wide) and the player wants through: turn round and step back out of the door zone for him
+      if (by === P && nowIn) { c.yieldT = (c.yieldT || 0) + dt; if (c.yieldT > 0.5) { const bw = Math.atan2(-fx, -fz); c.yaw = turn(c.yaw, bw, dt * 8); const bx = c.x - fx * 0.9 * dt, bz = c.z - fz * 0.9 * dt;
+        if (bz > 0.05 || inDZ(bx, bz) || clearAt(bx, bz)) { c.x = bx; c.z = bz; } if (room.doorBy === c) room.doorBy = null; c.speed = 0; A.update(dt, 0.9); place(c); return; } } else c.yieldT = 0;
       let sx = 0, sz = 0; if (!hold) for (const o of others(c)) { const ox = o.x - c.x, oz = o.z - c.z, od = Math.hypot(ox, oz); if (od > 0.6 || od < 1e-3) continue; const ahead = ox * fx + oz * fz;
         const moving = o.cmd && o.cmd.walk && o.speed > 0.2; if (!moving && ahead > od * 0.4 && od < 0.55 && !(nowIn && room.doorBy === c)) { hold = true; by = o; break; }
         if (moving && ahead > -0.1) { const lat = ox * -fz + oz * fx; const k = (0.6 - od) / 0.6; const sgn = lat > 0 ? -1 : 1; sx += -fz * sgn * k; sz += fx * sgn * k; } } // two people walking: each eases to the side and passes
@@ -490,7 +495,7 @@ export function buildBankInterior(game, site) {
     for (const c of pool.slice()) if (c.on) stepCustomer(c, dt, pl); else if (c.ch.root.visible) c.ch.root.visible = false;
     // new customers walk in from the street while the player is inside (door shut, so nobody appears in view)
     if (pl.inside) { room.spawnT -= dt; const active = pool.filter((c) => c.on).length;
-      if (room.spawnT <= 0) { room.spawnT = 9 + Math.random() * 14; const free = pool.find((c) => !c.on) || (pool.length < POOL && active < target() ? newCustomer() : null); if (free && active < target() && D2 && Math.abs(D2.ang) < 0.05 && Math.hypot(pl.x - STREET[0], pl.z - STREET[1]) > 2.5) spawn(free, pickPlan(free.rnd), true); } }
+      if (room.spawnT <= 0) { room.spawnT = 9 + Math.random() * 14; const free = pool.find((c) => !c.on) || (pool.length < POOL && active < target() ? newCustomer() : null); if (free && active < target() && D2 && Math.abs(D2.ang) < 0.05 && Math.hypot(pl.x - STREET[0], pl.z - STREET[1]) > 2.5) spawn(free, pickPlan(Math.random), true); } } // the visit varies from session to session (the customer's own seed keeps his look)
     // dynamic obstacles: the customers' bodies (the player is pushed off them; they stop for him)
     obs.length = nStatic; for (const c of pool) if (c.on && c.z < ZF) { const sx = c.cmd && c.cmd.seated !== undefined ? Math.sin(c.yaw) * 0.25 : 0, sz = c.cmd && c.cmd.seated !== undefined ? Math.cos(c.yaw) * 0.25 : 0; obs.push({ x0: c.x + sx - 0.2, x1: c.x + sx + 0.2, z0: c.z + sz - 0.2, z1: c.z + sz + 0.2, npc: true }); }
     // prompts: ATM / teller window
@@ -506,6 +511,8 @@ export function buildBankInterior(game, site) {
     if (room.nearWin >= 0 && game.hud) { const i = room.nearWin; const open = staffOn() && B.staffed.includes(i);
       game.hud.subtitle(open ? 'Bank officer' : B.name, open ? 'Good day! Cash withdrawals and deposits are quickest at our ATMs by the entrance — no queue, and they update your account at once.' : i === 3 ? 'Counter 4 is closed today. Please use counters 1 to 3 or the ATMs.' : 'The counters are closed after banking hours. The ATMs are open 24 hours.', '', 4); }
   };
+  // send a customer in from the street on a given visit (tests / dev tools; the normal flow is the spawn timer in update)
+  room.spawnVisit = (plan) => { const free = pool.find((c) => !c.on) || (pool.length < POOL ? newCustomer() : null); if (!free) return null; spawn(free, plan, true); return free; };
   room.atmPose = (m) => ({ local: { x: m.stand[0], z: m.stand[1], yaw: -Math.PI / 2 } });
   // freed by WalkIn when the player is far away: staff and the customers still in the pool (customers handed to the street crowd
   // left the pool and belong to the crowd now), the ATM screen textures; the room tone is stopped outright
