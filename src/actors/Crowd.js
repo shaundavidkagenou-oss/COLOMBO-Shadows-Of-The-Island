@@ -766,7 +766,7 @@ export class Crowd {
   kill(p) {
     if (p.dead) return; const byCar = !!p.knockedByCar; if (p.state !== 'down') { this.react(p, 'down', 1e9, {}, true); p.downT = 0; } // whoever calls kill(), the body is on the ground (never a 'dead' ped that walks on)
     if (p.koRag) { if (p.ch.rag && p.ch.rag.kin) { p.ch.rag.kin = null; p.ch.rag.wake(); } p.koRag = null; p.noPool = false; } // out cold (or getting up) when it happened: the body goes limp where it is
-    p.dead = true; this.minds.died(p); Voices.say(p.sp, 'die', p.x, p.z, null); p.deadT = 0; p.timer = 1e9; p.pending = null; p.knockedByCar = false; p.talkFor = 0; p.ch.face.talking = false;
+    p.dead = true; this.minds.died(p); this.events.emit('npcDefeated', { kind: 'ped', p }); /* 64th: loot (world/Loot.js) — once per defeat (kill() returns early when already dead) */ Voices.say(p.sp, 'die', p.x, p.z, null); p.deadT = 0; p.timer = 1e9; p.pending = null; p.knockedByCar = false; p.talkFor = 0; p.ch.face.talking = false;
     const f = this.focus; if (this.ragdolls && !p.ch.rag && p.ch.root.parent && (!f || Math.hypot(p.x - f.x, p.z - f.z) < 90)) { // goes limp: ragdoll with the momentum it had (thrown by a car, pushed by a round)
       this.ragdolls.add(p.ch, { vel: [p.vx || 0, p.airVy || 0, p.vz || 0], legK: byCar ? 1.3 : 1.2, upK: byCar ? 0.75 : 0.7 }); p.airVy = undefined; p.airY = 0; p.vx = p.vz = 0; p.ch.anim.set(null); }
     if (p.ch.face.set) p.ch.face.set('blink', 1e9); if (p.poi) { p.poi.used = Math.max(0, p.poi.used - 1); p.poi = null; }

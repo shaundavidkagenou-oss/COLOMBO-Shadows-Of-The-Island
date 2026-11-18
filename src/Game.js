@@ -69,6 +69,7 @@ import { Assassin } from './actors/Assassin.js';
 import { Birds } from './world/Birds.js';
 import { RagdollWorld } from './actors/Ragdoll.js';
 import { LooseCaps } from './actors/LooseCaps.js';
+import { Loot } from './world/Loot.js';
 import { Blood } from './gfx/Blood.js';
 import { Explosions } from './gfx/Explosions.js';
 import { PropBreak } from './world/PropBreak.js';
@@ -164,6 +165,7 @@ export class Game {
     this.explosions = new Explosions(this); this.vdamage = new VehicleDamage(this); this.propBreak = new PropBreak(this); /* breakaway lamp posts / signal poles */ /* glass, bullets through bodywork, tyres, dents, fire → explosion, flung debris */ this.blood.useFx(this.explosions.U); this.grenades = new Grenades(this); // throwables (key B) + cinematic blasts
     try { this.boats = new Boats(this); } catch (e) { console.error('boats', e); this.boats = null; } /* Fort Harbour Marina, the moored fleet, harbour police boats, your boats (boats/Boats.js) */
     this.drunk = new Drunk(this); // vodka in the hero rooms (HeroRooms.js)
+    this.loot = new Loot(this); // 64th: cash / belongings / weapons dropped by defeated NPCs (world/Loot.js)
     this.vsmoke = new VehicleSmoke(this, Settings.get('quality')); // tyre smoke + exhaust (one draw call, fixed pool)
     this.atmos.update(0.016, new THREE.Vector3(-300, 0, -500), this.camera, 0);
     progress(0.93, 'Compiling shaders'); await tick();
@@ -264,7 +266,7 @@ export class Game {
     if (!this.gpuWarned && (gpu.kind === 'software' || gpu.kind === 'integrated')) { this.gpuWarned = true; this.hud.notify(gpu.kind === 'software' ? 'Graphics card not in use' : 'Integrated graphics', gpuAdvice(gpu), 'warn', 9); }
   }
   async newGame() {
-    this.story.state = Story.freshState(); this.clock = 0; this.mode = 'play'; this.paused = false; this.squad.reset(); this.orchid.load(null); this.grenades?.clear(); this.rebuildPlayer(); if (this.customs && this.customs.active) this.customs.abort(); this.garage.restore(); /* no owned vehicles in a new game */
+    this.story.state = Story.freshState(); this.loot?.clear(); this.clock = 0; this.mode = 'play'; this.paused = false; this.squad.reset(); this.orchid.load(null); this.grenades?.clear(); this.rebuildPlayer(); if (this.customs && this.customs.active) this.customs.abort(); this.garage.restore(); /* no owned vehicles in a new game */
     this.hud.clearBlips(''); this.focus = null; this.setupRoomDoor(); if (this.boats) this.boats.onLoad();
     await playOpening(this);
     Input.requestLock(this.canvas);
@@ -272,7 +274,7 @@ export class Game {
   }
   async startLoaded(slot) {
     const d = SaveSystem.read(slot); if (!d) return this.menuLoop();
-    if (this.vsmoke && this.vsmoke.skid) this.vsmoke.skid.clear(); /* a loaded game starts with clean roads */ this.story.restore(d.story); this.atmos.restore(d.atmos); this.crowd.minds.load(d.minds); /* NPC memories / relationships (Mind.js); an older save has none */ this.clock = d.clock || 0; this.squad.load(d.squad); this.rebuildPlayer(); this.weapons.load(d.weapons); this.squad.load(d.squad); this.orchid.load(d.orchid); this.pendingWanted = d.police ? d.police.level : d.weapons ? d.weapons.heat : 0;
+    if (this.vsmoke && this.vsmoke.skid) this.vsmoke.skid.clear(); /* a loaded game starts with clean roads */ this.story.restore(d.story); this.loot?.clear(); /* loot lying in the world is never saved: a reload cannot hand it out twice */ this.atmos.restore(d.atmos); this.crowd.minds.load(d.minds); /* NPC memories / relationships (Mind.js); an older save has none */ this.clock = d.clock || 0; this.squad.load(d.squad); this.rebuildPlayer(); this.weapons.load(d.weapons); this.squad.load(d.squad); this.orchid.load(d.orchid); this.pendingWanted = d.police ? d.police.level : d.weapons ? d.weapons.heat : 0;
     const p = d.player || { x: L.PLACES.meeting.x, z: L.PLACES.meeting.z, yaw: 0 }; if (this.customs && this.customs.active) this.customs.abort(); { const P = this.player, veh = P.vehicle; if (veh) { veh.speed = 0; veh.mesh.remove(P.ch.root); this.scene.add(P.ch.root); veh.player = false; P.vehicle = null; P.exiting = null; P.entry = null; P.ch.anim.standUp(); this.traffic.release(veh); P.respawnReset(); } } /* loading a save while driving: the save's player is on foot (as Health.js does on respawn) */ this.world.warm(p.x, p.z); this.player.teleport(p.x, p.z, p.yaw); this.squad.regroup(); this.garage.restore(); // owned (customised) vehicles back where they were parked
     this.player.cinematic = false; this.player.control = true; this.mode = 'play'; this.paused = false; this.hud.show(true); this.director.active = false;
     if (this.pendingWanted) { this.police.restore(this.pendingWanted); this.pendingWanted = 0; }
@@ -324,7 +326,7 @@ export class Game {
     const g = new THREE.Group(); g.name = 'shaderWarm'; g.visible = false; const seen = new Set();
     for (const [k, T] of Object.entries(VTYPES)) { const key = T.police ? 'police' : T.ambulance ? 'amb' : T.entry === 'bike' ? k : (T.base || k) + (T.family || ''); if (seen.has(key)) continue; seen.add(key);
       try { const m = createVehicleMesh(k, 1); if (m.userData.detail) setVehicleLOD(m.userData, true); g.add(m); } catch (e) { console.warn('warm set', k, e); } }
-    if (this.vdamage) g.add(this.vdamage.warmGroup()); // damaged glass, charred shell, bullet holes, shards / fragments
+    if (this.vdamage) g.add(this.vdamage.warmGroup()); if (this.loot) g.add(this.loot.warmMesh()); // the loot batch (one note) // damaged glass, charred shell, bullet holes, shards / fragments
     for (const m of [...customsWarmMeshes(), wheelsWarmMesh(), paintWarmMesh()]) g.add(m); // Street Customs: neon strip / glow pool, custom rim, custom paint programs
     return g;
   }
@@ -532,7 +534,7 @@ export class Game {
     if (this.world.customs && !warmOnly) { if (!this.customs) this.customs = new CustomsService(this, this.world.customs); this.customs.update(dt, { night: A.night }); this.garage.update(dt); } // Street Customs (customs/CustomsService.js)
     if (P.vehicle && A.night > 0.5 && P.nightLights === undefined) { P.vehicle.lights = true; }
     if (!this.indoor && !warmOnly) this.bicycles.update(dt, Vehicle);
-    if (!this.indoor) { this.ragdolls.update(dt, this.traffic.all()); this.caps.update(dt, this.traffic.all(), P.pos || null); } this.blood.update(dt);
+    if (!this.indoor) { this.ragdolls.update(dt, this.traffic.all()); this.caps.update(dt, this.traffic.all(), P.pos || null); } this.blood.update(dt); if (this.loot) this.loot.update(dt, P); // dropped loot: flight, expiry, hidden indoors
     if (this.birds) this.birds.update(dt);
     this.updateSight(dt);
     // story & prompts
@@ -567,8 +569,10 @@ export class Game {
     if (P.vehicle) { if (Input.wasPressed('enter')) { if (!P.exitVehicle(this.traffic)) this.hud.notify('Slow down', 'Stop the vehicle to get out.', 'info', 1.5); } return null; }
     const door = I.nearDoor(P.x, P.z);
     const veh = this.traffic.nearest(P.x, P.z, 3.4);
-    if (door && (!veh || Math.hypot(door.x - P.x, door.z - P.z) < 1.6)) { const H = HERO_ROOMS[door.id]; const me = this.squad?.activeMember?.def?.id || 'dineth'; if (H && door.owner && door.owner !== me) return `${H.name} · locked (switch to ${H.name.split("'")[0]})`; const name = H ? 'your room' : this.interiorName(door.id); if (Input.wasPressed('enter')) I.enter(door); return `${key('enter')} Enter ${name}`; }
-    if (veh) { if (Input.wasPressed('enter')) P.enterVehicle(veh, this.traffic); return `${key('enter')} ${veh.driverChar ? 'Take' : 'Get in'} ${VNAMES[veh.type] || 'vehicle'}`; }
+    const lp = this.loot && !this.story.sidePrompt && !this.story.talkTarget ? this.loot.interact(P, key) : null; const plus = lp ? ` · ${lp}` : ''; // loot in reach (interact key) — shown alongside a door / vehicle prompt (enter key)
+    if (door && (!veh || Math.hypot(door.x - P.x, door.z - P.z) < 1.6)) { const H = HERO_ROOMS[door.id]; const me = this.squad?.activeMember?.def?.id || 'dineth'; if (H && door.owner && door.owner !== me) return `${H.name} · locked (switch to ${H.name.split("'")[0]})`; const name = H ? 'your room' : this.interiorName(door.id); if (Input.wasPressed('enter')) I.enter(door); return `${key('enter')} Enter ${name}` + plus; }
+    if (veh) { if (Input.wasPressed('enter')) P.enterVehicle(veh, this.traffic); return `${key('enter')} ${veh.driverChar ? 'Take' : 'Get in'} ${VNAMES[veh.type] || 'vehicle'}` + plus; }
+    if (lp) return lp; // loot before small talk / helping up (and with a weapon drawn)
     if (this.weapons && this.weapons.drawn) return null; // armed: no small talk (holster with X)
     { const sp = this.station && this.station.interact(P, key, () => Input.wasPressed('interact')); if (sp) return sp; } // a Fort station shoulder vendor: buy from them
     // pedestrians: nearest in front within 2.6 m

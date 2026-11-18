@@ -184,7 +184,7 @@ export class HUD {
   }
   // ---------- objective / notes / prompts
   setObjective(title, text, target) { this.objective = target || null; this.obj.classList.toggle('show', !!text); this.objTitle.textContent = title || ''; this.objText.textContent = text || ''; if (target) this.addBlip('obj', target.x, target.z, 'objective'); else this.removeBlip('obj'); }
-  notify(title, body = '', kind = 'info', dur = 5) { const n = el('div', 'note ' + kind, this.notes, `<b>${title}</b>${body ? `<span>${body}</span>` : ''}`); Audio.ui(kind === 'success' ? 'success' : kind === 'collect' ? 'collect' : 'notify'); setTimeout(() => n.classList.add('out'), dur * 1000); setTimeout(() => n.remove(), dur * 1000 + 600); while (this.notes.children.length > 4) this.notes.firstChild.remove(); }
+  notify(title, body = '', kind = 'info', dur = 5) { const n = el('div', 'note ' + kind, this.notes, `<b>${title}</b>${body ? `<span>${body}</span>` : ''}`); if (!kind.startsWith('loot')) Audio.ui(kind === 'success' ? 'success' : kind === 'collect' ? 'collect' : 'notify'); /* loot: its own quiet pick-up sound (Audio.loot) */ setTimeout(() => n.classList.add('out'), dur * 1000); setTimeout(() => n.remove(), dur * 1000 + 600); while (this.notes.children.length > 4) this.notes.firstChild.remove(); }
   prompt(text) { if (this._prompt === text) return; this._prompt = text; this.promptEl.innerHTML = text || ''; this.promptEl.classList.toggle('show', !!text); }
   key(action) { return `<kbd>${keyLabel(Settings.get('bindings')[action])}</kbd>`; }
   // ---------- subtitles: {who, text, tr, lang, dur}

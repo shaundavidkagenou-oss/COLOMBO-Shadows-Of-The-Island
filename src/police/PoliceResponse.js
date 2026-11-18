@@ -27,6 +27,7 @@ import { seatCharacter } from '../actors/Seating.js';
 import { boardCurve, poseBoard, npcBoardSetup, boardGroundFn, swingDoor, lapGrips, EXIT_K } from '../actors/Boarding.js';
 import { shutDoorLater, cancelShut, poseDoor } from '../vehicles/DoorRig.js';
 import { Audio } from '../audio/Audio.js';
+import { bus } from '../core/Events.js';
 import { Voices } from '../audio/Voices.js';
 import { SoundBank } from '../audio/SoundBank.js';
 import { clamp, lerp } from '../core/math.js';
@@ -757,7 +758,7 @@ export class PoliceResponse {
   killOfficer(o, dx = 0, dz = 0, vy = 0) {
     if (o.dead) return; if (o.ch.rag && o.ch.rag.kin) { o.ch.rag.kin = null; o.ch.rag.wake(); } o.blown = null; o.evade = null; if (o.boarding || o.ch.anim.board) { const r = o.ch.root; o.ch.anim.board = null; o.boarding = false; if (r.parent && r.parent !== this.g.scene) { const p = r.getWorldPosition(new THREE.Vector3()); r.parent.remove(r); this.g.scene.add(r); r.position.copy(p); r.rotation.set(0, o.yaw || 0, 0); o.x = p.x; o.z = p.z; } }
     o.dead = true; o.mode = 'dead'; o.tackle = null; o.cuffing = false; o.torchOn = false; if (o.torchM) o.torchM.visible = false;
-    o.ch.anim.ik = null; o.ch.anim.aim = null; o.ch.anim.set('down'); o.ch.face?.set?.('blink', 1e9); this.ff.disarm?.(o);
+    o.ch.anim.ik = null; o.ch.anim.aim = null; o.ch.anim.set('down'); o.ch.face?.set?.('blink', 1e9); bus.emit('npcDefeated', { kind: 'officer', p: o, rifle: o.rifle || null }); /* 64th: loot (world/Loot.js) may take the T-56 he carried (it then clears o.rifle) */ this.ff.disarm?.(o);
     const u = o.unit; if (u) u.officers = u.officers.filter((q) => q !== o);
     const R = this.g.ragdolls; if (R && o.ch.root.parent && !o.ch.rag) R.add(o.ch, { vel: [dx * 1.8, vy, dz * 1.8] }); // goes limp (ragdoll)
     this.bodies.push({ o, ch: o.ch, x: o.x, z: o.z, t: 0 }); this.stats.officersDown = (this.stats.officersDown || 0) + 1; this.note('officer down (incapacitated)');
