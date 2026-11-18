@@ -191,7 +191,10 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
   for (const [a, b, c, d] of minusStairs(F.bld.x0, F.bld.x1, F.bld.z0, F.bld.z1)) { B(stone, a, b, Y - 0.05, FL, c, d, '#8e8a80'); surf(a, b, c, d, FL); } // plinth = floor slab
   for (const h of stairs) { for (let k = 0; k < NSTEP; k++) { const z0 = h.z0 + k * STEP_T, top = Y + STEP_R * (k + 1); B(stone, h.x0, h.x1, Y - 0.05, top, z0, h.z1, k % 2 ? '#b7b2a6' : '#b1aca0'); B(paint, h.x0, h.x1, top - 0.03, top + 0.002, z0, z0 + 0.05, '#6e6a62'); surf(h.x0, h.x1, z0, h.z1, top, 'deck'); }
     for (const xe of [h.x0 + 0.06, h.x1 - 0.06]) { if (h.z1 <= ZF0 + 0.45) continue; const za = ZF0 + 0.45; for (const zz of [za, h.z1]) metal.cylinder(xe, FL, zz, 0.025, 0.025, 1.0, 8, { col: cc(STEEL) }); rod(metal, xe, FL + 0.98, za, xe, FL + 0.98, h.z1, 0.02, cc(STEEL)); rod(metal, xe, FL + 0.5, za, xe, FL + 0.5, h.z1, 0.015, cc(STEEL)); coll(xe - 0.04, xe + 0.04, za, h.z1, FL + 1.0); } } // well-side handrails in the hall
-  B(paint, F.bld.x0 - 0.02, F.bld.x1 + 0.02, Y, FL - 0.02, F.bld.z0 - 0.03, F.bld.z0, PLINTH, { top: false });
+  // the plinth band along the frontage, broken at every stair well (61st: it ran straight across the entrance steps — a dark
+  // 0.8 m face standing over the third tread of the main entrance and in front of the side entrances' first step)
+  { const cuts = stairs.filter((h) => h.z0 <= F.bld.z0 + 1e-3 && h.z1 >= F.bld.z0 - 0.03).map((h) => [h.x0, h.x1]).sort((a, b) => a[0] - b[0]); let xa = F.bld.x0 - 0.02;
+    for (const [c0, c1] of [...cuts, [F.bld.x1 + 0.02, F.bld.x1 + 0.02]]) { if (c0 - xa > 1e-3) B(paint, xa, c0, Y, FL - 0.02, F.bld.z0 - 0.03, F.bld.z0, PLINTH, { top: false }); xa = Math.max(xa, c1); } }
   // the masonry above a round arch in a wall along x: centre cx, springing line sy, radius r, up to `top`, between z0 and z1
   const archFill = (b, cx, sy, r, top, z0, z1, col) => { const sh = new THREE.Shape(); sh.moveTo(-r, 0); sh.lineTo(-r, top - sy); sh.lineTo(r, top - sy); sh.lineTo(r, 0); for (let k = 1; k < 24; k++) { const a = (k / 24) * Math.PI; sh.lineTo(Math.cos(a) * r, Math.sin(a) * r); } sh.lineTo(-r, 0);
     const g = new THREE.ExtrudeGeometry(sh, { depth: z1 - z0, bevelEnabled: false, curveSegments: 1 }); b.geometry(g, new THREE.Matrix4().makeTranslation(cx, sy, z0), typeof col === 'string' ? cc(col) : col); g.dispose(); };
@@ -680,7 +683,11 @@ export function buildFortStation({ mb, colliders, group, C, hip, lightPool }) {
       for (let k = 0; k < nSt; k++) { const top = D - rise * (k + 1) + rise, xa2 = xb + run * k, xb2 = xa2 + run; const yb = Math.max(FL, top - 0.3); B(stone, xa2, xb2, yb, top, z0, z1, '#9a948a'); surf(xa2, xb2, z0, z1, top - yb, 'deck', { y0: yb }); }
       for (const ze of [z0, z1]) { beam(metal, xb, D - 0.3, ze, xb + Bd.run, FL - 0.05, ze, 0.08, 0.35, cc('#3c4a42')); beam(metal, xb, D + 1.0, ze, xb + Bd.run, FL + 1.0, ze, 0.05, 0.05, cc('#3c4a42')); for (let k = 0; k <= 8; k++) { const t = k / 8; rod(metal, xb + Bd.run * t, D + (FL - D) * t, ze, xb + Bd.run * t, D + (FL - D) * t + 1.0, ze, 0.02, cc('#3c4a42')); }
         for (let k = 0; k < 6; k++) { const ta = k / 6, tb = (k + 1) / 6, ya = D + (FL - D) * tb; colliders.push({ x0: xb + Bd.run * ta, x1: xb + Bd.run * tb, z0: ze - 0.05, z1: ze + 0.05, h: 1.0 + (D - FL) / 6, y0: ya, kind: 'landmark' }); } }
-      metal.box(xb + Bd.run * 0.55, (FL + D * 0.5) / 2 + 0.2, st.zc, 0.25, D * 0.5 - FL + 0.4, 0.25, { col: cc('#3c4a42') }); }
+      // 61st (stairs looked broken from the platform): a smooth sloping soffit under the treads instead of the saw-tooth of 0.3 m
+      // step blocks, and the mid-span post now stops under it (its top used to stand flush with a tread: a flickering square)
+      const slope = (D - FL) / Bd.run, Tv = rise + 0.14, yTop = (x) => D - 0.3 + rise - slope * (x - xb), cosA = 1 / Math.hypot(1, slope);
+      beam(stone, xb, yTop(xb) - Tv / 2, st.zc, xb + Bd.run, yTop(xb + Bd.run) - Tv / 2, st.zc, Bd.w - 0.04, Tv * cosA, cc('#8e8980'));
+      { const px = xb + Bd.run * 0.55, pTop = yTop(px + 0.125) - Tv; metal.box(px, (FL + pTop) / 2, st.zc, 0.25, pTop - FL, 0.25, { col: cc('#3c4a42') }); } }
   }
 
   // ================================================================ 8. atlases → meshes, clock hands, LED clock

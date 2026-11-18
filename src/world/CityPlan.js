@@ -6,6 +6,7 @@ import { onParkFeature, parkColliders, parkLamps, PARK, BAT_TREES, PLAY_ITEMS, P
 import { SIGNS, SHOP_ROWS } from '../gfx/Textures.js';
 import { crownPoints } from './TreeShapes.js';
 import { greenTrees, greenPlants } from './Greenery.js';
+import { tidyWalls, clearWalkLines, walkLineDist, walkNeed } from './MapTidy.js';
 import { fortClearAt, FORT } from './FortStationData.js';
 
 export const CHUNK = 200;
@@ -476,7 +477,7 @@ function fitTreeCrowns() {
       for (const b of plan.byChunk[j * NCX + i].buildings) if (x > b.x0 - R - 1.5 && x < b.x1 + R + 1.5 && z > b.z0 - R - 1.5 && z < b.z1 + R + 1.5) out.push(...(b._vol ||= buildingVolumes(b))); }
     if (R > 0) for (const o of OBST.near(x, z, R + 0.5)) if (o.kind !== 'pole') out.push(obstBox(o));
     return out; };
-  const trunkClear = (x, z, tt) => !L.isWater(x, z) && !L.roadAt(x, z) && !onRailReserve(x, z) && !inSchool(x, z) && near(x, z, 0).every((v) => Math.hypot(Math.max(v[0] - x, 0, x - v[1]), Math.max(v[2] - z, 0, z - v[3])) >= 1.2) && !trunkHit(x, z, tt);
+  const trunkClear = (x, z, tt) => !L.isWater(x, z) && !L.roadAt(x, z) && !onRailReserve(x, z) && !inSchool(x, z) && near(x, z, 0).every((v) => Math.hypot(Math.max(v[0] - x, 0, x - v[1]), Math.max(v[2] - z, 0, z - v[3])) >= 1.2) && !trunkHit(x, z, tt) && walkLineDist(x, z)[0] >= walkNeed(treeTrunkR(tt)); // 61st: never onto a walking line
   const stats = { ok: 0, turned: 0, pruned: 0, shrunk: 0, moved: 0, dropped: 0 }; const drop = new Set();
   const YAWS = 16;
   const tryFit = (t, x, z, sqs, ss, nYaw) => { const R = (REACH[t.type] || 9) * Math.max(...ss) + 0.5; const boxes = near(x, z, R); if (!boxes.length) return { yaw: t.yaw, sq: sqs[0], s: ss[0] };
@@ -608,6 +609,7 @@ export function generatePlan() {
     const dq = (q) => inRes(q.x, q.z); plan.poi = plan.poi.filter((q) => !dq(q)); plan.busStops = plan.busStops.filter((q) => !dq(q)); plan.parking = plan.parking.filter((q) => !dq(q));
     for (const ch of plan.byChunk) { ch.props = ch.props.filter((p) => !drop.has(p)); ch.trees = ch.trees.filter((t) => !dropT.has(t)); ch.walls = ch.walls.filter((w) => !dropW.has(w)); ch.poi = ch.poi.filter((q) => !dq(q)); } }
   if (plan.stallFix) { const kept = plan.props.filter((p) => p.type === 'stall').length; plan.stallFix.removed = plan.stallFix.placed - kept; plan.stallFix.placed = kept; } // stalls cleared off mission-shop doors / station lots after placement
+  tidyWalls(plan); // 61st: no compound wall twice, clean corners / joints (MapTidy.js)
   greenTrees({ plan, addTree, onRailReserve, inSchool }); // more street trees + garden trees, banana clumps, areca palms (Greenery.js, own RNG)
   // no tree may grow inside (or through) a building. Garden/back-lot trees planted against a wall are moved out to 1.6 m
   // from it (crown no longer pushes through the facade); if there is no free spot they are dropped. Around the landmark
@@ -638,6 +640,7 @@ export function generatePlan() {
     if (drop.size) { const cols = new Set([...drop].map((t) => t.col)); plan.trees = plan.trees.filter((t) => !drop.has(t)); plan.colliders = plan.colliders.filter((c) => !cols.has(c));
       for (const ch of plan.byChunk) ch.trees = ch.trees.filter((t) => !drop.has(t)); }
     plan.treeFix = { moved, dropped: drop.size }; }
+  clearWalkLines(plan, { treeTrunkR, onRailReserve, inSchool, chunkIndex }); // 61st: no trunk on a pedestrian walking line (MapTidy.js)
   fitTreeCrowns();
   { const inC = (x, z) => !!L.customsSiteAt(x, z, 3); const drop = new Set(plan.trees.filter((t) => inC(t.x, t.z))); // greenery planted after the reserve pass: none on the workshop lot / frontage
     if (drop.size) { const cols = new Set([...drop].map((t) => t.col).filter(Boolean)); plan.trees = plan.trees.filter((t) => !drop.has(t)); plan.colliders = plan.colliders.filter((c) => !cols.has(c)); for (const ch of plan.byChunk) ch.trees = ch.trees.filter((t) => !drop.has(t)); } }

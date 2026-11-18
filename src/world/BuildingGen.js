@@ -358,8 +358,15 @@ export function buildDetail(b, multi) {
 export function buildWall(w, multi) {
   const hv = Math.sin((w.x0 * 12.9898 + w.z0 * 78.233)) * 43758.5453, k = 0.94 + 0.08 * (hv - Math.floor(hv)); // each run of wall repainted at a different time
   const c = col(w.col).map((v) => v * k);
-  multi.get('compoundWall').box((w.x0 + w.x1) / 2, LAND_Y + w.h / 2, (w.z0 + w.z1) / 2, w.x1 - w.x0, w.h, w.z1 - w.z0, { col: c, uvScale: 2 });
-  multi.get('wallCoping').box((w.x0 + w.x1) / 2, LAND_Y + w.h + 0.05, (w.z0 + w.z1) / 2, w.x1 - w.x0 + 0.08, 0.1, w.z1 - w.z0 + 0.12, { col: c.map((v) => v * 0.85), uvScale: 2 });
+  // 61st: joints from MapTidy.tidyWalls — 'abut' ends (the run continues collinearly) get no coping overhang, 'under' ends
+  // (this run meets a crossing one) stop 12 mm short of its faces and the run sits 12 mm lower: no coplanar faces at corners
+  const ax = w.x1 - w.x0 >= w.z1 - w.z0, E = 0.012, low = w.e0 === 'under' || w.e1 === 'under' ? E : 0;
+  let a0 = ax ? w.x0 : w.z0, a1 = ax ? w.x1 : w.z1; if (w.e0 === 'under') a0 += E; if (w.e1 === 'under') a1 -= E;
+  const ov = ax ? 0.04 : 0.06; const c0 = a0 - (w.e0 === 'abut' ? 0 : w.e0 === 'under' ? ov - E : ov), c1 = a1 + (w.e1 === 'abut' ? 0 : w.e1 === 'under' ? ov - E : ov);
+  const box = (b, p0, p1, y, h, t0, t1, col) => b.box(ax ? (p0 + p1) / 2 : (t0 + t1) / 2, y, ax ? (t0 + t1) / 2 : (p0 + p1) / 2, ax ? p1 - p0 : t1 - t0, h, ax ? t1 - t0 : p1 - p0, { col, uvScale: 2 });
+  const t0 = ax ? w.z0 : w.x0, t1 = ax ? w.z1 : w.x1, cw = ax ? 0.06 : 0.04;
+  box(multi.get('compoundWall'), a0, a1, LAND_Y + (w.h - low) / 2, w.h - low, t0, t1, c);
+  box(multi.get('wallCoping'), c0, c1, LAND_Y + w.h + 0.05 - low, 0.1, t0 - cw, t1 + cw, c.map((v) => v * 0.85));
 }
 
 // ----------------------------------------------------------------------------- window dressing (near LOD)
