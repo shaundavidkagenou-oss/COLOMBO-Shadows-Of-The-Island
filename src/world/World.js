@@ -6,6 +6,7 @@ import { MAT, ROLE_DEFS } from '../gfx/Materials.js';
 import { RangeBatch, rangesFor, disposeMesh, splitCells, cellsOfBox } from '../gfx/CellBatch.js';
 import { installCull, CULL, CSLOTS, LOD, setLodQuality } from '../gfx/BatchCull.js';
 import { OcclusionCuller } from '../gfx/Occlusion.js';
+import { SkyBake } from '../gfx/BakeLight.js';
 import { GroundDetail, regTrees } from './GroundDetail.js';
 import { generatePlan, plan, NCX, NCZ, CHUNK, chunkCenter, refitTreeCrowns, landmarkTreeBoxes } from './CityPlan.js';
 import { buildGround } from './GroundBuilder.js';
@@ -40,9 +41,10 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 const GROUND_TINY = new Set(['drainGrate', 'roadStud']), GROUND_SMALL = new Set(['manholeCover', 'manholeCollar', 'drainSump']);
 // a chunk's building shells + compound walls, with per-building range marks (each builder's vertex / index count before every
 // building, before the walls and at the end): batchStatic cuts the merged meshes back into one piece per building
-function buildBaseMarked(ch) {
+function buildBaseMarked(ch, sky = null) {
   const mb = new MultiBuilder(); const marks = []; const mark = () => marks.push(new Map([...mb.b].map(([n, b]) => [n, [b.pos.length / 3, b.idx.length]])));
   for (const b of ch.buildings) { mark(); buildBase(b, mb); } mark(); for (const w of ch.walls || []) buildWall(w, mb); mark();
+  if (sky) sky.apply(mb); // 65th: baked sky-light occlusion of the walls (BakeLight.js) — colours only, the marks stay valid
   return { mb, marks };
 }
 
@@ -63,6 +65,7 @@ export class World {
     // 65th: occlusion data, baked once from the final city plan (OcclusionCuller: every building an occluder; the targets grow
     // to cover the batched pieces as they are made — shells, ground cells, street dressing, streamed detail)
     this.occ = new OcclusionCuller(); this.occ.bake(plan.buildings, L.LAND_Y, L.BOUNDS); CULL.occ = this.occ;
+    this.skyBake = new SkyBake(plan.buildings, L.LAND_Y, L.BOUNDS); // 65th: baked skylight occlusion for the building shells (BakeLight.js)
     for (const b of plan.buildings) for (const [px, pz, r] of frontColumns(b)) this.collision.add({ x0: px - r - 0.01, x1: px + r + 0.01, z0: pz - r - 0.01, z1: pz + r + 0.01, h: L.LAND_Y + (b.colonnade ? 4.4 : 2.9), kind: 'pole' }); // villa porch + Fort arcade columns
     progress(0.08, 'Laying roads and pavements'); await tick();
     const ground = buildGround(() => {});
@@ -85,7 +88,7 @@ export class World {
       const c = { idx, cx, cz, group: new THREE.Group(), detail: null, detailState: 0, props: null, trees: null };
       c.group.name = 'chunk' + idx;
       const gm = ground[idx]; if (gm) for (const m of gm.toMeshes(MAT, { cast: false, receive: true })) c.group.add(m);
-      const { mb, marks } = buildBaseMarked(ch); c.baseMarks = marks;
+      const { mb, marks } = buildBaseMarked(ch, this.skyBake); c.baseMarks = marks;
       for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) { m.userData.layer = 'bld'; if (m.name === 'ao') { m.castShadow = false; m.receiveShadow = false; m.renderOrder = 1; } c.group.add(m); }
       c.props = buildPropsForChunk(ch); c.props.visible = false; c.group.add(c.props);
       c.lamps = c.props.userData.lamps || [];
@@ -249,7 +252,7 @@ export class World {
       for (const e of c.base || []) if (e.layer === 'bld' && !e.off) { e.batch.setVisibleAt(e.iid, false); e.off = true; } // the batched originals go dark
       if (c.base) c.base = c.base.filter((e) => !e.off);
       for (const m of [...c.group.children]) if (m.isMesh && m.userData.layer === 'bld') { c.group.remove(m); disposeMesh(m); }
-      const { mb, marks } = buildBaseMarked(ch); c.baseMarks = marks;
+      const { mb, marks } = buildBaseMarked(ch, this.skyBake); c.baseMarks = marks;
       for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) { m.userData.layer = 'bld'; if (m.name === 'ao') { m.castShadow = false; m.receiveShadow = false; m.renderOrder = 1; } c.group.add(m); }
       const had = { c, det: !!c.detail, win: !!c.win }; if (had.det || had.win) again.push(had);
       if (this.job && this.job.c === c) this.job = null; if (c.detail) this.disposeDetail(c);
@@ -284,9 +287,9 @@ export class World {
         for (let i = 0; i < part.n; i++) { M4.fromArray(part.mat, i * 16); ib.copy(gb).applyMatrix4(M4); part.pos[i * 2] = M4.elements[12]; part.pos[i * 2 + 1] = M4.elements[14];
           box[0] = ib.min.x; box[1] = ib.max.x; box[2] = ib.min.z; box[3] = ib.max.z; if (occ) cellsOfBox(occ, box, part.cells, i * CSLOTS, ib.max.y, true); } }
       const m = P.mesh; const W = this;
-      m.onBeforeRender = function (r, s, cam) { this.count = cam === CULL.camera ? (CULL.occOn && W.occ && P.gen === W.occ.gen ? P.nMain : P.nMain + P.nOcc) : P.nAll; };
+      m.onBeforeRender = function (r, s, cam) { this.count = cam === CULL.camera ? (CULL.occOn && W.occ && P.gen === W.occ.gen ? P.nMain : LOD.enabled ? P.nMain + P.nOcc : P.nAll) : P.nAll; };
       m.onAfterRender = function () { this.count = P.nAll; };
-      m.onBeforeShadow = function (r, o, cam, sc) { this.count = sc === CULL.sunCamera ? P.nNear : P.nAll; };
+      m.onBeforeShadow = function (r, o, cam, sc) { this.count = sc === CULL.sunCamera && CULL.propNear ? P.nNear : P.nAll; };
       m.onAfterShadow = function () { this.count = P.nAll; }; }
     this._propEye = new THREE.Vector3(0, -1e9, 0); this._propGen = -2; this._propNear = 0;
   }

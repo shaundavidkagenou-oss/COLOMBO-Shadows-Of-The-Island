@@ -26,7 +26,7 @@ export const CSLOTS = 9; // occlusion cells per batched instance (3 × 3)
 export const LOD = {
   enabled: true,
   detailFull: 90,        // building detail: full within this distance of the camera (m), coarse beyond
-  detailFullShadow: 45,  // near sun shadow map: full detail within this distance of the camera
+  detailFullShadow: 52,  // near sun shadow map: full detail within this distance of the camera (its crisp reach ≈ 50 m)
   fineEdge: 1.0,         // triangle classed fine when its longest edge is shorter than this (m)…
   thin: 0.06,            // …or when it is thinner than this (m)
   winMax: 110,           // window joinery drawn within this distance (m)
@@ -35,13 +35,13 @@ export const LOD = {
 };
 // quality presets (Settings → World.setQuality)
 export const LOD_PRESETS = {
-  low: { detailFull: 60, detailFullShadow: 30, winMax: 70, tiny: 35, small: 70 },
-  medium: { detailFull: 75, detailFullShadow: 38, winMax: 85, tiny: 45, small: 90 },
-  high: { detailFull: 90, detailFullShadow: 45, winMax: 110, tiny: 55, small: 110 },
-  ultra: { detailFull: 130, detailFullShadow: 60, winMax: 170, tiny: 80, small: 160 },
+  low: { detailFull: 60, detailFullShadow: 52, winMax: 70, tiny: 35, small: 70 },
+  medium: { detailFull: 75, detailFullShadow: 52, winMax: 85, tiny: 45, small: 90 },
+  high: { detailFull: 90, detailFullShadow: 52, winMax: 110, tiny: 55, small: 110 },
+  ultra: { detailFull: 130, detailFullShadow: 62, winMax: 170, tiny: 80, small: 160 },
 };
 export function setLodQuality(q) { Object.assign(LOD, LOD_PRESETS[q] || LOD_PRESETS.high); }
-export const CULL = { occ: null, camera: null, farCamera: null, occOn: false, eye: new THREE.Vector3(), stats: { drawn: 0, occluded: 0, lodCoarse: 0, distCut: 0 } };
+export const CULL = { occ: null, camera: null, farCamera: null, sunCamera: null, propNear: true, occOn: false, eye: new THREE.Vector3(), stats: { drawn: 0, occluded: 0, lodCoarse: 0, distCut: 0 } };
 const BATCHES = new Set();
 export function liveBatches() { return BATCHES; }
 

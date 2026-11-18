@@ -21,6 +21,6 @@ const app = document.getElementById('app');
 if (!webglOK()) {
   app.innerHTML = '<div class="fatal"><h1>WebGL 2 is required</h1><p>Please use a recent Chrome, Edge, Firefox or Safari with hardware acceleration enabled.</p></div>';
 } else {
-  const game = new Game(app); window.__game = game;
+  const game = new Game(app); window.__game = game; window.__perfConfig = (n) => game.perfConfig(n); window.__perfStats = () => game.perfStats(); // (65th: A/B measurement hooks)
   game.boot().catch((e) => { console.error(e); app.insertAdjacentHTML('beforeend', `<div class="fatal"><h1>Something went wrong</h1><pre>${String(e && e.stack || e).replace(/</g, '&lt;')}</pre></div>`); });
 }

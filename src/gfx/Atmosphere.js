@@ -23,7 +23,10 @@ import { RNG } from '../core/rng.js';
 //    (2 mm per metre of height: a 10 m wall's shadow edge advances 2 cm at a time, a few times a second, at every sun height).
 //    The old steps were in sun angle (0.0025 rad), which at a low evening sun moved a tall building's shadow by over a metre
 //    at once. Steps (not a per-frame rotation) still keep shadow edges from crawling on walls and cars (35th request).
-export const SUN_SHADOW = { range: 34, ahead: 0.3, wallH: 22, dist: 300, pcf: { 1024: 1.0, 2048: 1.5, 4096: 2.2 }, snap: true, step: 0.002 }; // snap: false only for the stability test
+// 65th: real-time crisp shadows only near the player — the near box (±35 m, same texel density as before) now sits 15 m ahead
+// along the view, so crisp shadows reach ≈ 50 m in front of the player (≈ 45 m fully crisp, then the fade into the far map)
+// and ≈ 20 m behind; everything beyond comes from the cached far map (static city, redrawn at most once a second).
+export const SUN_SHADOW = { range: 34, ahead: 0.45, wallH: 22, dist: 300, pcf: { 1024: 1.0, 2048: 1.5, 4096: 2.2 }, snap: true, step: 0.002 }; // snap: false only for the stability test
 export const FAR_SHADOW = { range: 150, ahead: 0.35, grid: 12, wallH: 48, dist: 900, step: 0.005, minGap: 0.25, maxAge: 1.0, res: { 1024: 1024, 2048: 2048, 4096: 2048 } };
 { const C = THREE.ShaderChunk; const a = 'directLight.color *= ( directLight.visible && receiveShadow ) ? getShadow( directionalShadowMap[ i ], directionalLightShadow.shadowMapSize, directionalLightShadow.shadowIntensity, directionalLightShadow.shadowBias, directionalLightShadow.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;';
   const call = 'RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );';

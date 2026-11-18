@@ -51,7 +51,9 @@ export class OcclusionCuller {
     for (const b of buildings) { maxId = Math.max(maxId, b.id | 0); const top = groundY + (b.h || b.totalH || 0); if (!(top > groundY + 2)) continue;
       const w = b.x1 - b.x0, d = b.z1 - b.z0; if (w < 1 || d < 1) continue; const bi = fp.length / 4; fp.push(b.x0, b.x1, b.z0, b.z1);
       const nx = Math.max(1, Math.ceil(w / P)), nz = Math.max(1, Math.ceil(d / P));
-      for (let i = 0; i < nx; i++) for (let k = 0; k < nz; k++) { occ.push(b.x0 + w * i / nx, b.x0 + w * (i + 1) / nx, b.z0 + d * k / nz, b.z0 + d * (k + 1) / nz, top); own.push(bi); } }
+      for (let i = 0; i < nx; i++) for (let k = 0; k < nz; k++) { occ.push(b.x0 + w * i / nx, b.x0 + w * (i + 1) / nx, b.z0 + d * k / nz, b.z0 + d * (k + 1) / nz, top); own.push(bi); }
+      if (b.tower && b.totalH > b.h + 2) { const t = b.tower.inset || 0, tx0 = b.x0 + t, tx1 = b.x1 - t, tz0 = b.z0 + t, tz1 = b.z1 - t, tw = tx1 - tx0, td = tz1 - tz0; // a tower on its podium
+        if (tw > 1 && td > 1) { const mx = Math.max(1, Math.ceil(tw / P)), mz = Math.max(1, Math.ceil(td / P)); for (let i = 0; i < mx; i++) for (let k = 0; k < mz; k++) { occ.push(tx0 + tw * i / mx, tx0 + tw * (i + 1) / mx, tz0 + td * k / mz, tz0 + td * (k + 1) / mz, groundY + b.totalH); own.push(bi); } } } }
     this.occ = new Float32Array(occ); this.nO = occ.length / 5;
     // each piece's building (footprint list fp): a building the camera is in (or within ε + 0.5 m of) hides nothing — it is
     // hollow (rooms, shops, the HQ), and whatever stands inside it must stay visible from in there
@@ -111,7 +113,7 @@ export class OcclusionCuller {
     const C = this.cfg, R = this.R, A = R / TAU, O = this.occ, range = C.range, hz = this.back, ex = hz.x, ey = hz.y, ez = hz.z, eps = hz.eps;
     // phase 0: occluders → horizon
     while (J.ph === 0) {
-      const qEnd = Math.min(this.nO, J.i + 192);
+      const qEnd = Math.min(this.nO, J.i + 48);
       const own = this.own, IN = this.inside;
       for (let q = J.i; q < qEnd; q++) { const o = q * 5; if (IN[own[q]]) continue;
         const x0 = O[o] + eps, x1 = O[o + 1] - eps, z0 = O[o + 2] + eps, z1 = O[o + 3] - eps, top = O[o + 4] - eps;
@@ -137,7 +139,7 @@ export class OcclusionCuller {
     // phase 1: building targets
     const T = this.tgt, hb = this._hiddenB;
     while (J.ph === 1) {
-      const iEnd = Math.min(this.nB, J.i + 256);
+      const iEnd = Math.min(this.nB, J.i + 64);
       for (let i = J.i; i < iEnd; i++) { const o = i * 6; if (T[o] !== T[o]) { hb[i] = 0; continue; } const h = this.boxTest(hz, T[o], T[o + 1], T[o + 2], T[o + 3], T[o + 5], range); hb[i] = h === 1 ? 1 : 0; if (h !== 2) { J.tb++; if (h === 1) J.nb++; } }
       J.i = iEnd; if (iEnd >= this.nB) { J.ph = 2; J.i = 0; }
       if (performance.now() > tEnd) return this._pause(J, t0);

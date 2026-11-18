@@ -234,6 +234,7 @@ class MapEditor {
   // ---------------------------------------------------------------- live rebuild of what an edit touched
   rebuildChunk(ci) {
     const W = this.W, c = W.chunks[ci], ch = plan.byChunk[ci]; if (!c || !ch) return;
+    if (W.occ) { W.occ.cfg.enabled = false; W.occ.invalidate(); } // 65th: the baked occlusion data no longer matches the edited buildings — off until the next start (which bakes the saved map)
     for (const e of c.base || []) if (e.layer === 'bld') e.batch.setVisibleAt(e.iid, false); // batched originals off
     for (const m of [...c.group.children]) if (m.userData.layer === 'bld') { c.group.remove(m); if (m.userData.edBld) m.geometry.dispose(); }
     const mb = new MultiBuilder(); for (const b of ch.buildings) buildBase(b, mb); for (const w of ch.walls || []) buildWall(w, mb);

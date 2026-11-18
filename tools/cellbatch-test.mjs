@@ -3,6 +3,7 @@
 // same attributes, every triangle once — with one instance per building / cell (so each can be frustum-culled).
 import './node-dom-stub.mjs';
 import * as THREE from 'three';
+await import('../src/gfx/Materials.js'); // (Materials before CityPlan: module init order)
 const { generatePlan, plan } = await import('../src/world/CityPlan.js');
 const { MultiBuilder } = await import('../src/gfx/MeshBuilder.js');
 const { buildDetail, windowTasks } = await import('../src/world/BuildingGen.js');

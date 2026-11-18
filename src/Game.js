@@ -87,8 +87,8 @@ import { SQUAD_DEFS } from './actors/Squad.js';
 import { Boats } from './boats/Boats.js';
 import { MARINA } from './boats/Marina.js';
 import { ClubSound } from './audio/ClubSound.js';
-import { CULL, beginHide, endHide, seeHidden } from './gfx/BatchCull.js';
-import { OCC_CFG } from './gfx/Occlusion.js';
+import { CULL, LOD, beginHide, endHide, seeHidden } from './gfx/BatchCull.js';
+import { OCC_CFG, OCC_STATS } from './gfx/Occlusion.js';
 import { LIVE as BODIES } from './actors/Bodies.js';
 
 const VNAMES = { tuktuk: 'Three-wheeler', car: 'Hatchback', sedan: 'Sedan', taxi: 'Taxi', van: 'Van', suv: 'SUV', bus: 'SLTB bus', pbus: 'Private bus', lorry: 'Lorry', tow: 'Tow truck', bike: 'Motorcycle', dbike: "Dineth's Bike", police: 'Police car', policejeep: 'Police jeep', policebike: 'Police motorcycle' };
@@ -440,7 +440,7 @@ export class Game {
   // camera will be, a little CPU time per frame (OCC_CFG.budgetMs); it is used only while the camera is inside its validity
   // sphere (otherwise nothing is occlusion-culled that frame). Indoors (rooms, interiors, the seam into them) it is off.
   cullStep(dt) {
-    const cam = this.camera, W = this.world; CULL.camera = cam; CULL.eye.copy(cam.position); CULL.occOn = false;
+    const cam = this.camera, W = this.world; CULL.camera = cam; CULL.eye.copy(cam.position); CULL.occOn = false; const st = CULL.stats; this.cullLast = { ...st }; st.drawn = st.occluded = st.lodCoarse = st.distCut = 0;
     if (this.atmos) { CULL.sunCamera = this.atmos.sun.shadow.camera; CULL.farCamera = this.atmos.sunFar.shadow.camera; }
     const occ = W && W.occ;
     if (occ) {
@@ -455,6 +455,14 @@ export class Game {
     if (!this._shadowCams || (this._shadowCamT = (this._shadowCamT || 0) + dt) > 2) { this._shadowCamT = 0; const L = (this._shadowCams = []); this.scene.traverse((o) => { if (o.isLight && o.shadow && o.shadow.camera) L.push(o.shadow.camera); }); }
     for (const c of this._shadowCams) seeHidden(c);
   }
+  // A/B switch for measurements (tools/lod-census.mjs, perf-frame): 'on' (default) | 'off' (no occlusion, LOD, draw distances or
+  // near-prop shadow prefix — the previous renderer behaviour) | 'occ' (occlusion only) | 'lod' (LOD / draw distances only)
+  perfConfig(name) {
+    const occ = name === 'on' || name === 'occ', lod = name === 'on' || name === 'lod'; OCC_CFG.enabled = occ; LOD.enabled = lod; CULL.propNear = lod;
+    if (this.world) { this.world._propGen = -3; if (!occ && this.world.occ) this.world.occ.invalidate(); } return { occ, lod };
+  }
+  perfStats() { const W = this.world, P = W && W.propPools ? W.propPools : []; let pm = 0, pn = 0, pa = 0; for (const p of P) { pm += p.nMain; pn += p.nNear; pa += p.nAll; }
+    return { occ: { ...OCC_STATS }, cull: this.cullLast || null, occOn: CULL.occOn, props: { main: pm, near: pn, all: pa } }; }
   // people, vehicles and landmark / site groups standing wholly behind buildings: off the main camera's layer for its render
   // only (BatchCull.beginHide / endHide) — shadows, the mirror, game logic and raycasts are unaffected
   hideOccluded() {

@@ -44,6 +44,8 @@ try {
     for (const cfg of CONFIGS) {
       const r = await page.evaluate(async (cfg) => { const g = window.__game; if (window.__perfConfig) window.__perfConfig(cfg); else if (cfg !== 'off' && cfg !== 'on') return { err: 'no __perfConfig' };
         await g.stepSim(20, 0.05); for (let i = 0; i < 8; i++) await new Promise((res) => requestAnimationFrame(res)); window.__tagAll();
+        // the occlusion horizon is built over rendered frames (time-sliced): wait until it is in use (and refreshed once)
+        if (window.__perfStats && (cfg === 'on' || cfg === 'occ')) { const u0 = window.__perfStats().occ.updates; for (let i = 0; i < 600; i++) { const s = window.__perfStats(); if (s.occOn && s.occ.updates >= u0 + 1) break; await new Promise((res) => requestAnimationFrame(res)); } for (let i = 0; i < 2; i++) await new Promise((res) => requestAnimationFrame(res)); }
         const C = window.__census; const acc = {}; const N = 4;
         for (let f = 0; f < N; f++) { C.T = {}; C.on = true; await new Promise((res) => requestAnimationFrame(res)); C.on = false;
           for (const [p, T] of Object.entries(C.T)) { const A = (acc[p] ||= { calls: 0, tris: 0, by: {} }); A.calls += T.calls / N; A.tris += T.tris / N; for (const [k, e] of Object.entries(T.by)) { const B = (A.by[k] ||= [0, 0]); B[0] += e[0] / N; B[1] += e[1] / N; } } }
