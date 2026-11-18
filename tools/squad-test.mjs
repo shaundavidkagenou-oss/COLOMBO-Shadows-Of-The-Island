@@ -18,7 +18,7 @@ ok(S.SQUAD_IDS.join() === 'dineth,shashika,david', 'three protagonists in order'
 for (const d of S.SQUAD_DEFS) {
   ok(HEROES[d.id], `${d.id} has a hero spec`); ok(['F1', 'F2', 'F3'].includes(d.key), `${d.id} key`);
   ok(d.loadout.every((id) => WEAPONS.some((w) => w.id === id)) && WEAPONS.some((w) => w.id === d.primary), `${d.id} loadout uses real weapons`);
-  const inv = S.freshInventory(d); ok(inv.length === 9 && inv.filter((v) => v.owned).length === d.loadout.length, `${d.id} inventory`);
+  const inv = S.freshInventory(d); ok(inv.length === WEAPONS.length && inv.filter((v) => v.owned).length === d.loadout.length, `${d.id} inventory`);
   ok(d.speed > 0.8 && d.speed < 1.2 && d.armor > 0.5 && d.armor <= 1 && d.steady > 0.3 && d.steady <= 1, `${d.id} perks in range`);
 }
 ok(HEROES.shashika.sex === 'm', 'Shashika is male');

@@ -165,7 +165,7 @@ function foldGeo(row) {
   const b = new GB(), h = NOTE.len / 2, W = NOTE.wid, r = UV.note(row), a = 0.16, y0 = 0.0005; const yTop = (x) => y0 + 0.0012 + (h / 2 - x) * Math.sin(a) * 0.5; // fold at x = +h/2, opening towards −x
   const lo = sub(r, 0, 0.5), hi = sub(r, 0.5, 1);
   b.quad([-h / 2, y0, W / 2], [h / 2, y0, W / 2], [h / 2, y0, -W / 2], [-h / 2, y0, -W / 2], lo); b.quad([h / 2, y0 - NOTE.paper, W / 2], [-h / 2, y0 - NOTE.paper, W / 2], [-h / 2, y0 - NOTE.paper, -W / 2], [h / 2, y0 - NOTE.paper, -W / 2], lo, true);
-  b.quad([-h / 2, yTop(-h / 2), W / 2], [h / 2, yTop(h / 2), W / 2], [h / 2, yTop(h / 2), -W / 2], [-h / 2, yTop(-h / 2), -W / 2], hi, true); b.quad([h / 2, yTop(h / 2) - NOTE.paper, W / 2], [-h / 2, yTop(-h / 2) - NOTE.paper, W / 2], [-h / 2, yTop(-h / 2) - NOTE.paper, -W / 2], [h / 2, yTop(h / 2) - NOTE.paper, -W / 2], hi);
+  b.quad([-h / 2, yTop(-h / 2), W / 2], [h / 2, yTop(h / 2), W / 2], [h / 2, yTop(h / 2), -W / 2], [-h / 2, yTop(-h / 2), -W / 2], hi); b.quad([h / 2, yTop(h / 2) - NOTE.paper, W / 2], [-h / 2, yTop(-h / 2) - NOTE.paper, W / 2], [-h / 2, yTop(-h / 2) - NOTE.paper, -W / 2], [h / 2, yTop(h / 2) - NOTE.paper, -W / 2], hi, true); // printing reads the right way round on top
   b.quad([h / 2, y0, -W / 2], [h / 2, yTop(h / 2), -W / 2], [h / 2, yTop(h / 2), W / 2], [h / 2, y0, W / 2], subV(UV.edge(row), 0, 0.2)); // the rounded fold edge
   return b.build();
 }
