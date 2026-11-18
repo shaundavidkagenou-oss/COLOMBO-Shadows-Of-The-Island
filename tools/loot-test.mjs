@@ -223,7 +223,7 @@ let shared = null;
   ok(JSON.stringify(w2.inv.map((s) => [s.mag, s.reserve, s.owned])) === inv, '17: the loaded weapon inventory is the saved one (no duplicated rifle / rounds)');
   ok(L.items.size === 0 && L.mesh.instanceCount === 0, '17: no loot survives a load (nothing can be picked up twice)');
   bus.emit('npcDefeated', { kind: 'ped', p }); ok(L.items.size === 0, '17: the saved defeat re-reported after loading rewards nothing');
-  const raw = JSON.parse(store.get('colombo.save.1')); ok(raw.version === SAVE_VERSION && SAVE_VERSION === 4, '17: same save format version (no migration needed; old saves untouched)');
+  const raw = JSON.parse(store.get('colombo.save.1')); ok(raw.version === SAVE_VERSION && SAVE_VERSION === 5, '17: current save format version (v5 since the 67th bank account; loot itself added no migration)');
   { const old = Story.freshState(); delete old.stats.loot; g.story.restore({ ...old, money: 1000 }); bus.emit('npcDefeated', { kind: 'ped', p: ped(X + 9, Z, 'office') }); settle(L, g, 2); const cc = [...L.items.values()].find((i) => i.kind === 'cash'); const r = cc && L.pickup(cc, g.player); ok(r && r.ok && g.story.state.money === 1000 + cc.amount && g.story.state.stats.loot.cash === cc.amount, '17: an old save (no loot counters) picks up cash fine'); }
   LOOT.cash.office[0] = 0.8; }
 

@@ -12,7 +12,9 @@ import '@fontsource/barlow-condensed/600.css';
 import '@fontsource/barlow-condensed/700.css';
 import '@fontsource/manrope/400.css';
 import '@fontsource/manrope/500.css';
+import '@fontsource/manrope/600.css';
 import '@fontsource/manrope/700.css';
+import '@fontsource/manrope/800.css'; // 600 / 800: Ceylon Meridian Bank signage and ATM screen (BankBrand.js)
 import './styles.css';
 import { Game } from './Game.js';
 

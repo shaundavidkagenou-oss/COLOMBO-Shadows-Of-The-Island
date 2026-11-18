@@ -686,4 +686,7 @@ export const NEW_SHOPS = {
   rob_bakery: { name: 'Golden Crust Bakery', at: [-200, 1250], w: 6.5, d: 9 },
   rob_hardware: { name: 'Sena Hardware', at: [300, 1000], w: 6.5, d: 9 },
   rob_books: { name: 'Saraswathi Book Depot', at: [-430, 250], w: 6.5, d: 9 },
+  // 67th request (Phase 1B): Ceylon Meridian Bank, Kollupitiya branch — a two-storey shophouse on Galle Road with a wide
+  // frontage (BankFront.js builds its own facade, BankInterior.js the banking hall). Appended last: every earlier shop keeps its building.
+  bank: { name: 'Ceylon Meridian Bank', at: [-388, -135], w: 16, d: 14 },
 };

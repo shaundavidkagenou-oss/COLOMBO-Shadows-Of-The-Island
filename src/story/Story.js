@@ -1,4 +1,5 @@
 // Campaign, missions (checkpointed stages), relationships, side activities and collectibles.
+import { freshAccount, normalizeAccount } from './Bank.js';
 import { lookOf } from '../actors/Wardrobe.js';
 import * as THREE from 'three';
 import * as L from '../world/Layout.js';
@@ -42,7 +43,7 @@ export class Story {
   constructor(game) {
     this.g = game; this.state = Story.freshState(); this.conds = []; this.npcs = new Map(); this.running = null; this.side = null; this.talkTarget = null; this.photoTargets = []; this.pursuers = []; this.guards = [];
   }
-  static freshState() { return { money: 2500, mission: { id: 'm0', stage: 0 }, done: [], rel: { ruwan: 50, fathima: 50, selvaraj: 50, bandara: 50, anjali: 50 }, stamps: [], photos: [], trials: {}, flags: {}, stats: { taxi: 0, deliveries: 0 }, ending: null, outfit: null, health: 100, ledger: [], msgs: [] }; }
+  static freshState() { return { money: 2500, mission: { id: 'm0', stage: 0 }, done: [], rel: { ruwan: 50, fathima: 50, selvaraj: 50, bandara: 50, anjali: 50 }, stamps: [], photos: [], trials: {}, flags: {}, stats: { taxi: 0, deliveries: 0 }, ending: null, outfit: null, health: 100, ledger: [], msgs: [], bank: freshAccount() }; } // bank: Ceylon Meridian Bank savings account (Bank.js, save v5)
   get hud() { return this.g.hud; }
   // ------------------------------------------------------------ primitives
   until(fn) { return new Promise((res, rej) => this.conds.push({ fn, res, rej, token: this.token })); }
@@ -89,7 +90,7 @@ export class Story {
   photoTarget(t, label) { this.photoTargets.push({ ...t, label }); return this.until(() => t.done); }
   rel(who, d) { this.state.rel[who] = clamp(this.state.rel[who] + d, 0, 100); if (d) this.hud.notify(`${who[0].toUpperCase() + who.slice(1)} ${d > 0 ? 'appreciated that' : 'will remember that'}`, `Relationship ${d > 0 ? '+' : ''}${d}`, d > 0 ? 'success' : 'info', 3); }
   message(from, text) { const M = this.state.msgs || (this.state.msgs = []); const A = this.g.atmos; M.unshift({ from, text, when: A ? `Day ${A.day} ${A.timeString}` : '' }); if (M.length > 30) M.length = 30; }
-  pay(n, why, opts = null) { this.state.money += n; this.g.skills?.onPay(n, why); if (n) { const A = this.g.atmos; const L2 = this.state.ledger || (this.state.ledger = []); L2.unshift({ n, why: why || (n > 0 ? 'Income' : 'Payment'), bal: this.state.money, when: A ? `Day ${A.day} ${A.timeString}` : '' }); if (L2.length > 60) L2.length = 60; } if (n && !(opts && opts.quiet)) this.hud.notify(`${n > 0 ? '+' : '−'} Rs. ${Math.abs(n).toLocaleString('en-LK')}`, why || '', n > 0 ? 'success' : 'info', 3); } // quiet: the caller shows its own confirmation (loot pick-ups)
+  pay(n, why, opts = null) { this.state.money += n; if (!(opts && opts.transfer)) this.g.skills?.onPay(n, why); /* transfer: cash ↔ own bank account (Bank.js) is neither earned nor spent */ if (n) { const A = this.g.atmos; const L2 = this.state.ledger || (this.state.ledger = []); L2.unshift({ n, why: why || (n > 0 ? 'Income' : 'Payment'), bal: this.state.money, when: A ? `Day ${A.day} ${A.timeString}` : '' }); if (L2.length > 60) L2.length = 60; } if (n && !(opts && opts.quiet)) this.hud.notify(`${n > 0 ? '+' : '−'} Rs. ${Math.abs(n).toLocaleString('en-LK')}`, why || '', n > 0 ? 'success' : 'info', 3); } // quiet: the caller shows its own confirmation (loot pick-ups)
   cleanupStage() { for (const id of [...this.npcs.keys()]) this.removeNPC(id); this.photoTargets = []; this.clearPursuers(); this.clearGuards(); this.hud.setTimer(null); this.hud.clearBlips('m:'); if (this.follow) { this.g.traffic.remove(this.follow); this.follow = null; } this.g.director.clearVehicles(); }
   // ------------------------------------------------------------ squad: mission leads and free-switch stages
   squadFor(id) { const d = MISSIONS.find((m) => m.id === id); return !!(d && d.squad && this.state.flags.squad); } // the other two come along only on these missions
@@ -468,6 +469,6 @@ export class Story {
     return prompt;
   }
   serialize() { return structuredClone(this.state); }
-  restore(s) { this.state = Object.assign(Story.freshState(), s); }
+  restore(s) { this.state = Object.assign(Story.freshState(), s); this.state.bank = normalizeAccount(this.state.bank); } // (v5 saves carry the bank account; older ones get a fresh one — SaveSystem.migrate)
 }
 export { STAMPS, PHOTO_SPOTS, TRIALS };

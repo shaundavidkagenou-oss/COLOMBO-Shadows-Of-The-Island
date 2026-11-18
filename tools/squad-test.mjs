@@ -43,13 +43,13 @@ ok(/leads this mission/.test(S.switchBlock({ missionLead: 'David' })), 'mission 
 const m0 = S.momentumBlend({ t: 4, dur: 4, yaw: 1, speed: 5 }, 0, 1), m1 = S.momentumBlend({ t: 0, dur: 4, yaw: 1, speed: 5 }, 0, 1), mh = S.momentumBlend({ t: 2, dur: 4, yaw: 1, speed: 5 }, 0, 1);
 ok(Math.abs(m0.yaw - 1) < 1e-9 && m0.speed === 5 && m1.yaw === 0 && m1.speed === 1 && mh.speed > 1 && mh.speed < 5, 'momentum carries over and blends out');
 // save migration
-ok(SAVE_VERSION === 4, 'save v4'); const v3 = migrate({ version: 2, story: { done: ['m0', 'm1'], health: 70 }, weapons: { inv: WEAPONS.map((w, i) => [i, 10 * i]), sel: 0 } });
+ok(SAVE_VERSION === 5, 'save v5 (v4 loadouts + the 67th bank account)'); const v3 = migrate({ version: 2, story: { done: ['m0', 'm1'], health: 70 }, weapons: { inv: WEAPONS.map((w, i) => [i, 10 * i]), sel: 0 } });
 ok(v3.squad.unlocked && v3.squad.active === 'dineth' && v3.squad.members.dineth.inv.filter((q) => q[2]).length === 1 && v3.squad.members.dineth.inv[1][2] === 1 && v3.squad.members.dineth.sel === 1 && v3.version === 4, 'v2 → v4: Dineth keeps only his service pistol');
 { const own = (ids) => WEAPONS.map((w, i) => [i + 1, 5 * i, ids.includes(i) ? 1 : 0]);
   const m = migrate({ version: 3, story: { done: ['m0'] }, weapons: { inv: WEAPONS.map(() => [1, 2]), sel: 4 }, squad: { v: 1, unlocked: true, active: 'shashika', members: { dineth: { inv: own([1, 3]), sel: 3 }, shashika: { inv: own([2, 4, 5]), sel: 4 }, david: { inv: own([0, 6, 7, 8]), sel: 6 } } } });
   const M = m.squad.members; ok(M.dineth.inv.filter((q) => q[2]).length === 1 && M.dineth.inv[1][2] === 1 && M.dineth.sel === 1, 'v3 → v4: Dineth keeps only the service pistol');
   ok(M.shashika.inv.every((q) => !q[2]) && M.david.inv.every((q) => !q[2]) && M.shashika.sel === -1 && M.david.sel === -1, 'v3 → v4: Shashika and David start over unarmed (fists)');
-  ok(M.shashika.inv[4][0] === 5 && M.shashika.inv[4][1] === 20 && m.weapons.sel === -1 && m.version === 4, 'v3 → v4: ammo counts kept, active weapon reset'); }
+  ok(M.shashika.inv[4][0] === 5 && M.shashika.inv[4][1] === 20 && m.weapons.sel === -1 && m.version === 5, 'v3 → v4: ammo counts kept, active weapon reset'); }
 // mission leads
 const { MISSIONS } = await import('../src/story/Story.js').catch(() => ({}));
 if (MISSIONS) { const list = Array.isArray(MISSIONS) ? MISSIONS : Object.values(MISSIONS); ok(list.length >= 6 && list.every((m) => S.SQUAD_IDS.includes(m.lead)), 'every mission names a squad lead'); ok(new Set(list.map((m) => m.lead)).size === 3, 'each protagonist leads at least one mission'); ok(list.filter((m) => m.squad).length >= 3 && list.some((m) => m.squad === false), 'only some missions bring the squad along'); }

@@ -3,7 +3,8 @@
 // protagonist) to v3 (squad of three: per-character position, health, loadout, outfit, hold orders); v3 → v4 resets the
 // loadouts to the new starting kits (Dineth: service pistol; Shashika, David: unarmed).
 const PREFIX = 'colombo.save.';
-export const SAVE_VERSION = 4;
+import { normalizeAccount } from '../story/Bank.js';
+export const SAVE_VERSION = 5; // v5 (67th): story.bank — the Ceylon Meridian Bank account
 // weapon order in Weapons.js (compact, service, heavy, carbine, assault, battle, bolt, semi, precision): Dineth's loadout
 const DINETH_OWNS = [1]; // v4: Dineth starts with the service pistol only; Shashika and David start unarmed and buy at gun shops
 export function migrate(d) {
@@ -22,6 +23,9 @@ export function migrate(d) {
       m.inv = m.inv.map((q, i) => [q[0], q[1], id === 'dineth' && i === 1 ? 1 : 0]); m.sel = id === 'dineth' ? 1 : -1; }
     if (out.weapons) { out.weapons.sel = ((sq && sq.active) || 'dineth') === 'dineth' ? 1 : -1; if (Array.isArray(out.weapons.inv)) out.weapons.inv = out.weapons.inv.map((q) => [q[0], q[1]]); }
     out.migratedFrom = out.migratedFrom || v; v = 4; }
+  if (v < 5) { // Ceylon Meridian Bank: every older save gets a fresh, empty savings account (no money is created or moved —
+    // cash in hand stays exactly what it was); an account that is somehow already there is repaired, never replaced
+    out.story.bank = normalizeAccount(out.story.bank); out.migratedFrom = out.migratedFrom || v; v = 5; }
   if (v > SAVE_VERSION) out.newerThanGame = v; // written by a newer build: load what we understand
   out.version = Math.max(v, SAVE_VERSION); return out;
 }

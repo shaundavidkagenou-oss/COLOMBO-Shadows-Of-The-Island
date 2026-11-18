@@ -26,6 +26,7 @@ import { ROAD_Y } from './Layout.js';
 import { GrassField, upgradeGroundGrass } from './Grass.js';
 import { Collision } from './Collision.js';
 import { buildGunShopFront } from './GunShopFront.js';
+import { buildBankFront } from './BankFront.js';
 import { buildClubFront } from './ClubFront.js';
 import { buildFuelStations } from './FuelStations.js';
 import { buildCustoms } from './CustomsGeo.js';
@@ -73,6 +74,7 @@ export class World {
     const lm = buildLandmarks(); this.landmarks = lm; this.root.add(lm.group); this.collision.addAll(lm.colliders);
     if (plan.missionShops.gunshop) { const s = plan.missionShops.gunshop; const f = buildGunShopFront(s, plan.buildings.find((b) => b.id === s.b)); this.root.add(f.group); this.collision.addAll(f.colliders); } // Ceylon Arms Co. shopfront
     if (plan.missionShops.club) { const s = plan.missionShops.club; const f = buildClubFront(s, plan.buildings.find((b) => b.id === s.b)); this.root.add(f.group); this.collision.addAll(f.colliders); } // The Velvet Monsoon club frontage
+    if (plan.missionShops.bank) { const s = plan.missionShops.bank; const f = buildBankFront(s, plan.buildings.find((b) => b.id === s.b)); this.bankFront = f; this.root.add(f.group); this.collision.addAll(f.colliders); } // 67th: Ceylon Meridian Bank frontage (BankFront.js)
     { const fs = buildFuelStations(); this.fuel = fs; this.root.add(fs.group); this.collision.addAll(fs.colliders); } // four filling stations (FuelStations.js)
     { const cs = buildCustoms(); this.customs = cs; this.root.add(cs.group); this.collision.addAll(cs.colliders); } // Street Customs workshop (CustomsGeo.js; service: customs/CustomsService.js)
     { const sr = buildStreetRamps(); this.streetRamps = sr; this.root.add(sr.group); this.collision.addAll(sr.colliders); } // speed humps + stunt jumps / bicycle ramps (StreetRamps.js; ground surfaces via Layout.setRampHook)
@@ -354,6 +356,7 @@ export class World {
     const an = this.landmarks.anim;
     if (an.lotusBeacon) an.lotusBeacon.visible = (this.t % 1.6) < 0.5; // aviation obstruction light
     if (this.fortStreets && atmos) this.fortStreets.update(atmos.night);
+    if (this.bankFront && atmos) this.bankFront.update(atmos.night); // Ceylon Meridian Bank: fascia / signs / hall glow after dark
     if (this.glints && this.glints.mesh && atmos && camera) { // wet-road reflections of the street lamps near the camera
       const src = this._glintSrc; src.length = 0; const on = this.glintsOn !== false && atmos.night > 0.2 && atmos.wet > 0.02 && !(this.indoorK > 0.5);
       if (on) { const cp = camera.position; for (const c of this.chunks) { if (Math.abs(c.cx - cp.x) > 260 || Math.abs(c.cz - cp.z) > 260) continue; for (const p of c.lamps) { const d2 = (p[0] - cp.x) ** 2 + (p[2] - cp.z) ** 2; if (d2 < 140 * 140) src.push([p[0], p[1], p[2], 1.0, 0.79, 0.54, 1.5, d2]); } }

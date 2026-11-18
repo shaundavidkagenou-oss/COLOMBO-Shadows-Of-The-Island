@@ -125,7 +125,7 @@ export class Game {
   async load(progress) {
     const q = Settings.get('quality'); const step = (a, b) => (p, label) => progress(a + (b - a) * p, label);
     progress(0, 'Loading fonts'); const realCars = (/[?&]noreal\b/.test(location.search) ? Promise.resolve([]) : preloadRealModels()).then((t) => console.info('[COLOMBO] real-car bodies:', t.join(', ') || 'none (procedural)')).catch((e) => console.warn('[vehicles] real bodies:', e)); // real-car bodies (RealModels.js) download / decode alongside the fonts and textures
-    try { await Promise.race([Promise.all(['600 32px "Noto Sans Sinhala"', '600 32px "Noto Sans Tamil"', '700 32px "Barlow Condensed"', '600 32px "Cormorant Garamond"', '500 16px "Manrope"'].map((f) => document.fonts.load(f, 'අආ தமி Aa'))), wait(6000)]); } catch (e) { console.warn('font load', e); }
+    try { await Promise.race([Promise.all(['600 32px "Noto Sans Sinhala"', '600 32px "Noto Sans Tamil"', '700 32px "Barlow Condensed"', '600 32px "Cormorant Garamond"', '500 16px "Manrope"', '600 16px "Manrope"', '700 16px "Manrope"', '800 16px "Manrope"', '700 32px "Cormorant Garamond"'].map((f) => document.fonts.load(f, 'අආ தமி Aa'))), wait(6000)]); } catch (e) { console.warn('font load', e); }
     progress(0.04, 'Painting textures'); await tick();
     await buildTextures(q, step(0.04, 0.22));
     buildMaterials(); progress(0.23, 'Mixing materials'); await tick();
