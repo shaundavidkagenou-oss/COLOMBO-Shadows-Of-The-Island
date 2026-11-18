@@ -129,12 +129,15 @@ export function buildMaterials() {
   // repair patches are real overlay geometry on the carriageway (tone changes only, texture stays continuous)
   MAT.roadTint = std({ map: TEX.asphalt, roughnessMap: TEX.asphaltRough, roughness: 1, metalness: 0, vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
   roadSpotSpec(MAT.road); roadSpotSpec(MAT.roadTint);
-  MAT.walk = std({ map: TEX.pavers, roughness: 0.9, color: 0xffffff });
-  MAT.walkGrey = std({ map: TEX.paversGrey, roughness: 0.9 });
+  MAT.walk = std({ map: TEX.pave1, roughness: 0.9, color: 0xffffff }); // 62nd: pavement type 1 — cement flagstones (was brick pavers)
+  MAT.walkGrey = std({ map: TEX.pave2, roughness: 0.9 }); // pavement type 2 — grey concrete slabs, running bond
+  // 62nd: the short grass growing out of some footpath joints (GroundDetail instances it near the camera); its texture is
+  // sampled along each blade (u = tone column, v = root → tip), so a replacement in the Texture Studio recolours every blade
+  MAT.paveGrass = std({ map: TEX.jointGrass, roughness: 0.82, side: THREE.DoubleSide });
   MAT.kerb = std({ map: TEX.concrete, roughness: 0.85, vertexColors: true });
   MAT.concrete = applyWeathering(std({ map: TEX.concrete, roughness: 0.9, vertexColors: true }), 'wall'); // compound walls, plinths, trims: faded patches, rising damp (36th Stage 4)
   withNormal(MAT.road, TEX.n_asphalt, NORMAL_SCALE.road); withNormal(MAT.roadTint, TEX.n_asphalt, NORMAL_SCALE.road);
-  withNormal(MAT.walk, TEX.n_pavers, NORMAL_SCALE.walk); withNormal(MAT.walkGrey, TEX.n_paversGrey, NORMAL_SCALE.walk);
+  withNormal(MAT.walk, TEX.n_pave1, NORMAL_SCALE.walk); withNormal(MAT.walkGrey, TEX.n_pave2, NORMAL_SCALE.walk);
   withNormal(MAT.kerb, TEX.n_concrete, NORMAL_SCALE.kerb); withNormal(MAT.concrete, TEX.n_concrete, NORMAL_SCALE.concrete);
   MAT.grass = std({ map: TEX.grass, roughness: 1 });
   MAT.ballast = std({ map: TEX.ballast, roughness: 1, vertexColors: true });
@@ -211,12 +214,12 @@ export function buildMaterials() {
   MAT.glow = new THREE.SpriteMaterial({ map: TEX.glow, color: 0xffd7a0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0 });
   wetTargets.push([MAT.road, 1.0, 0.18], [MAT.roadTint, 0.95, 0.14], [MAT.walk, 0.9, 0.35], [MAT.walkGrey, 0.9, 0.35], [MAT.kerb, 0.85, 0.4], [MAT.concrete, 0.9, 0.45], [MAT.roofFlat, 0.95, 0.5]);
   for (const [k, [base, label]] of Object.entries(ROLE_DEFS)) roleMaterial(k, base, label); // every object type's own material
-  for (const k of ['concrete', 'metal', 'paint', 'awning', 'roofTiles', 'roofFlat', 'corrugated', 'shops', 'signs', 'winGlass', 'kerb', 'walk', 'walkGrey', 'road', 'roadTint', 'marking', 'treeBark', 'palmBark', 'leaves', 'leavesBright', 'palm']) if (MAT[k] && !MAT[k].name) MAT[k].name = BASE_LABEL[k];
+  for (const k of ['concrete', 'metal', 'paint', 'awning', 'roofTiles', 'roofFlat', 'corrugated', 'shops', 'signs', 'winGlass', 'kerb', 'walk', 'walkGrey', 'paveGrass', 'road', 'roadTint', 'marking', 'treeBark', 'palmBark', 'leaves', 'leavesBright', 'palm']) if (MAT[k] && !MAT[k].name) MAT[k].name = BASE_LABEL[k];
   for (const k of facadeKeys) MAT['f_' + k].name = 'Building walls · ' + k + ' facade';
   return MAT;
 }
 const BASE_LABEL = { concrete: 'Concrete', metal: 'Metal', paint: 'Painted surfaces', awning: 'Awnings', roofTiles: 'Clay tile roofs', roofFlat: 'Flat concrete roofs', corrugated: 'Corrugated sheet roofs', shops: 'Shop fronts', signs: 'Shop signs', winGlass: 'Window glass (reflection)',
-  kerb: 'Kerbs', walk: 'Pavement (pavers)', walkGrey: 'Pavement (grey pavers)', road: 'Road asphalt', roadTint: 'Road wear overlay', marking: 'Road markings', treeBark: 'Tree bark', palmBark: 'Palm trunks',
+  kerb: 'Kerbs', walk: 'Pavement type 1 · cement flagstones', walkGrey: 'Pavement type 2 · grey concrete slabs', paveGrass: 'Pavement joint grass', road: 'Road asphalt', roadTint: 'Road wear overlay', marking: 'Road markings', treeBark: 'Tree bark', palmBark: 'Palm trunks',
   leaves: 'Leaves (universal)', leavesBright: 'Leaves, bright (universal)', palm: 'Palm fronds (universal)' };
 const SHOP_SHUT = { value: 0 };
 const _dry = new THREE.Color(1, 1, 1), _wet = new THREE.Color(0.62, 0.62, 0.64);

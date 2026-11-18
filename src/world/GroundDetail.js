@@ -1,10 +1,10 @@
 // Modelled small-scale ground detail near the camera: the textures alone (pavers, ballast, kerbs) read as flat paint up
 // close, so within a radius of the camera the ground is dressed with real geometry, GPU-instanced per 8 m tile:
 //
-//   • footpath bricks — every interlocking "unipave" brick of the paver texture rebuilt as a bevelled solid (notched
-//     outline, chamfered top) at EXACTLY the texture brick's place, sampling the texture through the same world-space
-//     UVs, so each modelled brick carries its own tone / grime and the recessed joints between them are the texture's
-//     sand joints. At the edge of the radius the bricks sink into the surface they match (no pop-in ring);
+//   • joint grass (62nd — replaces the modelled footpath bricks, which are gone with the brick pavers) — short grass
+//     clumps growing out of some of the footpath slab joints, on the slab grid of the pavement texture (Textures.PAVE_TYPES:
+//     the joints sit on a fixed world grid), more of them along the less-trodden edges of the walk; their material is the
+//     shared MAT.paveGrass, so the Texture Studio can replace its texture. They sink into the joint at the edge of the radius;
 //   • kerb stones — individual 0.5 m (1 m painted) blocks with a rounded road-side nose and joints, in the kerb's colours;
 //   • railway ballast — loose angular granite stones on the bed and its shoulders between the sleepers;
 //   • rail fastenings — rubber pad and two spring clips with their cast shoulders on every sleeper, both rails.
@@ -44,31 +44,19 @@ function segDist(px, pz, s) { const dx = s.x1 - s.x0, dz = s.z1 - s.z0; const l2
 function orient(g) { const P = g.attributes.position, Nn = g.attributes.normal; if (!g.index) return g; const ix = g.index.array; const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3();
   for (let t = 0; t < ix.length; t += 3) { a.fromBufferAttribute(P, ix[t]); b.fromBufferAttribute(P, ix[t + 1]); c.fromBufferAttribute(P, ix[t + 2]); n.fromBufferAttribute(Nn, ix[t]); b.sub(a); c.sub(a); if (b.cross(c).dot(n) < 0) { const k = ix[t + 1]; ix[t + 1] = ix[t + 2]; ix[t + 2] = k; } }
   g.index.needsUpdate = true; return g; }
-// the paver texture's brick (Textures.pavers): 8 × 16 bricks per 2 m tile (0.25 × 0.125 m pitch, 3 px = 1.2 cm joints),
-// running bond, a chevron notch (0.18 of the height) at the middle of both long edges
-const PX = 2 / 512, BW = 64 * PX - 3 * PX, BH = 32 * PX - 3 * PX, NOTCH = 32 * 0.18 * PX, B0 = 1.5 * PX;
-function brickGeometry() {
-  const w = BW, h = BH, n = NOTCH;
-  const out = [[0, 0], [w * 0.33, 0], [w * 0.5, n], [w * 0.66, 0], [w, 0], [w, h], [w * 0.66, h], [w * 0.5, h + n], [w * 0.33, h], [0, h]]; // (x, z) — z grows with canvas y
-  // inset outline for the chamfered top (offset every edge inward and intersect neighbours)
-  const N = out.length; let area = 0; for (let i = 0; i < N; i++) { const a = out[i], b = out[(i + 1) % N]; area += a[0] * b[1] - b[0] * a[1]; } const sg = Math.sign(area);
-  const inset = (d) => out.map((p, i) => { const a = out[(i + N - 1) % N], b = out[(i + 1) % N];
-    const e1 = [p[0] - a[0], p[1] - a[1]], e2 = [b[0] - p[0], b[1] - p[1]]; const l1 = Math.hypot(...e1), l2 = Math.hypot(...e2);
-    const n1 = [-e1[1] / l1 * sg, e1[0] / l1 * sg], n2 = [-e2[1] / l2 * sg, e2[0] / l2 * sg]; // inward normals
-    const m = [n1[0] + n2[0], n1[1] + n2[1]]; const ml = Math.hypot(...m) || 1; const k = d / Math.max(0.35, (m[0] * n1[0] + m[1] * n1[1]) / ml); return [p[0] + m[0] / ml * k, p[1] + m[1] / ml * k]; });
-  const top = inset(0.0055); const yT = 0.0075, yB = -0.0015; // top 7.5 mm above the paved surface, outline just under it
-  const pos = [], nor = [], uv = [], idx = [];
-  const tri = THREE.ShapeUtils.triangulateShape(top.map((p) => new THREE.Vector2(p[0], p[1])), []);
-  for (const p of top) { pos.push(p[0], yT, p[1]); nor.push(0, 1, 0); uv.push(0, 0); }
-  for (const t of tri) { const [a, b, c] = t; const ax = top[b][0] - top[a][0], az = top[b][1] - top[a][1], bx = top[c][0] - top[a][0], bz = top[c][1] - top[a][1]; if (ax * bz - az * bx < 0) idx.push(a, b, c); else idx.push(a, c, b); }
-  for (let i = 0; i < N; i++) { const j = (i + 1) % N; const A = top[i], Bt = top[j], C = out[j], D = out[i]; const b = pos.length / 3;
-    const ux = Bt[0] - A[0], uz = Bt[1] - A[1]; let nx = uz * sg, nz = -ux * sg; const nl = Math.hypot(nx, nz) || 1; nx /= nl; nz /= nl; // outward
-    const ny = 0.75; const l = Math.hypot(nx, ny, nz);
-    for (const [p, y] of [[A, yT], [Bt, yT], [C, yB], [D, yB]]) { pos.push(p[0], y, p[1]); nor.push(nx / l, ny / l, nz / l); uv.push(0, 0); }
-    // wind so the face points outward/up
-    const e1 = [Bt[0] - A[0], 0, Bt[1] - A[1]], e2 = [D[0] - A[0], yB - yT, D[1] - A[1]]; const cx = e1[1] * e2[2] - e1[2] * e2[1], cy = e1[2] * e2[0] - e1[0] * e2[2], cz = e1[0] * e2[1] - e1[1] * e2[0];
-    if (cx * nx + cy * ny + cz * nz > 0) idx.push(b, b + 1, b + 2, b, b + 2, b + 3); else idx.push(b, b + 2, b + 1, b, b + 3, b + 2); }
-  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); return orient(g);
+// 62nd: a clump of short grass in a footpath joint: ~20 tapered blades rooted along local x (a 0.2 m stretch of the joint,
+// densest in the middle) within the joint's width (±4 mm in z), leaning out over the slab edges; 1.5–6.5 cm tall.
+// uv: u = the blade's tone column of the grass texture (Textures.jointGrassTex, 8 columns), v = root (0) → tip (1)
+function jointGrassGeometry(seed) {
+  let s = seed; const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+  const pos = [], nor = [], uv = [], idx = []; const nB = 26;
+  for (let b = 0; b < nB; b++) { const x = (rnd() - 0.5) * 0.2 * (0.3 + 0.7 * rnd()), z = (rnd() - 0.5) * 0.008; const end = Math.abs(x) / 0.1;
+    const a = (rnd() < 0.5 ? 1 : -1) * Math.PI / 2 + (rnd() - 0.5) * 1.6; const dx = Math.cos(a), dz = Math.sin(a), px = -dz, pz = dx;
+    const h = (0.015 + Math.pow(rnd(), 1.4) * 0.05) * (1 - 0.45 * end * end), lean = 0.25 + rnd() * 0.65, w = 0.0016 + rnd() * 0.0013; const u0 = (Math.floor(rnd() * 8) + 0.5) / 8; const base = pos.length / 3;
+    for (let k = 0; k <= 3; k++) { const t = k / 3; const r = lean * h * t * t, y = h * t * (1 - 0.3 * lean * t); const ww = w * (1 - t * 0.9);
+      for (const e of [-1, 1]) { pos.push(x + dx * r + px * ww * e, y, z + dz * r + pz * ww * e); nor.push(dx * 0.35, 0.92, dz * 0.35); uv.push(u0 + e * 0.04, t); } }
+    for (let k = 0; k < 3; k++) { const i0 = base + k * 2; idx.push(i0, i0 + 1, i0 + 3, i0, i0 + 3, i0 + 2); } }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); return g;
 }
 // kerb stone, unit length along x (scaled per block), profile in (z inward from the kerb line, y above the footpath)
 function kerbGeometry() {
@@ -160,10 +148,12 @@ function patchDetail(m, { uvScale = 0, sink = 0, tag, sway = 0 }) {
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uDetR = DET_R; sh.uniforms.uDetT = DET_T;
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uDetR;\nuniform float uDetT;').replace('#include <begin_vertex>', `#include <begin_vertex>
+  #ifdef USE_INSTANCING
   { vec4 ip = modelMatrix * instanceMatrix * vec4( 0.0, 0.0, 0.0, 1.0 ); float dd = distance( ip.xz, cameraPosition.xz );
     transformed.y -= ${sink.toFixed(4)} * smoothstep( uDetR - 3.0, uDetR, dd );
     ${sway ? `float sw = transformed.y * ${sway.toFixed(3)}; transformed.x += sw * sin( uDetT * 2.1 + ip.x * 1.7 + ip.z * 0.9 ); transformed.z += sw * 0.7 * sin( uDetT * 1.6 + ip.z * 1.9 );` : ''}
-    ${uvScale ? `vec4 wq = modelMatrix * instanceMatrix * vec4( transformed, 1.0 ); vMapUv = vec2( wq.x, -wq.z ) / ${uvScale.toFixed(3)};${m.normalMap ? ' vNormalMapUv = vMapUv;' : ''}` : ''} }`); // normal map follows the same world-space UVs (else its relief would slide off the joints)
+    ${uvScale ? `vec4 wq = modelMatrix * instanceMatrix * vec4( transformed, 1.0 ); vMapUv = vec2( wq.x, -wq.z ) / ${uvScale.toFixed(3)};${m.normalMap ? ' vNormalMapUv = vMapUv;' : ''}` : ''} }
+  #endif`); // normal map follows the same world-space UVs (else its relief would slide off the joints)
   };
   m.customProgramCacheKey = () => 'gdet-' + tag + (m.normalMap ? '-n' : '');
   return m;
@@ -176,11 +166,10 @@ export class GroundDetail {
   }
   init() {
     if (this.ready) return; this.ready = true;
-    this.geo = { brick: brickGeometry(), kerb: kerbGeometry(), stones: [stoneGeometry(11), stoneGeometry(29), stoneGeometry(47)], fast: fasteningGeometry(), tufts: [tuftGeometry(5), tuftGeometry(17), tuftGeometry(41)], leaves: [leafGeometry(0.35), leafGeometry(0.9)], litter: litterGeometries(), man: manholeGeometry(), fish: fishplateGeometry() };
+    this.geo = { jgrass: jointGrassGeometry(23), kerb: kerbGeometry(), stones: [stoneGeometry(11), stoneGeometry(29), stoneGeometry(47)], fast: fasteningGeometry(), tufts: [tuftGeometry(5), tuftGeometry(17), tuftGeometry(41)], leaves: [leafGeometry(0.35), leafGeometry(0.9)], litter: litterGeometries(), man: manholeGeometry(), fish: fishplateGeometry() };
     const std = (o) => new THREE.MeshStandardMaterial(o);
     this.mat = {
-      walk: patchDetail(withNormal(std({ map: TEX.pavers, roughness: 0.9 }), TEX.n_pavers, NORMAL_SCALE.walk), { uvScale: 2, sink: 0.012, tag: 'walk' }), // same relief as the flat pavement (MAT.walk)
-      walkGrey: patchDetail(withNormal(std({ map: TEX.paversGrey, roughness: 0.9 }), TEX.n_paversGrey, NORMAL_SCALE.walk), { uvScale: 2, sink: 0.012, tag: 'walkG' }),
+      jgrass: patchDetail(MAT.paveGrass, { sink: 0.075, tag: 'jgrass', sway: 0.1 }), // 62nd: the shared, Studio-replaceable joint grass material
       kerb: patchDetail(withNormal(std({ map: TEX.concrete, roughness: 0.85 }), TEX.n_concrete, NORMAL_SCALE.kerb), { sink: 0.016, tag: 'kerb' }),
       stone: patchDetail(std({ color: 0x8d8a85, roughness: 0.93, flatShading: true }), { sink: 0.07, tag: 'stone' }), // plain granite tones per stone (the bed texture's dark joints made the stones read as specks)
       fast: patchDetail(std({ vertexColors: true, roughness: 0.6, metalness: 0.35 }), { sink: 0.07, tag: 'fast' }),
@@ -197,9 +186,9 @@ export class GroundDetail {
   }
   dropTile(t) { for (const m of t.meshes) { this.group.remove(m); m.dispose(); } }
   update(camera) {
-    if (!this.R || !camera) return; if (!TEX.pavers || !MAT.walk) return; this.init(); this.t += 1 / 60; DET_T.value = this.t;
+    if (!this.R || !camera) return; if (!MAT.walk || !MAT.paveGrass) return; this.init(); this.t += 1 / 60; DET_T.value = this.t;
     // follow the ground materials' wet / time-of-day state (Materials.updateMaterials drives MAT.walk / kerb)
-    for (const [d, s] of [[this.mat.walk, MAT.walk], [this.mat.walkGrey, MAT.walkGrey], [this.mat.kerb, MAT.kerb]]) { d.roughness = s.roughness; d.color.copy(s.color); d.envMapIntensity = s.envMapIntensity; if (s.envMap) d.envMap = s.envMap; }
+    for (const [d, s] of [[this.mat.kerb, MAT.kerb]]) { d.roughness = s.roughness; d.color.copy(s.color); d.envMapIntensity = s.envMapIntensity; if (s.envMap) d.envMap = s.envMap; }
     const cx = camera.position.x, cz = camera.position.z; const high = camera.position.y - LY > 25; // aerial views: nothing at this scale is visible
     const need = new Set(); const R = high ? 0 : this.R + 2;
     if (R) for (let i = Math.floor((cx - R) / T); i <= Math.floor((cx + R) / T); i++) for (let j = Math.floor((cz - R) / T); j <= Math.floor((cz + R) / T); j++) {
@@ -223,17 +212,23 @@ export class GroundDetail {
     const walks = REG.walk.get(k) || [], kerbs = REG.kerb.get(k) || [];
     const M = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(1, 1, 1), p = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), E = new THREE.Euler();
     const tufts = []; // [x, z, scale, rand] weeds at ground level (y from the surface at that point)
-    // footpath bricks at the texture's own brick positions (global rows of 0.125 m; odd rows offset half a brick)
-    if (walks.length) { const red = [], grey = [];
-      for (let R = Math.floor(z0 / 0.125); R * 0.125 < z1; R++) { const bz = R * 0.125 + B0; const off = (R & 1) * 0.125;
-        for (let c = Math.floor((x0 - off) / 0.25); c * 0.25 + off < x1; c++) { const bx = c * 0.25 + off + B0; const mx = bx + BW / 2, mz = bz + BH / 2;
-          if (mx < x0 || mx >= x1 || mz < z0 || mz >= z1) continue; const it = walkAt(walks, mx, mz); if (!it) continue;
-          let ok = true; for (const [ex, ez] of [[bx - 0.004, bz - 0.004], [bx + BW + 0.004, bz - 0.004], [bx - 0.004, bz + BH + NOTCH + 0.004], [bx + BW + 0.004, bz + BH + NOTCH + 0.004]]) if (!walkAt(walks, ex, ez)) { ok = false; break; }
-          if (!ok) continue; for (const s of kerbs) { for (const [ex, ez] of [[bx, bz], [bx + BW, bz], [bx, bz + BH + NOTCH], [bx + BW, bz + BH + NOTCH]]) if (segDist(ex, ez, s) < 0.158) { ok = false; break; } if (!ok) break; } if (!ok) continue; // clear of the kerb stones
-          { const h1 = hash2(R, c), h2 = hash2(R, c, 1), h3 = hash2(R, c, 2); const settled = h3 < 0.006; /* laid by hand: each brick sits a little high or low and tilts a touch; a few have settled */
-            q.setFromEuler(E.set((h1 - 0.5) * 0.016, 0, (h2 - 0.5) * 0.016)); p.set(bx, LY + (h2 - 0.5) * 0.0024 - (settled ? 0.004 : 0), bz); sc.set(1, 1, 1); M.compose(p, q, sc); (it.grey ? grey : red).push(...M.elements);
-            if (h3 > 0.9965) tufts.push([bx - 0.006, bz - 0.006, 0.4 + 0.4 * h1, h2]); /* a weed in the joint */ } } }
-      const a = this.inst(this.geo.brick, this.mat.walk, red), b = this.inst(this.geo.brick, this.mat.walkGrey, grey); if (a) meshes.push(a); if (b) meshes.push(b); }
+    // 62nd: joint grass — walk the slab joints of this tile (both pavement types' grids, Textures.PAVE_TYPES) in 0.5 m
+    // stretches; a stretch fully on the footpath and clear of the kerb sometimes grows a clump or two (more often near the
+    // walk's edges, where few feet pass)
+    if (walks.length) { const G = []; const J = 0.5;
+      const edgeD = (it, x, z) => (it.t === 0 ? Math.min(x - it.x0, it.x1 - x, z - it.z0, it.z1 - z) : it.r - Math.hypot(x - it.cx, z - it.cz));
+      const tryJoint = (ax, az, bx, bz, along) => { const mx = (ax + bx) / 2, mz = (az + bz) / 2; if (mx < x0 || mx >= x1 || mz < z0 || mz >= z1) return;
+        const it = walkAt(walks, mx, mz); if (!it) return; const type = it.grey ? 2 : 1;
+        if (!along) { const off = type === 2 ? (Math.floor(az / J + 1e-6) & 1) * 0.5 : 0; const ux = type === 2 ? 1.0 : 0.5; const m = (((mx - off) / ux) % 1 + 1) % 1; if (m > 1e-4 && m < 1 - 1e-4) return; } // not a joint of this type
+        const h = hash2(Math.round(mx * 4), Math.round(mz * 4), 7); const pr = edgeD(it, mx, mz) < 0.7 ? 0.16 : 0.055; if (h >= pr) return;
+        for (const [ex, ez] of [[ax, az], [bx, bz]]) { const ix = ex + (mx - ex) * 0.1, iz = ez + (mz - ez) * 0.1; if (!walkAt(walks, ix, iz)) return; }
+        for (const sg of kerbs) if (segDist(mx, mz, sg) < 0.3) return;
+        const n = h < pr * 0.35 ? 2 : 1; for (let q = 0; q < n; q++) { const r1 = hash2(Math.round(mx * 4), Math.round(mz * 4), 11 + q), r2 = hash2(Math.round(mx * 4), Math.round(mz * 4), 13 + q);
+          const t = 0.18 + 0.64 * r1; const k = 0.65 + 0.6 * r2; q2.setFromEuler(E.set(0, (along ? 0 : Math.PI / 2) + (r2 < 0.5 ? Math.PI : 0), 0)); p.set(ax + (bx - ax) * t, LY + 0.0004, az + (bz - az) * t); sc.set(k, k * (0.8 + 0.45 * r1), k); M.compose(p, q2, sc); G.push(...M.elements); } };
+      const q2 = new THREE.Quaternion();
+      for (let r = Math.ceil(z0 / J - 1e-6); r * J < z1; r++) for (let c = Math.floor(x0 / J); c * J < x1; c++) tryJoint(c * J, r * J, (c + 1) * J, r * J, true); // joints along x (row edges)
+      for (let c = Math.ceil(x0 / J - 1e-6); c * J < x1; c++) for (let r = Math.floor(z0 / J); r * J < z1; r++) tryJoint(c * J, r * J, c * J, (r + 1) * J, false); // joints along z
+      const m = this.inst(this.geo.jgrass, this.mat.jgrass, G); if (m) meshes.push(m); }
     // kerb stones (blocks whose centre is in this tile)
     if (kerbs.length) { const mats = [], cols = [];
       for (const s of kerbs) { const len = Math.hypot(s.x1 - s.x0, s.z1 - s.z0); if (len < 0.05) continue; let dx = (s.x1 - s.x0) / len, dz = (s.z1 - s.z0) / len;
@@ -251,7 +246,7 @@ export class GroundDetail {
     for (const it of walks) { if (it.t !== 0) continue; const edges = [[it.x0, it.z0, it.x1, it.z0, 0, -1], [it.x0, it.z1, it.x1, it.z1, 0, 1], [it.x0, it.z0, it.x0, it.z1, -1, 0], [it.x1, it.z0, it.x1, it.z1, 1, 0]];
       for (const [ax, az, bx2, bz2, ox, oz] of edges) { const len = Math.hypot(bx2 - ax, bz2 - az); for (let t = 0.25; t < len; t += 0.5) { const x = ax + (bx2 - ax) * t / len - ox * 0.05, z = az + (bz2 - az) * t / len - oz * 0.05; if (x < x0 || x >= x1 || z < z0 || z >= z1) continue;
         if (walkAt(walks, x + ox * 0.15, z + oz * 0.15)) continue; let nearK = false; for (const s of kerbs) if (segDist(x, z, s) < 0.6) { nearK = true; break; } if (nearK) continue; const h = hash2(Math.round(x * 10), Math.round(z * 10), 4); if (h > 0.4) continue; tufts.push([x, z, 0.9 + h * 2.2, h * 2.5]); } } }
-    const groundY = (x, z) => { if (walkAt(walks, x, z)) return LY + 0.0078; if (L.roadAt(x, z)) { for (const s of kerbs) if (segDist(x, z, s) < 0.75) return RY + 0.001; return null; } return LY + 0.002; }; // on the bricks, in the gutter, or on soil
+    const groundY = (x, z) => { if (walkAt(walks, x, z)) return LY + 0.0015; if (L.roadAt(x, z)) { for (const s of kerbs) if (segDist(x, z, s) < 0.75) return RY + 0.001; return null; } return LY + 0.002; }; // on the bricks, in the gutter, or on soil
     if (tufts.length) { const lists = [[], [], []]; for (const [x, z, k, r] of tufts) { const y = groundY(x, z); if (y === null) continue; q.setFromEuler(E.set(0, r * 6.283, 0)); p.set(x, y - 0.002, z); sc.set(k, k * (0.8 + 0.4 * (r % 1)), k); M.compose(p, q, sc); lists[Math.floor((r * 7) % 3)].push(...M.elements); }
       for (let v = 0; v < 3; v++) { const m = this.inst(this.geo.tufts[v], this.mat.tuft, lists[v]); if (m) meshes.push(m); } }
     // fallen leaves under the trees (denser near the trunk) and a light scatter of blown leaves and litter on the walks / gutters

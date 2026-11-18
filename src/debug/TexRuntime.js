@@ -485,6 +485,42 @@ export async function saveNow() {
   return savingP;
 }
 export function exportManifest(withThumbs = true) { const m = clone(S.manifest); for (const r of Object.values(m.rules)) delete r.__rev; if (!withThumbs) for (const t of Object.values(m.textures)) delete t.thumb; m.format = MANIFEST_FORMAT; m.version = MANIFEST_VERSION; return m; }
+// 62nd: SAVE TO GAME — what `npm run build` / build-exe.bat compile into the game and the .exe is the project folder
+// texture-pack/ (manifest.json + the texture files; tools/vite/texturePack.mjs). With the dev server (npm run dev) the
+// Studio's storage IS that folder: the save waits until the manifest is on disk, reads the folder back and reports what a
+// build will take (and any texture file that is not there). Without the dev server (a studio build in a browser) the
+// manifest and every library texture are written into a folder the user picks — the project's texture-pack folder — through
+// the File System Access API (TextureStudio.saveToGame remembers the folder for the next save).
+export function buildSummary(m = S.manifest) {
+  let rules = 0; const used = new Set();
+  for (const r of Object.values(m.rules || {})) { if (!r || r.enabled === false) continue; rules++; for (const sr of Object.values(r.slots || {})) if (sr && sr.tex) used.add(sr.tex); }
+  return { rules, textures: used.size, used };
+}
+export async function saveToGame(dir = null) {
+  const sum = buildSummary(); const at = new Date().toISOString();
+  if (S.backend && S.backend.kind === 'folder') {
+    await saveNow(); const disk = await FolderBackend.loadManifest(); // read back what the build will read
+    if (!disk || JSON.stringify(Object.keys(disk.rules || {}).sort()) !== JSON.stringify(Object.keys(S.manifest.rules).sort())) throw new Error('texture-pack/manifest.json does not hold the saved rules');
+    const missing = [...sum.used].filter((h) => { const t = S.manifest.textures[h]; return !t || !FolderBackend.files.has(h + '.' + t.ext); });
+    S.lastGameSave = { at, where: 'folder', folder: FolderBackend.folder, rules: sum.rules, textures: sum.textures, missing }; emit('save'); return S.lastGameSave;
+  }
+  if (!dir) throw new Error('no folder picked');
+  if (S.backend && S.backend.writable) await saveNow();
+  const w = await writePackTo(dir); S.lastGameSave = { at, where: 'dir', folder: dir.name, rules: sum.rules, textures: sum.textures, ...w }; emit('save'); return S.lastGameSave;
+}
+// write the manifest + every library texture into a directory handle (texture-pack/ layout; the old manifest → backups/)
+export async function writePackTo(dir) {
+  const m = exportManifest(true); let wrote = 0, kept = 0; const missing = [];
+  const put = async (d, name, blob) => { const fh = await d.getFileHandle(name, { create: true }); const w = await fh.createWritable(); await w.write(blob); await w.close(); };
+  for (const [h, t] of Object.entries(m.textures)) { const name = h + '.' + t.ext; let have = false; try { await dir.getFileHandle(name); have = true; } catch { /* not there yet */ }
+    if (have) { kept++; continue; } // content-addressed: an existing file is identical
+    let b = null; try { b = (S.backend && (await S.backend.getFile(name))) || (await PackBackend.getFile(name)); } catch { b = null; } if (!b) { missing.push(name); continue; }
+    await put(dir, name, b); wrote++; }
+  let old = null; try { old = await (await dir.getFileHandle('manifest.json')).getFile(); } catch { /* first save here */ }
+  if (old) { const bk = await dir.getDirectoryHandle('backups', { create: true }); await put(bk, 'manifest-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json', old); }
+  await put(dir, 'manifest.json', new Blob([JSON.stringify(m, null, 1) + '\n'], { type: 'application/json' }));
+  return { wrote, kept, missing };
+}
 export function assignments(hash) { const out = []; for (const [k, r] of Object.entries(S.manifest.rules)) for (const [s, sr] of Object.entries(r.slots)) if (sr.tex === hash) out.push({ k, slot: s, label: r.label }); return out; }
 
 // library: import a file (content hash → dedupe), keep the ORIGINAL bytes (resizing happens per use, never destructively)

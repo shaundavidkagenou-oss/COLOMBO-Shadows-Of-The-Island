@@ -14,6 +14,7 @@
 import * as THREE from 'three';
 import * as RT from './TexRuntime.js';
 import { writeZip, readZip } from './TexPack.js';
+import { storeGet, storeSet } from './boot.js';
 import { Win, h, btn, num, color, check, select, text, section, beginSession, toast, download, pickFile } from './ui.js';
 import { plan } from '../world/CityPlan.js';
 import { MultiBuilder, tagOfFace } from '../gfx/MeshBuilder.js';
@@ -28,7 +29,7 @@ const CSS = `
 .ts-row{display:flex;align-items:center;gap:6px;margin:3px 0}
 .ts-thumb{width:34px;height:34px;flex:none;border:1px solid #3a4250;border-radius:3px;background:#161a21;image-rendering:auto}
 .ts-badge{display:inline-block;font-size:10px;line-height:15px;padding:0 6px;border-radius:8px;background:#2d3442;color:#cfd6e0;margin-left:4px;vertical-align:middle;white-space:nowrap}
-.ts-badge.ed{background:#6a4a12;color:#ffd890}.ts-badge.warn{background:#5a2428;color:#ffc4c4}.ts-badge.ok{background:#1f4a2c;color:#bff0cc}
+.ts-save{background:#1f6a3a!important;color:#eafff0!important;font-weight:600}.ts-badge.ed{background:#6a4a12;color:#ffd890}.ts-badge.warn{background:#5a2428;color:#ffc4c4}.ts-badge.ok{background:#1f4a2c;color:#bff0cc}
 .ts-crumb{display:flex;flex-wrap:wrap;gap:2px 4px;font-size:11px;margin:2px 0 6px}.ts-crumb a{color:#9fc1ff;cursor:pointer;text-decoration:none}.ts-crumb a:hover{text-decoration:underline}.ts-crumb i{color:#556}
 .ts-slot{display:flex;align-items:center;gap:6px;padding:3px;border:1px solid transparent;border-radius:4px;cursor:pointer}.ts-slot:hover{background:#1d222c}.ts-slot.act{border-color:#e0a030;background:#2a2316}
 .ts-slot .t{flex:1;min-width:0}.ts-slot .t b{display:block;font-weight:600}.ts-slot .t small{display:block;color:#8a93a0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -251,7 +252,28 @@ class Studio {
   pickFiles(multiple) { return new Promise((res) => { const i = h('input', { type: 'file', accept: RT.ACCEPT, style: { display: 'none' } }); if (multiple) i.multiple = true; i.addEventListener('change', () => { const f = [...i.files]; i.remove(); res(f); }); i.addEventListener('cancel', () => { i.remove(); res([]); }); document.body.appendChild(i); i.click(); }); }
   async undo() { const e = await RT.undo(); toast(e ? 'Undo: ' + e.label : 'Nothing to undo', 900); this.syncSel(); this.renderLeft(); this.renderRight(); }
   async redo() { const e = await RT.redo(); toast(e ? 'Redo: ' + e.label : 'Nothing to redo', 900); this.syncSel(); this.renderLeft(); this.renderRight(); }
-  async save() { try { await RT.saveNow(); toast('Saved to ' + RT.S.backend.label); } catch (e) { toast('Save failed: ' + (e.message || e), 4000); } }
+  save() { return this.saveToGame(); }
+  // 62nd: SAVE — into the project's texture-pack/ folder, which build-exe.bat (npm run build) compiles into the game / .exe
+  async saveToGame() {
+    try {
+      if (RT.S.backend && RT.S.backend.kind === 'folder') return this.saveReport(await RT.saveToGame());
+      let dir = null; try { dir = await storeGet('tex:packDir'); } catch { dir = null; }
+      if (dir && dir.queryPermission) { let st = await dir.queryPermission({ mode: 'readwrite' }); if (st !== 'granted' && dir.requestPermission) st = await dir.requestPermission({ mode: 'readwrite' }); if (st !== 'granted') dir = null; }
+      if (!dir) {
+        if (typeof window.showDirectoryPicker !== 'function') { await this.exportPack(); toast('This browser cannot write into a folder — the pack was downloaded instead: put the .zip into the project\'s texture-pack folder, build-exe.bat unpacks and builds it', 8000); return null; }
+        toast('Pick the game project\'s texture-pack folder (or the project folder itself)', 4000);
+        dir = await window.showDirectoryPicker({ id: 'colombo-texture-pack', mode: 'readwrite' });
+        if (dir.name !== 'texture-pack') { let sub = null; try { sub = await dir.getDirectoryHandle('texture-pack'); } catch { sub = null; }
+          if (sub) dir = sub; else if (!confirm('“' + dir.name + '” is not the project\'s texture-pack folder — build-exe.bat only builds texture-pack\\ into the game. Save here anyway?')) return null; }
+        try { await storeSet('tex:packDir', dir); } catch { /* not storable: asked again next time */ }
+      }
+      return this.saveReport(await RT.saveToGame(dir));
+    } catch (e) { if (e && e.name === 'AbortError') return null; toast('Save failed: ' + (e.message || e), 5000); this.renderStatus(); return null; }
+  }
+  saveReport(r) {
+    const where = r.where === 'folder' ? r.folder : r.folder + '/'; const miss = r.missing && r.missing.length ? ' · ' + r.missing.length + ' texture file(s) missing — they will not be in the build!' : '';
+    toast('Saved ' + r.rules + ' replacement rule(s) and ' + r.textures + ' texture(s) to ' + where + ' — build-exe.bat compiles them into the game' + miss, miss ? 9000 : 6000); this.renderStatus(); return r;
+  }
   // hold-to-compare: the game's original slots / settings on this material, without touching the rule
   startPeek() {
     const m = this.m; const b = m && RT.originalOf(m); if (!b || this.peek) return; const save = { m, slots: {}, props: RT.snapProps(m) }; let prog = false;
@@ -269,7 +291,7 @@ class Studio {
     this.left = new Win('Texture Studio', { x: 10, y: 12, w: 380, h: H, onClose: () => this.close() });
     this.right = new Win('Texture Browser', { x: Math.max(400, innerWidth - 418), y: 12, w: 406, h: H, onClose: () => this.close() });
     const tb = (label, fn, title) => { const b = h('button', { title, onclick: fn }, label); b.style.fontSize = '12px'; return b; };
-    this.left.extra.append(tb('↶', () => this.undo(), 'Undo (Ctrl+Z)'), tb('↷', () => this.redo(), 'Redo (Ctrl+Y)'), tb('💾', () => this.save(), 'Save now (Ctrl+S) — also saved automatically'));
+    this.left.extra.append(tb('↶', () => this.undo(), 'Undo (Ctrl+Z)'), tb('↷', () => this.redo(), 'Redo (Ctrl+Y)'), (() => { const b = tb('💾 Save', () => this.saveToGame(), 'Save to the project\'s texture-pack folder (Ctrl+S) — build-exe.bat compiles it into the game and the .exe'); b.classList.add('ts-save'); return b; })());
     this.leftBody = h('div'); this.left.body.append(h('div', { cls: 'ed-hint' }, 'Click an object in the world · Alt+click again = the object behind · right-drag look · WASD / Q E fly · Shift fast · wheel speed · F focus · Ctrl+Z / Ctrl+Y · Esc closes'), this.leftBody);
     this.rightBody = h('div'); this.statusEl = h('div', { cls: 'ed-hint' }); this.right.body.append(this.rightBody);
     this.renderLeft(); this.renderRight();
@@ -575,7 +597,8 @@ class Studio {
     add('Stored in', be ? be.label : 'none'); if (be && be.folder) add('Folder', be.folder); if (be && be.kind === 'idb') add('Persistence', be.persisted ? 'granted by the browser' : 'best effort (the browser may evict it under storage pressure) — export a pack to keep a copy');
     add('Rules', Object.keys(S.manifest.rules).length + ' rule(s) (materials, created materials, object sizes)'); add('Manifest', 'v' + S.manifest.version + (S.manifest.modified ? ' · ' + S.manifest.modified.slice(0, 19).replace('T', ' ') : ''));
     sec.b.append(kv, this.statusEl, h('div', { cls: 'ed-hint' }, 'Picked files are copied into storage (content-hashed) when imported — the game never refers to the file on your computer, so moving or deleting it later changes nothing.'));
-    sec.b.append(h('div', { cls: 'ts-bar' }, btn('Save now', () => this.save()), btn('Export pack (.zip)', () => this.exportPack(), { title: 'manifest.json + every library texture — unzip into texture-pack/ or upload to your asset host' }), btn('Export manifest (.json)', () => download('colombo-textures.json', JSON.stringify(RT.exportManifest(false), null, 1)), { title: 'Rules + library index only (textures come from the asset base URL)' })),
+    sec.b.append(h('div', { cls: 'ts-bar' }, btn('💾 Save to game', () => this.saveToGame(), { title: 'texture-pack/manifest.json + the textures — build-exe.bat (npm run build) compiles them into the game and the .exe' })), h('div', { cls: 'ed-hint' }, 'Save writes your replacements into the project\'s texture-pack folder; then run build-exe.bat and they are compiled into the game and the .exe.' + (be && be.kind !== 'folder' ? ' (No dev server: the first save asks for that folder.)' : '')));
+    sec.b.append(h('div', { cls: 'ts-bar' }, btn('Export pack (.zip)', () => this.exportPack(), { title: 'manifest.json + every library texture — unzip into texture-pack/ or upload to your asset host' }), btn('Export manifest (.json)', () => download('colombo-textures.json', JSON.stringify(RT.exportManifest(false), null, 1)), { title: 'Rules + library index only (textures come from the asset base URL)' })),
       h('div', { cls: 'ts-bar' }, btn('Import (merge)…', () => this.importPack('merge'), { title: 'Add a pack / manifest: its rules replace the same materials, others stay' }), btn('Import (replace)…', () => this.importPack('replace'), { cls: 'warn', title: 'Use only the imported rules (undoable)' })));
     sec.b.append(this.editedList());
     sec.b.append(text('Asset base URL', S.manifest.assetBase, (v) => { RT.setAssetBase(v); toast(v ? 'Missing textures load from ' + v : 'Asset base URL cleared'); }), h('div', { cls: 'ed-hint' }, 'Optional external hosting: textures not in local storage are fetched from <URL>/<hash>.<ext> (the host must allow CORS).'));
@@ -589,7 +612,7 @@ class Studio {
     this.renderStatus(); return sec;
   }
   renderStatus() {
-    const S = RT.S; if (this.statusEl) { const st = S.saveState; this.statusEl.replaceChildren(h('span', { cls: 'ts-badge ' + (st === 'saved' ? 'ok' : st === 'error' ? 'warn' : 'ed') }, st === 'saved' ? 'all changes saved' : st === 'saving' ? 'saving…' : st === 'error' ? 'save failed' : 'unsaved changes (auto-save)'), st === 'error' ? ' ' + S.lastSaveError : '', '  ', h('span', {}, 'Undo ' + RT.history.undo.length + ' · Redo ' + RT.history.redo.length)); }
+    const S = RT.S; if (this.statusEl) { const st = S.saveState; this.statusEl.replaceChildren(h('span', { cls: 'ts-badge ' + (st === 'saved' ? 'ok' : st === 'error' ? 'warn' : 'ed') }, st === 'saved' ? 'all changes saved' : st === 'saving' ? 'saving…' : st === 'error' ? 'save failed' : 'unsaved changes (auto-save)'), st === 'error' ? ' ' + S.lastSaveError : '', S.lastGameSave ? h('div', {}, 'Saved to game ' + S.lastGameSave.at.slice(11, 19) + ' · ' + S.lastGameSave.rules + ' rule(s), ' + S.lastGameSave.textures + ' texture(s) → ' + S.lastGameSave.folder + (S.lastGameSave.missing.length ? ' · ' + S.lastGameSave.missing.length + ' missing' : '')) : '', '  ', h('span', {}, 'Undo ' + RT.history.undo.length + ' · Redo ' + RT.history.redo.length)); }
     if (this.meter) { const u = RT.gpuBytes(), b = RT.budgetBytes(); this.meter.style.width = Math.min(100, (u / b) * 100).toFixed(1) + '%'; this.meterTxt.textContent = 'Studio textures on the GPU: ' + fmtB(u) + ' of ' + S.settings.budgetMB + ' MB budget (shared images count once)'; }
   }
   async exportPack() {

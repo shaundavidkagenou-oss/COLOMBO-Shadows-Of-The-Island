@@ -116,27 +116,62 @@ function asphalt(size) {
   rc.putImageData(img, 0, 0);
   return { map, rough: toTex(r, { srgb: false }), height: hc };
 }
-function pavers(size, base = ['#8d5a4a', '#7e4c3e', '#9a6a58', '#86817a', '#78736c'], seed = 5) {
-  const c = canvas(size, size), ctx = c.getContext('2d'), rng = new RNG(seed);
-  ctx.fillStyle = '#5a5550'; ctx.fillRect(0, 0, size, size);
-  // height: sanded joints sit low, each paver is a slightly domed block (bevelled by the blur) at its own settled height
-  const hc = heightCanvas(size, size, 40), hx = hc.getContext('2d');
-  // interlocking "unipave" bricks in herringbone-ish rows
-  const bw = size / 8, bh = size / 16;
-  for (let row = 0; row < 16; row++) for (let col = -1; col < 9; col++) {
-    const off = (row % 2) * bw * 0.5; const x = col * bw + off, y = row * bh;
-    const tone = rng.pick(base); ctx.fillStyle = tone;
-    const w = bw - 3, h = bh - 3, n = bh * 0.18;
-    const path = (q) => { q.beginPath(); q.moveTo(x + 1.5, y + 1.5); q.lineTo(x + w * 0.33, y + 1.5); q.lineTo(x + w * 0.5, y + 1.5 + n); q.lineTo(x + w * 0.66, y + 1.5); q.lineTo(x + w + 1.5, y + 1.5);
-      q.lineTo(x + w + 1.5, y + h + 1.5); q.lineTo(x + w * 0.66, y + h + 1.5); q.lineTo(x + w * 0.5, y + h + 1.5 + n); q.lineTo(x + w * 0.33, y + h + 1.5); q.lineTo(x + 1.5, y + h + 1.5); q.closePath(); };
-    path(ctx); ctx.fill();
-    const hv = Math.round(176 + (hash2(((col % 8) + 8) % 8, row, seed) - 0.5) * 34); hx.fillStyle = `rgb(${hv},${hv},${hv})`; path(hx); hx.fill(); // col -1 ≡ col 7 (wraps)
-  }
-  blurHeight(hc, 1); blurHeight(hc, 1); // rounded arrises
-  reliefNoise(hc, { scale: 32, amp: 7, oct: 2, seed: seed + 9, grain: 9 }); // pressed-concrete surface
-  grime(ctx, size, size, { scale: 5, amount: 0.3, seed: seed + 1 });
-  speckle(ctx, size, size, size * 30, ['rgba(0,0,0,0.25)', 'rgba(255,255,255,0.08)'], rng, undefined, hx, ['rgba(0,0,0,0.12)', 'rgba(255,255,255,0.08)']);
+// 62nd: footpath SLABS — the interlocking brick pavers (and their modelled bricks, GroundDetail) are gone. Two types:
+//   1  cement flagstones, 0.5 × 0.5 m, warm weathered grey (most of the city)            → MAT.walk
+//   2  grey concrete slabs, 1.0 × 0.5 m in running bond, cooler with exposed aggregate   → MAT.walkGrey (Fort, Galle Face, Cinnamon Gardens, Kollupitiya)
+// 2 m per texture tile (GroundBuilder lays the footpaths with world-space uv scale 2 → 256 px per metre at 512 px), so the
+// joints sit on a fixed world grid: x = k·w (+ the running-bond offset on odd rows), z = k·h. GroundDetail plants its
+// joint grass on exactly that grid (PAVE_TYPES). Each slab: its own tone and settled height, mottling, edge grime, a few
+// corner chips and hairline cracks, stains; the joints are 1.2 cm of dark sand and soil. Tileable (wraps on both axes).
+export const PAVE_TYPES = { 1: { w: 0.5, h: 0.5, bond: 0 }, 2: { w: 1.0, h: 0.5, bond: 0.5 } };
+function paveSlabs(size, type, seed) {
+  const P = PAVE_TYPES[type], ppm = size / 2, sw = P.w * ppm, sh = P.h * ppm, nCol = Math.round(size / sw), nRow = Math.round(size / sh);
+  const c = canvas(size, size), ctx = c.getContext('2d'), img = ctx.createImageData(size, size), d = img.data;
+  const hc = heightCanvas(size, size, 0), hx = hc.getContext('2d'), himg = hx.getImageData(0, 0, size, size), hd = himg.data;
+  const rng = new RNG(seed);
+  const tones = type === 1 ? [[143, 137, 127], [134, 129, 120], [149, 143, 132], [127, 122, 114], [140, 133, 122], [136, 131, 124]] : [[121, 119, 115], [114, 112, 108], [127, 125, 120], [108, 106, 102], [118, 115, 110]]; // weathered, not new
+  const slabs = []; for (let r = 0; r < nRow; r++) for (let k = 0; k < nCol; k++) { const t = rng.pick(tones), tint = rng.range(0.93, 1.06);
+    slabs.push({ t: t.map((v) => v * tint), settle: rng.range(-1, 1), chip: [0, 1, 2, 3].map(() => (rng.next() < 0.16 ? rng.range(3, 9) : 0)), dirt: rng.range(0, 1) }); }
+  const JW = 1.55; // half the joint, px (≈ 1.2 cm joint)
+  for (let y = 0; y < size; y++) { const row = Math.floor(y / sh), ly = y - row * sh, off = P.bond ? (row & 1) * P.bond * ppm : 0;
+    for (let x = 0; x < size; x++) { const xs = (x - off + size) % size, col = Math.floor(xs / sw), lx = xs - col * sw; const S = slabs[row * nCol + col];
+      const e = Math.min(lx, sw - lx, ly, sh - ly); const en = (fbm((x / size) * 96, (y / size) * 96, 2, seed + 3, 96) - 0.5) * 1.4; // ragged arrises
+      let chip = false; const cs = [[0, 0], [sw, 0], [sw, sh], [0, sh]]; for (let q = 0; q < 4; q++) if (S.chip[q] && Math.hypot(lx - cs[q][0], ly - cs[q][1]) < S.chip[q] * (0.75 + 0.5 * fbm((x / size) * 64, (y / size) * 64, 2, seed + 5, 64))) chip = true;
+      const i = (y * size + x) * 4, g = hash2(x, y, seed), g2 = hash2(x, y, seed + 1);
+      if (e < JW + en) { // joint: dark sand and soil, darkest in the middle
+        const k = (0.84 + 0.16 * Math.min(1, e / JW)) * (0.84 + 0.32 * g); d[i] = 98 * k; d[i + 1] = 91 * k; d[i + 2] = 79 * k; d[i + 3] = 255; hd[i] = 64 + 30 * g; continue; }
+      const mot = fbm((x / size) * 8, (y / size) * 8, 4, seed + 7, 8), blot = fbm((x / size) * 24, (y / size) * 24, 3, seed + 9, 24), st = fbm((x / size) * 5, (y / size) * 5, 3, seed + 11, 5);
+      let f = (0.9 + 0.2 * mot) * (0.95 + 0.1 * blot) * (1 - 0.17 * Math.exp(-(e - JW) / 5) * (0.6 + 0.8 * S.dirt)); // foot-polished middle, grimy edges
+      if (type === 2) { if (g < 0.05) f *= 0.72; else if (g > 0.955) f *= 1.16; else if (g2 < 0.03) f *= 0.86; } // exposed aggregate
+      else { if (g < 0.012) f *= 0.78; else if (g > 0.992) f *= 1.12; } // sand-and-cement grain
+      let R = S.t[0] * f, G = S.t[1] * f, B = S.t[2] * f;
+      const sk = Math.max(0, (st - 0.6) * 1.6); if (sk) { R = R * (1 - sk) + 92 * sk; G = G * (1 - sk) + 84 * sk; B = B * (1 - sk) + 70 * sk; } // old stains
+      if (chip) { R *= 0.72; G *= 0.71; B *= 0.69; }
+      d[i] = R; d[i + 1] = G; d[i + 2] = B; d[i + 3] = 255;
+      let hv = 196 + S.settle * 9 + (mot - 0.5) * 8 + (g - 0.5) * (type === 2 ? 16 : 7); const be = e - JW - en; if (be < 2.4) hv -= (1 - be / 2.4) * 46; if (chip) hv = Math.min(hv, 128);
+      hd[i] = hv; } }
+  for (let i = 0; i < hd.length; i += 4) { hd[i + 1] = hd[i + 2] = hd[i]; hd[i + 3] = 255; }
+  ctx.putImageData(img, 0, 0); hx.putImageData(himg, 0, 0);
+  // hairline cracks (drawn twice across the wrap so slabs on the texture edge stay seamless) and a few dark gum / oil spots
+  for (let r = 0; r < nRow; r++) for (let k = 0; k < nCol; k++) { if (rng.next() > (type === 1 ? 0.2 : 0.28)) continue; const off = P.bond ? (r & 1) * P.bond * ppm : 0; const x0 = k * sw + off, y0 = r * sh;
+    const side = rng.int(0, 3), pt = (sd) => { const u = rng.range(0.15, 0.85); return sd === 0 ? [x0 + u * sw, y0] : sd === 1 ? [x0 + sw, y0 + u * sh] : sd === 2 ? [x0 + u * sw, y0 + sh] : [x0, y0 + u * sh]; };
+    const a = pt(side), b = pt((side + rng.int(1, 3)) % 4); const pts = [a]; const n = 5; for (let s = 1; s < n; s++) { const t = s / n; pts.push([a[0] + (b[0] - a[0]) * t + rng.range(-5, 5), a[1] + (b[1] - a[1]) * t + rng.range(-5, 5)]); } pts.push(b);
+    for (const ox of [0, -size]) { ctx.beginPath(); hx.beginPath(); pts.forEach(([px, py], j) => { if (j) { ctx.lineTo(px + ox, py); hx.lineTo(px + ox, py); } else { ctx.moveTo(px + ox, py); hx.moveTo(px + ox, py); } });
+      ctx.strokeStyle = 'rgba(48,44,38,0.55)'; ctx.lineWidth = 0.9; ctx.stroke(); hx.strokeStyle = 'rgba(0,0,0,0.55)'; hx.lineWidth = 1.3; hx.stroke(); } }
+  for (let k = 0; k < (type === 1 ? 7 : 5); k++) { const x = rng.next() * size, y = rng.next() * size, rr = rng.range(1.2, 3.2); for (const [ox, oy] of [[0, 0], [-size, 0], [0, -size], [-size, -size]]) { ctx.fillStyle = rng.next() < 0.6 ? 'rgba(40,38,36,0.55)' : 'rgba(60,52,40,0.35)'; ctx.beginPath(); ctx.ellipse(x + ox, y + oy, rr, rr * 0.8, 0, 0, Math.PI * 2); ctx.fill(); } }
+  blurHeight(hc, 1);
   const t = toTex(c); t.userData.height = hc; return t;
+}
+// 62nd: joint grass colour (GroundDetail blades sample it: u = the blade's tone column, v = base → tip). 8 tone columns:
+// fresh and dark greens, olive, sun-yellowed and dry; dark at the root, lighter towards the tip, fine vein streaks.
+function jointGrassTex() {
+  const W = 64, H = 128, c = canvas(W, H), ctx = c.getContext('2d'), img = ctx.createImageData(W, H), d = img.data;
+  const cols = [[82, 124, 40], [96, 140, 46], [68, 106, 34], [112, 126, 52], [104, 146, 56], [140, 138, 66], [60, 96, 32], [156, 146, 94]];
+  for (let y = 0; y < H; y++) { const v = 1 - y / (H - 1); // canvas bottom = blade root (v = 0)
+    for (let x = 0; x < W; x++) { const b = cols[Math.floor(x / 8)], q = x % 8; const vein = 0.94 + 0.12 * hash2(x, 0, 41) - (q === 3 || q === 4 ? 0.06 : 0);
+      const k = (0.58 + 0.56 * Math.pow(v, 0.8)) * vein * (0.96 + 0.08 * hash2(x, y, 43)); const dry = Math.max(0, (v - 0.82) / 0.18) * (b[0] > 120 ? 0.6 : 0.25);
+      const i = (y * W + x) * 4; d[i] = Math.min(255, b[0] * k + 60 * dry); d[i + 1] = Math.min(255, b[1] * k + 40 * dry); d[i + 2] = Math.min(255, b[2] * k + 18 * dry); d[i + 3] = 255; } }
+  ctx.putImageData(img, 0, 0); const t = toTex(c, { repeat: false }); t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; return t;
 }
 function concrete(size, tone = '#9b968d', seed = 7, joints = true) {
   const c = canvas(size, size), ctx = c.getContext('2d'), rng = new RNG(seed);
@@ -1024,7 +1059,7 @@ export async function buildTextures(quality = 'high', progress = () => {}) {
   const FW = hi ? 1024 : 512, FH = FW / 2, S = hi ? 1024 : 512;
   const steps = [
     ['asphalt', () => { const a = asphalt(S); TEX.asphalt = a.map; TEX.asphaltRough = a.rough; TEX.n_asphalt = heightToNormal(a.height, { strength: S > 512 ? 5 : 3.5 }); }],
-    ['pavers', () => { TEX.pavers = pavers(512); TEX.paversGrey = pavers(512, ['#8a8780', '#7d7a73', '#96928a', '#6f6c66'], 6); bakeNormal('pavers', 4); bakeNormal('paversGrey', 4); }],
+    ['pavement', () => { TEX.pave1 = paveSlabs(512, 1, 5); TEX.pave2 = paveSlabs(512, 2, 6); bakeNormal('pave1', 3.5); bakeNormal('pave2', 3.5); TEX.jointGrass = jointGrassTex(); }], // 62nd: slabs, not brick pavers
     ['concrete', () => { TEX.concrete = concrete(512); TEX.roofConcrete = roofConcrete(512); bakeNormal('concrete', 3); bakeNormal('roofConcrete', 3); }],
     ['grass', () => { TEX.grass = grass(512, 21, 0.3); TEX.lawn = grass(512, 22, 0.08); TEX.laterite = laterite(512); TEX.hedge = hedgeTex(256); TEX.sand = sand(512); bakeNormal('sand', 3); TEX.rocks = rocks(512); TEX.ballast = ballast(512); }],
     ['facades: colonial', () => { TEX.f_colonial = facadeColonial(FW, FH, 201); TEX.f_brick = facadeBrick(FW, FH, 202); }],

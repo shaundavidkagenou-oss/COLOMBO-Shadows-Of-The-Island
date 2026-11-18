@@ -40,6 +40,9 @@ rem  npm run dev, or unzipped from its "Export pack (.zip)") are built into the 
 set NSND=0
 if exist sounds\ for %%f in (sounds\*.mp3 sounds\*.wav sounds\*.ogg) do set /a NSND+=1
 if %NSND% GTR 0 (echo       Including %NSND% custom sound file^(s^) from sounds\) else (echo       No custom sounds in sounds\ - the game's own sounds are used.)
+rem  Texture Studio replacements: saved into texture-pack\ by the Studio's Save button (or a pack .zip dropped there)
+rem  are compiled into the game - and so into the .exe - by this step.
+call node tools\texture-pack-prep.mjs
 call npm run build
 if errorlevel 1 (
   echo [ERROR] The game build failed - see the messages above.
