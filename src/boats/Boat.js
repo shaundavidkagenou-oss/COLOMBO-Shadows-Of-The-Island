@@ -10,6 +10,7 @@
 //     the keel resists sideslip — planing boats skid in a hard turn and bank into it, displacement boats heel outward
 //   * sails: drive depends on the true wind angle (nothing in the 40° no-go zone), the boom eases out as the wind comes aft,
 //     the boat heels to leeward; holes and tears (BoatMaterial sail shader) cost drive
+import { HOOKS } from '../core/Hooks.js';
 import * as THREE from 'three';
 import { BOATS } from './BoatCatalog.js';
 import { boatModel, sailGeometry, policeDecalGeometry } from './BoatModels.js';
@@ -58,6 +59,7 @@ export class Boat {
     this.driver = null; this.riders = []; this.T = { len: M.len, entry: 'boat', steer: 1 }; this.type = 'boat'; this.speed = 0; this.camDist = clamp(M.len * 0.9 + 4, 6.5, 34); this.camHeight = clamp(M.height * 0.45 + 1.2, 1.6, 9);
     this.sprayAcc = 0; this.wasAir = false; this.horn = 0;
     this.place(this.x, this.z, this.yaw, true);
+    if (HOOKS.vehicle) HOOKS.vehicle(this.root, 'boat:' + id); // 68th: model tools
   }
   get len() { return this.model.len; }
   setSailsVisible(on) { this.sailsUp = on; for (const s of this.sails) { s.mesh.visible = on; if (!on) { s.ang = 0; s.piv.rotation.y = 0; } } } // furled: in-mast main / roller jib, boom on the centreline

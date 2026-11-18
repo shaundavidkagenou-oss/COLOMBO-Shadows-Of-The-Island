@@ -10,6 +10,7 @@
 // Local frame like the vehicles: +z forward (nose), +y up, +x LEFT. Returns { group, rotor, blades, disc, tail, tailBlades,
 // light (searchlight gimbal: yaw group → pitch group → lens at its tip), lamps { navR, navG, tail, beacon, belly, strobe },
 // crew (pilot + observer, hidden when parked), skidY (bottom of the skids, local 0), hub (mast top local y) }.
+import { HOOKS } from '../core/Hooks.js';
 import * as THREE from 'three';
 import { MultiBuilder, MeshBuilder } from '../gfx/MeshBuilder.js';
 import { Character } from '../actors/Character.js';
@@ -233,5 +234,6 @@ export function buildHeliModel({ reg = '4R-SLP', crew = true } = {}) {
   }
   // keep the crew's seated pose (and small head turns) alive; the owner calls it only when the aircraft is near the camera
   const updateCrew = (dt) => { if (crewG.getCurrentLevel() !== 0) return; for (const ch of crewChars) ch.anim.update(dt, 0, 0); };
+  group.userData.__vtype = 'heli:police'; if (HOOKS.vehicle) HOOKS.vehicle(group, 'heli:police'); // 68th: model tools
   return { group, rotor, blades, disc, discMat, tail, tailBlades, light, lightPitch, lamps, crew: crewG, crewChars, updateCrew, hub: HELI.hubY };
 }
