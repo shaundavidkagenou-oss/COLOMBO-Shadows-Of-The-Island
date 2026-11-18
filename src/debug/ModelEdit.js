@@ -54,6 +54,7 @@ export async function applyParts(root, parts, { skip = null } = {}) {
   if (!parts || !Object.keys(parts).length) return 0; let n = 0; const jobs = [];
   for (const p of listParts(root, { skip })) {
     const e = editFor(parts, p.key, p.mesh, p.mat); if (!e) continue; n++;
+    if (!TEX_SLOTS.some((k) => e[k])) { setSlot(p.mesh, p.slot, editedMat(p.mat, e, {})); continue; } // no texture to load: applied now (no frame of the original)
     jobs.push(texturesFor(e).then((tex) => setSlot(p.mesh, p.slot, editedMat(p.mat, e, tex))));
   }
   await Promise.all(jobs); return n;

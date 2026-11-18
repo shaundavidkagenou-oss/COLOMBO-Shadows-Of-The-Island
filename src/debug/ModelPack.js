@@ -107,7 +107,7 @@ async function loadRaw(asset) {
   else if (ext === 'fbx') { scene = r; clips = r.animations || []; }
   else if (ext === 'dae') { scene = r.scene; clips = r.animations || (r.scene && r.scene.animations) || []; }
   else if (ext === 'stl' || ext === 'ply') { const g = r; if (!g.attributes.normal) g.computeVertexNormals(); const mat = solidMat(); if (g.attributes.color) mat.vertexColors = true; scene = new THREE.Group(); scene.add(new THREE.Mesh(g, mat)); }
-  else if (ext === 'bvh') { skeleton = r.skeleton; clips = [r.clip]; scene = new THREE.Group(); const root = r.skeleton.bones[0]; scene.add(root); const helper = new THREE.SkeletonHelper(root); helper.name = '__bvhHelper'; scene.add(helper); }
+  else if (ext === 'bvh') { skeleton = r.skeleton; clips = [r.clip]; scene = new THREE.Group(); const root = r.skeleton.bones[0]; scene.add(root); } // (no SkeletonHelper: it cannot be cloned per instance)
   else scene = r;
   if (scene) scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; if (!o.material) o.material = solidMat(); } });
   return { scene, clips, skeleton };

@@ -186,13 +186,13 @@ class MapEditor {
   pickAt(e) {
     const rc = this.ray(e), R = rc.ray, O = R.origin, D = R.direction; let best = null, bt = Infinity;
     const test = (k, o) => { const b = this.boxOf(k, o); if (!b) return; let t0 = 0, t1 = 2000; for (let a = 0; a < 3; a++) { const oa = [O.x, O.y, O.z][a], da = [D.x, D.y, D.z][a], lo = b[a], hi = b[a + 3]; if (Math.abs(da) < 1e-9) { if (oa < lo || oa > hi) return; continue; } let ta = (lo - oa) / da, tb = (hi - oa) / da; if (ta > tb) [ta, tb] = [tb, ta]; t0 = Math.max(t0, ta); t1 = Math.min(t1, tb); if (t0 > t1) return; }
-      const bias = k === 'b' ? 1.5 : k === 't' ? 0.6 : 0; if (t0 + bias < bt) { bt = t0 + bias; best = { k, o }; } };
+      const bias = k === 'b' ? 1.5 : k === 't' ? 0.6 : 0; if (t0 + bias < bt) { bt = t0 + bias; best = { k, o, inside: t0 <= 0 }; } };
     const ci = chunkIndex(O.x, O.z); const near = new Set(); const nx = Math.ceil(600 / CHUNK);
     for (let dz = -nx; dz <= nx; dz++) for (let dx = -nx; dx <= nx; dx++) { const c = chunkIndex(O.x + dx * CHUNK, O.z + dz * CHUNK); if (c >= 0) near.add(c); } void ci;
     for (const c of near) { const ch = plan.byChunk[c]; if (this.filter.b) for (const o of ch.buildings) test('b', o); if (this.filter.w) for (const o of ch.walls || []) test('w', o); if (this.filter.p) for (const o of ch.props) test('p', o); if (this.filter.t) for (const o of ch.trees) test('t', o); }
     if (this.filter.pl) for (const o of plan.plants || []) if (Math.abs(o.x - O.x) < 250 && Math.abs(o.z - O.z) < 250) test('pl', o);
     if (this.filter.prim) { const hs = []; this.W.editorPrims.traverseVisible((o) => { if (!o.isMesh) return; try { o.raycast(rc, hs); } catch { /* unindexed geometry */ } }); hs.sort((a, b) => a.distance - b.distance); // models are groups: hit any of their meshes, select the placed object
-      for (const hh of hs) { let top = hh.object; while (top && top.parent !== this.W.editorPrims) top = top.parent; if (top && top.userData.prim && hh.distance < bt + 0.5) { best = { k: 'prim', o: top.userData.prim, mesh: top }; break; } } }
+      for (const hh of hs) { let top = hh.object; while (top && top.parent !== this.W.editorPrims) top = top.parent; if (top && top.userData.prim && (hh.distance < bt + 0.5 || (best && best.inside))) { /* the camera inside a box (e.g. a building) must not hide a placed object you can see */ best = { k: 'prim', o: top.userData.prim, mesh: top }; break; } } }
     return best;
   }
   click(e) {
@@ -312,7 +312,7 @@ class MapEditor {
     const A = this.g.atmos, F = { x: this.pos.x, z: this.pos.z }; this.W.update(dt, F, cam, A); if (A) A.update(dt, new THREE.Vector3(F.x, 0, F.z), cam, dt);
   }
   // ---------------------------------------------------------------- save / load
-  async save() { for (const [n, cv] of this.texCv) MAP.edits.textures[n] = cv.toDataURL('image/png'); let r = null; try { r = await saveMap(); } catch (e) { toast('Map saved in this browser, but not into model-pack/: ' + (e.message || e), 5000); this.unsaved = false; this.updateStatus(); return; } this.unsaved = false; this.updateStatus(); toast(r && r.baked ? 'Map saved into model-pack/ — it loads with the game and is built into the game / .exe' : 'Map saved — it loads with the game from now on', 3200); }
+  async save() { for (const [n, cv] of this.texCv) MAP.edits.textures[n] = cv.toDataURL('image/png'); let r = null; try { r = await saveMap(); } catch (e) { toast('Map saved in this browser, but not into model-pack/: ' + (e.message || e), 5000); this.unsaved = false; this.updateStatus(); return; } this.unsaved = false; this.updateStatus(); toast(r && r.baked ? 'Map saved into model-pack/ — it loads with the game and is built into the game / .exe' : r && r.err ? 'Map saved in this browser, but NOT into model-pack/ (not built into the .exe): ' + r.err : 'Map saved — it loads with the game from now on', r && r.err ? 6000 : 3200); }
   exportMap() { for (const [n, cv] of this.texCv) MAP.edits.textures[n] = cv.toDataURL('image/png'); download('colombo-map-edits.json', JSON.stringify(MAP.edits)); }
   async importMap() { const f = await pickFile(); if (!f) return; try { const E = JSON.parse(await f.text()); if (!E || typeof E.mods !== 'object' || !Array.isArray(E.added)) throw new Error('not a map edit file'); await storeSet('map', E); setSavedFlag('map', true); this.reloadPrompt('Imported. Reload the game to load the imported map.'); } catch (e) { toast('Import failed: ' + e.message); } }
   async revertAll() { if (!confirm('Delete all saved map edits and go back to the generated city?')) return; await storeDel('map'); setSavedFlag('map', false); this.reloadPrompt('Saved map edits deleted. Reload to get the generated city back.'); }
