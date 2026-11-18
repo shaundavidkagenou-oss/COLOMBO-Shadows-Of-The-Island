@@ -85,6 +85,8 @@ try {
       console.log('PROFILE inclusive top'); [...incl].sort((a, b) => b[1] - a[1]).slice(0, 40).forEach(([k, t]) => console.log('  ' + (100 * t / tot).toFixed(1).padStart(5) + '%  ' + k)); }
   }
   const S = await page.evaluate(() => ({ worst: window.__soak.worst, steps: window.__soak.steps, err: window.__soak.err, mode: window.__game.mode }));
+  { const P = await page.evaluate(() => { const p = window.__game.police; return p.pool ? { pool: p.pool.stats, free: p.pool.freeCount(), spare: p.pool.spare.length, recycledAhead: p.stats.recycledAhead, recycled: p.stats.recycled, poolWaits: p.stats.poolWaits, sight: p.stats.sight, thinks: p.stats.thinks } : null; });
+    console.log('66th pool / AI:', JSON.stringify(P)); if (P && P.pool.builtWanted) { console.log('FAIL police cars built while wanted:', P.pool.builtWanted); failed++; } if (P && P.sight.maxPerFrame > 2) { console.log('FAIL sight checks per frame', P.sight.maxPerFrame); failed++; } }
   log(`sim steps ${S.steps}, final mode ${S.mode}`); console.log('slowest steps:', JSON.stringify(S.worst));
   for (const e of S.err) { console.log('SIM ERROR', e); failed++; }
 } catch (e) { console.log('SOAK CRASH', String(e.stack || e).slice(0, 800)); failed++; }
