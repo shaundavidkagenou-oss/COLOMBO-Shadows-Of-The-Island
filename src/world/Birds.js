@@ -9,10 +9,15 @@ import * as L from './Layout.js';
 import { plan } from './CityPlan.js';
 import { SPECIES, birdParts, PART_NAMES } from './BirdModels.js';
 import { crownPoints } from './TreeShapes.js';
+import { CULL, LOD } from '../gfx/BatchCull.js';
 
 const SP = ['crow', 'pigeon', 'parakeet'];
 const MAXN = { crow: 26, pigeon: 34, parakeet: 14 };
 const PIGEON_SPOTS = [[-470, -440, 150], [-385, -903, 90], [-35, -645, 70], [-112, -300, 60], [245, -30, 70], [-128, -893, 80], [90, 110, 60]]; // Galle Face, clock tower, Fort station, Seema Malaka, Town Hall, Pettah, museum
+export const BIRD_LOD = { enabled: true, shadow: 40, draw: 80 }; // m (65th; only while LOD.enabled)
+// shadow passes: near sun map → the near group only; far map → none; other (lamp) maps → the near group
+function birdShadowCount(B, sp) { return function (r, o, cam, sc) { if (!(LOD.enabled && BIRD_LOD.enabled)) return; this.count = sc === CULL.farCamera ? 0 : Math.min(B.nShadow ? B.nShadow[sp] : this.count, this.userData.nAll); }; }
+function birdShadowRestore() { this.count = this.userData.nAll; }
 const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
 const rnd = (a, b) => a + Math.random() * (b - a);
 
@@ -64,7 +69,7 @@ export class Birds {
     this.meshes = {}; this.count = {};
     for (const sp of SP) {
       const P = birdParts(sp); const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: SPECIES[sp].rough, metalness: 0, side: THREE.DoubleSide, envMapIntensity: sp === 'crow' ? 1.3 : 0.8 });
-      this.meshes[sp] = PART_NAMES.map((n) => { const m = new THREE.InstancedMesh(P[n], mat, MAXN[sp]); m.count = 0; m.castShadow = true; m.receiveShadow = false; m.frustumCulled = false; m.instanceMatrix.setUsage(THREE.DynamicDrawUsage); m.name = `bird:${sp}:${n}`; this.root.add(m); return m; });
+      this.meshes[sp] = PART_NAMES.map((n) => { const m = new THREE.InstancedMesh(P[n], mat, MAXN[sp]); m.count = 0; m.castShadow = true; m.userData.nAll = 0; m.onBeforeShadow = birdShadowCount(this, sp); m.onAfterShadow = birdShadowRestore; m.receiveShadow = false; m.frustumCulled = false; m.instanceMatrix.setUsage(THREE.DynamicDrawUsage); m.name = `bird:${sp}:${n}`; this.root.add(m); return m; });
     }
     this.treeTop = {}; for (const t of ['palm', 'rain', 'mara', 'mango', 'jak', 'bo', 'frangipani', 'nuga', 'kottamba', 'flamboyant', 'ashoka', 'kingcoconut']) { const pts = crownPoints(t); let my = 0; for (let i = 1; i < pts.length; i += 3) my = Math.max(my, pts[i]); this.treeTop[t] = my; }
     game.events?.on?.('gunshot', (e) => this.scare(e?.x ?? game.player.x, e?.z ?? game.player.z, 45));
@@ -213,14 +218,22 @@ export class Birds {
     }
   }
   // ---------------------------------------------------------------- instanced output
+  // 65th — draw distance / LOD: an 8k-triangle bird is a few pixels beyond ~40 m, so instances are written nearest-first:
+  //   [within BIRD_LOD.shadow (all)] + [up to BIRD_LOD.draw, unless the baked occlusion horizon hides them];
+  // the main view draws that list, the near sun shadow map only the first group, the far (whole-city) shadow map none
+  // (its ~15 cm texels cannot show a bird). Simulation is unaffected: only what is drawn changes.
   render() {
     const cnt = { crow: 0, pigeon: 0, parakeet: 0 }; this.birds = this.birds.filter((b) => b.state !== 'gone'); const mats = this.mats;
-    for (const b of this.birds) {
+    const lod = LOD.enabled && BIRD_LOD.enabled && !!this.g.camera; let list = this.birds; const nS = this.nShadow || (this.nShadow = { crow: 0, pigeon: 0, parakeet: 0 });
+    if (lod) { const c = this.g.camera.position, occ = CULL.occOn && CULL.occ, ok = occ && occ.validAt(c); const s2 = BIRD_LOD.shadow ** 2, d2 = BIRD_LOD.draw ** 2; const near = [], mid = [];
+      for (const b of this.birds) { const q = (b.x - c.x) ** 2 + (b.y - c.y) ** 2 + (b.z - c.z) ** 2; if (q < s2) near.push(b); else if (q < d2 && !(ok && occ.boxHidden(b.x - 0.3, b.x + 0.3, b.z - 0.3, b.z + 0.3, b.y + 0.3))) mid.push(b); }
+      for (const sp of SP) nS[sp] = 0; for (const b of near) nS[b.sp]++; list = near.concat(mid); this.drawn = list.length; }
+    for (const b of list) {
       const i = cnt[b.sp]++; if (i >= MAXN[b.sp]) continue; const S = b.S; const fp = b.flapPose || { flap: 0, flapOut: 0, sweep: 0, sweepOut: 0 };
       const flying = b.state === 'fly' || b.state === 'takeoff' || b.state === 'land';
       poseBird(b.sp, { x: b.x, y: b.y, z: b.z, yaw: b.yaw, pitch: b.pitch, roll: flying ? b.roll : 0, spread: b.spread, flap: fp.flap, flapOut: fp.flapOut, sweep: fp.sweep, sweepOut: fp.sweepOut, headYaw: b.head.yaw, headPitch: b.head.pitch, headFwd: b.head.fwd, tailPitch: flying ? (b.state === 'land' ? -0.35 : 0.03) : (b.act === 'peck' ? 0.25 : 0.05) + (b.sp === 'parakeet' ? (b.state === 'ground' ? 0.45 : -0.1) : 0), tailFan: b.state === 'land' || b.state === 'takeoff' ? 1.7 : flying ? 1.25 : b.sp === 'crow' ? 0.62 : 0.45, legL: b.legs ? b.legs[0] : 0, legR: b.legs ? b.legs[1] : 0, tuck: b.tuck }, mats);
       const ms = this.meshes[b.sp]; for (let k = 0; k < 11; k++) ms[k].setMatrixAt(i, mats[k]);
     }
-    for (const sp of SP) { const n = Math.min(cnt[sp], MAXN[sp]); for (const m of this.meshes[sp]) { m.count = n; m.visible = n > 0; m.instanceMatrix.needsUpdate = true; } /* FPS: a species with no birds out costs no draw calls (11 parts x every pass) */ }
+    for (const sp of SP) { const n = Math.min(cnt[sp], MAXN[sp]); if (!lod) nS[sp] = n; for (const m of this.meshes[sp]) { m.count = n; m.userData.nAll = n; m.visible = n > 0; m.instanceMatrix.needsUpdate = true; } /* FPS: a species with no birds out costs no draw calls (11 parts x every pass) */ }
   }
 }
