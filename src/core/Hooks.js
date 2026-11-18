@@ -4,4 +4,6 @@
 //   vehicle(group, type)   every vehicle mesh built
 //   character(ch)          every Character built (heroes, crowd, police, staff, previews)
 //   preRender(dt)          after the frame's matrices are updated, right before drawing (replacement rigs follow the final pose)
-export const HOOKS = { weapon: null, vehicle: null, character: null, preRender: new Set() };
+//   spec(spec) → spec     a Character's appearance spec before it is built (NPC look overrides)
+//   weaponEvent(g, kind)  the player's weapon fired / started reloading (replacement model clips)
+export const HOOKS = { weapon: null, vehicle: null, character: null, spec: null, weaponEvent: null, preRender: new Set() };

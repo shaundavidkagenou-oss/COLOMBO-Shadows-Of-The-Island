@@ -136,17 +136,18 @@ export class RigDriver {
     this.W = new Map(); this.frame = -1;
   }
   update() {
-    const root = this.ch.root, W = this.W; const gq = new THREE.Quaternion(), w = new THREE.Quaternion(), pinv = new THREE.Quaternion(); root.updateMatrixWorld(false);
-    const crq = relQ(this.c, root); // the container's own rotation in character space
+    const root = this.ch.root, W = this.W, inv = this._inv || (this._inv = new THREE.Matrix4()), m4 = this._m4 || (this._m4 = new THREE.Matrix4()); const gq = _gq, w = _w, pinv = _pinv;
+    inv.copy(root.matrixWorld).invert(); const rq = (o, out) => { m4.multiplyMatrices(inv, o.matrixWorld); m4.decompose(_p, out, _s); return out.normalize(); };
     for (const it of this.items) {
-      const par = it.o.parent; const pw = W.get(par) || (par === this.model || !par || !par.isBone ? relQ(par || this.c, root) : relQ(par, root));
-      if (it.g) { const gb = this.ch.bones[it.g]; relQ(gb, root, gq); w.copy(gq).multiply(it.B).multiply(it.restRootQ); if (this.fix[it.g]) w.multiply(this.fix[it.g]); }
+      const par = it.o.parent; let pw = W.get(par); if (!pw) { pw = rq(par || this.c, (it.pq ||= new THREE.Quaternion())); W.set(par, pw); }
+      if (it.g) { rq(this.ch.bones[it.g], gq); w.copy(gq).multiply(it.B).multiply(it.restRootQ); if (this.fix[it.g]) w.multiply(this.fix[it.g]); }
       else w.copy(pw).multiply(it.restLocal);
-      W.set(it.o, w.clone()); it.o.quaternion.copy(pinv.copy(pw).invert().multiply(w)).normalize();
+      W.set(it.o, (it.wq ||= new THREE.Quaternion()).copy(w)); it.o.quaternion.copy(pinv.copy(pw).invert().multiply(w)).normalize();
     }
-    if (this.hips && this.ch.bones.hips) { const d = this.ch.bones.hips.position.clone().sub(this.gameHip0); const it = this.items.find((x) => x.g === 'hips'); if (it) { const par = it.o.parent; const pq = par ? relQ(par, root) : crq; const ps = par ? new THREE.Vector3().setFromMatrixScale(_m.copy(root.matrixWorld).invert().multiply(par.matrixWorld)) : new THREE.Vector3(1, 1, 1);
-      it.o.position.copy(it.restPos).add(d.applyQuaternion(pq.clone().invert()).divide(ps)); } }
+    const hi = this.hipItem || (this.hipItem = this.items.find((x) => x.g === 'hips') || false);
+    if (hi && this.ch.bones.hips) { const d = _d.copy(this.ch.bones.hips.position).sub(this.gameHip0); const par = hi.o.parent; if (par) { m4.multiplyMatrices(inv, par.matrixWorld); m4.decompose(_p, _pq, _s); d.applyQuaternion(_pq.invert()).divide(_s); } hi.o.position.copy(hi.restPos).add(d); }
     W.clear(); this.c.updateMatrixWorld(true);
   }
 }
+const _gq = new THREE.Quaternion(), _w = new THREE.Quaternion(), _pinv = new THREE.Quaternion(), _pq = new THREE.Quaternion(), _d = new THREE.Vector3();
 export const _test = { norm, sideOf, autoMap };

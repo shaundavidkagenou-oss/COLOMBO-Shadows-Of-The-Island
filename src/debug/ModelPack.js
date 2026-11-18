@@ -85,12 +85,17 @@ function manager(asset) {
 const solidMat = () => new THREE.MeshStandardMaterial({ color: 0xb8b8b8, roughness: 0.7, metalness: 0.05 });
 const CACHE = new Map(); // main file → Promise<{ scene, clips, skeleton? }>
 // { scene: Object3D (a fresh copy every call), clips: AnimationClip[] }
+const READY = new Map(); // key → loaded raw (for synchronous instancing in build hooks)
+export const assetKey = (asset) => asset.main + '|' + Object.values(asset.files || {}).sort().join(',');
 export async function loadAsset(asset) {
   if (!asset || !asset.main) throw new Error('no model');
-  const key = asset.main + '|' + Object.values(asset.files || {}).sort().join(',');
-  if (!CACHE.has(key)) CACHE.set(key, loadRaw(asset).catch((e) => { CACHE.delete(key); throw e; }));
-  const raw = await CACHE.get(key); const scene = raw.scene ? skelClone(raw.scene) : null; return { scene, clips: raw.clips || [], skeleton: raw.skeleton || null, raw };
+  const key = assetKey(asset);
+  if (!CACHE.has(key)) CACHE.set(key, loadRaw(asset).then((raw) => { READY.set(key, raw); return raw; }).catch((e) => { CACHE.delete(key); throw e; }));
+  const raw = await CACHE.get(key); return inst(raw);
 }
+const inst = (raw) => ({ scene: raw.scene ? skelClone(raw.scene) : null, clips: raw.clips || [], skeleton: raw.skeleton || null, raw });
+export function readyAsset(asset) { if (!asset || !asset.main) return null; const raw = READY.get(assetKey(asset)); return raw ? inst(raw) : null; }
+export function forgetAsset(asset) { const k = assetKey(asset); CACHE.delete(k); READY.delete(k); }
 async function loadRaw(asset) {
   const ext = extOf(asset.main); const Ld = await loaderFor(ext); if (L.tgaReg) await L.tgaReg; const M = manager(asset); const url = fileURL(asset.main);
   const ld = new Ld(M);

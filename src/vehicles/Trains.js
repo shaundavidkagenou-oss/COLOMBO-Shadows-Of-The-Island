@@ -4,6 +4,7 @@
 // correctly through curves. Each car exposes the same collision interface as a road Vehicle (x, z, yaw, T.len/T.wid,
 // circles(), pushOut()) and is registered in Traffic.obstacles, so the player, pedestrians, AI and player-driven
 // vehicles all treat it as a solid, immovable body.
+import { HOOKS } from '../core/Hooks.js';
 import * as THREE from 'three';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
@@ -82,6 +83,7 @@ class Train {
     for (let i = 0; i < N_CARS; i++) {
       const cab = i === 0 || i === N_CARS - 1; const g = new THREE.Group(); const inner = new THREE.Group(); g.add(inner); // inner flips cab car 0 to face −s
       for (const m of cab ? sys.protoCab : sys.protoTrailer) { const mm = new THREE.Mesh(m.geometry, m.material); mm.castShadow = m.castShadow; mm.receiveShadow = m.receiveShadow; mm.renderOrder = m.renderOrder; inner.add(mm); } // (glass / tubes keep their no-shadow, draw-late flags)
+      if (HOOKS.vehicle) HOOKS.vehicle(inner, cab ? 'train:dmuCab' : 'train:dmuTrailer'); // 68th: model tools
       if (cab) {
         const end = i === 0 ? 0 : 1; const em = this.endMats[end]; const L2 = CAR_LEN / 2;
         for (const sx of [-1, 1]) {

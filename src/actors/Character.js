@@ -1164,6 +1164,7 @@ function skinMask(geo, spec) {
 const _bp = new THREE.Vector3(), _bv = new THREE.Vector3(), _ba = new THREE.Vector3();
 export class Character {
   constructor(spec) {
+    if (HOOKS.spec) spec = HOOKS.spec(spec) || spec; // 68th: model tools (NPC look overrides)
     this.spec = spec; if (hasDancerBody(spec.dancerBody)) { this.initDancer(spec); return; }
     const key = JSON.stringify(spec); const skelKey = `${spec.sex}|${spec.height.toFixed(3)}|${spec.build.toFixed(3)}`;
     let geo = geoCache.get(key); if (!geo) { geo = buildBodyGeometry(spec); if (geo.userData.npcBody) compactNpcGeo(geo); geoCache.set(key, geo); }

@@ -1,6 +1,7 @@
 // 27-weapon system (nine types × three real weapons, see WeaponDefs.js) for the squad (each member has their own loadout, see Squad.js): inventory, wheel, draw/holster, aim (over-the-shoulder / scope), fire, recoil, reload,
 // effects, hit detection and the non-graphic reactions it triggers in the crowd. Hands are placed on each weapon by
 // two-bone IK (Animator.ik) using the grip/support points exposed by the model, so every animation keeps both hands on it.
+import { HOOKS } from '../core/Hooks.js';
 import { SKILL_FX } from '../story/Skills.js';
 import { bloomHot } from '../gfx/BloomHot.js';
 import * as THREE from 'three';
@@ -232,18 +233,18 @@ export class Weapons {
     // ---- reload
     const iv = this.inv[this.cur];
     if (Input.wasPressed('reload') || (Input.pad.buttons[13] && !Input.pad.prev[13])) this.wantReload = true; // queued: honoured once the bolt / draw finishes
-    if (this.wantReload && this.state === 'ready' && this.cycleT < 0) { this.wantReload = false; if (iv.mag < def.mag && iv.reserve > 0) { this.setState('reload'); this.reloadSnd(def); } }
+    if (this.wantReload && this.state === 'ready' && this.cycleT < 0) { this.wantReload = false; if (iv.mag < def.mag && iv.reserve > 0) { this.setState('reload'); this.reloadSnd(def); if (HOOKS.weaponEvent) HOOKS.weaponEvent(this.models[this.cur], 'reload'); } }
     // ---- fire
     if (this.state === 'ready' && this.cycleT < 0) {
       const trig = def.auto ? fireHeld : firePressed;
       if (trig && this.aimW < 0.8) { this.quickAim = 0.5; }
       else if (trig && this.cool <= 0) {
         if (iv.mag > 0) { this.fire(def); if (!this.g.debug?.infAmmo) iv.mag--; this.cool = 1 / def.rof; if (def.cycle && iv.mag > 0) this.cycleT = 0; if (iv.mag === 0 && iv.reserve > 0 && Settings.get('autoReload') !== false) { this.autoReloadT = 0.35; } }
-        else if (firePressed) { SB.play('gun.dry') || Audio.tone(1800, 0.03, { type: 'square', vol: 0.06 }); this.cool = 0.25; if (iv.reserve > 0) { this.setState('reload'); this.reloadSnd(def); } else this.hudFlash('No ammunition'); }
+        else if (firePressed) { SB.play('gun.dry') || Audio.tone(1800, 0.03, { type: 'square', vol: 0.06 }); this.cool = 0.25; if (iv.reserve > 0) { this.setState('reload'); this.reloadSnd(def); if (HOOKS.weaponEvent) HOOKS.weaponEvent(this.models[this.cur], 'reload'); } else this.hudFlash('No ammunition'); }
       }
       if (fireHeld || aimHeld) this.quickAim = Math.max(this.quickAim, aimHeld ? 0 : 0.6);
     }
-    if (this.autoReloadT !== undefined && this.autoReloadT > 0) { this.autoReloadT -= dt; if (this.autoReloadT <= 0 && this.state === 'ready') { this.setState('reload'); this.reloadSnd(def); } }
+    if (this.autoReloadT !== undefined && this.autoReloadT > 0) { this.autoReloadT -= dt; if (this.autoReloadT <= 0 && this.state === 'ready') { this.setState('reload'); this.reloadSnd(def); if (HOOKS.weaponEvent) HOOKS.weaponEvent(this.models[this.cur], 'reload'); } }
     if (this.cycleT >= 0) { const was = this.cycleT; this.cycleT += dt; if (was < def.cycle * 0.5 && this.cycleT >= def.cycle * 0.5) { this.ejectShell(); if (!SB.play('gun.cycle')) { Audio.noise(0.05, { f: 2200, q: 3, vol: 0.08, when: 0 }); Audio.noise(0.06, { f: 1500, q: 3, vol: 0.07, when: 0.12 }); } } if (this.cycleT >= def.cycle) this.cycleT = -1; }
     // ---- point a weapon at someone: they react (hands up / back away / run) — non-graphic
     this.threatT -= dt; if (this.aimW > 0.8 && this.threatT <= 0) { this.threatT = 0.35; const hit = this.pickPed(70); if (hit && this.g.crowd.threaten) this.g.crowd.threaten(hit.p, P); }
@@ -463,7 +464,7 @@ export class Weapons {
       this.kick.v += def.recoil * 9 * st * (0.85 + Math.random() * 0.3); this.kick.yv += def.recoil * 3 * st * (Math.random() * 2 - 1); // rises, then mostly recovers
       if (P.ch && P.ch.anim.shotKick) P.ch.anim.shotKick(cls, st); this.spr.pv.z -= (cls === 'pistol' ? 0.55 : cls === 'sniper' ? 1.1 : 0.7) * st; this.spr.pv.y += 0.12 * st; this.spr.rv.x -= (cls === 'pistol' ? 9 : cls === 'sniper' ? 7 : 4.5) * st; this.spr.rv.y += (Math.random() * 2 - 1) * 1.6 * st; this.spr.rv.z += (Math.random() * 2 - 1) * 1.2 * st;
       this.trigT = 0.07; if (this.inv[this.cur].mag <= 1 && cls !== 'sniper') this.slideLock = true; } P.shake = Math.max(P.shake || 0, def.cls === 'sniper' ? 0.25 : 0.08);
-    this.gunSound(def, P.x, P.z, true); this.flash(mz, dir, def, true); if (!def.cycle) this.ejectShell();
+    this.gunSound(def, P.x, P.z, true); this.flash(mz, dir, def, true); if (HOOKS.weaponEvent) HOOKS.weaponEvent(this.models[this.cur], 'fire'); if (!def.cycle) this.ejectShell();
     const fin = this.applyHit(hit, hdir, horg, def, 1, 0); this.tracer(mz, fin.point, def); { const fs = this.g.world && this.g.world.landmarks && this.g.world.landmarks.anim.fortStation; if (fs && fs.shot && Math.abs(mz.x + 35) < 140 && Math.abs(mz.z + 625) < 80) fs.shot(mz, fin.point); } // hanging station signs swing when hit
     this.shotAlarm -= 1; if (this.shotAlarm <= 0) { this.shotAlarm = 3; this.g.crowd.alarm(P.x, P.z, def.loud, 2, null, 'gunshot', true); }
     this.g.crowd.alarm(hit.point.x, hit.point.z, 10, 2, null, 'gunshot', true);
@@ -578,7 +579,7 @@ export class Weapons {
   tracer(a, b, def) { if (def.cls === 'pistol' && Math.random() < 0.5) return; const m = new THREE.Mesh(this.tracerGeo, this.tracerMat); m.position.copy(a); m.lookAt(b); m.scale.z = a.distanceTo(b); this.g.scene.add(m); this.fx.push({ m, life: 0.05, kind: 'tracer' }); }
   puff(p, color, n) { for (let i = 0; i < n; i++) this.smokeAt(p, new THREE.Vector3((Math.random() - 0.5) * 0.8, 0.3 + Math.random() * 0.6, (Math.random() - 0.5) * 0.8), 0.6 + Math.random() * 0.3, 0.12, 0.57, 0.6, color); } // impact dust (pooled sprites)
   sparks(p, d) { for (let i = 0; i < 7; i++) { const s = new THREE.Sprite(this.sparkMat); s.position.copy(p); s.scale.setScalar(0.05); this.g.scene.add(s); this.fx.push({ m: s, life: 0.25 + Math.random() * 0.2, kind: 'spark', v: new THREE.Vector3(-d.x * 2 + (Math.random() - 0.5) * 4, Math.random() * 3, -d.z * 2 + (Math.random() - 0.5) * 4) }); } }
-  ejectShell() { if (this.cur < 0) return; const m = this.models[this.cur]; m.updateWorldMatrix(true, false); const p = m.userData.eject.clone().applyMatrix4(m.matrixWorld); const right = new THREE.Vector3(-1, 0.6, -0.2).transformDirection(m.matrixWorld); const s = new THREE.Mesh(this.shellGeo, weaponMaterials().brass); s.position.copy(p); this.g.scene.add(s); this.fx.push({ m: s, life: 1.4, kind: 'shell', v: right.multiplyScalar(2 + Math.random()), spin: new THREE.Vector3(Math.random() * 20, Math.random() * 20, 0) }); }
+  ejectShell() { if (this.cur < 0) return; const m = this.models[this.cur]; m.updateWorldMatrix(true, false); const p = m.userData.eject.clone().applyMatrix4(m.matrixWorld); const right = new THREE.Vector3(-1, 0.6, -0.2).transformDirection(m.matrixWorld); const s = m.userData.shellProto ? m.userData.shellProto.clone() : new THREE.Mesh(this.shellGeo, weaponMaterials().brass); s.position.copy(p); /* 68th: replaceable spent case */ this.g.scene.add(s); this.fx.push({ m: s, life: 1.4, kind: 'shell', v: right.multiplyScalar(2 + Math.random()), spin: new THREE.Vector3(Math.random() * 20, Math.random() * 20, 0) }); }
   decal(p, d, kind) { const m = new THREE.Mesh(this.decalGeo, this.decalMat); m.position.copy(p).addScaledVector(d, -0.01); m.lookAt(p.clone().sub(d)); if (kind === 'ground') { m.rotation.set(-Math.PI / 2, 0, 0); m.position.y += 0.012; } this.g.scene.add(m); this.decals.push(m); if (this.decals.length > 40) { const o = this.decals.shift(); this.g.scene.remove(o); } }
   fxUpdate(dt) {
     // the flash is counted in rendered frames (1–2), so it can never hang on screen however slow or paused the game clock is
