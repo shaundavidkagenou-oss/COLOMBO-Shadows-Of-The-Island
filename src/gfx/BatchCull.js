@@ -29,16 +29,16 @@ export const LOD = {
   detailFullShadow: 52,  // near sun shadow map: full detail within this distance of the camera (its crisp reach ≈ 50 m)
   fineEdge: 1.0,         // triangle classed fine when its longest edge is shorter than this (m)…
   thin: 0.06,            // …or when it is thinner than this (m)
-  winMax: 110,           // window joinery drawn within this distance (m)
+  winMax: 100,           // window joinery drawn within this distance (m) — buildings are low-poly blocks beyond 50–100 m
   tiny: 55,              // tiny ground detail (drain-grate bars, road studs) drawn within this distance (m)
   small: 110,            // small street furniture (litter bins, manhole covers, drain sumps, sign-post bands) within this distance
 };
-// quality presets (Settings → World.setQuality)
+// quality presets (Settings → World.setQuality); the block switch stays inside the requested 50–100 m on every preset
 export const LOD_PRESETS = {
-  low: { detailFull: 60, detailFullShadow: 52, winMax: 70, tiny: 35, small: 70 },
+  low: { detailFull: 60, detailFullShadow: 52, winMax: 0 /* no joinery is built on low (World.windowRadius 0) */, tiny: 35, small: 70 },
   medium: { detailFull: 75, detailFullShadow: 52, winMax: 85, tiny: 45, small: 90 },
-  high: { detailFull: 90, detailFullShadow: 52, winMax: 110, tiny: 55, small: 110 },
-  ultra: { detailFull: 130, detailFullShadow: 62, winMax: 170, tiny: 80, small: 160 },
+  high: { detailFull: 90, detailFullShadow: 52, winMax: 100, tiny: 55, small: 110 },
+  ultra: { detailFull: 100, detailFullShadow: 62, winMax: 100, tiny: 80, small: 160 },
 };
 export function setLodQuality(q) { Object.assign(LOD, LOD_PRESETS[q] || LOD_PRESETS.high); }
 export const CULL = { occ: null, camera: null, farCamera: null, sunCamera: null, propNear: true, occOn: false, eye: new THREE.Vector3(), stats: { drawn: 0, occluded: 0, lodCoarse: 0, distCut: 0 } };
