@@ -169,7 +169,7 @@ export class WalkIn {
   }
   // ---- per frame (from Interiors.updateSeamless). Returns the indoor light blend (0 street … 1 inside)
   update(dt) {
-    const g = this.g, P = g.player; if (!P || !this.sites.length) return 0;
+    const g = this.g, P = g.player; if (!P || !this.sites.length) return 0; this.frame = (this.frame || 0) + 1;
     let best = null, bd = 1e9; for (const s of this.sites) { const d = Math.hypot(P.x - s.F.x, P.z - s.F.z); s.dist = d; if (d < bd) { bd = d; best = s; } }
     if (P.indoor && P.indoor.walkIn) best = P.indoor.site;
     // build on approach (one per frame), hide far rooms
@@ -221,6 +221,9 @@ export class WalkIn {
       P.doorSlow = clamp(1.45 / Math.max(1.45, P.baseSpeed || P.speed || 1.45), 0.35, 1); // a hand on the door: a walking pace (~1.45 m/s)
     } else {
       P.doorSlow = this.anyEngaged(s) ? P.doorSlow : 1;
+      // 67th: a room's own people (BankInterior customers) push the door too — s.npcDoor { side: +1 from the street, −1 from
+      // inside, f: frame } is renewed every frame while one of them walks through it; a stale request lets the closer take over
+      const nd = s.npcDoor; if (nd && this.frame - nd.f <= 2) { const tgt = 1.42 * nd.side, maxW = 2.2 * dt; const nv = D.ang + clamp(tgt - D.ang, -maxW, maxW); if (Math.abs(D.ang) < 0.01 && Math.abs(nv) >= 0.01) this.sound(s, 'open'); D.vel = 0; D.setAngle(nv); } else
       // closer: a damped spring (a double-acting door swings a little past centre before it settles)
       if (Math.abs(D.ang) > 1e-3 || Math.abs(D.vel) > 1e-3) { const blocked = Math.abs(lx) < hw + 0.1 && Math.abs(lz - LEAF_Z) < 0.55 && onFoot; // someone in the doorway holds it
         if (!blocked) { D.vel += (-16 * D.ang - 6.2 * D.vel) * dt; let a = D.ang + D.vel * dt; if (Math.abs(a) < 0.004 && Math.abs(D.vel) < 0.05) { a = 0; D.vel = 0; this.sound(s, 'shut'); } D.setAngle(a); } else D.vel = 0; }

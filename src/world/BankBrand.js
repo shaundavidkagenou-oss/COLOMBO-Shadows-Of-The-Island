@@ -101,3 +101,27 @@ export function frostBand() {
   a.fillStyle = 'rgba(255,255,255,0.9)'; a.fillRect(0, 4, 256, 2); a.fillRect(0, 58, 256, 2);
   const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping; t.generateMipmaps = true; bandTex = t; return t;
 }
+
+// ---- the ATM screen as painted on the machine itself (256 × 192 canvas on each ATM's screen mesh). The same view model as
+// the on-screen ATM interface (ui/ATMUI.js) so the machine shows the page being used: { title, lines: [[label, value?]],
+// left: [labels], right: [labels], sel: option index (left first, then right), note, tone: 'ok' | 'bad' | null }
+export function drawATMScreen(a, w, h, v) {
+  a.save(); a.textBaseline = 'alphabetic'; a.textAlign = 'left';
+  const g = a.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#16325c'); g.addColorStop(1, '#0b1a33'); a.fillStyle = g; a.fillRect(0, 0, w, h);
+  a.fillStyle = 'rgba(255,255,255,0.05)'; for (let y = 0; y < h; y += 3) a.fillRect(0, y, w, 1); // the panel's pixel rows
+  a.fillStyle = CMB.navyDeep; a.fillRect(0, 0, w, 28); a.fillStyle = CMB.gold; a.fillRect(0, 28, w, 1.5); drawLogo(a, 6, 4, 20, { keyline: false });
+  a.fillStyle = CMB.white; a.font = `700 11px ${SERIF}`; tracked(a, CMB.name, 32, 19, 0.6, 'left');
+  if (v.title) { a.fillStyle = CMB.white; const s = fitFont(a, v.title, 700, SANS, 17, w - 24); a.font = `700 ${s}px ${SANS}`; a.textAlign = 'center'; a.fillText(v.title, w / 2, 54); a.textAlign = 'left'; }
+  let y = 76; for (const ln of v.lines || []) { const [k, val] = Array.isArray(ln) ? ln : [ln];
+    if (val !== undefined) { a.fillStyle = '#b9c4d6'; a.font = `600 10px ${SANS}`; a.fillText(k, 22, y); a.fillStyle = CMB.white; a.font = `700 12px ${SANS}`; a.textAlign = 'right'; a.fillText(String(val), w - 22, y); a.textAlign = 'left'; }
+    else { a.fillStyle = v.tone === 'bad' ? '#ffb4a8' : v.tone === 'ok' ? '#bfe8c4' : '#dfe6f0'; const s = fitFont(a, k, 600, SANS, 11, w - 40); a.font = `600 ${s}px ${SANS}`; a.textAlign = 'center'; a.fillText(k, w / 2, y); a.textAlign = 'left'; }
+    y += 15; }
+  const opt = (label, i, right) => { const oy = 104 + i * 21; const sel = v.sel === (right ? (v.left || []).length + i : i);
+    a.fillStyle = sel ? CMB.gold : 'rgba(255,255,255,0.12)'; const bw = 104; const x = right ? w - bw - 4 : 4; a.fillRect(x, oy - 13, bw, 18);
+    a.fillStyle = sel ? CMB.navyDeep : CMB.white; const s = fitFont(a, label, 700, SANS, 10, bw - 16); a.font = `700 ${s}px ${SANS}`; a.textAlign = right ? 'right' : 'left'; a.fillText(label, right ? w - 12 : 12, oy); a.textAlign = 'left';
+    a.fillStyle = CMB.goldLight; a.beginPath(); if (right) { a.moveTo(w - 1, oy - 4); a.lineTo(w - 4, oy - 7); a.lineTo(w - 4, oy - 1); } else { a.moveTo(1, oy - 4); a.lineTo(4, oy - 7); a.lineTo(4, oy - 1); } a.fill(); };
+  (v.left || []).forEach((l, i) => opt(l, i, false)); (v.right || []).forEach((l, i) => opt(l, i, true));
+  if (v.note) { a.fillStyle = '#9fb0c8'; const s = fitFont(a, v.note, 500, SANS, 9, w - 16); a.font = `500 ${s}px ${SANS}`; a.textAlign = 'center'; a.fillText(v.note, w / 2, h - 7); }
+  a.restore();
+}
+export const ATM_IDLE_VIEW = { title: 'Welcome', lines: ['Please insert your card', '', 'Cash withdrawal · Cash deposit', 'Balance · Mini statement'], note: 'Shield the keypad when entering your PIN' };

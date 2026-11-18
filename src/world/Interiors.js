@@ -15,6 +15,7 @@ import { modelFloor } from './FloorKit.js';
 import { WalkIn, REVEAL, DOOR_W } from './WalkIn.js';
 import { buildShopInterior, SHOP_DEFS } from './ShopInteriors.js';
 import { ROB_DEFS, buildRobberyShop, buildRobSigns } from './RobberyShops.js';
+import { buildBankInterior, BANK_ROOM } from './BankInterior.js'; // 67th: Ceylon Meridian Bank banking hall
 
 // modelled floors per shop, as such places are laid in Colombo (FloorKit: real bays / tiles / slabs with recessed joints)
 const SHOP_FLOOR = {
@@ -44,6 +45,7 @@ export class Interiors {
     if (this.walkInsDone) return; this.walkInsDone = true;
     const STYLE = { kade: 'timberGlass', fathima: 'timberGlass', selvaraj: 'alu', bandara: 'timber', tailor: 'bronze', garage: 'wicket', gunshop: 'steel' };
     for (const [id, s] of Object.entries(plan.missionShops)) { if (!s.walkIn) continue;
+      if (id === 'bank') { const b = plan.buildings.find((q) => q.id === s.b) || null; this.walkIn.add({ id, name: BANK_ROOM.name, door: { x: s.x, z: s.z, faceIn: s.faceIn }, b, style: 'bronze', hinge: -1, build: (site) => buildBankInterior(this.g, site) }); continue; } // the bank: frameless bronze glass door, the hall behind the facade
       const rob = ROB_DEFS[id]; const def = SHOP_DEFS[id] || rob; const b = plan.buildings.find((q) => q.id === s.b) || null;
       this.walkIn.add({ id, name: def ? def.name : this.g.interiorName ? this.g.interiorName(id) : id, door: { x: s.x, z: s.z, faceIn: s.faceIn }, b, style: def ? def.door : STYLE[id] || 'alu', hinge: def && def.hinge ? def.hinge : -1,
         build: (site) => (rob ? buildRobberyShop(this.g, id, site) : def ? buildShopInterior(this.g, id, site) : this.legacyWalkIn(id, site)) }); }

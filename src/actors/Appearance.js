@@ -384,6 +384,23 @@ export function makeAttendantAppearance(seed, brand, opts = {}) {
   sp.gait = Object.assign({}, sp.gait, { stoop: Math.min(sp.gait?.stoop || 0, 0.03) }); sp.belly = Math.min(sp.belly || 0, 0.3);
   Object.assign(sp, opts); return sp;
 }
+// Ceylon Meridian Bank staff (67th, world/BankInterior.js), adults only. The bank's own uniform in its brand colours:
+//   officers (m): white / pale-blue long-sleeve shirt, navy tie, charcoal-navy trousers, navy staff lanyard with the ID card
+//   officers (f): the office saree in CMB navy with a muted-gold blouse
+//   manager: navy blazer over a white shirt; security: the private-security uniform (preset), the bank's guard at the door
+export function makeBankStaffAppearance(seed, opts = {}) {
+  const r = new RNG(seed * 7349 + 17); const sex = opts.sex || (r.chance(0.5) ? 'f' : 'm'); const role = opts.role || 'officer';
+  const preset = role === 'guard' ? (sex === 'f' ? 'f_security' : 'm_security') : sex === 'f' ? 'f_bank_saree' : role === 'manager' ? 'm_executive' : 'm_banker';
+  const sp = Object.assign({}, makeAppearance(seed, { preset }));
+  if (!SKIN_LK.includes(sp.skin)) sp.skin = r.pick(SKIN_LK);
+  if (!HAIR_DARK.includes(sp.hairColor) && !HAIR_PEPPER.includes(sp.hairColor)) sp.hairColor = r.pick(HAIR_DARK);
+  for (const k of ['bag', 'crossbody', 'backpack', 'sunglasses', 'headphones', 'umbrella', 'hiVis', 'apron', 'towel', 'shawl', 'hood', 'headband', 'scarf', 'sandals']) delete sp[k];
+  if (role === 'guard') Object.assign(sp, { role: 'bankGuard', label: 'Bank security officer' });
+  else if (sex === 'f') Object.assign(sp, { role: 'bankOfficer', label: role === 'manager' ? 'Branch manager' : 'Bank officer', top: '#c9b27a', skirtCol: '#1d3461', bottom: '#1d3461', pattern: 1, lanyard: '#13284a' });
+  else if (role === 'manager') Object.assign(sp, { role: 'bankManager', label: 'Branch manager', outfit: 'jacket', top: '#1a2a48', inner: '#f2f4f7', bottom: '#1c2433', longSleeve: true, collar: true });
+  else Object.assign(sp, { role: 'bankOfficer', label: 'Bank officer', outfit: 'office', top: r.pick(['#f3f5f8', '#e2eaf4']), bottom: '#1c2433', longSleeve: true, collar: true, tie: '#1b2f55', lanyard: '#13284a', shoes: '#141414', sole: '#0e0e0e' });
+  Object.assign(sp, opts.extra || {}); return sp;
+}
 // Street Customs mechanic: navy work coverall look (navy shirt + matching trousers), orange shop patch, dark work boots, no cap
 export function makeMechanicAppearance(seed, opts = {}) {
   const r = new RNG(seed * 4441 + 13); const navy = r.pick(['#1e2a44', '#1b2640', '#22304c']);

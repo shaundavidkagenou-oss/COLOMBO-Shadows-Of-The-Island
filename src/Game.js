@@ -50,6 +50,9 @@ import { Player } from './actors/Player.js';
 import { Character, HEROES, CAM } from './actors/Character.js';
 import { applyLook } from './actors/Wardrobe.js';
 import { StoreUI } from './ui/StoreUI.js';
+import { ATMUI } from './ui/ATMUI.js'; // 67th: Ceylon Meridian Bank ATM screen
+import { BankService } from './story/Bank.js'; // 67th: the bank account (one atomic transaction method)
+import { BankSound } from './audio/BankAudio.js';
 import { makePoliceAppearance } from './actors/Appearance.js';
 import { Traffic } from './vehicles/Traffic.js';
 import { Trains } from './vehicles/Trains.js';
@@ -118,7 +121,7 @@ export class Game {
     addEventListener('resize', () => this.resize());
     bus.on('settings', (k) => this.applySettings(k));
     this.canvas.addEventListener('click', () => { if (this.mode === 'play' && !this.paused && !this.editorHook && !this.customs?.uiOpen) Input.requestLock(this.canvas); });
-    bus.on('pointerlock', (locked) => { if (!locked && this.mode === 'play' && !this.paused && !this.photo && !this.hud.bigMapOpen && !this.director.active && !this.ignoreUnlock && !this.gunShop?.open && !this.store?.open && !this.customs?.active && !this.debugCon?.menuOpen && !this.debugCon?.open && !this.editorHook) this.openPause(); });
+    bus.on('pointerlock', (locked) => { if (!locked && this.mode === 'play' && !this.paused && !this.photo && !this.hud.bigMapOpen && !this.director.active && !this.ignoreUnlock && !this.gunShop?.open && !this.store?.open && !this.atm?.open && !this.customs?.active && !this.debugCon?.menuOpen && !this.debugCon?.open && !this.editorHook) this.openPause(); });
     bus.on('key', (code) => this.onKey(code));
   }
   // ================================================================= loading (genuine progress)
@@ -161,7 +164,7 @@ export class Game {
     this.player = new Player(this.scene, this.camera, this.collision, bus); this.player.crowd = this.crowd;
     this.hud = new HUD(this.ui); this.hud.canSeeUnit = (u) => this.canSeeUnit(u); this.hud.mapExtras = () => this.miniExtras(); this.hud.satellite = new Satellite(this); this.director = new Director(this); this.story = new Story(this); this.interiors = new Interiors(this); this.weapons = new Weapons(this); this.player.weapons = this.weapons; this.squad = new Squad(this); this.orchid = new Assassin(this); /* Black Orchid contractor (Global browser) */ this.police = new PoliceResponse(this); this.heli = new PoliceHelicopter(this); setBloomView(this.camera); /* Air Wing helicopter on the HQ roof pad (police/Helicopter.js): built now, before the shader warm-up — its searchlight is a fixed light */
     this.crowd.onStrike = (p, m, M) => { if (this.weapons) this.weapons.struckBy(p, m, M); }; // street fighters' punches land on the player
-    this.health = new Health(this); this.phone = new Phone(this, this.hud.root); this.gunShop = new GunShopUI(this, this.hud.root); this.store = new StoreUI(this, this.hud.root); this.garage = new Garage(this); this.bicycles = new Bicycles(this); this.skills = new Skills(this); this.stunts = new StuntJumps(this); this.hud.pauseData = () => this.pauseData(); /* skills + stunt jumps + pause-map tabs (45th) */ /* Dineth's bike (vehicles/BicycleRide.js) */ /* Street Customs ownership records (story.state.garage) */ this.debug = newDebugState(); this.debugCon = new DebugConsole(this, this.hud.root);
+    this.health = new Health(this); this.phone = new Phone(this, this.hud.root); this.gunShop = new GunShopUI(this, this.hud.root); this.store = new StoreUI(this, this.hud.root); this.bank = new BankService(this); this.atm = new ATMUI(this, this.hud.root); this.garage = new Garage(this); this.bicycles = new Bicycles(this); this.skills = new Skills(this); this.stunts = new StuntJumps(this); this.hud.pauseData = () => this.pauseData(); /* skills + stunt jumps + pause-map tabs (45th) */ /* Dineth's bike (vehicles/BicycleRide.js) */ /* Street Customs ownership records (story.state.garage) */ this.debug = newDebugState(); this.debugCon = new DebugConsole(this, this.hud.root);
     this.applyDensity();
     progress(0.9, 'Lighting'); await tick();
     this.post = new PostFX(this.renderer, this.scene, this.camera); this.post.setCine(Settings.get('lensFlare') !== false, Settings.get('lightShafts') !== false); this.post.build({ bloom: Settings.preset.bloom, ao: Settings.preset.ao, cine: Settings.preset.cine }); this.world.glintsOn = Settings.get('wetReflections') !== false; this.atmos.nightBoost = Settings.get('nightBrightness') ?? 1;
@@ -281,7 +284,7 @@ export class Game {
   async startLoaded(slot) {
     const d = SaveSystem.read(slot); if (!d) return this.menuLoop();
     if (this.vsmoke && this.vsmoke.skid) this.vsmoke.skid.clear(); /* a loaded game starts with clean roads */ this.story.restore(d.story); this.loot?.clear(); /* loot lying in the world is never saved: a reload cannot hand it out twice */ this.atmos.restore(d.atmos); this.crowd.minds.load(d.minds); /* NPC memories / relationships (Mind.js); an older save has none */ this.clock = d.clock || 0; this.squad.load(d.squad); this.rebuildPlayer(); this.weapons.load(d.weapons); this.squad.load(d.squad); this.orchid.load(d.orchid); this.pendingWanted = d.police ? d.police.level : d.weapons ? d.weapons.heat : 0;
-    const p = d.player || { x: L.PLACES.meeting.x, z: L.PLACES.meeting.z, yaw: 0 }; if (this.customs && this.customs.active) this.customs.abort(); { const P = this.player, veh = P.vehicle; if (veh) { veh.speed = 0; veh.mesh.remove(P.ch.root); this.scene.add(P.ch.root); veh.player = false; P.vehicle = null; P.exiting = null; P.entry = null; P.ch.anim.standUp(); this.traffic.release(veh); P.respawnReset(); } } /* loading a save while driving: the save's player is on foot (as Health.js does on respawn) */ this.world.warm(p.x, p.z); this.player.teleport(p.x, p.z, p.yaw); this.squad.regroup(); this.garage.restore(); // owned (customised) vehicles back where they were parked
+    const p = d.player || { x: L.PLACES.meeting.x, z: L.PLACES.meeting.z, yaw: 0 }; if (this.customs && this.customs.active) this.customs.abort(); { const P = this.player, veh = P.vehicle; if (veh) { veh.speed = 0; veh.mesh.remove(P.ch.root); this.scene.add(P.ch.root); veh.player = false; P.vehicle = null; P.exiting = null; P.entry = null; P.ch.anim.standUp(); this.traffic.release(veh); P.respawnReset(); } } /* loading a save while driving: the save's player is on foot (as Health.js does on respawn) */ if (this.atm && this.atm.open) this.atm.close(true); BankSound.stopNow(); this.world.warm(p.x, p.z); this.player.teleport(p.x, p.z, p.yaw); this.squad.regroup(); this.garage.restore(); // owned (customised) vehicles back where they were parked
     this.player.cinematic = false; this.player.control = true; this.mode = 'play'; this.paused = false; this.hud.show(true); this.director.active = false;
     if (this.pendingWanted) { this.police.restore(this.pendingWanted); this.pendingWanted = 0; }
     this.story.setupWorldActivities(); this.setupRoomDoor(); if (this.boats) this.boats.onLoad();
@@ -537,15 +540,18 @@ export class Game {
     if (this.phone.open && (D.active || this.health.busy)) this.phone.toggle(false); // cutscene / hospital: put the phone away
     if (this.gunShop.open && (D.active || this.health.busy || !(this.indoor || (this.player.indoor && this.player.indoor.walkIn)))) this.gunShop.toggle(false); // (walk-in gun shops never set Game.indoor)
     if (this.store && this.store.open && (D.active || this.health.busy)) this.store.close();
-    const busy = D.active || this.photo || this.hud.bigMapOpen || this.paused || this.phone.open || this.health.busy || this.gunShop.open || !!(this.store && this.store.open) || !!(this.customs && this.customs.active) || this.debugCon.menuOpen || this.debugCon.open;
+    if (this.atm && this.atm.open && (D.active || this.health.busy)) this.atm.close(true);
+    const busy = D.active || this.photo || this.hud.bigMapOpen || this.paused || this.phone.open || this.health.busy || this.gunShop.open || !!(this.store && this.store.open) || !!(this.atm && this.atm.open) || !!(this.customs && this.customs.active) || this.debugCon.menuOpen || this.debugCon.open;
     if (this.gunShop.open && !warmOnly) this.gunShop.update();
     if (this.store && this.store.open && !warmOnly) this.store.update(this.dt);
+    if (this.atm && this.atm.open && !warmOnly) this.atm.update(this.dt);
+    if (!warmOnly) { const wr0 = this.interiors.walkIn && this.interiors.walkIn.room; BankSound.tick(this.dt, !!(wr0 && wr0.bank)); } // bank room tone: fades on leaving, sources released
     // global actions
     if (!D.active && !warmOnly && !(this.customs && this.customs.active)) { // Street Customs has the keyboard while it runs (W/S/A/D, R, P, M, J …): the map / phone / pause / radio hot-keys would open over the shop and take the cursor
-      if (Input.wasPressed('map') && !this.photo && !this.gunShop.open && !(this.store && this.store.open)) { if (this.phone.open) this.phone.toggle(false); this.toggleMap(); }
-      if (Input.wasPressed('phone') && !this.hud.bigMapOpen && !this.gunShop.open && !(this.store && this.store.open)) { if (this.photo) this.togglePhoto(false); else this.phone.toggle(); }
+      if (Input.wasPressed('map') && !this.photo && !this.gunShop.open && !(this.store && this.store.open) && !(this.atm && this.atm.open)) { if (this.phone.open) this.phone.toggle(false); this.toggleMap(); }
+      if (Input.wasPressed('phone') && !this.hud.bigMapOpen && !this.gunShop.open && !(this.store && this.store.open) && !(this.atm && this.atm.open)) { if (this.photo) this.togglePhoto(false); else this.phone.toggle(); }
       else this.phone.update();
-      if (Input.wasPressed('journal') && !this.gunShop.open && !(this.store && this.store.open)) this.openPause();
+      if (Input.wasPressed('journal') && !this.gunShop.open && !(this.store && this.store.open) && !(this.atm && this.atm.open)) this.openPause();
       if (P.vehicle && !P.vehicle.T.pedal && Input.wasPressed('radio')) { this.radio = (this.radio + 1) % RADIO.length; this.hud.notify('Radio', RADIO[this.radio] ? RADIO[this.radio].name : 'Off', 'info', 1.6); }
     }
     if (!D.active && !warmOnly && this.mode === 'play') this.health.update(dt);
@@ -643,7 +649,7 @@ export class Game {
     if (Input.wasPressed('more')) { const em = ['wave', 'stretch', 'clap', 'dance', 'look'][Math.floor(Math.random() * 5)]; P.ch.anim.play(em, em === 'dance' ? 5 : 2.2); P.emote = em; }
     return null;
   }
-  interiorName(id) { return { kade: 'Lucky Tea Kade', fathima: 'Fathima Textiles', selvaraj: 'Selvaraj Electronics', bandara: 'Bandara Spice Stores', tailor: 'Ceylon Threads', garage: 'Lanka Auto Care', gunshop: 'Ceylon Arms Co.', club: 'The Velvet Monsoon', hq: 'Police Headquarters', gunshop2: 'Lanka Shooting Supplies', barber: 'Razor & Co. Barbers', tattoo: 'Black Lotus Tattoo', tattoo2: 'Serendib Ink', clothing: 'Marine Drive Clothing Co.', luxury: 'Maison Serendib', rob_mart: 'Lak Mini Mart', rob_pharmacy: 'Lanka Care Pharmacy', rob_jewel: 'Ratnapura Gems & Gold', rob_phone: 'CellCity Mobile', rob_liquor: 'Galle Road Wine Stores', rob_bakery: 'Golden Crust Bakery', rob_hardware: 'Sena Hardware', rob_books: 'Saraswathi Book Depot' }[id] || id; }
+  interiorName(id) { return { kade: 'Lucky Tea Kade', fathima: 'Fathima Textiles', selvaraj: 'Selvaraj Electronics', bandara: 'Bandara Spice Stores', tailor: 'Ceylon Threads', garage: 'Lanka Auto Care', gunshop: 'Ceylon Arms Co.', club: 'The Velvet Monsoon', hq: 'Police Headquarters', gunshop2: 'Lanka Shooting Supplies', barber: 'Razor & Co. Barbers', tattoo: 'Black Lotus Tattoo', tattoo2: 'Serendib Ink', clothing: 'Marine Drive Clothing Co.', luxury: 'Maison Serendib', rob_mart: 'Lak Mini Mart', rob_pharmacy: 'Lanka Care Pharmacy', rob_jewel: 'Ratnapura Gems & Gold', rob_phone: 'CellCity Mobile', rob_liquor: 'Galle Road Wine Stores', rob_bakery: 'Golden Crust Bakery', rob_hardware: 'Sena Hardware', rob_books: 'Saraswathi Book Depot', bank: 'Ceylon Meridian Bank' }[id] || id; }
   // what the player can actually see: vehicles / people / police units within range and not hidden behind a building or wall.
   // Only these get (small) marks on the minimap and the full map — the map is not a tracker of every NPC and car in the city.
   lineOfSight(ax, az, bx, bz) {
