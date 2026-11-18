@@ -304,8 +304,10 @@ export function buildBankInterior(game, site) {
       stand.tellers.push({ ch, win: B.staffed[i], x: wx, rnd: rngOf(6710 + i), serving: null, act: null, actT: 0 }); });
     for (const wx of [WINX[3]]) officeChair(k, wx, Z(10.45), 0.3, 0.45);
     // back wall: lit feature band, vault door, filing cabinets, copier
-    paint.box(0, 2.1, z0 + 0.025, 6.4, 1.8, 0.05, { col: navy }); for (const [y, h] of [[1.2, 0.012], [3.0, 0.012]]) metal.box(0, y, z0 + 0.052, 6.4, h, 0.006, { col: gold }); face(sign, 0, 2.1, z0 + 0.054, 4.8, 1.2, IN_UV.wordmark, '+z');
-    emis.box(0, 3.06, z0 + 0.07, 6.2, 0.01, 0.02, { col: [1, 0.92, 0.78] });
+    // centred behind counter 2, between the privacy fins at x 0 and 3.3: seen from the hall the fins (4.4 m in front of this
+    // wall) fall either side of the wordmark instead of across it
+    { const bx = 1.65; paint.box(bx, 2.1, z0 + 0.025, 3.4, 1.8, 0.05, { col: navy }); for (const [y, h] of [[1.2, 0.012], [3.0, 0.012]]) metal.box(bx, y, z0 + 0.052, 3.4, h, 0.006, { col: gold }); face(sign, bx, 2.25, z0 + 0.054, 3.2, 0.8, IN_UV.wordmark, '+z');
+      emis.box(bx, 3.06, z0 + 0.07, 3.2, 0.01, 0.02, { col: [1, 0.92, 0.78] }); }
     { const vx = -5.1, vy = 1.12, vz = z0 + 0.08; metal.box(vx, vy, z0 + 0.04, 1.8, 2.2, 0.08, { col: C('#7d8287') }); const st = k.get('steel'), M = new THREE.Matrix4(), Q = new THREE.Quaternion();
       const disc = (r, h, zoff, col, seg = 36) => { const geo = new THREE.CylinderGeometry(r, r, h, seg); st.geometry(geo, M.compose(new THREE.Vector3(vx, vy, vz + zoff), Q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2), new THREE.Vector3(1, 1, 1)), C(col)); geo.dispose(); };
       disc(0.86, 0.06, 0.0, '#9aa0a6'); disc(0.78, 0.12, 0.06, '#b8bdc2'); disc(0.12, 0.08, 0.15, '#d4d7da', 18);

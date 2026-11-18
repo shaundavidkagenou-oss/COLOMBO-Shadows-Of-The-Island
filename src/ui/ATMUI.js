@@ -26,7 +26,7 @@ export class ATMUI {
   constructor(game, parent) {
     this.g = game; this.open = false; this.page = 'welcome'; this.sel = 0; this.entry = ''; this.busyT = 0; this.after = null; this.req = null; this.result = null; this.msg = null;
     const root = this.root = document.createElement('div'); root.id = 'atm'; root.className = 'atm hidden'; (parent || document.body).appendChild(root);
-    root.innerHTML = `<div class="atm-bezel"><div class="atm-keys atm-keys-l"></div><div class="atm-glass"><div class="atm-head"><canvas class="atm-logo" width="64" height="64"></canvas><div class="atm-brand"><b>${esc(CMB.name)}</b><span>${esc(CMB.branch)} · ATM 02</span></div><div class="atm-clock"></div></div><div class="atm-body"></div><div class="atm-foot"></div></div><div class="atm-keys atm-keys-r"></div></div><div class="atm-help"></div>`;
+    root.innerHTML = `<div class="atm-bezel"><div class="atm-keys atm-keys-l"></div><div class="atm-glass"><div class="atm-head"><canvas class="atm-logo" width="64" height="64"></canvas><div class="atm-brand"><b>${esc(CMB.name)}</b><span class="atm-no">${esc(CMB.branch)} · ATM 01</span></div><div class="atm-clock"></div></div><div class="atm-body"></div><div class="atm-foot"></div></div><div class="atm-keys atm-keys-r"></div></div><div class="atm-help"></div>`;
     this.$ = (s) => root.querySelector(s); this.body = this.$('.atm-body'); this.foot = this.$('.atm-foot'); this.keysL = this.$('.atm-keys-l'); this.keysR = this.$('.atm-keys-r'); this.clockEl = this.$('.atm-clock'); this.help = this.$('.atm-help');
     for (const side of [this.keysL, this.keysR]) for (let i = 0; i < 4; i++) { const b = document.createElement('div'); b.className = 'atm-fk'; b.dataset.k = (side === this.keysL ? 'L' : 'R') + i; side.appendChild(b); }
     if (hasCanvas()) { const lc = this.$('.atm-logo').getContext('2d'); drawLogo(lc, 2, 2, 60, { keyline: false }); }
@@ -45,7 +45,7 @@ export class ATMUI {
     this.room = room; this.atm = atm; this.site = room.site; this.W = g.interiors.walkIn; atm.player = true;
     const pose = room.atmPose(atm).local; const [wx, wz] = this.W.world(this.site, pose.x, pose.z); this.pose = { local: pose, world: { x: wx, z: wz, y: this.site.y0, yaw: this.site.yaw + pose.yaw } };
     this.prevCam = P.camMode; P.camMode = 0; this.prevControl = P.control; P.control = false; P.camOverride = true; this.place();
-    this.page = 'welcome'; this.sel = 0; this.entry = ''; this.result = null; this.msg = null; this.req = null; this.busyT = 0.95; this.after = 'menu';
+    this.page = 'welcome'; this.sel = 0; this.entry = ''; this.result = null; this.msg = null; this.req = null; this.busyT = 0.95; this.after = 'menu'; { const no = this.$('.atm-no'); if (no) no.textContent = `${CMB.branch} · ATM ${String((atm.i || 0) + 1).padStart(2, '0')}`; }
     this.open = true; this.root.classList.remove('hidden'); g.hud.root.classList.add('in-store'); g.hud.subs?.classList.add('in-store'); Input.releaseLock(); this.snapCam = true;
     P.ch.anim.play && P.ch.anim.play('interact', 0.6); BankSound.card(false); this.render();
     return true;
@@ -123,7 +123,7 @@ export class ATMUI {
   camera(dt) {
     const g = this.g, cam = g.camera, s = this.site, W = this.W, m = this.atm; if (!m) return; const y0 = s.y0;
     const [tx, tz] = W.world(s, m.stand[0] - 0.55, m.z); const tgt = this._t.set(tx, y0 + 1.3, tz);
-    const [cx, cz] = W.world(s, m.stand[0] + 0.62, m.z + 0.42); const want = this._v.set(cx, y0 + 1.72, cz);
+    const [cx, cz] = W.world(s, m.stand[0] + 1.0, m.z + 0.58); const want = this._v.set(cx, y0 + 1.84, cz); // far enough back that his head does not fill the view
     W.clampCam(s, tgt, want);
     if (this.snapCam) { this.camPos.copy(want); this.camTgt.copy(tgt); this.snapCam = false; }
     const k = 1 - Math.exp(-dt * 5); this.camPos.lerp(want, k); this.camTgt.lerp(tgt, k);

@@ -33,14 +33,14 @@ try {
       const inside = () => !!(P.indoor && P.indoor.site === site);
       if (s.room || s.atm) { if (!inside()) { const [sx, sz] = W.world(site, 0, 3.2); g.world.warm(sx, sz); P.teleport(sx, sz, site.door.faceIn); P.yaw = site.door.faceIn; P.camYaw = P.yaw + Math.PI; await g.stepSim(2, 0.05); for (let i = 0; i < 90 && !inside(); i++) await g.stepSim(1, 0.05, ['KeyW']); }
         for (let i = 0; i < 12; i++) await g.stepSim(1, 0.05, ['KeyW']); const [px, pz] = W.world(site, 5.6, -2.0); P.x = px; P.z = pz; await g.stepSim(40, 0.05); }
-      else { const [x, z] = [s.cam[0] + 2, s.cam[2]]; g.world.warm(x, z); P.teleport(-390.2, -121.5, Math.PI); await g.stepSim(30, 0.05); }
+      else if (s.cam) { const [x, z] = [s.cam[0] + 2, s.cam[2]]; g.world.warm(x, z); P.teleport(-390.2, -121.5, Math.PI); await g.stepSim(30, 0.05); }
       if (s.atm) { const r = site.room, m = r.atms[1]; for (const c of r.customers) if (c.on && c.atm === m.i) { c.on = false; c.ch.root.visible = false; c.atm = -1; } m.user = null; const [ax, az] = W.world(site, m.stand[0] + 0.05, m.stand[1]); P.x = ax; P.z = az; P.yaw = site.yaw - Math.PI / 2; await g.stepSim(3, 0.05);
         g.story.state.money = 18500; g.bank.account.balance = Math.max(g.bank.account.balance, 64250); g.atm.openAt(r, m); await g.stepSim(25, 0.05); const i = g.atm.opts.findIndex((o) => o.act === 'withdraw'); g.atm.sel = i; g.atm.choose(); await g.stepSim(2, 0.05); g.atm.sel = 2; g.atm.render(); }
-      if (s.map) { g.toggleMap(); await g.stepSim(2, 0.05); const V = g.hud.mapView; if (V) { V.anchor = null; V.vel = [0, 0]; if ('cx' in V) { V.cx = site.door.x; V.cz = site.door.z; } V.tZoom = 2.2; V.zoom = 2.2; } }
+      if (s.map) { g.toggleMap(); await g.stepSim(2, 0.05); const V = g.hud.mapView; if (V) { V.open(site.door.x, site.door.z); V.tZoom = 1.3; } }
       if (s.cam && !s.atm) { P.camOverride = true; let c = s.cam, l = s.look; if (s.room) { const [cx, cz] = W.world(site, c[0], c[2]); const [lx, lz] = W.world(site, l[0], l[2]); c = [cx, site.y0 + c[1], cz]; l = [lx, site.y0 + l[1], lz]; } g.camera.position.set(...c); g.camera.lookAt(...l); g.camera.fov = 58; g.camera.updateProjectionMatrix(); g.camera.updateMatrixWorld(); }
       g.hud.show(!s.cam || s.atm || s.map); g.noRender = false;
       return { inside: inside(), night: +g.atmos.night.toFixed(2), cust: site.room ? site.room.customers.filter((c) => c.on).length : 0, page: g.atm.page }; }, s);
-    await new Promise((r) => setTimeout(r, s.map ? 4000 : 9000));
+    await new Promise((r) => setTimeout(r, s.map ? 12000 : 9000));
     if (s.cam && !s.atm) await page.evaluate((s) => { const g = window.__game, W = g.interiors.walkIn, site = W.siteById('bank'); let c = s.cam, l = s.look; if (s.room) { const [cx, cz] = W.world(site, c[0], c[2]); const [lx, lz] = W.world(site, l[0], l[2]); c = [cx, site.y0 + c[1], cz]; l = [lx, site.y0 + l[1], lz]; } g.camera.position.set(...c); g.camera.lookAt(...l); g.camera.updateMatrixWorld(); }, s);
     await new Promise((r) => setTimeout(r, 2500));
     await page.screenshot({ path: `${OUT}/${s.name}.png` }); console.log('shot', s.name, JSON.stringify(info), ((Date.now() - t0) / 1000).toFixed(0) + 's');
