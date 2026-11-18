@@ -212,6 +212,58 @@ try {
     ok(r.replaced && r.replaceUndo, 'replace a texture everywhere it is used, undo');
     ok(r.sanitized, 'manifest round trip keeps created materials, "use", object sizes and the new settings'); ok(!r.errs.length, 'no apply errors ' + JSON.stringify(r.errs)); });
 
+  await stage(p, '62nd', async () => {
+    // pavements: no brick pavers / modelled bricks any more; clicking a footpath edits the pavement type itself; the joint grass
+    // is the shared MAT.paveGrass (replaceable); Save to game writes texture-pack/ (dev server) or a picked folder (OPFS stand-in)
+    const g = window.__game, ed = globalThis.__editors.textures, RT = window.__texRuntime; const T3 = window.__THREE; const out = {}; const { MAT } = await import('/src/gfx/Materials.js'); const { TEX } = await import('/src/gfx/Textures.js');
+    out.texOld = !!(TEX.pavers || TEX.paversGrey); out.texNew = !!(TEX.pave1 && TEX.pave2 && TEX.jointGrass && TEX.n_pave1 && TEX.n_pave2); out.maps = MAT.walk.map === TEX.pave1 && MAT.walkGrey.map === TEX.pave2 && MAT.paveGrass.map === TEX.jointGrass;
+    out.labels = [MAT.walk.name, MAT.walkGrey.name, MAT.paveGrass.name];
+    const gd = window.__groundDetail; gd.setQuality('medium'); // the test runs on 'low' (ground detail off there)
+    // a footpath point: straight down onto the pavement material, in the middle of a slab (x, z = k·0.5 + 0.25)
+    const rc = new T3.Raycaster(); const objs = []; g.scene.traverse((o) => { if (o.isMesh && !o.isInstancedMesh && !o.isSkinnedMesh && o.visible) objs.push(o); });
+    const P = g.player; let spot = null; g.world.warm(P.x, P.z);
+    for (let r = 2; r < 60 && !spot; r += 1) for (let a = 0; a < 24 && !spot; a++) { const x = Math.round((P.x + Math.cos(a / 24 * 6.283) * r - 0.25) * 2) / 2 + 0.25, z = Math.round((P.z + Math.sin(a / 24 * 6.283) * r - 0.25) * 2) / 2 + 0.25;
+      rc.set(new T3.Vector3(x, 40, z), new T3.Vector3(0, -1, 0)); const hs = []; for (const o of objs) { try { o.raycast(rc, hs); } catch { /* odd geometry (null index) */ } } hs.sort((q, w) => q.distance - w.distance); const h = hs[0]; if (!h) continue; const m = [].concat(h.object.material)[h.face && Array.isArray(h.object.material) ? h.face.materialIndex : 0]; if (m === MAT.walk || m === MAT.walkGrey) spot = { x, z, y: h.point.y, grey: m === MAT.walkGrey }; }
+    out.spot = spot; if (!spot) return out;
+    await window.__aimPick(ed, [spot.x + 0.01, spot.y + 1.6, spot.z + 2.2], [spot.x, spot.y, spot.z]);
+    for (let i = 0; i < 40; i++) gd.update(ed.cam); // build the detail tiles around the studio camera
+    await window.__aimPick(ed, [spot.x + 0.01, spot.y + 1.6, spot.z + 2.2], [spot.x, spot.y, spot.z]);
+    const want = spot.grey ? 'mat:walkGrey' : 'mat:walk'; out.key = ed.key; out.hit0 = ed.hits[0] && (ed.hits[0].obj.isInstancedMesh ? 'instanced:' + [].concat(ed.hits[0].obj.material)[0].name : 'mesh'); out.stats = gd.stats();
+    out.bricks = gd.group.children.filter((m) => m.geometry && m.geometry.attributes.position && m.geometry.attributes.position.count === 70).length; // the old brick solid had 70 vertices
+    const imp = await RT.importFile(await window.__mkPng(512, 512, 62), { category: 'Pavement', name: 'test-slabs' }); if (ed.key === want) await ed.assign(imp.hash, 'map');
+    const pm = MAT[want.slice(4)]; out.paveApplied = /^texstudio:/.test(pm.map && pm.map.name || '') && pm.map.image.width === 512;
+    // joint grass: an instanced clump near the camera, picked (or selected from its mesh), edited as mat:paveGrass
+    const gm = gd.group.children.find((m) => m.isInstancedMesh && m.material === MAT.paveGrass && m.count > 0); out.grassMeshes = gd.group.children.filter((m) => m.material === MAT.paveGrass).length; out.grassN = gm ? gm.count : 0;
+    if (gm) { const M4 = new T3.Matrix4(); gm.getMatrixAt(0, M4); const c = new T3.Vector3().setFromMatrixPosition(M4); out.grassY = +(c.y - spot.y).toFixed(4);
+      await window.__aimPick(ed, [c.x + 0.25, c.y + 0.3, c.z + 0.25], [c.x, c.y + 0.02, c.z]); out.grassPicked = ed.key === 'mat:paveGrass';
+      if (!out.grassPicked) ed.select({ obj: gm, inst: 0, batch: null, idx: 0, point: c, dist: 0.4 });
+      out.grassKey = ed.key; const gi = await RT.importFile(await window.__mkPng(64, 128, 63), { category: 'Vegetation', name: 'test-grass' }); if (ed.key === 'mat:paveGrass') await ed.assign(gi.hash, 'map');
+      out.grassApplied = /^texstudio:/.test(MAT.paveGrass.map && MAT.paveGrass.map.name || '') && gm.material === MAT.paveGrass; }
+    g.noRender = false; g.renderer.render(g.scene, ed.cam); g.noRender = true; const gl = g.renderer.getContext(); out.glErr = gl.getError();
+    out.progErr = (g.renderer.info.programs || []).filter((pr) => pr.diagnostics && !pr.diagnostics.runnable).length;
+    // SAVE TO GAME — dev server: texture-pack/ on disk, read back
+    const sv = await ed.saveToGame(); out.save = sv && { where: sv.where, rules: sv.rules, textures: sv.textures, missing: sv.missing.length }; out.sum = RT.buildSummary().rules;
+    const st = await (await fetch('/__colombo/textures', { cache: 'no-cache' })).json(); out.disk = ['mat:walk', 'mat:walkGrey', 'mat:paveGrass'].filter((k) => st.manifest.rules[k]); out.statusTxt = (ed.statusEl && ed.statusEl.textContent || '').slice(0, 160);
+    out.button = [...document.querySelectorAll('.ed-win button')].some((b) => /💾 Save/.test(b.textContent));
+    // SAVE TO GAME — no dev server: a picked folder (the origin-private file system stands in for showDirectoryPicker's handle)
+    try { const root = await navigator.storage.getDirectory(); try { await root.removeEntry('texture-pack', { recursive: true }); } catch { /* none */ } const d = await root.getDirectoryHandle('texture-pack', { create: true });
+      const w1 = await RT.writePackTo(d); const w2 = await RT.writePackTo(d); const names = []; for await (const [n] of d.entries()) names.push(n); const mf = JSON.parse(await (await (await d.getFileHandle('manifest.json')).getFile()).text());
+      const bk = []; for await (const [n] of (await d.getDirectoryHandle('backups')).entries()) bk.push(n);
+      out.dir = { w1: w1.wrote, missing: w1.missing.length, w2: w2.wrote, kept: w2.kept, files: names.filter((n) => /^[0-9a-f]+\./.test(n)).length, rules: Object.keys(mf.rules).length, backups: bk.length, lib: Object.keys(RT.S.manifest.textures).length };
+      await root.removeEntry('texture-pack', { recursive: true }); } catch (e) { out.dir = { err: e.message }; }
+    window.__T.p62 = { want, pave: imp.hash, grass: out.grassApplied };
+    return out;
+  }, (r) => { ok(!r.texOld && r.texNew && r.maps, '62nd: brick paver textures gone; 2 slab pavement textures (+ normal maps) and the joint-grass texture on their materials');
+    ok(/type 1/.test(r.labels[0]) && /type 2/.test(r.labels[1]) && /grass/i.test(r.labels[2]), `62nd: pavement materials named for the Studio (${r.labels.join(' | ')})`);
+    ok(!!r.spot, '62nd: a footpath found by the probe'); if (!r.spot) return;
+    ok(r.bricks === 0 && !('walk' in (r.stats || {})) && !('walkGrey' in (r.stats || {})), `62nd: no modelled bricks in the ground detail (${JSON.stringify(r.stats)})`);
+    ok(r.key === (r.spot.grey ? 'mat:walkGrey' : 'mat:walk') && r.hit0 === 'mesh', `62nd: clicking the footpath edits the pavement type itself (${r.key}, first hit ${r.hit0})`); ok(r.paveApplied, '62nd: pavement texture replaced');
+    ok(r.grassMeshes >= 1 && r.grassN > 0 && r.grassY >= 0 && r.grassY < 0.01, `62nd: joint grass instanced on the footpath (${r.grassMeshes} mesh(es), ${r.grassN} clumps in one, root ${r.grassY} m above the slab)`);
+    ok(r.grassKey === 'mat:paveGrass' && r.grassApplied, `62nd: joint grass is the shared, replaceable MAT.paveGrass (${r.grassPicked ? 'clicked in the world' : 'selected from its mesh'}), texture replaced`);
+    ok(r.glErr === 0 && r.progErr === 0, `62nd: renders with the replaced pavement + grass (GL error ${r.glErr}, broken programs ${r.progErr})`);
+    ok(r.save && r.save.where === 'folder' && r.save.rules === r.sum && r.save.missing === 0 && r.disk.length >= 2 && r.button, `62nd: 💾 Save → texture-pack/ (${JSON.stringify(r.save)}; on disk: ${r.disk.join(', ')})`);
+    ok(r.dir && !r.dir.err && r.dir.w1 === r.dir.lib && r.dir.missing === 0 && r.dir.w2 === 0 && r.dir.kept === r.dir.lib && r.dir.files === r.dir.lib && r.dir.rules >= 2 && r.dir.backups === 1, `62nd: Save into a picked folder (no dev server): manifest + every texture, backup on re-save (${JSON.stringify(r.dir)})`); });
+
   await stage(p, 'library+pack', async () => {
     const ed = globalThis.__editors.textures, RT = window.__texRuntime; const out = {}; const { writeZip, readZip } = await import('/src/debug/TexPack.js');
     out.lib = Object.keys(RT.S.manifest.textures).length; out.assigned = RT.assignments(window.__T.building.hash).length; ed.libQ = 'test-2'; ed.renderRight(); out.tiles = ed.right.body.querySelectorAll('.ts-tile').length; ed.libQ = ''; ed.renderRight();
@@ -241,6 +293,13 @@ try {
     const um = out.rules[U.uk]; const need = Object.values((um && um.slots) || {}).map((sr) => sr.tex).filter(Boolean);
     ok(!!um && out.rules['mat:lampPole'] && out.rules['mat:lampPole'].use === U.uk && out.rules[U.xk] && out.rules[U.xk].scale[0] === 1.5 && need.length >= 5 && need.every((hh) => out.textures[hh] && !out.textures[hh].thumb),
       `production pack keeps the created material (${need.length} maps), its users and the object size`); }
+  { // 62nd: build-exe.bat's tools/texture-pack-prep.mjs — a Studio pack .zip dropped into texture-pack/ is unpacked and counted
+    const { prep } = await import('./texture-pack-prep.mjs'); const os = await import('node:os'); const path = await import('node:path'); const { writeZip } = await import('../src/debug/TexPack.js');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tpk-')); const disk = JSON.parse(fs.readFileSync(PACK + 'manifest.json', 'utf8')); const files = [{ name: 'manifest.json', data: new TextEncoder().encode(JSON.stringify(disk)) }];
+    for (const [hh, t] of Object.entries(disk.textures)) files.push({ name: 'textures/' + hh + '.' + t.ext, data: new Uint8Array(fs.readFileSync(PACK + hh + '.' + t.ext)) });
+    fs.writeFileSync(path.join(tmp, 'colombo-texture-pack.zip'), Buffer.from(await writeZip(files).arrayBuffer())); const r = prep(tmp); const want = buildManifest(disk);
+    ok(r.unpacked && r.rules === Object.keys(want.rules).length && r.textures === Object.keys(want.textures).length && !r.missing.length && fs.existsSync(path.join(tmp, 'manifest.json')), `62nd: build-exe.bat pack prep unpacks a dropped pack zip (${r.rules} rules, ${r.textures} textures, ${r.missing.length} missing)`);
+    const r2 = prep(tmp); ok(!r2.unpacked && r2.rules === r.rules, '62nd: pack prep leaves an already-unpacked folder alone'); fs.rmSync(tmp, { recursive: true, force: true }); }
   // ---------------------------------------------------------------------------- restart
   const p2 = await b.newPage(); p2.on('pageerror', (e) => errs.push(String(e.stack || e).split('\n').slice(0, 3).join(' | ')));
   await p2.evaluateOnNewDocument(() => { localStorage.setItem('colombo.settings.v1', JSON.stringify({ quality: 'low', showFps: false })); }); await p2.evaluateOnNewDocument(HELPERS);
@@ -258,10 +317,11 @@ try {
     out.u61 = /^texstudio:/.test(lp.map?.name || '') && !!lp.bumpMap && !!lp.displacementMap && lp.color.getHexString() === 'ff8800' && Math.abs(lp.map.repeat.x - U.lpRep) < 1e-6 && Math.abs(lp.displacementScale - 0.03) < 1e-6 && !!om && !!om.bumpMap && om.color.getHexString() === 'ff8800';
     const xs = RT.xfState(U.xk); out.xf = !!xs && Math.abs(xs.obj.scale.x - U.s0[0] * 1.5) < 1e-6;
     if (T.pool) { const ps = RT.xfState(T.pool.k); const T3 = window.__THREE; if (ps && ps.part) { const m = new T3.Matrix4().fromArray(ps.part.mat, ps.local * 16); const sc = new T3.Vector3(); m.decompose(new T3.Vector3(), new T3.Quaternion(), sc); out.pool = Math.abs(sc.x - T.pool.sx * 2) < 1e-4; } else out.pool = 'no state'; }
+    if (T.p62) { out.p62 = /^texstudio:/.test(MAT[T.p62.want.slice(4)].map?.name || '') && (!T.p62.grass || /^texstudio:/.test(MAT.paveGrass.map?.name || '')); }
     out.rules = Object.keys(RT.S.manifest.rules).length; out.errors = [...RT.S.errors.entries()];
     return out;
   }, (r) => { ok(r.runtime, 'after a restart the texture runtime loads by itself (texture-pack/manifest.json has rules)'); ok(r.building, 'building facade replacement back after restart (texture, 512 px, tiling, roughness)'); ok(r.road, 'road base colour + normal map back after restart');
-    ok(r.vehicle, 'vehicle: a car of that type spawned after the restart gets the paint texture + metalness' + (r.spawnErr ? ' (' + r.spawnErr + ')' : '')); ok(r.prop, 'unique prop copy recreated on the same object after restart'); ok(r.u61, '61st: created material (texture set, colour, bump) on the lamp poles and the prop, the lamp poles\' displacement + linked texture size — all back after restart'); ok(r.xf, '61st: the prop\'s object size (×1.5) back after restart'); ok(r.pool === true, '61st: the street prop\'s size (×2) back after restart (' + r.pool + ')'); ok(!r.errors.length, 'no apply errors ' + JSON.stringify(r.errors)); }, T);
+    ok(r.vehicle, 'vehicle: a car of that type spawned after the restart gets the paint texture + metalness' + (r.spawnErr ? ' (' + r.spawnErr + ')' : '')); ok(r.prop, 'unique prop copy recreated on the same object after restart'); ok(r.u61, '61st: created material (texture set, colour, bump) on the lamp poles and the prop, the lamp poles\' displacement + linked texture size — all back after restart'); ok(r.xf, '61st: the prop\'s object size (×1.5) back after restart'); ok(r.pool === true, '61st: the street prop\'s size (×2) back after restart (' + r.pool + ')'); ok(r.p62 === true, '62nd: the pavement and joint-grass replacements back after restart'); ok(!r.errors.length, 'no apply errors ' + JSON.stringify(r.errors)); }, T);
 
   await stage(p2, 'reopen + clean', async () => {
     const g = window.__game; const { openTextureStudio } = await import('/src/debug/boot.js'); const ed = await openTextureStudio(g); const RT = window.__texRuntime; const out = {};

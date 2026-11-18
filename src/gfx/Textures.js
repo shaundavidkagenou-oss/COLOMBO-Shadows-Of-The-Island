@@ -129,7 +129,7 @@ function paveSlabs(size, type, seed) {
   const c = canvas(size, size), ctx = c.getContext('2d'), img = ctx.createImageData(size, size), d = img.data;
   const hc = heightCanvas(size, size, 0), hx = hc.getContext('2d'), himg = hx.getImageData(0, 0, size, size), hd = himg.data;
   const rng = new RNG(seed);
-  const tones = type === 1 ? [[143, 137, 127], [134, 129, 120], [149, 143, 132], [127, 122, 114], [140, 133, 122], [136, 131, 124]] : [[121, 119, 115], [114, 112, 108], [127, 125, 120], [108, 106, 102], [118, 115, 110]]; // weathered, not new
+  const tones = type === 1 ? [[124, 119, 110], [116, 111, 103], [130, 124, 114], [110, 105, 98], [121, 115, 105], [118, 113, 106]] : [[104, 102, 98], [97, 95, 92], [110, 108, 103], [92, 90, 87], [101, 98, 94]]; // weathered, not new
   const slabs = []; for (let r = 0; r < nRow; r++) for (let k = 0; k < nCol; k++) { const t = rng.pick(tones), tint = rng.range(0.93, 1.06);
     slabs.push({ t: t.map((v) => v * tint), settle: rng.range(-1, 1), chip: [0, 1, 2, 3].map(() => (rng.next() < 0.16 ? rng.range(3, 9) : 0)), dirt: rng.range(0, 1) }); }
   const JW = 1.55; // half the joint, px (≈ 1.2 cm joint)
@@ -166,7 +166,7 @@ function paveSlabs(size, type, seed) {
 // fresh and dark greens, olive, sun-yellowed and dry; dark at the root, lighter towards the tip, fine vein streaks.
 function jointGrassTex() {
   const W = 64, H = 128, c = canvas(W, H), ctx = c.getContext('2d'), img = ctx.createImageData(W, H), d = img.data;
-  const cols = [[82, 124, 40], [96, 140, 46], [68, 106, 34], [112, 126, 52], [104, 146, 56], [140, 138, 66], [60, 96, 32], [156, 146, 94]];
+  const cols = [[104, 152, 50], [118, 168, 58], [88, 132, 42], [134, 150, 64], [126, 174, 68], [164, 160, 80], [78, 120, 40], [178, 166, 108]];
   for (let y = 0; y < H; y++) { const v = 1 - y / (H - 1); // canvas bottom = blade root (v = 0)
     for (let x = 0; x < W; x++) { const b = cols[Math.floor(x / 8)], q = x % 8; const vein = 0.94 + 0.12 * hash2(x, 0, 41) - (q === 3 || q === 4 ? 0.06 : 0);
       const k = (0.58 + 0.56 * Math.pow(v, 0.8)) * vein * (0.96 + 0.08 * hash2(x, y, 43)); const dry = Math.max(0, (v - 0.82) / 0.18) * (b[0] > 120 ? 0.6 : 0.25);

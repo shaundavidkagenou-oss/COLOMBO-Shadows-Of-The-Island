@@ -224,7 +224,7 @@ export class GroundDetail {
         for (const [ex, ez] of [[ax, az], [bx, bz]]) { const ix = ex + (mx - ex) * 0.1, iz = ez + (mz - ez) * 0.1; if (!walkAt(walks, ix, iz)) return; }
         for (const sg of kerbs) if (segDist(mx, mz, sg) < 0.3) return;
         const n = h < pr * 0.35 ? 2 : 1; for (let q = 0; q < n; q++) { const r1 = hash2(Math.round(mx * 4), Math.round(mz * 4), 11 + q), r2 = hash2(Math.round(mx * 4), Math.round(mz * 4), 13 + q);
-          const t = 0.18 + 0.64 * r1; const k = 0.65 + 0.6 * r2; q2.setFromEuler(E.set(0, (along ? 0 : Math.PI / 2) + (r2 < 0.5 ? Math.PI : 0), 0)); p.set(ax + (bx - ax) * t, LY + 0.0004, az + (bz - az) * t); sc.set(k, k * (0.8 + 0.45 * r1), k); M.compose(p, q2, sc); G.push(...M.elements); } };
+          const t = 0.18 + 0.64 * r1; const k = 0.8 + 0.6 * r2; q2.setFromEuler(E.set(0, (along ? 0 : Math.PI / 2) + (r2 < 0.5 ? Math.PI : 0), 0)); p.set(ax + (bx - ax) * t, LY + 0.0004, az + (bz - az) * t); sc.set(k, k * (0.8 + 0.45 * r1), k); M.compose(p, q2, sc); G.push(...M.elements); } };
       const q2 = new THREE.Quaternion();
       for (let r = Math.ceil(z0 / J - 1e-6); r * J < z1; r++) for (let c = Math.floor(x0 / J); c * J < x1; c++) tryJoint(c * J, r * J, (c + 1) * J, r * J, true); // joints along x (row edges)
       for (let c = Math.ceil(x0 / J - 1e-6); c * J < x1; c++) for (let r = Math.floor(z0 / J); r * J < z1; r++) tryJoint(c * J, r * J, c * J, (r + 1) * J, false); // joints along z
