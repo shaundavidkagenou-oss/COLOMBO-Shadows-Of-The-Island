@@ -157,7 +157,7 @@ try {
 
   await stage(p, 'landmark site', async () => {
     const g = window.__game, ed = globalThis.__editors.textures, RT = window.__texRuntime, T3 = window.__THREE; const out = {}; const M = await import('/src/gfx/Materials.js');
-    const lm = g.scene.getObjectByName('landmarks'); const count = () => { let n = 0; lm.traverse((o) => { if (o.isMesh && o.visible) n++; }); return n; }; out.meshes0 = count();
+    const lm = g.scene.getObjectByName('landmarks'); const count = () => { let n = 0; lm.traverse((o) => { if (o.isMesh && !(o.userData.segs && !o.userData.segs.length && !o.visible)) n++; }); return n; }; // 61st: structural draws (landmark LOD / streaming toggles visibility while the edit loads — it read +2 once) out.meshes0 = count();
     // a merged landmark mesh (one per material for every site) and one site's part of it
     const live = []; lm.traverse((o) => { if (o.isMesh && o.userData.segs && new Set(o.userData.segs.map((x) => x[0])).size > 2) live.push(o); });
     out.live = live.length; let found = null;
