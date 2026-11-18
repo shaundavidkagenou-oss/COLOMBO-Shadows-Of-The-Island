@@ -4,6 +4,7 @@
 // Static, merged geometry; one canvas atlas for the street names and one for the billboards.
 import * as THREE from 'three';
 import { cellBatch } from '../gfx/CellBatch.js';
+import { CULL } from '../gfx/BatchCull.js';
 import * as L from './Layout.js';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
@@ -176,7 +177,10 @@ export function buildCityStreets(plan) {
     for (const a of [-W * 0.33, 0, W * 0.33]) { const p = P(a, y - H / 2 - 0.05, 0.75); lamp.box(p[0], p[1], p[2], 0.42, 0.12, 0.2, { rotY: rot, bottom: true }); } // flood lamps
   }
   if (picked.length) { const m = new THREE.Mesh(bb.build(), bmat); m.name = 'billboards'; m.castShadow = true; group.add(m); }
-  for (const m of SMB.toMeshes(MAT)) { m.name = 'street-dressing-' + m.name; group.add(cellBatch(m, 50)); } // in 50 m cells: culled per cell (CellBatch), still one draw per material
+  // in 32 m cells (the occlusion grid): culled per cell (CellBatch) — frustum, occlusion behind buildings and, for the small
+  // pieces, draw distance (65th, BatchCull LOD.tiny / LOD.small) — still one draw per material
+  const KIND = { drainGrate: 'tiny', manholeCover: 'small', litterBin: 'small', signPostBand: 'small' };
+  for (const m of SMB.toMeshes(MAT)) { const k = KIND[m.name] || 'cell'; m.name = 'street-dressing-' + m.name; group.add(cellBatch(m, 32, { kind: k, occ: CULL.occ })); }
   group.updateMatrixWorld(true);
   return { group, colliders, boards, signs: signs.map(([x, z, rot, nm, y]) => ({ x, z, y, rot, name: nm.split('|')[0] })), update: (night) => { bmat.emissiveIntensity = 0.04 + night * 0.85; } };
 }

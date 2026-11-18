@@ -199,7 +199,7 @@ export class WaterReflection {
     if (this.valid && this.halfRate && (this.frame & 1) && this.lastBest === best) return fade(want); // keep last frame's reflection
     const size = renderer.getSize(this._v); const w = Math.min(1280, Math.round(size.x * this.scale)), h = Math.round(w * size.y / size.x);
     if (this.rt.width !== w || this.rt.height !== h) this.rt.setSize(w, h);
-    const H = best.h, cam = this.cam; cam.copy(camera, false);
+    const H = best.h, cam = this.cam; cam.copy(camera, false); cam.layers.enable(30); // 65th: the mirror also sees what the main camera has occlusion-hidden (BatchCull.HIDE_LAYER)
     // mirror the camera across y = H
     cam.position.set(cp.x, 2 * H - cp.y, cp.z); cam.quaternion.identity();
     const fwd = this._v.set(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(this._wq)); const tgt = new THREE.Vector3(cp.x + fwd.x, 2 * H - (cp.y + fwd.y), cp.z + fwd.z);

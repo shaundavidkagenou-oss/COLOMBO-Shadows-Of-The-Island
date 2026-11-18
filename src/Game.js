@@ -87,6 +87,9 @@ import { SQUAD_DEFS } from './actors/Squad.js';
 import { Boats } from './boats/Boats.js';
 import { MARINA } from './boats/Marina.js';
 import { ClubSound } from './audio/ClubSound.js';
+import { CULL, beginHide, endHide, seeHidden } from './gfx/BatchCull.js';
+import { OCC_CFG } from './gfx/Occlusion.js';
+import { LIVE as BODIES } from './actors/Bodies.js';
 
 const VNAMES = { tuktuk: 'Three-wheeler', car: 'Hatchback', sedan: 'Sedan', taxi: 'Taxi', van: 'Van', suv: 'SUV', bus: 'SLTB bus', pbus: 'Private bus', lorry: 'Lorry', tow: 'Tow truck', bike: 'Motorcycle', dbike: "Dineth's Bike", police: 'Police car', policejeep: 'Police jeep', policebike: 'Police motorcycle' };
 for (const [id, T] of Object.entries(CATALOG)) VNAMES[id] = displayName(id, T); // fictional make + model, e.g. "HOSHIDA Kaizan"
@@ -433,6 +436,42 @@ export class Game {
   }
   // one frame of simulation + drawing with a given timestep: the rAF loop above, and the trailer's MP4 export
   // (tools/trailer-export: fixed 1/fps steps, every frame captured) which drives it directly while the loop idles (noRender)
+  // 65th — occlusion culling + LOD, once per frame before the matrix pass. The horizon (OcclusionCuller) is rebuilt from where the
+  // camera will be, a little CPU time per frame (OCC_CFG.budgetMs); it is used only while the camera is inside its validity
+  // sphere (otherwise nothing is occlusion-culled that frame). Indoors (rooms, interiors, the seam into them) it is off.
+  cullStep(dt) {
+    const cam = this.camera, W = this.world; CULL.camera = cam; CULL.eye.copy(cam.position); CULL.occOn = false;
+    if (this.atmos) { CULL.sunCamera = this.atmos.sun.shadow.camera; CULL.farCamera = this.atmos.sunFar.shadow.camera; }
+    const occ = W && W.occ;
+    if (occ) {
+      const lp = this._cullLast || (this._cullLast = cam.position.clone()), v = this._cullVel || (this._cullVel = new THREE.Vector3()), t = this._cullTmp || (this._cullTmp = new THREE.Vector3());
+      const jump = lp.distanceTo(cam.position); if (jump > 25 || !(dt > 0)) v.set(0, 0, 0); else { t.subVectors(cam.position, lp).divideScalar(Math.max(dt, 1 / 240)); v.lerp(t, 0.35); }
+      lp.copy(cam.position);
+      const inside = !!this.indoor || (this.seamK || 0) > 0.01;
+      if (OCC_CFG.enabled && !inside && this.occlusion !== false) { occ.update(cam, dt, v); CULL.occOn = occ.validAt(cam.position); } else occ.invalidate();
+    }
+    if (W && W.cullProps) W.cullProps(cam.position, this.atmos ? this.atmos.sun.target.position : cam.position, this.atmos ? this.atmos.sunDir.y : 0.7);
+    // every shadow-casting light (and the water mirror, Water.js) still sees what is hidden from the main camera
+    if (!this._shadowCams || (this._shadowCamT = (this._shadowCamT || 0) + dt) > 2) { this._shadowCamT = 0; const L = (this._shadowCams = []); this.scene.traverse((o) => { if (o.isLight && o.shadow && o.shadow.camera) L.push(o.shadow.camera); }); }
+    for (const c of this._shadowCams) seeHidden(c);
+  }
+  // people, vehicles and landmark / site groups standing wholly behind buildings: off the main camera's layer for its render
+  // only (BatchCull.beginHide / endHide) — shadows, the mirror, game logic and raycasts are unaffected
+  hideOccluded() {
+    if (!CULL.occOn || !this.world || !this.world.occ) return 0;
+    const L = this._hideL || (this._hideL = []); let n = 0; const item = () => L[n] || (L[n] = { obj: null, box: [0, 0, 0, 0, 0] });
+    const W = this.world, col = W.collision, me = this.player && this.player.ch, myCar = this.player && this.player.vehicle;
+    const inBuilding = (x, z) => { for (const c of col.query(x, z, x, z)) if (c.kind === 'building' && x >= c.x0 && x <= c.x1 && z >= c.z0 && z <= c.z1) return true; return false; };
+    for (const ch of BODIES) { const r = ch.root; if (!r || !r.parent || ch === me || !r.visible) continue; const e = r.matrixWorld.elements, x = e[12], y = e[13], z = e[14];
+      if (inBuilding(x, z)) continue; // inside a shop / house: may be seen through its door or windows
+      const it = item(); it.obj = r; const b = it.box; b[0] = x - 0.8; b[1] = x + 0.8; b[2] = z - 0.8; b[3] = z + 0.8; b[4] = y + 2.3; n++; }
+    for (const v of LIVE_VEHICLES) { if (!v || !v.mesh || v === myCar || !v.mesh.parent) continue; const e = v.mesh.matrixWorld.elements, x = e[12], y = e[13], z = e[14], h = (v.half || 2.5) + 0.8;
+      const it = item(); it.obj = v.mesh; const b = it.box; b[0] = x - h; b[1] = x + h; b[2] = z - h; b[3] = z + h; b[4] = y + 4.5; n++; }
+    if (!this._siteBoxes) { // landmark / site groups (static): world boxes once
+      const S = (this._siteBoxes = []); const bx = new THREE.Box3();
+      for (const g of [W.landmarks && W.landmarks.group, W.fuel && W.fuel.group, W.customs && W.customs.group]) if (g) { g.updateMatrixWorld(true); for (const c of g.children) { if (c.isLight) continue; bx.setFromObject(c); if (bx.isEmpty() || bx.max.x - bx.min.x > 260 || bx.max.z - bx.min.z > 260) continue; S.push({ obj: c, box: [bx.min.x, bx.max.x, bx.min.z, bx.max.z, bx.max.y + 0.5] }); } } }
+    return beginHide(L, n) + beginHide(this._siteBoxes);
+  }
   frameStep(dt) {
     try {
       const mapOpen = this.mode === 'play' && this.hud.bigMapOpen; // the pause map freezes the world (and the hidden 3D view is not drawn)
@@ -445,8 +484,9 @@ export class Game {
       updateLightSets(dt); if (this.post && this.mode === 'play') maintainWarm(this.renderer, this.camera, this.scene, this.post.composer ? this.post.composer.renderTarget1 : null, dt); /* FPS: night-only light pools leave the shaders while dark (identical image); the other state stays compiled */ CAM.copy(this.camera.position); updateVehicleLOD(this.camera); if (this.headRig && this.atmos) this.headRig.update(this.camera, this.player && this.player.vehicle, this.atmos.night, this.indoor ? 1 : (this.seamK || 0));
       if (this.post && !mapOpen) {
         /* FPS (src/gfx/ViewSkip.js): one matrix pass per frame, skipping unseen people/vehicles on their off-frames; the reflection and main renders reuse it */
+        this.cullStep(dt); /* 65th: occlusion horizon, per-instance culling / LOD state, prop instance order (src/gfx/BatchCull.js, Occlusion.js) */
         refreshView(this.camera, this.atmos && this.atmos.sun, this.atmos ? this.atmos.night : 0); holdVehicles(LIVE_VEHICLES, this.player && this.player.vehicle); updateSceneMatrices(this.scene);
-        withMatricesDone(this.scene, () => { if (this.world && this.world.waterRefl) { const q = Settings.get('quality'); this.world.waterRefl.scale = q === 'ultra' ? 0.6 : 0.45; this.world.waterRefl.halfRate = q !== 'ultra'; this.world.waterRefl.update(this.renderer, this.scene, this.camera, (q === 'high' || q === 'ultra') && !this.indoor); } this.post.indoor = !!this.indoor || (this.seamK || 0) > 0.01 || this.mode !== 'play'; this.post.inside = !!this.indoor || (this.seamK || 0) > 0.5; /* cinematic pass: neutral grade + no sun effects only inside a room */ this.post.update(this.atmos); this.post.render(dt); });
+        withMatricesDone(this.scene, () => { if (this.world && this.world.waterRefl) { const q = Settings.get('quality'); this.world.waterRefl.scale = q === 'ultra' ? 0.6 : 0.45; this.world.waterRefl.halfRate = q !== 'ultra'; this.world.waterRefl.update(this.renderer, this.scene, this.camera, (q === 'high' || q === 'ultra') && !this.indoor); } this.post.indoor = !!this.indoor || (this.seamK || 0) > 0.01 || this.mode !== 'play'; this.post.inside = !!this.indoor || (this.seamK || 0) > 0.5; /* cinematic pass: neutral grade + no sun effects only inside a room */ this.post.update(this.atmos); this.hideOccluded(); try { this.post.render(dt); } finally { endHide(); } });
       }
     } catch (e) { if (!this._errN || this._errN < 5) console.error(e && e.stack || e); this._errN = (this._errN || 0) + 1; this.lastError = e; }
   }

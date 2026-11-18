@@ -3,7 +3,9 @@ import * as THREE from 'three';
 import { nightLight } from '../gfx/LightSets.js';
 import { MultiBuilder, SliceBuild, meshFor, matFor, FOLIAGE } from '../gfx/MeshBuilder.js';
 import { MAT, ROLE_DEFS } from '../gfx/Materials.js';
-import { RangeBatch, rangesFor, disposeMesh } from '../gfx/CellBatch.js';
+import { RangeBatch, rangesFor, disposeMesh, splitCells, cellsOfBox } from '../gfx/CellBatch.js';
+import { installCull, CULL, CSLOTS, LOD, setLodQuality } from '../gfx/BatchCull.js';
+import { OcclusionCuller } from '../gfx/Occlusion.js';
 import { GroundDetail, regTrees } from './GroundDetail.js';
 import { generatePlan, plan, NCX, NCZ, CHUNK, chunkCenter, refitTreeCrowns, landmarkTreeBoxes } from './CityPlan.js';
 import { buildGround } from './GroundBuilder.js';
@@ -33,6 +35,16 @@ import * as L from './Layout.js';
 import { RNG } from '../core/rng.js';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
+// 65th: ground parts drawn only near the camera (BatchCull LOD.tiny / LOD.small): drain-grate bars + road studs (centimetre
+// detail, sub-pixel beyond ~50 m), manhole covers / collars and kerb-drain sumps (small dark discs and slots)
+const GROUND_TINY = new Set(['drainGrate', 'roadStud']), GROUND_SMALL = new Set(['manholeCover', 'manholeCollar', 'drainSump']);
+// a chunk's building shells + compound walls, with per-building range marks (each builder's vertex / index count before every
+// building, before the walls and at the end): batchStatic cuts the merged meshes back into one piece per building
+function buildBaseMarked(ch) {
+  const mb = new MultiBuilder(); const marks = []; const mark = () => marks.push(new Map([...mb.b].map(([n, b]) => [n, [b.pos.length / 3, b.idx.length]])));
+  for (const b of ch.buildings) { mark(); buildBase(b, mb); } mark(); for (const w of ch.walls || []) buildWall(w, mb); mark();
+  return { mb, marks };
+}
 
 // static subtree: compute world matrices once, then skip it in the per-frame scene.updateMatrixWorld traversal
 function freezeStatic(g) { if (!g) return; g.updateMatrixWorld(true); g.traverse((o) => { o.matrixAutoUpdate = false; }); g.updateMatrixWorld = function (force) { if (this.userData.mwDirty || force === 'static') { this.userData.mwDirty = false; THREE.Object3D.prototype.updateMatrixWorld.call(this, true); } }; }
@@ -48,6 +60,9 @@ export class World {
     progress(0.0, 'Planning Colombo'); await tick();
     generatePlan(); await bootMap(plan); // saved map-editor edits (src/debug, only loaded when some were saved)
     this.plan = plan; this.collision.addAll(plan.colliders);
+    // 65th: occlusion data, baked once from the final city plan (OcclusionCuller: every building an occluder; the targets grow
+    // to cover the batched pieces as they are made — shells, ground cells, street dressing, streamed detail)
+    this.occ = new OcclusionCuller(); this.occ.bake(plan.buildings, L.LAND_Y, L.BOUNDS); CULL.occ = this.occ;
     for (const b of plan.buildings) for (const [px, pz, r] of frontColumns(b)) this.collision.add({ x0: px - r - 0.01, x1: px + r + 0.01, z0: pz - r - 0.01, z1: pz + r + 0.01, h: L.LAND_Y + (b.colonnade ? 4.4 : 2.9), kind: 'pole' }); // villa porch + Fort arcade columns
     progress(0.08, 'Laying roads and pavements'); await tick();
     const ground = buildGround(() => {});
@@ -70,7 +85,7 @@ export class World {
       const c = { idx, cx, cz, group: new THREE.Group(), detail: null, detailState: 0, props: null, trees: null };
       c.group.name = 'chunk' + idx;
       const gm = ground[idx]; if (gm) for (const m of gm.toMeshes(MAT, { cast: false, receive: true })) c.group.add(m);
-      const mb = new MultiBuilder(); for (const b of ch.buildings) buildBase(b, mb); for (const w of ch.walls || []) buildWall(w, mb);
+      const { mb, marks } = buildBaseMarked(ch); c.baseMarks = marks;
       for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) { m.userData.layer = 'bld'; if (m.name === 'ao') { m.castShadow = false; m.receiveShadow = false; m.renderOrder = 1; } c.group.add(m); }
       c.props = buildPropsForChunk(ch); c.props.visible = false; c.group.add(c.props);
       c.lamps = c.props.userData.lamps || [];
@@ -186,20 +201,36 @@ export class World {
   // (street-lamp shadows skip it per draw), and the streamed detail / window meshes stay per chunk.
   // extra (60th): batch only the building pieces rebuilt since (rebuildForKeys), adding to the existing batches' group
   batchStatic(chunks = this.chunks, extra = false) {
-    const SIG = 'position,normal,uv,color'; const groups = new Map();
-    for (const c of chunks) { if (!extra || !c.base) c.base = []; for (const m of [...c.group.children]) {
+    const SIG = 'position,normal,uv,color'; const groups = new Map(); const occ = this.occ, cs = occ ? occ.cfg.cell : 32;
+    for (const c of chunks) { if (!extra || !c.base) c.base = []; const bl = plan.byChunk[c.idx].buildings; for (const m of [...c.group.children]) {
       if (extra && m.userData.layer !== 'bld') continue;
       if (!m.isMesh || m.isInstancedMesh || m.isBatchedMesh || FOLIAGE.has(m.name) || !m.geometry.index || Object.keys(m.geometry.attributes).sort().join(',') !== SIG.split(',').sort().join(',') || Array.isArray(m.material)) continue;
       const key = m.material.uuid + '|' + m.castShadow + m.receiveShadow + '|' + m.renderOrder + '|' + m.layers.mask; let G = groups.get(key);
-      if (!G) groups.set(key, (G = { mat: m.material, name: m.name, cast: m.castShadow, recv: m.receiveShadow, order: m.renderOrder, layers: m.layers.mask, list: [], nv: 0, ni: 0 }));
-      G.list.push({ c, m }); G.nv += m.geometry.attributes.position.count; G.ni += m.geometry.index.count; } }
+      const bld = m.userData.layer === 'bld'; const kind = bld ? 'bld' : GROUND_TINY.has(m.name) ? 'tiny' : GROUND_SMALL.has(m.name) ? 'small' : 'cell';
+      if (!G) groups.set(key, (G = { mat: m.material, name: m.name, kind, cast: m.castShadow, recv: m.receiveShadow, order: m.renderOrder, layers: m.layers.mask, list: [], nv: 0, ni: 0, np: 0 }));
+      // 65th: pieces — building shells one per building (its occlusion target), ground in occlusion-grid cells (identical
+      // triangles, just cut apart; each piece is culled on its own: frustum, occlusion, draw distance — BatchCull.js)
+      m.updateMatrix(); const g = m.geometry; let pieces = null;
+      if (bld && c.baseMarks) { const ranges = rangesFor(c.baseMarks, m.userData.matKey || m.name); let cover = 0; for (const r of ranges) cover += r[3] - r[2];
+        if (ranges.length > 1 && cover === g.index.count) { const I = g.index.array, names = Object.keys(g.attributes);
+          pieces = ranges.map(([v0, v1, i0, i1, bi]) => { const pg = new THREE.BufferGeometry(); for (const n of names) { const A = g.attributes[n], k = A.itemSize; pg.setAttribute(n, new THREE.BufferAttribute(A.array.subarray(v0 * k, v1 * k), k, A.normalized)); }
+            const ix = new (v1 - v0 > 65535 ? Uint32Array : Uint16Array)(i1 - i0); for (let q = i0; q < i1; q++) ix[q - i0] = I[q] - v0; pg.setIndex(new THREE.BufferAttribute(ix, 1));
+            let id = bl[bi] ? bl[bi].id : -1; if (id >= 0 && occ) { pg.computeBoundingBox(); const bb = pg.boundingBox.clone().applyMatrix4(m.matrix); if (!occ.growTarget(id, bb.min.x, bb.max.x, bb.min.z, bb.max.z, bb.max.y)) id = -1; } else id = -1;
+            return { geo: pg, bid: id, box: null }; }); } }
+      if (!pieces && !bld && occ) pieces = splitCells(g, cs, m.matrix).map((p) => ({ geo: p.geo, bid: -1, box: p.box }));
+      if (!pieces) pieces = [{ geo: g, bid: -1, box: null }];
+      for (const p of pieces) { G.nv += p.geo.attributes.position.count; G.ni += p.geo.index.count; } G.np += pieces.length; G.list.push({ c, m, pieces }); } }
     if (!extra) { this.batched = new THREE.Group(); this.batched.name = 'cityBatched'; this.root.add(this.batched); this.batches = []; }
     for (const G of groups.values()) {
-      if (G.list.length < 2) continue; // nothing to gain
-      const B = new THREE.BatchedMesh(G.list.length, G.nv, G.ni, G.mat); B.name = G.name; B.castShadow = G.cast; B.receiveShadow = G.recv; B.renderOrder = G.order; B.layers.mask = G.layers;
-      for (const { c, m } of G.list) { m.updateMatrix(); const gid = B.addGeometry(m.geometry); const iid = B.addInstance(gid); B.setMatrixAt(iid, m.matrix);
-        const r = B.getGeometryRangeAt(gid); c.base.push({ name: m.name, batch: B, gid, iid, r, layer: m.userData.layer }); c.group.remove(m); m.geometry.dispose(); }
-      B.computeBoundingSphere(); B.computeBoundingBox(); this.batched.add(B); this.batches.push(B); if (extra) { B.matrixAutoUpdate = false; B.updateMatrixWorld(true); } }
+      if (G.list.length < 2) { for (const e of G.list) for (const p of e.pieces) if (p.geo !== e.m.geometry) p.geo.dispose(); continue; } // nothing to gain
+      const B = new THREE.BatchedMesh(G.np, G.nv, G.ni, G.mat); B.name = G.name; B.castShadow = G.cast; B.receiveShadow = G.recv; B.renderOrder = G.order; B.layers.mask = G.layers;
+      const bid = new Int32Array(G.np).fill(-1), cells = new Int32Array(G.np * CSLOTS).fill(-1), grp = [0];
+      for (const { c, m, pieces } of G.list) { for (const p of pieces) { const gid = B.addGeometry(p.geo); const iid = B.addInstance(gid); B.setMatrixAt(iid, m.matrix);
+          bid[iid] = p.bid; if (p.box && occ) cellsOfBox(occ, p.box, cells, iid * CSLOTS, p.box[4], false);
+          const r = B.getGeometryRangeAt(gid); c.base.push({ name: m.name, batch: B, gid, iid, r, layer: m.userData.layer }); if (p.geo !== m.geometry) p.geo.dispose(); }
+        grp.push(B._instanceInfo.length); c.group.remove(m); m.geometry.dispose(); }
+      B.computeBoundingSphere(); B.computeBoundingBox(); installCull(B, { kind: G.kind === 'bld' ? 'cell' : G.kind, bid, cells, cellKind: 'ground', grp: Int32Array.from(grp) });
+      this.batched.add(B); this.batches.push(B); if (extra) { B.matrixAutoUpdate = false; B.updateMatrixWorld(true); } }
     // read access for code that scans a chunk's ground triangles (grass masks): mesh-like views into the batch buffers
     for (const c of chunks) c.baseViews = c.base.map(({ name, batch, r }) => { const ga = batch.geometry; return { isMesh: true, name, geometry: { attributes: { position: ga.attributes.position, uv: ga.attributes.uv }, index: { array: ga.index.array.subarray(r.indexStart, r.indexStart + r.indexCount) } } }; });
   }
@@ -218,7 +249,7 @@ export class World {
       for (const e of c.base || []) if (e.layer === 'bld' && !e.off) { e.batch.setVisibleAt(e.iid, false); e.off = true; } // the batched originals go dark
       if (c.base) c.base = c.base.filter((e) => !e.off);
       for (const m of [...c.group.children]) if (m.isMesh && m.userData.layer === 'bld') { c.group.remove(m); disposeMesh(m); }
-      const mb = new MultiBuilder(); for (const b of ch.buildings) buildBase(b, mb); for (const w of ch.walls || []) buildWall(w, mb);
+      const { mb, marks } = buildBaseMarked(ch); c.baseMarks = marks;
       for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) { m.userData.layer = 'bld'; if (m.name === 'ao') { m.castShadow = false; m.receiveShadow = false; m.renderOrder = 1; } c.group.add(m); }
       const had = { c, det: !!c.detail, win: !!c.win }; if (had.det || had.win) again.push(had);
       if (this.job && this.job.c === c) this.job = null; if (c.detail) this.disposeDetail(c);
@@ -245,13 +276,49 @@ export class World {
     this.propGroup = new THREE.Group(); this.propGroup.name = 'propPools'; this.root.add(this.propGroup); this.propPools = [];
     for (const P of pools.values()) { const m = new THREE.InstancedMesh(P.geo, P.mat, P.total); m.count = 0; m.castShadow = P.cast; m.receiveShadow = P.recv; m.renderOrder = P.order; m.layers.mask = P.layers;
       if (P.col) m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(P.total * 3), 3); m.matrixAutoUpdate = false; P.mesh = m; this.propGroup.add(m); this.propPools.push(P); }
+    // 65th: per-instance occlusion cells + position (draw distance of the small parts), and the main-camera instance count
+    const occ = this.occ, gb = new THREE.Box3(), ib = new THREE.Box3(), M4 = new THREE.Matrix4(); const box = [0, 0, 0, 0];
+    for (const P of this.propPools) { const g = P.geo; if (!g.boundingBox) g.computeBoundingBox(); if (!g.boundingSphere) g.computeBoundingSphere(); gb.copy(g.boundingBox);
+      P.small = g.boundingSphere.radius < 0.9; P.nNear = P.nMain = P.nOcc = P.nAll = 0; P.gen = -2; P.cls = new Uint8Array(P.total);
+      for (const part of P.parts) { part.cells = new Int32Array(part.n * CSLOTS).fill(-1); part.pos = new Float32Array(part.n * 2);
+        for (let i = 0; i < part.n; i++) { M4.fromArray(part.mat, i * 16); ib.copy(gb).applyMatrix4(M4); part.pos[i * 2] = M4.elements[12]; part.pos[i * 2 + 1] = M4.elements[14];
+          box[0] = ib.min.x; box[1] = ib.max.x; box[2] = ib.min.z; box[3] = ib.max.z; if (occ) cellsOfBox(occ, box, part.cells, i * CSLOTS, ib.max.y, true); } }
+      const m = P.mesh; const W = this;
+      m.onBeforeRender = function (r, s, cam) { this.count = cam === CULL.camera ? (CULL.occOn && W.occ && P.gen === W.occ.gen ? P.nMain : P.nMain + P.nOcc) : P.nAll; };
+      m.onAfterRender = function () { this.count = P.nAll; };
+      m.onBeforeShadow = function (r, o, cam, sc) { this.count = sc === CULL.sunCamera ? P.nNear : P.nAll; };
+      m.onAfterShadow = function () { this.count = P.nAll; }; }
+    this._propEye = new THREE.Vector3(0, -1e9, 0); this._propGen = -2; this._propNear = 0;
   }
-  // pack the instances of the chunks whose props are shown into the shared meshes (only when that set changes)
-  repackProps() {
-    for (const P of this.propPools) { const m = P.mesh; let n = 0; const M = m.instanceMatrix.array, C = m.instanceColor ? m.instanceColor.array : null;
-      for (const part of P.parts) { if (!part.c.props.visible) continue; M.set(part.mat, n * 16); if (C) C.set(part.color, n * 3); n += part.n; }
-      m.count = n; m.visible = n > 0; m.instanceMatrix.needsUpdate = true; if (C) m.instanceColor.needsUpdate = true; if (n) m.computeBoundingSphere(); }
+  // 65th: reorder the shown instances of every pool when the occlusion horizon is replaced or the camera has moved 6 m:
+  //   [near the camera (within reach of the sun's crisp shadow box, incl. long low-sun shadows)] [farther, visible]
+  //   [farther, hidden behind buildings (OcclusionCuller)] [farther small parts beyond LOD.small]
+  // The main camera draws the first two groups (the first three while no horizon is valid), the near sun shadow map only the
+  // first (it used to draw all 430 m of instances into its ±35 m box); the far shadow map and the water mirror draw them all.
+  // cam: the main camera position; shc: the centre of the sun's crisp shadow box (Atmosphere.fitSunShadow); sunY: sun height
+  cullProps(cam, shc = cam, sunY = 0.7) {
+    if (!this.propPools || !cam) return; const occ = this.occ; const gen = occ && occ.valid ? occ.gen : -1; const e = this._propEye, h = this._propShc || (this._propShc = new THREE.Vector3(0, -1e9, 0));
+    const near = 62 + Math.min(150, 12 / Math.max(0.08, Math.tan(Math.asin(Math.min(0.999, Math.max(0.01, sunY)))))); // box half-diagonal + 6 m slack; 12 m: the tallest prop part
+    if (gen === this._propGen && (cam.x - e.x) ** 2 + (cam.z - e.z) ** 2 < 36 && (shc.x - h.x) ** 2 + (shc.z - h.z) ** 2 < 36 && Math.abs(near - this._propNear) < 10) return;
+    this._propGen = gen; e.copy(cam); h.copy(shc); this._propNear = near; this.orderProps(false);
   }
+  orderProps(bounds) {
+    const occ = this.occ, gen = this._propGen, hp = gen >= 0 && occ ? occ.hiddenProp : null, cx = this._propEye.x, cz = this._propEye.z, H = this._propShc || this._propEye, hx = H.x, hz = H.z;
+    const near2 = this._propNear ** 2, far2 = LOD.enabled ? LOD.small * LOD.small : Infinity;
+    for (const P of this.propPools) { const m = P.mesh; const M = m.instanceMatrix.array, C = m.instanceColor ? m.instanceColor.array : null, cls = P.cls; let n = 0; const k = [0, 0, 0, 0];
+      for (const part of P.parts) { if (!part.c.props.visible) continue; const cs = part.cells, ps = part.pos;
+        for (let i = 0; i < part.n; i++, n++) { let c = 1; const d2 = (ps[i * 2] - cx) ** 2 + (ps[i * 2 + 1] - cz) ** 2;
+          if ((ps[i * 2] - hx) ** 2 + (ps[i * 2 + 1] - hz) ** 2 <= near2) c = 0;
+          else if (P.small && d2 > far2) c = 3;
+          else if (hp && cs[i * CSLOTS] >= 0) { c = 2; for (let j = 0; j < CSLOTS; j++) { const q = cs[i * CSLOTS + j]; if (q < 0) break; if (hp[q] !== 1) { c = 1; break; } } }
+          cls[n] = c; k[c]++; } }
+      const w = [0, k[0], k[0] + k[1], k[0] + k[1] + k[2]]; n = 0;
+      for (const part of P.parts) { if (!part.c.props.visible) continue;
+        for (let i = 0; i < part.n; i++, n++) { const at = w[cls[n]]++; M.set(part.mat.subarray(i * 16, i * 16 + 16), at * 16); if (C) C.set(part.color.subarray(i * 3, i * 3 + 3), at * 3); } }
+      P.nNear = k[0]; P.nMain = k[0] + k[1]; P.nOcc = k[2]; P.nAll = n; P.gen = gen; m.count = n; m.visible = n > 0;
+      if (n) { m.instanceMatrix.addUpdateRange(0, n * 16); m.instanceMatrix.needsUpdate = true; if (C) { m.instanceColor.addUpdateRange(0, n * 3); m.instanceColor.needsUpdate = true; } if (bounds) m.computeBoundingSphere(); } }
+  }
+  repackProps() { this.orderProps(true); } // (65th: in the visible / hidden / far order — orderProps)
   // every mesh of a chunk's permanent geometry (batched pieces as views, plus what stayed a separate mesh)
   chunkMeshes(c) { return c.baseViews ? [...c.baseViews, ...c.group.children] : c.group.children; }
   update(dt, focus, camera, atmos) {
@@ -327,7 +394,7 @@ export class World {
       if (g) { const opts = det ? { cast: true, receive: true } : k === 0 ? { cast: false, receive: true } : { cast: false, receive: false };
         // opaque detail / window joinery: one BatchedMesh instance per building (per-building frustum culling, still one draw) — see CellBatch.RangeBatch
         const mat = matFor(J.sn, MAT), ranges = (det || k === 0) && mat && !mat.isShaderMaterial && !FOLIAGE.has(J.sn) && J.sn !== 'pool' && J.sn !== 'lampHead' ? rangesFor(J.marks, J.sn) : null;
-        if (ranges && ranges.length >= 3 && g.index.count >= 18000) { J.rb = new RangeBatch(g, ranges, mat); J.rbOpts = opts; if (performance.now() - t0 > budgetMs) return false; continue; }
+        if (ranges && ranges.length >= 3 && g.index.count >= 18000) { const bl = plan.byChunk[J.c.idx].buildings; J.rb = new RangeBatch(g, ranges, mat, { kind: det ? 'detail' : 'win', occ: this.occ, ids: ranges.map((r) => (bl[r[4]] ? bl[r[4]].id : -1)) }); J.rbOpts = opts; /* 65th: + per-building occlusion / LOD (BatchCull.js) */ if (performance.now() - t0 > budgetMs) return false; continue; }
         const m = meshFor(J.sn, g, MAT, opts); if (m) { if (!det && k === 1) m.renderOrder = 2; J.meshes.push(m); } }
       if ((J.q.length || J.sb) && performance.now() - t0 > budgetMs) return false; }
     const c = J.c; if (det ? c.detail : c.win) { for (const m of J.meshes) disposeMesh(m); return true; } // built meanwhile by warm()
@@ -377,6 +444,6 @@ export class World {
       l.userData.lamp = lamp; l.userData.k = 0; decal(lamp, false); l.position.set(lamp[0], lamp[1] - 0.4, lamp[2]); l.target.position.set(lamp[0], ROAD_Y, lamp[2] + 0.001); l.target.updateMatrixWorld(); lit.add(lamp); }
     for (const l of this.lampLights) { const u = l.userData; const I = u.lamp ? base * u.k : 0; if (l.intensity !== I) l.intensity = I; if (l.castShadow) l.shadow.autoUpdate = I > 0; } /* FPS: an unlit pooled lamp (all day, parked at y -600) no longer re-renders its shadow map every frame */
   }
-  setQuality(q) { this.quality = q; if (this.glints) this.glints.max = WetGlints.budget(q); if (this.grass) this.grass.setQuality(q); if (this.groundDetail) this.groundDetail.setQuality(q); if (this.forest) this.forest.setQuality(q); if (this.parkLife) this.parkLife.setQuality(q); if (this.parks && this.parks.userData.flowers) this.parks.userData.flowers.setQuality(q); const s = q === 'low' ? 0.6 : q === 'medium' ? 0.8 : q === 'ultra' ? 1.25 : 1; this.detailRadius = 330 * s; this.windowRadius = q === 'low' ? 0 : q === 'medium' ? 90 : q === 'ultra' ? 210 : 150; this.propRadius = 430 * s; this.treeRadius = 520 * s; }
+  setQuality(q) { this.quality = q; setLodQuality(q); /* 65th: BatchCull LOD / draw distances */ if (this.glints) this.glints.max = WetGlints.budget(q); if (this.grass) this.grass.setQuality(q); if (this.groundDetail) this.groundDetail.setQuality(q); if (this.forest) this.forest.setQuality(q); if (this.parkLife) this.parkLife.setQuality(q); if (this.parks && this.parks.userData.flowers) this.parks.userData.flowers.setQuality(q); const s = q === 'low' ? 0.6 : q === 'medium' ? 0.8 : q === 'ultra' ? 1.25 : 1; this.detailRadius = 330 * s; this.windowRadius = q === 'low' ? 0 : q === 'medium' ? 90 : q === 'ultra' ? 210 : 150; this.propRadius = 430 * s; this.treeRadius = 520 * s; }
 }
 export { plan };
