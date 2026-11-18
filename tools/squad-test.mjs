@@ -44,7 +44,8 @@ const m0 = S.momentumBlend({ t: 4, dur: 4, yaw: 1, speed: 5 }, 0, 1), m1 = S.mom
 ok(Math.abs(m0.yaw - 1) < 1e-9 && m0.speed === 5 && m1.yaw === 0 && m1.speed === 1 && mh.speed > 1 && mh.speed < 5, 'momentum carries over and blends out');
 // save migration
 ok(SAVE_VERSION === 5, 'save v5 (v4 loadouts + the 67th bank account)'); const v3 = migrate({ version: 2, story: { done: ['m0', 'm1'], health: 70 }, weapons: { inv: WEAPONS.map((w, i) => [i, 10 * i]), sel: 0 } });
-ok(v3.squad.unlocked && v3.squad.active === 'dineth' && v3.squad.members.dineth.inv.filter((q) => q[2]).length === 1 && v3.squad.members.dineth.inv[1][2] === 1 && v3.squad.members.dineth.sel === 1 && v3.version === 4, 'v2 → v4: Dineth keeps only his service pistol');
+ok(v3.squad.unlocked && v3.squad.active === 'dineth' && v3.squad.members.dineth.inv.filter((q) => q[2]).length === 1 && v3.squad.members.dineth.inv[1][2] === 1 && v3.squad.members.dineth.sel === 1 && v3.version === 5, 'v2 → v5: Dineth keeps only his service pistol');
+ok(v3.story.bank && v3.story.bank.balance === 0 && Array.isArray(v3.story.bank.history) && v3.story.money === undefined, 'v2 → v5: a fresh empty bank account, cash untouched');
 { const own = (ids) => WEAPONS.map((w, i) => [i + 1, 5 * i, ids.includes(i) ? 1 : 0]);
   const m = migrate({ version: 3, story: { done: ['m0'] }, weapons: { inv: WEAPONS.map(() => [1, 2]), sel: 4 }, squad: { v: 1, unlocked: true, active: 'shashika', members: { dineth: { inv: own([1, 3]), sel: 3 }, shashika: { inv: own([2, 4, 5]), sel: 4 }, david: { inv: own([0, 6, 7, 8]), sel: 6 } } } });
   const M = m.squad.members; ok(M.dineth.inv.filter((q) => q[2]).length === 1 && M.dineth.inv[1][2] === 1 && M.dineth.sel === 1, 'v3 → v4: Dineth keeps only the service pistol');
