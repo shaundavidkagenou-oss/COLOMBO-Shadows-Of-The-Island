@@ -1,6 +1,7 @@
 // Tiny always-loaded part of the debug editors. The editors themselves (AnimEditor / MapEditor / NpcEditor and their
 // runtimes) are separate code-split modules that are only downloaded and run when the user types `animations`, `map` or
 // `npc` in the console — or, at start-up, only when something was saved with them (one localStorage flag read).
+import { DevLock } from './DevLock.js';
 const FLAG = 'colombo.editor.saved';
 export function savedFlags() { try { return JSON.parse(globalThis.localStorage?.getItem(FLAG) || '{}') || {}; } catch { return {}; } }
 export function setSavedFlag(k, v) { const f = savedFlags(); if (v) f[k] = true; else delete f[k]; try { globalThis.localStorage?.setItem(FLAG, JSON.stringify(f)); } catch { /* private mode */ } }
@@ -20,12 +21,23 @@ export async function storeDel(k) { const d = await db(); if (!d) { MEM.delete(k
 export function assignIds(P) {
   if (P._eidDone) return; P._eidDone = true; P.buildings.forEach((b) => { b._eid = 'b:' + b.id; }); P.trees.forEach((t, i) => { t._eid = 't:' + i; }); P.props.forEach((p, i) => { p._eid = 'p:' + i; }); P.walls.forEach((w, i) => { w._eid = 'w:' + i; }); (P.plants || []).forEach((p, i) => { p._eid = 'pl:' + i; });
 }
-export async function bootMap(plan) { assignIds(plan); if (!savedFlags().map) return; try { const m = await import('./MapRuntime.js'); await m.applySavedMap(plan); } catch (e) { console.warn('[editor] saved map edits not applied', e); } }
-export async function bootMapWorld(world) { if (!savedFlags().map) return; try { const m = await import('./MapRuntime.js'); await m.buildSavedObjects(world); } catch (e) { console.warn('[editor] saved map objects not built', e); } }
+// ---- 68th: model pack (model-pack/manifest.json — the model tools' work, built into dist / the .exe like texture-pack/)
+let MPACK; // undefined = not fetched yet
+export async function fetchModelPack() {
+  if (MPACK !== undefined) return MPACK; MPACK = null;
+  if (typeof fetch === 'function' && typeof location !== 'undefined') try { const r = await fetch('model-pack/manifest.json', { cache: 'no-cache' }); if (r.ok) { const j = await r.json(); if (j && j.format === 'colombo.model-manifest') MPACK = j; } } catch { /* no pack (file:// or offline) */ }
+  return MPACK;
+}
+export function setModelPack(m) { MPACK = m; } // the tools keep the cached copy current after a save
+const packHasMap = (p) => !!(p && p.map && ((p.map.added && p.map.added.length) || (p.map.mods && Object.keys(p.map.mods).length) || (p.map.textures && Object.keys(p.map.textures).length)));
+const packHasModels = (p) => !!(p && (Object.keys(p.weapons || {}).length || Object.keys(p.heroes || {}).length || Object.keys(p.vehicles || {}).length || (p.npcs && p.npcs.rules && p.npcs.rules.length) || Object.keys(p.anims || {}).length || Object.keys(p.objects || {}).length));
+export async function bootMap(plan) { assignIds(plan); const pack = await fetchModelPack(); if (!savedFlags().map && !packHasMap(pack)) return; try { const m = await import('./MapRuntime.js'); await m.applySavedMap(plan, pack && pack.map); } catch (e) { console.warn('[editor] saved map edits not applied', e); } }
+export async function bootMapWorld(world) { if (!savedFlags().map && !packHasMap(MPACK)) return; try { const m = await import('./MapRuntime.js'); await m.buildSavedObjects(world); } catch (e) { console.warn('[editor] saved map objects not built', e); } }
 export async function bootRuntime(game) {
   const f = savedFlags();
   if (f.anim) try { await (await import('./AnimRuntime.js')).loadSavedAnims(); } catch (e) { console.warn('[editor] saved animations not applied', e); }
   if (f.npc) try { await (await import('./NpcRuntime.js')).loadSavedNpcs(game); } catch (e) { console.warn('[editor] saved NPCs not applied', e); }
+  const pack = await fetchModelPack(); if (packHasModels(pack)) try { await (await import('./ModelRuntime.js')).boot(game, pack); } catch (e) { console.warn('[model tools] saved model edits not applied', e); } // 68th
 }
 // ---- Texture Studio (59th, src/debug/TextureStudio.js): a development tool. Enabled by the Vite dev server (npm run dev) or a
 // build made with VITE_TEXTURE_STUDIO=1 (npm run build:studio); an ordinary production build (npm run build, build-exe.bat)
@@ -49,12 +61,20 @@ export async function bootTextures(game) {
     const rt = await import('./TexRuntime.js'); globalThis.__texRuntime = rt; return await rt.boot(game, { pack }); // (inspectable from the browser console)
   } catch (e) { console.warn('[texture studio] saved texture replacements not applied', e); return null; }
 }
+// 68th: model tools (console models-weapons / model-player / model-vehicles / model-npc) — development builds only, like the Studio
+export async function openModelStudio(game, mode) {
+  if (DevLock.locked) throw new Error('developer tools are locked');
+  if (TEXTURE_STUDIO) { const mod = await import('./ModelStudio.js'); const ed = await mod.open(game, mode); (globalThis.__editors ||= {}).models = ed; return ed; }
+  throw new Error('the model tools are development tools — not part of this build (npm run dev, or npm run build:studio)');
+}
 export async function openTextureStudio(game) {
+  if (DevLock.locked) throw new Error('developer tools are locked');
   if (TEXTURE_STUDIO) { const mod = await import('./TextureStudio.js'); const ed = await mod.open(game); (globalThis.__editors ||= {}).textures = ed; return ed; }
   throw new Error('the Texture Studio is a development tool — not part of this build (npm run dev, or npm run build:studio)');
 }
 // console entry points (dynamic import = loaded on demand)
 export async function openEditor(kind, game) {
+  if (DevLock.locked) throw new Error('developer tools are locked');
   const mod = kind === 'animations' ? await import('./AnimEditor.js') : kind === 'map' ? await import('./MapEditor.js') : await import('./NpcEditor.js');
   const ed = await mod.open(game); (globalThis.__editors ||= {})[kind] = ed; return ed; // (inspectable from the browser console)
 }

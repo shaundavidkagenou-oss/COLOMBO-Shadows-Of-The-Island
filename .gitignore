@@ -12,3 +12,7 @@ tools/trailer-export/package-lock.json
 # Texture Studio work (59th): images + manifest live in texture-pack/ on disk, not in git (export a pack to share)
 texture-pack/*
 !texture-pack/README.md
+
+# Model tools work (68th): uploaded models / animations / textures + manifest live in model-pack/ on disk, not in git
+model-pack/*
+!model-pack/README.md

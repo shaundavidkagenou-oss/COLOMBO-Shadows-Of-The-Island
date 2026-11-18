@@ -5,6 +5,7 @@
 // tumblehome) so the bodywork reads as pressed panels rather than boxes; cabins get pillars, tinted glass and visible
 // interiors (seats, dashboard, steering wheel); wheels are lathed tyres with alloy rims; cars and vans get a separately
 // hinged driver door used by the entry/exit animation.
+import { HOOKS } from '../core/Hooks.js';
 import { doorGapsMeta, spansOutside } from './DoorSpans.js';
 import { poseDoor } from './DoorRig.js';
 import * as THREE from 'three';
@@ -1232,6 +1233,7 @@ export function createVehicleMesh(type, seed = 1) {
   const rear = T.ambulance ? buildAmbRear() : null; if (rear) g.add(rear.group); // twin rear doors + lit cabin (opened by the medics)
   const stand = base === 'bike' ? standMeshes(M.vrim, T.standOff) : null; if (stand) g.add(stand); // animated side stand (Kickstand.js)
   g.userData = { variant, bodyMeshes, wheelStyle: cached.wheelStyle, exhaust: cached.exhaust, doors, bake: doors.length ? { ranges: cached.doorRanges, meshes: bodyMeshes, shared, mats, pivotGeos: (i) => slicePivotGeos(cached, i) } : null, stand, detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, lodFar: false, farR: wkind === 'heavy' ? 160 : wkind === 'bike' ? 0 : 140, farHide: ['interior', 'dash', 'plate', 'badge'].map((n) => bodyMeshes[n]).filter(Boolean), /* far LOD (Vehicle.updateVehicleLOD): cabin, plate, badges off beyond farR — lamps stay */ real, wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons, rear, cabStep: cached.cabStep };
+  if (HOOKS.vehicle) HOOKS.vehicle(g, type); // 68th: model tools (replacement body / textures / parts)
   return g;
 }
 const EMPTY_GEO = new THREE.BufferGeometry();

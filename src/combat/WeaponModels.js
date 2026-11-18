@@ -9,6 +9,7 @@ import { sweep, latheZ, ringZ, flutedZ } from './WeaponLoft.js';
 import { buildPistol } from './GunPistols.js';
 import { buildRifle } from './GunRifles.js';
 import { clearThumb } from './GunKit.js';
+import { HOOKS } from '../core/Hooks.js';
 
 let MATS = null;
 export function weaponMaterials() {
@@ -169,7 +170,7 @@ function t56(player = false) {
   g.updateMatrixWorld(true); g.userData.buttZ = new THREE.Box3().setFromObject(g).min.z;
   return g;
 }
-export function buildT56() { const g = t56(); g.name = 'weapon-t56'; return g; }
+export function buildT56() { const g = t56(); g.name = 'weapon-t56'; if (HOOKS.weapon) HOOKS.weapon(g, { id: 't56', cls: 'rifle' }); return g; }
 // the player's Type 56 (gun-shop rifle): the same rifle without the police torch and sling, with hand surfaces for the grip solver
 function t56Player() { const g = t56(true); const ud = g.userData; if (ud.torch) { g.remove(ud.torch); ud.torch = null; ud.torchLens = null; } ud.sling = false;
   const rx0 = -0.085, rx1 = 0.21; ud.hold = makeHold(boxShape(V3(0, -0.022, -0.017), 0.27, [0.0138, 0.054, 0.0205], 0.007), 0.022, 0.016,
@@ -179,5 +180,6 @@ function t56Player() { const g = t56(true); const ud = g.userData; if (ud.torch)
 export function buildWeaponModel(def) {
   const g = def.cls === 'pistol' ? buildPistol(def) : (def.model || def.id) === 'type56' ? t56Player() : buildRifle(def); g.name = 'weapon-' + def.id;
   const h = g.userData.hold; const mag = g.userData.mag; if (h) { clearThumb(g, h.thumbR, 0.0085, (o) => mag && o.parent === mag); if (h.thumbL) clearThumb(g, h.thumbL, 0.0085, (o) => mag && o.parent === mag); }
+  if (HOOKS.weapon) HOOKS.weapon(g, def); // 68th: model tools (replacement model / textures / parts)
   return g;
 }

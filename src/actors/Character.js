@@ -1,6 +1,7 @@
 // Procedural skinned humans: one SkinnedMesh per person (body + head groups), 23-bone skeleton (70 for the three
 // protagonists: fingers, twist, toe and secondary-motion bones — see HeroRig.js),
 // Sri Lankan everyday clothing and a procedural animation layer (locomotion, idles, gestures, reactions).
+import { HOOKS } from '../core/Hooks.js';
 import { mocapBody, mocapArms, blockHands } from '../anim/Mocap.js';
 import * as THREE from 'three';
 import { patchInterior } from '../gfx/InteriorLight.js';
@@ -1192,6 +1193,7 @@ export class Character {
     this.anim = new Animator(this); if (spec.hero) this.rig = new HeroRig(this);
     if (geo.userData.bustMorph) { this.mesh.updateMorphTargets(); this.bust = { p: null, v: new THREE.Vector3(), x: 0, vx: 0, y: 0, vy: 0 }; }
     LIVE.add(this);
+    if (HOOKS.character) HOOKS.character(this); // 68th: model tools (replacement model / clothing textures)
   }
   // anatomical crowd bodies (NpcBody.js): a far version (coarse body index level, lighter shoes, no hem strips) swapped in
   // beyond ~20 m (a person is then under ~90 px tall). Same vertex layout / bones / materials: only the geometry changes,
@@ -1215,7 +1217,7 @@ export class Character {
     this.bones = Object.fromEntries(bones.map((b) => [b.name, b])); this.hipY = bones[0].position.y; this.head = this.mesh;
     this.eyes = attachDancerEyes(this.bones, id); this.face.attachMorphs(this.mesh, this.eyes);
     this.anim = new Animator(this); this.dancer = new DancerRig(this, id);
-    queueDancerPaint(this); LIVE.add(this);
+    queueDancerPaint(this); LIVE.add(this); if (HOOKS.character) HOOKS.character(this);
   }
   // protagonist head (HeroHead.js): a second SkinnedMesh on the same skeleton (child of the body mesh, so visibility,
   // falls and the first-person head hide all apply), eyeballs + glasses as rigid children of the head bone
