@@ -15,7 +15,7 @@ const CHILD = { hips: 'spine', spine: 'chest', chest: 'neck', neck: 'head', shL:
 const ALIGN = new Set(['shL', 'armL', 'foreL', 'shR', 'armR', 'foreR', 'thighL', 'shinL', 'thighR', 'shinR', 'spine', 'chest', 'neck']); // bones whose rest direction is aligned
 
 // ---- bone names: normalise, then match per game bone (side words: left/l/lft, right/r/rgt)
-const norm = (n) => String(n).toLowerCase().replace(/^.*[:|]/, '').replace(/mixamorig\d*/g, '').replace(/^(def|org|mch|bip0?1|bip|j_bip_c|j_bip_l|j_bip_r|j_bip|cc_base|rig|armature)[_\-. ]*/g, '').replace(/[^a-z0-9]/g, '');
+const norm = (n) => String(n).toLowerCase().replace(/^.*[:|]/, '').replace(/mixamorig\d*/g, '').replace(/^(def|org|mch|bip0?1|bip|j_bip_c|j_bip_l|j_bip_r|j_bip|cc_base|rig|armature)[_\-. ]+/g, '').replace(/[^a-z0-9]/g, '');
 const SIDE = { L: ['left', 'l', 'lft'], R: ['right', 'r', 'rgt'] };
 function sideOf(raw) {
   const s = String(raw).toLowerCase().replace(/^.*[:|]/, '');
@@ -26,7 +26,12 @@ function sideOf(raw) {
   if (/^r(?=[a-z]{3,})/.test(n) && /^r(shoulder|clavicle|collar|humerus|uparm|upperarm|arm|forearm|lowarm|lowerarm|radius|hand|wrist|thigh|upleg|upperleg|femur|leg|shin|calf|knee|lowleg|lowerleg|tibia|foot|ankle)/.test(n)) return 'R';
   return null;
 }
-const stripSide = (n) => n.replace(/^(left|right|lft|rgt)/, '').replace(/(left|right|lft|rgt)$/, '').replace(/^[lr](?=[a-z]{3,})/, '').replace(/[lr]$/, '');
+const BODY = 'shoulder|clavicle|collar|humerus|uparm|upperarm|arm|forearm|lowarm|lowerarm|radius|hand|wrist|thigh|upleg|upperleg|femur|leg|shin|calf|knee|lowleg|lowerleg|tibia|foot|ankle|hipjoint';
+// the bone name without its side: side words standing alone ("_L", ".R", " Left ") and Left/Right glued to either end; a single
+// l / r glued to the front only before a body word (LThigh, RHipJoint) — never a letter of the word itself (shoulder, collar)
+const coreOf = (raw) => { let n = norm(String(raw).replace(/^.*[:|]/, '').replace(/(^|[_\-. ])(left|right|lft|rgt|l|r)(?=[_\-. ]|$)/gi, '$1'));
+  n = n.replace(/^(left|right|lft|rgt)/, '').replace(/(left|right|lft|rgt)$/, ''); const g = new RegExp('^[lr](?=(' + BODY + ')$)'); return n.replace(g, ''); };
+const stripSide = (n, raw) => coreOf(raw ?? n);
 const PAT = {
   hips: [/^(hips?|pelvis|hip|cog|root(hips)?|hipsroot)$/],
   spine: [/^(spine|spine0|spine00|spine1|abdomen|torso|lowerback|spinelower)$/],
@@ -43,10 +48,11 @@ const PAT = {
 };
 export function autoMap(names) {
   const out = {}; const used = new Set(); const info = names.map((n) => ({ raw: n, n: norm(n), side: sideOf(n) }));
-  const find = (pats, side) => { for (const p of pats) for (const it of info) { if (used.has(it.raw)) continue; if (side && it.side !== side) continue; if (!side && it.side) continue; const core = side ? stripSide(it.n) : it.n; if (p.test(core)) return it.raw; } return null; };
+  const find = (pats, side) => { for (const p of pats) for (const it of info) { if (used.has(it.raw)) continue; if (side && it.side !== side) continue; if (!side && it.side) continue; const core = side ? stripSide(it.n, it.raw) : it.n; if (p.test(core)) return it.raw; } return null; };
   for (const g of ['hips', 'spine', 'chest', 'neck', 'head']) { let r = find(PAT[g], null); if (g === 'chest' && r && r === out.spine) r = null; if (r) { out[g] = r; used.add(r); } }
   // spine chains (Spine, Spine1, Spine2): the lowest is the spine, the highest below the neck the chest
   const sp = info.filter((it) => !it.side && /^spine\d*$/.test(it.n)).sort((a, b) => (parseInt(a.n.slice(5) || '0', 10) - parseInt(b.n.slice(5) || '0', 10)));
+  if (sp.length >= 3 && !out.hips) { out.hips = sp[0].raw; sp.shift(); } // Rigify: DEF-spine is the pelvis, spine.001… the spine
   if (sp.length >= 2) { out.spine = sp[0].raw; out.chest = sp[sp.length - 1].raw; }
   for (const S of ['L', 'R']) for (const [g, p] of [['sh', 'sh'], ['arm', 'arm'], ['fore', 'fore'], ['hand', 'hand'], ['thigh', 'thigh'], ['shin', 'shin'], ['foot', 'foot']]) { const r = find(PAT[p], S); if (r) { out[g + S] = r; used.add(r); } }
   return out;

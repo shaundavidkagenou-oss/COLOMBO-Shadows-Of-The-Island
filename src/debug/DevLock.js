@@ -7,7 +7,10 @@
 //     says locked ship locked: __COLOMBO_DEVLOCK__ is true in them.
 //   • a built game / the .exe: the build's own state, unless the code (or the command) was used on this install — that choice is
 //     kept in localStorage for this install only.
-const CODE = 'SHAUNDEVACTIVATION123$123$';
+// only a hash of the code is in the game (a built .exe does not contain the code as text)
+const CODE_LEN = 26, CODE_HASH = 7225297535166785;
+export const codeHash = (str, seed = 68) => { let h1 = 0xdeadbeef ^ seed, h2 = 0x41c6ce57 ^ seed; for (let i = 0; i < str.length; i++) { const ch = str.charCodeAt(i); h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677); }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507); h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909); h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507); h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909); return 4294967296 * (2097151 & h2) + (h1 >>> 0); };
 const LS = 'colombo.devlock';
 const DEV = !!(import.meta.env && import.meta.env.DEV);
 /* global __COLOMBO_DEVLOCK__ */
@@ -31,8 +34,8 @@ export const DevLock = {
   async sync() { if (!DEV) return this.locked; try { const r = await fetch('/__colombo/devlock', { cache: 'no-cache' }); if (r.ok) { const j = await r.json(); if (!!j.locked !== this.locked) { this.locked = !!j.locked; this.emit(); } } } catch { /* offline */ } return this.locked; },
   // the secret code: typed anywhere in the game (not into a text field), letters in any case
   feed(key) {
-    if (!key || key.length !== 1) return false; this.buf = (this.buf + key.toUpperCase()).slice(-CODE.length);
-    if (this.buf === CODE) { this.buf = ''; if (this.locked) { this.set(false, 'secret code'); return true; } }
+    if (!key || key.length !== 1) return false; this.buf = (this.buf + key.toUpperCase()).slice(-CODE_LEN);
+    if (this.buf.length === CODE_LEN && codeHash(this.buf) === CODE_HASH) { this.buf = ''; if (this.locked) { this.set(false, 'secret code'); return true; } }
     return false;
   },
   install(onUnlock) {
@@ -42,4 +45,3 @@ export const DevLock = {
   },
 };
 export const isDevLocked = () => DevLock.locked;
-export const _test = { CODE };

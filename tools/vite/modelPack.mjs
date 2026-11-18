@@ -16,6 +16,7 @@
 //     console + Texture Studio hidden (__COLOMBO_DEVLOCK__ = true); only the secret code typed in the game shows them again.
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 
 export const MODEL_EXT = ['glb', 'gltf', 'bin', 'obj', 'mtl', 'fbx', 'stl', 'ply', 'dae', '3mf', 'usdz', 'bvh', 'png', 'jpg', 'webp', 'gif', 'avif', 'bmp', 'tga', 'ktx2'];
 const FILE = new RegExp('^[0-9a-f]{16,64}\\.(' + MODEL_EXT.join('|') + ')$');
@@ -63,7 +64,7 @@ export default function modelPack({ dir = 'model-pack' } = {}) {
           if (fm && (req.method === 'POST' || req.method === 'DELETE')) {
             const name = fm[1]; if (!FILE.test(name)) { res.statusCode = 400; res.end('bad file name'); return; } fs.mkdirSync(D, { recursive: true }); const p = path.join(D, name);
             if (req.method === 'DELETE') { if (fs.existsSync(p)) { const T = path.join(D, 'trash'); fs.mkdirSync(T, { recursive: true }); fs.renameSync(p, path.join(T, name)); } json(res, { ok: true }); return; }
-            const buf = await body(req, MAX_BYTES); if (!fs.existsSync(p)) { fs.writeFileSync(p + '.tmp', buf); fs.renameSync(p + '.tmp', p); } // content-addressed: an existing file is identical
+            const buf = await body(req, MAX_BYTES); const hex = name.split('.')[0]; if (!crypto.createHash('sha256').update(buf).digest('hex').startsWith(hex)) { res.statusCode = 400; res.end('content does not match its name (sha256)'); return; } if (!fs.existsSync(p)) { fs.writeFileSync(p + '.tmp', buf); fs.renameSync(p + '.tmp', p); } // content-addressed: an existing file is identical
             json(res, { ok: true, file: name, bytes: buf.length }); return;
           }
           if (url === '/model-pack/manifest.json') { json(res, readManifest(D) || emptyManifest()); return; }
