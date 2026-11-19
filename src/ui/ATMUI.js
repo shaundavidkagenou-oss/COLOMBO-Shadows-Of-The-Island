@@ -191,7 +191,8 @@ export class ATMUI {
     this.foot.textContent = this.page === 'other' ? 'Type the amount on the keypad · Backspace corrects · Enter continues' : 'Shield the keypad · Never share your PIN · CMB staff will never ask for it';
     this.help.innerHTML = this.busyT > 0 ? '' : `<kbd>↑</kbd><kbd>↓</kbd> select · <kbd>Enter</kbd> choose${this.page === 'other' ? ' · <kbd>0–9</kbd> amount' : ''} · <kbd>Esc</kbd> ${this.page === 'menu' ? 'return card' : 'back'}`;
     // the machine's own screen shows the same page (left options first, then right, as the function keys)
-    if (this.atm) { const order = [...left.sort((a, b) => rowOf(a) - rowOf(b)), ...right.sort((a, b) => rowOf(a) - rowOf(b))]; const sel = order.indexOf(this.opts[this.sel]);
+    if (this.atm && this.cardAnim && this.cardAnim.kind === 'in' && !this.cardAnim.shown) this.atm.paint(null); // card still going in: the machine still says "Please insert your card"
+    else if (this.atm) { const order = [...left.sort((a, b) => rowOf(a) - rowOf(b)), ...right.sort((a, b) => rowOf(a) - rowOf(b))]; const sel = order.indexOf(this.opts[this.sel]);
       const ln = (v.lines || []).slice(0, this.opts.length ? 2 : 5).map((x) => (x.length > 1 ? [x[0], x[1]] : [x[0]])); this.atm.paint({ title: v.title, lines: v.statement && v.statement.length ? [[`${v.statement.length} recent transactions`]] : ln, left: left.map((o) => o.label), right: right.map((o) => o.label), sel, tone: v.tone, note: CMB.name }); }
   }
 }
