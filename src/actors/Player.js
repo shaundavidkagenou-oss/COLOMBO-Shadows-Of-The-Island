@@ -79,6 +79,7 @@ export class Player {
     // 73rd: door breach (middle mouse at a closed shop door) — DoorBreach.js squares him up and kicks it in
     if (this.breach && updateBreach(this, dt)) return;
     if (!this.breach && this.walkIn && breachPressed()) { const s = findBreach(this.walkIn, this); if (s) { if (this.cover) leaveCover(this); startBreach(this.walkIn, this, s); if (updateBreach(this, dt)) return; } }
+    this.coverLeft = false; // (set by leaveCover this frame: the gamepad's B then doesn't also insult a passer-by)
     const hadCover = !!this.cover; if (this.cover && updateCover(this, dt, mx, my, mag)) return;
     if (!hadCover && !this.cover && this.control && !this.indoor && this.grounded && !this.posed && Input.wasPressed('cover')) { const F = findCover(this, traffic); if (F) { enterCover(this, F); if (updateCover(this, dt, mx, my, mag)) return; } }
     this.crouching = this.control && Input.isDown('crouch');

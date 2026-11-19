@@ -60,7 +60,7 @@ export function enterCover(P, F) {
   P.cover = { F, s, side: (fx * F.T[0] + fz * F.T[1]) >= 0 ? 1 : -1, t: 0, low: lowOf(F), out: 0, edge: 0, awayT: 0 }; P.speed = 0; P.events && P.events.emit && P.events.emit('cover', true);
 }
 export function leaveCover(P, faceWall = false) {
-  const C = P.cover; if (!C) return; P.cover = null; const A = P.ch.anim; if (A.action === 'cover' || A.action === 'crouch') A.set(null); P.crouching = false;
+  const C = P.cover; if (!C) return; P.cover = null; P.coverLeft = true; const A = P.ch.anim; if (A.action === 'cover' || A.action === 'crouch') A.set(null); P.crouching = false;
   if (faceWall) P.yaw = Math.atan2(-C.F.N[0], -C.F.N[1]); P.events && P.events.emit && P.events.emit('cover', false);
 }
 // one frame in cover; false = cover was left this frame and the normal on-foot update carries on

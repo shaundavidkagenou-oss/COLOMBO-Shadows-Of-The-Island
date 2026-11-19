@@ -36,7 +36,10 @@ if (B) { put(B.x, B.zc, -Math.PI / 2); frame([], ['KeyQ']); ok(!!P.cover && P.co
   run(40, ['KeyD']); const zEnd = P.z; ok(zEnd >= P.cover.F.t0 + 0.25 && zEnd <= P.cover.F.t1 - 0.25 && Math.abs(P.x - B.c.x1 - 0.36) < 0.08, `stops at the end of the wall (${(P.cover.F.t1 - P.cover.F.t0).toFixed(1)} m of face), never past it`);
   P.aiming = true; run(0.6); const outD = Math.abs(P.z - zEnd); P.aiming = false; ok(P.cover.edge !== 0 ? outD > 0.3 : true, `aiming at the corner: steps out round it (${outD.toFixed(2)} m)`); run(0.6); ok(Math.abs(P.z - zEnd) < 0.1, 'back into cover after aiming');
   frame([], ['KeyQ']); ok(!P.cover, 'Q again leaves cover');
-  put(B.x, B.zc, -Math.PI / 2); frame([], ['KeyQ']); run(0.5); run(0.5, ['KeyS']); ok(!P.cover, 'pushing away from the wall leaves cover'); }
+  put(B.x, B.zc, -Math.PI / 2); frame([], ['KeyQ']); run(0.5); run(0.5, ['KeyS']); ok(!P.cover, 'pushing away from the wall leaves cover');
+  // gamepad B (button 1) does the same as Q
+  const padB = () => { Input.pad.prev = []; Input.pad.buttons = [false, true]; P.updateFoot(1 / 60, traffic); Input.endFrame(); Input.pad.prev = Input.pad.buttons; Input.pad.buttons = []; };
+  put(B.x, B.zc, -Math.PI / 2); padB(); ok(!!P.cover, 'gamepad B by a wall: in cover'); run(0.5); padB(); ok(!P.cover && P.coverLeft, 'gamepad B again: out of cover (and flagged, so it does not also insult anyone)'); }
 // ---- 2. a low wall
 const W = findFace((c) => (c.kind === 'wall' || c.kind === 'hedge') && c.h > 0.8 && c.h < 1.3);
 if (W) { put(W.x, W.zc, -Math.PI / 2); frame([], ['KeyQ']); run(1); ok(P.cover && P.cover.low && P.crouching && P.ch.anim.crouch > 0.8, `behind a ${W.c.h.toFixed(2)} m wall: crouched (crouch ${P.ch.anim.crouch.toFixed(2)})`);

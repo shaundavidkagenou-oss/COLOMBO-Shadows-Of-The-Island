@@ -32,7 +32,7 @@ class InputSystem {
   }
   wasPressed(action) { return this.pressed.has(this.code(action)) || this.padPressed(action); }
   keyPressed(code) { return this.pressed.has(code); }
-  padMap(action) { return { jump: 0, enter: 3, interact: 2, insult: 1, sprint: 10, crouch: 11, horn: 10, camera: 8, map: 8, shove: 5, phone: 12 } /* LB (4) = squad switch (tap next / hold selector) */[action]; }
+  padMap(action) { return { jump: 0, enter: 3, interact: 2, insult: 1, cover: 1, sprint: 10, crouch: 11, horn: 10, camera: 8, map: 8, shove: 5, phone: 12 } /* LB (4) = squad switch (tap next / hold selector); B (1) = cover when there is cover to take, else insult (Game.js) */[action]; }
   padDown(action) { const b = this.padMap(action); return b !== undefined && !!this.pad.buttons[b]; }
   padPressed(action) { const b = this.padMap(action); return b !== undefined && !!this.pad.buttons[b] && !this.pad.prev[b]; }
   // Movement axes (-1..1)

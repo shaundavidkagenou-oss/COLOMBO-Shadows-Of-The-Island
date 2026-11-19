@@ -650,7 +650,7 @@ export class Game {
     if (best) {
       if (Input.wasPressed('interact')) { this.crowd.interact(best, 'talk', P); P.ch.anim.play('talk', 1.8); }
       else if (Input.wasPressed('more')) { this.crowd.interact(best, 'wave', P); P.ch.anim.play('wave', 1.5); }
-      else if (Input.wasPressed('insult')) { this.crowd.interact(best, 'insult', P); P.ch.anim.play('point', 1.2); this.hud.subtitle(this.squad.activeMember.def.name, ['Move, machan!', 'Watch where you\'re going!', 'Nice shirt. Did your grandmother pick it?'][Math.floor(Math.random() * 3)], '', 2); }
+      else if (Input.wasPressed('insult') && !P.cover && !P.coverLeft) { this.crowd.interact(best, 'insult', P); P.ch.anim.play('point', 1.2); this.hud.subtitle(this.squad.activeMember.def.name, ['Move, machan!', 'Watch where you\'re going!', 'Nice shirt. Did your grandmother pick it?'][Math.floor(Math.random() * 3)], '', 2); }
       else if (Input.wasPressed('shove')) { this.crowd.interact(best, 'shove', P); P.ch.anim.play('shove', 0.6); }
       return `${key('interact')} Talk · ${key('more')} Wave · ${key('insult')} Insult · ${key('shove')} Shove`;
     }
