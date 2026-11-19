@@ -128,7 +128,7 @@ export function makeBankShift(ctx) {
     if (best) front = { piece: best.piece, seg: best.seg, sDoor: best.s, d: best.d }; return front; };
   const local = (x, z) => (W() && site ? W().local(site, x, z) : [x, z]); // (no street: tests in Node)
   const worldOf = (c) => (W() && site ? W().world(site, c.x, c.z) : [c.x, c.z]); const syaw = () => (site ? site.yaw : 0);
-  const boardPt = (v, seat) => { const bf = npcBoardSetup(v, seat, null); v.mesh.updateMatrixWorld(); const H0 = bf ? bf.H0 : seat.exit || [Math.sign(seat.x || 1) * (v.T.wid / 2 + 0.6), seat.z]; const w = new THREE.Vector3(H0[0], 0, H0[1]).applyMatrix4(v.mesh.matrixWorld); return [w.x, w.z]; };
+  const boardPt = (v, seat, A = null) => { const bf = npcBoardSetup(v, seat, A); /* (a hinged door needs the walker's anim: its door-grip reach) */ v.mesh.updateMatrixWorld(); const H0 = bf ? bf.H0 : seat.exit || [Math.sign(seat.x || 1) * (v.T.wid / 2 + 0.6), seat.z]; const w = new THREE.Vector3(H0[0], 0, H0[1]).applyMatrix4(v.mesh.matrixWorld); return [w.x, w.z]; };
   const boardFn = (p, v, seat, asDriver) => (c, dt, m) => { const ch = c.ch, A = ch.anim; if (!v.mesh.parent || v.player || v.disposed) { c.boarded = false; return true; }
     if (!m.init) { m.init = true; m.bf = npcBoardSetup(v, seat, A); const [wx, wz] = worldOf(c); if (ch.root.parent !== game.scene) { ch.root.parent?.remove(ch.root); game.scene.add(ch.root); } m.o = { x: wx, z: wz, yaw: syaw() + c.yaw }; m.boarding = false; m.t = 0; }
     const bf = m.bf, o = m.o; const done = () => { A.board = null; seatCharacter(ch, v, seat); ch.mesh.castShadow = false; if (asDriver) { v.driverChar = ch; v.animAcc = 0; } p.inCar = v; c.boarded = true; c.x = c.z = 999; return true; };
@@ -212,11 +212,11 @@ export function makeBankShift(ctx) {
     // through the hall into the staff's line along the front window (BankInterior lines: join at the back, it moves up, the front
     // one asks for the doorway token) — five people leaving at once otherwise jam the one-person doorway with the customers
     { const from = p.pre ? p.pre[p.pre.length - 1] : [c.x, c.z]; yield* room.lineGen(c, 'staff', (spot) => hallPath(from, spot)); c.loc = 'door'; yield { walk: [DOOR_OUT, STREET_OUT] }; } c.phase = 'street';
-    if (p.how === 'car') { const v = carOf(p); if (!v) note(`${p.role}: no car on the spot`); if (v) { const seat = v.driverSeat(); const [bx, bz] = boardPt(v, seat); const [lx, lz] = local(bx, bz); yield { walk: [...(p.via || []), [lx, lz]] }; yield { fn: boardFn(p, v, seat, true) }; if (c.boarded) { yield { fn: driveOffFn(p, v) }; return; } } }
+    if (p.how === 'car') { const v = carOf(p); if (!v) note(`${p.role}: no car on the spot`); if (v) { const seat = v.driverSeat(); const [bx, bz] = boardPt(v, seat, p.ch.anim); const [lx, lz] = local(bx, bz); yield { walk: [...(p.via || []), [lx, lz]] }; yield { fn: boardFn(p, v, seat, true) }; if (c.boarded) { yield { fn: driveOffFn(p, v) }; return; } } }
     else { const G = groups[p.grp]; if (frontLane()) { if (G.state === 'idle' || G.state === 'done' || G.state === 'gone' || G.state === 'fail') { G.mode = 'leave'; G.state = 'wait'; G.t = 0; }
       const k = G.members.indexOf(p); yield { walk: [groupWait(G, k)] }; c.atKerb = true; const fr = frontLane(); const [ax, az] = evalPiece(fr.piece, fr.sDoor), [bx, bz] = evalPiece(fr.piece, fr.sDoor + 1); const [la, lb] = local(ax, az), [lc, ld] = local(bx, bz); const roadYaw = Math.atan2(lc - la, ld - lb) + Math.PI; // looking up the street for it
       yield { fn: idleFn(() => G.state === 'held' || G.state === 'fail' || G.state === 'gone', roadYaw) };
-      if (G.state === 'held' && p.tukSeat) { const v = G.v; const [bx2, bz2] = boardPt(v, p.tukSeat); const [lx, lz] = local(bx2, bz2); yield { walk: [[lx, lz]] }; yield { fn: boardFn(p, v, p.tukSeat, false) }; if (c.boarded) { yield { fn: () => G.state === 'gone' || !p.inCar }; return; } } } }
+      if (G.state === 'held' && p.tukSeat) { const v = G.v; const [bx2, bz2] = boardPt(v, p.tukSeat, p.ch.anim); const [lx, lz] = local(bx2, bz2); yield { walk: [[lx, lz]] }; yield { fn: boardFn(p, v, p.tukSeat, false) }; if (c.boarded) { yield { fn: () => G.state === 'gone' || !p.inCar }; return; } } } }
     yield* walkOffGen(p, c);
   }
   function* arriveGen(p, c, via = null) {
