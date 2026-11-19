@@ -23,12 +23,29 @@ export function targetsOf(ch) {
 export function clipFor(ch, key) { const T = ANIM.targets; if (T) for (const id of targetsOf(ch)) { const set = T[id]; const c = set && set[key]; if (c && !c.off) return c; } return ANIM.clips[key] || null; }
 export const LOCO = ['idle', 'walk', 'run'];
 // every procedural animation state the game uses (live detection adds anything else it sees)
-export const KNOWN = ['idle', 'walk', 'run', 'crouch', 'seated', 'seated:drive', 'seated:ride', 'seated:pass', 'fight', 'fight:jab', 'fight:cross', 'fight:hook', 'fight:upper', 'hit:head', 'hit:body', 'hit:block',
+export const KNOWN = ['idle', 'walk', 'run', 'crouch', 'seated', 'seated:drive', 'seated:ride', 'seated:pass', 'seated:lap', 'fight', 'fight:jab', 'fight:cross', 'fight:hook', 'fight:upper', 'hit:snap', 'hit:hook', 'hit:upper', 'hit:body', 'hit:block',
   'interact', 'talk', 'stumble', 'argue', 'wave', 'point', 'photo', 'phone', 'text', 'handsup', 'umbrella', 'tackle', 'tackled', 'collapse', 'cuffKneel', 'cuffStand', 'kneel', 'kneelCuffed', 'prone', 'medKneel', 'medLift',
-  'torch', 'signal', 'shrug', 'shove', 'look', 'hit', 'hips', 'down', 'cower'];
+  'torch', 'signal', 'shrug', 'shove', 'look', 'hit', 'hips', 'down', 'cower',
+  // 69th: every other action the Animator poses (Character.js action switch + BODY_POSES) — the list was missing these
+  'alert', 'bat', 'beckon', 'bowl', 'browse', 'carry', 'clap', 'comms', 'cover', 'crossarms', 'cuffed', 'dance', 'dive', 'drive', 'flinch', 'glance', 'glasses', 'gloves',
+  'guard', 'hold', 'laugh', 'listen', 'medCarry', 'nod', 'paper', 'pray', 'pullup', 'pump', 'punch', 'ride', 'rise', 'sigh', 'sit', 'sitGround', 'smoke', 'straps', 'stretch',
+  'suitcase', 'swim', 'type', 'vault', 'watch'];
+// 69th: how to put a bare Animator into one of those states without the game around it (model tools: preview + "download the
+// original animation"): actions via set(), the fight moves / hit reactions via strike() / takeHit(), seats via a stand-in seat
+const STAND_SEAT = { x: 0, y: 0.45, z: 0, floor: 0, roof: 1.5, driver: false };
+export function driveState(a, key, t) {
+  if (!a) return; const [k0, k1] = key.split(':'); if (a._drvK !== key) { a._drvK = key; a._drvT = undefined; if (a.fight) { a.fight.move = null; a.fight.react = null; } } // (a new state strikes / reacts straight away)
+  if (key === 'idle' || key === 'walk' || key === 'run') { if (a.action) a.set(null); if (a.seated) a.standUp(); if (a.fight) a.fightOn(false, true); return; }
+  if (k0 === 'seated') { if (a.action) a.set(null); const seat = k1 === 'drive' ? Object.assign({}, STAND_SEAT, { driver: true, wheel: { p: [0, 0.95, 0.42], r: 0.19, tilt: 0.45 } }) : k1 === 'ride' ? Object.assign({}, STAND_SEAT, { bars: [[0.32, 1.0, 0.55], [-0.32, 1.0, 0.55]] }) : STAND_SEAT; if (!a.seated || a._standSeat !== key) { a.sitIn(seat, 1, k1 === 'lap' ? 'lap' : null); a._standSeat = key; } return; }
+  if (a.seated) { a.standUp(); a._standSeat = null; }
+  if (k0 === 'fight') { if (a.action) a.set(null); a.fightOn(true); const F = a.fight; if (k1 && F && !F.move && !(t - a._drvT < 1.2)) { a._drvT = t; a.strike(k1); } return; }
+  if (k0 === 'hit' && k1) { if (a.action) a.set(null); a.fightOn(true); const F = a.fight; if (F && !F.react && !(t - a._drvT < 1.4)) { a._drvT = t; a.takeHit(k1, 1, 1); } return; }
+  if (a.fight && a.fight.on) a.fightOn(false, true);
+  if (a.action !== key) a.set(key);
+}
 
 export function keyOf(a) {
-  if (a.seated) return a.seatMode ? 'seated:' + a.seatMode : 'seated';
+  if (a.seated) { const S = a.seated; return 'seated:' + (a.seatMode || (S.ride || S.bars ? 'ride' : S.driver || S.wheel ? 'drive' : 'pass')); } // 69th: the kind of seat (the game never sets a seat mode 'drive' / 'ride' / 'pass' — those keys never matched before)
   const F = a.fight; if (F && F.w > 0.05) { if (F.react) return 'hit:' + F.react; if (F.move) return 'fight:' + F.move; return 'fight'; }
   if (a.action) return a.action;
   return a.speed < 0.3 ? 'idle' : a.runW > 0.5 ? 'run' : 'walk';
@@ -80,7 +97,7 @@ export function install() {
     const key = ANIM.force && this.ch === ANIM.force.ch ? ANIM.force.key : keyOf(this); this._edKey = key;
     ANIM.seen.set(key, (ANIM.seen.get(key) || 0) + 1);
     if (this._edScaled) { for (const n of this._edScaled) { const bn = this.ch.bones[n]; if (bn) bn.scale.set(1, 1, 1); } this._edScaled = null; } // bone scales belong to the clip that set them
-    const clip = ANIM.enabled ? clipFor(this.ch, key) : null; this._edClip = clip; if (!clip || clip.off) return;
+    const clip = ANIM.enabled ? clipFor(this.ch, key) || (key.startsWith('seated:') ? clipFor(this.ch, 'seated') : null) : null; /* (a clip for 'seated' covers every seat) */ this._edClip = clip; if (!clip || clip.off) return;
     if (clip.scale) this._edScaled = Object.keys(clip.scale);
     const t = ANIM.force && this.ch === ANIM.force.ch && ANIM.force.t != null ? ANIM.force.t : timeOf(this, key, clip);
     applyClip(this.ch, clip, t);

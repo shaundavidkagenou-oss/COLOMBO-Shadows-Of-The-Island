@@ -39,6 +39,25 @@ const A_H = 3.6;        // m/s² horizontal manoeuvre limit (≈ 20° bank)
 const CD = 0.00095;     // drag: at 46 m/s needs ~11° nose-down
 const CLEAR = 18;       // m above the highest obstacle within reach of the flight path
 const ORBIT_R = 62, ORBIT_AGL = 58, CRUISE_AGL = 80;
+// 69th — escape + damage. The crew only knows where the suspect is while they can actually see them (spotPolice: range, line of
+// sight from the cabin — buildings, bridges / flyover decks, tunnels, being indoors all break it); out of sight they fly to
+// the last fix, carry on along the suspect's last heading for a few seconds, then widen a search orbit round it with the
+// searchlight sweeping. Endurance is limited (then back to the pad to refuel). It can be shot / blown out of the sky.
+export const HELI_CFG = {
+  hp: 100,
+  bulletK: 7,          // hull damage per unit of weapon dmg (a service rifle ≈ 19 hits, a .50 anti-materiel rifle ≈ 5)
+  smokeBelow: 45,      // engine smoke trail below this hp
+  endurance: 300,      // s of chase flying before it must go back and refuel
+  refuel: 120,         // s on the pad before it can launch again
+  rebuild: 180,        // s after it was shot down before a replacement is on the pad
+  reacquire: 1.5,      // s out of sight before the pilot stops using the live position
+  deadReckon: 4,       // s it keeps following the suspect's last heading
+  searchGrow: 3.5,     // m/s the search orbit widens by
+  searchMax: 170,
+};
+const HIT_SPHERES = [ // airframe (model space, +z nose, +x left): cabin → aft fairing → boom → fin; [x, y, z, r, part]
+  [0, 1.6, 3.7, 1.25, 'cabin'], [0, 1.65, 1.4, 1.45, 'cabin'], [0, 1.75, -0.9, 1.3, 'engine'], [0, 2.9, -0.6, 0.9, 'engine'],
+  [0, 2.35, -3.6, 0.6, 'tail'], [0, 2.9, -6.2, 0.55, 'tail'], [0.24, 3.4, -8.4, 1.0, 'tail']];
 
 // ------------------------------------------------------------------ obstacle heights (cells of max solid top)
 export class AirMap {
@@ -79,7 +98,8 @@ export class PoliceHelicopter {
     const M = buildHeliModel({ reg: '4R-SLP' }); this.M = M; M.group.rotation.order = 'YXZ'; scene.add(M.group);
     this.p = new THREE.Vector3(HELIPAD.x, HELIPAD.y, HELIPAD.z); this.v = new THREE.Vector3(); this.yaw = HELIPAD.yaw; this.pitch = 0; this.roll = 0; this.yawRate = 0;
     this.ay = 0; this.rpm = 0; this.state = 'parked'; this.mission = null; this.t = 0; this.wantT = 0; this.calmT = 0; this.orbA = 0; this.forced = false; this.light = 0;
-    this.aim = new THREE.Vector3(HELIPAD.x, 0, HELIPAD.z - 30); this.stats = { launches: 0, landings: 0, floorHits: 0, minClear: Infinity };
+    this.aim = new THREE.Vector3(HELIPAD.x, 0, HELIPAD.z - 30); this.stats = { launches: 0, landings: 0, floorHits: 0, minClear: Infinity, lost: 0, reacquired: 0, bingo: 0, hits: 0, downed: 0 };
+    this.cfg = HELI_CFG; this.hp = HELI_CFG.hp; this.track = null; this.lostT = 99; this.flightT = 0; this.refuelT = 0; this.bingo = false; this.downT = 0; this.wreckC = null; this.heatT = -99;
     // searchlight: one spot light, created now (before the loading screen compiles the shaders) and kept forever — only its
     // intensity changes (a light added or removed mid-play recompiles every material). Tier 2 of LightSets: out of the
     // shaders except while it (or a torch) is actually lit.
@@ -92,14 +112,16 @@ export class PoliceHelicopter {
   }
   // ------------------------------------------------------------------ public (police / console)
   get active() { return this.state !== 'parked'; }
+  get down() { return this.state === 'crash' || this.state === 'wreck' || this.state === 'gone'; }
   call(forced = true) { // launch (or re-task) for the chase
-    if (forced) this.forced = true; this.mission = 'chase'; this.calmT = 0;
+    if (this.down) return; if (!forced && (this.bingo || this.refuelT > 0)) return; // (69th: shot down / refuelling — none to send)
+    if (forced) { this.forced = true; this.bingo = false; this.refuelT = 0; } this.mission = 'chase'; this.calmT = 0;
     if (this.state === 'parked' || this.state === 'shutdown') { this.state = 'startup'; this.stats.launches++; this.g.police?.note?.('Air Wing helicopter launching from Police HQ'); }
     else if (this.state === 'land') this.state = 'fly';
   }
   home() { this.forced = false; if (this.state === 'parked' || this.state === 'shutdown') return; this.mission = 'home'; if (this.state === 'startup') { this.state = 'shutdown'; return; } if (this.state !== 'land') this.state = 'fly'; }
-  info() { const agl = this.p.y - this.air.top(this.p.x, this.p.z, 0); return `heli ${this.state}${this.mission ? ' (' + this.mission + ')' : ''} · rotor ${(this.rpm * 100).toFixed(0)}% · ${this.p.x.toFixed(0)}, ${this.p.y.toFixed(1)}, ${this.p.z.toFixed(0)} · ${agl.toFixed(1)} m AGL · ${(Math.hypot(this.v.x, this.v.z) * 3.6).toFixed(0)} km/h · light ${this.light > 0.01 ? 'on' : 'off'} · floor contacts ${this.stats.floorHits}`; }
-  hudMark() { if (this.state === 'parked') return null; return { x: this.p.x, z: this.p.z, lights: this.mission === 'chase', heli: true }; }
+  info() { const agl = this.p.y - this.air.top(this.p.x, this.p.z, 0); return `heli ${this.state}${this.mission ? ' (' + this.mission + ')' : ''} · hp ${Math.max(0, this.hp).toFixed(0)} · ${this.lostT < HELI_CFG.reacquire ? 'eyes on suspect' : this.track ? 'lost sight ' + this.lostT.toFixed(0) + ' s' : 'no contact'} · fuel ${Math.max(0, 100 - this.flightT / HELI_CFG.endurance * 100).toFixed(0)}% · rotor ${(this.rpm * 100).toFixed(0)}% · ${this.p.x.toFixed(0)}, ${this.p.y.toFixed(1)}, ${this.p.z.toFixed(0)} · ${agl.toFixed(1)} m AGL · ${(Math.hypot(this.v.x, this.v.z) * 3.6).toFixed(0)} km/h · light ${this.light > 0.01 ? 'on' : 'off'} · floor contacts ${this.stats.floorHits}`; }
+  hudMark() { if (this.state !== 'lift' && this.state !== 'fly' && this.state !== 'land') return null; return { x: this.p.x, z: this.p.z, lights: this.mission === 'chase', heli: true }; } // airborne only (not idling on the pad, not a wreck)
   // ------------------------------------------------------------------ per frame
   update(dt) {
     if (!(dt > 0)) return; dt = Math.min(dt, 0.05); this.t += dt; const g = this.g, P = g.police;
@@ -108,6 +130,8 @@ export class PoliceHelicopter {
     if (g.atmos && !(g.atmos.shadowCaster && g.atmos.shadowCaster.cine)) { const A = g.atmos; if (this.state !== 'parked' && !g.indoor) { const c = A.shadowCaster && A.shadowCaster.heli ? A.shadowCaster : (A.shadowCaster = { heli: true, x: 0, y: 0, z: 0, ground: 0, max: 56 }); c.x = this.p.x; c.y = this.p.y; c.z = this.p.z; c.ground = L.groundY(this.p.x, this.p.z); } else if (A.shadowCaster && A.shadowCaster.heli) A.shadowCaster = null; }
     // dispatch: 4★+ while the police are chasing or searching (and the player is outdoors); back to base after 20 s of calm
     const stars = P && P.stars ? P.stars() : 0; const chase = P && (P.state === 'pursuing' || P.state === 'searching' || P.state === 'detected');
+    if (this.down) { this.updateDown(dt); return; } // 69th: crashing / burning wreck / waiting for the replacement
+    if (this.state === 'parked' && this.refuelT > 0) this.refuelT -= dt;
     const want = (stars >= 4 && chase && !g.indoor) || this.forced;
     this.wantT = want ? this.wantT + dt : 0;
     if (want && this.wantT > 1.5 && this.mission !== 'chase') this.call(false);
@@ -119,6 +143,8 @@ export class PoliceHelicopter {
     if (this.state === 'shutdown' && this.rpm <= 0) this.state = 'parked';
     if (this.state === 'shutdown' && this.mission === 'chase') this.state = 'startup';
     if (this.state === 'lift' || this.state === 'fly' || this.state === 'land') this.fly(dt);
+    if (this.state === 'fly' && this.mission === 'chase' && !this.forced) { this.flightT += dt; if (this.flightT > HELI_CFG.endurance) { this.bingo = true; this.stats.bingo++; this.home(); g.police?.note?.('Air Wing helicopter low on fuel — returning to base'); g.hud?.notify?.('Helicopter leaving', 'The police helicopter is low on fuel and heading back to base.', 'info', 3); } }
+    if (this.hp < HELI_CFG.smokeBelow && this.state !== 'parked') this.smokeTrail(dt, (HELI_CFG.smokeBelow - this.hp) / HELI_CFG.smokeBelow);
     this.pose(dt); this.lights(dt); this.downwash(dt); this.sound(dt); this.spotPolice(dt);
   }
   // ------------------------------------------------------------------ pilot + flight dynamics
@@ -131,15 +157,15 @@ export class PoliceHelicopter {
     } else if (this.state === 'land') { // over the pad: square up, then a slow vertical descent, slowest in the last metres (ground cushion)
       gx = HELIPAD.x; gz = HELIPAD.z; yawD = HELIPAD.yaw; const hp = p.y - HELIPAD.y, off = Math.hypot(p.x - gx, p.z - gz);
       const vdn = hp > 14 ? -3.2 : hp > 4 ? -1.4 : -0.45; alt = null; vd.y = off < 2.5 && Math.abs(wrapA(this.yaw - yawD)) < 0.15 ? vdn : Math.min(0, (HELIPAD.y + Math.max(6, hp) - p.y) * 0.5);
-      if (hp <= 0.03 && vd.y < 0) { p.y = HELIPAD.y; v.set(0, 0, 0); this.ay = 0; this.state = 'shutdown'; this.mission = null; this.stats.landings++; this.g.police?.note?.('Air Wing helicopter landed at Police HQ'); return; }
+      if (hp <= 0.03 && vd.y < 0) { p.y = HELIPAD.y; v.set(0, 0, 0); this.ay = 0; this.state = 'shutdown'; this.mission = null; this.stats.landings++; this.flightT = 0; this.track = null; this.lostT = 99; if (this.bingo) { this.bingo = false; this.refuelT = HELI_CFG.refuel; } this.g.police?.note?.('Air Wing helicopter landed at Police HQ'); return; }
     } else if (this.mission === 'chase') {
-      const T = this.target(); const ts = Math.hypot(T.vx, T.vz); const ground = air.top(T.x, T.z, 30);
+      const T = this.chaseAim(); const ts = Math.hypot(T.vx, T.vz); const ground = air.top(T.x, T.z, 30); const OR = T.r || ORBIT_R;
       if (ts > 9) { // fast target (a car chase): trail it above and slightly behind, matching its speed
         const d = Math.hypot(T.vx, T.vz) || 1; gx = T.x - (T.vx / d) * 30 + T.vx * 1.5; gz = T.z - (T.vz / d) * 30 + T.vz * 1.5; vd.x = T.vx; vd.z = T.vz;
       } else { // orbit with the suspect on the right (observer / searchlight side), ~11 m/s round the circle
-        const dT = Math.hypot(p.x - T.x, p.z - T.z); if (dT > ORBIT_R * 2.5) this.orbA = Math.atan2(p.x - T.x, p.z - T.z); else this.orbA -= (11 / ORBIT_R) * dt;
-        gx = T.x + Math.sin(this.orbA) * ORBIT_R; gz = T.z + Math.cos(this.orbA) * ORBIT_R; const onRing = dT < ORBIT_R * 1.6 ? 1 : 0; vd.x = T.vx - 11 * Math.cos(this.orbA) * onRing; vd.z = T.vz + 11 * Math.sin(this.orbA) * onRing; // + the orbit point's own motion
-        faceK = clamp(1 - (dT - ORBIT_R * 1.4) / (ORBIT_R * 1.5), 0, 1); yawD = Math.atan2(T.x - p.x, T.z - p.z) + Math.PI / 2;
+        const dT = Math.hypot(p.x - T.x, p.z - T.z); const os = T.r ? 16 : 11; if (dT > OR * 2.5) this.orbA = Math.atan2(p.x - T.x, p.z - T.z); else this.orbA -= (os / OR) * dt;
+        gx = T.x + Math.sin(this.orbA) * OR; gz = T.z + Math.cos(this.orbA) * OR; const onRing = dT < OR * 1.6 ? 1 : 0; vd.x = T.vx - os * Math.cos(this.orbA) * onRing; vd.z = T.vz + os * Math.sin(this.orbA) * onRing; // + the orbit point's own motion
+        faceK = clamp(1 - (dT - OR * 1.4) / (OR * 1.5), 0, 1); yawD = Math.atan2(T.x - p.x, T.z - p.z) + Math.PI / 2;
       }
       alt = Math.max(ground + ORBIT_AGL, T.y + ORBIT_AGL);
     } else { // home: cruise to a point 35 m above the pad, then hand over to the landing
@@ -189,8 +215,8 @@ export class PoliceHelicopter {
     const M = this.M; this.place();
     const om = this.rpm * 2 * Math.PI * 6.1; M.rotor.rotation.y -= om * dt; M.tailBlades.rotation.x += om * 5.2 * dt; // main rotor ~366 rpm, tail ~5.2×
     const cone = -0.03 + 0.085 * this.rpm * this.rpm * (this.state === 'fly' || this.state === 'lift' || this.state === 'land' ? 1 + this.ay / 20 : 0.6); for (const b of M.blades) b.rotation.z = cone; // blades droop at rest, cone up under thrust
-    const blur = clamp((this.rpm - 0.3) / 0.5, 0, 1); M.disc.visible = blur > 0.02; M.discMat.opacity = 0.16 * blur; const td = M.tail.userData.disc; td.visible = blur > 0.02; M.tailBlades.visible = this.rpm < 0.55;
-    M.crew.visible = this.state !== 'parked' || this.rpm > 0;
+    const blur = clamp((this.rpm - 0.3) / 0.5, 0, 1); M.disc.visible = blur > 0.02; M.discMat.opacity = 0.16 * blur; const td = M.tail.userData.disc; td.visible = blur > 0.02 && !this.tailLost; M.tailBlades.visible = this.rpm < 0.55 && !this.tailLost; // (69th: a shot-off tail rotor stays gone)
+    M.crew.visible = (this.state !== 'parked' || this.rpm > 0) && this.state !== 'wreck' && this.state !== 'gone';
     // the aircrew (real Character bodies, HeliModel.js) re-pose at 10 Hz and only within 90 m of the camera (their seated pose is
     // nearly static; beyond 38 m the model's LOD shows a merged stand-in anyway), so the cost stays off the frame
     if (M.crew.visible && M.updateCrew) { this._crewT = (this._crewT || 0) + dt; const cam = this.g.camera; if (this._crewT > 0.1 && (!cam || cam.position.distanceToSquared(this.p) < 8100)) { M.updateCrew(this._crewT); this._crewT = 0; } }
@@ -206,7 +232,7 @@ export class PoliceHelicopter {
     const stars = this.g.police && this.g.police.stars ? this.g.police.stars() : 0;
     const want = this.mission === 'chase' && (this.state === 'fly') && night > 0.4 && (stars >= 5 || this.forced) ? 1 : 0;
     if (this.lightOverride != null) this.light = this.lightOverride; else this.light += clamp(want - this.light, -dt * 2, dt * 0.7); // lightOverride: set only by the cinematic trailer
-    const T = this.target(); const wob = 0.6; const tx = T.x + T.vx * 0.35 + Math.sin(t * 0.9) * wob, tz = T.z + T.vz * 0.35 + Math.cos(t * 0.7) * wob, ty = (T.y || 0) + 0.6;
+    const T = this.mission === 'chase' ? this.lightAim() : this.target(); const wob = 0.6; const tx = T.x + T.vx * 0.35 + Math.sin(t * 0.9) * wob, tz = T.z + T.vz * 0.35 + Math.cos(t * 0.7) * wob, ty = (T.y || 0) + 0.6;
     this.aim.x += (tx - this.aim.x) * Math.min(1, dt * 3.5); this.aim.z += (tz - this.aim.z) * Math.min(1, dt * 3.5); this.aim.y = ty;
     const M = this.M; const lens = M.light.userData.lens; const lp = lens.getWorldPosition(this._lens);
     // gimbal: yaw then pitch in the airframe's frame toward the aim point
@@ -249,12 +275,96 @@ export class PoliceHelicopter {
     const P = g.player; if (P && !P.vehicle && !g.indoor) { const dx = P.x - p.x, dz = P.z - p.z, d = Math.hypot(dx, dz); const R = 6 + agl * 0.4; if (d < R && agl < 22 && g.collision) { const f = k * (1 - d / R) * 1.4 * dt; const r = g.collision.resolveCircle(P.x + (dx / (d || 1)) * f, P.z + (dz / (d || 1)) * f, 0.35, P.y || 0); if (r) { P.x = r.x; P.z = r.z; } } }
   }
   // ------------------------------------------------------------------ air support: the crew keeps eyes on the suspect
+  // 69th: the crew's sight is the only way it knows where the suspect is (no live position out of sight). Range: 210 m by day,
+  // 70 m at night (200 m with the searchlight on them); line of sight from the cabin to the suspect must be clear of every
+  // building / wall and of bridge / flyover decks and tunnel roofs (minH 0.6: a deck counts); indoors = unseen. A fast car
+  // far off is harder to keep in view (range shrinks with speed beyond 25 m/s).
+  canSee() {
+    const g = this.g, Pl = g.player; if (g.indoor || (Pl && Pl.indoor != null)) return false;
+    const T = this.target(); const d = Math.hypot(T.x - this.p.x, T.z - this.p.z); const night = g.atmos ? g.atmos.night : 0; const sp = Math.hypot(T.vx, T.vz);
+    let range = night > 0.5 ? (this.light > 0.5 ? 200 : 70) : 210; if (sp > 25) range *= clamp(1 - (sp - 25) / 40, 0.6, 1); if (d > range) return false;
+    const c = g.collision; const t = c ? c.raycast(this.p.x, this.p.y + 0.6, this.p.z, T.x, (T.y || 0) + 1.2, T.z, 0.05, false, 0.6) : 1; return t >= 0.999;
+  }
   spotPolice(dt) {
-    const P = this.g.police; if (!P || this.mission !== 'chase' || this.state !== 'fly' || this.g.indoor) return; this.seeT = (this.seeT || 0) - dt; if (this.seeT > 0) return; this.seeT = 0.25;
-    const T = this.target(); const d = Math.hypot(T.x - this.p.x, T.z - this.p.z); const night = this.g.atmos ? this.g.atmos.night : 0;
-    const range = night > 0.5 ? (this.light > 0.5 ? 200 : 70) : 210; if (d > range || !(P.level > 0)) return;
-    const c = this.g.collision; const t = c ? c.raycast(this.p.x, this.p.y + 0.6, this.p.z, T.x, (T.y || 0) + 1.2, T.z, 0.05, false, 2.2) : 1;
-    if (t >= 0.999 && P.spotted) { P.spotted(); this.stats.sightings = (this.stats.sightings || 0) + 1; }
+    const P = this.g.police; if (!P || this.mission !== 'chase' || this.state !== 'fly') { if (this.mission !== 'chase') { this.track = null; this.lostT = 99; } return; }
+    this.lostT += dt; this.seeT = (this.seeT || 0) - dt; if (this.seeT > 0) return; this.seeT = 0.25;
+    if (!this.canSee()) { if (this.lostT >= HELI_CFG.reacquire && this.lostT - dt < HELI_CFG.reacquire && this.track) { this.stats.lost++; P.note?.('Air Wing lost sight of the suspect'); } return; }
+    if (this.lostT >= HELI_CFG.reacquire && this.track) { this.stats.reacquired++; P.note?.('Air Wing has the suspect again'); }
+    const T = this.target(); this.track = { x: T.x, z: T.z, vx: T.vx, vz: T.vz, y: T.y || 0 }; this.lostT = 0;
+    if (P.level > 0 && P.spotted) { P.spotted(); this.stats.sightings = (this.stats.sightings || 0) + 1; }
+  }
+  // where the pilot flies: the suspect while in sight; out of sight the last fix, pushed on along the last heading for a few
+  // seconds, then a widening search orbit round it (r) — the suspect has to break the line of sight and get clear of it
+  chaseAim() {
+    if (this.forced) return this.target(); // (a console 'heli call': the debug orbit over the player)
+    if (!this.track) { const T = this.target(); this.track = { x: T.x, z: T.z, vx: T.vx, vz: T.vz, y: T.y || 0 }; this.lostT = 0; } // launched on the police's report: starts at the reported position
+    if (this.lostT < HELI_CFG.reacquire) return this.target();
+    const k = this.track, tl = Math.min(this.lostT, HELI_CFG.deadReckon); const x = k.x + k.vx * tl, z = k.z + k.vz * tl; const moving = this.lostT < HELI_CFG.deadReckon;
+    return { x, z, vx: moving ? k.vx : 0, vz: moving ? k.vz : 0, y: k.y, r: moving ? 0 : Math.min(HELI_CFG.searchMax, ORBIT_R + (this.lostT - HELI_CFG.deadReckon) * HELI_CFG.searchGrow) };
+  }
+  lightAim() { const T = this.chaseAim(); if (!T.r) return T; const a = this.t * 0.7, r = T.r * (0.35 + 0.35 * Math.sin(this.t * 0.31)); return { x: T.x + Math.sin(a) * r, z: T.z + Math.cos(a) * r, vx: 0, vz: 0, y: T.y }; } // sweeping the search area
+
+  // ------------------------------------------------------------------ 69th: damage, crash, wreck
+  // nearest hit of a ray (o + d·t, t in [skipNear, maxT]) on the airframe's hit spheres → { t, point, part } or null
+  rayHit(o, d, skipNear = 0, maxT = Infinity) {
+    if (this.state === 'gone' || this.state === 'wreck') return null; const m = this.M.group.matrixWorld; const c = this._hc || (this._hc = new THREE.Vector3()); let best = null;
+    const dx = this.p.x - o.x, dy = this.p.y - o.y, dz = this.p.z - o.z; const tc = dx * d.x + dy * d.y + dz * d.z; if (tc < skipNear - 12 || tc > maxT + 12) return null; const q2 = dx * dx + dy * dy + dz * dz - tc * tc; if (q2 > 13 * 13) return null; // (cheap reject)
+    for (const [x, y, z, r, part] of HIT_SPHERES) { c.set(x, y, z).applyMatrix4(m); const ex = c.x - o.x, ey = c.y - o.y, ez = c.z - o.z; const tm = ex * d.x + ey * d.y + ez * d.z; const h2 = ex * ex + ey * ey + ez * ez - tm * tm; if (h2 > r * r) continue; const t = tm - Math.sqrt(r * r - h2); if (t < skipNear || t > maxT || (best && t >= best.t)) continue; best = { t, part }; }
+    if (best) best.point = new THREE.Vector3(o.x + d.x * best.t, o.y + d.y * best.t, o.z + d.z * best.t); return best;
+  }
+  damage(n, by = null, part = 'cabin') {
+    if (this.down || !(n > 0)) return; this.hp -= n * (part === 'engine' ? 1.4 : part === 'tail' ? 1.15 : 1); this.stats.hits++;
+    const P = this.g.police; if (by === 'player' && P && !this.g.debug?.noWanted && this.t - this.heatT > 5) { this.heatT = this.t; P.reason = 'shooting at the police helicopter'; P.addHeat?.(1, P.reason, 'Shots fired at the Air Wing helicopter.'); }
+    if (this.hp <= 0) this.startCrash(by, part === 'tail');
+  }
+  // an explosion nearby (Explosions.effects): the airframe within ~1.6× the knock-down radius takes blast damage
+  blastAt(c, pow, opts = {}) { if (this.down) return; const d = Math.hypot(c.x - this.p.x, c.y - (this.p.y + 1.6), c.z - this.p.z); const R = 11 * pow; if (d > R) return; this.damage(150 * Math.pow(1 - d / R, 1.3), opts.source || null, 'engine'); }
+  startCrash(by, tail) {
+    const g = this.g; this.state = 'crash'; this.mission = null; this.forced = false; this.crashT = 0; this.killedBy = by; this.spinDir = this.yawRate >= 0 ? 1 : -1; this.light = 0; this.stats.downed++; this.track = null; this.tailLost = !!tail || Math.random() < 0.6;
+    if (this.v.y > 2) this.v.y = 2; this.spot.intensity = 0; this.beam.visible = false; heliWash.value[3] = this.washW = 0; g.police?.note?.('Air Wing helicopter hit — going down'); g.hud?.notify?.('Helicopter down', 'The police helicopter is going down.', 'warn', 3);
+    if (by === 'player' && g.police && !g.debug?.noWanted) { g.police.reason = 'shooting down a police helicopter'; g.police.addHeat?.(1, g.police.reason, 'The Air Wing helicopter has been shot down.'); }
+    if (this.tailLost) { this.M.tailBlades.visible = false; const td = this.M.tail.userData.disc; if (td) td.visible = false; }
+  }
+  updateDown(dt) {
+    const g = this.g, p = this.p, v = this.v, M = this.M;
+    if (this.state === 'crash') { // tail rotor gone (or the engine dying): spinning, sinking fast, trailing smoke and fire
+      this.crashT += dt; const spinMax = this.tailLost ? 3.4 : 1.2; this.yawRate = clamp(this.yawRate + this.spinDir * 2.4 * dt, -spinMax, spinMax); this.yaw = wrapA(this.yaw + this.yawRate * dt);
+      this.rpm = Math.max(0.55, this.rpm - dt * 0.05); v.y = Math.max(-26, v.y - G * 0.62 * dt); const dr = 1 - 0.22 * dt; v.x *= dr; v.z *= dr;
+      this.pitch += (0.18 * Math.sin(this.crashT * 2.1) - this.pitch) * Math.min(1, dt * 2); this.roll += (this.spinDir * 0.32 + 0.12 * Math.sin(this.crashT * 3.3) - this.roll) * Math.min(1, dt * 1.5);
+      p.addScaledVector(v, dt); this.smokeTrail(dt, 1); if (g.explosions && g.explosions.burn) { const e = this._q.set(0, 2.9, -0.8).applyMatrix4(M.group.matrixWorld); g.explosions.burn(e, 0.55, this.air.top(p.x, p.z, 0), dt); }
+      const floor = Math.max(this.air.top(p.x, p.z, 2.2), L.surfaceY(p.x, p.z)); if (p.y <= floor + 0.05 || this.crashT > 30) { p.y = Math.max(p.y, floor); this.impact(); }
+      this.pose(dt); this.sound(dt); return;
+    }
+    if (this.state === 'wreck') { // burning wreck where it came down; cleared away once out of sight
+      this.downT += dt; const k = this.downT < 40 ? 1 - this.downT / 60 : Math.max(0, 0.35 - (this.downT - 40) / 80); const water = this.wreckWater;
+      if (water) { p.y -= dt * 0.6; M.group.position.copy(p); M.group.updateMatrixWorld(true); }
+      else if (k > 0.02 && g.explosions && g.explosions.burn) g.explosions.burn(this._q.set(p.x, p.y + 1.2, p.z), k, p.y, dt);
+      this.rpm = Math.max(0, this.rpm - dt / 3); this.pose(dt); this.sound(dt);
+      const cam = g.camera; const far = !cam || Math.hypot(cam.position.x - p.x, cam.position.z - p.z) > 170 || !this.inView(p);
+      if ((this.downT > 90 && far) || (water && this.downT > 8)) { this.clearWreck(); this.state = 'gone'; this.downT = 0; M.group.visible = false; }
+      return;
+    }
+    if (this.state === 'gone') { this.downT += dt; if (this.downT > HELI_CFG.rebuild) this.resetToPad(); } // a replacement aircraft on the pad
+  }
+  impact() {
+    const g = this.g, p = this.p; this.state = 'wreck'; this.downT = 0; this.v.set(0, 0, 0); this.yawRate = 0; this.pitch = 0.1; this.roll = this.spinDir * 0.55; this.place();
+    this.wreckWater = L.isWater(p.x, p.z) && p.y < L.LAND_Y + 0.5;
+    if (g.explosions && g.explosions.blast) g.explosions.blast(new THREE.Vector3(p.x, p.y + 1.2, p.z), { power: this.wreckWater ? 1.2 : 2.2, source: this.killedBy === 'player' ? 'player' : 'npc', cause: 'helicopter crash' });
+    this.M.crew.visible = false; this.M.disc.visible = false; for (const l of Object.values(this.M.lamps)) if (l && l.material) l.material.emissiveIntensity = 0; this.rpm = Math.min(this.rpm, 0.2); for (const b of this.M.blades) b.rotation.x = (Math.random() - 0.5) * 0.6; // blades bent on impact
+    if (!this.wreckWater && g.collision) { const c = { kind: 'wreck', heliWreck: true, x0: p.x - 3.2, x1: p.x + 3.2, z0: p.z - 3.2, z1: p.z + 3.2, y0: p.y, h: 2.6 }; g.collision.add(c); this.wreckC = c; } // solid where it lies
+    g.police?.note?.('Air Wing helicopter crashed');
+  }
+  clearWreck() { if (this.wreckC && this.g.collision) { this.g.collision.remove((c) => c.heliWreck); } this.wreckC = null; }
+  resetToPad() {
+    const M = this.M; this.state = 'parked'; this.mission = null; this.hp = HELI_CFG.hp; this.flightT = 0; this.refuelT = 0; this.bingo = false; this.downT = 0; this.rpm = 0; this.light = 0;
+    this.p.set(HELIPAD.x, HELIPAD.y, HELIPAD.z); this.v.set(0, 0, 0); this.yaw = HELIPAD.yaw; this.pitch = 0; this.roll = 0; this.yawRate = 0; this.ay = 0; this.tailLost = false;
+    M.group.visible = true; M.crew.visible = false; M.tailBlades.visible = true; for (const b of M.blades) b.rotation.x = 0; this.place(); this.g.police?.note?.('a replacement Air Wing helicopter is on the HQ pad');
+  }
+  inView(p) { const cam = this.g.camera; if (!cam) return false; const cd = this._v.set(0, 0, -1).applyQuaternion(cam.quaternion); const dx = p.x - cam.position.x, dz = p.z - cam.position.z; const d = Math.hypot(dx, dz) || 1; return (dx * cd.x + dz * cd.z) / d > 0.35; }
+  // engine smoke streaming from the exhausts (k 0..1), in the shared vehicle-smoke pool (no new draw call)
+  smokeTrail(dt, k) {
+    const vs = this.g.vsmoke; if (!vs || !vs.emit) return; this.smAcc = (this.smAcc || 0) + dt * (6 + 22 * k); const e = this._lens.set(0, 2.9, -1.2).applyMatrix4(this.M.group.matrixWorld); const gy = L.groundY(e.x, e.z);
+    while (this.smAcc >= 1) { this.smAcc -= 1; vs.emit(e.x + (Math.random() - 0.5) * 0.6, e.y, e.z + (Math.random() - 0.5) * 0.6, this.v.x * 0.3 + (Math.random() - 0.5), 0.6 + Math.random(), this.v.z * 0.3 + (Math.random() - 0.5), vs.t, 3 + Math.random() * 2.5, 0.9, 3.5 + 2.5 * k, 4, 0.25, 0.8, 0.12 + (1 - k) * 0.2, 0.55 + 0.35 * k, gy); }
   }
   // ------------------------------------------------------------------ sound
   sound() {

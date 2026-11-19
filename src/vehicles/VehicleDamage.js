@@ -439,7 +439,7 @@ export class VehicleDamage {
   ignite(v, fuse, by, why) {
     const st = this.st(v); if (st.fire || v.wrecked || v.T.pedal) return; /* a bicycle has nothing to burn */ st.fire = { t: 0, T: fuse, by, why, snd: 0 }; v.burning = true; this.burning.add(v); this.stats.fires++; v.damage = 1;
     const g = this.g; if (v.player && g.hud) g.hud.notify('Vehicle on fire', 'Get out — the tank is about to go.', 'warn', 3.5);
-    if (!v.player) g.traffic?.abandon?.(v, { x: v.x, z: v.z }, true); g.crowd?.alarm?.(v.x, v.z, 30, 2, null, 'fire', true);
+    if (!v.player && !v.police) g.traffic?.abandon?.(v, { x: v.x, z: v.z }, true); // (69th: a police unit's car — PoliceResponse gets its own crew out and then leaves it; abandon here turned the officer at the wheel into a civilian passenger) g.crowd?.alarm?.(v.x, v.z, 30, 2, null, 'fire', true);
   }
   firePoint(v, out) { const T = v.T, f = rearEngine(v) ? -1 : 1; const st = v.vd; const tank = st && st.fire && st.fire.why === 'tank'; out.set(tank ? T.wid * 0.3 : 0, tank ? 0.35 : (T.hgt || 1.4) * 0.55, (tank ? -0.36 : 0.36) * T.len * (tank ? 1 : f)); return out.applyMatrix4(v.mesh.matrixWorld); }
   explode(v, by = null) {

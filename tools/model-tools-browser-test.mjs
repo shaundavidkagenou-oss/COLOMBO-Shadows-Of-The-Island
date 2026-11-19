@@ -123,6 +123,30 @@ try {
     return out;
   }, (r) => { ok(r.n > 40, `model-npc lists ${r.n} groups (presets, police roles, staff, custom)`); ok(r.cop, 'police preview'); ok(r.lookApplied && r.civilUntouched, 'police look rule applies only to police'); });
 
+  // 69th: every NPC animation state is listed, previews the game's own animation, can be downloaded as the original (baked
+  // onto the NPC skeleton, .glb) and replaced — round trip: the downloaded original imported back onto a state
+  await stage(p, 'npc animations', async () => {
+    const S = globalThis.__editors.models; const out = {}; const AR = await import('/src/debug/AnimRuntime.js'); S.setMode('npc'); await window.__sleep(600);
+    S.select('npc:m'); for (let i = 0; i < 40 && !(S.ch && S.item === 'npc:m'); i++) await window.__sleep(100); out.ch = !!S.ch;
+    out.known = AR.KNOWN.length; out.has = ['dance', 'smoke', 'pray', 'sitGround', 'clap', 'browse', 'seated:drive', 'seated:lap', 'fight:jab', 'hit:snap', 'hit:upper', 'cower', 'medCarry'].filter((k) => AR.KNOWN.includes(k)).length;
+    { const src = await (await fetch('/src/actors/Character.js?raw')).text(); const acts = [...new Set([...src.matchAll(/case '([A-Za-z]+)'/g)].map((m) => m[1]))]; const BX = await import('/src/actors/Boxing.js');
+      const reacts = [...new Set(Object.values(BX.MOVES).map((m) => m.react).concat(['body', 'block']))]; out.acts = acts.length; out.missing = acts.filter((k) => !AR.KNOWN.includes(k)).concat(Object.keys(BX.MOVES).map((m) => 'fight:' + m).filter((k) => !AR.KNOWN.includes(k)), reacts.map((m) => 'hit:' + m).filter((k) => !AR.KNOWN.includes(k))); }
+    const bad = []; let match = 0, errs = 0; for (const k of AR.KNOWN) { S.state = k; S.stT = 0; try { for (let i = 0; i < 6; i++) S.frame(0.05); } catch (e) { errs++; bad.push(k + ':' + e.message); continue; } const live = AR.keyOf(S.ch.anim); if (live === k || (k === 'seated' && live.startsWith('seated:')) || (k === 'fight' && live.startsWith('fight')) || (k.startsWith('fight:') && (live === k || live === 'fight'))) match++; else bad.push(k + '→' + live); }
+    out.match = match; out.errs = errs; out.bad = bad.slice(0, 12); S.state = 'idle';
+    const n0 = window.__downloads.length; await S.exportGameAnims(['wave', 'seated:drive', 'fight:jab']); const d = window.__downloads.slice(n0).at(-1); out.dl = d && { name: d.name, size: d.size }; out.exp = S.lastAnimExport;
+    const nAll = window.__downloads.length; await S.exportGameAnims(AR.KNOWN.slice()); out.all = S.lastAnimExport; out.allDl = window.__downloads.length > nAll;
+    // replace: the downloaded original (wave) imported back onto "wave" of every man
+    const { THREE, GLTFExporter } = await import('/tools/browser/three-helpers.mjs'); void THREE; const clip = S.bakeGameClip('wave'); const glb = await new GLTFExporter().parseAsync(S.ch.root, { binary: true, animations: [clip] });
+    const MP = await import('/src/debug/ModelPack.js'); const a = await MP.addAsset([new File([glb], 'npc-wave.glb', { type: 'model/gltf-binary' })], 'anim'); const inst = await MP.loadAsset({ main: a.main, files: a.files }); out.clips = inst.clips.length;
+    const R = await import('/src/debug/Retarget.js'); const names = R.bonesOf(inst.scene).map((x) => x.name); out.bones = names.length; out.mapped = Object.keys(R.autoMap(names)).length; out.names = names.join(' ');
+    const ic = R.importClip({ root: inst.scene, clip: inst.clips[0] }, S.ch, { key: 'wave', fps: 30, inPlace: true }); ic.src = 'npc-wave.glb'; (AR.ANIM.targets['npc:m'] ||= {}).wave = ic; S.animChanged(false); out.replaced = !!(AR.clipFor(S.ch, 'wave'));
+    delete AR.ANIM.targets['npc:m'].wave; S.animChanged(false); return out;
+  }, (r) => { ok(r.ch && r.acts >= 60 && r.missing.length === 0 && r.has === 13, `model-npc lists ${r.known} NPC animation states — every one of the Animator's ${r.acts} actions, every punch and hit reaction, every seat (missing: ${JSON.stringify(r.missing)})`);
+    ok(r.errs === 0 && r.match === r.known, `every state previews the game's own animation (${r.match}/${r.known}; ${JSON.stringify(r.bad)})`);
+    ok(r.dl && /\.glb$/.test(r.dl.name) && r.exp && r.exp.clips === 3, 'original NPC animations download as .glb (3 clips on the NPC skeleton): ' + JSON.stringify(r.dl));
+    ok(r.all && r.all.clips === r.known && r.allDl, `all ${r.known} original animations in one .glb (${r.all && r.all.bytes} bytes)`);
+    ok(r.clips === 1 && r.mapped >= 15 && r.replaced, `downloaded original imports back as a replacement (bones ${r.bones}, mapped ${r.mapped})`); });
+
   await stage(p, 'texture maker', async () => {
     const TM = await import('/src/debug/TextureMaker.js'); const out = { gens: Object.keys(TM.GENERATORS).length, blank: [] };
     for (const [k, G] of Object.entries(TM.GENERATORS)) { const c = document.createElement('canvas'); c.width = c.height = 64; const cx = c.getContext('2d'); cx.fillStyle = '#000'; cx.fillRect(0, 0, 64, 64); TM.renderLayer(cx, 64, 64, { gen: k, opacity: 1, blend: 'source-over', p: Object.assign({}, G.p) });

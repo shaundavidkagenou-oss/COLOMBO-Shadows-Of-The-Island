@@ -671,11 +671,11 @@ export class Game {
       const see = (o) => { const d = Math.hypot(o.x - src.x, o.z - src.z); return d < R && (d < 6 || this.lineOfSight(src.x, src.z, o.x, o.z)); };
       for (const v of this.traffic.all()) if (v !== P.vehicle && v.x !== undefined && see(v)) S.veh.push(v);
       for (const p of this.crowd.peds || []) if (see(p)) S.peds.push(p);
-      for (const u of this.police?.units || []) if (see(u)) S.units.add(u);
+      for (const u of this.police?.units || []) { const q = u.v && !u.v.player ? u.v : u.officers && u.officers.find((o) => !o.dead && o.mode !== 'seated'); if (q && see(q)) S.units.add(u); } // (69th: tested the unit record itself, which has no position — so nobody was ever "seen")
     }
     this.sight = S;
   }
-  canSeeUnit(u) { const S = this.sight; if (S && S.units.has(u)) return true; const P = this.player, src = P.vehicle || P; if (u.heli) return Math.hypot(u.x - src.x, u.z - src.z) < 450; /* up in the open sky: seen and heard from far */ return !!u.lights && Math.hypot(u.x - src.x, u.z - src.z) < 150; } // responding units are heard (siren)
+  canSeeUnit(u) { const S = this.sight; if (S && u.ref && S.units.has(u.ref)) return true; const P = this.player, src = P.vehicle || P; if (u.heli) return Math.hypot(u.x - src.x, u.z - src.z) < (this.indoor || P.indoor != null ? 160 : 450); /* up in the open sky: seen and heard from far (69th: only while it is up on the chase — Helicopter.hudMark) */ return !!u.lights && Math.hypot(u.x - src.x, u.z - src.z) < 150; } // responding units are heard (siren); 69th: hudInfo items carry their unit (ref) — they are fresh objects, so the old S.units.has(item) never matched
   // crowd + officers on foot + squad proxies for the traffic's pedestrian checks: one reused array (was a fresh concat every frame of a chase)
   pedsNearList() { const o = this._pedsNear || (this._pedsNear = []); o.length = 0; for (const L of [this.crowd.peds, this.police.foot, this.squad.proxies]) for (let i = 0; i < L.length; i++) o.push(L[i]); return o; }
   miniExtras() {

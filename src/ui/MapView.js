@@ -232,7 +232,7 @@ export class MapView {
     // police search area + units
     const pol = st.police; if (pol) {
       if (pol.search) { g.fillStyle = 'rgba(70,130,255,0.16)'; g.strokeStyle = 'rgba(120,170,255,0.9)'; g.lineWidth = 2; g.setLineDash([8, 5]); g.beginPath(); g.arc(X(pol.search.x), Y(pol.search.z), pol.search.r * z, 0, 7); g.fill(); g.stroke(); g.setLineDash([]); }
-      for (const u of pol.units) { if (st.seeUnit && !st.seeUnit(u)) continue; g.fillStyle = u.lights ? ((this.t * 3) % 1 < 0.5 ? '#ff3b3b' : '#3b7bff') : '#a9c8ff'; g.fillRect(X(u.x) - 5, Y(u.z) - 5, 10, 10); } // only units in sight (or responding within earshot)
+      for (const u of pol.units) { if (st.seeUnit && !st.seeUnit(u)) continue; if (u.heli) { drawHeliBlip(g, X(u.x), Y(u.z), 1.15, u.lights, this.t); continue; } /* 69th: own helicopter mark */ g.fillStyle = u.lights ? ((this.t * 3) % 1 < 0.5 ? '#ff3b3b' : '#3b7bff') : '#a9c8ff'; g.fillRect(X(u.x) - 5, Y(u.z) - 5, 10, 10); } // only units in sight (or responding within earshot)
       for (const e of st.extras || []) { g.fillStyle = e.color; g.beginPath(); g.arc(X(e.x), Y(e.z), Math.max(1.2, (e.r || 2) * 0.8), 0, 7); g.fill(); } // tiny marks: people / vehicles the player can see
     }
     // GPS route
@@ -259,4 +259,17 @@ export class MapView {
     g.save(); g.translate(W - 60, H - 64); g.fillStyle = 'rgba(8,10,14,0.7)'; g.beginPath(); g.arc(0, 0, 24, 0, 7); g.fill(); g.fillStyle = '#e8a33a'; g.beginPath(); g.moveTo(0, -18); g.lineTo(6, 0); g.lineTo(-6, 0); g.fill(); g.fillStyle = '#c9d4dc'; g.beginPath(); g.moveTo(0, 18); g.lineTo(6, 0); g.lineTo(-6, 0); g.fill(); g.fillStyle = '#fff'; g.font = 'bold 11px "Barlow Condensed"'; g.textAlign = 'center'; g.fillText('N', 0, -26 + 2); g.restore();
   }
   hover(px, py) { let best = null, bd = 16; for (const h of this.hoverables || []) { const d = Math.hypot(h.px - px, h.py - py); if (d < bd) { bd = d; best = h.b; } } this.hoverB = best; return best; }
+}
+
+// 69th: the police helicopter's map mark (minimap + full map) — a small top-down helicopter (round cabin, tail boom, the two-blade
+// rotor turning), dark outline, its strobe colours flashing while it is on the chase. Distinct from the square police-car mark.
+export function drawHeliBlip(g, x, y, k = 1, lit = true, now = 0) {
+  const c = lit ? ((now * 2.4) % 1 < 0.5 ? '#ff4a4a' : '#4a86ff') : '#a9c8ff'; const a = now * 9;
+  g.save(); g.translate(x, y); g.lineCap = 'round';
+  g.strokeStyle = '#000'; g.lineWidth = 4.2 * k; g.beginPath(); g.moveTo(0, 2 * k); g.lineTo(0, 9 * k); g.moveTo(-2.6 * k, 9 * k); g.lineTo(2.6 * k, 9 * k); g.stroke(); // tail boom + stabiliser (outline)
+  g.strokeStyle = c; g.lineWidth = 2 * k; g.beginPath(); g.moveTo(0, 2 * k); g.lineTo(0, 9 * k); g.moveTo(-2.6 * k, 9 * k); g.lineTo(2.6 * k, 9 * k); g.stroke();
+  g.fillStyle = c; g.strokeStyle = '#000'; g.lineWidth = 1.5 * k; g.beginPath(); g.ellipse(0, -0.5 * k, 3.6 * k, 4.4 * k, 0, 0, 7); g.fill(); g.stroke(); // cabin
+  g.strokeStyle = 'rgba(0,0,0,0.85)'; g.lineWidth = 3.4 * k; g.beginPath(); for (const s of [0, Math.PI / 2]) { g.moveTo(Math.cos(a + s) * 8 * k, Math.sin(a + s) * 8 * k - 0.5 * k); g.lineTo(-Math.cos(a + s) * 8 * k, -Math.sin(a + s) * 8 * k - 0.5 * k); } g.stroke();
+  g.strokeStyle = '#eef3ff'; g.lineWidth = 1.5 * k; g.stroke(); // rotor blades
+  g.restore();
 }

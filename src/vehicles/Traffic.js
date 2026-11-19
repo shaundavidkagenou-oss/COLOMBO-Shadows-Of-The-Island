@@ -583,7 +583,7 @@ export class Traffic {
   // where it ends up (a kept vehicle: towed later like any car the player left), and whoever is still alive in it gets out through
   // his own door and runs (`from`: what they run from). Occupants killed in their seats stay slumped there (v.deadOcc).
   abandon(v, from = null, coast = false) {
-    if (v.player || v.squad || v.isTrain || v.towedBy || v.abandoned) return false; v.abandoned = true;
+    if (v.player || v.squad || v.isTrain || v.towedBy || v.abandoned || v.police) return false; v.abandoned = true; // (69th: a police unit's car is never abandoned here — PoliceResponse gets its crew out / leaves it; this nulled its ai under the unit)
     const i = this.vehicles.indexOf(v); if (i >= 0) this.vehicles.splice(i, 1);
     if (coast && Math.abs(v.speed || 0) > 0.6 && !v.free) { const [fx, fz] = v.forward(); v.free = { vx: fx * v.speed, vz: fz * v.speed, spin: (v.steer || 0) * 0.3, rest: 0, sev: 0 }; }
     v.ai = null; v.speed = 0; v.brake = true; v.hold = false; v.steer = 0; v.towing = null;

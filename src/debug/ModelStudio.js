@@ -31,7 +31,7 @@ import { BOATS } from '../boats/BoatCatalog.js';
 import { Character, HEROES, randomSpec } from '../actors/Character.js';
 import { PRESETS, POLICE_ROLES, makePoliceAppearance, makeAttendantAppearance, makeBankStaffAppearance, makeMechanicAppearance, makeMedicAppearance } from '../actors/Appearance.js';
 import { CATALOGUE, CATEGORY_NAMES, SLOT, applyLook } from '../actors/Wardrobe.js';
-import { ANIM, KNOWN, install as animInstall } from './AnimRuntime.js';
+import { ANIM, KNOWN, install as animInstall, driveState, keyOf } from './AnimRuntime.js';
 import { Input } from '../core/Input.js';
 
 const MODES = [['weapons', 'Weapons'], ['player', 'Player (3 heroes)'], ['vehicles', 'Vehicles'], ['npc', 'NPCs']];
@@ -140,7 +140,7 @@ class ModelStudio {
   }
   frameCam() { const o = this.obj; if (!o) return; const bb = new THREE.Box3().setFromObject(o); if (!Number.isFinite(bb.min.x)) return; const c = bb.getCenter(new THREE.Vector3()), sz = bb.getSize(new THREE.Vector3()); this.vp.target.copy(c); this.vp.dist = Math.max(0.4, Math.max(sz.x, sz.y, sz.z) * 1.6); }
   frame(dt) {
-    if (this.ch) { const a = this.ch.anim; if (a) { if (this.state !== 'auto') ANIM.force = this.state && this.state !== 'idle' && this.state !== 'walk' && this.state !== 'run' ? { ch: this.ch, key: this.state } : null; a.update(dt, this.state === 'walk' ? 1.4 : this.state === 'run' ? 5 : this.speed, 0); }
+    if (this.ch) { const a = this.ch.anim; if (a) { if (this.state !== 'auto') ANIM.force = this.state && this.state !== 'idle' && this.state !== 'walk' && this.state !== 'run' ? { ch: this.ch, key: this.state } : null; this.stT = (this.stT || 0) + dt; if (this.state !== 'auto' && this.state) driveState(a, this.state, this.stT); /* 69th: the game's own animation for that state plays (was: idle + only an imported clip) */ a.update(dt, this.state === 'walk' ? 1.4 : this.state === 'run' ? 5 : this.speed, 0); }
       this.ch.root.updateMatrixWorld(true); this.MR.driveOne(this.ch); }
     if (this.spin && this.obj && this.obj.userData.wheels) for (const w of this.obj.userData.wheels) if (w.userData.spin) w.userData.spin.rotation.x += dt * 8;
     tickMixers(dt); if (this.box.visible && this.boxMesh) this.box.setFromObject(this.boxMesh);
@@ -284,9 +284,30 @@ class ModelStudio {
     const L = h('div', { cls: 'ed-list', style: { maxHeight: '220px' } });
     for (const k of KNOWN) { const c = set[k]; L.append(h('div', { cls: this.state === k ? 'sel' : '', onclick: () => { this.state = k; this.renderBar(); this.renderInspector(); } }, (c ? '● ' : '') + k, h('small', {}, c ? (c.src || 'imported') + ' · ' + (c.length || 0).toFixed(2) + ' s' : 'game animation'))); }
     sec.b.append(L); const k = this.state && KNOWN.includes(this.state) ? this.state : 'idle'; const c = set[k];
-    sec.b.append(h('div', { style: { fontWeight: 600, marginTop: '6px' } }, 'State: ' + k), h('div', { cls: 'ed-tabs' }, btn('⬆ Import for “' + k + '”…', () => this.importAnim(target, k)), c ? btn('Remove', () => { delete set[k]; this.animChanged(); }, { cls: 'warn' }) : null, c ? btn('⬇ Clip (.json)', () => download(target.replace(':', '-') + '-' + k + '.json', JSON.stringify(c))) : null));
+    sec.b.append(h('div', { style: { fontWeight: 600, marginTop: '6px' } }, 'State: ' + k), h('div', { cls: 'ed-tabs' }, btn('⬆ Import for “' + k + '”…', () => this.importAnim(target, k)), c ? btn('Remove', () => { delete set[k]; this.animChanged(); }, { cls: 'warn' }) : null, c ? btn('⬇ Clip (.json)', () => download(target.replace(':', '-') + '-' + k + '.json', JSON.stringify(c))) : null, btn('⬇ Original game animation (.glb)', () => this.exportGameAnims([k]), { title: 'the game’s own animation for this state, baked onto the character’s skeleton — edit it in Blender etc. and import it back here' })),
+      h('div', { cls: 'ed-tabs' }, btn('⬇ All ' + KNOWN.length + ' original animations (.glb)', () => this.exportGameAnims(KNOWN.slice()))));
     if (c) sec.b.append(num('Weight', c.weight ?? 1, { min: 0, max: 1, step: 0.01 }, (v) => { c.weight = v; this.animChanged(false); }), num('Speed', c.speed ?? 1, { min: 0.1, max: 3, step: 0.01 }, (v) => { c.speed = v; this.animChanged(false); }), check('Loop', c.loop !== false, (v) => { c.loop = v; this.animChanged(false); }), check('Off (use the game animation)', !!c.off, (v) => { c.off = v || undefined; this.animChanged(false); }), btn('Mirror left ↔ right', () => { mirrorClip(c); this.animChanged(false); }));
     return sec;
+  }
+  // 69th: the game's procedural animation for each state, baked (30 fps) onto this character's own skeleton as glTF animation
+  // clips and exported with the character — the "original NPC animations": open in Blender / any DCC, change, import back
+  // (Import for “state”: the bone names are the game's, so the retarget maps 1:1)
+  bakeGameClip(k, fps = 30) {
+    const ch = this.ch, a = ch && ch.anim; if (!a) return null; const loco = k === 'walk' || k === 'run'; const sp = k === 'walk' ? 1.4 : k === 'run' ? 5 : 0;
+    const was = ANIM.enabled, wasF = ANIM.force; ANIM.enabled = false; ANIM.force = null; const dur = k === 'idle' ? 4 : loco ? 2 : k.startsWith('fight:') || k.startsWith('hit:') ? 1.2 : 2.4;
+    const bones = Object.entries(ch.bones).filter(([, b]) => b && b.isBone); const n = Math.round(dur * fps) + 1; const times = new Float32Array(n); const q = bones.map(() => new Float32Array(n * 4)); const hip = new Float32Array(n * 3);
+    driveState(a, k, 0); for (let i = 0; i < 8; i++) { driveState(a, k, i / fps); a.update(1 / fps, sp, 0); } // settle into the state (blend-in)
+    for (let i = 0; i < n; i++) { const t = i / fps; driveState(a, k, t + 0.3); a.update(i ? 1 / fps : 0.0001, sp, 0); times[i] = t; bones.forEach(([, b], j) => b.quaternion.toArray(q[j], i * 4)); const hp = ch.bones.hips; if (hp) hp.position.toArray(hip, i * 3); }
+    ANIM.enabled = was; ANIM.force = wasF; driveState(a, this.state && this.state !== 'auto' ? this.state : 'idle', 0);
+    const tracks = bones.map(([, b], j) => new THREE.QuaternionKeyframeTrack(b.name + '.quaternion', times, q[j])); if (ch.bones.hips) tracks.push(new THREE.VectorKeyframeTrack(ch.bones.hips.name + '.position', times, hip));
+    const clip = new THREE.AnimationClip(k.replace(':', '_'), dur, tracks); clip.userData = { state: k, live: keyOf(a) }; return clip;
+  }
+  async exportGameAnims(keys) {
+    if (!this.ch) { toast('Pick a character first'); return; } try { toast('Baking ' + keys.length + ' animation(s)…'); const clips = []; for (const k of keys) { const c = this.bakeGameClip(k); if (c) clips.push(c); }
+      const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js'); const root = this.ch.root; const vis = []; root.traverse((x) => { if (x.userData.__helper && x.visible) { vis.push(x); x.visible = false; } });
+      const glb = await new GLTFExporter().parseAsync(root, { binary: true, onlyVisible: true, animations: clips, maxTextureSize: 1024 }); for (const x of vis) x.visible = true;
+      const name = (this.mode + '-' + this.item + (keys.length === 1 ? '-' + keys[0] : '-all-animations')).replace(/[^\w-]+/g, '_') + '.glb'; download(name, glb, 'model/gltf-binary'); toast('Downloaded ' + name + ' (' + clips.length + ' clips)'); this.lastAnimExport = { name, clips: clips.length, bytes: glb.byteLength };
+    } catch (e) { console.error(e); toast('Export failed: ' + (e.message || e), 5000); }
   }
   animChanged(render = true) { this.P.anims = Object.assign(this.P.anims || {}, { targets: JSON.parse(JSON.stringify(ANIM.targets)) }); clean(this.P.anims.targets); markDirty(); this.fillList && this.fillList(); if (render) this.renderInspector(); }
   async importAnim(target, key) {

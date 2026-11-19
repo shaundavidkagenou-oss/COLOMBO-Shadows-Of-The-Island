@@ -16,7 +16,7 @@ import { Character } from '../actors/Character.js';
 import { seatCharacter } from '../actors/Seating.js';
 import { resetDoors } from '../vehicles/DoorRig.js';
 
-export const POOL = { enabled: true, police: 7, policejeep: 3, spare: 4, refillGap: 2.0, calmAfter: 6 };
+export const POOL = { enabled: true, police: 7, policejeep: 3, spare: 4, refillGap: 2.0, calmAfter: 6, wantedLow: 2, wantedGap: 9 }; // wantedLow / wantedGap: 69th, see update
 export const POOL_TYPES = ['police', 'policejeep'];
 
 // the two crew seats of a police vehicle: the driver and the passenger seat nearest him (front passenger)
@@ -112,8 +112,11 @@ export class UnitPool {
   update(dt) {
     for (const e of this.out) { const v = e.v; if (v.poolEntry !== e || v.disposed || v.player || !v.police) { this.out.delete(e); if (v.poolEntry === e) v.poolEntry = null; this.stats.lost++; } }
     if (!this.ready || !POOL.enabled) return;
-    const pr = this.pr; this.calmT = pr.level > 0 || pr.busy || pr.cine ? 0 : this.calmT + dt; if (this.calmT < POOL.calmAfter) return;
-    this.refillT -= dt; if (this.refillT > 0) return;
+    const pr = this.pr; this.calmT = pr.level > 0 || pr.busy || pr.cine ? 0 : this.calmT + dt; this.refillT -= dt;
+    // 69th: a long fight that burns / wrecks / loses cars must not run the pool dry (the police would simply stop coming): while
+    // wanted and down to POOL.wantedLow free cars, one replacement car every POOL.wantedGap s (a single car off the scene graph)
+    if (this.calmT < POOL.calmAfter) { if (pr.level > 0 && this.refillT <= 0 && this.freeCount() < POOL.wantedLow) { const t = POOL_TYPES.find((q) => this.size(q) < POOL[q]); if (t) { const t0 = performance.now(); this.build(t); this.stats.refilled++; this.stats.wantedBuildMs = Math.max(this.stats.wantedBuildMs || 0, performance.now() - t0); this.refillT = POOL.wantedGap; } } return; }
+    if (this.refillT > 0) return;
     const need = POOL_TYPES.find((t) => this.size(t) < POOL[t]); // a car lost for good (burnt out, stolen, abandoned)
     if (need) { this.build(need); this.stats.refilled++; this.refillT = POOL.refillGap; return; }
     // officers: enough spares for every empty seat in the free cars plus POOL.spare more — so the next chase builds nobody

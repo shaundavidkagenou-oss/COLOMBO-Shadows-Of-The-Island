@@ -47,6 +47,8 @@ const PAT = {
   foot: [/^(foot|ankle|footjoint)$/],
 };
 export function autoMap(names) {
+  // 69th: the game's own rig (a downloaded original animation re-imported): bones carry the game names already ('armL', 'shinR' …)
+  const own = MAP_BONES.filter((g) => names.includes(g)); if (own.length >= 12) { const o = {}; for (const g of own) o[g] = g; return o; }
   const out = {}; const used = new Set(); const info = names.map((n) => ({ raw: n, n: norm(n), side: sideOf(n) }));
   const find = (pats, side) => { for (const p of pats) for (const it of info) { if (used.has(it.raw)) continue; if (side && it.side !== side) continue; if (!side && it.side) continue; const core = side ? stripSide(it.n, it.raw) : it.n; if (p.test(core)) return it.raw; } return null; };
   for (const g of ['hips', 'spine', 'chest', 'neck', 'head']) { let r = find(PAT[g], null); if (g === 'chest' && r && r === out.spine) r = null; if (r) { out[g] = r; used.add(r); } }

@@ -4,7 +4,7 @@ import { Settings } from '../core/Settings.js';
 import { Audio } from '../audio/Audio.js';
 import { keyLabel } from '../core/Input.js';
 import { plan } from '../world/CityPlan.js';
-import { Gps, MapView, drawIcon, BLIP_STYLE } from './MapView.js';
+import { Gps, MapView, drawIcon, BLIP_STYLE, drawHeliBlip } from './MapView.js';
 import { PauseTabs, segBar } from './PauseTabs.js';
 
 const el = (tag, cls, parent, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; if (parent) parent.appendChild(e); return e; };
@@ -96,6 +96,7 @@ export class HUD {
       const now = performance.now() / 1000;
       if (pol.search) { const [x, y] = toMini(pol.search.x, pol.search.z); const r = pol.search.r * MAP_SCALE * zoom; g.save(); g.beginPath(); g.arc(S / 2, S / 2, S / 2 - 2, 0, 7); g.clip(); g.fillStyle = `rgba(70,130,255,${0.13 + 0.06 * Math.sin(now * 3)})`; g.strokeStyle = 'rgba(120,170,255,0.85)'; g.lineWidth = 2; g.setLineDash([6, 4]); g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); g.stroke(); g.setLineDash([]); g.restore(); }
       for (const u of pol.units) { if (this.canSeeUnit && !this.canSeeUnit(u)) continue; let [x, y] = toMini(u.x, u.z); const dx = x - S / 2, dy = y - S / 2, d = Math.hypot(dx, dy), R = S / 2 - 9; if (d > R) { if (!u.lights) continue; x = S / 2 + dx / d * R; y = S / 2 + dy / d * R; }
+        if (u.heli) { drawHeliBlip(g, x, y, 1, u.lights, now); continue; } // 69th: the Air Wing helicopter has its own mark
         g.fillStyle = u.lights ? ((now * 3) % 1 < 0.5 ? '#ff3b3b' : '#3b7bff') : '#a9c8ff'; g.strokeStyle = '#000'; g.lineWidth = 1.5; g.beginPath(); g.rect(x - 4, y - 4, 8, 8); g.fill(); g.stroke(); }
     }
     for (const e of extras) { const [x, y] = toMini(e.x, e.z); if ((x - S / 2) ** 2 + (y - S / 2) ** 2 > (S / 2 - 8) ** 2) continue; g.fillStyle = e.color; g.beginPath(); g.arc(x, y, e.r || 2.5, 0, 7); g.fill(); }

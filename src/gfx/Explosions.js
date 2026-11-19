@@ -243,6 +243,7 @@ export class Explosions {
       for (const u of PR.units.concat(PR.civil)) for (const o of u.officers) { if (o.dead || o.mode !== 'foot' && o.mode !== 'return') continue; const d = Math.hypot(o.x - c.x, o.z - c.z); if (d < R2 || d > R3 || !los(o.x, 1.1, o.z)) continue;
         const ux = (o.x - c.x) / d, uz = (o.z - c.z) / d; const col2 = g.collision; const q = col2 ? col2.resolveCircle(o.x + ux * 0.45, o.z + uz * 0.45, 0.3, o.y || 0.15, 0.3) : { x: o.x + ux * 0.45, z: o.z + uz * 0.45 }; o.x = q.x; o.z = q.z; o.ch.anim.set('stumble'); o.ch.face?.set?.('fear', 3); }
       if (opts.source === 'player' && !g.debug?.noWanted) { PR.reason = 'causing an explosion in a public place'; PR.incident = { x: c.x, z: c.z, t: PR.t }; PR.addHeat(PR.level < 2 ? 2 - PR.level + 0.01 : 1, PR.reason, 'Explosion reported.'); } }
+    if (g.heli && g.heli.blastAt) g.heli.blastAt(c, pow, opts); // 69th: the police helicopter caught in a blast (low over the street / on the pad)
     // vehicles: shoved, rocked on their springs, damaged; drivers floor it away
     const T = g.traffic; if (T) for (const v of T.all()) { const dx = v.x - c.x, dz = v.z - c.z, d = Math.hypot(dx, dz); if (d > R2 + 2) continue; const f = 1 - d / (R2 + 2), ux = dx / (d || 1), uz = dz / (d || 1); this.stats.vehicles++;
       v.impact(10 + 30 * f, { nx: ux, nz: uz, t: 0, blast: f, pow, source: opts.source }); v.pitch = (v.pitch || 0) + (Math.random() - 0.5) * 0.12 * f; v.roll = (v.roll || 0) + (Math.random() < 0.5 ? -1 : 1) * 0.14 * f;
