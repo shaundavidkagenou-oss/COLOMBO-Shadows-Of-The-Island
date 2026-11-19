@@ -22,6 +22,8 @@ const SHOTS = [
   { name: '71-bank-ac-hall', hour: 11, room: true, cam: [3.2, 1.75, -1.0], look: [7.0, 2.6, -3.2] },
   { name: '71-bank-backoffice', hour: 11, room: true, cam: [-1.9, 1.62, -7.7], look: [-3.3, 1.35, -13.6] },
   { name: '71-bank-atm-card', hour: 11, room: true, atm: true, card: 0.62 },
+  { name: '73-bank-atm-close', hour: 11, room: true, cam: [-5.55, 1.5, -1.55], look: [-6.4, 1.22, -1.86] },
+  { name: '73-bank-ac-close', hour: 11, room: true, cam: [5.3, 2.25, -1.9], look: [6.95, 2.8, -2.92] },
   { name: '71-bank-phone-call', hour: 11, room: true, call: true, cam: [-1.2, 1.62, -7.8], look: [-3.3, 1.3, -13.0] },
 ];
 try {

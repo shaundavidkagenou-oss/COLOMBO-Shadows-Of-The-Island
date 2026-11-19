@@ -2,7 +2,8 @@
 //   acUnit      — a wall split air conditioner (indoor unit, 0.89 × 0.29 × 0.20 m): rounded white casing, a separate front
 //                 panel, the top intake grille, the outlet under the front with its vertical vanes and the open louvre
 //                 flap, the small blue temperature display and power LED, and the PVC trunking taking the pipes up into the
-//                 ceiling void. Static (merged into the room's kit: no draw call of its own).
+//                 ceiling void. The casing is merged into the room's kit; 73rd: the louvre flap and the vertical vanes move
+//                 (auto-swing) as two small meshes of their own (acUnit returns them with tick(t)).
 //   landline    — a corded office desk phone: wedge body with the keypad deck tilted to the user, the handset in its cradle
 //                 on the right, hook switch, LCD, function keys, message LED. Static.
 //   callPhone   — the same phone whose handset can be lifted: the base is static, the handset is one small mesh moved by
@@ -31,27 +32,48 @@ const IDENT = new THREE.Matrix4();
 // (x, y, z): the middle of the unit's back on the wall; yaw: the direction it blows (0 = +z); ceil: ceiling height (trunking)
 export function acUnit(k, x, y, z, yaw, ceil = 3.6) {
   const F = frame(x, y, z, yaw); const pl = k.get('plastic'), em = k.get('emissive');
-  const W = 0.89, H = 0.29, D = 0.2; const white = C('#eceeec'), panel = C('#f7f8f6'), dark = C('#25282c'), grey = C('#c4c8ca'), seam = C('#9da2a6');
+  const W = 0.89, H = 0.29, D = 0.2; const white = C('#eceeec'), panel = C('#f4f5f2'), dark = C('#1d2024'), grey = C('#c4c8ca'), seam = C('#a3a8ab');
   part(pl, F, box(W + 0.014, H + 0.014, 0.004), 0, 0, 0.002, 0, 0, 0, C('#8f918e')); // the shadow line where the casing meets the wall
-  part(pl, F, rbox(W, H, D, 0.045, 3), 0, 0, D / 2 + 0.004, 0, 0, 0, white); // casing
-  part(pl, F, rbox(W - 0.026, 0.205, 0.016, 0.007), 0, 0.032, D + 0.002, -0.07, 0, 0, panel); // front panel (lifts for the filters), its top leaning back
-  part(pl, F, box(W - 0.04, 0.002, 0.003), 0, -0.073, D + 0.007, 0, 0, 0, seam); // panel seam
-  for (const s of [-1, 1]) part(pl, F, box(0.003, H - 0.08, D - 0.05), s * (W / 2 + 0.0005), 0, D / 2 + 0.01, 0, 0, 0, grey); // side cap joints
+  part(pl, F, rbox(W, H - 0.04, D, 0.05, 4), 0, 0.02, D / 2 + 0.004, 0, 0, 0, white); // casing: the upper body
+  part(pl, F, rbox(W, 0.09, D - 0.035, 0.04, 4), 0, -H / 2 + 0.05, (D - 0.035) / 2 + 0.004, 0, 0, 0, white); // the lower body, stepped back under the outlet (the real units' tapered belly)
+  part(pl, F, rbox(W - 0.024, 0.2, 0.018, 0.008, 3), 0, 0.034, D + 0.003, -0.06, 0, 0, panel); // front panel (lifts for the filters), its top leaning back
+  part(pl, F, box(W - 0.05, 0.0015, 0.003), 0, -0.068, D + 0.009, 0, 0, 0, seam); // panel seam
+  part(pl, F, box(W - 0.3, 0.0012, 0.002), 0, 0.1, D + 0.011, -0.06, 0, 0, C('#dfe1de')); // a faint moulded line across the panel
+  for (const s of [-1, 1]) part(pl, F, rbox(0.006, H - 0.07, D - 0.04, 0.0025), s * (W / 2 - 0.001), 0.005, D / 2 + 0.012, 0, 0, 0, grey); // side cap joints
   // top intake grille: dark recess with slats parallel to the wall
   part(pl, F, box(W - 0.09, 0.002, 0.118), 0, H / 2 + 0.0008, 0.082, 0, 0, 0, dark);
   for (let i = 0; i < 15; i++) part(pl, F, box(W - 0.09, 0.003, 0.0035), 0, H / 2 + 0.0022, 0.027 + i * 0.0078, 0, 0, 0, white);
-  // outlet under the front edge: the dark opening, the vertical vanes inside, the louvre flap swung open (air down and out)
-  part(pl, F, box(W - 0.12, 0.052, 0.004), 0, -H / 2 + 0.03, D - 0.014, 0.75, 0, 0, dark);
-  part(pl, F, box(W - 0.12, 0.003, 0.085), 0, -H / 2 - 0.0005, D - 0.06, 0, 0, 0, dark);
-  for (let i = 0; i < 11; i++) part(pl, F, box(0.003, 0.03, 0.05), -(W - 0.16) / 2 + i * (W - 0.16) / 10, -H / 2 + 0.008, D - 0.05, 0, 0.12, 0, C('#3a3e43'));
-  part(pl, F, rbox(W - 0.13, 0.006, 0.072, 0.0025), 0, -H / 2 - 0.022, D - 0.012, -0.55, 0, 0, panel); // louvre flap
-  // display window lower right: two blue digits ("24"), the green power LED
-  part(pl, F, rbox(0.074, 0.024, 0.004, 0.003), W / 2 - 0.12, -0.05, D + 0.009, -0.07, 0, 0, C('#15171a'));
-  for (const dx of [-0.009, 0.007]) part(em, F, box(0.009, 0.013, 0.001), W / 2 - 0.12 + dx, -0.049, D + 0.0115, -0.07, 0, 0, [0.35, 0.72, 1.0]);
-  part(em, F, box(0.004, 0.004, 0.001), W / 2 - 0.085, -0.05, D + 0.0115, -0.07, 0, 0, [0.3, 1.0, 0.45]);
+  // outlet under the front edge: the dark throat with the heat-exchanger fins showing deep inside (the moving vanes / flap are separate)
+  part(pl, F, box(W - 0.11, 0.056, 0.004), 0, -H / 2 + 0.034, D - 0.03, 0.62, 0, 0, dark);
+  part(pl, F, box(W - 0.11, 0.003, 0.11), 0, -H / 2 + 0.004, D - 0.07, 0, 0, 0, dark);
+  for (let i = 0; i < 40; i++) part(pl, F, box(0.0012, 0.03, 0.02), -(W - 0.14) / 2 + i * (W - 0.14) / 39, -H / 2 + 0.03, D - 0.105, 0.5, 0, 0, C('#5a5f64')); // fins
+  // display window lower right: two blue digits ("24"), the green power LED, the receiver eye
+  part(pl, F, rbox(0.074, 0.024, 0.004, 0.003), W / 2 - 0.12, -0.05, D + 0.011, -0.06, 0, 0, C('#15171a'));
+  for (const dx of [-0.009, 0.007]) part(em, F, box(0.009, 0.013, 0.001), W / 2 - 0.12 + dx, -0.049, D + 0.0135, -0.06, 0, 0, [0.35, 0.72, 1.0]);
+  part(em, F, box(0.004, 0.004, 0.001), W / 2 - 0.085, -0.05, D + 0.0135, -0.06, 0, 0, [0.3, 1.0, 0.45]);
+  part(pl, F, rbox(0.012, 0.008, 0.003, 0.0015), W / 2 - 0.16, -0.05, D + 0.012, -0.06, 0, 0, C('#3a1f24'));
   // pipe trunking from the casing's top left up into the ceiling void
   const th = Math.max(0.05, ceil - (y + H / 2)); part(pl, F, rbox(0.08, th + 0.02, 0.06, 0.008), -W / 2 + 0.1, H / 2 + th / 2 - 0.01, 0.034, 0, 0, 0, C('#e8e6df'));
   part(pl, F, box(0.09, 0.012, 0.07), -W / 2 + 0.1, ceil - 0.006, 0.038, 0, 0, 0, C('#dedcd4')); // ceiling collar
+  // 73rd: the moving parts — the horizontal louvre flap (auto-swing: it sweeps the air down and up) and the row of vertical vanes
+  // (sweeping left / right) are their own two small meshes on the kit's plastic material, turned by tick(t) while the room is
+  // drawn. Both are in the room group (no light, no new material: two draw calls per unit, only while the bank is on screen).
+  const mat = kitMaterial('plastic', KIT.plastic); const grp = new THREE.Group(); grp.name = 'acMoving'; F.decompose(grp.position, grp.quaternion, grp.scale);
+  const fb = new MeshBuilder(); { const g = rbox(W - 0.12, 0.0055, 0.074, 0.0025); g.translate(0, 0, -0.037); fb.geometry(g, new THREE.Matrix4(), panel); g.dispose();
+    const r = box(W - 0.13, 0.0015, 0.004); r.translate(0, 0.0032, -0.07); fb.geometry(r, new THREE.Matrix4(), seam); r.dispose(); }
+  const flap = new THREE.Mesh(fb.build(), mat); flap.name = 'acFlap'; flap.position.set(0, -H / 2 - 0.006, D - 0.004); flap.rotation.x = -0.55; grp.add(flap);
+  const vb = new MeshBuilder(); const NV = 13; const vanes = [];
+  for (let i = 0; i < NV; i++) { const g = box(0.0025, 0.034, 0.05); vb.geometry(g, new THREE.Matrix4().makeTranslation(-(W - 0.16) / 2 + i * (W - 0.16) / (NV - 1), 0, 0), C('#30343a')); g.dispose(); }
+  const vg = vb.build(); const vane = new THREE.Mesh(vg, mat); vane.name = 'acVanes'; vane.position.set(0, -H / 2 + 0.012, D - 0.05); grp.add(vane); vanes.push(vane);
+  // the vanes turn together about their own vertical axes: one mesh, so the turn is a shear of the row (x stays, z skews with x)
+  const P0 = Float32Array.from(vg.attributes.position.array); const pos = vg.attributes.position; const cx = new Float32Array(pos.count);
+  for (let i = 0; i < pos.count; i++) { const xx = P0[i * 3]; cx[i] = Math.round((xx + (W - 0.16) / 2) / ((W - 0.16) / (NV - 1))) * ((W - 0.16) / (NV - 1)) - (W - 0.16) / 2; }
+  const ph = (x + z) * 0.37; let lastA = 99;
+  return { group: grp, flap, vane, tick(t) {
+    const a = -0.55 - 0.32 * (0.5 - 0.5 * Math.cos((t * 2 * Math.PI) / 13 + ph)); flap.rotation.x = a; // auto swing: ~13 s up and down
+    const va = 0.38 * Math.sin((t * 2 * Math.PI) / 17 + ph * 1.7); if (Math.abs(va - lastA) < 0.004) return; lastA = va; const c = Math.cos(va), sn = Math.sin(va);
+    for (let i = 0; i < pos.count; i++) { const lx = P0[i * 3] - cx[i], lz = P0[i * 3 + 2]; pos.array[i * 3] = cx[i] + lx * c + lz * sn; pos.array[i * 3 + 2] = -lx * sn + lz * c; }
+    pos.needsUpdate = true; } };
 }
 
 // ------------------------------------------------------------------ office desk phone

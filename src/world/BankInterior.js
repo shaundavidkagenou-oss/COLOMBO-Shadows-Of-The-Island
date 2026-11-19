@@ -26,6 +26,7 @@ import { shell } from './ShopInteriors.js';
 import './RobberyShops.js'; // registers the kit's ceiling tile / steel / plastic / gold materials
 import { REVEAL, LEAF_Z } from './WalkIn.js';
 import { MeshBuilder } from '../gfx/MeshBuilder.js';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { Character } from '../actors/Character.js';
 import { makeAppearance, makeBankStaffAppearance, isAdultSpec } from '../actors/Appearance.js';
 import { routine } from '../actors/Routine.js';
@@ -144,7 +145,53 @@ function plant(k, x, z, h = 1.2, potCol = '#e9e5dc') { // potted plant: glazed p
 }
 
 // ------------------------------------------------------------------------------------------------ the room
+// ---- 73rd: ATM display + PIN pad -------------------------------------------------------------------------------------
+// The screen content is the same drawing as before (drawATMScreen, the ATM interface's views) at 2× resolution, then finished
+// like a backlit TFT behind cover glass: the RGB stripe of the sub-pixels, the backlight's slight fall-off to the corners, a
+// faint diagonal sheen. The cover glass is one shared low-roughness material (catches the hall's lights).
+function paintATM(ctx, view) { ctx.setTransform(2, 0, 0, 2, 0, 0); drawATMScreen(ctx, 256, 192, view); ctx.setTransform(1, 0, 0, 1, 0, 0); lcdFinish(ctx, 512, 384); }
+function lcdFinish(a, w, h) {
+  a.save(); a.globalCompositeOperation = 'multiply'; a.globalAlpha = 0.16; for (let x = 0; x < w; x += 3) { a.fillStyle = '#ff6060'; a.fillRect(x, 0, 1, h); a.fillStyle = '#60ff60'; a.fillRect(x + 1, 0, 1, h); a.fillStyle = '#6060ff'; a.fillRect(x + 2, 0, 1, h); }
+  a.globalAlpha = 1; a.globalCompositeOperation = 'source-over';
+  const v = a.createRadialGradient(w / 2, h * 0.46, h * 0.25, w / 2, h / 2, w * 0.7); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.32)'); a.fillStyle = v; a.fillRect(0, 0, w, h);
+  const sh = a.createLinearGradient(0, 0, w, h); sh.addColorStop(0, 'rgba(255,255,255,0.07)'); sh.addColorStop(0.35, 'rgba(255,255,255,0.0)'); sh.addColorStop(1, 'rgba(255,255,255,0.0)'); a.fillStyle = sh; a.fillRect(0, 0, w, h);
+  a.restore();
+}
+let _atmGlass = null, _atmGlassGeo = null, _legendMat = null;
+const ATM_GLASS_GEO = () => (_atmGlassGeo || (_atmGlassGeo = new THREE.PlaneGeometry(0.318, 0.243)));
+function atmGlassMat() { return _atmGlass || (_atmGlass = Object.assign(new THREE.MeshStandardMaterial({ color: 0x06080b, roughness: 0.05, metalness: 0, transparent: true, opacity: 0.16, depthWrite: false }), { name: 'atmCoverGlass' })); }
+// key legends: a 256² atlas, 4 × 4 cells — digits engraved dark into brushed steel; CANCEL / CLEAR / ENTER white on their colours
+const LEG = ['1', '2', '3', 'CANCEL', '4', '5', '6', 'CLEAR', '7', '8', '9', 'ENTER', '', '0', '', ''];
+const LEG_BG = { CANCEL: '#b4322a', CLEAR: '#d8b228', ENTER: '#2d8a48' };
+function atmLegendMat() {
+  if (_legendMat) return _legendMat; const cv = document.createElement('canvas'); cv.width = cv.height = 256; const a = cv.getContext('2d');
+  LEG.forEach((t, i) => { const x = (i % 4) * 64, y = Math.floor(i / 4) * 64; const bg = LEG_BG[t];
+    const gr = a.createLinearGradient(x, y, x + 64, y + 64); gr.addColorStop(0, bg || '#d9dcdf'); gr.addColorStop(1, bg ? bg : '#b7bbbf'); a.fillStyle = gr; a.fillRect(x, y, 64, 64);
+    if (!bg) { a.globalAlpha = 0.18; a.fillStyle = '#ffffff'; for (let k = 0; k < 64; k += 2) a.fillRect(x, y + k, 64, 1); a.globalAlpha = 1; } // brushed grain
+    a.textAlign = 'center'; a.textBaseline = 'middle';
+    if (t.length === 1) { a.font = '700 34px "Barlow", "Arial", sans-serif'; a.fillStyle = 'rgba(255,255,255,0.55)'; a.fillText(t, x + 32.8, y + 34.6); a.fillStyle = '#1a1c1f'; a.fillText(t, x + 32, y + 33.5); if (t === '5') { a.beginPath(); a.arc(x + 32, y + 54, 2.6, 0, 7); a.fill(); } } // (the raised dot on 5)
+    else if (t) { a.font = '700 13px "Barlow Condensed", "Arial Narrow", sans-serif'; a.fillStyle = '#ffffff'; a.fillText(t, x + 32, y + 33); }
+  });
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; _legendMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.38, metalness: 0.55, name: 'atmKeyLegends' }); return _legendMat;
+}
+const keyLegends = { mb: new MeshBuilder(), n: 0 };
+// the pad in its own tilted frame (rising 11° toward the fascia): a dark recessed plate, a steel surround, 4 × 3 digit keys and
+// the function column; each key a rounded steel cap whose top carries its legend quad (atlas cell)
+function atmKeypad(metal, pl, x, y, z) {
+  const KF = new THREE.Matrix4().makeTranslation(x, y, z).multiply(new THREE.Matrix4().makeRotationZ(-0.19));
+  const put = (b, geo, lx, ly, lz, col) => { b.geometry(geo, new THREE.Matrix4().multiplyMatrices(KF, new THREE.Matrix4().makeTranslation(lx, ly, lz)), col); geo.dispose(); };
+  const rbx = (w, h, d, r) => new RoundedBoxGeometry(w, h, d, 2, r);
+  put(pl, rbx(0.158, 0.008, 0.232, 0.004), -0.002, -0.003, -0.005, C('#15171a')); // recessed plate
+  for (const s2 of [-1, 1]) { put(metal, new THREE.BoxGeometry(0.168, 0.006, 0.006), -0.002, 0.0, -0.005 + s2 * 0.118, C('#c7cbcf')); put(metal, new THREE.BoxGeometry(0.006, 0.006, 0.242), -0.002 + s2 * 0.083, 0.0, -0.005, C('#c7cbcf')); }
+  const legend = (lx, lz, hx, hz, cell) => { if (!hasCanvas()) return; const i = cell % 4, j = Math.floor(cell / 4); const u0 = i / 4 + 0.006, u1 = (i + 1) / 4 - 0.006, v0 = 1 - (j + 1) / 4 + 0.006, v1 = 1 - j / 4 - 0.006; const yy = 0.0052;
+    const P = (px, pz) => new THREE.Vector3(px, yy, pz).applyMatrix4(KF).toArray(); keyLegends.mb.quad(P(lx + hx, lz + hz), P(lx + hx, lz - hz), P(lx - hx, lz - hz), P(lx - hx, lz + hz), [u0, v0, u1, v1], [1, 1, 1]); keyLegends.n++; };
+  for (let r = 0; r < 4; r++) { const lx = -0.054 + r * 0.035; // row 0 farthest from the user (by the fascia)
+    for (let c = 0; c < 3; c++) { const lz = 0.07 - c * 0.044; put(metal, rbx(0.029, 0.009, 0.037, 0.0035), lx, 0.0005, lz, C('#d4d8db')); legend(lx, lz, 0.0125, 0.0165, r * 4 + c); }
+    const fz = -0.072; const cell = r * 4 + 3; const t = LEG[cell]; put(t ? pl : metal, rbx(0.029, 0.009, 0.05, 0.0035), lx, 0.0005, fz, t ? C(LEG_BG[t]) : C('#d4d8db')); legend(lx, fz, 0.0125, 0.023, cell); }
+}
+
 export function buildBankInterior(game, site) {
+  keyLegends.mb = new MeshBuilder(); keyLegends.n = 0; // (73rd: this build's PIN-pad legends)
   const B = BANK_ROOM; let W = B.W, D = B.D; const H = B.H;
   if (site && site.b) { const b = site.b, ns = Math.abs(Math.cos(site.yaw)) > 0.7; W = Math.min(W, (ns ? b.x1 - b.x0 : b.z1 - b.z0) - 0.5); D = Math.min(D, (ns ? b.z1 - b.z0 : b.x1 - b.x0) - 0.6); }
   if (W < 13.9 || D < 13.3) console.warn('[bank] building smaller than the design room', W, D);
@@ -192,11 +239,13 @@ export function buildBankInterior(game, site) {
     face(sign, AX + 0.004, 2.18, z, 0.78, 0.2, IN_UV.atmHead, '+x');
     metal.box(AX + 0.035, 1.25, z, 0.07, 1.4, 0.72, { col: C('#c3c7cb') }); paint.box(AX + 0.075, 0.28, z, 0.15, 0.56, 0.76, { col: C('#1a2c4c') }); // fascia · kick panel
     pl.box(AX + 0.09, 1.38, z, 0.04, 0.42, 0.46, { col: C('#121315') }); // screen bezel
+    // 73rd: the display sits recessed in a moulded lip (the screen 6 mm behind its front edge), under a cover glass (ATM_GLASS)
+    for (const s2 of [-1, 1]) { pl.box(AX + 0.1145, 1.385 + s2 * 0.1205, z, 0.007, 0.016, 0.33, { col: C('#0b0c0e') }); pl.box(AX + 0.1145, 1.385, z + s2 * 0.1585, 0.007, 0.257, 0.013, { col: C('#0b0c0e') }); }
+    for (const s2 of [-1, 1]) chrome.box(AX + 0.1182, 1.385 + s2 * 0.1285, z, 0.0012, 0.0015, 0.344, { col: C('#5d6166') }); // a thin bright edge round the lip
     pl.box(AX + 0.16, 1.605, z, 0.14, 0.015, 0.47, { col: C('#1b1c1f') }); for (const s of [-1, 1]) pl.box(AX + 0.15, 1.39, z + s * 0.228, 0.12, 0.43, 0.012, { col: C('#1b1c1f') }); // privacy hood
-    for (let j = 0; j < 4; j++) for (const s of [-1, 1]) metal.box(AX + 0.113, 1.25 + j * 0.08, z + s * 0.195, 0.012, 0.024, 0.036, { col: C('#d9dcdf') }); // side function keys
+    for (let j = 0; j < 4; j++) for (const s of [-1, 1]) { rb(metal, AX + 0.1135, 1.27 + j * 0.068, z + s * 0.198, 0.011, 0.026, 0.036, 0.004, C('#d9dcdf')); pl.box(AX + 0.1192, 1.27 + j * 0.068, z + s * 0.198, 0.0008, 0.003, 0.014, { col: C('#3a3d42') }); pl.box(AX + 0.1123, 1.27 + j * 0.068, z + s * 0.175, 0.0015, 0.004, 0.012, { col: C('#9aa0a6') }); } // side function keys (each with its engraved bar, a tick pointing at the screen)
     metal.box(AX + 0.18, 1.04, z, 0.22, 0.04, 0.6, { col: C('#aeb2b6') }); // keypad shelf
-    for (let r = 0; r < 4; r++) for (let c = 0; c < 3; c++) metal.box(AX + 0.14 + r * 0.035, 1.066, z + 0.1 - c * 0.045, 0.026, 0.012, 0.036, { col: C('#e4e6e8') });
-    [['#b8352c', 0], ['#d9b42a', 1], ['#2f8a4a', 2]].forEach(([col, r]) => pl.box(AX + 0.14 + r * 0.045, 1.066, z - 0.06, 0.034, 0.012, 0.05, { col: C(col) })); // cancel · clear · enter
+    atmKeypad(metal, pl, AX + 0.19, 1.062, z + 0.012); // 73rd: the encrypting PIN pad (steel keys with engraved legends, the function column)
     for (const [dz, dw] of [[0.155, 0.01], [-0.115, 0.01]]) pl.box(AX + 0.19, 1.11, z + dz, 0.16, 0.09, dw, { col: C('#1b1c1f') }); pl.box(AX + 0.27, 1.11, z + 0.02, 0.01, 0.09, 0.28, { col: C('#1b1c1f') }); // keypad privacy shield
     // 71st: card reader as on a real machine — rounded housing standing out of the fascia, the slot (70 mm wide) in a lit green
     // anti-skimming surround, a card pictogram over it; contactless pad below; status light; headphone jack; lit hood edges
@@ -212,9 +261,12 @@ export function buildBankInterior(game, site) {
     pl.box(AX + 0.11, 1.645, z, 0.01, 0.014, 0.014, { col: C('#050505') }); // camera
     face(sign, AX + 0.072, 1.78, z, 0.14, 0.14, IN_UV.logo, '+x');
     // the screen: its own mesh (canvas, repainted by the ATM interface)
-    let screen = null; if (hasCanvas()) { const cv = document.createElement('canvas'); cv.width = 256; cv.height = 192; const ctx = cv.getContext('2d'); drawATMScreen(ctx, 256, 192, ATM_IDLE_VIEW); const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
-      const mat = new THREE.MeshBasicMaterial({ map: tex }); mat.userData.own = true; const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.225), mat); mesh.position.set(AX + 0.111, 1.385, z); mesh.rotation.y = Math.PI / 2; mesh.name = 'atm-screen-' + i; g.add(mesh); screen = { cv, ctx, tex, mesh }; }
-    return { i, d, z, stand: [B.atmStandX, z], slot: [AX + 0.1245, 1.3, z - 0.3], user: null, player: false, screen, paint(view) { if (!this.screen) return; drawATMScreen(this.screen.ctx, 256, 192, view || ATM_IDLE_VIEW); this.screen.tex.needsUpdate = true; } }; });
+    // 73rd: drawn at twice the resolution (the same layout, scaled) and finished like a real backlit LCD (lcdFinish)
+    let screen = null; if (hasCanvas()) { const cv = document.createElement('canvas'); cv.width = 512; cv.height = 384; const ctx = cv.getContext('2d'); paintATM(ctx, ATM_IDLE_VIEW); const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+      const mat = new THREE.MeshBasicMaterial({ map: tex }); mat.userData.own = true; const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.225), mat); mesh.position.set(AX + 0.1112, 1.385, z); mesh.rotation.y = Math.PI / 2; mesh.name = 'atm-screen-' + i; g.add(mesh); screen = { cv, ctx, tex, mesh };
+      const gl = new THREE.Mesh(ATM_GLASS_GEO(), atmGlassMat()); gl.position.set(AX + 0.1168, 1.385, z); gl.rotation.y = Math.PI / 2; gl.name = 'atm-glass-' + i; gl.renderOrder = 2; g.add(gl); }
+    return { i, d, z, stand: [B.atmStandX, z], slot: [AX + 0.1245, 1.3, z - 0.3], user: null, player: false, screen, paint(view) { if (!this.screen) return; paintATM(this.screen.ctx, view || ATM_IDLE_VIEW); this.screen.tex.needsUpdate = true; } }; });
+  if (hasCanvas() && keyLegends.n) { const lm = new THREE.Mesh(keyLegends.mb.build(), atmLegendMat()); lm.name = 'atm-key-legends'; g.add(lm); } // both pads' engraved legends: one mesh
   { const fz = Z((B.atmD[0] + B.atmD[1]) / 2); glass.box(AX + 0.32, 1.5, fz, 0.6, 1.2, 0.02); metal.box(AX + 0.62, 1.5, fz, 0.02, 1.22, 0.03, { col: steelC }); ob(AX, AX + 0.64, (B.atmD[0] + B.atmD[1]) / 2 - 0.03, (B.atmD[0] + B.atmD[1]) / 2 + 0.03); }
   metal.cylinder(-6.72, 0, Z(4.45), 0.16, 0.15, 0.62, 16, { col: C('#9fa3a7') }); pl.cylinder(-6.72, 0.62, Z(4.45), 0.165, 0.165, 0.02, 16, { col: C('#202124') }); ob(-6.9, -6.54, 4.27, 4.63);
   paint.box(-4.9, 0.002, Z(4.35), 2.6, 0.003, 0.06, { col: C('#d9b42a') }); // "please wait behind the line" floor stripe
@@ -236,7 +288,7 @@ export function buildBankInterior(game, site) {
     ob(x - w / 2 - 0.05, x + w / 2 + 0.05, 2.9, 4.6); }
 
   // ---- right wall: plant, posters, brochure rack · left wall: water dispenser, notice, clock, plant
-  acUnit(k, xR, 2.93, Z(2.7), -Math.PI / 2, H); // 71st: the hall's wall split air conditioner (its sound: BankSound loops)
+  const acs = []; acs.push(acUnit(k, xR, 2.93, Z(2.7), -Math.PI / 2, H)); // 71st: the hall's wall split air conditioner (its sound: BankSound loops)
   plant(k, 6.55, Z(0.6), 1.3); ob(6.3, 6.8, 0.35, 0.85);
   paint.box(xR - 0.012, 1.6, Z(1.5), 0.02, 0.94, 0.64, { col: C('#c9b27a') }); face(prints, xR - 0.024, 1.6, Z(1.5), 0.6, 0.9, POSTER_UV.fd, '-x');
   paint.box(xR - 0.012, 1.6, Z(3.9), 0.02, 0.94, 0.64, { col: C('#c9b27a') }); face(prints, xR - 0.024, 1.6, Z(3.9), 0.6, 0.9, POSTER_UV.home, '-x');
@@ -333,7 +385,7 @@ export function buildBankInterior(game, site) {
       pl.box(cx - 0.3, 0.775, cz + 0.02, 0.26, 0.03, 0.33, { col: C('#2a2c30') }); paint.box(cx - 0.3, 0.792, cz + 0.02, 0.22, 0.004, 0.3, { col: C('#f6f4ee') }); // document tray
       paint.box(cx + 0.36, 0.764, cz + 0.06, 0.15, 0.006, 0.2, { col: C('#f3eedc') }); pl.cylinder(cx + 0.36, 0.77, cz - 0.1, 0.035, 0.035, 0.1, 12, { col: C('#202226') }); for (const [dx, col] of [[-0.01, '#1d3b7a'], [0.012, '#b8352c']]) pl.cylinder(cx + 0.36 + dx, 0.84, cz - 0.1, 0.004, 0.004, 0.12, 6, { col: C(col) }); // notepad, pen pot
       callPh = callPhone(k, g, PHONE.x + 0.1, 0.761, cz + 0.02, 0); }
-    acUnit(k, PHONE.x, 2.8, z0, 0, H);
+    acs.push(acUnit(k, PHONE.x, 2.8, z0, 0, H));
     { const cx2 = 6.5; pl.box(cx2, 0.5, z0 + 0.4, 0.6, 1.0, 0.62, { col: C('#e4e4e0') }); pl.box(cx2, 1.02, z0 + 0.4, 0.6, 0.04, 0.62, { col: C('#2a2c30') }); pl.box(cx2, 0.92, z0 + 0.72, 0.4, 0.06, 0.02, { col: C('#3a3c40') }); }
   }
 
@@ -640,8 +692,9 @@ export function buildBankInterior(game, site) {
   // ---- per frame (WalkIn: while the room is drawn or holds the player)
   room.lastT = -1e9;
   room.alwaysSim = true; // 73rd: WalkIn keeps this room running with the player outside (other shops keep their old on-approach system)
+  for (const a of acs) g.add(a.group); room.acs = acs; // 73rd: the split ACs' swinging flap + vanes
   room.update = (dt, pl, bg = false) => {
-    bgMode = !!bg; room.pl = pl; const now = game.clock ?? performance.now() / 1000; const gap = now - room.lastT; room.lastT = now; const D2 = door();
+    bgMode = !!bg; room.pl = pl; if (!bg && room.visible) { const ta = game.clock ?? performance.now() / 1000; for (const a of acs) a.tick(ta); } const now = game.clock ?? performance.now() / 1000; const gap = now - room.lastT; room.lastT = now; const D2 = door();
     if (gap > 20 && !pl.inside && (!D2 || Math.abs(D2.ang) < 0.5)) room.reseed();
     const plD = Math.hypot(pl.x, pl.z); room.ext.length = 0; // people on the pavement by the door (not the room's own), in the local frame
     if (plD < 90 && game.bodies && walkInOf()) { const W2 = walkInOf(); for (const b of game.bodies) { if (b.ch.bankOwned || (game.player && b.ch === game.player.ch) || Math.abs(b.x - site.F.x) > 6 || Math.abs(b.z - site.F.z) > 6) continue; const [lx, lz] = W2.local(site, b.x, b.z); if (lz < -0.3) continue; room.ext.push({ x: lx, z: lz, speed: b.ped ? b.ped.speed || 0 : 0, ext: true }); } }
