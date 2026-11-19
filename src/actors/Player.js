@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { Character, HEROES } from './Character.js';
 import { Input } from '../core/Input.js';
 import { findCover, enterCover, updateCover, leaveCover } from './Cover.js';
+import { findBreach, startBreach, updateBreach, endBreach, breachPressed } from './DoorBreach.js';
 import { Settings } from '../core/Settings.js';
 import { clamp, lerp, damp, dampAngle, wrapAngle, smoothstep } from '../core/math.js';
 const sm = (v) => smoothstep(0, 1, v), seg = (t, a, b) => clamp((t - a) / (b - a), 0, 1);
@@ -41,7 +42,7 @@ export class Player {
     const r = this.ch.root, A = this.ch.anim, cam = this.camera;
     if (r.parent && r.parent !== this.scene) { r.parent.remove(r); this.scene.add(r); }
     this.entry = null; this.exiting = null; this.boat = null; this.climb = null; this.swim = null; this.diveIn = null; this.swimBreath = 1; this.transition = null; this.settling = 0; this.emote = null; this.cinematic = false; this.lookLock = false;
-    this.vy = 0; this.grounded = true; this.speed = 0; this.crouching = false; this.sprinting = false; this.aiming = false; this.scoped = null; this.aimCam = 0; this.cover = null;
+    this.vy = 0; this.grounded = true; this.speed = 0; this.crouching = false; this.sprinting = false; this.aiming = false; this.scoped = null; this.aimCam = 0; this.cover = null; this.breach = null;
     this.shake = 0; this.camFx = null; this.idleCam = 0; this.idleT = 0; this.camPitch = 0.18; this.camYaw = this.yaw + Math.PI;
     if (this.fpHead) { this.fpHead.scale.setScalar(1); this.fpHead = null; }
     r.visible = true; this.camHid = false; this.ch.mesh.visible = true; r.rotation.set(0, this.yaw, 0); r.scale.setScalar(1);
@@ -57,6 +58,7 @@ export class Player {
     if (Input.wasPressed('camera') && this.control) this.camMode = (this.camMode + 1) % 3;
     if (this.settling) { const S = this.settling; S.t += dt; if (S.t > 1.5 || S.v === this.vehicle || S.v.player || S.v.ai) this.settling = null; else S.v.sync(dt); } // a car just left keeps rocking on its springs for a moment
     if (this.cover && (this.boat || this.exiting || this.entry || this.vehicle || this.indoor || this.swim)) leaveCover(this);
+    if (this.breach && (this.boat || this.exiting || this.entry || this.vehicle || this.swim)) endBreach(this);
     if (this.boat) this.updateBoat(dt); else if (this.exiting) this.updateExit(dt); else if (this.entry) this.updateEntry(dt); else if (this.vehicle) this.updateVehicle(dt, traffic); else this.updateFoot(dt, traffic);
     this.updateCamera(dt);
   }
@@ -74,6 +76,9 @@ export class Player {
     if (this.diveIn) { updateDiveIn(this, dt); return; } // vaulting the rail / stepping off into the water (Swim.js)
     if (this.swim || (swimmable(this, this.x, this.z) && this.y < (L.waterLevel(this.x, this.z) ?? -0.9) + 0.3)) { if (!this.swim) startSwim(this); updateSwim(this, dt, mx, my, mag); return; }
     // 73rd: cover (Q) — Cover.js moves, poses and aims him while he is in it
+    // 73rd: door breach (middle mouse at a closed shop door) — DoorBreach.js squares him up and kicks it in
+    if (this.breach && updateBreach(this, dt)) return;
+    if (!this.breach && this.walkIn && breachPressed()) { const s = findBreach(this.walkIn, this); if (s) { if (this.cover) leaveCover(this); startBreach(this.walkIn, this, s); if (updateBreach(this, dt)) return; } }
     const hadCover = !!this.cover; if (this.cover && updateCover(this, dt, mx, my, mag)) return;
     if (!hadCover && !this.cover && this.control && !this.indoor && this.grounded && !this.posed && Input.wasPressed('cover')) { const F = findCover(this, traffic); if (F) { enterCover(this, F); if (updateCover(this, dt, mx, my, mag)) return; } }
     this.crouching = this.control && Input.isDown('crouch');

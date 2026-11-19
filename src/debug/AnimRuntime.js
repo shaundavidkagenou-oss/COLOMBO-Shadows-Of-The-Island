@@ -27,7 +27,7 @@ export const KNOWN = ['idle', 'walk', 'run', 'crouch', 'seated', 'seated:drive',
   'interact', 'talk', 'stumble', 'argue', 'wave', 'point', 'glovethrow', 'photo', 'phone', 'text', 'handsup', 'umbrella', 'tackle', 'tackled', 'collapse', 'cuffKneel', 'cuffStand', 'kneel', 'kneelCuffed', 'prone', 'medKneel', 'medLift',
   'torch', 'signal', 'shrug', 'shove', 'look', 'hit', 'hips', 'down', 'cower',
   // 69th: every other action the Animator poses (Character.js action switch + BODY_POSES) — the list was missing these
-  'alert', 'bat', 'beckon', 'bowl', 'browse', 'carry', 'clap', 'comms', 'cover', 'crossarms', 'cuffed', 'dance', 'dive', 'drive', 'flinch', 'glance', 'glasses', 'gloves',
+  'alert', 'bat', 'beckon', 'bowl', 'browse', 'carry', 'clap', 'comms', 'cover', 'crossarms', 'cuffed', 'dance', 'dive', 'doorKick', 'drive', 'flinch', 'glance', 'glasses', 'gloves',
   'guard', 'hold', 'laugh', 'listen', 'medCarry', 'nod', 'paper', 'pray', 'pullup', 'pump', 'punch', 'ride', 'rise', 'sigh', 'sit', 'sitGround', 'smoke', 'straps', 'stretch',
   'suitcase', 'swim', 'type', 'vault', 'watch'];
 // 69th: how to put a bare Animator into one of those states without the game around it (model tools: preview + "download the

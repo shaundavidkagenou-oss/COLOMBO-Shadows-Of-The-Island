@@ -39,7 +39,7 @@ const DEFS = {
   room: { name: "Dineth's room", w: 5, d: 6, wall: '#c8d0c0', floor: '#7a6a5a', keeper: null, line: '' },
 };
 export class Interiors {
-  constructor(game) { this.g = game; this.current = null; this.built = new Map(); this.doors = []; this.fan = null; this.walkIn = new WalkIn(game); }
+  constructor(game) { this.g = game; this.current = null; this.built = new Map(); this.doors = []; this.fan = null; this.walkIn = new WalkIn(game); if (game.player) game.player.walkIn = this.walkIn; /* 73rd: door breach */ }
   // walk-in shops (WalkIn.js): every story shop except the club, plus the 43rd-request shops; created once
   setupWalkIns() {
     if (this.walkInsDone) return; this.walkInsDone = true;

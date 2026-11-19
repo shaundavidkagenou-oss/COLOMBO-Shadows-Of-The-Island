@@ -26,6 +26,7 @@ export const SOUND_DEFS = [
   { id: 'gun.cycle', name: 'Bolt / slide cycling', cat: 'Weapons', lvl: 0.3 }, { id: 'gun.dry', name: 'Dry fire (empty click)', cat: 'Weapons', lvl: 0.25 }, { id: 'gun.equip', name: 'Weapon drawn / holstered', cat: 'Weapons', lvl: 0.25 },
   { id: 'gun.scope', name: 'Scope / aim in', cat: 'Weapons', lvl: 0.2 }, { id: 'gun.shell', name: 'Shell casing on the ground', cat: 'Weapons', lvl: 0.2 }, { id: 'gun.hitmarker', name: 'Hit marker', cat: 'Weapons', lvl: 0.2 },
   { id: 'gun.ricochet', name: 'Bullet ricochet', cat: 'Weapons', lvl: 0.25 }, { id: 'impact.metal', name: 'Bullet hitting metal', cat: 'Weapons', lvl: 0.4 },
+  { id: 'door.breach', name: 'Door kicked in — latch bursts, leaf slams the stop', cat: 'Fighting', lvl: 0.75 }, { id: 'door.kickHold', name: 'Door kicked — it holds (heavy thud, frame rattle)', cat: 'Fighting', lvl: 0.6 },
   { id: 'punch.swing', name: 'Punch — swing', cat: 'Fighting', lvl: 0.25 }, { id: 'punch.hit', name: 'Punch — landed', cat: 'Fighting', lvl: 0.5 }, { id: 'punch.taken', name: 'Punch — taken / blocked', cat: 'Fighting', lvl: 0.45 },
   { id: 'grenade.pin', name: 'Grenade — pin pulled', cat: 'Explosives', lvl: 0.3 }, { id: 'grenade.throw', name: 'Grenade — throw', cat: 'Explosives', lvl: 0.25 }, { id: 'grenade.bounce', name: 'Grenade — bounce', cat: 'Explosives', lvl: 0.3 },
   { id: 'explosion', name: 'Explosion', cat: 'Explosives', lvl: 1 },
@@ -84,7 +85,7 @@ export const SOUND_DEFS = [
 // variations (52nd): a few sounds that repeat a lot get three more slots. Every filled slot of the sound (its own recording and
 // any variation) is used, in a shuffled order that never repeats the last one; empty variations simply aren't used, so with
 // only the main recording nothing changes.
-export const VARIED = ['veh.crash', 'veh.glass', 'veh.glassCrack', 'gun.dry'];
+export const VARIED = ['veh.crash', 'veh.glass', 'veh.glassCrack', 'gun.dry', 'door.breach', 'door.kickHold'];
 for (const base of VARIED) { const i = SOUND_DEFS.findIndex((d) => d.id === base); const b = SOUND_DEFS[i]; b.vars = [];
   const vs = [1, 2, 3].map((n) => { const id = `${base}.var${n}`; b.vars.push(id); return { id, name: `${b.name} — variation ${n}`, cat: b.cat, lvl: b.lvl, kind: b.kind, varOf: base }; });
   SOUND_DEFS.splice(i + 1, 0, ...vs); }

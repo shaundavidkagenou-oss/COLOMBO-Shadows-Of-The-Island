@@ -1383,7 +1383,13 @@ export function gaitProfile(sp) {
 // ------------------------------------------------------------------ two-bone arm IK (used for weapons)
 // target: point in CHEST space; q: optional hand orientation in chest space; w: blend with the animated pose.
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _v4 = new THREE.Vector3(), _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _m1 = new THREE.Matrix4();
-const BODY_POSES = new Set(['kneel', 'kneelCuffed', 'prone', 'tackled', 'collapse', 'tackle', 'cuffKneel', 'medKneel', 'medLift', 'swim', 'dive', 'pullup', 'vault']);
+// 73rd: door kick timing (s): chamber the knee 0–0.3, drive the heel out 0.3–0.4, hold the impact to 0.5, snap it back 0.5–0.7,
+// foot down 0.7–1.0 (DoorBreach lands the impact at 0.4)
+const ss01 = (x) => { const t = Math.max(0, Math.min(1, x)); return t * t * (3 - 2 * t); };
+function doorKickCurve(t) { const c = ss01(t / 0.3), e = ss01((t - 0.3) / 0.1), r = ss01((t - 0.5) / 0.2), dn = ss01((t - 0.7) / 0.3); const E = e * (1 - r);
+  const mix = (a0, a1, a2, a3) => (a0 + (a1 - a0) * c + (a2 - a1) * e + (a3 - a2) * r) * (1 - dn);
+  return { c, E, th: mix(0, -1.3, -1.52, -1.25), sh: mix(0, 1.85, 0.1, 1.6), ft: mix(0, 0.3, -0.38, 0.3) }; }
+const BODY_POSES = new Set(['kneel', 'kneelCuffed', 'prone', 'tackled', 'collapse', 'tackle', 'cuffKneel', 'medKneel', 'medLift', 'swim', 'dive', 'pullup', 'vault', 'doorKick']);
 const wrapPi = (a) => a - Math.round(a / (2 * Math.PI)) * 2 * Math.PI;
 const seg01 = (t, a, b) => Math.min(1, Math.max(0, (t - a) / (b - a)));
 const PROTRACT_AXIS = 1; // +y on the right clavicle brings the right shoulder forward (dev-measured: +0.3 rad → +4.5 cm)
@@ -1732,6 +1738,8 @@ export class Animator {
           tr = [R_[0], 0, R_[2]]; tfr = [R_[3], 0, 0]; tl = [L_[0], 0, L_[2]]; tfl = [L_[3], 0, 0];
           const breathe = Math.pow(Math.max(0, Math.sin(ph - 0.7)), 3) * lay * (1 - br); head = 1.05 * breathe; // turns the face out to breathe on the right-arm recovery
           b.neck.rotation.x -= (lay * (0.55 - 0.3 * breathe) * (1 - br) + 0.75 * br * lay - 0.1 * (1 - lay)) * aw; break; }
+        case 'doorKick': { const K = doorKickCurve(at); b.spine.rotation.x -= 0.17 * K.E * aw; b.chest.rotation.x += 0.05 * K.c * aw; b.neck.rotation.x += 0.12 * K.E * aw; // guard up, the arms thrown back and out for balance as the leg drives through
+          tl = [-1.05 + 0.55 * K.E, 0, 0.42 + 0.3 * K.E]; tr = [-1.05 + 0.65 * K.E, 0, -0.42 - 0.35 * K.E]; tfl = tfr = [-1.95 + 0.7 * K.E, 0, 0]; break; }
         case 'vault': { const k = clamp(at / 0.75, 0, 1), on = Math.sin(seg01(k, 0, 0.7) * Math.PI); tr = [-0.9 - 0.3 * on, 0, -0.25]; tl = [-0.9 - 0.3 * on, 0, 0.25]; tfr = tfl = [-0.3 - 0.4 * on, 0, 0]; b.spine.rotation.x += 0.3 * on * aw; break; } // hands on the rail
         case 'dive': tr = [-2.95, 0, -0.12]; tl = [-2.95, 0, 0.12]; tfr = tfl = [-0.06, 0, 0]; b.neck.rotation.x += 0.15 * aw; break; // arms streamlined overhead
         case 'pullup': { const k = clamp(at / 1.25, 0, 1), reach = 1 - seg01(k, 0.15, 0.55), press = Math.sin(seg01(k, 0.15, 0.7) * Math.PI); // hands planted on the coping, then press up
@@ -1812,6 +1820,9 @@ export class Animator {
     }
     else if (act === 'dive') { const k = clamp(this.diveK ?? t / 0.8, 0, 1), crouch = Math.sin(seg01(k, 0, 0.2) * Math.PI), fly = smooth01(seg01(k, 0.12, 0.8));
       hips(stand - 0.22 * s * crouch, 0.55 * crouch + 1.5 * fly, 0); legs(-0.7 * crouch + 0.08 * fly, 1.2 * crouch + 0.05 * fly, 0.6 * crouch + 0.9 * fly, -0.7 * crouch + 0.05 * fly, 1.2 * crouch + 0.1 * fly, 0.6 * crouch + 0.9 * fly); }
+    else if (act === 'doorKick') { const K = doorKickCurve(t); // 73rd: front kick into a door (DoorBreach) — support knee soft, hips back, heel through the leaf beside the lock
+      hips(stand - (0.03 + 0.025 * K.E) * s, -0.14 * K.E, -0.05 * K.E * s); b.hips.rotation.y = lerp(b.hips.rotation.y, -0.12 * K.E, w);
+      legs(-0.1 + 0.14 * K.E, 0.26, -0.16 - 0.14 * K.E, K.th + 0.14 * K.E, K.sh, K.ft); }
     else if (act === 'vault') { const k = clamp(t / 0.75, 0, 1), tuck = Math.sin(seg01(k, 0.1, 0.85) * Math.PI); hips(stand - 0.08 * s * tuck, 0.25 * tuck, 0); legs(-1.1 * tuck, 1.5 * tuck, 0.3, -0.9 * tuck, 1.3 * tuck, 0.3); }
     else if (act === 'pullup') { const k = clamp(t / 1.25, 0, 1), knee = Math.sin(seg01(k, 0.4, 0.95) * Math.PI), lean = Math.sin(seg01(k, 0.2, 0.9) * Math.PI);
       hips(stand, 0.45 * lean, 0); legs(-0.25 - 1.35 * knee, 0.4 + 1.5 * knee, 0.4, -0.15 * lean, 0.35 + 0.3 * lean, 0.5); }

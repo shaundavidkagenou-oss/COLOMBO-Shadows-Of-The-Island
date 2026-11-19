@@ -17,6 +17,7 @@ import * as THREE from 'three';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
 import * as L from './Layout.js';
+import { Audio } from '../audio/Audio.js';
 
 export const DOOR_W = 1.1, DOOR_H = 2.3, REVEAL = 0.22, LEAF_Z = -0.07;
 const BUILD_R = 7.5, HIDE_R = 16, FREE_R = 140, R = 0.3;
@@ -178,7 +179,7 @@ export class WalkIn {
     this.builtThisFrame = false;
     // free rooms the player has left far behind (geometry + keeper; the shared kit materials / canvas textures stay cached)
     for (const s of this.sites) { const r = s.room; const used = r && r.keep && r.rob && r.rob.state !== 'idle'; if (!r || (r.keep && !used) || s.dist < FREE_R || P.indoor === r.proxy || this.active === r) continue; this.freeRoom(s, used); }
-    for (const s of this.sites) this.updateDoor(s, dt, P);
+    for (const s of this.sites) this.updateDoor(s, dt, P); this.tickStuns(dt);
     for (const s of this.sites) { const r = s.room; if (!r) continue; const inside = P.indoor === r.proxy; const vis = inside || (s.doorObj.open > 0.015 && s.dist < HIDE_R); r.og.visible = vis; r.visible = vis; }
     // the active site (the one whose room is drawn nearest / that holds the player)
     let act = null; for (const s of this.sites) if (s.room && s.room.visible && (!act || s.dist < act.dist)) act = s; if (P.indoor && P.indoor.walkIn) act = P.indoor.site;
@@ -214,7 +215,7 @@ export class WalkIn {
     const onFoot = !P.vehicle && !P.entry && !P.exiting && !P.climb && P.control !== false && !P.dead;
     const inZone = onFoot && Math.abs(lx) < hw + 0.5 && lz > -1.15 && lz < 1.15 && Math.abs(P.y - s.y0) < 0.8;
     const side = lz >= LEAF_Z ? 1 : -1; const toward = -side * fz; // > 0: facing the door from this side
-    if (!D.engaged && inZone && toward > 0.35 && P.speed > 0.25 && Math.abs(lz - LEAF_Z) < 1.4 && (s.room || s.dist < BUILD_R)) { D.engaged = true; D.side = side; D.t = 0; if (!s.room) { try { this.buildRoom(s); } catch (e) { console.warn('walk-in build', e); } } this.sound(s, 'open'); }
+    if (!D.engaged && !P.breach && inZone && toward > 0.35 && P.speed > 0.25 && Math.abs(lz - LEAF_Z) < 1.4 && (s.room || s.dist < BUILD_R)) { D.engaged = true; D.side = side; D.t = 0; if (!s.room) { try { this.buildRoom(s); } catch (e) { console.warn('walk-in build', e); } } this.sound(s, 'open'); }
     if (D.engaged) {
       D.t += dt; const d = Math.abs(lz - LEAF_Z); const through = (lz - LEAF_Z) * D.side < -0.35; // passed to the far side
       if (!inZone || through || (d > 1.5 && toward < 0.2)) D.engaged = false;
@@ -226,6 +227,12 @@ export class WalkIn {
       const cur = D.ang; const maxW = 2.4 * dt; let nv = cur + clamp(tgt - cur, -maxW, maxW); if (Math.abs(tgt) < Math.abs(cur) && P.speed < 0.2) nv = cur; // standing still: it stays where it is
       D.vel = (nv - cur) / Math.max(dt, 1e-4); D.setAngle(nv); this.prevSide = D.side;
       P.doorSlow = clamp(1.45 / Math.max(1.45, P.baseSpeed || P.speed || 1.45), 0.35, 1); // a hand on the door: a walking pace (~1.45 m/s)
+    } else if (D.breachT > 0) { // 73rd: kicked in — the closer arm is wrecked: the leaf swings free on its hinges, bangs off its stop and hangs open
+      P.doorSlow = this.anyEngaged(s) ? P.doorSlow : 1; D.breachT -= dt; const sd = Math.sign(D.ang || D.vel || 1), lim = 1.62;
+      D.vel *= Math.exp(-(D.vel * sd < 0 ? 5 : 1.1) * dt); let a = D.ang + D.vel * dt; // (swinging back off the stop the bent closer arm drags on it)
+      if (Math.abs(a) > lim) { a = lim * sd; if (Math.abs(D.vel) > 1.2) { const k = Math.min(1, Math.abs(D.vel) / 9); Audio.debrisHit && Audio.debrisHit(s.F.x, s.F.z, 0.5 * k); } D.vel = -D.vel * 0.34; }
+      if (Math.abs(a) < 1.15 && D.vel * sd < 0) { D.vel *= Math.exp(-10 * dt); if (Math.abs(D.vel) < 0.05) D.vel = 0; } // the dragging hinge stops it hanging well open
+      D.setAngle(a); if (D.breachT <= 0) { D.breachT = 0; } // (then the closer takes it back — the shop's had it seen to)
     } else {
       P.doorSlow = this.anyEngaged(s) ? P.doorSlow : 1;
       // 67th: a room's own people (BankInterior customers) push the door too — s.npcDoor { side: +1 from the street, −1 from
@@ -249,6 +256,28 @@ export class WalkIn {
       else if (A && A.reach && A.reach.door) { A.reach = null; this.reachDoor = null; }
     }
   }
+  // 73rd: a kick lands on this door (DoorBreach, kick n): 'hold' (a heavy door takes the first one) or 'burst'
+  breach(s, n, P) {
+    const D = s.doorObj; const heavy = D.style === 'steel' || D.style === 'bronze' || D.style === 'wicket' || (D.style === 'timberGlass' && (s.id.length % 2 === 0));
+    const glass = !!(DOOR_STYLES[D.style] || {}).glass; const latch = -D.hinge * (D.w / 2 - 0.12); const [lx, lz] = this.world(s, latch, 0.05); const W = this.g.weapons;
+    const St = this.stats || (this.stats = {}); const puff = (k) => { if (W && W.puff) W.puff(new THREE.Vector3(lx, s.y0 + 1.0, lz), 0x9a9286, k); };
+    if (!s.room) { try { this.buildRoom(s); } catch (e) { console.warn('walk-in build', e); } }
+    if (heavy && n < 2) { D.engaged = false; D.setAngle(0.02); D.vel = 0.5; /* the leaf flexes on its latch, the closer rattles it back */ Audio.doorBreach && Audio.doorBreach(s.F.x, s.F.z, true, glass); puff(2); this.alarmNear(s, 0.6); St.kicks = (St.kicks || 0) + 1; return 'hold'; }
+    D.breachT = 40; D.engaged = false; D.vel = 9.5 + Math.random() * 1.5; D.setAngle(0.06); this.reachW = 0; // swings into the shop, hard
+    Audio.doorBreach && Audio.doorBreach(s.F.x, s.F.z, false, glass); puff(4);
+    St.breaches = (St.breaches || 0) + 1; this.alarmNear(s, 1);
+    const r = s.room; if (r) { if (r.breach) { try { r.breach({ x: 0, z: 0, n }); } catch (e) { console.warn('room breach', e); } } else if (r.keeper) this.stun(r.keeper, r, 0.15 + Math.random() * 0.2, 6 + Math.random() * 3); }
+    return 'burst';
+  }
+  // the bang carries out onto the pavement: passers-by turn, shy away or run (their own reactions — no police report from this)
+  alarmNear(s, k) { const C = this.g.crowd; if (C && C.alarm) C.alarm(s.F.x, s.F.z, 14 + 10 * k, 1, null, 'scuffle', false); }
+  // a room's keeper (generic rooms): flinch at the bang, then cower behind the counter for a few seconds
+  stun(ch, room, delay, dur) { (this.stuns || (this.stuns = [])).push({ ch, room, t: -delay, dur, ph: 0 }); }
+  tickStuns(dt) { const L2 = this.stuns; if (!L2 || !L2.length) return;
+    for (let i = L2.length - 1; i >= 0; i--) { const S = L2[i], A = S.ch.anim; S.t += dt; if (S.ch.disposed) { L2.splice(i, 1); continue; }
+      if (S.ph === 0 && S.t >= 0) { S.ph = 1; A.play('flinch', 0.5); S.ch.face && S.ch.face.set && S.ch.face.set('surprise', 1.2); S.room.keeperBusy = true; }
+      else if (S.ph === 1 && S.t >= 0.45) { S.ph = 2; if (!A.action || A.action === 'flinch') A.set('cower'); S.ch.face && S.ch.face.set && S.ch.face.set('fear', S.dur); }
+      else if (S.ph === 2 && S.t >= S.dur) { if (A.action === 'cower') A.set(null); S.room.keeperBusy = false; L2.splice(i, 1); } } }
   anyEngaged(except) { return this.sites.some((x) => x !== except && x.doorObj.engaged); }
   // hand target: the wrist a palm-length below the contact point, palm facing the leaf, fingers up
   applyReach(P, A, s, q, w) {

@@ -518,7 +518,7 @@ export function buildBankInterior(game, site) {
   const PLANS_DAY = [[['atm'], 3], [['seat', 'teller'], 3], [['kiosk', 'seat', 'teller'], 2.5], [['reception'], 1], [['reception', 'seat', 'teller'], 1], [['kiosk', 'teller'], 1.2]];
   const pickPlan = (rnd) => { if (!staffOn()) return ['atm']; let tot = 0; for (const [, w] of PLANS_DAY) tot += w; let r = rnd() * tot; for (const [p, w] of PLANS_DAY) if ((r -= w) <= 0) return p; return PLANS_DAY[0][0]; };
   const target = () => { const h = hour(); if (h >= 9 && h < 15) return 4; if ((h >= 8 && h < 9) || (h >= 15 && h < 18)) return 3; if (h >= 18 && h < 21) return 2; return 1; };
-  const hide = (c) => { c.on = false; c.ch.root.visible = false; if (c.ch.root.parent !== g) g.add(c.ch.root); c.keepInPool = false; c.gen = null; c.cmd = null; if (c.seat >= 0) { seats[c.seat].occ = null; c.seat = -1; } if (c.atm >= 0) { if (atms[c.atm].user === c) { atms[c.atm].user = null; atms[c.atm].paint(null); } c.atm = -1; } c.win = -1; c.ch.anim.seated = null; c.ch.anim.set(null); };
+  const hide = (c) => { c.on = false; c.stunT = 0; c.stunA = 0; c.ch.root.visible = false; if (c.ch.root.parent !== g) g.add(c.ch.root); c.keepInPool = false; c.gen = null; c.cmd = null; if (c.seat >= 0) { seats[c.seat].occ = null; c.seat = -1; } if (c.atm >= 0) { if (atms[c.atm].user === c) { atms[c.atm].user = null; atms[c.atm].paint(null); } c.atm = -1; } c.win = -1; c.ch.anim.seated = null; c.ch.anim.set(null); };
   // 73rd: past the facade (on the pavement) a customer's body belongs to the street: parented to the scene in world space, so it is
   // drawn with the door shut, and it is a solid body for the street crowd and the player (Bodies.gatherBodies) — passers-by
   // step round people queuing at the door instead of walking through them. Back through the doorway it returns to the room.
@@ -557,7 +557,18 @@ export function buildBankInterior(game, site) {
     if (z < ZF && (x < xL + 0.3 || x > xR - 0.3 || z < z0 + 0.3)) return false; if (z > ZF - 0.05 && z < 0.1 && Math.abs(x) > 0.3) return false; for (let i = 0; i < nStatic; i++) { const o = obs[i]; if (x > o.x0 - 0.25 && x < o.x1 + 0.25 && z > o.z0 - 0.25 && z < o.z1 + 0.25) return false; } return true; };
   const nearPlayer = (ax, az, bx, bz) => { const P = room.pl; if (!P || !(P.inside || Math.abs(P.z) < 2.5)) return false; const vx = bx - ax, vz = bz - az, L2 = vx * vx + vz * vz || 1; const t = Math.max(0, Math.min(1, ((P.x - ax) * vx + (P.z - az) * vz) / L2)); return Math.hypot(ax + vx * t - P.x, az + vz * t - P.z) < 0.65; };
   const clearLine = (ax, az, bx, bz) => { const L = Math.hypot(bx - ax, bz - az); for (let t = 0; t <= L; t += 0.1) if (!clearAt(ax + (bx - ax) * t / L, az + (bz - az) * t / L)) return false; return true; };
+  // 73rd: the front door kicked in (WalkIn.breach → room.breach): everyone jumps at the bang, then freezes — customers on their
+  // feet duck down and cower, seated ones and the staff stay put, frightened (hands up if he has a gun out); the guard turns to
+  // the door. A few seconds later they pick up where they were. (Scripted shift-change walkers are left to their script.)
+  const stunStep = (p, ch, dt, standing) => { if (!(p.stunT > 0)) return false; if ((p.stunD -= dt) > 0) return false; const A = ch.anim;
+    if (!p.stunA) { p.stunA = 1; p.stunT0 = p.stunT; A.play('flinch', 0.5); ch.face && ch.face.set && ch.face.set('surprise', 1.2); }
+    else if (p.stunA === 1 && p.stunT0 - p.stunT > 0.45) { p.stunA = 2; const armed = !!(game.weapons && game.weapons.drawn); if (!A.action || A.action === 'flinch') A.set(armed && !standing ? 'handsup' : standing ? 'cower' : null); ch.face && ch.face.set && ch.face.set('fear', p.stunT + 1); }
+    p.stunT -= dt; if (p.stunT <= 0) { p.stunA = 0; p.stunT = 0; if (A.action === 'cower' || A.action === 'flinch' || A.action === 'handsup') A.set(null); p._rtn = null; } return true; };
+  room.breach = () => { const R2 = () => Math.random(); room.stats.breaches = (room.stats.breaches || 0) + 1;
+    for (const c of pool) if (c.on && !(c.cmd && c.cmd.fn)) { c.stunD = 0.1 + R2() * 0.35; c.stunT = 3 + R2() * 3; c.stunA = 0; }
+    for (const p of [...stand.tellers, stand.recep, stand.mgr, stand.sup, stand.guard]) if (p && (p.duty === undefined || p.duty === 'on') && !p.away) { p.stunD = 0.08 + R2() * 0.3; p.stunT = 2.5 + R2() * 2.5; p.stunA = 0; } };
   const stepCustomer = (c, dt, pl) => {
+    if (c.stunT > 0 && !c.staff) { const seated = c.seat >= 0 && c.ch.anim.seated; if (stunStep(c, c.ch, dt, !seated)) { c.speed = 0; animOf(c).update(dt, 0); place(c); return; } }
     if (!c.cmd) { const r = c.gen ? c.gen.next() : { done: true }; if (r.done) { hide(c); return; } c.cmd = Object.assign({ t: 0 }, r.value); if (c.cmd.walk) { c.cmd.path = c.cmd.walk; c.cmd.pi = 0; } }
     const m = c.cmd; m.t += dt; const A = animOf(c);
     if (m.fn) { if (m.fn(c, dt, m)) c.cmd = null; return; } // 73rd: a one-off scripted step (BankShift: rise, goodbye, boarding a vehicle…)
@@ -721,13 +732,13 @@ export function buildBankInterior(game, site) {
 
   // ---- staff, one frame
   const stepStaff = (dt, pl) => { const near = pl && pl.inside; const k2 = near ? 1 : 0.5; // 73rd: who is at work is BankShift's call (p.duty)
-    for (const t of stand.tellers) { if (t.duty !== 'on' || t.away) continue; if (t.speakT > 0) t.speakT -= dt; const cust = pool.find((o) => o.on && o.win === t.win && o.cmd && o.cmd.win === t.win);
+    for (const t of stand.tellers) { if (t.duty !== 'on' || t.away) continue; if (stunStep(t, t.ch, dt, false)) { animUp(t.ch, dt * k2, 0); continue; } if (t.speakT > 0) t.speakT -= dt; const cust = pool.find((o) => o.on && o.win === t.win && o.cmd && o.cmd.win === t.win);
       if (cust) { t.actT -= dt; if (t.actT <= 0 || !t.act) { t.act = t.rnd() < 0.5 ? 'talk' : t.rnd() < 0.6 ? 'type' : 'listen'; t.actT = 2 + t.rnd() * 3; t.ch.anim.set(t.act); t.ch.anim.seated = true; } }
       else { if (t.act) { t.act = null; t._rtn = null; } routine(t, t.ch, dt, 'desk', t.rnd); }
       animUp(t.ch, dt * k2, 0); }
-    for (const [p, kind] of [[stand.recep, 'desk'], [stand.mgr, 'desk'], [stand.sup, 'phone']]) { if (p.duty !== 'on' || (p.waveT > 0)) continue; const busy = p === stand.recep && pool.some((o) => o.on && o.cmd && o.cmd.staff === 'recep');
+    for (const [p, kind] of [[stand.recep, 'desk'], [stand.mgr, 'desk'], [stand.sup, 'phone']]) { if (p.duty !== 'on' || (p.waveT > 0)) continue; if (stunStep(p, p.ch, dt, false)) { animUp(p.ch, dt * k2, 0); continue; } const busy = p === stand.recep && pool.some((o) => o.on && o.cmd && o.cmd.staff === 'recep');
       if (busy) { if (p.ch.anim.action !== 'talk') p.ch.anim.set('talk'); p.ch.anim.seated = true; p.busy = true; } else { if (p.busy) { p.busy = false; p._rtn = null; } routine(p, p.ch, dt, kind, p.rnd); } animUp(p.ch, dt * k2, 0); }
-    { const gd = stand.guard; if (shift && shift.guardStep(gd, dt)) { animUp(gd.ch, dt, 0); return; } routine(gd, gd.ch, dt, 'guard', gd.rnd); let want = gd.yaw0; if (pl && pl.inside && Math.hypot(pl.x - gd.x, pl.z - gd.z) < 3) want = Math.atan2(pl.x - gd.x, pl.z - gd.z); gd.ch.root.rotation.y = turn(gd.ch.root.rotation.y, want, dt * 2.5); animUp(gd.ch, dt, 0); }
+    { const gd = stand.guard; if (shift && shift.guardStep(gd, dt)) { animUp(gd.ch, dt, 0); return; } if (gd.stunT > 0 && gd.stunD <= dt) { gd.ch.root.rotation.y = turn(gd.ch.root.rotation.y, Math.atan2(-gd.x, 0.4 - gd.z), dt * 5); } if (stunStep(gd, gd.ch, dt, false)) { animUp(gd.ch, dt, 0); return; } routine(gd, gd.ch, dt, 'guard', gd.rnd); let want = gd.yaw0; if (pl && pl.inside && Math.hypot(pl.x - gd.x, pl.z - gd.z) < 3) want = Math.atan2(pl.x - gd.x, pl.z - gd.z); gd.ch.root.rotation.y = turn(gd.ch.root.rotation.y, want, dt * 2.5); animUp(gd.ch, dt, 0); }
   };
 
   // ---- 71st: the room's sound sources (BankSound.tick reads room.audio; Game passes the active room's list)

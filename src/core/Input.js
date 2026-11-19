@@ -17,7 +17,7 @@ class InputSystem {
     addEventListener('keyup', (e) => { this.down.delete(e.code); this.released.add(e.code); });
     addEventListener('blur', () => { this.down.clear(); });
     addEventListener('mousemove', (e) => { if (this.locked) { this.mouseDX += e.movementX; this.mouseDY += e.movementY; } });
-    addEventListener('mousedown', (e) => { this.mouseButtons.add(e.button); this.mousePressed.add(e.button); });
+    addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); /* (no autoscroll: middle mouse breaches doors) */ this.mouseButtons.add(e.button); this.mousePressed.add(e.button); });
     addEventListener('mouseup', (e) => this.mouseButtons.delete(e.button));
     addEventListener('wheel', (e) => { this.wheel += Math.sign(e.deltaY); }, { passive: true });
     document.addEventListener('pointerlockchange', () => { this.locked = document.pointerLockElement != null; bus.emit('pointerlock', this.locked); });
