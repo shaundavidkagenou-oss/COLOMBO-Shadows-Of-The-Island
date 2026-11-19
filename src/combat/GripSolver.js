@@ -18,6 +18,7 @@
 // (HeroRig.hand). Everything is in the hand bone's own frame: fingers −y, wrist +y, knuckle line along z (index +z),
 // right palm +x / left palm −x — exactly how HeroRig bends the joints, so what is solved is what is rendered.
 import * as THREE from 'three';
+import BAKED_HOLDS from './holdsBaked.js';
 
 const FING = ['idx', 'mid', 'rng', 'pnk'];
 const PALM_X = 0.019; // palm skin from the hand bone axis (measured on the hero hands)
@@ -197,8 +198,34 @@ export function wrapFor(ch, key, S, r, dirIn, opts) { return gripFor(ch, 'wrap:'
 
 const cache = new WeakMap();
 // hold for this character + weapon model (null if the model has no hold data or the rig no finger bones)
+// 73rd: a weapon hold is a pure function of the hand (its finger / thumb bone offsets) and the weapon's hold description, and
+// solving one costs 0.1–0.2 s — the hitch on the first switch to each gun. Holds are now shared by every character with the
+// same hand (a re-created hero, the squad), baked for the three heroes × every gun (holdsBaked.js, tools/bake-holds.mjs),
+// remembered on this machine (localStorage) for anything else, and solved only when nothing matches (an edited gun model).
+const cyrb = (str) => { let h1 = 0xdeadbeef, h2 = 0x41c6ce57; for (let i = 0; i < str.length; i++) { const c = str.charCodeAt(i); h1 = Math.imul(h1 ^ c, 2654435761); h2 = Math.imul(h2 ^ c, 1597334677); }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909); h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909); return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36); };
+const HAND_BONES = (() => { const o = []; for (const S of ['R', 'L']) { for (const n of FING) for (const j of [1, 2, 3]) o.push(n + j + S); for (const j of [1, 2, 3]) o.push('thb' + j + S); } return o; })();
+export function handSig(bones) { return cyrb(HAND_BONES.map((k) => { const p = bones[k] && bones[k].position; return p ? `${p.x.toFixed(4)},${p.y.toFixed(4)},${p.z.toFixed(4)}` : '-'; }).join(';')); }
+export function holdSig(hold) { return cyrb(JSON.stringify(hold, (k, v) => (typeof v === 'number' ? +v.toFixed(5) : v))); }
+// plain JSON form (THREE vectors / quaternions tagged) and back
+export function holdToPlain(v) { if (v && v.isQuaternion) return { q_: [v.x, v.y, v.z, v.w].map((n) => +n.toFixed(6)) }; if (v && v.isVector3) return { v_: [v.x, v.y, v.z].map((n) => +n.toFixed(6)) };
+  if (Array.isArray(v)) return v.map(holdToPlain); if (v && typeof v === 'object') { const o = {}; for (const k of Object.keys(v)) o[k] = holdToPlain(v[k]); return o; } return typeof v === 'number' ? +v.toFixed(6) : v; }
+export function holdFromPlain(v) { if (v && v.q_) return new THREE.Quaternion(...v.q_); if (v && v.v_) return new THREE.Vector3(...v.v_);
+  if (Array.isArray(v)) return v.map(holdFromPlain); if (v && typeof v === 'object') { const o = {}; for (const k of Object.keys(v)) o[k] = holdFromPlain(v[k]); return o; } return v; }
+const SIGS = new WeakMap(); const SHARED = new Map(); let BAKED = BAKED_HOLDS; const LS_KEY = 'colombo.holds.v1'; let lsCache = null;
+export function setBakedHolds(b) { BAKED = b; }
+const lsGet = () => { if (lsCache) return lsCache; try { lsCache = (typeof localStorage !== 'undefined' && JSON.parse(localStorage.getItem(LS_KEY) || '{}')) || {}; } catch { lsCache = {}; } return lsCache; };
+const lsPut = (k, h) => { try { const c = lsGet(); c[k] = holdToPlain(h); const keys = Object.keys(c); if (keys.length > 160) delete c[keys[0]]; localStorage.setItem(LS_KEY, JSON.stringify(c)); } catch { /* storage full / unavailable */ } };
+export const holdStats = { solved: 0, baked: 0, stored: 0, shared: 0 };
+function sharedHold(bones, ud) {
+  let hs = SIGS.get(bones); if (!hs) SIGS.set(bones, (hs = handSig(bones))); let ws = SIGS.get(ud.hold); if (!ws) SIGS.set(ud.hold, (ws = holdSig(ud.hold))); const key = hs + '|' + ws; let h = SHARED.get(key); if (h) { holdStats.shared++; return h; }
+  const b = (BAKED && BAKED[key]) || null; if (b) { h = holdFromPlain(b); holdStats.baked++; }
+  else { const st = lsGet()[key]; if (st) { h = holdFromPlain(st); holdStats.stored++; } else { h = solve(bones, ud); holdStats.solved++; lsPut(key, h); } }
+  SHARED.set(key, h); return h;
+}
 export function holdFor(ch, model) {
   const ud = model.userData; if (!ud.hold || !ch || !ch.bones || !ch.bones.idx1R || !ch.bones.thb1L) return null;
-  let m = cache.get(ch); if (!m) cache.set(ch, (m = new Map())); let h = m.get(model); if (!h) m.set(model, (h = solve(ch.bones, ud))); return h;
+  let m = cache.get(ch); if (!m) cache.set(ch, (m = new Map())); let h = m.get(model); if (!h) m.set(model, (h = sharedHold(ch.bones, ud))); return h;
 }
+export function solveHoldRaw(bones, ud) { return solve(bones, ud); } // tools/bake-holds.mjs
 export const _test = { Hand, sdBox, solve };

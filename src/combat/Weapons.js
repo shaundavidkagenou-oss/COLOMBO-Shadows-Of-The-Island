@@ -67,6 +67,25 @@ export class Weapons {
     this.fxInit(); this.hudInit(); this.showHolstered();
   }
   attach(ch) { const b = ch.bones; b.hips.add(this.holsterP); b.chest.add(this.holsterR); b.chest.add(this.inHand); if (this.P.ch !== ch) { ch.anim.ik = null; ch.anim.aim = null; } }
+  // 73rd: the first switch to a gun used to build its model (17–110 ms) and solve the hand hold on it (85–200 ms) in the frame the
+  // switch began — the occasional hitch. Owned guns are now built ahead of time, ONE per quiet frame (never mid-switch, never in a
+  // slow frame), wheel-slice picks first, with the current character's hold looked up (baked) and the shader programs compiled
+  // asynchronously. Opening the wheel moves its guns to the front of the queue. Nothing about the switch itself changes.
+  prewarmTick(dt) {
+    if (this._pwCool > 0) { this._pwCool -= dt; return; }
+    if (dt > 1 / 35 || (this.state !== 'none' && this.state !== 'ready')) return; // a quiet frame only
+    const ch = this.P.ch; if (this._pwCh !== ch) { this._pwCh = ch; this._pwDone = null; } // switched character: his hand's holds
+    const done = (this._pwDone ||= new Set()); const order = this.wheelOpen ? [...Object.values(this.typePick), ...this.inv.keys()] : [...(this.sel >= 0 ? [this.sel] : []), ...Object.values(this.typePick), ...this.inv.keys()];
+    for (const i of order) { if (done.has(i) || !this.inv[i] || !this.inv[i].owned) continue; done.add(i);
+      try { const fresh = !this.built.includes(i); const m = this.models[i]; holdFor(ch, m); if (fresh && this.g.compileForGame && !this.g.noRender) { m.visible = true; this.g.compileForGame(m, 3000).catch(() => {}); m.visible = false; } /* compile() walks visible objects only */ } catch (e) { console.warn('weapon prewarm', i, e); }
+      this._pwCool = 0.05; return; } // at most one gun every few frames
+  }
+  // every gun anyone in the crew owns, built now (behind a black screen / inside a shop menu), with each owner's hold looked up
+  prewarmOwned(only = null) {
+    const owners = [{ ch: this.P.ch, inv: this.inv }]; for (const m of (this.g.squad && this.g.squad.members) || []) if (m.inv && m.ch) owners.push({ ch: m.ch, inv: m.inv });
+    for (const o of owners) for (let i = 0; i < WEAPONS.length; i++) { if (only != null && i !== only) continue; if (!o.inv[i] || !o.inv[i].owned) continue;
+      try { const fresh = !this.built.includes(i); const m = this.models[i]; holdFor(o.ch, m); if (fresh && this.g.compileForGame && !this.g.noRender) { m.visible = true; this.g.compileForGame(m, 3000).catch(() => {}); m.visible = false; } } catch (e) { console.warn('weapon prewarm', i, e); } }
+  }
   get def() { return this.cur >= 0 ? WEAPONS[this.cur] : null; }
   get drawn() { return this.cur >= 0 && this.state !== 'none'; }
   get aiming() { return this.aimW > 0.5 && this.drawn; }
@@ -195,7 +214,7 @@ export class Weapons {
   // ------------------------------------------------------------------ main update (before Player.update)
   update(dt, can) {
     const P = this.P, A = P.ch.anim;
-    this.heatUpdate(dt);
+    this.heatUpdate(dt); this.prewarmTick(dt);
     if (Audio.wheelOpen && !this.wheelOpen) Audio.wheelScreen(false); // 72nd: never leave the wheel's music / slow-motion mix on with the wheel shut
     if (can && (P.vehicle || P.boat) && !P.entry && !P.exiting && !P.climb) return this.driveByUpdate(dt); // 58th: drive-by (pistols / compact carbines, one hand out of the window)
     if (this.db) this.driveByOff();

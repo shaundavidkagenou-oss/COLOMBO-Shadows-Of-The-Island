@@ -281,6 +281,7 @@ export class Game {
     if (this.atm) this.atm.reset(); BankSound.stopNow(); // 67th: no ATM screen / bank room tone carried into a new game
     this.story.state = Story.freshState(); this.loot?.clear(); this.clock = 0; this.mode = 'play'; this.paused = false; this.squad.reset(); this.orchid.load(null); this.grenades?.clear(); this.rebuildPlayer(); if (this.customs && this.customs.active) this.customs.abort(); this.garage.restore(); /* no owned vehicles in a new game */
     this.hud.clearBlips(''); this.focus = null; this.setupRoomDoor(); if (this.boats) this.boats.onLoad();
+    try { this.weapons.prewarmOwned(); } catch (e) { console.warn('prewarm', e); } // 73rd
     await playOpening(this);
     Input.requestLock(this.canvas);
     this.story.setupWorldActivities(); this.story.startMission('m0', 0); this.autosave();
@@ -295,6 +296,7 @@ export class Game {
     if (this.pendingWanted) { this.police.restore(this.pendingWanted); this.pendingWanted = 0; }
     this.story.setupWorldActivities(); this.setupRoomDoor(); if (this.boats) this.boats.onLoad();
     const m = this.story.state.mission; if (m.id && m.stage > 0) this.story.startMission(m.id, m.stage); else if (m.id === 'm0') this.story.startMission('m0', 0); else this.story.offerNext();
+    try { this.weapons.prewarmOwned(); } catch (e) { console.warn('prewarm', e); } // 73rd: the crew's guns built behind the black screen — no hitch on a first switch
     for (let i = 0; i < 30; i++) this.updatePlay(0.033, true);
     await this.hud.fade(0, 0.8); this.hud.notify('Game loaded', `${d.missionTitle || 'Free roam'} · ${d.timeString || ''}`, 'success', 3); Audio.setMusic('explore');
   }

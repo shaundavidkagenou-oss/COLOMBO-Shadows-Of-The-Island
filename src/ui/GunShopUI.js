@@ -51,6 +51,7 @@ export class GunShopUI {
     if (!r.ok) { this.flash = { bad: true, msg: r.msg }; Audio.ui('fail'); this.render(); return; }
     g.story.pay(-r.cost, `${SHOP_NAME}: ${it.kind === 'weapon' ? it.w.name : it.name} (${this.member})`); if (it.kind === 'grenade' && g.grenades) g.grenades.count = r.grenades;
     if (r.weapon && (g.weapons.sel < 0 || !c.inv[g.weapons.sel]?.owned) && !g.weapons.drawn) { g.weapons.sel = it.slot; g.weapons.showHolstered(); } // first gun: carried holstered, ready to draw
+    if (r.weapon && g.weapons.prewarmOwned) try { g.weapons.prewarmOwned(it.slot); } catch (e) { console.warn(e); } // 73rd: the new gun is built while the shop is open, not on the first draw
     this.flash = { bad: false, msg: r.msg }; Audio.ui('success'); g.hud.notify(SHOP_NAME, `${r.msg} · ${rs(r.cost)}`, 'info', 3); this.render();
     if (g.autosave) g.autosave(); // the purchase (money + loadout) is on disk straight away
   }
