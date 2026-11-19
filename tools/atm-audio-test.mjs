@@ -40,7 +40,7 @@ try {
     g.story.state.money = 5000; g.bank.account.balance = Math.max(g.bank.account.balance, 50000);
     const pick = async (label) => { const i = A.opts.findIndex((o) => o.label.startsWith(label)); if (i < 0) return false; A.sel = i; A.render(); await press('Enter'); return true; };
     await pick('Cash withdrawal'); await pick('Rs. 1,000'); await pick('Confirm'); out.proc = A.page; await g.stepSim(90, 0.05); out.procAt45 = A.page; await g.stepSim(14, 0.05); out.procAt52 = A.page;
-    await pick('Another service'); out.plays.length = 0; await pick('Return card'); await g.stepSim(80, 0.05); out.closed = !A.open; out.exitPlays = out.plays.slice();
+    await pick('Another service'); out.plays.length = 0; await pick('Return card'); await g.stepSim(95, 0.05); /* out at 3 s, taken and pocketed by ~4.1 s */ out.closed = !A.open; out.exitPlays = out.plays.slice();
     return out; });
   console.log(JSON.stringify(R));
   ok(R.live && R.thrown.length === 0, `recordings longer than their hard length play without throwing (audio running: ${R.live}; thrown: ${JSON.stringify(R.thrown)})`);
