@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import puppeteer from '/home/user/testenv/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js';
 import chromium from '/home/user/testenv/node_modules/@sparticuz/chromium/build/index.js';
 const ROOT = new URL('../', import.meta.url).pathname; const PACK = ROOT + 'texture-pack/'; const ASIDE = ROOT + 'texture-pack.test-aside';
-const SHOTS = process.env.SHOTS !== '0';
+const SHOTS = process.env.SHOTS !== '0' && fs.existsSync(ROOT + 'dev/ref'); // (dev/ref was removed from the repo to save space: no screenshots unless the folder is there)
 if (fs.existsSync(ASIDE)) throw new Error(ASIDE + ' exists — a previous run did not finish; move it back to texture-pack/ first');
 if (fs.existsSync(PACK)) fs.renameSync(PACK, ASIDE); fs.mkdirSync(PACK, { recursive: true }); if (fs.existsSync(ASIDE + '/README.md')) fs.copyFileSync(ASIDE + '/README.md', PACK + 'README.md');
 const b = await puppeteer.launch({ executablePath: await chromium.executablePath(), headless: true, protocolTimeout: 1800000, args: [...chromium.args, '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'], defaultViewport: { width: 1280, height: 720 } });

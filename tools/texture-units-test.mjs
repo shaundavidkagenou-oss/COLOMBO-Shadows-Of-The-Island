@@ -15,8 +15,10 @@ import chromium from '/home/user/testenv/node_modules/@sparticuz/chromium/build/
 const QS = process.argv.slice(2).length ? process.argv.slice(2) : ['high', 'ultra', 'medium', 'low'];
 const T0 = Date.now(); const log = (m) => console.log(`[${((Date.now() - T0) / 1000).toFixed(0)}s] ${m}`);
 let pass = 0, fail = 0; const ok = (c, m) => { if (c) { pass++; console.log('ok  ' + m); } else { fail++; console.log('FAIL ' + m); } };
-const browser = await puppeteer.launch({ executablePath: await chromium.executablePath(), headless: true, protocolTimeout: 3600000,
+// one browser per quality: four full game sessions in one software-rendered browser ran out of memory
+const launch = async () => puppeteer.launch({ executablePath: await chromium.executablePath(), headless: true, protocolTimeout: 3600000,
   args: [...chromium.args, '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--window-size=960,540'], defaultViewport: { width: 960, height: 540 } });
+let browser = null;
 const errors = [];
 // in-page helpers (installed once per page)
 const HELPERS = () => {
@@ -38,6 +40,7 @@ const HELPERS = () => {
 };
 try {
   for (const Q of QS) {
+    if (browser) await browser.close().catch(() => {}); browser = await launch();
     const page = await browser.newPage();
     page.on('pageerror', (e) => errors.push(Q + ': ' + String(e.message || e))); page.on('console', (m) => { const t = m.text(); if ((m.type() === 'error' || /texture units|VALIDATE_STATUS|Shader Error/i.test(t)) && !/favicon|404/.test(t)) errors.push(Q + ': ' + t.slice(0, 300)); });
     await page.evaluateOnNewDocument((q) => { localStorage.setItem('colombo.settings.v1', JSON.stringify({ quality: q, showFps: false })); }, Q);
@@ -83,7 +86,7 @@ try {
     }
     await page.close();
   }
-} catch (e) { fail++; console.log('FAIL exception ' + e.message); } finally { await browser.close(); }
+} catch (e) { fail++; console.log('FAIL exception ' + e.message); } finally { if (browser) await browser.close().catch(() => {}); }
 const bad = errors.filter((e) => /texture units|Shader Error|VALIDATE_STATUS|link/i.test(e));
 ok(bad.length === 0, 'no shader link / texture unit errors in the console' + (bad.length ? ': ' + bad.slice(0, 3).join(' | ') : ''));
 if (errors.length) console.log('other console errors: ' + errors.slice(0, 5).join(' | '));
