@@ -351,6 +351,7 @@ export class Traffic {
     const r = o.ch.root; o.ch.anim.board = null; o.ch.anim.standUp(); v.mesh.updateMatrixWorld(); r.updateMatrixWorld(true);
     const p = r.getWorldPosition(new THREE.Vector3()); const yw = new THREE.Euler().setFromQuaternion(r.getWorldQuaternion(new THREE.Quaternion()), 'YXZ').y;
     r.parent?.remove(r); r.rotation.set(0, 0, 0); o.done = true;
+    if (o.ch.onAlight) { const f = o.ch.onAlight; o.ch.onAlight = null; f(p, yw); return; } // 73rd: someone with somewhere to be (bank staff arriving for work) — not handed to the crowd
     if (this.crowd) { const ped = this.crowd.adopt(o.ch, p.x, p.z, yw, v.paxReason, v.paxFrom);
       if (ped && v.rageDriver === o.ch) { v.rageDriver = null; ped.homeCar = v; v.awayDriver = ped; this.crowd.minds.playerAct(ped, 'crashed'); ped.timer = Math.max(ped.timer || 0, 5 + this.rng.next() * 4); ped.talkCd = 0; this.crowd.speak(ped, 'roadRage', 2, 2.5); } } else o.ch.dispose();
   }
@@ -586,7 +587,7 @@ export class Traffic {
     if (!ch || ch.disposed || ch.drvIdx === undefined || ch.bloodMat || ch.rag || ch.dead || ch.capOff) return false; const B = this.driverBin || (this.driverBin = []); const b = B[ch.drvIdx] || (B[ch.drvIdx] = []);
     if (b.length >= 2) return false; ch.root.parent?.remove(ch.root); const A = ch.anim; if (A) { A.ik = null; A.aim = null; A.board = null; if (A.set) A.set(null); if (A.standUp) A.standUp(); } b.push(ch); return true;
   }
-  remove(v) { if (v.towing) { v.towing.dispose(); v.towing = null; } if (v.squad && v.driverChar) { v.mesh.remove(v.driverChar.root); v.driverChar.anim?.standUp?.(); v.driverChar = null; const m = v.squad; v.squad = null; if (v.onRemove) v.onRemove(m); } /* a squad-mate at the wheel is never disposed */ if (v.driverChar) { if (!this.binDriver(v.driverChar)) v.driverChar.dispose(); v.driverChar = null; } if (v.pax && v.pax.length) this.dropPax(v); v.dispose(); }
+  remove(v) { if (v.beforeRemove) { const f = v.beforeRemove; v.beforeRemove = null; try { f(v); } catch (e) { console.warn('[traffic] beforeRemove', e); } } /* 73rd: whoever borrowed it (bank staff riding home) takes their people back first */ if (v.towing) { v.towing.dispose(); v.towing = null; } if (v.squad && v.driverChar) { v.mesh.remove(v.driverChar.root); v.driverChar.anim?.standUp?.(); v.driverChar = null; const m = v.squad; v.squad = null; if (v.onRemove) v.onRemove(m); } /* a squad-mate at the wheel is never disposed */ if (v.driverChar) { if (!this.binDriver(v.driverChar)) v.driverChar.dispose(); v.driverChar = null; } if (v.pax && v.pax.length) this.dropPax(v); v.dispose(); }
   // VehicleDamage: a burning / shot-up vehicle is abandoned — the AI stops driving it (it coasts to a halt when `coast`), it stays
   // where it ends up (a kept vehicle: towed later like any car the player left), and whoever is still alive in it gets out through
   // his own door and runs (`from`: what they run from). Occupants killed in their seats stay slumped there (v.deadOcc).
@@ -602,7 +603,7 @@ export class Traffic {
     this.disembark(v, 'flee', from); return true;
   }
   // Hand a vehicle over to the player (car-jack: driver steps out and walks off grumbling)
-  takeOver(v, keepDriver = false) { const i = this.vehicles.indexOf(v); if (i >= 0) this.vehicles.splice(i, 1); const pi = this.parked.indexOf(v); if (pi >= 0) this.parked.splice(pi, 1); if (v.spot) { this.vacate(v.spot); v.spot = null; } const hadDriver = !!v.driverChar; this.disembark(v, 'flee', this.player ? { x: this.player.x, z: this.player.z } : null); if (v.driverChar && !keepDriver) { v.mesh.remove(v.driverChar.root); v.driverChar.dispose(); v.driverChar = null; } v.ai = null; v.hold = false; v.parked = false; v.keep = true; v.left = null; if (v.spot) { (this.vacated || (this.vacated = new Map())).set(v.spot, 0); v.spot = null; } return hadDriver; } // the bay stays empty (no new car pops into it behind the player) until it is far away and some time has passed
+  takeOver(v, keepDriver = false) { if (v.beforeRemove) { const f = v.beforeRemove; v.beforeRemove = null; try { f(v, 'taken'); } catch (e) { console.warn('[traffic] beforeRemove', e); } } const i = this.vehicles.indexOf(v); if (i >= 0) this.vehicles.splice(i, 1); const pi = this.parked.indexOf(v); if (pi >= 0) this.parked.splice(pi, 1); if (v.spot) { this.vacate(v.spot); v.spot = null; } const hadDriver = !!v.driverChar; this.disembark(v, 'flee', this.player ? { x: this.player.x, z: this.player.z } : null); if (v.driverChar && !keepDriver) { v.mesh.remove(v.driverChar.root); v.driverChar.dispose(); v.driverChar = null; } v.ai = null; v.hold = false; v.parked = false; v.keep = true; v.left = null; if (v.spot) { (this.vacated || (this.vacated = new Map())).set(v.spot, 0); v.spot = null; } return hadDriver; } // the bay stays empty (no new car pops into it behind the player) until it is far away and some time has passed
   // the player got out / was taken out of a vehicle: it stays exactly where it was left (never culled by distance); with
   // `tow` it is towed once the player has been more than TOW_DIST away for TOW_TIME seconds (coming back resets the clock)
   release(v, tow = true) { parkOnStand(v); v.parked = true; v.keep = true; v.speed = 0; v.brake = false; v.left = tow && !v.ownerId ? { away: 0 } : null; /* owned (Street Customs) vehicles are never towed */ if (v.spot) { this.vacate(v.spot); v.spot = null; } if (!this.parked.includes(v)) this.parked.push(v); }
@@ -707,6 +708,15 @@ export class Traffic {
       const o = { v, spot: pick, path, t: 0 }; ai.pieces = [cut, path]; ai.park = o; ai.sMaxP = path; ai.sMax = path.len - 0.02; A.push(o);
       const st = this.spotState(pick, today, 0, false); st.claim = v; st.occ = true; st.day = today; st.until = -1; this.parkStats = this.parkStats || { started: 0, parked: 0 }; this.parkStats.started++;
       if (A.length >= 2) break; }
+  }
+  // 73rd (bank staff cars): a vehicle under lane AI on the spot's own kerb lane pulls into that spot (the arrivals' smooth S and
+  // stop; parkArrived then gets everyone out). false if the spot is not ahead of it on its current piece.
+  parkInto(v, spot) {
+    const ai = v.ai; const P = ai && ai.pieces[0]; if (!P || P.type !== 'line' || !P.seg || P.seg.id !== spot.seg) return false;
+    const al = (spot.x - P.p0[0]) * P.d[0] + (spot.z - P.p0[1]) * P.d[1]; if (al < ai.s + 10 || al > P.len) return false;
+    const sA = Math.max(ai.s + 3, al - 12); const path = parkPath(P, sA, spot); const cut = { ...P, p1: [P.p0[0] + P.d[0] * sA, P.p0[1] + P.d[1] * sA], len: sA };
+    const o = { v, spot, path, t: -60 }; ai.pieces = [cut, path]; ai.park = o; ai.sMaxP = path; ai.sMax = path.len - 0.02; (this.arrivals || (this.arrivals = [])).push(o); /* (t from −60: two minutes before it gives up) */
+    if (!this.spots) this.spots = new Map(); const today = Math.floor((this.gameH ?? 0) / 24); const st = this.spotState(spot, today, 0, false); st.claim = v; st.occ = true; st.day = today; st.until = -1; return true;
   }
   // the car has stopped on its spot: it is a parked vehicle now (kept for the day), and everyone gets out
   parkArrived(v, o, st) {

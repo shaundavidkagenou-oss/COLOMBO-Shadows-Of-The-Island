@@ -34,6 +34,7 @@ import { seatTopFor } from './ClubCast.js';
 import { CMB, FONTS, drawLogo, tracked, fitFont, hasCanvas, drawATMScreen, ATM_IDLE_VIEW } from './BankBrand.js';
 import { BankSound, CHAIR_SEATED_AT, CHAIR_LEN } from '../audio/BankAudio.js';
 import { acUnit, landline, callPhone, rb, HANDSET } from './BankProps.js';
+import { makeBankShift, warmStaffCars } from './BankShift.js';
 import { BANK_CALL, BANK_TELLERS, bankCallId, bankCounterId } from '../audio/VoiceDefs.js';
 import { SoundBank as SB } from '../audio/SoundBank.js';
 
@@ -245,8 +246,8 @@ export function buildBankInterior(game, site) {
     pl.box(AX + 0.16, 1.605, z, 0.14, 0.015, 0.47, { col: C('#1b1c1f') }); for (const s of [-1, 1]) pl.box(AX + 0.15, 1.39, z + s * 0.228, 0.12, 0.43, 0.012, { col: C('#1b1c1f') }); // privacy hood
     for (let j = 0; j < 4; j++) for (const s of [-1, 1]) { rb(metal, AX + 0.1135, 1.27 + j * 0.068, z + s * 0.198, 0.011, 0.026, 0.036, 0.004, C('#d9dcdf')); pl.box(AX + 0.1192, 1.27 + j * 0.068, z + s * 0.198, 0.0008, 0.003, 0.014, { col: C('#3a3d42') }); pl.box(AX + 0.1123, 1.27 + j * 0.068, z + s * 0.175, 0.0015, 0.004, 0.012, { col: C('#9aa0a6') }); } // side function keys (each with its engraved bar, a tick pointing at the screen)
     metal.box(AX + 0.18, 1.04, z, 0.22, 0.04, 0.6, { col: C('#aeb2b6') }); // keypad shelf
-    atmKeypad(metal, pl, AX + 0.19, 1.062, z + 0.012); // 73rd: the encrypting PIN pad (steel keys with engraved legends, the function column)
-    for (const [dz, dw] of [[0.155, 0.01], [-0.115, 0.01]]) pl.box(AX + 0.19, 1.11, z + dz, 0.16, 0.09, dw, { col: C('#1b1c1f') }); pl.box(AX + 0.27, 1.11, z + 0.02, 0.01, 0.09, 0.28, { col: C('#1b1c1f') }); // keypad privacy shield
+    atmKeypad(metal, pl, AX + 0.19, 1.077, z + 0.012); // 73rd: the encrypting PIN pad (steel keys with engraved legends, the function column)
+    for (const [dz, dw] of [[0.155, 0.01], [-0.115, 0.01]]) metal.box(AX + 0.2, 1.115, z + dz, 0.14, 0.09, dw, { col: C('#7d8287') }); // keypad privacy shield: brushed-steel side wings (open toward the user, as on real machines)
     // 71st: card reader as on a real machine — rounded housing standing out of the fascia, the slot (70 mm wide) in a lit green
     // anti-skimming surround, a card pictogram over it; contactless pad below; status light; headphone jack; lit hood edges
     rb(pl, AX + 0.088, 1.3, z - 0.3, 0.07, 0.088, 0.12, 0.014, C('#1c1e22')); rb(chrome, AX + 0.118, 1.3, z - 0.3, 0.012, 0.04, 0.094, 0.006, C('#c9ccd0'));
@@ -331,6 +332,7 @@ export function buildBankInterior(game, site) {
     ob(5.48, 6.72, 5.62, 6.28); ob(5.78, 6.42, 4.84, 5.6); ob(5.45, 6.75, 6.36, 6.98); ob(xR - 0.32, xR, 4.84, 5.46); ob(4.7, 5.2, 4.9, 5.4); }
 
   // ---- teller counter, security glass, staff door
+  let staffDoorLeaf = null; // 73rd
   const WINX = B.windows, cE = 6.15; { const cx = (xL + cE) / 2, cw = cE - xL;
     wal.box(cx, 0.5, Z(9.01), cw, 1.0, 0.78, { col: WHITE }); paint.box(cx, 0.05, Z(8.6) + 0.004, cw, 0.1, 0.012, { col: C('#14161a') }); metal.box(cx, 0.92, Z(8.6) + 0.006, cw, 0.012, 0.006, { col: gold });
     mrbD.box(cx, 1.02, Z(8.98), cw, 0.04, 0.86, { col: WHITE });
@@ -348,7 +350,11 @@ export function buildBankInterior(game, site) {
     face(sign, WINX[3], 1.32, Z(9.0) - 0.016, 0.4, 0.2, IN_UV.closed, '+z'); paint.box(WINX[3], 1.32, Z(9.0) - 0.022, 0.42, 0.22, 0.008, { col: C('#f4f2ec') }); metal.box(WINX[3], 1.13, Z(9.04), 0.18, 0.16, 0.02, { col: steelC }); // closed plate on its stand
     // staff door (glazed partition above)
     const dx0 = cE, dx1 = xR, dcx = (dx0 + dx1) / 2; paint.box(dx0 + 0.03, 1.05, Z(9.0), 0.06, 2.1, 0.12, { col: bronze }); paint.box(dx1 - 0.03, 1.05, Z(9.0), 0.06, 2.1, 0.12, { col: bronze }); paint.box(dcx, 2.13, Z(9.0), dx1 - dx0, 0.06, 0.12, { col: bronze });
-    wal.box(dcx, 1.04, Z(9.0), dx1 - dx0 - 0.14, 2.04, 0.045, { col: WHITE }); face(sign, dcx, 1.55, Z(9.0) + 0.024, 0.32, 0.16, IN_UV.staff, '+z'); brass.box(dx0 + 0.16, 1.05, Z(9.0) + 0.04, 0.02, 0.02, 0.12, { col: WHITE }); brass.box(dx0 + 0.16, 1.05, Z(9.0) + 0.1, 0.12, 0.02, 0.02, { col: WHITE });
+    // 73rd: the leaf is its own small mesh group hinged on the right jamb, so staff going off / coming on shift open it (BankShift)
+    { const dk = new Kit(); Object.assign(dk.extra, { cmbSign: signMat }); const hx = dx1 - 0.07, lw = dx1 - dx0 - 0.14, L0 = (x) => x - hx;
+      dk.get('walnut').box(-lw / 2, 1.04, 0, lw, 2.04, 0.045, { col: WHITE }); face(dk.get('cmbSign'), -lw / 2, 1.55, 0.024, 0.32, 0.16, IN_UV.staff, '+z');
+      for (const s2 of [1, -1]) { dk.get('gold').box(L0(dx0 + 0.16), 1.05, s2 * 0.04, 0.02, 0.02, 0.04, { col: WHITE }); dk.get('gold').box(L0(dx0 + 0.16) + 0.05, 1.05, s2 * 0.075, 0.12, 0.02, 0.02, { col: WHITE }); } // lever handles both sides
+      const leaf = dk.into(new THREE.Group(), { cast: false, receive: true }); leaf.name = 'bank-staff-door'; leaf.position.set(hx, 0, Z(9.0)); g.add(leaf); staffDoorLeaf = { leaf, ang: 0, x: dcx, z: Z(9.0) }; }
     pl.box(dx1 - 0.16, 1.3, Z(9.0) + 0.03, 0.07, 0.11, 0.02, { col: C('#202226') }); emis.box(dx1 - 0.16, 1.33, Z(9.0) + 0.041, 0.012, 0.012, 0.002, { col: [1, 0.2, 0.15] }); // card-access reader
     glass.box(dcx, (2.16 + bulkY) / 2, Z(9.0), dx1 - dx0 - 0.02, bulkY - 2.16, 0.025);
     ob(xL, xR, 8.6, D); }
@@ -440,11 +446,12 @@ export function buildBankInterior(game, site) {
   room.route = route;
 
   // the customer pool (built here, on the loading screen; reused — a customer handed to the street crowd is replaced at the next reseed)
+  let shift = null; // 73rd (set below)
   const POOL = 6; let seedN = 6800; const pool = room.customers;
   const newCustomer = () => { let sp = null; for (let t = 0; t < 6 && !(sp && isAdultSpec(sp)); t++) sp = makeAppearance(seedN++ * 13 + 5, { band: ['young', 'adult', 'adult', 'mature'][seedN % 4] }); const ch = new Character(sp); ch.bankOwned = true; ch.root.visible = false; g.add(ch.root); const c = { ch, on: false, x: 0, z: 0, yaw: 0, speed: 0, gen: null, cmd: null, rnd: rngOf(seedN * 7 + 1), loc: 'door', blockT: 0, seat: -1, atm: -1, win: -1 }; pool.push(c); return c; };
   for (let i = 0; i < POOL; i++) newCustomer();
   const act = (c, a) => { const A = c.ch.anim; if (A.action !== a) A.set(a); if (c.ch.face) c.ch.face.talking = a === 'talk' || a === 'phone'; };
-  const others = (c) => pool.filter((o) => o !== c && o.on);
+  const others = (c) => { const o = pool.filter((q) => q !== c && q.on); if (shift) for (const q of shift.crew) if (q !== c && q.on) o.push(q); return o; }; // (73rd: staff changing shift are bodies too)
   const playerNearAtm = (m) => { const pl = room.pl; return m.player || (pl && pl.inside && Math.hypot(pl.x - m.stand[0], pl.z - m.stand[1]) < 1.3); };
   const freeAtm = () => atms.find((m) => !m.user && !playerNearAtm(m)) || null;
   const openWins = () => (staffOn() ? B.staffed : []);
@@ -521,6 +528,7 @@ export function buildBankInterior(game, site) {
   const stepCustomer = (c, dt, pl) => {
     if (!c.cmd) { const r = c.gen ? c.gen.next() : { done: true }; if (r.done) { hide(c); return; } c.cmd = Object.assign({ t: 0 }, r.value); if (c.cmd.walk) { c.cmd.path = c.cmd.walk; c.cmd.pi = 0; } }
     const m = c.cmd; m.t += dt; const A = animOf(c);
+    if (m.fn) { if (m.fn(c, dt, m)) c.cmd = null; return; } // 73rd: a one-off scripted step (BankShift: rise, goodbye, boarding a vehicle…)
     if (m.gone) { const W2 = game.interiors && game.interiors.walkIn; const P = game.player;
       if (!c.keepInPool && game.crowd && game.crowd.adopt && P && W2 && Math.hypot(P.x - site.F.x, P.z - site.F.z) < 40) { try { const [wx, wz] = W2.world(site, c.x, c.z); const ch = c.ch; ch.bankOwned = false; c.on = false; pool.splice(pool.indexOf(c), 1); game.crowd.adopt(ch, wx, wz, site.yaw + c.yaw, 'calm'); room.stats.handed++; room.stats.left++; return; } catch (e) { console.warn('[bank] crowd hand-off', e); } }
       hide(c); room.stats.left++; return; }
@@ -551,7 +559,7 @@ export function buildBankInterior(game, site) {
       // in the doorway (one person wide) and the player wants through: turn round and step back out of the door zone for him
       if (by === P && nowIn) { c.yieldT = (c.yieldT || 0) + dt; if (c.yieldT > 0.5) { const bw = Math.atan2(-fx, -fz); c.yaw = turn(c.yaw, bw, dt * 8); const bx = c.x - fx * 0.9 * dt, bz = c.z - fz * 0.9 * dt;
         if (bz > 0.05 || inDZ(bx, bz) || clearAt(bx, bz)) { c.x = bx; c.z = bz; } if (room.doorBy === c) room.doorBy = null; c.speed = 0; A.update(dt, 0.9); place(c); return; } } else c.yieldT = 0;
-      let sx = 0, sz = 0; if (!hold) for (const o of blockers(c)) { const ox = o.x - c.x, oz = o.z - c.z, od = Math.hypot(ox, oz); if (od > 0.6 || od < 1e-3) continue; const ahead = ox * fx + oz * fz;
+      let sx = 0, sz = 0; const BL = c.ghostT > 0 ? [] : blockers(c); /* 73rd: a staff walker jammed for long (BankShift) slips past for a moment */ if (!hold) for (const o of BL) { const ox = o.x - c.x, oz = o.z - c.z, od = Math.hypot(ox, oz); if (od > 0.6 || od < 1e-3) continue; const ahead = ox * fx + oz * fz;
         const moving = o.ext ? o.speed > 0.2 : o.cmd && o.cmd.walk && o.speed > 0.2; if (!moving && ahead > od * 0.4 && od < 0.55) { hold = true; by = o; break; } /* 73rd: the one in the doorway stops too (it used to walk through) */
         if (moving && ahead > -0.1) { const lat = ox * -fz + oz * fx; const k = (0.6 - od) / 0.6; const sgn = lat > 0 ? -1 : 1; sx += -fz * sgn * k; sz += fx * sgn * k; } } // two people walking: each eases to the side and passes
       if (by) { c.blockT += dt; if (c.blockT > 1.2 && !m.detoured && (m.nDet || 0) < 6) { const lat = (by.x - c.x) * -fz + (by.z - c.z) * fx; const first = lat > 0 ? -1 : 1; for (const sg of [first, -first]) { const px = by.x - fz * sg * 0.75 + fx * 0.15, pz = by.z + fx * sg * 0.75 + fz * 0.15; if (clearAt(px, pz) && clearLine(c.x, c.z, px, pz) && clearLine(px, pz, tgt[0], tgt[1])) { m.path = m.path.slice(); m.path.splice(m.pi, 0, [px, pz, 1]); const nx2 = m.path[m.pi + 1]; if (nx2 && m.pi + 2 < m.path.length && Math.hypot(nx2[0] - by.x, nx2[1] - by.z) < 0.8) m.path.splice(m.pi + 1, 1); /* a corner the blocker stands on is cut */ m.detoured = true; m.nDet = (m.nDet || 0) + 1; c.blockT = 0; break; } } }
@@ -560,7 +568,7 @@ export function buildBankInterior(game, site) {
       if ((sx || sz) && !hold && !nowIn) { const ex = nx + sx * 0.7 * dt, ez = nz + sz * 0.7 * dt; if (clearAt(ex, ez)) { nx = ex; nz = ez; } }
       // 73rd: bodies are solid — under the yielding above, a hard limit: never closer than two body radii to another customer or to
       // anyone on the pavement (the mover gives way; never into a wall / jamb)
-      for (const o of blockers(c)) { if (o.cmd && (o.cmd.seated !== undefined || o.cmd.sit !== undefined || o.cmd.rise)) continue; const mn = o.ext ? 0.52 : 0.5; const ox = nx - o.x, oz = nz - o.z, d2 = ox * ox + oz * oz;
+      for (const o of BL) { if (o.cmd && (o.cmd.seated !== undefined || o.cmd.sit !== undefined || o.cmd.rise)) continue; const mn = o.ext ? 0.52 : 0.5; const ox = nx - o.x, oz = nz - o.z, d2 = ox * ox + oz * oz;
         if (d2 < mn * mn) { const d = Math.sqrt(d2) || 1e-3, ux = d2 > 1e-8 ? ox / d : -fz, uz = d2 > 1e-8 ? oz / d : fx; const px = nx + ux * (mn - d), pz = nz + uz * (mn - d); if (clearAt(px, pz)) { nx = px; nz = pz; } else if (Math.hypot(c.x - o.x, c.z - o.z) >= d) { nx = c.x; nz = c.z; } } }
       c.speed = Math.min(c.speed, Math.hypot(nx - c.x, nz - c.z) / Math.max(dt, 1e-4)); c.x = nx; c.z = nz; A.update(dt, c.speed); place(c); return;
     }
@@ -669,14 +677,14 @@ export function buildBankInterior(game, site) {
   };
 
   // ---- staff, one frame
-  const stepStaff = (dt, pl) => { const on = staffOn(); const near = pl && pl.inside; const k2 = near ? 1 : 0.5;
-    for (const t of stand.tellers) { t.ch.root.visible = on; if (!on || t.away) continue; if (t.speakT > 0) t.speakT -= dt; const cust = pool.find((o) => o.on && o.win === t.win && o.cmd && o.cmd.win === t.win);
+  const stepStaff = (dt, pl) => { const near = pl && pl.inside; const k2 = near ? 1 : 0.5; // 73rd: who is at work is BankShift's call (p.duty)
+    for (const t of stand.tellers) { if (t.duty !== 'on' || t.away) continue; if (t.speakT > 0) t.speakT -= dt; const cust = pool.find((o) => o.on && o.win === t.win && o.cmd && o.cmd.win === t.win);
       if (cust) { t.actT -= dt; if (t.actT <= 0 || !t.act) { t.act = t.rnd() < 0.5 ? 'talk' : t.rnd() < 0.6 ? 'type' : 'listen'; t.actT = 2 + t.rnd() * 3; t.ch.anim.set(t.act); t.ch.anim.seated = true; } }
       else { if (t.act) { t.act = null; t._rtn = null; } routine(t, t.ch, dt, 'desk', t.rnd); }
       animUp(t.ch, dt * k2, 0); }
-    for (const [p, kind] of [[stand.recep, 'desk'], [stand.mgr, 'desk'], [stand.sup, 'phone']]) { p.ch.root.visible = on; if (!on) continue; const busy = p === stand.recep && pool.some((o) => o.on && o.cmd && o.cmd.staff === 'recep');
+    for (const [p, kind] of [[stand.recep, 'desk'], [stand.mgr, 'desk'], [stand.sup, 'phone']]) { if (p.duty !== 'on' || (p.waveT > 0)) continue; const busy = p === stand.recep && pool.some((o) => o.on && o.cmd && o.cmd.staff === 'recep');
       if (busy) { if (p.ch.anim.action !== 'talk') p.ch.anim.set('talk'); p.ch.anim.seated = true; p.busy = true; } else { if (p.busy) { p.busy = false; p._rtn = null; } routine(p, p.ch, dt, kind, p.rnd); } animUp(p.ch, dt * k2, 0); }
-    { const gd = stand.guard; routine(gd, gd.ch, dt, 'guard', gd.rnd); let want = gd.yaw0; if (pl && pl.inside && Math.hypot(pl.x - gd.x, pl.z - gd.z) < 3) want = Math.atan2(pl.x - gd.x, pl.z - gd.z); gd.ch.root.rotation.y = turn(gd.ch.root.rotation.y, want, dt * 2.5); animUp(gd.ch, dt, 0); }
+    { const gd = stand.guard; if (shift && shift.guardStep(gd, dt)) { animUp(gd.ch, dt, 0); return; } routine(gd, gd.ch, dt, 'guard', gd.rnd); let want = gd.yaw0; if (pl && pl.inside && Math.hypot(pl.x - gd.x, pl.z - gd.z) < 3) want = Math.atan2(pl.x - gd.x, pl.z - gd.z); gd.ch.root.rotation.y = turn(gd.ch.root.rotation.y, want, dt * 2.5); animUp(gd.ch, dt, 0); }
   };
 
   // ---- 71st: the room's sound sources (BankSound.tick reads room.audio; Game passes the active room's list)
@@ -691,6 +699,10 @@ export function buildBankInterior(game, site) {
   const stepSound = (ch) => { const A = ch.anim; if (!A.stepped) return; A.stepped = false; const p = ch.root.position; BankSound.step(p.x, p.z, 0.85); };
   // ---- per frame (WalkIn: while the room is drawn or holds the player)
   room.lastT = -1e9;
+  // 73rd: the end / start of banking hours, when someone is there to see it (BankShift.js)
+  const hallClear = (x, z) => { if (x < xL + 0.28 || x > xR - 0.28) return false; for (let i = 0; i < nStatic; i++) { const o = obs[i]; if (x > o.x0 - 0.14 && x < o.x1 + 0.14 && z > o.z0 - 0.14 && z < o.z1 + 0.14) return false; } return true; };
+  shift = makeBankShift({ game, site, g, room, stand, B, Z, xL, xR, staffDoor: staffDoorLeaf, P: { DOOR_IN, DOOR_OUT, LEAVE_WAIT, STREET_OUT, ARR_WAIT, WALK_ON }, seatOf, standOf, CHAIR_BACK, REC, stepCustomer, hide, place, walkInOf, hallClear, rng: rngOf(6801) });
+  room.shift = shift; warmStaffCars();
   room.alwaysSim = true; // 73rd: WalkIn keeps this room running with the player outside (other shops keep their old on-approach system)
   for (const a of acs) g.add(a.group); room.acs = acs; // 73rd: the split ACs' swinging flap + vanes
   room.update = (dt, pl, bg = false) => {
@@ -700,7 +712,7 @@ export function buildBankInterior(game, site) {
     if (plD < 90 && game.bodies && walkInOf()) { const W2 = walkInOf(); for (const b of game.bodies) { if (b.ch.bankOwned || (game.player && b.ch === game.player.ch) || Math.abs(b.x - site.F.x) > 6 || Math.abs(b.z - site.F.z) > 6) continue; const [lx, lz] = W2.local(site, b.x, b.z); if (lz < -0.3) continue; room.ext.push({ x: lx, z: lz, speed: b.ped ? b.ped.speed || 0 : 0, ext: true }); } }
     // daylight through the frontage glazing, signage glow
     if (game.atmos) { const n = game.atmos.night ?? 0; dayMat.emissiveIntensity = atlas ? 0.08 + 0.85 * (1 - n) : 0.3; }
-    stepStaff(dt, pl); if (bg) { if (call.st !== 'idle') endCall(true); } else stepCall(dt, pl);
+    stepStaff(dt, pl); shift.step(dt, pl, plD, stepCustomer); if (bg) { if (call.st !== 'idle') endCall(true); } else stepCall(dt, pl);
     if (bg) { for (const c of pool.slice()) if (c.on) stepCustomer(c, dt, pl); else if (c.ch.root.visible) c.ch.root.visible = false; bgTraffic(dt, pl, plD);
       if (plD < 30) { const L = room.rr || (room.rr = { i: 0 }); const list = [...stand.tellers, stand.recep, stand.mgr, stand.sup, stand.guard, ...pool.filter((c) => c.on).map((c) => c.ch)].map((x) => (x && x.ch ? x.ch : x)).filter(Boolean);
         const ch = list[L.i++ % list.length]; if (ch && ch._bgAcc > 0) { ch.anim.update(Math.min(ch._bgAcc, 0.3), ch._bgSp || 0, 0); ch._bgAcc = 0; } } // one body a frame keeps its pose current
@@ -722,7 +734,7 @@ export function buildBankInterior(game, site) {
     }
   };
   // dynamic obstacles: the customers' bodies (the player is pushed off them; they stop for him)
-  const dynObs = () => { obs.length = nStatic; for (const c of pool) if (c.on && c.z < ZF) { const sx = c.cmd && c.cmd.seated !== undefined ? Math.sin(c.yaw) * 0.25 : 0, sz = c.cmd && c.cmd.seated !== undefined ? Math.cos(c.yaw) * 0.25 : 0; obs.push({ x0: c.x + sx - 0.2, x1: c.x + sx + 0.2, z0: c.z + sz - 0.2, z1: c.z + sz + 0.2, npc: true }); } };
+  const dynObs = () => { obs.length = nStatic; for (const c of shift ? pool.concat(shift.crew) : pool) if (c.on && c.z < ZF) { const sx = c.cmd && c.cmd.seated !== undefined ? Math.sin(c.yaw) * 0.25 : 0, sz = c.cmd && c.cmd.seated !== undefined ? Math.cos(c.yaw) * 0.25 : 0; obs.push({ x0: c.x + sx - 0.2, x1: c.x + sx + 0.2, z0: c.z + sz - 0.2, z1: c.z + sz + 0.2, npc: true }); } };
   // ---- 73rd: who comes to the bank, inside or out, never more than the hour's quota (target(): 1–4 customers in the hall)
   //  • the player inside, or far away (nothing of the pavement in his view): a pooled customer walks in from the street lane
   //  • the player outside and near: a real passer-by from the street crowd (no new character is built mid-play) turns off the
