@@ -655,10 +655,11 @@ export class Weapons {
     this.el.heat.classList.toggle('hide', h <= 0 && !lab); this.el.heat.querySelector('b').textContent = h > 0 ? '★'.repeat(h) + '☆'.repeat(5 - h) : ''; this.el.heatLabel.textContent = lab; this.el.heat.classList.toggle('calm', h <= 0);
   }
   wheelUpdate() {
-    if (!this.wheelOpen) { this.wheelOpen = true; this.wheelX = 0; this.wheelY = 0; this.wheelMoved = false; this.wheelSel = this.cur >= 0 ? this.cur : this.sel; const cw = WEAPONS[this.wheelSel]; if (cw) this.typePick[cw.type] = this.wheelSel; this.wheelLabels(); this.el.wheel.classList.add('on'); this.P.lookLock = true; this.g.timeSlow = 0.3; }
+    if (!this.wheelOpen) { this.wheelOpen = true; this.wheelX = 0; this.wheelY = 0; this.wheelMoved = false; this.wheelSel = this.cur >= 0 ? this.cur : this.sel; const cw = WEAPONS[this.wheelSel]; if (cw) this.typePick[cw.type] = this.wheelSel; this.wheelLabels(); this.el.wheel.classList.add('on'); this.P.lookLock = true; this.g.timeSlow = 0.22; this.wheelPrev = this.wheelSel; Audio.wheelSfx('open'); Audio.wheelScreen(true); document.body.classList.add('wheel-slowmo'); }
     this.wheelX += Input.mouseDX + Input.pad.rx * 12; this.wheelY += Input.mouseDY + Input.pad.ry * 12; const r = Math.hypot(this.wheelX, this.wheelY); if (r > 120) { this.wheelX *= 120 / r; this.wheelY *= 120 / r; }
     if (r > 30) { this.wheelMoved = true; let a = Math.atan2(this.wheelY, this.wheelX) + Math.PI / 2; if (a < 0) a += Math.PI * 2; const ti = Math.round(a / (Math.PI * 2 / 9)) % 9; this.wheelSel = this.typePick[WEAPON_TYPES[ti].id]; } else if (this.wheelMoved && r < 18) this.wheelSel = -1; // back to the centre: fists
     const step = Input.wheel ? Math.sign(Input.wheel) : 0; const ws = WEAPONS[this.wheelSel]; if (step && ws) { const list = WEAPONS_OF_TYPE[ws.type]; const own = list.filter((k) => this.inv[k].owned); const ring = own.length ? own : list; const at = Math.max(0, ring.indexOf(this.wheelSel)); this.wheelSel = ring[(at + step + ring.length) % ring.length]; this.typePick[ws.type] = this.wheelSel; this.wheelLabels(); }
+    if (this.wheelSel !== this.wheelPrev) { this.wheelPrev = this.wheelSel; Audio.wheelSfx('switch'); } // 71st: a soft detent as the selection moves
     const selT = WEAPONS[this.wheelSel] ? WEAPONS[this.wheelSel].type : null; WEAPON_TYPES.forEach((ty, i) => this.el.slots[i].classList.toggle('sel', ty.id === selT));
     const d = WEAPONS[this.wheelSel], iv = this.inv[this.wheelSel]; this.el.wheel.querySelector('.ww-name').textContent = d ? d.name : 'Fists'; this.el.wheel.querySelector('.ww-ammo').textContent = !d ? 'Unarmed · click to punch' : !iv.owned ? 'Not owned · buy it at a gun shop' : `${iv.mag} / ${iv.reserve} · ${d.auto ? 'automatic' : d.cycle ? 'bolt / manual' : 'semi-automatic'}`;
   }
@@ -672,7 +673,7 @@ export class Weapons {
     const curT = WEAPONS[this.cur] && WEAPONS[this.cur].type === ty.id; let j = this.typePick[ty.id];
     if (curT) j = own[(own.indexOf(this.cur) + 1) % own.length]; else if (!own.includes(j)) j = own[0];
     this.typePick[ty.id] = j; this.select(j); }
-  wheelClose(apply) { if (!this.wheelOpen) return; this.wheelOpen = false; this.el.wheel.classList.remove('on'); this.P.lookLock = false; this.g.timeSlow = 1; if (apply) { if (this.wheelSel >= 0) this.select(this.wheelSel); else if (this.wheelSel === -1) this.selectFists(); } }
+  wheelClose(apply) { if (!this.wheelOpen) return; this.wheelOpen = false; this.el.wheel.classList.remove('on'); this.P.lookLock = false; this.g.timeSlow = 1; Audio.wheelScreen(false); document.body.classList.remove('wheel-slowmo'); if (apply) { if (this.wheelSel >= 0) this.select(this.wheelSel); else if (this.wheelSel === -1) this.selectFists(); } }
 
   // ------------------------------------------------------------------ save / load
   save() { return { inv: this.inv.map((v) => [v.mag, v.reserve]), sel: this.sel, heat: this.g.police ? this.g.police.level : this.heat }; }

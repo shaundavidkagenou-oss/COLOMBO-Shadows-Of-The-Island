@@ -248,6 +248,19 @@ class AudioEngine {
     if (!this.ctx) return; const t = this.ctx.currentTime;
     for (const k of ['sfx', 'amb', 'dlg']) { const g = this.bus[k].gain; g.cancelScheduledValues(t); const v = Settings.get(k === 'amb' ? 'ambience' : k === 'dlg' ? 'dialogue' : 'sfx'); g.setTargetAtTime(open ? v * 0.12 : v, t, 0.15); }
   }
+  // 71st: the weapon wheel — its own music layer (music.wheel, looping seamlessly) fades in over 1 s while the key is held and
+  // out over 1 s on release; the game's score and the world's sound dip under it (gently: the world goes on in slow motion)
+  wheelScreen(open) {
+    if (!this.ready || !this.ctx) return; const c = this.ctx, t = c.currentTime; const W = (this.wheelMus ||= {});
+    if (!W.g) { W.g = c.createGain(); W.g.gain.value = 0; W.out = c.createGain(); W.g.connect(W.out); W.out.connect(this.master); } W.out.gain.value = Settings.get('music') * 0.55; // beside the music bus (which dips)
+    clearTimeout(W.stopT); const g = W.g.gain; g.cancelScheduledValues(t); g.setValueAtTime(g.value, t);
+    if (open) { if (SB.has('music.wheel')) SB.syncLoop(W, 'music.wheel', W.g); g.linearRampToValueAtTime(1, t + 1); }
+    else { g.linearRampToValueAtTime(0, t + 1); W.stopT = setTimeout(() => { if (!this.wheelOpen) SB.stopLoop(W); }, 1100); }
+    this.wheelOpen = open;
+    { const m = this.bus.music.gain, v = Settings.get('music') * 0.55; m.cancelScheduledValues(t); m.setValueAtTime(m.value, t); m.linearRampToValueAtTime(open && SB.has('music.wheel') ? v * 0.2 : v, t + 1); }
+    for (const k of ['sfx', 'amb', 'dlg']) { const b = this.bus[k].gain; b.cancelScheduledValues(t); const v = Settings.get(k === 'amb' ? 'ambience' : k === 'dlg' ? 'dialogue' : 'sfx'); b.setTargetAtTime(open ? v * 0.45 : v, t, open ? 0.12 : 0.3); }
+  }
+  wheelSfx(kind) { if (SB.play(kind === 'open' ? 'ui.wheel.open' : 'ui.wheel.switch')) return; if (kind === 'open') { this.noise(0.22, { f: 900, q: 0.8, vol: 0.05, sweep: 2200, attack: 0.02 }); this.tone(220, 0.25, { type: 'sine', vol: 0.05, glide: 140 }); } else { this.tone(1500, 0.025, { type: 'triangle', vol: 0.04 }); this.noise(0.03, { f: 3000, q: 2, vol: 0.03 }); } }
   // ---- generative original score
   setMusic(mode) { if (mode === this.musicMode) return; this.musicMode = mode; if (this.musicRec && this.musicRec.smp) this.musicRec.fade = true; this.step = 0; if (this.ctx) this.nextNote = this.ctx.currentTime + 0.1; }
   updateMusic(dt, st) {
