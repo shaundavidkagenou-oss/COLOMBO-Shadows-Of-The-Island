@@ -190,6 +190,11 @@ export class WalkIn {
     // room logic (keeper, prompts) with the player in the room's local frame
     if (this.active) { const r = this.active, s = r.site; const [lx, lz] = this.local(s, P.x, P.z); const ly = (P.yaw - s.yaw); this.pl = { x: lx, z: lz, y: P.y - s.y0, yaw: ly, inside: P.indoor === r.proxy, P };
       if (r.update) try { r.update(dt, this.pl); } catch (e) { console.warn('walk-in room update', e); } }
+    // 73rd: an always-simulated room (the bank) keeps living while it is not on screen: its people come and go with the player
+    // outside — every frame within 70 m (the door can open in front of him), four times a second farther away
+    for (const s of this.sites) { const r = s.room; if (!r || !r.alwaysSim || !r.update || r === this.active) continue; r.bgAcc = (r.bgAcc || 0) + dt; const far = s.dist > 70; if (far && r.bgAcc < 0.25) continue;
+      const bdt = Math.min(r.bgAcc, far ? 0.3 : 0.1); r.bgAcc = 0; const [lx, lz] = this.local(s, P.x, P.z);
+      try { r.update(bdt, { x: lx, z: lz, y: P.y - s.y0, yaw: P.yaw - s.yaw, inside: false, P }, true); } catch (e) { console.warn('walk-in background update', s.id, e); } }
     // light blend: how far inside the player is
     const inR = P.indoor && P.indoor.walkIn ? P.indoor.room : null; let tk = 0; if (inR) { const [, lz] = this.local(inR.site, P.x, P.z); tk = clamp((-lz - 0.1) / 2.2, 0, 1); }
     this.k += (tk - this.k) * Math.min(1, dt * 2.5); return this.k;
