@@ -44,14 +44,15 @@ try {
     const [ix, iz] = W.world(s, 3.5, -6); P.teleport(ix, iz, s.door.faceIn); P.indoor = r.proxy; await g.stepSim(4, 0.05);
     for (const c of r.customers) if (c.on && c.cmd && c.cmd.walk === undefined) { /* nothing */ }
     // two leavers from the hall at once, three arrivals from the street
-    const leavers = r.customers.filter((c) => c.on).slice(0, 2); for (const c of leavers) { c.gen = (function* () { yield { walk: r.route(c.loc, 'door') }; yield { walk: [[0, 1.0], [-1.75, 1.85]] }; yield { gone: true }; })(); c.cmd = null; }
+    const leavers = r.customers.filter((c) => c.on && c.cmd && c.cmd.seated === undefined && c.cmd.sit === undefined).slice(0, 2); for (const c of leavers) { c.gen = r.leaveGen(c); c.cmd = null; }
     const arr = []; for (let k = 0; k < 3; k++) { const c = r.spawnVisit(['kiosk']); if (c) { c.x += k * 0.6; arr.push(c); } }
     let minD = 9, through = 0, maxT = 0; for (let i = 0; i < 900; i++) { await g.stepSim(1, 0.05); const on = r.customers.filter((c) => c.on && !(c.cmd && (c.cmd.seated !== undefined || c.cmd.sit !== undefined || c.cmd.rise)));
       for (let a = 0; a < on.length; a++) for (let b = a + 1; b < on.length; b++) minD = Math.min(minD, Math.hypot(on[a].x - on[b].x, on[a].z - on[b].z));
-      through = arr.filter((c) => c.z < -1.5 || !c.on).length; if (through === arr.length && leavers.every((c) => !c.on || c.z > 1.5)) { maxT = i * 0.05; break; } }
+      for (const c of arr) if (c.on && c.z < -1.5) c._in = true; for (const c of leavers) if (!c.on || c.z > 1.5) c._out = true;
+      through = arr.filter((c) => c._in).length; if (through === arr.length && leavers.every((c) => c._out)) { maxT = i * 0.05; break; } }
     P.indoor = null; return { minD, through, arrivals: arr.length, t: maxT }; });
   console.log('  door', JSON.stringify(door));
-  ok(door.arrivals >= 2 && door.through === door.arrivals, `crowded door: ${door.through}/${door.arrivals} arrivals got through while two customers left (${door.t.toFixed(1)} s)`);
+  ok(door.arrivals >= 2 && door.through === door.arrivals && door.t > 0, `crowded door: ${door.through}/${door.arrivals} arrivals got through while two customers left (${door.t.toFixed(1)} s)`);
   ok(door.minD >= 0.42, `crowded door: nobody walked through anybody (closest: ${door.minD.toFixed(2)} m)`);
 } catch (e) { ok(false, 'exception: ' + (e.stack || e)); }
 const errs = errors.filter((e) => !/favicon|404|GPU stall|ReadPixels|WebGL|swiftshader|AudioContext/i.test(e)); ok(errs.length === 0, `no page errors (${errs.slice(0, 3).join(' | ')})`);

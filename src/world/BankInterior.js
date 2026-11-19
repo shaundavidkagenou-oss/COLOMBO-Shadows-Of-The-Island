@@ -365,6 +365,9 @@ export function buildBankInterior(game, site) {
   // (and wait just outside the door zone while someone is in the doorway), leavers go out to the left; APPROACH is where a
   // passer-by from the street crowd who has decided to bank becomes one of the room's customers
   const STREET_OUT = [-1.75, 1.85], WALK_ON = [-7, 1.9], APPROACH = [1.3, 1.75];
+  // where each side waits for the doorway (one person wide) — off the other side's line: arrivals to the right of the door outside,
+  // leavers to the left of it inside; the doorway itself is a token (room.doorBy) handed to one person at a time
+  const ARR_WAIT = [0.55, 1.45], LEAVE_WAIT = P2(-0.6, 1.35);
   const LOC = {
     door: { chain: [DOOR_IN, P2(0, 2.3)] },
     kiosk: { chain: [P2(-1.5, 1.65), P2(-0.85, 1.8)], direct: true, at: P2(-1.5, 1.65), yaw: Math.PI },
@@ -398,7 +401,7 @@ export function buildBankInterior(game, site) {
 
   // ---- generator scripts (one per visit); commands: walk / idle / sit / seated / rise / gone
   function* go(c, to) { const path = route(c.loc, to); yield { walk: path }; c.loc = to; }
-  function* leave(c) { if (c.seat >= 0) { yield { rise: true }; } if (c.atm >= 0) { atms[c.atm].user = null; atms[c.atm].paint(null); c.atm = -1; } c.win = -1; yield* go(c, 'door'); yield { walk: [DOOR_OUT, STREET_OUT] }; if (pool.length <= 3) { yield { walk: [WALK_ON] }; c.keepInPool = true; } yield { gone: true }; } // (a small pool keeps its people: they walk on along the pavement and out of the scene)
+  function* leave(c) { if (c.seat >= 0) { yield { rise: true }; } if (c.atm >= 0) { atms[c.atm].user = null; atms[c.atm].paint(null); c.atm = -1; } c.win = -1; { const pth = route(c.loc, 'door'); pth[pth.length - 1] = LEAVE_WAIT; yield { walk: pth }; c.loc = 'door'; } yield { walk: [DOOR_OUT, STREET_OUT] }; if (pool.length <= 3) { yield { walk: [WALK_ON] }; c.keepInPool = true; } yield { gone: true }; } // (a small pool keeps its people: they walk on along the pavement and out of the scene)
   function* visit(c, plan) {
     for (const step of plan) {
       if (step === 'kiosk') { yield* go(c, 'kiosk'); yield { idle: 2.2 + c.rnd() * 1.2, act: 'interact', yaw: LOC.kiosk.yaw }; }
@@ -433,7 +436,7 @@ export function buildBankInterior(game, site) {
     if (out) { const [wx, wz] = W2.world(site, c.x, c.z); c.ch.root.position.set(wx, site.y0, wz); c.ch.root.rotation.y = site.yaw + c.yaw; } else { c.ch.root.position.set(c.x, 0, c.z); c.ch.root.rotation.y = c.yaw; } };
   // spawn: from the street (the player inside, the door shut: they walk in through it) or straight into a state (reseed)
   const spawn = (c, plan, fromStreet = true) => { c.on = true; c.ch.root.visible = true; c.speed = 0; c.blockT = 0; c.seat = c.atm = c.win = -1; c.ch.anim.seated = null; c.ch.anim.set(null);
-    if (fromStreet) { [c.x, c.z] = STREET; c.yaw = -Math.PI / 2; c.loc = 'door'; c.gen = (function* () { yield { walk: [DOOR_OUT, DOOR_IN] }; yield* visit(c, plan); })(); }
+    if (fromStreet) { [c.x, c.z] = STREET; c.yaw = -Math.PI / 2; c.loc = 'door'; c.gen = (function* () { yield { walk: [ARR_WAIT, DOOR_IN] }; yield* visit(c, plan); })(); }
     else c.gen = visit(c, plan);
     c.cmd = null; place(c); room.stats.spawned++; };
   // reseed: the player was away — put a plausible crowd for the hour straight into the hall (the room is hidden: door shut)
@@ -467,7 +470,7 @@ export function buildBankInterior(game, site) {
     if (!c.cmd) { const r = c.gen ? c.gen.next() : { done: true }; if (r.done) { hide(c); return; } c.cmd = Object.assign({ t: 0 }, r.value); if (c.cmd.walk) { c.cmd.path = c.cmd.walk; c.cmd.pi = 0; } }
     const m = c.cmd; m.t += dt; const A = animOf(c);
     if (m.gone) { const W2 = game.interiors && game.interiors.walkIn; const P = game.player;
-      if (!c.keepInPool && game.crowd && game.crowd.adopt && P && W2 && Math.hypot(P.x - site.F.x, P.z - site.F.z) < 40) { try { const [wx, wz] = W2.world(site, c.x, c.z); const ch = c.ch; ch.bankOwned = false; pool.splice(pool.indexOf(c), 1); game.crowd.adopt(ch, wx, wz, site.yaw + c.yaw, 'calm'); room.stats.handed++; room.stats.left++; return; } catch (e) { console.warn('[bank] crowd hand-off', e); } }
+      if (!c.keepInPool && game.crowd && game.crowd.adopt && P && W2 && Math.hypot(P.x - site.F.x, P.z - site.F.z) < 40) { try { const [wx, wz] = W2.world(site, c.x, c.z); const ch = c.ch; ch.bankOwned = false; c.on = false; pool.splice(pool.indexOf(c), 1); game.crowd.adopt(ch, wx, wz, site.yaw + c.yaw, 'calm'); room.stats.handed++; room.stats.left++; return; } catch (e) { console.warn('[bank] crowd hand-off', e); } }
       hide(c); room.stats.left++; return; }
     if (m.walk) {
       // string-pulling (4×/s): a corner is skipped when the point after it is in clear view (natural lines, and a corner
@@ -481,8 +484,12 @@ export function buildBankInterior(game, site) {
       let hold = false; const D = door(); const cross = (c.z - LEAF_Z) * (tgt[1] - LEAF_Z) < 0;
       // the doorway is one person wide: one customer at a time (a token); the next waits just outside the door zone
       const inDZ = (x, z) => Math.abs(x) < 1.0 && z > -1.55 && z < 1.3; const nowIn = inDZ(c.x, c.z), nextIn = inDZ(c.x + fx * 0.12, c.z + fz * 0.12);
-      if (room.doorBy && (!room.doorBy.on || !inDZ(room.doorBy.x, room.doorBy.z))) room.doorBy = null;
-      if (nextIn && !nowIn && room.doorBy && room.doorBy !== c) hold = true; else if (nowIn || nextIn) { if (!room.doorBy) room.doorBy = c; }
+      // 73rd: the token covers everyone about to cross the leaf, from either side, within 1.3 m of it: one person in the doorway at a time
+      // (before, someone already inside the door zone never waited — two people met head-on in the doorway and walked through each other)
+      { const T0 = room.doorBy; if (T0 && (!T0.on || !T0.cmd || !T0.cmd.walk || (T0 !== c && Math.abs(T0.z - LEAF_Z) > 1.45))) room.doorBy = null; }
+      const gate = Math.abs(c.x) < 1.6 && Math.abs(c.z - LEAF_Z) < 1.3;
+      if (cross && gate) { if (!room.doorBy) room.doorBy = c; if (room.doorBy !== c) hold = true; }
+      else if (room.doorBy === c && !cross && Math.abs(c.z - LEAF_Z) > 0.9) room.doorBy = null; // through: the next one may go
       if (!hold && D && cross && Math.abs(c.x) < 0.9 && c.z > ZF - 1.4 && c.z < 1.4) { const side = c.z > LEAF_Z ? 1 : -1; site.npcDoor = { side, f: game.interiors.walkIn.frame }; if (Math.abs(D.ang) < 1.15 && Math.abs(c.z - LEAF_Z) < 0.62) hold = true;
         // the player has the door: wait for him — unless this customer is ahead of him on his side (between him and the leaf,
         // so he cannot reach it): then the customer pushes it (WalkIn honours a same-side NPC push while he is engaged)
@@ -688,7 +695,8 @@ export function buildBankInterior(game, site) {
     if (!R.arrived) return; const W2 = walkInOf(); room.recruit = null; if (!W2) return;
     C.release(p); p.job = null; p.keep = false; const ch = p.ch; ch.bankOwned = true; ch.anim.set(null); ch.anim.look = 0;
     const [lx, lz] = W2.local(site, p.x, p.z); const c = { ch, on: true, x: lx, z: lz, yaw: (p.yaw ?? 0) - site.yaw, speed: Math.min(1, Math.hypot(p.vx || 0, p.vz || 0)), gen: null, cmd: null, rnd: rngOf((seedN++) * 7 + 3), loc: 'door', blockT: 0, seat: -1, atm: -1, win: -1, recruit: true };
-    pool.push(c); c.gen = (function* () { yield { walk: [DOOR_OUT, DOOR_IN] }; yield* visit(c, R.plan); })(); place(c); room.stats.recruited++; room.stats.spawned++; };
+    pool.push(c); room.ext = room.ext.filter((e) => Math.hypot(e.x - lx, e.z - lz) > 0.15); /* (his own body as a street pedestrian, gathered this frame) */ c.gen = (function* () { yield { walk: [ARR_WAIT, DOOR_IN] }; yield* visit(c, R.plan); })(); place(c); room.stats.recruited++; room.stats.spawned++; };
+  room.leaveGen = (c) => leave(c); // tests: send a customer home now
   room.recruitNow = () => { room.recT = 0; room.recruit = null; return true; }; // tests: the next update looks for a passer-by straight away
   // 71st: stepping up to a counter window, the officer behind it speaks by herself (no key): one of her three lines, in turn, once
   // per approach (and not again for a while if the player hovers); a styled HUD card points to the ATMs at the same time
