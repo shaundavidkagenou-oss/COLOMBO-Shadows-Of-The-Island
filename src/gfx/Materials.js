@@ -3,7 +3,7 @@ import { applyWeathering } from './Weathering.js';
 import * as THREE from 'three';
 import { TEX } from './Textures.js';
 import { barkTextures } from './RealTextures.js';
-import { applyInteriorMapping, INTERIOR, occupancy, winFlag } from './InteriorMapping.js';
+import { applyInteriorMapping, INTERIOR, occupancy, winFlag, syncWindowLayers } from './InteriorMapping.js';
 export const MAT = {};
 // ---------------------------------------------------------------------------------------------- own material per object type
 // 60th request: every kind of object has its OWN material (Texture Studio: select a part, retexture only that part). They start
@@ -246,6 +246,7 @@ export function updateMaterials(night, wet, t) {
   const n = night;
   for (const k of facadeKeys) MAT['f_' + k].emissiveIntensity = n * 1.25;
   for (const [m, W] of FACADE_WIN) winFlag(m).value = m.normalMap === W.normal ? 0 : 1; // window layer: painted windows stay flat under a replaced normal map
+  syncWindowLayers(); // a wall texture swapped in (Texture Studio) re-links the window layer's samplers (InteriorMapping.winOwn)
   for (const [k, R] of ROLES) { const d = R.drive; if (!d) continue; const m = MAT[k], b = MAT[R.base]; if (m && b) for (const p of d) m[p] = b[p]; } // copies follow the night / weather values the game drives on their base
   INTERIOR.uIntDay.value = (1 - n) * 0.24; INTERIOR.uIntNight.value = n * 0.8; INTERIOR.uOcc.value = occupancy(t ?? 21); INTERIOR.uITime.value = performance.now() / 1000;
   // shop fronts are lit while trading (until ~9 pm, shutters down by 10:30) and dark until early morning; illuminated
