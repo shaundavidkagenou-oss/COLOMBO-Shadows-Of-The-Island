@@ -49,6 +49,8 @@ async function texturesFor(e) {
   const out = {}; await Promise.all(TEX_SLOTS.map(async (s) => { if (!e[s]) return; try { out[s] = await loadTexture(e[s], { color: s === 'map' || s === 'emissiveMap', flipY: e.flipY ?? null }); } catch (err) { console.warn('[model tools] texture', e[s], err); } }));
   return out;
 }
+// load every texture a parts table uses (boot preload: objects built later get them without a wait)
+export function preloadPartTextures(parts) { return Promise.all(Object.values(parts || {}).filter((e) => e && typeof e === 'object').map(texturesFor)); }
 // apply part edits to a built object (sync for everything but textures; textures arrive when loaded unless preloaded)
 export async function applyParts(root, parts, { skip = null } = {}) {
   if (!parts || !Object.keys(parts).length) return 0; let n = 0; const jobs = [];

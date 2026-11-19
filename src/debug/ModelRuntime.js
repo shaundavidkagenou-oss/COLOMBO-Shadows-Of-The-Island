@@ -12,7 +12,7 @@
 import * as THREE from 'three';
 import { HOOKS } from '../core/Hooks.js';
 import { loadAsset, readyAsset } from './ModelPack.js';
-import { applyParts, resetParts, attachReplacement, detachReplacement, garmentPatch, shellProto, tickMixers, playClip, editFor, buildEdited, hideOriginal, unhide, makeContainer } from './ModelEdit.js';
+import { preloadPartTextures, applyParts, resetParts, attachReplacement, detachReplacement, garmentPatch, shellProto, tickMixers, playClip, editFor, buildEdited, hideOriginal, unhide, makeContainer } from './ModelEdit.js';
 import { RigDriver, autoMap, bonesOf } from './Retarget.js';
 import { weaponMaterials } from '../combat/WeaponModels.js';
 import { VTYPES } from '../vehicles/VehicleModels.js';
@@ -32,7 +32,8 @@ export function assetsOf(p) {
   for (const r of (p.npcs && p.npcs.rules) || []) if (r.on !== false) add(r.model);
   return out;
 }
-export async function preload(p) { await Promise.all(assetsOf(p).map((a) => loadAsset(a).catch((e) => console.warn('[model tools] not loaded:', a.main, e)))); }
+export async function preload(p) { const parts = [...Object.values(p.weapons || {}), ...Object.values(p.vehicles || {}), ...Object.values(p.heroes || {})].map((e) => e && e.parts).filter(Boolean);
+  await Promise.all([...assetsOf(p).map((a) => loadAsset(a).catch((e) => console.warn('[model tools] not loaded:', a.main, e))), ...parts.map((t) => preloadPartTextures(t))]); }
 
 export async function boot(game, pack) {
   RT.game = game; RT.pack = pack; await preload(pack); install(); applyHandling(); applyStats(); await applyAnimsNpcs(); refreshAll();
