@@ -206,19 +206,19 @@ function shotgun() {
   // straight synthetic stock: narrow wrist (the hand), widening to the comb and a tall butt; rubber recoil pad; rear sling stud
   const lin = (pts, d) => { for (let i = 1; i < pts.length; i++) if (d <= pts[i][0] || i === pts.length - 1) { const [aa, ya] = pts[i - 1], [bb, yb] = pts[i]; return ya + (yb - ya) * Math.min(1, Math.max(0, (d - aa) / (bb - aa))); } return 0; };
   const top = [[0, 0.05], [0.05, 0.043], [0.12, 0.038], [0.36, 0.03]], bot = [[0, -0.016], [0.035, -0.03], [0.09, -0.052], [0.16, -0.07], [0.36, -0.098]];
-  const st = (d, hw, n = 2.6) => tb(rx0 - d * 0.96, lin(top, d), lin(bot, d), hw, n, { topK: 0.85 }); // (14" length of pull)
+  const st = (d, hw, n = 2.6) => tb(rx0 - d * 0.88, lin(top, d), lin(bot, d), hw, n, { topK: 0.85 }); // (a 13" length of pull: the short security stock)
   P.add(m.poly, sweep([st(-0.004, 0.0158), st(0.02, 0.0148), st(0.06, 0.0142), st(0.1, 0.0152), st(0.16, 0.0178), st(0.22, 0.0195), st(0.29, 0.0205), st(0.345, 0.0208)], { vertical: true, seg: 32 }));
   P.add(m.rubber, sweep([st(0.345, 0.021, 2.8), st(0.37, 0.0215, 2.8)], { vertical: true, sub: 1, seg: 32 }));
-  for (let i = 0; i < 4; i++) P.add(m.slot, box(0.034, 0.002, 0.001, 0, lin(bot, 0.37) + 0.03 + i * 0.03, rx0 - 0.371)); // pad grooves
-  P.add(m.steel, cylY(0.0028, 0.012, 0, lin(bot, 0.27) - 0.004, rx0 - 0.27, 8)); screwX(P, m, 0.0155, 1, 0.012, rx0 - 0.03);
+  for (let i = 0; i < 4; i++) P.add(m.slot, box(0.034, 0.002, 0.001, 0, lin(bot, 0.37) + 0.03 + i * 0.03, rx0 - 0.37 * 0.88 - 0.001)); // pad grooves
+  P.add(m.steel, cylY(0.0028, 0.012, 0, lin(bot, 0.27) - 0.004, rx0 - 0.27 * 0.88, 8)); screwX(P, m, 0.0155, 1, 0.012, rx0 - 0.03 * 0.88);
   P.build(g);
   // the fore-end (pump): ribbed black polymer round the magazine tube, on its action bars — racks back 9 cm
-  const pump = new THREE.Group(); const F = new Parts(); const f0 = 0.272, f1 = 0.47;
+  const pump = new THREE.Group(); const F = new Parts(); const f0 = 0.256, f1 = 0.456;
   F.add(m.poly, sweep([{ z: f0, y: magY - 0.002, hd: 0.0215, hw: 0.0205, n: 2.4 }, { z: f0 + 0.015, y: magY - 0.002, hd: 0.0245, hw: 0.0225, n: 2.4 }, { z: f1 - 0.015, y: magY - 0.002, hd: 0.0245, hw: 0.0225, n: 2.4 }, { z: f1, y: magY - 0.002, hd: 0.0215, hw: 0.0205, n: 2.4 }], { vertical: true, seg: 28 }));
   for (let i = 0; i < 9; i++) F.add(m.slot, sweep([{ z: f0 + 0.04 + i * 0.016, y: magY - 0.002, hd: 0.0249, hw: 0.0229, n: 2.4 }, { z: f0 + 0.046 + i * 0.016, y: magY - 0.002, hd: 0.0249, hw: 0.0229, n: 2.4 }], { vertical: true, sub: 1, seg: 28 }));
   F.add(m.steel, box(0.003, 0.006, f0 - rx1 + 0.06, 0.012, magY + 0.012, (rx1 - 0.02 + f0) / 2 + 0.01), box(0.003, 0.006, f0 - rx1 + 0.06, -0.012, magY + 0.012, (rx1 - 0.02 + f0) / 2 + 0.01)); // action bars
   F.build(pump); g.add(pump);
-  g.userData = { muzzle: new THREE.Vector3(0, bore, bz1 + 0.002), support: new THREE.Vector3(0, magY - 0.012, f0 + 0.065), pump, pumpTravel: 0.09, loadPort: new THREE.Vector3(0, -0.03, 0.17), eject: new THREE.Vector3(-0.02, 0.03, 0.15), sight: new THREE.Vector3(0, bore + 0.015, bz1 - 0.02), model: 'guardShotgun' };
+  g.userData = { muzzle: new THREE.Vector3(0, bore, bz1 + 0.002), support: new THREE.Vector3(0, magY - 0.012, f0 + 0.03), pump, pumpTravel: 0.09, loadPort: new THREE.Vector3(0, -0.03, 0.17), eject: new THREE.Vector3(-0.02, 0.03, 0.15), sight: new THREE.Vector3(0, bore + 0.015, bz1 - 0.02), model: 'guardShotgun' };
   g.updateMatrixWorld(true); g.userData.buttZ = new THREE.Box3().setFromObject(g).min.z;
   return g;
 }

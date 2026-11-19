@@ -32,6 +32,7 @@ const seg = (t, a, b) => clamp((t - a) / (b - a), 0, 1);
 const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
 const qE = (x, y, z) => new THREE.Quaternion().setFromEuler(new THREE.Euler(x, y, z));
 const Q_GRIP = qE(-0.8, 0, 0), Q_SUP = qE(0.1, 0, -Math.PI / 2);
+const SG_RAISE = 0.055;
 const gauss = (r) => (r() + r() + r() - 1.5) * 1.15;
 
 // ---------------------------------------------------------------- pure geometry (unit-tested in tools/bank-guard-test.mjs)
@@ -142,9 +143,9 @@ export function makeGuardGun(opts) {
     S.kick = Math.max(0, S.kick - dt * 9);
     if (k <= 0.001) { if (!S.slung) { S.slung = true; m.matrix.copy(slingM); m.matrixWorldNeedsUpdate = true; ud.pump.position.z = 0; if (A.ik && A.ik.rifle) { A.ik = null; A.aim = null; } } return; }
     S.slung = false; const pl = opts.pl || {}; const ey = 1.45; const pitch = aw > 0.05 ? clamp(Math.atan2(((pl.y || 0) + 1.1) - ey, Math.max(0.5, Math.hypot(pl.x - gd.x, pl.z - gd.z))), -0.7, 0.5) : -0.1;
-    A.aim = { pitch: pitch * aw - 0.05 * (1 - aw), twist: 0.5, w: Math.max(aw, 0.65) * k, headDown: 0.12 * aw, protractR: protractFor(ch) * aw, protractL: protractLFor(ch) * aw };
+    A.aim = { pitch: pitch * aw - 0.05 * (1 - aw), twist: 0.5, w: Math.max(aw, 0.65) * k, headDown: 0.3 * aw, protractR: protractFor(ch) * aw, protractL: Math.min(0.7, protractLFor(ch) + 0.38) * aw }; // (the support shoulder reaches a little further forward for the pump)
     const POCKET = pocketFor(ch, m, _pk); const lowQ = qE(0.62, 0.06, 0.2); const butt = new THREE.Vector3(POCKET.x - 0.02, POCKET.y - 0.03, POCKET.z); const low = butt.sub(new THREE.Vector3(0, 0, ud.buttZ).applyQuaternion(lowQ));
-    const aimP = new THREE.Vector3(POCKET.x, POCKET.y - ud.support.y, POCKET.z - ud.buttZ); const pos = low.clone().lerp(aimP, aw); let rx = lerp(0.62, 0, aw), ry = lerp(0.06, 0, aw), rz = lerp(0.2, 0, aw);
+    const aimP = new THREE.Vector3(POCKET.x, POCKET.y - ud.support.y + SG_RAISE, POCKET.z - ud.buttZ); /* a bead on the barrel, no raised sights: the gun comes up to the cheek */ const pos = low.clone().lerp(aimP, aw); let rx = lerp(0.62, 0, aw), ry = lerp(0.06, 0, aw), rz = lerp(0.2, 0, aw);
     pos.z -= 0.05 * S.kick; rx -= 0.16 * S.kick; pos.y += 0.01 * S.kick;
     // the pump: fore-end back 9 cm and home again; loading: the gun rolled to show its loading port, the hand belt → port
     let pumpOff = 0; if (S.pumpT >= 0) { const r = S.pumpT / GUARD_GUN.pumpDur; pumpOff = ud.pumpTravel * (sm(seg(r, 0, 0.42)) - sm(seg(r, 0.55, 0.95))); }

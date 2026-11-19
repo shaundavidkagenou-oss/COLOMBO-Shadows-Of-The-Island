@@ -12,6 +12,8 @@ import { buildT56, buildWeaponModel, buildShotgun } from '../../src/combat/Weapo
 import { WEAPONS } from '../../src/combat/WeaponDefs.js';
 import { Character, randomSpec } from '../../src/actors/Character.js';
 import { applySeatPose, seatLocal } from '../../src/actors/Seating.js';
+import { makeGuardGun } from '../../src/world/BankGuardGun.js';
+import { makeBankStaffAppearance } from '../../src/actors/Appearance.js';
 
 const q = new URLSearchParams(location.search); const type = q.get('type') || 'soraki_rr1000', seed = +(q.get('seed') || 1);
 const W = +(q.get('w') || 1280), H = +(q.get('h') || 720);
@@ -31,6 +33,18 @@ if (floors) { ground.visible = false; const ks = floors.split(','); const cw = M
     sun.target.position.set(i * 10, 0, 0); sun.position.set(i * 10 - 3, 2.2, -2); sun.target.updateMatrixWorld(); sun.shadow.camera.updateProjectionMatrix();
     fc.position.set(i * 10 - 0.2, 0.7, 1.15); fc.lookAt(i * 10 + 0.1, 0, -0.3); const x = (i % cw) * fw, y = H - (Math.floor(i / cw) + 1) * fh; renderer.setViewport(x, y, fw, fh); renderer.setScissor(x, y, fw, fh); renderer.render(scene, fc); });
   window.__ready = true; throw new Error('floor preview done'); }
+const guardQ = q.get('guard'); // 73rd: the bank guard with his shotgun: &guard=slung|aim|pump|load (the real BankGuardGun pose)
+if (guardQ) { const hall = new THREE.Group(); scene.add(hall); const ch = new Character(makeBankStaffAppearance(6707, { sex: 'm', role: 'guard' })); hall.add(ch.root); ch.root.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  const gd = { ch, x: 0, z: 0, yaw0: 0 }; const game = { police: { stars: () => (guardQ === 'slung' ? 0 : 2) }, weapons: { drawn: false }, hud: { subtitle() {} } };
+  const gun = makeGuardGun({ game, g: hall, gd, B: { xL: -7, xR: 7, z0: -14, zF: 14, H: 3.6 }, obs: [], nObs: 0, bodies: () => [], say() {} }); const pl = { x: 0, z: 5, y: 0, inside: true, P: { speed: 0 } };
+  for (let i = 0; i < 40; i++) { gun.step(1 / 30, pl); ch.anim.update(1 / 30, 0); }
+  if (guardQ === 'pump') { gun.cd = 99; gun.pumpT = 0.2; } if (guardQ === 'load') { gun.cd = 99; gun.loadT = 0.5; gun.tube = 1; }
+  if (guardQ === 'pump' || guardQ === 'load') { gun.step(1 / 30, pl); ch.anim.update(1 / 30, 0); }
+  if (guardQ === 'aim' || guardQ === 'pump' || guardQ === 'load') gun.cd = 99; ch.root.updateMatrixWorld(true);
+  const tgt = new THREE.Vector3(0, 1.25, 0.1); const V = { right: [-2.0, 1.5, 0.6], left: [2.0, 1.5, 0.6], front34: [-1.2, 1.55, 2.0], rear34: [1.3, 1.6, -1.6] };
+  const vs = (q.get('views') || 'right,front34,left,rear34').split(','); const cl = vs.length > 1 ? 2 : 1, rw = Math.ceil(vs.length / cl), vw = Math.floor(W / cl), vh = Math.floor(H / rw); const cam = new THREE.PerspectiveCamera(32, vw / vh, 0.05, 30);
+  vs.forEach((v, i) => { cam.position.set(...(V[v] || V.right)); cam.lookAt(tgt); cam.updateProjectionMatrix(); const x = (i % cl) * vw, y = H - (Math.floor(i / cl) + 1) * vh; renderer.setViewport(x, y, vw, vh); renderer.setScissor(x, y, vw, vh); renderer.render(scene, cam); });
+  window.__ready = true; throw new Error('guard preview done'); }
 const wpn = q.get('weapon'); // weapon preview: &weapon=t56|<weapon id>&views=left,right,front34,rear34,muzzle,grip,top
 if (wpn) { ground.visible = false; scene.background = new THREE.Color(0x8d9aa6);
   const w = wpn === 't56' ? buildT56() : wpn === 'shotgun' ? buildShotgun() : buildWeaponModel(WEAPONS.find((d) => d.id === wpn)); scene.add(w); w.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
