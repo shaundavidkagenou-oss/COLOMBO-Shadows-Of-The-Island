@@ -82,15 +82,21 @@ try {
     for (const c of r.customers) if (c.on && c.atm === m.i) { c.on = false; c.ch.root.visible = false; c.atm = -1; } m.user = null;
     const [wx, wz] = W.world(s, m.stand[0] + 0.05, m.stand[1]); P.x = wx; P.z = wz; P.yaw = s.yaw - Math.PI / 2; P.camYaw = P.yaw + Math.PI; await g.stepSim(3, 0.05);
     out.prompt = r.prompt; out.openWithoutKey = g.atm.open;
-    I.pressed.add('KeyE'); await g.stepSim(1, 0.05); out.open = g.atm.open; out.control = P.control; out.camOverride = P.camOverride; out.dom = !g.atm.root.classList.contains('hidden'); out.atmPlayer = m.player;
+    I.pressed.add('KeyE'); await g.stepSim(1, 0.05); out.open = g.atm.open; out.control = P.control; out.camOverride = P.camOverride; out.domEarly = !g.atm.root.classList.contains('hidden'); out.atmPlayer = m.player;
+    // 71st: the card goes in first (in the right hand, the hand on it), the screen comes up after
+    { const hb = P.ch.bones.handR, v = new (window.__THREE.Vector3)(); let dmax = 0, seen = 0; for (let i = 0; i < 16; i++) { await g.stepSim(1, 0.05); const c = g.atm.card; if (c && c.visible && g.atm.cardAnim && g.atm.cardAnim.t < 0.8) { seen++; hb.getWorldPosition(v); dmax = Math.max(dmax, v.distanceTo(new (window.__THREE.Vector3)().setFromMatrixPosition(c.matrixWorld))); } } out.cardSeen = seen; out.cardHand = +dmax.toFixed(3); }
+    { const S = m.slot, v = new (window.__THREE.Vector3)(S[0], S[1], S[2]); r.g.localToWorld(v); out.slotW = v; }
+    await g.stepSim(12, 0.05); out.dom = !g.atm.root.classList.contains('hidden');
     await g.stepSim(25, 0.05); out.page = g.atm.page; out.brand = g.atm.root.querySelector('.atm-brand b').textContent;
     I.pressed.add('KeyM'); I.pressed.add('KeyP'); I.pressed.add('KeyJ'); await g.stepSim(1, 0.05); out.mapOpened = g.hud.bigMapOpen; out.phoneOpened = g.phone.open; out.paused = g.paused;
     const c0 = g.camera.position.clone(); await g.stepSim(10, 0.05); out.camMove = +c0.distanceTo(g.camera.position).toFixed(3);
     { const x0 = P.x, z0 = P.z; await g.stepSim(10, 0.05, ['KeyW', 'KeyA']); out.playerMoved = +Math.hypot(P.x - x0, P.z - z0).toFixed(3); }
-    I.pressed.add('Escape'); await g.stepSim(1, 0.05); out.pageAfterEsc = g.atm.page; await g.stepSim(40, 0.05); out.closed = !g.atm.open; out.controlBack = P.control; out.camBack = !P.camOverride; out.atmFree = !m.player;
+    I.pressed.add('Escape'); await g.stepSim(1, 0.05); out.pageAfterEsc = g.atm.page; await g.stepSim(40, 0.05); out.openAt2s = g.atm.open; out.cardOutEarly = !!(g.atm.card && g.atm.card.visible);
+    await g.stepSim(14, 0.05); out.cardOut = !!(g.atm.card && g.atm.card.visible); await g.stepSim(30, 0.05); out.closed = !g.atm.open; out.controlBack = P.control; out.camBack = !P.camOverride; out.atmFree = !m.player;
     return out; });
-  ok(!atm.openWithoutKey && /Use ATM/.test(atm.prompt || '') && atm.open && atm.dom && atm.control === false && atm.camOverride && atm.atmPlayer, `9 ATM: prompt "${String(atm.prompt)}", opens only on the interact key; controls locked, camera taken, machine marked in use`);
+  ok(!atm.openWithoutKey && /Use ATM/.test(atm.prompt || '') && atm.open && !atm.domEarly && atm.dom && atm.control === false && atm.camOverride && atm.atmPlayer, `9 ATM: prompt "${String(atm.prompt)}", opens only on the interact key; controls locked, camera taken, machine marked in use`);
   ok(atm.page === 'menu' && atm.brand === 'CEYLON MERIDIAN BANK' && !atm.mapOpened && !atm.phoneOpened && !atm.paused && atm.camMove < 0.05 && atm.playerMoved < 0.01, `9 ATM: card read → menu, branded "${atm.brand}"; map / phone / pause keys ignored; camera steady (${atm.camMove} m); player held (${atm.playerMoved} m)`);
+  ok(atm.cardSeen >= 4 && atm.cardHand < 0.2 && atm.openAt2s && !atm.cardOutEarly && atm.cardOut, `9 ATM (71st): card shown in the hand for ${atm.cardSeen} frames (hand–card ${atm.cardHand} m) before the screen; on leaving the card stays in for 2.3 s, then comes out (${atm.cardOutEarly}→${atm.cardOut})`);
   ok(atm.closed && atm.controlBack && atm.camBack && atm.atmFree, `9 ATM: Esc returns the card ("${atm.pageAfterEsc}") and closes; controls + camera restored, machine free`);
   lap('ATM open / close');
 
