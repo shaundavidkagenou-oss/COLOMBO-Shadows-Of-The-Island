@@ -84,11 +84,21 @@ export const BANK_TELLERS = [
   { id: 'teller2', name: 'Counter 2 officer (man)', lines: ['Good day, sir. Please use the ATMs at the front for withdrawals and deposits.', 'Hello. The machines by the entrance handle all cash transactions, and there is no queue there.', 'Ayubowan. For deposits and withdrawals the ATM is your best option, just on the left as you came in.'] },
   { id: 'teller3', name: 'Counter 3 officer (woman)', lines: ['Hi, good day! You can withdraw or deposit at our ATMs by the door. They are open twenty-four hours.', 'Hello, sir. Cash is handled at the ATMs today. They are right by the entrance.', 'Good day! Please try the ATM for that. It takes deposits as well as withdrawals.'] },
 ];
+// 73rd: the security officer when the player comes into the hall while wanted (BankGuardGun.js): the warning, the warning when
+// the player has a gun out, after his first shot, standing down
+export const BANK_GUARD = [
+  'Stop! Security! Get down on the floor, now!',
+  'Drop the weapon! Hands where I can see them!',
+  'Stay down! Do not move!',
+  'Everyone stay calm. It is over. Stay where you are.',
+];
+export const bankGuardId = (n) => `dlg.bank.guard${n}`; // n 1..4
 export const bankCallId = (n) => `dlg.bank.call${n}`; // n 1..9
 export const bankCounterId = (teller, n) => `dlg.bank.${teller}.counter${n}`; // teller1..3, n 1..3
 export function bankVoiceDefs() {
   const out = BANK_CALL.map((text, i) => ({ id: bankCallId(i + 1), name: `Bank staff — phone call, line ${i + 1}`, cat: 'Dialogue', kind: 'shot', lvl: 0.6, dlg: true, bank: 'call', text }));
   for (const t of BANK_TELLERS) t.lines.forEach((text, i) => out.push({ id: bankCounterId(t.id, i + 1), name: `${t.name} — at the counter, line ${i + 1}`, cat: 'Dialogue', kind: 'shot', lvl: 0.6, dlg: true, bank: t.id, text }));
+  BANK_GUARD.forEach((text, i) => out.push({ id: bankGuardId(i + 1), name: `Security officer — line ${i + 1}`, cat: 'Dialogue', kind: 'shot', lvl: 0.75, dlg: true, bank: 'guard', text }));
   return out;
 }
 

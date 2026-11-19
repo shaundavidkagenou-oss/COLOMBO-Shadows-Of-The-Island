@@ -6,7 +6,7 @@
 // also into the project's sounds/ folder (so npm run build / build-exe.bat build them into the game and the .exe).
 import { Win, h, btn, beginSession, toast } from '../debug/ui.js';
 import { SOUND_BY_ID, SOUND_EXT, SoundBank } from '../audio/SoundBank.js';
-import { VOICE_GROUPS, VOICE_SITS, VOICE_CLIPS, voiceId, PROFILE_GROUP, GROUP_BY_ID, BANK_CALL, BANK_TELLERS, bankCallId, bankCounterId } from '../audio/VoiceDefs.js';
+import { VOICE_GROUPS, VOICE_SITS, VOICE_CLIPS, voiceId, PROFILE_GROUP, GROUP_BY_ID, BANK_CALL, BANK_TELLERS, bankCallId, bankCounterId, BANK_GUARD, bankGuardId } from '../audio/VoiceDefs.js';
 import { Voices } from '../audio/Voices.js';
 import { Audio } from '../audio/Audio.js';
 import { makeZip } from './SoundsWindow.js';
@@ -78,7 +78,7 @@ export async function open(game) {
     return { cls: '', txt: 'empty', custom: false, vol: 1 };
   };
   const filled = (id) => { const p = pend.get(id); if (p) return p.op !== 'remove'; return !!SoundBank.info(id); };
-  const BANK_IDS = [...BANK_CALL.map((_, i) => bankCallId(i + 1)), ...BANK_TELLERS.flatMap((t) => t.lines.map((_, i) => bankCounterId(t.id, i + 1)))];
+  const BANK_IDS = [...BANK_CALL.map((_, i) => bankCallId(i + 1)), ...BANK_TELLERS.flatMap((t) => t.lines.map((_, i) => bankCounterId(t.id, i + 1))), ...BANK_GUARD.map((_, i) => bankGuardId(i + 1))];
   const groupCount = (g) => { if (g === 'bank') return BANK_IDS.filter(filled).length; let n = 0; for (const s of VOICE_SITS) for (let k = 0; k < VOICE_CLIPS; k++) if (filled(voiceId(g, s.id, k))) n++; return n; };
   // which group's clips a speaker of group g would hear for situation s (saved recordings only)
   const answers = (g, s) => { if (g === 'any') return SoundBank.has(voiceId('any', s)) ? 'any' : null; const id = Voices.find(specOf(g), s, ctxOf(g)); return id ? id.split('.')[1] : null; };
@@ -151,6 +151,7 @@ export async function open(game) {
     const row = (title, text, id) => { if (q && !(title.toLowerCase().includes(q) || text.toLowerCase().includes(q))) return; main.append(h('div', { cls: 'dlg-sit' }, h('div', { cls: 't' }, h('b', {}, title), h('small', {}, id), btn('Hear in game', () => hearId(id), { title: 'Play it from 3 m in front of you (saved clip)' })), h('div', { cls: 'dlg-line' }, '“' + text + '”'), h('div', { cls: 'dlg-clips', style: { gridTemplateColumns: '1fr' } }, clipCell(id, 0)))); };
     BANK_CALL.forEach((text, i) => row(`Phone call — line ${i + 1}`, text, bankCallId(i + 1)));
     for (const t of BANK_TELLERS) t.lines.forEach((text, i) => row(`${t.name} — counter line ${i + 1}`, text, bankCounterId(t.id, i + 1)));
+    BANK_GUARD.forEach((text, i) => row(`Security officer — line ${i + 1} (${['warning', 'warning: the player has a gun out', 'after his first shot', 'standing down'][i]})`, text, bankGuardId(i + 1)));
     main.scrollTop = mt; footer();
   }
   function footer() {

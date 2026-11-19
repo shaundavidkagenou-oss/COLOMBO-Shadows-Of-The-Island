@@ -8,7 +8,7 @@ import { setVehicleLOD, setRealLevel } from '../../src/vehicles/Vehicle.js';
 import { allDoorsLive } from '../../src/vehicles/DoorRig.js';
 import { preloadRealModels } from '../../src/vehicles/RealModels.js';
 import { modelFloor } from '../../src/world/FloorKit.js';
-import { buildT56, buildWeaponModel } from '../../src/combat/WeaponModels.js';
+import { buildT56, buildWeaponModel, buildShotgun } from '../../src/combat/WeaponModels.js';
 import { WEAPONS } from '../../src/combat/WeaponDefs.js';
 import { Character, randomSpec } from '../../src/actors/Character.js';
 import { applySeatPose, seatLocal } from '../../src/actors/Seating.js';
@@ -33,7 +33,7 @@ if (floors) { ground.visible = false; const ks = floors.split(','); const cw = M
   window.__ready = true; throw new Error('floor preview done'); }
 const wpn = q.get('weapon'); // weapon preview: &weapon=t56|<weapon id>&views=left,right,front34,rear34,muzzle,grip,top
 if (wpn) { ground.visible = false; scene.background = new THREE.Color(0x8d9aa6);
-  const w = wpn === 't56' ? buildT56() : buildWeaponModel(WEAPONS.find((d) => d.id === wpn)); scene.add(w); w.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  const w = wpn === 't56' ? buildT56() : wpn === 'shotgun' ? buildShotgun() : buildWeaponModel(WEAPONS.find((d) => d.id === wpn)); scene.add(w); w.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   const bb = new THREE.Box3().setFromObject(w), c = bb.getCenter(new THREE.Vector3()), L = (bb.max.z - bb.min.z) * +(q.get('d') || 1);
   const WC = { left: [[L * 1.05, 0.02, c.z], c], right: [[-L * 1.05, 0.02, c.z], c], front34: [[-L * 0.6, L * 0.25, c.z + L * 0.75], c], rear34: [[L * 0.55, L * 0.22, c.z - L * 0.75], c],
     top: [[0.25, L * 1.1, c.z], c], muzzle: [[0.16, 0.12, bb.max.z + 0.1], new THREE.Vector3(0, 0.08, bb.max.z - 0.12)], grip: [[0.32, 0.02, 0.0], new THREE.Vector3(0, 0.0, 0.0)],

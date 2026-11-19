@@ -37,7 +37,8 @@ import { CMB, FONTS, drawLogo, tracked, fitFont, hasCanvas, drawATMScreen, ATM_I
 import { BankSound, CHAIR_SEATED_AT, CHAIR_LEN } from '../audio/BankAudio.js';
 import { acUnit, landline, callPhone, rb, HANDSET } from './BankProps.js';
 import { makeBankShift, warmStaffCars } from './BankShift.js';
-import { BANK_CALL, BANK_TELLERS, bankCallId, bankCounterId } from '../audio/VoiceDefs.js';
+import { BANK_CALL, BANK_TELLERS, bankCallId, bankCounterId, BANK_GUARD, bankGuardId } from '../audio/VoiceDefs.js';
+import { makeGuardGun } from './BankGuardGun.js';
 import { SoundBank as SB } from '../audio/SoundBank.js';
 
 export const BANK_ROOM = Object.freeze({ name: 'Ceylon Meridian Bank', W: 14, D: 13.4, H: 3.6, windows: [-4.95, -1.65, 1.65, 4.95], staffed: [0, 1, 2], atmD: [1.6, 3.2], atmFace: -6.45, atmStandX: -5.84, open: [7.5, 19.5] });
@@ -419,6 +420,12 @@ export function buildBankInterior(game, site) {
   const nStatic = obs.length;
   for (const p of [...stand.tellers, stand.recep, stand.mgr, stand.sup, stand.guard]) if (p && p.ch) p.ch.bankOwned = true; // 73rd: the room's own people (room.ext skips them)
   const room = { parts, id: 'bank', bank: true, name: B.name, def: { kind: 'bank', name: B.name }, g, bounds: { x0, x1, z0, z1: zf - 0.02 }, obstacles: obs, lights, H, prompt: null, atms, seats, stand, customers: [], stats: { spawned: 0, left: 0, handed: 0, atmUses: 0, tellerVisits: 0, sat: 0 } };
+  // 73rd: the security officer's pump shotgun (slung until the player comes in wanted: BankGuardGun.js)
+  const guardGun = makeGuardGun({ game, g, gd: stand.guard, B: { xL, xR, z0, zF: zf, H }, obs, nObs: nStatic, rng: rngOf(6909),
+    bodies: () => { const out = []; for (const c of pool) if (c.on && c.ch.root.visible) out.push({ x: c.x, z: c.z }); for (const p of [...stand.tellers, stand.recep, stand.mgr, stand.sup]) if (p && p.ch.root.visible && !p.away) out.push({ x: p.ch.root.position.x, z: p.ch.root.position.z }); return out; },
+    say: (i) => say(stand.guard, bankGuardId(i + 1), BANK_GUARD[i], stand.guard.x, stand.guard.z, 'Security officer', 30),
+    fright: () => fright(6, 10) });
+  room.guardGun = guardGun;
   room.greet = () => { if (game.hud && staffOn()) game.hud.subtitle('Security officer', 'Good day. Welcome to Ceylon Meridian Bank — the ATMs are on your left.', '', 3.6); };
   room.onEnter = () => { BankSound.ambience(true); };
   room.onExit = () => { BankSound.ambience(false); };
@@ -573,9 +580,11 @@ export function buildBankInterior(game, site) {
     if (!p.stunA) { p.stunA = 1; p.stunT0 = p.stunT; A.play('flinch', 0.5); ch.face && ch.face.set && ch.face.set('surprise', 1.2); }
     else if (p.stunA === 1 && p.stunT0 - p.stunT > 0.45) { p.stunA = 2; const armed = !!(game.weapons && game.weapons.drawn); if (!A.action || A.action === 'flinch') A.set(armed && !standing ? 'handsup' : standing ? 'cower' : null); ch.face && ch.face.set && ch.face.set('fear', p.stunT + 1); }
     p.stunT -= dt; if (p.stunT <= 0) { p.stunA = 0; p.stunT = 0; if (A.action === 'cower' || A.action === 'flinch' || A.action === 'handsup') A.set(null); p._rtn = null; } return true; };
-  room.breach = () => { const R2 = () => Math.random(); room.stats.breaches = (room.stats.breaches || 0) + 1;
-    for (const c of pool) if (c.on && !(c.cmd && c.cmd.fn)) { c.stunD = 0.1 + R2() * 0.35; c.stunT = 3 + R2() * 3; c.stunA = 0; }
-    for (const p of [...stand.tellers, stand.recep, stand.mgr, stand.sup, stand.guard]) if (p && (p.duty === undefined || p.duty === 'on') && !p.away) { p.stunD = 0.08 + R2() * 0.3; p.stunT = 2.5 + R2() * 2.5; p.stunA = 0; } };
+  // everyone in the hall jumps / ducks (a door kicked in: 3–6 s; 73rd: the guard's shotgun going off: longer, and he doesn't flinch)
+  const fright = (a = 3, b = 6, guardToo = true) => { const R2 = () => Math.random();
+    for (const c of pool) if (c.on && !(c.cmd && c.cmd.fn)) { c.stunD = 0.1 + R2() * 0.35; c.stunT = a + R2() * (b - a); c.stunA = 0; }
+    for (const p of [...stand.tellers, stand.recep, stand.mgr, stand.sup, guardToo ? stand.guard : null]) if (p && (p.duty === undefined || p.duty === 'on') && !p.away) { p.stunD = 0.08 + R2() * 0.3; p.stunT = (a - 0.5) + R2() * (b - a - 0.5); p.stunA = 0; } };
+  room.breach = () => { room.stats.breaches = (room.stats.breaches || 0) + 1; fright(3, 6, !(guardGun.alert || guardGun.draw > 0)); };
   const stepCustomer = (c, dt, pl) => {
     if (c.stunT > 0 && !c.staff) { const seated = c.seat >= 0 && c.ch.anim.seated; if (stunStep(c, c.ch, dt, !seated)) { c.speed = 0; animOf(c).update(dt, 0); place(c); return; } }
     if (!c.cmd) { const r = c.gen ? c.gen.next() : { done: true }; if (r.done) { hide(c); return; } c.cmd = Object.assign({ t: 0 }, r.value); if (c.cmd.walk) { c.cmd.path = c.cmd.walk; c.cmd.pi = 0; } }
@@ -747,7 +756,7 @@ export function buildBankInterior(game, site) {
       animUp(t.ch, dt * k2, 0); }
     for (const [p, kind] of [[stand.recep, 'desk'], [stand.mgr, 'desk'], [stand.sup, 'phone']]) { if (p.duty !== 'on' || (p.waveT > 0)) continue; if (stunStep(p, p.ch, dt, false)) { animUp(p.ch, dt * k2, 0); continue; } const busy = p === stand.recep && pool.some((o) => o.on && o.cmd && o.cmd.staff === 'recep');
       if (busy) { if (p.ch.anim.action !== 'talk') p.ch.anim.set('talk'); p.ch.anim.seated = true; p.busy = true; } else { if (p.busy) { p.busy = false; p._rtn = null; } routine(p, p.ch, dt, kind, p.rnd); } animUp(p.ch, dt * k2, 0); }
-    { const gd = stand.guard; if (shift && shift.guardStep(gd, dt)) { animUp(gd.ch, dt, 0); return; } if (gd.stunT > 0 && gd.stunD <= dt) { gd.ch.root.rotation.y = turn(gd.ch.root.rotation.y, Math.atan2(-gd.x, 0.4 - gd.z), dt * 5); } if (stunStep(gd, gd.ch, dt, false)) { animUp(gd.ch, dt, 0); return; } routine(gd, gd.ch, dt, 'guard', gd.rnd); let want = gd.yaw0; if (pl && pl.inside && Math.hypot(pl.x - gd.x, pl.z - gd.z) < 3) want = Math.atan2(pl.x - gd.x, pl.z - gd.z); gd.ch.root.rotation.y = turn(gd.ch.root.rotation.y, want, dt * 2.5); animUp(gd.ch, dt, 0); }
+    { const gd = stand.guard; if (guardGun.step(dt, pl, gd.ch.root.visible)) { animUp(gd.ch, dt, 0); return; } if (shift && shift.guardStep(gd, dt)) { animUp(gd.ch, dt, 0); return; } if (gd.stunT > 0 && gd.stunD <= dt) { gd.ch.root.rotation.y = turn(gd.ch.root.rotation.y, Math.atan2(-gd.x, 0.4 - gd.z), dt * 5); } if (stunStep(gd, gd.ch, dt, false)) { animUp(gd.ch, dt, 0); return; } routine(gd, gd.ch, dt, 'guard', gd.rnd); let want = gd.yaw0; if (pl && pl.inside && Math.hypot(pl.x - gd.x, pl.z - gd.z) < 3) want = Math.atan2(pl.x - gd.x, pl.z - gd.z); gd.ch.root.rotation.y = turn(gd.ch.root.rotation.y, want, dt * 2.5); animUp(gd.ch, dt, 0); }
   };
 
   // ---- 71st: the room's sound sources (BankSound.tick reads room.audio; Game passes the active room's list)
@@ -850,7 +859,7 @@ export function buildBankInterior(game, site) {
   room.atmPose = (m) => ({ local: { x: m.stand[0], z: m.stand[1], yaw: -Math.PI / 2 } });
   // freed by WalkIn when the player is far away: staff and the customers still in the pool (customers handed to the street crowd
   // left the pool and belong to the crowd now), the ATM screen textures; the room tone is stopped outright
-  room.dispose = () => { BankSound.stopNow(); for (const p of [...stand.tellers, stand.recep, stand.mgr, stand.sup, stand.guard]) if (p && p.ch && p.ch.dispose) p.ch.dispose(); for (const c of pool) if (c.ch && c.ch.dispose) c.ch.dispose(); pool.length = 0; for (const m of atms) if (m.screen && m.screen.tex) m.screen.tex.dispose(); };
+  room.dispose = () => { BankSound.stopNow(); guardGun.dispose(); for (const p of [...stand.tellers, stand.recep, stand.mgr, stand.sup, stand.guard]) if (p && p.ch && p.ch.dispose) p.ch.dispose(); for (const c of pool) if (c.ch && c.ch.dispose) c.ch.dispose(); pool.length = 0; for (const m of atms) if (m.screen && m.screen.tex) m.screen.tex.dispose(); };
   room.reseed();
   return room;
 }

@@ -177,6 +177,53 @@ function t56Player() { const g = t56(true); const ud = g.userData; if (ud.torch)
     [boxShape(V3(0, 0.041, (rx0 + rx1) / 2), 0, [0.0225, 0.035, (rx1 - rx0) / 2], 0.003), boxShape(V3(0, -0.05, 0.13), 0.5, [0.0135, 0.06, 0.03], 0.003)], { fore: foreShape(0.056, rx1 + 0.13, 0.024, 0.026, 0.012) });
   ud.support = new THREE.Vector3(0, 0.03, rx1 + 0.13); ud.model = 'type56'; return g; }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// 73rd: 12-gauge pump-action shotgun carried by the Ceylon Meridian Bank's security guard (BankInterior / GuardShotgun.js).
+// A generic security-pattern pump gun from its general layout only (no maker's shapes, markings or logos): 18½" plain barrel
+// with a brass bead, full-length magazine tube with its knurled cap and barrel clamp, ribbed black fore-end on the action
+// bars (its own group: it racks back and forward), rounded blued receiver with the ejection port on the right and the loading
+// port underneath, cross-bolt safety behind the trigger guard, action release in front of it, a straight black synthetic
+// stock with a rubber recoil pad and sling studs. Origin = the right hand on the wrist of the stock, +z = muzzle.
+function shotgun() {
+  const m = weaponMaterials(); const g = new THREE.Group(); const P = new Parts();
+  const bore = 0.04, magY = 0.006, rx0 = 0.03, rx1 = 0.245, bz1 = 0.715; // receiver span, barrel end
+  const tb = (z, top, bot, hw, n, o = {}) => ({ z, y: (top + bot) / 2, hd: (top - bot) / 2, hw, n, ...o });
+  // receiver: rounded top, flat sides, stepped down at the front to the barrel extension; loading port + ejection port
+  P.add(m.blued, sweep([tb(rx0, 0.05, -0.016, 0.0158, 3.2), tb(rx0 + 0.012, 0.056, -0.018, 0.0162, 3.2, { topK: 0.8 }), tb(rx1 - 0.02, 0.056, -0.018, 0.0162, 3.2, { topK: 0.8 }), tb(rx1, 0.054, -0.012, 0.0156, 3.2, { topK: 0.8 })], { vertical: true, seg: 28 }));
+  P.add(m.slot, box(0.002, 0.024, 0.07, -0.0164, 0.03, 0.15), box(0.022, 0.002, 0.075, 0, -0.0185, 0.17)); // ejection port (right) · loading port (under)
+  P.add(m.steel, box(0.0016, 0.016, 0.05, -0.0168, 0.029, 0.148)); // bolt face showing through the port
+  // barrel: extension collar, plain tube, a thicker muzzle, open bore; brass bead
+  P.add(m.blued, latheZ([[rx1 - 0.004, 0.0142], [rx1 + 0.03, 0.0142], [rx1 + 0.036, 0.0118], [bz1 - 0.012, 0.0112], [bz1 - 0.01, 0.0122], [bz1, 0.0122], [bz1, 0.0094], [bz1 - 0.03, 0.0094], [bz1 - 0.03, 0.00001]], bore, 0, 22));
+  P.add(m.brass, sph(0.0028, 0, bore + 0.0128, bz1 - 0.02)); P.add(m.blued, box(0.004, 0.004, 0.012, 0, bore + 0.0115, bz1 - 0.02));
+  // magazine tube, barrel clamp ring, knurled cap with the front sling stud
+  P.add(m.blued, latheZ([[rx1 - 0.004, 0.0118], [bz1 - 0.085, 0.0118]], magY, 0, 18));
+  P.add(m.blued, sweep([{ z: bz1 - 0.12, y: (bore + magY) / 2, hd: 0.0285, hw: 0.0135, n: 3 }, { z: bz1 - 0.1, y: (bore + magY) / 2, hd: 0.0285, hw: 0.0135, n: 3 }], { vertical: true, sub: 1 }));
+  P.add(m.metal, knurl(0.0132, 0.026, 0, magY, bz1 - 0.072, 'z', 28, 0.06)); P.add(m.steel, cylY(0.0028, 0.012, 0, magY - 0.017, bz1 - 0.072, 8));
+  // trigger group: guard, blade, cross-bolt safety (behind) and action release (in front, left)
+  trigger(P, m, 0.05, -0.02); P.add(m.metal, box(0.014, 0.012, 0.075, 0, -0.022, 0.07));
+  P.add(m.steel, cylX(0.0032, 0.022, 0, -0.012, 0.038, 10)); P.add(m.steel, box(0.003, 0.012, 0.006, 0.0105, -0.026, 0.1, -0.3));
+  pinX(P, m, 0.033, 0.0, 0.06); pinX(P, m, 0.033, 0.0, 0.2);
+  // straight synthetic stock: narrow wrist (the hand), widening to the comb and a tall butt; rubber recoil pad; rear sling stud
+  const lin = (pts, d) => { for (let i = 1; i < pts.length; i++) if (d <= pts[i][0] || i === pts.length - 1) { const [aa, ya] = pts[i - 1], [bb, yb] = pts[i]; return ya + (yb - ya) * Math.min(1, Math.max(0, (d - aa) / (bb - aa))); } return 0; };
+  const top = [[0, 0.05], [0.05, 0.043], [0.12, 0.038], [0.36, 0.03]], bot = [[0, -0.016], [0.035, -0.03], [0.09, -0.052], [0.16, -0.07], [0.36, -0.098]];
+  const st = (d, hw, n = 2.6) => tb(rx0 - d * 0.96, lin(top, d), lin(bot, d), hw, n, { topK: 0.85 }); // (14" length of pull)
+  P.add(m.poly, sweep([st(-0.004, 0.0158), st(0.02, 0.0148), st(0.06, 0.0142), st(0.1, 0.0152), st(0.16, 0.0178), st(0.22, 0.0195), st(0.29, 0.0205), st(0.345, 0.0208)], { vertical: true, seg: 32 }));
+  P.add(m.rubber, sweep([st(0.345, 0.021, 2.8), st(0.37, 0.0215, 2.8)], { vertical: true, sub: 1, seg: 32 }));
+  for (let i = 0; i < 4; i++) P.add(m.slot, box(0.034, 0.002, 0.001, 0, lin(bot, 0.37) + 0.03 + i * 0.03, rx0 - 0.371)); // pad grooves
+  P.add(m.steel, cylY(0.0028, 0.012, 0, lin(bot, 0.27) - 0.004, rx0 - 0.27, 8)); screwX(P, m, 0.0155, 1, 0.012, rx0 - 0.03);
+  P.build(g);
+  // the fore-end (pump): ribbed black polymer round the magazine tube, on its action bars — racks back 9 cm
+  const pump = new THREE.Group(); const F = new Parts(); const f0 = 0.272, f1 = 0.47;
+  F.add(m.poly, sweep([{ z: f0, y: magY - 0.002, hd: 0.0215, hw: 0.0205, n: 2.4 }, { z: f0 + 0.015, y: magY - 0.002, hd: 0.0245, hw: 0.0225, n: 2.4 }, { z: f1 - 0.015, y: magY - 0.002, hd: 0.0245, hw: 0.0225, n: 2.4 }, { z: f1, y: magY - 0.002, hd: 0.0215, hw: 0.0205, n: 2.4 }], { vertical: true, seg: 28 }));
+  for (let i = 0; i < 9; i++) F.add(m.slot, sweep([{ z: f0 + 0.04 + i * 0.016, y: magY - 0.002, hd: 0.0249, hw: 0.0229, n: 2.4 }, { z: f0 + 0.046 + i * 0.016, y: magY - 0.002, hd: 0.0249, hw: 0.0229, n: 2.4 }], { vertical: true, sub: 1, seg: 28 }));
+  F.add(m.steel, box(0.003, 0.006, f0 - rx1 + 0.06, 0.012, magY + 0.012, (rx1 - 0.02 + f0) / 2 + 0.01), box(0.003, 0.006, f0 - rx1 + 0.06, -0.012, magY + 0.012, (rx1 - 0.02 + f0) / 2 + 0.01)); // action bars
+  F.build(pump); g.add(pump);
+  g.userData = { muzzle: new THREE.Vector3(0, bore, bz1 + 0.002), support: new THREE.Vector3(0, magY - 0.012, f0 + 0.065), pump, pumpTravel: 0.09, loadPort: new THREE.Vector3(0, -0.03, 0.17), eject: new THREE.Vector3(-0.02, 0.03, 0.15), sight: new THREE.Vector3(0, bore + 0.015, bz1 - 0.02), model: 'guardShotgun' };
+  g.updateMatrixWorld(true); g.userData.buttZ = new THREE.Box3().setFromObject(g).min.z;
+  return g;
+}
+export function buildShotgun() { const g = shotgun(); g.name = 'weapon-guard-shotgun'; if (HOOKS.weapon) HOOKS.weapon(g, { id: 'guardShotgun', cls: 'shotgun' }); return g; }
+
 export function buildWeaponModel(def) {
   const g = def.cls === 'pistol' ? buildPistol(def) : (def.model || def.id) === 'type56' ? t56Player() : buildRifle(def); g.name = 'weapon-' + def.id;
   const h = g.userData.hold; const mag = g.userData.mag; if (h) { clearThumb(g, h.thumbR, 0.0085, (o) => mag && o.parent === mag); if (h.thumbL) clearThumb(g, h.thumbL, 0.0085, (o) => mag && o.parent === mag); }
