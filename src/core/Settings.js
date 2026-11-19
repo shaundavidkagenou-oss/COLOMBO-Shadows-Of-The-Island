@@ -3,7 +3,7 @@ const KEY = 'colombo.settings.v1';
 export const DEFAULT_BINDINGS = {
   forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD',
   sprint: 'ShiftLeft', jump: 'Space', crouch: 'KeyC', enter: 'KeyF',
-  interact: 'KeyE', insult: 'KeyQ', shove: 'KeyG', more: 'KeyT',
+  interact: 'KeyE', insult: 'KeyN', cover: 'KeyQ', shove: 'KeyG', more: 'KeyT',
   horn: 'KeyH', lights: 'KeyL', camera: 'KeyV', radio: 'KeyR',
   phone: 'KeyP', map: 'KeyM', journal: 'KeyJ',
   reload: 'KeyR', holster: 'KeyX', weaponWheel: 'Tab', grenade: 'KeyB',
@@ -31,7 +31,7 @@ class SettingsStore {
     this.v = structuredClone(DEFAULTS);
     try {
       const raw = localStorage.getItem(KEY);
-      if (raw) { const p = JSON.parse(raw); Object.assign(this.v, p); this.v.bindings = { ...DEFAULT_BINDINGS, ...(p.bindings || {}) }; }
+      if (raw) { const p = JSON.parse(raw); Object.assign(this.v, p); const b = { ...(p.bindings || {}) }; if (!b.cover && b.insult === 'KeyQ') delete b.insult; /* 73rd: Q is cover now (insult moved to N) — saved settings from before keep their other keys */ this.v.bindings = { ...DEFAULT_BINDINGS, ...b }; }
     } catch (e) { console.warn('settings load failed', e); }
   }
   get(k) { return this.v[k]; }
