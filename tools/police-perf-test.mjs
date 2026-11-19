@@ -67,8 +67,8 @@ function followCam() { player.x = pv.x; player.z = pv.z; player.y = pv.y; player
 const vBuilt0 = LIVE_VEHICLES.size;
 await pool.prepare();
 const nCars = POOL.police + POOL.policejeep;
-ok(pool.stats.built === nCars && pool.freeCount() === nCars, `pool built at load: ${pool.stats.built} cars (${POOL.police} sedans + ${POOL.policejeep} jeeps, 5–10 asked)`);
-ok(pool.spare.length === POOL.spare && pool.stats.crewBuilt === nCars * 2 + POOL.spare, `${nCars * 2} seated officers + ${POOL.spare} spares built (${pool.stats.crewBuilt} characters)`);
+ok(pool.stats.built === nCars + POOL.ambulance && pool.freeCount() === nCars && pool.free.ambulance.length === POOL.ambulance, `pool built at load: ${pool.stats.built} cars (${POOL.police} sedans + ${POOL.policejeep} jeeps, 5–10 asked)`);
+ok(pool.spare.length === POOL.spare && pool.stats.crewBuilt === (nCars + POOL.ambulance) * 2 + POOL.spare, `${nCars * 2} seated officers + ${POOL.ambulance * 2} medics + ${POOL.spare} spares built (${pool.stats.crewBuilt} characters)`);
 { const all = [...pool.free.police, ...pool.free.policejeep]; ok(all.every((e) => !e.v.mesh.parent && !LIVE_VEHICLES.has(e.v)) && LIVE_VEHICLES.size === vBuilt0, 'pooled cars are off the scene graph and out of the live-vehicle list (not drawn, not simulated)');
   ok(all.every((e) => e.crew.every((r) => r && r.ch.root.parent === e.v.mesh && r.rifle)), 'every pooled car has its two officers already seated, each with his slung T-56');
   ok(all.every((e) => !T.vehicles.includes(e.v) && !T.parked.includes(e.v)), 'pooled cars are in no traffic list'); }
@@ -97,6 +97,16 @@ const knownV = new Set([...LIVE_VEHICLES, ...pool.free.police.map((e) => e.v), .
   for (let i = 0; i < nCars + 2; i++) { const s = 15 + i * 14; const u = police.spawnUnit({ at: { x: rp.p0[0] + rp.d[0] * s, z: rp.p0[1] + rp.d[1] * s, yaw: pv.yaw } }); if (u) out.push(u); }
   ok(out.length === nCars && police.stats.poolWaits >= 1, `pool dry after ${out.length} units: the next request waits (${police.stats.poolWaits} waits) instead of building a car`);
   ok([...LIVE_VEHICLES].every((v) => knownV.has(v)), 'no vehicle was built for it'); for (const u of out) police.removeUnit(u); ok(pool.freeCount() === nCars, 'all back'); }
+{ // 73rd: the ambulance + medics are pooled; every pooled officer carries his hand torch from the start; wanted refill = car alone
+  const all = [...pool.free.police, ...pool.free.policejeep]; ok(all.every((e) => e.crew.every((r) => !r || (r.torchM && !r.torchM.visible && r.torchM.parent === r.ch.root))), '73rd: every pooled officer already has his (hidden) hand torch');
+  const amb = pool.free.ambulance[0]; const ue = police.spawnUnit({ ems: true, at: { x: pv.x + 40, z: pv.z + 40, yaw: 0 } });
+  ok(ue && ue.pooled && ue.v === amb.v && ue.v.type === 'ambulance' && ue.officers.length === 2 && ue.officers.every((o) => o.medic && !o.rifle), '73rd: an EMS call takes the pooled ambulance with its two medics (no rifles)');
+  const crewE = ue.officers.map((o) => o.ch); police.removeUnit(ue);
+  ok(pool.free.ambulance.length === 1 && crewE.every((ch) => !ch.disposed && ch.root.parent === amb.v.mesh) && !amb.v.mesh.parent, '73rd: the ambulance goes back to the pool with its medics seated');
+  const ue2 = police.spawnUnit({ ems: true, at: { x: pv.x + 40, z: pv.z + 40, yaw: 0 } }); const ue3 = police.spawnUnit({ ems: true, at: { x: pv.x + 60, z: pv.z + 40, yaw: 0 } });
+  ok(ue2 && ue2.pooled && ue3 && !ue3.pooled && ue3.v.type === 'ambulance', '73rd: a second ambulance at the same time is built (the old path), never a police car'); police.removeUnit(ue2); police.removeUnit(ue3);
+  const c0 = pool.stats.crewBuilt, b0 = pool.stats.built; const e = pool.build('police', false); ok(pool.stats.built === b0 + 1 && pool.stats.crewBuilt === c0 && e.crew.every((r) => !r), '73rd: a wanted-time replacement is the car alone (no officer built)');
+  pool.free.police.splice(pool.free.police.indexOf(e), 1); e.v.dispose(); }
 
 // ---------------------------------------------------------------- 4. a 60 s 5★ car chase
 const DT = 1 / 30;

@@ -79,6 +79,10 @@ const LINES = {
   arrest: [{ si: 'නවතින්න! පොලිසිය! අත් උස්සන්න!', tr: 'Stop! Police! Hands up!' }, { en: 'Police! Stop right there — hands where I can see them!' }],
   cuff1: [{ si: 'ඔයාව අත්අඩංගුවට ගන්නවා.', tr: 'You are under arrest.' }, { en: "You're under arrest for assault. Hands behind your back." }],
   waitUp: [{ si: 'නැගිටින්න. හෙමින්.', tr: 'Get up. Slowly.' }, { en: 'Stay down… now get up, slowly.' }],
+  // 73rd: the suspect is known to be inside a building — contain the door, call him out, then go in
+  siege: [{ si: 'ඇතුළේ ඉන්න කෙනා — අත් උස්සගෙන එළියට එන්න!', tr: 'You inside — come out with your hands up!' }, { en: "Police! We know you're in there. Come out slowly, hands where we can see them!" }, { en: 'Control, suspect is inside the building. Covering the front door.' }],
+  entry: [{ si: 'අපි ඇතුළට යනවා. පොලිසිය!', tr: "We're going in. Police!" }, { en: 'Police! Coming in — nobody move!' }],
+  approach: [{ si: 'හෙමින්… අත් පේන්න තියාගන්න.', tr: 'Slowly… keep your hands where I can see them.' }, { en: 'Easy now. Keep your hands where I can see them.' }, { en: "Don't move. Stay right there." }],
 };
 
 // ------------------------------------------------------------------ road graph helpers (pure; unit-tested in tools/police-test.mjs)
@@ -334,7 +338,7 @@ export class PoliceResponse {
     const g = this.g, T = this.T, P = g.player; {
       const tm0 = performance.now(); const want = ems ? 'ambulance' : jeep ? 'policejeep' : 'police';
       // 66th: police cars + crews come out of the pool (built while loading); with the pool in use and empty, no car is built
-      const pe = ems ? null : this.pool.acquire(want, x, z, yaw); if (!pe && !ems && this.pool.ready) { this.stats.poolWaits++; this.note(`no free unit in the pool (${want})`); return null; }
+      const pe = this.pool.acquire(want, x, z, yaw); /* (73rd: the ambulance too — if it is out / lost, EMS builds one as before) */ if (!pe && !ems && this.pool.ready) { this.stats.poolWaits++; this.note(`no free unit in the pool (${want})`); return null; }
       const v = pe ? pe.v : new Vehicle(want, 3000 + this.seed * 7, g.scene); const type = v.type; if (!pe) v.place(x, z, yaw); const tm1 = performance.now();
       v.keep = true; v.ai = { pieces: [piece], s, v0: patrol ? 9 : 11, stuck: 0, honkCd: 99, bumped: 0, aggressive: 1.2, emergency: true }; T.extend(v);
       const u = { id: this.seed++, v, officers: [], task: patrol ? 'patrol' : 'idle', patrol, arrived: false, footT: 0, stuckT: 0, planT: 0, goalPt: null, enterT: 0 };
@@ -638,21 +642,34 @@ export class PoliceResponse {
     if (u.civil && o.mode === 'foot') { this.civilOfficer(o, u, dt); return; }
     if (o.tackle) { this.updateTackle(o, u, dt); return; }
     o.tackleCd = Math.max(0, (o.tackleCd || 0) - dt);
+    if (o.inRoom) { const S = this.siegeOf(); speed = S && S.s === o.inRoom.s && !tg.v ? this.siegeOfficer(o, u, S, dt) : this.leaveRoom(o, dt); this.animOfficer(o, dt, speed); return; } // 73rd: inside a shop: the room's own collision model, never the street AI
     { const ffs = this.ff.officer(o, u, dt); if (ffs !== null) { this.animOfficer(o, dt, ffs); return; } } // cover / armed response
-    const sees = this.ff.sees(o, dt); const ls = this.lastSeen;
+    const sees = this.ff.sees(o, dt) || (o.inRoom && P.indoor === o.inRoom.s.room?.proxy); const ls = this.lastSeen;
+    // 73rd: the suspect inside a known building (a walk-in shop / the bank): contain and go in — never through walls
+    { const S = this.siegeOf();
+      if (S && !tg.v && u.task !== 'block') { speed = this.siegeOfficer(o, u, S, dt); this.animOfficer(o, dt, speed); return; } }
     if (u.task === 'block' && dP > 22) { const fx = sees ? tg : ls || tg; o.yaw += angDiff(Math.atan2(fx.x - o.x, fx.z - o.z), o.yaw) * Math.min(1, dt * 4); const want = dP < 70 ? 'point' : null; if (A.action !== want) A.set(want); this.animOfficer(o, dt, 0); return; } // roadblock: hold the line
     // chase only what is known: the suspect while THIS officer sees them, otherwise the last point anyone saw them (no
     // tracking through walls); arriving there without a sighting, the officer stops and looks around
     const chasing = st === 'pursuing' && (sees || (ls && this.t - ls.t < 12));
     if (chasing) {
       const stopMode = this.stars() <= 1; const want = stopMode ? 1.5 : 0.7; const run = !stopMode || (this.stop && this.stop.fled);
-      const goal = sees ? tg : ls; const dG = sees ? dP : Math.hypot(goal.x - o.x, goal.z - o.z);
-      if (dG > (sees ? want : 1.2)) speed = this.moveTo(o, goal.x, goal.z, run ? [5.7, 5.7, 6.1, 6.5, 6.8, 7.0][this.stars()] : dG > 8 ? 3.2 : 1.6, dt); else if (sees) { o.yaw += angDiff(Math.atan2(tg.x - o.x, tg.z - o.z), o.yaw) * Math.min(1, dt * 6); } else { o.yaw += dt * 1.1; if (A.action !== 'look' && !o.torchOn) A.set('look'); }
+      let goal = sees ? tg : ls; const dG = sees ? dP : Math.hypot(goal.x - o.x, goal.z - o.z);
+      // 73rd: an arrest on foot is approached, not charged: a jog from far off, then a fast walk that fans the officers out to either
+      // side of the suspect (one each side, converging as they close), then a slow, deliberate last few metres with an order — a
+      // suspect who runs (or drives) gets the full sprint and the tackle as before
+      let sp = run ? [5.7, 5.7, 6.1, 6.5, 6.8, 7.0][this.stars()] : dG > 8 ? 3.2 : 1.6;
+      if (run && !tg.v) { const fx = (tg.x - o.x) / (dP || 1), fz = (tg.z - o.z) / (dP || 1); const away = (P.speed || 0) > 3.0 && Math.sin(P.yaw) * fx + Math.cos(P.yaw) * fz > 0.2;
+        if (!away && !(this.stars() >= 4 && !sees)) { sp = dG > 32 ? 4.3 : dG > 14 ? 3.0 : dG > 6 ? 1.85 : 1.2;
+          if (sees && dG > 5 && dG < 20) { const fl = o.flank || (o.flank = (o.k === 1 ? 1 : -1) * ((u.id & 1) ? -1 : 1)); const off = Math.min(3.5, (dG - 5) * 0.35); goal = { x: tg.x - fz * fl * off, z: tg.z + fx * fl * off }; }
+          if (sees && dG < 12 && A.action !== 'point' && A.action !== 'torch') A.set('point');
+          if (sees && dG < 14 && this.t - (this.approachSaidT ?? -99) > 7 && this.nearPlayer(o.x, o.z, 18)) { this.approachSaidT = this.t; this.say(o, Math.random() < 0.5 ? 'arrest' : 'approach', 'Police officer'); } } }
+      if (dG > (sees ? want : 1.2)) speed = this.moveTo(o, goal.x, goal.z, sp, dt); else if (sees) { o.yaw += angDiff(Math.atan2(tg.x - o.x, tg.z - o.z), o.yaw) * Math.min(1, dt * 6); } else { o.yaw += dt * 1.1; if (A.action !== 'look' && !o.torchOn) A.set('look'); }
       if (stopMode && sees && dP < 5 && !this.stop) this.beginStop(o);
       // tackle (2★+): a suspect running away on foot within reach — the officer dives at their legs
       if (!stopMode && sees && !tg.v && !this.busy && o.tackleCd <= 0 && dP < 2.6 && dP > 0.8 && (P.speed || 0) > 2.4) { const fx = (tg.x - o.x) / dP, fz = (tg.z - o.z) / dP; const away = Math.sin(P.yaw) * fx + Math.cos(P.yaw) * fz; if (away > 0.25 || (P.speed || 0) > 5) { this.startTackle(o, tg); return; } }
       if (!stopMode && dP < (tg.v ? 0.7 : 1.4) && (!tg.v || Math.abs(tg.v.speed) < 1)) { o.grab = (o.grab || 0) + dt; if (o.grab > (tg.v ? 1.6 : 0.9)) { this.arrest(o, 'grab'); return; } } else o.grab = Math.max(0, (o.grab || 0) - dt);
-      if (A.action && A.action !== 'talk' && A.action !== 'point' && A.action !== 'torch' && !(A.action === 'look' && !sees)) A.set(null); if (stopMode && sees && dP < 4 && A.action !== 'point' && A.action !== 'talk') A.set('point');
+      if (A.action && A.action !== 'talk' && A.action !== 'point' && A.action !== 'torch' && !(A.action === 'look' && !sees)) A.set(null); if (A.action === 'point' && speed > 3.2) A.set(null); if (stopMode && sees && dP < 4 && A.action !== 'point' && A.action !== 'talk') A.set('point');
     } else { // look around the scene / search area
       if (!o.goal || o.goalT <= 0) { const c = st === 'searching' && this.search ? { x: o.x, z: o.z } : this.incident || { x: o.x, z: o.z }; for (let k = 0; k < 6; k++) { const a = Math.random() * Math.PI * 2, r = 3 + Math.random() * 9; const x = c.x + Math.cos(a) * r, z = c.z + Math.sin(a) * r; if (!g.collision.blocked(x, z, 0.3)) { o.goal = { x, z }; break; } } o.goalT = 6 + Math.random() * 4; o.pause = 0; }
       o.goalT -= dt; if (o.goal) { const d = Math.hypot(o.goal.x - o.x, o.goal.z - o.z); if (d > 0.4) speed = this.moveTo(o, o.goal.x, o.goal.z, 1.45, dt); else if (A.action !== 'look' && !o.torchOn) A.set('look'); }
@@ -829,6 +846,46 @@ export class PoliceResponse {
       if (off) o.lastSide = Math.sign(off); o.x = nx; o.z = nz; o.y = col.groundAt(nx, nz, o.y + 0.45); o.yaw += angDiff(a, o.yaw) * Math.min(1, dt * 8); o.blockedT = Math.max(0, (o.blockedT || 0) - dt); this.placeOfficer(o); return v; }
     o.curSp *= 0.5; o.blockedT = (o.blockedT || 0) + dt; o.losT = 0; o.direct = false; return 0;
   }
+  // ---- 73rd: the suspect is inside a walk-in building (shop / bank) and the police know it (seen going in, or last seen at its door):
+  // the first officer covers the door from the pavement, two stack up either side of the doorway, the rest hold a perimeter; after
+  // the call-out the pair go in one behind the other, slowly, through the push door (the room's own collision model, WalkIn.resolve
+  // — never through a wall) and make the arrest inside. If he comes out, the cover officer is already on him (normal chase).
+  siegeOf() {
+    const P = this.g.player; const W = this.g.interiors && this.g.interiors.walkIn;
+    if (!W || this.stars() < 2 || P.vehicle || !P.indoor || !P.indoor.walkIn || !P.indoor.site) { if (this.siege) { this.note('suspect out of the building'); this.siege = null; } return null; }
+    const s = P.indoor.site, ls = this.lastSeen; if (this.siege && this.siege.s === s) return this.siege;
+    const known = ls && this.t - ls.t < 40 && Math.hypot(ls.x - s.F.x, ls.z - s.F.z) < 10; if (!known) return null;
+    this.siege = { s, W, t0: this.t, roles: new Map(), n: [0, 0, 0, 0], called: false, entered: false }; this.note(`suspect inside ${s.name || s.id}`); this.stats.sieges = (this.stats.sieges || 0) + 1; return this.siege;
+  }
+  siegeOfficer(o, u, S, dt) {
+    const A = o.ch.anim, s = S.s, W = S.W, P = this.g.player; let role = S.roles.get(o);
+    if (!role) { const n = S.roles.size; role = n === 0 ? 'cover' : n === 1 ? 'entry' : n === 2 ? 'entry2' : 'perim'; S.roles.set(o, role); }
+    const el = this.t - S.t0; const L = (lx, lz) => W.world(s, lx, lz);
+    if (o.inRoom) { // inside: close in on him slowly, weapon up; the arrest is the usual grab
+      const [px, pz] = W.local(s, P.x, P.z); const [ox, oz] = W.local(s, o.x, o.z); const d = Math.hypot(px - ox, pz - oz);
+      if (A.action !== 'point') A.set('point'); if (d < 1.35) { o.yaw += angDiff(Math.atan2(P.x - o.x, P.z - o.z), o.yaw) * Math.min(1, dt * 6); o.grab = (o.grab || 0) + dt; if (o.grab > 0.9) { this.arrest(o, 'grab'); } return 0; }
+      o.grab = Math.max(0, (o.grab || 0) - dt); return this.moveIn(o, S, px, pz, d > 4 ? 1.5 : 1.15, dt);
+    }
+    const spot = role === 'cover' ? [2.3, 4.6] : role === 'entry' ? [-0.95, 0.6] : role === 'entry2' ? [0.95, 0.6] : [(o.k ? 1 : -1) * (4 + (u.id % 3)), 6.5 + (u.id % 2) * 2];
+    const [wx, wz] = L(spot[0], spot[1]); const d = Math.hypot(wx - o.x, wz - o.z); const [dxw, dzw] = L(0, 0.2);
+    if (role === 'entry' || role === 'entry2') { const go = S.called && el > (role === 'entry' ? 9 : 10.5) && (role === 'entry' || S.entered);
+      if (go && d < 1.6) { if (role === 'entry' && !S.entered) { S.entered = true; this.say(o, 'entry', 'Police officer'); } o.inRoom = { s }; o.path = null; return this.moveIn(o, S, 0, -1.2, 1.3, dt); } }
+    if (d > 0.45) { const sp = d > 25 ? 4.4 : d > 6 ? 3.2 : 1.6; if (A.action === 'point' && sp > 3) A.set(null); return this.moveTo(o, wx, wz, sp, dt); }
+    o.yaw += angDiff(Math.atan2(dxw - o.x, dzw - o.z), o.yaw) * Math.min(1, dt * 5); if (A.action !== 'point') A.set('point'); // holding the position, covering the door
+    if (role === 'cover' && !S.called && el > 3) { S.called = true; this.say(o, 'siege', 'Police officer'); }
+    return 0;
+  }
+  // a step inside / through the doorway of a walk-in site, on the room's collision model (local target lx, lz)
+  moveIn(o, S, lx, lz, sp, dt) {
+    const W = S.W, s = S.s; const [ox, oz] = W.local(s, o.x, o.z); let gx = lx, gz = lz;
+    if ((oz > -0.25) !== (lz > -0.25) && Math.abs(ox) > 0.15) { gx = 0; gz = oz > -0.25 ? Math.max(0.5, Math.min(oz, 0.9)) : -0.6; } // line up with the doorway first
+    const dx = gx - ox, dz = gz - oz, d = Math.hypot(dx, dz); if (d < 0.04) return 0;
+    o.curSp = (o.curSp || 0) + clamp(sp - (o.curSp || 0), -6 * dt, 4 * dt); const st = Math.min(d, Math.max(0.4, o.curSp) * dt);
+    const nlx = ox + dx / d * st, nlz = oz + dz / d * st; if (Math.abs(nlx) < 1.2 && nlz > -1.6 && nlz < 1.4) s.npcDoor = { side: oz > -0.07 ? 1 : -1, f: W.frame }; // he pushes the door like anyone
+    const [wx, wz] = W.world(s, nlx, nlz); const r = s.room && s.room.proxy ? W.resolve(s, wx, wz) : { x: wx, z: wz }; o.x = r.x; o.z = r.z; o.y = s.y0;
+    o.yaw += angDiff(Math.atan2(dx * s.cs + dz * s.sn, -dx * s.sn + dz * s.cs), o.yaw) * Math.min(1, dt * 7); this.placeOfficer(o); return Math.max(0.4, o.curSp);
+  }
+  leaveRoom(o, dt) { const S = { s: o.inRoom.s, W: this.g.interiors.walkIn }; const [ox, oz] = S.W.local(S.s, o.x, o.z); if (oz > 1.15) { o.inRoom = null; o.path = null; return 0; } return this.moveIn(o, S, 0, 1.4, 1.8, dt); }
   // climbing a low wall (as the player can): up onto the top, over, and down the other side — about a second
   startVault(o, w) { const V = w.vault; const g = this.g; o.vault = { t: 0, x0: o.x, z0: o.z, y0: o.y, x1: V.x, z1: V.z, y1: g.collision.groundAt(V.x, V.z, (V.top || o.y + 1.6) + 0.2), top: Math.max(o.y + 0.6, V.top || o.y + 1.6), yaw: Math.atan2(V.x - o.x, V.z - o.z), f: -1 }; o.ch.anim.set('handsup'); this.stats.vaults = (this.stats.vaults || 0) + 1; }
   stepVault(o, dt) {

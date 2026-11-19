@@ -318,7 +318,7 @@ export class Firefight {
     const rifleT = o.rifle && o.rifle.userData.torch.visible; let pos, dir;
     if (rifleT) { const m = o.rifle; m.updateWorldMatrix(true, false); pos = m.userData.torchPos.clone().applyMatrix4(m.matrixWorld); dir = new THREE.Vector3(0, 0, 1).transformDirection(m.matrixWorld); if (o.torchM) o.torchM.visible = false; }
     else {
-      if (!o.torchM) { o.torchM = buildHandTorch(); o.torchM.matrixAutoUpdate = false; o.ch.root.add(o.torchM); o.torchM.userData.lens.material.emissiveIntensity = 2.5; }
+      if (!o.torchM) o.torchM = this.handTorch(o.ch); // (pooled officers carry theirs from the loading screen)
       const T = o.torchM; T.visible = true; const hand = o.ch.bones.handR.getWorldPosition(new THREE.Vector3()); const yaw = o.yaw + (o.sweep || 0), pt = -0.16;
       dir = new THREE.Vector3(Math.sin(yaw) * Math.cos(pt), Math.sin(pt), Math.cos(yaw) * Math.cos(pt)); const c = hand.clone().addScaledVector(dir, 0.05); c.y -= 0.012;
       const W = new THREE.Matrix4().compose(c, new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir), new THREE.Vector3(1, 1, 1)); o.ch.root.updateMatrixWorld(); T.matrix.copy(o.ch.root.matrixWorld.clone().invert().multiply(W)); T.matrixWorldNeedsUpdate = true;
@@ -326,6 +326,8 @@ export class Firefight {
     }
     o.torchPos = pos; o.torchDir = dir; (this.sources || (this.sources = [])).push({ pos, dir, o });
   }
+  // the hand torch on an officer's body (hidden until used); pooled officers get theirs when they are built (UnitPool.makeRec)
+  handTorch(ch) { const t = buildHandTorch(); t.matrixAutoUpdate = false; t.visible = false; ch.root.add(t); return t; }
   update(dt) {
     this.underFireT += dt; const g = this.g; const rig = g.flashRig;
     if (rig && g.camera) rig.update(g.camera, g.indoor ? [] : this.sources || [], this.night(), g.collision);
@@ -347,12 +349,16 @@ function flashMaterial() {
 
 // ---------------------------------------------------------------- torches
 // hand torch model (police issue style: black aluminium body, wide head, warm-white LED lens)
+// 73rd: geometry + materials shared by every torch (each used to bring two new materials and three geometries at first use)
+let TORCH = null;
 export function buildHandTorch() {
-  const g = new THREE.Group(); const body = new THREE.MeshStandardMaterial({ color: '#16171a', roughness: 0.5, metalness: 0.6 });
-  const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.16, 12), body); tube.rotation.x = Math.PI / 2; tube.position.z = 0.0; g.add(tube);
-  const head = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.015, 0.045, 14), body); head.rotation.x = Math.PI / 2; head.position.z = 0.1; g.add(head);
-  const lens = new THREE.Mesh(new THREE.CircleGeometry(0.02, 16), new THREE.MeshStandardMaterial({ color: '#fff6dc', emissive: '#fff1c8', emissiveIntensity: 0, roughness: 0.1 })); lens.position.z = 0.1235; g.add(lens);
-  g.userData = { lens, tipZ: 0.124 }; return g;
+  if (!TORCH) TORCH = { body: new THREE.MeshStandardMaterial({ color: '#16171a', roughness: 0.5, metalness: 0.6 }), lensM: new THREE.MeshStandardMaterial({ color: '#fff6dc', emissive: '#fff1c8', emissiveIntensity: 2.5, roughness: 0.1 }),
+    tube: new THREE.CylinderGeometry(0.014, 0.014, 0.16, 12), head: new THREE.CylinderGeometry(0.022, 0.015, 0.045, 14), lens: new THREE.CircleGeometry(0.02, 16) };
+  const g = new THREE.Group(); const body = TORCH.body;
+  const tube = new THREE.Mesh(TORCH.tube, body); tube.rotation.x = Math.PI / 2; tube.position.z = 0.0; g.add(tube);
+  const head = new THREE.Mesh(TORCH.head, body); head.rotation.x = Math.PI / 2; head.position.z = 0.1; g.add(head);
+  const lens = new THREE.Mesh(TORCH.lens, TORCH.lensM); lens.position.z = 0.1235; g.add(lens); // (lit only while the torch is shown)
+  g.userData = { lens, tipZ: 0.124, shared: true }; return g;
 }
 let GLOW_TEX = null;
 function glowTexture() {

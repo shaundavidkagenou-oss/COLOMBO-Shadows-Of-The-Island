@@ -202,7 +202,7 @@ export class Traffic {
     return null;
   }
   addDriver(v) {
-    const spec = this.driverSpecs[v.id % this.driverSpecs.length]; const ch = new Character(spec); const seat = v.driverSeat();
+    const di = v.id % this.driverSpecs.length; const spec = this.driverSpecs[di]; const ch = this.takeDriver(di) || new Character(spec); ch.drvIdx = di; const seat = v.driverSeat();
     seatCharacter(ch, v, seat); ch.mesh.castShadow = false; v.driverChar = ch; v.animAcc = 0;
     // passenger plan: which seats are taken and by whom (created lazily when the vehicle is near the player)
     const r = new RNG(v.id * 7919 + 13); const free = v.mesh.userData.seats.map((q, i) => i).filter((i) => !v.mesh.userData.seats[i].driver);
@@ -578,7 +578,15 @@ export class Traffic {
     if (bd > 36) { const P = this.player; if (P && Math.hypot(P.x - v.x, P.z - v.z) > 90 && !this.seen(v.x, v.z)) { this.remove(v); const i = this.vehicles.indexOf(v); if (i >= 0) this.vehicles.splice(i, 1); } return; } /* thrown far off the road: stays as a stalled car until you are well away */
     ai.s = bestS; ai.lat = 0; ai.hdg = 0; ai.rejoin = true; v.free = null; ai.bumped = 1; /* drives back into the lane (driveRejoin) */
   }
-  remove(v) { if (v.towing) { v.towing.dispose(); v.towing = null; } if (v.squad && v.driverChar) { v.mesh.remove(v.driverChar.root); v.driverChar.anim?.standUp?.(); v.driverChar = null; const m = v.squad; v.squad = null; if (v.onRemove) v.onRemove(m); } /* a squad-mate at the wheel is never disposed */ if (v.driverChar) { v.driverChar.dispose(); } if (v.pax && v.pax.length) this.dropPax(v); v.dispose(); }
+  // 73rd: traffic drivers are recycled — a driver whose car leaves the simulation waits on a bench (off the scene graph) for the
+  // next car with his look, instead of being disposed and a new one built (a whole skinned body, 25–100 ms: a hitch whenever
+  // cars spawned around the player, e.g. while police units arrive). Only untouched drivers go back (no blood, no ragdoll).
+  takeDriver(di) { const b = this.driverBin && this.driverBin[di]; const ch = b && b.pop(); if (!ch) return null; this.driversReused = (this.driversReused || 0) + 1; ch.root.visible = true; return ch; }
+  binDriver(ch) {
+    if (!ch || ch.disposed || ch.drvIdx === undefined || ch.bloodMat || ch.rag || ch.dead || ch.capOff) return false; const B = this.driverBin || (this.driverBin = []); const b = B[ch.drvIdx] || (B[ch.drvIdx] = []);
+    if (b.length >= 2) return false; ch.root.parent?.remove(ch.root); const A = ch.anim; if (A) { A.ik = null; A.aim = null; A.board = null; if (A.set) A.set(null); if (A.standUp) A.standUp(); } b.push(ch); return true;
+  }
+  remove(v) { if (v.towing) { v.towing.dispose(); v.towing = null; } if (v.squad && v.driverChar) { v.mesh.remove(v.driverChar.root); v.driverChar.anim?.standUp?.(); v.driverChar = null; const m = v.squad; v.squad = null; if (v.onRemove) v.onRemove(m); } /* a squad-mate at the wheel is never disposed */ if (v.driverChar) { if (!this.binDriver(v.driverChar)) v.driverChar.dispose(); v.driverChar = null; } if (v.pax && v.pax.length) this.dropPax(v); v.dispose(); }
   // VehicleDamage: a burning / shot-up vehicle is abandoned — the AI stops driving it (it coasts to a halt when `coast`), it stays
   // where it ends up (a kept vehicle: towed later like any car the player left), and whoever is still alive in it gets out through
   // his own door and runs (`from`: what they run from). Occupants killed in their seats stay slumped there (v.deadOcc).
@@ -643,7 +651,7 @@ export class Traffic {
        (measured: sathi 50, tuktuk 26, veera_saathi 20, lorry 14) the first time one drove in or was parked. One mesh per type here
        fills those caches; the instance itself (never drawn, no GPU upload) is dropped. */
     for (const t of Object.keys(VTYPES)) { try { createVehicleMesh(t, 1009); } catch (e) { console.warn('warm vehicle mesh', t, e); } if (performance.now() - t0 > 30) { await new Promise((r) => setTimeout(r, 0)); t0 = performance.now(); } }
-    for (let i = 0; i < this.driverSpecs.length; i++) { try { new Character(this.driverSpecs[i]).dispose(); } catch (e) { console.warn('warm driver', e); } pr((shapes.length + i) / all); if (performance.now() - t0 > 30) { await new Promise((r) => setTimeout(r, 0)); t0 = performance.now(); } }
+    for (let i = 0; i < this.driverSpecs.length; i++) { try { if (!(this.driverBin && this.driverBin[i] && this.driverBin[i].length)) { const ch = new Character(this.driverSpecs[i]); ch.drvIdx = i; ch.mesh.castShadow = false; if (!this.binDriver(ch)) ch.dispose(); } } catch (e) { console.warn('warm driver', e); } pr((shapes.length + i) / all); if (performance.now() - t0 > 30) { await new Promise((r) => setTimeout(r, 0)); t0 = performance.now(); } }
     for (let i = 0; i < jobs.length; i++) { const [t, sd] = jobs[i]; try { warmModel(t, sd); this.noteLook(t, sd); } catch (e) { console.warn('warm vehicle', t, e); } pr((shapes.length + this.driverSpecs.length + i + 1) / all); if (performance.now() - t0 > 30) { await new Promise((r) => setTimeout(r, 0)); t0 = performance.now(); } }
   }
   updateParked(dt, focus) {
