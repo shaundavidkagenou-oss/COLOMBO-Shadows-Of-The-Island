@@ -104,10 +104,10 @@ try {
     r.staffOn = (() => { const f = r.staffOn; return () => true; })(); for (const c of r.customers) if (c.on && c.win === 0) { c.on = false; c.ch.root.visible = false; }
     const subs = []; const sub0 = g.hud.subtitle.bind(g.hud); g.hud.subtitle = (w, t, ...a) => { subs.push([w, t]); return sub0(w, t, ...a); };
     const p = r.LOC.win0.at; const [wx, wz] = W.world(s, p[0], p[1] + 0.2); P.x = wx; P.z = wz; P.yaw = s.yaw + Math.PI; P.camYaw = P.yaw + Math.PI; await g.stepSim(4, 0.05);
-    out.prompt = r.prompt; out.subs = subs.slice(); out.note = [...document.querySelectorAll('.note.bank b')].map((e) => e.textContent);
+    out.prompt = r.prompt; out.subs = subs.slice(); out.dbg = { nearWin: r.nearWin, atWin: r.atWin, pl: W.pl && [W.pl.x.toFixed(2), W.pl.z.toFixed(2), W.pl.yaw.toFixed(2), W.pl.inside], at: p, hour: g.atmos.hour, staff: r.staffOn() }; out.note = [...document.querySelectorAll('.note.bank b')].map((e) => e.textContent);
     await g.stepSim(6, 0.05); out.repeat = subs.length; // standing there: no repeat
     g.hud.subtitle = sub0; return out; });
-  ok(ctr.subs.some(([w]) => /Counter 1 officer/.test(w)) && !/Speak to/.test(ctr.prompt || '') && ctr.note.includes('Use the ATM') && ctr.repeat === ctr.subs.length, `9b counter (71st): stepping up, the officer speaks by herself ("${(ctr.subs[0] || [])[1]}"), no key prompt; "${ctr.note[0]}" card shown; no repeat while standing there`);
+  ok(ctr.subs.some(([w]) => /Counter 1 officer/.test(w)) && !/Speak to/.test(ctr.prompt || '') && ctr.note.includes('Use the ATM') && ctr.repeat === ctr.subs.length, `9b counter (71st): stepping up, the officer speaks by herself ("${(ctr.subs[0] || [])[1]}"), no key prompt; "${ctr.note[0]}" card shown; no repeat while standing there ${JSON.stringify(ctr.dbg)}`);
 
   // ---------------------------------------------------------------- 10-15 + 19 · transactions through the ATM's own keys
   const tx = await page.evaluate(async () => { const g = window.__game, W = g.interiors.walkIn, s = W.siteById('bank'), P = g.player, r = s.room, I = window.__Input, S = g.story.state, A = g.atm; const out = {};
@@ -117,7 +117,7 @@ try {
     const wait = (n = 40) => g.stepSim(n, 0.05);
     const m = r.atms[1]; for (const c of r.customers) if (c.on && c.atm === m.i) { c.on = false; c.ch.root.visible = false; c.atm = -1; } m.user = null;
     const [wx, wz] = W.world(s, m.stand[0] + 0.05, m.stand[1]); P.x = wx; P.z = wz; P.yaw = s.yaw - Math.PI / 2; await g.stepSim(3, 0.05);
-    await press('KeyE'); await wait(25); out.open = A.open;
+    await press('KeyE'); await wait(55); out.open = A.open; // 71st: the card goes in (1.35 s), then the screen reads it (1 s)
     // 10 balance
     await pick('Balance enquiry'); out.balanceText = A.root.querySelector('.atm-lines').textContent; await pick('Another service');
     // 11 withdraw Rs. 5,000 — and 14: the confirm key hammered + a click + the same request replayed
@@ -125,11 +125,11 @@ try {
     A.sel = A.opts.findIndex((o) => o.act === 'confirm'); for (let i = 0; i < 5; i++) { I.pressed.add('Enter'); I.pressed.add('Space'); I.pressed.add('NumpadEnter'); await g.stepSim(1, 0.05); }
     const opt = A.root.querySelector('.atm-opt'); if (opt) opt.click(); A.execute();
     out.dup = g.bank.transact({ kind: 'withdraw', amount: 5000, ref, channel: 'ATM' }).code;
-    await wait(40); out.wPage = A.page; out.wMoney = S.money; out.wBal = a.balance; out.wDone = a.history.filter((e) => e.result === 'completed').length; out.hudAfterW = g.hud.money.textContent;
+    await wait(110); out.wPage = A.page; // 71st: the cash is counted for 5 s out.wMoney = S.money; out.wBal = a.balance; out.wDone = a.history.filter((e) => e.result === 'completed').length; out.hudAfterW = g.hud.money.textContent;
     await pick('Another service');
     // 12 deposit Rs. 1,000 (fast amount) + Rs. 2,300 (keypad)
-    await pick('Cash deposit'); await pick('Rs. 1,000'); await pick('Confirm'); await wait(40); out.dOk = !!(A.result && A.result.ok); await pick('Another service');
-    await pick('Cash deposit'); await pick('Other amount'); for (const d of ['2', '3', '0', '0']) await press('Digit' + d); out.entry = A.entry; await press('Enter'); await pick('Confirm'); await wait(40); out.d2Ok = !!(A.result && A.result.ok); await pick('Another service');
+    await pick('Cash deposit'); await pick('Rs. 1,000'); await pick('Confirm'); await wait(110); out.dOk = !!(A.result && A.result.ok); await pick('Another service');
+    await pick('Cash deposit'); await pick('Other amount'); for (const d of ['2', '3', '0', '0']) await press('Digit' + d); out.entry = A.entry; await press('Enter'); await pick('Confirm'); await wait(110); out.d2Ok = !!(A.result && A.result.ok); await pick('Another service');
     out.dMoney = S.money; out.dBal = a.balance; out.hudAfterD = g.hud.money.textContent;
     // 13 invalid: odd amount, more than the balance, more cash than he carries, then garbage straight into the service
     const before = [S.money, a.balance];
@@ -144,7 +144,7 @@ try {
     // 15 history
     const h = a.history; out.hist0 = h[0]; out.histTypes = [...new Set(h.map((e) => e.type))]; out.histResults = [...new Set(h.map((e) => e.result))]; out.histFields = h.every((e) => (e.type === 'withdraw' || e.type === 'deposit') && Number.isFinite(e.amount) && e.result && Number.isFinite(e.day) && typeof e.time === 'string' && e.time.length > 0);
     for (let i = 0; i < 40; i++) T({ kind: 'deposit', amount: 100, ref: 'cap' + i }); out.histLen = h.length === a.history.length ? a.history.length : a.history.length;
-    await pick('Mini statement'); out.stmtRows = A.root.querySelectorAll('.atm-st tr').length - 1; await pick('Return card'); await wait(40); out.closed = !A.open;
+    await pick('Mini statement'); out.stmtRows = A.root.querySelectorAll('.atm-st tr').length - 1; await pick('Return card'); await wait(85); out.closed = !A.open; // 71st: card returned after 3 s, taken
     out.ledgerGrew = S.ledger.length > ledger0; out.ledgerWhy = [...new Set(S.ledger.slice(0, 50).map((e) => e.why).filter((w) => /CMB/.test(w)))]; out.invariant = S.money >= 0 && a.balance >= 0; out.stats = { ...g.bank.stats };
     return out; });
   if (tx.missing) console.log('  (options not found:', tx.missing.join(', '), ')');
