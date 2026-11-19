@@ -84,6 +84,7 @@ export class TrafficDuty {
         if (p.on && p.state !== 'duty') { if (d > FAR + 60 && !this.inView(p.x, 0, p.z)) this.remove(p); continue; } // the end-of-shift sequence finishes on its own
         const want = duty && n < MAX_ACTIVE && (p.on ? d < FAR : d < NEAR); if (want) n++;
         if (want && !p.on && (!this.inView(p.x, 0, p.z) || d > 80)) { // the morning shift appears out of sight
+          if (p.glove) { this.dropGlove(p.glove); p.glove = null; } for (const G of this.gloves.slice()) if (G.post === p) this.dropGlove(G); // (a glove he flung down before a chase that ended elsewhere: tidied out of sight as the new officer comes on)
           if (!p.ch) { p.ch = new Character(makePoliceAppearance(p.seed, 'traffic')); } p.ch.anim.set('signal'); p.ch.anim.standUp && p.ch.anim.standUp();
           p.ch.root.position.set(p.x, L.groundY(p.x, p.z), p.z); p.ch.root.rotation.y = p.yaw; g.scene.add(p.ch.root); p.on = true; p.state = 'duty'; p.px = p.x; p.pz = p.z; p.pyaw = p.yaw; this.addBike(p);
         } else if (!want && p.on && p.state === 'duty') {

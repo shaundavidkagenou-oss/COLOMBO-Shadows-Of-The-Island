@@ -66,6 +66,14 @@ if (u) { const d0 = Math.hypot(u.v.x - player.x, u.v.z - player.z); let maxV = 0
   ok(maxV > 2, `rides after the suspect (top speed ${maxV.toFixed(1)} m/s)`); ok(dMin < Math.max(6, d0 - 3), `closes in (${d0.toFixed(1)} → ${dMin.toFixed(1)} m)`);
   if (u.v && u.officers.every((o) => o.mode !== 'seated') && Math.abs(u.v.speed) < 0.2) ok(u.v.stand === 1, 'off the bike: it is left on its side stand'); }
 
+// ---------------------------------------------------------------- 1b. the chase is over: his unit leaves and is removed out of sight; the post is manned again
+if (u) { const oldCh = p.ch, oldBike = u.v; police.level = 0; police.state = 'idle'; player.teleport(p.x + 400, p.z); police.removeUnit(u);
+  step(2, () => p.state !== 'chase'); ok(p.state === 'off' && !p.ch, `back from the chase: the post is free again (${p.state})`);
+  ok(oldCh.disposed && !T.vehicles.includes(oldBike), 'his character and motorcycle are gone with the unit (removed out of sight)');
+  player.teleport(p.x + 60, p.z); step(3, () => p.on && p.state === 'duty');
+  ok(p.on && p.state === 'duty' && p.ch && p.ch !== oldCh && !p.ch.bare && !p.bare, 'a fresh, gloved officer is back on point duty (appeared out of sight)');
+  ok(D.gloves.filter((G) => G.post === p).length === 0, 'the glove he flung down is tidied away'); }
+
 // ---------------------------------------------------------------- 2. over before he is on the bike: back for the glove
 police.level = 0; police.state = 'idle'; police.units.length = 0; police.foot = [];
 const q = posts[1]; player.teleport(q.x + 60, q.z); step(1.5); ok(q.on && q.state === 'duty', 'second officer on duty');
