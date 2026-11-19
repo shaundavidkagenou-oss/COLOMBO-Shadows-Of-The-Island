@@ -139,7 +139,7 @@ export class Firefight {
   // ---------------------------------------------------------------- per-officer behaviour. Returns the walking speed when
   // this module drives the officer this frame, or null to leave the default (arrest / chase / search) logic in charge.
   officer(o, u, dt) {
-    const p = this.p, g = this.g, A = o.ch.anim; const cb = this.cb(o); const armed = this.armed() && p.state !== 'return' && u.task !== 'leave';
+    const p = this.p, g = this.g, A = o.ch.anim; const cb = this.cb(o); const armed = this.armed() && !!o.rifle && p.state !== 'return' && u.task !== 'leave'; // (73rd: a traffic officer off his motorcycle carries no rifle)
     cb.suppressed = Math.max(0, cb.suppressed - dt); cb.alertT = Math.max(0, cb.alertT - dt); cb.reT -= dt;
     const sees = this.sees(o, dt); const tp = this.targetPoint();
     if (sees) { cb.seen = { x: tp.x, z: tp.z, y: tp.y, t: p.t }; cb.blindT = 0; } else cb.blindT = (cb.blindT || 0) + dt;

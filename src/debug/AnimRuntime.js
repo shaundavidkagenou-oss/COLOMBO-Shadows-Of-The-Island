@@ -24,7 +24,7 @@ export function clipFor(ch, key) { const T = ANIM.targets; if (T) for (const id 
 export const LOCO = ['idle', 'walk', 'run'];
 // every procedural animation state the game uses (live detection adds anything else it sees)
 export const KNOWN = ['idle', 'walk', 'run', 'crouch', 'seated', 'seated:drive', 'seated:ride', 'seated:pass', 'seated:lap', 'fight', 'fight:jab', 'fight:cross', 'fight:hook', 'fight:upper', 'hit:snap', 'hit:hook', 'hit:upper', 'hit:body', 'hit:block',
-  'interact', 'talk', 'stumble', 'argue', 'wave', 'point', 'photo', 'phone', 'text', 'handsup', 'umbrella', 'tackle', 'tackled', 'collapse', 'cuffKneel', 'cuffStand', 'kneel', 'kneelCuffed', 'prone', 'medKneel', 'medLift',
+  'interact', 'talk', 'stumble', 'argue', 'wave', 'point', 'glovethrow', 'photo', 'phone', 'text', 'handsup', 'umbrella', 'tackle', 'tackled', 'collapse', 'cuffKneel', 'cuffStand', 'kneel', 'kneelCuffed', 'prone', 'medKneel', 'medLift',
   'torch', 'signal', 'shrug', 'shove', 'look', 'hit', 'hips', 'down', 'cower',
   // 69th: every other action the Animator poses (Character.js action switch + BODY_POSES) — the list was missing these
   'alert', 'bat', 'beckon', 'bowl', 'browse', 'carry', 'clap', 'comms', 'cover', 'crossarms', 'cuffed', 'dance', 'dive', 'drive', 'flinch', 'glance', 'glasses', 'gloves',

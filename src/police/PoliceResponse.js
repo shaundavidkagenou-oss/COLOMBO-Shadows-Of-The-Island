@@ -353,6 +353,17 @@ export class PoliceResponse {
       return u;
     }
   }
+  // 73rd: a traffic officer from point duty (TrafficDuty) who has thrown his glove down and got on his motorcycle joins the
+  // response as a one-man unit — no car or crew is built, no rifle (he chases, tackles and arrests by hand); when it is
+  // over he leaves and is removed like any other unit
+  adoptBike(v, ch, lane) {
+    const T = this.T; if (!v || !ch || this.level <= 0) return null; const ln = lane || T.laneNear(v.x, v.z, v.yaw, 30); if (!ln) return null; const s0 = v.mesh.userData.seats[0];
+    v.keep = true; v.parked = false; v.ai = { pieces: [ln.piece], s: ln.s, v0: CHASE_V0[this.stars()] || 11, stuck: 0, honkCd: 99, bumped: 0, aggressive: 1.2, emergency: true }; T.extend(v);
+    const u = { id: this.seed++, v, officers: [], task: 'idle', patrol: false, arrived: false, footT: 0, stuckT: 0, planT: 0, goalPt: null, enterT: 0, bike: true, traffic: true };
+    v.police = u; u.officers.push({ ch, unit: u, k: 0, seat: s0, si: 0, mode: 'seated', x: v.x, z: v.z, y: v.y, yaw: v.yaw, t: 0, hits: 0, acc: 0, noTorch: true, traffic: true });
+    this.syncSeated(u); v.paxPlan = []; if (!T.vehicles.includes(v)) T.vehicles.push(v); const pi = T.parked.indexOf(v); if (pi >= 0) T.parked.splice(pi, 1); this.units.push(u); this.stats.trafficBikes = (this.stats.trafficBikes || 0) + 1;
+    this.note(`unit ${u.id} (traffic officer on his motorcycle) joins the chase`); this.afterMount(u); return u;
+  }
   distTo(o, tg) { if (!tg.v) return Math.hypot(tg.x - o.x, tg.z - o.z); const v = tg.v; const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw); const rx = o.x - v.x, rz = o.z - v.z; const al = Math.abs(rx * fx + rz * fz) - v.half, la = Math.abs(rx * fz - rz * fx) - (v.T.wid || 1.7) / 2; return Math.hypot(Math.max(0, al), Math.max(0, la)); }
   syncSeated(u) { const v = u.v; if (!v) return; const seated = u.officers.filter((o) => o.mode === 'seated'); v.driverChar = seated.find((o) => o.seat.driver)?.ch || null; v.pax = seated.filter((o) => !o.seat.driver).map((o) => o.ch).concat((u.prisoners || []).filter((q) => q.mode === 'seated').map((q) => q.ch)); }
   assign(u, task, pt) {
@@ -404,6 +415,7 @@ export class PoliceResponse {
       if (u.officers.some((o) => o.mode === 'seated')) { if (u.task !== 'foot' && u.task !== 'leave') { u.task = 'foot'; u.footT = 0; u.why = 'fire'; } cv.speed = 0; if (cv.ai) cv.ai.stopped = true; u.officers.forEach((o, i) => { if (o.mode === 'seated') { o.mode = 'exit'; o.t = -i * 0.25; } }); this.syncSeated(u); this.note(`unit ${u.id}: car on fire — crew bailing out`); }
       else if (!u.officers.some((o) => o.mode === 'exit' || o.mode === 'enter')) { cv.police = null; cv.beacons?.(false); u.v = null; u.carLost = false; if (!cv.wrecked) this.T.abandon?.(cv, { x: cv.x, z: cv.z }); for (const o of u.officers) if (o.mode === 'return') { o.mode = 'foot'; o.goal = null; } if (u.base) { this.release({ id: u.base }); u.base = null; } this.note(`unit ${u.id}: car burning — left it`); } }
     if (u.v && !u.v.player && Math.abs(u.v.speed) < 2 && u.officers.some((o) => o.mode === 'seated')) { const n = this.grenadeNear(u.v); if (n && n.d < (n.gr.car ? n.gr.safe - 1 : 8) && n.gr.car !== u.v) { u.v.speed = 0; if (u.v.ai) u.v.ai.stopped = true; u.task = 'foot'; u.footT = 0; u.why = 'hazard'; u.officers.forEach((o, i) => { if (o.mode === 'seated') { o.mode = 'exit'; o.t = -i * 0.15; } }); this.syncSeated(u); this.note(`unit ${u.id}: ${n.gr.car ? 'burning car' : 'grenade'} by the stopped car — crew out and clear`); } } // 69th: a parked crew does not sit next to a grenade / a car fire
+    if (u.bike && u.v && !u.v.player && Math.abs(u.v.speed) < 0.2 && !u.officers.some((o) => o.mode === 'seated')) { u.v.stand = 1; u.v.leanK = 1; } // 73rd: the motorcycle left on its side stand while he is off it
     const lights = !u.patrol && u.task !== 'leave' && this.level > 0; if (u.v) { u.v.beacons(lights, this.t); u.v.lights = g.atmos.night > 0.4; }
     for (const o of u.officers) this.updateOfficer(o, u, dt);
     // 66th: the unit's decisions (routes, intercept role / aim, recycling, despawn) 4× a second on its own phase; between

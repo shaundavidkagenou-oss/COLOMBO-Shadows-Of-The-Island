@@ -1265,6 +1265,24 @@ export class Character {
     this.face.attachMorphs(m, null, NPC_MORPHS);
   }
   dispose() { LIVE.delete(this); if (!this.disposed) { if (this.heroGeoKey) heroRef(geoCache, heroGeoKeys, this.heroGeoKey, -1); if (this.heroHeadKey) heroRef(headCache, heroHeadKeys, this.heroHeadKey, -1); } this.disposed = true; if (this.bloodMat) { this.bloodMat.dispose(); this.bloodMat = null; } if (this.dancer) this.dancer.dispose(); if (this.dancerRT) this.dancerRT.dispose(); this.mesh.skeleton.dispose(); this.face.dispose(); if (this.heroMats) for (const m of this.heroMats) m.dispose(); if (this.headMats) for (const m of this.headMats) m.dispose(); if (this.tattooMat) this.tattooMat.dispose(); if (this.shades) this.shades.traverse((o) => { if (o.isMesh) o.material.dispose(); }); }
+  // 73rd: one gauntlet off (a traffic officer flings it down before he rides after you): this character's body geometry —
+  // hi and lo detail — gets its own colour attribute with the glove / cuff on that hand in skin colour; every other attribute
+  // stays shared with the cached look (no new buffers apart from the colours, no new material, no shader work)
+  bareHand(side = 'R') {
+    const sp = this.spec; if (!sp.gloves || this.bare || !this.mesh.geometry.attributes.color) return false; const bones = this.mesh.skeleton.bones;
+    const ids = new Set(['hand' + side, 'fore' + side].map((n) => bones.findIndex((b2) => b2.name === n)).filter((i) => i >= 0));
+    const gl = new THREE.Color(sp.gloves), cf = new THREE.Color(sp.cuff || sp.gloves), sk = new THREE.Color(sp.skin || '#a8734f');
+    const near = (c, r, g2, b3) => Math.abs(c.r - r) + Math.abs(c.g - g2) + Math.abs(c.b - b3) < 0.09;
+    const fix = (geo) => { if (!geo || !geo.attributes.color) return geo; const g2 = new THREE.BufferGeometry(); for (const k in geo.attributes) g2.setAttribute(k, geo.attributes[k]); if (geo.index) g2.setIndex(geo.index);
+      for (const gr of geo.groups) g2.addGroup(gr.start, gr.count, gr.materialIndex); g2.boundingSphere = geo.boundingSphere; g2.boundingBox = geo.boundingBox; g2.userData = geo.userData;
+      const col = geo.attributes.color.clone(), si = geo.attributes.skinIndex, sw = geo.attributes.skinWeight;
+      for (let i = 0; i < col.count; i++) { let best = -1, bw = -1; for (let k = 0; k < 4; k++) { const w = sw.getComponent(i, k); if (w > bw) { bw = w; best = si.getComponent(i, k); } } if (!ids.has(best)) continue;
+        const r = col.getX(i), g3 = col.getY(i), b3 = col.getZ(i); if (near(gl, r, g3, b3) || near(cf, r, g3, b3)) col.setXYZ(i, sk.r * (0.9 + 0.1 * (r + g3 + b3) / 3), sk.g, sk.b); }
+      g2.setAttribute('color', col); return g2; };
+    this.bare = { hi: this.geoHi, lo: this.geoLo, cur: this.mesh.geometry }; const hi = fix(this.geoHi || this.mesh.geometry), lo = this.geoLo ? fix(this.geoLo) : null;
+    if (this.geoHi) { this.geoHi = hi; this.geoLo = lo; this.mesh.geometry = this.bodyLo && lo ? lo : hi; } else this.mesh.geometry = hi; return true;
+  }
+  restoreHand() { const B = this.bare; if (!B) return; this.bare = null; const cur = this.mesh.geometry; if (B.hi) { const lo = this.bodyLo; this.geoHi = B.hi; this.geoLo = B.lo; this.mesh.geometry = lo && B.lo ? B.lo : B.hi; } else this.mesh.geometry = B.cur; void cur; }
   // convenience for gameplay code: expression for a while, or talking on/off
   express(name, dur = 2.5) { this.face.set(name, dur); }
   // damped spring for the chest secondary motion (see buildBodyGeometry, sp.bustSpring): driven by the chest bone's specific
@@ -1596,6 +1614,15 @@ export class Animator {
           b.spine.rotation.y += tw * aw; b.spine.rotation.x += 0.18 * aw; head = -tw * 0.6; break; }
         case 'bowl': { const k = Math.min(1, at / 0.55); const a = k * 4.4; tr = [-a, 0, -0.12]; tfr = [-0.15, 0, 0]; tl = [-2.6 + k * 2.4, 0, 0.25]; tfl = [-0.3, 0, 0]; b.spine.rotation.x += (k > 0.6 ? (k - 0.6) * 0.9 : -0.15) * aw; break; }
         case 'point': tr = [-1.5, 0, -0.15]; tfr = [-0.1, 0, 0]; head = -0.2; break;
+        case 'glovethrow': { // 73rd: a traffic officer pulls off his right gauntlet with the left hand and flings it down (gloveK 0..1; TrafficDuty)
+          const u = clamp(this.gloveK ?? at / 1.8, 0, 1), ks = (a, b2) => { const k = clamp((u - a) / (b2 - a), 0, 1); return k * k * (3 - 2 * k); };
+          const kA = ks(0, 0.28), kB = ks(0.3, 0.46), kC = ks(0.48, 0.64), kD = ks(0.66, 0.78), kE = ks(0.84, 1);
+          const L3 = (a, b2, k) => [lerp(a[0], b2[0], k), lerp(a[1], b2[1], k), lerp(a[2], b2[2], k)];
+          const restL = [0.19, -0.42, 0.06], restR = [-0.19, -0.42, 0.06];
+          let rh = L3(restR, [-0.03, -0.13, 0.28], kA); rh = L3(rh, [-0.09, -0.17, 0.22], kB); rh = L3(rh, restR, kC);
+          let lh = L3(restL, [-0.07, -0.15, 0.27], kA); lh = L3(lh, [0.15, -0.1, 0.34], kB); lh = L3(lh, [0.2, 0.13, 0.2], kC); lh = L3(lh, [0.09, -0.4, 0.44], kD); lh = L3(lh, restL, kE);
+          ikT('R', rh[0], rh[1], rh[2]); ikT('L', lh[0], lh[1], lh[2]);
+          b.spine.rotation.x += (-0.06 * kC + 0.32 * kD) * (1 - kE) * aw; b.spine.rotation.y += (0.18 * kC - 0.12 * kD) * (1 - kE) * aw; b.neck.rotation.x += (0.32 * (kA - kC) + 0.25 * kD * (1 - kE)) * aw; head = 0; break; }
         case 'signal': { // traffic point duty: one palm held out towards the stopped approach, the other arm beckons the moving one (sigSide: +1 right waves, −1 left, 0 all stop)
           const sd = this.sigSide || 0, k = Math.max(0, Math.sin(t * 3.4)); const stopL = [-0.22, 0, 1.42], stopR = [-0.22, 0, -1.42]; // stop: arm out to the side, palm out
           if (sd > 0) { tr = [-1.3, 0, -0.3]; tfr = [-0.2 - k * 1.5, 0, 0]; tl = stopL; tfl = [-0.12, 0, 0]; head = -0.45; } // beckon: forward, forearm sweeping in
