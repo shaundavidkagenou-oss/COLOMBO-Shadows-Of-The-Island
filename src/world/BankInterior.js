@@ -23,6 +23,8 @@
 import * as THREE from 'three';
 import { Kit, KIT, C, lathe, kitMaterial } from './ShopKit.js';
 import { shell } from './ShopInteriors.js';
+import { collectParts, applyLayout } from './BankLayout.js';
+import { modelPackNow } from '../debug/boot.js';
 import './RobberyShops.js'; // registers the kit's ceiling tile / steel / plastic / gold materials
 import { REVEAL, LEAF_Z } from './WalkIn.js';
 import { MeshBuilder } from '../gfx/MeshBuilder.js';
@@ -196,7 +198,8 @@ export function buildBankInterior(game, site) {
   const B = BANK_ROOM; let W = B.W, D = B.D; const H = B.H;
   if (site && site.b) { const b = site.b, ns = Math.abs(Math.cos(site.yaw)) > 0.7; W = Math.min(W, (ns ? b.x1 - b.x0 : b.z1 - b.z0) - 0.5); D = Math.min(D, (ns ? b.z1 - b.z0 : b.x1 - b.x0) - 0.6); }
   if (W < 13.9 || D < 13.3) console.warn('[bank] building smaller than the design room', W, D);
-  const g = new THREE.Group(); g.name = 'bank-hall'; const k = new Kit(); const obs = [];
+  const g = new THREE.Group(); g.name = 'bank-hall'; const k = new Kit().parts(); const obs = [];
+  const part = (n) => k.setPart(n); part('Room shell (floor, walls, ceiling)'); // 73rd: named parts (BankLayout.js / console bank-edit)
   const atlas = interiorAtlas(), posters = posterAtlas();
   const signMat = new THREE.MeshStandardMaterial({ name: 'CMB interior signs', map: atlas, color: atlas ? 0xffffff : new THREE.Color(CMB.navy), roughness: 0.5, emissive: 0xffffff, emissiveMap: atlas, emissiveIntensity: atlas ? 0.32 : 0 });
   const dayMat = new THREE.MeshStandardMaterial({ name: 'CMB frontage glazing (inside)', map: atlas, color: atlas ? 0xffffff : 0xdfe5e8, roughness: 0.6, emissive: 0xffffff, emissiveMap: atlas, emissiveIntensity: atlas ? 0.9 : 0.4 });
@@ -207,25 +210,27 @@ export function buildBankInterior(game, site) {
   const sign = k.get('cmbSign'), day = k.get('cmbDay'), prints = k.get('cmbPrint'), cglass = k.get('cmbGlass');
   const S = shell(k, g, W, D, H, { floor: { kind: 'granite', size: 0.6, colors: ['#dcd7cc', '#d4cec2', '#d9d3c7'], grout: '#a9a296', rough: 0.12, seed: 67 }, wall: 'plaster', wallCol: '#efeae1', ceil: '#f2f0ea', skirt: 'marbleDark', skirtCol: '#ffffff', cornice: '#f4f1ea' });
   const { x0, x1, z0, zf } = S; const xR = x1, xL = x0;
-  const ob = (ax0, ax1, d0, d1) => obs.push({ x0: Math.min(ax0, ax1), x1: Math.max(ax0, ax1), z0: Z(Math.max(d0, d1)), z1: Z(Math.min(d0, d1)) });
+  const ob = (ax0, ax1, d0, d1) => obs.push({ x0: Math.min(ax0, ax1), x1: Math.max(ax0, ax1), z0: Z(Math.max(d0, d1)), z1: Z(Math.min(d0, d1)), part: k.part });
   const navy = C(CMB.navy), gold = C(CMB.gold), bronze = C('#2e2a26'), steelC = C('#b9bdc1');
   const paint = k.get('paint'), metal = k.get('steel'), glass = cglass, emis = k.get('emissive'), wal = k.get('walnut'), mrbD = k.get('marbleDark'), mrb = k.get('marble'), pl = k.get('plastic'), chrome = k.get('chrome'), brass = k.get('gold');
 
   // ---- ceiling: tiles + LED panels; ATM soffit; counter bulkhead
-  k.get('ceilTile').hrect(x0, z0, x1, zf, H - 0.004, 0.6, WHITE, true);
-  const led = (x, d) => { emis.box(x, H - 0.012, Z(d), 0.56, 0.012, 0.56, { col: [1, 0.98, 0.94] }); paint.box(x, H - 0.01, Z(d), 0.6, 0.008, 0.6, { col: C('#d8d8d4') }); };
+  part('Ceiling tiles'); k.get('ceilTile').hrect(x0, z0, x1, zf, H - 0.004, 0.6, WHITE, true);
+  part('LED ceiling panels'); const led = (x, d) => { emis.box(x, H - 0.012, Z(d), 0.56, 0.012, 0.56, { col: [1, 0.98, 0.94] }); paint.box(x, H - 0.01, Z(d), 0.6, 0.008, 0.6, { col: C('#d8d8d4') }); };
   for (const x of [-1.6, 1.6, 4.8]) led(x, 2.0); for (const x of [-4.8, -1.6, 1.6, 4.8]) { led(x, 5.6); led(x, 7.4); led(x, 11.4); }
-  for (const [x, d] of [[-2.4, 1.0], [3.2, 6.4]]) { paint.box(x, H - 0.01, Z(d), 1.2, 0.008, 0.1, { col: C('#cfcfca') }); paint.box(x, H - 0.012, Z(d), 1.12, 0.006, 0.04, { col: C('#3a3c3f') }); } // linear aircon diffusers
-  for (const [x, d] of [[-2.6, 1.3], [3.6, 7.6]]) { lathe(pl, x, H - 0.09, Z(d), [[0.001, 0], [0.05, 0.004], [0.075, 0.03], [0.08, 0.06], [0.09, 0.09], [0.001, 0.09]], 16, C('#ecebe8')); } // CCTV domes
-  { const sx0 = xL, sx1 = -3.8, sd0 = 0, sd1 = 4.4, sy = H - 0.28; paint.box((sx0 + sx1) / 2, sy + 0.14, Z((sd0 + sd1) / 2), sx1 - sx0, 0.28, sd1 - sd0, { col: C('#f2f0ea'), top: false, bottom: true });
+  part('Aircon diffusers'); for (const [x, d] of [[-2.4, 1.0], [3.2, 6.4]]) { paint.box(x, H - 0.01, Z(d), 1.2, 0.008, 0.1, { col: C('#cfcfca') }); paint.box(x, H - 0.012, Z(d), 1.12, 0.006, 0.04, { col: C('#3a3c3f') }); } // linear aircon diffusers
+  part('CCTV domes'); for (const [x, d] of [[-2.6, 1.3], [3.6, 7.6]]) { lathe(pl, x, H - 0.09, Z(d), [[0.001, 0], [0.05, 0.004], [0.075, 0.03], [0.08, 0.06], [0.09, 0.09], [0.001, 0.09]], 16, C('#ecebe8')); } // CCTV domes
+  part('ATM soffit'); { const sx0 = xL, sx1 = -3.8, sd0 = 0, sd1 = 4.4, sy = H - 0.28; paint.box((sx0 + sx1) / 2, sy + 0.14, Z((sd0 + sd1) / 2), sx1 - sx0, 0.28, sd1 - sd0, { col: C('#f2f0ea'), top: false, bottom: true });
     paint.box(sx1 - 0.01, sy + 0.14, Z((sd0 + sd1) / 2), 0.03, 0.28, sd1 - sd0, { col: navy }); paint.box((sx0 + sx1) / 2, sy + 0.14, Z(sd1) - 0.01, sx1 - sx0, 0.28, 0.03, { col: navy });
     for (const d of B.atmD) for (const dx of [-5.65, -4.6]) { emis.cylinder(dx, sy - 0.004, Z(d), 0.06, 0.06, 0.006, 14, { col: [0.95, 0.97, 1] }); chrome.cylinder(dx, sy - 0.002, Z(d), 0.08, 0.08, 0.004, 14, { col: WHITE }); }
     // hanging ATM sign under the soffit edge (both faces)
+    part('Hanging ATM sign');
     const hx = (sx0 + sx1) / 2 + 0.6; for (const sx of [-0.4, 0.4]) metal.box(hx + sx, sy - 0.12, Z(sd1) - 0.06, 0.01, 0.24, 0.01, { col: steelC });
     paint.box(hx, sy - 0.42, Z(sd1) - 0.06, 1.12, 0.32, 0.03, { col: navy }); face(sign, hx, sy - 0.42, Z(sd1) - 0.06 - 0.016, 1.08, 0.28, IN_UV.atmHang, '-z'); face(sign, hx, sy - 0.42, Z(sd1) - 0.06 + 0.016, 1.08, 0.28, IN_UV.atmHang, '+z'); }
-  const bulkY = H - 0.4; { paint.box(0, bulkY + 0.2, Z(9.0), W, 0.4, 0.8, { col: C('#f2f0ea'), top: false, bottom: true }); paint.box(0, bulkY + 0.2, Z(8.6) + 0.012, W, 0.4, 0.025, { col: navy }); metal.box(0, bulkY + 0.012, Z(8.6) + 0.026, W, 0.012, 0.006, { col: gold }); }
+  part('Counter bulkhead'); const bulkY = H - 0.4; { paint.box(0, bulkY + 0.2, Z(9.0), W, 0.4, 0.8, { col: C('#f2f0ea'), top: false, bottom: true }); paint.box(0, bulkY + 0.2, Z(8.6) + 0.012, W, 0.4, 0.025, { col: navy }); metal.box(0, bulkY + 0.012, Z(8.6) + 0.026, W, 0.012, 0.006, { col: gold }); }
 
   // ---- inner face of the glazed frontage: daylight through vertical blinds, bronze mullions
+  part('Frontage blinds and mullions');
   for (const sgn of [-1, 1]) { const a = sgn * 1.3, b = sgn * 6.4, cx = (a + b) / 2, w = Math.abs(b - a); const z = zf - 0.006;
     face(day, cx, 1.75, z, w, 2.5, [IN_UV.blinds[0], IN_UV.blinds[1], IN_UV.blinds[0] + (IN_UV.blinds[2] - IN_UV.blinds[0]) * (w / 6), IN_UV.blinds[3]], '-z');
     paint.box(cx, 0.48, z - 0.03, w + 0.08, 0.06, 0.07, { col: bronze }); paint.box(cx, 3.02, z - 0.03, w + 0.08, 0.06, 0.07, { col: bronze });
@@ -234,9 +239,9 @@ export function buildBankInterior(game, site) {
   paint.box(0, 2.42, zf - 0.03, 1.5, 0.08, 0.06, { col: bronze }); // door head trim inside
 
   // ---- ATM lobby: navy surround with two through-the-wall ATMs, glass privacy fin, bin
-  const AX = B.atmFace; { const d0 = 0.7, d1 = 4.1; paint.box((xL + AX) / 2, 1.25, Z((d0 + d1) / 2), AX - xL, 2.5, d1 - d0, { col: navy }); metal.box((xL + AX) / 2 + 0.01, 2.51, Z((d0 + d1) / 2), AX - xL + 0.02, 0.02, d1 - d0 + 0.02, { col: gold });
+  part('ATM lobby surround'); const AX = B.atmFace; { const d0 = 0.7, d1 = 4.1; paint.box((xL + AX) / 2, 1.25, Z((d0 + d1) / 2), AX - xL, 2.5, d1 - d0, { col: navy }); metal.box((xL + AX) / 2 + 0.01, 2.51, Z((d0 + d1) / 2), AX - xL + 0.02, 0.02, d1 - d0 + 0.02, { col: gold });
     paint.box(AX + 0.012, 0.05, Z((d0 + d1) / 2), 0.025, 0.1, d1 - d0, { col: C('#0b1528') }); ob(xL, AX + 0.3, d0, d1); }
-  const atms = B.atmD.map((d, i) => { const z = Z(d);
+  const atms = B.atmD.map((d, i) => { const z = Z(d); part('ATM ' + (i + 1));
     face(sign, AX + 0.004, 2.18, z, 0.78, 0.2, IN_UV.atmHead, '+x');
     metal.box(AX + 0.035, 1.25, z, 0.07, 1.4, 0.72, { col: C('#c3c7cb') }); paint.box(AX + 0.075, 0.28, z, 0.15, 0.56, 0.76, { col: C('#1a2c4c') }); // fascia · kick panel
     pl.box(AX + 0.09, 1.38, z, 0.04, 0.42, 0.46, { col: C('#121315') }); // screen bezel
@@ -268,37 +273,38 @@ export function buildBankInterior(game, site) {
       const gl = new THREE.Mesh(ATM_GLASS_GEO(), atmGlassMat()); gl.position.set(AX + 0.1168, 1.385, z); gl.rotation.y = Math.PI / 2; gl.name = 'atm-glass-' + i; gl.renderOrder = 2; g.add(gl); }
     return { i, d, z, stand: [B.atmStandX, z], slot: [AX + 0.1245, 1.3, z - 0.3], user: null, player: false, screen, paint(view) { if (!this.screen) return; paintATM(this.screen.ctx, view || ATM_IDLE_VIEW); this.screen.tex.needsUpdate = true; } }; });
   if (hasCanvas() && keyLegends.n) { const lm = new THREE.Mesh(keyLegends.mb.build(), atmLegendMat()); lm.name = 'atm-key-legends'; g.add(lm); } // both pads' engraved legends: one mesh
-  { const fz = Z((B.atmD[0] + B.atmD[1]) / 2); glass.box(AX + 0.32, 1.5, fz, 0.6, 1.2, 0.02); metal.box(AX + 0.62, 1.5, fz, 0.02, 1.22, 0.03, { col: steelC }); ob(AX, AX + 0.64, (B.atmD[0] + B.atmD[1]) / 2 - 0.03, (B.atmD[0] + B.atmD[1]) / 2 + 0.03); }
-  metal.cylinder(-6.72, 0, Z(4.45), 0.16, 0.15, 0.62, 16, { col: C('#9fa3a7') }); pl.cylinder(-6.72, 0.62, Z(4.45), 0.165, 0.165, 0.02, 16, { col: C('#202124') }); ob(-6.9, -6.54, 4.27, 4.63);
-  paint.box(-4.9, 0.002, Z(4.35), 2.6, 0.003, 0.06, { col: C('#d9b42a') }); // "please wait behind the line" floor stripe
+  part('ATM privacy screen'); { const fz = Z((B.atmD[0] + B.atmD[1]) / 2); glass.box(AX + 0.32, 1.5, fz, 0.6, 1.2, 0.02); metal.box(AX + 0.62, 1.5, fz, 0.02, 1.22, 0.03, { col: steelC }); ob(AX, AX + 0.64, (B.atmD[0] + B.atmD[1]) / 2 - 0.03, (B.atmD[0] + B.atmD[1]) / 2 + 0.03); }
+  part('Litter bin'); metal.cylinder(-6.72, 0, Z(4.45), 0.16, 0.15, 0.62, 16, { col: C('#9fa3a7') }); pl.cylinder(-6.72, 0.62, Z(4.45), 0.165, 0.165, 0.02, 16, { col: C('#202124') }); ob(-6.9, -6.54, 4.27, 4.63);
+  part('Queue floor line'); paint.box(-4.9, 0.002, Z(4.35), 2.6, 0.003, 0.06, { col: C('#d9b42a') }); // "please wait behind the line" floor stripe
 
   // ---- queue-ticket kiosk
+  part('Queue-ticket kiosk');
   { const x = -1.5, z = Z(2.22); metal.box(x, 0.65, z, 0.4, 1.3, 0.3, { col: C('#d7d9db') }); paint.box(x, 0.02, z, 0.46, 0.04, 0.36, { col: C('#2a2c30') }); paint.box(x, 1.32, z, 0.42, 0.06, 0.32, { col: navy });
     face(sign, x, 1.08, z + 0.152, 0.32, 0.16, IN_UV.kiosk, '+z'); pl.box(x, 0.84, z + 0.152, 0.14, 0.012, 0.01, { col: C('#0c0c0d') }); face(sign, x, 1.32, z + 0.162, 0.1, 0.05, IN_UV.logo, '+z'); ob(x - 0.22, x + 0.22, 2.06, 2.38); }
 
   // ---- reception / enquiries desk
-  const REC = { x: 2.3, d: 3.0 }; { const x = REC.x, cz = Z(3.05), w = 2.2;
+  part('Reception desk'); const REC = { x: 2.3, d: 3.0 }; { const x = REC.x, cz = Z(3.05), w = 2.2;
     wal.box(x, 0.55, cz, w, 1.1, 0.2, { col: WHITE }); mrb.box(x, 1.12, cz, w + 0.06, 0.04, 0.26, { col: WHITE }); paint.box(x, 0.9, Z(2.95) + 0.004, w, 0.1, 0.006, { col: navy }); metal.box(x, 0.84, Z(2.95) + 0.005, w, 0.008, 0.004, { col: gold });
     face(sign, x, 0.52, Z(2.95) + 0.006, 0.34, 0.34, IN_UV.logo, '+z'); paint.box(x, 0.04, Z(2.97), w - 0.04, 0.08, 0.04, { col: C('#1b1d21') });
     paint.box(x, 0.735, Z(3.42), w, 0.03, 0.56, { col: C('#ebe7df') }); for (const sx of [-1, 1]) wal.box(x + sx * (w / 2 - 0.02), 0.36, Z(3.42), 0.04, 0.72, 0.56, { col: WHITE });
     monitor(k, x + 0.35, 0.75, Z(3.3), Math.PI, 0.46); keyboard(k, x + 0.25, 0.75, Z(3.55), Math.PI); deskPhone(k, x - 0.55, 0.75, Z(3.4), Math.PI);
     pl.box(x - 0.75, 1.15, cz, 0.1, 0.03, 0.07, { col: C('#d8d6d0') }); face(prints, x - 0.2, 1.215, Z(3.08), 0.08, 0.12, POSTER_UV.brochure(0), '+z'); metal.box(x - 0.2, 1.17, Z(3.1), 0.09, 0.1, 0.04, { col: steelC }); // card holder · leaflet stand
     lathe(k.get('glaze'), x + 0.85, 1.14, cz, [[0.05, 0], [0.06, 0.1], [0.001, 0.1]], 12, C('#f4f2ee')); for (let i = 0; i < 4; i++) paint.box(x + 0.85 + (i - 1.5) * 0.02, 1.38, cz, 0.012, 0.36, 0.01, { col: C('#4c7a3f') }); for (let i = 0; i < 5; i++) paint.box(x + 0.83 + i * 0.012, 1.5 + i * 0.03, cz + 0.02, 0.05, 0.035, 0.012, { col: C(i % 2 ? '#e9e4f0' : '#d8c8e8') }); // orchid
-    for (const sx of [-0.45, 0.45]) metal.box(x + sx, 3.1, Z(3.2), 0.01, 0.55 + (H - 3.6), 0.01, { col: steelC }); paint.box(x, 2.72, Z(3.2), 1.04, 0.52, 0.03, { col: navy });
+    part('Enquiries sign'); for (const sx of [-0.45, 0.45]) metal.box(x + sx, 3.1, Z(3.2), 0.01, 0.55 + (H - 3.6), 0.01, { col: steelC }); paint.box(x, 2.72, Z(3.2), 1.04, 0.52, 0.03, { col: navy });
     face(sign, x, 2.72, Z(3.2) + 0.016, 1.0, 0.48, IN_UV.enquiries, '+z'); face(sign, x, 2.72, Z(3.2) - 0.016, 1.0, 0.48, IN_UV.enquiries, '-z');
-    ob(x - w / 2 - 0.05, x + w / 2 + 0.05, 2.9, 4.6); }
+    part('Reception desk'); ob(x - w / 2 - 0.05, x + w / 2 + 0.05, 2.9, 4.6); }
 
   // ---- right wall: plant, posters, brochure rack · left wall: water dispenser, notice, clock, plant
-  const acs = []; acs.push(acUnit(k, xR, 2.93, Z(2.7), -Math.PI / 2, H)); // 71st: the hall's wall split air conditioner (its sound: BankSound loops)
-  plant(k, 6.55, Z(0.6), 1.3); ob(6.3, 6.8, 0.35, 0.85);
-  paint.box(xR - 0.012, 1.6, Z(1.5), 0.02, 0.94, 0.64, { col: C('#c9b27a') }); face(prints, xR - 0.024, 1.6, Z(1.5), 0.6, 0.9, POSTER_UV.fd, '-x');
-  paint.box(xR - 0.012, 1.6, Z(3.9), 0.02, 0.94, 0.64, { col: C('#c9b27a') }); face(prints, xR - 0.024, 1.6, Z(3.9), 0.6, 0.9, POSTER_UV.home, '-x');
-  { const z = Z(2.7); metal.box(xR - 0.11, 1.25, z, 0.2, 0.9, 0.62, { col: C('#c8cbce'), top: true }); for (let r = 0; r < 2; r++) for (let c = 0; c < 4; c++) { const zz = z - 0.22 + c * 0.145, yy = 1.1 + r * 0.38; glass.box(xR - 0.2, yy, zz, 0.012, 0.16, 0.13); face(prints, xR - 0.17, yy + 0.06, zz, 0.12, 0.16, POSTER_UV.brochure(r * 4 + c), '-x'); } ob(xR - 0.24, xR, 2.36, 3.04); }
-  { const x = -6.72, z = Z(5.6); paint.box(x, 0.52, z, 0.32, 1.04, 0.32, { col: C('#ecebe7') }); pl.box(x, 0.82, z + 0.162, 0.2, 0.08, 0.01, { col: C('#2c2e32') }); for (const [dx, col] of [[-0.05, '#2f6fb0'], [0.05, '#b0322a']]) pl.box(x + dx, 0.8, z + 0.17, 0.03, 0.04, 0.03, { col: C(col) });
+  part('Hall air conditioner'); const acs = []; acs.push(acUnit(k, xR, 2.93, Z(2.7), -Math.PI / 2, H)); // 71st: the hall's wall split air conditioner (its sound: BankSound loops)
+  part('Plant by the door'); plant(k, 6.55, Z(0.6), 1.3); ob(6.3, 6.8, 0.35, 0.85);
+  part('Poster: fixed deposits'); paint.box(xR - 0.012, 1.6, Z(1.5), 0.02, 0.94, 0.64, { col: C('#c9b27a') }); face(prints, xR - 0.024, 1.6, Z(1.5), 0.6, 0.9, POSTER_UV.fd, '-x');
+  part('Poster: home loans'); paint.box(xR - 0.012, 1.6, Z(3.9), 0.02, 0.94, 0.64, { col: C('#c9b27a') }); face(prints, xR - 0.024, 1.6, Z(3.9), 0.6, 0.9, POSTER_UV.home, '-x');
+  part('Brochure rack'); { const z = Z(2.7); metal.box(xR - 0.11, 1.25, z, 0.2, 0.9, 0.62, { col: C('#c8cbce'), top: true }); for (let r = 0; r < 2; r++) for (let c = 0; c < 4; c++) { const zz = z - 0.22 + c * 0.145, yy = 1.1 + r * 0.38; glass.box(xR - 0.2, yy, zz, 0.012, 0.16, 0.13); face(prints, xR - 0.17, yy + 0.06, zz, 0.12, 0.16, POSTER_UV.brochure(r * 4 + c), '-x'); } ob(xR - 0.24, xR, 2.36, 3.04); }
+  part('Water dispenser'); { const x = -6.72, z = Z(5.6); paint.box(x, 0.52, z, 0.32, 1.04, 0.32, { col: C('#ecebe7') }); pl.box(x, 0.82, z + 0.162, 0.2, 0.08, 0.01, { col: C('#2c2e32') }); for (const [dx, col] of [[-0.05, '#2f6fb0'], [0.05, '#b0322a']]) pl.box(x + dx, 0.8, z + 0.17, 0.03, 0.04, 0.03, { col: C(col) });
     glass.box(x, 1.25, z, 0.26, 0.42, 0.26); pl.box(x, 1.04, z, 0.3, 0.02, 0.3, { col: C('#d8d8d4') }); ob(x - 0.2, x + 0.2, 5.4, 5.8); }
-  paint.box(xL + 0.012, 1.6, Z(6.7), 0.02, 0.44, 0.84, { col: C('#c9b27a') }); face(prints, xL + 0.024, 1.6, Z(6.7), 0.8, 0.4, POSTER_UV.notice, '+x');
-  face(sign, xL + 0.01, 2.7, Z(6.7), 0.42, 0.42, IN_UV.clock, '+x');
-  plant(k, -6.5, Z(7.95), 1.5); ob(-6.78, -6.22, 7.67, 8.23);
+  part('Notice: charges and limits'); paint.box(xL + 0.012, 1.6, Z(6.7), 0.02, 0.44, 0.84, { col: C('#c9b27a') }); face(prints, xL + 0.024, 1.6, Z(6.7), 0.8, 0.4, POSTER_UV.notice, '+x');
+  part('Wall clock'); face(sign, xL + 0.01, 2.7, Z(6.7), 0.42, 0.42, IN_UV.clock, '+x');
+  part('Plant by the counter'); plant(k, -6.5, Z(7.95), 1.5); ob(-6.78, -6.22, 7.67, 8.23);
 
   // ---- waiting area: pedestal chairs; the seat + back is one instanced top raised / lowered to each sitter (gas lift)
   const seats = []; { const ROWS = [5.3, 6.6]; const XS = [-5.3, -4.64, -3.98, -3.32, 1.4, 2.06, 2.72, 3.38];
@@ -308,13 +314,13 @@ export function buildBankInterior(game, site) {
     const geo = tb.build(); const im = new THREE.InstancedMesh(geo, kitMaterial('fabric', KIT.fabric), seats.length); im.name = 'bank-waiting-chairs'; im.receiveShadow = true; im.castShadow = false;
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI), one = new THREE.Vector3(1, 1, 1), v = new THREE.Vector3();
     const setTop = (i, top) => { const s = seats[i]; s.top = top; im.setMatrixAt(i, m4.compose(v.set(s.x, top, s.z), q, one)); im.instanceMatrix.needsUpdate = true; };
-    seats.forEach((s, i) => { setTop(i, s.top); chrome.cylinder(s.x, 0.02, s.z, 0.035, 0.035, 0.24, 10, { col: WHITE }); pl.cylinder(s.x, 0, s.z, 0.22, 0.24, 0.02, 18, { col: C('#202124') }); });
+    part('Waiting chair bases'); seats.forEach((s, i) => { setTop(i, s.top); chrome.cylinder(s.x, 0.02, s.z, 0.035, 0.035, 0.24, 10, { col: WHITE }); pl.cylinder(s.x, 0, s.z, 0.22, 0.24, 0.02, 18, { col: C('#202124') }); });
     g.add(im); seats.setTop = setTop; seats.mesh = im;
     for (const d of ROWS) { ob(-5.62, -3.0, d - 0.3, d + 0.28); ob(1.08, 3.7, d - 0.3, d + 0.28); }
     }
 
   // ---- manager's office (glass partition, open doorway on the hall side); counter 4's queue space in front of it stays open
-  const OF = { x0: 4.6, x1: xR, d0: 4.8, d1: 7.3, door: [6.35, 7.22] }; {
+  part("Manager's office partition"); const OF = { x0: 4.6, x1: xR, d0: 4.8, d1: 7.3, door: [6.35, 7.22] }; {
     const band = (cx, cz, w, d) => { for (const s2 of [-1, 1]) paint.box(cx + (d > w ? s2 * 0.012 : 0), 1.25, cz + (w >= d ? s2 * 0.012 : 0), Math.max(w, 0.004), 0.32, Math.max(d, 0.004), { col: C('#f4f4f2') }); }; // frosted manifestation band
     const gx = (zz, xa, xb) => { const cx = (xa + xb) / 2, w = xb - xa; cglass.box(cx, H / 2, zz, w, H - 0.02, 0.02); paint.box(cx, 0.04, zz, w, 0.08, 0.06, { col: bronze }); paint.box(cx, H - 0.03, zz, w, 0.06, 0.06, { col: bronze }); band(cx, zz, w, 0.004); };
     const gz = (xx, da, db) => { const cz = Z((da + db) / 2), d = db - da; cglass.box(xx, H / 2, cz, 0.02, H - 0.02, d); paint.box(xx, 0.04, cz, 0.06, 0.08, d, { col: bronze }); paint.box(xx, H - 0.03, cz, 0.06, 0.06, d, { col: bronze }); band(xx, cz, 0.004, d); };
@@ -323,32 +329,33 @@ export function buildBankInterior(game, site) {
     paint.box(OF.x0, 2.3 + (H - 2.3) / 2, Z((OF.door[0] + OF.door[1]) / 2), 0.08, H - 2.3, OF.door[1] - OF.door[0], { col: C('#efeae1') }); // transom over the doorway
     paint.box(OF.x0 - 0.045, 2.55, Z((OF.door[0] + OF.door[1]) / 2), 0.012, 0.3, 0.92, { col: C('#d8d4ca') }); face(sign, OF.x0 - 0.052, 2.55, Z((OF.door[0] + OF.door[1]) / 2), 0.88, 0.22, IN_UV.office, '-x');
     // furniture: walnut desk, executive chair (built to the manager, below), two visitor chairs, credenza, plant, framed logo
-    const dx = 6.1, dz = Z(5.95); wal.box(dx, 0.73, dz, 1.2, 0.04, 0.66, { col: WHITE }); for (const sx of [-1, 1]) wal.box(dx + sx * 0.58, 0.36, dz, 0.04, 0.72, 0.64, { col: WHITE }); wal.box(dx, 0.45, dz - 0.3, 1.12, 0.5, 0.02, { col: WHITE });
+    part("Manager's desk"); const dx = 6.1, dz = Z(5.95); wal.box(dx, 0.73, dz, 1.2, 0.04, 0.66, { col: WHITE }); for (const sx of [-1, 1]) wal.box(dx + sx * 0.58, 0.36, dz, 0.04, 0.72, 0.64, { col: WHITE }); wal.box(dx, 0.45, dz - 0.3, 1.12, 0.5, 0.02, { col: WHITE });
     monitor(k, dx + 0.28, 0.75, Z(6.1), 0, 0.46); keyboard(k, dx + 0.1, 0.75, Z(5.78), 0); deskPhone(k, dx - 0.42, 0.75, Z(5.85), 0); paint.box(dx - 0.12, 0.755, Z(6.05), 0.21, 0.01, 0.3, { col: C('#f6f4ee') }); brass.cylinder(dx - 0.3, 0.75, Z(6.15), 0.015, 0.015, 0.12, 8, { col: WHITE });
-    for (const vx of [5.75, 6.45]) officeChair(k, vx, Z(6.68), 0, 0.45, { col: '#1f3556' });
-    metal.box(xR - 0.16, 0.38, Z(5.15), 0.3, 0.76, 0.62, { col: C('#d7d5cf') }); wal.box(xR - 0.16, 0.77, Z(5.15), 0.32, 0.02, 0.64, { col: WHITE }); plant(k, 4.95, Z(5.15), 1.1);
-    paint.box(xR - 0.012, 1.75, Z(5.15), 0.02, 0.56, 0.56, { col: C('#1b1612') }); face(sign, xR - 0.024, 1.75, Z(5.15), 0.5, 0.5, IN_UV.logo, '-x');
-    ob(OF.x0, OF.x1, OF.d0 - 0.04, OF.d0 + 0.04); ob(OF.x0, OF.x1, OF.d1 - 0.04, OF.d1 + 0.04); ob(OF.x0 - 0.04, OF.x0 + 0.04, OF.d0, OF.door[0]); ob(OF.x0 - 0.04, OF.x0 + 0.04, OF.door[1], OF.d1);
-    ob(5.48, 6.72, 5.62, 6.28); ob(5.78, 6.42, 4.84, 5.6); ob(5.45, 6.75, 6.36, 6.98); ob(xR - 0.32, xR, 4.84, 5.46); ob(4.7, 5.2, 4.9, 5.4); }
+    [5.75, 6.45].forEach((vx, i) => { part("Manager's visitor chair " + (i + 1)); officeChair(k, vx, Z(6.68), 0, 0.45, { col: '#1f3556' }); });
+    part("Manager's credenza"); metal.box(xR - 0.16, 0.38, Z(5.15), 0.3, 0.76, 0.62, { col: C('#d7d5cf') }); wal.box(xR - 0.16, 0.77, Z(5.15), 0.32, 0.02, 0.64, { col: WHITE }); part("Plant in the manager's office"); plant(k, 4.95, Z(5.15), 1.1);
+    part("Framed logo (manager's office)"); paint.box(xR - 0.012, 1.75, Z(5.15), 0.02, 0.56, 0.56, { col: C('#1b1612') }); face(sign, xR - 0.024, 1.75, Z(5.15), 0.5, 0.5, IN_UV.logo, '-x');
+    part("Manager's office partition"); ob(OF.x0, OF.x1, OF.d0 - 0.04, OF.d0 + 0.04); ob(OF.x0, OF.x1, OF.d1 - 0.04, OF.d1 + 0.04); ob(OF.x0 - 0.04, OF.x0 + 0.04, OF.d0, OF.door[0]); ob(OF.x0 - 0.04, OF.x0 + 0.04, OF.door[1], OF.d1);
+    part("Manager's desk"); ob(5.48, 6.72, 5.62, 6.28); part("Manager's desk"); ob(5.78, 6.42, 4.84, 5.6); part("Manager's visitor chair 1"); ob(5.45, 6.1, 6.36, 6.98); part("Manager's visitor chair 2"); ob(6.1, 6.75, 6.36, 6.98); part("Manager's credenza"); ob(xR - 0.32, xR, 4.84, 5.46); part("Plant in the manager's office"); ob(4.7, 5.2, 4.9, 5.4); }
 
   // ---- teller counter, security glass, staff door
   let staffDoorLeaf = null; // 73rd
-  const WINX = B.windows, cE = 6.15; { const cx = (xL + cE) / 2, cw = cE - xL;
+  part('Teller counter'); const WINX = B.windows, cE = 6.15; { const cx = (xL + cE) / 2, cw = cE - xL;
     wal.box(cx, 0.5, Z(9.01), cw, 1.0, 0.78, { col: WHITE }); paint.box(cx, 0.05, Z(8.6) + 0.004, cw, 0.1, 0.012, { col: C('#14161a') }); metal.box(cx, 0.92, Z(8.6) + 0.006, cw, 0.012, 0.006, { col: gold });
     mrbD.box(cx, 1.02, Z(8.98), cw, 0.04, 0.86, { col: WHITE });
     for (let i = 0; i < 4; i++) { const wx = WINX[i]; paint.box(wx, 0.62, Z(8.6) + 0.008, 0.9, 0.36, 0.006, { col: navy }); face(sign, wx, 0.62, Z(8.6) + 0.012, 0.34, 0.17, IN_UV.counter(i), '+z'); }
     // glass to the bulkhead, steel posts at the fins, speech grilles, cash trays, card terminals, pens on chains
-    glass.box(cx, (1.04 + bulkY) / 2, Z(9.0), cw, bulkY - 1.04, 0.025); metal.box(cx, 1.05, Z(9.0), cw, 0.02, 0.05, { col: steelC });
+    part('Counter security glass'); glass.box(cx, (1.04 + bulkY) / 2, Z(9.0), cw, bulkY - 1.04, 0.025); metal.box(cx, 1.05, Z(9.0), cw, 0.02, 0.05, { col: steelC });
     for (const fx of [xL + 0.03, -3.3, 0, 3.3, cE]) metal.box(fx, (1.04 + bulkY) / 2, Z(9.0), 0.05, bulkY - 1.04, 0.05, { col: steelC });
-    for (const fx of [-3.3, 0, 3.3]) { paint.box(fx, 1.58, Z(8.6), 0.05, 1.08, 0.8, { col: navy }); metal.box(fx, 2.13, Z(8.6), 0.06, 0.02, 0.82, { col: gold }); ob(fx - 0.04, fx + 0.04, 8.2, 8.6); }
-    for (let i = 0; i < 4; i++) { const wx = WINX[i]; chrome.box(wx, 1.45, Z(9.0) + 0.014, 0.18, 0.14, 0.004, { col: C('#d0d3d6') }); for (let r = 0; r < 4; r++) for (let c = 0; c < 5; c++) pl.box(wx - 0.06 + c * 0.03, 1.405 + r * 0.03, Z(9.0) + 0.017, 0.012, 0.012, 0.002, { col: C('#2a2c30') });
+    part('Counter privacy fins'); for (const fx of [-3.3, 0, 3.3]) { paint.box(fx, 1.58, Z(8.6), 0.05, 1.08, 0.8, { col: navy }); metal.box(fx, 2.13, Z(8.6), 0.06, 0.02, 0.82, { col: gold }); ob(fx - 0.04, fx + 0.04, 8.2, 8.6); }
+    for (let i = 0; i < 4; i++) { part('Counter ' + (i + 1) + ' fittings'); const wx = WINX[i]; chrome.box(wx, 1.45, Z(9.0) + 0.014, 0.18, 0.14, 0.004, { col: C('#d0d3d6') }); for (let r = 0; r < 4; r++) for (let c = 0; c < 5; c++) pl.box(wx - 0.06 + c * 0.03, 1.405 + r * 0.03, Z(9.0) + 0.017, 0.012, 0.012, 0.002, { col: C('#2a2c30') });
       metal.box(wx, 1.045, Z(9.0), 0.4, 0.012, 0.32, { col: C('#9ea2a6') }); metal.box(wx, 1.06, Z(8.86), 0.4, 0.03, 0.01, { col: C('#9ea2a6') });
       pl.box(wx + 0.38, 1.07, Z(8.74), 0.09, 0.05, 0.17, { col: C('#202226') }); emis.box(wx + 0.38, 1.096, Z(8.7), 0.06, 0.002, 0.05, { col: [0.45, 0.6, 0.55] });
       pl.box(wx - 0.4, 1.045, Z(8.72), 0.03, 0.01, 0.03, { col: C('#202226') }); pl.box(wx - 0.38, 1.047, Z(8.7), 0.012, 0.012, 0.14, { col: C('#1d3b7a'), rotY: 0.4 });
       face(sign, wx, H - 0.2, Z(8.6) + 0.03, 0.68, 0.34, IN_UV.counter(i), '+z'); }
-    face(sign, 0, H - 0.2, Z(8.6) + 0.03, 0.9, 0.22, IN_UV.serving, '+z');
-    face(sign, WINX[3], 1.32, Z(9.0) - 0.016, 0.4, 0.2, IN_UV.closed, '+z'); paint.box(WINX[3], 1.32, Z(9.0) - 0.022, 0.42, 0.22, 0.008, { col: C('#f4f2ec') }); metal.box(WINX[3], 1.13, Z(9.04), 0.18, 0.16, 0.02, { col: steelC }); // closed plate on its stand
+    part('Now-serving display'); face(sign, 0, H - 0.2, Z(8.6) + 0.03, 0.9, 0.22, IN_UV.serving, '+z');
+    part('Counter closed sign'); face(sign, WINX[3], 1.32, Z(9.0) - 0.016, 0.4, 0.2, IN_UV.closed, '+z'); paint.box(WINX[3], 1.32, Z(9.0) - 0.022, 0.42, 0.22, 0.008, { col: C('#f4f2ec') }); metal.box(WINX[3], 1.13, Z(9.04), 0.18, 0.16, 0.02, { col: steelC }); // closed plate on its stand
     // staff door (glazed partition above)
+    part('Staff door frame');
     const dx0 = cE, dx1 = xR, dcx = (dx0 + dx1) / 2; paint.box(dx0 + 0.03, 1.05, Z(9.0), 0.06, 2.1, 0.12, { col: bronze }); paint.box(dx1 - 0.03, 1.05, Z(9.0), 0.06, 2.1, 0.12, { col: bronze }); paint.box(dcx, 2.13, Z(9.0), dx1 - dx0, 0.06, 0.12, { col: bronze });
     // 73rd: the leaf is its own small mesh group hinged on the right jamb, so staff going off / coming on shift open it (BankShift)
     { const dk = new Kit(); Object.assign(dk.extra, { cmbSign: signMat }); const hx = dx1 - 0.07, lw = dx1 - dx0 - 0.14, L0 = (x) => x - hx;
@@ -357,15 +364,15 @@ export function buildBankInterior(game, site) {
       const leaf = dk.into(new THREE.Group(), { cast: false, receive: true }); leaf.name = 'bank-staff-door'; leaf.position.set(hx, 0, Z(9.0)); g.add(leaf); staffDoorLeaf = { leaf, ang: 0, x: dcx, z: Z(9.0) }; }
     pl.box(dx1 - 0.16, 1.3, Z(9.0) + 0.03, 0.07, 0.11, 0.02, { col: C('#202226') }); emis.box(dx1 - 0.16, 1.33, Z(9.0) + 0.041, 0.012, 0.012, 0.002, { col: [1, 0.2, 0.15] }); // card-access reader
     glass.box(dcx, (2.16 + bulkY) / 2, Z(9.0), dx1 - dx0 - 0.02, bulkY - 2.16, 0.025);
-    ob(xL, xR, 8.6, D); }
+    part('Teller counter'); ob(xL, xR, 8.6, D); }
 
   // ---- staff side: work surface, pedestals, workstations, teller chairs (built to the tellers), back wall
   const stand = { tellers: [], recep: null, mgr: null, sup: null, guard: null };
   const PHONE = { x: -3.3 }; let callPh = null; // 71st: the back-office phone (filled in with the back wall)
   const staffSpecs = [makeBankStaffAppearance(6701, { sex: 'f' }), makeBankStaffAppearance(6702, { sex: 'm' }), makeBankStaffAppearance(6703, { sex: 'f' })];
-  { const cx = (xL + cE) / 2, cw = cE - xL; paint.box(cx, 0.735, Z(9.7), cw, 0.03, 0.6, { col: C('#ebe7df') });
+  part('Staff work surface'); { const cx = (xL + cE) / 2, cw = cE - xL; paint.box(cx, 0.735, Z(9.7), cw, 0.03, 0.6, { col: C('#ebe7df') });
     for (const px of [xL + 0.3, -3.3, 0, 3.3, cE - 0.3]) metal.box(px, 0.36, Z(9.68), 0.44, 0.72, 0.52, { col: C('#c9ccd0') });
-    for (let i = 0; i < 4; i++) { const wx = WINX[i]; monitor(k, wx - 0.28, 0.75, Z(9.55), Math.PI); keyboard(k, wx - 0.05, 0.75, Z(9.86), Math.PI);
+    for (let i = 0; i < 4; i++) { part('Teller workstation ' + (i + 1)); const wx = WINX[i]; monitor(k, wx - 0.28, 0.75, Z(9.55), Math.PI); keyboard(k, wx - 0.05, 0.75, Z(9.86), Math.PI);
       pl.box(wx + 0.42, 0.85, Z(9.62), 0.26, 0.2, 0.24, { col: C('#9a9ea4') }); pl.box(wx + 0.42, 0.96, Z(9.66), 0.18, 0.02, 0.1, { col: C('#202226') }); // note counter
       pl.box(wx + 0.75, 0.81, Z(9.6), 0.16, 0.12, 0.2, { col: C('#dcdcd8') }); deskPhone(k, wx - 0.75, 0.75, Z(9.65), Math.PI); pl.box(wx + 0.5, 0.66, Z(9.75), 0.4, 0.1, 0.4, { col: C('#2a2c30') }); // printer · phone · cash drawer
       paint.box(wx + 1.05, 0.76, Z(9.75), 0.24, 0.02, 0.32, { col: C('#f6f4ee') }); }
@@ -373,43 +380,45 @@ export function buildBankInterior(game, site) {
       const ck = new Kit(); officeChair(ck, 0, 0, 0, top); const chair = ck.into(new THREE.Group(), { cast: false, receive: true }); chair.name = 'bank-teller-chair-' + i; chair.position.set(wx, 0, Z(10.35)); g.add(chair); // 71st: its own group, so it can roll
       ch.root.position.set(wx, 0, Z(10.35) - 0.04); ch.root.rotation.y = 0; g.add(ch.root); ch.anim.seated = true;
       stand.tellers.push({ ch, win: B.staffed[i], x: wx, rnd: rngOf(6710 + i), serving: null, act: null, actT: 0, chair, chairZ: Z(10.35) }); });
-    for (const wx of [WINX[3]]) officeChair(k, wx, Z(10.45), 0.3, 0.45);
+    part('Empty teller chair (counter 4)'); for (const wx of [WINX[3]]) officeChair(k, wx, Z(10.45), 0.3, 0.45);
     // back wall: lit feature band, vault door, filing cabinets, copier
+    part('Back wall feature band');
     // centred behind counter 2, between the privacy fins at x 0 and 3.3: seen from the hall the fins (4.4 m in front of this
     // wall) fall either side of the wordmark instead of across it
     { const bx = 1.65; paint.box(bx, 2.1, z0 + 0.025, 3.4, 1.8, 0.05, { col: navy }); for (const [y, h] of [[1.2, 0.012], [3.0, 0.012]]) metal.box(bx, y, z0 + 0.052, 3.4, h, 0.006, { col: gold }); face(sign, bx, 2.25, z0 + 0.054, 3.2, 0.8, IN_UV.wordmark, '+z');
       emis.box(bx, 3.06, z0 + 0.07, 3.2, 0.01, 0.02, { col: [1, 0.92, 0.78] }); }
-    { const vx = -5.1, vy = 1.12, vz = z0 + 0.08; metal.box(vx, vy, z0 + 0.04, 1.8, 2.2, 0.08, { col: C('#7d8287') }); const st = k.get('steel'), M = new THREE.Matrix4(), Q = new THREE.Quaternion();
+    part('Vault door'); { const vx = -5.1, vy = 1.12, vz = z0 + 0.08; metal.box(vx, vy, z0 + 0.04, 1.8, 2.2, 0.08, { col: C('#7d8287') }); const st = k.get('steel'), M = new THREE.Matrix4(), Q = new THREE.Quaternion();
       const disc = (r, h, zoff, col, seg = 36) => { const geo = new THREE.CylinderGeometry(r, r, h, seg); st.geometry(geo, M.compose(new THREE.Vector3(vx, vy, vz + zoff), Q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2), new THREE.Vector3(1, 1, 1)), C(col)); geo.dispose(); };
       disc(0.86, 0.06, 0.0, '#9aa0a6'); disc(0.78, 0.12, 0.06, '#b8bdc2'); disc(0.12, 0.08, 0.15, '#d4d7da', 18);
       for (let i = 0; i < 3; i++) { const geo = new THREE.BoxGeometry(0.9, 0.05, 0.04); st.geometry(geo, M.compose(new THREE.Vector3(vx, vy, vz + 0.2), Q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), i * Math.PI / 3), new THREE.Vector3(1, 1, 1)), C('#d4d7da')); geo.dispose(); }
       for (let i = 0; i < 16; i++) { const an = i / 16 * Math.PI * 2; st.box(vx + Math.cos(an) * 0.7, vy + Math.sin(an) * 0.7, vz + 0.125, 0.04, 0.04, 0.02, { col: C('#8d9297') }); } }
-    for (let i = 0; i < 4; i++) { const fx = 3.75 + i * 0.52; metal.box(fx, 0.66, z0 + 0.32, 0.5, 1.32, 0.6, { col: C('#8f949a') }); for (let j = 0; j < 4; j++) { paint.box(fx, 0.2 + j * 0.31, z0 + 0.622, 0.46, 0.006, 0.006, { col: C('#5e6268') }); metal.box(fx, 0.3 + j * 0.31, z0 + 0.63, 0.12, 0.02, 0.02, { col: C('#d4d7da') }); } }
+    part('Filing cabinets'); for (let i = 0; i < 4; i++) { const fx = 3.75 + i * 0.52; metal.box(fx, 0.66, z0 + 0.32, 0.5, 1.32, 0.6, { col: C('#8f949a') }); for (let j = 0; j < 4; j++) { paint.box(fx, 0.2 + j * 0.31, z0 + 0.622, 0.46, 0.006, 0.006, { col: C('#5e6268') }); metal.box(fx, 0.3 + j * 0.31, z0 + 0.63, 0.12, 0.02, 0.02, { col: C('#d4d7da') }); } }
     // 71st: back-office landline on a walnut credenza (the phone the officers get up to answer), the wall split AC above it
-    { const cx = PHONE.x, cz = z0 + 0.235; wal.box(cx, 0.375, cz, 1.0, 0.75, 0.44, { col: WHITE }); paint.box(cx, 0.755, cz, 1.02, 0.012, 0.46, { col: C('#ebe7df') }); paint.box(cx, 0.06, cz + 0.2, 0.96, 0.08, 0.04, { col: C('#1b1d21') });
+    part('Back-office credenza and phone'); { const cx = PHONE.x, cz = z0 + 0.235; wal.box(cx, 0.375, cz, 1.0, 0.75, 0.44, { col: WHITE }); paint.box(cx, 0.755, cz, 1.02, 0.012, 0.46, { col: C('#ebe7df') }); paint.box(cx, 0.06, cz + 0.2, 0.96, 0.08, 0.04, { col: C('#1b1d21') });
       for (const dx of [-0.25, 0.25]) { paint.box(cx + dx, 0.4, cz + 0.221, 0.004, 0.62, 0.003, { col: C('#3a2a1e') }); metal.box(cx + dx + (dx < 0 ? 0.2 : -0.2), 0.52, cz + 0.232, 0.012, 0.12, 0.014, { col: steelC }); } paint.box(cx, 0.4, cz + 0.221, 0.003, 0.62, 0.003, { col: C('#3a2a1e') });
       pl.box(cx - 0.3, 0.775, cz + 0.02, 0.26, 0.03, 0.33, { col: C('#2a2c30') }); paint.box(cx - 0.3, 0.792, cz + 0.02, 0.22, 0.004, 0.3, { col: C('#f6f4ee') }); // document tray
       paint.box(cx + 0.36, 0.764, cz + 0.06, 0.15, 0.006, 0.2, { col: C('#f3eedc') }); pl.cylinder(cx + 0.36, 0.77, cz - 0.1, 0.035, 0.035, 0.1, 12, { col: C('#202226') }); for (const [dx, col] of [[-0.01, '#1d3b7a'], [0.012, '#b8352c']]) pl.cylinder(cx + 0.36 + dx, 0.84, cz - 0.1, 0.004, 0.004, 0.12, 6, { col: C(col) }); // notepad, pen pot
       callPh = callPhone(k, g, PHONE.x + 0.1, 0.761, cz + 0.02, 0); }
-    acs.push(acUnit(k, PHONE.x, 2.8, z0, 0, H));
-    { const cx2 = 6.5; pl.box(cx2, 0.5, z0 + 0.4, 0.6, 1.0, 0.62, { col: C('#e4e4e0') }); pl.box(cx2, 1.02, z0 + 0.4, 0.6, 0.04, 0.62, { col: C('#2a2c30') }); pl.box(cx2, 0.92, z0 + 0.72, 0.4, 0.06, 0.02, { col: C('#3a3c40') }); }
+    part('Back-office air conditioner'); acs.push(acUnit(k, PHONE.x, 2.8, z0, 0, H));
+    part('Photocopier'); { const cx2 = 6.5; pl.box(cx2, 0.5, z0 + 0.4, 0.6, 1.0, 0.62, { col: C('#e4e4e0') }); pl.box(cx2, 1.02, z0 + 0.4, 0.6, 0.04, 0.62, { col: C('#2a2c30') }); pl.box(cx2, 0.92, z0 + 0.72, 0.4, 0.06, 0.02, { col: C('#3a3c40') }); }
   }
 
   // ---- reception, manager, supervisor, guard
-  { const sp = makeBankStaffAppearance(6704, { sex: 'f' }); const ch = new Character(sp); const top = Math.max(0.3, Math.min(0.55, seatTopFor(ch))); officeChair(k, REC.x, Z(4.15), 0, top); ch.root.position.set(REC.x, 0, Z(4.15) - 0.04); g.add(ch.root); ch.anim.seated = true; stand.recep = { ch, rnd: rngOf(6720) }; }
-  { const sp = makeBankStaffAppearance(6705, { sex: 'm', role: 'manager' }); const ch = new Character(sp); const top = Math.max(0.3, Math.min(0.55, seatTopFor(ch))); officeChair(k, 6.1, Z(5.22), Math.PI, top, { high: true, col: '#1b1c20' }); ch.root.position.set(6.1, 0, Z(5.22) + 0.04); ch.root.rotation.y = Math.PI; g.add(ch.root); ch.anim.seated = true; stand.mgr = { ch, rnd: rngOf(6730) }; }
+  { const sp = makeBankStaffAppearance(6704, { sex: 'f' }); const ch = new Character(sp); const top = Math.max(0.3, Math.min(0.55, seatTopFor(ch))); part('Reception chair'); officeChair(k, REC.x, Z(4.15), 0, top); ch.root.position.set(REC.x, 0, Z(4.15) - 0.04); g.add(ch.root); ch.anim.seated = true; stand.recep = { ch, rnd: rngOf(6720) }; }
+  { const sp = makeBankStaffAppearance(6705, { sex: 'm', role: 'manager' }); const ch = new Character(sp); const top = Math.max(0.3, Math.min(0.55, seatTopFor(ch))); part("Manager's chair"); officeChair(k, 6.1, Z(5.22), Math.PI, top, { high: true, col: '#1b1c20' }); ch.root.position.set(6.1, 0, Z(5.22) + 0.04); ch.root.rotation.y = Math.PI; g.add(ch.root); ch.anim.seated = true; stand.mgr = { ch, rnd: rngOf(6730) }; }
   { const sp = makeBankStaffAppearance(6706, { sex: 'm' }); const ch = new Character(sp); ch.root.position.set(4.7, 0, Z(11.9)); ch.root.rotation.y = -0.3; g.add(ch.root); stand.sup = { ch, rnd: rngOf(6740) }; }
   { const sp = makeBankStaffAppearance(6707, { sex: 'm', role: 'guard' }); const ch = new Character(sp); const gx = 2.05, gd = 1.05; ch.root.position.set(gx, 0, Z(gd)); ch.root.rotation.y = Math.atan2(-1.6 - gx, Z(5.0) - Z(gd)); g.add(ch.root); stand.guard = { ch, rnd: rngOf(6750), x: gx, z: Z(gd), yaw0: ch.root.rotation.y }; ob(gx - 0.25, gx + 0.25, gd - 0.25, gd + 0.25); }
   for (const p of [...stand.tellers, stand.recep, stand.mgr, stand.sup, stand.guard]) for (let i = 0; i < 20; i++) p.ch.anim.update(0.05, 0);
 
-  k.into(g, { cast: false, receive: true });
+  part(null); const kitMeshes = k.meshes({ cast: false, receive: true }); for (const m of kitMeshes) g.add(m);
+  const parts = collectParts(kitMeshes, obs); { const pk = modelPackNow(); if (pk && pk.bank) try { applyLayout(parts, pk.bank); } catch (e) { console.warn('[bank] layout not applied', e); } } // 73rd: the saved bank layout (bank-edit)
   const lights = [{ p: [-4.2, H - 0.35, Z(6.0)], color: 0xfff4e6, i: 8, d: 9, decay: 1.4 }, { p: [2.4, H - 0.35, Z(6.0)], color: 0xfff4e6, i: 8, d: 9, decay: 1.4 }, { p: [0, H - 0.5, Z(8.0)], color: 0xfff6ea, i: 9, d: 10, decay: 1.3 },
     { p: [-5.5, 3.0, Z(2.4)], color: 0xeef4ff, i: 5.5, d: 5.5, decay: 1.6 }, { p: [1.4, H - 0.35, Z(2.2)], color: 0xfff4e6, i: 7, d: 8, decay: 1.4 }, { p: [0, H - 0.35, Z(11.3)], color: 0xfff8f0, i: 7, d: 9, decay: 1.4 }];
 
   // ================================================================================== the room object + its people
   const nStatic = obs.length;
   for (const p of [...stand.tellers, stand.recep, stand.mgr, stand.sup, stand.guard]) if (p && p.ch) p.ch.bankOwned = true; // 73rd: the room's own people (room.ext skips them)
-  const room = { id: 'bank', bank: true, name: B.name, def: { kind: 'bank', name: B.name }, g, bounds: { x0, x1, z0, z1: zf - 0.02 }, obstacles: obs, lights, H, prompt: null, atms, seats, stand, customers: [], stats: { spawned: 0, left: 0, handed: 0, atmUses: 0, tellerVisits: 0, sat: 0 } };
+  const room = { parts, id: 'bank', bank: true, name: B.name, def: { kind: 'bank', name: B.name }, g, bounds: { x0, x1, z0, z1: zf - 0.02 }, obstacles: obs, lights, H, prompt: null, atms, seats, stand, customers: [], stats: { spawned: 0, left: 0, handed: 0, atmUses: 0, tellerVisits: 0, sat: 0 } };
   room.greet = () => { if (game.hud && staffOn()) game.hud.subtitle('Security officer', 'Good day. Welcome to Ceylon Meridian Bank — the ATMs are on your left.', '', 3.6); };
   room.onEnter = () => { BankSound.ambience(true); };
   room.onExit = () => { BankSound.ambience(false); };

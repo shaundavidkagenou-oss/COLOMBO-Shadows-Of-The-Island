@@ -10,7 +10,7 @@
 import * as THREE from 'three';
 import { Input } from '../core/Input.js';
 import { Settings } from '../core/Settings.js';
-import { openEditor, openTextureStudio, openModelStudio, TEXTURE_STUDIO } from '../debug/boot.js'; // tiny: the editors themselves load on demand
+import { openEditor, openTextureStudio, openModelStudio, openBankEditor, TEXTURE_STUDIO } from '../debug/boot.js'; // tiny: the editors themselves load on demand
 import { DevLock } from '../debug/DevLock.js'; // 68th: DoneShaun$123$ removes the console (secret code brings it back)
 import { Audio } from '../audio/Audio.js';
 import { WEAPONS } from '../combat/WeaponDefs.js';
@@ -97,7 +97,7 @@ export class DebugConsole {
     if (c === 'doneshaun$123$') { this.print('developer console and Texture Studio removed.', 'ok'); this.lockTools(); return; }
     try {
       switch (c) {
-        case 'help': ['models-weapons · model-player · model-vehicles · model-npc — model tools: replace / edit models, textures, animations (dev builds)', 'textures — Texture Studio · map — map editor (upload models: Map editor → Add → Model) · animations · npc', 'debug.menu true|false — enable the debug menu (open it with Numpad 2)', 'time <0-24> · freeze [on|off]', `weather <${Object.keys(WEATHER).join('|')}>`, 'money <amount>', 'god [on|off] · ammo [on|off] (infinite) · nowanted [on|off]', 'mind · mind stats · mind off|on — NPC personality / feelings / memories',
+        case 'help': ['models-weapons · model-player · model-vehicles · model-npc — model tools: replace / edit models, textures, animations (dev builds)', 'bank-edit — bank editor: move / turn / scale / hide / retexture any part of the bank hall (inside the bank, dev builds)', 'textures — Texture Studio · map — map editor (upload models: Map editor → Add → Model) · animations · npc', 'debug.menu true|false — enable the debug menu (open it with Numpad 2)', 'time <0-24> · freeze [on|off]', `weather <${Object.keys(WEATHER).join('|')}>`, 'money <amount>', 'god [on|off] · ammo [on|off] (infinite) · nowanted [on|off]', 'mind · mind stats · mind off|on — NPC personality / feelings / memories',
           `give <all|grenades|${WEAPONS.map((w) => w.id).join('|')}>`, 'tp <place> | tp <x> <z> | tp waypoint · places', 'roadcheck · roadcheck tp <n> — list buildings / landmarks / stalls / walls standing on a road (incl. map-editor edits)', 'drunk <0..1> · room <dineth|shashika|david>', 'vehicle info|repair|upright|open|close|dmg|shoot [n]|tyre|glass|dent|fire|explode — your vehicle, or the nearest within 10 m', 'bench [seconds] — frame-rate benchmark of real play (avg fps, 1 % / 0.1 % lows, worst frame); the console closes while it runs', `spawn ped [n] · spawn car [${VEH.join('|')}|<catalogue id>]`, 'cars — list the 40 catalogue vehicles (ids for spawn car)', `model <${MODELS.join('|')}|civilian|reset>`, 'dress [outfit] — re-dress pedestrians within 35 m · outfits', 'animations — animation editor (every animation in the game, keyframes, poses, speed …)', 'map — map editor (move / add / delete / repaint anything, save the map)', 'npc — NPC editor (remodel NPCs: every appearance parameter, proportions, paint on the model, fabric textures)', 'sounds — sound window: replace any sound (weapons, vehicles, sirens, ambience, music …) with your own .mp3 / .wav; built into the .exe', 'dialogs — NPC voices window: your own recordings for every kind of NPC talking, screaming, scared, running away, hurt, car stolen, police orders …', ...(TEXTURE_STUDIO ? ['textures — Texture Studio (dev builds): click any object, replace its textures / material settings, library, save + export'] : []), 'heli [call|land|info] — the police helicopter (also dispatched at 4★+)', 'heal · clear · close'].forEach((s) => this.print('  ' + s)); break;
         case 'debug.menu': this.D.menuEnabled = on(a[0], this.D.menuEnabled); if (!this.D.menuEnabled) this.toggleMenu(false); this.print(`debug menu ${this.D.menuEnabled ? 'ENABLED — press Numpad 2 to open it' : 'disabled'}`, 'ok'); break;
         case 'time': this.setTime(+a[0]); break;
@@ -128,6 +128,10 @@ export class DebugConsole {
           if (!TEXTURE_STUDIO) { this.print('the model tools are development tools and are not part of this build (run npm run dev, or build with npm run build:studio)', 'err'); break; }
           const mode = c.includes('weapon') ? 'weapons' : c.includes('player') ? 'player' : c.includes('vehicle') ? 'vehicles' : 'npc'; this.print(`opening the model tools (${mode})…`, 'sys'); this.toggle(false);
           openModelStudio(this.g, mode).catch((e) => { console.error(e); this.toggle(true); this.print('model tools failed to load: ' + ((e && e.message) || e), 'err'); }); break; }
+        case 'bank-edit': case 'bankedit': case 'bank-editor': // 73rd: bank editor (development builds only; separate module, downloaded only now)
+          if (!TEXTURE_STUDIO) { this.print('the bank editor is a development tool and is not part of this build (run npm run dev, or build with npm run build:studio)', 'err'); break; }
+          this.print('opening the bank editor…', 'sys'); this.toggle(false);
+          openBankEditor(this.g).catch((e) => { console.error(e); this.toggle(true); this.print('bank editor: ' + ((e && e.message) || e), 'err'); }); break;
         case 'textures': case 'texture': case 'texstudio': // 59th: Texture Studio (development builds only; separate module, downloaded only now)
           if (!TEXTURE_STUDIO) { this.print('the Texture Studio is a development tool and is not part of this build (run npm run dev, or build with npm run build:studio)', 'err'); break; }
           this.print('opening the Texture Studio…', 'sys'); this.toggle(false);
@@ -332,7 +336,7 @@ export class DebugConsole {
         { label: 'Inspect nearest person (console)', act: () => { this.toggleMenu(false); this.toggle(true); this.exec('mind'); } },
         { label: 'Benchmark 20 s (result in console)', act: () => { this.toggleMenu(false); this.bench(20); } },
         { label: 'Show FPS counter', val: () => t(Settings.get('showFps')), act: () => Settings.set('showFps', !Settings.get('showFps')) },
-        { label: 'Editors', sub: () => ({ title: 'Editors (loaded on demand)', items: [['animations', 'Animation editor'], ['map', 'Map editor (+ upload models)'], ['npc', 'NPC editor'], ...(TEXTURE_STUDIO ? [['textures', 'Texture Studio'], ['models-weapons', 'Model tools — weapons'], ['model-player', 'Model tools — player (3 heroes)'], ['model-vehicles', 'Model tools — vehicles & trains'], ['model-npc', 'Model tools — NPCs']] : [])].map(([k, n]) => ({ label: n, act: () => { this.toggleMenu(false); this.exec(k); } })) }) },
+        { label: 'Editors', sub: () => ({ title: 'Editors (loaded on demand)', items: [['animations', 'Animation editor'], ['map', 'Map editor (+ upload models)'], ['npc', 'NPC editor'], ...(TEXTURE_STUDIO ? [['textures', 'Texture Studio'], ['models-weapons', 'Model tools — weapons'], ['model-player', 'Model tools — player (3 heroes)'], ['model-vehicles', 'Model tools — vehicles & trains'], ['model-npc', 'Model tools — NPCs'], ['bank-edit', 'Bank editor (inside the bank)']] : [])].map(([k, n]) => ({ label: n, act: () => { this.toggleMenu(false); this.exec(k); } })) }) },
       ] }) },
       { label: 'Boats & marina', sub: () => this.boatsMenu() },
       { label: 'Pedestrian clothing', sub: () => ({ title: 'Re-dress pedestrians (35 m)', items: [{ label: 'Random outfits', act: () => this.dress() }, ...this.outfits().map((o) => ({ label: o, act: () => this.dress(o) }))] }) },

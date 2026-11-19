@@ -28,6 +28,7 @@ export async function fetchModelPack() {
   if (typeof fetch === 'function' && typeof location !== 'undefined') try { const r = await fetch('model-pack/manifest.json', { cache: 'no-cache' }); if (r.ok) { const j = await r.json(); if (j && j.format === 'colombo.model-manifest') MPACK = j; } } catch { /* no pack (file:// or offline) */ }
   return MPACK;
 }
+export function modelPackNow() { return MPACK || null; } // (73rd: the bank layout, read when the hall is built — fetched at boot)
 export function setModelPack(m) { MPACK = m; } // the tools keep the cached copy current after a save
 const packHasMap = (p) => !!(p && p.map && ((p.map.added && p.map.added.length) || (p.map.mods && Object.keys(p.map.mods).length) || (p.map.textures && Object.keys(p.map.textures).length)));
 const packHasModels = (p) => !!(p && (Object.keys(p.weapons || {}).length || Object.keys(p.heroes || {}).length || Object.keys(p.vehicles || {}).length || (p.npcs && p.npcs.rules && p.npcs.rules.length) || Object.keys(p.anims || {}).length || Object.keys(p.objects || {}).length));
@@ -66,6 +67,12 @@ export async function openModelStudio(game, mode) {
   if (DevLock.locked) throw new Error('developer tools are locked');
   if (TEXTURE_STUDIO) { const mod = await import('./ModelStudio.js'); const ed = await mod.open(game, mode); (globalThis.__editors ||= {}).models = ed; return ed; }
   throw new Error('the model tools are development tools — not part of this build (npm run dev, or npm run build:studio)');
+}
+// 73rd: bank editor (console bank-edit) — move / turn / scale / hide / retexture any part of the bank hall; development builds only
+export async function openBankEditor(game) {
+  if (DevLock.locked) throw new Error('developer tools are locked');
+  if (TEXTURE_STUDIO) { const mod = await import('./BankEditor.js'); const ed = await mod.open(game); (globalThis.__editors ||= {}).bank = ed; return ed; }
+  throw new Error('the bank editor is a development tool — not part of this build (npm run dev, or npm run build:studio)');
 }
 export async function openTextureStudio(game) {
   if (DevLock.locked) throw new Error('developer tools are locked');

@@ -58,9 +58,22 @@ export const KIT = {
   fabric: { rough: 0.95 }, mirror: { rough: 0.03, metal: 1, color: 0xffffff, env: 1.6 },
 };
 export class Kit {
-  constructor() { this.mb = new MultiBuilder(); this.extra = {}; }
-  get(name) { if (!MAT[name] && KIT[name] && !this.extra[name]) this.extra[name] = kitMaterial(name, KIT[name]); return this.mb.get(name); }
-  meshes(opts = { cast: false, receive: true }) { const mats = Object.assign({}, MAT, this.extra); return this.mb.toMeshes(mats, opts); }
+  constructor() { this.mb = new MultiBuilder(); this.extra = {}; this.part = null; this.marks = null; }
+  get(name) { if (!MAT[name] && KIT[name] && !this.extra[name]) this.extra[name] = kitMaterial(name, KIT[name]); const b = this.mb.get(name); if (this.marks) { const key = this.mb.key(name); if (!this.marks.has(key)) this.mark(key, b); } return b; }
+  // 73rd: named parts (the bank's furniture and fittings — BankLayout.js). Everything built after part('Teller counter') belongs
+  // to that part until the next part() call; each merged mesh then knows the vertex / index range of every part in it
+  // (userData.parts = [[name, v0, v1, i0, i1], …]) — the draw stays ONE mesh per material, nothing extra is drawn.
+  parts() { this.marks = new Map(); return this; }
+  setPart(name) { if (!this.marks) return; this.part = name; for (const [key, b] of this.mb.b) this.mark(key, b); }
+  mark(key, b) { let L = this.marks.get(key); if (!L) this.marks.set(key, (L = [])); const v = b.vcount, i = b.idx.length, last = L[L.length - 1];
+    if (last && last[1] === v && last[2] === i) { last[0] = this.part; return; } if (last && last[0] === this.part) return; L.push([this.part, v, i]); }
+  meshes(opts = { cast: false, receive: true }) { const mats = Object.assign({}, MAT, this.extra);
+    const sizes = new Map(); if (this.marks) for (const [key, b] of this.mb.b) sizes.set(key, [b.vcount, b.idx.length]);
+    const out = this.mb.toMeshes(mats, opts);
+    if (this.marks) for (const m of out) { const key = m.userData.matKey || m.name; const L = this.marks.get(key), n = sizes.get(key); if (!L || !n) continue; const R = [];
+      for (let j = 0; j < L.length; j++) { const [nm, v0, i0] = L[j]; const v1 = j + 1 < L.length ? L[j + 1][1] : n[0], i1 = j + 1 < L.length ? L[j + 1][2] : n[1]; if (i1 <= i0 || !nm) continue; R.push([nm, v0, v1, i0, i1]); }
+      m.userData.parts = R; }
+    return out; }
   into(group, opts) { for (const m of this.meshes(opts)) group.add(m); return group; }
 }
 
