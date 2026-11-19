@@ -174,11 +174,11 @@ class Bank {
   }
   // continuous: keeps holder.smp = a looping source of id's recording feeding dest (null when id has no recording). The caller
   // sets dest's gain (distance, state) and smp.src.playbackRate (engine revs, rotor speed) every frame.
-  syncLoop(h, id, dest) {
+  syncLoop(h, id, dest, at = null) { // at: start offset in s (default: a random point — beds that should not phase together)
     const b = this.bypass ? null : this.buf.get(id) || null;
     if (h.smp && (h.smp.b !== b || h.smp.id !== id || h.smp.dest !== dest)) { const s = h.smp; h.smp = null; try { s.g.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05); s.src.stop(this.ctx.currentTime + 0.3); } catch { /* stopped */ } }
     if (!b || !dest || !this.ctx) return null;
-    if (!h.smp) { const c = this.ctx; const src = c.createBufferSource(); src.buffer = loopBuffer(c, b); src.loop = true; const g = c.createGain(); g.gain.value = this.level(id); src.connect(g); g.connect(dest); src.start(c.currentTime, Math.random() * b.duration); h.smp = { src, g, b, id, dest }; }
+    if (!h.smp) { const c = this.ctx; const src = c.createBufferSource(); src.buffer = loopBuffer(c, b); src.loop = true; const g = c.createGain(); g.gain.value = this.level(id); src.connect(g); g.connect(dest); src.start(c.currentTime, at ?? Math.random() * b.duration); h.smp = { src, g, b, id, dest }; }
     else h.smp.g.gain.value = this.level(id);
     return h.smp;
   }

@@ -125,7 +125,7 @@ try {
     A.sel = A.opts.findIndex((o) => o.act === 'confirm'); for (let i = 0; i < 5; i++) { I.pressed.add('Enter'); I.pressed.add('Space'); I.pressed.add('NumpadEnter'); await g.stepSim(1, 0.05); }
     const opt = A.root.querySelector('.atm-opt'); if (opt) opt.click(); A.execute();
     out.dup = g.bank.transact({ kind: 'withdraw', amount: 5000, ref, channel: 'ATM' }).code;
-    await wait(110); out.wPage = A.page; // 71st: the cash is counted for 5 s out.wMoney = S.money; out.wBal = a.balance; out.wDone = a.history.filter((e) => e.result === 'completed').length; out.hudAfterW = g.hud.money.textContent;
+    await wait(110); /* 71st: the cash is counted for 5 s */ out.wPage = A.page; out.wMoney = S.money; out.wBal = a.balance; out.wDone = a.history.filter((e) => e.result === 'completed').length; out.hudAfterW = g.hud.money.textContent;
     await pick('Another service');
     // 12 deposit Rs. 1,000 (fast amount) + Rs. 2,300 (keypad)
     await pick('Cash deposit'); await pick('Rs. 1,000'); await pick('Confirm'); await wait(110); out.dOk = !!(A.result && A.result.ok); await pick('Another service');

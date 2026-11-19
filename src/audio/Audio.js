@@ -254,7 +254,7 @@ class AudioEngine {
     if (!this.ready || !this.ctx) return; const c = this.ctx, t = c.currentTime; const W = (this.wheelMus ||= {});
     if (!W.g) { W.g = c.createGain(); W.g.gain.value = 0; W.out = c.createGain(); W.g.connect(W.out); W.out.connect(this.master); } W.out.gain.value = Settings.get('music') * 0.55; // beside the music bus (which dips)
     clearTimeout(W.stopT); const g = W.g.gain; g.cancelScheduledValues(t); g.setValueAtTime(g.value, t);
-    if (open) { if (SB.has('music.wheel')) SB.syncLoop(W, 'music.wheel', W.g); g.linearRampToValueAtTime(1, t + 1); }
+    if (open) { if (SB.has('music.wheel')) SB.syncLoop(W, 'music.wheel', W.g, 0); g.linearRampToValueAtTime(1, t + 1); } // from the top when it starts (still fading out: it carries on)
     else { g.linearRampToValueAtTime(0, t + 1); W.stopT = setTimeout(() => { if (!this.wheelOpen) SB.stopLoop(W); }, 1100); }
     this.wheelOpen = open;
     { const m = this.bus.music.gain, v = Settings.get('music') * 0.55; m.cancelScheduledValues(t); m.setValueAtTime(m.value, t); m.linearRampToValueAtTime(open && SB.has('music.wheel') ? v * 0.2 : v, t + 1); }

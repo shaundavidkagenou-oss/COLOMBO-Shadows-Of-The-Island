@@ -631,7 +631,7 @@ export function buildBankInterior(game, site) {
     if (pl.inside && !(game.atm && game.atm.open)) {
       const fx = Math.sin(pl.yaw), fz = Math.cos(pl.yaw);
       for (const m of atms) { const dx = pl.x - m.stand[0], dz = pl.z - m.stand[1]; if (Math.abs(dz) < 0.45 && dx > -0.2 && dx < 0.95 && -fx > 0.3) { room.nearAtm = m.i; room.prompt = m.user ? 'ATM in use — please wait' : `${key('interact')} Use ATM`; break; } }
-      if (room.nearAtm < 0) for (let i = 0; i < 4; i++) { const p = LOC['win' + i].at; if (Math.abs(pl.x - p[0]) < 0.6 && pl.z < p[1] + 0.5 && pl.z > p[1] - 0.3 && -fz > 0.3) { if (pool.some((o) => o.on && o.win === i)) { room.prompt = `Counter ${i + 1} · serving a customer`; break; } room.nearWin = i; break; } }
+      if (room.nearAtm < 0) for (let i = 0; i < 4; i++) { const p = LOC['win' + i].at; if (Math.abs(pl.x - p[0]) < 0.6 && pl.z < p[1] + 0.85 && pl.z > p[1] - 0.3 && -fz > 0.3) { if (pool.some((o) => o.on && o.win === i)) { room.prompt = `Counter ${i + 1} · serving a customer`; break; } room.nearWin = i; break; } }
       counterTalk(room.nearWin, pl);
     }
   };
