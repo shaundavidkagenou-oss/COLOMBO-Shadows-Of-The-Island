@@ -168,8 +168,9 @@ class Bank {
     head.connect(g); g.connect(p); p.connect(A.bus[out] || A.bus.sfx);
     if (verb && A.verb) { if (wet === 1) p.connect(A.verb); else { const s = c.createGain(); s.gain.value = Math.max(0, wet); p.connect(s); s.connect(A.verb); } }
     let end = t + b.duration / rate;
-    if (dur > 0 && dur < b.duration / rate) { end = t + dur; g.gain.setTargetAtTime(0.0001, Math.max(t, end - 0.045), 0.012); src.stop(end + 0.01); /* from whatever gain it has then (a horn's follows its car) */ }
-    src.start(t); const vo = { src, g, p, end, lvl }; V.push(vo); if (track) track.voice = vo; src.onended = () => { try { p.disconnect(); } catch { /* gone */ } };
+    src.start(t); // 72nd: start before any stop() — stop() on a source that was never started throws (InvalidStateError), which made every
+    // recording a little longer than its hard length (an mp3 of "exactly 1 s" decodes to ~1.03 s: encoder padding) throw out of the caller
+    if (dur > 0 && dur < b.duration / rate) { end = t + dur; g.gain.setTargetAtTime(0.0001, Math.max(t, end - 0.045), 0.012); src.stop(end + 0.01); /* from whatever gain it has then (a horn's follows its car) */ } const vo = { src, g, p, end, lvl }; V.push(vo); if (track) track.voice = vo; src.onended = () => { try { p.disconnect(); } catch { /* gone */ } };
     return true;
   }
   // continuous: keeps holder.smp = a looping source of id's recording feeding dest (null when id has no recording). The caller

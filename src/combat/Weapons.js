@@ -196,6 +196,7 @@ export class Weapons {
   update(dt, can) {
     const P = this.P, A = P.ch.anim;
     this.heatUpdate(dt);
+    if (Audio.wheelOpen && !this.wheelOpen) Audio.wheelScreen(false); // 72nd: never leave the wheel's music / slow-motion mix on with the wheel shut
     if (can && (P.vehicle || P.boat) && !P.entry && !P.exiting && !P.climb) return this.driveByUpdate(dt); // 58th: drive-by (pistols / compact carbines, one hand out of the window)
     if (this.db) this.driveByOff();
     if (!can || P.vehicle || P.boat || P.entry || P.exiting || P.climb || (P.indoor && !this.robRoom())) { /* walk-in robbery stores (RobberyShops.js) allow a drawn weapon */ if (this.drawn || this.state !== 'none') this.forceHolster(); else { A.ik = null; A.aim = null; } this.wheelClose(false); this.hudUpdate(dt); this.fxUpdate(dt); return; }

@@ -20,6 +20,8 @@ import { CMB, drawLogo, hasCanvas } from '../world/BankBrand.js';
 import { damp } from '../core/math.js';
 
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// 72nd: a sound that fails (a bad recording, an audio-context error) must never stop the machine mid-step
+const snd = (f) => { try { f(); } catch (e) { console.warn('[atm] sound failed', e); } };
 const FAST_W = [1000, 2000, 5000, 10000, 20000];
 const FAST_D = [1000, 5000, 10000, 20000];
 // 71st: the card in the right hand — held at its trailing end between thumb (on top) and index, palm to the left, fingers
@@ -91,9 +93,9 @@ export class ATMUI {
   }
 
   // ---- input
-  go(page) { this.page = page; this.sel = 0; this.msg = null; if (page !== 'other') this.entry = ''; Audio.ui('click'); this.render(); }
+  go(page) { this.page = page; this.sel = 0; this.msg = null; if (page !== 'other') this.entry = ''; this.render(); } // (the key that got here already sounded: BankSound.button)
   choose() {
-    if (this.busyT > 0) return; const o = this.opts[this.sel]; if (!o) return; BankSound.button(0.8); const P = this.g.player; P.ch.anim.play && P.ch.anim.play('interact', 0.4); const a = o.act;
+    if (this.busyT > 0) return; const o = this.opts[this.sel]; if (!o) return; snd(() => BankSound.button(0.8)); const P = this.g.player; P.ch.anim.play && P.ch.anim.play('interact', 0.4); const a = o.act;
     if (a === 'exit') { this.returnCard(); return; }
     if (a === 'withdraw' || a === 'deposit') { this.kind = a; this.go(a); return; }
     if (a === 'balance' || a === 'statement' || a === 'details' || a === 'menu') { this.go(a); return; }
@@ -108,7 +110,7 @@ export class ATMUI {
   // the one call that moves money. The request (and its reference) was made when the confirm page opened; it is consumed
   // here, so a second Enter / click on the same page — or any key held down — cannot reach transact() again
   execute() { const req = this.req; this.req = null; if (!req || this.page !== 'confirm') return;
-    const r = this.bank.transact(req); this.result = r; this.page = 'processing'; this.sel = 0; this.busyT = r.ok ? (req.kind === 'withdraw' || req.kind === 'deposit' ? CASH_LEN : 1.6) : 0.6; this.after = 'result'; if (r.ok) BankSound.cash(req.kind === 'deposit'); this.render();
+    const r = this.bank.transact(req); this.result = r; this.page = 'processing'; this.sel = 0; this.busyT = r.ok ? (req.kind === 'withdraw' || req.kind === 'deposit' ? CASH_LEN : 1.6) : 0.6; this.after = 'result'; if (r.ok) snd(() => BankSound.cash(req.kind === 'deposit')); this.render();
     if (r.ok && this.g.autosave) this.g.autosave(); }
 
   // ---- per frame (Game.update while open)
@@ -121,16 +123,16 @@ export class ATMUI {
     if (this.busyT > 0) { this.busyT -= dt; if (this.busyT <= 0) { this.busyT = 0; const n = this.after; this.after = null; if (n === 'close') { this.close(); return; } if (n === 'result') Audio.ui(this.result && this.result.ok ? 'success' : 'fail'); this.page = n || 'menu'; this.sel = 0; this.render(); } }
     else { const k = (c) => Input.keyPressed(c);
       if (k('Escape')) { this.back(); }
-      else if (k('Backspace')) { if (this.page === 'other' && this.entry) { this.entry = this.entry.slice(0, -1); BankSound.button(0.6); this.render(); } else this.back(); }
+      else if (k('Backspace')) { if (this.page === 'other' && this.entry) { this.entry = this.entry.slice(0, -1); snd(() => BankSound.button(0.6)); this.render(); } else this.back(); }
       else { if (k('ArrowUp') || k('KeyW')) this.step(-1); if (k('ArrowDown') || k('KeyS')) this.step(1); if (k('Enter') || k('NumpadEnter') || k('Space')) this.choose();
-        if (this.page === 'other') for (let d = 0; d <= 9; d++) if ((k('Digit' + d) || k('Numpad' + d)) && this.entry.length < 7 && !(this.entry === '' && d === 0)) { this.entry += d; BankSound.button(0.6); this.render(); } } }
+        if (this.page === 'other') for (let d = 0; d <= 9; d++) if ((k('Digit' + d) || k('Numpad' + d)) && this.entry.length < 7 && !(this.entry === '' && d === 0)) { this.entry += d; snd(() => BankSound.button(0.6)); this.render(); } } }
     if (this.clockEl) { const A = g.atmos; const t = A ? A.timeString : ''; if (t !== this.clockT) { this.clockT = t; this.clockEl.textContent = t; } }
     this.camera(dt);
   }
   // ---- 71st: the bank card — the player takes it out, lines it up with the reader and pushes it into the throat (his right hand
   // on it the whole way: arm IK onto the card's grip), the reader draws it in, the screen wakes; leaving, the machine returns it
   cardMesh() { if (!this.card) { this.card = bankCard(); this.card.frustumCulled = false; } if (this.card.parent !== this.g.scene) this.g.scene.add(this.card); this.card.visible = false; return this.card; }
-  returnCard() { this.page = 'bye'; this.sel = 0; this.busyT = 1e9; this.after = null; this.cardAnim = { kind: 'out', t: 0, sound: false, shown: true }; BankSound.cardReturn(); this.render(); }
+  returnCard() { this.page = 'bye'; this.sel = 0; this.busyT = 1e9; this.after = null; this.cardAnim = { kind: 'out', t: 0, sound: false, shown: true }; snd(() => BankSound.cardReturn()); this.render(); }
   // the card's world matrix with its centre `depth` m into the slot (negative: still outside), lifted / offset for the approach
   cardAt(depth, off = null) { const m = this.atm, S = m.slot; const rg = this.room.g; rg.updateWorldMatrix(true, false);
     const v = this._v.set(S[0] + CARD.w / 2 - depth, S[1], S[2]); if (off) v.add(off); const M = new THREE.Matrix4().makeTranslation(v.x, v.y, v.z); return M.premultiply(rg.matrixWorld); }
@@ -148,11 +150,12 @@ export class ATMUI {
       if (t < IN.push) { // hand comes up with the card (rest → in front of the reader), lined up 3 cm short of the slot, then pushes in
         const u = ss((t - 0.12) / (IN.lift - 0.12)); const off = LIFT.clone().multiplyScalar(1 - u); const depth = t < IN.lift ? -0.03 : -0.03 + 0.065 * ss((t - IN.lift) / (IN.push - IN.lift));
         this.handOn(this.cardAt(depth, off), ss(t / 0.42)); this._glue = true;
-        if (!C0.sound && t >= IN.lift + 0.12) { C0.sound = true; BankSound.card(false); } }
+      }
       else { // the reader's rollers take the card the rest of the way; the fingers open and the hand drops away
         const depth = 0.035 + 0.075 * ss((t - IN.push) / (IN.take - IN.push)); this.showCard(this.cardAt(depth)); if (depth >= CARD.w - 0.002 || t >= IN.take) this.card.visible = false;
         this.handOn(this.cardAt(0.035), 1 - ss((t - IN.push) / (IN.done - IN.push))); }
-      if (!C0.shown && t >= IN.screen) { C0.shown = true; this.root.classList.remove('hidden'); BankSound.open(); this.busyT = 1.0; this.render(); } // "reading your card" → menu
+      if (!C0.sound && t >= IN.lift + 0.12) { C0.sound = true; snd(() => BankSound.card(false)); } // the card meets the reader's throat
+      if (!C0.shown && t >= IN.screen) { C0.shown = true; this.root.classList.remove('hidden'); snd(() => BankSound.open()); this.busyT = 1.0; this.render(); } // "reading your card" → menu
       if (t >= IN.done) { this.cardAnim = null; if (A.reach && A.reach.atmCard) A.reach = null; this.card.visible = false; }
       return; }
     // out: hidden in the machine while the motor runs, slides out with the card-out sound, then the hand takes it and pockets it
@@ -162,9 +165,9 @@ export class ATMUI {
       this.handOn(this.cardAt(0.035 - 0.07 * u, off.equals(ZERO) ? null : off), 1 - ss((t - OUT.pull) / (OUT.done - OUT.pull))); this._glue = true; }
     if (C0.shown && t >= OUT.out) { C0.shown = false; this.root.classList.add('hidden'); }
     if (t >= OUT.done) { this.cardAnim = null; if (A.reach && A.reach.atmCard) A.reach = null; this.card.visible = false; this.close(); } }
-  back() { if (this.busyT > 0) return; const p = this.page; if (p === 'menu' || p === 'result' || p === 'balance' || p === 'statement' || p === 'details') { if (p === 'menu') { this.returnCard(); return; } }
+  back() { if (this.busyT > 0) return; snd(() => BankSound.button(0.8)); const p = this.page; if (p === 'menu' || p === 'result' || p === 'balance' || p === 'statement' || p === 'details') { if (p === 'menu') { this.returnCard(); return; } }
     if (p === 'other') { this.go(this.kind); return; } if (p === 'confirm') { this.req = null; this.go(this.kind); return; } this.go('menu'); }
-  step(d) { const n = this.opts.length; if (!n) return; this.sel = (this.sel + n + d) % n; Audio.ui('hover'); this.render(); }
+  step(d) { const n = this.opts.length; if (!n) return; this.sel = (this.sel + n + d) % n; snd(() => BankSound.button(0.6)); this.render(); } // 72nd: every key on the machine is its own button sound
 
   // ---- camera: steady, over the right shoulder onto the screen (the ATM faces +x in the room frame)
   camera(dt) {

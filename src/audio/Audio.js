@@ -253,9 +253,11 @@ class AudioEngine {
   wheelScreen(open) {
     if (!this.ready || !this.ctx) return; const c = this.ctx, t = c.currentTime; const W = (this.wheelMus ||= {});
     if (!W.g) { W.g = c.createGain(); W.g.gain.value = 0; W.out = c.createGain(); W.g.connect(W.out); W.out.connect(this.master); } W.out.gain.value = Settings.get('music') * 0.55; // beside the music bus (which dips)
-    clearTimeout(W.stopT); const g = W.g.gain; g.cancelScheduledValues(t); g.setValueAtTime(g.value, t);
+    clearTimeout(W.stopT); const g = W.g.gain; const v0 = Math.max(0, Math.min(1, g.value)); g.cancelScheduledValues(t); g.setValueAtTime(v0, t);
     if (open) { if (SB.has('music.wheel')) SB.syncLoop(W, 'music.wheel', W.g, 0); g.linearRampToValueAtTime(1, t + 1); } // from the top when it starts (still fading out: it carries on)
-    else { g.linearRampToValueAtTime(0, t + 1); W.stopT = setTimeout(() => { if (!this.wheelOpen) SB.stopLoop(W); }, 1100); }
+    // 72nd: the fade-out starts on the release itself and is heard at once — an exponential fall (−8.7 dB per 0.23 s: half the level
+    // in 0.16 s, −38 dB at 1 s) instead of a linear ramp, which stays loud for most of its second; the source stops at 1 s
+    else { g.setTargetAtTime(0, t, 0.23); g.setValueAtTime(0, t + 1); W.stopT = setTimeout(() => { if (!this.wheelOpen) SB.stopLoop(W); }, 1050); }
     this.wheelOpen = open;
     { const m = this.bus.music.gain, v = Settings.get('music') * 0.55; m.cancelScheduledValues(t); m.setValueAtTime(m.value, t); m.linearRampToValueAtTime(open && SB.has('music.wheel') ? v * 0.2 : v, t + 1); }
     for (const k of ['sfx', 'amb', 'dlg']) { const b = this.bus[k].gain; b.cancelScheduledValues(t); const v = Settings.get(k === 'amb' ? 'ambience' : k === 'dlg' ? 'dialogue' : 'sfx'); b.setTargetAtTime(open ? v * 0.45 : v, t, open ? 0.12 : 0.3); }
