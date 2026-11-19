@@ -568,6 +568,7 @@ export class Game {
     if (this.boats && !D.active) this.boats.update(dt, P); /* before the player: the boat he rides moves first, the camera follows it this frame */
     if (this.photo) this.updatePhoto(dt);
     else if (!D.active) P.update(dt, this.traffic);
+    if (this.atm && this.atm.open && !warmOnly) this.atm.lateUpdate(); // 71st: the bank card in the player's hand, after his pose
     this.squad.update(dt, busy || warmOnly || !!this.photo);
     if (!warmOnly) { this.stunts.update(dt); this.skills.update(dt); } // stunt-jump cinematic (owns the camera while it plays) + skill growth
     D.update(dt);

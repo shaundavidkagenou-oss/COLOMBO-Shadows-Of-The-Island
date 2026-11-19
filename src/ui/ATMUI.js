@@ -140,12 +140,14 @@ export class ATMUI {
   cardInHand() { const hb = this.g.player.ch.bones.handR; hb.updateWorldMatrix(true, false); const p = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3(); hb.matrixWorld.decompose(p, q, sc);
     return new THREE.Matrix4().compose(p, q, new THREE.Vector3(1, 1, 1)).multiply(CARD_IN_HAND); }
   showCard(M) { const c = this.card; c.matrix.copy(M); c.matrixWorld.copy(M); c.visible = true; }
-  stepCard(dt) { const C0 = this.cardAnim, t = (C0.t += dt), g = this.g; const LIFT = new THREE.Vector3(0.2, -0.13, 0.08), ZERO = new THREE.Vector3();
+  // after the player's animation this frame (Game.updatePlay): the card follows the hand bone where the arm IK has put it now
+  lateUpdate() { if (this._glue && this.card && this.open) this.showCard(this.cardInHand()); }
+  stepCard(dt) { this._glue = false; const C0 = this.cardAnim, t = (C0.t += dt), g = this.g; const LIFT = new THREE.Vector3(0.2, -0.13, 0.08), ZERO = new THREE.Vector3();
     const A = g.player.ch.anim;
     if (C0.kind === 'in') {
       if (t < IN.push) { // hand comes up with the card (rest → in front of the reader), lined up 3 cm short of the slot, then pushes in
         const u = ss((t - 0.12) / (IN.lift - 0.12)); const off = LIFT.clone().multiplyScalar(1 - u); const depth = t < IN.lift ? -0.03 : -0.03 + 0.065 * ss((t - IN.lift) / (IN.push - IN.lift));
-        this.handOn(this.cardAt(depth, off), ss(t / 0.42)); this.showCard(this.cardInHand());
+        this.handOn(this.cardAt(depth, off), ss(t / 0.42)); this._glue = true;
         if (!C0.sound && t >= IN.lift + 0.12) { C0.sound = true; BankSound.card(false); } }
       else { // the reader's rollers take the card the rest of the way; the fingers open and the hand drops away
         const depth = 0.035 + 0.075 * ss((t - IN.push) / (IN.take - IN.push)); this.showCard(this.cardAt(depth)); if (depth >= CARD.w - 0.002 || t >= IN.take) this.card.visible = false;
@@ -157,7 +159,7 @@ export class ATMUI {
     if (t < OUT.emerge) { this.card.visible = false; }
     else if (t < OUT.grab) { const depth = 0.11 - 0.075 * ss((t - OUT.emerge) / (OUT.out - OUT.emerge)); this.showCard(this.cardAt(depth)); if (t > OUT.out - 0.35) this.handOn(this.cardAt(depth), ss((t - (OUT.out - 0.35)) / 0.65)); }
     else { const u = ss((t - OUT.grab) / (OUT.pull - OUT.grab)); const off = LIFT.clone().multiplyScalar(ss((t - OUT.grab - 0.2) / (OUT.done - OUT.grab - 0.2)));
-      this.handOn(this.cardAt(0.035 - 0.07 * u, off.equals(ZERO) ? null : off), 1 - ss((t - OUT.pull) / (OUT.done - OUT.pull))); this.showCard(this.cardInHand()); }
+      this.handOn(this.cardAt(0.035 - 0.07 * u, off.equals(ZERO) ? null : off), 1 - ss((t - OUT.pull) / (OUT.done - OUT.pull))); this._glue = true; }
     if (C0.shown && t >= OUT.out) { C0.shown = false; this.root.classList.add('hidden'); }
     if (t >= OUT.done) { this.cardAnim = null; if (A.reach && A.reach.atmCard) A.reach = null; this.card.visible = false; this.close(); } }
   back() { if (this.busyT > 0) return; const p = this.page; if (p === 'menu' || p === 'result' || p === 'balance' || p === 'statement' || p === 'details') { if (p === 'menu') { this.returnCard(); return; } }

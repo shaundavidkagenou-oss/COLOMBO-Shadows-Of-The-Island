@@ -96,9 +96,18 @@ try {
     return out; });
   ok(!atm.openWithoutKey && /Use ATM/.test(atm.prompt || '') && atm.open && !atm.domEarly && atm.dom && atm.control === false && atm.camOverride && atm.atmPlayer, `9 ATM: prompt "${String(atm.prompt)}", opens only on the interact key; controls locked, camera taken, machine marked in use`);
   ok(atm.page === 'menu' && atm.brand === 'CEYLON MERIDIAN BANK' && !atm.mapOpened && !atm.phoneOpened && !atm.paused && atm.camMove < 0.05 && atm.playerMoved < 0.01, `9 ATM: card read → menu, branded "${atm.brand}"; map / phone / pause keys ignored; camera steady (${atm.camMove} m); player held (${atm.playerMoved} m)`);
-  ok(atm.cardSeen >= 4 && atm.cardHand < 0.2 && atm.openAt2s && !atm.cardOutEarly && atm.cardOut, `9 ATM (71st): card shown in the hand for ${atm.cardSeen} frames (hand–card ${atm.cardHand} m) before the screen; on leaving the card stays in for 2.3 s, then comes out (${atm.cardOutEarly}→${atm.cardOut})`);
+  ok(atm.cardSeen >= 4 && atm.cardHand < 0.13 && atm.openAt2s && !atm.cardOutEarly && atm.cardOut, `9 ATM (71st): card shown in the hand for ${atm.cardSeen} frames (hand–card ${atm.cardHand} m) before the screen; on leaving the card stays in for 2.3 s, then comes out (${atm.cardOutEarly}→${atm.cardOut})`);
   ok(atm.closed && atm.controlBack && atm.camBack && atm.atmFree, `9 ATM: Esc returns the card ("${atm.pageAfterEsc}") and closes; controls + camera restored, machine free`);
   lap('ATM open / close');
+  // ---------------------------------------------------------------- 9b (71st) · counter: the officer speaks by herself, the "use the ATM" card
+  const ctr = await page.evaluate(async () => { const g = window.__game, W = g.interiors.walkIn, s = W.siteById('bank'), P = g.player, r = s.room; const out = {};
+    r.staffOn = (() => { const f = r.staffOn; return () => true; })(); for (const c of r.customers) if (c.on && c.win === 0) { c.on = false; c.ch.root.visible = false; }
+    const subs = []; const sub0 = g.hud.subtitle.bind(g.hud); g.hud.subtitle = (w, t, ...a) => { subs.push([w, t]); return sub0(w, t, ...a); };
+    const p = r.LOC.win0.at; const [wx, wz] = W.world(s, p[0], p[1] + 0.2); P.x = wx; P.z = wz; P.yaw = s.yaw + Math.PI; P.camYaw = P.yaw + Math.PI; await g.stepSim(4, 0.05);
+    out.prompt = r.prompt; out.subs = subs.slice(); out.note = [...document.querySelectorAll('.note.bank b')].map((e) => e.textContent);
+    await g.stepSim(6, 0.05); out.repeat = subs.length; // standing there: no repeat
+    g.hud.subtitle = sub0; return out; });
+  ok(ctr.subs.some(([w]) => /Counter 1 officer/.test(w)) && !/Speak to/.test(ctr.prompt || '') && ctr.note.includes('Use the ATM') && ctr.repeat === ctr.subs.length, `9b counter (71st): stepping up, the officer speaks by herself ("${(ctr.subs[0] || [])[1]}"), no key prompt; "${ctr.note[0]}" card shown; no repeat while standing there`);
 
   // ---------------------------------------------------------------- 10-15 + 19 · transactions through the ATM's own keys
   const tx = await page.evaluate(async () => { const g = window.__game, W = g.interiors.walkIn, s = W.siteById('bank'), P = g.player, r = s.room, I = window.__Input, S = g.story.state, A = g.atm; const out = {};
