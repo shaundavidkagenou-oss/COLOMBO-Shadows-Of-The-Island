@@ -63,6 +63,10 @@ export const SOUND_DEFS = [
   ...[1, 2].map((n) => ({ id: 'bank.phone.hangup' + n, name: `Bank — landline handset put down ${n} (1 s)`, cat: 'Bank', lvl: 0.4 })),
   ...[1, 2, 3].map((n) => ({ id: 'bank.chair.up' + n, name: `Bank — office chair: getting up, variation ${n} (2 s)`, cat: 'Bank', lvl: 0.4 })),
   ...[1, 2, 3].map((n) => ({ id: 'bank.chair.down' + n, name: `Bank — office chair: sitting down, variation ${n} (2 s · seated at ${n === 1 ? '1.3' : '1.0'} s)`, cat: 'Bank', lvl: 0.4 })),
+  // 73rd: drinking (bars, club, the heroes' rooms — HeroRooms.Drink): the pour plays while the liquor runs (cut with a short fade when
+  // the bottle tips back up), the bottle's put-down when its base meets the counter; one of the two variations at random each time
+  ...[1, 2].map((n) => ({ id: 'drink.pour' + n, name: `Drinking — pouring a shot, variation ${n}`, cat: 'Drinking', lvl: 0.45 })),
+  ...[1, 2].map((n) => ({ id: 'drink.bottle.down' + n, name: `Drinking — glass bottle put down, variation ${n}`, cat: 'Drinking', lvl: 0.45 })),
   { id: 'footstep', name: 'Footstep', cat: 'Player', lvl: 0.25 }, { id: 'phone.ring', name: 'Phone ringing', cat: 'Player', lvl: 0.3 },
   { id: 'ui.click', name: 'Menu click', cat: 'Interface', lvl: 0.25 }, { id: 'ui.hover', name: 'Menu hover', cat: 'Interface', lvl: 0.15 }, { id: 'ui.notify', name: 'Notification', cat: 'Interface', lvl: 0.3 },
   { id: 'ui.wheel.open', name: 'Weapon wheel — opens', cat: 'Interface', lvl: 0.35 }, { id: 'ui.wheel.switch', name: 'Weapon wheel — switching weapon', cat: 'Interface', lvl: 0.3 },
