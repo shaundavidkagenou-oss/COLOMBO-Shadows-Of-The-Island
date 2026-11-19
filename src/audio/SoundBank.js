@@ -50,14 +50,29 @@ export const SOUND_DEFS = [
   { id: 'debris', name: 'Debris landing', cat: 'Ambience', lvl: 0.4 }, { id: 'bread.tuk', name: 'Bakery three-wheeler chime', cat: 'Ambience', lvl: 0.3 },
   // 67th: Ceylon Meridian Bank (BankAudio.js)
   { id: 'bank.ambience', name: 'Bank — banking hall room tone (loop)', cat: 'Bank', kind: 'loop', lvl: 0.45 }, { id: 'bank.chime', name: 'Bank — queue number chime', cat: 'Bank', lvl: 0.3 },
-  { id: 'atm.beep', name: 'ATM — key beep', cat: 'Bank', lvl: 0.25 }, { id: 'atm.card', name: 'ATM — card in / out', cat: 'Bank', lvl: 0.3 }, { id: 'atm.cash', name: 'ATM — cash dispensed / counted', cat: 'Bank', lvl: 0.4 },
+  { id: 'atm.beep', name: 'ATM — key beep (other customers at the machines)', cat: 'Bank', lvl: 0.25 }, { id: 'atm.card', name: 'ATM — card inserted', cat: 'Bank', lvl: 0.3 }, { id: 'atm.cash', name: 'ATM — counting cash (5 s · deposit and withdrawal)', cat: 'Bank', lvl: 0.4 },
+  // 71st: the bank as a real place (BankAudio.js). Lengths are held exactly in code (a longer file is cut there with a short
+  // fade); the two loops are made seamless when they are loaded (encoder padding trimmed, the seam cross-faded: loopBuffer)
+  { id: 'atm.open', name: 'ATM — screen opens (1 s)', cat: 'Bank', lvl: 0.35 }, { id: 'atm.button', name: 'ATM — button press (1 s)', cat: 'Bank', lvl: 0.35 },
+  { id: 'atm.card.machine', name: 'ATM — card return mechanism (2.3 s, before the card comes out)', cat: 'Bank', lvl: 0.4 }, { id: 'atm.card.out', name: 'ATM — card comes out of the slot (0.3 s)', cat: 'Bank', lvl: 0.4 },
+  { id: 'bank.ac', name: 'Bank — wall air conditioner running (loop · seamless)', cat: 'Bank', kind: 'loop', lvl: 0.5 },
+  { id: 'bank.office', name: 'Bank — office staff: mouse clicks & keyboard typing (loop · seamless)', cat: 'Bank', kind: 'loop', lvl: 0.45 },
+  { id: 'bank.step.tile', name: 'Bank — NPC footstep on the tiled floor (1 s)', cat: 'Bank', lvl: 0.35 },
+  { id: 'bank.phone.ring', name: 'Bank — office landline ringing (31 s)', cat: 'Bank', lvl: 0.45 },
+  ...[1, 2].map((n) => ({ id: 'bank.phone.pickup' + n, name: `Bank — landline handset picked up ${n} (1 s)`, cat: 'Bank', lvl: 0.4 })),
+  ...[1, 2].map((n) => ({ id: 'bank.phone.hangup' + n, name: `Bank — landline handset put down ${n} (1 s)`, cat: 'Bank', lvl: 0.4 })),
+  ...[1, 2, 3].map((n) => ({ id: 'bank.chair.up' + n, name: `Bank — office chair: getting up, variation ${n} (2 s)`, cat: 'Bank', lvl: 0.4 })),
+  ...[1, 2, 3].map((n) => ({ id: 'bank.chair.down' + n, name: `Bank — office chair: sitting down, variation ${n} (2 s · seated at ${n === 1 ? '1.3' : '1.0'} s)`, cat: 'Bank', lvl: 0.4 })),
   { id: 'footstep', name: 'Footstep', cat: 'Player', lvl: 0.25 }, { id: 'phone.ring', name: 'Phone ringing', cat: 'Player', lvl: 0.3 },
   { id: 'ui.click', name: 'Menu click', cat: 'Interface', lvl: 0.25 }, { id: 'ui.hover', name: 'Menu hover', cat: 'Interface', lvl: 0.15 }, { id: 'ui.notify', name: 'Notification', cat: 'Interface', lvl: 0.3 },
+  { id: 'ui.wheel.open', name: 'Weapon wheel — opens', cat: 'Interface', lvl: 0.35 }, { id: 'ui.wheel.switch', name: 'Weapon wheel — switching weapon', cat: 'Interface', lvl: 0.3 },
   { id: 'ui.success', name: 'Success', cat: 'Interface', lvl: 0.3 }, { id: 'ui.fail', name: 'Failure', cat: 'Interface', lvl: 0.3 }, { id: 'ui.collect', name: 'Pick-up', cat: 'Interface', lvl: 0.3 }, { id: 'loot.cash', name: 'Loot — cash picked up', cat: 'Interface', lvl: 0.25 }, { id: 'loot.item', name: 'Loot — wallet / phone / bag picked up', cat: 'Interface', lvl: 0.25 }, { id: 'loot.weapon', name: 'Loot — weapon picked up', cat: 'Interface', lvl: 0.3 }, { id: 'loot.fail', name: 'Loot — can\'t take it', cat: 'Interface', lvl: 0.25 }, { id: 'ui.door', name: 'Door (building)', cat: 'Interface', lvl: 0.3 }, { id: 'ui.camera', name: 'Camera shutter', cat: 'Interface', lvl: 0.3 },
   ...[['explore', 'Free roam (day)'], ['night', 'Free roam (night)'], ['tension', 'Wanted'], ['chase', 'Police chase'], ['menu', 'Main menu'], ['intro', 'Intro'], ['radio1', 'Car radio — station 1'], ['radio2', 'Car radio — station 2'], ['club', 'Night club PA']]
     .map(([m, n]) => ({ id: 'music.' + m, name: 'Music — ' + n + ' (loop)', cat: 'Music', kind: 'loop', lvl: 0.7 })),
   // 57th: background music while the pause map is open — two slots; which one plays is picked in the sounds window (Music)
   { id: 'music.map1', name: 'Music — Map screen, track 1 (loop)', cat: 'Music', kind: 'loop', lvl: 0.7 }, { id: 'music.map2', name: 'Music — Map screen, track 2 (loop)', cat: 'Music', kind: 'loop', lvl: 0.7 },
+  // 71st: while the weapon wheel is held open — fades in over 1 s, out over 1 s on release, loops while held
+  { id: 'music.wheel', name: 'Music — Weapon wheel (loop · fades in / out over 1 s)', cat: 'Music', kind: 'loop', lvl: 0.7 },
   // 58th: the club DJ's set — seven song slots played by the DJ through the club's PA speakers (ClubSound.js), one after the
   // other with a DJ cross-fade. Songs are long, so they are STREAMED from the saved file (never decoded whole into memory).
   ...[1, 2, 3, 4, 5, 6, 7].map((n) => ({ id: 'music.club' + n, name: `Club DJ — song ${n} (through the club speakers)`, cat: 'Music', kind: 'song', stream: true, lvl: 0.9 })),
@@ -73,6 +88,25 @@ for (const base of VARIED) { const i = SOUND_DEFS.findIndex((d) => d.id === base
 SOUND_DEFS.push(...voiceDefs());
 for (const d of SOUND_DEFS) d.kind ||= 'shot';
 export const SOUND_BY_ID = Object.fromEntries(SOUND_DEFS.map((d) => [d.id, d]));
+// 71st: a recording looped without a gap or a click. Decoded MP3 / AAC files carry encoder padding (a few ms of digital
+// silence at either end) that a plain looping source plays as a dropout every pass; it is trimmed (at most 0.25 s per end,
+// so a loop that is meant to start quietly keeps its quiet part), then the last 40 ms are cross-faded (equal power) into the
+// first 40 ms, so the end flows into the start sample-continuously. Made once per decoded buffer.
+const LOOPED = new WeakMap();
+export function loopBuffer(ctx, b) {
+  if (!b || !ctx || !ctx.createBuffer) return b; const hit = LOOPED.get(b); if (hit) return hit; let out = b;
+  try {
+    const n = b.length, nc = b.numberOfChannels, sr = b.sampleRate; const ch = []; for (let c = 0; c < nc; c++) ch.push(b.getChannelData(c));
+    let peak = 0; for (const d of ch) for (let i = 0; i < n; i += 5) { const v = Math.abs(d[i]); if (v > peak) peak = v; }
+    const th = Math.max(1e-4, peak * 0.002); const loud = (i) => ch.some((d) => Math.abs(d[i]) > th);
+    const cap = Math.floor(sr * 0.25); let s = 0; while (s < cap && s < n - 1 && !loud(s)) s++; let e = n - 1; while (e > n - 1 - cap && e > s && !loud(e)) e--;
+    const len = e - s + 1, F = Math.min(Math.floor(sr * 0.04), Math.floor(len / 4));
+    if (len > sr * 0.3 && F > 32) { const L = len - F; out = ctx.createBuffer(nc, L, sr);
+      for (let c = 0; c < nc; c++) { const src = ch[c], dst = out.getChannelData(c); dst.set(src.subarray(s, s + L));
+        for (let i = 0; i < F; i++) { const x = (i + 0.5) / F; dst[i] = src[s + i] * Math.sin(x * Math.PI / 2) + src[s + L + i] * Math.cos(x * Math.PI / 2); } } }
+  } catch { out = b; }
+  LOOPED.set(b, out); return out;
+}
 export const SOUND_EXT = /\.(mp3|wav|ogg)$/i;
 const MAX_VOICES = 8; // overlapping copies of one recording (an automatic rifle with a 2 s recording)
 const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -144,7 +178,7 @@ class Bank {
     const b = this.bypass ? null : this.buf.get(id) || null;
     if (h.smp && (h.smp.b !== b || h.smp.id !== id || h.smp.dest !== dest)) { const s = h.smp; h.smp = null; try { s.g.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05); s.src.stop(this.ctx.currentTime + 0.3); } catch { /* stopped */ } }
     if (!b || !dest || !this.ctx) return null;
-    if (!h.smp) { const c = this.ctx; const src = c.createBufferSource(); src.buffer = b; src.loop = true; const g = c.createGain(); g.gain.value = this.level(id); src.connect(g); g.connect(dest); src.start(c.currentTime, Math.random() * b.duration); h.smp = { src, g, b, id, dest }; }
+    if (!h.smp) { const c = this.ctx; const src = c.createBufferSource(); src.buffer = loopBuffer(c, b); src.loop = true; const g = c.createGain(); g.gain.value = this.level(id); src.connect(g); g.connect(dest); src.start(c.currentTime, Math.random() * b.duration); h.smp = { src, g, b, id, dest }; }
     else h.smp.g.gain.value = this.level(id);
     return h.smp;
   }

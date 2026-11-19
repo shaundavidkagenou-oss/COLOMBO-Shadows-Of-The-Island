@@ -178,7 +178,7 @@ export async function open(game) {
     const q = search.value.trim().toLowerCase(), cat = catSel.value; const top = list.scrollTop; list.textContent = ''; let last = null, shown = 0;
     for (const d of DEFS) {
       if (cat && d.cat !== cat) continue; if (q && !(d.name.toLowerCase().includes(q) || d.id.includes(q))) continue; if (onlyCus.checked && !SoundBank.info(d.id) && !pend.has(d.id)) continue;
-      if (d.cat !== last) { last = d.cat; list.append(h('div', { cls: 'snd-cat' }, d.cat)); } if (d.id === 'music.map1') list.append(mapPick()); if (d.id === 'music.club1') list.append(clubPick()); list.append(row(d)); shown++;
+      if (d.cat !== last) { last = d.cat; list.append(h('div', { cls: 'snd-cat' }, d.cat)); if (d.cat === 'Bank') list.append(h('div', { style: { padding: '4px 8px', color: '#9fb0c0', fontSize: '11px', borderBottom: '1px solid #1a1f28' } }, 'Ceylon Meridian Bank: the hall, the office staff, the phone and the ATMs. The staff\'s spoken lines (the phone call, the counter officers) are in the dialogs window → Bank staff.')); } if (d.id === 'music.map1') list.append(mapPick()); if (d.id === 'music.club1') list.append(clubPick()); list.append(row(d)); shown++;
     }
     if (!shown) list.append(h('div', { style: { padding: '14px', color: '#7f8a98' } }, 'No sounds match.'));
     list.scrollTop = top; const nCus = DEFS.filter((d) => SoundBank.info(d.id)).length;

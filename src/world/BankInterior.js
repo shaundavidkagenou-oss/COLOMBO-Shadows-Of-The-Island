@@ -31,7 +31,10 @@ import { makeAppearance, makeBankStaffAppearance, isAdultSpec } from '../actors/
 import { routine } from '../actors/Routine.js';
 import { seatTopFor } from './ClubCast.js';
 import { CMB, FONTS, drawLogo, tracked, fitFont, hasCanvas, drawATMScreen, ATM_IDLE_VIEW } from './BankBrand.js';
-import { BankSound } from '../audio/BankAudio.js';
+import { BankSound, CHAIR_SEATED_AT, CHAIR_LEN } from '../audio/BankAudio.js';
+import { acUnit, landline, callPhone, bankCard, rb, HANDSET } from './BankProps.js';
+import { BANK_CALL, BANK_TELLERS, bankCallId, bankCounterId } from '../audio/VoiceDefs.js';
+import { SoundBank as SB } from '../audio/SoundBank.js';
 
 export const BANK_ROOM = Object.freeze({ name: 'Ceylon Meridian Bank', W: 14, D: 13.4, H: 3.6, windows: [-4.95, -1.65, 1.65, 4.95], staffed: [0, 1, 2], atmD: [1.6, 3.2], atmFace: -6.45, atmStandX: -5.84, open: [7.5, 19.5] });
 const ZF = -REVEAL; const Z = (d) => ZF - d;
@@ -134,7 +137,7 @@ function monitor(k, x, y, z, yaw, w = 0.52) {
   const [sx, sz] = P(0, 0.0125); const g = k.get('emissive'); g.box(sx, y + 0.305, sz, w - 0.03, w * 0.6 - 0.04, 0.002, { col: [0.5, 0.58, 0.68], rotY: yaw });
 }
 function keyboard(k, x, y, z, yaw) { k.get('plastic').box(x, y + 0.012, z, 0.43, 0.02, 0.14, { col: C('#1d1f23'), rotY: yaw }); const [mx, mz] = rot(x, z, yaw, 0.32, 0.0); k.get('plastic').box(mx, y + 0.012, mz, 0.06, 0.022, 0.1, { col: C('#1d1f23'), rotY: yaw }); }
-function deskPhone(k, x, y, z, yaw) { const pl = k.get('plastic'), c = C('#26282c'); pl.box(x, y + 0.03, z, 0.2, 0.06, 0.18, { col: c, rotY: yaw }); const [hx, hz] = rot(x, z, yaw, -0.05, 0); pl.box(hx, y + 0.075, hz, 0.06, 0.04, 0.2, { col: c, rotY: yaw }); }
+function deskPhone(k, x, y, z, yaw) { landline(k, x, y, z, yaw); } // 71st: a real corded office phone (BankProps.js) instead of two boxes
 function plant(k, x, z, h = 1.2, potCol = '#e9e5dc') { // potted plant: glazed pot + a clump of leaves
   lathe(k.get('glaze'), x, 0, z, [[0.16, 0], [0.2, 0.36], [0.215, 0.4], [0.001, 0.4]], 18, C(potCol));
   const lf = k.get('paint'); for (let i = 0; i < 9; i++) { const an = i * 2.4, r = 0.06 + (i % 3) * 0.05; const ly = 0.45 + (h - 0.45) * (0.35 + (i % 4) * 0.18); lf.box(x + Math.sin(an) * r, ly, z + Math.cos(an) * r, 0.05, h * 0.45, 0.16, { col: C(i % 2 ? '#3e6b3a' : '#4d7d45'), rotY: an }); }
@@ -195,7 +198,14 @@ export function buildBankInterior(game, site) {
     for (let r = 0; r < 4; r++) for (let c = 0; c < 3; c++) metal.box(AX + 0.14 + r * 0.035, 1.066, z + 0.1 - c * 0.045, 0.026, 0.012, 0.036, { col: C('#e4e6e8') });
     [['#b8352c', 0], ['#d9b42a', 1], ['#2f8a4a', 2]].forEach(([col, r]) => pl.box(AX + 0.14 + r * 0.045, 1.066, z - 0.06, 0.034, 0.012, 0.05, { col: C(col) })); // cancel · clear · enter
     for (const [dz, dw] of [[0.155, 0.01], [-0.115, 0.01]]) pl.box(AX + 0.19, 1.11, z + dz, 0.16, 0.09, dw, { col: C('#1b1c1f') }); pl.box(AX + 0.27, 1.11, z + 0.02, 0.01, 0.09, 0.28, { col: C('#1b1c1f') }); // keypad privacy shield
-    pl.box(AX + 0.09, 1.3, z - 0.3, 0.05, 0.06, 0.1, { col: C('#202226') }); emis.box(AX + 0.116, 1.3, z - 0.3, 0.002, 0.012, 0.07, { col: [0.3, 1, 0.45] }); // card reader, lit throat
+    // 71st: card reader as on a real machine — rounded housing standing out of the fascia, the slot (70 mm wide) in a lit green
+    // anti-skimming surround, a card pictogram over it; contactless pad below; status light; headphone jack; lit hood edges
+    rb(pl, AX + 0.088, 1.3, z - 0.3, 0.07, 0.088, 0.12, 0.014, C('#1c1e22')); rb(chrome, AX + 0.118, 1.3, z - 0.3, 0.012, 0.04, 0.094, 0.006, C('#c9ccd0'));
+    pl.box(AX + 0.1245, 1.3, z - 0.3, 0.003, 0.0035, 0.07, { col: C('#050506') }); for (const dy of [-0.0095, 0.0095]) emis.box(AX + 0.1245, 1.3 + dy, z - 0.3, 0.002, 0.003, 0.08, { col: [0.25, 1, 0.42] }); for (const dz of [-0.0405, 0.0405]) emis.box(AX + 0.1245, 1.3, z - 0.3 + dz, 0.002, 0.022, 0.003, { col: [0.25, 1, 0.42] });
+    emis.box(AX + 0.1235, 1.332, z - 0.3, 0.002, 0.011, 0.018, { col: [0.85, 0.9, 0.95] }); emis.box(AX + 0.1245, 1.332, z - 0.3 - 0.004, 0.0015, 0.004, 0.004, { col: [1, 0.8, 0.3] }); // card pictogram (chip end in)
+    rb(pl, AX + 0.078, 1.17, z - 0.3, 0.014, 0.075, 0.075, 0.01, C('#16181b')); for (const [dz, hh] of [[-0.012, 0.014], [0, 0.024], [0.012, 0.034]]) emis.box(AX + 0.0855, 1.17, z - 0.3 + dz, 0.0015, hh, 0.0025, { col: [0.75, 0.85, 1] }); // contactless )))
+    pl.cylinder(AX + 0.112, 1.075, z + 0.25, 0.006, 0.006, 0.01, 10, { col: C('#0c0c0d') }); for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) pl.box(AX + 0.113, 1.11 + i * 0.012, z + 0.235 + j * 0.012, 0.004, 0.005, 0.005, { col: C('#202226') }); // headphone jack · speaker
+    for (const s2 of [-1, 1]) emis.box(AX + 0.218, 1.39, z + s2 * 0.235, 0.004, 0.42, 0.004, { col: [0.35, 0.6, 1] }); rb(chrome, AX + 0.066, 0.9, z, 0.014, 0.13, 0.44, 0.012, C('#b4b8bc')); // lit hood edges · cash-slot bezel
     pl.box(AX + 0.075, 1.46, z - 0.3, 0.012, 0.012, 0.09, { col: C('#0c0c0d') }); // receipt slot
     pl.box(AX + 0.074, 0.9, z, 0.012, 0.08, 0.36, { col: C('#0c0c0d') }); for (const [dy, h] of [[0.945, 0.01], [0.855, 0.01]]) chrome.box(AX + 0.075, dy, z, 0.016, h, 0.38, { col: WHITE }); emis.box(AX + 0.076, 0.965, z, 0.002, 0.008, 0.3, { col: [0.3, 1, 0.45] }); // cash slot
     pl.box(AX + 0.074, 0.72, z + 0.05, 0.012, 0.02, 0.3, { col: C('#0c0c0d') }); // deposit slot
@@ -226,6 +236,7 @@ export function buildBankInterior(game, site) {
     ob(x - w / 2 - 0.05, x + w / 2 + 0.05, 2.9, 4.6); }
 
   // ---- right wall: plant, posters, brochure rack · left wall: water dispenser, notice, clock, plant
+  acUnit(k, xR, 2.93, Z(2.7), -Math.PI / 2, H); // 71st: the hall's wall split air conditioner (its sound: BankSound loops)
   plant(k, 6.55, Z(0.6), 1.3); ob(6.3, 6.8, 0.35, 0.85);
   paint.box(xR - 0.012, 1.6, Z(1.5), 0.02, 0.94, 0.64, { col: C('#c9b27a') }); face(prints, xR - 0.024, 1.6, Z(1.5), 0.6, 0.9, POSTER_UV.fd, '-x');
   paint.box(xR - 0.012, 1.6, Z(3.9), 0.02, 0.94, 0.64, { col: C('#c9b27a') }); face(prints, xR - 0.024, 1.6, Z(3.9), 0.6, 0.9, POSTER_UV.home, '-x');
@@ -292,6 +303,7 @@ export function buildBankInterior(game, site) {
 
   // ---- staff side: work surface, pedestals, workstations, teller chairs (built to the tellers), back wall
   const stand = { tellers: [], recep: null, mgr: null, sup: null, guard: null };
+  const PHONE = { x: -3.3 }; let callPh = null; // 71st: the back-office phone (filled in with the back wall)
   const staffSpecs = [makeBankStaffAppearance(6701, { sex: 'f' }), makeBankStaffAppearance(6702, { sex: 'm' }), makeBankStaffAppearance(6703, { sex: 'f' })];
   { const cx = (xL + cE) / 2, cw = cE - xL; paint.box(cx, 0.735, Z(9.7), cw, 0.03, 0.6, { col: C('#ebe7df') });
     for (const px of [xL + 0.3, -3.3, 0, 3.3, cE - 0.3]) metal.box(px, 0.36, Z(9.68), 0.44, 0.72, 0.52, { col: C('#c9ccd0') });
@@ -314,6 +326,13 @@ export function buildBankInterior(game, site) {
       for (let i = 0; i < 3; i++) { const geo = new THREE.BoxGeometry(0.9, 0.05, 0.04); st.geometry(geo, M.compose(new THREE.Vector3(vx, vy, vz + 0.2), Q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), i * Math.PI / 3), new THREE.Vector3(1, 1, 1)), C('#d4d7da')); geo.dispose(); }
       for (let i = 0; i < 16; i++) { const an = i / 16 * Math.PI * 2; st.box(vx + Math.cos(an) * 0.7, vy + Math.sin(an) * 0.7, vz + 0.125, 0.04, 0.04, 0.02, { col: C('#8d9297') }); } }
     for (let i = 0; i < 4; i++) { const fx = 3.75 + i * 0.52; metal.box(fx, 0.66, z0 + 0.32, 0.5, 1.32, 0.6, { col: C('#8f949a') }); for (let j = 0; j < 4; j++) { paint.box(fx, 0.2 + j * 0.31, z0 + 0.622, 0.46, 0.006, 0.006, { col: C('#5e6268') }); metal.box(fx, 0.3 + j * 0.31, z0 + 0.63, 0.12, 0.02, 0.02, { col: C('#d4d7da') }); } }
+    // 71st: back-office landline on a walnut credenza (the phone the officers get up to answer), the wall split AC above it
+    { const cx = PHONE.x, cz = z0 + 0.235; wal.box(cx, 0.375, cz, 1.0, 0.75, 0.44, { col: WHITE }); paint.box(cx, 0.755, cz, 1.02, 0.012, 0.46, { col: C('#ebe7df') }); paint.box(cx, 0.06, cz + 0.2, 0.96, 0.08, 0.04, { col: C('#1b1d21') });
+      for (const dx of [-0.25, 0.25]) { paint.box(cx + dx, 0.4, cz + 0.221, 0.004, 0.62, 0.003, { col: C('#3a2a1e') }); metal.box(cx + dx + (dx < 0 ? 0.2 : -0.2), 0.52, cz + 0.232, 0.012, 0.12, 0.014, { col: steelC }); } paint.box(cx, 0.4, cz + 0.221, 0.003, 0.62, 0.003, { col: C('#3a2a1e') });
+      pl.box(cx - 0.3, 0.775, cz + 0.02, 0.26, 0.03, 0.33, { col: C('#2a2c30') }); paint.box(cx - 0.3, 0.792, cz + 0.02, 0.22, 0.004, 0.3, { col: C('#f6f4ee') }); // document tray
+      paint.box(cx + 0.36, 0.764, cz + 0.06, 0.15, 0.006, 0.2, { col: C('#f3eedc') }); pl.cylinder(cx + 0.36, 0.77, cz - 0.1, 0.035, 0.035, 0.1, 12, { col: C('#202226') }); for (const [dx, col] of [[-0.01, '#1d3b7a'], [0.012, '#b8352c']]) pl.cylinder(cx + 0.36 + dx, 0.84, cz - 0.1, 0.004, 0.004, 0.12, 6, { col: C(col) }); // notepad, pen pot
+      callPh = callPhone(k, g, PHONE.x + 0.1, 0.761, cz + 0.02, 0); }
+    acUnit(k, PHONE.x, 2.8, z0, 0, H);
     { const cx2 = 6.5; pl.box(cx2, 0.5, z0 + 0.4, 0.6, 1.0, 0.62, { col: C('#e4e4e0') }); pl.box(cx2, 1.02, z0 + 0.4, 0.6, 0.04, 0.62, { col: C('#2a2c30') }); pl.box(cx2, 0.92, z0 + 0.72, 0.4, 0.06, 0.02, { col: C('#3a3c40') }); }
   }
 
@@ -473,6 +492,89 @@ export function buildBankInterior(game, site) {
       const to = s ? [s.x, Z(s.lane)] : [c.x, c.z]; const u = Math.min(1, m.t / 0.7), e = u * u * (3 - 2 * u); c.x = m.from[0] + (to[0] - m.from[0]) * e; c.z = m.from[1] + (to[1] - m.from[1]) * e; A.update(dt, 0); place(c);
       if (m.t >= 0.75) { act(c, null); if (c.seat >= 0) { seats[c.seat].occ = null; c.seat = -1; } c.cmd = null; } return; }
     c.cmd = null;
+  };
+
+  // ================================================================================== 71st: the back-office phone call
+  // The landline rings now and then — at random, and not on every visit; a free counter officer gets up from the office chair
+  // (the chair's "getting up" recording and the body's rise run on one clock), walks round the chair to the credenza, takes the
+  // handset off the cradle (pickup sound; the ring stops that instant), brings it to the ear (the hand holds it all the way:
+  // arm IK onto the handset's grip), takes the call — the nine lines in order over about a minute, the caller's side as pauses —
+  // turns back, puts it down (hang-up sound as it lands), walks back and sits down: the "sitting down" recording is started so
+  // that its seated moment (1.3 s into variation 1, 1.0 s into 2 and 3) is the frame the hips land on the seat.
+  const SEAT_D = 10.35, STAND_D = 10.08, V3 = THREE.Vector3;
+  const ss = (u) => { u = Math.max(0, Math.min(1, u)); return u * u * (3 - 2 * u); };
+  const wrap = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
+  const seatOf = (t) => [t.x, Z(SEAT_D) - 0.04], standOf = (t) => [t.x, Z(STAND_D)];
+  const sideOf = (t) => [t.x + (PHONE.x >= t.x ? 1 : -1) * 0.62, Z(STAND_D + 0.05)];
+  const callSpot = () => [PHONE.x - 0.02, z0 + 0.66];
+  const phoneAt = () => [PHONE.x + 0.1, z0 + 0.255];
+  // the right hand on the handset, in the handset's frame (long axis +z to the earpiece, cups towards −y): palm on its back,
+  // fingers across it — forward-left lifting it off the cradle, forward-up round it at the ear (the wrist turns on the way)
+  const handQ = (n, f) => { const X = n.clone().normalize(), Y = f.clone().normalize().negate(); const Zv = new V3().crossVectors(X, Y).normalize(); X.crossVectors(Y, Zv).normalize(); return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(X, Y, Zv)); };
+  const GRIP = { cradle: { q: handQ(new V3(0, -1, 0), new V3(0.8, 0, 0.6)), p: new V3(0, 0.034, 0).addScaledVector(new V3(0.8, 0, 0.6), -0.072) },
+    ear: { q: handQ(new V3(0, -1, 0), new V3(-0.75, 0, 0.66)), p: new V3(0, 0.034, -0.012).addScaledVector(new V3(-0.75, 0, 0.66).normalize(), -0.072) } };
+  // the handset at the right ear, in the head bone's frame: the earpiece on the ear (head-local x −0.08), the mouthpiece by the mouth
+  const EAR = (() => { const E = new V3(-0.081, 0.058, 0.006), Mi = new V3(-0.05, -0.042, 0.088); const zh = E.clone().sub(Mi).normalize(); const yh = new V3(-1, 0, 0).addScaledVector(zh, zh.x).normalize();
+    const xh = new V3().crossVectors(yh, zh).normalize(); yh.crossVectors(zh, xh).normalize(); return new THREE.Matrix4().makeBasis(xh, yh, zh).setPosition(E.clone().addScaledVector(yh, 0.024).addScaledVector(zh, -HANDSET.ear.z)); })();
+  const _hp = new V3(), _hq = new THREE.Quaternion(), _hs = new V3(), _gi = new THREE.Matrix4(), _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _p1 = new V3(), _p2 = new V3(), _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
+  const earLocal = (ch) => { const hb = ch.bones.head; hb.updateWorldMatrix(true, false); hb.matrixWorld.decompose(_hp, _hq, _hs); const e = EAR.clone(); e.elements[12] *= _hs.x; e.elements[13] *= _hs.y; e.elements[14] *= _hs.z;
+    _m1.compose(_hp, _hq, ONE3).multiply(e); g.updateWorldMatrix(true, false); _gi.copy(g.matrixWorld).invert(); return new THREE.Matrix4().multiplyMatrices(_gi, _m1); };
+  const ONE3 = new V3(1, 1, 1);
+  const blendM = (A, B, u, lift = 0) => { A.decompose(_p1, _q1, _hs); B.decompose(_p2, _q2, _hs); _p1.lerp(_p2, u); _p1.y += Math.sin(Math.PI * u) * lift; _q1.slerp(_q2, u); return new THREE.Matrix4().compose(_p1, _q1, ONE3); };
+  // hand target (world) from the handset's matrix in the room frame and a grip blend (0 cradle grip … 1 ear grip)
+  const holdAt = (ch, M, gu, w) => { g.updateWorldMatrix(true, false); _m2.multiplyMatrices(g.matrixWorld, M); _m2.decompose(_p1, _q1, _hs);
+    const p = GRIP.cradle.p.clone().lerp(GRIP.ear.p, gu).applyQuaternion(_q1).add(_p1); const q = _q1.clone().multiply(GRIP.cradle.q.clone().slerp(GRIP.ear.q, gu));
+    const R = ch.anim.reach && ch.anim.reach.bankPhone ? ch.anim.reach : (ch.anim.reach = { S: 'R', p, q, w, lean: 0, maxLean: 0.55, pose: 'mag', bankPhone: true }); R.p = p; R.q = q; R.w = w; };
+  const call = room.call = { st: 'idle', T: 20 + Math.random() * 70, t: 0, who: null, path: null, pi: 0, sp: 0, lean: 0, line: 0, next: 0, gapK: 1, n: 0, ts: 1, hung: false, yaw0: Math.PI, calls: 0 };
+  const GAPS = [2.6, 4.6, 6.2, 4.2, 5.0, 5.2, 4.4, 3.4];
+  const lineLen = (i) => SB.duration(bankCallId(i + 1)) || 0.7 + BANK_CALL[i].split(' ').length / 2.6;
+  const leanPose = (b) => { const l = call.lean; if (l) { b.spine.rotation.x += l * 0.6; b.chest.rotation.x += l * 0.4; } };
+  const startCall = (who) => { call.who = who; who.called = true; call.st = 'ring'; call.t = 0; call.react = 2.4 + Math.random() * 4.5; const [x, z] = phoneAt(); BankSound.ring(x, z); call.calls++; };
+  const endCall = (abort) => { const who = call.who; call.who = null; call.st = 'idle'; call.T = 70 + Math.random() * 130; BankSound.ringStop(); if (callPh) callPh.home();
+    if (who) { const A = who.ch.anim; who.away = false; who.called = false; who.act = null; who._rtn = null; A.sitW = null; A.postPose = null; A.reach = null; A.seated = true; if (who.ch.face) who.ch.face.talking = false;
+      if (abort) { const [sx, sz] = seatOf(who); who.ch.root.position.set(sx, 0, sz); who.ch.root.rotation.y = 0; A.set(null); } } };
+  room.ringNow = (w = null) => { if (call.st !== 'idle') return false; const free = stand.tellers.filter((t) => !t.away && !pool.some((o) => o.on && o.win === t.win)); const who = w || free.sort((a, b) => Math.abs(a.x - PHONE.x) - Math.abs(b.x - PHONE.x))[0]; if (!who) return false; startCall(who); return true; }; // tests / dev
+  // walk along call.path (room frame); returns true on arrival
+  const walk = (ch, dt) => { const r = ch.root.position, P = call.path[call.pi]; const dx = P[0] - r.x, dz = P[1] - r.z, d = Math.hypot(dx, dz); const last = call.pi === call.path.length - 1;
+    const want = Math.atan2(dx, dz), y0 = ch.root.rotation.y, ny = d > 0.06 ? turn(y0, want, dt * 6) : y0; ch.root.rotation.y = ny; const off = Math.abs(wrap(want - ny));
+    const target = off > 1.1 ? 0.12 : last ? Math.min(1.05, 0.25 + d * 2.0) : 1.05; call.sp += Math.max(-dt * 3, Math.min(dt * 2.2, target - call.sp));
+    const st = Math.min(d, call.sp * dt); if (d > 1e-4) { r.x += dx / d * st; r.z += dz / d * st; } ch.anim.update(dt, call.sp, wrap(ny - y0) / Math.max(dt, 1e-3));
+    if (d < (last ? 0.03 : 0.12)) { call.pi++; if (call.pi >= call.path.length) { call.sp = 0; return true; } } return false; };
+  const say = (who, id, text, x, z, whoName, near = 9) => { const d = BankSound.say(id, x, z); const est = 0.7 + text.split(' ').length / 2.6; const pl = room.pl;
+    if (game.hud && pl && pl.inside && Math.hypot(pl.x - x, pl.z - z) < near) game.hud.subtitle(whoName, text, '', Math.max(d, est) + 0.3); return d || est; };
+  const stepCall = (dt, pl) => {
+    if (!callPh) return; const C0 = call;
+    if (C0.st === 'idle') { if (!staffOn() || !pl || !pl.inside) return; if ((C0.T -= dt) > 0) return; C0.T = 40 + Math.random() * 80; if (Math.random() > 0.55) return; // random, and not every time
+      const free = stand.tellers.filter((t) => t.ch.root.visible && !t.away && !(t.speakT > 0) && !pool.some((o) => o.on && o.win === t.win)); if (!free.length) { C0.T = 15; return; }
+      free.sort((a, b) => Math.abs(a.x - PHONE.x) - Math.abs(b.x - PHONE.x)); startCall(Math.random() < 0.75 || free.length < 2 ? free[0] : free[1]); return; }
+    const who = C0.who; if (!who || !staffOn()) { endCall(true); return; } const ch = who.ch, A = ch.anim, r = ch.root.position; C0.t += dt; const t = C0.t;
+    const [px, pz] = phoneAt();
+    switch (C0.st) {
+      case 'ring': if (t >= C0.react) { who.away = true; who.act = null; C0.st = 'rise'; C0.t = 0; A.set('sit'); A.sitW = 1; A.postPose = leanPose; C0.lean = 0; const [sx, sz] = seatOf(who); r.set(sx, 0, sz); ch.root.rotation.y = 0; BankSound.chair('up', sx, sz); } break;
+      case 'rise': { // 0–0.4 s: hands to the knees, the trunk leans forward · 0.4–1.3 s: seat-off and up · then straighten
+        const [sx, sz] = seatOf(who), [tx, tz] = standOf(who); if (t >= 0.4 && A.seated) { A.seated = null; A.set('rise'); } if (t >= 1.35 && A.action === 'rise') A.set(null);
+        A.sitW = t < 0.4 ? 1 : 1 - ss((t - 0.4) / 0.9); const u = ss((t - 0.35) / 1.0); r.set(sx + (tx - sx) * u, 0, sz + (tz - sz) * u);
+        C0.lean = t < 0.55 ? 0.42 * ss(t / 0.55) : 0.42 * (1 - ss((t - 0.55) / 0.8)); A.update(dt, 0);
+        if (t >= CHAIR_LEN - 0.25) { A.sitW = null; A.postPose = null; C0.lean = 0; C0.path = [sideOf(who), callSpot()]; C0.pi = 0; C0.sp = 0; C0.st = 'walk'; C0.t = 0; } break; }
+      case 'walk': if (walk(ch, dt)) { C0.st = 'face'; C0.t = 0; } break;
+      case 'face': { const y0 = ch.root.rotation.y; ch.root.rotation.y = turn(y0, Math.PI, dt * 5); A.update(dt, 0, wrap(ch.root.rotation.y - y0) / Math.max(dt, 1e-3)); if (Math.abs(wrap(ch.root.rotation.y - Math.PI)) < 0.05 || t > 1) { C0.st = 'reach'; C0.t = 0; A._rLean = undefined; } break; }
+      case 'reach': holdAt(ch, callPh.cradle, 0, ss(t / 0.55)); A.update(dt, 0); if (t >= 0.55) { BankSound.ringStop(); BankSound.handset(true, px, pz); C0.st = 'lift'; C0.t = 0; A.set('phone'); callPh.off = true; } break;
+      case 'lift': { A.update(dt, 0); const u = ss(t / 0.9); const M = blendM(callPh.cradle, earLocal(ch), u, 0.07); callPh.set(M); holdAt(ch, M, u, 1); if (t >= 0.9) { C0.st = 'call'; C0.t = 0; C0.line = 0; C0.next = 0.35;
+        let S = 0; for (let i = 0; i < BANK_CALL.length; i++) S += lineLen(i); const G = GAPS.reduce((a, b) => a + b, 0); C0.gapK = Math.max(0.4, Math.min(2, (58 - S) / G)); C0.yaw0 = ch.root.rotation.y; } break; }
+      case 'call': { const y0 = ch.root.rotation.y; ch.root.rotation.y = C0.yaw0 + (Math.PI - 0.85 - C0.yaw0) * ss((t - 1.5) / 3.5); A.update(dt, 0, wrap(ch.root.rotation.y - y0) / Math.max(dt, 1e-3)); const M = earLocal(ch); callPh.set(M); holdAt(ch, M, 1, 1);
+        if (C0.line < BANK_CALL.length && t >= C0.next) { const i = C0.line++; const [wx2, wz2] = [r.x, r.z]; const d = say(who, bankCallId(i + 1), BANK_CALL[i], wx2, wz2, 'Bank officer (on the phone)'); C0.talkUntil = t + d; C0.next = t + d + (GAPS[i] ?? 1) * C0.gapK; }
+        if (ch.face) ch.face.talking = t < (C0.talkUntil || 0); if (C0.line >= BANK_CALL.length && t >= (C0.talkUntil || 0) + 1.2) { C0.st = 'turnBack'; C0.t = 0; } break; }
+      case 'turnBack': { const y0 = ch.root.rotation.y; ch.root.rotation.y = turn(y0, Math.PI, dt * 4); A.update(dt, 0, wrap(ch.root.rotation.y - y0) / Math.max(dt, 1e-3)); const M = earLocal(ch); callPh.set(M); holdAt(ch, M, 1, 1); if (ch.face) ch.face.talking = false; if (t >= 0.8) { C0.st = 'lower'; C0.t = 0; C0.hung = false; C0.earM = M; } break; }
+      case 'lower': { A.update(dt, 0); const u = ss(t / 0.85); const M = blendM(earLocal(ch), callPh.cradle, u, 0.06); callPh.set(M); holdAt(ch, M, 1 - u, 1);
+        if (!C0.hung && t >= 0.78) { C0.hung = true; BankSound.handset(false, px, pz); } if (t >= 0.85) { callPh.home(); A.set(null); C0.st = 'release'; C0.t = 0; } break; }
+      case 'release': holdAt(ch, callPh.cradle, 0, 1 - ss(t / 0.4)); A.update(dt, 0); if (t >= 0.4) { A.reach = null; C0.path = [sideOf(who), standOf(who)]; C0.pi = 0; C0.sp = 0; C0.st = 'walkBack'; C0.t = 0; } break;
+      case 'walkBack': if (walk(ch, dt)) { C0.st = 'faceDesk'; C0.t = 0; } break;
+      case 'faceDesk': { const y0 = ch.root.rotation.y; ch.root.rotation.y = turn(y0, 0, dt * 4.5); A.update(dt, 0, wrap(ch.root.rotation.y - y0) / Math.max(dt, 1e-3)); if (Math.abs(wrap(ch.root.rotation.y)) < 0.04 || t > 1.2) { ch.root.rotation.y = 0; const [tx, tz] = standOf(who); C0.n = BankSound.chair('down', tx, tz); C0.ts = CHAIR_SEATED_AT[C0.n] || 1; C0.st = 'sit'; C0.t = 0; A.postPose = leanPose; A.sitW = 0; } break; }
+      case 'sit': { // the descent takes 0.85 s and ends exactly at the recording's seated moment
+        const [sx, sz] = seatOf(who), [tx, tz] = standOf(who); const d0 = Math.max(0.12, C0.ts - 0.85); const u = (t - d0) / (C0.ts - d0); if (t >= d0 && A.action !== 'sit') A.set('sit');
+        const e = u <= 0 ? 0 : u >= 1 ? 1 : ss(u); A.sitW = e; r.set(tx + (sx - tx) * e, 0, tz + (sz - tz) * e); C0.lean = u <= 0 ? 0 : u < 1 ? 0.36 * Math.sin(Math.PI * Math.min(1, u * 1.15)) + 0.06 * u : 0.06 * (1 - ss((t - C0.ts) / 0.6));
+        if (u >= 1 && !A.seated) A.seated = true; A.update(dt, 0); if (t >= CHAIR_LEN) { endCall(false); who.ch.anim.set('type'); } break; }
+    }
   };
 
   // ---- staff, one frame

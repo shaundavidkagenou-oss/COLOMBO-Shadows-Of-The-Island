@@ -6,7 +6,7 @@
 // also into the project's sounds/ folder (so npm run build / build-exe.bat build them into the game and the .exe).
 import { Win, h, btn, beginSession, toast } from '../debug/ui.js';
 import { SOUND_BY_ID, SOUND_EXT, SoundBank } from '../audio/SoundBank.js';
-import { VOICE_GROUPS, VOICE_SITS, VOICE_CLIPS, voiceId, PROFILE_GROUP, GROUP_BY_ID } from '../audio/VoiceDefs.js';
+import { VOICE_GROUPS, VOICE_SITS, VOICE_CLIPS, voiceId, PROFILE_GROUP, GROUP_BY_ID, BANK_CALL, BANK_TELLERS, bankCallId, bankCounterId } from '../audio/VoiceDefs.js';
 import { Voices } from '../audio/Voices.js';
 import { Audio } from '../audio/Audio.js';
 import { makeZip } from './SoundsWindow.js';
@@ -29,6 +29,7 @@ const CSS = `
 .dlg-clip .st.cus{color:#7fd0a0}.dlg-clip .st.pend{color:#f0c060}.dlg-clip .st.bad{color:#f0866e}
 .dlg-clip input[type=range]{width:54px;accent-color:#e0a030}
 .dlg-clip button{padding:1px 6px}
+.dlg-g.bank{border-top:2px solid #2c3340}.dlg-line{color:#cfd7e0;font-style:italic;margin:2px 0 4px;font-size:11px}
 `;
 let cssDone = false;
 const ACCEPT = '.mp3,.wav,.ogg,audio/mpeg,audio/wav,audio/x-wav,audio/ogg';
@@ -77,7 +78,8 @@ export async function open(game) {
     return { cls: '', txt: 'empty', custom: false, vol: 1 };
   };
   const filled = (id) => { const p = pend.get(id); if (p) return p.op !== 'remove'; return !!SoundBank.info(id); };
-  const groupCount = (g) => { let n = 0; for (const s of VOICE_SITS) for (let k = 0; k < VOICE_CLIPS; k++) if (filled(voiceId(g, s.id, k))) n++; return n; };
+  const BANK_IDS = [...BANK_CALL.map((_, i) => bankCallId(i + 1)), ...BANK_TELLERS.flatMap((t) => t.lines.map((_, i) => bankCounterId(t.id, i + 1)))];
+  const groupCount = (g) => { if (g === 'bank') return BANK_IDS.filter(filled).length; let n = 0; for (const s of VOICE_SITS) for (let k = 0; k < VOICE_CLIPS; k++) if (filled(voiceId(g, s.id, k))) n++; return n; };
   // which group's clips a speaker of group g would hear for situation s (saved recordings only)
   const answers = (g, s) => { if (g === 'any') return SoundBank.has(voiceId('any', s)) ? 'any' : null; const id = Voices.find(specOf(g), s, ctxOf(g)); return id ? id.split('.')[1] : null; };
 
@@ -127,7 +129,9 @@ export async function open(game) {
   function render() {
     const gt = groupsEl.scrollTop; groupsEl.textContent = '';
     for (const g of VOICE_GROUPS) { const n = groupCount(g.id); groupsEl.append(h('div', { cls: 'dlg-g' + (g.id === group ? ' on' : ''), title: g.note, onclick: () => { group = g.id; main.scrollTop = 0; render(); } }, h('span', { cls: 'n' }, g.name), n ? h('span', { cls: 'c' }, n + ' clip' + (n > 1 ? 's' : '')) : null)); }
+    { const n = groupCount('bank'); groupsEl.append(h('div', { cls: 'dlg-g bank' + (group === 'bank' ? ' on' : ''), title: 'Ceylon Meridian Bank: the back-office phone call and the counter officers', onclick: () => { group = 'bank'; main.scrollTop = 0; render(); } }, h('span', { cls: 'n' }, 'Bank staff (CMB)'), n ? h('span', { cls: 'c' }, n + ' clip' + (n > 1 ? 's' : '')) : null)); }
     groupsEl.scrollTop = gt;
+    if (group === 'bank') { renderBank(); return; }
     const G = GROUP_BY_ID[group]; const q = search.value.trim().toLowerCase(); const mt = main.scrollTop; main.textContent = '';
     const chain = group === 'any' ? ['any'] : Voices.chain(specOf(group), ctxOf(group)).filter((x, i, a) => a.indexOf(x) === i);
     main.append(h('div', { cls: 'dlg-head' }, h('b', {}, G.name), ' — ', G.note, h('small', {}, group === 'any' ? 'Used by any NPC that has nothing more specific for that situation.' : `Where a situation has no clip here, these NPCs use: ${chain.slice(1).map((c) => GROUP_BY_ID[c].name).join(' → ')} → (the game's own voice blip / silence).`)));
@@ -137,9 +141,21 @@ export async function open(game) {
       main.append(h('div', { cls: 'dlg-sit' }, h('div', { cls: 't' }, h('b', {}, s.name), h('small', {}, s.note), h('span', { cls: 'use' }, use), btn('Hear in game', () => hear(group, s.id), { title: 'Play it like the game does, from 3 m in front of you (saved clips; several take turns)' })),
         h('div', { cls: 'dlg-clips' }, [...Array(VOICE_CLIPS)].map((_, n) => clipCell(voiceId(group, s.id, n), n)))));
     }
-    main.scrollTop = mt;
-    let tot = 0; for (const g of VOICE_GROUPS) tot += groupCount(g.id);
-    counter.textContent = `${VOICE_GROUPS.length} kinds of NPC × ${VOICE_SITS.length} situations · ${tot} clip(s)` + (pend.size ? ` · ${pend.size} unsaved change(s)` : ''); saveB.disabled = !pend.size; discardB.disabled = !pend.size;
+    main.scrollTop = mt; footer();
+  }
+  // 71st: Ceylon Meridian Bank staff — one clip per line; the line's text is the subtitle and the recording script
+  function renderBank() {
+    const q = search.value.trim().toLowerCase(); const mt = main.scrollTop; main.textContent = '';
+    main.append(h('div', { cls: 'dlg-head' }, h('b', {}, 'Bank staff — Ceylon Meridian Bank'), h('small', {}, 'Phone call: the officer who gets up to answer the back-office phone says lines 1 → 9 in order over about a minute (the caller\'s side is the pauses). Counter: each officer says one of their three lines on their own when the player walks up to the counter (they take turns). An empty slot shows the subtitle only.')));
+    const hearId = (id) => { const l = Audio.listener || { x: 0, z: 0, yaw: 0 }; if (!SoundBank.has(id) || !Audio.voice(id, l.x + Math.sin(l.yaw || 0) * 3, l.z + Math.cos(l.yaw || 0) * 3)) toast('Nothing saved for this line yet (save first)', 2200); };
+    const row = (title, text, id) => { if (q && !(title.toLowerCase().includes(q) || text.toLowerCase().includes(q))) return; main.append(h('div', { cls: 'dlg-sit' }, h('div', { cls: 't' }, h('b', {}, title), h('small', {}, id), btn('Hear in game', () => hearId(id), { title: 'Play it from 3 m in front of you (saved clip)' })), h('div', { cls: 'dlg-line' }, '“' + text + '”'), h('div', { cls: 'dlg-clips', style: { gridTemplateColumns: '1fr' } }, clipCell(id, 0)))); };
+    BANK_CALL.forEach((text, i) => row(`Phone call — line ${i + 1}`, text, bankCallId(i + 1)));
+    for (const t of BANK_TELLERS) t.lines.forEach((text, i) => row(`${t.name} — counter line ${i + 1}`, text, bankCounterId(t.id, i + 1)));
+    main.scrollTop = mt; footer();
+  }
+  function footer() {
+    let tot = groupCount('bank'); for (const g of VOICE_GROUPS) tot += groupCount(g.id);
+    counter.textContent = `${VOICE_GROUPS.length} kinds of NPC × ${VOICE_SITS.length} situations + ${BANK_IDS.length} bank staff lines · ${tot} clip(s)` + (pend.size ? ` · ${pend.size} unsaved change(s)` : ''); saveB.disabled = !pend.size; discardB.disabled = !pend.size;
   }
   render();
   dev = await devServer();

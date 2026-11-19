@@ -64,6 +64,34 @@ export const LINE_SIT = {
   surrender: 'surrender',
 };
 
+// 71st: Ceylon Meridian Bank staff (dialogs window → "Bank staff"). Their own slots, outside the group × situation grid:
+//   the back-office phone call — nine lines spoken in order by whichever officer gets up to answer (about a minute with the
+//   caller's side as pauses), and each counter officer's three lines when the player walks up to the counter (they speak on
+//   their own, no key; the clips take turns). The text is the subtitle and the script for whoever records the clip.
+export const BANK_CALL = [
+  'Ceylon Meridian Bank, Fort branch, good day. How may I help you?',
+  'Yes, of course. May I have your account number, please?',
+  'Thank you. One moment, let me check that for you.',
+  'Yes, I can see the deposit here. It was credited to your account this morning.',
+  'We are open from seven thirty in the morning to seven thirty in the evening.',
+  'For that you will need to come in with your national identity card.',
+  'Our ATMs are open twenty-four hours, and they take deposits as well.',
+  'No problem at all. Is there anything else I can help you with?',
+  'Thank you for calling Ceylon Meridian Bank. Have a good day.',
+];
+export const BANK_TELLERS = [
+  { id: 'teller1', name: 'Counter 1 officer (woman)', lines: ['Good day! Cash withdrawals and deposits are done at our ATMs now, just by the entrance on your left.', 'Hello! For cash, please use the ATM near the door. It is quicker, and your account updates straight away.', 'Ayubowan! I am sorry, I cannot take cash at the counter today. The ATMs by the entrance will help you.'] },
+  { id: 'teller2', name: 'Counter 2 officer (man)', lines: ['Good day, sir. Please use the ATMs at the front for withdrawals and deposits.', 'Hello. The machines by the entrance handle all cash transactions, and there is no queue there.', 'Ayubowan. For deposits and withdrawals the ATM is your best option, just on the left as you came in.'] },
+  { id: 'teller3', name: 'Counter 3 officer (woman)', lines: ['Hi, good day! You can withdraw or deposit at our ATMs by the door. They are open twenty-four hours.', 'Hello, sir. Cash is handled at the ATMs today. They are right by the entrance.', 'Good day! Please try the ATM for that. It takes deposits as well as withdrawals.'] },
+];
+export const bankCallId = (n) => `dlg.bank.call${n}`; // n 1..9
+export const bankCounterId = (teller, n) => `dlg.bank.${teller}.counter${n}`; // teller1..3, n 1..3
+export function bankVoiceDefs() {
+  const out = BANK_CALL.map((text, i) => ({ id: bankCallId(i + 1), name: `Bank staff — phone call, line ${i + 1}`, cat: 'Dialogue', kind: 'shot', lvl: 0.6, dlg: true, bank: 'call', text }));
+  for (const t of BANK_TELLERS) t.lines.forEach((text, i) => out.push({ id: bankCounterId(t.id, i + 1), name: `${t.name} — at the counter, line ${i + 1}`, cat: 'Dialogue', kind: 'shot', lvl: 0.6, dlg: true, bank: t.id, text }));
+  return out;
+}
+
 export const voiceId = (group, sit, n = 0) => `dlg.${group}.${sit}` + (n ? `.var${n}` : '');
 // sound definitions for SoundBank (base slot carries .vars, like the sound variations)
 export function voiceDefs() {
@@ -73,5 +101,6 @@ export function voiceDefs() {
     out.push(base);
     for (let n = 1; n < VOICE_CLIPS; n++) { const id = voiceId(g.id, s.id, n); base.vars.push(id); out.push({ id, name: `${g.name} — ${s.name} (clip ${n + 1})`, cat: 'Dialogue', kind: 'shot', lvl: 0.6, dlg: true, group: g.id, sit: s.id, varOf: base.id }); }
   }
+  out.push(...bankVoiceDefs());
   return out;
 }

@@ -1429,7 +1429,7 @@ export class Animator {
     this.lean = 0; this.air = 0; this.look = 0; this.crouch = 0; this.drive = 0; this.steer = 0; this.seed = Math.random(); this.locoW = 0; this.hipYs = ch.hipY;
     this.shift = 0; this.shiftTarget = Math.random() < 0.5 ? -1 : 1; this.shiftT = 2 + Math.random() * 6; this.idleLook = 0; this.idleLookT = Math.random() * 4; this.idleLookTarget = 0;
     this.emo = null; this.emoS = null; /* emotional posture (Mind.js), declared up front for a stable object shape */ this.stepped = false; this.stepFoot = 0; this.runW = 0; this.fadeAct = null; this.fadeW = 0; this.fadeT = 0; this.actionDur = 0;
-    this.board = null; this.seated = null; this.seatL = null; this.seatW = 0; this.seatMode = null; this.seatLook = 0; this.seatLookT = 0; this.vehSpeed = 0; this.brakeLean = 0; this.cornerLean = 0;
+    this.sitW = null; /* 71st: a scripted sit weight (0 standing … 1 seated) that overrides the action's — getting up from / sitting onto an office chair in time with its sound (BankInterior) */ this.board = null; this.seated = null; this.seatL = null; this.seatW = 0; this.seatMode = null; this.seatLook = 0; this.seatLookT = 0; this.vehSpeed = 0; this.brakeLean = 0; this.cornerLean = 0;
   }
   // Vehicle seat (see Seating.js). w: blend 0 (standing pose) … 1 (fully seated); entry/exit animations ramp it.
   sitIn(seat, w = 1, mode = null) { this.board = null; if (seat !== this.seated) { this.seated = seat; this.seatL = seatLocal(seat); this.seatLookT = 0; } this.seatW = w; this.seatMode = mode; }
@@ -1486,7 +1486,7 @@ export class Animator {
     this.idleLook = damp(this.idleLook, this.idleLookTarget * (1 - w * 0.7), 5, dt);
     const A_ = this.action; this.actionW = clamp(this.actionW + dt * 3, 0, 1); const aw = A_ ? this.actionW : 0;
     const crouch = (this.crouch = damp(this.crouch, A_ === 'crouch' || A_ === 'cover' ? 1 : A_ === 'cuffStand' ? 0.7 : this.reach && this.reach.knee ? this.reach.knee * Math.min(1, this.reach.w || 0) : 0, A_ === 'rise' ? 3.2 : 8, dt));
-    const sit = this.seated && A_ !== 'rise' ? 1 : A_ === 'sit' ? aw : this.fadeAct === 'sit' ? this.fadeW : 0; /* seated (desk staff): legs/hips stay seated while the upper body types, phones, talks */ const drive = (this.drive = damp(this.drive, A_ === 'drive' ? 1 : 0, 8, dt)); const seatT = Math.max(sit, drive);
+    const sit = this.sitW != null ? this.sitW : this.seated && A_ !== 'rise' ? 1 : A_ === 'sit' ? aw : this.fadeAct === 'sit' ? this.fadeW : 0; /* seated (desk staff): legs/hips stay seated while the upper body types, phones, talks */ const drive = (this.drive = damp(this.drive, A_ === 'drive' ? 1 : 0, 8, dt)); const seatT = Math.max(sit, drive);
     const gT = A_ === 'sitGround' ? aw : this.fadeAct === 'sitGround' ? this.fadeW : 0; // sitting on the grass (no seat): hips on the ground, knees up, feet flat
     this.lean = damp(this.lean, clamp(-turnRate * sp * 0.03, -0.2, 0.2), 6, dt);
     // pelvis
