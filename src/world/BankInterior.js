@@ -32,7 +32,7 @@ import { routine } from '../actors/Routine.js';
 import { seatTopFor } from './ClubCast.js';
 import { CMB, FONTS, drawLogo, tracked, fitFont, hasCanvas, drawATMScreen, ATM_IDLE_VIEW } from './BankBrand.js';
 import { BankSound, CHAIR_SEATED_AT, CHAIR_LEN } from '../audio/BankAudio.js';
-import { acUnit, landline, callPhone, bankCard, rb, HANDSET } from './BankProps.js';
+import { acUnit, landline, callPhone, rb, HANDSET } from './BankProps.js';
 import { BANK_CALL, BANK_TELLERS, bankCallId, bankCounterId } from '../audio/VoiceDefs.js';
 import { SoundBank as SB } from '../audio/SoundBank.js';
 
@@ -501,11 +501,11 @@ export function buildBankInterior(game, site) {
   // arm IK onto the handset's grip), takes the call — the nine lines in order over about a minute, the caller's side as pauses —
   // turns back, puts it down (hang-up sound as it lands), walks back and sits down: the "sitting down" recording is started so
   // that its seated moment (1.3 s into variation 1, 1.0 s into 2 and 3) is the frame the hips land on the seat.
-  const SEAT_D = 10.35, STAND_D = 10.08, V3 = THREE.Vector3;
+  const SEAT_D = 10.35, STAND_D = 10.1, V3 = THREE.Vector3;
   const ss = (u) => { u = Math.max(0, Math.min(1, u)); return u * u * (3 - 2 * u); };
   const wrap = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
   const seatOf = (t) => [t.x, Z(SEAT_D) - 0.04], standOf = (t) => [t.x, Z(STAND_D)];
-  const sideOf = (t) => [t.x + (PHONE.x >= t.x ? 1 : -1) * 0.62, Z(STAND_D + 0.05)];
+  const sideOf = (t) => [t.x + (PHONE.x >= t.x ? 1 : -1) * 0.62, Z(STAND_D + 0.02)];
   const callSpot = () => [PHONE.x - 0.02, z0 + 0.66];
   const phoneAt = () => [PHONE.x + 0.1, z0 + 0.255];
   // the right hand on the handset, in the handset's frame (long axis +z to the earpiece, cups towards −y): palm on its back,
@@ -524,7 +524,7 @@ export function buildBankInterior(game, site) {
   // hand target (world) from the handset's matrix in the room frame and a grip blend (0 cradle grip … 1 ear grip)
   const holdAt = (ch, M, gu, w) => { g.updateWorldMatrix(true, false); _m2.multiplyMatrices(g.matrixWorld, M); _m2.decompose(_p1, _q1, _hs);
     const p = GRIP.cradle.p.clone().lerp(GRIP.ear.p, gu).applyQuaternion(_q1).add(_p1); const q = _q1.clone().multiply(GRIP.cradle.q.clone().slerp(GRIP.ear.q, gu));
-    const R = ch.anim.reach && ch.anim.reach.bankPhone ? ch.anim.reach : (ch.anim.reach = { S: 'R', p, q, w, lean: 0, maxLean: 0.55, pose: 'mag', bankPhone: true }); R.p = p; R.q = q; R.w = w; };
+    const R = ch.anim.reach && ch.anim.reach.bankPhone ? ch.anim.reach : (ch.anim.reach = { S: 'R', p, q, w, lean: 0, maxLean: 0.55, pose: 'phone', bankPhone: true }); R.p = p; R.q = q; R.w = w; };
   const call = room.call = { st: 'idle', T: 20 + Math.random() * 70, t: 0, who: null, path: null, pi: 0, sp: 0, lean: 0, line: 0, next: 0, gapK: 1, n: 0, ts: 1, hung: false, yaw0: Math.PI, calls: 0 };
   const GAPS = [2.6, 4.6, 6.2, 4.2, 5.0, 5.2, 4.4, 3.4];
   const lineLen = (i) => SB.duration(bankCallId(i + 1)) || 0.7 + BANK_CALL[i].split(' ').length / 2.6;
@@ -562,7 +562,7 @@ export function buildBankInterior(game, site) {
       case 'lift': { A.update(dt, 0); const u = ss(t / 0.9); const M = blendM(callPh.cradle, earLocal(ch), u, 0.07); callPh.set(M); holdAt(ch, M, u, 1); if (t >= 0.9) { C0.st = 'call'; C0.t = 0; C0.line = 0; C0.next = 0.35;
         let S = 0; for (let i = 0; i < BANK_CALL.length; i++) S += lineLen(i); const G = GAPS.reduce((a, b) => a + b, 0); C0.gapK = Math.max(0.4, Math.min(2, (58 - S) / G)); C0.yaw0 = ch.root.rotation.y; } break; }
       case 'call': { const y0 = ch.root.rotation.y; ch.root.rotation.y = C0.yaw0 + (Math.PI - 0.85 - C0.yaw0) * ss((t - 1.5) / 3.5); A.update(dt, 0, wrap(ch.root.rotation.y - y0) / Math.max(dt, 1e-3)); const M = earLocal(ch); callPh.set(M); holdAt(ch, M, 1, 1);
-        if (C0.line < BANK_CALL.length && t >= C0.next) { const i = C0.line++; const [wx2, wz2] = [r.x, r.z]; const d = say(who, bankCallId(i + 1), BANK_CALL[i], wx2, wz2, 'Bank officer (on the phone)'); C0.talkUntil = t + d; C0.next = t + d + (GAPS[i] ?? 1) * C0.gapK; }
+        if (C0.line < BANK_CALL.length && t >= C0.next) { const i = C0.line++; const [wx2, wz2] = [r.x, r.z]; const d = say(who, bankCallId(i + 1), BANK_CALL[i], wx2, wz2, 'Bank officer (on the phone)', 14); C0.talkUntil = t + d; C0.next = t + d + (GAPS[i] ?? 1) * C0.gapK; }
         if (ch.face) ch.face.talking = t < (C0.talkUntil || 0); if (C0.line >= BANK_CALL.length && t >= (C0.talkUntil || 0) + 1.2) { C0.st = 'turnBack'; C0.t = 0; } break; }
       case 'turnBack': { const y0 = ch.root.rotation.y; ch.root.rotation.y = turn(y0, Math.PI, dt * 4); A.update(dt, 0, wrap(ch.root.rotation.y - y0) / Math.max(dt, 1e-3)); const M = earLocal(ch); callPh.set(M); holdAt(ch, M, 1, 1); if (ch.face) ch.face.talking = false; if (t >= 0.8) { C0.st = 'lower'; C0.t = 0; C0.hung = false; C0.earM = M; } break; }
       case 'lower': { A.update(dt, 0); const u = ss(t / 0.85); const M = blendM(earLocal(ch), callPh.cradle, u, 0.06); callPh.set(M); holdAt(ch, M, 1 - u, 1);
@@ -579,7 +579,7 @@ export function buildBankInterior(game, site) {
 
   // ---- staff, one frame
   const stepStaff = (dt, pl) => { const on = staffOn(); const near = pl && pl.inside; const k2 = near ? 1 : 0.5;
-    for (const t of stand.tellers) { t.ch.root.visible = on; if (!on) continue; const cust = pool.find((o) => o.on && o.win === t.win && o.cmd && o.cmd.win === t.win);
+    for (const t of stand.tellers) { t.ch.root.visible = on; if (!on || t.away) continue; if (t.speakT > 0) t.speakT -= dt; const cust = pool.find((o) => o.on && o.win === t.win && o.cmd && o.cmd.win === t.win);
       if (cust) { t.actT -= dt; if (t.actT <= 0 || !t.act) { t.act = t.rnd() < 0.5 ? 'talk' : t.rnd() < 0.6 ? 'type' : 'listen'; t.actT = 2 + t.rnd() * 3; t.ch.anim.set(t.act); t.ch.anim.seated = true; } }
       else { if (t.act) { t.act = null; t._rtn = null; } routine(t, t.ch, dt, 'desk', t.rnd); }
       t.ch.anim.update(dt * k2, 0); }
@@ -588,6 +588,16 @@ export function buildBankInterior(game, site) {
     { const gd = stand.guard; routine(gd, gd.ch, dt, 'guard', gd.rnd); let want = gd.yaw0; if (pl && pl.inside && Math.hypot(pl.x - gd.x, pl.z - gd.z) < 3) want = Math.atan2(pl.x - gd.x, pl.z - gd.z); gd.ch.root.rotation.y = turn(gd.ch.root.rotation.y, want, dt * 2.5); gd.ch.anim.update(dt, 0); }
   };
 
+  // ---- 71st: the room's sound sources (BankSound.tick reads room.audio; Game passes the active room's list)
+  room.audio = [];
+  const AC_SRC = [{ key: 'ac.hall', id: 'bank.ac', x: xR - 0.25, z: Z(2.7), ref: 5, lvl: 0.9, synth: (c, d) => BankSound.acSynth(c, d) },
+    { key: 'ac.back', id: 'bank.ac', x: PHONE.x, z: z0 + 0.3, ref: 5, lvl: 0.75, synth: (c, d) => BankSound.acSynth(c, d) }];
+  const OFFICE_SRC = [{ key: 'office.counter', id: 'bank.office', seg: [WINX[0] - 0.6, WINX[2] + 0.6], z: Z(9.8), ref: 4, lvl: 0.8 },
+    { key: 'office.mgr', id: 'bank.office', x: 6.1, z: Z(5.95), ref: 3, lvl: 0.55 }];
+  // the counter glass (with the staff door) between the hall and the staff side: muffles what is on the other side
+  BankSound.occ = (x, z) => ((z < Z(9.0)) !== (BankSound.L.z < Z(9.0)) ? 0.55 : 0);
+  // a footfall of a walking body (Character's gait sets anim.stepped on each heel strike)
+  const stepSound = (ch) => { const A = ch.anim; if (!A.stepped) return; A.stepped = false; const p = ch.root.position; BankSound.step(p.x, p.z, 0.85); };
   // ---- per frame (WalkIn: while the room is drawn or holds the player)
   room.lastT = -1e9;
   room.update = (dt, pl) => {
@@ -595,7 +605,12 @@ export function buildBankInterior(game, site) {
     if (gap > 20 && !pl.inside && (!D2 || Math.abs(D2.ang) < 0.5)) room.reseed();
     // daylight through the frontage glazing, signage glow
     if (game.atmos) { const n = game.atmos.night ?? 0; dayMat.emissiveIntensity = atlas ? 0.08 + 0.85 * (1 - n) : 0.3; }
-    stepStaff(dt, pl);
+    stepStaff(dt, pl); stepCall(dt, pl);
+    // 71st: the room's sound — the listener, the counter glass between the hall and the staff side, the two air conditioners and
+    // the office (keyboards and mice along the counter desks, the manager's desk), heels on the granite
+    BankSound.listen(pl.x, pl.z, pl.yaw ?? 0); room.audio.length = 0; const on = staffOn();
+    room.audio.push(AC_SRC[0], AC_SRC[1]); OFFICE_SRC[0].on = on; OFFICE_SRC[1].on = on && !!stand.mgr.ch.root.visible; room.audio.push(OFFICE_SRC[0], OFFICE_SRC[1]);
+    if (pl.inside) { for (const t of stand.tellers) stepSound(t.ch); stepSound(stand.guard.ch); for (const c of pool) if (c.on && c.ch.root.visible) stepSound(c.ch); }
     for (const c of pool.slice()) if (c.on) stepCustomer(c, dt, pl); else if (c.ch.root.visible) c.ch.root.visible = false;
     // new customers walk in from the street while the player is inside (door shut, so nobody appears in view)
     if (pl.inside) { room.spawnT -= dt; const active = pool.filter((c) => c.on).length;
@@ -607,11 +622,26 @@ export function buildBankInterior(game, site) {
     if (pl.inside && !(game.atm && game.atm.open)) {
       const fx = Math.sin(pl.yaw), fz = Math.cos(pl.yaw);
       for (const m of atms) { const dx = pl.x - m.stand[0], dz = pl.z - m.stand[1]; if (Math.abs(dz) < 0.45 && dx > -0.2 && dx < 0.95 && -fx > 0.3) { room.nearAtm = m.i; room.prompt = m.user ? 'ATM in use — please wait' : `${key('interact')} Use ATM`; break; } }
-      if (room.nearAtm < 0) for (let i = 0; i < 4; i++) { const p = LOC['win' + i].at; if (Math.abs(pl.x - p[0]) < 0.6 && pl.z < p[1] + 0.5 && pl.z > p[1] - 0.3 && -fz > 0.3) { if (pool.some((o) => o.on && o.win === i)) { room.prompt = `Counter ${i + 1} · serving a customer`; break; } room.nearWin = i; room.prompt = `${key('interact')} Speak to counter ${i + 1}`; break; } }
+      if (room.nearAtm < 0) for (let i = 0; i < 4; i++) { const p = LOC['win' + i].at; if (Math.abs(pl.x - p[0]) < 0.6 && pl.z < p[1] + 0.5 && pl.z > p[1] - 0.3 && -fz > 0.3) { if (pool.some((o) => o.on && o.win === i)) { room.prompt = `Counter ${i + 1} · serving a customer`; break; } room.nearWin = i; break; } }
+      counterTalk(room.nearWin, pl);
     }
   };
+  // 71st: stepping up to a counter window, the officer behind it speaks by herself (no key): one of her three lines, in turn, once
+  // per approach (and not again for a while if the player hovers); a styled HUD card points to the ATMs at the same time
+  const COUNTER_NAME = ['Counter 1 officer', 'Counter 2 officer', 'Counter 3 officer'];
+  const counterTalk = (i, pl) => { const was = room.atWin; room.atWin = i; if (i < 0 || i === was) return; const now = game.clock ?? performance.now() / 1000;
+    const open = staffOn() && B.staffed.includes(i); const n = B.staffed.indexOf(i), t = open ? stand.tellers[n] : null;
+    if (t && (t.away || (call.who === t && call.st !== 'idle' && call.st !== 'ring'))) { if (game.hud) game.hud.subtitle(B.name, 'This officer is on the phone — the ATMs by the entrance handle cash.', '', 3); atmNote(); return; }
+    if (t && now - (t.saidAt ?? -1e9) > 12) { const T = BANK_TELLERS[n]; const li = (t.said = ((t.said ?? -1) + 1) % T.lines.length); t.saidAt = now;
+      if (call.who !== t) { t.act = 'talk'; t.actT = 4; t.ch.anim.set('talk'); t.ch.anim.seated = true; }
+      const d = say(t, bankCounterId(T.id, li + 1), T.lines[li], t.x, Z(10.3), COUNTER_NAME[n], 4); t.speakT = d; if (t.ch.face) { t.ch.face.talking = true; setTimeout(() => { if (t.ch.face) t.ch.face.talking = false; }, d * 1000); } }
+    else if (!t && game.hud) game.hud.subtitle(B.name, i === 3 ? 'Counter 4 is closed today. Please use counters 1 to 3 or the ATMs.' : 'The counters are closed after banking hours. The ATMs are open 24 hours.', '', 3.5);
+    atmNote(); };
+  const atmNote = () => { const now = game.clock ?? performance.now() / 1000; if (now - (room.noteAt ?? -1e9) < 25 || !game.hud || !game.hud.notify) return; room.noteAt = now;
+    game.hud.notify('Use the ATM', 'Cash withdrawals and deposits are at the CMB ATMs by the entrance — 24 hours, no queue.', 'bank', 6); };
   room.interact = () => {
     if (room.nearAtm >= 0) { const m = atms[room.nearAtm]; if (m.user) { if (game.hud) game.hud.subtitle(B.name, 'This ATM is in use. Please wait or use the other machine.', '', 2.5); return; } if (game.atm) game.atm.openAt(room, m); return; }
+    if (room.nearWin >= 0 && game.hud) { room.atWin = -1; const n0 = B.staffed.indexOf(room.nearWin); if (n0 >= 0 && stand.tellers[n0]) stand.tellers[n0].saidAt = -1e9; counterTalk(room.nearWin, room.pl); return; }
     if (room.nearWin >= 0 && game.hud) { const i = room.nearWin; const open = staffOn() && B.staffed.includes(i);
       game.hud.subtitle(open ? 'Bank officer' : B.name, open ? 'Good day! Cash withdrawals and deposits are quickest at our ATMs by the entrance — no queue, and they update your account at once.' : i === 3 ? 'Counter 4 is closed today. Please use counters 1 to 3 or the ATMs.' : 'The counters are closed after banking hours. The ATMs are open 24 hours.', '', 4); }
   };

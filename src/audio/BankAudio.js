@@ -103,6 +103,9 @@ export const BankSound = {
       if (kind === 'up') { A.noise(0.35, { f: 520, q: 3, vol: 0.02 * g, pan, sweep: 760, when: 0.25 }); A.noise(0.7, { f: 300, q: 0.8, type: 'lowpass', vol: 0.05 * g, pan, buf: A.brownBuf, when: 0.55 }); A.noise(0.05, { f: 1800, q: 2, vol: 0.02 * g, pan, when: 1.15 }); } // gas lift sighs, the seat creaks, the castors roll back
       else { const s = CHAIR_SEATED_AT[n] || 1; A.noise(0.5, { f: 260, q: 0.8, type: 'lowpass', vol: 0.035 * g, pan, buf: A.brownBuf, when: Math.max(0, s - 0.75) }); A.noise(0.14, { f: 180, q: 0.7, type: 'lowpass', vol: 0.09 * g, pan, buf: A.brownBuf, when: s, attack: 0.003 }); A.noise(0.3, { f: 600, q: 4, vol: 0.018 * g, pan, sweep: 450, when: s + 0.03 }); } } // castors, the cushion taking the weight, the tilt spring creak
     return n; },
+  // a recorded line of a bank officer at a point of the room (dialogue bus, distance / glass shaped); returns its length (0 = none)
+  say(id, x, z, k = 1) { const A = Audio; if (!A.ready || !SB.has(id)) return 0; const P = this.at(x, z, 5); if (P.g < 0.01) return SB.duration(id) || 0;
+    return SB.play(id, k * P.g, P.pan, 0, { out: 'dlg', lp: P.lp, key: 'dlg.bank' }) ? SB.lastDur || SB.duration(id) || 0 : 0; },
   chime() { if (SB.play('bank.chime', 0.8)) return; Audio.tone(784, 0.45, { vol: 0.028, verb: true }); Audio.tone(659, 0.6, { vol: 0.026, when: 0.32, verb: true }); },
   // ---- the ATM (the player stands at it: not positional)
   beep(vol = 1) { if (SB.play('atm.beep', vol)) return; Audio.tone(1240, 0.055, { type: 'square', vol: 0.03 * vol, attack: 0.002 }); },

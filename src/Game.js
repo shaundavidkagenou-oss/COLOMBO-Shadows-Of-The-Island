@@ -551,7 +551,7 @@ export class Game {
     if (this.gunShop.open && !warmOnly) this.gunShop.update();
     if (this.store && this.store.open && !warmOnly) this.store.update(this.dt);
     if (this.atm && this.atm.open && !warmOnly) this.atm.update(this.dt);
-    if (!warmOnly) { const wr0 = this.interiors.walkIn && this.interiors.walkIn.room; BankSound.tick(this.dt, !!(wr0 && wr0.bank)); } // bank room tone: fades on leaving, sources released
+    if (!warmOnly) { const wr0 = this.interiors.walkIn && this.interiors.walkIn.room; const wa0 = this.interiors.walkIn && this.interiors.walkIn.active; BankSound.tick(this.dt, !!(wr0 && wr0.bank), wa0 && wa0.bank ? wa0.audio : null); } // 71st: + the room's positional loops (air conditioners, office) // bank room tone: fades on leaving, sources released
     // global actions
     if (!D.active && !warmOnly && !(this.customs && this.customs.active)) { // Street Customs has the keyboard while it runs (W/S/A/D, R, P, M, J …): the map / phone / pause / radio hot-keys would open over the shop and take the cursor
       if (Input.wasPressed('map') && !this.photo && !this.gunShop.open && !(this.store && this.store.open) && !(this.atm && this.atm.open)) { if (this.phone.open) this.phone.toggle(false); this.toggleMap(); }

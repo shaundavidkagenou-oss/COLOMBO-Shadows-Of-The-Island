@@ -14,6 +14,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { MeshBuilder } from '../gfx/MeshBuilder.js';
 import { C, kitMaterial, KIT } from './ShopKit.js';
+import './RobberyShops.js'; // registers KIT.plastic / steel (the kit materials the props use)
 import { CMB, drawLogo, hasCanvas } from './BankBrand.js';
 
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _v = new THREE.Vector3(), ONE = new THREE.Vector3(1, 1, 1);
