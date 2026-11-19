@@ -147,7 +147,14 @@ export function makeBankShift(ctx) {
   const spots = {}; let spotsDone = false;
   const pickSpots = () => { if (spotsDone) return; const W2 = W(); if (!W2 || !T()) return; spotsDone = true; const fr = frontLane(); const cand = [];
     for (const sp of plan.parking) { const dd = Math.hypot(sp.x - site.F.x, sp.z - site.F.z); if (dd > 45) continue; const [lx, lz] = local(sp.x, sp.z); if (lz < 1 || lz > 9 || Math.abs(lx) < 3.2) continue; if (fr && sp.seg !== fr.seg.id) continue; cand.push([Math.abs(lx), sp]); }
-    cand.sort((a, b) => a[0] - b[0]); for (const p of people) if (p.car) { const c = cand.shift(); if (c) { spots[p.role] = c[1]; p.spot = c[1]; } } note(`staff car spots: ${people.filter((p) => p.spot).length}`); };
+    cand.sort((a, b) => a[0] - b[0]);
+    // no kerb parking on the branch's own street (Galle Road: none on the arterials) — then round the corner: a kerb spot on a side
+    // street (one running away from the shop front, the car heading along local z) within ~45 m; the walk goes along the pavement to
+    // the corner of that street and down its kerb to the car (p.via), never through the block
+    const side = []; if (cand.length < people.filter((p) => p.car).length) for (const sp of plan.parking) { const dd = Math.hypot(sp.x - site.F.x, sp.z - site.F.z); if (dd > 60) continue;
+      const [lx, lz] = local(sp.x, sp.z); if (lz > 1 || lz < -24 || Math.abs(lx) < 8 || Math.abs(lx) > 48 || Math.abs(Math.sin(sp.yaw - syaw())) > 0.3) continue; side.push([Math.abs(lx) - lz * 0.5, sp, [[lx, 1.9]]]); }
+    side.sort((a, b) => a[0] - b[0]); for (const q of side) cand.push(q);
+    for (const p of people) if (p.car) { const c = cand.shift(); if (c) { spots[p.role] = c[1]; p.spot = c[1]; p.via = c[2] || null; } } note(`staff car spots: ${people.filter((p) => p.spot).length} (${people.filter((p) => p.via).length} round the corner)`); };
   const spotSt = (sp) => { const Tr = T(); if (!Tr.spots) Tr.spots = new Map(); let st = Tr.spots.get(sp); if (!st) { st = { day: -1, occ: false, until: -1 }; Tr.spots.set(sp, st); } return st; };
   const carOf = (p) => { const Tr = T(); if (!p.spot || !Tr) return null; return Tr.parked.find((v) => v.spot === p.spot && v.type === p.car.type && v.seed === p.car.seed && !v.player && !v.disposed) || null; };
   // keep the car's spot booked for the day (Traffic builds it out of sight like any parked car) — or free it for the night
@@ -157,7 +164,7 @@ export function makeBankShift(ctx) {
       if (!carOf(p)) { st.occ = false; st.look = null; st.claim = null; st.until = -1; st.day = day; } } };
   const freeSpot = (p) => { const Tr = T(); if (!p.spot) return; const st = spotSt(p.spot); st.occ = false; st.look = null; st.claim = null; st.until = -1; Tr.parkedSet && Tr.parkedSet.delete(p.spot); };
   const driveOffFn = (p, v) => (c, dt, m) => { const Tr = T(), P = game.player;
-    if (!m.init) { m.init = true; const ln = kerbLane(v.x, v.z, v.yaw); freeSpot(p); v.spot = null; if (!ln || !Tr.adoptAI(v, ln, { place: false })) { takeBack(p, v); return true; } v.ai.rejoin = true; v.speed = 0.4; v.keep = true; v.lights = (game.atmos?.night ?? 0) > 0.4; v.beforeRemove = () => takeBack(p, v); S.stats.carTrips++; note(`${p.role} drives off`); }
+    if (!m.init) { m.init = true; const ln = kerbLane(v.x, v.z, v.yaw); freeSpot(p); v.spot = null; if (!ln || !Tr.adoptAI(v, ln, { place: false })) { note(`${p.role}: no lane to drive off on (${ln ? 'adopt failed' : 'no lane'})`); takeBack(p, v); return true; } v.ai.rejoin = true; v.speed = 0.4; v.keep = true; v.lights = (game.atmos?.night ?? 0) > 0.4; v.beforeRemove = () => takeBack(p, v); S.stats.carTrips++; note(`${p.role} drives off`); }
     const d = Math.hypot(v.x - P.x, v.z - P.z); if ((d > 70 && !Tr.seen(v.x, v.z)) || d > 140 || m.t > 150 || !v.mesh.parent) { v.beforeRemove = null; takeBack(p, v); const i = Tr.vehicles.indexOf(v); if (i >= 0) { Tr.vehicles.splice(i, 1); Tr.remove(v); } return true; } return false; };
   // ---- three-wheelers: a pair at the kerb is picked up / dropped off
   const groups = [{ id: 0 }, { id: 1 }]; for (const G of groups) { G.members = people.filter((p) => p.grp === G.id); G.state = 'idle'; }
@@ -184,6 +191,7 @@ export function makeBankShift(ctx) {
       if (G.state === 'held') { G.t += dt; const v = G.v; v.hold = true; if (G.riders.every((p) => p.inCar === v || p.duty !== 'leaving')) { releaseTuk(G); G.state = 'away'; G.t = 0; S.stats.tukRides++; note(`three-wheeler leaves with group ${G.id}`); } else if (G.t > 25) { releaseTuk(G); G.state = 'away'; } return; }
       if (G.state === 'away') { G.t += dt; const v = G.v; if (!v) { G.state = 'gone'; return; } const d = Math.hypot(v.x - P.x, v.z - P.z); if ((d > 70 && !T().seen(v.x, v.z)) || d > 140 || G.t > 120) { v.beforeRemove = null; for (const p of G.members) if (p.inCar === v) takeBack(p, v); v.keep = false; G.v = null; G.state = 'gone'; } return; }
     } else { // arrive
+      if (G.state === 'gather') { G.t += dt; if (!G.members.some((p) => p.pending === 'arrive' && p.duty === 'off') || G.t > 30) { G.state = 'call'; G.t = 0; } return; }
       if (G.state === 'call') { const v = callTuk(G, dt); if (v) { const seats = tukSeats(v); G.riders.forEach((p, k) => { const sq = seats[k]; if (!sq) { G.walkers.push(p); return; } p.tukSeat = sq[0]; p.tukSi = sq[1]; seatCharacter(p.ch, v, sq[0]); p.ch.mesh.castShadow = false; p.ch.root.visible = true; p.inCar = v; }); } else if (G.state === 'fail') G.riders.forEach((p) => G.walkers.push(p)); return; }
       if (G.state === 'coming') { G.t += dt; if (approach(G, dt)) { G.state = 'drop'; G.t = 0; const v = G.v, Tr = T(); const rid = G.riders.filter((p) => p.inCar === v);
           v.pax = rid.map((p) => p.ch); v.paxPlan = rid.map((p) => ({ si: p.tukSi, spec: p.ch.spec, mode: 'lap' })); Tr.paxCount = (Tr.paxCount || 0) + rid.length;
@@ -204,14 +212,15 @@ export function makeBankShift(ctx) {
     // through the hall into the staff's line along the front window (BankInterior lines: join at the back, it moves up, the front
     // one asks for the doorway token) — five people leaving at once otherwise jam the one-person doorway with the customers
     { const from = p.pre ? p.pre[p.pre.length - 1] : [c.x, c.z]; yield* room.lineGen(c, 'staff', (spot) => hallPath(from, spot)); c.loc = 'door'; yield { walk: [DOOR_OUT, STREET_OUT] }; } c.phase = 'street';
-    if (p.how === 'car') { const v = carOf(p); if (v) { const seat = v.driverSeat(); const [bx, bz] = boardPt(v, seat); const [lx, lz] = local(bx, bz); yield { walk: [[lx, lz]] }; yield { fn: boardFn(p, v, seat, true) }; if (c.boarded) { yield { fn: driveOffFn(p, v) }; return; } } }
+    if (p.how === 'car') { const v = carOf(p); if (!v) note(`${p.role}: no car on the spot`); if (v) { const seat = v.driverSeat(); const [bx, bz] = boardPt(v, seat); const [lx, lz] = local(bx, bz); yield { walk: [...(p.via || []), [lx, lz]] }; yield { fn: boardFn(p, v, seat, true) }; if (c.boarded) { yield { fn: driveOffFn(p, v) }; return; } } }
     else { const G = groups[p.grp]; if (frontLane()) { if (G.state === 'idle' || G.state === 'done' || G.state === 'gone' || G.state === 'fail') { G.mode = 'leave'; G.state = 'wait'; G.t = 0; }
       const k = G.members.indexOf(p); yield { walk: [groupWait(G, k)] }; c.atKerb = true; const fr = frontLane(); const [ax, az] = evalPiece(fr.piece, fr.sDoor), [bx, bz] = evalPiece(fr.piece, fr.sDoor + 1); const [la, lb] = local(ax, az), [lc, ld] = local(bx, bz); const roadYaw = Math.atan2(lc - la, ld - lb) + Math.PI; // looking up the street for it
       yield { fn: idleFn(() => G.state === 'held' || G.state === 'fail' || G.state === 'gone', roadYaw) };
       if (G.state === 'held' && p.tukSeat) { const v = G.v; const [bx2, bz2] = boardPt(v, p.tukSeat); const [lx, lz] = local(bx2, bz2); yield { walk: [[lx, lz]] }; yield { fn: boardFn(p, v, p.tukSeat, false) }; if (c.boarded) { yield { fn: () => G.state === 'gone' || !p.inCar }; return; } } } }
     yield* walkOffGen(p, c);
   }
-  function* arriveGen(p, c) {
+  function* arriveGen(p, c, via = null) {
+    if (via) yield { walk: via.slice() }; // (from a car round the corner: up its kerb to the main road's pavement first)
     yield* room.lineGen(c, 'in', (spot) => [spot]); // (the arrivals' line along the shop front)
     yield { walk: [DOOR_IN] }; c.phase = 'hall'; c.loc = 'door';
     const end = p.pre ? p.pre[p.pre.length - 1] : p.standP; yield { walk: hallPath([c.x, c.z], end) };
@@ -220,7 +229,7 @@ export function makeBankShift(ctx) {
     yield { fn: sitFn(p) };
     yield { fn: (c2) => { const i = crew.indexOf(c2); if (i >= 0) crew.splice(i, 1); c2.on = false; p.walker = null; snapOn(p); S.stats.arrivals++; return false; } };
   }
-  const arriveWalk = (p, wx, wz, wyaw) => { const ch = p.ch; ch.root.parent?.remove(ch.root); const [lx, lz] = local(wx, wz); const c = mkWalker(p, lx, lz, wyaw - syaw()); ch.root.visible = true; ch.anim.seated = null; ch.anim.set(null); c.phase = 'street'; c.gen = arriveGen(p, c); place(c); };
+  const arriveWalk = (p, wx, wz, wyaw, via = null) => { const ch = p.ch; ch.root.parent?.remove(ch.root); const [lx, lz] = local(wx, wz); const c = mkWalker(p, lx, lz, wyaw - syaw()); ch.root.visible = true; ch.anim.seated = null; ch.anim.set(null); c.phase = 'street'; c.gen = arriveGen(p, c, via); place(c); };
   // ---- the shift itself
   const startLeave = (p) => { const c = mkWalker(p, ...(p.seatP || p.spotP), p.yawH); p.duty = 'leaving'; p.away = true; p.act = null; c.phase = 'desk'; c.gen = leaveGen(p, c); S.stats.leaves++; note(`${p.role} finishing for the day`); };
   const startArrive = (p) => { p.duty = 'arriving'; p.away = true; const Tr = T(); const P = game.player;
@@ -228,9 +237,13 @@ export function makeBankShift(ctx) {
       const sp = p.spot; const ln = kerbLane(sp.x - Math.sin(sp.yaw) * 20, sp.z - Math.cos(sp.yaw) * 20, sp.yaw, 10);
       if (ln && ln.seg.id === sp.seg) { const al = (sp.x - ln.piece.p0[0]) * ln.piece.d[0] + (sp.z - ln.piece.p0[1]) * ln.piece.d[1]; const s0 = Math.max(0.6, al - 60); const [x0, z0] = evalPiece(ln.piece, s0);
         if (al - s0 > 18 && (!Tr.seen(x0, z0) || Math.hypot(x0 - P.x, z0 - P.z) > 45)) { const v = new Vehicle(p.car.type, p.car.seed, game.scene); v.paxPlan = []; v.pax = []; seatCharacter(p.ch, v, v.driverSeat()); p.ch.mesh.castShadow = false; p.ch.root.visible = true; v.driverChar = p.ch; p.inCar = v;
-          if (Tr.adoptAI(v, { piece: ln.piece, s: s0, seg: ln.seg }) && Tr.parkInto(v, sp)) { v.speed = Math.min(7, v.ai.v0); v.beforeRemove = () => { takeBack(p, v); snapOn(p); }; p.ch.onAlight = (wp, yw) => { p.inCar = null; v.beforeRemove = null; p.carDay = Math.floor((Tr.gameH ?? 0) / 24); arriveWalk(p, wp.x, wp.z, yw); }; S.stats.carTrips++; note(`${p.role} drives in`); return; }
+          if (Tr.adoptAI(v, { piece: ln.piece, s: s0, seg: ln.seg }) && Tr.parkInto(v, sp)) { v.speed = Math.min(7, v.ai.v0); v.beforeRemove = () => { takeBack(p, v); snapOn(p); }; p.ch.onAlight = (wp, yw) => { p.inCar = null; v.beforeRemove = null; p.carDay = Math.floor((Tr.gameH ?? 0) / 24); arriveWalk(p, wp.x, wp.z, yw, p.via); }; S.stats.carTrips++; note(`${p.role} drives in`); return; }
           v.driverChar = null; p.ch.root.parent?.remove(p.ch.root); p.inCar = null; const i = Tr.vehicles.indexOf(v); if (i >= 0) Tr.vehicles.splice(i, 1); v.dispose(); } } }
-    if (p.how === 'tuk' && frontLane()) { const G = groups[p.grp]; if (G.state !== 'call' || G.mode !== 'arrive') { G.mode = 'arrive'; G.state = 'call'; G.t = 0; G.riders = []; G.walkers = []; } G.riders.push(p); return; }
+    // the three-wheeler brings the whole group: it is called once everybody due in it is ready (the ones starting later used to
+    // reset the group and call a second one, leaving the first rider stranded in it); someone later still comes on foot
+    if (p.how === 'tuk' && frontLane()) { const G = groups[p.grp]; const fresh = G.mode !== 'arrive' || G.state === 'idle' || G.state === 'done' || G.state === 'gone' || G.state === 'fail';
+      if (fresh) { G.mode = 'arrive'; G.state = 'gather'; G.t = 0; G.riders = []; G.walkers = []; }
+      if (G.state === 'gather' || G.state === 'call') { G.riders.push(p); return; } }
     walkIn(p); };
   const walkIn = (p) => { const dir = rng() < 0.5 ? -1 : 1; const [wx, wz] = worldOf({ x: dir * 24, z: 1.9 }); arriveWalk(p, wx, wz, syaw() - dir * Math.PI / 2); note(`${p.role} walks in`); };
   // the guard's goodnight / good morning as each one passes him
