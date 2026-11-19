@@ -312,8 +312,9 @@ export function buildBankInterior(game, site) {
       pl.box(wx + 0.75, 0.81, Z(9.6), 0.16, 0.12, 0.2, { col: C('#dcdcd8') }); deskPhone(k, wx - 0.75, 0.75, Z(9.65), Math.PI); pl.box(wx + 0.5, 0.66, Z(9.75), 0.4, 0.1, 0.4, { col: C('#2a2c30') }); // printer · phone · cash drawer
       paint.box(wx + 1.05, 0.76, Z(9.75), 0.24, 0.02, 0.32, { col: C('#f6f4ee') }); }
     staffSpecs.forEach((sp, i) => { const ch = new Character(sp); const top = Math.max(0.3, Math.min(0.55, seatTopFor(ch))); const wx = WINX[B.staffed[i]];
-      officeChair(k, wx, Z(10.35), 0, top); ch.root.position.set(wx, 0, Z(10.35) - 0.04); ch.root.rotation.y = 0; g.add(ch.root); ch.anim.seated = true;
-      stand.tellers.push({ ch, win: B.staffed[i], x: wx, rnd: rngOf(6710 + i), serving: null, act: null, actT: 0 }); });
+      const ck = new Kit(); officeChair(ck, 0, 0, 0, top); const chair = ck.into(new THREE.Group(), { cast: false, receive: true }); chair.name = 'bank-teller-chair-' + i; chair.position.set(wx, 0, Z(10.35)); g.add(chair); // 71st: its own group, so it can roll
+      ch.root.position.set(wx, 0, Z(10.35) - 0.04); ch.root.rotation.y = 0; g.add(ch.root); ch.anim.seated = true;
+      stand.tellers.push({ ch, win: B.staffed[i], x: wx, rnd: rngOf(6710 + i), serving: null, act: null, actT: 0, chair, chairZ: Z(10.35) }); });
     for (const wx of [WINX[3]]) officeChair(k, wx, Z(10.45), 0.3, 0.45);
     // back wall: lit feature band, vault door, filing cabinets, copier
     // centred behind counter 2, between the privacy fins at x 0 and 3.3: seen from the hall the fins (4.4 m in front of this
@@ -501,11 +502,11 @@ export function buildBankInterior(game, site) {
   // arm IK onto the handset's grip), takes the call — the nine lines in order over about a minute, the caller's side as pauses —
   // turns back, puts it down (hang-up sound as it lands), walks back and sits down: the "sitting down" recording is started so
   // that its seated moment (1.3 s into variation 1, 1.0 s into 2 and 3) is the frame the hips land on the seat.
-  const SEAT_D = 10.35, STAND_D = 10.1, V3 = THREE.Vector3;
+  const SEAT_D = 10.35, STAND_D = 10.2, RISE_AT = 0.25, CHAIR_BACK = 0.2, V3 = THREE.Vector3;
   const ss = (u) => { u = Math.max(0, Math.min(1, u)); return u * u * (3 - 2 * u); };
   const wrap = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
   const seatOf = (t) => [t.x, Z(SEAT_D) - 0.04], standOf = (t) => [t.x, Z(STAND_D)];
-  const sideOf = (t) => [t.x + (PHONE.x >= t.x ? 1 : -1) * 0.62, Z(STAND_D + 0.02)];
+  const sideOf = (t) => [t.x + (PHONE.x >= t.x ? 1 : -1) * 0.66, Z(STAND_D)];
   const callSpot = () => [PHONE.x - 0.02, z0 + 0.66];
   const phoneAt = () => [PHONE.x + 0.1, z0 + 0.255];
   // the right hand on the handset, in the handset's frame (long axis +z to the earpiece, cups towards −y): palm on its back,
@@ -528,10 +529,11 @@ export function buildBankInterior(game, site) {
   const call = room.call = { st: 'idle', T: 20 + Math.random() * 70, t: 0, who: null, path: null, pi: 0, sp: 0, lean: 0, line: 0, next: 0, gapK: 1, n: 0, ts: 1, hung: false, yaw0: Math.PI, calls: 0 };
   const GAPS = [2.6, 4.6, 6.2, 4.2, 5.0, 5.2, 4.4, 3.4];
   const lineLen = (i) => SB.duration(bankCallId(i + 1)) || 0.7 + BANK_CALL[i].split(' ').length / 2.6;
-  const leanPose = (b) => { const l = call.lean; if (l) { b.spine.rotation.x += l * 0.6; b.chest.rotation.x += l * 0.4; } };
+  const leanPose = (b) => { const l = call.lean; if (l) { b.spine.rotation.x += l * 0.6; b.chest.rotation.x += l * 0.4; } if (call.cush) b.hips.position.y -= call.cush; };
   const startCall = (who) => { call.who = who; who.called = true; call.st = 'ring'; call.t = 0; call.react = 2.4 + Math.random() * 4.5; const [x, z] = phoneAt(); BankSound.ring(x, z); call.calls++; };
   const endCall = (abort) => { const who = call.who; call.who = null; call.st = 'idle'; call.T = 70 + Math.random() * 130; BankSound.ringStop(); if (callPh) callPh.home();
     if (who) { const A = who.ch.anim; who.away = false; who.called = false; who.act = null; who._rtn = null; A.sitW = null; A.postPose = null; A.reach = null; A.seated = true; if (who.ch.face) who.ch.face.talking = false;
+      who.chair.position.z = who.chairZ; who.chair.rotation.y = 0;
       if (abort) { const [sx, sz] = seatOf(who); who.ch.root.position.set(sx, 0, sz); who.ch.root.rotation.y = 0; A.set(null); } } };
   room.ringNow = (w = null) => { if (call.st !== 'idle') return false; const free = stand.tellers.filter((t) => !t.away && !pool.some((o) => o.on && o.win === t.win)); const who = w || free.sort((a, b) => Math.abs(a.x - PHONE.x) - Math.abs(b.x - PHONE.x))[0]; if (!who) return false; startCall(who); return true; }; // tests / dev
   // walk along call.path (room frame); returns true on arrival
@@ -550,12 +552,16 @@ export function buildBankInterior(game, site) {
     const who = C0.who; if (!who || !staffOn()) { endCall(true); return; } const ch = who.ch, A = ch.anim, r = ch.root.position; C0.t += dt; const t = C0.t;
     const [px, pz] = phoneAt();
     switch (C0.st) {
-      case 'ring': if (t >= C0.react) { who.away = true; who.act = null; C0.st = 'rise'; C0.t = 0; A.set('sit'); A.sitW = 1; A.postPose = leanPose; C0.lean = 0; const [sx, sz] = seatOf(who); r.set(sx, 0, sz); ch.root.rotation.y = 0; BankSound.chair('up', sx, sz); } break;
-      case 'rise': { // 0–0.4 s: hands to the knees, the trunk leans forward · 0.4–1.3 s: seat-off and up · then straighten
-        const [sx, sz] = seatOf(who), [tx, tz] = standOf(who); if (t >= 0.4 && A.seated) { A.seated = null; A.set('rise'); } if (t >= 1.35 && A.action === 'rise') A.set(null);
-        A.sitW = t < 0.4 ? 1 : 1 - ss((t - 0.4) / 0.9); const u = ss((t - 0.35) / 1.0); r.set(sx + (tx - sx) * u, 0, sz + (tz - sz) * u);
-        C0.lean = t < 0.55 ? 0.42 * ss(t / 0.55) : 0.42 * (1 - ss((t - 0.55) / 0.8)); A.update(dt, 0);
-        if (t >= CHAIR_LEN - 0.25) { A.sitW = null; A.postPose = null; C0.lean = 0; C0.path = [sideOf(who), callSpot()]; C0.pi = 0; C0.sp = 0; C0.st = 'walk'; C0.t = 0; } break; }
+      case 'ring': if (t >= C0.react) { who.away = true; who.act = null; C0.st = 'rise'; C0.t = 0; A.set('sit'); A.sitW = 1; A.postPose = leanPose; C0.lean = 0; const [sx, sz] = seatOf(who); r.set(sx, 0, sz); ch.root.rotation.y = 0; BankSound.chair('up', sx, sz); } break; // hands off the keyboard to the lap as the chair creaks
+      case 'rise': { // getting up, on the chair recording's clock: from RISE_AT the trunk leans forward over the feet (weight onto them),
+        // the right hand pushes off the knee ('rise'), the seat weight runs out over 0.9 s while the body comes up and forward
+        // (root from the seat to the standing spot, the feet under the hips), the chair rolls back from under her, the trunk straightens
+        const k0 = t - RISE_AT; if (k0 >= 0 && A.seated) { A.seated = null; A.set('rise'); A.prevAction = null; /* the procedural rise: not the generic standing-up take */ }
+        A.sitW = 1 - ss((k0 - 0.15) / 0.9); const [sx, sz] = seatOf(who), [tx, tz] = standOf(who); const u = ss((k0 - 0.1) / 1.0); r.set(sx + (tx - sx) * u, 0, sz + (tz - sz) * u);
+        C0.lean = k0 < 0.55 ? 0.42 * ss(k0 / 0.5) : 0.42 * (1 - ss((k0 - 0.55) / 0.75));
+        who.chair.position.z = who.chairZ - CHAIR_BACK * ss((k0 - 0.35) / 0.8); who.chair.rotation.y = 0.14 * ss((k0 - 0.35) / 0.8);
+        if (k0 >= 1.25 && A.action === 'rise') A.set(null); A.update(dt, 0);
+        if (k0 >= 1.35) { A.sitW = null; A.postPose = null; C0.lean = 0; C0.path = [sideOf(who), callSpot()]; C0.pi = 0; C0.sp = 0; C0.st = 'walk'; C0.t = 0; } break; }
       case 'walk': if (walk(ch, dt)) { C0.st = 'face'; C0.t = 0; } break;
       case 'face': { const y0 = ch.root.rotation.y; ch.root.rotation.y = turn(y0, Math.PI, dt * 5); A.update(dt, 0, wrap(ch.root.rotation.y - y0) / Math.max(dt, 1e-3)); if (Math.abs(wrap(ch.root.rotation.y - Math.PI)) < 0.05 || t > 1) { C0.st = 'reach'; C0.t = 0; A._rLean = undefined; } break; }
       case 'reach': holdAt(ch, callPh.cradle, 0, ss(t / 0.55)); A.update(dt, 0); if (t >= 0.55) { BankSound.ringStop(); BankSound.handset(true, px, pz); C0.st = 'lift'; C0.t = 0; A.set('phone'); callPh.off = true; } break;
@@ -569,10 +575,13 @@ export function buildBankInterior(game, site) {
         if (!C0.hung && t >= 0.78) { C0.hung = true; BankSound.handset(false, px, pz); } if (t >= 0.85) { callPh.home(); A.set(null); C0.st = 'release'; C0.t = 0; } break; }
       case 'release': holdAt(ch, callPh.cradle, 0, 1 - ss(t / 0.4)); A.update(dt, 0); if (t >= 0.4) { A.reach = null; C0.path = [sideOf(who), standOf(who)]; C0.pi = 0; C0.sp = 0; C0.st = 'walkBack'; C0.t = 0; } break;
       case 'walkBack': if (walk(ch, dt)) { C0.st = 'faceDesk'; C0.t = 0; } break;
-      case 'faceDesk': { const y0 = ch.root.rotation.y; ch.root.rotation.y = turn(y0, 0, dt * 4.5); A.update(dt, 0, wrap(ch.root.rotation.y - y0) / Math.max(dt, 1e-3)); if (Math.abs(wrap(ch.root.rotation.y)) < 0.04 || t > 1.2) { ch.root.rotation.y = 0; const [tx, tz] = standOf(who); C0.n = BankSound.chair('down', tx, tz); C0.ts = CHAIR_SEATED_AT[C0.n] || 1; C0.st = 'sit'; C0.t = 0; A.postPose = leanPose; A.sitW = 0; } break; }
-      case 'sit': { // the descent takes 0.85 s and ends exactly at the recording's seated moment
-        const [sx, sz] = seatOf(who), [tx, tz] = standOf(who); const d0 = Math.max(0.12, C0.ts - 0.85); const u = (t - d0) / (C0.ts - d0); if (t >= d0 && A.action !== 'sit') A.set('sit');
-        const e = u <= 0 ? 0 : u >= 1 ? 1 : ss(u); A.sitW = e; r.set(tx + (sx - tx) * e, 0, tz + (sz - tz) * e); C0.lean = u <= 0 ? 0 : u < 1 ? 0.36 * Math.sin(Math.PI * Math.min(1, u * 1.15)) + 0.06 * u : 0.06 * (1 - ss((t - C0.ts) / 0.6));
+      case 'faceDesk': { const y0 = ch.root.rotation.y; ch.root.rotation.y = turn(y0, 0, dt * 4.5); A.update(dt, 0, wrap(ch.root.rotation.y - y0) / Math.max(dt, 1e-3)); if (Math.abs(wrap(ch.root.rotation.y)) < 0.04 || t > 1.2) { ch.root.rotation.y = 0; const [tx, tz] = standOf(who); C0.n = BankSound.chair('down', tx, tz); C0.ts = CHAIR_SEATED_AT[C0.n] || 1; C0.st = 'sit'; C0.t = 0; C0.cush = 0; C0.from = r.z; A.postPose = leanPose; A.sitW = 0; } break; }
+      case 'sit': { // she reaches back for the chair and draws it in as she lowers herself: the descent (0.85 s, trunk leaning forward
+        // to balance) ends exactly on the recording's seated moment (1.3 s into variation 1, 1.0 s into 2 and 3), then settles back
+        const [sx, sz] = seatOf(who); const d0 = Math.max(0.12, C0.ts - 0.85); const u = (t - d0) / (C0.ts - d0); if (t >= d0 && A.action !== 'sit') A.set('sit');
+        const e = u <= 0 ? 0 : u >= 1 ? 1 : (1 - Math.cos(Math.PI * 0.8 * u)) / (1 - Math.cos(Math.PI * 0.8)); A.sitW = e; // eases in, lands with a little speed left (the seated thump)
+        C0.cush = t > C0.ts ? 0.014 * Math.sin(Math.PI * Math.min(1, (t - C0.ts) / 0.32)) : 0; /* the seat cushion gives under her, then settles */ r.set(sx, 0, C0.from + (sz - C0.from) * e); C0.lean = u <= 0 ? 0 : u < 1 ? 0.34 * Math.sin(Math.PI * Math.min(1, u * 1.15)) + 0.06 * u : 0.06 * (1 - ss((t - C0.ts) / 0.6));
+        const cu = ss((t - (d0 - 0.25)) / (C0.ts - d0 + 0.25)); who.chair.position.z = who.chairZ - CHAIR_BACK * (1 - cu); who.chair.rotation.y = 0.14 * (1 - cu);
         if (u >= 1 && !A.seated) A.seated = true; A.update(dt, 0); if (t >= CHAIR_LEN) { endCall(false); who.ch.anim.set('type'); } break; }
     }
   };
