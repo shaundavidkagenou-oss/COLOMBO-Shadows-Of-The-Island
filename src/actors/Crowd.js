@@ -330,6 +330,7 @@ export class Crowd {
     this.life.update(dt, ctx);
     this.player = player; this.heroId = ctx.hero || this.heroId; { const pp = this._pp || (this._pp = { x: player.x, z: player.z }); this.playerSpeed = Math.hypot(player.x - pp.x, player.z - pp.z) / Math.max(dt, 1e-4); pp.x = player.x; pp.z = player.z; }
     this.minds.update(dt, ctx); // budgets, sirens, incidents (Mind.js)
+    this.noticeGun(dt, player, !!ctx.aiming);
     // spawn / despawn (despawn only far away / out of view)
     for (let i = this.peds.length - 1; i >= 0; i--) { const p = this.peds[i]; if ((Math.hypot(p.x - focus.x, p.z - focus.z) > 165 && !p.keep) || p.recycle) { this.despawn(p); this.peds.splice(i, 1); } }
     const want = Math.round(this.max * (ctx.hourFactor ?? 1) * (this.rain ? 0.65 : 1)) - (this.extra || 0); // extra: people run elsewhere (the Fort station's train riders and clerks) — the same number of characters overall
@@ -410,7 +411,7 @@ export class Crowd {
           p.timer -= dt; const fd = this.fleeAhead(p, p.fleeDir || [Math.sin(p.yaw), Math.cos(p.yaw)], 0.9); tx = p.x + fd[0] * 4; tz = p.z + fd[1] * 4; desired = p.pace * 1.15; p.ch.anim.look = Math.sin(p.rt * 1.3) > 0.6 ? 1.0 : 0;
           if (p.timer <= 0) { if (this.rng.chance(0.25)) this.speak(p, 'recover'); this.endReaction(p); } break; }
         case 'cower': { p.timer -= dt; desired = 0; if (p.ch.anim.action !== 'cower' && p.ch.anim.action !== 'handsup') p.ch.anim.set('cower'); if (p.timer <= 0) { p.ch.anim.set(null); p.state = 'flee'; p.timer = 3 + this.rng.next() * 3; p.fleeSp = 3 + this.rng.next() * 1.5; if (!p.fleeDir) p.fleeDir = this.spread(Math.sin(p.yaw + Math.PI), Math.cos(p.yaw + Math.PI), 1.2); } break; }
-        case 'watch': { p.timer -= dt; desired = 0; avoid = false; if (p.lookAt) p.yaw = dampAngle(p.yaw, Math.atan2(p.lookAt.x - p.x, p.lookAt.z - p.z), 4, dt); if (p.timer <= 0) { if (p.after === 'flee') { p.after = null; p.state = 'flee'; p.timer = 3 + this.rng.next() * 4; p.fleeSp = 3.5; const ax = p.x - p.lookAt.x, az = p.z - p.lookAt.z, d = Math.hypot(ax, az) || 1; p.fleeDir = this.spread(ax / d, az / d, 1); p.ch.anim.set(null); } else this.endReaction(p); } break; }
+        case 'watch': { p.timer -= dt; desired = 0; avoid = false; if (p.lookAt) p.yaw = dampAngle(p.yaw, Math.atan2(p.lookAt.x - p.x, p.lookAt.z - p.z), 4, dt); if (p.timer <= 0) { if (p.after === 'wary' && p.lookAt) { p.after = null; p.state = 'recover'; p.timer = 4 + this.rng.next() * 4; const ax = p.x - p.lookAt.x, az = p.z - p.lookAt.z, d = Math.hypot(ax, az) || 1; p.fleeDir = this.spread(ax / d, az / d, 0.9); p.ch.anim.set(null); p.ch.face.mood = 'concern'; } else if (p.after === 'flee') { p.after = null; p.state = 'flee'; p.timer = 3 + this.rng.next() * 4; p.fleeSp = 3.5; const ax = p.x - p.lookAt.x, az = p.z - p.lookAt.z, d = Math.hypot(ax, az) || 1; p.fleeDir = this.spread(ax / d, az / d, 1); p.ch.anim.set(null); } else this.endReaction(p); } break; }
         case 'report': { // move a little away, then phone the police
           p.timer -= dt; if (p.rt < 2.2) { const fd = p.fleeDir; tx = p.x + fd[0] * 4; tz = p.z + fd[1] * 4; desired = 3; accel = 5; } else { desired = 0; if (p.ch.anim.action !== 'phone') { p.ch.anim.set('phone'); this.speak(p, 'report', 1, 3); if (p.repPlayer !== false) this.events.emit('pedReport', { x: p.x, z: p.z }); p.repPlayer = undefined; } }
           if (p.timer <= 0) { p.repPlayer = undefined; this.endReaction(p); } break; }
@@ -815,6 +816,34 @@ export class Crowd {
       this.alarm(p.x, p.z, 12, 1, p, 'scuffle', true);
     }
     else if (kind === 'photo') { if (R && R.like < -0.2) { face.set('suspicious', 2); p.ch.anim.play('shrug', 1); return; } if (this.rng.chance(0.3 + 0.5 * T(TI.SOC))) { this.react(p, 'talkPlayer', 3); p.ch.anim.set(this.rng.chance(0.5) ? 'wave' : 'handsup'); face.set('smile', 3); } else { face.set('embarrassed', 2); p.lookT = 1.2; p.lookAtPt = null; } }
+  }
+  // 73rd: civilians notice a drawn gun (the police never react to this — only to what you do with it). A few checks a second,
+  // at most two sight rays per check, nearest first: someone facing you notices sooner and from further away (less at night),
+  // someone behind you only at arm's length; a raised gun is noticed more. Each reacts in their own way — a double take and a
+  // wide berth, backing off and hurrying away glancing back, running, ringing someone (not the police: no wanted level for
+  // carrying), or warning the people around them (who then look round for you too). Nobody notices twice in 25 s.
+  noticeGun(dt, player, aiming) {
+    if (!this.playerArmed || !player || player.vehicle) { this.gunT = 0; return; }
+    this.gunT = (this.gunT || 0) - dt; if (this.gunT > 0) return; this.gunT = 0.25;
+    const near = []; for (const p of this.peds) { if (p.dead || p.keep || p.job || !this.isRoutine(p.state) || p.gunSeen > this.t - 25) continue; const dx = p.x - player.x, dz = p.z - player.z, d2 = dx * dx + dz * dz; if (d2 < 324) near.push([d2, p]); }
+    if (!near.length) return; near.sort((a, b) => a[0] - b[0]); let rays = 0; const night = this.night > 0.5;
+    for (const [d2, p] of near) { if (rays >= 2) break; const d = Math.sqrt(d2) || 0.01; const ax = player.x - p.x, az = player.z - p.z; const cosA = (Math.sin(p.yaw) * ax + Math.cos(p.yaw) * az) / d;
+      const heard = p.gunHint && p.gunHint <= this.t; // warned by someone nearby: they look round for you
+      let ch = heard ? 0.9 : cosA > 0.17 ? (d < 6 ? 0.85 : d < 11 ? 0.45 : 0.18) : (d < 2.5 ? 0.4 : 0); if (night && d > 6) ch *= 0.35; if (aiming) ch = Math.min(1, ch * 1.7);
+      if (ch <= 0 || this.rng.next() > ch) continue; rays++;
+      const col = this.collision; if (col && col.raycast && col.raycast(p.x, (p.y || 0) + 1.6, p.z, player.x, (player.y || 0) + 1.25, player.z, 0.1) < 0.97) continue; // (a wall between: nothing seen)
+      this.seeGun(p, player, d); } }
+  seeGun(p, src, d) {
+    p.gunSeen = this.t; p.gunHint = 0; const t = p.mind ? p.mind.tr : null; const T = (i) => (t ? t[i] : 0.5); if (p.mind) feel(p.mind, EI.FEA, d < 6 ? 0.45 : 0.25);
+    const ax = p.x - src.x, az = p.z - src.z, dd = Math.hypot(ax, az) || 1; p.lookAt = { x: src.x, z: src.z }; p.ch.face.set('fear', 3); p.ch.face.mood = 'concern';
+    const k = pickWeighted([['stare', 1 + 1.2 * (1 - T(TI.CONF))], ['wary', 1.5 + 1.2 * T(TI.INT)], ['flee', (d < 7 ? 1.1 : 0.25) + 1.3 * T(TI.FEARF)], ['phone', d > 8 ? 0.3 + 0.8 * T(TI.HON) : 0.05], ['warn', 0.2 + 0.9 * T(TI.SOC)]], this.rng.next());
+    if (k === 'stare') { this.react(p, 'watch', 1.1 + this.rng.next() * 1.6, { after: 'wary' }); if (this.rng.chance(0.4)) this.speak(p, 'gunSeen', 1); }
+    else if (k === 'wary') { this.react(p, 'recover', 4 + this.rng.next() * 4, { fleeDir: this.spread(ax / dd, az / dd, 0.9) }); }
+    else if (k === 'flee') { this.react(p, 'flee', 3 + this.rng.next() * 3, { fleeDir: this.spread(ax / dd, az / dd, 0.6), fleeSp: 2.8 + this.rng.next() * 1.2 }); this.speak(p, 'gunSeen', 1); }
+    else if (k === 'phone') { this.react(p, 'report', 6 + this.rng.next() * 3, { fleeDir: this.spread(ax / dd, az / dd, 0.6), repPlayer: false }); } // (moves off and rings someone — no 119 call)
+    else { this.react(p, 'watch', 0.9 + this.rng.next() * 0.6, { after: 'wary' }); this.speak(p, 'gunSeen', 2);
+      for (const q of this.peds) if (q !== p && !q.gunSeen && Math.hypot(q.x - p.x, q.z - p.z) < 7) q.gunHint = this.t + 0.4 + this.rng.next() * 0.9; }
+    this.stats = this.stats || {}; this.stats.gunSeen = (this.stats.gunSeen || 0) + 1; this.stats['gun_' + k] = (this.stats['gun_' + k] || 0) + 1;
   }
   // a weapon is pointed at this pedestrian: hands up and freeze, back away, or run — varied, never a herd
   threaten(p, src) {

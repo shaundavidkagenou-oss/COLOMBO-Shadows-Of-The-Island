@@ -20,6 +20,8 @@ export const LINES = {
     { en: 'What men, watch it!' },
     { en: 'Go, go. Don\'t bother me.' },
   ],
+  // 73rd: a civilian notices the player carrying a gun
+  gunSeen: [{ si: 'තුවක්කුවක්!', tr: 'A gun!' }, { ta: 'துப்பாக்கி!', tr: 'A gun!' }, { en: 'Aiyo, he has a gun!' }, { en: 'Careful, careful. He has a gun.' }, { en: 'Don\'t look at him. Just walk.' }, { en: 'Is that real? Come, let\'s go.' }],
   scared: [{ si: 'අනේ!', tr: 'Oh no!' }, { si: 'පරිස්සමින්!', tr: 'Careful!' }, { ta: 'கவனம்!', tr: 'Careful!' }, { en: 'Aiyo! Somebody help!' }, { en: 'Are you crazy? Slow down!' }],
   okay: [{ si: 'කමක් නෑ.', tr: 'No problem.' }, { ta: 'பரவாயில்லை.', tr: "It's okay." }, { en: 'Okay, okay. No problem.' }],
   rain: [{ si: 'වැස්ස එනවා.', tr: 'The rain is coming.' }, { ta: 'மழை வருது.', tr: 'The rain is coming.' }, { en: 'Monsoon again. My shoes are finished.' }],
