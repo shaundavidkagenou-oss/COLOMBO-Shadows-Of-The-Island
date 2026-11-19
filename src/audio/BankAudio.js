@@ -60,10 +60,18 @@ export const BankSound = {
       L.out.gain.setTargetAtTime(want, t, s.on === false ? 0.6 : 0.12); L.p.pan.setTargetAtTime(P.pan, t, 0.1); L.lp.frequency.setTargetAtTime(P.lp, t, 0.15); }
     if (this.ringing && this.ringing.trk && this.ringing.trk.voice) { const R = this.ringing, V = R.trk.voice; if (V.end > t) { const P = this.at(R.x, R.z, 7); V.g.gain.setTargetAtTime(Math.max(0.0001, V.lvl * P.g / Math.max(1e-3, R.g0)), t, 0.08); V.p.pan.setTargetAtTime(P.pan, t, 0.08); } }
     if (!inside || !this.on) return;
-    if (!SB.has('bank.office') && (this.evT -= dt) <= 0) { this.evT = 4 + Math.random() * 6; const n = 5 + Math.floor(Math.random() * 8); for (let i = 0; i < n; i++) A.noise(0.012, { f: 3200 + Math.random() * 900, q: 3, vol: 0.006 + Math.random() * 0.004, when: i * (0.07 + Math.random() * 0.09), pan: -0.3 + Math.random() * 0.6 }); } // a keyboard behind the counter (the office loop replaces it)
+    if (!SB.has('bank.office') && (this.evT -= dt) <= 0) this.officeSynth(srcs); // keyboards and mice behind the counter (the recorded office loop replaces this)
     if ((this.printT -= dt) <= 0) { this.printT = 22 + Math.random() * 25; A.noise(0.55, { f: 1500, q: 2.5, vol: 0.01, sweep: 2600, pan: 0.2 }); } // receipt printer
     if ((this.chimeT -= dt) <= 0) { this.chimeT = 35 + Math.random() * 40; this.chime(); } // queue display: next number
   },
+  // synthesised office: a burst of typing at one of the desks — keys at an irregular 5–9 per second with the odd pause, the
+  // heavier space bar between words, now and then a mouse: a click (or a double click) and the wheel's ratchet
+  officeSynth(srcs) { const A = Audio; this.evT = 0.8 + Math.random() * 3.2; const on = (srcs || []).filter((q) => q.id === 'bank.office' && q.on !== false); if (!on.length) return;
+    const s = on[Math.floor(Math.random() * on.length)]; const x = s.seg ? s.seg[0] + Math.random() * (s.seg[1] - s.seg[0]) : s.x; const P = this.at(x, s.z, s.ref || 4); const g = P.g * (s.lvl ?? 1); if (g < 0.02) return; const lp = Math.min(P.lp, 9000);
+    const key = (w, k) => { A.noise(0.009, { f: Math.min(lp, 2600 + Math.random() * 1400), q: 2.2, vol: 0.011 * g * k, pan: P.pan, when: w, attack: 0.0008 }); A.noise(0.022, { f: 420 + Math.random() * 120, q: 1.2, type: 'lowpass', vol: 0.008 * g * k, pan: P.pan, when: w + 0.004, buf: A.brownBuf, attack: 0.001 }); };
+    if (Math.random() < 0.72) { let w = 0; const n = 6 + Math.floor(Math.random() * 26); for (let i = 0; i < n; i++) { const space = Math.random() < 0.16; key(w, space ? 1.5 : 0.75 + Math.random() * 0.4); if (space) A.noise(0.03, { f: 900, q: 1, vol: 0.006 * g, pan: P.pan, when: w + 0.01 }); w += 0.09 + Math.random() * 0.12 + (Math.random() < 0.07 ? 0.35 + Math.random() * 0.5 : 0); } }
+    else { const click = (w) => { A.noise(0.006, { f: Math.min(lp, 4200), q: 3, vol: 0.012 * g, pan: P.pan, when: w, attack: 0.0005 }); A.noise(0.006, { f: Math.min(lp, 3600), q: 3, vol: 0.008 * g, pan: P.pan, when: w + 0.07, attack: 0.0005 }); };
+      click(0); if (Math.random() < 0.35) click(0.16); if (Math.random() < 0.4) for (let i = 0; i < 4 + Math.floor(Math.random() * 6); i++) A.noise(0.004, { f: Math.min(lp, 5200), q: 4, vol: 0.004 * g, pan: P.pan, when: 0.4 + i * 0.045, attack: 0.0005 }); } },
   release() {
     const m = this.amb; this.amb = null; this.ringStop(true);
     if (m) { try { SB.syncLoop(m, 'bank.ambience', null); } catch { /* no recording */ } for (const s of m.srcs) { try { s.stop(); } catch { /* already stopped */ } } try { m.g.disconnect(); } catch { /* gone */ } }
