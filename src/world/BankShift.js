@@ -72,7 +72,7 @@ export function makeBankShift(ctx) {
   const { DOOR_IN, DOOR_OUT, LEAVE_WAIT, STREET_OUT, ARR_WAIT, WALK_ON } = PTS;
   const crew = []; const S = { crew, stats: { leaves: 0, arrivals: 0, tukRides: 0, carTrips: 0, walked: 0, byes: 0 }, log: [] };
   const note = (s) => { S.log.push(`${(game.clock || 0).toFixed(1)} ${s}`); if (S.log.length > 40) S.log.shift(); };
-  const DOOR_INNER = [-0.25, Z(1.45)]; void LEAVE_WAIT; const DX = staffDoor.x, DOOR_HALL = [DX, Z(8.3)], DOOR_STAFF = [DX, Z(9.7)];
+  void LEAVE_WAIT; const DX = staffDoor.x, DOOR_HALL = [DX, Z(8.3)], DOOR_STAFF = [DX, Z(9.7)];
   const T = () => game.traffic; const W = () => walkInOf();
   const hour = () => (game.atmos ? game.atmos.hour : 12); const today = () => (game.atmos ? game.atmos.day || 0 : 0);
   const dutyWant = () => { if (S.force !== undefined && S.force !== null) return S.force; const h = hour(); return h >= B.open[0] - 0.3 && h < B.open[1]; }; // (S.force: tests)
@@ -193,6 +193,7 @@ export function makeBankShift(ctx) {
       if (G.state === 'away') { G.t += dt; const v = G.v; if (!v || G.t > 6) { if (v) { v.keep = false; v.beforeRemove = null; } G.v = null; G.state = 'done'; } return; }
     }
   };
+  S.door = { get waits() { return room.stats.lineWaits || 0; } };
   // ---- walkers (customer-compatible objects; stepped by the room's stepCustomer)
   const mkWalker = (p, x, z, yaw) => { const c = { ch: p.ch, on: true, x, z, yaw, speed: 0, gen: null, cmd: null, rnd: rng, loc: 'door', blockT: 0, seat: -1, atm: -1, win: -1, staff: p }; crew.push(c); p.walker = c; return c; };
   function* walkOffGen(p, c) { S.stats.walked++; note(`${p.role} walks home`); const dir = rng() < 0.5 ? -1 : 1; yield { walk: [[dir * 7, 1.9], [dir * 26, 1.9]] }; yield { fn: (c2, dt, m) => { if (!T() || m.t > 20) return true; const [wx, wz] = worldOf(c2); return !T().seen(wx, wz); } }; }
@@ -200,9 +201,9 @@ export function makeBankShift(ctx) {
     if (p.seatP) yield { fn: riseFn(p) };
     yield { fn: talkFn(p, BYE, BYE_BACK) };
     if (p.pre) yield { walk: p.pre }; c.phase = 'hall';
-    // through the hall to just inside the door and straight on out (no stop on the customers' waiting point: several people
-    // converging on one spot jam), the doorway token takes them through one at a time
-    { const pth = hallPath(p.pre ? p.pre[p.pre.length - 1] : [c.x, c.z], DOOR_INNER); c.loc = 'door'; yield { walk: [...pth, DOOR_OUT, STREET_OUT] }; } c.phase = 'street';
+    // through the hall into the staff's line along the front window (BankInterior lines: join at the back, it moves up, the front
+    // one asks for the doorway token) — five people leaving at once otherwise jam the one-person doorway with the customers
+    { const from = p.pre ? p.pre[p.pre.length - 1] : [c.x, c.z]; yield* room.lineGen(c, 'staff', (spot) => hallPath(from, spot)); c.loc = 'door'; yield { walk: [DOOR_OUT, STREET_OUT] }; } c.phase = 'street';
     if (p.how === 'car') { const v = carOf(p); if (v) { const seat = v.driverSeat(); const [bx, bz] = boardPt(v, seat); const [lx, lz] = local(bx, bz); yield { walk: [[lx, lz]] }; yield { fn: boardFn(p, v, seat, true) }; if (c.boarded) { yield { fn: driveOffFn(p, v) }; return; } } }
     else { const G = groups[p.grp]; if (frontLane()) { if (G.state === 'idle' || G.state === 'done' || G.state === 'gone' || G.state === 'fail') { G.mode = 'leave'; G.state = 'wait'; G.t = 0; }
       const k = G.members.indexOf(p); yield { walk: [groupWait(G, k)] }; c.atKerb = true; const fr = frontLane(); const [ax, az] = evalPiece(fr.piece, fr.sDoor), [bx, bz] = evalPiece(fr.piece, fr.sDoor + 1); const [la, lb] = local(ax, az), [lc, ld] = local(bx, bz); const roadYaw = Math.atan2(lc - la, ld - lb) + Math.PI; // looking up the street for it
@@ -211,7 +212,8 @@ export function makeBankShift(ctx) {
     yield* walkOffGen(p, c);
   }
   function* arriveGen(p, c) {
-    yield { walk: [ARR_WAIT, DOOR_IN] }; c.phase = 'hall'; c.loc = 'door';
+    yield* room.lineGen(c, 'in', (spot) => [spot]); // (the arrivals' line along the shop front)
+    yield { walk: [DOOR_IN] }; c.phase = 'hall'; c.loc = 'door';
     const end = p.pre ? p.pre[p.pre.length - 1] : p.standP; yield { walk: hallPath([c.x, c.z], end) };
     if (p.pre) { const back = p.pre.slice(0, -1).reverse(); back.push(p.standP || p.spotP); yield { walk: back }; }
     yield { fn: talkFn(p, HELLO, HELLO_BACK) };
@@ -257,7 +259,7 @@ export function makeBankShift(ctx) {
     }
     if (S.idle()) { if (staffDoor.ang !== 0) stepDoor(dt); return; }
     for (const G of groups) stepGroup(G, dt);
-    for (const c of crew.slice()) { if (!c.on) { const i = crew.indexOf(c); if (i >= 0) crew.splice(i, 1); const p = c.staff; if (p.walker === c) { p.walker = null; if (p.duty === 'leaving') { if (p.inCar) continue; snapOff(p); } } continue; } guardSay(c); const wk = c.cmd && c.cmd.walk; if (wk && c.speed < 0.05) c.stuckT = (c.stuckT || 0) + dt; else c.stuckT = 0; if (c.stuckT > 8) { c.stuckT = 0; c.ghostT = 1.6; } if (c.ghostT > 0) c.ghostT -= dt; stepWalker(c, dt, pl); }
+    for (const c of crew.slice()) { if (!c.on) { const i = crew.indexOf(c); if (i >= 0) crew.splice(i, 1); const p = c.staff; if (p.walker === c) { p.walker = null; if (p.duty === 'leaving') { if (p.inCar) continue; snapOff(p); } } continue; } guardSay(c); const wk = c.cmd && c.cmd.walk; if (wk && c.speed < 0.05) c.stuckT = (c.stuckT || 0) + dt; else c.stuckT = 0; if (c.stuckT > 12) { c.stuckT = 0; c.ghostT = 1.6; S.door.ghosts = (S.door.ghosts || 0) + 1; } if (c.ghostT > 0) c.ghostT -= dt; stepWalker(c, dt, pl); }
     for (const p of people) if (p.waveT > 0 && (p.waveT -= dt) <= 0) p.ch.anim.set(null);
     stepDoor(dt);
   };
