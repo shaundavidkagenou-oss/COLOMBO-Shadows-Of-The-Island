@@ -27,10 +27,25 @@ export function buildPropGeometries() { // 60th: every prop type draws with its 
     GEO.pole = [part(p, MAT.utilityPole)];
     const t = new MeshBuilder(); t.box(0, 6.1, 0.35, 0.7, 0.9, 0.5, { col: C('#7d8580') }); t.cylinder(0, 6.55, 0.35, 0.08, 0.08, 0.3, 6, { col: C('#ddd') });
     GEO.transformer = [part(t, MAT.transformer)]; }
-  // traffic signal pole (heads are separate dynamic lamps)
-  { const p = new MeshBuilder(); p.cylinder(0, 0, 0, 0.1, 0.09, 3.2, 8, { col: C('#2b2d2b') });
-    p.box(0, 2.85, 0.18, 0.34, 1.0, 0.24, { col: C('#151515') }); p.box(0.18, 2.85, 0, 0.24, 1.0, 0.34, { col: C('#151515') });
-    for (const [x, z] of [[0, 0.3075], [0.3075, 0]]) p.box(x, 2.85, z, x ? 0.015 : 0.4, 1.1, z ? 0.015 : 0.4, { col: C('#e8c21a') }); // backboard face at 0.315: lamps float 1.8 cm in front (no coplanar flicker)
+  // traffic signal pole (heads are separate dynamic lamps). 73rd: built like the real ones — a galvanised pole on a bolted base
+  // flange, two 3-aspect aluminium heads (one per approach) on brackets, each lens in a black rim under a cut-away visor (hood),
+  // the head on a black backplate with a retro-reflective white border. Heads sit off the pole's centre so the two at right
+  // angles meet at a corner instead of overlapping. Same single material and draw call as before (vertex colours).
+  { const p = new MeshBuilder(); const galv = C('#8c9194'), blk = C('#181918'), rim = C('#0d0d0d'), hood = C('#141514'), edge = C('#d6d3c6');
+    p.cylinder(0, 0, 0, 0.2, 0.2, 0.03, 12, { col: C('#7b8083') }); for (let k = 0; k < 4; k++) { const a = Math.PI / 4 + k * Math.PI / 2; p.box(Math.cos(a) * 0.15, 0.045, Math.sin(a) * 0.15, 0.035, 0.03, 0.035, { col: C('#6a6e70') }); } // base flange + anchor nuts
+    p.cylinder(0, 0.03, 0, 0.095, 0.075, 3.42, 12, { col: galv }); p.cylinder(0, 3.45, 0, 0.08, 0.025, 0.07, 10, { col: galv }); // shaft + cap
+    const head = new MeshBuilder(); const cx = SIG_HEAD.off; // one head in its own frame, facing +z, centred on x = cx
+    head.box(cx, 2.86, 0.098, 0.5, 1.2, 0.014, { col: blk, bottom: true }); // backplate
+    for (const [bx, by, sx, sy] of [[cx, 2.86 + 0.575, 0.5, 0.05], [cx, 2.86 - 0.575, 0.5, 0.05], [cx - 0.225, 2.86, 0.05, 1.2], [cx + 0.225, 2.86, 0.05, 1.2]]) head.box(bx, by, 0.1065, sx, sy, 0.003, { col: edge, top: false, sides: 1 });
+    head.box(cx, 2.86, 0.215, 0.3, 0.98, 0.21, { col: blk, bottom: true }); head.box(cx, 3.358, 0.215, 0.32, 0.016, 0.225, { col: blk, bottom: true }); // housing + top lip
+    for (const y of [3.1, 2.62]) head.box(cx * 0.5, y, 0.05, Math.abs(cx) + 0.06, 0.05, 0.09, { col: C('#2a2c2b'), bottom: true }); // brackets to the pole
+    const ringG = new THREE.CylinderGeometry(0.128, 0.128, 0.03, 14, 1, true); ringG.rotateX(Math.PI / 2);
+    const visG = new THREE.CylinderGeometry(0.14, 0.14, 0.2, 10, 1, true, Math.PI - 1.95, 3.9); visG.rotateX(Math.PI / 2); // the top ~225° of a tube: the hood
+    const visB = visG.clone(); { const ix = visB.index; for (let i = 0; i < ix.count; i += 3) { const a = ix.getX(i + 1); ix.setX(i + 1, ix.getX(i + 2)); ix.setX(i + 2, a); } const n = visB.attributes.normal; for (let i = 0; i < n.count; i++) n.setXYZ(i, -n.getX(i), -n.getY(i), -n.getZ(i)); } // its inside (seen from below)
+    const M4 = new THREE.Matrix4();
+    for (const y of SIG_HEAD.ys) { head.geometry(ringG, M4.makeTranslation(cx, y, SIG_HEAD.z - 0.004), rim); head.geometry(visG, M4.makeTranslation(cx, y, SIG_HEAD.z + 0.1), hood); head.geometry(visB, M4.makeTranslation(cx, y, SIG_HEAD.z + 0.1), hood); }
+    const hg = head.build(); p.geometry(hg, M4.identity()); p.geometry(hg, M4.makeRotationY(Math.PI / 2)); // head A faces +z, head B (+90° about y) faces +x
+    ringG.dispose(); visG.dispose(); visB.dispose(); hg.dispose();
     GEO.signal = [part(p, MAT.signalPole)]; }
   // bus halt shelter
   { const busSign = canvasTex(512, 160, (a, w, h) => { a.fillStyle = '#0e5e35'; a.fillRect(0, 0, w, h); a.fillStyle = '#fff'; a.textAlign = 'center'; a.textBaseline = 'middle'; a.font = '700 54px "Barlow Condensed", sans-serif'; a.fillText('BUS HALT', w / 2, 40); a.font = '700 34px "Noto Sans Sinhala", sans-serif'; a.fillText('බස් නැවතුම', w * 0.28, 115); a.font = '700 30px "Noto Sans Tamil", sans-serif'; a.fillText('பஸ் தரிப்பு', w * 0.74, 115); });
@@ -80,6 +95,10 @@ export function buildPropGeometries() { // 60th: every prop type draws with its 
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(1, 1, 1), _e = new THREE.Euler(), _c = new THREE.Color();
 export const signalLamps = []; // { mesh, entries:[{node, axis, idx0}] }
 const SIG_MAT = new THREE.MeshBasicMaterial({ toneMapped: false, side: THREE.DoubleSide });
+// 73rd: signal head layout (the lamps sit in the lens rims of GEO.signal): head A's lens centres (off, y, z) facing +z; head B the same turned +90° about y
+const SIG_HEAD = { off: -0.12, ys: [3.18, 2.86, 2.54], z: 0.335 };
+// an unlit lens is not black: dark tinted glass over a dull reflector (red / amber / green)
+const SIG_OFF = [new THREE.Color(0.075, 0.018, 0.016), new THREE.Color(0.08, 0.05, 0.012), new THREE.Color(0.014, 0.06, 0.045)];
 
 const BREAKABLE = new Set(['lamp', 'lampHeritage', 'signal']);
 export function buildPropsForChunk(chunk) {
@@ -116,9 +135,9 @@ export function buildPropsForChunk(chunk) {
     sigs.forEach((p, i) => {
       // head A faces local +z (axis 'v' traffic), head B faces local +x (axis 'h' traffic)
       for (let h = 0; h < 2; h++) for (let k = 0; k < 3; k++) {
-        const local = h === 0 ? new THREE.Vector3(0, 3.18 - k * 0.32, 0.333) : new THREE.Vector3(0.333, 3.18 - k * 0.32, 0);
+        const local = new THREE.Vector3(SIG_HEAD.off, SIG_HEAD.ys[k], SIG_HEAD.z); if (h === 1) local.applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
         local.applyAxisAngle(new THREE.Vector3(0, 1, 0), p.rot); _p.set(p.x + local.x, LAND_Y + local.y, p.z + local.z);
-        _q.setFromEuler(_e.set(0, p.rot + (h === 0 ? 0 : Math.PI / 2), 0)); _m.compose(_p, _q, _s.set(1, 1, 1)); mesh.setMatrixAt(i * 6 + h * 3 + k, _m); mesh.setColorAt(i * 6 + h * 3 + k, _c.set(0x111111));
+        _q.setFromEuler(_e.set(0, p.rot + (h === 0 ? 0 : Math.PI / 2), 0)); _m.compose(_p, _q, _s.set(1, 1, 1)); mesh.setMatrixAt(i * 6 + h * 3 + k, _m); mesh.setColorAt(i * 6 + h * 3 + k, SIG_OFF[k]);
       }
       // which axis does each head serve? head A faces along local +z: world dir = (sin rot, cos rot)
       const dA = [Math.sin(p.rot), Math.cos(p.rot)];
@@ -169,15 +188,15 @@ export function buildPropsForChunk(chunk) {
 export const GLOW_MAT = new THREE.PointsMaterial({ size: 2.2, sizeAttenuation: true, color: 0xffd7a0, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
 export function initGlowTexture() { GLOW_MAT.map = TEX.glow; GLOW_MAT.needsUpdate = true; }
 
-const RED = new THREE.Color(2.2, 0.15, 0.1), AMB = new THREE.Color(2.2, 1.2, 0.1), GRN = new THREE.Color(0.2, 2.0, 0.6), OFF = new THREE.Color(0.05, 0.05, 0.05);
+const RED = new THREE.Color(2.2, 0.15, 0.1), AMB = new THREE.Color(2.2, 1.2, 0.1), GRN = new THREE.Color(0.2, 2.0, 0.6);
 export function updateSignals(t) {
   for (const s of signalLamps) {
     if (!s.group.visible || !s.group.parent || !s.group.parent.visible) continue;
     for (const e of s.entries) for (let h = 0; h < 2; h++) {
       const st = signalState(e.node, e.axes[h], t);
-      s.mesh.setColorAt(e.base + h * 3 + 0, st === 'red' ? RED : OFF);
-      s.mesh.setColorAt(e.base + h * 3 + 1, st === 'yellow' ? AMB : OFF);
-      s.mesh.setColorAt(e.base + h * 3 + 2, st === 'green' ? GRN : OFF);
+      s.mesh.setColorAt(e.base + h * 3 + 0, st === 'red' ? RED : SIG_OFF[0]);
+      s.mesh.setColorAt(e.base + h * 3 + 1, st === 'yellow' ? AMB : SIG_OFF[1]);
+      s.mesh.setColorAt(e.base + h * 3 + 2, st === 'green' ? GRN : SIG_OFF[2]);
     }
     s.mesh.instanceColor.needsUpdate = true;
   }
