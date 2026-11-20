@@ -24,6 +24,7 @@ const SHOTS = [
   { name: '71-bank-atm-card', hour: 11, room: true, atm: true, card: 0.62 },
   { name: '73-bank-atm-close', hour: 11, room: true, cam: [-5.55, 1.5, -1.55], look: [-6.4, 1.22, -1.86] },
   { name: '73-bank-ac-close', hour: 11, room: true, cam: [5.3, 2.25, -1.9], look: [6.95, 2.8, -2.92] },
+  { name: '73-bank-guard-shotgun', hour: 11, room: true, guard: true, cam: [-2.6, 1.55, -3.3], look: [2.0, 1.35, -1.3] },
   { name: '71-bank-phone-call', hour: 11, room: true, call: true, cam: [-1.2, 1.62, -7.8], look: [-3.3, 1.3, -13.0] },
 ];
 try {
@@ -44,11 +45,12 @@ try {
       if (s.atm) { const r = site.room, m = r.atms[1]; for (const c of r.customers) if (c.on && c.atm === m.i) { c.on = false; c.ch.root.visible = false; c.atm = -1; } m.user = null; const [ax, az] = W.world(site, m.stand[0] + 0.05, m.stand[1]); P.x = ax; P.z = az; P.yaw = site.yaw - Math.PI / 2; await g.stepSim(3, 0.05);
         if (s.card) { g.atm.openAt(r, m); while (g.atm.cardAnim && g.atm.cardAnim.t < s.card) await g.stepSim(1, 0.02); /* camera beside the player's right shoulder, framed on the card in his hand and the reader */ const C = g.atm.card.getWorldPosition(new (g.camera.position.constructor)()); const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw), rx = -fz, rz = fx; P.camOverride = true; g.atm.camera = () => {}; g.camera.position.set(C.x + rx * 0.55 - fx * 0.35, C.y + 0.18, C.z + rz * 0.55 - fz * 0.35); g.camera.lookAt(C.x + fx * 0.06, C.y - 0.02, C.z + fz * 0.06); g.camera.fov = 40; g.camera.updateProjectionMatrix(); g.camera.updateMatrixWorld(); g.atm.update = () => {}; }
         else { g.story.state.money = 18500; g.bank.account.balance = Math.max(g.bank.account.balance, 64250); g.atm.openAt(r, m); await g.stepSim(25, 0.05); const i = g.atm.opts.findIndex((o) => o.act === 'withdraw'); g.atm.sel = i; g.atm.choose(); await g.stepSim(2, 0.05); g.atm.sel = 2; g.atm.render(); } }
+      if (s.guard) { const r = site.room; const [gx, gz] = W.world(site, -0.9, -5.2); P.x = gx; P.z = gz; g.police.stars = () => 2; g.health.damage = () => {}; r.guardGun.cd = 1e9; for (let i = 0; i < 120 && r.guardGun.aim < 0.99; i++) await g.stepSim(1, 0.05); r.guardGun.cd = 1e9; }
       if (s.call) { const r = site.room; r.ringNow(); for (let i = 0; i < 900 && r.call.st !== 'call'; i++) await g.stepSim(1, 0.05); for (let i = 0; i < 80; i++) await g.stepSim(1, 0.05); }
       if (s.map) { g.toggleMap(); await g.stepSim(2, 0.05); const V = g.hud.mapView; if (V) { V.open(site.door.x, site.door.z); V.tZoom = 1.3; } }
       if (s.cam && !s.atm) { P.camOverride = true; let c = s.cam, l = s.look; if (s.room) { const [cx, cz] = W.world(site, c[0], c[2]); const [lx, lz] = W.world(site, l[0], l[2]); c = [cx, site.y0 + c[1], cz]; l = [lx, site.y0 + l[1], lz]; } g.camera.position.set(...c); g.camera.lookAt(...l); g.camera.fov = 58; g.camera.updateProjectionMatrix(); g.camera.updateMatrixWorld(); }
       g.hud.show(!s.cam || s.atm || s.map); g.noRender = false;
-      return { inside: inside(), night: +g.atmos.night.toFixed(2), cust: site.room ? site.room.customers.filter((c) => c.on).length : 0, page: g.atm.page }; }, s);
+      return { inside: inside(), night: +g.atmos.night.toFixed(2), cust: site.room ? site.room.customers.filter((c) => c.on).length : 0, page: g.atm.page, guard: site.room && site.room.guardGun ? { draw: +site.room.guardGun.draw.toFixed(2), aim: +site.room.guardGun.aim.toFixed(2), alert: site.room.guardGun.alert, vis: site.room.stand.guard.ch.root.visible } : null }; }, s);
     await new Promise((r) => setTimeout(r, s.map ? 12000 : 9000));
     if (s.cam && !s.atm) await page.evaluate((s) => { const g = window.__game, W = g.interiors.walkIn, site = W.siteById('bank'); let c = s.cam, l = s.look; if (s.room) { const [cx, cz] = W.world(site, c[0], c[2]); const [lx, lz] = W.world(site, l[0], l[2]); c = [cx, site.y0 + c[1], cz]; l = [lx, site.y0 + l[1], lz]; } g.camera.position.set(...c); g.camera.lookAt(...l); g.camera.updateMatrixWorld(); }, s);
     await new Promise((r) => setTimeout(r, 2500));
