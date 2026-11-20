@@ -158,7 +158,7 @@ export class EMS {
       // stopped at the routing goal without a way in (came at it from the wrong side / too close): go round the block and try again
       const gd = ai.goal && ai.goal.dist !== undefined ? ai.goal.dist : Infinity; if (!ai.goal && !ai.route && v.speed < 0.5) u.stuckT += dt * 2;
       if (u.stuckT > 6 || (gd < 6 && v.speed < 0.6)) { u.stuckT = 0; e.replans = (e.replans || 0) + 1; ai.goal = null; ai.route = null; if (!this.planBay(u, B)) e.bayT += 60; }
-      if (e.bayT > 240) { e.toBay = null; e.transport = false; this.stats.bayFail++; pr.note(`EMS unit ${u.id} could not reach the hospital`); ai.route = null; ai.goal = null; ai.park = null; } // drives on; recycled out of view
+      if (e.bayT > 300) { e.toBay = null; e.transport = false; this.stats.bayFail++; pr.note(`EMS unit ${u.id} could not reach the hospital`); ai.route = null; ai.goal = null; ai.park = null; } // drives on; recycled out of view
       return; }
     // pulling in through the gate to the bay
     e.inT += dt; const path = ai.park && ai.park.path;
