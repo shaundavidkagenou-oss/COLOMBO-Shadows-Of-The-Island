@@ -167,7 +167,8 @@ try {
       const sent = new Map(); let t = 0;
       for (let i = 0; i < 12000; i++) { await g.stepSim(1, 0.1); t += 0.1; for (const p of peds) if (p.deadT < 400) p.deadT = 400;
         r.maxActive = Math.max(r.maxActive, E.active()); r.maxUnits = Math.max(r.maxUnits, E.units.length);
-        for (const u of E.units) { if (u.e) { const k = u.id + ':' + u.e.ph + (u.e.toBay ? ':' + u.e.toBay : '') + (u.e.bp ? ':' + u.e.bp : ''); r.lp = r.lp || {}; if (k !== r.lp[u.id]) { r.lp[u.id] = k; (r.trace = r.trace || []).push(k + '@' + t.toFixed(0) + (u.e.replans ? '/r' + u.e.replans : '')); } } }
+        for (const u of E.units) { if (u.e) { const k = u.id + ':' + u.e.ph + (u.e.toBay ? ':' + u.e.toBay : '') + (u.e.bp ? ':' + u.e.bp : ''); r.lp = r.lp || {}; if (k !== r.lp[u.id]) { r.lp[u.id] = k; (r.trace = r.trace || []).push(k + '@' + t.toFixed(0) + (u.e.replans ? '/r' + u.e.replans : '')); }
+          if (u.e.dbg && (u.e.replans | 0) % 10 === 1) { const v = u.v; (r.dbg = r.dbg || {})[u.id + ':r' + u.e.replans] = u.e.dbg.join('/') + ` @${v.x.toFixed(1)},${v.z.toFixed(1)} yaw ${v.yaw.toFixed(2)}`; } } }
         for (const u of E.units) if (u.e && u.e.p && u.e.p.__tid != null && !sent.has(u)) { sent.set(u, u.e.p.__tid); r.sentAt.push(u.e.p.__tid + '@' + t.toFixed(0)); r.perPed[u.e.p.__tid] = (r.perPed[u.e.p.__tid] || 0) + 1; }
         if (r.sentAt.length >= 2 && E.active() === 0) break; }
       r.t1 = +t.toFixed(0); r.stats = Object.fromEntries(Object.keys(E.stats).map((k) => [k, E.stats[k] - (s0[k] || 0)]));
@@ -181,6 +182,7 @@ try {
       return r; });
     console.log('   ems2', JSON.stringify(e2));
     ok(!e2.err && e2.sentAt.length === 2 && e2.maxActive === 1 && e2.maxUnits <= 2 && e2.perPed[0] === 1 && e2.perPed[1] === 1, `8b two bodies: one unit at a time, the second queued and answered, nobody twice (${e2.sentAt && e2.sentAt.join(', ')}; max active ${e2.maxActive}, vehicles ${e2.maxUnits})`);
+    ok(!e2.err && e2.stats && e2.stats.delivered >= 2 && e2.stats.bayFail === 0, `8b both casualties taken to the hospital (delivered ${e2.stats && e2.stats.delivered}, bay failures ${e2.stats && e2.stats.bayFail}; ${JSON.stringify(e2.dbg || {})})`);
     ok(e2.fail && e2.fail.removed && e2.fail.stats.bayFail >= 1 && e2.fail.cargo === 0, `8c route failure: no freeze, the unit drives on and is recycled, props cleaned (${JSON.stringify(e2.fail)})`);
   }
 } catch (e) { errors.push('test: ' + (e.stack || e)); }
