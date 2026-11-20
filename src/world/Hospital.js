@@ -63,7 +63,16 @@ function backDepth(ch) { if (ch._backD != null) return ch._backD; const r = ch.r
 // to whoever sits (seat top = seatTopFor(sitter): no body is ever scaled or sunk to fit a chair)
 function shellGeo(kind) {
   const b = new MeshBuilder();
-  if (kind === 'office') { b.box(0, -0.035, 0.02, 0.48, 0.07, 0.46, { col: COL.navy, bottom: true }); b.box(0, 0.33, -0.22, 0.44, 0.5, 0.06, { col: COL.navy }); b.box(0, 0.12, -0.22, 0.05, 0.2, 0.03, { col: COL.dark }); b.box(0, -0.22, 0, 0.05, 0.3, 0.05, { col: COL.dark }); }
+  if (kind === 'office') { // 75th: a task chair — moulded seat shell + cushion with a waterfall front edge, a reclined mesh back in a
+    // frame (built up in steps), lumbar pad, the back's spine bar, T-armrests with soft pads, the synchro mechanism + gas lift
+    const D = COL.dark, N = COL.navy, M = [0.13, 0.15, 0.18];
+    b.box(0, -0.075, 0.02, 0.5, 0.025, 0.47, { col: D, bottom: true }); b.box(0, -0.035, 0.03, 0.48, 0.06, 0.42, { col: N }); b.box(0, -0.045, 0.245, 0.46, 0.05, 0.03, { col: N }); b.box(0, -0.07, 0.262, 0.44, 0.03, 0.02, { col: N }); // seat
+    b.box(0, -0.002, 0.02, 0.44, 0.012, 0.38, { col: [0.16, 0.24, 0.38] }); // the cushion crown
+    for (let k = 0; k < 4; k++) { const y = 0.14 + k * 0.12, z = -0.235 - k * 0.018; b.box(0, y, z, 0.44 - (k === 3 ? 0.04 : 0), 0.125, 0.025, { col: D }); b.box(0, y, z + 0.014, 0.4 - (k === 3 ? 0.04 : 0), 0.11, 0.008, { col: M }); } // frame + mesh
+    b.box(0, 0.2, -0.218, 0.32, 0.08, 0.02, { col: N }); // lumbar pad
+    b.box(0, 0.02, -0.25, 0.06, 0.16, 0.03, { col: D }); b.box(0, -0.06, -0.15, 0.06, 0.03, 0.2, { col: D }); // spine bar
+    for (const sx of [-0.27, 0.27]) { b.box(sx, 0.06, -0.02, 0.03, 0.2, 0.05, { col: D }); b.box(sx, 0.17, 0.0, 0.07, 0.025, 0.24, { col: [0.12, 0.13, 0.15] }); b.box(sx, -0.065, -0.02, 0.05, 0.02, 0.14, { col: D }); } // T-arms
+    b.box(0, -0.115, 0, 0.2, 0.05, 0.22, { col: D }); b.box(0, -0.25, 0, 0.055, 0.25, 0.055, { col: [0.6, 0.62, 0.64] }); b.box(0.1, -0.105, 0.1, 0.12, 0.012, 0.012, { col: D }); } // mechanism, gas lift (chromed sleeve), paddle
   else { b.box(0, -0.025, 0.02, 0.5, 0.05, 0.44, { col: COL.seat, bottom: true }); b.box(0, 0.275, -0.2, 0.5, 0.42, 0.05, { col: COL.seat }); b.box(0.27, 0.135, 0, 0.04, 0.03, 0.36, { col: COL.dark }); b.box(0, -0.2, -0.05, 0.05, 0.32, 0.05, { col: COL.steel }); }
   return b.build();
 }

@@ -237,8 +237,10 @@ K.counter = (B, F, x) => { const w = x.w || 4; // reception / nurses' counter: p
   if (x.name) plateQuad(B, F, 0, 0.62, 0.315, Math.min(1.6, w * 0.4), 0.8 * 0.5, plateUV(x.name === 'Registration counter' ? 'Registration' : x.name === "Nurses' station" ? "Nurses' Station" : 'Reception'));
   return [-w / 2, w / 2, -0.5, 0.32, 1.14]; };
 K.counterEnd = (B, F, x) => { const d = x.d || 1.6; bx(B, F, 'h_wood', 0, 0.55, 0, 0.06, 1.1, d, COL.wood); bx(B, F, 'h_plastic', 0, 1.12, 0, 0.3, 0.04, d, COL.white); bx(B, F, 'h_plastic', -0.3, 0.75, 0, 0.6, 0.04, d, COL.offwhite); return [-0.62, 0.15, -d / 2, d / 2, 1.14]; };
-K.officeChair = (B, F, x = {}) => { cyl(B, F, 'h_metal', 0, 0.06, 0, 0.03, 0.03, 0.38, 6, COL.dark); for (let k = 0; k < 5; k++) { const a = k * 1.2566; bx(B, F, 'h_plastic', Math.sin(a) * 0.17, 0.04, Math.cos(a) * 0.17, 0.05, 0.03, 0.05, COL.black); }
-  bx(B, F, 'h_plastic', 0, 0.035, 0, 0.5, 0.02, 0.06, COL.black); bx(B, F, 'h_plastic', 0, 0.035, 0, 0.06, 0.02, 0.5, COL.black);
+K.officeChair = (B, F, x = {}) => { // 75th: a real 5-star base — five tapered aluminium-look spokes from the hub, a twin-wheel castor under each tip
+  cyl(B, F, 'h_metal', 0, 0.09, 0, 0.032, 0.03, 0.3, 8, COL.dark); cyl(B, F, 'h_plastic', 0, 0.075, 0, 0.05, 0.055, 0.05, 8, COL.black);
+  for (let k = 0; k < 5; k++) { const a = k * 1.2566, c = Math.cos(a), sn = Math.sin(a); for (let j = 0; j < 3; j++) { const r = 0.06 + j * 0.075; bx(B, F, 'h_plastic', sn * r, 0.085 - j * 0.008, c * r, 0.04 - j * 0.006, 0.03 - j * 0.004, 0.08, COL.black, { rotY: F.rot + a }); }
+    bx(B, F, 'h_plastic', sn * 0.29, 0.065, c * 0.29, 0.02, 0.025, 0.02, COL.dark); for (const o of [-0.012, 0.012]) cyl(B, F, 'h_plastic', sn * 0.29 + c * o, 0.0, c * 0.29 - sn * o, 0.025, 0.025, 0.05, 8, COL.black); }
   if (x.npc) return [-0.26, 0.26, -0.26, 0.26, 0.9]; // gas-lift seat + back: set to the sitter's height at runtime (Hospital.js seat shells)
   bx(B, F, 'h_fabric', 0, 0.47, 0.02, 0.48, 0.07, 0.46, COL.navy); bx(B, F, 'h_fabric', 0, 0.82, -0.22, 0.44, 0.5, 0.06, COL.navy); bx(B, F, 'h_metal', 0, 0.6, -0.22, 0.05, 0.2, 0.03, COL.dark); return [-0.26, 0.26, -0.26, 0.26, 0.9]; };
 K.visitorChair = (B, F) => { for (const sx of [-0.2, 0.2]) for (const sz of [-0.18, 0.18]) bx(B, F, 'h_metal', sx, 0.22, sz, 0.025, 0.44, 0.025, COL.steel);

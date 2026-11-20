@@ -186,7 +186,7 @@ export function npcHeadMaterial(sp, fv, geo) {
   const lip = fv?.lips ? lipBase.clone().lerp(C3(fv.lips), f ? 0.55 : 0.3) : lipBase; if (sp.age === 'elder') lip.lerp(skin.clone().multiplyScalar(0.8), 0.35);
   const brow = hair.clone(); if (hair.r > 0.2) brow.lerp(C3('#3a3632'), 0.3); // grey / white hair: brows a little darker than the hair
   const bw = fv?.browW ?? (f ? 0.85 : 1.05); const stub = f ? 0 : (fv?.stubble ?? (sp.beard ? 0.9 : sp.age === 'adult' ? 0.3 : 0.15));
-  const pottu = !!fv?.pottu && sp.hair !== 'hijab' && geo.userData.pottu[2] > 0;
+  const pottu = !!fv?.pottu && sp.hair !== 'hijab' && sp.profile !== 'medical' && !sp.noPottu && geo.userData.pottu[2] > 0; // 75th: no forehead dot on hospital staff (nurses, doctors)
   const u = { uLip: { value: lip }, uHair: { value: brow }, uIris: { value: C3(fv?.iris || '#3a2414').multiplyScalar(1.15) },
     uK: { value: new THREE.Vector4(0.78 * bw, f ? 0.95 : 0.7, 0.42 * stub + (sp.beard ? 0.2 : 0), 0.38 * stub + (sp.beard || sp.moustache ? 0.2 : 0)) },
     uBr: { value: new THREE.Vector4(Math.abs(DATA.variants[geo.userData.v].L.eyeL[0]), DATA.variants[geo.userData.v].L.eyeL[1], DATA.variants[geo.userData.v].L.er, (f ? 0.8 : 1) * clamp(bw, 0.75, 1.3)) },

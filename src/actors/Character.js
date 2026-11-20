@@ -375,9 +375,14 @@ export function buildBodyGeometry(sp) {
   let skirtProf = null;
   if (skirtLen) {
     const hemY = skirtLen === 'ankle' ? 0.1 : skirtLen === 'mid' ? 0.32 : 0.48; const topY = o === 'saree' ? 0.93 : NB ? 0.985 : o === 'salwar' || o === 'kurti' || o === 'abaya' ? 1.2 : o === 'kurta' ? 1.02 : 0.97; // anatomical bodies: the tunic's top is the fitted top shell (over the bust), the cone starts at the hips
-    const region = sp.pattern ?? 0; const N = Math.max(7, Math.ceil((topY - hemY) / 0.07) + 1); const rings = []; // ~7 cm ring spacing so the hip-hinge zone is resolved on long tunics too
+    const region = sp.pattern ?? 0; const N = Math.max(7, Math.ceil((topY - hemY) / 0.07) + 1); const rings = [];
+    // 75th (nurses' dress: a ledge at the waist): a dress is ONE garment — on the anatomical body the skirt now starts with a
+    // waist band that hugs the bodice (its real front / back surface + 6 mm, the body's width + 8 mm) 4 cm above the old rim,
+    // so the cloth flows from the bodice into the skirt instead of the skirt's open top edge standing off the waist
+    if (o === 'frock' && NB) for (const dy of [0.11, 0.075, 0.04]) { const y = (topY + dy) * s; const br = NB.ringAt(y); const tz1 = NB.surfZ(y, 0, 1) + 0.006, tz0 = NB.surfZ(y, 0, -1) - 0.006;
+      rings.push({ c: [0, y, (tz0 + tz1) / 2], rx: br.rx + 0.008 + (0.11 - dy) * 0.12, rz: (tz1 - tz0) / 2 + 0.002 + (0.11 - dy) * 0.1, w: W1('hips'), col: C(sp.skirtCol || sp.bottom) }); } // ~7 cm ring spacing so the hip-hinge zone is resolved on long tunics too
     for (let i = 0; i < N; i++) {
-      const t = i / (N - 1), y = lerp(topY, hemY, t) * s; const flare = o === 'sarong' ? 0.028 : o === 'saree' ? 0.036 : o === 'frock' ? 0.09 : o === 'skirt_top' ? 0.07 : o === 'abaya' ? 0.065 : o === 'office_f' ? (NB ? 0.1 : 0.065) : 0.05; /* office skirt: a slight A-line so a long stride (running) stays inside it */ // a sarong is a ~2 m cloth tube folded at the waist: it hangs almost straight, the stride is handled by the leg-following panels
+      const t = i / (N - 1), y = lerp(topY, hemY, t) * s; const flare = o === 'sarong' ? 0.028 : o === 'saree' ? 0.036 : o === 'frock' ? (sp.nurseDress ? 0.045 : 0.09) : o === 'skirt_top' ? 0.07 : o === 'abaya' ? 0.065 : o === 'office_f' ? (NB ? 0.1 : 0.065) : 0.05; /* office skirt: a slight A-line so a long stride (running) stays inside it */ // a sarong is a ~2 m cloth tube folded at the waist: it hangs almost straight, the stride is handled by the leg-following panels
       const ease = Math.sin(clamp((0.97 * s - y) / (0.3 * s), 0, 1) * Math.PI / 2); // cloth stands off the hips/thighs (real garments are not skin-tight there)
       const rx = lerp(0.17 * w, 0.17 * w + flare + (skirtLen === 'ankle' ? (o === 'sarong' ? 0.012 : 0.02) : 0), Math.pow(t, o === 'sarong' ? 1.3 : 0.8)) /* a sarong falls nearly straight from the hips and only opens towards the calves for the stride (it was a 0.5 m bell) */ + 0.012 * w * ease, rz = lerp(0.12 * w, 0.13 * w + flare * 0.8, t) + 0.03 * w * ease;
       // per-vertex skinning: each side of the garment follows the leg under it (stronger toward the hem), so a striding knee
