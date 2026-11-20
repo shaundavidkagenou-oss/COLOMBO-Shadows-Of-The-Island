@@ -24,7 +24,7 @@ const STYLE = {
   private1: { dado: ['h_wood', '#ffffff', 0.95], wall: '#f2ece0' }, private2: { dado: ['h_wood', '#ffffff', 0.95], wall: '#f2ece0' },
   stairs: { dado: ['h_wall', '#c4dbe6', 1.0], wall: '#f3f1ea' }, lift: { dado: ['h_metal', '#e0e3e5', 3.3], wall: '#d8dbdd' },
 };
-const FLOORMAT = { terrazzo: ['h_terrazzo', '#ffffff', 1], vinyl: ['h_vinyl', '#e4e8e4', 2], vinylBlue: ['h_vinyl', '#cfe0ea', 2], tileWc: ['h_tile', '#ffffff', 1], steel: ['h_metal', '#8a8f93', 1] };
+const FLOORMAT = { terrazzo: ['h_terrazzo', '#ffffff', 1], vinyl: ['h_vinyl', '#e4e8e4', 2], vinylBlue: ['h_vinyl', '#cfe0ea', 2], tileWc: ['h_tile', '#ffffff', 1], steel: ['h_metal', '#8a8f93', 1], rubber: ['h_vinyl', '#74787c', 3] };
 export const DOOR_HEIGHT = { slide: 2.4, open: 2.4, swing: HOSP.DOOR_H, double: HOSP.DOOR_H, lift: 2.1 };
 export function doorSpanY(d) { return d.kind === 'hatch' ? [0.95, 2.1] : [0, DOOR_HEIGHT[d.kind] || 2.2]; }
 const winSpanY = (w) => (w[5] === 'clear' ? [0.12, 2.95] : [HOSP.WIN_SILL, HOSP.WIN_HEAD]);
@@ -156,8 +156,9 @@ export function buildHospital() {
     if (R.id === 'lift') buildLiftCar(B);
     if (R.id === 'corr0' || R.id === 'corr1') hangingSigns(B, R.id);
     const g = new THREE.Group(); g.name = 'hosp-room-' + R.id; for (const m of mb.toMeshes(mats, { cast: false, receive: true })) g.add(m); g.visible = false; interior.add(g);
+    const carDoors = R.id === 'lift' ? liftCarDoors(mats, g) : null;
     let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity; for (const r of R.rects) { x0 = Math.min(x0, X(r[0])); x1 = Math.max(x1, X(r[1])); z0 = Math.min(z0, Z(r[3])); z1 = Math.max(z1, Z(r[2])); }
-    rooms.set(R.id, { id: R.id, def: R, group: g, lights, box: { x0, x1, z0, z1, y0: FLOOR_Y[R.floors[0]], y1: FLOOR_Y[R.floors[R.floors.length - 1]] + H } });
+    rooms.set(R.id, { id: R.id, def: R, group: g, lights, carDoors, box: { x0, x1, z0, z1, y0: FLOOR_Y[R.floors[0]], y1: FLOOR_Y[R.floors[R.floors.length - 1]] + H } });
   }
 
   // ------------------------------------------------------------------ moving parts: hinged doors, held-open doubles, lift doors
@@ -293,14 +294,45 @@ function buildStairs(B, addObs) {
   // floor 1: nobody walks into the void (lane A below the top of the flight)
   addObs(1, X(u0), X(u1), Z(v1 - 0.25), Z(11.6), FLOOR_Y[1] + 1.1, 'void');
 }
-function buildLiftCar(B) { // call buttons + floor indicator on both landings (corridor side)
-  for (const f of [0, 1]) { const fy = FLOOR_Y[f]; const v = 11.6 - WALL / 2 - 0.012; const cu = LIFT.doorU1 + 0.32;
-    B('h_metal').box(X(cu), fy + 1.15, Z(v - 0.01), 0.12, 0.3, 0.02, { col: C('#c9ccce') }); B('h_plastic').box(X(cu), fy + 1.2, Z(v - 0.025), 0.04, 0.04, 0.01, { col: C('#ffb347') }); B('h_plastic').box(X(cu), fy + 1.1, Z(v - 0.025), 0.04, 0.04, 0.01, { col: C('#ffb347') });
-    const uv = screenUV(5); const um = (LIFT.doorU0 + LIFT.doorU1) / 2; B('h_screens').quad([X(um + 0.12), fy + 2.22, Z(v - 0.02)], [X(um - 0.12), fy + 2.22, Z(v - 0.02)], [X(um - 0.12), fy + 2.42, Z(v - 0.02)], [X(um + 0.12), fy + 2.42, Z(v - 0.02)], [uv[2], uv[1], uv[0], uv[3]]); }
-  // the car: handrail + control panel
-  for (const f of [0, 1]) { const fy = FLOOR_Y[f]; B('h_metal').box(X(LIFT.u0 + 0.05), fy + 0.95, Z((LIFT.v0 + LIFT.v1) / 2), 0.04, 0.04, LIFT.v1 - LIFT.v0 - 0.3, { col: C('#e8eaec') });
-    B('h_plastic').box(X(LIFT.u1 - 0.03), fy + 1.2, Z(LIFT.v0 + 0.5), 0.02, 0.5, 0.2, { col: C('#2a2d30') }); }
+function buildLiftCar(B) { // 75th: a real hospital bed-lift car — satin stainless panels with shadow-gap seams, a kick plate,
+  // a mirror-finish back wall panel, handrails on three sides, a car operating panel with a floor display, an LED ceiling;
+  // landings: a stainless architrave round the doors, a call station (up/down) and a floor indicator over the door.
+  const iu0 = -16.5 + WALL / 2, iu1 = -14 - WALL / 2, iv0 = 11.6 + WALL / 2, iv1 = 14.4 - WALL / 2; const cuM = (iu0 + iu1) / 2, cvM = (iv0 + iv1) / 2;
+  for (const f of [0, 1]) { const fy = FLOOR_Y[f]; const v = 11.6 - WALL / 2 - 0.012; const cu = LIFT.doorU1 + 0.42; const um = (LIFT.doorU0 + LIFT.doorU1) / 2;
+    // landing: architrave (jambs + head) round the opening, a sill plate, the call station, the indicator
+    for (const u of [LIFT.doorU0 - 0.05, LIFT.doorU1 + 0.05]) B('h_metal').box(X(u), fy + 1.1, Z(v - 0.01), 0.1, 2.2, 0.03, { col: C('#d4d7d9') });
+    B('h_metal').box(X(um), fy + 2.17, Z(v - 0.01), LIFT.doorU1 - LIFT.doorU0 + 0.2, 0.1, 0.03, { col: C('#d4d7d9') });
+    B('h_metal').box(X(um), fy + 0.006, Z(11.6), LIFT.doorU1 - LIFT.doorU0, 0.012, WALL + 0.06, { col: C('#a9adb0') });
+    B('h_metal').box(X(cu), fy + 1.12, Z(v - 0.008), 0.11, 0.26, 0.016, { col: C('#c9ccce') });
+    for (const [y, c] of [[1.17, '#f2f2ee'], [1.07, '#f2f2ee']]) { B('h_metal').box(X(cu), fy + y, Z(v - 0.02), 0.05, 0.05, 0.012, { col: C('#b5b9bc') }); B('h_plastic').box(X(cu), fy + y, Z(v - 0.027), 0.03, 0.03, 0.004, { col: C(c) }); }
+    B('h_plastic').box(X(cu - 0.035), fy + 1.12, Z(v - 0.018), 0.008, 0.008, 0.004, { col: C('#ffb347') }); // the 'hall call registered' pip
+    const uv = screenUV(5); B('h_metal').box(X(um), fy + 2.36, Z(v - 0.01), 0.3, 0.24, 0.02, { col: C('#2b2e31') });
+    B('h_screens').quad([X(um + 0.12), fy + 2.26, Z(v - 0.022)], [X(um - 0.12), fy + 2.26, Z(v - 0.022)], [X(um - 0.12), fy + 2.46, Z(v - 0.022)], [X(um + 0.12), fy + 2.46, Z(v - 0.022)], [uv[2], uv[1], uv[0], uv[3]]);
+    // car: wall panel seams (shadow gaps) on the side and back walls, a kick plate, the back mirror panel
+    for (const u of [iu0 + 0.004, iu1 - 0.004]) for (const vv of [iv0 + 0.85, iv0 + 1.7]) B('h_plastic').box(X(u), fy + 1.25, Z(vv), 0.004, 2.1, 0.012, { col: C('#3a3e42') });
+    for (const uu of [iu0 + 0.8, iu1 - 0.8]) B('h_plastic').box(X(uu), fy + 1.25, Z(iv1 - 0.004), 0.012, 2.1, 0.004, { col: C('#3a3e42') });
+    for (const u of [iu0 + 0.006, iu1 - 0.006]) B('h_metal').box(X(u), fy + 0.08, Z(cvM), 0.012, 0.16, iv1 - iv0, { col: C('#8d9296') });
+    B('h_metal').box(X(cuM), fy + 0.08, Z(iv1 - 0.006), iu1 - iu0, 0.16, 0.012, { col: C('#8d9296') });
+    B('h_metal').box(X(cuM), fy + 1.45, Z(iv1 - 0.008), 0.7, 1.0, 0.006, { col: C('#f4f6f8') }); // polished mirror panel
+    // handrails (tube on stand-off brackets) on the back and both sides
+    B('h_metal').box(X(cuM), fy + 0.92, Z(iv1 - 0.06), iu1 - iu0 - 0.3, 0.035, 0.035, { col: C('#eef0f2') });
+    for (const uu of [iu0 + 0.3, iu1 - 0.3]) B('h_metal').box(X(uu), fy + 0.92, Z(iv1 - 0.03), 0.02, 0.02, 0.06, { col: C('#cfd2d4') });
+    for (const [u, sg] of [[iu0, 1], [iu1, -1]]) { B('h_metal').box(X(u + sg * 0.06), fy + 0.92, Z(cvM + 0.1), 0.035, 0.035, iv1 - iv0 - 0.7, { col: C('#eef0f2') });
+      for (const vv of [iv0 + 0.55, iv1 - 0.35]) B('h_metal').box(X(u + sg * 0.03), fy + 0.92, Z(vv), 0.06, 0.02, 0.02, { col: C('#cfd2d4') }); }
+    // car operating panel beside the door (strike side): a tall brushed plate, the floor display, two floor buttons, alarm, door open/close
+    const pu = iu1 - 0.006, pv = iv0 + 0.32; B('h_metal').box(X(pu), fy + 1.15, Z(pv), 0.01, 1.3, 0.24, { col: C('#babec1') });
+    B('h_screens').quad([X(pu - 0.007), fy + 1.62, Z(pv - 0.07)], [X(pu - 0.007), fy + 1.62, Z(pv + 0.07)], [X(pu - 0.007), fy + 1.72, Z(pv + 0.07)], [X(pu - 0.007), fy + 1.72, Z(pv - 0.07)], [uv[0], uv[1], uv[2], uv[3]]);
+    for (const [y, c] of [[1.38, '#f2f2ee'], [1.28, '#f2f2ee'], [1.12, '#f2f2ee'], [1.02, '#f2f2ee'], [0.9, '#f5c518']]) { B('h_metal').box(X(pu - 0.008), fy + y, Z(pv), 0.01, 0.06, 0.06, { col: C('#a6aaad') }); B('h_plastic').box(X(pu - 0.014), fy + y, Z(pv), 0.004, 0.036, 0.036, { col: C(c) }); }
+    B('h_plastic').box(X(pu - 0.007), fy + 0.72, Z(pv), 0.004, 0.08, 0.16, { col: C('#2b2e31') }); // speaker grille (emergency intercom)
+    // ceiling: a satin frame round an LED diffuser (the room's light panel) and a vent slot
+    B('h_metal').box(X(cuM), fy + CEIL - 0.02, Z(cvM), iu1 - iu0, 0.04, iv1 - iv0, { col: C('#b8bcbf'), top: false, bottom: true });
+    B('h_plastic').box(X(cuM), fy + CEIL - 0.045, Z(iv1 - 0.25), 0.8, 0.01, 0.06, { col: C('#33373a'), top: false, bottom: true });
+  }
 }
+// 75th: the car's own doors (they ride with the car: the landing doors stay at the landings) — two leaves per floor
+function liftCarDoors(mats, g) { const out = []; const w = LIFT.doorU1 - LIFT.doorU0; const um = (LIFT.doorU0 + LIFT.doorU1) / 2; const v = 11.6 + WALL / 2 + 0.03;
+  for (const f of [0, 1]) { const fy = FLOOR_Y[f]; const pair = []; for (const sd of [-1, 1]) { const m = new THREE.Mesh(LIFT_LEAF(mats, w / 2 + 0.02), mats.h_metal); m.matrixAutoUpdate = true; m.position.set(X(um + sd * w / 4), fy, Z(v)); m.userData.home = m.position.clone(); m.userData.dir = SN('u', sd); g.add(m); pair.push(m); } out.push(pair); }
+  return out; }
 function hangingSigns(B, id) { const f = id === 'corr0' ? 0 : 1; const fy = FLOOR_Y[f]; const v = 10.3; const y = fy + CEIL - 0.45;
   const sign = (u, lab) => { const uv = plateUV(lab); const w = 1.4, h = 0.7; for (const s of [1, -1]) { const zz = Z(v) - s * 0.012; const P = (a, b) => [X(u + a), y + b, zz]; // s > 0: faces −z (seen from the front rooms' side), s < 0: faces +z
       B('h_signs').quad(...(s > 0 ? [P(w / 2, -h / 2), P(-w / 2, -h / 2), P(-w / 2, h / 2), P(w / 2, h / 2)] : [P(-w / 2, -h / 2), P(w / 2, -h / 2), P(w / 2, h / 2), P(-w / 2, h / 2)]), uv); }

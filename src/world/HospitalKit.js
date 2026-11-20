@@ -252,13 +252,39 @@ K.fireExt = (B, F) => { cyl(B, F, 'h_plastic', 0, 0.3, 0.1, 0.08, 0.08, 0.5, 8, 
 K.wheelchair = (B, F) => { for (const s of [-1, 1]) { cyl(B, F, 'h_metal', s * 0.3, 0.05, -0.05, 0.3, 0.3, 0.03, 12, COL.dark); bx(B, F, 'h_metal', s * 0.24, 0.62, -0.25, 0.025, 0.55, 0.025, COL.steel); bx(B, F, 'h_metal', s * 0.24, 0.1, 0.3, 0.06, 0.12, 0.06, COL.black); }
   bx(B, F, 'h_fabric', 0, 0.5, 0, 0.46, 0.04, 0.44, COL.black); bx(B, F, 'h_fabric', 0, 0.75, -0.23, 0.46, 0.4, 0.03, COL.black); bx(B, F, 'h_metal', 0, 0.2, 0.36, 0.4, 0.02, 0.12, COL.steel); return [-0.34, 0.34, -0.32, 0.4, 0.95]; };
 // hospital bed: head at −z (the item faces head → foot), mattress top at 0.62
-K.bed = (B, F) => { const L = 2.08, W = 0.98; for (const sx of [-0.4, 0.4]) for (const sz of [-0.9, 0.9]) { cyl(B, F, 'h_plastic', sx, 0.0, sz, 0.055, 0.055, 0.11, 8, COL.black); bx(B, F, 'h_metal', sx, 0.22, sz, 0.04, 0.22, 0.04, COL.steel); }
-  bx(B, F, 'h_metal', 0, 0.35, 0, W - 0.06, 0.08, L - 0.1, COL.steel); bx(B, F, 'h_metal', 0, 0.45, 0, W - 0.1, 0.12, L - 0.2, COL.offwhite);
-  bx(B, F, 'h_plastic', 0, 0.535, 0, W - 0.12, 0.1, L - 0.2, COL.mattress); bx(B, F, 'h_fabric', 0, 0.592, 0.12, W - 0.08, 0.03, L - 0.5, COL.sheet); // sheet over the lower 2/3
-  bx(B, F, 'h_fabric', 0, 0.6, 0.28, W - 0.05, 0.04, 1.0, COL.sheetBlue); bx(B, F, 'h_fabric', 0, 0.635, -0.78, 0.6, 0.1, 0.36, COL.white); // folded blanket, pillow
-  bx(B, F, 'h_plastic', 0, 0.78, -L / 2 + 0.03, W, 0.72, 0.05, COL.offwhite); bx(B, F, 'h_plastic', 0, 0.98, -L / 2 + 0.03, W - 0.2, 0.22, 0.055, COL.blue); // head board
-  bx(B, F, 'h_plastic', 0, 0.68, L / 2 - 0.03, W, 0.5, 0.05, COL.offwhite); bx(B, F, 'h_plastic', 0, 0.76, L / 2 - 0.02, W - 0.3, 0.14, 0.06, COL.blue); // foot board + chart holder
-  for (const s of [-1, 1]) { bx(B, F, 'h_plastic', s * (W / 2 - 0.01), 0.72, -0.45, 0.03, 0.2, 0.8, COL.offwhite); bx(B, F, 'h_plastic', s * (W / 2 - 0.01), 0.72, 0.45, 0.03, 0.2, 0.7, COL.offwhite); }
+K.bed = (B, F) => { const L = 2.08, W = 0.98; // 75th: an electric ward bed — shrouded low chassis on twin-wheel castors with a brake bar,
+  // a sectioned steel deck, a 14 cm pressure-care mattress (blue PU cover, rounded edges), a fitted sheet wrapped round its sides,
+  // a top sheet turned down over a cellular blanket, a plump pillow in a case, moulded head / foot boards (nurse panel on the
+  // foot board), split side rails (tube frames, the head rails with the patient handset), corner bumpers and IV sockets.
+  for (const sx of [-0.38, 0.38]) for (const sz of [-0.86, 0.86]) { bx(B, F, 'h_metal', sx, 0.1, sz, 0.035, 0.07, 0.035, COL.steel); bx(B, F, 'h_plastic', sx, 0.065, sz, 0.07, 0.05, 0.06, COL.grey);
+    for (const o of [-0.022, 0.022]) cyl(B, F, 'h_plastic', sx + o, 0.0, sz, 0.05, 0.05, 0.03, 10, COL.black); }
+  bx(B, F, 'h_metal', 0, 0.075, 0.86, 0.72, 0.02, 0.03, COL.dark); bx(B, F, 'h_plastic', 0.25, 0.09, 0.86, 0.12, 0.012, 0.05, C('#d64232')); // brake bar + green/red pedal
+  bx(B, F, 'h_plastic', 0, 0.2, 0, W - 0.22, 0.16, L - 0.4, COL.offwhite); bx(B, F, 'h_plastic', 0, 0.12, 0, W - 0.3, 0.04, L - 0.5, COL.grey); // chassis shroud
+  bx(B, F, 'h_metal', 0, 0.33, 0, 0.16, 0.1, 0.6, COL.steel); // lifting column
+  for (const sg of [-1, 1]) bx(B, F, 'h_metal', sg * (W / 2 - 0.06), 0.43, 0, 0.05, 0.06, L - 0.16, COL.steel); // deck rails
+  for (const [z0, z1] of [[-0.9, -0.2], [-0.18, 0.1], [0.12, 0.55], [0.57, 0.9]]) bx(B, F, 'h_metal', 0, 0.455, (z0 + z1) / 2, W - 0.16, 0.025, z1 - z0, C('#cfd3d6')); // deck sections
+  // mattress: core + a slightly narrower, taller crown (reads as rounded edges), then the fitted sheet over the top and down the sides
+  bx(B, F, 'h_fabric', 0, 0.525, 0, W - 0.12, 0.11, L - 0.2, COL.mattress); bx(B, F, 'h_fabric', 0, 0.54, 0, W - 0.16, 0.12, L - 0.24, COL.mattress);
+  bx(B, F, 'h_fabric', 0, 0.603, 0, W - 0.14, 0.012, L - 0.22, COL.sheet); for (const sg of [-1, 1]) bx(B, F, 'h_fabric', sg * (W / 2 - 0.058), 0.565, 0, 0.008, 0.07, L - 0.22, COL.sheet);
+  for (const sg of [-1, 1]) bx(B, F, 'h_fabric', 0, 0.565, sg * (L / 2 - 0.108), W - 0.14, 0.07, 0.008, COL.sheet);
+  // top sheet + blanket over the lower part, turned down (the cuff), the blanket folded at the foot
+  bx(B, F, 'h_fabric', 0, 0.614, 0.32, W - 0.1, 0.01, 1.18, COL.sheetBlue); bx(B, F, 'h_fabric', 0, 0.622, -0.24, W - 0.1, 0.012, 0.09, COL.sheet);
+  for (const sg of [-1, 1]) bx(B, F, 'h_fabric', sg * (W / 2 - 0.045), 0.57, 0.32, 0.01, 0.09, 1.18, COL.sheetBlue);
+  bx(B, F, 'h_fabric', 0, 0.635, 0.74, W - 0.16, 0.035, 0.3, C('#a9c4de')); bx(B, F, 'h_fabric', 0, 0.656, 0.75, W - 0.2, 0.012, 0.26, C('#b8cfe5'));
+  // pillow: a full body + a puffed middle and a thinner border (a pillow case seam), sitting at the head end
+  bx(B, F, 'h_fabric', 0, 0.64, -0.76, 0.64, 0.06, 0.4, COL.white); bx(B, F, 'h_fabric', 0, 0.668, -0.76, 0.54, 0.05, 0.3, COL.white); bx(B, F, 'h_fabric', 0, 0.688, -0.76, 0.42, 0.03, 0.2, C('#f8f9fa'));
+  bx(B, F, 'h_fabric', 0.33, 0.64, -0.76, 0.02, 0.035, 0.36, C('#e7eaec'));
+  // head board (moulded: a lower panel + a rounded top band) and foot board with the nurse control panel + chart holder
+  bx(B, F, 'h_plastic', 0, 0.73, -L / 2 + 0.03, W - 0.02, 0.56, 0.05, COL.offwhite); bx(B, F, 'h_plastic', 0, 1.03, -L / 2 + 0.03, W - 0.1, 0.06, 0.06, COL.offwhite); bx(B, F, 'h_plastic', 0, 0.96, -L / 2 + 0.06, W - 0.22, 0.1, 0.012, COL.blue);
+  bx(B, F, 'h_plastic', 0, 0.68, L / 2 - 0.03, W - 0.02, 0.44, 0.05, COL.offwhite); bx(B, F, 'h_plastic', 0, 0.91, L / 2 - 0.03, W - 0.1, 0.05, 0.055, COL.offwhite);
+  bx(B, F, 'h_plastic', -0.22, 0.8, L / 2 + 0.0, 0.3, 0.12, 0.012, COL.dark); for (let k = 0; k < 4; k++) bx(B, F, 'h_plastic', -0.32 + k * 0.065, 0.78, L / 2 + 0.007, 0.04, 0.03, 0.004, k === 3 ? COL.yellow : COL.grey);
+  bx(B, F, 'h_plastic', 0.24, 0.76, L / 2 + 0.01, 0.24, 0.16, 0.02, COL.blue); bx(B, F, 'h_plastic', 0.24, 0.76, L / 2 + 0.022, 0.2, 0.13, 0.003, COL.paper); // chart
+  // split side rails: tube frame (top + bottom rail, end posts, two bars) — head pair with the handset recess, foot pair
+  for (const sg of [-1, 1]) { const x = sg * (W / 2 + 0.005);
+    for (const [zc, len] of [[-0.48, 0.74], [0.42, 0.68]]) { bx(B, F, 'h_plastic', x, 0.83, zc, 0.03, 0.035, len, COL.offwhite); bx(B, F, 'h_plastic', x, 0.66, zc, 0.025, 0.025, len - 0.04, COL.offwhite);
+      for (const o of [-len / 2 + 0.03, len / 2 - 0.03]) bx(B, F, 'h_plastic', x, 0.745, zc + o, 0.03, 0.2, 0.035, COL.offwhite); for (const o of [-len / 6, len / 6]) bx(B, F, 'h_plastic', x, 0.745, zc + o, 0.015, 0.17, 0.015, COL.offwhite); }
+    bx(B, F, 'h_plastic', x + sg * 0.012, 0.75, -0.5, 0.008, 0.08, 0.14, COL.dark); bx(B, F, 'h_metal', x, 0.5, 0, 0.02, 0.04, 0.3, COL.dark); } // patient handset, rail latch
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) { cyl(B, F, 'h_plastic', sx * (W / 2 - 0.02), 0.4, sz * (L / 2 - 0.02), 0.04, 0.04, 0.06, 8, COL.grey); cyl(B, F, 'h_metal', sx * (W / 2 - 0.05), 0.42, sz * (L / 2 - 0.06), 0.012, 0.012, 0.1, 6, COL.steel); } // bumpers, IV sockets
   return [-W / 2, W / 2, -L / 2, L / 2, 0.8]; };
 K.examCouch = (B, F) => { const L = 1.9; bx(B, F, 'h_metal', 0, 0.32, 0, 0.6, 0.64, L - 0.3, COL.offwhite); bx(B, F, 'h_fabric', 0, 0.7, 0.15, 0.66, 0.1, L - 0.4, COL.leather); bx(B, F, 'h_fabric', 0, 0.8, -L / 2 + 0.3, 0.66, 0.1, 0.55, COL.leather, { rotY: F.rot });
   bx(B, F, 'h_fabric', 0, 0.756, 0.15, 0.56, 0.01, L - 0.5, COL.paper); bx(B, F, 'h_plastic', 0, 0.12, L / 2 - 0.05, 0.4, 0.12, 0.2, COL.grey); return [-0.34, 0.34, -L / 2, L / 2, 0.85]; };
@@ -266,7 +292,16 @@ K.locker = (B, F) => { bx(B, F, 'h_plastic', 0, 0.42, 0, 0.46, 0.84, 0.44, COL.o
   bx(B, F, 'h_metal', 0.15, 0.62, 0.23, 0.08, 0.015, 0.015, COL.steel); bx(B, F, 'h_plastic', -0.08, 0.93, 0.05, 0.08, 0.12, 0.08, COL.white); bx(B, F, 'h_glass', 0.1, 0.93, -0.05, 0.07, 0.14, 0.07); return [-0.25, 0.25, -0.24, 0.24, 0.9]; };
 K.monitor = (B, F, x) => { const y = x.wall ? 1.75 : 1.45; if (!x.wall) { cyl(B, F, 'h_metal', 0, 0.02, 0, 0.22, 0.2, 0.04, 10, COL.dark); cyl(B, F, 'h_metal', 0, 0.06, 0, 0.02, 0.02, y - 0.2, 6, COL.steel); }
   else bx(B, F, 'h_metal', 0, y, -0.03, 0.1, 0.1, 0.06, COL.dark);
-  bx(B, F, 'h_plastic', 0, y, 0, 0.36, 0.3, 0.1, COL.offwhite); screen(B, F, 0, y + 0.01, 0.051, 0.3, 0.22, 0); bx(B, F, 'h_plastic', 0, y - 0.13, 0.05, 0.3, 0.03, 0.005, COL.blue); return x.wall ? null : [-0.2, 0.2, -0.2, 0.2, 1.6]; };
+  // 75th: a patient monitor body (moulded case, carry handle, alarm lamp bar, rotary knob, side module slots); its screen is
+  // dark glass (OFF) — Hospital.js lays a live, animated screen over it only while a patient is in the bed it serves
+  bx(B, F, 'h_plastic', 0, y, -0.005, 0.37, 0.31, 0.1, COL.offwhite); bx(B, F, 'h_plastic', 0, y, 0.046, 0.345, 0.285, 0.006, C('#cfd0cc'));
+  bx(B, F, 'h_plastic', 0, y + 0.01, 0.05, MON_SCR.w + 0.012, MON_SCR.h + 0.012, 0.004, C('#0b0e10')); // the glass (off)
+  bx(B, F, 'h_plastic', 0, y + 0.172, -0.01, 0.2, 0.03, 0.03, COL.offwhite); bx(B, F, 'h_plastic', 0, y + 0.162, 0.03, 0.12, 0.012, 0.02, C('#e0e2de')); // handle, alarm lamp bar
+  cyl(B, F, 'h_plastic', 0.155, y - 0.12, 0.05, 0.014, 0.014, 0.012, 8, COL.dark); bx(B, F, 'h_plastic', -0.14, y - 0.125, 0.05, 0.012, 0.006, 0.004, C('#f0a020')); // knob, standby LED
+  for (const sy of [-0.06, 0.04]) bx(B, F, 'h_plastic', 0.186, y + sy, -0.005, 0.004, 0.07, 0.07, COL.grey);
+  bx(B, F, 'h_plastic', 0, y - 0.142, 0.05, 0.3, 0.012, 0.004, COL.blue); return x.wall ? null : [-0.2, 0.2, -0.2, 0.2, 1.6]; };
+export const MON_SCR = { w: 0.3, h: 0.22, dy: 0.01, dz: 0.0535 }; // the screen rectangle (item-local, above the mount height)
+export function monitorY(x) { return x && x.wall ? 1.75 : 1.45; }
 K.ivStand = (B, F) => { for (let k = 0; k < 5; k++) { const a = k * 1.2566; bx(B, F, 'h_metal', Math.sin(a) * 0.14, 0.05, Math.cos(a) * 0.14, 0.04, 0.03, 0.3, COL.steel, { rotY: F.rot + a }); cyl(B, F, 'h_plastic', Math.sin(a) * 0.27, 0, Math.cos(a) * 0.27, 0.025, 0.025, 0.04, 6, COL.black); }
   cyl(B, F, 'h_metal', 0, 0.05, 0, 0.012, 0.012, 1.95, 6, COL.steel); bx(B, F, 'h_metal', 0, 2.0, 0, 0.42, 0.012, 0.012, COL.steel);
   bx(B, F, 'h_glass', 0.14, 1.82, 0, 0.11, 0.2, 0.04); bx(B, F, 'h_plastic', 0.14, 1.95, 0, 0.03, 0.06, 0.03, COL.white); bx(B, F, 'h_plastic', 0, 1.15, 0.04, 0.12, 0.16, 0.08, COL.offwhite); screen(B, F, 0, 1.17, 0.081, 0.08, 0.05, 0);

@@ -39,7 +39,7 @@ export const ROOMS = [
   { id: 'treat2', name: 'Treatment Room 2', floors: [0], rects: [[-1, 7, 11.6, 22]], floor: 'vinyl', lights: [[3, 15], [3, 19.5]] },
   // both floors
   { id: 'stairs', name: 'Staircase', floors: [0, 1], rects: [[-21, -16.5, 11.6, 22]], floor: 'terrazzo', lights: [[-18.8, 14], [-18.8, 20]], shaft: true },
-  { id: 'lift', name: 'Lift', floors: [0, 1], rects: [[-16.5, -14, 11.6, 14.4]], floor: 'steel', lights: [[-15.25, 13]], shaft: true, car: true },
+  { id: 'lift', name: 'Lift', floors: [0, 1], rects: [[-16.5, -14, 11.6, 14.4]], floor: 'rubber', lights: [[-15.25, 13]], shaft: true, car: true },
   // first floor
   { id: 'ward', name: 'General Ward', floors: [1], rects: [[-14, 4, 0, 9]], floor: 'vinyl', lights: [[-10, 3], [-4, 3], [1.5, 3], [-7, 7]] },
   { id: 'nurses', name: "Nurses' Station", floors: [1], rects: [[4, 10, 0, 9]], floor: 'vinyl', lights: [[7, 5]] },

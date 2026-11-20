@@ -40,7 +40,6 @@ export const HospitalSound = {
   cover(x, z) { this.shot('hosp.cover', x, z, 6, 1, (g, pan) => { Audio.noise(0.5, { f: 1500, q: 0.6, vol: 0.02 * g, pan, attack: 0.08, sweep: 700 }); Audio.noise(0.35, { f: 600, q: 0.6, vol: 0.015 * g, pan, when: 0.45 }); }); },
   liftDing(x, z) { this.shot('hosp.lift.ding', x, z, 8, 1, (g, pan) => { Audio.tone(1318, 0.5, { vol: 0.05 * g, pan }); Audio.tone(1046, 0.7, { vol: 0.05 * g, pan, when: 0.32 }); }); },
   liftDoors(x, z) { this.shot('hosp.lift.doors', x, z, 7, 1, (g, pan) => Audio.noise(0.9, { f: 700, q: 1.2, vol: 0.03 * g, pan, attack: 0.1 })); },
-  liftMotor(x, z) { this.shot('hosp.lift.motor', x, z, 7, 1, (g, pan) => { Audio.tone(58, 3.6, { type: 'sawtooth', vol: 0.02 * g, pan, attack: 0.6 }); Audio.noise(3.6, { f: 160, q: 0.7, vol: 0.03 * g, pan, attack: 0.6, type: 'lowpass' }); }); },
   phone(x, z) { this.shot('hosp.phone', x, z, 10, 1, (g, pan) => { for (let i = 0; i < 2; i++) for (let k = 0; k < 14; k++) Audio.tone(k % 2 ? 1100 : 900, 0.05, { type: 'square', vol: 0.012 * g, pan, when: i * 3 + k * 0.05 }); }); },
   trolley(x, z) { this.shot('hosp.trolley', x, z, 7, 1, (g, pan) => { Audio.noise(2.2, { f: 420, q: 1.5, vol: 0.02 * g, pan, attack: 0.3 }); for (let i = 0; i < 5; i++) Audio.noise(0.04, { f: 2000, q: 4, vol: 0.01 * g, pan, when: 0.3 + i * 0.4 }); }); },
   water(x, z) { this.shot('hosp.water', x, z, 6, 1, (g, pan) => { Audio.noise(1.6, { f: 1200, q: 0.6, vol: 0.03 * g, pan, attack: 0.1 }); Audio.tone(320, 0.12, { vol: 0.02 * g, pan, when: 1.5, glide: 520 }); }); },
