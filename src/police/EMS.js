@@ -166,10 +166,11 @@ export class EMS {
     if (path && ai.pieces[0] === path && ai.s > path.len - 0.35 && v.speed < 0.15) { ai.stopped = true; ai.park = null; ai.sMaxP = null; e.toBay = null; e.ph = 'bay'; e.t = 0; e.bp = 'stop'; pr.note(`EMS unit ${u.id} in the hospital bay`); return; }
     if (e.inT > 60) { ai.park = null; ai.sMaxP = null; e.toBay = null; e.transport = false; this.stats.bayFail++; ai.stopped = false; }
   }
-  // routed to a road point 30 m PAST the gate, seen from where the van is now: whichever way it comes, it then runs along
-  // the street towards the gate with room to slow down and turn in (a van that stopped past the gate goes round the block)
-  planBay(u, B) { const v = u.v; const ax = B.road.x - B.gate.x, az = B.road.z - B.gate.z; const L = Math.hypot(ax, az) || 1; const sx = -az / L, sz = ax / L; // along the street
-    const side = (v.x - B.gate.x) * sx + (v.z - B.gate.z) * sz; const k = side > 0 ? -30 : 30; return this.pr.plan(u, B.road.x + sx * k, B.road.z + sz * k); }
+  // 74th: the ±30 m point fell into the next junction on this short block (the van circled the block until the 300 s limit):
+  // now the goal is 12 m BEFORE the gate on the hospital-side lane (left-hand traffic: the lane with the gate on its left, so
+  // the turn-in is a left turn) — on that lane the turn-in check above fires as soon as the gate is ≥ 9 m ahead
+  planBay(u, B) { const ax = B.road.x - B.gate.x, az = B.road.z - B.gate.z; const L = Math.hypot(ax, az) || 1; const fx = az / L, fz = -ax / L; // the hospital-side lane's direction
+    return this.pr.plan(u, B.road.x - fx * 12, B.road.z - fz * 12); }
   // the lane → the gate (the kerb S of the parking arrivals) → straight down the drive to the bay, as one path piece
   bayPath(p0, sA, B) {
     const a = parkPath(p0, sA, { x: B.gate.x, z: B.gate.z, yaw: B.yaw }); const last = a.poly[a.poly.length - 1]; const L = Math.hypot(B.x - B.gate.x, B.z - B.gate.z); const n = Math.max(2, Math.ceil(L / 0.25));

@@ -432,11 +432,11 @@ export class Traffic {
       const rx = ox - v.x, rz = oz - v.z; const along = rx * fx + rz * fz; if (along <= 0 || along > 45) return;
       const lat = Math.abs(rx * fz - rz * fx); if (lat > latTol) return; const g = along - v.half - len; if (g < gap) { gap = g; leadV = ov; }
     };
-    let leadCiv = false; for (const o of all) { if (o === v) continue; if (Math.abs(o.x - v.x) > 45 || Math.abs(o.z - v.z) > 45) continue; const ofx = Math.sin(o.yaw), ofz = Math.cos(o.yaw); const sameDir = ofx * fx + ofz * fz; const g0 = gap; consider(o.x, o.z, Math.max(0, o.speed * sameDir), o.half, sameDir > 0.3 ? 1.7 : 1.2); if (gap < g0) gapBy = o; if (gap < g0) leadCiv = !o.isTrain && !(o.ai && o.ai.emergency) && sameDir > 0.3; }
+    let leadCiv = false; for (const o of all) { if (o === v) continue; if (Math.abs(o.x - v.x) > 45 || Math.abs(o.z - v.z) > 45) continue; const ofx = Math.sin(o.yaw), ofz = Math.cos(o.yaw); const sameDir = ofx * fx + ofz * fz; const g0 = gap; consider(o.x, o.z, Math.max(0, o.speed * sameDir), o.half, sameDir > 0.3 ? 1.7 : 1.2); if (gap < g0) gapBy = o; if (gap < g0) leadCiv = !o.isTrain && !(o.ai && o.ai.emergency && o.speed > 0.5) && sameDir > 0.3; } // (74th: a unit standing in the lane — at a scene, a jam — is passed like any car)
     // emergency unit (lights on): overtake slow traffic through the centre of the road; civilians ahead pull over and slow down
     const em = ai.emergency && v.beaconsOn; ai.lat = ai.lat || 0; let latWant = 0;
     if (em) {
-      const bb = ai.bodyBlock, standing = bb && (bb.parked || bb.dead || (bb.speed || 0) < 0.3) && !(bb.ai && bb.ai.emergency) && (ai.bodyG ?? Infinity) < 22; // a parked / stopped car in our lane (the body guard holds us): go round it like round traffic
+      const bb = ai.bodyBlock, standing = bb && (bb.parked || bb.dead || (bb.speed || 0) < 0.3) && !(bb.ai && bb.ai.emergency && bb.beaconsOn && !bb.ai.stopped) && (ai.bodyG ?? Infinity) < 22; // a parked / stopped car in our lane (the body guard holds us): go round it like round traffic
       if ((leadCiv && gap < 22) || standing) ai.overT = 2.5; else ai.overT = Math.max(0, (ai.overT || 0) - dt);
       if (standing && Math.abs(ai.lat) < 2.4) ai.creep = 1; /* roll slowly so the steering can pull out (a stopped car cannot turn) */
       if (ai.overT > 0 || Math.abs(ai.lat) > 0.5) { const bx = v.x - fz * ai.lat, bz = v.z + fx * ai.lat; let blocked = false; for (const o of all) { if (o === v || (o.ai && o.ai.emergency)) continue; const rx = o.x - bx, rz = o.z - bz; const al = rx * fx + rz * fz; if (al < -7 || al > 14) continue; if (Math.abs(rx * fz - rz * fx) < 1.7) { blocked = true; break; } } if (blocked) ai.overT = Math.max(ai.overT, 0.6); }
@@ -475,7 +475,15 @@ export class Traffic {
     }
     { const g1 = gap; if (playerV) consider(playerV.x, playerV.z, Math.max(0, playerV.speed * (Math.sin(playerV.yaw) * fx + Math.cos(playerV.yaw) * fz)), playerV.half, 1.9);
     else if (player) consider(player.x, player.z, 0, 0.4, 1.9); if (gap < g1) gapBy = 'player'; }
-    if (peds) for (const q of peds) { const gq = gap; consider(q.x, q.z, 0, 0.4, q.crossing ? 2.6 : 1.4); if (gap < gq) gapBy = q; }
+    // 74th: someone lying in the road (knocked down, dead, waiting for the ambulance) is never driven over and never holds the
+    // lane for good: near the kerb, drivers pull out round them when the other side is clear (creeping up while steering out)
+    if (peds) for (const q of peds) { const gq = gap;
+      if ((q.dead || q.state === 'down') && p.type !== 'path') { const rx = q.x - v.x, rz = q.z - v.z, al = rx * fx + rz * fz; if (al <= 0 || al > 30) continue;
+        const w2 = v.T.wid / 2, lt = rx * fz - rz * fx + (ai.lat || 0), lmin = lt - 0.9, lmax = lt + 0.9; if (lmax < -(w2 + 0.3) || lmin > w2 + 0.35) continue; // lying clear of our path
+        if (lt > 0) { const need = w2 + 0.35 - lmin; let clear = need < 2.6; if (clear) for (const o of all) { if (o === v) continue; const ox = o.x - v.x, oz = o.z - v.z, oa = ox * fx + oz * fz; if (oa < -5 || oa > 32) continue; const lo = ox * fz - oz * fx + (ai.lat || 0); if (lo < 0 && lo > -need - w2 - o.T.wid / 2 - 0.3) { clear = false; break; } }
+          if (clear) ai.latWant = Math.min(ai.latWant ?? 0, -need); }
+        consider(q.x, q.z, 0, 0.9, w2 + 0.9); if (gap < gq) gapBy = q; continue; }
+      consider(q.x, q.z, 0, 0.4, q.crossing ? 2.6 : 1.4); if (gap < gq) gapBy = q; }
     // --- junction control
     let stopAt = Infinity;
     if (p.type === 'line') {
@@ -516,6 +524,7 @@ export class Traffic {
     // pulling out round a vehicle parked in the lane: only rolling turns the wheels' path, so creep at walking pace up to the
     // actual contact point while steering out (the body guard's hard stop still keeps the bodies apart)
     if (ai.bodyBind && ai.bodyBlock && ai.bodyBlock.parked && Math.abs((ai.latWant ?? 0) - (ai.lat || 0)) > 0.1 && bodyG < 4) { const want = bodyG > 0.3 ? Math.min(1.2, bodyG) : 0; acc = clamp((want - sp) * 3, -8, 2); }
+    if (gapBy && gapBy.ch && (gapBy.dead || gapBy.state === 'down') && Math.abs((ai.latWant ?? 0) - (ai.lat || 0)) > 0.1 && gap < 6) { const want = gap > 0.4 ? Math.min(1.2, gap - 0.3) : 0; acc = clamp((want - sp) * 3, -8, 2); } // (steering out round someone lying in the road: walking pace up to them)
     // nosed up too close behind a vehicle parked in the lane to steer round it (followed someone who pulled out): back up a
     // couple of metres, as a driver would, when the road behind is clear
     const bb = ai.bodyBlock, mutual = bb && bb.ai && bb.ai.bodyBlock === v && bb.speed < 0.2 && v.id > bb.id; /* two turning across each other, nose to nose: the later one gives way */
