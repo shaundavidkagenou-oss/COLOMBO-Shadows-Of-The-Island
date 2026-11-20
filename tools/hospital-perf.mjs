@@ -19,6 +19,9 @@ export const VIEWS = [
   { name: 'entrance', at: [655, -176], cam: [655, 1.7, -176], look: [655, 1.6, -200] },
   { name: 'lobby', at: [655, -195], cam: [652, 1.65, -192], look: [660, 1.4, -205], inside: true },
   { name: 'ward', at: [640, -205], cam: [636, 5.4, -203], look: [645, 5.0, -212], inside: true, floor: 1 },
+  { name: 'ed', at: [668, -196], cam: [667, 1.75, -197.5], look: [677, 0.9, -191.5], inside: true },
+  { name: 'private', at: [668, -203], cam: [668, 5.6, -203], look: [672, 4.6, -210], inside: true, floor: 1 },
+  { name: 'bay', at: [700, -180], cam: [700, 2.0, -180], look: [684, 1.5, -196] },
 ];
 const browser = await puppeteer.launch({ executablePath: await chromium.executablePath(), headless: true, protocolTimeout: 1800000,
   args: [...chromium.args, '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-precise-memory-info', `--window-size=${W},${H}`], defaultViewport: { width: W, height: H } });

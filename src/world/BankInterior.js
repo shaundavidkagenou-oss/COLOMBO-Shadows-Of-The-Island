@@ -25,7 +25,7 @@ import { Kit, C, lathe } from './ShopKit.js';
 import { shell } from './ShopInteriors.js';
 import { collectParts, applyLayout } from './BankLayout.js';
 import { cloneMaterial } from '../gfx/Materials.js';
-import { useBankMaterials, bankMaterials, SCREEN_UV } from './BankMaterials.js'; // 74th: the hall's own textured materials + LCD screens
+import { useBankMaterials, bankMaterials, groutTex, SCREEN_UV } from './BankMaterials.js'; // 74th: the hall's own textured materials + LCD screens
 import { modelPackNow } from '../debug/boot.js';
 import './RobberyShops.js'; // registers the kit's ceiling tile / steel / plastic / gold materials
 import { REVEAL, LEAF_Z } from './WalkIn.js';
@@ -212,7 +212,7 @@ export function buildBankInterior(game, site) {
   Object.assign(k.extra, { cmbSign: signMat, cmbDay: dayMat, cmbPrint: printMat, cmbGlass: glassMat });
   const sign = k.get('cmbSign'), day = k.get('cmbDay'), prints = k.get('cmbPrint'), cglass = k.get('cmbGlass');
   const S = shell(k, g, W, D, H, { floor: { kind: 'granite', size: 0.6, colors: ['#dcd7cc', '#d4cec2', '#d9d3c7'], grout: '#a9a296', rough: 0.12, seed: 67 }, wall: 'plaster', wallCol: '#efeae1', ceil: '#f2f0ea', skirt: 'marbleDark', skirtCol: '#ffffff', cornice: '#f4f1ea' });
-  { let fi = 0; for (const fg of g.children) if (fg.name === 'modelledFloor') fg.traverse((o) => { if (o.isMesh && o.material && !Array.isArray(o.material)) o.material = cloneMaterial(o.material, 'CMB · Granite floor tiles ' + ++fi); }); } // 74th: the bank's own floor materials
+  { let fi = 0; for (const fg of g.children) if (fg.name === 'modelledFloor') fg.traverse((o) => { if (o.isMesh && o.material && !Array.isArray(o.material)) { o.material = cloneMaterial(o.material, o.material.map ? 'CMB · Granite floor tiles ' + ++fi : 'CMB · Floor grout (sanded cement)'); if (!o.material.map) { o.material.map = groutTex(); o.material.needsUpdate = true; } } }); } // 74th: the bank's own floor materials
   const { x0, x1, z0, zf } = S; const xR = x1, xL = x0;
   const ob = (ax0, ax1, d0, d1) => obs.push({ x0: Math.min(ax0, ax1), x1: Math.max(ax0, ax1), z0: Z(Math.max(d0, d1)), z1: Z(Math.min(d0, d1)), part: k.part });
   const navy = C(CMB.navy), gold = C(CMB.gold), bronze = C('#2e2a26'), steelC = C('#b9bdc1');

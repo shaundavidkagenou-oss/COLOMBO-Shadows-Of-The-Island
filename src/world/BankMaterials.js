@@ -52,6 +52,8 @@ export function bankMaterials() {
 // give a Kit the hall's materials (k.get('steel') → "CMB · Brushed stainless steel" …). Kit.meshes() lets `extra` win over MAT.
 export function useBankMaterials(k) { Object.assign(k.extra, bankMaterials()); return k; }
 
+// the floor's grout bed (seen in the 2 mm joints between the granite tiles): sanded cement grain, tinted by the grout colour
+export const groutTex = () => tx('cmbGrout', (a, w, h, r) => { a.fillStyle = '#e6e4e0'; a.fillRect(0, 0, w, h); for (let i = 0; i < 14000; i++) { const v = 150 + ((r() * 105) | 0); a.fillStyle = `rgba(${v},${v},${v - 3},0.5)`; a.fillRect(r() * w, r() * h, 1, 1); } });
 // ------------------------------------------------------------------------------------------------ surface textures
 // (base colours stay near white wherever the builder tints by vertex colour, so the hall keeps its designed colours)
 function eggshell(base) { return (a, w, h, r) => { a.fillStyle = base; a.fillRect(0, 0, w, h);
