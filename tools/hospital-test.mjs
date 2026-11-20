@@ -158,6 +158,28 @@ try {
     ok(em.bayErr < 1.0 && em.bayYawErr < 0.2, `8 stopped in the bay (${em.bayErr} m, yaw err ${em.bayYawErr})`);
     ok(em.stats && em.stats.delivered === 1 && em.cargoLeft === 0 && !em.dup, `8 handed over at the emergency entrance, props cleaned up, never two units (${JSON.stringify(em.stats)})`);
   }
+  if (want('emsno')) { // 75th: a body under a low table / shelf — the crew never clips in: they stop, say they can't treat, and leave
+    const en = await page.evaluate(async () => { const g = window.__game, P = g.player, C = g.crowd, E = g.police.ems, col = g.collision; const r = { phases: [], inBox: 0, subs: [] };
+      P.teleport(697, -186, -Math.PI * 0.6); g.world.warm(697, -186); await g.stepSim(20, 0.1);
+      let p = C.peds.filter((q) => q.state !== 'down' && !q.dead && q.ch.root.parent).sort((a, b) => Math.hypot(a.x - 676, a.z + 166) - Math.hypot(b.x - 676, b.z + 166))[0]; if (!p) return { err: 'no ped' };
+      p.x = 672; p.z = -173.6; p.ch.root.position.set(p.x, p.ch.root.position.y, p.z); C.kill(p); p.deadT = 400; await g.stepSim(30, 0.1);
+      const gy = col.groundAt(p.x, p.z, 1); const box = { x0: p.x - 1.6, x1: p.x + 1.6, z0: p.z - 1.6, z1: p.z + 1.6, y0: gy + 0.5, h: 0.4, kind: 'testTable' }; col.add(box);
+      const sub = g.hud.subtitle.bind(g.hud); g.hud.subtitle = (...a) => { r.subs.push(String(a[2] || a[1]).slice(0, 80)); return sub(...a); };
+      let u = null, t = 0; const seen = new Set();
+      for (let i = 0; i < 6000; i++) { await g.stepSim(1, 0.1); t += 0.1;
+        if (!u) { u = E.units.find((q) => q.e && q.e.p === p) || null; if (u) r.dispatchT = +t.toFixed(0); }
+        if (u) { const ph = u.e.ph; if (!seen.has(ph)) { seen.add(ph); r.phases.push(ph + '@' + t.toFixed(0)); }
+          for (const o of u.officers) if (o.mode === 'foot' && o.x > box.x0 + 0.1 && o.x < box.x1 - 0.1 && o.z > box.z0 + 0.1 && o.z < box.z1 - 0.1) r.inBox++;
+          if (!E.units.includes(u) || (ph === 'leave' && u.officers.every((o) => o.mode === 'seated'))) { r.leftT = +t.toFixed(0); break; } } }
+      for (let i = 0; i < 600; i++) await g.stepSim(1, 0.1); // a minute later: never re-sent for the same body
+      r.sentAgain = E.units.some((q) => q !== u && q.e && q.e.p === p); r.noReach = !!p.emsNoReach; r.stats = { ...E.stats }; g.hud.subtitle = sub;
+      col.remove((c) => c === box); return r; });
+    console.log('   emsno', JSON.stringify(en));
+    ok(!en.err && en.phases.some((q) => q.startsWith('untreat')) && !en.phases.some((q) => /^(assess|cpr|supine|roll)/.test(q)) && en.stats.unreachable >= 1 && en.noReach, `8b body under a table → crew gives up: ${en.phases.join(' ')}`);
+    ok(en.inBox === 0, `8b no medic ever stood inside / under the table (${en.inBox} frames)`);
+    ok(en.subs.some((l) => /won't be able to treat/.test(l)), `8b the line was said: ${en.subs.join(' | ')}`);
+    ok(en.leftT > 0 && !en.sentAgain, `8b the crew left (${en.leftT} s) and no unit is re-sent for that body`);
+  }
   if (want('ems2')) { // two bodies at once (one unit on the road, the second queued, never doubled); then a run whose route fails
     const e2 = await page.evaluate(async () => { const g = window.__game, P = g.player, C = g.crowd, E = g.police.ems; const r = { maxActive: 0, maxUnits: 0, sentAt: [], perPed: {} };
       for (const u of [...E.units]) E.removeUnit(u); E.incidents.clear(); const s0 = { ...E.stats };
