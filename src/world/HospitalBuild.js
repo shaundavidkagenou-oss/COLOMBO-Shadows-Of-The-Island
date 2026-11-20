@@ -12,6 +12,7 @@ import { hospitalMatTable, hospitalMaterials, drawItem, C, plateUV, bigUV, BIG, 
 import { bushBall, hedgeBox } from './HedgeBush.js'; // 75th: real shrubs and clipped hedges (leaf cards, the city's shared foliage materials)
 import { parkBench, parkBenchColliders } from './ParkBench.js';
 import { GARDEN_FOUNTAIN } from './PlaceAmbience.js';
+import { buildBodyRoom } from './HospitalBodyRoom.js'; // 75th
 
 const { PX, FZ, H, CEIL, SLAB, WALL, EXT } = HOSP;
 const X = (u) => PX + u, Z = (v) => FZ - v;
@@ -241,6 +242,7 @@ export function buildHospital() {
   const sliders = []; buildCanopies(E, colliders); buildSigns(E);
   for (const d of DOORS.filter((q) => q.kind === 'slide')) sliders.push(slideDoor(E, mats, ext, d, colliders, addObs));
   buildGrounds(E, colliders);
+  buildBodyRoom(E, colliders); // 75th: the body holding room annex behind the ambulance bay
   for (const m of emb.toMeshes(mats, { cast: true, receive: true })) { if (m.material === mats.h_glass) m.castShadow = false; ext.add(m); }
   // far LOD: the massing, a window band and the main sign (3 draws)
   { const lb = new MultiBuilder(); const L = (m) => lb.get(m);

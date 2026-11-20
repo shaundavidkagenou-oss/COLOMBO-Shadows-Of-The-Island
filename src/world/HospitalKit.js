@@ -133,6 +133,7 @@ const PLATES = [
   ['Private Room 1', 'පුද්ගලික කාමරය 1', 'தனி அறை 1'], ['Private Room 2', 'පුද්ගලික කාමරය 2', 'தனி அறை 2'], ['Staff Only', 'කාර්ය මණ්ඩලයට පමණි', 'பணியாளர்கள் மட்டும்'], ['Registration', 'ලියාපදිංචිය', 'பதிவு'],
   ['← Wards · Lift · Stairs', 'වාට්ටු · සෝපානය', 'வார்டுகள் · மின்தூக்கி'], ['Emergency →', 'හදිසි අනතුරු →', 'அவசர →'], ['Fire Exit', 'ගිනි ගැනීමේ පිටවීම', 'தீ வெளியேறும் வழி'], ['Silence Please', 'නිශ්ශබ්දතාව රකින්න', 'அமைதி காக்கவும்'],
   ['Floor 1', '1 වන මහල', 'முதல் மாடி'], ['Ground Floor', 'බිම් මහල', 'தரைத் தளம்'], ['No Smoking', 'දුම් පානය තහනම්', 'புகைபிடிக்க தடை'], ['Wash Hands', 'අත් සෝදන්න', 'கைகளை கழுவவும்'],
+  ['Body Holding Room', 'මළ සිරුරු කාමරය', 'பிரேத அறை'], ['No Entry', 'ඇතුළුවීම තහනම්', 'உள்ளே நுழைய தடை'], // 75th: the body holding room,
 ];
 PLATES.forEach((p, i) => { PLATE[p[0]] = i; });
 export const BIG = { main: 0, ed: 1, ambulance: 2, sideName: 3 };
@@ -142,7 +143,7 @@ function signsTexture() {
   return canvasTex('h.signs', 1024, 1024, (a) => {
     const EN = (px) => `700 ${px}px "Barlow Condensed", "Manrope", Arial, sans-serif`, SI = (px) => `600 ${px}px "Noto Sans Sinhala", sans-serif`, TA = (px) => `600 ${px}px "Noto Sans Tamil", sans-serif`;
     a.textAlign = 'center'; a.textBaseline = 'middle';
-    PLATES.forEach(([en, si, ta], i) => { const x = (i % 4) * 256, y = ((i / 4) | 0) * 128; const red = /Emergency|Fire|No Smoking/.test(en), grn = /Fire Exit/.test(en);
+    PLATES.forEach(([en, si, ta], i) => { const x = (i % 4) * 256, y = ((i / 4) | 0) * 128; const red = /Emergency|Fire|No Smoking|No Entry/.test(en), grn = /Fire Exit/.test(en);
       a.fillStyle = grn ? '#1e7b3c' : red ? '#b3261e' : '#14508a'; a.fillRect(x + 2, y + 2, 252, 124); a.fillStyle = 'rgba(255,255,255,0.9)'; a.fillRect(x + 2, y + 2, 252, 3);
       a.fillStyle = '#ffffff'; a.font = EN(en.length > 16 ? 34 : 40); a.fillText(en, x + 128, y + 36, 236); a.font = SI(24); a.fillText(si, x + 128, y + 76, 236); a.font = TA(21); a.fillText(ta, x + 128, y + 106, 236); });
   }, { repeat: false, aniso: 8 });

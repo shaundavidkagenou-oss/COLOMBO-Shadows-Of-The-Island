@@ -20,6 +20,13 @@ const SHOTS = [
   { name: '75-ems-cover-down', when: 'e.ph === "liftUp" && e.t < 1.2', frame: 's', cam: [1.9, 1.3, 0.9], look: [0, 0.45, 0] },
   { name: '75-ems-carry', when: 'e.ph === "carry" && e.t > 2', frame: 's', cam: [2.6, 1.5, 0.6], look: [0, 0.7, 0] },
   { name: '75-ems-load', when: 'e.ph === "load" && e.slide > 0.4', frame: 'v', cam: [1.8, 1.6, -5.4], look: [0, 0.9, -2.6] },
+  // the body holding room (frame 'w': hospital plan coordinates [u, y, v]); these follow the ambulance to the hospital
+  { name: '75-br-wheel-in', when: 'e.bp === \"room\" && e.wi === 1', frame: 'w', cam: [27.6, 1.7, 7.6], look: [25.3, 1.0, 11.5], br: true },
+  { name: '75-br-round-van', when: 'e.bp === \"room\" && e.wi === 1 && e.S && Math.abs(e.S.z - (-190 - 4)) < 1.5', frame: 'w', cam: [21.9, 1.8, -1.0], look: [24.5, 0.8, 4.5], br: true },
+  { name: '75-br-transfer', when: 'e.bp === \"transfer\" && e.t > 1.6', frame: 'w', cam: [25.3, 1.65, 10.2], look: [25.7, 0.8, 13.6], br: true },
+  { name: '75-br-restow', when: 'e.bp === \"restow\" && e.t > 1.2', frame: 'w', cam: [22.4, 1.7, -4.5], look: [26.2, 0.9, -0.5], br: true },
+  { name: '75-br-attendant', when: 'BR.att.state === \"push\" && BR.att.t > 2.6', frame: 'w', cam: [27.7, 1.65, 11.6], look: [25.4, 0.9, 15.0], br: true },
+  { name: '75-br-outside', when: 'BR.att.state === \"walk\" && BR.att.next === \"gone\" && BR.att.pi >= 3', frame: 'w', cam: [29.0, 1.7, 6.6], look: [25.3, 1.4, 11.5], br: true },
 ];
 const ONLY = (process.env.ONLY || '').split(',').filter(Boolean);
 try {
@@ -36,15 +43,15 @@ try {
   console.log('setup', JSON.stringify(setup));
   for (const s of SHOTS) {
     const t0 = Date.now();
-    const r = await page.evaluate(async (s) => { const g = window.__game, P = g.player, E = g.police.ems, p = window.__emsP; const test = new Function('e', 'return ' + s.when);
-      for (let i = 0; i < 2500; i++) { const u = E.units.find((q) => q.e && (q.e.p === p || q.e.cargo)); if (u && test(u.e)) break; await g.stepSim(1, 0.1); if (p.deadT < 400) p.deadT = 400; P.x = 666; P.z = -168; }
-      const u = E.units.find((q) => q.e && (q.e.p === p || q.e.cargo)); if (!u) return { err: 'no unit' }; const e = u.e, v = u.v;
-      let o, yaw; if (s.frame === 'v') { o = { x: v.x, y: v.y, z: v.z }; yaw = v.yaw; } else if (s.frame === 's' && e.S) { o = { x: e.S.x, y: e.S.y - 0.42, z: e.S.z }; yaw = e.S.yaw; } else { const r = p.ch.rag; const c = r ? r.part('chest') : { x: p.x, y: 0.2, z: p.z }; o = { x: c.x, y: g.collision.groundAt(c.x, c.z, c.y + 0.3), z: c.z }; const h = r ? r.part('head') : c; yaw = Math.atan2(h.x - c.x, h.z - c.z); }
+    const r = await page.evaluate(async (s) => { const g = window.__game, P = g.player, E = g.police.ems, p = window.__emsP; const test = new Function('e', 'BR', 'return ' + s.when); const BR = g.hospital && g.hospital.bodyRoom;
+      for (let i = 0; i < 2500; i++) { const u = s.br ? E.units[0] : E.units.find((q) => q.e && (q.e.p === p || q.e.cargo)); if ((u || s.br) && test(u ? u.e : {}, BR)) break; await g.stepSim(1, 0.1); if (p.deadT < 400) p.deadT = 400; if (s.br) { P.x = 700; P.z = -186; } else { P.x = 666; P.z = -168; } }
+      const u = s.br ? E.units[0] : E.units.find((q) => q.e && (q.e.p === p || q.e.cargo)); if (!u && !s.br) return { err: 'no unit' }; const e = u ? u.e : {}, v = u ? u.v : null;
+      let o, yaw; if (s.frame === 'w') { const H = g.hospital; const [cx, cz] = H.toWorld(s.cam[0], s.cam[2]), [lx, lz] = H.toWorld(s.look[0], s.look[2]); o = { x: 0, y: H.FLOOR_Y[0], z: 0 }; yaw = 0; s = { ...s, cam: [cx, s.cam[1], cz], look: [lx, s.look[1], lz] }; } else if (s.frame === 'v') { o = { x: v.x, y: v.y, z: v.z }; yaw = v.yaw; } else if (s.frame === 's' && e.S) { o = { x: e.S.x, y: e.S.y - 0.42, z: e.S.z }; yaw = e.S.yaw; } else { const r = p.ch.rag; const c = r ? r.part('chest') : { x: p.x, y: 0.2, z: p.z }; o = { x: c.x, y: g.collision.groundAt(c.x, c.z, c.y + 0.3), z: c.z }; const h = r ? r.part('head') : c; yaw = Math.atan2(h.x - c.x, h.z - c.z); }
       const W = (a) => { const c = Math.cos(yaw), sn = Math.sin(yaw); return [o.x + a[0] * c + a[2] * sn, o.y + a[1], o.z - a[0] * sn + a[2] * c]; };
       P.camOverride = true; g.camera.position.set(...W(s.cam)); g.camera.lookAt(...W(s.look)); g.camera.updateMatrixWorld();
       g.noRender = false; for (let k = 0; k < 3; k++) { g.scene.updateMatrixWorld(); if (g.post) g.post.render(1 / 60); else g.renderer.render(g.scene, g.camera); }
-      const url = g.renderer.domElement.toDataURL('image/png'); g.noRender = true; P.camOverride = false;
-      return { url, ph: e.ph, t: +e.t.toFixed(1), cov: e.cov, slide: e.slide, legs: e.st && e.st.userData.cot ? e.st.userData.cot.ext.map((x) => +x.toFixed(2)) : null, uCot: v.mesh.userData.rear ? v.mesh.userData.rear.cav.material.uniforms.uCot.value : null };
+      const url = g.renderer.domElement.toDataURL('image/png'); const BR2 = g.hospital && g.hospital.bodyRoom; g.noRender = true; P.camOverride = false;
+      return { url, ph: e.ph, t: e.t != null ? +e.t.toFixed(1) : null, bp: e.bp, att: BR2 ? BR2.att.state + '/' + BR2.att.t.toFixed(1) + '/' + BR2.stats.stored : null, cov: e.cov, slide: e.slide, legs: e.st && e.st.userData.cot ? e.st.userData.cot.ext.map((x) => +x.toFixed(2)) : null, uCot: v && v.mesh.userData.rear ? v.mesh.userData.rear.cav.material.uniforms.uCot.value : null };
     }, s);
     if (r.url) { if (!ONLY.length || ONLY.includes(s.name)) fs.writeFileSync(`${OUT}/${s.name}.png`, Buffer.from(r.url.split(',')[1], 'base64')); delete r.url; }
     console.log('shot', s.name, JSON.stringify(r), ((Date.now() - t0) / 1000).toFixed(0) + 's');

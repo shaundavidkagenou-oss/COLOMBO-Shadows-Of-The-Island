@@ -149,6 +149,10 @@ try {
           if (u.e.ph === 'parked' && !r.parkedAt) { r.parkedAt = +t.toFixed(1); const B = H.emsBay; r.bayErr = +Math.hypot(v.x - B.x, v.z - B.z).toFixed(2); r.bayYawErr = +Math.abs(Math.atan2(Math.sin(v.yaw - B.yaw), Math.cos(v.yaw - B.yaw))).toFixed(2); r.cargoLeft = (u.e.cargo || []).length + (u.e.st ? 1 : 0); r.units = E.units.length; break; } }
         if (E.units.length > 1) r.dup = true; }
       r.stats = { ...E.stats }; r.incidents = E.incidents.size; r.pAwait = !!p.awaitMedic; r.pInCrowd = C.peds.includes(p);
+      // 75th: the body holding room — the crew left the body on its trolley; the attendant comes and puts it in the refrigerator
+      const BR = H.bodyRoom; r.br0 = { ...BR.stats, kept: BR.kept.length }; const st = []; for (let i = 0; i < 1500 && BR.stats.stored < 1; i++) { await g.stepSim(1, 0.1); if (!st.includes(BR.att.state)) st.push(BR.att.state); }
+      r.br = { ...BR.stats, kept: BR.kept.length, att: st.join('>'), visible: BR.att.ch.root.visible, door: +BR.doorK.toFixed(2) };
+      for (let i = 0; i < 600 && BR.att.state !== 'idle'; i++) await g.stepSim(1, 0.1); r.br.end = BR.att.state; r.br.doorEnd = +BR.doorK.toFixed(2); r.br.attHidden = !BR.att.ch.root.visible;
       // a second body at once: still one unit on the road; it is queued, not doubled
       return r; });
     console.log('   ems', JSON.stringify(em));
@@ -156,7 +160,9 @@ try {
     ok(em.jumps && em.jumps.length === 0, `8 the ambulance drove (no jumps): ${em.jumps && em.jumps.join(', ')}`);
     ok(em.phases && em.phases.some((q) => /^leave:road/.test(q)) && em.phases.some((q) => /^leave:in/.test(q)) && em.parkedAt, `8 transport → gate → bay: ${em.phases && em.phases.join(' ')}`);
     ok(em.bayErr < 1.0 && em.bayYawErr < 0.2, `8 stopped in the bay (${em.bayErr} m, yaw err ${em.bayYawErr})`);
-    ok(em.stats && em.stats.delivered === 1 && em.cargoLeft === 0 && !em.dup, `8 handed over at the emergency entrance, props cleaned up, never two units (${JSON.stringify(em.stats)})`);
+    ok(em.stats && em.stats.delivered === 1 && em.cargoLeft === 0 && !em.dup, `8 body left in the holding room, cot back in the van, props cleaned up, never two units (${JSON.stringify(em.stats)})`);
+    ok(em.phases && ['room', 'transfer', 'back', 'restow'].every((k) => em.phases.some((q) => q.includes(':' + k))) && em.br0 && em.br0.received === 1 && em.br0.kept === 1, `8 into the body room, across onto the trolley, the empty cot back in (${JSON.stringify(em.br0)})`);
+    ok(em.br && em.br.stored === 1 && em.br.kept === 0 && em.br.end === 'idle' && em.br.doorEnd === 0 && em.br.attHidden, `8 the attendant puts the body in the refrigerator, walks out, the door closes (${JSON.stringify(em.br)})`);
   }
   if (want('emsno')) { // 75th: a body under a low table / shelf — the crew never clips in: they stop, say they can't treat, and leave
     const en = await page.evaluate(async () => { const g = window.__game, P = g.player, C = g.crowd, E = g.police.ems, col = g.collision; const r = { phases: [], inBox: 0, subs: [] };

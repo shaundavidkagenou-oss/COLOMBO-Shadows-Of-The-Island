@@ -292,12 +292,30 @@ export class EMS {
         this.carryHands(u, true, 1, 'feet'); for (const o of u.officers) if (o.want) o.want.speed = k < 1 ? 0.4 : 0; this.syncStretcher(u);
         if (e.t > 2.6) { e.bp = 'wheel'; e.t = 0; e.from = { x: S.x, z: S.z }; } return; }
       case 'wheel': { // to the emergency entrance and in (the sliding doors open for the crew)
-        const S = e.S; const way = [B.door, B.inside]; const tg = way[e.wi || 0]; const dx = tg.x - S.x, dz = tg.z - S.z, d = Math.hypot(dx, dz);
+        const S = e.S; const BR = this.g.hospital && this.g.hospital.bodyRoom; if (BR && e.sheet) { e.bp = 'room'; e.t = 0; e.wi = 0; return; } const way = [B.door, B.inside]; const tg = way[e.wi || 0]; const dx = tg.x - S.x, dz = tg.z - S.z, d = Math.hypot(dx, dz);
         if (d < 0.15) { e.wi = (e.wi || 0) + 1; if (e.wi >= way.length) { e.bp = 'handed'; e.t = 0; this.dropCargo(u); this.stats.delivered++; pr.note(`EMS unit ${u.id} patient handed over at the emergency entrance`); for (const o of u.officers) { o.want = null; o.ch.anim.set(null); o.ch.anim.holdWL = o.ch.anim.holdWR = null; } } return; }
         const st = Math.min(d, 1.05 * dt); const want = Math.atan2(dx, dz); /* feet end leads: the stretcher's +z (feet) points the way it goes */ S.yaw += angDiff(want, S.yaw) * Math.min(1, dt * 3); S.x += dx / d * st; S.z += dz / d * st;
         S.y = this.g.collision.groundAt(S.x, S.z, S.y) + 0.42; if (this.g.hospital && Math.hypot(S.x - B.inside.x, S.z - B.inside.z) < 4) S.y = this.g.hospital.FLOOR_Y[0] + 0.42;
         this.carryHands(u, true, 1, 'feet'); for (const o of u.officers) if (o.want) o.want.speed = 1.05; this.syncStretcher(u);
         if (e.t > 40) { e.wi = 9; } return; }
+      // 75th: a covered body goes to the body holding room (HospitalBodyRoom.js), not in through the ED: straight from the
+      // van to its door (it opens for the crew), across onto the steel trolley, the empty cot back to the van and in
+      case 'room': case 'back': { const BR = this.g.hospital.bodyRoom, Pt = BR.points, S = e.S; const back = e.bp === 'back';
+        const rear = this.vanPt(u, AMB.rearZ - ST.half - 0.9); const [, rv] = this.g.hospital.toLocal(rear.x, rear.z); const s0 = BR.W(BR.lane, rv + 0.4), s1 = BR.W(BR.lane, 8.6); // round the van's side (it stands nose-in, rear doors to the street)
+        const way = back ? [Pt.door, Pt.out, s1, s0, rear] : [s0, s1, Pt.out, Pt.door, Pt.cot]; const tg = way[e.wi || 0];
+        const dx = tg.x - S.x, dz = tg.z - S.z, d = Math.hypot(dx, dz); BR.want(S.x, S.z); for (const o of u.officers) BR.want(o.x, o.z);
+        if (d < 0.12) { e.wi = (e.wi || 0) + 1; if (e.wi >= way.length) { e.t = 0; e.wi = 0; if (back) { e.bp = 'restow'; e.pullSnd = false; } else { e.bp = 'transfer'; e.from = { x: S.x, y: S.y, z: S.z }; } } return; }
+        const st = Math.min(d, 1.0 * dt); const want = Math.atan2(dx, dz) + (back ? Math.PI : 0); /* in: the feet end leads; back: the head end */ S.yaw += angDiff(want, S.yaw) * Math.min(1, dt * 3); S.x += dx / d * st; S.z += dz / d * st;
+        S.y = this.g.collision.groundAt(S.x, S.z, S.y) + 0.42; this.carryHands(u, true, 1, back ? 'head' : 'feet'); for (const o of u.officers) if (o.want) o.want.speed = 1.0; this.syncStretcher(u);
+        if (e.t > 45) { e.wi = way.length - 1; S.x = tg.x; S.z = tg.z; } return; }
+      case 'transfer': { const BR = this.g.hospital.bodyRoom, S = e.S; BR.want(S.x, S.z); this.carryHands(u, false, 1, 'feet');
+        if (e.sheet && e.t > 0.8) { const k = Math.min(1, (e.t - 0.8) / 1.6); BR.transfer(e.sheet, k, e.from); if (k >= 1) { BR.receive(e.sheet); e.sheet = null; this.pr.note(`EMS unit ${u.id} body left in the holding room`); this.stats.delivered++; } }
+        if (!e.sheet && e.t > 3.2) { e.bp = 'back'; e.t = 0; e.wi = 0; } return; }
+      case 'restow': { // the empty cot back in: the reverse of 'unload'
+        const zIn = AMB.rearZ + ST.half + 0.05, zOut = AMB.rearZ - ST.half - 0.9; const k = sm(Math.min(1, e.t / 2.4)); if (!e.pullSnd) { e.pullSnd = true; HospitalSound.trolleyPull(e.S.x, e.S.z); }
+        const c = this.vanPt(u, zOut + (zIn - zOut) * k); const S = e.S; S.x = c.x; S.z = c.z; S.yaw = v.yaw + Math.PI; const gy = this.g.collision.groundAt(c.x, c.z, v.y + 0.5);
+        S.y = (gy + 0.42) + ((v.y + AMB.doorY0) - (gy + 0.42)) * sm(k / 0.55); this.carryHands(u, true, 1, 'feet'); for (const o of u.officers) if (o.want) o.want.speed = k < 1 ? 0.4 : 0; this.syncStretcher(u);
+        if (e.t > 2.6) { this.dropCargo(u); e.cotOut = false; e.bp = 'handed'; e.t = 0; for (const o of u.officers) { o.want = null; o.ch.anim.set(null); o.ch.anim.holdWL = o.ch.anim.holdWR = null; } } return; }
       case 'handed': if (e.t > 3) { e.rearOpen = false; for (const o of u.officers) if (o.mode === 'foot') { o.mode = 'return'; o.goal = null; } e.bp = 'mount'; e.t = 0; } return;
       case 'mount': if (pr.allSeated(u) || e.t > 40) { if (!pr.allSeated(u)) for (const o of u.officers) { o.mode = 'seated'; } e.ph = 'parked'; e.t = 0; e.leaveT = 0; v.beacons(false, pr.t); } return;
     }
@@ -573,6 +591,7 @@ export class EMS {
   }
   stow(u) { // inside: the stretcher and sheet ride in the van (the body under the sheet is the draped shape); the person leaves the crowd
     const e = u.e, v = u.v, p = e.p, C = this.crowd; v.mesh.updateMatrixWorld(); e.cargo = []; if (e.st) setCotLegs(e.st, 0, 0); for (const m of [e.st, e.sheet]) { if (!m) continue; v.mesh.attach(m); e.cargo.push(m); }
+    if (e.kit) { e.kit.parent?.remove(e.kit); e.kit = null; e.kitOn = false; } // the bag went in with the cot
     e.st = null; e.sheet = null; if (p.ch.rag) { p.ch.rag.kin = null; p.ch.rag.release(); } const i = C.peds.indexOf(p); if (i >= 0) { C.peds.splice(i, 1); C.despawn(p); } else { p.ch.root.parent?.remove(p.ch.root); p.ch.dispose(); } e.p = null; this.pr.note(`EMS unit ${u.id} patient loaded`);
   }
   // ---------------------------------------------------------------- a medic on foot (called from PoliceResponse.updateOfficer)
