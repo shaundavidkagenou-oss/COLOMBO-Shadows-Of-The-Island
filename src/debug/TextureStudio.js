@@ -22,6 +22,8 @@ import { MultiBuilder, tagOfFace } from '../gfx/MeshBuilder.js';
 import { buildBase, buildDetail, buildWall, buildWindows } from '../world/BuildingGen.js';
 import { ensureMat, materialLabel, splitKey, parentKey, splittable, ROLE_DEFS, SPLIT } from '../gfx/Materials.js';
 import * as L from '../world/Layout.js';
+import { PACK, loadPack, savePack } from './ModelPack.js';
+import { applyLayout, partAtFace, PART_PREFIX } from '../world/BankLayout.js';
 
 const clone = (o) => (o == null ? o : JSON.parse(JSON.stringify(o)));
 // a material name from a texture set's file names ("Bricks076C_1K-PNG_Color.png" … → "Bricks076C")
@@ -190,6 +192,33 @@ class Studio {
     for (const b of plan.buildings) { if (p.x < b.x0 - 0.6 || p.x > b.x1 + 0.6 || p.z < b.z0 - 0.6 || p.z > b.z1 + 0.6) continue; const d = Math.abs((b.x0 + b.x1) / 2 - p.x) + Math.abs((b.z0 + b.z1) / 2 - p.z); if (d < bd) { bd = d; best = b; } }
     return best;
   }
+  // ---- 74th: the Ceylon Meridian Bank hall. Its surfaces draw merged per material (one draw each for the whole hall), every
+  // material the bank's own ("CMB · …": an edit changes the bank only). An item — the ATM, a teller workstation, the vault
+  // door … — can get materials of its own: the BankLayout `own` flag splits it into its own meshes, and the flag is saved
+  // into the model pack (built into the game) so the item keeps them, with the Texture Studio edits saved under their names.
+  bankParts() { const W = this.g.interiors && this.g.interiors.walkIn; const st = W && W.sites.find((q) => q.room && q.room.bank); return st && st.room && st.room.parts; }
+  bankItem() { const s = this.sel; if (!s) return null; const P = this.bankParts(); if (!P) return null; const o = s.obj; if (o.userData.bankPart) return { P, name: o.userData.bankPart, own: true };
+    if (!P.recs.some((r) => r.m === o)) return null; const name = partAtFace(P, o, s.face); return name ? { P, name, own: false } : null; }
+  bankSection() {
+    const it = this.bankItem(); if (!it) return null; const sec = section('Bank item: ' + it.name, true);
+    if (it.own) sec.b.append(h('div', { cls: 'ed-hint' }, 'This item has materials of its own ("' + PART_PREFIX + it.name + ' · …") — edits change only this item.'), btn('Back to the shared bank materials', () => this.bankOwn(it, false), { title: 'Drop this item\'s own materials (its Texture Studio edits stay saved, unused)' }));
+    else sec.b.append(h('div', { cls: 'ed-hint' }, 'Drawn with the bank\'s own shared material (edits change every surface of that material in the bank — nothing outside it). For this item alone:'), btn('Own textures for this item', () => this.bankOwn(it, true), { title: 'Split ' + it.name + ' into meshes of its own (+1 draw call per material it uses) and select its copy of this material' }));
+    return sec;
+  }
+  async bankOwn(it, on) {
+    const P = it.P; const s = this.sel; const srcName = (matsOf(s.obj)[s.idx] || {}).name || '';
+    try { await loadPack(); } catch (e) { toast('Model pack not available: ' + (e.message || e), 4000); return; }
+    const lay = JSON.parse(JSON.stringify((PACK.m && PACK.m.bank) || P.layout || { v: 1, parts: {} })); if (!lay.parts) lay.parts = {}; lay.v = lay.v || 1;
+    const e = lay.parts[it.name] || (lay.parts[it.name] = {}); if (on) e.own = true; else delete e.own; if (!Object.keys(e).length) delete lay.parts[it.name];
+    try { applyLayout(P, lay); } catch (err) { toast('Could not apply: ' + (err.message || err), 4000); return; }
+    if (Object.keys(lay.parts).length) PACK.m.bank = lay; else delete PACK.m.bank;
+    try { await savePack(); } catch (err) { toast('Applied, but not saved: ' + (err.message || err), 5000); }
+    // select the item's (new) mesh that draws the clicked surface
+    let pick = null; const want = on ? PART_PREFIX + it.name + ' · ' + srcName.replace(PART_PREFIX, '') : null;
+    for (const r of P.recs) { if (on) { for (const sm of r.subs) if (sm.userData.bankPart === it.name && sm.material.name === want) pick = sm; } else if (r.m.material.name === srcName.split(' · ').slice(-1).map((x) => PART_PREFIX + x)[0]) pick = r.m; }
+    toast(on ? it.name + ': own materials (saved into the model pack)' : it.name + ': back to the shared bank materials', 2500);
+    if (pick) this.select({ obj: pick, inst: null, batch: null, idx: 0, point: s.point, dist: s.dist, ray: s.ray, face: null }); else this.select(null);
+  }
   // ------------------------------------------------------------------ rules
   labelFor() {
     const k = this.key, m = this.m, o = this.sel && this.sel.obj; const [kind, ...r] = k.split(':');
@@ -328,6 +357,7 @@ class Studio {
       hier.b.append(h('div', { cls: 'ed-hint' }, 'Meshes inside ' + objLabel(this.node) + ' (' + meshes.length + (meshes.length >= 300 ? '+' : '') + '):'), ml); }
     B.append(hier);
     const xs = this.sizeSection(); if (xs) B.append(xs); // 61st
+    { const bs = this.bankSection(); if (bs) B.append(bs); } // 74th: Ceylon Meridian Bank items
     // 60th: the clicked part of a building (see partOf) — edit it for every building, for this building only, or the base
     const po = this.partOptions(this.part);
     if (po.length) { const pl = h('div', { cls: 'ed-list', style: { maxHeight: 'none' } });

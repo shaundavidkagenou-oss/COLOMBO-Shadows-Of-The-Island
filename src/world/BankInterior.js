@@ -21,9 +21,10 @@
 // They follow fixed lanes laid out between the furniture, stop for the player and for each other, and never pick the ATM
 // the player is using. After banking hours (19:30–07:30) the counters close: only the guard and ATM customers remain.
 import * as THREE from 'three';
-import { Kit, KIT, C, lathe, kitMaterial } from './ShopKit.js';
+import { Kit, C, lathe } from './ShopKit.js';
 import { shell } from './ShopInteriors.js';
 import { collectParts, applyLayout } from './BankLayout.js';
+import { useBankMaterials, bankMaterials, SCREEN_UV } from './BankMaterials.js'; // 74th: the hall's own textured materials + LCD screens
 import { modelPackNow } from '../debug/boot.js';
 import './RobberyShops.js'; // registers the kit's ceiling tile / steel / plastic / gold materials
 import { REVEAL, LEAF_Z } from './WalkIn.js';
@@ -135,11 +136,11 @@ function officeChair(k, x, z, yaw, top, { high = false, col = '#2b2e34' } = {}) 
   for (const sx of [-1, 1]) { const [a, b] = P(sx * 0.27, -0.03); pl.box(a, top + 0.08, b, 0.03, 0.18, 0.04, { col: blk, rotY: yaw }); pl.box(a, top + 0.185, b, 0.06, 0.03, 0.26, { col: blk, rotY: yaw }); }
 }
 // a computer monitor on a stand, its screen facing direction yaw (0 = +z)
-function monitor(k, x, y, z, yaw, w = 0.52) {
+function monitor(k, x, y, z, yaw, w = 0.52, scr = SCREEN_UV.teller) {
   const pl = k.get('plastic'), blk = C('#141518'); const P = (dx, dz) => rot(x, z, yaw, dx, dz);
   { const [a, b] = P(0, -0.05); pl.box(a, y + 0.006, b, 0.22, 0.012, 0.17, { col: blk, rotY: yaw }); pl.box(a, y + 0.14, b, 0.04, 0.26, 0.025, { col: blk, rotY: yaw }); }
   pl.box(x, y + 0.3, z, w, w * 0.6, 0.024, { col: blk, rotY: yaw });
-  const [sx, sz] = P(0, 0.0125); const g = k.get('emissive'); g.box(sx, y + 0.305, sz, w - 0.03, w * 0.6 - 0.04, 0.002, { col: [0.5, 0.58, 0.68], rotY: yaw });
+  const [sx, sz] = P(0, 0.0125); k.get('screen').box(sx, y + 0.305, sz, w - 0.03, w * 0.6 - 0.04, 0.002, { col: [1, 1, 1], rotY: yaw, uvRect: scr }); // 74th: a real LCD (BankMaterials screen atlas)
 }
 function keyboard(k, x, y, z, yaw) { k.get('plastic').box(x, y + 0.012, z, 0.43, 0.02, 0.14, { col: C('#1d1f23'), rotY: yaw }); const [mx, mz] = rot(x, z, yaw, 0.32, 0.0); k.get('plastic').box(mx, y + 0.012, mz, 0.06, 0.022, 0.1, { col: C('#1d1f23'), rotY: yaw }); }
 function deskPhone(k, x, y, z, yaw) { landline(k, x, y, z, yaw); } // 71st: a real corded office phone (BankProps.js) instead of two boxes
@@ -199,7 +200,7 @@ export function buildBankInterior(game, site) {
   const B = BANK_ROOM; let W = B.W, D = B.D; const H = B.H;
   if (site && site.b) { const b = site.b, ns = Math.abs(Math.cos(site.yaw)) > 0.7; W = Math.min(W, (ns ? b.x1 - b.x0 : b.z1 - b.z0) - 0.5); D = Math.min(D, (ns ? b.z1 - b.z0 : b.x1 - b.x0) - 0.6); }
   if (W < 13.9 || D < 13.3) console.warn('[bank] building smaller than the design room', W, D);
-  const g = new THREE.Group(); g.name = 'bank-hall'; const k = new Kit().parts(); const obs = [];
+  const g = new THREE.Group(); g.name = 'bank-hall'; const k = useBankMaterials(new Kit().parts()); const obs = []; // 74th: every surface draws with the bank's OWN material (CMB · …)
   const part = (n) => k.setPart(n); part('Room shell (floor, walls, ceiling)'); // 73rd: named parts (BankLayout.js / console bank-edit)
   const atlas = interiorAtlas(), posters = posterAtlas();
   const signMat = new THREE.MeshStandardMaterial({ name: 'CMB interior signs', map: atlas, color: atlas ? 0xffffff : new THREE.Color(CMB.navy), roughness: 0.5, emissive: 0xffffff, emissiveMap: atlas, emissiveIntensity: atlas ? 0.32 : 0 });
@@ -281,14 +282,14 @@ export function buildBankInterior(game, site) {
   // ---- queue-ticket kiosk
   part('Queue-ticket kiosk');
   { const x = -1.5, z = Z(2.22); metal.box(x, 0.65, z, 0.4, 1.3, 0.3, { col: C('#d7d9db') }); paint.box(x, 0.02, z, 0.46, 0.04, 0.36, { col: C('#2a2c30') }); paint.box(x, 1.32, z, 0.42, 0.06, 0.32, { col: navy });
-    face(sign, x, 1.08, z + 0.152, 0.32, 0.16, IN_UV.kiosk, '+z'); pl.box(x, 0.84, z + 0.152, 0.14, 0.012, 0.01, { col: C('#0c0c0d') }); face(sign, x, 1.32, z + 0.162, 0.1, 0.05, IN_UV.logo, '+z'); ob(x - 0.22, x + 0.22, 2.06, 2.38); }
+    face(k.get('screen'), x, 1.08, z + 0.152, 0.32, 0.16, SCREEN_UV.kiosk, '+z'); pl.box(x, 0.84, z + 0.152, 0.14, 0.012, 0.01, { col: C('#0c0c0d') }); face(sign, x, 1.32, z + 0.162, 0.1, 0.05, IN_UV.logo, '+z'); ob(x - 0.22, x + 0.22, 2.06, 2.38); }
 
   // ---- reception / enquiries desk
   part('Reception desk'); const REC = { x: 2.3, d: 3.0 }; { const x = REC.x, cz = Z(3.05), w = 2.2;
     wal.box(x, 0.55, cz, w, 1.1, 0.2, { col: WHITE }); mrb.box(x, 1.12, cz, w + 0.06, 0.04, 0.26, { col: WHITE }); paint.box(x, 0.9, Z(2.95) + 0.004, w, 0.1, 0.006, { col: navy }); metal.box(x, 0.84, Z(2.95) + 0.005, w, 0.008, 0.004, { col: gold });
     face(sign, x, 0.52, Z(2.95) + 0.006, 0.34, 0.34, IN_UV.logo, '+z'); paint.box(x, 0.04, Z(2.97), w - 0.04, 0.08, 0.04, { col: C('#1b1d21') });
     paint.box(x, 0.735, Z(3.42), w, 0.03, 0.56, { col: C('#ebe7df') }); for (const sx of [-1, 1]) wal.box(x + sx * (w / 2 - 0.02), 0.36, Z(3.42), 0.04, 0.72, 0.56, { col: WHITE });
-    monitor(k, x + 0.35, 0.75, Z(3.3), Math.PI, 0.46); keyboard(k, x + 0.25, 0.75, Z(3.55), Math.PI); deskPhone(k, x - 0.55, 0.75, Z(3.4), Math.PI);
+    monitor(k, x + 0.35, 0.75, Z(3.3), Math.PI, 0.46, SCREEN_UV.office); keyboard(k, x + 0.25, 0.75, Z(3.55), Math.PI); deskPhone(k, x - 0.55, 0.75, Z(3.4), Math.PI);
     pl.box(x - 0.75, 1.15, cz, 0.1, 0.03, 0.07, { col: C('#d8d6d0') }); face(prints, x - 0.2, 1.215, Z(3.08), 0.08, 0.12, POSTER_UV.brochure(0), '+z'); metal.box(x - 0.2, 1.17, Z(3.1), 0.09, 0.1, 0.04, { col: steelC }); // card holder · leaflet stand
     lathe(k.get('glaze'), x + 0.85, 1.14, cz, [[0.05, 0], [0.06, 0.1], [0.001, 0.1]], 12, C('#f4f2ee')); for (let i = 0; i < 4; i++) paint.box(x + 0.85 + (i - 1.5) * 0.02, 1.38, cz, 0.012, 0.36, 0.01, { col: C('#4c7a3f') }); for (let i = 0; i < 5; i++) paint.box(x + 0.83 + i * 0.012, 1.5 + i * 0.03, cz + 0.02, 0.05, 0.035, 0.012, { col: C(i % 2 ? '#e9e4f0' : '#d8c8e8') }); // orchid
     part('Enquiries sign'); for (const sx of [-0.45, 0.45]) metal.box(x + sx, 3.1, Z(3.2), 0.01, 0.55 + (H - 3.6), 0.01, { col: steelC }); paint.box(x, 2.72, Z(3.2), 1.04, 0.52, 0.03, { col: navy });
@@ -312,7 +313,7 @@ export function buildBankInterior(game, site) {
     for (const d of ROWS) for (const x of XS) seats.push({ x, d, z: Z(d), yaw: Math.PI, top: 0.42, occ: null, lane: d === ROWS[0] ? 5.95 : 7.25 });
     const tb = new MeshBuilder(); tb.box(0, -0.04, 0, 0.5, 0.08, 0.48, { col: C('#1f3556') }); tb.box(0, 0.25, -0.23, 0.48, 0.44, 0.06, { col: C('#1f3556') }); tb.box(0, -0.095, 0, 0.44, 0.03, 0.42, { col: C('#232427') }); tb.box(0, 0.25, -0.265, 0.44, 0.4, 0.012, { col: C('#232427') });
     tb.cylinder(0, -0.36, 0, 0.028, 0.028, 0.25, 10, { col: C('#9ea2a6') }); for (const sx of [-1, 1]) { tb.box(sx * 0.27, 0.1, -0.02, 0.035, 0.22, 0.04, { col: C('#232427') }); tb.box(sx * 0.27, 0.215, 0.0, 0.06, 0.03, 0.34, { col: C('#232427') }); }
-    const geo = tb.build(); const im = new THREE.InstancedMesh(geo, kitMaterial('fabric', KIT.fabric), seats.length); im.name = 'bank-waiting-chairs'; im.receiveShadow = true; im.castShadow = false;
+    const geo = tb.build(); const im = new THREE.InstancedMesh(geo, bankMaterials().fabric, seats.length); im.name = 'bank-waiting-chairs'; im.receiveShadow = true; im.castShadow = false;
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI), one = new THREE.Vector3(1, 1, 1), v = new THREE.Vector3();
     const setTop = (i, top) => { const s = seats[i]; s.top = top; im.setMatrixAt(i, m4.compose(v.set(s.x, top, s.z), q, one)); im.instanceMatrix.needsUpdate = true; };
     part('Waiting chair bases'); seats.forEach((s, i) => { setTop(i, s.top); chrome.cylinder(s.x, 0.02, s.z, 0.035, 0.035, 0.24, 10, { col: WHITE }); pl.cylinder(s.x, 0, s.z, 0.22, 0.24, 0.02, 18, { col: C('#202124') }); });
@@ -331,7 +332,7 @@ export function buildBankInterior(game, site) {
     paint.box(OF.x0 - 0.045, 2.55, Z((OF.door[0] + OF.door[1]) / 2), 0.012, 0.3, 0.92, { col: C('#d8d4ca') }); face(sign, OF.x0 - 0.052, 2.55, Z((OF.door[0] + OF.door[1]) / 2), 0.88, 0.22, IN_UV.office, '-x');
     // furniture: walnut desk, executive chair (built to the manager, below), two visitor chairs, credenza, plant, framed logo
     part("Manager's desk"); const dx = 6.1, dz = Z(5.95); wal.box(dx, 0.73, dz, 1.2, 0.04, 0.66, { col: WHITE }); for (const sx of [-1, 1]) wal.box(dx + sx * 0.58, 0.36, dz, 0.04, 0.72, 0.64, { col: WHITE }); wal.box(dx, 0.45, dz - 0.3, 1.12, 0.5, 0.02, { col: WHITE });
-    monitor(k, dx + 0.28, 0.75, Z(6.1), 0, 0.46); keyboard(k, dx + 0.1, 0.75, Z(5.78), 0); deskPhone(k, dx - 0.42, 0.75, Z(5.85), 0); paint.box(dx - 0.12, 0.755, Z(6.05), 0.21, 0.01, 0.3, { col: C('#f6f4ee') }); brass.cylinder(dx - 0.3, 0.75, Z(6.15), 0.015, 0.015, 0.12, 8, { col: WHITE });
+    monitor(k, dx + 0.28, 0.75, Z(6.1), 0, 0.46, SCREEN_UV.office); keyboard(k, dx + 0.1, 0.75, Z(5.78), 0); deskPhone(k, dx - 0.42, 0.75, Z(5.85), 0); paint.box(dx - 0.12, 0.755, Z(6.05), 0.21, 0.01, 0.3, { col: C('#f6f4ee') }); brass.cylinder(dx - 0.3, 0.75, Z(6.15), 0.015, 0.015, 0.12, 8, { col: WHITE });
     [5.75, 6.45].forEach((vx, i) => { part("Manager's visitor chair " + (i + 1)); officeChair(k, vx, Z(6.68), 0, 0.45, { col: '#1f3556' }); });
     part("Manager's credenza"); metal.box(xR - 0.16, 0.38, Z(5.15), 0.3, 0.76, 0.62, { col: C('#d7d5cf') }); wal.box(xR - 0.16, 0.77, Z(5.15), 0.32, 0.02, 0.64, { col: WHITE }); part("Plant in the manager's office"); plant(k, 4.95, Z(5.15), 1.1);
     part("Framed logo (manager's office)"); paint.box(xR - 0.012, 1.75, Z(5.15), 0.02, 0.56, 0.56, { col: C('#1b1612') }); face(sign, xR - 0.024, 1.75, Z(5.15), 0.5, 0.5, IN_UV.logo, '-x');
@@ -353,13 +354,13 @@ export function buildBankInterior(game, site) {
       pl.box(wx + 0.38, 1.07, Z(8.74), 0.09, 0.05, 0.17, { col: C('#202226') }); emis.box(wx + 0.38, 1.096, Z(8.7), 0.06, 0.002, 0.05, { col: [0.45, 0.6, 0.55] });
       pl.box(wx - 0.4, 1.045, Z(8.72), 0.03, 0.01, 0.03, { col: C('#202226') }); pl.box(wx - 0.38, 1.047, Z(8.7), 0.012, 0.012, 0.14, { col: C('#1d3b7a'), rotY: 0.4 });
       face(sign, wx, H - 0.2, Z(8.6) + 0.03, 0.68, 0.34, IN_UV.counter(i), '+z'); }
-    part('Now-serving display'); face(sign, 0, H - 0.2, Z(8.6) + 0.03, 0.9, 0.22, IN_UV.serving, '+z');
+    part('Now-serving display'); face(k.get('screen'), 0, H - 0.2, Z(8.6) + 0.03, 0.9, 0.22, SCREEN_UV.serving, '+z');
     part('Counter closed sign'); face(sign, WINX[3], 1.32, Z(9.0) - 0.016, 0.4, 0.2, IN_UV.closed, '+z'); paint.box(WINX[3], 1.32, Z(9.0) - 0.022, 0.42, 0.22, 0.008, { col: C('#f4f2ec') }); metal.box(WINX[3], 1.13, Z(9.04), 0.18, 0.16, 0.02, { col: steelC }); // closed plate on its stand
     // staff door (glazed partition above)
     part('Staff door frame');
     const dx0 = cE, dx1 = xR, dcx = (dx0 + dx1) / 2; paint.box(dx0 + 0.03, 1.05, Z(9.0), 0.06, 2.1, 0.12, { col: bronze }); paint.box(dx1 - 0.03, 1.05, Z(9.0), 0.06, 2.1, 0.12, { col: bronze }); paint.box(dcx, 2.13, Z(9.0), dx1 - dx0, 0.06, 0.12, { col: bronze });
     // 73rd: the leaf is its own small mesh group hinged on the right jamb, so staff going off / coming on shift open it (BankShift)
-    { const dk = new Kit(); Object.assign(dk.extra, { cmbSign: signMat }); const hx = dx1 - 0.07, lw = dx1 - dx0 - 0.14, L0 = (x) => x - hx;
+    { const dk = useBankMaterials(new Kit()); Object.assign(dk.extra, { cmbSign: signMat }); const hx = dx1 - 0.07, lw = dx1 - dx0 - 0.14, L0 = (x) => x - hx;
       dk.get('walnut').box(-lw / 2, 1.04, 0, lw, 2.04, 0.045, { col: WHITE }); face(dk.get('cmbSign'), -lw / 2, 1.55, 0.024, 0.32, 0.16, IN_UV.staff, '+z');
       for (const s2 of [1, -1]) { dk.get('gold').box(L0(dx0 + 0.16), 1.05, s2 * 0.04, 0.02, 0.02, 0.04, { col: WHITE }); dk.get('gold').box(L0(dx0 + 0.16) + 0.05, 1.05, s2 * 0.075, 0.12, 0.02, 0.02, { col: WHITE }); } // lever handles both sides
       const leaf = dk.into(new THREE.Group(), { cast: false, receive: true }); leaf.name = 'bank-staff-door'; leaf.position.set(hx, 0, Z(9.0)); g.add(leaf); staffDoorLeaf = { leaf, ang: 0, x: dcx, z: Z(9.0) }; }
@@ -373,12 +374,12 @@ export function buildBankInterior(game, site) {
   const staffSpecs = [makeBankStaffAppearance(6701, { sex: 'f' }), makeBankStaffAppearance(6702, { sex: 'm' }), makeBankStaffAppearance(6703, { sex: 'f' })];
   part('Staff work surface'); { const cx = (xL + cE) / 2, cw = cE - xL; paint.box(cx, 0.735, Z(9.7), cw, 0.03, 0.6, { col: C('#ebe7df') });
     for (const px of [xL + 0.3, -3.3, 0, 3.3, cE - 0.3]) metal.box(px, 0.36, Z(9.68), 0.44, 0.72, 0.52, { col: C('#c9ccd0') });
-    for (let i = 0; i < 4; i++) { part('Teller workstation ' + (i + 1)); const wx = WINX[i]; monitor(k, wx - 0.28, 0.75, Z(9.55), Math.PI); keyboard(k, wx - 0.05, 0.75, Z(9.86), Math.PI);
+    for (let i = 0; i < 4; i++) { part('Teller workstation ' + (i + 1)); const wx = WINX[i]; monitor(k, wx - 0.28, 0.75, Z(9.55), Math.PI, 0.52, B.staffed.includes(i) ? SCREEN_UV.teller : SCREEN_UV.desktop); keyboard(k, wx - 0.05, 0.75, Z(9.86), Math.PI);
       pl.box(wx + 0.42, 0.85, Z(9.62), 0.26, 0.2, 0.24, { col: C('#9a9ea4') }); pl.box(wx + 0.42, 0.96, Z(9.66), 0.18, 0.02, 0.1, { col: C('#202226') }); // note counter
       pl.box(wx + 0.75, 0.81, Z(9.6), 0.16, 0.12, 0.2, { col: C('#dcdcd8') }); deskPhone(k, wx - 0.75, 0.75, Z(9.65), Math.PI); pl.box(wx + 0.5, 0.66, Z(9.75), 0.4, 0.1, 0.4, { col: C('#2a2c30') }); // printer · phone · cash drawer
       paint.box(wx + 1.05, 0.76, Z(9.75), 0.24, 0.02, 0.32, { col: C('#f6f4ee') }); }
     staffSpecs.forEach((sp, i) => { const ch = new Character(sp); const top = Math.max(0.3, Math.min(0.55, seatTopFor(ch))); const wx = WINX[B.staffed[i]];
-      const ck = new Kit(); officeChair(ck, 0, 0, 0, top); const chair = ck.into(new THREE.Group(), { cast: false, receive: true }); chair.name = 'bank-teller-chair-' + i; chair.position.set(wx, 0, Z(10.35)); g.add(chair); // 71st: its own group, so it can roll
+      const ck = useBankMaterials(new Kit()); officeChair(ck, 0, 0, 0, top); const chair = ck.into(new THREE.Group(), { cast: false, receive: true }); chair.name = 'bank-teller-chair-' + i; chair.position.set(wx, 0, Z(10.35)); g.add(chair); // 71st: its own group, so it can roll
       ch.root.position.set(wx, 0, Z(10.35) - 0.04); ch.root.rotation.y = 0; g.add(ch.root); ch.anim.seated = true;
       stand.tellers.push({ ch, win: B.staffed[i], x: wx, rnd: rngOf(6710 + i), serving: null, act: null, actT: 0, chair, chairZ: Z(10.35) }); });
     part('Empty teller chair (counter 4)'); for (const wx of [WINX[3]]) officeChair(k, wx, Z(10.45), 0.3, 0.45);

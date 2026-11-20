@@ -55,7 +55,7 @@ export function partBox(P, name) { const b = P.bounds.get(name); if (!b) return 
 // the material a part draws with when it has materials of its own (one per part + original material, kept across re-applies so
 // Texture Studio edits stay on it)
 function ownMaterial(P, name, src, meshName) {
-  const label = src.name || meshName || 'material'; const key = PART_PREFIX + name + ' · ' + label; let m = P.mats.get(key);
+  const label = (src.name || meshName || 'material').replace(PART_PREFIX, ''); const key = PART_PREFIX + name + ' · ' + label; let m = P.mats.get(key);
   if (!m) { m = cloneMaterial(src, key); m.userData = Object.assign({}, m.userData, { own: true, bankPart: name }); P.mats.set(key, m); }
   return m;
 }
