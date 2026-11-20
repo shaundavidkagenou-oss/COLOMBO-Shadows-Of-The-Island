@@ -158,6 +158,30 @@ try {
     ok(em.bayErr < 1.0 && em.bayYawErr < 0.2, `8 stopped in the bay (${em.bayErr} m, yaw err ${em.bayYawErr})`);
     ok(em.stats && em.stats.delivered === 1 && em.cargoLeft === 0 && !em.dup, `8 handed over at the emergency entrance, props cleaned up, never two units (${JSON.stringify(em.stats)})`);
   }
+  if (want('ems2')) { // two bodies at once (one unit on the road, the second queued, never doubled); then a run whose route fails
+    const e2 = await page.evaluate(async () => { const g = window.__game, P = g.player, C = g.crowd, E = g.police.ems; const r = { maxActive: 0, maxUnits: 0, sentAt: [], perPed: {} };
+      for (const u of [...E.units]) E.removeUnit(u); E.incidents.clear(); const s0 = { ...E.stats };
+      P.teleport(697, -186, -Math.PI * 0.6); g.world.warm(697, -186); await g.stepSim(20, 0.1);
+      const peds = C.peds.filter((q) => q.state !== 'down' && !q.dead && q.ch.root.parent).sort((a, b) => Math.hypot(a.x - 670, a.z + 172) - Math.hypot(b.x - 670, b.z + 172)).slice(0, 2); if (peds.length < 2) return { err: 'peds' };
+      const spots = [[672, -173.6], [662, -173.4]]; peds.forEach((p, i) => { p.x = spots[i][0]; p.z = spots[i][1]; p.ch.root.position.set(p.x, p.ch.root.position.y, p.z); C.kill(p); p.deadT = 400; p.__tid = i; });
+      const sent = new Map(); let t = 0;
+      for (let i = 0; i < 12000; i++) { await g.stepSim(1, 0.1); t += 0.1; for (const p of peds) if (p.deadT < 400) p.deadT = 400;
+        r.maxActive = Math.max(r.maxActive, E.active()); r.maxUnits = Math.max(r.maxUnits, E.units.length);
+        for (const u of E.units) if (u.e && u.e.p && u.e.p.__tid != null && !sent.has(u)) { sent.set(u, u.e.p.__tid); r.sentAt.push(u.e.p.__tid + '@' + t.toFixed(0)); r.perPed[u.e.p.__tid] = (r.perPed[u.e.p.__tid] || 0) + 1; }
+        if (r.sentAt.length >= 2 && E.active() === 0) break; }
+      r.t1 = +t.toFixed(0); r.stats = Object.fromEntries(Object.keys(E.stats).map((k) => [k, E.stats[k] - (s0[k] || 0)]));
+      // navigation failure: the route to the hospital cannot be planned → no freeze, the unit drives on and is recycled, props cleaned
+      for (const u of [...E.units]) E.removeUnit(u); E.incidents.clear(); const s1 = { ...E.stats }; const keep = E.planBay; E.planBay = () => false;
+      const q = C.peds.filter((x) => x.state !== 'down' && !x.dead && x.ch.root.parent).sort((a, b) => Math.hypot(a.x - 670, a.z + 172) - Math.hypot(b.x - 670, b.z + 172))[0];
+      q.x = 668; q.z = -173.5; q.ch.root.position.set(q.x, q.ch.root.position.y, q.z); C.kill(q); q.deadT = 400; let u = null; t = 0; const f0 = performance.now(); let worst = 0;
+      for (let i = 0; i < 6000; i++) { const a = performance.now(); await g.stepSim(1, 0.1); worst = Math.max(worst, performance.now() - a); t += 0.1; if (q.deadT < 400) q.deadT = 400; if (!u && E.units.length) u = E.units[0];
+        if (u && !E.units.includes(u)) break; if (u && u.e && u.e.ph === 'leave' && !u.__far) { u.__far = true; } if (u && u.__far && t > 0) { const v = u.v; if (v && Math.hypot(v.x - P.x, v.z - P.z) < 1e9 && u.e.ph === 'leave' && !u.e.toBay && !u.e.transport) { P.teleport(400, -400, 0); g.world.warm(400, -400); } } }
+      E.planBay = keep; r.fail = { t: +t.toFixed(0), removed: !!u && !E.units.includes(u), stats: Object.fromEntries(Object.keys(E.stats).map((k) => [k, E.stats[k] - (s1[k] || 0)])), cargo: u && u.e ? (u.e.cargo || []).length : 0, worstStep: +worst.toFixed(0), wall: +((performance.now() - f0) / 1000).toFixed(0) };
+      return r; });
+    console.log('   ems2', JSON.stringify(e2));
+    ok(!e2.err && e2.sentAt.length === 2 && e2.maxActive === 1 && e2.maxUnits <= 2 && e2.perPed[0] === 1 && e2.perPed[1] === 1, `8b two bodies: one unit at a time, the second queued and answered, nobody twice (${e2.sentAt && e2.sentAt.join(', ')}; max active ${e2.maxActive}, vehicles ${e2.maxUnits})`);
+    ok(e2.fail && e2.fail.removed && e2.fail.stats.bayFail >= 1 && e2.fail.cargo === 0, `8c route failure: no freeze, the unit drives on and is recycled, props cleaned (${JSON.stringify(e2.fail)})`);
+  }
 } catch (e) { errors.push('test: ' + (e.stack || e)); }
 console.log('errors:', errors.length ? errors.slice(0, 12).join('\n  ') : 'none');
 ok(errors.length === 0, 'no page errors');

@@ -101,14 +101,15 @@ export class EMS {
   call(opts = {}) { // opts.at: {x, z, yaw} spawn the ambulance on that lane (tests)
     const g = this.g; this.stats.calls++;
     if (g.indoor) return this.refuse('Go outside first — the crew has to be able to reach the patient.');
-    if (this.units.length) return this.refuse('An ambulance is already on its way to you.');
+    if (this.active()) return this.refuse('An ambulance is already on its way to you.');
+    if (this.full()) return this.refuse('No ambulance free right now — try again in a moment.');
     const p = this.findPatient(); if (!p) return this.refuse('There is nobody down near you (within 40 m) — no ambulance sent. Call again next to the injured person.');
     if (!this.dispatch(p, opts)) return this.refuse('No ambulance can reach you right now — try again in a moment.');
     return { ok: true, title: '1990 Suwa Seriya', msg: `Ambulance dispatched — ${p.dead ? 'a person not breathing' : 'an unconscious person'}. Stay with them; the crew will be there shortly.` };
   }
   // one ambulance for patient p: spawned on a road out of view, routed by the lane AI (never placed next to the patient)
   dispatch(p, opts = {}) {
-    if (!p || p.awaitMedic || this.units.length >= this.MAX_UNITS) return null;
+    if (!p || p.awaitMedic || this.full()) return null;
     const u = this.pr.spawnUnit({ ems: true, at: opts.at || null, near: true }) || (opts.at ? null : this.pr.spawnUnit({ ems: true })); if (!u) return null;
     this.pr.units = this.pr.units.filter((q) => q !== u); this.units.push(u); u.ems = true; u.task = 'ems';
     u.e = { ph: 'drive', t: 0, p, dead: !!p.dead, deadT0: p.deadT || 0, ct: 0, auto: !!opts.auto }; p.awaitMedic = true; p.keep = true; u.v.ai.v0 = 14; u.v.ems = true;
@@ -123,7 +124,7 @@ export class EMS {
     for (const p of C.peds) { if (p.state !== 'down' || p.awaitMedic || p.recycle || this.incidents.has(p) || !p.ch.root.parent || (p.ch.rag && p.ch.rag.kin) || p.helpedUp) continue;
       if (!(p.dead || (p.downT || 0) > 8)) continue; if (Math.hypot(p.x - P.x, p.z - P.z) > 130) continue; // serious: not breathing, or still out after 8 s
       this.incidents.set(p, { x: p.x, z: p.z, t: this.t, due: this.t + 12 + Math.random() * 16, dead: !!p.dead, tries: 0 }); this.stats.incidents++; }
-    if (!this.incidents.size || this.units.length >= this.MAX_UNITS || g.indoor || (this.pr.level | 0) >= 3) return; // a gunfight: no crew sent in until it is over
+    if (!this.incidents.size || this.full() || g.indoor || (this.pr.level | 0) >= 3) return; // a gunfight: no crew sent in until it is over
     let best = null; for (const [p, inc] of this.incidents) if (this.t >= inc.due && (!best || inc.t < best[1].t)) best = [p, inc]; if (!best) return;
     const [p, inc] = best; const u = this.dispatch(p, { auto: true });
     if (u) { this.stats.auto++; if (Math.hypot(p.x - P.x, p.z - P.z) < 70) g.hud.notify?.('1990 Suwa Seriya', 'Someone nearby has called an ambulance.', 'info', 3.5); }
@@ -137,6 +138,12 @@ export class EMS {
   dropCargo(u) { const e = u.e; if (!e) return; for (const m of [...(e.cargo || []), e.st, e.sheet]) { if (!m) continue; m.parent?.remove(m); m.traverse((q) => { if (q.isMesh) { q.geometry.dispose(); for (const mt of [].concat(q.material)) mt.dispose(); } }); } e.cargo = null; e.st = null; e.sheet = null; }
   // ---------------------------------------------------------------- the National Hospital run (74th)
   bayInfo() { const H = this.g.hospital; return H && H.emsBay ? H.emsBay : null; }
+  // another van still standing in the bay: it slips away if nobody is looking, otherwise this one waits its turn (drives round)
+  bayTaken(u) { for (const q of this.units) { if (q === u || !q.e || (q.e.ph !== 'parked' && q.e.ph !== 'bay' && q.e.toBay !== 'in')) continue;
+    if (q.e.ph === 'parked' && !this.pr.inView(q.v)) { this.removeUnit(q); continue; } return true; } return false; }
+  // units on a job (a van parked at the hospital after a run does not block the next call; at most one more vehicle on the map)
+  active() { let n = 0; for (const q of this.units) if (!q.e || q.e.ph !== 'parked') n++; return n; }
+  full() { return this.active() >= this.MAX_UNITS || this.units.length >= this.MAX_UNITS + 1; }
   toBay(u, dt) {
     const g = this.g, pr = this.pr, v = u.v, ai = v.ai, e = u.e, B = this.bayInfo(); e.bayT += dt; const P = g.player;
     if (!B) { e.toBay = null; return; }
@@ -146,8 +153,7 @@ export class EMS {
       const p0 = ai.pieces[0]; if (v.speed < 0.3) u.stuckT = (u.stuckT || 0) + dt; else u.stuckT = 0;
       // on a lane that runs past the gate (the gate within ~10 m of its line, ahead of us): turn in from it
       if (p0 && p0.type === 'line') { const al = (B.gate.x - p0.p0[0]) * p0.d[0] + (B.gate.z - p0.p0[1]) * p0.d[1], lat = Math.abs((B.gate.x - p0.p0[0]) * p0.d[1] - (B.gate.z - p0.p0[1]) * p0.d[0]);
-        e.dbg = [p0.seg && p0.seg.id, u.goalRoad && u.goalRoad.seg && u.goalRoad.seg.id, +al.toFixed(1), +ai.s.toFixed(1), +lat.toFixed(1), +p0.len.toFixed(0)];
-        if (lat < 14 && al > ai.s + 9 && al < p0.len + 2) { const sA = Math.max(ai.s + 2, al - 7); const path = this.bayPath(p0, sA, B); const cut = { ...p0, p1: [p0.p0[0] + p0.d[0] * sA, p0.p0[1] + p0.d[1] * sA], len: sA };
+        if (lat < 14 && al > ai.s + 9 && al < p0.len + 2 && !this.bayTaken(u)) { const sA = Math.max(ai.s + 2, al - 7); const path = this.bayPath(p0, sA, B); const cut = { ...p0, p1: [p0.p0[0] + p0.d[0] * sA, p0.p0[1] + p0.d[1] * sA], len: sA };
           ai.pieces = [cut, path]; ai.route = null; ai.goal = null; ai.park = { path, bay: true }; ai.sMaxP = path; ai.sMax = path.len - 0.02; ai.v0 = 8; e.toBay = 'in'; e.inT = 0; return; } }
       // stopped at the routing goal without a way in (came at it from the wrong side / too close): go round the block and try again
       const gd = ai.goal && ai.goal.dist !== undefined ? ai.goal.dist : Infinity; if (!ai.goal && !ai.route && v.speed < 0.5) u.stuckT += dt * 2;
