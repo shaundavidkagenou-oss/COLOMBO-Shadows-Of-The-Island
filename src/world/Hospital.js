@@ -24,6 +24,10 @@ import { MeshBuilder } from '../gfx/MeshBuilder.js';
 import { Input } from '../core/Input.js';
 import { HOSP, Y0, FLOOR_Y, toWorld, toLocal, ROOM, FURNITURE, STAIR, LIFT, SPOTS, BEDSIDE, RECOVERY_BEDS, BED, GROUNDS, roomAt, visibleRooms, inRect } from './HospitalPlan.js';
 import { itemFrame, COL } from './HospitalKit.js';
+// per-frame coordinate conversions write into two scratch pairs (destructured at once by every caller: no garbage per frame)
+const _W = [0, 0], _L = [0, 0];
+const tw = (u, v) => { _W[0] = HOSP.PX + u; _W[1] = HOSP.FZ - v; return _W; };
+const tl = (x, z) => { _L[0] = x - HOSP.PX; _L[1] = HOSP.FZ - z; return _L; };
 import { HospitalSound } from '../audio/HospitalAudio.js';
 import { RECOVERY_LINES, RECEPTION_LINES } from '../audio/HospitalSoundDefs.js';
 import { hospitalState, admit, billRecovery, invoiceText } from '../story/HospitalBilling.js';
@@ -59,11 +63,11 @@ export class Hospital {
     this.stats = { frames: 0, roomsDrawn: 0, enters: 0, exits: 0, recoveries: 0, ms: 0 };
     this.prompt = ''; this.near = null; this.seat = null; this.lying = null; this.recovering = null; this.talkCd = 0; this.recLine = 0; this.phoneT = 70;
     this.srcs = [{ key: 'chat', id: 'hosp.chatter', x: 0, z: 0, ref: 5, lvl: 1, on: true }, { key: 'mon', id: 'hosp.monitor', x: 0, z: 0, ref: 3, lvl: 1, on: true }];
-    { const [x, z] = toWorld(-1.2, 7.0); this.srcs[0].x = x; this.srcs[0].z = z; const [mx, mz] = toWorld(-6.0, 0.6); this.srcs[1].x = mx; this.srcs[1].z = mz; }
+    { const [x, z] = tw(-1.2, 7.0); this.srcs[0].x = x; this.srcs[0].z = z; const [mx, mz] = tw(-6.0, 0.6); this.srcs[1].x = mx; this.srcs[1].z = mz; }
     this.toWorld = toWorld; this.toLocal = toLocal; this.FLOOR_Y = FLOOR_Y; this.plan = { SPOTS, STAIR, LIFT, BED, FURNITURE }; // (tools / tests)
     // the ambulance's hospital run (EMS.js): the bay under the ED canopy (pulled in forwards, rear doors to the street), the
     // gate inside the fence, the road point it is routed to, and the emergency entrance (outside / just inside)
-    { const G = GROUNDS, a = G.ambulanceBay; const W = (u, v) => { const [x, z] = toWorld(u, v); return { x, z }; }; const ed = this.doorById.edEntrance;
+    { const G = GROUNDS, a = G.ambulanceBay; const W = (u, v) => { const [x, z] = tw(u, v); return { x, z }; }; const ed = this.doorById.edEntrance;
       const dv = ed ? (ed.d.s[0] + ed.d.s[1]) / 2 : 3.8, du = ed ? ed.d.at : 21;
       this.emsBay = Object.assign(W(a.u, a.v), { yaw: Math.atan2(0, -1), gate: W(a.u, G.fence.front + 1.8), road: W(a.u, G.fence.front - 3.5), door: W(du + 1.2, dv), inside: W(du - 1.8, dv + 0.1) }); }
     this.room = this.makeRoom(); this.buildSeats(); this.makePeople();
@@ -78,18 +82,18 @@ export class Hospital {
       // obstacles of the floor whose walls apply at (u, v, y): on the stair flight the ground-floor set (its walls + the rail)
       obsAt(u, v, y) { if (u > STAIR.u0 - 0.1 && u < STAIR.u1 + 0.05 && v > STAIR.v0 - 0.4 && v <= STAIR.v1) return H.obs[0]; return H.obs[this.floorIndex(y)]; },
       obsFor(y) { return H.obs[this.floorIndex(y)]; },
-      resolve(nx, nz) { const P = H.g.player; const [u, v] = toLocal(nx, nz); const list = this.obsAt(u, v, P.y); let x = nx, z = nz;
+      resolve(nx, nz) { const P = H.g.player; const [u, v] = tl(nx, nz); const list = this.obsAt(u, v, P.y); let x = nx, z = nz;
         for (let pass = 0; pass < 2; pass++) for (const o of list) { if (o.top < P.y + 0.3 || o.x0 > 1e8) continue; if (x > o.x0 - R && x < o.x1 + R && z > o.z0 - R && z < o.z1 + R) {
           const dl = x - (o.x0 - R), dr = o.x1 + R - x, dt = z - (o.z0 - R), db = o.z1 + R - z; const m = Math.min(dl, dr, dt, db); if (m === dl) x = o.x0 - R; else if (m === dr) x = o.x1 + R; else if (m === dt) z = o.z0 - R; else z = o.z1 + R; } }
         return { x, z }; },
-      floorAt(x, z, y) { const [u, v] = toLocal(x, z);
+      floorAt(x, z, y) { const [u, v] = tl(x, z);
         if (inRect([LIFT.u0, LIFT.u1, LIFT.v0 - 0.2, LIFT.v1], u, v)) return FLOOR_Y[H.lift.floor];
         if (u > STAIR.u0 - 0.05 && u < STAIR.u1 + 0.05 && v >= STAIR.v0) { const s = H.stairAt(u, v); if (s != null) return s; }
         return y > Y0 + HOSP.H * 0.5 ? FLOOR_Y[1] : FLOOR_Y[0]; },
       ceilAt(y) { const f = this.floorIndex(y); return FLOOR_Y[f] + HOSP.CEIL - 0.12; },
       // the camera: kept under the ceiling and in front of the first wall / tall item between the player and where it wants to be
       camWorld(tgt, want) { const P = H.g.player; const fl = this.floorAt(P.x, P.z, P.y); want.y = clamp(want.y, fl + 0.45, fl + HOSP.CEIL - 0.15);
-        const [u, v] = toLocal(P.x, P.z); const list = this.obsAt(u, v, P.y); const n = 16; let last = 0; const r = 0.18;
+        const [u, v] = tl(P.x, P.z); const list = this.obsAt(u, v, P.y); const n = 16; let last = 0; const r = 0.18;
         for (let k = 1; k <= n; k++) { const t = k / n; const x = tgt.x + (want.x - tgt.x) * t, z = tgt.z + (want.z - tgt.z) * t, yy = tgt.y + (want.y - tgt.y) * t; let hit = false;
           for (const o of list) { if (o.x0 > 1e8 || yy > o.top + 0.05) continue; if (x > o.x0 - r && x < o.x1 + r && z > o.z0 - r && z < o.z1 + r) { if (o.tag !== 'wall' && o.tag !== 'door' && o.tag !== 'slide' && o.tag !== 'lift' && o.tag !== 'stairRail' && o.top < fl + 1.6) continue; hit = true; break; } }
           if (hit) break; last = t; }
@@ -102,7 +106,7 @@ export class Hospital {
   buildSeats() {
     this.seats = {}; const byRoom = new Map(); const mats = this.hb.mats;
     FURNITURE.forEach((f) => { const x = f[5]; if (!x || !x.npc) return; const [type, fl, u, v, yaw] = f; const F = itemFrame(u, v, yaw, FLOOR_Y[fl]); const kind = type === 'officeChair' ? 'office' : 'wait';
-      const [sx, sz] = F.P(0, -0.04); const desk = kind === 'office'; const [ax, az] = F.P(0, desk ? -0.62 : 0.62); const [au, av] = toLocal(ax, az);
+      const [sx, sz] = F.P(0, -0.04); const desk = kind === 'office'; const [ax, az] = F.P(0, desk ? -0.62 : 0.62); const [au, av] = tl(ax, az);
       const room = roomAt(u, v, fl); const s = { key: x.npc, kind, floor: fl, u, v, x: sx, z: sz, yaw: charYaw(yaw), app: [fl, au, av], room: room.id, top: kind === 'office' ? 0.47 : 0.44, occ: null, mesh: null, i: 0 };
       this.seats[x.npc] = s; const k = room.id + ':' + kind; if (!byRoom.has(k)) byRoom.set(k, []); byRoom.get(k).push(s); });
     const q = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1), pv = new THREE.Vector3(), m4 = new THREE.Matrix4(); this._m4 = { q, one, pv, m4 };
@@ -142,7 +146,7 @@ export class Hospital {
     for (const p of this.people) if (p.script) this.nextStep(p, true);
   }
   get charCount() { return this.people.length; }
-  place(p) { const [x, z] = toWorld(p.u, p.v); p.ch.root.position.set(x, FLOOR_Y[p.f], z); if (!p.lieBed) p.ch.root.rotation.y = p.yaw; }
+  place(p) { const [x, z] = tw(p.u, p.v); p.ch.root.position.set(x, FLOOR_Y[p.f], z); if (!p.lieBed) p.ch.root.rotation.y = p.yaw; }
   // a bed's pose: supine on the mattress, head at the bed head (−facing); feet at the root
   bedFrame(b) { const [, fl, u, v, yaw] = b; const F = itemFrame(u, v, yaw, FLOOR_Y[fl]); const fx = Math.sin(yaw), fz = -Math.cos(yaw); return { F, fl, fx, fz, cx: F.ox, cz: F.oz, yaw, top: FLOOR_Y[fl] + BED.top }; }
   setLying(ch, b, k = 1) { const fr = this.bedFrame(b); const h = bodyH(ch); const r = ch.root; r.rotation.order = 'YXZ';
@@ -156,20 +160,20 @@ export class Hospital {
     else if (!s.go) p.phase = 'act';
   }
   dur(t) { return t[0] + Math.random() * (t[1] - t[0]); }
-  sitNow(p, st) { st.occ = p; this.setTop(st, seatTopFor(p.ch)); const [u, v] = toLocal(st.x, st.z); p.u = u; p.v = v; p.f = st.floor; p.yaw = st.yaw; this.place(p); p.ch.anim.set(null); p.ch.anim.seated = true; }
+  sitNow(p, st) { st.occ = p; this.setTop(st, seatTopFor(p.ch)); const [u, v] = tl(st.x, st.z); p.u = u; p.v = v; p.f = st.floor; p.yaw = st.yaw; this.place(p); p.ch.anim.set(null); p.ch.anim.seated = true; }
   updatePerson(p, dt, full) {
     const A = p.ch.anim; const s = p.step; p.t += dt; let speed = 0;
     if (p.busy) { p.busy(dt); return; }
     if (p.phase === 'walk') {
       const tg = p.path[p.pi]; const du = tg[1] - p.u, dv = tg[2] - p.v; const d = Math.hypot(du, dv);
-      const P = this.g.player; const [pu, pv] = toLocal(P.x, P.z); const pf = P.y > Y0 + HOSP.H * 0.5 ? 1 : 0; let block = false;
+      const P = this.g.player; const [pu, pv] = tl(P.x, P.z); const pf = P.y > Y0 + HOSP.H * 0.5 ? 1 : 0; let block = false;
       if (pf === p.f && Math.abs(pu - p.u) < 1.2 && Math.abs(pv - p.v) < 1.2) { const ah = ((pu - p.u) * du + (pv - p.v) * dv) / Math.max(d, 1e-3); if (ah > 0 && ah < 0.95 && Math.hypot(pu - p.u, pv - p.v) < 0.75) block = true; }
       if (block) { p.wait += dt; if (p.wait > 4) block = false; } else p.wait = 0;
       if (d < 0.06) { p.pi++; if (p.pi >= p.path.length) { p.path = null; if (s.sit) { p.phase = 'sit'; p.t = 0; p.from = [p.u, p.v]; } else if (s.act) { p.phase = 'act'; p.t = 0; p.dur = this.dur(s.t); } else this.nextStep(p); } }
       else if (!block) { const sp = 1.2; const st = Math.min(d, sp * dt); p.u += du / d * st; p.v += dv / d * st; speed = sp; const wy = Math.atan2(du, -dv); p.yaw = turn(p.yaw, wy, dt * 8); }
       this.place(p);
     } else if (p.phase === 'sit') { const st = p.seat; if (p.t < dt * 1.5) { st.occ = p; this.setTop(st, seatTopFor(p.ch)); A.set('sit'); }
-      const [su, sv] = toLocal(st.x, st.z); const e = sstep(p.t / 0.8); p.u = p.from[0] + (su - p.from[0]) * e; p.v = p.from[1] + (sv - p.from[1]) * e; p.yaw = turn(p.yaw, st.yaw, dt * 8); this.place(p);
+      const [su, sv] = tl(st.x, st.z); const e = sstep(p.t / 0.8); p.u = p.from[0] + (su - p.from[0]) * e; p.v = p.from[1] + (sv - p.from[1]) * e; p.yaw = turn(p.yaw, st.yaw, dt * 8); this.place(p);
       if (p.t >= 0.9) { A.seated = true; A.set(null); p.phase = 'seated'; p.t = 0; p.dur = this.dur(s.t); } }
     else if (p.phase === 'seated') { routine(p, p.ch, dt, s.desk ? 'desk' : 'stand'); A.seated = true; if (p.t >= p.dur) { p.phase = 'rise'; p.t = 0; p.from = [p.u, p.v]; } }
     else if (p.phase === 'rise') { const st = p.seat; if (p.t < dt * 1.5) { A.seated = null; p._rtn = null; A.set('rise'); if (p.ch.face) p.ch.face.talking = false; }
@@ -179,13 +183,13 @@ export class Hospital {
       if (s.talkTo === 'rec' && this.rec && !this.rec.busy) { const r = this.rec.ch.anim; if (r.action !== 'talk') r.set('talk'); this.rec._rtn = null; }
       if (p.t >= (p.dur || 5)) { A.set(null); if (p.ch.face) p.ch.face.talking = false; this.nextStep(p); } }
     if (full || p.acc >= 0.16) { A.update(Math.min(full ? dt : p.acc, 0.25), speed); p.acc = 0; } else p.acc += dt;
-    if (A.stepped) { A.stepped = false; if (this.inside && full) { const [x, z] = toWorld(p.u, p.v); HospitalSound.step(x, z); } }
+    if (A.stepped) { A.stepped = false; if (this.inside && full) { const [x, z] = tw(p.u, p.v); HospitalSound.step(x, z); } }
   }
   npcTiers() { const o = { full: 0, low: 0, off: 0 }; for (const p of this.people) o[p.tier]++; return o; }
   // ================================================================ per frame — returns the indoor light blend (0…1)
   update(dt) {
     const t0 = performance.now(); const g = this.g, P = g.player, cam = g.camera; if (!P || !cam) return 0; this.stats.frames++;
-    const [pu, pv] = toLocal(P.x, P.z); const b = this.hb.bounds; const cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2;
+    const [pu, pv] = tl(P.x, P.z); const b = this.hb.bounds; const cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2;
     const camD = Math.hypot(cam.position.x - cx, cam.position.z - cz), pD = Math.hypot(P.x - cx, P.z - cz);
     // ---- hand-over between the city and the building model
     const pf = P.y > Y0 + HOSP.H * 0.5 ? 1 : 0; const inFoot = !!roomAt(pu, pv, pf);
@@ -196,19 +200,19 @@ export class Hospital {
     if (!this.lodFar && camD > LOD_FAR) this.lodFar = true; else if (this.lodFar && camD < LOD_NEAR) this.lodFar = false;
     this.hb.ext.visible = !this.lodFar || inside; this.hb.lod.visible = this.lodFar && !inside;
     // ---- doors, lift
-    this.updateDoors(dt, P, pu, pv, pf, inside);
+    this.updateDoors(dt, P);
     this.updateLift(dt, P, pu, pv, pf, inside);
     // ---- which rooms are drawn
     this.updateVisibility(P, pu, pv, pf, inside, pD);
     // ---- people (AI + animation tiers; nothing at all for people in rooms that are not drawn and far away)
     const intOn = this.hb.interior.visible;
-    for (const p of this.people) { const [x, z] = toWorld(p.u, p.v); const d = Math.hypot(x - P.x, z - P.z); const shown = intOn && this.vis.has(roomAt(p.u, p.v, p.f)?.id);
+    for (const p of this.people) { const [x, z] = tw(p.u, p.v); const d = Math.hypot(x - P.x, z - P.z); const shown = intOn && this.vis.has(roomAt(p.u, p.v, p.f)?.id);
       p.ch.root.visible = shown; p.tier = shown && d < NPC_FULL ? 'full' : (shown || d < NPC_LOW) ? 'low' : 'off';
       if (p.tier === 'off') { p.bg = (p.bg || 0) + dt; if (p.bg < 1) continue; const bd = Math.min(p.bg, 1.5); p.bg = 0; if (p.script && !this.recovering) this.updatePerson(p, bd, false); continue; }
       if (p.lieBed) { if (p.tier === 'full' || (p.acc += dt) > 0.2) { p.ch.anim.update(p.tier === 'full' ? dt : p.acc, 0); p.acc = 0; this.setLying(p.ch, p.lieBed, 1); } continue; }
       if (p.script || p.busy) this.updatePerson(p, dt, p.tier === 'full'); }
     // ---- reception phone now and then
-    if (inside && pf === 0) { this.phoneT -= dt; if (this.phoneT <= 0) { this.phoneT = 80 + Math.random() * 90; const r = this.rec; if (r && !r.busy) { const [x, z] = toWorld(r.u, r.v); HospitalSound.phone(x, z); r._rtn = { kind: 'desk', t: 9, act: 'phone', n: 0 }; r.ch.anim.set('phone'); } } }
+    if (inside && pf === 0) { this.phoneT -= dt; if (this.phoneT <= 0) { this.phoneT = 80 + Math.random() * 90; const r = this.rec; if (r && !r.busy) { const [x, z] = tw(r.u, r.v); HospitalSound.phone(x, z); r._rtn = { kind: 'desk', t: 9, act: 'phone', n: 0 }; r.ch.anim.set('phone'); } } }
     // ---- sound
     HospitalSound.listen(P.x, P.z); const near = inside || pD < 30; if (near !== HospitalSound.on) HospitalSound.ambience(near);
     this.srcs[0].on = pf === 0; this.srcs[1].on = pf === 1; HospitalSound.tick(dt, inside, this.srcs, P.camYaw ?? 0);
@@ -225,7 +229,7 @@ export class Hospital {
   // ---------------------------------------------------------------- visibility
   updateVisibility(P, pu, pv, pf, inside, pD) {
     const I = this.hb.interior; let key = '';
-    if (inside) { const r = roomAt(pu, pv, pf); this.curRoom = r || this.curRoom; const [cu, cv] = toLocal(this.g.camera.position.x, this.g.camera.position.z); const cf = this.g.camera.position.y > Y0 + HOSP.H ? 1 : 0; this.camRoom = roomAt(cu, cv, cf) || this.curRoom;
+    if (inside) { const r = roomAt(pu, pv, pf); this.curRoom = r || this.curRoom; const [cu, cv] = tl(this.g.camera.position.x, this.g.camera.position.z); const cf = this.g.camera.position.y > Y0 + HOSP.H ? 1 : 0; this.camRoom = roomAt(cu, cv, cf) || this.curRoom;
       key = 'i' + (this.curRoom ? this.curRoom.id : '') + '|' + (this.camRoom ? this.camRoom.id : '') + '|' + pf; }
     else { this.curRoom = null; const front = pv < 0 && pD < INT_FAR; const edSide = pu > 15 && pD < 45; key = 'o' + (front ? 'f' : '') + (edSide || this.doorById.edEntrance?.k > 0.1 ? 'e' : '') + (pD < 28 && front ? 'c' : ''); }
     for (const D of this.doors) key += D.kind === 'swing' || D.kind === 'lift' ? (this.open[D.id] > 0.12 ? '1' : '0') : '';
@@ -237,7 +241,7 @@ export class Hospital {
   }
   visibleRooms() { return [...this.vis]; }
   placeName() { const r = this.curRoom; return r ? `${HOSP.name} · ${r.name}` : HOSP.name; }
-  outsidePos() { const [x, z] = toWorld(-6, -4.5); return { x, z, yaw: 0 }; }
+  outsidePos() { const [x, z] = tw(-6, -4.5); return { x, z, yaw: 0 }; }
   // loading screen: every room drawn once (programs, uploads) with the light pool on — no hitch at the doors
   async precompile(compile) { const W = this.g.interiors && this.g.interiors.walkIn; const I = this.hb.interior; const prev = I.visible; I.visible = true; for (const [, r] of this.rooms) r.group.visible = true; for (const p of this.people) p.ch.root.visible = true;
     const pw = this.wantsPool; this.wantsPool = true; if (W) W.setActive(null);
@@ -250,10 +254,10 @@ export class Hospital {
       L.position.set(d.x, d.y, d.z); L.color.setHex(0xf4f7ff); L.distance = this.inside ? d.d + 1.5 : Math.max(1.5, d.wallD + 0.3); L.decay = 1.4; L.intensity = 7.5 * (0.5 + 0.5 * this.k); }
   }
   // ---------------------------------------------------------------- doors
-  updateDoors(dt, P, pu, pv, pf, inside) {
+  updateDoors(dt, P) {
     // sliding entrances: open for anyone on foot within ~2.8 m (either side)
     for (const S of this.sliders) { const [x, , z] = S.centre; let want = !P.vehicle && Math.abs(P.y - FLOOR_Y[0]) < 1.2 && Math.hypot(P.x - x, P.z - z) < 2.8 ? 1 : 0;
-      if (!want) for (const p of this.people) { const [px, pz] = toWorld(p.u, p.v); if (p.f === 0 && Math.hypot(px - x, pz - z) < 2.4) { want = 1; break; } }
+      if (!want) for (const p of this.people) { const [px, pz] = tw(p.u, p.v); if (p.f === 0 && Math.hypot(px - x, pz - z) < 2.4) { want = 1; break; } }
       if (!want && this.g.police && this.g.police.ems) for (const u of this.g.police.ems.units) for (const o of u.officers) if (o.mode === 'foot' && Math.hypot(o.x - x, o.z - z) < 2.6) want = 1;
       const was = S.k; S.k += Math.sign(want - S.k) * Math.min(Math.abs(want - S.k), dt / 0.9); if ((was === 0 && S.k > 0) || (was === 1 && S.k < 1)) HospitalSound.slide(x, z);
       const e = sstep(S.k); for (const lf of S.leaves) { const h = lf.userData.home, d = lf.userData.dir; lf.position.set(h.x + d[0] * lf.userData.travel * e, h.y, h.z + d[2] * lf.userData.travel * e); }
@@ -261,7 +265,7 @@ export class Hospital {
       this.open[S.d.id] = S.k; }
     // hinged doors: interact (player) / staff walking through; the closer shuts them after a while with nobody in the way
     for (const D of this.doors) { if (D.kind !== 'swing') continue; const [cx, , cz] = D.centre; let users = false;
-      for (const p of this.people) { if (p.f !== D.d.floor || p.phase !== 'walk') continue; const [px, pz] = toWorld(p.u, p.v); if (Math.hypot(px - cx, pz - cz) < 1.5) { users = true; break; } }
+      for (const p of this.people) { if (p.f !== D.d.floor || p.phase !== 'walk') continue; const [px, pz] = tw(p.u, p.v); if (Math.hypot(px - cx, pz - cz) < 1.5) { users = true; break; } }
       const pNear = Math.abs(P.y - D.fy) < 1.2 && Math.hypot(P.x - cx, P.z - cz) < 1.0;
       if (users) { D.want = 1; D.hold = 3; } else if (D.want && !pNear) { D.hold -= dt; if (D.hold <= 0 && !D.pin) D.want = 0; }
       const was = D.k; D.k += Math.sign(D.want - D.k) * Math.min(Math.abs(D.want - D.k), dt / 0.85);
@@ -273,47 +277,47 @@ export class Hospital {
   // ---------------------------------------------------------------- lift
   updateLift(dt, P, pu, pv, pf, inside) {
     const L = this.lift; const inCar = inside && inRect([LIFT.u0, LIFT.u1, LIFT.v0 - 0.15, LIFT.v1], pu, pv);
-    if (L.state === 'closing') { L.t += dt; if (L.t > LIFT.doorT) { L.state = 'travel'; L.t = 0; const [x, z] = toWorld(-15.25, 13); HospitalSound.liftMotor(x, z); } }
-    else if (L.state === 'travel') { L.t += dt; if (inCar && P.ch) P.ch.root.position.y += Math.sin(L.t * 40) * 0.0015; if (L.t > 3.6) { L.floor = L.target; if (inCar) { P.y = FLOOR_Y[L.floor]; P.vy = 0; } L.state = 'open'; L.t = 0; const [x, z] = toWorld(-15.25, 11.6); HospitalSound.liftDing(x, z); HospitalSound.liftDoors(x, z); this.visKey = ''; } }
-    else if (L.state === 'open') { L.t += dt; if (L.t > 7 && !inCar) { L.state = 'idle'; HospitalSound.liftDoors(...toWorld(-15.25, 11.6)); } }
+    if (L.state === 'closing') { L.t += dt; if (L.t > LIFT.doorT) { L.state = 'travel'; L.t = 0; const [x, z] = tw(-15.25, 13); HospitalSound.liftMotor(x, z); } }
+    else if (L.state === 'travel') { L.t += dt; if (inCar && P.ch) P.ch.root.position.y += Math.sin(L.t * 40) * 0.0015; if (L.t > 3.6) { L.floor = L.target; if (inCar) { P.y = FLOOR_Y[L.floor]; P.vy = 0; } L.state = 'open'; L.t = 0; const [x, z] = tw(-15.25, 11.6); HospitalSound.liftDing(x, z); HospitalSound.liftDoors(x, z); this.visKey = ''; } }
+    else if (L.state === 'open') { L.t += dt; if (L.t > 7 && !inCar) { L.state = 'idle'; HospitalSound.liftDoors(...tw(-15.25, 11.6)); } }
     for (const f of [0, 1]) { const want = (L.state === 'open' && L.floor === f) ? 1 : 0; const D = this.doorById['lift' + f]; if (!D) continue; D.k += Math.sign(want - D.k) * Math.min(Math.abs(want - D.k), dt / LIFT.doorT);
       const e = sstep(D.k); for (const lf of D.leaves) { const h = lf.userData.home, d = lf.userData.dir; lf.position.set(h.x + d[0] * D.w * 0.48 * e, h.y, h.z + d[2] * D.w * 0.48 * e); }
       if (D.obs) { if (D.k > 0.8) { D.obs.x0 = D.obs.x1 = 1e9; } else Object.assign(D.obs, D.closedBox); } this.open[D.id] = D.k; }
     this.inCar = inCar;
   }
-  callLift(f) { const L = this.lift; if (L.state === 'travel' || L.state === 'closing') return; if (L.floor === f) { if (L.state !== 'open') HospitalSound.liftDoors(...toWorld(-15.25, 11.6)); L.state = 'open'; L.t = 0; return; } L.target = f; L.state = 'closing'; L.t = 0; HospitalSound.liftDoors(...toWorld(-15.25, 11.6)); }
+  callLift(f) { const L = this.lift; if (L.state === 'travel' || L.state === 'closing') return; if (L.floor === f) { if (L.state !== 'open') HospitalSound.liftDoors(...tw(-15.25, 11.6)); L.state = 'open'; L.t = 0; return; } L.target = f; L.state = 'closing'; L.t = 0; HospitalSound.liftDoors(...tw(-15.25, 11.6)); }
   // ================================================================ interactions (Game.updateInteractions)
   interact(P, key) {
     if (P.indoor !== this.room || this.recovering) return null; const I = key || ((a) => (this.g.hud && this.g.hud.key ? this.g.hud.key(a) : 'E'));
     const press = () => Input.wasPressed('interact');
-    const [pu, pv] = toLocal(P.x, P.z); const pf = P.y > Y0 + HOSP.H * 0.5 ? 1 : 0;
+    const [pu, pv] = tl(P.x, P.z); const pf = P.y > Y0 + HOSP.H * 0.5 ? 1 : 0;
     if (this.lying) { if (press()) this.getOffBed(); return `${I('interact')} Get up`; }
     if (this.seat) { if (press()) this.standUp(); return `${I('interact')} Stand up`; }
     const L = this.lift;
     if (this.inCar) { if (L.state === 'travel' || L.state === 'closing') return null; const to = 1 - L.floor; if (press()) { L.target = to; L.state = 'closing'; L.t = 0; HospitalSound.liftDoors(P.x, P.z); } return `${I('interact')} Lift — ${to ? 'First floor (wards)' : 'Ground floor (exit)'}`; }
-    { const [lx, lz] = toWorld((LIFT.doorU0 + LIFT.doorU1) / 2, 11.6); if (Math.hypot(P.x - lx, P.z - lz) < 1.5 && L.state !== 'open') { if (press()) this.callLift(pf); return `${I('interact')} Call the lift`; } }
+    { const [lx, lz] = tw((LIFT.doorU0 + LIFT.doorU1) / 2, 11.6); if (Math.hypot(P.x - lx, P.z - lz) < 1.5 && L.state !== 'open') { if (press()) this.callLift(pf); return `${I('interact')} Call the lift`; } }
     // hinged doors
     let best = null, bd = 1.6; for (const D of this.doors) { if (D.kind !== 'swing' || D.d.floor !== pf) continue; const d = Math.hypot(P.x - D.centre[0], P.z - D.centre[2]); if (d < bd) { bd = d; best = D; } }
     if (best) { const open = best.want > 0; if (press()) { best.want = open ? 0 : 1; best.hold = 8; } return `${I('interact')} ${open ? 'Close' : 'Open'} door — ${best.d.name}${best.d.staff ? ' (staff only)' : ''}`; }
     if (pf === 0) {
       const rc = S2('recCounter'); if (Math.hypot(pu - rc[1], pv - rc[2]) < 1.3) { if (press() && this.talkCd <= 0) this.receptionTalk(); return `${I('interact')} Speak to the receptionist`; }
       const ph = S2('lobbyHatch'); if (Math.hypot(pu - ph[1], pv - ph[2]) < 1.2) { const hp = this.g.health ? this.g.health.hp : 100; const cost = 800; if (press()) this.pharmacy(cost); return hp < 100 ? `${I('interact')} Pharmacy — painkillers & dressings (Rs. ${cost.toLocaleString('en-LK')})` : 'Pharmacy — you are not hurt'; }
-      if (Math.hypot(pu - 4.6, pv - 4.0) < 1.1) { if (press()) { const [x, z] = toWorld(4.6, 4.0); HospitalSound.water(x, z); } return `${I('interact')} Water cooler — a cup of water`; }
-      for (const [su, sv] of [[-4.2, 0.3], [20.8, 6.5], [-8.0, 11.45]]) if (Math.hypot(pu - su, pv - sv) < 0.9) { if (press()) { const [x, z] = toWorld(su, sv); HospitalSound.sanitizer(x, z); } return `${I('interact')} Hand sanitiser`; }
+      if (Math.hypot(pu - 4.6, pv - 4.0) < 1.1) { if (press()) { const [x, z] = tw(4.6, 4.0); HospitalSound.water(x, z); } return `${I('interact')} Water cooler — a cup of water`; }
+      for (const [su, sv] of [[-4.2, 0.3], [20.8, 6.5], [-8.0, 11.45]]) if (Math.hypot(pu - su, pv - sv) < 0.9) { if (press()) { const [x, z] = tw(su, sv); HospitalSound.sanitizer(x, z); } return `${I('interact')} Hand sanitiser`; }
       for (const k of ['seatA', 'seatB']) { const s = this.seats[k]; if (!s || s.occ) continue; if (Math.hypot(pu - s.app[1], pv - s.app[2]) < 0.8) { if (press()) this.sitDown(s); return `${I('interact')} Sit down`; } }
     }
     // beds (free ones: not the patient's, not mid-recovery)
     for (const f of FURNITURE) { if (f[0] !== 'bed' || f[1] !== pf || f === (this.patient && this.patient.lieBed)) continue; const fr = this.bedFrame(f); const side = Math.hypot(P.x - fr.cx, P.z - fr.cz); if (side < 1.35) { if (press()) this.lieDown(f); return `${I('interact')} Lie down on the bed`; } }
     return null;
   }
-  receptionTalk() { const r = this.rec; const i = this.recLine++ % RECEPTION_LINES.length; const [x, z] = toWorld(r.u, r.v); const d = HospitalSound.voice('hosp.reception' + (i + 1), x, z);
+  receptionTalk() { const r = this.rec; const i = this.recLine++ % RECEPTION_LINES.length; const [x, z] = tw(r.u, r.v); const d = HospitalSound.voice('hosp.reception' + (i + 1), x, z);
     this.g.hud.subtitle('Receptionist', RECEPTION_LINES[i], '', Math.max(3.5, d + 0.4)); this.talkCd = Math.max(3.5, d); r._rtn = { kind: 'desk', t: Math.max(3.5, d), act: 'talk', n: 0 }; r.ch.anim.set('talk'); if (r.ch.face) r.ch.face.talking = true; }
   pharmacy(cost) { const g = this.g, S = g.story, Hh = g.health; if (!Hh || Hh.hp >= 100) return; if (S.state.money < cost) { g.hud.notify('Pharmacy', 'Not enough cash with you.', 'warn', 3); return; }
     S.pay(-cost, `Pharmacy — ${HOSP.name}`); Hh.hp = Math.min(100, Hh.hp + 50); g.hud.notify('Pharmacy', `Painkillers and dressings · Rs. ${cost.toLocaleString('en-LK')}`, 'info', 3); }
   // ---- sitting on a waiting seat (held in place: P.posed; the shell set to the player's own seat height)
   sitDown(s) { const P = this.g.player; s.occ = 'player'; s.player = true; this.seat = s; this.setTop(s, seatTopFor(P.ch)); P.posed = { x: s.x, y: FLOOR_Y[s.floor], z: s.z, yaw: s.yaw }; P.ch.anim.set('sit'); P.ch.anim.seated = true; P.speed = 0; }
   standUp(quiet = false) { const P = this.g.player, s = this.seat; if (!s) return; this.seat = null; s.occ = null; s.player = false; P.ch.anim.seated = null; P.posed = null; if (!quiet) P.ch.anim.set('rise');
-    const [x, z] = toWorld(s.app[1], s.app[2]); P.x = x; P.z = z; P.sync && P.sync(); setTimeout(() => { if (P.ch.anim.action === 'rise') P.ch.anim.set(null); }, 700); }
+    const [x, z] = tw(s.app[1], s.app[2]); P.x = x; P.z = z; P.sync && P.sync(); setTimeout(() => { if (P.ch.anim.action === 'rise') P.ch.anim.set(null); }, 700); }
   // ---- lying on a bed (and getting off on the open side)
   lieDown(bed, quiet = false) { const P = this.g.player; const fr = this.bedFrame(bed); this.lying = { bed }; P.posed = { x: fr.cx, y: fr.top, z: fr.cz, yaw: fr.yaw }; P.speed = 0; P.ch.anim.set(null); P.ch.anim.seated = null; this.setLying(P.ch, bed, 1); if (!quiet) HospitalSound.bed(fr.cx, fr.cz); }
   getOffBed() { const P = this.g.player; const L = this.lying; if (!L) return; const fr = this.bedFrame(L.bed); this.lying = null; this.unLie(P.ch); const sp = this.bedSide(L.bed, false); P.posed = null; P.x = sp.x; P.z = sp.z; P.y = FLOOR_Y[fr.fl]; P.yaw = sp.yaw + Math.PI; P.sync && P.sync(); HospitalSound.bed(fr.cx, fr.cz); }
@@ -338,7 +342,7 @@ export class Hospital {
     // the speaker: one of the four lines, never the one used last time
     let li = Math.floor(Math.random() * RECOVERY_LINES.length); if (li === st.lastLine) li = (li + 1 + Math.floor(Math.random() * (RECOVERY_LINES.length - 1))) % RECOVERY_LINES.length; st.lastLine = li;
     const line = RECOVERY_LINES[li]; const who = line.role === 'doctor' ? this.doctor : this.nurse; const spot = this.bedSide(bed, true);
-    if (who.seat) { who.seat.occ = null; who.seat = null; } who.ch.anim.seated = null; who.ch.anim.set(null); who._rtn = null; const [su, sv] = toLocal(spot.x, spot.z); who.f = fr.fl; who.u = su; who.v = sv; who.yaw = spot.yaw; this.place(who);
+    if (who.seat) { who.seat.occ = null; who.seat = null; } who.ch.anim.seated = null; who.ch.anim.set(null); who._rtn = null; const [su, sv] = tl(spot.x, spot.z); who.f = fr.fl; who.u = su; who.v = sv; who.yaw = spot.yaw; this.place(who);
     who.busy = () => { who.ch.anim.update(this.g.dt || 0.016, 0); }; // held at the bedside until the line is done
     const camP = new THREE.Vector3(), camL = new THREE.Vector3(); const head = { x: fr.cx - fr.fx * (BED.len / 2 - 0.35), z: fr.cz - fr.fz * (BED.len / 2 - 0.35) };
     P.cinematic = true; P.control = false; this.update(0.016);
@@ -354,7 +358,7 @@ export class Hospital {
     if (P.ch.face && P.ch.face.set) P.ch.face.set('pain', 3); HospitalSound.bed(fr.cx, fr.cz);
     await this.animateWake(bed, spot, sgS);
     // the line, spoken by the nurse / doctor beside the bed
-    who.ch.anim.set('talk'); if (who.ch.face) who.ch.face.talking = true; const [wx, wz] = toWorld(who.u, who.v); const vd = HospitalSound.voice('hosp.line' + (li + 1), wx, wz);
+    who.ch.anim.set('talk'); if (who.ch.face) who.ch.face.talking = true; const [wx, wz] = tw(who.u, who.v); const vd = HospitalSound.voice('hosp.line' + (li + 1), wx, wz);
     g.hud.subtitle(line.who, line.text, '', Math.max(4, vd + 0.5)); await health.wait(Math.max(3.6, vd + 0.3));
     who.ch.anim.set(null); if (who.ch.face) who.ch.face.talking = false;
     // the bill (one invoice per admission — HospitalBilling refuses a second one)

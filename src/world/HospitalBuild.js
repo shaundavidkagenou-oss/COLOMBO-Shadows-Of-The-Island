@@ -7,8 +7,8 @@
 // Everything is built once at load (no material / geometry is made while playing).
 import * as THREE from 'three';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
-import { HOSP, Y0, FLOOR_Y, toWorld, ROOMS, DOORS, OUTER, ROOFS, WINDOWS, FURNITURE, STAIR, LIFT, GROUNDS, roomAt } from './HospitalPlan.js';
-import { hospitalMatTable, hospitalMaterials, drawItem, C, COL, plateUV, bigUV, BIG, screenUV } from './HospitalKit.js';
+import { HOSP, Y0, FLOOR_Y, ROOMS, DOORS, OUTER, ROOFS, WINDOWS, FURNITURE, STAIR, LIFT, GROUNDS, roomAt } from './HospitalPlan.js';
+import { hospitalMatTable, hospitalMaterials, drawItem, C, plateUV, bigUV, BIG, screenUV } from './HospitalKit.js';
 
 const { PX, FZ, H, CEIL, SLAB, WALL, EXT } = HOSP;
 const X = (u) => PX + u, Z = (v) => FZ - v;
@@ -369,7 +369,7 @@ function buildGrounds(E, colliders) {
   for (const [pu, pv] of G.parking) asphalt(pu - 1.3, pu + 1.3, pv - 2.5, pv + 2.5);
   // markings: bay lines, the ambulance box with KEEP CLEAR, zebra across the drop-off, kerb paint
   const mark = (u0, u1, v0, v1, col) => E('h_plastic').hrect(X(u0), Z(v1), X(u1), Z(v0), y + 0.01, 1, col);
-  const W = C('#f2f2ee'), Yl = C('#f2c230'), R = C('#c62828');
+  const W = C('#f2f2ee'), Yl = C('#f2c230');
   for (const [pu, pv] of G.parking) { mark(pu - 1.3, pu - 1.22, pv - 2.5, pv + 2.5, W); mark(pu + 1.22, pu + 1.3, pv - 2.5, pv + 2.5, W); }
   { const L = a.len / 2, Wd = a.wid / 2; mark(a.u - Wd, a.u + Wd, a.v - L, a.v - L + 0.12, Yl); mark(a.u - Wd, a.u + Wd, a.v + L - 0.12, a.v + L, Yl); mark(a.u - Wd, a.u - Wd + 0.12, a.v - L, a.v + L, Yl); mark(a.u + Wd - 0.12, a.u + Wd, a.v - L, a.v + L, Yl);
     for (let k = -4; k <= 4; k++) { const v = a.v + k * 0.6; mark(a.u - Wd + 0.2, a.u + Wd - 0.2, v - 0.06, v + 0.06, Yl); } }
@@ -385,7 +385,7 @@ function buildGrounds(E, colliders) {
   planter(-20.6, -14.6, -0.85, -0.25); planter(2.0, 4.6, -0.85, -0.25); planter(7.0, 15.2, -0.85, -0.25); planter(16.6, 20.2, -0.85, -0.25);
   planter(-53, -24, -12.2, -7.5); planter(31.5, 53, -12.2, -7.5);
   // boundary: low wall + railings on the street front (gaps at the gates), plain 2 m walls round the sides and the back
-  const gate = (u) => G.gates.some((q) => Math.abs(u - q.u) < q.w / 2); const fv = fence.front; const WALLC = C('#ece8df'), RAIL = C('#2f3a40');
+  const fv = fence.front; const WALLC = C('#ece8df'), RAIL = C('#2f3a40');
   const spans = []; { let s = fence.u0; const gs = G.gates.map((q) => [q.u - q.w / 2, q.u + q.w / 2]).sort((p, q) => p[0] - q[0]); for (const [ga, gb] of gs) { spans.push([s, ga]); s = gb; } spans.push([s, fence.u1]); }
   for (const [s0, s1] of spans) { if (s1 - s0 < 0.2) continue; E('h_render').box(X((s0 + s1) / 2), Y0 + 0.35, Z(fv), s1 - s0, 0.7, 0.3, { col: WALLC }); E('h_render').box(X((s0 + s1) / 2), Y0 + 0.73, Z(fv), s1 - s0 + 0.05, 0.06, 0.36, { col: C('#d9d6cf') });
     for (let u = s0 + 0.12; u < s1 - 0.05; u += 0.24) E('h_metal').box(X(u), Y0 + 1.2, Z(fv), 0.025, 0.9, 0.025, { col: RAIL, top: false });
