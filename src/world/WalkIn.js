@@ -18,6 +18,7 @@ import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
 import * as L from './Layout.js';
 import { Audio } from '../audio/Audio.js';
+import { setPoolHint } from '../gfx/LightSets.js';
 
 export const DOOR_W = 1.1, DOOR_H = 2.3, REVEAL = 0.22, LEAF_Z = -0.07;
 const BUILD_R = 7.5, HIDE_R = 16, FREE_R = 140, R = 0.3;
@@ -84,6 +85,7 @@ export class WalkIn {
   constructor(game) {
     this.g = game; this.sites = []; this.active = null; this.k = 0; this.pool = []; this.poolOn = false;
     for (let i = 0; i < 6; i++) { const l = new THREE.PointLight(0xfff1dc, 0, 8, 1.5); l.visible = false; l.position.set(0, -800, 0); this.pool.push(l); game.scene && game.scene.add(l); }
+    this._hint = [this.pool, null]; setPoolHint(() => this.poolHint()); // 74th: LightSets.maintainPoolWarm
   }
   // site: { id, name, door (pavement point {x, z, faceIn}), b (building), style, build(site) → room }
   add(site) {
@@ -200,6 +202,9 @@ export class WalkIn {
     const inR = P.indoor && P.indoor.walkIn ? P.indoor.room : null; let tk = 0; if (inR) { const [, lz] = this.local(inR.site, P.x, P.z); tk = clamp((-lz - 0.1) / 2.2, 0, 1); }
     this.k += (tk - this.k) * Math.min(1, dt * 2.5); return this.k;
   }
+  // 74th: is the pool about to switch on (a built shop room within 45 m, or the hospital close)? → [pool, the lights it replaces]
+  poolHint() { if (this.poolOn) return null; let near = false; for (const s of this.sites) if (s.room && s.dist < 45) { near = true; break; }
+    if (!near && this.ext && this.ext.poolSoon) near = this.ext.poolSoon(); if (!near) return null; const hq = this.g.interiors && this.g.interiors.hq; this._hint[1] = hq && hq.lights ? hq.lights : null; return this._hint; }
   setActive(r) {
     if (r !== this.active) { this.active = r; }
     // 74th: with no shop open the pool is lent to the National Hospital while its rooms are drawn (Hospital.fillPool)

@@ -53,3 +53,27 @@ export function maintainWarm(R, camera, scene, rt, dt) {
   finally { R.setRenderTarget(prev); apply(was); }
   for (const o of list) for (const m of matsOf(o)) WARM.add(m); progSeen = R.info.programs ? R.info.programs.length : n;
 }
+
+// 74th: the walk-in light pool (WalkIn: six point lights shared by the shops and the National Hospital) adds six lights to
+// the scene when it switches on, unless the Police HQ room (whose six lights it replaces) happens to be on screen — and the
+// light count is part of every program key. Content streamed in after the loading screen was only ever compiled without the
+// pool, so walking up to the hospital (or a shop far from the spawn) rebuilt ~90 programs in one frame. While the pool may
+// switch on soon (setPoolHint: a shop door or the hospital close by), the objects not yet warmed for it are compiled with
+// the pool's light set (pool lights shown, the lights it replaces hidden — exactly WalkIn.setActive's swap), off the main
+// thread where KHR_parallel_shader_compile exists, once per material, only when new programs have appeared since.
+const WARM_P = new WeakSet(); let poolHint = null, poolCd = 0, poolSeen = -1, poolWas = false;
+export const POOL_WARM_STATS = { runs: 0, objects: 0 };
+export function setPoolHint(fn) { poolHint = fn; }
+export function maintainPoolWarm(R, camera, scene, rt, dt) {
+  if (!poolHint || forced !== null || level === null || (poolCd -= dt) > 0) return; poolCd = 1.5;
+  const h = poolHint(); const on = h && h[0] && h[0].length && !h[0][0].visible; if (!on) { poolWas = false; return; }
+  const n = R.info.programs ? R.info.programs.length : 0; if (poolWas && n === poolSeen) return; poolWas = true; poolSeen = n; // nothing new since the last pass
+  const list = []; scene.traverseVisible((o) => { if (!isDrawable(o)) return; for (const m of matsOf(o)) if (!WARM_P.has(m)) { list.push(o); break; } });
+  if (!list.length) return;
+  const root = { traverse: (fn) => { for (const o of list) fn(o); }, traverseVisible() {} };
+  const [pool, off] = h; const offWas = off ? off.map((l) => l.visible) : null; const prev = R.getRenderTarget();
+  try { R.setRenderTarget(rt || null); for (const l of pool) l.visible = true; if (off) for (const l of off) l.visible = false;
+    if (R.compileAsync) R.compileAsync(root, camera, scene).catch(() => {}); else R.compile(root, camera, scene); }
+  finally { for (const l of pool) l.visible = false; if (off) off.forEach((l, i) => (l.visible = offWas[i])); R.setRenderTarget(prev); }
+  for (const o of list) for (const m of matsOf(o)) WARM_P.add(m); poolSeen = R.info.programs ? R.info.programs.length : n; POOL_WARM_STATS.runs++; POOL_WARM_STATS.objects += list.length;
+}

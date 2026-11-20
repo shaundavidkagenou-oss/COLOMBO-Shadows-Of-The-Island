@@ -190,7 +190,7 @@ export class Hospital {
   update(dt) {
     const t0 = performance.now(); const g = this.g, P = g.player, cam = g.camera; if (!P || !cam) return 0; this.stats.frames++;
     const [pu, pv] = tl(P.x, P.z); const b = this.hb.bounds; const cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2;
-    const camD = Math.hypot(cam.position.x - cx, cam.position.z - cz), pD = Math.hypot(P.x - cx, P.z - cz);
+    const camD = Math.hypot(cam.position.x - cx, cam.position.z - cz), pD = Math.hypot(P.x - cx, P.z - cz); this.pD = pD;
     // ---- hand-over between the city and the building model
     const pf = P.y > Y0 + HOSP.H * 0.5 ? 1 : 0; const inFoot = !!roomAt(pu, pv, pf);
     if (P.indoor === this.room) { if (P.vehicle || (!inFoot && !this.recovering && !this.lying && !this.seat) || P.y < Y0 - 1.5) { P.indoor = null; this.stats.exits++; this.onExit(); } }
@@ -226,6 +226,7 @@ export class Hospital {
     this.stats.ms = performance.now() - t0; return this.k;
   }
   onExit() { if (this.seat) this.standUp(true); }
+  poolSoon() { return (this.pD ?? 1e9) < 110; } // WalkIn.poolHint: the light pool switches on within 40 m (LightSets.maintainPoolWarm)
   // ---------------------------------------------------------------- visibility
   updateVisibility(P, pu, pv, pf, inside, pD) {
     const I = this.hb.interior; let key = '';

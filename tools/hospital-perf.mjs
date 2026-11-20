@@ -19,6 +19,7 @@ export const VIEWS = [
   { name: 'entrance', at: [655, -176], cam: [655, 1.7, -176], look: [655, 1.6, -200] },
   { name: 'lobby', at: [655, -195], cam: [652, 1.65, -192], look: [660, 1.4, -205], inside: true },
   { name: 'ward', at: [640, -205], cam: [636, 5.4, -203], look: [645, 5.0, -212], inside: true, floor: 1 },
+  { name: 'ward2', at: [652, -194], cam: [647, 5.5, -191], look: [660, 4.9, -197], inside: true, floor: 1 }, // (the 'ward' view above actually stands in the stairwell; kept for the before/after comparison)
   { name: 'ed', at: [668, -196], cam: [667, 1.75, -197.5], look: [677, 0.9, -191.5], inside: true },
   { name: 'private', at: [668, -203], cam: [668, 5.6, -203], look: [672, 4.6, -210], inside: true, floor: 1 },
   { name: 'bay', at: [700, -180], cam: [700, 2.0, -180], look: [684, 1.5, -196] },
@@ -68,7 +69,7 @@ try {
   for (let i = 0; i < N; i++) {
     const m = await page.evaluate(async () => { const g = window.__game, P = g.player, H = g.hospital; P.camOverride = false; if (!H || !H.placeInside) return null;
       H.placeInside(P, 655, -195, 0); await g.stepSim(3, 0.05); H.placeInside(P, 640, -205, 1); await g.stepSim(3, 0.05); P.teleport(660, -150, Math.PI); g.world.warm(660, -150); await g.stepSim(3, 0.05);
-      if (window.gc) window.gc(); const R = g.renderer; return { heapMB: +(performance.memory.usedJSHeapSize / 1048576).toFixed(1), geometries: R.info.memory.geometries, textures: R.info.memory.textures, programs: R.info.programs.length, chars: H.charCount ? H.charCount() : null }; });
+      if (window.gc) window.gc(); const R = g.renderer; return { heapMB: +(performance.memory.usedJSHeapSize / 1048576).toFixed(1), geometries: R.info.memory.geometries, textures: R.info.memory.textures, programs: R.info.programs.length, chars: H.charCount, meshes: (() => { let n = 0; g.scene.traverse((q) => { if (q.isMesh) n++; }); return n; })() }; });
     result.memory.push(m); log('round ' + (i + 1) + ' ' + JSON.stringify(m));
   }
 } catch (e) { console.log('ERR', e.message); errors.push('ERR ' + e.message); } finally { await browser.close(); }

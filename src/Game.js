@@ -34,7 +34,7 @@ import { Atmosphere } from './gfx/Atmosphere.js';
 import { PostFX } from './gfx/PostFX.js';
 import { setVehicleNight, createVehicleMesh, VTYPES } from './vehicles/VehicleModels.js';
 import { captureToCanvas } from './gfx/LinearCapture.js';
-import { updateLightSets, forceNightSet, lightLevel, LIGHT_LEVELS, maintainWarm, markWarm } from './gfx/LightSets.js';
+import { updateLightSets, forceNightSet, lightLevel, LIGHT_LEVELS, maintainWarm, markWarm, maintainPoolWarm } from './gfx/LightSets.js';
 import { refreshView, holdVehicles, updateSceneMatrices, withMatricesDone } from './gfx/ViewSkip.js';
 import { CATALOG, displayName } from './vehicles/VehicleCatalog.js';
 import { updateDoorClosers } from './vehicles/DoorRig.js';
@@ -505,7 +505,7 @@ export class Game {
       else if (this.mode === 'play' && !this.paused) this.updatePlay(dt * (this.timeSlow || 1)); // weapon wheel / squad selector slow time
       else if (this.mode === 'menu' || this.mode === 'intro') this.updateAmbient(dt);
       else if (this.mode === 'trailer' && this.trailerHook) this.trailerHook(dt); // the trailer drives the world and camera itself
-      updateLightSets(dt); if (this.post && this.mode === 'play') maintainWarm(this.renderer, this.camera, this.scene, this.post.composer ? this.post.composer.renderTarget1 : null, dt); /* FPS: night-only light pools leave the shaders while dark (identical image); the other state stays compiled */ CAM.copy(this.camera.position); updateVehicleLOD(this.camera); if (this.headRig && this.atmos) this.headRig.update(this.camera, this.player && this.player.vehicle, this.atmos.night, this.indoor ? 1 : (this.seamK || 0));
+      updateLightSets(dt); if (this.post && this.mode === 'play') maintainWarm(this.renderer, this.camera, this.scene, this.post.composer ? this.post.composer.renderTarget1 : null, dt); maintainPoolWarm(this.renderer, this.camera, this.scene, this.post.composer ? this.post.composer.renderTarget1 : null, dt); /* 74th: the walk-in light pool's set, before it switches on */ /* FPS: night-only light pools leave the shaders while dark (identical image); the other state stays compiled */ CAM.copy(this.camera.position); updateVehicleLOD(this.camera); if (this.headRig && this.atmos) this.headRig.update(this.camera, this.player && this.player.vehicle, this.atmos.night, this.indoor ? 1 : (this.seamK || 0));
       if (this.post && !mapOpen) {
         /* FPS (src/gfx/ViewSkip.js): one matrix pass per frame, skipping unseen people/vehicles on their off-frames; the reflection and main renders reuse it */
         this.cullStep(dt); /* 65th: occlusion horizon, per-instance culling / LOD state, prop instance order (src/gfx/BatchCull.js, Occlusion.js) */
