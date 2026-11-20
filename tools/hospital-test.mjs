@@ -9,7 +9,7 @@ const EXE = await chromium.executablePath();
 const browser = await puppeteer.launch({ executablePath: EXE, headless: true, protocolTimeout: 1800000,
   args: [...chromium.args, '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--window-size=640,360'], defaultViewport: { width: 640, height: 360 } });
 const T0 = Date.now(); const lap = (m) => console.log(`  [${((Date.now() - T0) / 1000).toFixed(0)} s] ${m}`);
-const STAGE = process.argv[2] || 'all'; const want = (s) => STAGE === 'all' || STAGE.split(',').includes(s);
+const STAGE = process.argv[2] || process.env.STAGE || 'all'; const want = (s) => STAGE === 'all' || STAGE.split(',').includes(s);
 try {
   const page = await browser.newPage();
   page.on('pageerror', (e) => errors.push(String(e.stack || e.message || e).slice(0, 600)));
@@ -42,7 +42,7 @@ try {
   // ---------------------------------------------------------------- 3 · walk in through the main sliding doors
   if (want('enter')) {
     const en = await page.evaluate(async () => { const g = window.__game, P = g.player, H = g.hospital, I = window.__Input || null; const r = { path: [] };
-      P.teleport(655.5, -184, Math.PI); g.world.warm(655.5, -184); await g.stepSim(2, 0.05); // in front of the canopy, facing the doors (−z)
+      P.teleport(654, -184, Math.PI); g.world.warm(654, -184); await g.stepSim(2, 0.05); // in front of the canopy, facing the doors (−z)
       P.control = true; const fw = I.code('forward'); I.down.add(fw); const t0 = performance.now(); let n = 0;
       while (n++ < 150) { P.camYaw = 0; await g.stepSim(1, 0.05); if (n % 10 === 0) r.path.push([+P.x.toFixed(2), +P.z.toFixed(2), P.indoor === H.room ? 'in' : 'out', H.curRoom ? H.curRoom.id : '-']); }
       I.down.delete(fw);
@@ -117,7 +117,10 @@ try {
         r.ms = Math.round(performance.now() - t0); r.busy = g.health.busy; r.control = P.control; r.cinematic = P.cinematic; r.hp = g.health.hp; r.subs = subs.map((q) => q.w + ': ' + q.t); r.line = g.health.last && g.health.last.line;
         r.invoices = S.state.hospital.invoices.length - nInv; r.inv = S.state.hospital.invoices[0]; r.charged = bal0 - g.bank.account.balance; r.hist = g.bank.account.history.filter((h) => h.type === 'medical').length; r.indoor = P.indoor === H.room; r.room = H.curRoom && H.curRoom.id; r.posed = !!P.posed;
         out.push(r); await g.stepSim(10, 0.05); }
-      g.hud.subtitle = o; return out; });
+      g.hud.subtitle = o;
+      // afterwards the speaker walks back to work — through the doors, not the furniture
+      const bad = new Set(), ph = new Set(); for (let i = 0; i < 400; i++) { await g.stepSim(1, 0.2); for (const p of [H.doctor, H.nurse]) { ph.add(p.key + ':' + p.phase); if (p.phase !== 'walk') continue; const [wx, wz] = H.toWorld(p.u, p.v); for (const ob of H.obs[p.f]) { if (ob.x0 > 1e8 || ob.tag === 'door' || ob.tag === 'slide') continue; if (wx > ob.x0 + 0.05 && wx < ob.x1 - 0.05 && wz > ob.z0 + 0.05 && wz < ob.z1 - 0.05) { bad.add(p.key + '@' + (ob.tag || '?') + ' ' + p.u.toFixed(1) + ',' + p.v.toFixed(1)); break; } } } }
+      out.after = { bad: [...bad].slice(0, 10), phases: [...ph], docSeat: H.doctor.phase, nurseSeat: H.nurse.phase }; return out; });
     rc.forEach((r, i) => console.log(`   recovery ${i + 1}: ${JSON.stringify({ ...r, inv: r.inv && { no: r.inv.no, total: r.inv.total, paidBank: r.inv.paidBank, status: r.inv.status } })}`));
     for (const [i, r] of rc.entries()) {
       ok(!r.busy && r.control && !r.cinematic && r.hp === 100 && !r.posed, `7.${i + 1} control back after ${r.ms} ms, hp ${r.hp}`);
@@ -125,6 +128,8 @@ try {
       ok(r.subs.length === 1 && r.speaker && r.speaker.standing && r.speaker.distBed < 1.6, `7.${i + 1} one line by a standing ${r.speaker && r.speaker.who} beside the bed: ${r.subs[0]} (${JSON.stringify(r.speaker)})`);
       ok(r.invoices === 1 && r.charged === r.inv.total && r.inv.paidBank === r.inv.total, `7.${i + 1} one invoice ${r.inv && r.inv.no}, Rs ${r.charged} charged to the bank`);
     }
+    console.log('   after', JSON.stringify(rc.after));
+    ok(rc.after.bad.length === 0, `7 the speaker walks back to work without crossing furniture/walls: ${rc.after.bad.join('; ') || 'ok'}`);
     ok(rc.length === 2 && rc[0].line !== rc[1].line && rc[0].inv.no !== rc[1].inv.no, `7 no repeated line (${rc.map((r) => r.line)}) and distinct invoices`);
   }
 } catch (e) { errors.push('test: ' + (e.stack || e)); }

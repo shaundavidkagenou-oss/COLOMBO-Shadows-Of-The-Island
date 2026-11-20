@@ -110,7 +110,7 @@ export class Hospital {
   makePeople() {
     const B = (i) => { const r = FURNITURE.find((f) => f[0] === 'bed' && f[5] && f[5].ward === i); return r; };
     const face = (k) => { const b = B(k); return [b[2], b[3]]; };
-    const ck = (spot, at, t, act = 'look') => ({ go: [spot], act, face: at, t });
+    const ck = (spot, at, t, act = 'look') => ({ go: Array.isArray(spot) ? spot : [spot], act, face: at, t }); // spot or [via…, spot]
     this.people = [];
     const add = (key, spec, home, script, o = {}) => { const ch = new Character(spec); ch.root.visible = false; this.g.scene.add(ch.root);
       const p = Object.assign({ key, ch, f: home[0], u: home[1], v: home[2], yaw: 0, speed: 0, script, si: -1, step: null, t: 0, acc: 0, tier: 'off', path: null, pi: 0, wait: 0, seat: null, busy: null, rnd: Math.random }, o);
@@ -119,15 +119,15 @@ export class Hospital {
     this.rec = add('rec', makeAppearance(7401, { preset: 'f_office_young', sex: 'f' }), S2('recDesk'), [{ sit: 'rec', t: [1e9, 1e9], desk: true }]);
     // ward nurse: the station, then rounds of the ward beds
     this.nurse = add('nurse', makeAppearance(7413, { preset: 'f_nurse', sex: 'f' }), S2('wardNurseStation'), [
-      { sit: 'station', t: [25, 45], desk: true }, { go: ['nursesGap', 'wardGap', 'wardAisleE'] }, ck('wardBed2', face(2), [6, 9]), ck('wardBed1', face(1), [8, 12], 'talk'),
-      { go: ['wardMid'] }, ck('wardBed4', face(4), [6, 9]), { go: ['wardAisleW'] }, ck('wardBed0', face(0), [6, 9]), { go: ['wardAisleW', 'wardMid', 'wardAisleE', 'wardGap', 'nursesGap'] }]);
+      { sit: 'station', t: [25, 45], desk: true }, { go: ['nursesGap', 'wardGap', 'wardAisleE'] }, ck(['wardA2', 'wardBed2'], face(2), [6, 9]), ck(['wardA2', 'wardA1', 'wardBed1'], face(1), [8, 12], 'talk'),
+      { go: ['wardA1', 'wardMid'] }, ck('wardBed4', face(4), [6, 9]), { go: ['wardAisleW'] }, ck('wardBed0', face(0), [6, 9]), { go: ['wardAisleW', 'wardMid', 'wardAisleE', 'wardGap', 'nursesGap'] }]);
     // ED nurse: triage desk, checks the bays
     this.edNurse = add('edNurse', makeAppearance(7429, { preset: 'f_nurse', sex: 'f' }), S2('edDesk'), [
-      { sit: 'ed', t: [30, 60], desk: true }, { go: ['edBack', 'edMid'] }, ck('edBay1', [14.6, 1.45], [6, 9]), ck('edBay2', [17.6, 1.45], [5, 8]), { go: ['edMid', 'edBack'] }]);
+      { sit: 'ed', t: [30, 60], desk: true }, { go: ['edBack', 'edMid'] }, ck('edBay1', [14.6, 1.45], [6, 9]), ck(['edA1', 'edA2', 'edBay2'], [17.6, 1.45], [5, 8]), { go: ['edA2'] }, { go: ['edMid', 'edBack'] }]);
     // doctor: consultation room; now and then a ward round
     this.doctor = add('doctor', makeAppearance(7437, { preset: 'm_doctor', sex: 'm' }), S2('consultDesk'), [
       { sit: 'doctor', t: [50, 110], desk: true }, { go: ['consultDoorIn', 'consultDoorOut', 'corr1Ward', 'wardIn', 'wardMid'] }, ck('wardBed4', face(4), [9, 14], 'talk'),
-      ck('wardBed1', face(1), [8, 12], 'talk'), { go: ['wardMid', 'wardIn', 'corr1Ward', 'consultDoorOut', 'consultDoorIn'] }]);
+      ck('wardBed1', face(1), [8, 12], 'talk'), { go: ['wardA1', 'wardMid', 'wardIn', 'corr1Ward', 'consultDoorOut', 'consultDoorIn'] }]);
     // a waiting visitor: the queue, the pharmacy hatch, back to the seat
     this.visitor = add('visitor', makeAppearance(7451, { preset: 'm_retiree', sex: 'm' }), [0, -9.0, 2.92], [
       { sit: 'visitor', t: [35, 80] }, { go: ['lobbyMid'] }, { go: ['lobbyQueue'], act: 'talk', face: [-1.5, 6.0], t: [6, 9], talkTo: 'rec' }, { go: ['lobbyMid', 'lobbyBack', 'lobbyHatchApp'] },
@@ -379,6 +379,7 @@ export class Hospital {
     p.si = p.script.length - 1; p.step = { go: true }; p.path = back; p.pi = 0; p.phase = 'walk'; } // on arrival nextStep → step 0 (back to the chair)
 }
 // named spots used by the routes (HospitalPlan.SPOTS + a few route corners checked by tools/hospital-npc-test.mjs)
-const EXTRA = { wardBed1: [1, -5.8, 2.0], edBack: [0, 11.8, 7.4], lobbyBack: [0, -6.0, 5.6], lobbyHatchApp: [0, -12.6, 5.6], visitorApp: [0, -9.0, 4.9], nursesBack1: [1, 9.7, 8.9], nursesBack2: [1, 9.7, 6.6] };
+const EXTRA = { wardBed1: [1, -5.8, 2.0], edBack: [0, 11.8, 7.4], lobbyBack: [0, -6.0, 5.6], lobbyHatchApp: [0, -12.6, 5.6], visitorApp: [0, -9.0, 4.9], nursesBack1: [1, 9.7, 8.9], nursesBack2: [1, 9.7, 6.6],
+  wardA1: [1, -5.8, 4.6], wardA2: [1, -1.3, 4.6], edA1: [0, 15.55, 4.4], edA2: [0, 18.55, 4.4] };
 export function spotOf(k) { return SPOTS[k] || EXTRA[k]; }
 export const ROUTE_SPOTS = EXTRA;
