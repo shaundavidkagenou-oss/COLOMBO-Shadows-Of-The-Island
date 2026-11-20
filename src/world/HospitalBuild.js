@@ -9,6 +9,9 @@ import * as THREE from 'three';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { HOSP, Y0, FLOOR_Y, ROOMS, DOORS, OUTER, ROOFS, WINDOWS, FURNITURE, STAIR, LIFT, GROUNDS, roomAt } from './HospitalPlan.js';
 import { hospitalMatTable, hospitalMaterials, drawItem, C, plateUV, bigUV, BIG, screenUV } from './HospitalKit.js';
+import { bushBall, hedgeBox } from './HedgeBush.js'; // 75th: real shrubs and clipped hedges (leaf cards, the city's shared foliage materials)
+import { parkBench, parkBenchColliders } from './ParkBench.js';
+import { GARDEN_FOUNTAIN } from './PlaceAmbience.js';
 
 const { PX, FZ, H, CEIL, SLAB, WALL, EXT } = HOSP;
 const X = (u) => PX + u, Z = (v) => FZ - v;
@@ -358,7 +361,7 @@ function roofPlant(E) { const y = Y0 + 2 * H; const ac = C('#d9dbdc'), dk = C('#
   E('h_metal').box(X(0), y + 0.08, Z(10.2), 30, 0.12, 0.25, { col: dk }); // cable tray
 }
 function terraceDressing(E) { const y = Y0 + H + 0.01; // pharmacy roof terrace: planters along the parapet; plant deck: condensers + pipes
-  for (const [u, v] of [[-20.2, 2], [-20.2, 5], [-20.2, 8]]) { E('h_render').box(X(u), y + 0.3, Z(v), 0.8, 0.6, 2.2, { col: C('#cfcac0') }); E('h_leaf').box(X(u), y + 0.75, Z(v), 0.7, 0.4, 2.0, { col: C('#4a7f3a') }); }
+  for (const [u, v] of [[-20.2, 2], [-20.2, 5], [-20.2, 8]]) { E('h_render').box(X(u), y + 0.3, Z(v), 0.8, 0.6, 2.2, { col: C('#cfcac0') }); hedgeBox({ get: E }, X(u), y + 0.6, Z(v), 2.0, 0.45, 0.66, Math.PI / 2, { core: true, density: 11, seed: 300 + v * 7 }); }
   for (let k = 0; k < 6; k++) { E('h_metal').box(X(-12 + k * 3.2), y + 0.4, Z(17), 0.9, 0.7, 0.4, { col: C('#d9dbdc') }); }
   E('h_metal').box(X(-3), y + 0.12, Z(14.6), 20, 0.12, 0.2, { col: C('#7a8086') });
 }
@@ -434,7 +437,9 @@ function buildGrounds(E, colliders) {
     colliders.push({ x0: X(u) - 0.09, x1: X(u) + 0.09, z0: Z(G.canopy.v0 + 0.3) - 0.09, z1: Z(G.canopy.v0 + 0.3) + 0.09, h: Y0 + 0.9, kind: 'pole', id: 'hospBollard' }); }
   // planters with shrubs in front of the facade windows (between the bays and the walls)
   const planter = (u0, u1, v0, v1) => { E('h_render').box(X((u0 + u1) / 2), Y0 + 0.25, Z((v0 + v1) / 2), u1 - u0, 0.5, v1 - v0, { col: C('#cfcac0') }); E('h_lawn').hrect(X(u0 + 0.1), Z(v1 - 0.1), X(u1 - 0.1), Z(v0 + 0.1), Y0 + 0.46, 2, C('#ffffff'));
-    for (let u = u0 + 0.6; u < u1 - 0.4; u += 1.1) E('h_leaf').box(X(u), Y0 + 0.8, Z((v0 + v1) / 2), 0.8, 0.6 + ((u * 7) % 3) * 0.08, Math.min(0.8, v1 - v0 - 0.3), { col: C('#477f38') });
+    const dw = v1 - v0; // shallow strips under the windows: a low clipped hedge; the deep beds at the corners: mounded shrubs with a few flowers
+    if (dw < 1.2) hedgeBox({ get: E }, X((u0 + u1) / 2), Y0 + 0.46, Z((v0 + v1) / 2), u1 - u0 - 0.3, 0.42, Math.max(0.3, dw - 0.12), 0, { density: 11 });
+    else for (let u = u0 + 0.9; u < u1 - 0.6; u += 1.9) { const k = Math.abs(Math.round(u * 3)) % 4; bushBall({ get: E }, X(u), Y0 + 0.46, Z((v0 + v1) / 2 + ((k % 2) - 0.5) * 0.9), 0.62 + k * 0.05, 0.85 + k * 0.08, { round: true, density: 24, size: 0.2, flowers: k === 1 ? 14 : 0, flowerCol: [0.86, 0.16, 0.42] }); }
     colliders.push({ x0: X(u0), x1: X(u1), z0: Z(v1), z1: Z(v0), h: Y0 + 0.5, kind: 'landmark', id: 'hospPlanter' }); };
   planter(-20.6, -14.6, -0.85, -0.25); planter(2.0, 4.6, -0.85, -0.25); planter(7.0, 15.2, -0.85, -0.25); planter(16.6, 20.2, -0.85, -0.25);
   planter(-53, -24, -12.2, -7.5); planter(31.5, 53, -12.2, -7.5);
@@ -453,9 +458,24 @@ function buildGrounds(E, colliders) {
   // security booth at the main gate (east side)
   { const u = 3.6, v = -10.6; E('h_render').box(X(u), Y0 + 1.2, Z(v), 1.8, 2.4, 1.6, { col: C('#f2efe7') }); E('h_extGlass').box(X(u), Y0 + 1.55, Z(v - 0.81), 1.4, 0.8, 0.02); E('h_render').box(X(u), Y0 + 2.5, Z(v), 2.2, 0.16, 2.0, { col: C('#2f6f9f') });
     colliders.push({ x0: X(u) - 0.92, x1: X(u) + 0.92, z0: Z(v) - 0.82, z1: Z(v) + 0.82, h: Y0 + 2.5, kind: 'landmark', id: 'hospBooth' }); }
-  // the garden behind the building: lawns either side of a path to the back gate, benches, a few clipped shrubs
+  // the garden behind the building (75th): lawns either side of the path to the back gate, low clipped hedges lining the
+  // path, mounded shrubs (some flowering: hibiscus red, bougainvillea magenta, allamanda yellow) in clusters, teak park
+  // benches, the stone fountain on the path (HospitalGarden.js) — trees are planted by the city plan (CityPlan.js: the
+  // city's instanced trees, solid trunks). Foliage = leaf cards in the city's shared leaf materials: 3 draws for all of it.
   const lawn = (u0, u1, v0, v1) => { E('h_lawn').hrect(X(u0), Z(v1), X(u1), Z(v0), y + 0.002, 2.5, C('#ffffff')); E('h_render').box(X((u0 + u1) / 2), Y0 + 0.06, Z(v0), u1 - u0, 0.12, 0.12, { col: C('#bdb8ae') }); E('h_render').box(X((u0 + u1) / 2), Y0 + 0.06, Z(v1), u1 - u0, 0.12, 0.12, { col: C('#bdb8ae') }); };
   lawn(-51, -24, 2, 104); lawn(32, 51, 10, 104); lawn(-22, -3, 26, 104); lawn(3, 30, 26, 104);
-  for (const [u, v] of [[-30, 20], [-40, 45], [-12, 40], [12, 40], [20, 70], [-15, 75], [40, 30], [42, 80], [-44, 85]]) E('h_leaf').box(X(u), Y0 + 0.6, Z(v), 1.6, 1.2, 1.6, { col: C('#3f7a33') });
-  for (const [u, v] of [[-2.2, 40], [2.2, 52], [-2.2, 64]]) { E('h_wood').box(X(u), Y0 + 0.44, Z(v), 0.45, 0.05, 1.8, { col: C('#a07850') }); for (const s of [-0.7, 0.7]) E('h_metal').box(X(u), Y0 + 0.22, Z(v + s), 0.42, 0.44, 0.05, { col: C('#3c4146') }); }
+  const mb = { get: E }; const F = GARDEN_FOUNTAIN;
+  for (const su of [-1, 1]) for (const [v0, v1] of [[27, 41.2], [56, 69], [72, 84], [87, 101]]) { // path hedges (gaps onto the lawns)
+    hedgeBox(mb, X(su * 3.45), Y0, Z((v0 + v1) / 2), v1 - v0, 0.55, 0.5, Math.PI / 2, { density: 11, seed: 40 + v0 * 3 + su });
+    colliders.push({ x0: X(su * 3.45) - 0.25, x1: X(su * 3.45) + 0.25, z0: Z(v1), z1: Z(v0), h: Y0 + 0.55, kind: 'landmark', id: 'hospHedge' }); }
+  const FL = { red: [0.88, 0.12, 0.1], mag: [0.86, 0.16, 0.48], yel: [0.95, 0.78, 0.16], wht: [0.95, 0.94, 0.9] };
+  const shrub = (u, v, r, h, fl, n = 0) => { bushBall(mb, X(u), Y0, Z(v), r, h, { round: true, density: 24, size: 0.2, flowers: fl ? n || Math.round(r * 22) : 0, flowerCol: FL[fl] });
+    colliders.push({ x0: X(u) - r * 0.7, x1: X(u) + r * 0.7, z0: Z(v) - r * 0.7, z1: Z(v) + r * 0.7, h: Y0 + h, kind: 'landmark', id: 'hospShrub' }); };
+  // round the fountain: four flowering beds on the lawn corners
+  for (const [du, dv, fl] of [[-4.6, -1.8, 'red'], [4.6, -1.8, 'mag'], [-4.6, 1.8, 'yel'], [4.6, 1.8, 'red']]) { shrub(F.u + du, F.v + dv, 0.7, 1.0, fl); shrub(F.u + du * 1.25, F.v + dv * 1.6, 0.5, 0.75, null); }
+  // clusters on the lawns (clear of the trees and the walls)
+  for (const [u, v, s, fl] of [[-30, 22, 1, null], [-44, 46, 1.1, 'mag'], [-14, 36, 0.9, null], [14, 46, 1, 'red'], [20, 74, 1, null], [-16, 80, 1, 'yel'], [44, 32, 1.1, null], [42, 70, 1, 'mag'], [-44, 92, 1, null], [-34, 64, 0.9, 'wht'], [24, 98, 0.9, null]]) {
+    shrub(u, v, 0.8 * s, 1.15 * s, fl); shrub(u + 1.1 * s, v + 0.5, 0.55 * s, 0.85 * s, null); shrub(u - 0.5, v + 1.0 * s, 0.5 * s, 0.7 * s, fl && 'wht', 6); }
+  // benches along the path (the one the garden patient sits on is built with him, HospitalGarden.js)
+  for (const [u, v] of [[2.25, 52], [-2.25, 64], [2.25, 78], [-2.25, 92]]) { const yaw = u < 0 ? Math.PI / 2 : -Math.PI / 2; parkBench(E, X(u), Y0, Z(v), yaw, 0.45); parkBenchColliders(colliders, X(u), Z(v), yaw, Y0 + 0.86, 'hospBench'); }
 }

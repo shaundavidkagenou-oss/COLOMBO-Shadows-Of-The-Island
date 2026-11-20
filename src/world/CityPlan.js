@@ -8,6 +8,7 @@ import { crownPoints } from './TreeShapes.js';
 import { greenTrees, greenPlants } from './Greenery.js';
 import { tidyWalls, clearWalkLines, walkLineDist, walkNeed, walkBoxGap, walkBoxes } from './MapTidy.js';
 import { fortClearAt, FORT } from './FortStationData.js';
+import { toWorld as hospWorld } from './HospitalPlan.js'; // 75th: the hospital garden's trees
 
 export const CHUNK = 200;
 export const NCX = Math.ceil((L.BOUNDS.maxX - L.BOUNDS.minX) / CHUNK), NCZ = Math.ceil((L.BOUNDS.maxZ - L.BOUNDS.minZ) / CHUNK);
@@ -658,6 +659,10 @@ export function generatePlan() {
       for (const ch of plan.byChunk) ch.trees = ch.trees.filter((t) => !drop.has(t)); }
     plan.treeFix = { moved, dropped: drop.size }; }
   clearWalkLines(plan, { treeTrunkR, onRailReserve, inSchool, chunkIndex }); // 61st: no trunk on a pedestrian walking line (MapTidy.js)
+  // 75th: the National Hospital garden — temple trees by the path, mangoes and a jak on the lawns, palms along the walls
+  // (the city's instanced trees: no extra draws; the compound is a landmark zone that the street planting never reaches)
+  for (const [t, u, v, sc] of [['frangipani', -10, 52, 1], ['frangipani', 12, 62, 0.95], ['frangipani', -11, 72, 1.05], ['mango', -38, 34, 0.95], ['mango', 36, 54, 1],
+    ['mango', -42, 78, 1.05], ['mango', 14, 88, 0.95], ['jak', 26, 34, 0.85], ['palm', -30, 10, 1.05], ['palm', 44, 18, 1], ['palm', -9, 96, 1.1], ['palm', 44, 92, 1], ['frangipani', -28, 50, 0.9], ['mango', -48, 60, 0.9], ['frangipani', 46, 66, 0.9]]) { const [x, z] = hospWorld(u, v); addTree(t, x, z, sc); }
   fitTreeCrowns();
   { const inC = (x, z) => !!L.customsSiteAt(x, z, 3); const drop = new Set(plan.trees.filter((t) => inC(t.x, t.z))); // greenery planted after the reserve pass: none on the workshop lot / frontage
     if (drop.size) { const cols = new Set([...drop].map((t) => t.col).filter(Boolean)); plan.trees = plan.trees.filter((t) => !drop.has(t)); plan.colliders = plan.colliders.filter((c) => !cols.has(c)); for (const ch of plan.byChunk) ch.trees = ch.trees.filter((t) => !drop.has(t)); } }

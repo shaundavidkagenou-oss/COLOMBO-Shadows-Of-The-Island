@@ -9,7 +9,9 @@
 //     sprinkling of light yellow-green new growth on the top and the sun side, the odd brown dead spray;
 //   • the card normals are bent outward from the hedge volume (as for the tree crowns) so the shell lights as one soft mass.
 // Everything is written into the caller's MultiBuilder: no new materials beyond leavesSmall, no textures, no per-frame cost.
+import * as THREE from 'three';
 import { RNG } from '../core/rng.js';
+let _ico = null; const _m4 = new THREE.Matrix4();
 
 // one leaf card: centre p, outward normal n (unit), size s, tint col; the card lies near the tangent plane of n
 function card(L, p, n, s, rng, col) {
@@ -64,7 +66,10 @@ export function hedgeBox(mb, cx, y0, cz, len, h, w, rotY = 0, opts = {}) {
 // { flowers: n, flowerCol } — small 3D flower heads on the shell (vertex-coloured, 'bloom' material).
 export function bushBall(mb, x, y0, z, r, h, opts = {}) {
   const L = mb.get('leavesSmall'), K = mb.get('hedge'); const rng = new RNG(opts.seed ?? (Math.round(x * 17 + z * 5) & 0xffff) + 23); const base = opts.col || [0.82, 0.92, 0.78]; const size = opts.size ?? 0.17;
-  if (opts.core !== false) K.box(x, y0 + h * 0.42, z, r * 1.25, h * 0.8, r * 1.25, { uvScale: 1, col: opts.coreCol || [0.4, 0.45, 0.34] });
+  if (opts.round) { // 75th (hospital garden): a lumpy rounded core (low-poly ellipsoid, 80 tris) instead of the box — no cube silhouette
+    if (!_ico) _ico = new THREE.IcosahedronGeometry(1, 1); const M = _m4.makeScale(r * 0.86, h * 0.47, r * 0.86).setPosition(x, y0 + h * 0.47, z); const R = new THREE.Matrix4().makeRotationY(rng.range(0, 6.28)); M.multiply(R);
+    K.geometry(_ico, M, opts.coreCol || [0.4, 0.45, 0.34]); }
+  else if (opts.core !== false) K.box(x, y0 + h * 0.42, z, r * 1.25, h * 0.8, r * 1.25, { uvScale: 1, col: opts.coreCol || [0.4, 0.45, 0.34] });
   const area = 2 * Math.PI * r * h; const n = Math.max(10, Math.round(area * (opts.density ?? 15))); const seed = rng.range(0, 6.28);
   for (let k = 0; k < n; k++) { const u = rng.next() * Math.PI * 2, v = Math.acos(1 - rng.next() * 1.25); const dx = Math.sin(v) * Math.cos(u), dy = Math.cos(v), dz = Math.sin(v) * Math.sin(u);
     const lu = lump(u * 2, v * 3, seed); const f = 0.92 + 0.1 * lu + rng.range(-0.04, 0.04); const py = Math.max(0.05, h * 0.5 + dy * h * 0.5 * f);

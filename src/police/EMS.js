@@ -287,7 +287,7 @@ export class EMS {
       case 'rear': { const ca = this.vanPt(u, AMB.rearZ - 0.75, -0.75), cb = this.vanPt(u, AMB.rearZ - 0.75, 0.75); this.spot(A, ca.x, ca.z, v.yaw, null, {}); this.spot(Bm, cb.x, cb.z, v.yaw, null, {});
         if ((this.at(A, 0.5) && this.at(Bm, 0.5)) || e.t > 15) { e.rearOpen = true; if (e.rear === undefined) e.rear = 0; if (e.rear > 0.95) { e.bp = 'unload'; e.t = 0; this.takeCargo(u); } } return; }
       case 'unload': { // slide it out feet first (B), set it on its wheels, A to the head end
-        const zIn = AMB.rearZ + ST.half + 0.05, zOut = AMB.rearZ - ST.half - 0.9; const k = sm(Math.min(1, e.t / 2.4)); const c = this.vanPt(u, zIn + (zOut - zIn) * k); const S = e.S; S.x = c.x; S.z = c.z; S.yaw = v.yaw + Math.PI;
+        const zIn = AMB.rearZ + ST.half + 0.05, zOut = AMB.rearZ - ST.half - 0.9; const k = sm(Math.min(1, e.t / 2.4)); if (!e.pullSnd) { e.pullSnd = true; const c0 = this.vanPt(u, zIn); HospitalSound.trolleyPull(c0.x, c0.z); } const c = this.vanPt(u, zIn + (zOut - zIn) * k); const S = e.S; S.x = c.x; S.z = c.z; S.yaw = v.yaw + Math.PI;
         const gy = this.g.collision.groundAt(c.x, c.z, v.y + 0.5); S.y = (v.y + AMB.doorY0) + ((gy + 0.42) - (v.y + AMB.doorY0)) * sm((k - 0.45) / 0.55);
         this.carryHands(u, true, 1, 'feet'); for (const o of u.officers) if (o.want) o.want.speed = k < 1 ? 0.4 : 0; this.syncStretcher(u);
         if (e.t > 2.6) { e.bp = 'wheel'; e.t = 0; e.from = { x: S.x, z: S.z }; } return; }
@@ -478,7 +478,7 @@ export class EMS {
     if (!e.st) { const ca = this.vanPt(u, AMB.rearZ - 0.75, -0.75), cb = this.vanPt(u, AMB.rearZ - 0.75, 0.75); this.spot(A, ca.x, ca.z, v.yaw, null, {}); this.spot(B, cb.x, cb.z, v.yaw, null, {});
       if (this.at(A, 0.45) && this.at(B, 0.45)) { e.rearOpen = true; if (e.rear > 0.95) { e.st = buildStretcher(); e.cotOut = true; this.g.scene.add(e.st); const c = this.vanPt(u, zIn); e.S = { x: c.x, z: c.z, y: v.y + AMB.doorY0, yaw }; e.slide = -1; this.syncStretcher(u); } }
       return; }
-    if (e.slide < 0) { const bp = this.vanPt(u, zIn - ST.handZ - 0.42); this.spot(B, bp.x, bp.z, v.yaw, null, {}); if (this.at(B, 0.3)) e.slide = 0; return; } // B steps up to the feet end
+    if (e.slide < 0) { const bp = this.vanPt(u, zIn - ST.handZ - 0.42); this.spot(B, bp.x, bp.z, v.yaw, null, {}); if (this.at(B, 0.3)) { e.slide = 0; HospitalSound.trolleyPull(bp.x, bp.z); } return; } // B steps up to the feet end
     if (e.slide < 1) { e.slide = Math.min(1, e.slide + dt / 2.4); const k = sm(e.slide); const zc = zIn + (zOut - zIn) * k; const c = this.vanPt(u, zc); e.S.x = c.x; e.S.z = c.z; e.S.yaw = yaw;
       const gy = this.g.collision.groundAt(c.x, c.z, v.y + 0.5); e.S.y = (v.y + AMB.doorY0) + ((gy + 0.42) - (v.y + AMB.doorY0)) * sm((e.slide - 0.45) / 0.55);
       const H = this.handles(e.S); const bp = this.vanPt(u, zc - ST.handZ - 0.42); this.spot(B, bp.x, bp.z, v.yaw, 'medCarry', { direct: true, speed: 0.35, look: 0.3, holdL: H.hand(-1, 1), holdR: H.hand(1, 1) }); // B faces the van (= stretcher −z): his left is the stretcher's −x
@@ -502,7 +502,8 @@ export class EMS {
     { const leads = lead === 'feet'; const off = ST.handZ + (leads ? 0.14 : 0.42); const f = leads ? 1 : -1;
       this.spot(B, S.x + d.x * off, S.z + d.z * off, Math.atan2(d.x * f, d.z * f), act, Object.assign({ direct, up, look: leads ? 0.05 : 0.3, holdL: H.hand(f, 1), holdR: H.hand(-f, 1) }, leads ? back : {})); }
   }
-  syncStretcher(u) { const e = u.e, S = e.S; if (!e.st) return; e.st.position.set(S.x, S.y, S.z); e.st.rotation.set(0, S.yaw, 0); this.cotLegs(u); if (e.sheet) { e.sheet.position.copy(e.st.position); e.sheet.rotation.copy(e.st.rotation); } }
+  syncStretcher(u) { const e = u.e, S = e.S; if (!e.st) return; e.st.position.set(S.x, S.y, S.z); e.st.rotation.set(0, S.yaw, 0); this.cotLegs(u); if (e.sheet) { e.sheet.position.copy(e.st.position); e.sheet.rotation.copy(e.st.rotation); }
+    if (e.kitOn && e.kit) { const c = Math.cos(S.yaw), s = Math.sin(S.yaw); e.kit.position.set(S.x + s * 0.5, S.y + ST.top + 0.15, S.z + c * 0.5); e.kit.rotation.set(0, S.yaw, 0); } }
   // 75th: each end of the undercarriage reaches the ground under it (inside the van: folded on the floor), rate-limited so
   // the legs visibly drop and lock as the cot leaves the doors and fold as it is lowered beside a patient
   cotLegs(u) { const e = u.e, S = e.S, v = u.v, st = e.st; const U = st && st.userData.cot; if (!U) return; const col = this.g.collision; const fx = Math.sin(S.yaw), fz = Math.cos(S.yaw); const now = this.t, dt = Math.min(0.1, now - (U.t ?? now)); U.t = now;
@@ -524,7 +525,7 @@ export class EMS {
       S.x = Lm.x - ux * (ST.handZ + 0.14); S.z = Lm.z - uz * (ST.handZ + 0.14); S.yaw = Math.atan2(ux * sgn, uz * sgn); S.y = col.groundAt(S.x, S.z, S.y - 0.2) + 0.42; e.walkSp = sp;
     } else { // final few steps: square up exactly on the goal pose
       e.al = (e.al || 0) + dt; const k = Math.min(1, dt * 3); S.x += (G.x - S.x) * k; S.z += (G.z - S.z) * k; S.yaw += angDiff(G.yaw, S.yaw) * k; S.y = col.groundAt(S.x, S.z, S.y - 0.2) + 0.42; e.walkSp = Math.max(0, 0.6 - e.al * 0.4);
-      if (e.al > 1.4) { S.x = G.x; S.z = G.z; S.yaw = G.yaw; e.al = 0; if (lead === 'head') { e.ph = 'load'; e.t = 0; e.slide = 0; e.zc0 = AMB.rearZ - ST.half - 0.6; } else { e.ph = 'set'; e.t = 0; } } }
+      if (e.al > 1.4) { S.x = G.x; S.z = G.z; S.yaw = G.yaw; e.al = 0; if (lead === 'head') { e.ph = 'load'; e.t = 0; e.slide = 0; HospitalSound.trolleyPull(S.x, S.z); e.zc0 = AMB.rearZ - ST.half - 0.6; } else { e.ph = 'set'; e.t = 0; } } }
     this.carryHands(u, true, 1, lead); for (const o of u.officers) if (o.want) o.want.speed = e.walkSp || 0; this.syncStretcher(u); this.followBody(u);
   }
   setDown(u, dt, b, sg) { // lower it to the ground beside the body
@@ -560,7 +561,7 @@ export class EMS {
   liftUp(u, dt) { // A turns to face away at the head end, both squat, take the grips and stand up together
     const e = u.e, S = e.S; const k = Math.max(0, Math.min(1, (e.t - 1.2) / 1.4)); const gy = this.g.collision.groundAt(S.x, S.z, S.y); S.y = gy + 0.42 * sm(k);
     this.carryHands(u, false, 0.4 + 0.6 * sm(k), 'head', e.t > 1.0); this.syncStretcher(u); this.followBody(u);
-    if (k >= 1) { e.trip = { lead: 'head' }; e.ph = 'carry'; e.t = 0; e.al = 0; } }
+    if (k >= 1) { e.kitOn = !!e.kit; /* the response bag rides on the cot's foot end, back to the van */ e.trip = { lead: 'head' }; e.ph = 'carry'; e.t = 0; e.al = 0; } }
   load(u, dt) { // head first onto the floor: A steps aside, B pushes from the feet end; then the doors close and they leave
     const e = u.e, v = u.v, S = e.S, A = u.officers[0], B = u.officers[1] || A; e.slide = Math.min(1, e.slide + dt / 2.8); const k = sm(e.slide);
     const zc = e.zc0 + ((AMB.rearZ + ST.half + 0.05) - e.zc0) * k; const c = this.vanPt(u, zc); S.x = c.x; S.z = c.z; S.yaw = v.yaw + Math.PI; S.y0 = S.y0 ?? S.y; S.y = S.y0 + ((v.y + AMB.doorY0) - S.y0) * Math.min(1, k * 3.5);

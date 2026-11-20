@@ -31,7 +31,8 @@ const tl = (x, z) => { _L[0] = x - HOSP.PX; _L[1] = HOSP.FZ - z; return _L; };
 import { HospitalSound } from '../audio/HospitalAudio.js';
 import { PlaceSound, SYNTH, TICK } from '../audio/PlaceAudio.js';
 import { HospitalMonitors } from './HospitalMonitors.js';
-import { HospitalScreens } from './HospitalScreens.js'; // 75th: lift ride loop, AC, monitors, CPR
+import { HospitalScreens } from './HospitalScreens.js';
+import { HospitalGarden } from './HospitalGarden.js'; // 75th: fountain, benches and the garden's patients // 75th: lift ride loop, AC, monitors, CPR
 import { RECOVERY_LINES, RECEPTION_LINES } from '../audio/HospitalSoundDefs.js';
 import { hospitalState, admit, billRecovery, invoiceText } from '../story/HospitalBilling.js';
 
@@ -97,7 +98,7 @@ export class Hospital {
     { const G = GROUNDS, a = G.ambulanceBay; const W = (u, v) => { const [x, z] = tw(u, v); return { x, z }; }; const ed = this.doorById.edEntrance;
       const dv = ed ? (ed.d.s[0] + ed.d.s[1]) / 2 : 3.8, du = ed ? ed.d.at : 21;
       this.emsBay = Object.assign(W(a.u, a.v), { yaw: Math.atan2(0, -1), gate: W(a.u, G.fence.front + 1.8), road: W(a.u, G.fence.front - 3.5), door: W(du + 1.2, dv), inside: W(du - 1.8, dv + 0.1) }); }
-    this.room = this.makeRoom(); this.buildSeats(); this.makePeople();
+    this.room = this.makeRoom(); this.buildSeats(); this.makePeople(); this.garden = new HospitalGarden(this);
     if (g.interiors && g.interiors.walkIn) g.interiors.walkIn.ext = this;
   }
   // ================================================================ the player's indoor model (Player.js P.indoor hooks)
@@ -172,7 +173,7 @@ export class Hospital {
     { const b = B(1); this.patient = add('patient', makeAppearance(7463, { preset: 'm_office_mid', sex: 'm' }), [1, b[2], b[3]], null, { lieBed: b }); this.setLying(this.patient.ch, b, 1); }
     for (const p of this.people) if (p.script) this.nextStep(p, true);
   }
-  get charCount() { return this.people.length; }
+  get charCount() { return this.people.length + (this.garden ? this.garden.charCount : 0); }
   place(p) { const [x, z] = tw(p.u, p.v); p.ch.root.position.set(x, FLOOR_Y[p.f] + (p.seatLift || 0), z); if (!p.lieBed) p.ch.root.rotation.y = p.yaw; }
   // a bed's pose: supine on the mattress, head at the bed head (−facing); feet at the root
   bedFrame(b) { const [, fl, u, v, yaw] = b; const F = itemFrame(u, v, yaw, FLOOR_Y[fl]); const fx = Math.sin(yaw), fz = -Math.cos(yaw); return { F, fl, fx, fz, cx: F.ox, cz: F.oz, yaw, top: FLOOR_Y[fl] + BED.top }; }
@@ -224,6 +225,7 @@ export class Hospital {
     if (P.indoor === this.room) { if (P.vehicle || (!inFoot && !this.recovering && !this.lying && !this.seat) || P.y < Y0 - 1.5) { P.indoor = null; this.stats.exits++; this.onExit(); } }
     else if (!P.indoor && !P.vehicle && !(g.interiors && g.interiors.current) && inFoot && Math.abs(P.y - FLOOR_Y[0]) < 0.7) { P.indoor = this.room; this.stats.enters++; }
     const inside = (this.inside = P.indoor === this.room);
+    this.garden.update(dt, P, inside);
     // ---- exterior LOD (hysteresis: no flicker at the threshold; the far massing matches the near shell's silhouette)
     if (!this.lodFar && camD > LOD_FAR) this.lodFar = true; else if (this.lodFar && camD < LOD_NEAR) this.lodFar = false;
     this.hb.ext.visible = !this.lodFar || inside; this.hb.lod.visible = this.lodFar && !inside;
