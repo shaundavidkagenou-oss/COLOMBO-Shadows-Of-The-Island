@@ -188,12 +188,14 @@ const K = {};
 function bx(B, F, mat, lx, ly, lz, sx, sy, sz, col, o = {}) { const [x, z] = F.P(lx, lz); B(mat).box(x, F.y + ly, z, sx, sy, sz, Object.assign({ col, rotY: F.rot, bottom: !!o.bottom }, o)); }
 function cyl(B, F, mat, lx, ly, lz, r0, r1, h, seg, col) { const [x, z] = F.P(lx, lz); B(mat).cylinder(x, F.y + ly, z, r0, r1, h, seg, { col }); }
 // a flat screen quad facing +z (the item's facing) at local (lx, ly, lz), w × h, showing atlas cell `cell`
+// (item frames are mirrored — world = (x·c + z·s, x·s − z·c) — so seen from the front local +x is on the viewer's LEFT: the
+// corners go +x → −x to face the viewer, image the right way round; tools/hospital-plan-test.mjs §11 checks every quad)
 function screen(B, F, lx, ly, lz, w, h, cell) {
   const uv = screenUV(cell); const P = (x, y) => { const [wx, wz] = F.P(lx + x, lz); return [wx, F.y + ly + y, wz]; };
   // facing +z local: counter-clockwise seen from the front (from +z): left-bottom, right-bottom, right-top, left-top
-  B('h_screens').quad(P(-w / 2, -h / 2), P(w / 2, -h / 2), P(w / 2, h / 2), P(-w / 2, h / 2), uv);
+  B('h_screens').quad(P(w / 2, -h / 2), P(-w / 2, -h / 2), P(-w / 2, h / 2), P(w / 2, h / 2), uv);
 }
-function plateQuad(B, F, lx, ly, lz, w, h, uv) { const P = (x, y) => { const [wx, wz] = F.P(lx + x, lz); return [wx, F.y + ly + y, wz]; }; B('h_signs').quad(P(-w / 2, -h / 2), P(w / 2, -h / 2), P(w / 2, h / 2), P(-w / 2, h / 2), uv); }
+function plateQuad(B, F, lx, ly, lz, w, h, uv) { const P = (x, y) => { const [wx, wz] = F.P(lx + x, lz); return [wx, F.y + ly + y, wz]; }; B('h_signs').quad(P(w / 2, -h / 2), P(-w / 2, -h / 2), P(-w / 2, h / 2), P(w / 2, h / 2), uv); }
 export { screen as kitScreen, plateQuad as kitPlate, bx as kitBox };
 
 K.counter = (B, F, x) => { const w = x.w || 4; // reception / nurses' counter: public face (+z side faces the public), worktop at 0.76 behind a 1.1 m transaction ledge

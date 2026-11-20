@@ -51,4 +51,13 @@ for (const d of DOORS) { if (d.kind === 'hatch') continue; let best = 0, run = 0
     run = clear ? run + 0.05 : 0; best = Math.max(best, run); }
   ok(best >= Math.min(0.85, d.s[1] - d.s[0] - 0.2), `doorway ${d.id} clear lane ${best.toFixed(2)} m (blocked by ${what})`); }
 for (const [k, s] of Object.entries(SPOTS)) { const [x, z] = toWorld(s[1], s[2]); const hit = H.obs[s[0]].find((q) => inBox(q, x, z, 0.12) && !['officeChair', 'waitChair', 'visitorChair', 'bed', 'examCouch', 'sofa', 'bench'].includes(q.tag)); ok(!hit || k.endsWith('Out'), `spot ${k} inside ${hit && hit.tag}`); }
+// 11 every screen / sign quad of the kit faces the way its item faces (item frames are mirrored: a quad written in the
+//    wrong order is back-face culled from the front — the screens drew as black bezels)
+{ const KIT = await import('../src/world/HospitalKit.js'); let nq = 0;
+  for (const f of FURNITURE) { const yaw = f[4] || 0; const fx = Math.sin(yaw), fz = -Math.cos(yaw); const quads = [];
+    const B = (mat) => new Proxy({}, { get: (t, k) => (k === 'quad' ? (a, b, c, d) => { if (mat === 'h_screens' || mat === 'h_signs') quads.push([a, b, d]); } : () => {}) });
+    try { KIT.drawItem(B, f, 0); } catch (e) { continue; }
+    for (const [a, b, d] of quads) { const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = d[0] - a[0], vy = d[1] - a[1], vz = d[2] - a[2];
+      const nx = uy * vz - uz * vy, nz = ux * vy - uy * vx; nq++; ok(nx * fx + nz * fz > 0, `kit quad faces backwards: ${f[0]} (${f[2]}, ${f[3]})`); } }
+  console.log('kit screen / sign quads', nq); }
 console.log(`${passes} passed, ${fails} failed`); process.exit(fails ? 1 : 0);
