@@ -267,14 +267,22 @@ function lineYaw(axis, dir) { const s = SN(axis, dir); return Math.atan2(-s[2], 
 function rotSign(axis, dir, inSgn) { const s = SN(axis, dir), n = NRM(axis, inSgn || 1); return s[2] * n[0] - s[0] * n[2] >= 0 ? 1 : -1; }
 
 const LEAF = new Map();
-function leafMesh(mats, w, h, staff, mirror = false) {
+function leafMesh(mats, w, h, staff, mirror = false) { // 75th: a hospital flush door — HPL faces (pearl grey public / soft blue staff),
+  // aluminium edge lipping, a stainless kick plate and push plate, a framed vision panel (public doors), a lever handle on a rose
   const key = [w.toFixed(2), h.toFixed(2), staff ? 1 : 0, mirror ? 1 : 0].join(); let g = LEAF.get(key);
-  if (!g) { const mb = new MultiBuilder(); const b = mb.get('h_wood'); const t = 0.045;
-    b.box(w / 2, h / 2, 0, w, h, t, { col: C(staff ? '#c9c2b6' : '#ffffff') }); // laminate leaf
-    for (const z of [t / 2 + 0.003, -t / 2 - 0.003]) { b.box(w / 2, 0.15, z, w - 0.04, 0.28, 0.004, { col: C('#9aa0a4') }); if (!staff) b.box(w * 0.5, 1.45, z, 0.26, 0.62, 0.004, { col: C('#28323a') }); // kick plate, vision panel
-      b.box(w - 0.1, 1.05, z + Math.sign(z) * 0.03, 0.03, 0.03, 0.05, { col: C('#d6d9db') }); b.box(w - 0.18, 1.05, z + Math.sign(z) * 0.055, 0.18, 0.025, 0.025, { col: C('#d6d9db') }); }
-    g = mb.b.get('h_wood').build(); LEAF.set(key, g); }
-  const m = new THREE.Mesh(g, mats.h_wood); m.castShadow = false; m.receiveShadow = true; return m;
+  if (!g) { const mb = new MultiBuilder(); const b = mb.get('h_door'); const t = 0.045; const face = C(staff ? '#c9d5df' : '#e4e3dd');
+    b.box(w / 2, h / 2, 0, w - 0.012, h - 0.006, t, { col: face, uvRect: [0, 0, 1, 1] }); // the leaf (the picture spans it)
+    for (const x of [0.003, w - 0.003]) b.box(x, h / 2, 0, 0.006, h, t + 0.002, { col: C('#b7bbbe') }); // edge lipping
+    for (const z of [t / 2 + 0.002, -t / 2 - 0.002]) { const sg = Math.sign(z);
+      b.box(w / 2, 0.16, z, w - 0.03, 0.3, 0.003, { col: C('#b9bdc0') }); b.box(w / 2, 0.305, z + sg * 0.0005, w - 0.03, 0.006, 0.003, { col: C('#d8dbdd') }); // kick plate
+      if (!staff) { b.box(w * 0.5, 1.42, z, 0.3, 0.7, 0.006, { col: C('#9ea5aa') }); b.box(w * 0.5, 1.42, z + sg * 0.002, 0.24, 0.62, 0.004, { col: C('#2f3d45') }); // vision panel frame + glass
+        b.box(w * 0.5 - 0.05, 1.52, z + sg * 0.0045, 0.03, 0.4, 0.001, { col: C('#58707c') }); }
+      b.box(w - 0.1, 1.05, z + sg * 0.004, 0.06, 0.06, 0.008, { col: C('#c9ccce') }); // rose
+      b.box(w - 0.1, 1.05, z + sg * 0.03, 0.02, 0.02, 0.05, { col: C('#d6d9db') }); b.box(w - 0.19, 1.05, z + sg * 0.055, 0.17, 0.022, 0.022, { col: C('#e0e3e5') }); // lever
+      b.box(w - 0.1, 0.96, z + sg * 0.004, 0.012, 0.03, 0.004, { col: C('#9aa0a4') }); // key / thumb-turn
+      b.box(w - 0.12, 1.3, z + sg * 0.002, 0.1, 0.3, 0.002, { col: C('#cdd1d3') }); } // push plate
+    g = mb.b.get('h_door').build(); LEAF.set(key, g); }
+  const m = new THREE.Mesh(g, mats.h_door); m.castShadow = false; m.receiveShadow = true; return m;
 }
 const LIFT_G = new Map();
 function LIFT_LEAF(mats, w) { const k = w.toFixed(2); let g = LIFT_G.get(k); if (!g) { const mb = new MultiBuilder(); mb.get('h_metal').box(0, 1.05, 0, w, 2.1, 0.04, { col: C('#d9dcde') }); g = mb.b.get('h_metal').build(); LIFT_G.set(k, g); } return g; }

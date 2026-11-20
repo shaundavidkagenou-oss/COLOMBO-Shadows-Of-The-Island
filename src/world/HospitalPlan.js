@@ -198,6 +198,7 @@ export const FURNITURE = [
     ['tvScreen', 1, u0 + 0.12, 18.6, Q, { screen: 'tv' }], ['sanitizer', 1, u0 + 0.2, 12.4, Q],
   ]),
 ];
+fitComputers(FURNITURE);
 
 // ---------------------------------------------------------------------------------------------------- beds
 // the recovery bed (player wakes up here): private room 1. Bed geometry: centred on (u, v), length along the facing.
@@ -272,4 +273,20 @@ export function visibleRooms(id, open = null, depth = 2) {
 // two portals "in line": parallel walls facing each other, or a doorway seen from within ~45° of its normal
 function aligned(a, b) { if (a.axis === b.axis) { const ca = (a.s[0] + a.s[1]) / 2, cb = (b.s[0] + b.s[1]) / 2; return Math.abs(ca - cb) < Math.abs(a.at - b.at) + 3; } return true; }
 export function doorCentre(d) { const c = (d.s[0] + d.s[1]) / 2; return d.axis === 'u' ? [c, d.at] : [d.at, c]; }
+// 75th: every PC sits ON its desk, facing whoever works at it. For each 'pc' item: its desk (the nearest desk / counter /
+// nurses' desk on that floor) and its chair (the nearest office chair); in the desk's own frame the monitor goes to the
+// far side of the worktop from the chair (behind a counter's transaction ledge, never through it), the keyboard + mouse
+// (0.26 m in front of the screen) towards the chair, aligned with the chair, and the PC turns to face the chair.
+// Worktops in the desk frame (z = the way the item faces): desk z −0.35…0.35; counter z −0.48…0.24 with the ledge over z > 0.05.
+export function fitComputers(list) {
+  const toL = (it, u, v) => { const c = Math.cos(it[4] || 0), s = Math.sin(it[4] || 0); const du = u - it[2], dv = v - it[3]; return [du * c - dv * s, du * s + dv * c]; };
+  const toP = (it, lx, lz) => { const c = Math.cos(it[4] || 0), s = Math.sin(it[4] || 0); return [it[2] + lx * c + lz * s, it[3] - lx * s + lz * c]; };
+  const near = (pc, types) => { let best = null, bd = 2.2; for (const it of list) { if (!types.includes(it[0]) || it[1] !== pc[1]) continue; const d = Math.hypot(it[2] - pc[2], it[3] - pc[3]); if (d < bd) { bd = d; best = it; } } return best; };
+  for (const pc of list) { if (pc[0] !== 'pc') continue; const desk = near(pc, ['desk', 'counter', 'nurseDesk']); const chair = near(pc, ['officeChair']); if (!desk || !chair) continue;
+    const isDesk = desk[0] === 'desk'; const w = (desk[5] && desk[5].w) || (isDesk ? 1.4 : 4); const [cx, cz] = toL(desk, chair[2], chair[3]); const sz = cz >= (isDesk ? 0 : -0.12) ? 1 : -1;
+    let mz; if (isDesk) mz = -sz * 0.2; else mz = sz < 0 ? 0.0 : -0.42 + 0.28; // a counter: the staff side is −z; the monitor just behind the ledge
+    const mx = Math.max(-w / 2 + 0.3, Math.min(w / 2 - 0.3, cx + (isDesk ? 0.15 : 0)));
+    const [u, v] = toP(desk, mx, mz); pc[2] = +u.toFixed(3); pc[3] = +v.toFixed(3); pc[4] = (desk[4] || 0) + (sz > 0 ? 0 : Math.PI); }
+  return list;
+}
 export function furnitureOf(type) { return FURNITURE.map((f, i) => ({ f, i })).filter((q) => q.f[0] === type); }

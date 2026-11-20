@@ -38,6 +38,12 @@ export const HTEX = {
   lawn: () => canvasTex('h.lawn', 256, 256, (a, w, h, r) => { a.fillStyle = '#4f7a35'; a.fillRect(0, 0, w, h); for (let i = 0; i < 9000; i++) { a.fillStyle = r() < 0.5 ? 'rgba(30,60,20,0.3)' : 'rgba(150,190,90,0.25)'; a.fillRect(r() * w, r() * h, 1, 2 + r() * 3); } }),
   leaf: () => canvasTex('h.leaf', 256, 256, (a, w, h, r) => { a.fillStyle = '#2f5a26'; a.fillRect(0, 0, w, h); for (let i = 0; i < 900; i++) { a.fillStyle = r() < 0.5 ? 'rgba(20,45,15,0.6)' : 'rgba(110,160,70,0.5)'; a.beginPath(); a.ellipse(r() * w, r() * h, 3 + r() * 5, 1.5 + r() * 2.5, r() * 3, 0, 7); a.fill(); } }),
   // window blinds seen from inside in daylight (emissive map: the brightness follows the hour, Hospital.update)
+  // 75th: door leaves — high-pressure laminate (HPL) faced flush doors: a fine satin stipple with very faint directional
+  // texture, slightly lighter towards the edges (the post-formed lipping), never the plank grain of the laminate dado
+  door: () => canvasTex('h.door', 256, 512, (a, w, h, r) => { a.fillStyle = '#f2f1ec'; a.fillRect(0, 0, w, h); for (let i = 0; i < 16000; i++) { a.fillStyle = r() < 0.5 ? 'rgba(0,0,0,0.035)' : 'rgba(255,255,255,0.05)'; a.fillRect(r() * w, r() * h, 1, 1 + r() * 2); }
+    for (let i = 0; i < 40; i++) { a.fillStyle = 'rgba(120,115,105,0.025)'; a.fillRect(r() * w, 0, 1 + r() * 2, h); }
+    const e = a.createLinearGradient(0, 0, w, 0); e.addColorStop(0, 'rgba(255,255,255,0.12)'); e.addColorStop(0.04, 'rgba(255,255,255,0)'); e.addColorStop(0.96, 'rgba(255,255,255,0)'); e.addColorStop(1, 'rgba(255,255,255,0.12)'); a.fillStyle = e; a.fillRect(0, 0, w, h);
+    const lo = a.createLinearGradient(0, h * 0.8, 0, h); lo.addColorStop(0, 'rgba(90,80,70,0)'); lo.addColorStop(1, 'rgba(90,80,70,0.06)'); a.fillStyle = lo; a.fillRect(0, h * 0.8, w, h * 0.2); }, { repeat: false }),
   // 75th: a window seen from inside — glass onto a bright tropical day (soft over-exposed sky, a band of rain-tree / palm
   // canopy, a pale building across the road, a hint of the sill reflection), venetian blinds drawn up into a stack at the
   // top with their ladder tapes and cord, faint reflections on the glass. One picture per pane (uv 0…1 across it).
@@ -172,6 +178,7 @@ export function hospitalMaterials() {
     h_plastic: std('Plastic & laminate surfaces', { roughness: 0.5 }),
     h_fabric: std('Curtains & upholstery', { map: tx('fabric', 1), roughness: 0.95 }),
     h_wood: std('Timber laminate', { map: tx('laminate'), roughness: 0.55 }),
+    h_door: std('Door leaves (HPL laminate)', { map: tx('door'), roughness: 0.42, envMapIntensity: 0.6 }), // 75th
     h_render: std('Facade render', { map: tx('render'), roughness: 0.92 }),
     h_roof: std('Roof membrane', { map: tx('roof'), roughness: 0.95 }),
     h_paving: std('Forecourt paving', { map: tx('paving'), roughness: 0.85 }),
@@ -245,12 +252,26 @@ K.waitChair = (B, F, x = {}) => { // beam seating module: moulded seat + back on
 K.bench = (B, F, x) => { const w = x.w || 2; bx(B, F, 'h_wood', 0, 0.44, 0, w, 0.05, 0.42, COL.wood); bx(B, F, 'h_wood', 0, 0.75, -0.19, w, 0.3, 0.04, COL.wood); for (const s of [-1, 1]) bx(B, F, 'h_metal', s * (w / 2 - 0.1), 0.21, 0, 0.05, 0.42, 0.4, COL.dark); return [-w / 2, w / 2, -0.23, 0.23, 0.9]; };
 K.sofa = (B, F, x) => { const w = x.w || 1.8; bx(B, F, 'h_fabric', 0, 0.22, 0, w, 0.24, 0.8, COL.leather); bx(B, F, 'h_fabric', 0, 0.42, 0.04, w - 0.3, 0.16, 0.66, COL.leather); bx(B, F, 'h_fabric', 0, 0.62, -0.33, w, 0.56, 0.16, COL.leather);
   for (const s of [-1, 1]) bx(B, F, 'h_fabric', s * (w / 2 - 0.08), 0.5, 0.02, 0.16, 0.34, 0.76, COL.leather); return [-w / 2, w / 2, -0.4, 0.4, 0.9]; };
-K.desk = (B, F, x) => { const w = x.w || 1.4; bx(B, F, 'h_wood', 0, 0.74, 0, w, 0.04, 0.7, COL.wood); bx(B, F, 'h_wood', -w / 2 + 0.22, 0.36, 0, 0.42, 0.72, 0.66, COL.wood); bx(B, F, 'h_plastic', w / 2 - 0.03, 0.36, 0, 0.03, 0.72, 0.66, COL.grey);
+K.desk = (B, F, x) => { const w = x.w || 1.4; bx(B, F, 'h_wood', 0, 0.75, 0, w, 0.04, 0.7, COL.wood); /* 75th: worktop top at 0.77 (the PCs stand on it) */ bx(B, F, 'h_wood', -w / 2 + 0.22, 0.36, 0, 0.42, 0.72, 0.66, COL.wood); bx(B, F, 'h_plastic', w / 2 - 0.03, 0.36, 0, 0.03, 0.72, 0.66, COL.grey);
   bx(B, F, 'h_wood', 0.1, 0.42, -0.32, w - 0.5, 0.5, 0.02, COL.wood); for (let k = 0; k < 3; k++) bx(B, F, 'h_metal', -w / 2 + 0.22, 0.6 - k * 0.22, 0.335, 0.12, 0.015, 0.012, COL.steel);
-  bx(B, F, 'h_plastic', 0.25, 0.77, 0.1, 0.24, 0.02, 0.3, COL.paper); return [-w / 2, w / 2, -0.35, 0.35, 0.78]; };
+  bx(B, F, 'h_plastic', 0.25, 0.775, 0.1, 0.24, 0.01, 0.3, COL.paper); return [-w / 2, w / 2, -0.35, 0.35, 0.78]; };
 K.nurseDesk = (B, F, x) => K.counter(B, F, Object.assign({ name: null }, x));
-K.pc = (B, F) => { bx(B, F, 'h_plastic', 0, 0.77, 0, 0.2, 0.015, 0.16, COL.dark); bx(B, F, 'h_plastic', 0, 0.9, -0.02, 0.04, 0.24, 0.03, COL.dark); bx(B, F, 'h_plastic', 0, 1.08, 0, 0.52, 0.32, 0.03, COL.black);
-  screen(B, F, 0, 1.08, 0.016, 0.48, 0.28, 1); bx(B, F, 'h_plastic', 0, 0.772, 0.26, 0.44, 0.02, 0.14, COL.dark); bx(B, F, 'h_plastic', 0.3, 0.77, 0.26, 0.06, 0.02, 0.1, COL.dark); return null; };
+K.pc = (B, F) => { // 75th: a 24" office monitor (2 cm bezel, chin with the logo-less power LED, slim neck + oval foot), a full-size
+  // keyboard with real key rows (individual keycaps, space bar, number pad), a mouse on a pad, a mini PC tower beside it
+  bx(B, F, 'h_plastic', 0, 0.776, -0.02, 0.24, 0.012, 0.18, COL.dark); bx(B, F, 'h_plastic', 0, 0.9, -0.06, 0.05, 0.24, 0.025, COL.dark); bx(B, F, 'h_plastic', 0, 1.0, -0.04, 0.12, 0.08, 0.03, COL.dark); // foot, neck, VESA block
+  bx(B, F, 'h_plastic', 0, 1.08, 0, 0.52, 0.315, 0.022, COL.black); bx(B, F, 'h_plastic', 0, 1.08, -0.016, 0.44, 0.24, 0.012, C('#202326')); // panel + rear housing
+  bx(B, F, 'h_plastic', 0, 0.932, 0.008, 0.52, 0.012, 0.012, C('#1b1d20')); bx(B, F, 'h_plastic', 0.22, 0.932, 0.0145, 0.006, 0.004, 0.002, C('#3a8ee8')); // chin, power LED
+  screen(B, F, 0, 1.08, 0.016, 0.48, 0.28, 1);
+  // keyboard: base + 5 rows of keycaps (main block) + the number pad. (item frames are mirrored: local +x is the user's LEFT,
+  // so everything on the user's right — number pad, mouse — sits at −x)
+  const kz = 0.27; bx(B, F, 'h_plastic', 0.03, 0.776, kz, 0.44, 0.014, 0.14, C('#1c1e21'));
+  for (let r = 0; r < 5; r++) { const z = kz - 0.05 + r * 0.025; const y = 0.787 + r * 0.0012; if (r === 4) { bx(B, F, 'h_plastic', 0.1, y, z, 0.11, 0.008, 0.019, C('#2c2f33')); for (const x of [0.24, 0.215, 0.0, -0.03]) bx(B, F, 'h_plastic', x, y, z, 0.022, 0.008, 0.019, C('#2c2f33')); }
+    else for (let k = 0; k < 13; k++) bx(B, F, 'h_plastic', 0.235 - k * 0.0235 - (r % 2) * 0.006, y, z, 0.0195, 0.008, 0.019, C('#2c2f33'));
+    if (r > 0) for (let k = 0; k < 3; k++) bx(B, F, 'h_plastic', -0.105 - k * 0.0235, y, z, 0.0195, 0.008, 0.019, C('#2c2f33')); }
+  // mouse pad + mouse (body + the two buttons + wheel)
+  bx(B, F, 'h_fabric', -0.3, 0.771, kz, 0.2, 0.004, 0.17, C('#22282e')); bx(B, F, 'h_plastic', -0.3, 0.784, kz + 0.01, 0.056, 0.022, 0.1, C('#1f2124')); bx(B, F, 'h_plastic', -0.3, 0.797, kz - 0.022, 0.05, 0.008, 0.04, C('#26292d'));
+  bx(B, F, 'h_plastic', -0.3, 0.802, kz - 0.022, 0.006, 0.006, 0.014, C('#55595e'));
+  return null; };
 K.phone = (B, F) => { bx(B, F, 'h_plastic', 0, 0.79, 0, 0.18, 0.05, 0.2, COL.dark); bx(B, F, 'h_plastic', -0.05, 0.83, 0, 0.05, 0.04, 0.2, COL.black); return null; };
 K.cabinet = (B, F, x) => { const w = x.w || 1.2; bx(B, F, 'h_metal', 0, 0.68, 0, w, 1.36, 0.45, COL.offwhite); const n = Math.max(1, Math.round(w / 0.45));
   for (let k = 0; k < n; k++) { const cx = -w / 2 + (k + 0.5) * w / n; for (let j = 0; j < 4; j++) { bx(B, F, 'h_metal', cx, 0.2 + j * 0.32, 0.228, w / n - 0.03, 0.29, 0.006, COL.grey); bx(B, F, 'h_metal', cx, 0.3 + j * 0.32, 0.236, 0.12, 0.02, 0.012, COL.dark); } }

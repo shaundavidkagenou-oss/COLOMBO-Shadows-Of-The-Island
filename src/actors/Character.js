@@ -26,6 +26,7 @@ import { DancerRig } from './DancerRig.js';
 
 export const BONES = ['hips', 'spine', 'chest', 'neck', 'head', 'shL', 'armL', 'foreL', 'handL', 'shR', 'armR', 'foreR', 'handR', 'thighL', 'shinL', 'footL', 'thighR', 'shinR', 'footR', 'skirtF', 'skirtB', 'skirtF2', 'skirtB2', 'clothB', 'cap'];
 const B = Object.fromEntries([...BONES, ...HERO_EXTRA].map((n, i) => [n, i])); // protagonist-only bones are appended after the shared 23, so crowd indices are unchanged
+const MOUSE0 = [0, 0]; // 75th: 'mouse' act at rest
 const PARENT = { hips: null, spine: 'hips', chest: 'spine', neck: 'chest', head: 'neck', shL: 'chest', armL: 'shL', foreL: 'armL', handL: 'foreL', shR: 'chest', armR: 'shR', foreR: 'armR', handR: 'foreR', thighL: 'hips', shinL: 'thighL', footL: 'shinL', thighR: 'hips', shinR: 'thighR', footR: 'shinR', skirtF: 'hips', skirtB: 'hips', skirtF2: 'skirtF', skirtB2: 'skirtB', clothB: 'chest', cap: 'head' }; // cap: a police service cap's own bone (LooseCaps.js knocks it off: the baked cap folds away into the head, a loose copy falls)
 
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
@@ -1610,6 +1611,7 @@ export class Animator {
         case 'argue': tr = [-0.9 - Math.sin(t * 6) * 0.35, 0, -0.3]; tfr = [-0.9, 0, 0]; tl = [-0.7 - Math.sin(t * 5 + 1) * 0.3, 0, 0.3]; tfl = [-1, 0, 0]; head = Math.sin(t * 3) * 0.15; break;
         case 'phone': { const P = this.phoneT || PHONE_T, j = this.phoneAdj; ikT('R', P[0] + (j ? j.x : 0), P[1] + (j ? j.y : 0), P[2] + (j ? j.z : 0), PHONE_POLE); tl = [0.05, 0, 0.1]; tfl = [-0.2, 0, 0]; head = 0.12; this._twA = 'phone'; this._twW = Math.max(this._twW || 0, aw); break; } // phone held against the right ear (IK: wrist under the jaw)
         case 'text': { const P = this.textT || TEXT_T; ikT('R', P[0], P[1], P[2]); ikT('L', P[3], P[4], P[5]); b.neck.rotation.x += 0.5 * aw; b.spine.rotation.x += 0.05 * aw; this._twA = 'text'; this._twW = Math.max(this._twW || 0, aw); break; } // phone in front of the chest, the other hand cradling it, head bowed
+        case 'mouse': { const m = this.mouseD || MOUSE0; tr = [-0.58 - m[1] * 0.07, 0, -0.42 - m[0] * 0.08]; tfr = [-0.9 + m[1] * 0.05, 0, 0]; tl = [-0.5, 0, 0.22]; tfl = [-1.0, 0, 0]; b.neck.rotation.x += 0.24 * aw; head = -0.05; break; } // 75th: right hand on the mouse (mouseD: the pointer's offset, −1…1 — the screen follows the same path), left hand resting by the keyboard
         case 'type': tr = [-0.62, 0, -0.2]; tl = [-0.62, 0, 0.2]; tfr = [-0.95 + Math.sin(t * 13 + 1) * 0.05, 0, 0]; tfl = [-0.95 + Math.sin(t * 11) * 0.05, 0, 0]; b.neck.rotation.x += 0.28 * aw; break; // at a desk keyboard
         case 'wave': tr = [-2.6 + Math.sin(t * 8) * 0.08, 0, -0.35 - Math.sin(t * 8) * 0.25]; tfr = [-0.5, 0, 0]; break;
         // cricket: batting stance (both hands on the handle, bat down by the back foot) and a swing driven by this.swing

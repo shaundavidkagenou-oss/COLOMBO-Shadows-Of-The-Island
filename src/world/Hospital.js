@@ -30,7 +30,8 @@ const tw = (u, v) => { _W[0] = HOSP.PX + u; _W[1] = HOSP.FZ - v; return _W; };
 const tl = (x, z) => { _L[0] = x - HOSP.PX; _L[1] = HOSP.FZ - z; return _L; };
 import { HospitalSound } from '../audio/HospitalAudio.js';
 import { PlaceSound, SYNTH, TICK } from '../audio/PlaceAudio.js';
-import { HospitalMonitors } from './HospitalMonitors.js'; // 75th: lift ride loop, AC, monitors, CPR
+import { HospitalMonitors } from './HospitalMonitors.js';
+import { HospitalScreens } from './HospitalScreens.js'; // 75th: lift ride loop, AC, monitors, CPR
 import { RECOVERY_LINES, RECEPTION_LINES } from '../audio/HospitalSoundDefs.js';
 import { hospitalState, admit, billRecovery, invoiceText } from '../story/HospitalBilling.js';
 
@@ -45,6 +46,12 @@ const S2 = (k) => SPOTS[k];
 const bodyH = (ch) => (ch.spec && ch.spec.height) || 1.7;
 // 75th: how far the body reaches behind the root (bind pose, the root's own frame): lying supine that depth goes down, so the
 // root is put exactly that high above the sheet (sinking 1.5 cm into the mattress) — no hovering, no sinking through it.
+// 75th: feet through the floor when seated. The seated pose (Character.js) drops the hips 0.45 m and swings the thigh to
+// −1.45 rad with the shin straight down, so the ankle ends 0.45 − thigh·(1 − cos 1.45) lower than standing: for a 0.43 m
+// thigh that is 7 cm into the floor. The person is never sunk or scaled: the whole sitter is raised by that amount and the
+// gas-lift seat with them (the chair fits the person, as everywhere else).
+function seatLift(ch) { if (ch._seatLift != null) return ch._seatLift; const b = ch.bones || (ch.anim && ch.anim.ch && ch.anim.ch.bones); const sh = b && (b.shinL || b.shinR);
+  const thigh = sh ? sh.position.length() : 0.44; ch._seatLift = clamp(0.45 + 0.01 - thigh * (1 - Math.cos(1.45)), 0, 0.12); return ch._seatLift; }
 const _bx = new THREE.Box3(), _bm = new THREE.Matrix4(), _bi = new THREE.Matrix4();
 function backDepth(ch) { if (ch._backD != null) return ch._backD; const r = ch.root; r.updateMatrixWorld(true); _bi.copy(r.matrixWorld).invert(); let mz = 0, n = 0;
   r.traverse((o) => { if (!o.isMesh || !o.geometry || !o.visible) return; const g = o.geometry; if (!g.boundingBox) g.computeBoundingBox(); if (!g.boundingBox || !isFinite(g.boundingBox.min.z)) return;
@@ -68,7 +75,7 @@ export class Hospital {
     this.doorById = Object.fromEntries(this.doors.map((D) => [D.id, D]));
     this.open = {}; for (const D of this.doors) { this.open[D.id] = D.k; D.hold = 0; if (D.closedBox && D.obs) D.obs.closed = true; }
     this.lift = { floor: 0, target: 0, state: 'idle', t: 0, doors: [0, 0], want: [0, 0], ride: false, y: FLOOR_Y[0] };
-    this.monitors = new HospitalMonitors(this); this.acSpec = { id: 'bank.ac', x: 0, z: 0, ref: 1, lvl: 0.5, fadeIn: 1.0, fadeOut: 0.8, synth: SYNTH.ac };
+    this.monitors = new HospitalMonitors(this); this.screens = new HospitalScreens(this); this.acSpec = { id: 'bank.ac', x: 0, z: 0, ref: 1, lvl: 0.5, fadeIn: 1.0, fadeOut: 0.8, synth: SYNTH.ac };
     this.liftSpec = { id: 'hosp.lift.up', x: 0, z: 0, ref: 3, lvl: 1, fadeIn: 0.3, fadeOut: 0.4, synth: SYNTH.hum };
     this.vis = new Set(); this.visKey = ''; this.curRoom = null; this.camRoom = null; this.k = 0; this.lodFar = false; this.wantsPool = false;
     this.stats = { frames: 0, roomsDrawn: 0, enters: 0, exits: 0, recoveries: 0, ms: 0 };
@@ -157,7 +164,7 @@ export class Hospital {
     for (const p of this.people) if (p.script) this.nextStep(p, true);
   }
   get charCount() { return this.people.length; }
-  place(p) { const [x, z] = tw(p.u, p.v); p.ch.root.position.set(x, FLOOR_Y[p.f], z); if (!p.lieBed) p.ch.root.rotation.y = p.yaw; }
+  place(p) { const [x, z] = tw(p.u, p.v); p.ch.root.position.set(x, FLOOR_Y[p.f] + (p.seatLift || 0), z); if (!p.lieBed) p.ch.root.rotation.y = p.yaw; }
   // a bed's pose: supine on the mattress, head at the bed head (−facing); feet at the root
   bedFrame(b) { const [, fl, u, v, yaw] = b; const F = itemFrame(u, v, yaw, FLOOR_Y[fl]); const fx = Math.sin(yaw), fz = -Math.cos(yaw); return { F, fl, fx, fz, cx: F.ox, cz: F.oz, yaw, top: FLOOR_Y[fl] + BED.top }; }
   setLying(ch, b, k = 1) { const fr = this.bedFrame(b); const h = bodyH(ch); const r = ch.root; r.rotation.order = 'YXZ';
@@ -172,7 +179,7 @@ export class Hospital {
     else if (!s.go) p.phase = 'act';
   }
   dur(t) { return t[0] + Math.random() * (t[1] - t[0]); }
-  sitNow(p, st) { st.occ = p; this.setTop(st, seatTopFor(p.ch)); const [u, v] = tl(st.x, st.z); p.u = u; p.v = v; p.f = st.floor; p.yaw = st.yaw; this.place(p); p.ch.anim.set(null); p.ch.anim.seated = true; }
+  sitNow(p, st) { st.occ = p; p.seatLift = seatLift(p.ch); this.setTop(st, seatTopFor(p.ch) + p.seatLift); const [u, v] = tl(st.x, st.z); p.u = u; p.v = v; p.f = st.floor; p.yaw = st.yaw; this.place(p); p.ch.anim.set(null); p.ch.anim.seated = true; }
   updatePerson(p, dt, full) {
     const A = p.ch.anim; const s = p.step; p.t += dt; let speed = 0;
     if (p.busy) { p.busy(dt); return; }
@@ -184,13 +191,13 @@ export class Hospital {
       if (d < 0.06) { p.pi++; if (p.pi >= p.path.length) { p.path = null; if (s.sit) { p.phase = 'sit'; p.t = 0; p.from = [p.u, p.v]; } else if (s.act) { p.phase = 'act'; p.t = 0; p.dur = this.dur(s.t); } else this.nextStep(p); } }
       else if (!block) { const sp = 1.2; const st = Math.min(d, sp * dt); p.u += du / d * st; p.v += dv / d * st; speed = sp; const wy = Math.atan2(du, -dv); p.yaw = turn(p.yaw, wy, dt * 8); }
       this.place(p);
-    } else if (p.phase === 'sit') { const st = p.seat; if (p.t < dt * 1.5) { st.occ = p; this.setTop(st, seatTopFor(p.ch)); A.set('sit'); }
-      const [su, sv] = tl(st.x, st.z); const e = sstep(p.t / 0.8); p.u = p.from[0] + (su - p.from[0]) * e; p.v = p.from[1] + (sv - p.from[1]) * e; p.yaw = turn(p.yaw, st.yaw, dt * 8); this.place(p);
+    } else if (p.phase === 'sit') { const st = p.seat; if (p.t < dt * 1.5) { st.occ = p; this.setTop(st, seatTopFor(p.ch) + seatLift(p.ch)); A.set('sit'); }
+      const [su, sv] = tl(st.x, st.z); const e = sstep(p.t / 0.8); p.seatLift = seatLift(p.ch) * e; p.u = p.from[0] + (su - p.from[0]) * e; p.v = p.from[1] + (sv - p.from[1]) * e; p.yaw = turn(p.yaw, st.yaw, dt * 8); this.place(p);
       if (p.t >= 0.9) { A.seated = true; A.set(null); p.phase = 'seated'; p.t = 0; p.dur = this.dur(s.t); } }
     else if (p.phase === 'seated') { routine(p, p.ch, dt, s.desk ? 'desk' : 'stand'); A.seated = true; if (p.t >= p.dur) { p.phase = 'rise'; p.t = 0; p.from = [p.u, p.v]; } }
     else if (p.phase === 'rise') { const st = p.seat; if (p.t < dt * 1.5) { A.seated = null; p._rtn = null; A.set('rise'); if (p.ch.face) p.ch.face.talking = false; }
-      const e = sstep(p.t / 0.7); p.u = p.from[0] + (st.app[1] - p.from[0]) * e; p.v = p.from[1] + (st.app[2] - p.from[1]) * e; this.place(p);
-      if (p.t >= 0.75) { A.set(null); st.occ = null; p.seat = null; this.nextStep(p); } }
+      const e = sstep(p.t / 0.7); p.seatLift = seatLift(p.ch) * (1 - e); p.u = p.from[0] + (st.app[1] - p.from[0]) * e; p.v = p.from[1] + (st.app[2] - p.from[1]) * e; this.place(p);
+      if (p.t >= 0.75) { A.set(null); st.occ = null; p.seat = null; p.seatLift = 0; this.place(p); this.nextStep(p); } }
     else if (p.phase === 'act') { if (s.face) p.yaw = turn(p.yaw, Math.atan2(s.face[0] - p.u, -(s.face[1] - p.v)), dt * 5); this.place(p); if (A.action !== s.act) A.set(s.act); if (p.ch.face) p.ch.face.talking = s.act === 'talk';
       if (s.talkTo === 'rec' && this.rec && !this.rec.busy) { const r = this.rec.ch.anim; if (r.action !== 'talk') r.set('talk'); this.rec._rtn = null; }
       if (p.t >= (p.dur || 5)) { A.set(null); if (p.ch.face) p.ch.face.talking = false; this.nextStep(p); } }
@@ -229,7 +236,7 @@ export class Hospital {
     HospitalSound.listen(P.x, P.z); const near = inside || pD < 30; if (near !== HospitalSound.on) HospitalSound.ambience(near);
     this.srcs[0].on = pf === 0; this.srcs[1].on = false; HospitalSound.tick(dt, inside, this.srcs, P.camYaw ?? 0); // (the BPM machines: HospitalMonitors, per occupied bed)
     // 75th: live monitors at the occupied beds; the air conditioning (the bank's AC recording / synth) all through the building
-    { const ob = this._ob || (this._ob = []); ob.length = 0; if (this.patient && this.patient.lieBed) ob.push(this.patient.lieBed); if (this.lying) ob.push(this.lying.bed); else if (this.recovering && this.recBed) ob.push(this.recBed); this.monitors.update(dt, ob); }
+    { const ob = this._ob || (this._ob = []); ob.length = 0; if (this.patient && this.patient.lieBed) ob.push(this.patient.lieBed); if (this.lying) ob.push(this.lying.bed); else if (this.recovering && this.recBed) ob.push(this.recBed); this.monitors.update(dt, ob); } this.screens.update(dt);
     if (inside) this.windowLight();
     if (inside) { const ac = this.acSpec; ac.x = P.x; ac.z = P.z; PlaceSound.want('hosp.ac', ac); }
     // ---- prompts (Game.updateInteractions asks interact())
@@ -355,7 +362,7 @@ export class Hospital {
   pharmacy(cost) { const g = this.g, S = g.story, Hh = g.health; if (!Hh || Hh.hp >= 100) return; if (S.state.money < cost) { g.hud.notify('Pharmacy', 'Not enough cash with you.', 'warn', 3); return; }
     S.pay(-cost, `Pharmacy — ${HOSP.name}`); Hh.hp = Math.min(100, Hh.hp + 50); g.hud.notify('Pharmacy', `Painkillers and dressings · Rs. ${cost.toLocaleString('en-LK')}`, 'info', 3); }
   // ---- sitting on a waiting seat (held in place: P.posed; the shell set to the player's own seat height)
-  sitDown(s) { const P = this.g.player; s.occ = 'player'; s.player = true; this.seat = s; this.setTop(s, seatTopFor(P.ch)); P.posed = { x: s.x, y: FLOOR_Y[s.floor], z: s.z, yaw: s.yaw }; P.ch.anim.set('sit'); P.ch.anim.seated = true; P.speed = 0; }
+  sitDown(s) { const P = this.g.player; s.occ = 'player'; s.player = true; this.seat = s; const lift = seatLift(P.ch); this.setTop(s, seatTopFor(P.ch) + lift); P.posed = { x: s.x, y: FLOOR_Y[s.floor] + lift, z: s.z, yaw: s.yaw }; P.ch.anim.set('sit'); P.ch.anim.seated = true; P.speed = 0; }
   standUp(quiet = false) { const P = this.g.player, s = this.seat; if (!s) return; this.seat = null; s.occ = null; s.player = false; P.ch.anim.seated = null; P.posed = null; if (!quiet) P.ch.anim.set('rise');
     const [x, z] = tw(s.app[1], s.app[2]); P.x = x; P.z = z; P.sync && P.sync(); setTimeout(() => { if (P.ch.anim.action === 'rise') P.ch.anim.set(null); }, 700); }
   // ---- lying on a bed (and getting off on the open side)
