@@ -7,6 +7,7 @@
 // At 0 the player is taken to the National Hospital (Colombo). Treatment in Sri Lankan state hospitals is free of charge,
 // so the only charge is for medicines bought at the pharmacy outside on discharge (a common reality), capped by your cash.
 import * as L from '../world/Layout.js';
+import { admit } from '../story/HospitalBilling.js';
 
 export const HOSPITAL = { name: 'National Hospital of Sri Lanka', medicines: 1500, ambulanceMedicines: 900, hours: 3 };
 const REGEN_TO = 60, REGEN_RATE = 0.9, REGEN_DELAY = 12;
@@ -54,6 +55,13 @@ export class Health {
     if (g.interiors.current) { const room = g.interiors.current; room.g.visible = false; g.interiors.current = null; g.setIndoor(false); } // shop/flat interior: leave it
     P.indoor = null;
     g.atmos.advance(HOSPITAL.hours * 60);
+    if (g.hospital) { // 74th: woken on a real bed inside the National Hospital — cinematic, bedside line, one invoice per admission
+      const rid = admit(S.state); g.drunk?.reset?.(); P.respawnReset?.(); P.control = false; g.squad?.regroup?.();
+      this.hp = 100; P.stamina = 1; this.lastHurt = -99;
+      try { const r = await g.hospital.recover(this, { cause, ambulance, rid }); this.last = { cause, ambulance, rid, invoice: r.invoice.no, line: r.line, hours: HOSPITAL.hours }; }
+      catch (e) { console.warn('hospital recovery', e); g.hospital.abortRecovery?.(); await g.hud.fade(0, 0.6); P.cinematic = false; P.control = true; }
+      this.busy = false; return;
+    }
     const [hx, hz] = S.safeSpot(L.PLACES.hospital.x, L.PLACES.hospital.z); P.teleport(hx, hz, Math.PI); g.world.warm(hx, hz); g.drunk?.reset?.(); P.respawnReset?.(); P.control = false; g.squad?.regroup?.();
     this.hp = 100; P.stamina = 1; this.lastHurt = -99;
     const want = ambulance ? HOSPITAL.ambulanceMedicines : HOSPITAL.medicines; const paid = Math.max(0, Math.min(want, S.state.money));

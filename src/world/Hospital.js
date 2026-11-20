@@ -60,6 +60,7 @@ export class Hospital {
     this.prompt = ''; this.near = null; this.seat = null; this.lying = null; this.recovering = null; this.talkCd = 0; this.recLine = 0; this.phoneT = 70;
     this.srcs = [{ key: 'chat', id: 'hosp.chatter', x: 0, z: 0, ref: 5, lvl: 1, on: true }, { key: 'mon', id: 'hosp.monitor', x: 0, z: 0, ref: 3, lvl: 1, on: true }];
     { const [x, z] = toWorld(-1.2, 7.0); this.srcs[0].x = x; this.srcs[0].z = z; const [mx, mz] = toWorld(-6.0, 0.6); this.srcs[1].x = mx; this.srcs[1].z = mz; }
+    this.toWorld = toWorld; this.toLocal = toLocal; this.FLOOR_Y = FLOOR_Y; this.plan = { SPOTS, STAIR, LIFT, BED, FURNITURE }; // (tools / tests)
     this.room = this.makeRoom(); this.buildSeats(); this.makePeople();
     if (g.interiors && g.interiors.walkIn) g.interiors.walkIn.ext = this;
   }
@@ -325,7 +326,7 @@ export class Hospital {
   async recover(health, { cause = '', ambulance = false, rid = null } = {}) {
     const g = this.g, P = g.player, S = g.story; const st = hospitalState(S.state); this.stats.recoveries++;
     if (this.seat) this.standUp(true); if (this.lying) this.getOffBed();
-    const pick = RECOVERY_BEDS.find((b) => b.fi >= 0) || RECOVERY_BEDS[0]; const bed = FURNITURE[pick.fi]; const fr = this.bedFrame(bed);
+    const pick = RECOVERY_BEDS.find((b) => b.fi >= 0) || RECOVERY_BEDS[0]; const bed = FURNITURE[pick.fi]; const fr = this.bedFrame(bed); this.recBed = bed;
     // the bed: the player in it, the room door open, the room drawn, the light pool lent
     P.teleport && P.teleport(fr.cx, fr.cz, fr.yaw); P.indoor = this.room; this.lieDown(bed, true); this.visKey = ''; g.world && g.world.warm && g.world.warm(fr.cx, fr.cz);
     const door = this.doorById[pick.room === 'private2' ? 'p2Door' : 'p1Door']; if (door) { door.want = 1; door.k = 1; door.hold = 30; }
