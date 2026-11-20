@@ -22,9 +22,22 @@ export const HospitalSound = {
     if (!Audio.ready || !Audio.ctx) return; const A = Audio.at(x, z, ref); if (A.g < 0.01) return; this.stats.shots++;
     if (SB.play(id, A.g * k, A.pan, 0, { lp: A.lp, verb: true, wet: 0.35 })) return; if (synth) synth(A.g * k, A.pan);
   },
-  step(x, z) { this.shot('hosp.step', x, z, 5, 0.8, (g, pan) => { Audio.noise(0.05, { f: 900 + Math.random() * 300, q: 1.2, vol: 0.035 * g, pan }); Audio.noise(0.03, { f: 3200, q: 2, vol: 0.012 * g, pan, when: 0.012 }); }); },
-  slide(x, z) { this.shot('hosp.door.slide', x, z, 10, 1, (g, pan) => { Audio.noise(1.0, { f: 260, q: 0.8, vol: 0.05 * g, pan, attack: 0.15, type: 'lowpass' }); Audio.noise(0.9, { f: 1800, q: 3, vol: 0.012 * g, pan, attack: 0.2, sweep: 1200 }); }); },
-  door(x, z, open) { this.shot(open ? 'hosp.door.open' : 'hosp.door.close', x, z, 8, 1, (g, pan) => { if (open) { Audio.noise(0.04, { f: 2400, q: 3, vol: 0.05 * g, pan }); Audio.noise(0.25, { f: 500, q: 1.5, vol: 0.02 * g, pan, when: 0.05, sweep: 300 }); } else { Audio.noise(0.08, { f: 180, q: 0.8, vol: 0.08 * g, pan, type: 'lowpass' }); Audio.noise(0.03, { f: 2600, q: 3, vol: 0.05 * g, pan, when: 0.05 }); } }); },
+  // 75th: staff / visitors / paramedics step with the player's own footstep sound (sounds board: Player → Footstep)
+  step(x, z) { Audio.npcStep(x, z, 0.7); },
+  // 75th: electric sliding doors — opening: one of three variations (never twice in a row); closing: its own slot
+  slide(x, z, open = true) {
+    if (!open) { this.shot('hosp.door.slide', x, z, 10, 1, (g, pan) => { Audio.noise(1.0, { f: 240, q: 0.8, vol: 0.05 * g, pan, attack: 0.15, type: 'lowpass' }); Audio.noise(0.05, { f: 900, q: 2, vol: 0.03 * g, pan, when: 0.95 }); }); return; }
+    let n = 1 + ((Math.random() * 3) | 0); if (n === this._slideN) n = (n % 3) + 1; this._slideN = n;
+    this.shot('hosp.door.auto' + n, x, z, 10, 1, (g, pan) => { Audio.noise(0.06, { f: 1600 + n * 200, q: 3, vol: 0.02 * g, pan }); Audio.noise(1.0, { f: 260 + n * 30, q: 0.8, vol: 0.05 * g, pan, attack: 0.12, type: 'lowpass' }); Audio.noise(0.9, { f: 1800, q: 3, vol: 0.012 * g, pan, attack: 0.2, sweep: 1100 + n * 150 }); });
+  },
+  // hinged room doors: the shared Doors block (4 opening variations + closer) like every shop door
+  door(x, z, open) { Audio.roomDoor(x, z, open); },
+  // 75th: staff at the computers
+  pcKey(x, z) { const n = 1 + ((Math.random() * 3) | 0); this.shot('pc.key' + n, x, z, 2.5, 1, (g, pan) => Audio.noise(0.025, { f: 2600 + n * 500 + Math.random() * 300, q: 2.5, vol: 0.02 * g, pan })); },
+  pcClick(x, z) { const n = 1 + ((Math.random() * 3) | 0); this.shot('pc.click' + n, x, z, 2.5, 1, (g, pan) => { Audio.noise(0.012, { f: 4200 + n * 300, q: 3, vol: 0.022 * g, pan }); Audio.noise(0.012, { f: 3600, q: 3, vol: 0.012 * g, pan, when: 0.07 }); }); },
+  // 75th: paramedics
+  trolleyPull(x, z) { this.shot('hosp.trolley.pull', x, z, 12, 1, (g, pan) => { Audio.noise(1.2, { f: 700, q: 1.6, vol: 0.025 * g, pan, attack: 0.1, sweep: 500 }); for (const w of [1.15, 1.5]) { Audio.noise(0.06, { f: 1900, q: 3, vol: 0.05 * g, pan, when: w }); Audio.noise(0.12, { f: 300, q: 1, vol: 0.05 * g, pan, when: w + 0.02, type: 'lowpass' }); } }); },
+  cover(x, z) { this.shot('hosp.cover', x, z, 6, 1, (g, pan) => { Audio.noise(0.5, { f: 1500, q: 0.6, vol: 0.02 * g, pan, attack: 0.08, sweep: 700 }); Audio.noise(0.35, { f: 600, q: 0.6, vol: 0.015 * g, pan, when: 0.45 }); }); },
   liftDing(x, z) { this.shot('hosp.lift.ding', x, z, 8, 1, (g, pan) => { Audio.tone(1318, 0.5, { vol: 0.05 * g, pan }); Audio.tone(1046, 0.7, { vol: 0.05 * g, pan, when: 0.32 }); }); },
   liftDoors(x, z) { this.shot('hosp.lift.doors', x, z, 7, 1, (g, pan) => Audio.noise(0.9, { f: 700, q: 1.2, vol: 0.03 * g, pan, attack: 0.1 })); },
   liftMotor(x, z) { this.shot('hosp.lift.motor', x, z, 7, 1, (g, pan) => { Audio.tone(58, 3.6, { type: 'sawtooth', vol: 0.02 * g, pan, attack: 0.6 }); Audio.noise(3.6, { f: 160, q: 0.7, vol: 0.03 * g, pan, attack: 0.6, type: 'lowpass' }); }); },

@@ -10,6 +10,7 @@
 import { savedFlags, setSavedFlag, storeGet, storeSet, storeDel } from '../debug/boot.js';
 import { voiceDefs } from './VoiceDefs.js';
 import { HOSPITAL_SOUND_DEFS } from './HospitalSoundDefs.js';
+import { PLACE_SOUND_DEFS } from './PlaceSoundDefs.js';
 
 // id, label, category, kind ('shot' one-shot | 'loop' continuous), lvl = playback gain of a full-scale recording (matches the
 // loudness of the synthesised sound it replaces)
@@ -39,7 +40,7 @@ export const SOUND_DEFS = [
   { id: 'horn.dual', name: 'Horn — Customs dual tone', cat: 'Vehicles', lvl: 0.35 }, { id: 'horn.sport', name: 'Horn — Customs sport', cat: 'Vehicles', lvl: 0.35 }, { id: 'horn.air', name: 'Horn — Customs air horn', cat: 'Vehicles', lvl: 0.45 }, { id: 'horn.tune', name: 'Horn — Customs musical', cat: 'Vehicles', lvl: 0.35 },
   { id: 'veh.crash', name: 'Vehicle crash', cat: 'Vehicles', lvl: 0.7 }, { id: 'veh.glass', name: 'Window shattering', cat: 'Vehicles', lvl: 0.5 }, { id: 'veh.glassCrack', name: 'Window cracking', cat: 'Vehicles', lvl: 0.35 },
   { id: 'veh.tyreBurst', name: 'Tyre burst', cat: 'Vehicles', lvl: 0.6 }, { id: 'veh.doorOpen', name: 'Car door — open', cat: 'Vehicles', lvl: 0.3 }, { id: 'veh.doorSlam', name: 'Car door — slam', cat: 'Vehicles', lvl: 0.45 },
-  { id: 'siren.police', name: 'Police siren (loop)', cat: 'Emergency', kind: 'loop', lvl: 0.45 }, { id: 'siren.ambulance', name: 'Ambulance siren (loop)', cat: 'Emergency', kind: 'loop', lvl: 0.45 },
+  { id: 'siren.police', name: 'Police siren (loop)', cat: 'Emergency', kind: 'loop', lvl: 0.45 }, { id: 'siren.ambulance', name: 'Ambulance siren (loop · plays while an ambulance has its sirens on)', cat: 'Hospitals', kind: 'loop', lvl: 0.45 },
   { id: 'heli.rotor', name: 'Police helicopter — rotor & turbines (loop)', cat: 'Emergency', kind: 'loop', lvl: 0.7 }, { id: 'police.radio', name: 'Police radio squelch', cat: 'Emergency', lvl: 0.3 },
   { id: 'station.announce1', name: 'Fort station announcement 1 — train approaching platform 1', cat: 'Station announcements', lvl: 0.85 }, { id: 'station.announce2', name: 'Fort station announcement 2 — train arrived at platform 1', cat: 'Station announcements', lvl: 0.85 },
   { id: 'station.announce3', name: 'Fort station announcement 3 — train about to depart', cat: 'Station announcements', lvl: 0.85 }, { id: 'station.announce4', name: 'Fort station announcement 4 — general (e.g. unattended luggage)', cat: 'Station announcements', lvl: 0.85 },
@@ -70,6 +71,7 @@ export const SOUND_DEFS = [
   ...[1, 2].map((n) => ({ id: 'drink.pour' + n, name: `Drinking — pouring a shot, variation ${n}`, cat: 'Drinking', lvl: 0.45 })),
   ...[1, 2].map((n) => ({ id: 'drink.bottle.down' + n, name: `Drinking — glass bottle put down, variation ${n}`, cat: 'Drinking', lvl: 0.45 })),
   ...HOSPITAL_SOUND_DEFS, // 74th: the National Hospital (HospitalAudio.js)
+  ...PLACE_SOUND_DEFS, // 75th: hospital garden, Viharamahadevi Park, doors of every shop (PlaceAudio.js, Audio.roomDoor)
   { id: 'footstep', name: 'Footstep', cat: 'Player', lvl: 0.25 }, { id: 'phone.ring', name: 'Phone ringing', cat: 'Player', lvl: 0.3 },
   { id: 'ui.click', name: 'Menu click', cat: 'Interface', lvl: 0.25 }, { id: 'ui.hover', name: 'Menu hover', cat: 'Interface', lvl: 0.15 }, { id: 'ui.notify', name: 'Notification', cat: 'Interface', lvl: 0.3 },
   { id: 'ui.wheel.open', name: 'Weapon wheel — opens', cat: 'Interface', lvl: 0.35 }, { id: 'ui.wheel.switch', name: 'Weapon wheel — switching weapon', cat: 'Interface', lvl: 0.3 },

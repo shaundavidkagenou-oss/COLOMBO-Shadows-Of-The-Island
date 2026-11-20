@@ -233,7 +233,7 @@ export class WalkIn {
       let tgt = Math.max(need, d < 0.25 ? 1.48 : 0) * D.side; // positive: swings into the shop (pushed from the street)
       { const nd = s.npcDoor; if (nd && this.frame - nd.f <= 2 && nd.side === D.side) tgt = Math.max(Math.abs(tgt), 1.42) * D.side; } // 67th: a customer ahead of him on his side pushes it the same way
       const cur = D.ang; const maxW = 2.4 * dt; let nv = cur + clamp(tgt - cur, -maxW, maxW); if (Math.abs(tgt) < Math.abs(cur) && P.speed < 0.2) nv = cur; // standing still: it stays where it is
-      D.vel = (nv - cur) / Math.max(dt, 1e-4); D.setAngle(nv); this.prevSide = D.side;
+      if (Math.abs(cur) < 0.01 && Math.abs(nv) >= 0.01) this.sound(s, 'open'); D.vel = (nv - cur) / Math.max(dt, 1e-4); D.setAngle(nv); this.prevSide = D.side;
       P.doorSlow = clamp(1.45 / Math.max(1.45, P.baseSpeed || P.speed || 1.45), 0.35, 1); // a hand on the door: a walking pace (~1.45 m/s)
     } else if (D.breachT > 0) { // 73rd: kicked in — the closer arm is wrecked: the leaf swings free on its hinges, bangs off its stop and hangs open
       P.doorSlow = this.anyEngaged(s) ? P.doorSlow : 1; D.breachT -= dt; const sd = Math.sign(D.ang || D.vel || 1), lim = 1.62;
@@ -297,7 +297,7 @@ export class WalkIn {
     const s0 = ch.spec ? ch.spec.height / 1.72 : 1; const wrist = new THREE.Vector3(q.x, q.y, q.z).addScaledVector(nWorld, -0.028).addScaledVector(fing, -0.085 * s0);
     A.reach = { S, p: wrist, q: quat, w, lean: 0, maxLean: 0.12, pose: 'open', door: true };
   }
-  sound(s, kind) { try { const A = this.g.audioRef || null; if (A && A.sfx) A.sfx(kind === 'open' ? 'doorOpen' : 'doorShut'); } catch { /* optional */ } }
+  sound(s, kind) { const F = s.F; if (F) Audio.roomDoor(F.x, F.z, kind === 'open'); } // 75th: the Doors block (4 opening variations + closer); was a no-op (g.audioRef never existed)
   // anything solid between the street and a room for other systems (e.g. the minimap): the open shop the player is in
   isInside() { const P = this.g.player; return !!(P && P.indoor && P.indoor.walkIn); }
 }

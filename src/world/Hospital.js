@@ -266,7 +266,7 @@ export class Hospital {
     for (const S of this.sliders) { const [x, , z] = S.centre; let want = !P.vehicle && Math.abs(P.y - FLOOR_Y[0]) < 1.2 && Math.hypot(P.x - x, P.z - z) < 2.8 ? 1 : 0;
       if (!want) for (const p of this.people) { const [px, pz] = tw(p.u, p.v); if (p.f === 0 && Math.hypot(px - x, pz - z) < 2.4) { want = 1; break; } }
       if (!want && this.g.police && this.g.police.ems) for (const u of this.g.police.ems.units) for (const o of u.officers) if (o.mode === 'foot' && Math.hypot(o.x - x, o.z - z) < 2.6) want = 1;
-      const was = S.k; S.k += Math.sign(want - S.k) * Math.min(Math.abs(want - S.k), dt / 0.9); if ((was === 0 && S.k > 0) || (was === 1 && S.k < 1)) HospitalSound.slide(x, z);
+      const was = S.k; S.k += Math.sign(want - S.k) * Math.min(Math.abs(want - S.k), dt / 0.9); if ((was === 0 && S.k > 0) || (was === 1 && S.k < 1)) HospitalSound.slide(x, z, was === 0);
       const e = sstep(S.k); for (const lf of S.leaves) { const h = lf.userData.home, d = lf.userData.dir; lf.position.set(h.x + d[0] * lf.userData.travel * e, h.y, h.z + d[2] * lf.userData.travel * e); }
       const passable = S.k > 0.7; S.coll.h = passable ? 0 : S.hFull; if (S.obs) { if (passable) { S.obs.x0 = S.obs.x1 = 1e9; } else Object.assign(S.obs, S.closedBox); }
       this.open[S.d.id] = S.k; }

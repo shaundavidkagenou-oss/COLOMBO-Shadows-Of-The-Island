@@ -69,6 +69,16 @@ class AudioEngine {
     if (src) src._hornT = now + HORN_LEN; if (!player) this.hornsOn.push(now + HORN_LEN); return true;
   }
   // ---- sfx
+  // 75th: an NPC's footstep at a world point — the same sound (and recording) as the player's own steps, quieter with distance
+  npcStep(x, z, k = 0.7) { const A = this.at(x, z, 4); if (A.g < 0.02) return; const g = A.g * k * (0.85 + Math.random() * 0.3);
+    if (SB.play('footstep', 0.6 * g, A.pan, 0, { rate: 0.94 + Math.random() * 0.12, lp: A.lp })) return; this.noise(0.07, { f: 900 + Math.random() * 300, q: 1.2, vol: 0.07 * g, pan: A.pan }); }
+  // 75th: every hinged door (walk-in shops, the bank, hospital rooms): one of four opening variations (never the same twice in
+  // a row) or the closer + latch, at the door, through the sounds board's Doors block when recordings are supplied
+  roomDoor(x, z, open) { if (!this.ready || !this.ctx) return; const A = this.at(x, z, 8); if (A.g < 0.01) return; const o = { lp: A.lp, verb: true, wet: 0.3 };
+    if (open) { let n = 1 + ((Math.random() * 4) | 0); if (n === this._lastDoor) n = (n % 4) + 1; this._lastDoor = n; if (SB.play('door.open' + n, A.g, A.pan, 0, o)) return;
+      const f = [2300, 2700, 2000, 2500][n - 1], sw = [320, 260, 380, 300][n - 1]; this.noise(0.035, { f, q: 3, vol: 0.05 * A.g, pan: A.pan }); this.noise(0.05, { f: f * 0.55, q: 2, vol: 0.035 * A.g, pan: A.pan, when: 0.03 });
+      this.noise(0.3 + n * 0.04, { f: 480, q: 1.4, vol: 0.02 * A.g, pan: A.pan, when: 0.06, sweep: sw }); return; }
+    if (SB.play('door.close', A.g, A.pan, 0, o)) return; this.noise(0.09, { f: 170, q: 0.8, vol: 0.09 * A.g, pan: A.pan, type: 'lowpass' }); this.noise(0.03, { f: 2600, q: 3, vol: 0.04 * A.g, pan: A.pan, when: 0.02 }); }
   footstep(sprint, wet) { if (SB.play('footstep', (sprint ? 1 : 0.6) * (0.85 + Math.random() * 0.3), 0, 0, { rate: 0.94 + Math.random() * 0.12 })) return; this.noise(0.07, { f: wet ? 1800 : 900 + Math.random() * 300, q: 1.2, vol: sprint ? 0.12 : 0.07, type: 'bandpass' }); if (wet) this.noise(0.05, { f: 3500, q: 2, vol: 0.04, when: 0.02 }); }
   horn(type, x, z, style = null, src = null) {
     const [g, pan] = this.spatial(x, z, 60); if (g < 0.02) return; const v = 0.25 * g;

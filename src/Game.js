@@ -53,7 +53,9 @@ import { StoreUI } from './ui/StoreUI.js';
 import { ATMUI } from './ui/ATMUI.js'; // 67th: Ceylon Meridian Bank ATM screen
 import { BankService } from './story/Bank.js'; // 67th: the bank account (one atomic transaction method)
 import { settleDebt } from './story/HospitalBilling.js';
-import { Hospital } from './world/Hospital.js'; // 74th: the walk-in National Hospital (rooms, doors, lift, staff, recovery) // 74th: hospital bills (charged through BankService)
+import { Hospital } from './world/Hospital.js';
+import { PlaceAmbience } from './world/PlaceAmbience.js'; // 75th: park / hospital-garden ambience
+import { PlaceSound } from './audio/PlaceAudio.js'; // 74th: the walk-in National Hospital (rooms, doors, lift, staff, recovery) // 74th: hospital bills (charged through BankService)
 import { BankSound } from './audio/BankAudio.js';
 import { makePoliceAppearance } from './actors/Appearance.js';
 import { Traffic } from './vehicles/Traffic.js';
@@ -585,6 +587,7 @@ export class Game {
     A.update(dt, fv, cam, dt); setVehicleNight(A.night); setHeadPoolNight(A.night); updateCustoms(A.night); // Street Customs lamps (underglow, aux lenses, cabin) follow each vehicle's lights
     // walk-in Police HQ: smooth outdoor → indoor light adaptation while the city keeps running outside
     { const I = this.interiors, cur = I.current; if (cur && this.player.indoor !== cur && !this.player.indoor) { cur.g.visible = false; I.current = null; this.setIndoor(false); } } // teleported out of a shop/flat: close it
+    if (!warmOnly) { if (!this.places) this.places = new PlaceAmbience(this); this.places.update(dt); PlaceSound.update(dt, this.player.x, this.player.z, this.player.camYaw ?? 0); } // 75th: positional place loops (park, garden, hospital AC / lift / monitors, CPR)
     const hk = this.indoor || warmOnly || !this.hospital ? 0 : this.hospital.update(dt); // 74th: before the walk-ins (it may borrow their light pool this frame)
     const wk = this.indoor || warmOnly ? 0 : this.interiors.updateSeamless(dt); this.seamKWalk = wk; const sk = Math.max(wk, hk); this.seamK = sk;
     // (74th: occlusion keeps running inside the hospital — it stands at its real place in the city, the culler treats the building
