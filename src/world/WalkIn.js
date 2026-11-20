@@ -202,9 +202,12 @@ export class WalkIn {
   }
   setActive(r) {
     if (r !== this.active) { this.active = r; }
-    const on = !!r; const hq = this.g.interiors && this.g.interiors.hq; const hqL = hq && hq.lights ? hq.lights : [];
+    // 74th: with no shop open the pool is lent to the National Hospital while its rooms are drawn (Hospital.fillPool)
+    const ext = !r && this.ext && this.ext.wantsPool ? this.ext : null;
+    const on = !!r || !!ext; const hq = this.g.interiors && this.g.interiors.hq; const hqL = hq && hq.lights ? hq.lights : [];
     if (on !== this.poolOn) { this.poolOn = on; for (const l of this.pool) l.visible = on; for (const l of hqL) l.visible = !on; }
-    if (on) { const s = r.site; for (let i = 0; i < 6; i++) { const l = this.pool[i], d = r.lights[i];
+    if (ext) ext.fillPool(this.pool, this.g.player);
+    else if (on) { const s = r.site; for (let i = 0; i < 6; i++) { const l = this.pool[i], d = r.lights[i];
       if (!d) { l.intensity = 0; l.position.set(s.F.x, -800, s.F.z); continue; } const [wx, wz] = this.world(s, d.p[0], d.p[2]); l.position.set(wx, s.y0 + d.p[1], wz); l.color.setHex(d.color); l.distance = d.d; l.decay = d.decay; l.intensity = d.i * (r.lightK ?? 1); } }
   }
 
