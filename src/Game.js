@@ -463,7 +463,7 @@ export class Game {
       const lp = this._cullLast || (this._cullLast = cam.position.clone()), v = this._cullVel || (this._cullVel = new THREE.Vector3()), t = this._cullTmp || (this._cullTmp = new THREE.Vector3());
       const jump = lp.distanceTo(cam.position); if (jump > 25 || !(dt > 0)) v.set(0, 0, 0); else { t.subVectors(cam.position, lp).divideScalar(Math.max(dt, 1 / 240)); v.lerp(t, 0.35); }
       lp.copy(cam.position);
-      const inside = !!this.indoor || (this.seamK || 0) > 0.01;
+      const inside = !!this.indoor || (this.seamKWalk || 0) > 0.01; // walk-ins only (the hospital's blend is in seamK, not here)
       if (OCC_CFG.enabled && !inside && this.occlusion !== false) { occ.update(cam, dt, v); CULL.occOn = occ.validAt(cam.position); } else occ.invalidate();
     }
     if (W && W.cullProps) W.cullProps(cam.position, this.atmos ? this.atmos.sun.target.position : cam.position, this.atmos ? this.atmos.sunDir.y : 0.7);
@@ -586,7 +586,9 @@ export class Game {
     // walk-in Police HQ: smooth outdoor → indoor light adaptation while the city keeps running outside
     { const I = this.interiors, cur = I.current; if (cur && this.player.indoor !== cur && !this.player.indoor) { cur.g.visible = false; I.current = null; this.setIndoor(false); } } // teleported out of a shop/flat: close it
     const hk = this.indoor || warmOnly || !this.hospital ? 0 : this.hospital.update(dt); // 74th: before the walk-ins (it may borrow their light pool this frame)
-    const sk = this.indoor || warmOnly ? 0 : Math.max(this.interiors.updateSeamless(dt), hk); this.seamK = sk;
+    const wk = this.indoor || warmOnly ? 0 : this.interiors.updateSeamless(dt); this.seamKWalk = wk; const sk = Math.max(wk, hk); this.seamK = sk;
+    // (74th: occlusion keeps running inside the hospital — it stands at its real place in the city, the culler treats the building
+    //  the camera is in as hollow, and the city behind the neighbouring blocks no longer costs ~200–300 draws seen from the wards)
     if (!this.indoor && A.envBase !== undefined) this.scene.environmentIntensity = A.envBase * (1 - 0.8 * sk); // indoors, reflections would show the room, not the sky
     if (sk > 0.002) { A.sun.intensity *= 1 - 0.92 * sk; A.hemi.intensity = lerp(A.hemi.intensity, 0.8, sk); A.hemi.color.lerp(HQ_SKY, sk); A.hemi.groundColor.lerp(HQ_GND, sk); A.ambient.intensity = lerp(A.ambient.intensity, 0.3, sk); this.renderer.toneMappingExposure = lerp(this.renderer.toneMappingExposure, 1.0, sk); if (sk > 0.5) A.rain.visible = false; }
     if (this.indoor) { A.sun.intensity = 0; A.hemi.intensity *= 0.25; A.ambient.intensity = 0.25; this.scene.environmentIntensity = 0.12; A.rain.visible = false; this.renderer.toneMappingExposure = 1; }
