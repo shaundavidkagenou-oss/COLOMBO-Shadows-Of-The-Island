@@ -106,7 +106,7 @@ try {
 
   // ---------------------------------------------------------------- 7 · death → bed → wake → bedside line → invoice (twice)
   if (want('recover')) {
-    const rc = await page.evaluate(async () => { const g = window.__game, P = g.player, H = g.hospital, S = g.story; const out = [];
+    let rc = await page.evaluate(async () => { const g = window.__game, P = g.player, H = g.hospital, S = g.story; const out = [];
       P.teleport(700, -150, 0); g.world.warm(700, -150); await g.stepSim(2, 0.05); g.bank.account.balance = 20000; S.state.money = 100;
       const subs = []; const o = g.hud.subtitle; g.hud.subtitle = function (w, t, ...a) { subs.push({ w, t }); return o.call(this, w, t, ...a); };
       for (let k = 0; k < 2; k++) { subs.length = 0; const bal0 = g.bank.account.balance; const nInv = (S.state.hospital ? S.state.hospital.invoices.length : 0);
@@ -120,7 +120,8 @@ try {
       g.hud.subtitle = o;
       // afterwards the speaker walks back to work — through the doors, not the furniture
       const bad = new Set(), ph = new Set(); for (let i = 0; i < 400; i++) { await g.stepSim(1, 0.2); for (const p of [H.doctor, H.nurse]) { ph.add(p.key + ':' + p.phase); if (p.phase !== 'walk') continue; const [wx, wz] = H.toWorld(p.u, p.v); for (const ob of H.obs[p.f]) { if (ob.x0 > 1e8 || ob.tag === 'door' || ob.tag === 'slide') continue; if (wx > ob.x0 + 0.05 && wx < ob.x1 - 0.05 && wz > ob.z0 + 0.05 && wz < ob.z1 - 0.05) { bad.add(p.key + '@' + (ob.tag || '?') + ' ' + p.u.toFixed(1) + ',' + p.v.toFixed(1)); break; } } } }
-      out.after = { bad: [...bad].slice(0, 10), phases: [...ph], docSeat: H.doctor.phase, nurseSeat: H.nurse.phase }; return out; });
+      return { list: out, after: { bad: [...bad].slice(0, 10), phases: [...ph], docSeat: H.doctor.phase, nurseSeat: H.nurse.phase } }; });
+    const rcAfter = rc.after; rc = rc.list;
     rc.forEach((r, i) => console.log(`   recovery ${i + 1}: ${JSON.stringify({ ...r, inv: r.inv && { no: r.inv.no, total: r.inv.total, paidBank: r.inv.paidBank, status: r.inv.status } })}`));
     for (const [i, r] of rc.entries()) {
       ok(!r.busy && r.control && !r.cinematic && r.hp === 100 && !r.posed, `7.${i + 1} control back after ${r.ms} ms, hp ${r.hp}`);
@@ -128,9 +129,34 @@ try {
       ok(r.subs.length === 1 && r.speaker && r.speaker.standing && r.speaker.distBed < 1.6, `7.${i + 1} one line by a standing ${r.speaker && r.speaker.who} beside the bed: ${r.subs[0]} (${JSON.stringify(r.speaker)})`);
       ok(r.invoices === 1 && r.charged === r.inv.total && r.inv.paidBank === r.inv.total, `7.${i + 1} one invoice ${r.inv && r.inv.no}, Rs ${r.charged} charged to the bank`);
     }
-    console.log('   after', JSON.stringify(rc.after));
-    ok(rc.after.bad.length === 0, `7 the speaker walks back to work without crossing furniture/walls: ${rc.after.bad.join('; ') || 'ok'}`);
+    console.log('   after', JSON.stringify(rcAfter));
+    ok(rcAfter.bad.length === 0, `7 the speaker walks back to work without crossing furniture/walls: ${rcAfter.bad.join('; ') || 'ok'}`);
     ok(rc.length === 2 && rc[0].line !== rc[1].line && rc[0].inv.no !== rc[1].inv.no, `7 no repeated line (${rc.map((r) => r.line)}) and distinct invoices`);
+  }
+
+  // ---------------------------------------------------------------- 8 · a civilian down near the hospital: bystander call → ambulance → hospital bay
+  if (want('ems')) {
+    const em = await page.evaluate(async () => { const g = window.__game, P = g.player, H = g.hospital, C = g.crowd, E = g.police.ems; const r = { log: [], jumps: [], phases: [] };
+      P.teleport(676, -166, Math.PI * 0.75); g.world.warm(676, -166); await g.stepSim(20, 0.1);
+      let p = C.peds.filter((q) => q.state !== 'down' && !q.dead && q.ch.root.parent).sort((a, b) => Math.hypot(a.x - 676, a.z - 166) - Math.hypot(b.x - 676, b.z - 166))[0]; if (!p) return { err: 'no ped' };
+      p.x = 672; p.z = -173.6; p.ch.root.position.set(p.x, p.ch.root.position.y, p.z); C.kill(p); p.deadT = 400; // long gone: CPR will not bring them back → the stretcher → the hospital
+      let u = null, last = null, t = 0; const seen = new Set();
+      for (let i = 0; i < 9000; i++) { await g.stepSim(1, 0.1); t += 0.1; if (p.deadT < 400 && !u) p.deadT = 400;
+        if (!u && E.units.length) { u = E.units[0]; r.dispatchT = +t.toFixed(1); r.incidentsBefore = E.stats.incidents; const v = u.v; r.spawnD = +Math.hypot(v.x - p.x, v.z - p.z).toFixed(0); r.spawnSeen = g.police.inView(v); }
+        if (u) { const v = u.v; if (!v) { r.removed = +t.toFixed(1); break; } const ph = u.e.ph + (u.e.toBay ? ':' + u.e.toBay : '') + (u.e.bp ? ':' + u.e.bp : ''); if (!seen.has(ph)) { seen.add(ph); r.phases.push(ph + '@' + t.toFixed(0)); }
+          if (last) { const d = Math.hypot(v.x - last.x, v.z - last.z); if (d > Math.max(3, last.sp * 0.1 * 3 + 1)) r.jumps.push(+d.toFixed(1) + '@' + t.toFixed(0)); } last = { x: v.x, z: v.z, sp: Math.max(v.speed, 1) };
+          if (i % 100 === 0) r.log.push([+t.toFixed(0), u.e.ph, +v.x.toFixed(0), +v.z.toFixed(0), +v.speed.toFixed(1)]);
+          if (u.e.ph === 'parked' && !r.parkedAt) { r.parkedAt = +t.toFixed(1); const B = H.emsBay; r.bayErr = +Math.hypot(v.x - B.x, v.z - B.z).toFixed(2); r.bayYawErr = +Math.abs(Math.atan2(Math.sin(v.yaw - B.yaw), Math.cos(v.yaw - B.yaw))).toFixed(2); r.cargoLeft = (u.e.cargo || []).length + (u.e.st ? 1 : 0); r.units = E.units.length; break; } }
+        if (E.units.length > 1) r.dup = true; }
+      r.stats = { ...E.stats }; r.incidents = E.incidents.size; r.pAwait = !!p.awaitMedic; r.pInCrowd = C.peds.includes(p);
+      // a second body at once: still one unit on the road; it is queued, not doubled
+      return r; });
+    console.log('   ems', JSON.stringify(em));
+    ok(!em.err && em.dispatchT > 8 && em.spawnD > 60, `8 bystander call: ambulance dispatched after ${em.dispatchT} s, spawned ${em.spawnD} m away${em.spawnSeen ? ' (in view!)' : ''}`);
+    ok(em.jumps && em.jumps.length === 0, `8 the ambulance drove (no jumps): ${em.jumps && em.jumps.join(', ')}`);
+    ok(em.phases && em.phases.some((q) => /^leave:road/.test(q)) && em.phases.some((q) => /^leave:in/.test(q)) && em.parkedAt, `8 transport → gate → bay: ${em.phases && em.phases.join(' ')}`);
+    ok(em.bayErr < 1.0 && em.bayYawErr < 0.2, `8 stopped in the bay (${em.bayErr} m, yaw err ${em.bayYawErr})`);
+    ok(em.stats && em.stats.delivered === 1 && em.cargoLeft === 0 && !em.dup, `8 handed over at the emergency entrance, props cleaned up, never two units (${JSON.stringify(em.stats)})`);
   }
 } catch (e) { errors.push('test: ' + (e.stack || e)); }
 console.log('errors:', errors.length ? errors.slice(0, 12).join('\n  ') : 'none');

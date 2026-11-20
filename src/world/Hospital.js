@@ -22,7 +22,7 @@ import { routine } from '../actors/Routine.js';
 import { seatTopFor } from './ClubCast.js';
 import { MeshBuilder } from '../gfx/MeshBuilder.js';
 import { Input } from '../core/Input.js';
-import { HOSP, Y0, FLOOR_Y, toWorld, toLocal, ROOM, FURNITURE, STAIR, LIFT, SPOTS, BEDSIDE, RECOVERY_BEDS, BED, roomAt, visibleRooms, inRect } from './HospitalPlan.js';
+import { HOSP, Y0, FLOOR_Y, toWorld, toLocal, ROOM, FURNITURE, STAIR, LIFT, SPOTS, BEDSIDE, RECOVERY_BEDS, BED, GROUNDS, roomAt, visibleRooms, inRect } from './HospitalPlan.js';
 import { itemFrame, COL } from './HospitalKit.js';
 import { HospitalSound } from '../audio/HospitalAudio.js';
 import { RECOVERY_LINES, RECEPTION_LINES } from '../audio/HospitalSoundDefs.js';
@@ -61,6 +61,11 @@ export class Hospital {
     this.srcs = [{ key: 'chat', id: 'hosp.chatter', x: 0, z: 0, ref: 5, lvl: 1, on: true }, { key: 'mon', id: 'hosp.monitor', x: 0, z: 0, ref: 3, lvl: 1, on: true }];
     { const [x, z] = toWorld(-1.2, 7.0); this.srcs[0].x = x; this.srcs[0].z = z; const [mx, mz] = toWorld(-6.0, 0.6); this.srcs[1].x = mx; this.srcs[1].z = mz; }
     this.toWorld = toWorld; this.toLocal = toLocal; this.FLOOR_Y = FLOOR_Y; this.plan = { SPOTS, STAIR, LIFT, BED, FURNITURE }; // (tools / tests)
+    // the ambulance's hospital run (EMS.js): the bay under the ED canopy (pulled in forwards, rear doors to the street), the
+    // gate inside the fence, the road point it is routed to, and the emergency entrance (outside / just inside)
+    { const G = GROUNDS, a = G.ambulanceBay; const W = (u, v) => { const [x, z] = toWorld(u, v); return { x, z }; }; const ed = this.doorById.edEntrance;
+      const dv = ed ? (ed.d.s[0] + ed.d.s[1]) / 2 : 3.8, du = ed ? ed.d.at : 21;
+      this.emsBay = Object.assign(W(a.u, a.v), { yaw: Math.atan2(0, -1), gate: W(a.u, G.fence.front + 1.8), road: W(a.u, G.fence.front - 3.5), door: W(du + 1.2, dv), inside: W(du - 1.8, dv + 0.1) }); }
     this.room = this.makeRoom(); this.buildSeats(); this.makePeople();
     if (g.interiors && g.interiors.walkIn) g.interiors.walkIn.ext = this;
   }

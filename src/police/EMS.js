@@ -2,6 +2,12 @@
 // built on its unit / crew machinery (spawn on a road out of view, drive the route with lights and siren, crew climbs
 // out / back in), with the medics' work scripted here:
 //
+// 74th: bystanders call it too — a civilian down (dead, or unconscious for a while) near the player is recorded as an
+// incident and, after the time it takes someone to phone 1990, the one ambulance available is sent (one per patient; one
+// unit on the road at a time; incidents expire with the body). A body the crew could not revive is taken to the National
+// Hospital: lane AI to the emergency gate, a pulled-in path through it to the bay under the ED canopy, the stretcher
+// wheeled in through the emergency entrance, then the empty ambulance waits in the bay until it is out of sight.
+//
 //   arrive   ambulance pulls up near the patient, two EMTs (green uniforms, blue nitrile gloves) climb out
 //   assess   EMT A kneels at the chest, EMT B at the head; a face-down patient is log-rolled onto the back together;
 //            A checks the carotid pulse and taps the shoulder ("Can you hear me?"), B opens the airway
@@ -23,6 +29,7 @@ import { AMB } from '../vehicles/AmbulanceKit.js';
 import { Audio } from '../audio/Audio.js';
 import { Voices } from '../audio/Voices.js';
 import { SoundBank } from '../audio/SoundBank.js';
+import { parkPath } from '../vehicles/Traffic.js';
 
 const IX = Object.fromEntries(RAG_N.map((n, i) => [n, i]));
 const V = () => new THREE.Vector3();
@@ -82,7 +89,8 @@ function buildBVM() { // bag-valve mask: clear green bag + mask
 }
 
 export class EMS {
-  constructor(pr) { this.pr = pr; this.g = pr.g; this.units = []; this.stats = { calls: 0, sent: 0, koRevived: 0, revived: 0, carried: 0, refused: 0 }; this.force = null; this.siren = null; this.t = 0; }
+  constructor(pr) { this.pr = pr; this.g = pr.g; this.units = []; this.stats = { calls: 0, sent: 0, koRevived: 0, revived: 0, carried: 0, refused: 0, incidents: 0, auto: 0, toHospital: 0, delivered: 0, bayFail: 0 }; this.force = null; this.siren = null; this.t = 0;
+    this.incidents = new Map(); this.scanT = 2; this.MAX_UNITS = 1; }
   get crowd() { return this.g.crowd; }
   // ---------------------------------------------------------------- the phone call
   findPatient(r = 40) {
@@ -95,17 +103,95 @@ export class EMS {
     if (g.indoor) return this.refuse('Go outside first — the crew has to be able to reach the patient.');
     if (this.units.length) return this.refuse('An ambulance is already on its way to you.');
     const p = this.findPatient(); if (!p) return this.refuse('There is nobody down near you (within 40 m) — no ambulance sent. Call again next to the injured person.');
-    const u = this.pr.spawnUnit({ ems: true, at: opts.at || null, near: true }) || (opts.at ? null : this.pr.spawnUnit({ ems: true })); if (!u) return this.refuse('No ambulance can reach you right now — try again in a moment.');
-    this.pr.units = this.pr.units.filter((q) => q !== u); this.units.push(u); u.ems = true; u.task = 'ems';
-    u.e = { ph: 'drive', t: 0, p, dead: !!p.dead, deadT0: p.deadT || 0, ct: 0 }; p.awaitMedic = true; p.keep = true; u.v.ai.v0 = 14; u.v.ems = true;
-    if (!this.pr.plan(u, p.x, p.z)) { this.removeUnit(u); return this.refuse('No ambulance can reach you right now — try again in a moment.'); }
-    this.stats.sent++; this.pr.note(`EMS unit ${u.id} sent (${p.dead ? 'not breathing' : 'unconscious'})`);
+    if (!this.dispatch(p, opts)) return this.refuse('No ambulance can reach you right now — try again in a moment.');
     return { ok: true, title: '1990 Suwa Seriya', msg: `Ambulance dispatched — ${p.dead ? 'a person not breathing' : 'an unconscious person'}. Stay with them; the crew will be there shortly.` };
+  }
+  // one ambulance for patient p: spawned on a road out of view, routed by the lane AI (never placed next to the patient)
+  dispatch(p, opts = {}) {
+    if (!p || p.awaitMedic || this.units.length >= this.MAX_UNITS) return null;
+    const u = this.pr.spawnUnit({ ems: true, at: opts.at || null, near: true }) || (opts.at ? null : this.pr.spawnUnit({ ems: true })); if (!u) return null;
+    this.pr.units = this.pr.units.filter((q) => q !== u); this.units.push(u); u.ems = true; u.task = 'ems';
+    u.e = { ph: 'drive', t: 0, p, dead: !!p.dead, deadT0: p.deadT || 0, ct: 0, auto: !!opts.auto }; p.awaitMedic = true; p.keep = true; u.v.ai.v0 = 14; u.v.ems = true;
+    if (!this.pr.plan(u, p.x, p.z)) { this.removeUnit(u); return null; }
+    this.incidents.delete(p); this.stats.sent++; this.pr.note(`EMS unit ${u.id} sent (${p.dead ? 'not breathing' : 'unconscious'}${opts.auto ? ', bystander call' : ''})`);
+    return u;
+  }
+  // bystanders: record civilians down near the player, phone it in after a while (one incident per person, never twice)
+  scan() {
+    const C = this.crowd, g = this.g, P = g.player; if (!C || !P) return;
+    for (const [p, inc] of this.incidents) if (p.awaitMedic || p.state !== 'down' || !p.ch.root.parent || p.recycle || !C.peds.includes(p) || this.t - inc.t > 300) this.incidents.delete(p);
+    for (const p of C.peds) { if (p.state !== 'down' || p.awaitMedic || p.recycle || this.incidents.has(p) || !p.ch.root.parent || (p.ch.rag && p.ch.rag.kin) || p.helpedUp) continue;
+      if (!(p.dead || (p.downT || 0) > 8)) continue; if (Math.hypot(p.x - P.x, p.z - P.z) > 130) continue; // serious: not breathing, or still out after 8 s
+      this.incidents.set(p, { x: p.x, z: p.z, t: this.t, due: this.t + 12 + Math.random() * 16, dead: !!p.dead, tries: 0 }); this.stats.incidents++; }
+    if (!this.incidents.size || this.units.length >= this.MAX_UNITS || g.indoor || (this.pr.level | 0) >= 3) return; // a gunfight: no crew sent in until it is over
+    let best = null; for (const [p, inc] of this.incidents) if (this.t >= inc.due && (!best || inc.t < best[1].t)) best = [p, inc]; if (!best) return;
+    const [p, inc] = best; const u = this.dispatch(p, { auto: true });
+    if (u) { this.stats.auto++; if (Math.hypot(p.x - P.x, p.z - P.z) < 70) g.hud.notify?.('1990 Suwa Seriya', 'Someone nearby has called an ambulance.', 'info', 3.5); }
+    else if (++inc.tries >= 4) this.incidents.delete(p); else inc.due = this.t + 20; // no unit can reach: try again a little later, then give up
   }
   refuse(msg) { this.stats.refused++; return { ok: false, title: '1990 Suwa Seriya', msg }; }
   removeUnit(u) {
-    const e = u.e; if (e) { this.dropProps(u); const p = e.p; if (p && p.awaitMedic) { p.awaitMedic = false; p.keep = false; } }
+    const e = u.e; if (e) { this.dropProps(u); this.dropCargo(u); const p = e.p; if (p && p.awaitMedic) { p.awaitMedic = false; p.keep = false; } }
     this.units = this.units.filter((q) => q !== u); this.pr.units.push(u); this.pr.removeUnit(u);
+  }
+  dropCargo(u) { const e = u.e; if (!e) return; for (const m of [...(e.cargo || []), e.st, e.sheet]) { if (!m) continue; m.parent?.remove(m); m.traverse((q) => { if (q.isMesh) { q.geometry.dispose(); for (const mt of [].concat(q.material)) mt.dispose(); } }); } e.cargo = null; e.st = null; e.sheet = null; }
+  // ---------------------------------------------------------------- the National Hospital run (74th)
+  bayInfo() { const H = this.g.hospital; return H && H.emsBay ? H.emsBay : null; }
+  toBay(u, dt) {
+    const g = this.g, pr = this.pr, v = u.v, ai = v.ai, e = u.e, B = this.bayInfo(); e.bayT += dt; const P = g.player;
+    if (!B) { e.toBay = null; return; }
+    // nobody watching and far away: the crew is "at the hospital" — the unit goes back to the pool (no visible jump)
+    if (Math.hypot(v.x - P.x, v.z - P.z) > 220 && !pr.inView(v)) { this.stats.delivered++; pr.note(`EMS unit ${u.id} delivered (out of sight)`); this.removeUnit(u); return; }
+    if (e.toBay === 'road') {
+      const p0 = ai.pieces[0]; if (v.speed < 0.3) u.stuckT = (u.stuckT || 0) + dt; else u.stuckT = 0;
+      if (p0 && p0.type === 'line' && u.goalRoad && p0.seg === u.goalRoad.seg) { const al = (B.gate.x - p0.p0[0]) * p0.d[0] + (B.gate.z - p0.p0[1]) * p0.d[1];
+        if (al > ai.s + 12 && al < p0.len + 2) { const sA = al - 7; const path = this.bayPath(p0, sA, B); const cut = { ...p0, p1: [p0.p0[0] + p0.d[0] * sA, p0.p0[1] + p0.d[1] * sA], len: sA };
+          ai.pieces = [cut, path]; ai.route = null; ai.goal = null; ai.park = { path, bay: true }; ai.sMaxP = path; ai.sMax = path.len - 0.02; ai.v0 = 8; e.toBay = 'in'; e.inT = 0; return; } }
+      if (u.stuckT > 8) { u.stuckT = 0; if (!pr.plan(u, B.road.x, B.road.z)) e.bayT += 60; }
+      if (e.bayT > 240) { e.toBay = null; e.transport = false; this.stats.bayFail++; pr.note(`EMS unit ${u.id} could not reach the hospital`); ai.route = null; ai.goal = null; ai.park = null; } // drives on; recycled out of view
+      return; }
+    // pulling in through the gate to the bay
+    e.inT += dt; const path = ai.park && ai.park.path;
+    if (path && ai.pieces[0] === path && ai.s > path.len - 0.35 && v.speed < 0.15) { ai.stopped = true; ai.park = null; ai.sMaxP = null; e.toBay = null; e.ph = 'bay'; e.t = 0; e.bp = 'stop'; pr.note(`EMS unit ${u.id} in the hospital bay`); return; }
+    if (e.inT > 60) { ai.park = null; ai.sMaxP = null; e.toBay = null; e.transport = false; this.stats.bayFail++; ai.stopped = false; }
+  }
+  // the lane → the gate (the kerb S of the parking arrivals) → straight down the drive to the bay, as one path piece
+  bayPath(p0, sA, B) {
+    const a = parkPath(p0, sA, { x: B.gate.x, z: B.gate.z, yaw: B.yaw }); const last = a.poly[a.poly.length - 1]; const L = Math.hypot(B.x - B.gate.x, B.z - B.gate.z); const n = Math.max(2, Math.ceil(L / 0.25));
+    for (let j = 1; j <= n; j++) { const t = j / n; a.poly.push([B.gate.x + (B.x - B.gate.x) * t, B.gate.z + (B.z - B.gate.z) * t, last[2]]); a.cum.push(a.cum[a.cum.length - 1] + L / n); a.vlim.push(4); }
+    a.len = a.cum[a.cum.length - 1]; for (let i = 0; i < a.vlim.length; i++) a.vlim[i] = Math.min(a.vlim[i], 6); a.bay = true; return a;
+  }
+  // in the bay: doors open, the stretcher out and wheeled in through the emergency entrance, the crew back, the van waits
+  atBay(u, dt) {
+    const e = u.e, v = u.v, pr = this.pr, B = this.bayInfo(), A = u.officers[0], Bm = u.officers[1] || A; if (!B) { e.ph = 'parked'; return; }
+    v.ai.stopped = true; v.speed = 0;
+    switch (e.bp) {
+      case 'stop': if (e.t > 1.2) { pr.dismount(u, 'ems'); u.task = 'ems'; e.bp = 'out'; e.t = 0; } return;
+      case 'out': if (u.officers.every((o) => o.mode === 'foot') || e.t > 12) { e.bp = 'rear'; e.t = 0; } return;
+      case 'rear': { const ca = this.vanPt(u, AMB.rearZ - 0.75, -0.75), cb = this.vanPt(u, AMB.rearZ - 0.75, 0.75); this.spot(A, ca.x, ca.z, v.yaw, null, {}); this.spot(Bm, cb.x, cb.z, v.yaw, null, {});
+        if ((this.at(A, 0.5) && this.at(Bm, 0.5)) || e.t > 15) { e.rearOpen = true; if (e.rear === undefined) e.rear = 0; if (e.rear > 0.95) { e.bp = 'unload'; e.t = 0; this.takeCargo(u); } } return; }
+      case 'unload': { // slide it out feet first (B), set it on its wheels, A to the head end
+        const zIn = AMB.rearZ + ST.half + 0.05, zOut = AMB.rearZ - ST.half - 0.9; const k = sm(Math.min(1, e.t / 2.4)); const c = this.vanPt(u, zIn + (zOut - zIn) * k); const S = e.S; S.x = c.x; S.z = c.z; S.yaw = v.yaw + Math.PI;
+        const gy = this.g.collision.groundAt(c.x, c.z, v.y + 0.5); S.y = (v.y + AMB.doorY0) + ((gy + 0.42) - (v.y + AMB.doorY0)) * sm((k - 0.45) / 0.55);
+        this.carryHands(u, true, 1, 'feet'); for (const o of u.officers) if (o.want) o.want.speed = k < 1 ? 0.4 : 0; this.syncStretcher(u);
+        if (e.t > 2.6) { e.bp = 'wheel'; e.t = 0; e.from = { x: S.x, z: S.z }; } return; }
+      case 'wheel': { // to the emergency entrance and in (the sliding doors open for the crew)
+        const S = e.S; const way = [B.door, B.inside]; const tg = way[e.wi || 0]; const dx = tg.x - S.x, dz = tg.z - S.z, d = Math.hypot(dx, dz);
+        if (d < 0.15) { e.wi = (e.wi || 0) + 1; if (e.wi >= way.length) { e.bp = 'handed'; e.t = 0; this.dropCargo(u); this.stats.delivered++; pr.note(`EMS unit ${u.id} patient handed over at the emergency entrance`); for (const o of u.officers) { o.want = null; o.ch.anim.set(null); o.ch.anim.holdWL = o.ch.anim.holdWR = null; } } return; }
+        const st = Math.min(d, 1.05 * dt); const want = Math.atan2(dx, dz); /* feet end leads: the stretcher's +z (feet) points the way it goes */ S.yaw += angDiff(want, S.yaw) * Math.min(1, dt * 3); S.x += dx / d * st; S.z += dz / d * st;
+        S.y = this.g.collision.groundAt(S.x, S.z, S.y) + 0.42; if (this.g.hospital && Math.hypot(S.x - B.inside.x, S.z - B.inside.z) < 4) S.y = this.g.hospital.FLOOR_Y[0] + 0.42;
+        this.carryHands(u, true, 1, 'feet'); for (const o of u.officers) if (o.want) o.want.speed = 1.05; this.syncStretcher(u);
+        if (e.t > 40) { e.wi = 9; } return; }
+      case 'handed': if (e.t > 3) { e.rearOpen = false; for (const o of u.officers) if (o.mode === 'foot') { o.mode = 'return'; o.goal = null; } e.bp = 'mount'; e.t = 0; } return;
+      case 'mount': if (pr.allSeated(u) || e.t > 40) { if (!pr.allSeated(u)) for (const o of u.officers) { o.mode = 'seated'; } e.ph = 'parked'; e.t = 0; e.leaveT = 0; v.beacons(false, pr.t); } return;
+    }
+  }
+  takeCargo(u) { // the stretcher (and the sheet over the body) out of the van into the scene, where the carry code moves it
+    const e = u.e, v = u.v; const c = e.cargo || []; v.mesh.updateMatrixWorld(); for (const m of c) this.g.scene.attach(m);
+    e.st = c.find((m) => m.name === 'emsStretcher') || c[0] || null; e.sheet = c.find((m) => m !== e.st) || null; e.cargo = [];
+    if (!e.st) { e.st = buildStretcher(); this.g.scene.add(e.st); }
+    const zIn = AMB.rearZ + ST.half + 0.05; const p = this.vanPt(u, zIn); e.S = { x: p.x, z: p.z, y: v.y + AMB.doorY0, yaw: v.yaw + Math.PI }; this.syncStretcher(u);
+    if (e.sheet) { e.sheet.position.copy(e.st.position); e.sheet.rotation.copy(e.st.rotation); }
   }
   dropProps(u) { const e = u.e; for (const k of ['stretcher', 'bvm']) if (e[k]) { e[k].parent?.remove(e[k]); e[k] = null; } }
   abort(u, why) { // the player took the ambulance / the patient vanished: the crew gives up and the patient is left as they were
@@ -119,13 +205,14 @@ export class EMS {
   // ---------------------------------------------------------------- per frame
   update(dt) {
     this.t += dt; if (this.waits && this.waits.length) { const due = this.waits.filter((w) => (w.t -= dt) <= 0); this.waits = this.waits.filter((w) => w.t > 0); for (const w of due) w.fn(); }
+    if ((this.scanT -= dt) <= 0) { this.scanT = 1; this.scan(); }
     for (const u of this.units.slice()) this.updateUnit(u, dt); this.updateSiren(dt);
   }
   updateUnit(u, dt) {
     const g = this.g, pr = this.pr, v = u.v, e = u.e; e.t += dt; e.ct += dt;
     if (!v || v.player) { if (e.ph !== 'leave' || v) this.abort(u, 'vehicle taken'); return; }
-    if (e.ph !== 'leave' && e.p && !e.p.ch.root.parent) { this.abort(u, 'patient gone'); return; }
-    const lit = e.ph === 'drive' || e.ph === 'out' || (e.ph !== 'leave' && e.ph !== 'load'); v.beacons(lit, pr.t); v.lights = g.atmos ? g.atmos.night > 0.4 : false;
+    if (e.ph !== 'leave' && e.ph !== 'bay' && e.ph !== 'parked' && e.p && !e.p.ch.root.parent) { this.abort(u, 'patient gone'); return; }
+    const lit = e.ph === 'drive' || e.ph === 'out' || (e.ph !== 'leave' && e.ph !== 'load' && e.ph !== 'bay' && e.ph !== 'parked'); v.beacons(lit, pr.t); v.lights = g.atmos ? g.atmos.night > 0.4 : false;
     for (const o of u.officers) pr.updateOfficer(o, u, dt);
     if (e.rear !== undefined) { const want = e.rearOpen ? 1 : 0; e.rear += Math.sign(want - e.rear) * Math.min(Math.abs(want - e.rear), dt / 1.1); v.rearDoors(sm(e.rear)); }
     const p = e.p;
@@ -138,10 +225,14 @@ export class EMS {
         else if (u.stuckT > 6) { u.stuckT = 0; pr.plan(u, p.x, p.z); }
         else if (e.ct > 200) { this.abort(u, 'could not reach'); }
         return; }
+      case 'bay': this.atBay(u, dt); return;
+      case 'parked': { const P = g.player; const d = Math.hypot(v.x - P.x, v.z - P.z); e.leaveT = (e.leaveT || 0) + dt; if ((d > 60 && !pr.inView(v)) || d > 180) this.removeUnit(u); return; }
       case 'out': if (u.officers.every((o) => o.mode === 'foot')) { e.ph = 'approach'; e.t = 0; this.toRagdoll(p); } return;
       case 'leave': {
         if (u.officers.some((o) => o.mode === 'foot')) for (const o of u.officers) if (o.mode === 'foot') { o.mode = 'return'; o.goal = null; }
-        if (!pr.allSeated(u)) return; if (!e.going) { e.going = true; v.ai.stopped = false; v.ai.route = null; v.ai.goal = null; v.ai.v0 = 11; e.rearOpen = false; }
+        if (!pr.allSeated(u)) return; if (!e.going) { e.going = true; v.ai.stopped = false; v.ai.route = null; v.ai.goal = null; v.ai.v0 = 11; e.rearOpen = false;
+          const B = this.bayInfo(); if (e.transport && B && !v.ai.chase) { if (pr.plan(u, B.road.x, B.road.z)) { e.toBay = 'road'; e.bayT = 0; this.stats.toHospital++; pr.note(`EMS unit ${u.id} → National Hospital`); } else { e.transport = false; this.stats.bayFail++; } } }
+        if (e.toBay) { this.toBay(u, dt); return; }
         const P = g.player; const d = Math.hypot(v.x - P.x, v.z - P.z); e.leaveT = (e.leaveT || 0) + dt; if ((d > 140 && !pr.inView(v)) || d > 300 || e.leaveT > 120) this.removeUnit(u); return; }
       default: this.script(u, dt);
     }
@@ -318,10 +409,10 @@ export class EMS {
     const bz = Math.min(zc - ST.handZ - 0.42, AMB.rearZ - 0.5); const bp = this.vanPt(u, bz); const reach = (zc - ST.handZ) - bz < 0.62;
     this.spot(B, bp.x, bp.z, v.yaw, 'medCarry', { direct: true, look: 0.3, holdL: reach ? H.hand(-1, 1) : null, holdR: reach ? H.hand(1, 1) : null, speed: reach && e.slide < 1 ? 0.45 : 0 });
     this.syncStretcher(u); this.followBody(u);
-    if (e.slide >= 1) { if (!e.stowed) { e.stowed = true; this.stow(u); } e.rearOpen = false; if (e.rear <= 0.01) { this.stats.carried++; e.ph = 'leave'; e.t = 0; for (const o of u.officers) { o.want = null; o.ch.anim.set(null); o.ch.anim.holdWL = o.ch.anim.holdWR = null; o.mode = 'return'; o.goal = null; } } }
+    if (e.slide >= 1) { if (!e.stowed) { e.stowed = true; this.stow(u); } e.rearOpen = false; if (e.rear <= 0.01) { this.stats.carried++; e.ph = 'leave'; e.t = 0; e.transport = true; for (const o of u.officers) { o.want = null; o.ch.anim.set(null); o.ch.anim.holdWL = o.ch.anim.holdWR = null; o.mode = 'return'; o.goal = null; } } }
   }
   stow(u) { // inside: the stretcher and sheet ride in the van (the body under the sheet is the draped shape); the person leaves the crowd
-    const e = u.e, v = u.v, p = e.p, C = this.crowd; v.mesh.updateMatrixWorld(); for (const m of [e.st, e.sheet]) { if (!m) continue; v.mesh.attach(m); }
+    const e = u.e, v = u.v, p = e.p, C = this.crowd; v.mesh.updateMatrixWorld(); e.cargo = []; for (const m of [e.st, e.sheet]) { if (!m) continue; v.mesh.attach(m); e.cargo.push(m); }
     e.st = null; e.sheet = null; if (p.ch.rag) { p.ch.rag.kin = null; p.ch.rag.release(); } const i = C.peds.indexOf(p); if (i >= 0) { C.peds.splice(i, 1); C.despawn(p); } else { p.ch.root.parent?.remove(p.ch.root); p.ch.dispose(); } e.p = null; this.pr.note(`EMS unit ${u.id} patient loaded`);
   }
   // ---------------------------------------------------------------- a medic on foot (called from PoliceResponse.updateOfficer)
