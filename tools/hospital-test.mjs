@@ -137,15 +137,15 @@ try {
   // ---------------------------------------------------------------- 8 · a civilian down near the hospital: bystander call → ambulance → hospital bay
   if (want('ems')) {
     const em = await page.evaluate(async () => { const g = window.__game, P = g.player, H = g.hospital, C = g.crowd, E = g.police.ems; const r = { log: [], jumps: [], phases: [] };
-      P.teleport(676, -166, Math.PI * 0.75); g.world.warm(676, -166); await g.stepSim(20, 0.1);
-      let p = C.peds.filter((q) => q.state !== 'down' && !q.dead && q.ch.root.parent).sort((a, b) => Math.hypot(a.x - 676, a.z - 166) - Math.hypot(b.x - 676, b.z - 166))[0]; if (!p) return { err: 'no ped' };
+      P.teleport(697, -186, -Math.PI * 0.6); g.world.warm(697, -186); await g.stepSim(20, 0.1); // inside the compound, off the ED drive (watching the street and the bay)
+      let p = C.peds.filter((q) => q.state !== 'down' && !q.dead && q.ch.root.parent).sort((a, b) => Math.hypot(a.x - 676, a.z + 166) - Math.hypot(b.x - 676, b.z + 166))[0]; if (!p) return { err: 'no ped' };
       p.x = 672; p.z = -173.6; p.ch.root.position.set(p.x, p.ch.root.position.y, p.z); C.kill(p); p.deadT = 400; // long gone: CPR will not bring them back → the stretcher → the hospital
       let u = null, last = null, t = 0; const seen = new Set();
       for (let i = 0; i < 9000; i++) { await g.stepSim(1, 0.1); t += 0.1; if (p.deadT < 400 && !u) p.deadT = 400;
         if (!u && E.units.length) { u = E.units[0]; r.dispatchT = +t.toFixed(1); r.incidentsBefore = E.stats.incidents; const v = u.v; r.spawnD = +Math.hypot(v.x - p.x, v.z - p.z).toFixed(0); r.spawnSeen = g.police.inView(v); }
         if (u) { const v = u.v; if (!v) { r.removed = +t.toFixed(1); break; } const ph = u.e.ph + (u.e.toBay ? ':' + u.e.toBay : '') + (u.e.bp ? ':' + u.e.bp : ''); if (!seen.has(ph)) { seen.add(ph); r.phases.push(ph + '@' + t.toFixed(0)); }
           if (last) { const d = Math.hypot(v.x - last.x, v.z - last.z); if (d > Math.max(3, last.sp * 0.1 * 3 + 1)) r.jumps.push(+d.toFixed(1) + '@' + t.toFixed(0)); } last = { x: v.x, z: v.z, sp: Math.max(v.speed, 1) };
-          if (i % 100 === 0) r.log.push([+t.toFixed(0), u.e.ph, +v.x.toFixed(0), +v.z.toFixed(0), +v.speed.toFixed(1)]);
+          if (i % 100 === 0) r.log.push([+t.toFixed(0), u.e.ph, +v.x.toFixed(0), +v.z.toFixed(0), +v.speed.toFixed(1), u.e.dbg ? u.e.dbg.join('/') : '', u.e.replans || 0]);
           if (u.e.ph === 'parked' && !r.parkedAt) { r.parkedAt = +t.toFixed(1); const B = H.emsBay; r.bayErr = +Math.hypot(v.x - B.x, v.z - B.z).toFixed(2); r.bayYawErr = +Math.abs(Math.atan2(Math.sin(v.yaw - B.yaw), Math.cos(v.yaw - B.yaw))).toFixed(2); r.cargoLeft = (u.e.cargo || []).length + (u.e.st ? 1 : 0); r.units = E.units.length; break; } }
         if (E.units.length > 1) r.dup = true; }
       r.stats = { ...E.stats }; r.incidents = E.incidents.size; r.pAwait = !!p.awaitMedic; r.pInCrowd = C.peds.includes(p);

@@ -144,10 +144,14 @@ export class EMS {
     if (Math.hypot(v.x - P.x, v.z - P.z) > 220 && !pr.inView(v)) { this.stats.delivered++; pr.note(`EMS unit ${u.id} delivered (out of sight)`); this.removeUnit(u); return; }
     if (e.toBay === 'road') {
       const p0 = ai.pieces[0]; if (v.speed < 0.3) u.stuckT = (u.stuckT || 0) + dt; else u.stuckT = 0;
-      if (p0 && p0.type === 'line' && u.goalRoad && p0.seg === u.goalRoad.seg) { const al = (B.gate.x - p0.p0[0]) * p0.d[0] + (B.gate.z - p0.p0[1]) * p0.d[1];
-        if (al > ai.s + 12 && al < p0.len + 2) { const sA = al - 7; const path = this.bayPath(p0, sA, B); const cut = { ...p0, p1: [p0.p0[0] + p0.d[0] * sA, p0.p0[1] + p0.d[1] * sA], len: sA };
+      // on a lane that runs past the gate (the gate within ~10 m of its line, ahead of us): turn in from it
+      if (p0 && p0.type === 'line') { const al = (B.gate.x - p0.p0[0]) * p0.d[0] + (B.gate.z - p0.p0[1]) * p0.d[1], lat = Math.abs((B.gate.x - p0.p0[0]) * p0.d[1] - (B.gate.z - p0.p0[1]) * p0.d[0]);
+        e.dbg = [p0.seg && p0.seg.id, u.goalRoad && u.goalRoad.seg && u.goalRoad.seg.id, +al.toFixed(1), +ai.s.toFixed(1), +lat.toFixed(1), +p0.len.toFixed(0)];
+        if (lat < 14 && al > ai.s + 9 && al < p0.len + 2) { const sA = Math.max(ai.s + 2, al - 7); const path = this.bayPath(p0, sA, B); const cut = { ...p0, p1: [p0.p0[0] + p0.d[0] * sA, p0.p0[1] + p0.d[1] * sA], len: sA };
           ai.pieces = [cut, path]; ai.route = null; ai.goal = null; ai.park = { path, bay: true }; ai.sMaxP = path; ai.sMax = path.len - 0.02; ai.v0 = 8; e.toBay = 'in'; e.inT = 0; return; } }
-      if (u.stuckT > 8) { u.stuckT = 0; if (!pr.plan(u, B.road.x, B.road.z)) e.bayT += 60; }
+      // stopped at the routing goal without a way in (came at it from the wrong side / too close): go round the block and try again
+      const gd = ai.goal && ai.goal.dist !== undefined ? ai.goal.dist : Infinity; if (!ai.goal && !ai.route && v.speed < 0.5) u.stuckT += dt * 2;
+      if (u.stuckT > 6 || (gd < 6 && v.speed < 0.6)) { u.stuckT = 0; e.replans = (e.replans || 0) + 1; ai.goal = null; ai.route = null; if (!this.planBay(u, B)) e.bayT += 60; }
       if (e.bayT > 240) { e.toBay = null; e.transport = false; this.stats.bayFail++; pr.note(`EMS unit ${u.id} could not reach the hospital`); ai.route = null; ai.goal = null; ai.park = null; } // drives on; recycled out of view
       return; }
     // pulling in through the gate to the bay
@@ -155,6 +159,10 @@ export class EMS {
     if (path && ai.pieces[0] === path && ai.s > path.len - 0.35 && v.speed < 0.15) { ai.stopped = true; ai.park = null; ai.sMaxP = null; e.toBay = null; e.ph = 'bay'; e.t = 0; e.bp = 'stop'; pr.note(`EMS unit ${u.id} in the hospital bay`); return; }
     if (e.inT > 60) { ai.park = null; ai.sMaxP = null; e.toBay = null; e.transport = false; this.stats.bayFail++; ai.stopped = false; }
   }
+  // routed to a road point 30 m PAST the gate, seen from where the van is now: whichever way it comes, it then runs along
+  // the street towards the gate with room to slow down and turn in (a van that stopped past the gate goes round the block)
+  planBay(u, B) { const v = u.v; const ax = B.road.x - B.gate.x, az = B.road.z - B.gate.z; const L = Math.hypot(ax, az) || 1; const sx = -az / L, sz = ax / L; // along the street
+    const side = (v.x - B.gate.x) * sx + (v.z - B.gate.z) * sz; const k = side > 0 ? -30 : 30; return this.pr.plan(u, B.road.x + sx * k, B.road.z + sz * k); }
   // the lane → the gate (the kerb S of the parking arrivals) → straight down the drive to the bay, as one path piece
   bayPath(p0, sA, B) {
     const a = parkPath(p0, sA, { x: B.gate.x, z: B.gate.z, yaw: B.yaw }); const last = a.poly[a.poly.length - 1]; const L = Math.hypot(B.x - B.gate.x, B.z - B.gate.z); const n = Math.max(2, Math.ceil(L / 0.25));
@@ -231,7 +239,7 @@ export class EMS {
       case 'leave': {
         if (u.officers.some((o) => o.mode === 'foot')) for (const o of u.officers) if (o.mode === 'foot') { o.mode = 'return'; o.goal = null; }
         if (!pr.allSeated(u)) return; if (!e.going) { e.going = true; v.ai.stopped = false; v.ai.route = null; v.ai.goal = null; v.ai.v0 = 11; e.rearOpen = false;
-          const B = this.bayInfo(); if (e.transport && B && !v.ai.chase) { if (pr.plan(u, B.road.x, B.road.z)) { e.toBay = 'road'; e.bayT = 0; this.stats.toHospital++; pr.note(`EMS unit ${u.id} → National Hospital`); } else { e.transport = false; this.stats.bayFail++; } } }
+          const B = this.bayInfo(); if (e.transport && B && !v.ai.chase) { if (this.planBay(u, B)) { e.toBay = 'road'; e.bayT = 0; this.stats.toHospital++; pr.note(`EMS unit ${u.id} → National Hospital`); } else { e.transport = false; this.stats.bayFail++; } } }
         if (e.toBay) { this.toBay(u, dt); return; }
         const P = g.player; const d = Math.hypot(v.x - P.x, v.z - P.z); e.leaveT = (e.leaveT || 0) + dt; if ((d > 140 && !pr.inView(v)) || d > 300 || e.leaveT > 120) this.removeUnit(u); return; }
       default: this.script(u, dt);
