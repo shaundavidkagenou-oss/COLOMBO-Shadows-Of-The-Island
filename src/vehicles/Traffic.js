@@ -427,12 +427,12 @@ export class Traffic {
     const ai = v.ai; if (!ai) return; if (ai.stopped) { v.speed = 0; v.brake = true; return; } if (ai.chase) { stepChase(this, v, dt, all); return; } /* police intercept mode (Pursuit.js) */ if (ai.fuel && this.fuel && this.fuel.hold(v, ai, dt)) return; /* parked at a pump (FuelStations.js) */ const p = ai.pieces[0]; // stopped = crew out of a police unit (handbrake on, nobody at the wheel)
     const by = ai.rejoin ? v.yaw : v.yaw - (ai.hdg || 0); const fx = Math.sin(by), fz = Math.cos(by); // lane direction (the body's lane-change yaw must not swing what counts as ahead / beside)
     // --- leader gap
-    let gap = 60, leadV = 0; if (v.hold) gap = -1; // player is getting in: brake to a stop
+    let gap = 60, leadV = 0; if (v.hold) gap = -1; let gapBy = v.hold ? 'hold' : null; // (gapBy: what holds us — kept only for debug-flagged vehicles, v.dbgOn) // player is getting in: brake to a stop
     const consider = (ox, oz, ov, len, latTol) => {
       const rx = ox - v.x, rz = oz - v.z; const along = rx * fx + rz * fz; if (along <= 0 || along > 45) return;
       const lat = Math.abs(rx * fz - rz * fx); if (lat > latTol) return; const g = along - v.half - len; if (g < gap) { gap = g; leadV = ov; }
     };
-    let leadCiv = false; for (const o of all) { if (o === v) continue; if (Math.abs(o.x - v.x) > 45 || Math.abs(o.z - v.z) > 45) continue; const ofx = Math.sin(o.yaw), ofz = Math.cos(o.yaw); const sameDir = ofx * fx + ofz * fz; const g0 = gap; consider(o.x, o.z, Math.max(0, o.speed * sameDir), o.half, sameDir > 0.3 ? 1.7 : 1.2); if (gap < g0) leadCiv = !o.isTrain && !(o.ai && o.ai.emergency) && sameDir > 0.3; }
+    let leadCiv = false; for (const o of all) { if (o === v) continue; if (Math.abs(o.x - v.x) > 45 || Math.abs(o.z - v.z) > 45) continue; const ofx = Math.sin(o.yaw), ofz = Math.cos(o.yaw); const sameDir = ofx * fx + ofz * fz; const g0 = gap; consider(o.x, o.z, Math.max(0, o.speed * sameDir), o.half, sameDir > 0.3 ? 1.7 : 1.2); if (gap < g0) gapBy = o; if (gap < g0) leadCiv = !o.isTrain && !(o.ai && o.ai.emergency) && sameDir > 0.3; }
     // emergency unit (lights on): overtake slow traffic through the centre of the road; civilians ahead pull over and slow down
     const em = ai.emergency && v.beaconsOn; ai.lat = ai.lat || 0; let latWant = 0;
     if (em) {
@@ -454,7 +454,7 @@ export class Traffic {
         for (let c = 0; c < 4; c++) { const cl = c & 1 ? ohl : -ohl, cw = c & 2 ? ohw : -ohw; const qx = rx + ofx * cl + ofz * cw, qz = rz + ofz * cl - ofx * cw; const al = qx * fx + qz * fz, lt = qx * fz - qz * fx + ai.lat; if (al < amin) amin = al; if (al > amax) amax = al; if (lt < lmin) lmin = lt; if (lt > lmax) lmax = lt; }
         if (amax < -v.half - 2.5 || amin > 26) continue; /* stay out until 2.5 m past it before steering back in (the body yaws, so the tail would swing into it) */ if (lmax < -(w2 + 0.3) || lmin > w2 + 0.35) continue; // clear of our path
         if (lmin + lmax > 0.2 || (o.spot && lmin + lmax > -2)) { const n = w2 + 0.35 - lmin; if (n > need) { need = n; pk = o; } } /* on a kerb parking spot it is kerb-side by definition (on the main roads the kerb lane runs right over the parking line) */
-        else if (amin > v.half * 0.3) { const g = amin - v.half; if (g < gap) { gap = g; leadV = 0; } } }
+        else if (amin > v.half * 0.3) { const g = amin - v.half; if (g < gap) { gap = g; leadV = 0; gapBy = o; } } }
       if (pk) { let blocked = need > 2.6; if (!blocked) for (const o of all) { if (o === v) continue; const rx = o.x - v.x, rz = o.z - v.z; const al = rx * fx + rz * fz; if (al < -5 || al > 32) continue; const lo = rx * fz - rz * fx + ai.lat; if (lo < 0 && lo > -need - w2 - o.T.wid / 2 - 0.3) { const hd = Math.sin(o.yaw) * fx + Math.cos(o.yaw) * fz; if (hd < 0.3 || (al > -7 && al < 10 && !o.parked && Math.abs(lo) > 0.8)) { blocked = true; break; } } } /* oncoming, or (two-lane roads) someone already alongside in the lane we would pull into */
         if (blocked && Math.abs(ai.lat) < need * 0.6) consider(pk.x, pk.z, 0, pk.half + Math.min(2.5, need * 1.4), 4.5); /* wait with room to steer out round it */ else { latWant = Math.min(latWant, -need); if (need + ai.lat > 0.15) ai.creep = 1; } }
     }
@@ -471,11 +471,11 @@ export class Traffic {
             if (inWay || oEm || o === playerV || (right && (ofx * fx + ofz * fz > -0.5 || p.type === 'curve')) || (!o.ai && o.speed < 0.5)) conf = Math.min(conf, Math.max(0.3, along - v.half - o.half));
             break; } } }
       if (fresh) ai.conf = conf;
-      if (conf < Infinity) { ai.confT = (ai.confT || 0) + dt; if (ai.confT < 4) { if (conf < gap) { gap = conf; leadV = 0; } } else if (ai.confT > 5.5) ai.confT = 0; } else ai.confT = 0;
+      if (conf < Infinity) { ai.confT = (ai.confT || 0) + dt; if (ai.confT < 4) { if (conf < gap) { gap = conf; leadV = 0; gapBy = 'conf'; } } else if (ai.confT > 5.5) ai.confT = 0; } else ai.confT = 0;
     }
-    if (playerV) consider(playerV.x, playerV.z, Math.max(0, playerV.speed * (Math.sin(playerV.yaw) * fx + Math.cos(playerV.yaw) * fz)), playerV.half, 1.9);
-    else if (player) consider(player.x, player.z, 0, 0.4, 1.9);
-    if (peds) for (const q of peds) consider(q.x, q.z, 0, 0.4, q.crossing ? 2.6 : 1.4);
+    { const g1 = gap; if (playerV) consider(playerV.x, playerV.z, Math.max(0, playerV.speed * (Math.sin(playerV.yaw) * fx + Math.cos(playerV.yaw) * fz)), playerV.half, 1.9);
+    else if (player) consider(player.x, player.z, 0, 0.4, 1.9); if (gap < g1) gapBy = 'player'; }
+    if (peds) for (const q of peds) { const gq = gap; consider(q.x, q.z, 0, 0.4, q.crossing ? 2.6 : 1.4); if (gap < gq) gapBy = q; }
     // --- junction control
     let stopAt = Infinity;
     if (p.type === 'line') {
@@ -505,7 +505,8 @@ export class Traffic {
     if (HUMPS.length && p.type === 'line') { const dH = humpAhead(v.x, v.z, fx, fz); if (dH < 36) v0 = Math.min(v0, lerp(em ? 7 : 4.2, v0, clamp((dH - 3) / 30, 0, 1))); } /* speed hump ahead: ease down to ~15 km/h (responding units ~25) and roll over it */
     if (p.vlim) v0 = Math.min(v0, pathV(p, ai.s)); if (ai.fuel && ai.fuel.vcap) v0 = Math.min(v0, ai.fuel.vcap); /* forecourt paths: curvature speed; slowing to turn in */
     const s0 = 2.2, T = 1.2 / ai.aggressive, a = v.T.accel * 0.8, b = 3.5; const sp = v.speed;
-    const bodyG = this.bodyGap(v, ai, dt); ai.bodyBind = bodyG < Math.min(gap, stopAt) - 0.5; if (bodyG < gap) { gap = bodyG; leadV = 0; } // never into another vehicle's body
+    const bodyG = this.bodyGap(v, ai, dt); ai.bodyBind = bodyG < Math.min(gap, stopAt) - 0.5; if (bodyG < gap) { gap = bodyG; leadV = 0; gapBy = 'body'; } // never into another vehicle's body
+    if (v.dbgOn) { ai.dbgBy = gapBy; ai.dbgGap = gap; ai.dbgStop = stopAt; } // (EMS / tests: why a unit is not moving)
     const g2 = Math.min(gap, stopAt); const lv = stopAt < gap ? 0 : leadV;
     const sStar = s0 + Math.max(0, sp * T + (sp * (sp - lv)) / (2 * Math.sqrt(a * b)));
     let acc = a * (1 - Math.pow(sp / Math.max(v0, 0.1), 4) - Math.pow(sStar / Math.max(g2, 0.1), 2));

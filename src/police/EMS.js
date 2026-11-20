@@ -157,7 +157,8 @@ export class EMS {
           ai.pieces = [cut, path]; ai.route = null; ai.goal = null; ai.park = { path, bay: true }; ai.sMaxP = path; ai.sMax = path.len - 0.02; ai.v0 = 8; e.toBay = 'in'; e.inT = 0; return; } }
       // stopped at the routing goal without a way in (came at it from the wrong side / too close): go round the block and try again
       const gd = ai.goal && ai.goal.dist !== undefined ? ai.goal.dist : Infinity; if (!ai.goal && !ai.route && v.speed < 0.5) u.stuckT += dt * 2;
-      if (u.stuckT > 6 || (gd < 6 && v.speed < 0.6)) { u.stuckT = 0; e.replans = (e.replans || 0) + 1; ai.goal = null; ai.route = null; if (!this.planBay(u, B)) e.bayT += 60; }
+      if (u.stuckT > 6 || (gd < 6 && v.speed < 0.6)) { v.dbgOn = true; const by = ai.dbgBy; e.dbg = [ai.stopped ? 'stopped' : 'run', 'gap ' + (+(ai.dbgGap ?? -1)).toFixed(1), 'stop ' + (+(ai.dbgStop ?? -1)).toFixed(1), 'goal ' + (+gd).toFixed(1), !by ? '-' : typeof by === 'string' ? by : (by.parked ? 'parked ' : by.ai ? 'car ' : by.ch ? 'ped ' : 'obj ') + (by.id ?? '') + (by.police ? ' police' : '') + ' @' + Math.hypot(by.x - v.x, by.z - v.z).toFixed(1), 'p0 ' + (ai.pieces[0] ? ai.pieces[0].type : 'none') + ' n' + ai.pieces.length, 'em ' + (ai.emergency ? 1 : 0) + (v.beaconsOn ? 'b' : '')];
+        u.stuckT = 0; e.replans = (e.replans || 0) + 1; ai.goal = null; ai.route = null; if (!this.planBay(u, B)) e.bayT += 60; }
       if (e.bayT > 300) { e.toBay = null; e.transport = false; this.stats.bayFail++; pr.note(`EMS unit ${u.id} could not reach the hospital`); ai.route = null; ai.goal = null; ai.park = null; } // drives on; recycled out of view
       return; }
     // pulling in through the gate to the bay

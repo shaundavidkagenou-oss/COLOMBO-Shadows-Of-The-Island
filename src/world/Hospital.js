@@ -235,7 +235,8 @@ export class Hospital {
     else { this.curRoom = null; const front = pv < 0 && pD < INT_FAR; const edSide = pu > 15 && pD < 45; key = 'o' + (front ? 'f' : '') + (edSide || this.doorById.edEntrance?.k > 0.1 ? 'e' : '') + (pD < 28 && front ? 'c' : ''); }
     for (const D of this.doors) key += D.kind === 'swing' || D.kind === 'lift' ? (this.open[D.id] > 0.12 ? '1' : '0') : '';
     if (key === this.visKey) return; this.visKey = key; const vis = this.vis; vis.clear();
-    if (inside) { const f = pf; const add = (id) => { if (!id) return; for (const r of visibleRooms(id, this.open)) { const R2 = ROOM[r]; const cross = id === 'stairs' || id === 'lift'; if (cross || R2.floors.includes(f)) vis.add(r); } };
+    if (inside) { const f = pf; const add = (id) => { if (!id) return; const cross = id === 'stairs' || id === 'lift'; const near = cross ? visibleRooms(id, this.open, 1) : null; // from the stairwell / lift: the other floor's landing only, not the rooms beyond it
+      for (const r of visibleRooms(id, this.open)) { const R2 = ROOM[r]; if (R2.floors.includes(f) || (cross && near.has(r))) vis.add(r); } };
       add(this.curRoom && this.curRoom.id); if (this.camRoom && this.camRoom !== this.curRoom) add(this.camRoom.id); }
     else { if (key.includes('f')) vis.add('lobby'); if (key.includes('e')) vis.add('ed'); if (key.includes('c')) vis.add('corr0'); }
     I.visible = vis.size > 0; let n = 0; for (const [id, r] of this.rooms) { const on = vis.has(id); r.group.visible = on; if (on) n++; } this.stats.roomsDrawn = n;
