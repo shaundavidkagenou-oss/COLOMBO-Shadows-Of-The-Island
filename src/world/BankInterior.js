@@ -24,6 +24,7 @@ import * as THREE from 'three';
 import { Kit, C, lathe } from './ShopKit.js';
 import { shell } from './ShopInteriors.js';
 import { collectParts, applyLayout } from './BankLayout.js';
+import { cloneMaterial } from '../gfx/Materials.js';
 import { useBankMaterials, bankMaterials, SCREEN_UV } from './BankMaterials.js'; // 74th: the hall's own textured materials + LCD screens
 import { modelPackNow } from '../debug/boot.js';
 import './RobberyShops.js'; // registers the kit's ceiling tile / steel / plastic / gold materials
@@ -164,7 +165,7 @@ function lcdFinish(a, w, h) {
 }
 let _atmGlass = null, _atmGlassGeo = null, _legendMat = null;
 const ATM_GLASS_GEO = () => (_atmGlassGeo || (_atmGlassGeo = new THREE.PlaneGeometry(0.318, 0.243)));
-function atmGlassMat() { return _atmGlass || (_atmGlass = Object.assign(new THREE.MeshStandardMaterial({ color: 0x06080b, roughness: 0.05, metalness: 0, transparent: true, opacity: 0.16, depthWrite: false }), { name: 'atmCoverGlass' })); }
+function atmGlassMat() { return _atmGlass || (_atmGlass = Object.assign(new THREE.MeshStandardMaterial({ color: 0x06080b, roughness: 0.05, metalness: 0, transparent: true, opacity: 0.16, depthWrite: false }), { name: 'CMB · ATM cover glass' })); }
 // key legends: a 256² atlas, 4 × 4 cells — digits engraved dark into brushed steel; CANCEL / CLEAR / ENTER white on their colours
 const LEG = ['1', '2', '3', 'CANCEL', '4', '5', '6', 'CLEAR', '7', '8', '9', 'ENTER', '', '0', '', ''];
 const LEG_BG = { CANCEL: '#b4322a', CLEAR: '#d8b228', ENTER: '#2d8a48' };
@@ -177,7 +178,7 @@ function atmLegendMat() {
     if (t.length === 1) { a.font = '700 34px "Barlow", "Arial", sans-serif'; a.fillStyle = 'rgba(255,255,255,0.55)'; a.fillText(t, x + 32.8, y + 34.6); a.fillStyle = '#1a1c1f'; a.fillText(t, x + 32, y + 33.5); if (t === '5') { a.beginPath(); a.arc(x + 32, y + 54, 2.6, 0, 7); a.fill(); } } // (the raised dot on 5)
     else if (t) { a.font = '700 13px "Barlow Condensed", "Arial Narrow", sans-serif'; a.fillStyle = '#ffffff'; a.fillText(t, x + 32, y + 33); }
   });
-  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; _legendMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.38, metalness: 0.55, name: 'atmKeyLegends' }); return _legendMat;
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; _legendMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.38, metalness: 0.55, name: 'CMB · ATM key legends' }); return _legendMat;
 }
 const keyLegends = { mb: new MeshBuilder(), n: 0 };
 // the pad in its own tilted frame (rising 11° toward the fascia): a dark recessed plate, a steel surround, 4 × 3 digit keys and
@@ -211,6 +212,7 @@ export function buildBankInterior(game, site) {
   Object.assign(k.extra, { cmbSign: signMat, cmbDay: dayMat, cmbPrint: printMat, cmbGlass: glassMat });
   const sign = k.get('cmbSign'), day = k.get('cmbDay'), prints = k.get('cmbPrint'), cglass = k.get('cmbGlass');
   const S = shell(k, g, W, D, H, { floor: { kind: 'granite', size: 0.6, colors: ['#dcd7cc', '#d4cec2', '#d9d3c7'], grout: '#a9a296', rough: 0.12, seed: 67 }, wall: 'plaster', wallCol: '#efeae1', ceil: '#f2f0ea', skirt: 'marbleDark', skirtCol: '#ffffff', cornice: '#f4f1ea' });
+  { let fi = 0; for (const fg of g.children) if (fg.name === 'modelledFloor') fg.traverse((o) => { if (o.isMesh && o.material && !Array.isArray(o.material)) o.material = cloneMaterial(o.material, 'CMB · Granite floor tiles ' + ++fi); }); } // 74th: the bank's own floor materials
   const { x0, x1, z0, zf } = S; const xR = x1, xL = x0;
   const ob = (ax0, ax1, d0, d1) => obs.push({ x0: Math.min(ax0, ax1), x1: Math.max(ax0, ax1), z0: Z(Math.max(d0, d1)), z1: Z(Math.min(d0, d1)), part: k.part });
   const navy = C(CMB.navy), gold = C(CMB.gold), bronze = C('#2e2a26'), steelC = C('#b9bdc1');
@@ -271,7 +273,7 @@ export function buildBankInterior(game, site) {
     // the screen: its own mesh (canvas, repainted by the ATM interface)
     // 73rd: drawn at twice the resolution (the same layout, scaled) and finished like a real backlit LCD (lcdFinish)
     let screen = null; if (hasCanvas()) { const cv = document.createElement('canvas'); cv.width = 512; cv.height = 384; const ctx = cv.getContext('2d'); paintATM(ctx, ATM_IDLE_VIEW); const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
-      const mat = new THREE.MeshBasicMaterial({ map: tex }); mat.userData.own = true; const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.225), mat); mesh.position.set(AX + 0.1112, 1.385, z); mesh.rotation.y = Math.PI / 2; mesh.name = 'atm-screen-' + i; g.add(mesh); screen = { cv, ctx, tex, mesh };
+      const mat = new THREE.MeshBasicMaterial({ map: tex }); mat.userData.own = true; mat.name = 'CMB · ATM screen ' + (i + 1); // 74th: named (Texture Studio) const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.225), mat); mesh.position.set(AX + 0.1112, 1.385, z); mesh.rotation.y = Math.PI / 2; mesh.name = 'atm-screen-' + i; g.add(mesh); screen = { cv, ctx, tex, mesh };
       const gl = new THREE.Mesh(ATM_GLASS_GEO(), atmGlassMat()); gl.position.set(AX + 0.1168, 1.385, z); gl.rotation.y = Math.PI / 2; gl.name = 'atm-glass-' + i; gl.renderOrder = 2; g.add(gl); }
     return { i, d, z, stand: [B.atmStandX, z], slot: [AX + 0.1245, 1.3, z - 0.3], user: null, player: false, screen, paint(view) { if (!this.screen) return; paintATM(this.screen.ctx, view || ATM_IDLE_VIEW); this.screen.tex.needsUpdate = true; } }; });
   if (hasCanvas() && keyLegends.n) { const lm = new THREE.Mesh(keyLegends.mb.build(), atmLegendMat()); lm.name = 'atm-key-legends'; g.add(lm); } // both pads' engraved legends: one mesh

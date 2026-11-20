@@ -16,10 +16,12 @@ try {
     const meshes = []; hall.traverse((o) => { if (o.isMesh && !o.isSkinnedMesh) { let p = o, ch = false; for (; p; p = p.parent) if (p.userData && p.userData.character) ch = true; if (!ch) meshes.push(o); } });
     const names = new Map(); for (const m of meshes) { const mm = Array.isArray(m.material) ? m.material : [m.material]; for (const x of mm) names.set(x.name || '(unnamed ' + x.type + ')', (names.get(x.name || '(unnamed ' + x.type + ')') || 0) + 1); }
     out.meshes = meshes.length; out.mats = [...names.entries()].sort((a, b) => b[1] - a[1]);
-    out.notOwn = out.mats.filter(([n]) => !/^CMB/.test(n)).map(([n, c]) => n + '×' + c);
+    const isChar = (o) => { for (let p = o; p; p = p.parent) { if (p.userData && (p.userData.character || p.userData.ch)) return true; let sk = false; if (p.children) for (const c of p.children) if (c.isSkinnedMesh) sk = true; if (sk) return true; } return false; };
+    const nn = new Map(); for (const m of meshes) { if (isChar(m) || /^npc/.test(m.material.name || '')) continue; const n = m.material.name || '(unnamed ' + m.material.type + ')'; if (/^CMB/.test(n)) continue; const k = n + ' @ ' + (m.name || '?') + '<' + (m.parent && m.parent.name || '?'); nn.set(k, (nn.get(k) || 0) + 1); }
+    out.notOwn = [...nn.entries()].map(([k, c]) => k + '×' + c);
     const own = out.mats.filter(([n]) => /^CMB · /.test(n)); out.ownCount = own.length;
     // textured: every CMB material that draws a surface has a map
-    const untextured = new Set(); for (const m of meshes) { const x = m.material; if (x && /^CMB · /.test(x.name) && !x.map && !x.transparent) untextured.add(x.name); } out.untextured = [...untextured];
+    const untextured = new Set(); for (const m of meshes) { const x = m.material; if (x && /^CMB · /.test(x.name) && !x.map && !x.transparent && !/ATM cover glass/.test(x.name)) untextured.add(x.name); } out.untextured = [...untextured];
     const scr = meshes.find((m) => m.material && /Digital screens/.test(m.material.name)); out.screen = scr ? { basic: scr.material.isMeshBasicMaterial, toneMapped: scr.material.toneMapped, map: !!scr.material.map, w: scr.material.map && scr.material.map.image.width, tris: scr.geometry.index.count / 3 } : null;
     // per-item own materials (what the Texture Studio "Own textures for this item" button does)
     const { applyLayout, partAtFace } = await import('/src/world/BankLayout.js'); const P = room.parts; out.parts = P.names.length;
@@ -31,7 +33,7 @@ try {
     applyLayout(P, { v: 1, parts: {} }); out.idxBack = rec.m.geometry.index.count; out.subsBack = P.recs.reduce((n, x) => n + x.subs.length, 0);
     return out; });
   console.log('   ', JSON.stringify(r));
-  ok(r.notOwn.filter((n) => !/atm-|ATM|legend|glass|Guard|gun|shotgun|floor|Floor/i.test(n)).length === 0, `every hall surface draws with a bank-own "CMB · …" material (others: ${r.notOwn.join(', ') || 'none'})`);
+  ok(r.notOwn.length === 0, `every hall surface draws with a bank-own "CMB · …" material (others: ${r.notOwn.join(', ') || 'none'})`);
   ok(r.untextured.length === 0, `every bank material has its own texture (${r.ownCount} materials; untextured: ${r.untextured.join(', ') || 'none'})`);
   ok(r.screen && r.screen.basic && r.screen.toneMapped === false && r.screen.map && r.screen.w === 512, `screens: unlit LCD atlas ${JSON.stringify(r.screen)}`);
   ok(r.faceHit === 'Teller workstation 2' && r.subs.length >= 2 && r.subs.every((n) => /^CMB · Teller workstation 2 · /.test(n)) && r.idxAfter[1] < r.idxAfter[0], `an item gets its own materials: ${r.subs.join(', ')} (${r.idxAfter.join(' → ')} indices left in the shared draw)`);

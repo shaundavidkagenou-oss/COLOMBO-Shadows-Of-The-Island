@@ -58,7 +58,7 @@ export function acUnit(k, x, y, z, yaw, ceil = 3.6) {
   // 73rd: the moving parts — the horizontal louvre flap (auto-swing: it sweeps the air down and up) and the row of vertical vanes
   // (sweeping left / right) are their own two small meshes on the kit's plastic material, turned by tick(t) while the room is
   // drawn. Both are in the room group (no light, no new material: two draw calls per unit, only while the bank is on screen).
-  const mat = kitMaterial('plastic', KIT.plastic); const grp = new THREE.Group(); grp.name = 'acMoving'; F.decompose(grp.position, grp.quaternion, grp.scale);
+  const mat = k.extra.plastic || kitMaterial('plastic', KIT.plastic); const grp = new THREE.Group(); grp.name = 'acMoving'; // (74th: the bank's own plastic) F.decompose(grp.position, grp.quaternion, grp.scale);
   const fb = new MeshBuilder(); { const g = rbox(W - 0.12, 0.0055, 0.074, 0.0025); g.translate(0, 0, -0.037); fb.geometry(g, new THREE.Matrix4(), panel); g.dispose();
     const r = box(W - 0.13, 0.0015, 0.004); r.translate(0, 0.0032, -0.07); fb.geometry(r, new THREE.Matrix4(), seam); r.dispose(); }
   const flap = new THREE.Mesh(fb.build(), mat); flap.name = 'acFlap'; flap.position.set(0, -H / 2 - 0.006, D - 0.004); flap.rotation.x = -0.55; grp.add(flap);
@@ -113,7 +113,7 @@ export function landline(k, x, y, z, yaw) { const F = frame(x, y, z, yaw); const
 // a phone whose handset is lifted: base into the kit, handset mesh + cord line added to group g (same frame as the kit)
 export function callPhone(k, g, x, y, z, yaw) {
   const F = frame(x, y, z, yaw); const P = phoneBase(k, F);
-  const hb = new MeshBuilder(); handsetInto(hb, IDENT); const mesh = new THREE.Mesh(hb.build(), kitMaterial('plastic', KIT.plastic));
+  const hb = new MeshBuilder(); handsetInto(hb, IDENT); const mesh = new THREE.Mesh(hb.build(), k.extra.plastic || kitMaterial('plastic', KIT.plastic));
   mesh.name = 'bank-call-handset'; mesh.matrixAutoUpdate = false; mesh.castShadow = false; mesh.receiveShadow = true; g.add(mesh);
   const N = 260; const pos = new Float32Array(N * 3); const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   const cord = new THREE.Line(lg, new THREE.LineBasicMaterial({ color: 0x1b1c1f })); cord.name = 'bank-call-cord'; cord.frustumCulled = false; g.add(cord);
