@@ -420,7 +420,7 @@ export class EMS {
         if (n >= 2) { e.compress = null; r.chestPush = 0; this.handsOn(A, V().copy(r.part('neck')).addScaledVector(b.n, sg * 0.05).add(V().set(0, 0.07, 0)), null, 0.3); if (!e.saidCheck) { e.saidCheck = true; this.say('check'); }
           if (e.t > 2 * cyc + 3.2) { e.t = 0; const k = Math.max(0, 1 - ((e.deadT0 || 0) + e.ct * 0.25) / 120); const live = this.force ? this.force === 'revive' : Math.random() < 0.45 * k; this.pr.note(`EMS unit ${u.id} CPR ${live ? 'success' : 'failed'} (chance ${(45 * k).toFixed(0)} %)`); if (live) { e.ph = 'rosc'; this.say('rosc'); } else { e.ph = 'dead'; this.say('dead'); } }
           this.bvm(u, b, 0, false); return; }
-        e.compress = tc < comp ? st : null; // 75th: the CPR loop (sounds board: Hospitals → CPR) runs while compressing
+        e.compress = tc < comp ? (e._cp || (e._cp = { x: 0, z: 0 })) : null; if (e.compress) { e.compress.x = st.x; e.compress.z = st.z; } // (own object: st is a pooled temp vector) // 75th: the CPR loop (sounds board: Hospitals → CPR) runs while compressing
         if (tc < comp) { const ph = (tc * 1.9) % 1; push = ph < 0.45 ? Math.sin((ph / 0.45) * Math.PI) : 0; if (tc > comp - 1.2 && n === 0 && !e.saidBreaths) { e.saidBreaths = true; this.say('breaths'); } }
         else squeeze = Math.max(0, Math.sin(((tc - comp) / 1.3) * Math.PI)); 
         r.chestPush = push * 0.05; const top = V().copy(st).add(V().set(0, 0.12 - push * 0.05, 0));
