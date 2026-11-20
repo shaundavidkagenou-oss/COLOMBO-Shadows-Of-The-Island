@@ -38,8 +38,32 @@ export const HTEX = {
   lawn: () => canvasTex('h.lawn', 256, 256, (a, w, h, r) => { a.fillStyle = '#4f7a35'; a.fillRect(0, 0, w, h); for (let i = 0; i < 9000; i++) { a.fillStyle = r() < 0.5 ? 'rgba(30,60,20,0.3)' : 'rgba(150,190,90,0.25)'; a.fillRect(r() * w, r() * h, 1, 2 + r() * 3); } }),
   leaf: () => canvasTex('h.leaf', 256, 256, (a, w, h, r) => { a.fillStyle = '#2f5a26'; a.fillRect(0, 0, w, h); for (let i = 0; i < 900; i++) { a.fillStyle = r() < 0.5 ? 'rgba(20,45,15,0.6)' : 'rgba(110,160,70,0.5)'; a.beginPath(); a.ellipse(r() * w, r() * h, 3 + r() * 5, 1.5 + r() * 2.5, r() * 3, 0, 7); a.fill(); } }),
   // window blinds seen from inside in daylight (emissive map: the brightness follows the hour, Hospital.update)
-  blinds: () => canvasTex('h.blinds', 128, 256, (a, w, h, r) => { for (let x = 0; x < w; x += 16) { const g = a.createLinearGradient(x, 0, x + 16, 0); g.addColorStop(0, '#d9e1e6'); g.addColorStop(0.5, '#f4f7f8'); g.addColorStop(1, '#c4ccd2'); a.fillStyle = g; a.fillRect(x, 0, 16, h); } for (let i = 0; i < 30; i++) { a.fillStyle = 'rgba(255,255,255,0.05)'; a.fillRect(r() * w, 0, 2, h); } }),
-  frost: () => canvasTex('h.frost', 128, 128, (a, w, h, r) => { speckle(a, w, h, r, '#e4ecef', 3000, ['rgba(255,255,255,0.3)', 'rgba(150,170,180,0.12)'], 1, 2); }),
+  // 75th: a window seen from inside — glass onto a bright tropical day (soft over-exposed sky, a band of rain-tree / palm
+  // canopy, a pale building across the road, a hint of the sill reflection), venetian blinds drawn up into a stack at the
+  // top with their ladder tapes and cord, faint reflections on the glass. One picture per pane (uv 0…1 across it).
+  blinds: () => canvasTex('h.winview', 512, 512, (a, w, h, r) => {
+    const sky = a.createLinearGradient(0, 0, 0, h * 0.62); sky.addColorStop(0, '#cfe3f1'); sky.addColorStop(0.55, '#e9f2f7'); sky.addColorStop(1, '#f6f8f6'); a.fillStyle = sky; a.fillRect(0, 0, w, h);
+    // a far building (pale render, dark window bands) and the canopy band in front of it
+    a.fillStyle = '#d9d4c8'; a.fillRect(w * 0.08, h * 0.36, w * 0.5, h * 0.36); a.fillStyle = 'rgba(70,84,96,0.55)'; for (let k = 0; k < 4; k++) a.fillRect(w * 0.1, h * (0.4 + k * 0.075), w * 0.46, h * 0.028);
+    a.fillStyle = '#e6e1d6'; a.fillRect(w * 0.66, h * 0.44, w * 0.3, h * 0.3); a.fillStyle = 'rgba(70,84,96,0.5)'; for (let k = 0; k < 3; k++) a.fillRect(w * 0.68, h * (0.48 + k * 0.08), w * 0.26, h * 0.03);
+    const blob = (x, y, rr, c) => { const g = a.createRadialGradient(x, y, rr * 0.2, x, y, rr); g.addColorStop(0, c); g.addColorStop(1, 'rgba(0,0,0,0)'); a.fillStyle = g; a.beginPath(); a.arc(x, y, rr, 0, 7); a.fill(); };
+    for (let i = 0; i < 90; i++) { const x = r() * w, y = h * (0.5 + r() * 0.22); const t = r(); blob(x, y, 18 + r() * 34, t < 0.4 ? 'rgba(52,92,44,0.85)' : t < 0.75 ? 'rgba(78,122,58,0.8)' : 'rgba(120,160,84,0.7)'); }
+    a.strokeStyle = 'rgba(92,80,66,0.8)'; a.lineWidth = 3; a.beginPath(); a.moveTo(w * 0.8, h * 0.78); a.quadraticCurveTo(w * 0.82, h * 0.5, w * 0.78, h * 0.32); a.stroke(); // a palm trunk + fronds
+    for (let k = 0; k < 9; k++) { const an = -Math.PI + k * Math.PI / 8; a.strokeStyle = 'rgba(64,104,52,0.9)'; a.lineWidth = 3; a.beginPath(); a.moveTo(w * 0.78, h * 0.32); a.quadraticCurveTo(w * 0.78 + Math.cos(an) * 40, h * 0.32 + Math.sin(an) * 18 - 10, w * 0.78 + Math.cos(an) * 70, h * 0.32 + Math.abs(Math.sin(an)) * 30 + 10); a.stroke(); }
+    const gr = a.createLinearGradient(0, h * 0.7, 0, h); gr.addColorStop(0, '#9aa4a0'); gr.addColorStop(1, '#c8ccc6'); a.fillStyle = gr; a.fillRect(0, h * 0.72, w, h * 0.28); // the road / forecourt below, washed out
+    a.fillStyle = 'rgba(255,255,255,0.28)'; a.fillRect(0, 0, w, h); // daylight over-exposure (seen from a lit room)
+    // the blind stack at the top: 22 slats bunched in 18 % of the height, the bottom rail, ladder tapes, the cord
+    const top = h * 0.18; for (let k = 0; k < 22; k++) { const y = 2 + k * (top / 22); const g = a.createLinearGradient(0, y, 0, y + top / 22); g.addColorStop(0, '#f1f3f2'); g.addColorStop(0.6, '#dfe3e3'); g.addColorStop(1, '#a9b0b2'); a.fillStyle = g; a.fillRect(0, y, w, top / 22); }
+    a.fillStyle = '#c4cacc'; a.fillRect(0, top, w, 7); a.fillStyle = '#8e979a'; a.fillRect(0, top + 6, w, 2); a.fillStyle = 'rgba(200,198,190,0.9)'; for (const x of [0.12, 0.5, 0.88]) a.fillRect(w * x - 2, 0, 4, top + 4);
+    a.fillStyle = '#e8e6e0'; a.fillRect(w * 0.94, top, 2, h * 0.32); a.fillRect(w * 0.94 - 3, top + h * 0.32, 8, 14); a.fillStyle = 'rgba(0,0,0,0.18)'; a.fillRect(0, 0, w, 2);
+    // glass: a couple of soft diagonal reflections + very faint smudges
+    for (let k = 0; k < 2; k++) { a.save(); a.translate(w * (0.25 + k * 0.4), h * 0.6); a.rotate(-0.5); const g = a.createLinearGradient(-30, 0, 30, 0); g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.5, 'rgba(255,255,255,0.13)'); g.addColorStop(1, 'rgba(255,255,255,0)'); a.fillStyle = g; a.fillRect(-30, -h, 60, h * 2); a.restore(); }
+    for (let i = 0; i < 40; i++) { a.fillStyle = 'rgba(255,255,255,0.025)'; a.beginPath(); a.arc(r() * w, top + r() * (h - top), 4 + r() * 10, 0, 7); a.fill(); }
+  }),
+  // 75th: obscure (reeded) glass in the toilets: vertical flutes, light through them, a faint shape of the outside
+  frost: () => canvasTex('h.reeded', 128, 128, (a, w, h, r) => { const g = a.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#dfe9ee'); g.addColorStop(0.6, '#e9eff0'); g.addColorStop(1, '#cfd9d4'); a.fillStyle = g; a.fillRect(0, 0, w, h);
+    for (let x = 0; x < w; x += 8) { const f = a.createLinearGradient(x, 0, x + 8, 0); f.addColorStop(0, 'rgba(255,255,255,0.35)'); f.addColorStop(0.45, 'rgba(255,255,255,0)'); f.addColorStop(0.9, 'rgba(90,110,120,0.16)'); f.addColorStop(1, 'rgba(255,255,255,0.2)'); a.fillStyle = f; a.fillRect(x, 0, 8, h); }
+    for (let i = 0; i < 14; i++) { a.fillStyle = 'rgba(80,120,70,0.06)'; a.fillRect(r() * w, h * (0.5 + r() * 0.3), 8 + r() * 16, 10 + r() * 20); } }),
 };
 
 // ----------------------------------------------------------------------------------------------- screens atlas (1024 × 512)
@@ -156,8 +180,8 @@ export function hospitalMaterials() {
     h_leaf: std('Shrubs', { map: tx('leaf'), roughness: 0.9 }),
     // exterior window glass: opaque (no transparency sorting), dark and reflective; the inside face shows lit blinds / frost
     h_extGlass: std('Window glass (outside)', { color: 0x9aa9b3, metalness: 0.55, roughness: 0.12, envMapIntensity: 1.4, vertexColors: false }),
-    h_blinds: std('Window blinds (inside)', { map: tx('blinds'), emissiveMap: tx('blinds'), emissive: 0xffffff, emissiveIntensity: 0.55, roughness: 0.8, vertexColors: false }),
-    h_frost: std('Frosted glass (inside)', { map: tx('frost'), emissiveMap: tx('frost'), emissive: 0xffffff, emissiveIntensity: 0.5, roughness: 0.6, vertexColors: false }),
+    h_blinds: std('Window glass + blinds (inside)', { map: tx('blinds'), emissiveMap: tx('blinds'), emissive: 0xffffff, emissiveIntensity: 0.75, roughness: 0.18, metalness: 0.05, envMapIntensity: 0.5, vertexColors: false }), // 75th: the daylight follows the hour (Hospital.windowLight)
+    h_frost: std('Reeded obscure glass (inside)', { map: tx('frost', 6, 1), emissiveMap: tx('frost', 6, 1), emissive: 0xffffff, emissiveIntensity: 0.5, roughness: 0.3, vertexColors: false }),
     h_light: Object.assign(new THREE.MeshBasicMaterial({ color: 0xf6f9ff, toneMapped: false }), { name: 'Hospital · Ceiling light panels' }),
     h_screens: Object.assign(new THREE.MeshBasicMaterial({ map: cv ? screensTexture() : null, color: cv ? 0xffffff : 0x223344, toneMapped: false }), { name: 'Hospital · Digital screens' }),
     h_signs: std('Signs', { map: cv ? signsTexture() : null, emissiveMap: cv ? signsTexture() : null, emissive: 0xffffff, emissiveIntensity: 0.12, roughness: 0.55, vertexColors: false }),

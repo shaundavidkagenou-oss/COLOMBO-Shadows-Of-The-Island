@@ -138,7 +138,10 @@ export function buildHospital() {
           if (c > fy + 0.05) { Q(B('h_plastic'), P2(a, lo, c), P2(b, lo, c), P2(b, hi + e.sgn * 0.03, c), P2(a, hi + e.sgn * 0.03, c), [0, 1, 0], null, C('#f4f4f2')); } }
         // window insides: blinds / frosted panel at the wall line, a slim aluminium frame
         for (const w of wins) { const [a, b] = winSpanY(w); const s0 = w[3] - w[4] / 2, s1 = w[3] + w[4] / 2;
-          if (w[5] !== 'clear') face(B(w[5] === 'frost' ? 'h_frost' : 'h_blinds'), e.axis, e.at, e.sgn * 0.012, e.sgn, s0, s1, fy + a, fy + b, null, w[4]);
+          if (w[5] === 'frost') face(B('h_frost'), e.axis, e.at, e.sgn * 0.012, e.sgn, s0, s1, fy + a, fy + b, null, w[4]);
+          else if (w[5] !== 'clear') { const o = e.sgn * 0.012; Q(B('h_blinds'), WP(e.axis, e.at, s0, o, fy + a), WP(e.axis, e.at, s1, o, fy + a), WP(e.axis, e.at, s1, o, fy + b), WP(e.axis, e.at, s0, o, fy + b), NRM(e.axis, e.sgn), [0, 0, 1, 1], null); } // 75th: one view picture per pane
+          // 75th: a deep sill board (window boards in hospitals: white solid surface) + a slim glazing bead inside the frame
+          { const p = WP(e.axis, e.at, (s0 + s1) / 2, e.sgn * 0.09, fy + a - 0.015); B('h_plastic').box(p[0], p[1], p[2], e.axis === 'u' ? s1 - s0 + 0.12 : 0.16, 0.03, e.axis === 'u' ? 0.16 : s1 - s0 + 0.12, { col: C('#eeede8') }); }
           const fr = C('#c9ccce'); const F1 = (sa, sb, ya, yb) => { const p = WP(e.axis, e.at, (sa + sb) / 2, e.sgn * 0.03, (ya + yb) / 2); B('h_metal').box(p[0], p[1], p[2], e.axis === 'u' ? sb - sa : 0.05, yb - ya, e.axis === 'u' ? 0.05 : sb - sa, { col: fr }); };
           F1(s0, s0 + 0.05, fy + a, fy + b); F1(s1 - 0.05, s1, fy + a, fy + b); F1(s0, s1, fy + b - 0.05, fy + b); F1(s0, s1, fy + a, fy + a + 0.05); if (w[5] === 'clear') { for (let k = 1; k < 2; k++) F1(s0 + (s1 - s0) * k / 2 - 0.025, s0 + (s1 - s0) * k / 2 + 0.025, fy + a, fy + b); } else F1(s0, s1, fy + a + 0.9, fy + a + 0.95); }
         // obstacles: the full wall thickness between openings you can walk through

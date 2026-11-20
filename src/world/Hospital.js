@@ -23,7 +23,7 @@ import { seatTopFor } from './ClubCast.js';
 import { MeshBuilder } from '../gfx/MeshBuilder.js';
 import { Input } from '../core/Input.js';
 import { HOSP, Y0, FLOOR_Y, toWorld, toLocal, ROOM, FURNITURE, STAIR, LIFT, SPOTS, BEDSIDE, RECOVERY_BEDS, BED, GROUNDS, roomAt, visibleRooms, inRect } from './HospitalPlan.js';
-import { itemFrame, COL } from './HospitalKit.js';
+import { itemFrame, COL, hospitalMaterials } from './HospitalKit.js';
 // per-frame coordinate conversions write into two scratch pairs (destructured at once by every caller: no garbage per frame)
 const _W = [0, 0], _L = [0, 0];
 const tw = (u, v) => { _W[0] = HOSP.PX + u; _W[1] = HOSP.FZ - v; return _W; };
@@ -230,6 +230,7 @@ export class Hospital {
     this.srcs[0].on = pf === 0; this.srcs[1].on = false; HospitalSound.tick(dt, inside, this.srcs, P.camYaw ?? 0); // (the BPM machines: HospitalMonitors, per occupied bed)
     // 75th: live monitors at the occupied beds; the air conditioning (the bank's AC recording / synth) all through the building
     { const ob = this._ob || (this._ob = []); ob.length = 0; if (this.patient && this.patient.lieBed) ob.push(this.patient.lieBed); if (this.lying) ob.push(this.lying.bed); else if (this.recovering && this.recBed) ob.push(this.recBed); this.monitors.update(dt, ob); }
+    if (inside) this.windowLight();
     if (inside) { const ac = this.acSpec; ac.x = P.x; ac.z = P.z; PlaceSound.want('hosp.ac', ac); }
     // ---- prompts (Game.updateInteractions asks interact())
     this.talkCd = Math.max(0, this.talkCd - dt);
@@ -296,6 +297,11 @@ export class Hospital {
       if (D.obs) { if (D.k > 0.85) { D.obs.x0 = D.obs.x1 = 1e9; } else Object.assign(D.obs, D.closedBox); }
       this.open[D.id] = D.k; }
   }
+  // 75th: the window panes follow the daylight — bright, slightly over-exposed by day; at night near-black glass that
+  // reflects the room (the base colour drops, the view's emission fades out); dusk / dawn in between
+  windowLight() { const A = this.g.atmos; const n = A ? clamp(A.night ?? 0, 0, 1) : 0; if (this._wl != null && Math.abs(this._wl - n) < 0.01) return; this._wl = n; const M = hospitalMaterials();
+    const b = M.h_blinds; if (b) { b.emissiveIntensity = 0.75 * (1 - n) + 0.02; const c = 1 - 0.85 * n; b.color.setRGB(c, c, c * (1 + 0.1 * n)); }
+    const f = M.h_frost; if (f) f.emissiveIntensity = 0.5 * (1 - n) + 0.05; }
   // ---------------------------------------------------------------- lift
   updateLift(dt, P, pu, pv, pf, inside) { // 75th: the car really rides (eased, the rider with it), car + landing doors, auto-open
     const L = this.lift; const inCar = inside && inRect([LIFT.u0, LIFT.u1, LIFT.v0 - 0.15, LIFT.v1], pu, pv); const T = 3.6, lx = tw(-15.25, 11.6);
