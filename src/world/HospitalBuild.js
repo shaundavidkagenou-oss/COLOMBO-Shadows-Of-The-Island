@@ -206,6 +206,17 @@ export function buildHospital() {
     if (f === 0) { const p = WP(axis, at, (s0 + s1) / 2, o + out * 0.09, Y0 + H - 0.02); E('h_render').box(p[0], p[1], p[2], axis === 'u' ? s1 - s0 + 0.36 : 0.18, 0.36, axis === 'u' ? 0.18 : s1 - s0 + 0.36, { col: CONC, bottom: true }); }
     if (f === 1) { const p = WP(axis, at, (s0 + s1) / 2, o * 0, topY + parapet + 0.04); E('h_render').box(p[0], p[1], p[2], axis === 'u' ? s1 - s0 + EXT : EXT + 0.1, 0.08, axis === 'u' ? EXT + 0.1 : s1 - s0 + EXT, { col: CONC }); }
   }
+  // street-front balconies off the general ward (two, each across a pair of ward windows): cantilevered slab, a low concrete
+  // upstand and a steel railing — merged into the exterior draws (decorative: no door opens onto them)
+  { const fy = FLOOR_Y[1], D = 0.95, o0 = -EXT / 2; const RAIL = C('#3c4348');
+    for (const [s0, s1] of [[-13.3, -8.3], [-4.3, 0.7]]) { const m = (s0 + s1) / 2, w = s1 - s0;
+      let p = WP('u', 0, m, o0 - D / 2, fy - 0.11); E('h_render').box(p[0], p[1], p[2], w, 0.2, D, { col: CONC, bottom: true }); // slab
+      p = WP('u', 0, m, o0 - D + 0.05, fy + 0.12); E('h_render').box(p[0], p[1], p[2], w, 0.26, 0.1, { col: CONC }); // front upstand
+      for (const e of [s0 + 0.05, s1 - 0.05]) { p = WP('u', 0, e, o0 - D / 2, fy + 0.12); E('h_render').box(p[0], p[1], p[2], 0.1, 0.26, D, { col: CONC }); }
+      p = WP('u', 0, m, o0 - D + 0.05, fy + 1.02); E('h_metal').box(p[0], p[1], p[2], w, 0.05, 0.06, { col: RAIL }); // top rail (front)
+      for (const e of [s0 + 0.05, s1 - 0.05]) { p = WP('u', 0, e, o0 - D / 2, fy + 1.02); E('h_metal').box(p[0], p[1], p[2], 0.06, 0.05, D, { col: RAIL }); }
+      for (let x = s0 + 0.15; x < s1 - 0.1; x += 0.14) { p = WP('u', 0, x, o0 - D + 0.05, fy + 0.62); E('h_metal').box(p[0], p[1], p[2], 0.018, 0.76, 0.018, { col: RAIL }); }
+      for (const e of [s0 + 0.05, s1 - 0.05]) for (let z = 0.2; z < D - 0.1; z += 0.14) { p = WP('u', 0, e, o0 - z, fy + 0.62); E('h_metal').box(p[0], p[1], p[2], 0.018, 0.76, 0.018, { col: RAIL }); } } }
   // terrace / plant-deck parapets on the single-storey parts (floor-0 outer walls with no first floor above them)
   for (const w of OUTER) { const [f, axis, at, s0, s1, out] = w; if (f !== 0) continue; const br = new Set([s0, s1]); for (const R of ROOMS) for (const r of R.rects) for (const v of axis === 'u' ? [r[0], r[1]] : [r[2], r[3]]) if (v > s0 && v < s1) br.add(v);
     const xs = [...br].sort((a, b) => a - b);
