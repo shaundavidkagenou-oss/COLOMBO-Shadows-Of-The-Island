@@ -21,7 +21,7 @@ export const VIEWS = [
   { name: 'ward', at: [640, -205], cam: [636, 5.4, -203], look: [645, 5.0, -212], inside: true, floor: 1 },
   { name: 'ward2', at: [652, -194], cam: [647, 5.5, -191], look: [660, 4.9, -197], inside: true, floor: 1 }, // (the 'ward' view above actually stands in the stairwell; kept for the before/after comparison)
   { name: 'ed', at: [668, -196], cam: [667, 1.75, -197.5], look: [677, 0.9, -191.5], inside: true },
-  { name: 'private', at: [668, -203], cam: [668, 5.6, -203], look: [672, 4.6, -210], inside: true, floor: 1 },
+  { name: 'private', at: [669.5, -205.5], cam: [668, 5.6, -203], look: [672, 4.6, -210], inside: true, floor: 1 }, // (74th: the player used to stand AT the camera — the shot showed the inside of the head)
   { name: 'bay', at: [700, -180], cam: [700, 2.0, -180], look: [684, 1.5, -196] },
 ];
 const browser = await puppeteer.launch({ executablePath: await chromium.executablePath(), headless: true, protocolTimeout: 1800000,

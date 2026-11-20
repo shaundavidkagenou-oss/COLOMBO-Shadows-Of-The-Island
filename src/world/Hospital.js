@@ -232,7 +232,12 @@ export class Hospital {
     const I = this.hb.interior; let key = '';
     if (inside) { const r = roomAt(pu, pv, pf); this.curRoom = r || this.curRoom; const [cu, cv] = tl(this.g.camera.position.x, this.g.camera.position.z); const cf = this.g.camera.position.y > Y0 + HOSP.H ? 1 : 0; this.camRoom = roomAt(cu, cv, cf) || this.curRoom;
       key = 'i' + (this.curRoom ? this.curRoom.id : '') + '|' + (this.camRoom ? this.camRoom.id : '') + '|' + pf; }
-    else { this.curRoom = null; const front = pv < 0 && pD < INT_FAR; const edSide = pu > 15 && pD < 45; key = 'o' + (front ? 'f' : '') + (edSide || this.doorById.edEntrance?.k > 0.1 ? 'e' : '') + (pD < 28 && front ? 'c' : ''); }
+    else { this.curRoom = null; // 74th: from the street the lobby (glazed front) / ED (glazed entrance) are only drawn when they can actually be seen:
+      // close by, an entrance open, or the camera in front of that facade and not turned away from it (the switch happens while
+      // the facade is still outside the ~50° half field of view: no pop-in; nothing drawn from behind / beside the building)
+      const cam = this.g.camera, e = cam.matrixWorld.elements, fx = -e[8], fz = -e[10]; const [cu, cv] = tl(cam.position.x, cam.position.z);
+      const front = pv < 0 && pD < INT_FAR && (pD < 30 || this.doorById.main?.k > 0.1 || (cv < 0 && fz < 0.25));
+      const edSide = pu > 15 && pD < 45 && (pD < 25 || (cu > 21 && fx < 0.25)); key = 'o' + (front ? 'f' : '') + (edSide || this.doorById.edEntrance?.k > 0.1 ? 'e' : '') + (pD < 28 && front ? 'c' : ''); }
     for (const D of this.doors) key += D.kind === 'swing' || D.kind === 'lift' ? (this.open[D.id] > 0.12 ? '1' : '0') : '';
     if (key === this.visKey) return; this.visKey = key; const vis = this.vis; vis.clear();
     if (inside) { const f = pf; const add = (id) => { if (!id) return; const cross = id === 'stairs' || id === 'lift'; const near = cross ? visibleRooms(id, this.open, 1) : null; // from the stairwell / lift: the other floor's landing only, not the rooms beyond it
