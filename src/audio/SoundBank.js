@@ -9,6 +9,7 @@
 // Nothing is fetched or decoded unless a pack or a saved recording exists (one fetch of a small manifest at start-up).
 import { savedFlags, setSavedFlag, storeGet, storeSet, storeDel } from '../debug/boot.js';
 import { voiceDefs } from './VoiceDefs.js';
+import { HOSPITAL_SOUND_DEFS } from './HospitalSoundDefs.js';
 
 // id, label, category, kind ('shot' one-shot | 'loop' continuous), lvl = playback gain of a full-scale recording (matches the
 // loudness of the synthesised sound it replaces)
@@ -68,6 +69,7 @@ export const SOUND_DEFS = [
   // the bottle tips back up), the bottle's put-down when its base meets the counter; one of the two variations at random each time
   ...[1, 2].map((n) => ({ id: 'drink.pour' + n, name: `Drinking — pouring a shot, variation ${n}`, cat: 'Drinking', lvl: 0.45 })),
   ...[1, 2].map((n) => ({ id: 'drink.bottle.down' + n, name: `Drinking — glass bottle put down, variation ${n}`, cat: 'Drinking', lvl: 0.45 })),
+  ...HOSPITAL_SOUND_DEFS, // 74th: the National Hospital (HospitalAudio.js)
   { id: 'footstep', name: 'Footstep', cat: 'Player', lvl: 0.25 }, { id: 'phone.ring', name: 'Phone ringing', cat: 'Player', lvl: 0.3 },
   { id: 'ui.click', name: 'Menu click', cat: 'Interface', lvl: 0.25 }, { id: 'ui.hover', name: 'Menu hover', cat: 'Interface', lvl: 0.15 }, { id: 'ui.notify', name: 'Notification', cat: 'Interface', lvl: 0.3 },
   { id: 'ui.wheel.open', name: 'Weapon wheel — opens', cat: 'Interface', lvl: 0.35 }, { id: 'ui.wheel.switch', name: 'Weapon wheel — switching weapon', cat: 'Interface', lvl: 0.3 },

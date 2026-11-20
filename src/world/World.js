@@ -1,5 +1,6 @@
 // Builds and streams the static city: ground, buildings (base + streamed detail), landmarks, props, trees, water.
 import * as THREE from 'three';
+import { buildHospital } from './HospitalBuild.js';
 import { nightLight } from '../gfx/LightSets.js';
 import { MultiBuilder, SliceBuild, meshFor, matFor, FOLIAGE } from '../gfx/MeshBuilder.js';
 import { MAT, ROLE_DEFS } from '../gfx/Materials.js';
@@ -75,6 +76,7 @@ export class World {
     if (plan.missionShops.gunshop) { const s = plan.missionShops.gunshop; const f = buildGunShopFront(s, plan.buildings.find((b) => b.id === s.b)); this.root.add(f.group); this.collision.addAll(f.colliders); } // Ceylon Arms Co. shopfront
     if (plan.missionShops.club) { const s = plan.missionShops.club; const f = buildClubFront(s, plan.buildings.find((b) => b.id === s.b)); this.root.add(f.group); this.collision.addAll(f.colliders); } // The Velvet Monsoon club frontage
     if (plan.missionShops.bank) { const s = plan.missionShops.bank; const f = buildBankFront(s, plan.buildings.find((b) => b.id === s.b)); this.bankFront = f; this.root.add(f.group); this.collision.addAll(f.colliders); } // 67th: Ceylon Meridian Bank frontage (BankFront.js)
+    { const hb = buildHospital(); this.hospitalBuild = hb; this.root.add(hb.root); this.collision.addAll(hb.colliders); } // 74th: the National Hospital (HospitalBuild.js; runtime: Hospital.js)
     { const fs = buildFuelStations(); this.fuel = fs; this.root.add(fs.group); this.collision.addAll(fs.colliders); } // four filling stations (FuelStations.js)
     { const cs = buildCustoms(); this.customs = cs; this.root.add(cs.group); this.collision.addAll(cs.colliders); } // Street Customs workshop (CustomsGeo.js; service: customs/CustomsService.js)
     { const sr = buildStreetRamps(); this.streetRamps = sr; this.root.add(sr.group); this.collision.addAll(sr.colliders); } // speed humps + stunt jumps / bicycle ramps (StreetRamps.js; ground surfaces via Layout.setRampHook)

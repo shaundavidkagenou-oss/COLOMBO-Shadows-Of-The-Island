@@ -376,13 +376,8 @@ export function buildLandmarks() {
   }
 
   // ------------------------------------------------------------ NATIONAL HOSPITAL
-  mb.scope = 'National Hospital';
-  {
-    const y0 = LAND_Y;
-    facade('office', 610, 700, -290, -250, y0, y0 + 26, '#f4f4f0'); facade('apartment', 610, 650, -250, -180, y0, y0 + 13, '#f2f2ee');
-    label([{ text: '✚ NATIONAL HOSPITAL', font: SANS(120), color: '#b71c1c' }, { text: 'ජාතික රෝහල  ·  தேசிய வைத்தியசாலை', font: SI(70), color: '#b71c1c' }], 655, y0 + 23, -249.85, 30, 4, 0, { w: 1400, h: 260, bg: '#ffffff' });
-    coll(610, 700, -290, -250, 28); coll(610, 650, -250, -180, 15);
-  }
+  // 74th: replaced by the walk-in hospital (same site): world/HospitalPlan.js (data), HospitalBuild.js (geometry, added by
+  // World.build), Hospital.js (runtime: rooms, doors, lift, staff, recovery)
 
   // ------------------------------------------------------------ SRI MURUGAN KOVIL (gopuram)
   mb.scope = 'Sri Murugan Kovil';

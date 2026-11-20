@@ -141,10 +141,12 @@ export const FURNITURE = [
   // lobby: registration counter (the public queue on the entrance side, staff behind it), waiting rows, water, plants,
   // notice board, the queue-number screen
   ['counter', 0, -1.5, 6.0, Math.PI, { w: 5.2, name: 'Registration counter' }], ['counterEnd', 0, 1.3, 7.15, 0, { d: 1.6 }],
-  ['officeChair', 0, -2.6, 7.05, Math.PI], ['officeChair', 0, 0.2, 7.05, Math.PI],
+  ['officeChair', 0, -2.6, 7.05, Math.PI, { npc: 'rec' }], ['officeChair', 0, 0.2, 7.05, Math.PI],
   ['pc', 0, -2.6, 6.2, 0], ['pc', 0, 0.2, 6.2, 0], ['phone', 0, -1.2, 6.15, 0],
   ['cabinet', 0, -3.4, 8.7, Math.PI, { w: 1.2 }], ['cabinet', 0, 2.6, 8.7, Math.PI, { w: 1.2 }],
-  ...[-11.2, -10.6, -10.0, -9.4].flatMap((u) => [1.6, 3.0, 4.4].map((v) => ['waitChair', 0, u, v, Math.PI / 2])),
+  // two rows of beam seating facing the counter (modules side by side along v, rows 2 m apart); three front-row modules
+  // are adjustable seats (Hospital.js builds their shells at the sitter's height: the waiting visitor + two for the player)
+  ...[-11.6, -9.6].flatMap((u) => [1.8, 2.36, 2.92, 3.48, 4.04].map((v) => ['waitChair', 0, u, v, Math.PI / 2, u === -9.6 && v === 2.92 ? { npc: 'visitor' } : u === -9.6 && v === 1.8 ? { npc: 'seatA' } : u === -9.6 && v === 4.04 ? { npc: 'seatB' } : {}])),
   ...[-3.2, -2.6, -2.0, -1.4, -0.8].map((u) => ['waitChair', 0, u, 0.75, 0]),
   ['waterCooler', 0, 4.6, 4.0, -Q], ['plant', 0, -13.4, 0.6, 0], ['plant', 0, 4.4, 0.6, 0],
   ['noticeBoard', 0, -13.9, 7.6, Q, { w: 1.2 }], ['tvScreen', 0, -6.4, 8.86, Math.PI, { screen: 'queue' }],
@@ -154,7 +156,7 @@ export const FURNITURE = [
   ['medFridge', 0, -15.0, 8.45, Math.PI], ['desk', 0, -18.6, 7.4, Math.PI, { w: 1.4 }], ['officeChair', 0, -18.6, 6.75, 0], ['pc', 0, -18.6, 7.6, 0],
   // emergency department: triage desk, three curtained bays along the front wall, two observation beds at the back,
   // resus trolley, monitors, IV stands, wheelchair, waiting chairs
-  ['nurseDesk', 0, 9.5, 6.0, Math.PI, { w: 3.0 }], ['officeChair', 0, 9.5, 6.9, Math.PI], ['pc', 0, 9.0, 5.85, 0],
+  ['nurseDesk', 0, 9.5, 6.0, Math.PI, { w: 3.0 }], ['officeChair', 0, 9.5, 6.9, Math.PI, { npc: 'ed' }], ['pc', 0, 9.0, 5.85, 0],
   ...[11.6, 14.6, 17.6].flatMap((u, i) => [['bed', 0, u, 1.45, 0, { ed: i }], ['bay', 0, u, 1.6, 0, { w: 2.7, d: 3.0 }], ['monitor', 0, u - 0.85, 0.32, 0], ['ivStand', 0, u + 0.85, 0.6, 0]]),
   ['bed', 0, 8.3, 15.0, Q, { ed: 3 }], ['bed', 0, 8.3, 18.6, Q, { ed: 4 }], ['bay', 0, 8.45, 15.0, Q, { w: 2.7, d: 3.0 }], ['bay', 0, 8.45, 18.6, Q, { w: 2.7, d: 3.0 }],
   ['monitor', 0, 7.35, 13.95, Q], ['ivStand', 0, 7.6, 16.6, 0], ['crashCart', 0, 15.2, 8.6, Math.PI], ['wheelchair', 0, 6.0, 7.8, 0], ['sanitizer', 0, 20.8, 6.5, -Q],
@@ -178,11 +180,11 @@ export const FURNITURE = [
   ['monitor', 1, -12.75, 0.35, 0], ['ivStand', 1, -12.75, 1.3, 0], ['monitor', 1, -0.25, 8.65, Math.PI], ['ivStand', 1, -0.3, 8.0, 0],
   ['visitorChair', 1, -12.9, 2.6, Q], ['visitorChair', 1, -0.2, 7.0, Q], ['sanitizer', 1, 3.8, 4.2, -Q], ['plant', 1, -13.4, 4.5, 0], ['wheelchair', 1, 3.3, 2.0, -Q],
   // nurses' station: counter facing the corridor, PCs, chairs, medicine trolley, low records shelf, board, bed screen
-  ['counter', 1, 7.6, 8.0, 0, { w: 3.4, name: "Nurses' station" }], ['officeChair', 1, 6.8, 7.2, 0], ['officeChair', 1, 8.6, 7.2, 0],
+  ['counter', 1, 7.6, 8.0, 0, { w: 3.4, name: "Nurses' station" }], ['officeChair', 1, 6.8, 7.2, 0, { npc: 'station' }], ['officeChair', 1, 8.6, 7.2, 0],
   ['pc', 1, 6.8, 7.8, Math.PI], ['pc', 1, 8.6, 7.8, Math.PI], ['phone', 1, 7.7, 7.85, Math.PI],
   ['shelf', 1, 7.0, 0.3, 0, { w: 3.2, h: 0.85 }], ['medTrolley', 1, 4.7, 2.6, Q], ['whiteboard', 1, 9.86, 4.0, -Q, { w: 2.2 }], ['tvScreen', 1, 9.86, 6.6, -Q, { screen: 'beds' }],
   // consultation: desk, doctor's chair, two patient chairs, couch behind a curtain, sink, cabinet, x-ray viewer
-  ['desk', 1, 13.0, 5.0, Math.PI, { w: 1.7 }], ['officeChair', 1, 13.0, 5.8, Math.PI], ['pc', 1, 12.5, 5.2, 0],
+  ['desk', 1, 13.0, 5.0, Math.PI, { w: 1.7 }], ['officeChair', 1, 13.0, 5.8, Math.PI, { npc: 'doctor' }], ['pc', 1, 12.5, 5.2, 0],
   ['visitorChair', 1, 12.5, 3.9, 0], ['visitorChair', 1, 13.6, 3.9, 0], ['examCouch', 1, 15.0, 1.6, -Q], ['sink', 1, 10.4, 1.0, Q],
   ['cabinet', 1, 10.4, 6.3, Q, { w: 2.0 }], ['viewer', 1, 15.86, 6.4, -Q], ['curtain', 1, 13.9, 1.7, Q, { w: 2.6 }],
   // storage: shelving, linen trolley, oxygen cylinders
@@ -228,7 +230,7 @@ export const SPOTS = {
   nursesCounter: [1, 7.6, 9.6], corr1Ward: [1, -5.0, 10.2], wardIn: [1, -5.0, 7.8], wardMid: [1, -5.0, 4.5],
   consultDesk: [1, 13.0, 5.8], consultDoorIn: [1, 13.0, 8.2], consultDoorOut: [1, 13.0, 10.2],
   edDesk: [0, 9.5, 6.9], edBay0: [0, 12.55, 2.1], edBay1: [0, 15.55, 2.1], edBay2: [0, 18.55, 2.1], edObs: [0, 9.6, 16.8], edMid: [0, 14.0, 5.0],
-  lobbySeat: [0, -11.8, 3.2], lobbyHatch: [0, -13.2, 4.5], lobbyQueue: [0, -1.0, 4.6], lobbyDoor: [0, -6.0, 1.2], lobbyMid: [0, -6.0, 4.0],
+  lobbySeat: [0, -8.95, 2.92], lobbyHatch: [0, -13.2, 4.5], lobbyQueue: [0, -1.0, 4.6], lobbyDoor: [0, -6.0, 1.2], lobbyMid: [0, -6.0, 4.0],
   edEntranceIn: [0, 19.6, 3.8], edEntranceOut: [0, 24.4, 3.8],
 };
 // recovery: where the speaker stands beside the recovery bed (relative to the bed: s = side offset, a = along from the head)
