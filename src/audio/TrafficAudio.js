@@ -2,8 +2,8 @@
 //   • every frame, for the AI vehicles within 70 m (Traffic.vehicles — despawned / unloaded ones simply aren't in it, so
 //     nothing of theirs keeps playing): relative position and velocity to the listener → the Doppler factor their engine voice
 //     uses (Audio.updateEngines reads v._dop: pitch up approaching, down going away), and pass-by events:
-//       approach — a fast vehicle (> 9 m/s) closing in crosses 35 m                → traffic.approach (once per vehicle per 6 s)
-//       pass-by  — the closing speed turns into an opening one within 9 m, > 7 m/s → traffic.whoosh (pitched by the speed)
+//       approach — a vehicle (> 6 m/s) closing in crosses 35 m                       → traffic.approach (once per vehicle per 6 s)
+//       pass-by  — the closing speed turns into an opening one within 9 m, > 5 m/s → traffic.whoosh (pitched by the speed)
 //                  followed by traffic.away a moment later, pitched down by the receding Doppler factor
 //   • tyre roar: ONE shared loop for all nearby traffic, its level the sum of each vehicle's speed × distance gain and its
 //     pan the weighted direction (one source however busy the road is)
@@ -17,7 +17,7 @@ const C_SND = 343, R = 70;
 class TrafficSounds {
   constructor() { this.st = new WeakMap(); this.lv = { x: 0, z: 0, px: null, pz: null }; this.tyre = { h: {}, g: null, p: null, n: null }; this.appT = 0; this.passT = 0; this.stats = { near: 0, passes: 0, approaches: 0, screeches: 0 }; }
   update(dt, g) {
-    if (!Audio.ready || !g || !g.traffic) return; const c = Audio.ctx, t = c.currentTime; const L = Audio.listener; if (!L) return;
+    if (!Audio.ready || !g || !g.traffic) return; const L = Audio.listener; if (!L) return; const t = (this.clock = (this.clock || 0) + dt); // game time: cooldowns pause with the game
     // listener velocity (on foot or driving) from its own motion
     const V = this.lv; if (V.px != null && dt > 0) { const k = Math.min(1, dt * 6); V.x += (((L.x - V.px) / dt) - V.x) * k; V.z += (((L.z - V.pz) / dt) - V.z) * k; if (Math.abs(V.x) > 80 || Math.abs(V.z) > 80) { V.x = 0; V.z = 0; } } V.px = L.x; V.pz = L.z;
     const indoor = !!(g.indoor || g.seamK > 0.6); let sum = 0, panW = 0, near = 0;
@@ -30,15 +30,15 @@ class TrafficSounds {
       let S = this.st.get(v); if (!S) { S = { vr, d, appT: -9, passT: -9, scrT: -9 }; this.st.set(v, S); }
       const rel = Math.hypot(rvx, rvz);
       if (!indoor) {
-        if (sp > 9 && vr < -6 && S.d > 35 && d <= 35 && t - S.appT > 6 && t - this.appT > 1.5) { S.appT = this.appT = t; this.oneShot('traffic.approach', v, 0.8, v._dop); this.stats.approaches++; }
-        if (S.vr < -2 && vr >= -2 && d < 9 && rel > 7 && t - S.passT > 3 && t - this.passT > 0.35) { S.passT = this.passT = t; this.pass(v, rel); }
+        if (sp > 6 && vr < -4.5 && S.d > 35 && d <= 35 && t - S.appT > 6 && t - this.appT > 1.5) { S.appT = this.appT = t; this.oneShot('traffic.approach', v, 0.35 + Math.min(0.55, sp / 24), v._dop); this.stats.approaches++; } // (city lanes run 6.5–13.5 m/s: louder the faster)
+        if (S.vr < -2 && vr >= -2 && d < 9 && rel > 5 && t - S.passT > 3 && t - this.passT > 0.35) { S.passT = this.passT = t; this.pass(v, rel); }
         const acc = v.acc || 0; if (acc < -6 && sp > 8 && t - S.scrT > 3 && d < 55) { S.scrT = t; this.screech(v, sp); }
       }
       // tyre roar contribution
       const [gg, pan] = Audio.spatial(v.x, v.z, 12); const w = Math.min(1, sp / 22) * gg; sum += w; panW += w * pan;
       S.vr = vr; S.d = d;
     }
-    this.stats.near = near; this.tyres(t, sum, sum > 1e-4 ? panW / sum : 0, indoor);
+    this.stats.near = near; this.tyres(Audio.ctx.currentTime, sum, sum > 1e-4 ? panW / sum : 0, indoor);
   }
   oneShot(id, v, k, rate) { const A = Audio.at(v.x, v.z, 18); if (A.g < 0.02) return false; return SB.play(id, k * A.g, A.pan, A.delay, { rate: Math.max(0.6, Math.min(1.6, rate)), lp: A.lp, out: 'veh', key: 'traffic' }); }
   pass(v, rel) { this.stats.passes++; const A = Audio.at(v.x, v.z, 14); if (A.g < 0.03) return; const k = Math.min(1.2, 0.35 + rel / 25) * A.g; const r0 = 0.9 + Math.min(0.3, rel / 80);

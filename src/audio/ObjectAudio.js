@@ -36,7 +36,7 @@ class ObjectSounds {
   constructor() { this.cool = new WeakMap(); this.drag = null; this.stats = { hits: 0, skipped: 0, drags: 0, bullets: 0, falls: 0 }; }
   // one impact of family kind at (x, z), strength k (0..~1.5); src: the struck object for the cooldown
   hit(kind, x, z, k = 1, src = null, cd = 0.35) {
-    if (!Audio.live || !kind) return false; const t = Audio.ctx.currentTime;
+    if (!Audio.live || !kind) return false; const t = this.clock || 0; // game time (pauses / slow motion), not the audio clock
     if (src) { const last = this.cool.get(src) || -9; if (t - last < cd) { this.stats.skipped++; return false; } this.cool.set(src, t); }
     const A = Audio.at(x, z, 10); if (A.g < 0.015 || A.d > 70) { this.stats.skipped++; return false; } this.stats.hits++;
     const v = Math.min(1.4, k) * A.g; const id = 'obj.' + kind;
@@ -52,7 +52,7 @@ class ObjectSounds {
   // grinding along a wall / barrier: a loop at the vehicle, level and pitch from the sliding speed; fades when contact stops
   dragAt(v, x, z, vt) { const D = (this.drag ||= { h: {}, g: null, t: 0, v: null, k: 0 }); D.v = v; D.t = 0.18; D.k = Math.min(1, vt / 12); D.x = v.x; D.z = v.z; this.stats.drags++; }
   update(dt) {
-    const D = this.drag; if (!D || !Audio.ready) return; const c = Audio.ctx, t = c.currentTime;
+    this.clock = (this.clock || 0) + dt; const D = this.drag; if (!D || !Audio.ready) return; const c = Audio.ctx, t = c.currentTime;
     if (!D.g) { D.g = c.createGain(); D.g.gain.value = 0; D.p = c.createStereoPanner(); D.g.connect(D.p); D.p.connect(Audio.bus.sfx); }
     D.t -= dt; const on = D.t > 0 && D.v && !D.v.disposed; const [g, pan] = on ? (D.v.player ? [1, 0] : Audio.spatial(D.v.x, D.v.z, 15)) : [0, 0];
     const smp = on ? SB.syncLoop(D.h, 'obj.drag', D.g) : null;

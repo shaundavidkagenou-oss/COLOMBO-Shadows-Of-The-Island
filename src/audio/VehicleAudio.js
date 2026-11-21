@@ -88,7 +88,7 @@ class VehicleSounds {
   // cooling ticks: a metal tick now and then, sparser as it cools; heard only near the car
   cooling(dt) { if (!this.cool.length) return; const P = this.g.player;
     for (let i = this.cool.length - 1; i >= 0; i--) { const C = this.cool[i], v = C.v; C.age += dt; C.t -= dt;
-      if (v.disposed || v.player || v.wrecked || C.age > C.end) { this.cool.splice(i, 1); continue; }
+      if (v.disposed || v === this.cur || v.wrecked || C.age > C.end) { this.cool.splice(i, 1); continue; } // (v.player stays set through the exit animation: only a real re-entry cancels)
       if (C.t > 0) continue; const f = C.age / C.end; C.t = (0.5 + f * 2.8) * (0.5 + Math.random());
       if (Math.hypot(v.x - P.x, v.z - P.z) > 25) continue; const A = Audio.at(v.x, v.z, 5); if (A.g < 0.02) continue; this.stats.ticks++; const k = (1 - f * 0.6) * A.g;
       if (!SB.play('mech.tick', k, A.pan, 0, { rate: 0.9 + Math.random() * 0.25, out: 'veh', key: 'tick', lp: A.lp })) { Audio.tone(3200 + Math.random() * 1400, 0.018, { type: 'sine', vol: 0.03 * k, pan: A.pan, out: 'veh', attack: 0.001 }); Audio.noise(0.01, { f: 5200, q: 3, vol: 0.02 * k, pan: A.pan, out: 'veh', attack: 0.001 }); } } }

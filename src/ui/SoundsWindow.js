@@ -5,6 +5,7 @@
 // and build-exe.bat build into the game / the .exe). Export pack (.zip) carries recordings saved in a built copy back to sounds/.
 import { Win, h, btn, beginSession, toast } from '../debug/ui.js';
 import { SOUND_DEFS, SOUND_BY_ID, SOUND_EXT, SoundBank } from '../audio/SoundBank.js';
+import { ENV_CAT_INFO } from '../audio/EnvSoundDefs.js';
 import { Audio } from '../audio/Audio.js';
 import { Settings } from '../core/Settings.js';
 import { WEAPONS, POLICE_T56 } from '../combat/WeaponDefs.js';
@@ -25,6 +26,9 @@ const CSS = `
 .snd-play{width:24px;height:22px;padding:0;text-align:center}
 .snd-foot{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap}
 .snd-foot .sp{flex:1}
+.snd-cat .bdg{float:right;font-weight:400;font-size:11px;color:#9fb0c0}.snd-cat .bdg b{color:#7fd0a0;font-weight:600}.snd-cat .bdg i{color:#f0a070;font-style:normal}
+.snd-intro{padding:4px 8px;color:#9fb0c0;font-size:11px;border-bottom:1px solid #1a1f28;line-height:1.4}
+.snd-row .st.miss{color:#c09060}
 `;
 let cssDone = false;
 const ACCEPT = '.mp3,.wav,.ogg,audio/mpeg,audio/wav,audio/x-wav,audio/ogg';
@@ -94,7 +98,17 @@ export async function open(game) {
     const b = data instanceof AudioBuffer ? data : await c.decodeAudioData(data.slice(0)); const s = c.createBufferSource(); s.buffer = b; const gn = c.createGain(); gn.gain.value = (SOUND_BY_ID[id] ? SOUND_BY_ID[id].lvl : 0.4) * vol;
     s.connect(gn); gn.connect(Audio.bus.sfx); s.start(); preview = s; s.onended = () => { if (preview === s) preview = null; };
   };
-  const decodes = async (data) => { try { await Audio.ctx.decodeAudioData(data.slice(0)); return true; } catch { return false; } };
+  const decodes = async (data) => { try { return await Audio.ctx.decodeAudioData(data.slice(0)); } catch { return null; } };
+  // 76th: why a file can't go into a slot (null = fine) — shown as a toast instead of silently failing
+  const MAXB = 60 * 1024 * 1024;
+  async function check(id, f, data) { const d = SOUND_BY_ID[id];
+    if (!SOUND_EXT.test(f.name)) return `"${f.name}": only .mp3, .wav or .ogg files can be used`;
+    if (!data.byteLength) return `"${f.name}" is empty (0 bytes)`;
+    if (data.byteLength > MAXB) return `"${f.name}" is ${(data.byteLength / 1048576).toFixed(0)} MB — keep recordings under 60 MB (export long songs as .mp3 / .ogg)`;
+    const b = await decodes(data); if (!b) return `"${f.name}" is not a playable audio file (damaged, or a format this browser can't decode — try re-exporting as .mp3 / .wav)`;
+    if (d && d.kind === 'loop' && b.duration < 0.25) return `"${f.name}" is only ${b.duration.toFixed(2)} s — a loop slot needs at least 0.25 s of seamless sound`;
+    if (d && !d.stream && b.duration > 120) return `"${f.name}" is ${b.duration.toFixed(0)} s long — slot "${d.name}" is a short effect (fully decoded into memory); trim it below 2 minutes`;
+    return null; }
 
   const search = h('input', { type: 'text', placeholder: 'Search sounds…', style: { flex: 1, minWidth: '160px' } });
   const DEFS = SOUND_DEFS.filter((d) => !d.dlg); // NPC voices have their own window (console: dialogs)
@@ -116,17 +130,17 @@ export async function open(game) {
     if (p && p.op === 'set') return { cls: 'pend', txt: '● ' + p.name + ' (not saved)', custom: true, vol: p.vol };
     if (p && p.op === 'remove') return { cls: 'pend', txt: cur && cur.pack && cur.src === 'user' ? '● back to the built-in pack (not saved)' : '● back to the original (not saved)', custom: false, vol: 1 };
     if (cur) return { cls: cur.ok ? 'cus' : 'bad', txt: (cur.ok ? '' : '⚠ cannot decode · ') + cur.name + (cur.src === 'pack' ? ' · built into the game' : '') + (p && p.op === 'vol' ? ' · volume (not saved)' : ''), custom: true, vol: p && p.op === 'vol' ? p.vol : cur.vol };
+    const d = SOUND_BY_ID[id]; if (d && d.fb) return { cls: 'miss', txt: d.varOf ? 'Empty — the other variations / ' + d.fb + ' play' : 'Missing — plays: ' + d.fb, custom: false, vol: 1 };
     return { cls: '', txt: 'Original (synthesised)', custom: false, vol: 1 };
   };
   async function choose(id) {
-    const [f] = await pickFiles(false); if (!f) return; if (!SOUND_EXT.test(f.name)) { toast('Only .mp3, .wav or .ogg files', 2600); return; }
-    const data = await f.arrayBuffer(); if (!(await decodes(data))) { toast(`"${f.name}" is not a playable audio file`, 3000); return; }
+    const [f] = await pickFiles(false); if (!f) return; const data = await f.arrayBuffer(); const err = await check(id, f, data); if (err) { toast(err, 4600); return; }
     pend.set(id, { op: 'set', data, name: f.name, vol: 1 }); render(); playBuf(data, 1, id);
   }
   async function importFiles() {
     const files = await pickFiles(true); let ok = 0; const bad = [];
-    for (const f of files) { const id = f.name.replace(SOUND_EXT, ''); if (!SOUND_BY_ID[id] || !SOUND_EXT.test(f.name)) { bad.push(f.name); continue; } const data = await f.arrayBuffer(); if (!(await decodes(data))) { bad.push(f.name); continue; } pend.set(id, { op: 'set', data, name: f.name, vol: 1 }); ok++; }
-    render(); toast(`${ok} file(s) ready — press Save` + (bad.length ? ` · skipped: ${bad.slice(0, 4).join(', ')}${bad.length > 4 ? '…' : ''} (the name must be a sound id)` : ''), 4200);
+    for (const f of files) { const id = f.name.replace(SOUND_EXT, ''); if (!SOUND_BY_ID[id] || !SOUND_EXT.test(f.name)) { bad.push(`${f.name} (no slot "${id}" — name files after the id shown under each slot, e.g. step.gravel.run.mp3)`); continue; } const data = await f.arrayBuffer(); const err = await check(id, f, data); if (err) { bad.push(err); continue; } pend.set(id, { op: 'set', data, name: f.name, vol: 1 }); ok++; }
+    render(); toast(`${ok} file(s) ready — press Save` + (bad.length ? ` · skipped ${bad.length}: ${bad.slice(0, 3).join(' · ')}${bad.length > 3 ? ' …' : ''}` : ''), bad.length ? 7000 : 4200);
   }
   function exportPack() {
     const files = []; const meta = {};
@@ -150,7 +164,7 @@ export async function open(game) {
     pend.clear(); saveB.disabled = false; render();
     toast(errs.length ? `Saved ${n} · problems: ${errs.slice(0, 2).join(' · ')}` : `Saved ${n} change(s) — the game now uses ${n === 1 ? 'it' : 'them'}${dev ? ' (also written to sounds/ for .exe builds)' : ''}`, errs.length ? 5000 : 3200);
   }
-  const playOriginal = (id) => { stopPreview(); if (!demoOriginal(game, id)) toast('Continuous sound (engine / siren / rotor / ambience / music) — the original is heard in the game itself', 2600); };
+  const playOriginal = (id) => { stopPreview(); const fd = SOUND_BY_ID[id]; if (fd && fd.fb && !demoOriginal(game, id)) { toast(`Without a recording the game plays: ${fd.fb} — heard at its real moment in the game (${fd.cat})`, 3600); return; } if (!demoOriginal(game, id)) toast('Continuous sound (engine / siren / rotor / ambience / music) — the original is heard in the game itself', 2600); };
   function row(d) {
     const st = state(d.id), p = pend.get(d.id), cur = SoundBank.info(d.id);
     const play = btn('▶', () => { if (p && p.op === 'set') return playBuf(p.data, p.vol, d.id); if (p && p.op === 'remove') return playOriginal(d.id); const b = SoundBank.buf.get(d.id); if (b) return playBuf(b, st.vol, d.id); if (d.stream && SoundBank.raw.get(d.id)) return playBuf(SoundBank.raw.get(d.id).data, st.vol, d.id); if (d.stream) return toast('Empty song slot — choose a file (.mp3 / .wav / .ogg)', 2400); return playOriginal(d.id); }, { title: 'Play what the game will use', cls: 'snd-play' });
@@ -159,7 +173,7 @@ export async function open(game) {
     vol.addEventListener('change', () => { const v = +vol.value; if (p && p.op === 'set') p.vol = v; else pend.set(d.id, { op: 'vol', vol: v }); render(); });
     const reset = btn('Reset', () => { if (p) pend.delete(d.id); if (cur && cur.src === 'user' && !(p && p.op === 'remove')) pend.set(d.id, { op: 'remove' }); render(); }, { title: 'Back to the original sound', cls: 'warn' });
     if (!p && (!cur || cur.src === 'pack')) { reset.disabled = true; if (cur) reset.title = 'Built into the game from the project\'s sounds/ folder — remove the file there to undo'; }
-    return h('div', { cls: 'snd-row' + (d.varOf ? ' var' : '') }, play, h('div', { cls: 'nm' }, d.name, h('small', {}, d.id + (d.kind === 'loop' ? ' · loop' : '') + (d.vars ? ' · + 3 variation slots below — they play in turn: this → 1 → 2 → 3 → this …' : d.varOf ? ' · empty = the original plays in its turn' : ''))), h('div', { cls: 'st ' + st.cls, title: st.txt }, st.txt),
+    return h('div', { cls: 'snd-row' + (d.varOf ? ' var' : '') }, play, h('div', { cls: 'nm' }, d.name, h('small', {}, d.id + (d.kind === 'loop' ? ' · loop' : '') + (d.vars ? (d.rnd ? ` · + ${d.vars.length} variation slot${d.vars.length > 1 ? 's' : ''} below — filled ones are picked at random, never the same twice in a row` : ' · + 3 variation slots below — they play in turn: this → 1 → 2 → 3 → this …') : d.varOf ? (d.rnd ? ' · empty = left out of the shuffle' : ' · empty = the original plays in its turn') : '') + (d.stream ? ' · streamed' : ''))), h('div', { cls: 'st ' + st.cls, title: st.txt }, st.txt),
       h('span', { style: { display: 'flex', gap: '4px' } }, btn('Choose file…', () => choose(d.id), { title: '.mp3 / .wav / .ogg' }), orig), vol, reset);
   }
   // 57th: which of the two map-screen tracks plays when the pause map opens (applies at once, kept in the settings)
@@ -178,7 +192,7 @@ export async function open(game) {
     const q = search.value.trim().toLowerCase(), cat = catSel.value; const top = list.scrollTop; list.textContent = ''; let last = null, shown = 0;
     for (const d of DEFS) {
       if (cat && d.cat !== cat) continue; if (q && !(d.name.toLowerCase().includes(q) || d.id.includes(q))) continue; if (onlyCus.checked && !SoundBank.info(d.id) && !pend.has(d.id)) continue;
-      if (d.cat !== last) { last = d.cat; list.append(h('div', { cls: 'snd-cat' }, d.cat)); if (d.cat === 'Hospital') list.append(h('div', { style: { padding: '4px 8px', color: '#9fb0c0', fontSize: '11px', borderBottom: '1px solid #1a1f28' } }, 'National Hospital: room tone, reception chatter, the ward monitor, staff footsteps, entrance and room doors, the lift, desk phone, PA announcements, water cooler, sanitiser, bed, discharge printer, the ambulance reversing beeper, and the recovery / receptionist voice lines. Loops must be seamless; every slot falls back to a synthesised placeholder.')); if (d.cat === 'Bank') list.append(h('div', { style: { padding: '4px 8px', color: '#9fb0c0', fontSize: '11px', borderBottom: '1px solid #1a1f28' } }, 'Ceylon Meridian Bank: the hall, the office staff, the phone and the ATMs. The staff\'s spoken lines (the phone call, the counter officers) are in the dialogs window → Bank staff.')); } if (d.id === 'music.map1') list.append(mapPick()); if (d.id === 'music.club1') list.append(clubPick()); list.append(row(d)); shown++;
+      if (d.cat !== last) { last = d.cat; const inCat = DEFS.filter((x) => x.cat === d.cat), nf = inCat.filter((x) => SoundBank.info(x.id)).length; list.append(h('div', { cls: 'snd-cat' }, d.cat, h('span', { cls: 'bdg' }, h('b', {}, `${nf} uploaded`), ' · ', h('i', {}, `${inCat.length - nf} empty`), ` / ${inCat.length}`))); if (ENV_CAT_INFO[d.cat]) list.append(h('div', { cls: 'snd-intro' }, ENV_CAT_INFO[d.cat] + ' Empty slots fall back to the sound shown on the right.')); if (d.cat === 'Hospital') list.append(h('div', { style: { padding: '4px 8px', color: '#9fb0c0', fontSize: '11px', borderBottom: '1px solid #1a1f28' } }, 'National Hospital: room tone, reception chatter, the ward monitor, staff footsteps, entrance and room doors, the lift, desk phone, PA announcements, water cooler, sanitiser, bed, discharge printer, the ambulance reversing beeper, and the recovery / receptionist voice lines. Loops must be seamless; every slot falls back to a synthesised placeholder.')); if (d.cat === 'Bank') list.append(h('div', { style: { padding: '4px 8px', color: '#9fb0c0', fontSize: '11px', borderBottom: '1px solid #1a1f28' } }, 'Ceylon Meridian Bank: the hall, the office staff, the phone and the ATMs. The staff\'s spoken lines (the phone call, the counter officers) are in the dialogs window → Bank staff.')); } if (d.id === 'music.map1') list.append(mapPick()); if (d.id === 'music.club1') list.append(clubPick()); list.append(row(d)); shown++;
     }
     if (!shown) list.append(h('div', { style: { padding: '14px', color: '#7f8a98' } }, 'No sounds match.'));
     list.scrollTop = top; const nCus = DEFS.filter((d) => SoundBank.info(d.id)).length;
