@@ -28,7 +28,8 @@ const APPS = [
   { id: 'contacts', name: 'Contacts', icon: '☎', col: '#3d8b5a' },
   { id: 'global', name: 'Global', icon: '◍', col: '#1d63c9' },
 ];
-const CONTACTS = [{ n: '119', t: 'Police Emergency', d: 'Sri Lanka Police emergency line — police or ambulance' }];
+const CONTACTS = [{ n: '119', t: 'Police Emergency', d: 'Sri Lanka Police emergency line — police or ambulance' },
+  { n: 'Street Customs', t: 'Roadside Assistance', d: 'Breakdown & recovery (Cinnamon Gardens). Stand by your broken-down vehicle and call: a mechanic van, or a flatbed to the garage.', rs: true }]; // 80th: Roadside.call
 const WEATHER = { clear: 'Clear and sunny', cloudy: 'Cloudy', overcast: 'Overcast', rain: 'Rain', storm: 'Monsoon thunderstorm', drizzle: 'Drizzle' };
 
 export class Phone {
@@ -77,7 +78,7 @@ export class Phone {
     const g = this.g;
     if (this.app === 'global') { Audio.ui('click'); const r = this.browser.activate(this.row); if (r && r.close) { if (this.open) this.toggle(false); } else if (this.open) this.render(); return; }
     if (this.app === 'contacts') {
-      if (!this.call) { const c = this.contacts()[this.row]; if (!c) return; this.call = { n: c.n, friend: c.friend || null, stage: 'ring', t: 0 }; this.row = 0; this.ring(); this.render(); return; }
+      if (!this.call) { const c = this.contacts()[this.row]; if (!c) return; this.call = { n: c.n, friend: c.friend || null, rs: !!c.rs, stage: 'ring', t: 0 }; this.row = 0; this.ring(); this.render(); return; }
       if (this.call.stage !== 'ask') return;
       if (this.call.friend) { const m = this.friend(this.call.friend); const o = m && callOptions(m)[this.row]; if (!o || o.id === 'hang') { this.hangUp(); return; } const r = this.friendAnswer(m, o.id); this.call = { n: this.call.n, friend: this.call.friend, stage: 'done', res: r }; Audio.ui(r.ok ? 'notify' : 'click'); this.render(); return; }
       if (this.row === 2) { this.hangUp(); return; }
@@ -112,7 +113,8 @@ export class Phone {
   update() {
     if (!this.open) return;
     if (this.call) { const c = this.call; const now = performance.now() / 1000; if (c.t0 === undefined) { c.t0 = now; c.rung = now; } c.t = now - c.t0; // real time: the phone never pauses the world
-      if (c.stage === 'ring' && c.t > 2.2) { c.stage = 'ask'; c.t0 = now; c.t = 0; this.row = 0; this.render(); Audio.ui('notify'); }
+      if (c.stage === 'ring' && c.t > 2.2 && c.rs) { const R = this.g.police && this.g.police.rs; c.res = R ? R.call() : { ok: false, title: 'Street Customs Roadside', msg: 'No answer.' }; c.stage = 'done'; c.t0 = now; c.t = 0; Audio.ui(c.res.ok ? 'notify' : 'click'); this.render(); } // 80th: the breakdown desk answers straight away
+      else if (c.stage === 'ring' && c.t > 2.2) { c.stage = 'ask'; c.t0 = now; c.t = 0; this.row = 0; this.render(); Audio.ui('notify'); }
       else if (c.stage === 'ring' && now - c.rung > 1.1) { c.rung = now; this.ring(); }
       else if (c.stage === 'done' && c.t > 4.5) { this.hangUp(); return; } } const k = (c) => Input.keyPressed(c); const n = this.app ? this.rows().length : APPS.length;
     if (k('Backspace')) { this.back(); return; }
@@ -153,6 +155,7 @@ export class Phone {
       else if (c.stage === 'ask' && c.friend) h = `<div class="ph-call"><div class="ph-call-n">${c.n}</div><div class="ph-call-q">“${esc(friendLines(c.friend).hi)}”</div></div>` + this.rows().map((r, i) => `<div class="ph-row${i === this.row ? ' sel' : ''}" data-i="${i}"><b>${esc(r.t)}</b></div>`).join('') + '<div class="ph-hint">↑↓ choose · Enter answer · Backspace hang up</div>';
       else if (c.stage === 'done' && c.friend) h = `<div class="ph-call"><div class="ph-call-n">${c.n}</div><div class="ph-call-q ${c.res.ok ? 'ok' : 'no'}">“${esc(c.res.msg)}”</div><div class="ph-call-s">Call ended</div></div>`;
       else if (c.stage === 'ask') h = `<div class="ph-call"><div class="ph-call-n">${c.n} · Emergency</div><div class="ph-call-q">“119 Emergency. Police or ambulance?”</div></div>` + this.rows().map((r, i) => `<div class="ph-row${i === this.row ? ' sel' : ''}" data-i="${i}"><b>${r.t}</b></div>`).join('') + '<div class="ph-hint">↑↓ choose · Enter answer · Backspace hang up</div>';
+      else if (c.stage === 'done' && c.rs) h = `<div class="ph-call"><div class="ph-call-n">${c.n} · Roadside Assistance</div><div class="ph-call-q ${c.res.ok ? 'ok' : 'no'}">${esc(c.res.msg)}</div><div class="ph-call-s">Call ended</div></div>`;
       else h = `<div class="ph-call"><div class="ph-call-n">${c.n} · ${c.kind === 'police' ? 'Police' : 'Ambulance (1990 Suwa Seriya)'}</div><div class="ph-call-q ${c.res.ok ? 'ok' : 'no'}">${esc(c.res.msg)}</div><div class="ph-call-s">Call ended</div></div>`;
     } else if (this.app === 'global') {
       h = this.browser.html(this.row);

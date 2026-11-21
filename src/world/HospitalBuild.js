@@ -7,7 +7,7 @@
 // Everything is built once at load (no material / geometry is made while playing).
 import * as THREE from 'three';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
-import { HOSP, Y0, FLOOR_Y, ROOMS, DOORS, OUTER, ROOFS, WINDOWS, FURNITURE, STAIR, LIFT, GROUNDS, roomAt } from './HospitalPlan.js';
+import { HOSP, Y0, FLOOR_Y, ROOMS, DOORS, OUTER, ROOFS, WINDOWS, FURNITURE, STAIR, LIFT, GROUNDS, GARDEN_TREES, GARDEN_BEDS, roomAt } from './HospitalPlan.js';
 import { hospitalMatTable, hospitalMaterials, drawItem, C, plateUV, bigUV, BIG, screenUV } from './HospitalKit.js';
 import { bushBall, hedgeBox } from './HedgeBush.js'; // 75th: real shrubs and clipped hedges (leaf cards, the city's shared foliage materials)
 import { parkBench, parkBenchColliders } from './ParkBench.js';
@@ -485,4 +485,22 @@ function buildGrounds(E, colliders) {
     shrub(u, v, 0.8 * s, 1.15 * s, fl); shrub(u + 1.1 * s, v + 0.5, 0.55 * s, 0.85 * s, null); shrub(u - 0.5, v + 1.0 * s, 0.5 * s, 0.7 * s, fl && 'wht', 6); }
   // benches along the path (the one the garden patient sits on is built with him, HospitalGarden.js)
   for (const [u, v] of [[2.25, 52], [-2.25, 64], [2.25, 78], [-2.25, 92]]) { const yaw = u < 0 ? Math.PI / 2 : -Math.PI / 2; parkBench(E, X(u), Y0, Z(v), yaw, 0.45); parkBenchColliders(colliders, X(u), Z(v), yaw, Y0 + 0.86, 'hospBench'); }
+  // 80th: raised flower beds (stone kerb, dark soil; the plants are Flowers.js instances, HospitalGarden.js) and a mixed
+  // shrub border along the compound walls, clear of the trees, the beds and the back gate
+  const N = 28, ring = (u, v, r) => Array.from({ length: N }, (_, k) => { const a = k / N * Math.PI * 2; return [X(u) + Math.cos(a) * r, Z(v) + Math.sin(a) * r]; });
+  for (const [u, v, r] of GARDEN_BEDS) { const x = X(u), z = Z(v);
+    E('h_render').cylinder(x, Y0, z, r + 0.16, r + 0.16, 0.34, N, { col: C('#cfc9bb'), caps: false }); E('h_render').cylinder(x, Y0, z, r, r, 0.34, N, { col: C('#b9b3a5'), caps: false });
+    const p = ring(u, v, r + 0.16), q = ring(u, v, r); for (let k = 0; k < N; k++) { const a = p[k], b = p[(k + 1) % N], c = q[(k + 1) % N], d = q[k]; E('h_render').quad([a[0], Y0 + 0.34, a[1]], [b[0], Y0 + 0.34, b[1]], [c[0], Y0 + 0.34, c[1]], [d[0], Y0 + 0.34, d[1]], [0, 0, 1, 0.1], C('#ddd8cb')); }
+    E('soil').hpoly(q, Y0 + 0.26, 1.5);
+    colliders.push({ x0: x - r - 0.16, x1: x + r + 0.16, z0: z - r - 0.16, z1: z + r + 0.16, h: Y0 + 0.34, kind: 'landmark', id: 'hospBed' }); }
+  { const clear = (u, v, m) => GARDEN_TREES.every(([, tu, tv]) => Math.hypot(u - tu, v - tv) > m) && GARDEN_BEDS.every(([bu, bv, br]) => Math.hypot(u - bu, v - bv) > br + m);
+    const KIND = [[1.35, 1.8, 'red'], [1.0, 1.3, null], [1.55, 2.1, null], [1.15, 1.5, 'mag'], [0.95, 1.2, null], [1.4, 1.85, 'yel'], [1.1, 1.45, null], [1.25, 1.65, 'wht']];
+    const runs = [[-49.6, 5, -49.6, 102], [49.6, 13, 49.6, 102], [-49.6, 102.6, -5.5, 102.6], [5.5, 102.6, 49.6, 102.6]]; let n = 0;
+    for (const [u0, v0, u1, v1] of runs) { const L = Math.hypot(u1 - u0, v1 - v0), cnt = Math.floor(L / 2.1);
+      for (let i = 0; i <= cnt; i++) { const t = i / cnt, j = Math.sin(n * 12.9898) * 0.5; const u = u0 + (u1 - u0) * t + (u0 === u1 ? j * 0.5 : 0), v = v0 + (v1 - v0) * t + (v0 === v1 ? j * 0.5 : 0);
+        const [r, h, fl] = KIND[n++ % KIND.length]; if (!clear(u, v, r + 1.2)) continue; shrub(u, v, r, h, fl);
+        if (n % 2 === 0) { const iu = u + (u0 === u1 ? -Math.sign(u) * (r + 0.55) : 0.6), iv = v + (v0 === v1 ? -(r + 0.55) : 0.7); if (clear(iu, iv, 1.5)) shrub(iu, iv, 0.6, 0.75, n % 4 === 0 ? 'wht' : null, 8); } } } }
+  // low clipped hedges framing the four lawns' path corners near the building (box-edged beds of ixora: flowering red)
+  for (const su of [-1, 1]) { hedgeBox(mb, X(su * 12.5), Y0, Z(26.8), 15, 0.45, 0.45, 0, { density: 11, seed: 300 + su });
+    colliders.push({ x0: X(su * 12.5) - 7.5, x1: X(su * 12.5) + 7.5, z0: Z(26.8) - 0.23, z1: Z(26.8) + 0.23, h: Y0 + 0.45, kind: 'landmark', id: 'hospHedge' }); }
 }

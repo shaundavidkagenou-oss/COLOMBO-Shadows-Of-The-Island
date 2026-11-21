@@ -22,7 +22,7 @@ import * as L from '../world/Layout.js';
 import { Vehicle } from '../vehicles/Vehicle.js';
 import { linePiece, segNodes, otherEnd, evalPiece } from '../vehicles/Traffic.js';
 import { Character } from '../actors/Character.js';
-import { makeMedicAppearance, makePoliceAppearance } from '../actors/Appearance.js';
+import { makeMedicAppearance, makePoliceAppearance, makeMechanicAppearance } from '../actors/Appearance.js';
 import { seatCharacter } from '../actors/Seating.js';
 import { boardCurve, poseBoard, npcBoardSetup, boardGroundFn, swingDoor, lapGrips, EXIT_K } from '../actors/Boarding.js';
 import { shutDoorLater, cancelShut, poseDoor } from '../vehicles/DoorRig.js';
@@ -34,6 +34,7 @@ import { clamp, lerp } from '../core/math.js';
 import { FootNav } from './FootNav.js';
 import { Firefight } from './Firefight.js';
 import { EMS } from './EMS.js';
+import { Roadside, roadsideCrew } from './Roadside.js';
 import { BustedCinematic } from './Busted.js';
 import { HOSPITAL } from '../actors/Health.js';
 import { standUpFrom } from '../actors/Ragdoll.js';
@@ -42,8 +43,10 @@ import { UnitPool, crewSeats } from './UnitPool.js';
 import { THINK, SIGHT, thinkTick, pickStalest } from './AIThrottle.js';
 // crew looks cycle through a fixed set (12 police units, 6 ambulances × driver / partner) so their bodies are built once at
 // load (Game.js prewarm) and cached — a squad car arriving mid-chase never stalls a frame building two new people
-export const CREW_LOOKS = { police: 12, ems: 6 };
-export function crewSpec(id, k, ems) { const q = id % (ems ? CREW_LOOKS.ems : CREW_LOOKS.police);
+export const CREW_LOOKS = { police: 12, ems: 6, rs: 6 };
+// ems: false (police) | true (1990 ambulance) | 'rsvan' / 'flatbed' (80th: Street Customs roadside assistance — mechanics)
+export function crewSpec(id, k, ems) { if (typeof ems === 'string') return roadsideCrew(makeMechanicAppearance, id % CREW_LOOKS.rs, k);
+  const q = id % (ems ? CREW_LOOKS.ems : CREW_LOOKS.police);
   return ems ? makeMedicAppearance(9100 + q * 17 + k * 7) : makePoliceAppearance(7000 + q * 13 + k * 5, 'patrol', k === 1 && q % 3 === 0 ? { sex: 'f' } : {}); }
 
 const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
@@ -120,7 +123,7 @@ export class PoliceResponse {
     this.foot = []; this.civil = []; this.log = []; this.stats = { reports: 0, dispatched: 0, sightings: 0, fines: 0, arrests: 0, searches: 0, decays: 0, standDowns: 0, maxUnits: 0, spawnMinDist: Infinity };
     this.queue = []; this.baseState = {}; this.edges = null; this.reason = 'disturbance'; this.stop = null; this.t = 0; this.siren = null; this.waits = []; this.radioCd = 4; this.radioN = 0; this.blockCd = 12;
     Object.assign(this.stats, { intercepts: 0, pits: 0, roadblocks: 0, spikes: 0, flats: 0, recycled: 0, tackles: 0, tackleHits: 0, busted: { grab: 0, tackle: 0, shot: 0 } });
-    this.ff = new Firefight(this); this.ems = new EMS(this); this.cine = null; this.bodies = []; this.nav = new FootNav(this.g.collision, () => this.T.all());
+    this.ff = new Firefight(this); this.ems = new EMS(this); this.rs = new Roadside(this); this.cine = null; this.bodies = []; this.nav = new FootNav(this.g.collision, () => this.T.all());
     // 66th: pooled units (UnitPool.js), the rotating sight queue and per-unit think timers (AIThrottle.js)
     this.pool = new UnitPool(this, crewSpec); this.lookers = []; this.lookPick = []; this.frame = 0;
     Object.assign(this.stats, { recycledAhead: 0, sight: { checks: 0, frames: 0, maxPerFrame: 0, forced: 0 }, thinks: 0, poolWaits: 0 });
@@ -163,7 +166,7 @@ export class PoliceResponse {
     this.updateGlobal(dt); this.recordTrail();
     for (const u of this.units.slice()) this.updateUnit(u, dt);
     for (const u of this.civil.slice()) this.updateCivil(u, dt);
-    this.ems.update(dt);
+    this.ems.update(dt); this.rs.update(dt);
     this.updateRoadblocks(dt); this.updateRadio(dt);
     this.updateStop(dt); this.g.player.policeStop = !!this.stop; this.pushPlayer(); this.updateSiren(dt, false);
     { let n = 0; for (const u of this.units) if (!u.patrol) n++; if (n > this.stats.maxUnits) this.stats.maxUnits = n; }
@@ -314,7 +317,7 @@ export class PoliceResponse {
   }
 
   // ------------------------------------------------------------------ units
-  spawnUnit({ patrol = false, jeep = false, ahead = false, at = null, ems = false, near = false } = {}) {
+  spawnUnit({ patrol = false, jeep = false, ahead = false, at = null, ems = false, near = false, rs = null } = {}) { if (rs) ems = rs; // 80th: rs = 'rsvan' | 'flatbed' (Roadside.js) — a civilian unit like the ambulance
     const g = this.g, T = this.T, P = g.player; const f = this.target(); const cam = g.camera; const cd = new THREE.Vector3(); cam.getWorldDirection(cd);
     if (at) { const ln = T.laneNear(at.x, at.z, at.yaw, 40); return ln ? this.makeUnit(at.x, at.z, at.yaw, ln.piece, ln.s, false, jeep, ems) : null; } // placed (roadblock / test)
     const lo = ahead ? 170 : near ? 90 : 150, hi = ahead ? 310 : near ? 170 : 280; // near: answering the player's own 119 call
@@ -336,16 +339,16 @@ export class PoliceResponse {
   }
   makeUnit(x, z, yaw, piece, s, patrol, jeep, ems = false) {
     const g = this.g, T = this.T, P = g.player; {
-      const tm0 = performance.now(); const want = ems ? 'ambulance' : jeep ? 'policejeep' : 'police';
+      const tm0 = performance.now(); const civ = typeof ems === 'string'; const want = civ ? ems : ems ? 'ambulance' : jeep ? 'policejeep' : 'police';
       // 66th: police cars + crews come out of the pool (built while loading); with the pool in use and empty, no car is built
-      const pe = this.pool.acquire(want, x, z, yaw); /* (73rd: the ambulance too — if it is out / lost, EMS builds one as before) */ if (!pe && !ems && this.pool.ready) { this.stats.poolWaits++; this.note(`no free unit in the pool (${want})`); return null; }
+      const pe = this.pool.acquire(want, x, z, yaw); /* (73rd: the ambulance too — if it is out / lost, EMS builds one as before) */ if (!pe && (!ems || civ) && this.pool.ready) { this.stats.poolWaits++; this.note(`no free unit in the pool (${want})`); return null; }
       const v = pe ? pe.v : new Vehicle(want, 3000 + this.seed * 7, g.scene); const type = v.type; if (!pe) v.place(x, z, yaw); const tm1 = performance.now();
-      v.keep = true; v.ai = { pieces: [piece], s, v0: patrol ? 9 : 11, stuck: 0, honkCd: 99, bumped: 0, aggressive: 1.2, emergency: true }; T.extend(v);
+      v.keep = true; v.ai = { pieces: [piece], s, v0: patrol ? 9 : 11, stuck: 0, honkCd: 99, bumped: 0, aggressive: civ ? 1 : 1.2, emergency: !civ }; T.extend(v); // (80th: a breakdown truck is not an emergency vehicle — it drives with the traffic)
       const u = { id: this.seed++, v, officers: [], task: patrol ? 'patrol' : 'idle', patrol, arrived: false, footT: 0, stuckT: 0, planT: 0, goalPt: null, enterT: 0 };
       v.police = u; const seats = v.mesh.userData.seats; const [di, pi] = crewSeats(seats); u.pooled = !!pe;
       for (const [k, si] of [[0, di], [1, pi]]) { if (si === undefined || si < 0) continue; const rec = pe && pe.crew[k]; const ch = rec ? rec.ch : new Character(crewSpec(u.id, k, ems)); if (!rec) { seatCharacter(ch, v, seats[si]); ch.mesh.castShadow = false; }
         const off = { ch, unit: u, k, seat: seats[si], si, mode: 'seated', x, z, y: v.y, yaw: v.yaw, t: 0, hits: 0, acc: 0 }; if (rec) { off.rifle = rec.rifle; off.rp = rec.rp; off.torchM = rec.torchM; }
-        if (ems) { off.medic = true; off.noTorch = true; } else this.ff.arm(off); u.officers.push(off); } // every officer carries a T-56 (slung; hidden while seated) — a pooled officer already has his
+        if (ems) { off.medic = true; off.noTorch = true; if (civ) off.mech = true; } else this.ff.arm(off); u.officers.push(off); } // every officer carries a T-56 (slung; hidden while seated) — a pooled officer already has his
       if (pe) pe.crew = [null, null]; // (the unit owns them while it is out; release hands the survivors back)
       this.syncSeated(u); v.paxPlan = []; T.vehicles.push(v); this.units.push(u);
       { const tm2 = performance.now(), M = this.stats.make || (this.stats.make = { n: 0, veh: 0, crew: 0, vehMax: 0, crewMax: 0 }); M.n++; M.veh += tm1 - tm0; M.crew += tm2 - tm1; M.vehMax = Math.max(M.vehMax, tm1 - tm0); M.crewMax = Math.max(M.crewMax, tm2 - tm1); } // spawn cost (dev stats)
@@ -373,15 +376,16 @@ export class PoliceResponse {
     if (u.v && !u.v.player) { u.v.ai.stopped = false; u.v.ai.v0 = CHASE_V0[this.stars()]; if (pt && this.allSeated(u)) this.plan(u, pt.x, pt.z); }
   }
   allSeated(u) { return u.officers.every((o) => o.mode === 'seated' || o.mode === 'down'); }
-  plan(u, gx, gz, soft = false) {
+  // enter (80th, optional): the node the goal road must be driven in from (a kerb-side stop on a given side of the road)
+  plan(u, gx, gz, soft = false, enter = null) {
     const v = u.v, ai = v.ai, T = this.T; const tgt = nearestRoad(T.drivableSegs, gx, gz); if (!tgt) return false;
     ai.pieces = ai.pieces[0].type === 'line' ? [ai.pieces[0]] : ai.pieces.slice(0, 2); const last = ai.pieces[ai.pieces.length - 1]; ai.route = null; ai.goal = null;
     const proj = (pc) => clamp((tgt.px - pc.p0[0]) * pc.d[0] + (tgt.pz - pc.p0[1]) * pc.d[1], 1.5, pc.len - 1.5);
-    if (last.seg === tgt.seg) { const s = proj(last); const cur = last === ai.pieces[0] ? ai.s : -1; if (s > cur + 4) { ai.route = []; ai.goal = { seg: tgt.seg, from: last.from, piece: last, s, soft }; T.extend(v); u.goalRoad = tgt; return true; } }
+    if (last.seg === tgt.seg && (!enter || last.from === enter)) { const s = proj(last); const cur = last === ai.pieces[0] ? ai.s : -1; if (s > cur + 4) { ai.route = []; ai.goal = { seg: tgt.seg, from: last.from, piece: last, s, soft }; T.extend(v); u.goalRoad = tgt; return true; } }
     const start = last.to; const [a, b] = segNodes(tgt.seg); const { dist, prev } = shortest(start, T.drivable, last.from, [a, b]); this.planN = (this.planN || 0) + 1; this.planFrame = this.t;
     const ca = (dist.get(a) ?? Infinity) + Math.hypot(tgt.px - a.x, tgt.pz - a.z), cb = (dist.get(b) ?? Infinity) + Math.hypot(tgt.px - b.x, tgt.pz - b.z);
     if (!isFinite(ca) && !isFinite(cb)) { this.note(`unit ${u.id}: no route`); return false; }
-    const [from, to] = ca <= cb ? [a, b] : [b, a]; const path = from === start ? [] : pathTo(prev, start, from); if (!path) return false;
+    let [from, to] = ca <= cb ? [a, b] : [b, a]; if (enter && (enter === a || enter === b) && isFinite(dist.get(enter) ?? Infinity)) [from, to] = enter === a ? [a, b] : [b, a]; const path = from === start ? [] : pathTo(prev, start, from); if (!path) return false;
     ai.route = path.concat([to]); const gp = linePiece(tgt.seg, from, to, 0); ai.goal = { seg: tgt.seg, from, piece: null, s: proj(gp), soft }; T.extend(v); u.goalRoad = tgt; u.routeLen = ai.route.length;
     return true;
   }
@@ -651,6 +655,7 @@ export class PoliceResponse {
       this.animOfficer(o, dt, speed); return;
     }
     if (u.ems && o.mode === 'foot') { this.ems.medic(o, u, dt); return; } // 1990 ambulance crew (EMS.js)
+    if (u.rs && o.mode === 'foot') { this.rs.mech(o, u, dt); return; } // 80th: roadside mechanics (Roadside.js)
     if (u.civil && o.mode === 'foot') { this.civilOfficer(o, u, dt); return; }
     if (o.tackle) { this.updateTackle(o, u, dt); return; }
     o.tackleCd = Math.max(0, (o.tackleCd || 0) - dt);

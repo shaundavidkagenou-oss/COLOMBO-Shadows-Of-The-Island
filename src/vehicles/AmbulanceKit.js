@@ -94,11 +94,14 @@ export function addAmbulanceKit(m, T) {
 }
 
 // ---------------------------------------------------------------- runtime rear doors
-let rearMats = null;
-function rearMaterials() {
-  if (rearMats) return rearMats;
+// 80th: other vans with the same twin rear doors (the roadside-assistance service van, RoadsideKit.js) pass a style:
+//   { key, face(g, X, Y, LAT, LOCAL) paints the 1024² door skin, atlas() → the 512² interior atlas in the IA layout }
+const rearMatsBy = new Map();
+function rearMaterials(style = null) {
+  const key = style ? style.key : 'amb'; if (rearMatsBy.has(key)) return rearMatsBy.get(key);
   const H = AMB.doorY1 - AMB.doorY0, Wd = 2 * AMB.doorX; const c = document.createElement('canvas'); c.width = 1024; c.height = 1024; const g = c.getContext('2d');
   const Y = (y) => ((AMB.doorY1 - y) / H) * 1024, X = (x) => ((AMB.doorX - x) / Wd) * 1024; // x: +x (viewer's left from behind) → u = 0
+  if (style) { style.face(g, X, Y, LAT, LOCAL); } else {
   g.fillStyle = '#f4f4f2'; g.fillRect(0, 0, 1024, 1024);
   // frosted windows, one per leaf
   g.fillStyle = '#d9dfdd'; for (const [xa, xb] of [[0.6, 0.07], [-0.07, -0.6]]) { g.beginPath(); const r = 26; if (g.roundRect) g.roundRect(X(xa), Y(1.8), X(xb) - X(xa), Y(1.13) - Y(1.8), r); else g.rect(X(xa), Y(1.8), X(xb) - X(xa), Y(1.13) - Y(1.8)); g.fill(); }
@@ -109,18 +112,19 @@ function rearMaterials() {
   g.fillRect(0, Y(AMB.bandY[1]), 1024, Y(AMB.bandY[0]) - Y(AMB.bandY[1]));
   g.fillStyle = '#ffffff'; g.font = LOCAL(48); g.fillText(`${AMB_SI}  ·  ${AMB_TA}`, 512, (Y(AMB.bandY[1]) + Y(AMB.bandY[0])) / 2 + 2, 960);
   g.fillStyle = '#2b2f31'; g.fillRect(X(-0.03), Y(1.0), X(-0.15) - X(-0.03), 18); // handle
+  }
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
-  const ti = interiorAtlas();
-  rearMats = {
+  const ti = style ? style.atlas() : interiorAtlas();
+  const rearMats = {
     face: new THREE.MeshStandardMaterial({ map: t, roughness: 0.42, metalness: 0.05 }),
     edge: new THREE.MeshStandardMaterial({ color: 0xe9ebe9, roughness: 0.5 }),
     cavTex: ti,
   };
-  return rearMats;
+  rearMatsBy.set(key, rearMats); return rearMats;
 }
 const rearGeo = {};
-export function buildAmbRear() {
-  const M = rearMaterials(); const H = AMB.doorY1 - AMB.doorY0, lw = AMB.doorX - 0.005, yc = (AMB.doorY0 + AMB.doorY1) / 2;
+export function buildAmbRear(style = null) {
+  const M = rearMaterials(style); const H = AMB.doorY1 - AMB.doorY0, lw = AMB.doorX - 0.005, yc = (AMB.doorY0 + AMB.doorY1) / 2;
   if (!rearGeo.edge) {
     rearGeo.edge = new THREE.BoxGeometry(lw, H, 0.03);
     for (const side of [1, -1]) { const p = new THREE.PlaneGeometry(lw, H); p.rotateY(Math.PI); const uv = p.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setX(i, side > 0 ? uv.getX(i) * 0.5 : 0.5 + uv.getX(i) * 0.5); rearGeo[side] = p; }
@@ -145,7 +149,7 @@ export function setAmbRear(r, k) { if (!r) return; r.open = k; const a = 1.9 * k
 // overhead cabinets (left), monitor / defibrillator, suction, O2 outlets + cylinder, drawers (right), partition with the cab
 // window, sharps bin and attendant seat (front), anti-slip floor with the cot rails, ceiling with LED panels. Corners get
 // ambient occlusion; the stowed cot (empty, or with the covered patient) is traced as a box on the floor rails (uCot).
-const IA = { L: [0, 0, 512, 112], R: [0, 112, 512, 112], F: [0, 224, 512, 112], C: [0, 336, 512, 64], B: [0, 400, 160, 112] }; // atlas rects (px)
+export const IA = { L: [0, 0, 512, 112], R: [0, 112, 512, 112], F: [0, 224, 512, 112], C: [0, 336, 512, 64], B: [0, 400, 160, 112] }; // atlas rects (px)
 function interiorAtlas() {
   const c = document.createElement('canvas'); c.width = 512; c.height = 512; const g = c.getContext('2d');
   const rect = (r, col) => { g.fillStyle = col; g.fillRect(r[0], r[1], r[2], r[3]); };

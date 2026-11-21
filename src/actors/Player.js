@@ -332,7 +332,7 @@ export class Player {
     return s || { lx: e.x, lz: e.z, ...this.local(v, e.x, 0, e.z), forced: true };
   }
   exitVehicle(traffic) {
-    const v = this.vehicle; if (!v || Math.abs(v.speed) > 3 || this.exiting) return false;
+    const v = this.vehicle; if (!v || Math.abs(v.speed) > 3 || this.exiting) return false; this.lastVehicle = v; // 80th: the car you got out of (Roadside.call — the breakdown line asks which vehicle)
     const spot = this.exitSpot(v); const ud = v.mesh.userData; const sameSide = Math.sign(spot.lx) === Math.sign((ud.entry || { x: -1 }).x);
     const board = !!boardKind(v) && sameSide && !spot.forced; // step-out (reversed boarding) on the entry side; otherwise slide across / out
     if (isBus(v) && sameSide && !spot.forced) { this.exiting = { v, traffic, spot, t: 0, stage: 'busRise', door: null, side: 1, dz: (ud.entry || { z: 0 }).z }; openBusDoor(v, this.exiting.dz, true); this.control = false; v.speed = 0; v.brake = true; return true; } // up out of the seat, down the treads

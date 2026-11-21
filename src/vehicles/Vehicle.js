@@ -283,7 +283,7 @@ export class Vehicle {
   contact(dt) {
     const m = this.mesh, W = m.userData.wheels; if (!W || !W.length || this.T.rail) return; const C = this.ct || (this.ct = { lift: 0, lv: 0, hc: null, init: false });
     const F = CHASSIS.focus; const near = dt === 0 || !F || (this.x - F.x) ** 2 + (this.z - F.z) ** 2 < CHASSIS.r * CHASSIS.r;
-    if (!near || this.wrecked) { C.lift = 0; C.lv = 0; C.hc = null; C.init = false; for (const w of W) w.userData.gOff = 0; return; }
+    if (!near || this.wrecked || this.carried) { C.lift = 0; /* 80th: riding on a flatbed deck (Roadside.js poses it): no ground contact */ C.lv = 0; C.hc = null; C.init = false; for (const w of W) w.userData.gOff = 0; return; }
     if (this.air) { for (const w of W) { const u = w.userData; u.gOff = damp(u.gOff || 0, -SUS_DROOP, 9, dt); } C.lift = damp(C.lift, 0, 8, dt); C.lv = 0; C.hc = null; return; } // wheels hang
     const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw); const bike = this.T.entry === 'bike';
     let n = 0, sx = 0, sz = 0, sxx = 0, szz = 0, sxz = 0, sg = 0, sxg = 0, szg = 0;

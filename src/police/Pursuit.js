@@ -114,7 +114,7 @@ export function stepChase(T, v, dt, all) {
 export function rejoinLane(T, v, maxD = 60) {
   const ln = T.laneNear(v.x, v.z, v.yaw, maxD); if (!ln) return false; const ai = v.ai;
   ai.chase = null; ai.pieces = [ln.piece]; ai.s = ln.s; ai.route = null; ai.goal = null; ai.lat = 0; ai.bumped = 0; ai.stuck = 0;
-  ai.rejoin = true; ai.hdg = 0; T.extend(v); return true; /* drives back onto the lane (Traffic.driveRejoin), never slid over */
+  ai.rejoin = true; ai.rjT = 0; ai.hdg = 0; T.extend(v); return true; /* drives back onto the lane (Traffic.driveRejoin), never slid over */
 }
 
 // --------------------------------------------------------------- PIT contact: the suspect car's rear is pushed out → it spins

@@ -562,14 +562,16 @@ export class Traffic {
   driveRejoin(v, dt) {
     const ai = v.ai; let pc = ai.pieces[0]; ai.s = Math.max(0, projectS(pc, v.x, v.z, ai.s));
     while (ai.s > pc.len) { ai.s -= pc.len; ai.pieces.shift(); this.extend(v); pc = ai.pieces[0]; ai.s = Math.max(0, projectS(pc, v.x, v.z, ai.s)); }
-    let s = ai.s + Math.max(4.5, v.speed * 0.9 + 3), k = 0; while (k < ai.pieces.length - 1 && s > ai.pieces[k].len) { s -= ai.pieces[k].len; k++; }
+    const Rmin = Math.max(1.2, v.T.len * 0.62) / Math.tan(0.55); // 80th: when well off line, aim beyond twice the tightest turning radius — a point inside the turning circle is orbited for ever (seen: a flatbed circling at 3 m/s)
+    ai.rjT = (ai.rjT || 0) + dt; // and the longer it has been at it, the further ahead it aims (a car circling round a point it cannot reach is drawn out of the circle)
+    let s = ai.s + Math.max(4.5, v.speed * 0.9 + 3, Math.abs(ai.rjErr || 0) > 0.6 ? 2.2 * Rmin : 0) + Math.max(0, ai.rjT - 8) * 1.5, k = 0; while (k < ai.pieces.length - 1 && s > ai.pieces[k].len) { s -= ai.pieces[k].len; k++; }
     const [tx, tz] = evalPiece(ai.pieces[k], s); const dyaw = wrapA(Math.atan2(tx - v.x, tz - v.z) - v.yaw); ai.rjErr = dyaw;
     const maxYr = Math.min((v.speed * Math.tan(0.55)) / Math.max(1.2, v.T.len * 0.62), 4 / Math.max(v.speed, 0.5)); const y0 = v.yaw; v.yaw = wrapA(v.yaw + clamp(dyaw * 2.5, -maxYr, maxYr) * dt); v.steer = clamp(dyaw * 3, -0.6, 0.6);
     const ym = y0 + wrapA(v.yaw - y0) / 2; v.x += Math.sin(ym) * v.speed * dt; v.z += Math.cos(ym) * v.speed * dt;
     for (const [cx, cz] of v.circles()) { const r = this.collision.resolveCircle(cx, cz, v.radius, v.y, 0.25, 2, { vehicle: true }); if (r.hit) { v.x += r.x - cx; v.z += r.z - cz; } }
     ai.s = Math.max(0, projectS(pc, v.x, v.z, ai.s)); while (ai.s > pc.len && ai.pieces.length > 1) { ai.s -= pc.len; ai.pieces.shift(); this.extend(v); pc = ai.pieces[0]; ai.s = Math.max(0, projectS(pc, v.x, v.z, ai.s)); } // where it is now, after this frame's move
     const [lx, lz, lyaw] = evalPiece(pc, Math.min(ai.s, pc.len)); const ye = wrapA(v.yaw - lyaw); const lat = (v.x - lx) * Math.cos(lyaw) - (v.z - lz) * Math.sin(lyaw);
-    if (Math.abs(lat) < 0.6 && Math.abs(ye) < 0.15 && Math.abs((v.x - lx) * Math.sin(lyaw) + (v.z - lz) * Math.cos(lyaw)) < 0.3) { ai.rejoin = false; ai.lat = lat; ai.hdg = ye; } // aligned: lane-following takes over seamlessly
+    if (Math.abs(lat) < 0.6 && Math.abs(ye) < 0.15 && Math.abs((v.x - lx) * Math.sin(lyaw) + (v.z - lz) * Math.cos(lyaw)) < 0.3) { ai.rejoin = false; ai.rjT = 0; ai.lat = lat; ai.hdg = ye; } // aligned: lane-following takes over seamlessly
     v.y = L.groundY(v.x, v.z); v.lights = this.night > 0.4; v.sync(dt);
   }
   // a car knocked out of its lane by a collision: slides with tyre friction, spins down, bounces off walls; then the driver collects themselves and eases back into the lane
@@ -587,7 +589,7 @@ export class Traffic {
     // re-anchor on the lane: nearest arc-length on the current piece; the offset decays smoothly in step()
     const pc = ai.pieces[0]; let bestS = ai.s, bd = Infinity; for (let s2 = Math.max(0, ai.s - 12); s2 <= Math.min(pc.len, ai.s + 12); s2 += 0.5) { const [x, z] = evalPiece(pc, s2); const d = (x - v.x) ** 2 + (z - v.z) ** 2; if (d < bd) { bd = d; bestS = s2; } }
     if (bd > 36) { const P = this.player; if (P && Math.hypot(P.x - v.x, P.z - v.z) > 90 && !this.seen(v.x, v.z)) { this.remove(v); const i = this.vehicles.indexOf(v); if (i >= 0) this.vehicles.splice(i, 1); } return; } /* thrown far off the road: stays as a stalled car until you are well away */
-    ai.s = bestS; ai.lat = 0; ai.hdg = 0; ai.rejoin = true; v.free = null; ai.bumped = 1; /* drives back into the lane (driveRejoin) */
+    ai.s = bestS; ai.lat = 0; ai.hdg = 0; ai.rejoin = true; ai.rjT = 0; v.free = null; ai.bumped = 1; /* drives back into the lane (driveRejoin) */
   }
   // 73rd: traffic drivers are recycled — a driver whose car leaves the simulation waits on a bench (off the scene graph) for the
   // next car with his look, instead of being disposed and a new one built (a whole skinned body, 25–100 ms: a hitch whenever

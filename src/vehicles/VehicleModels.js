@@ -22,6 +22,7 @@ import { MAT } from '../gfx/Materials.js';
 import { RNG } from '../core/rng.js';
 import { standMeshes } from './Kickstand.js';
 import { addAmbulanceKit, ambDecalMat, buildAmbRear, AMB_GREEN } from './AmbulanceKit.js';
+import { addRoadsideVanKit, rsRearStyle, addFlatbedBody, buildFlatDeck, rsDecalMat, amberBeacons } from './RoadsideKit.js';
 import { CATALOG } from './VehicleCatalog.js';
 import { styleVehicle, badgeMaterial, badgeText, placeEmblem } from './VehicleStyle.js';
 import { realAsset } from './RealModels.js';
@@ -50,13 +51,17 @@ export const VTYPES = {
   ambulance: { base: 'van', ambulance: true, len: 4.7, wid: 1.72, hgt: 2.0, wheelR: 0.33, maxSpeed: 38, accel: 5.0, mass: 2100, seats: 8, steer: 0.5, sound: 'van', entry: 'van', colors: ['#f4f4f2'] },
   // municipal wrecker on the lorry cab: equipment deck, boom and winch, rear wheel-lift; only appears to tow a vehicle the player abandoned
   tow: { base: 'lorry', tow: true, len: 7.2, wid: 2.3, hgt: 3.0, wheelR: 0.48, maxSpeed: 24, accel: 2.0, mass: 6500, seats: 2, steer: 0.45, sound: 'bus', entry: 'cab', colors: ['#e0b420', '#f2f2f0'] },
+  // 80th: Street Customs roadside assistance (RoadsideKit.js): the mechanic service van (van body) and the tilt-and-slide
+  // flatbed car carrier (lorry cab); amber beacons; only appear answering a breakdown (src/police/Roadside.js)
+  rsvan: { base: 'van', roadside: 'van', len: 4.7, wid: 1.72, hgt: 2.0, wheelR: 0.33, maxSpeed: 34, accel: 4.6, mass: 2000, seats: 8, steer: 0.5, sound: 'van', entry: 'van', colors: ['#f4f4f2'] },
+  flatbed: { base: 'lorry', roadside: 'flatbed', len: 7.2, wid: 2.3, hgt: 3.0, wheelR: 0.48, maxSpeed: 25, accel: 2.1, mass: 6800, seats: 2, steer: 0.45, sound: 'bus', entry: 'cab', colors: ['#f2f2f0'] },
   bike: { len: 1.95, wid: 0.7, hgt: 1.1, wheelR: 0.3, maxSpeed: 30, accel: 6.5, mass: 160, seats: 2, steer: 0.7, sound: 'bike', entry: 'bike', colors: ['#151515', '#b51f1f', '#1d3f8a', '#e8e8e4', '#5a6b3a'] },
 };
 // the 40 catalogue models (fictional makes, real-world proportions) — VehicleCatalog.js
 Object.assign(VTYPES, CATALOG); Object.assign(VTYPES, BIKES); VTYPES[DBIKE_ID] = DBIKE_T; // + Dineth's pedal bicycle (Bicycle.js)
  // + 20 motorcycle / scooter kinds (BikeCatalog.js)
 // clean private vehicles get clear-coated paint; working vehicles get worn, dirtier paint
-const WORN = new Set(['tuktuk', 'taxi', 'bus', 'pbus', 'lorry', 'tow', 'tara', 'hakobi', 'bhoomimaxi']);
+const WORN = new Set(['tuktuk', 'taxi', 'bus', 'pbus', 'lorry', 'tow', 'flatbed', 'tara', 'hakobi', 'bhoomimaxi']);
 
 // lofted body from cross-sections [z, y0, y1, halfW0 (bottom), halfW1 (top), round]
 // loft cross-section ring (10 points, counter-clockwise from the bottom-left); points 6..9 + 0 form the −x side
@@ -404,6 +409,8 @@ function buildModel(type, color, variant) {
   const TP = VTYPES[type]; if (TP.police) { const m = buildBaseModel(TP.base, color, TP.base === 'bike' ? variant & ~1 : variant); /* police bikes: always the motorcycle body */ addPoliceKit(m, TP.base, TP); return m; }
   if (TP.ambulance) { const m = buildBaseModel(TP.base, color, variant & ~3, { amb: true }); addAmbulanceKit(m, TP); return m; } // plain (not worn) body
   if (TP.tow) return buildBaseModel(TP.base, color, variant, { tow: true });
+  if (TP.roadside === 'van') { const m = buildBaseModel(TP.base, color, variant & ~3, { amb: true }); addRoadsideVanKit(m, TP); return m; } // (amb: the twin-rear-door layout of the ambulance)
+  if (TP.roadside === 'flatbed') return buildBaseModel(TP.base, color, variant, { flatbed: true });
   return buildBaseModel(type, color, variant);
 }
 // bus stairwell treads [top y, inner x, outer x] (vehicle-local, kerb side): two steps up to the 0.92 m floor
@@ -583,7 +590,8 @@ function buildBaseModel(type, color, variant, opts = {}) {
       rubber.box(0, 0.52, -L / 2 - 0.35, 0.24, 0.14, 1.0, { col: C('#2a2a2a') }); rubber.box(0, 0.42, -L / 2 - 0.85, 1.7, 0.1, 0.16, { col: C('#2a2a2a') }); // wheel-lift arm + crossbar
       for (const sx of [-1, 1]) { rubber.box(sx * 0.72, 0.42, -L / 2 - 0.85, 0.08, 0.1, 0.5, { col: C('#2a2a2a') }); for (let i = 0; i < 4; i++) paint.box(sx * (W - 0.03), 1.0 + i * 0.12, -L / 2 + 0.35 + i * 0.001, 0.05, 0.06, 0.5, { col: i % 2 ? C('#b51f1f') : C('#f2f2f0') }); } // forks; chevrons on the tail posts
       paint.box(0, 1.0, -L / 2 + 0.05, W * 2, 0.22, 0.05, { col: steel }); // tail beam
-    } else {
+    } else if (opts.flatbed) addFlatbedBody({ L, W, R, cabL, wf, wr, col, paint, rubber, ch, mb }); // 80th: car carrier (the deck is a runtime group)
+    else {
     paint.box(0, 0.86, -cabL / 2, W * 2, 0.12, L - cabL - 0.1, { col: C('#3a2a1e') });
     const side = C(variant % 2 ? '#c49a3a' : '#3a5a8a'); const bedL = L - cabL - 0.1, bz = -cabL / 2;
     for (const sx of [-1, 1]) { for (let i = 0; i < 4; i++) paint.box(sx * (W - 0.03), 1.04 + i * 0.25, bz, 0.05, 0.22, bedL, { col: side }); for (let z = bz - bedL / 2 + 0.3; z < bz + bedL / 2; z += 1.0) ch.box(sx * (W - 0.0), 1.42, z, 0.03, 0.95, 0.06, { col: C('#555') }); }
@@ -1194,12 +1202,13 @@ function sideLamps(m) { const side = { value: 0 }; m.userData.side = side;
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vSideX;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvSideX = position.x;');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float indSide;\nvarying float vSideX;').replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance *= mix(1.0, step(0.0, vSideX * indSide), abs(indSide));'); };
   m.customProgramCacheKey = () => 'vindSide1'; return m; }
-const NO_CAST = new Set(['livery', 'glass', 'vlight', 'interior', 'badge', 'amb', 'vtail', 'vind', 'vrev', 'plate', 'route', 'mirror', 'dash']);
+const NO_CAST = new Set(['livery', 'glass', 'vlight', 'interior', 'badge', 'amb', 'rsa', 'vtail', 'vind', 'vrev', 'plate', 'route', 'mirror', 'dash']);
 export function createVehicleMesh(type, seed = 1) {
   const { T, color, variant, worn, cached } = ensureModel(type, seed);
   const { mats: M } = vehicleMaterials();
   const byName = { carbon: M.vcarbon, alloy: M.valloy, engine: M.vengine, mirror: M.vmirror, dash: M.vdash, paint: worn ? M.vworn : M.vpaint, glass: M.vglass, chrome: M.vchrome, rubber: M.vrubber, interior: M.vinterior, canvas: M.vcanvas, vlight: M.vlight, vtail: M.vtail, vind: M.vind, plate: M.plate, livery: M.livery, badge: M.badge, route: M.route, police: M.police, amb: M.amb, lbBlue: M.lbBlue, lbRed: M.lbRed, lens: M.vlens, vrefl: M.vrefl, dots: dotsMaterial() };
-  let beacons = null; if (T.police || T.ambulance) { byName.lbBlue = M.lbBlue.clone(); byName.lbRed = M.lbRed.clone(); beacons = { blue: byName.lbBlue, red: byName.lbRed }; } // per vehicle: only responding units flash
+  let beacons = null; if (T.police || T.ambulance) { byName.lbBlue = M.lbBlue.clone(); byName.lbRed = M.lbRed.clone(); beacons = { blue: byName.lbBlue, red: byName.lbRed }; }
+  if (T.roadside) { const A = amberBeacons(M.lbBlue, M.lbRed); byName.lbBlue = A.a; byName.lbRed = A.b; beacons = { blue: A.a, red: A.b }; byName.rsa = rsDecalMat(); } // 80th: amber, alternating // per vehicle: only responding units flash
   const g = new THREE.Group(); const tailMat = M.vtail.clone(); const indMat = sideLamps(M.vind.clone()); const headMat = M.vlight.clone(); const revMat = M.vrev.clone(); byName.vtail = tailMat; byName.vind = indMat; byName.vlight = headMat; byName.vrev = revMat; headMat.emissiveIntensity = 0.04; tailMat.emissiveIntensity = 0.03; revMat.emissiveIntensity = 0; // per vehicle (start dark): each car's own lamps
   directionalLamp(headMat, 1); directionalLamp(tailMat, -1); directionalLamp(revMat, -1); // lamps glow only from the lens face (seen through the cabin glass from the other end they stay dark)
   const bodyMeshes = {}, shared = {}, mats = {}; for (const [name, geo] of cached.geos) { const mesh = new THREE.Mesh(geo, byName[name] || MAT.paint); mesh.name = name; bodyMeshes[name] = mesh; shared[name] = geo; mats[name] = mesh.material; mesh.castShadow = !NO_CAST.has(name); mesh.receiveShadow = name === 'paint'; if (name === 'glass') mesh.renderOrder = 2; mesh.matrixAutoUpdate = false; g.add(mesh); } /* body parts never move inside the vehicle: skip recomposing their local matrix every frame */
@@ -1238,9 +1247,10 @@ export function createVehicleMesh(type, seed = 1) {
     const bikeish = base === 'bike' || base === 'tuktuk'; const cs = new THREE.Mesh(contactGeo, M.contact); cs.name = 'contactShadow';
     cs.scale.set(T.wid * (T.pedal ? 0.95 : bikeish ? 1.7 : 1.42), 1, T.len * (T.pedal ? 1.05 : 1.22)); /* a bicycle: two thin tyres, a narrow soft patch */ /* core (34/64 × 40/64 of the quad) ≈ body footprint, soft edge beyond */ cs.position.y = 0.015; cs.raycast = () => {}; cs.castShadow = cs.receiveShadow = false; cs.renderOrder = 1;
     cs.updateMatrix(); cs.matrixAutoUpdate = false; g.add(cs); }
-  const rear = T.ambulance ? buildAmbRear() : null; if (rear) g.add(rear.group); // twin rear doors + lit cabin (opened by the medics)
+  const rear = T.ambulance ? buildAmbRear() : T.roadside === 'van' ? buildAmbRear(rsRearStyle) : null; if (rear) g.add(rear.group);
+  const deck = T.roadside === 'flatbed' ? buildFlatDeck(M) : null; if (deck) g.add(deck.group, deck.cable, deck.hook); // 80th: tilt-and-slide deck, winch cable + hook // twin rear doors + lit cabin (opened by the medics)
   const stand = base === 'bike' ? standMeshes(M.vrim, T.standOff) : null; if (stand) g.add(stand); // animated side stand (Kickstand.js)
-  g.userData = { variant, bodyMeshes, wheelStyle: cached.wheelStyle, exhaust: cached.exhaust, doors, bake: doors.length ? { ranges: cached.doorRanges, meshes: bodyMeshes, shared, mats, pivotGeos: (i) => slicePivotGeos(cached, i) } : null, stand, detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, lodFar: false, farR: wkind === 'heavy' ? 160 : wkind === 'bike' ? 0 : 140, farHide: ['interior', 'dash', 'plate', 'badge'].map((n) => bodyMeshes[n]).filter(Boolean), /* far LOD (Vehicle.updateVehicleLOD): cabin, plate, badges off beyond farR — lamps stay */ real, wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons, rear, cabStep: cached.cabStep };
+  g.userData = { variant, bodyMeshes, wheelStyle: cached.wheelStyle, exhaust: cached.exhaust, doors, bake: doors.length ? { ranges: cached.doorRanges, meshes: bodyMeshes, shared, mats, pivotGeos: (i) => slicePivotGeos(cached, i) } : null, stand, detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, lodFar: false, farR: wkind === 'heavy' ? 160 : wkind === 'bike' ? 0 : 140, farHide: ['interior', 'dash', 'plate', 'badge'].map((n) => bodyMeshes[n]).filter(Boolean), /* far LOD (Vehicle.updateVehicleLOD): cabin, plate, badges off beyond farR — lamps stay */ real, wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons, rear, deck, cabStep: cached.cabStep };
   if (HOOKS.vehicle) HOOKS.vehicle(g, type); // 68th: model tools (replacement body / textures / parts)
   return g;
 }

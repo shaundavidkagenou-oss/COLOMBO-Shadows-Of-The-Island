@@ -82,6 +82,15 @@ export class Interiors {
       try { let e = buildHeroEntrance(d.id, d, g.collision); if (!e) { const w = wallSpot(g, d.x, d.z, 30); if (w) { d.x = w.x; d.z = w.z; d.faceIn = w.faceIn; if (d.id === 'room' && g.story?.state?.flags) g.story.state.flags.room = [w.x, w.z]; e = buildHeroEntrance(d.id, d, g.collision); } } /* no wall at the old spot (e.g. an older save): the door moves to the nearest real wall */
         if (!e) { console.warn('hero entrance: no wall at', d.id); continue; } g.scene.add(e.group); g.collision.addAll(e.colliders); this.entrances.set(d.id, { key: `${d.x.toFixed(2)},${d.z.toFixed(2)}`, group: e.group, colliders: e.colliders, faceIn: d.faceIn }); } catch (err) { console.warn('hero entrance', d.id, err); } }
   }
+  // 80th: the prompt-door interiors (the club with its cast) and the walk-in Police HQ built + compiled on the loading screen,
+  // so a first visit is not a build + shader-compile hitch behind the fade (the hero rooms follow their story-placed doors and
+  // stay built on first entry)
+  async preloadDoors(compile = null) {
+    const ids = Object.entries(plan.missionShops).filter(([, s]) => !s.walkIn).map(([id, s]) => [id, { id, x: s.x, z: s.z, rot: s.rot, faceIn: s.faceIn }]); let n = 0;
+    for (const [id, door] of ids) { if (this.built.has(id) || isHeroRoom(id)) continue; try { const room = this.build(id, door); n++; if (compile && room && room.g) { const v = room.g.visible; room.g.visible = true; try { await compile(room.g); } finally { room.g.visible = v; } } } catch (e) { console.warn('interior preload', id, e); } await new Promise((r) => setTimeout(r, 0)); }
+    try { const r = this.hq || (this.hq = this.build('hq')); if (compile && r && r.g) { const v = r.g.visible; r.g.visible = true; try { await compile(r.g); } finally { r.g.visible = v; } } } catch (e) { console.warn('hq preload', e); }
+    return n;
+  }
   nearDoor(x, z) { for (const d of this.doors) if (Math.hypot(d.x - x, d.z - z) < 2.2) return d; return null; }
   build(id, door, walkIn = false) {
     if (!walkIn && this.built.has(id)) return this.built.get(id);

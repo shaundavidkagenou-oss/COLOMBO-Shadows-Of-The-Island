@@ -20,9 +20,11 @@ import { Character } from '../actors/Character.js';
 import { seatCharacter } from '../actors/Seating.js';
 import { resetDoors } from '../vehicles/DoorRig.js';
 
-export const POOL = { enabled: true, police: 7, policejeep: 3, ambulance: 1, spare: 5, refillGap: 2.0, calmAfter: 6, wantedLow: 2, wantedGap: 9 }; // wantedLow / wantedGap: 69th, see update
+export const POOL = { enabled: true, police: 7, policejeep: 3, ambulance: 1, rsvan: 2, flatbed: 1, spare: 5, refillGap: 2.0, calmAfter: 6, wantedLow: 2, wantedGap: 9 }; // wantedLow / wantedGap: 69th, see update
 export const POOL_TYPES = ['police', 'policejeep']; // the police units (they stand in for each other)
-const ALL_TYPES = [...POOL_TYPES, 'ambulance']; // + the EMS ambulance (never swapped with a police car)
+// + the EMS ambulance (never swapped with a police car); 80th: + the roadside service vans and the flatbed (Roadside.js)
+export const CIV_KIND = { ambulance: true, rsvan: 'rsvan', flatbed: 'flatbed' }; // crewSpec's `ems` argument per civilian type
+const ALL_TYPES = [...POOL_TYPES, ...Object.keys(CIV_KIND)];
 
 // the two crew seats of a police vehicle: the driver and the passenger seat nearest him (front passenger)
 export function crewSeats(seats) {
@@ -36,7 +38,7 @@ const KEEP = new Set(['T', 'mesh', 'scene', 'sus', 'poolEntry']);
 export class UnitPool {
   // pr: PoliceResponse; crewSpec(id, k, ems): the crew look (PoliceResponse.crewSpec, passed in: no import cycle)
   constructor(pr, crewSpec) {
-    this.pr = pr; this.crewSpec = crewSpec; this.free = { police: [], policejeep: [], ambulance: [] }; this.out = new Set(); this.spare = []; this.nextId = 0;
+    this.pr = pr; this.crewSpec = crewSpec; this.free = { police: [], policejeep: [], ambulance: [], rsvan: [], flatbed: [] }; this.out = new Set(); this.spare = []; this.nextId = 0;
     this.ready = false; this.calmT = 0; this.refillT = 0;
     this.stats = { built: 0, spareBuilt: 0, acquired: 0, released: 0, swapped: 0, misses: 0, crewFromSpare: 0, crewBuilt: 0, toSpare: 0, discarded: 0, lost: 0, refilled: 0, builtWanted: 0 };
   }
@@ -54,7 +56,7 @@ export class UnitPool {
   }
   // crew: false = the car alone (73rd: a replacement while wanted; acquire seats spares in it)
   build(type, crew = true) {
-    const id = this.nextId++; const v = new Vehicle(type, 3000 + id * 7, this.g.scene); this.stash(v); v.keep = true; const ems = type === 'ambulance';
+    const id = this.nextId++; const v = new Vehicle(type, 3000 + id * 7, this.g.scene); this.stash(v); v.keep = true; const ems = CIV_KIND[type] || false;
     const fresh = {}; for (const k of Object.keys(v)) { const x = v[k]; if (x === null || (typeof x !== 'object' && typeof x !== 'function')) fresh[k] = x; } // the new car's own plain state (restored on release)
     const seats = v.mesh.userData.seats; const cs = crewSeats(seats); const e = { id, type, v, fresh, seats: cs, crew: [null, null] };
     if (crew) cs.forEach((si, k) => { if (si === undefined || si < 0) return; const r = this.makeRec(id, k, ems); seatCharacter(r.ch, v, seats[si]); e.crew[k] = r; });
@@ -86,7 +88,7 @@ export class UnitPool {
   // ---------------------------------------------------------------- acquire / release
   // a ready unit placed at (x, z, yaw) with its crew seated, or null (pool empty). The other type stands in when one runs out.
   acquire(type, x, z, yaw) {
-    if (!POOL.enabled || !this.ready) return null; const ems = type === 'ambulance';
+    if (!POOL.enabled || !this.ready) return null; const ems = CIV_KIND[type] || false;
     let list = this.free[type]; if (ems && (!list || !list.length)) { this.stats.misses++; return null; }
     if (!list || !list.length) { const alt = POOL_TYPES.find((t) => t !== type && this.free[t].length); if (!alt) { this.stats.misses++; return null; } list = this.free[alt]; this.stats.swapped++; }
     const e = list.pop(); const v = e.v; this.unstash(v); v.place(x, z, yaw); v.speed = 0;
@@ -104,7 +106,7 @@ export class UnitPool {
     const keep = [null, null]; const kept = new Set();
     for (const o of u.officers) { if (o.dead || !o.ch || o.ch.disposed || o.ch.rag) continue; // (the dead belong to the bodies list)
       const rec = { ch: o.ch, rifle: o.rifle || null, rp: o.rp || null, torchM: o.torchM || null }; kept.add(o.ch);
-      const k = o.k; if (k >= 0 && k < 2 && !keep[k]) keep[k] = rec; else if (e.type === 'ambulance') this.drop(rec); else this.toSpare(rec); } // (an officer on foot goes back into his own seat: the unit is removed out of view / behind the arrest fade)
+      const k = o.k; if (k >= 0 && k < 2 && !keep[k]) keep[k] = rec; else if (CIV_KIND[e.type]) this.drop(rec); else this.toSpare(rec); } // (an officer on foot goes back into his own seat: the unit is removed out of view / behind the arrest fade)
     for (const ch of v.pax || []) if (!kept.has(ch) && !ch.disposed) { ch.root.parent?.remove(ch.root); ch.dispose(); } // detainees still in the back
     if (v.driverChar && !kept.has(v.driverChar) && !v.driverChar.disposed) { v.driverChar.root.parent?.remove(v.driverChar.root); v.driverChar.dispose(); }
     this.reset(e);
@@ -132,7 +134,7 @@ export class UnitPool {
   }
   // ---------------------------------------------------------------- per frame (cheap): forget cars that left for good; refill while calm
   update(dt) {
-    for (const e of this.out) { const v = e.v; if (v.poolEntry !== e || v.disposed || v.player || !v.police) { this.out.delete(e); if (v.poolEntry === e) v.poolEntry = null; this.stats.lost++; } }
+    for (const e of this.out) { const v = e.v; if (v.poolEntry !== e || v.disposed || v.player || !v.police) { this.out.delete(e); if (v.poolEntry === e) v.poolEntry = null; this.stats.lost++; } } // (Roadside units keep v.police = u too)
     if (!this.ready || !POOL.enabled) return;
     const pr = this.pr; this.calmT = pr.level > 0 || pr.busy || pr.cine ? 0 : this.calmT + dt; this.refillT -= dt;
     // 69th: a long fight that burns / wrecks / loses cars must not run the pool dry (the police would simply stop coming): while
@@ -143,7 +145,7 @@ export class UnitPool {
     if (need) { this.build(need); this.stats.refilled++; this.refillT = POOL.refillGap; return; }
     // officers: enough spares for every empty seat in the free cars plus POOL.spare more — so the next chase builds nobody
     let empty = 0; for (const t of POOL_TYPES) for (const e of this.free[t]) for (let k = 0; k < 2; k++) if (e.seats[k] >= 0 && !e.crew[k]) empty++;
-    for (const e of this.free.ambulance) for (let k = 0; k < 2; k++) if (e.seats[k] >= 0 && !e.crew[k]) { const r = this.makeRec(e.id, k, true); seatCharacter(r.ch, e.v, e.v.mesh.userData.seats[e.seats[k]]); e.crew[k] = r; this.stats.refilled++; this.refillT = POOL.refillGap * 0.5; return; } // a medic lost: rebuilt while calm
+    for (const t of Object.keys(CIV_KIND)) for (const e of this.free[t]) for (let k = 0; k < 2; k++) if (e.seats[k] >= 0 && !e.crew[k]) { const r = this.makeRec(e.id, k, CIV_KIND[t]); seatCharacter(r.ch, e.v, e.v.mesh.userData.seats[e.seats[k]]); e.crew[k] = r; this.stats.refilled++; this.refillT = POOL.refillGap * 0.5; return; } // a medic lost: rebuilt while calm
     if (this.spare.length < POOL.spare + empty) { this.buildSpare(); this.stats.refilled++; this.refillT = POOL.refillGap * 0.5; }
   }
 }

@@ -290,3 +290,10 @@ export function fitComputers(list) {
   return list;
 }
 export function furnitureOf(type) { return FURNITURE.map((f, i) => ({ f, i })).filter((q) => q.f[0] === type); }
+
+// 75th/80th: the garden's trees (planted by CityPlan.js as city trees: [type, u, v, scale]); the garden's beds, borders and
+// shrubs (HospitalBuild.buildGrounds, HospitalGarden.js) keep clear of their trunks
+export const GARDEN_TREES = [['frangipani', -10, 52, 1], ['frangipani', 12, 62, 0.95], ['frangipani', -11, 72, 1.05], ['mango', -38, 34, 0.95], ['mango', 36, 54, 1],
+  ['mango', -42, 78, 1.05], ['mango', 14, 88, 0.95], ['jak', 26, 34, 0.85], ['palm', -30, 10, 1.05], ['palm', 44, 18, 1], ['palm', -9, 96, 1.1], ['palm', 44, 92, 1], ['frangipani', -28, 50, 0.9], ['mango', -48, 60, 0.9], ['frangipani', 46, 66, 0.9]];
+// 80th: raised flower beds on the lawns [u, v, r] (Flowers.js plants: canna centre, marigold / salvia ring, periwinkle edge)
+export const GARDEN_BEDS = [[-13, 60, 2.4], [13, 75, 2.4], [-13, 89, 2.2], [18, 55, 2.1], [-37, 50, 2.8], [42, 44, 2.3], [-36, 92, 2.4], [40, 80, 2.3], [-14, 31, 1.7], [14, 31.5, 1.7], [-30, 74, 1.8], [27, 88, 1.9]];

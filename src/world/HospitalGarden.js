@@ -13,7 +13,8 @@ import { Character } from '../actors/Character.js';
 import { makeAppearance } from '../actors/Appearance.js';
 import { seatTopFor } from './ClubCast.js';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
-import { toWorld, Y0 } from './HospitalPlan.js';
+import { toWorld, Y0, GARDEN_BEDS } from './HospitalPlan.js';
+import { FlowerBeds } from './Flowers.js'; // 80th
 import { hospitalMatTable } from './HospitalKit.js';
 import { parkBench, parkBenchColliders } from './ParkBench.js';
 import { GARDEN_FOUNTAIN } from './PlaceAmbience.js'; // the fountain sound's position
@@ -110,6 +111,8 @@ export class HospitalGarden {
     for (let lap = 0; lap < 2; lap++) for (let k = 0; k <= 16; k++) { const a = (k / 16) * Math.PI * 2; path.push(W(GARDEN_FOUNTAIN.u + Math.sin(a) * 2.45, GARDEN_FOUNTAIN.v - Math.cos(a) * 2.45)); }
     path.push(W(0.4, 36), W(0.4, 30), W(-0.4, 30), W(-0.4, 36), W(0, GARDEN_FOUNTAIN.v - 2.45)); walker.path = path; walker.pi = 0; [walker.x, walker.z] = path[0]; walker.wait = 0;
     for (const m of mb.toMeshes(mats, { cast: true, receive: true })) this.group.add(m);
+    // 80th: the plants in the raised beds (HospitalBuild draws the kerbs and soil): canna, marigold / salvia, periwinkle
+    this.flowers = new FlowerBeds(GARDEN_BEDS.map(([u, v, r]) => [...W(u, v), r]), Y0 + 0.26, { far: 160 }); this.group.add(this.flowers.group);
     this.g.scene.add(this.group); if (this.g.collision) this.g.collision.addAll(cols); this.colliders = cols;
     this.shown = false; this.t = 0; this.talkT = 2; this.talker = 0; this.stats = { shown: 0, updates: 0 };
     for (const p of this.people) this.place(p);
@@ -119,6 +122,7 @@ export class HospitalGarden {
     this.t += dt; const d = Math.hypot(P.x - this.fx, P.z - this.fz); const show = !inside && d < GARDEN_NEAR;
     // the water moves whenever the fountain can be seen (cheap: a texture offset and a ring scale)
     if (d < 90) { if (curtainTex) curtainTex.t.offset.y = (this.t * 0.9) % 1; const k = (this.t * 0.45) % 1; this.ring.scale.setScalar(1 + k * 0.7); this.ring.material.opacity = 0.35 * (1 - k); }
+    if (this.flowers) { const cam = this.g.camera; this.flowers.group.visible = !inside; if (cam && !inside) this.flowers.update(cam.position); }
     if (show !== this.shown) { this.shown = show; for (const p of this.people) p.ch.root.visible = show; if (show) this.stats.shown++; }
     if (!show) return; this.stats.updates++;
     const full = d < GARDEN_FULL;
