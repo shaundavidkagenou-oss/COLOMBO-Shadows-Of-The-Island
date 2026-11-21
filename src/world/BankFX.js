@@ -175,8 +175,10 @@ let active = false, savedEnv = null;
 // once per frame (Game.update, after the indoor light blend): swap the environment while the player is in the hall
 export function updateBankFX(game) {
   const W = game.interiors && game.interiors.walkIn; const s = W && W.siteById ? W.siteById('bank') : null; const room = s && s.room; const P = game.player;
-  const inside = !!(room && P && P.indoor === room.proxy && room.fxProbe);
   if (room && room.visible) updatePeople(room, P);
+  // a hall built after the loading screen (quick start, or rebuilt): capture once, the first frame its light pool is on
+  if (room && room.visible && !room.fxProbe && !room.fxTried && W.active === room) { room.fxTried = true; captureBankProbe(game, room); }
+  const inside = !!(room && P && P.indoor === room.proxy && room.fxProbe);
   if (inside) {
     const A = game.atmos; if (room.fxProbe && Math.abs((A.night || 0) - room.fxProbeNight) > 0.45 && !room.fxRecap) { room.fxRecap = true; captureBankProbe(game, room); room.fxRecap = false; }
     if (!active) { active = true; savedEnv = game.scene.environment; }

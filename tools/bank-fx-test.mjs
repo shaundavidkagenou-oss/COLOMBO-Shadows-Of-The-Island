@@ -63,7 +63,7 @@ ok(floorR >= 1, `the granite floor tiles read their polish (roughness map) per t
 ok(QUALITY_PRESETS.low.bankTex === 1024 && QUALITY_PRESETS.ultra.bankTex === 2048 && ['low', 'medium', 'high', 'ultra'].every((q) => typeof QUALITY_PRESETS[q].bankFX === 'number'), 'quality presets carry bankTex / bankFX');
 ok(bankTexSize('cmbGranite') === 2048 && bankTexSize('cmbChrome') === 1024 && bankTexSize('cmbGraniteRough') === 1024, 'close-up surfaces 2K, secondary ones 1K (at the default preset)');
 { const r = floorRough(256); let lo = 255, hi = 0, sum = 0; for (let i = 1; i < r.rgba.length; i += 4) { lo = Math.min(lo, r.rgba[i]); hi = Math.max(hi, r.rgba[i]); sum += r.rgba[i]; } const mean = sum / (r.rgba.length / 4) / 255;
-  ok(r.linear && lo / 255 >= 0.058 && hi / 255 <= 0.43 && mean > 0.08 && mean < 0.2, `floor polish: roughness ${(lo / 255).toFixed(2)}…${(hi / 255).toFixed(2)}, mean ${mean.toFixed(3)} (polished, never a mirror)`); }
+  ok(r.linear && lo / 255 >= 0.058 && hi / 255 <= 0.43 && mean > 0.12 && mean < 0.24, `floor polish: roughness ${(lo / 255).toFixed(2)}…${(hi / 255).toFixed(2)}, mean ${mean.toFixed(3)} (polished, never a mirror)`); }
 { const s = fitSize({ w: 2048, h: 2048, rgba: new Uint8ClampedArray(2048 * 2048 * 4).fill(100), n: { w: 1024, h: 1024, rgba: new Uint8ClampedArray(1024 * 1024 * 4).fill(128) } }, 1024);
   ok(s.w === 1024 && s.n.w === 512 && s.rgba[0] === 100, 'downsample to the preset size keeps the colours'); }
 ok(typeof BANK_SURFACES.cmbGraniteRough === 'function', 'floor roughness is one of the bank surfaces (worker-generated)');

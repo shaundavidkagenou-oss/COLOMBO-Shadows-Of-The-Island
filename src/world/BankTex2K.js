@@ -232,7 +232,7 @@ export function limestone(W = 2048, seed = 141) {
 export function floorRough(W = 1024, seed = 161) {
   const D = img(W, W); const r = rng(seed); const big = up(norm(fbm(128, 128, 3, 3, 4, seed + 1)), 128, 128, W, W), mid = up(norm(fbm(256, 256, 14, 14, 3, seed + 2)), 256, 256, W, W);
   const sc = new Float32Array(W * W); for (let k = 0; k < 700; k++) { const x = r() * W, y = r() * W, an = r() * 6.283, l = 5 + r() * 34; line(sc, W, W, x, y, x + Math.cos(an) * l, y + Math.sin(an) * l, 0.4 + r() * 0.6, 1); }
-  for (let i = 0; i < W * W; i++) { const v = 0.105 + (big[i] - 0.5) * 0.075 + (mid[i] - 0.5) * 0.03 + sc[i] * 0.11 + (r() - 0.5) * 0.012; const g = clamp(Math.max(0.06, Math.min(0.42, v)) * 255); const o = i * 4; D[o] = D[o + 1] = D[o + 2] = g; D[o + 3] = 255; }
+  for (let i = 0; i < W * W; i++) { const v = 0.17 + (big[i] - 0.5) * 0.07 + (mid[i] - 0.5) * 0.03 + sc[i] * 0.11 + (r() - 0.5) * 0.012; const g = clamp(Math.max(0.06, Math.min(0.42, v)) * 255); const o = i * 4; D[o] = D[o + 1] = D[o + 2] = g; D[o + 3] = 255; }
   return { w: W, h: W, rgba: D, linear: true };
 }
 // 78th: 2 × 2 box-filter downsample (graphics-quality texture sizes; secondary surfaces at half size)
