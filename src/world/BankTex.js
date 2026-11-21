@@ -18,6 +18,8 @@ import { hasCanvas } from './BankBrand.js';
 
 const RAW = new Map(); // key → { w, h, rgba, n } finished by a worker, waiting to be put into a canvas
 const TEX = new Map(), NRM = new Map(); let pending = null;
+// pixel canvases (a browser / Electron page); Node tests' canvas stub has no ImageData, so they keep the kit's old textures
+const can2K = () => hasCanvas() && typeof ImageData !== 'undefined';
 export const BANK_TEX_KEYS = Object.keys(BANK_SURFACES);
 export const BANK_TEX_SIZE = 2048;
 
@@ -35,9 +37,9 @@ function build(key) { let first = generate(key); const nrm = first.n;
   if (nrm) { let nf = nrm; const n = lazyCanvasTexture(() => { const g = nf || generate(key).n; nf = null; return toCanvas(g.w, g.h, g.rgba); }, { srgb: false, aniso: 4 }); n.name = 'CMB 2K normal · ' + key; NRM.set(key, n); }
   return t; }
 // the colour texture for a bank surface (null without a canvas — Node tests)
-export function bankTex(key) { if (!hasCanvas() || !BANK_SURFACES[key]) return null; return TEX.get(key) || build(key); }
+export function bankTex(key) { if (!can2K() || !BANK_SURFACES[key]) return null; return TEX.get(key) || build(key); }
 // its normal map, if the surface has one (call after bankTex)
-export function bankNormal(key) { if (!hasCanvas()) return null; if (!TEX.has(key)) bankTex(key); return NRM.get(key) || null; }
+export function bankNormal(key) { if (!can2K()) return null; if (!TEX.has(key)) bankTex(key); return NRM.get(key) || null; }
 
 // start generating every surface in workers (idempotent). With a renderer, each finished surface becomes its texture and is
 // uploaded straight away (so its pixels are freed at once — peak memory stays a few textures, not all of them). Resolves when
@@ -45,9 +47,9 @@ export function bankNormal(key) { if (!hasCanvas()) return null; if (!TEX.has(ke
 let REND = null;
 function upload(key) { if (!REND || !REND.initTexture) return; const t = bankTex(key), n = NRM.get(key); try { if (t) REND.initTexture(t); if (n) REND.initTexture(n); } catch (e) { /* uploads on first draw instead */ } }
 export function startBankTextures(renderer = null) { if (renderer) REND = renderer;
-  if (pending) return pending; if (!hasCanvas() || typeof Worker === 'undefined') return (pending = Promise.resolve(0));
+  if (pending) return pending; if (!can2K() || typeof Worker === 'undefined') return (pending = Promise.resolve(0));
   const todo = BANK_TEX_KEYS.filter((k) => !TEX.has(k) && !RAW.has(k)); if (!todo.length) return (pending = Promise.resolve(0));
-  const nw = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 4) - 1, todo.length)); // ≤ 3: each holds ~100 MB of working buffers at its peak let done = 0;
+  const nw = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 4) - 1, todo.length)); /* ≤ 3: each holds ~100 MB of working buffers at its peak */ let done = 0;
   pending = new Promise((resolve) => { const workers = []; let next = 0, live = nw;
     const finish = (w) => { try { w.terminate(); } catch (e) { /* already gone */ } if (--live === 0) resolve(done); };
     const feed = (w) => { if (next >= todo.length) return finish(w); const key = todo[next++]; w.postMessage({ key, id: next }); };

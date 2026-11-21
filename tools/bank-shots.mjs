@@ -54,7 +54,11 @@ try {
     await new Promise((r) => setTimeout(r, s.map ? 12000 : 9000));
     if (s.cam && !s.atm) await page.evaluate((s) => { const g = window.__game, W = g.interiors.walkIn, site = W.siteById('bank'); let c = s.cam, l = s.look; if (s.room) { const [cx, cz] = W.world(site, c[0], c[2]); const [lx, lz] = W.world(site, l[0], l[2]); c = [cx, site.y0 + c[1], cz]; l = [lx, site.y0 + l[1], lz]; } g.camera.position.set(...c); g.camera.lookAt(...l); g.camera.updateMatrixWorld(); }, s);
     await new Promise((r) => setTimeout(r, 2500));
-    await page.screenshot({ path: `${OUT}/${s.name}.png` }); console.log('shot', s.name, JSON.stringify(info), ((Date.now() - t0) / 1000).toFixed(0) + 's');
+    // 77th: static draw-call / triangle count of this view (one main-camera render, as tools/hospital-drawprobe.mjs) + the hall census
+    const probe = await page.evaluate(() => { const g = window.__game, R = g.renderer; R.info.autoReset = false; R.info.reset(); R.render(g.scene, g.camera); const out = { calls: R.info.render.calls, tris: R.info.render.triangles }; R.info.autoReset = true;
+      const site = g.interiors.walkIn.siteById('bank'); const og = site && site.room && site.room.g; if (og) { let meshes = 0, tris = 0; const mats = new Set(); og.traverse((o) => { if (!o.isMesh) return; meshes++; mats.add(o.material); const ix = o.geometry.index; tris += (ix ? ix.count : o.geometry.attributes.position.count) / 3 * (o.isInstancedMesh ? o.count : 1); }); out.hall = { meshes, mats: mats.size, tris: Math.round(tris) }; }
+      return out; });
+    await page.screenshot({ path: `${OUT}/${s.name}.png` }); console.log('shot', s.name, JSON.stringify(info), 'probe', JSON.stringify(probe), ((Date.now() - t0) / 1000).toFixed(0) + 's');
   }
 } catch (e) { console.log('ERR', (e.stack || e.message).split('\n').slice(0, 4).join(' / ')); } finally { await Promise.race([browser.close(), new Promise((r) => setTimeout(r, 10000))]); try { browser.process() && browser.process().kill('SIGKILL'); } catch (e) { /* gone */ } }
 console.log('errors:', errors.slice(0, 6).join(' | ') || 'none');

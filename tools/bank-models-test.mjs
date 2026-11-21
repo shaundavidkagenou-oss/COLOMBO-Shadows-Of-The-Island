@@ -24,7 +24,8 @@ const T = {};
 { const k = kit(); M.litterBin(k, 0, 0); const s = stats(k); T.bin = s.tris; ok(s.nan === 0 && Math.max(-s.x0, s.x1) < 0.18, `litter bin: ${s.tris} tris`); }
 { const k = kit(); M.vaultDoor(k, 0, 1.12, 0); const s = stats(k); T.vault = s.tris; ok(s.nan === 0 && s.z0 >= -0.001 && s.z1 < 0.42, `vault door: ${s.tris} tris, depth ${s.z1.toFixed(2)} m`); }
 { const b = new MeshBuilder(); M.frontShrub(b, 0, 0.62, 0, 0.22, 3); const s = stats(b); T.shrub = s.tris; ok(s.nan === 0 && s.y0 > 0.4, `facade shrub: ${s.tris} tris (bottom ${s.y0.toFixed(2)})`); }
+{ const k = kit(); M.brochureRack(k, 0, 0); const s = stats(k); T.rack = s.tris; ok(s.nan === 0 && s.x1 <= 0.0001 && s.x0 > -0.22 && s.y0 > 0.79 && s.y1 < 1.71 && Math.max(-s.z0, s.z1) < 0.32, `brochure rack: ${s.tris} tris (x ${s.x0.toFixed(3)}..${s.x1.toFixed(3)}, y ${s.y0.toFixed(2)}..${s.y1.toFixed(2)})`); }
 // whole-bank estimate (counts from BankInterior / BankFront): 10 office chairs, 8 monitors, 7 keyboards, 4 plants, 16 waiting tops + bases, 8 shrubs
-const est = T.chair * 10 + T.monitor * 8 + T.keyboard * 7 + T.plant * 4 + (T.waitTop + T.waitBase) * 16 + T.water + T.kiosk + T.bin + T.vault + T.shrub * 8;
+const est = T.chair * 10 + T.monitor * 8 + T.keyboard * 7 + T.plant * 4 + (T.waitTop + T.waitBase) * 16 + T.water + T.kiosk + T.bin + T.vault + T.shrub * 8 + T.rack;
 console.log('estimated added geometry for the whole bank ≈', est, 'triangles'); ok(est < 400000, 'within a 400 k triangle budget');
 console.log(fails ? fails + ' FAILED' : 'ALL PASS'); process.exit(fails ? 1 : 0);

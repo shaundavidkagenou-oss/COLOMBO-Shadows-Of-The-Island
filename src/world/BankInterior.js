@@ -268,7 +268,7 @@ export function buildBankInterior(game, site) {
     return { i, d, z, stand: [B.atmStandX, z], slot: [AX + 0.1245, 1.3, z - 0.3], user: null, player: false, screen, paint(view) { if (!this.screen) return; paintATM(this.screen.ctx, view || ATM_IDLE_VIEW); this.screen.tex.needsUpdate = true; } }; });
   if (hasCanvas() && keyLegends.n) { const lm = new THREE.Mesh(keyLegends.mb.build(), atmLegendMat()); lm.name = 'atm-key-legends'; g.add(lm); } // both pads' engraved legends: one mesh
   part('ATM privacy screen'); { const fz = Z((B.atmD[0] + B.atmD[1]) / 2); glass.box(AX + 0.32, 1.5, fz, 0.6, 1.2, 0.02); metal.box(AX + 0.62, 1.5, fz, 0.02, 1.22, 0.03, { col: steelC }); ob(AX, AX + 0.64, (B.atmD[0] + B.atmD[1]) / 2 - 0.03, (B.atmD[0] + B.atmD[1]) / 2 + 0.03); }
-  part('Litter bin'); BM.litterBin(k, -6.72, Z(4.45)); // 77th: beaded stainless body, domed lid with swing flap ob(-6.9, -6.54, 4.27, 4.63);
+  part('Litter bin'); BM.litterBin(k, -6.72, Z(4.45)); /* 77th: beaded stainless body, domed lid with swing flap */ ob(-6.9, -6.54, 4.27, 4.63);
   part('Queue floor line'); paint.box(-4.9, 0.002, Z(4.35), 2.6, 0.003, 0.06, { col: C('#d9b42a') }); // "please wait behind the line" floor stripe
 
   // ---- queue-ticket kiosk
@@ -293,7 +293,7 @@ export function buildBankInterior(game, site) {
   part('Plant by the door'); plant(k, 6.55, Z(0.6), 1.3); ob(6.3, 6.8, 0.35, 0.85);
   part('Poster: fixed deposits'); paint.box(xR - 0.012, 1.6, Z(1.5), 0.02, 0.94, 0.64, { col: C('#c9b27a') }); face(prints, xR - 0.024, 1.6, Z(1.5), 0.6, 0.9, POSTER_UV.fd, '-x');
   part('Poster: home loans'); paint.box(xR - 0.012, 1.6, Z(3.9), 0.02, 0.94, 0.64, { col: C('#c9b27a') }); face(prints, xR - 0.024, 1.6, Z(3.9), 0.6, 0.9, POSTER_UV.home, '-x');
-  part('Brochure rack'); { const z = Z(2.7); metal.box(xR - 0.11, 1.25, z, 0.2, 0.9, 0.62, { col: C('#c8cbce'), top: true }); for (let r = 0; r < 2; r++) for (let c = 0; c < 4; c++) { const zz = z - 0.22 + c * 0.145, yy = 1.1 + r * 0.38; glass.box(xR - 0.2, yy, zz, 0.012, 0.16, 0.13); face(prints, xR - 0.17, yy + 0.06, zz, 0.12, 0.16, POSTER_UV.brochure(r * 4 + c), '-x'); } ob(xR - 0.24, xR, 2.36, 3.04); }
+  part('Brochure rack'); { const z = Z(2.7); BM.brochureRack(k, xR, z); /* 77th: steel back + shelves, acrylic pockets, leaflet stacks */ for (let r = 0; r < 2; r++) for (let c = 0; c < 4; c++) { const zz = z - 0.22 + c * 0.145, yy = 1.1 + r * 0.38; face(prints, xR - 0.17, yy + 0.002, zz, 0.12, 0.16, POSTER_UV.brochure(r * 4 + c), '-x'); } ob(xR - 0.24, xR, 2.36, 3.04); }
   part('Water dispenser'); { const x = -6.72, z = Z(5.6); BM.waterDispenser(k, x, z, 0); // 77th: cabinet, taps, drip grille, ribbed 19 l bottle with its water, cup holder
     ob(x - 0.2, x + 0.2, 5.4, 5.8); }
   part('Notice: charges and limits'); paint.box(xL + 0.012, 1.6, Z(6.7), 0.02, 0.44, 0.84, { col: C('#c9b27a') }); face(prints, xL + 0.024, 1.6, Z(6.7), 0.8, 0.4, POSTER_UV.notice, '+x');

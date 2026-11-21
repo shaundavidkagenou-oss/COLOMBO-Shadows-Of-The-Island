@@ -13,7 +13,7 @@
 //   plant         a glazed tapered pot with rim, soil + pebble top dressing, a Dracaena clump: canes with leaf scars and
 //                 crowns of arching strap leaves (two-sided, base-to-tip colour, lighter midrib)
 //   waitingChairTop  the instanced waiting-chair top (seat + back + arms) as contoured upholstery on a moulded shell
-//   waterDispenser, ticketKiosk, litterBin, vaultDoor, frontShrub
+//   waterDispenser, ticketKiosk, litterBin, vaultDoor, frontShrub, brochureRack
 // Seats keep their seat-top heights exactly (`top`): sitters are fitted to them (seatTopFor / fitSeat).
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
@@ -228,4 +228,25 @@ export function frontShrub(b, x, y, z, r, seed) {
     const lit = 0.75 + 0.35 * Math.max(0, d.y) + nz(d.x * 3, d.y * 3, d.z * 3) * 0.12; const yg = 0.5 + 0.5 * Math.sin(d.x * 9 + d.z * 7 + s); col[i * 3] = (0.2 + 0.08 * yg) * lit; col[i * 3 + 1] = (0.38 + 0.08 * yg) * lit; col[i * 3 + 2] = (0.17 + 0.03 * yg) * lit; }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.computeVertexNormals();
   b.geometry(g, new THREE.Matrix4().makeTranslation(x, y, z), [1, 1, 1]); g.dispose();
+}
+
+// ------------------------------------------------------------------------------------------------ wall brochure rack
+// a wall-hung literature rack (2 rows × 4 pockets) at the wall x = xw, facing -x, centred on z: a brushed-steel back panel
+// with folded return edges and four countersunk fixings, a steel shelf + lip per row, clear acrylic pocket fronts (low, so
+// the brochures' tops stand above them) with side cheeks, and a stack of leaflets behind each cover. The covers themselves
+// stay the room's print-atlas faces (BankInterior), at x = xw - 0.17, standing on the shelves (centre y = row + 0.002).
+export function brochureRack(k, xw, z) {
+  const F = frameAt(xw, 0, z, 0), mt = k.get('steel'), gl = k.get('cmbGlass'), pa = k.get('paint'), pl = k.get('plastic'); const ss = C('#c8cbce');
+  put(mt, F, rbox(0.014, 0.9, 0.62, 0.005, 2), -0.009, 1.25, 0, 0, 0, 0, ss); // back panel
+  for (const s of [-1, 1]) put(mt, F, rbox(0.03, 0.9, 0.008, 0.003, 1), -0.022, 1.25, s * 0.306, 0, 0, 0, ss); // folded return edges
+  for (const sy of [-1, 1]) for (const sz of [-1, 1]) { put(mt, F, cyl(0.007, 0.0055, 0.003, 12), -0.0175, 1.25 + sy * 0.41, sz * 0.27, 0, 0, Math.PI / 2, C('#9ea2a6')); // countersunk fixings
+    put(pl, F, new THREE.BoxGeometry(0.0008, 0.0015, 0.008), -0.0192, 1.25 + sy * 0.41, sz * 0.27, 0, 0, 0, C('#55595d')); } // their slots
+  for (let r = 0; r < 2; r++) { const yb = 1.1 + r * 0.38 - 0.085;
+    put(mt, F, rbox(0.2, 0.012, 0.6, 0.004, 2), -0.11, yb, 0, 0, 0, 0, ss); // shelf
+    put(mt, F, rbox(0.01, 0.025, 0.6, 0.003, 1), -0.207, yb + 0.012, 0, 0, 0, 0, ss); // front lip
+    for (let c = 0; c < 4; c++) { const zz = -0.22 + c * 0.145, yy = 1.1 + r * 0.38;
+      put(gl, F, rbox(0.004, 0.09, 0.134, 0.0015, 1), -0.2, yy - 0.034, zz, 0, 0, -0.06); // acrylic front (leans back a touch)
+      for (const s of [-1, 1]) put(gl, F, new THREE.BoxGeometry(0.06, 0.09, 0.003), -0.172, yy - 0.034, zz + s * 0.0685); // pocket cheeks
+      for (let j = 0; j < 4; j++) put(pa, F, new THREE.BoxGeometry(0.004, 0.158 - j * 0.002, 0.118 - j * 0.002), -0.166 + j * 0.0045, yy + 0.002 - j * 0.001, zz + (j % 2 ? 0.002 : -0.0015), 0, 0, -0.03, C(j ? '#ecebe6' : '#f6f5f1')); // leaflet stack
+    } }
 }
