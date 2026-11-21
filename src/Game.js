@@ -98,13 +98,15 @@ import { MARINA } from './boats/Marina.js';
 import { ClubSound } from './audio/ClubSound.js';
 import { Footsteps } from './audio/Footsteps.js'; // 76th
 import { ObjectAudio } from './audio/ObjectAudio.js'; // 76th
+import { VehicleAudio } from './audio/VehicleAudio.js';
+import { CarRadio } from './audio/CarRadio.js';
+import { TrafficAudio } from './audio/TrafficAudio.js';
 import { CULL, LOD, beginHide, endHide, seeHidden } from './gfx/BatchCull.js';
 import { OCC_CFG, OCC_STATS } from './gfx/Occlusion.js';
 import { LIVE as BODIES } from './actors/Bodies.js';
 
 const VNAMES = { tuktuk: 'Three-wheeler', car: 'Hatchback', sedan: 'Sedan', taxi: 'Taxi', van: 'Van', suv: 'SUV', bus: 'SLTB bus', pbus: 'Private bus', lorry: 'Lorry', tow: 'Tow truck', bike: 'Motorcycle', dbike: "Dineth's Bike", police: 'Police car', policejeep: 'Police jeep', policebike: 'Police motorcycle' };
 for (const [id, T] of Object.entries(CATALOG)) VNAMES[id] = displayName(id, T); // fictional make + model, e.g. "HOSHIDA Kaizan"
-const RADIO = [null, { mode: 'radio1', name: 'Radio Lanka Breeze 98.4' }, { mode: 'radio2', name: 'Island Pulse 104.2' }];
 const TEST = new URLSearchParams(location.search).has('test'); // headless testing: allow big timesteps so cinematics finish under software rendering
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -391,15 +393,16 @@ export class Game {
   // ================================================================= events → audio / HUD
   wireEvents() {
     VEH_HOOKS.objHit = (v, c, vn, vt) => ObjectAudio.vehicleHit(v, c, vn, vt); // 76th: vehicles striking bins / poles / railings / walls (ObjectAudio.js)
+    VehicleAudio.init(this); CarRadio.init(this); // 76th: engine start / stop / cooling, indicators, gears, brakes, tyres (VehicleAudio.js) · the car radio (CarRadio.js)
     Footsteps.init(this); Audio.stepHook = (x, z, k) => { Footsteps.npc(x, z, k); return true; }; // 76th: surface / gait / wetness footsteps + foley (Footsteps.js)
     bus.on('footstep', (e) => Footsteps.playerStep(e));
     bus.on('horn', (v) => Audio.horn(v.type, v.x, v.z, v.tune ? v.tune.horn : null, v)); // emitters gate it first with Audio.hornFree (one 2 s horn per vehicle)
     bus.on('crash', (v) => Audio.crash(v));
     bus.on('land', () => Footsteps.land());
     bus.on('towed', (v) => this.hud.notify('Vehicle towed', `Your ${VNAMES[v.type] || 'vehicle'} was left unattended for 5 minutes and a CMC tow truck has taken it away.`, 'info', 5));
-    bus.on('enterVehicle', ({ v, hadDriver }) => { if (v && v.T && v.T.pedal) return; /* the bicycle shows its own hint (BicycleRide.js) */ if (hadDriver) { this.hud.subtitle('Driver', 'Ado! What are you doing? That\'s my vehicle!', '', 2.8); Voices.say(null, 'carjack', v.x, v.z, null, 'driver'); } this.hud.notify(VNAMES[v.type] || 'Vehicle', `${this.hud.key('enter')} exit · ${this.hud.key('horn')} horn · ${this.hud.key('lights')} lights · ${this.hud.key('radio')} radio`, 'info', 3.5); Audio.ui('door'); });
+    bus.on('enterVehicle', ({ v, hadDriver }) => { if (v && v.T && v.T.pedal) return; /* the bicycle shows its own hint (BicycleRide.js) */ if (hadDriver) VehicleAudio.tookRunning(v); if (hadDriver) { this.hud.subtitle('Driver', 'Ado! What are you doing? That\'s my vehicle!', '', 2.8); Voices.say(null, 'carjack', v.x, v.z, null, 'driver'); } this.hud.notify(VNAMES[v.type] || 'Vehicle', `${this.hud.key('enter')} exit · ${this.hud.key('horn')} horn · ${this.hud.key('lights')} lights · ${this.hud.key('indL')} ${this.hud.key('indR')} indicators · ${this.hud.key('radio')} / ${this.hud.key('radioPrev')} radio`, 'info', 3.5); Audio.ui('door'); });
     bus.on('npcLineRaw', ({ who, text, voice }) => { const d = voice && voice.spec ? Voices.say(voice.spec, voice.sit, voice.x, voice.z, voice.who || null, voice.group) : 0; this.hud.subtitle(who, text, '', Math.max(2.4, d + 0.3)); }); // carjacked driver (console: dialogs → Car stolen)
-    bus.on('exitVehicle', () => { if (this.radio) { this.radio = 0; } });
+    // (76th: the radio stays on in the vehicle you leave — heard muffled from outside — CarRadio.js)
     bus.on('doorOpen', () => Audio.doorOpen()); bus.on('doorSlam', ({ s }) => Audio.doorSlam(s));
     bus.on('npcLine', ({ ped, line, prio, cat, group }) => {
       // a recorded voice for this speaker / situation (console: dialogs) is heard out to ~40 m, subtitles or not; without one the
@@ -568,7 +571,7 @@ export class Game {
       if (Input.wasPressed('phone') && !this.hud.bigMapOpen && !this.gunShop.open && !(this.store && this.store.open) && !(this.atm && this.atm.open)) { if (this.photo) this.togglePhoto(false); else this.phone.toggle(); }
       else this.phone.update();
       if (Input.wasPressed('journal') && !this.gunShop.open && !(this.store && this.store.open) && !(this.atm && this.atm.open)) this.openPause();
-      if (P.vehicle && !P.vehicle.T.pedal && Input.wasPressed('radio')) { this.radio = (this.radio + 1) % RADIO.length; this.hud.notify('Radio', RADIO[this.radio] ? RADIO[this.radio].name : 'Off', 'info', 1.6); }
+      if (P.vehicle && !P.vehicle.T.pedal) { if (Input.wasPressed('radio')) CarRadio.step(P.vehicle, 1); if (Input.wasPressed('radioPrev')) CarRadio.step(P.vehicle, -1); } // 76th: the vehicle's radio — next / previous station (CarRadio.js)
     }
     if (!D.active && !warmOnly && this.mode === 'play') this.health.update(dt);
     if (!warmOnly) { const can = !busy && P.control && !P.cinematic && !this.indoor && !this.clickClaim; this.clickClaim = false; /* a click a prompt uses (berth sign) is not a punch / shot */ this.weapons.update(dt, can && !this.grenades.lockWeapons); this.grenades.update(dt, can); this.drunk.update(dt); if (this.interiors.current?.tick) this.interiors.current.tick(dt, P); }
@@ -620,13 +623,13 @@ export class Game {
     this.hud.prompt(D.active || this.photo || (this.customs && this.customs.active) ? '' : storyPrompt || this.police.prompt || localPrompt || (this.customs && this.customs.prompt) || this.bicycles.prompt || '');
     // music
     this.musicT = (this.musicT || 0) - dt;
-    if (this.musicT <= 0) { this.musicT = 1; if (!(Audio.musicMode === 'chase' && this.story.pursuers.length) && !D.active) { let m = A.night > 0.5 ? 'night' : 'explore'; if (this.story.guards.length) m = 'tension'; if (this.story.pursuers.length) m = 'chase'; if (P.vehicle && this.radio) m = RADIO[this.radio].mode; if (this.indoor) m = this.interiors.current?.musicMode || 'none'; if (m === 'club' && ClubSound.live) m = 'none'; /* the DJ's own songs play through the club speakers instead */ Audio.setMusic(m); } }
+    if (this.musicT <= 0) { this.musicT = 1; if (!(Audio.musicMode === 'chase' && this.story.pursuers.length) && !D.active) { let m = A.night > 0.5 ? 'night' : 'explore'; if (this.story.guards.length) m = 'tension'; if (this.story.pursuers.length) m = 'chase'; if (CarRadio.inCar) m = 'none'; /* the car radio plays instead (CarRadio.js) */ if (this.indoor) m = this.interiors.current?.musicMode || 'none'; if (m === 'club' && ClubSound.live) m = 'none'; /* the DJ's own songs play through the club speakers instead */ Audio.setMusic(m); } }
     // HUD
     const v = P.vehicle; const dist = L.districtAt(P.x, P.z);
-    this.hud.update({ breath: this.player.swim ? this.player.swim.breath : (this.player.swimBreath ?? 1), underwater: !!this.player.camUnder, health: this.health.hp, healthBusy: this.health.busy, time: A.timeString, money: this.story.state.money, district: this.indoor ? this.interiors.current.D.name : this.seamK > 0.5 ? (P.indoor && P.indoor.hospital ? this.hospital.placeName() : this.interiors.hq.D.name) : dist ? dist.name.split(' · ')[0] : '', street: this.indoor ? '' : L.roadNameAt(P.x, P.z) || '', x: P.x, z: P.z, camYaw: this.photo ? this.photoYaw + Math.PI : P.camYaw, stamina: P.stamina, vehicle: v, vehicleName: v ? this.vehicleName(v.type) : '', radio: v && this.radio ? `♪ ${RADIO[this.radio].name}` : '', camera: cam, police: this.police.hudInfo(), projector: (x, y, z) => this.project(x, y, z), fps: this.fps, draws: this.renderer.info.render.calls, extras: this.miniExtras(), indoor: !!this.indoor });
+    this.hud.update({ breath: this.player.swim ? this.player.swim.breath : (this.player.swimBreath ?? 1), underwater: !!this.player.camUnder, health: this.health.hp, healthBusy: this.health.busy, time: A.timeString, money: this.story.state.money, district: this.indoor ? this.interiors.current.D.name : this.seamK > 0.5 ? (P.indoor && P.indoor.hospital ? this.hospital.placeName() : this.interiors.hq.D.name) : dist ? dist.name.split(' · ')[0] : '', street: this.indoor ? '' : L.roadNameAt(P.x, P.z) || '', x: P.x, z: P.z, camYaw: this.photo ? this.photoYaw + Math.PI : P.camYaw, stamina: P.stamina, vehicle: v, vehicleName: v ? this.vehicleName(v.type) : '', radio: CarRadio.hudText(v), ind: v ? v.ind || 0 : 0, indOn: VehicleAudio.ind.on, camera: cam, police: this.police.hudInfo(), projector: (x, y, z) => this.project(x, y, z), fps: this.fps, draws: this.renderer.info.render.calls, extras: this.miniExtras(), indoor: !!this.indoor });
     // audio
     const near = v && !v.T.pedal ? [v] : []; if (this.boats) for (const b of this.boats.voices(P)) near.push(b); /* boat engines: outboard / inboard / jet */ for (const o of this.traffic.vehicles) { if (near.length >= 6) break; if (!o.T.pedal && Math.hypot(o.x - P.x, o.z - P.z) < 45) near.push(o); } // engine voices (a bicycle has none)
-    Footsteps.update(dt); ObjectAudio.update(dt); ClubSound.update(dt, this); // the club DJ's songs through the PA (in the club) / muffled bass on the street outside
+    Footsteps.update(dt); ObjectAudio.update(dt); VehicleAudio.update(dt); CarRadio.update(dt); TrafficAudio.update(dt, this); ClubSound.update(dt, this); // the club DJ's songs through the PA (in the club) / muffled bass on the street outside
     Audio.update(dt, { listener: { x: P.x, z: P.z, yaw: P.camYaw + Math.PI }, night: A.night, rain: A.w.rain, wind: A.w.wind, traffic: this.traffic.vehicles.length, vehicles: near, indoor: this.indoor || this.seamK > 0.6 });
     // autosave every 4 minutes of play while free-roaming
     this.autosaveT += dt; if (this.autosaveT > 240 && !this.story.running && !D.active) { this.autosaveT = 0; this.autosave(); }

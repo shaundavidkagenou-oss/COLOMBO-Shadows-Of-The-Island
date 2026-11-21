@@ -122,6 +122,7 @@ export class Vehicle {
     this.brake = false; this.lights = false; this.driver = null; this.player = false; this.ai = null; this.parked = false; this.horn = 0; this.damage = 0; this.health = 100;
     this.radius = this.T.wid * 0.55; this.half = this.T.len / 2;
     this.sus = { r: 0, rv: 0, h: 0, hv: 0 }; this.load = 0; // body on its springs: r = roll (+ = driver side down), h = sink (m)
+    this.acc = 0; this._dop = 1; this.engineK = 1; this.ind = 0; this.slipK = 0; // 76th: AI deceleration, Doppler factor, engine level (start / stop), indicator (-1 left / 1 right), tyre slip (audio)
     this.power = 1; this.vy = 0; this.air = false; this.pv = 0; this.rv = 0; this.tPitch = 0; this.tRoll = 0; this.wreckLift = 0; this.dropFit = null; // engine output (VehicleDamage), airborne state, pitch / roll rates, terrain attitude, wreck lift, flat-tyre attitude
   }
   // suspension: under-damped springs (~1.6 Hz, like a family car) toward the static sag of the current load
@@ -164,7 +165,7 @@ export class Vehicle {
       if (input.handbrake && fwd > 0.5 && Math.abs(sp) < 6 && !heavy) { ts.r = Math.max(ts.r, 1); ts.spin = 1; } // spin = the tread runs ahead of the road (throws smoke back)
       else if (input.handbrake && Math.abs(sp) > 3) ts.r = Math.max(ts.r, clamp(Math.abs(sp) / 14, 0.35, 0.9));
       if (fwd < -0.5 && sp > 12) ts.f = Math.max(ts.f, 0.25 * clamp((sp - 12) / 12, 0, 1) * (heavy ? 0.5 : 1));
-      this.throttle = Math.max(0, fwd); this.throttleFresh = true; }
+      this.throttle = Math.max(0, fwd); this.throttleFresh = true; this.slipK = Math.max(ts.f, ts.r); } // (slipK: wheelspin / lock-up this frame, before VehicleSmoke clears it — VehicleAudio's tyre screech)
     if (!this.air && this.tPitch) { const gs = 9.81 * Math.sin(this.tPitch); this.speed += gs * dt; } // gravity along a slope: ramps and quarter-pipes slow you going up, speed you up coming down
     const steerMax = T.steer * (K ? K.steer : 1) * (SK && !T.pedal ? SK.steer : 1) * lerp(1, 0.35, clamp(Math.abs(sp) / T.maxSpeed, 0, 1));
     this.steer = damp(this.steer, input.steer * steerMax + (flat ? Math.sin(performance.now() * 0.0071) * 0.05 * clamp(Math.abs(sp) / 8, 0, 1) : 0), 6, dt); // flats pull and wobble

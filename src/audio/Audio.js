@@ -9,6 +9,8 @@ import { SoundBank as SB } from './SoundBank.js'; // player-supplied recordings 
 const HORN_LEN = 2.0, NPC_HORNS = 3; // s · NPC horns sounding at once
 const DIESEL = new Set(['van', 'suv', 'policejeep', ...Object.keys(CATALOG).filter((k) => CATALOG[k].sound === 'van')]);
 
+// 76th: the vehicle class a type's mechanical sounds come from (sounds window → Vehicle mechanical: start / idle / stop per class)
+export const mechClass = (k) => (k === 'boat' ? null : k === 'tuktuk' ? 'tuktuk' : k === 'bike' || BIKES[k] ? 'bike' : isHeavy(k) ? 'heavy' : DIESEL.has(k) ? 'diesel' : 'car');
 class AudioEngine {
   constructor() { this.ctx = null; this.ready = false; this.engines = []; this.musicMode = 'none'; this.nextNote = 0; this.step = 0; this.radio = 0; }
   // ctx0: an OfflineAudioContext for the trailer's MP4 export (Game.boot ?export); otherwise the live context
@@ -87,7 +89,8 @@ class AudioEngine {
   horn(type, x, z, style = null, src = null) {
     const [g, pan] = this.spatial(x, z, 60); if (g < 0.02) return; const v = 0.25 * g;
     if (type === 'dbike') { for (const w of [0, 0.17]) { this.tone(2380, 0.55, { type: 'sine', vol: v * 0.32, pan, when: w, attack: 0.002 }); this.tone(5950, 0.3, { type: 'sine', vol: v * 0.08, pan, when: w, attack: 0.002 }); } return; } // bicycle bell: two rings
-    const id = style ? 'horn.' + style : type === 'tuktuk' || type === 'bike' || BIKES[type] ? 'horn.small' : isHeavy(type) ? 'horn.heavy' : 'horn.car';
+    let id = style ? 'horn.' + style : type === 'tuktuk' || type === 'bike' || BIKES[type] ? 'horn.small' : isHeavy(type) ? 'horn.heavy' : 'horn.car';
+    if (!style && src && !src.player && SB.has('traffic.horn')) id = 'traffic.horn'; // 76th: NPC drivers' horns (Traffic block) when supplied
     const tr = src ? { src, ref: 60, g0: g } : null; if (SB.play(id, g, pan, 0, { dur: HORN_LEN, lp: this.at(x, z).lp, track: tr, key: src ? null : id })) { if (tr && tr.voice) (this.tracked ||= []).push(tr); return; }
     if (style) { // Street Customs horns
       if (style === 'dual') { this.tone(392, 0.4, { type: 'square', vol: v * 0.35, pan }); this.tone(494, 0.4, { type: 'square', vol: v * 0.3, pan }); }
@@ -267,11 +270,16 @@ class AudioEngine {
       if (v.rev) { const r = v.rev; base *= 1 + r * 1.1; fc *= 1 + r * 1.6; vol *= 1 + r * 0.7; } // Street Customs: revving on the turntable (preview of engine / exhaust work)
       const ex = v.tune && v.tune.exhaust; if (ex) { const X = { sport: [1.2, 1.15], twin: [1.25, 1.2], quad: [1.35, 1.3], titanium: [1.3, 1.55], straight: [1.55, 1.6], stack: [1.3, 1.1], carbon: [1.25, 1.35], full: [1.5, 1.6] }[ex] || [1.2, 1.2]; vol *= X[0]; fc *= X[1]; } // Customs exhaust: louder, more open
       const gearSp = v.player && k !== 'boat' ? ((sp % 9) / 9) * 0.6 + 0.6 : 1; /* boats have no gearbox */
+      // 76th: NPC traffic engines from the Traffic block when supplied; the player's engine idling at a standstill from its class's
+      // idle loop (Vehicle mechanical); Doppler on traffic (TrafficAudio sets v._dop); engine off / starting (VehicleAudio: v.engineK)
+      let idleRec = false; if (!v.player && k !== 'boat') { const ts = k === 'tuktuk' ? 'traffic.tuktuk' : k === 'bike' || BIKES[k] ? 'traffic.motorcycle' : isHeavy(k) ? 'traffic.bus' : null; if (ts && SB.has(ts)) sid = ts; }
+      else if (v.player && sp < 0.6 && !v.rev && Math.abs(v.throttle || 0) < 0.1) { const mc = mechClass(k); if (mc && SB.has('mech.idle.' + mc)) { sid = 'mech.idle.' + mc; idleRec = true; } }
+      const dop = v.player ? 1 : v._dop || 1, eK = v.player ? v.engineK ?? 1 : 1;
       // a recording of this kind of engine: looped, pitched with the revs (1.0 = the recording's own pitch at a fast idle)
       const smp = SB.syncLoop(e, sid, e.g); if (!!smp !== !!e.rec) { e.rec = !!smp; e.og.gain.setTargetAtTime(smp ? 0 : 1, t, 0.05); }
-      if (smp) smp.src.playbackRate.setTargetAtTime(clamp(0.85 + (base * gearSp / idle - 1) * 0.32, 0.6, 2.4), t, 0.08);
-      e.o.frequency.setTargetAtTime(base * gearSp, t, 0.08); e.o2.frequency.setTargetAtTime(base * gearSp * 0.5, t, 0.08); e.f.frequency.setTargetAtTime(fc, t, 0.1);
-      const [g, pan] = v.player ? [1, 0] : this.spatial(v.x, v.z, 20); e.g.gain.setTargetAtTime(vol * g * (v.player ? 1.2 : 0.8) * (st.indoor ? 0.2 : 1), t, 0.1); e.p.pan.setTargetAtTime(pan, t, 0.1);
+      if (smp) smp.src.playbackRate.setTargetAtTime(idleRec ? 1 : clamp((0.85 + (base * gearSp / idle - 1) * 0.32) * dop, 0.6, 2.4), t, 0.08);
+      e.o.frequency.setTargetAtTime(base * gearSp * dop, t, 0.08); e.o2.frequency.setTargetAtTime(base * gearSp * 0.5 * dop, t, 0.08); e.f.frequency.setTargetAtTime(fc, t, 0.1);
+      const [g, pan] = v.player ? [1, 0] : this.spatial(v.x, v.z, 20); e.g.gain.setTargetAtTime(vol * g * (v.player ? 1.2 : 0.8) * (st.indoor ? 0.2 : 1) * eK, t, v.player && eK < 1 ? 0.25 : 0.1); e.p.pan.setTargetAtTime(pan, t, 0.1);
     });
     this.turbo(want.find((v) => v && v.player && v.tune && v.tune.turbo) || null, st);
   }

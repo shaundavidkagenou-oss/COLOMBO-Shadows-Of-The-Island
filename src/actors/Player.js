@@ -398,6 +398,7 @@ export class Player {
     this.x = v.x; this.z = v.z; this.y = v.y; this.yaw = v.yaw;
     if (c && Input.wasPressed('horn') && Audio.hornFree(v, true)) this.events.emit('horn', v); // one 2 s horn at a time (hammering the key no longer stacks horns)
     if (c && Input.wasPressed('lights')) { v.lights = !v.lights; this.nightLights = v.lights; }
+    if (c && !v.T.pedal && Input.wasPressed('indL')) v.ind = v.ind === -1 ? 0 : -1; /* 76th: turn indicators — same key again cancels; they self-cancel after the turn (VehicleAudio) */ if (c && !v.T.pedal && Input.wasPressed('indR')) v.ind = v.ind === 1 ? 0 : 1;
     if (v.lastImpact && performance.now() - v.lastImpact.t < 50) { this.shake = Math.min(1, v.lastImpact.v / 20); this.events.emit('crash', v.lastImpact.v); v.lastImpact = null; }
   }
   // first-person eye (between the eyes, from the head bone) and view direction, world space

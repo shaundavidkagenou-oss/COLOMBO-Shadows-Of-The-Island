@@ -1186,13 +1186,21 @@ export function directModel(type, color, variant) { // tests only: the same pipe
 }
 // shadow pass: parts that sit flush on (or inside) the painted body add a draw call per vehicle but never change the shadow
 // (lamp lenses, indicators, plates, route boards: the body's own silhouette already covers theirs)
+// 76th: turn indicators flash per side (VehicleAudio.js) — the left and right lamps share the vehicle's one indicator material, so
+// its shader masks the emission by the side of the body (vehicle-local x: + left, − right) through one uniform: side 0 = both
+// (as before), ±1 = that side only. Same program for every vehicle (constant cache key), no extra material or draw call.
+function sideLamps(m) { const side = { value: 0 }; m.userData.side = side;
+  m.onBeforeCompile = (sh) => { sh.uniforms.indSide = side;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vSideX;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvSideX = position.x;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float indSide;\nvarying float vSideX;').replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance *= mix(1.0, step(0.0, vSideX * indSide), abs(indSide));'); };
+  m.customProgramCacheKey = () => 'vindSide1'; return m; }
 const NO_CAST = new Set(['livery', 'glass', 'vlight', 'interior', 'badge', 'amb', 'vtail', 'vind', 'vrev', 'plate', 'route', 'mirror', 'dash']);
 export function createVehicleMesh(type, seed = 1) {
   const { T, color, variant, worn, cached } = ensureModel(type, seed);
   const { mats: M } = vehicleMaterials();
   const byName = { carbon: M.vcarbon, alloy: M.valloy, engine: M.vengine, mirror: M.vmirror, dash: M.vdash, paint: worn ? M.vworn : M.vpaint, glass: M.vglass, chrome: M.vchrome, rubber: M.vrubber, interior: M.vinterior, canvas: M.vcanvas, vlight: M.vlight, vtail: M.vtail, vind: M.vind, plate: M.plate, livery: M.livery, badge: M.badge, route: M.route, police: M.police, amb: M.amb, lbBlue: M.lbBlue, lbRed: M.lbRed, lens: M.vlens, vrefl: M.vrefl, dots: dotsMaterial() };
   let beacons = null; if (T.police || T.ambulance) { byName.lbBlue = M.lbBlue.clone(); byName.lbRed = M.lbRed.clone(); beacons = { blue: byName.lbBlue, red: byName.lbRed }; } // per vehicle: only responding units flash
-  const g = new THREE.Group(); const tailMat = M.vtail.clone(); const indMat = M.vind.clone(); const headMat = M.vlight.clone(); const revMat = M.vrev.clone(); byName.vtail = tailMat; byName.vind = indMat; byName.vlight = headMat; byName.vrev = revMat; headMat.emissiveIntensity = 0.04; tailMat.emissiveIntensity = 0.03; revMat.emissiveIntensity = 0; // per vehicle (start dark): each car's own lamps
+  const g = new THREE.Group(); const tailMat = M.vtail.clone(); const indMat = sideLamps(M.vind.clone()); const headMat = M.vlight.clone(); const revMat = M.vrev.clone(); byName.vtail = tailMat; byName.vind = indMat; byName.vlight = headMat; byName.vrev = revMat; headMat.emissiveIntensity = 0.04; tailMat.emissiveIntensity = 0.03; revMat.emissiveIntensity = 0; // per vehicle (start dark): each car's own lamps
   directionalLamp(headMat, 1); directionalLamp(tailMat, -1); directionalLamp(revMat, -1); // lamps glow only from the lens face (seen through the cabin glass from the other end they stay dark)
   const bodyMeshes = {}, shared = {}, mats = {}; for (const [name, geo] of cached.geos) { const mesh = new THREE.Mesh(geo, byName[name] || MAT.paint); mesh.name = name; bodyMeshes[name] = mesh; shared[name] = geo; mats[name] = mesh.material; mesh.castShadow = !NO_CAST.has(name); mesh.receiveShadow = name === 'paint'; if (name === 'glass') mesh.renderOrder = 2; mesh.matrixAutoUpdate = false; g.add(mesh); } /* body parts never move inside the vehicle: skip recomposing their local matrix every frame */
   let real = null; if (cached.lods) { // real-car body: LOD1 / LOD2 groups (doors shut) swapped in by Vehicle.updateVehicleLOD; LOD0 = the body meshes above

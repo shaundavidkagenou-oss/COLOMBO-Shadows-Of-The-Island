@@ -23,7 +23,7 @@ export class HUD {
     this.obj = el('div', 'objective', this.root); this.objTitle = el('div', 'obj-title', this.obj); this.objText = el('div', 'obj-text', this.obj); this.objDist = el('div', 'obj-dist', this.obj);
     this.notes = el('div', 'notes', this.root); this.promptEl = el('div', 'prompt', this.root);
     this.subs = el('div', 'subtitles', root); this.choiceEl = el('div', 'choices hidden', root);
-    this.timerEl = el('div', 'mtimer hidden', this.root); this.veh = el('div', 'vehicle-info hidden', this.root); this.vehSpeed = el('div', 'veh-speed', this.veh); this.vehName = el('div', 'veh-name', this.veh); this.radioEl = el('div', 'veh-radio', this.veh);
+    this.timerEl = el('div', 'mtimer hidden', this.root); this.veh = el('div', 'vehicle-info hidden', this.root); this.vehSpeed = el('div', 'veh-speed', this.veh); this.vehName = el('div', 'veh-name', this.veh); this.radioEl = el('div', 'veh-radio', this.veh); this.indEl = el('div', 'veh-ind', this.veh); this.indL = el('span', 'ind-l', this.indEl, '◀'); this.indR = el('span', 'ind-r', this.indEl, '▶'); // 76th: turn indicators
     this.vitals = el('div', 'vitals', this.root); this.hp = el('div', 'vit hp', this.vitals); this.hpBar = el('i', '', this.hp); this.hpGhost = el('b', '', this.hp);
     this.stamina = el('div', 'vit st', this.vitals); this.staminaBar = el('i', '', this.stamina);
     this.breathEl = el('div', 'vit br', this.vitals); this.breathBar = el('i', '', this.breathEl); this.uw = el('div', 'underwater hidden', root); root.prepend(this.uw); // swimming: breath + underwater tint
@@ -241,7 +241,7 @@ export class HUD {
     { const b = st.breath ?? 1; setStyle(this.breathEl, 'display', b < 0.999 ? '' : 'none'); setStyle(this.breathBar, 'width', `${b * 100}%`); this.breathEl.classList.toggle('low', b < 0.25); this.uw.classList.toggle('hidden', !st.underwater); }
     setStyle(this.stamina, 'opacity', st.stamina < 0.98 && !st.vehicle ? 1 : 0.35); setStyle(this.staminaBar, 'width', `${st.stamina * 100}%`);
     if (st.health != null) { const hp = st.health; setStyle(this.hpBar, 'width', `${hp}%`); this._hpShown += (hp - this._hpShown) * (hp < this._hpShown ? 0.04 : 1); setStyle(this.hpGhost, 'width', `${this._hpShown}%`); this.hp.classList.toggle('low', hp < 30); this.hurtEl.classList.toggle('low', hp < 25 && !st.healthBusy); }
-    if (st.vehicle) { this.veh.classList.remove('hidden'); setHtml(this.vehSpeed, `${Math.round(Math.abs(st.vehicle.speed) * 3.6)}<small>km/h</small>`); setTxt(this.vehName, st.vehicleName); setTxt(this.radioEl, st.radio || ''); } else this.veh.classList.add('hidden');
+    if (st.vehicle) { this.veh.classList.remove('hidden'); setHtml(this.vehSpeed, `${Math.round(Math.abs(st.vehicle.speed) * 3.6)}<small>km/h</small>`); setTxt(this.vehName, st.vehicleName); setTxt(this.radioEl, st.radio || ''); const iv = st.ind || 0; this.indL.classList.toggle('on', iv < 0 && !!st.indOn); this.indR.classList.toggle('on', iv > 0 && !!st.indOn); this.indEl.classList.toggle('armed', !!iv); } else this.veh.classList.add('hidden');
     if (this.objective) { const d = Math.hypot(this.objective.x - st.x, this.objective.z - st.z); setTxt(this.objDist, d > 30 ? `${d > 1000 ? (d / 1000).toFixed(1) + ' km' : Math.round(d) + ' m'}` : ''); } else setTxt(this.objDist, '');
     // world-space objective marker
     const mk = this.objective || (this.waypoint && { x: this.waypoint.x, z: this.waypoint.z, y: L.groundY(this.waypoint.x, this.waypoint.z) });

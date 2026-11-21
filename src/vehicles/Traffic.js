@@ -531,7 +531,7 @@ export class Traffic {
     if (ai.bodyBind && bb && (bb.parked || mutual) && bodyG < 0.6 && sp < 0.2) ai.wedgedT = (ai.wedgedT || 0) + dt; else if (!(ai.reverse > 0)) ai.wedgedT = 0;
     if (ai.wedgedT > (mutual ? 2 : 3) && !(ai.reverse > 0)) { ai.reverse = 2.5; ai.wedgedT = 0; }
     if (ai.reverse > 0) { const ds = Math.min(ai.reverse, 0.9 * dt); if (ai.s - ds > 0.2 && !this.bodyBehind(v, ai, ds + 0.4)) { ai.s -= ds; ai.reverse -= ds; v.reversing = true; v.wheelRot -= ds / v.T.wheelR; } else ai.reverse = 0; if (!(ai.reverse > 0)) v.reversing = false; acc = Math.min(acc, 0); }
-    v.speed = Math.max(0, sp + acc * dt); v.brake = acc < -1.0 || v.speed < 0.2;
+    v.speed = Math.max(0, sp + acc * dt); v.brake = acc < -1.0 || v.speed < 0.2; v.acc = acc; // (acc: hard braking → tyre screech, TrafficAudio)
     // horn when blocked by something other than a red light
     ai.honkCd -= dt;
     if (v.speed < 0.5 && gap < 8 && stopAt === Infinity) { ai.stuck += dt; if (ai.stuck > 2.5 / ai.aggressive && ai.honkCd <= 0) { ai.honkCd = 4 + this.rng.next() * 5; if (Audio.hornFree(v)) this.events.emit('horn', v); } } else ai.stuck = Math.max(0, ai.stuck - dt);
