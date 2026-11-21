@@ -33,6 +33,8 @@ import { buildMaterials } from './gfx/Materials.js';
 import { startBankTextures } from './world/BankTex.js';
 import { updateBankFX } from './world/BankFX.js';
 import { Atmosphere } from './gfx/Atmosphere.js';
+import { skyVisTex } from './gfx/SkyVis.js';
+import { PowerGrid, GRID as POWER_GRID, signalBackup } from './world/PowerGrid.js';
 import { PostFX } from './gfx/PostFX.js';
 import { setVehicleNight, createVehicleMesh, VTYPES } from './vehicles/VehicleModels.js';
 import { captureToCanvas } from './gfx/LinearCapture.js';
@@ -147,8 +149,9 @@ export class Game {
     progress(0.235, 'Vehicles of Colombo'); await realCars; // before anything builds a vehicle: a type with a real body never caches its procedural one
     await preloadTextures(); // 60th: parts given their own material in the Texture Studio are generated on it (src/debug/TexRuntime.js preload)
     this.world = new World(this.scene); this.world.setQuality(q);
-    await this.world.build(step(0.24, 0.72), q);
+    await this.world.build(step(0.24, 0.72), q); try { this.renderer.initTexture(skyVisTex); } catch (e) { console.warn('skyVis upload', e); } // 79th: the baked sky-visibility map into its shared GL texture (SkyVis.js)
     this.collision = this.world.collision;
+    this.initPower();
     progress(0.73, 'Sky, sea and monsoon'); await tick();
     this.atmos = new Atmosphere(this.scene, this.renderer); this.atmos.drawDist = Settings.preset.drawDist; this.atmos.setShadowQuality(Settings.preset.shadows, Settings.preset.shadowRes); /* near + far sun shadow maps */
     this.atmos.listeners.thunder = () => Audio.thunder(Math.random() * 0.7);
@@ -300,7 +303,7 @@ export class Game {
   async startLoaded(slot) {
     const d = SaveSystem.read(slot); if (!d) return this.menuLoop();
     if (this.atm) this.atm.reset(); BankSound.stopNow(); // 67th: the ATM screen is never part of a save; the room tone restarts on entering
-    if (this.vsmoke && this.vsmoke.skid) this.vsmoke.skid.clear(); /* a loaded game starts with clean roads */ this.story.restore(d.story); this.loot?.clear(); /* loot lying in the world is never saved: a reload cannot hand it out twice */ this.atmos.restore(d.atmos); this.crowd.minds.load(d.minds); /* NPC memories / relationships (Mind.js); an older save has none */ this.clock = d.clock || 0; this.squad.load(d.squad); this.rebuildPlayer(); this.weapons.load(d.weapons); this.squad.load(d.squad); this.orchid.load(d.orchid); this.pendingWanted = d.police ? d.police.level : d.weapons ? d.weapons.heat : 0;
+    if (this.vsmoke && this.vsmoke.skid) this.vsmoke.skid.clear(); /* a loaded game starts with clean roads */ this.story.restore(d.story); this.loot?.clear(); /* loot lying in the world is never saved: a reload cannot hand it out twice */ this.atmos.restore(d.atmos); if (this.power) { this.power.restoreAll(); this.power.settle(); this.power.restoreState(d.power); } this.crowd.minds.load(d.minds); /* NPC memories / relationships (Mind.js); an older save has none */ this.clock = d.clock || 0; this.squad.load(d.squad); this.rebuildPlayer(); this.weapons.load(d.weapons); this.squad.load(d.squad); this.orchid.load(d.orchid); this.pendingWanted = d.police ? d.police.level : d.weapons ? d.weapons.heat : 0;
     const p = d.player || { x: L.PLACES.meeting.x, z: L.PLACES.meeting.z, yaw: 0 }; if (this.customs && this.customs.active) this.customs.abort(); { const P = this.player, veh = P.vehicle; if (veh) { veh.speed = 0; veh.mesh.remove(P.ch.root); this.scene.add(P.ch.root); veh.player = false; P.vehicle = null; P.exiting = null; P.entry = null; P.ch.anim.standUp(); this.traffic.release(veh); P.respawnReset(); } } /* loading a save while driving: the save's player is on foot (as Health.js does on respawn) */ if (this.atm) this.atm.reset(); BankSound.stopNow(); this.world.warm(p.x, p.z); this.player.teleport(p.x, p.z, p.yaw); this.squad.regroup(); this.garage.restore(); // owned (customised) vehicles back where they were parked
     { const P = this.player; if (P.indoor && P.indoor.walkIn) { const r = P.indoor.room; P.indoor = null; if (r && r.onExit) r.onExit(); } } // 67th: a loaded game starts on the street (stale walk-in room state cleared)
     this.player.cinematic = false; this.player.control = true; this.mode = 'play'; this.paused = false; this.hud.show(true); this.director.active = false;
@@ -365,7 +368,7 @@ export class Game {
     const P = this.player; let pos = { x: P.x, z: P.z, yaw: P.yaw };
     if (this.interiors.current) { const d = this.interiors.current.door; pos = { x: d.x, z: d.z, yaw: d.faceIn + Math.PI }; } else if (P.indoor && P.indoor.walkIn && P.indoor.site) { const d = P.indoor.site.door; pos = { x: d.x, z: d.z, yaw: d.faceIn + Math.PI }; } else if (P.indoor && P.indoor.hospital) { pos = this.hospital.outsidePos(); } /* 74th: saved in the forecourt, not inside the building */ /* 67th: in a walk-in shop / the bank (e.g. the ATM's autosave) → saved on the pavement outside its door, never inside the building shell */ else if (P.vehicle) { const e = P.vehicle.exitPoint(-1); pos = { x: e.x, z: e.z, yaw: P.vehicle.yaw }; } else if (P.boat) pos = { x: MARINA.gangTop.x, z: MARINA.gangTop.z, yaw: -Math.PI / 2 }; /* on a boat: the save puts you on the quay by the marina */
     const m = MISSIONS.find((q) => q.id === this.story.state.mission.id); if (this.garage) this.garage.snapshot(); // owned vehicles where they stand now (Street Customs)
-    return SaveSystem.write(slot, { minds: this.crowd.minds.save(), story: this.story.serialize(), atmos: this.atmos.serialize(), player: pos, weapons: this.weapons.save(), squad: this.squad.save(), orchid: this.orchid.save(), police: this.police.save(), clock: this.clock, missionTitle: m ? m.title : 'Free roam', timeString: `Day ${this.atmos.day} · ${this.atmos.timeString}` });
+    return SaveSystem.write(slot, { minds: this.crowd.minds.save(), story: this.story.serialize(), atmos: this.atmos.serialize(), power: this.power ? this.power.serialize() : null, player: pos, weapons: this.weapons.save(), squad: this.squad.save(), orchid: this.orchid.save(), police: this.police.save(), clock: this.clock, missionTitle: m ? m.title : 'Free roam', timeString: `Day ${this.atmos.day} · ${this.atmos.timeString}` });
   }
   async restUntil(hour) {
     const P = this.player; P.control = false; await this.hud.fade(1, 0.8); let dh = hour - this.atmos.hour; if (dh < 0) dh += 24; this.atmos.advance(dh * 60); if (this.boats) this.boats.onRest(); /* slept: boats on order are delivered */
@@ -387,6 +390,20 @@ export class Game {
       const spd = ch.anim ? ch.anim.speed || 0 : 0; const heat = A.night ? 0.4 : 0.6 + 0.4 * Math.max(0, 1 - Math.abs(A.hour - 13) / 4); const humid = 0.8 + 0.4 * Math.min(1, A.w.rain + (A.weather === 'overcast' ? 0.3 : 0));
       const exert = spd > 4.5 ? 1 : spd > 2.2 ? 0.35 : 0; const sw = U.uSweat.value; U.uSweat.value = clamp(sw + (exert * heat * humid * 0.02 - (exert ? 0 : 0.006)) * dt * (this.indoor ? 0.6 : 1) * 1, 0, 1); }
   }
+  // 79th: the city's electricity (src/world/PowerGrid.js) — signals go dark / flash amber in an outage, lamps, windows, signs
+  // and shop fronts follow through the shader; the hospital and police HQ have backup generators. News of it on the HUD.
+  initPower() {
+    const G = this.power = new PowerGrid(this); POWER_GRID.cur = G; const NAMES = { port: 'the Port', gfgreen: 'Galle Face Green', gftowers: 'the Galle Face towers', beira: 'Beira Lake', slave: 'Slave Island', havelock: 'Havelock Town' };
+    const nm = (z) => (L.DISTRICTS[z] && L.DISTRICTS[z].name) || NAMES[z] || z; const WHY = { transformer: 'a transformer blew', lightning: 'lightning struck the lines', storm: 'storm damage', substation: 'a substation tripped', loadshedding: 'scheduled load shedding', console: 'a test cut', test: 'a test cut' };
+    const sync = () => { L.SIGNAL_POWER.dark = G.outages().length || G.dim ? (n) => (G.levelAt(n.x, n.z) > 0.5 ? 0 : signalBackup(n) ? 2 : 1) : null; }; // (no lookup at all while every district is on)
+    G.onChange((ev) => { sync(); const H = this.hud; if (!H || !H.notify) return;
+      if (ev.type === 'outage' && ev.cause !== 'substation') H.notify('Power cut', `${nm(ev.zone)} — ${WHY[ev.cause] || 'a fault'}. Signals are out: junctions are all-way stops.`, 'warn', 5);
+      else if (ev.type === 'substation') H.notify('Power cut', `${ev.name} tripped — several districts are dark.`, 'warn', 5);
+      else if (ev.type === 'restore') H.notify('Power restored', nm(ev.zone), 'info', 3);
+      else if (ev.type === 'generator') H.notify('Backup generator', ev.site === 'hospital' ? 'The National Hospital is on generator power.' : 'Police headquarters is on generator power.', 'info', 3); });
+    G.onSettled = sync;
+  }
+
   setIndoor(v) { this.indoor = v; this.world.root.visible = !v; this.atmos.rain.visible = false; this.atmos.indoor = v; this.hud.mini.classList.toggle('dim', v); if (v) this.hideOutdoor(); else this.showOutdoor(); }
   // FPS: while inside an interior nothing of the street is visible, so street traffic, crowd, trains and other
   // outdoor objects are hidden (not drawn, not shadow-cast) and their simulation pauses; restored on exit.
@@ -536,9 +553,9 @@ export class Game {
     }
     if (this.montageHour) { const m = this.montageHour; A.hour = lerp(m.from, m.to, clamp((this.director.time - m.t0) / m.dur, 0, 1)); }
     this.director.update(dt);
-    const f = this.focus || { x: cam.position.x, z: cam.position.z }; const fv = new THREE.Vector3(f.x, 0, f.z);
+    const f = this.focus || { x: cam.position.x, z: cam.position.z }; const fv = (this._fv || (this._fv = new THREE.Vector3())).set(f.x, 0, f.z); // (79th: reused, no per-frame allocation)
     this.world.simTime = this.clock; this.world.update(dt, f, cam, A); A.update(dt, fv, cam, dt); setVehicleNight(A.night); setHeadPoolNight(A.night);
-    const camDir = new THREE.Vector3(); cam.getWorldDirection(camDir);
+    const camDir = this._camDir || (this._camDir = new THREE.Vector3()); cam.getWorldDirection(camDir);
     this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; this.traffic.gameH = (A.day || 1) * 24 + A.hour; this.traffic.update(dt, f, camDir, this.clock, this.crowd.peds, this.ghost);
     this.trains.update(dt, { focus: f, night: A.night, vehicles: this.traffic.all(), listener: true });
     this.crowd.update(dt, f, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: this.ghost, hourFactor: this.hourFactor(), hour: A.hour, police: null });
@@ -592,9 +609,9 @@ export class Game {
     // interactions on foot / vehicle
     let localPrompt = null;
     if (!busy && !warmOnly && P.control) localPrompt = this.updateInteractions(dt);
-    const inRoom = this.interiors.current; const focus = inRoom && inRoom.door ? { x: inRoom.door.x, z: inRoom.door.z } : { x: P.x, z: P.z }; const fv = new THREE.Vector3(P.x, P.y, P.z); // inside a shop room (built away from the street) keep the city streamed around its street door, not around the hidden room
+    const inRoom = this.interiors.current; const focus = inRoom && inRoom.door ? { x: inRoom.door.x, z: inRoom.door.z } : { x: P.x, z: P.z }; const fv = (this._fv || (this._fv = new THREE.Vector3())).set(P.x, P.y, P.z); // inside a shop room (built away from the street) keep the city streamed around its street door, not around the hidden room
     this.world.simTime = this.clock; this.world.indoorK = this.indoor ? 1 : (this.seamK || 0); this.world.update(dt, focus, cam, A);
-    A.update(dt, fv, cam, dt); setVehicleNight(A.night); setHeadPoolNight(A.night); updateCustoms(A.night); // Street Customs lamps (underglow, aux lenses, cabin) follow each vehicle's lights
+    A.update(dt, fv, cam, dt); if (this.power) this.power.update(dt, { night: A.night, hour: A.hour, day: A.day, storm: A.w ? A.w.rain : 0, strikes: A.strikes || 0 }); setVehicleNight(A.night); setHeadPoolNight(A.night); updateCustoms(A.night); // Street Customs lamps (underglow, aux lenses, cabin) follow each vehicle's lights
     // walk-in Police HQ: smooth outdoor → indoor light adaptation while the city keeps running outside
     { const I = this.interiors, cur = I.current; if (cur && this.player.indoor !== cur && !this.player.indoor) { cur.g.visible = false; I.current = null; this.setIndoor(false); } } // teleported out of a shop/flat: close it
     if (!warmOnly) { if (!this.places) this.places = new PlaceAmbience(this); this.places.update(dt); PlaceSound.update(dt, this.player.x, this.player.z, this.player.camYaw ?? 0); } // 75th: positional place loops (park, garden, hospital AC / lift / monitors, CPR)
@@ -608,7 +625,7 @@ export class Game {
     if (!warmOnly) updateBankFX(this); // 78th: the bank hall's reflection probe / indirect light while the player is inside (BankFX.js)
     if (!this.indoor && (this.player.indoor || underFortRoof(cam.position.x, cam.position.z))) A.rain.visible = false; // (or under the Fort station's roofs: the halls and the train shed)
     if (!this.indoor && this.player.indoor) A.rain.visible = false; // in a walk-in shop / the HQ: no rain streaks in the room
-    const camDir = new THREE.Vector3(); cam.getWorldDirection(camDir);
+    const camDir = this._camDir || (this._camDir = new THREE.Vector3()); cam.getWorldDirection(camDir);
     if (this.indoor) this.hideOutdoor(); // anything spawned since entering (police units etc.) stays hidden too
     if (!this.indoor) this.traffic.night = A.night; this.traffic.weatherRain = A.w.rain; this.traffic.gameH = (A.day || 1) * 24 + A.hour; if (!this.indoor) this.traffic.update(dt, focus, camDir, this.clock, this.police.foot.length || this.squad.proxies.length ? this.pedsNearList() : this.crowd.peds, P); this.hqLife.update(dt); if (!this.indoor) { this.trafficDuty.update(dt); this.schoolLife.update(dt); this.cricket.update(dt); } if (!warmOnly) { this.police.update(dt); if (this.heli) this.heli.update(dt); }
     if (!this.indoor) this.trains.update(dt, { focus, night: A.night, player: this.indoor ? null : P, playerVehicle: P.vehicle || null, vehicles: this.traffic.all(), listener: true });

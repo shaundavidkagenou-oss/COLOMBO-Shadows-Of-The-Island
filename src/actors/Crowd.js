@@ -197,7 +197,7 @@ export class Crowd {
     p.target = { x: on.x + (dz / len) * lat, z: on.z - (dx / len) * lat }; p.state = 'walk';
   }
   canCross(p) {
-    const e = p.edge; const node = L.nodes[e.node]; if (node && node.signal) return L.pedSignal(node, e.axis, this.simTime);
+    const e = p.edge; const node = L.nodes[e.node]; if (node && L.signalLive(node)) return L.pedSignal(node, e.axis, this.simTime); // (a junction dark in a power cut: look for traffic instead)
     // unsignalised: look for approaching vehicles
     const mx = (L.pedNodes[e.a].x + L.pedNodes[e.b].x) / 2, mz = (L.pedNodes[e.a].z + L.pedNodes[e.b].z) / 2;
     for (const v of this.vehicles) { const dx = mx - v.x, dz = mz - v.z; const d = Math.hypot(dx, dz); if (d > 35) continue; const closing = (dx * Math.sin(v.yaw) + dz * Math.cos(v.yaw)) / (d || 1); if (closing > 0.3 && v.speed > 1.5 && d / Math.max(v.speed, 0.1) < 5) return false; }

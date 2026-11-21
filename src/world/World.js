@@ -1,4 +1,5 @@
 // Builds and streams the static city: ground, buildings (base + streamed detail), landmarks, props, trees, water.
+import { GRID } from './PowerGrid.js';
 import * as THREE from 'three';
 import { buildHospital } from './HospitalBuild.js';
 import { nightLight } from '../gfx/LightSets.js';
@@ -8,6 +9,9 @@ import { RangeBatch, rangesFor, disposeMesh, splitCells, cellsOfBox } from '../g
 import { installCull, CULL, CSLOTS, LOD, setLodQuality } from '../gfx/BatchCull.js';
 import { OcclusionCuller } from '../gfx/Occlusion.js';
 import { SkyBake } from '../gfx/BakeLight.js';
+import { buildSkyVis } from '../gfx/SkyVis.js';
+import { crownPoints } from './TreeShapes.js';
+import { colonnadeArcades } from './BuildingGen.js';
 import { GroundDetail, regTrees } from './GroundDetail.js';
 import { generatePlan, plan, NCX, NCZ, CHUNK, chunkCenter, refitTreeCrowns, landmarkTreeBoxes } from './CityPlan.js';
 import { buildGround } from './GroundBuilder.js';
@@ -85,6 +89,13 @@ export class World {
       const boxes = landmarkTreeBoxes(this.collision.list.filter((c) => c.kind === 'landmark' && !c.fuel)).concat(this.fuel.crownBoxes, this.customs.crownBoxes, FORT.clear.map((r) => [r.x0, r.x1, r.z0, r.z1, FORT.shed.eave + FORT.shed.rise + 2])); const planCols = new Set(plan.colliders); const obst = this.collision.list.filter((c) => !planCols.has(c) && !['landmark', 'tree', 'building', 'deck', 'platform'].includes(c.kind) && !c.fuel); const r = refitTreeCrowns(boxes, obst); // + walls / barriers / shopfronts / street furniture built after the plan
       if (r.changed.size) { this.collision.remove((c) => r.changed.has(c)); this.collision.addAll(r.keep); }
       plan.plants = (plan.plants || []).filter((p) => !boxes.some((b) => p.x > b[0] - 0.5 && p.x < b[1] + 0.5 && p.z > b[2] - 0.5 && p.z < b[3] + 0.5)); } // no shrub inside a landmark or forecourt
+    { // 79th: sky visibility for location-sensitive indirect daylight (SkyVis.js), baked once from the final plan + landmark volumes
+      const CR = new Map(); const crown = (type) => { if (CR.has(type)) return CR.get(type); const P = crownPoints(type) || crownPoints('mara'); let r = 0, top = 0, base = 1e9;
+        if (P) for (let i = 0; i < P.length; i += 3) { r = Math.max(r, Math.hypot(P[i], P[i + 2])); top = Math.max(top, P[i + 1]); base = Math.min(base, P[i + 1]); }
+        const o = P ? { r: r * 0.85, top, base: Math.min(base, top - 1) } : null; CR.set(type, o); return o; };
+      const exempt = L.ZONES.filter((z) => ['hospital', 'slpHQ', 'policeHQ', 'fortstation', 'maradanast'].includes(z.id)).map((z) => z.rect);
+      const arcades = []; for (const b of plan.buildings) { const a = colonnadeArcades(b); if (a) arcades.push(a); }
+      try { await buildSkyVis({ buildings: plan.buildings, boxes: this.collision.list, trees: plan.trees, crown, exempt, arcades, groundY: L.LAND_Y, yieldFn: tick }); } catch (e) { console.warn('SkyVis bake failed', e); } }
     progress(0.3, 'Street furniture and trees'); await tick();
     buildPropGeometries(); buildTreeGeometries(); initGlowTexture();
     for (let idx = 0; idx < NCX * NCZ; idx++) {
@@ -361,7 +372,7 @@ export class World {
     if (this.bankFront && atmos) this.bankFront.update(atmos.night); // Ceylon Meridian Bank: fascia / signs / hall glow after dark
     if (this.glints && this.glints.mesh && atmos && camera) { // wet-road reflections of the street lamps near the camera
       const src = this._glintSrc; src.length = 0; const on = this.glintsOn !== false && atmos.night > 0.2 && atmos.wet > 0.02 && !(this.indoorK > 0.5);
-      if (on) { const cp = camera.position; for (const c of this.chunks) { if (Math.abs(c.cx - cp.x) > 260 || Math.abs(c.cz - cp.z) > 260) continue; for (const p of c.lamps) { const d2 = (p[0] - cp.x) ** 2 + (p[2] - cp.z) ** 2; if (d2 < 140 * 140) src.push([p[0], p[1], p[2], 1.0, 0.79, 0.54, 1.5, d2]); } }
+      if (on) { const cp = camera.position; for (const c of this.chunks) { if (Math.abs(c.cx - cp.x) > 260 || Math.abs(c.cz - cp.z) > 260) continue; for (const p of c.lamps) { const d2 = (p[0] - cp.x) ** 2 + (p[2] - cp.z) ** 2; if (d2 < 140 * 140 && !(GRID.cur && GRID.cur.dim && GRID.cur.levelAt(p[0], p[2]) < 0.5)) src.push([p[0], p[1], p[2], 1.0, 0.79, 0.54, 1.5, d2]); } }
         src.sort((a, b) => a[7] - b[7]); }
       this.glints.update(camera, src, on ? atmos.wet : 0, atmos.night, (x, z) => !!L.roadAt(x, z), ROAD_Y); }
     if (an.lotusUpdate && atmos) an.lotusUpdate(this.t, atmos.night); // Lotus Tower LED show (LotusTower.js)
@@ -374,6 +385,7 @@ export class World {
       if (on) {
         const near = []; const ci = this.chunks; const cd = camera ? camera.getWorldDirection(this._lampDir || (this._lampDir = new THREE.Vector3())) : null;
         for (const c of ci) { if (Math.abs(c.cx - fx) > 300 || Math.abs(c.cz - fz) > 300) continue; for (const p of c.lamps) { const dx = p[0] - fx, dz = p[2] - fz, d2 = dx * dx + dz * dz; if (d2 > 110 * 110) continue;
+          if (GRID.cur && GRID.cur.dim && GRID.cur.levelAt(p[0], p[2]) < 0.02) continue; // (79th: no light for a dead lamp)
           const inView = !cd || d2 < 400 || (dx * cd.x + dz * cd.z) / Math.sqrt(d2) > 0.35; near.push([d2 * (inView ? 1 : 3), p]); } }
         near.sort((a, b) => a[0] - b[0]); const want = new Set(near.slice(0, this.lampLights.length).map((n) => n[1]));
         this.lampFade(dt, want, atmos.night * 44 * (1 - (this.indoorK || 0)) * Math.min(1, Math.max(0, (atmos.night - 0.3) / 0.3)) ** 2); // 35th: ramps up from 0 where the lamps switch on (night 0.3) instead of jumping to 13 // inside a building the street lamps' light no longer passes through its walls
@@ -443,6 +455,9 @@ export class World {
   }
   // hand real lights to the wanted lamps: lights on lamps no longer wanted fade out and are freed (decal restored), free lights
   // fade in on newly wanted lamps (decal hidden); lamps that stay wanted keep their light (no flicker from re-sorting)
+  // 79th: pole transformers within r of (x, z) (PowerGrid.onBlast) — from the plan's props of the chunks around
+  transformersNear(x, z, r) { const out = []; const P = this.plan; if (!P) return out; for (const c of this.chunks) { if (Math.abs(c.cx - x) > 120 || Math.abs(c.cz - z) > 120) continue;
+    for (const p of P.byChunk[c.idx].props || []) if (p.type === 'pole' && p.transformer && Math.abs(p.x - x) < r && Math.abs(p.z - z) < r) out.push(p); } return out; }
   lampFade(dt, want, base) {
     const lit = new Set(); const _m = this._lampM || (this._lampM = new THREE.Matrix4());
     const decal = (lamp, on) => { const [x, , z, mesh, i] = lamp; if (!mesh) return; if (on) _m.makeTranslation(x, ROAD_Y + 0.03, z); else _m.makeScale(0, 0, 0); mesh.setMatrixAt(i, _m); mesh.instanceMatrix.needsUpdate = true; };
@@ -450,7 +465,8 @@ export class World {
       if (want.has(u.lamp) && base > 0) { u.k = Math.min(1, u.k + dt * 2.2); lit.add(u.lamp); } else { u.k -= dt * 2.2; if (u.k <= 0) { decal(u.lamp, true); u.lamp = null; u.k = 0; } else lit.add(u.lamp); } }
     for (const lamp of want) { if (lit.has(lamp) || base <= 0) continue; const l = this.lampLights.find((q) => !q.userData.lamp); if (!l) break;
       l.userData.lamp = lamp; l.userData.k = 0; decal(lamp, false); l.position.set(lamp[0], lamp[1] - 0.4, lamp[2]); l.target.position.set(lamp[0], ROAD_Y, lamp[2] + 0.001); l.target.updateMatrixWorld(); lit.add(lamp); }
-    for (const l of this.lampLights) { const u = l.userData; const I = u.lamp ? base * u.k : 0; if (l.intensity !== I) l.intensity = I; if (l.castShadow) l.shadow.autoUpdate = I > 0; } /* FPS: an unlit pooled lamp (all day, parked at y -600) no longer re-renders its shadow map every frame */
+    const G = GRID.cur, pw = G && G.dim ? (lamp) => G.levelAt(lamp[0], lamp[2]) : null; // 79th: a lamp in a district without power goes out with it (and flickers back)
+    for (const l of this.lampLights) { const u = l.userData; const I = u.lamp ? base * u.k * (pw ? pw(u.lamp) : 1) : 0; if (l.intensity !== I) l.intensity = I; if (l.castShadow) l.shadow.autoUpdate = I > 0; } /* FPS: an unlit pooled lamp (all day, parked at y -600) no longer re-renders its shadow map every frame */
   }
   setQuality(q) { this.quality = q; setLodQuality(q); /* 65th: BatchCull LOD / draw distances */ if (this.glints) this.glints.max = WetGlints.budget(q); if (this.grass) this.grass.setQuality(q); if (this.groundDetail) this.groundDetail.setQuality(q); if (this.forest) this.forest.setQuality(q); if (this.parkLife) this.parkLife.setQuality(q); if (this.parks && this.parks.userData.flowers) this.parks.userData.flowers.setQuality(q); const s = q === 'low' ? 0.6 : q === 'medium' ? 0.8 : q === 'ultra' ? 1.25 : 1; this.detailRadius = 330 * s; this.windowRadius = q === 'low' ? 0 : q === 'medium' ? 90 : q === 'ultra' ? 210 : 150; this.propRadius = 430 * s; this.treeRadius = 520 * s; }
 }

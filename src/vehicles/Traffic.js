@@ -489,10 +489,10 @@ export class Traffic {
     if (p.type === 'line') {
       const rem = p.len - ai.s; const node = p.to; const next = ai.pieces[1];
       if (em) {} // responding units with lights on proceed through signals and junctions (slowed by the curve speed)
-      else if (node.signal && node.hwH > 0 && node.hwV > 0) {
+      else if (node.signal && node.hwH > 0 && node.hwV > 0 && L.signalLive(node)) {
         const st = L.signalState(node, p.seg.dir, this.simTime);
         if (st === 'red' || (st === 'yellow' && rem > v.speed * 1.2 + 4)) stopAt = rem - 0.5;
-      } else if (next && next.type === 'curve' && node.segs.length >= 3) {
+      } else if (next && (next.type === 'curve' || node.signal) && node.segs.length >= 3) { // (79th: a signal junction dark in a power cut works as an all-way stop: one at a time)
         const myLevel = p.seg.level; let crossMin = 9; for (const s of node.segs) if (s.dir !== p.seg.dir && s.level < crossMin) crossMin = s.level; // (no per-frame arrays)
         const r = this.res.get(node.id); const busy = r && r.id !== v.id && this.simTime - r.t < 3.5;
         if (busy || (myLevel > crossMin && rem < 14 && v.speed > 4)) { if (busy) stopAt = rem - 0.5; }

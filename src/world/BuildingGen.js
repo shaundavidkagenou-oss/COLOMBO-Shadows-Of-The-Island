@@ -41,6 +41,8 @@ export function colonnadeColumns(b) {
   for (let k = 0; k <= n; k++) out.push([s.a[0] + (s.b[0] - s.a[0]) * k / n + s.n[0] * 0.6, s.a[1] + (s.b[1] - s.a[1]) * k / n + s.n[1] * 0.6, 0.32]);
   return out;
 }
+// 79th: the Fort arcade's covered strip (facade line a → b, outward normal n) for the sky-visibility bake (SkyVis.js)
+export function colonnadeArcades(b) { if (!b.colonnade) return null; const s = frontSide(b); return { a: s.a, b: s.b, n: s.n }; }
 export const frontColumns = (b) => porchPillars(b).concat(colonnadeColumns(b));
 function facadeWall(mb, s, y0, y1, uOff, vStart, color) {
   const u0 = uOff, u1 = uOff + s.len / (4 * BAY);

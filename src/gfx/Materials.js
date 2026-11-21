@@ -2,6 +2,7 @@
 import { applyWeathering } from './Weathering.js';
 import * as THREE from 'three';
 import { TEX } from './Textures.js';
+import { powerMaterial } from '../world/PowerGrid.js';
 import { barkTextures } from './RealTextures.js';
 import { applyInteriorMapping, INTERIOR, occupancy, winFlag, syncWindowLayers } from './InteriorMapping.js';
 export const MAT = {};
@@ -65,6 +66,7 @@ export function roleMaterial(key, base, label, src = null) {
   const m = src || cloneMaterial(MAT[base]); m.name = label || key; MAT[key] = m;
   let root = base; for (let i = 0; i < 4 && ROLES.has(root); i++) root = ROLES.get(root).base;
   ROLES.set(key, { base, root, label: m.name, drive: root.startsWith('f_') || root === 'shops' || root === 'signs' ? ['emissiveIntensity'] : root === 'winGlass' ? ['envMapIntensity'] : null });
+  if (root.startsWith('f_') || root === 'shops' || root === 'signs') powerMaterial(m); // 79th: its light follows the district's electricity (a clone loses the define)
   const wt = wetTarget(MAT[base]); if (wt) wetTargets.push([m, wt[1], wt[2]]); // rain response like its base
   if (FACADE_WIN.has(MAT[base])) FACADE_WIN.set(m, FACADE_WIN.get(MAT[base]));
   return m;
@@ -232,6 +234,7 @@ export function buildMaterials() {
   MAT.pool = new THREE.MeshBasicMaterial({ map: TEX.pool, color: 0xffc98a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
   MAT.glow = new THREE.SpriteMaterial({ map: TEX.glow, color: 0xffd7a0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0 });
   wetTargets.push([MAT.road, 1.0, 0.18], [MAT.roadTint, 0.95, 0.14], [MAT.walk, 0.9, 0.35], [MAT.walkGrey, 0.9, 0.35], [MAT.kerb, 0.85, 0.4], [MAT.concrete, 0.9, 0.45], [MAT.roofFlat, 0.95, 0.5]);
+  for (const k of facadeKeys) powerMaterial(MAT['f_' + k]); for (const k of ['shops', 'signs', 'lampHead']) powerMaterial(MAT[k]); powerMaterial(MAT.pool, true); // 79th: lit windows, shop fronts, signs, lamp heads and lamp pools go dark with their district (PowerGrid)
   for (const [k, [base, label]] of Object.entries(ROLE_DEFS)) roleMaterial(k, base, label); // every object type's own material
   for (const k of ['concrete', 'metal', 'paint', 'awning', 'roofTiles', 'roofFlat', 'corrugated', 'shops', 'signs', 'winGlass', 'kerb', 'walk', 'walkGrey', 'paveGrass', 'road', 'roadTint', 'marking', 'treeBark', 'palmBark', 'leaves', 'leavesBright', 'palm']) if (MAT[k] && !MAT[k].name) MAT[k].name = BASE_LABEL[k];
   for (const k of facadeKeys) MAT['f_' + k].name = 'Building walls · ' + k + ' facade';

@@ -166,6 +166,7 @@ export class Explosions {
   // p: THREE.Vector3 (charge position). opts: { power (1 = hand grenade), source: 'player' | 'npc', cause }
   blast(p, opts = {}) {
     const g = this.g, pow = opts.power ?? 1; this.stats.blasts++;
+    if (g.power && g.world && g.world.transformersNear && !opts.noDamage) { try { g.power.onBlast(p.x, p.z, g.world.transformersNear(p.x, p.z, 8 + pow * 2)); } catch (e) { console.warn('power blast', e); } } // 79th: a blast beside a pole transformer cuts its district
     const col = g.collision; const gy = col ? col.groundAt(p.x, p.z, p.y + 0.3, 0.6) : L.groundY(p.x, p.z); const water = L.isWater(p.x, p.z) && p.y < gy + 0.5 && !(L.bridgeWalkAt && L.bridgeWalkAt(p.x, p.z));
     const c = new THREE.Vector3(p.x, Math.max(p.y, gy) + 0.25, p.z); const V = new THREE.Vector3(); const P = new THREE.Vector3();
     const R = pow; // scale

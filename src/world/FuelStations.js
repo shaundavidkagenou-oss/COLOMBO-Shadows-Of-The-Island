@@ -443,7 +443,7 @@ class Station {
   endVisit(f) { const i = this.visits.indexOf(f); if (i >= 0) this.visits.splice(i, 1); this.releaseBay(f); this.dropAttendant(f); const ai = f.v && f.v.ai; if (ai && ai.fuel === f) { ai.fuel = null; ai.sMaxP = null; } }
   gapClear(f) { // give way at the exit driveway: nothing in the kerb lane about to arrive, no queue standing across the merge
     const site = this.site, U = site.U; const uM = this.uMerge; const list = this.svc.traffic.vehicles; const pv = this.svc.playerVehicle();
-    const nd = this.to, T = this.svc.traffic; if (nd.signal && nd.hwH > 0 && nd.hwV > 0 && L.signalState(nd, this.site.seg.dir, T.simTime || 0) !== 'green') return false; // the merge is just before a signal: wait in the driveway for green
+    const nd = this.to, T = this.svc.traffic; if (nd.signal && nd.hwH > 0 && nd.hwV > 0 && /^(red|yellow)$/.test(L.signalState(nd, this.site.seg.dir, T.simTime || 0))) return false; // the merge is just before a signal: wait in the driveway for green
     const test = (o) => { if (!o || o === f.v) return true; const [ou, ow] = site.toLocal(o.x, o.z); if (Math.abs(ou - uM) > 60) return true; const onLane = Math.abs(ow - this.wRoad) < 2.6, onDrive = ow > -site.walk - 0.6 && ow < 1.2 && Math.abs(ou - DRIVE) < 5;
       if (!onLane && !onDrive) return true; if (onDrive) return false; const hU = Math.sin(o.yaw) * U[0] + Math.cos(o.yaw) * U[1]; const sp = (o.speed || 0) * hU; const d = uM - ou; if (d < -6.5) return true; if (d < 9) return false; return !(sp > 0.6 && d / sp < 4.6); };
     for (const o of list) if (!test(o)) return false; return test(pv);

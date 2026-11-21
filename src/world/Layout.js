@@ -311,8 +311,13 @@ for (let i = 0; i < NX; i++) for (let j = 0; j < NZ; j++) {
 export function nodeAt(i, j) { return nodes[i * NZ + j]; }
 // Signal phases: returns 'green' | 'yellow' | 'red' for an approach axis ('v' or 'h').
 export const SIGNAL_CYCLE = 26;
+// 79th: the power grid (PowerGrid.js) sets dark(node) while an outage is on: 1 = the junction's lamps are dead, 2 = battery
+// backup flashing amber ('flash' / 'off' alternating). Both mean an all-way stop for drivers and look-then-cross for walkers.
+export const SIGNAL_POWER = { dark: null };
+export function signalLive(node) { return !!node.signal && !(SIGNAL_POWER.dark && SIGNAL_POWER.dark(node)); }
 export function signalState(node, axis, t) {
   if (!node.signal) return 'green';
+  if (SIGNAL_POWER.dark) { const d = SIGNAL_POWER.dark(node); if (d) return d === 2 && ((t % 1.2) + 1.2) % 1.2 < 0.6 ? 'flash' : 'off'; }
   const c = ((t + node.signalOffset) % SIGNAL_CYCLE + SIGNAL_CYCLE) % SIGNAL_CYCLE;
   // v: green 0-10, yellow 10-12.5, red after. h: green 13-23, yellow 23-25.5
   if (axis === 'v') return c < 10 ? 'green' : c < 12.5 ? 'yellow' : 'red';

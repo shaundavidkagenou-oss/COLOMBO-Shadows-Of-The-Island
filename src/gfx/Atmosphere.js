@@ -62,6 +62,34 @@ export const SKY_KNEE = { k: 0.55, w: 0.9 }; // sky in-scatter luminance (HDR, a
 // sun light warmth: the light turns gold well before the last half hour (17:00 ≈ 18° sun is the golden hour; the old warmth
 // only started below ~13°), so buildings take the warm evening / morning light; 0 = the previous curve
 export const SUN_WARMTH = 0.8;
+// 79th request — daylight balance. Measured before (tools/light-balance.mjs, clear 12:30, white matte surface facing up): the sun
+// gave 0.67, the sky environment map 2.85 and the hemisphere light 0.16 — the PMREM held the Preetham sun disc, so the env map
+// acted as a second, UNSHADOWED sun 4× stronger than the real one: shadows lifted to ~80 % of sunlight (invisible), everything
+// lit from everywhere, then exposure 0.82 + ACES flattened it (washed out, uniform). Now the env map is captured without the
+// disc (sky only), and one continuous model of the sun's elevation sets every term:
+//  · sun: air mass (Kasten–Young) → transmittance (Meinel 0.7^(m^0.678), relative to the zenith) and colour (per-channel
+//    optical depth: white-gold high up, gold then orange-red only in the last few degrees);
+//  · sky (indirect, horizontal, same units): ind(e) = base + k·√sin e — about 1/4 of the direct light at midday, dominant at
+//    low sun / twilight; overcast raises the diffuse share. The sky environment map runs at a fixed DAYLIGHT.env (its
+//    reflections stay as bright, relative to the sky you see, at every hour) and delivers what the captured sky gives
+//    (ENV_CAL: its irradiance per unit intensity, measured); the hemisphere light fills the rest of ind(e), plus the ground
+//    bounce off sunlit streets (its ground colour follows the sunlight);
+//  · the visible sky's own brightness (uSkyGain 0.58 → 0.25 by day): a clear midday sky was brighter than sunlit white
+//    concrete (pale, washed out); real blue sky is a fraction of it — deeper blue, and its reflections and fill match;
+//  · exposure: partial adaptation to the total daylight, E^-adapt (the eye / camera does not fully normalise: dawn and dusk
+//    stay darker than noon), clamped, and blended into the existing night exposure by the same night factor as everything else.
+// SkyVis.js then scales the indirect light per pixel by the local sky view (lanes, trees, arcades).
+export const DAYLIGHT = { tilt: 0.36, sun: 3.0, tau: [0.055, 0.11, 0.24], white: 0.12, base: 0.045, k: 0.21, env: 0.3, hemiMin: 0.08, bounce: 0.16,
+  skyGain: 0.25, skyGainLow: 0.8, expoK: 1.17, adapt: 0.5, expoMin: 0.8, expoMax: 3.0, expoLow: 1.25, expoLowEl: [2, 14], envRefresh: 12, envRefreshTwilight: 3 };
+// env-map irradiance on an up-facing white matte surface per unit environmentIntensity, by sun elevation (deg), clear sky
+// (tools/light-balance.mjs ENV_CAL run; between rows linear, outside clamped)
+export const ENV_CAL = [[-12, 0.005], [-4, 0.017], [0, 0.046], [3.4, 0.147], [8.8, 0.283], [18.3, 0.192], [31.7, 0.263], [51.3, 0.418], [69.2, 0.581], [80, 0.62]]; // (the dip round 18°: the sky gain falls from its low-sun to its day value)
+export function envCal(eDeg) { const T = ENV_CAL; if (eDeg <= T[0][0]) return T[0][1]; for (let i = 1; i < T.length; i++) if (eDeg <= T[i][0]) { const [a, va] = T[i - 1], [b, vb] = T[i]; return va + (vb - va) * (eDeg - a) / (b - a); } return T[T.length - 1][1]; }
+// air mass (Kasten & Young 1989) at elevation e (rad), and the direct-beam transmittance relative to the zenith
+export function airMass(e) { const d = Math.max(0, e * 57.29578); return 1 / (Math.max(0, Math.sin(Math.max(0, e))) + 0.50572 * Math.pow(d + 6.07995, -1.6364)); }
+export function sunTransmit(e) { return Math.pow(0.7, Math.pow(airMass(e), 0.678)) / 0.7; }
+const _cA = new THREE.Color(), _cB = new THREE.Color(), _cC = new THREE.Color(), _cD = new THREE.Color(), _cE = new THREE.Color(), _vA = new THREE.Vector3(), _UPV = new THREE.Vector3(0, 1, 0);
+const C_DARKTOP = new THREE.Color(0.32, 0.36, 0.42), C_NIGHTTOP = new THREE.Color(0.02, 0.04, 0.1), C_GOLDHOR = new THREE.Color(1.0, 0.62, 0.38), C_GREYHOR = new THREE.Color(0.5, 0.52, 0.55), C_NIGHTHOR = new THREE.Color(0.06, 0.08, 0.14), C_WHITE = new THREE.Color(1, 1, 1), C_NIGHTGND = new THREE.Color(0.15, 0.115, 0.09), C_NIGHTFOG = new THREE.Color(0.042, 0.04, 0.052);
 function sunDiscPatch(fs) {
   const a = 'vec3 sundiscColor = ( 760.0 * sundisc ) * min( vSunE * Fex, 80.0 );';
   if (!fs.includes(a)) { console.warn('Sky: sun disc patch not applied'); return fs; }
@@ -73,6 +101,7 @@ function sunDiscPatch(fs) {
         float k = mix( 5.0, uSunDisc, up ) * smoothstep( -0.03, 0.01, vSunDirection.y ) * showSunDisc;
         float corona = exp( -max( rr - 1.0, 0.0 ) * 1.4 ) * ( 1.0 - disc ) * 0.05;
         sundiscColor = tint * k * ( disc * ( 1.0 - 0.6 * ( 1.0 - mu ) ) + corona );
+        if ( uDiscMode > 1.5 ) sundiscColor = vec3( 0.0 ); // 79th: environment capture — the sun's light is the directional light (with shadows); a disc in the PMREM lit every shadow
         // sky highlight knee: Preetham's Mie peak is 8–12 (HDR) for degrees around the sun and the open sky ~1.5–2, which
         // ACES turned into a flat white patch (the disc vanished into it) over a pale, washed-out blue. Above SKY_KNEE the sky's
         // in-scattering rolls off smoothly with its hue kept: a deeper blue, a warm circumsolar glow, a disc that reads as one.
@@ -330,18 +359,24 @@ export class Atmosphere {
     this.wet = clamp(this.wet + (this.w.rain > 0.2 ? dt * 0.05 : -dt * 0.016), 0, 1); // wet only while it rains: the shine is gone about a minute after the rain stops (a road that still mirrored the sky minutes after a shower read as a bug)
     // sun & moon
     const th = ((this.hour - 6.15) / (18.3 - 6.15)) * Math.PI;
-    this.sunDir.set(Math.cos(th), Math.sin(th) * 0.97, 0.22).normalize();
+    this.sunDir.set(Math.cos(th), Math.sin(th) * 0.97, DAYLIGHT.tilt).normalize(); // 79th: tilt 0.22 → 0.36 — Colombo (6.9° N) in the inter-monsoon months: the noon sun stands ~70° up toward the south, so midday streets get real (short) shadows instead of none
     const elev = this.sunDir.y;
     this.night = 1 - smoothstep(-0.12, 0.06, elev);
     const golden = 1 - smoothstep(0.05, 0.35, Math.max(elev, 0));
     const cloudDim = 1 - this.w.cloud * 0.72;
     const u = this.sky.material.uniforms; u.sunPosition.value.copy(this.sunDir).multiplyScalar(1000);
     u.turbidity.value = lerp(3, 11, this.w.cloud) + golden * 2; u.mieDirectionalG.value = lerp(0.8, 0.75, golden); /* a tighter forward-scattering halo by day: the sun reads as a disc in a glow, not a white quarter of the sky */ u.rayleigh.value = lerp(1.3, 3.2, golden) * (1 - this.w.dark * 0.5) + this.night * 0.0;
-    u.mieCoefficient.value = lerp(0.0018, 0.008, golden); u.uSkyGain.value = lerp(0.58, 1.0, Math.max(golden, this.night)); // tight sun halo: no white-out across the skyline
-    const warm = Math.max(golden, SUN_WARMTH * (1 - smoothstep(0.1, 0.6, Math.max(elev, 0)))); this.warmth = warm;
-    const sunCol = new THREE.Color().setRGB(1, lerp(0.95, 0.55, warm), lerp(0.88, 0.32, warm));
+    u.mieCoefficient.value = lerp(0.0018, 0.008, golden); u.uSkyGain.value = lerp(lerp(DAYLIGHT.skyGain, DAYLIGHT.skyGainLow, golden), 1.0, this.night); // 79th: see DAYLIGHT (was 0.58 by day) // tight sun halo: no white-out across the skyline
+    const DL = DAYLIGHT, eA = Math.asin(clamp(elev, -1, 1)), m = airMass(eA), sinE = Math.max(0, elev);
+    { const tr = Math.exp(-DL.tau[0] * (m - 1)), tg = Math.exp(-DL.tau[1] * (m - 1)), tb = Math.exp(-DL.tau[2] * (m - 1)), mx = Math.max(tr, tg, tb, 1e-6); // 79th: the sun's colour from the air it crosses
+      _cA.setRGB(tr / mx, tg / mx, tb / mx).lerp(C_WHITE, DL.white); _cA.g *= 0.985; _cA.b *= 0.95; } const sunCol = _cA; this.warmth = 1 - _cA.b; void SUN_WARMTH;
     this.sun.color.copy(sunCol);
-    this.sun.intensity = Math.max(0, smoothstep(0.0, 0.12, elev)) * 2.7 * cloudDim; // 35th (smooth transitions): reaches 0 exactly at the horizon, where the light hands over to the moon
+    const sunT = sunTransmit(eA) * smoothstep(0.0, 0.035, elev); // reaches 0 exactly at the horizon, where the light hands over to the moon (35th)
+    this.sun.intensity = DL.sun * sunT * cloudDim;
+    // indirect daylight (horizontal surface, the units of the sun's light on it ÷ π): see DAYLIGHT
+    const sunUp = this.sun.intensity * sinE / Math.PI;
+    const ind = (DL.base * smoothstep(-0.12, 0.0, elev) + DL.k * Math.sqrt(sinE)) * (1 + 0.6 * this.w.cloud - 0.5 * this.w.dark);
+    this.dayInd = ind; this.daySunUp = sunUp;
     // moon light at night (kept bright enough for readable night gameplay)
     if (elev < 0) { _sl.set(-0.4, 0.8, -0.3).normalize(); this.sun.color.setRGB(0.62, 0.72, 1.0); this.sun.intensity = 0.78 * this.night * (1 - this.w.cloud * 0.45) * smoothstep(0.0, 0.07, -elev); } // fades in from 0 below the horizon: the switch of direction / colour from sun to moon happens at zero intensity (it used to flip the shadows and the light colour in one frame at sunset / sunrise) // moonlight: readable silhouettes and road surface, still clearly night
     else _sl.copy(this.sunDir);
@@ -355,29 +390,43 @@ export class Atmosphere {
     this.updateFarShadow(dt, focus, camera, _slf);
     { const d = leafLight.dir.value, c = leafLight.col.value; const sd = _sl; d[0] = sd.x; d[1] = sd.y; d[2] = sd.z;
       c[0] = this.sun.color.r * this.sun.intensity; c[1] = this.sun.color.g * this.sun.intensity; c[2] = this.sun.color.b * this.sun.intensity; }
-    const skyTop = new THREE.Color().setRGB(0.28, 0.48, 0.82).lerp(new THREE.Color(0.32, 0.36, 0.42), this.w.dark).lerp(new THREE.Color(0.02, 0.04, 0.1), this.night);
-    const horizon = new THREE.Color().setRGB(0.75, 0.82, 0.88).lerp(new THREE.Color(1.0, 0.62, 0.38), golden * (1 - this.night) * (1 - this.w.dark)).lerp(new THREE.Color(0.5, 0.52, 0.55), this.w.dark * 0.7).lerp(new THREE.Color(0.06, 0.08, 0.14), this.night);
-    this.hemi.color.copy(skyTop).lerp(new THREE.Color(1, 1, 1), 0.35).lerp(_warmSky, 0.22 * (1 - this.night) * (1 - this.w.dark)); /* daytime shade also gets light bounced off sunlit streets and facades, not only blue sky: shaded walls (Fort's north faces) read blue-grey otherwise. Light only — the grade / exposure are untouched */ this.hemi.groundColor.setRGB(0.42, 0.36, 0.3).lerp(new THREE.Color(0.15, 0.115, 0.09), this.night); /* night bounce: warm street light off the roads */
-    this.hemi.intensity = lerp(0.55, 0.42, golden) * (1 + this.w.cloud * 0.5) * (1 - this.night * 0.55) + 0.12 + this.night * 0.17;
+    const skyTop = this._skyTop || (this._skyTop = new THREE.Color()), horizon = this._horizon || (this._horizon = new THREE.Color()); // (79th: no per-frame allocations)
+    skyTop.setRGB(0.28, 0.48, 0.82).lerp(C_DARKTOP, this.w.dark).lerp(C_NIGHTTOP, this.night);
+    horizon.setRGB(0.75, 0.82, 0.88).lerp(C_GOLDHOR, golden * (1 - this.night) * (1 - this.w.dark)).lerp(C_GREYHOR, this.w.dark * 0.7).lerp(C_NIGHTHOR, this.night);
+    this.hemi.color.copy(skyTop).lerp(C_WHITE, 0.35).lerp(_warmSky, 0.22 * (1 - this.night) * (1 - this.w.dark));
+    const nightHemi = lerp(0.55, 0.42, golden) * (1 + this.w.cloud * 0.5) * (1 - this.night * 0.55) + 0.12 + this.night * 0.17; // the tuned night level (unchanged)
+    // day: the hemisphere light's share of the indirect light; its ground colour is the bounce off sunlit streets (follows the sun)
+    const hemiLum = 0.2126 * this.hemi.color.r + 0.7152 * this.hemi.color.g + 0.0722 * this.hemi.color.b;
+    const envDay = DL.env * (1 - this.w.dark * 0.15), envUp = envDay * envCal(eA * 57.29578);
+    const dayHemi = Math.max(DL.hemiMin, (ind - envUp) * Math.PI / Math.max(0.2, hemiLum));
+    const nf = smoothstep(0.0, 0.8, this.night); // (night: the old balance — the day model hands over by the same night factor)
+    this.hemi.intensity = lerp(dayHemi, nightHemi, nf);
+    { const gl = clamp(DL.bounce * (sunUp + ind) * Math.PI / Math.max(0.05, this.hemi.intensity), 0.12, 2.0); _cB.setRGB(1.0, 0.92, 0.8).multiplyScalar(gl); this.hemi.groundColor.copy(_cB).lerp(C_NIGHTGND, nf); } /* night bounce: warm street light off the roads */
     this.ambient.intensity = this.night * 0.85; this.ambient.color.setRGB(0.34, 0.37, 0.55);
     // fog
-    const fogCol = horizon.clone().lerp(skyTop, 0.35).multiplyScalar(0.8); /* aerial perspective: bluish, never white */ fogCol.lerp(new THREE.Color(0.042, 0.04, 0.052).multiplyScalar(1 + this.w.cloud * 0.4), this.night); /* night: the city's light haze, matching the sky's horizon glow */ this.scene.fog.color.copy(fogCol);
+    const fogCol = _cC.copy(horizon).lerp(skyTop, 0.35).multiplyScalar(0.8); /* aerial perspective: bluish, never white */ fogCol.lerp(_cD.copy(C_NIGHTFOG).multiplyScalar(1 + this.w.cloud * 0.4), this.night); /* night: the city's light haze, matching the sky's horizon glow */ this.scene.fog.color.copy(fogCol);
     this.scene.fog.near = this.drawDist * 0.35 * this.w.fog; this.scene.fog.far = this.drawDist * 1.5 * this.w.fog * (1 - this.night * 0.2);
-    this.renderer.toneMappingExposure = lerp(0.82, 1.0, golden) * (1 + this.night * 0.3) * (1 + this.w.dark * 0.12) * lerp(1, this.nightBoost ?? 1, this.night); // Settings → Night brightness
+    { const nightExpo = (1 + this.night * 0.3) * (1 + this.w.dark * 0.12) * lerp(1, this.nightBoost ?? 1, this.night); // the tuned night exposure (golden = 1 below the horizon) — Settings → Night brightness
+      const E = Math.max(1e-3, sunUp + ind), elD = eA * 57.29578, eMax = lerp(DL.expoLow, DL.expoMax, smoothstep(DL.expoLowEl[0], DL.expoLowEl[1], elD)); // with the sun on the horizon the bright sky fills the view: adapting to the dim ground blew it out (Galle Face sunset went pale, the sun glow lost)
+      const dayExpo = clamp(DL.expoK * Math.pow(E, -DL.adapt), DL.expoMin, Math.max(DL.expoMin, eMax));
+      this.renderer.toneMappingExposure = lerp(dayExpo, nightExpo, nf); }
+    // environment (sky) light: its share of the indirect light, divided by what the captured sky delivers per unit intensity
+    { const nightEnv = 0.62 * (1 - this.night * 0.7) * (1 - this.w.dark * 0.3);
+      this.envBase = lerp(envDay, nightEnv, nf); if (!this.indoor) this.scene.environmentIntensity = this.envBase; }
     // clouds
     const cu = this.cloudMat.uniforms; cu.uTime.value += dt * (0.5 + this.w.wind); cu.uCover.value = this.w.cloud; cu.uDark.value = this.w.dark; cu.uNight.value = this.night;
-    cu.uSunDir.value.copy(elev > -0.1 ? this.sunDir : new THREE.Vector3(0, 1, 0)); cu.uSunCol.value.copy(sunCol); cu.uSkyCol.value.copy(horizon);
+    cu.uSunDir.value.copy(elev > -0.1 ? this.sunDir : _UPV); cu.uSunCol.value.copy(sunCol); cu.uSkyCol.value.copy(horizon);
     this.clouds.position.copy(camera.position); this.stars.position.copy(camera.position);
     { const su = this.starMat.uniforms; su.uOpacity.value = this.night * Math.pow(1 - this.w.cloud, 1.5) * (1 - this.w.dark * 0.8); su.uTime.value += dt; su.uPix.value = this.renderer.getPixelRatio ? this.renderer.getPixelRatio() : 1;
       this.stars.quaternion.setFromAxisAngle(this.starPole, -((this.day || 0) * 0.0172 + this.hour / 24) * Math.PI * 2); } // sidereal turn through the night
-    const moonDir = new THREE.Vector3(-this.sunDir.x, Math.max(0.25, -this.sunDir.y), -0.3).normalize();
+    const moonDir = _vA.set(-this.sunDir.x, Math.max(0.25, -this.sunDir.y), -0.3).normalize();
     { const su = this.sky.material.uniforms, glow = 1 + this.w.cloud * 0.9; su.uNightK.value = this.night; su.uMoonDir.value.copy(moonDir); su.uGlow.value.setRGB(0.042 * glow, 0.03 * glow, 0.022 * glow);
       cu.uMoonDir.value.copy(moonDir); cu.uGlow.value.copy(su.uGlow.value).multiplyScalar(0.9); }
     this.moon.position.copy(camera.position).addScaledVector(moonDir, 9000); this.moon.lookAt(camera.position); this.moon.material.opacity = this.night * (1 - this.w.cloud * 0.8);
     this.moonHalo.position.copy(camera.position).addScaledVector(moonDir, 9010); this.moonHalo.lookAt(camera.position); this.moonHalo.material.opacity = this.night * (1 - this.w.cloud * 0.6) * 0.7;
     this.sky.visible = true;
     // lightning
-    if (this.w.rain > 0.85 && Math.random() < dt * 0.06) { this.flash = 1; this.listeners.thunder && this.listeners.thunder(); }
+    if (this.w.rain > 0.85 && Math.random() < dt * 0.06) { this.flash = 1; this.strikes = (this.strikes || 0) + 1; /* 79th: PowerGrid may lose a district to it */ this.listeners.thunder && this.listeners.thunder(); }
     this.flash = Math.max(0, this.flash - dt * 2.5);
     if (this.flash > 0) { this.ambient.intensity += this.flash * 2.5 * (Math.random() > 0.3 ? 1 : 0.2); this.ambient.color.setRGB(0.8, 0.85, 1); }
     // shared material + water state
@@ -389,13 +438,13 @@ export class Atmosphere {
     // environment map refresh
     this.envTimer -= dt;
     if (this.envTimer <= 0 || Math.abs(this.hour - this.lastEnvHour) > 0.4) {
-      this.envTimer = 12; this.lastEnvHour = this.hour;
+      this.envTimer = Math.abs(elev) < 0.15 ? DAYLIGHT.envRefreshTwilight : DAYLIGHT.envRefresh; this.lastEnvHour = this.hour; // 79th: the sky changes fast round sunrise / sunset — refreshed more often there (smaller steps)
       this.envGround.material.color.setRGB(0.25, 0.23, 0.2).multiplyScalar(1 - this.night * 0.8);
       this.envSkyline.material.color.setRGB(0.3, 0.31, 0.28).multiplyScalar((1 - this.night * 0.85) * (1 - this.w.dark * 0.35));
       if (this.envCity) { this.envCity.material.color.setRGB(1, 1, 1).multiplyScalar(Math.max(0.06, (1 - this.night * 0.9)) * (1 - this.w.dark * 0.4)); this.envCityLit.material.opacity = this.night * 0.9; }
       const prevFog = this.scene.fog; const old = this.envRT;
-      const sm = this.sky.material.uniforms; sm.uDiscMode.value = 0; this.envRT = this.pmrem.fromScene(this.envScene, 0.02, 0.1, 200); sm.uDiscMode.value = 1; // reflections keep the original disc
-      this.scene.environment = this.envRT.texture; this.envBase = this.scene.environmentIntensity = 0.62 * (1 - this.night * 0.7) * (1 - this.w.dark * 0.3); // sky PMREM is HDR: full strength washed every facade
+      const sm = this.sky.material.uniforms; sm.uDiscMode.value = 2; this.envRT = this.pmrem.fromScene(this.envScene, 0.02, 0.1, 200); sm.uDiscMode.value = 1; // 79th: captured WITHOUT the sun disc (the sun is the shadowed directional light; its glossy highlight comes from that light)
+      this.scene.environment = this.envRT.texture; // (intensity: set every frame from the daylight model above)
       if (old) old.dispose(); void prevFog;
     }
   }

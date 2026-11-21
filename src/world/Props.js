@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { MeshBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
 import { TEX } from '../gfx/Textures.js';
+import { powerMaterial } from './PowerGrid.js';
 import { LAND_Y, ROAD_Y, nodes, signalState } from './Layout.js';
 import { RNG } from '../core/rng.js';
 import { buildStallGeometries, stallType, STALL_CANOPY } from './Stalls.js';
@@ -186,7 +187,7 @@ export function buildPropsForChunk(chunk) {
   return group;
 }
 export const GLOW_MAT = new THREE.PointsMaterial({ size: 2.2, sizeAttenuation: true, color: 0xffd7a0, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
-export function initGlowTexture() { GLOW_MAT.map = TEX.glow; GLOW_MAT.needsUpdate = true; }
+export function initGlowTexture() { GLOW_MAT.map = TEX.glow; powerMaterial(GLOW_MAT, true); GLOW_MAT.needsUpdate = true; } // (79th: the lamp glows follow the district supply)
 
 const RED = new THREE.Color(2.2, 0.15, 0.1), AMB = new THREE.Color(2.2, 1.2, 0.1), GRN = new THREE.Color(0.2, 2.0, 0.6);
 export function updateSignals(t) {
@@ -195,7 +196,7 @@ export function updateSignals(t) {
     for (const e of s.entries) for (let h = 0; h < 2; h++) {
       const st = signalState(e.node, e.axes[h], t);
       s.mesh.setColorAt(e.base + h * 3 + 0, st === 'red' ? RED : SIG_OFF[0]);
-      s.mesh.setColorAt(e.base + h * 3 + 1, st === 'yellow' ? AMB : SIG_OFF[1]);
+      s.mesh.setColorAt(e.base + h * 3 + 1, st === 'yellow' || st === 'flash' ? AMB : SIG_OFF[1]);
       s.mesh.setColorAt(e.base + h * 3 + 2, st === 'green' ? GRN : SIG_OFF[2]);
     }
     s.mesh.instanceColor.needsUpdate = true;

@@ -15,6 +15,7 @@
 //     each, made once and reused (no spawning), simple routines on fixed routes; animation / AI by distance tiers
 //   • recovery after death / collapse: the player wakes in a private room bed; a nurse or doctor at the bedside speaks one
 //     of four lines (never the same twice running) and the bill is issued through the bank (story/HospitalBilling.js)
+import { powerAt } from './PowerGrid.js';
 import * as THREE from 'three';
 import { Character } from '../actors/Character.js';
 import { makeAppearance } from '../actors/Appearance.js';
@@ -290,10 +291,12 @@ export class Hospital {
     try { await compile(this.hb.root); for (const p of this.people) await compile(p.ch.root); } finally { this.wantsPool = pw; if (W) W.setActive(null); I.visible = prev; for (const [, r] of this.rooms) r.group.visible = false; for (const p of this.people) p.ch.root.visible = false; this.visKey = ''; } }
   // the light pool (WalkIn.setActive asks while no shop is open): the six nearest ceiling panels of the drawn rooms
   fillPool(pool, P) {
-    const c = []; const pf = P.y > Y0 + HOSP.H * 0.5 ? 1 : 0; for (const id of this.vis) { const r = this.rooms.get(id); for (const l of r.lights) { if (l.f !== pf && !this.inside) continue; if (this.inside && l.f !== pf && id !== 'stairs') continue; c.push(l); } }
+    const c = []; const pf = P.y > Y0 + HOSP.H * 0.5 ? 1 : 0; const LT = this.lift, ride = LT.state === 'travel' && LT.rider; // 79th: riding, the car's own ceiling light (its departure-floor copy) moves with the car —
+    // it stayed at the floor-0 ceiling (the rider rose past it, the car went dark) and then jumped to the first-floor panel above the car roof
+    for (const id of this.vis) { const r = this.rooms.get(id); for (const l of r.lights) { if (id === 'lift' && ride) { if (l.f === LT.from) c.push(l); continue; } if (l.f !== pf && !this.inside) continue; if (this.inside && l.f !== pf && id !== 'stairs') continue; c.push(l); } }
     c.sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z));
     for (let i = 0; i < pool.length; i++) { const L = pool[i], d = c[i]; if (!d) { L.intensity = 0; L.position.set(P.x, -800, P.z); continue; }
-      L.position.set(d.x, d.y, d.z); L.color.setHex(0xf4f7ff); L.distance = this.inside ? d.d + 1.5 : Math.max(1.5, d.wallD + 0.3); L.decay = 1.4; L.intensity = 7.5 * (0.5 + 0.5 * this.k); }
+      L.position.set(d.x, d.y + (ride && d.room === 'lift' ? LT.y - FLOOR_Y[LT.from] : 0), d.z); L.color.setHex(0xf4f7ff); L.distance = this.inside ? d.d + 1.5 : Math.max(1.5, d.wallD + 0.3); L.decay = 1.4; L.intensity = 7.5 * (0.5 + 0.5 * this.k) * powerAt(d.x, d.z); } // (79th: dark for the seconds before the backup generator starts in a power cut, then its 85 %)
   }
   // ---------------------------------------------------------------- doors
   updateDoors(dt, P) {
@@ -335,6 +338,7 @@ export class Hospital {
       // the ride loop (Hospitals → Lift travelling): full while moving, fading out over the last second before the ding
       const fade = clamp((T - L.t) / 1.0, 0, 1) * clamp(L.t / 0.4, 0, 1); this.liftSpec.lvl = fade; this.liftSpec.x = P.x; this.liftSpec.z = P.z; this.liftSpec.ref = inCar ? 3 : 1.5; if (fade > 0.01) PlaceSound.want('hosp.lift.up', this.liftSpec);
       const R = this.rooms.get('lift'); if (R && L.rider) R.group.position.y = L.y - FLOOR_Y[L.from]; // the car (its floor-of-departure walls) rides with the rider
+      if (L.rider && inCar) { P.y = L.y; P.vy = 0; } // 79th: the rider stands ON the car floor (the ground follow lagged ~0.1 m: the feet sank through it on the way up)
       if (L.t > T) { L.floor = L.target; L.y = FLOOR_Y[L.floor]; if (R) R.group.position.y = 0; if (inCar) { P.y = L.y; P.vy = 0; } L.state = 'open'; L.t = 0; L.rider = false; HospitalSound.liftDing(...lx); HospitalSound.liftDoors(...lx); this.visKey = ''; this.liftAutoHold = inCar; } }
     else if (L.state === 'open') { L.t += dt; if (L.t > 6 && !inCar && !inWay && !atDoor) { L.state = 'idle'; HospitalSound.liftDoors(...lx); } }
     for (const f of [0, 1]) { const want = (L.state === 'open' && L.floor === f) ? 1 : 0; const D = this.doorById['lift' + f]; if (!D) continue; D.k += Math.sign(want - D.k) * Math.min(Math.abs(want - D.k), dt / LIFT.doorT);

@@ -123,7 +123,7 @@ export function buildHospital() {
         const lw = R.id === 'lift' ? 0.5 : 1.2, ld = R.id === 'lift' ? 0.5 : 0.6; B('h_light').hrect(X(lu - lw / 2), Z(lv + ld / 2), X(lu + lw / 2), Z(lv - ld / 2), ly - 0.006, 1, null, true);
         B('h_metal').box(X(lu), ly - 0.003, Z(lv), lw + 0.06, 0.006, ld + 0.06, { col: C('#e6e8ea'), top: false, bottom: true });
         const rr = R.rects.find((q) => lu >= q[0] && lu <= q[1] && lv >= q[2] && lv <= q[3]) || R.rects[0];
-        lights.push({ x: X(lu), y: ly - 0.15, z: Z(lv), f, wallD: Math.min(lu - rr[0], rr[1] - lu, lv - rr[2], rr[3] - lv), d: Math.min(9, Math.max(4.5, Math.hypot(rr[1] - rr[0], rr[3] - rr[2]) * 0.62)) }); }
+        lights.push({ x: X(lu), y: ly - 0.15, z: Z(lv), f, room: R.id, wallD: Math.min(lu - rr[0], rr[1] - lu, lv - rr[2], rr[3] - lv), d: Math.min(9, Math.max(4.5, Math.hypot(rr[1] - rr[0], rr[3] - rr[2]) * 0.62)) }); }
       // walls (room-side half of every partition / outer wall round the room)
       for (const e of freeEdges(R)) {
         const outer = isOuter(f, e.axis, e.at, e.s0, e.s1); const t = outer ? EXT / 2 : WALL / 2; const o = e.sgn * t;
