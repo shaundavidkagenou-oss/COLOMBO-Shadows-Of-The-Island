@@ -14,6 +14,7 @@ import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
 import { kitMaterial, KIT } from './ShopKit.js';
 import { CMB, ATLAS, brandAtlas, hallBackdrop, frostBand } from './BankBrand.js';
+import { bankTex, bankNormal } from './BankTex.js';
 import * as L from './Layout.js';
 
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
@@ -97,7 +98,7 @@ export function buildBankFront(shop, building) {
   const signMat = new THREE.MeshStandardMaterial({ name: 'Ceylon Meridian Bank · signs', map: atlas || null, color: atlas ? 0xffffff : new THREE.Color(CMB.navy), roughness: 0.45, metalness: 0.05, emissive: 0xffffff, emissiveMap: atlas || null, emissiveIntensity: atlas ? 0.25 : 0 });
   const hallMat = new THREE.MeshStandardMaterial({ name: 'Ceylon Meridian Bank · hall seen through the glass', map: hallT || null, color: hallT ? 0xffffff : 0x8a8478, roughness: 0.9, emissive: 0xffffff, emissiveMap: hallT || null, emissiveIntensity: hallT ? 0.18 : 0 });
   const frostMat = new THREE.MeshStandardMaterial({ name: 'Ceylon Meridian Bank · frosted glass band', map: band || null, color: 0xffffff, transparent: true, opacity: band ? 1 : 0.5, alphaTest: 0.02, roughness: 0.6, depthWrite: false });
-  const granMat = kitMaterial('marbleDark', KIT.marbleDark); const shrubMat = new THREE.MeshStandardMaterial({ name: 'Ceylon Meridian Bank · planter shrubs', vertexColors: true, roughness: 0.85, flatShading: true });
+  const granMat = kitMaterial('marbleDark', KIT.marbleDark).clone(); granMat.name = 'Ceylon Meridian Bank · black granite'; /* 77th: its own (the kit's black marble is shared city-wide) */ const shrubMat = new THREE.MeshStandardMaterial({ name: 'Ceylon Meridian Bank · planter shrubs', vertexColors: true, roughness: 0.85, flatShading: true });
   const mats = Object.assign({}, MAT, { cmbSign: signMat, cmbHall: hallMat, cmbFrost: frostMat, cmbGranite: granMat, cmbShrub: shrubMat });
   for (const m of mb.toMeshes(mats, { cast: true, receive: true })) { if (m.material === frostMat || m.material === signMat || m.material === hallMat) m.castShadow = false; if (m.material === frostMat) m.renderOrder = 2; g.add(m); }
   g.position.set(fx, y0, fz); g.rotation.y = th + Math.PI; g.updateMatrixWorld(true);
@@ -105,5 +106,14 @@ export function buildBankFront(shop, building) {
     return { x0: Math.min(...pts.map((p) => p.x)), x1: Math.max(...pts.map((p) => p.x)), z0: Math.min(...pts.map((p) => p.z)), z1: Math.max(...pts.map((p) => p.z)), h: y0 + 1.0, kind: 'wall' }; });
   let lastK = -1;
   const update = (night) => { const k = Math.round(Math.max(0, Math.min(1, night)) * 20) / 20; if (k === lastK) return; lastK = k; if (atlas) signMat.emissiveIntensity = 0.25 + 0.75 * k; if (hallT) hallMat.emissiveIntensity = 0.18 + 0.55 * k; };
-  return { group: g, colliders: cols, update, width: w, piers, bays, signMat, hallMat };
+  // 77th: the 2048² surfaces (BankTex.js) — swapped in on the loading screen once the texture workers have finished (the front
+  // is built with the city, before they start). A material whose map a Texture Studio rule has already replaced is left alone.
+  const SURF = [[granMat, 'cmbBlackGranite', 0], ['concrete', 'cmbLimestone', 0.5], ['paint', 'cmbPaint', 0], ['metal', 'cmbSteel', 0]];
+  const built = SURF.map(([m]) => { const mm = typeof m === 'string' ? MAT['Ceylon Meridian Bank.' + m] : m; return mm && mm !== MAT[m] ? [mm, mm.map] : null; });
+  let hi = false; const apply2K = () => { if (hi) return []; hi = true; const out = [];
+    SURF.forEach(([, key, nrm], i) => { const b = built[i]; if (!b) return; const [m, was] = b; if (m.map !== was) return; const t = bankTex(key); if (!t) return;
+      m.map = t; out.push(t);
+      if (nrm) { const n = bankNormal(key); if (n) { m.normalMap = n; m.normalScale.set(nrm, nrm); out.push(n); } } m.needsUpdate = true; });
+    return out; };
+  return { group: g, colliders: cols, update, width: w, piers, bays, signMat, hallMat, apply2K };
 }

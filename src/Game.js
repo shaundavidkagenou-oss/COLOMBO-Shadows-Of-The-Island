@@ -30,6 +30,7 @@ import { SaveSystem } from './core/SaveSystem.js';
 import { clamp, lerp } from './core/math.js';
 import { buildTextures, setAniso } from './gfx/Textures.js';
 import { buildMaterials } from './gfx/Materials.js';
+import { startBankTextures } from './world/BankTex.js';
 import { Atmosphere } from './gfx/Atmosphere.js';
 import { PostFX } from './gfx/PostFX.js';
 import { setVehicleNight, createVehicleMesh, VTYPES } from './vehicles/VehicleModels.js';
@@ -274,6 +275,7 @@ export class Game {
   // Enter-game loading screen: real streaming / shader / GPU-upload work around the spawn point(s), studio branding on top
   async enterLoading(points, pre = []) {
     Audio.setMusic('none'); Audio.riser(5);
+    startBankTextures(this.renderer); // 77th: the bank's 2048² surfaces, built by workers while the rest loads (WalkIn.preloadAll waits for them)
     await enterGameLoading(this.ui, [...pre,
       { label: 'Streaming Colombo districts', run: (pr) => this.world.warmAsync(points, pr) },
       { label: 'Vehicles of Colombo', run: (pr) => this.traffic.warmModels(points, pr) },

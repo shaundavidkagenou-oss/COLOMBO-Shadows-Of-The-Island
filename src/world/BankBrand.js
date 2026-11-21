@@ -59,7 +59,7 @@ export const ATLAS = {
 let atlasTex;
 export function brandAtlas() {
   if (atlasTex !== undefined) return atlasTex; if (!hasCanvas()) { atlasTex = null; return null; }
-  const cv = document.createElement('canvas'); cv.width = cv.height = 512; const a = cv.getContext('2d');
+  const cv = document.createElement('canvas'); cv.width = cv.height = 2048; const a = cv.getContext('2d'); a.scale(4, 4); /* 77th: the 512 layout at 2048² */
   a.fillStyle = CMB.navy; a.fillRect(0, 0, 512, 512);
   drawWordmark(a, 8, 8, 496, 176); // wordmark
   drawLogo(a, 8, 200, 176); // logo tile
@@ -82,7 +82,7 @@ export function brandAtlas() {
 let hallTex;
 export function hallBackdrop() {
   if (hallTex !== undefined) return hallTex; if (!hasCanvas()) { hallTex = null; return null; }
-  const cv = document.createElement('canvas'); cv.width = 512; cv.height = 256; const a = cv.getContext('2d');
+  const cv = document.createElement('canvas'); cv.width = 2048; cv.height = 1024; const a = cv.getContext('2d'); a.scale(4, 4); /* 77th: 2048 × 1024 */
   const g = a.createLinearGradient(0, 0, 0, 256); g.addColorStop(0, '#d9d6cc'); g.addColorStop(0.45, '#b9b4a8'); g.addColorStop(0.62, '#8c8375'); g.addColorStop(1, '#5e574d'); a.fillStyle = g; a.fillRect(0, 0, 512, 256);
   for (let i = 0; i < 6; i++) { const x = 20 + i * 86; const rg = a.createRadialGradient(x + 30, 18, 2, x + 30, 18, 60); rg.addColorStop(0, 'rgba(255,250,236,0.95)'); rg.addColorStop(1, 'rgba(255,250,236,0)'); a.fillStyle = rg; a.fillRect(x - 40, 0, 140, 90); a.fillStyle = 'rgba(255,253,245,0.9)'; a.fillRect(x, 10, 60, 10); }
   a.fillStyle = 'rgba(19,40,74,0.75)'; a.fillRect(0, 128, 512, 34); a.fillStyle = 'rgba(179,154,94,0.8)'; a.fillRect(0, 126, 512, 3); // counter run
@@ -96,7 +96,7 @@ export function hallBackdrop() {
 let bandTex;
 export function frostBand() {
   if (bandTex !== undefined) return bandTex; if (!hasCanvas()) { bandTex = null; return null; }
-  const cv = document.createElement('canvas'); cv.width = 256; cv.height = 64; const a = cv.getContext('2d'); a.clearRect(0, 0, 256, 64);
+  const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 256; const a = cv.getContext('2d'); a.scale(4, 4); /* 77th: 1024 × 256 (a repeating band) */ a.clearRect(0, 0, 256, 64);
   a.fillStyle = 'rgba(255,255,255,0.78)'; a.fillRect(0, 8, 256, 48); a.globalCompositeOperation = 'destination-out'; drawLogo(a, 104, 10, 44, { tile: false, keyline: false }); a.globalCompositeOperation = 'source-over';
   a.fillStyle = 'rgba(255,255,255,0.9)'; a.fillRect(0, 4, 256, 2); a.fillRect(0, 58, 256, 2);
   const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping; t.generateMipmaps = true; bandTex = t; return t;

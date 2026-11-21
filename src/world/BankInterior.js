@@ -26,6 +26,7 @@ import { shell } from './ShopInteriors.js';
 import { collectParts, applyLayout } from './BankLayout.js';
 import { cloneMaterial } from '../gfx/Materials.js';
 import { useBankMaterials, bankMaterials, groutTex, SCREEN_UV } from './BankMaterials.js'; // 74th: the hall's own textured materials + LCD screens
+import { bankTex } from './BankTex.js'; // 77th: 2048² surfaces
 import { modelPackNow } from '../debug/boot.js';
 import './RobberyShops.js'; // registers the kit's ceiling tile / steel / plastic / gold materials
 import { REVEAL, LEAF_Z } from './WalkIn.js';
@@ -55,7 +56,7 @@ export const POSTER_UV = { fd: R5(0, 0, 256, 384), home: R5(256, 0, 512, 384), n
 let inTex, poTex;
 function interiorAtlas() {
   if (inTex !== undefined) return inTex; if (!hasCanvas()) return (inTex = null);
-  const cv = document.createElement('canvas'); cv.width = cv.height = 512; const a = cv.getContext('2d'); a.textBaseline = 'alphabetic'; const S = FONTS.SANS;
+  const cv = document.createElement('canvas'); cv.width = cv.height = 2048; const a = cv.getContext('2d'); a.scale(4, 4); /* 77th: drawn in its 512 layout at 2048² */ a.textBaseline = 'alphabetic'; const S = FONTS.SANS;
   const ctr = (t, x, y) => { a.textAlign = 'center'; a.fillText(t, x, y); a.textAlign = 'left'; };
   // feature wall band: logo + name + branch
   a.fillStyle = CMB.navy; a.fillRect(0, 0, 512, 128); drawLogo(a, 12, 12, 104);
@@ -96,7 +97,7 @@ function interiorAtlas() {
 }
 function posterAtlas() {
   if (poTex !== undefined) return poTex; if (!hasCanvas()) return (poTex = null);
-  const cv = document.createElement('canvas'); cv.width = cv.height = 512; const a = cv.getContext('2d'); a.textBaseline = 'alphabetic'; const S = FONTS.SANS, SE = FONTS.SERIF;
+  const cv = document.createElement('canvas'); cv.width = cv.height = 2048; const a = cv.getContext('2d'); a.scale(4, 4); /* 77th: 2048² */ a.textBaseline = 'alphabetic'; const S = FONTS.SANS, SE = FONTS.SERIF;
   const ctr = (t, x, y) => { a.textAlign = 'center'; a.fillText(t, x, y); a.textAlign = 'left'; };
   // poster 1: fixed deposits (navy, gold meridian arcs)
   a.fillStyle = CMB.navy; a.fillRect(0, 0, 256, 384); a.strokeStyle = 'rgba(179,154,94,0.55)'; a.lineWidth = 2; for (let i = 0; i < 7; i++) { a.beginPath(); a.ellipse(128, 250, 30 + i * 16, 110, 0, 0, Math.PI * 2); a.stroke(); }
@@ -155,7 +156,7 @@ function plant(k, x, z, h = 1.2, potCol = '#e9e5dc') { // potted plant: glazed p
 // The screen content is the same drawing as before (drawATMScreen, the ATM interface's views) at 2× resolution, then finished
 // like a backlit TFT behind cover glass: the RGB stripe of the sub-pixels, the backlight's slight fall-off to the corners, a
 // faint diagonal sheen. The cover glass is one shared low-roughness material (catches the hall's lights).
-function paintATM(ctx, view) { ctx.setTransform(2, 0, 0, 2, 0, 0); drawATMScreen(ctx, 256, 192, view); ctx.setTransform(1, 0, 0, 1, 0, 0); lcdFinish(ctx, 512, 384); }
+function paintATM(ctx, view) { const k = ctx.canvas.width / 512; /* 77th: the canvas is 1024 × 768 now; the 256 × 192 layout is unchanged */ ctx.setTransform(2 * k, 0, 0, 2 * k, 0, 0); drawATMScreen(ctx, 256, 192, view); ctx.setTransform(k, 0, 0, k, 0, 0); lcdFinish(ctx, 512, 384); ctx.setTransform(1, 0, 0, 1, 0, 0); }
 function lcdFinish(a, w, h) {
   a.save(); a.globalCompositeOperation = 'multiply'; a.globalAlpha = 0.16; for (let x = 0; x < w; x += 3) { a.fillStyle = '#ff6060'; a.fillRect(x, 0, 1, h); a.fillStyle = '#60ff60'; a.fillRect(x + 1, 0, 1, h); a.fillStyle = '#6060ff'; a.fillRect(x + 2, 0, 1, h); }
   a.globalAlpha = 1; a.globalCompositeOperation = 'source-over';
@@ -170,7 +171,7 @@ function atmGlassMat() { return _atmGlass || (_atmGlass = Object.assign(new THRE
 const LEG = ['1', '2', '3', 'CANCEL', '4', '5', '6', 'CLEAR', '7', '8', '9', 'ENTER', '', '0', '', ''];
 const LEG_BG = { CANCEL: '#b4322a', CLEAR: '#d8b228', ENTER: '#2d8a48' };
 function atmLegendMat() {
-  if (_legendMat) return _legendMat; const cv = document.createElement('canvas'); cv.width = cv.height = 256; const a = cv.getContext('2d');
+  if (_legendMat) return _legendMat; const cv = document.createElement('canvas'); cv.width = cv.height = 1024; const a = cv.getContext('2d'); a.scale(4, 4); /* 77th: 1024² (each 3 cm key cap gets 256 px) */
   LEG.forEach((t, i) => { const x = (i % 4) * 64, y = Math.floor(i / 4) * 64; const bg = LEG_BG[t];
     const gr = a.createLinearGradient(x, y, x + 64, y + 64); gr.addColorStop(0, bg || '#d9dcdf'); gr.addColorStop(1, bg ? bg : '#b7bbbf'); a.fillStyle = gr; a.fillRect(x, y, 64, 64);
     if (!bg) { a.globalAlpha = 0.18; a.fillStyle = '#ffffff'; for (let k = 0; k < 64; k += 2) a.fillRect(x, y + k, 64, 1); a.globalAlpha = 1; } // brushed grain
@@ -212,7 +213,7 @@ export function buildBankInterior(game, site) {
   Object.assign(k.extra, { cmbSign: signMat, cmbDay: dayMat, cmbPrint: printMat, cmbGlass: glassMat });
   const sign = k.get('cmbSign'), day = k.get('cmbDay'), prints = k.get('cmbPrint'), cglass = k.get('cmbGlass');
   const S = shell(k, g, W, D, H, { floor: { kind: 'granite', size: 0.6, colors: ['#dcd7cc', '#d4cec2', '#d9d3c7'], grout: '#a9a296', rough: 0.12, seed: 67 }, wall: 'plaster', wallCol: '#efeae1', ceil: '#f2f0ea', skirt: 'marbleDark', skirtCol: '#ffffff', cornice: '#f4f1ea' });
-  { let fi = 0; for (const fg of g.children) if (fg.name === 'modelledFloor') fg.traverse((o) => { if (o.isMesh && o.material && !Array.isArray(o.material)) { o.material = cloneMaterial(o.material, o.material.map ? 'CMB · Granite floor tiles ' + ++fi : 'CMB · Floor grout (sanded cement)'); if (!o.material.map) { o.material.map = groutTex(); o.material.needsUpdate = true; } } }); } // 74th: the bank's own floor materials
+  { let fi = 0; for (const fg of g.children) if (fg.name === 'modelledFloor') fg.traverse((o) => { if (o.isMesh && o.material && !Array.isArray(o.material)) { o.material = cloneMaterial(o.material, o.material.map ? 'CMB · Granite floor tiles ' + ++fi : 'CMB · Floor grout (sanded cement)'); if (!o.material.map) { o.material.map = groutTex(); o.material.needsUpdate = true; } else { const gt = bankTex('cmbGranite'); if (gt) o.material.map = gt; /* 77th: the bank's own 2048² granite */ } } }); } // 74th: the bank's own floor materials
   const { x0, x1, z0, zf } = S; const xR = x1, xL = x0;
   const ob = (ax0, ax1, d0, d1) => obs.push({ x0: Math.min(ax0, ax1), x1: Math.max(ax0, ax1), z0: Z(Math.max(d0, d1)), z1: Z(Math.min(d0, d1)), part: k.part });
   const navy = C(CMB.navy), gold = C(CMB.gold), bronze = C('#2e2a26'), steelC = C('#b9bdc1');
@@ -272,7 +273,7 @@ export function buildBankInterior(game, site) {
     face(sign, AX + 0.072, 1.78, z, 0.14, 0.14, IN_UV.logo, '+x');
     // the screen: its own mesh (canvas, repainted by the ATM interface)
     // 73rd: drawn at twice the resolution (the same layout, scaled) and finished like a real backlit LCD (lcdFinish)
-    let screen = null; if (hasCanvas()) { const cv = document.createElement('canvas'); cv.width = 512; cv.height = 384; const ctx = cv.getContext('2d'); paintATM(ctx, ATM_IDLE_VIEW); const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+    let screen = null; if (hasCanvas()) { const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 768; const ctx = cv.getContext('2d'); paintATM(ctx, ATM_IDLE_VIEW); const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
       const mat = new THREE.MeshBasicMaterial({ map: tex }); mat.userData.own = true; mat.name = 'CMB · ATM screen ' + (i + 1); // 74th: named (Texture Studio) const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.225), mat); mesh.position.set(AX + 0.1112, 1.385, z); mesh.rotation.y = Math.PI / 2; mesh.name = 'atm-screen-' + i; g.add(mesh); screen = { cv, ctx, tex, mesh };
       const gl = new THREE.Mesh(ATM_GLASS_GEO(), atmGlassMat()); gl.position.set(AX + 0.1168, 1.385, z); gl.rotation.y = Math.PI / 2; gl.name = 'atm-glass-' + i; gl.renderOrder = 2; g.add(gl); }
     return { i, d, z, stand: [B.atmStandX, z], slot: [AX + 0.1245, 1.3, z - 0.3], user: null, player: false, screen, paint(view) { if (!this.screen) return; paintATM(this.screen.ctx, view || ATM_IDLE_VIEW); this.screen.tex.needsUpdate = true; } }; });

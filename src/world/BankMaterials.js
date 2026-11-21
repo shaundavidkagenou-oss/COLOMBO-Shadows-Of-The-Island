@@ -3,8 +3,8 @@
 //
 // The Ceylon Meridian Bank hall used to draw with the shop kit's shared materials (the same walnut, steel, plastic … as every
 // robbable shop and the barber), so a Texture Studio edit in the bank changed the whole city — and most of them had no texture
-// at all (flat vertex colour). Here the hall gets a material set of its OWN, each with its own small generated texture
-// (256² canvas, mipmapped — no image files, nothing large in the repo):
+// at all (flat vertex colour). Here the hall gets a material set of its OWN, each with its own generated texture
+// (77th: 2048², BankTex.js — mipmapped, no image files, nothing large in the repo):
 //   * every material is named "CMB · …", so the Texture Studio saves its edits under that name and they apply to the bank only;
 //   * the merged draws stay exactly as before (one mesh per material for the whole hall — no extra draw calls);
 //   * a single item (the ATM, a teller workstation, the vault door …) can still get materials of its own: Texture Studio →
@@ -12,39 +12,40 @@
 //   * the screens (teller monitors, the now-serving board, the ticket kiosk) draw from an LCD atlas: real UI content, sub-pixel
 //     stripes, a soft vignette and glass sheen, unlit and not tone-mapped like a backlit panel — readable by night as by day.
 import * as THREE from 'three';
-import { canvasTex } from './ShopKit.js';
+import { bankTex, bankNormal } from './BankTex.js';
 import { CMB, FONTS, drawLogo, hasCanvas } from './BankBrand.js';
 
 export const BANK_MAT_PREFIX = 'CMB · ';
 // kit slot → { label, texture, surface }
+// 77th: every surface is a 2048² generated texture (BankTex2K.js / BankTex.js); `nrm` = also a normal map (its strength)
 const SPEC = {
-  paint: { label: 'Painted fittings (eggshell)', tex: () => tx('cmbPaint', eggshell('#f6f6f4')), rough: 0.72 },
-  plaster: { label: 'Wall plaster (emulsion)', tex: () => tx('cmbPlaster', plaster), rough: 0.9 },
-  plastic: { label: 'Plastics (satin, fine grain)', tex: () => tx('cmbPlastic', grainy), rough: 0.42 },
-  steel: { label: 'Brushed stainless steel', tex: () => tx('cmbSteel', brushed('#d9dcdf', 0.26)), rough: 0.33, metal: 1 },
-  chrome: { label: 'Polished chrome', tex: () => tx('cmbChrome', polished), rough: 0.12, metal: 1 },
-  gold: { label: 'Brushed brass trim', tex: () => tx('cmbBrass', brushed('#ffffff', 0.18)), rough: 0.24, metal: 1, env: 1.4 },
-  walnut: { label: 'Walnut veneer', tex: () => tx('cmbWalnut', walnut), rough: 0.4 },
-  marble: { label: 'White marble', tex: () => tx('cmbMarble', marble('#ebe8e2', 'rgba(120,118,112,', 'rgba(170,166,158,')), rough: 0.12, env: 1.2 },
-  marbleDark: { label: 'Black marble (Nero)', tex: () => tx('cmbMarbleDark', marble('#26272a', 'rgba(210,208,200,', 'rgba(120,120,118,')), rough: 0.14, env: 1.2 },
-  fabric: { label: 'Upholstery fabric (woven)', tex: () => tx('cmbFabric', weave), rough: 0.95 },
-  glaze: { label: 'Glazed ceramic', tex: () => tx('cmbGlaze', ceramic), rough: 0.3, env: 1.2 },
-  ceilTile: { label: 'Ceiling tiles (mineral fibre)', tex: () => tx('cmbCeil', ceilTile), rough: 0.95 },
-  emissive: { label: 'Light panels and indicator LEDs', tex: () => tx('cmbDiffuser', diffuser), basic: true },
+  paint: { label: 'Painted fittings (eggshell)', key: 'cmbPaint', rough: 0.72 },
+  plaster: { label: 'Wall plaster (emulsion)', key: 'cmbPlaster', rough: 0.9, nrm: 0.6 },
+  plastic: { label: 'Plastics (satin, fine grain)', key: 'cmbPlastic', rough: 0.42, nrm: 0.35 },
+  steel: { label: 'Brushed stainless steel', key: 'cmbSteel', rough: 0.33, metal: 1 },
+  chrome: { label: 'Polished chrome', key: 'cmbChrome', rough: 0.12, metal: 1 },
+  gold: { label: 'Brushed brass trim', key: 'cmbBrass', rough: 0.24, metal: 1, env: 1.4 },
+  walnut: { label: 'Walnut veneer', key: 'cmbWalnut', rough: 0.4, nrm: 0.4 },
+  marble: { label: 'White marble', key: 'cmbMarble', rough: 0.12, env: 1.2 },
+  marbleDark: { label: 'Black marble (Nero)', key: 'cmbMarbleDark', rough: 0.14, env: 1.2 },
+  fabric: { label: 'Upholstery fabric (woven)', key: 'cmbFabric', rough: 0.95, nrm: 0.8 },
+  glaze: { label: 'Glazed ceramic', key: 'cmbGlaze', rough: 0.3, env: 1.2 },
+  ceilTile: { label: 'Ceiling tiles (mineral fibre)', key: 'cmbCeil', rough: 0.95, nrm: 0.7 },
+  emissive: { label: 'Light panels and indicator LEDs', key: 'cmbDiffuser', basic: true },
   screen: { label: 'Digital screens (LCD)', tex: () => screenAtlas(), basic: true, screen: true },
 };
-const tx = (key, draw) => canvasTex(key, 256, 256, draw);
 
 let SET = null;
 // the hall's materials (made once; shared by every bank build in this session — the hall is built once anyway)
 export function bankMaterials() {
   if (SET) return SET; SET = {};
   for (const [slot, s] of Object.entries(SPEC)) {
-    const t = s.tex();
+    const t = s.key ? bankTex(s.key) : s.tex();
     const m = s.basic
       ? new THREE.MeshBasicMaterial({ map: t || null, vertexColors: true, toneMapped: false })
       : new THREE.MeshStandardMaterial({ map: t || null, vertexColors: true, roughness: s.rough ?? 0.6, metalness: s.metal ?? 0, envMapIntensity: s.env ?? 1 });
     if (s.screen && !t) m.color.setRGB(0.32, 0.4, 0.52);
+    if (s.nrm && t) { const n = bankNormal(s.key); if (n) { m.normalMap = n; m.normalScale.set(s.nrm, s.nrm); } }
     m.name = BANK_MAT_PREFIX + s.label; m.userData.own = true; m.userData.bankSlot = slot; SET[slot] = m;
   }
   return SET;
@@ -53,47 +54,8 @@ export function bankMaterials() {
 export function useBankMaterials(k) { Object.assign(k.extra, bankMaterials()); return k; }
 
 // the floor's grout bed (seen in the 2 mm joints between the granite tiles): sanded cement grain, tinted by the grout colour
-export const groutTex = () => tx('cmbGrout', (a, w, h, r) => { a.fillStyle = '#e6e4e0'; a.fillRect(0, 0, w, h); for (let i = 0; i < 14000; i++) { const v = 150 + ((r() * 105) | 0); a.fillStyle = `rgba(${v},${v},${v - 3},0.5)`; a.fillRect(r() * w, r() * h, 1, 1); } });
-// ------------------------------------------------------------------------------------------------ surface textures
-// (base colours stay near white wherever the builder tints by vertex colour, so the hall keeps its designed colours)
-function eggshell(base) { return (a, w, h, r) => { a.fillStyle = base; a.fillRect(0, 0, w, h);
-  for (let i = 0; i < 9000; i++) { const g = r() < 0.5 ? 0 : 255; a.fillStyle = `rgba(${g},${g},${g},${0.025 + r() * 0.035})`; const s = 1 + r() * 2.5; a.fillRect(r() * w, r() * h, s, s); }
-  for (let i = 0; i < 26; i++) { const y = r() * h; a.fillStyle = `rgba(0,0,0,${0.012 + r() * 0.012})`; a.fillRect(0, y, w, 3 + r() * 10); } }; } // faint roller laps
-function plaster(a, w, h, r) { a.fillStyle = '#f7f6f3'; a.fillRect(0, 0, w, h);
-  for (let i = 0; i < 260; i++) { const x = r() * w, y = r() * h, rr = 6 + r() * 26; const gr = a.createRadialGradient(x, y, 0, x, y, rr); const d = r() < 0.5; gr.addColorStop(0, d ? 'rgba(0,0,0,0.035)' : 'rgba(255,255,255,0.05)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); a.fillStyle = gr; a.fillRect(x - rr, y - rr, rr * 2, rr * 2); }
-  for (let i = 0; i < 6000; i++) { a.fillStyle = `rgba(90,86,80,${0.03 + r() * 0.04})`; a.fillRect(r() * w, r() * h, 1, 1); } }
-function grainy(a, w, h, r) { a.fillStyle = '#efefef'; a.fillRect(0, 0, w, h);
-  for (let y = 0; y < h; y += 2) for (let x = 0; x < w; x += 2) { const v = 232 + ((r() * 22) | 0); a.fillStyle = `rgb(${v},${v},${v})`; a.fillRect(x, y, 2, 2); } // moulded micro-texture
-  for (let i = 0; i < 40; i++) { a.strokeStyle = `rgba(0,0,0,${0.03 + r() * 0.04})`; a.lineWidth = 0.6; a.beginPath(); const x = r() * w, y = r() * h; a.moveTo(x, y); a.lineTo(x + (r() - 0.5) * 40, y + (r() - 0.5) * 12); a.stroke(); } } // light scuffs
-function brushed(base, amt) { return (a, w, h, r) => { a.fillStyle = base; a.fillRect(0, 0, w, h);
-  for (let i = 0; i < 1400; i++) { const y = r() * h, l = 20 + r() * 220, x = r() * w; const g = r() < 0.5 ? 255 : 70; a.fillStyle = `rgba(${g},${g},${g},${amt * (0.15 + r() * 0.6)})`; a.fillRect(x, y, l, 0.6 + r() * 0.9); a.fillRect(x - w, y, l, 0.6 + r() * 0.9); }
-  for (let i = 0; i < 14; i++) { const x = r() * w, y = r() * h, rr = 10 + r() * 30; const gr = a.createRadialGradient(x, y, 0, x, y, rr); gr.addColorStop(0, 'rgba(120,110,100,0.06)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); a.fillStyle = gr; a.fillRect(x - rr, y - rr, rr * 2, rr * 2); } }; } // fingerprints
-function polished(a, w, h, r) { a.fillStyle = '#f4f4f4'; a.fillRect(0, 0, w, h);
-  for (let i = 0; i < 30; i++) { const x = r() * w, y = r() * h, rr = 8 + r() * 26; const gr = a.createRadialGradient(x, y, 0, x, y, rr); gr.addColorStop(0, 'rgba(150,150,150,0.08)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); a.fillStyle = gr; a.fillRect(x - rr, y - rr, rr * 2, rr * 2); }
-  for (let i = 0; i < 90; i++) { a.strokeStyle = `rgba(255,255,255,${0.1 + r() * 0.2})`; a.lineWidth = 0.5; a.beginPath(); const x = r() * w, y = r() * h, an = r() * 6.3, l = 4 + r() * 20; a.moveTo(x, y); a.lineTo(x + Math.cos(an) * l, y + Math.sin(an) * l); a.stroke(); } }
-function walnut(a, w, h, r) { a.fillStyle = '#ffffff'; a.fillRect(0, 0, w, h); // vertex white on the bank's walnut: the veneer itself carries the colour
-  const g = a.createLinearGradient(0, 0, w, 0); g.addColorStop(0, '#6a432c'); g.addColorStop(0.5, '#734a31'); g.addColorStop(1, '#68412a'); a.fillStyle = g; a.fillRect(0, 0, w, h);
-  for (let i = 0; i < 70; i++) { const x0 = r() * w, amp = 2 + r() * 7, f = 0.01 + r() * 0.03, ph = r() * 9; a.strokeStyle = r() < 0.7 ? `rgba(40,22,12,${0.18 + r() * 0.3})` : `rgba(150,105,70,${0.15 + r() * 0.2})`; a.lineWidth = 0.6 + r() * 2;
-    a.beginPath(); for (let y = 0; y <= h; y += 4) { const x = x0 + Math.sin(y * f + ph) * amp + Math.sin(y * f * 3.1 + ph) * amp * 0.25; if (y === 0) a.moveTo(x, y); else a.lineTo(x, y); } a.stroke();
-    a.save(); a.translate(-w, 0); a.stroke(); a.translate(2 * w, 0); a.stroke(); a.restore(); }
-  for (let i = 0; i < 2600; i++) { a.fillStyle = `rgba(30,16,8,${0.08 + r() * 0.12})`; a.fillRect(r() * w, r() * h, 1, 2 + r() * 4); } } // pores
-function marble(base, vein, soft) { return (a, w, h, r) => { a.fillStyle = base; a.fillRect(0, 0, w, h);
-  for (let i = 0; i < 260; i++) { const x = r() * w, y = r() * h, rr = 8 + r() * 30; const gr = a.createRadialGradient(x, y, 0, x, y, rr); gr.addColorStop(0, soft + (0.05 + r() * 0.06) + ')'); gr.addColorStop(1, soft + '0)'); a.fillStyle = gr; a.fillRect(x - rr, y - rr, rr * 2, rr * 2); }
-  for (let v = 0; v < 9; v++) { let x = r() * w, y = 0; const dx = (r() - 0.5) * 1.6; a.strokeStyle = vein + (0.25 + r() * 0.35) + ')'; a.lineWidth = 0.5 + r() * 1.6; a.beginPath(); a.moveTo(x, y);
-    while (y < h) { y += 3 + r() * 6; x += dx * 4 + (r() - 0.5) * 7; a.lineTo(x, y); } a.stroke(); a.save(); a.translate(x > w ? -w : x < 0 ? w : 0, 0); a.stroke(); a.restore(); } }; }
-function weave(a, w, h, r) { a.fillStyle = '#e9e9e9'; a.fillRect(0, 0, w, h);
-  for (let y = 0; y < h; y += 4) for (let x = 0; x < w; x += 4) { const over = ((x >> 2) + (y >> 2)) & 1; const v = (over ? 246 : 214) + ((r() * 12) | 0); a.fillStyle = `rgb(${v},${v},${v})`; if (over) a.fillRect(x, y + 0.5, 4, 3); else a.fillRect(x + 0.5, y, 3, 4); }
-  for (let i = 0; i < 900; i++) { a.fillStyle = `rgba(255,255,255,${0.08 + r() * 0.1})`; a.fillRect(r() * w, r() * h, 1, 1); } } // lint
-function ceramic(a, w, h, r) { a.fillStyle = '#fbfbfa'; a.fillRect(0, 0, w, h);
-  for (let i = 0; i < 1500; i++) { a.fillStyle = `rgba(80,70,60,${0.05 + r() * 0.12})`; a.fillRect(r() * w, r() * h, 1, 1); }
-  for (let i = 0; i < 40; i++) { a.strokeStyle = 'rgba(120,110,100,0.06)'; a.lineWidth = 0.5; a.beginPath(); let x = r() * w, y = r() * h; a.moveTo(x, y); for (let j = 0; j < 4; j++) { x += (r() - 0.5) * 30; y += (r() - 0.5) * 30; a.lineTo(x, y); } a.stroke(); } } // crazing
-function ceilTile(a, w, h, r) { a.fillStyle = '#ecebe6'; a.fillRect(0, 0, w, h); // one 600 mm tile per texture (the ceiling's uv scale)
-  for (let i = 0; i < 2200; i++) { a.fillStyle = `rgba(70,66,60,${0.12 + r() * 0.2})`; const s = r() < 0.15 ? 2 : 1; a.fillRect(r() * w, r() * h, s, s); } // pinholes
-  for (let i = 0; i < 160; i++) { a.strokeStyle = `rgba(90,86,78,${0.12 + r() * 0.12})`; a.lineWidth = 0.7; a.beginPath(); const x = r() * w, y = r() * h; a.moveTo(x, y); a.quadraticCurveTo(x + (r() - 0.5) * 10, y + (r() - 0.5) * 10, x + (r() - 0.5) * 14, y + (r() - 0.5) * 14); a.stroke(); } // fissures
-  a.fillStyle = '#b9b7b0'; a.fillRect(0, 0, w, 3); a.fillRect(0, 0, 3, h); a.fillStyle = 'rgba(255,255,255,0.7)'; a.fillRect(3, 3, w - 3, 1); a.fillRect(3, 3, 1, h - 3); // the grid tee + bevel
-  a.fillStyle = 'rgba(0,0,0,0.08)'; a.fillRect(w - 2, 3, 2, h - 3); a.fillRect(3, h - 2, w - 3, 2); }
-function diffuser(a, w, h, r) { a.fillStyle = '#ffffff'; a.fillRect(0, 0, w, h); // opal diffuser: a soft micro-prism dot field, faintly brighter in the middle
-  for (let y = 2; y < h; y += 4) for (let x = (y % 8) ? 2 : 4; x < w; x += 4) { a.fillStyle = `rgba(225,228,232,${0.35 + r() * 0.2})`; a.fillRect(x, y, 1, 1); } }
+export const groutTex = () => bankTex('cmbGrout');
+// (77th: the surface generators that lived here — 256² canvas drawings — are now BankTex2K.js at 2048²)
 
 // ------------------------------------------------------------------------------------------------ the LCD atlas (512 × 256)
 const R = (x0, y0, x1, y1) => [x0 / 512, 1 - y1 / 256, x1 / 512, 1 - y0 / 256];
@@ -101,11 +63,11 @@ export const SCREEN_UV = { teller: R(0, 0, 256, 154), office: R(256, 0, 512, 154
 let scrTex;
 export function screenAtlas() {
   if (scrTex !== undefined) return scrTex; if (!hasCanvas()) return (scrTex = null);
-  const cv = document.createElement('canvas'); cv.width = 512; cv.height = 256; const a = cv.getContext('2d'); const S = FONTS.SANS, M = 'ui-monospace, Menlo, Consolas, monospace';
+  const cv = document.createElement('canvas'); cv.width = 2048; cv.height = 1024; const a = cv.getContext('2d'); a.scale(4, 4); /* 77th: the 512 × 256 layout at 2048 × 1024 */ const S = FONTS.SANS, M = 'ui-monospace, Menlo, Consolas, monospace';
   a.fillStyle = '#05070a'; a.fillRect(0, 0, 512, 256);
   tellerApp(a, 0, 0, 256, 154, S, M); officeApp(a, 256, 0, 256, 154, S, M); ledBoard(a, 0, 160, 256, 64); kiosk(a, 256, 160, 128, 64, S); desktop(a, 384, 160, 128, 77, S);
   for (const [x, y, w, h] of [[0, 0, 256, 154], [256, 0, 256, 154], [256, 160, 128, 64], [384, 160, 128, 77]]) lcd(a, x, y, w, h);
-  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; return (scrTex = t);
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; return (scrTex = t);
 }
 // sub-pixel stripes + vignette + a little glass sheen (the same finish as the ATM's screen)
 function lcd(a, x, y, w, h) {
