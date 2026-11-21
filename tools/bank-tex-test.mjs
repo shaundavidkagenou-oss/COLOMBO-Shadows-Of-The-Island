@@ -35,7 +35,7 @@ try {
   console.log('   ', JSON.stringify(r));
   ok(r.notOwn.length === 0, `every hall surface draws with a bank-own "CMB · …" material (others: ${r.notOwn.join(', ') || 'none'})`);
   ok(r.untextured.length === 0, `every bank material has its own texture (${r.ownCount} materials; untextured: ${r.untextured.join(', ') || 'none'})`);
-  ok(r.screen && r.screen.basic && r.screen.toneMapped === false && r.screen.map && r.screen.w === 512, `screens: unlit LCD atlas ${JSON.stringify(r.screen)}`);
+  ok(r.screen && r.screen.basic && r.screen.toneMapped === false && r.screen.map && r.screen.w === 2048, `screens: unlit LCD atlas (2048 wide since the 77th) ${JSON.stringify(r.screen)}`);
   ok(r.faceHit === 'Teller workstation 2' && r.subs.length >= 2 && r.subs.every((n) => /^CMB · Teller workstation 2 · /.test(n)) && r.idxAfter[1] < r.idxAfter[0], `an item gets its own materials: ${r.subs.join(', ')} (${r.idxAfter.join(' → ')} indices left in the shared draw)`);
   ok(r.idxBack === r.idxAfter[0] && r.subsBack === 0, 'and back to the shared bank materials (nothing left over)');
 } catch (e) { errors.push('test: ' + (e.stack || e)); }

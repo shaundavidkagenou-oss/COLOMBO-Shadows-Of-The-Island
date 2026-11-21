@@ -20,6 +20,7 @@ const SHOTS = [
   { name: '67-bank-map', hour: 11, map: true },
   // 71st: wall split AC in the hall, the back-office phone + AC, the card going into the ATM, an officer on the phone
   { name: '71-bank-ac-hall', hour: 11, room: true, cam: [3.2, 1.75, -1.0], look: [7.0, 2.6, -3.2] },
+  { name: '77-bank-rack', hour: 11, room: true, cam: [5.3, 1.45, -1.4], look: [7.0, 1.25, -3.1] }, // 77th: the brochure rack (right wall, under the AC)
   { name: '71-bank-backoffice', hour: 11, room: true, cam: [-1.9, 1.62, -7.7], look: [-3.3, 1.35, -13.6] },
   { name: '71-bank-atm-card', hour: 11, room: true, atm: true, card: 0.62 },
   { name: '73-bank-atm-close', hour: 11, room: true, cam: [-5.55, 1.5, -1.55], look: [-6.4, 1.22, -1.86] },
