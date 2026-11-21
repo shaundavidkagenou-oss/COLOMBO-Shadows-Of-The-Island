@@ -47,7 +47,7 @@ function upload(key) { if (!REND || !REND.initTexture) return; const t = bankTex
 export function startBankTextures(renderer = null) { if (renderer) REND = renderer;
   if (pending) return pending; if (!hasCanvas() || typeof Worker === 'undefined') return (pending = Promise.resolve(0));
   const todo = BANK_TEX_KEYS.filter((k) => !TEX.has(k) && !RAW.has(k)); if (!todo.length) return (pending = Promise.resolve(0));
-  const nw = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 1, todo.length)); let done = 0;
+  const nw = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 4) - 1, todo.length)); // ≤ 3: each holds ~100 MB of working buffers at its peak let done = 0;
   pending = new Promise((resolve) => { const workers = []; let next = 0, live = nw;
     const finish = (w) => { try { w.terminate(); } catch (e) { /* already gone */ } if (--live === 0) resolve(done); };
     const feed = (w) => { if (next >= todo.length) return finish(w); const key = todo[next++]; w.postMessage({ key, id: next }); };

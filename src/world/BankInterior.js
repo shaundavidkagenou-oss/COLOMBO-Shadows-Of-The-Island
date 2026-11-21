@@ -27,6 +27,7 @@ import { collectParts, applyLayout } from './BankLayout.js';
 import { cloneMaterial } from '../gfx/Materials.js';
 import { useBankMaterials, bankMaterials, groutTex, SCREEN_UV } from './BankMaterials.js'; // 74th: the hall's own textured materials + LCD screens
 import { bankTex } from './BankTex.js'; // 77th: 2048² surfaces
+import * as BM from './BankModels.js'; // 77th: detailed furniture + fittings
 import { modelPackNow } from '../debug/boot.js';
 import './RobberyShops.js'; // registers the kit's ceiling tile / steel / plastic / gold materials
 import { REVEAL, LEAF_Z } from './WalkIn.js';
@@ -128,28 +129,15 @@ function face(b, cx, cy, cz, w, h, uv, dir) {
 }
 const rot = (x, z, yaw, dx, dz) => [x + dx * Math.cos(yaw) + dz * Math.sin(yaw), z - dx * Math.sin(yaw) + dz * Math.cos(yaw)];
 // office chair (five-star base, gas lift, upholstered seat + back, arms) built to its sitter: seat top at `top`
-function officeChair(k, x, z, yaw, top, { high = false, col = '#2b2e34' } = {}) {
-  const st = k.get('steel'), pl = k.get('plastic'), fb = k.get('fabric'); const cc = C(col), blk = C('#18191b');
-  for (let i = 0; i < 5; i++) { const an = yaw + i * Math.PI * 2 / 5; const [lx, lz] = [x + Math.sin(an) * 0.15, z + Math.cos(an) * 0.15]; pl.box(lx, 0.075, lz, 0.045, 0.03, 0.3, { col: blk, rotY: an }); const [cx, cz] = [x + Math.sin(an) * 0.29, z + Math.cos(an) * 0.29]; pl.cylinder(cx, 0, cz, 0.024, 0.024, 0.05, 8, { col: blk }); }
-  st.cylinder(x, 0.08, z, 0.024, 0.024, Math.max(0.05, top - 0.2), 10, { col: C('#9a9ea3') }); pl.cylinder(x, top - 0.16, z, 0.04, 0.04, 0.06, 10, { col: blk });
-  const P = (dx, dz) => rot(x, z, yaw, dx, dz);
-  { const [a, b] = P(0, 0); pl.box(a, top - 0.105, b, 0.36, 0.03, 0.34, { col: blk, rotY: yaw }); fb.box(a, top - 0.04, b, 0.5, 0.08, 0.48, { col: cc, rotY: yaw }); }
-  { const bh = high ? 0.72 : 0.5; const [a, b] = P(0, -0.26); fb.box(a, top + 0.06 + bh / 2, b, 0.46, bh, 0.065, { col: cc, rotY: yaw }); const [c, d] = P(0, -0.29); pl.box(c, top + 0.03, d, 0.07, 0.2, 0.03, { col: blk, rotY: yaw }); }
-  for (const sx of [-1, 1]) { const [a, b] = P(sx * 0.27, -0.03); pl.box(a, top + 0.08, b, 0.03, 0.18, 0.04, { col: blk, rotY: yaw }); pl.box(a, top + 0.185, b, 0.06, 0.03, 0.26, { col: blk, rotY: yaw }); }
-}
+function officeChair(k, x, z, yaw, top, opts = {}) { BM.officeChair(k, x, z, yaw, top, opts); } // 77th: detailed (BankModels.js); seat top unchanged
 // a computer monitor on a stand, its screen facing direction yaw (0 = +z)
 function monitor(k, x, y, z, yaw, w = 0.52, scr = SCREEN_UV.teller) {
-  const pl = k.get('plastic'), blk = C('#141518'); const P = (dx, dz) => rot(x, z, yaw, dx, dz);
-  { const [a, b] = P(0, -0.05); pl.box(a, y + 0.006, b, 0.22, 0.012, 0.17, { col: blk, rotY: yaw }); pl.box(a, y + 0.14, b, 0.04, 0.26, 0.025, { col: blk, rotY: yaw }); }
-  pl.box(x, y + 0.3, z, w, w * 0.6, 0.024, { col: blk, rotY: yaw });
-  const [sx, sz] = P(0, 0.0125); k.get('screen').box(sx, y + 0.305, sz, w - 0.03, w * 0.6 - 0.04, 0.002, { col: [1, 1, 1], rotY: yaw, uvRect: scr }); // 74th: a real LCD (BankMaterials screen atlas)
+  BM.monitor(k, x, y, z, yaw, w); // 77th: slim LED monitor (BankModels.js)
+  const [sx, sz] = rot(x, z, yaw, 0, 0.0125); k.get('screen').box(sx, y + 0.305, sz, w - 0.03, w * 0.6 - 0.04, 0.002, { col: [1, 1, 1], rotY: yaw, uvRect: scr }); // 74th: a real LCD (BankMaterials screen atlas)
 }
-function keyboard(k, x, y, z, yaw) { k.get('plastic').box(x, y + 0.012, z, 0.43, 0.02, 0.14, { col: C('#1d1f23'), rotY: yaw }); const [mx, mz] = rot(x, z, yaw, 0.32, 0.0); k.get('plastic').box(mx, y + 0.012, mz, 0.06, 0.022, 0.1, { col: C('#1d1f23'), rotY: yaw }); }
+function keyboard(k, x, y, z, yaw) { BM.keyboard(k, x, y, z, yaw); } // 77th: 104 keys + mouse on a pad
 function deskPhone(k, x, y, z, yaw) { landline(k, x, y, z, yaw); } // 71st: a real corded office phone (BankProps.js) instead of two boxes
-function plant(k, x, z, h = 1.2, potCol = '#e9e5dc') { // potted plant: glazed pot + a clump of leaves
-  lathe(k.get('glaze'), x, 0, z, [[0.16, 0], [0.2, 0.36], [0.215, 0.4], [0.001, 0.4]], 18, C(potCol));
-  const lf = k.get('paint'); for (let i = 0; i < 9; i++) { const an = i * 2.4, r = 0.06 + (i % 3) * 0.05; const ly = 0.45 + (h - 0.45) * (0.35 + (i % 4) * 0.18); lf.box(x + Math.sin(an) * r, ly, z + Math.cos(an) * r, 0.05, h * 0.45, 0.16, { col: C(i % 2 ? '#3e6b3a' : '#4d7d45'), rotY: an }); }
-}
+function plant(k, x, z, h = 1.2, potCol = '#e9e5dc') { BM.plant(k, x, z, h, potCol); } // 77th: glazed pot, pebbles, a Dracaena clump (BankModels.js)
 
 // ------------------------------------------------------------------------------------------------ the room
 // ---- 73rd: ATM display + PIN pad -------------------------------------------------------------------------------------
@@ -203,6 +191,7 @@ export function buildBankInterior(game, site) {
   if (site && site.b) { const b = site.b, ns = Math.abs(Math.cos(site.yaw)) > 0.7; W = Math.min(W, (ns ? b.x1 - b.x0 : b.z1 - b.z0) - 0.5); D = Math.min(D, (ns ? b.z1 - b.z0 : b.x1 - b.x0) - 0.6); }
   if (W < 13.9 || D < 13.3) console.warn('[bank] building smaller than the design room', W, D);
   const g = new THREE.Group(); g.name = 'bank-hall'; const k = useBankMaterials(new Kit().parts()); const obs = []; // 74th: every surface draws with the bank's OWN material (CMB · …)
+  { const f = game && game.world && game.world.bankFront; if (f && f.apply2K) f.apply2K(); } // 77th: the frontage's 2048² surfaces (idempotent; the loading screen normally did it)
   const part = (n) => k.setPart(n); part('Room shell (floor, walls, ceiling)'); // 73rd: named parts (BankLayout.js / console bank-edit)
   const atlas = interiorAtlas(), posters = posterAtlas();
   const signMat = new THREE.MeshStandardMaterial({ name: 'CMB interior signs', map: atlas, color: atlas ? 0xffffff : new THREE.Color(CMB.navy), roughness: 0.5, emissive: 0xffffff, emissiveMap: atlas, emissiveIntensity: atlas ? 0.32 : 0 });
@@ -279,13 +268,13 @@ export function buildBankInterior(game, site) {
     return { i, d, z, stand: [B.atmStandX, z], slot: [AX + 0.1245, 1.3, z - 0.3], user: null, player: false, screen, paint(view) { if (!this.screen) return; paintATM(this.screen.ctx, view || ATM_IDLE_VIEW); this.screen.tex.needsUpdate = true; } }; });
   if (hasCanvas() && keyLegends.n) { const lm = new THREE.Mesh(keyLegends.mb.build(), atmLegendMat()); lm.name = 'atm-key-legends'; g.add(lm); } // both pads' engraved legends: one mesh
   part('ATM privacy screen'); { const fz = Z((B.atmD[0] + B.atmD[1]) / 2); glass.box(AX + 0.32, 1.5, fz, 0.6, 1.2, 0.02); metal.box(AX + 0.62, 1.5, fz, 0.02, 1.22, 0.03, { col: steelC }); ob(AX, AX + 0.64, (B.atmD[0] + B.atmD[1]) / 2 - 0.03, (B.atmD[0] + B.atmD[1]) / 2 + 0.03); }
-  part('Litter bin'); metal.cylinder(-6.72, 0, Z(4.45), 0.16, 0.15, 0.62, 16, { col: C('#9fa3a7') }); pl.cylinder(-6.72, 0.62, Z(4.45), 0.165, 0.165, 0.02, 16, { col: C('#202124') }); ob(-6.9, -6.54, 4.27, 4.63);
+  part('Litter bin'); BM.litterBin(k, -6.72, Z(4.45)); // 77th: beaded stainless body, domed lid with swing flap ob(-6.9, -6.54, 4.27, 4.63);
   part('Queue floor line'); paint.box(-4.9, 0.002, Z(4.35), 2.6, 0.003, 0.06, { col: C('#d9b42a') }); // "please wait behind the line" floor stripe
 
   // ---- queue-ticket kiosk
   part('Queue-ticket kiosk');
-  { const x = -1.5, z = Z(2.22); metal.box(x, 0.65, z, 0.4, 1.3, 0.3, { col: C('#d7d9db') }); paint.box(x, 0.02, z, 0.46, 0.04, 0.36, { col: C('#2a2c30') }); paint.box(x, 1.32, z, 0.42, 0.06, 0.32, { col: navy });
-    face(k.get('screen'), x, 1.08, z + 0.152, 0.32, 0.16, SCREEN_UV.kiosk, '+z'); pl.box(x, 0.84, z + 0.152, 0.14, 0.012, 0.01, { col: C('#0c0c0d') }); face(sign, x, 1.32, z + 0.162, 0.1, 0.05, IN_UV.logo, '+z'); ob(x - 0.22, x + 0.22, 2.06, 2.38); }
+  { const x = -1.5, z = Z(2.22); BM.ticketKiosk(k, x, z, navy); // 77th: rounded body, bezel, printer with a ticket, navy cap + brass line
+    face(k.get('screen'), x, 1.08, z + 0.153, 0.32, 0.16, SCREEN_UV.kiosk, '+z'); face(sign, x, 1.32, z + 0.162, 0.1, 0.05, IN_UV.logo, '+z'); ob(x - 0.22, x + 0.22, 2.06, 2.38); }
 
   // ---- reception / enquiries desk
   part('Reception desk'); const REC = { x: 2.3, d: 3.0 }; { const x = REC.x, cz = Z(3.05), w = 2.2;
@@ -305,8 +294,8 @@ export function buildBankInterior(game, site) {
   part('Poster: fixed deposits'); paint.box(xR - 0.012, 1.6, Z(1.5), 0.02, 0.94, 0.64, { col: C('#c9b27a') }); face(prints, xR - 0.024, 1.6, Z(1.5), 0.6, 0.9, POSTER_UV.fd, '-x');
   part('Poster: home loans'); paint.box(xR - 0.012, 1.6, Z(3.9), 0.02, 0.94, 0.64, { col: C('#c9b27a') }); face(prints, xR - 0.024, 1.6, Z(3.9), 0.6, 0.9, POSTER_UV.home, '-x');
   part('Brochure rack'); { const z = Z(2.7); metal.box(xR - 0.11, 1.25, z, 0.2, 0.9, 0.62, { col: C('#c8cbce'), top: true }); for (let r = 0; r < 2; r++) for (let c = 0; c < 4; c++) { const zz = z - 0.22 + c * 0.145, yy = 1.1 + r * 0.38; glass.box(xR - 0.2, yy, zz, 0.012, 0.16, 0.13); face(prints, xR - 0.17, yy + 0.06, zz, 0.12, 0.16, POSTER_UV.brochure(r * 4 + c), '-x'); } ob(xR - 0.24, xR, 2.36, 3.04); }
-  part('Water dispenser'); { const x = -6.72, z = Z(5.6); paint.box(x, 0.52, z, 0.32, 1.04, 0.32, { col: C('#ecebe7') }); pl.box(x, 0.82, z + 0.162, 0.2, 0.08, 0.01, { col: C('#2c2e32') }); for (const [dx, col] of [[-0.05, '#2f6fb0'], [0.05, '#b0322a']]) pl.box(x + dx, 0.8, z + 0.17, 0.03, 0.04, 0.03, { col: C(col) });
-    glass.box(x, 1.25, z, 0.26, 0.42, 0.26); pl.box(x, 1.04, z, 0.3, 0.02, 0.3, { col: C('#d8d8d4') }); ob(x - 0.2, x + 0.2, 5.4, 5.8); }
+  part('Water dispenser'); { const x = -6.72, z = Z(5.6); BM.waterDispenser(k, x, z, 0); // 77th: cabinet, taps, drip grille, ribbed 19 l bottle with its water, cup holder
+    ob(x - 0.2, x + 0.2, 5.4, 5.8); }
   part('Notice: charges and limits'); paint.box(xL + 0.012, 1.6, Z(6.7), 0.02, 0.44, 0.84, { col: C('#c9b27a') }); face(prints, xL + 0.024, 1.6, Z(6.7), 0.8, 0.4, POSTER_UV.notice, '+x');
   part('Wall clock'); face(sign, xL + 0.01, 2.7, Z(6.7), 0.42, 0.42, IN_UV.clock, '+x');
   part('Plant by the counter'); plant(k, -6.5, Z(7.95), 1.5); ob(-6.78, -6.22, 7.67, 8.23);
@@ -314,12 +303,11 @@ export function buildBankInterior(game, site) {
   // ---- waiting area: pedestal chairs; the seat + back is one instanced top raised / lowered to each sitter (gas lift)
   const seats = []; { const ROWS = [5.3, 6.6]; const XS = [-5.3, -4.64, -3.98, -3.32, 1.4, 2.06, 2.72, 3.38];
     for (const d of ROWS) for (const x of XS) seats.push({ x, d, z: Z(d), yaw: Math.PI, top: 0.42, occ: null, lane: d === ROWS[0] ? 5.95 : 7.25 });
-    const tb = new MeshBuilder(); tb.box(0, -0.04, 0, 0.5, 0.08, 0.48, { col: C('#1f3556') }); tb.box(0, 0.25, -0.23, 0.48, 0.44, 0.06, { col: C('#1f3556') }); tb.box(0, -0.095, 0, 0.44, 0.03, 0.42, { col: C('#232427') }); tb.box(0, 0.25, -0.265, 0.44, 0.4, 0.012, { col: C('#232427') });
-    tb.cylinder(0, -0.36, 0, 0.028, 0.028, 0.25, 10, { col: C('#9ea2a6') }); for (const sx of [-1, 1]) { tb.box(sx * 0.27, 0.1, -0.02, 0.035, 0.22, 0.04, { col: C('#232427') }); tb.box(sx * 0.27, 0.215, 0.0, 0.06, 0.03, 0.34, { col: C('#232427') }); }
+    const tb = new MeshBuilder(); BM.waitingChairTop(tb); // 77th: contoured cushion + back on a moulded shell, T-arms (seat top still at 0)
     const geo = tb.build(); const im = new THREE.InstancedMesh(geo, bankMaterials().fabric, seats.length); im.name = 'bank-waiting-chairs'; im.receiveShadow = true; im.castShadow = false;
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI), one = new THREE.Vector3(1, 1, 1), v = new THREE.Vector3();
     const setTop = (i, top) => { const s = seats[i]; s.top = top; im.setMatrixAt(i, m4.compose(v.set(s.x, top, s.z), q, one)); im.instanceMatrix.needsUpdate = true; };
-    part('Waiting chair bases'); seats.forEach((s, i) => { setTop(i, s.top); chrome.cylinder(s.x, 0.02, s.z, 0.035, 0.035, 0.24, 10, { col: WHITE }); pl.cylinder(s.x, 0, s.z, 0.22, 0.24, 0.02, 18, { col: C('#202124') }); });
+    part('Waiting chair bases'); seats.forEach((s, i) => { setTop(i, s.top); BM.waitingChairBase(chrome, pl, s.x, s.z); });
     g.add(im); seats.setTop = setTop; seats.mesh = im;
     for (const d of ROWS) { ob(-5.62, -3.0, d - 0.3, d + 0.28); ob(1.08, 3.7, d - 0.3, d + 0.28); }
     }
@@ -392,11 +380,7 @@ export function buildBankInterior(game, site) {
     // wall) fall either side of the wordmark instead of across it
     { const bx = 1.65; paint.box(bx, 2.1, z0 + 0.025, 3.4, 1.8, 0.05, { col: navy }); for (const [y, h] of [[1.2, 0.012], [3.0, 0.012]]) metal.box(bx, y, z0 + 0.052, 3.4, h, 0.006, { col: gold }); face(sign, bx, 2.25, z0 + 0.054, 3.2, 0.8, IN_UV.wordmark, '+z');
       emis.box(bx, 3.06, z0 + 0.07, 3.2, 0.01, 0.02, { col: [1, 0.92, 0.78] }); }
-    part('Vault door'); { const vx = -5.1, vy = 1.12, vz = z0 + 0.08; metal.box(vx, vy, z0 + 0.04, 1.8, 2.2, 0.08, { col: C('#7d8287') }); const st = k.get('steel'), M = new THREE.Matrix4(), Q = new THREE.Quaternion();
-      const disc = (r, h, zoff, col, seg = 36) => { const geo = new THREE.CylinderGeometry(r, r, h, seg); st.geometry(geo, M.compose(new THREE.Vector3(vx, vy, vz + zoff), Q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2), new THREE.Vector3(1, 1, 1)), C(col)); geo.dispose(); };
-      disc(0.86, 0.06, 0.0, '#9aa0a6'); disc(0.78, 0.12, 0.06, '#b8bdc2'); disc(0.12, 0.08, 0.15, '#d4d7da', 18);
-      for (let i = 0; i < 3; i++) { const geo = new THREE.BoxGeometry(0.9, 0.05, 0.04); st.geometry(geo, M.compose(new THREE.Vector3(vx, vy, vz + 0.2), Q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), i * Math.PI / 3), new THREE.Vector3(1, 1, 1)), C('#d4d7da')); geo.dispose(); }
-      for (let i = 0; i < 16; i++) { const an = i / 16 * Math.PI * 2; st.box(vx + Math.cos(an) * 0.7, vy + Math.sin(an) * 0.7, vz + 0.125, 0.04, 0.04, 0.02, { col: C('#8d9297') }); } }
+    part('Vault door'); BM.vaultDoor(k, -5.1, 1.12, z0); // 77th: stepped round door, bolts, hinge, 5-spoke wheel, combination dial (BankModels.js)
     part('Filing cabinets'); for (let i = 0; i < 4; i++) { const fx = 3.75 + i * 0.52; metal.box(fx, 0.66, z0 + 0.32, 0.5, 1.32, 0.6, { col: C('#8f949a') }); for (let j = 0; j < 4; j++) { paint.box(fx, 0.2 + j * 0.31, z0 + 0.622, 0.46, 0.006, 0.006, { col: C('#5e6268') }); metal.box(fx, 0.3 + j * 0.31, z0 + 0.63, 0.12, 0.02, 0.02, { col: C('#d4d7da') }); } }
     // 71st: back-office landline on a walnut credenza (the phone the officers get up to answer), the wall split AC above it
     part('Back-office credenza and phone'); { const cx = PHONE.x, cz = z0 + 0.235; wal.box(cx, 0.375, cz, 1.0, 0.75, 0.44, { col: WHITE }); paint.box(cx, 0.755, cz, 1.02, 0.012, 0.46, { col: C('#ebe7df') }); paint.box(cx, 0.06, cz + 0.2, 0.96, 0.08, 0.04, { col: C('#1b1d21') });

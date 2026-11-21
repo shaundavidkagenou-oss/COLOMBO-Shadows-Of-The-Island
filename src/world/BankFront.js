@@ -15,6 +15,7 @@ import { MAT } from '../gfx/Materials.js';
 import { kitMaterial, KIT } from './ShopKit.js';
 import { CMB, ATLAS, brandAtlas, hallBackdrop, frostBand } from './BankBrand.js';
 import { bankTex, bankNormal } from './BankTex.js';
+import { frontShrub } from './BankModels.js';
 import * as L from './Layout.js';
 
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
@@ -52,7 +53,7 @@ export function buildBankFront(shop, building) {
     frost.quad([a, 1.0, 0.108], [b, 1.0, 0.108], [b, 1.45, 0.108], [a, 1.45, 0.108], [0, 0, bw / 1.6, 1]);
     // a low granite planter with clipped shrubs in front of the two inner side bays
     if (Math.abs(cx) < mid && Math.abs(cx) > inner) { const pw = Math.min(1.8, bw - 0.6), pz = 0.62; gran.box(cx, 0.24, pz / 2 + 0.16, pw, 0.48, pz, { col: [1, 1, 1] }); paint.box(cx, 0.47, pz / 2 + 0.16, pw - 0.08, 0.02, pz - 0.08, { col: C('#3b2a1e') }); // soil
-      for (let k = 0; k < 4; k++) { const sx = cx - pw / 2 + 0.26 + k * (pw - 0.52) / 3; const geo = new THREE.IcosahedronGeometry(0.2 + (k % 2) * 0.04, 1); leaf.geometry(geo, new THREE.Matrix4().compose(new THREE.Vector3(sx, 0.62, pz / 2 + 0.16), new THREE.Quaternion(), new THREE.Vector3(1, 0.8, 1)), C(k % 2 ? '#3f6b35' : '#4b7a3c')); geo.dispose(); }
+      for (let k = 0; k < 4; k++) { const sx = cx - pw / 2 + 0.26 + k * (pw - 0.52) / 3; frontShrub(leaf, sx, 0.62, pz / 2 + 0.16, 0.2 + (k % 2) * 0.04, k + cx * 3); } // 77th: clipped box-leaf shrubs (BankModels.js)
       colliders.push([cx, pz / 2 + 0.16, pw + 0.04, pz + 0.04]); }
   }
   // entrance bay: the door (WalkIn) at x = 0 fills ±0.6 with its architrave; glazed sidelights + a transom panel around it
@@ -110,7 +111,7 @@ export function buildBankFront(shop, building) {
   // is built with the city, before they start). A material whose map a Texture Studio rule has already replaced is left alone.
   const SURF = [[granMat, 'cmbBlackGranite', 0], ['concrete', 'cmbLimestone', 0.5], ['paint', 'cmbPaint', 0], ['metal', 'cmbSteel', 0]];
   const built = SURF.map(([m]) => { const mm = typeof m === 'string' ? MAT['Ceylon Meridian Bank.' + m] : m; return mm && mm !== MAT[m] ? [mm, mm.map] : null; });
-  let hi = false; const apply2K = () => { if (hi) return []; hi = true; const out = [];
+  let hi = null; const apply2K = () => { if (hi) return hi; const out = (hi = []); // (returns the same list on later calls: the loading screen still uploads + compiles it)
     SURF.forEach(([, key, nrm], i) => { const b = built[i]; if (!b) return; const [m, was] = b; if (m.map !== was) return; const t = bankTex(key); if (!t) return;
       m.map = t; out.push(t);
       if (nrm) { const n = bankNormal(key); if (n) { m.normalMap = n; m.normalScale.set(nrm, nrm); out.push(n); } } m.needsUpdate = true; });

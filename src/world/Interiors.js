@@ -1,5 +1,6 @@
 // Walk-in interiors for story shops and Dineth's room. Built beneath the street (y = -40) and entered through a fade.
 import * as THREE from 'three';
+import { startBankTextures } from './BankTex.js';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
 import { plan } from './CityPlan.js';
@@ -45,7 +46,7 @@ export class Interiors {
     if (this.walkInsDone) return; this.walkInsDone = true;
     const STYLE = { kade: 'timberGlass', fathima: 'timberGlass', selvaraj: 'alu', bandara: 'timber', tailor: 'bronze', garage: 'wicket', gunshop: 'steel' };
     for (const [id, s] of Object.entries(plan.missionShops)) { if (!s.walkIn) continue;
-      if (id === 'bank') { const b = plan.buildings.find((q) => q.id === s.b) || null; this.walkIn.add({ id, name: BANK_ROOM.name, door: { x: s.x, z: s.z, faceIn: s.faceIn }, b, style: 'bronze', hinge: -1, build: (site) => buildBankInterior(this.g, site) }); continue; } // the bank: frameless bronze glass door, the hall behind the facade
+      if (id === 'bank') { startBankTextures(this.g.renderer).then(() => { const f = this.g.world && this.g.world.bankFront; if (f && f.apply2K) f.apply2K(); }); /* 77th: idempotent (the loading screen normally started them already); the frontage takes its 2K surfaces when they are ready */ const b = plan.buildings.find((q) => q.id === s.b) || null; this.walkIn.add({ id, name: BANK_ROOM.name, door: { x: s.x, z: s.z, faceIn: s.faceIn }, b, style: 'bronze', hinge: -1, build: (site) => buildBankInterior(this.g, site) }); continue; } // the bank: frameless bronze glass door, the hall behind the facade
       const rob = ROB_DEFS[id]; const def = SHOP_DEFS[id] || rob; const b = plan.buildings.find((q) => q.id === s.b) || null;
       this.walkIn.add({ id, name: def ? def.name : this.g.interiorName ? this.g.interiorName(id) : id, door: { x: s.x, z: s.z, faceIn: s.faceIn }, b, style: def ? def.door : STYLE[id] || 'alu', hinge: def && def.hinge ? def.hinge : -1,
         build: (site) => (rob ? buildRobberyShop(this.g, id, site) : def ? buildShopInterior(this.g, id, site) : this.legacyWalkIn(id, site)) }); }
