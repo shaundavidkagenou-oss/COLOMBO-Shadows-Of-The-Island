@@ -11,6 +11,7 @@ import { savedFlags, setSavedFlag, storeGet, storeSet, storeDel } from '../debug
 import { voiceDefs } from './VoiceDefs.js';
 import { HOSPITAL_SOUND_DEFS } from './HospitalSoundDefs.js';
 import { PLACE_SOUND_DEFS } from './PlaceSoundDefs.js';
+import { ENV_SOUND_DEFS } from './EnvSoundDefs.js';
 
 // id, label, category, kind ('shot' one-shot | 'loop' continuous), lvl = playback gain of a full-scale recording (matches the
 // loudness of the synthesised sound it replaces)
@@ -72,6 +73,7 @@ export const SOUND_DEFS = [
   ...[1, 2].map((n) => ({ id: 'drink.bottle.down' + n, name: `Drinking — glass bottle put down, variation ${n}`, cat: 'Drinking', lvl: 0.45 })),
   ...HOSPITAL_SOUND_DEFS, // 74th: the National Hospital (HospitalAudio.js)
   ...PLACE_SOUND_DEFS, // 75th: hospital garden, Viharamahadevi Park, doors of every shop (PlaceAudio.js, Audio.roomDoor)
+  ...ENV_SOUND_DEFS, // 76th: footsteps & surfaces, character foley, interactive objects, traffic, vehicle radio, vehicle mechanical (EnvSoundDefs.js)
   { id: 'footstep', name: 'Footstep', cat: 'Player', lvl: 0.25 }, { id: 'phone.ring', name: 'Phone ringing', cat: 'Player', lvl: 0.3 },
   { id: 'ui.click', name: 'Menu click', cat: 'Interface', lvl: 0.25 }, { id: 'ui.hover', name: 'Menu hover', cat: 'Interface', lvl: 0.15 }, { id: 'ui.notify', name: 'Notification', cat: 'Interface', lvl: 0.3 },
   { id: 'ui.wheel.open', name: 'Weapon wheel — opens', cat: 'Interface', lvl: 0.35 }, { id: 'ui.wheel.switch', name: 'Weapon wheel — switching weapon', cat: 'Interface', lvl: 0.3 },
@@ -118,10 +120,11 @@ export function loopBuffer(ctx, b) {
 }
 export const SOUND_EXT = /\.(mp3|wav|ogg)$/i;
 const MAX_VOICES = 8; // overlapping copies of one recording (an automatic rifle with a 2 s recording)
+const MAX_TOTAL = 56; // 76th: recordings playing at once across the whole game — past this a new one-shot is dropped (a far / quiet one first: see play())
 const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
 class Bank {
-  constructor() { this.raw = new Map(); this.buf = new Map(); this.ctx = null; this.audio = null; this.bypass = false; this.voices = new Map(); this.listeners = new Set(); this.loaded = null; this.pack = new Map(); this.bags = new Map(); this.turn = new Map(); this.lastPick = new Map(); this.lastDur = 0; }
+  constructor() { this.raw = new Map(); this.buf = new Map(); this.ctx = null; this.audio = null; this.bypass = false; this.voices = new Map(); this.listeners = new Set(); this.loaded = null; this.pack = new Map(); this.bags = new Map(); this.turn = new Map(); this.lastPick = new Map(); this.lastDur = 0; this.live = 0; this.dropped = 0; }
   has(id) { if (this.bypass) return false; if (this.buf.has(id)) return true; const d = SOUND_BY_ID[id]; if (d && d.stream) return this.raw.has(id); return !!(d && d.vars && d.vars.some((k) => this.buf.has(k))); }
   // which recording of id plays now: id itself, or one of its filled variations (shuffle bag: each filled slot once per round,
   // never the same twice in a row across rounds)
@@ -129,7 +132,7 @@ class Bank {
     const d = SOUND_BY_ID[id]; if (!d || !d.vars) return id;
     // sound variations (window crack, glass, dry fire, crash): strictly in turn — original → 1 → 2 → 3 → original …; an empty
     // variation slot plays the original custom sound in its turn
-    if (!d.dlg) { const n = ((this.turn.get(id) ?? -1) + 1) % (d.vars.length + 1); this.turn.set(id, n); const k = n ? d.vars[n - 1] : id; return this.buf.has(k) ? k : id; }
+    if (!d.dlg && !d.rnd) { const n = ((this.turn.get(id) ?? -1) + 1) % (d.vars.length + 1); this.turn.set(id, n); const k = n ? d.vars[n - 1] : id; return this.buf.has(k) ? k : id; }
     const pool = [id, ...d.vars].filter((k) => this.buf.has(k)); if (pool.length <= 1) return pool[0] || id;
     let bag = this.bags.get(id); if (!bag || !bag.length || bag.some((k) => !this.buf.has(k))) { bag = shuffle(pool.slice()); if (bag[0] === this.lastPick.get(id)) bag.push(bag.shift()); this.bags.set(id, bag); }
     const k = bag.shift(); this.lastPick.set(id, k); return k;
@@ -169,6 +172,7 @@ class Bank {
     let V = this.voices.get(id); if (!V) this.voices.set(id, (V = []));
     const c = this.ctx, now = c.currentTime; for (let i = V.length - 1; i >= 0; i--) if (V[i].end <= now) V.splice(i, 1);
     if (mono && V.length) return true; // continuous texture (fire): let the playing copy finish
+    if (this.live >= MAX_TOTAL && (k < 0.6 || this.live >= MAX_TOTAL + 8)) { this.dropped++; return true; } // 76th: shared voice budget — quiet / far sounds are the first to go
     if (V.length >= MAX_VOICES) { const o = V.shift(); try { o.g.gain.setTargetAtTime(0, now, 0.02); o.src.stop(now + 0.1); } catch { /* already stopped */ } }
     const t = now + Math.max(0, when); const src = c.createBufferSource(); src.buffer = b; src.playbackRate.value = rate; const g = c.createGain(); const lvl = Math.max(0, k) * this.level(pid); g.gain.value = lvl;
     const p = c.createStereoPanner(); p.pan.value = Math.max(-1, Math.min(1, pan || 0)); let head = src;
@@ -179,7 +183,7 @@ class Bank {
     let end = t + b.duration / rate;
     src.start(t); // 72nd: start before any stop() — stop() on a source that was never started throws (InvalidStateError), which made every
     // recording a little longer than its hard length (an mp3 of "exactly 1 s" decodes to ~1.03 s: encoder padding) throw out of the caller
-    if (dur > 0 && dur < b.duration / rate) { end = t + dur; g.gain.setTargetAtTime(0.0001, Math.max(t, end - 0.045), 0.012); src.stop(end + 0.01); /* from whatever gain it has then (a horn's follows its car) */ } const vo = { src, g, p, end, lvl }; V.push(vo); if (track) track.voice = vo; src.onended = () => { try { p.disconnect(); } catch { /* gone */ } };
+    if (dur > 0 && dur < b.duration / rate) { end = t + dur; g.gain.setTargetAtTime(0.0001, Math.max(t, end - 0.045), 0.012); src.stop(end + 0.01); /* from whatever gain it has then (a horn's follows its car) */ } const vo = { src, g, p, end, lvl }; V.push(vo); if (track) track.voice = vo; this.live++; src.onended = () => { this.live = Math.max(0, this.live - 1); try { p.disconnect(); } catch { /* gone */ } };
     return true;
   }
   // continuous: keeps holder.smp = a looping source of id's recording feeding dest (null when id has no recording). The caller

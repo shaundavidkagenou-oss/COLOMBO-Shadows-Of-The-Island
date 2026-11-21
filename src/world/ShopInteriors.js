@@ -34,7 +34,7 @@ function fit(def, site) {
 // shell: floor, ceiling, four inward walls (doorway in the front one), skirting + cornice; returns the frame helpers
 function shell(k, g, W, D, H, o) {
   const x0 = -W / 2, x1 = W / 2, zf = -REVEAL, z0 = zf - D; const hw = DOOR_W / 2 + 0.01, DH = 2.31;
-  g.add(modelFloor(o.floor, x0, z0, x1, zf, 0));
+  g.add(modelFloor(o.floor, x0, z0, x1, zf, 0)); g.userData.floorKind = (o.floor && o.floor.kind) || 'tile'; // 76th: footsteps (audio/Surface.js)
   const wm = k.get(o.wall || 'plaster'); const wc = C(o.wallCol || '#ffffff'); const U = (len, h) => [0, 0, len / 1.6, h / 1.6];
   wm.wall(x0, z0, x1, z0, 0, H, U(W, H), wc); wm.wall(x0, zf, x0, z0, 0, H, U(D, H), wc); wm.wall(x1, z0, x1, zf, 0, H, U(D, H), wc);
   const fw = k.get(o.frontWall || o.wall || 'plaster'); fw.wall(x1, zf, hw, zf, 0, H, U(x1 - hw, H), wc); fw.wall(-hw, zf, x0, zf, 0, H, U(x1 - hw, H), wc); fw.wall(hw, zf, -hw, zf, DH, H, U(2 * hw, H - DH), wc);

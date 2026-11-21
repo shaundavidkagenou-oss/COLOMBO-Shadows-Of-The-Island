@@ -39,7 +39,7 @@ import { refreshView, holdVehicles, updateSceneMatrices, withMatricesDone } from
 import { CATALOG, displayName } from './vehicles/VehicleCatalog.js';
 import { updateDoorClosers } from './vehicles/DoorRig.js';
 import { Bicycles } from './vehicles/BicycleRide.js';
-import { updateVehicleLOD, setHeadPoolNight, Vehicle, HeadlightRig, setVehicleLOD, LIVE_VEHICLES, CHASSIS, TUNE_ENV } from './vehicles/Vehicle.js';
+import { updateVehicleLOD, setHeadPoolNight, Vehicle, HeadlightRig, setVehicleLOD, LIVE_VEHICLES, CHASSIS, TUNE_ENV, VEH_HOOKS } from './vehicles/Vehicle.js';
 import { VehicleDamage } from './vehicles/VehicleDamage.js';
 import { FlashlightRig } from './police/Firefight.js';
 import { World } from './world/World.js';
@@ -96,6 +96,8 @@ import { SQUAD_DEFS } from './actors/Squad.js';
 import { Boats } from './boats/Boats.js';
 import { MARINA } from './boats/Marina.js';
 import { ClubSound } from './audio/ClubSound.js';
+import { Footsteps } from './audio/Footsteps.js'; // 76th
+import { ObjectAudio } from './audio/ObjectAudio.js'; // 76th
 import { CULL, LOD, beginHide, endHide, seeHidden } from './gfx/BatchCull.js';
 import { OCC_CFG, OCC_STATS } from './gfx/Occlusion.js';
 import { LIVE as BODIES } from './actors/Bodies.js';
@@ -388,10 +390,12 @@ export class Game {
   showOutdoor() { for (const c of this._hiddenOut || []) c.visible = true; this._hiddenOut = []; }
   // ================================================================= events → audio / HUD
   wireEvents() {
-    bus.on('footstep', (e) => Audio.footstep(e.sprint, this.atmos.wet > 0.3 && !this.indoor && !this.player.indoor));
+    VEH_HOOKS.objHit = (v, c, vn, vt) => ObjectAudio.vehicleHit(v, c, vn, vt); // 76th: vehicles striking bins / poles / railings / walls (ObjectAudio.js)
+    Footsteps.init(this); Audio.stepHook = (x, z, k) => { Footsteps.npc(x, z, k); return true; }; // 76th: surface / gait / wetness footsteps + foley (Footsteps.js)
+    bus.on('footstep', (e) => Footsteps.playerStep(e));
     bus.on('horn', (v) => Audio.horn(v.type, v.x, v.z, v.tune ? v.tune.horn : null, v)); // emitters gate it first with Audio.hornFree (one 2 s horn per vehicle)
     bus.on('crash', (v) => Audio.crash(v));
-    bus.on('land', () => Audio.footstep(true, false));
+    bus.on('land', () => Footsteps.land());
     bus.on('towed', (v) => this.hud.notify('Vehicle towed', `Your ${VNAMES[v.type] || 'vehicle'} was left unattended for 5 minutes and a CMC tow truck has taken it away.`, 'info', 5));
     bus.on('enterVehicle', ({ v, hadDriver }) => { if (v && v.T && v.T.pedal) return; /* the bicycle shows its own hint (BicycleRide.js) */ if (hadDriver) { this.hud.subtitle('Driver', 'Ado! What are you doing? That\'s my vehicle!', '', 2.8); Voices.say(null, 'carjack', v.x, v.z, null, 'driver'); } this.hud.notify(VNAMES[v.type] || 'Vehicle', `${this.hud.key('enter')} exit · ${this.hud.key('horn')} horn · ${this.hud.key('lights')} lights · ${this.hud.key('radio')} radio`, 'info', 3.5); Audio.ui('door'); });
     bus.on('npcLineRaw', ({ who, text, voice }) => { const d = voice && voice.spec ? Voices.say(voice.spec, voice.sit, voice.x, voice.z, voice.who || null, voice.group) : 0; this.hud.subtitle(who, text, '', Math.max(2.4, d + 0.3)); }); // carjacked driver (console: dialogs → Car stolen)
@@ -622,7 +626,7 @@ export class Game {
     this.hud.update({ breath: this.player.swim ? this.player.swim.breath : (this.player.swimBreath ?? 1), underwater: !!this.player.camUnder, health: this.health.hp, healthBusy: this.health.busy, time: A.timeString, money: this.story.state.money, district: this.indoor ? this.interiors.current.D.name : this.seamK > 0.5 ? (P.indoor && P.indoor.hospital ? this.hospital.placeName() : this.interiors.hq.D.name) : dist ? dist.name.split(' · ')[0] : '', street: this.indoor ? '' : L.roadNameAt(P.x, P.z) || '', x: P.x, z: P.z, camYaw: this.photo ? this.photoYaw + Math.PI : P.camYaw, stamina: P.stamina, vehicle: v, vehicleName: v ? this.vehicleName(v.type) : '', radio: v && this.radio ? `♪ ${RADIO[this.radio].name}` : '', camera: cam, police: this.police.hudInfo(), projector: (x, y, z) => this.project(x, y, z), fps: this.fps, draws: this.renderer.info.render.calls, extras: this.miniExtras(), indoor: !!this.indoor });
     // audio
     const near = v && !v.T.pedal ? [v] : []; if (this.boats) for (const b of this.boats.voices(P)) near.push(b); /* boat engines: outboard / inboard / jet */ for (const o of this.traffic.vehicles) { if (near.length >= 6) break; if (!o.T.pedal && Math.hypot(o.x - P.x, o.z - P.z) < 45) near.push(o); } // engine voices (a bicycle has none)
-    ClubSound.update(dt, this); // the club DJ's songs through the PA (in the club) / muffled bass on the street outside
+    Footsteps.update(dt); ObjectAudio.update(dt); ClubSound.update(dt, this); // the club DJ's songs through the PA (in the club) / muffled bass on the street outside
     Audio.update(dt, { listener: { x: P.x, z: P.z, yaw: P.camYaw + Math.PI }, night: A.night, rain: A.w.rain, wind: A.w.wind, traffic: this.traffic.vehicles.length, vehicles: near, indoor: this.indoor || this.seamK > 0.6 });
     // autosave every 4 minutes of play while free-roaming
     this.autosaveT += dt; if (this.autosaveT > 240 && !this.story.running && !D.active) { this.autosaveT = 0; this.autosave(); }

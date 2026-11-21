@@ -7,6 +7,7 @@ export const DEFAULT_BINDINGS = {
   horn: 'KeyH', lights: 'KeyL', camera: 'KeyV', radio: 'KeyR',
   phone: 'KeyP', map: 'KeyM', journal: 'KeyJ',
   reload: 'KeyR', holster: 'KeyX', weaponWheel: 'Tab', grenade: 'KeyB',
+  indL: 'Comma', indR: 'Period', radioPrev: 'BracketLeft', // 76th: turn indicators (VehicleAudio.js) · previous radio station (CarRadio.js)
 };
 export const QUALITY_PRESETS = {
   low:    { pixelRatio: 0.75, shadows: false, shadowRes: 1024, bloom: false, ao: false, cine: 0, drawDist: 650,  crowd: 60,  traffic: 22, detailRadius: 1 },
@@ -17,7 +18,7 @@ export const QUALITY_PRESETS = {
 const DEFAULTS = {
   quality: 'high', resolutionScale: 1.0, fullscreen: false, fov: 62,
   mouseSens: 1.0, invertY: false, cameraDistance: 1.0, cameraShake: true,
-  master: 0.85, music: 0.6, sfx: 0.85, ambience: 0.75, dialogue: 1.0, voiceTTS: false,
+  master: 0.85, music: 0.6, sfx: 0.85, ambience: 0.75, dialogue: 1.0, vehicle: 1.0, /* 76th: engines, tyres, indicators, traffic (× Effects) */ voiceTTS: false,
   subtitles: true, subtitleSize: 1.0, crowdDensity: 1.0, trafficDensity: 1.0,
   timeScale: 2.0, // real seconds per game minute
   showFps: false, blood: true, /* blood effects (impact spray, splats, pools under bodies) */ wetReflections: true, /* wet-road light streaks (WetGlints) */ nightBrightness: 1.15, /* night exposure multiplier (Settings → Night brightness) */ lensFlare: true, lightShafts: true, dynamicRes: true, /* hold the frame rate by lowering the render scale (min 80 %) only while it drops */ /* cinematic sun effects, where the preset includes them (cine level: Medium flare, High/Ultra shafts) */

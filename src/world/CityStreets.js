@@ -9,6 +9,7 @@ import * as L from './Layout.js';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
 import { RNG } from '../core/rng.js';
+import { regGrate, regManhole } from './GroundDetail.js'; // 76th: footsteps on the covers / gratings (audio/Surface.js)
 
 // Only names whose Sinhala and Tamil forms are certain; other streets get no board rather than a guessed transliteration.
 const NAMES = {
@@ -147,14 +148,14 @@ export function buildCityStreets(plan) {
     const mx = (seg.x0 + seg.x1) / 2, mz = (seg.z0 + seg.z1) / 2; if (seg.bridge || L.isWater(mx, mz)) continue; const { cover, grate, bin } = B(mx, mz);
     const horiz = seg.dir === 'h', len = horiz ? seg.x1 - seg.x0 : seg.z1 - seg.z0; const P = (t, o) => horiz ? [seg.x0 + t, seg.z0 + o] : [seg.x0 + o, seg.z0 + t];
     for (let t = 14; t < len - 14; t += 26 + rng.next() * 8) { const [x, z] = P(t, (rng.chance(0.5) ? 1 : -1) * seg.hw * 0.45); if (!L.roadAt(x, z)) continue;
-      cover.cylinder(x, L.ROAD_Y - 0.002, z, 0.34, 0.34, 0.016, 16, { col: [0.2, 0.19, 0.18] }); cover.cylinder(x, L.ROAD_Y + 0.008, z, 0.27, 0.27, 0.008, 16, { col: [0.13, 0.125, 0.12] }); }
+      regManhole(x, z, 0.34); cover.cylinder(x, L.ROAD_Y - 0.002, z, 0.34, 0.34, 0.016, 16, { col: [0.2, 0.19, 0.18] }); cover.cylinder(x, L.ROAD_Y + 0.008, z, 0.27, 0.27, 0.008, 16, { col: [0.13, 0.125, 0.12] }); }
     for (const side of [-1, 1]) for (let t = 10; t < len - 10; t += 18) { const [x, z] = P(t, side * (seg.hw - 0.25)); if (!L.roadAt(x, z)) continue;
-      grate.box(x, L.ROAD_Y + 0.004, z, horiz ? 0.8 : 0.36, 0.012, horiz ? 0.36 : 0.8, { col: [0.1, 0.1, 0.1] });
+      regGrate(x, z, horiz ? 0.4 : 0.18, horiz ? 0.18 : 0.4); grate.box(x, L.ROAD_Y + 0.004, z, horiz ? 0.8 : 0.36, 0.012, horiz ? 0.36 : 0.8, { col: [0.1, 0.1, 0.1] });
       for (let k = -3; k <= 3; k++) grate.box(x + (horiz ? k * 0.1 : 0), L.ROAD_Y + 0.011, z + (horiz ? 0 : k * 0.1), horiz ? 0.03 : 0.34, 0.006, horiz ? 0.34 : 0.03, { col: [0.22, 0.22, 0.21] }); }
     if (seg.level <= 2) for (let t = 30; t < len - 20; t += 55 + rng.next() * 20) { const side = rng.chance(0.5) ? 1 : -1; const [x, z] = P(t, side * (seg.hw + seg.walk - 0.45)); if (L.roadAt(x, z) || L.zoneAt(x, z) || L.isWater(x, z)) continue;
       if (plan.colliders.some((c) => x > c.x0 - 0.5 && x < c.x1 + 0.5 && z > c.z0 - 0.5 && z < c.z1 + 0.5)) continue;
       bin.cylinder(x, L.LAND_Y, z, 0.26, 0.29, 0.86, 12, { col: [0.13, 0.36, 0.2] }); bin.cylinder(x, L.LAND_Y + 0.86, z, 0.31, 0.31, 0.06, 12, { col: [0.09, 0.25, 0.14] });
-      colliders.push({ x0: x - 0.3, x1: x + 0.3, z0: z - 0.3, z1: z + 0.3, h: 0.95, kind: 'prop' }); }
+      colliders.push({ x0: x - 0.3, x1: x + 0.3, z0: z - 0.3, z1: z + 0.3, h: 0.95, kind: 'prop', bin: true }); } // (bin: its impact sound — ObjectAudio)
   }
   // ---------------- rooftop billboards on Fort blocks facing the main roads
   const BW = 1024, BH = 342, BCOL = 2; const bc = document.createElement('canvas'); bc.width = BW * BCOL; bc.height = BH * Math.ceil(BOARDS.length / BCOL); const bg = bc.getContext('2d');

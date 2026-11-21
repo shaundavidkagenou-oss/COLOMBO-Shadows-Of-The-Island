@@ -28,7 +28,7 @@ export function setHeadPoolNight(n) { const hp = headPool(); const k = Math.min(
 import { syncDoors } from './DoorRig.js';
 import { nightLight } from '../gfx/LightSets.js';
 const _csE = new THREE.Euler(), _csQ = new THREE.Quaternion(), _csS = new THREE.Vector3(), _csP = new THREE.Vector3(), _csM = new THREE.Matrix4(), _csI = new THREE.Matrix4(); // contact-shadow placement (sync)
-export const VEH_HOOKS = { crash: null, impact: null, dispose: null }; // impact(v, speed, contact): VehicleDamage dents / scrapes / engine damage; dispose(v): its per-vehicle buffers // crash(v, by, dv): the player's vehicle hit this one (Traffic: the other driver's reaction — Mind.js road rage)
+export const VEH_HOOKS = { crash: null, impact: null, dispose: null, objHit: null }; // objHit(v, collider, closing m/s, sliding m/s): 76th, ObjectAudio // impact(v, speed, contact): VehicleDamage dents / scrapes / engine damage; dispose(v): its per-vehicle buffers // crash(v, by, dv): the player's vehicle hit this one (Traffic: the other driver's reaction — Mind.js road rage)
 // chassis LOD: the spring / terrain attitude only runs within CHASSIS.r of CHASSIS.focus (the player; set by Game each frame)
 export const CHASSIS = { focus: null, r: 160 };
 const SUS_DROOP = 0.12, SUS_BUMP = 0.16; // wheel travel below / above the static ride height (m)
@@ -206,8 +206,8 @@ export class Vehicle {
       V[0] += nx_ * jv; V[1] += nz_ * jv; if (vt > 1e-3) { const f = Math.min(1, mu * jv / vt); V[0] -= vtx * f; V[1] -= vtz * f; } /* scraping friction slows the slide along the obstacle */
       this.spin = clamp(this.spin + 0.45 * jv * t * (nx_ * rx + nz_ * rz) / I1 * 0.25, -2.4, 2.4); if (jv > maxJ) hit = { nx: nx_, nz: nz_, t, slide: vt }; maxJ = Math.max(maxJ, jv); };
     // static world: gather the deepest push per circle → one combined normal, contact at the deepest circle
-    let sx = 0, sz = 0, best = 0, bestT = 0; const cs = this.circles();
-    for (let k = 0; k < cs.length; k++) { const [cx, cz] = cs[k]; const r = collision.resolveCircle(cx, cz, this.radius, this.y, 0.25, 2, { vehicle: true }); if (r.hit) { const dx = r.x - cx, dz = r.z - cz, dl = Math.hypot(dx, dz); this.x += dx; this.z += dz; sx += dx; sz += dz; if (dl > best) { best = dl; bestT = tOf(k); } } }
+    let sx = 0, sz = 0, best = 0, bestT = 0, bestC = null; const cs = this.circles();
+    for (let k = 0; k < cs.length; k++) { const [cx, cz] = cs[k]; const r = collision.resolveCircle(cx, cz, this.radius, this.y, 0.25, 2, { vehicle: true }); if (r.hit) { const dx = r.x - cx, dz = r.z - cz, dl = Math.hypot(dx, dz); this.x += dx; this.z += dz; sx += dx; sz += dz; if (dl > best) { best = dl; bestT = tOf(k); bestC = collision.lastHitC; } } }
     // thin static obstacles (tree trunks, lamp / signal poles, bollards) against the true rectangular body: the circle chain rounds the
     // corners off, which let a trunk sink up to half the car's width into the bonnet before anything touched
     { const hw = T.wid / 2, hl = T.len / 2, ext = hl + 1; const near = collision.query(this.x - ext, this.z - ext, this.x + ext, this.z + ext);
@@ -215,8 +215,8 @@ export class Vehicle {
         const cx = (c.x0 + c.x1) / 2, cz = (c.z0 + c.z1) / 2, cr = Math.max(c.x1 - c.x0, c.z1 - c.z0) / 2; const dx = cx - this.x, dz = cz - this.z; const lx = dx * rx + dz * rz, lz = dx * fx + dz * fz;
         const px = hw + cr - Math.abs(lx), pz = hl + cr - Math.abs(lz); if (px <= 0 || pz <= 0) continue;
         let mx, mz, pen; if (px < pz) { pen = px; const sg = lx > 0 ? -1 : 1; mx = rx * sg; mz = rz * sg; } else { pen = pz; const sg = lz > 0 ? -1 : 1; mx = fx * sg; mz = fz * sg; }
-        this.x += mx * pen; this.z += mz * pen; sx += mx * pen; sz += mz * pen; if (pen > best) { best = pen; bestT = clamp(lz, -hl, hl); } } }
-    if (best > 0.005) { const sl = Math.hypot(sx, sz) || 1, nx_ = sx / sl, nz_ = sz / sl; const vn = V[0] * nx_ + V[1] * nz_; if (vn < 0) applyImpulse(nx_, nz_, -(1 + 0.18) * vn, bestT, 0.35); else if (VEH_HOOKS.impact) { const vt = Math.abs(V[0] * nz_ - V[1] * nx_); if (vt > 2.5) VEH_HOOKS.impact(this, 0, { nx: nx_, nz: nz_, t: bestT, slide: vt, scrapeOnly: true }); } } // grinding along a wall: paint scraped off
+        this.x += mx * pen; this.z += mz * pen; sx += mx * pen; sz += mz * pen; if (pen > best) { best = pen; bestT = clamp(lz, -hl, hl); bestC = c; } } }
+    if (best > 0.005) { const sl = Math.hypot(sx, sz) || 1, nx_ = sx / sl, nz_ = sz / sl; const vn = V[0] * nx_ + V[1] * nz_; if (bestC && VEH_HOOKS.objHit) VEH_HOOKS.objHit(this, bestC, Math.max(0, -vn), Math.abs(V[0] * nz_ - V[1] * nx_)); /* 76th: what it hit, for the impact / scrape sound (ObjectAudio) */ if (vn < 0) applyImpulse(nx_, nz_, -(1 + 0.18) * vn, bestT, 0.35); else if (VEH_HOOKS.impact) { const vt = Math.abs(V[0] * nz_ - V[1] * nx_); if (vt > 2.5) VEH_HOOKS.impact(this, 0, { nx: nx_, nz: nz_, t: bestT, slide: vt, scrapeOnly: true }); } } // grinding along a wall: paint scraped off
     // other vehicles: relative velocity along the contact normal, impulse split by mass; the other car is shoved (leaves its lane, slides, spins)
     if (others) for (const o of others) {
       if (o === this) continue; const d2 = (o.x - this.x) ** 2 + (o.z - this.z) ** 2; if (d2 > (8 + (o.T ? o.T.len / 2 : 4)) ** 2) continue;

@@ -16,6 +16,8 @@ import { GEO } from './Props.js';
 import { MAT } from '../gfx/Materials.js';
 import { VEH_HOOKS } from '../vehicles/Vehicle.js';
 import { Audio } from '../audio/Audio.js';
+import { SoundBank as SB } from '../audio/SoundBank.js';
+import { ObjectAudio } from '../audio/ObjectAudio.js'; // 76th
 
 const G = 9.81;
 // per type: shaft length (m, base → far end), mass (kg), momentum (kg·m/s) needed to shear the base, half-width of the base
@@ -62,7 +64,7 @@ export class PropBreak {
     else yaw = Math.atan2(-dx, -dz) - Math.PI / 4; // local (1, 0, 1) → −fall direction
     const d = { p, c, root, inner, stub, S, x: p.x, z: p.z, by, dx, dz, th: 0.02, w: 0.55 + 0.035 * sp, vx: dx * sp * 0.42 + fx * sp * 0.1, vz: dz * sp * 0.42 + fz * sp * 0.1, yaw0: r0, dyaw: wrap(yaw - r0), t: 0, hits: 0, rest: false, lean: false };
     d.S = this.clearance(d); this.down.push(d);
-    const A = this.g.audio || Audio; if (A && A.ready) { A.debrisHit(p.x, p.z, 1.2); if (A.bulletMetal) A.bulletMetal(p.x, p.z, true); }
+    const A = this.g.audio || Audio; if (A && A.ready && !ObjectAudio.poleDown(p.x, p.z, p.type)) { A.debrisHit(p.x, p.z, 1.2); if (A.bulletMetal) A.bulletMetal(p.x, p.z, true); } // 76th: Interactive objects → metal / glass recordings when supplied
     this.sparks(p.x, by + 0.3, p.z, p.type === 'signal' ? 8 : 12); // the cable in the base shorts out
     return d;
   }
@@ -116,7 +118,7 @@ export class PropBreak {
     // something tall in the way part-way along the shaft: it comes to rest leaning on it
     let thO = 9; for (const f of [0.35, 0.6, 0.85, 1]) { const r = S.len * f; const px = d.x + d.dx * r * Math.sin(th), pz = d.z + d.dz * r * Math.sin(th); const py = d.by + r * Math.cos(th); const top = this.obstacle(px, pz, d.c); if (top > py + 0.05 && top > L.surfaceY(px, pz) + 0.6) { thO = Math.min(thO, d.th); break; } }
     const lim = Math.min(thG, thO);
-    if (th >= lim) { th = lim; if (d.w > 0.6) { d.hits++; const tpx = d.x + d.dx * S.len * Math.sin(th), tpz = d.z + d.dz * S.len * Math.sin(th); if (d.hits === 1) { this.sparks(tpx, L.surfaceY(tpx, tpz) + 0.2, tpz, 10); const A = this.g.audio || Audio; if (A && A.ready) A.debrisHit(tpx, tpz, 1.4); } d.w = -d.w * (d.hits === 1 ? 0.22 : 0.1); } else d.w = 0; d.lean = thO < thG; }
+    if (th >= lim) { th = lim; if (d.w > 0.6) { d.hits++; const tpx = d.x + d.dx * S.len * Math.sin(th), tpz = d.z + d.dz * S.len * Math.sin(th); if (d.hits === 1) { this.sparks(tpx, L.surfaceY(tpx, tpz) + 0.2, tpz, 10); const A = this.g.audio || Audio; if (A && A.ready && !(SB.has('obj.fall') && ObjectAudio.fall(tpx, tpz, Math.abs(d.w) * 3, d))) A.debrisHit(tpx, tpz, 1.4); } d.w = -d.w * (d.hits === 1 ? 0.22 : 0.1); } else d.w = 0; d.lean = thO < thG; }
     d.th = Math.max(0, th);
     if (d.th >= lim - 1e-3 && Math.abs(d.w) < 0.05 && Math.hypot(d.vx, d.vz) < 0.05) d.rest = true;
   }

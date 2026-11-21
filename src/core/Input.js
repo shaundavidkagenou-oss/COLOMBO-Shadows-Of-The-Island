@@ -56,5 +56,5 @@ class InputSystem {
 export const Input = new InputSystem();
 export function keyLabel(code) {
   if (!code) return '?';
-  return code.replace(/^Key/, '').replace(/^Digit/, '').replace('ShiftLeft', 'Shift').replace('ControlLeft', 'Ctrl').replace('Space', 'Space').replace('ArrowUp', '↑').replace('ArrowDown', '↓').replace('ArrowLeft', '←').replace('ArrowRight', '→');
+  return code.replace(/^Key/, '').replace(/^Digit/, '').replace('ShiftLeft', 'Shift').replace('ControlLeft', 'Ctrl').replace('Space', 'Space').replace('ArrowUp', '↑').replace('ArrowDown', '↓').replace('ArrowLeft', '←').replace('ArrowRight', '→').replace(/^Comma$/, ',').replace(/^Period$/, '.').replace(/^BracketLeft$/, '[').replace(/^BracketRight$/, ']').replace(/^Semicolon$/, ';').replace(/^Slash$/, '/');
 }

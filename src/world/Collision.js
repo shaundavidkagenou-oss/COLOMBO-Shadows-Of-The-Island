@@ -45,7 +45,7 @@ export class Collision {
   }
   // Push a circle (feet height y) out of solid colliders. Returns {x,z,hit}.
   resolveCircle(x, z, r, y = 0, step = 0.45, height = 1.8, opts = {}) {
-    let hit = false;
+    let hit = false; this.lastHitC = null; // 76th: the collider that pushed back (object impact sounds — ObjectAudio.js)
     for (let it = 0; it < 3; it++) {
       let moved = false;
       for (const c of this.query(x - r, z - r, x + r, z + r)) {
@@ -60,7 +60,7 @@ export class Collision {
         if (c.front && x > c.x0 - r && x < c.x1 + r && z > c.z0 - r && z < c.z1 + r && ((x - (c.x0 + c.x1) / 2) * c.front[0] + (z - (c.z0 + c.z1) / 2) * c.front[1] > -0.05 || d2 < 1e-8)) {
           // a bench: whoever is in it (sitting, getting up) steps out by the seat front, never through the backrest
           const fx = c.front[0], fz = c.front[1]; const tx = fx > 1e-6 ? (c.x1 + r - x) / fx : fx < -1e-6 ? (c.x0 - r - x) / fx : Infinity, tz = fz > 1e-6 ? (c.z1 + r - z) / fz : fz < -1e-6 ? (c.z0 - r - z) / fz : Infinity;
-          const t = Math.min(tx, tz) + 0.001; if (t > 0 && t < 2) { x += fx * t; z += fz * t; hit = moved = true; continue; }
+          const t = Math.min(tx, tz) + 0.001; if (t > 0 && t < 2) { x += fx * t; z += fz * t; hit = moved = true; this.lastHitC = c; continue; }
         }
         if (d2 < 1e-8) { // centre inside box: push out the shortest way
           // the nearest side can be a seam shared with the next building of a terrace row: pushing out there lands inside the
@@ -69,7 +69,7 @@ export class Collision {
           const sides = [[x - c.x0, c.x0 - r, z], [c.x1 - x, c.x1 + r, z], [z - c.z0, x, c.z0 - r], [c.z1 - z, x, c.z1 + r]].sort((a, b) => a[0] - b[0]);
           const pick = sides.find((sd) => !this.solidAt(sd[1], sd[2], c, y, step, height, opts)) || sides[0]; x = pick[1]; z = pick[2];
         } else { const d = Math.sqrt(d2); x = px + (dx / d) * r; z = pz + (dz / d) * r; }
-        hit = moved = true;
+        hit = moved = true; this.lastHitC = c;
       }
       if (!moved) break;
     }
@@ -113,14 +113,14 @@ export class Collision {
   }
   // Segment vs boxes (3D, boxes from y0 to y0+h). Returns fraction t in [0,1] of the first hit, or 1.
   raycast(ax, ay, az, bx, by, bz, pad = 0.2, all = false, minH = 2.2) {
-    let best = 1; const dx = bx - ax, dy = by - ay, dz = bz - az;
+    let best = 1; const dx = bx - ax, dy = by - ay, dz = bz - az; this.lastRayC = null; // 76th: lastRayC — the collider the segment stops on (bullet impact sounds)
     for (const c of this.query(Math.min(ax, bx), Math.min(az, bz), Math.max(ax, bx), Math.max(az, bz))) {
       if (!all && c.h < minH && c.kind !== 'landmark') continue; // ignore small things (bullets pass all=true; the camera passes a lower minH so it also stops at compound walls)
       if (c.h <= 0) continue; // disabled (open gates, raised booms)
       const base = c.y0 || 0;
       let t0 = 0, t1 = best;
       const slab = (o, d, mn, mx) => { if (Math.abs(d) < 1e-9) return o >= mn && o <= mx; let ta = (mn - o) / d, tb = (mx - o) / d; if (ta > tb) [ta, tb] = [tb, ta]; t0 = Math.max(t0, ta); t1 = Math.min(t1, tb); return t0 <= t1; };
-      if (slab(ax, dx, c.x0 - pad, c.x1 + pad) && slab(az, dz, c.z0 - pad, c.z1 + pad) && slab(ay, dy, base - pad, base + c.h + pad)) best = Math.min(best, t0);
+      if (slab(ax, dx, c.x0 - pad, c.x1 + pad) && slab(az, dz, c.z0 - pad, c.z1 + pad) && slab(ay, dy, base - pad, base + c.h + pad) && t0 < best) { best = t0; this.lastRayC = c; }
     }
     return best;
   }

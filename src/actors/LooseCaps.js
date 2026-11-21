@@ -12,6 +12,7 @@
 // nearby, a heavy punch to the head, a bullet through the cap. An officer who gets back up carries on bare-headed (the cap stays
 // where it fell — no pop back onto the head; pickUp is there for a scripted pick-up). At most 12 loose caps; a resting one far from the player is tidied away after a few minutes.
 import * as THREE from 'three';
+import { ObjectAudio } from '../audio/ObjectAudio.js';
 import * as Lay from '../world/Layout.js';
 import { getBodyMaterial, getNpcBodyMaterial } from './Character.js';
 
@@ -113,6 +114,7 @@ export class LooseCaps {
       if (wy !== null && g === wy) continue; // floating: the surface carries it (below), no bounce
       // impulse at the contact point (normal +y), restitution e, Coulomb friction mu
       _w.copy(w).cross(_r).add(v); const vn = _w.y; if (vn >= 0) continue;
+      if (vn < -2 && !c._thud) { c._thud = true; ObjectAudio.fall(px, pz, -vn, c, true); } // 76th: the first hard landing (Interactive objects → Object falling)
       const e = Math.abs(vn) > 1.2 ? 0.28 : 0, mu = 0.55;
       const kN = this.kAlong(_n.set(0, 1, 0), _r, _m3, S.inv); const jn = (-(1 + e) * vn) / kN; this.apply(c, _j.set(0, jn, 0), _r, _m3);
       _w.copy(w).cross(_r).add(v); _t.set(_w.x, 0, _w.z); const vt = _t.length();

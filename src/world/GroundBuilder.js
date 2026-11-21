@@ -7,9 +7,9 @@ import { RNG, hash2 } from '../core/rng.js';
 
 import { buildTrack } from './Railway.js';
 const RY = L.ROAD_Y, LY = L.LAND_Y;
-import { resetGroundDetail, regWalkRect, regWalkCorner, regKerb, regManhole } from './GroundDetail.js';
+import { resetGroundDetail, regWalkRect, regWalkCorner, regKerb, regManhole, regGrate } from './GroundDetail.js';
 const WHITE0 = [0.93, 0.93, 0.9], YELLOW0 = [0.93, 0.76, 0.12]; const WHITE = WHITE0, YELLOW = YELLOW0;
-const lotMaterial = (cell) => {
+const lotMaterial = (cell) => { // (76th: audio/Surface.js applies the same rule for footsteps — keep the two in step)
   const zn = L.zoneAt(cell.cx, cell.cz);
   if (zn) { if (['vmpark', 'museum', 'townhall', 'slpHQ', 'johns'].includes(zn.id)) return 'lawn'; if (zn.id === 'gangaramaya' || zn.id === 'kovil') return 'sand'; return 'concrete'; }
   const st = L.DISTRICTS[cell.district].style;
@@ -240,7 +240,7 @@ function roadWear(mb, s, dir, a, b, n0, n1) {
   // kerb-side drain gratings (both edges): dark sump with cast bars
   if (s.level <= 2 && !s.bridge) for (let t = r.range(6, 16); t < len - 3; t += r.range(18, 28)) for (const sg of [-1, 1]) {
     const o = sg * (s.hw - 0.24); const [x, z] = dir === 'v' ? [cx + o, a + t] : [a + t, cz + o];
-    const along = dir === 'v'; mb.get('drainSump').box(x, RY + 0.0095, z, along ? 0.36 : 0.95, 0.006, along ? 0.95 : 0.36, { col: [0.05, 0.05, 0.05] });
+    const along = dir === 'v'; regGrate(x, z, along ? 0.2 : 0.5, along ? 0.5 : 0.2); mb.get('drainSump').box(x, RY + 0.0095, z, along ? 0.36 : 0.95, 0.006, along ? 0.95 : 0.36, { col: [0.05, 0.05, 0.05] });
     for (let q = -3; q <= 3; q++) { const d = q * 0.12; mb.get('drainGrate').box(along ? x : x + d, RY + 0.011, along ? z + d : z, along ? 0.34 : 0.035, 0.012, along ? 0.035 : 0.34, { col: [0.24, 0.23, 0.22] }); }
   }
   // road studs on the double centre line (dual carriageways), with a little reflective face toward each direction

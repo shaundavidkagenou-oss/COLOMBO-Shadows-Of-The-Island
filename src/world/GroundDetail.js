@@ -20,12 +20,20 @@ import * as RW from './Railway.js';
 
 const T = 8; // tile size (m)
 const RY = L.ROAD_Y, LY = L.LAND_Y;
-const REG = { walk: new Map(), kerb: new Map(), man: new Map(), tree: new Map() };
+const REG = { walk: new Map(), kerb: new Map(), man: new Map(), tree: new Map(), grate: new Map() };
 const key = (i, j) => (i + 2000) * 4096 + (j + 2000);
 function addTo(map, x0, z0, x1, z1, item) {
   for (let i = Math.floor(x0 / T); i <= Math.floor(x1 / T); i++) for (let j = Math.floor(z0 / T); j <= Math.floor(z1 / T); j++) { const k = key(i, j); let a = map.get(k); if (!a) map.set(k, (a = [])); a.push(item); }
 }
-export function resetGroundDetail() { REG.walk.clear(); REG.kerb.clear(); REG.man.clear(); }
+export function resetGroundDetail() { REG.walk.clear(); REG.kerb.clear(); REG.man.clear(); REG.grate.clear(); }
+// 76th: kerb-side drain gratings (half sizes hx / hz) — footsteps on them sound like metal grates (audio/Surface.js)
+export function regGrate(x, z, hx, hz) { addTo(REG.grate, x - hx, z - hz, x + hx, z + hz, { x0: x - hx, z0: z - hz, x1: x + hx, z1: z + hz }); }
+// what the ground detail registry says is underfoot at (x, z): 'grate' (drain grating / manhole cover), 'walk' (paved footway) or null
+export function groundDetailAt(x, z) { const k = key(Math.floor(x / T), Math.floor(z / T));
+  for (const g of REG.grate.get(k) || []) if (x >= g.x0 && x <= g.x1 && z >= g.z0 && z <= g.z1) return 'grate';
+  for (const m of REG.man.get(k) || []) if ((x - m.x) ** 2 + (z - m.z) ** 2 <= m.r * m.r) return 'grate';
+  for (const w of REG.walk.get(k) || []) if (w.t === 0 ? x >= w.x0 && x <= w.x1 && z >= w.z0 && z <= w.z1 : (x - w.cx) ** 2 + (z - w.cz) ** 2 <= w.r * w.r) return 'walk';
+  return null; }
 // cast-iron manhole covers laid by GroundBuilder.roadWear (cover radius r, top at RY + 0.02)
 export function regManhole(x, z, r = 0.33) { addTo(REG.man, x, z, x, z, { x, z, r }); }
 // trees (CityPlan): their fallen leaves gather on the ground under the crown

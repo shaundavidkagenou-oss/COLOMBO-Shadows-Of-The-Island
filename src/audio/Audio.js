@@ -21,7 +21,10 @@ class AudioEngine {
     // concussion muffle (a close explosion): a low-pass between the mix and the master, wide open (inaudible) normally
     this.lp = c.createBiquadFilter(); this.lp.type = 'lowpass'; this.lp.frequency.value = 22000; this.lp.Q.value = 0.5; comp.connect(this.lp); this.lp.connect(this.master);
     const mk = () => { const g = c.createGain(); g.connect(comp); return g; };
-    this.bus = { music: mk(), sfx: mk(), amb: mk(), dlg: mk() };
+    this.bus = { music: mk(), sfx: mk(), amb: mk(), dlg: mk(), veh: mk() }; // 76th: veh — vehicle mechanical / traffic sounds (Settings → Audio → Vehicles)
+    // 76th: the car radio (CarRadio.js) — its own input into the music bus through a low-pass: wide open in the car, closed down
+    // (the body muffling the speakers) when you hear it from outside
+    { const r = c.createGain(); const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 20000; f.Q.value = 0.6; r.connect(f); f.connect(this.bus.music); this.bus.radio = r; this.radioLP = f; }
     // reverb (short convolution) for music + some sfx
     this.verb = c.createConvolver(); this.verb.buffer = this.impulse(2.2); const vg = c.createGain(); vg.gain.value = 0.25; this.verb.connect(vg); vg.connect(comp);
     this.noiseBuf = this.makeNoise(3, 'white'); this.brownBuf = this.makeNoise(4, 'brown');
@@ -36,7 +39,8 @@ class AudioEngine {
     this.applyVolumes(); bus.on('settings', () => this.applyVolumes());
     this.ready = true; SB.attach(c, this);
   }
-  applyVolumes() { if (!this.ctx) return; const S = (k) => Settings.get(k); this.master.gain.value = S('master'); this.bus.music.gain.value = S('music') * 0.55; this.bus.sfx.gain.value = S('sfx'); this.bus.amb.gain.value = S('ambience'); this.bus.dlg.gain.value = S('dialogue'); }
+  applyVolumes() { if (!this.ctx) return; const S = (k) => Settings.get(k); this.master.gain.value = S('master'); this.bus.music.gain.value = S('music') * 0.55; this.bus.sfx.gain.value = S('sfx'); this.bus.amb.gain.value = S('ambience'); this.bus.dlg.gain.value = S('dialogue'); this.bus.veh.gain.value = S('sfx') * (S('vehicle') ?? 1); }
+  busLvl(k) { const S = (n) => Settings.get(n); return k === 'amb' ? S('ambience') : k === 'dlg' ? S('dialogue') : k === 'veh' ? S('sfx') * (S('vehicle') ?? 1) : k === 'music' ? S('music') * 0.55 : S('sfx'); }
   makeNoise(sec, kind) { const c = this.ctx; const b = c.createBuffer(1, c.sampleRate * sec, c.sampleRate); const d = b.getChannelData(0); let last = 0; for (let i = 0; i < d.length; i++) { const w = Math.random() * 2 - 1; if (kind === 'brown') { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; } else d[i] = w; } return b; }
   impulse(sec) { const c = this.ctx; const b = c.createBuffer(2, c.sampleRate * sec, c.sampleRate); for (let ch = 0; ch < 2; ch++) { const d = b.getChannelData(ch); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 3); } return b; }
   env(g, t, a, peak, d, sus = 0) { g.gain.cancelScheduledValues(t); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(peak, 0.0002), t + a); g.gain.exponentialRampToValueAtTime(Math.max(sus, 0.0001), t + a + d); }
@@ -70,7 +74,7 @@ class AudioEngine {
   }
   // ---- sfx
   // 75th: an NPC's footstep at a world point — the same sound (and recording) as the player's own steps, quieter with distance
-  npcStep(x, z, k = 0.7) { const A = this.at(x, z, 4); if (A.g < 0.02) return; const g = A.g * k * (0.85 + Math.random() * 0.3);
+  npcStep(x, z, k = 0.7) { if (this.stepHook && this.stepHook(x, z, k)) return; /* 76th: surface-aware steps (Footsteps.js) */ const A = this.at(x, z, 4); if (A.g < 0.02) return; const g = A.g * k * (0.85 + Math.random() * 0.3);
     if (SB.play('footstep', 0.6 * g, A.pan, 0, { rate: 0.94 + Math.random() * 0.12, lp: A.lp })) return; this.noise(0.07, { f: 900 + Math.random() * 300, q: 1.2, vol: 0.07 * g, pan: A.pan }); }
   // 75th: every hinged door (walk-in shops, the bank, hospital rooms): one of four opening variations (never the same twice in
   // a row) or the closer + latch, at the door, through the sounds board's Doors block when recordings are supplied
@@ -228,7 +232,7 @@ class AudioEngine {
       const rf = c.createBiquadFilter(); rf.type = 'bandpass'; rf.Q.value = 0.7; rf.frequency.value = 1400; const rg = c.createGain(); rg.gain.value = 0; // intake rush
       const o = c.createOscillator(); o.type = 'sine'; const og = c.createGain(); og.gain.value = 0; const vib = c.createOscillator(); vib.frequency.value = 5.3; const vibG = c.createGain(); vibG.gain.value = 9; vib.connect(vibG); vibG.connect(o.frequency);
       const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 500; const out = c.createGain(); out.gain.value = 1;
-      src.connect(wf); wf.connect(wg); src.connect(rf); rf.connect(rg); o.connect(og); wg.connect(hp); rg.connect(hp); og.connect(hp); hp.connect(out); out.connect(this.bus.sfx); src.start(); o.start(); vib.start();
+      src.connect(wf); wf.connect(wg); src.connect(rf); rf.connect(rg); o.connect(og); wg.connect(hp); rg.connect(hp); og.connect(hp); hp.connect(out); out.connect(this.bus.veh); src.start(); o.start(); vib.start();
       T = this.turboV = { wf, wg, rf, rg, o, og, out, last: 0, shaft: 0, rpm: 0, lastT: t }; }
     const dt = Math.min(0.1, Math.max(0, t - T.lastT)); T.lastT = t;
     const b = v ? v.boost || 0 : 0, thr = v ? Math.max(0, v.throttle || 0) : 0, sp = v ? Math.abs(v.speed) : 0;
@@ -246,7 +250,7 @@ class AudioEngine {
   }
   updateEngines(st) {
     const c = this.ctx, t = c.currentTime; const want = st.vehicles || [];
-    while (this.engines.length < 6) { const o = c.createOscillator(); o.type = 'sawtooth'; const o2 = c.createOscillator(); o2.type = 'square'; const f = c.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 2; const g = c.createGain(); g.gain.value = 0; const p = c.createStereoPanner(); const am = c.createGain(); const lfo = c.createOscillator(); lfo.frequency.value = 18; const lfoG = c.createGain(); lfoG.gain.value = 0.3; lfo.connect(lfoG); lfoG.connect(am.gain); const og = c.createGain(); o.connect(am); o2.connect(am); am.connect(f); f.connect(og); og.connect(g); g.connect(p); p.connect(this.bus.sfx); o.start(); o2.start(); lfo.start(); this.engines.push({ o, o2, f, og, g, p, lfo }); }
+    while (this.engines.length < 6) { const o = c.createOscillator(); o.type = 'sawtooth'; const o2 = c.createOscillator(); o2.type = 'square'; const f = c.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 2; const g = c.createGain(); g.gain.value = 0; const p = c.createStereoPanner(); const am = c.createGain(); const lfo = c.createOscillator(); lfo.frequency.value = 18; const lfoG = c.createGain(); lfoG.gain.value = 0.3; lfo.connect(lfoG); lfoG.connect(am.gain); const og = c.createGain(); o.connect(am); o2.connect(am); am.connect(f); f.connect(og); og.connect(g); g.connect(p); p.connect(this.bus.veh); o.start(); o2.start(); lfo.start(); this.engines.push({ o, o2, f, og, g, p, lfo }); }
     this.engines.forEach((e, i) => {
       const v = want[i]; if (!v) { e.g.gain.setTargetAtTime(0, t, 0.2); return; }
       const sp = Math.abs(v.speed); const k = v.type; let base, fc, vol, sid, idle;
@@ -280,7 +284,7 @@ class AudioEngine {
       this.mapPrev = this.musicMode; if (id && SB.has('music.' + id)) this.setMusic(id); }
     else if (this.mapPrev !== undefined) { if (/^map[12]$/.test(this.musicMode)) this.setMusic(this.mapPrev); this.mapPrev = undefined; }
     if (!this.ctx) return; const t = this.ctx.currentTime;
-    for (const k of ['sfx', 'amb', 'dlg']) { const g = this.bus[k].gain; g.cancelScheduledValues(t); const v = Settings.get(k === 'amb' ? 'ambience' : k === 'dlg' ? 'dialogue' : 'sfx'); g.setTargetAtTime(open ? v * 0.12 : v, t, 0.15); }
+    for (const k of ['sfx', 'amb', 'dlg', 'veh']) { const g = this.bus[k].gain; g.cancelScheduledValues(t); const v = this.busLvl(k); g.setTargetAtTime(open ? v * 0.12 : v, t, 0.15); }
   }
   // 71st: the weapon wheel — its own music layer (music.wheel, looping seamlessly) fades in over 1 s while the key is held and
   // out over 1 s on release; the game's score and the world's sound dip under it (gently: the world goes on in slow motion)
@@ -294,7 +298,7 @@ class AudioEngine {
     else { g.setTargetAtTime(0, t, 0.23); g.setValueAtTime(0, t + 1); W.stopT = setTimeout(() => { if (!this.wheelOpen) SB.stopLoop(W); }, 1050); }
     this.wheelOpen = open;
     { const m = this.bus.music.gain, v = Settings.get('music') * 0.55; m.cancelScheduledValues(t); m.setValueAtTime(m.value, t); m.linearRampToValueAtTime(open && SB.has('music.wheel') ? v * 0.2 : v, t + 1); }
-    for (const k of ['sfx', 'amb', 'dlg']) { const b = this.bus[k].gain; b.cancelScheduledValues(t); const v = Settings.get(k === 'amb' ? 'ambience' : k === 'dlg' ? 'dialogue' : 'sfx'); b.setTargetAtTime(open ? v * 0.45 : v, t, open ? 0.12 : 0.3); }
+    for (const k of ['sfx', 'amb', 'dlg', 'veh']) { const b = this.bus[k].gain; b.cancelScheduledValues(t); const v = this.busLvl(k); b.setTargetAtTime(open ? v * 0.45 : v, t, open ? 0.12 : 0.3); }
   }
   wheelSfx(kind) { if (SB.play(kind === 'open' ? 'ui.wheel.open' : 'ui.wheel.switch')) return; if (kind === 'open') { this.noise(0.22, { f: 900, q: 0.8, vol: 0.05, sweep: 2200, attack: 0.02 }); this.tone(220, 0.25, { type: 'sine', vol: 0.05, glide: 140 }); } else { this.tone(1500, 0.025, { type: 'triangle', vol: 0.04 }); this.noise(0.03, { f: 3000, q: 2, vol: 0.03 }); } }
   // ---- generative original score
@@ -309,41 +313,47 @@ class AudioEngine {
       if (has) { this.nextNote = c.currentTime + 0.1; return; }
     }
     if (this.musicMode === 'none') return;
-    const mode = this.musicMode; const bpm = { menu: 76, explore: 84, tension: 118, night: 68, radio1: 124, radio2: 92, chase: 132, intro: 60, club: 100 }[mode] || 80; const spb = 60 / bpm / 2; // eighth notes
+    this.groove(this, this.musicMode, 'music');
+  }
+  // 76th: the generative score's scheduler, shared — S = { nextNote, step } (the game's score: the engine itself; the car radio's
+  // stand-in groove when a station has no recordings: its own state), out = the bus it plays into ('music' / 'radio')
+  groove(S, mode, out) {
+    const c = this.ctx; const bpm = { menu: 76, explore: 84, tension: 118, night: 68, radio1: 124, radio2: 92, chase: 132, intro: 60, club: 100 }[mode] || 80; const spb = 60 / bpm / 2; // eighth notes
     // scale: D Dorian-ish with a raised 4th flavour for colour
     const root = mode === 'tension' || mode === 'chase' ? 110 : 146.83; const SC = [0, 2, 3, 5, 7, 9, 10, 12, 14, 15];
     const f = (deg, oct = 0) => root * Math.pow(2, (SC[((deg % SC.length) + SC.length) % SC.length] + 12 * (oct + Math.floor(deg / SC.length))) / 12);
-    while (this.nextNote < c.currentTime + 0.2) {
-      const s = this.step, w = this.nextNote - c.currentTime; const bar = Math.floor(s / 8) % 4; const prog = [0, 5, 3, 4][bar];
+    if (!(S.nextNote > c.currentTime - 0.5)) S.nextNote = c.currentTime + 0.05; // (re)started after a pause: no burst of overdue notes
+    while (S.nextNote < c.currentTime + 0.2) {
+      const s = S.step, w = S.nextNote - c.currentTime; const bar = Math.floor(s / 8) % 4; const prog = [0, 5, 3, 4][bar];
       if (mode === 'radio1') { // upbeat 6/8 baila-flavoured groove (original)
-        const s6 = s % 6; if (s6 === 0 || s6 === 3) this.drum(w, s6 === 0 ? 70 : 90, 0.3); if (s6 === 2 || s6 === 5) this.noise(0.05, { f: 6000, vol: 0.04, when: w, out: 'music' });
-        if (s6 === 0) [0, 2, 4].forEach((d) => this.tone(f(prog + d, 1), spb * 5, { type: 'triangle', vol: 0.03, when: w, out: 'music' }));
-        if (s6 === 1 || s6 === 4) this.tone(f(prog, 0) / 2, spb * 1.5, { type: 'sawtooth', vol: 0.05, when: w, out: 'music' });
-        if (Math.random() < 0.5) this.tone(f(prog + [0, 2, 4, 5, 7][Math.floor(Math.random() * 5)], 2), spb * 0.9, { type: 'square', vol: 0.018, when: w, out: 'music' });
+        const s6 = s % 6; if (s6 === 0 || s6 === 3) this.drum(w, s6 === 0 ? 70 : 90, 0.3, out); if (s6 === 2 || s6 === 5) this.noise(0.05, { f: 6000, vol: 0.04, when: w, out });
+        if (s6 === 0) [0, 2, 4].forEach((d) => this.tone(f(prog + d, 1), spb * 5, { type: 'triangle', vol: 0.03, when: w, out }));
+        if (s6 === 1 || s6 === 4) this.tone(f(prog, 0) / 2, spb * 1.5, { type: 'sawtooth', vol: 0.05, when: w, out });
+        if (Math.random() < 0.5) this.tone(f(prog + [0, 2, 4, 5, 7][Math.floor(Math.random() * 5)], 2), spb * 0.9, { type: 'square', vol: 0.018, when: w, out });
       } else if (mode === 'club') { // club PA: slow four-on-the-floor R&B/house groove in a minor key (original, generative)
         const s16 = s % 16, cm = [0, 5, 3, 6][bar]; // i – vi – iv – VII flavour on the Dorian scale
-        if (s % 2 === 0) this.drum(w, 52, 0.34); // kick on every beat
-        if (s % 2 === 1) this.noise(0.045, { f: 8000, vol: 0.03, when: w, out: 'music' }); // off-beat hat
-        if (s % 8 === 2 || s % 8 === 6) { this.noise(0.12, { f: 1500, q: 0.8, vol: 0.07, when: w, out: 'music', verb: true }); this.noise(0.03, { f: 4200, vol: 0.03, when: w + 0.012, out: 'music' }); } // clap on 2 and 4
-        const bl = [0, 0, 7, 0, 5, 0, 7, 10][s % 8]; if (s % 8 !== 3 && s % 8 !== 7) this.tone(f(cm, -1) * Math.pow(2, bl / 12), spb * 0.85, { type: 'sawtooth', vol: 0.05, when: w, out: 'music' }); // bass line
-        if (s16 === 0) [0, 2, 4, 6].forEach((d) => this.tone(f(cm + d, 0), spb * 15, { type: 'triangle', vol: 0.022, attack: 0.6, when: w, out: 'music', verb: true, detune: (Math.random() - 0.5) * 10 })); // pad
-        if (s % 4 === 3 && Math.random() < 0.55) this.tone(f(cm + [4, 6, 7, 9][Math.floor(Math.random() * 4)], 1), spb * 1.4, { type: 'square', vol: 0.014, when: w, out: 'music', verb: true }); // stab
+        if (s % 2 === 0) this.drum(w, 52, 0.34, out); // kick on every beat
+        if (s % 2 === 1) this.noise(0.045, { f: 8000, vol: 0.03, when: w, out }); // off-beat hat
+        if (s % 8 === 2 || s % 8 === 6) { this.noise(0.12, { f: 1500, q: 0.8, vol: 0.07, when: w, out, verb: true }); this.noise(0.03, { f: 4200, vol: 0.03, when: w + 0.012, out }); } // clap on 2 and 4
+        const bl = [0, 0, 7, 0, 5, 0, 7, 10][s % 8]; if (s % 8 !== 3 && s % 8 !== 7) this.tone(f(cm, -1) * Math.pow(2, bl / 12), spb * 0.85, { type: 'sawtooth', vol: 0.05, when: w, out }); // bass line
+        if (s16 === 0) [0, 2, 4, 6].forEach((d) => this.tone(f(cm + d, 0), spb * 15, { type: 'triangle', vol: 0.022, attack: 0.6, when: w, out, verb: true, detune: (Math.random() - 0.5) * 10 })); // pad
+        if (s % 4 === 3 && Math.random() < 0.55) this.tone(f(cm + [4, 6, 7, 9][Math.floor(Math.random() * 4)], 1), spb * 1.4, { type: 'square', vol: 0.014, when: w, out, verb: true }); // stab
       } else {
         const sparse = mode === 'night' || mode === 'menu' || mode === 'intro';
-        if (s % 16 === 0) [0, 2, 4, 7].forEach((d) => this.tone(f(prog + d, 0), spb * 16, { type: 'sine', vol: sparse ? 0.035 : 0.03, attack: 1.2, when: w, out: 'music', verb: true, detune: (Math.random() - 0.5) * 8 }));
-        if (s % 16 === 0) this.tone(f(prog, -1), spb * 16, { type: 'triangle', vol: 0.05, attack: 0.5, when: w, out: 'music' });
+        if (s % 16 === 0) [0, 2, 4, 7].forEach((d) => this.tone(f(prog + d, 0), spb * 16, { type: 'sine', vol: sparse ? 0.035 : 0.03, attack: 1.2, when: w, out, verb: true, detune: (Math.random() - 0.5) * 8 }));
+        if (s % 16 === 0) this.tone(f(prog, -1), spb * 16, { type: 'triangle', vol: 0.05, attack: 0.5, when: w, out });
         // tabla-like percussion
         const pat = mode === 'tension' || mode === 'chase' ? [1, 0, 1, 1, 0, 1, 1, 0] : sparse ? [1, 0, 0, 0, 0, 0, 1, 0] : [1, 0, 0, 1, 0, 0, 1, 0];
-        if (pat[s % 8] && mode !== 'intro') this.drum(w, s % 8 === 0 ? 85 : 160, mode === 'tension' || mode === 'chase' ? 0.22 : 0.14);
-        if ((mode === 'tension' || mode === 'chase') && s % 2 === 1) this.noise(0.04, { f: 7000, vol: 0.025, when: w, out: 'music' });
+        if (pat[s % 8] && mode !== 'intro') this.drum(w, s % 8 === 0 ? 85 : 160, mode === 'tension' || mode === 'chase' ? 0.22 : 0.14, out);
+        if ((mode === 'tension' || mode === 'chase') && s % 2 === 1) this.noise(0.04, { f: 7000, vol: 0.025, when: w, out });
         // flute-like motif
-        if (!sparse || s % 4 === 0) { if (Math.random() < (sparse ? 0.35 : 0.3)) { const deg = prog + [0, 2, 4, 5, 7, 4, 2][Math.floor(Math.random() * 7)]; this.flute(f(deg, 2), spb * (Math.random() < 0.3 ? 4 : 2), w); } }
+        if (!sparse || s % 4 === 0) { if (Math.random() < (sparse ? 0.35 : 0.3)) { const deg = prog + [0, 2, 4, 5, 7, 4, 2][Math.floor(Math.random() * 7)]; this.flute(f(deg, 2), spb * (Math.random() < 0.3 ? 4 : 2), w, out); } }
       }
-      this.step++; this.nextNote += spb;
+      S.step++; S.nextNote += spb;
     }
   }
-  drum(w, f, vol) { this.tone(f * 2.2, 0.25, { type: 'sine', vol, when: w, glide: f, out: 'music' }); this.noise(0.03, { f: 3000, vol: vol * 0.2, when: w, out: 'music' }); }
-  flute(freq, dur, w) { if (!this.live) return; const c = this.ctx, t = c.currentTime + w; const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = freq; const vib = c.createOscillator(); vib.frequency.value = 5.2; const vg = c.createGain(); vg.gain.value = freq * 0.008; vib.connect(vg); vg.connect(o.frequency); const g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.03, t + 0.08); g.gain.setValueAtTime(0.03, t + dur * 0.7); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.connect(g); g.connect(this.bus.music); g.connect(this.verb); o.start(t); vib.start(t); o.stop(t + dur + 0.05); vib.stop(t + dur + 0.05); }
+  drum(w, f, vol, out = 'music') { this.tone(f * 2.2, 0.25, { type: 'sine', vol, when: w, glide: f, out }); this.noise(0.03, { f: 3000, vol: vol * 0.2, when: w, out }); }
+  flute(freq, dur, w, out = 'music') { if (!this.live) return; const c = this.ctx, t = c.currentTime + w; const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = freq; const vib = c.createOscillator(); vib.frequency.value = 5.2; const vg = c.createGain(); vg.gain.value = freq * 0.008; vib.connect(vg); vg.connect(o.frequency); const g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.03, t + 0.08); g.gain.setValueAtTime(0.03, t + dur * 0.7); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.connect(g); g.connect(this.bus[out] || this.bus.music); g.connect(this.verb); o.start(t); vib.start(t); o.stop(t + dur + 0.05); vib.stop(t + dur + 0.05); }
 }
 export const Audio = new AudioEngine();
 if (typeof window !== 'undefined') window.__audio = Audio; // console / tests (like window.__sounds)

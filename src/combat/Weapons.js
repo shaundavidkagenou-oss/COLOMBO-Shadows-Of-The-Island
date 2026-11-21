@@ -10,6 +10,7 @@ import { Settings } from '../core/Settings.js';
 import { clamp, lerp, wrapAngle } from '../core/math.js';
 import { Audio } from '../audio/Audio.js';
 import { SoundBank as SB } from '../audio/SoundBank.js';
+import { ObjectAudio } from '../audio/ObjectAudio.js';
 import { buildWeaponModel, weaponMaterials } from './WeaponModels.js';
 import { holdFor } from './GripSolver.js';
 import { pocketFor, protractFor, protractLFor, elbowPole } from './Pocket.js';
@@ -150,6 +151,14 @@ export class Weapons {
     P.ch.anim.takeHit(covering ? 'block' : M.react, M.dir || 1, (M.pow || 1) * 0.8); P.shake = Math.max(P.shake || 0, covering ? 0.06 : 0.2); this.fightT = Math.max(this.fightT || 0, 3);
     SB.play('punch.taken', covering ? 0.6 : 1) || Audio.noise(0.06, { f: covering ? 380 : 240, q: 1.3, vol: 0.12, when: 0 }); this.hitsTaken = (this.hitsTaken || 0) + 1;
   }
+  // 76th: weapon foley (sounds window → Character foley). The put-away sound plays the moment the weapon seats in its holster /
+  // sling (end of the holster animation); a straight swap plays the switch sound there instead, and the next weapon's draw then
+  // stays quiet when that switch recording exists (one sound per swap); a draw plays at the start of the equip animation. Empty
+  // slots: the existing Weapons → "Weapon drawn / holstered" recording (or its synthesised sound), exactly as before.
+  stowFoley(swap, d) { const pistol = d && d.cls === 'pistol';
+    if (swap) { this._swapped = SB.play('foley.switch', 0.9, 0, 0, { rate: 0.96 + Math.random() * 0.08 }); return; }
+    SB.play('foley.holster', 1, 0, 0, { rate: 0.96 + Math.random() * 0.08 }) || SB.play('gun.equip', 0.75, 0, 0, { rate: 0.9 }) || Audio.noise(pistol ? 0.08 : 0.12, { f: pistol ? 1100 : 750, q: 0.9, vol: 0.04 }); }
+  drawFoley() { if (this._swapped) { this._swapped = false; return true; } return SB.play('foley.draw', 1, 0, 0, { rate: 0.96 + Math.random() * 0.08 }); }
   holster() { if (this.drawn && this.state !== 'holster') { this.next = -1; if (this.state === 'reload') this.abortReload(); this.setState('holster'); } }
   // draw / put-away timing. Long guns (and any weapon taken during a swap) come straight into the hands — a short raise
   // from low ready — and go away the same way; only a pistol drawn from empty hands comes out of (and back into) the hip
@@ -238,7 +247,7 @@ export class Weapons {
     this.t += dt; this.cool = Math.max(0, this.cool - dt); this.bloom = Math.max(0, this.bloom - dt * (def && def.cls === 'sniper' ? 0.02 : 0.06)); this.recoil = Math.max(0, this.recoil - dt * 9 * (this.recoil + 0.02)); this.quickAim = Math.max(0, this.quickAim - dt);
     if (this.state === 'equip' && this.t >= this.dur) this.setState('ready');
     if (this.state === 'check' && this.t >= 0.9 && this.cycleT < 0) this.setState('ready'); this.trigT = Math.max(0, this.trigT - dt);
-    if (this.state === 'holster' && this.t >= this.dur) { this.models[this.cur].visible = false; const n = this.next; this.cur = -1; this.state = 'none'; A.ik = null; A.aim = null; if (n >= 0) { this.sel = n; this.cur = n; this._fromUnarmed = false; this.setState('equip'); } if (this._toFists) { this.sel = -1; this._toFists = false; } this.showHolstered(); }
+    if (this.state === 'holster' && this.t >= this.dur) { this.models[this.cur].visible = false; const n = this.next; this.stowFoley(n >= 0, WEAPONS[this.cur]); this.cur = -1; this.state = 'none'; A.ik = null; A.aim = null; if (n >= 0) { this.sel = n; this.cur = n; this._fromUnarmed = false; this.setState('equip'); } if (this._toFists) { this.sel = -1; this._toFists = false; } this.showHolstered(); }
     // ---- fists
     this.punchCd = Math.max(0, (this.punchCd || 0) - dt); if (this.punchT > 0) { this.punchT -= dt; if (this.punchT <= 0) this.punchHit(); } this.fistsUpdate(dt, aimHeld);
     if (firePressed && this.fistsReady && !P.sprinting && !P.crouching && this.punchCd <= 0) this.punch();
@@ -379,7 +388,7 @@ export class Weapons {
       const u = clamp(k / this.dur, 0, 1); let a;
       if (this.state === 'equip') { a = sm(u); ikW = sm(seg(u, 0, 0.3)); hideW = u < 0.1; } else { a = 1 - sm(seg(u, 0, 0.65)); ikW = 1 - sm(seg(u, 0.65, 1)); hideW = u >= 0.65; }
       this.appearK = a; const dn = 1 - a; pos.y -= 0.12 * dn; pos.z -= 0.04 * dn; pos.x += (twoHand ? 0.03 : 0.02) * dn; rx += 0.65 * dn; ry += (twoHand ? 0.25 : 0.1) * dn;
-      if (this.state === 'equip' && k < dt * 1.5) SB.play('gun.equip') || Audio.noise(0.1, { f: 900, q: 0.8, vol: 0.05 });
+      if (this.state === 'equip' && k < dt * 1.5) this.drawFoley() || SB.play('gun.equip') || Audio.noise(0.1, { f: 900, q: 0.8, vol: 0.05 });
     }
     // weapon matrix (body space), then chest space
     const wq = new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz, 'YXZ'));
@@ -401,7 +410,7 @@ export class Weapons {
       const reach = sm(seg(u, 0, 0.38)); const travel = sm(seg(u, 0.38, 1));
       if (u < 0.38) { handOnly = 1; this._reach = reach; } else { const a = new THREE.Vector3(), aq = new THREE.Quaternion(), b = new THREE.Vector3(), bq = new THREE.Quaternion(), sc = new THREE.Vector3(); slot.decompose(a, aq, sc); chestM.decompose(b, bq, sc); chestM = new THREE.Matrix4().compose(a.lerp(b, travel), aq.slerp(bq, travel), new THREE.Vector3(1, 1, 1)); }
       supW = twoHand ? sm(seg(u, 0.7, 1)) : supW * sm(seg(u, 0.8, 1));
-      if (this.state === 'equip' && k < dt * 1.5) SB.play('gun.equip') || Audio.noise(0.12, { f: 700, q: 0.8, vol: 0.06 });
+      if (this.state === 'equip' && k < dt * 1.5) this.drawFoley() || SB.play('gun.equip') || Audio.noise(0.12, { f: 700, q: 0.8, vol: 0.06 });
       if (handOnly) { const slotM = slot; if (m.parent !== (def.cls === 'pistol' ? this.holsterP : this.holsterR)) { (def.cls === 'pistol' ? this.holsterP : this.holsterR).add(m); m.matrixAutoUpdate = true; m.position.set(0, 0, 0); m.quaternion.identity(); } m.visible = true;
         const g = (H ? H.R.wrist.clone() : new THREE.Vector3()).applyMatrix4(slotM); A.ik = { R: g, qR: new THREE.Quaternion().setFromRotationMatrix(slotM).multiply(H ? H.R.q : Q_GRIP), wR: this._reach, L: null }; P.ch.rig && P.ch.rig.hand('R', this._reach > 0.8 ? (H ? H.R.ready : 'grip') : 'open');
         return; }
@@ -448,10 +457,10 @@ export class Weapons {
   // nearest hit along a ray: world geometry, pedestrians (capsules), vehicles (bounding circles)
   trace(o, d, range, skipNear = 0, skipV = null) { // skipV: a vehicle the bullet already went through / past
     let best = { t: range, kind: 'none' }; const rr = this.robRoom(); // inside a robbery store the room's own walls / counters are the world (the building's collider box would stop every shot)
-    const s0 = o.clone().addScaledVector(d, skipNear), e = o.clone().addScaledVector(d, range); const tw = rr ? 1 : this.g.collision.raycast(s0.x, s0.y, s0.z, e.x, e.y, e.z, 0.02, true); if (tw < 1) best = { t: skipNear + tw * (range - skipNear), kind: 'world' };
+    const s0 = o.clone().addScaledVector(d, skipNear), e = o.clone().addScaledVector(d, range); const tw = rr ? 1 : this.g.collision.raycast(s0.x, s0.y, s0.z, e.x, e.y, e.z, 0.02, true); if (tw < 1) best = { t: skipNear + tw * (range - skipNear), kind: 'world', c: this.g.collision.lastRayC };
     if (rr) { const t = rr.rob.rayRoom(o, d, range); if (t < best.t && t >= skipNear) best = { t, kind: 'world' };
       const ex = rr.rob.exitT; if (ex !== null && ex !== undefined && best.t >= range) { // out through the doorway: the street's buildings stop it again (no hits through walls hundreds of metres off)
-        const a0 = Math.max(skipNear, ex + 0.35), s1 = o.clone().addScaledVector(d, a0); const tw2 = a0 < range ? this.g.collision.raycast(s1.x, s1.y, s1.z, e.x, e.y, e.z, 0.02, true) : 1; if (tw2 < 1) best = { t: a0 + tw2 * (range - a0), kind: 'world' }; }
+        const a0 = Math.max(skipNear, ex + 0.35), s1 = o.clone().addScaledVector(d, a0); const tw2 = a0 < range ? this.g.collision.raycast(s1.x, s1.y, s1.z, e.x, e.y, e.z, 0.02, true) : 1; if (tw2 < 1) best = { t: a0 + tw2 * (range - a0), kind: 'world', c: this.g.collision.lastRayC }; }
       /* a ray that stays in the room is already capped by its walls / counters, so nobody outside can be hit */ }
     if (o.y + d.y * best.t < this.groundY(o.x + d.x * best.t, o.z + d.z * best.t)) { // hits the street before anything else
       const tg = d.y < -1e-4 ? (this.groundY(o.x, o.z) - o.y) / d.y : best.t; if (tg > 0 && tg < best.t) best = { t: tg, kind: 'ground' }; }
@@ -514,7 +523,7 @@ export class Weapons {
       if (R) hit.point.copy(R.point); if (!R || R.kind !== 'glass') this.sparks(hit.point, dir); if (!VD) SB.play('gun.ricochet', 1, 0, 0, { rate: 0.9 + Math.random() * 0.2 }) || Audio.tone(2400 + Math.random() * 1500, 0.07, { type: 'triangle', vol: 0.05 });
       if (v.ai) v.ai.bumped = 2.5; this.g.crowd.alarm(v.x, v.z, 25, 2, null, 'gunshot', true); if (R && R.occupant) this.hitMarker();
       if (R && R.exit && R.pass > 0.12 && depth < 2) { const rest = def.range - hit.t; const h2 = this.trace(R.exit, dir, Math.max(0.1, rest), 0.02, v); if (h2.kind !== 'none') return this.applyHit(h2, dir, R.exit, def, k * R.pass, depth + 1); } }
-    else if (hit.kind === 'world' || hit.kind === 'ground') { this.puff(hit.point, hit.kind === 'ground' ? 0x6d6a64 : 0xb5ab9a, 5); this.decal(hit.point, dir, hit.kind); }
+    else if (hit.kind === 'world' || hit.kind === 'ground') { this.puff(hit.point, hit.kind === 'ground' ? 0x6d6a64 : 0xb5ab9a, 5); this.decal(hit.point, dir, hit.kind); if (hit.c) ObjectAudio.bullet(hit.point, hit.c); } // 76th: a bin / pole / railing / bench rings, clangs or knocks (ObjectAudio)
     return hit;
   }
   report(e) { // a witness phoned the police (several calls about the same incident only count once every few seconds)
