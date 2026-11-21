@@ -205,11 +205,11 @@ function cells(W, cell, seed, warpAmt) { const r = rng(seed); const G = Math.rou
 }
 export function granite(pal, { W = 2048, seed = 131, cell = 14, dark = [24, 23, 23], darkFrac = 0.14, mean = null } = {}) {
   const H = W, D = img(W, H); const r = rng(seed); let tw = 0; for (const p of pal) tw += p[3];
-  const C = cells(W, cell, seed + 10, 1.8), W2 = W / 2, F = cells(W2, Math.max(3, cell * 0.21), seed + 20, 1.2); // the fine (mica) layer at half resolution
+  const C = cells(W, cell, seed + 10, 1.8), F = cells(W, Math.max(5, cell * 0.42), seed + 20, 1.2); // the fine (mica) layer (78th: at full resolution — it was blocky at half)
   const kind = new Uint8Array(C.n), vary = new Float32Array(C.n), zone = new Float32Array(C.n); for (let i = 0; i < C.n; i++) { let t = r() * tw, k = 0; while (k < pal.length - 1 && t > pal[k][3]) { t -= pal[k][3]; k++; } kind[i] = k; vary[i] = 0.9 + r() * 0.2; zone[i] = r() * 0.3; }
   const isDark = new Uint8Array(F.n), dv = new Float32Array(F.n); for (let i = 0; i < F.n; i++) { isDark[i] = r() < darkFrac ? 1 : 0; dv[i] = 0.75 + r() * 0.5; }
   const inner = up(norm(fbm(512, 512, 96, 96, 2, seed + 3)), 512, 512, W, H);
-  for (let i = 0; i < W * H; i++) { const hi = ((i / W / 2) | 0) * W2 + ((i % W) >> 1), fi = F.id[hi];
+  for (let i = 0; i < W * H; i++) { const hi = i, fi = F.id[hi];
     if (isDark[fi] && F.edge[hi] > 0.06) { const k = dv[fi] * (0.85 + inner[i] * 0.3); shade(D, i, dark[0], dark[1], dark[2], k); continue; }
     const c = C.id[i], p = pal[kind[c]]; const e = C.edge[i]; const z = 1 - zone[c] * Math.max(0, 1 - e * 3); const bd = e < 0.04 ? 0.93 + e * 1.75 : 1; // zoned crystals, faint boundaries (polished)
     shade(D, i, p[0], p[1], p[2], vary[c] * z * bd * (0.95 + inner[i] * 0.1)); }
@@ -226,6 +226,23 @@ export function limestone(W = 2048, seed = 141) {
   for (let i = 0; i < W * H; i++) if (hgt[i] < -0.5) { const o = i * 4; D[o] *= 0.78; D[o + 1] *= 0.77; D[o + 2] *= 0.75; }
   matchMean(D, 228, 220, 204); return { w: W, h: H, rgba: D, height: hgt, nScale: 0.6 };
 }
+
+// 78th: roughness of the polished granite floor (green channel = roughness; a linear texture). Large soft patches where
+// the polish has dulled a little, a finer cloud, and a few hundred hairline scratches (rougher) — never mirror-smooth.
+export function floorRough(W = 1024, seed = 161) {
+  const D = img(W, W); const r = rng(seed); const big = up(norm(fbm(128, 128, 3, 3, 4, seed + 1)), 128, 128, W, W), mid = up(norm(fbm(256, 256, 14, 14, 3, seed + 2)), 256, 256, W, W);
+  const sc = new Float32Array(W * W); for (let k = 0; k < 700; k++) { const x = r() * W, y = r() * W, an = r() * 6.283, l = 5 + r() * 34; line(sc, W, W, x, y, x + Math.cos(an) * l, y + Math.sin(an) * l, 0.4 + r() * 0.6, 1); }
+  for (let i = 0; i < W * W; i++) { const v = 0.105 + (big[i] - 0.5) * 0.075 + (mid[i] - 0.5) * 0.03 + sc[i] * 0.11 + (r() - 0.5) * 0.012; const g = clamp(Math.max(0.06, Math.min(0.42, v)) * 255); const o = i * 4; D[o] = D[o + 1] = D[o + 2] = g; D[o + 3] = 255; }
+  return { w: W, h: W, rgba: D, linear: true };
+}
+// 78th: 2 × 2 box-filter downsample (graphics-quality texture sizes; secondary surfaces at half size)
+export function halve(rgba, w, h) { const W2 = w >> 1, H2 = h >> 1, o = new Uint8ClampedArray(W2 * H2 * 4);
+  for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) { const a = ((y * 2) * w + x * 2) * 4, b = a + w * 4, d = (y * W2 + x) * 4; for (let c = 0; c < 4; c++) o[d + c] = (rgba[a + c] + rgba[a + 4 + c] + rgba[b + c] + rgba[b + 4 + c] + 2) >> 2; }
+  return { w: W2, h: H2, rgba: o }; }
+// shrink a generated surface { w, h, rgba, n } until it is at most `size` (its normal map to half of that)
+export function fitSize(s, size) { let { w, h, rgba } = s; while (w > size && w > 64) ({ w, h, rgba } = halve(rgba, w, h)); let n = s.n;
+  if (n) { let { w: nw, h: nh, rgba: nr } = n; while (nw > Math.max(64, size / 2)) ({ w: nw, h: nh, rgba: nr } = halve(nr, nw, nh)); n = { w: nw, h: nh, rgba: nr }; }
+  return { w, h, rgba, n, linear: s.linear }; }
 
 // ------------------------------------------------------------------------------------------------ normal maps
 // height (W × H, 0..1-ish) → RGBA normal map at half resolution (tangent space, +Y = +v; the canvas is uploaded flipped,
@@ -257,8 +274,11 @@ export const BANK_SURFACES = {
   cmbCeil: () => ceilTile(),
   cmbDiffuser: () => diffuser(),
   cmbGrout: () => grout(),
-  // the hall floor: a mid-grey salt-and-pepper granite (feldspar, quartz, mica) — tinted per tile by the floor's colours
-  cmbGranite: () => granite([[200, 196, 190, 3.2], [138, 135, 132, 3.0], [170, 164, 156, 1.8], [104, 101, 99, 1.2]], { seed: 131, cell: 16, darkFrac: 0.16, mean: [112, 108, 104] }),
+  // the hall floor (78th: polished dark-grey granite, "steel grey": charcoal feldspar, smoky quartz, black mica, a few pale
+  // grains) — tinted per tile by the floor's colours; its polish varies by the roughness map below
+  cmbGranite: () => granite([[66, 66, 68, 3.4], [86, 86, 88, 2.6], [112, 111, 110, 1.0], [148, 146, 142, 0.35]], { seed: 131, cell: 11, dark: [17, 17, 18], darkFrac: 0.27, mean: [72, 72, 74] }),
+  // 78th: the floor's polish (linear data, read as roughness): 0.08–0.16 polished stone, duller traffic patches, fine scratches
+  cmbGraniteRough: () => floorRough(),
   // the facade: absolute-black granite (stall risers, planters, the entrance apron) and the limestone cladding
   cmbBlackGranite: () => granite([[34, 34, 36, 5], [46, 46, 49, 3], [64, 64, 68, 0.7]], { seed: 151, cell: 9, dark: [16, 16, 17], darkFrac: 0.3, mean: [36, 36, 38] }),
   cmbLimestone: () => limestone(),

@@ -13,7 +13,8 @@
 //     look is their relief (plaster, moulded plastic, walnut pores, upholstery weave, ceiling-tile fissures, limestone) also
 //     get a 1024² normal map derived from the same height field.
 import * as THREE from 'three';
-import { BANK_SURFACES, normalMap } from './BankTex2K.js';
+import { BANK_SURFACES, normalMap, fitSize } from './BankTex2K.js';
+import { Settings } from '../core/Settings.js';
 import { hasCanvas } from './BankBrand.js';
 
 const RAW = new Map(); // key → { w, h, rgba, n } finished by a worker, waiting to be put into a canvas
@@ -22,18 +23,26 @@ const TEX = new Map(), NRM = new Map(); let pending = null;
 const can2K = () => hasCanvas() && typeof ImageData !== 'undefined';
 export const BANK_TEX_KEYS = Object.keys(BANK_SURFACES);
 export const BANK_TEX_SIZE = 2048;
+// 78th: graphics-quality sizes. The big close-up surfaces (floor, walls, ceiling, walnut, marble, the facade stone) at the
+// preset's size (2048 on medium / high / ultra, 1024 on low); small or secondary ones (fittings, trims, plastics, fabric,
+// grout, light diffusers, the floor's roughness) at half that. Read when the textures are generated (the loading screen):
+// a quality change applies from the next load.
+const SECONDARY = new Set(['cmbChrome', 'cmbBrass', 'cmbGrout', 'cmbDiffuser', 'cmbGlaze', 'cmbPlastic', 'cmbSteel', 'cmbFabric', 'cmbGraniteRough']);
+const presetOf = () => { try { return Settings.preset || {}; } catch (e) { return {}; } };
+export function bankTexSize(key) { const p = presetOf(); const big = p.bankTex || 2048; return SECONDARY.has(key) ? big / 2 : big; }
+const anisoNow = () => { const q = presetOf(); return q.bankFX >= 3 ? 16 : q.bankFX === 0 ? 4 : 8; };
 
 // a canvas texture whose canvas is dropped after its GPU upload and rebuilt on demand (see the header)
-function lazyCanvasTexture(make, { srgb = true, aniso = 8 } = {}) {
+function lazyCanvasTexture(make, { srgb = true, aniso = anisoNow() } = {}) {
   let cv = make(); const t = new THREE.CanvasTexture(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.anisotropy = aniso;
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
   const src = t.source; Object.defineProperty(src, 'data', { configurable: true, enumerable: true, get() { if (!cv) cv = make(); return cv; }, set(v) { cv = v; } });
   t.onUpdate = () => { cv = null; }; t.userData.bank2k = true; return t;
 }
 function toCanvas(w, h, rgba) { const cv = document.createElement('canvas'); cv.width = w; cv.height = h; cv.getContext('2d').putImageData(new ImageData(rgba, w, h), 0, 0); return cv; }
-function generate(key) { const r = RAW.get(key); if (r) { RAW.delete(key); return r; } const s = BANK_SURFACES[key](); const n = s.height ? normalMap(s.height, s.w, s.h, s.nScale || 1) : null; return { w: s.w, h: s.h, rgba: s.rgba, n }; }
+function generate(key) { const r = RAW.get(key); if (r) { RAW.delete(key); return r; } const s = BANK_SURFACES[key](); const n = s.height ? normalMap(s.height, s.w, s.h, s.nScale || 1) : null; return fitSize({ w: s.w, h: s.h, rgba: s.rgba, n, linear: s.linear }, bankTexSize(key)); }
 function build(key) { let first = generate(key); const nrm = first.n;
-  const t = lazyCanvasTexture(() => { const g = first || generate(key); first = null; return toCanvas(g.w, g.h, g.rgba); }); t.name = 'CMB 2K · ' + key; TEX.set(key, t);
+  const t = lazyCanvasTexture(() => { const g = first || generate(key); first = null; return toCanvas(g.w, g.h, g.rgba); }, { srgb: !first.linear }); /* 78th: data maps (roughness) stay linear */ t.name = 'CMB 2K · ' + key; TEX.set(key, t);
   if (nrm) { let nf = nrm; const n = lazyCanvasTexture(() => { const g = nf || generate(key).n; nf = null; return toCanvas(g.w, g.h, g.rgba); }, { srgb: false, aniso: 4 }); n.name = 'CMB 2K normal · ' + key; NRM.set(key, n); }
   return t; }
 // the colour texture for a bank surface (null without a canvas — Node tests)
@@ -52,9 +61,9 @@ export function startBankTextures(renderer = null) { if (renderer) REND = render
   const nw = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 4) - 1, todo.length)); /* ≤ 3: each holds ~100 MB of working buffers at its peak */ let done = 0;
   pending = new Promise((resolve) => { const workers = []; let next = 0, live = nw;
     const finish = (w) => { try { w.terminate(); } catch (e) { /* already gone */ } if (--live === 0) resolve(done); };
-    const feed = (w) => { if (next >= todo.length) return finish(w); const key = todo[next++]; w.postMessage({ key, id: next }); };
+    const feed = (w) => { if (next >= todo.length) return finish(w); const key = todo[next++]; w.postMessage({ key, id: next, size: bankTexSize(key) }); };
     for (let i = 0; i < nw; i++) { let w; try { w = new Worker(new URL('./BankTexWorker.js', import.meta.url), { type: 'module' }); } catch (e) { console.warn('bank textures: no worker', e); if (--live === 0) resolve(done); continue; }
-      workers.push(w); w.onmessage = (e) => { const d = e.data; if (!d.error && !TEX.has(d.key)) { RAW.set(d.key, { w: d.w, h: d.h, rgba: d.rgba, n: d.n }); done++; upload(d.key); } else if (d.error) console.warn('bank texture', d.key, d.error); feed(w); };
+      workers.push(w); w.onmessage = (e) => { const d = e.data; if (!d.error && !TEX.has(d.key)) { RAW.set(d.key, { w: d.w, h: d.h, rgba: d.rgba, n: d.n, linear: d.linear }); done++; upload(d.key); } else if (d.error) console.warn('bank texture', d.key, d.error); feed(w); };
       w.onerror = (e) => { console.warn('bank texture worker', e.message || e); e.preventDefault && e.preventDefault(); finish(w); }; feed(w); }
   });
   return pending;

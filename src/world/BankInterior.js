@@ -28,6 +28,7 @@ import { cloneMaterial } from '../gfx/Materials.js';
 import { useBankMaterials, bankMaterials, groutTex, SCREEN_UV } from './BankMaterials.js'; // 74th: the hall's own textured materials + LCD screens
 import { bankTex } from './BankTex.js'; // 77th: 2048² surfaces
 import * as BM from './BankModels.js'; // 77th: detailed furniture + fittings
+import { buildBankAO, buildPeopleShadows, patchBankRoom } from './BankFX.js'; // 78th: probe, baked contact shadows, surface touches
 import { modelPackNow } from '../debug/boot.js';
 import './RobberyShops.js'; // registers the kit's ceiling tile / steel / plastic / gold materials
 import { REVEAL, LEAF_Z } from './WalkIn.js';
@@ -201,8 +202,8 @@ export function buildBankInterior(game, site) {
   for (const m of [signMat, dayMat, printMat, glassMat]) m.userData.own = true;
   Object.assign(k.extra, { cmbSign: signMat, cmbDay: dayMat, cmbPrint: printMat, cmbGlass: glassMat });
   const sign = k.get('cmbSign'), day = k.get('cmbDay'), prints = k.get('cmbPrint'), cglass = k.get('cmbGlass');
-  const S = shell(k, g, W, D, H, { floor: { kind: 'granite', size: 0.6, colors: ['#dcd7cc', '#d4cec2', '#d9d3c7'], grout: '#a9a296', rough: 0.12, seed: 67 }, wall: 'plaster', wallCol: '#efeae1', ceil: '#f2f0ea', skirt: 'marbleDark', skirtCol: '#ffffff', cornice: '#f4f1ea' });
-  { let fi = 0; for (const fg of g.children) if (fg.name === 'modelledFloor') fg.traverse((o) => { if (o.isMesh && o.material && !Array.isArray(o.material)) { o.material = cloneMaterial(o.material, o.material.map ? 'CMB · Granite floor tiles ' + ++fi : 'CMB · Floor grout (sanded cement)'); if (!o.material.map) { o.material.map = groutTex(); o.material.needsUpdate = true; } else { const gt = bankTex('cmbGranite'); if (gt) o.material.map = gt; /* 77th: the bank's own 2048² granite */ } } }); } // 74th: the bank's own floor materials
+  const S = shell(k, g, W, D, H, { floor: { kind: 'granite', size: 0.6, colors: ['#f2f2f2', '#e8e8e7', '#fafaf8'], grout: '#3c3b3a', rough: 1, seed: 67 } /* 78th: polished dark-grey granite (BankTex2K cmbGranite), polish from its roughness map */, wall: 'plaster', wallCol: '#efeae1', ceil: '#f2f0ea', skirt: 'marbleDark', skirtCol: '#ffffff', cornice: '#f4f1ea' });
+  { let fi = 0; for (const fg of g.children) if (fg.name === 'modelledFloor') fg.traverse((o) => { if (o.isMesh && o.material && !Array.isArray(o.material)) { o.material = cloneMaterial(o.material, o.material.map ? 'CMB · Granite floor tiles ' + ++fi : 'CMB · Floor grout (sanded cement)'); if (!o.material.map) { o.material.map = groutTex(); o.material.needsUpdate = true; } else { const gt = bankTex('cmbGranite'); if (gt) o.material.map = gt; /* 77th: the bank's own 2048² granite */ const gr = bankTex('cmbGraniteRough'); if (gr) { o.material.roughnessMap = gr; o.material.roughness = 1; o.material.needsUpdate = true; } /* 78th: polish variation (BankFX reads it per tile) */ } } }); } // 74th: the bank's own floor materials
   const { x0, x1, z0, zf } = S; const xR = x1, xL = x0;
   const ob = (ax0, ax1, d0, d1) => obs.push({ x0: Math.min(ax0, ax1), x1: Math.max(ax0, ax1), z0: Z(Math.max(d0, d1)), z1: Z(Math.min(d0, d1)), part: k.part });
   const navy = C(CMB.navy), gold = C(CMB.gold), bronze = C('#2e2a26'), steelC = C('#b9bdc1');
@@ -408,6 +409,9 @@ export function buildBankInterior(game, site) {
   const nStatic = obs.length;
   for (const p of [...stand.tellers, stand.recep, stand.mgr, stand.sup, stand.guard]) if (p && p.ch) p.ch.bankOwned = true; // 73rd: the room's own people (room.ext skips them)
   const room = { parts, id: 'bank', bank: true, name: B.name, def: { kind: 'bank', name: B.name }, g, bounds: { x0, x1, z0, z1: zf - 0.02 }, obstacles: obs, lights, H, prompt: null, atms, seats, stand, customers: [], stats: { spawned: 0, left: 0, handed: 0, atmUses: 0, tellerVisits: 0, sat: 0 } };
+  // 78th: baked contact shadows + corner occlusion (one draw), the people's contact shadows (one instanced draw), and the
+  // hall's own materials patched for the box-projected reflection probe (BankFX.js; the probe is captured on the loading screen)
+  { g.add(buildBankAO(room, { x0, x1, z0, zf, H, nStatic })); room.fxPeople = buildPeopleShadows(); g.add(room.fxPeople); patchBankRoom(g); }
   // 73rd: the security officer's pump shotgun (slung until the player comes in wanted: BankGuardGun.js)
   const guardGun = makeGuardGun({ game, g, gd: stand.guard, B: { xL, xR, z0, zF: zf, H }, obs, nObs: nStatic, rng: rngOf(6909),
     bodies: () => { const out = []; for (const c of pool) if (c.on && c.ch.root.visible) out.push({ x: c.x, z: c.z }); for (const p of [...stand.tellers, stand.recep, stand.mgr, stand.sup]) if (p && p.ch.root.visible && !p.away) out.push({ x: p.ch.root.position.x, z: p.ch.root.position.z }); return out; },

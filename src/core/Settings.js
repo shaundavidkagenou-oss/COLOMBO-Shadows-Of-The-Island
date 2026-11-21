@@ -9,11 +9,12 @@ export const DEFAULT_BINDINGS = {
   reload: 'KeyR', holster: 'KeyX', weaponWheel: 'Tab', grenade: 'KeyB',
   indL: 'Comma', indR: 'Period', radioPrev: 'BracketLeft', // 76th: turn indicators (VehicleAudio.js) · previous radio station (CarRadio.js)
 };
+// bankTex / bankFX (78th): the Ceylon Meridian Bank's texture size and its lighting pass level (BankTex.js, BankFX.js)
 export const QUALITY_PRESETS = {
-  low:    { pixelRatio: 0.75, shadows: false, shadowRes: 1024, bloom: false, ao: false, cine: 0, drawDist: 650,  crowd: 60,  traffic: 22, detailRadius: 1 },
-  medium: { pixelRatio: 1.0,  shadows: true,  shadowRes: 1024, bloom: true,  ao: false, cine: 1, drawDist: 950,  crowd: 110, traffic: 34, detailRadius: 2 },
-  high:   { pixelRatio: 1.0,  shadows: true,  shadowRes: 2048, bloom: true,  ao: false, cine: 2, drawDist: 1400, crowd: 170, traffic: 46, detailRadius: 2 },
-  ultra:  { pixelRatio: 1.5,  shadows: true,  shadowRes: 4096, bloom: true,  ao: true,  cine: 3, drawDist: 1900, crowd: 240, traffic: 60, detailRadius: 3 },
+  low:    { pixelRatio: 0.75, shadows: false, shadowRes: 1024, bloom: false, ao: false, cine: 0, drawDist: 650,  crowd: 60,  traffic: 22, detailRadius: 1, bankTex: 1024, bankFX: 0 },
+  medium: { pixelRatio: 1.0,  shadows: true,  shadowRes: 1024, bloom: true,  ao: false, cine: 1, drawDist: 950,  crowd: 110, traffic: 34, detailRadius: 2, bankTex: 2048, bankFX: 1 },
+  high:   { pixelRatio: 1.0,  shadows: true,  shadowRes: 2048, bloom: true,  ao: false, cine: 2, drawDist: 1400, crowd: 170, traffic: 46, detailRadius: 2, bankTex: 2048, bankFX: 2 },
+  ultra:  { pixelRatio: 1.5,  shadows: true,  shadowRes: 4096, bloom: true,  ao: true,  cine: 3, drawDist: 1900, crowd: 240, traffic: 60, detailRadius: 3, bankTex: 2048, bankFX: 3 },
 };
 const DEFAULTS = {
   quality: 'high', resolutionScale: 1.0, fullscreen: false, fov: 62,

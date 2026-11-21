@@ -20,6 +20,7 @@ import * as L from './Layout.js';
 import { Audio } from '../audio/Audio.js';
 import { setPoolHint } from '../gfx/LightSets.js';
 import { prepareBankTextures } from './BankTex.js';
+import { captureBankProbe, BANKFX } from './BankFX.js';
 
 export const DOOR_W = 1.1, DOOR_H = 2.3, REVEAL = 0.22, LEAF_Z = -0.07;
 const BUILD_R = 7.5, HIDE_R = 16, FREE_R = 140, R = 0.3;
@@ -166,6 +167,7 @@ export class WalkIn {
     pr(0.8);
     if (compile) { const vis = rooms.map((r) => r.og.visible); for (const r of rooms) r.og.visible = true; this.setActive(rooms[0] || null); // compile with the shop light pool on: the light set a room is drawn with
       try { for (let k = 0; k < rooms.length; k++) { await compile(rooms[k].og); pr(0.8 + 0.2 * (k + 1) / rooms.length); } } catch (e) { console.warn('walk-in compile', e); }
+      try { const br = rooms.find((r) => r.bank); if (br) { br.lightK = BANKFX.pool; this.setActive(br); captureBankProbe(this.g, br); br.lightK = 1; } } catch (e) { console.warn('bank probe', e); } // 78th: the bank's reflection probe, with its light pool on (BankFX.js)
       finally { rooms.forEach((r, k) => { r.og.visible = vis[k]; }); this.setActive(null); } }
     pr(1); return rooms.length;
   }
