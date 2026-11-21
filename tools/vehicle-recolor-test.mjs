@@ -6,6 +6,7 @@ import './node-dom-stub.mjs';
 import * as THREE from 'three';
 globalThis.localStorage ??= { getItem: () => null, setItem: () => {}, removeItem: () => {} };
 { const { MAT } = await import('../src/gfx/Materials.js'); Object.setPrototypeOf(MAT, new Proxy({}, { get: (t, k) => { if (typeof k !== 'string') return undefined; if (!t[k]) t[k] = new THREE.MeshStandardMaterial({ vertexColors: true }); return t[k]; } })); }
+globalThis.__noRealCars = true; // the look cache of the procedural bodies (real-car bodies are recoloured from their own converted GLB)
 const VM = await import('../src/vehicles/VehicleModels.js');
 const { RNG } = await import('../src/core/rng.js');
 let fails = 0, looks = 0; const bad = [];

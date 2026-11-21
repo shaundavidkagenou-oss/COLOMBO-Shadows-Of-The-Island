@@ -166,6 +166,45 @@ R is context-separated. Weapons are always holstered in a vehicle, and the radio
 
 **NPC reactions:** pedestrians react non-graphically. They stumble, go down, cower or flee. Witnesses report to the police, which raises heat stars. There is no gore or injury detail.
 
+## Boats and Fort Harbour Marina
+
+**The marina** sits in the north-west corner of the harbour, below the Fort quay. A gangway runs down from the quay onto floating pontoons: a head walkway, a spine with finger berths on both sides (W1–7 and E1–7), two big alongside berths for yachts (Q1/Q2) and a T-head at the end. The marina office is at the top of the gangway. Other people's boats are moored there. Now and then an owner walks down, boards, takes his boat out of the harbour and later brings it back and ties it up.
+
+**Your berth:** buy Berth T-1 at the office counter, or on fortharbourmarina.lk (Rs. 3,500,000). Boats are delivered only to your berth.
+
+**Buying boats:** three shops on the phone's Global app:
+- **Ceylon Blue Yacht Brokers** (ceylonblueyachts.lk): 5 luxury yachts.
+- **Lanka Marine Mart** (lankamarinemart.lk): 10 boats (a centre-console, a bowrider, a RIB, an offshore powerboat, a wakeboard boat, a daysailer, a fibreglass fishing boat, an oruwa outrigger sailing canoe, a cabin cruiser and a sport-fishing yacht).
+- **Wave Rider Lanka** (waveriderlanka.lk): 4 jet skis.
+
+After you order, the shop texts you to say thanks for the purchase and that delivery is coming. After you sleep, or on the next day, a second text says the boat has been delivered to your berth. If you own more than one, use the service pedestal on the T-head to switch which boat is alongside. The same pedestal brings your boat back if you left it somewhere.
+
+**Riding:** walk to the boarding point and press Enter. W/S is throttle and reverse, A/D steers, E raises or furls the sails (sailing yachts only), the lights key toggles the navigation lights, and Enter gets off when you are slow. Near a pontoon you step onto it; at sea you go over the side into the water. Boats ride the waves, heel, plane and slam, and leave a wake that spreads and fades. Hitting the quay, pontoons or another boat is a collision.
+
+**Damage:** bullets hit the hull, cabin and engine on the same scale as a car body, and engine hits count for more. Enough hits and the boat catches fire, burns and sinks. Bullets go through sails and leave holes, and the holes rip into tears. Shooting at a harbour police boat raises your wanted level.
+
+**Harbour police:** with no wanted level, one or two police boats (two officers each) patrol the harbour and the Fort / Galle Face coast in the morning (06:00–11:00) and at night (19:00–04:30). At night their navigation lights and blue/red beacons are on. When you become wanted, the patrol heads off.
+
+**Lights:** sidelights, a stern light, a masthead/steaming light, anchor lights, deck floodlights, lit cabin windows, underwater lights on yachts and police beacons. Each sits at its real place on its model, and all the lamps are drawn together in one draw call. The marina has its own pontoon lights.
+
+**Global app:** the start page is now a search bar plus bookmarks. Search finds sites, articles and every boat for sale. Black Orchid is not on the start page: you find it only by searching (for example "hitman", "bodyguard", "black orchid") or by typing blackorchid.lk.
+
+**Debug menu → Boats & marina:** spawn any yacht, boat, jet ski or the police boat; marina teleports; a free berth and free orders; deliver now; give every boat; switch the boat at the berth; damage, wreck or holes in the sails of the nearest boat; force the police patrol; make an owner take a boat out or bring one back.
+
+## Export the cinematic trailer as an MP4
+Double-click **`export-trailer-mp4.bat`** (Windows 10/11, [Node.js 18+](https://nodejs.org), Google Chrome or Microsoft Edge installed, internet the first time). It builds the game, then renders the OFFICIAL CINEMATIC TRAILER **offline, frame by frame**, and writes `COLOMBO-Official-Cinematic-Trailer-1080p60.mp4` in the project folder (Explorer opens on it when done).
+
+- **Smooth whatever the PC's speed:** the game clock is stepped exactly 1/60 s per frame and every frame is captured, so there are no dropped or doubled frames even when a frame takes seconds to render. A full export takes much longer than 146 s — every one of the 8,760 frames is rendered and encoded one by one, so expect tens of minutes (this export time has not been measured on a GTX 1660 Super; it depends on the GPU, the CPU and the quality preset).
+- **Sound in sync:** the trailer's music, dialogue and effects are rendered by an offline audio context that is advanced in step with the picture, then muxed as 320 kbit/s AAC.
+- **Default output:** 1920×1080, 60 fps, H.264 (x264 `slow`, CRF 16), using the game's Ultra preset. The length is exactly 146 s.
+- **Options** (add after the script name, or run `node tools/trailer-export/export.mjs …` directly): `--width 2560 --height 1440`, `--fps 30`, `--crf 12` (lower = higher quality, bigger file), `--lossless`, `--quality high`, `--out my.mp4`, `--nobuild` (reuse the last build), `--show` (watch the browser render).
+- ffmpeg comes from the `@ffmpeg-installer/ffmpeg` npm package (no separate download). Set `CHROME_PATH` to use a specific browser, or `FFMPEG_PATH` for your own ffmpeg.
+- Exports run the real game in a hidden browser window with the trailer's own cameras. They do not touch your save games or settings.
+
+## Credits
+- **Motion capture:** the idle, talk, argue, point, shrug and stand-up layers on the characters are retargeted from the CMU Graphics Lab Motion Capture Database (BVH conversion by Bruce Hahne). *The data used in this project was obtained from mocap.cs.cmu.edu. The database was created with funding from NSF EIA-0196217.*
+- **Vehicle models:** Sketchfab and ztark-tint-visualizer models under CC BY 4.0 (logos removed), as listed in `public/assets/vehicles/CREDITS.md`.
+
 ## Technical notes
 
 | Area | Files |
@@ -220,5 +259,11 @@ These were observed during testing.
 **Missions:**
 - A failed mission restarts automatically after 8 seconds.
 - The first objective's rain prompt also shows in clear weather.
+
+**Boats and marina:**
+- Marina skippers steer by waypoints with a simple pivot/thruster model, not a planner. Big catamarans (trinco44) can take 3–4 minutes to come into an E berth, and a boat that stays boxed in for 25 s gives up its departure or is moved to the start of its route out of sight.
+- The automated ride test drives in open harbour. Leaving the marina is covered by the AI departure checks, not by a player-driven run.
+- Bullet holes in sails are small; past about 50 m they are hard to see.
+- Wakes, bow waves and lamp reflections are lit with the scene's sun, sky and lamp colour. They have only been checked in software-rendered screenshots.
 
 **Performance:** frame rate on real GPUs has not been measured. All automated runs used a software (SwiftShader) renderer.

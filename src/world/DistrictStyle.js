@@ -7,13 +7,14 @@
 import { LAND_Y, roadAt, DISTRICTS } from './Layout.js';
 import { FLOOR_H, GROUND_H } from './CityPlan.js';
 import { RNG } from '../core/rng.js';
+import { partKey as bk } from '../gfx/Materials.js';
 
 const BAY = 3.2, TW = 4 * BAY;
 const URBAN = new Set(['dense', 'market', 'commercial']); // district styles where unfinished upper floors are common
 function facesRoad(s) { const mx = (s.a[0] + s.b[0]) / 2, mz = (s.a[1] + s.b[1]) / 2; for (const d of [4, 7, 10]) if (roadAt(mx + s.n[0] * d, mz + s.n[1] * d)) return true; return false; }
 
 export function dressDistrict(b, multi, { sd, front, paint, fk }) {
-  const rng = new RNG(9100 + (b.id || 0) * 37); const y0 = LAND_Y, yTop = y0 + b.h; const conc = multi.get('concrete'), met = multi.get('metal');
+  const rng = new RNG(9100 + (b.id || 0) * 37); const y0 = LAND_Y, yTop = y0 + b.h; const conc = multi.get(bk('bldTrim', b)), met = multi.get(bk('rebar', b)); // 60th: own materials (Materials.ROLE_DEFS)
   const along = (s, d) => [s.a[0] + (s.b[0] - s.a[0]) * (d / s.len), s.a[1] + (s.b[1] - s.a[1]) * (d / s.len)];
   const rotOf = (s) => Math.atan2(s.n[0], s.n[1]);
   const tone = (k) => paint.map((v) => Math.min(1, v * k));

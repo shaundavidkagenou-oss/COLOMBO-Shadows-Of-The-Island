@@ -13,9 +13,12 @@
 import * as THREE from 'three';
 import { Kit, aoBlob, canvasTex, woodTex, speckle, blotches, rnd } from './RoomKit.js';
 import * as RP from './RoomProps.js';
+import { modelFloor } from './FloorKit.js';
 import { Drink } from './HeroRooms.js';
 import { Input } from '../core/Input.js';
 import { Audio } from '../audio/Audio.js';
+import { ClubSound } from '../audio/ClubSound.js';
+import { paMats, paStack, lineArray, fillSpeaker, djConsole, boothMonitor, bottleShelf, bottle } from './ClubPA.js';
 import { Character } from '../actors/Character.js';
 import { PoleDancer } from '../actors/PoleDance.js';
 import { flushDancerPaint, dancerPaintPending } from '../actors/DancerBody.js';
@@ -104,16 +107,6 @@ function palm(k, seed) { // potted areca palm: glazed pot, soil, fronds as arche
     for (let j = 1; j < 9; j++) { const u = j / 9, p0 = [cx * len * u, 0.44 + up * (0.7 * Math.sin(Math.PI * Math.min(1, u * 1.15)) + 0.25 * u), cz * len * u]; for (const s of [-1, 1]) k.box('leaf', 0.3 * (1 - u * 0.5), 0.004, 0.035, p0[0] + s * cz * 0.12, p0[1] - 0.04, p0[2] - s * cx * 0.12, { ry: a + Math.PI / 2 + s * 0.6, rz: s * 0.5 }); } }
   k.block(0, 0, 0.52, 0.52);
 }
-function speakerStack(k) { // PA stack: sub + top cabinet with grilles
-  k.box('cab', 0.75, 0.75, 0.65, 0, 0.375, 0, { r: 0.015 }); k.box('grille', 0.66, 0.66, 0.01, 0, 0.375, 0.326); k.cyl('blackP', 0.24, 0.24, 0.02, 0, 0.375, 0.33, { rx: Math.PI / 2, seg: 24 });
-  k.box('cab', 0.55, 0.9, 0.5, 0, 1.2, 0, { r: 0.015 }); k.box('grille', 0.48, 0.82, 0.01, 0, 1.2, 0.251); for (const y of [0.98, 1.38]) k.cyl('blackP', 0.12, 0.12, 0.02, 0, y, 0.255, { rx: Math.PI / 2, seg: 20 });
-  k.block(0, 0, 0.8, 0.7);
-}
-function bottleRow(k, x0, x1, y, z, seed) { // decorative bottles standing on a back-bar shelf (spirits, liqueurs; plain labels)
-  const r = rnd(seed); const keys = ['btlAmber', 'btlGreen', 'btlClear', 'btlBrown', 'btlBlue']; let x = x0;
-  while (x < x1) { const kk = keys[Math.floor(r() * keys.length)], h = 0.22 + r() * 0.12, rr = 0.032 + r() * 0.014; k.cyl(kk, rr, rr, h, x, y + h / 2, z, { seg: 12 }); k.cyl(kk, rr * 0.9, rr, 0.03, x, y + h + 0.015, z, { seg: 12 }); k.cyl(kk, 0.013, 0.015, 0.07, x, y + h + 0.065, z, { seg: 8 }); k.cyl(r() < 0.5 ? 'brass' : 'blackP', 0.015, 0.015, 0.02, x, y + h + 0.11, z, { seg: 8 }); k.box('labelP', rr * 1.6, h * 0.35, 0.002, x, y + h * 0.45, z + rr + 0.001); x += rr * 2 + 0.03 + r() * 0.03; }
-}
-
 // ------------------------------------------------------------------ build
 export function buildClub(game, door) {
   const ox = door.x, oz = door.z - 200 - D / 2; // entrance wall (local z = +D/2) at the shop's door line, offset like the other interiors
@@ -139,10 +132,11 @@ export function buildClub(game, door) {
   const LED = { pink: std({ color: 0x100008, emissive: 0xff2a8a, emissiveIntensity: 2 }), blue: std({ color: 0x000610, emissive: 0x3a7aff, emissiveIntensity: 2 }), amber: std({ color: 0x100800, emissive: 0xffa040, emissiveIntensity: 1.6 }), violet: std({ color: 0x08000f, emissive: 0x9a4aff, emissiveIntensity: 2 }) };
   LED.green = std({ color: 0x001000, emissive: 0x20ff60, emissiveIntensity: 1.4 }); for (const [kk, m] of Object.entries(LED)) k.def('led' + kk, m);
   k.def('downlight', std({ color: 0x111111, emissive: 0xffe0c0, emissiveIntensity: 1.4 }));
+  paMats(k); // PA, DJ console and back-bar bottle materials (ClubPA.js)
 
   // ---- shell: stone floor in the hall, carpet in the lobby, star ceiling, velvet walls over a lacquered wainscot
   const LZ = 8.6; // lobby partition
-  k.box('floor', W, 0.02, LZ + D / 2, 0, -0.01, (LZ - D / 2) / 2, { uv: 1 / 1.2 }); k.box('carpet', W, 0.02, D / 2 - LZ, 0, -0.008, (LZ + D / 2) / 2, { uv: 1 / 0.9 });
+  g.add(modelFloor({ kind: 'granite', size: 0.6, colors: ['#3a3940', '#35343b', '#3f3e45'], grout: '#08080a', rough: 0.4, seed: 301 }, -W / 2, -D / 2, W / 2, LZ, 0)); /* modelled honed-stone tiles: a sheen with real joints */ k.box('carpet', W, 0.02, D / 2 - LZ, 0, -0.008, (LZ + D / 2) / 2, { uv: 1 / 0.9 });
   k.box('ceil', W, 0.06, D, 0, H + 0.03, 0);
   const stars = new THREE.Mesh(new THREE.PlaneGeometry(W - 1, LZ + D / 2 - 1), new THREE.MeshBasicMaterial({ map: texStars(), toneMapped: false })); stars.material.map.repeat.set(3, 3.4); stars.rotation.x = Math.PI / 2; stars.position.set(0, H - 0.002, (LZ - D / 2) / 2); g.add(stars);
   const wall = (x, z, w, d, h = H, y = 0) => { k.box('velvet', w, h, d, x, y + h / 2, z, { uv: 1 / 0.6 }); k.block(x, z, w, d); };
@@ -214,18 +208,21 @@ export function buildClub(game, door) {
       for (const sx of [-1, 1]) chord([p0[0] + px * sx, p0[1], p0[2] + pz * sx], [p1[0] + px * sx, p1[1] - 0.3, p1[2] + pz * sx]); chord([p0[0] - px, p0[1] - 0.3 * (i % 2), p0[2] - pz], [p0[0] + px, p0[1] - 0.3 * ((i + 1) % 2), p0[2] + pz]); } };
   truss([tx0, tY, tz1], [tx1, tY, tz1]); truss([tx0, tY, tz0], [tx1, tY, tz0]); truss([tx0, tY, tz0], [tx0, tY, tz1]); truss([tx1, tY, tz0], [tx1, tY, tz1]);
   for (const [x, z] of [[tx0, tz0], [tx1, tz0], [tx0, tz1], [tx1, tz1]]) { k.cyl('truss', 0.006, 0.006, H - tY, x, tY + (H - tY) / 2, z, { seg: 6 }); k.box('blackP', 0.18, 0.22, 0.14, x, tY + 0.25, z); }
-  // speaker stacks either side of the stage, DJ riser with console, decks and mixer
-  k.at(-5.25, 0, -11.2, 0.25, () => speakerStack(k)); k.at(5.25, 0, -11.2, -0.25, () => speakerStack(k));
+  // the sound system (58th, ClubPA.js; ClubSound plays the DJ's songs out of these boxes): ground stacks either side of the
+  // stage, flown line arrays, fills on the bar / booth walls and over the back of the hall, monitors in the DJ booth
+  k.at(-5.25, 0, -11.2, 0.25, () => paStack(k)); k.at(5.25, 0, -11.2, -0.25, () => paStack(k));
+  for (const s of [-1, 1]) { k.push(s * 6.4, H - 0.75, -9.4, -s * 0.3); lineArray(k, 0.62); k.pop(); }
+  for (const z of [-3.6, 3.6]) { k.push(-W / 2 + 0.01, 3.95, z, Math.PI / 2); fillSpeaker(k, 0.4); k.pop(); k.push(W / 2 - 0.01, 3.95, z, -Math.PI / 2); fillSpeaker(k, 0.4); k.pop(); }
+  k.push(0, H, 7.9, Math.PI); fillSpeaker(k, 0.45, true); k.pop();
   { const dx = -8.0, dz = -10.6; k.box('stageSide', 3.4, 0.35, 2.4, dx + 0.1, 0.175, dz - 0.1, { uv: 1 / 0.6 }); k.box('stageTop', 3.4, 0.02, 2.4, dx + 0.1, 0.36, dz - 0.1); k.box('ledamber', 3.4, 0.02, 0.02, dx + 0.1, 0.3, dz + 1.11); k.block(dx + 0.1, dz - 0.1, 3.4, 2.4);
     k.at(dx, 0.36, dz + 0.62, 0, () => { k.box('barFront', 1.9, 0.98, 0.55, 0, 0.49, 0, { uv: 1 / 0.6 }); k.box('marble', 2.0, 0.04, 0.62, 0, 1.0, -0.02); k.box('ledpink', 1.9, 0.02, 0.02, 0, 0.1, 0.285);
-      for (const s of [-1, 1]) { k.box('blackP', 0.46, 0.08, 0.36, s * 0.58, 1.06, -0.05, { r: 0.01 }); k.cyl('rubber', 0.15, 0.15, 0.012, s * 0.58, 1.106, -0.05, { seg: 28 }); k.cyl('chrome', 0.03, 0.03, 0.006, s * 0.58, 1.115, -0.05, { seg: 12 }); k.box('chrome', 0.015, 0.01, 0.2, s * 0.58 + s * 0.17, 1.11, -0.02, { ry: s * 0.4 }); }
-      k.box('greyP', 0.32, 0.07, 0.36, 0, 1.055, -0.05, { r: 0.008 }); for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) k.cyl('whiteP', 0.012, 0.012, 0.02, -0.11 + i * 0.075, 1.1, -0.15 + j * 0.08, { seg: 8 });
-      k.box('blackP', 0.36, 0.24, 0.02, 0.7, 1.24, -0.22, { rx: -0.25 }); k.box('ledblue', 0.32, 0.2, 0.004, 0.7, 1.245, -0.208, { rx: -0.25 }); }); }
+      k.push(0, 1.02, -0.06); djConsole(k); k.pop(); });
+    for (const s of [-1, 1]) k.at(dx + s * 1.15, 0.36, dz - 0.05, -s * Math.PI / 2, () => boothMonitor(k)); }
   // VIP corner: raised carpet, L-shaped sofa, low table with an ice bucket, rope line with brass posts
   { const x0 = 6.4, z1 = -8.6; k.box('carpet', W / 2 - x0, 0.12, D / 2 + z1, (x0 + W / 2) / 2, 0.06, (z1 - D / 2) / 2, { uv: 1 / 0.9 }); k.box('brass', W / 2 - x0, 0.02, 0.02, (x0 + W / 2) / 2, 0.12, z1); k.box('brass', 0.02, 0.02, D / 2 + z1, x0, 0.12, (z1 - D / 2) / 2);
     k.box('leatherB', 3.3, 0.44, 0.75, 8.3, 0.34, -11.55, { r: 0.04 }); k.box('leatherB', 3.3, 0.6, 0.18, 8.3, 0.72, -11.88, { r: 0.05 }); k.box('leatherB', 0.75, 0.44, 2.4, 9.55, 0.34, -10.0, { r: 0.04 }); k.box('leatherB', 0.18, 0.6, 2.4, 9.88, 0.72, -10.0, { r: 0.05 });
     for (let i = 0; i < 6; i++) k.sph('brass', 0.012, 6.9 + i * 0.55, 0.85, -11.78, { ws: 8, hs: 6 });
-    k.box('marble', 1.2, 0.05, 0.7, 8.1, 0.5, -10.2); k.box('blackP', 1.0, 0.36, 0.5, 8.1, 0.3, -10.2); k.cyl('chrome', 0.1, 0.085, 0.2, 8.0, 0.625, -10.2, { seg: 18 }); k.cyl('btlGreen', 0.04, 0.04, 0.3, 8.0, 0.72, -10.2, { seg: 12, rz: 0.25 }); k.cyl('glass', 0.035, 0.03, 0.1, 8.35, 0.575, -10.05, { seg: 12 }); k.cyl('glass', 0.035, 0.03, 0.1, 8.42, 0.575, -10.32, { seg: 12 });
+    k.box('marble', 1.2, 0.05, 0.7, 8.1, 0.5, -10.2); k.box('blackP', 1.0, 0.36, 0.5, 8.1, 0.3, -10.2); k.cyl('chrome', 0.1, 0.085, 0.2, 8.0, 0.625, -10.2, { seg: 18 }); k.push(8.0, 0.56, -10.2, 0, 0, 0.25); bottle(k, 'sparkling', 0, 0, 0); k.pop(); k.cyl('glass', 0.035, 0.03, 0.1, 8.35, 0.575, -10.05, { seg: 12 }); k.cyl('glass', 0.035, 0.03, 0.1, 8.42, 0.575, -10.32, { seg: 12 });
     const posts = [[x0, -11.6], [x0, -10.1], [x0, z1], [8.2, z1], [W / 2 - 0.2, z1]]; for (const [x, z] of posts) stanchion(k, x, z); for (let i = 0; i < posts.length - 1; i++) rope(k, posts[i], posts[i + 1]);
     k.block((x0 + W / 2) / 2, (z1 - D / 2) / 2, W / 2 - x0 + 0.1, D / 2 + z1 + 0.1);
     const vip = neonPlane('vip', 256, 128, 0.8, 0.4, (a, w, h) => neonText(a, 'VIP', w / 2, h / 2, 90, '#b07bff')); vip.position.set(W / 2 - 0.08, 2.6, -10.2); vip.rotation.y = -Math.PI / 2; g.add(vip); }
@@ -239,7 +236,7 @@ export function buildClub(game, door) {
     // back bar
     k.box('wain', 0.45, 0.95, 9.0, -9.78, 0.475, 0); k.box('marble', 0.5, 0.04, 9.1, -9.76, 0.97, 0); k.block(-9.78, 0, 0.45, 9.0);
     k.box('smokedMirror', 0.02, 1.7, 8.8, -9.97, 1.85, 0); k.box('ledamber', 0.02, 0.02, 8.8, -9.95, 2.72, 0);
-    for (const y of [1.3, 1.75, 2.2]) { k.box('glass', 0.3, 0.015, 8.8, -9.84, y, 0); k.at(-9.84, 0, 0, Math.PI / 2, () => bottleRow(k, -4.3, 4.3, y + 0.008, 0, Math.round(y * 100))); } // shelves run along the wall; labels face the room
+    for (const y of [1.3, 1.75, 2.2]) { k.box('glass', 0.3, 0.015, 8.8, -9.84, y, 0); k.box('ledamber', 0.012, 0.008, 8.8, -9.72, y - 0.012, 0); k.at(-9.84, 0, 0, Math.PI / 2, () => bottleShelf(k, -4.3, 4.3, y + 0.008, 0, Math.round(y * 100))); } // lit glass shelves of spirits (ClubPA.bottleShelf) // shelves run along the wall; labels face the room
     for (let i = 0; i < 8; i++) k.at(-9.7, 0.99, -3.5 + i * 0.4, 0, () => k.cyl('glass', 0.04, 0.035, 0.1, 0, 0.05, 0, { seg: 12 })); // glasses on the back counter
     // sign over the back bar
     const bs = neonPlane('bar', 512, 128, 2.2, 0.55, (a, w, h) => neonText(a, 'COCKTAILS · ARRACK · SHOTS', w / 2, h / 2, 52, '#ffb050', '700')); bs.position.set(-W / 2 + 0.09, 3.1, 0); bs.rotation.y = Math.PI / 2; g.add(bs); }
@@ -349,8 +346,9 @@ export function buildClub(game, door) {
   const pay = (n, why) => { if (money() < n) { game.hud.notify('Not enough money', `You need Rs. ${n.toLocaleString('en-US')}.`, 'warn', 2); return false; } game.story.pay(-n, why); return true; };
   const handPos = (P) => { const b = P.ch.bones?.handR || P.ch.bones?.chest; if (!b) return { x: P.x - ox, y: 1.2, z: P.z - oz }; b.getWorldPosition(_h); return { x: _h.x - ox, y: _h.y - Y, z: _h.z - oz }; };
   room.tick = (dt, P) => {
-    const t = (room.t = (room.t || 0) + dt); const beat = t * 100 / 60, ph = beat % 1, pulse = Math.exp(-ph * 5), bar8 = Math.floor(beat / 8);
-    LED.pink.emissiveIntensity = 1.4 + 1.2 * pulse; LED.blue.emissiveIntensity = 1.3 + 0.9 * Math.exp(-((beat + 0.5) % 1) * 5); LED.violet.emissiveIntensity = 1.5 + 0.8 * pulse;
+    const t = (room.t = (room.t || 0) + dt); const live = ClubSound.live && ClubSound.inside; const beat = t * 100 / 60, ph = beat % 1; // lights follow the DJ's song (its kick drum) when one plays, else the house groove's 100 bpm
+    const pulse = live ? ClubSound.pulse : Math.exp(-ph * 5), bar8 = live ? Math.floor(ClubSound.beats / 8) : Math.floor(beat / 8);
+    LED.pink.emissiveIntensity = 1.4 + 1.2 * pulse; LED.blue.emissiveIntensity = 1.3 + 0.9 * (live ? Math.min(1, ClubSound.level * 1.6) : Math.exp(-((beat + 0.5) % 1) * 5)); LED.violet.emissiveIntensity = 1.5 + 0.8 * pulse;
     const pal = [0xff3a9a, 0x7a5aff, 0xff9a3a, 0x3ab0ff, 0xff3a5a]; heads.forEach((h, i) => { h.pan.rotation.y = Math.sin(t * 0.37 + h.ph) * 1.1; h.tilt.rotation.x = 0.35 + Math.sin(t * 0.53 + h.ph * 1.7) * 0.35; h.tilt.rotation.z = Math.sin(t * 0.29 + h.ph) * 0.25; const c = pal[(bar8 + i) % pal.length]; h.lensM.color.setHex(c); h.beamM.color.setHex(c); h.beamM.opacity = 0.05 + 0.03 * pulse; });
     ball.rotation.y += dt * 0.6; L6.stage.color.setHex(pal[bar8 % pal.length]).lerp(STAGE_TINT, 0.55); L6.stage.intensity = 22 + 5 * pulse;
     // the round-platform dancer plays to the player when he is close

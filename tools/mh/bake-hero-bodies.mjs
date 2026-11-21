@@ -174,6 +174,16 @@ for (const [id, D] of Object.entries(SHAPES)) {
   if (process.env.DBG && id === 'dineth') { const r3 = (v) => v.map((x) => +x.toFixed(3)); for (const n of ['lowerarm_l', 'hand_l', 'index_01_l', 'index_02_l', 'index_03_l', 'thumb_01_l', 'thumb_03_l']) console.log(n, 'MH', r3(MJ[n].h), r3(MJ[n].t), 'fit', fitOf[n].A && r3(fitOf[n].A), 'a', fitOf[n].a && fitOf[n].a.toFixed(2)); }
   for (let u = 0; u < NU; u++) { const p = toM([PP[u * 3], PP[u * 3 + 1], PP[u * 3 + 2]]); let acc = [0, 0, 0], ws = 0;
     for (const [mb, w] of MW[u]) { acc = add(acc, scl(applyFit(fitOf[mb], p), w)); ws += w; } POS.set(scl(acc, 1 / ws), u * 3); }
+  // thenar eminence: the muscle pad over the thumb metacarpal (palm / thumb-forward side). The palm-side fit above (grip
+  // solver palm model) and the thumb's radial shrink left the thumb side of the hand flat; restore the pad here, in game
+  // space after the fit, so the palm squeeze doesn't take it away again (peak 3.5 mm, fading along the bone and around it)
+  { let nMov = 0, mx = 0; for (const [S, sl] of [['L', 'l'], ['R', 'r']]) { const sx = S === 'L' ? 1 : -1; const A = GJ['thb1' + S], Bt = GJ['thb2' + S]; const d = sub(Bt, A); const dd = dot(d, d);
+    const dirT = nrm([-sx, 0, 0.75]); const bones = new Set(['thumb_01_' + sl, 'hand_' + sl]);
+    for (let u = 0; u < NU; u++) { let wt = 0; for (const [mb, w] of MW[u]) if (bones.has(mb)) wt += w; if (wt < 0.5) continue;
+      const pp = [POS[u * 3], POS[u * 3 + 1], POS[u * 3 + 2]]; const t = dot(sub(pp, A), d) / dd; if (t < -0.15 || t > 1.05) continue; const r = sub(pp, add(A, scl(d, t))); const rl = len(r); if (rl < 1e-4 || rl > 0.03) continue;
+      const side = dot(scl(r, 1 / rl), dirT); const k = 0.0035 * sstep(-0.15, 0.3, t) * sstep(1.05, 0.65, t) * sstep(-0.25, 0.55, side) * sstep(0.03, 0.016, rl) * sstep(0.5, 0.85, wt); if (k <= 0) continue;
+      const m = scl(r, k / rl); POS[u * 3] += m[0]; POS[u * 3 + 1] += m[1]; POS[u * 3 + 2] += m[2]; nMov++; mx = Math.max(mx, k); } }
+    if (process.env.DBG) console.log(id, 'thenar verts', nMov, 'max mm', (mx * 1000).toFixed(2)); }
   if (process.env.DBG && id === 'dineth') { let worst = -1, wy = 9; for (let u = 0; u < NU; u++) { if (POS[u * 3] < 0.15) continue; if (POS[u * 3 + 1] < wy && MW[u].some(([m]) => m === 'hand_l')) { wy = POS[u * 3 + 1]; worst = u; } }
     const p = toM([PP[worst * 3], PP[worst * 3 + 1], PP[worst * 3 + 2]]); console.log('lowest hand_l vert', worst, 'y', wy.toFixed(3), 'mh pos', p.map((x) => +x.toFixed(3)), JSON.stringify(MW[worst].map(([m, w]) => [m, +w.toFixed(2)]))); }
   // ---- weights (once; topology and MakeHuman weights are shared): fold, then split the arm / forearm onto the twist bones

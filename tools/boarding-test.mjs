@@ -1,7 +1,8 @@
 // Boarding test (Node): the step-in / step-out choreography (src/actors/Boarding.js) on real skeletons (short, average,
 // tall adults) in every car / van / tuk-tuk / motorcycle model. Per sampled frame of the curve:
 //   • every foot reaches its IK target (planted feet do not float or stretch);
-//   • a foot crossing the door sill keeps its sole above the sill; the rider's right foot clears the saddle;
+//   • a foot crossing the door sill keeps its sole above the sill; the rider's right foot clears the saddle (a pedal bicycle:
+//     the saddle + seat-tube width only — its pedals sit under the saddle at ±0.15 m, where the foot rightly ends up);
 //   • while the head is inside the door line the crown is under the door-frame top (ducks in, never through the roof);
 //   • the hips are never sunk into the body below the cushion;
 //   • torso / knees keep clear of the opened driver door panel;
@@ -43,7 +44,7 @@ for (const type of types) {
       for (const sd of ['L', 'R']) { const f = W(b, 'foot' + sd); const sole = f.y - A.ankle * 0.9;
         const cs = ud.cabStep; const onTread = cs && sole > cs.y - 0.02 && Math.abs(f.x) - 0.05 > cs.sx - 0.165 && f.z > cs.z0 - 0.04 && f.z < cs.z1 + 0.04; // truck cab: on / rising off the real tread, the whole foot outside the cab side (both models put the tread's outer edge 16-17 cm beyond it), so clear of the floor sill
         if (kind !== 'bike') { if (!onTread && Math.abs(f.x) > hw - 0.2 && Math.abs(f.x) < hw + 0.05 && f.z > seat.z - 0.5 && f.z < seat.z + 0.9) { const m = sole - G.fl; st.sill = Math.min(st.sill, m); ok(m > 0.0, `${tag}: foot${sd} sole ${m.toFixed(3)} m into the sill` + (process.env.DBGDOOR ? ` foot ${f.toArray().map((q) => q.toFixed(2))} hw ${hw.toFixed(2)} stepY ${G.stepY} tgt ${root.localToWorld(new THREE.Vector3(...A.board.feet[sd])).toArray().map((q) => q.toFixed(2))} G.hw ${G.hw} dx ${G.dx} z0 ${G.z0}` : '')); } }
-        else if (sd === 'R' && Math.abs(f.x) < 0.17 && f.z > seat.z - 0.45 && f.z < seat.z + 0.25 && u < 0.6) { const m = sole - seat.y; st.sill = Math.min(st.sill, m); ok(m > 0.0, `${tag}: right foot ${m.toFixed(3)} m into the saddle`); } }
+        else if (sd === 'R' && Math.abs(f.x) < (T.pedal ? 0.11 : 0.17) && f.z > seat.z - 0.45 && f.z < seat.z + 0.25 && u < 0.6) { const m = sole - seat.y; st.sill = Math.min(st.sill, m); ok(m > 0.0, `${tag}: right foot ${m.toFixed(3)} m into the saddle`); } }
       // head under the door-frame top while inside the door line
       if (kind !== 'bike') { const h = W(b, 'head'); const crown = h.y + 0.2 * s + 0.02; if (Math.abs(h.x) < hw + 0.03) { const m = crown - (seat.roof + 0.05); st.head = Math.max(st.head, m); ok(m < 0, `${tag}: crown ${m.toFixed(3)} m above the door frame` + (process.env.DBGDOOR ? ` head x ${h.x.toFixed(2)} hw ${hw.toFixed(2)} z ${h.z.toFixed(2)}` : '')); } }
       // hips never inside the body below the cushion

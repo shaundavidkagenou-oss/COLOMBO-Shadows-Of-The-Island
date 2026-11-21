@@ -2,6 +2,7 @@
 // 76–85 cm; rock pigeon ~32 cm, wingspan 62–68 cm; rose-ringed parakeet ~40 cm incl. tail, wingspan 42–48 cm.
 import './node-dom-stub.mjs';
 import * as THREE from 'three';
+await import('../src/gfx/Materials.js'); // before CityPlan (InteriorMapping FLOOR_H init order)
 const BM = await import('../src/world/BirdModels.js');
 const B = await import('../src/world/Birds.js');
 const CP = await import('../src/world/CityPlan.js');
@@ -63,4 +64,15 @@ g.indoor = true; birds.update(0.05); ok(!birds.root.visible, 'hidden indoors');
       if (Math.hypot(b.x - 90, b.z + 60) < 11.3 || BEDS.some(([x, z, r]) => Math.hypot(b.x - x, b.z - z) < r + 0.15)) inSolid++; } }
   ok(samples > 50, `birds on the ground in Viharamahadevi Park (${samples} samples)`); ok(sunk === 0, `park birds stand on the paving, not sunk into it (${sunk} sunk, worst ${(worst * 100).toFixed(1)} cm)`);
   ok(inSolid === 0, `no bird inside the fountain basin or a flower-bed rim (${inSolid})`); }
+// 65th — bird draw distance / shadow LOD (only what is drawn changes)
+{ const BC = await import('../src/gfx/BatchCull.js'); const BL = B.BIRD_LOD; BC.LOD.enabled = true; birds.render(); const c = g.camera.position;
+  const dist = (b) => Math.hypot(b.x - c.x, b.y - c.y, b.z - c.z); const nNear = birds.birds.filter((b) => dist(b) < BL.shadow).length, nMid = birds.birds.filter((b) => { const d = dist(b); return d >= BL.shadow && d < BL.draw; }).length;
+  const S = birds.nShadow; const sumS = S.crow + S.pigeon + S.parakeet; const drawnTot = ['crow', 'pigeon', 'parakeet'].reduce((a, sp) => a + birds.meshes[sp][0].count, 0);
+  ok(sumS === nNear, `shadow group = birds within ${BL.shadow} m (${sumS} vs ${nNear})`); ok(drawnTot === nNear + nMid && drawnTot <= birds.birds.length, `drawn = within ${BL.draw} m (${drawnTot} of ${birds.birds.length}; occlusion off here)`);
+  const m = birds.meshes.crow[0]; const sun = new THREE.OrthographicCamera(), far = new THREE.OrthographicCamera(); BC.CULL.sunCamera = sun; BC.CULL.farCamera = far;
+  m.onBeforeShadow(null, null, cam, far); ok(m.count === 0, 'far (whole-city) shadow map draws no birds'); m.onAfterShadow(); ok(m.count === m.userData.nAll, 'count restored after the shadow pass');
+  m.onBeforeShadow(null, null, cam, sun); ok(m.count === Math.min(S.crow, m.userData.nAll), `near sun shadow draws the near crows only (${m.count} of ${m.userData.nAll})`); m.onAfterShadow();
+  // camera far away from every bird: nothing drawn, simulation untouched
+  const n0 = birds.birds.length; const keep = c.clone(); c.set(c.x + 5000, c.y, c.z); birds.render(); ok(['crow', 'pigeon', 'parakeet'].every((sp) => birds.meshes[sp][0].count === 0) && birds.birds.length === n0, 'no bird drawn 5 km away, flock kept'); c.copy(keep);
+  BC.LOD.enabled = false; birds.render(); ok(birds.meshes.crow[0].count === Math.min(birds.birds.filter((b) => b.sp === 'crow').length, 26), 'LOD off: every bird drawn'); BC.LOD.enabled = true; }
 console.log(`birds: ${pass} passed, ${fail} failed · stats ${JSON.stringify(birds.stats)}`); process.exit(fail ? 1 : 0);

@@ -5,6 +5,8 @@ import { SaveSystem, SLOTS } from '../core/SaveSystem.js';
 import { Input, keyLabel } from '../core/Input.js';
 import { Audio } from '../audio/Audio.js';
 import { MISSIONS } from '../story/Story.js';
+import { TEXTURE_STUDIO } from '../debug/boot.js'; // tiny always-loaded part of the debug tools
+import { DevLock } from '../debug/DevLock.js';
 
 const el = (tag, cls, parent, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; if (parent) parent.appendChild(e); return e; };
 const LOGO = `${import.meta.env.BASE_URL}assets/brand/sds-logo.jpg`;
@@ -77,10 +79,12 @@ export class Screens {
       const cols = el('div', 'pause-cols', p); const list = el('div', 'menu-list', cols); const info = el('div', 'pause-info', cols);
       info.innerHTML = this.journalHTML();
       const done = (r) => { p.remove(); resolve(r); };
-      for (const [id, label] of [['resume', 'Resume'], ['map', 'Map'], ['save', 'Save Game'], ['load', 'Load Game'], ['settings', 'Settings'], ['controls', 'Controls'], ['menu', 'Quit to Main Menu']]) {
-        const b = el('button', 'menu-btn', list, label); b.onmouseenter = () => Audio.ui('hover');
+      const items = [['resume', 'Resume'], ['map', 'Map'], ['save', 'Save Game'], ['load', 'Load Game'], ['settings', 'Settings'], ['controls', 'Controls'], ['menu', 'Quit to Main Menu']];
+      if (TEXTURE_STUDIO && !DevLock.locked) items.splice(6, 0, ['textures', 'Texture Studio']); // 59th: development builds only (never in npm run build / the .exe)
+      for (const [id, label] of items) {
+        const b = el('button', 'menu-btn', list, label); b.onmouseenter = () => Audio.ui('hover'); if (id === 'textures') { b.title = 'Development tool: inspect any object and replace its textures / material settings'; b.style.borderLeft = '3px solid #e0a030'; b.dataset.dev = '1'; }
         b.onclick = async () => { Audio.ui('click');
-          if (id === 'resume') done({ action: 'resume' }); else if (id === 'map') done({ action: 'map' });
+          if (id === 'resume') done({ action: 'resume' }); else if (id === 'map') done({ action: 'map' }); else if (id === 'textures') done({ action: 'textures' });
           else if (id === 'save') { await this.saveLoad('save'); }
           else if (id === 'load') { const slot = await this.saveLoad('load'); if (slot) done({ action: 'load', slot }); }
           else if (id === 'settings') await this.settings(); else if (id === 'controls') await this.controls();
@@ -102,7 +106,7 @@ export class Screens {
     return new Promise((resolve) => {
       const m = el('div', 'modal', this.root); const panel = el('div', 'panel wide', m, `<h2>${mode === 'save' ? 'Save Game' : 'Load Game'}</h2>`); const list = el('div', 'slots', panel);
       const render = () => { list.innerHTML = ''; for (const slot of SLOTS) { if (mode === 'save' && slot === 'auto') continue; const d = SaveSystem.read(slot); const b = el('button', 'slot', list, `<b>${slot === 'auto' ? 'Autosave' : 'Slot ' + slot}</b><span>${d ? `${d.missionTitle || 'Free roam'} · ${d.timeString || ''} · Rs. ${(d.story?.money ?? 0).toLocaleString('en-LK')}<br><small>${new Date(d.savedAt).toLocaleString()}</small>` : '<small>Empty</small>'}</span>`); if (mode === 'load' && !d) b.disabled = true;
-        b.onclick = () => { Audio.ui('click'); if (mode === 'save') { this.g.saveTo(slot); render(); this.g.hud.notify('Game saved', slot === 'auto' ? '' : 'Slot ' + slot, 'success', 2); } else { m.remove(); resolve(slot); } }; } };
+        b.onclick = () => { Audio.ui('click'); if (mode === 'save') { const ok = this.g.saveTo(slot); render(); if (ok) this.g.hud.notify('Game saved', slot === 'auto' ? '' : 'Slot ' + slot, 'success', 2); else this.g.hud.notify('Save failed', 'Browser storage is full or blocked', 'warn', 3); } else { m.remove(); resolve(slot); } }; } };
       render(); const c = el('button', 'menu-btn', panel, 'Back'); c.onclick = () => { m.remove(); resolve(null); };
     });
   }
@@ -120,17 +124,17 @@ export class Screens {
           row('Resolution scale', select('resolutionScale', [[0.5, '50%'], [0.67, '67%'], [0.75, '75%'], [0.85, '85%'], [1, '100%'], [1.25, '125%'], [1.5, '150%']]));
           const fs = el('button', 'menu-btn small', null, document.fullscreenElement ? 'Exit fullscreen' : 'Enter fullscreen'); fs.onclick = () => { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen?.(); setTimeout(() => (fs.textContent = document.fullscreenElement ? 'Exit fullscreen' : 'Enter fullscreen'), 300); }; row('Display mode', fs);
           row('Field of view', slider('fov', 50, 90, 1)); row('Crowd density', slider('crowdDensity', 0.2, 1.5, 0.05)); row('Traffic density', slider('trafficDensity', 0.2, 1.5, 0.05)); row('Show FPS counter', check('showFps')); row('Blood effects', check('blood'));
-          row('Night brightness', slider('nightBrightness', 0.7, 1.5, 0.05)); row('Wet-road reflections', check('wetReflections'));
+          row('Night brightness', slider('nightBrightness', 0.7, 1.5, 0.05)); row('Wet-road reflections', check('wetReflections')); row('Lens flare', check('lensFlare')); row('Light shafts', check('lightShafts')); row('Dynamic resolution', check('dynamicRes'));
           { const gi = gpuInfo(this.g.renderer); const r = el('div', 'set-row', body, `<span>Graphics card</span>`); el('b', '', r, `${gi.label} · ${gi.api}`); el('p', 'hint', body, gpuAdvice(gi)); }
-          el('p', 'hint', body, 'Shadows, bloom, ambient occlusion and draw distance follow the quality preset. Low is recommended for integrated graphics. Blood effects can be turned off (impacts then show a dust puff). Night brightness lifts or deepens the night exposure; wet-road reflections (light streaks on wet asphalt) are off on Low and cost little on the other presets.');
+          el('p', 'hint', body, 'Shadows, bloom, ambient occlusion and draw distance follow the quality preset. Low is recommended for integrated graphics. Blood effects can be turned off (impacts then show a dust puff). Night brightness lifts or deepens the night exposure; wet-road reflections (light streaks on wet asphalt) are off on Low and cost little on the other presets. The time-of-day colour grade runs on every preset; lens flare needs Medium or higher, light shafts High or Ultra (quarter / half resolution).');
         },
         Camera: () => { row('Mouse sensitivity', slider('mouseSens', 0.2, 3, 0.05)); row('Invert Y axis', check('invertY')); row('Camera distance', slider('cameraDistance', 0.7, 1.6, 0.05)); row('Camera shake', check('cameraShake')); row('Squad switch transition', select('switchStyle', [['auto', 'Auto (transit, cut when far)'], ['transit', 'Always camera transit'], ['cut', 'Always jump-cut']])); row('Day length (real seconds per game minute)', slider('timeScale', 0.5, 6, 0.25)); },
-        Audio: () => { row('Master', slider('master', 0, 1, 0.05)); row('Music', slider('music', 0, 1, 0.05)); row('Effects', slider('sfx', 0, 1, 0.05)); row('Ambience', slider('ambience', 0, 1, 0.05)); row('Dialogue', slider('dialogue', 0, 1, 0.05)); row('Subtitles', check('subtitles')); row('Subtitle size', slider('subtitleSize', 0.8, 1.6, 0.05)); },
+        Audio: () => { row('Master', slider('master', 0, 1, 0.05)); row('Music', slider('music', 0, 1, 0.05)); row('Effects', slider('sfx', 0, 1, 0.05)); row('Ambience', slider('ambience', 0, 1, 0.05)); row('Vehicles', slider('vehicle', 0, 1, 0.05)); row('Dialogue', slider('dialogue', 0, 1, 0.05)); row('Subtitles', check('subtitles')); row('Subtitle size', slider('subtitleSize', 0.8, 1.6, 0.05)); },
         Controls: () => {
-          const names = { forward: 'Forward / accelerate', back: 'Back / brake', left: 'Left / steer left', right: 'Right / steer right', sprint: 'Sprint', jump: 'Jump · climb · handbrake', crouch: 'Crouch', enter: 'Enter / exit vehicle', interact: 'Interact / talk', insult: 'Insult', shove: 'Shove', more: 'Wave / activities', horn: 'Horn', lights: 'Headlights', camera: 'Camera view', radio: 'Radio', phone: 'Phone camera', map: 'Map', journal: 'Journal', reload: 'Reload (on foot)', holster: 'Holster / draw weapon', weaponWheel: 'Weapon wheel (hold)', grenade: 'Throw grenade (hold to aim)' };
+          const names = { forward: 'Forward / accelerate', back: 'Back / brake', left: 'Left / steer left', right: 'Right / steer right', sprint: 'Sprint', jump: 'Jump · climb · handbrake', crouch: 'Crouch', enter: 'Enter / exit vehicle', interact: 'Interact / talk', insult: 'Insult', cover: 'Take cover (walls, cars)', shove: 'Shove', more: 'Wave / activities', horn: 'Horn', lights: 'Headlights', camera: 'Camera view', radio: 'Radio — next station', radioPrev: 'Radio — previous station', indL: 'Left indicator', indR: 'Right indicator', phone: 'Phone camera', map: 'Map', journal: 'Journal', reload: 'Reload (on foot)', holster: 'Holster / draw weapon', weaponWheel: 'Weapon wheel (hold)', grenade: 'Throw grenade (hold to aim)' };
           for (const [a, label] of Object.entries(names)) { const b = el('button', 'bind', null, keyLabel(S.get('bindings')[a])); b.onclick = () => { b.textContent = 'Press a key…'; Input.captureNextKey((code) => { if (code !== 'Escape') { const bd = { ...S.get('bindings'), [a]: code }; S.set('bindings', bd); } b.textContent = keyLabel(S.get('bindings')[a]); }); }; row(label, b); }
           const r = el('button', 'menu-btn small', body, 'Reset key bindings'); r.onclick = () => { S.set('bindings', { ...DEFAULT_BINDINGS }); show('Controls'); };
-          el('p', 'hint', body, 'Gamepads (standard mapping) are supported: left stick move/steer, right stick camera, RT/LT throttle/brake, A jump, Y enter/exit, X interact, B insult, RB shove, Start pause.');
+          el('p', 'hint', body, 'Gamepads (standard mapping) are supported: left stick move/steer, right stick camera, RT/LT throttle/brake, A jump, Y enter/exit, X interact, B take cover (or insult when there is no cover), RB shove, Start pause.');
         },
       };
       const show = (name) => { body.innerHTML = ''; tabs.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.textContent === name)); pages[name](); };
@@ -139,7 +143,7 @@ export class Screens {
     });
   }
   controls() { return new Promise((resolve) => { const k = (a) => `<kbd>${keyLabel(Settings.get('bindings')[a])}</kbd>`; const m = el('div', 'modal', this.root, `<div class="panel wide"><h2>Controls</h2><div class="ctrl-grid">
-    <div><h3>On foot</h3><p>${k('forward')}${k('left')}${k('back')}${k('right')} Move · Mouse look</p><p>${k('sprint')} Sprint · ${k('crouch')} Crouch</p><p>${k('jump')} Jump / climb ledges</p><p>${k('interact')} Talk / interact · ${k('more')} Wave</p><p>${k('insult')} Insult · ${k('shove')} Shove</p><p>${k('phone')} Phone camera (click to shoot)</p></div>
+    <div><h3>On foot</h3><p>${k('forward')}${k('left')}${k('back')}${k('right')} Move · Mouse look</p><p>${k('sprint')} Sprint · ${k('crouch')} Crouch · ${k('cover')} Take cover · <kbd>MMB</kbd> Kick a shop door in</p><p>${k('jump')} Jump / climb ledges</p><p>${k('interact')} Talk / interact · ${k('more')} Wave</p><p>${k('insult')} Insult · ${k('shove')} Shove</p><p>${k('phone')} Phone camera (click to shoot)</p></div>
     <div><h3>Vehicles</h3><p>${k('enter')} Enter / exit (or take over a taxi)</p><p>${k('forward')} Accelerate · ${k('back')} Brake / reverse</p><p>${k('left')}${k('right')} Steer · ${k('jump')} Handbrake</p><p>${k('horn')} Horn · ${k('lights')} Lights · ${k('radio')} Radio</p><p>${k('more')} Tuk-tuk taxi jobs / time trials</p></div>
     <div><h3>Weapons</h3><p>Hold ${k('weaponWheel')} Weapon wheel · <kbd>1</kbd>–<kbd>9</kbd> select · Mouse wheel cycle</p><p><kbd>RMB</kbd> Aim (snipers: scope, ${k('sprint')} steadies) · <kbd>LMB</kbd> Fire</p><p>${k('reload')} Reload · ${k('holster')} Holster / draw</p><p>Pad: LT aim · RT fire · D-pad ←/→ cycle · ↓ reload · ↑ holster</p></div>
     <div><h3>General</h3><p>${k('camera')} Change camera</p><p>${k('map')} Map · ${k('journal')} Journal</p><p><kbd>Esc</kbd> Pause menu</p><p>Cinematics: <kbd>Enter</kbd> skip</p></div></div><button class="menu-btn">Back</button></div>`); m.querySelector('button').onclick = () => { m.remove(); resolve(); }; }); }

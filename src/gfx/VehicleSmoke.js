@@ -12,15 +12,19 @@
 // The shading reuses the explosions' sun / ambient / wind uniforms and their pre-baked noise texture (no new textures, no lights).
 import * as THREE from 'three';
 import { LIVE_VEHICLES } from '../vehicles/Vehicle.js';
+import { SkidMarks } from './SkidMarks.js';
 
 export const SMOKE_POOL = 1152;
-export const KIND = { TYRE: 0, EXHAUST: 1, DIESEL: 2, TWO_STROKE: 3, ENGINE: 4 };
+export const KIND = { TYRE: 0, EXHAUST: 1, DIESEL: 2, TWO_STROKE: 3, ENGINE: 4, TYRE_HAZE: 5 };
 const R_FAR = 70, R_NEAR = 30;
 
+// Street Customs: a tyre-smoke colour packed into the per-puff grey value (≥ 2 = RGB565 code; plain smoke stays 0..1)
+const smokeCodes = new Map();
+function smokeCode(hex) { let c = smokeCodes.get(hex); if (c !== undefined) return c; const n = parseInt(hex.slice(1), 16); const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255; c = 2 + (((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)) / 65536; smokeCodes.set(hex, c); return c; }
 const VS = `
 attribute vec3 aP0; attribute vec3 aV; attribute vec4 aT; attribute vec4 aR; attribute vec3 aC;
 uniform float uTime; uniform vec3 uWind;
-varying vec2 vUv; varying float vK; varying float vSeed; varying float vKind; varying float vFade; varying float vAge; varying vec2 vGA;
+varying vec2 vUv; varying float vK; varying float vSeed; varying float vKind; varying float vFade; varying float vAge; varying vec2 vGA; varying vec2 vUp;
 void main() {
   float age = uTime - aT.x; float k = age / aT.y;
   vUv = uv; vK = k; vSeed = aR.x; vKind = aR.y; vAge = age; vGA = aC.xy;
@@ -31,17 +35,20 @@ void main() {
   p += uWind * (0.32 * age * min(1.0, age * 0.8));                          // then drifts downwind
   float sw = aR.x * 40.0; p.x += sin(age * 1.3 + sw) * 0.14 * age; p.z += cos(age * 1.1 + sw * 0.7) * 0.14 * age;   // turbulence
   float sz = mix(aT.z, aT.w, 1.0 - pow(1.0 - k, 2.2));
-  p.y = max(p.y, aC.z + sz * 0.3);                                          // rolls along the road, never through it
+  bool haze = aR.y > 4.5;                                                   // tyre haze: a low, wide bank of rubber smoke pooling on the road
+  vec2 asp = haze ? vec2(1.75, 0.7) : vec2(1.0);
+  p.y = max(p.y, aC.z + sz * asp.y * 0.36);                                 // rolls along the road, never through it
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
-  float ang = aR.x * 6.2831 + age * (aR.x - 0.5) * 0.7;
-  vec2 c = position.xy; c = vec2(c.x * cos(ang) - c.y * sin(ang), c.x * sin(ang) + c.y * cos(ang));
+  float ang = haze ? (aR.x - 0.5) * 0.5 : aR.x * 6.2831 + age * (aR.x - 0.5) * 0.7;
+  vec2 c = position.xy * asp; c = vec2(c.x * cos(ang) - c.y * sin(ang), c.x * sin(ang) + c.y * cos(ang));
+  vUp = vec2(sin(ang), cos(ang));                                           // world-up in the puff's (rotated) uv frame: lit tops, shadowed bellies
   mv.xy += c * sz;
   vFade = clamp((-mv.z - 0.3) / 1.8, 0.0, 1.0);                            // thins out as it reaches the camera (no hard clip)
   gl_Position = projectionMatrix * mv;
 }`;
 const FS = `
 uniform sampler2D uNoise; uniform vec3 uSunV; uniform vec3 uSunC; uniform vec3 uAmb;
-varying vec2 vUv; varying float vK; varying float vSeed; varying float vKind; varying float vFade; varying float vAge; varying vec2 vGA;
+varying vec2 vUv; varying float vK; varying float vSeed; varying float vKind; varying float vFade; varying float vAge; varying vec2 vGA; varying vec2 vUp;
 void main() {
   vec2 c = vUv - 0.5; float r = length(c) * 2.0;
   float n1 = texture2D(uNoise, vUv * 0.45 + vec2(vSeed * 5.3, vSeed * 7.9 - vAge * 0.07)).r;
@@ -53,8 +60,16 @@ void main() {
   float lit = clamp(dot(nrm, uSunV) * 0.55 + 0.5, 0.0, 1.0);
   float scat = pow(max(0.0, -uSunV.z), 3.0) * (1.0 - n) * 0.45;            // thin smoke glows against the sun (forward scattering)
   vec3 base = vec3(vGA.x);
+  if (vGA.x >= 2.0) { float pk = floor((vGA.x - 2.0) * 65536.0 + 0.5); base = pow(vec3(floor(pk / 2048.0) / 31.0, mod(floor(pk / 32.0), 64.0) / 63.0, mod(pk, 32.0) / 31.0), vec3(2.2)) * 0.95; } // Street Customs coloured tyre smoke (RGB565 in the grey slot)
   if (vKind > 2.5 && vKind < 3.5) base *= vec3(0.9, 0.97, 1.13);            // two-stroke oil haze is bluish
   vec3 col = base * (uAmb + uSunC * (lit + scat)) * (0.8 + 0.4 * n);
+  if (vKind < 0.5 || vKind > 4.5) {                                         // rubber smoke is thick: self-shadowed belly + dense core, bright rim
+    float up = dot(c, vUp) * 2.0;                                           // -1 bottom .. +1 top of the puff
+    float dens = shape * vGA.y * (1.0 - vK * 0.6);
+    col *= mix(1.0, 0.62 + 0.38 * smoothstep(-1.0, 0.8, up), clamp(dens * 1.6, 0.0, 1.0));
+    col *= 1.0 - 0.22 * smoothstep(0.35, 0.0, r) * dens;                   // light dies inside the dense middle
+    col += uSunC * base * 0.18 * smoothstep(0.55, 1.0, r) * (1.0 - n) * max(0.0, dot(nrm, uSunV)); // silver lining where it thins
+  }
   float a = shape * vGA.y * (0.75 + 0.35 * n) * smoothstep(0.0, 0.07, vK) * pow(1.0 - vK, 1.5) * vFade;
   gl_FragColor = vec4(col * a, a);
 }`;
@@ -73,7 +88,7 @@ const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 export class VehicleSmoke {
   // game: needs .scene, .camera, .explosions (its uniforms + noise texture), optional .atmos
   constructor(game, quality = 'high') {
-    this.g = game; this.t = 0; this.tyreLoad = 0; this.st = new WeakMap(); this.stats = { emitted: 0, tyre: 0, exhaust: 0, engine: 0, dropped: 0, uploads: 0, near: 0 };
+    this.g = game; this.t = 0; this.tyreLoad = 0; this.st = new WeakMap(); this.stats = { emitted: 0, tyre: 0, haze: 0, exhaust: 0, engine: 0, dropped: 0, uploads: 0, near: 0 };
     this.setQuality(quality);
     const ex = game.explosions; const EU = ex ? ex.U : null;
     this.U = { uTime: { value: 0 }, uNoise: EU ? EU.uNoise : { value: null }, uWind: EU ? EU.uWind : { value: new THREE.Vector3(0.5, 0, 0.3) },
@@ -87,8 +102,9 @@ export class VehicleSmoke {
     // always 'visible' (dead puffs collapse off-screen in the vertex shader): compiled with the scene at load, never a first-use hitch
     this.mesh = new THREE.Mesh(geo, this.mat); this.mesh.frustumCulled = false; this.mesh.renderOrder = 19; this.mesh.userData.fx = true; this.mesh.name = 'vehicleSmoke';
     if (game.scene) game.scene.add(this.mesh);
+    this.skid = new SkidMarks(game.scene, this.U.uNoise, this.U.uTime); this.skid.setQuality(quality); // rubber laid by the same slipping tyres (one more draw call)
   }
-  setQuality(q) { this.budget = q === 'low' ? 18 : q === 'medium' ? 30 : q === 'ultra' ? 56 : 42; this.rateK = q === 'low' ? 0.55 : q === 'medium' ? 0.8 : 1; }
+  setQuality(q) { if (this.skid) this.skid.setQuality(q); this.budget = q === 'low' ? 18 : q === 'medium' ? 30 : q === 'ultra' ? 56 : 42; this.rateK = q === 'low' ? 0.55 : q === 'medium' ? 0.8 : 1; }
   // ------------------------------------------------------------------ one puff into the ring (slots written this frame are uploaded once)
   emit(px, py, pz, vx, vy, vz, born, life, s0, s1, kind, buoy, drag, grey, alpha, gy) {
     const i = this.i; this.i = (i + 1) % SMOKE_POOL; const A = this.A;
@@ -109,11 +125,11 @@ export class VehicleSmoke {
     if (!ex) ex = { p: [-(wid / 2 - 0.3), heavy ? 0.4 : 0.3, -len / 2 - 0.04], d: [0, 0, -1], fuel: heavy ? 'diesel' : (T.mass || 0) > 1700 || T.fam === 'truck' ? 'dieselLight' : 'petrol' };
     const front = [], rear = []; for (const w of ud.wheels || []) { const p = w.position; (w.userData.front ? front : rear).push([p.x, p.z]); }
     if (!rear.length) rear.push([wid * 0.42, -len * 0.33], [-wid * 0.42, -len * 0.33]); if (!front.length) front.push([wid * 0.42, len * 0.33], [-wid * 0.42, len * 0.33]);
-    const bike = T.entry === 'bike'; return { ex, F: FUEL[ex.fuel] || FUEL.petrol, front, rear, bike, heavy, wid, len, scale: bike ? 0.55 : heavy ? 1.25 : 1 };
+    const bike = T.entry === 'bike'; return { pedal: !!T.pedal, ex, F: T.pedal ? null : FUEL[ex.fuel] || FUEL.petrol, /* a bicycle has no exhaust */ front, rear, bike, heavy, wid, len, scale: bike ? 0.55 : heavy ? 1.25 : 1 };
   }
   update(dt) {
     if (!(dt > 0)) return; dt = Math.min(dt, 0.1); this.t += dt; this.U.uTime.value = this.t;
-    const g = this.g, cam = g.camera; if (!cam) return; if (g.indoor) { this.flush(); return; }
+    const g = this.g, cam = g.camera; if (!cam) return; if (g.indoor) { this.flush(); this.skid.flush(); return; }
     const cx = cam.position.x, cz = cam.position.z; const A = g.atmos, rain = A && A.w ? A.w.rain || 0 : 0;
     let budget = this.budget; this.stats.near = 0; this.tyreLoad *= Math.exp(-dt / 3.2); // ≈ live tyre puffs: caps the fill-rate cost of a long burnout
     for (const v of LIVE_VEHICLES) {
@@ -121,7 +137,7 @@ export class VehicleSmoke {
       const d2 = (v.x - cx) ** 2 + (v.z - cz) ** 2; let s = this.st.get(v);
       if (d2 > R_FAR * R_FAR) { if (s) s.ok = false; continue; }
       if (!s) { s = { ok: false, px: 0, pz: 0, pyaw: 0, pf: 0, acc: 0, ex: 0, tr: 0, tf: 0, en: 0, info: null, pe: [0, 0, 0], pw: null }; this.st.set(v, s); }
-      if (!s.info) s.info = this.info(v);
+      if (!s.info || v.smokeDirty) { s.info = this.info(v); v.smokeDirty = false; } // smokeDirty: Street Customs fitted a new exhaust tip
       const yaw = v.yaw, fx = Math.sin(yaw), fz = Math.cos(yaw), rx = fz, rz = -fx; // forward, left
       if (!s.ok) { s.ok = true; s.px = v.x; s.pz = v.z; s.pyaw = yaw; s.pf = v.speed || 0; s.acc = 0; s.pw = null; this.exPoint(v, s, s.pe); continue; }
       const mvx = (v.x - s.px) / dt, mvz = (v.z - s.pz) / dt; if (mvx * mvx + mvz * mvz > 90 * 90) { s.ok = false; continue; } // teleported / respawned
@@ -130,13 +146,13 @@ export class VehicleSmoke {
       s.px = v.x; s.pz = v.z; s.pyaw = yaw; this.stats.near++;
       const far = d2 > R_NEAR * R_NEAR ? 0.5 : 1, I = s.info, sp = Math.abs(fwdS), gy = v.groundY ?? v.y ?? 0;
       // ---------------- tyre smoke
-      let tr = 0, tf = 0; const ts = v.tireSmoke;
-      if (ts) { tr = ts.r || 0; tf = ts.f || 0; ts.r = 0; ts.f = 0; } // set by Vehicle.drive (launch wheelspin, burnout, handbrake, hard braking)
+      let tr = 0, tf = 0, spin = 0; const ts = v.tireSmoke;
+      if (ts) { tr = ts.r || 0; tf = ts.f || 0; spin = ts.spin || 0; ts.r = 0; ts.f = 0; ts.spin = 0; } // set by Vehicle.drive (launch wheelspin, burnout, handbrake, hard braking)
       if (sp > 2.5 || Math.abs(latS) > 2.5) { const sl = clamp01((Math.abs(latS) - 1.4) / 4.5); tr = Math.max(tr, sl); tf = Math.max(tf, sl * 0.7); } // sliding sideways
       if (Math.abs(yr) > 1.3 && (sp > 3 || Math.abs(latS) > 2)) { const k = clamp01((Math.abs(yr) - 1.3) / 2); tr = Math.max(tr, k); tf = Math.max(tf, k * 0.8); } // spinning
       if (v.free && Math.hypot(v.free.vx, v.free.vz) > 3) { tr = Math.max(tr, 0.5); tf = Math.max(tf, 0.5); } // shoved across the road by a crash
-      const wet = 1 - 0.75 * clamp01(rain * 1.5); tr *= wet; tf *= wet;
-      if (tr > 0.05 || tf > 0.05 || s.pw) budget = this.tyres(v, s, I, tr, tf, fx, fz, rx, rz, mvx, mvz, gy, far, dt, budget);
+      const wet = 1 - 0.75 * clamp01(rain * 1.5); tr *= wet; tf *= wet; if (I.pedal) { tr = 0; tf = 0; } /* a bicycle's tyres don't smoke */
+      if (tr > 0.05 || tf > 0.05 || s.pw) budget = this.tyres(v, s, I, tr, tf, fx, fz, rx, rz, mvx, mvz, gy, far, dt, budget, spin);
       // ---------------- badly damaged: smoke from under the bonnet (grey → black as it gets worse)
       if ((v.damage || 0) > 0.7 && budget > 0) { s.en += (4 + 10 * clamp01((v.damage - 0.7) / 0.3)) * this.rateK * far * dt;
         while (s.en >= 1 && budget > 0) { s.en -= 1; budget--; const lz = I.len * 0.36, ly = I.heavy ? 1.4 : 0.95; const px = v.x + fx * lz + rx * (Math.random() - 0.5) * I.wid * 0.5, pz = v.z + fz * lz + rz * (Math.random() - 0.5) * I.wid * 0.5;
@@ -151,7 +167,7 @@ export class VehicleSmoke {
       const humid = 1 + 0.8 * clamp01(rain * 2); let alpha = (F.alpha[0] + (F.alpha[1] - F.alpha[0]) * load) * humid + dmg * 0.25; const rate = (F.rate[0] + (F.rate[1] - F.rate[0]) * load + dmg * 6) * this.rateK * far;
       budget = this.exhaust(v, s, I, F, rate, load, alpha, dmg, fx, fz, rx, rz, mvx, mvz, gy, dt, budget);
     }
-    this.flush();
+    this.flush(); this.skid.flush();
   }
   // exhaust tip in world space (ignores the small pitch / roll of the body)
   exPoint(v, s, out) { const p = s.info ? s.info.ex.p : [0, 0.3, -2], yaw = v.yaw, fx = Math.sin(yaw), fz = Math.cos(yaw); out[0] = v.x + p[0] * fz + p[2] * fx; out[1] = (v.y || 0) + p[1]; out[2] = v.z - p[0] * fx + p[2] * fz; return out; }
@@ -166,18 +182,32 @@ export class VehicleSmoke {
         this.t - (1 - u) * dt, life, F.s0 * I.scale, s1 * I.scale * (0.85 + Math.random() * 0.3), F.kind, F.buoy, 1.6, grey, Math.min(0.8, alpha), gy); this.stats.exhaust++; }
     if (budget <= 0) this.stats.dropped++; return budget;
   }
-  tyres(v, s, I, tr, tf, fx, fz, rx, rz, mvx, mvz, gy, far, dt, budget) {
+  // Rubber smoke in two layers, as it really builds up: a dense bright CORE boiling off each slipping contact patch (a spinning tread
+  // flings it backwards out from behind the tyre at up to ~4 m/s, the air stops it within a metre or so and it balloons; a locked or
+  // sliding tyre just lays it where it slid), and a long-lived low HAZE bank that pools along the road, spreads wide and hangs for
+  // 6–10 s, so a long burnout or drift fills the street with a cloud instead of a trail of separate balls.
+  tyres(v, s, I, tr, tf, fx, fz, rx, rz, mvx, mvz, gy, far, dt, budget, spin = 0) {
     const ws = I.bike ? [I.rear[0]] : I.rear, wf = I.bike ? [I.front[0]] : I.front; const all = ws.concat(wf); const cur = all.map(([lx, lz]) => [v.x + lx * rx + lz * fx, v.z + lx * rz + lz * fz]);
     const prev = s.pw && s.pw.length === cur.length ? s.pw : cur; s.pw = tr > 0.05 || tf > 0.05 ? cur : null; if (!s.pw) { s.tr = s.tf = 0; return budget; }
+    if (this.skid) for (let i = 0; i < all.length; i++) { const inten = i < ws.length ? tr : tf; if (inten > 0.12) this.skid.mark(v, i, prev[i][0], prev[i][1], cur[i][0], cur[i][1], gy, inten, I.bike ? 0.13 : I.heavy ? 0.3 : 0.21); }
     const cap = clamp01(1 - (this.tyreLoad - 140) / 120); tr *= cap; tf *= cap;
     const rateR = 16 * tr * this.rateK * far * (I.bike ? 0.6 : 1), rateF = 16 * tf * this.rateK * far * (I.bike ? 0.6 : 1);
-    const one = (i, k, nk, inten) => { const P = prev[i], C = cur[i], u = (k + 1) / nk; const px = P[0] + (C[0] - P[0]) * u, pz = P[1] + (C[1] - P[1]) * u;
+    const sp = Math.hypot(mvx, mvz), slow = clamp01(1 - sp / 14);
+    const one = (i, k, nk, inten, rearW) => { const P = prev[i], C = cur[i], u = (k + 1) / nk; const px = P[0] + (C[0] - P[0]) * u, pz = P[1] + (C[1] - P[1]) * u;
       const out = (all[i][0] >= 0 ? 1 : -1) * 0.5; // a little outward from under the wheel arch
-      this.emit(px + rx * out * 0.3, gy + 0.18, pz + rz * out * 0.3, mvx * 0.3 + rx * out + (Math.random() - 0.5) * 0.8, 0.35 + Math.random() * 0.3, mvz * 0.3 + rz * out + (Math.random() - 0.5) * 0.8,
-        this.t - (1 - u) * dt, 2.6 + Math.random() * 2.2 * inten, 0.35 * I.scale, (2.2 + 1.6 * inten) * I.scale * (0.8 + Math.random() * 0.4), KIND.TYRE, 0.22, 2.4, 0.84 + Math.random() * 0.08, 0.38 + 0.4 * inten, gy); this.stats.tyre++; this.tyreLoad++; };
+      const ej = rearW ? spin * slow * (1.4 + 2.8 * inten) * (0.75 + Math.random() * 0.5) : 0; // tread-thrown, out the back of the tyre
+      const born = this.t - (1 - u) * dt, grey = v.tune && v.tune.smoke ? smokeCode(v.tune.smoke) : 0.88 + Math.random() * 0.08;
+      this.emit(px + rx * out * 0.3 - fx * 0.25 * (ej > 0), gy + 0.16 + Math.random() * 0.1, pz + rz * out * 0.3 - fz * 0.25 * (ej > 0),
+        mvx * 0.3 + rx * out - fx * ej + (Math.random() - 0.5) * 0.8, 0.3 + Math.random() * 0.35 + ej * 0.12, mvz * 0.3 + rz * out - fz * ej + (Math.random() - 0.5) * 0.8,
+        born, 1.5 + Math.random() * 1.2 * (0.5 + inten), 0.3 * I.scale, (1.4 + 1.3 * inten) * I.scale * (0.8 + Math.random() * 0.4), KIND.TYRE, 0.32, 3.2, grey, 0.46 + 0.38 * inten, gy);
+      this.stats.tyre++; this.tyreLoad++;
+      if (budget > 1 && Math.random() < 0.18 + 0.4 * inten) { budget--; const sx = (Math.random() - 0.5) * 1.6, ang = Math.random() * 6.2832; // the bank it feeds
+        this.emit(px - fx * ej * 0.3 + rx * out * 0.8, gy + 0.25, pz - fz * ej * 0.3 + rz * out * 0.8, mvx * 0.18 - fx * ej * 0.3 + rx * out * 1.2 + Math.cos(ang) * 0.6 + sx * rx, 0.12, mvz * 0.18 - fz * ej * 0.3 + rz * out * 1.2 + Math.sin(ang) * 0.6 + sx * rz,
+          born, 6 + Math.random() * 4 * (0.4 + inten), 0.8 * I.scale, (3.6 + 3.2 * inten) * I.scale * (0.8 + Math.random() * 0.4), KIND.TYRE_HAZE, 0.05, 1.3, 0.84 + Math.random() * 0.06, 0.11 + 0.13 * inten, gy);
+        this.stats.haze++; this.tyreLoad += 2; } };
     s.tr += rateR * dt; s.tf += rateF * dt; let nr = Math.min(4, Math.floor(s.tr)), nf = Math.min(3, Math.floor(s.tf)); s.tr -= Math.floor(s.tr); s.tf -= Math.floor(s.tf);
-    for (let k = 0; k < nr; k++) for (let i = 0; i < ws.length && budget > 0; i++, budget--) one(i, k, nr, tr);
-    for (let k = 0; k < nf; k++) for (let i = 0; i < wf.length && budget > 0; i++, budget--) one(ws.length + i, k, nf, tf);
+    for (let k = 0; k < nr; k++) for (let i = 0; i < ws.length && budget > 0; i++, budget--) one(i, k, nr, tr, true);
+    for (let k = 0; k < nf; k++) for (let i = 0; i < wf.length && budget > 0; i++, budget--) one(ws.length + i, k, nf, tf, false);
     if (budget <= 0) this.stats.dropped++; return budget;
   }
 }

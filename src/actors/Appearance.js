@@ -40,7 +40,7 @@ export const FACE_VARIANTS = [
 ];
 
 const SKIN_LK = ['#8d5a3b', '#9b6644', '#7a4a2e', '#a8734f', '#6b4128', '#b07c56', '#82543a', '#5e3a24', '#93603f', '#714530', '#a06a48', '#4f3020'];
-const SKIN_EU = ['#e8c4a8', '#dcb08e', '#f0d0b8', '#d2a07c'];
+const SKIN_EU = ['#dfb495', '#d4a382', '#e3bb9c', '#c99673']; // visitors after a few days of Colombo sun: the old #f0d0b8 / #e8c4a8 read as white plaster under the crowd shading
 const SKIN_EA = ['#e0b890', '#d8ac84', '#cfa078'];
 const HAIR_DARK = ['#120d0a', '#1c140e', '#0b0908', '#2a1c12', '#16100c'];
 const HAIR_PEPPER = ['#3a3632', '#4a4642', '#2e2a26'];
@@ -243,9 +243,12 @@ export function makeAppearance(seed, opts = {}) {
   else if (o === 'salwar') { const sc = r.pick(P.saree); Object.assign(sp, { outfit: 'salwar', top: sc, skirt: 'knee', skirtCol: sc, bottom: r.pick(['#f2efe6', '#1d1d24', sc]), pattern: r.chance(0.5) ? 2 : 0, longSleeve: r.chance(0.5) }); }
   else if (o === 'kurti') { const sc = r.pick(P.dress); Object.assign(sp, { outfit: 'kurti', top: sc, skirt: 'knee', skirtCol: sc, bottom: r.pick(['#1d1d24', '#f2efe6', '#2c3e5c', '#4a3a3a']), pattern: r.chance(0.4) ? 2 : 0, longSleeve: r.chance(0.6) }); }
   else if (o === 'abaya') { const c = r.pick(P.abaya); Object.assign(sp, { outfit: 'abaya', top: c, bottom: c, skirt: 'ankle', skirtCol: c, longSleeve: true }); }
-  else if (o === 'frock') { const c = pr.uniform || r.pick(P.dress); Object.assign(sp, { outfit: 'frock', top: c, skirt: pr.long ? 'ankle' : r.chance(0.5) ? 'mid' : 'knee', skirtCol: c, bottom: sp.skin, pattern: pr.uniform ? 0 : r.chance(0.5) ? 2 : 0, collar: !!pr.uniform }); if (pr.uniform) sp.skirt = 'mid'; }
+  else if (o === 'frock') { const c = pr.uniform || r.pick(P.dress); Object.assign(sp, { outfit: 'frock', top: c, skirt: pr.long ? 'ankle' : r.chance(0.5) ? 'mid' : 'knee', skirtCol: c, bottom: sp.skin, pattern: pr.uniform ? 0 : r.chance(0.5) ? 2 : 0, collar: !!pr.uniform }); if (pr.uniform) { sp.skirt = 'mid'; if (pr.profile === 'medical') Object.assign(sp, { nurseDress: true, noPottu: true }); } } // 75th: nurses — the skirt starts at the natural waist + a gentle A-line (Character.js), no forehead dot
   else if (o === 'skirt_top') Object.assign(sp, { outfit: 'skirt_top', top: top('tee'), skirt: r.chance(0.5) ? 'knee' : 'mid', skirtCol: r.pick(['#2c3e5c', '#1d1d24', '#c8b896', '#8a2a3a', '#3a6a5a']), bottom: sp.skin, pattern: 0 });
   else if (o === 'tee_jeans') Object.assign(sp, { outfit: 'tee_jeans', top: top(pr.topPal || 'tee'), bottom: pr.bottom === 'track' ? r.pick(TRACK) : pr.shorts ? r.pick(P.shorts) : r.pick(P.jeans), shorts: !!pr.shorts });
+  { const casual = o === 'tee' || o === 'polo' || o === 'tee_jeans' || o === 'hoodie'; // cloth type of the legs for the fabric shader (colour is unchanged)
+    if (casual && pr.bottom === 'track') sp.track = true;
+    else if ((o === 'tee' || o === 'polo') ? pr.bottom === 'jeans' : o === 'hoodie' || (o === 'tee_jeans' && !pr.shorts)) sp.denim = true; }
   if (sp.hair === 'hijab') sp.scarf = o === 'abaya' ? r.pick(P.abaya.concat(P.scarf.slice(0, 3))) : r.pick(P.scarf);
   // ---- footwear
   if (pr.ft === 'sneaker') { sp.shoes = r.pick(P.sneaker); sp.sole = '#e6e6e2'; }
@@ -380,6 +383,30 @@ export function makeAttendantAppearance(seed, brand, opts = {}) {
   if (sp.watch === undefined) delete sp.watch;
   sp.gait = Object.assign({}, sp.gait, { stoop: Math.min(sp.gait?.stoop || 0, 0.03) }); sp.belly = Math.min(sp.belly || 0, 0.3);
   Object.assign(sp, opts); return sp;
+}
+// Ceylon Meridian Bank staff (67th, world/BankInterior.js), adults only. The bank's own uniform in its brand colours:
+//   officers (m): white / pale-blue long-sleeve shirt, navy tie, charcoal-navy trousers, navy staff lanyard with the ID card
+//   officers (f): the office saree in CMB navy with a muted-gold blouse
+//   manager: navy blazer over a white shirt; security: the private-security uniform (preset), the bank's guard at the door
+export function makeBankStaffAppearance(seed, opts = {}) {
+  const r = new RNG(seed * 7349 + 17); const sex = opts.sex || (r.chance(0.5) ? 'f' : 'm'); const role = opts.role || 'officer';
+  const preset = role === 'guard' ? (sex === 'f' ? 'f_security' : 'm_security') : sex === 'f' ? 'f_bank_saree' : role === 'manager' ? 'm_executive' : 'm_banker';
+  const sp = Object.assign({}, makeAppearance(seed, { preset }));
+  if (!SKIN_LK.includes(sp.skin)) sp.skin = r.pick(SKIN_LK);
+  if (!HAIR_DARK.includes(sp.hairColor) && !HAIR_PEPPER.includes(sp.hairColor)) sp.hairColor = r.pick(HAIR_DARK);
+  for (const k of ['bag', 'crossbody', 'backpack', 'sunglasses', 'headphones', 'umbrella', 'hiVis', 'apron', 'towel', 'shawl', 'hood', 'headband', 'scarf', 'sandals']) delete sp[k];
+  if (role === 'guard') Object.assign(sp, { role: 'bankGuard', label: 'Bank security officer' });
+  else if (sex === 'f') Object.assign(sp, { role: 'bankOfficer', label: role === 'manager' ? 'Branch manager' : 'Bank officer', top: '#c9b27a', skirtCol: '#1d3461', bottom: '#1d3461', pattern: 1, lanyard: '#13284a' });
+  else if (role === 'manager') Object.assign(sp, { role: 'bankManager', label: 'Branch manager', outfit: 'jacket', top: '#1a2a48', inner: '#f2f4f7', bottom: '#1c2433', longSleeve: true, collar: true });
+  else Object.assign(sp, { role: 'bankOfficer', label: 'Bank officer', outfit: 'office', top: r.pick(['#f3f5f8', '#e2eaf4']), bottom: '#1c2433', longSleeve: true, collar: true, tie: '#1b2f55', lanyard: '#13284a', shoes: '#141414', sole: '#0e0e0e' });
+  Object.assign(sp, opts.extra || {}); return sp;
+}
+// Street Customs mechanic: navy work coverall look (navy shirt + matching trousers), orange shop patch, dark work boots, no cap
+export function makeMechanicAppearance(seed, opts = {}) {
+  const r = new RNG(seed * 4441 + 13); const navy = r.pick(['#1e2a44', '#1b2640', '#22304c']);
+  const sp = makeAttendantAppearance(seed, { main: navy, accent: '#ff7a1a', cap: undefined }, Object.assign({ sex: 'm' }, opts));
+  Object.assign(sp, { preset: 'mechanic', role: 'mechanic', label: 'Street Customs mechanic', top: navy, bottom: navy, longSleeve: r.chance(0.5), patch: '#ff7a1a', shoes: '#1a1612', sole: '#0e0e0e', belt: '#141414' });
+  delete sp.cap; Object.assign(sp, opts); return sp;
 }
 export function makeMedicAppearance(seed, opts = {}) {
   const r = new RNG(seed * 5197 + 29); const sex = opts.sex || (r.chance(0.3) ? 'f' : 'm'); const band = opts.band || r.weighted([['young', 4], ['adult', 5], ['mature', 1]]);

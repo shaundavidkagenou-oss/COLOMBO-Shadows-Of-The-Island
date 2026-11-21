@@ -123,7 +123,7 @@ export class StreetCricket {
         this.ballAt = { kind: 'air' }; this.stats.deliveries++; const r = this.r.next(); this.outcome = r < 0.5 ? 'hit' : r < 0.62 ? 'six' : r < 0.82 ? 'miss' : 'block'; bat.swingT = 0; } break;
       case 'flight': { const F = this.fl; let p; if (this.t < F.T1) { const k = this.t / F.T1; p = F.a.clone().lerp(F.b, k); p.y = F.a.y + (F.b.y - F.a.y) * k * k; } else { const k = Math.min(1, (this.t - F.T1) / F.T2); p = F.b.clone().lerp(F.c, k); p.y = F.b.y + (F.c.y - F.b.y) * Math.sin(k * Math.PI / 2); }
         ballW(p.x, p.y, p.z);
-        if (this.outcome !== 'block' || true) bat.ch.anim.swing = Math.min(1, Math.max(0, (this.t - (F.T1 - 0.18)) / 0.6)) * (this.outcome === 'block' ? 0.55 : 1);
+        bat.ch.anim.swing = Math.min(1, Math.max(0, (this.t - (F.T1 - 0.18)) / 0.6)) * (this.outcome === 'block' ? 0.55 : 1);
         if (this.t >= F.T1 + F.T2) this.contact(); break; }
       case 'travel': { const F = this.fl; const k = Math.min(1, this.t / F.T); const p = F.a.clone().lerp(F.b, k); p.y = F.a.y + (F.b.y - F.a.y) * k + Math.sin(k * Math.PI) * F.h; if (F.roll && k > 0.55) p.y = Math.max(this.ground(p.x, p.z) + 0.034, p.y); ballW(p.x, Math.max(this.ground(p.x, p.z) + 0.034, p.y), p.z);
         if (bat.ch.anim.swing != null && bat.ch.anim.swing < 1) bat.ch.anim.swing = Math.min(1, bat.ch.anim.swing + dt * 1.6);

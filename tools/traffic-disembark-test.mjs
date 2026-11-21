@@ -21,6 +21,8 @@ const collision = { groundAt: (x, z) => L.groundY(x, z), resolveCircle: (x, z) =
 const carOf = (base) => Object.keys(VTYPES).find((k) => (VTYPES[k].base || k) === base && !VTYPES[k].police && !VTYPES[k].ambulance && VTYPES[k].entry === (base === 'van' ? 'van' : 'car'));
 const TYPES = process.env.TYPES ? process.env.TYPES.split(',') : [...new Set(['taxi', carOf('car') || 'car', carOf('suv') || 'suv', 'van', 'tuktuk', 'bus', 'pbus', 'lorry', 'hakobi'])].filter((t) => VTYPES[t]);
 const rows = [];
+// bone speed limit 6.5 m/s (pops / flips are far faster); a fleeing passenger's step-out plays at 1 / 0.85 speed
+// (Traffic.updateDisembark: TX × 0.85), so the same motion is allowed 1 / 0.85 faster then
 for (const type of TYPES) for (const reason of ['calm', 'flee']) {
   const scene = new THREE.Scene(); const tr = new Traffic(scene, collision, { emit() {}, on() {} }); const adopted = [];
   tr.crowd = { adopt: (ch, x, z, yaw) => adopted.push({ ch, x, z, yaw }) };
@@ -36,7 +38,7 @@ for (const type of TYPES) for (const reason of ['calm', 'flee']) {
     tr.updateDisembark(DT); updateDoorClosers(DT); t += DT; v.mesh.updateMatrixWorld(true);
     for (const o of list) { const ch = o.ch; if (o.done) { prev.delete(ch); continue; } ch.root.updateMatrixWorld(true); const cur = {};
       for (const b of BONES) { const w = ch.bones[b].getWorldPosition(new THREE.Vector3()); cur[b] = w; if (!Number.isFinite(w.x + w.y + w.z)) { ok(false, `${type}/${reason}: NaN bone ${b}`); continue; }
-        const pw = prev.get(ch); if (pw && o.t > 0.05) { const sp = w.distanceTo(pw[b]) / DT; if (sp > st.maxV) { st.maxV = sp; st.at = `${b} t${o.t.toFixed(2)}`; } ok(sp < 6.5, `${type}/${reason}: ${b} ${sp.toFixed(1)} m/s at t ${o.t.toFixed(2)}`); }
+        const pw = prev.get(ch); if (pw && o.t > 0.05) { const sp = w.distanceTo(pw[b]) / DT; if (sp > st.maxV) { st.maxV = sp; st.at = `${b} t${o.t.toFixed(2)}`; } ok(sp < (reason === 'flee' ? 6.5 / 0.85 : 6.5), `${type}/${reason}: ${b} ${sp.toFixed(1)} m/s at t ${o.t.toFixed(2)}`); }
         q.copy(w).applyMatrix4(inv); const out = Math.abs(q.x) > W - 0.02 && q.y > 0.25 && q.y < 2.4 && q.z > -v.T.len / 2 + 0.3 && q.z < v.T.len / 2 - 0.3;
         if (out && Math.abs(q.x) < W + 0.04) { // a body part passing the side plane right now
           if (bus) { const lv = ud.doors.filter((d) => d.leaf && Math.abs(d.hz - d.leaf * 0.475 - o.P.dz) < 0.2); ok(q.x > 0 && Math.abs(q.z - o.P.dz) < 0.46 && lv.every((d) => d.ang > 0.8), `${type}/${reason}: ${b} through the side at z ${(q.z - o.P.dz).toFixed(2)} from its doorway (leaves ${lv.map((d) => d.ang.toFixed(2))})`); }

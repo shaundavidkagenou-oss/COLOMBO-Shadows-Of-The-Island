@@ -121,7 +121,9 @@ const TR = src('src/story/Trailer.js') + src('src/story/TrailerScore.js') + src(
 for (const w of ['localStorage', 'SaveSystem', 'saveTo(', 'Settings.set', 'story.state', 'indexedDB', 'startMission']) ok(!TR.includes(w), `trailer must not touch ${w}`);
 const G = src('src/Game.js'); ok(G.includes("import('./story/Trailer.js')"), 'trailer is lazily imported'); ok(!/^import .*Trailer/m.test(G), 'no static trailer import in Game.js');
 ok(!/from '\.\.?\/.*Trailer/.test(src('src/main.js')), 'main.js does not load the trailer');
-const H = src('index.html'); ok(H.includes('id="gate-trailer"') && H.includes('WATCH TRAILER') && H.includes('__sdsTrailer'), 'gate WATCH TRAILER button');
+const H = src('index.html'); ok(H.includes('id="gate-trailer"') && H.includes('ORIGINAL TRAILER') && H.includes('__sdsTrailer'), 'gate ORIGINAL TRAILER button (the first trailer, unchanged id)');
+ok(H.includes('id="gate-trailer2"') && H.includes('OFFICIAL CINEMATIC TRAILER') && /g-trailers[\s\S]*gate-trailer[\s\S]*gate-trailer2/.test(H), 'gate OFFICIAL CINEMATIC TRAILER button beside it');
+{ const G = src('src/Game.js'); ok(G.includes("import('./story/Trailer.js')") && G.includes("import('./story/CineTrailer.js')") && !/^import .*(CineTrailer|story\/Trailer)/m.test(G), 'both trailers lazily imported'); }
 ok(src('src/story/Trailer.js').includes('location.reload()'), 'trailer returns to the gate by reloading');
 
 console.log(`trailer-test: ${pass} passed, ${fail} failed · ${frames} on-screen frames, ${camChecks} camera positions checked`);

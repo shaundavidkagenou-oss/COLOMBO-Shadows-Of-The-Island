@@ -1,0 +1,41 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>COLOMBO — surface relief bench</title>
+<style>html,body{margin:0;background:#111;color:#ddd;font:12px sans-serif;overflow:hidden}#hud{position:fixed;left:8px;top:6px;text-shadow:0 1px 2px #000}</style></head>
+<body><div id="hud"></div>
+<script type="module">
+// Material bench for the procedural normal maps: the game's own textures + shared materials (buildTextures / buildMaterials)
+// on simple geometry under one sun. ?sun=<elevation°>&az=<azimuth°>&nm=0 (normal maps off)&q=medium|high&view=ground|walls|roofs
+import * as THREE from 'three';
+import { buildTextures, setAniso } from '/src/gfx/Textures.js';
+import { buildMaterials, MAT } from '/src/gfx/Materials.js';
+const P = new URLSearchParams(location.search); const elev = +(P.get('sun') ?? 12), az = +(P.get('az') ?? 35), nmOn = P.get('nm') !== '0', view = P.get('view') || 'ground';
+const r = new THREE.WebGLRenderer({ antialias: true }); r.setSize(innerWidth, innerHeight); r.shadowMap.enabled = true; r.toneMapping = THREE.ACESFilmicToneMapping; r.outputColorSpace = THREE.SRGBColorSpace; document.body.appendChild(r.domElement);
+setAniso(r.capabilities.getMaxAnisotropy());
+await buildTextures(P.get('q') || 'medium'); buildMaterials();
+if (!nmOn) for (const m of Object.values(MAT)) if (m && m.isMaterial && m.normalMap) { m.normalMap = null; m.needsUpdate = true; }
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x8fb4d8);
+scene.add(new THREE.HemisphereLight(0xbcd4f0, 0x6a5a48, 0.9));
+const sun = new THREE.DirectionalLight(0xfff1dc, 3.2); const e = THREE.MathUtils.degToRad(elev), a = THREE.MathUtils.degToRad(az);
+sun.position.set(Math.cos(e) * Math.sin(a), Math.sin(e), Math.cos(e) * Math.cos(a)).multiplyScalar(50); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -20, right: 20, top: 20, bottom: -20 }); sun.shadow.normalBias = 0.05; scene.add(sun);
+// planar UVs in metres / tile (like the world builders: road ≈ 4 m per asphalt tile, pavers 2 m, concrete 2 m, facade tile 14 × 7 m)
+function plane(w, h, tile, mat, vc) { const g = new THREE.PlaneGeometry(w, h, 1, 1); const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * w / tile[0], uv.getY(i) * h / tile[1]);
+  if (vc) g.setAttribute('color', new THREE.Float32BufferAttribute(new Array(g.attributes.position.count * 3).fill(1), 3)); const m = new THREE.Mesh(g, mat); m.receiveShadow = m.castShadow = true; scene.add(m); return m; }
+const cam = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.05, 400);
+const label = [];
+if (view === 'ground') {
+  const S = [['road', MAT.road, 4, 0], ['walk', MAT.walk, 2, 0], ['walkGrey', MAT.walkGrey, 2, 0], ['concrete', MAT.concrete, 2, 1], ['sand', MAT.sand, 3, 0], ['roofFlat', MAT.roofFlat, 3, 1]];
+  S.forEach(([n, m, t, vc], i) => { const p = plane(3.4, 6, [t, t], m, vc); p.rotation.x = -Math.PI / 2; p.position.set((i - 2.5) * 3.5, 0, 0); label.push(n); });
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.2, 0.5), new THREE.MeshStandardMaterial({ color: 0x777777 })); box.castShadow = true; box.position.set(0, 0.6, -2.2); scene.add(box);
+  if (P.has('i')) { const x = (+P.get('i') - 2.5) * 3.5; cam.position.set(x, 1.1, 2.6); cam.lookAt(x, 0, -0.6); } else { cam.position.set(0, 2.2, 6.5); cam.lookAt(0, 0, -0.5); }
+} else if (view === 'walls') {
+  const S = [['f_brick', 14, 7], ['f_colonial', 14, 7], ['f_shop', 14, 7], ['f_warehouse', 14, 7]];
+  S.forEach(([n, tw, th], i) => { const p = plane(5, 7, [tw, th], MAT[n], 1); p.position.set((i - 1.5) * 5.05, 3.5, 0); label.push(n); });
+  if (P.has('i')) { const x = (+P.get('i') - 1.5) * 5.05; cam.position.set(x - 1.2, 1.7, 3.2); cam.lookAt(x + 0.6, 2.8, 0); } else { cam.position.set(-3, 1.7, 6); cam.lookAt(1, 3.2, 0); }
+} else {
+  const t = plane(6, 5, [4, 4], MAT.roofTiles, 1); t.rotation.x = -Math.PI / 2 + 0.45; t.position.set(-3.2, 0.8, 0); label.push('roofTiles');
+  const c = plane(6, 5, [4, 4], MAT.corrugated, 1); c.rotation.x = -Math.PI / 2 + 0.45; c.position.set(3.2, 0.8, 0); label.push('corrugated');
+  cam.position.set(0, 4.5, 5.5); cam.lookAt(0, 0.6, -0.3);
+}
+document.getElementById('hud').textContent = `${view}: ${label.join(' · ')} — sun ${elev}° az ${az}° — normal maps ${nmOn ? 'ON' : 'OFF'}`;
+r.render(scene, cam); window.__ready = true;
+</script></body></html>

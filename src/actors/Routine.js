@@ -3,7 +3,7 @@
 // calls, read a message, glance up; guards fold their arms, check a watch, use the radio, look around; people in a
 // conversation take turns to talk and listen; vendors serve, call out and wait. Changes are spaced 4–20 s apart.
 const KINDS = {
-  desk: { seated: true, acts: [['type', 5], ['sit', 3], ['text', 1.5], ['phone', 1.2], ['glance', 1], ['look', 0.8]], dur: [5, 18] },
+  desk: { seated: true, acts: [['type', 5], ['mouse', 3], ['sit', 2.4], ['text', 1.5], ['phone', 1.2], ['glance', 1], ['look', 0.8]], dur: [5, 18] },
   guard: { acts: [[null, 3], ['crossarms', 2], ['look', 2], ['hips', 1.2], ['glance', 1], ['watch', 0.7], ['comms', 0.6]], dur: [6, 18] },
   stand: { acts: [[null, 2.5], ['look', 2], ['phone', 1.2], ['text', 1.5], ['crossarms', 1], ['glance', 1], ['stretch', 0.3]], dur: [5, 16] },
   phone: { acts: [['phone', 4], ['text', 2], ['look', 1], [null, 1]], dur: [6, 20] },

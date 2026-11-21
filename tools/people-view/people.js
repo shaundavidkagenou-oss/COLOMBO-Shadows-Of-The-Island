@@ -1,0 +1,64 @@
+// Dev tool: a line-up of game characters (police roles, civilians, a protagonist for reference) under daylight, rendered with
+// the game's own Character code, so body / clothing work can be judged without loading the city.
+//   /index.html?set=police|civ|mix|none&view=front|back|side|legs|face|chest|feet|neck&w=1600&h=900&walk=0.4
+//   &hero=0 (no Dineth) · &heroes=dineth,david,shashika · &yaw=degrees (turn every character) · &cam=x,y,z&look=x,y,z&fov=deg
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { Character, HEROES, setSkirtLap } from '../../src/actors/Character.js';
+import { officeChair } from '../../src/gfx/OfficeChair.js';
+import { MeshBuilder } from '../../src/gfx/MeshBuilder.js';
+import { makePoliceAppearance, makeAppearance, PRESETS } from '../../src/actors/Appearance.js';
+
+const q = new URLSearchParams(location.search); const W = +(q.get('w') || 1600), H = +(q.get('h') || 900); const view = q.get('view') || 'front'; const set = q.get('set') || 'police';
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); renderer.setSize(W, H); renderer.setPixelRatio(1);
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.shadowMap.enabled = true; document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0xa9bccb);
+const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; scene.environmentIntensity = 0.8;
+scene.add(new THREE.HemisphereLight(0xdfe8f0, 0x6a6258, 0.7));
+const sun = new THREE.DirectionalLight(0xfff2e0, 2.6); sun.position.set(3, 7, 6); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -8, right: 8, top: 4, bottom: -1, far: 30 }); scene.add(sun);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ color: 0x77777a, roughness: 0.95 })); ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+const errors = []; const specs = [];
+const pid = (id) => PRESETS.find((p) => p.id === id) ? id : undefined;
+if (set === 'police' || set === 'mix') for (const [i, r] of ['patrol', 'traffic', 'supervisor', 'csru', 'motorcycle', 'patrol', 'staff'].entries()) if (!q.get('roles') || q.get('roles').split(',').includes(r)) specs.push({ label: r, sp: makePoliceAppearance(300 + i * 7, r, i === 5 ? { sex: 'f' } : {}) });
+if (set === 'civ' || set === 'mix') { const ids = (q.get('presets') || '').split(',').filter(Boolean); const pool = ids.length ? ids : PRESETS.filter((p) => p.band !== 'child').map((p) => p.id).filter((_, i) => i % Math.max(1, Math.floor(PRESETS.length / 8)) === 0).slice(0, 8);
+  pool.forEach((id, i) => specs.push({ label: id, sp: makeAppearance(500 + i * 13, { preset: pid(id) }) })); }
+if (q.get('heroes')) for (const h of q.get('heroes').split(',')) { if (HEROES[h]) specs.push({ label: h, sp: HEROES[h] }); }
+else if (q.get('hero') !== '0') specs.push({ label: 'dineth (hero)', sp: HEROES.dineth });
+const n = specs.length, gap = 0.95; const walk = +(q.get('walk') || 0); const chars = [];
+specs.forEach((s, i) => { try { const ch = new Character(s.sp); ch.root.position.set((i - (n - 1) / 2) * gap, 0, 0); ch.root.rotation.y = (view === 'back' || view === 'feet' ? Math.PI : view === 'side' ? Math.PI / 2 : 0) + (+(q.get('yaw') || 0)) * Math.PI / 180; scene.add(ch.root);
+  ch.root.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } }); chars.push(ch); } catch (e) { errors.push(s.label + ': ' + e.message); } });
+// sit=1: seat every character as the station announcer (StationLife SEAT_ANN) on the announcer's office chair (55th saree check)
+window.__annChair = () => { const b = new MeshBuilder(); officeChair(b, (h) => new THREE.Color(h).toArray(), 0, 0, 0, 0); return new THREE.Mesh(b.build(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6 })); };
+if (q.get('lap')) setSkirtLap(...q.get('lap').split(',').map(Number)); // lap=dy,dz: seated front-panel gather (tuning)
+if (q.get('sit')) { const SEAT = { x: 0, y: 0, z: 0, floor: -0.47, fz: 0.4, fx: 0.12, lean: 0.08, hands: 'lap', kind: 'sit' };
+  for (const ch of chars) { ch.root.position.y = 0.47; ch.anim.sitIn(SEAT, 1); if (q.get('chair') !== '0') { const c = window.__annChair(); c.position.set(ch.root.position.x, 0, 0); c.rotation.y = ch.root.rotation.y; scene.add(c); } } }
+const stop = +(q.get('stop') || 0); // stop=N: walk for N frames (at walk= m/s, default 1.4), then stand idle for 240 (55th raised-foot check)
+const decel = +(q.get('decel') || 0); // decel=N: the speed ramps to 0 over N frames (the player's deceleration) instead of snapping
+const sweep = q.get('sweep'); // sweep=a,b,step: run the walk-stop for every stop frame count and report the worst foot-height gap
+const feetGap = (c) => { const v = new THREE.Vector3(); c.root.updateMatrixWorld(true); const l = c.bones.footL.getWorldPosition(v).y, r = c.bones.footR.getWorldPosition(v).y; return Math.abs(l - r); };
+const runStop = (n) => { for (const ch of chars) { ch.anim.standUp(); } for (let f = 0; f < n; f++) for (const ch of chars) ch.anim.update(1 / 60, walk || 1.4, 0); for (let f = 0; f < decel; f++) for (const ch of chars) ch.anim.update(1 / 60, (walk || 1.4) * (1 - (f + 1) / decel), 0); for (let f = 0; f < 240; f++) for (const ch of chars) ch.anim.update(1 / 60, 0, 0); };
+if (sweep) { const [a0, b0, st] = sweep.split(',').map(Number); const worst = chars.map(() => [0, 0]); for (let n = a0; n <= b0; n += st) { runStop(n); chars.forEach((c, i) => { const g = feetGap(c); if (g > worst[i][0]) worst[i] = [+g.toFixed(3), n]; }); } window.__sweep = worst; }
+else if (stop) runStop(stop);
+else for (let f = 0; f < 90; f++) { for (const ch of chars) ch.anim.update(1 / 60, walk, 0); }
+scene.updateMatrixWorld(true);
+const cam = new THREE.PerspectiveCamera(+(q.get('fov') || 0) || (view === 'neck' ? 12 : view === 'legs' || view === 'face' || view === 'chest' || view === 'feet' ? 22 : 30), W / H, 0.05, 100); const span = n * gap;
+if (view === 'feet') { cam.position.set(0, 0.35, span * 0.8); cam.lookAt(0, 0.12, 0); }
+else if (view === 'legs') { cam.position.set(0, 0.75, span * 1.15); cam.lookAt(0, 0.62, 0); }
+else if (view === 'chest') { cam.position.set(0, 1.3, span * 1.0); cam.lookAt(0, 1.22, 0); }
+else if (view === 'neck') { cam.position.set(0, 1.5, span * 1.6 + 0.6); cam.lookAt(0, 1.42, 0); }
+else if (view === 'face') { cam.position.set(0, 1.62, span * 1.05); cam.lookAt(0, 1.5, 0); }
+else { cam.position.set(0, 1.2, span * 1.18 + 1.5); cam.lookAt(0, 0.92, 0); }
+if (q.get('cam')) { cam.position.set(...q.get('cam').split(',').map(Number)); cam.lookAt(...(q.get('look') || '0,1.4,0').split(',').map(Number)); }
+renderer.render(scene, cam);
+const info = renderer.info; const _fv = new THREE.Vector3(); const feet = chars.map((c) => ['footL', 'footR'].map((n) => c.bones && c.bones[n] ? +c.bones[n].getWorldPosition(_fv).y.toFixed(3) : null));
+// skirt=1: the skinned garment's worst spike — per vertex, how far it sits off the midpoint of its two ring neighbours
+// (posed) minus the same in the bind pose; a crumpled / torn rim shows as a large value. Reports [cm, ring, seg] per character
+const skirtSpikes = q.get('skirt') === '1' ? chars.map((c) => { const m = c.mesh, P = m && m.geometry.userData.parts; if (!P || !P.skirt) return null; m.updateMatrixWorld(true); m.skeleton.update();
+  const [k0, k1] = P.skirt, nV = k1 - k0, pos = m.geometry.attributes.position; let per = 0; for (const cand of [19, 18, 20]) if (nV % cand === 0) { per = cand; break; } if (!per) return 'n' + nV;
+  const R = nV / per, V = (i) => m.getVertexPosition(i, new THREE.Vector3()), V0 = (i) => new THREE.Vector3().fromBufferAttribute(pos, i); let worst = [0, 0, 0], lap = [];
+  for (let r = 0; r < R; r++) for (let j = 0; j < per; j++) { const i = k0 + r * per + j, a = k0 + r * per + (j + per - 1) % per, b = k0 + r * per + (j + 1) % per;
+    const d = V(i).sub(V(a).add(V(b)).multiplyScalar(0.5)).length() - V0(i).sub(V0(a).add(V0(b)).multiplyScalar(0.5)).length(); if (d > worst[0]) worst = [+(d * 100).toFixed(1), r, j]; }
+  const dump = [0, 1, 2].map((r) => Array.from({ length: per }, (_, j) => { const v = V(k0 + r * per + j), v0 = V0(k0 + r * per + j); return [+v0.x.toFixed(2), +v0.z.toFixed(2), '>', +v.x.toFixed(2), +v.y.toFixed(2), +v.z.toFixed(2)]; }));
+  return { worst, rings: R, per, dump, root: [c.root.position.toArray().map((x) => +x.toFixed(2)), +c.root.rotation.y.toFixed(2)], hipsY: +c.bones.hips.getWorldPosition(new THREE.Vector3()).y.toFixed(3) }; }) : null;
+window.__result = { skirt: skirtSpikes, sweep: window.__sweep, feet, errors, n, labels: specs.map((s) => s.label), calls: info.render.calls, tris: info.render.triangles, perChar: chars.map((c) => { let t = 0; c.root.traverse((o) => { if (o.isMesh && o.geometry.index) t += o.geometry.index.count / 3; }); return t; }) };
+window.__ready = true;

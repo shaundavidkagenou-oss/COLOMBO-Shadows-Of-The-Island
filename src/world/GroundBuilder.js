@@ -7,9 +7,9 @@ import { RNG, hash2 } from '../core/rng.js';
 
 import { buildTrack } from './Railway.js';
 const RY = L.ROAD_Y, LY = L.LAND_Y;
-import { resetGroundDetail, regWalkRect, regWalkCorner, regKerb } from './GroundDetail.js';
+import { resetGroundDetail, regWalkRect, regWalkCorner, regKerb, regManhole, regGrate } from './GroundDetail.js';
 const WHITE0 = [0.93, 0.93, 0.9], YELLOW0 = [0.93, 0.76, 0.12]; const WHITE = WHITE0, YELLOW = YELLOW0;
-const lotMaterial = (cell) => {
+const lotMaterial = (cell) => { // (76th: audio/Surface.js applies the same rule for footsteps — keep the two in step)
   const zn = L.zoneAt(cell.cx, cell.cz);
   if (zn) { if (['vmpark', 'museum', 'townhall', 'slpHQ', 'johns'].includes(zn.id)) return 'lawn'; if (zn.id === 'gangaramaya' || zn.id === 'kovil') return 'sand'; return 'concrete'; }
   const st = L.DISTRICTS[cell.district].style;
@@ -152,29 +152,42 @@ export function buildGround(progress) {
   // harbour quay walls
   for (let x = L.coastX(-1180); x < 230; x += 4) { const mb = at(x, -1170); mb.get('concrete').quad([x + 4, -2.5, -1180], [x, -2.5, -1180], [x, LY + 0.4, -1180], [x + 4, LY + 0.4, -1180], [0, 0, 2, 1.4], [0.6, 0.6, 0.58]); if (Math.floor(x / 4) % 5 === 0) mb.get('metal').cylinder(x, LY, -1181, 0.25, 0.2, 0.6, 8, { col: [0.15, 0.15, 0.15] }); }
   for (let z = -1300; z < -1180; z += 4) { const mb = at(235, z); mb.get('concrete').quad([230, -2.5, z], [230, -2.5, z + 4], [230, LY + 0.4, z + 4], [230, LY + 0.4, z], [0, 0, 2, 1.4], [0.6, 0.6, 0.58]); }
-  // Beira Lake embankment
-  for (let e = 0; e < L.LAKE.length; e++) {
-    const [cx, cz, rx, rz] = L.LAKE[e]; const n = Math.ceil((Math.PI * (rx + rz)) / 3);
-    for (let k = 0; k < n; k++) {
-      const a0 = (k / n) * Math.PI * 2, a1 = ((k + 1) / n) * Math.PI * 2;
-      const p0 = [cx + Math.cos(a0) * rx, cz + Math.sin(a0) * rz], p1 = [cx + Math.cos(a1) * rx, cz + Math.sin(a1) * rz];
-      const mid = [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2];
-      let inside = false; for (let o = 0; o < L.LAKE.length; o++) if (o !== e) { const [ox, oz, orx, orz] = L.LAKE[o]; const dx = (mid[0] - ox) / orx, dz = (mid[1] - oz) / orz; if (dx * dx + dz * dz < 0.98) inside = true; }
-      if (inside) continue;
-      const mb = at(mid[0], mid[1]);
-      mb.get('concrete').quad([p1[0], -1.6, p1[1]], [p0[0], -1.6, p0[1]], [p0[0], LY + 0.3, p0[1]], [p1[0], LY + 0.3, p1[1]], [0, 0, 1.5, 1], [0.74, 0.72, 0.68]);
-      mb.get('concrete').quad([p0[0], -1.6, p0[1]], [p1[0], -1.6, p1[1]], [p1[0], LY + 0.3, p1[1]], [p0[0], LY + 0.3, p0[1]], [0, 0, 1.5, 1], [0.74, 0.72, 0.68]); // lake-facing side
-      const ox = Math.cos((a0 + a1) / 2), oz = Math.sin((a0 + a1) / 2);
-      { const cq = [[p1[0], LY + 0.3, p1[1]], [p0[0], LY + 0.3, p0[1]], [p0[0] + ox * 0.9, LY + 0.3, p0[1] + oz * 0.9], [p1[0] + ox * 0.9, LY + 0.3, p1[1] + oz * 0.9]];
-        mb.get('concrete').quad(cq[0], cq[1], cq[2], cq[3], [0, 0, 1.5, 0.3], [0.82, 0.8, 0.76]); mb.get('concrete').quad(cq[3], cq[2], cq[1], cq[0], [0, 0, 1.5, 0.3], [0.82, 0.8, 0.76]);
-        // coping's inner riser down to the paving so the 0.15 m step reads as a kerb
-        mb.get('concrete').quad([p0[0] + ox * 0.9, LY, p0[1] + oz * 0.9], [p1[0] + ox * 0.9, LY, p1[1] + oz * 0.9], [p1[0] + ox * 0.9, LY + 0.3, p1[1] + oz * 0.9], [p0[0] + ox * 0.9, LY + 0.3, p0[1] + oz * 0.9], [0, 0, 1.5, 0.1], [0.78, 0.76, 0.72]);
-        mb.get('concrete').quad([p1[0] + ox * 0.9, LY, p1[1] + oz * 0.9], [p0[0] + ox * 0.9, LY, p0[1] + oz * 0.9], [p0[0] + ox * 0.9, LY + 0.3, p0[1] + oz * 0.9], [p1[0] + ox * 0.9, LY + 0.3, p1[1] + oz * 0.9], [0, 0, 1.5, 0.1], [0.78, 0.76, 0.72]); }
-      if (k % 2 === 0) mb.get('metal').box(p0[0] + ox * 0.4, LY + 0.85, p0[1] + oz * 0.4, 0.08, 1.0, 0.08, { col: [0.25, 0.27, 0.25] });
-      { const ax = p0[0] + ox * 0.4, az = p0[1] + oz * 0.4, bx = p1[0] + ox * 0.4, bz = p1[1] + oz * 0.4, l = Math.hypot(bx - ax, bz - az) + 0.06, ry = -Math.atan2(bz - az, bx - ax); // solid top + mid rails (visible from both sides)
-        mb.get('metal').box((ax + bx) / 2, LY + 1.29, (az + bz) / 2, l, 0.07, 0.06, { col: [0.25, 0.27, 0.25], rotY: ry }); mb.get('metal').box((ax + bx) / 2, LY + 0.82, (az + bz) / 2, l, 0.05, 0.04, { col: [0.25, 0.27, 0.25], rotY: ry }); }
-    }
-  }
+  // Beira Lake embankment. The lake is a union of ellipses; where two of them meet (the east lobe by the Lotus Tower, the
+  // Gangaramaya arm…) each wall, coping and railing is now CLIPPED exactly at the other ellipse instead of whole 3 m segments
+  // being kept or dropped by their midpoint (52nd request: walls poking into the water, copings overlapping and z-fighting,
+  // railings crossing in an X at the junctions). Features at an offset d from the water's edge (railing 0.4, coping 0.9) are
+  // clipped against the other ellipses grown by d, and the copings narrow into the corner so the two meet without overlap.
+  { const LK = L.LAKE;
+    const outside = (x, z, e, d) => { for (let o = 0; o < LK.length; o++) if (o !== e) { const [ox, oz, orx, orz] = LK[o]; const dx = (x - ox) / (orx + d), dz = (z - oz) / (orz + d); if (dx * dx + dz * dz < 1) return false; } return true; };
+    for (let e = 0; e < LK.length; e++) {
+      const [cx, cz, rx, rz] = LK[e]; const n = Math.ceil((Math.PI * (rx + rz)) / 3);
+      const nrm = (a) => { const x = Math.cos(a) / rx, z = Math.sin(a) / rz, l = Math.hypot(x, z); return [x / l, z / l]; };
+      const q = (a, d) => { const nn = nrm(a); return [cx + Math.cos(a) * rx + nn[0] * d, cz + Math.sin(a) * rz + nn[1] * d]; };
+      const ok = (a, d) => { const p = q(a, d); return outside(p[0], p[1], e, d); };
+      const clip = (a0, a1, d) => { const o0 = ok(a0, d), o1 = ok(a1, d), om = ok((a0 + a1) / 2, d); if (o0 && o1 && om) return [a0, a1]; if (!o0 && !o1) return null;
+        if (o0 && o1) return null; let lo = o0 ? a0 : a1, hi = o0 ? a1 : a0; for (let i = 0; i < 22; i++) { const m = (lo + hi) / 2; if (ok(m, d)) lo = m; else hi = m; } return o0 ? [a0, lo] : [lo, a1]; };
+      const reach = (a, dMax) => { if (ok(a, dMax)) return dMax; let lo = 0, hi = dMax; for (let i = 0; i < 16; i++) { const m = (lo + hi) / 2; if (ok(a, m)) lo = m; else hi = m; } return lo; }; // widest coping that stays clear of the neighbour
+      const yc = LY + 0.3 + e * 0.002; // a hair apart per ellipse: no coplanar fighting where two copings touch
+      for (let k = 0; k < n; k++) {
+        const A0 = (k / n) * Math.PI * 2, A1 = ((k + 1) / n) * Math.PI * 2; const W = clip(A0, A1, 0); if (!W) continue; const [a0, a1] = W;
+        const p0 = q(a0, 0), p1 = q(a1, 0); const mid = [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2]; if (Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) < 0.02) continue;
+        const mb = at(mid[0], mid[1]);
+        mb.get('concrete').quad([p1[0], -1.6, p1[1]], [p0[0], -1.6, p0[1]], [p0[0], yc, p0[1]], [p1[0], yc, p1[1]], [0, 0, 1.5, 1], [0.74, 0.72, 0.68]);
+        mb.get('concrete').quad([p0[0], -1.6, p0[1]], [p1[0], -1.6, p1[1]], [p1[0], yc, p1[1]], [p0[0], yc, p0[1]], [0, 0, 1.5, 1], [0.74, 0.72, 0.68]); // lake-facing side
+        { const d0 = reach(a0, 0.9), d1 = reach(a1, 0.9); const o0 = q(a0, d0), o1 = q(a1, d1);
+          const cq = [[p1[0], yc, p1[1]], [p0[0], yc, p0[1]], [o0[0], yc, o0[1]], [o1[0], yc, o1[1]]];
+          mb.get('concrete').quad(cq[0], cq[1], cq[2], cq[3], [0, 0, 1.5, 0.3], [0.82, 0.8, 0.76]); mb.get('concrete').quad(cq[3], cq[2], cq[1], cq[0], [0, 0, 1.5, 0.3], [0.82, 0.8, 0.76]);
+          // coping's inner riser down to the paving so the 0.15 m step reads as a kerb
+          mb.get('concrete').quad([o0[0], LY, o0[1]], [o1[0], LY, o1[1]], [o1[0], yc, o1[1]], [o0[0], yc, o0[1]], [0, 0, 1.5, 0.1], [0.78, 0.76, 0.72]);
+          mb.get('concrete').quad([o1[0], LY, o1[1]], [o0[0], LY, o0[1]], [o0[0], yc, o0[1]], [o1[0], yc, o1[1]], [0, 0, 1.5, 0.1], [0.78, 0.76, 0.72]); }
+        const R = clip(a0, a1, 0.4); if (!R) continue;
+        { const r0 = q(R[0], 0.4), r1 = q(R[1], 0.4);
+          if (k % 2 === 0 && R[0] === A0) mb.get('metal').box(r0[0], LY + 0.85, r0[1], 0.08, 1.0, 0.08, { col: [0.25, 0.27, 0.25] });
+          if (R[0] !== A0 || R[1] !== A1) { const rp = R[0] !== A0 ? r0 : r1; mb.get('metal').box(rp[0], LY + 0.85, rp[1], 0.09, 1.0, 0.09, { col: [0.25, 0.27, 0.25] }); } // end post where the railing meets the neighbour's
+          const ax = r0[0], az = r0[1], bx = r1[0], bz = r1[1], l = Math.hypot(bx - ax, bz - az) + 0.06, ry = -Math.atan2(bz - az, bx - ax); // solid top + mid rails (visible from both sides)
+          if (l > 0.1) { mb.get('metal').box((ax + bx) / 2, LY + 1.29, (az + bz) / 2, l, 0.07, 0.06, { col: [0.25, 0.27, 0.25], rotY: ry }); mb.get('metal').box((ax + bx) / 2, LY + 0.82, (az + bz) / 2, l, 0.05, 0.04, { col: [0.25, 0.27, 0.25], rotY: ry }); } }
+      }
+    } }
   // canals
   for (const cn of L.CANALS) for (let x = -520; x < 900; x += 4) {
     const mb = at(x + 2, cn.z0 - 5);
@@ -194,7 +207,7 @@ export function buildGround(progress) {
 // and road studs along the median line of dual carriageways.
 function roadWear(mb, s, dir, a, b, n0, n1) {
   const len = b - a; if (len < 6 || s.crossing) return; // level crossings keep their own deck surface
-  const T = mb.get('roadTint'), M = mb.get('metal'), P = mb.get('paint'); const r = new RNG(9300 + s.id * 17);
+  const T = mb.get('roadTint'); const r = new RNG(9300 + s.id * 17); // 60th: covers, collars, grates, sumps, studs: each its own material (Materials.ROLE_DEFS)
   const cx = s.x0, cz = s.z0; const y = RY + 0.003;
   // rect in road space: t along [t0,t1], lateral [o0,o1]
   const rect = (t0, t1, o0, o1, yy, col) => { t0 = Math.max(0, t0); t1 = Math.min(len, t1); if (t1 - t0 < 0.05) return;
@@ -214,36 +227,44 @@ function roadWear(mb, s, dir, a, b, n0, n1) {
   const np = Math.floor(len / 45 + r.next() * 2.2);
   for (let k = 0; k < np; k++) {
     const t = r.range(4, len - 4), o = r.range(-s.hw + 0.8, s.hw - 0.8), fresh = r.chance(0.45), tone = fresh ? r.range(0.8, 0.87) : r.range(1.05, 1.11); // subtle: deep-black squares read as holes at night
-    if (r.chance(0.25)) { const side = o < 0 ? -1 : 1; rect(t, t + r.range(0.6, 0.9), side < 0 ? -s.hw + 0.3 : 0.2, side < 0 ? -0.2 : s.hw - 0.3, y + 0.005, [tone, tone, tone * 0.98]); }
-    else { const wl = r.range(1.0, 3.6), wo = r.range(0.7, 2.2); rect(t, t + wl, o - wo / 2, o + wo / 2, y + 0.005, [tone, tone, tone * 0.98]); }
+    const yP = y + 0.005 + Math.min(k, 9) * 0.0003; // 63rd: every patch on its own layer — two overlapping patches were coplanar (z-fighting)
+    if (r.chance(0.25)) { const side = o < 0 ? -1 : 1; rect(t, t + r.range(0.6, 0.9), side < 0 ? -s.hw + 0.3 : 0.2, side < 0 ? -0.2 : s.hw - 0.3, yP, [tone, tone, tone * 0.98]); }
+    else { const wl = r.range(1.0, 3.6), wo = r.range(0.7, 2.2); rect(t, t + wl, o - wo / 2, o + wo / 2, yP, [tone, tone, tone * 0.98]); }
   }
   // manhole covers (cast iron in a concrete collar) near lane centres
   for (let t = r.range(10, 30); t < len - 6; t += r.range(38, 70)) {
     const o = (r.chance(0.5) ? -1 : 1) * (lanes[Math.floor(r.next() * lanes.length)] + r.range(-0.5, 0.5)); if (Math.abs(o) > s.hw - 0.8) continue;
     const [x, z] = dir === 'v' ? [cx + o, a + t] : [a + t, cz + o];
-    P.cylinder(x, RY - 0.01, z, 0.46, 0.44, 0.022, 16, { col: [0.5, 0.49, 0.47] }); M.cylinder(x, RY - 0.01, z, 0.33, 0.33, 0.03, 16, { col: [0.2, 0.19, 0.18] });
+    mb.get('manholeCollar').cylinder(x, RY - 0.0105, z, 0.46, 0.44, 0.022, 16, { col: [0.62, 0.6, 0.56] }); /* weathered concrete collar (was in the white road-paint mesh) */ mb.get('manholeCover').cylinder(x, RY - 0.01, z, 0.33, 0.33, 0.03, 16, { col: [0.2, 0.19, 0.18] }); regManhole(x, z);
   }
   // kerb-side drain gratings (both edges): dark sump with cast bars
   if (s.level <= 2 && !s.bridge) for (let t = r.range(6, 16); t < len - 3; t += r.range(18, 28)) for (const sg of [-1, 1]) {
     const o = sg * (s.hw - 0.24); const [x, z] = dir === 'v' ? [cx + o, a + t] : [a + t, cz + o];
-    const along = dir === 'v'; P.box(x, RY + 0.003, z, along ? 0.36 : 0.95, 0.006, along ? 0.95 : 0.36, { col: [0.05, 0.05, 0.05] });
-    for (let q = -3; q <= 3; q++) { const d = q * 0.12; M.box(along ? x : x + d, RY + 0.011, along ? z + d : z, along ? 0.34 : 0.035, 0.012, along ? 0.035 : 0.34, { col: [0.24, 0.23, 0.22] }); }
+    const along = dir === 'v'; regGrate(x, z, along ? 0.2 : 0.5, along ? 0.5 : 0.2); mb.get('drainSump').box(x, RY + 0.0095, z, along ? 0.36 : 0.95, 0.006, along ? 0.95 : 0.36, { col: [0.05, 0.05, 0.05] });
+    for (let q = -3; q <= 3; q++) { const d = q * 0.12; mb.get('drainGrate').box(along ? x : x + d, RY + 0.011, along ? z + d : z, along ? 0.34 : 0.035, 0.012, along ? 0.035 : 0.34, { col: [0.24, 0.23, 0.22] }); }
   }
   // road studs on the double centre line (dual carriageways), with a little reflective face toward each direction
-  if (s.level === 0) for (let t = 4; t < len - 2; t += 9) { const [x, z] = dir === 'v' ? [cx, a + t] : [a + t, cz]; P.box(x, RY + 0.015, z, dir === 'v' ? 0.1 : 0.14, 0.03, dir === 'v' ? 0.14 : 0.1, { col: [0.85, 0.82, 0.6] }); }
+  if (s.level === 0) for (let t = 4; t < len - 2; t += 9) { const [x, z] = dir === 'v' ? [cx, a + t] : [a + t, cz]; mb.get('roadStud').box(x, RY + 0.015, z, dir === 'v' ? 0.1 : 0.14, 0.03, dir === 'v' ? 0.14 : 0.1, { col: [0.85, 0.82, 0.6] }); }
 }
+// 63rd: carriageway layers, bottom → top, each on its own height so no two overlapping surfaces are ever coplanar (the
+// cause of the crossing / line flicker: a white stop line and a yellow edge line, two repair patches, a manhole collar and a
+// lane line all lay at exactly the same height). Float reversed-Z depth resolves 0.2 mm at any distance in the city.
+//   asphalt RY · wheel paths +3/+5 mm · oil zones +6/+7 mm · repair patches +8…+10.7 mm (one layer each) · manhole collar
+//   +11.5 mm · lane / edge lines +12 mm · stop lines +13.5 mm · zebra crossings +15 mm (over the edge lines they cross) ·
+//   drain sumps +12.5 mm (over the edge line, as a grating interrupts it) with their bars and the manhole cover above
+const M_LINE = RY + 0.012, M_STOP = RY + 0.0135, M_ZEBRA = RY + 0.015;
 function markings(mk, s, dir, a, b, n0, n1) {
   const cx = s.x0, cz = s.z0; const len = b - a; if (len < 2) return;
   // paint age varies per road: most lines are fresh, about a third are visibly worn toward the asphalt grey
   const fr = new RNG(7700 + s.id * 31); const fade = fr.next() < 0.35 ? fr.range(0.22, 0.45) : fr.range(0, 0.1);
   const mix = (c) => c.map((v, k) => v + ([0.36, 0.36, 0.37][k] - v) * fade); const WHITE = mix(WHITE0), YELLOW = mix(YELLOW0);
   const strip = (off, t0, t1, w, col) => { // along-road strip at lateral offset
-    if (dir === 'v') mk.hrect(cx + off - w / 2, a + t0, cx + off + w / 2, a + t1, RY + 0.012, 1, col);
-    else mk.hrect(a + t0, cz + off - w / 2, a + t1, cz + off + w / 2, RY + 0.012, 1, col);
+    if (dir === 'v') mk.hrect(cx + off - w / 2, a + t0, cx + off + w / 2, a + t1, M_LINE, 1, col);
+    else mk.hrect(a + t0, cz + off - w / 2, a + t1, cz + off + w / 2, M_LINE, 1, col);
   };
   const across = (t, w, o0, o1, col) => { // across-road bar at position t
-    if (dir === 'v') mk.hrect(cx + o0, a + t - w / 2, cx + o1, a + t + w / 2, RY + 0.012, 1, col);
-    else mk.hrect(a + t - w / 2, cz + o0, a + t + w / 2, cz + o1, RY + 0.012, 1, col);
+    if (dir === 'v') mk.hrect(cx + o0, a + t - w / 2, cx + o1, a + t + w / 2, M_STOP, 1, col);
+    else mk.hrect(a + t - w / 2, cz + o0, a + t + w / 2, cz + o1, M_STOP, 1, col);
   };
   const dashed = (off, dash, gap, w, col, s0 = 0, s1 = len) => { for (let t = s0 + 1; t < s1 - dash; t += dash + gap) strip(off, t, t + dash, w, col); };
   const junction0 = n0.segs.length >= 3, junction1 = n1.segs.length >= 3;
@@ -258,7 +279,7 @@ function markings(mk, s, dir, a, b, n0, n1) {
   // yellow pedestrian crossings + stop lines (left-hand traffic: approach lane is on the left of travel)
   const zebra = (t0, dirSign) => {
     const w = s.w - 0.6, n = Math.floor(w / 1.0);
-    for (let k = 0; k < n; k++) { const o = -w / 2 + k * 1.0 + 0.25; if (dir === 'v') mk.hrect(cx + o, a + t0, cx + o + 0.5, a + t0 + cw, RY + 0.013, 1, YELLOW); else mk.hrect(a + t0, cz + o, a + t0 + cw, cz + o + 0.5, RY + 0.013, 1, YELLOW); }
+    for (let k = 0; k < n; k++) { const o = -w / 2 + k * 1.0 + 0.25; if (dir === 'v') mk.hrect(cx + o, a + t0, cx + o + 0.5, a + t0 + cw, M_ZEBRA, 1, YELLOW); else mk.hrect(a + t0, cz + o, a + t0 + cw, cz + o + 0.5, M_ZEBRA, 1, YELLOW); }
     const stopT = dirSign > 0 ? t0 + cw + 0.9 : t0 - 0.9;
     // traffic travelling toward node0 (decreasing coordinate) is on its left: for 'v' moving north, left = west (-x). For 'h' moving west, left = south (+z).
     if (dir === 'v') across(stopT, 0.35, dirSign > 0 ? -s.hw + 0.3 : 0, dirSign > 0 ? 0 : s.hw - 0.3, WHITE);
@@ -274,9 +295,9 @@ function bridge(mb, s, dir) {
     const z0 = cn.z0 - 1, z1 = cn.z1 + 1, x = s.x0;
     for (const side of [-1, 1]) {
       const xa = x + side * s.hw, xb = x + side * (s.hw + s.walk);
-      mb.get('walk').hrect(Math.min(xa, xb), z0, Math.max(xa, xb), z1, LY, 2);
+      mb.get('walk').hrect(Math.min(xa, xb), z0, Math.max(xa, xb), z1, LY + 0.005, 2); // 63rd: 5 mm proud — its ends overlap the shore paving (was coplanar → z-fighting)
       mb.get('concrete').box(x + side * (s.hw + s.walk + 0.15), LY + 0.6, (z0 + z1) / 2, 0.3, 1.2, z1 - z0, { col: [0.85, 0.84, 0.8] });
-      mb.get('kerb').wall(side < 0 ? xa : xa, side < 0 ? z1 : z0, xa, side < 0 ? z0 : z1, RY - 0.02, LY, [0, 0, 1, 0.1], [0.8, 0.78, 0.75]);
+      mb.get('kerb').wall(side < 0 ? xa : xa, side < 0 ? z1 : z0, xa, side < 0 ? z0 : z1, RY - 0.02, LY + 0.005, [0, 0, 1, 0.1], [0.8, 0.78, 0.75]);
     }
     mb.get('concrete').box(x, -0.5, (z0 + z1) / 2, s.w + s.walk * 2 + 0.6, 1.0, z1 - z0, { col: [0.6, 0.58, 0.55], top: false, bottom: true });
   }

@@ -31,6 +31,32 @@ export function straggler(v, tg, dist, inView) {
   return (v.x - tg.x) * fx + (v.z - tg.z) * fz < -200;
 }
 
+// 66th: metres a unit is BEHIND the suspect along the suspect's direction of travel (negative = ahead / alongside)
+export function behindBy(v, tg, heading) { return -((v.x - tg.x) * Math.sin(heading) + (v.z - tg.z) * Math.cos(heading)); }
+// 66th: a spot on the road the suspect is driving, lo..hi metres ahead of them along their direction of travel (at each junction
+// the road that keeps closest to their heading), on the lane coming back TOWARD them. ok(x, z) vets each candidate (out of
+// view, clear of traffic). R = { segNodes, linePiece, drivable } from Traffic; start = nearestRoad() result for the suspect.
+// Returns { x, z, yaw, piece, s } or null. Pure (tested in tools/police-perf-test.mjs).
+export function aheadSpot(R, start, heading, lo, hi, ok, step = 15) {
+  if (!start || !start.seg) return null; const hx = Math.sin(heading), hz = Math.cos(heading);
+  const [a0, b0] = R.segNodes(start.seg); let to = ((b0.x - a0.x) * hx + (b0.z - a0.z) * hz) >= 0 ? b0 : a0, from = to === a0 ? b0 : a0, seg = start.seg;
+  const path = []; let s0 = -Math.hypot(start.px - from.x, start.pz - from.z), used = new Set([seg]);
+  for (let guard = 0; guard < 40; guard++) {
+    const len = Math.hypot(to.x - from.x, to.z - from.z); path.push({ seg, from, to, s0, len }); s0 += len; if (s0 >= hi) break;
+    let best = null, bd = -2; const dx0 = Math.sign(to.x - from.x), dz0 = Math.sign(to.z - from.z);
+    for (const sg of to.segs || []) { if (used.has(sg) || (R.drivable && !R.drivable.has(sg)) || sg.level >= 3) continue; const [p, q] = R.segNodes(sg); const nx = p === to || (p.x === to.x && p.z === to.z) ? q : p;
+      const ex = Math.sign(nx.x - to.x), ez = Math.sign(nx.z - to.z); const sc = ex * hx + ez * hz + 0.35 * (ex * dx0 + ez * dz0); if (sc > bd) { bd = sc; best = { sg, nx }; } }
+    if (!best) break; used.add(best.sg); seg = best.sg; from = to; to = best.nx;
+  }
+  for (let D = lo; D <= hi; D += step) {
+    const st = path.find((q) => D >= q.s0 && D < q.s0 + q.len); if (!st) break;
+    const lane = st.seg.level <= 1 ? 1 : 0; const piece = R.linePiece(st.seg, st.to, st.from, lane); // the lane running back toward the suspect
+    const s = clamp(st.s0 + st.len - D, 1.5, piece.len - 1.5); const t = s / piece.len; const x = lerp(piece.p0[0], piece.p1[0], t), z = lerp(piece.p0[1], piece.p1[1], t);
+    if (ok && !ok(x, z)) continue; return { x, z, yaw: Math.atan2(piece.d[0], piece.d[1]), piece, s, dist: D };
+  }
+  return null;
+}
+
 // --------------------------------------------------------------- aim point for one unit (pure; tested)
 // P: suspect vehicle {x,z,yaw,speed,half,T:{wid}}, v: police vehicle; returns { x, z, speed, contact }
 export function chaseAim(role, P, v, stars, t = 0) {

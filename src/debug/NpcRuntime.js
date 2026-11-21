@@ -33,6 +33,16 @@ export function addToCrowd(game) {
   const C = game.crowd; if (!C || !C.specs) return; C.specs = C.specs.filter((s) => !s._custom);
   for (const e of NPCS.list) { if (e.off) continue; for (let i = 0; i < Math.max(1, Math.min(20, e.weight | 0 || 1)); i++) C.specs.push(e.spec); }
 }
-export async function saveNpcs(game) { await storeSet('npcs', NPCS.list.map(({ fabricMat, ...e }) => { void fabricMat; return e; })); setSavedFlag('npc', NPCS.list.length > 0); addToCrowd(game); }
+export async function saveNpcs(game) {
+  const list = NPCS.list.map(({ fabricMat, ...e }) => { void fabricMat; return e; }); await storeSet('npcs', list); setSavedFlag('npc', NPCS.list.length > 0); addToCrowd(game); const at = new Date().toISOString(); try { localStorage.setItem('colombo.editor.npcAt', at); } catch { /* private */ }
+  let baked = false; let err = null; if (import.meta.env && import.meta.env.DEV) try { const MP = await import('./ModelPack.js'); const m = await MP.loadPack(); m.npcs = Object.assign(m.npcs || { rules: [] }, { list: JSON.parse(JSON.stringify(list)), saved: at }); await MP.savePack(); baked = true; } catch (e) { err = (e && e.message) || String(e); console.warn('[model pack] not written', e); } // 68th: built into the game
+  return { baked, err };
+}
+// 68th: the pack's custom NPCs (built into the game) when newer than this browser's
+export function adoptPack(N, game) {
+  if (!N || !Array.isArray(N.list) || !N.list.length) return false; let localAt = null; try { localAt = localStorage.getItem('colombo.editor.npcAt'); } catch { /* none */ }
+  if (NPCS.list.length && localAt && (Date.parse(localAt) || 0) > (Date.parse(N.saved || 0) || 0)) return false;
+  NPCS.list = JSON.parse(JSON.stringify(N.list)); install(); addToCrowd(game); return true;
+}
 export async function loadSavedNpcs(game) { const l = await storeGet('npcs'); if (Array.isArray(l)) NPCS.list = l; install(); addToCrowd(game); return NPCS.list; }
 export function forgetMaterial(id) { const m = matCache.get(id); if (m) { m.map?.dispose(); m.dispose(); matCache.delete(id); } }

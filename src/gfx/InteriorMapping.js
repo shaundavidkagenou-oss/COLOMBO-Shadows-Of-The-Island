@@ -8,6 +8,7 @@
 // Rooms are aligned to the facade UV grid (4 bays x 2 floors per texture tile), so slabs and
 // partitions line up with the painted mullions/spandrels.
 import { FLOOR_H } from '../world/CityPlan.js';
+import { LAND_Y } from '../world/Layout.js';
 
 const BAY = 3.2;
 export const INTERIOR = {
@@ -35,6 +36,8 @@ uniform float uITime;
 // sine-free hash (stable for large inputs on every GPU: sin(x * 43758) amplifies tiny float differences into per-pixel noise)
 float iHash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float iBox(vec2 p, vec2 lo, vec2 hi) { vec2 s = step(lo, p) * step(p, hi); return s.x * s.y; }
+float iNoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(iHash(i), iHash(i + vec2(1.0, 0.0)), f.x), mix(iHash(i + vec2(0.0, 1.0)), iHash(i + vec2(1.0, 1.0)), f.x), f.y); }
 `;
 // Runs after <emissivemap_fragment>: roughnessFactor / metalnessFactor / diffuseColor are known and
 // lighting has not been evaluated yet.
@@ -176,19 +179,131 @@ const FRAG_BODY = /* glsl */`
 #endif
 `;
 
-export function applyInteriorMapping(mat, { office = false } = {}) {
+// Stage 1 colour (36th): the per-building paint is a vertex colour that multiplied the WHOLE facade map — a pink house had
+// pink-tinted glass and frames. Glazing is marked in every facade's rm map (green < 90), so the paint is only applied to the
+// wall: one extra texture fetch of a map the material already binds, no new uniforms / textures / draw calls.
+// 36th Stage 2 (de-repetition): one facade tile is 12.8 x 6.6 m and its baked grime / patching repeated identically on every
+// tile of every wall. The wall (never the glass) now also gets world-space weathering that cannot repeat with the tile:
+// broad patchy fading of the paint (~10 m and ~3 m blotches, luminance +-5 %, a slight warm / cool drift), rain streaks
+// washed down from the parapet and the sills in irregular columns, and rising damp along the foot of the wall. Pure ALU
+// (value noise on the existing world-position varying): no texture, uniform, draw call or geometry is added.
+const GLASS_PAINT_MASK = /* glsl */`
+#if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
+#ifdef USE_ROUGHNESSMAP
+  { float glassK = 1.0 - smoothstep(0.3, 0.38, texture2D(roughnessMap, vRoughnessMapUv).g);
+    diffuseColor *= vec4(mix(vColor.rgb, vec3(1.0), glassK), vColor.a);
+    float wallK = (1.0 - glassK) * step(abs(normalize(vIWN).y), 0.3);
+    if (wallK > 0.001) {
+      float s = vIWPos.x + vIWPos.z, h = vIWPos.y - ${LAND_Y.toFixed(3)};               // along the wall (walls are axis-aligned) / height
+      float fwS = fwidth(s) + fwidth(h);                                                   // metres per pixel: fine detail fades out far away
+      float n1 = iNoise(vec2(s * 0.1, h * 0.12) + 17.0), n2 = iNoise(vec2(s * 0.33, h * 0.4) + 3.0);
+      float blot = (n1 - 0.5) * 0.07 + (n2 - 0.5) * 0.035 * (1.0 - smoothstep(0.08, 0.4, fwS));
+      vec3 wv = vec3(1.0 + blot) * vec3(1.0 + (n1 - 0.5) * 0.025, 1.0, 1.0 - (n1 - 0.5) * 0.025); // faded patches drift warm / cool
+      float col = iNoise(vec2(s * 1.6, 0.0) + 41.0), run = iNoise(vec2(s * 1.6, h * 0.22) + 9.0); // streak columns, uneven length
+      float streak = smoothstep(0.55, 0.85, col) * smoothstep(0.35, 0.75, run) * (1.0 - smoothstep(0.15, 0.6, fwS));
+      float damp = (1.0 - smoothstep(0.25, 0.7 + n2 * 0.5, h)) * step(-0.05, h);         // rising damp, ragged upper edge
+      wv *= 1.0 - 0.06 * streak - 0.08 * damp;
+      diffuseColor.rgb *= mix(vec3(1.0), wv, wallK);
+    } }
+#else
+  diffuseColor *= vColor;
+#endif
+#endif
+`;
+// ---- window layer (60th request). Facade textures paint the windows into the wall art. A replacement wall texture (Texture
+// Studio, map editor) used to paint straight over them: windows turned into wall. Now every pixel inside a painted opening
+// (rm red = 1: glass, frame, glazing bars, shutters — Textures.openingMask) takes its colour, roughness, metalness and glass mask
+// from the facade's ORIGINAL textures (uWinMap / uWinRM, sampled with the raw facade UV so a re-tiled wall texture never moves
+// them), and the interior mapping keys off those too: the windows keep their glass and the lit rooms behind them whatever the
+// wall becomes. Untouched facades render exactly as before (uWinMap IS the map, uWinRM IS the roughness map, same UVs).
+// A replaced normal map is kept off the windows (uWinFlat, per material — set by Materials.updateMaterials).
+const WINFLAG = new WeakMap();
+export function winFlag(m) { let f = WINFLAG.get(m); if (!f) WINFLAG.set(m, (f = { value: 0 })); return f; }
+// Texture units: a GPU running the game through Direct3D 11 (Chrome / Electron on Windows: ANGLE) has only 16 texture samplers
+// per fragment shader. A facade already uses map, emissiveMap, normalMap, roughnessMap, metalnessMap, envMap and three's dfgLUT,
+// plus a shadow map per shadow-casting light (2 sun maps, up to 7 lamp / headlight spots at night): 16. The window layer's own
+// two samplers took it to 18, the program failed to link on those GPUs, and every building wall was simply not drawn
+// (invisible walls; SwiftShader / GPUs with 32 units drew them). So the layer only declares a sampler of its own where the
+// texture really differs: an untouched facade samples its original windows from `map` / `roughnessMap` (they ARE the same
+// textures), and its metalness from `roughnessMap` too (the facade's roughness and metalness maps are one texture, f.rm).
+// A replaced wall texture (Texture Studio, map editor) gets its own sampler back — and its own program (winKey).
+const WIN_FRAG_DECL = (own) => /* glsl */`
+varying vec2 vFacUv;
+${own.map ? 'uniform sampler2D uWinMap;' : '#define uWinMap map'}
+${own.rm ? 'uniform sampler2D uWinRM;' : '#define uWinRM roughnessMap'}
+uniform float uWinFlat;
+vec4 gWinRM = vec4(0.0);
+float gWinM = 0.0;
+`;
+const WIN_MAP = /* glsl */`
+#include <map_fragment>
+gWinRM = texture2D(uWinRM, vFacUv); gWinM = gWinRM.r;
+diffuseColor.rgb = mix(diffuseColor.rgb, texture2D(uWinMap, vFacUv).rgb, gWinM);
+`;
+// metalness read through the roughness sampler (same texture: glTF-style packing, G = roughness, B = metalness)
+const METAL_FROM_RM = /* glsl */`
+float metalnessFactor = metalness;
+#ifdef USE_METALNESSMAP
+  vec4 texelMetalness = texture2D( roughnessMap, vMetalnessMapUv );
+  metalnessFactor *= texelMetalness.b;
+#endif
+`;
+// which of the window layer's textures (and the metalness map) differ from the samplers the material already has
+export function winOwn(m, W) {
+  const map = !(m.map && W && m.map === W.uWinMap.value), rm = !(m.roughnessMap && W && m.roughnessMap === W.uWinRM.value);
+  const metal = !(m.metalnessMap && m.roughnessMap && m.metalnessMap === m.roughnessMap); return { map, rm, metal };
+}
+// Hard budget: 16 samplers is what WebGL 2 guarantees and what D3D11 GPUs give, so the layout below is the same on every GPU
+// (and testable on a 32-unit software renderer). If a Texture Studio edit + many shadowed lights would still overflow it, the
+// window layer gives up its own samplers first (windows then follow the edited texture) — never the wall itself.
+export const WIN_UNIT_CAP = 16;
+const UNIT_MAPS = ['map', 'emissiveMap', 'normalMap', 'roughnessMap', 'envMap', 'aoMap', 'lightMap', 'bumpMap', 'alphaMap', 'specularMap', 'clearcoatMap', 'clearcoatNormalMap', 'clearcoatRoughnessMap', 'iridescenceMap', 'iridescenceThicknessMap', 'sheenColorMap', 'sheenRoughnessMap', 'specularColorMap', 'specularIntensityMap', 'transmissionMap', 'thicknessMap', 'anisotropyMap'];
+export function fragUnits(p, own) { // fragment samplers of a lit standard-material program (three's compile parameters), window layer included
+  let n = 0; for (const k of UNIT_MAPS) if (p[k]) n++;
+  if (p.metalnessMap && own.metal) n++;
+  n += 1; // dfgLUT (MeshStandardMaterial / MeshPhysicalMaterial, three r18x)
+  n += (p.numDirLightShadows | 0) + (p.numSpotLightShadows | 0) + (p.numPointLightShadows | 0) + (p.numSpotLightMaps | 0) + (p.numLightProbeGrids | 0);
+  return n + (own.map ? 1 : 0) + (own.rm ? 1 : 0);
+}
+const BUILT = new Map(); // drawn facade material → [W, the sampler layout of the program three picked for it (set in customProgramCacheKey)]
+export function syncWindowLayers() { for (const [m, e] of BUILT) if (winKey(m, e[0]) !== e[1]) { BUILT.delete(m); m.needsUpdate = true; } }
+export function winKey(m, W) { const o = winOwn(m, W); return (o.map ? 'M' : 'm') + (o.rm ? 'R' : 'r') + (o.metal ? 'T' : 't'); }
+const WIN_GLASS_PAINT_MASK = GLASS_PAINT_MASK.replace('#ifdef USE_ROUGHNESSMAP', '#if 1').replace('texture2D(roughnessMap, vRoughnessMapUv).g', 'gWinRM.g');
+const WIN_FRAG_BODY = FRAG_BODY.replace('#ifdef USE_MAP', '#if 1').replace(/vMapUv/g, 'vFacUv')
+  .replace('smoothstep(0.2, 0.3, roughnessFactor)', 'smoothstep(0.2, 0.3, mix(1.0, gWinRM.g, gWinM))'); // rooms only behind the ORIGINAL glass (a glossy replacement wall map is not a window)
+if (!WIN_FRAG_BODY.includes('mix(1.0, gWinRM.g, gWinM)') || !WIN_GLASS_PAINT_MASK.includes('gWinRM.g')) console.warn('[interior] window layer patch did not match');
+export function applyInteriorMapping(mat, { office = false, win = null } = {}) {
   if (office) mat.defines = { ...(mat.defines || {}), INT_OFFICE: '' }; // office towers: floor-section lighting, cool tubes, uniform blinds
-  mat.onBeforeCompile = (sh) => {
+  const W = win ? { uWinMap: { value: win.map }, uWinRM: { value: win.rm }, normal: win.normal || null } : null;
+  mat.onBeforeCompile = function (sh, renderer) { // (a function: `this` is the material being compiled — copies of a facade share the program, each has its own uWinFlat)
     sh.uniforms.uIntDay = INTERIOR.uIntDay;
     sh.uniforms.uIntNight = INTERIOR.uIntNight;
     sh.uniforms.uOcc = INTERIOR.uOcc; sh.uniforms.uITime = INTERIOR.uITime;
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + VERT_DECL)
-      .replace('#include <project_vertex>', '#include <project_vertex>\n' + VERT_BODY);
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + FRAG_DECL)
-      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + FRAG_BODY);
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + VERT_DECL + (W ? 'varying vec2 vFacUv;\n' : ''))
+      .replace('#include <project_vertex>', '#include <project_vertex>\n' + VERT_BODY + (W ? 'vFacUv = uv;\n' : ''));
+    if (!W) {
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + FRAG_DECL)
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + FRAG_BODY)
+        .replace('#include <color_fragment>', GLASS_PAINT_MASK);
+      return;
+    }
+    const own = winOwn(this, W);
+    const cap = Math.min(WIN_UNIT_CAP, (renderer && renderer.capabilities && renderer.capabilities.maxTextures) || WIN_UNIT_CAP);
+    if (own.rm && fragUnits(sh, own) > cap) own.rm = false; if (own.map && fragUnits(sh, own) > cap) own.map = false;
+    if (own.map) sh.uniforms.uWinMap = W.uWinMap; if (own.rm) sh.uniforms.uWinRM = W.uWinRM; sh.uniforms.uWinFlat = winFlag(this);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + FRAG_DECL + WIN_FRAG_DECL(own))
+      .replace('#include <map_fragment>', WIN_MAP)
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, gWinRM.g, gWinM);')
+      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = mix(metalnessFactor, gWinRM.b, gWinM);')
+      .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nnormal = normalize(mix(normal, nonPerturbedNormal, gWinM * uWinFlat));')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + WIN_FRAG_BODY)
+      .replace('#include <color_fragment>', WIN_GLASS_PAINT_MASK);
+    if (!own.metal) sh.fragmentShader = sh.fragmentShader.replace('#include <metalnessmap_pars_fragment>', '').replace('#include <metalnessmap_fragment>', METAL_FROM_RM); // (after the window layer's own metalness line was added below it)
   };
-  mat.customProgramCacheKey = () => 'interior-v9' + (office ? '-office' : '');
-  return mat;
+  mat.customProgramCacheKey = function () { // (a function: copies with a replaced texture get their own program; three asks for the key whenever the material's version changes)
+    if (!W) return 'interior-v13' + (office ? '-office' : '');
+    const k = winKey(this, W); BUILT.set(this, [W, k]); return 'interior-v13-win-' + k + (office ? '-office' : ''); };
+  return W;
 }
 
 // Share of rooms with their lights on by hour: busy evenings, fewer after 11 pm, a handful at 3 am, early risers before dawn.

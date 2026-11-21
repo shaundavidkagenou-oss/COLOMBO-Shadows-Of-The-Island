@@ -35,6 +35,9 @@ export function inCanal(z) { for (const c of CANALS) if (z > c.z0 && z < c.z1) r
 export function inHarbour(x, z) { return z < -1180 && x < 230; }
 export function isSea(x, z) { return x < coastX(z) || inHarbour(x, z) || z < BOUNDS.minZ; }
 export function isWater(x, z) { return isSea(x, z) || inLake(x, z) || !!inCanal(z); }
+// surface height of the water at (x, z) (Water.js planes) and how deep a swimmer can go (the seabed plane is at −4)
+export function waterLevel(x, z) { if (inLake(x, z)) return -0.55; if (isSea(x, z)) return -0.9; if (inCanal(z)) return -1.0; return null; }
+export function waterBed(x, z) { if (inLake(x, z)) return -3.2; if (isSea(x, z)) return -3.9; return -2.6; }
 
 // ---------------------------------------------------------------- districts
 export const DISTRICTS = {
@@ -79,6 +82,8 @@ export function districtIdAt(x, z) {
 export function districtAt(x, z) { return DISTRICTS[districtIdAt(x, z)]; }
 
 // ---------------------------------------------------------------- reserved zones (landmarks & parks)
+// rect = the generation reserve (roads / buildings / props keep out of it — unchanged so the street network and building ids stay
+// the same); map = the drawn footprint where the landmark was pulled back off the road (37th Stage 0)
 export const ZONES = [
   { id: 'vmpark', name: 'Viharamahadevi Park', rect: [-10, 190, -170, 40], blockRoads: true, kind: 'park' },
   { id: 'townhall', name: 'Colombo Town Hall', rect: [190, 300, -100, 40], blockRoads: true, kind: 'landmark' },
@@ -86,8 +91,8 @@ export const ZONES = [
   { id: 'lotus', name: 'Lotus Tower', rect: [250, 360, -560, -400], blockRoads: true, kind: 'landmark' },
   { id: 'gangaramaya', name: 'Gangaramaya Temple', rect: [-50, 20, -320, -240], blockRoads: true, kind: 'landmark' },
   { id: 'slpHQ', name: 'Police Headquarters', rect: [-60, 40, -240, -170], blockRoads: true, kind: 'landmark' },
-  { id: 'gfhotel', name: 'Galle Face Hotel', rect: [-470, -409, -240, -170], blockRoads: true, kind: 'landmark' },
-  { id: 'parliament', name: 'Old Parliament', rect: [-475, -409, -740, -668], blockRoads: true, kind: 'landmark' },
+  { id: 'gfhotel', name: 'Galle Face Hotel', rect: [-470, -409, -240, -170], map: [-470, -409, -226.5, -170], blockRoads: true, kind: 'landmark' },
+  { id: 'parliament', name: 'Old Parliament', rect: [-475, -409, -740, -668], map: [-466, -409, -731, -668], blockRoads: true, kind: 'landmark' },
   { id: 'wtc', name: 'Twin Towers', rect: [-340, -280, -1000, -900], blockRoads: true, kind: 'landmark' },
   { id: 'dutch', name: 'Dutch Hospital', rect: [-400, -340, -900, -830], blockRoads: false, kind: 'landmark' },
   { id: 'cargills', name: 'Cargrove Building', rect: [-280, -220, -900, -830], blockRoads: false, kind: 'landmark' },
@@ -375,9 +380,13 @@ export function setSurfaceHook(fn) { surfHook = fn; }
 export function surfaceY(x, z) { const g = groundY(x, z); if (!surfHook) return g; const s = surfHook(x, z); return s > g ? s : g; }
 let groundHook = null; // Railway registers the ballast bed / level-crossing humps here (avoids an import cycle)
 export function setGroundHook(fn) { groundHook = fn; }
+let rampHook = null; // StreetRamps: speed humps + stunt ramps (surfaces vehicles, walkers and AI all ride)
+export function setRampHook(fn) { rampHook = fn; }
 export function groundY(x, z) {
   if (groundHook) { const h = groundHook(x, z); if (h != null) return h; }
+  if (rampHook) { const h = rampHook(x, z); if (h != null) return h; }
   { const f = fuelSurfaceAt(x, z); if (f != null) return f; } // filling-station forecourts + kerb ramps
+  { const f = customsSurfaceAt(x, z); if (f != null) return f; } // Street Customs lot + driveway ramp
   if (roadAt(x, z)) return ROAD_Y;
   if (isWater(x, z)) return bridgeWalkAt(x, z) ? LAND_Y : -1.2;
   const cp = copingAt(x, z); if (cp != null) return cp;
@@ -504,6 +513,43 @@ export function fuelSurfaceAt(x, z) {
   return null;
 }
 
+// ---------------------------------------------------------------- Street Customs (CustomsGeo.js builds it, customs/ runs it)
+// The vehicle workshop on Duplication Road, Cinnamon Gardens: same road frame as a filling station (u along the near lane,
+// w from the property line into the lot). One wide driveway in the middle of the frontage serves the way in and the way out
+// (the forecourt is deep enough to turn); the hall stands at the back of the lot with its roller door facing the road.
+export const CUSTOMS_W = 46, CUSTOMS_D = 32, CUSTOMS_SLAB = LAND_Y + 0.02, CUSTOMS_RAMP = 0.9, CUSTOMS_DRIVE_HW = 5;
+export const CUSTOMS_HALL = { w0: 12, w1: 31, hu: 22, h: 7.5, door: 3.5, doorH: 5, tt: [0, 21.5], ttR: 4.6 }; // hall depth band, half width, eave height, roller door half width / height, turntable centre (u, w) + radius
+export const CUSTOMS_SITE = (() => {
+  const d = { id: 'customs', name: 'Street Customs', area: 'Cinnamon Gardens', x: -280, zc: 285, side: 1 };
+  const i = XS.findIndex((l) => l.pos === d.x), j = findIndex(ZS, d.zc); const seg = getV(i, j); if (!seg) throw new Error('customs site without a road');
+  const U = [0, d.side], Wv = [d.side, 0]; const O = [d.x + d.side * (seg.hw + seg.walk), d.zc];
+  const site = { ...d, seg, hw: seg.hw, walk: seg.walk, U, Wv, O, yaw: Math.atan2(U[0], U[1]), rotY: Math.atan2(-U[1], U[0]) };
+  site.toWorld = (u, w) => [O[0] + U[0] * u + Wv[0] * w, O[1] + U[1] * u + Wv[1] * w];
+  site.toLocal = (x, z) => { const dx = x - O[0], dz = z - O[1]; return [dx * U[0] + dz * U[1], dx * Wv[0] + dz * Wv[1]]; };
+  // a heading in the site frame (radians, 0 = +w into the lot) → world yaw (forward = (sin yaw, cos yaw))
+  site.yawOf = (a) => { const fu = Math.sin(a), fw = Math.cos(a); const fx = U[0] * fu + Wv[0] * fw, fz = U[1] * fu + Wv[1] * fw; return Math.atan2(fx, fz); };
+  const box = (u0, u1, w0, w1) => { const a = site.toWorld(u0, w0), b = site.toWorld(u1, w1); return [Math.min(a[0], b[0]), Math.max(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[1], b[1])]; };
+  site.box = box; site.rect = box(-CUSTOMS_W / 2, CUSTOMS_W / 2, 0, CUSTOMS_D);
+  site.reserve = box(-CUSTOMS_W / 2 - 1, CUSTOMS_W / 2 + 1, -seg.walk - seg.hw, CUSTOMS_D);
+  return site;
+})();
+// registered only AFTER the city plan has been generated (CityPlan.generatePlan → addLateZones): the generators consult ZONES /
+// zoneAt with shared RNG streams and sequential building ids, so a zone present during generation would renumber every later
+// building (mission shops, hero rooms). The lot is cleared afterwards instead, exactly like the filling-station reserves.
+export const CUSTOMS_ZONE = { id: 'customs', name: 'Street Customs', rect: CUSTOMS_SITE.rect, blockRoads: false, kind: 'customs', customs: CUSTOMS_SITE };
+export function addLateZones() { if (!ZONES.includes(CUSTOMS_ZONE)) ZONES.push(CUSTOMS_ZONE); }
+export function customsSiteAt(x, z, pad = 0) { const r = CUSTOMS_SITE.reserve; return x > r[0] - pad && x < r[1] + pad && z > r[2] - pad && z < r[3] + pad ? CUSTOMS_SITE : null; }
+// any roadside site kept clear of street furniture / trees / kerb parking (filling stations + the workshop)
+export function serviceSiteAt(x, z, pad = 0) { return fuelSiteAt(x, z, pad) || customsSiteAt(x, z, pad); }
+export function customsSurfaceAt(x, z) {
+  const s = CUSTOMS_SITE, r = s.reserve; if (x < r[0] || x > r[1] || z < r[2] || z > r[3]) return null;
+  const [u, w] = s.toLocal(x, z); if (Math.abs(u) > CUSTOMS_W / 2) return null;
+  if (w >= 0) return CUSTOMS_SLAB;
+  if (Math.abs(u) > CUSTOMS_DRIVE_HW) return null;
+  if (w >= -s.walk) return CUSTOMS_SLAB;
+  const k = (w + s.walk + CUSTOMS_RAMP) / CUSTOMS_RAMP; return k > 0 ? ROAD_Y + (CUSTOMS_SLAB - ROAD_Y) * k : null;
+}
+
 // ---------------------------------------------------------------- named places used by story & activities
 export const PLACES = {
   meeting:       { x: -128, z: -893, name: 'Main Street, Pettah' },
@@ -522,6 +568,7 @@ export const PLACES = {
   slaveFlat:     { x: -150, z: -150, name: "Dineth's room, Slave Island" },
   garage:        { x: 455, z: -790, name: 'Lanka Auto Care, Maradana' },
   gunshop:       { x: 380, z: -700, name: 'Ceylon Arms Co., Maradana' },
+  customs:       { x: -259, z: 285, name: 'Street Customs, Cinnamon Gardens' }, // forecourt in front of the roller door (CUSTOMS_SITE u 0, w 7.5)
   club:          { x: -389, z: 215.5, name: 'The Velvet Monsoon, Kollupitiya' },
   tailor:        { x: -305, z: 470, name: 'Ceylon Threads, Bambalapitiya' },
   hospital:      { x: 660, z: -160, name: 'National Hospital' },

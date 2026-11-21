@@ -144,12 +144,12 @@ if (!process.argv.includes('--no-build')) await check('Production build (vite bu
 
 await check('Health, hospital, wallet ledger and versioned saves (v1 → v2 → v3 → v4 migration)', async () => {
   const { migrate, SAVE_VERSION } = await import('../src/core/SaveSystem.js');
-  const m = migrate({ version: 1, savedAt: 1, story: { money: 777 } }); assert(SAVE_VERSION === 4 && m.version === 4 && m.migratedFrom === 1 && m.story.health === 100 && Array.isArray(m.story.ledger) && Array.isArray(m.story.msgs), 'v1 migrated');
+  const m = migrate({ version: 1, savedAt: 1, story: { money: 777 } }); assert(SAVE_VERSION === 5 && m.version === 5 && m.migratedFrom === 1 && m.story.bank && m.story.bank.balance === 0 && m.story.money === 777 && m.story.health === 100 && Array.isArray(m.story.ledger) && Array.isArray(m.story.msgs), 'v1 migrated');
   assert(migrate({ version: 2, story: { health: 40, ledger: [1] } }).story.health === 40, 'v2 health kept');
   { // v2 (single protagonist with all nine weapons) → v3 squad: Dineth keeps his own loadout's ammo, squad unlocked after m0
     const v2 = { version: 2, player: { x: 10, z: -20, yaw: 1 }, story: { health: 55, done: ['m0'], outfit: { top: 'linen' } }, weapons: { inv: Array.from({ length: 9 }, (_, i) => [i, 50 + i]), sel: 6 } };
     const m3 = migrate(v2); const d = m3.squad && m3.squad.members.dineth;
-    assert(m3.version === 4 && m3.squad.unlocked === true && m3.story.flags.squad === true, 'v2→v3 squad unlocked after The Meeting');
+    assert(m3.version === 5 && m3.squad.unlocked === true && m3.story.flags.squad === true, 'v2→v3 squad unlocked after The Meeting');
     assert(d && d.x === 10 && d.hp === 55 && d.inv[1][2] === 1 && d.inv[3][2] === 0 && d.inv[6][2] === 0 && d.inv[3][1] === 53 && d.sel === 1, 'v2→v4 Dineth keeps only the service pistol (ammo counts kept)');
     assert(m3.story.outfits && m3.story.outfits.dineth.top === 'linen', 'v2→v3 outfit');
     assert(migrate({ version: 2, story: { done: [] } }).squad.unlocked === false, 'v2→v3 locked before The Meeting');

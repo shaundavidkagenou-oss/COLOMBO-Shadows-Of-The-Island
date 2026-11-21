@@ -1,0 +1,121 @@
+[
+ {
+  "name": "b51-marina-day",
+  "at": [
+   232.5,
+   -1199.5
+  ],
+  "cam": [
+   238,
+   10,
+   -1190
+  ],
+  "look": [
+   192,
+   -1,
+   -1250
+  ],
+  "hour": 10,
+  "wait": 4000
+ },
+ {
+  "name": "b51-marina-night",
+  "at": [
+   232.5,
+   -1199.5
+  ],
+  "cam": [
+   238,
+   10,
+   -1190
+  ],
+  "look": [
+   192,
+   -1,
+   -1250
+  ],
+  "hour": 21.5,
+  "wait": 4000,
+  "js": "const B=g.boats; if(!B.state().slip) B.buyBerth(true); for (const id of ['meridian72']) if(!B.owns(id)) B.order(id,true); B.deliver(true); while(B.slipBoat && B.slipBoat.id!=='meridian72') B.switchNext();"
+ },
+ {
+  "name": "b51-yacht-night-berth",
+  "at": [
+   200,
+   -1287
+  ],
+  "cam": [
+   176,
+   4.5,
+   -1296
+  ],
+  "look": [
+   192,
+   1,
+   -1291
+  ],
+  "hour": 22,
+  "wait": 4000,
+  "js": "const B=g.boats; if(!B.state().slip) B.buyBerth(true); if(!B.owns('meridian72')) B.order('meridian72',true); B.deliver(true); while(B.slipBoat && B.slipBoat.id!=='meridian72') B.switchNext(); for(let i=0;i<4;i++) B.update(0.05,g.player); const b=B.slipBoat; window.__dbg={id:b&&b.id,x:b&&b.x,z:b&&b.z,yaw:b&&b.yaw,lights:b&&b.lights};"
+ },
+ {
+  "name": "b51-police-night",
+  "at": [
+   200,
+   -1287
+  ],
+  "cam": [
+   176,
+   3.2,
+   -1318
+  ],
+  "look": [
+   192,
+   1.2,
+   -1326
+  ],
+  "hour": 22,
+  "wait": 4000,
+  "js": "const B=g.boats; B.forcePatrol=true; for(let i=0;i<3;i++) B.update(0.05,g.player); const b=B.police[0]; b.active=true; b.leaving=false; b.root.visible=true; b.mode='drive'; b.place(192,-1326,Math.PI/2,true); b.route=[{x:400,z:-1326}]; if(!b.crewChars) B.crewUp(b,0); for(let i=0;i<6;i++) B.update(0.05,g.player); window.__dbg={x:b.x,z:b.z,lights:JSON.stringify(b.lights)};"
+ },
+ {
+  "name": "b51-police-day",
+  "at": [
+   200,
+   -1287
+  ],
+  "cam": [
+   176,
+   3.2,
+   -1318
+  ],
+  "look": [
+   192,
+   1.2,
+   -1326
+  ],
+  "hour": 9,
+  "wait": 4000,
+  "js": "const B=g.boats; B.forcePatrol=true; const b=B.police[0]; b.active=true; b.leaving=false; b.root.visible=true; b.mode='drive'; b.place(192,-1326,Math.PI/2,true); b.route=[{x:400,z:-1326}]; if(!b.crewChars) B.crewUp(b,0); for(let i=0;i<6;i++) B.update(0.05,g.player);"
+ },
+ {
+  "name": "b51-sails-torn",
+  "at": [
+   200,
+   -1287
+  ],
+  "cam": [
+   150,
+   5,
+   -1300
+  ],
+  "look": [
+   120,
+   6,
+   -1320
+  ],
+  "hour": 10,
+  "wait": 4000,
+  "js": "const B=g.boats; const y=B.spawnNear('mirissa46',{x:120,z:-1320,yaw:0}); if(y){ y.mode='anchored'; y.berth={x:y.x,z:y.z,yaw:y.yaw}; y.setSailsVisible(true); for(let i=0;i<14;i++) y.sailHit(i%y.sails.length,{x:0.15+Math.random()*0.7,y:0.1+Math.random()*0.7}); y.place(120,-1320,-Math.PI/2.4,true); window.__dbg={id:y.id,holes:y.sails.map(q=>q.holes),tear:y.sails.map(q=>q.tear)}; }"
+ }
+]

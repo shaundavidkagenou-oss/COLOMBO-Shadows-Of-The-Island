@@ -8,7 +8,9 @@
 // is in actors/SchoolLife.js. No student characters exist anywhere in the game.
 import * as THREE from 'three';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
+import { hedgeRect, bushBall } from './HedgeBush.js';
 import { MAT } from '../gfx/Materials.js';
+import { modelFloor } from './FloorKit.js';
 
 export const SCHOOL = {
   name: "Johns Private Girls' School", si: 'ජෝන්ස් බාලිකා විද්‍යාලය', ta: 'ஜோன்ஸ் மகளிர் பாடசாலை',
@@ -103,7 +105,8 @@ export function buildJohnsSchool({ mb, box, coll, label, group, LAND_Y, SANS, SI
   // ------------------------------------------------------------ main classroom block (three storeys, arcaded corridors)
   const [mx0, mx1, mz0, mz1] = S.main, FH = S.FH, P = S.plinth, zc = mz0 + S.corridor, NR = S.rooms, RW = S.roomW; const yF = (f) => y0 + P + f * FH; const top = yF(S.storeys);
   box(conc, (mx0 + mx1) / 2, y0 + P / 2, (mz0 + mz1) / 2 - 0.2, mx1 - mx0, P, mz1 - mz0 + 0.4, '#b9b2a4'); coll(mx0, mx1, mz0 - 0.4, mz1, y0 + P, { kind: 'deck' });
-  for (let f = 0; f < S.storeys; f++) paint.hrect(mx0, mz0 - (f ? 0.15 : 0.4), mx1, mz1, yF(f) + 0.006, 1, C(REDOX)); // red-oxide cement floors
+  // red-oxide cement floors: modelled 1 m trowelled bays with their joints (sitting on the slab tops, as the painted floor did)
+  for (let f = 0; f < S.storeys; f++) group.add(modelFloor({ kind: 'redoxide', size: 1.0, rough: 0.68, seed: 410 + f } /* worn school floor: less sky sheen at grazing angles (0.45 read pink) */, mx0, mz0 - (f ? 0.15 : 0.4), mx1, mz1, yF(f) + 0.006));
   for (let f = 1; f <= S.storeys; f++) { box(paint, (mx0 + mx1) / 2, yF(f) - 0.12, (mz0 + mz1) / 2 - 0.08, mx1 - mx0 + 0.3, 0.24, mz1 - mz0 + 0.46, '#ece6d6', { bottom: true }); box(paint, (mx0 + mx1) / 2, yF(f) - 0.12, mz0 - 0.32, mx1 - mx0 + 0.3, 0.24, 0.03, MAROON); }
   hip(mx0 - 0.2, mx1 + 0.2, mz0 - 0.4, mz1 + 0.2, top, 3.2, '#b5532e');
   // wall with openings: o = [{a, b, lo, hi}] along x at fixed z
@@ -164,7 +167,7 @@ export function buildJohnsSchool({ mb, box, coll, label, group, LAND_Y, SANS, SI
     [["PRINCIPAL'S OFFICE", 347.5], ['STAFF ROOM', 356.5], ['LIBRARY', 365.5]].forEach(([t, z]) => { doorOnX(ax1, 1, z, y0 + P, 1.2, 2.15); label([{ text: t, font: SANS(80), color: '#ffffff' }], ax1 + 0.06, y0 + P + 2.55, z, 1.5, 0.26, Math.PI / 2, { w: 768, h: 130, bg: MAROON, glow: false }); });
     for (let f = 0; f < 2; f++) for (const z of [344.8, 351.6, 353.4, 360.6, 362.4, 368.2]) { windowOnX(ax1, 1, z, y0 + P + f * FH + 1.6); for (const s2 of [-1, 1]) box(paint, ax1 + 0.03, y0 + P + f * FH + 1.6, z + s2 * 0.83, 0.03, 1.3, 0.5, GREEN); }
     for (let f = 0; f < 2; f++) for (let z = az0 + 2; z < az1 - 1; z += 3.2) { windowOnX(ax0, -1, z, y0 + P + f * FH + 1.6); for (const s2 of [-1, 1]) box(paint, ax0 - 0.03, y0 + P + f * FH + 1.6, z + s2 * 0.83, 0.03, 1.3, 0.5, GREEN); }
-    for (const [x, z] of [[ax1 + 3.2, 346], [ax1 + 3.2, 352], [ax1 + 3.2, 360]]) { box(soil, x, y0 + 0.12, z, 1.0, 0.24, 3.4, '#5a3d2a'); for (let k = 0; k < 4; k++) leaves.box(x, y0 + 0.45, z - 1.2 + k * 0.8, 0.6, 0.5, 0.6, { col: C(k % 2 ? '#3f7d3a' : '#4f8f3c') }); } }
+    for (const [x, z] of [[ax1 + 3.2, 346], [ax1 + 3.2, 352], [ax1 + 3.2, 360]]) { box(soil, x, y0 + 0.12, z, 1.0, 0.24, 3.4, '#5a3d2a'); for (let k = 0; k < 4; k++) bushBall(mb, x, y0 + 0.2, z - 1.2 + k * 0.8, 0.34, 0.55, { col: k % 2 ? [0.72, 0.9, 0.66] : [0.8, 0.96, 0.7], seed: 40 + k }); } }
 
   // ------------------------------------------------------------ assembly hall (open sides, Calicut-tile roof, stage, brass oil lamp)
   { const [hx0, hx1, hz0, hz1] = S.hall, PH = 0.45, yb = y0 + PH, cx = (hx0 + hx1) / 2, cz = (hz0 + hz1) / 2, eave = yb + 5.2;
@@ -193,8 +196,8 @@ export function buildJohnsSchool({ mb, box, coll, label, group, LAND_Y, SANS, SI
     box(paint, cx, y0 + 1.3, cz + 0.6, kx1 - kx0, 2.6, kz1 - kz0 - 1.2, CREAM); box(paint, cx, y0 + 0.55, kz0 + 0.5, kx1 - kx0, 1.1, 0.5, '#7b5536'); box(paint, cx, y0 + 1.12, kz0 + 0.45, kx1 - kx0 + 0.1, 0.05, 0.62, '#d8d0c0');
     corr.box(cx, y0 + 2.75, cz, kx1 - kx0 + 1.0, 0.08, kz1 - kz0 + 1.4, { col: C('#9aa3a8'), bottom: true }); for (const x of [kx0 + 0.1, kx1 - 0.1]) box(metal, x, y0 + 1.35, kz0 - 0.4, 0.08, 2.7, 0.08, '#5f666b');
     label([{ text: 'CANTEEN', font: SANS(120), color: '#ffffff' }], cx, y0 + 2.45, kz0 + 0.33, 2.4, 0.4, Math.PI, { w: 640, h: 110, bg: MAROON, glow: false }); coll(kx0, kx1, kz0 + 0.2, kz1, y0 + 2.8); }
-  for (const [x0, x1] of [[271, 303.6], [308.4, 313.6], [324.4, 336]]) { hedge.box((x0 + x1) / 2, y0 + 0.45, 341.6, x1 - x0, 0.9, 0.7, { col: C('#3f7d3a') }); coll(x0, x1, 341.25, 341.95, y0 + 0.9); }
-  for (const [x, z] of [[283, 345], [297, 345], [283, 365.5], [297, 365.5]]) { box(soil, x, y0 + 0.1, z, 2.4, 0.2, 1.0, '#5a3d2a'); for (let k = 0; k < 3; k++) leaves.box(x - 0.8 + k * 0.8, y0 + 0.4, z, 0.55, 0.45, 0.55, { col: C(['#c0392b', '#f1c40f', '#e67e22'][k]) }); }
+  for (const [x0, x1] of [[271, 303.6], [308.4, 313.6], [324.4, 336]]) { hedgeRect(mb, x0, x1, 341.25, 341.95, y0, 0.9, { col: [0.74, 0.9, 0.68] }); coll(x0, x1, 341.25, 341.95, y0 + 0.9); }
+  for (const [x, z] of [[283, 345], [297, 345], [283, 365.5], [297, 365.5]]) { box(soil, x, y0 + 0.1, z, 2.4, 0.2, 1.0, '#5a3d2a'); for (let k = 0; k < 3; k++) bushBall(mb, x - 0.8 + k * 0.8, y0 + 0.18, z, 0.3, 0.45, { col: [0.78, 0.94, 0.7], flowers: 18, flowerCol: [[0.78, 0.15, 0.12], [0.95, 0.78, 0.15], [0.92, 0.45, 0.12]][k], seed: 60 + k }); } // flowering shrubs (were coloured cubes)
   // ------------------------------------------------------------ night lighting
   // Corridor tube lights over the classroom doors (every bay on the ground floor, every other bay upstairs — what a
   // school leaves on overnight), lanterns on the gate pillars, a bulb over the security hut door and its lit window.

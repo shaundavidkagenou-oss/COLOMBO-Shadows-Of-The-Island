@@ -110,19 +110,11 @@ function rearMaterials() {
   g.fillStyle = '#ffffff'; g.font = LOCAL(48); g.fillText(`${AMB_SI}  ·  ${AMB_TA}`, 512, (Y(AMB.bandY[1]) + Y(AMB.bandY[0])) / 2 + 2, 960);
   g.fillStyle = '#2b2f31'; g.fillRect(X(-0.03), Y(1.0), X(-0.15) - X(-0.03), 18); // handle
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
-  // interior (what you see with the doors open): pale cabin walls, cabinets, ceiling light, stretcher rails on the floor
-  const ci = document.createElement('canvas'); ci.width = 512; ci.height = 512; const h = ci.getContext('2d');
-  const gr = h.createRadialGradient ? h.createRadialGradient(256, 230, 30, 256, 256, 360) : null; if (gr) { gr.addColorStop(0, '#d5dfdb'); gr.addColorStop(1, '#7d8a86'); } h.fillStyle = gr || '#b9c4c0'; h.fillRect(0, 0, 512, 512);
-  h.fillStyle = '#eef3f1'; h.fillRect(60, 40, 392, 26); // ceiling light
-  h.fillStyle = '#9fb0aa'; for (const x of [12, 400]) { h.fillRect(x, 90, 100, 230); } h.fillStyle = '#c7d3cf'; for (const x of [20, 408]) for (const y of [100, 170, 240]) h.fillRect(x, y, 84, 60);
-  h.fillStyle = '#3d4446'; h.beginPath(); h.moveTo(0, 512); h.lineTo(512, 512); h.lineTo(390, 360); h.lineTo(122, 360); h.closePath(); h.fill(); // floor in perspective
-  h.fillStyle = '#9aa3a6'; h.fillRect(180, 380, 12, 132); h.fillRect(320, 380, 12, 132); // stretcher rails
-  h.fillStyle = '#1f8a3c'; h.fillRect(150, 330, 212, 16); // seat bench edge
-  const ti = new THREE.CanvasTexture(ci); ti.colorSpace = THREE.SRGBColorSpace;
+  const ti = interiorAtlas();
   rearMats = {
     face: new THREE.MeshStandardMaterial({ map: t, roughness: 0.42, metalness: 0.05 }),
     edge: new THREE.MeshStandardMaterial({ color: 0xe9ebe9, roughness: 0.5 }),
-    cav: new THREE.MeshStandardMaterial({ map: ti, emissiveMap: ti, emissive: 0xffffff, emissiveIntensity: 0.35, roughness: 0.9 }),
+    cavTex: ti,
   };
   return rearMats;
 }
@@ -141,8 +133,97 @@ export function buildAmbRear() {
     const f = new THREE.Mesh(rearGeo[side], M.face); f.position.set(-side * lw / 2, 0, -0.0155);
     pv.add(e, f); grp.add(pv); leaves[side] = pv;
   }
-  const cav = new THREE.Mesh(rearGeo.cav, M.cav); cav.position.set(0, yc, AMB.rearZ - 0.012); cav.visible = false; grp.add(cav);
+  const cav = new THREE.Mesh(rearGeo.cav, interiorMaterial(M.cavTex)); cav.position.set(0, yc, AMB.rearZ - 0.012); cav.visible = false; grp.add(cav);
   return { group: grp, L: leaves[1], R: leaves[-1], cav, open: 0 };
 }
 // open fraction k (0..1): each leaf swings outward ~109° about its corner hinge
 export function setAmbRear(r, k) { if (!r) return; r.open = k; const a = 1.9 * k; r.L.rotation.y = -a; r.R.rotation.y = a; r.cav.visible = k > 0.01; }
+
+// ---------------------------------------------------------------- 75th: the rear compartment, interior-mapped
+// One quad in the door opening (as before: 1 draw call, only while the doors are open) whose shader traces the view ray into
+// a 1.64 × 1.37 × 2.9 m box behind it — the real compartment — and paints the face it hits from a 512² atlas: bench seat +
+// overhead cabinets (left), monitor / defibrillator, suction, O2 outlets + cylinder, drawers (right), partition with the cab
+// window, sharps bin and attendant seat (front), anti-slip floor with the cot rails, ceiling with LED panels. Corners get
+// ambient occlusion; the stowed cot (empty, or with the covered patient) is traced as a box on the floor rails (uCot).
+const IA = { L: [0, 0, 512, 112], R: [0, 112, 512, 112], F: [0, 224, 512, 112], C: [0, 336, 512, 64], B: [0, 400, 160, 112] }; // atlas rects (px)
+function interiorAtlas() {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 512; const g = c.getContext('2d');
+  const rect = (r, col) => { g.fillStyle = col; g.fillRect(r[0], r[1], r[2], r[3]); };
+  const speck = (r, n, a) => { for (let i = 0; i < n; i++) { g.fillStyle = `rgba(${Math.random() < 0.5 ? '0,0,0' : '255,255,255'},${Math.random() * a})`; g.fillRect(r[0] + Math.random() * r[2], r[1] + Math.random() * r[3], 1, 1); } };
+  // u runs from the doors (0) to the partition (512) along the walls; v from the ceiling (top) to the floor (bottom)
+  const wall = (r, side) => { const [x0, y0, w, h] = r; rect(r, '#e7ecea'); speck(r, 700, 0.05);
+    const Y = (f) => y0 + f * h; // f: 0 ceiling … 1 floor
+    g.fillStyle = '#d4dbd8'; g.fillRect(x0, Y(0.08), w, Y(0.36) - Y(0.08)); // overhead cabinet band
+    for (let i = 0; i < 6; i++) { const cx = x0 + 18 + i * 80; g.fillStyle = '#c3ccc9'; g.fillRect(cx, Y(0.1), 74, Y(0.34) - Y(0.1)); g.fillStyle = 'rgba(160,190,200,0.55)'; g.fillRect(cx + 4, Y(0.12), 66, Y(0.31) - Y(0.12)); // acrylic doors
+      for (let k = 0; k < 4; k++) { g.fillStyle = ['#2f6fb5', '#e8e8e2', '#d9a03a', '#7bb36a', '#c94a3b'][(i + k * 2 + (side > 0 ? 1 : 0)) % 5]; g.fillRect(cx + 8 + k * 15, Y(0.2), 12, Y(0.3) - Y(0.2)); } // supplies behind
+      g.fillStyle = '#8a9592'; g.fillRect(cx + 30, Y(0.315), 14, 2); }
+    g.fillStyle = '#b8c0be'; g.fillRect(x0, Y(0.37), w, 2); // grab rail
+    g.fillStyle = '#9ba6a3'; g.fillRect(x0, Y(0.38), w, 1);
+    if (side < 0) { // left: the long bench seat (green vinyl) with seat belts and back cushions
+      for (let i = 0; i < 3; i++) { const bx = x0 + 40 + i * 140; g.fillStyle = '#1e6e3a'; g.fillRect(bx, Y(0.46), 128, Y(0.66) - Y(0.46)); g.fillStyle = 'rgba(255,255,255,0.12)'; g.fillRect(bx + 4, Y(0.47), 120, 3); g.fillStyle = '#111'; g.fillRect(bx + 60, Y(0.48), 5, Y(0.72) - Y(0.48)); }
+      g.fillStyle = '#18592f'; g.fillRect(x0 + 34, Y(0.69), 432, Y(0.76) - Y(0.69)); g.fillStyle = '#2a7d45'; g.fillRect(x0 + 34, Y(0.69), 432, 3); // seat squab edge
+      g.fillStyle = '#c9d0ce'; g.fillRect(x0 + 34, Y(0.76), 432, Y(1) - Y(0.76)); g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(x0 + 34, Y(0.76), 432, 4); // locker base under the bench
+      for (let i = 0; i < 4; i++) { g.strokeStyle = '#a3abaa'; g.strokeRect(x0 + 44 + i * 106, Y(0.8), 98, Y(0.97) - Y(0.8)); }
+    } else { // right: monitor/defibrillator on its bracket, suction, O2 outlets, cylinder, drawers, the attendant's seat at the front
+      g.fillStyle = '#2b2f33'; g.fillRect(x0 + 150, Y(0.42), 96, Y(0.62) - Y(0.42)); g.fillStyle = '#0a0f0d'; g.fillRect(x0 + 156, Y(0.44), 62, Y(0.6) - Y(0.44));
+      g.strokeStyle = '#2ee66b'; g.lineWidth = 1.5; g.beginPath(); for (let i = 0; i <= 60; i++) { const xx = x0 + 157 + i, ph = i % 20; const yy = Y(0.5) - (ph === 8 ? 7 : ph === 9 ? -4 : ph === 7 ? -1 : 0); i ? g.lineTo(xx, yy) : g.moveTo(xx, yy); } g.stroke();
+      g.fillStyle = '#ffd23a'; g.font = 'bold 9px sans-serif'; g.fillText('72', x0 + 222, Y(0.5)); g.fillStyle = '#e8b41c'; g.fillRect(x0 + 222, Y(0.56), 18, 6); // HR + shock button
+      g.fillStyle = '#d0d6d4'; g.fillRect(x0 + 270, Y(0.44), 40, Y(0.62) - Y(0.44)); g.fillStyle = 'rgba(160,200,210,0.7)'; g.fillRect(x0 + 275, Y(0.47), 30, Y(0.58) - Y(0.47)); // suction canister
+      for (let i = 0; i < 3; i++) { g.fillStyle = ['#ffffff', '#1d1d1d', '#e8e8e8'][i]; g.beginPath(); g.arc(x0 + 340 + i * 16, Y(0.5), 5, 0, 7); g.fill(); } g.fillStyle = '#5a6461'; g.fillRect(x0 + 330, Y(0.56), 56, 3); // O2 / air / vacuum outlets
+      g.fillStyle = '#1e1f21'; g.fillRect(x0 + 410, Y(0.4), 26, Y(0.98) - Y(0.4)); g.fillStyle = '#f2f2f0'; g.fillRect(x0 + 410, Y(0.4), 26, Y(0.47) - Y(0.4)); g.fillStyle = '#6b7472'; g.fillRect(x0 + 404, Y(0.62), 38, 5); // O2 cylinder (black, white shoulder) in its strap
+      g.fillStyle = '#ccd3d1'; g.fillRect(x0 + 20, Y(0.66), 120, Y(1) - Y(0.66)); for (let i = 0; i < 4; i++) { g.strokeStyle = '#9aa3a1'; g.strokeRect(x0 + 24, Y(0.68) + i * 9, 112, 8); g.fillStyle = '#7d8785'; g.fillRect(x0 + 70, Y(0.68) + i * 9 + 3, 20, 2); } // drawers
+      g.fillStyle = '#1e6e3a'; g.fillRect(x0 + 460, Y(0.5), 46, Y(0.74) - Y(0.5)); g.fillStyle = '#18592f'; g.fillRect(x0 + 456, Y(0.72), 54, Y(0.78) - Y(0.72)); // attendant's seat
+    }
+    const gr = g.createLinearGradient(0, y0, 0, y0 + h); gr.addColorStop(0, 'rgba(255,255,255,0.08)'); gr.addColorStop(0.5, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.18)'); g.fillStyle = gr; g.fillRect(x0, y0, w, h);
+  };
+  wall(IA.L, -1); wall(IA.R, 1);
+  { const [x0, y0, w, h] = IA.F; rect(IA.F, '#4a4f52'); speck(IA.F, 2600, 0.12); // floor: grey anti-slip vinyl, coved edges, two cot rails, the cot lock at the front
+    g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(x0, y0, w, 6); g.fillRect(x0, y0 + h - 6, w, 6);
+    for (const f of [0.36, 0.64]) { g.fillStyle = '#9aa2a6'; g.fillRect(x0, y0 + f * h - 3, w, 6); g.fillStyle = '#5e6569'; g.fillRect(x0, y0 + f * h + 2, w, 1); }
+    g.fillStyle = '#c8b02a'; g.fillRect(x0 + 470, y0 + 0.3 * h, 24, 0.4 * h); g.fillStyle = '#d9d200'; g.fillRect(x0, y0 + 1, 20, h - 2); } // cot lock; yellow step edge at the doors
+  { const [x0, y0, w, h] = IA.C; rect(IA.C, '#eef1f0'); speck(IA.C, 300, 0.04); // ceiling: two LED panels, IV hook rail, vents
+    for (const px of [70, 300]) { g.fillStyle = '#ffffff'; g.fillRect(x0 + px, y0 + 14, 140, 36); g.strokeStyle = '#c4cbc9'; g.strokeRect(x0 + px, y0 + 14, 140, 36); }
+    g.fillStyle = '#9aa2a1'; g.fillRect(x0 + 20, y0 + 30, 472, 3); for (let i = 0; i < 4; i++) g.fillRect(x0 + 60 + i * 120, y0 + 26, 4, 10);
+    for (let i = 0; i < 6; i++) { g.fillStyle = '#c9cfcd'; g.fillRect(x0 + 230 + (i % 3) * 8, y0 + 52 + ((i / 3) | 0) * 4, 6, 2); } }
+  { const [x0, y0, w, h] = IA.B; rect(IA.B, '#e2e7e5'); speck(IA.B, 300, 0.05); // partition: cab window, cabinet, sharps bin, a wall clock
+    g.fillStyle = '#1a2024'; g.fillRect(x0 + 50, y0 + 18, 60, 30); g.fillStyle = 'rgba(120,150,170,0.35)'; g.fillRect(x0 + 52, y0 + 20, 26, 10);
+    g.fillStyle = '#c6cecb'; g.fillRect(x0 + 8, y0 + 56, 70, 38); g.strokeStyle = '#9aa3a1'; g.strokeRect(x0 + 8, y0 + 56, 70, 38); g.strokeRect(x0 + 8, y0 + 56, 35, 38);
+    g.fillStyle = '#f2c21a'; g.fillRect(x0 + 96, y0 + 62, 22, 26); g.fillStyle = '#c41f1f'; g.fillRect(x0 + 96, y0 + 62, 22, 5);
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(x0 + 132, y0 + 30, 9, 0, 7); g.fill(); g.strokeStyle = '#333'; g.lineWidth = 1.2; g.stroke(); g.beginPath(); g.moveTo(x0 + 132, y0 + 30); g.lineTo(x0 + 132, y0 + 24); g.moveTo(x0 + 132, y0 + 30); g.lineTo(x0 + 136, y0 + 31); g.stroke();
+    g.fillStyle = 'rgba(0,0,0,0.2)'; g.fillRect(x0, y0 + h - 10, w, 10); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.generateMipmaps = false; t.minFilter = THREE.LinearFilter; return t;
+}
+const UVR = (r) => new THREE.Vector4(r[0] / 512, 1 - (r[1] + r[3]) / 512, r[2] / 512, r[3] / 512); // (u0, v0, du, dv) in texture space (flipY)
+function interiorMaterial(tex) {
+  const H = AMB.doorY1 - AMB.doorY0 - 0.04;
+  return new THREE.ShaderMaterial({
+    uniforms: { map: { value: tex }, uL: { value: UVR(IA.L) }, uR: { value: UVR(IA.R) }, uF: { value: UVR(IA.F) }, uC: { value: UVR(IA.C) }, uB: { value: UVR(IA.B) },
+      // room in the quad's local frame (the quad faces out of the van: the room lies along −z): half width, floor, ceiling, depth
+      uRoom: { value: new THREE.Vector4(0.8, -H / 2 - 0.02, H / 2 + 0.06, 2.85) }, uCot: { value: 0 }, uCotIn: { value: 2.2 }, uLight: { value: 1 } },
+    vertexShader: `varying vec3 vP; varying vec3 vCam;
+      void main() { vP = position; vCam = (inverse(modelMatrix) * vec4(cameraPosition, 1.0)).xyz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform sampler2D map; uniform vec4 uL, uR, uF, uC, uB, uRoom; uniform float uCot, uCotIn, uLight; varying vec3 vP; varying vec3 vCam;
+      vec3 tex(vec4 r, vec2 uv) { uv = clamp(uv, 0.004, 0.996); return texture2D(map, r.xy + uv * r.zw).rgb; }
+      void main() {
+        vec3 rd = normalize(vP - vCam); vec3 p = vP; p.xz = -p.xz; rd.xz = -rd.xz; /* the quad's geometry is turned half round (it faces out of the van): the room lies along −z here */ float hw = uRoom.x, y0 = uRoom.y, y1 = uRoom.z, D = uRoom.w;
+        float tx = ((rd.x > 0.0 ? hw : -hw) - p.x) / rd.x; float ty = ((rd.y > 0.0 ? y1 : y0) - p.y) / rd.y; float tz = (-D - p.z) / min(rd.z, -1e-4);
+        float t = min(tx, min(ty, tz)); vec3 h = p + rd * t; vec3 col; float ao;
+        float depth = clamp(-h.z / D, 0.0, 1.0); // 0 at the doors … 1 at the partition
+        if (t == tz) { col = tex(uB, vec2((h.x + hw) / (2.0 * hw), (h.y - y0) / (y1 - y0))); ao = min(min(hw - abs(h.x), h.y - y0), y1 - h.y); }
+        else if (t == tx) { vec2 uv = vec2(depth, (h.y - y0) / (y1 - y0)); col = rd.x > 0.0 ? tex(uR, uv) : tex(uL, uv); ao = min(min(D + h.z, h.y - y0), y1 - h.y); }
+        else if (rd.y < 0.0) { col = tex(uF, vec2(depth, (h.x + hw) / (2.0 * hw))); ao = min(hw - abs(h.x), D + h.z); }
+        else { col = tex(uC, vec2(depth, (h.x + hw) / (2.0 * hw))); ao = min(hw - abs(h.x), D + h.z) + 0.15; }
+        col *= mix(0.55, 1.0, smoothstep(0.0, 0.28, ao)); // corners
+        col *= mix(1.0, 0.82, depth * (1.0 - step(0.5, float(rd.y > 0.0 && t == ty)))); // light falls off toward the partition (LED panels over the middle)
+        if (uCot > 0.5) { // the stowed cot: a box on the rails, from the doors (z 0) to uCotIn into the van
+          vec3 bmin = vec3(-0.28, y0, -uCotIn), bmax = vec3(0.28, y0 + 0.43, 0.0); vec3 inv = 1.0 / rd; vec3 t0 = (bmin - p) * inv, t1 = (bmax - p) * inv; vec3 tn = min(t0, t1), tf = max(t0, t1);
+          float a = max(max(tn.x, tn.y), tn.z), b = min(min(tf.x, tf.y), tf.z);
+          if (b > max(a, 0.0) && a < t) { vec3 q = p + rd * a; float k = (q.z + uCotIn) / max(uCotIn, 0.01);
+            if (abs(q.y - bmax.y) < 0.004) { col = vec3(0.11, 0.115, 0.13); if (uCot > 1.5) { float bump = sin(clamp(k, 0.0, 1.0) * 3.14159); col = vec3(0.86, 0.86, 0.84) * (0.8 + 0.2 * bump) * (0.85 + 0.15 * (1.0 - abs(q.x) / 0.28)); } }
+            else { col = (q.y > bmax.y - 0.12) ? vec3(0.62, 0.64, 0.67) : vec3(0.16, 0.17, 0.18); if (uCot > 1.5 && q.y > bmax.y - 0.12) col = vec3(0.8, 0.8, 0.78); } col *= 0.9; } }
+        gl_FragColor = vec4(col * uLight, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
+  });
+}

@@ -8,55 +8,70 @@ import { RNG } from '../core/rng.js';
 import { buildStallGeometries, stallType, STALL_CANOPY } from './Stalls.js';
 
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
-const GEO = {}; // type -> [{geo, mat}]
+export const GEO = {}; // type -> [{geo, mat}] (PropBreak.js reuses the lamp / signal parts for a knocked-down pole)
 let STALLS = null; // [type][parts] from Stalls.js
 function part(mb, mat) { return { geo: mb.build(), mat }; }
 function canvasTex(w, h, draw) { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; }
 
-export function buildPropGeometries() {
+export function buildPropGeometries() { // 60th: every prop type draws with its OWN material (Materials.ROLE_DEFS — copies of metal / paint / concrete; same look)
   // street lamp: tapered galvanised pole, curved arm, LED head (head is a separate emissive part)
   { const p = new MeshBuilder(); p.cylinder(0, 0, 0, 0.14, 0.08, 8, 8, { col: C('#9aa0a4') }); p.box(0, 8.0, 0.9, 0.08, 0.08, 1.9, { col: C('#9aa0a4') }); p.box(0, 0.4, 0, 0.32, 0.8, 0.32, { col: C('#8a8a86') });
     const h = new MeshBuilder(); h.box(0, 7.92, 1.85, 0.32, 0.12, 0.7, {});
-    GEO.lamp = [part(p, MAT.metal), part(h, MAT.lampHead)]; }
+    GEO.lamp = [part(p, MAT.lampPole), part(h, MAT.lampHead)]; }
   { const p = new MeshBuilder(); p.cylinder(0, 0, 0, 0.2, 0.09, 5.2, 10, { col: C('#1d1f1d') }); p.box(0, 0.35, 0, 0.5, 0.7, 0.5, { col: C('#1d1f1d') }); p.box(0, 5.2, 0, 1.2, 0.1, 0.1, { col: C('#1d1f1d') });
     const h = new MeshBuilder(); for (const s of [-0.55, 0.55]) h.box(s, 4.85, 0, 0.32, 0.5, 0.32, {});
-    GEO.lampHeritage = [part(p, MAT.metal), part(h, MAT.lampHead)]; }
+    GEO.lampHeritage = [part(p, MAT.heritageLampPole), part(h, MAT.lampHead)]; }
   // concrete utility pole with crossarm + insulators
   { const p = new MeshBuilder(); p.box(0, 4.5, 0, 0.26, 9, 0.22, { col: C('#a7a39a'), uvScale: 2 }); p.box(0, 8.4, 0, 1.8, 0.12, 0.12, { col: C('#6a6a66') }); for (const s of [-0.8, 0, 0.8]) p.cylinder(s, 8.46, 0, 0.05, 0.05, 0.16, 6, { col: C('#d8d8d0') });
     p.box(0, 6.6, 0, 1.0, 0.1, 0.1, { col: C('#6a6a66') });
-    GEO.pole = [part(p, MAT.concrete)];
+    GEO.pole = [part(p, MAT.utilityPole)];
     const t = new MeshBuilder(); t.box(0, 6.1, 0.35, 0.7, 0.9, 0.5, { col: C('#7d8580') }); t.cylinder(0, 6.55, 0.35, 0.08, 0.08, 0.3, 6, { col: C('#ddd') });
-    GEO.transformer = [part(t, MAT.metal)]; }
-  // traffic signal pole (heads are separate dynamic lamps)
-  { const p = new MeshBuilder(); p.cylinder(0, 0, 0, 0.1, 0.09, 3.2, 8, { col: C('#2b2d2b') });
-    p.box(0, 2.85, 0.18, 0.34, 1.0, 0.24, { col: C('#151515') }); p.box(0.18, 2.85, 0, 0.24, 1.0, 0.34, { col: C('#151515') });
-    for (const [x, z] of [[0, 0.3075], [0.3075, 0]]) p.box(x, 2.85, z, x ? 0.015 : 0.4, 1.1, z ? 0.015 : 0.4, { col: C('#e8c21a') }); // backboard face at 0.315: lamps float 1.8 cm in front (no coplanar flicker)
-    GEO.signal = [part(p, MAT.metal)]; }
+    GEO.transformer = [part(t, MAT.transformer)]; }
+  // traffic signal pole (heads are separate dynamic lamps). 73rd: built like the real ones — a galvanised pole on a bolted base
+  // flange, two 3-aspect aluminium heads (one per approach) on brackets, each lens in a black rim under a cut-away visor (hood),
+  // the head on a black backplate with a retro-reflective white border. Heads sit off the pole's centre so the two at right
+  // angles meet at a corner instead of overlapping. Same single material and draw call as before (vertex colours).
+  { const p = new MeshBuilder(); const galv = C('#8c9194'), blk = C('#181918'), rim = C('#0d0d0d'), hood = C('#141514'), edge = C('#d6d3c6');
+    p.cylinder(0, 0, 0, 0.2, 0.2, 0.03, 12, { col: C('#7b8083') }); for (let k = 0; k < 4; k++) { const a = Math.PI / 4 + k * Math.PI / 2; p.box(Math.cos(a) * 0.15, 0.045, Math.sin(a) * 0.15, 0.035, 0.03, 0.035, { col: C('#6a6e70') }); } // base flange + anchor nuts
+    p.cylinder(0, 0.03, 0, 0.095, 0.075, 3.42, 12, { col: galv }); p.cylinder(0, 3.45, 0, 0.08, 0.025, 0.07, 10, { col: galv }); // shaft + cap
+    const head = new MeshBuilder(); const cx = SIG_HEAD.off; // one head in its own frame, facing +z, centred on x = cx
+    head.box(cx, 2.86, 0.098, 0.5, 1.2, 0.014, { col: blk, bottom: true }); // backplate
+    for (const [bx, by, sx, sy] of [[cx, 2.86 + 0.575, 0.5, 0.05], [cx, 2.86 - 0.575, 0.5, 0.05], [cx - 0.225, 2.86, 0.05, 1.2], [cx + 0.225, 2.86, 0.05, 1.2]]) head.box(bx, by, 0.1065, sx, sy, 0.003, { col: edge, top: false, sides: 1 });
+    head.box(cx, 2.86, 0.215, 0.3, 0.98, 0.21, { col: blk, bottom: true }); head.box(cx, 3.358, 0.215, 0.32, 0.016, 0.225, { col: blk, bottom: true }); // housing + top lip
+    for (const y of [3.1, 2.62]) head.box(cx * 0.5, y, 0.05, Math.abs(cx) + 0.06, 0.05, 0.09, { col: C('#2a2c2b'), bottom: true }); // brackets to the pole
+    const ringG = new THREE.CylinderGeometry(0.128, 0.128, 0.03, 14, 1, true); ringG.rotateX(Math.PI / 2);
+    const visG = new THREE.CylinderGeometry(0.14, 0.14, 0.2, 10, 1, true, Math.PI - 1.95, 3.9); visG.rotateX(Math.PI / 2); // the top ~225° of a tube: the hood
+    const visB = visG.clone(); { const ix = visB.index; for (let i = 0; i < ix.count; i += 3) { const a = ix.getX(i + 1); ix.setX(i + 1, ix.getX(i + 2)); ix.setX(i + 2, a); } const n = visB.attributes.normal; for (let i = 0; i < n.count; i++) n.setXYZ(i, -n.getX(i), -n.getY(i), -n.getZ(i)); } // its inside (seen from below)
+    const M4 = new THREE.Matrix4();
+    for (const y of SIG_HEAD.ys) { head.geometry(ringG, M4.makeTranslation(cx, y, SIG_HEAD.z - 0.004), rim); head.geometry(visG, M4.makeTranslation(cx, y, SIG_HEAD.z + 0.1), hood); head.geometry(visB, M4.makeTranslation(cx, y, SIG_HEAD.z + 0.1), hood); }
+    const hg = head.build(); p.geometry(hg, M4.identity()); p.geometry(hg, M4.makeRotationY(Math.PI / 2)); // head A faces +z, head B (+90° about y) faces +x
+    ringG.dispose(); visG.dispose(); visB.dispose(); hg.dispose();
+    GEO.signal = [part(p, MAT.signalPole)]; }
   // bus halt shelter
   { const busSign = canvasTex(512, 160, (a, w, h) => { a.fillStyle = '#0e5e35'; a.fillRect(0, 0, w, h); a.fillStyle = '#fff'; a.textAlign = 'center'; a.textBaseline = 'middle'; a.font = '700 54px "Barlow Condensed", sans-serif'; a.fillText('BUS HALT', w / 2, 40); a.font = '700 34px "Noto Sans Sinhala", sans-serif'; a.fillText('බස් නැවතුම', w * 0.28, 115); a.font = '700 30px "Noto Sans Tamil", sans-serif'; a.fillText('பஸ் தரிப்பு', w * 0.74, 115); });
     MAT.busSign = new THREE.MeshStandardMaterial({ map: busSign, roughness: 0.6, side: THREE.DoubleSide });
     const p = new MeshBuilder(); for (const x of [-2, 2]) for (const z of [-0.6]) p.box(x, 1.25, z, 0.1, 2.5, 0.1, { col: C('#4a4f4c') });
     p.box(0, 2.55, 0, 4.6, 0.1, 1.8, { col: C('#c9cfc9') }); p.box(0, 1.3, -0.65, 4.2, 1.5, 0.05, { col: C('#b8c0bf') }); p.box(0, 0.48, -0.35, 3.4, 0.08, 0.45, { col: C('#5a6a74') }); for (const x of [-1.5, 1.5]) p.box(x, 0.24, -0.35, 0.1, 0.48, 0.4, { col: C('#555') });
     const s = new MeshBuilder(); s.quad([-1.1, 2.62, 0.92], [1.1, 2.62, 0.92], [1.1, 3.3, 0.92], [-1.1, 3.3, 0.92], [0, 0, 1, 1]);
-    GEO.busStop = [part(p, MAT.paint), part(s, MAT.busSign)]; }
+    GEO.busStop = [part(p, MAT.busShelter), part(s, MAT.busSign)]; }
   // bench
   { const p = new MeshBuilder(); // seat faces local +z: three seat slats centred on the origin (sitters' hips land on z = 0), backrest behind (−z)
     for (let k = 0; k < 3; k++) p.box(0, 0.44, -0.15 + k * 0.15, 1.8, 0.05, 0.12, { col: C('#7a5532'), bottom: true });
     for (const y of [0.62, 0.8]) p.box(0, y, -0.25, 1.8, 0.11, 0.04, { col: C('#7a5532'), bottom: true });
     for (const x of [-0.75, 0.75]) { p.box(x, 0.21, 0, 0.12, 0.42, 0.5, { col: C('#9a958a') }); p.box(x, 0.66, -0.25, 0.08, 0.5, 0.06, { col: C('#9a958a') }); }
-    GEO.bench = [part(p, MAT.paint)]; }
+    GEO.bench = [part(p, MAT.bench)]; }
   // pedestrian railing (yellow/black)
   { const p = new MeshBuilder(); for (let k = 0; k < 6; k++) p.box(-1.25 + k * 0.5, 0.95, 0, 0.5, 0.08, 0.06, { col: k % 2 ? C('#111') : C('#e8c21a') }); for (const x of [-1.5, 1.5]) p.box(x, 0.5, 0, 0.07, 1.0, 0.07, { col: C('#222') }); p.box(0, 0.55, 0, 2.93, 0.05, 0.04, { col: C('#d8b818') }); p.box(0, 0.16, 0, 2.93, 0.05, 0.04, { col: C('#d8b818') }); for (let k = 0; k < 8; k++) p.box(-1.17 + k * 0.334, 0.535, 0, 0.03, 0.76, 0.03, { col: C('#c9ab17') }); /* a 3 m section with a post at each end: sections join post to post; bottom rail + vertical bars make it read as the solid guard rail it is */
-    GEO.railing = [part(p, MAT.paint)]; }
+    GEO.railing = [part(p, MAT.pedRailing)]; }
   // gate
   { const p = new MeshBuilder(); p.box(-2.1, 1.1, 0, 0.35, 2.2, 0.35, { col: C('#e8e2d4') }); p.box(2.1, 1.1, 0, 0.35, 2.2, 0.35, { col: C('#e8e2d4') }); for (let k = 0; k < 14; k++) p.box(-1.8 + k * 0.28, 0.95, 0, 0.04, 1.7, 0.04, { col: C('#1d1d1d') }); p.box(0, 1.75, 0, 3.8, 0.08, 0.06, { col: C('#1d1d1d') }); p.box(0, 0.25, 0, 3.8, 0.08, 0.06, { col: C('#1d1d1d') });
-    GEO.gate = [part(p, MAT.metal)]; }
+    GEO.gate = [part(p, MAT.gate)]; }
   // Pettah pavement stall: table, goods, tarp canopy
   { const p = new MeshBuilder(); const rng = new RNG(5); p.box(0, 0.8, 0, 2.0, 0.08, 1.1, { col: C('#6b4a2e') }); for (const [x, z] of [[-0.9, -0.45], [0.9, -0.45], [-0.9, 0.45], [0.9, 0.45]]) p.box(x, 0.4, z, 0.06, 0.8, 0.06, { col: C('#444') });
     for (let k = 0; k < 10; k++) p.box(-0.8 + (k % 5) * 0.4, 0.92 + Math.floor(k / 5) * 0.12, -0.25 + Math.floor(k / 5) * 0.4, 0.34, 0.16, 0.3, { col: C(rng.pick(['#c0392b', '#2471a3', '#f1c40f', '#27ae60', '#e67e22', '#8e44ad', '#ecf0f1'])) });
     for (const [x, z] of [[-1.05, -0.6], [1.05, -0.6], [-1.05, 0.6], [1.05, 0.6]]) p.box(x, 1.2, z, 0.04, 2.4, 0.04, { col: C('#555') });
     const t = new MeshBuilder(); t.quad([-1.2, 2.2, 0.75], [1.2, 2.2, 0.75], [1.2, 2.45, -0.75], [-1.2, 2.45, -0.75], [0, 0, 1, 1], C('#2f6fa8'));
-    GEO.stall = [part(p, MAT.paint), part(t, MAT.awning)];
+    GEO.stall = [part(p, MAT.stall), part(t, MAT.awning)];
     /* ten modelled stall types (Stalls.js) replace the single generic table when they build */
     try { STALLS = buildStallGeometries(MAT.awning); } catch (e) { console.warn('stall types', e); STALLS = null; } }
   // Galle Face food cart (isso vadai / kadala)
@@ -65,14 +80,14 @@ export function buildPropGeometries() {
     p.box(0, 1.75, 0.6, 1.2, 0.5, 1.0, { col: C('#c7d7dc') }); for (const [x, z] of [[-0.65, -1.2], [0.65, -1.2], [-0.65, 1.2], [0.65, 1.2]]) p.box(x, 2.0, z, 0.05, 1.1, 0.05, { col: C('#555') });
     const t = new MeshBuilder(); t.box(0, 2.6, 0, 1.7, 0.06, 2.9, { col: C('#e3b23c') });
     const l = new MeshBuilder(); l.box(0, 2.45, 0, 0.18, 0.18, 0.18, {});
-    GEO.foodcart = [part(p, MAT.paint), part(t, MAT.awning), part(l, MAT.lampHead)]; }
+    GEO.foodcart = [part(p, MAT.foodCart), part(t, MAT.awning), part(l, MAT.lampHead)]; }
   // shipping container (instance-coloured)
   { const p = new MeshBuilder(); p.box(0, 1.3, 0, 12.1, 2.58, 2.44, { col: [1, 1, 1], uvScale: 2.6 }); GEO.containers = [part(p, MAT.corrugated)]; }
   // junction shrine (glass-fronted, golden figure abstracted)
   { const p = new MeshBuilder(); p.box(0, 0.6, 0, 1.4, 1.2, 1.4, { col: C('#f4f1ea') }); p.box(0, 2.6, 0, 1.6, 0.12, 1.6, { col: C('#f4f1ea') }); for (const [x, z] of [[-0.62, -0.62], [0.62, -0.62], [-0.62, 0.62], [0.62, 0.62]]) p.box(x, 1.9, z, 0.08, 1.4, 0.08, { col: C('#e8e2d4') });
     p.cylinder(0, 2.66, 0, 0.9, 0.05, 0.5, 8, { col: C('#e8dcc0') });
     const g = new MeshBuilder(); g.cylinder(0, 1.2, 0, 0.28, 0.12, 0.45, 10, { col: C('#d4af37') }); g.cylinder(0, 1.65, 0, 0.11, 0.06, 0.2, 8, { col: C('#d4af37') });
-    GEO.shrine = [part(p, MAT.paint), part(g, MAT.lampHead)]; }
+    GEO.shrine = [part(p, MAT.shrine), part(g, MAT.lampHead)]; }
   // signal lamp disc (dynamic colour)
   { const g = new THREE.CircleGeometry(0.11, 12); GEO.signalLamp = g; }
 }
@@ -80,7 +95,12 @@ export function buildPropGeometries() {
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(1, 1, 1), _e = new THREE.Euler(), _c = new THREE.Color();
 export const signalLamps = []; // { mesh, entries:[{node, axis, idx0}] }
 const SIG_MAT = new THREE.MeshBasicMaterial({ toneMapped: false, side: THREE.DoubleSide });
+// 73rd: signal head layout (the lamps sit in the lens rims of GEO.signal): head A's lens centres (off, y, z) facing +z; head B the same turned +90° about y
+const SIG_HEAD = { off: -0.12, ys: [3.18, 2.86, 2.54], z: 0.335 };
+// an unlit lens is not black: dark tinted glass over a dull reflector (red / amber / green)
+const SIG_OFF = [new THREE.Color(0.075, 0.018, 0.016), new THREE.Color(0.08, 0.05, 0.012), new THREE.Color(0.014, 0.06, 0.045)];
 
+const BREAKABLE = new Set(['lamp', 'lampHeritage', 'signal']);
 export function buildPropsForChunk(chunk) {
   const group = new THREE.Group(); const byType = new Map();
   for (const p of chunk.props) { if (!GEO[p.type]) continue; if (!byType.has(p.type)) byType.set(p.type, []); byType.get(p.type).push(p); if (p.type === 'pole' && p.transformer) { if (!byType.has('transformer')) byType.set('transformer', []); byType.get('transformer').push(p); } }
@@ -97,7 +117,7 @@ export function buildPropsForChunk(chunk) {
       list.forEach((p, i) => { const t = stallType(i, salt); if (!byT.has(t)) byT.set(t, []); byT.get(t).push(p); });
       for (const [t, ps] of byT) for (const prt of STALLS[t]) {
         if (!prt.geo) continue; const mesh = new THREE.InstancedMesh(prt.geo, prt.mat, ps.length);
-        ps.forEach((p, i) => { _p.set(p.x, LAND_Y, p.z); _q.setFromEuler(_e.set(0, p.rot || 0, 0)); _m.compose(_p, _q, _s.set(1, 1, 1)); mesh.setMatrixAt(i, _m); if (prt.tint) mesh.setColorAt(i, _c.set(STALL_CANOPY[((p.seed || 0) + t) % STALL_CANOPY.length])); });
+        ps.forEach((p, i) => { _p.set(p.x, LAND_Y, p.z); _q.setFromEuler(_e.set(0, p.rot || 0, 0)); _m.compose(_p, _q, _s.set(1, 1, p.sd || 1)); /* sd: shallower on narrow pavements (CityPlan.placeStalls) */ mesh.setMatrixAt(i, _m); if (prt.tint) mesh.setColorAt(i, _c.set(STALL_CANOPY[((p.seed || 0) + t) % STALL_CANOPY.length])); });
         mesh.castShadow = !prt.noShadow; mesh.receiveShadow = !prt.noShadow; mesh.computeBoundingSphere(); group.add(mesh);
       }
       continue;
@@ -105,7 +125,7 @@ export function buildPropsForChunk(chunk) {
     for (const prt of GEO[type]) {
       const mesh = new THREE.InstancedMesh(prt.geo, prt.mat, list.length);
       list.forEach((p, i) => { _p.set(p.x, LAND_Y, p.z); _q.setFromEuler(_e.set(0, p.rot || 0, 0)); _m.compose(_p, _q, _s.set(1, 1, 1)); mesh.setMatrixAt(i, _m); });
-      mesh.castShadow = type !== 'railing'; mesh.receiveShadow = true; mesh.computeBoundingSphere(); group.add(mesh);
+      mesh.castShadow = type !== 'railing'; mesh.receiveShadow = true; mesh.computeBoundingSphere(); if (BREAKABLE.has(type)) mesh.userData.props = list; group.add(mesh); /* which prop each instance is: a knocked-down pole hides its own (PropBreak.js) */
     }
   }
   // signal lamps: per signal pole 2 heads × 3 lamps
@@ -115,14 +135,14 @@ export function buildPropsForChunk(chunk) {
     sigs.forEach((p, i) => {
       // head A faces local +z (axis 'v' traffic), head B faces local +x (axis 'h' traffic)
       for (let h = 0; h < 2; h++) for (let k = 0; k < 3; k++) {
-        const local = h === 0 ? new THREE.Vector3(0, 3.18 - k * 0.32, 0.333) : new THREE.Vector3(0.333, 3.18 - k * 0.32, 0);
+        const local = new THREE.Vector3(SIG_HEAD.off, SIG_HEAD.ys[k], SIG_HEAD.z); if (h === 1) local.applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
         local.applyAxisAngle(new THREE.Vector3(0, 1, 0), p.rot); _p.set(p.x + local.x, LAND_Y + local.y, p.z + local.z);
-        _q.setFromEuler(_e.set(0, p.rot + (h === 0 ? 0 : Math.PI / 2), 0)); _m.compose(_p, _q, _s.set(1, 1, 1)); mesh.setMatrixAt(i * 6 + h * 3 + k, _m); mesh.setColorAt(i * 6 + h * 3 + k, _c.set(0x111111));
+        _q.setFromEuler(_e.set(0, p.rot + (h === 0 ? 0 : Math.PI / 2), 0)); _m.compose(_p, _q, _s.set(1, 1, 1)); mesh.setMatrixAt(i * 6 + h * 3 + k, _m); mesh.setColorAt(i * 6 + h * 3 + k, SIG_OFF[k]);
       }
       // which axis does each head serve? head A faces along local +z: world dir = (sin rot, cos rot)
       const dA = [Math.sin(p.rot), Math.cos(p.rot)];
       const axisA = Math.abs(dA[1]) > Math.abs(dA[0]) ? 'v' : 'h';
-      entries.push({ node: nodes[p.node], axes: [axisA, axisA === 'v' ? 'h' : 'v'], base: i * 6 });
+      entries.push({ node: nodes[p.node], axes: [axisA, axisA === 'v' ? 'h' : 'v'], base: i * 6 }); p._sig = { mesh, base: i * 6 };
     });
     mesh.computeBoundingSphere(); mesh.userData.dynamic = true; group.add(mesh); signalLamps.push({ mesh, entries, group }); // per-instance colours change: stays per chunk (not pooled)
   }
@@ -161,22 +181,22 @@ export function buildPropsForChunk(chunk) {
     pools.computeBoundingSphere(); pools.userData.dynamic = true; group.add(pools); // per-lamp decals hide / show: stays per chunk
     const pts = new THREE.BufferGeometry(); pts.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     const glow = new THREE.Points(pts, GLOW_MAT); group.add(glow);
-    group.userData.lamps = lamps.map((p, i) => [pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2], pools, i]); // [x, y, z, pool decal mesh, instance] — the decal is hidden while a real light is on the lamp
+    group.userData.lamps = lamps.map((p, i) => (p._lamp = [pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2], pools, i, pts.attributes.position])); // [x, y, z, pool decal mesh, instance] — the decal is hidden while a real light is on the lamp
   }
   return group;
 }
 export const GLOW_MAT = new THREE.PointsMaterial({ size: 2.2, sizeAttenuation: true, color: 0xffd7a0, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
 export function initGlowTexture() { GLOW_MAT.map = TEX.glow; GLOW_MAT.needsUpdate = true; }
 
-const RED = new THREE.Color(2.2, 0.15, 0.1), AMB = new THREE.Color(2.2, 1.2, 0.1), GRN = new THREE.Color(0.2, 2.0, 0.6), OFF = new THREE.Color(0.05, 0.05, 0.05);
+const RED = new THREE.Color(2.2, 0.15, 0.1), AMB = new THREE.Color(2.2, 1.2, 0.1), GRN = new THREE.Color(0.2, 2.0, 0.6);
 export function updateSignals(t) {
   for (const s of signalLamps) {
     if (!s.group.visible || !s.group.parent || !s.group.parent.visible) continue;
     for (const e of s.entries) for (let h = 0; h < 2; h++) {
       const st = signalState(e.node, e.axes[h], t);
-      s.mesh.setColorAt(e.base + h * 3 + 0, st === 'red' ? RED : OFF);
-      s.mesh.setColorAt(e.base + h * 3 + 1, st === 'yellow' ? AMB : OFF);
-      s.mesh.setColorAt(e.base + h * 3 + 2, st === 'green' ? GRN : OFF);
+      s.mesh.setColorAt(e.base + h * 3 + 0, st === 'red' ? RED : SIG_OFF[0]);
+      s.mesh.setColorAt(e.base + h * 3 + 1, st === 'yellow' ? AMB : SIG_OFF[1]);
+      s.mesh.setColorAt(e.base + h * 3 + 2, st === 'green' ? GRN : SIG_OFF[2]);
     }
     s.mesh.instanceColor.needsUpdate = true;
   }

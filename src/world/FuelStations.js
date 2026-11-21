@@ -27,7 +27,7 @@ const smooth = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
 const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const DRIVE = L.FUEL_DRIVE, SLAB = L.FUEL_SLAB;
 const ELIGIBLE = new Set(['car', 'van', 'tuk', 'bike']);
-const NO_FUEL = new Set(['police', 'policejeep', 'policebike', 'ambulance']);
+const NO_FUEL = new Set(['police', 'policejeep', 'policebike', 'ambulance', 'dbike']); // dbike: Dineth's bicycle has no tank
 const FUEL_TYPES = new Set(Object.keys(VTYPES).filter((k) => { const T = VTYPES[k]; return T && ELIGIBLE.has(T.entry) && !NO_FUEL.has(k) && T.len <= 5.4; }));
 // bays: lane, the side of the vehicle that faces the island (+1 = its left), island index, dispenser face side (−1 = the
 // island's −w face); lane C (between island 2 and the shop walkway) is too tight a turn for cars: three-wheelers/bikes only
@@ -371,7 +371,8 @@ class Station {
     const T = this.svc.traffic; if (!T) return; const nCars = this.visits.length; if (nCars >= 3) return; if (!this.att.some((a) => a.p && !a.dead)) return;
     const site = this.site; const cands = [];
     for (const v of T.vehicles) { const ai = v.ai; if (!ai || ai.fuel || v.free || ai.rejoin || ai.chase || ai.emergency || (ai.route && ai.route.length && v.fuelFor !== this) || ai.goal || ai.stopped || v.keep || v.police || v.towing || v.towedBy || v.isTrain || v.hold || v.dead) continue;
-      if (!v.T || !ELIGIBLE.has(v.T.entry) || NO_FUEL.has(v.type) || v.T.len > 5.4) continue; if (Math.abs(ai.lat || 0) > 0.15 || Math.abs(ai.hdg || 0) > 0.04) continue;
+      if (!v.T || !ELIGIBLE.has(v.T.entry) || NO_FUEL.has(v.type) || v.T.len > 5.4) continue;
+      if ((v.speed || 0) < 1 || (ai.stuck || 0) > 1 || (ai.pieces[0] && ai.pieces[0].type === 'path')) continue; /* passing traffic only: not a car standing in a queue, or one still on a forecourt / parking path (one just leaving here) */ if (Math.abs(ai.lat || 0) > 0.15 || Math.abs(ai.hdg || 0) > 0.04) continue; // nor one mid lane-change
       let k = -1; for (let i = 0; i < Math.min(3, ai.pieces.length); i++) if (this.isOurLine(ai.pieces[i])) { k = i; break; } if (k < 0) continue;
       const [u] = site.toLocal(v.x, v.z); if (k === 0 && u > this.uLatest(v) - 2.5) continue; const d = Math.hypot(v.x - site.O[0], v.z - site.O[1]); if (d > 95) continue;
       cands.push(v); }
@@ -407,6 +408,21 @@ class Station {
     Object.assign(f, { entry, exit, rest, face, slot, pts, wl, phase: 'in', t: 0, litres: litresFor(v), go: false, holdT: 0 }); slot.busy = f; f.slot.bx = slot.bx;
     f.dur = clamp(4.5 + f.litres * 0.2, 5, 13.5);
     ai.pieces = [entry, exit, rest]; ai.s = 0; ai.lat = 0; ai.hdg = 0; ai.latWant = 0; ai.sMaxP = entry; ai.sMax = entry.len - 0.02; f.vcap = 0; this.svc.stats.entered++;
+    return true;
+  }
+  replanOut(f) {
+    const v = f.v, ai = v.ai, site = this.site; const [u0, w0] = site.toLocal(v.x, v.z);
+    const hx = Math.sin(v.yaw), hz = Math.cos(v.yaw); const phi0 = Math.atan2(hx * site.Wv[0] + hz * site.Wv[1], hx * site.U[0] + hz * site.U[1]);
+    const wM = -site.walk * 0.5, start = { u: u0, w: w0, phi: phi0 }; const cands = [];
+    for (const ph of [0.55, 0.7, 0.85, 1.0, 1.15]) for (const mu of [DRIVE - 1.5, DRIVE - 0.5, DRIVE + 0.5, DRIVE + 1.5]) for (const wm of [wM, -site.walk * 0.2, -site.walk * 0.8]) {
+      if (mu < u0 + 2.5) continue; cands.push(buildPath(site, [start, { u: mu, w: wm, phi: -ph }, { u: this.uMerge, w: this.wRoad, phi: 0 }], { vmax: 7 }));
+      if (mu > u0 + 7 && Math.abs(phi0) < 0.6) cands.push(buildPath(site, [start, { u: (u0 + mu) * 0.5, w: w0, phi: 0 }, { u: mu, w: wm, phi: -ph }, { u: this.uMerge, w: this.wRoad, phi: 0 }], { vmax: 7 })); }
+    let best = null; for (const e of cands) if ((!best || e.kmax < best.kmax) && this.pathClear(e, v)) best = e;
+    if (!best) return false;
+    const rest = linePiece(site.seg, this.from, this.to, this.kerbLane); const P0 = best.poly[best.poly.length - 1]; rest.p0 = [P0[0], P0[1]]; rest.len = Math.max(0.1, (rest.p1[0] - P0[0]) * rest.d[0] + (rest.p1[1] - P0[1]) * rest.d[1]);
+    let yi = best.loc.findIndex((q) => q[1] < 0.9); if (yi < 0) yi = best.loc.length - 1;
+    Object.assign(f, { exit: best, entry: null, rest, yieldS: best.cum[yi], go: false, why: 'replanned' });
+    ai.pieces = [best, rest]; ai.s = 0; ai.lat = 0; ai.hdg = 0; ai.latWant = 0; ai.rejoin = false; ai.reverse = 0; ai.sMaxP = best; ai.sMax = f.yieldS; this.svc.stats.replanned = (this.svc.stats.replanned || 0) + 1;
     return true;
   }
   pathClear(P, v) {
@@ -458,6 +474,11 @@ class Station {
     if (v) v.fuelFor = null;
     if (!v || !ai || ai.fuel !== f || v.disposed || v.dead || !T.vehicles.includes(v)) { this.endVisit(f); return; }
     if (v.free && f.phase !== 'approach' && f.phase !== 'out') { this.leave(f, 'knocked'); return; }
+    // a car knocked out of its bay (or wedged on the way out) drives off from where it actually is: a fresh exit path from its
+    // pose to the merge, clear of kerbs / islands / pylons; one still stuck after that is left for traffic to recycle out of view
+    if (f.phase === 'out' && !v.free) { const atYield = !f.go && ai.pieces[0] === f.exit && ai.s > f.yieldS - 3; const still = (v.speed || 0) < 0.2 && !atYield; /* waiting for a gap at the give-way is not stuck */ f.stuckT = still ? (f.stuckT || 0) + dt : 0;
+      if ((f.why === 'knocked' && !f.replans) || (f.stuckT > 6 && (f.replans || 0) < 4)) { f.replans = (f.replans || 0) + 1; f.stuckT = 0; this.replanOut(f); }
+      else if (f.stuckT > 40) { this.endVisit(f); return; } }
     switch (f.phase) {
       case 'approach': {
         const k = ai.pieces.indexOf(f.line); if (k < 0 || f.t > 45 || v.free) { this.endVisit(f); return; }

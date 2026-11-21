@@ -45,10 +45,12 @@
     #gate.entering .g-btn { color: #120c04; } #gate.entering .g-btn::after { transform: scaleX(1); }
     #gate .g-row { display: flex; align-items: center; justify-content: center; gap: 2.4vw; flex-wrap: wrap; margin-top: 7vh; }
     #gate .g-row .g-btn { margin-top: 0; }
+    #gate .g-trailers { display: flex; align-items: center; justify-content: center; gap: 1.4vw; flex-wrap: nowrap; } /* the two trailer buttons always side by side */
+    @media (max-width: 760px) { #gate .g-trailers .g-btn.g-alt { padding: .9em 1.4em; letter-spacing: .2em; text-indent: .2em; } }
     #gate .g-btn.g-alt { padding: .95em 2.6em; font-size: clamp(13px, 1.25vw, 17px); letter-spacing: .36em; text-indent: .36em; color: rgba(255,243,220,.82); background: rgba(10,8,4,.45); }
     #gate .g-btn.g-alt::before { background: linear-gradient(90deg, rgba(138,90,28,.7), rgba(255,207,122,.7), rgba(138,90,28,.7)); }
     #gate .g-btn.g-alt .tri { display: inline-block; width: 0; height: 0; margin-right: .9em; border-left: .62em solid currentColor; border-top: .38em solid transparent; border-bottom: .38em solid transparent; vertical-align: .02em; }
-    #gate.trailer .g-alt { color: #120c04; } #gate.trailer .g-alt::after { transform: scaleX(1); } #gate.trailer #gate-enter { opacity: .35; }
+    #gate.trailer .g-alt.picked { color: #120c04; } #gate.trailer .g-alt.picked::after { transform: scaleX(1); } #gate.trailer #gate-enter, #gate.trailer .g-alt:not(.picked) { opacity: .35; }
     #gate .g-hint { margin-top: 2.2vh; font-size: 13px; letter-spacing: .28em; color: rgba(244,239,230,.42); text-transform: uppercase; }
     #gate .g-foot { position: absolute; left: 0; right: 0; bottom: 3.2vh; display: flex; justify-content: space-between; padding: 0 4vw; font-size: 12px; letter-spacing: .3em; color: rgba(244,239,230,.4); text-transform: uppercase; }
     #gate .g-foot b { color: rgba(232,163,58,.8); font-weight: 600; }
@@ -80,7 +82,10 @@
       <div class="g-sub"><i></i>SHADOWS OF THE ISLAND<i></i></div>
       <div class="g-row">
         <button class="g-btn" id="gate-enter" type="button"><span class="g-ring"></span><span class="shine"></span><span>ENTER GAME</span></button>
-        <button class="g-btn g-alt" id="gate-trailer" type="button"><span><i class="tri"></i>WATCH TRAILER</span></button>
+        <span class="g-trailers">
+          <button class="g-btn g-alt" id="gate-trailer" type="button"><span><i class="tri"></i>ORIGINAL TRAILER</span></button>
+          <button class="g-btn g-alt" id="gate-trailer2" type="button"><span><i class="tri"></i>OFFICIAL CINEMATIC TRAILER</span></button>
+        </span>
       </div>
       <div class="g-hint">Headphones recommended</div>
     </div>
@@ -89,14 +94,14 @@
   <script>
     // the game module may still be loading when the button is pressed: remember the click and let Screens pick it up
     (function () {
-      var g = document.getElementById('gate'), b = document.getElementById('gate-enter'), t = document.getElementById('gate-trailer');
+      var g = document.getElementById('gate'), b = document.getElementById('gate-enter'), t = document.getElementById('gate-trailer'), t2 = document.getElementById('gate-trailer2');
       if (/[?&]test\b/.test(location.search) && /[?&]quick=/.test(location.search)) { g.remove(); return; } // automated test runs skip the gate
       function go() { if (window.__sdsEntered) return; window.__sdsEntered = true; g.classList.add('entering'); window.dispatchEvent(new Event('sds-enter')); }
-      // WATCH TRAILER: same entry (the click unlocks audio), then the game plays the in-engine trailer instead of the menu and
-      // reloads back to this gate when it ends - nothing of the game (saves, settings, story) is touched
-      function trailer() { if (window.__sdsEntered) return; window.__sdsTrailer = true; g.classList.add('trailer'); go(); }
-      b.addEventListener('click', go); t.addEventListener('click', trailer);
-      addEventListener('keydown', function (e) { if (e.code === 'Enter' || e.code === 'Space') { e.preventDefault(); if (document.activeElement === t) trailer(); else go(); } });
+      // ORIGINAL TRAILER / OFFICIAL CINEMATIC TRAILER: same entry (the click unlocks audio), then the game plays that in-engine
+      // trailer instead of the menu and reloads back to this gate when it ends - nothing of the game (saves, settings, story) is touched
+      function trailer(which, el) { if (window.__sdsEntered) return; window.__sdsTrailer = which; g.classList.add('trailer'); el.classList.add('picked'); go(); }
+      b.addEventListener('click', go); t.addEventListener('click', function () { trailer(1, t); }); t2.addEventListener('click', function () { trailer(2, t2); });
+      addEventListener('keydown', function (e) { if (e.code === 'Enter' || e.code === 'Space') { e.preventDefault(); if (document.activeElement === t) trailer(1, t); else if (document.activeElement === t2) trailer(2, t2); else go(); } });
       setTimeout(function () { b.focus({ preventScroll: true }); }, 400);
     })();
   </script>

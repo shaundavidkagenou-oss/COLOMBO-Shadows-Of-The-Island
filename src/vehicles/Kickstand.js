@@ -16,25 +16,25 @@ const _q = new THREE.Quaternion(), _t = new THREE.Vector3();
 const sm = (a, b, k) => { const t = Math.min(1, Math.max(0, (k - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 let geo = null;
-export function standMeshes(mat) {
+export function standMeshes(mat, off = null) {
   if (!geo) { const rod = new THREE.CylinderGeometry(0.011, 0.013, STAND.len, 6); rod.translate(0, -STAND.len / 2, 0); const pad = new THREE.BoxGeometry(0.035, 0.012, 0.05); pad.translate(0.004, -STAND.len, 0.008); const tang = new THREE.BoxGeometry(0.05, 0.012, 0.016); tang.translate(0.03, -STAND.len * 0.55, 0); geo = [rod, pad, tang]; }
-  const pv = new THREE.Group(); pv.position.set(...STAND.pivot); for (const g of geo) { const m = new THREE.Mesh(g, mat); m.castShadow = true; pv.add(m); } pv.quaternion.copy(Q_DOWN); return pv;
+  const pv = new THREE.Group(); pv.position.set(...STAND.pivot); if (off) pv.position.add(new THREE.Vector3(...off)); /* a bicycle's stand sits behind the bottom bracket */ for (const g of geo) { const m = new THREE.Mesh(g, mat); m.castShadow = true; pv.add(m); } pv.quaternion.copy(Q_DOWN); return pv;
 }
 // pose the stand pivot for v.stand
 export function syncStand(pivot, k) { pivot.quaternion.slerpQuaternions(Q_UP, Q_DOWN, k); }
 // the tang (where the boot pushes) in vehicle space, for stand position k
-export function tangAt(k) { _q.slerpQuaternions(Q_UP, Q_DOWN, k); _t.set(0.03, -STAND.len * 0.55, 0).applyQuaternion(_q); return [STAND.pivot[0] + _t.x, STAND.pivot[1] + _t.y, STAND.pivot[2] + _t.z]; }
+export function tangAt(k, off = null) { _q.slerpQuaternions(Q_UP, Q_DOWN, k); _t.set(0.03, -STAND.len * 0.55, 0).applyQuaternion(_q); const o = off || [0, 0, 0]; return [STAND.pivot[0] + o[0] + _t.x, STAND.pivot[1] + o[1] + _t.y, STAND.pivot[2] + o[2] + _t.z]; }
 // the rider's left boot target (seat-root space) during a kick, blended in by weight w
-function foot(ch, seat, k, w) { const p = tangAt(k); ch.anim.footOverL = w > 0.001 ? { x: p[0] - seat.x + 0.035, y: p[1] - seat.y + 0.03, z: p[2] - seat.z - 0.07, w } : null; }
+function foot(ch, seat, k, w, off = null) { const p = tangAt(k, off); ch.anim.footOverL = w > 0.001 ? { x: p[0] - seat.x + 0.035, y: p[1] - seat.y + 0.03, z: p[2] - seat.z - 0.07, w } : null; }
 // getting on, k = 0…1 over KICK_UP: straighten the bike, boot onto the tang, sweep the stand up, boot back to the peg
 export function kickUp(v, ch, seat, k) {
   v.leanK = Math.min(v.leanK ?? 1, 1 - sm(0, 0.35, k)); v.stand = Math.min(v.stand ?? 1, 1 - sm(0.45, 0.8, k));
-  foot(ch, seat, v.stand, Math.sin(sm(0.28, 0.98, k) * Math.PI)); if (k >= 1) { v.stand = 0; v.leanK = 0; ch.anim.footOverL = null; }
+  foot(ch, seat, v.stand, Math.sin(sm(0.28, 0.98, k) * Math.PI), v.T.standOff); if (k >= 1) { v.stand = 0; v.leanK = 0; ch.anim.footOverL = null; }
 }
 // getting off, k = 0…1 over KICK_DOWN: boot flicks the stand down, then the bike is leaned onto it
 export function kickDown(v, ch, seat, k) {
   v.stand = Math.max(v.stand ?? 0, sm(0.15, 0.5, k)); v.leanK = Math.max(v.leanK ?? 0, sm(0.6, 0.95, k));
-  foot(ch, seat, v.stand, Math.sin(sm(0.0, 0.62, k) * Math.PI)); if (k >= 1) { v.stand = 1; v.leanK = 1; ch.anim.footOverL = null; }
+  foot(ch, seat, v.stand, Math.sin(sm(0.0, 0.62, k) * Math.PI), v.T.standOff); if (k >= 1) { v.stand = 1; v.leanK = 1; ch.anim.footOverL = null; }
 }
 export const isTwoWheel = (v) => v && v.T && v.T.entry === 'bike';
 export function parkOnStand(v) { if (isTwoWheel(v)) { v.stand = 1; v.leanK = 1; } }

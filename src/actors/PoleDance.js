@@ -302,7 +302,7 @@ export class PoleDancer {
   }
   // ---------------------------------------------------------------- bones (Animator.postPose)
   apply(b, dt = 1 / 60) {
-    const P = this.cur; if (!P) return; const g = this.ch.root.parent; if (!g) return; this.ch.handGrip = { L: P.h.L.grip, R: P.h.R.grip }; /* fingers close round the pole (DancerRig) */ this.maxSwivel = 10 * Math.min(0.1, dt || 1 / 60); // fastest an elbow / knee may swing round its limb axis (rad per frame) const g = this.ch.root.parent; if (!g) return;
+    const P = this.cur; if (!P) return; const g = this.ch.root.parent; if (!g) return; this.ch.handGrip = { L: P.h.L.grip, R: P.h.R.grip }; /* fingers close round the pole (DancerRig) */ this.maxSwivel = 10 * Math.min(0.1, dt || 1 / 60); // fastest an elbow / knee may swing round its limb axis (rad per frame)
     b.hips.position.set(P.hip[0], P.hip[1], P.hip[2]); b.hips.rotation.set(P.hr[0], P.hr[1], P.hr[2]);
     b.spine.rotation.set(P.sp[0], P.sp[1], P.sp[2]); b.chest.rotation.set(P.ch[0], P.ch[1], P.ch[2]); b.neck.rotation.set(P.nk[0], P.nk[1], P.nk[2]); b.head.rotation.set(P.hd[0], P.hd[1], P.hd[2]);
     if (b.shL) b.shL.rotation.set(0, 0, 0); if (b.shR) b.shR.rotation.set(0, 0, 0);

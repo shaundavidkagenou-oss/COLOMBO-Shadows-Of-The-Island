@@ -2,6 +2,7 @@
 // diagonals) with concrete edging, raised flower beds, clipped hedges with entrance gaps and heritage lamps; worn
 // desire-line footpaths across Galle Face Green. The path/hedge description lives here so CityPlan (tree, bench, lamp and
 // collider placement), the grass blade field (no blades on paths or beds) and the renderer all agree.
+import { hedgeBox } from './HedgeBush.js';
 import * as THREE from 'three';
 import { LAND_Y, cellAt, setSurfaceHook } from './Layout.js';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
@@ -73,8 +74,18 @@ export const PATH_RINGS = [[VM.cx, VM.cz, 27, 3.4]]; // [cx, cz, radius, width]
 export const PLAZAS = [[VM.cx, VM.cz, 15]];           // paved discs
 export const BEDS = [];                               // [x, z, r]
 for (const [ax, az] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) for (const d of [48, 76]) for (const s of [-1, 1]) {
-  BEDS.push([VM.cx + ax * d + (-az) * s * 6.6, VM.cz + az * d + ax * s * 6.6, d === 48 ? 2.4 : 1.9]);
+  BEDS.push([VM.cx + ax * d + (-az) * s * 6.6, VM.cz + az * d + ax * s * 6.6, d === 48 ? 2.4 : 1.9, ax, az]);
 }
+// the two benches by the first lily pond (CityPlan places them; listed here so the flower beds keep clear of them)
+export const POND_BENCHES = [[135, -53.6], [147, -53.6]];
+// a bed that lands on a garden walk (one sat on the approach to the first pond bridge, jammed against a bench) slides along
+// its avenue to the nearest spot clear of every path, pond and bench
+{ const sd = (x, z, ax, az, bx, bz) => { const dx = bx - ax, dz = bz - az; const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz))); return Math.hypot(x - ax - dx * t, z - az - dz * t); };
+  const clear = (x, z, r) => PATH_SEGS.every((q) => sd(x, z, q[0], q[1], q[2], q[3]) > q[4] / 2 + r + 0.35) && PONDS.every((pd) => !inPoly(x, z, pd.poly) && pd.poly.every((p, i) => { const q = pd.poly[(i + 1) % pd.poly.length]; return sd(x, z, p[0], p[1], q[0], q[1]) > r + 0.8; }))
+    && POND_BENCHES.every(([bx, bz]) => Math.hypot(x - bx, z - bz) > r + 1.4) && Math.hypot(x - VM.cx, z - VM.cz) > 27 + 1.7 + r + 0.3;
+  for (const b of BEDS) { const [x, z, r, ax, az] = b; if (clear(x, z, r)) continue;
+    for (let k = 1; k <= 40; k++) { const o = Math.ceil(k / 2) * 0.5 * (k % 2 ? -1 : 1); const nx = x + ax * o, nz = z + az * o; if (clear(nx, nz, r)) { b[0] = nx; b[1] = nz; break; } } }
+  for (const b of BEDS) b.length = 3; }
 // hedges along the park boundary, gaps at the four gates and the corners: [ax, az, bx, bz]
 export const HEDGES = [];
 {
@@ -107,7 +118,7 @@ export function onParkFeature(x, z, m = 0) {
 export function parkColliders() {
   const out = [];
   for (const [ax, az, bx, bz] of HEDGES) out.push({ x0: Math.min(ax, bx) - 0.5, x1: Math.max(ax, bx) + 0.5, z0: Math.min(az, bz) - 0.5, z1: Math.max(az, bz) + 0.5, h: 1.05, kind: 'hedge' });
-  for (const [x, z, r] of BEDS) out.push(...discColliders(x, z, r + 0.15, 0.6, 'bed')); // the whole raised bed to its outer rim (nobody stands in the concrete or walks through the flowers)
+  for (const [x, z, r] of BEDS) out.push(...discColliders(x, z, r + 0.15, LAND_Y + 1.0, 'bed')); // the whole raised bed to its outer rim (nobody stands in the concrete or walks through the flowers)
   out.push(...featureColliders());
   return out;
 }
@@ -225,14 +236,14 @@ export function buildParks(MAT) {
     mb.get('soil').hpoly(ringPoly(x, z, r, 28), LAND_Y + 0.26, 1.5);
     /* plants: real 3D canna / marigold / salvia / periwinkle from Flowers.js (instanced, LOD) — added below */
   }
-  // clipped hedges (Murraya / ixora type): rounded top, leaf-textured
+  // clipped hedges (Murraya / ixora type): rounded shoulders, uneven growth
   for (const [ax, az, bx, bz] of HEDGES) {
     const l = Math.hypot(bx - ax, bz - az), r = Math.atan2(bz - az, bx - ax) * -1; const cx = (ax + bx) / 2, cz = (az + bz) / 2;
-    mb.get('hedge').box(cx, LAND_Y + 0.45, cz, l, 0.9, 0.95, { rotY: r, uvScale: 1.2, col: [1, 1, 1] });
-    mb.get('hedge').box(cx, LAND_Y + 0.95, cz, l - 0.1, 0.16, 0.7, { rotY: r, uvScale: 1.2, col: [1.05, 1.08, 1] });
+    // 52nd: real foliage — a shell of leaf sprays over a dark inner core (HedgeBush.js), not a grass-textured block
+    hedgeBox(mb, cx, LAND_Y, cz, l, 1.05, 0.95, r, { col: [0.8, 0.93, 0.74], seed: Math.round(cx * 3 + cz) & 0xfff });
   }
   const g = new THREE.Group(); g.name = 'parks';
-  for (const m of mb.toMeshes(MAT, { cast: false, receive: true })) { if (m.name === 'hedge' || m.name === 'foliage') m.castShadow = true; g.add(m); }
+  for (const m of mb.toMeshes(MAT, { cast: false, receive: true })) { if (m.name === 'hedge' || m.name === 'foliage' || m.name === 'leavesSmall') m.castShadow = true; g.add(m); }
   const flowers = new FlowerBeds(BEDS, LAND_Y + 0.26); g.add(flowers.group); g.userData.flowers = flowers;
   return g;
 }

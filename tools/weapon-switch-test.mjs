@@ -18,7 +18,7 @@ const { Input } = await import('../src/core/Input.js');
 const { Player } = await import('../src/actors/Player.js');
 const { holdFor } = await import('../src/combat/GripSolver.js');
 
-let fails = 0, passes = 0; const ok = (c, msg) => { if (c) passes++; else { fails++; console.log('  FAIL', msg); } };
+let fails = 0, passes = 0; const ok = (c, msg) => { if (c) { passes++; if (process.env.V) console.log('  ok', msg); } else { fails++; console.log('  FAIL', msg); } };
 const ch = new Character(HEROES[process.env.HERO || 'dineth']); const scene = new THREE.Scene(); scene.add(ch.root);
 const P = { ch, x: 0, y: 0, z: 0, yaw: 0, camYaw: -Math.PI, camPitch: 0, camMode: 0, speed: 0, stamina: 1, position: ch.root.position, rotation: ch.root.rotation };
 P.fpEyeLook = Player.prototype.fpEyeLook.bind(P);
@@ -68,10 +68,10 @@ until(() => W.state === 'ready'); ok(W.cur === 1, 'pistol ready');
 
 // ---- 8. holds: contact + IK reach when aiming, for every weapon
 const b = ch.bones; const v = new THREE.Vector3();
-for (let i = 0; i < 9; i++) {
+for (let i = 0; i < WEAPONS.length; i++) {
   const h = holdFor(ch, W.models[i]); ok(!!h, `${WEAPONS[i].id}: hold solved`); if (!h) continue;
-  ok(h.R.trigErr < 0.025, `${WEAPONS[i].id}: trigger pad ${(h.R.trigErr * 100).toFixed(1)} cm from the trigger`);
-  ok(h.R.thumbErr < 0.025, `${WEAPONS[i].id}: firing thumb ${(h.R.thumbErr * 100).toFixed(1)} cm from its spot`);
+  ok(h.R.trigErr < 0.025, `${WEAPONS[i].id}: trigger pad ${(h.R.trigErr * 100).toFixed(2)} cm from the trigger`);
+  ok(h.R.thumbErr < 0.025, `${WEAPONS[i].id}: firing thumb ${(h.R.thumbErr * 100).toFixed(2)} cm from its spot`);
   if (h.L.thumbErr != null) ok(h.L.thumbErr < 0.025, `${WEAPONS[i].id}: support thumb ${(h.L.thumbErr * 100).toFixed(1)} cm from its spot`);
   const all = [...h.R.ready.f, ...h.L.pose.f].flat(); ok(all.every((a) => a > -0.6 && a < 1.8), `${WEAPONS[i].id}: finger joints within limits`);
   W.select(i); Input.mouseButtons.add(2); until(() => W.state === 'ready' && W.aimW > 0.99 && W.cur === i); run(0.2); Input.mouseButtons.delete(2);
@@ -93,5 +93,24 @@ for (let i = 0; i < 9; i++) {
   ok(W.cur === -1 && W.sel === -1, `fists in hand (cur ${W.cur}, sel ${W.sel})`);
   W.select(gun); until(() => W.state === 'ready' && W.cur === gun); run(0.1); W.wheelUpdate(); W.wheelSel = -1; W.hudUpdate(STEP); ok(!/\d/.test(ammo()), `weapon wheel on fists: no ammunition on the card (${card()})`); W.wheelClose(true); run(0.6, () => { if (/\d/.test(ammo())) seen = card(); }); ok(!seen && W.cur === -1, `wheel → fists: no ammunition while switching (${seen || card()})`);
 }
+// ---- recoil + muzzle flash (58th): a burst climbs the sight, releasing lets it settle back (no permanent lift); the flash
+// is gone within two rendered frames of each shot and smoke never allocates
+{ game.crowd.alarm = () => {}; game.crowd.hitPed = () => {}; game.wanted = game.wanted || null; const ia = WEAPONS.findIndex((d) => d.id === 'assault'); W.inv[ia] = W.inv[ia] || { owned: true, mag: 30, reserve: 300 }; W.inv[ia].owned = true; W.inv[ia].mag = 30; W.inv[ia].reserve = 300;
+  W.select(ia); Input.mouseButtons.add(2); until(() => W.state === 'ready' && W.aimW > 0.99 && W.cur === ia); run(0.3);
+  const sprites = () => scene.children.filter((o) => o.isSprite).length; const pitch0 = P.camPitch, nScene = sprites(); let maxRise = 0, flashFrames = 0, worstFlash = 0, shots0 = W.inv[ia].mag;
+  Input.mouseButtons.add(0); Input.mousePressed.add(0);
+  run(0.9, () => { maxRise = Math.max(maxRise, pitch0 - P.camPitch); if (W.flashMesh.visible) { flashFrames++; worstFlash = Math.max(worstFlash, flashFrames); } else flashFrames = 0; });
+  Input.mouseButtons.delete(0); const fired = shots0 - W.inv[ia].mag; const afterBurst = pitch0 - P.camPitch;
+  run(1.5); const settle = pitch0 - P.camPitch;
+  ok(fired >= 6, `full-auto burst fired ${fired} rounds`);
+  ok(maxRise > 0.02, `the sight climbs during a burst (${maxRise.toFixed(3)} rad)`);
+  ok(Math.abs(settle) < 0.006, `after release the aim settles back (left ${settle.toFixed(4)} rad of ${afterBurst.toFixed(3)})`);
+  ok(worstFlash <= 2, `muzzle flash visible at most 2 consecutive frames (${worstFlash})`);
+  ok(!W.flashMesh.visible && W.flashLight.intensity === 0, 'no flash / flash light left after the burst');
+  ok(sprites() === nScene, `smoke is pooled: no sprites added to the scene (${sprites() - nScene} extra)`);
+  // pulling down while firing uses the climb first, it never drags the aim below the start
+  W.inv[ia].mag = 30; Input.mouseButtons.add(0); Input.mousePressed.add(0); run(0.6, () => { P.camPitch += 0.004; }); Input.mouseButtons.delete(0); run(1.5);
+  ok(P.camPitch - pitch0 < 0.25, `compensating pull-down stays sane (${(P.camPitch - pitch0).toFixed(3)} rad)`);
+  Input.mouseButtons.delete(2); run(0.3); }
 console.log(`weapon-switch-test: ${passes} passed, ${fails} failed`);
 process.exit(fails ? 1 : 0);

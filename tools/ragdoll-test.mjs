@@ -3,6 +3,7 @@
 // bones must follow the particles. The scripted paths (log roll onto the back, sit up, crouch, stand) end exactly on their
 // key poses and hand the character back to the Animator cleanly.
 import './node-dom-stub.mjs';
+{ let ms = +(process.env.SEED || 1); Math.random = () => ((ms = (ms * 48271) % 2147483647) / 2147483647); } // seeded: a failure is reproducible (SEED=n)
 globalThis.localStorage ??= { getItem: () => null, setItem: () => {}, removeItem: () => {} };
 const THREE = await import('three');
 const { Character } = await import('../src/actors/Character.js');
@@ -64,5 +65,20 @@ for (let si = 0; si < specs.length; si++) {
     r.release(); ok(!ch.rag && W.list.length === 0, `#${si} released to the Animator`); ch.anim.update(1 / 60, 0); ok(Object.values(ch.bones).every((b) => Number.isFinite(b.quaternion.w)), `#${si} Animator drives the bones again`);
     scene.remove(ch.root); }
 }
+// two bodies on the same spot never pass through each other: one already lying there (settled), a second collapsing onto
+// it; and two knocked down at the same moment falling across each other. Deepest capsule overlap between the bodies.
+{ const CAPS = [['pelvis', 'chest', 0.17], ['chest', 'neck', 0.15], ['neck', 'head', 0.11], ['shL', 'elL', 0.06], ['shR', 'elR', 0.06], ['elL', 'wrL', 0.05], ['elR', 'wrR', 0.05], ['hipL', 'knL', 0.09], ['hipR', 'knR', 0.09], ['knL', 'anL', 0.065], ['knR', 'anR', 0.065]];
+  const sd = (p0, p1, q0, q1) => { let best = 9; for (let i = 0; i <= 8; i++) { const a = p0.clone().lerp(p1, i / 8); for (let j = 0; j <= 8; j++) best = Math.min(best, a.distanceTo(q0.clone().lerp(q1, j / 8))); } return best; };
+  const overlap = (A, B) => { let worst = 0; for (const [a0, a1, ra] of CAPS) for (const [b0, b1, rb] of CAPS) { const d = sd(A.p[I[a0]], A.p[I[a1]], B.p[I[b0]], B.p[I[b1]]); worst = Math.max(worst, ra * A.s + rb * B.s - d); } return worst; };
+  for (const [label, setup] of [['falls onto a body already lying there', 'onto'], ['two knocked down together, across each other', 'cross']]) {
+    const W = new RagdollWorld({ groundAt: () => 0, resolveCircle: (x, z) => ({ x, z, hit: false }) }); const c1 = make(specs[0]); c1.root.position.set(-5, 0, 0); c1.root.updateMatrixWorld(true);
+    const r1 = W.add(c1, setup === 'cross' ? { vel: [2.5, 0.5, 0] } : {}); if (setup === 'onto') for (let i = 0; i < 600 && !r1.asleep; i++) W.update(1 / 60, null);
+    const c2 = make(specs[1]); c2.root.position.set(setup === 'onto' ? r1.pelvis().x : -4, 0, setup === 'onto' ? r1.pelvis().z - 0.3 : 0.4); c2.root.rotation.y = Math.PI / 2; c2.root.updateMatrixWorld(true);
+    const r2 = W.add(c2, setup === 'cross' ? { vel: [-2.5, 0.5, 0] } : { vel: [0, 0, 1.2] }); let worst = 0, end = 0, minY = 9, nan = false;
+    for (let i = 0; i < 900; i++) { W.update(1 / 60, null); const o = overlap(r1, r2); if (i > 6) worst = Math.max(worst, o); end = o; for (const r of [r1, r2]) for (let k = 0; k < r.p.length; k++) { minY = Math.min(minY, r.p[k].y - RADS[k] * r.s); if (!Number.isFinite(r.p[k].x + r.p[k].y + r.p[k].z)) nan = true; } }
+    ok(!nan, `bodies ${label}: finite`); ok(end < 0.02, `bodies ${label}: lying apart / on top, not inside each other (overlap at rest ${(end * 100).toFixed(1)} cm)`);
+    ok(worst < 0.05, `bodies ${label}: never sink into each other while falling (deepest ${(worst * 100).toFixed(1)} cm)`); ok(minY > -0.02, `bodies ${label}: neither is pushed into the ground (${minY.toFixed(3)} m)`);
+    ok(r1.asleep && r2.asleep, `bodies ${label}: both settle (${r1.asleep}, ${r2.asleep})`); console.log(`  two bodies, ${label}: deepest ${(worst * 100).toFixed(1)} cm, at rest ${(end * 100).toFixed(1)} cm, pushes ${W.stats.bodyPush || 0}`);
+    scene.remove(c1.root); scene.remove(c2.root); } }
 const per = perfT / perfN; ok(per < 0.6, `cost per awake ragdoll step ${per.toFixed(3)} ms`);
 console.log(`ragdoll-test: ${pass} passed, ${fail} failed (awake step ${per.toFixed(3)} ms)`); process.exit(fail ? 1 : 0);

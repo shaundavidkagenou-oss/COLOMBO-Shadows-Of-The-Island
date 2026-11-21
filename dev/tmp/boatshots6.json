@@ -1,0 +1,102 @@
+[
+ {
+  "name": "b51-wake-top",
+  "at": [
+   200,
+   -1287
+  ],
+  "cam": [
+   0,
+   0,
+   0
+  ],
+  "look": [
+   0,
+   0,
+   -1
+  ],
+  "hour": 15,
+  "wait": 1200,
+  "js": "const B=g.boats; const y=B.spawnNear('dondra26',{x:150,z:-1382,yaw:-1.5708}); if(y){ y.place(150,-1382,-1.5708,true); y.route=[{x:-600,z:-1382}]; y.role='free'; for(let i=0;i<200;i++) B.update(0.05,g.player); s.cam=[y.x+8,22,y.z+26]; s.look=[y.x+30,0,y.z]; window.__dbg={x:y.x,z:y.z,u:y.u,tr:B.wakes.trails.size}; }"
+ },
+ {
+  "name": "b51-jetski-wake",
+  "at": [
+   200,
+   -1287
+  ],
+  "cam": [
+   0,
+   0,
+   0
+  ],
+  "look": [
+   0,
+   0,
+   -1
+  ],
+  "hour": 15,
+  "wait": 1200,
+  "js": "const B=g.boats; const y=B.spawnNear('wjgti',{x:150,z:-1420,yaw:-1.5708}); if(y){ y.place(150,-1420,-1.5708,true); y.u=18; y.route=[{x:-600,z:-1430}]; y.role='free'; for(let i=0;i<160;i++) B.update(0.05,g.player); s.cam=[y.x-14,5,y.z+12]; s.look=[y.x+6,0,y.z]; }"
+ },
+ {
+  "name": "b51-wake-run",
+  "at": [
+   200,
+   -1287
+  ],
+  "cam": [
+   40,
+   3.5,
+   -1372
+  ],
+  "look": [
+   90,
+   0,
+   -1382
+  ],
+  "hour": 16,
+  "wait": 2500,
+  "js": "const B=g.boats; const y=B.spawnNear('dondra26',{x:110,z:-1382,yaw:-1.5708}); if(y){ y.place(110,-1382,-1.5708,true); y.u=16; y.route=[{x:-400,z:-1382}]; y.role='free'; for(let i=0;i<60;i++) B.update(0.05,g.player); window.__dbg={x:y.x,z:y.z,u:y.u}; }"
+ },
+ {
+  "name": "b51-wake-night",
+  "at": [
+   200,
+   -1287
+  ],
+  "cam": [
+   0,
+   0,
+   0
+  ],
+  "look": [
+   0,
+   0,
+   -1
+  ],
+  "hour": 21.5,
+  "wait": 1200,
+  "js": "const B=g.boats; const y=B.spawnNear('dondra26',{x:205,z:-1340,yaw:-1.5708}); if(y){ y.place(205,-1340,-1.5708,true); y.route=[{x:-600,z:-1340}]; y.role='free'; for(let i=0;i<200;i++) B.update(0.05,g.player); s.cam=[y.x-10,7,y.z+18]; s.look=[y.x+25,0,y.z]; window.__dbg={x:y.x,z:y.z,u:y.u,tr:B.wakes.trails.size}; }"
+ },
+ {
+  "name": "b51-sails-close",
+  "at": [
+   200,
+   -1287
+  ],
+  "cam": [
+   129,
+   3.5,
+   -1306
+  ],
+  "look": [
+   120,
+   7.5,
+   -1320
+  ],
+  "hour": 10,
+  "wait": 3000,
+  "js": "const B=g.boats; const y=B.spawnNear('mirissa46',{x:120,z:-1320,yaw:0}); if(y){ y.mode='anchored'; y.place(120,-1320,-1.3,true); y.berth={x:120,z:-1320,yaw:-1.3}; y.setSailsVisible(true); for(let i=0;i<16;i++) y.sailHit(i%y.sails.length,{x:0.15+Math.random()*0.7,y:0.1+Math.random()*0.7}); window.__dbg={id:y.id,holes:y.sails.map(q=>q.holes),tear:y.sails.map(q=>q.tear)}; }"
+ }
+]

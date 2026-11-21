@@ -375,7 +375,7 @@ const TYPES = [
 
 let STALL_MAT = null, GLASS_MAT = null;
 export const STALL_TYPES = TYPES.length;
-export const STALL_CANOPY = ['#2f6fa8', '#c8382a', '#2a8a4a', '#e8b030', '#e8e4d8', '#6a3a8a', '#1f8a9a', '#d86a2a'];
+export const STALL_CANOPY = ['#46698a', '#a84a3e', '#467a55', '#c49d4e', '#d2cec2', '#64506e', '#3f7880', '#b06e44']; // sun-faded tarpaulin / canvas
 // returns [[parts], ...] per type: parts = [{geo, mat, tint?, noShadow?}]
 export function buildStallGeometries(canopyMat) {
   ATLAS = buildAtlas();

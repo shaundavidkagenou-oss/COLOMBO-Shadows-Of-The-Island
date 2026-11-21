@@ -1,5 +1,6 @@
 // Accumulates triangles into one indexed BufferGeometry (positions, normals, uvs, colours).
 import * as THREE from 'three';
+import { MAT, ensureMat, canCopy, effKey } from './Materials.js';
 const _v = new THREE.Vector3(), _n = new THREE.Vector3(), _m3 = new THREE.Matrix3();
 export class MeshBuilder {
   constructor() { this.pos = []; this.nor = []; this.uv = []; this.col = []; this.idx = []; this.color = [1, 1, 1]; }
@@ -20,6 +21,20 @@ export class MeshBuilder {
     this.idx.push(i0, i1, i2, i0, i2, i3); return this;
   }
   // horizontal rectangle facing up (or down)
+  // 60th: a flat 3- or 4-corner face (roof slope, hip end, gable) with true world-scale planar UVs: u runs along the first edge
+  // P0→P1 (the eave), v up the face away from it, su / sv texture repeats per metre. Unlike quad()'s rectangle UVs, a texture is
+  // never sheared on a trapezoid or squeezed into a triangle, and every slope's rows start level at its eave. Same normal +
+  // winding as quad() / a fan triangle.
+  planar(P, col, su = 0.25, sv = su) {
+    const a = P[0], b = P[1], z = P[P.length - 1];
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = z[0] - a[0], vy = z[1] - a[1], vz = z[2] - a[2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx; const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+    const el = Math.hypot(ux, uy, uz) || 1, ex = ux / el, ey = uy / el, ez = uz / el;
+    let cx = 0, cy = 0, cz = 0; for (const p of P) { cx += p[0] / P.length; cy += p[1] / P.length; cz += p[2] / P.length; }
+    cx -= a[0]; cy -= a[1]; cz -= a[2]; const d = cx * ex + cy * ey + cz * ez; let tx = cx - ex * d, ty = cy - ey * d, tz = cz - ez * d; const tl = Math.hypot(tx, ty, tz) || 1; tx /= tl; ty /= tl; tz /= tl;
+    const u0 = a[0] * ex + a[1] * ey + a[2] * ez; const I = P.map((p) => this.vert(p[0], p[1], p[2], nx, ny, nz, (p[0] * ex + p[1] * ey + p[2] * ez - u0) * su, ((p[0] - a[0]) * tx + (p[1] - a[1]) * ty + (p[2] - a[2]) * tz) * sv, col));
+    for (let i = 1; i < I.length - 1; i++) this.idx.push(I[0], I[i], I[i + 1]); return this;
+  }
   hrect(x0, z0, x1, z1, y, uvScale = 1, col, down = false, uvOff = [0, 0]) {
     const u0 = x0 / uvScale + uvOff[0], u1 = x1 / uvScale + uvOff[0], v0 = -z0 / uvScale + uvOff[1], v1 = -z1 / uvScale + uvOff[1];
     if (!down) this.quad([x0, y, z1], [x1, y, z1], [x1, y, z0], [x0, y, z0], [u0, v1, u1, v0], col);
@@ -39,15 +54,15 @@ export class MeshBuilder {
   // vertical wall from (x0,z0) to (x1,z1), outward normal on the right-hand side when walking a→b viewed from above (CCW footprint => outward)
   wall(x0, z0, x1, z1, y0, y1, uv, col) { return this.quad([x0, y0, z0], [x1, y0, z1], [x1, y1, z1], [x0, y1, z0], uv, col); }
   // axis-aligned box; uvMode 'world' tiles every `uvScale` metres
-  box(cx, cy, cz, sx, sy, sz, { col, uvScale = 1, top = true, bottom = false, rotY = 0, uvRect = null } = {}) {
+  box(cx, cy, cz, sx, sy, sz, { col, uvScale = 1, top = true, bottom = false, rotY = 0, uvRect = null, sides = 15 } = {}) { // sides: bit mask of the four side faces (1 +z, 2 −z, 4 +x, 8 −x), default all
     const hx = sx / 2, hy = sy / 2, hz = sz / 2;
     const c = Math.cos(rotY), s = Math.sin(rotY);
     const P = (x, y, z) => [cx + x * c + z * s, cy + y, cz - x * s + z * c];
     const U = (len, h) => (uvRect ? uvRect : [0, 0, len / uvScale, h / uvScale]);
-    this.quad(P(-hx, -hy, hz), P(hx, -hy, hz), P(hx, hy, hz), P(-hx, hy, hz), U(sx, sy), col);
-    this.quad(P(hx, -hy, -hz), P(-hx, -hy, -hz), P(-hx, hy, -hz), P(hx, hy, -hz), U(sx, sy), col);
-    this.quad(P(hx, -hy, hz), P(hx, -hy, -hz), P(hx, hy, -hz), P(hx, hy, hz), U(sz, sy), col);
-    this.quad(P(-hx, -hy, -hz), P(-hx, -hy, hz), P(-hx, hy, hz), P(-hx, hy, -hz), U(sz, sy), col);
+    if (sides & 1) this.quad(P(-hx, -hy, hz), P(hx, -hy, hz), P(hx, hy, hz), P(-hx, hy, hz), U(sx, sy), col);
+    if (sides & 2) this.quad(P(hx, -hy, -hz), P(-hx, -hy, -hz), P(-hx, hy, -hz), P(hx, hy, -hz), U(sx, sy), col);
+    if (sides & 4) this.quad(P(hx, -hy, hz), P(hx, -hy, -hz), P(hx, hy, -hz), P(hx, hy, hz), U(sz, sy), col);
+    if (sides & 8) this.quad(P(-hx, -hy, -hz), P(-hx, -hy, hz), P(-hx, hy, hz), P(-hx, hy, -hz), U(sz, sy), col);
     if (top) this.quad(P(-hx, hy, hz), P(hx, hy, hz), P(hx, hy, -hz), P(-hx, hy, -hz), U(sx, sz), col);
     if (bottom) this.quad(P(-hx, -hy, -hz), P(hx, -hy, -hz), P(hx, -hy, hz), P(-hx, -hy, hz), U(sx, sz), col);
     return this;
@@ -92,19 +107,68 @@ export class MeshBuilder {
   }
 }
 // Hold several builders keyed by material name.
+// 60th — material keys. get(name) accepts a base material ('concrete'), a role ('winFrame'), a building-tagged role
+// ('winFrame@b234') or, with a scope, a site's own copy: scope 'Lotus Tower' turns 'concrete' into 'Lotus Tower.concrete'
+// (MAT copy made on demand; same textures and look until edited in the Texture Studio; meshes keep the plain name 'concrete' so
+// code looking at mesh names is unaffected; Landmarks.js switches `scope` between sites). Each part is merged into the builder
+// of the material that draws it (Materials.effKey: unsplit roles fall back to their base → the old draw layout). raw: one
+// builder per tag, nothing merged (the Texture Studio's part picker rebuilds a building that way to tell its parts apart).
+// 60th: `scope` (Landmarks.js: one per site) tags every copyable material as 'Scope.base' ('Lotus Tower.concrete'). Those parts
+// are drawn with the base material (merged, same draw calls as before) until a Texture Studio rule gives that site its own copy:
+// split before the build (pack rules, TexRuntime.preload) or live — `live` builders remember which index ranges of each merged
+// mesh belong to which tag, and splitLive() moves a tag's ranges into a mesh of its own (shared vertex buffers, +1 draw per split).
+const LIVE = new Set();
 export class MultiBuilder {
-  constructor() { this.b = new Map(); }
-  get(name) { if (!this.b.has(name)) this.b.set(name, new MeshBuilder()); return this.b.get(name); }
+  constructor(scope = null, { raw = false, live = false } = {}) { this.b = new Map(); this.scope = scope; this.raw = raw; this.plain = new Map(); this.seg = live ? new Map() : null; }
+  tag(name) { if (this.scope && !name.includes('.') && !name.includes('@') && canCopy(name)) return this.scope + '.' + name; return name; }
+  key(name) { const t = this.tag(name); return this.raw ? t : effKey(t); }
+  get(name) {
+    const t = this.tag(name), k = this.raw ? t : effKey(t); let b = this.b.get(k);
+    if (!b) { this.b.set(k, (b = new MeshBuilder())); const d = k.indexOf('.'); this.plain.set(k, d > 0 && !k.includes('@') ? k.slice(d + 1) : k); }
+    if (this.seg) { let S = this.seg.get(k); if (!S) this.seg.set(k, (S = [])); const L = S[S.length - 1]; if (!L || L[0] !== t) { if (L && L[1] === b.idx.length) S.pop(); const L2 = S[S.length - 1]; if (!L2 || L2[0] !== t) S.push([t, b.idx.length]); } }
+    return b;
+  }
+  // a handle that always draws into get(name) under the CURRENT scope (Landmarks.js keeps conc / paint / metal across sites)
+  lazy(name) { const self = this; return new Proxy({}, { get(_, p) { const t = self.get(name); const v = t[p]; return typeof v === 'function' ? v.bind(t) : v; } }); }
   toMeshes(materials, opts = {}) {
     const out = [];
-    for (const [name, mb] of this.b) { const g = mb.build(); if (!g) continue; const m = meshFor(name, g, materials, opts); if (m) out.push(m); }
+    for (const [name, mb] of this.b) { const n = mb.idx.length; const g = mb.build(); if (!g) continue; const m = meshFor(name, g, materials, opts); if (!m) continue; m.name = this.plain.get(name) || name; if (m.name !== name) m.userData.matKey = name;
+      if (this.seg && materials === MAT) { const segs = []; const S = this.seg.get(name) || []; for (let i = 0; i < S.length; i++) { const a = S[i][1], e = i + 1 < S.length ? S[i + 1][1] : n; if (e <= a) continue; const L = segs[segs.length - 1]; if (L && L[0] === S[i][0] && L[1] + L[2] === a) L[2] += e - a; else segs.push([S[i][0], a, e - a]); }
+        if (segs.some((x) => x[0] !== name)) { m.userData.segs = segs; LIVE.add(m); } }
+      out.push(m); }
     return out;
   }
 }
+// the tag (e.g. 'Lotus Tower.concrete') of triangle `face` of a live mesh, or null
+export function tagOfFace(mesh, face) { const segs = mesh && mesh.userData.segs; if (!segs || face == null) return null; const i = face * 3; for (const s of segs) if (i >= s[1] && i < s[1] + s[2]) return s[0]; return null; }
+// move the ranges tagged with `keys` (just split, Materials.markSplit) out of their merged meshes into meshes of their own
+export function splitLive(keys) {
+  const ks = new Set(keys); let made = 0;
+  for (const m of [...LIVE]) {
+    const segs = m.userData.segs; if (!segs || !m.parent || !segs.some((x) => ks.has(x[0]))) continue;
+    const g = m.geometry, I = g.index.array;
+    const sub = (list) => { let len = 0; for (const x of list) len += x[2]; const A = new I.constructor(len); const out = []; let o = 0; for (const x of list) { A.set(I.subarray(x[1], x[1] + x[2]), o); out.push([x[0], o, x[2]]); o += x[2]; } return [A, out]; };
+    const byTag = new Map(); for (const x of segs) if (ks.has(x[0])) { if (!byTag.has(x[0])) byTag.set(x[0], []); byTag.get(x[0]).push(x); }
+    for (const [t, list] of byTag) { const mat = ensureMat(t); if (!mat) continue; const [A, s2] = sub(list); const ng = new THREE.BufferGeometry(); for (const [an, at] of Object.entries(g.attributes)) ng.setAttribute(an, at); ng.setIndex(new THREE.BufferAttribute(A, 1)); ng.computeBoundingBox(); ng.computeBoundingSphere();
+      const nm = new THREE.Mesh(ng, mat); nm.name = m.name; nm.castShadow = m.castShadow; nm.receiveShadow = m.receiveShadow; nm.renderOrder = m.renderOrder; nm.layers.mask = m.layers.mask; nm.matrixAutoUpdate = false; nm.matrix.copy(m.matrix); nm.userData = { matKey: t, segs: s2 };
+      m.parent.add(nm); nm.updateMatrixWorld(true); LIVE.add(nm); made++; }
+    const keep = segs.filter((x) => !ks.has(x[0]) || !byTag.has(x[0]) || !MAT[x[0]]);
+    if (keep.length) { const [A, s2] = sub(keep); g.setIndex(new THREE.BufferAttribute(A, 1)); g.computeBoundingSphere(); m.userData.segs = s2; } else { m.visible = false; m.userData.segs = []; LIVE.delete(m); }
+  }
+  return made;
+}
+// material for a builder key: role / scoped / per-building keys are made on demand from MAT (Materials.ensureMat); other
+// material tables fall back to the base name ('Scope.paint' → paint)
+export function matFor(name, materials) {
+  let mat = materials[name]; if (mat) return mat;
+  if (materials === MAT) return ensureMat(name);
+  const dot = name.lastIndexOf('.'), at = name.lastIndexOf('@b'); const base = at > 0 ? name.slice(0, at) : dot > 0 ? name.slice(dot + 1) : null;
+  return base ? matFor(base, materials) : null;
+}
 export function meshFor(name, g, materials, opts = {}) {
-  const mat = materials[name]; if (!mat) { console.warn('missing material', name); return null; }
+  const mat = matFor(name, materials); if (!mat) { console.warn('missing material', name); return null; }
   const m = new THREE.Mesh(g, mat); m.castShadow = opts.cast ?? true; m.receiveShadow = opts.receive ?? true; m.matrixAutoUpdate = false; m.updateMatrix(); m.name = name;
-  if (FOLIAGE.has(name)) skipLampShadow(m); // alpha-cut leaves: no coarse street-lamp shadows (see skipLampShadow)
+  if (FOLIAGE.has(name) || FOLIAGE.has(name.slice(name.lastIndexOf('.') + 1))) skipLampShadow(m); // alpha-cut leaves: no coarse street-lamp shadows (see skipLampShadow)
   return m;
 }
 // MeshBuilder.build() done in slices (identical geometry): a chunk's window frames can be ~1M vertices in ONE material,
