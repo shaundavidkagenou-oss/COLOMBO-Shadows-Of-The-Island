@@ -189,7 +189,12 @@ export function buildHospital() {
   // ------------------------------------------------------------------ exterior shell
   const emb = new MultiBuilder(); const E = (m) => emb.get(m); const RENDER = C('#f2efe7'), PLINTH = C('#8f8b84'), ACCENT = C('#2f6f9f'), CONC = C('#d9d6cf');
   const topY = Y0 + 2 * H, parapet = 0.95;
-  for (const w of OUTER) {
+  // 78th: at an outside (convex) corner both faces stood EXT/2 out from the wall lines but stopped AT the corner line, so the
+  // two faces never met: a 0.15 m open slit up the corner ("two walls are separate", seen from the garden). A face whose
+  // end meets a perpendicular outer wall that faces away from this wall's span is carried on by EXT/2 to the outer corner.
+  const convexExt = (f, axis, at, s, dir) => { const nb = OUTER.find((q) => q[0] === f && q[1] !== axis && Math.abs(q[2] - s) < EPS && at > Math.min(q[3], q[4]) - EPS && at < Math.max(q[3], q[4]) + EPS); return nb && nb[5] === dir ? dir * EXT / 2 : 0; };
+  for (const w0 of OUTER) {
+    const w = w0.slice(); { const [f, axis, at, a0, a1] = w0; w[3] = a0 + convexExt(f, axis, at, a0, -1); w[4] = a1 + convexExt(f, axis, at, a1, 1); }
     const [f, axis, at, s0, s1, out] = w; const fy = FLOOR_Y[f]; const o = out * EXT / 2; const yb = f === 0 ? fy + H : topY + parapet; const ya = f === 0 ? Y0 - 0.17 : fy;
     const wins = windowsOn(f, axis, at).filter((q) => q[3] > s0 && q[3] < s1); const drs = DOORS.filter((d) => d.floor === f && d.rooms[1] === 'out' && onLine(d, axis, at, s0, s1));
     const holes = wins.map((q) => { const [a, b] = winSpanY(q); return [q[3] - q[4] / 2, q[3] + q[4] / 2, fy + a, fy + b]; }).concat(drs.map((d) => [d.s[0], d.s[1], fy, fy + DOOR_HEIGHT.slide + 0.3]));
@@ -229,7 +234,7 @@ export function buildHospital() {
   for (const w of OUTER) { const [f, axis, at, s0, s1, out] = w; if (f !== 0) continue; const br = new Set([s0, s1]); for (const R of ROOMS) for (const r of R.rects) for (const v of axis === 'u' ? [r[0], r[1]] : [r[2], r[3]]) if (v > s0 && v < s1) br.add(v);
     const xs = [...br].sort((a, b) => a - b);
     for (let i = 0; i < xs.length - 1; i++) { const a = xs[i], b = xs[i + 1], m = (a + b) / 2; const iu = axis === 'u' ? m : at - out * 0.4, iv = axis === 'u' ? at - out * 0.4 : m; if (roomAt(iu, iv, 1)) continue;
-      const o = out * EXT / 2; face(E('h_render'), axis, at, o, out, a, b, Y0 + H, Y0 + H + 1.0, RENDER, 4); face(E('h_render'), axis, at, -o, -out, a, b, Y0 + H, Y0 + H + 1.0, RENDER, 4);
+      const o = out * EXT / 2; const ea = a === s0 ? convexExt(0, axis, at, s0, -1) : 0, eb = b === s1 ? convexExt(0, axis, at, s1, 1) : 0; face(E('h_render'), axis, at, o, out, a + ea, b + eb, Y0 + H, Y0 + H + 1.0, RENDER, 4); /* 78th: closed at outside corners */ face(E('h_render'), axis, at, -o, -out, a, b, Y0 + H, Y0 + H + 1.0, RENDER, 4);
       const p = WP(axis, at, m, 0, Y0 + H + 1.04); E('h_render').box(p[0], p[1], p[2], axis === 'u' ? b - a + EXT : EXT + 0.08, 0.08, axis === 'u' ? EXT + 0.08 : b - a + EXT, { col: CONC }); } }
   // roofs: membrane on the slabs, parapet insides, plant (AC condensers, water tanks, lift motor room) on the top roof
   for (const [f, u0, u1, v0, v1, kind] of ROOFS) { const y = FLOOR_Y[f] + H + 0.01; const isTop = f === 1; const col = kind === 'terrace' ? C('#b9b3a8') : C('#ffffff');
