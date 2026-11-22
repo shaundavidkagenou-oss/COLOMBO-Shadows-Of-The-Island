@@ -44,6 +44,7 @@ import { CATALOG, displayName } from './vehicles/VehicleCatalog.js';
 import { updateDoorClosers } from './vehicles/DoorRig.js';
 import { Bicycles } from './vehicles/BicycleRide.js';
 import { VehicleFx } from './vehicles/VehicleFx.js';
+import { Instruments } from './vehicles/Instruments.js';
 import { updateVehicleLOD, setHeadPoolNight, Vehicle, HeadlightRig, setVehicleLOD, LIVE_VEHICLES, CHASSIS, TUNE_ENV, VEH_HOOKS } from './vehicles/Vehicle.js';
 import { VehicleDamage } from './vehicles/VehicleDamage.js';
 import { FlashlightRig } from './police/Firefight.js';
@@ -157,6 +158,7 @@ export class Game {
     this.initPower();
     progress(0.73, 'Sky, sea and monsoon'); await tick();
     this.vfx = new VehicleFx(this.scene);
+    this.instr = new Instruments(); // 84th: live instruments (Instruments.js)
     this.atmos = new Atmosphere(this.scene, this.renderer); this.atmos.drawDist = Settings.preset.drawDist; this.atmos.setShadowQuality(Settings.preset.shadows, Settings.preset.shadowRes); /* near + far sun shadow maps */
     this.atmos.listeners.thunder = () => Audio.thunder(Math.random() * 0.7);
     this.flashRig = new FlashlightRig(this.scene, { count: Settings.get('quality') === 'low' ? 1 : 3 }); // police hand torches at night (pool created once)
@@ -540,7 +542,7 @@ export class Game {
       else if (this.mode === 'play' && !this.paused) this.updatePlay(dt * (this.timeSlow || 1)); // weapon wheel / squad selector slow time
       else if (this.mode === 'menu' || this.mode === 'intro') this.updateAmbient(dt);
       else if (this.mode === 'trailer' && this.trailerHook) this.trailerHook(dt); // the trailer drives the world and camera itself
-      updateLightSets(dt); if (this.post && this.mode === 'play') maintainWarm(this.renderer, this.camera, this.scene, this.post.composer ? this.post.composer.renderTarget1 : null, dt); maintainPoolWarm(this.renderer, this.camera, this.scene, this.post.composer ? this.post.composer.renderTarget1 : null, dt); /* 74th: the walk-in light pool's set, before it switches on */ /* FPS: night-only light pools leave the shaders while dark (identical image); the other state stays compiled */ CAM.copy(this.camera.position); updateVehicleLOD(this.camera); if (this.vfx) this.vfx.update(dt, this.camera, this.atmos); /* 83rd: wipers, AI indicators, rain-on-glass / grime uniforms */ if (this.headRig && this.atmos) this.headRig.update(this.camera, this.player && this.player.vehicle, this.atmos.night, this.indoor ? 1 : (this.seamK || 0));
+      updateLightSets(dt); if (this.post && this.mode === 'play') maintainWarm(this.renderer, this.camera, this.scene, this.post.composer ? this.post.composer.renderTarget1 : null, dt); maintainPoolWarm(this.renderer, this.camera, this.scene, this.post.composer ? this.post.composer.renderTarget1 : null, dt); /* 74th: the walk-in light pool's set, before it switches on */ /* FPS: night-only light pools leave the shaders while dark (identical image); the other state stays compiled */ CAM.copy(this.camera.position); updateVehicleLOD(this.camera); if (this.vfx) this.vfx.update(dt, this.camera, this.atmos); this.instr.update(dt, this.player && this.player.vehicle); /* 84th: live dials for the player's vehicle */ /* 83rd: wipers, AI indicators, rain-on-glass / grime uniforms */ if (this.headRig && this.atmos) this.headRig.update(this.camera, this.player && this.player.vehicle, this.atmos.night, this.indoor ? 1 : (this.seamK || 0));
       if (this.post && !mapOpen) {
         /* FPS (src/gfx/ViewSkip.js): one matrix pass per frame, skipping unseen people/vehicles on their off-frames; the reflection and main renders reuse it */
         this.cullStep(dt); /* 65th: occlusion horizon, per-instance culling / LOD state, prop instance order (src/gfx/BatchCull.js, Occlusion.js) */

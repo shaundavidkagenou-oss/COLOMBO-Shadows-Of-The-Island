@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { TEX2K } from './Tex2K.js';
 
-const S = { renderer: null, loader: null, tex: new Map(), wait: new Map(), refs: new Map(), stats: { ktx2: 0, fallback: 0, failed: 0, bytes: 0, format: '' } };
+const S = { renderer: null, loader: null, tex: new Map(), wait: new Map(), refs: new Map(), cbs: new Map(), late: new Set(), stats: { ktx2: 0, fallback: 0, failed: 0, upgraded: 0, bytes: 0, format: '' } };
 const NEUTRAL = { srgb: [255, 255, 255, 255], nrm: [128, 128, 200, 255] }; // white / flat normal (z up, B as roughness ~0.78)
 const stand = new Map();
 export function standIn(key) { let t = stand.get(key); if (t) return t; const spec = TEX2K[key]; const px = new Uint8Array(spec && spec.srgb ? NEUTRAL.srgb : (key === 'grime' || key === 'rainNrm') ? [0, 0, 0, 0] : NEUTRAL.nrm);
@@ -25,22 +25,32 @@ export const TexLib = {
   has(key) { return S.tex.has(key); },
   get(key) { return S.tex.get(key) || null; },
   // cb(texture) once it is loaded (immediately if it already is); returns the stand-in to use until then
-  use(key, cb) { S.refs.set(key, (S.refs.get(key) || 0) + 1); const t = S.tex.get(key); if (t) { cb(t); return t; } let w = S.wait.get(key); if (!w) { S.wait.set(key, (w = [])); this.load(key); } w.push(cb); return standIn(key); },
-  release(key) { const n = (S.refs.get(key) || 1) - 1; S.refs.set(key, n); if (n > 0) return; const t = S.tex.get(key); if (t) { t.dispose(); S.tex.delete(key); } },
+  use(key, cb) { S.refs.set(key, (S.refs.get(key) || 0) + 1); const t = S.tex.get(key); if (t) { cb(t); (S.cbs.get(key) || S.cbs.set(key, []).get(key)).push(cb); return t; } let w = S.wait.get(key); if (!w) { S.wait.set(key, (w = [])); this.load(key); } w.push(cb); return standIn(key); },
+  release(key) { const n = (S.refs.get(key) || 1) - 1; S.refs.set(key, n); if (n > 0) return; const t = S.tex.get(key); if (t) { t.dispose(); S.tex.delete(key); } S.cbs.delete(key); },
   async load(key) {
-    const spec = TEX2K[key]; if (!spec) return; let tex = null;
+    const spec = TEX2K[key]; if (!spec) return; let tex = null, job = null;
     if (typeof document !== 'undefined' && S.renderer) {
       try {
         const L = await ktx2Loader(S.renderer);
-        tex = await Promise.race([L.loadAsync(base() + 'assets/tex2k/' + key + '.ktx2'), new Promise((r, j) => setTimeout(() => j(new Error('timed out')), 25000))]);
-        tex.colorSpace = spec.srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; S.stats.ktx2++; S.stats.format = String(tex.format);
-        const im = tex.mipmaps && tex.mipmaps[0]; if (im && im.data) for (const m of tex.mipmaps) S.stats.bytes += m.data.byteLength;
-      } catch (e) { console.warn('[TexLib] KTX2 failed for', key, '- using the 256² fallback', e && e.message); tex = null; }
+        job = L.loadAsync(base() + 'assets/tex2k/' + key + '.ktx2'); job.catch(() => {});
+        tex = await Promise.race([job, new Promise((r, j) => setTimeout(() => j(new Error('timed out')), 25000))]);
+        tex.colorSpace = spec.srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; this.ktxStats(tex);
+      } catch (e) { console.warn('[TexLib] KTX2 failed for', key, '- using the 256² fallback', e && e.message); tex = null;
+        // 84th: a slow transcode (busy loading screen, slow machine) used to leave the 256² fallback in place for the whole session.
+        // The same KTX2 job keeps running: when it lands it replaces the fallback in every material (the callbacks only swap maps).
+        if (e && e.message === 'timed out' && job) { S.late.add(key); job.then((t) => this.upgrade(key, spec, t)).catch(() => S.late.delete(key)); } }
     }
     if (!tex) tex = await fallback(key, spec);
     if (!tex) { S.stats.failed++; return; }
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.anisotropy = Math.min(8, S.renderer && S.renderer.capabilities ? S.renderer.capabilities.getMaxAnisotropy() : 4); tex.name = 'tex2k:' + key; tex.needsUpdate = true;
-    S.tex.set(key, tex); const w = S.wait.get(key) || []; S.wait.delete(key); for (const cb of w) { try { cb(tex); } catch (e) { console.warn('[TexLib]', e); } }
+    S.tex.set(key, tex); const w = S.wait.get(key) || []; S.wait.delete(key); S.cbs.set(key, w); for (const cb of w) { try { cb(tex); } catch (e) { console.warn('[TexLib]', e); } }
+  },
+  ktxStats(tex) { S.stats.ktx2++; S.stats.format = String(tex.format); const im = tex.mipmaps && tex.mipmaps[0]; if (im && im.data) for (const m of tex.mipmaps) S.stats.bytes += m.data.byteLength; },
+  // a late KTX2 (after the timeout): swap it in for the fallback everywhere, then free the fallback
+  upgrade(key, spec, tex) {
+    S.late.delete(key); const old = S.tex.get(key); if (!old || old.isCompressedTexture) { tex.dispose(); return; } // released meanwhile / already real
+    tex.colorSpace = spec.srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.anisotropy = old.anisotropy; tex.name = 'tex2k:' + key; tex.needsUpdate = true;
+    this.ktxStats(tex); S.stats.upgraded++; S.tex.set(key, tex); for (const cb of S.cbs.get(key) || []) { try { cb(tex); } catch (e) { console.warn('[TexLib]', e); } } old.dispose();
   },
 };
 // one KTX2Loader for the whole game (TexRuntime shares it): Basis transcoder from public/basis/ (copied from three's

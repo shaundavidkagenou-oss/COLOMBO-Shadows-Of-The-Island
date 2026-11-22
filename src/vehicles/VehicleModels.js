@@ -29,6 +29,8 @@ import { styleVehicle, badgeMaterial, badgeText, placeEmblem } from './VehicleSt
 import { realAsset } from './RealModels.js';
 import { realDoorSpec } from './RealSpec.js';
 import { tyreMaterial, rimMaterial, caliperMaterial } from './TyreMaterial.js';
+import { detailPatch } from '../gfx/DetailMaps.js';
+import { drawTFT, drawCarGauges, drawTellTales } from './Instruments.js';
 
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 const lerp = (a, b, t) => a + (b - a) * t; const sstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -252,16 +254,12 @@ function dashMaterial() {
   for (let v = 0; v <= 120; v += 10) { const a = (-225 + (v / 120) * 270) * Math.PI / 180; const r0 = v % 20 ? 92 : 84; g.beginPath(); g.moveTo(Math.cos(a) * r0, Math.sin(a) * r0); g.lineTo(Math.cos(a) * 104, Math.sin(a) * 104); g.stroke(); if (v % 20 === 0) g.fillText(String(v), Math.cos(a) * 68, Math.sin(a) * 68); }
   g.strokeStyle = '#d02020'; g.lineWidth = 5; g.beginPath(); g.arc(0, 0, 100, (-225 + 250) * Math.PI / 180, 45 * Math.PI / 180); g.stroke();
   g.font = '12px sans-serif'; g.fillText('km/h', 0, 34); g.fillStyle = '#20c040'; g.fillText('N', -22, 58); g.fillStyle = '#3a7bff'; g.fillText('\u25C9', 22, 58);
-  g.fillStyle = '#ff3a20'; g.rotate((-225 + 4) * Math.PI / 180); g.fillRect(0, -3, 92, 6); g.restore(); g.fillStyle = '#222'; g.beginPath(); g.arc(128, 132, 10, 0, Math.PI * 2); g.fill();
-  g.fillStyle = '#18c040'; g.beginPath(); g.moveTo(26, 40); g.lineTo(42, 30); g.lineTo(42, 50); g.fill(); g.beginPath(); g.moveTo(230, 40); g.lineTo(214, 30); g.lineTo(214, 50); g.fill();
-  // TFT
-  const X = 256; const grd = g.createLinearGradient(X + 16, 0, X + 240, 0); grd.addColorStop(0, '#e8f4ff'); grd.addColorStop(0.7, '#ffb000'); grd.addColorStop(1, '#ff2010');
-  g.fillStyle = '#0b0d12'; g.fillRect(X + 6, 6, 244, 116); g.fillStyle = grd; for (let i = 0; i < 26; i++) { const h = 6 + i * 1.3; g.globalAlpha = i < 9 ? 1 : 0.22; g.fillRect(X + 16 + i * 8.6, 44 - h, 6, h); } g.globalAlpha = 1;
-  g.fillStyle = '#f2f2f2'; g.font = 'bold 54px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('N', X + 52, 86); g.font = 'bold 40px sans-serif'; g.fillText('0', X + 150, 82);
-  g.font = '12px sans-serif'; g.fillText('km/h', X + 150, 108); g.fillStyle = '#ff3030'; g.font = 'bold 13px sans-serif'; g.fillText('RACE', X + 220, 64); g.fillStyle = '#9ad'; g.font = '11px sans-serif'; g.fillText('LAP 0:00.0', X + 214, 100);
-  g.fillStyle = '#2a8'; g.fillRect(X + 196, 112, 44, 4);
+  g.restore(); g.fillStyle = '#222'; g.beginPath(); g.arc(128, 132, 10, 0, Math.PI * 2); g.fill(); // 84th: no painted needle — the player's bike gets a live one (Instruments.js)
+  drawTellTales(g, false, false); // 84th: indicator tell-tales unlit (they were painted permanently on)
+  drawTFT(g, 0, 'N', 9 / 26); // TFT at idle (Instruments.js redraws it live on the player's bike)
+  drawCarGauges(g); // 84th: marked car tacho + speedo faces in the spare bottom-right quarter (VehicleDetail binnacle)
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
-  return new THREE.MeshStandardMaterial({ map: t, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.45, roughness: 0.18, metalness: 0.0 });
+  const m = new THREE.MeshStandardMaterial({ map: t, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.45, roughness: 0.18, metalness: 0.0 }); m.userData.dashAtlas = true; return m;
 }
 function plateMaterial() {
   const c = document.createElement('canvas'); c.width = 256; c.height = 512; const g = c.getContext('2d'); const r = new RNG(77);
@@ -331,9 +329,9 @@ export function vehicleMaterials() {
       vglass: new THREE.MeshPhysicalMaterial({ color: 0x0c1215, roughness: 0.1, metalness: 0.0, specularIntensity: 0.38, transparent: true, opacity: 0.8, envMapIntensity: 0.5, depthWrite: false, side: THREE.DoubleSide }), // tinted automotive glass: weak Fresnel so sloped rear screens never read as white glowing panels against the sky
       vchrome: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.22, metalness: 0.8, envMapIntensity: 1.2 }),
       vrim: rimMaterial(), // real metal (TyreMaterial.js): silver alloy / gunmetal / black steel read from the vertex colour
-      vrubber: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0.0, side: THREE.DoubleSide }),
+      vrubber: detailPatch(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0.0, side: THREE.DoubleSide }), { key: 'vehDet', off: [1, 1], tiles: 2, scale: 5, k: 0.35, rough: 0.5, cav: 0.3, id: 'vrub' }), // 84th: moulded rubber grain (vehDet tile 3)
       vtyre: new THREE.MeshStandardMaterial({ color: 0x1b1b1c, roughness: 0.93, metalness: 0.0, side: THREE.DoubleSide }),
-      vinterior: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0.0 }),
+      vinterior: detailPatch(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0.0 }), { key: 'vehDet', off: [0, 1], tiles: 2, scale: 3, k: 0.5, rough: 0.55, cav: 0.4, id: 'vint' }), // 84th: grained trim / vinyl (vehDet tile 2) — one material covers dash, trims and seats, so the neutral grain, not the cloth weave
       vcanvas: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0.0, side: THREE.DoubleSide }),
       vlight: new THREE.MeshStandardMaterial({ color: 0xf4f4ee, emissive: 0xfff4dd, emissiveIntensity: 0.2, roughness: 0.1, metalness: 0.2 }),
       vtail: new THREE.MeshStandardMaterial({ color: 0x7a0a0a, emissive: 0xff1a10, emissiveIntensity: 0.15, roughness: 0.25 }),
@@ -1140,7 +1138,7 @@ function ensureModel(type, seed) {
     const S = shapeOf(type, variant), m = S.m, col = C(color); const geos = [];
     for (const [name, g0, mask] of S.geos) geos.push([name, recolor(g0, mask, col)]);
     const dgeos = []; for (const [name, g0, mask] of S.dgeos) dgeos.push([name, recolor(g0, mask, col)]);
-    cached = { geos, dgeos, wheels: m.wheels, seats: m.seats, steerWheel: m.steerWheel, doors: recolorMeta(m.doors, col), wheelStyle: m.wheelStyle, busDoor: recolorMeta(m.busDoor, col), cabStep: m.cabStep, exhaust: (m.dm && m.dm.exhaust) || null, wipers: m.wipers || null };
+    cached = { geos, dgeos, wheels: m.wheels, seats: m.seats, steerWheel: m.steerWheel, doors: recolorMeta(m.doors, col), wheelStyle: m.wheelStyle, busDoor: recolorMeta(m.busDoor, col), cabStep: m.cabStep, exhaust: (m.dm && m.dm.exhaust) || null, dials: (m.dm && m.dm.dials) || null, wipers: m.wipers || null };
     cached.doorRanges = S.doorRanges;
     if (S.lods) cached.lods = S.lods.map((L) => L.map(([name, g0, mask]) => [name, recolor(g0, mask, col)])); if (m.realWheel) cached.realWheel = m.realWheel;
     if (worn) for (const [name, g] of cached.geos) if (name === 'paint' || name === 'canvas') dirty(g, seed); // after baking: shut doors carry the same grime as the panels round them
@@ -1160,7 +1158,7 @@ export function ensureCustomModel(type, variant) {
   const key = type + '|' + variant; let c = customCache.get(key); if (c) return c;
   const S = shapeOf(type, variant), m = S.m; const tint = [];
   const ml = (L, where) => L.map(([name, g0, mask]) => { if (name === 'paint') return [name, maskGeo(g0, mask)]; if (mask) tint.push({ where, name, g0, mask }); return [name, recolor(g0, null, WHITE)]; });
-  c = { key, geos: ml(S.geos, 'b'), dgeos: ml(S.dgeos, 'd'), doors: recolorMeta(m.doors, WHITE), doorRanges: S.doorRanges, lods: S.lods ? S.lods.map((L, i) => ml(L, 'L' + i)) : null, exhaust: (m.dm && m.dm.exhaust) || null, wheels: m.wheels, wheelStyle: m.wheelStyle, tint };
+  c = { key, geos: ml(S.geos, 'b'), dgeos: ml(S.dgeos, 'd'), doors: recolorMeta(m.doors, WHITE), doorRanges: S.doorRanges, lods: S.lods ? S.lods.map((L, i) => ml(L, 'L' + i)) : null, exhaust: (m.dm && m.dm.exhaust) || null, dials: (m.dm && m.dm.dials) || null, wheels: m.wheels, wheelStyle: m.wheelStyle, tint };
   customCache.set(key, c); return c;
 }
 // the per-vehicle copy of the custom look: shares every buffer with the cached one except the colour of `tint` meshes
@@ -1256,7 +1254,7 @@ export function createVehicleMesh(type, seed = 1) {
   const rear = T.ambulance ? buildAmbRear() : T.roadside === 'van' ? buildAmbRear(rsRearStyle) : null; if (rear) g.add(rear.group);
   const deck = T.roadside === 'flatbed' ? buildFlatDeck(M) : null; if (deck) g.add(deck.group, deck.cable, deck.hook); // 80th: tilt-and-slide deck, winch cable + hook // twin rear doors + lit cabin (opened by the medics)
   const stand = base === 'bike' ? standMeshes(M.vrim, T.standOff) : null; if (stand) g.add(stand); // animated side stand (Kickstand.js)
-  g.userData = { wipers, wipeU, glassMat: byName.glass, variant, bodyMeshes, wheelStyle: cached.wheelStyle, exhaust: cached.exhaust, doors, bake: doors.length ? { ranges: cached.doorRanges, meshes: bodyMeshes, shared, mats, pivotGeos: (i) => slicePivotGeos(cached, i) } : null, stand, detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, lodFar: false, farR: wkind === 'heavy' ? 160 : wkind === 'bike' ? 0 : 140, farHide: ['interior', 'dash', 'plate', 'badge'].map((n) => bodyMeshes[n]).filter(Boolean), /* far LOD (Vehicle.updateVehicleLOD): cabin, plate, badges off beyond farR — lamps stay */ real, wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons, rear, deck, cabStep: cached.cabStep };
+  g.userData = { wipers, wipeU, glassMat: byName.glass, variant, bodyMeshes, wheelStyle: cached.wheelStyle, exhaust: cached.exhaust, dials: cached.dials, doors, bake: doors.length ? { ranges: cached.doorRanges, meshes: bodyMeshes, shared, mats, pivotGeos: (i) => slicePivotGeos(cached, i) } : null, stand, detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, lodFar: false, farR: wkind === 'heavy' ? 160 : wkind === 'bike' ? 0 : 140, farHide: ['interior', 'dash', 'plate', 'badge'].map((n) => bodyMeshes[n]).filter(Boolean), /* far LOD (Vehicle.updateVehicleLOD): cabin, plate, badges off beyond farR — lamps stay */ real, wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons, rear, deck, cabStep: cached.cabStep };
   if (HOOKS.vehicle) HOOKS.vehicle(g, type); // 68th: model tools (replacement body / textures / parts)
   return g;
 }

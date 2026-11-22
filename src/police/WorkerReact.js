@@ -67,7 +67,7 @@ export function disturbance(pr, x, z, r = 26) {
 }
 function downWorker(pr, o, u, dx, dz) {
   const S = workerStats(); if (o.dead) return; S.down++; o.dead = true; o.mode = 'dead'; o.react = null; const A = o.ch.anim; if (A) { A.ik = null; A.holdWL = A.holdWR = null; A.set('down'); } o.ch.face?.set?.('blink', 1e9);
-  if (u) { if (pr.rs && pr.rs.units.includes(u)) dropHeld(pr, o, u); u.officers = u.officers.filter((q) => q !== o); }
+  if (u) { u.wDown = true; if (pr.rs && pr.rs.units.includes(u)) dropHeld(pr, o, u); u.officers = u.officers.filter((q) => q !== o); }
   const R = pr.g.ragdolls; if (R && o.ch.root.parent && !o.ch.rag) R.add(o.ch, { vel: [dx * 1.6, 0, dz * 1.6] });
   pr.bodies.push({ o, ch: o.ch, x: o.x, z: o.z, t: 0 }); pr.note(`${u && u.ems ? 'medic' : 'mechanic'} down`);
 }
@@ -89,8 +89,12 @@ export function reactOfficer(pr, o, u, dt) {
     case 'flee': case 'call': case 'cover': {
       const d = Math.hypot(R.gx - o.x, R.gz - o.z);
       if (d > 0.6 && R.t < 25) { if (A.action && A.action !== 'cover') A.set(null); const sp = pr.moveTo(o, R.gx, R.gz, R.st === 'cover' ? 3.0 : 3.8, dt); pr.animOfficer(o, dt, sp); return true; }
+      // 84th: a shooting / a colleague down is always phoned in by the crew — once in cover (or far enough away) the first one to
+      // settle calls 119 (only the 'call' style did, so a crew that took cover left a killing unreported: heat 0, reports 0)
+      R.at = (R.at || 0) + dt; const serious = u && u.wAlarm && (u.wAlarm.why === 'shot' || u.wAlarm.why === 'gunfire' || u.wDown);
+      if (R.st !== 'call' && serious && !u.wCalled && R.at > 3.5 + ((o.id | 0) % 3)) { u.wCalled = true; R.st = 'call'; R.ct = 0; R.forced = true; pr.note('worker phones 119'); }
       if (R.st === 'cover') { if (A.action !== 'cover') A.set('cover'); face(Math.atan2(R.tx - o.x, R.tz - o.z)); }
-      else if (R.st === 'call') { if (A.action !== 'phone') A.set('phone'); face(away + Math.PI); R.ct = (R.ct || 0) + dt; if (R.ct > WR.callT && !R.called) { R.called = true; S.calls++; pr.reason = 'assault on an emergency worker'; pr.report({ kind: 'assault', x: o.x, z: o.z }); } }
+      else if (R.st === 'call') { if (A.action !== 'phone') A.set('phone'); face(away + Math.PI); R.ct = (R.ct || 0) + dt; if (R.ct > WR.callT && !R.called) { R.called = true; if (u) u.wCalled = true; S.calls++; pr.reason = 'assault on an emergency worker'; pr.report({ kind: 'assault', x: o.x, z: o.z }); } }
       else { if (A.action !== 'look') A.set('look'); face(away + Math.PI); }
       pr.animOfficer(o, dt, 0);
       if (calm) { R.st = 'done'; A.set(null); o.react = null; o.mode = 'foot'; o.goal = null; o.want = null; o.q = []; o.placedT = 0; } return true; } // the job system takes over again (EMS: recover the cot / leave; roadside: pack up)

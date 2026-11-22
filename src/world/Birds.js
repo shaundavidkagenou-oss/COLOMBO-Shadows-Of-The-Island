@@ -18,6 +18,7 @@ import { CULL, LOD } from '../gfx/BatchCull.js';
 import { BirdAudio } from './BirdAudio.js';
 import { anchorsNear, railPerch } from './BalconyLife.js';
 import { windDir } from './Wind.js';
+import { detailPatch } from '../gfx/DetailMaps.js';
 
 const SP = ['crow', 'pigeon', 'parakeet', 'myna', 'kite'];
 const MAXN = { crow: 26, pigeon: 34, parakeet: 14, myna: 18, kite: 3 };
@@ -84,7 +85,7 @@ export class Birds {
     this.g = game; this.root = new THREE.Group(); this.root.name = 'birds'; game.scene.add(this.root); this.birds = []; this.cd = 0; this.t = 0; this.mats = Array.from({ length: 11 }, () => new THREE.Matrix4()); this.stats = { spawned: 0, takeoffs: 0, landings: 0 };
     this.meshes = {}; this.count = {};
     for (const sp of SP) {
-      const P = birdParts(sp); const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: SPECIES[sp].rough, metalness: 0, side: THREE.DoubleSide, envMapIntensity: sp === 'crow' ? 1.3 : 0.8 });
+      const P = birdParts(sp); const mat = detailPatch(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: SPECIES[sp].rough, metalness: 0, side: THREE.DoubleSide, envMapIntensity: sp === 'crow' ? 1.3 : 0.8 }), { key: 'feaNrm', tiles: 1, scale: sp === 'kite' ? 0.9 : 1.6, k: 0.7, rough: 0.5, cav: 0.6, id: 'bird' }); // 84th: feather rows (feaNrm)
       this.meshes[sp] = PART_NAMES.map((n) => { const m = new THREE.InstancedMesh(P[n], mat, MAXN[sp]); m.count = 0; m.castShadow = true; m.userData.nAll = 0; m.onBeforeShadow = birdShadowCount(this, sp); m.onAfterShadow = birdShadowRestore; m.receiveShadow = false; m.frustumCulled = false; m.instanceMatrix.setUsage(THREE.DynamicDrawUsage); m.name = `bird:${sp}:${n}`; this.root.add(m); return m; });
     }
     this.treeTop = {}; for (const t of ['palm', 'rain', 'mara', 'mango', 'jak', 'bo', 'frangipani', 'nuga', 'kottamba', 'flamboyant', 'ashoka', 'kingcoconut']) { const pts = crownPoints(t); let my = 0; for (let i = 1; i < pts.length; i += 3) my = Math.max(my, pts[i]); this.treeTop[t] = my; }

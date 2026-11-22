@@ -26,5 +26,33 @@
   "alpha": false,
   "codec": "UASTC+RDO+zstd",
   "bytes": 2826934
+ },
+ "feaNrm": {
+  "size": 2048,
+  "srgb": false,
+  "alpha": false,
+  "codec": "UASTC+RDO+zstd",
+  "bytes": 2075572
+ },
+ "vehDet": {
+  "size": 2048,
+  "srgb": false,
+  "alpha": false,
+  "codec": "UASTC+RDO+zstd",
+  "bytes": 4044550
+ },
+ "grime": {
+  "size": 2048,
+  "srgb": false,
+  "alpha": false,
+  "codec": "UASTC+RDO+zstd",
+  "bytes": 3620418
+ },
+ "rainNrm": {
+  "size": 2048,
+  "srgb": false,
+  "alpha": false,
+  "codec": "UASTC+RDO+zstd",
+  "bytes": 3237722
  }
 }

@@ -297,7 +297,11 @@ export class Roadside {
   // metres (Traffic's own reverse manoeuvre) to let the truck through; a car that still blocks it long after, out of sight, is
   // recycled like any stuck traffic car (never one the player can see)
   unjam(u, dt) {
-    const v = u.v, ai = v.ai; if (ai && ai.rejoin) { u.rjT = (u.rjT || 0) + dt; u.rjStill = Math.abs(v.speed) < 0.3 ? (u.rjStill || 0) + dt : 0; if (u.rjStill > 6 || u.rjT > 30) { u.rjT = 0; u.rjStill = 0; this.relane(u); } } else u.rjT = u.rjStill = 0; const bb = ai && ai.bodyBlock; if (!bb || Math.abs(v.speed) > 0.3) { u.jamT = 0; return; } u.jamT = (u.jamT || 0) + dt; // relane: resting against something, or still not back in lane after 30 s
+    const v = u.v, ai = v.ai; if (ai && ai.rejoin) { u.rjT = (u.rjT || 0) + dt; u.rjStill = Math.abs(v.speed) < 0.3 ? (u.rjStill || 0) + dt : 0; if (u.rjStill > 6 || u.rjT > 30) { u.rjT = 0; u.rjStill = 0; this.relane(u); } } else u.rjT = u.rjStill = 0; this.unjamBody(u, dt);
+  }
+  // 84th: the body-jam half on its own, shared with EMS (a returning ambulance and a car queued in its turn-around waited on each other)
+  unjamBody(u, dt) {
+    const v = u.v, ai = v.ai; const bb = ai && ai.bodyBlock; if (!bb || Math.abs(v.speed) > 0.3) { u.jamT = 0; return; } u.jamT = (u.jamT || 0) + dt; // relane: resting against something, or still not back in lane after 30 s
     const civ = bb.ai && !bb.player && !bb.police && !bb.squad && !bb.parked; if (!civ) return;
     if (u.jamT > 4 && !(bb.ai.reverse > 0) && (bb.speed || 0) < 0.3) { bb.ai.reverse = 3.5; bb.ai.wedgedT = 0; if (!u.jamNoted) { u.jamNoted = true; this.stats.unjams = (this.stats.unjams || 0) + 1; this.note(`unit ${u.id}: blocked by a ${bb.type} — it backs up`); } }
     if (u.jamT > 18 && !bb.keep && !this.seen(bb.x, bb.z)) { const T = this.T; const i = T.vehicles.indexOf(bb); if (i >= 0) T.vehicles.splice(i, 1); T.remove(bb); u.jamT = 0; this.stats.unjamRecycled = (this.stats.unjamRecycled || 0) + 1; }

@@ -51,6 +51,8 @@ const rbar = (() => { const seg = 20, pos = [], idx = []; const pt = (k) => { co
 function faceQuad(b, c, phi, hw, hh, uv, col = [1, 1, 1]) { const uy = Math.sin(phi) * hh, uz = Math.cos(phi) * hh;
   b.quad([c[0] + hw, c[1] - uy, c[2] - uz], [c[0] - hw, c[1] - uy, c[2] - uz], [c[0] - hw, c[1] + uy, c[2] + uz], [c[0] + hw, c[1] + uy, c[2] + uz], uv, col); }
 const nrm = (phi, d) => [0, Math.cos(phi) * d, -Math.sin(phi) * d];
+// 84th: record an instrument face for Instruments.js (live needle / TFT on the player's bike): centre, face up + normal (faceQuad's frame)
+function dial(dm, c, phi, len, kind) { (dm.dials || (dm.dials = [])).push({ c: c.slice(), up: [0, Math.sin(phi), Math.cos(phi)], n: [0, Math.cos(phi), -Math.sin(phi)], len, kind, max: 120 }); } // (the atlas tell-tales sit outside the round analogue bezel: no live atlas copy for those)
 
 // ----------------------------------------------------------------------------------------------- layouts per style
 // zF / zR axles; head = steering-head top [y, z]; rake (rad from vertical); fork: tele | usd, spacing fx, tube radius; bar: tube | clip
@@ -231,7 +233,7 @@ export function buildBike(mb, dm, K, spec, col, variant) {
       MR.quad(...(sx > 0 ? [[0.325, 0.968, hz + 0.122], [0.215, 0.968, hz + 0.139], [0.215, 1.012, hz + 0.139], [0.325, 1.012, hz + 0.122]] : [[-0.215, 0.968, hz + 0.139], [-0.325, 0.968, hz + 0.122], [-0.325, 1.012, hz + 0.122], [-0.215, 1.012, hz + 0.139]]), [0, 0, 1, 1], [1, 1, 1]);
       part(IND, unitBox, [sx * 0.3, 0.99, hz + 0.172], [0, sx * 0.15, 0], [0.06, 0.008, 0.004]); }
     // TFT dash behind the screen
-    { const c = [0, 1.0, hz + 0.05], n = nrm(0.85, 0.0135); part(IN, unitBox, c, [-0.85, 0, 0], [0.15, 0.025, 0.09], blk); faceQuad(dDash, [c[0] + n[0], c[1] + n[1], c[2] + n[2]], 0.85, 0.065, 0.04, [0.5, 0.5, 1, 1]); }
+    { const c = [0, 1.0, hz + 0.05], n = nrm(0.85, 0.0135); part(IN, unitBox, c, [-0.85, 0, 0], [0.15, 0.025, 0.09], blk); faceQuad(dDash, [c[0] + n[0], c[1] + n[1], c[2] + n[2]], 0.85, 0.065, 0.04, [0.5, 0.5, 1, 1]); dial(dm, [c[0] + n[0], c[1] + n[1], c[2] + n[2]], 0.85, 0, 'tft'); }
     // front mudguard (carbon on the superbikes), hugger
     arcBand(sup ? CF : P, zF, R, R + 0.03, 0.55, 1.95, wF / 2 + 0.012, sup ? C('#232326') : col, 12); arcBand(sup ? CF : RB, zR, R, R + 0.025, 1.9, 2.6, wR / 2 + 0.01, sup ? C('#232326') : blk, 6);
     if (sup) { for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2; part(dAL, unitCyl, [Math.sin(a) * 0.03, 1.03, 0.2 + Math.cos(a) * 0.03], [0, 0, 0], [0.004, 0.006, 0.004], steel); } part(AL, unitCyl, [0, 1.025, 0.2], [0, 0, 0], [0.038, 0.012, 0.038], C('#8d9196')); } // aircraft-style fuel cap with its bolt ring
@@ -250,7 +252,7 @@ export function buildBike(mb, dm, K, spec, col, variant) {
     TL.quad([-0.03, 0.93, tz + 0.055], [0.03, 0.93, tz + 0.055], [0.025, 0.965, tz + 0.06], [-0.025, 0.965, tz + 0.06], [0, 0, 1, 1], [1, 1, 1]);
     beam(RB, [0, 0.8, -0.62], [0, 0.6, tz - 0.0], 0.03, 0.12, blk); plateQuad(mb, 0, 0.6, tz - 0.04, 0.1, 0.04, false, variant);
     for (const sx of [1, -1]) { beam(dRB, [sx * 0.03, 0.66, tz + 0.02], [sx * 0.11, 0.67, tz + 0.02], 0.008, 0.008, blk, unitCyl); part(IND, unitBox, [sx * 0.12, 0.67, tz + 0.02], [0, 0, 0], [0.025, 0.012, 0.02]); beam(dRB, [sx * 0.07, 0.86, zF - 0.17], [sx * 0.13, 0.86, zF - 0.17], 0.007, 0.007, blk, unitCyl); part(IND, unitBox, [sx * 0.14, 0.86, zF - 0.17], [0, 0, 0], [0.025, 0.012, 0.02]); }
-    { const c = [0, fTop[1] + 0.07, fTop[2] - 0.03], n = nrm(0.7, 0.0135); part(IN, unitBox, c, [-0.7, 0, 0], [0.12, 0.025, 0.08], blk); faceQuad(dDash, [c[0] + n[0], c[1] + n[1], c[2] + n[2]], 0.7, 0.052, 0.034, [0.5, 0.5, 1, 1]); } // TFT
+    { const c = [0, fTop[1] + 0.07, fTop[2] - 0.03], n = nrm(0.7, 0.0135); part(IN, unitBox, c, [-0.7, 0, 0], [0.12, 0.025, 0.08], blk); faceQuad(dDash, [c[0] + n[0], c[1] + n[1], c[2] + n[2]], 0.7, 0.052, 0.034, [0.5, 0.5, 1, 1]); dial(dm, [c[0] + n[0], c[1] + n[1], c[2] + n[2]], 0.7, 0, 'tft'); } // TFT
     arcBand(P, zF, R, R + 0.03, 0.6, 1.9, wF / 2 + 0.012, blk, 10); arcBand(RB, zR, R, R + 0.025, 1.9, 2.6, wR / 2 + 0.01, blk, 6);
   } else if (st === 'commuter' || st === 'street' || st === 'classic' || st === 'adv' || st === 'trail') {
     const cl = st === 'classic', tr = st === 'trail', adv = st === 'adv';
@@ -288,7 +290,7 @@ export function buildBike(mb, dm, K, spec, col, variant) {
     if (!adv && !tr) arcBand(cl ? CH : P, zF, R, R + 0.035, 0.55, 2.0, wF / 2 + 0.014, cl ? chrome : col, 12); // front mudguard
     // analogue instruments: round speedo (classic: twin pods) on the top clamp
     const dz = fTop[2] - 0.035, dy = fTop[1] + 0.08;
-    for (const ox of cl ? [-0.055, 0.055] : [0]) { const c = [ox, dy, dz], n = nrm(0.85, 0.0205); part(IN, discZ, c, [Math.PI / 2 - 0.85, 0, 0], [0.055, 0.055, 0.04], cl ? chrome : blk); faceQuad(dDash, [c[0] + n[0], c[1] + n[1], c[2] + n[2]], 0.85, 0.046, 0.046, [0, 0, 0.5, 1]); part(dCH, ringZq, [c[0] + n[0] * 1.05, c[1] + n[1] * 1.05, c[2] + n[2] * 1.05], [Math.PI / 2 - 0.85, 0, 0], [0.05, 0.05, 0.05], chrome); } // dial + chrome bezel ring
+    for (const ox of cl ? [-0.055, 0.055] : [0]) { const c = [ox, dy, dz], n = nrm(0.85, 0.0205); part(IN, discZ, c, [Math.PI / 2 - 0.85, 0, 0], [0.055, 0.055, 0.04], cl ? chrome : blk); faceQuad(dDash, [c[0] + n[0], c[1] + n[1], c[2] + n[2]], 0.85, 0.046, 0.046, [0, 0, 0.5, 1]); dial(dm, [c[0] + n[0], c[1] + n[1], c[2] + n[2]], 0.85, 0.046 * 0.72, 'speed'); part(dCH, ringZq, [c[0] + n[0] * 1.05, c[1] + n[1] * 1.05, c[2] + n[2] * 1.05], [Math.PI / 2 - 0.85, 0, 0], [0.05, 0.05, 0.05], chrome); } // dial + chrome bezel ring
   } else { // ---- scooters: front apron + leg shield, floorboard, under-seat body, handlebar cowl with lamp and speedo
     const rt = st === 'retroScooter', sp = st === 'scooterSport';
     // front apron: one curved shell wrapped round the steering column (which leans back with the fork, so the shell's
@@ -318,6 +320,7 @@ export function buildBike(mb, dm, K, spec, col, variant) {
     else HL.quad([-0.07, fTop[1] - 0.01, fTop[2] + 0.085], [0.07, fTop[1] - 0.01, fTop[2] + 0.085], [0.06, fTop[1] + 0.04, fTop[2] + 0.08], [-0.06, fTop[1] + 0.04, fTop[2] + 0.08], [0, 0, 1, 1], [1, 1, 1]);
     for (const sx of [1, -1]) part(IND, pillow, [sx * 0.125, 0.905, 0.445], [-0.5, sx * 0.45, 0], [0.055, 0.026, 0.02]); // indicators set into the apron's upper flanks
     faceQuad(dDash, [0, fTop[1] + 0.098, fTop[2] - 0.06], 0.45, sp ? 0.06 : 0.04, sp ? 0.03 : 0.04, sp ? [0.5, 0.5, 1, 1] : [0, 0, 0.5, 1]); // speedo in the cowl top
+    dial(dm, [0, fTop[1] + 0.098, fTop[2] - 0.06], 0.45, sp ? 0 : 0.04 * 0.72, sp ? 'tft' : 'speed');
   }
   // ---- mirrors on stalks (everything but the faired bikes): housing + real mirror glass facing the rider
   if (!faired) for (const sx of [1, -1]) {

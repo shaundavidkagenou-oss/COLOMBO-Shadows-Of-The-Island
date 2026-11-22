@@ -13,6 +13,7 @@ import { doorGaps, spansOutside } from './DoorSpans.js';
 import { wiperSkip } from './VehicleWeather.js';
 import * as THREE from 'three';
 import { MeshBuilder } from '../gfx/MeshBuilder.js';
+import { CAR_UV } from './Instruments.js';
 
 const V2 = (x, y) => new THREE.Vector2(x, y);
 // reflector bowl, open towards +z, unit radius, depth 0.6
@@ -37,7 +38,7 @@ export function carDetail(dm, K, c) {
   const { beam, part, C, unitBox, unitCyl } = K;
   const { W, R, D, k, type, fz, rz, taper, gw0, gw1, fy, hy, nw, ty, sill, isVan, col, gh, roofF, roofR, seatY, sz, dz, floorY, variant } = c;
   const ST = c.style || null; const X0 = c.sx0 ?? 0.38; // styled catalogue models draw their own lamps / grille / bumpers (VehicleStyle.js)
-  const rub = dm.get('rubber'), chr = dm.get('chrome'), refl = dm.get('vrefl'), lens = dm.get('lens'), head = dm.get('vlight'), tail = dm.get('vtail'), ind = dm.get('vind'), pnt = dm.get('paint'), I = dm.get('interior'), gl = dm.get('glass');
+  const rub = dm.get('rubber'), chr = dm.get('chrome'), refl = dm.get('vrefl'), lens = dm.get('lens'), head = dm.get('vlight'), tail = dm.get('vtail'), ind = dm.get('vind'), pnt = dm.get('paint'), I = dm.get('interior'), gl = dm.get('glass'), dDash = dm.get('dash');
   const black = C('#0e0e10'), dark = C('#1b1c1e'), chrome = C('#cfd3d7'), satin = C('#8d9196'), amber = C('#c87a14'), red = C('#8a1010');
   const xAt = (z, y) => W * taper(z, y);
   // ---- headlamps: housing interior, two reflector bowls, projector lens, bulbs, DRL strip, clear lens cover, black surround
@@ -134,8 +135,17 @@ export function carDetail(dm, K, c) {
   for (const sx of [-1, 1]) for (const wz of [D.wf, D.wr]) { beam(rub, [sx * 0.35, R - 0.06, wz - 0.12], [sx * (W - 0.28), R - 0.02, wz], 0.04, 0.035, C('#2b2b2e')); beam(rub, [sx * (W - 0.32), R + 0.05, wz], [sx * (W - 0.36), R + 0.48, wz - 0.04], 0.05, 0.05, C('#3a3b3e'), unitCyl); }
   // ---- cabin detail
   const dashY = gh[0][1] + 0.06, dz2 = dz - 0.1;
-  I.box(-X0, dashY + 0.025, dz2 - 0.08, 0.36, 0.05, 0.16, { col: C('#161617') }); // binnacle hood
-  for (const dx of [-0.085, 0.085]) { part(I, discZ, [-X0 + dx, dashY - 0.02, dz2 - 0.155], [0, 0, 0], [0.048, 0.048, 0.01], C('#0a0a0b')); part(chr, ringZ, [-X0 + dx, dashY - 0.02, dz2 - 0.162], [0, 0, 0], [0.05, 0.05, 0.05], satin); part(I, unitBox, [-X0 + dx, dashY - 0.01, dz2 - 0.163], [0, 0, dx > 0 ? 0.6 : -0.9], [0.004, 0.04, 0.002], C('#d84a20')); }
+  // 84th: the binnacle sat at dz2 − 0.155, but the dashboard (VehicleModels: 0.45 deep box centred at dz − 0.1) has its driver-side face at
+  // dz2 − 0.225 — the dials were 6.5 cm inside the dash on every procedural car and van (never visible). They now sit on that face,
+  // a little below the top, under a hood that overhangs them by 2.5 cm (the centre screen / vents already used the face plane).
+  const dFace = dz2 - 0.225, dlY = dashY - 0.065;
+  I.box(-X0, dashY + 0.02, dFace + 0.025, 0.38, 0.04, 0.1, { col: C('#161617') }); // binnacle hood
+  I.box(-X0, dashY - 0.008, dFace - 0.012, 0.37, 0.016, 0.024, { col: C('#121213') }); // hood lip
+  for (const dx of [-0.085, 0.085]) { part(I, discZ, [-X0 + dx, dlY, dFace - 0.001], [0, 0, 0], [0.05, 0.05, 0.01], C('#0a0a0b')); part(chr, ringZ, [-X0 + dx, dlY, dFace - 0.0085], [0, 0, 0], [0.051, 0.051, 0.05], satin); // 84th: marked faces from the dash atlas (Instruments.drawCarGauges) instead of a needle baked at a fixed angle; the
+    // dial is recorded so the player's car gets a live needle (Instruments.js). Driver looks +z: dx < 0 is on the right (speedo).
+    { const kind = dx < 0 ? 'speed' : 'rpm', fx = -X0 + dx, fy = dlY, fz2 = dFace - 0.007, hw = 0.05, uv = CAR_UV[kind];
+      dDash.quad([fx + hw, fy - hw, fz2], [fx - hw, fy - hw, fz2], [fx - hw, fy + hw, fz2], [fx + hw, fy + hw, fz2], uv, [1, 1, 1]);
+      (dm.dials || (dm.dials = [])).push({ c: [fx, fy, fz2], up: [0, 1, 0], n: [0, 0, -1], len: 0.036, kind, max: kind === 'rpm' ? 8000 : 220 }); } }
   gl.box(0.02, dashY - 0.06, dz2 - 0.23, 0.2, 0.12, 0.01, { col: C('#fff') }); I.box(0.02, dashY - 0.06, dz2 - 0.223, 0.22, 0.14, 0.01, { col: C('#0d0d0e') }); // centre screen
   for (const x of [-0.62, -0.14, 0.18, 0.62].map((v) => v * Math.min(1, (gw0 - 0.1) / 0.62))) { part(chr, ringZ, [x, dashY - 0.035, dz2 - 0.228], [0, 0, 0], [0.032, 0.032, 0.05], satin); part(I, discZ, [x, dashY - 0.035, dz2 - 0.226], [0, 0, 0], [0.03, 0.03, 0.004], C('#0a0a0a')); }
   for (let i = 0; i < 6; i++) I.box(-0.06 + (i % 3) * 0.08, dashY - 0.17 - Math.floor(i / 3) * 0.035, dz2 - 0.222, 0.05, 0.022, 0.01, { col: C('#2b2c2f') }); // climate buttons

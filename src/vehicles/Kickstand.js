@@ -11,6 +11,17 @@ export const KICK_UP = 1.05, KICK_DOWN = 1.0; // seconds
 const DOWN_AXIS = new THREE.Vector3(0, -1, 0);
 const dir = (p) => new THREE.Vector3(p[0] - STAND.pivot[0], p[1] - STAND.pivot[1], p[2] - STAND.pivot[2]).normalize();
 export const Q_DOWN = new THREE.Quaternion().setFromUnitVectors(DOWN_AXIS, dir(STAND.down));
+// 84th: the down pose is solved so the pad's underside lands ON the road once the bike leans LEAN onto it. The fixed STAND.down
+// put it 2.1 cm below the road when parked (the lean swings the stand foot through the asphalt), and a bicycle's stand, whose pivot
+// sits 7.5 cm further in (standOff), would have hung differently again — so the pose is per pivot offset (cached).
+const QD = new Map();
+export function qDown(off) {
+  const key = off ? off.join(',') : ''; let q = QD.get(key); if (q) return q;
+  const P = [STAND.pivot[0] + (off ? off[0] : 0), STAND.pivot[1] + (off ? off[1] : 0)], L = STAND.len + 0.006, c = Math.cos(-LEAN), sn = Math.sin(-LEAN);
+  const footY = (y) => { const d = new THREE.Vector3(STAND.down[0] - STAND.pivot[0], y - STAND.pivot[1], STAND.down[2] - STAND.pivot[2]).normalize().multiplyScalar(L); return { d, wy: (P[0] + d.x) * sn + (P[1] + d.y) * c }; };
+  let lo = -0.2, hi = 0.25; for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (footY(m).wy > 0) hi = m; else lo = m; } // leaned foot height rises with y
+  q = new THREE.Quaternion().setFromUnitVectors(DOWN_AXIS, footY((lo + hi) / 2).d.normalize()); QD.set(key, q); return q;
+}
 export const Q_UP = new THREE.Quaternion().setFromUnitVectors(DOWN_AXIS, dir(STAND.up));
 const _q = new THREE.Quaternion(), _t = new THREE.Vector3();
 const sm = (a, b, k) => { const t = Math.min(1, Math.max(0, (k - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -18,12 +29,12 @@ const sm = (a, b, k) => { const t = Math.min(1, Math.max(0, (k - a) / (b - a)));
 let geo = null;
 export function standMeshes(mat, off = null) {
   if (!geo) { const rod = new THREE.CylinderGeometry(0.011, 0.013, STAND.len, 6); rod.translate(0, -STAND.len / 2, 0); const pad = new THREE.BoxGeometry(0.035, 0.012, 0.05); pad.translate(0.004, -STAND.len, 0.008); const tang = new THREE.BoxGeometry(0.05, 0.012, 0.016); tang.translate(0.03, -STAND.len * 0.55, 0); geo = [rod, pad, tang]; }
-  const pv = new THREE.Group(); pv.position.set(...STAND.pivot); if (off) pv.position.add(new THREE.Vector3(...off)); /* a bicycle's stand sits behind the bottom bracket */ for (const g of geo) { const m = new THREE.Mesh(g, mat); m.castShadow = true; pv.add(m); } pv.quaternion.copy(Q_DOWN); return pv;
+  const pv = new THREE.Group(); pv.position.set(...STAND.pivot); if (off) pv.position.add(new THREE.Vector3(...off)); /* a bicycle's stand sits behind the bottom bracket */ for (const g of geo) { const m = new THREE.Mesh(g, mat); m.castShadow = true; pv.add(m); } pv.userData.qDown = qDown(off); pv.quaternion.copy(pv.userData.qDown); return pv;
 }
 // pose the stand pivot for v.stand
-export function syncStand(pivot, k) { pivot.quaternion.slerpQuaternions(Q_UP, Q_DOWN, k); }
+export function syncStand(pivot, k) { pivot.quaternion.slerpQuaternions(Q_UP, pivot.userData.qDown || Q_DOWN, k); }
 // the tang (where the boot pushes) in vehicle space, for stand position k
-export function tangAt(k, off = null) { _q.slerpQuaternions(Q_UP, Q_DOWN, k); _t.set(0.03, -STAND.len * 0.55, 0).applyQuaternion(_q); const o = off || [0, 0, 0]; return [STAND.pivot[0] + o[0] + _t.x, STAND.pivot[1] + o[1] + _t.y, STAND.pivot[2] + o[2] + _t.z]; }
+export function tangAt(k, off = null) { _q.slerpQuaternions(Q_UP, qDown(off), k); _t.set(0.03, -STAND.len * 0.55, 0).applyQuaternion(_q); const o = off || [0, 0, 0]; return [STAND.pivot[0] + o[0] + _t.x, STAND.pivot[1] + o[1] + _t.y, STAND.pivot[2] + o[2] + _t.z]; }
 // the rider's left boot target (seat-root space) during a kick, blended in by weight w
 function foot(ch, seat, k, w, off = null) { const p = tangAt(k, off); ch.anim.footOverL = w > 0.001 ? { x: p[0] - seat.x + 0.035, y: p[1] - seat.y + 0.03, z: p[2] - seat.z - 0.07, w } : null; }
 // getting on, k = 0…1 over KICK_UP: straighten the bike, boot onto the tang, sweep the stand up, boot back to the peg

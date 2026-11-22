@@ -480,7 +480,12 @@ export class Traffic {
     if (peds) for (const q of peds) { const gq = gap;
       if ((q.dead || q.state === 'down') && p.type !== 'path') { const rx = q.x - v.x, rz = q.z - v.z, al = rx * fx + rz * fz; if (al <= 0 || al > 30) continue;
         const w2 = v.T.wid / 2, lt = rx * fz - rz * fx + (ai.lat || 0), lmin = lt - 0.9, lmax = lt + 0.9; if (lmax < -(w2 + 0.3) || lmin > w2 + 0.35) continue; // lying clear of our path
-        if (lt > 0) { const need = w2 + 0.35 - lmin; let clear = need < 2.6; if (clear) for (const o of all) { if (o === v) continue; const ox = o.x - v.x, oz = o.z - v.z, oa = ox * fx + oz * fz; if (oa < -5 || oa > 32) continue; const lo = ox * fz - oz * fx + (ai.lat || 0); if (lo < 0 && lo > -need - w2 - o.T.wid / 2 - 0.3) { clear = false; break; } }
+        // 84th: a body on the centre-line side of the lane (lt ≤ 0) was never passed — the car waited until the body despawned, which
+        // deadlocked everything queued behind it (the returning ambulance at the hospital gate). Now: a small shift toward the kerb when
+        // that clears it, otherwise round the body's outer side across the centre line like the kerb-side case (oncoming side clear)
+        const toKerb = lmax + w2 + 0.3;
+        if (lt <= 0 && toKerb < 0.9) ai.latWant = Math.max(ai.latWant ?? 0, toKerb);
+        else { const need = w2 + 0.35 - lmin; let clear = need < 2.6; if (clear) for (const o of all) { if (o === v) continue; const ox = o.x - v.x, oz = o.z - v.z, oa = ox * fx + oz * fz; if (oa < -5 || oa > 32) continue; const lo = ox * fz - oz * fx + (ai.lat || 0); if (lo < 0 && lo > -need - w2 - o.T.wid / 2 - 0.3) { clear = false; break; } }
           if (clear) ai.latWant = Math.min(ai.latWant ?? 0, -need); }
         consider(q.x, q.z, 0, 0.9, w2 + 0.9); if (gap < gq) gapBy = q; continue; }
       consider(q.x, q.z, 0, 0.4, q.crossing ? 2.6 : 1.4); if (gap < gq) gapBy = q; }

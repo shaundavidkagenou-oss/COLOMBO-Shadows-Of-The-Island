@@ -9,6 +9,7 @@
 //   * wiper layouts: model builders record their wiper arms here (wiperSet) instead of baking static wiper geometry; VehicleFx
 //     draws every visible wiper with one instanced mesh and sweeps it from the vehicle's own wiper state.
 import * as THREE from 'three';
+import { mapUniform } from '../gfx/DetailMaps.js';
 
 // ---- global weather uniforms (VehicleFx.update writes them once per frame)
 export const RAIN_U = { uGrRain: { value: 0 }, uGrWet: { value: 0 }, uGrT: { value: 0 } };
@@ -30,7 +31,7 @@ const GLASS_V_BEGIN = `vGrP = position; vGrN = objectNormal;
 { vec3 grA = abs(objectNormal); vec3 grU = grA.x > 0.6 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
   vec3 grT = normalize(grU - objectNormal * dot(grU, objectNormal)); vec3 grB = cross(objectNormal, grT);
   vGrT = normalize(normalMatrix * grT); vGrB = normalize(normalMatrix * grB); }`;
-const GLASS_F_COMMON = `uniform float uGrRain; uniform float uGrWet; uniform float uGrT; uniform vec4 uWp[2]; uniform vec4 uWd[2]; uniform vec4 uWu[2]; uniform vec4 uWs;
+const GLASS_F_COMMON = `uniform sampler2D uRainN; uniform float uGrRain; uniform float uGrWet; uniform float uGrT; uniform vec4 uWp[2]; uniform vec4 uWd[2]; uniform vec4 uWu[2]; uniform vec4 uWs;
 varying vec3 vGrP; varying vec3 vGrN; varying vec3 vGrT; varying vec3 vGrB;
 float grH(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 // one layer of beads: xy = dome slope (normal tilt), z = coverage
@@ -57,7 +58,14 @@ const GLASS_F_COLOR = `float grM = 0.0; vec2 grS = vec2(0.0);
     vec3 fl3 = vec3(0.0, -1.0, 0.0) + vec3(0.0, 0.0, -1.0) * clamp(uWs.y * 0.09, 0.0, 3.0); fl3 -= n * dot(fl3, n); float fL = length(fl3);
     vec2 fl = fL > 0.05 ? normalize(vec2(dot(fl3, T), dot(fl3, B))) : vec2(0.0, -1.0); vec2 sd = vec2(-fl.y, fl.x);
     float dens = 0.06 + 0.42 * rk + 0.16 * wk;
-    vec3 b1 = grBeads(tc * 52.0, dens, 1.1), b2 = grBeads(tc * 96.0 + 17.0, dens * 0.8, 0.9); float lod2 = clamp(1.6 - aa * 2.0, 0.0, 1.0);
+    // 84th: the droplets are the authored 2048² rainNrm map (Tex2K.js: 0.6–3.7 mm drops + mist over a 0.5 m tile; RG slope, B coverage,
+    // A each drop's appear threshold) at two scales / orientations, instead of two procedural hash layers per pixel
+    vec4 rA = texture2D(uRainN, tc * 2.0), rB = texture2D(uRainN, mat2(0.8, -0.6, 0.6, 0.8) * tc * 3.1 + 0.37);
+    // drops whose threshold (A) is under the rain density show; the density is cut by the texel footprint, so when a drop would be
+    // under a pixel the drops thin out to the wet film instead of averaging (mips) into a grey haze over the pane
+    float tpp = max(length(fwidth(tc)) * 4096.0, 1e-3); float lodB = clamp(2.0 - 0.6 * log2(tpp), 0.0, 1.0);
+    float dA = clamp(dens, 0.0, 1.0) * lodB, dB = clamp(dens * 0.6, 0.0, 1.0) * lodB;
+    vec3 b1 = vec3((rA.rg * 2.0 - 1.0) * 0.9, rA.b * smoothstep(dA, dA - 0.06, rA.a)), b2 = vec3((rB.rg * 2.0 - 1.0) * 0.9, rB.b * smoothstep(dB, dB - 0.06, rB.a)); float lod2 = clamp(1.6 - aa * 2.0, 0.0, 1.0);
     float steep = clamp((fL - 0.35) * 2.0, 0.0, 1.0); vec3 rn = grRun(vec2(dot(tc, sd), -dot(tc, fl)) * vec2(38.0, 38.0), uGrT, (0.15 + 0.5 * rk) * steep * step(0.05, rk));
     // windscreen: this vehicle's swept sectors stay mostly clear, a clean band behind each blade
     float wipe = 1.0;
@@ -73,7 +81,7 @@ const GLASS_F_NORMAL = 'normal = normalize(normal + (vGrT * grS.x + vGrB * grS.y
 
 // patch a glass shader (base vehicle glass and VehicleDamage's damaged glass both call this) with the rain-on-glass layer
 export function patchGlassRain(s, WU) {
-  const W = WU || ZERO_WIPE; Object.assign(s.uniforms, RAIN_U, { uWp: W.uWp, uWd: W.uWd, uWu: W.uWu, uWs: W.uWs });
+  const W = WU || ZERO_WIPE; Object.assign(s.uniforms, RAIN_U, { uRainN: mapUniform('rainNrm'), uWp: W.uWp, uWd: W.uWd, uWu: W.uWu, uWs: W.uWs });
   s.vertexShader = s.vertexShader.replace('#include <common>', '#include <common>\n' + GLASS_V_COMMON).replace('#include <begin_vertex>', '#include <begin_vertex>\n' + GLASS_V_BEGIN);
   s.fragmentShader = s.fragmentShader.replace('#include <common>', '#include <common>\n' + GLASS_F_COMMON).replace('#include <color_fragment>', '#include <color_fragment>\n' + GLASS_F_COLOR)
     .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n' + GLASS_F_ROUGH).replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + GLASS_F_NORMAL);
@@ -86,28 +94,32 @@ export function rainGlass(proto, WU) {
 // ---- grime on paint (shared vpaint / vworn): call from the material's onBeforeCompile
 export const GRIME_U = { uGmWet: { value: 0 } };
 export function grimePatch(s, heavy) {
-  Object.assign(s.uniforms, GRIME_U);
+  Object.assign(s.uniforms, GRIME_U, { uGmTex: mapUniform('grime') });
   s.vertexShader = s.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vGmP; varying vec3 vGmN;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvGmP = position; vGmN = objectNormal;');
   s.fragmentShader = s.fragmentShader.replace('#include <common>', `#include <common>
-uniform float uGmWet; varying vec3 vGmP; varying vec3 vGmN;
+uniform float uGmWet; uniform sampler2D uGmTex; varying vec3 vGmP; varying vec3 vGmN;
 float gmH(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
 float gmN(vec3 p) { vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(mix(gmH(i), gmH(i + vec3(1, 0, 0)), f.x), mix(gmH(i + vec3(0, 1, 0)), gmH(i + vec3(1, 1, 0)), f.x), f.y), mix(mix(gmH(i + vec3(0, 0, 1)), gmH(i + vec3(1, 0, 1)), f.x), mix(gmH(i + vec3(0, 1, 1)), gmH(i + vec3(1, 1, 1)), f.x), f.y), f.z); }`)
     .replace('#include <color_fragment>', `#include <color_fragment>
-float gmK = 0.0;
+float gmK = 0.0; vec4 gm = vec4(0.0);
 { float seed = 0.5;
 #ifdef USE_COLOR
   seed = fract(dot(vColor.rgb, vec3(17.31, 41.7, 7.13)));
 #endif
   float amt = ${heavy ? '0.55 + 0.45 * seed' : '0.12 + 0.55 * seed * seed'};
-  vec3 n = normalize(vGmN); float y = vGmP.y; float nz = gmN(vGmP * vec3(3.0, 5.0, 3.0)) * 0.6 + gmN(vGmP * 13.0) * 0.4;
+  vec3 n = normalize(vGmN); float y = vGmP.y;
+  // 84th: the authored grime map (Tex2K grime: R dust, G drip streaks, B fine wash scratches, A dried water spots), planar-projected
+  // in the body's frame at 2 m per tile, replaces the per-pixel value noise
+  vec3 ga = abs(n); vec2 gq = (ga.x > ga.y && ga.x > ga.z) ? vGmP.zy : (ga.y > ga.z ? vGmP.xz : vGmP.xy); gm = texture2D(uGmTex, gq * 0.5);
+  float nz = gm.r * 0.75 + gmN(vGmP * 3.0) * 0.25;
   float low = (1.0 - smoothstep(0.22, ${heavy ? '0.95' : '0.7'}, y + (nz - 0.5) * 0.25)) * (0.55 + 0.45 * nz);
   float top = smoothstep(0.75, 0.95, n.y) * smoothstep(0.35, 0.8, nz) * 0.35;
-  float wet = clamp(uGmWet, 0.0, 1.0); float streak = smoothstep(0.55, 0.9, gmN(vec3(vGmP.x * 22.0, vGmP.y * 1.5, vGmP.z * 22.0)));
-  gmK = clamp((low + top * (1.0 - wet * 0.8)) * amt + wet * streak * low * amt * 0.6, 0.0, 1.0);
+  float wet = clamp(uGmWet, 0.0, 1.0); float streak = gm.g;
+  gmK = clamp((low + top * (1.0 - wet * 0.8)) * amt + wet * streak * low * amt * 0.6 + (1.0 - wet) * gm.a * 0.18 * amt, 0.0, 1.0); // + dried water spots once it is dry
   vec3 dust = vec3(0.56, 0.5, 0.42), mud = vec3(0.2, 0.17, 0.13);
   diffuseColor.rgb = mix(diffuseColor.rgb, mix(dust, mud, wet) * mix(vec3(1.0), diffuseColor.rgb * 1.6 + 0.3, 0.25), gmK * ${heavy ? '0.62' : '0.5'}); }`)
-    .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = clamp(mix(roughnessFactor, mix(0.92, 0.45, clamp(uGmWet, 0.0, 1.0)), gmK * 0.85), 0.04, 1.0);')
+    .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = clamp(mix(roughnessFactor, mix(0.92, 0.45, clamp(uGmWet, 0.0, 1.0)), gmK * 0.85) + gm.b * 0.05, 0.04, 1.0);')
     .replace('#include <lights_physical_fragment>', '#include <lights_physical_fragment>\n#ifdef USE_CLEARCOAT\nmaterial.clearcoat *= 1.0 - gmK * 0.8;\n#endif');
 }
 

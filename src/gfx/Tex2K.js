@@ -200,7 +200,7 @@ export function feaNrm(W = 2048, seed = 701) {
 export function vehDet(W = 2048, seed = 801) {
   const D = new Uint8ClampedArray(W * W * 4), T = W / 2; const r = rng(seed);
   // 0 seat cloth
-  { const H = new Float32Array(T * T), B = new Float32Array(T * T), A = new Float32Array(T * T); const P = 6; for (let y = 0; y < T; y++) for (let x = 0; x < T; x++) { const i = y * T + x; const cx = Math.floor(x / P), cy = Math.floor(y / P); const fx = (x % P + 0.5) / P, fy = (y % P + 0.5) / P; const up1 = ((cx + cy) & 1) === 0;
+  { const H = new Float32Array(T * T), B = new Float32Array(T * T), A = new Float32Array(T * T); const P = Math.max(2, Math.round(6 * W / 2048)); for (let y = 0; y < T; y++) for (let x = 0; x < T; x++) { const i = y * T + x; const cx = Math.floor(x / P), cy = Math.floor(y / P); const fx = (x % P + 0.5) / P, fy = (y % P + 0.5) / P; const up1 = ((cx + cy) & 1) === 0;
       const motif = Math.sin(x / T * 6.283 * 24) * Math.sin(y / T * 6.283 * 24) > 0.6 ? 0.25 : 0; const h = (up1 ? Math.sin(Math.PI * fx) : Math.sin(Math.PI * fy)) * 0.6 + motif + r() * 0.15; H[i] = h; B[i] = 0.9 - motif * 0.1; A[i] = 0.75 + h * 0.25; }
     packTile(D, W, 0, 0, T, H, 1.4, B, A); }
   // 1 leather: cellular pebble grain + creases
@@ -223,8 +223,8 @@ export function grime(W = 2048, seed = 901) {
   const dust = norm(fbm(W, W, 8, 8, 6, seed, 0.6)), speck = new Float32Array(W * W); for (let i = 0; i < speck.length; i++) speck[i] = r();
   const streakX = norm(fbm(W, 1, 220, 1, 3, seed + 1)), streakN = up(norm(fbm(256, 64, 32, 4, 4, seed + 2)), 256, 64, W, W); // drips: tall, thin
   const scr = new Float32Array(W * W); for (let k = 0; k < 2600; k++) { // fine wash swirls / scratches
-    let x = r() * W, y = r() * W, a = r() * 6.283; const len = 20 + r() * 160, curl = (r() - 0.5) * 0.02, v = 0.3 + r() * 0.7; for (let s = 0; s < len; s++) { a += curl; x += Math.cos(a); y += Math.sin(a); const xi = ((Math.round(x) % W) + W) % W, yi = ((Math.round(y) % W) + W) % W; scr[yi * W + xi] = Math.max(scr[yi * W + xi], v); } }
-  const spots = new Float32Array(W * W); for (let k = 0; k < 900; k++) { const cx = r() * W, cy = r() * W, rad = 3 + r() * 14; for (let y = Math.floor(cy - rad); y <= cy + rad; y++) for (let x = Math.floor(cx - rad); x <= cx + rad; x++) { const d = Math.hypot(x - cx, y - cy) / rad; if (d > 1) continue; const xi = ((x % W) + W) % W, yi = ((y % W) + W) % W; const ring = smooth(0.7, 0.95, d) * smooth(1, 0.95, d) + (1 - d) * 0.15; spots[yi * W + xi] = Math.max(spots[yi * W + xi], ring); } }
+    let x = r() * W, y = r() * W, a = r() * 6.283; const len = (20 + r() * 160) * W / 2048, curl = (r() - 0.5) * 0.02, v = 0.3 + r() * 0.7; for (let s = 0; s < len; s++) { a += curl; x += Math.cos(a); y += Math.sin(a); const xi = ((Math.round(x) % W) + W) % W, yi = ((Math.round(y) % W) + W) % W; scr[yi * W + xi] = Math.max(scr[yi * W + xi], v); } }
+  const spots = new Float32Array(W * W); for (let k = 0; k < 900; k++) { const cx = r() * W, cy = r() * W, rad = Math.max(1, (3 + r() * 14) * W / 2048); for (let y = Math.floor(cy - rad); y <= cy + rad; y++) for (let x = Math.floor(cx - rad); x <= cx + rad; x++) { const d = Math.hypot(x - cx, y - cy) / rad; if (d > 1) continue; const xi = ((x % W) + W) % W, yi = ((y % W) + W) % W; const ring = smooth(0.7, 0.95, d) * smooth(1, 0.95, d) + (1 - d) * 0.15; spots[yi * W + xi] = Math.max(spots[yi * W + xi], ring); } }
   for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) { const i = y * W + x, o = i * 4; const dd = sat(dust[i] * 0.85 + (speck[i] > 0.97 ? 0.25 : 0)); const st = sat(smooth(0.55, 0.85, streakX[x]) * (0.4 + streakN[i] * 0.6) + smooth(0.6, 0.9, dust[(i * 7) % (W * W)]) * 0.3);
     D[o] = dd * 255; D[o + 1] = st * 255; D[o + 2] = scr[i] * 255; D[o + 3] = spots[i] * 255; }
   return { w: W, h: W, rgba: D, srgb: false };
@@ -235,8 +235,9 @@ export function rainNrm(W = 2048, seed = 1001) {
   const D = new Uint8ClampedArray(W * W * 4), H = new Float32Array(W * W), M = new Float32Array(W * W), Rn = new Float32Array(W * W); const r = rng(seed);
   const drop = (cx, cy, rad, id, elong) => { const ry = rad * elong; for (let y = Math.floor(cy - ry - 1); y <= cy + ry + 1; y++) for (let x = Math.floor(cx - rad - 1); x <= cx + rad + 1; x++) { const dx = (x - cx) / rad, dy = (y - cy) / ry; const d2 = dx * dx + dy * dy; if (d2 > 1) continue;
       const xi = ((x % W) + W) % W, yi = ((y % W) + W) % W, i = yi * W + xi; const h = Math.sqrt(1 - d2) * rad * 0.08; if (h > H[i]) { H[i] = h; M[i] = 1; Rn[i] = id; } } };
-  for (let k = 0; k < 60000; k++) { const t = r(); drop(r() * W, r() * W, 0.8 + t * t * 2.2, r(), 1); } // mist
-  for (let k = 0; k < 7000; k++) { const t = r(); drop(r() * W, r() * W, 2.5 + t * t * t * 13, r(), 1 + (r() < 0.12 ? r() * 1.4 : 0)); } // drops, a few run (elongated)
+  const k8 = W / 2048; // 84th: sizes are relative to the 2048 master (the 256² fallback drew every drop 8× too large: grey blotches)
+  for (let k = 0; k < 60000; k++) { const t = r(); drop(r() * W, r() * W, Math.max(0.35, (0.8 + t * t * 2.2) * k8), r(), 1); } // mist
+  for (let k = 0; k < 7000; k++) { const t = r(); drop(r() * W, r() * W, Math.max(0.5, (2.5 + t * t * t * 13) * k8), r(), 1 + (r() < 0.12 ? r() * 1.4 : 0)); } // drops, a few run (elongated)
   for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) { const i = y * W + x, o = i * 4; const xm = (x - 1 + W) % W, xp = (x + 1) % W, ym = ((y - 1 + W) % W) * W, yp = ((y + 1) % W) * W; const dx = -(H[y * W + xp] - H[y * W + xm]) * 3, dy = (H[yp + x] - H[ym + x]) * 3; const l = 1 / Math.sqrt(dx * dx + dy * dy + 1);
     D[o] = (dx * l * 0.5 + 0.5) * 255; D[o + 1] = (dy * l * 0.5 + 0.5) * 255; D[o + 2] = M[i] * 255; D[o + 3] = M[i] ? Rn[i] * 255 : 0; }
   return { w: W, h: W, rgba: D, srgb: false };
@@ -248,8 +249,8 @@ export const TEX2K = {
   fabNrm: { gen: fabNrm, srgb: false },
   hhCol: { gen: hhCol, srgb: true, alpha: true },
   hhNrm: { gen: hhNrm, srgb: false },
-  feaNrm: { gen: feaNrm, srgb: false, ship: false }, // generator kept; not wired to a material yet, so not built / shipped
-  vehDet: { gen: vehDet, srgb: false, ship: false }, // generator kept; not wired to a material yet, so not built / shipped
-  grime: { gen: grime, srgb: false, ship: false }, // generator kept; not wired to a material yet, so not built / shipped
-  rainNrm: { gen: rainNrm, srgb: false, ship: false }, // generator kept; not wired to a material yet, so not built / shipped
+  feaNrm: { gen: feaNrm, srgb: false }, // 84th: wired — birds (Birds.js via DetailMaps)
+  vehDet: { gen: vehDet, srgb: false }, // 84th: wired — vehicle cabin + rubber (VehicleModels via DetailMaps)
+  grime: { gen: grime, srgb: false }, // 84th: wired — painted bodies (VehicleWeather.grimePatch)
+  rainNrm: { gen: rainNrm, srgb: false }, // 84th: wired — vehicle glass (VehicleWeather.patchGlassRain)
 };

@@ -165,7 +165,10 @@ export class Vehicle {
       if (input.handbrake && fwd > 0.5 && Math.abs(sp) < 6 && !heavy) { ts.r = Math.max(ts.r, 1); ts.spin = 1; } // spin = the tread runs ahead of the road (throws smoke back)
       else if (input.handbrake && Math.abs(sp) > 3) ts.r = Math.max(ts.r, clamp(Math.abs(sp) / 14, 0.35, 0.9));
       if (fwd < -0.5 && sp > 12) ts.f = Math.max(ts.f, 0.25 * clamp((sp - 12) / 12, 0, 1) * (heavy ? 0.5 : 1));
-      this.throttle = Math.max(0, fwd); this.throttleFresh = true; this.slipK = Math.max(ts.f, ts.r); } // (slipK: wheelspin / lock-up this frame, before VehicleSmoke clears it — VehicleAudio's tyre screech)
+      this.throttle = Math.max(0, fwd); this.throttleFresh = true; this.slipK = Math.max(ts.f, ts.r);
+      // 84th: what the tyres do (sync() turns the wheels from it): driven rears run ahead of the road in a launch / burnout, a
+      // handbrake without throttle locks the rears, stamping on the brakes at speed briefly locks the fronts
+      const wt = this.wTyre || (this.wTyre = { spin: 0, lockR: 0, lockF: 0, t: 0 }); wt.t = 0.12; wt.spin = ts.spin || 0; wt.lockR = input.handbrake && fwd <= 0.5 ? 1 : 0; wt.lockF = ts.f > 0.05 ? 1 : 0; } // (slipK: wheelspin / lock-up this frame, before VehicleSmoke clears it — VehicleAudio's tyre screech)
     if (!this.air && this.tPitch) { const gs = 9.81 * Math.sin(this.tPitch); this.speed += gs * dt; } // gravity along a slope: ramps and quarter-pipes slow you going up, speed you up coming down
     const steerMax = T.steer * (K ? K.steer : 1) * (SK && !T.pedal ? SK.steer : 1) * lerp(1, 0.35, clamp(Math.abs(sp) / T.maxSpeed, 0, 1));
     this.steer = damp(this.steer, input.steer * steerMax + (flat ? Math.sin(performance.now() * 0.0071) * 0.05 * clamp(Math.abs(sp) / 8, 0, 1) : 0), 6, dt); // flats pull and wobble
@@ -328,7 +331,14 @@ export class Vehicle {
         m.updateMatrix(); _csE.set(this.tPitch || 0, this.yaw, this.T.entry === 'bike' ? 0 : this.tRoll || 0, 'YXZ'); _csQ.setFromEuler(_csE); _csS.copy(cs.scale).multiplyScalar(k); _csS.y = 1;
         _csM.compose(_csP.set(this.x, gy + 0.015, this.z), _csQ, _csS); cs.matrix.copy(_csI.copy(m.matrix).invert()).multiply(_csM); cs.matrixWorldNeedsUpdate = true; } }
     this.wheelRot += (this.speed * dt) / this.T.wheelR;
-    for (const w of m.userData.wheels) { const u = w.userData; u.spin.rotation.x = this.wheelRot; if (u.front) w.rotation.y = this.steer; if (u.baseY !== undefined) w.position.y = this.wrecked ? u.baseY : u.baseY + (u.gOff || 0) + S.h - rh - w.position.x * rr + w.position.z * pr; } // a flat corner: the body (dropFit) carries that wheel down onto its rim // body moves on the springs, tyres stay on the road
+    // 84th: each axle turns at its own angular speed: rolling (v / R) unless the tyre slips — a burnout / launch spins the driven
+    // rears well past road speed, a handbrake locks them, a panic stop briefly locks the fronts. The angular speed is damped so the
+    // wheel spins up / stops with inertia instead of jumping (it used to be pure rolling, so a burnout showed still-looking wheels).
+    { const roll = this.speed / this.T.wheelR, wt = this.wTyre; let tR = roll, tF = roll;
+      if (wt && wt.t > 0 && dt > 0) { wt.t -= dt; if (wt.lockR && Math.abs(this.speed) > 0.4) tR = 0; else if (wt.spin > 0) tR = Math.sign(roll || 1) * Math.max(Math.abs(roll), 34 * wt.spin); if (wt.lockF) tF = roll * 0.1; }
+      const kk = 1 - Math.exp(-14 * (dt || 0)); this.wwR = (this.wwR ?? roll) + (tR - (this.wwR ?? roll)) * kk; this.wwF = (this.wwF ?? roll) + (tF - (this.wwF ?? roll)) * kk;
+      this.wRotR = ((this.wRotR || 0) + this.wwR * (dt || 0)) % (Math.PI * 2); this.wRotF = ((this.wRotF || 0) + this.wwF * (dt || 0)) % (Math.PI * 2); }
+    for (const w of m.userData.wheels) { const u = w.userData; u.spin.rotation.x = u.front ? this.wRotF : this.wRotR; if (u.front) w.rotation.y = this.steer; if (u.baseY !== undefined) w.position.y = this.wrecked ? u.baseY : u.baseY + (u.gOff || 0) + S.h - rh - w.position.x * rr + w.position.z * pr; } // a flat corner: the body (dropFit) carries that wheel down onto its rim // body moves on the springs, tyres stay on the road
     // lamps (per vehicle): headlights only when this vehicle has its lights on; tails red at night, brighter when braking;
     // reverse lamps only while reversing; parked/unattended vehicles are dark
     const ud = m.userData, tm = ud.tailMat, hm = ud.headMat, rm = ud.revMat; const occupied = !this.parked || this.player;

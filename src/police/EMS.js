@@ -286,13 +286,18 @@ export class EMS {
     if (Math.hypot(v.x - P.x, v.z - P.z) > 220 && !pr.inView(v)) { this.stats.delivered++; pr.note(`EMS unit ${u.id} delivered (out of sight)`); this.removeUnit(u); return; }
     if (e.toBay === 'road') {
       const p0 = ai.pieces[0]; if (v.speed < 0.3) u.stuckT = (u.stuckT || 0) + dt; else u.stuckT = 0;
+      pr.rs?.unjamBody?.(u, dt); // 84th: a civilian car holding the van (queued inside its turn-around) backs up; recycled out of sight if it never clears
       // on a lane that runs past the gate (the gate within ~10 m of its line, ahead of us): turn in from it
       if (p0 && p0.type === 'line' && !ai.rejoin) { const al = (B.gate.x - p0.p0[0]) * p0.d[0] + (B.gate.z - p0.p0[1]) * p0.d[1], lat = Math.abs((B.gate.x - p0.p0[0]) * p0.d[1] - (B.gate.z - p0.p0[1]) * p0.d[0]);
         if (lat < 14 && al > ai.s + 9 && al < p0.len + 2 && !this.bayTaken(u)) { const sA = Math.max(ai.s + 2, al - 7); const path = this.bayPath(p0, sA, B); const cut = { ...p0, p1: [p0.p0[0] + p0.d[0] * sA, p0.p0[1] + p0.d[1] * sA], len: sA };
           ai.pieces = [cut, path]; ai.route = null; ai.goal = null; ai.park = { path, bay: true }; ai.sMaxP = path; ai.sMax = path.len - 0.02; ai.v0 = 8; e.toBay = 'in'; e.inT = 0; return; } }
       // stopped at the routing goal without a way in (came at it from the wrong side / too close): go round the block and try again
       const gd = ai.goal && ai.goal.dist !== undefined ? ai.goal.dist : Infinity; if (!ai.goal && !ai.route && v.speed < 0.5) u.stuckT += dt * 2;
-      if (u.stuckT > 6 || (gd < 6 && v.speed < 0.6)) { v.dbgOn = true; const by = ai.dbgBy === 'body' && ai.bodyBlock ? ai.bodyBlock : ai.dbgBy; e.dbg = [ai.stopped ? 'stopped' : 'run', 'gap ' + (+(ai.dbgGap ?? -1)).toFixed(1), 'stop ' + (+(ai.dbgStop ?? -1)).toFixed(1), 'goal ' + (+gd).toFixed(1), !by ? '-' : typeof by === 'string' ? by : (by.parked ? 'parked ' : by.ai ? 'car ' : by.ch ? 'ped ' : 'obj ') + (by.id ?? '') + (by.police ? ' police' : '') + ' @' + Math.hypot(by.x - v.x, by.z - v.z).toFixed(1), 'p0 ' + (ai.pieces[0] ? ai.pieces[0].type : 'none') + ' n' + ai.pieces.length, 'em ' + (ai.emergency ? 1 : 0) + (v.beaconsOn ? 'b' : '')];
+      // 84th: "stopped at the goal" re-planned on EVERY tick while a car standing ahead held the van (gd < 6 and slow), wiping the
+      // route / overtake each frame — the van never pulled out and sat behind it (with that car waiting on a body in its lane).
+      // Held by a vehicle: lights on after 3 s (emergency overtake round it), re-plan only after 14 s; the goal case needs 1 s stopped.
+      const held = !!(ai.bodyBlock && (ai.bodyG ?? Infinity) < 12 && v.speed < 0.6); if (held && u.stuckT > 3) e.blockLit = true;
+      if (u.stuckT > (held ? 14 : 6) || (gd < 6 && v.speed < 0.6 && !held && u.stuckT > 1)) { v.dbgOn = true; const by = ai.dbgBy === 'body' && ai.bodyBlock ? ai.bodyBlock : ai.dbgBy; e.dbg = [ai.stopped ? 'stopped' : 'run', 'gap ' + (+(ai.dbgGap ?? -1)).toFixed(1), 'stop ' + (+(ai.dbgStop ?? -1)).toFixed(1), 'goal ' + (+gd).toFixed(1), !by ? '-' : typeof by === 'string' ? by : (by.parked ? 'parked ' : by.ai ? 'car ' : by.ch ? 'ped ' : 'obj ') + (by.id ?? '') + (by.police ? ' police' : '') + ' @' + Math.hypot(by.x - v.x, by.z - v.z).toFixed(1), 'p0 ' + (ai.pieces[0] ? ai.pieces[0].type : 'none') + ' n' + ai.pieces.length, 'em ' + (ai.emergency ? 1 : 0) + (v.beaconsOn ? 'b' : '')];
         u.stuckT = 0; if ((e.replans | 0) >= 1) e.blockLit = true; /* held up on the way (a car standing in the lane, a jam): lights on — traffic pulls over and the van may pass it */ e.replans = (e.replans || 0) + 1; ai.goal = null; ai.route = null; if (!this.planBay(u, B)) e.bayT += 60; }
       if (e.bayT > 300) { e.toBay = null; e.transport = false; this.stats.bayFail++; pr.note(`EMS unit ${u.id} could not reach the hospital`); ai.route = null; ai.goal = null; ai.park = null; } // drives on; recycled out of view
       return; }
