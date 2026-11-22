@@ -156,11 +156,15 @@ class Attendant {
   }
   get free() { return this.p && !this.dead && !this.interrupted && !this.task && (this.phase === 'post' || this.phase === 'idle' || this.phase === 'toPost'); }
   spawn() {
-    const st = this.st, [x, z] = st.site.toWorld(this.post.u, this.post.w); const seed = (st.idx * 7919 + this.idx * 104729 + (st.spawnN++) * 31) | 0;
-    const sp = makeAttendantAppearance(seed, L.FUEL_BRANDS[st.site.brand]); const crowd = st.svc.crowd; const node = nearestPedNode(x, z);
+    const st = this.st, [x, z] = st.site.toWorld(this.post.u, this.post.w);
+    const sp = this.appearance(); const crowd = st.svc.crowd; const node = nearestPedNode(x, z);
     const p = crowd.makePed(sp, x, z, node); p.x = x; p.z = z; p.yaw = st.yawToU(-1); p.state = 'job'; p.job = this.job; p.keep = true; p.umbrella = false; p.jog = false; p.pace = 1.25; p.target = null; p.edge = null; p.attendant = true;
     crowd.place(p); this.p = p; this.dead = false; this.phase = 'post'; this.task = null; this.interrupted = false; this.lastX = x; this.lastZ = z; return p;
   }
+  // 86th: the same attendant every time the station streams back in (was a new person — a new look, a 100-270 ms body + garment
+  // build — on every return within 175 m); a new face only after the last one died or walked off. First looks as before
+  // (attendant 0 / 1 = spawn 0 / 1), later generations step by 2 so they never repeat the other attendant's look.
+  appearance() { const st = this.st; const seed = (st.idx * 7919 + this.idx * 104729 + (this.gen ?? this.idx) * 31) | 0; return makeAttendantAppearance(seed, L.FUEL_BRANDS[st.site.brand]); }
   despawn() { const p = this.p; if (!p) return; this.releaseHands(true); if (this.noz) { this.noz.dispose(); this.noz = null; } if (this.task) this.st.dropAttendant(this.task); this.task = null; p.job = null; p.keep = false; if (!p.dead) this.st.svc.crowd.remove(p); this.p = null; }
   // ---- crowd hooks
   interrupt(state) { // shoved, frightened, knocked down, shot: let go of everything at once
@@ -458,7 +462,7 @@ class Station {
         if (a.noz) { this.loose.push(a.noz); a.noz = null; } if (a.task) { const f = a.task; a.task = null; f.att = null; } a.p = null; }
     }
     if (dist < 175) { for (const a of this.att) if (!a.p && !a.gone) a.spawn(); }
-    else if (dist > 230) { for (const a of this.att) { if (a.p) a.despawn(); a.gone = false; a.dead = false; } for (const n of this.loose) n.dispose(); this.loose.length = 0; }
+    else if (dist > 230) { for (const a of this.att) { if (a.p) a.despawn(); if (a.dead || a.gone) a.gen = (a.gen ?? a.idx) + 2; a.gone = false; a.dead = false; } for (const n of this.loose) n.dispose(); this.loose.length = 0; }
     // loose nozzles (their attendant is gone): drawn here; one left in a car that drove off falls out; a free attendant collects them
     for (let i = this.loose.length - 1; i >= 0; i--) { const n = this.loose[i]; if (n.mode === 'car' && (!n.visit || n.visit.phase === 'out' || !this.visits.includes(n.visit))) n.drop(); n.update(dt, null);
       if (n.mode === 'ground' && n.settled()) { const b = this.att.find((q) => q.free && !q.noz); if (b) { b.noz = n; this.loose.splice(i, 1); b.setPhase('toNozzle'); } } }
@@ -536,5 +540,6 @@ export class FuelService {
     if (f.phase === 'out' && !f.go && f.why !== 'knocked') { if (p === f.exit) return f.yieldS - ai.s + 2.2; if (p === f.entry) return f.entry.len - ai.s + f.yieldS + 2.2; }
     return Infinity; }
   update(dt, ctx) { for (const st of this.stations) st.update(dt, ctx); }
+  looks() { const out = []; for (const st of this.stations) for (const a of st.att) out.push(a.appearance()); return out; } // 86th: loading screen (Game.prebuildServices)
   nearest(x, z) { let best = null, bd = Infinity; for (const st of this.stations) { const d = Math.hypot(st.site.O[0] - x, st.site.O[1] - z); if (d < bd) { bd = d; best = st; } } return best; }
 }

@@ -257,10 +257,12 @@ const STANDBY = [-6.4, H.tt[1] + 1.4]; // tyre fitter's stand-by spot beside the
 const POSTS = [{ u: CG.cart.u - 0.9, w: CG.cart.w - 0.2, act: 'type', face: [CG.cart.u, CG.cart.w] }, { u: CG.changer.u + 0.9, w: CG.changer.w - 0.9, act: 'interact', face: [CG.changer.u, CG.changer.w] }];
 class Mechanic {
   constructor(svc, i) { this.svc = svc; this.i = i; this.p = null; this.mode = 'idle'; this.t = 0; this.target = null; this.act = null; this.face = null; this.spawnN = 0; this.job = { step: (p, dt) => this.step(dt), post: () => {}, interrupt: () => { this.interrupted = true; }, resume: () => { this.interrupted = false; this.go(this.mode); } }; }
-  stream(d) { const crowd = this.svc.g.crowd; if (!crowd) return; if (d < 160 && !this.p) this.spawn(); else if (d > 220 && this.p) this.despawn(); if (this.p && this.p.dead) { this.p.job = null; this.p.keep = false; this.p = null; } }
+  stream(d) { const crowd = this.svc.g.crowd; if (!crowd) return; if (d < 160 && !this.p) this.spawn(); else if (d > 220 && this.p) this.despawn(); if (this.p && this.p.dead) { this.p.job = null; this.p.keep = false; this.p = null; this.gen = (this.gen || 0) + 1; } }
+  // 86th: the same mechanic whenever the workshop streams back in (a new look on every return was a fresh body build); a new
+  // face only after the last one died
+  appearance() { return makeMechanicAppearance(9001 + this.i * 7717 + (this.gen || 0) * 131); }
   spawn() {
-    const svc = this.svc, crowd = svc.g.crowd, po = POSTS[this.i]; const [x, z] = svc.world(po.u, po.w); const seed = 9001 + this.i * 7717 + this.spawnN++ * 131;
-    const sp = makeMechanicAppearance(seed); const node = nearestPedNode(x, z); const p = crowd.makePed(sp, x, z, node);
+    const svc = this.svc, crowd = svc.g.crowd, po = POSTS[this.i]; const [x, z] = svc.world(po.u, po.w); const sp = this.appearance(); const node = nearestPedNode(x, z); const p = crowd.makePed(sp, x, z, node);
     Object.assign(p, { x, z, yaw: 0, state: 'job', job: this.job, keep: true, umbrella: false, jog: false, pace: 1.2, target: null, edge: null, mechanic: true }); crowd.place(p); this.p = p; this.go('idle');
   }
   despawn() { const p = this.p; if (!p) return; p.job = null; p.keep = false; if (!p.dead) this.svc.g.crowd.remove(p); this.p = null; }

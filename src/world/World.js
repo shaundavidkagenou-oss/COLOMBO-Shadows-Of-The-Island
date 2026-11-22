@@ -3,7 +3,7 @@ import { GRID } from './PowerGrid.js';
 import * as THREE from 'three';
 import { buildHospital } from './HospitalBuild.js';
 import { nightLight } from '../gfx/LightSets.js';
-import { MultiBuilder, SliceBuild, meshFor, matFor, FOLIAGE } from '../gfx/MeshBuilder.js';
+import { MultiBuilder, SliceBuild, GrowBuf, meshFor, matFor, FOLIAGE } from '../gfx/MeshBuilder.js';
 import { MAT, ROLE_DEFS } from '../gfx/Materials.js';
 import { RangeBatch, rangesFor, disposeMesh, splitCells, cellsOfBox } from '../gfx/CellBatch.js';
 import { installCull, CULL, CSLOTS, LOD, setLodQuality } from '../gfx/BatchCull.js';
@@ -398,7 +398,7 @@ export class World {
   // The job builds a few buildings per frame within a time budget, then merges one material per frame. Every building
   // seeds its own RNG, so the result is identical to the one-shot build (same meshes, same order) - only spread out.
   startDetailJob(c) { this.job = this.newJob(c, 'detail'); }
-  newJob(c, kind) { return { c, kind, i: 0, B: kind === 'detail' ? [new MultiBuilder()] : [new MultiBuilder(), new MultiBuilder()], q: null, meshes: [] }; }
+  newJob(c, kind) { const mk = () => new MultiBuilder(null, { pooled: true }); /* 86th: pooled typed buffers (MeshBuilder.GrowBuf) — no GC storm while streaming */ return { c, kind, i: 0, B: kind === 'detail' ? [mk()] : [mk(), mk()], q: null, meshes: [] }; }
   stepDetailJob(budgetMs = 3) { const done = this.stepJob(this.job, budgetMs); if (done) this.job = null; return done; }
   stepWinJob(budgetMs = 3) { const done = this.stepJob(this.wjob, budgetMs); if (done) this.wjob = null; return done; }
   // advance a streaming job; true when finished (result attached to the chunk)
@@ -409,19 +409,27 @@ export class World {
       if (performance.now() - t0 > budgetMs) return false; }
     if (!J.q) { this.markJob(J); J.q = []; J.B.forEach((mb, k) => { for (const name of mb.b.keys()) J.q.push([k, name]); }); }
     while (J.q.length || J.sb || J.rb) { // merge: one material at a time, large ones in slices
-      if (J.rb) { if (!J.rb.step(t0, budgetMs)) return false; const B = J.rb.mesh, o = J.rbOpts; J.rb = null; B.name = J.sn; B.castShadow = o.cast; B.receiveShadow = o.receive; B.matrixAutoUpdate = false; B.updateMatrix(); J.meshes.push(B); if ((J.q.length || J.sb) && performance.now() - t0 > budgetMs) return false; continue; }
-      if (!J.sb) { const [k, name] = J.q.shift(); J.sb = new SliceBuild(J.B[k].b.get(name)); J.sk = k; J.sn = name; }
+      if (J.rb) { if (!J.rb.step(t0, budgetMs)) return false; const B = J.rb.mesh, o = J.rbOpts; J.rb = null; if (J.rbRel) { J.B[J.rbRel[0]].release(J.rbRel[1]); J.rbRel = null; } B.name = J.sn; B.castShadow = o.cast; B.receiveShadow = o.receive; B.matrixAutoUpdate = false; B.updateMatrix(); J.meshes.push(B); if ((J.q.length || J.sb) && performance.now() - t0 > budgetMs) return false; continue; }
+      if (!J.sb) { const [k, name] = J.q.shift(); const src = J.B[k].b.get(name);
+        // 86th: a material that becomes a RangeBatch is read straight from its pooled builder's typed buffers (views, no copy):
+        // the SliceBuild copy it used to go through was thrown away right after the batch had copied it again (tens of MB a material)
+        if (src && src.pos instanceof GrowBuf && src.idx.length >= 18000) { const bp = this.batchPlan(J, k, name, det); if (bp.ranges && bp.ranges.length >= 3) { const g = new THREE.BufferGeometry();
+          g.setAttribute('position', new THREE.BufferAttribute(src.pos.view(), 3)); g.setAttribute('normal', new THREE.BufferAttribute(src.nor.view(), 3)); g.setAttribute('uv', new THREE.BufferAttribute(src.uv.view(), 2)); g.setAttribute('color', new THREE.BufferAttribute(src.col.view(), 3)); g.setIndex(new THREE.BufferAttribute(src.idx.view(), 1));
+          J.sn = name; J.rb = this.rangeBatch(J, g, bp, det); J.rbOpts = bp.opts; J.rbRel = [k, name]; if (performance.now() - t0 > budgetMs) return false; continue; } }
+        J.sb = new SliceBuild(src); J.sk = k; J.sn = name; }
       if (!J.sb.step(t0, budgetMs)) return false;
-      const g = J.sb.geometry(), k = J.sk; J.sb = null;
-      if (g) { const opts = det ? { cast: true, receive: true } : k === 0 ? { cast: false, receive: true } : { cast: false, receive: false };
-        // opaque detail / window joinery: one BatchedMesh instance per building (per-building frustum culling, still one draw) — see CellBatch.RangeBatch
-        const mat = matFor(J.sn, MAT), ranges = (det || k === 0) && mat && !mat.isShaderMaterial && !FOLIAGE.has(J.sn) && J.sn !== 'balCloth' && J.sn !== 'balProp' && J.sn !== 'pool' && J.sn !== 'lampHead' ? rangesFor(J.marks, J.sn) : null;
-        if (ranges && ranges.length >= 3 && g.index.count >= 18000) { const bl = plan.byChunk[J.c.idx].buildings; J.rb = new RangeBatch(g, ranges, mat, { kind: det ? 'detail' : 'win', occ: this.occ, ids: ranges.map((r) => (bl[r[4]] ? bl[r[4]].id : -1)) }); J.rbOpts = opts; /* 65th: + per-building occlusion / LOD (BatchCull.js) */ if (performance.now() - t0 > budgetMs) return false; continue; }
+      const g = J.sb.geometry(), k = J.sk; J.sb = null; J.B[k].release(J.sn); // copied out: its buffers serve the next material / chunk
+      if (g) { const bp = this.batchPlan(J, k, J.sn, det), opts = bp.opts;
+        if (bp.ranges && bp.ranges.length >= 3 && g.index.count >= 18000) { J.rb = this.rangeBatch(J, g, bp, det); J.rbOpts = opts; if (performance.now() - t0 > budgetMs) return false; continue; }
         const m = meshFor(J.sn, g, MAT, opts); if (m) { if (!det && k === 1) m.renderOrder = 2; J.meshes.push(m); } }
       if ((J.q.length || J.sb) && performance.now() - t0 > budgetMs) return false; }
-    const c = J.c; if (det ? c.detail : c.win) { for (const m of J.meshes) disposeMesh(m); return true; } // built meanwhile by warm()
+    for (const mb of J.B) mb.releaseAll(); const c = J.c; if (det ? c.detail : c.win) { for (const m of J.meshes) disposeMesh(m); return true; } // built meanwhile by warm()
     if (det) this.finishDetail(c, J.meshes, !J.sync); else this.finishWindows(c, J.meshes, !J.sync); return true;
   }
+  // opaque detail / window joinery: one BatchedMesh instance per building (per-building frustum culling, still one draw) — see CellBatch.RangeBatch
+  batchPlan(J, k, name, det) { const opts = det ? { cast: true, receive: true } : k === 0 ? { cast: false, receive: true } : { cast: false, receive: false };
+    const mat = matFor(name, MAT), ranges = (det || k === 0) && mat && !mat.isShaderMaterial && !FOLIAGE.has(name) && name !== 'balCloth' && name !== 'balProp' && name !== 'pool' && name !== 'lampHead' ? rangesFor(J.marks, name) : null; return { opts, mat, ranges }; }
+  rangeBatch(J, g, bp, det) { const bl = plan.byChunk[J.c.idx].buildings; return new RangeBatch(g, bp.ranges, bp.mat, { kind: det ? 'detail' : 'win', occ: this.occ, ids: bp.ranges.map((r) => (bl[r[4]] ? bl[r[4]].id : -1)) }); } /* 65th: + per-building occlusion / LOD (BatchCull.js) */
   // per-building range marks: each material builder's vertex / index count before every building (+ one at the end)
   markJob(J) { const mb = J.B[0]; (J.marks || (J.marks = [])).push(new Map([...mb.b].map(([n, b]) => [n, [b.pos.length / 3, b.idx.length]]))); }
   finishWindows(c, meshes, staged = false) { const g = new THREE.Group(); g.name = 'windows' + c.idx; for (const m of meshes) { if (m.name === 'balCloth') setupClothMesh(m); g.add(m); } c.win = g; c.group.add(g); refreshStatic(c.group); if (staged) this.stage(meshes); }

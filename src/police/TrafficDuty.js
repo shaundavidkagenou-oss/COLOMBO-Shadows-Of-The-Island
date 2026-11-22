@@ -72,6 +72,7 @@ export class TrafficDuty {
   dropBike(p) { const v = p.bike; if (!v) return; p.bike = null; const T = this.g.traffic; if (v.player || T.vehicles.includes(v)) return; const i = T.parked.indexOf(v); if (i >= 0) T.parked.splice(i, 1); v.dispose(); }
   bikeOk(p) { const v = p.bike; return v && !v.player && !v.disposed && this.g.traffic.parked.includes(v); }
   remove(p) { if (p.bare && p.ch) { p.ch.restoreHand(); p.bare = false; } if (p.glove) { this.dropGlove(p.glove); p.glove = null; } p.chase = false; if (p.ch && p.ch.root.parent && !(p.bike && p.ch.root.parent === p.bike.mesh)) p.ch.root.parent.remove(p.ch.root); p.on = false; this.dropBike(p); if (p.state !== 'ride') p.state = 'off'; }
+  looks() { return this.posts.filter((p) => !p.ch).map((p) => makePoliceAppearance(p.seed, 'traffic')); } // 86th: built on the loading screen (Game.prebuildServices)
   update(dt) {
     const g = this.g, P = g.player, A = g.atmos; const h = A.hour;
     this.acc -= dt;
