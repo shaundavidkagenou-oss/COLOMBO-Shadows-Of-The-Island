@@ -216,6 +216,24 @@ select { background: #0e1318; color: var(--paper); border: 1px solid rgba(255, 2
 .ph-meter i { height: 7px; background: rgba(255, 255, 255, 0.1); border-radius: 4px; overflow: hidden; } .ph-meter em { display: block; height: 100%; } .ph-meter b { text-align: right; }
 .ph-wx { padding: 16px; } .ph-wx b { font: 700 26px 'Barlow Condensed', sans-serif; display: block; margin-bottom: 8px; } .ph-wx p { margin: 4px 0; opacity: 0.85; } .ph-wx small { opacity: 0.55; }
 .ph-empty { opacity: 0.55; padding: 12px; text-align: center; }
+/* 81st: City Events app */
+.ph-ev-day { font: 600 11px Manrope, sans-serif; opacity: 0.6; margin-left: 6px; letter-spacing: 0; }
+.ph-ev-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; padding: 0 10px 8px; } .ph-ev-tabs span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; padding: 4px 1px; border-radius: 8px; background: rgba(255, 255, 255, 0.06); font-size: 9.5px; line-height: 1.2; cursor: pointer; opacity: 0.75; }
+.ph-ev-tabs span.on { background: rgba(232, 163, 58, 0.2); box-shadow: inset 0 0 0 1px var(--gold2); opacity: 1; } .ph-ev-tabs i { display: block; font-style: normal; font-size: 9px; opacity: 0.7; }
+.ph-ev-row { display: flex; gap: 9px; align-items: flex-start; } .ph-ev-row > div { flex: 1; min-width: 0; } .ph-ev-row b { display: block; font-size: 11.5px; line-height: 1.25; }
+.ph-ev-art { flex: 0 0 46px; height: 46px; border-radius: 8px; display: grid; place-items: center; font-style: normal; font-size: 18px; color: #fff; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 3px 8px rgba(0, 0, 0, 0.35); }
+.ph-ev-row small { display: block; opacity: 0.6; font-size: 10px; } .ph-ev-n { margin-top: 2px; opacity: 0.8 !important; }
+.ph-ev-st { display: inline-block; align-self: flex-start; margin-top: 4px; padding: 1px 7px; border-radius: 9px; font: 700 9.5px Manrope, sans-serif; font-style: normal; letter-spacing: 0.02em; background: rgba(255, 255, 255, 0.12); }
+.st-active { background: #2f8a4a; } .st-preparation { background: #4f6fa0; } .st-paused { background: #c08a1e; } .st-suspended { background: #c0562f; } .st-cancelled, .st-postponed { background: #8a2f3a; } .st-ending, .st-cleanup { background: #5b5f6b; } .st-completed { background: #3a3f4a; }
+.ph-ev-hero { position: relative; padding: 18px 14px 12px; min-height: 128px; flex: 0 0 auto; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; overflow: hidden; }
+.ph-ev-hero h3 { margin: 0; font: 700 21px 'Barlow Condensed', sans-serif; line-height: 1.05; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45); }
+.ph-ev-hero-ic { position: absolute; right: -6px; top: -14px; font-size: 92px; opacity: 0.28; line-height: 1; }
+.ph-ev-cat { align-self: flex-start; padding: 2px 8px; border-radius: 9px; font-size: 9.5px; font-weight: 700; }
+.ph-ev-act { display: grid; grid-template-columns: 1.4fr 1fr; gap: 6px; padding: 8px 10px 2px; } .ph-ev-act .ph-row { margin: 0; padding: 6px 9px; } .ph-ev-act .ph-row p { margin: 1px 0 0; font-size: 9.5px; opacity: 0.65; }
+.ph-ev-det { padding-top: 6px; min-height: 0; flex: 1 1 0; overflow-y: auto; } .ph-ev-kv { display: grid; grid-template-columns: 52px 1fr; gap: 6px; padding: 5px 4px; border-bottom: 1px solid rgba(255, 255, 255, 0.07); font-size: 11px; }
+.ph-ev-kv span { opacity: 0.55; } .ph-ev-kv small { display: block; opacity: 0.6; font-weight: 500; font-size: 10px; margin-top: 2px; }
+.ph-ev-desc { margin: 8px 4px; font-size: 11px; line-height: 1.4; opacity: 0.9; } .ph-ev-h { margin: 8px 4px 2px; font: 700 12px 'Barlow Condensed', sans-serif; letter-spacing: 0.05em; color: var(--gold2); text-transform: uppercase; }
+.ph-ev-ul { margin: 2px 0 8px; padding-left: 18px; font-size: 11px; line-height: 1.45; } .ph-ev-notes li { opacity: 0.8; font-size: 10.5px; }
 .world-marker { position: absolute; left: 0; top: 0; margin: -14px 0 0 -40px; width: 80px; text-align: center; }
 .wm-dot { width: 14px; height: 14px; margin: 0 auto; border: 2px solid var(--gold2); transform: rotate(45deg); background: rgba(232, 163, 58, 0.35); box-shadow: 0 0 10px rgba(232, 163, 58, 0.7); }
 .wm-d { margin-top: 5px; font-size: 13px; letter-spacing: 0.08em; text-shadow: 0 1px 4px #000; }

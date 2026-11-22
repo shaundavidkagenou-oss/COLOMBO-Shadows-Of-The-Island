@@ -511,6 +511,7 @@ export class Traffic {
     if (ai.creep) { v0 = Math.min(v0, 4); ai.creep = 0; } /* still steering out round a parked car */
     if (ai.rejoin) v0 = Math.min(v0, Math.abs(ai.rjErr || 0) > 0.5 ? 3.5 : 7.5);
     if (HUMPS.length && p.type === 'line') { const dH = humpAhead(v.x, v.z, fx, fz); if (dH < 36) v0 = Math.min(v0, lerp(em ? 7 : 4.2, v0, clamp((dH - 3) / 30, 0, 1))); } /* speed hump ahead: ease down to ~15 km/h (responding units ~25) and roll over it */
+    if (this.slowZones && this.slowZones.length && !em) for (const zn of this.slowZones) { if (Math.abs(v.x - zn.x) < zn.r && Math.abs(v.z - zn.z) < zn.r) { v0 = Math.min(v0, zn.v); break; } } /* 81st: city-event slow zone (arrivals / departures; never responding units) */
     if (p.vlim) v0 = Math.min(v0, pathV(p, ai.s)); if (ai.fuel && ai.fuel.vcap) v0 = Math.min(v0, ai.fuel.vcap); /* forecourt paths: curvature speed; slowing to turn in */
     const s0 = 2.2, T = 1.2 / ai.aggressive, a = v.T.accel * 0.8, b = 3.5; const sp = v.speed;
     const bodyG = this.bodyGap(v, ai, dt); ai.bodyBind = bodyG < Math.min(gap, stopAt) - 0.5; if (bodyG < gap) { gap = bodyG; leadV = 0; gapBy = 'body'; } // never into another vehicle's body

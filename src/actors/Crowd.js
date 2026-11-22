@@ -176,6 +176,7 @@ export class Crowd {
   place(p) { p.y = this.collision.groundAt(p.x, p.z, 0.2); p.ch.root.position.set(p.x, p.y, p.z); p.ch.root.rotation.y = p.yaw; }
   pickNext(p) {
     p.via = null; p.toKerb = false;
+    if (p.onArrive && (!p.route || !p.route.length)) { const f = p.onArrive; p.onArrive = null; if (f(p)) return; } // 81st: walked the graph to a city event's entrance node — the event takes them over
     if (p.coupleSpot && (!p.route || !p.route.length) && this.life.coupleArrive(p)) return;
     if (this.life && p.state === 'walk' && !p.crossing && p.route && p.route.length > 1 && this.rng.chance(0.15) && this.life.maybeStop(p)) return;
     if (p.goalPoi && (!p.route || !p.route.length)) { if (this.beginPoi(p, p.goalPoi)) return; }
@@ -245,8 +246,8 @@ export class Crowd {
   // A disturbance at (x,z): sev 1 = scuffle/shouting, 2 = gunfire, 3 = someone hit nearby. Each witness reacts after its
   // own delay and picks its own response; panic directions are spread so the crowd scatters rather than herding.
   alarm(x, z, r, sev, src = null, kind = null, byPlayer = false) {
-    for (const f of this.alarmHooks || []) f(x, z, r, sev);
-    kind = kind || SEV_KIND[Math.max(0, Math.min(3, sev | 0))]; this.minds.stimulus(kind, x, z, r, sev, src, byPlayer); // feelings + memories (Mind.js)
+    kind = kind || SEV_KIND[Math.max(0, Math.min(3, sev | 0))]; for (const f of this.alarmHooks || []) f(x, z, r, sev, kind, byPlayer, src); // (81st: hooks also get the kind / who caused it — city events react to the player's disturbances)
+    this.minds.stimulus(kind, x, z, r, sev, src, byPlayer); // feelings + memories (Mind.js)
     for (const p of this.peds) {
       if (p.state === 'down' || p === src) continue; const d = Math.hypot(p.x - x, p.z - z); if (d > r) continue;
       const delay = reactDelay(p.mind, sev, d, this.rng.next()); // personal reaction time: distance, wits, curiosity, fright
@@ -333,7 +334,7 @@ export class Crowd {
     this.noticeGun(dt, player, !!ctx.aiming);
     // spawn / despawn (despawn only far away / out of view)
     for (let i = this.peds.length - 1; i >= 0; i--) { const p = this.peds[i]; if ((Math.hypot(p.x - focus.x, p.z - focus.z) > 165 && !p.keep) || p.recycle) { this.despawn(p); this.peds.splice(i, 1); } }
-    const want = Math.round(this.max * (ctx.hourFactor ?? 1) * (this.rain ? 0.65 : 1)) - (this.extra || 0); // extra: people run elsewhere (the Fort station's train riders and clerks) — the same number of characters overall
+    const want = Math.round(this.max * (ctx.hourFactor ?? 1) * (this.rain ? 0.65 : 1)) - (this.extra || 0) + (this.extraEv || 0); // extraEv (81st): half of the people at a city event are on top of the street crowd (CityEvents.js); extra: people run elsewhere (the Fort station's train riders and clerks) — the same number of characters overall
     let budget = this.peds.length < want * 0.5 ? 2 : 1; /* one Character build per frame unless the street is badly under-populated */ while (this.peds.length < want && budget-- > 0) this.spawn(focus, camDir, this.peds.length < want * 0.5);
     // neighbour grid (2 m cells)
     /* neighbour grid reused across frames (no per-frame Map + arrays for the GC); emptied cells are dropped every ~10 s */

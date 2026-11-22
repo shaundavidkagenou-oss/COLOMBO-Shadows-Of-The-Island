@@ -14,6 +14,13 @@ export class Collision {
     for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const k = this.key(i, j); let a = this.grid.get(k); if (!a) this.grid.set(k, (a = [])); a.push(c); }
   }
   addAll(arr) { for (const c of arr) this.add(c); }
+  // 81st: take out a known set of colliders without rebuilding the whole grid (city-event structures come and go)
+  removeList(arr) {
+    if (!arr || !arr.length) return; const set = new Set(arr);
+    for (const c of arr) { const i0 = Math.floor(c.x0 / CELL), i1 = Math.floor(c.x1 / CELL), j0 = Math.floor(c.z0 / CELL), j1 = Math.floor(c.z1 / CELL);
+      for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const k = this.key(i, j), a = this.grid.get(k); if (!a) continue; const n = a.indexOf(c); if (n >= 0) a.splice(n, 1); if (!a.length) this.grid.delete(k); } }
+    if (this.big) this.big = this.big.filter((c) => !set.has(c)); this.list = this.list.filter((c) => !set.has(c));
+  }
   remove(pred) { // rebuild without matching colliders
     const keep = this.list.filter((c) => !pred(c)); this.grid.clear(); this.list = []; this.big = []; for (const c of keep) this.add(c);
   }

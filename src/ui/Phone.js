@@ -13,6 +13,8 @@ import { plan } from '../world/CityPlan.js';
 import * as L from '../world/Layout.js';
 import { callOptions, lines as friendLines } from '../actors/SquadCall.js';
 import { GlobalBrowser } from './GlobalBrowser.js';
+import { PALETTES } from '../world/events/CityEventCatalog.js';
+import { heroArt } from '../world/events/EventArt.js'; // 81st: City Events app artwork colours
 
 const el = (tag, cls, parent, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; if (parent) parent.appendChild(e); return e; };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -27,7 +29,9 @@ const APPS = [
   { id: 'weather', name: 'Weather', icon: '☂', col: '#4f6fa0' },
   { id: 'contacts', name: 'Contacts', icon: '☎', col: '#3d8b5a' },
   { id: 'global', name: 'Global', icon: '◍', col: '#1d63c9' },
+  { id: 'events', name: 'City Events', icon: '✺', col: '#c9952b' }, // 81st: live list from the event manager (world/CityEvents.js)
 ];
+const EV_TABS = [['now', 'Now'], ['today', 'Today'], ['upcoming', 'Upcoming'], ['recent', 'Recent']];
 const CONTACTS = [{ n: '119', t: 'Police Emergency', d: 'Sri Lanka Police emergency line — police or ambulance' },
   { n: 'Street Customs', t: 'Roadside Assistance', d: 'Breakdown & recovery (Cinnamon Gardens). Stand by your broken-down vehicle and call: a mechanic van, or a flatbed to the garage.', rs: true }]; // 80th: Roadside.call
 const WEATHER = { clear: 'Clear and sunny', cloudy: 'Cloudy', overcast: 'Overcast', rain: 'Rain', storm: 'Monsoon thunderstorm', drizzle: 'Drizzle' };
@@ -37,7 +41,7 @@ export class Phone {
     this.g = game; this.open = false; this.app = null; this.sel = 0; this.row = 0; this.confirm = false;
     this.root = el('div', 'phone hidden', parent); const body = el('div', 'phone-body', this.root);
     this.bar = el('div', 'phone-bar', body); this.screen = el('div', 'phone-screen', body); el('div', 'phone-home', body);
-    this.root.addEventListener('click', (e) => { const t = e.target.closest('[data-i]'); if (!t) return; if (!this.app) { this.sel = +t.dataset.i; this.launch(APPS[this.sel].id); } else { this.row = +t.dataset.i; this.activate(); } });
+    this.root.addEventListener('click', (e) => { const tb = e.target.closest('[data-tab]'); if (tb && this.app === 'events') { this.evTab = +tb.dataset.tab; this.evOpen = null; this.row = 0; Audio.ui('hover'); this.render(); return; } const t = e.target.closest('[data-i]'); if (!t) return; if (!this.app) { this.sel = +t.dataset.i; this.launch(APPS[this.sel].id); } else { this.row = +t.dataset.i; this.activate(); } });
     this.root.addEventListener('contextmenu', (e) => { e.preventDefault(); this.back(); });
     this.browser = new GlobalBrowser(this, game);
   }
@@ -47,12 +51,13 @@ export class Phone {
     this.open = v; this.root.classList.toggle('hidden', !v); this.app = null; this.row = 0; this.confirm = false; this.call = null; Audio.ui('click');
     if (v) { g.weapons?.forceHolster?.(); this.render(); }
   }
-  back() { if (this.call) { this.hangUp(); return; } if (this.app === 'global' && this.browser.back()) { Audio.ui('click'); this.render(); return; } if (this.confirm) { this.confirm = false; this.render(); return; } if (this.app) { this.app = null; this.row = 0; this.render(); Audio.ui('click'); } else this.toggle(false); }
+  back() { if (this.call) { this.hangUp(); return; } if (this.app === 'global' && this.browser.back()) { Audio.ui('click'); this.render(); return; } if (this.confirm) { this.confirm = false; this.render(); return; } if (this.app === 'events' && this.evOpen) { this.evOpen = null; this.row = this.evRowBack || 0; this.render(); Audio.ui('click'); return; } if (this.app) { this.app = null; this.row = 0; this.render(); Audio.ui('click'); } else this.toggle(false); }
   launch(id) {
     const g = this.g; Audio.ui('click');
     if (id === 'camera') { this.toggle(false); g.togglePhoto(true); return; }
     if (id === 'map') { this.toggle(false); g.toggleMap(true); return; }
     if (id === 'global') this.browser.reset();
+    if (id === 'events') { this.evOpen = null; const S = this.evSections(); this.evTab = S && S.now.length ? 0 : S && S.today.length ? 1 : 2; }
     this.app = id; this.row = 0; this.confirm = false; this.render();
   }
   jobs() {
@@ -70,6 +75,7 @@ export class Phone {
   rows() { // selectable rows of the current app
     if (this.app === 'jobs') return this.jobs();
     if (this.app === 'global') return this.browser.rows();
+    if (this.app === 'events') { if (this.evOpen) return [{ t: 'Navigate' }, { t: 'Back to the list' }]; const S = this.evSections(); return S ? S[EV_TABS[this.evTab || 0][0]] : []; }
     if (this.app === 'health') return [{ t: 'Call 1990 Suwa Seriya' }, { t: 'GPS to National Hospital' }];
     if (this.app === 'contacts') { if (!this.call) return this.contacts(); if (this.call.stage === 'ask') return this.call.friend ? callOptions(this.friend(this.call.friend)) : [{ t: 'Police' }, { t: 'Ambulance' }, { t: 'Hang up' }]; return []; }
     return [];
@@ -85,6 +91,10 @@ export class Phone {
       const kind = this.row === 0 ? 'police' : 'ambulance'; const r = g.police && g.police.emergencyCall ? g.police.emergencyCall(kind) : { ok: false, title: '119', msg: 'No answer.' };
       this.call = { n: this.call.n, stage: 'done', kind, res: r }; Audio.ui(r.ok ? 'notify' : 'click'); this.render(); return;
     }
+    if (this.app === 'events') { const M = g.cityEvents; if (!M) return; Audio.ui('click');
+      if (!this.evOpen) { const ev = this.rows()[this.row]; if (!ev) return; this.evOpen = ev.id; this.evRowBack = this.row; this.row = 0; this.render(); return; }
+      if (this.row === 0) { const ev = M.byId.get(this.evOpen); if (ev) { const v = M.view(ev); g.hud.setWaypoint(v.at.x, v.at.z); g.hud.notify('GPS set', `${v.title} — ${v.venueShort}`, 'info', 3); this.toggle(false); } return; }
+      this.back(); return; }
     if (this.app === 'jobs') { const j = this.jobs()[this.row]; if (j && j.at) { g.hud.setWaypoint(j.at.x, j.at.z); this.toggle(false); } return; }
     if (this.app === 'health') {
       if (this.row === 1) { g.hud.setWaypoint(L.PLACES.hospital.x, L.PLACES.hospital.z); this.toggle(false); return; }
@@ -121,11 +131,35 @@ export class Phone {
     if (k('Enter') || Input.wasPressed('interact')) { if (!this.app) this.launch(APPS[this.sel].id); else this.activate(); return; }
     let moved = false;
     if (!this.app) { if (k('ArrowRight')) { this.sel = (this.sel + 1) % n; moved = true; } if (k('ArrowLeft')) { this.sel = (this.sel + n - 1) % n; moved = true; } if (k('ArrowDown')) { this.sel = Math.min(n - 1, this.sel + 3); moved = true; } if (k('ArrowUp')) { this.sel = Math.max(0, this.sel - 3); moved = true; } }
+    else if (this.app === 'events' && this.evOpen) { if (k('ArrowLeft') || k('ArrowRight')) { this.row = 1 - (this.row || 0); moved = true; } else if (k('ArrowDown') || k('ArrowUp')) { const sc = this.screen.querySelector('.ph-list'); if (sc) sc.scrollTop += k('ArrowDown') ? 60 : -60; } } // details: ←→ Navigate / Back, ↑↓ scroll
+    else if (this.app === 'events' && !this.evOpen && (k('ArrowLeft') || k('ArrowRight'))) { this.evTab = ((this.evTab || 0) + (k('ArrowRight') ? 1 : 3)) % 4; this.row = 0; moved = true; }
     else if (n) { if (k('ArrowDown')) { this.row = (this.row + 1) % n; this.confirm = false; moved = true; } if (k('ArrowUp')) { this.row = (this.row + n - 1) % n; this.confirm = false; moved = true; } }
     else if (k('ArrowDown') || k('ArrowUp')) { const sc = this.screen.querySelector('.ph-list'); if (sc) sc.scrollTop += k('ArrowDown') ? 60 : -60; }
     if (moved) { Audio.ui('hover'); this.render(); }
     else if (this.app === 'global' && this.browser.update()) this.render(); // target picker: live positions
     this.tick = (this.tick || 0) + 1; if (this.tick % 30 === 0) this.renderBar(); // clock in the status bar
+    if (this.app === 'events' && this.tick % 45 === 0) this.render(); // live: states, attendance, notes
+  }
+  // ---- 81st: City Events (data: Game.cityEvents — the live instances of the event manager; nothing here is made up)
+  evSections() { const M = this.g.cityEvents; return M && M.ready ? M.sections() : null; }
+  evArt(v, big = false) { const P = PALETTES[v.pal] || { a: v.col, b: '#f2c14e', c: '#333' }; const M = this.g.cityEvents; const ev = M && M.byId.get(v.id); const url = ev ? heroArt(ev) : null; const grad = big ? `linear-gradient(180deg, rgba(0,0,0,0.05) 25%, rgba(10,12,18,0.88) 100%)` : `linear-gradient(135deg, ${P.a} 0%, ${P.c} 100%)`; return url ? `background:${big ? grad + ', ' : ''}url(${url}) center/cover, ${P.a};` : `background:linear-gradient(135deg, ${P.a} 0%, ${P.a} 45%, ${P.c} 100%);`; }
+  evPill(v) { const st = v.state === 'cleanup' && /Cancel/.test(v.status) ? 'cancelled' : v.state; return `<em class="ph-ev-st st-${st}">${esc(v.status)}</em>`; }
+  evHtml() {
+    const M = this.g.cityEvents; if (!M || !M.ready) return '<div class="ph-head">City Events</div><div class="ph-empty">The event calendar is not available.</div>';
+    if (this.evOpen) { const ev = M.byId.get(this.evOpen); if (!ev) { this.evOpen = null; return this.evHtml(); } const v = M.view(ev); const P = PALETTES[v.pal] || {};
+      return `<div class="ph-ev-hero" style="${this.evArt(v, true)}"><span class="ph-ev-cat" style="background:${v.col}">${esc(v.cat)}</span><h3>${esc(v.title)}</h3>${this.evPill(v)}</div>` +
+        `<div class="ph-ev-act">${this.rows().map((r, i) => `<div class="ph-row${i === this.row ? ' sel' : ''}" data-i="${i}"><b>${i === 0 ? 'Navigate' : 'Back'}</b><p>${i === 0 ? 'GPS to the entrance' : 'All events'}</p></div>`).join('')}</div>` +
+        `<div class="ph-list ph-ev-det"><div class="ph-ev-kv"><span>When</span><b>${esc(v.date)}<br>${esc(v.start)} – ${esc(v.end)}</b></div><div class="ph-ev-kv"><span>Where</span><b>${esc(v.venue)}</b></div>` +
+        `<div class="ph-ev-kv"><span>Status</span><b>${esc(v.status)}${v.reason ? `<small>${esc(v.reason)}</small>` : ''}</b></div><div class="ph-ev-kv"><span>Crowd</span><b>${esc(v.crowd)}<small>expected peak ≈ ${v.peak.toLocaleString('en-LK')}</small></b></div>` +
+        `<p class="ph-ev-desc">${esc(v.desc)}</p><div class="ph-ev-h">Activities</div><ul class="ph-ev-ul">${(v.acts || []).map((a) => `<li>${esc(a)}</li>`).join('')}</ul><div class="ph-ev-h">Public information</div><p class="ph-ev-desc">${esc(v.info)}</p>` +
+        (v.notes.length ? `<div class="ph-ev-h">Updates</div><ul class="ph-ev-ul ph-ev-notes">${v.notes.slice().reverse().map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : '') +
+''+ '</div>';
+    }
+    const S = M.sections(); const tab = this.evTab || 0; const list = S[EV_TABS[tab][0]];
+    const empty = ['Nothing is on right now.', 'No more events scheduled for today.', 'No events scheduled for the coming days.', 'No recent events.'][tab];
+    return `<div class="ph-head">City Events <small class="ph-ev-day">Day ${this.g.atmos.day}</small></div><div class="ph-ev-tabs">${EV_TABS.map(([k, n], i) => `<span class="${i === tab ? 'on' : ''}" data-tab="${i}">${n}<i>${S[k].length}</i></span>`).join('')}</div>` +
+      `<div class="ph-list">${list.length ? list.map((ev, i) => { const v = M.view(ev); return `<div class="ph-row ph-ev-row${i === this.row ? ' sel' : ''}" data-i="${i}"><i class="ph-ev-art" style="${this.evArt(v)}"></i><div><b>${esc(v.title)}</b><p>${esc(v.cat)} · ${esc(v.venueShort)}</p><small>${esc(v.dateShort)} · ${esc(v.start)} – ${esc(v.end)}</small>${this.evPill(v)}${tab === 0 && v.attendance ? `<small class="ph-ev-n">${esc(v.crowd)}</small>` : ''}</div></div>`; }).join('') : `<div class="ph-empty">${empty}</div>`}</div>` +
+      '<div class="ph-hint">←→ lists · ↑↓ select · Enter details · Backspace back</div>';
   }
   renderBar() { const A = this.g.atmos; this.bar.innerHTML = `<span>${A.timeString}</span><span class="ph-sig">LK 4G ▮▮▮▯ ▭</span>`; }
   render() {
@@ -159,11 +193,14 @@ export class Phone {
       else h = `<div class="ph-call"><div class="ph-call-n">${c.n} · ${c.kind === 'police' ? 'Police' : 'Ambulance (1990 Suwa Seriya)'}</div><div class="ph-call-q ${c.res.ok ? 'ok' : 'no'}">${esc(c.res.msg)}</div><div class="ph-call-s">Call ended</div></div>`;
     } else if (this.app === 'global') {
       h = this.browser.html(this.row);
+    } else if (this.app === 'events') {
+      h = this.evHtml();
     } else if (this.app === 'weather') {
       const A = g.atmos; const w = A.w || {}; const kind = A.weather || A.w?.kind || (w.rain > 0.5 ? 'rain' : w.cloud > 0.6 ? 'cloudy' : 'clear');
       h = `<div class="ph-head">Weather · Colombo</div><div class="ph-wx"><b>${WEATHER[kind] || kind}</b><p>${Math.round(28 + 3 * Math.sin(((A.hour - 9) / 24) * Math.PI * 2) - (w.rain || 0) * 3)}°C · humidity ${Math.round(72 + (w.rain || 0) * 20)}%</p><p>Rain ${Math.round((w.rain || 0) * 100)}% · wind ${Math.round((w.wind || 0) * 30)} km/h</p><small>Day ${A.day} · ${A.timeString}</small></div>`;
     }
+    const keep = this.app === 'events' && this.evOpen && this.evShown === this.evOpen ? (this.screen.querySelector('.ph-list') || {}).scrollTop || 0 : 0; this.evShown = this.app === 'events' ? this.evOpen : null; // the live refresh keeps the details where they were scrolled
     this.screen.innerHTML = h; if (this.app === 'global') this.browser.after(this.screen);
-    const s = this.screen.querySelector('.sel'); if (s && s.scrollIntoView) s.scrollIntoView({ block: 'nearest' });
+    const s = this.screen.querySelector('.sel'); if (s && s.scrollIntoView) s.scrollIntoView({ block: 'nearest' }); if (keep) { const sc = this.screen.querySelector('.ph-list'); if (sc) sc.scrollTop = keep; }
   }
 }
