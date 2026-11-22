@@ -191,6 +191,9 @@ const DQ_POS = `
   transformed = dqRot(dqR, transformed) + 2.0 * (dqR.w * dqD.xyz - dqD.w * dqR.xyz + cross(dqR.xyz, dqD.xyz));
 #endif
 `;
+// 82nd: the same dual-quaternion skinning for other meshes bound to a hero's skeleton (CarryGear.js: the rifle sling), so they
+// bend exactly like the body under them instead of with linear-blend skinning
+export function dqSkin(sh) { sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>\n${DQ_FUNCS}`).replace('#include <skinnormal_vertex>', DQ_NORMAL).replace('#include <skinning_vertex>', DQ_POS); }
 const SSS_LINE = 'reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseContribution ) * ( 1.0 - F );';
 const SSS_ADD = `${SSS_LINE}
   #ifdef HERO_SSS

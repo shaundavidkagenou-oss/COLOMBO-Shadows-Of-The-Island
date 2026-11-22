@@ -45,7 +45,7 @@ for (const [k, kind] of Object.entries(want)) {
   keys.add(M[k].customProgramCacheKey());
 }
 ok(keys.size === new Set(Object.values(want)).size, `one program key per surface kind (${keys.size})`);
-ok(SURFACE_KINDS.length === 9 && SURFACE_KINDS.includes('carbon') && SURFACE_KINDS.includes('cast'), 'nine surface kinds (7 weapon + carbon, cast for the motorcycles)');
+ok(SURFACE_KINDS.length === 14 && SURFACE_KINDS.includes('carbon') && SURFACE_KINDS.includes('cast') && ['leather', 'kydex', 'webbing', 'thread'].every((k) => SURFACE_KINDS.includes(k)), 'fourteen surface kinds (weapon kinds + carbon, cast for the motorcycles + leather, kydex, webbing, thread for the holster / sling gear)');
 
 // 3. hardware vs the committed models ------------------------------------------------------------------------------------
 const tmp = new URL('../src/combat/.__old_WeaponModels.js', import.meta.url);

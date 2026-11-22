@@ -605,6 +605,7 @@ export class Game {
     if (this.photo) this.updatePhoto(dt);
     else if (!D.active) P.update(dt, this.traffic);
     if (this.atm && this.atm.open && !warmOnly) this.atm.lateUpdate(); // 71st: the bank card in the player's hand, after his pose
+    if (this.weapons && this.weapons.gear) this.weapons.gear.late(dt); // 82nd: holster / sling follow the pose (thigh push, two-anchor rifle hang)
     this.squad.update(dt, busy || warmOnly || !!this.photo);
     if (!warmOnly) { this.stunts.update(dt); this.skills.update(dt); } // stunt-jump cinematic (owns the camera while it plays) + skill growth
     D.update(dt);

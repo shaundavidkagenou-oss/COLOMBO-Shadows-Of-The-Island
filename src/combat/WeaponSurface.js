@@ -73,15 +73,41 @@ const BODY = {
     vec2 q = vec2(vWsP.z + vWsP.y, vWsP.z - vWsP.y) * F; vec2 f = abs(fract(q) - 0.5); float h = (0.5 - max(f.x, f.y)) * 2.0;
     float t = wsF(vWsP * 60.0); diffuseColor.rgb *= (0.93 + 0.12 * t) * mix(1.0, 0.62 + 0.42 * h, a);
     roughnessFactor = clamp(roughnessFactor + (0.12 - h * 0.16) * a + (t - 0.5) * 0.08, 0.2, 1.0); normal = wsBump(normal, h * a, 0.0007); }`,
+  // 82nd (CarryGear.js — holsters and slings):
+  // leather — pebbled full-grain hide: ridged grain cells, mottled tone, soft creases where it flexes, lighter handling scuffs
+  leather: `{ float a = wsAA(700.0), a2 = wsAA(1600.0);
+    float g1 = wsN(vWsP * 700.0), g2 = wsN(vWsP * 1600.0 + 4.1); float cell = 1.0 - abs(g1 * 2.0 - 1.0);
+    float grain = mix(0.5, cell, a) * 0.7 + mix(0.5, g2, a2) * 0.3;
+    float mot = wsF(vWsP * 32.0); float scuff = smoothstep(0.72, 0.93, wsF(vWsP * 110.0 + 2.3)) * wsAA(110.0);
+    float crease = smoothstep(0.82, 0.97, wsN(vec3(vWsP.x * 160.0, vWsP.y * 160.0, vWsP.z * 22.0))) * wsAA(160.0);
+    diffuseColor.rgb *= (0.82 + 0.32 * mot) * (0.92 + 0.14 * grain) * (1.0 - crease * 0.18);
+    diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.3, 1.18, 1.04) + 0.015, scuff * 0.35);
+    roughnessFactor = clamp(roughnessFactor + (mot - 0.5) * 0.18 + (grain - 0.5) * 0.14 + scuff * 0.12 - crease * 0.06, 0.22, 1.0);
+    normal = wsBump(normal, grain - crease * 0.8, 0.00016); }`,
+  // kydex — thermoformed sheet: fine haircell texture, faint drag marks
+  kydex: `{ float a = wsAA(1500.0); float h = wsN(vWsP * 1500.0); float t = wsF(vWsP * 45.0);
+    float sc = smoothstep(0.93, 1.0, wsN(vec3(vWsP.z * 60.0, vWsP.y * 900.0, vWsP.x * 900.0))) * wsAA(900.0);
+    diffuseColor.rgb *= 0.92 + 0.12 * t; diffuseColor.rgb += sc * 0.05;
+    roughnessFactor = clamp(roughnessFactor + (h - 0.5) * 0.14 * a + (t - 0.5) * 0.08 - sc * 0.1, 0.25, 1.0); normal = wsBump(normal, h * a, 0.0001); }`,
+  // webbing — woven nylon strap (uv.x = metres along it, uv.y = −1…1 across): diagonal twill ribs, the weft picks, bound edges
+  webbing: `{ float s = vWsU.x, v = vWsU.y; float aR = clamp(1.6 - fwidth(s) * 1400.0, 0.0, 1.0), aY = clamp(1.6 - fwidth(v) * 30.0, 0.0, 1.0);
+    float rib = 0.5 + 0.5 * sin((s * 700.0 + v * 9.0) * 6.2832); float pick = 0.5 + 0.5 * sin(v * 26.0 * 6.2832); float edge = smoothstep(0.8, 0.95, abs(v));
+    float h = mix(0.5, rib, aR) * 0.7 + mix(0.5, pick, aY) * 0.3 + edge * 0.6; float mot = wsF(vWsP * 40.0); float fuzz = wsN(vWsP * 900.0);
+    diffuseColor.rgb *= (0.86 + 0.24 * mot) * (0.84 + 0.22 * h) * (1.0 - edge * 0.12);
+    roughnessFactor = clamp(roughnessFactor + (h - 0.5) * 0.12 + (fuzz - 0.5) * 0.08, 0.3, 1.0); normal = wsBump(normal, h, 0.00022); }`,
+  // thread — waxed stitching thread (uv.x = metres along the stitch): the twist of the plies
+  thread: `{ float s = vWsU.x; float a = clamp(1.6 - fwidth(s) * 2600.0, 0.0, 1.0); float tw = 0.5 + 0.5 * sin(s * 2600.0 * 6.2832);
+    diffuseColor.rgb *= 0.85 + 0.25 * mix(0.5, tw, a); roughnessFactor = clamp(roughnessFactor + (tw - 0.5) * 0.1, 0.4, 1.0); normal = wsBump(normal, tw * a, 0.00008); }`,
   rubber: `{ float a = wsAA(1200.0); float h = wsN(vWsP * 1200.0); roughnessFactor = clamp(roughnessFactor + (h - 0.5) * 0.08, 0.5, 1.0); normal = wsBump(normal, h * a, 0.00016); }`,
 };
 export function weaponSurface(mat, kind) {
   const body = BODY[kind]; if (!body) return mat;
   mat.onBeforeCompile = (sh) => {
     const ax = kind === 'carbon'; // carbon needs the object axes in view space (fibre direction vs the eye)
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWsP; varying vec3 vWsN;' + (ax ? ' varying vec3 vWsAx; varying vec3 vWsAy; varying vec3 vWsAz;' : ''))
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWsP = position; vWsN = normal;' + (ax ? ' vWsAx = normalize((modelViewMatrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz); vWsAy = normalize((modelViewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz); vWsAz = normalize((modelViewMatrix * vec4(0.0, 0.0, 1.0, 0.0)).xyz);' : ''));
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>\n${NOISE}${ax ? 'varying vec3 vWsAx; varying vec3 vWsAy; varying vec3 vWsAz;\n' : ''}`).replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${body}`);
+    const uk = kind === 'webbing' || kind === 'thread'; // straps / stitches: patterns run along the uv (metres along the strap)
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWsP; varying vec3 vWsN;' + (ax ? ' varying vec3 vWsAx; varying vec3 vWsAy; varying vec3 vWsAz;' : '') + (uk ? ' varying vec2 vWsU;' : ''))
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWsP = position; vWsN = normal;' + (uk ? ' vWsU = uv;' : '') + (ax ? ' vWsAx = normalize((modelViewMatrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz); vWsAy = normalize((modelViewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz); vWsAz = normalize((modelViewMatrix * vec4(0.0, 0.0, 1.0, 0.0)).xyz);' : ''));
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>\n${NOISE}${ax ? 'varying vec3 vWsAx; varying vec3 vWsAy; varying vec3 vWsAz;\n' : ''}${uk ? 'varying vec2 vWsU;\n' : ''}`).replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${body}`);
   };
   mat.customProgramCacheKey = () => 'weaponSurface:' + kind; mat.userData.surface = kind; return mat;
 }

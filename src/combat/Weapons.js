@@ -13,6 +13,7 @@ import { SoundBank as SB } from '../audio/SoundBank.js';
 import { ObjectAudio } from '../audio/ObjectAudio.js';
 import { buildWeaponModel, weaponMaterials } from './WeaponModels.js';
 import { holdFor } from './GripSolver.js';
+import { CarryGear } from './CarryGear.js';
 import { pocketFor, protractFor, protractLFor, elbowPole } from './Pocket.js';
 import * as L from '../world/Layout.js';
 
@@ -57,17 +58,14 @@ export class Weapons {
     // breathing and stance; a separate camera-kick spring makes each shot rise and mostly recover
     this.spr = { p: new THREE.Vector3(), pv: new THREE.Vector3(), r: new THREE.Vector3(), rv: new THREE.Vector3() }; this.kick = { p: 0, v: 0, y: 0, yv: 0 };
     this.lastCamYaw = null; this.lastCamPitch = 0; this.slideLock = false; this.reloadKind = null; this.reloadDur = 1; this.trigT = 0; this.fpAds = 0; this.aimHeld = false;
-    this.holsterP = new THREE.Group(); this.holsterR = new THREE.Group(); // hip holster (hips bone) and back sling (chest bone)
-    this.holsterP.position.set(-0.2, -0.06, 0.03); this.holsterP.rotation.set(Math.PI / 2 - 0.15, 0, 0.1);
-    { // back sling: diagonal across the back, muzzle up behind the right shoulder (−x is the right side), stock towards the left hip;
-      // the rifle lies flat (its side against the back) 0.21 m behind the chest bone so it clears the shoulder blades and seat
-      const b = new THREE.Vector3(-0.5, 0.866, 0), xw = new THREE.Vector3(0, 0, 1), yw = new THREE.Vector3().crossVectors(b, xw);
-      this.holsterR.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(xw, yw, b));
-      this.holsterR.position.set(0.125, -0.32, -0.21); } // grip; the rifle's middle (≈0.25 m up the barrel) lands on the spine
+    this.holsterP = new THREE.Group(); this.holsterR = new THREE.Group(); this.holsterP.name = 'holsterP'; this.holsterR.name = 'holsterR'; // pistol holster (hips) and long-gun sling (chest)
+    // 82nd: where they sit, and the holster / sling gear round them, is fitted to each character's body (CarryGear.js) — per
+    // weapon category and per body, instead of one fixed offset for every gun and every build
+    this.gear = new CarryGear(this);
     this.inHand = new THREE.Group(); this.inHand.matrixAutoUpdate = false; this.attach(this.P.ch);
     this.fxInit(); this.hudInit(); this.showHolstered();
   }
-  attach(ch) { const b = ch.bones; b.hips.add(this.holsterP); b.chest.add(this.holsterR); b.chest.add(this.inHand); if (this.P.ch !== ch) { ch.anim.ik = null; ch.anim.aim = null; } }
+  attach(ch) { const b = ch.bones; this.gear.attach(ch); b.chest.add(this.inHand); if (this.P.ch !== ch) { ch.anim.ik = null; ch.anim.aim = null; } }
   // 73rd: the first switch to a gun used to build its model (17–110 ms) and solve the hand hold on it (85–200 ms) in the frame the
   // switch began — the occasional hitch. Owned guns are now built ahead of time, ONE per quiet frame (never mid-switch, never in a
   // slow frame), wheel-slice picks first, with the current character's hold looked up (baked) and the shader programs compiled
@@ -92,10 +90,7 @@ export class Weapons {
   get aiming() { return this.aimW > 0.5 && this.drawn; }
 
   // ------------------------------------------------------------------ helpers
-  showHolstered() { // the selected weapon rides in its holster/sling when not in the hands
-    const idx = new Set(this.built); if (this.sel >= 0 && this.inv[this.sel] && this.inv[this.sel].owned && this.state === 'none') idx.add(this.sel);
-    for (const i of idx) { const m = this.models[i]; if (i === this.sel && this.state === 'none' && this.inv[i] && this.inv[i].owned) { const slot = WEAPONS[i].cls === 'pistol' ? this.holsterP : this.holsterR; if (m.parent !== slot) slot.add(m); m.position.set(0, 0, 0); m.quaternion.identity(); m.visible = true; m.matrixAutoUpdate = true; } else if (i !== this.cur || this.state === 'none') { if (i !== this.sel) m.visible = false; } }
-  }
+  showHolstered() { this.gear.refresh(); } // stowed weapons ride in their holster / sling when not in the hands (CarryGear.refresh: one pistol + one long gun)
   slotMatrixInChest(i, out) { const b = this.P.ch.bones; const slot = WEAPONS[i].cls === 'pistol' ? this.holsterP : this.holsterR; b.chest.updateWorldMatrix(true, false); slot.updateWorldMatrix(true, false); return out.copy(b.chest.matrixWorld).invert().multiply(slot.matrixWorld); }
   select(i) {
     if (this.P.swim || this.P.diveIn) return; /* no weapon in the water: arms are swimming */
@@ -304,7 +299,7 @@ export class Weapons {
     if (D.w <= 0.001 && !want) { if (D.on) { if (this.cur >= 0) this.models[this.cur].visible = false; this.cur = -1; this.state = 'none'; D.on = false; this.showHolstered(); } A.driveBy = null; P.driveBy = D.reload > 0; P.aiming = false; this.aimW = 0; this.hudUpdate(dt); this.fxUpdate(dt); return; }
     if (this.cur !== idx && idx >= 0) { if (this.cur >= 0) this.models[this.cur].visible = false; this.cur = idx; this.sel = idx; this.state = 'ready'; this.t = 0; } D.on = true;
     const def = WEAPONS[this.cur], m = this.models[this.cur], ud = m.userData; const H = holdFor(P.ch, m); const b = P.ch.bones;
-    for (const i of this.built) if (i !== this.cur) this.models[i].visible = false;
+    for (const i of this.built) if (i !== this.cur && this.models[i].parent === this.inHand) this.models[i].visible = false; // (stowed guns stay in their holster / sling)
     // where he points: the camera's aim point, clamped to the arc a seated right-handed driver can reach
     b.chest.updateWorldMatrix(true, false); b.armR.updateWorldMatrix(true, false); const sh = new THREE.Vector3().setFromMatrixPosition(b.armR.matrixWorld);
     const { o, d } = this.aimRay(0); const aimPt = o.clone().addScaledVector(d, 35); let dir = aimPt.clone().sub(sh).normalize();
@@ -335,7 +330,7 @@ export class Weapons {
   // ------------------------------------------------------------------ pose + IK
   pose(dt, def) {
     const P = this.P, A = P.ch.anim, m = this.models[this.cur], ud = m.userData; const k = this.t; const twoHand = def.cls !== 'pistol';
-    for (const i of this.built) if (i !== this.cur) this.models[i].visible = false; // only the weapon in use is on the body
+    for (const i of this.built) if (i !== this.cur && this.models[i].parent === this.inHand) this.models[i].visible = false; // only the weapon in use is in the hands (82nd: stowed ones stay in their holster / sling)
     const pitch = P.camMode === 2 ? clamp(-P.camPitch, -1.0, 1.1) : clamp(-(P.camPitch - 0.12) * 1.15, -1.0, 1.1); // camera pitch → aim pitch (positive = up); first person: exactly the view
     const POCKET = pocketFor(P.ch, twoHand ? m : null, _pk); const ap = aimPose(def, ud, POCKET); const aw = adsEase(this.aimW); this.dynamics(dt, def);
     A.aim = { pitch: pitch * aw + (twoHand ? -0.05 : 0) * (1 - aw), twist: (twoHand ? ap.twist : ap.twist * aw), w: Math.max(aw, twoHand ? 0.65 : 0.3), headDown: twoHand ? 0.12 * aw : 0, protractR: twoHand ? protractFor(P.ch) * aw : 0, protractL: twoHand ? protractLFor(P.ch) * aw : 0 };
@@ -408,7 +403,12 @@ export class Weapons {
     if ((this.state === 'equip' || this.state === 'holster') && this.drawMode === 'hip') { // pistol from / to the hip holster
       const E = this.dur; const u = this.state === 'equip' ? k / E : 1 - k / E; const slot = this.slotMatrixInChest(this.cur, new THREE.Matrix4());
       const reach = sm(seg(u, 0, 0.38)); const travel = sm(seg(u, 0.38, 1));
-      if (u < 0.38) { handOnly = 1; this._reach = reach; } else { const a = new THREE.Vector3(), aq = new THREE.Quaternion(), b = new THREE.Vector3(), bq = new THREE.Quaternion(), sc = new THREE.Vector3(); slot.decompose(a, aq, sc); chestM.decompose(b, bq, sc); chestM = new THREE.Matrix4().compose(a.lerp(b, travel), aq.slerp(bq, travel), new THREE.Vector3(1, 1, 1)); }
+      if (u < 0.38) { handOnly = 1; this._reach = reach; } else { const a = new THREE.Vector3(), aq = new THREE.Quaternion(), b = new THREE.Vector3(), bq = new THREE.Quaternion(), sc = new THREE.Vector3();
+        // 82nd: the pistol first slides straight up out of the holster along its own bore line (it would go through the shell
+        // on a straight line to the hands), then swings up into the pose
+        const lift = this.gear.drawLift(this.cur); const k1 = lift > 0 ? sm(seg(u, 0.38, 0.6)) : 1, k2 = lift > 0 ? sm(seg(u, 0.52, 1)) : travel;
+        if (lift > 0) slot.multiply(_m.makeTranslation(0, 0, -lift * k1));
+        slot.decompose(a, aq, sc); chestM.decompose(b, bq, sc); chestM = new THREE.Matrix4().compose(a.lerp(b, k2), aq.slerp(bq, k2), new THREE.Vector3(1, 1, 1)); }
       supW = twoHand ? sm(seg(u, 0.7, 1)) : supW * sm(seg(u, 0.8, 1));
       if (this.state === 'equip' && k < dt * 1.5) this.drawFoley() || SB.play('gun.equip') || Audio.noise(0.12, { f: 700, q: 0.8, vol: 0.06 });
       if (handOnly) { const slotM = slot; if (m.parent !== (def.cls === 'pistol' ? this.holsterP : this.holsterR)) { (def.cls === 'pistol' ? this.holsterP : this.holsterR).add(m); m.matrixAutoUpdate = true; m.position.set(0, 0, 0); m.quaternion.identity(); } m.visible = true;
