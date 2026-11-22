@@ -140,7 +140,7 @@ export class PoliceResponse {
     if (this.busy) return; const P = this.g.player; this.stats.reports++;
     const jx = (Math.random() * 2 - 1) * 10, jz = (Math.random() * 2 - 1) * 10; const inc = { x: P.x + jx, z: P.z + jz, t: this.t };
     if (this.t - this.repT < 8) { if (this.state === 'searching' || this.state === 'detected') this.incident = inc; return; } this.repT = this.t;
-    this.incident = inc; this.addHeat(1, this.reason || 'witness report', 'A witness called 119 and described you.');
+    this.incident = inc; this.addHeat(e?.heat || 1, this.reason || 'witness report', 'A witness called 119 and described you.');
   }
   gunfire(x, z, hit = null) { this.reason = 'discharging a firearm in public'; this.addHeat(0.05, this.reason, null, true); this.crime(x, z, 'gunfire'); this.ff.onPlayerShot(x, z, hit); disturbance(this, x, z); if (hit) disturbance(this, hit.x, hit.z, 12); }
   workerHit(o, dx, dz, dmg, how) { return workerHit(this, o, dx, dz, dmg, how); }

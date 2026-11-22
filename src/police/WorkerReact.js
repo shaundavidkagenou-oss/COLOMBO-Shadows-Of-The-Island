@@ -94,7 +94,7 @@ export function reactOfficer(pr, o, u, dt) {
       R.at = (R.at || 0) + dt; const serious = u && u.wAlarm && (u.wAlarm.why === 'shot' || u.wAlarm.why === 'gunfire' || u.wDown);
       if (R.st !== 'call' && serious && !u.wCalled && R.at > 3.5 + ((o.id | 0) % 3)) { u.wCalled = true; R.st = 'call'; R.ct = 0; R.forced = true; pr.note('worker phones 119'); }
       if (R.st === 'cover') { if (A.action !== 'cover') A.set('cover'); face(Math.atan2(R.tx - o.x, R.tz - o.z)); }
-      else if (R.st === 'call') { if (A.action !== 'phone') A.set('phone'); face(away + Math.PI); R.ct = (R.ct || 0) + dt; if (R.ct > WR.callT && !R.called) { R.called = true; if (u) u.wCalled = true; S.calls++; pr.reason = 'assault on an emergency worker'; pr.report({ kind: 'assault', x: o.x, z: o.z }); } }
+      else if (R.st === 'call') { if (A.action !== 'phone') A.set('phone'); face(away + Math.PI); R.ct = (R.ct || 0) + dt; if (R.ct > WR.callT && !R.called) { R.called = true; if (u) u.wCalled = true; S.calls++; const kill = !!(u && u.wDown); pr.reason = kill ? 'shooting an emergency worker' : 'assault on an emergency worker'; pr.report({ kind: 'assault', x: o.x, z: o.z, heat: kill ? 2 : 1 }); } }
       else { if (A.action !== 'look') A.set('look'); face(away + Math.PI); }
       pr.animOfficer(o, dt, 0);
       if (calm) { R.st = 'done'; A.set(null); o.react = null; o.mode = 'foot'; o.goal = null; o.want = null; o.q = []; o.placedT = 0; } return true; } // the job system takes over again (EMS: recover the cot / leave; roadside: pack up)
