@@ -26,6 +26,7 @@
 import * as THREE from 'three';
 import { Keys, supineFrame, rollAngle, rotateAbout, RAG_N } from '../actors/Ragdoll.js';
 import { AMB } from '../vehicles/AmbulanceKit.js';
+import { swingClear } from './FootNav.js';
 import { Audio } from '../audio/Audio.js';
 import { Voices } from '../audio/Voices.js';
 import { SoundBank } from '../audio/SoundBank.js';
@@ -39,6 +40,7 @@ const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= Math.PI * 2;
 const sm = (k) => { k = Math.max(0, Math.min(1, k)); return k * k * (3 - 2 * k); };
 export const MEDIC_LINES = {
   arrive: [{ si: 'ගිලන් රථය! පාර දෙන්න.', tr: 'Ambulance! Make way, please.' }, { en: 'Ambulance crew — let us through, please.' }],
+  attacked: [{ en: 'Get down — he\'s attacking us! Get away from him!' }, { si: 'පරිස්සමින්! අපිට පහර දෙනවා — පොලිසියට කතා කරන්න!', tr: 'Careful! He\'s attacking us — call the police!' }, { en: 'Leave it — move, move! Call it in!' }],
   hear: [{ si: 'ඔයාට මට ඇහෙනවද? ඇස් අරින්න.', tr: 'Can you hear me? Open your eyes.' }],
   roll: [{ en: 'Log roll on three — one, two, three.' }],
   pulse: [{ si: 'නාඩිය තියෙනවා, හුස්ම ගන්නවා.', tr: "There's a pulse — breathing." }],
@@ -111,6 +113,39 @@ function setCotLegs(st, eH, eF, snap = false) {
     U.wheels[s * 2].position.set(x, yb[0] - COT.baseY + COT.wheelR, zb[0]); U.wheels[s * 2 + 1].position.set(x, yb[1] - COT.baseY + COT.wheelR, zb[1]); }
   U.cross[0].position.set(0, yb[0], zb[0]); U.cross[1].position.set(0, yb[1], zb[1]);
 }
+// 84th: ONE cot per ambulance, for the vehicle's whole life. It used to be rebuilt for every call (buildStretcher in fetch)
+// and disposed after each hand-over, while the interior-mapped compartment drew a cot on the floor rails whenever the real one
+// was not "behind the doors" along the van's axis — so a cot wheeled to a patient AHEAD of the van, or left in the ED, also
+// showed up inside the van (the "duplicated trolley"). Now: v.trolley = { id, m, state } with a stable id; the same object
+// leaves through the doors (scene.attach keeps its world pose: no jump), is wheeled, and comes back to its rail slot
+// (a child of the modelled compartment, RearCompartment.js: visible exactly when the doors are open — the only cot there is).
+let TRL_SEQ = 0;
+export const TROLLEYS = new Set();
+export const TROLLEY_SLOT = { x: 0, y: AMB.doorY0, z: AMB.rearZ + ST.half + 0.05, yaw: Math.PI };
+export function trolleyOf(v) {
+  if (!v || !v.mesh) return null; let T = v.trolley;
+  if (!T) { const m = buildStretcher(); T = v.trolley = { id: `TRL-${++TRL_SEQ}`, m, v, state: 'stowed', trips: 0, sheet: false }; m.userData.trolleyId = T.id; TROLLEYS.add(T); seatTrolley(v); }
+  return T;
+}
+export function seatTrolley(v) { // into the rail slot, locked, legs folded (the stowed pose; called when it rolls home or for the first build)
+  const T = v.trolley; if (!T) return; const m = T.m; m.parent?.remove(m); m.position.set(TROLLEY_SLOT.x, TROLLEY_SLOT.y, TROLLEY_SLOT.z); m.rotation.set(0, TROLLEY_SLOT.yaw, 0);
+  setCotLegs(m, 0, 0, true); m.visible = true; slotParent(v).add(m); T.state = 'stowed';
+}
+const slotParent = (v) => v.mesh.userData.rear?.cav || v.mesh;
+export function deployTrolley(v, scene) { // unlocked and out through the doors: same object, same world pose
+  const T = trolleyOf(v); if (!T) return null; if (T.state !== 'out') { v.mesh.updateMatrixWorld(true); scene.attach(T.m); T.m.visible = true; T.state = 'out'; T.trips++; } return T.m;
+}
+// debug validation: every cot exists once, sits where its state says, and no ambulance carries two ids
+export function validateTrolleys(scene, deep = false) {
+  const bad = []; const byV = new Map();
+  for (const T of TROLLEYS) { if (T.v && T.v.disposed) { TROLLEYS.delete(T); continue; } const k = byV.get(T.v) || []; k.push(T.id); byV.set(T.v, k);
+    if (T.state === 'stowed' && T.m.parent !== slotParent(T.v)) bad.push(`${T.id} stowed but not in its van`);
+    if (T.state === 'out' && T.m.parent !== scene) bad.push(`${T.id} out but not in the scene`);
+    if (T.v.trolley !== T) bad.push(`${T.id} orphaned`); }
+  for (const [, ids] of byV) if (ids.length > 1) bad.push(`ambulance with ${ids.length} cots: ${ids.join(',')}`);
+  if (deep && scene) { const n = new Map(); let loose = 0; scene.traverse((o) => { if (o.name !== 'emsStretcher') return; const id = o.userData.trolleyId; if (!id) loose++; else n.set(id, (n.get(id) || 0) + 1); }); for (const [id, c] of n) if (c > 1) bad.push(`${id} x${c} in the scene`); if (loose) bad.push(`${loose} untracked stretcher mesh(es)`); }
+  return { ok: !bad.length, n: TROLLEYS.size, bad };
+}
 // 75th: a real cloth, not a reveal. A 1.05 × 2.3 m white sheet (hospital cotton, one mesh): the medics spread it out
 // taut between them at chest height, lower it, and it settles over the body — highest points (face, toes) first — then hangs
 // over the stretcher's sides and ends. The body shape is a set of capsules along the ragdoll's bones (torso, limbs, hands,
@@ -137,7 +172,7 @@ function sheetRest(sheet, local) {
   const base = sheet.userData.base, fin = sheet.userData.fin, n = base.length / 3; const caps = SH_BONES.map(([a, b, r]) => [local[a], local[b], r]);
   for (let i = 0; i < n; i++) { const x0 = base[i * 3], z0 = base[i * 3 + 2]; const x = Math.max(-SH.padX, Math.min(SH.padX, x0)), z = Math.max(-SH.padZ, Math.min(SH.padZ, z0));
     let h = ST.top + 0.012; for (const [A, B, r] of caps) { const abx = B.x - A.x, abz = B.z - A.z, L2 = abx * abx + abz * abz; let t = L2 > 1e-6 ? ((x - A.x) * abx + (z - A.z) * abz) / L2 : 0; t = Math.max(0, Math.min(1, t));
-      const cx = A.x + abx * t, cz = A.z + abz * t, cy = A.y + (B.y - A.y) * t; const d = Math.hypot(x - cx, z - cz); const R = r + 0.018; // cloth thickness + ease
+      const cx = A.x + abx * t, cz = A.z + abz * t, cy = A.y + (B.y - A.y) * t; const d = Math.hypot(x - cx, z - cz); const R = r + 0.032; // cloth thickness + ease (84th: 3.2 cm — collars, cuffs, shoes and hair stay under it)
       const y = d < R ? cy + Math.sqrt(R * R - d * d) : cy + R * 0.0 - (d - R) * 0.9 - (d - R) * (d - R) * 3.5; if (y > h) h = y; } // over the body, then a tented fall to the mattress
     const ox = Math.max(0, Math.abs(x0) - SH.padX), oz = Math.max(0, Math.abs(z0) - SH.padZ); const hang = Math.hypot(ox, oz); // beyond the pad edge: hangs straight down (slightly out)
     fin[i * 3] = x + Math.sign(x0) * Math.min(ox, 0.025); fin[i * 3 + 1] = (hang > 0 ? Math.min(h, ST.top + 0.03) : h) - hang; fin[i * 3 + 2] = z + Math.sign(z0) * Math.min(oz, 0.025); }
@@ -235,7 +270,7 @@ export class EMS {
     const e = u.e; if (e) { this.dropProps(u); this.dropCargo(u); if (e.kit) { e.kit.parent?.remove(e.kit); e.kit = null; } const p = e.p; if (p && p.awaitMedic) { p.awaitMedic = false; p.keep = false; } }
     this.units = this.units.filter((q) => q !== u); this.pr.units.push(u); this.pr.removeUnit(u);
   }
-  dropCargo(u) { const e = u.e; if (!e) return; for (const m of [...(e.cargo || []), e.st, e.sheet]) { if (!m) continue; m.parent?.remove(m); m.traverse((q) => { if (q.isMesh) { q.geometry.dispose(); for (const mt of [].concat(q.material)) mt.dispose(); } }); } e.cargo = null; e.st = null; e.sheet = null; }
+  dropCargo(u) { const e = u.e; if (!e) return; for (const m of [...(e.cargo || []), e.sheet]) { if (!m || m.name === 'emsStretcher') continue; m.parent?.remove(m); if (m.geometry) m.geometry.dispose(); } /* 84th: sheets only (their material is shared); the cot is the van's */ const T = u.v && u.v.trolley; if (T) { if (T.state !== 'stowed' && !u.v.player) seatTrolley(u.v); T.sheet = false; } e.cargo = null; e.st = null; e.sheet = null; }
   // ---------------------------------------------------------------- the National Hospital run (74th)
   bayInfo() { const H = this.g.hospital; return H && H.emsBay ? H.emsBay : null; }
   // another van still standing in the bay: it slips away if nobody is looking, otherwise this one waits its turn (drives round)
@@ -284,7 +319,7 @@ export class EMS {
     switch (e.bp) {
       case 'stop': if (e.t > 1.2) { pr.dismount(u, 'ems'); u.task = 'ems'; e.bp = 'out'; e.t = 0; } return;
       case 'out': if (u.officers.every((o) => o.mode === 'foot') || e.t > 12) { e.bp = 'rear'; e.t = 0; } return;
-      case 'rear': { const ca = this.vanPt(u, AMB.rearZ - 0.75, -0.75), cb = this.vanPt(u, AMB.rearZ - 0.75, 0.75); this.spot(A, ca.x, ca.z, v.yaw, null, {}); this.spot(Bm, cb.x, cb.z, v.yaw, null, {});
+      case 'rear': { const ca = this.vanPt(u, AMB.rearZ - 0.5, -1.25), cb = this.vanPt(u, AMB.rearZ - 0.5, 1.25); this.spot(A, ca.x, ca.z, v.yaw, null, {}); this.spot(Bm, cb.x, cb.z, v.yaw, null, {});
         if ((this.at(A, 0.5) && this.at(Bm, 0.5)) || e.t > 15) { e.rearOpen = true; if (e.rear === undefined) e.rear = 0; if (e.rear > 0.95) { e.bp = 'unload'; e.t = 0; this.takeCargo(u); } } return; }
       case 'unload': { // slide it out feet first (B), set it on its wheels, A to the head end
         const zIn = AMB.rearZ + ST.half + 0.05, zOut = AMB.rearZ - ST.half - 0.9; const k = sm(Math.min(1, e.t / 2.4)); if (!e.pullSnd) { e.pullSnd = true; const c0 = this.vanPt(u, zIn); HospitalSound.trolleyPull(c0.x, c0.z); } const c = this.vanPt(u, zIn + (zOut - zIn) * k); const S = e.S; S.x = c.x; S.z = c.z; S.yaw = v.yaw + Math.PI;
@@ -293,11 +328,16 @@ export class EMS {
         if (e.t > 2.6) { e.bp = 'wheel'; e.t = 0; e.from = { x: S.x, z: S.z }; } return; }
       case 'wheel': { // to the emergency entrance and in (the sliding doors open for the crew)
         const S = e.S; const BR = this.g.hospital && this.g.hospital.bodyRoom; if (BR && e.sheet) { e.bp = 'room'; e.t = 0; e.wi = 0; return; } const way = [B.door, B.inside]; const tg = way[e.wi || 0]; const dx = tg.x - S.x, dz = tg.z - S.z, d = Math.hypot(dx, dz);
-        if (d < 0.15) { e.wi = (e.wi || 0) + 1; if (e.wi >= way.length) { e.bp = 'handed'; e.t = 0; this.dropCargo(u); this.stats.delivered++; pr.note(`EMS unit ${u.id} patient handed over at the emergency entrance`); for (const o of u.officers) { o.want = null; o.ch.anim.set(null); o.ch.anim.holdWL = o.ch.anim.holdWR = null; } } return; }
+        if (d < 0.15) { e.wi = (e.wi || 0) + 1; if (e.wi >= way.length) { this.stats.delivered++; pr.note(`EMS unit ${u.id} patient handed over at the emergency entrance`); if (e.sheet) { e.sheet.parent?.remove(e.sheet); e.sheet.geometry.dispose(); e.sheet = null; } e.bp = 'edBack'; e.t = 0; e.wi = 0; } return; } // 84th: the staff take the patient; the crew wheels the SAME empty cot back out (it used to vanish here and reappear in the van)
         const st = Math.min(d, 1.05 * dt); const want = Math.atan2(dx, dz); /* feet end leads: the stretcher's +z (feet) points the way it goes */ S.yaw += angDiff(want, S.yaw) * Math.min(1, dt * 3); S.x += dx / d * st; S.z += dz / d * st;
         S.y = this.g.collision.groundAt(S.x, S.z, S.y) + 0.42; if (this.g.hospital && Math.hypot(S.x - B.inside.x, S.z - B.inside.z) < 4) S.y = this.g.hospital.FLOOR_Y[0] + 0.42;
         this.carryHands(u, true, 1, 'feet'); for (const o of u.officers) if (o.want) o.want.speed = 1.05; this.syncStretcher(u);
         if (e.t > 40) { e.wi = 9; } return; }
+      case 'edBack': { const S = e.S; const rear = this.vanPt(u, AMB.rearZ - ST.half - 0.9); const way = [B.door, rear]; const tg = way[e.wi || 0]; const dx = tg.x - S.x, dz = tg.z - S.z, d = Math.hypot(dx, dz);
+        if (d < 0.12) { e.wi = (e.wi || 0) + 1; if (e.wi >= way.length) { e.bp = 'restow'; e.t = 0; e.pullSnd = false; } return; }
+        const st = Math.min(d, 1.0 * dt); S.yaw += angDiff(Math.atan2(dx, dz) + Math.PI, S.yaw) * Math.min(1, dt * 3); S.x += dx / d * st; S.z += dz / d * st; // empty, head end leading
+        S.y = this.g.collision.groundAt(S.x, S.z, S.y) + 0.42; if (this.g.hospital && Math.hypot(S.x - B.inside.x, S.z - B.inside.z) < 4) S.y = this.g.hospital.FLOOR_Y[0] + 0.42;
+        this.carryHands(u, true, 1, 'head'); for (const o of u.officers) if (o.want) o.want.speed = 1.0; this.syncStretcher(u); if (e.t > 45) e.wi = way.length - 1; return; }
       // 75th: a covered body goes to the body holding room (HospitalBodyRoom.js), not in through the ED: straight from the
       // van to its door (it opens for the crew), across onto the steel trolley, the empty cot back to the van and in
       case 'room': case 'back': { const BR = this.g.hospital.bodyRoom, Pt = BR.points, S = e.S; const back = e.bp === 'back';
@@ -316,14 +356,14 @@ export class EMS {
         const c = this.vanPt(u, zOut + (zIn - zOut) * k); const S = e.S; S.x = c.x; S.z = c.z; S.yaw = v.yaw + Math.PI; const gy = this.g.collision.groundAt(c.x, c.z, v.y + 0.5);
         S.y = (gy + 0.42) + ((v.y + AMB.doorY0) - (gy + 0.42)) * sm(k / 0.55); this.carryHands(u, true, 1, 'feet'); for (const o of u.officers) if (o.want) o.want.speed = k < 1 ? 0.4 : 0; this.syncStretcher(u);
         if (e.t > 2.6) { this.dropCargo(u); e.cotOut = false; e.bp = 'handed'; e.t = 0; for (const o of u.officers) { o.want = null; o.ch.anim.set(null); o.ch.anim.holdWL = o.ch.anim.holdWR = null; } } return; }
-      case 'handed': if (e.t > 3) { e.rearOpen = false; for (const o of u.officers) if (o.mode === 'foot') { o.mode = 'return'; o.goal = null; } e.bp = 'mount'; e.t = 0; } return;
+      case 'handed': if (e.t > 1.2 && !e.backOff) { e.backOff = true; u.officers.forEach((o, i) => { if (o.mode !== 'foot') return; const q = this.vanPt(u, AMB.rearZ - 1.1, i ? 0.6 : -0.6); this.spot(o, q.x, q.z, v.yaw, null, { look: 0.2 }); }); } // 84th: step out of the leaves' swing first
+        if (e.t > 3 && (this.doorsClear(u) || e.t > 10)) { e.backOff = false; e.rearOpen = false; for (const o of u.officers) if (o.mode === 'foot') { o.want = null; o.mode = 'return'; o.goal = null; } e.bp = 'mount'; e.t = 0; } return;
       case 'mount': if (pr.allSeated(u) || e.t > 40) { if (!pr.allSeated(u)) for (const o of u.officers) { o.mode = 'seated'; } e.ph = 'parked'; e.t = 0; e.leaveT = 0; v.beacons(false, pr.t); } return;
     }
   }
   takeCargo(u) { // the stretcher (and the sheet over the body) out of the van into the scene, where the carry code moves it
-    const e = u.e, v = u.v; const c = e.cargo || []; v.mesh.updateMatrixWorld(); for (const m of c) this.g.scene.attach(m);
-    e.st = c.find((m) => m.name === 'emsStretcher') || c[0] || null; e.sheet = c.find((m) => m !== e.st) || null; e.cargo = [];
-    if (!e.st) { e.st = buildStretcher(); this.g.scene.add(e.st); }
+    const e = u.e, v = u.v; const c = (e.cargo || []).filter((m) => m.name !== 'emsStretcher'); v.mesh.updateMatrixWorld(true); for (const m of c) { this.g.scene.attach(m); m.visible = true; }
+    e.sheet = c[0] || null; e.cargo = []; e.st = deployTrolley(v, this.g.scene); if (v.trolley) v.trolley.sheet = false; // 84th: the van's own cot (same object), unlocked from its rails
     const zIn = AMB.rearZ + ST.half + 0.05; const p = this.vanPt(u, zIn); e.S = { x: p.x, z: p.z, y: v.y + AMB.doorY0, yaw: v.yaw + Math.PI }; this.syncStretcher(u);
     if (e.sheet) { e.sheet.position.copy(e.st.position); e.sheet.rotation.copy(e.st.rotation); }
   }
@@ -332,7 +372,10 @@ export class EMS {
     const e = u.e; this.pr.note(`EMS unit ${u.id} aborted (${why})`); const p = e.p;
     if (p && p.ch.rag && p.ch.rag.kin) { p.ch.rag.kin = null; p.ch.rag.wake(); }
     if (p) { p.awaitMedic = false; p.keep = false; if (u.e.hidBody) { p.ch.root.visible = true; u.e.hidBody = false; } }
-    this.dropProps(u); e.ph = 'leave'; e.t = 0; for (const o of u.officers) { o.want = null; o.stuck = false; if (o.mode === 'foot') { o.mode = 'return'; o.goal = null; o.ch.anim.set(null); } }
+    this.dropProps(u); const T = u.v && u.v.trolley; if (e.sheet && e.st && !(p && p.ch.root.parent)) { e.sheet.parent?.remove(e.sheet); e.sheet.geometry.dispose(); e.sheet = null; }
+    if (T && T.state === 'out' && u.v && !u.v.player && e.st && e.S && u.officers.some((o) => o.mode === 'foot')) { e.ph = 'recover'; e.t = 0; e.rcv = false; e.transport = false; for (const o of u.officers) { o.want = null; o.stuck = false; } return; } // 84th: wheel it home first
+    if (T && T.state === 'out') T.state = 'left';
+    e.ph = 'leave'; e.t = 0; for (const o of u.officers) { o.want = null; o.stuck = false; if (o.mode === 'foot') { o.mode = 'return'; o.goal = null; o.ch.anim.set(null); } }
     if (!u.v || u.v.player) { if (e.kit) { e.kit.parent?.remove(e.kit); e.kit = null; } this.units = this.units.filter((q) => q !== u); for (const o of u.officers) if (o.mode !== 'seated') { o.ch.root.parent?.remove(o.ch.root); o.ch.dispose(); } if (u.v) { u.v.police = null; u.v.ems = false; } }
   }
   say(kind, who = 'EMT') { const arr = MEDIC_LINES[kind]; if (!arr) return; const l = arr[Math.floor(Math.random() * arr.length)]; const lang = l.si ? 'si' : l.ta ? 'ta' : 'en'; const P = this.g.player; const u = this.units[0]; if (u && u.officers[0] && Math.hypot(u.officers[0].x - P.x, u.officers[0].z - P.z) > 45) return; const m = u && u.officers[0]; const vd = m ? Voices.say(m.ch && m.ch.spec, 'order', m.x, m.z, m, 'medic') : 0; this.g.hud.subtitle(`${who} · 1990 Suwa Seriya`, l.si || l.ta || l.en, l.tr || '', Math.max(3, vd + 0.3), lang); if (!vd) Audio.talkBlip?.(lang); }
@@ -340,13 +383,15 @@ export class EMS {
   update(dt) {
     this.t += dt; if (this.waits && this.waits.length) { const due = this.waits.filter((w) => (w.t -= dt) <= 0); this.waits = this.waits.filter((w) => w.t > 0); for (const w of due) w.fn(); }
     if ((this.scanT -= dt) <= 0) { this.scanT = 1; this.scan(); }
+    if ((this.trlT = (this.trlT ?? 2) - dt) <= 0) { this.trlT = 2; for (const T of TROLLEYS) { if (T.state !== 'left') continue; const P = this.g.player, m = T.m; // 84th: a cot left in the street (ambulance taken) goes home only unseen
+      if (T.v.disposed) { m.parent?.remove(m); TROLLEYS.delete(T); continue; } if (!T.v.player && Math.hypot(m.position.x - P.x, m.position.z - P.z) > 60 && !this.pr.inView({ x: m.position.x, z: m.position.z })) seatTrolley(T.v); } }
     for (const u of this.units.slice()) this.updateUnit(u, dt); this.updateSiren(dt); this.updateCpr(dt);
   }
   updateUnit(u, dt) {
     this.cotView(u);
     const g = this.g, pr = this.pr, v = u.v, e = u.e; e.t += dt; e.ct += dt;
     if (!v || v.player) { if (e.ph !== 'leave' || v) this.abort(u, 'vehicle taken'); return; }
-    if (e.ph !== 'leave' && e.ph !== 'bay' && e.ph !== 'parked' && e.p && !e.p.ch.root.parent) { this.abort(u, 'patient gone'); return; }
+    if (e.ph !== 'leave' && e.ph !== 'bay' && e.ph !== 'parked' && e.ph !== 'recover' && e.p && !e.p.ch.root.parent) { this.abort(u, 'patient gone'); return; }
     const lit = e.ph === 'drive' || e.ph === 'out' || (e.ph !== 'leave' && e.ph !== 'load' && e.ph !== 'bay' && e.ph !== 'parked') || (e.blockLit && e.toBay === 'road'); v.beacons(lit, pr.t); v.lights = g.atmos ? g.atmos.night > 0.4 : false;
     for (const o of u.officers) pr.updateOfficer(o, u, dt);
     if (e.rear !== undefined) { const want = e.rearOpen ? 1 : 0; e.rear += Math.sign(want - e.rear) * Math.min(Math.abs(want - e.rear), dt / 1.1); v.rearDoors(sm(e.rear)); }
@@ -361,6 +406,7 @@ export class EMS {
         else if (e.ct > 200) { this.abort(u, 'could not reach'); }
         return; }
       case 'bay': this.atBay(u, dt); return;
+      case 'recover': this.recover(u, dt); return;
       case 'parked': { const P = g.player; const d = Math.hypot(v.x - P.x, v.z - P.z); e.leaveT = (e.leaveT || 0) + dt; if ((d > 60 && !pr.inView(v)) || d > 180) this.removeUnit(u); return; }
       case 'out': if (u.officers.every((o) => o.mode === 'foot')) { e.ph = 'approach'; e.t = 0; this.toRagdoll(p); } return;
       case 'leave': {
@@ -374,10 +420,7 @@ export class EMS {
   }
   // 75th: what the interior-mapped compartment shows on its floor rails: the stowed cot (empty / with the covered patient),
   // the part of it still inside while it slides out or in, or nothing once it is out
-  cotView(u) { const v = u.v, e = u.e; const r = v && v.mesh && v.mesh.userData.rear; if (!r || !r.cav.visible || !r.cav.material.uniforms) return; const U = r.cav.material.uniforms;
-    if (e && e.st && e.S) { const lz = (e.S.x - v.x) * Math.sin(v.yaw) + (e.S.z - v.z) * Math.cos(v.yaw); const inside = Math.max(0, Math.min(ST.len, lz + ST.half - AMB.rearZ - 0.02)); U.uCot.value = inside > 0.05 ? (e.sheet ? 2 : 1) : 0; U.uCotIn.value = inside; }
-    else if (e && e.cargo && e.cargo.length) { U.uCot.value = e.cargo.length > 1 ? 2 : 1; U.uCotIn.value = ST.len; }
-    else { U.uCot.value = e && e.cotOut ? 0 : 1; U.uCotIn.value = ST.len; } }
+  cotView() {} // 84th: no-op — the compartment is modelled (RearCompartment.js) and the real cot sits in it; nothing is drawn by shader any more
   toRagdoll(p) { // a knocked-out (tilted) body becomes a ragdoll for the medics' handling (no blood pool for the living)
     const R = this.g.ragdolls; if (!p.ch.rag && R) { if (!p.dead) p.noPool = true; R.add(p.ch, { vel: [0, 0, 0] }); }
   }
@@ -493,8 +536,8 @@ export class EMS {
   fetch(u, dt, b, sg) { // both walk to the back, B opens the doors; B pulls the stretcher out (feet end first), A takes the head end
     const e = u.e, A = u.officers[0], B = u.officers[1] || A, v = u.v; if (e.rear === undefined) e.rear = 0;
     const zIn = AMB.rearZ + ST.half + 0.05, zOut = AMB.rearZ - ST.half - 0.9; const yaw = v.yaw + Math.PI;
-    if (!e.st) { const ca = this.vanPt(u, AMB.rearZ - 0.75, -0.75), cb = this.vanPt(u, AMB.rearZ - 0.75, 0.75); this.spot(A, ca.x, ca.z, v.yaw, null, {}); this.spot(B, cb.x, cb.z, v.yaw, null, {});
-      if (this.at(A, 0.45) && this.at(B, 0.45)) { e.rearOpen = true; if (e.rear > 0.95) { e.st = buildStretcher(); e.cotOut = true; this.g.scene.add(e.st); const c = this.vanPt(u, zIn); e.S = { x: c.x, z: c.z, y: v.y + AMB.doorY0, yaw }; e.slide = -1; this.syncStretcher(u); } }
+    if (!e.st) { const ca = this.vanPt(u, AMB.rearZ - 0.5, -1.25), cb = this.vanPt(u, AMB.rearZ - 0.5, 1.25); this.spot(A, ca.x, ca.z, v.yaw, null, {}); this.spot(B, cb.x, cb.z, v.yaw, null, {});
+      if (this.at(A, 0.45) && this.at(B, 0.45)) { e.rearOpen = true; if (e.rear > 0.95) { e.st = deployTrolley(v, this.g.scene); e.cotOut = true; const c = this.vanPt(u, zIn); e.S = { x: c.x, z: c.z, y: v.y + AMB.doorY0, yaw }; e.slide = -1; this.syncStretcher(u); } }
       return; }
     if (e.slide < 0) { const bp = this.vanPt(u, zIn - ST.handZ - 0.42); this.spot(B, bp.x, bp.z, v.yaw, null, {}); if (this.at(B, 0.3)) { e.slide = 0; HospitalSound.trolleyPull(bp.x, bp.z); } return; } // B steps up to the feet end
     if (e.slide < 1) { e.slide = Math.min(1, e.slide + dt / 2.4); const k = sm(e.slide); const zc = zIn + (zOut - zIn) * k; const c = this.vanPt(u, zc); e.S.x = c.x; e.S.z = c.z; e.S.yaw = yaw;
@@ -534,9 +577,14 @@ export class EMS {
     const e = u.e, S = e.S, pr = this.pr, col = this.g.collision, T = e.trip; const lead = T.lead; const Lm = lead === 'head' ? u.officers[0] : (u.officers[1] || u.officers[0]);
     const G = T.lead === 'head' ? (() => { const c = this.vanPt(u, AMB.rearZ - ST.half - 0.6); return { x: c.x, z: c.z, yaw: u.v.yaw + Math.PI }; })() : T.to;
     const sgn = lead === 'head' ? -1 : 1; // centre → leading end = sgn·d
-    const dG = V().set(Math.sin(G.yaw), 0, Math.cos(G.yaw)).multiplyScalar(sgn); const aim = { x: G.x + dG.x * (ST.handZ + 0.14), z: G.z + dG.z * (ST.handZ + 0.14) };
+    const dG = V().set(Math.sin(G.yaw), 0, Math.cos(G.yaw)).multiplyScalar(sgn); let aim = { x: G.x + dG.x * (ST.handZ + 0.14), z: G.z + dG.z * (ST.handZ + 0.14) };
     const d = V().set(Math.sin(S.yaw), 0, Math.cos(S.yaw)).multiplyScalar(sgn); const fx = S.x + d.x * (ST.handZ + 0.14), fz = S.z + d.z * (ST.handZ + 0.14);
-    const dist = Math.hypot(aim.x - fx, aim.z - fz);
+    // 84th: the cot trails its leader like a trailer, so on a tight turn round the van's corner its far end and the second
+    // medic cut through the body. The leader now swings wide: straight back from the doors, then out past the corner with a
+    // clear 1.5 m from the side, then to the goal (and the same in reverse on the way back)
+    if (!T.wps && u.v) T.wps = this.carryWaypoints(u, lead === 'feet' ? { x: fx, z: fz } : { x: S.x, z: S.z }, lead === 'feet' ? aim : { x: S.x, z: S.z }, lead);
+    let wpAim = false; if (T.wps && T.wps.length && !e.al) { if (Math.hypot(T.wps[0].x - fx, T.wps[0].z - fz) < 0.8) T.wps.shift(); if (T.wps.length) { aim = T.wps[0]; wpAim = true; } }
+    const dist = wpAim ? 9 : Math.hypot(aim.x - fx, aim.z - fz);
     if (dist > 0.7 && e.t < 60 && !e.al) {
       Lm.x = fx; Lm.z = fz; const sp = pr.moveTo(Lm, aim.x, aim.z, 1.15, dt); const tx = S.x - d.x * ST.handZ, tz = S.z - d.z * ST.handZ; // trailing end
       const ux0 = Lm.x - tx, uz0 = Lm.z - tz, L = Math.hypot(ux0, uz0) || 1; const ux = ux0 / L, uz = uz0 / L;
@@ -546,6 +594,10 @@ export class EMS {
       if (e.al > 1.4) { S.x = G.x; S.z = G.z; S.yaw = G.yaw; e.al = 0; if (lead === 'head') { e.ph = 'load'; e.t = 0; e.slide = 0; HospitalSound.trolleyPull(S.x, S.z); e.zc0 = AMB.rearZ - ST.half - 0.6; } else { e.ph = 'set'; e.t = 0; } } }
     this.carryHands(u, true, 1, lead); for (const o of u.officers) if (o.want) o.want.speed = e.walkSp || 0; this.syncStretcher(u); this.followBody(u);
   }
+  carryWaypoints(u, from, to, lead) { const v = u.v, f = Math.sin(v.yaw), c = Math.cos(v.yaw); const loc = (p) => ({ lz: (p.x - v.x) * f + (p.z - v.z) * c, lx: (p.x - v.x) * c - (p.z - v.z) * f });
+    const far = lead === 'feet' ? loc(to) : loc(from); const hw = v.T.wid / 2, back = AMB.rearZ; if (far.lz < back - 1.4 && Math.abs(far.lx) < hw + 3) return []; // behind the van: straight there
+    const side = Math.sign(far.lx) || 1, ox = side * Math.max(hw + 1.5, Math.min(Math.abs(far.lx), hw + 2.5)); const W = [this.vanPt(u, back - ST.len - 0.6, 0), this.vanPt(u, back - 1.6, ox)]; if (Math.abs(far.lx) < hw + 1.5) W.push(this.vanPt(u, Math.min(far.lz, (v.half || v.T.len / 2) + 0.5), ox));
+    return lead === 'feet' ? W : W.reverse(); }
   setDown(u, dt, b, sg) { // lower it to the ground beside the body
     const e = u.e, S = e.S; const k = Math.min(1, e.t / 1.2); const gy = this.g.collision.groundAt(S.x, S.z, S.y); S.y = gy + 0.42 * (1 - sm(k)); this.carryHands(u, false, 1 - 0.6 * sm(k), 'feet'); this.syncStretcher(u);
     if (k >= 1) { e.ph = 'transfer'; e.t = 0; e.tr = null; this.say('lift'); }
@@ -572,7 +624,7 @@ export class EMS {
     if (A.placedT > 0.5 && B.placedT > 0.5) e.cov = Math.min(1, e.cov + dt / 3.2);
     const hold = e.cov < 0.92; const c = (sx, sz) => { const q = sheetCorner(e.cov, sx, sz); return H.w(q[0], q[1], q[2]); }; // A faces +d: the stretcher's +x is on his left
     this.handsOn(A, hold ? c(1, -1) : null, hold ? c(-1, -1) : null, 0.25 + 0.3 * sm(e.cov)); this.handsOn(B, hold ? c(-1, 1) : null, hold ? c(1, 1) : null, 0.25 + 0.3 * sm(e.cov));
-    if (!e.sheetDone) { drapeSheet(e.sheet, e.cov); if (e.cov >= 1) { e.sheetDone = true; const ch = e.p && e.p.ch; if (ch) { ch.root.visible = false; e.hidBody = true; } } } // fully down: the body is under it
+    if (!e.sheetDone) { drapeSheet(e.sheet, e.cov); if (e.cov >= 0.86 && !e.hidBody) { const ch = e.p && e.p.ch; if (ch) { ch.root.visible = false; e.hidBody = true; } } if (e.cov >= 1) e.sheetDone = true; } // 84th: hidden once the cloth has settled over the torso and limbs (m 0.86: every vertex over the body is touched down) — clothing can no longer poke through in the last part of the lowering // fully down: the body is under it
     this.syncStretcher(u); if (e.cov >= 1 && e.t > 1) { e.ph = 'liftUp'; e.t = 0; this.say('lift'); }
   }
   followBody(u) { const e = u.e, r = e.p && e.p.ch.rag; if (!r || !e.local || !e.sheet) return; if (!e.follow) { e.follow = true; const L = e.local; r.play((k, out) => { const S = e.S, c = Math.cos(S.yaw), s = Math.sin(S.yaw); for (let i = 0; i < out.length; i++) { const q = L[i]; out[i].set(S.x + q.x * c + q.z * s, S.y + q.y, S.z - q.x * s + q.z * c); } }, 1e9, null, { hold: true, ease: false }); } }
@@ -580,33 +632,50 @@ export class EMS {
     const e = u.e, S = e.S; const k = Math.max(0, Math.min(1, (e.t - 1.2) / 1.4)); const gy = this.g.collision.groundAt(S.x, S.z, S.y); S.y = gy + 0.42 * sm(k);
     this.carryHands(u, false, 0.4 + 0.6 * sm(k), 'head', e.t > 1.0); this.syncStretcher(u); this.followBody(u);
     if (k >= 1) { e.kitOn = !!e.kit; /* the response bag rides on the cot's foot end, back to the van */ e.trip = { lead: 'head' }; e.ph = 'carry'; e.t = 0; e.al = 0; } }
+  recover(u, dt) { // 84th: called off with the cot out: both walk back to it (FootNav), take the grips and wheel it to the doors → 'load'
+    const e = u.e, S = e.S, A = u.officers[0], B = u.officers[1] || A; e.p = null; if (!e.st || !S) { e.ph = 'leave'; e.t = 0; return; }
+    if (!e.rcv) { const d = this.handles(S).dir; this.spot(A, S.x - d.x * (ST.handZ + 0.14), S.z - d.z * (ST.handZ + 0.14), Math.atan2(-d.x, -d.z), null, {}); this.spot(B, S.x + d.x * (ST.handZ + 0.42), S.z + d.z * (ST.handZ + 0.42), Math.atan2(-d.x, -d.z), null, {});
+      if ((this.at(A, 0.35) && this.at(B, 0.45)) || e.t > 40) { e.rcv = true; e.rearOpen = true; e.trip = { lead: 'head' }; e.ph = 'carry'; e.t = 0; e.al = 0; e.recovering = true; } return; }
+  }
   load(u, dt) { // head first onto the floor: A steps aside, B pushes from the feet end; then the doors close and they leave
     const e = u.e, v = u.v, S = e.S, A = u.officers[0], B = u.officers[1] || A; e.slide = Math.min(1, e.slide + dt / 2.8); const k = sm(e.slide);
     const zc = e.zc0 + ((AMB.rearZ + ST.half + 0.05) - e.zc0) * k; const c = this.vanPt(u, zc); S.x = c.x; S.z = c.z; S.yaw = v.yaw + Math.PI; S.y0 = S.y0 ?? S.y; S.y = S.y0 + ((v.y + AMB.doorY0) - S.y0) * Math.min(1, k * 3.5);
-    const H = this.handles(S); const side = this.vanPt(u, AMB.rearZ - 0.9, -1.05); this.spot(A, side.x, side.z, v.yaw, null, { look: 0.2 }); this.handsOn(A, null, null, 0.2);
+    const H = this.handles(S); const side = this.vanPt(u, AMB.rearZ - 0.6, -1.3); this.spot(A, side.x, side.z, v.yaw, null, { look: 0.2 }); this.handsOn(A, null, null, 0.2);
     const bz = Math.min(zc - ST.handZ - 0.42, AMB.rearZ - 0.5); const bp = this.vanPt(u, bz); const reach = (zc - ST.handZ) - bz < 0.62;
     this.spot(B, bp.x, bp.z, v.yaw, 'medCarry', { direct: true, look: 0.3, holdL: reach ? H.hand(-1, 1) : null, holdR: reach ? H.hand(1, 1) : null, speed: reach && e.slide < 1 ? 0.45 : 0 });
     this.syncStretcher(u); this.followBody(u);
-    if (e.slide >= 1) { if (!e.stowed) { e.stowed = true; this.stow(u); } e.rearOpen = false; if (e.rear <= 0.01) { this.stats.carried++; e.ph = 'leave'; e.t = 0; e.transport = true; for (const o of u.officers) { o.want = null; o.ch.anim.set(null); o.ch.anim.holdWL = o.ch.anim.holdWR = null; o.mode = 'return'; o.goal = null; } } }
+    if (e.slide >= 1) { if (!e.stowed) { e.stowed = true; this.stow(u); e.clrT = 0; }
+      // 84th: the doors only swing shut once both medics stand clear of the leaves' arcs (the push left B 0.5 m behind the bumper,
+      // inside the swing, and the closing leaves went through him); B steps back first. 8 s fallback for a medic that is held up.
+      const back = this.vanPt(u, AMB.rearZ - 1.1, 0.15); this.spot(B, back.x, back.z, v.yaw, null, { look: 0.3 }); e.clrT += dt;
+      if (this.doorsClear(u) || e.clrT > 8) e.rearOpen = false;
+      if (e.rear <= 0.01) { if (!e.recovering) this.stats.carried++; e.ph = 'leave'; e.t = 0; e.transport = !e.recovering; for (const o of u.officers) { o.want = null; o.ch.anim.set(null); o.ch.anim.holdWL = o.ch.anim.holdWR = null; o.mode = 'return'; o.goal = null; } } }
   }
+  doorsClear(u) { const v = u.v; for (const o of u.officers) if (o.mode === 'foot' && !swingClear(v, o.x, o.z)) return false; return true; } // every medic on foot clear of the leaves' sweep (FootNav)
   stow(u) { // inside: the stretcher and sheet ride in the van (the body under the sheet is the draped shape); the person leaves the crowd
-    const e = u.e, v = u.v, p = e.p, C = this.crowd; v.mesh.updateMatrixWorld(); e.cargo = []; if (e.st) setCotLegs(e.st, 0, 0); for (const m of [e.st, e.sheet]) { if (!m) continue; v.mesh.attach(m); e.cargo.push(m); }
+    const e = u.e, v = u.v, p = e.p, C = this.crowd; v.mesh.updateMatrixWorld(true); e.cargo = []; if (e.st) seatTrolley(v); if (e.sheet) { slotParent(v).attach(e.sheet); e.sheet.visible = true; e.cargo.push(e.sheet); /* 84th: rides draped over the real cot in the modelled compartment (seen when the doors open) */ if (v.trolley) v.trolley.sheet = true; } // 84th: locked back on its rails (the load slide ends exactly at the slot)
     if (e.kit) { e.kit.parent?.remove(e.kit); e.kit = null; e.kitOn = false; } // the bag went in with the cot
-    e.st = null; e.sheet = null; if (p.ch.rag) { p.ch.rag.kin = null; p.ch.rag.release(); } const i = C.peds.indexOf(p); if (i >= 0) { C.peds.splice(i, 1); C.despawn(p); } else { p.ch.root.parent?.remove(p.ch.root); p.ch.dispose(); } e.p = null; this.pr.note(`EMS unit ${u.id} patient loaded`);
+    e.st = null; e.sheet = null; if (!p) return; if (p.ch.rag) { p.ch.rag.kin = null; p.ch.rag.release(); } const i = C.peds.indexOf(p); if (i >= 0) { C.peds.splice(i, 1); C.despawn(p); } else { p.ch.root.parent?.remove(p.ch.root); p.ch.dispose(); } e.p = null; this.pr.note(`EMS unit ${u.id} patient loaded`);
   }
   // ---------------------------------------------------------------- a medic on foot (called from PoliceResponse.updateOfficer)
   medic(o, u, dt) {
     const pr = this.pr, A = o.ch.anim, W = o.want; let speed = 0;
     if (!W) { pr.animOfficer(o, dt, 0); return; }
     if (W.direct) { const d = Math.hypot(W.x - o.x, W.z - o.z); o.x = W.x; o.z = W.z; o.yaw += angDiff(W.yaw, o.yaw) * Math.min(1, dt * 8); speed = W.speed || 0; o.placedT = (o.placedT || 0) + dt; void d; if (A.action !== W.act) A.set(W.act); }
-    else { const d = Math.hypot(W.x - o.x, W.z - o.z); const key = `${W.x.toFixed(1)},${W.z.toFixed(1)}`;
+    else { const key = `${W.x.toFixed(1)},${W.z.toFixed(1)}`; if (o.alt && o.alt.key !== key) o.alt = null; const tx = o.alt ? o.alt.x : W.x, tz = o.alt ? o.alt.z : W.z; const d = Math.hypot(tx - o.x, tz - o.z);
       if (o.wantKey && o.wantKey !== key && d > 0.5) { o.placedT = 0; o.seekT = 0; } o.wantKey = key;
-      if (d > 0.35 && !(o.placedT > 0)) { o.seekT = (o.seekT || 0) + dt; speed = pr.moveTo(o, W.x, W.z, W.run && d > 3 ? 3.1 : d > 1.2 ? 1.5 : 0.9, dt); if (A.action && A.action !== 'medCarry') A.set(null); if ((o.blockedT > 2.5 && d < 1.5) || o.seekT > 15) { if (W.noStep) o.stuck = true; else { o.x = W.x; o.z = W.z; } o.seekT = 0; } } // can't get there (blocked): step in (75th: never on the approach — the crew gives up instead of clipping through)
-      else { o.placedT = (o.placedT || 0) + dt; o.x += (W.x - o.x) * Math.min(1, dt * 6); o.z += (W.z - o.z) * Math.min(1, dt * 6); o.yaw += angDiff(W.yaw, o.yaw) * Math.min(1, dt * 6); if (A.action !== (W.act || null)) A.set(W.act || null); } }
+      if (d > 0.35 && !(o.placedT > 0)) { o.seekT = (o.seekT || 0) + dt; speed = pr.moveTo(o, tx, tz, W.run && d > 3 ? 3.1 : d > 1.2 ? 1.5 : 0.9, dt); if (A.action && A.action !== 'medCarry') A.set(null);
+        if ((o.blockedT > 2.5 && d < 1.5) || o.seekT > 15) { o.seekT = 0; o.blockedT = 0; // can't get there. 84th: never a teleport through a car / wall in view — the nearest free spot around the goal instead
+          if (W.noStep) o.stuck = true; else if (!pr.inView(o) && !o.alt) { o.x = tx; o.z = tz; } else if (!o.alt) o.alt = this.freeNear(tx, tz, key, o) || { key, x: o.x, z: o.z }; else { o.alt = { key, x: o.x, z: o.z }; } } }
+      else { o.placedT = (o.placedT || 0) + dt; const k = Math.min(1, dt * 6); const nx = o.x + (tx - o.x) * k, nz = o.z + (tz - o.z) * k; if (!(pr.carIn(nx, nz) > pr.carIn(o.x, o.z) + 1e-4)) { o.x = nx; o.z = nz; } o.yaw += angDiff(W.yaw, o.yaw) * k; if (A.action !== (W.act || null)) A.set(W.act || null); } }
     if (W.act === 'medCarry' || W.act === 'medLift') { for (const k of ['holdL', 'holdR']) { const t = W[k]; if (!t || t._palm) continue; const dx = o.x - t.x, dz = o.z - t.z, dl = Math.hypot(dx, dz) || 1; t.x += dx / dl * 0.07; t.z += dz / dl * 0.07; t.y += 0.03; t._palm = true; } } // 75th: the IK puts the WRIST on its target — for the cot grips (and the sheet corners) the wrist sits 7 cm back toward the medic and 3 cm up, so the palm closes over the bar instead of the fingers poking past it
     A.holdWL = W.holdL || null; A.holdWR = W.holdR || null; A.holdPoleL = W.poleL || null; A.holdPoleR = W.poleR || null; A.medLean = W.lean ?? 0.2; A.medLook = W.look ?? 0.35; A.medShake = W.shake || 0; A.medUp = W.up ?? 1;
     o.y = this.g.collision.groundAt(o.x, o.z, (o.y || 0) + 0.5); pr.animOfficer(o, dt, speed);
   }
+  freeNear(x, z, key, o) { // the closest standing spot to (x, z) that is out of every car (body + open doors) and walls, reachable in a straight line
+    const pr = this.pr, col = this.g.collision, N = pr.nav; let best = null, bd = 1e9; const cars = N.nearCars(x - 4, z - 4, x + 4, z + 4);
+    for (const r of [0.45, 0.8, 1.2]) for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; const px = x + Math.sin(a) * r, pz = z + Math.cos(a) * r; if (col.blocked(px, pz, 0.28) || pr.carAt(px, pz)) continue;
+      const dd = r * 2 + Math.hypot(px - o.x, pz - o.z) * 0.3; if (dd < bd && N.lineClear(o.x, o.z, px, pz, cars)) { bd = dd; best = { key, x: px, z: pz }; } } return best; }
   // ---------------------------------------------------------------- siren: a two-tone wail of its own (distinct from the police)
   // 75th: chest compressions — the 'hosp.cpr' recording loops while a paramedic is compressing; without one, a soft thump
   // on every push (synth placeholder, 1.9 /s like the animation)

@@ -14,7 +14,6 @@
 // "Street Customs · Colombo 03" — the game's own garage, where recovered vehicles are taken. No manufacturer badges.
 // Lighting: amber beacons use the shared beacon materials re-coloured per vehicle (Vehicle.beacons flashes them); no lights.
 import * as THREE from 'three';
-import { IA } from './AmbulanceKit.js';
 import { doorGapsMeta, spansOutside } from './DoorSpans.js';
 
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
@@ -118,38 +117,7 @@ export const rsRearStyle = {
     g.strokeStyle = '#2b2f31'; g.lineWidth = 6; g.beginPath(); g.moveTo(512, 0); g.lineTo(512, 1024); g.stroke(); // leaf seam
     g.fillStyle = '#2b2f31'; g.fillRect(X(-0.03), Y(1.27), X(-0.15) - X(-0.03), 18); // handle
   },
-  atlas() { return toolAtlas(); },
 };
-// rear compartment of the service van (interior-mapped, same IA layout as the ambulance): steel racking both sides
-function toolAtlas() {
-  const c = document.createElement('canvas'); c.width = 512; c.height = 512; const g = c.getContext('2d');
-  const rect = (r, col) => { g.fillStyle = col; g.fillRect(r[0], r[1], r[2], r[3]); };
-  const speck = (r, n, a) => { for (let i = 0; i < n; i++) { g.fillStyle = `rgba(${Math.random() < 0.5 ? '0,0,0' : '255,255,255'},${Math.random() * a})`; g.fillRect(r[0] + Math.random() * r[2], r[1] + Math.random() * r[3], 1, 1); } };
-  const wall = (r, side) => { const [x0, y0, w, h] = r; const Y = (f) => y0 + f * h; rect(r, '#c9ccc8'); speck(r, 900, 0.07);
-    for (const f of [0.3, 0.55, 0.8]) { g.fillStyle = '#7d8388'; g.fillRect(x0, Y(f), w, 3); g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(x0, Y(f) + 3, w, 3); } // shelf lips
-    for (let i = 0; i < 6; i++) g.fillRect(x0 + 6 + i * 84, Y(0.05), 4, Y(0.98) - Y(0.05)); // uprights
-    const caseCols = ['#c4161c', '#1d4f8a', '#1a1a1a', '#d9a514', '#3a3d40'];
-    for (let i = 0; i < 9; i++) { const bx = x0 + 14 + i * 54, top = Y(0.12), hh = Y(0.29) - top; g.fillStyle = caseCols[(i + (side > 0 ? 2 : 0)) % 5]; g.fillRect(bx, top + (i % 3) * 3, 44, hh - (i % 3) * 3); g.fillStyle = 'rgba(255,255,255,0.18)'; g.fillRect(bx + 4, top + 6, 36, 3); } // tool cases
-    if (side < 0) { // left: drawers unit + battery booster + jerry can, spare wheels on the floor
-      for (let i = 0; i < 4; i++) { g.strokeStyle = '#5c6166'; g.strokeRect(x0 + 20, Y(0.34) + i * 11, 200, 10); g.fillStyle = '#4a4f54'; g.fillRect(x0 + 108, Y(0.34) + i * 11 + 4, 24, 2); }
-      g.fillStyle = '#e8b414'; g.fillRect(x0 + 250, Y(0.36), 60, Y(0.54) - Y(0.36)); g.fillStyle = '#1a1a1a'; g.fillRect(x0 + 258, Y(0.4), 44, 10); g.fillStyle = '#c4161c'; g.fillRect(x0 + 262, Y(0.47), 10, 8); g.fillStyle = '#111'; g.fillRect(x0 + 288, Y(0.47), 10, 8); // booster
-      g.fillStyle = '#2f6b2a'; g.fillRect(x0 + 340, Y(0.37), 40, Y(0.54) - Y(0.37)); // jerry can
-      for (let i = 0; i < 2; i++) { const cx = x0 + 90 + i * 150; g.fillStyle = '#151515'; g.beginPath(); g.ellipse(cx, Y(0.82), 60, Y(0.98) - Y(0.82), 0, 0, Math.PI * 2); g.fill(); g.fillStyle = '#8a8f94'; g.beginPath(); g.ellipse(cx, Y(0.82) + 8, 30, (Y(0.98) - Y(0.82)) * 0.5, 0, 0, Math.PI * 2); g.fill(); } // spare wheels
-    } else { // right: cones + triangles bay, straps on hooks, a trolley jack, air line reel
-      for (let i = 0; i < 3; i++) { const cx = x0 + 40 + i * 34; g.fillStyle = '#ff6a00'; g.beginPath(); g.moveTo(cx, Y(0.58)); g.lineTo(cx - 14, Y(0.79)); g.lineTo(cx + 14, Y(0.79)); g.closePath(); g.fill(); g.fillStyle = '#f2f2ee'; g.fillRect(cx - 7, Y(0.66), 14, 5); }
-      g.strokeStyle = '#d0141e'; g.lineWidth = 5; g.beginPath(); g.moveTo(x0 + 170, Y(0.6)); g.lineTo(x0 + 150, Y(0.78)); g.lineTo(x0 + 190, Y(0.78)); g.closePath(); g.stroke();
-      for (let i = 0; i < 4; i++) { g.fillStyle = '#e8c414'; g.fillRect(x0 + 240 + i * 22, Y(0.33), 8, Y(0.52) - Y(0.33)); } // ratchet straps
-      g.fillStyle = '#c4161c'; g.fillRect(x0 + 360, Y(0.88), 100, Y(0.96) - Y(0.88)); g.fillStyle = '#1a1a1a'; g.fillRect(x0 + 440, Y(0.62), 6, Y(0.88) - Y(0.62)); // trolley jack
-      g.fillStyle = '#1d4f8a'; g.beginPath(); g.arc(x0 + 400, Y(0.43), 24, 0, Math.PI * 2); g.fill(); g.fillStyle = '#1a1a1a'; g.beginPath(); g.arc(x0 + 400, Y(0.43), 9, 0, Math.PI * 2); g.fill(); // air line reel
-    }
-    const gr = g.createLinearGradient(0, y0, 0, y0 + h); gr.addColorStop(0, 'rgba(255,255,255,0.06)'); gr.addColorStop(1, 'rgba(0,0,0,0.25)'); g.fillStyle = gr; g.fillRect(x0, y0, w, h); };
-  wall(IA.L, -1); wall(IA.R, 1);
-  { const [x0, y0, w, h] = IA.F; rect(IA.F, '#3c3f42'); for (let i = 0; i < w; i += 16) for (let j = 0; j < h; j += 16) { g.fillStyle = (i / 16 + j / 16) % 2 ? '#484b4e' : '#34373a'; g.fillRect(x0 + i + 3, y0 + j + 3, 8, 3); } speck(IA.F, 1800, 0.1); g.fillStyle = '#d9d200'; g.fillRect(x0, y0 + 1, 18, h - 2); } // chequer plate floor, yellow step edge
-  { const [x0, y0, w, h] = IA.C; rect(IA.C, '#d8dbd8'); speck(IA.C, 300, 0.05); for (const px of [80, 300]) { g.fillStyle = '#ffffff'; g.fillRect(x0 + px, y0 + 18, 120, 26); } }
-  { const [x0, y0, w, h] = IA.B; rect(IA.B, '#bfc3c0'); speck(IA.B, 300, 0.06); g.fillStyle = '#7d8388'; for (let i = 0; i < 6; i++) g.fillRect(x0 + 10 + i * 25, y0 + 20, 3, h - 30); // pegboard bulkhead with tools
-    const tools = ['#c4161c', '#1a1a1a', '#b8bcc0', '#d9a514']; for (let i = 0; i < 10; i++) { g.fillStyle = tools[i % 4]; g.fillRect(x0 + 14 + (i % 5) * 28, y0 + 26 + Math.floor(i / 5) * 34, 6, 26); } g.fillStyle = 'rgba(0,0,0,0.2)'; g.fillRect(x0, y0 + h - 10, w, 10); }
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.generateMipmaps = false; t.minFilter = THREE.LinearFilter; return t;
-}
 
 // ---------------------------------------------------------------- flatbed car carrier (lorry cab): static body parts
 // ctx: the lorry builder's numbers / builders { L, W, R, cabL, wf, wr, col, paint, rubber, ch, ind, tails, mb }

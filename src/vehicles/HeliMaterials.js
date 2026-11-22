@@ -17,6 +17,7 @@
 // Every pattern fades out before it becomes finer than a pixel (no shimmer at a distance). No textures (the busiest shaders are at
 // the 16-unit limit), no extra draw calls (the helicopter already draws one mesh per material), two small new programs.
 import * as THREE from 'three';
+import { patchGlassRain } from './VehicleWeather.js';
 import { vehicleMaterials, vehSpecPatch } from './VehicleModels.js';
 import { weaponSurface } from '../combat/WeaponSurface.js';
 
@@ -100,7 +101,7 @@ export function heliMaterials() {
   if (H) return H;
   const { mats } = vehicleMaterials();
   const glass = mats.vglass.clone(); // same physical-glass program as the cars, clearer acrylic
-  glass.color.set(0x2c3d3c); glass.opacity = 0.4; glass.roughness = 0.04; glass.specularIntensity = 0.55; glass.envMapIntensity = 0.95;
+  glass.color.set(0x2c3d3c); glass.opacity = 0.4; glass.roughness = 0.04; glass.specularIntensity = 0.55; glass.envMapIntensity = 0.95; glass.onBeforeCompile = (sh) => patchGlassRain(sh, null); glass.customProgramCacheKey = () => 'vglass-rain-heli'; // 84th: rain beads / runs on the canopy too (no wipers: ZERO_WIPE)
   H = {
     hpaint: surface(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.0, envMapIntensity: 0.62 }), 'heli-paint1', PAINT, true),
     hblade: surface(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.66, metalness: 0.0, envMapIntensity: 0.5 }), 'heli-blade1', BLADE, false),

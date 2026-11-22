@@ -25,11 +25,12 @@
 import * as THREE from 'three';
 import * as L from '../world/Layout.js';
 import { parkPath, segNodes, evalPiece } from '../vehicles/Traffic.js';
-import { vehicleMaterials } from '../vehicles/VehicleModels.js';
+import { vehicleMaterials, IND } from '../vehicles/VehicleModels.js';
 import { setFlatDeck, deckPose, FLAT, MiniBuilder } from '../vehicles/RoadsideKit.js';
 import { PlaceSound } from '../audio/PlaceAudio.js';
 import { SoundBank } from '../audio/SoundBank.js';
 import { rejoinLane } from './Pursuit.js';
+import { planVanJob, vanKit, stowKit, stowStep, stowNow, bonnetStep, bonnetGone, toolPose, putTool, kitReport } from './RoadsideJob.js';
 
 export const RS = {
   enabled: true, scanEvery: 1.5, rate: 1 / 300, // spontaneous faults: ≈ one per 5 min of traffic near you (a damaged car: far more often)
@@ -72,6 +73,8 @@ function propGeos() {
     cone: mk((b) => { b.box(0, 0.015, 0, 0.34, 0.03, 0.34, blk); const g = new THREE.CylinderGeometry(0.025, 0.14, 0.48, 12); g.translate(0, 0.27, 0); b.geo(g, org); g.dispose(); const w = new THREE.CylinderGeometry(0.075, 0.1, 0.09, 12); w.translate(0, 0.3, 0); b.geo(w, wht); w.dispose(); }),
     worklight: mk((b) => { b.box(0, 0.015, 0, 0.3, 0.03, 0.22, yel); b.box(0, 0.3, 0, 0.025, 0.56, 0.025, blk); b.box(0, 0.62, 0, 0.26, 0.18, 0.08, yel); }),
     lens: (() => { const g = new THREE.PlaneGeometry(0.22, 0.13); g.translate(0, 0.62, 0.041); return g; })(),
+    spanner: mk((b) => { b.box(0, 0, 0.0, 0.018, 0.008, 0.2, gry); b.box(0, 0, 0.11, 0.04, 0.009, 0.03, gry); b.box(0, 0, -0.11, 0.032, 0.009, 0.032, gry); }), // 84th: hand tools (in the toolbox; in the mechanic's hand while he works)
+    brace: mk((b) => { b.box(0, 0, 0, 0.022, 0.022, 0.4, gry); b.box(0, 0, 0, 0.4, 0.022, 0.022, gry); for (const [x, z] of [[0, 0.2], [0, -0.2], [0.2, 0], [-0.2, 0]]) b.box(x, 0, z, 0.032, 0.032, 0.032, blk); }),
     strap: mk((b) => { b.box(0, 0, 0, 0.05, 0.012, 0.75, yel); b.box(0, -0.01, -0.36, 0.07, 0.03, 0.06, gry); }),
   };
   return PG;
@@ -200,7 +203,7 @@ export class Roadside {
     const pr = this.pr; const v = inc.v; if (!v || v.disposed) return null;
     const busy = this.units.filter((u) => u.v && u.v.type === inc.need).length; const cap = inc.need === 'flatbed' ? 1 : 2; if (busy >= cap) return null; // (the pool's size — a spare is never built mid-game)
     const u = pr.spawnUnit({ rs: inc.need, near: true }) || pr.spawnUnit({ rs: inc.need }); if (!u) return null;
-    pr.units = pr.units.filter((q) => q !== u); this.units.push(u); u.rs = { inc, ph: 'drive', t: 0, ct: 0, replans: 0, props: [], rear: 0, rearOpen: false, deckK: 0 }; u.task = 'rs';
+    pr.units = pr.units.filter((q) => q !== u); this.units.push(u); u.rs = { inc, ph: 'drive', t: 0, ct: 0, replans: 0, props: [], rear: 0, rearOpen: false, deckK: 0 }; u.task = 'rs'; if (u.v.T.roadside === 'van') vanKit(this, u.v); // 84th: the van's own equipment (stowed in its compartment)
     u.v.ai.v0 = inc.need === 'flatbed' ? 11 : 13; inc.unit = u; inc.ph = 'assigned'; this.stats.dispatched++;
     if (!this.planTo(u)) { this.note(`#${inc.id}: unit ${u.id} has no route`); this.dropUnit(u); inc.unit = null; inc.ph = 'wait'; return null; }
     this.note(`#${inc.id}: ${u.v.type} unit ${u.id} sent (${(Math.hypot(u.v.x - v.x, u.v.z - v.z)).toFixed(0)} m)`); return u;
@@ -225,7 +228,7 @@ export class Roadside {
       else if (inc.t > 45 && Math.abs(v.speed) < 0.4) { this.stats.pullFail++; this.stopped(inc); } // could not complete the S (blocked): stops where it is, hazards on
       v.ind = 1; }
     // hazards: both indicator sides flash ~1.25 Hz (VehicleAudio's indicator lamp material; no extra light)
-    const m = v.mesh && v.mesh.userData.indMat; if (m && inc.hz.on) { if (m.userData.base == null) m.userData.base = m.emissiveIntensity; inc.hz.t += dt; const on = inc.hz.t % 0.8 < 0.4; if (m.userData.side) m.userData.side.value = 0; m.emissiveIntensity = on ? 3.2 : m.userData.base;
+    const m = v.mesh && v.mesh.userData.indMat; if (m && inc.hz.on) { if (m.userData.base == null) m.userData.base = m.emissiveIntensity; inc.hz.t += dt; const on = inc.hz.t % 0.8 < 0.4; if (m.userData.side) m.userData.side.value = 0; m.emissiveIntensity = on ? IND.peak : m.userData.base;
       if (this.dP(v.x, v.z) < 25) this.loop('rs.hz.' + inc.id, 'rs.hazard', v.x, v.z, 3, 1); }
     if (inc.ph === 'wait' || inc.ph === 'assigned') {
       // leave and return: far away and out of sight — the job happens without being watched (no visible jumps)
@@ -250,7 +253,7 @@ export class Roadside {
 
   // ------------------------------------------------------------- units
   dropUnit(u) { const R = u.rs; if (R && R.inc && R.inc.v && !R.inc.v.disposed) { const car = R.inc.v; if (R.jack || car.wreckLift) { car.wreckLift = 0; if (!R.carried) { car.roll = 0; car.pitch = 0; } car.sync(0); } R.jack = null; for (const w of car.mesh.userData.wheels || []) w.visible = true; }
-    if (R) { for (const p of R.props) this.propsOf().put(p.m); R.props = []; for (const o of u.officers) this.unCarry(o); if (R.cable) this.cable(u, null); if (R.carried && R.carried.v) this.dropCarried(u); }
+    if (R) { for (const p of R.props) stowKit(this, u, p.m); R.props = []; for (const o of u.officers) { stowKit(this, u, this.unCarry(o)); putTool(this, o); } stowNow(this, u); bonnetGone(R); if (R.cable) this.cable(u, null); if (R.carried && R.carried.v) this.dropCarried(u); }
     this.units = this.units.filter((q) => q !== u); const v = u.v; if (v) { v.carried = false; if (v.mesh.userData.deck) setFlatDeck(v.mesh.userData.deck, 0); if (v.mesh.userData.rear) v.rearDoors(0); const rm = v.mesh.userData.revMat; if (rm) rm.emissiveIntensity = 0; }
     this.pr.units.push(u); this.pr.removeUnit(u); }
   unitLeave(u, why) { const R = u.rs; if (!R || R.ph === 'leave' || R.ph === 'todrop') return; this.note(`unit ${u.id} stands down (${why})`); this.packUp(u, true); }
@@ -268,7 +271,11 @@ export class Roadside {
     const scene = R.ph !== 'drive' && R.ph !== 'leave' && R.ph !== 'todrop' && R.ph !== 'gone'; v.beacons(scene || R.ph === 'pullin' || (R.ph === 'drive' && near < 120 && R.inc && Math.hypot(v.x - R.inc.v.x, v.z - R.inc.v.z) < 90), pr.t);
     for (const o of u.officers) pr.updateOfficer(o, u, dt);
     if (v.mesh.userData.rear) { const want = R.rearOpen ? 1 : 0; R.rear += Math.sign(want - R.rear) * Math.min(Math.abs(want - R.rear), dt / 1.1); v.rearDoors(sm(R.rear)); }
+    if (R.stowing && R.stowing.length) stowStep(this, u, dt); if (R.bonnet) bonnetStep(R, dt); // 84th: kit gliding back into its slot; the raised bonnet
     if (R.carried) this.poseCarried(u);
+    if (R.attacked) { // 84th: the crew was attacked (WorkerReact.js): nothing scripted runs while anyone is still reacting; then the job is called off and everything is collected
+      if (u.officers.some((o) => o.react)) { if (R.jack) this.jackPose(u, dt); if (R.deckGoal !== undefined) this.deck(u, dt); return; }
+      R.attacked = false; if (R.ph === 'work' || R.ph === 'packing') { R.packing = false; R.packCheck = null; this.packUp(u, true); } }
     if (scene && R.ph !== 'reverse' && near > RS.farResolve && !pr.inView(v)) { this.stats.resolvedFar++; this.finishUnseen(u); return; } // left the scene behind: it completes unwatched
     // sounds: van engine / truck passing loops while it drives near you, truck idle while it works at the scene
     const flat = v.T.roadside === 'flatbed';
@@ -279,7 +286,7 @@ export class Roadside {
       case 'reverse': this.reverse(u, dt); return;
       case 'work': this.work(u, dt); return;
       case 'packing': if (R.jack) this.jackPose(u, dt); if (R.deckGoal !== undefined) this.deck(u, dt); if (R.packCheck) R.packCheck(); return;
-      case 'mount': if (pr.allSeated(u)) { R.rearOpen = false; if (R.rear <= 0.02) this.afterPack(u); } else for (const o of u.officers) if (o.mode === 'foot' && !o.q?.length) { this.toCab(o); } return;
+      case 'mount': if (pr.allSeated(u) && !(R.stowing && R.stowing.length)) { R.rearOpen = false; if (R.rear <= 0.02) this.afterPack(u); } else for (const o of u.officers) if (o.mode === 'foot' && !o.q?.length) { this.toCab(o); } return;
       case 'todrop': this.toDrop(u, dt); return;
       case 'leave': { if (!pr.allSeated(u)) { for (const o of u.officers) if (o.mode === 'foot' && !o.q?.length) { this.toCab(o); } return; } if (!R.going) { R.going = true; this.unpark(u); v.ai.route = null; v.ai.goal = null; v.ai.v0 = 11; if (flat) this.sound('rs.truck.accel', v.x, v.z, 14); }
         R.leaveT = (R.leaveT || 0) + dt; this.unjam(u, dt); if ((near > 140 && !pr.inView(v)) || near > 300 || R.leaveT > 150) this.dropUnit(u); return; }
@@ -340,26 +347,34 @@ export class Roadside {
   mech(o, u, dt) {
     const ems = this.pr.ems, R = u.rs; const q = o.q || (o.q = []); let tk = q[0];
     while (tk && tk.skip && tk.skip()) { q.shift(); tk = q[0]; }
-    if (!tk) { const inc = R && R.inc; const v = inc && inc.v; if (v && !o.want) { const yaw = Math.atan2(v.x - o.x, v.z - o.z); o.want = { x: o.x, z: o.z, yaw, act: null, look: 0.2 }; } else if (o.want) o.want.act = null; ems.medic(o, u, dt); this.carryPose(o); return; }
-    if (!tk.p) tk.p = tk.at(o); const p = tk.p; const ready = !tk.wait || tk.wait();
-    const w = { x: p.x, z: p.z, yaw: p.yaw, act: ready || o.placedT > 0 ? tk.act || null : null, lean: tk.lean ?? 0.4, look: tk.look ?? 0.4 };
+    if (!tk) { const inc = R && R.inc; const v = inc && inc.v; if (v && !o.want) { const yaw = Math.atan2(v.x - o.x, v.z - o.z); o.want = { x: o.x, z: o.z, yaw, act: null, look: 0.2 }; } else if (o.want) o.want.act = null; ems.medic(o, u, dt); this.carryPose(o, dt); return; }
+    if (!tk.p) tk.p = tk.at(o); let p = tk.p; let ready = !tk.wait || tk.wait();
+    // 84th: a job at the van's rear doors waits beside them, outside the leaves' swing, until they are fully open (he swings them open
+    // from there); only then he steps into the doorway — before, he stood 0.55 m behind the bumper while the leaves opened through him
+    let doorAct = null; if (tk.at.rear && u.v.mesh.userData.rear && R.rear < 0.85) { p = tk.side || (tk.side = this.rearSide(u, tk.p)); ready = false;
+      if (o.placedT > 0.3) { doorAct = 'mechBend'; if (!R.rearOpen) { R.rearOpen = true; const v = u.v; this.sound('rs.van.door', v.x - Math.sin(v.yaw) * 2.5, v.z - Math.cos(v.yaw) * 2.5, 8); } } }
+    const w = { x: p.x, z: p.z, yaw: p.yaw, act: doorAct || (ready || o.placedT > 0 ? tk.act || null : null), lean: doorAct ? 0.15 : tk.lean ?? 0.4, look: tk.look ?? 0.4 };
     if (o.carry && o.carry.two) w.act = o.placedT > 0 && ready ? tk.act || 'medCarry' : 'medCarry';
     if (tk.holds && o.placedT > 0.3) { const H = tk.holds(o); w.holdL = H[0]; w.holdR = H[1]; }
-    o.want = w; ems.medic(o, u, dt); this.carryPose(o);
+    o.want = w; ems.medic(o, u, dt); this.carryPose(o, dt); if (o.tool) toolPose(o);
     if (o.placedT > 0.3 && ready) { if (!tk.began) { tk.began = true; tk.t = 0; if (tk.start) tk.start(o); } tk.t += dt * RS.workK;
       if (tk.every) { tk.et = (tk.et ?? tk.every[0] * 0.5) - dt; if (tk.et <= 0) { tk.et = tk.every[0] * (0.8 + Math.random() * 0.4); tk.every[1](o); } }
       if (tk.t >= (tk.dur ?? 0.5)) { if (tk.end) tk.end(o); q.shift(); o.placedT = 0; o.wantKey = null; o.ch.anim.holdWL = o.ch.anim.holdWR = null; } }
   }
+  // beside the rear doors, outside both leaves' arcs (hinges ±0.66 m, 0.655 m leaves opening 109°): 1.2 m out, 0.35 m behind, facing in
+  rearSide(u, p) { const v = u.v, fx = Math.sin(v.yaw), fz = Math.cos(v.yaw); const lx = (p.x - v.x) * fz - (p.z - v.z) * fx; const sx = lx > 0.05 ? 1 : lx < -0.05 ? -1 : 1;
+    const q = this.w(v, sx * 1.2, -(v.T.len / 2 + 0.35)); return this.faceTo(q, v.x - fx * (v.T.len / 2) + fz * sx * 0.3, v.z - fz * (v.T.len / 2) - fx * sx * 0.3); }
   // a prop in a mechanic's hand: hangs below the right hand (toolbox, battery pack, jack, cones, triangle) or, two-handed,
   // in front of the chest (spare / flat tyre) with both hands IK-gripped to its sides
-  carry(o, m, two = false) { o.carry = { m, two }; m.visible = true; }
+  carry(o, m, two = false) { o.carry = { m, two, k: 1, from: null }; m.visible = true; }
+  blendCarry(o, m, dt = 1 / 60) { const c = o.carry; if (!c || !c.from || c.k >= 1) return; c.k = Math.min(1, c.k + dt / 0.45); const e = c.k * c.k * (3 - 2 * c.k); _v.copy(m.position); m.position.lerpVectors(c.from, _v, e); if (c.k >= 1) c.from = null; } // 84th: out of the van into the hand (no pop)
   unCarry(o) { const c = o.carry; o.carry = null; if (c && c.two && o.ch && o.ch.anim) { o.ch.anim.holdWL = o.ch.anim.holdWR = null; if (o.ch.anim.action === 'medCarry') o.ch.anim.set(null); } return c ? c.m : null; }
-  carryPose(o) {
+  carryPose(o, dt = 1 / 60) {
     const c = o.carry; if (!c) return; const m = c.m; if (this.dP(o.x, o.z) > 90) { m.visible = false; return; } m.visible = true;
-    if (c.two) { const fx = Math.sin(o.yaw), fz = Math.cos(o.yaw); const y = (o.y || 0) + 0.98; m.position.set(o.x + fx * 0.42, y, o.z + fz * 0.42); m.rotation.set(0, o.yaw + Math.PI / 2, 0, 'YXZ'); // tyre upright in front of him, its face toward him (axle along his forward)
+    if (c.two) { const fx = Math.sin(o.yaw), fz = Math.cos(o.yaw); const y = (o.y || 0) + 0.98; m.position.set(o.x + fx * 0.42, y, o.z + fz * 0.42); m.rotation.set(0, o.yaw + Math.PI / 2, 0, 'YXZ'); this.blendCarry(o, m, dt); // tyre upright in front of him, its face toward him (axle along his forward)
       const rx = Math.cos(o.yaw), rz = -Math.sin(o.yaw); const W = o.want; if (W) { W.holdL = { x: m.position.x + rx * 0.28, y: y - 0.02, z: m.position.z + rz * 0.28 }; W.holdR = { x: m.position.x - rx * 0.28, y: y - 0.02, z: m.position.z - rz * 0.28 }; } return; }
     const h = o.ch.bones && o.ch.bones.handR; if (!h) return; h.updateWorldMatrix(true, false); h.getWorldPosition(_v); const k = m.userData.kind; const drop = k === 'toolbox' ? 0.3 : k === 'battery' ? 0.33 : k === 'cone' ? 0.1 : k === 'triangle' ? 0.42 : k === 'worklight' ? 0.66 : 0.14;
-    m.position.set(_v.x, Math.max((o.y || 0) + 0.02, _v.y - drop), _v.z); m.rotation.set(0, o.yaw + (k === 'jack' ? Math.PI : 0), 0);
+    m.position.set(_v.x, Math.max((o.y || 0) + 0.02, _v.y - drop), _v.z); m.rotation.set(0, o.yaw + (k === 'jack' ? Math.PI : 0), 0); this.blendCarry(o, m, dt);
   }
   // the prop put down at a world point (rests on the ground / the deck)
   place(u, m, x, z, yaw, opts = {}) { const R = u.rs; m.position.set(x, (opts.y ?? this.ground(x, z)) + (opts.dy || 0), z); m.rotation.set(opts.rx || 0, yaw, opts.rz || 0, 'YXZ'); m.visible = true; if (!R.props.some((p) => p.m === m)) R.props.push({ m, x, z }); }
@@ -380,62 +395,40 @@ export class Roadside {
     if (R.done && u.officers.every((o) => !o.q || !o.q.length) && !R.packing) this.packUp(u, false);
     void dt; void pr;
   }
-  // a van job: safety first (triangle, cones), then the fix by kind, then everything back in the van
-  planVan(u) {
-    const R = u.rs, v = u.v, inc = R.inc, car = inc.v, A = u.officers[0], B = u.officers[1] || A; const P = this.propsOf(); const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw);
-    const rear = () => this.faceTo(this.w(v, 0, -(v.T.len / 2 + 0.85)), v.x, v.z); const ch = car.T.len / 2, cw = car.T.wid / 2; const night = this.g.atmos && this.g.atmos.night > 0.4;
-    const roadC = -(v.T.wid / 2 + 0.25); // traffic side of the van (−x: right, the road side in left-hand traffic)
-    const fetch = (o, kind, two = false) => ({ at: rear, act: 'mechBend', lean: 0.35, dur: 0.7, start: () => { R.rearOpen = true; this.sound('rs.tools', v.x - fx * 2.5, v.z - fz * 2.5, 8); }, end: () => { const m = P.get(kind); this.carry(o, m, two); } });
-    const putAt = (o, at, act, sound, extra = {}) => ({ at, act, lean: 0.25, dur: 0.8, end: () => { const m = this.unCarry(o); if (!m) return; const p = this.lastAt(o); const fd = extra.fwd ?? 0.45; this.place(u, m, p.x + Math.sin(p.yaw) * fd, p.z + Math.cos(p.yaw) * fd, p.yaw + (extra.yaw || 0), extra); if (sound) this.sound(sound, p.x, p.z, 10); if (extra.then) extra.then(m); } });
-    // B: triangle 12 m behind the van, two cones on the traffic side
-    B.q.push(fetch(B, 'triangle'), putAt(B, () => this.w(v, roadC + 0.6, -(v.T.len / 2 + 12), Math.PI), 'mechSquat', 'rs.triangle', { yaw: 0 }));
-    for (const [k, z] of [[0, -(v.T.len / 2 + 3.5)], [1, -(v.T.len / 2 + 7)]]) { void k; B.q.push(fetch(B, 'cone'), putAt(B, () => this.w(v, roadC - 0.1 + k * 0.4, z, Math.PI), 'mechSquat', 'rs.cone')); }
-    if (night) B.q.push(fetch(B, 'worklight'), putAt(B, () => this.faceTo(this.w(car, -(cw + 0.9), ch * 0.4), car.x, car.z), 'mechBend', null, { yaw: 0 }));
-    // A: to the driver's window (right-hand drive: −x), a word, then the job
-    const drv = () => this.faceTo(this.w(car, -(cw + 0.55), 0.3), car.x, car.z);
-    A.q.push({ at: drv, act: null, dur: 2.5, look: 0.15, start: () => { if (inc.own && this.g.hud && this.dP(car.x, car.z) < 30) this.g.hud.notify('Street Customs Roadside', `The mechanic checks the ${FAULTS[inc.kind].label}.`, 'info', 3); } });
-    const front = (dx = 0) => this.faceTo(this.w(car, dx, ch + 0.45), car.x, car.z); const bonnet = () => { const c = Math.cos(car.yaw), s = Math.sin(car.yaw); const y = (car.y || 0) + Math.min(1.05, car.T.hgt * 0.6); const pz = ch - 0.35; return [{ x: car.x + 0.32 * c + pz * s, y, z: car.z - 0.32 * s + pz * c }, { x: car.x - 0.32 * c + pz * s, y, z: car.z + 0.32 * s + pz * c }]; };
-    const job = FAULTS[inc.kind];
-    const verdict = () => { const ok = Math.random() < job.ok * (inc.own ? 1.05 : 1); R.ok = ok; if (ok) { if (inc.kind === 'flat') this.fixTyres(car); else this.fixEngine(car); this.stats.repaired++; this.sound('rs.restart', car.x, car.z, 12); this.sound('rs.bonnet.close', car.x + Math.sin(car.yaw) * ch, car.z + Math.cos(car.yaw) * ch, 9); }
-      else { this.stats.failed++; this.sound('rs.start.struggle', car.x, car.z, 10); } R.working = false; R.done = true; };
-    if (inc.kind === 'flat') {
-      const w = this.wheelOf(car, false); const wl = () => { const wp = w.position; const sx = Math.sign(wp.x) || 1; return { lx: wp.x + sx * 0.75, lz: wp.z, sx }; };
-      const atWheel = (off = 0) => () => { const q = wl(); const p = this.w(car, q.lx, q.lz + off); return this.faceTo(p, ...(() => { const c = this.w(car, q.lx - q.sx * 0.8, q.lz + off); return [c.x, c.z]; })()); };
-      B.q.push(fetch(B, 'jack'), putAt(B, atWheel(0.55), 'mechSquat', 'rs.equipment', { then: () => { R.jack = { w, k: 0, goal: 1 }; } }));
-      A.q.push(fetch(A, 'tyre', true), putAt(A, atWheel(-0.9), 'mechSquat', 'rs.tyre', { rz: Math.PI / 2, dy: 0.1 }));
-      A.q.push({ at: atWheel(0), act: 'mechSquat', lean: 0.5, dur: 5.5, wait: () => R.jack && R.jack.k > 0.95, start: () => { R.working = true; }, every: [1.3, () => this.sound('rs.wheelnut', car.x, car.z, 9)], end: () => { w.visible = false; const m = P.get('tyre'); const q = wl(); const p = this.w(car, q.lx - q.sx * 0.15, q.lz + 1.2); this.place(u, m, p.x, p.z, car.yaw, { rz: Math.PI / 2, dy: 0.1 }); R.flatTyre = m; this.sound('rs.tyre', p.x, p.z, 9); } });
-      A.q.push({ at: atWheel(-0.9), act: 'mechSquat', dur: 0.6, end: () => { const sp = R.props.find((p) => p.m.userData.kind === 'tyre' && p.m !== R.flatTyre); if (sp) { this.pick(u, sp.m); this.carry(A, sp.m, true); } } });
-      A.q.push({ at: atWheel(0), act: 'mechSquat', lean: 0.5, dur: 5, every: [1.2, () => this.sound('rs.wheelnut', car.x, car.z, 9)], start: () => { const m = this.unCarry(A); if (m) this.propsOf().put(m); w.visible = true; this.fixTyres(car); this.sound('rs.tyre', car.x, car.z, 9); }, end: () => { if (R.jack) R.jack.goal = 0; } });
-      A.q.push({ at: atWheel(0), act: null, dur: 1.6, wait: () => !R.jack || R.jack.k < 0.02, end: () => { R.ok = true; this.stats.repaired++; R.working = false; R.done = true; this.sound('rs.restart', car.x, car.z, 12); } });
-      // pack: B brings the jack back, A the flat tyre
-      B.q.push({ at: atWheel(0.55), act: 'mechSquat', dur: 0.8, wait: () => R.done, start: () => { if (R.jack) R.jack = null; }, end: () => { const jp = R.props.find((p) => p.m.userData.kind === 'jack'); if (jp) { this.pick(u, jp.m); this.carry(B, jp.m); } } });
-      A.q.push({ at: () => { const p = R.flatTyre ? { x: R.flatTyre.position.x, z: R.flatTyre.position.z } : atWheel(1.2)(); return this.faceTo({ x: p.x + Math.sin(car.yaw) * 0.6, z: p.z + Math.cos(car.yaw) * 0.6 }, p.x, p.z); }, act: 'mechSquat', dur: 0.7, end: () => { if (R.flatTyre) { this.pick(u, R.flatTyre); this.carry(A, R.flatTyre, true); R.flatTyre = null; } } });
-    } else {
-      const usePack = inc.kind === 'battery'; const kit = usePack ? 'battery' : 'toolbox';
-      A.q.push(fetch(A, kit), putAt(A, () => this.faceTo(this.w(car, 0.75, ch + 0.5), car.x, car.z), 'mechSquat', usePack ? 'rs.battery' : 'rs.toolbox.open', { yaw: Math.PI / 2 }));
-      A.q.push({ at: () => front(0), act: 'mechBend', lean: 0.65, look: 0.6, dur: (job.work || 9) * (0.85 + Math.random() * 0.3), holds: () => bonnet(), start: () => { R.working = true; this.sound('rs.bonnet.open', car.x + Math.sin(car.yaw) * ch, car.z + Math.cos(car.yaw) * ch, 9); this.sound('rs.inspect', car.x, car.z, 8); },
-        every: [2.1, () => this.sound(usePack ? 'rs.spanner' : Math.random() < 0.5 ? 'rs.ratchet' : 'rs.spanner', car.x + Math.sin(car.yaw) * ch, car.z + Math.cos(car.yaw) * ch, 9)] });
-      A.q.push({ at: drv, act: null, dur: 1.8, end: verdict });
-      B.q.push({ at: () => front(0.9), act: 'mechBend', lean: 0.3, look: 0.5, dur: 3, wait: () => R.working || R.done, holds: () => { const b = bonnet(); return [b[1], null]; } });
-      A.q.push({ at: () => this.faceTo(this.w(car, 1.25, ch + 0.5), car.x, car.z), act: 'mechSquat', dur: 0.8, start: () => this.sound(usePack ? 'rs.battery' : 'rs.toolbox.close', car.x, car.z, 9), end: () => { const kp = R.props.find((p) => p.m.userData.kind === kit); if (kp) { this.pick(u, kp.m); this.carry(A, kp.m); } } });
-    }
-  }
+  // a van job (84th: the staged workflow with the van's own kit — RoadsideJob.js)
+  planVan(u) { planVanJob(this, u); }
+  faultOf(kind) { return FAULTS[kind]; }
+  verdict(u, job) { const R = u.rs, inc = R.inc, car = inc.v, ch = car.T.len / 2; const ok = Math.random() < job.ok * (inc.own ? 1.05 : 1); R.ok = ok;
+    if (ok) { if (inc.kind === 'flat') this.fixTyres(car); else this.fixEngine(car); this.stats.repaired++; this.sound('rs.restart', car.x, car.z, 12); }
+    else { this.stats.failed++; this.sound('rs.start.struggle', car.x, car.z, 10); } R.working = false; R.done = true; void ch; }
+  kit(u) { return kitReport(u ? u.v || u : null); }
   toCab(o) { o.mode = 'return'; o.goal = null; o.want = null; o.q = []; o.stuck = false; const A = o.ch && o.ch.anim; if (A) { A.set(null); A.holdWL = A.holdWR = null; } }
   lastAt(o) { const q = o.q && o.q[0]; return q && q.p ? q.p : { x: o.x, z: o.z, yaw: o.yaw }; }
   // the job is over (or abandoned): carry everything back, doors shut, crew in; then the car goes / the flatbed is called
   packUp(u, abort) {
-    const R = u.rs, v = u.v, P = this.propsOf(); if (R.packing) return; R.packing = true; R.done = true; R.working = false; R.abort = abort;
-    if (!u.officers.some((o) => o.mode === 'foot')) { for (const p of R.props) P.put(p.m); R.props = []; R.ph = 'mount'; return; }
-    const rear = () => this.faceTo(this.w(v, v.T.roadside === 'flatbed' ? v.T.wid / 2 + 0.6 : 0, v.T.roadside === 'flatbed' ? 0.4 : -(v.T.len / 2 + 0.85)), v.x, v.z);
-    const crew = u.officers.filter((o) => o.mode === 'foot'); let i = 0;
-    for (const o of crew) { o.q = o.q && !abort ? o.q.filter((t) => t.began) : []; if (o.carry) o.q.push({ at: rear, act: 'mechBend', lean: 0.3, dur: 0.6, start: () => { R.rearOpen = true; }, end: () => { const m = this.unCarry(o); if (m) P.put(m); this.sound('rs.tools', v.x, v.z, 8); } }); }
+    const R = u.rs, v = u.v; if (R.packing) return; R.packing = true; R.done = true; R.working = false; R.abort = abort; const van = v.T.roadside === 'van';
+    if (!u.officers.some((o) => o.mode === 'foot')) { for (const p of R.props) stowKit(this, u, p.m); R.props = []; stowNow(this, u); bonnetGone(R); R.ph = 'mount'; return; }
+    const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw); const atRear = (lx) => Object.assign(() => { if (!van) return this.faceTo(this.w(v, v.T.wid / 2 + 0.6, 0.4), v.x, v.z); const p = this.w(v, lx, -(v.T.len / 2 + 0.55)); return this.faceTo(p, p.x + fx, p.z + fz); }, { rear: van });
+    const atSide = () => this.rearSide(u, this.w(v, 0.3, -(v.T.len / 2 + 0.55))); // closing: from beside the doors (never inside the swing)
+    const stowTask = (o, lx) => ({ at: atRear(lx), act: 'mechBend', lean: 0.45, dur: 1.1, start: () => { R.rearOpen = true; }, wait: () => !van || R.rear > 0.85, end: () => { stowKit(this, u, this.unCarry(o)); this.sound('rs.tools', v.x - fx * 2.5, v.z - fz * 2.5, 8); } });
+    const crew = u.officers.filter((o) => o.mode === 'foot'); let i = 0; const car = R.inc && R.inc.v;
+    for (const [n, o] of crew.entries()) { o.q = o.q && !abort ? o.q.filter((t) => t.began) : []; const lx = n ? 0.35 : -0.35; if (o.tool) putTool(this, o); if (o.carry) o.q.push(stowTask(o, lx)); }
+    if (R.bonnet && car) { const L = crew[0], ch = car.T.len / 2; L.q.unshift({ at: () => this.faceTo(this.w(car, 0, ch + 0.45), car.x, car.z), act: 'mechBend', lean: 0.45, dur: 2.0, start: () => { if (R.bonnet) R.bonnet.goal = 0; }, end: () => this.sound('rs.bonnet.close', car.x + Math.sin(car.yaw) * ch, car.z + Math.cos(car.yaw) * ch, 9) }); } // (abandoned mid-job: shut it first)
     const left = R.props.slice(); if (R.jack) { R.jack.goal = 0; }
-    for (const pp of left) { const o = crew[i++ % crew.length]; const m = pp.m;
-      o.q.push({ at: () => { const dx = o.x - m.position.x, dz = o.z - m.position.z, l = Math.hypot(dx, dz) || 1; return this.faceTo({ x: m.position.x + dx / l * 0.55, z: m.position.z + dz / l * 0.55 }, m.position.x, m.position.z); }, act: 'mechSquat', dur: 0.7, wait: () => !R.jack || R.jack.k < 0.02 || m.userData.kind !== 'jack',
+    // the cones and the triangle last (traffic protection stays out until everything else is in): sort by distance from the car
+    if (car) left.sort((a, b) => (a.m.userData.kind === 'cone' || a.m.userData.kind === 'triangle' ? 1 : 0) - (b.m.userData.kind === 'cone' || b.m.userData.kind === 'triangle' ? 1 : 0));
+    for (const pp of left) { const o = crew[i++ % crew.length]; const m = pp.m; const lx = crew.indexOf(o) ? 0.35 : -0.35;
+      o.q.push({ at: () => { const dx = o.x - m.position.x, dz = o.z - m.position.z, l = Math.hypot(dx, dz) || 1; return this.faceTo({ x: m.position.x + dx / l * 0.55, z: m.position.z + dz / l * 0.55 }, m.position.x, m.position.z); }, act: 'mechSquat', dur: 1.2, wait: () => !R.jack || R.jack.k < 0.02 || m.userData.kind !== 'jack',
         end: () => { if (m.userData.kind === 'jack') R.jack = null; this.pick(u, m); this.carry(o, m, m.userData.kind === 'tyre'); this.sound(m.userData.kind === 'cone' ? 'rs.cone' : m.userData.kind === 'triangle' ? 'rs.triangle' : 'rs.tools', m.position.x, m.position.z, 9); } },
-      { at: rear, act: 'mechBend', lean: 0.3, dur: 0.6, start: () => { R.rearOpen = true; }, end: () => { const mm = this.unCarry(o); if (mm) P.put(mm); } }); }
-    R.ph = 'packing'; R.abort = abort;
-    const chk = () => { if (crew.every((o) => !o.q.length || o.mode !== 'foot')) { for (const o of crew) if (o.mode === 'foot') { this.toCab(o); } R.ph = 'mount'; this.sound('rs.van.door', v.x, v.z, 8); return true; } return false; };
+      stowTask(o, lx)); }
+    R.ph = 'packing'; R.abort = abort; R.secured = false;
+    // all in: one of them shuts the rear doors (a real close at the doors, not on their own once he is in the cab), then the cab
+    const chk = () => { if (!crew.every((o) => !o.q.length || o.mode !== 'foot') || (R.stowing && R.stowing.length)) return false;
+      const S = crew.find((o) => o.mode === 'foot'); if (van && !R.secured && S) { R.secured = 'busy';
+        for (const o of crew) if (o !== S && o.mode === 'foot') o.q.push({ at: () => this.rearSide(u, { x: o.x, z: o.z }), act: null, dur: 0.4 }); // 84th: the other one steps out of the swing
+        S.q.push({ at: atSide, act: 'mechBend', lean: 0.2, dur: 1.6, wait: () => this.pr.ems.doorsClear(u), start: () => { R.rearOpen = false; }, end: () => { R.secured = true; this.sound('rs.van.door', v.x - fx * 2.5, v.z - fz * 2.5, 9); } }); return false; }
+      if (van && R.secured !== true && S) return false;
+      for (const o of crew) if (o.mode === 'foot') { this.toCab(o); } R.ph = 'mount'; this.sound('rs.van.door', v.x, v.z, 8); return true; };
     R.packCheck = chk;
   }
   afterPack(u) {

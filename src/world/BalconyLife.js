@@ -44,9 +44,12 @@ attribute vec3 color;
 #endif
 uniform float uRainIn; uniform float uWet;
 ${CLOTH_WIND_GLSL}
-vec3 clothDisp(vec3 P, vec3 N, vec3 cw, out float shade, out float hide) {
+vec3 clothDisp(vec3 P, vec3 N, vec3 cw, out float shade, out float hide, out float tk) {
   float w = cw.r, ph = cw.g, code = cw.b * 4.0 + 0.001; float kind = floor(code), mass = clamp(fract(code) * 1.25, 0.0, 1.0);
-  hide = (kind < 0.5 || kind > 2.5) && ph < uRainIn ? 1.0 : 0.0;                    // laundry taken in from the rain (curtains, screens stay)
+  // laundry taken in from the rain (curtains, screens stay): 84th — no longer a pop. Over 0.04 of the rain-in ramp (3.6 s of rain at
+  // rainIn += dt / 90; played back 4× slower when it is hung out again) the free edge gathers up to the line, the bundle is drawn in
+  // towards the door and fades out through the alpha hash; hangers and pegs ride along (they carry their garment's phase, pin 0)
+  float laund = (kind < 0.5 || kind > 2.5) ? 1.0 : 0.0; tk = laund * clamp((uRainIn - ph) / 0.04, 0.0, 1.0); hide = tk > 0.999 ? 1.0 : 0.0;
   float g = clothGust(P.xz) * uWindStr, light = 1.0 - mass * 0.75, t = uWindT, face = dot(N.xz, uWindDir);
   float sway = (0.55 * g + 0.22 * sin(t * 1.1 + ph * 6.2831 + P.y * 0.7)) * (0.35 + 0.65 * abs(face)) * (face < 0.0 ? -1.0 : 1.0);
   float fa = t * (4.5 + light * 5.0) + ph * 19.0 + dot(P.xz, vec2(3.1, 2.7)) + P.y * 3.7;
@@ -57,7 +60,8 @@ vec3 clothDisp(vec3 P, vec3 N, vec3 cw, out float shade, out float hide) {
   vec3 tw = vec3(uWindDir.x, 0.0, uWindDir.y); tw -= N * dot(tw, N);
   float lat = kind < 0.5 ? min(w * 0.09 * g * light, 0.06) : (kind > 1.5 && kind < 2.5) ? min(w * 0.03 * g, 0.03) : 0.0;
   shade = 1.0 + 0.09 * sin(fa) * w * min(1.0, g);
-  return N * dn + tw * lat + vec3(0.0, w * w * 0.035 * g * light * abs(face), 0.0);
+  vec2 nh = N.xz / max(length(N.xz), 1e-3); float gather = smoothstep(0.0, 0.6, tk), pull = smoothstep(0.3, 1.0, tk);
+  return (N * dn + tw * lat) * (1.0 - gather) + vec3(0.0, w * w * 0.035 * g * light * abs(face), 0.0) + vec3(-nh.x * pull * 0.85, w * gather * 0.45 + pull * 0.08, -nh.y * pull * 0.85);
 }
 `;
 function clothMaterial() {
@@ -65,15 +69,15 @@ function clothMaterial() {
   m.name = 'balCloth';
   m.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, CLOTH_U);
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + DISP_GLSL + 'varying vec4 vCl;')
-      .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\nfloat cShade, cHide; vec3 cDisp = clothDisp(position, normalize(normal), color, cShade, cHide); objectNormal = normalize(objectNormal + vec3(0.0, -1.6 * dot(cDisp, normal), 0.0));\nvCl = vec4(cShade, floor(color.b * 4.0 + 0.001), color.g, color.r);')
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + DISP_GLSL + 'varying vec4 vCl; varying float vTk;')
+      .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\nfloat cShade, cHide, cTk; vec3 cDisp = clothDisp(position, normalize(normal), color, cShade, cHide, cTk); vTk = cTk; objectNormal = normalize(objectNormal + vec3(0.0, -1.6 * dot(cDisp, normal), 0.0));\nvCl = vec4(cShade, floor(color.b * 4.0 + 0.001), color.g, color.r);')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\ntransformed += cDisp; if (cHide > 0.5) transformed = vec3(0.0, -10000.0, 0.0);');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform sampler2D uFabN; uniform float uWet; uniform float uNight; varying vec4 vCl; vec4 gWv; vec2 gWq;')
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform sampler2D uFabN; uniform float uWet; uniform float uNight; varying vec4 vCl; varying float vTk; vec4 gWv; vec2 gWq;')
       .replace('#include <map_fragment>', `#include <map_fragment>
   { vec2 lu = fract(vMapUv * 4.0); vec2 tid = floor(vMapUv * 4.0); int di = int(tid.x + tid.y * 4.0 + 0.5);
     float wt = (di == 3 || di == 4 || di == 11) ? 1.0 : di == 9 ? 2.0 : (di == 6 || di == 13) ? 3.0 : 0.0; vec2 wOff = vec2(mod(wt, 2.0), floor(wt / 2.0));
     gWq = lu * 14.0; gWv = textureGrad(uFabN, (fract(gWq) + wOff) * 0.5, dFdx(gWq) * 0.5, dFdy(gWq) * 0.5);
-    diffuseColor.rgb *= (0.86 + 0.14 * gWv.a) * vCl.x * (1.0 - 0.38 * uWet); }`)
+    diffuseColor.rgb *= (0.86 + 0.14 * gWv.a) * vCl.x * (1.0 - 0.38 * uWet); diffuseColor.a *= 1.0 - smoothstep(0.45, 1.0, vTk); }`)
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = clamp(mix(roughnessFactor, gWv.b, 0.6) * (1.0 - 0.3 * uWet), 0.25, 1.0);')
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
   { vec3 wn = vec3(gWv.xy * 2.0 - 1.0, 0.0); wn.z = sqrt(max(0.0, 1.0 - dot(wn.xy, wn.xy)));
@@ -82,11 +86,11 @@ function clothMaterial() {
     float im = inversesqrt(max(max(dot(T, T), dot(B, B)), 1e-12)); normal = normalize(mat3(T * im, B * im, normal) * vec3(wn.xy * 0.7, wn.z)); }`)
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\nif (vCl.y > 0.5 && vCl.y < 1.5 && vCl.z > 0.62) totalEmissiveRadiance += diffuseColor.rgb * vec3(1.0, 0.78, 0.52) * uNight * 0.55; // a lit room behind a thin curtain');
   };
-  m.customProgramCacheKey = () => 'balCloth1';
+  m.customProgramCacheKey = () => 'balCloth2';
   const d = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: m.map, alphaHash: true, side: THREE.DoubleSide });
   d.onBeforeCompile = (sh) => { Object.assign(sh.uniforms, CLOTH_U);
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + DISP_GLSL).replace('#include <begin_vertex>', '#include <begin_vertex>\nfloat cShade, cHide; transformed += clothDisp(position, normalize(normal), color, cShade, cHide); if (cHide > 0.5) transformed = vec3(0.0, -10000.0, 0.0);'); };
-  d.customProgramCacheKey = () => 'balClothDepth1'; m.userData.depth = d; return m;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\n' + DISP_GLSL).replace('#include <begin_vertex>', '#include <begin_vertex>\nfloat cShade, cHide, cTk; transformed += clothDisp(position, normalize(normal), color, cShade, cHide, cTk); if (cHide > 0.5) transformed = vec3(0.0, -10000.0, 0.0);'); };
+  d.customProgramCacheKey = () => 'balClothDepth2'; m.userData.depth = d; return m;
 }
 function propMaterial(leaf) {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 1, map: standIn('hhCol'), side: leaf ? THREE.DoubleSide : THREE.FrontSide, alphaTest: leaf ? 0.5 : 0 });
@@ -208,7 +212,9 @@ function dressOne(b, s, R, laundryP, anchors) {
   if (rnd() < 0.12) { const sx = rnd() < 0.5 ? -1 : 1; cyl(P, ...W(sx * (hw - 0.24), 0, 0.26), 0.23, 0.23, 0.62, 14, HH.plasticBlue, WHITE, HH.plasticBlue, WHITE, 0); ST.stats.props++; } // water drum
   if (!drape) anchors.push({ kind: 'rail', p: W(0, railTop, railO), a0: -hw + 0.15, a1: hw - 0.15, s });
 }
-function pegs(P, a, b, rnd) { for (const q of [a, b]) { const row = Math.floor(rnd() * 7); abox(P, q[0], q[1] + 0.02, q[2], 0.014, 0.07, 0.022, 0, HH.pegs, WHITE, { sub: [0.1, row / 8 + 0.02, 0.9, (row + 1) / 8 - 0.02] }); } }
+// 84th: pegs and hanger wire are built into the cloth mesh (garment phase, pin weight 0: rigid) so they go in with their garment —
+// before, they were static props and stayed on an empty line. Pegs: the white-shirt tile, a pale plastic peg; wire: the same
+function pegs(C, a, b, rnd, q) { const cw = [0, q, code(0, 0.9)]; for (const p of [a, b]) abox(C, p[0], p[1] + 0.02, p[2], 0.014, 0.07, 0.022, 0, FAB.shirtWhite, cw, { sub: [0.15, 0.3, 0.35, 0.5] }); }
 // a washing line across the balcony (sagging nylon cord on two hooks) with garments hung along it
 function line(R, W, s, hw, lineH, lo, rnd, ph, pick, second) {
   const P = R('balProp'), C = R('balCloth'); const a0 = -s.w / 2 + 0.045, a1 = -a0, sag = 0.025 + rnd() * 0.03;
@@ -234,7 +240,7 @@ function line(R, W, s, hw, lineH, lo, rnd, ph, pick, second) {
       const pos = (off, dr) => (u, v) => { const t = at(a + wdt * u); const belly = Math.sin(Math.PI * u) * 0.02 * v; return [t[0] + N[0] * off, t[1] - 0.004 - dr * v + belly, t[2] + N[2] * off]; };
       if (wdt > 0.9) { clothGrid(C, nu, nv, pos(0.011, drop), N, uv, q, cd); clothGrid(C, nu, nv, pos(-0.011, drop * 0.82), N, [uv[2], uv[1], uv[0], uv[3]], q, cd); }
       else clothGrid(C, nu, nv, pos(0, drop), N, uv, q, cd);
-      pegs(P, p0, p1, rnd);
+      pegs(C, p0, p1, rnd, q);
     }
     a += wdt + 0.04 + rnd() * 0.08;
   }
@@ -244,7 +250,7 @@ function shirt(R, P, C, at, a, wdt, drop, N, d, q, mass, rnd) {
   const mid = at(a + wdt / 2); const T = [mid[0] - at(a)[0], 0, mid[2] - at(a)[2]]; const tl = Math.hypot(T[0], T[2]) || 1; T[0] /= tl; T[2] /= tl;
   const sh = 0.045 + drop * 0.08, top = [mid[0], mid[1] - 0.075, mid[2]]; const half = wdt / 2 * 0.82; // hanger shoulders, body half width
   const P2 = (x, y) => [top[0] + T[0] * x, top[1] + y, top[2] + T[2] * x];
-  beam(P, [mid[0], mid[1] + 0.012, mid[2]], P2(0, -0.012), 0.002, HH.galv, [0.75, 0.75, 0.78]); beam(P, P2(0, -0.012), P2(-half, -sh), 0.0025, HH.galv, [0.75, 0.75, 0.78]); beam(P, P2(0, -0.012), P2(half, -sh), 0.0025, HH.galv, [0.75, 0.75, 0.78]);
+  const hw = [0, q, code(0, 0.9)]; beam(C, [mid[0], mid[1] + 0.012, mid[2]], P2(0, -0.012), 0.002, FAB.shirtWhite, hw); beam(C, P2(0, -0.012), P2(-half, -sh), 0.0025, FAB.shirtWhite, hw); beam(C, P2(0, -0.012), P2(half, -sh), 0.0025, FAB.shirtWhite, hw);
   const uv = fabUV(d), cd = code(0, mass); const U = (u0, u1) => [uv[0] + (uv[2] - uv[0]) * u0, uv[1], uv[0] + (uv[2] - uv[0]) * u1, uv[3]];
   const slope = (x) => -sh * Math.abs(x) / half - 0.012; // shoulders follow the hanger
   clothGrid(C, 4, 5, (u, v) => { const x = (u - 0.5) * 2 * half; const y = slope(x) * (1 - v) + (-sh - drop) * v; return P2(x * (1 - 0.04 * v), y, 0); }, N, U(0.2, 0.8), q, cd, (u, v) => 0.12 + v * 0.88);
@@ -257,7 +263,7 @@ function trousers(C, P, at, a, wdt, drop, N, d, q, mass, rnd) {
   const band = 0.22, legW = wdt * 0.47; const pt = (x, y) => { const t = at(a + x); return [t[0], t[1] - 0.004 - y, t[2]]; };
   clothGrid(C, 3, 2, (u, v) => pt(wdt * u, band * v), N, U(0, 1, 0, 0.22), q, cd, (u, v) => v * 0.25);
   for (const [x0, u0] of [[0, 0], [wdt - legW, 0.53]]) clothGrid(C, 2, 5, (u, v) => pt(x0 + legW * u + (x0 > 0 ? 0.01 : -0.01) * v * u, band + (drop - band) * v), N, U(u0, u0 + 0.47, 0.22, 1), q, cd, (u, v) => 0.25 + v * 0.75);
-  pegs(P, at(a), at(a + wdt), rnd);
+  pegs(C, at(a), at(a + wdt), rnd, q);
 }
 // a saree / bedsheet / sarong over the front railing: over the top rail and down the outside (towards the street)
 function overRail(C, W, s, hw, railTop, railO, outer, rnd, ph, pick) {

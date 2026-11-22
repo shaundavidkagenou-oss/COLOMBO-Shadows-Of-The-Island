@@ -16,6 +16,7 @@
 import { Audio, mechClass } from './Audio.js';
 import { SoundBank as SB } from './SoundBank.js';
 import { surfaceAt, wetSurface } from './Surface.js';
+import { IND } from '../vehicles/VehicleModels.js';
 
 const CFG = { // per class: the fallback recording for start / stop, ticks after a drive, air brakes, indicator click level
   car: { alt: null, ticks: 1, air: false, click: 1 }, diesel: { alt: 'car', ticks: 1.2, air: false, click: 1 }, heavy: { alt: 'car', ticks: 1.5, air: true, click: 1.2 },
@@ -81,7 +82,7 @@ class VehicleSounds {
     if (!SB.play(id, k, 0, 0, { rate: on ? 1 : 0.88, out: 'veh', key: 'ind' })) { Audio.tone(on ? 2300 : 1600, 0.012, { type: 'square', vol: 0.012 * k, out: 'veh', attack: 0.001 }); Audio.noise(0.012, { f: on ? 3200 : 2200, q: 2, vol: 0.03 * k, out: 'veh', attack: 0.001 }); } }
   // the indicator lamps of v: side −1 left / +1 right / 0 off (vehicle-local +x is the left side)
   lamp(v, side) { const m = v && v.mesh && v.mesh.userData && v.mesh.userData.indMat; if (!m) return; if (m.userData.base == null) m.userData.base = m.emissiveIntensity;
-    if (m.userData.side) m.userData.side.value = side ? -side : 0; m.emissiveIntensity = side ? 3.2 : m.userData.base; }
+    if (m.userData.side) m.userData.side.value = side ? -side : 0; m.emissiveIntensity = side ? IND.peak : m.userData.base; }
   synthStart(c, dur) { const n = Math.max(2, Math.round(dur / 0.16)); const f = c === 'heavy' ? 70 : c === 'bike' || c === 'tuktuk' ? 140 : 105;
     for (let i = 0; i < n; i++) Audio.noise(0.11, { f: f * 4, q: 1.2, vol: 0.05, when: i * 0.14, out: 'veh' }); Audio.tone(f * 0.6, 0.5, { type: 'sawtooth', vol: 0.03, when: dur * 0.6, glide: f * 0.35, out: 'veh' }); Audio.noise(0.25, { f: 300, q: 0.8, type: 'lowpass', vol: 0.08, when: dur * 0.6, out: 'veh' }); }
   synthStop(c, g, pan) { const f = c === 'heavy' ? 30 : c === 'bike' || c === 'tuktuk' ? 60 : 42; Audio.tone(f, 0.6, { type: 'sawtooth', vol: 0.04 * g, pan, glide: f * 0.45, out: 'veh' }); Audio.noise(0.3, { f: 220, q: 0.8, type: 'lowpass', vol: 0.05 * g, pan, out: 'veh' }); }

@@ -616,4 +616,6 @@ export class VehicleDamage {
 const panelCache = new Map();
 function panelGeo(w, l) { const k = Math.round(w * 20) + ':' + Math.round(l * 20); let g = panelCache.get(k); if (g) return g; g = new THREE.BoxGeometry(w, 0.025, l, 8, 1, 8); const p = g.attributes.position;
   for (let i = 0; i < p.count; i++) { const x = p.getX(i), z = p.getZ(i); p.setY(i, p.getY(i) - (x / w) ** 2 * 0.09 + Math.sin(x * 9 + z * 5) * 0.012 + (hash1(i) - 0.5) * 0.01); } g.computeVertexNormals(); panelCache.set(k, g); return g; }
+// 84th: the body's top surface height at a vehicle-local point (the bonnet line for the roadside mechanics' raised bonnet), or null
+export function surfaceY(v, lx, lz) { if (isBike(v)) return null; const P = proxyOf(v); const hits = P.ray(new THREE.Vector3(lx, 6, lz), new THREE.Vector3(0, -1, 0), 8, []); return hits.length ? 6 - hits[0].t : null; }
 export const _vdTesting = { Proxy, proxyOf, panelGeo, rearEngine, heavyType };

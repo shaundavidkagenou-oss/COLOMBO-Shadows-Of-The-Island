@@ -17,6 +17,7 @@
 // stationary vehicles and return fire (Firefight.js); shot down by police → arrested, treated under guard at the National
 // Hospital and released there. Every arrest plays the BUSTED sequence (Busted.js). Non-graphic throughout: hits are a red
 // edge flash, hit officers stagger and at worst go down and recover.
+import { collectWorkers, reactOfficer, workerHit, disturbance } from './WorkerReact.js';
 import * as THREE from 'three';
 import * as L from '../world/Layout.js';
 import { Vehicle } from '../vehicles/Vehicle.js';
@@ -31,7 +32,7 @@ import { bus } from '../core/Events.js';
 import { Voices } from '../audio/Voices.js';
 import { SoundBank } from '../audio/SoundBank.js';
 import { clamp, lerp } from '../core/math.js';
-import { FootNav } from './FootNav.js';
+import { FootNav, carDepth } from './FootNav.js';
 import { Firefight } from './Firefight.js';
 import { EMS } from './EMS.js';
 import { Roadside, roadsideCrew } from './Roadside.js';
@@ -141,7 +142,8 @@ export class PoliceResponse {
     if (this.t - this.repT < 8) { if (this.state === 'searching' || this.state === 'detected') this.incident = inc; return; } this.repT = this.t;
     this.incident = inc; this.addHeat(1, this.reason || 'witness report', 'A witness called 119 and described you.');
   }
-  gunfire(x, z, hit = null) { this.reason = 'discharging a firearm in public'; this.addHeat(0.05, this.reason, null, true); this.crime(x, z, 'gunfire'); this.ff.onPlayerShot(x, z, hit); }
+  gunfire(x, z, hit = null) { this.reason = 'discharging a firearm in public'; this.addHeat(0.05, this.reason, null, true); this.crime(x, z, 'gunfire'); this.ff.onPlayerShot(x, z, hit); disturbance(this, x, z); if (hit) disturbance(this, hit.x, hit.z, 12); }
+  workerHit(o, dx, dz, dmg, how) { return workerHit(this, o, dx, dz, dmg, how); }
   crime(x, z, kind) { // something an officer might witness directly
     if (kind === 'assault') this.reason = 'assault'; else if (kind === 'vehicle') this.reason = 'dangerous driving (pedestrian struck)';
     if (this.t - this.crimeT < 4) return; for (const u of this.units) { if (this.unitSees(u, kind === 'gunfire' ? 1.6 : 1)) { this.crimeT = this.t; this.incident = { x, z, t: this.t }; this.addHeat(1, this.reason, 'A police officer saw it happen.'); this.spotted(); return; } }
@@ -163,6 +165,7 @@ export class PoliceResponse {
     if (this.cine) { this.cine.update(dt); this.updateSiren(dt, false); this.ff.update(dt); return; } // BUSTED sequence owns the officers and the camera
     if (g.director.active || this.busy) { this.updateSiren(dt, true); this.ff.update(dt); return; }
     const F = this.foot = []; for (const L of [this.units, this.civil]) for (const u of L) for (const o of u.officers) if (o.mode === 'foot' || o.mode === 'down' || o.mode === 'return') F.push(o); // (a fresh list: callers keep last frame's)
+    collectWorkers(this, this.workers || (this.workers = [])); // 84th: medics + mechanics on foot (the shot / punch tests: WorkerReact.js)
     this.updateGlobal(dt); this.recordTrail();
     for (const u of this.units.slice()) this.updateUnit(u, dt);
     for (const u of this.civil.slice()) this.updateCivil(u, dt);
@@ -638,7 +641,8 @@ export class PoliceResponse {
     if (o.vault) { this.stepVault(o, dt); return; }
     if (o.mode === 'blown') { this.blownOfficer(o, dt); return; } // flat on the ground: dived away from a grenade / thrown by a blast
     if (o.mode === 'down') { o.downT -= dt; if (o.downT <= 0) { o.mode = 'foot'; A.set(null); o.hits = 0; } this.animOfficer(o, dt, 0); return; }
-    if ((o.mode === 'foot' || o.mode === 'return') && !o.cuffing && this.evadeGrenade(o, dt)) return; // a grenade nearby comes before everything else
+    if ((o.mode === 'foot' || o.mode === 'return') && !o.cuffing && this.evadeGrenade(o, dt)) return;
+    if ((u.ems || u.rs) && o.react && reactOfficer(this, o, u, dt)) return; // 84th: a medic / mechanic who was attacked (or heard shots) reacts before any job script // a grenade nearby comes before everything else
     // on foot
     const tg = this.target(); const P = g.player; const st = this.state; const dP = this.distTo(o, tg);
     if (o.mode === 'return' || u.task === 'leave' || u.task === 'mount') {
@@ -857,9 +861,9 @@ export class PoliceResponse {
     o.navHold = false;
     const dx = wx - o.x, dz = wz - o.z, d = Math.hypot(dx, dz); if (d < 0.02) return 0; const want = Math.atan2(dx, dz);
     o.curSp = (o.curSp || 0) + clamp(sp - (o.curSp || 0), -10 * dt, 7 * dt); const v = Math.max(0.6, o.curSp); const step = Math.min(d, v * dt);
-    const stuckIn = col.blocked(o.x, o.z, 0.2) || this.carAt(o.x, o.z); // e.g. a door spot beside a parked car: walk out of it
+    const wallIn = col.blocked(o.x, o.z, 0.2), carIn = this.carIn(o.x, o.z); // e.g. a door spot beside a parked car: walk out of it — 84th: but only OUT (it used to free every step, so an officer starting inside a car's box could walk straight through the body)
     const side = o.lastSide || 1; // keep the side-step on the same side as last time (no frame-to-frame flip-flop)
-    for (const off of [0, 0.45 * side, -0.45 * side, 0.9 * side, -0.9 * side, 1.5 * side, -1.5 * side, 2.2 * side, -2.2 * side]) { const a = want + off; const nx = o.x + Math.sin(a) * step, nz = o.z + Math.cos(a) * step; if (!stuckIn && (col.blocked(nx, nz, 0.28) || this.carAt(nx, nz))) continue;
+    for (const off of [0, 0.45 * side, -0.45 * side, 0.9 * side, -0.9 * side, 1.5 * side, -1.5 * side, 2.2 * side, -2.2 * side]) { const a = want + off; const nx = o.x + Math.sin(a) * step, nz = o.z + Math.cos(a) * step; if (!wallIn && col.blocked(nx, nz, 0.28)) continue; const cd = this.carIn(nx, nz); if (cd > 0 && cd >= carIn - 1e-4) continue;
       if (off) o.lastSide = Math.sign(off); o.x = nx; o.z = nz; o.y = col.groundAt(nx, nz, o.y + 0.45); o.yaw += angDiff(a, o.yaw) * Math.min(1, dt * 8); o.blockedT = Math.max(0, (o.blockedT || 0) - dt); this.placeOfficer(o); return v; }
     o.curSp *= 0.5; o.blockedT = (o.blockedT || 0) + dt; o.losT = 0; o.direct = false; return 0;
   }
@@ -913,7 +917,8 @@ export class PoliceResponse {
     const A = o.ch.anim; if (k > 0.62 && A.action === 'handsup') A.set(null); this.ff.pose?.(o, dt); A.update(dt, 0); this.placeOfficer(o);
     if (k >= 1) { o.vault = null; o.y = V.y1; o.curSp = 1.5; o.losT = 0; this.placeOfficer(o); }
   }
-  carAt(x, z) { for (const v of this.T.all()) { if (Math.abs(v.x - x) > 6 || Math.abs(v.z - z) > 6) continue; const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw); const rx = x - v.x, rz = z - v.z; if (Math.abs(rx * fx + rz * fz) < v.half + 0.15 && Math.abs(rx * fz - rz * fx) < (v.T.wid || 1.7) / 2 + 0.2) return true; } return false; }
+  carAt(x, z) { return this.carIn(x, z) > 0; }
+  carIn(x, z) { let d = 0; for (const v of this.T.all()) { if (Math.abs(v.x - x) > 6 || Math.abs(v.z - z) > 6 || !v.T) continue; const k = carDepth(v, x, z); if (k > d) d = k; } return d; } // 84th: depth inside a car's footprint (body + open rear doors)
   placeOfficer(o) { o.ch.root.position.set(o.x, o.y, o.z); o.ch.root.rotation.y = o.yaw; }
   animOfficer(o, dt, speed) { const tg = this.target(); const d = Math.hypot(tg.x - o.x, tg.z - o.z); o.acc += dt; const rate = d < 50 ? 0 : d < 120 ? 0.12 : 0.4; this.ff.torch(o, dt); this.ff.pose(o, dt); o.animSp = (o.animSp || 0) + (speed - (o.animSp || 0)) * Math.min(1, dt * (speed > (o.animSp || 0) ? 9 : 6)); if (speed === 0 && o.animSp < 0.25) o.animSp = 0; /* gait speed eased: a single blocked step no longer snaps the walk cycle to a stand */ if (o.acc >= rate) { o.ch.anim.update(Math.min(o.acc, 0.25), o.animSp); o.acc = 0; } this.placeOfficer(o); this.ff.placeTorch(o); }
   officerHit(o, dx, dz) { // non-graphic: the first round staggers; a second puts the officer down for good

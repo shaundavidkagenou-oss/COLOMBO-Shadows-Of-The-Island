@@ -15,6 +15,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { LIVE_VEHICLES } from './Vehicle.js';
 import { RAIN_U, GRIME_U } from './VehicleWeather.js';
+import { IND } from './VehicleModels.js';
 
 const MAXW = 128, WIPER_R = 75, FLASH = 0.37, IND_R = 170;
 export const VFX_STATS = { wipers: 0, running: 0, flashing: 0, glassU: 0 };
@@ -43,7 +44,7 @@ export class VehicleFx {
       if (im && !v.player && !v.rsInc) { const s = v.hazard ? 2 : v.ind | 0;
         if (s !== (v._fxS | 0)) { if (im.userData.base == null) im.userData.base = im.emissiveIntensity; v._fxS = s; v._fxT = (v.id || 0) * 0.137 % FLASH * 0.3; if (!s) { im.emissiveIntensity = im.userData.base; if (im.userData.side) im.userData.side.value = 0; } }
         if (s) { v._fxT += dt; if (d2 < IND_R * IND_R) { const ph = v._fxT % (2 * FLASH); const on = ph < FLASH; const e = on ? 1 - Math.exp(-ph / 0.03) : Math.exp(-(ph - FLASH) / 0.055); const b = im.userData.base;
-          im.emissiveIntensity = b + (3.2 - b) * e; if (im.userData.side) im.userData.side.value = s === 2 ? 0 : -s; fl++; } } }
+          im.emissiveIntensity = b + (IND.peak - b) * e; if (im.userData.side) im.userData.side.value = s === 2 ? 0 : -s; fl++; } } }
       // ---- wipers
       const arms = ud.wipers; if (!arms) continue;
       const W = v._wip || (v._wip = { ph: -1, wait: Math.random() * 1.2, lastT: 0, k: 0.9 + Math.random() * 0.2, act: 0, rain: false });

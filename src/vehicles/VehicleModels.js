@@ -355,7 +355,10 @@ export function vehicleMaterials() {
   }
   return { lightMat: mats.vlight, tailMatBase: mats.vtail, indicatorMat: mats.vind, mats };
 }
-export function setVehicleNight(n) { vehicleMaterials(); mats.vdash.emissiveIntensity = 0.45 + n * 0.9; mats.vlight.emissiveIntensity = 0.2 + n * 3.0; mats.vtail.emissiveIntensity = 0.08 + n * 0.5; mats.route.emissiveIntensity = 0.45 + n * 1.5; }
+// 84th: indicator / hazard flash peak — at night the tail lamps are lit (0.9, brake 2.2) and a 3.2 amber flash was lost in their
+// red bloom; it now rises with the night level (one value for AI, the player's car and the roadside hazards)
+export const IND = { peak: 3.2 };
+export function setVehicleNight(n) { vehicleMaterials(); IND.peak = 3.2 + 2.8 * n; mats.vdash.emissiveIntensity = 0.45 + n * 0.9; mats.vlight.emissiveIntensity = 0.2 + n * 3.0; mats.vtail.emissiveIntensity = 0.08 + n * 0.5; mats.route.emissiveIntensity = 0.45 + n * 1.5; }
 
 function plateQuad(mb, cx, cy, z, hw, hh, front, variant) {
   const row = (front ? 4 : 0) + (variant % 4); const v0 = 1 - (row + 1) / 8 + 0.004, v1 = 1 - row / 8 - 0.004; const pm = mb.get('plate');
@@ -831,7 +834,7 @@ function buildBaseModel(type, color, variant, opts = {}) {
   // interior: dashboard, seats, steering wheel (right-hand drive), rear-view mirror
   const I = mb.get('interior'); const dz = gh[0][0] - 0.15, seatY = cab ? cab.seatY : k === 'van' ? 0.6 : k === 'suv' ? 0.64 : k === 'sedan' ? 0.38 : 0.42; const sz = cab ? (cab.sz ?? D.door[1] + (isVan ? 0.2 : 0.06)) : isVan ? D.door[0] - 0.75 : 0.0; const floorY = SP && (k === 'car' || k === 'sedan') ? sill - 0.005 : sill + 0.04; /* catalogue cars: floor pan just above the underbody pan so the cushion sits a realistic height over the heel floor */
   // seat layout: front pair + rear rows ([z, count]); seat spacing follows the cabin width (kei cars are narrow)
-  const sxF = cab ? (cab.sx ?? Math.min(0.38, gw0 - 0.3)) : 0.38; const rows0 = cab ? cab.rows : k === 'van' ? [[-0.4, 2], [-1.4, 2]] : [[sz - 0.9, 2]];
+  const sxF = cab ? (cab.sx ?? Math.min(0.38, gw0 - 0.3)) : 0.38; const rearBox = T.ambulance || T.roadside === 'van'; const rows0 = cab ? cab.rows : rearBox ? [] : k === 'van' ? [[-0.4, 2], [-1.4, 2]] : [[sz - 0.9, 2]]; // 84th: the ambulance / service van carry a modelled rear compartment (RearCompartment.js) — no passenger rows in it
   // the rearmost row sits at least 4 cm ahead of where the roof starts falling to the rear glass, otherwise a tall adult's
   // head ends up in the sloping roof (fastback saloons / hatches)
   const zRoofEnd = gh[gh.length - 2][0] + 0.04, zLast = rows0.length ? Math.min(...rows0.map((r2) => r2[0])) : 0;
@@ -845,7 +848,7 @@ function buildBaseModel(type, color, variant, opts = {}) {
     const roofIn = Math.min(roofF[2], roofR[2]) - 0.035; I.box(0, roofIn, (roofF[0] + roofR[0]) / 2, gw1 * 2 - 0.1, 0.02, roofF[0] - roofR[0], { col: C('#c8c4ba') });
     I.box(0, (floorY + gh[0][1] - 0.16) / 2, dz + 0.12, gw0 * 2 - 0.1, gh[0][1] - 0.16 - floorY, 0.04, { col: C('#18181a') });
     I.box(0, floorY + 0.12, (sz + dz - 0.25) / 2, 0.2, 0.22, Math.max(0.2, dz - 0.25 - sz), { col: C('#1c1c1e') });
-    const backZ = (rows.length ? Math.min(...rows.map((r2) => r2[0])) : sz) - 0.3; if (!D.bed && backZ > zr) I.box(0, beltY - 0.02, (backZ + zr) / 2, gw0 * 2 - 0.08, 0.025, backZ - zr, { col: trim });
+    const backZ = (rows.length ? Math.min(...rows.map((r2) => r2[0])) : sz) - 0.3; if (!D.bed && !rearBox && backZ > zr) I.box(0, beltY - 0.02, (backZ + zr) / 2, gw0 * 2 - 0.08, 0.025, backZ - zr, { col: trim });
   }
   const seatCol = C(variant % 2 ? '#2a2a2c' : '#4a4038'); const fw = Math.min(0.48, 2 * sxF - 0.22);
   seat(mb, -sxF, seatY, sz, fw, seatCol); seat(mb, sxF, seatY, sz, fw, seatCol);

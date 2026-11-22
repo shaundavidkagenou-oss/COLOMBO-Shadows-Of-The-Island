@@ -14,6 +14,8 @@
 //   while wanted a lost car is replaced by the car alone (≈1 ms — its crew comes off the spare bench): building an officer
 //   (a whole skinned body, 30–100 ms) mid-chase was a visible hitch. Everything in the pool, with the slung rifles, their
 //   flash / torch parts and a hand torch per officer, is shader-compiled and GPU-uploaded on the loading screen (warmGroup).
+import { trolleyOf, seatTrolley } from './EMS.js';
+import { homeKit } from './RoadsideJob.js';
 import * as THREE from 'three';
 import { Vehicle, LIVE_VEHICLES } from '../vehicles/Vehicle.js';
 import { Character } from '../actors/Character.js';
@@ -33,7 +35,10 @@ export function crewSeats(seats) {
   return [di, pi];
 }
 // object-valued fields a pooled car keeps across uses (everything else added during a chase is dropped on release)
-const KEEP = new Set(['T', 'mesh', 'scene', 'sus', 'poolEntry']);
+// 84th: + the ambulance's one cot (EMS v.trolley) and a service van's equipment (RoadsideJob v.rsKit) — they belong to the vehicle for
+// life. reset() used to delete them: the next call built a second cot / kit while the first one still sat in the compartment
+// (the repeat-call "duplicated trolley": two cots in one van, both orphaned)
+const KEEP = new Set(['T', 'mesh', 'scene', 'sus', 'poolEntry', 'trolley', 'rsKit']);
 
 export class UnitPool {
   // pr: PoliceResponse; crewSpec(id, k, ems): the crew look (PoliceResponse.crewSpec, passed in: no import cycle)
@@ -60,6 +65,7 @@ export class UnitPool {
     const fresh = {}; for (const k of Object.keys(v)) { const x = v[k]; if (x === null || (typeof x !== 'object' && typeof x !== 'function')) fresh[k] = x; } // the new car's own plain state (restored on release)
     const seats = v.mesh.userData.seats; const cs = crewSeats(seats); const e = { id, type, v, fresh, seats: cs, crew: [null, null] };
     if (crew) cs.forEach((si, k) => { if (si === undefined || si < 0) return; const r = this.makeRec(id, k, ems); seatCharacter(r.ch, v, seats[si]); e.crew[k] = r; });
+    if (type === 'ambulance') trolleyOf(v); // 84th: its one cot, built with it on the loading screen (stable id, never rebuilt)
     v.poolEntry = e; this.free[type].push(e); this.stats.built++; if (this.pr.level > 0) this.stats.builtWanted++; return e;
   }
   buildSpare() { const n = this.stats.spareBuilt++; const r = this.makeRec(1000 + n, n % 2); this.spare.push(r); return r; }
@@ -128,7 +134,7 @@ export class UnitPool {
   reset(e) {
     const v = e.v, g = this.g; if (g.vdamage && g.vdamage.repair) g.vdamage.repair(v);
     resetDoors(v); for (const w of v.mesh.userData.wheels || []) if (w.userData) { w.userData.flat = false; w.userData.drop = 0; }
-    if (v.beacons) v.beacons(false);
+    if (v.beacons) v.beacons(false); if (v.trolley && v.trolley.state !== 'stowed') seatTrolley(v); if (v.trolley) v.trolley.sheet = false; if (v.rsKit) homeKit(v); // nothing left lying in the street
     for (const k of Object.keys(v)) { if (k in e.fresh) v[k] = e.fresh[k]; else if (!KEEP.has(k)) delete v[k]; }
     v.sus.r = v.sus.rv = v.sus.h = v.sus.hv = 0; v.keep = true; v.poolEntry = e; v.pooled = false; v.pax = []; v.paxPlan = []; v.driverChar = null;
   }

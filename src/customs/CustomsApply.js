@@ -96,10 +96,12 @@ function partsOf(C, v, m) {
     if (!geo) { if (mesh) { g.remove(mesh); delete C.parts[k]; } continue; }
     if (!mesh) { mesh = new THREE.Mesh(geo, M.vchrome); mesh.name = name; mesh.userData.custPart = true; mesh.castShadow = k !== 'glass' && k !== 'lamp'; mesh.receiveShadow = k === 'paint'; if (k === 'glass') mesh.renderOrder = 2; mesh.matrixAutoUpdate = false; mesh.updateMatrix(); g.add(mesh); C.parts[k] = mesh; }
     mesh.geometry = geo;
-    mesh.material = k === 'paint' ? C.paint : k === 'carbon' ? M.vcarbon : k === 'black' ? M.vrubber : k === 'chrome' ? M.vchrome : k === 'glass' ? screenGlass(C, M, m.screen) : lampMat(C, M); }
+    mesh.material = k === 'paint' ? C.paint : k === 'carbon' ? M.vcarbon : k === 'black' ? M.vrubber : k === 'chrome' ? M.vchrome : k === 'glass' ? screenGlass(C, M, m.screen, g) : lampMat(C, M); }
   const tip = out.tip; ud.exhaust = tip && C.exhaust0 ? { ...C.exhaust0, p: tip.slice() } : tip ? { p: tip.slice(), d: [0, 0, -1], fuel: C.P.diesel ? 'dieselLight' : 'petrol' } : C.exhaust0; v.smokeDirty = true;
 }
-function screenGlass(C, M, id) { if (id !== 'bubble') return M.vglass; if (!C.smoked) { C.smoked = tintGlass(M.vglass, 'dark'); C.own.add(C.smoked); } return C.smoked; }
+// 84th: a fitted screen uses the vehicle's own glass (its rain + wiper patch), not the bare shared prototype (no rain)
+function ownGlass(g, M) { const m = vehicleMeshesNamed(g, 'glass').find((q) => !q.userData.custPart); return (m && m.material) || M.vglass; }
+function screenGlass(C, M, id, g) { const own = ownGlass(g, M); if (id !== 'bubble') return own; if (!C.smoked || C.smokedFrom !== own) { if (C.smoked) dropOwn(C, [C.smoked]); C.smoked = tintGlass(own, 'dark'); C.smokedFrom = own; C.own.add(C.smoked); } return C.smoked; }
 function lampMat(C, M) { if (!C.lamp) { C.lamp = M.vlight.clone(); C.lamp.name = 'cust-lamp'; C.lamp.emissive.setHex(0xf2f6ff); C.lamp.emissiveIntensity = 0.05; C.own.add(C.lamp); C.lit = -1; } return C.lamp; }
 
 // ------------------------------------------------------------------------------------------------ wheels

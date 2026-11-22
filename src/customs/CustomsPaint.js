@@ -115,7 +115,10 @@ export function paintWarmMesh() { const g = new THREE.BoxGeometry(0.1, 0.1, 0.1)
 
 // ---------------------------------------------------------------------------------------------------- glass / trim / plates
 const TINT = { light: [0x0a0e10, 0.86], dark: [0x060809, 0.91], limo: [0x020303, 0.965], green: [0x0c2a16, 0.86], blue: [0x0a1a34, 0.86] };
-export function tintGlass(base, id) { const t = TINT[id]; if (!t) return base; const m = base.clone(); m.color.setHex(t[0]); m.opacity = t[1]; m.name = 'vglass-tint'; return m; }
+// 84th: Material.clone() does not carry onBeforeCompile / customProgramCacheKey, and it JSON-copies userData — so a tinted
+// windscreen lost the rain-on-glass patch (VehicleWeather.patchGlassRain) and the per-vehicle wiper uniforms. Keep all three.
+export function tintGlass(base, id) { const t = TINT[id]; if (!t) return base; const m = base.clone(); m.color.setHex(t[0]); m.opacity = t[1]; m.name = 'vglass-tint';
+  if (base.onBeforeCompile) m.onBeforeCompile = base.onBeforeCompile; if (base.customProgramCacheKey) m.customProgramCacheKey = base.customProgramCacheKey; m.userData = { ...base.userData }; return m; }
 const TRIM = { satin: [0x1a1b1d, 0.5, 0.3], gloss: [0x0d0e0f, 0.12, 0.2] };
 export function trimMaterial(base, id) { const t = TRIM[id]; if (!t) return base; const m = base.clone(); m.color.setHex(t[0]); m.roughness = t[1]; m.metalness = t[2]; m.name = 'vchrome-delete'; return m; }
 // vanity plates: the shared plate atlas has 8 rows (variants × front / rear); a vanity set paints the owner's text into every row
