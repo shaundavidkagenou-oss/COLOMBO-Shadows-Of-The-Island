@@ -66,8 +66,8 @@ g.indoor = true; birds.update(0.05); ok(!birds.root.visible, 'hidden indoors');
   ok(inSolid === 0, `no bird inside the fountain basin or a flower-bed rim (${inSolid})`); }
 // 65th — bird draw distance / shadow LOD (only what is drawn changes)
 { const BC = await import('../src/gfx/BatchCull.js'); const BL = B.BIRD_LOD; BC.LOD.enabled = true; birds.render(); const c = g.camera.position;
-  const dist = (b) => Math.hypot(b.x - c.x, b.y - c.y, b.z - c.z); const nNear = birds.birds.filter((b) => dist(b) < BL.shadow).length, nMid = birds.birds.filter((b) => { const d = dist(b); return d >= BL.shadow && d < BL.draw; }).length;
-  const S = birds.nShadow; const sumS = S.crow + S.pigeon + S.parakeet; const drawnTot = ['crow', 'pigeon', 'parakeet'].reduce((a, sp) => a + birds.meshes[sp][0].count, 0);
+  const dist = (b) => Math.hypot(b.x - c.x, b.y - c.y, b.z - c.z); const nNear = birds.birds.filter((b) => dist(b) < BL.shadow).length, nMid = birds.birds.filter((b) => { const d = dist(b); return d >= BL.shadow && d < BL.draw * (b.sp === 'kite' ? Math.sqrt(6) : 1); }).length; // (83rd: soaring kites stay drawn ~2.45x farther)
+  const SPS = Object.keys(birds.meshes); const S = birds.nShadow; const sumS = SPS.reduce((a, sp) => a + (S[sp] || 0), 0); const drawnTot = SPS.reduce((a, sp) => a + birds.meshes[sp][0].count, 0);
   ok(sumS === nNear, `shadow group = birds within ${BL.shadow} m (${sumS} vs ${nNear})`); ok(drawnTot === nNear + nMid && drawnTot <= birds.birds.length, `drawn = within ${BL.draw} m (${drawnTot} of ${birds.birds.length}; occlusion off here)`);
   const m = birds.meshes.crow[0]; const sun = new THREE.OrthographicCamera(), far = new THREE.OrthographicCamera(); BC.CULL.sunCamera = sun; BC.CULL.farCamera = far;
   m.onBeforeShadow(null, null, cam, far); ok(m.count === 0, 'far (whole-city) shadow map draws no birds'); m.onAfterShadow(); ok(m.count === m.userData.nAll, 'count restored after the shadow pass');

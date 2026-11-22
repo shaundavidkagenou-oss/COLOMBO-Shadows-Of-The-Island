@@ -43,6 +43,7 @@ import { refreshView, holdVehicles, updateSceneMatrices, withMatricesDone } from
 import { CATALOG, displayName } from './vehicles/VehicleCatalog.js';
 import { updateDoorClosers } from './vehicles/DoorRig.js';
 import { Bicycles } from './vehicles/BicycleRide.js';
+import { VehicleFx } from './vehicles/VehicleFx.js';
 import { updateVehicleLOD, setHeadPoolNight, Vehicle, HeadlightRig, setVehicleLOD, LIVE_VEHICLES, CHASSIS, TUNE_ENV, VEH_HOOKS } from './vehicles/Vehicle.js';
 import { VehicleDamage } from './vehicles/VehicleDamage.js';
 import { FlashlightRig } from './police/Firefight.js';
@@ -108,6 +109,7 @@ import { TrafficAudio } from './audio/TrafficAudio.js';
 import { CULL, LOD, beginHide, endHide, seeHidden } from './gfx/BatchCull.js';
 import { OCC_CFG, OCC_STATS } from './gfx/Occlusion.js';
 import { LIVE as BODIES } from './actors/Bodies.js';
+import { TexLib } from './gfx/TexLib.js'; // 83rd: shared 2048² KTX2 atlases (balcony life, birds, vehicle detail)
 import { CityEvents } from './world/CityEvents.js'; // 81st: dynamic city events (manager, sites, people, phone app data)
 
 const VNAMES = { tuktuk: 'Three-wheeler', car: 'Hatchback', sedan: 'Sedan', taxi: 'Taxi', van: 'Van', suv: 'SUV', bus: 'SLTB bus', pbus: 'Private bus', lorry: 'Lorry', tow: 'Tow truck', rsvan: 'Roadside service van', flatbed: 'Recovery flatbed', bike: 'Motorcycle', dbike: "Dineth's Bike", police: 'Police car', policejeep: 'Police jeep', policebike: 'Police motorcycle' };
@@ -121,7 +123,7 @@ export class Game {
     this.ghost = { x: 1e7, z: 1e7, y: 0, yaw: 0, speed: 0, vehicle: null, crouching: false, sprinting: false, ch: null, isGhost: true }; // stand-in player for menu/intro simulation
     const preset = Settings.preset;
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', stencil: false, reversedDepthBuffer: true }); // reversed-Z + float depth (PostFX target): uniform depth precision near and far, so windows, signs, glass and paving never z-fight (falls back to standard depth without EXT_clip_control)
-    this.renderer.localClippingEnabled = true; // Street Customs roller door (a clip plane on that one material only; nothing else pays for it)
+    TexLib.init(this.renderer); this.renderer.localClippingEnabled = true; // Street Customs roller door (a clip plane on that one material only; nothing else pays for it)
     this.dynK = 1; this.dynT = 0; this.dynHold = 0; this.dynUpAt = -1e9; this.renderer.setPixelRatio(this.basePR());
     this.renderer.setSize(innerWidth, innerHeight); this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1;
@@ -154,6 +156,7 @@ export class Game {
     this.collision = this.world.collision;
     this.initPower();
     progress(0.73, 'Sky, sea and monsoon'); await tick();
+    this.vfx = new VehicleFx(this.scene);
     this.atmos = new Atmosphere(this.scene, this.renderer); this.atmos.drawDist = Settings.preset.drawDist; this.atmos.setShadowQuality(Settings.preset.shadows, Settings.preset.shadowRes); /* near + far sun shadow maps */
     this.atmos.listeners.thunder = () => Audio.thunder(Math.random() * 0.7);
     this.flashRig = new FlashlightRig(this.scene, { count: Settings.get('quality') === 'low' ? 1 : 3 }); // police hand torches at night (pool created once)
@@ -537,7 +540,7 @@ export class Game {
       else if (this.mode === 'play' && !this.paused) this.updatePlay(dt * (this.timeSlow || 1)); // weapon wheel / squad selector slow time
       else if (this.mode === 'menu' || this.mode === 'intro') this.updateAmbient(dt);
       else if (this.mode === 'trailer' && this.trailerHook) this.trailerHook(dt); // the trailer drives the world and camera itself
-      updateLightSets(dt); if (this.post && this.mode === 'play') maintainWarm(this.renderer, this.camera, this.scene, this.post.composer ? this.post.composer.renderTarget1 : null, dt); maintainPoolWarm(this.renderer, this.camera, this.scene, this.post.composer ? this.post.composer.renderTarget1 : null, dt); /* 74th: the walk-in light pool's set, before it switches on */ /* FPS: night-only light pools leave the shaders while dark (identical image); the other state stays compiled */ CAM.copy(this.camera.position); updateVehicleLOD(this.camera); if (this.headRig && this.atmos) this.headRig.update(this.camera, this.player && this.player.vehicle, this.atmos.night, this.indoor ? 1 : (this.seamK || 0));
+      updateLightSets(dt); if (this.post && this.mode === 'play') maintainWarm(this.renderer, this.camera, this.scene, this.post.composer ? this.post.composer.renderTarget1 : null, dt); maintainPoolWarm(this.renderer, this.camera, this.scene, this.post.composer ? this.post.composer.renderTarget1 : null, dt); /* 74th: the walk-in light pool's set, before it switches on */ /* FPS: night-only light pools leave the shaders while dark (identical image); the other state stays compiled */ CAM.copy(this.camera.position); updateVehicleLOD(this.camera); if (this.vfx) this.vfx.update(dt, this.camera, this.atmos); /* 83rd: wipers, AI indicators, rain-on-glass / grime uniforms */ if (this.headRig && this.atmos) this.headRig.update(this.camera, this.player && this.player.vehicle, this.atmos.night, this.indoor ? 1 : (this.seamK || 0));
       if (this.post && !mapOpen) {
         /* FPS (src/gfx/ViewSkip.js): one matrix pass per frame, skipping unseen people/vehicles on their off-frames; the reflection and main renders reuse it */
         this.cullStep(dt); /* 65th: occlusion horizon, per-instance culling / LOD state, prop instance order (src/gfx/BatchCull.js, Occlusion.js) */

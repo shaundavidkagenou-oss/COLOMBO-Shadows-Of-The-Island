@@ -344,5 +344,5 @@ export class Vehicle {
   seatWorld(seat) { const v = new THREE.Vector3(seat.x, seat.y, seat.z); this.mesh.updateMatrixWorld(); return v.applyMatrix4(this.mesh.matrixWorld); }
   // exit point on the driver's side (right-hand drive → right side = −x local)
   exitPoint(s = -1) { const [fx, fz] = this.forward(); const off = this.T.wid / 2 + 0.7; return { x: this.x + fz * s * off, z: this.z - fx * s * off }; } // local +x in world = (fz, -fx)
-  dispose() { if (VEH_HOOKS.dispose) VEH_HOOKS.dispose(this); if (this.mesh.userData.cust) this.mesh.userData.cust.release(); /* Street Customs: its per-vehicle materials */ this.disposed = true; LIVE_VEHICLES.delete(this); this.scene.remove(this.mesh); const ud = this.mesh.userData; ud.tailMat.dispose(); ud.indMat?.dispose(); ud.headMat?.dispose(); ud.revMat?.dispose(); }
+  dispose() { if (VEH_HOOKS.dispose) VEH_HOOKS.dispose(this); if (this.mesh.userData.cust) this.mesh.userData.cust.release(); /* Street Customs: its per-vehicle materials */ this.disposed = true; LIVE_VEHICLES.delete(this); this.scene.remove(this.mesh); const ud = this.mesh.userData; ud.tailMat.dispose(); ud.indMat?.dispose(); ud.headMat?.dispose(); ud.revMat?.dispose(); ud.glassMat?.dispose(); /* 83rd: its own rain glass */ }
 }

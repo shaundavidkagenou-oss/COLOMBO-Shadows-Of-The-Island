@@ -10,6 +10,7 @@
 // High-detail wheels: lathed tyre with tread grooves + tread blocks + sidewall ring, multi-spoke / steel rims with
 // lips, barrels, lug nuts, centre caps and valve stems, ventilated brake discs (spin with the wheel) and calipers (do not).
 import { doorGaps, spansOutside } from './DoorSpans.js';
+import { wiperSkip } from './VehicleWeather.js';
 import * as THREE from 'three';
 import { MeshBuilder } from '../gfx/MeshBuilder.js';
 
@@ -80,7 +81,7 @@ export function carDetail(dm, K, c) {
   for (const sx of [-1, 1]) { beam(rub, [sx * (xAt(bf[0], bf[1]) - 0.06), bf[1] + 0.004, bf[0] - 0.03], [sx * (Math.min(gw0, xAt(bb[0], bb[1])) - 0.06), bb[1] + 0.004, bb[0] + 0.05], 0.005, 0.004, black);
     part(rub, unitBox, [sx * 0.22, lerp(bf[1], bb[1], 0.8) + 0.008, lerp(bf[0], bb[0], 0.8)], [0, 0, 0], [0.02, 0.01, 0.02], black); }
   const sy = gh[0][1], szw = gh[0][0];
-  for (const sx of [-1, 1]) {
+  if (!wiperSkip()) for (const sx of [-1, 1]) { // static arms only when the model is built outside buildModel (animated wipers: VehicleFx)
     const a = [sx * 0.05, sy + 0.03, szw - 0.02], b = [sx * 0.55, sy + 0.05, szw - 0.1]; const p = [sx * 0.5 + 0.08, sy - 0.005, szw + 0.05];
     beam(chr, [a[0], a[1] + 0.012, a[2]], [b[0], b[1] + 0.012, b[2]], 0.006, 0.006, C('#1c1c1c'));
     beam(chr, p, [lerp(a[0], b[0], 0.45), lerp(a[1], b[1], 0.45) + 0.022, lerp(a[2], b[2], 0.45)], 0.012, 0.008, C('#1c1c1c'));
@@ -226,8 +227,8 @@ export function heavyDetail(dm, K, c) {
   const wy = kind === 'lorry' ? 1.86 : belt - 0.06, wz = kind === 'lorry' ? fz + 0.02 : fz + 0.035;
   for (const sx of [-1, 1]) { // big pantograph wipers
     const a = kind === 'lorry' ? [sx * 0.08, wy + 0.02, wz] : [sx * 0.3, belt - 0.12, fz + 0.04], b = kind === 'lorry' ? [sx * 0.95, wy + 0.06, wz - 0.01] : [sx * 0.75, belt + 0.45, fz - 0.03];
-    if (kind === 'lorry') beam(rub, a, b, 0.012, 0.012, black); beam(chr, [a[0], a[1], a[2] + 0.014], [b[0], b[1], b[2] + 0.014], 0.008, 0.008, C('#1c1c1c'));
-    const p = kind === 'lorry' ? [sx * 0.9, wy - 0.05, wz + 0.02] : [sx * 0.22, belt - 0.22, fz + 0.06]; beam(chr, p, [lerp(a[0], b[0], 0.5), lerp(a[1], b[1], 0.5), lerp(a[2], b[2], 0.5) + 0.02], 0.016, 0.01, C('#1c1c1c')); part(rub, discZ, p, [0, 0, 0], [0.03, 0.03, 0.03], black);
+    const sk = wiperSkip(); if (kind === 'lorry' && !sk) beam(rub, a, b, 0.012, 0.012, black); if (!sk) beam(chr, [a[0], a[1], a[2] + 0.014], [b[0], b[1], b[2] + 0.014], 0.008, 0.008, C('#1c1c1c'));
+    const p = kind === 'lorry' ? [sx * 0.9, wy - 0.05, wz + 0.02] : [sx * 0.22, belt - 0.22, fz + 0.06]; if (!sk) { beam(chr, p, [lerp(a[0], b[0], 0.5), lerp(a[1], b[1], 0.5), lerp(a[2], b[2], 0.5) + 0.02], 0.016, 0.01, C('#1c1c1c')); part(rub, discZ, p, [0, 0, 0], [0.03, 0.03, 0.03], black); }
     // mirror glass faces and second (kerb-view) mirror
     part(gl, unitBox, [sx * (W + (kind === 'lorry' ? 0.27 : 0.3)), kind === 'lorry' ? 2.0 : 1.78, fz + (kind === 'lorry' ? 0.03 : 0.127)], [0, 0, 0], [0.085, kind === 'lorry' ? 0.32 : 0.38, 0.006], C('#fff'));
     // headlamp bowls

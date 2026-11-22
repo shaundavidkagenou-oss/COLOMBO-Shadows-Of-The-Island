@@ -31,6 +31,7 @@ import * as THREE from 'three';
 import { MAT, wetTarget, SPLIT, markSplit, splittable, ensureMat, materialLabel, splitKey } from '../gfx/Materials.js';
 import { vehicleMaterials } from '../vehicles/VehicleModels.js';
 import { splitLive } from '../gfx/MeshBuilder.js';
+import { ktx2Loader } from '../gfx/TexLib.js';
 import { storeGet, storeSet, setSavedFlag, TEXTURE_STUDIO } from './boot.js';
 
 export const MANIFEST_FORMAT = 'colombo.texture-manifest';
@@ -242,7 +243,7 @@ function decode(hash) {
 }
 export async function decodeBlob(blob, ext) {
   if (ext === 'ktx2') {
-    const R = S.game && S.game.renderer; if (!R) throw new Error('KTX2 needs the renderer'); if (!ktx2) { const { KTX2Loader } = await import('three/examples/jsm/loaders/KTX2Loader.js'); ktx2 = new KTX2Loader(); ktx2.detectSupport(R); }
+    const R = S.game && S.game.renderer; if (!R) throw new Error('KTX2 needs the renderer'); if (!ktx2) ktx2 = await ktx2Loader(R); /* 83rd: the shared loader (TexLib) — it also sets the transcoder path, which was never set here */
     const buf = await blob.arrayBuffer(); const tex = await new Promise((res, rej) => ktx2.parse(buf, res, rej)); const im = tex.image || {}; return { kind: 'compressed', tex, w: im.width | 0, h: im.height | 0, bytes: compressedBytes(tex) || buf.byteLength };
   }
   if (ext === 'dds') {

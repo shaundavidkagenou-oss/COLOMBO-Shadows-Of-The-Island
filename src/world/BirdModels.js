@@ -4,6 +4,11 @@
 //              dark tail band, white rump, orange eye, pink-red legs. Galle Face, Fort, plazas, roof edges.
 //   parakeet — Rose-ringed parakeet (Psittacula krameri): bright green, red hooked bill, long graduated blue-green
 //              tail; males with a black-and-rose neck ring. Parks and tree-lined streets.
+//   myna     — 83rd: Common myna (Acridotheres tristis): chocolate-brown body, glossy black hood, yellow bill and bare
+//              yellow skin behind the eye, yellow legs, white primary patch (shows in flight) and white vent / tail tips.
+//              Gardens, streets, wires, balcony rails — usually in pairs or small groups, walking rather than hopping.
+//   kite     — 83rd: Black kite (Milvus migrans govinda): large dark-brown raptor, paler head, yellow cere and feet, long
+//              fingered wings and a long, shallowly forked tail. Soars over the coast, the harbour and open ground.
 // Every bird is a set of articulated parts (body, head, two-segment wings ×2, tail, legs ×2) built from smooth lofted
 // surfaces and individually modelled feathers (vane + raised rachis, tapered, curved, overlapping rows). Parts are
 // instanced (Birds.js) and posed per bird per frame. Units: metres; bird space +z forward, +y up, +x = left side.
@@ -77,6 +82,8 @@ function mirrorX(geo) { const g = geo.clone(); const p = g.attributes.position; 
 export const SPECIES = {
   crow: { name: 'House crow', len: 0.42, shoulder: [0.034, 0.026, 0.035], innerLen: 0.125, neck: [0, 0.03, 0.085], tail: [0, 0.006, -0.088], hip: [0.017, -0.032, -0.004], stand: 0.098, pitch: -0.12, headPitch: 0.1, flapHz: 3.6, glide: 0.45, cruise: 9.5, flee: 5.5, walk: 0.55, hop: true, rough: 0.5 },
   pigeon: { name: 'Rock pigeon', len: 0.32, shoulder: [0.036, 0.024, 0.03], innerLen: 0.105, neck: [0, 0.034, 0.074], tail: [0, 0.008, -0.083], hip: [0.016, -0.038, -0.002], stand: 0.082, pitch: -0.22, headPitch: 0.05, flapHz: 5.8, glide: 0.2, cruise: 12, flee: 3.6, walk: 0.5, bob: true, rough: 0.6 },
+  myna: { name: 'Common myna', len: 0.24, shoulder: [0.021, 0.016, 0.021], innerLen: 0.07, neck: [0, 0.018, 0.051], tail: [0, 0.004, -0.053], hip: [0.0105, -0.019, -0.002], stand: 0.059, pitch: -0.16, headPitch: 0.08, flapHz: 7.2, glide: 0.15, cruise: 10, flee: 4.2, walk: 0.62, rough: 0.55 },
+  kite: { name: 'Black kite', len: 0.58, shoulder: [0.049, 0.038, 0.051], innerLen: 0.27, neck: [0, 0.044, 0.123], tail: [0, 0.009, -0.128], hip: [0.025, -0.046, -0.006], stand: 0.142, pitch: -0.12, headPitch: 0.06, flapHz: 2.3, glide: 0.85, cruise: 9, flee: 9, walk: 0.3, rough: 0.62, soar: true },
   parakeet: { name: 'Rose-ringed parakeet', len: 0.4, shoulder: [0.026, 0.02, 0.026], innerLen: 0.07, neck: [0, 0.026, 0.06], tail: [0, 0.0, -0.062], hip: [0.012, -0.028, 0.004], stand: 0.062, pitch: -0.38, headPitch: 0.25, flapHz: 8, glide: 0.08, cruise: 13, flee: 8, walk: 0.25, rough: 0.5 },
 };
 
@@ -85,10 +92,15 @@ function speciesParts(sp) {
   // ---- palette
   const pal = sp === 'crow' ? { body: lin('#141418'), gloss: lin('#1c1f2c'), collar: lin('#56575b'), collarLt: lin('#6a6b6f'), wing: lin('#121318'), prim: lin('#0d0d10'), bill: lin('#0b0b0c'), leg: lin('#141414'), iris: lin('#3a2416') }
     : sp === 'pigeon' ? { body: lin('#8b95a2'), back: lin('#9aa3ae'), head: lin('#6f7886'), neckG: lin('#3f8a6a'), neckP: lin('#80548f'), breast: lin('#86808f'), rump: lin('#e4e7ea'), wing: lin('#98a0ab'), bar: lin('#202226'), prim: lin('#4b4f57'), tail: lin('#7f8794'), band: lin('#24262b'), bill: lin('#3a3a3e'), cere: lin('#eef0ec'), leg: lin('#c4515a'), iris: lin('#e2711f') }
+      : sp === 'myna' ? { body: lin('#5b3a28'), back: lin('#53362a'), belly: lin('#6e4a34'), hood: lin('#141114'), gloss: lin('#22202a'), vent: lin('#ecebe6'), wing: lin('#4e3325'), prim: lin('#17130f'), patch: lin('#f2f1ec'), tail: lin('#1a1513'), bill: lin('#f2c21a'), skin: lin('#f0bf1c'), leg: lin('#e3b52c'), iris: lin('#9a6a2a') }
+      : sp === 'kite' ? { body: lin('#5a4230'), back: lin('#4c3727'), belly: lin('#6b4a32'), head: lin('#9a8268'), streak: lin('#3a2a1e'), wing: lin('#4a3626'), cov: lin('#8f7458'), prim: lin('#221a14'), primLt: lin('#a08a74'), tail: lin('#5a4634'), bar: lin('#3e2f22'), bill: lin('#1d1c1e'), cere: lin('#e6c23a'), leg: lin('#e2bd38'), iris: lin('#5a3a1a') }
       : { body: lin('#5cbf3e'), belly: lin('#a8d85a'), head: lin('#62c847'), cheek: lin('#7fd458'), ringB: lin('#111111'), ringR: lin('#e78aa8'), wing: lin('#47a536'), prim: lin('#2e7a37'), tail: lin('#4fa79c'), tailTip: lin('#d7d86a'), bill: lin('#d0202c'), billLo: lin('#2a1a1a'), leg: lin('#8a8d92'), iris: lin('#f2e9a8'), orbit: lin('#e9a24a') };
 
   // ---- body (with neck) ----------------------------------------------------------------------------------
-  const prof = sp === 'crow' ? [[-0.098, 0.010, 0.008, 0.008, 0.004], [-0.082, 0.024, 0.018, 0.02, 0.004], [-0.06, 0.037, 0.03, 0.035, 0.002], [-0.035, 0.047, 0.04, 0.047, 0], [-0.008, 0.053, 0.046, 0.054, 0], [0.02, 0.054, 0.047, 0.056, 0.002], [0.045, 0.05, 0.044, 0.052, 0.006], [0.066, 0.04, 0.036, 0.042, 0.014], [0.082, 0.03, 0.028, 0.03, 0.024], [0.094, 0.024, 0.023, 0.024, 0.031]]
+  const CROW_PROF = [[-0.098, 0.010, 0.008, 0.008, 0.004], [-0.082, 0.024, 0.018, 0.02, 0.004], [-0.06, 0.037, 0.03, 0.035, 0.002], [-0.035, 0.047, 0.04, 0.047, 0], [-0.008, 0.053, 0.046, 0.054, 0], [0.02, 0.054, 0.047, 0.056, 0.002], [0.045, 0.05, 0.044, 0.052, 0.006], [0.066, 0.04, 0.036, 0.042, 0.014], [0.082, 0.03, 0.028, 0.03, 0.024], [0.094, 0.024, 0.023, 0.024, 0.031]];
+  const SC = sp === 'myna' ? 0.6 : sp === 'kite' ? 1.45 : 1; // 83rd: myna / kite bodies are the corvid-type body at their own size (slimmer kite)
+  const prof = sp === 'myna' ? CROW_PROF.map((r) => r.map((v, i) => v * SC * (i === 1 ? 0.95 : 1))) : sp === 'kite' ? CROW_PROF.map((r) => r.map((v, i) => v * SC * (i === 1 ? 0.88 : i === 3 ? 0.92 : 1)))
+    : sp === 'crow' ? [[-0.098, 0.010, 0.008, 0.008, 0.004], [-0.082, 0.024, 0.018, 0.02, 0.004], [-0.06, 0.037, 0.03, 0.035, 0.002], [-0.035, 0.047, 0.04, 0.047, 0], [-0.008, 0.053, 0.046, 0.054, 0], [0.02, 0.054, 0.047, 0.056, 0.002], [0.045, 0.05, 0.044, 0.052, 0.006], [0.066, 0.04, 0.036, 0.042, 0.014], [0.082, 0.03, 0.028, 0.03, 0.024], [0.094, 0.024, 0.023, 0.024, 0.031]]
     : sp === 'pigeon' ? [[-0.092, 0.012, 0.008, 0.009, 0.006], [-0.075, 0.027, 0.02, 0.022, 0.005], [-0.052, 0.042, 0.034, 0.04, 0.002], [-0.025, 0.053, 0.044, 0.054, 0], [0.004, 0.058, 0.048, 0.062, -0.002], [0.03, 0.056, 0.047, 0.062, 0.002], [0.05, 0.046, 0.04, 0.052, 0.01], [0.064, 0.032, 0.03, 0.036, 0.02], [0.075, 0.022, 0.021, 0.024, 0.03], [0.083, 0.018, 0.018, 0.019, 0.037]]
       : [[-0.068, 0.008, 0.006, 0.007, 0.002], [-0.055, 0.018, 0.014, 0.016, 0.002], [-0.036, 0.028, 0.024, 0.029, 0], [-0.014, 0.034, 0.029, 0.036, 0], [0.01, 0.036, 0.031, 0.038, 0.002], [0.03, 0.033, 0.03, 0.034, 0.006], [0.046, 0.026, 0.025, 0.027, 0.013], [0.058, 0.02, 0.02, 0.021, 0.021], [0.066, 0.017, 0.017, 0.018, 0.027]];
   {
@@ -96,6 +108,8 @@ function speciesParts(sp) {
     bodyLoft(gb, prof, 22, (t, a, p) => {
       vi++; const up = Math.sin(a), z = p[2]; let c;
       if (sp === 'crow') { const collar = sm(0.048, 0.076, z) * (1 - sm(0.084, 0.095, z) * sm(-0.2, -0.75, up)); c = mix(mix(pal.body, pal.gloss, Math.max(0, up) * 0.6), mix(pal.collar, pal.collarLt, Math.max(0, -up) * 0.5), collar); }
+      else if (sp === 'myna') { const hood = sm(0.026, 0.04, z); c = mix(mix(pal.body, pal.back, Math.max(0, up) * 0.6), pal.belly, Math.max(0, -up) * 0.7); c = mix(c, mix(pal.hood, pal.gloss, Math.max(0, up) * 0.5), hood); c = mix(c, pal.vent, sm(-0.03, -0.05, z) * sm(-0.1, -0.6, up)); }
+      else if (sp === 'kite') { const streak = 0.5 + 0.5 * Math.sin(a * 9 + z * 260); c = mix(mix(pal.body, pal.back, Math.max(0, up) * 0.7), pal.belly, Math.max(0, -up) * 0.6); c = mix(c, pal.streak, streak * 0.25 * Math.max(0, -up)); c = mix(c, pal.head, sm(0.085, 0.12, z) * (0.6 + 0.4 * streak)); }
       else if (sp === 'pigeon') { const neck = sm(0.05, 0.068, z) * (1 - 0.35 * sm(0.078, 0.088, z)); const irid = 0.5 + 0.5 * Math.sin(a * 2 + z * 120); c = mix(mix(pal.body, pal.back, Math.max(0, up)), pal.breast, Math.max(0, -up) * sm(0.0, 0.04, z)); c = mix(c, mix(pal.neckG, pal.neckP, irid), neck * 0.62); c = mix(c, pal.head, sm(0.075, 0.085, z)); c = mix(c, pal.rump, sm(-0.05, -0.07, z) * sm(0.2, 0.7, up)); }
       else { c = mix(pal.body, pal.belly, Math.max(0, -up) * 0.85); c = mix(c, pal.head, sm(0.04, 0.06, z)); const ring = sm(0.05, 0.054, z) * (1 - sm(0.06, 0.064, z)); c = mix(c, up < -0.15 ? pal.ringB : up < 0.35 ? mix(pal.ringB, pal.ringR, sm(-0.15, 0.35, up)) : pal.ringR, ring); } // male neck ring: black throat band into a rose collar
       return jitter(c, vi * 7.3, 0.07);
@@ -104,34 +118,40 @@ function speciesParts(sp) {
   }
   // ---- head (skull + bill + eyes); pivot at the neck joint, looking +z ----------------------------------------
   {
-    const gb = new GB(); const hr = sp === 'crow' ? 0.029 : sp === 'pigeon' ? 0.022 : 0.022; const hl = hr * 1.25; const rings = [];
+    const gb = new GB(); const hr = sp === 'crow' ? 0.029 : sp === 'myna' ? 0.0175 : sp === 'kite' ? 0.037 : 0.022; const hl = hr * 1.25; const rings = [];
     for (let k = 0; k <= 12; k++) { const t = k / 12; const z = -hl * 0.55 + t * hl * 1.45; const e = Math.sin(Math.PI * Math.min(1, t * 1.02)); const rr = hr * Math.pow(Math.max(0.02, e), 0.62); rings.push({ c: [0, hr * 0.15 + (sp === 'crow' ? 0.004 * t : 0), z], u: [rr * 0.92, 0, 0], v: [0, rr, 0] }); }
     let vi = 0;
     loft(gb, rings, 20, (t, a, p) => {
       vi++; const up = Math.sin(a); let c;
       if (sp === 'crow') c = mix(pal.body, pal.collar, sm(0.25, -0.05, t) * sm(-0.3, 0.4, up) * 0.9); // black face/crown, grey nape behind
       else if (sp === 'pigeon') c = pal.head;
+      else if (sp === 'myna') { const eyeSkin = Math.exp(-((t - 0.55) ** 2) / 0.012) * Math.exp(-((up - 0.25) ** 2) / 0.05) * (Math.abs(Math.cos(a)) > 0.55 ? 1 : 0); c = mix(mix(pal.hood, pal.gloss, Math.max(0, up) * 0.6), pal.skin, eyeSkin); } // bare yellow skin behind the eye
+      else if (sp === 'kite') c = mix(pal.head, pal.streak, (0.5 + 0.5 * Math.sin(a * 7 + t * 30)) * 0.3 + sm(0.4, 0.9, t) * Math.max(0, -Math.abs(Math.cos(a)) + 0.8) * 0.3); // pale streaked head, darker mask behind the eye
       else { c = mix(pal.head, pal.cheek, Math.max(0, -up) * 0.6 * sm(0.3, 0.8, t)); const ringBand = sm(0.08, 0.02, t) * (1 - sm(0.6, 0.95, up)); c = mix(c, up < -0.1 ? pal.ringB : pal.ringR, ringBand); }
       return jitter(c, vi * 3.1, 0.05);
     });
     // bill: lofted from the face forward; crow heavy and slightly decurved, pigeon short with white cere, parakeet hooked red
-    const bl = sp === 'crow' ? 0.05 : sp === 'pigeon' ? 0.02 : 0.026; const bh = sp === 'crow' ? 0.0125 : sp === 'pigeon' ? 0.0052 : 0.0125; const bz0 = hl * 0.7;
-    const br = []; for (let k = 0; k <= 12; k++) { const t = k / 12; const hook = sp === 'parakeet' ? -0.95 * bh * Math.pow(t, 2.2) * 1.6 : sp === 'crow' ? -0.35 * bh * t * t : -0.2 * bh * t * t; const r = bh * Math.pow(1 - t, sp === 'parakeet' ? 0.75 : 0.9) + 0.0006; br.push({ c: [0, hr * 0.05 + hook, bz0 + t * bl * (sp === 'parakeet' ? 0.75 : 1)], u: [r * (sp === 'parakeet' ? 0.75 : 0.62), 0, 0], v: [0, r, 0] }); }
-    loft(gb, br, 14, (t, a) => { const up = Math.sin(a); if (sp === 'pigeon') return t < 0.32 && up > 0.1 ? pal.cere : pal.bill; if (sp === 'parakeet') return up < -0.4 && t < 0.55 ? pal.billLo : mix(pal.bill, lin('#8a1018'), t * 0.5); return mix(pal.bill, lin('#26262a'), Math.max(0, up) * 0.4); });
+    const bl = sp === 'crow' ? 0.05 : sp === 'pigeon' ? 0.02 : sp === 'myna' ? 0.021 : sp === 'kite' ? 0.036 : 0.026; const bh = sp === 'crow' ? 0.0125 : sp === 'pigeon' ? 0.0052 : sp === 'myna' ? 0.0062 : sp === 'kite' ? 0.0125 : 0.0125; const bz0 = hl * 0.7;
+    const br = []; for (let k = 0; k <= 12; k++) { const t = k / 12; const hook = sp === 'parakeet' ? -0.95 * bh * Math.pow(t, 2.2) * 1.6 : sp === 'kite' ? -1.1 * bh * Math.pow(t, 3) * 1.4 : sp === 'crow' ? -0.35 * bh * t * t : -0.2 * bh * t * t; const r = bh * Math.pow(1 - t, sp === 'parakeet' ? 0.75 : 0.9) + 0.0006; br.push({ c: [0, hr * 0.05 + hook, bz0 + t * bl * (sp === 'parakeet' ? 0.75 : 1)], u: [r * (sp === 'parakeet' ? 0.75 : 0.62), 0, 0], v: [0, r, 0] }); }
+    loft(gb, br, 14, (t, a) => { const up = Math.sin(a); if (sp === 'myna') return mix(pal.bill, lin('#d9a514'), t * 0.4); if (sp === 'kite') return t < 0.3 ? pal.cere : pal.bill; if (sp === 'pigeon') return t < 0.32 && up > 0.1 ? pal.cere : pal.bill; if (sp === 'parakeet') return up < -0.4 && t < 0.55 ? pal.billLo : mix(pal.bill, lin('#8a1018'), t * 0.5); return mix(pal.bill, lin('#26262a'), Math.max(0, up) * 0.4); });
     if (sp === 'parakeet') { const lo = []; for (let k = 0; k <= 6; k++) { const t = k / 6; const r = bh * 0.55 * (1 - t) + 0.0005; lo.push({ c: [0, hr * 0.05 - bh * 0.9, bz0 - 0.002 + t * bl * 0.38], u: [r * 0.8, 0, 0], v: [0, r * 0.7, 0] }); } loft(gb, lo, 10, () => pal.billLo); }
     // eyes on the sides of the head (birds see sideways), slightly forward
-    const ex = hr * 0.78, ey = hr * 0.33, ez = hl * 0.22; const er = hr * (sp === 'pigeon' ? 0.24 : 0.2);
-    for (const sx of [1, -1]) eye(gb, [sx * ex, ey, ez], er, [sx * 0.85, 0.12, 0.5], pal.iris, undefined, sp === 'parakeet' ? pal.orbit : sp === 'pigeon' ? lin('#d7cfc0') : null);
+    const ex = hr * 0.78, ey = hr * 0.33, ez = hl * 0.22; const er = hr * (sp === 'pigeon' ? 0.24 : sp === 'kite' ? 0.22 : 0.2);
+    for (const sx of [1, -1]) eye(gb, [sx * ex, ey, ez], er, [sx * 0.85, 0.12, 0.5], pal.iris, undefined, sp === 'parakeet' ? pal.orbit : sp === 'pigeon' ? lin('#d7cfc0') : sp === 'myna' ? pal.skin : null);
     P.head = gb.build(); P.headLen = hl; P.headR = hr;
   }
   // ---- wings (left; the right wing is the mirror image) --------------------------------------------------------
   const W = sp === 'crow' ? { chord: 0.085, sec: 10, secLen: 0.105, secW: 0.013, hand: 0.06, prim: 10, primLen: 0.19, primW: 0.012, slot: 0.55 }
+    : sp === 'myna' ? { chord: 0.05, sec: 9, secLen: 0.062, secW: 0.0088, hand: 0.036, prim: 10, primLen: 0.105, primW: 0.0085, slot: 0.9 }
+    : sp === 'kite' ? { chord: 0.17, sec: 13, secLen: 0.2, secW: 0.024, hand: 0.13, prim: 10, primLen: 0.37, primW: 0.024, slot: 0.45 } // long, broad, deeply fingered hand
     : sp === 'pigeon' ? { chord: 0.07, sec: 10, secLen: 0.09, secW: 0.012, hand: 0.055, prim: 10, primLen: 0.165, primW: 0.0115, slot: 0.9 }
       : { chord: 0.052, sec: 9, secLen: 0.066, secW: 0.0092, hand: 0.038, prim: 10, primLen: 0.122, primW: 0.0088, slot: 0.95 };
   const L1 = S.innerLen;
   const wingCol = (kind, i, n) => (t, side = 0) => {
     let c;
     if (sp === 'crow') c = kind === 'prim' ? mix(pal.prim, pal.gloss, 0.25 * (1 - t)) : mix(pal.wing, pal.gloss, 0.4 * (1 - t));
+    else if (sp === 'myna') c = kind === 'prim' ? (t < 0.3 ? pal.patch : pal.prim) : kind === 'cov' && i < 2 ? pal.patch : kind === 'sec' ? mix(pal.wing, pal.prim, sm(0.5, 0.95, t) * 0.6) : pal.wing; // white patch at the base of the primaries
+    else if (sp === 'kite') c = kind === 'prim' ? mix(side ? pal.primLt : pal.wing, pal.prim, sm(0.25, 0.7, t)) : kind === 'cov' || kind === 'lesser' ? mix(pal.cov, pal.wing, 0.35 + 0.4 * t) : mix(pal.wing, pal.bar, (0.5 + 0.5 * Math.sin(t * 26)) * 0.35); // pale covert band, barred flight feathers, pale primary bases
     else if (sp === 'pigeon') { if (kind === 'prim') c = mix(pal.wing, pal.prim, sm(0.35, 0.75, t)); else if (kind === 'sec') c = t > 0.62 && t < 0.86 ? pal.bar : mix(pal.wing, pal.back, 0.3); else if (kind === 'cov') c = t > 0.66 && t < 0.95 ? pal.bar : pal.wing; else c = pal.wing; }
     else c = kind === 'prim' ? mix(pal.wing, pal.prim, sm(0.15, 0.6, t)) : kind === 'sec' ? mix(pal.wing, pal.prim, sm(0.5, 0.9, t) * 0.6) : pal.wing;
     return jitter(side ? mix(c, [0, 0, 0], 0.12) : c, i * 13.7 + t * 5, 0.05);
@@ -166,10 +186,12 @@ function speciesParts(sp) {
     const gb = new GB(); const at = (z) => { // body cross-section at z (interpolated from the loft profile)
       let i = 0; while (i < prof.length - 2 && prof[i + 1][0] < z) i++; const a = prof[i], b = prof[i + 1]; const t = Math.min(1, Math.max(0, (z - a[0]) / (b[0] - a[0]))); return { rx: a[1] + (b[1] - a[1]) * t, ryt: a[2] + (b[2] - a[2]) * t, ryb: a[3] + (b[3] - a[3]) * t, yc: a[4] + (b[4] - a[4]) * t }; };
     const surf = (y, z, off) => { const c = at(Math.max(prof[0][0] + 0.004, z)); const ry = y >= c.yc ? c.ryt : c.ryb; const k = Math.min(0.97, Math.abs(y - c.yc) / ry); return Math.max(0.006, c.rx * Math.sqrt(1 - k * k)) + off; };
-    const tailLen = sp === 'crow' ? 0.165 : sp === 'pigeon' ? 0.118 : 0.235; const z0 = S.shoulder[2] + 0.012; const zTip = S.tail[2] - tailLen * (sp === 'crow' ? 0.5 : sp === 'pigeon' ? 0.72 : 0.3);
-    const yTop = S.shoulder[1] + 0.004, yBot = sp === 'parakeet' ? -0.02 : -0.03;
+    const tailLen = sp === 'crow' ? 0.165 : sp === 'pigeon' ? 0.118 : sp === 'myna' ? 0.085 : sp === 'kite' ? 0.28 : 0.235; const z0 = S.shoulder[2] + 0.012 * SC; const zTip = S.tail[2] - tailLen * (sp === 'crow' ? 0.5 : sp === 'pigeon' ? 0.72 : sp === 'myna' ? 0.55 : sp === 'kite' ? 0.2 : 0.3);
+    const yTop = S.shoulder[1] + 0.004 * SC, yBot = sp === 'parakeet' ? -0.02 : -0.03 * SC;
     const fcol = (kind, i) => (t, side = 0) => { let c;
       if (sp === 'crow') c = kind === 'prim' ? mix(pal.prim, pal.gloss, 0.35 * (1 - t)) : mix(pal.wing, pal.gloss, 0.45 * (1 - t));
+      else if (sp === 'myna') c = kind === 'prim' ? pal.prim : kind === 'gc' ? pal.wing : mix(pal.wing, pal.prim, sm(0.6, 1, t) * 0.5);
+      else if (sp === 'kite') c = kind === 'prim' ? mix(pal.wing, pal.prim, sm(0.3, 0.8, t)) : kind === 'gc' ? mix(pal.cov, pal.wing, 0.4) : mix(pal.wing, pal.bar, (0.5 + 0.5 * Math.sin(t * 22)) * 0.3);
       else if (sp === 'pigeon') c = kind === 'prim' ? mix(pal.wing, pal.prim, sm(0.3, 0.8, t)) : kind === 'sec' ? (t > 0.7 && t < 0.92 ? pal.bar : mix(pal.wing, pal.back, 0.2)) : kind === 'gc' ? (t > 0.62 && t < 0.9 ? pal.bar : pal.wing) : pal.wing;
       else c = kind === 'prim' ? mix(pal.wing, pal.prim, sm(0.2, 0.7, t)) : kind === 'sec' ? mix(pal.wing, pal.prim, sm(0.6, 1, t) * 0.5) : pal.wing;
       return jitter(side ? mix(c, [0, 0, 0], 0.1) : c, i * 17.3 + t * 7, 0.05); };
@@ -186,29 +208,29 @@ function speciesParts(sp) {
     // smooth shoulder (lesser/median coverts): a thin lens conforming to the flank
     const rings = []; const cz0 = z0 + 0.004, cz1 = z0 - (z0 - zTip) * 0.26;
     for (let k = 0; k <= 10; k++) { const t = k / 10; const z = cz0 + (cz1 - cz0) * t; const h = H * 0.42 * Math.sin(Math.PI * Math.min(1, 0.08 + t * 0.95)) + 0.002; const yc = yTop - H * 0.36 - t * H * 0.04; const x = surf(yc, z, 0.0042); const xT = surf(yc + h, z, 0.0035), xB = surf(yc - h, z, 0.0035); rings.push({ c: [x, yc, z], u: [(xT - xB) / 2, h, 0], v: [0.0016 * Math.sin(Math.PI * t) + 0.0008, 0, 0] }); }
-    loft(gb, rings, 14, (t, a) => jitter(sp === 'pigeon' ? mix(pal.wing, pal.back, 0.3) : pal.wing, t * 50 + a, 0.05));
+    loft(gb, rings, 14, (t, a) => jitter(sp === 'pigeon' ? mix(pal.wing, pal.back, 0.3) : sp === 'kite' ? mix(pal.cov, pal.wing, 0.5) : pal.wing, t * 50 + a, 0.05));
     P.fold = gb.build(); P.foldR = mirrorX(P.fold);
   }
   // ---- tail (fanned rectrices + upper coverts); pivot at the tail base, pointing −z ---------------------------------
   {
-    const gb = new GB(); const n = 12; const T = sp === 'crow' ? { len: 0.165, w: 0.016, spread: 0.22 } : sp === 'pigeon' ? { len: 0.118, w: 0.017, spread: 0.3 } : { len: 0.235, w: 0.0105, spread: 0.12 };
+    const gb = new GB(); const n = 12; const T = sp === 'crow' ? { len: 0.165, w: 0.016, spread: 0.22 } : sp === 'pigeon' ? { len: 0.118, w: 0.017, spread: 0.3 } : sp === 'myna' ? { len: 0.085, w: 0.0115, spread: 0.24 } : sp === 'kite' ? { len: 0.28, w: 0.03, spread: 0.16 } : { len: 0.235, w: 0.0105, spread: 0.12 };
     const order = [...Array(n).keys()].sort((a, b) => Math.abs(b - (n - 1) / 2) - Math.abs(a - (n - 1) / 2)); // outer feathers first (underneath)
     for (const i of order) {
       const u = (i - (n - 1) / 2) / ((n - 1) / 2); const th = u * T.spread; const d = norm([Math.sin(th), -0.04, -Math.cos(th)]);
-      const len = sp === 'parakeet' ? T.len * (0.36 + 0.64 * Math.pow(1 - Math.abs(u), 2.2)) : sp === 'crow' ? T.len * (1 - 0.1 * u * u) : T.len * (0.97 + 0.03 * u * u);
+      const len = sp === 'parakeet' ? T.len * (0.36 + 0.64 * Math.pow(1 - Math.abs(u), 2.2)) : sp === 'kite' ? T.len * (0.86 + 0.14 * u * u) /* outer feathers longest: the shallow fork */ : sp === 'crow' ? T.len * (1 - 0.1 * u * u) : T.len * (0.97 + 0.03 * u * u);
       const lay = (1 - Math.abs(u)) * 0.003;
-      feather(gb, [u * 0.008, lay, 0.006], d, [0, 1, 0], len, T.w * 0.75, T.w * 0.75, 0.025, (t, side = 0) => {
-        let c; if (sp === 'crow') c = mix(pal.wing, pal.gloss, 0.35 * (1 - t)); else if (sp === 'pigeon') c = t > 0.8 ? pal.band : Math.abs(u) > 0.9 && side ? pal.rump : pal.tail; else c = mix(pal.tail, pal.tailTip, sm(0.75, 1, t) * (Math.abs(u) > 0.2 ? 1 : 0.3));
+      feather(gb, [u * 0.008 * SC, lay * SC, 0.006 * SC], d, [0, 1, 0], len, T.w * 0.75, T.w * 0.75, 0.025, (t, side = 0) => {
+        let c; if (sp === 'crow') c = mix(pal.wing, pal.gloss, 0.35 * (1 - t)); else if (sp === 'myna') c = t > 0.86 && Math.abs(u) > 0.15 ? pal.vent : pal.tail; else if (sp === 'kite') c = mix(pal.tail, pal.bar, (0.5 + 0.5 * Math.sin(t * 30)) * 0.4); else if (sp === 'pigeon') c = t > 0.8 ? pal.band : Math.abs(u) > 0.9 && side ? pal.rump : pal.tail; else c = mix(pal.tail, pal.tailTip, sm(0.75, 1, t) * (Math.abs(u) > 0.2 ? 1 : 0.3));
         return jitter(c, i * 9.1 + t * 3, 0.05);
       }, 9);
     }
-    for (let i = 0; i < 7; i++) { const u = (i - 3) / 3; const d = norm([u * 0.25, -0.02, -1]); feather(gb, [u * 0.012, 0.007, 0.014], d, [0, 1, 0], T.len * 0.34, T.w * 0.8, T.w * 0.8, 0.02, (t) => jitter(sp === 'pigeon' ? mix(pal.rump, pal.tail, t) : sp === 'crow' ? pal.wing : pal.body, i * 5.3 + t, 0.05), 5); }
+    for (let i = 0; i < 7; i++) { const u = (i - 3) / 3; const d = norm([u * 0.25, -0.02, -1]); feather(gb, [u * 0.012 * SC, 0.007 * SC, 0.014 * SC], d, [0, 1, 0], T.len * 0.34, T.w * 0.8, T.w * 0.8, 0.02, (t) => jitter(sp === 'pigeon' ? mix(pal.rump, pal.tail, t) : sp === 'crow' ? pal.wing : sp === 'myna' ? pal.back : pal.body, i * 5.3 + t, 0.05), 5); }
     P.tail = gb.build();
   }
   // ---- legs (left; tarsus + toes; hip pivot); the right leg is mirrored ---------------------------------------------
   {
-    const gb = new GB(); const tar = S.stand + S.hip[1] - 0.006; const r = sp === 'crow' ? 0.0034 : sp === 'pigeon' ? 0.003 : 0.0026; const toeL = sp === 'crow' ? 0.034 : sp === 'pigeon' ? 0.028 : 0.022;
-    const lc = () => pal.leg; const knee = [0, -0.012, -0.004], ankle = [0, -tar, 0.004];
+    const gb = new GB(); const tar = S.stand + S.hip[1] - 0.006; const r = sp === 'crow' ? 0.0034 : sp === 'pigeon' ? 0.003 : sp === 'myna' ? 0.0026 : sp === 'kite' ? 0.0055 : 0.0026; const toeL = sp === 'crow' ? 0.034 : sp === 'pigeon' ? 0.028 : sp === 'myna' ? 0.026 : sp === 'kite' ? 0.048 : 0.022;
+    const lc = () => pal.leg; const knee = [0, -0.012 * SC, -0.004 * SC], ankle = [0, -tar, 0.004 * SC];
     tube(gb, [[0, 0.004, 0], knee, [0, -tar * 0.55, 0.002], ankle], [r * 1.8, r * 1.3, r, r * 1.1], 8, lc);
     const toes = sp === 'parakeet' ? [[0.3, 1], [-0.25, 1], [0.6, -1], [-0.1, -1]] : [[0.42, 1], [0, 1.08], [-0.42, 1], [0, -0.62]];
     for (const [a, l] of toes) { const dir = l > 0 ? [Math.sin(a), 0, Math.cos(a)] : [Math.sin(a) * 0.5, 0, -1]; const L = toeL * Math.abs(l); const p0 = [ankle[0], ankle[1], ankle[2]]; const p1 = [p0[0] + dir[0] * L * 0.5, p0[1] - 0.0035, p0[2] + dir[2] * L * 0.5]; const p2 = [p0[0] + dir[0] * L, p0[1] - 0.004, p0[2] + dir[2] * L]; tube(gb, [p0, p1, p2], [r * 0.85, r * 0.7, r * 0.35], 6, lc); }

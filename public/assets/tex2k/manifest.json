@@ -1,0 +1,30 @@
+{
+ "fabCol": {
+  "size": 2048,
+  "srgb": true,
+  "alpha": true,
+  "codec": "ETC1S",
+  "bytes": 752046
+ },
+ "fabNrm": {
+  "size": 2048,
+  "srgb": false,
+  "alpha": false,
+  "codec": "UASTC+RDO+zstd",
+  "bytes": 2306046
+ },
+ "hhCol": {
+  "size": 2048,
+  "srgb": true,
+  "alpha": true,
+  "codec": "ETC1S",
+  "bytes": 563438
+ },
+ "hhNrm": {
+  "size": 2048,
+  "srgb": false,
+  "alpha": false,
+  "codec": "UASTC+RDO+zstd",
+  "bytes": 2826934
+ }
+}

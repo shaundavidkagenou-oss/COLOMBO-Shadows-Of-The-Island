@@ -25,6 +25,7 @@
 // Nothing is allocated for a vehicle until it is first damaged (buffers, materials, hole decals); repair() restores the
 // originals and dispose frees everything.
 import * as THREE from 'three';
+import { patchGlassRain } from './VehicleWeather.js';
 import { Audio } from '../audio/Audio.js';
 import { VEH_HOOKS } from './Vehicle.js';
 import { vehicleMaterials } from './VehicleModels.js';
@@ -158,7 +159,7 @@ float chN(vec3 p) { vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f)
 function glassMaterial(U, off) {
   const S = shared(); const m = new THREE.MeshPhysicalMaterial(); m.copy(S.glassProto); const uOff = { value: new THREE.Vector3().copy(off) };
   m.onBeforeCompile = (s) => {
-    Object.assign(s.uniforms, { uVdMin: U.min, uVdMax: U.max, uVdCr: U.cr, uVdCrN: U.crn, uVdOff: uOff });
+    Object.assign(s.uniforms, { uVdMin: U.min, uVdMax: U.max, uVdCr: U.cr, uVdCrN: U.crn, uVdOff: uOff }); patchGlassRain(s, U.wipe); // 83rd: rain on the damaged glass too (same wiper block as the vehicle's own glass)
     s.vertexShader = s.vertexShader.replace('#include <common>', '#include <common>\nuniform vec3 uVdOff; varying vec3 vVdP; varying vec3 vVdN;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvVdP = position + uVdOff; vVdN = objectNormal;');
     s.fragmentShader = s.fragmentShader.replace('#include <common>', `#include <common>
 uniform vec4 uVdMin[${MAX_PANES}]; uniform vec4 uVdMax[${MAX_PANES}]; uniform vec4 uVdCr[${MAX_CRACKS}]; uniform vec4 uVdCrN[${MAX_CRACKS}]; varying vec3 vVdP; varying vec3 vVdN;
@@ -189,7 +190,7 @@ vec2 vdCrack(vec3 p, vec4 c, vec4 cn, float aa) {
   for (int i = 0; i < ${MAX_CRACKS}; i++) { if (uVdCr[i].w <= 0.0) continue; vec2 c = vdCrack(vVdP, uVdCr[i], uVdCrN[i], aa); if (c.y > 0.5) discard; crack = max(crack, c.x); }
   diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.80, 0.84, 0.84), crack * 0.78); diffuseColor.a = max(diffuseColor.a, crack * 0.85); }`);
   };
-  m.customProgramCacheKey = () => 'vd-glass'; m.userData.vdOff = uOff; return m;
+  m.customProgramCacheKey = () => 'vd-glass-rain'; m.userData.vdOff = uOff; return m;
 }
 // ------------------------------------------------------------------------------------------------ the system
 export class VehicleDamage {
@@ -275,7 +276,7 @@ export class VehicleDamage {
     const st = this.st(v); if (st.glass) return st.glass; const panes = (P && P.panes) || []; const S = shared(); const ud = v.mesh.userData;
     const U = { min: { value: Array.from({ length: MAX_PANES }, () => new THREE.Vector4()) }, max: { value: Array.from({ length: MAX_PANES }, () => new THREE.Vector4()) }, cr: { value: Array.from({ length: MAX_CRACKS }, () => new THREE.Vector4()) }, crn: { value: Array.from({ length: MAX_CRACKS }, () => new THREE.Vector4()) } };
     panes.forEach((p, i) => { U.min.value[i].set(p.mn[0], p.mn[1], p.mn[2], 0); U.max.value[i].set(p.mx[0], p.mx[1], p.mx[2], p.kind); });
-    const G = st.glass = { U, panes, hits: new Int16Array(MAX_PANES), broken: new Uint8Array(MAX_PANES), nCr: 0, mats: [] };
+    U.wipe = ud.wipeU || null; const G = st.glass = { U, panes, hits: new Int16Array(MAX_PANES), broken: new Uint8Array(MAX_PANES), nCr: 0, mats: [] };
     const body = glassMaterial(U, new THREE.Vector3()); G.body = body; G.mats.push(body);
     const set = (mesh, m) => { if (!mesh) return; mesh.material = Array.isArray(mesh.material) ? [m] : m; };
     if (ud.bake) { G.orig = ud.bake.mats.glass; ud.bake.mats.glass = body; set(ud.bake.meshes.glass, body); } else for (const c of v.mesh.children) if (c.isMesh && c.name === 'glass') { G.orig = c.material; set(c, body); }

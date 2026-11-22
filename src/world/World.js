@@ -20,6 +20,8 @@ import { buildLandmarks } from './Landmarks.js';
 import { FORT } from './FortStationData.js';
 import { buildPropGeometries, buildPropsForChunk, updateSignals, initGlowTexture } from './Props.js';
 import { buildTreeGeometries, windUniform } from './Vegetation.js';
+import { stepWind } from './Wind.js';
+import { balconyTick, setupClothMesh, dropAnchors } from './BalconyLife.js';
 import { Forest } from './Forest.js';
 import { buildVines, vineFade } from './Vines.js';
 import { bootMap, bootMapWorld } from '../debug/boot.js';
@@ -340,7 +342,7 @@ export class World {
   // every mesh of a chunk's permanent geometry (batched pieces as views, plus what stayed a separate mesh)
   chunkMeshes(c) { return c.baseViews ? [...c.baseViews, ...c.group.children] : c.group.children; }
   update(dt, focus, camera, atmos) {
-    this.t += dt; windUniform.value += dt * (0.6 + (atmos ? atmos.w.wind : 0.3));
+    this.t += dt; windUniform.value += dt * (0.6 + (atmos ? atmos.w.wind : 0.3)); stepWind(dt, atmos ? atmos.w.wind : 0.3); balconyTick(dt, atmos); // 83rd: wind direction / strength for cloth; laundry in from heavy rain
     this.signalTimer -= dt; if (this.signalTimer <= 0) { this.signalTimer = 0.25; updateSignals(this.simTime ?? this.t); }
     const fx = focus.x, fz = focus.z; let budget = 1; vineFade.value.x = fx; vineFade.value.y = fz;
     for (const c of this.chunks) {
@@ -413,7 +415,7 @@ export class World {
       const g = J.sb.geometry(), k = J.sk; J.sb = null;
       if (g) { const opts = det ? { cast: true, receive: true } : k === 0 ? { cast: false, receive: true } : { cast: false, receive: false };
         // opaque detail / window joinery: one BatchedMesh instance per building (per-building frustum culling, still one draw) — see CellBatch.RangeBatch
-        const mat = matFor(J.sn, MAT), ranges = (det || k === 0) && mat && !mat.isShaderMaterial && !FOLIAGE.has(J.sn) && J.sn !== 'pool' && J.sn !== 'lampHead' ? rangesFor(J.marks, J.sn) : null;
+        const mat = matFor(J.sn, MAT), ranges = (det || k === 0) && mat && !mat.isShaderMaterial && !FOLIAGE.has(J.sn) && J.sn !== 'balCloth' && J.sn !== 'balProp' && J.sn !== 'pool' && J.sn !== 'lampHead' ? rangesFor(J.marks, J.sn) : null;
         if (ranges && ranges.length >= 3 && g.index.count >= 18000) { const bl = plan.byChunk[J.c.idx].buildings; J.rb = new RangeBatch(g, ranges, mat, { kind: det ? 'detail' : 'win', occ: this.occ, ids: ranges.map((r) => (bl[r[4]] ? bl[r[4]].id : -1)) }); J.rbOpts = opts; /* 65th: + per-building occlusion / LOD (BatchCull.js) */ if (performance.now() - t0 > budgetMs) return false; continue; }
         const m = meshFor(J.sn, g, MAT, opts); if (m) { if (!det && k === 1) m.renderOrder = 2; J.meshes.push(m); } }
       if ((J.q.length || J.sb) && performance.now() - t0 > budgetMs) return false; }
@@ -422,7 +424,7 @@ export class World {
   }
   // per-building range marks: each material builder's vertex / index count before every building (+ one at the end)
   markJob(J) { const mb = J.B[0]; (J.marks || (J.marks = [])).push(new Map([...mb.b].map(([n, b]) => [n, [b.pos.length / 3, b.idx.length]]))); }
-  finishWindows(c, meshes, staged = false) { const g = new THREE.Group(); g.name = 'windows' + c.idx; for (const m of meshes) g.add(m); c.win = g; c.group.add(g); refreshStatic(c.group); if (staged) this.stage(meshes); }
+  finishWindows(c, meshes, staged = false) { const g = new THREE.Group(); g.name = 'windows' + c.idx; for (const m of meshes) { if (m.name === 'balCloth') setupClothMesh(m); g.add(m); } c.win = g; c.group.add(g); refreshStatic(c.group); if (staged) this.stage(meshes); }
   // streamed meshes appear over the next frames within a vertex budget: the GPU uploads a mesh's buffers the first time it is
   // drawn, and a whole chunk's merged materials (several MB) arriving in one frame was a visible hitch while driving
   stage(meshes) { for (const m of meshes) { m.visible = false; this.revealQ.push(m); } }
@@ -440,7 +442,7 @@ export class World {
     if (this.wjob && this.wjob.c === c) { this.stepWinJob(Infinity); if (c.win) return; }
     const J = this.newJob(c, 'win'); J.sync = true; this.stepJob(J, Infinity);
   }
-  disposeWindows(c) { c.group.remove(c.win); c.win.traverse((m) => m.geometry && disposeMesh(m)); c.win = null; }
+  disposeWindows(c) { dropAnchors(plan.byChunk[c.idx].buildings); c.group.remove(c.win); c.win.traverse((m) => m.geometry && disposeMesh(m)); c.win = null; }
   // after a long jump (teleport / fast travel) release streamed chunk geometry well outside the new streaming radii at once,
   // instead of keeping it until the 630 m hysteresis — keeps memory flat when jumping across the city
   trim(x, z) { let n = 0; for (const c of this.chunks) { const d = Math.max(0, Math.hypot(c.cx - x, c.cz - z) - CHUNK * 0.7); if (c.detail && d > this.detailRadius + 60) { this.disposeDetail(c); n++; } if (c.win && d > this.windowRadius + 40) { this.disposeWindows(c); n++; } } return n; }

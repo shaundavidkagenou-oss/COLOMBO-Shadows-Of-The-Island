@@ -1,6 +1,7 @@
 // Streaming without hitches must not change the city: chunk detail / window joinery built incrementally (World.stepJob:
 // per building / per facade, merged in SliceBuild slices under a time budget) must equal the one-shot build exactly.
 import './node-dom-stub.mjs';
+await import('../src/gfx/InteriorMapping.js'); // load order: InteriorMapping ↔ CityPlan cycle (FLOOR_H) resolves only when InteriorMapping is entered first
 const { generatePlan, plan } = await import('../src/world/CityPlan.js');
 const { MultiBuilder, SliceBuild } = await import('../src/gfx/MeshBuilder.js');
 const { buildDetail, buildWindows, windowTasks } = await import('../src/world/BuildingGen.js');

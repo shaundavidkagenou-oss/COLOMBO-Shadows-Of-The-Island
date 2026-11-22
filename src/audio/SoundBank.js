@@ -13,6 +13,7 @@ import { HOSPITAL_SOUND_DEFS } from './HospitalSoundDefs.js';
 import { PLACE_SOUND_DEFS } from './PlaceSoundDefs.js';
 import { ENV_SOUND_DEFS } from './EnvSoundDefs.js';
 import { ROADSIDE_SOUND_DEFS } from './RoadsideSoundDefs.js';
+import { BA_SOUND_DEFS } from './BirdAmbSoundDefs.js';
 import { CE_SOUND_DEFS } from './CityEventSoundDefs.js';
 
 // id, label, category, kind ('shot' one-shot | 'loop' continuous), lvl = playback gain of a full-scale recording (matches the
@@ -76,6 +77,7 @@ export const SOUND_DEFS = [
   ...HOSPITAL_SOUND_DEFS, // 74th: the National Hospital (HospitalAudio.js)
   ...PLACE_SOUND_DEFS, // 75th: hospital garden, Viharamahadevi Park, doors of every shop (PlaceAudio.js, Audio.roomDoor)
   ...CE_SOUND_DEFS, // 81st: DYNAMIC CITY EVENTS — ambience, stage, crowd, infrastructure, cultural & sporting, safety (CityEvents.js; silent until uploaded)
+  ...BA_SOUND_DEFS, // 83rd: URBAN BIRDS & ENVIRONMENTAL AMBIENCE — calls, wings, bird beds, balconies & residential (BirdAudio.js; silent until uploaded)
   ...ROADSIDE_SOUND_DEFS, // 80th: ROADSIDE ASSISTANCE — recovery vehicles, mechanics, roadside, breakdown events (Roadside.js; silent until uploaded)
   ...ENV_SOUND_DEFS, // 76th: footsteps & surfaces, character foley, interactive objects, traffic, vehicle radio, vehicle mechanical (EnvSoundDefs.js)
   { id: 'footstep', name: 'Footstep', cat: 'Player', lvl: 0.25 }, { id: 'phone.ring', name: 'Phone ringing', cat: 'Player', lvl: 0.3 },

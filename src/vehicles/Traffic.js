@@ -505,6 +505,8 @@ export class Traffic {
     if (ai.park && p !== ai.park.path) { const k = ai.pieces.indexOf(ai.park.path); if (k > 0) { let d = -ai.s; for (let q = 0; q < k; q++) d += ai.pieces[q].len; d += ai.park.path.len + 2.35; if (d < stopAt) stopAt = d; } } // pulling in to a kerb spot: stop on it (IDM keeps s0 = 2.2 m short of the target, so aim 2.35 m past; the hard stop ends it on the spot)
     // --- IDM
     const nextCurve = p.type === 'line' ? ai.pieces[1] : p; const curveV = nextCurve && nextCurve.type === 'curve' && nextCurve.turn !== 'straight' ? (nextCurve.turn === 'uturn' ? 3 : 6.5) : ai.v0;
+    if (!v.rsInc && !v.player) { let si = 0; /* 83rd: AI turn indicators (left-hand traffic: left turn = left, U-turn / pulling out = right), VehicleFx flashes the lamps */
+      if (ai.park) si = -1; else if (nextCurve && nextCurve.type === 'curve' && nextCurve.turn !== 'straight' && (p === nextCurve || p.len - ai.s < 34)) si = nextCurve.turn === 'left' ? -1 : 1; else if (ai.rejoin) si = v.ind || 1; else if (v.ind && p.type === 'curve') si = v.ind; v.ind = si; }
     let v0 = ai.v0; if (p.type === 'curve') v0 = curveV; else if (p.len - ai.s < 25) v0 = Math.min(v0, lerp(curveV, ai.v0, (p.len - ai.s) / 25));
     if (this.weatherRain) v0 *= 1 - this.weatherRain * 0.2;
     if (ai.yieldT > 0) v0 = Math.min(v0, 2.5);

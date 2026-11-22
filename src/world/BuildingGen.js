@@ -9,6 +9,8 @@ import { LAND_Y } from './Layout.js';
 import { FLOOR_H, GROUND_H } from './CityPlan.js';
 import { dressFort, fortCrown, fortHeritage } from './FortStyle.js';
 import { dressDistrict } from './DistrictStyle.js';
+import { dressBalconies, windowCurtain, windowOpen, beginWindows } from './BalconyLife.js';
+import { MultiBuilder } from '../gfx/MeshBuilder.js';
 // footprints of the roof clutter built below (tanks, stair hut, dish, lift overrun, plant units — no colliders, they are
 // thousands of small things): recorded on the building so the rooftop marksman (actors/Assassin.js) never kneels inside one.
 // A data record only: no RNG draws, so every city stream stays identical.
@@ -180,7 +182,7 @@ function signUV(idx) {
   return [c / SIGN_COLS + 0.002, 1 - (r + 1) / SIGN_ROWS + 0.002, (c + 1) / SIGN_COLS - 0.002, 1 - r / SIGN_ROWS - 0.002];
 }
 export function buildDetail(b, multi) {
-  const rng = new RNG(5000 + b.id * 13);
+  const rng = new RNG(5000 + b.id * 13); b._balcs = []; // 83rd: the balconies placed below (a data record, no RNG draws; dressed in the window tier)
   const paint = col(b.color || '#ffffff'); const darker = paint.map((v) => v * 0.86);
   const y0 = LAND_Y, yTop = y0 + b.h; const R = (role) => multi.get(bk(role, b)); const conc = R('bldTrim'), parapet = R('bldParapet');
   const sd = sides(b.x0, b.x1, b.z0, b.z1); const front = sd.find((s) => s.id === b.front) || sd[0];
@@ -251,7 +253,7 @@ export function buildDetail(b, multi) {
   // balconies on the front
   if (b.balconies && b.floors >= 2) {
     const s = front; const r = rotOf(s); const bays = Math.max(1, Math.floor(s.len / BAY));
-    const startF = b.groundRow != null ? 1 : 1;
+    const startF = b.groundRow != null ? 1 : 1; const slots = []; // 83rd: what each balcony is (BalconyLife dresses them below)
     for (let f = startF; f < b.floors; f++) for (let k = 0; k < bays; k++) {
       if ((k + f) % 2 && !rng.chance(0.3)) continue;
       if (f === startF && b._signSpans) { const c0 = (k + 0.5) / bays * s.len, hw = Math.min(BAY * 0.9, s.len / bays - 0.3) / 2; if (b._signSpans.some(([a1, b1]) => c0 + hw > a1 && c0 - hw < b1)) continue; } // no balcony slab through the shop sign below it
@@ -260,7 +262,7 @@ export function buildDetail(b, multi) {
       const w = Math.min(BAY * 0.9, s.len / bays - 0.3), d = 0.95;
       R('balcony').box(p[0] + s.n[0] * d / 2, yb, p[1] + s.n[1] * d / 2, w, 0.16, d, { col: darker, rotY: r, bottom: true });
       // balustrade: a rendered parapet wall or a painted steel railing (top/bottom rail + balusters), front and both returns
-      const tx = -s.n[1], tz = s.n[0]; const solidWall = rng.chance(0.4);
+      const tx = -s.n[1], tz = s.n[0]; const solidWall = rng.chance(0.4); const slot = { p, n: s.n, ys: yb + 0.08, w, d, solid: solidWall, planter: false, f, k, covered: false, exposed: true }; slots.push(slot);
       const side = (along, depth, len, rot) => [p[0] + tx * along + s.n[0] * depth, p[1] + tz * along + s.n[1] * depth, len, rot];
       const runs = [side(0, d - 0.03, w, r), side(-w / 2 + 0.03, d / 2, d, r + Math.PI / 2), side(w / 2 - 0.03, d / 2, d, r + Math.PI / 2)];
       for (const [qx, qz, len, rot] of runs) {
@@ -270,8 +272,11 @@ export function buildDetail(b, multi) {
         const nb = Math.max(2, Math.round(len / 0.2)), cr = Math.cos(rot), sr = Math.sin(rot);
         for (let k = 0; k <= nb; k++) { const o = -len / 2 + (k / nb) * len; mt.box(qx + o * cr, yb + 0.58, qz - o * sr, 0.022, 0.82, 0.022, { col: rc, top: false }); }
       }
-      if (rng.chance(0.15)) R('planterBox').box(p[0] + s.n[0] * (d - 0.2), yb + 0.5, p[1] + s.n[1] * (d - 0.2), 0.4, 0.6, 0.3, { col: col(rng.pick(['#3a7d44', '#9b2d20', '#e0b030'])), rotY: r }); // potted plant/box
+      if ((slot.planter = rng.chance(0.15))) R('planterBox').box(p[0] + s.n[0] * (d - 0.2), yb + 0.5, p[1] + s.n[1] * (d - 0.2), 0.4, 0.6, 0.3, { col: col(rng.pick(['#3a7d44', '#9b2d20', '#e0b030'])), rotY: r }); // potted plant/box
     }
+    // a slab right above (same bay, next floor) covers a balcony: rain hits the top floor's first, screens hang only under a slab
+    for (const sl of slots) { sl.covered = slots.some((o) => o.k === sl.k && o.f === sl.f + 1); sl.exposed = !sl.covered; }
+    b._balcs = slots;
   }
   // AC units on side walls
   for (const s of sd) {
@@ -429,6 +434,8 @@ function dressFacade(solid, glass, s, y0, y1, uOff, vStart, key, paint, cols = n
     const fw = 0.05, fd = 0.05, fo = 0.03;
     B(join, 0, ya + fw / 2, fo, W, fw, fd, fc); B(join, 0, gTop - fw / 2, fo, W, fw, fd, fc, { bottom: true });
     B(join, -W / 2 + fw / 2, (ya + gTop) / 2, fo, fw, gTop - ya, fd, fc); B(join, W / 2 - fw / 2, (ya + gTop) / 2, fo, fw, gTop - ya, fd, fc);
+    // 83rd: now and then an open window (sashes swung back: no pane, no mullion / transom) with a curtain moving in it (BalconyLife)
+    if (b && w.kind !== 'grill' && w.kind !== 'door' && ya > LAND_Y + 3 && windowOpen(s.a[0], s.a[1], iu, iv, wins.indexOf(w)) && windowCurtain(solid, b, P, s.n, [dx, dz], ya + fw, gTop - fw, W - 2 * fw, (b.id * 7919 + iu * 131 + iv * 31 + wins.indexOf(w)) | 0)) continue;
     if (W > 0.75) B(join, 0, (ya + gTop) / 2, fo, 0.04, gTop - ya - fw * 2, 0.045, fc);
     if (w.bar > 0) { const yt = yb - H * w.bar; if (yt > ya + 0.2 && yt < gTop - 0.1) B(join, 0, yt, fo, W - fw * 2, 0.04, 0.045, fc, { bottom: true }); }
     // glass pane (just proud of the painted glass so it never z-fights)
@@ -442,11 +449,16 @@ function dressFacade(solid, glass, s, y0, y1, uOff, vStart, key, paint, cols = n
   }
   return n;
 }
+// 83rd: the life on this building's balconies (laundry, plants, chairs, screens: BalconyLife.js) is near-tier detail, built
+// with the window joinery (150 m) rather than the 330 m detail tier; the balcony slabs themselves stay in the detail tier.
+// buildDetail records where they are (b._balcs); in the rare case the window job reaches a building first, that record is
+// made with a throwaway builder (identical: buildDetail is deterministic per building).
+function dressLife(b, solid) { beginWindows(b); if (!b.balconies) return; if (b._balcs === undefined) buildDetail(b, new MultiBuilder()); if (b._balcs.length) dressBalconies(b, b._balcs, (role) => solid.get(role)); }
 // The same work as one ordered list of facade tasks, so streaming can spread a building over several frames
 // (a large shop-house row is thousands of 3D window frames: up to ~130 ms for one building in a single call).
 export function windowTasks(b, solid, glass) {
   const paint = col(b.color || '#ffffff'); const y0 = LAND_Y, yTop = y0 + b.h; const hasGround = b.groundRow != null; const key = 'f_' + facKey(b.style, b);
-  const T = []; const F = (...a) => { const s = a[2], uOff = a[5]; const i0 = Math.floor(uOff), i1 = Math.ceil(uOff + s.len / (4 * BAY)); for (let k = i0; k < i1; k++) T.push(() => dressFacade(...a, [k, k + 1], b)); }; // one 4-bay column per task
+  const T = [() => (dressLife(b, solid), 0)]; /* (a task returns its window count: balcony life adds none) */ const F = (...a) => { const s = a[2], uOff = a[5]; const i0 = Math.floor(uOff), i1 = Math.ceil(uOff + s.len / (4 * BAY)); for (let k = i0; k < i1; k++) T.push(() => dressFacade(...a, [k, k + 1], b)); }; // one 4-bay column per task
   for (const s of sides(b.x0, b.x1, b.z0, b.z1)) {
     if (s.len < 0.1) continue;
     if (hasGround) {
@@ -463,7 +475,7 @@ export function windowTasks(b, solid, glass) {
 // one-shot build (warm / loading); identical output to running windowTasks() in order (tools/stream-test.mjs)
 export function buildWindows(b, solid, glass) {
   const paint = col(b.color || '#ffffff'); const y0 = LAND_Y, yTop = y0 + b.h; const hasGround = b.groundRow != null; const key = 'f_' + facKey(b.style, b);
-  let n = 0;
+  let n = 0; dressLife(b, solid);
   for (const s of sides(b.x0, b.x1, b.z0, b.z1)) {
     if (s.len < 0.1) continue;
     if (hasGround) {

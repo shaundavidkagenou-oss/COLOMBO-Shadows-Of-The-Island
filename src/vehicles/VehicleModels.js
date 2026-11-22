@@ -6,6 +6,7 @@
 // interiors (seats, dashboard, steering wheel); wheels are lathed tyres with alloy rims; cars and vans get a separately
 // hinged driver door used by the entry/exit animation.
 import { HOOKS } from '../core/Hooks.js';
+import { WIP, wiperSet, carWipers, rainGlass, newWipeU, initWipeU, grimePatch } from './VehicleWeather.js';
 import { doorGapsMeta, spansOutside } from './DoorSpans.js';
 import { poseDoor } from './DoorRig.js';
 import * as THREE from 'three';
@@ -311,21 +312,22 @@ export function vehSpecPatch(fs) {
   for (const [tag, cap] of [['#if ( NUM_POINT_LIGHTS > 0 ) && defined( RE_Direct )', 0.7], ['#if ( NUM_SPOT_LIGHTS > 0 ) && defined( RE_Direct )', 0.45]]) { const i = beg.indexOf(tag); const j = i >= 0 ? beg.indexOf(call, i) : -1; if (j >= 0) beg = beg.slice(0, j) + `gVCap = ${cap.toFixed(2)}; ` + call + ' gVCap = 1.6;' + beg.slice(j + call.length); }
   return 'float gVCap = 1.6;\n' + fs.replace('#include <lights_physical_pars_fragment>', pars).replace('#include <lights_fragment_begin>', beg);
 }
+function wornGrime(m) { m.onBeforeCompile = (sh) => grimePatch(sh, true); m.customProgramCacheKey = () => 'vworn-grime'; return m; }
 function paintFlakes(m) {
   m.onBeforeCompile = (sh) => {
-    sh.fragmentShader = vehSpecPatch(sh.fragmentShader);
+    sh.fragmentShader = vehSpecPatch(sh.fragmentShader); grimePatch(sh, false); // 83rd: road dust / mud
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vFlakeP;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvFlakeP = position;');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vFlakeP;\nfloat flakeH(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }')
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nvec3 flakeC = floor(vFlakeP * 1400.0); float flakeA = clamp(1.6 - length(fwidth(vFlakeP)) * 1400.0, 0.0, 1.0); roughnessFactor = clamp(roughnessFactor * (1.0 + (flakeH(flakeC) - 0.5) * 0.6 * flakeA), 0.04, 1.0);')
       .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nnormal = normalize(normal + (vec3(flakeH(flakeC + 1.3), flakeH(flakeC + 7.1), flakeH(flakeC + 3.7)) - 0.5) * 0.16 * flakeA);');
   };
-  m.customProgramCacheKey = () => 'vpaint-flakes2'; return m;
+  m.customProgramCacheKey = () => 'vpaint-flakes2-grime'; return m;
 }
 export function vehicleMaterials() {
   if (!mats) {
     mats = {
       vpaint: paintFlakes(new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.08, clearcoat: 0.8, clearcoatRoughness: 0.11, envMapIntensity: 0.75 })), // solid factory paint: dielectric base (was 0.25 metal: read as bare metal), lacquer that reflects without mirroring
-      vworn: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.15, envMapIntensity: 0.7 }),
+      vworn: wornGrime(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.15, envMapIntensity: 0.7 })), // 83rd: working vehicles carry more dirt
       vglass: new THREE.MeshPhysicalMaterial({ color: 0x0c1215, roughness: 0.1, metalness: 0.0, specularIntensity: 0.38, transparent: true, opacity: 0.8, envMapIntensity: 0.5, depthWrite: false, side: THREE.DoubleSide }), // tinted automotive glass: weak Fresnel so sloped rear screens never read as white glowing panels against the sky
       vchrome: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.22, metalness: 0.8, envMapIntensity: 1.2 }),
       vrim: rimMaterial(), // real metal (TyreMaterial.js): silver alloy / gunmetal / black steel read from the vertex colour
@@ -405,7 +407,8 @@ function notchOutline(D, R, sill, by) {
 
 // ------------------------------------------------------------------ model builders
 const modelCache = new Map();
-function buildModel(type, color, variant) {
+function buildModel(type, color, variant) { const prev = WIP.cur; WIP.cur = []; try { const m = buildModel0(type, color, variant); if (WIP.cur.length) m.wipers = WIP.cur; return m; } finally { WIP.cur = prev; } } // 83rd: wiper layouts recorded while the model builds (VehicleWeather.wiperSet)
+function buildModel0(type, color, variant) {
   const TP = VTYPES[type]; if (TP.police) { const m = buildBaseModel(TP.base, color, TP.base === 'bike' ? variant & ~1 : variant); /* police bikes: always the motorcycle body */ addPoliceKit(m, TP.base, TP); return m; }
   if (TP.ambulance) { const m = buildBaseModel(TP.base, color, variant & ~3, { amb: true }); addAmbulanceKit(m, TP); return m; } // plain (not worn) body
   if (TP.tow) return buildBaseModel(TP.base, color, variant, { tow: true });
@@ -456,7 +459,7 @@ function buildBaseModel(type, color, variant, opts = {}) {
     glass.quad([-0.48, 1.04, 0.99], [0.48, 1.04, 0.99], [0.52, 1.44, 0.9], [-0.52, 1.44, 0.9], [0, 0, 1, 1], C('#fff'));
     beam(rubber, [-0.5, 1.04, 0.99], [0.5, 1.04, 0.99], 0.035, 0.035, black); beam(rubber, [-0.53, 1.44, 0.9], [0.53, 1.44, 0.9], 0.04, 0.04, black);
     for (const sx of [-1, 1]) beam(rubber, [sx * 0.5, 1.04, 0.99], [sx * 0.53, 1.44, 0.9], 0.035, 0.035, black);
-    beam(rubber, [0.05, 1.06, 1.0], [-0.3, 1.25, 0.96], 0.012, 0.012, black);
+    if (!wiperSet([{ p: [-0.04, 1.045, 0.995], L: 0.35, sweep: 2.5, up: [0, 0.4, -0.09] }])) beam(rubber, [0.05, 1.06, 1.0], [-0.3, 1.25, 0.96], 0.012, 0.012, black); // single centre-pivot wiper
     if (variant !== 1) part(paint, unitBox, [0, 1.49, 0.9], [0.25, 0, 0], [1.08, 0.1, 0.03], trim);
     for (const sx of [-1, 1]) { beam(ch, [sx * 0.42, 1.0, 1.0], [sx * 0.55, 1.22, 1.0], 0.015, 0.015, chrome, unitCyl); part(paint, unitSph, [sx * 0.57, 1.26, 1.0], [0, 0, 0], [0.06, 0.045, 0.02], black); }
     // headlamp in chrome bezel on the cowl, indicators, tail lamps, plates
@@ -516,7 +519,7 @@ function buildBaseModel(type, color, variant, opts = {}) {
       // kerb-side board over the front door window band, and the route number high on the back
       const sy0 = winTop + 0.04, sy1 = H - 0.1, sz = L / 2 - 1.0, sx = W - 0.005; rb.quad([sx, sy0, sz], [sx, sy0, sz - 1.7], [sx, sy1, sz - 1.7], [sx, sy1, sz], routeUV(rk));
       const ry0 = H - 0.46, ry1 = H - 0.1, rz = -L / 2 - 0.035; rb.quad([0.21, ry0, rz], [-0.21, ry0, rz], [-0.21, ry1, rz], [0.21, ry1, rz], routeUV(rk, true)); }
-    for (const sx of [-1, 1]) { beam(rubber, [sx * 0.3, belt - 0.12, fz + 0.04], [sx * 0.75, belt + 0.45, fz - 0.03], 0.015, 0.015, black); part(ch, unitBox, [sx * (W - 0.38), 0.85, fz + 0.03], [0, 0, 0], [0.42, 0.22, 0.04], chrome); part(lights, unitCyl, [sx * (W - 0.28), 0.85, fz + 0.05], [Math.PI / 2, 0, 0], [0.085, 0.02, 0.085]); part(lights, unitCyl, [sx * (W - 0.48), 0.85, fz + 0.05], [Math.PI / 2, 0, 0], [0.07, 0.02, 0.07]); ind.box(sx * (W - 0.1), 0.85, fz + 0.04, 0.08, 0.14, 0.03); }
+    for (const sx of [-1, 1]) { if (!wiperSet([{ p: [-(W - 0.32), belt - 0.11, fz + 0.03], L: Math.min(1.05, W - 0.36), sweep: 1.3, up: [0, winTop - belt + 0.15, -0.22], big: true }, { p: [0.08, belt - 0.11, fz + 0.03], L: Math.min(1.0, W - 0.46), sweep: 1.38, up: [0, winTop - belt + 0.15, -0.22], big: true }])) beam(rubber, [sx * 0.3, belt - 0.12, fz + 0.04], [sx * 0.75, belt + 0.45, fz - 0.03], 0.015, 0.015, black); part(ch, unitBox, [sx * (W - 0.38), 0.85, fz + 0.03], [0, 0, 0], [0.42, 0.22, 0.04], chrome); part(lights, unitCyl, [sx * (W - 0.28), 0.85, fz + 0.05], [Math.PI / 2, 0, 0], [0.085, 0.02, 0.085]); part(lights, unitCyl, [sx * (W - 0.48), 0.85, fz + 0.05], [Math.PI / 2, 0, 0], [0.07, 0.02, 0.07]); ind.box(sx * (W - 0.1), 0.85, fz + 0.04, 0.08, 0.14, 0.03); }
     for (let i = 0; i < 5; i++) ch.box(0, 0.62 + i * 0.07, fz + 0.035, 1.0, 0.025, 0.02, { col: C('#2a2a2a') });
     rubber.box(0, 0.42, fz + 0.08, W * 2 + 0.04, 0.24, 0.16, { col: C('#222') }); plateQuad(mb, 0, 0.42, fz + 0.165, 0.24, 0.06, true, variant);
     // big mirrors on arms
@@ -644,7 +647,7 @@ function buildBaseModel(type, color, variant, opts = {}) {
       part(ind, unitBox, [sx * (skX(zW - 0.01) + 0.004), belt - 0.15, zW - 0.01], [0, 0, 0], [0.012, 0.035, 0.05]);
       // truck mirrors on tubular arms
       beam(ch, [sx * (cw - 0.03), belt + 0.04, zW - 0.01], [sx * (cw + 0.2), belt + 0.12, zW - 0.05], 0.022, 0.022, black, unitCyl); part(paint, unitBox, [sx * (cw + 0.22), belt + 0.28, zW - 0.04], [0, 0, 0], [0.07, 0.3, 0.05], black);
-      beam(rubber, [sx * 0.05, belt + 0.03, zW - 0.02], [sx * (g0 - 0.15), belt + 0.05, zW - 0.08], 0.012, 0.012, black); // wipers
+      if (!wiperSet([{ p: [-(g0 - 0.22), belt + 0.03, zW - 0.01], L: g0 * 0.52, sweep: 1.3, up: [0, wsT - belt, zT - zW], big: true }, { p: [0.07, belt + 0.03, zW - 0.01], L: g0 * 0.5, sweep: 1.38, up: [0, wsT - belt, zT - zW], big: true }])) beam(rubber, [sx * 0.05, belt + 0.03, zW - 0.02], [sx * (g0 - 0.15), belt + 0.05, zW - 0.08], 0.012, 0.012, black); // wipers
     }
     // front face: lamps, grille, emblem, wordmark, bumper, plate
     const ly = tr.lamps === 'low' ? sC + 0.24 : sC + 0.36; const lz = fZ(ly) + 0.012;
@@ -797,7 +800,7 @@ function buildBaseModel(type, color, variant, opts = {}) {
   const fy = D.top[2][1], hy = D.top[3][1]; const nw = W * 0.86;
   if (S) for (const sx of [-1, 1]) { // styled models: lamps / grille / bumpers come from VehicleStyle; keep wipers + side repeaters here
     part(ind, unitBox, [sx * (W * taper(Math.min(D.wf + R + 0.12, fz - 0.14), gh[0][1] - 0.2) + 0.004), gh[0][1] - 0.2, Math.min(D.wf + R + 0.12, fz - 0.14)], [0, 0, 0], [0.01, 0.03, 0.06]);
-    beam(rubber, [sx * 0.05, D.gh[0][1] + 0.03, D.gh[0][0] - 0.02], [sx * Math.min(0.55, gw0 - 0.12), D.gh[0][1] + 0.05, D.gh[0][0] - 0.1], 0.012, 0.012, black);
+    if (!carWipers(D.gh, gw0)) beam(rubber, [sx * 0.05, D.gh[0][1] + 0.03, D.gh[0][0] - 0.02], [sx * Math.min(0.55, gw0 - 0.12), D.gh[0][1] + 0.05, D.gh[0][0] - 0.1], 0.012, 0.012, black);
   }
   const ty = (D.top[D.top.length - 3][1] + D.top[D.top.length - 2][1]) / 2 - 0.05;
   if (!S) {
@@ -806,7 +809,7 @@ function buildBaseModel(type, color, variant, opts = {}) {
   for (const sx of [-1, 1]) {
     const hx = sx * (nw - 0.18); part(ch, unitBox, [hx, (fy + hy) / 2, fz - 0.07], [-0.5, 0, 0], [0.36, 0.13, 0.1], C('#9aa0a6')); part(lights, unitBox, [hx, (fy + hy) / 2 + 0.005, fz - 0.05], [-0.5, 0, 0], [0.32, 0.1, 0.1]);
     part(ind, unitBox, [sx * (nw - 0.02), (fy + hy) / 2 - 0.01, fz - 0.12], [-0.5, 0, 0], [0.07, 0.09, 0.1]); part(ind, unitBox, [sx * (W + 0.004), 0.82, D.wf + 0.45], [0, 0, 0], [0.01, 0.03, 0.06]);
-    beam(rubber, [sx * 0.05, D.gh[0][1] + 0.03, D.gh[0][0] - 0.02], [sx * 0.55, D.gh[0][1] + 0.05, D.gh[0][0] - 0.1], 0.012, 0.012, black);
+    if (!carWipers(D.gh, gw0)) beam(rubber, [sx * 0.05, D.gh[0][1] + 0.03, D.gh[0][0] - 0.02], [sx * 0.55, D.gh[0][1] + 0.05, D.gh[0][0] - 0.1], 0.012, 0.012, black);
   }
   rubber.box(0, sill + 0.1, fz + 0.02, nw * 2 + 0.06, 0.16, 0.08, { col: type === 'suv' ? C('#2a2a2a') : trimGrey }); plateQuad(mb, 0, sill + 0.13, fz + 0.065, 0.19, 0.05, true, variant);
   // rear: tail clusters, reverse lights, indicators, rear glass trim, bumper, plate, exhaust
@@ -1134,7 +1137,7 @@ function ensureModel(type, seed) {
     const S = shapeOf(type, variant), m = S.m, col = C(color); const geos = [];
     for (const [name, g0, mask] of S.geos) geos.push([name, recolor(g0, mask, col)]);
     const dgeos = []; for (const [name, g0, mask] of S.dgeos) dgeos.push([name, recolor(g0, mask, col)]);
-    cached = { geos, dgeos, wheels: m.wheels, seats: m.seats, steerWheel: m.steerWheel, doors: recolorMeta(m.doors, col), wheelStyle: m.wheelStyle, busDoor: recolorMeta(m.busDoor, col), cabStep: m.cabStep, exhaust: (m.dm && m.dm.exhaust) || null };
+    cached = { geos, dgeos, wheels: m.wheels, seats: m.seats, steerWheel: m.steerWheel, doors: recolorMeta(m.doors, col), wheelStyle: m.wheelStyle, busDoor: recolorMeta(m.busDoor, col), cabStep: m.cabStep, exhaust: (m.dm && m.dm.exhaust) || null, wipers: m.wipers || null };
     cached.doorRanges = S.doorRanges;
     if (S.lods) cached.lods = S.lods.map((L) => L.map(([name, g0, mask]) => [name, recolor(g0, mask, col)])); if (m.realWheel) cached.realWheel = m.realWheel;
     if (worn) for (const [name, g] of cached.geos) if (name === 'paint' || name === 'canvas') dirty(g, seed); // after baking: shut doors carry the same grime as the panels round them
@@ -1209,7 +1212,7 @@ export function createVehicleMesh(type, seed = 1) {
   const byName = { carbon: M.vcarbon, alloy: M.valloy, engine: M.vengine, mirror: M.vmirror, dash: M.vdash, paint: worn ? M.vworn : M.vpaint, glass: M.vglass, chrome: M.vchrome, rubber: M.vrubber, interior: M.vinterior, canvas: M.vcanvas, vlight: M.vlight, vtail: M.vtail, vind: M.vind, plate: M.plate, livery: M.livery, badge: M.badge, route: M.route, police: M.police, amb: M.amb, lbBlue: M.lbBlue, lbRed: M.lbRed, lens: M.vlens, vrefl: M.vrefl, dots: dotsMaterial() };
   let beacons = null; if (T.police || T.ambulance) { byName.lbBlue = M.lbBlue.clone(); byName.lbRed = M.lbRed.clone(); beacons = { blue: byName.lbBlue, red: byName.lbRed }; }
   if (T.roadside) { const A = amberBeacons(M.lbBlue, M.lbRed); byName.lbBlue = A.a; byName.lbRed = A.b; beacons = { blue: A.a, red: A.b }; byName.rsa = rsDecalMat(); } // 80th: amber, alternating // per vehicle: only responding units flash
-  const g = new THREE.Group(); const tailMat = M.vtail.clone(); const indMat = sideLamps(M.vind.clone()); const headMat = M.vlight.clone(); const revMat = M.vrev.clone(); byName.vtail = tailMat; byName.vind = indMat; byName.vlight = headMat; byName.vrev = revMat; headMat.emissiveIntensity = 0.04; tailMat.emissiveIntensity = 0.03; revMat.emissiveIntensity = 0; // per vehicle (start dark): each car's own lamps
+  const g = new THREE.Group(); const tailMat = M.vtail.clone(); const indMat = sideLamps(M.vind.clone()); const headMat = M.vlight.clone(); const revMat = M.vrev.clone(); const wipeU = newWipeU(); const wipers = cached.wipers; initWipeU(wipeU, wipers); byName.glass = rainGlass(M.vglass, wipeU); /* 83rd: own glass (rain + this vehicle's wipers; one shared program) */ byName.vtail = tailMat; byName.vind = indMat; byName.vlight = headMat; byName.vrev = revMat; headMat.emissiveIntensity = 0.04; tailMat.emissiveIntensity = 0.03; revMat.emissiveIntensity = 0; // per vehicle (start dark): each car's own lamps
   directionalLamp(headMat, 1); directionalLamp(tailMat, -1); directionalLamp(revMat, -1); // lamps glow only from the lens face (seen through the cabin glass from the other end they stay dark)
   const bodyMeshes = {}, shared = {}, mats = {}; for (const [name, geo] of cached.geos) { const mesh = new THREE.Mesh(geo, byName[name] || MAT.paint); mesh.name = name; bodyMeshes[name] = mesh; shared[name] = geo; mats[name] = mesh.material; mesh.castShadow = !NO_CAST.has(name); mesh.receiveShadow = name === 'paint'; if (name === 'glass') mesh.renderOrder = 2; mesh.matrixAutoUpdate = false; g.add(mesh); } /* body parts never move inside the vehicle: skip recomposing their local matrix every frame */
   let real = null; if (cached.lods) { // real-car body: LOD1 / LOD2 groups (doors shut) swapped in by Vehicle.updateVehicleLOD; LOD0 = the body meshes above
@@ -1250,7 +1253,7 @@ export function createVehicleMesh(type, seed = 1) {
   const rear = T.ambulance ? buildAmbRear() : T.roadside === 'van' ? buildAmbRear(rsRearStyle) : null; if (rear) g.add(rear.group);
   const deck = T.roadside === 'flatbed' ? buildFlatDeck(M) : null; if (deck) g.add(deck.group, deck.cable, deck.hook); // 80th: tilt-and-slide deck, winch cable + hook // twin rear doors + lit cabin (opened by the medics)
   const stand = base === 'bike' ? standMeshes(M.vrim, T.standOff) : null; if (stand) g.add(stand); // animated side stand (Kickstand.js)
-  g.userData = { variant, bodyMeshes, wheelStyle: cached.wheelStyle, exhaust: cached.exhaust, doors, bake: doors.length ? { ranges: cached.doorRanges, meshes: bodyMeshes, shared, mats, pivotGeos: (i) => slicePivotGeos(cached, i) } : null, stand, detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, lodFar: false, farR: wkind === 'heavy' ? 160 : wkind === 'bike' ? 0 : 140, farHide: ['interior', 'dash', 'plate', 'badge'].map((n) => bodyMeshes[n]).filter(Boolean), /* far LOD (Vehicle.updateVehicleLOD): cabin, plate, badges off beyond farR — lamps stay */ real, wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons, rear, deck, cabStep: cached.cabStep };
+  g.userData = { wipers, wipeU, glassMat: byName.glass, variant, bodyMeshes, wheelStyle: cached.wheelStyle, exhaust: cached.exhaust, doors, bake: doors.length ? { ranges: cached.doorRanges, meshes: bodyMeshes, shared, mats, pivotGeos: (i) => slicePivotGeos(cached, i) } : null, stand, detail: det, lodNear: false, lodR: wkind === 'heavy' ? 80 : wkind === 'bike' ? 45 : 60, lodFar: false, farR: wkind === 'heavy' ? 160 : wkind === 'bike' ? 0 : 140, farHide: ['interior', 'dash', 'plate', 'badge'].map((n) => bodyMeshes[n]).filter(Boolean), /* far LOD (Vehicle.updateVehicleLOD): cabin, plate, badges off beyond farR — lamps stay */ real, wheels, tailMat, indMat, headMat, revMat, seats: cached.seats, type, color, steerWheel: cached.steerWheel, door, entry, beacons, rear, deck, cabStep: cached.cabStep };
   if (HOOKS.vehicle) HOOKS.vehicle(g, type); // 68th: model tools (replacement body / textures / parts)
   return g;
 }
