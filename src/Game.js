@@ -1,4 +1,6 @@
 // Game: boot/loading, presentation flow (intro → montage → menu), the play loop, interactions, save/load.
+import { predraw } from './gfx/AsyncCompile.js';
+import { BUILDS } from './core/FrameBudget.js';
 import { preloadRealModels } from './vehicles/RealModels.js';
 import { FuelService } from './world/FuelStations.js';
 import { StationLife, stationSpecs } from './world/StationLife.js';
@@ -292,7 +294,7 @@ export class Game {
       { label: 'Streaming Colombo districts', run: (pr) => this.world.warmAsync(points, pr) },
       { label: 'Vehicles of Colombo', run: (pr) => this.traffic.warmModels(points, pr) },
       { label: 'Compiling shaders', run: async (pr) => { this.camera.position.set(points[0][0], 3, points[0][1] + 6); this.camera.lookAt(points[0][0], 1.5, points[0][1]); this.camera.updateMatrixWorld(); for (const v of LIVE_VEHICLES) setVehicleLOD(v.mesh.userData, true); /* near-LOD parts too (the next frame's LOD pass puts them back) */ const ws = this.shaderWarmSet(); this.scene.add(ws); try { const pw = this.police && this.police.pool && this.police.pool.ready ? this.police.pool.warmGroup(this.camera) : null; if (pw) { this.scene.add(pw); pw.updateMatrixWorld(true); this._polWarm = pw; } } catch (e) { console.warn('police warm', e); } /* 73rd: the pooled police units / crews / rifles / torches in view: compiled here (every light level), drawn once in 'Waking the city' */ const lv0 = lightLevel(); try { for (const lv of [lv0, ...LIGHT_LEVELS.filter((l) => l !== lv0)]) { forceNightSet(lv); await this.compileForGame(this.scene, 8000); } /* every light level (LightSets): dusk / dawn / a torch only rebinds */ } catch (e) { console.warn('compile', e); } finally { forceNightSet(null); markWarm(this.scene); this.scene.remove(ws); if (this._polWarm) { this._polWarm.userData.restore(); this._polWarm = null; } } pr(0.5); await this.warmLightSets((k) => pr(0.5 + k * 0.5)); try { captureToCanvas(this.renderer, this.scene, this.camera, 0, 0, 2, 2); /* the map / busted capture output program */ } catch (e) { console.warn('capture warm', e); } pr(1); } },
-      { label: 'Furnishing shop interiors', run: async (pr) => { try { const W = this.interiors && this.interiors.walkIn; if (W) { this.interiors.setupWalkIns(); await W.preloadAll(pr, (root) => this.compileForGame(root, 4000)); } if (this.hospital) await this.hospital.precompile((root) => this.compileForGame(root, 4000)); if (this.interiors && this.interiors.preloadDoors) await this.interiors.preloadDoors((root) => this.compileForGame(root, 4000)); /* 80th: the club + Police HQ too */ } catch (e) { console.warn('shop preload', e); } } }, // 54th: every walk-in room built, uploaded and compiled now — no hitch at the door
+      { label: 'Furnishing shop interiors', run: async (pr) => { try { const W = this.interiors && this.interiors.walkIn; if (W) { this.interiors.setupWalkIns(); await W.preloadAll(pr, (root) => this.compileAndPredraw(root)); } if (this.hospital) await this.hospital.precompile((root) => this.compileAndPredraw(root)); if (this.interiors && this.interiors.preloadDoors) await this.interiors.preloadDoors((root) => this.compileAndPredraw(root)); /* 80th: the club + Police HQ too */ } catch (e) { console.warn('shop preload', e); } } }, // 54th: every walk-in room built, uploaded and compiled now — no hitch at the door
       { label: 'Waking the city', run: async (pr) => { for (let i = 0; i < 4; i++) { this.camera.rotation.y += Math.PI / 2; this.camera.updateMatrixWorld(); let pw = null; if (i === 0) { try { pw = this.police && this.police.pool && this.police.pool.ready ? this.police.pool.warmGroup(this.camera) : null; if (pw) { this.scene.add(pw); pw.updateMatrixWorld(true); } } catch (e) { console.warn('police warm', e); } } /* 73rd: the police pool drawn once (shadow-depth programs, geometry / texture upload) */ try { this.warmLevelFrames(); /* through the real post chain, once per light level: the main-pass target's programs, shadow-depth programs and every post pass */ } finally { if (pw) pw.userData.restore(); } pr((i + 1) / 4); await new Promise((r) => requestAnimationFrame(r)); } } },
     ], { minMs: TEST ? 1500 : 6200, onFlash: () => Audio.boom() });
     this.hud.fade(1, 0); await new Promise((r) => requestAnimationFrame(r));
@@ -352,6 +354,8 @@ export class Game {
   // tone mapping in the OutputPass), and a material's program depends on that. Compiling with no target bound — as the loading
   // screen did — built the to-canvas variants, which the game never draws with, so the real ones compiled during the first
   // seconds of play (and whenever something new came into view). KHR_parallel_shader_compile (compileAsync) keeps the page alive.
+  // 85th: an interior is compiled AND drawn once while loading (its buffers uploaded) — no upload burst when its door opens
+  async compileAndPredraw(root, ms = 4000) { await this.compileForGame(root, ms); predraw(this.renderer, this.scene, this.camera, root); }
   async compileForGame(root = this.scene, ms = 8000) {
     const R = this.renderer, rt = this.post && this.post.composer ? this.post.composer.renderTarget1 : null, prev = R.getRenderTarget(); let p = null;
     R.setRenderTarget(rt); try { if (R.compileAsync) p = R.compileAsync(root, this.camera, this.scene); else R.compile(root, this.camera, this.scene); } finally { R.setRenderTarget(prev); }
@@ -366,7 +370,8 @@ export class Game {
     for (const [k, T] of Object.entries(VTYPES)) { const key = T.police ? 'police' : T.ambulance ? 'amb' : T.entry === 'bike' ? k : (T.base || k) + (T.family || ''); if (seen.has(key)) continue; seen.add(key);
       try { const m = createVehicleMesh(k, 1); if (m.userData.detail) setVehicleLOD(m.userData, true); g.add(m); } catch (e) { console.warn('warm set', k, e); } }
     if (this.vdamage) g.add(this.vdamage.warmGroup()); if (this.loot) g.add(this.loot.warmMesh()); // the loot batch (one note) // damaged glass, charred shell, bullet holes, shards / fragments
-    for (const m of [...customsWarmMeshes(), wheelsWarmMesh(), paintWarmMesh()]) g.add(m); // Street Customs: neon strip / glow pool, custom rim, custom paint programs
+    for (const m of [...customsWarmMeshes(), wheelsWarmMesh(), paintWarmMesh()]) g.add(m);
+    try { if (this.world && this.world.groundDetail) for (const m of this.world.groundDetail.warmMeshes()) g.add(m); } catch (e) { console.warn('warm set: ground detail', e); } // 85th: kerb stones / joint grass / leaves / litter // Street Customs: neon strip / glow pool, custom rim, custom paint programs
     return g;
   }
   setupRoomDoor() { const r = this.story.state.flags.room; this.interiors.setupDoors(r || null); }
@@ -535,6 +540,7 @@ export class Game {
   }
   frameStep(dt) {
     try {
+      this.renderer.deferCompile = this.mode === 'play'; // 85th: in play a draw whose shader is still compiling waits a frame instead of freezing it (tools/vite/threeAsyncCompile.mjs)
       const mapOpen = this.mode === 'play' && this.hud.bigMapOpen; // the pause map freezes the world (and the hidden 3D view is not drawn)
       if ((this.mode !== 'play' || this.paused) && ClubSound.live) ClubSound.halt(); // the club's PA stops with the game (pause, menu, trailer)
       if (mapOpen) { if (Input.wasPressed('map')) this.toggleMap(false); Audio.updateMusic(dt, {}); } // the map's music keeps playing while the world is frozen
@@ -579,7 +585,7 @@ export class Game {
       carTotal: STUNTS.filter((q) => q.kind === 'car').length, bikeTotal: STUNTS.filter((q) => q.kind !== 'car').length, skillDefs: SKILLS };
   }
   hourFactor() { const h = this.atmos.hour; if (h < 5) return 0.25; if (h < 7) return 0.55; if (h < 19) return 1; if (h < 22) return 0.8; return 0.45; }
-  updatePlay(dt, warmOnly = false) {
+  updatePlay(dt, warmOnly = false) { BUILDS.begin(); // 85th: one heavy object build per frame (core/FrameBudget.js)
     updateDoorClosers(dt); // doors people pulled shut behind them (DoorRig)
     this.dt = dt; this.clock += dt; const P = this.player, A = this.atmos, cam = this.camera, D = this.director;
     if (!D.active && !this.debug.freezeTime) A.advance(dt / Settings.get('timeScale'));

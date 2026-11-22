@@ -11,6 +11,7 @@
 // dual-quaternion skinning and subsurface term plus a procedural pore relief that fades out before it can alias.
 // Eyebrows are individual hair strands lying on the brow skin (they follow the brow morphs); eyelashes are MakeHuman's.
 import * as THREE from 'three';
+import { withoutDefer } from '../gfx/AsyncCompile.js';
 import DATA from './dancerBodyData.js';
 import { patchHeroMaterial } from './HeroRig.js';
 import { buildEyeball, iblScale, HEAD_MORPHS } from './HeroHead.js';
@@ -287,7 +288,7 @@ export function paintDancerSkin(renderer, ch, size = 2048) {
   rt.texture.anisotropy = 8;
   const prevRT = renderer.getRenderTarget(), prevClear = renderer.getClearColor(new THREE.Color()), prevA = renderer.getClearAlpha(), prevAuto = renderer.autoClear;
   renderer.setRenderTarget(rt); renderer.setClearColor(new THREE.Color(look.skin), 0.6); renderer.clear(true, false, false); renderer.autoClear = false;
-  const px = 2 / size; for (const [dx, dy] of [[3, 0], [-3, 0], [0, 3], [0, -3], [2, 2], [-2, -2], [2, -2], [-2, 2], [0, 0]]) { U.uOff.value.set(dx * px, dy * px); renderer.render(scene, cam); } // a 3-texel gutter round every UV island, then the islands
+  const px = 2 / size; for (const [dx, dy] of [[3, 0], [-3, 0], [0, 3], [0, -3], [2, 2], [-2, -2], [2, -2], [-2, 2], [0, 0]]) { U.uOff.value.set(dx * px, dy * px); withoutDefer(renderer, () => renderer.render(scene, cam)); } // a 3-texel gutter round every UV island, then the islands
   renderer.setRenderTarget(prevRT); renderer.setClearColor(prevClear, prevA); renderer.autoClear = prevAuto;
   pg.dispose(); mat.dispose();
   const skin = ch.mesh.material[0]; skin.map = rt.texture; skin.color.set(0xffffff); skin.needsUpdate = true; ch.dancerRT = rt;

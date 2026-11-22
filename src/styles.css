@@ -186,7 +186,8 @@ select { background: #0e1318; color: var(--paper); border: 1px solid rgba(255, 2
 .vit.st > i { background: linear-gradient(180deg, #7fd6c7, var(--teal)); }
 @keyframes vitpulse { 50% { opacity: 0.55; } }
 .hurt-fx { position: absolute; inset: 0; pointer-events: none; z-index: 4; opacity: 0; background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 55%, rgba(170, 20, 20, 0.55) 100%); }
-.hurt-fx.on { animation: hurtflash 0.7s ease-out; } .hurt-fx.low:not(.on) { animation: hurtlow 1.6s ease-in-out infinite; }
+.hurt-fx { will-change: opacity; transform: translateZ(0); contain: strict; } /* 85th: its own GPU layer (opacity changes never repaint the gradient) */
+.hurt-fx.on:not(.wa) { animation: hurtflash 0.7s ease-out; } .hurt-fx.low:not(.on) { animation: hurtlow 1.6s ease-in-out infinite; }
 @keyframes hurtflash { 0% { opacity: var(--k, 0.6); } 100% { opacity: 0; } }
 @keyframes hurtlow { 0%, 100% { opacity: 0.12; } 50% { opacity: 0.38; } }
 /* smartphone */

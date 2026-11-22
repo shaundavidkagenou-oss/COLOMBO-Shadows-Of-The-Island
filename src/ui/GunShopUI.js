@@ -4,6 +4,7 @@
 // Every purchase goes through combat/Shop.js (rules) and Story.pay (shared purse + bank ledger entry), and is written into
 // the ACTIVE protagonist's own inventory. Keyboard: ←/→ category · ↑/↓ item · Enter buy · Esc / Backspace leave.
 import * as THREE from 'three';
+import { withoutDefer } from '../gfx/AsyncCompile.js';
 import { Input } from '../core/Input.js';
 import { Audio } from '../audio/Audio.js';
 import { WEAPONS } from '../combat/WeaponDefs.js';
@@ -78,7 +79,7 @@ export class GunShopUI {
         const box = new THREE.Box3().setFromObject(m), ctr = box.getCenter(new THREE.Vector3()), sz = box.getSize(new THREE.Vector3());
         const fit = Math.max(sz.x / (2 * Math.tan(THREE.MathUtils.degToRad(12)) * (W / H)), sz.y / (2 * Math.tan(THREE.MathUtils.degToRad(12)))) * (w === GRENADE ? 2.6 : 1.18); /* the panel crops tall images: the grenade gets extra margin */
         cam.position.set(ctr.x + fit * 0.08, ctr.y + fit * 0.12, ctr.z + fit); cam.lookAt(ctr); cam.updateMatrixWorld();
-        R.setRenderTarget(rt); R.clear(); R.render(sc, cam); R.readRenderTargetPixels(rt, 0, 0, W, H, px); let any = false; for (let i = 3; i < px.length; i += 28) if (px[i] > 8) { any = true; break; } if (!any) { sc.remove(m); continue; } /* empty render: keep the vector icon */
+        R.setRenderTarget(rt); R.clear(); withoutDefer(R, () => R.render(sc, cam)); R.readRenderTargetPixels(rt, 0, 0, W, H, px); let any = false; for (let i = 3; i < px.length; i += 28) if (px[i] > 8) { any = true; break; } if (!any) { sc.remove(m); continue; } /* empty render: keep the vector icon */
         for (let y = 0; y < H; y++) img.data.set(px.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4); // flip rows
         a.putImageData(img, 0, 0); this.previews[w.id] = cv.toDataURL('image/png'); sc.remove(m); m.traverse((q) => { if (q.isMesh) q.geometry.dispose(); });
       }

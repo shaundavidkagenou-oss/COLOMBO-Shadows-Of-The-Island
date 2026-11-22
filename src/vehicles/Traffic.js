@@ -9,6 +9,7 @@ import { Vehicle, VEH_HOOKS } from './Vehicle.js';
 import { Mind, genTraits, hashStr, TI } from '../actors/Mind.js';
 import { LINES, pick } from '../story/Lines.js';
 import { VTYPES, modelCached, warmModel, warmShape, createVehicleMesh } from './VehicleModels.js';
+import { BUILDS } from '../core/FrameBudget.js';
 import { TRAFFIC_W, PARKED_W, NO_LANES } from './VehicleCatalog.js';
 import { BIKE_LISTS, BIKE_PARKED, BIKE_IDS } from './BikeCatalog.js';
 import { RNG } from '../core/rng.js';
@@ -194,7 +195,7 @@ export class Traffic {
       let seed = this.variedSeed(type, Math.floor(this.rng.next() * 1e6), mix);
       if (!modelCached(type, seed)) { // a first-time look costs a 10-30 ms model build: at most one every 2 s, otherwise reuse a built look (the loading screen builds one of every type)
         const now = performance.now(); if (now - (this.lastBuild || -1e9) < 2000) { const known = this.looks && this.looks.get(type); let alt = known && known.length ? known[Math.floor(this.rng.next() * known.length)] : -1; for (let k = 0; k < 8 && alt < 0; k++) { const s2 = Math.floor(this.rng.next() * 1e6); if (modelCached(type, s2)) alt = s2; } if (alt < 0) continue; seed = alt; } else this.lastBuild = now; }
-      const v = new Vehicle(type, seed, this.scene); this.noteLook(type, seed); v.look = lookOf(type, seed); mix.looks.add(v.look); mix.types.set(type, (mix.types.get(type) || 0) + 1); mix.n++; v.place(x, z, yaw);
+      BUILDS.spend(); const v = new Vehicle(type, seed, this.scene); this.noteLook(type, seed); v.look = lookOf(type, seed); mix.looks.add(v.look); mix.types.set(type, (mix.types.get(type) || 0) + 1); mix.n++; v.place(x, z, yaw);
       const T = VTYPES[type]; v.ai = { pieces: [piece], s, v0: Math.min(V0[seg.level], T.maxSpeed * 0.42) * this.rng.range(0.88, 1.12), stuck: 0, honkCd: 0, bumped: 0, aggressive: type === 'tuktuk' || type === 'pbus' ? 1.3 : 1 };
       if (hint) v.ai.route = hint.route.slice(); // straight on to the station's road
       v.speed = v.ai.v0 * 0.7; this.extend(v); this.addDriver(v); this.vehicles.push(v); if (hint) { v.fuelFor = hint.tag; this.spawnHint = undefined; } return v;
@@ -408,7 +409,7 @@ export class Traffic {
     // spawn / despawn
     for (let i = this.vehicles.length - 1; i >= 0; i--) { const v = this.vehicles[i]; const d = Math.hypot(v.x - focus.x, v.z - focus.z); if (d > 330 && !v.keep) { this.remove(v); this.vehicles.splice(i, 1); } }
     if (this.spawnHint && (this.spawnHintT = (this.spawnHintT || 0) + dt) > 20) { this.spawnHint = undefined; this.spawnHintT = 0; } else if (!this.spawnHint) this.spawnHintT = 0;
-    let budget = this.vehicles.length < this.max * 0.4 ? 2 : 1; while (this.vehicles.length < this.max && budget-- > 0) this.spawn(focus, camDir, this.vehicles.length < this.max * 0.4);
+    let budget = this.vehicles.length < this.max * 0.4 ? 2 : 1; while (this.vehicles.length < this.max && budget-- > 0 && BUILDS.can(this.freshT > 0 || this.vehicles.length < this.max * 0.4)) this.spawn(focus, camDir, this.vehicles.length < this.max * 0.4); // (85th: shared per-frame build token, core/FrameBudget.js)
     this.updateParked(dt, focus);
     // spatial bins for following
     const all = this.vehicles; const playerV = player && player.vehicle; this.emergency = all.filter((v) => v.ai && v.ai.emergency && v.beaconsOn);
@@ -694,8 +695,8 @@ export class Traffic {
       if (this.reserved && this.reserved(p)) continue; const d = Math.sqrt(d2); const st = this.spotState(p, today, d, fresh);
       if (!st.occ || st.until > gH || st.claim || this.parkedSet.has(p)) continue; if (have >= SPOT_CAP) break;
       if (!fresh && d < SPOT_SEEN && this.seen(p.x, p.z, d)) continue; // in plain view: it waits until nobody is looking
-      if (made >= 2 || (made > 0 && performance.now() - t0 > 2.5)) { this.parkedTimer = 0; break; } /* ~2.5 ms of new parked cars per frame (at least one), the rest next frame */ const { type, seed } = st.look || this.parkedLook(p); if (this.spotTaken(p, type)) continue; /* st.look: the car somebody drove in and parked there today */ const fr = !modelCached(type, seed); if (fr && (made > 0 || performance.now() - (this.lastBuild || -1e9) < 300)) { this.parkedTimer = 0.05; continue; } if (fr) this.lastBuild = performance.now(); made += fr ? 2 : 1; /* a first-time model build is the only one this frame; otherwise two per frame (~3 ms each) until the street is filled */
-      const v = new Vehicle(type, seed, this.scene); this.noteLook(type, seed); v.look = lookOf(type, seed); parkOnStand(v); v.place(p.x, p.z, p.yaw); v.parked = true; v.spot = p; this.parked.push(v); this.parkedSet.add(p); have++;
+      if (made >= 2 || (made > 0 && performance.now() - t0 > 2.5) || !BUILDS.can(fresh)) { this.parkedTimer = 0; break; } /* ~2.5 ms of new parked cars per frame (at least one), the rest next frame */ const { type, seed } = st.look || this.parkedLook(p); if (this.spotTaken(p, type)) continue; /* st.look: the car somebody drove in and parked there today */ const fr = !modelCached(type, seed); if (fr && (made > 0 || performance.now() - (this.lastBuild || -1e9) < 300)) { this.parkedTimer = 0.05; continue; } if (fr) this.lastBuild = performance.now(); made += fr ? 2 : 1; /* a first-time model build is the only one this frame; otherwise two per frame (~3 ms each) until the street is filled */
+      BUILDS.spend(); const v = new Vehicle(type, seed, this.scene); this.noteLook(type, seed); v.look = lookOf(type, seed); parkOnStand(v); v.place(p.x, p.z, p.yaw); v.parked = true; v.spot = p; this.parked.push(v); this.parkedSet.add(p); have++;
     }
   }
   // People come and park: now and then a car / tuk / bike in the kerb lane of a local street (level 1-2) near the player picks a

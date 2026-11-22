@@ -47,9 +47,14 @@ export const TexLib = {
   },
   ktxStats(tex) { S.stats.ktx2++; S.stats.format = String(tex.format); const im = tex.mipmaps && tex.mipmaps[0]; if (im && im.data) for (const m of tex.mipmaps) S.stats.bytes += m.data.byteLength; },
   // a late KTX2 (after the timeout): swap it in for the fallback everywhere, then free the fallback
-  upgrade(key, spec, tex) {
+  // 85th (hitch): late textures are queued and applied one at a time, ~8 per second at most, each pre-uploaded (initTexture)
+  // before it is swapped in — several 2048² maps arriving together no longer all upload on the same frame's first draw
+  upgrade(key, spec, tex) { (S.upq || (S.upq = [])).push([key, spec, tex]); if (!S.upT) this.pumpUpgrades(); },
+  pumpUpgrades() { const j = S.upq.shift(); if (!j) { S.upT = 0; return; } try { this.applyUpgrade(...j); } catch (e) { console.warn('[TexLib] upgrade', e); } S.upT = setTimeout(() => this.pumpUpgrades(), 120); },
+  applyUpgrade(key, spec, tex) {
     S.late.delete(key); const old = S.tex.get(key); if (!old || old.isCompressedTexture) { tex.dispose(); return; } // released meanwhile / already real
     tex.colorSpace = spec.srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.anisotropy = old.anisotropy; tex.name = 'tex2k:' + key; tex.needsUpdate = true;
+    try { if (S.renderer && S.renderer.initTexture) S.renderer.initTexture(tex); } catch (e) { /* uploads on first draw instead */ }
     this.ktxStats(tex); S.stats.upgraded++; S.tex.set(key, tex); for (const cb of S.cbs.get(key) || []) { try { cb(tex); } catch (e) { console.warn('[TexLib]', e); } } old.dispose();
   },
 };

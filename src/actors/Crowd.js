@@ -1,5 +1,6 @@
 // Pedestrian simulation: sidewalk graph navigation, signalised crossings, points of interest (shops, benches, bus stops,
 // vendors, chats), random idle animations, groups, rain behaviour, vehicle avoidance, and reactions to the player.
+import { BUILDS } from '../core/FrameBudget.js';
 import { routine } from './Routine.js';
 import * as THREE from 'three';
 import * as L from '../world/Layout.js';
@@ -149,7 +150,7 @@ export class Crowd {
       const d = Math.hypot(n.x - focus.x, n.z - focus.z); if (d > (near ? 70 : 130) || d < (near ? 8 : 40)) continue;
       if (!near && camDir && d < 90) { const dot = ((n.x - focus.x) * camDir.x + (n.z - focus.z) * camDir.z) / d; if (dot > 0.55) continue; }
       const sp = this.pickSpec(n.x, n.z); if (!sp) continue;
-      const p = this.makePed(sp, n.x + this.rng.range(-1, 1), n.z + this.rng.range(-1, 1), n.id); this.pickNext(p); return p;
+      BUILDS.spend(); const p = this.makePed(sp, n.x + this.rng.range(-1, 1), n.z + this.rng.range(-1, 1), n.id); this.pickNext(p); return p;
     }
   }
   // one crowd pedestrian at (x,z) on walk-graph node nodeId (also used by StreetLife for couples); caller picks the route
@@ -335,7 +336,7 @@ export class Crowd {
     // spawn / despawn (despawn only far away / out of view)
     for (let i = this.peds.length - 1; i >= 0; i--) { const p = this.peds[i]; if ((Math.hypot(p.x - focus.x, p.z - focus.z) > 165 && !p.keep) || p.recycle) { this.despawn(p); this.peds.splice(i, 1); } }
     const want = Math.round(this.max * (ctx.hourFactor ?? 1) * (this.rain ? 0.65 : 1)) - (this.extra || 0) + (this.extraEv || 0); // extraEv (81st): half of the people at a city event are on top of the street crowd (CityEvents.js); extra: people run elsewhere (the Fort station's train riders and clerks) — the same number of characters overall
-    let budget = this.peds.length < want * 0.5 ? 2 : 1; /* one Character build per frame unless the street is badly under-populated */ while (this.peds.length < want && budget-- > 0) this.spawn(focus, camDir, this.peds.length < want * 0.5);
+    let budget = this.peds.length < want * 0.5 ? 2 : 1; /* one Character build per frame unless the street is badly under-populated */ while (this.peds.length < want && budget-- > 0 && BUILDS.can(this.peds.length < want * 0.5)) this.spawn(focus, camDir, this.peds.length < want * 0.5);
     // neighbour grid (2 m cells)
     /* neighbour grid reused across frames (no per-frame Map + arrays for the GC); emptied cells are dropped every ~10 s */
     const grid = this._grid || (this._grid = new Map()); if (this.frame % 600 === 0) grid.clear(); else for (const a of grid.values()) a.length = 0; for (const p of this.peds) { const k = Math.floor(p.x / 2) * 10000 + Math.floor(p.z / 2); let a = grid.get(k); if (!a) grid.set(k, (a = [])); a.push(p); }

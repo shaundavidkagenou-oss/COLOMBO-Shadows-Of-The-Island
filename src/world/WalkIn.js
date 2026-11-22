@@ -167,7 +167,7 @@ export class WalkIn {
     pr(0.8);
     if (compile) { const vis = rooms.map((r) => r.og.visible); for (const r of rooms) r.og.visible = true; this.setActive(rooms[0] || null); // compile with the shop light pool on: the light set a room is drawn with
       try { for (let k = 0; k < rooms.length; k++) { await compile(rooms[k].og); pr(0.8 + 0.2 * (k + 1) / rooms.length); } } catch (e) { console.warn('walk-in compile', e); }
-      try { const br = rooms.find((r) => r.bank); if (br) { br.lightK = BANKFX.pool; this.setActive(br); captureBankProbe(this.g, br); br.lightK = 1; } } catch (e) { console.warn('bank probe', e); } // 78th: the bank's reflection probe, with its light pool on (BankFX.js)
+      try { const br = rooms.find((r) => r.bank); if (br) { br.lightK = BANKFX.pool; this.setActive(br); captureBankProbe(this.g, br, 1); captureBankProbe(this.g, br, 0); /* 85th: day + night pair (no recapture in play) */ br.lightK = 1; } } catch (e) { console.warn('bank probe', e); } // 78th: the bank's reflection probe, with its light pool on (BankFX.js)
       finally { rooms.forEach((r, k) => { r.og.visible = vis[k]; }); this.setActive(null); } }
     pr(1); return rooms.length;
   }

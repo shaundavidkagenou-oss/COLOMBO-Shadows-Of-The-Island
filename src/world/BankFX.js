@@ -19,6 +19,7 @@
 // Graphics settings (Settings → quality → preset.bankFX): 0 low — probe + baked shadows only; 1 medium / 2 high / 3 ultra —
 // + box projection and the people's shadows. (Texture sizes: BankTex.js, preset.bankTex.)
 import * as THREE from 'three';
+import { withoutDefer } from '../gfx/AsyncCompile.js';
 import { Settings } from '../core/Settings.js';
 
 // tunables (window.__bankFX in dev builds, for the screenshot harness)
@@ -150,7 +151,7 @@ function updatePeople(room, P) {
 
 // ------------------------------------------------------------------------------------------------ capture + per frame
 const PROBE_LOCAL = new THREE.Vector3(0, 1.55, -5.4);
-export function captureBankProbe(game, room) {
+export function captureBankProbe(game, room, nightAs = null) { // nightAs: capture as if A.night were this (the day / night pair, preloadAll)
   const A = game.atmos, R = game.renderer, scene = game.scene; if (!A || !A.pmrem || !R || !room || !room.og) return false;
   const og = room.og; const hidden = []; const t0 = performance.now();
   for (const c of scene.children) if (c !== og && c.visible && !c.isLight) { c.visible = false; hidden.push(c); }
@@ -160,11 +161,15 @@ export function captureBankProbe(game, room) {
   // the light the hall has while someone is in it (Game.update's walk-in blend × this pass), whatever the loading screen had:
   // no sun through the roof, the dimmed sky fill, the room's own pool
   const L0 = [A.sun && A.sun.intensity, A.hemi && A.hemi.intensity, A.ambient && A.ambient.intensity];
-  if (A.sun) A.sun.intensity = 0; if (A.hemi) A.hemi.intensity = 0.8 * BANKFX.hemi; if (A.ambient) A.ambient.intensity = (A.night || 0) * 0.85 * BANKFX.amb;
-  let rt = null; try { og.updateMatrixWorld(true); const pos = og.localToWorld(PROBE_LOCAL.clone()); rt = A.pmrem.fromScene(scene, 0, 0.05, 40, { size: 256, position: pos }); }
+  if (A.sun) A.sun.intensity = 0; if (A.hemi) A.hemi.intensity = 0.8 * BANKFX.hemi; const nk = nightAs ?? (A.night || 0); if (A.ambient) A.ambient.intensity = nk * 0.85 * BANKFX.amb;
+  let rt = null; try { og.updateMatrixWorld(true); const pos = og.localToWorld(PROBE_LOCAL.clone()); rt = withoutDefer(R, () => A.pmrem.fromScene(scene, 0, 0.05, 40, { size: 256, position: pos })); }
   catch (e) { console.warn('[bankFX] probe capture failed', e); }
   finally { if (A.sun) A.sun.intensity = L0[0]; if (A.hemi) A.hemi.intensity = L0[1]; if (A.ambient) A.ambient.intensity = L0[2]; for (const c of hidden) c.visible = true; og.visible = ogVis; R.shadowMap.autoUpdate = sa; scene.environmentIntensity = ei; }
-  if (!rt) return false; if (room.fxProbe) room.fxProbe.dispose(); room.fxProbe = rt; room.fxProbeNight = A.night || 0;
+  if (!rt) return false;
+  // 85th (hitch): the pair — a day and a night probe captured on the loading screen; play only switches between them (a recapture
+  // is 6 full-scene renders + the PMREM passes in one frame: a visible freeze in the hall when the light level changed)
+  if (nightAs !== null) { const ps = room.fxProbes || (room.fxProbes = {}); const k = nightAs > 0.5 ? 1 : 0; if (ps[k] && ps[k] !== room.fxProbe) ps[k].dispose(); ps[k] = rt; room.fxProbe = rt; room.fxProbeNight = nightAs; }
+  else { if (room.fxProbe && !(room.fxProbes && (room.fxProbes[0] === room.fxProbe || room.fxProbes[1] === room.fxProbe))) room.fxProbe.dispose(); room.fxProbe = rt; room.fxProbeNight = A.night || 0; }
   // the room box for the parallax correction (local frame of og; the hall's group sits at og's origin)
   const b = room.bounds; BP.uBPMin.value.set(b.x0, 0, b.z0); BP.uBPMax.value.set(b.x1, room.H || 3.6, b.z1 + 0.25); BP.uBPProbe.value.copy(PROBE_LOCAL);
   BP.uBPRot.value.setFromMatrix4(og.matrixWorld).invert(); og.getWorldPosition(BP.uBPOrigin.value);
@@ -180,7 +185,7 @@ export function updateBankFX(game) {
   if (room && room.visible && !room.fxProbe && !room.fxTried && W.active === room) { room.fxTried = true; captureBankProbe(game, room); }
   const inside = !!(room && P && P.indoor === room.proxy && room.fxProbe);
   if (inside) {
-    const A = game.atmos; if (room.fxProbe && Math.abs((A.night || 0) - room.fxProbeNight) > 0.45 && !room.fxRecap) { room.fxRecap = true; captureBankProbe(game, room); room.fxRecap = false; }
+    const A = game.atmos; if (room.fxProbes && room.fxProbes[0] && room.fxProbes[1]) { const k = (A.night || 0) > 0.5 ? 1 : 0; if (room.fxProbe !== room.fxProbes[k]) { room.fxProbe = room.fxProbes[k]; room.fxProbeNight = k; } } /* the preloaded pair: no capture in play */ else if (room.fxProbe && Math.abs((A.night || 0) - room.fxProbeNight) > 0.45 && !room.fxRecap) { room.fxRecap = true; captureBankProbe(game, room); room.fxRecap = false; }
     if (!active) { active = true; savedEnv = game.scene.environment; }
     game.scene.environment = room.fxProbe.texture; game.scene.environmentIntensity = BANKFX.env; BP.uBPOn.value = level() >= 1 ? 1 : 0;
     // the probe is the room's indirect light now: the sky-coloured fill (hemisphere / ambient) steps back, the pool a little

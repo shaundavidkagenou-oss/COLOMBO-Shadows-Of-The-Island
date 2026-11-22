@@ -7,6 +7,7 @@
 import { HOOKS } from '../core/Hooks.js';
 import * as THREE from 'three';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MAT } from '../gfx/Materials.js';
 import * as R from '../world/Railway.js';
 import { Audio } from '../audio/Audio.js';
@@ -195,12 +196,23 @@ class Train {
 }
 
 // ---------------------------------------------------------------- level-crossing barriers
+// 85th (perf): boxes baked into ONE vertex-coloured geometry — a boom arm was ~30 separate 0.6 m stripe meshes and a
+// crossbuck 4, i.e. ~74 draw calls per crossing (up to 230 a frame across the city, even from 400 m). Same sizes,
+// colours, roughness, shadows and pivots: [geometry, colour hex, matrix] parts → one mesh.
+const _cm = new THREE.Matrix4(), _cq = new THREE.Quaternion(), _ce = new THREE.Euler(), _cs = new THREE.Vector3(1, 1, 1), _cp = new THREE.Vector3();
+function bakeParts(parts) {
+  const gs = parts.map(([geo, hex, x = 0, y = 0, z = 0, rz = 0]) => { const q = geo.index ? geo.toNonIndexed() : geo.clone(); _cm.compose(_cp.set(x, y, z), _cq.setFromEuler(_ce.set(0, 0, rz)), _cs); q.applyMatrix4(_cm);
+    const col = new THREE.Color(hex); const n = q.attributes.position.count; const a = new Float32Array(n * 3); for (let i = 0; i < n; i++) { a[i * 3] = col.r; a[i * 3 + 1] = col.g; a[i * 3 + 2] = col.b; } q.setAttribute('color', new THREE.BufferAttribute(a, 3)); return q; });
+  const m = mergeGeometries(gs); for (const q of gs) q.dispose(); return m;
+}
+let CROSS_MAT = null;
 function buildCrossing(sys, c) {
   const g = new THREE.Group(); const mb = new MultiBuilder(); const P = mb.get('paint');
   const sinA = Math.max(0.35, Math.abs(c.ax[0] * c.rdz - c.ax[1] * c.rdx)); const D = (R.DECK_HW + R.RAMP + 1.6) / sinA;
   c.sides = []; c.lampMats = [new THREE.MeshBasicMaterial({ color: 0x220000 }), new THREE.MeshBasicMaterial({ color: 0x220000 })];
   const lamp = new THREE.SphereGeometry(0.11, 10, 8), boomSeg = new THREE.BoxGeometry(0.6, 0.1, 0.07);
-  const white = new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.6 }), red = new THREE.MeshStandardMaterial({ color: 0xc81e1e, roughness: 0.6 });
+  const striped = CROSS_MAT || (CROSS_MAT = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6, vertexColors: true })); // white 0xf2f2ee / red 0xc81e1e per vertex
+  const xbW = new THREE.BoxGeometry(1.3, 0.24, 0.03), xbR = new THREE.BoxGeometry(1.14, 0.1, 0.035);
   for (const sd of [-1, 1]) {
     const hx = -sd * c.ax[0], hz = -sd * c.ax[1]; // traffic heading toward the track on this side
     const lx = hz, lz = -hx; // its left (left-hand traffic → barrier post on the left verge)
@@ -212,17 +224,18 @@ function buildCrossing(sys, c) {
     P.box(px + lx * 0.1 - hx * 0.08, y0 + 2.45, pz + lz * 0.1 - hz * 0.08, 1.0, 0.36, 0.08, { col: [0.08, 0.08, 0.08], rotY: Math.atan2(-lz, lx) }); // lamp board across the approach
     for (let k = 0; k < 2; k++) { const m = new THREE.Mesh(lamp, c.lampMats[k]); const t = k ? 0.3 : -0.3; m.position.set(px + lx * (0.1 + t) - hx * 0.15, y0 + 2.45, pz + lz * (0.1 + t) - hz * 0.15); g.add(m); }
     const cb = new THREE.Group(); cb.position.set(px + lx * 0.1 - hx * 0.1, y0 + 3.3, pz + lz * 0.1 - hz * 0.1); cb.rotation.y = Math.atan2(hx, hz);
-    for (const a of [Math.PI / 4, -Math.PI / 4]) { const w = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.24, 0.03), white); w.rotation.z = a; cb.add(w); const r2 = new THREE.Mesh(new THREE.BoxGeometry(1.14, 0.1, 0.035), red); r2.rotation.z = a; r2.position.z = -0.003; cb.add(r2); }
+    { const parts = []; for (const a of [Math.PI / 4, -Math.PI / 4]) { parts.push([xbW, 0xf2f2ee, 0, 0, 0, a], [xbR, 0xc81e1e, 0, 0, -0.003, a]); } cb.add(new THREE.Mesh(bakeParts(parts), striped)); }
     g.add(cb);
     // boom arm: pivots at the post, spans the full carriageway toward the far verge
     const bdx = -lx, bdz = -lz, len = c.hw * 2 + 0.6; const pivot = new THREE.Group(); pivot.position.set(px, y0 + 1.0, pz); pivot.rotation.y = Math.atan2(-bdz, bdx);
     const arm = new THREE.Group(); pivot.add(arm);
-    for (let k = 0; k * 0.6 < len; k++) { const m = new THREE.Mesh(boomSeg, k % 2 ? white : red); m.position.x = 0.3 + k * 0.6; m.castShadow = true; arm.add(m); }
+    { const parts = []; for (let k = 0; k * 0.6 < len; k++) parts.push([boomSeg, k % 2 ? 0xf2f2ee : 0xc81e1e, 0.3 + k * 0.6]); const m = new THREE.Mesh(bakeParts(parts), striped); m.castShadow = true; arm.add(m); }
     const cw = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.28, 0.22), new THREE.MeshStandardMaterial({ color: 0x333333 })); cw.position.x = -0.45; arm.add(cw);
     arm.rotation.z = Math.PI / 2 * 0.95; g.add(pivot);
     c.sides.push({ arm, px, pz, bdx, bdz, len, py: y0 + 1.0, ofs: 0, av: 0, need: 0, touch: false, clatT: 0, down: 0 });
   }
   for (const m of mb.toMeshes(MAT)) g.add(m);
+  boomSeg.dispose(); xbW.dispose(); xbR.dispose();
   sys.scene.add(g); c.group = g; c.flash = 0; c.closedT = 0; c.bellT = 0;
 }
 

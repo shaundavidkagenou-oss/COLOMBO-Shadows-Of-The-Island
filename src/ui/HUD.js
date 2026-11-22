@@ -223,7 +223,15 @@ export class HUD {
   titleCard(html, dur = 4) { return new Promise((r) => { this.title.innerHTML = html; this.title.classList.remove('hidden'); this.title.classList.add('show'); setTimeout(() => { this.title.classList.remove('show'); setTimeout(() => { this.title.classList.add('hidden'); r(); }, 900); }, dur * 1000); }); }
   missionBanner(top, title, sub = '') { return this.titleCard(`<div class="mb-top">${top}</div><div class="mb-title">${title}</div>${sub ? `<div class="mb-sub">${sub}</div>` : ''}`, 3.2); }
   // non-graphic damage feedback: a short red flash at the screen edges (strength k 0..1)
-  hurt(k = 0.5) { const e = this.hurtEl; e.style.setProperty('--k', (0.35 + k * 0.65).toFixed(2)); e.classList.remove('on'); void e.offsetWidth; e.classList.add('on'); }
+  // 85th (hitch): the flash is a Web Animation on its own compositor layer — no forced page reflow (offsetWidth) and no
+  // full-screen repaint per frame on every hit; same opacity curve (0.7 s ease-out from 0.35 + 0.65·k)
+  hurt(k = 0.5) {
+    const e = this.hurtEl, o = 0.35 + k * 0.65;
+    if (!e.animate) { e.style.setProperty('--k', o.toFixed(2)); e.classList.remove('on'); void e.offsetWidth; e.classList.add('on'); return; } // (old browsers)
+    e.classList.add('on', 'wa');
+    if (this._hurtA) this._hurtA.cancel(); const a = (this._hurtA = e.animate([{ opacity: o }, { opacity: 0 }], { duration: 700, easing: 'ease-out' }));
+    a.onfinish = () => { if (this._hurtA === a) { this._hurtA = null; e.classList.remove('on'); } };
+  }
   // ---------- per-frame
   update(st) {
     setTxt(this.clock, st.time); setTxt(this.money, `Rs. ${st.money.toLocaleString('en-LK')}`);

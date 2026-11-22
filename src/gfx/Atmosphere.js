@@ -1,5 +1,6 @@
 // Time of day, sky, clouds, sun/moon lighting, fog, environment reflections and weather.
 import * as THREE from 'three';
+import { withoutDefer } from './AsyncCompile.js';
 import { leafLight } from '../world/Wind.js';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { clamp, lerp, smoothstep } from '../core/math.js';
@@ -232,6 +233,11 @@ export class Atmosphere {
     scene.fog = new THREE.Fog(0xbcc8d0, 200, 1400);
     // environment (PMREM of sky + clouds)
     this.pmrem = new THREE.PMREMGenerator(renderer); this.envScene = new THREE.Scene();
+    // 85th (hitch): PMREMGenerator.fromScene allocates a NEW cube-UV target on every call. A new scene.environment texture makes
+    // three re-derive the program of every lit material drawn that frame (WebGLRenderer.setProgram: envMap changed → getProgram
+    // + cache-key build for each), a CPU spike every env refresh (12 s; 3 s at dusk / dawn). One target is kept and redrawn
+    // in place — same texture object, so nothing downstream sees a change and no allocation / dispose churn on the GPU.
+    { const pm = this.pmrem, alloc = pm._allocateTargets.bind(pm); pm._allocateTargets = function () { if (!this._reuse) return alloc(); /* other probes (BankFX) get their own target */ const k = this._keepRT, pp = this._pingPongRenderTarget; if (k && pp && k.width === pp.width && k.height === pp.height) return k; if (k) k.dispose(); return (this._keepRT = alloc()); }; }
     const envSky = new Sky(); envSky.material = this.sky.material; envSky.scale.setScalar(80); this.envScene.add(envSky);
     const envClouds = new THREE.Mesh(new THREE.SphereGeometry(60, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), this.cloudMat); this.envScene.add(envClouds);
     this.envGround = new THREE.Mesh(new THREE.CircleGeometry(80, 16).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x2c2a26 })); this.envGround.position.y = -2; this.envScene.add(this.envGround);
@@ -319,7 +325,7 @@ export class Atmosphere {
       const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial()); m.frustumCulled = false; sc.add(m); this._fd = { scene: sc, rt: new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false }), job: null };
       m.onBeforeRender = () => { const j = this._fd.job; this._fd.job = null; if (j) R.shadowMap.render([j.light], this.scene, j.camera); }; }
     const fd = this._fd, prev = R.getRenderTarget(); fd.job = { light, camera };
-    try { R.setRenderTarget(fd.rt); R.render(fd.scene, camera); } finally { fd.job = null; R.setRenderTarget(prev); }
+    try { R.setRenderTarget(fd.rt); withoutDefer(R, () => R.render(fd.scene, camera)); /* 85th: a map kept for seconds is drawn complete */ } finally { fd.job = null; R.setRenderTarget(prev); }
   }
   // Redraw the far map when its box (grid-snapped centre, quantised sun direction) changed, at most every minGap s, and at
   // least every maxAge s (chunks streaming in, parked cars, doors). Only the static city goes in: people, trains and vehicles
@@ -443,9 +449,9 @@ export class Atmosphere {
       this.envSkyline.material.color.setRGB(0.3, 0.31, 0.28).multiplyScalar((1 - this.night * 0.85) * (1 - this.w.dark * 0.35));
       if (this.envCity) { this.envCity.material.color.setRGB(1, 1, 1).multiplyScalar(Math.max(0.06, (1 - this.night * 0.9)) * (1 - this.w.dark * 0.4)); this.envCityLit.material.opacity = this.night * 0.9; }
       const prevFog = this.scene.fog; const old = this.envRT;
-      const sm = this.sky.material.uniforms; sm.uDiscMode.value = 2; this.envRT = this.pmrem.fromScene(this.envScene, 0.02, 0.1, 200); sm.uDiscMode.value = 1; // 79th: captured WITHOUT the sun disc (the sun is the shadowed directional light; its glossy highlight comes from that light)
-      this.scene.environment = this.envRT.texture; // (intensity: set every frame from the daylight model above)
-      if (old) old.dispose(); void prevFog;
+      const sm = this.sky.material.uniforms; sm.uDiscMode.value = 2; this.pmrem._reuse = true; try { this.envRT = withoutDefer(this.renderer, () => this.pmrem.fromScene(this.envScene, 0.02, 0.1, 200)); } finally { this.pmrem._reuse = false; } sm.uDiscMode.value = 1; // 79th: captured WITHOUT the sun disc (the sun is the shadowed directional light; its glossy highlight comes from that light)
+      if (this.scene.environment !== this.envRT.texture) this.scene.environment = this.envRT.texture; // (intensity: set every frame from the daylight model above)
+      if (old && old !== this.envRT) old.dispose(); void prevFog; // (the kept target: same object every refresh)
     }
   }
   updateRain(dt, camera) {

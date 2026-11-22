@@ -188,6 +188,13 @@ export class GroundDetail {
       iron: patchDetail(std({ vertexColors: true, roughness: 0.5, metalness: 0.55 }), { sink: 0.006, tag: 'iron' }),
     };
   }
+  // 85th (hitch): one tiny instanced mesh per detail material (with and without per-instance colour) for the loading
+  // screen's shader warm set — these materials used to be built and compiled on the first frame near a kerb in play
+  warmMeshes() {
+    if (!this.R || !MAT.walk || !MAT.paveGrass) return []; this.init(); const geo = new THREE.BoxGeometry(0.01, 0.01, 0.01), out = [];
+    for (const mat of Object.values(this.mat)) for (const col of [false, true]) { const m = new THREE.InstancedMesh(geo, mat, 1); if (col) m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(3), 3); m.receiveShadow = true; m.castShadow = false; m.frustumCulled = false; out.push(m); }
+    return out;
+  }
   setQuality(q) {
     this.R = q === 'low' ? 0 : q === 'medium' ? 10 : q === 'ultra' ? 17 : 13; this.ballastK = q === 'medium' ? 0.55 : q === 'ultra' ? 1.25 : 1;
     DET_R.value = this.R; for (const t of this.tiles.values()) this.dropTile(t); this.tiles.clear(); this.group.visible = this.R > 0;

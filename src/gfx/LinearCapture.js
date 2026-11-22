@@ -8,6 +8,7 @@
 // tone-mapped and encoded to the canvas by an OutputPass (the composer's own, already compiled program). The pixels are the same
 // tone-mapped sRGB image as before.
 import * as THREE from 'three';
+import { withoutDefer } from './AsyncCompile.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 
 let rt = null, out = null;
@@ -24,7 +25,7 @@ function drawCapture(R, scene, cam, x, y, w, h) {
   const pr = R.getPixelRatio(); const pw = Math.max(1, Math.round(w * pr)), ph = Math.max(1, Math.round(h * pr));
   if (!rt) rt = new THREE.WebGLRenderTarget(pw, ph, { type: THREE.HalfFloatType, samples: 0, depthTexture: new THREE.DepthTexture(pw, ph, THREE.FloatType) }); // same formats as the composer's target
   else if (rt.width !== pw || rt.height !== ph) rt.setSize(pw, ph);
-  R.setRenderTarget(rt); R.setScissorTest(false); R.clear(); R.render(scene, cam);
+  R.setRenderTarget(rt); R.setScissorTest(false); R.clear(); withoutDefer(R, () => R.render(scene, cam));
   if (!out) { out = new OutputPass(); out.renderToScreen = true; }
   R.setRenderTarget(null); R.setViewport(x, y, w, h); R.setScissor(x, y, w, h); R.setScissorTest(true);
   out.render(R, null, rt);
@@ -43,7 +44,7 @@ export function captureToPixels(R, scene, cam, w, h, clearAlpha = 1) {
     if (!srt) { srt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples: 0, depthTexture: new THREE.DepthTexture(w, h, THREE.FloatType) }); srt8 = new THREE.WebGLRenderTarget(w, h, { type: THREE.UnsignedByteType, depthBuffer: false }); sout = new OutputPass(); }
     else if (srt.width !== w || srt.height !== h) { srt.setSize(w, h); srt8.setSize(w, h); }
     SM.autoUpdate = false; SM.needsUpdate = false; R.setClearColor(keepCC, clearAlpha);
-    R.setRenderTarget(srt); R.setScissorTest(false); R.setViewport(0, 0, w, h); R.clear(); R.render(scene, cam);
+    R.setRenderTarget(srt); R.setScissorTest(false); R.setViewport(0, 0, w, h); R.clear(); withoutDefer(R, () => R.render(scene, cam));
     sout.renderToScreen = false; sout.render(R, srt8, srt);
     const px = new Uint8Array(w * h * 4);
     // asynchronous readback (WebGL2 pixel-pack buffer + fence): the GPU finishes in its own time and the frame never waits on it.
