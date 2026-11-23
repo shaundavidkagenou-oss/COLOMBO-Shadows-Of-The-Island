@@ -100,7 +100,7 @@ for (const [c, cn] of VEH_CLASSES) add(`mech.stop.${c}`, `Engine shutdown — ${
 varied('mech.tick', 'Cooling engine ticks (after a drive, once the engine is off)', VM, 2, { lvl: 0.3, fb: 'synthesised metal ticks' });
 add('mech.tyreRoll', 'Tyre rolling (loop · your vehicle, follows speed and surface)', VM, { kind: 'loop', lvl: 0.4, fb: 'synthesised tyre noise' });
 add('mech.screech', 'Tyre screech (loop · your vehicle sliding, locking up, spinning the wheels)', VM, { kind: 'loop', lvl: 0.5, fb: 'synthesised screech' });
-varied('mech.gear', 'Gear change (each shift of your vehicle)', VM, 2, { lvl: 0.3, fb: 'synthesised clunk' });
+varied('mech.gear', 'Gear change (each shift of your vehicle — four slots, played in a shuffled order)', VM, 3, { lvl: 0.3, fb: 'four synthesised shifts (crisp / notchy / smooth / worn linkage)' }); // 89th: 4 variations
 varied('mech.brake', 'Brake squeal (coming to a stop)', VM, 1, { lvl: 0.35, fb: 'synthesised squeal' });
 add('mech.brake.air', 'Air brake hiss (bus / lorry stopping)', VM, { lvl: 0.5, fb: 'synthesised air hiss' });
 

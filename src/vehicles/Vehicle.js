@@ -199,7 +199,9 @@ export class Vehicle {
       const dx = nx - this.x, dz = nz - this.z, dl = Math.hypot(dx, dz), rr = this.radius;
       if (dl > rr * 0.8) { const nose = Math.max(0, this.half - rr), ox = this.x + fx * nose, oz = this.z + fz * nose;
         if (!collision.resolveCircle(ox, oz, rr, this.y, 0.25, 2, { vehicle: true }).hit) { const n = Math.ceil(dl / (rr * 0.6));
-          for (let i = 1; i <= n; i++) { const t = i / n; if (collision.resolveCircle(ox + dx * t, oz + dz * t, rr, this.y, 0.25, 2, { vehicle: true }).hit) { nx = this.x + dx * t; nz = this.z + dz * t; break; } } } } }
+          for (let i = 1; i <= n; i++) { const t = i / n; if (collision.resolveCircle(ox + dx * t, oz + dz * t, rr, this.y, 0.25, 2, { vehicle: true }).hit) { nx = this.x + dx * t; nz = this.z + dz * t; break; } } }
+        // 89th: the same for the Beira Lake railing (not a collider box — an offset of the lake shape, Layout.railPush)
+        if (!L.railPush(ox, oz, rr)) { const n = Math.ceil(dl / (rr * 0.6)); for (let i = 1; i <= n; i++) { const t = i / n; if (L.railPush(ox + dx * t, oz + dz * t, rr)) { nx = this.x + dx * (i - 1) / n; nz = this.z + dz * (i - 1) / n; break; } } } } }
     if (!this.air) { const gN = L.groundY(nx, nz), gC = this.groundY ?? gN; // a step up taller than a tyre can climb (the side / back of a stunt ramp, the seawall coping) is a wall
       if (gN > gC + 0.45) { const sg = Math.sign(this.speed) || 1; nx = this.x; nz = this.z; if (Math.abs(this.speed) > 3) this.impact(Math.abs(this.speed) * 0.8, { nx: -fx * sg, nz: -fz * sg, t: sg * T.len / 2 }); this.speed *= -0.2; this.lat *= 0.3; } }
     this.x = nx; this.z = nz;
@@ -212,6 +214,14 @@ export class Vehicle {
     // static world: gather the deepest push per circle → one combined normal, contact at the deepest circle
     let sx = 0, sz = 0, best = 0, bestT = 0, bestC = null; const cs = this.circles();
     for (let k = 0; k < cs.length; k++) { const [cx, cz] = cs[k]; const r = collision.resolveCircle(cx, cz, this.radius, this.y, 0.25, 2, { vehicle: true }); if (r.hit) { const dx = r.x - cx, dz = r.z - cz, dl = Math.hypot(dx, dz); this.x += dx; this.z += dz; sx += dx; sz += dz; if (dl > best) { best = dl; bestT = tOf(k); bestC = collision.lastHitC; } } }
+    // 89th: the Beira Lake railing — every body circle kept on the land side of it (a car can no longer push its nose through
+    // the railing and over the coping); counts as a 'railing' contact for the impulse, the damage and the scrape / impact sound
+    { const cr = this.circles(); for (let k = 0; k < cr.length; k++) { const q = L.railPush(cr[k][0], cr[k][1], this.radius); if (!q) continue; const dx = q.x - cr[k][0], dz = q.z - cr[k][1], dl = Math.hypot(dx, dz);
+        this.x += dx; this.z += dz; sx += dx; sz += dz; for (let j = k + 1; j < cr.length; j++) { cr[j][0] += dx; cr[j][1] += dz; }
+        if (dl > best) { best = dl; bestT = tOf(k); const RC = this._railC || (this._railC = { kind: 'railing', h: 1.1, x0: 0, x1: 0, z0: 0, z1: 0 }); const ex = q.x - (dx / (dl || 1)) * this.radius, ez = q.z - (dz / (dl || 1)) * this.radius; RC.x0 = RC.x1 = ex; RC.z0 = RC.z1 = ez; bestC = RC; } }
+      // the circle chain rounds the body's corners off (~0.27 m on a car): the four true corners against the railing as well
+      const hw = T.wid / 2, hl = T.len / 2; for (const [a, b] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) { const px = this.x + rx * hw * a + fx * hl * b, pz = this.z + rz * hw * a + fz * hl * b; const q = L.railPush(px, pz, 0.03); if (!q) continue;
+        const dx = q.x - px, dz = q.z - pz, dl = Math.hypot(dx, dz); this.x += dx; this.z += dz; sx += dx; sz += dz; if (dl > best) { best = dl; bestT = clamp(hl * b, -hl, hl); const RC = this._railC || (this._railC = { kind: 'railing', h: 1.1, x0: 0, x1: 0, z0: 0, z1: 0 }); RC.x0 = RC.x1 = q.x; RC.z0 = RC.z1 = q.z; bestC = RC; } } }
     // thin static obstacles (tree trunks, lamp / signal poles, bollards) against the true rectangular body: the circle chain rounds the
     // corners off, which let a trunk sink up to half the car's width into the bonnet before anything touched
     { const hw = T.wid / 2, hl = T.len / 2, ext = hl + 1; const near = collision.query(this.x - ext, this.z - ext, this.x + ext, this.z + ext);

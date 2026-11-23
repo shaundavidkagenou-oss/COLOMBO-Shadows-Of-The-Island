@@ -590,6 +590,7 @@ export class Traffic {
     f.spin *= Math.exp(-2.6 * dt); if (Math.abs(f.spin) < 0.03) f.spin = 0;
     v.x += f.vx * dt; v.z += f.vz * dt; v.yaw += f.spin * dt; v.speed = 0; v.brake = true;
     for (const [cx, cz] of v.circles()) { const r = this.collision.resolveCircle(cx, cz, v.radius, v.y, 0.25, 2, { vehicle: true }); if (r.hit) { const dx = r.x - cx, dz = r.z - cz, dl = Math.hypot(dx, dz) || 1; v.x += dx; v.z += dz; const vn = (f.vx * dx + f.vz * dz) / dl; if (vn < 0) { f.vx -= dx / dl * vn * 1.2; f.vz -= dz / dl * vn * 1.2; const [fx, fz] = v.forward(); v.impact(-vn, { nx: dx / dl, nz: dz / dl, t: (cx - v.x) * fx + (cz - v.z) * fz }); } } }
+    for (const [cx, cz] of v.circles()) { const q = L.railPush(cx, cz, v.radius); if (!q) continue; const dx = q.x - cx, dz = q.z - cz, dl = Math.hypot(dx, dz) || 1; v.x += dx; v.z += dz; const vn = (f.vx * dx + f.vz * dz) / dl; if (vn < 0) { f.vx -= dx / dl * vn * 1.2; f.vz -= dz / dl * vn * 1.2; } } // 89th: a car shoved / spun toward Beira Lake stops at its railing
     v.y = L.groundY(v.x, v.z); v.sync(dt);
     if (Math.hypot(f.vx, f.vz) < 0.15 && f.spin === 0) f.rest += dt; else f.rest = 0;
     if (v.ai && v.ai.chase && f.rest > 0.45 + Math.min(1.5, f.sev * 0.1)) { v.free = null; v.speed = 0; return; } // a pursuing unit knocked aside: straight back into the chase

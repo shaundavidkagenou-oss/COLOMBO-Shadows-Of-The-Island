@@ -15,7 +15,7 @@
 //   (a whole skinned body, 30–100 ms) mid-chase was a visible hitch. Everything in the pool, with the slung rifles, their
 //   flash / torch parts and a hand torch per officer, is shader-compiled and GPU-uploaded on the loading screen (warmGroup).
 import { trolleyOf, seatTrolley } from './EMS.js';
-import { homeKit } from './RoadsideJob.js';
+import { homeKit, vanKit } from './RoadsideJob.js';
 import * as THREE from 'three';
 import { Vehicle, LIVE_VEHICLES } from '../vehicles/Vehicle.js';
 import { Character } from '../actors/Character.js';
@@ -65,6 +65,7 @@ export class UnitPool {
     const fresh = {}; for (const k of Object.keys(v)) { const x = v[k]; if (x === null || (typeof x !== 'object' && typeof x !== 'function')) fresh[k] = x; } // the new car's own plain state (restored on release)
     const seats = v.mesh.userData.seats; const cs = crewSeats(seats); const e = { id, type, v, fresh, seats: cs, crew: [null, null] };
     if (crew) cs.forEach((si, k) => { if (si === undefined || si < 0) return; const r = this.makeRec(id, k, ems); seatCharacter(r.ch, v, seats[si]); e.crew[k] = r; });
+    if (type === 'rsvan' && this.pr.rs) vanKit(this.pr.rs, v); // 89th: the van's equipment, built with it on the loading screen (was: at its first job, mid-game)
     if (type === 'ambulance') trolleyOf(v); // 84th: its one cot, built with it on the loading screen (stable id, never rebuilt)
     v.poolEntry = e; this.free[type].push(e); this.stats.built++; if (this.pr.level > 0) this.stats.builtWanted++; return e;
   }
@@ -88,6 +89,10 @@ export class UnitPool {
     const show = (o) => { if (o && !o.visible) { o.visible = true; undo.push(() => { o.visible = false; }); } };
     const rec = (q) => { if (!q) return; if (q.rifle) { show(q.rifle); show(q.rifle.userData.flash); show(q.rifle.userData.torch); } if (q.torchM) show(q.torchM); };
     for (const t of ALL_TYPES) for (const e of this.free[t]) { const m = e.v.mesh; const p0 = m.position.clone(); grp.add(m); slot(m); m.updateMatrixWorld(true); undo.push(() => { m.position.copy(p0); m.parent?.remove(m); }); e.crew.forEach(rec); }
+    // 89th: the service vans' rear compartments (shown only while the doors are open — never compiled before) with their stowed kit,
+    // and the roadside props + an engine bay with the bonnet up (Roadside.warmGroup)
+    for (const e of this.free.rsvan || []) { const rr = e.v.mesh.userData.rear; if (rr && rr.cav) show(rr.cav); }
+    const rsw = this.pr.rs && this.pr.rs.warmGroup ? this.pr.rs.warmGroup() : null; if (rsw) { grp.add(rsw); slot(rsw); rsw.updateMatrixWorld(true); undo.push(() => rsw.userData.restore()); }
     for (const q of this.spare) { const root = q.ch.root; const par = root.parent; grp.add(root); slot(root); rec(q); undo.push(() => { root.parent?.remove(root); if (par) par.add(root); }); }
     grp.userData.restore = () => { for (let k = undo.length - 1; k >= 0; k--) undo[k](); grp.parent?.remove(grp); }; return grp;
   }

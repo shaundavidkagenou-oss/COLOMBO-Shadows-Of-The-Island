@@ -22,11 +22,53 @@ export function buildPropGeometries() { // 60th: every prop type draws with its 
   { const p = new MeshBuilder(); p.cylinder(0, 0, 0, 0.2, 0.09, 5.2, 10, { col: C('#1d1f1d') }); p.box(0, 0.35, 0, 0.5, 0.7, 0.5, { col: C('#1d1f1d') }); p.box(0, 5.2, 0, 1.2, 0.1, 0.1, { col: C('#1d1f1d') });
     const h = new MeshBuilder(); for (const s of [-0.55, 0.55]) h.box(s, 4.85, 0, 0.32, 0.5, 0.32, {});
     GEO.lampHeritage = [part(p, MAT.heritageLampPole), part(h, MAT.lampHead)]; }
-  // concrete utility pole with crossarm + insulators
-  { const p = new MeshBuilder(); p.box(0, 4.5, 0, 0.26, 9, 0.22, { col: C('#a7a39a'), uvScale: 2 }); p.box(0, 8.4, 0, 1.8, 0.12, 0.12, { col: C('#6a6a66') }); for (const s of [-0.8, 0, 0.8]) p.cylinder(s, 8.46, 0, 0.05, 0.05, 0.16, 6, { col: C('#d8d8d0') });
-    p.box(0, 6.6, 0, 1.0, 0.1, 0.1, { col: C('#6a6a66') });
-    GEO.pole = [part(p, MAT.utilityPole)];
-    const t = new MeshBuilder(); t.box(0, 6.1, 0.35, 0.7, 0.9, 0.5, { col: C('#7d8580') }); t.cylinder(0, 6.55, 0.35, 0.08, 0.08, 0.3, 6, { col: C('#ddd') });
+  // 89th: the CEB distribution pole as Colombo has them — an 11 m prestressed-concrete pole (CEB Std 044-2; 1.8 m buried, 9.2 m
+  // standing) of "vierendeel" section: two flanges joined by a web pierced by a ladder of rectangular openings, tapering from
+  // 300 × 200 mm at the ground to 160 × 120 mm at the top, solid at the foot and the head. Fittings (galvanised steel, porcelain):
+  // the 11 kV line in a triangle — a channel cross-arm with V-braces and two pin insulators plus a pole-top pin — the LV aerial
+  // bundled cable on its suspension bracket, the SLT telephone cables on their hook and a junction box, the earth lead, and the
+  // red / white danger plate. Local frame: +z toward the road (lamps' arm), x along it; the cross-arm runs across the road (z).
+  // A pole transformer (12 %): single-pole-mounted 100 kVA tank on platform brackets (radiator fins, HV / LV bushings), drop-out
+  // fuses + surge arresters on their own arm, the jumpers, the LV cable down the pole into the feeder pillar box.
+  { const conc = C('#a9a59c'), concD = C('#9a968d'), galv = C('#8d9396'), porc = C('#cfd0cb'), blk = C('#141516'), rust = C('#6f5a46'), red = C('#b3241e'), wht = C('#e9e7e0');
+    const p = new MeshBuilder(); const H = 9.2, Y0 = -0.3; const Wb = 0.3, Wt = 0.16, Db = 0.2, Dt = 0.12, f = 0.05, tw = 0.06;
+    const W = (y) => Wb + (Wt - Wb) * (y - Y0) / (H - Y0), D = (y) => Db + (Dt - Db) * (y - Y0) / (H - Y0);
+    // a tapered prism: x-extent [xa(y), xb(y)], z-extent [za(y), zb(y)] from y0 to y1 (outward normals; top cap optional)
+    const prism = (y0, y1, X, Z, col, top = false) => { const [xa0, xb0] = X(y0), [xa1, xb1] = X(y1), [za0, zb0] = Z(y0), [za1, zb1] = Z(y1);
+      const B = [[xb0, za0], [xa0, za0], [xa0, zb0], [xb0, zb0]], T = [[xb1, za1], [xa1, za1], [xa1, zb1], [xb1, zb1]];
+      for (let k = 0; k < 4; k++) { const a = B[k], b = B[(k + 1) % 4], c = T[(k + 1) % 4], d = T[k]; p.quad([a[0], y0, a[1]], [b[0], y0, b[1]], [c[0], y1, c[1]], [d[0], y1, d[1]], [0, y0 / 2, 1, y1 / 2], col); }
+      if (top) p.quad([T[2][0], y1, T[2][1]], [T[3][0], y1, T[3][1]], [T[0][0], y1, T[0][1]], [T[1][0], y1, T[1][1]], [0, 0, 1, 1], col); };
+    const full = (y) => [-W(y) / 2, W(y) / 2], fullZ = (y) => [-D(y) / 2, D(y) / 2];
+    for (const sx of [-1, 1]) prism(1.5, 8.3, (y) => (sx > 0 ? [W(y) / 2 - f, W(y) / 2] : [-W(y) / 2, -W(y) / 2 + f]), fullZ, conc); // the two flanges
+    prism(Y0, 1.5, full, fullZ, conc); prism(8.3, H, full, fullZ, conc, true); // solid foot + head
+    const web = (y) => [-W(y) / 2 + f, W(y) / 2 - f], webZ = () => [-tw / 2, tw / 2];
+    for (let y = 1.5; y < 8.3; y += 0.64) prism(y, Math.min(8.3, y + 0.2), web, webZ, concD); // web rungs between the 0.44 m openings
+    const pf = new MeshBuilder(); const at = W(8.85) / 2; // fittings
+    pf.box(at + 0.05, 8.85, 0, 0.05, 0.1, 2.1, { col: galv, bottom: true }); pf.box(at + 0.03, 8.85, 0, 0.012, 0.1, 2.1, { col: galv }); // channel cross-arm (web + flange)
+    for (const sz of [-1, 1]) { const g = new THREE.BoxGeometry(0.008, 0.62, 0.04); g.rotateX(sz * 0.98); pf.geometry(g, new THREE.Matrix4().makeTranslation(at + 0.04, 8.55, sz * 0.27), galv); g.dispose(); } // V-braces
+    pf.box(at + 0.01, 8.85, 0, 0.02, 0.16, 0.12, { col: galv }); pf.box(-at - 0.01, 8.85, 0, 0.02, 0.16, 0.12, { col: galv }); // clamp plates + through bolts
+    const ins = (x, y, z) => { pf.cylinder(x, y, z, 0.012, 0.012, 0.09, 6, { col: galv }); pf.cylinder(x, y + 0.07, z, 0.03, 0.03, 0.05, 10, { col: porc }); pf.cylinder(x, y + 0.11, z, 0.075, 0.03, 0.035, 12, { col: porc });
+      pf.cylinder(x, y + 0.145, z, 0.035, 0.035, 0.03, 10, { col: porc }); pf.cylinder(x, y + 0.165, z, 0.062, 0.03, 0.03, 12, { col: porc }); pf.cylinder(x, y + 0.195, z, 0.03, 0.026, 0.02, 10, { col: porc }); }; // pin insulator: pin + two sheds + head
+    ins(at + 0.05, 8.9, -0.85); ins(at + 0.05, 8.9, 0.85); pf.cylinder(0, H, 0, 0.05, 0.05, 0.08, 8, { col: galv }); ins(0, H + 0.08, 0); // the pole-top pin
+    pf.box(0.0, 6.9, D(6.9) / 2 + 0.11, 0.05, 0.05, 0.22, { col: galv }); pf.box(0.0, 6.86, D(6.9) / 2 + 0.24, 0.07, 0.06, 0.06, { col: blk }); // ABC suspension bracket + clamp
+    pf.box(0.0, 5.62, -D(5.6) / 2 - 0.09, 0.03, 0.03, 0.18, { col: galv }); pf.box(0, 5.4, -D(5.4) / 2 - 0.06, 0.16, 0.22, 0.08, { col: blk }); // SLT drop hook + junction box
+    pf.box(W(4) / 2 + 0.006, 4.4, 0.05, 0.008, 8.8, 0.008, { col: rust }); // earth lead
+    pf.box(0, 2.65, D(2.65) / 2 + 0.006, 0.22, 0.26, 0.008, { col: wht }); pf.box(0, 2.72, D(2.65) / 2 + 0.011, 0.2, 0.07, 0.004, { col: red }); pf.box(0, 2.56, D(2.65) / 2 + 0.011, 0.06, 0.06, 0.004, { col: red }); // danger plate
+    GEO.pole = [part(p, MAT.utilityPole), part(pf, MAT.transformer)];
+    const t = new MeshBuilder(); const tg = C('#7c8580'), brn = C('#6b3a22'), tx = 0.62;
+    for (const y of [4.55, 5.35]) t.box(tx * 0.55, y, 0, tx + 0.2, 0.08, 0.08, { col: galv, bottom: true }); // platform / hanger channels
+    t.box(tx, 5.0, 0, 0.46, 0.85, 0.66, { col: tg, bottom: true }); t.box(tx, 5.45, 0, 0.5, 0.05, 0.7, { col: tg }); // tank + lid
+    for (let k = 0; k < 7; k++) for (const sz of [-1, 1]) t.box(tx - 0.18 + k * 0.06, 4.98, sz * 0.39, 0.012, 0.7, 0.12, { col: tg }); // radiator fins
+    for (const z of [-0.2, 0, 0.2]) { t.cylinder(tx, 5.475, z, 0.035, 0.03, 0.06, 8, { col: brn }); for (let k = 0; k < 3; k++) t.cylinder(tx, 5.53 + k * 0.05, z, 0.05, 0.03, 0.03, 10, { col: brn }); } // HV bushings
+    for (const z of [-0.24, -0.08, 0.08, 0.24]) t.cylinder(tx + 0.26, 5.25, z, 0.022, 0.022, 0.06, 8, { col: brn }); // LV bushings (side)
+    t.box(tx + 0.235, 4.85, 0, 0.004, 0.12, 0.18, { col: C('#c8c9c4') }); // nameplate
+    t.box(at + 0.05, 7.9, 0, 0.05, 0.08, 1.5, { col: galv }); // fuse arm
+    for (const z of [-0.6, 0, 0.6]) { const g = new THREE.CylinderGeometry(0.022, 0.022, 0.42, 8); g.rotateX(0.35); t.geometry(g, new THREE.Matrix4().makeTranslation(at + 0.14, 8.12, z), brn); g.dispose(); // drop-out fuse (porcelain body + tube)
+      t.cylinder(at + 0.14, 7.62, z, 0.03, 0.03, 0.2, 8, { col: C('#8b8f8e') }); // surge arrester
+      const j1 = new THREE.BoxGeometry(0.008, 0.85, 0.008); j1.rotateX(z * -0.35); t.geometry(j1, new THREE.Matrix4().makeTranslation(at + 0.12, 8.6, z * 0.95), blk); j1.dispose(); // line → fuse jumper
+      const dx = tx - (at + 0.14), dy = 5.6 - 7.9, dz = z * 0.33 - z; const L = Math.hypot(dx, dy, dz);
+      const m2 = new THREE.Matrix4().lookAt(new THREE.Vector3(0, 0, 0), new THREE.Vector3(dx, dy, dz), new THREE.Vector3(0, 1, 0)); const g2 = new THREE.BoxGeometry(0.008, 0.008, L); g2.applyMatrix4(m2); g2.translate(at + 0.14 + dx / 2, 7.9 + dy / 2, z + dz / 2); t.geometry(g2, new THREE.Matrix4(), blk); g2.dispose(); } // fuse → bushing jumper
+    t.box(tx + 0.3, 3.1, 0.0, 0.05, 4.2, 0.05, { col: blk }); t.box(0.2, 1.75, D(1.75) / 2 + 0.2, 0.42, 0.75, 0.3, { col: C('#9aa29f'), bottom: true }); t.box(0.2, 2.16, D(1.75) / 2 + 0.2, 0.46, 0.05, 0.34, { col: C('#9aa29f') }); // LV cable down → feeder pillar box
     GEO.transformer = [part(t, MAT.transformer)]; }
   // traffic signal pole (heads are separate dynamic lamps). 73rd: built like the real ones — a galvanised pole on a bolted base
   // flange, two 3-aspect aluminium heads (one per approach) on brackets, each lens in a black rim under a cut-away visor (hood),
@@ -154,13 +196,17 @@ export function buildPropsForChunk(chunk) {
     for (const p of poles) if (p.prev) {
       const [ax, az] = p.prev, bx = p.x, bz = p.z; const len = Math.hypot(bx - ax, bz - az); if (len > 45) continue;
       const nx = -(bz - az) / len, nz = (bx - ax) / len;
-      for (const [off, h] of [[-0.8, 8.5], [0, 8.5], [0.8, 8.5], [0, 6.65]]) {
-        const seg = 8; let prevPt = null;
+      // 89th: the conductors where the new pole carries them (local: x along the road, z across it — the old offsets ran along the
+      // road, so the three "phases" lay on one line): 11 kV in a triangle (cross-arm ends + pole top, bare aluminium, tight),
+      // the LV aerial bundled cable (thick, black, deeper sag), two SLT telephone cables (thin, black). Each a ribbon both sides see.
+      const rotA = p.rot, ax2 = Math.cos(rotA), az2 = -Math.sin(rotA), zx = Math.sin(rotA), zz = Math.cos(rotA); void nx; void nz;
+      for (const [lx, h, lz, w, sagK, col] of [[0.18, 9.1, -0.85, 0.011, 0.018, [0.5, 0.52, 0.53]], [0.18, 9.1, 0.85, 0.011, 0.018, [0.5, 0.52, 0.53]], [0, 9.4, 0, 0.011, 0.018, [0.5, 0.52, 0.53]],
+        [0, 6.83, 0.28, 0.026, 0.032, [0.035, 0.035, 0.037]], [0, 5.66, -0.2, 0.009, 0.04, [0.03, 0.03, 0.03]], [0, 5.5, -0.22, 0.009, 0.045, [0.03, 0.03, 0.03]]]) {
+        const seg = 10; let prevPt = null;
         for (let k = 0; k <= seg; k++) {
-          const t = k / seg; const sag = Math.sin(Math.PI * t) * len * 0.025;
-          const pt = [ax + (bx - ax) * t + nx * off * 0, LAND_Y + h - sag, az + (bz - az) * t];
-          const rotA = p.rot; const ox = Math.cos(rotA) * off, oz = -Math.sin(rotA) * off; pt[0] += ox; pt[2] += oz;
-          if (prevPt) { const w = 0.025; cb.quad([prevPt[0], prevPt[1] - w, prevPt[2]], [pt[0], pt[1] - w, pt[2]], [pt[0], pt[1] + w, pt[2]], [prevPt[0], prevPt[1] + w, prevPt[2]], [0, 0, 1, 1], [0.06, 0.06, 0.06]); }
+          const t = k / seg; const sag = Math.sin(Math.PI * t) * len * sagK;
+          const pt = [ax + (bx - ax) * t + ax2 * lx + zx * lz, LAND_Y + h - sag, az + (bz - az) * t + az2 * lx + zz * lz];
+          if (prevPt) { cb.quad([prevPt[0], prevPt[1] - w, prevPt[2]], [pt[0], pt[1] - w, pt[2]], [pt[0], pt[1] + w, pt[2]], [prevPt[0], prevPt[1] + w, prevPt[2]], [0, 0, 1, 1], col); }
           prevPt = pt;
         }
       }

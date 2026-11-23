@@ -18,6 +18,10 @@ vehicle can't sound its horn again until the 2 s are over (at most 3 NPC horns a
 **Variations:** window cracking, window shattering, dry fire and vehicle crash each have three extra slots (`.var1` … `.var3`).
 They play in turn — original → 1 → 2 → 3 → original … — and an empty variation slot plays the original recording in its turn.
 
+**Gear changes** (`mech.gear`, in the **Vehicle mechanical** block of the sounds window) have four slots (`mech.gear`,
+`.var1` … `.var3`). Each shift of your vehicle plays one of them in a shuffled order (never the same one twice in a row).
+Empty slots fall back to four built-in synthesised shifts: crisp, notchy, smooth and a worn linkage.
+
 **NPC voices** have their own window: the **`dialogs`** console command. Every kind of NPC (everyone, men, women, elderly
 men / women, drivers, police, paramedics, shopkeepers, vendors, tourists, office workers, labourers, students, guards,
 joggers, nurses & doctors) × every situation (talking, greeting, laughing, angry, scared, screaming, running away, calling

@@ -4,7 +4,7 @@ import { buildLotusBud } from './LotusTower.js';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
 import { TEX } from '../gfx/Textures.js';
-import { LAND_Y, LAKE, STATIONS, roadAt } from './Layout.js';
+import { LAND_Y, LAKE, STATIONS, roadAt, SEEMA_WALK } from './Layout.js';
 import { RNG } from '../core/rng.js';
 import { buildPoliceHQ } from './PoliceHQ.js';
 import { buildJohnsSchool } from './JohnsSchool.js';
@@ -355,7 +355,7 @@ export function buildLandmarks() {
     }
     // walkways
     const walk = (x0, x1, z0, z1) => { box(conc, (x0 + x1) / 2, deckY - 0.15, (z0 + z1) / 2, x1 - x0, 0.3, z1 - z0, '#bdb4a2'); colliders.push({ x0, x1, z0, z1, h: deckY, kind: 'deck' }); };
-    walk(-103, -64, -301.6, -298.4); walk(-113.6, -110.4, -317, -309); walk(-129, -121, -301.6, -298.4);
+    walk(SEEMA_WALK[0], SEEMA_WALK[1], SEEMA_WALK[2], SEEMA_WALK[3]); walk(-113.6, -110.4, -317, -309); walk(-129, -121, -301.6, -298.4);
     anim.seema = true;
   }
 

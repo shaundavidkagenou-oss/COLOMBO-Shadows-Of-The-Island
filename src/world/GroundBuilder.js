@@ -1,4 +1,5 @@
 // Builds the ground layer per chunk: asphalt, markings, sidewalks, kerbs, lots, shoreline, railway.
+import { buildRailFrame } from './LakeRailing.js';
 import * as THREE from 'three';
 import * as L from './Layout.js';
 import { chunkIndex, NCX, NCZ } from './CityPlan.js';
@@ -180,14 +181,10 @@ export function buildGround(progress) {
           // coping's inner riser down to the paving so the 0.15 m step reads as a kerb
           mb.get('concrete').quad([o0[0], LY, o0[1]], [o1[0], LY, o1[1]], [o1[0], yc, o1[1]], [o0[0], yc, o0[1]], [0, 0, 1.5, 0.1], [0.78, 0.76, 0.72]);
           mb.get('concrete').quad([o1[0], LY, o1[1]], [o0[0], LY, o0[1]], [o0[0], yc, o0[1]], [o1[0], yc, o1[1]], [0, 0, 1.5, 0.1], [0.78, 0.76, 0.72]); }
-        const R = clip(a0, a1, 0.4); if (!R) continue;
-        { const r0 = q(R[0], 0.4), r1 = q(R[1], 0.4);
-          if (k % 2 === 0 && R[0] === A0) mb.get('metal').box(r0[0], LY + 0.85, r0[1], 0.08, 1.0, 0.08, { col: [0.25, 0.27, 0.25] });
-          if (R[0] !== A0 || R[1] !== A1) { const rp = R[0] !== A0 ? r0 : r1; mb.get('metal').box(rp[0], LY + 0.85, rp[1], 0.09, 1.0, 0.09, { col: [0.25, 0.27, 0.25] }); } // end post where the railing meets the neighbour's
-          const ax = r0[0], az = r0[1], bx = r1[0], bz = r1[1], l = Math.hypot(bx - ax, bz - az) + 0.06, ry = -Math.atan2(bz - az, bx - ax); // solid top + mid rails (visible from both sides)
-          if (l > 0.1) { mb.get('metal').box((ax + bx) / 2, LY + 1.29, (az + bz) / 2, l, 0.07, 0.06, { col: [0.25, 0.27, 0.25], rotY: ry }); mb.get('metal').box((ax + bx) / 2, LY + 0.82, (az + bz) / 2, l, 0.05, 0.04, { col: [0.25, 0.27, 0.25], rotY: ry }); } }
+        // (the railing on the coping: LakeRailing.buildRailFrame below — 89th)
       }
-    } }
+    }
+    buildRailFrame(at); } // 89th: the promenade balustrade (posts, rails, caps, walkway bollards; balusters are instanced — LakeRailing.js)
   // canals
   for (const cn of L.CANALS) for (let x = -520; x < 900; x += 4) {
     const mb = at(x + 2, cn.z0 - 5);

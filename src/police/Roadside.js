@@ -30,7 +30,8 @@ import { setFlatDeck, deckPose, FLAT, MiniBuilder } from '../vehicles/RoadsideKi
 import { PlaceSound } from '../audio/PlaceAudio.js';
 import { SoundBank } from '../audio/SoundBank.js';
 import { rejoinLane } from './Pursuit.js';
-import { planVanJob, vanKit, stowKit, stowStep, stowNow, bonnetStep, bonnetGone, toolPose, putTool, kitReport } from './RoadsideJob.js';
+import { bayWarmGroup } from './EngineBay.js';
+import { planVanJob, bonnetFrame, vanKit, stowKit, stowStep, stowNow, bonnetStep, bonnetGone, toolPose, putTool, kitReport } from './RoadsideJob.js';
 
 export const RS = {
   enabled: true, scanEvery: 1.5, rate: 1 / 300, // spontaneous faults: ≈ one per 5 min of traffic near you (a damaged car: far more often)
@@ -105,6 +106,16 @@ export class Roadside {
   dP(x, z) { const P = this.P(); return Math.hypot(x - P.x, z - P.z); }
   seen(x, z) { return this.pr.inView({ x, z }) || this.dP(x, z) < 35; }
   propsOf() { return this.props || (this.props = new Props(this.g.scene)); }
+  // 89th: everything a roadside job shows that is not part of a pooled van — one of each prop (the worklight with its lit lens), a
+  // complete engine bay with the bonnet up (EngineBay.js) — for the loading screen's compile + drawn frame (UnitPool.warmGroup).
+  // Before, these were compiled on their first frame mid-job: the frame drops / freeze when the mechanics opened the van, set the
+  // kit out and lifted the bonnet. restore() puts the props back in the pool (reused — same meshes) and drops the warm bay.
+  warmGroup() {
+    const P = this.propsOf(); const g = new THREE.Group(); g.name = 'roadsideWarm'; const got = []; let i = 0;
+    for (const kind of ['toolbox', 'jack', 'tyre', 'battery', 'triangle', 'cone', 'worklight', 'spanner', 'brace', 'strap']) { const m = P.get(kind); g.add(m); m.position.set(((i % 5) - 2) * 0.7, 0, Math.floor(i / 5) * 0.8); i++; got.push(m); }
+    const bw = bayWarmGroup(); bw.position.set(0, -0.9, 2.6); g.add(bw);
+    g.userData.restore = () => { for (const m of got) P.put(m); bw.parent?.remove(bw); bw.userData.release(); g.parent?.remove(g); }; return g;
+  }
   sound(id, x, z, ref = 10, k = 1) { if (SoundBank.has(id)) PlaceSound.shot(id, x, z, ref, k); }
   loop(key, id, x, z, ref = 8, lvl = 1) { if (SoundBank.has(id) && this.dP(x, z) < 80) PlaceSound.want(key, { id, x, z, ref, lvl, fadeIn: 0.3, fadeOut: 0.4, out: 'sfx' }); }
   ground(x, z, y = null) { const c = this.g.collision; const g0 = L.groundY(x, z); return c && c.groundAt ? c.groundAt(x, z, (y ?? g0) + 0.5) : g0; }
@@ -159,6 +170,7 @@ export class Roadside {
     const spot = { x: sx, z: sz, yaw: Math.atan2(F.d[0], F.d[1]) }; const sA = Math.max(ai.s + 3, al - 14); const path = parkPath(P, sA, spot); const cut = { ...P, p1: [P.p0[0] + P.d[0] * sA, P.p0[1] + P.d[1] * sA], len: sA };
     ai.pieces = [cut, path]; ai.route = null; ai.goal = null; ai.park = { path, rs: true }; ai.sMaxP = path; ai.sMax = path.len - 0.02; ai.v0 = Math.min(ai.v0 || 8, kind === 'flat' ? 5 : 7);
     const inc = { id: this.seq++, v, kind, F: null, ph: 'pull', t: 0, due: 0, unit: null, need: FAULTS[kind].unit, tries: 0, own: false, hz: { on: false, t: 0 }, path };
+    if (v.type !== 'tuktuk' && v.T.base !== 'tuktuk') bonnetFrame(v); // 89th: the bonnet's run is measured (and cached per model) now, at the breakdown, not as it is lifted
     v.rsInc = inc; v.ind = 1; this.incidents.push(inc); this.stats.breakdowns++; this.stats.byKind[kind] = (this.stats.byKind[kind] || 0) + 1;
     if (kind === 'flat' && !(v.vd && v.vd.flats) && this.g.vdamage) { const ws = (v.mesh.userData.wheels || []).filter((w) => w.position.x > 0); const w = ws[Math.floor(Math.random() * ws.length)]; if (w) this.g.vdamage.burst(v, w); } // a real puncture (kerb side)
     if (kind === 'engine' || kind === 'immobilised') this.sound('rs.shutdown', v.x, v.z, 12); else if (kind === 'overheat') this.sound('rs.overheat', v.x, v.z, 10);
@@ -360,6 +372,7 @@ export class Roadside {
     const w = { x: p.x, z: p.z, yaw: p.yaw, act: doorAct || (ready || o.placedT > 0 ? tk.act || null : null), lean: doorAct ? 0.15 : tk.lean ?? 0.4, look: tk.look ?? 0.4 };
     if (o.carry && o.carry.two) w.act = o.placedT > 0 && ready ? tk.act || 'medCarry' : 'medCarry';
     if (tk.holds && o.placedT > 0.3) { const H = tk.holds(o); w.holdL = H[0]; w.holdR = H[1]; }
+    o.toolAt = null; if (tk.work && o.placedT > 0.3 && ready) tk.work(o, w); // 89th: the tool on its fitting (spanner on a bolt / brace on a nut): sets both hands (+ the right hand's orientation)
     o.want = w; ems.medic(o, u, dt); this.carryPose(o, dt); if (o.tool) toolPose(o);
     if (o.placedT > 0.3 && ready) { if (!tk.began) { tk.began = true; tk.t = 0; if (tk.start) tk.start(o); } tk.t += dt * RS.workK;
       if (tk.every) { tk.et = (tk.et ?? tk.every[0] * 0.5) - dt; if (tk.et <= 0) { tk.et = tk.every[0] * (0.8 + Math.random() * 0.4); tk.every[1](o); } }

@@ -26,9 +26,34 @@ const FLASH = 0.37; // s per indicator half-cycle (~81 flashes a minute)
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const TYRE = { asphalt: [450, 1], concrete: [600, 0.9], wet: [2400, 1.15], gravel: [1700, 1.35], mud: [320, 1.1], grass: [300, 0.6], grate: [900, 1], tile: [600, 0.9], wood: [380, 0.9], metalStair: [900, 1] };
 
+// 89th: four synthesised gear changes (used while the four mech.gear slots have no recordings). Each is layered like the real
+// thing heard from the cabin: the clutch pedal / release bearing (a low thump), the lever leaving one gate and the synchro
+// sleeve sliding (a short band-passed "shhk" sweeping up), the lever seating in the next gate (a metallic clack with a ring)
+// and the driveline taking up the slack (a soft low clunk). k = loudness (an up-shift under power is louder), up = direction;
+// heavy vehicles (bus / lorry) sound lower and longer, small ones (tuk-tuk, scooter) higher and lighter.
+export function gearShift(variant, k = 1, up = true, cls = 'car') {
+  const A = Audio; if (!A.live) return; const o = { out: 'veh' }; const p = cls === 'heavy' ? 0.7 : cls === 'small' || cls === 'bike' || cls === 'tuktuk' ? 1.3 : 1; const d = up ? 1 : 0.88;
+  const thump = (w, vol, f = 85) => A.tone(f * p, 0.05, { ...o, type: 'triangle', vol: vol * k, attack: 0.004, when: w, glide: f * p * 0.6 });
+  const shhk = (w, dur, f0, f1, vol, q = 1.4) => A.noise(dur, { ...o, f: f0 * p * d, q, vol: vol * k, attack: 0.006, when: w, sweep: f1 * p * d });
+  const clack = (w, f, vol, ring = 0.035) => { A.noise(0.014, { ...o, f: 3200 * p, q: 2.2, vol: vol * k, attack: 0.001, when: w }); A.tone(f * p * d, ring, { ...o, type: 'square', vol: vol * 0.22 * k, attack: 0.001, when: w }); A.tone(f * p * d * 2.73, ring * 0.6, { ...o, vol: vol * 0.12 * k, attack: 0.001, when: w }); };
+  const clunk = (w, vol, f = 160) => A.noise(0.07, { ...o, f: f * p, q: 0.9, type: 'lowpass', vol: vol * k, attack: 0.003, when: w });
+  switch (variant) {
+    case 0: // crisp: quick clean throw, bright clack
+      thump(0, 0.05); shhk(0.03, 0.055, 700, 1600, 0.035); clack(0.085, 1250, 0.06); clunk(0.1, 0.035); break;
+    case 1: // notchy: the lever clicks out of gear, a pause through neutral, then a firmer push into the next gate
+      thump(0, 0.045); clack(0.035, 980, 0.04, 0.025); shhk(0.07, 0.07, 550, 1350, 0.03, 2); clack(0.15, 1180, 0.065); clunk(0.165, 0.045, 140); break;
+    case 2: // smooth: a slow, muted throw — mostly the sleeve sliding and a damped seat
+      thump(0, 0.04, 75); shhk(0.025, 0.11, 480, 1100, 0.03, 1); A.tone(620 * p * d, 0.03, { ...o, type: 'triangle', vol: 0.025 * k, attack: 0.002, when: 0.135 }); clunk(0.14, 0.03, 120); break;
+    default: // worn linkage: loose rattle on the way across, a heavy clack and a drivetrain thunk
+      thump(0, 0.055, 95); for (let i = 0; i < 3; i++) A.noise(0.008, { ...o, f: (2400 + i * 300) * p, q: 3, vol: 0.022 * k, attack: 0.001, when: 0.03 + i * 0.022 }); shhk(0.05, 0.06, 620, 1450, 0.028); clack(0.12, 860, 0.07, 0.05); clunk(0.13, 0.06, 110); break;
+  }
+}
+
 class VehicleSounds {
   constructor() { this.g = null; this.cur = null; this.cool = []; this.taken = new WeakSet(); this.ind = { t: 0, on: false, yaw: 0, py: 0, side: 0 }; this.roll = { h: {} }; this.scr = { h: {} }; this.gear = 0; this.gearT = 0; this.brk = { hi: false, t: -9, air: -9 }; this.surfT = 0; this.surf = 'asphalt'; this.stats = { starts: 0, stops: 0, ticks: 0, clicks: 0, gears: 0, brakes: 0 }; }
   init(g) { this.g = g; }
+  // 89th: which of the four synthesised shifts plays next — a shuffle bag (all four once per round, never the same twice in a row)
+  nextGearVar() { const B = this.gearBag || (this.gearBag = []); if (!B.length) { const a = [0, 1, 2, 3]; for (let i = 3; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } if (a[0] === this.gearLast) a.push(a.shift()); B.push(...a); } return (this.gearLast = B.shift()); }
   // a vehicle taken from its driver (carjack / the driver got out): its engine is running when you sit down
   tookRunning(v) { if (v) this.taken.add(v); }
   update(dt) {
@@ -71,7 +96,7 @@ class VehicleSounds {
     else if (I.side) { I.side = 0; I.on = false; this.lamp(v, 0); }
     // gears (the engine voice's model: a shift every 9 m/s)
     this.gearT -= dt; const gr = Math.floor(sp / 9); if (gr !== this.gear && v.engineK > 0.5) { const up = gr > this.gear; this.gear = gr; if (this.gearT <= 0 && (up ? (v.throttle || 0) > 0.2 : true)) { this.gearT = 0.45; this.stats.gears++; const k = up ? 0.9 : 0.55;
-      if (!SB.play('mech.gear', k, 0, 0, { rate: (up ? 1 : 0.92) * (0.96 + Math.random() * 0.08), out: 'veh', key: 'mech' })) { Audio.noise(0.05, { f: 420, q: 1, vol: 0.05 * k, out: 'veh' }); Audio.tone(95, 0.06, { type: 'triangle', vol: 0.04 * k, out: 'veh' }); } } } else if (gr !== this.gear) this.gear = gr;
+      if (!SB.play('mech.gear', k, 0, 0, { rate: (up ? 1 : 0.92) * (0.96 + Math.random() * 0.08), out: 'veh', key: 'mech' })) gearShift(this.nextGearVar(), k, up, this.cls(v)); } } else if (gr !== this.gear) this.gear = gr;
     // brakes
     const B = this.brk, t = Audio.ctx.currentTime; if (v.brake && sp > 8) B.hi = true; if (!v.brake && sp > 3) B.hi = false;
     if (B.hi && v.brake && sp < 3 && sp > 0.3) { B.hi = false; if (t - B.t > 5 && Math.random() < 0.65) { B.t = t; this.stats.brakes++; if (!SB.play('mech.brake', 0.8, 0, 0, { rate: 0.95 + Math.random() * 0.1, out: 'veh', key: 'mech' })) Audio.tone(2900 + Math.random() * 300, 0.45, { type: 'triangle', vol: 0.008, attack: 0.05, glide: 2650, out: 'veh' }); }

@@ -15,6 +15,8 @@ import { colonnadeArcades } from './BuildingGen.js';
 import { GroundDetail, regTrees } from './GroundDetail.js';
 import { generatePlan, plan, NCX, NCZ, CHUNK, chunkCenter, refitTreeCrowns, landmarkTreeBoxes } from './CityPlan.js';
 import { buildGround } from './GroundBuilder.js';
+import { buildLakeBalusters } from './LakeRailing.js';
+import { buildTelecomTowers } from './Telecom.js';
 import { buildBase, buildDetail, buildWall, windowTasks, frontColumns } from './BuildingGen.js';
 import { buildLandmarks } from './Landmarks.js';
 import { FORT } from './FortStationData.js';
@@ -79,6 +81,8 @@ export class World {
     const ground = buildGround(() => {});
     progress(0.2, 'Raising landmarks'); await tick();
     const lm = buildLandmarks(); this.landmarks = lm; this.root.add(lm.group); this.collision.addAll(lm.colliders);
+    { const tw = buildTelecomTowers(); this.telecom = tw.group; this.root.add(tw.group); this.collision.addAll(tw.colliders); } // 89th: lattice towers + monopoles on their compounds (Telecom.js)
+    { const lb = buildLakeBalusters(); this.lakeBalusters = lb; this.root.add(lb); } // 89th: Beira Lake railing balusters (instanced, LOD per 40 m — LakeRailing.js)
     if (plan.missionShops.gunshop) { const s = plan.missionShops.gunshop; const f = buildGunShopFront(s, plan.buildings.find((b) => b.id === s.b)); this.root.add(f.group); this.collision.addAll(f.colliders); } // Ceylon Arms Co. shopfront
     if (plan.missionShops.club) { const s = plan.missionShops.club; const f = buildClubFront(s, plan.buildings.find((b) => b.id === s.b)); this.root.add(f.group); this.collision.addAll(f.colliders); } // The Velvet Monsoon club frontage
     if (plan.missionShops.bank) { const s = plan.missionShops.bank; const f = buildBankFront(s, plan.buildings.find((b) => b.id === s.b)); this.bankFront = f; this.root.add(f.group); this.collision.addAll(f.colliders); } // 67th: Ceylon Meridian Bank frontage (BankFront.js)
