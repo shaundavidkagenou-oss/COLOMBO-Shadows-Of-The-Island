@@ -74,7 +74,7 @@ try {
     ok(r.idle.p === 'holster' && r.idle.l === 'sling' && r.idle.vis.length === 2, `stowed: pistol in holster, rifle ${r.idle.carry[1]} on sling, ${r.idle.vis.length} on body (26 not shown: one long gun at a time)`);
     ok(r.drawn.cur === 1 && r.drawn.p === 'hand' && r.drawn.holsterShown && r.drawn.strapOpen && !r.drawn.seated && r.drawn.l === 'sling', `drawn: pistol in hand, empty holster stays (retention strap open), rifle still slung — visible ${r.drawn.vis}`);
     ok(r.back.state === 'none' && r.back.p === 'holster' && r.back.seated, `put away: pistol back in the holster (${r.back.vis})`);
-    ok(r.long.cur === 3 && r.long.l === 'hand' && !r.long.slung && !r.long.strap && r.long.p === 'holster', `rifle drawn: off the sling, sling hidden, pistol stays holstered (${r.long.vis})`);
+    ok(r.long.cur === 3 && r.long.l === 'hand' && !r.long.slung && r.long.strap && r.long.p === 'holster', `rifle drawn: off the back, its sling still on it (87th: the strap goes with the gun), pistol stays holstered (${r.long.vis})`);
     ok(r.quick.inHand.length <= 1 && r.quick.holstered.length <= 1 && r.quick.slung.length <= 1 && new Set(r.quick.vis).size === r.quick.vis.length && (r.quick.cur < 0 || r.quick.inHand[0] === r.quick.cur), `quick switching settles: cur ${r.quick.cur} (${r.quick.state}), hand ${r.quick.inHand}, holster ${r.quick.holstered}, sling ${r.quick.slung}`);
     ok(!r.drop.v3 && r.drop.carryL !== 3 && !r.drop.vis.includes(3), `rifle removed from inventory: off the body (carry ${r.drop.carryL}, visible ${r.drop.vis})`);
     ok(!r.dropP.v1 && r.dropP.carryP === -1 && !r.dropP.gear, `pistol removed: holster and gun gone (visible ${r.dropP.vis})`);
@@ -116,9 +116,9 @@ try {
     ok(!r.bike.out.inVeh && r.bike.out.lVis && r.bike.out.p === 'holster', `bike exit: gear intact [${r.bike.out.vis}]`);
   }
   if (SCEN.includes('perf')) { console.log('perf');
-    const r = await E(async () => { const g = window.__game, W = g.weapons, G = W.gear, H = window.__hg; H.setup([1, 3], 1); await g.stepSim(5, 1 / 30); const t0 = performance.now(); for (let i = 0; i < 2000; i++) G.late(1 / 60); const ms = (performance.now() - t0) / 2000;
+    const r = await E(async () => { const g = window.__game, W = g.weapons, G = W.gear, H = window.__hg; H.setup([1, 3], 1); await g.stepSim(5, 1 / 30); const pth = G.cur.L && G.cur.L.path; if (pth) pth.hooked = true; /* as when rendered: late() marks, the strap's render hook lays the path */ g.player.ch.root.updateMatrixWorld(true); const t0 = performance.now(); for (let i = 0; i < 2000; i++) { G.late(1 / 60); if (pth) pth.renderHook(); } const ms = (performance.now() - t0) / 2000;
       let geo = 0; const seen = new Set(); g.player.ch.root.traverse((o) => { if (o.isMesh && o.geometry && !seen.has(o.geometry)) { seen.add(o.geometry); } }); geo = seen.size; return { ms, geo, stats: G.stats }; });
-    ok(r.ms < 0.15, `late() ${(r.ms * 1000).toFixed(1)} µs / frame (SwiftShader box)`); console.log(`   builds ${r.stats.builds}, total build+fit ${r.stats.fitMs.toFixed(0)} ms (one-off, cached), geometries on the hero ${r.geo}`);
+    ok(r.ms < 0.15, `late() + strap path ${(r.ms * 1000).toFixed(1)} µs / frame (SwiftShader box)`); console.log(`   builds ${r.stats.builds}, total build+fit ${r.stats.fitMs.toFixed(0)} ms (one-off, cached), geometries on the hero ${r.geo}`);
   }
   ok(errors.length === 0, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
 } catch (e) { console.log('FATAL', e.stack || e); fail++; }

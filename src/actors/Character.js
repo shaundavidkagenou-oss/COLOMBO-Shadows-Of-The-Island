@@ -1771,6 +1771,10 @@ export class Animator {
       const m = this.aim; const k = m.w ?? 1; b.spine.rotation.y = lerp(b.spine.rotation.y, 0, k); b.spine.rotation.x = lerp(b.spine.rotation.x, -m.pitch * 0.45, k); b.spine.rotation.z = lerp(b.spine.rotation.z, 0, k);
       b.chest.rotation.set(lerp(b.chest.rotation.x, -m.pitch * 0.55, k), lerp(b.chest.rotation.y, -(m.twist || 0), k), lerp(b.chest.rotation.z, 0, k));
       b.neck.rotation.x = lerp(b.neck.rotation.x, m.pitch * 0.35, k); b.neck.rotation.y = lerp(b.neck.rotation.y, (m.twist || 0) * 0.6, k); b.head.rotation.y = lerp(b.head.rotation.y, (m.twist || 0) * 0.4, k); b.head.rotation.x = lerp(b.head.rotation.x, (m.headDown || 0), k);
+      if (m.bend || m.lean || m.turn) { // 87th: weight shift layered on the stance while a weapon is drawn / put away (Weapons.pose): the firing
+        // shoulder dropping into the reach for the holster, the trunk turning from a long gun coming over the shoulder — head kept level
+        const bd = m.bend || 0, ln = m.lean || 0, tn = m.turn || 0; b.spine.rotation.z += bd * 0.55; b.chest.rotation.z += bd * 0.45; b.spine.rotation.x += ln * 0.6; b.chest.rotation.x += ln * 0.4;
+        b.spine.rotation.y += tn * 0.5; b.chest.rotation.y += tn * 0.5; b.neck.rotation.z -= bd * 0.7; b.neck.rotation.y -= tn * 0.7; b.neck.rotation.x -= ln * 0.6; }
       const K = this.sk; if (K && (K.x || K.v || K.y || K.yv)) { // the body takes each shot: torso rocks back (rifles: firing shoulder driven back) and settles; the
         // neck / head counter it so the eyes stay on the sights (only ~25 % of the rock reaches the head) — a damped spring, never a canned clip
         const n = 3, h = Math.min(dt, 1 / 20) / n, ks = 300, cs = 2 * Math.sqrt(ks) * 0.52;

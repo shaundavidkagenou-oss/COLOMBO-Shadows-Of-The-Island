@@ -32,7 +32,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { weaponSurface } from './WeaponSurface.js';
-import { dqSkin } from '../actors/HeroRig.js';
+import { SlingPath, RING_NB, pathMaterial, pathDepthMaterial } from './SlingStrap.js';
+import { PISTOL_ENVELOPE, PISTOL_SEATS } from './holsterEnvelope.js';
 import { WEAPONS } from './WeaponDefs.js';
 
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
@@ -172,10 +173,9 @@ function merge(list) { const gs = list.flat().filter(Boolean).map(prep); if (!gs
 
 // ---------------------------------------------------------------------------------------------------- materials (shared)
 const MAT = new Map();
-function gearMat(kind, color, rough, metal = 0, extra = '') {
-  const key = kind + color + rough + metal + extra; let m = MAT.get(key); if (m) return m;
+function gearMat(kind, color, rough, metal = 0) {
+  const key = kind + color + rough + metal; let m = MAT.get(key); if (m) return m;
   m = new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal, vertexColors: true }); weaponSurface(m, kind);
-  if (extra === 'dq') { const prev = m.onBeforeCompile; m.onBeforeCompile = (sh, r) => { prev(sh, r); dqSkin(sh); }; m.customProgramCacheKey = () => 'carryGear-dq:' + kind; }
   m.name = 'carryGear:' + kind; MAT.set(key, m); return m;
 }
 const HW = { brass: ['brass', '#8f7442', 0.38, 0.9], steel: ['steel', '#9a9ea4', 0.3, 0.92], oxide: ['blued', '#1b1c1f', 0.42, 0.75] };
@@ -205,6 +205,7 @@ class HMap {
 }
 
 // ---------------------------------------------------------------------------------------------------- holster
+const SLIDE_N = 16; // sling transition: clearance samples over the half turn
 const HOLSTER_ANGLE = 2.05; // round the hips from the front towards the right side: just behind the hip bone ("4 o'clock")
 const CANT = 0.14; // muzzle raked slightly to the rear (FBI cant): the grip leans forward into the hand
 // build the holster around one pistol (pistol space: the pistol sits at identity inside it)
@@ -294,7 +295,7 @@ function buildHolster(pr, ud, st) {
   const shellPts = []; for (let i = 0; i <= 10; i++) for (let k = 0; k < K; k += 3) { const th = TH[k]; const z = zm(th) + (zTip - zm(th)) * (i / 10); shellPts.push(S(th, z, t)); }
   const probes = [V(plateX + tp, (yLo + yHi) / 2, zP1), V(A(zTip - 0.01) + t, CY(zTip - 0.01), zTip - 0.01), V(A(zTip - 0.03) + t, CY(zTip - 0.03) - B(zTip - 0.03) * 0.7, zTip - 0.03)];
   const loops = [V(plateX + tp, CY(zA) - 0.026, zA + 0.024), V(plateX + tp, CY(zA) + 0.026, zA + 0.024)]; // belt-loop straps start here (inner face), going up
-  return { group: grp, strapC, strapO, zA, zTip, plateX, tp, contact, shellPts, probes, loops, loopTop: zA - 0.004, depth: zTip - zA + 0.025, kydex };
+  return { group: grp, strapC, strapO, zA, ext, zTip, plateX, tp, contact, shellPts, probes, loops, loopTop: zA - 0.004, depth: zTip - zA + 0.025, kydex };
 }
 
 // place a holster on this body (hips-bone space); returns null when the body has no usable bind data
@@ -383,8 +384,10 @@ function fitLong(B, pr, ud, cat) {
   const d0 = D.clone().applyMatrix4(M).sub(Uc).normalize();
   return { M, Uc, Db, lowBone, d0, back, len, cat, up: L.up, zB, zM, yc, rot: best.R };
 }
-// the strap: sash plane through the right shoulder top and the left hip, cut through the bind-pose torso; tails + D-rings on
-// the rifle; skinned strap from buckle to buckle with weights from the nearest body vertices
+// the sling (87th): the ring round the torso (sash plane through the right shoulder top and the left hip, cut through the
+// bind-pose body, pulled taut over hollows), skinned node by node; the D-rings / studs on the rifle (rifle space, they go wherever
+// the rifle goes); ONE strap from swivel to swivel built straight in material coordinates and bent along the live path
+// (SlingStrap.js); and the clearance table for the sling transition (the rifle sliding round the ring over the right shoulder)
 function buildSling(B, F, pr, ud, st, ch) {
   const C = B.chest, M = F.M, Mi = M.clone().invert(), cat = F.cat; const leatherSling = st.sling === 'leather';
   const w = cat === 'compact' ? 0.03 : 0.032, th = leatherSling ? 0.0036 : 0.0025;
@@ -393,86 +396,104 @@ function buildSling(B, F, pr, ud, st, ch) {
   if (!isFinite(shTop)) shTop = B.shR.y + 0.05;
   const S = V(sx, shTop, 0), Lh = V(0.135, B.hips.y + 0.09, 0); const Cs = S.clone().add(Lh).multiplyScalar(0.5); Cs.z = 0.0;
   const e1 = S.clone().sub(Cs).normalize(), e2 = V(0, 0, 1), nrm = V().crossVectors(e1, e2).normalize();
-  const NB = 180, R = new Float32Array(NB), lists = Array.from({ length: NB }, () => []); const rel = V();
+  const NB = RING_NB, R = new Float32Array(NB), lists = Array.from({ length: NB }, () => []); const rel = V();
   for (let i = 0; i < B.n; i++) { if (B.armW[i] > 0.5) continue; rel.set(B.pos[3 * i] - Cs.x, B.pos[3 * i + 1] - Cs.y, B.pos[3 * i + 2] - Cs.z); const h = rel.dot(nrm); if (Math.abs(h) > w / 2 + 0.006) continue;
     const c1 = rel.dot(e1), c2 = rel.dot(e2); const phi = (Math.atan2(c2, c1) + Math.PI * 2) % (Math.PI * 2); const bI = Math.min(NB - 1, Math.floor((phi / (Math.PI * 2)) * NB)); const r = Math.hypot(c1, c2); if (r > R[bI]) R[bI] = r; lists[bI].push(i); }
   for (let i = 0; i < NB; i++) if (!R[i]) { let a = 1, b = 1; while (!R[(i - a + NB) % NB] && a < NB) a++; while (!R[(i + b) % NB] && b < NB) b++; R[i] = (R[(i - a + NB) % NB] * b + R[(i + b) % NB] * a) / (a + b); }
   const T = Float32Array.from(R); for (let it = 0; it < 60; it++) for (let i = 0; i < NB; i++) T[i] = Math.max(R[i], (T[(i - 1 + NB) % NB] + T[(i + 1) % NB]) / 2); // taut over hollows
   const off = 0.0032 + th / 2; const loopP = (i) => { const phi = ((i + 0.5) / NB) * Math.PI * 2; return Cs.clone().addScaledVector(e1, Math.cos(phi) * (T[i] + off)).addScaledVector(e2, Math.sin(phi) * (T[i] + off)); };
   const loopN = (i) => { const phi = ((i + 0.5) / NB) * Math.PI * 2; return e1.clone().multiplyScalar(Math.cos(phi)).addScaledVector(e2, Math.sin(phi)); };
-  // swivels: front (handguard) and rear (stock), each on the side of the rifle that faces where its strap goes
+  // swivels: front (handguard) and rear (stock), each on the side of the rifle that faces where its strap goes on the back
   const zf = clamp((ud.support ? ud.support.z : 0.2) + 0.14, F.zB + 0.3, F.zM - 0.09), zr = F.zB + 0.065;
   const zU = F.up ? zf : zr, zL = F.up ? zr : zf; const upB = V(0, 1, 0).transformDirection(M); // rifle's top, chest space
   const swivel = (z, goal) => { const i = pIdx(pr, z); const toward = goal.clone().sub(C).sub(V(0, F.yc, z).applyMatrix4(M)); const side = upB.dot(toward) >= 0 ? 1 : -1; return { z, side, p: V(0, side > 0 ? pr.y1[i] : pr.y0[i], z) }; };
   const sU = swivel(zU, S), sL = swivel(zL, Lh);
-  const swW = (s) => s.p.clone().add(V(0, s.side * 0.012, 0)).applyMatrix4(M).add(C); // D-ring bar, bind space
+  const swW = (s) => s.p.clone().add(V(0, s.side * 0.0145, 0)).applyMatrix4(M).add(C); // D-ring bar, bind space
   const barU = swW(sU), barL = swW(sL);
-  // loop indices nearest each swivel (back half), then the long way round (over the shoulder, across the front)
+  // attach nodes with the rifle on the back: nearest each bar on the back half; the strap runs FORWARD round the ring from U to L
+  // (over the right shoulder, across the chest, round the left hip)
   const nearest = (P) => { let bi = 0, bd = Infinity; for (let i = 0; i < NB; i++) { const q = loopP(i); if (q.z > 0.02) continue; const d = q.distanceTo(P); if (d < bd) { bd = d; bi = i; } } return bi; };
-  let iU = nearest(barU), iL = nearest(barL);
-  const fwd = (i) => (i + 1) % NB; const path = []; { let i = iU; let guard = 0; while (i !== iL && guard++ < NB) { path.push(i); i = fwd(i); } path.push(iL); }
-  if (!path.some((i) => loopP(i).z > 0.05)) { path.length = 0; let i = iU, guard = 0; while (i !== iL && guard++ < NB) { path.push(i); i = (i - 1 + NB) % NB; } path.push(iL); }
-  // buckles where the strap is 7 cm (path) from its D-ring
-  const trimFrom = (list, bar) => { let k = 0; while (k < list.length - 2 && loopP(list[k]).distanceTo(bar) < 0.075) k++; return k; };
-  const k0 = trimFrom(path, barU), k1 = path.length - 1 - trimFrom(path.slice().reverse(), barL); const run = path.slice(k0, k1 + 1).filter((_, i, a) => i % 2 === 0 || i === a.length - 1);
-  const bkU = loopP(path[k0]), bkL = loopP(path[k1]);
-  // skinned strap: buckle → shoulder → chest → hip → buckle, each end carried 3 cm on into its buckle over the tail
-  const sp = [], sn = [], sw = []; const ext = (bk, bar, iN) => { const d = bar.clone().sub(bk).normalize(); return bk.clone().addScaledVector(d, 0.03).addScaledVector(loopN(iN), th * 1.15); };
-  sp.push(ext(bkU, barU, path[k0])); sn.push(loopN(path[k0])); sw.push(nrm.clone());
-  for (const i of run) { sp.push(loopP(i)); sn.push(loopN(i)); sw.push(nrm.clone()); }
-  sp.push(ext(bkL, barL, path[k1])); sn.push(loopN(path[k1])); sw.push(nrm.clone());
-  const pad = LONG_FIT[cat].pad; const shIdx = sp.reduce((bi, p, i) => (p.y > sp[bi].y ? i : bi), 0); const padW = (i) => { if (!pad) return 1; const d = sp[i].distanceTo(sp[shIdx]); return 1 + 0.55 * (1 - sstep(0.1, 0.14, d)); };
-  const strapParts = ribbon(sp, sn, sw, w, th, { scaleW: padW, shade: () => 1 });
-  if (pad) { // shoulder pad: thicker neoprene-backed section, its own seam
-    const pi = []; sp.forEach((p, i) => { if (p.distanceTo(sp[shIdx]) < 0.13) pi.push(i); }); if (pi.length > 2) { const pp = pi.map((i) => sp[i].clone().addScaledVector(sn[i], th / 2 + 0.002)); const pn = pi.map((i) => sn[i]); const pw = pi.map((i) => sw[i]);
-      strapParts.push(ribbon(pp, pn, pw, w * 1.5, 0.0045, { scaleW: (k) => 0.75 + 0.25 * Math.sin((k / (pp.length - 1)) * Math.PI), shade: () => 0.82 }));
-      const sc = ratio(st.strapThread, st.strap); for (const s2 of [-1, 1]) strapParts.push(stitchRow(pp.map((p, k) => p.clone().addScaledVector(pn[k], 0.00245).addScaledVector(pw[k], s2 * w * 0.62 * (0.75 + 0.25 * Math.sin((k / (pp.length - 1)) * Math.PI)))), pn, sc, { pitch: 0.0048 })); } }
-  if (leatherSling) { const sc = ratio(st.strapThread, st.strap); for (const s2 of [-1, 1]) strapParts.push(stitchRow(sp.slice(1, -1).map((p, k) => p.clone().addScaledVector(sn[k + 1], th / 2 + 0.0002).addScaledVector(sw[k + 1], s2 * w * 0.38)), sn.slice(1, -1), sc, { pitch: 0.0055 })); }
-  const sg = merge(strapParts);
-  // skin weights: nearest body vertices (inverse distance) of the same angular bins; ends blend fully onto the anchor bones
-  const P = sg.attributes.position, nV = P.count, SIa = new Uint16Array(nV * 4), SWa = new Float32Array(nV * 4); const iChest = B.bi('chest'), iLow = B.bi(F.lowBone);
-  const acc = new Map(), q = V(), vv = V();
-  const wFor = (p) => { rel.copy(p).sub(Cs); const phi = (Math.atan2(rel.dot(e2), rel.dot(e1)) + Math.PI * 2) % (Math.PI * 2); const b0 = Math.floor((phi / (Math.PI * 2)) * NB); const cand = [];
-    for (let d = -2; d <= 2; d++) for (const i of lists[(b0 + d + NB) % NB]) { vv.set(B.pos[3 * i], B.pos[3 * i + 1], B.pos[3 * i + 2]); cand.push([vv.distanceToSquared(p), i]); }
-    cand.sort((a, b) => a[0] - b[0]); acc.clear(); let tot = 0; for (let k = 0; k < Math.min(6, cand.length); k++) { const [d2, i] = cand[k]; const wt = 1 / (Math.sqrt(d2) + 0.01); tot += wt; for (let c = 0; c < 4; c++) { const bb = B.SI.getComponent(i, c), ww = B.SW.getComponent(i, c) * wt; if (ww > 0) acc.set(bb, (acc.get(bb) || 0) + ww); } }
-    return { acc, tot }; };
-  const dU = (p) => Math.min(p.distanceTo(bkU), p.distanceTo(barU)), dL = (p) => Math.min(p.distanceTo(bkL), p.distanceTo(barL));
-  for (let j = 0; j < nV; j++) {
-    q.fromBufferAttribute(P, j); const { acc: A2, tot } = wFor(q); const m = new Map(); if (tot > 0) for (const [k, v] of A2) m.set(k, v / tot);
-    const kU = 1 - sstep(0.03, 0.09, dU(q)), kL = 1 - sstep(0.03, 0.09, dL(q)); const kk = Math.max(kU, kL), bone = kU >= kL ? iChest : iLow;
-    if (kk > 0) { for (const [k, v] of m) m.set(k, v * (1 - kk)); m.set(bone, (m.get(bone) || 0) + kk); }
-    const top = [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4); const s = top.reduce((x, e) => x + e[1], 0) || 1; for (let c = 0; c < 4; c++) { SIa[4 * j + c] = top[c] ? top[c][0] : 0; SWa[4 * j + c] = top[c] ? top[c][1] / s : 0; }
+  const iU = nearest(barU), iL = nearest(barL);
+  // ring nodes for the runtime: bind position / normal + skin weights from the nearest body vertices (inverse distance)
+  const ringP = new Float32Array(NB * 3), ringN = new Float32Array(NB * 3), SIa = new Uint16Array(NB * 4), SWa = new Float32Array(NB * 4); const acc = new Map(), vv = V();
+  for (let i = 0; i < NB; i++) {
+    const p = loopP(i), n = loopN(i); ringP.set([p.x, p.y, p.z], 3 * i); ringN.set([n.x, n.y, n.z], 3 * i); const cand = [];
+    for (let d = -2; d <= 2; d++) for (const j of lists[(i + d + NB) % NB]) { vv.set(B.pos[3 * j], B.pos[3 * j + 1], B.pos[3 * j + 2]); cand.push([vv.distanceToSquared(p), j]); }
+    cand.sort((a, b) => a[0] - b[0]); acc.clear(); for (let k = 0; k < Math.min(6, cand.length); k++) { const [d2, j] = cand[k]; const wt = 1 / (Math.sqrt(d2) + 0.01); for (let c = 0; c < 4; c++) { const bb = B.SI.getComponent(j, c), ww = B.SW.getComponent(j, c) * wt; if (ww > 0) acc.set(bb, (acc.get(bb) || 0) + ww); } }
+    if (!acc.size) acc.set(B.bi('chest'), 1); const top = [...acc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4); const s = top.reduce((x, e) => x + e[1], 0) || 1;
+    for (let c = 0; c < 4; c++) { SIa[4 * i + c] = top[c] ? top[c][0] : 0; SWa[4 * i + c] = top[c] ? top[c][1] / s : 0; }
   }
-  sg.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(SIa, 4)); sg.setAttribute('skinWeight', new THREE.Float32BufferAttribute(SWa, 4));
-  const strapMat = leatherSling ? gearMat('leather', st.strap, 0.62, 0, 'dq') : gearMat('webbing', st.strap, 0.78, 0, 'dq');
-  const strap = new THREE.SkinnedMesh(sg, strapMat); strap.name = 'slingStrap'; strap.bind(ch.mesh.skeleton, ch.mesh.bindMatrix); strap.castShadow = true; strap.receiveShadow = true; strap.boundingSphere = new THREE.Sphere(V(0, 0.9, 0), 1.3);
-  // rifle-side parts (rifle space): QD swivel studs, D-rings turned towards the strap, tails folded round the bars, buckles
-  const tails = [], hw = []; const toR = (pW) => pW.clone().sub(C).applyMatrix4(Mi); const nR = (dW) => dW.clone().transformDirection(Mi);
-  const scol = ratio(st.strapThread, st.strap);
-  for (const [s, bar, bk, iN] of [[sU, barU, bkU, path[k0]], [sL, barL, bkL, path[k1]]]) {
+  const ring = { P: ringP, N: ringN, SI: SIa, SW: SWa };
+  // rifle-side hardware (rifle space): QD swivel studs, posts and D-rings, the bar square to the strap's pull on the back
+  const hw = []; const toR = (pW) => pW.clone().sub(C).applyMatrix4(Mi); const bars = {};
+  for (const [key, s, bar, iN] of [['U', sU, barU, iU], ['L', sL, barL, iL]]) {
     const sN = V(0, s.side, 0), base = s.p.clone(); hw.push(lathe([[0.0062, -0.002], [0.0062, 0.001], [0.0058, 0.0022], [0.0042, 0.003], [0, 0.0031]], base, sN, 16)); // flush cup
-    const barR = toR(bar), bkR = toR(bk); const dir = bkR.clone().sub(barR).normalize(); const ax = V().crossVectors(sN, dir); if (ax.lengthSq() < 1e-4) ax.set(1, 0, 0); ax.normalize(); // bar axis ⟂ strap pull
-    const m2 = V().crossVectors(ax, sN).normalize(); const hwid = w / 2 + 0.0035; const ringPts = []; for (let k = 0; k < 18; k++) { const an = (k / 18) * Math.PI * 2; const c = Math.cos(an), sn2 = Math.sin(an); const along = sn2 >= 0 ? 0.012 : 0.012 + sn2 * 0.0095; ringPts.push(base.clone().addScaledVector(ax, c * hwid).addScaledVector(sN, along + 0.0025).addScaledVector(m2, 0)); }
+    const barR = toR(bar), dir = toR(loopP(iN)).sub(barR).normalize(); const ax = V().crossVectors(sN, dir); if (ax.lengthSq() < 1e-4) ax.set(1, 0, 0); ax.normalize(); // bar axis ⟂ strap pull
+    const hwid = w / 2 + 0.0035; const ringPts = []; for (let k = 0; k < 18; k++) { const an = (k / 18) * Math.PI * 2; const c = Math.cos(an), sn2 = Math.sin(an); const along = sn2 >= 0 ? 0.012 : 0.012 + sn2 * 0.0095; ringPts.push(base.clone().addScaledVector(ax, c * hwid).addScaledVector(sN, along + 0.0025)); }
     hw.push(wireLoop(ringPts, 0.0016)); hw.push(lathe([[0.0018, 0], [0.0026, 0.0012], [0.0026, 0.0045], [0.0016, 0.0058], [0, 0.006]], base.clone().addScaledVector(sN, 0.0015), sN, 10)); // swivel post
-    // tail: wraps the bar, double back to the bar-tack, out to the buckle
-    const barC = base.clone().addScaledVector(sN, 0.0145); const wn = V().crossVectors(dir, ax).normalize(); if (wn.dot(sN) < 0) wn.negate();
-    const tp = [], tn = [], tw2 = []; const rr = 0.0016 + th * 0.6;
-    tp.push(barC.clone().addScaledVector(dir, 0.04).addScaledVector(wn, -rr)); tn.push(wn.clone().negate()); for (let k = 0; k <= 6; k++) { const an = Math.PI / 2 + (k / 6) * Math.PI; const rd = dir.clone().multiplyScalar(Math.cos(an)).addScaledVector(wn, -Math.sin(an)); tp.push(barC.clone().addScaledVector(rd, rr)); tn.push(rd.clone()); }
-    const end = bkR.clone().addScaledVector(nR(loopN(iN)), -th * 0.2); const steps = 8; const p0 = tp[tp.length - 1].clone();
-    for (let k = 1; k <= steps; k++) { const t2 = k / steps; tp.push(p0.clone().lerp(end, t2)); const nn = wn.clone().lerp(nR(loopN(iN)), sstep(0.3, 1, t2)).normalize(); tn.push(nn); }
-    for (let k = 0; k < tp.length; k++) { const tg = tp[Math.min(tp.length - 1, k + 1)].clone().sub(tp[Math.max(0, k - 1)]).normalize(); tw2.push(V().crossVectors(tn[k], tg).normalize()); }
-    tails.push(ribbon(tp, tn, tw2, w, th, { shade: () => 1 }));
-    // box-X bar-tack through the doubled strap
-    const bt0 = 7 + 1, bt1 = Math.min(tp.length - 2, 7 + 3); const c0 = tp[bt0], c1 = tp[bt1], nn = tn[bt0], ww = tw2[bt0]; const corner = (a, b) => c0.clone().lerp(c1, a).addScaledVector(ww, b * w * 0.36).addScaledVector(nn, th / 2 + 0.00025);
-    const seg = (a, b) => { const pts = []; for (let k = 0; k <= 6; k++) pts.push(a.clone().lerp(b, k / 6)); tails.push(stitchRow(pts, pts.map(() => nn), scol, { pitch: 0.0032, len: 0.0024, slant: 0 })); };
-    const A0 = corner(0, -1), A1 = corner(0, 1), A2b = corner(1, 1), A3 = corner(1, -1); seg(A0, A1); seg(A1, A2b); seg(A2b, A3); seg(A3, A0); seg(A0, A2b); seg(A1, A3);
-    // tri-glide buckle at the strap end
-    const bn = nR(loopN(iN)), bd = dir, bw = V().crossVectors(bn, bd).normalize(); const fr = []; const hx = w / 2 + 0.003, hz = 0.011; for (let k = 0; k < 20; k++) { const an = (k / 20) * Math.PI * 2; const c = Math.cos(an), sn3 = Math.sin(an); const ex = 0.25; fr.push(bkR.clone().addScaledVector(bw, Math.sign(c) * Math.pow(Math.abs(c), ex) * hx).addScaledVector(bd, Math.sign(sn3) * Math.pow(Math.abs(sn3), ex) * hz).addScaledVector(bn, th * 0.8)); }
-    hw.push(wireLoop(fr, 0.0014)); const cb = []; for (let k = 0; k <= 4; k++) cb.push(bkR.clone().addScaledVector(bw, -hx + (2 * hx * k) / 4).addScaledVector(bn, th * 0.8)); hw.push(wireLoop([...cb, ...cb.slice(1, -1).reverse()], 0.0013));
+    bars[key] = { p: base.clone().addScaledVector(sN, 0.0145), x: ax };
   }
-  const tailMat = leatherSling ? gearMat('leather', st.strap, 0.62) : gearMat('webbing', st.strap, 0.78);
-  const rig = new THREE.Group(); rig.name = 'slingHardware'; const tm = new THREE.Mesh(merge(tails), tailMat); tm.castShadow = true; tm.receiveShadow = true; const hm = new THREE.Mesh(merge(hw), hwMat(st.hw === 'brass' ? 'oxide' : st.hw)); hm.castShadow = true; rig.add(tm, hm);
-  return { strap, rig };
+  const rig = new THREE.Group(); rig.name = 'slingHardware'; const hm = new THREE.Mesh(merge(hw), hwMat(st.hw === 'brass' ? 'oxide' : st.hw)); hm.castShadow = true; rig.add(hm);
+  // strap length = the slung path in the bind pose (so the strap fits exactly there and the ends never stretch)
+  const Mb = new THREE.Matrix4().makeTranslation(C.x, C.y, C.z).multiply(M); const slung = { aU: iU, aL: iL };
+  const bl = SlingPath.bindLength(ring, bars, Mb, slung); const Lm = bl.L, mTop = bl.mTop, E = 0.1;
+  // the adjustable run (quick-adjust): plain strap clear of the pad and of the ends — where the strap pays out when the gun is brought
+  // round to the front and is taken back in when it goes on the back (SlingPath / pathS); nothing stitched along it
+  let ZA = mTop > Lm / 2 ? E + 0.03 : mTop + 0.16, ZB = mTop > Lm / 2 ? mTop - 0.16 : Lm - E - 0.03; if (ZB - ZA < 0.12) { ZA = E; ZB = Lm - E; }
+  // ---- the strap, straight: x = metres along (0 = U end), y = off the outer face, z = across
+  const nSt = Math.max(24, Math.ceil(Lm / 0.008)); const xs = Array.from({ length: nSt + 1 }, (_, i) => (Lm * i) / nSt);
+  const line = (x0, x1, y, step = 0.008) => { const n = Math.max(2, Math.ceil((x1 - x0) / step)); return Array.from({ length: n + 1 }, (_, i) => V(x0 + ((x1 - x0) * i) / n, y, 0)); };
+  const NY = (a) => a.map(() => V(0, 1, 0)), WZ = (a) => a.map(() => V(0, 0, 1));
+  const pad = LONG_FIT[cat].pad; const padW = (x) => (pad ? 1 + 0.55 * (1 - sstep(0.1, 0.14, Math.abs(x - mTop))) : 1);
+  const P0 = xs.map((x) => V(x, 0, 0)); const strapParts = ribbon(P0, NY(P0), WZ(P0), w, th, { scaleW: (i) => padW(xs[i]), shade: () => 1 });
+  const sc = ratio(st.strapThread, st.strap); const up = V(0, 1, 0);
+  if (pad) { // shoulder pad: thicker neoprene-backed section, its own seam
+    const pp = line(Math.max(0.12, mTop - 0.13), Math.min(Lm - 0.12, mTop + 0.13), th / 2 + 0.002); const sw2 = (k) => 0.75 + 0.25 * Math.sin((k / (pp.length - 1)) * Math.PI);
+    strapParts.push(ribbon(pp, NY(pp), WZ(pp), w * 1.5, 0.0045, { scaleW: sw2, shade: () => 0.82 }));
+    for (const s2 of [-1, 1]) strapParts.push(stitchRow(pp.map((p, k) => p.clone().setY(th / 2 + 0.00445).setZ(s2 * w * 0.62 * sw2(k))), pp.map(() => up), sc, { pitch: 0.0048 })); }
+  if (leatherSling) for (const s2 of [-1, 1]) for (const [x0, x1] of [[0.075, ZA - 0.01], [ZB + 0.01, Lm - 0.075]]) if (x1 - x0 > 0.03) strapParts.push(stitchRow(line(x0, x1, th / 2 + 0.0002).map((p) => p.setZ(s2 * w * 0.38)), line(x0, x1, 0).map(() => up), sc, { pitch: 0.0055 })); // edge stitching stops where the strap adjusts
+  // the ends: round the D-ring bar, doubled back over the outer face and box-X bar-tacked, the tip under a tri-glide
+  const sHw = []; const tl = 0.068, yT = th * 1.05, rf = yT / 2;
+  for (const end of [0, 1]) {
+    const xa = end ? Lm - tl : 0.0015, xb = end ? Lm - 0.0015 : tl; const tp = line(xa, xb, yT, 0.006); strapParts.push(ribbon(tp, NY(tp), WZ(tp), w * 0.985, th, { shade: () => 0.97 }));
+    const xe = end ? Lm : 0, fp = [], fn = []; for (let k = 0; k <= 8; k++) { const an = -Math.PI / 2 + (end ? 1 : -1) * (k / 8) * Math.PI; const c = V(xe + Math.cos(an) * rf * 1.02, rf + Math.sin(an) * rf, 0); fp.push(c); fn.push(V(Math.cos(an), Math.sin(an), 0)); }
+    strapParts.push(ribbon(fp, fn, WZ(fp), w * 0.99, th, { caps: false, shade: () => 0.92 }));
+    const xc = end ? Lm - 0.03 : 0.03, yS = yT + th / 2 + 0.00025; const corner = (a, b) => V(xc + a * 0.011, yS, b * w * 0.36);
+    const seg = (a, b) => { const pts = []; for (let k = 0; k <= 6; k++) pts.push(a.clone().lerp(b, k / 6)); strapParts.push(stitchRow(pts, pts.map(() => up), sc, { pitch: 0.0032, len: 0.0024, slant: 0 })); };
+    const A0 = corner(-1, -1), A1 = corner(-1, 1), A2 = corner(1, 1), A3 = corner(1, -1); seg(A0, A1); seg(A1, A2); seg(A2, A3); seg(A3, A0); seg(A0, A2); seg(A1, A3);
+    const xg = end ? Lm - 0.074 : 0.074, hx = w / 2 + 0.003, hz = 0.011, fr = []; for (let k = 0; k < 20; k++) { const an = (k / 20) * Math.PI * 2; const c = Math.cos(an), s3 = Math.sin(an); fr.push(V(xg + Math.sign(s3) * Math.pow(Math.abs(s3), 0.25) * hz, yT * 0.5, Math.sign(c) * Math.pow(Math.abs(c), 0.25) * hx)); }
+    sHw.push(wireLoop(fr, 0.0014)); const cb = []; for (let k = 0; k <= 4; k++) cb.push(V(xg, yT + th * 0.9, -hx + (2 * hx * k) / 4)); sHw.push(wireLoop([...cb, ...cb.slice(1, -1).reverse()], 0.0013));
+  }
+  const path = new SlingPath(ch.mesh, ring, bars, Lm, E, slung);
+  path.setZone(ZA, ZB);
+  const sMat = pathMaterial(leatherSling ? gearMat('leather', st.strap, 0.62) : gearMat('webbing', st.strap, 0.78), path.U), dMat = pathDepthMaterial(path.U);
+  const strap = new THREE.Group(); strap.name = 'slingStrap';
+  const sm = new THREE.Mesh(merge(strapParts), sMat); const bm = new THREE.Mesh(merge(sHw), pathMaterial(hwMat(st.hw === 'brass' ? 'oxide' : st.hw), path.U));
+  for (const m of [sm, bm]) { m.geometry.boundingSphere = new THREE.Sphere(V(0, 0.95, 0), 1.7); m.castShadow = true; m.receiveShadow = m === sm; m.customDepthMaterial = dMat; strap.add(m); }
+  // the path is laid at render time, once per frame, from the world matrices the renderer has just brought up to date (the shadow
+  // pass draws first, so it and the main pass see the same path) — no extra hierarchy update in the game loop for it
+  const hook = () => path.renderHook(); sm.onBeforeRender = hook; bm.onBeforeRender = hook;
+  // ---- sling transition: the rifle slides round the ring (about the sash axis through Cs) over the right shoulder to the front;
+  // per angle, how far it must stand off the body (radial map of the torso in the sash frame) so it never passes through it
+  const rmap = new HMap(-0.64, 0.64, -0.4, 0.4, 0.012);
+  for (let i = 0; i < B.n; i++) { if (B.armW[i] > 0.5) continue; rel.set(B.pos[3 * i] - Cs.x, B.pos[3 * i + 1] - Cs.y, B.pos[3 * i + 2] - Cs.z); const c1 = rel.dot(e1), c2 = rel.dot(e2); rmap.add(Math.atan2(c2, c1) * 0.2, rel.dot(nrm), Math.hypot(c1, c2)); }
+  if (B.neck) { const hc = B.neck.clone().add(V(0, 0.1, 0.015)); for (let a = 0; a < 24; a++) for (let b = 1; b < 12; b++) { const th2 = (a / 24) * Math.PI * 2, ph = (b / 12) * Math.PI; // the head is its own mesh: a 12 cm sphere stands in for it (hair, caps)
+    rel.set(Math.sin(ph) * Math.cos(th2), Math.cos(ph), Math.sin(ph) * Math.sin(th2)).multiplyScalar(0.12).add(hc).sub(Cs); const c1 = rel.dot(e1), c2 = rel.dot(e2); rmap.add(Math.atan2(c2, c1) * 0.2, rel.dot(nrm), Math.hypot(c1, c2)); } }
+  const rp = []; for (let i = 0; i < pr.n; i += 2) { const z = pr.z0 + (i + 0.5) * pr.bin; if (z < F.zB - 0.005 || z > F.zM + 0.005) continue; for (const yy of [pr.y0[i], pr.y1[i]]) for (const xx of [pr.x0[i], pr.x1[i]]) rp.push(V(xx, yy, z)); }
+  const cen = V(0, F.yc, (F.zB + F.zM) / 2), lifts = new Float32Array(SLIDE_N + 1), q = V(), dv = V(); const Rj = new THREE.Matrix4();
+  for (let j = 0; j <= SLIDE_N; j++) {
+    const psi = (j / SLIDE_N) * Math.PI; Rj.makeTranslation(Cs.x, Cs.y, Cs.z).multiply(new THREE.Matrix4().makeRotationAxis(nrm, psi)).multiply(new THREE.Matrix4().makeTranslation(-Cs.x, -Cs.y, -Cs.z)).multiply(Mb);
+    dv.copy(cen).applyMatrix4(Rj).sub(Cs); dv.addScaledVector(nrm, -dv.dot(nrm)).normalize();
+    const clear = (L) => { for (const p of rp) { q.copy(p).applyMatrix4(Rj).addScaledVector(dv, L).sub(Cs); const c1 = q.dot(e1), c2 = q.dot(e2); const hb = rmap.get(Math.atan2(c2, c1) * 0.2, q.dot(nrm)); if (hb !== -Infinity && Math.hypot(c1, c2) < hb + 0.02) return false; } return true; };
+    if (clear(0)) continue; let lo = 0, hi = 0.6; for (let it = 0; it < 11; it++) { const mid = (lo + hi) / 2; if (clear(mid)) hi = mid; else lo = mid; } lifts[j] = hi;
+  }
+  { // the stand-off as a smooth function of the swing (no radial kick where the head / shoulder starts or stops needing room): dilate by a
+    // neighbour so the blur never takes clearance away, then two [1 2 1] passes
+    const tmp = Float32Array.from(lifts), at = (A, j) => A[Math.max(0, Math.min(SLIDE_N, j))];
+    for (let j = 0; j <= SLIDE_N; j++) lifts[j] = Math.max(at(tmp, j - 1), tmp[j], at(tmp, j + 1));
+    for (let pass = 0; pass < 2; pass++) { tmp.set(lifts); for (let j = 0; j <= SLIDE_N; j++) lifts[j] = Math.max(tmp[j] * 0.85, (at(tmp, j - 1) + 2 * tmp[j] + at(tmp, j + 1)) / 4); } }
+  const grab = Math.round((1.15 / (Math.PI * 2)) * NB); // where the support hand takes the strap on the chest (left of the sternum)
+  return { strap, rig, path, slide: { Cs: Cs.clone().sub(C), axis: nrm.clone(), lifts, cen }, grab, Lm };
 }
 
 // ---------------------------------------------------------------------------------------------------- runtime
@@ -480,20 +501,26 @@ const _a = V(), _b = V(), _c = V(), _d = V(), _q = new THREE.Quaternion(), _m1 =
 const LEGACY_P = { p: V(-0.2, -0.06, 0.03), r: new THREE.Euler(Math.PI / 2 - 0.15, 0, 0.1) };
 const LEGACY_R = (() => { const b = V(-0.5, 0.866, 0), xw = V(0, 0, 1), yw = V().crossVectors(b, xw); return { q: new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(xw, yw, b)), p: V(0.125, -0.32, -0.21) }; })();
 
+// 87th: ONE holster for every pistol — sized to the envelope of all of them (tools/holster-envelope.mjs), so its shape, size and
+// place on the body never change when the selected pistol changes; each pistol only takes its seat in it (a few mm of centring)
+const ENV = (() => { const e = PISTOL_ENVELOPE; return { ...e, y0: Float32Array.from(e.y0), y1: Float32Array.from(e.y1), x0: Float32Array.from(e.x0), x1: Float32Array.from(e.x1) }; })();
+const ENV_UD = { muzzle: V(0, 0, PISTOL_ENVELOPE.muzzleZ) };
+export const HIP_GRIP = 0.3; // pistol draw: the hand closes on the grip and opens the thumb break at this point of the draw (Weapons.pose)
+
 export class CarryGear {
   constructor(W) {
     this.W = W; this.ch = null; this.carryP = -1; this.carryL = -1; this.memo = new WeakMap(); this.hideLong = false;
-    this.holsters = new Map(); // pistol index → built holster (pistol space, shared by every body)
-    this.fits = new Map(); // `${uuid}:${index}` → fitted placement (+ body-specific meshes)
-    // the existing slots: holsterP (the pistol sits at identity in it) inside a fitted group on the hips bone; holsterR (the long
-    // gun) on the chest bone, its matrix solved every frame
+    this.holsters = new Map(); // holster style → the built (universal) holster, shared by every body that wears that style
+    this.fits = new Map(); // `${character}:P` → the holster fitted to that body (+ its belt loops); `${character}:${index}` → a long gun's sling on that body
+    // the existing slots: holsterP (the pistol sits at identity in it, offset by its seat) inside a fitted group on the hips bone;
+    // holsterR (the long gun) on the chest bone, its matrix solved every frame
     this.gP = new THREE.Group(); this.gP.name = 'holsterFit'; this.gP.matrixAutoUpdate = false; this.gP.add(W.holsterP); this.gHang = new THREE.Group(); this.gHang.name = 'holsterLoopsSlot';
     W.holsterP.position.set(0, 0, 0); W.holsterP.rotation.set(0, 0, 0); W.holsterR.matrixAutoUpdate = false; this.swing = 0; this.strapOpen = false; this.cur = { P: null, L: null };
-    this.stats = { builds: 0, fitMs: 0 };
+    this.slung = false; this.strapShown = false; this.seat = null; this.stats = { builds: 0, fitMs: 0 };
   }
   // the character the gear is worn by (squad switch / outfit rebuild)
   attach(ch) {
-    if (this.ch === ch) { this.parentSlots(); return; } this.ch = ch; this.cur.P = null; this.cur.L = null; this.swing = 0; this.parentSlots(); this.prune();
+    if (this.ch === ch) { this.parentSlots(); return; } this.detachLong(); if (this.ch) this.trimIdle(this.ch); this.ch = ch; this.cur.P = null; this.cur.L = null; this.swing = 0; this.parentSlots(); this.prune();
   }
   parentSlots() { const b = this.ch.bones; if (this.gP.parent !== b.hips) b.hips.add(this.gP); if (this.gHang.parent !== b.hips) b.hips.add(this.gHang); if (this.W.holsterR.parent !== b.chest) b.chest.add(this.W.holsterR); }
   // drop gear built for characters that no longer exist (outfit rebuilds make a new Character)
@@ -501,13 +528,17 @@ export class CarryGear {
     const alive = new Set([chId(this.ch)]); const sq = this.W.g && this.W.g.squad; if (sq && sq.members) for (const m of sq.members) if (m.ch) alive.add(chId(m.ch));
     for (const [k, f] of this.fits) if (!alive.has(k.split(':')[0])) { this.disposeFit(f); this.fits.delete(k); }
   }
-  disposeFit(f) { for (const o of [f.hang, f.strap, f.rig]) if (o) { o.parent?.remove(o); o.traverse((x) => { if (x.geometry) x.geometry.dispose(); }); } }
+  disposeFit(f) {
+    if (f === this.cur.L) this.detachLong();
+    for (const o of [f.hang, f.strap, f.rig]) if (o) { o.parent?.remove(o); o.traverse((x) => { if (x.geometry) x.geometry.dispose(); if (x.material && /:path$/.test(x.material.name)) x.material.dispose(); if (x.customDepthMaterial) x.customDepthMaterial.dispose(); }); }
+    if (f.path) f.path.tex.dispose();
+  }
   dispose() { for (const f of this.fits.values()) this.disposeFit(f); this.fits.clear(); for (const h of this.holsters.values()) { h.group.parent?.remove(h.group); h.group.traverse((x) => { if (x.geometry) x.geometry.dispose(); }); } this.holsters.clear(); }
   // which weapon of each class is carried: the selected one, else the one in the hands, else the last used, else any owned
-  pick(pistol) {
-    const W = this.W; const ok = (i) => i >= 0 && i < WEAPONS.length && W.inv[i] && W.inv[i].owned && (WEAPONS[i].cls === 'pistol') === pistol; const m = this.memo.get(this.ch) || {};
-    if (ok(W.sel)) return W.sel; if (ok(W.cur)) return W.cur; const last = pistol ? m.p : m.l; if (ok(last)) return last;
-    const tp = W.typePick; if (tp) for (const t in tp) if (ok(tp[t])) return tp[t]; for (let i = 0; i < WEAPONS.length; i++) if (ok(i)) return i; return -1;
+  carriable(i, pistol) { const W = this.W; return i >= 0 && i < WEAPONS.length && !!W.inv[i] && W.inv[i].owned && (WEAPONS[i].cls === 'pistol') === pistol; }
+  pick(pistol) { // per frame (late): no closures / temporaries
+    const W = this.W; if (this.carriable(W.sel, pistol)) return W.sel; if (this.carriable(W.cur, pistol)) return W.cur; const m = this.memo.get(this.ch); const last = m ? (pistol ? m.p : m.l) : -1; if (this.carriable(last, pistol)) return last;
+    const tp = W.typePick; if (tp) for (const t in tp) if (this.carriable(tp[t], pistol)) return tp[t]; for (let i = 0; i < WEAPONS.length; i++) if (this.carriable(i, pistol)) return i; return -1;
   }
   inHands(i) { const W = this.W; return i >= 0 && i === W.cur && W.state !== 'none'; }
   // the stowed models into their slots (called by Weapons.showHolstered and whenever the carried set changes)
@@ -516,14 +547,12 @@ export class CarryGear {
     const m = this.memo.get(this.ch) || {}; if (this.carryP >= 0) m.p = this.carryP; if (this.carryL >= 0) m.l = this.carryL; this.memo.set(this.ch, m);
     this.hideLong = this.longStowedAway();
     const showP = this.carryP >= 0 && !this.inHands(this.carryP), showL = this.carryL >= 0 && !this.inHands(this.carryL) && !this.hideLong;
-    if (this.carryP >= 0) this.usePistol(this.carryP); else this.usePistol(-1);
-    if (this.carryL >= 0 && !this.hideLong) this.useLong(this.carryL); else this.useLong(-1);
+    this.usePistol(this.carryP); this.useLong(this.carryL); // the sling stays fitted while seated in a car (only hidden): no rebuild on getting out
+    const seat = (md, slot) => { if (md.parent !== slot) slot.add(md); md.position.set(0, 0, 0); md.quaternion.identity(); md.scale.set(1, 1, 1); md.matrixAutoUpdate = true; md.visible = true; };
     for (const i of W.built) { const md = W.models[i]; if (this.inHands(i)) continue; // pose() owns a weapon in the hands
-      if (i === this.carryP && showP) { if (md.parent !== W.holsterP) W.holsterP.add(md); md.position.set(0, 0, 0); md.quaternion.identity(); md.scale.set(1, 1, 1); md.matrixAutoUpdate = true; md.visible = true; }
-      else if (i === this.carryL && showL) { if (md.parent !== W.holsterR) W.holsterR.add(md); md.position.set(0, 0, 0); md.quaternion.identity(); md.scale.set(1, 1, 1); md.matrixAutoUpdate = true; md.visible = true; }
-      else md.visible = false; }
-    if (showP && !W.built.includes(this.carryP)) { const md = W.models[this.carryP]; W.holsterP.add(md); md.position.set(0, 0, 0); md.quaternion.identity(); md.matrixAutoUpdate = true; md.visible = true; }
-    if (showL && !W.built.includes(this.carryL)) { const md = W.models[this.carryL]; W.holsterR.add(md); md.position.set(0, 0, 0); md.quaternion.identity(); md.matrixAutoUpdate = true; md.visible = true; }
+      if (i === this.carryP && showP) seat(md, W.holsterP); else if (i === this.carryL && showL) seat(md, W.holsterR); else md.visible = false; }
+    if (showP && !W.built.includes(this.carryP)) seat(W.models[this.carryP], W.holsterP);
+    if (showL && !W.built.includes(this.carryL)) seat(W.models[this.carryL], W.holsterR);
     this.syncVisible(); this.late(0, true);
   }
   longStowedAway() { // seated in a car (and while getting in / out of one): the slung rifle is laid aside, it would go through the seat
@@ -531,50 +560,94 @@ export class CarryGear {
     if (P.vehicle && !bikeLike(P.vehicle)) return true; if (E && E.v && !bikeLike(E.v) && E.stage !== 'approach' && E.stage !== 'align') return true; if (X && X.v && !bikeLike(X.v)) return true; return false;
   }
   key(i) { return chId(this.ch) + ':' + i; }
-  holsterFor(i) { // one build per pistol and holster style, shared by every body that wears it
-    const st = styleOf(this.ch), hk = i + ':' + st.holster + st.leather; let h = this.holsters.get(hk); if (h) return h; const md = this.W.models[i]; const pr = weaponProfile(md); if (!pr) return null; const t0 = performance.now();
-    h = buildHolster(pr, md.userData, st); this.holsters.set(hk, h); this.stats.builds++; this.stats.fitMs += performance.now() - t0; return h;
+  holsterKit() { // one build per holster style (leather / kydex + colour), sized to every pistol at once
+    const st = styleOf(this.ch), hk = st.holster + st.leather; let h = this.holsters.get(hk); if (h) return h; const t0 = performance.now();
+    h = buildHolster(ENV, ENV_UD, st); this.holsters.set(hk, h); this.stats.builds++; this.stats.fitMs += performance.now() - t0; return h;
+  }
+  // a pistol's seat in the universal holster: y offset (centres a smaller slide in the shell) and its muzzle reach (draw lift)
+  seatFor(i) {
+    const d = WEAPONS[i]; const s = d && PISTOL_SEATS[d.id]; if (s) return s; const md = this.W.models[i]; const ud = md && md.userData;
+    return { dy: 0, muzzleZ: ud && ud.muzzle ? ud.muzzle.z : 0.16 }; // a pistol added since the envelope was baked: re-run tools/holster-envelope.mjs
   }
   usePistol(i) {
-    const W = this.W; if (i < 0) { this.cur.P = null; this.gP.visible = false; this.gHang.visible = false; return; }
-    const k = this.key(i); let f = this.fits.get(k);
-    if (!f) { const B = bodyData(this.ch); const h = this.holsterFor(i);
-      const t0 = performance.now(); const pr = weaponProfile(W.models[i]); const F = B && h ? fitHolster(B, h, pr, W.models[i].userData) : null; f = { F, h, hang: F ? buildHangers(F, h, styleOf(this.ch)) : null }; this.fits.set(k, f); this.trim(false, 2); this.stats.fitMs += performance.now() - t0; }
-    if (this.cur.P === f) return; this.cur.P = f; this.swing = 0;
+    const W = this.W; if (i < 0) { this.cur.P = null; this.seat = null; this.gP.visible = false; this.gHang.visible = false; return; }
+    const seat = this.seatFor(i); if (this.seat !== seat) { this.seat = seat; W.holsterP.position.set(0, seat.dy, 0); W.holsterP.updateMatrix(); } // the only per-pistol change
+    const k = chId(this.ch) + ':P'; let f = this.fits.get(k);
+    if (!f) { const B = bodyData(this.ch); const h = this.holsterKit(); const t0 = performance.now(); const F = B && h ? fitHolster(B, h, ENV, ENV_UD) : null;
+      f = { F, h, hang: F ? buildHangers(F, h, styleOf(this.ch)) : null }; this.fits.set(k, f); this.stats.fitMs += performance.now() - t0; }
+    if (this.cur.P === f) { this.gP.visible = true; this.gHang.visible = true; return; } this.cur.P = f; this.swing = 0;
     for (const c of [...this.gP.children]) if (c !== W.holsterP) this.gP.remove(c); for (const c of [...this.gHang.children]) this.gHang.remove(c);
     if (f.F) { this.gP.add(f.h.group); if (f.hang) this.gHang.add(f.hang); this.gP.matrix.copy(f.F.M); }
     else { this.gP.matrix.compose(LEGACY_P.p, _q.setFromEuler(LEGACY_P.r), _a.set(1, 1, 1)); } // no bind data (not a hero body): the old fixed offset, no gear
     this.gP.matrixWorldNeedsUpdate = true; this.gP.visible = true; this.gHang.visible = true;
   }
   useLong(i) {
-    const W = this.W, R = W.holsterR; if (i < 0) { if (this.cur.L) { if (this.cur.L.strap) this.cur.L.strap.visible = false; if (this.cur.L.rig) this.cur.L.rig.visible = false; } this.cur.L = null; return; }
-    const k = this.key(i); let f = this.fits.get(k);
-    if (!f) { const t0 = performance.now(); const B = bodyData(this.ch); const md = W.models[i]; const pr = weaponProfile(md); const cat = carryCategory(WEAPONS[i]);
-      const F = B && pr ? fitLong(B, pr, md.userData, cat) : null; let s = null; try { s = F ? buildSling(B, F, pr, md.userData, styleOf(this.ch), this.ch) : null; } catch (e) { console.warn('sling build', e); }
-      f = { F, strap: s && s.strap, rig: s && s.rig, long: true }; this.fits.set(k, f); this.stats.builds++; this.stats.fitMs += performance.now() - t0; this.trimLong(); }
-    if (this.cur.L === f) return; if (this.cur.L) { if (this.cur.L.strap) this.cur.L.strap.visible = false; if (this.cur.L.rig) this.cur.L.rig.visible = false; } this.cur.L = f;
-    if (f.strap && f.strap.parent !== this.ch.mesh) this.ch.mesh.add(f.strap); if (f.rig && f.rig.parent !== R) R.add(f.rig);
+    const W = this.W, R = W.holsterR; if (i < 0) { this.detachLong(); this.cur.L = null; return; }
+    const f = this.longFit(i);
+    const md = W.models[i]; if (f.rig && f.rig.parent !== md) md.add(f.rig); // studs / D-rings belong to the gun: they go wherever it goes
+    if (this.cur.L === f) return; this.detachLong(); this.cur.L = f;
+    if (f.strap && f.strap.parent !== this.ch.mesh) this.ch.mesh.add(f.strap); if (f.strap) f.strap.visible = false; this.strapShown = false; if (f.path) f.path.reset();
     if (!f.F) R.matrix.compose(LEGACY_R.p, LEGACY_R.q, _a.set(1, 1, 1)); R.matrixWorldNeedsUpdate = true;
   }
-  trimLong() { this.trim(true, 3); } // at most three slings per character kept built
-  // bounded caches: the oldest fits of one kind for this character (never the one in use), then holster builds no fit uses any more
+  // a long gun's sling fitted to this body (cached per body + gun; built at most once — ahead of time by prefit when possible)
+  longFit(i) {
+    const W = this.W, k = this.key(i); let f = this.fits.get(k); if (f) return f;
+    const t0 = performance.now(); const B = bodyData(this.ch); const md = W.models[i]; const pr = weaponProfile(md); const cat = carryCategory(WEAPONS[i]);
+    const F = B && pr ? fitLong(B, pr, md.userData, cat) : null; let s = null; try { s = F ? buildSling(B, F, pr, md.userData, styleOf(this.ch), this.ch) : null; } catch (e) { console.warn('sling build', e); }
+    f = { F, strap: s && s.strap, rig: s && s.rig, path: s && s.path, slide: s && s.slide, grab: s ? s.grab : 0, long: true, idx: i }; this.fits.set(k, f); this.stats.builds++; this.stats.fitMs += performance.now() - t0; this.trimLong(); return f;
+  }
+  // build a long gun's sling now (behind a loading screen / in a shop menu — Weapons.prewarmOwned), so switching to it never
+  // builds one mid-play (≈20–45 ms). Returns the strap group (detached, hidden) for the caller's shader warm-up.
+  prefit(i) { if (!this.ch || !(i >= 0) || WEAPONS[i].cls === 'pistol') return null; const f = this.longFit(i); return f && f.strap; }
+  detachLong() { const f = this.cur.L; if (!f) return; if (f.strap) { f.strap.visible = false; f.strap.parent?.remove(f.strap); } if (f.rig) f.rig.parent?.remove(f.rig); this.strapShown = false; } // a sling not in use leaves the body / the gun entirely (no hidden leftovers)
+  trimLong() { this.trim(true, 6); } // at most six slings kept built for the body in play (≈0.9 MB each; Weapons.prewarmOwned prefits the likely ones)
+  // a body leaving play (squad switch) keeps only the sling of the long gun it carries — the rest are rebuilt if it comes back to them
+  trimIdle(ch) { const id = chId(ch) + ':', keep = (this.memo.get(ch) || {}).l; for (const [k, f] of [...this.fits]) if (f.long && k.startsWith(id) && f.idx !== keep) { this.disposeFit(f); this.fits.delete(k); } }
+  // bounded caches: the oldest fits of one kind for this character (never the one in use)
   trim(long, max) {
     const mine = [...this.fits.entries()].filter(([k, f]) => !!f.long === long && k.startsWith(chId(this.ch) + ':')); while (mine.length > max) { const [k, f] = mine.shift(); if (f === this.cur.L || f === this.cur.P) continue; this.disposeFit(f); this.fits.delete(k); }
-    if (!long && this.holsters.size > 6) { const used = new Set(); for (const f of this.fits.values()) if (f.h) used.add(f.h);
-      for (const [hk, h] of this.holsters) if (!used.has(h) && this.holsters.size > 6) { h.group.parent?.remove(h.group); h.group.traverse((x) => { if (x.geometry) x.geometry.dispose(); }); this.holsters.delete(hk); } }
   }
-  // gear visibility follows whether the weapon is actually in its slot (it leaves the moment pose() takes it into the hands)
+  // the ONE place gear visibility is decided, from where the weapons actually are and what Weapons is doing:
+  //  · thumb break: closed over a seated pistol, opened by the hand as the draw takes the grip, snapped shut once it is back;
+  //  · sling strap: shown whenever its long gun is shown — on the back or in the hands — never without it (and never in a car seat)
   syncVisible() {
     const W = this.W; const pm = this.carryP >= 0 && W.built.includes(this.carryP) ? W.models[this.carryP] : null; const seated = !!(pm && pm.parent === W.holsterP && pm.visible);
-    const open = !seated || W.state !== 'none'; if (this.cur.P && this.cur.P.h && this.cur.P.h.strapC) { this.cur.P.h.strapC.visible = !open; this.cur.P.h.strapO.visible = open; } this.strapOpen = open;
-    const lm = this.carryL >= 0 && W.built.includes(this.carryL) ? W.models[this.carryL] : null; const slung = !!(lm && lm.parent === W.holsterR && lm.visible) && !this.hideLong;
-    if (this.cur.L) { if (this.cur.L.strap) this.cur.L.strap.visible = slung; if (this.cur.L.rig) this.cur.L.rig.visible = slung; }
-    this.slung = slung; this.seated = seated;
+    const hip = W.drawMode === 'hip' && (W.state === 'equip' || W.state === 'holster') && W.cur === this.carryP && W.dur > 0; const hu = hip ? (W.state === 'equip' ? W.t / W.dur : 1 - W.t / W.dur) : -1;
+    const open = !seated || hu >= HIP_GRIP; if (this.cur.P && this.cur.P.h && this.cur.P.h.strapC) { this.cur.P.h.strapC.visible = !open; this.cur.P.h.strapO.visible = open; } this.strapOpen = open;
+    const lm = this.carryL >= 0 && W.built.includes(this.carryL) ? W.models[this.carryL] : null; const onBack = !!(lm && lm.parent === W.holsterR && lm.visible) && !this.hideLong;
+    const inHand = !!(lm && lm.parent === W.inHand && lm.visible && W.cur === this.carryL) && !this.hideLong; const f = this.cur.L; const show = (onBack || inHand) && !!(f && f.strap && f.path);
+    if (f && f.strap) { if (show && !this.strapShown) f.path.reset(); f.strap.visible = show; } this.strapShown = show;
+    this.slung = onBack; this.seated = seated; this.longInHand = inHand;
   }
-  // how far the pistol travels up out of the holster before it swings to the hands (draw path, Weapons.pose)
-  drawLift(i) { const f = this.cur.P; return f && f.F && i === this.carryP ? f.h.depth : 0; }
+  // how far the pistol travels up out of the holster along its bore before it can turn: its muzzle clear of the mouth's high side
+  drawLift(i) { const f = this.cur.P; if (!f || !f.F || i !== this.carryP) return 0; return this.seatFor(i).muzzleZ - f.h.zA + f.h.ext + 0.012; }
+  // sling transition (Weapons.pose, drawMode 'sling'): the long gun carried round the ring by the strap, angle psi (0 = on the
+  // back as hung now, π = across the front), stood off the body by the precomputed clearance. base / out: rifle → chest space
+  canSlide() { const f = this.cur.L; return !!(f && f.slide && f.F && f.idx === this.W.cur); }
+  slideMatrix(psi, base, out) {
+    const f = this.cur.L, s = f && f.slide; if (!s) return out.copy(base); const C = s.Cs, ax = s.axis;
+    _m1.makeTranslation(C.x, C.y, C.z).multiply(_m2.makeRotationAxis(ax, psi)).multiply(_m3.makeTranslation(-C.x, -C.y, -C.z)); out.multiplyMatrices(_m1, base);
+    _a.copy(s.cen).applyMatrix4(out).sub(C); _a.addScaledVector(ax, -_a.dot(ax)); const l = _a.length(); if (l > 1e-6) _a.multiplyScalar(1 / l);
+    const x = clamp(psi / Math.PI, 0, 1) * (s.lifts.length - 1), j = Math.min(s.lifts.length - 2, Math.floor(x)), L = Math.max(0, s.lifts[j] + (s.lifts[j + 1] - s.lifts[j]) * (x - j) - s.lifts[0] * (1 - x / (s.lifts.length - 1))); // the hang already clears the body at ψ = 0: starts exactly where it hangs
+    return out.premultiply(_m1.makeTranslation(_a.x * L, _a.y * L, _a.z * L));
+  }
+  // the long gun's hang on the back (chest space) for the body's current pose: from the chest (top swivel) and the lower anchor bone —
+  // held by holsterR while slung, and the base of the sling transition so a draw starts / a put-away ends exactly where it hangs
+  hangMatrix(out) {
+    const fL = this.cur.L, ch = this.ch; if (!fL || !fL.F || !ch) return out.copy(this.W.holsterR.matrix); const F = fL.F, b = ch.bones, low = b[F.lowBone];
+    b.chest.updateWorldMatrix(true, false); low.updateWorldMatrix(false, false);
+    _a.copy(F.Db).applyMatrix4(low.matrixWorld).applyMatrix4(_m1.copy(b.chest.matrixWorld).invert()).sub(F.Uc).normalize();
+    _q.setFromUnitVectors(F.d0, _a); const ang = 2 * Math.acos(Math.min(1, Math.abs(_q.w))); if (ang > 0.6) _q.slerp(_Q0, 1 - 0.6 / ang);
+    return out.makeTranslation(F.Uc.x, F.Uc.y, F.Uc.z).multiply(_m2.makeRotationFromQuaternion(_q)).multiply(_m3.makeTranslation(-F.Uc.x, -F.Uc.y, -F.Uc.z)).multiply(F.M);
+  }
+  // where the support hand holds the strap on the chest while it pulls the gun round (chest space; the strap material under the
+  // hand moves on round the ring with the gun: index advances with psi)
+  strapGrab(psi, out) {
+    const f = this.cur.L; if (!f || !f.path) return null; const p = f.path, i = f.grab + Math.round((psi / (Math.PI * 2)) * RING_NB); p.nodeP(i, out); p.nodeN(i, _b); out.addScaledVector(_b, 0.03);
+    const ch = this.ch; out.applyMatrix4(ch.mesh.matrixWorld); ch.bones.chest.updateWorldMatrix(true, false); return out.applyMatrix4(_m1.copy(ch.bones.chest.matrixWorld).invert());
+  }
   // after the character's pose (Game loop, after Player.update): keep the carried set honest, swing the holster clear of the
-  // thigh, hang the rifle from the chest (top) and the hips (bottom)
+  // thigh, hang the rifle from the chest (top) and the hips (bottom), lay the strap along its live path
   late(dt, force = false) {
     const W = this.W, ch = W.P && W.P.ch; if (!ch) return; if (ch !== this.ch) { this.attach(ch); this.refresh(); return; }
     if (!force) { const p = this.pick(true), l = this.pick(false); if (p !== this.carryP || l !== this.carryL || this.longStowedAway() !== this.hideLong) { this.refresh(); return; } this.syncVisible(); }
@@ -589,12 +662,8 @@ export class CarryGear {
       const tgt = Math.min(0.55, need); const k = force ? 1 : 1 - Math.exp(-(dt || 0.016) * (tgt > this.swing ? 30 : 7)); const prev = this.swing; this.swing += (tgt - this.swing) * k;
       if (force || Math.abs(this.swing - prev) > 1e-5) { _m2.makeTranslation(F.pivot.x, F.pivot.y, F.pivot.z).multiply(_m3.makeRotationAxis(F.axis, this.swing)).multiply(_m1.makeTranslation(-F.pivot.x, -F.pivot.y, -F.pivot.z)); this.gP.matrix.multiplyMatrices(_m2, F.M); this.gP.matrixWorldNeedsUpdate = true; }
     }
-    const fL = this.cur.L; if (fL && fL.F && (this.slung || force)) { // two-anchor rifle hang
-      const F = fL.F, R = W.holsterR, low = b[F.lowBone]; b.chest.updateWorldMatrix(true, false); low.updateWorldMatrix(false, false);
-      _a.copy(F.Db).applyMatrix4(low.matrixWorld).applyMatrix4(_m1.copy(b.chest.matrixWorld).invert()).sub(F.Uc).normalize();
-      _q.setFromUnitVectors(F.d0, _a); const ang = 2 * Math.acos(Math.min(1, Math.abs(_q.w))); if (ang > 0.6) _q.slerp(_Q0, 1 - 0.6 / ang);
-      R.matrix.makeTranslation(F.Uc.x, F.Uc.y, F.Uc.z).multiply(_m2.makeRotationFromQuaternion(_q)).multiply(_m3.makeTranslation(-F.Uc.x, -F.Uc.y, -F.Uc.z)).multiply(F.M); R.matrixWorldNeedsUpdate = true;
-    }
+    const fL = this.cur.L; if (fL && fL.F && (this.slung || force)) { this.hangMatrix(W.holsterR.matrix); W.holsterR.matrixWorldNeedsUpdate = true; } // two-anchor rifle hang
+    if (fL && fL.path && this.strapShown) { const p = fL.path; p.target = W.models[this.carryL]; p.slungNow = this.slung; if (!p.hooked || p.dirty) { ch.root.updateMatrixWorld(); p.update(p.target, p.slungNow); } p.dirty = true; } // the hook didn't run last frame (not rendered: off screen, first person, a sim step) → laid here so its tracking never skips frames // the strap: from swivel to swivel over the body, this frame's pose (laid by its render hook; here only where nothing renders it)
   }
 }
 const _Q0 = new THREE.Quaternion();
