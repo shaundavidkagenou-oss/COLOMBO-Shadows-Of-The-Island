@@ -16,3 +16,7 @@ texture-pack/*
 # Model tools work (68th): uploaded models / animations / textures + manifest live in model-pack/ on disk, not in git
 model-pack/*
 !model-pack/README.md
+
+# Environment editor (console `paint`): imported models / textures + project.json live in paint-pack/ on disk, not in git
+paint-pack/*
+!paint-pack/README.md

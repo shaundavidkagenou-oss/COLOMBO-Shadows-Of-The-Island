@@ -78,7 +78,8 @@ async function loaderFor(ext) {
 }
 function manager(asset) {
   const M = new THREE.LoadingManager(); const map = new Map(); for (const [orig, n] of Object.entries(asset.files || {})) { map.set(orig.toLowerCase(), n); map.set(base(orig).toLowerCase(), n); }
-  M.setURLModifier((url) => { if (/^(data|blob):/.test(url)) return url; const b = decodeURIComponent(base(url.split('?')[0])).toLowerCase(); const n = map.get(b); return n ? fileURL(n) : url; });
+  const at = (n) => (asset.base ? asset.base + n : fileURL(n)); // (environment editor: asset.base = 'paint-pack/assets/')
+  M.setURLModifier((url) => { if (/^(data|blob):/.test(url)) return url; const b = decodeURIComponent(base(url.split('?')[0])).toLowerCase(); const n = map.get(b); return n ? at(n) : url; });
   if (!L.tgaReg) { L.tgaReg = import('three/addons/loaders/TGALoader.js').then((m) => { THREE.DefaultLoadingManager.addHandler(/\.tga$/i, new m.TGALoader()); L.tga = m; }).catch(() => {}); }
   return M;
 }
@@ -86,7 +87,7 @@ const solidMat = () => new THREE.MeshStandardMaterial({ color: 0xb8b8b8, roughne
 const CACHE = new Map(); // main file → Promise<{ scene, clips, skeleton? }>
 // { scene: Object3D (a fresh copy every call), clips: AnimationClip[] }
 const READY = new Map(); // key → loaded raw (for synchronous instancing in build hooks)
-export const assetKey = (asset) => asset.main + '|' + Object.values(asset.files || {}).sort().join(',');
+export const assetKey = (asset) => (asset.base || '') + asset.main + '|' + Object.values(asset.files || {}).sort().join(',');
 export async function loadAsset(asset) {
   if (!asset || !asset.main) throw new Error('no model');
   const key = assetKey(asset);
@@ -97,10 +98,10 @@ const inst = (raw) => ({ scene: raw.scene ? skelClone(raw.scene) : null, clips: 
 export function readyAsset(asset) { if (!asset || !asset.main) return null; const raw = READY.get(assetKey(asset)); return raw ? inst(raw) : null; }
 export function forgetAsset(asset) { const k = assetKey(asset); CACHE.delete(k); READY.delete(k); }
 async function loadRaw(asset) {
-  const ext = extOf(asset.main); const Ld = await loaderFor(ext); if (L.tgaReg) await L.tgaReg; const M = manager(asset); const url = fileURL(asset.main);
+  const ext = extOf(asset.main); const Ld = await loaderFor(ext); if (L.tgaReg) await L.tgaReg; const M = manager(asset); const url = asset.base ? asset.base + asset.main : fileURL(asset.main);
   const ld = new Ld(M);
   if (ext === 'glb' || ext === 'gltf') { try { const mo = await import('three/addons/libs/meshopt_decoder.module.js'); ld.setMeshoptDecoder(mo.MeshoptDecoder); } catch { /* optional */ } }
-  if (ext === 'obj') { const mtl = Object.entries(asset.files || {}).find(([o]) => extOf(o) === 'mtl'); if (mtl) { const { MTLLoader } = await import('three/addons/loaders/MTLLoader.js'); const ml = new MTLLoader(M); const mats = await ml.loadAsync(fileURL(mtl[1])); mats.preload(); ld.setMaterials(mats); } }
+  if (ext === 'obj') { const mtl = Object.entries(asset.files || {}).find(([o]) => extOf(o) === 'mtl'); if (mtl) { const { MTLLoader } = await import('three/addons/loaders/MTLLoader.js'); const ml = new MTLLoader(M); const mats = await ml.loadAsync(asset.base ? asset.base + mtl[1] : fileURL(mtl[1])); mats.preload(); ld.setMaterials(mats); } }
   const r = await ld.loadAsync(url);
   let scene = null, clips = [], skeleton = null;
   if (ext === 'glb' || ext === 'gltf') { scene = r.scene; clips = r.animations || []; }

@@ -34,6 +34,14 @@ const packHasMap = (p) => !!(p && p.map && ((p.map.added && p.map.added.length) 
 const packHasModels = (p) => !!(p && (Object.keys(p.weapons || {}).length || Object.keys(p.heroes || {}).length || Object.keys(p.vehicles || {}).length || (p.npcs && p.npcs.rules && p.npcs.rules.length) || Object.keys(p.anims || {}).length || Object.keys(p.objects || {}).length));
 export async function bootMap(plan) { assignIds(plan); const pack = await fetchModelPack(); if (!savedFlags().map && !packHasMap(pack)) return; try { const m = await import('./MapRuntime.js'); await m.applySavedMap(plan, pack && pack.map); } catch (e) { console.warn('[editor] saved map edits not applied', e); } }
 export async function bootMapWorld(world) { if (!savedFlags().map && !packHasMap(MPACK)) return; try { const m = await import('./MapRuntime.js'); await m.buildSavedObjects(world); } catch (e) { console.warn('[editor] saved map objects not built', e); } }
+// environment editor (console `paint`): placed + painted scenery from paint-pack/scene.json (the compiled scene, built into the
+// game / .exe; in dev the saved project). No scene = nothing downloaded, nothing built.
+export async function bootPaint(world) {
+  let scene = null;
+  if (typeof fetch === 'function' && typeof location !== 'undefined') try { const r = await fetch('paint-pack/scene.json', { cache: 'no-cache' }); if (r.ok) { const j = await r.json(); if (j && j.format === 'colombo.paint-scene' && Array.isArray(j.instances) && j.instances.length) scene = j; } } catch { /* no scene (file:// or offline) */ }
+  if (!scene) return null;
+  try { const m = await import('./PaintRuntime.js'); return await m.build(world, scene); } catch (e) { console.warn('[paint] environment scene not built', e); return null; }
+}
 export async function bootRuntime(game) {
   const f = savedFlags();
   if (f.anim) try { await (await import('./AnimRuntime.js')).loadSavedAnims(); } catch (e) { console.warn('[editor] saved animations not applied', e); }
@@ -73,6 +81,12 @@ export async function openBankEditor(game) {
   if (DevLock.locked) throw new Error('developer tools are locked');
   if (TEXTURE_STUDIO) { const mod = await import('./BankEditor.js'); const ed = await mod.open(game); (globalThis.__editors ||= {}).bank = ed; return ed; }
   throw new Error('the bank editor is a development tool — not part of this build (npm run dev, or npm run build:studio)');
+}
+// environment editor (console `paint`) — development builds only, like the model tools (it saves into paint-pack/ through the dev server)
+export async function openPaintEditor(game) {
+  if (DevLock.locked) throw new Error('developer tools are locked');
+  if (TEXTURE_STUDIO) { const mod = await import('./PaintEditor.js'); const ed = await mod.open(game); (globalThis.__editors ||= {}).paint = ed; return ed; }
+  throw new Error('the environment editor is a development tool — start the game with npm run dev to use it (the scenes it compiles are in every build)');
 }
 export async function openTextureStudio(game) {
   if (DevLock.locked) throw new Error('developer tools are locked');

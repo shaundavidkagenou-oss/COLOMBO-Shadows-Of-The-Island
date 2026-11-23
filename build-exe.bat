@@ -43,6 +43,13 @@ if %NSND% GTR 0 (echo       Including %NSND% custom sound file^(s^) from sounds\
 rem  Texture Studio replacements: saved into texture-pack\ by the Studio's Save button (or a pack .zip dropped there)
 rem  are compiled into the game - and so into the .exe - by this step.
 call node tools\texture-pack-prep.mjs
+rem  Environment editor (console `paint`): the scene saved into paint-pack\ - imported models, textures, materials,
+rem  placed objects and painted vegetation - is validated and compiled here; the build below puts it into the .exe.
+call node tools\paint-pack-prep.mjs
+if errorlevel 1 (
+  echo [ERROR] The environment editor scene has errors - see the report above. Fix them in the editor ^(console: paint^), then run this again.
+  goto :fail
+)
 call npm run build
 if errorlevel 1 (
   echo [ERROR] The game build failed - see the messages above.

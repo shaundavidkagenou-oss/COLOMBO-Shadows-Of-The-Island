@@ -20,7 +20,7 @@ import crypto from 'node:crypto';
 
 export const MODEL_EXT = ['glb', 'gltf', 'bin', 'obj', 'mtl', 'fbx', 'stl', 'ply', 'dae', '3mf', 'usdz', 'bvh', 'png', 'jpg', 'webp', 'gif', 'avif', 'bmp', 'tga', 'ktx2'];
 const FILE = new RegExp('^[0-9a-f]{16,64}\\.(' + MODEL_EXT.join('|') + ')$');
-const MIME = { glb: 'model/gltf-binary', gltf: 'model/gltf+json', bin: 'application/octet-stream', obj: 'text/plain', mtl: 'text/plain', fbx: 'application/octet-stream', stl: 'model/stl', ply: 'application/octet-stream', dae: 'model/vnd.collada+xml', '3mf': 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml', usdz: 'model/vnd.usdz+zip', bvh: 'text/plain', png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif', bmp: 'image/bmp', tga: 'image/x-tga', ktx2: 'image/ktx2' };
+export const MIME = { glb: 'model/gltf-binary', gltf: 'model/gltf+json', bin: 'application/octet-stream', obj: 'text/plain', mtl: 'text/plain', fbx: 'application/octet-stream', stl: 'model/stl', ply: 'application/octet-stream', dae: 'model/vnd.collada+xml', '3mf': 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml', usdz: 'model/vnd.usdz+zip', bvh: 'text/plain', png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif', bmp: 'image/bmp', tga: 'image/x-tga', ktx2: 'image/ktx2' };
 const MAX_BYTES = 256 * 1024 * 1024;
 export const FORMAT = 'colombo.model-manifest';
 export const emptyManifest = () => ({ format: FORMAT, version: 1, created: null, modified: null, files: {}, map: null, weapons: {}, heroes: {}, vehicles: {}, npcs: { rules: [] }, anims: {}, textures: {}, objects: {} });
@@ -32,8 +32,8 @@ export function referencedFiles(m) { const out = new Set(); const walk = (v) => 
 // what a build ships: the document without editor-only data (thumbnails)
 export function buildManifest(m) { const out = JSON.parse(JSON.stringify(m)); for (const f of Object.values(out.files || {})) if (f) delete f.thumb; for (const t of Object.values(out.textures || {})) if (t) delete t.thumb; return out; }
 export function readLock(root) { try { const j = JSON.parse(fs.readFileSync(path.join(root, 'dev-lock.json'), 'utf8')); return !!(j && j.locked); } catch { return false; } }
-async function body(req, limit) { const chunks = []; let n = 0; for await (const ch of req) { n += ch.length; if (n > limit) throw Object.assign(new Error('too big'), { status: 413 }); chunks.push(ch); } return Buffer.concat(chunks); }
-const json = (res, o) => { res.setHeader('content-type', 'application/json'); res.setHeader('cache-control', 'no-cache'); res.end(JSON.stringify(o)); };
+export async function body(req, limit) { const chunks = []; let n = 0; for await (const ch of req) { n += ch.length; if (n > limit) throw Object.assign(new Error('too big'), { status: 413 }); chunks.push(ch); } return Buffer.concat(chunks); }
+export const json = (res, o) => { res.setHeader('content-type', 'application/json'); res.setHeader('cache-control', 'no-cache'); res.end(JSON.stringify(o)); };
 
 export default function modelPack({ dir = 'model-pack' } = {}) {
   let root = process.cwd(); const abs = () => path.resolve(root, dir);

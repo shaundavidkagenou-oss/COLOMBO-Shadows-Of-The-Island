@@ -26,7 +26,7 @@ import { stepWind } from './Wind.js';
 import { balconyTick, setupClothMesh, dropAnchors } from './BalconyLife.js';
 import { Forest } from './Forest.js';
 import { buildVines, vineFade } from './Vines.js';
-import { bootMap, bootMapWorld } from '../debug/boot.js';
+import { bootMap, bootMapWorld, bootPaint } from '../debug/boot.js';
 import { buildWater, WaterReflection } from './Water.js';
 import { buildParks } from './Parks.js';
 import { buildParkFeatures } from './ParkFeatures.js';
@@ -145,6 +145,7 @@ export class World {
     this.batchStatic(); this.poolProps();
     for (const c of this.chunks) freezeStatic(c.group); freezeStatic(this.parks); freezeStatic(this.outer); freezeStatic(this.batched);
     await bootMapWorld(this); // saved map-editor objects (primitives, painted textures)
+    await bootPaint(this); // environment editor scene (console `paint`): placed + painted scenery, when one was saved / compiled
     progress(1, 'City ready');
   }
   // The edge of the playable map is a solid, visible boundary — never an invisible wall at the end of a street.
@@ -364,6 +365,7 @@ export class World {
     }
     if (this.propDirty && this.propPools) { this.propDirty = false; this.repackProps(); }
     if (this.forest) this.forest.update(focus, camera);
+    if (this.paint) this.paint.update(focus, camera); // environment editor scenery (src/debug/PaintField.js; null without a scene)
     if (this.revealQ.length) this.revealStep();
     if (this.job) this.stepDetailJob(this.jobBudgetMs);
     if (this.wjob) this.stepWinJob(this.jobBudgetMs);
@@ -482,6 +484,6 @@ export class World {
     const G = GRID.cur, pw = G && G.dim ? (lamp) => G.levelAt(lamp[0], lamp[2]) : null; // 79th: a lamp in a district without power goes out with it (and flickers back)
     for (const l of this.lampLights) { const u = l.userData; const I = u.lamp ? base * u.k * (pw ? pw(u.lamp) : 1) : 0; if (l.intensity !== I) l.intensity = I; if (l.castShadow) l.shadow.autoUpdate = I > 0; } /* FPS: an unlit pooled lamp (all day, parked at y -600) no longer re-renders its shadow map every frame */
   }
-  setQuality(q) { this.quality = q; setLodQuality(q); /* 65th: BatchCull LOD / draw distances */ if (this.glints) this.glints.max = WetGlints.budget(q); if (this.grass) this.grass.setQuality(q); if (this.groundDetail) this.groundDetail.setQuality(q); if (this.forest) this.forest.setQuality(q); if (this.parkLife) this.parkLife.setQuality(q); if (this.parks && this.parks.userData.flowers) this.parks.userData.flowers.setQuality(q); const s = q === 'low' ? 0.6 : q === 'medium' ? 0.8 : q === 'ultra' ? 1.25 : 1; this.detailRadius = 330 * s; this.windowRadius = q === 'low' ? 0 : q === 'medium' ? 90 : q === 'ultra' ? 210 : 150; this.propRadius = 430 * s; this.treeRadius = 520 * s; }
+  setQuality(q) { this.quality = q; setLodQuality(q); /* 65th: BatchCull LOD / draw distances */ if (this.glints) this.glints.max = WetGlints.budget(q); if (this.grass) this.grass.setQuality(q); if (this.groundDetail) this.groundDetail.setQuality(q); if (this.forest) this.forest.setQuality(q); if (this.paint) this.paint.setQuality(q); if (this.parkLife) this.parkLife.setQuality(q); if (this.parks && this.parks.userData.flowers) this.parks.userData.flowers.setQuality(q); const s = q === 'low' ? 0.6 : q === 'medium' ? 0.8 : q === 'ultra' ? 1.25 : 1; this.detailRadius = 330 * s; this.windowRadius = q === 'low' ? 0 : q === 'medium' ? 90 : q === 'ultra' ? 210 : 150; this.propRadius = 430 * s; this.treeRadius = 520 * s; }
 }
 export { plan };
