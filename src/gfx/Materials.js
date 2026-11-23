@@ -206,15 +206,19 @@ export function buildMaterials() {
   MAT.metal = std({ roughness: 0.45, metalness: 0.85, vertexColors: true });
   // window panes over painted/interior-mapped glass: black albedo + additive blend = pure Fresnel reflection on top
   MAT.winGlass = std({ color: 0x000000, roughness: 0.06, metalness: 0, envMapIntensity: 2.4, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
-  MAT.foliage = MAT.leavesBright || std({ map: TEX.leavesBright, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9, vertexColors: true });
   MAT.soil = std({ map: TEX.laterite, color: 0x5e4a3c, roughness: 1 });
   MAT.hedge = std({ map: TEX.hedge, roughness: 0.95, vertexColors: true });
   MAT.glass = std({ color: 0x9fb8c0, roughness: 0.08, metalness: 0.9, envMapIntensity: 1.5, transparent: true, opacity: 0.55 });
   MAT.emissive = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
   MAT.lampHead = new THREE.MeshStandardMaterial({ color: 0x222222, emissive: 0xffd9a0, emissiveIntensity: 0, roughness: 0.5 });
   MAT.awning = std({ roughness: 0.8, vertexColors: true, side: THREE.DoubleSide, map: TEX.weave });
-  MAT.leaves = std({ map: TEX.leaves, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9, vertexColors: true });
-  MAT.leavesBright = std({ map: TEX.leavesBright, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9, vertexColors: true });
+  // 88th: ONE leaf material for every tree, shrub, hedge and creeper card — the user's photographic leaf sheet laid out per card
+  // by the shader (world/LeafAtlas.js, wind in world/Vegetation.js). 'leavesBright' / 'leavesSmall' / 'foliage' are the same
+  // material (the species differences are per-card styles and vertex tints), so the forest draws one leaf batch instead of
+  // three and Texture Studio shows a single "Tree leaves" material whose base colour is that image.
+  MAT.leaves = std({ map: TEX.leaves, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.72, vertexColors: true });
+  if (TEX.leafAtlas) { MAT.leaves.name = 'Tree leaves'; MAT.leavesBright = MAT.foliage = MAT.leaves; }
+  else { MAT.leavesBright = std({ map: TEX.leavesBright, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9, vertexColors: true }); MAT.foliage = MAT.leavesBright; }
   MAT.palm = std({ map: TEX.palm, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85, vertexColors: true });
   MAT.bark = std({ color: 0x6b5a48, roughness: 1, vertexColors: true });
   // trees / plants (Forest.js): real bark and palm-trunk textures, small-leaf sprigs (creepers, shrubs), banana blades, flowers
@@ -225,7 +229,7 @@ export function buildMaterials() {
   if (RB) { for (const t of [RB.map, RB.normal]) t.repeat.set(2, 0.32); MAT.treeBark = std({ map: RB.map, normalMap: RB.normal, normalScale: new THREE.Vector2(2.4, 2.4), color: 0xffffff, roughness: 0.96, vertexColors: true }); }
   else MAT.treeBark = std({ map: TEX.bark, bumpMap: TEX.bark, bumpScale: 2.2, color: 0xf2ece4, roughness: 0.95, vertexColors: true }); // mid grey-brown bark with relief (was ~3 % albedo: read as black sticks)
   MAT.palmBark = std({ map: TEX.palmBark, roughness: 1, vertexColors: true });
-  MAT.leavesSmall = std({ map: TEX.leavesSmall, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9, vertexColors: true });
+  MAT.leavesSmall = TEX.leafAtlas ? MAT.leaves : std({ map: TEX.leavesSmall, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9, vertexColors: true });
   MAT.banana = std({ map: TEX.banana, alphaTest: 0.4, side: THREE.DoubleSide, roughness: 0.75, vertexColors: true });
   MAT.bloom = std({ roughness: 0.7, side: THREE.DoubleSide, vertexColors: true });
   // baked contact occlusion: gradient geometry at wall bases / along their footings, multiplied over what is already drawn
@@ -242,7 +246,7 @@ export function buildMaterials() {
 }
 const BASE_LABEL = { concrete: 'Concrete', metal: 'Metal', paint: 'Painted surfaces', awning: 'Awnings', roofTiles: 'Clay tile roofs', roofFlat: 'Flat concrete roofs', corrugated: 'Corrugated sheet roofs', shops: 'Shop fronts', signs: 'Shop signs', winGlass: 'Window glass (reflection)',
   kerb: 'Kerbs', walk: 'Pavement type 1 · cement flagstones', walkGrey: 'Pavement type 2 · grey concrete slabs', paveGrass: 'Pavement joint grass', road: 'Road asphalt', roadTint: 'Road wear overlay', marking: 'Road markings', treeBark: 'Tree bark', palmBark: 'Palm trunks',
-  leaves: 'Leaves (universal)', leavesBright: 'Leaves, bright (universal)', palm: 'Palm fronds (universal)' };
+  leaves: 'Tree leaves', leavesBright: 'Leaves, bright (universal)', palm: 'Palm fronds (universal)' };
 const SHOP_SHUT = { value: 0 };
 const _dry = new THREE.Color(1, 1, 1), _wet = new THREE.Color(0.62, 0.62, 0.64);
 export function updateMaterials(night, wet, t) {

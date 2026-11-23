@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { MeshBuilder } from '../gfx/MeshBuilder.js';
 import { RNG } from '../core/rng.js';
+import { encodeLeafCard, LEAF_STYLE as LS, LEAF_FAR } from './LeafAtlas.js';
 
 // One continuous, closed tube along a centre line (parallel-transport frames): every ring is shared by the neighbouring
 // sections, so a bent trunk has no wedge gaps at its joints; the base flares into the ground and the top / limb tip is capped
@@ -33,10 +34,10 @@ function trunk(mb, h, r0, r1, bend, rng, col = [0.6, 0.55, 0.49], seg = 12, side
   return [Math.cos(dir) * bend, h, Math.sin(dir) * bend];
 }
 // a limb grows out of the trunk: it starts inside the trunk axis (no seam at the fork), curves gently upward and ends in a capped tip
-function limb(mb, from, to, r0, r1, col = [0.57, 0.52, 0.46], n = 6, sides = 7) {
+function limb(mb, from, to, r0, r1, col = [0.57, 0.52, 0.46], n = 6, sides = 7, capStart = true) {
   const a = new THREE.Vector3(...from), b = new THREE.Vector3(...to); const d = b.clone().sub(a); const start = a.clone().add(new THREE.Vector3(0, -0.35, 0)); // on the trunk axis, inside the trunk
   const pts = [], radii = []; for (let k = 0; k <= n; k++) { const u = k / n; const p = start.clone().lerp(b, u); p.y += Math.sin(u * Math.PI) * d.length() * 0.06; pts.push(p); radii.push(r0 + (r1 - r0) * u); }
-  const g = tubeGeo(pts, radii, sides, { capEnd: true, capStart: true, vLen: Math.max(0.5, d.length() / 2) }); mb.geometry(g, new THREE.Matrix4(), col); g.dispose();
+  const g = tubeGeo(pts, radii, sides, { capEnd: true, capStart, vLen: Math.max(0.5, d.length() / 2) }); mb.geometry(g, new THREE.Matrix4(), col); g.dispose();
 }
 // ------------------------------------------------------------------------------------------------ leaf crowns
 // A crown is a set of leaf CLUMPS (sub-domes of foliage over the crown envelope, upper side favoured) instead of one even
@@ -44,11 +45,13 @@ function limb(mb, from, to, r0, r1, col = [0.57, 0.52, 0.46], n = 6, sides = 7) 
 // interior of the crown is shadowed (baked into the vertex colour) and the normals are a blend of the crown's and the clump's
 // dome so the lighting reads lumpy, like a real tree. Structure (clump centres) comes from a stream shared by both LODs; the
 // far LOD uses the same clumps with a few large cards each.
-function leafCard(mb, px, py, pz, s, rng, col, n) {
+// enc = [style (+LEAF_FAR on the far LOD), branch flexibility 0..1] → packed into the card's uv (LeafAtlas.encodeLeafCard)
+function leafCard(mb, px, py, pz, s, rng, col, n, enc = null) {
   const a = rng.next() * Math.PI, tilt = rng.range(-0.7, 0.7);
   const ax = Math.cos(a) * s, az = Math.sin(a) * s, bx = -Math.sin(a) * s * Math.cos(tilt), by = s * Math.sin(tilt) + s * 0.3, bz = Math.cos(a) * s * Math.cos(tilt);
   const i0 = mb.vcount; mb.quad([px - ax - bx, py - by, pz - az - bz], [px + ax - bx, py - by, pz + az - bz], [px + ax + bx, py + by, pz + az + bz], [px - ax + bx, py + by, pz - az + bz], [0, 0, 1, 1], col);
   for (let i = i0; i < mb.vcount; i++) { mb.nor[i * 3] = n[0]; mb.nor[i * 3 + 1] = n[1]; mb.nor[i * 3 + 2] = n[2]; }
+  if (enc) encodeLeafCard(mb.uv, i0, enc[0], enc[1]);
 }
 function clumpsOf(rngS, o) {
   const out = [];
@@ -67,7 +70,9 @@ function clumpCrown(mb, o, C, rngC, perClump, size) {
       const ao = 0.58 + 0.42 * (0.55 * out + 0.45 * up); let t = o.tint.map((q) => q * c.tint * ao * rngC.range(0.88, 1.08)); if (o.cardTint) { const k = o.cardTint(rngC, c); t = t.map((q, i) => q * k[i]); }
       const ax = px - o.cx, ay = (py - o.cy) * 1.3 + o.ry * 0.4, az = pz - o.cz, al = Math.hypot(ax, ay, az) || 1, bxx = px - c.x, byy = py - c.y + c.rv * 0.3, bzz = pz - c.z, bl = Math.hypot(bxx, byy, bzz) || 1;
       let nx = 0.55 * ax / al + 0.45 * bxx / bl, ny = 0.55 * ay / al + 0.45 * byy / bl + 0.15, nz = 0.55 * az / al + 0.45 * bzz / bl; const nl = Math.hypot(nx, ny, nz) || 1; nx /= nl; ny /= nl; nz /= nl;
-      leafCard(mb, px, py, pz, size * rngC.range(0.75, 1.2), rngC, t, [nx, ny, nz]);
+      // wind flexibility: cards far out from the trunk axis (branch tips) and high in the crown move most, the inner crown little
+      const R0 = o.rx || 4.5, dh = Math.hypot(px - (o.ax ?? o.cx), pz - (o.az ?? o.cz)); const flex = Math.min(1, 0.15 + 0.7 * Math.min(1, dh / R0) + 0.15 * up);
+      leafCard(mb, px, py, pz, size * rngC.range(0.75, 1.2), rngC, t, [nx, ny, nz], o.style != null ? [o.style, flex] : null);
     }
   }
 }
@@ -95,14 +100,17 @@ let S = null;
 function broadleaf(seed, o) {
   const build = (lod) => { const hi = lod === 0; const rngS = new RNG(seed), rngC = new RNG(seed + 1), rngB = new RNG(seed + 2); const t = new MeshBuilder(), c = new MeshBuilder(), fl = new MeshBuilder();
     const top = trunk(t, o.h * 0.45, o.trunkR, o.trunkR * 0.7, 0.4, rngS, [0.6, 0.55, 0.49], hi ? 12 : 5, hi ? 9 : 6);
-    const ends = []; for (let k = 0; k < o.limbs; k++) { const a = k / o.limbs * Math.PI * 2 + rngS.range(-0.3, 0.3); const e = [top[0] + Math.cos(a) * o.r * 0.55, o.h * rngS.range(0.7, 0.85), top[2] + Math.sin(a) * o.r * 0.55]; ends.push(e); limb(t, top, e, o.trunkR * 0.6, o.trunkR * 0.25, undefined, hi ? 6 : 3, hi ? 7 : 5); }
-    const cr = { cx: top[0], cy: o.h * 0.82, cz: top[2], rx: o.r, ry: o.h * 0.28, rz: o.r, clumps: o.clumps, flat: o.flat, tint: o.tint, cardTint: o.cardTint || null };
+    const ends = []; for (let k = 0; k < o.limbs; k++) { const a = k / o.limbs * Math.PI * 2 + rngS.range(-0.3, 0.3); const e = [top[0] + Math.cos(a) * o.r * 0.55, o.h * rngS.range(0.7, 0.85), top[2] + Math.sin(a) * o.r * 0.55]; ends.push(e); limb(t, top, e, o.trunkR * 0.6, o.trunkR * 0.25, undefined, hi ? 5 : 3, hi ? 6 : 5); }
+    const cr = { cx: top[0], cy: o.h * 0.82, cz: top[2], rx: o.r, ry: o.h * 0.28, rz: o.r, clumps: o.clumps, flat: o.flat, tint: o.tint, cardTint: o.cardTint || null, style: (o.style ?? LS.broad) + (hi ? 0 : LEAF_FAR) };
     const C = clumpsOf(rngS, cr);
     if (hi) for (const q of C) { let best = null, bd = 1e9; for (const e of ends) { const d = Math.hypot(e[0] - q.x, e[1] - q.y, e[2] - q.z); if (d < bd) { bd = d; best = e; } } // twigs out to the clumps
-      if (best && bd > 0.6) limb(t, [best[0], best[1] + 0.3, best[2]], [q.x + (best[0] - q.x) * 0.25, q.y - q.rv * 0.3, q.z + (best[2] - q.z) * 0.25], o.trunkR * 0.22, o.trunkR * 0.07, undefined, 3, 5); }
-    clumpCrown(c, cr, C, rngC, hi ? Math.round(o.cards * 1.35) : o.cardsLo, hi ? o.size * 0.9 : o.size * o.loK); // denser, finer near crowns: no see-through blobs
-    if (o.flowers && hi) for (const q of C) for (let k = 0; k < o.flowers; k++) { const u = rngB.next() * 6.28, v = rngB.next() * 1.2; flower(fl, q.x + Math.sin(v) * Math.cos(u) * q.r, q.y + Math.cos(v) * q.rv, q.z + Math.sin(v) * Math.sin(u) * q.r, o.flowerR || 0.05, o.flowerCol(rngB), 5, 0.5, rngB); }
-    if (o.flowers && !hi && o.flowersLo) for (const q of C) for (let k = 0; k < o.flowersLo; k++) { const u = rngB.next() * 6.28, v = rngB.next() * 1.1; flower(fl, q.x + Math.sin(v) * Math.cos(u) * q.r, q.y + Math.cos(v) * q.rv, q.z + Math.sin(v) * Math.sin(u) * q.r, (o.flowerR || 0.05) * 2.2, o.flowerCol(rngB), 5, 0.4, rngB); } // far LOD keeps the colour (fewer, bigger heads)
+      if (best && bd > 0.6) limb(t, [best[0], best[1] + 0.3, best[2]], [q.x + (best[0] - q.x) * 0.25, q.y - q.rv * 0.3, q.z + (best[2] - q.z) * 0.25], o.trunkR * 0.22, o.trunkR * 0.07, undefined, 3, 4); } // 88th: twigs are hidden in the crown: 4-sided, not 5
+    // 88th (perf): a crown's cards overlapped ~6 deep on screen (measured: 6.3 leaf fragments per covered pixel at the park), and
+    // every hidden layer is paid for in the fragment shader. Near crowns keep 1.12 × the cards (was 1.35), far crowns 60 % of
+    // cardsLo — still 3–4 layers deep, so silhouettes and density read the same while the leaf fill rate drops ~20–40 %.
+    clumpCrown(c, cr, C, rngC, hi ? Math.round(o.cards * 1.12) : Math.ceil(o.cardsLo * 0.6), hi ? o.size * 0.9 : o.size * o.loK);
+    if (o.flowers && hi) for (const q of C) for (let k = 0; k < o.flowers; k++) { const u = rngB.next() * 6.28, v = rngB.next() * 1.2; flower(fl, q.x + Math.sin(v) * Math.cos(u) * q.r, q.y + Math.cos(v) * q.rv, q.z + Math.sin(v) * Math.sin(u) * q.r, o.flowerR || 0.05, o.flowerCol(rngB), o.petals || 5, 0.5, rngB); }
+    if (o.flowers && !hi && o.flowersLo) for (const q of C) for (let k = 0; k < o.flowersLo; k++) { const u = rngB.next() * 6.28, v = rngB.next() * 1.1; flower(fl, q.x + Math.sin(v) * Math.cos(u) * q.r, q.y + Math.cos(v) * q.rv, q.z + Math.sin(v) * Math.sin(u) * q.r, (o.flowerR || 0.05) * 2.2, o.flowerCol(rngB), o.petals || 5, 0.4, rngB); } // far LOD keeps the colour (fewer, bigger heads)
     if (o.extra) o.extra({ t, c, fl, hi, top, ends, C, rng: rngB });
     if (o.fruit && hi) for (let k = 0; k < o.fruit; k++) { const a = rngB.next() * 6.28, y = rngB.range(1.6, o.h * 0.42); const r = o.trunkR * (1 - 0.3 * y / (o.h * 0.45)); blob(fl, Math.cos(a) * (r + 0.13), y, Math.sin(a) * (r + 0.13), 0.14, 0.24, 0.14, rngB.chance(0.5) ? [0.42, 0.5, 0.16] : [0.5, 0.55, 0.2], 0); } // jak fruit on the trunk
     return { t: t.build(), c: c.build(), f: fl.build() }; };
@@ -165,11 +173,11 @@ function kottambaShape() {
     const tiers = [3.4, 5.2, 6.9, 8.5, 9.9, 11.0];
     for (let i = 0; i < tiers.length; i++) { const y = tiers[i]; const len = Math.max(0.9, (4.9 - i * 0.78) * rngS.range(0.88, 1.08)); const nb = i < 4 ? 5 : 3; const a0 = rngS.next() * 6.28; const [ax, az] = axis(y);
       for (let k = 0; k < nb; k++) { const a = a0 + k / nb * 6.28 + rngS.range(-0.28, 0.28); const ex = ax + Math.cos(a) * len, ez = az + Math.sin(a) * len, ey = y + rngS.range(0.15, 0.55);
-        limb(t, [ax, y, az], [ex, ey, ez], Math.max(0.035, 0.12 - i * 0.016), 0.025, [0.55, 0.52, 0.48], hi ? 5 : 3, hi ? 6 : 4);
+        limb(t, [ax, y, az], [ex, ey, ez], Math.max(0.035, 0.12 - i * 0.016), 0.025, [0.55, 0.52, 0.48], hi ? 4 : 2, hi ? 5 : 3);
         const red = rngS.chance(0.22); const pads = []; const np = len > 2 ? 3 : 2;
         for (let q = 0; q < np; q++) { const f = 0.42 + q * (0.55 / np) + rngS.range(-0.05, 0.05); pads.push({ x: ax + (ex - ax) * f, y: y + (ey - y) * f + 0.28, z: az + (ez - az) * f, r: 0.55 + len * 0.16, rv: 0.32, tint: rngS.range(0.9, 1.08) }); }
         pads.push({ x: ex, y: ey + 0.22, z: ez, r: 0.6, rv: 0.3, tint: 1 });
-        clumpCrown(c, { cx: ax, cy: y, cz: az, ry: 0.9, tint: [0.86, 0.98, 0.78], cardTint: red ? (r) => (r.chance(0.6) ? [2.0, 0.78, 0.45] : [1.6, 1.15, 0.55]) : null }, pads, rngC, hi ? 10 : 3, hi ? 0.62 : 1.05); } }
+        clumpCrown(c, { cx: ax, cy: y, cz: az, ax: 0, az: 0, rx: 5, ry: 0.9, style: LS.almond + (hi ? 0 : LEAF_FAR), tint: [0.86, 0.98, 0.78], cardTint: red ? (r) => (r.chance(0.6) ? [2.0, 0.78, 0.45] : [1.6, 1.15, 0.55]) : null }, pads, rngC, hi ? 10 : 3, hi ? 0.62 : 1.05); } }
     return { t: t.build(), c: c.build() }; };
   const H = build(0), Lo = build(1);
   return { parts: [{ mat: 'treeBark', hi: H.t, lo: Lo.t }, { mat: 'leaves', hi: H.c, lo: Lo.c }], trunk: H.t, crown: H.c, mat: 'leaves' };
@@ -182,9 +190,9 @@ function ashokaShape() {
     const C = []; const dy = hi ? 0.55 : 0.9;
     for (let y = 1.6; y < H + 0.3; y += dy) { const u = (y - 1.6) / (H - 1.6); const R = 0.35 + 1.25 * Math.pow(1 - u, 0.6) * (0.75 + 0.25 * Math.sin(u * 9)); const n = Math.max(2, Math.round(R * (hi ? 4 : 2.5))); const a0 = rngS.next() * 6.28;
       for (let k = 0; k < n; k++) { const a = a0 + k / n * 6.28 + rngS.range(-0.3, 0.3); const ax = top[0] * (y / H) ** 2, az = top[2] * (y / H) ** 2; const ex = ax + Math.cos(a) * R, ez = az + Math.sin(a) * R;
-        if (hi && R > 0.6) limb(t, [ax, y, az], [ex, y - 0.35, ez], 0.035, 0.012, [0.5, 0.46, 0.42], 3, 4); // drooping twig
+        if (hi && R > 0.6) limb(t, [ax, y, az], [ex, y - 0.35, ez], 0.035, 0.012, [0.5, 0.46, 0.42], 2, 4); // drooping twig
         C.push({ x: ex * 0.92, y: y - 0.45, z: ez * 0.92, r: 0.45 + R * 0.12, rv: 0.55, tint: rngS.range(0.86, 1.06) }); } }
-    clumpCrown(c, { cx: top[0] * 0.5, cy: H * 0.55, cz: top[2] * 0.5, ry: H * 0.5, tint: [0.62, 0.8, 0.58] }, C, rngC, hi ? 6 : 3, hi ? 0.5 : 0.85);
+    clumpCrown(c, { cx: top[0] * 0.5, cy: H * 0.55, cz: top[2] * 0.5, rx: 1.6, ry: H * 0.5, style: LS.narrow + (hi ? 0 : LEAF_FAR), tint: [0.62, 0.8, 0.58] }, C, rngC, hi ? 6 : 3, hi ? 0.5 : 0.85);
     return { t: t.build(), c: c.build() }; };
   const H = build(0), Lo = build(1);
   return { parts: [{ mat: 'treeBark', hi: H.t, lo: Lo.t }, { mat: 'leaves', hi: H.c, lo: Lo.c }], trunk: H.t, crown: H.c, mat: 'leaves' };
@@ -207,17 +215,17 @@ export function treeShapes() {
   if (S) return S; S = {};
   S.palm = palmShape();
   const B = (name, seed, o) => { S[name] = broadleaf(seed, { loK: 1.8, ...o }); };
-  B('rain', 801, { h: 13, r: 9, trunkR: 0.55, limbs: 5, clumps: 23, cards: 17, cardsLo: 5, size: 1.32, tint: [0.95, 1, 0.9], flat: 1, mat: 'leaves' });
-  B('mara', 811, { h: 10, r: 5.5, trunkR: 0.4, limbs: 4, clumps: 18, cards: 16, cardsLo: 5, size: 1.2, tint: [1, 1, 0.95], flat: 1, mat: 'leaves' });
-  B('mango', 821, { h: 8, r: 3.8, trunkR: 0.32, limbs: 3, clumps: 15, cards: 15, cardsLo: 5, size: 0.98, tint: [0.78, 0.9, 0.78], flat: 0, mat: 'leaves' });
-  B('jak', 831, { h: 12, r: 3.6, trunkR: 0.36, limbs: 3, clumps: 15, cards: 14, cardsLo: 5, size: 1.0, tint: [0.82, 0.95, 0.8], flat: 0, mat: 'leaves', fruit: 7 });
-  B('bo', 841, { h: 12, r: 6, trunkR: 0.5, limbs: 5, clumps: 19, cards: 16, cardsLo: 5, size: 1.08, tint: [1.05, 1.1, 1.0], flat: 0, mat: 'leavesBright' });
-  B('frangipani', 851, { h: 5, r: 2.6, trunkR: 0.18, limbs: 4, clumps: 11, cards: 10, cardsLo: 4, size: 0.74, tint: [1.2, 1.22, 1.15], flat: 0, mat: 'leavesBright', flowers: 4, flowerCol: (r) => (r.chance(0.7) ? [1.0, 0.97, 0.88] : [1.0, 0.78, 0.82]) });
+  B('rain', 801, { style: LS.broad, h: 13, r: 9, trunkR: 0.55, limbs: 5, clumps: 23, cards: 17, cardsLo: 5, size: 1.32, tint: [0.95, 1, 0.9], flat: 1, mat: 'leaves' });
+  B('mara', 811, { style: LS.broad, h: 10, r: 5.5, trunkR: 0.4, limbs: 4, clumps: 18, cards: 16, cardsLo: 5, size: 1.2, tint: [1, 1, 0.95], flat: 1, mat: 'leaves' });
+  B('mango', 821, { style: LS.narrow, h: 8, r: 3.8, trunkR: 0.32, limbs: 3, clumps: 15, cards: 15, cardsLo: 5, size: 0.98, tint: [0.78, 0.9, 0.78], flat: 0, mat: 'leaves' });
+  B('jak', 831, { style: LS.narrow, h: 12, r: 3.6, trunkR: 0.36, limbs: 3, clumps: 15, cards: 14, cardsLo: 5, size: 1.0, tint: [0.82, 0.95, 0.8], flat: 0, mat: 'leaves', fruit: 7 });
+  B('bo', 841, { style: LS.bo, h: 12, r: 6, trunkR: 0.5, limbs: 5, clumps: 19, cards: 16, cardsLo: 5, size: 1.08, tint: [1.05, 1.1, 1.0], flat: 0, mat: 'leavesBright' });
+  B('frangipani', 851, { style: LS.frangipani, h: 5, r: 2.6, trunkR: 0.18, limbs: 4, clumps: 11, cards: 10, cardsLo: 4, size: 0.74, tint: [1.2, 1.22, 1.15], flat: 0, mat: 'leavesBright', flowers: 4, flowerCol: (r) => (r.chance(0.7) ? [1.0, 0.97, 0.88] : [1.0, 0.78, 0.82]) });
   S.areca = arecaShape(); S.banana = bananaShape();
   // 52nd: five more species
-  B('nuga', 881, { h: 14, r: 10.5, trunkR: 0.85, limbs: 7, clumps: 28, cards: 17, cardsLo: 5, size: 1.25, tint: [0.84, 0.95, 0.8], flat: 1, mat: 'leaves', extra: nugaExtra });
+  B('nuga', 881, { style: LS.broad, h: 14, r: 10.5, trunkR: 0.85, limbs: 7, clumps: 28, cards: 17, cardsLo: 5, size: 1.25, tint: [0.84, 0.95, 0.8], flat: 1, mat: 'leaves', extra: nugaExtra });
   S.kottamba = kottambaShape(); S.ashoka = ashokaShape();
-  B('flamboyant', 891, { h: 9, r: 7, trunkR: 0.38, limbs: 6, clumps: 22, cards: 15, cardsLo: 5, size: 0.95, tint: [1.0, 1.08, 0.9], flat: 1, mat: 'leavesSmall', flowers: 16, flowersLo: 5, flowerR: 0.085,
+  B('flamboyant', 891, { style: LS.fine, petals: 4, h: 9, r: 7, trunkR: 0.38, limbs: 6, clumps: 22, cards: 15, cardsLo: 5, size: 0.95, tint: [1.0, 1.08, 0.9], flat: 1, mat: 'leavesSmall', flowers: 11, flowersLo: 4, flowerR: 0.095,
     flowerCol: (r) => (r.chance(0.8) ? [0.93, 0.16, 0.06] : [0.98, 0.45, 0.08]), cardTint: (r) => (r.chance(0.32) ? [2.1, 0.52, 0.32] : [1, 1, 1]) }); // mal mara (Delonix regia): umbrella crown of fine feathery leaves, smothered in scarlet in April–May
   S.kingcoconut = palmShape({ seed: 717, h: 7.2, bend: 0.55, len: [3.4, 4.4], droop: 0.7, nuts: 16, nutCol: [0.95, 0.56, 0.12], frondCol: [1.02, 1.02, 0.82] }); // thambili: shorter, upright, golden-orange nut bunches
   return S;
@@ -234,23 +242,23 @@ export function crownPoints(type) {
 }
 // ------------------------------------------------------------------------------------------------ shrubs and ground plants
 // (not trees: no trunk collider, no crown clearance — Greenery places them clear of buildings, walls and paved ground)
-function mound(mb, rng, o, n, size, colFn) { // leaf cards over a dome (flattened at the ground), darker inside
+function mound(mb, rng, o, n, size, colFn, style = null) { // leaf cards over a dome (flattened at the ground), darker inside
   for (let k = 0; k < n; k++) { const u = rng.next() * 6.28, v = Math.acos(1 - rng.next() * 1.35); const f = 0.55 + 0.45 * Math.sqrt(rng.next());
     const dx = Math.sin(v) * Math.cos(u), dy = Math.cos(v), dz = Math.sin(v) * Math.sin(u); const px = dx * o.r * f, py = Math.max(size * 0.6, o.h * 0.5 + dy * o.h * 0.5 * f), pz = dz * o.r * f;
     const ao = 0.6 + 0.4 * (0.5 * f + 0.5 * Math.max(0, Math.min(1, py / o.h))); const nl = Math.hypot(dx, dy + 0.3, dz) || 1;
-    leafCard(mb, px, py, pz, size * rng.range(0.75, 1.2), rng, colFn(rng).map((q) => q * ao), [dx / nl, (dy + 0.3) / nl, dz / nl]); }
+    leafCard(mb, px, py, pz, size * rng.range(0.75, 1.2), rng, colFn(rng).map((q) => q * ao), [dx / nl, (dy + 0.3) / nl, dz / nl], style != null ? [style, Math.min(1, 0.25 + 0.75 * py / o.h)] : null); }
 }
 let P = null;
 export function plantShapes() {
   if (P) return P; P = {};
   const shrub = (name, seed, o) => { const mk = (hi) => { const rng = new RNG(seed), rb = new RNG(seed + 5); const c = new MeshBuilder(), fl = new MeshBuilder();
-      mound(c, rng, o, hi ? o.cards : Math.ceil(o.cards / 3), hi ? o.size : o.size * 1.6, o.col);
+      mound(c, rng, o, hi ? o.cards : Math.ceil(o.cards / 3), hi ? o.size : o.size * 1.6, o.col, (o.style ?? (o.mat === 'leavesSmall' ? LS.small : LS.shrub)) + (hi ? 0 : LEAF_FAR));
       if (o.bloom) o.bloom(fl, rb, hi); return { c: c.build(), f: fl.build() }; };
     const H = mk(true), Lo = mk(false); const parts = [{ mat: o.mat, hi: H.c, lo: Lo.c }]; if (H.f) parts.push({ mat: 'bloom', hi: H.f, lo: Lo.f });
     P[name] = { parts, h: o.h, r: o.r }; };
   const G = (r) => [1, 1, 1].map((v) => v * r.range(0.85, 1.08));
   // croton: variegated leaves — green, yellow, red, maroon on one bush (the vertex colour multiplies the pale-green sprig)
-  shrub('croton', 901, { h: 1.2, r: 0.62, cards: 46, size: 0.3, mat: 'leavesBright', col: (r) => r.pick([[1, 1, 1], [1.9, 1.3, 0.5], [2.1, 0.62, 0.4], [1.5, 0.48, 0.42], [1.7, 1.45, 0.6]]).map((v) => v * r.range(0.85, 1.05)) });
+  shrub('croton', 901, { style: LS.croton, h: 1.2, r: 0.62, cards: 46, size: 0.3, mat: 'leavesBright', col: (r) => r.pick([[1, 1, 1], [1.9, 1.3, 0.5], [2.1, 0.62, 0.4], [1.5, 0.48, 0.42], [1.7, 1.45, 0.6]]).map((v) => v * r.range(0.85, 1.05)) });
   // hibiscus (pokuru wada): dark glossy leaves and big red / pink five-petal flowers
   shrub('hibiscus', 911, { h: 1.7, r: 0.85, cards: 60, size: 0.36, mat: 'leaves', col: G,
     bloom: (fl, r, hi) => { for (let k = 0; k < (hi ? 12 : 6); k++) { const u = r.next() * 6.28, v = Math.acos(1 - r.next() * 1.2); const col = r.chance(0.7) ? [0.82, 0.06, 0.08] : [0.95, 0.42, 0.58];

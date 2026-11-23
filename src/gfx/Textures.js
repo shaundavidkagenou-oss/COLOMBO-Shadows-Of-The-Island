@@ -5,6 +5,7 @@ import { RNG } from '../core/rng.js';
 import { fbm, vnoise } from '../core/noise.js';
 
 export const FACADE_WINDOWS = {};
+import { loadLeafAtlas } from '../world/LeafAtlas.js';
 export const TEX = {};
 let maxAniso = 4;
 export function setAniso(a) { maxAniso = a; }
@@ -1095,7 +1096,11 @@ export async function buildTextures(quality = 'high', progress = () => {}) {
       TEX.glow = radial(128, [[0, 'rgba(255,255,255,1)'], [0.25, 'rgba(255,255,255,0.5)'], [1, 'rgba(255,255,255,0)']]);
       TEX.pool = radial(128, [[0, 'rgba(255,255,255,0.9)'], [0.5, 'rgba(255,255,255,0.35)'], [1, 'rgba(255,255,255,0)']]);
     }],
-    ['foliage', () => { TEX.palm = palmFrond(512); TEX.leaves = leafCluster(512); TEX.leavesBright = leafCluster(512, ['#4a7a2a', '#5f9236', '#6fa040', '#3e6a22', '#86b04e'], 123); TEX.leavesSmall = leafCluster(256, ['#2c5a1c', '#3a6a24', '#47782c', '#2a4f18', '#55863a'], 127, 'small'); TEX.bract = bractCluster(256); TEX.banana = bananaLeaf(128, 512); TEX.bark = barkTex(256); TEX.palmBark = barkTex(256, true); }],
+    ['foliage', async () => { TEX.palm = palmFrond(512);
+      // 88th: every tree / shrub / hedge / creeper leaf comes from the user's photographic leaf sheet (world/LeafAtlas.js) — one
+      // texture instead of the three painted clusters; the painted ones are only made if the sheet cannot be loaded (no DOM)
+      const atlas = await loadLeafAtlas(); if (atlas) TEX.leaves = TEX.leavesBright = TEX.leavesSmall = TEX.leafAtlas = atlas;
+      else { TEX.leaves = leafCluster(512); TEX.leavesBright = leafCluster(512, ['#4a7a2a', '#5f9236', '#6fa040', '#3e6a22', '#86b04e'], 123); TEX.leavesSmall = leafCluster(256, ['#2c5a1c', '#3a6a24', '#47782c', '#2a4f18', '#55863a'], 127, 'small'); } TEX.bract = bractCluster(256); TEX.banana = bananaLeaf(128, 512); TEX.bark = barkTex(256); TEX.palmBark = barkTex(256, true); }],
     ['fabrics', () => { TEX.plaid = fabricPlaid(256); TEX.saree = fabricSaree(256); TEX.batik = fabricBatik(256); TEX.weave = fabricWeave(128); }],
   ];
   for (let i = 0; i < steps.length; i++) {

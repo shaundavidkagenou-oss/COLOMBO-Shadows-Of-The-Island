@@ -47,10 +47,17 @@ ok(lifts.every((l, k) => l > WEAPONS[PISTOLS[k]] && true || l > 0.06), `draw lif
 ok(G.stats.builds <= 2, `holster built once (builds so far ${G.stats.builds})`);
 
 // ---- 2. every long gun: drawn off the sling, strap never off, never stretched, back on the sling afterwards
-for (const i of LONGS) { W.select(i); let off = 0, maxS = 0, minS = 9, dL = 0, ddL = 0, lastL = -1, lastD = 0; untilF(() => { if (!G.strapShown) off++; const p = G.cur.L && G.cur.L.path; if (p && G.strapShown) { maxS = Math.max(maxS, p.stretch); minS = Math.min(minS, p.stretch); if (lastL > 0) { const d = p.len - lastL; dL = Math.max(dL, Math.abs(d)); ddL = Math.max(ddL, Math.abs(d - lastD)); lastD = d; } lastL = p.len; } return W.state === 'ready'; });
+// 88th: the face / head clearance of the over-the-shoulder swing (the head is its own mesh: 'heroHead'), sampled on the gun's own vertices
+let headM = null; ch.root.traverse((o) => { if (o.name === 'heroHead') headM = o; }); const HV = [], hv = new THREE.Vector3(), gv = new THREE.Vector3();
+if (headM) { const p = headM.geometry.attributes.position; for (let k = 0; k < p.count; k += Math.max(1, (p.count / 500) | 0)) HV.push(k); }
+const gunPts = (m) => { const out = []; m.traverse((o) => { if (o.isMesh && o.geometry) { const p = o.geometry.attributes.position; for (let k = 0; k < p.count; k += Math.max(1, (p.count / 250) | 0)) out.push([o, k]); } }); return out; };
+const headGap = (S) => { const hp = headM.geometry.attributes.position, W0 = HV.map((k) => hv.fromBufferAttribute(hp, k).applyMatrix4(headM.matrixWorld).clone()); let b = 9;
+  for (const [o, k] of S) { gv.fromBufferAttribute(o.geometry.attributes.position, k).applyMatrix4(o.matrixWorld); for (const q of W0) b = Math.min(b, gv.distanceToSquared(q)); } return Math.sqrt(b); };
+for (const i of LONGS) { W.select(i); let off = 0, maxS = 0, minS = 9, dL = 0, ddL = 0, lastL = -1, lastD = 0, gap = 9; const GP = headM ? gunPts(W.models[i]) : null; untilF(() => { if (!G.strapShown) off++; if (GP && W.state === 'equip' && W.t / W.dur < 0.6) gap = Math.min(gap, headGap(GP)); const p = G.cur.L && G.cur.L.path; if (p && G.strapShown) { maxS = Math.max(maxS, p.stretch); minS = Math.min(minS, p.stretch); if (lastL > 0) { const d = p.len - lastL; dL = Math.max(dL, Math.abs(d)); ddL = Math.max(ddL, Math.abs(d - lastD)); lastD = d; } lastL = p.len; } return W.state === 'ready'; });
   ok(W.drawMode === 'sling' || W.state === 'ready', `${WEAPONS[i].name}: sling draw`); ok(off === 0, `${WEAPONS[i].name}: strap on show every frame of the draw (${off} off)`);
   // the strap pays out through its adjustable run as the gun comes round (quick-adjust) — smoothly, within a real sling's range
-  const Lm = G.cur.L.path.Lm; ok((maxS - 1) * Lm < 1.25 && minS > 0.9 && dL < 0.2 && ddL < 0.13, `${WEAPONS[i].name}: strap pays out smoothly (pays out ${((maxS - 1) * Lm * 100).toFixed(0)} cm, ${minS.toFixed(2)}–${maxS.toFixed(2)} × ${Lm.toFixed(2)} m, ≤ ${(dL * 100).toFixed(1)} cm/frame, Δ ${(ddL * 100).toFixed(1)})`);
+  if (GP) ok(gap > 0.008, `${WEAPONS[i].name}: the swing over the shoulder clears the head (${(gap * 100).toFixed(1)} cm)`);
+  const Lm = G.cur.L.path.Lm; ok((maxS - 1) * Lm < 0.75 && minS > 0.9 && dL < 0.2 && ddL < 0.13, `${WEAPONS[i].name}: strap pays out smoothly (pays out ${((maxS - 1) * Lm * 100).toFixed(0)} cm, ${minS.toFixed(2)}–${maxS.toFixed(2)} × ${Lm.toFixed(2)} m, ≤ ${(dL * 100).toFixed(1)} cm/frame, Δ ${(ddL * 100).toFixed(1)})`);
   run(0.2); settle(); ok(W.models[i].parent === W.holsterR && W.models[i].visible && G.strapShown, `${WEAPONS[i].name}: back on the sling with its strap`); }
 const visibleStraps = () => { let n = 0; for (const f of G.fits.values()) if (f.strap && f.strap.visible && f.strap.parent) n++; return n; };
 ok(visibleStraps() === 1, 'one strap on show');

@@ -8,6 +8,7 @@ import { MAT } from '../gfx/Materials.js';
 import { TEX } from '../gfx/Textures.js';
 import { RNG } from '../core/rng.js';
 import * as L from './Layout.js';
+import { patchLeafShader } from './LeafAtlas.js';
 
 let vineMat = null, bractMat = null;
 // distance fade (World.update sets it): fragments farther than z … w metres from the player (x, y) dissolve with a screen-space
@@ -28,9 +29,12 @@ function fadeCompile(sh) {
     if (vf < 0.999 && vf <= vn) discard; }`);
 }
 function material() { // the shrubs' leaf material without the wind sway (vines are pinned to the masonry)
-  if (vineMat) return vineMat; const src = MAT.leavesSmall || MAT.leaves; vineMat = src.clone(); vineMat.onBeforeCompile = fadeCompile; vineMat.customProgramCacheKey = () => 'vine'; vineMat.name = 'vine'; return vineMat; }
+  if (vineMat) return vineMat; const src = MAT.leavesSmall || MAT.leaves; vineMat = src.clone(); vineMat.name = 'vine';
+  // 88th: the creeper cards draw the photographic leaf sheet through the same per-card leaf layout as the trees (LeafAtlas.js)
+  const atlas = !!TEX.leafAtlas && src.map === TEX.leafAtlas; vineMat.onBeforeCompile = atlas ? (sh) => { fadeCompile(sh); patchLeafShader(sh, '0.0'); } : fadeCompile;
+  vineMat.customProgramCacheKey = () => (atlas ? 'vineLeaf88' : 'vine'); return vineMat; }
 // bracts: the same shader program as the leaves (same cache key, so nothing new to compile), with the bract-spray texture
-function bractMaterial() { if (bractMat) return bractMat; const m = material(); if (!TEX.bract) return MAT.bloom || m; bractMat = m.clone(); bractMat.map = TEX.bract; bractMat.roughness = 0.75; bractMat.onBeforeCompile = fadeCompile; bractMat.customProgramCacheKey = () => 'vine'; bractMat.name = 'vineBract'; return bractMat; }
+function bractMaterial() { if (bractMat) return bractMat; const m = material(); if (!TEX.bract) return MAT.bloom || m; bractMat = m.clone(); bractMat.customProgramCacheKey = () => 'vine'; bractMat.map = TEX.bract; bractMat.roughness = 0.75; bractMat.onBeforeCompile = fadeCompile; bractMat.customProgramCacheKey = () => 'vine'; bractMat.name = 'vineBract'; return bractMat; }
 
 class Buf { constructor() { this.p = []; this.n = []; this.u = []; this.c = []; this.i = []; this.v = 0; }
   // a card centred at c, spanned by unit vectors a, b (half sizes ha, hb), facing n

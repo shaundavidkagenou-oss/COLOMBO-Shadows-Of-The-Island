@@ -70,14 +70,14 @@ export class SlingPath {
   // bars: { U: { p, x }, L: { p, x } } — swivel bar centre and bar axis in RIFLE space; Lm = strap length, E = fixed end zone
   constructor(mesh, ring, bars, Lm, E, slung) {
     this.mesh = mesh; this.ring = ring; this.bars = bars; this.Lm = Lm; this.E = E; this.slung0 = slung; // slung0: { aU, aL } attach nodes with the rifle on the back
-    const used = new Set(); for (let j = 0; j < ring.SI.length; j++) if (ring.SW[j] > 0) used.add(ring.SI[j]); this.bones = [...used].sort((a, b) => a - b);
+    const used = new Set(); for (let j = 0; j < ring.SI.length; j++) { if (ring.SW[j] > 0) used.add(ring.SI[j]); if (ring.SW2 && ring.SW2[j] > 0) used.add(ring.SI2[j]); } this.bones = [...used].sort((a, b) => a - b);
     this.slot = new Int16Array(Math.max(1, (this.bones.at(-1) ?? 0) + 1)).fill(-1); this.bones.forEach((b, i) => { this.slot[b] = i; });
     this.dq = new Float32Array(this.bones.length * 8); // per used bone: real (x y z w), dual (x y z w)
     this.RP = new Float32Array(RING_NB * 3); this.RN = new Float32Array(RING_NB * 3); // skinned ring (mesh space)
     const maxPts = RING_NB + 2 * SPAN + 4; this.pp = new Float32Array(maxPts * 3); this.pn = new Float32Array(maxPts * 3); this.cum = new Float32Array(maxPts);
     this.data = new Float32Array(K * 3 * 4); this.tex = new THREE.DataTexture(this.data, K, 3, THREE.RGBAFormat, THREE.FloatType); this.tex.minFilter = this.tex.magFilter = THREE.NearestFilter; this.tex.generateMipmaps = false; this.tex.needsUpdate = true;
     this.U = { uPathTex: { value: this.tex }, uPathInfo: { value: new THREE.Vector4(Lm, E, Lm, K) }, uPathZone: { value: new THREE.Vector2(E, Lm - E) } }; this.cumR = new Float32Array(RING_NB + 1); this.ringLen = 1;
-    this.aU = slung.aU; this.aL = slung.aL; this.fresh = true; this.dirty = false; this.hooked = false; this.target = null; this.slungNow = true; this.len = Lm; this.stretch = 1; this.minClear = 0;
+    this.aU = slung.aU; this.aL = slung.aL; this.fresh = true; this.dirty = false; this.hooked = false; this.target = null; this.slungNow = true; this.k = 0; this.yc = 0; this.zc = 0; for (let n = 0; n < RING_NB; n++) { this.yc += ring.P[3 * n + 1] / RING_NB; this.zc += ring.P[3 * n + 2] / RING_NB; } this.len = Lm; this.stretch = 1; this.minClear = 0;
   }
   reset() { this.fresh = true; }
   renderHook() { this.hooked = true; if (!this.dirty || !this.target) return; this.dirty = false; this.update(this.target, this.slungNow); } // once per frame, first draw (shadow or main)
@@ -91,18 +91,24 @@ export class SlingPath {
       // dual = 0.5 · (t ⊗ r): (t·r.w + t × r.xyz, −t·r.xyz)
       D[o + 4] = 0.5 * (tx * _q.w + (ty * _q.z - tz * _q.y)); D[o + 5] = 0.5 * (ty * _q.w + (tz * _q.x - tx * _q.z)); D[o + 6] = 0.5 * (tz * _q.w + (tx * _q.y - ty * _q.x)); D[o + 7] = -0.5 * (tx * _q.x + ty * _q.y + tz * _q.z);
     }
-    const R = this.ring, RP = this.RP, RN = this.RN;
+    const R = this.ring, k = R.P2 ? this.k : 0; this.skinSet(R.SI, R.SW, R.P, R.N, this.RP, this.RN, 0); if (k > 1e-3) this.skinSet(R.SI2, R.SW2, R.P2, R.N2, this.RP, this.RN, k);
+  }
+  // skin one ring's nodes into RP / RN; f > 0: blend them in (f = weight of this ring) — 88th: the sash ring ↔ the ridden-up ring
+  skinSet(SI, SW, P, N, RP, RN, f) {
+    const D = this.dq;
     for (let n = 0; n < RING_NB; n++) {
       let rx = 0, ry = 0, rz = 0, rw = 0, dx = 0, dy = 0, dz = 0, dw = 0, r0 = -1;
-      for (let c = 0; c < 4; c++) { const w0 = R.SW[4 * n + c]; if (w0 <= 0) continue; const o = 8 * this.slot[R.SI[4 * n + c]]; let w = w0;
+      for (let c = 0; c < 4; c++) { const w0 = SW[4 * n + c]; if (w0 <= 0) continue; const o = 8 * this.slot[SI[4 * n + c]]; let w = w0;
         if (r0 < 0) r0 = o; else if (D[o] * D[r0] + D[o + 1] * D[r0 + 1] + D[o + 2] * D[r0 + 2] + D[o + 3] * D[r0 + 3] < 0) w = -w;
         rx += D[o] * w; ry += D[o + 1] * w; rz += D[o + 2] * w; rw += D[o + 3] * w; dx += D[o + 4] * w; dy += D[o + 5] * w; dz += D[o + 6] * w; dw += D[o + 7] * w; }
       const L = Math.max(1e-6, Math.sqrt(rx * rx + ry * ry + rz * rz + rw * rw)); rx /= L; ry /= L; rz /= L; rw /= L; dx /= L; dy /= L; dz /= L; dw /= L;
-      for (let pass = 0; pass < 2; pass++) { const A = pass ? R.N : R.P, O = pass ? RN : RP; const vx = A[3 * n], vy = A[3 * n + 1], vz = A[3 * n + 2];
+      for (let pass = 0; pass < 2; pass++) { const A = pass ? N : P, O = pass ? RN : RP; const vx = A[3 * n], vy = A[3 * n + 1], vz = A[3 * n + 2];
         // v + 2 r × (r × v + w v)
         const cx = ry * vz - rz * vy + rw * vx, cy = rz * vx - rx * vz + rw * vy, cz = rx * vy - ry * vx + rw * vz;
         let ox = vx + 2 * (ry * cz - rz * cy), oy = vy + 2 * (rz * cx - rx * cz), oz = vz + 2 * (rx * cy - ry * cx);
         if (!pass) { ox += 2 * (rw * dx - dw * rx + (ry * dz - rz * dy)); oy += 2 * (rw * dy - dw * ry + (rz * dx - rx * dz)); oz += 2 * (rw * dz - dw * rz + (rx * dy - ry * dx)); }
+        if (f > 0) { const j = 3 * n; ox = O[j] + (ox - O[j]) * f; oy = O[j + 1] + (oy - O[j + 1]) * f; oz = O[j + 2] + (oz - O[j + 2]) * f;
+          if (pass) { const l = Math.sqrt(ox * ox + oy * oy + oz * oz) || 1; ox /= l; oy /= l; oz /= l; } }
         O[3 * n] = ox; O[3 * n + 1] = oy; O[3 * n + 2] = oz; }
     }
   }
@@ -131,8 +137,12 @@ export class SlingPath {
   }
   // per frame: model = the long gun (wherever it is: on the back, in the hands), after the pose and the IK
   update(model, slungNow) {
-    this.skinRing(); const inv = _m.copy(this.mesh.matrixWorld).invert(); model.updateWorldMatrix(true, false); _m2.multiplyMatrices(inv, model.matrixWorld);
+    const inv = _m.copy(this.mesh.matrixWorld).invert(); model.updateWorldMatrix(true, false); _m2.multiplyMatrices(inv, model.matrixWorld);
     const B = this.bars; _bu.copy(B.U.p).applyMatrix4(_m2); _bl.copy(B.L.p).applyMatrix4(_m2); _xu.copy(B.U.x).transformDirection(_m2); _xl.copy(B.L.x).transformDirection(_m2);
+    // 88th: how far round to the front the gun is (swivel midpoint ahead of the chest, mesh space +z = forward) → how far the strap has
+    // ridden up off the sash line; a continuous function of where the gun is, so the strap slides up / down with the draw / stow
+    { const zf = (_bu.z + _bl.z) * 0.5 - this.zc, yf = (_bu.y + _bl.y) * 0.5 - this.yc; const t = Math.min(1, Math.max(0, (zf + 0.1) / 0.5, (yf - 0.05) / 0.45)); this.k = t * t * (3 - 2 * t); } // in front, or up over the shoulder mid-swing
+    this.skinRing(); { let y = 0, z = 0; for (let n = 0; n < RING_NB; n++) { y += this.RP[3 * n + 1]; z += this.RP[3 * n + 2]; } this.yc = y / RING_NB; this.zc = z / RING_NB; } // chest centre (next frame's reference)
     this.arcs(); void slungNow;
     if (this.fresh) { const s = this.slung0; this.aU = this.track(s.aU, _bu, RING_NB / 2); this.aL = this.track(s.aL, _bl, RING_NB / 2); this.solve(30, 4); this.fresh = false; } // nearest nodes anywhere, then pulled taut
     else this.solve(12, 1);

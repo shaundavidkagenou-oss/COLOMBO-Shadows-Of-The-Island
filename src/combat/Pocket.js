@@ -42,7 +42,11 @@ function measure(ch) {
   });
   return prof;
 }
-function key(ch) { let k = ''; ch.root.traverse((m) => { if (m.isSkinnedMesh && m.visible) k += m.geometry.uuid; }); return k; }
+// the visible skinned geometries (outfit) — checked once a second; rebuilt as a string only when they changed
+const _kg = [];
+function keyCollect(o) { if (o.isSkinnedMesh && o.visible) _kg.push(o.geometry); for (let i = 0; i < o.children.length; i++) keyCollect(o.children[i]); }
+function key(ch) { _kg.length = 0; keyCollect(ch.root); const prev = ch._pocketGeos; if (prev && prev.length === _kg.length) { let same = true; for (let i = 0; i < _kg.length; i++) if (prev[i] !== _kg[i]) { same = false; break; } if (same) return ch._pocketKey; }
+  ch._pocketGeos = _kg.slice(); let k = ''; for (const g of _kg) k += g.uuid; return k; }
 function profile(ch) {
   const t = (ch._pocketT = (ch._pocketT || 0) + 1);
   if (!ch._pocketProf || t % 60 === 1) { const k = key(ch); if (ch._pocketKey !== k) { ch._pocketKey = k; ch._pocketProf = measure(ch); } }
@@ -57,10 +61,12 @@ export function stockSpan(m) {
 }
 // forward offset (m) of this body's shoulder pocket for a stock spanning [lo, hi] (m, relative to the pocket height)
 // returns [dx, dz]: the cheapest candidate (forward travel + DX_COST × sideways shift)
-export function pocketOffset(ch, span = [-0.09, 0.05]) {
-  if (!ch || !ch.root) return [0, 0]; const P = profile(ch); const a = Math.max(0, Math.floor((span[0] - Y0) / BIN)), b = Math.min(NB - 1, Math.floor((span[1] - Y0) / BIN));
-  let best = null, bc = 1e9; for (let j = 0; j < DXS.length; j++) { let need = 0; for (let k = a; k <= b; k++) if (P[j][k] > need) need = P[j][k]; const dz = Math.min(MAX_DZ, Math.max(0, need - COMPRESS)); const c = dz - DX_COST * DXS[j]; if (c < bc - 1e-4) { bc = c; best = [DXS[j], dz]; } }
-  ch._pocketDz = best[1]; return best;
+// 88th: called every frame by the aiming code — the result is one shared array (read it before the next call; nothing keeps it)
+const SPAN0 = [-0.09, 0.05], _off = [0, 0];
+export function pocketOffset(ch, span = SPAN0) {
+  if (!ch || !ch.root) { _off[0] = _off[1] = 0; return _off; } const P = profile(ch); const a = Math.max(0, Math.floor((span[0] - Y0) / BIN)), b = Math.min(NB - 1, Math.floor((span[1] - Y0) / BIN));
+  let bc = 1e9; for (let j = 0; j < DXS.length; j++) { let need = 0; for (let k = a; k <= b; k++) if (P[j][k] > need) need = P[j][k]; const dz = Math.min(MAX_DZ, Math.max(0, need - COMPRESS)); const c = dz - DX_COST * DXS[j]; if (c < bc - 1e-4) { bc = c; _off[0] = DXS[j]; _off[1] = dz; } }
+  ch._pocketDz = _off[1]; return _off;
 }
 export function pocketDz(ch, span) { return pocketOffset(ch, span)[1]; }
 // the pocket for this body and weapon model (written into out)

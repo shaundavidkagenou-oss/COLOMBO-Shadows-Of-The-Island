@@ -49,9 +49,9 @@ export function carryCategory(def) {
 }
 // long-gun carry per category (chest-bone space; tilt = angle of the barrel from vertical, cy = rifle centre height)
 export const LONG_FIT = {
-  compact: { up: false, tilt: 0.66, cy: -0.05, margin: 0.012, pad: false }, // muzzle down, stock high behind the right shoulder
-  standard: { up: true, tilt: 0.5, cy: -0.06, margin: 0.013, pad: false }, // diagonal, muzzle up behind the right shoulder
-  large: { up: true, tilt: 0.34, cy: 0.06, margin: 0.017, pad: true }, // steep and higher, scope / bolt clear of the back
+  compact: { up: true, tilt: 0.42, cy: -0.04, margin: 0.006, pad: false }, // 88th: muzzle up like the others (muzzle-down put the stock at the wrong end of the strap at the ready → the strap wrapped the whole torso)
+  standard: { up: true, tilt: 0.5, cy: -0.06, margin: 0.006, pad: false }, // diagonal, muzzle up behind the right shoulder
+  large: { up: true, tilt: 0.34, cy: 0.06, margin: 0.009, pad: true }, // steep and higher, scope / bolt clear of the back
 };
 // per character: holster build (leather / kydex) and colours; anyone else gets the first
 const STYLES = {
@@ -195,17 +195,20 @@ export function bodyData(ch) {
   const pos = new Float32Array(n * 3), cloth = new Uint8Array(n), armW = new Float32Array(n), thighW = new Float32Array(n); const iTh = bi('thighR');
   for (let i = 0; i < n; i++) { pos[3 * i] = P.getX(i); pos[3 * i + 1] = P.getY(i); pos[3 * i + 2] = P.getZ(i); cloth[i] = C ? Math.round(C.getX(i)) : 0; let aw = 0, tw = 0;
     for (let k = 0; k < 4; k++) { const b = SI.getComponent(i, k), w = SW.getComponent(i, k); if (arm[b]) aw += w; if (b === iTh) tw += w; } armW[i] = aw; thighW[i] = tw; }
-  return (ch._carryBody = { names, bi, n, pos, cloth, armW, thighW, SI, SW, hips: bind('hips'), spine: bind('spine'), chest: bind('chest'), thighR: bind('thighR'), shR: bind('shR'), neck: bind('neck') });
+  return (ch._carryBody = { names, bi, n, pos, cloth, armW, thighW, SI, SW, hips: bind('hips'), spine: bind('spine'), chest: bind('chest'), thighR: bind('thighR'), shR: bind('shR'), neck: bind('neck'), head: bind('head') });
 }
 // max-height map over a 2D grid (u, v) → h; get() takes the max over the 3 × 3 neighbourhood (no gaps between vertices)
 class HMap {
   constructor(u0, u1, v0, v1, cell) { this.u0 = u0; this.v0 = v0; this.cell = cell; this.nu = Math.ceil((u1 - u0) / cell); this.nv = Math.ceil((v1 - v0) / cell); this.a = new Float32Array(this.nu * this.nv).fill(-Infinity); }
   add(u, v, h) { const i = Math.floor((u - this.u0) / this.cell), j = Math.floor((v - this.v0) / this.cell); if (i < 0 || j < 0 || i >= this.nu || j >= this.nv) return; const k = j * this.nu + i; if (h > this.a[k]) this.a[k] = h; }
+  // 88th: get() with its 3 × 3 neighbourhood max baked in (one read instead of nine — the live sling clearance calls it ~10⁴× a draw)
+  bake() { const d = new Float32Array(this.a.length); for (let j = 0; j < this.nv; j++) for (let i = 0; i < this.nu; i++) { let r = -Infinity; for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= this.nu || jj >= this.nv) continue; const h = this.a[jj * this.nu + ii]; if (h > r) r = h; } d[j * this.nu + i] = r; } this.d = d; return this; }
+  get1(u, v) { const i = Math.floor((u - this.u0) / this.cell), j = Math.floor((v - this.v0) / this.cell); return i < 0 || j < 0 || i >= this.nu || j >= this.nv ? -Infinity : this.d[j * this.nu + i]; }
   get(u, v) { const i = Math.floor((u - this.u0) / this.cell), j = Math.floor((v - this.v0) / this.cell); let r = -Infinity; for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= this.nu || jj >= this.nv) continue; const x = this.a[jj * this.nu + ii]; if (x > r) r = x; } return r; }
 }
 
 // ---------------------------------------------------------------------------------------------------- holster
-const SLIDE_N = 16; // sling transition: clearance samples over the half turn
+const SLIDE_N = 32; // sling transition: clearance samples over the half turn (88th: 16 → 32, the head is narrow in angle)
 const HOLSTER_ANGLE = 2.05; // round the hips from the front towards the right side: just behind the hip bone ("4 o'clock")
 const CANT = 0.14; // muzzle raked slightly to the rear (FBI cant): the grip leans forward into the hand
 // build the holster around one pistol (pistol space: the pistol sits at identity inside it)
@@ -424,6 +427,29 @@ function buildSling(B, F, pr, ud, st, ch) {
     for (let c = 0; c < 4; c++) { SIa[4 * i + c] = top[c] ? top[c][0] : 0; SWa[4 * i + c] = top[c] ? top[c][1] / s : 0; }
   }
   const ring = { P: ringP, N: ringN, SI: SIa, SW: SWa };
+  { // 88th: the ring the strap RIDES UP to with the gun in front. A real strap is not stitched to the sash line: with the gun at the
+    // ready it slides to the shortest way round — over the right shoulder, across the upper back and under the left arm — instead
+    // of round the left hip (that detour was most of the 0.8–1.2 m the strap used to pay out). Same slice / taut / skin scheme,
+    // plane through the shoulder top and the left armpit; node i keeps the same angle round the body as on the sash ring, so the
+    // runtime can blend the two (SlingPath.k) without the attach nodes jumping.
+    let ax = -Infinity; for (let i = 0; i < B.n; i++) { if (B.armW[i] > 0.35) continue; const y = B.pos[3 * i + 1]; if (y > B.shR.y - 0.17 && y < B.shR.y - 0.1 && Math.abs(B.pos[3 * i + 2] - C.z) < 0.08) ax = Math.max(ax, B.pos[3 * i]); }
+    if (!isFinite(ax)) ax = -B.shR.x * 0.85;
+    const A = V(ax * 0.9, B.shR.y - 0.13, 0), C2 = S.clone().add(A).multiplyScalar(0.5); C2.z = 0;
+    const f1 = S.clone().sub(C2).normalize(), n2 = V().crossVectors(f1, e2).normalize(); const R2 = new Float32Array(NB), L2 = Array.from({ length: NB }, () => []);
+    for (let i = 0; i < B.n; i++) { if (B.armW[i] > 0.5) continue; rel.set(B.pos[3 * i] - C2.x, B.pos[3 * i + 1] - C2.y, B.pos[3 * i + 2] - C2.z); if (Math.abs(rel.dot(n2)) > w / 2 + 0.006) continue;
+      const c1 = rel.dot(f1), c2 = rel.dot(e2); const phi = (Math.atan2(c2, c1) + Math.PI * 2) % (Math.PI * 2); const bI = Math.min(NB - 1, Math.floor((phi / (Math.PI * 2)) * NB)); const r = Math.hypot(c1, c2); if (r > R2[bI]) R2[bI] = r; L2[bI].push(i); }
+    for (let i = 0; i < NB; i++) if (!R2[i]) { let a = 1, b = 1; while (!R2[(i - a + NB) % NB] && a < NB) a++; while (!R2[(i + b) % NB] && b < NB) b++; R2[i] = (R2[(i - a + NB) % NB] * b + R2[(i + b) % NB] * a) / (a + b); }
+    const T2 = Float32Array.from(R2); for (let it = 0; it < 60; it++) for (let i = 0; i < NB; i++) T2[i] = Math.max(R2[i], (T2[(i - 1 + NB) % NB] + T2[(i + 1) % NB]) / 2);
+    const P2 = new Float32Array(NB * 3), N2 = new Float32Array(NB * 3), SI2 = new Uint16Array(NB * 4), SW2 = new Float32Array(NB * 4); const p = V(), n = V();
+    for (let i = 0; i < NB; i++) {
+      const phi = ((i + 0.5) / NB) * Math.PI * 2; n.copy(f1).multiplyScalar(Math.cos(phi)).addScaledVector(e2, Math.sin(phi)); p.copy(C2).addScaledVector(n, T2[i] + off); P2.set([p.x, p.y, p.z], 3 * i); N2.set([n.x, n.y, n.z], 3 * i); const cand = [];
+      for (let d = -2; d <= 2; d++) for (const j of L2[(i + d + NB) % NB]) { vv.set(B.pos[3 * j], B.pos[3 * j + 1], B.pos[3 * j + 2]); cand.push([vv.distanceToSquared(p), j]); }
+      cand.sort((a, b) => a[0] - b[0]); acc.clear(); for (let k = 0; k < Math.min(6, cand.length); k++) { const [d2, j] = cand[k]; const wt = 1 / (Math.sqrt(d2) + 0.01); for (let c = 0; c < 4; c++) { const bb = B.SI.getComponent(j, c), ww = B.SW.getComponent(j, c) * wt; if (ww > 0) acc.set(bb, (acc.get(bb) || 0) + ww); } }
+      if (!acc.size) acc.set(B.bi('chest'), 1); const top = [...acc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4); const sm = top.reduce((x, e) => x + e[1], 0) || 1;
+      for (let c = 0; c < 4; c++) { SI2[4 * i + c] = top[c] ? top[c][0] : 0; SW2[4 * i + c] = top[c] ? top[c][1] / sm : 0; }
+    }
+    Object.assign(ring, { P2, N2, SI2, SW2 });
+  }
   // rifle-side hardware (rifle space): QD swivel studs, posts and D-rings, the bar square to the strap's pull on the back
   const hw = []; const toR = (pW) => pW.clone().sub(C).applyMatrix4(Mi); const bars = {};
   for (const [key, s, bar, iN] of [['U', sU, barU, iU], ['L', sL, barL, iL]]) {
@@ -477,24 +503,49 @@ function buildSling(B, F, pr, ud, st, ch) {
   // per angle, how far it must stand off the body (radial map of the torso in the sash frame) so it never passes through it
   const rmap = new HMap(-0.64, 0.64, -0.4, 0.4, 0.012);
   for (let i = 0; i < B.n; i++) { if (B.armW[i] > 0.5) continue; rel.set(B.pos[3 * i] - Cs.x, B.pos[3 * i + 1] - Cs.y, B.pos[3 * i + 2] - Cs.z); const c1 = rel.dot(e1), c2 = rel.dot(e2); rmap.add(Math.atan2(c2, c1) * 0.2, rel.dot(nrm), Math.hypot(c1, c2)); }
-  if (B.neck) { const hc = B.neck.clone().add(V(0, 0.1, 0.015)); for (let a = 0; a < 24; a++) for (let b = 1; b < 12; b++) { const th2 = (a / 24) * Math.PI * 2, ph = (b / 12) * Math.PI; // the head is its own mesh: a 12 cm sphere stands in for it (hair, caps)
-    rel.set(Math.sin(ph) * Math.cos(th2), Math.cos(ph), Math.sin(ph) * Math.sin(th2)).multiplyScalar(0.12).add(hc).sub(Cs); const c1 = rel.dot(e1), c2 = rel.dot(e2); rmap.add(Math.atan2(c2, c1) * 0.2, rel.dot(nrm), Math.hypot(c1, c2)); } }
+  if (B.neck) { // the head is its own mesh: an ellipsoid stands in for it (hair, caps). 88th: sized on the real head (chin 1.45 → crown 1.81 m,
+    // ±9 cm wide, nose 16 cm ahead of the neck) plus a hand's breadth of room — it used to be a 12 cm ball around the jaw, so the gun
+    // swung over the shoulder 5–12 cm from the face
+    const hc = B.head ? B.head.clone().add(V(0, 0.07, 0.03)) : B.neck.clone().add(V(0, 0.16, 0.03));
+    for (let a = 0; a < 96; a++) for (let b = 1; b < 48; b++) { const th2 = (a / 96) * Math.PI * 2, ph = (b / 48) * Math.PI; // dense enough to fill every map cell it covers (24 × 11 points left most of them empty: no clearance there)
+    const sz = Math.sin(ph) * Math.sin(th2); rel.set(Math.sin(ph) * Math.cos(th2) * 0.125, Math.cos(ph) * 0.205, sz * (sz > 0 ? 0.165 : 0.14)).add(hc).sub(Cs); const c1 = rel.dot(e1), c2 = rel.dot(e2); rmap.add(Math.atan2(c2, c1) * 0.2, rel.dot(nrm), Math.hypot(c1, c2)); } }
   const rp = []; for (let i = 0; i < pr.n; i += 2) { const z = pr.z0 + (i + 0.5) * pr.bin; if (z < F.zB - 0.005 || z > F.zM + 0.005) continue; for (const yy of [pr.y0[i], pr.y1[i]]) for (const xx of [pr.x0[i], pr.x1[i]]) rp.push(V(xx, yy, z)); }
-  const cen = V(0, F.yc, (F.zB + F.zM) / 2), lifts = new Float32Array(SLIDE_N + 1), q = V(), dv = V(); const Rj = new THREE.Matrix4();
-  for (let j = 0; j <= SLIDE_N; j++) {
-    const psi = (j / SLIDE_N) * Math.PI; Rj.makeTranslation(Cs.x, Cs.y, Cs.z).multiply(new THREE.Matrix4().makeRotationAxis(nrm, psi)).multiply(new THREE.Matrix4().makeTranslation(-Cs.x, -Cs.y, -Cs.z)).multiply(Mb);
-    dv.copy(cen).applyMatrix4(Rj).sub(Cs); dv.addScaledVector(nrm, -dv.dot(nrm)).normalize();
-    const clear = (L) => { for (const p of rp) { q.copy(p).applyMatrix4(Rj).addScaledVector(dv, L).sub(Cs); const c1 = q.dot(e1), c2 = q.dot(e2); const hb = rmap.get(Math.atan2(c2, c1) * 0.2, q.dot(nrm)); if (hb !== -Infinity && Math.hypot(c1, c2) < hb + 0.02) return false; } return true; };
-    if (clear(0)) continue; let lo = 0, hi = 0.6; for (let it = 0; it < 11; it++) { const mid = (lo + hi) / 2; if (clear(mid)) hi = mid; else lo = mid; } lifts[j] = hi;
-  }
-  { // the stand-off as a smooth function of the swing (no radial kick where the head / shoulder starts or stops needing room): dilate by a
-    // neighbour so the blur never takes clearance away, then two [1 2 1] passes
-    const tmp = Float32Array.from(lifts), at = (A, j) => A[Math.max(0, Math.min(SLIDE_N, j))];
-    for (let j = 0; j <= SLIDE_N; j++) lifts[j] = Math.max(at(tmp, j - 1), tmp[j], at(tmp, j + 1));
-    for (let pass = 0; pass < 2; pass++) { tmp.set(lifts); for (let j = 0; j <= SLIDE_N; j++) lifts[j] = Math.max(tmp[j] * 0.85, (at(tmp, j - 1) + 2 * tmp[j] + at(tmp, j + 1)) / 4); } }
+  const cen = V(0, F.yc, (F.zB + F.zM) / 2);
+  rmap.bake(); const slide = { Cs: Cs.clone().sub(C), axis: nrm.clone(), cen, rmap, e1: e1.clone(), e2: e2.clone(), C0: Cs.clone(), cB: C.clone(), rp: Float32Array.from(rp.flatMap((v) => [v.x, v.y, v.z])), lifts: new Float32Array(SLIDE_N + 1) };
+  slideLifts(slide, Mb);
   const grab = Math.round((1.15 / (Math.PI * 2)) * NB); // where the support hand takes the strap on the chest (left of the sternum)
-  return { strap, rig, path, slide: { Cs: Cs.clone().sub(C), axis: nrm.clone(), lifts, cen }, grab, Lm };
+  return { strap, rig, path, slide, grab, Lm };
 }
+
+// sling transition clearance: per swing angle ψ (SLIDE_N + 1 steps over the half turn), how far the gun must stand off the body (radially
+// in the sash plane) so no point of it is inside the torso / head map. Mb: rifle → bind space for the hang the swing starts from. Built
+// at fit time for the bind-pose hang, and (88th) again at the start of every sling draw / stow for the live hang — which can sit a few
+// cm off the bind one (hangMatrix follows the spine / hips), enough for a scope top to graze the head over the shoulder. The live
+// rebuild solves every other row (the rest are interpolated, then dilated / blurred anyway), warm-started from the current table, a few
+// rows per frame (slideStep) — ≈0.3 ms a frame for the first three frames of a draw, no allocation.
+const _sR = new THREE.Matrix4(), _sT = new THREE.Matrix4(), _sD = V(), _sQ = V();
+function slideRow(s, Mb, j, warm) {
+  const C0 = s.C0, ax = s.axis, e1 = s.e1, e2 = s.e2, P = s.rp, n = P.length / 3, map = s.rmap;
+  const psi = (j / SLIDE_N) * Math.PI; _sR.makeTranslation(C0.x, C0.y, C0.z).multiply(_sT.makeRotationAxis(ax, psi)); _sR.multiply(_sT.makeTranslation(-C0.x, -C0.y, -C0.z)).multiply(Mb); const e = _sR.elements;
+  _sQ.copy(s.cen).applyMatrix4(_sR).sub(C0); _sD.copy(_sQ).addScaledVector(ax, -_sQ.dot(ax)).normalize();
+  const clear = (L) => { for (let i = 0; i < n; i++) { const x = P[3 * i], y = P[3 * i + 1], z = P[3 * i + 2];
+    const qx = e[0] * x + e[4] * y + e[8] * z + e[12] + _sD.x * L - C0.x, qy = e[1] * x + e[5] * y + e[9] * z + e[13] + _sD.y * L - C0.y, qz = e[2] * x + e[6] * y + e[10] * z + e[14] + _sD.z * L - C0.z;
+    const c1 = qx * e1.x + qy * e1.y + qz * e1.z, c2 = qx * e2.x + qy * e2.y + qz * e2.z; const hb = map.get1(Math.atan2(c2, c1) * 0.2, qx * ax.x + qy * ax.y + qz * ax.z);
+    if (hb !== -Infinity && c1 * c1 + c2 * c2 < (hb + 0.02) * (hb + 0.02)) return false; } return true; };
+  let lo = 0, hi = 0.6, it = 10;
+  if (warm >= 0) { if (warm > 0 && clear(warm)) { hi = warm; lo = Math.max(0, warm - 0.12); } else { lo = warm; hi = Math.min(0.6, warm + 0.16); } it = 5; if (lo === 0 && clear(0)) return 0; }
+  else if (clear(0)) return 0;
+  for (let k = 0; k < it; k++) { const mid = (lo + hi) / 2; if (clear(mid)) hi = mid; else lo = mid; } return hi;
+}
+// the stand-off as a smooth function of the swing (no radial kick where the head / shoulder starts or stops needing room): dilate by two
+// neighbours so the blur never takes clearance away, then [1 2 1] passes that only ever add (88th: they used to give 15 % back)
+let _sLT = new Float32Array(0);
+function slideSmooth(lifts) {
+  const tmp = _sLT.length === lifts.length ? _sLT : (_sLT = new Float32Array(lifts.length)); const at = (A, j) => A[Math.max(0, Math.min(SLIDE_N, j))];
+  tmp.set(lifts); for (let j = 0; j <= SLIDE_N; j++) lifts[j] = Math.max(at(tmp, j - 2), at(tmp, j - 1), tmp[j], at(tmp, j + 1), at(tmp, j + 2));
+  for (let pass = 0; pass < 6; pass++) { tmp.set(lifts); for (let j = 0; j <= SLIDE_N; j++) lifts[j] = Math.max(tmp[j], (at(tmp, j - 1) + 2 * tmp[j] + at(tmp, j + 1)) / 4); }
+}
+function slideLifts(s, Mb) { for (let j = 0; j <= SLIDE_N; j++) s.lifts[j] = slideRow(s, Mb, j, -1); slideSmooth(s.lifts); }
 
 // ---------------------------------------------------------------------------------------------------- runtime
 const _a = V(), _b = V(), _c = V(), _d = V(), _q = new THREE.Quaternion(), _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _m3 = new THREE.Matrix4(), _n3 = new THREE.Matrix3();
@@ -625,12 +676,20 @@ export class CarryGear {
   // back as hung now, π = across the front), stood off the body by the precomputed clearance. base / out: rifle → chest space
   canSlide() { const f = this.cur.L; return !!(f && f.slide && f.F && f.idx === this.W.cur); }
   slideMatrix(psi, base, out) {
-    const f = this.cur.L, s = f && f.slide; if (!s) return out.copy(base); const C = s.Cs, ax = s.axis;
+    const f = this.cur.L, s = f && f.slide; if (!s) return out.copy(base); if (this._sJob && this._sJob.s) this.slideStep(3); const C = s.Cs, ax = s.axis;
     _m1.makeTranslation(C.x, C.y, C.z).multiply(_m2.makeRotationAxis(ax, psi)).multiply(_m3.makeTranslation(-C.x, -C.y, -C.z)); out.multiplyMatrices(_m1, base);
     _a.copy(s.cen).applyMatrix4(out).sub(C); _a.addScaledVector(ax, -_a.dot(ax)); const l = _a.length(); if (l > 1e-6) _a.multiplyScalar(1 / l);
-    const x = clamp(psi / Math.PI, 0, 1) * (s.lifts.length - 1), j = Math.min(s.lifts.length - 2, Math.floor(x)), L = Math.max(0, s.lifts[j] + (s.lifts[j + 1] - s.lifts[j]) * (x - j) - s.lifts[0] * (1 - x / (s.lifts.length - 1))); // the hang already clears the body at ψ = 0: starts exactly where it hangs
+    const x = clamp(psi / Math.PI, 0, 1) * (s.lifts.length - 1), j = Math.min(s.lifts.length - 2, Math.floor(x)), L = Math.max(0, s.lifts[j] + (s.lifts[j + 1] - s.lifts[j]) * (x - j) - s.lifts[0] * (1 - sstep(0, 0.3, x / (s.lifts.length - 1)))); // 88th: the hang's own allowance fades over the first third of the swing, not all of it // the hang already clears the body at ψ = 0: starts exactly where it hangs
     return out.premultiply(_m1.makeTranslation(_a.x * L, _a.y * L, _a.z * L));
   }
+  // 88th: lay the clearance table for the hang a sling draw / stow starts from (Weapons.pose calls this on the transition's first frame)
+  // — spread over the first frames (slideStep): ψ is still ≈ 0 there and the hang's own allowance cancels lifts[0], so swapping the table
+  // in when it is ready moves nothing
+  slideRebase(base) { const s = this.cur.L && this.cur.L.slide; if (!s) return; const J = this._sJob || (this._sJob = { s: null, M: new THREE.Matrix4(), j: 0, raw: new Float32Array(SLIDE_N + 1) });
+    J.s = s; J.M.makeTranslation(s.cB.x, s.cB.y, s.cB.z).multiply(base); J.j = 0; this.slideStep(3); }
+  slideStep(rows) { const J = this._sJob; if (!J || !J.s) return; const s = J.s; if (!this.cur.L || this.cur.L.slide !== s) { J.s = null; return; }
+    for (let r = 0; r < rows && J.j <= SLIDE_N; r++, J.j += 2) J.raw[J.j] = slideRow(s, J.M, J.j, s.lifts[J.j]);
+    if (J.j <= SLIDE_N) return; for (let j = 1; j < SLIDE_N; j += 2) J.raw[j] = Math.max(J.raw[j - 1], J.raw[j + 1]); s.lifts.set(J.raw); slideSmooth(s.lifts); J.s = null; }
   // the long gun's hang on the back (chest space) for the body's current pose: from the chest (top swivel) and the lower anchor bone —
   // held by holsterR while slung, and the base of the sling transition so a draw starts / a put-away ends exactly where it hangs
   hangMatrix(out) {

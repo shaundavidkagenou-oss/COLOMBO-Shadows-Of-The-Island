@@ -24,9 +24,23 @@ export const leafLight = { dir: { value: [0, 1, 0] }, col: { value: [0, 0, 0] } 
 // (clear 0.3 … storm 1.6), so weather changes ease in.
 export const windDir = { value: [0.62, 0.78] };
 export const windStr = { value: 0.3 };
-const WS = { t: 0, s: 0.3 };
+// 88th: the vegetation wind (Vegetation.js vertex shaders): xy = direction (= windDir), z = smoothed strength (= windStr),
+// w = gust envelope. Gusts are discrete events — a gust builds over 1–2.5 s, holds briefly and settles over 3–6 s, then a
+// lull of 4–14 s (shorter and harder in a storm) — so trees bow, recover and rest instead of pumping on one sine. Where a
+// gust reaches is a travelling pressure front in the shader (downwind trees catch it later). One vec4, written once a frame.
+export const vegWind = { value: [0.62, 0.78, 0.3, 0] };
+const WS = { t: 0, s: 0.3, g: 0, gA: 0, gT: 0, gPh: 3, gUp: 1.5, gHold: 0.6, gDown: 4, seed: 9137 };
+const wrnd = () => ((WS.seed = (WS.seed * 16807) % 2147483647) / 2147483647);
 export function stepWind(dt, wind) { WS.t += dt; WS.s += (wind - WS.s) * Math.min(1, dt * 0.25); windStr.value = WS.s;
-  const a = 0.9 + Math.sin(WS.t * 0.013) * 0.42 + Math.sin(WS.t * 0.051 + 1.7) * 0.18 + Math.sin(WS.t * 0.37) * 0.05 * WS.s; windDir.value[0] = Math.sin(a); windDir.value[1] = Math.cos(a); }
+  const a = 0.9 + Math.sin(WS.t * 0.013) * 0.42 + Math.sin(WS.t * 0.051 + 1.7) * 0.18 + Math.sin(WS.t * 0.37) * 0.05 * WS.s + WS.g * 0.12; windDir.value[0] = Math.sin(a); windDir.value[1] = Math.cos(a);
+  // gust state machine: phase 0 rise, 1 hold, 2 settle, 3 lull
+  WS.gT += dt; const s = WS.s;
+  if (WS.gPh === 3 && WS.gT > WS.lull) { WS.gPh = 0; WS.gT = 0; WS.gA = (0.25 + 0.75 * wrnd()) * (0.12 + 0.5 * s); WS.gUp = 1 + 1.5 * wrnd(); WS.gHold = 0.3 + 1.2 * wrnd(); WS.gDown = 3 + 3 * wrnd(); }
+  else if (WS.gPh === 0 && WS.gT > WS.gUp) { WS.gPh = 1; WS.gT = 0; } else if (WS.gPh === 1 && WS.gT > WS.gHold) { WS.gPh = 2; WS.gT = 0; }
+  else if (WS.gPh === 2 && WS.gT > WS.gDown) { WS.gPh = 3; WS.gT = 0; WS.lull = (4 + 10 * wrnd()) / (0.6 + s * 0.6); }
+  const u = WS.gPh === 0 ? WS.gT / WS.gUp : WS.gPh === 1 ? 1 : WS.gPh === 2 ? 1 - WS.gT / WS.gDown : 0; const e = u * u * (3 - 2 * u);
+  WS.g = WS.gA * e; const v = vegWind.value; v[0] = windDir.value[0]; v[1] = windDir.value[1]; v[2] = s; v[3] = WS.g; }
+WS.lull = 5;
 // GLSL helpers shared by the cloth shaders (uWindT = windUniform clock, uWindDir, uWindStr)
 export const CLOTH_WIND_GLSL = `
 uniform float uWindT; uniform vec2 uWindDir; uniform float uWindStr;

@@ -60,7 +60,7 @@ function drawInto(cv, tex, label) {
 function texInfo(t) {
   if (!t) return 'empty'; const im = t.image || {}; const cs = t.colorSpace === THREE.SRGBColorSpace ? 'sRGB' : 'linear';
   const kind = t.isCompressedTexture ? 'compressed' : t.isCanvasTexture ? 'canvas' : t.isDataTexture ? 'data' : t.isVideoTexture ? 'video' : 'image';
-  return `${im.width | 0}×${im.height | 0} ${kind} · ${cs} · tile ${+t.repeat.x.toFixed(2)}×${+t.repeat.y.toFixed(2)}`;
+  return `${im.width | 0}×${im.height | 0} ${kind} · ${cs} · tile ${+t.repeat.x.toFixed(2)}×${+t.repeat.y.toFixed(2)}${t.userData && t.userData.sourceFile ? ' · from ' + t.userData.sourceFile.split('/').pop() : ''}`;
 }
 const fmtB = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : (n / 1024).toFixed(0) + ' KB');
 const objLabel = (o) => (o.name ? o.name : '(' + o.type + ')');
