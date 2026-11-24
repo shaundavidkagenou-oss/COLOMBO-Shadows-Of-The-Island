@@ -156,6 +156,8 @@ function waterMat(opts) {
 // a water surface only asks for the mirror render while it is on screen AND within this distance: a sliver of harbour at the
 // end of a street 400 m away gets the water's own sky reflection (as on Medium) instead of a second render of the city
 const REFL_NEAR = 300;
+// objects left out of the mirror pass (GrassGPU: blades are invisible at reflection resolution and would double their cost)
+export const reflSkip = [];
 export class WaterReflection {
   constructor(group) {
     this.group = group; this.rt = new THREE.WebGLRenderTarget(512, 256, { type: THREE.HalfFloatType, samples: 0 }); this.rt.texture.generateMipmaps = false;
@@ -218,9 +220,9 @@ export class WaterReflection {
     }
     // render (water hidden, shadows reused, no post)
     const prevRT = renderer.getRenderTarget(), prevShadow = renderer.shadowMap.autoUpdate, prevXR = renderer.xr.enabled; const vis = this.group.visible;
-    this.group.visible = false; renderer.shadowMap.autoUpdate = false; renderer.xr.enabled = false;
+    this.group.visible = false; renderer.shadowMap.autoUpdate = false; renderer.xr.enabled = false; const sk = reflSkip.map((o) => o.visible); for (const o of reflSkip) o.visible = false;
     renderer.setRenderTarget(this.rt); renderer.clear(); renderer.render(scene, cam);
-    renderer.setRenderTarget(prevRT); renderer.shadowMap.autoUpdate = prevShadow; renderer.xr.enabled = prevXR; this.group.visible = vis;
+    renderer.setRenderTarget(prevRT); renderer.shadowMap.autoUpdate = prevShadow; renderer.xr.enabled = prevXR; this.group.visible = vis; reflSkip.forEach((o, i) => { o.visible = sk[i]; });
     waterUniforms.uReflH.value = H; this.valid = true; this.lastBest = best; fade(want);
   }
 }

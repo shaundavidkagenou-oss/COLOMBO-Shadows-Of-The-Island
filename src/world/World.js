@@ -27,12 +27,13 @@ import { balconyTick, setupClothMesh, dropAnchors } from './BalconyLife.js';
 import { Forest } from './Forest.js';
 import { buildVines, vineFade } from './Vines.js';
 import { bootMap, bootMapWorld, bootPaint } from '../debug/boot.js';
-import { buildWater, WaterReflection } from './Water.js';
+import { buildWater, WaterReflection, reflSkip } from './Water.js';
 import { buildParks } from './Parks.js';
 import { buildParkFeatures } from './ParkFeatures.js';
 import { ParkLife } from './ParkLife.js';
 import { ROAD_Y } from './Layout.js';
 import { GrassField, upgradeGroundGrass } from './Grass.js';
+import { GrassGPU } from './GrassGPU.js';
 import { Collision } from './Collision.js';
 import { buildGunShopFront } from './GunShopFront.js';
 import { buildBankFront } from './BankFront.js';
@@ -125,6 +126,9 @@ export class World {
     this.parkLife = new ParkLife(this, this.parkFeatures, quality); this.root.add(this.parkLife.group); // fireflies, fountain water, fruit bats, oil lamps
     upgradeGroundGrass(MAT.grass, 0.8); upgradeGroundGrass(MAT.lawn, 0.3);
     this.grass = new GrassField(this, this.collision); this.grass.setQuality(this.quality || 'high'); this.root.add(this.grass.mesh);
+    // 90th: GPU grass (GrassGPU.js) on the same grass masks; the instanced clump field above stays available as 'legacy' (console: grass legacy)
+    try { this.grassGPU = new GrassGPU(this, this.grass, this.quality || 'high'); this.root.add(this.grassGPU.group); reflSkip.push(this.grassGPU.group); } catch (e) { console.warn('GPU grass unavailable — using the legacy grass', e); this.grassGPU = null; }
+    this.setGrassMode(this.grassGPU ? 'gpu' : 'legacy');
     regTrees(plan.trees); this.groundDetail = new GroundDetail(); this.groundDetail.setQuality(this.quality || quality || 'high'); this.root.add(this.groundDetail.group); // modelled bricks / kerb stones / ballast / rail clips near the camera
     progress(0.86, 'Filling the ocean and Beira Lake'); await tick();
     this.water = buildWater(); this.root.add(this.water); this.waterRefl = new WaterReflection(this.water);
@@ -370,6 +374,7 @@ export class World {
     if (this.job) this.stepDetailJob(this.jobBudgetMs);
     if (this.wjob) this.stepWinJob(this.jobBudgetMs);
     if (this.grass) this.grass.update(dt, focus, atmos ? atmos.w.wind : 0.3);
+    if (this.grassGPU) this.grassGPU.update(dt, focus, camera);
     if (this.groundDetail && camera) this.groundDetail.update(camera);
     if (this.parks && this.parks.userData.flowers && camera) this.parks.userData.flowers.update(camera.position);
     if (this.parkLife && camera && atmos) this.parkLife.update(dt, atmos, camera);
@@ -484,6 +489,8 @@ export class World {
     const G = GRID.cur, pw = G && G.dim ? (lamp) => G.levelAt(lamp[0], lamp[2]) : null; // 79th: a lamp in a district without power goes out with it (and flickers back)
     for (const l of this.lampLights) { const u = l.userData; const I = u.lamp ? base * u.k * (pw ? pw(u.lamp) : 1) : 0; if (l.intensity !== I) l.intensity = I; if (l.castShadow) l.shadow.autoUpdate = I > 0; } /* FPS: an unlit pooled lamp (all day, parked at y -600) no longer re-renders its shadow map every frame */
   }
-  setQuality(q) { this.quality = q; setLodQuality(q); /* 65th: BatchCull LOD / draw distances */ if (this.glints) this.glints.max = WetGlints.budget(q); if (this.grass) this.grass.setQuality(q); if (this.groundDetail) this.groundDetail.setQuality(q); if (this.forest) this.forest.setQuality(q); if (this.paint) this.paint.setQuality(q); if (this.parkLife) this.parkLife.setQuality(q); if (this.parks && this.parks.userData.flowers) this.parks.userData.flowers.setQuality(q); const s = q === 'low' ? 0.6 : q === 'medium' ? 0.8 : q === 'ultra' ? 1.25 : 1; this.detailRadius = 330 * s; this.windowRadius = q === 'low' ? 0 : q === 'medium' ? 90 : q === 'ultra' ? 210 : 150; this.propRadius = 430 * s; this.treeRadius = 520 * s; }
+  // grass renderer: 'gpu' (GrassGPU, default) | 'legacy' (the Grass.js instanced clumps) | 'off'
+  setGrassMode(m) { if (m !== 'legacy' && m !== 'off' && m !== 'gpu') m = 'gpu'; if (m === 'gpu' && !this.grassGPU) m = 'legacy'; this.grassMode = m; if (this.grass) this.grass.setQuality(m === 'legacy' ? this.quality || 'high' : 'low'); if (this.grassGPU) this.grassGPU.enabled = m === 'gpu'; }
+  setQuality(q) { this.quality = q; setLodQuality(q); /* 65th: BatchCull LOD / draw distances */ if (this.glints) this.glints.max = WetGlints.budget(q); if (this.grass) this.grass.setQuality(q); if (this.grassGPU) { this.grassGPU.setQuality(q); this.setGrassMode(this.grassMode || 'gpu'); } if (this.groundDetail) this.groundDetail.setQuality(q); if (this.forest) this.forest.setQuality(q); if (this.paint) this.paint.setQuality(q); if (this.parkLife) this.parkLife.setQuality(q); if (this.parks && this.parks.userData.flowers) this.parks.userData.flowers.setQuality(q); const s = q === 'low' ? 0.6 : q === 'medium' ? 0.8 : q === 'ultra' ? 1.25 : 1; this.detailRadius = 330 * s; this.windowRadius = q === 'low' ? 0 : q === 'medium' ? 90 : q === 'ultra' ? 210 : 150; this.propRadius = 430 * s; this.treeRadius = 520 * s; }
 }
 export { plan };

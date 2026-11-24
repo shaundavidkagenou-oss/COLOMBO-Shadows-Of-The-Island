@@ -3,6 +3,9 @@
 //   scenario = name:x:z:hour[:drive]   e.g. galle:-392:700:11  fort:-300:-700:21  drive:-392:600:11:drive
 // Per frame: sim (updatePlay), water reflection pass, sun/lamp shadow passes, main RenderPass, post passes, and the draw calls
 // and triangles each pass submits; scene object counts; shader programs compiled while running (first-use hitches).
+// MODES env (90th, grass A/B): comma list run per scenario in the same page load, identical camera/scene — legacy · off · gpu-off ·
+//   low|medium|high|ultra (GPU grass level, set instantly, governor off). Reports avg / median frame time, a 1% low (frames that compiled a
+//   shader program excluded and counted) and grass stats per mode.
 // SwiftShader rasterises on the CPU, so GPU time is NOT measured: before each frame the GPU queue is drained (gl.finish, timed
 // separately) so the phase timings are the main thread's own work (three.js traversal/culling/sorting/uniforms + the sim).
 import puppeteer from '/home/user/testenv/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js';
@@ -33,10 +36,15 @@ try {
     const loop0 = g.loop; g.loop = function () { if (!P.on) return loop0.call(this); const w = performance.now(); gl.finish(); const wait = performance.now() - w; const progs0 = R.info.programs.length;
       P.cur = { wait }; R.info.reset(); const s = performance.now(); loop0.call(this); P.cur.total = performance.now() - s; P.cur.progs = R.info.programs.length - progs0; P.frames.push(P.cur); P.cur = null; };
   });
-  for (const S of scen) {
+  const modes = process.env.MODES ? process.env.MODES.split(',') : [null];
+  for (const S0 of scen) for (const M of modes) {
+    const S = { ...S0, name: M ? S0.name + '/' + M : S0.name, mode: M, precompile: !!(M || process.env.PRECOMPILE) }; // MODES / PRECOMPILE: compile the view's programs before measuring (SwiftShader compiles take ~10 s each)
+    if (M) await page.evaluate((m) => { const W = window.__game.world, G = W.grassGPU; if (!G) throw new Error('no GPU grass in this build');
+      G.prefs.governor = false; G.gov.drop = 0; if (m === 'legacy' || m === 'off') { W.setGrassMode(m); return; } W.setGrassMode('gpu');
+      if (m === 'gpu-off') { G.prefs.level = 'off'; G.setLevel(null, true); } else { G.prefs.level = m; G.setLevel(m, true); } }, M);
     await page.evaluate(async (S) => { const g = window.__game; g.world.warm(S.x, S.z); g.player.teleport(S.x, S.z, 0); g.atmos.hour = S.hour; g.atmos.forceWeather('clear'); g.atmos.setWeather('clear', true); g.atmos.wet = 0;
       if (S.drive) { g.debugCon.exec('spawn car sedan'); const v = g.traffic.parked[g.traffic.parked.length - 1]; if (v && g.player.enterVehicle) { try { g.player.enterVehicle(v, true); } catch (e) { console.log('[perf] enter failed', e.message); } } }
-      await g.stepSim(60, 0.05); }, S);
+      await g.stepSim(60, 0.05); if (S.precompile) { try { g.renderer.compile(g.scene, g.camera); } catch (e) { console.log('[perf] compile', e.message); } } }, S);
     log(`${S.name}: placed`);
     await new Promise((r) => setTimeout(r, 4000)); // let the real loop warm (shader compiles of this view)
     let cdp = null; if (process.env.PROF) { cdp = await page.target().createCDPSession(); await cdp.send('Profiler.enable'); await cdp.send('Profiler.setSamplingInterval', { interval: 200 }); await cdp.send('Profiler.start'); }
@@ -66,7 +74,11 @@ try {
       for (const k of ['opaque', 'transmissive', 'transparent']) for (const it of RL[k] || []) { const c = owner(it.object); cat[c] = (cat[c] || 0) + 1; }
       const catTop = {}; for (const [c, n] of Object.entries(cat)) { const t = c.split(':')[0]; catTop[t] = (catTop[t] || 0) + n; }
       const meth = Object.entries(P.meth).sort((a, b) => b[1].t - a[1].t).slice(0, 25).map(([k, e]) => `${k} n${e.n} tot${e.t.toFixed(0)} max${e.max.toFixed(1)}`); P.meth = {};
-      const R = g.renderer; return { meth, catTop, catDetail: Object.entries(cat).sort((a, b) => b[1] - a[1]).slice(0, 40), heapMB: +(performance.memory.usedJSHeapSize / 1048576).toFixed(0), scen: S.name, frames: F.length, st, calls, progsNew: F.reduce((a, f) => a + f.progs, 0), newProgs: P.newProgs.splice(0), programs: R.info.programs.length, geometries: R.info.memory.geometries, textures: R.info.memory.textures, scene: { objs, autoMat, meshes, visMeshes: vis, skinned, inst, batched, lights, shLights } }; }, S);
+      const FC = F.filter((f) => !f.progs), ft = (FC.length ? FC : F).map((f) => (f.total || 0) + (f.wait || 0)).sort((a, b) => a - b), ftAvg = ft.reduce((a, b) => a + b, 0) / ft.length, p99 = ft[Math.min(ft.length - 1, Math.floor(ft.length * 0.99))];
+      const GG = g.world.grassGPU, gs = GG && GG.enabled && GG.level ? GG.stats : null, lg = g.world.grass && g.world.grass.mesh;
+      const grass = { mode: g.world.grassMode || 'legacy', level: gs ? GG.level : null, blades: gs ? gs.blades : 0, gpuDraws: gs ? gs.draws : 0, verts: gs ? gs.verts : 0, gpuKB: gs ? Math.round(gs.gpuBytes / 1024) : 0, legacyClumps: lg && lg.visible ? lg.count : 0 };
+      const fps = { compileFrames: F.length - FC.length, medMs: +ft[ft.length >> 1].toFixed(1), frameMs: +ftAvg.toFixed(1), avgFps: +(1000 / ftAvg).toFixed(2), low1Fps: +(1000 / p99).toFixed(2) };
+      const R = g.renderer; return { fps, grass, meth, catTop, catDetail: Object.entries(cat).sort((a, b) => b[1] - a[1]).slice(0, 40), heapMB: +(performance.memory.usedJSHeapSize / 1048576).toFixed(0), scen: S.name, frames: F.length, st, calls, progsNew: F.reduce((a, f) => a + f.progs, 0), newProgs: P.newProgs.splice(0), programs: R.info.programs.length, geometries: R.info.memory.geometries, textures: R.info.memory.textures, scene: { objs, autoMat, meshes, visMeshes: vis, skinned, inst, batched, lights, shLights } }; }, S);
     const np = out.newProgs; out.newProgs = np.map((k) => k.slice(0, 60)); if (process.env.PROGS) (await import('fs')).writeFileSync(`${process.env.PROGS}-${S.name}.json`, JSON.stringify(np, null, 1));
     console.log(JSON.stringify(out)); console.log('  wall', ((Date.now() - t0) / 1000).toFixed(0) + 's');
   }

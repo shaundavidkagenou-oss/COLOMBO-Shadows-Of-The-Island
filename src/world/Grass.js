@@ -107,7 +107,7 @@ export class GrassField {
   mask(idx) {
     let m = this.masks.get(idx); if (m) return m;
     const [ccx, ccz] = chunkCenter(idx), ox = ccx - CHUNK / 2, oz = ccz - CHUNK / 2;
-    m = { ox, oz, a: new Uint8Array(N * N), r: new Uint8Array(N * N), g: new Uint8Array(N * N), b: new Uint8Array(N * N), y: new Float32Array(N * N), lawn: new Uint8Array(N * N) };
+    m = { ox, oz, a: new Uint8Array(N * N), r: new Uint8Array(N * N), g: new Uint8Array(N * N), b: new Uint8Array(N * N), y: new Float32Array(N * N), lawn: new Uint8Array(N * N), hy: new Uint8Array(N * N) }; // hy: the cell lies on a ground triangle (m.y valid) — read by GrassGPU
     const ci0 = idx % NCX, cj0 = Math.floor(idx / NCX); const near = [];
     for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { const ci = ci0 + di, cj = cj0 + dj; if (ci >= 0 && cj >= 0 && ci < NCX && cj < NCZ && this.world.chunks[cj * NCX + ci]) near.push(this.world.chunks[cj * NCX + ci]); }
     for (const ch of near) for (const mesh of this.world.chunkMeshes ? this.world.chunkMeshes(ch) : ch.group.children) {
@@ -125,7 +125,7 @@ export class GrassField {
           const x = ox + (gx + 0.5) * CELL, z = oz + (gz + 0.5) * CELL;
           const l1 = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / det, l2 = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / det, l3 = 1 - l1 - l2;
           if (l1 < -1e-4 || l2 < -1e-4 || l3 < -1e-4) continue;
-          const k = gz * N + gx; m.a[k] = 255; m.y[k] = ay * l1 + by * l2 + cy * l3; m.lawn[k] = lawn;
+          const k = gz * N + gx; m.a[k] = 255; m.y[k] = ay * l1 + by * l2 + cy * l3; m.lawn[k] = lawn; m.hy[k] = 1;
           if (px && U) {
             const u = U[i0 * 2] * l1 + U[i1 * 2] * l2 + U[i2 * 2] * l3, v = U[i0 * 2 + 1] * l1 + U[i1 * 2 + 1] * l2 + U[i2 * 2 + 1] * l3;
             const tx = ((Math.floor((u - Math.floor(u)) * px.w)) + px.w) % px.w, ty = ((Math.floor((1 - (v - Math.floor(v))) * px.h)) + px.h) % px.h; const o = (ty * px.w + tx) * 4;
