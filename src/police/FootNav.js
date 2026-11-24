@@ -9,6 +9,30 @@
 // No allocations of THREE objects; cells are cached per plan so each collision query runs once.
 
 const CELL = 0.5;
+// 84th: an open pair of rear doors (1990 ambulance / roadside service van: AmbulanceKit buildAmbRear) is an obstacle like the body.
+// Each leaf is a segment from its hinge (±0.66, −2.395 in the van's frame) to its tip, swung by 1.9·open rad (setAmbRear);
+// fully open the tips stand ~0.6 m out behind the corners — exactly where crews used to stand, inside the door leaf.
+const RD = { x: 0.66, z: -2.395, lw: 0.655, a: 1.9 };
+export function leafDepth(v, x, z, pad = 0.22) {
+  const r = v.mesh && v.mesh.userData && v.mesh.userData.rear; if (!r || !(r.open > 0.02)) return 0; const a = RD.a * r.open, c = Math.cos(a), s = Math.sin(a);
+  const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw), rx = x - v.x, rz = z - v.z; const lz = rx * fx + rz * fz, lx = rx * fz - rz * fx; let best = 0;
+  for (const sd of [1, -1]) { const hx = sd * RD.x, hz = RD.z, tx = hx - sd * RD.lw * c, tz = hz - RD.lw * s; const ex = tx - hx, ez = tz - hz; const t = Math.max(0, Math.min(1, ((lx - hx) * ex + (lz - hz) * ez) / (ex * ex + ez * ez)));
+    const d = Math.hypot(lx - hx - ex * t, lz - hz - ez * t); if (d < pad) best = Math.max(best, pad - d); }
+  return best;
+}
+// 84th: is a body of radius r at (x, z) clear of the whole sweep of both rear leaves (shut → fully open)? Doors may only swing when
+// every crew member on foot passes this — the leaves are not pushed through people, and collisions stay on.
+export function swingClear(v, x, z, r = 0.3) {
+  if (!v.mesh || !v.mesh.userData || !v.mesh.userData.rear) return true; const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw), rx = x - v.x, rz = z - v.z; const lz = rx * fx + rz * fz, lx = rx * fz - rz * fx;
+  for (const sd of [1, -1]) { const dx = lx - sd * RD.x, dz = lz - RD.z, d = Math.hypot(dx, dz); if (d > RD.lw + r) continue; if (d < r) return false;
+    const th = Math.atan2(-dz, -sd * dx), m = Math.asin(Math.min(1, r / d)); if (th > -m && th < RD.a + m) return false; }
+  return true;
+}
+// how deep (m) a point is inside a vehicle's footprint (body box + open rear doors); 0 = free
+export function carDepth(v, x, z, padL = 0.15, padW = 0.2) {
+  const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw), rx = x - v.x, rz = z - v.z; const a = (v.half || v.T.len / 2) + padL - Math.abs(rx * fx + rz * fz), b = (v.T.wid || 1.7) / 2 + padW - Math.abs(rx * fz - rz * fx);
+  return Math.max(a > 0 && b > 0 ? Math.min(a, b) : 0, leafDepth(v, x, z));
+}
 const CLIMB_MAX = 2.05;
 const DIRS = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.4142], [1, -1, 1.4142], [-1, 1, 1.4142], [-1, -1, 1.4142]];
 
@@ -26,7 +50,7 @@ export class FootNav {
 
   // ---- obstacles
   nearCars(x0, z0, x1, z1) { const out = []; for (const v of this.vehicles()) { if (!v || v.isTrain || !v.T) continue; const r = (v.half || v.T.len / 2) + 1; if (v.x + r < x0 || v.x - r > x1 || v.z + r < z0 || v.z - r > z1) continue; out.push(v); } return out; }
-  inCar(cars, x, z, pad = 0.25) { for (const v of cars) { const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw), rx = x - v.x, rz = z - v.z; if (Math.abs(rx * fx + rz * fz) < (v.half || v.T.len / 2) + pad && Math.abs(rx * fz - rz * fx) < (v.T.wid || 1.7) / 2 + pad) return true; } return false; }
+  inCar(cars, x, z, pad = 0.25) { for (const v of cars) { const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw), rx = x - v.x, rz = z - v.z; if (Math.abs(rx * fx + rz * fz) < (v.half || v.T.len / 2) + pad && Math.abs(rx * fz - rz * fx) < (v.T.wid || 1.7) / 2 + pad) return true; if (leafDepth(v, x, z) > 0) return true; } return false; }
   // 0 free · 1 climbable low wall · 2 blocked
   cellKind(x, z, cars) {
     if (this.inCar(cars, x, z)) return 2;

@@ -11,6 +11,7 @@
 // dual-quaternion skinning and subsurface term plus a procedural pore relief that fades out before it can alias.
 // Eyebrows are individual hair strands lying on the brow skin (they follow the brow morphs); eyelashes are MakeHuman's.
 import * as THREE from 'three';
+import { withoutDefer } from '../gfx/AsyncCompile.js';
 import DATA from './dancerBodyData.js';
 import { patchHeroMaterial } from './HeroRig.js';
 import { buildEyeball, iblScale, HEAD_MORPHS } from './HeroHead.js';
@@ -189,8 +190,8 @@ export const DANCER_LOOK = {
   opal: { skin: '#a36a4a', lips: '#9a3a5a', shadow: '#4a3260', liner: 0.9, blush: '#b8545a', nails: '#c8bed8', gloss: 0.8 },
   saffron: { skin: '#7e4b2e', lips: '#8a3a26', shadow: '#6a4220', liner: 0.75, blush: '#a04a30', nails: '#c8701a', gloss: 0.6 },
 };
-export function dancerMaterials(id, U) {
-  const look = DANCER_LOOK[id] || DANCER_LOOK.ruby;
+export function dancerMaterials(id, U, lookOver = null) {
+  const look = lookOver || DANCER_LOOK[id] || DANCER_LOOK.ruby; // lookOver: a character's own skin / make-up (actors/Assassin.js)
   const skin = new THREE.MeshStandardMaterial({ color: new THREE.Color(look.skin), roughness: 0.55, metalness: 0 });
   patchHeroMaterial(skin, 'body', U, skinDetail); iblScale(skin, 0.55, 1.0, 0.5);
   const kp = skin.customProgramCacheKey; skin.customProgramCacheKey = () => kp() + '|dancerSkin';
@@ -272,7 +273,7 @@ export function queueDancerPaint(ch) { PAINT.push(ch); }
 export const dancerPaintPending = () => PAINT.length > 0;
 const lin = (hex) => { const c = new THREE.Color(hex); return new THREE.Vector3(c.r, c.g, c.b); }; // THREE.Color(hex) is already linear
 export function paintDancerSkin(renderer, ch, size = 2048) {
-  const id = ch.spec.dancerBody; const geo = ch.mesh.geometry; const look = DANCER_LOOK[id] || DANCER_LOOK.ruby; const J = dancerJoints(id), L = dancerLandmarks(id);
+  const id = ch.spec.dancerBody; const geo = ch.mesh.geometry; const look = ch.spec.look || DANCER_LOOK[id] || DANCER_LOOK.ruby; const J = dancerJoints(id), L = dancerLandmarks(id);
   const pg = new THREE.BufferGeometry(); for (const a of ['position', 'normal', 'uv', 'aMaskA', 'aMaskB']) pg.setAttribute(a, geo.attributes[a]);
   pg.setIndex(new THREE.BufferAttribute(geo.index.array.slice(0, geo.userData.skinTris), 1));
   const brow = []; for (let i = 0; i < 16; i++) { const b = browPath(id, i / 15); brow.push(new THREE.Vector4(b.x, b.y, b.th, 0)); }
@@ -287,7 +288,7 @@ export function paintDancerSkin(renderer, ch, size = 2048) {
   rt.texture.anisotropy = 8;
   const prevRT = renderer.getRenderTarget(), prevClear = renderer.getClearColor(new THREE.Color()), prevA = renderer.getClearAlpha(), prevAuto = renderer.autoClear;
   renderer.setRenderTarget(rt); renderer.setClearColor(new THREE.Color(look.skin), 0.6); renderer.clear(true, false, false); renderer.autoClear = false;
-  const px = 2 / size; for (const [dx, dy] of [[3, 0], [-3, 0], [0, 3], [0, -3], [2, 2], [-2, -2], [2, -2], [-2, 2], [0, 0]]) { U.uOff.value.set(dx * px, dy * px); renderer.render(scene, cam); } // a 3-texel gutter round every UV island, then the islands
+  const px = 2 / size; for (const [dx, dy] of [[3, 0], [-3, 0], [0, 3], [0, -3], [2, 2], [-2, -2], [2, -2], [-2, 2], [0, 0]]) { U.uOff.value.set(dx * px, dy * px); withoutDefer(renderer, () => renderer.render(scene, cam)); } // a 3-texel gutter round every UV island, then the islands
   renderer.setRenderTarget(prevRT); renderer.setClearColor(prevClear, prevA); renderer.autoClear = prevAuto;
   pg.dispose(); mat.dispose();
   const skin = ch.mesh.material[0]; skin.map = rt.texture; skin.color.set(0xffffff); skin.needsUpdate = true; ch.dancerRT = rt;

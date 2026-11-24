@@ -11,9 +11,16 @@ import { Kit, aoBlob, plasterTex, floorTex, fabricTex, canvasTex, woodTex, rnd }
 import * as RP from './RoomProps.js';
 import { Input } from '../core/Input.js';
 import { Audio } from '../audio/Audio.js';
+import { SoundBank as SB } from '../audio/SoundBank.js';
+// 73rd: one of the two recorded variations (whichever are filled), at random
+const pickVar = (base) => { const f = [1, 2].map((n) => base + n).filter((id) => SB.has(id)); return f.length ? f[(Math.random() * f.length) | 0] : null; };
 import { solveArmIK } from '../actors/Character.js';
 import { wrapFor } from '../combat/GripSolver.js';
 import * as L from './Layout.js';
+import { modelFloor } from './FloorKit.js';
+
+// floors as laid: red-oxide cement in 1 m bays, 50 cm glazed tiles, terrazzo in 1.2 m bays with brass dividers
+const FLOOR_SPEC = { redoxide: { kind: 'redoxide', size: 1.0, seed: 3 }, tiles: { kind: 'ceramic', size: 0.5, colors: ['#e9e3d7', '#e4ddcf'], grout: '#9d9483', seed: 8 }, terrazzo: { kind: 'terrazzo', size: 1.2, seed: 13 } };
 
 const Y = -40;
 const RADIO = [null, { mode: 'radio1', name: 'Radio Lanka Breeze 98.4', f: 0.32 }, { mode: 'radio2', name: 'Island Pulse 104.2', f: 0.78 }];
@@ -168,7 +175,7 @@ export class Drink {
   constructor(room, bottle, glass, spot) { this.room = room; this.bottle = bottle; this.glass = glass; this.spot = spot; this.active = false; this.shots = 14; this.stream = null; this.qYaw = new THREE.Quaternion(); this.qYawI = new THREE.Quaternion(); this.root = new THREE.Vector3(); }
   get fill() { return this.shots / 14; }
   start(P) {
-    const g = this.room.game; this.P = P; this.ch = P.ch; this.t = -0.45; this.active = true; this.drank = false; this.poured = 0; this.grabbed = this.bDown = this.gDown = false; P.control = false; P.indoorBusy = true; if (g.weapons?.drawn) g.weapons.holster();
+    const g = this.room.game; this.P = P; this.ch = P.ch; this.t = -0.45; this.active = true; this.drank = false; this.poured = 0; this.grabbed = this.bDown = this.gDown = false; this.pourRec = null; P.control = false; P.indoorBusy = true; if (g.weapons?.drawn) g.weapons.holster();
     this.from = { x: P.x, z: P.z, yaw: P.yaw }; this.homeB = { p: this.bottle.position.clone(), q: this.bottle.quaternion.clone() }; this.homeG = { p: this.glass.position.clone(), q: this.glass.quaternion.clone() };
     if (!this.stream) { this.stream = new THREE.Mesh(new THREE.CylinderGeometry(0.0032, 0.0042, 1, 8, 1, true), new THREE.MeshStandardMaterial({ color: 0xeef8fa, transparent: true, opacity: 0.55, roughness: 0.02, depthWrite: false })); this.stream.visible = false; this.room.g.add(this.stream); }
     this.ch.anim.postPose = (b, dt, seated) => this.pose(b, dt, seated);
@@ -185,11 +192,12 @@ export class Drink {
     if (t < 0) { const k = sm((t + 0.45) / 0.45); P.x = this.from.x + (this.spot.x + this.room.g.position.x - this.from.x) * k; P.z = this.from.z + (this.spot.z + this.room.g.position.z - this.from.z) * k; let dy = this.spot.yaw - this.from.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); P.yaw = this.from.yaw + dy * k; P.sync?.(); return; }
     if (t >= T.reach && !this.grabbed) { this.grabbed = true; if (Audio.ready) Audio.noise(0.05, { f: 1800, q: 3, vol: 0.03 }); }
     if (t > T.lift && t < T.pourEnd) { const tip = sm(seg(t, T.lift, T.lift + 0.5)) * (1 - sm(seg(t, T.pourEnd - 0.35, T.pourEnd))); const flowing = tip > 0.7; this.stream.visible = flowing;
+      if (flowing && !this.pourRec) { this.pourRec = pickVar('drink.pour') || 'none'; if (this.pourRec !== 'none') SB.play(this.pourRec, 1, 0, 0, { dur: Math.max(0.4, T.pourEnd - 0.22 - t) }); } // 73rd: the recorded pour runs while the liquor flows
       if (flowing) { const k = dt / (T.pourEnd - T.lift - 0.85); this.poured = Math.min(1, this.poured + k); this.glass.userData.setFill(this.poured * 0.85); this.bottle.userData.setFill(Math.max(0, (this.shots - this.poured) / 14));
         this.bottle.updateMatrixWorld(); this.glass.updateMatrixWorld(); const m = this.bottle.userData.mouth.clone().applyMatrix4(this.bottle.matrixWorld), r = V(0, 0.02 + 0.03 * this.poured, 0).applyMatrix4(this.glass.matrixWorld); const d = r.clone().sub(m); const len = Math.max(0.01, d.length()); this.stream.position.copy(m).addScaledVector(d, 0.5).sub(this.room.g.position); this.stream.quaternion.setFromUnitVectors(V(0, 1, 0), d.normalize()); this.stream.scale.set(1, len, 1);
-        this.pourSnd = (this.pourSnd || 0) - dt; if (this.pourSnd <= 0 && Audio.ready) { this.pourSnd = 0.07 + Math.random() * 0.05; Audio.noise(0.08, { f: 900 + this.poured * 900 + Math.random() * 300, q: 6, vol: 0.03 }); } } }
+        this.pourSnd = (this.pourSnd || 0) - dt; if (this.pourSnd <= 0 && Audio.ready && this.pourRec === 'none') { this.pourSnd = 0.07 + Math.random() * 0.05; Audio.noise(0.08, { f: 900 + this.poured * 900 + Math.random() * 300, q: 6, vol: 0.03 }); } } }
     else if (this.stream) this.stream.visible = false;
-    if (t >= T.bottleDown - 0.05 && !this.bDown) { this.bDown = true; this.shots = Math.max(0, this.shots - 1); this.bottle.userData.setFill(this.fill); if (Audio.ready) Audio.tone(1500, 0.04, { type: 'triangle', vol: 0.03 }); }
+    if (t >= T.bottleDown - 0.05 && !this.bDown) { this.bDown = true; this.shots = Math.max(0, this.shots - 1); this.bottle.userData.setFill(this.fill); const bd = pickVar('drink.bottle.down'); if (bd) SB.play(bd); else if (Audio.ready) Audio.tone(1500, 0.04, { type: 'triangle', vol: 0.03 }); }
     if (t > T.raise && t < T.drinkEnd) { const k = seg(t, T.raise + 0.1, T.drinkEnd - 0.1); this.glass.userData.setFill(0.85 * (1 - sm(k))); this.gulpT = (this.gulpT || 0) - dt; if (k > 0.1 && k < 0.95 && this.gulpT <= 0 && Audio.ready) { this.gulpT = 0.32; Audio.tone(120, 0.09, { type: 'sine', vol: 0.06 }); Audio.noise(0.06, { f: 500, q: 2, vol: 0.02, when: 0.03 }); } }
     if (t >= T.drinkEnd && !this.drank) { this.drank = true; const r = this.room.game.drunk?.drink(); this.ch.face?.set('wince', 1.8); if (Audio.ready) Audio.noise(0.55, { f: 1300, q: 0.7, vol: 0.035, when: 0.35 }); if (r === 'blackout') this.blackout = true; }
     if (t >= T.glassDown - 0.05 && !this.gDown) { this.gDown = true; this.glass.userData.setFill(0); if (Audio.ready) Audio.tone(1900, 0.035, { type: 'triangle', vol: 0.03 }); }
@@ -300,7 +308,8 @@ export function buildHeroRoom(game, id, door) {
     k.box('skirt', wl.len, 0.1, 0.014, wl.len / 2, 0.05, 0.007, { uv: 0 }); k.box('ceil', wl.len, 0.06, 0.05, wl.len / 2, H - 0.03, 0.025); k.box('ceil', wl.len, 0.03, 0.08, wl.len / 2, H - 0.075, 0.04);
     k.pop();
   }
-  k.plane('floor', W, D, 0, 0, 0, { rx: -Math.PI / 2 }); k.plane('ceil', W, D, 0, H, 0, { rx: Math.PI / 2 });
+  g.add(modelFloor(theme.floorSpec || FLOOR_SPEC[theme.floor], -W / 2, -D / 2, W / 2, D / 2, 0)); // modelled bays / tiles over a recessed joint bed (FloorKit)
+  k.plane('ceil', W, D, 0, H, 0, { rx: Math.PI / 2 });
   // window: frame + grille + curtains, and the view outside (day / night planes)
   let viewDay = null, viewNight = null;
   if (win) { const wl = walls.find((x) => x.name === win.wall); k.push(wl.o[0], 0, wl.o[1], wl.o[2]); k.push(win.u, win.sill, -0.14); RP.windowUnit(k, { w: win.w, h: win.h, curtain: theme.curtain }); k.pop();

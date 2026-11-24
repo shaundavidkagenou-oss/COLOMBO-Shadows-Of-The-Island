@@ -1,0 +1,58 @@
+{
+ "fabCol": {
+  "size": 2048,
+  "srgb": true,
+  "alpha": true,
+  "codec": "ETC1S",
+  "bytes": 752046
+ },
+ "fabNrm": {
+  "size": 2048,
+  "srgb": false,
+  "alpha": false,
+  "codec": "UASTC+RDO+zstd",
+  "bytes": 2306046
+ },
+ "hhCol": {
+  "size": 2048,
+  "srgb": true,
+  "alpha": true,
+  "codec": "ETC1S",
+  "bytes": 563438
+ },
+ "hhNrm": {
+  "size": 2048,
+  "srgb": false,
+  "alpha": false,
+  "codec": "UASTC+RDO+zstd",
+  "bytes": 2826934
+ },
+ "feaNrm": {
+  "size": 2048,
+  "srgb": false,
+  "alpha": false,
+  "codec": "UASTC+RDO+zstd",
+  "bytes": 2075572
+ },
+ "vehDet": {
+  "size": 2048,
+  "srgb": false,
+  "alpha": false,
+  "codec": "UASTC+RDO+zstd",
+  "bytes": 4044550
+ },
+ "grime": {
+  "size": 2048,
+  "srgb": false,
+  "alpha": false,
+  "codec": "UASTC+RDO+zstd",
+  "bytes": 3620418
+ },
+ "rainNrm": {
+  "size": 2048,
+  "srgb": false,
+  "alpha": false,
+  "codec": "UASTC+RDO+zstd",
+  "bytes": 3237722
+ }
+}

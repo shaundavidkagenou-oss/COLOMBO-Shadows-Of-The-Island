@@ -6,6 +6,9 @@ import * as L from './Layout.js';
 export const GAUGE = 1.676;
 export const RAIL_OFF = GAUGE / 2 + 0.036; // rail-head centre from the track centre line
 export const BALLAST_Y = L.LAND_Y + 0.15; // top of the ballast bed
+// 63rd: sleeper pitch 2/3 m — exactly three per 2 m track segment. At 0.65 m from each segment's start the last sleeper of
+// one segment (1.95 m) and the first of the next (2.0 m) overlapped by 19 cm: coplanar faces z-fighting along the whole line.
+export const SLEEPER_GAP = 2 / 3;
 export const SLEEPER_TOP = BALLAST_Y + 0.03; // concrete sleepers sit mostly embedded in the ballast
 export const RAIL_TOP = SLEEPER_TOP + 0.15; // running surface — constant along the whole line (crossings are humped decks)
 export const DECK_HW = 2.3, RAMP = 5; // level-crossing deck half-width and ramp length either side
@@ -134,7 +137,7 @@ export function buildTrack(at) {
       const by = BALLAST_Y;
       quadFacing(bal, P(-1.9, by, 0), P(1.9, by, 0), P(1.9, by, 1), P(-1.9, by, 1), [0, (i * STEP) % 64, 3.8, (i * STEP) % 64 + STEP], BAL, UP);
       for (const sd of [-1, 1]) quadFacing(bal, P(sd * 1.9, by, 0), P(sd * 3.1, L.LAND_Y - 0.03, 0), P(sd * 3.1, L.LAND_Y - 0.03, 1), P(sd * 1.9, by, 1), [0, (i * STEP) % 64, 1.2, (i * STEP) % 64 + STEP], BAL_S, [n0x * sd, 0.6, n0z * sd]);
-      for (let s = 0; s < l; s += 0.65) { const sx = x0 + dx * s, sz = z0 + dz * s; conc.box(sx, SLEEPER_TOP - 0.06, sz, 0.24, 0.12, 2.6, { col: SLP, rotY: Math.atan2(dx, dz) + Math.PI / 2, top: true }); }
+      for (let s = 0; s < l - 0.05; s += SLEEPER_GAP) { const sx = x0 + dx * s, sz = z0 + dz * s; conc.box(sx, SLEEPER_TOP - 0.06, sz, 0.24, 0.12, 2.6, { col: SLP, rotY: Math.atan2(dx, dz) + Math.PI / 2, top: true }); }
     }
     // rails: foot, web and head (broad gauge)
     for (const sd of [-1, 1]) {

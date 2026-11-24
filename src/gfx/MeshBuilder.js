@@ -1,5 +1,6 @@
 // Accumulates triangles into one indexed BufferGeometry (positions, normals, uvs, colours).
 import * as THREE from 'three';
+import { MAT, ensureMat, canCopy, effKey } from './Materials.js';
 const _v = new THREE.Vector3(), _n = new THREE.Vector3(), _m3 = new THREE.Matrix3();
 export class MeshBuilder {
   constructor() { this.pos = []; this.nor = []; this.uv = []; this.col = []; this.idx = []; this.color = [1, 1, 1]; }
@@ -20,6 +21,20 @@ export class MeshBuilder {
     this.idx.push(i0, i1, i2, i0, i2, i3); return this;
   }
   // horizontal rectangle facing up (or down)
+  // 60th: a flat 3- or 4-corner face (roof slope, hip end, gable) with true world-scale planar UVs: u runs along the first edge
+  // P0→P1 (the eave), v up the face away from it, su / sv texture repeats per metre. Unlike quad()'s rectangle UVs, a texture is
+  // never sheared on a trapezoid or squeezed into a triangle, and every slope's rows start level at its eave. Same normal +
+  // winding as quad() / a fan triangle.
+  planar(P, col, su = 0.25, sv = su) {
+    const a = P[0], b = P[1], z = P[P.length - 1];
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = z[0] - a[0], vy = z[1] - a[1], vz = z[2] - a[2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx; const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+    const el = Math.hypot(ux, uy, uz) || 1, ex = ux / el, ey = uy / el, ez = uz / el;
+    let cx = 0, cy = 0, cz = 0; for (const p of P) { cx += p[0] / P.length; cy += p[1] / P.length; cz += p[2] / P.length; }
+    cx -= a[0]; cy -= a[1]; cz -= a[2]; const d = cx * ex + cy * ey + cz * ez; let tx = cx - ex * d, ty = cy - ey * d, tz = cz - ez * d; const tl = Math.hypot(tx, ty, tz) || 1; tx /= tl; ty /= tl; tz /= tl;
+    const u0 = a[0] * ex + a[1] * ey + a[2] * ez; const I = P.map((p) => this.vert(p[0], p[1], p[2], nx, ny, nz, (p[0] * ex + p[1] * ey + p[2] * ez - u0) * su, ((p[0] - a[0]) * tx + (p[1] - a[1]) * ty + (p[2] - a[2]) * tz) * sv, col));
+    for (let i = 1; i < I.length - 1; i++) this.idx.push(I[0], I[i], I[i + 1]); return this;
+  }
   hrect(x0, z0, x1, z1, y, uvScale = 1, col, down = false, uvOff = [0, 0]) {
     const u0 = x0 / uvScale + uvOff[0], u1 = x1 / uvScale + uvOff[0], v0 = -z0 / uvScale + uvOff[1], v1 = -z1 / uvScale + uvOff[1];
     if (!down) this.quad([x0, y, z1], [x1, y, z1], [x1, y, z0], [x0, y, z0], [u0, v1, u1, v0], col);
@@ -39,15 +54,15 @@ export class MeshBuilder {
   // vertical wall from (x0,z0) to (x1,z1), outward normal on the right-hand side when walking a→b viewed from above (CCW footprint => outward)
   wall(x0, z0, x1, z1, y0, y1, uv, col) { return this.quad([x0, y0, z0], [x1, y0, z1], [x1, y1, z1], [x0, y1, z0], uv, col); }
   // axis-aligned box; uvMode 'world' tiles every `uvScale` metres
-  box(cx, cy, cz, sx, sy, sz, { col, uvScale = 1, top = true, bottom = false, rotY = 0, uvRect = null } = {}) {
+  box(cx, cy, cz, sx, sy, sz, { col, uvScale = 1, top = true, bottom = false, rotY = 0, uvRect = null, sides = 15 } = {}) { // sides: bit mask of the four side faces (1 +z, 2 −z, 4 +x, 8 −x), default all
     const hx = sx / 2, hy = sy / 2, hz = sz / 2;
     const c = Math.cos(rotY), s = Math.sin(rotY);
     const P = (x, y, z) => [cx + x * c + z * s, cy + y, cz - x * s + z * c];
     const U = (len, h) => (uvRect ? uvRect : [0, 0, len / uvScale, h / uvScale]);
-    this.quad(P(-hx, -hy, hz), P(hx, -hy, hz), P(hx, hy, hz), P(-hx, hy, hz), U(sx, sy), col);
-    this.quad(P(hx, -hy, -hz), P(-hx, -hy, -hz), P(-hx, hy, -hz), P(hx, hy, -hz), U(sx, sy), col);
-    this.quad(P(hx, -hy, hz), P(hx, -hy, -hz), P(hx, hy, -hz), P(hx, hy, hz), U(sz, sy), col);
-    this.quad(P(-hx, -hy, -hz), P(-hx, -hy, hz), P(-hx, hy, hz), P(-hx, hy, -hz), U(sz, sy), col);
+    if (sides & 1) this.quad(P(-hx, -hy, hz), P(hx, -hy, hz), P(hx, hy, hz), P(-hx, hy, hz), U(sx, sy), col);
+    if (sides & 2) this.quad(P(hx, -hy, -hz), P(-hx, -hy, -hz), P(-hx, hy, -hz), P(hx, hy, -hz), U(sx, sy), col);
+    if (sides & 4) this.quad(P(hx, -hy, hz), P(hx, -hy, -hz), P(hx, hy, -hz), P(hx, hy, hz), U(sz, sy), col);
+    if (sides & 8) this.quad(P(-hx, -hy, -hz), P(-hx, -hy, hz), P(-hx, hy, hz), P(-hx, hy, -hz), U(sz, sy), col);
     if (top) this.quad(P(-hx, hy, hz), P(hx, hy, hz), P(hx, hy, -hz), P(-hx, hy, -hz), U(sx, sz), col);
     if (bottom) this.quad(P(-hx, -hy, -hz), P(hx, -hy, -hz), P(hx, -hy, hz), P(-hx, -hy, hz), U(sx, sz), col);
     return this;
@@ -91,20 +106,105 @@ export class MeshBuilder {
     return g;
   }
 }
+// 86th — streaming without garbage. A dense chunk's detail / window-joinery job pushed ~0.4-1M vertices per material into plain
+// JS arrays; every time one outgrew its storage V8 copied it into a bigger one in large-object space (old generation). Building
+// three chunks allocated 3.2 GB (measured): while driving that fed one major (mark-compact) GC after another, 100-600 ms frames.
+// The streaming jobs (World.newJob) use pooled builders instead: the same MeshBuilder methods over typed buffers that grow by
+// doubling and are kept per material key for the next chunk, so after the first few chunks a job allocates almost nothing.
+// Identical output: values land in the same Float32 / Uint32 types the plain arrays were converted to (SliceBuild / build), with
+// the same rounding, and nothing in the streaming code reads a vertex back (only .length and push are used).
+export class GrowBuf {
+  constructor(T, n) { this.T = T; this.a = new T(n); this.length = 0; }
+  push(x, y, z, w, u, v) {
+    const n = arguments.length, L = this.length; if (L + n > this.a.length) { let c = this.a.length * 2; while (c < L + n) c *= 2; const b = new this.T(c); b.set(this.a.subarray(0, L)); this.a = b; }
+    const a = this.a; a[L] = x; if (n > 1) { a[L + 1] = y; if (n > 2) { a[L + 2] = z; if (n > 3) { a[L + 3] = w; if (n > 4) { a[L + 4] = u; if (n > 5) { a[L + 5] = v; for (let i = 6; i < n; i++) a[L + i] = arguments[i]; } } } } }
+    this.length = L + n; return this.length;
+  }
+  view() { return this.a.subarray(0, this.length); }
+}
+class PooledMeshBuilder extends MeshBuilder {
+  constructor() { super(); this.pos = new GrowBuf(Float32Array, 12288); this.nor = new GrowBuf(Float32Array, 12288); this.uv = new GrowBuf(Float32Array, 8192); this.col = new GrowBuf(Float32Array, 12288); this.idx = new GrowBuf(Uint32Array, 24576); }
+  reset() { this.pos.length = this.nor.length = this.uv.length = this.col.length = this.idx.length = 0; this.color = [1, 1, 1]; return this; }
+  bytes() { return (this.pos.a.length + this.nor.a.length + this.uv.a.length + this.col.a.length + this.idx.a.length) * 4; }
+  build() {
+    if (!this.pos.length) return null; const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(this.pos.view().slice(), 3)); g.setAttribute('normal', new THREE.BufferAttribute(this.nor.view().slice(), 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(this.uv.view().slice(), 2)); g.setAttribute('color', new THREE.BufferAttribute(this.col.view().slice(), 3));
+    g.setIndex(new THREE.BufferAttribute(this.vcount > 65535 ? this.idx.view().slice() : new Uint16Array(this.idx.view()), 1)); g.computeBoundingSphere(); g.computeBoundingBox(); return g;
+  }
+}
+// one free builder per material key (the next chunk's 'concrete' reuses this chunk's buffers), least recently used dropped
+// beyond POOL_CAP bytes of buffers
+const POOL_CAP = 160 * 1048576; const pool = new Map(); let poolBytes = 0;
+function takePooled(k) { const b = pool.get(k); if (b) { pool.delete(k); poolBytes -= b.bytes(); return b.reset(); } for (const [k2, b2] of pool) { if (b2.bytes() <= 4 * 1048576) { pool.delete(k2); poolBytes -= b2.bytes(); return b2.reset(); } } return new PooledMeshBuilder(); }
+function givePooled(k, b) { if (!(b instanceof PooledMeshBuilder)) return; const old = pool.get(k); if (old === b) return; if (old) { poolBytes -= old.bytes(); pool.delete(k); } b.reset(); pool.set(k, b); poolBytes += b.bytes(); for (const [k2, b2] of pool) { if (poolBytes <= POOL_CAP || b2 === b) break; pool.delete(k2); poolBytes -= b2.bytes(); } }
+export function builderPoolStats() { return { builders: pool.size, MB: +(poolBytes / 1048576).toFixed(1) }; }
 // Hold several builders keyed by material name.
+// 60th — material keys. get(name) accepts a base material ('concrete'), a role ('winFrame'), a building-tagged role
+// ('winFrame@b234') or, with a scope, a site's own copy: scope 'Lotus Tower' turns 'concrete' into 'Lotus Tower.concrete'
+// (MAT copy made on demand; same textures and look until edited in the Texture Studio; meshes keep the plain name 'concrete' so
+// code looking at mesh names is unaffected; Landmarks.js switches `scope` between sites). Each part is merged into the builder
+// of the material that draws it (Materials.effKey: unsplit roles fall back to their base → the old draw layout). raw: one
+// builder per tag, nothing merged (the Texture Studio's part picker rebuilds a building that way to tell its parts apart).
+// 60th: `scope` (Landmarks.js: one per site) tags every copyable material as 'Scope.base' ('Lotus Tower.concrete'). Those parts
+// are drawn with the base material (merged, same draw calls as before) until a Texture Studio rule gives that site its own copy:
+// split before the build (pack rules, TexRuntime.preload) or live — `live` builders remember which index ranges of each merged
+// mesh belong to which tag, and splitLive() moves a tag's ranges into a mesh of its own (shared vertex buffers, +1 draw per split).
+const LIVE = new Set();
 export class MultiBuilder {
-  constructor() { this.b = new Map(); }
-  get(name) { if (!this.b.has(name)) this.b.set(name, new MeshBuilder()); return this.b.get(name); }
+  constructor(scope = null, { raw = false, live = false, pooled = false } = {}) { this.b = new Map(); this.scope = scope; this.raw = raw; this.plain = new Map(); this.seg = live ? new Map() : null; this.pooled = pooled; }
+  // pooled builders (streaming jobs): hand a material's buffers back once they have been copied out (SliceBuild done)
+  release(k) { const b = this.b.get(k); if (b && this.pooled) { this.b.delete(k); givePooled(k, b); } }
+  releaseAll() { if (this.pooled) for (const k of [...this.b.keys()]) this.release(k); }
+  tag(name) { if (this.scope && !name.includes('.') && !name.includes('@') && canCopy(name)) return this.scope + '.' + name; return name; }
+  key(name) { const t = this.tag(name); return this.raw ? t : effKey(t); }
+  get(name) {
+    const t = this.tag(name), k = this.raw ? t : effKey(t); let b = this.b.get(k);
+    if (!b) { this.b.set(k, (b = this.pooled ? takePooled(k) : new MeshBuilder())); const d = k.indexOf('.'); this.plain.set(k, d > 0 && !k.includes('@') ? k.slice(d + 1) : k); }
+    if (this.seg) { let S = this.seg.get(k); if (!S) this.seg.set(k, (S = [])); const L = S[S.length - 1]; if (!L || L[0] !== t) { if (L && L[1] === b.idx.length) S.pop(); const L2 = S[S.length - 1]; if (!L2 || L2[0] !== t) S.push([t, b.idx.length]); } }
+    return b;
+  }
+  // a handle that always draws into get(name) under the CURRENT scope (Landmarks.js keeps conc / paint / metal across sites)
+  lazy(name) { const self = this; return new Proxy({}, { get(_, p) { const t = self.get(name); const v = t[p]; return typeof v === 'function' ? v.bind(t) : v; } }); }
   toMeshes(materials, opts = {}) {
     const out = [];
-    for (const [name, mb] of this.b) { const g = mb.build(); if (!g) continue; const m = meshFor(name, g, materials, opts); if (m) out.push(m); }
+    for (const [name, mb] of this.b) { const n = mb.idx.length; const g = mb.build(); if (!g) continue; const m = meshFor(name, g, materials, opts); if (!m) continue; m.name = this.plain.get(name) || name; if (m.name !== name) m.userData.matKey = name;
+      if (this.seg && materials === MAT) { const segs = []; const S = this.seg.get(name) || []; for (let i = 0; i < S.length; i++) { const a = S[i][1], e = i + 1 < S.length ? S[i + 1][1] : n; if (e <= a) continue; const L = segs[segs.length - 1]; if (L && L[0] === S[i][0] && L[1] + L[2] === a) L[2] += e - a; else segs.push([S[i][0], a, e - a]); }
+        if (segs.some((x) => x[0] !== name)) { m.userData.segs = segs; LIVE.add(m); } }
+      out.push(m); }
     return out;
   }
 }
+// the tag (e.g. 'Lotus Tower.concrete') of triangle `face` of a live mesh, or null
+export function tagOfFace(mesh, face) { const segs = mesh && mesh.userData.segs; if (!segs || face == null) return null; const i = face * 3; for (const s of segs) if (i >= s[1] && i < s[1] + s[2]) return s[0]; return null; }
+// move the ranges tagged with `keys` (just split, Materials.markSplit) out of their merged meshes into meshes of their own
+export function splitLive(keys) {
+  const ks = new Set(keys); let made = 0;
+  for (const m of [...LIVE]) {
+    const segs = m.userData.segs; if (!segs || !m.parent || !segs.some((x) => ks.has(x[0]))) continue;
+    const g = m.geometry, I = g.index.array;
+    const sub = (list) => { let len = 0; for (const x of list) len += x[2]; const A = new I.constructor(len); const out = []; let o = 0; for (const x of list) { A.set(I.subarray(x[1], x[1] + x[2]), o); out.push([x[0], o, x[2]]); o += x[2]; } return [A, out]; };
+    const byTag = new Map(); for (const x of segs) if (ks.has(x[0])) { if (!byTag.has(x[0])) byTag.set(x[0], []); byTag.get(x[0]).push(x); }
+    for (const [t, list] of byTag) { const mat = ensureMat(t); if (!mat) continue; const [A, s2] = sub(list); const ng = new THREE.BufferGeometry(); for (const [an, at] of Object.entries(g.attributes)) ng.setAttribute(an, at); ng.setIndex(new THREE.BufferAttribute(A, 1)); ng.computeBoundingBox(); ng.computeBoundingSphere();
+      const nm = new THREE.Mesh(ng, mat); nm.name = m.name; nm.castShadow = m.castShadow; nm.receiveShadow = m.receiveShadow; nm.renderOrder = m.renderOrder; nm.layers.mask = m.layers.mask; nm.matrixAutoUpdate = false; nm.matrix.copy(m.matrix); nm.userData = { matKey: t, segs: s2 };
+      m.parent.add(nm); nm.updateMatrixWorld(true); LIVE.add(nm); made++; }
+    const keep = segs.filter((x) => !ks.has(x[0]) || !byTag.has(x[0]) || !MAT[x[0]]);
+    if (keep.length) { const [A, s2] = sub(keep); g.setIndex(new THREE.BufferAttribute(A, 1)); g.computeBoundingSphere(); m.userData.segs = s2; } else { m.visible = false; m.userData.segs = []; LIVE.delete(m); }
+  }
+  return made;
+}
+// material for a builder key: role / scoped / per-building keys are made on demand from MAT (Materials.ensureMat); other
+// material tables fall back to the base name ('Scope.paint' → paint)
+export function matFor(name, materials) {
+  let mat = materials[name]; if (mat) return mat;
+  if (materials === MAT) return ensureMat(name);
+  const dot = name.lastIndexOf('.'), at = name.lastIndexOf('@b'); const base = at > 0 ? name.slice(0, at) : dot > 0 ? name.slice(dot + 1) : null;
+  return base ? matFor(base, materials) : null;
+}
 export function meshFor(name, g, materials, opts = {}) {
-  const mat = materials[name]; if (!mat) { console.warn('missing material', name); return null; }
+  const mat = matFor(name, materials); if (!mat) { console.warn('missing material', name); return null; }
   const m = new THREE.Mesh(g, mat); m.castShadow = opts.cast ?? true; m.receiveShadow = opts.receive ?? true; m.matrixAutoUpdate = false; m.updateMatrix(); m.name = name;
-  if (FOLIAGE.has(name)) skipLampShadow(m); // alpha-cut leaves: no coarse street-lamp shadows (see skipLampShadow)
+  if (FOLIAGE.has(name) || FOLIAGE.has(name.slice(name.lastIndexOf('.') + 1))) skipLampShadow(m); // alpha-cut leaves: no coarse street-lamp shadows (see skipLampShadow)
   return m;
 }
 // MeshBuilder.build() done in slices (identical geometry): a chunk's window frames can be ~1M vertices in ONE material,
@@ -113,7 +213,7 @@ export class SliceBuild {
   constructor(mb) { this.mb = mb; const n = mb.pos.length; this.empty = !n; this.a = 0; this.o = 0;
     this.arr = n ? [[mb.pos, new Float32Array(n)], [mb.nor, new Float32Array(mb.nor.length)], [mb.uv, new Float32Array(mb.uv.length)], [mb.col, new Float32Array(mb.col.length)], [mb.idx, mb.vcount > 65535 ? new Uint32Array(mb.idx.length) : new Uint16Array(mb.idx.length)]] : []; }
   step(t0, budgetMs) {
-    while (this.a < this.arr.length) { const [src, dst] = this.arr[this.a]; const end = Math.min(src.length, this.o + 131072); for (let i = this.o; i < end; i++) dst[i] = src[i]; this.o = end; if (end >= src.length) { this.a++; this.o = 0; } if (performance.now() - t0 > budgetMs) return false; }
+    while (this.a < this.arr.length) { const [src, dst] = this.arr[this.a]; const end = Math.min(src.length, this.o + 131072); if (src instanceof GrowBuf) dst.set(src.a.subarray(this.o, end), this.o); else for (let i = this.o; i < end; i++) dst[i] = src[i]; this.o = end; if (end >= src.length) { this.a++; this.o = 0; } if (performance.now() - t0 > budgetMs) return false; }
     // bounding box, then bounding sphere (the same values computeBoundingBox / computeBoundingSphere give), also in slices
     if (this.empty) return true; const P = this.arr[0][1];
     if (!this.bb) this.bb = { i: 0, mn: [Infinity, Infinity, Infinity], mx: [-Infinity, -Infinity, -Infinity], r2: 0, j: 0, c: null };

@@ -4,6 +4,7 @@
 // Every purchase goes through combat/Shop.js (rules) and Story.pay (shared purse + bank ledger entry), and is written into
 // the ACTIVE protagonist's own inventory. Keyboard: ←/→ category · ↑/↓ item · Enter buy · Esc / Backspace leave.
 import * as THREE from 'three';
+import { withoutDefer } from '../gfx/AsyncCompile.js';
 import { Input } from '../core/Input.js';
 import { Audio } from '../audio/Audio.js';
 import { WEAPONS } from '../combat/WeaponDefs.js';
@@ -30,14 +31,14 @@ export class GunShopUI {
   get list() { const c = CATEGORIES[this.cat].id; return this.items.filter((it) => it.cat === c); }
   get member() { return this.g.squad?.activeMember?.def?.name || 'You'; }
   ctx() { const g = this.g; return { inv: g.weapons.inv, money: g.story.state.money, opts: { wanted: (g.police?.level || 0) > 0, grenades: g.grenades ? g.grenades.count : 0 } }; }
-  toggle(v = !this.open) {
-    const g = this.g, P = g.player; if (v === this.open) return; this.open = v; this.root.classList.toggle('hidden', !v);
+  toggle(v = !this.open, shop = null) {
+    const g = this.g, P = g.player; if (v === this.open) return; this.open = v; if (v) { this.shopName = shop ? shop.name : SHOP_NAME; this.shopSub = shop ? shop.sub : 'Licensed firearms dealer · Maradana, Colombo 10'; } this.root.classList.toggle('hidden', !v);
     if (v) { this.prevControl = P.control; P.control = false; Input.releaseLock(); this.flash = null; if (!this.previews) this.makePreviews(); this.render(); Audio.ui('click');
       if ((g.police?.level || 0) > 0) g.hud.subtitle(SHOP_NAME, 'Not today. Come back when the police are not looking for you.', '', 3.5); }
     else { P.control = this.prevControl ?? true; Audio.ui('click'); Input.mousePressed.clear(); Input.mouseButtons.clear(); Input.wheel = 0; g.ignoreUnlock = true; Input.requestLock(g.canvas); setTimeout(() => (g.ignoreUnlock = false), 300); } /* the click that closed the shop must not become a punch/shot */
   }
   update() {
-    if (!this.open) return; const k = (c) => Input.keyPressed(c); const n = this.list.length;
+    if (!this.open) return; if (this.pvQueue && this.pvQueue.length) this.previewStep(); const k = (c) => Input.keyPressed(c); const n = this.list.length;
     if (k('Escape') || k('Backspace')) { this.toggle(false); return; }
     if (k('ArrowLeft') || k('KeyA')) { this.cat = (this.cat + CATEGORIES.length - 1) % CATEGORIES.length; this.row = 0; Audio.ui('click'); this.render(); }
     if (k('ArrowRight') || k('KeyD')) { this.cat = (this.cat + 1) % CATEGORIES.length; this.row = 0; Audio.ui('click'); this.render(); }
@@ -51,6 +52,7 @@ export class GunShopUI {
     if (!r.ok) { this.flash = { bad: true, msg: r.msg }; Audio.ui('fail'); this.render(); return; }
     g.story.pay(-r.cost, `${SHOP_NAME}: ${it.kind === 'weapon' ? it.w.name : it.name} (${this.member})`); if (it.kind === 'grenade' && g.grenades) g.grenades.count = r.grenades;
     if (r.weapon && (g.weapons.sel < 0 || !c.inv[g.weapons.sel]?.owned) && !g.weapons.drawn) { g.weapons.sel = it.slot; g.weapons.showHolstered(); } // first gun: carried holstered, ready to draw
+    if (r.weapon && g.weapons.prewarmOwned) try { g.weapons.prewarmOwned(it.slot); } catch (e) { console.warn(e); } // 73rd: the new gun is built while the shop is open, not on the first draw
     this.flash = { bad: false, msg: r.msg }; Audio.ui('success'); g.hud.notify(SHOP_NAME, `${r.msg} · ${rs(r.cost)}`, 'info', 3); this.render();
     if (g.autosave) g.autosave(); // the purchase (money + loadout) is on disk straight away
   }
@@ -63,19 +65,28 @@ export class GunShopUI {
       sc.add(new THREE.HemisphereLight(0xfff4e6, 0x3a3430, 1.6)); const key = new THREE.DirectionalLight(0xffffff, 2.6); key.position.set(2, 3, 4); sc.add(key); const rim = new THREE.DirectionalLight(0xc8dcff, 1.4); rim.position.set(-3, 1, -2); sc.add(rim);
       const cam = new THREE.PerspectiveCamera(24, W / H, 0.05, 20); cam._reversedDepth = !!R.state?.buffers?.depth?.getReversed?.(); cam.updateProjectionMatrix(); /* the game renders reversed-Z: without this every preview clipped to nothing */ const px = new Uint8Array(W * H * 4);
       const cv = document.createElement('canvas'); cv.width = W; cv.height = H; const a = cv.getContext('2d'); const img = a.createImageData(W, H);
-      const prevRT = R.getRenderTarget(), prevTM = R.toneMapping, prevCol = new THREE.Color(); R.getClearColor(prevCol); const prevA = R.getClearAlpha();
+      // 27 guns: rendered a few per frame while the counter is open (the visible category first), not all at once
+      this.pvCtx = { R, W, H, rt, sc, cam, px, cv, a, img }; this.pvQueue = [...WEAPONS, GRENADE];
+    } catch (e) { console.warn('gun shop previews unavailable', e); this.previews = {}; this.pvQueue = null; }
+  }
+  previewStep() {
+    const C = this.pvCtx; if (!C) return; const { R, W, H, rt, sc, cam, px, cv, a, img } = C; const want = new Set(this.list.map((x) => x.w)); // visible rows first
+    const prevRT = R.getRenderTarget(), prevTM = R.toneMapping, prevCol = new THREE.Color(); R.getClearColor(prevCol); const prevA = R.getClearAlpha(); let done = 0;
+    try {
       R.toneMapping = THREE.NoToneMapping; R.setClearColor(0x000000, 0);
-      for (const w of [...WEAPONS, GRENADE]) {
+      for (let n = 0; n < 2 && this.pvQueue.length; n++) { let qi = this.pvQueue.findIndex((w) => want.has(w)); if (qi < 0) qi = 0; const w = this.pvQueue.splice(qi, 1)[0]; done++;
         const m = w === GRENADE ? buildGrenadeModel() : buildWeaponModel(w); if (w === GRENADE) { m.rotation.set(0.15, 0.6, -0.25); m.scale.setScalar(1); } m.rotation.y = -Math.PI / 2; sc.add(m); m.updateMatrixWorld(true);
         const box = new THREE.Box3().setFromObject(m), ctr = box.getCenter(new THREE.Vector3()), sz = box.getSize(new THREE.Vector3());
         const fit = Math.max(sz.x / (2 * Math.tan(THREE.MathUtils.degToRad(12)) * (W / H)), sz.y / (2 * Math.tan(THREE.MathUtils.degToRad(12)))) * (w === GRENADE ? 2.6 : 1.18); /* the panel crops tall images: the grenade gets extra margin */
         cam.position.set(ctr.x + fit * 0.08, ctr.y + fit * 0.12, ctr.z + fit); cam.lookAt(ctr); cam.updateMatrixWorld();
-        R.setRenderTarget(rt); R.clear(); R.render(sc, cam); R.readRenderTargetPixels(rt, 0, 0, W, H, px); let any = false; for (let i = 3; i < px.length; i += 28) if (px[i] > 8) { any = true; break; } if (!any) { sc.remove(m); continue; } /* empty render: keep the vector icon */
+        R.setRenderTarget(rt); R.clear(); withoutDefer(R, () => R.render(sc, cam)); R.readRenderTargetPixels(rt, 0, 0, W, H, px); let any = false; for (let i = 3; i < px.length; i += 28) if (px[i] > 8) { any = true; break; } if (!any) { sc.remove(m); continue; } /* empty render: keep the vector icon */
         for (let y = 0; y < H; y++) img.data.set(px.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4); // flip rows
-        a.putImageData(img, 0, 0); this.previews[w.id] = cv.toDataURL('image/png'); sc.remove(m);
+        a.putImageData(img, 0, 0); this.previews[w.id] = cv.toDataURL('image/png'); sc.remove(m); m.traverse((q) => { if (q.isMesh) q.geometry.dispose(); });
       }
-      R.setRenderTarget(prevRT); R.toneMapping = prevTM; R.setClearColor(prevCol, prevA); rt.dispose();
-    } catch (e) { console.warn('gun shop previews unavailable', e); this.previews = {}; }
+    } catch (e) { console.warn('gun shop preview failed', e); this.pvQueue = []; }
+    R.setRenderTarget(prevRT); R.toneMapping = prevTM; R.setClearColor(prevCol, prevA);
+    if (!this.pvQueue.length) { rt.dispose(); this.pvCtx = null; }
+    if (done) this.render();
   }
   render() {
     const g = this.g; const c = this.ctx(); const list = this.list; this.row = Math.min(this.row, list.length - 1); const it = list[this.row];
@@ -97,7 +108,7 @@ export class GunShopUI {
         ${this.flash ? `<div class="gs-flash${this.flash.bad ? ' bad' : ''}">${this.flash.msg}</div>` : ''}`; }
     const oldList = this.root.querySelector('.gs-list'), oldDet = this.root.querySelector('.gs-det'); const keep = { list: oldList ? oldList.scrollTop : 0, det: oldDet && this._detKey === `${this.cat}:${this.row}` ? oldDet.scrollTop : 0 }; this._detKey = `${this.cat}:${this.row}`;
     this.root.innerHTML = `<div class="gs-panel">
-      <header class="gs-head"><div class="gs-brand"><div class="gs-logo">CA</div><div><h1>${SHOP_NAME}</h1><div class="gs-sub">Licensed firearms dealer · Maradana, Colombo 10</div></div></div>
+      <header class="gs-head"><div class="gs-brand"><div class="gs-logo">${(this.shopName || SHOP_NAME).split(/\s+/).slice(0, 2).map((w) => w[0]).join('')}</div><div><h1>${this.shopName || SHOP_NAME}</h1><div class="gs-sub">${this.shopSub || 'Licensed firearms dealer · Maradana, Colombo 10'}</div></div></div>
         <div class="gs-who"><div><small>Buying for</small><b>${this.member}</b></div><div><small>Cash</small><b class="gs-cash">${rs(c.money)}</b></div><button class="gs-x" data-act="close" title="Leave">✕</button></div></header>
       <nav class="gs-tabs">${tabs}</nav>
       <div class="gs-body"><div class="gs-list">${rows}</div><section class="gs-det">${det}</section></div>

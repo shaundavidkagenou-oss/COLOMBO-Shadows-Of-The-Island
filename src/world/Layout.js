@@ -35,6 +35,9 @@ export function inCanal(z) { for (const c of CANALS) if (z > c.z0 && z < c.z1) r
 export function inHarbour(x, z) { return z < -1180 && x < 230; }
 export function isSea(x, z) { return x < coastX(z) || inHarbour(x, z) || z < BOUNDS.minZ; }
 export function isWater(x, z) { return isSea(x, z) || inLake(x, z) || !!inCanal(z); }
+// surface height of the water at (x, z) (Water.js planes) and how deep a swimmer can go (the seabed plane is at −4)
+export function waterLevel(x, z) { if (inLake(x, z)) return -0.55; if (isSea(x, z)) return -0.9; if (inCanal(z)) return -1.0; return null; }
+export function waterBed(x, z) { if (inLake(x, z)) return -3.2; if (isSea(x, z)) return -3.9; return -2.6; }
 
 // ---------------------------------------------------------------- districts
 export const DISTRICTS = {
@@ -79,6 +82,8 @@ export function districtIdAt(x, z) {
 export function districtAt(x, z) { return DISTRICTS[districtIdAt(x, z)]; }
 
 // ---------------------------------------------------------------- reserved zones (landmarks & parks)
+// rect = the generation reserve (roads / buildings / props keep out of it — unchanged so the street network and building ids stay
+// the same); map = the drawn footprint where the landmark was pulled back off the road (37th Stage 0)
 export const ZONES = [
   { id: 'vmpark', name: 'Viharamahadevi Park', rect: [-10, 190, -170, 40], blockRoads: true, kind: 'park' },
   { id: 'townhall', name: 'Colombo Town Hall', rect: [190, 300, -100, 40], blockRoads: true, kind: 'landmark' },
@@ -86,8 +91,8 @@ export const ZONES = [
   { id: 'lotus', name: 'Lotus Tower', rect: [250, 360, -560, -400], blockRoads: true, kind: 'landmark' },
   { id: 'gangaramaya', name: 'Gangaramaya Temple', rect: [-50, 20, -320, -240], blockRoads: true, kind: 'landmark' },
   { id: 'slpHQ', name: 'Police Headquarters', rect: [-60, 40, -240, -170], blockRoads: true, kind: 'landmark' },
-  { id: 'gfhotel', name: 'Galle Face Hotel', rect: [-470, -409, -240, -170], blockRoads: true, kind: 'landmark' },
-  { id: 'parliament', name: 'Old Parliament', rect: [-475, -409, -740, -668], blockRoads: true, kind: 'landmark' },
+  { id: 'gfhotel', name: 'Galle Face Hotel', rect: [-470, -409, -240, -170], map: [-470, -409, -226.5, -170], blockRoads: true, kind: 'landmark' },
+  { id: 'parliament', name: 'Old Parliament', rect: [-475, -409, -740, -668], map: [-466, -409, -731, -668], blockRoads: true, kind: 'landmark' },
   { id: 'wtc', name: 'Twin Towers', rect: [-340, -280, -1000, -900], blockRoads: true, kind: 'landmark' },
   { id: 'dutch', name: 'Dutch Hospital', rect: [-400, -340, -900, -830], blockRoads: false, kind: 'landmark' },
   { id: 'cargills', name: 'Cargrove Building', rect: [-280, -220, -900, -830], blockRoads: false, kind: 'landmark' },
@@ -306,8 +311,13 @@ for (let i = 0; i < NX; i++) for (let j = 0; j < NZ; j++) {
 export function nodeAt(i, j) { return nodes[i * NZ + j]; }
 // Signal phases: returns 'green' | 'yellow' | 'red' for an approach axis ('v' or 'h').
 export const SIGNAL_CYCLE = 26;
+// 79th: the power grid (PowerGrid.js) sets dark(node) while an outage is on: 1 = the junction's lamps are dead, 2 = battery
+// backup flashing amber ('flash' / 'off' alternating). Both mean an all-way stop for drivers and look-then-cross for walkers.
+export const SIGNAL_POWER = { dark: null };
+export function signalLive(node) { return !!node.signal && !(SIGNAL_POWER.dark && SIGNAL_POWER.dark(node)); }
 export function signalState(node, axis, t) {
   if (!node.signal) return 'green';
+  if (SIGNAL_POWER.dark) { const d = SIGNAL_POWER.dark(node); if (d) return d === 2 && ((t % 1.2) + 1.2) % 1.2 < 0.6 ? 'flash' : 'off'; }
   const c = ((t + node.signalOffset) % SIGNAL_CYCLE + SIGNAL_CYCLE) % SIGNAL_CYCLE;
   // v: green 0-10, yellow 10-12.5, red after. h: green 13-23, yellow 23-25.5
   if (axis === 'v') return c < 10 ? 'green' : c < 12.5 ? 'yellow' : 'red';
@@ -375,9 +385,13 @@ export function setSurfaceHook(fn) { surfHook = fn; }
 export function surfaceY(x, z) { const g = groundY(x, z); if (!surfHook) return g; const s = surfHook(x, z); return s > g ? s : g; }
 let groundHook = null; // Railway registers the ballast bed / level-crossing humps here (avoids an import cycle)
 export function setGroundHook(fn) { groundHook = fn; }
+let rampHook = null; // StreetRamps: speed humps + stunt ramps (surfaces vehicles, walkers and AI all ride)
+export function setRampHook(fn) { rampHook = fn; }
 export function groundY(x, z) {
   if (groundHook) { const h = groundHook(x, z); if (h != null) return h; }
+  if (rampHook) { const h = rampHook(x, z); if (h != null) return h; }
   { const f = fuelSurfaceAt(x, z); if (f != null) return f; } // filling-station forecourts + kerb ramps
+  { const f = customsSurfaceAt(x, z); if (f != null) return f; } // Street Customs lot + driveway ramp
   if (roadAt(x, z)) return ROAD_Y;
   if (isWater(x, z)) return bridgeWalkAt(x, z) ? LAND_Y : -1.2;
   const cp = copingAt(x, z); if (cp != null) return cp;
@@ -397,9 +411,65 @@ export function copingAt(x, z) {
 export const PROMENADE_END = -160; // Galle Face promenade + seawall railing run from the Fort end (z -655) down to here
 export function beyondRailing(x, z, r = 0.3) {
   if (inLake(x, z, 0.4 + r) && !inLake(x, z)) return true;
+  if (railPush(x, z, r)) return true; // 89th: the exact railing line (on the eccentric ellipses the grown-ellipse test falls short of it)
   if (z >= -655 && z < PROMENADE_END && x >= coastX(z) && x < coastX(z) + 0.4 + r) return true;
   if (Math.abs(z - PROMENADE_END) < 0.05 + r && x >= coastX(z) && x < coastX(z) + 13 + r) return true; // the return railing at the promenade's south end
   return false;
+}
+// 89th: the lake railing is solid for vehicles too. Before, only the car's CENTRE was stopped (at the water's edge), so the
+// whole front half of a car drove through the railing and the coping. railPush(x, z, r): a body circle of radius r at (x, z)
+// that overlaps the railing (lakeRailRuns, below) is pushed back out onto the land side; returns null when clear, else
+// { x, z } (the corrected centre). The Seema Malaka walkway entrance (SEEMA_WALK) has two bollards across it (solid too).
+export const SEEMA_WALK = [-103, -64, -301.6, -298.4]; // the walkway from the shore out to the Seema Malaka platforms (x0, x1, z0, z1)
+export const LAKE_RAIL_D = 0.4;
+// The railing's line: chords (~3 m) of each lake ellipse at LAKE_RAIL_D out from the water along the true normal, clipped where
+// two ellipses meet (exactly where GroundBuilder clips the coping) and left open at the Seema Malaka walkway. Drawn by
+// LakeRailing.js; collided against here, segment by segment (exact for every ellipse — an ellipse grown by 0.4 m is not
+// the 0.4 m offset curve of an eccentric one).
+let RUNS = null, RGRID = null; const RCELL = 8;
+export function lakeRailRuns() {
+  if (RUNS) return RUNS; RUNS = []; const d = LAKE_RAIL_D;
+  const outside = (x, z, e) => { for (let o = 0; o < LAKE.length; o++) if (o !== e) { const [ox, oz, orx, orz] = LAKE[o]; const dx = (x - ox) / (orx + d), dz = (z - oz) / (orz + d); if (dx * dx + dz * dz < 1) return false; } return true; };
+  const [gx0, gx1, gz0, gz1] = SEEMA_WALK; const inGap = (x, z) => x > gx0 - 0.15 && x < gx1 + 0.15 && z > gz0 - 0.12 && z < gz1 + 0.12;
+  for (let e = 0; e < LAKE.length; e++) {
+    const [cx, cz, rx, rz] = LAKE[e]; const n = Math.ceil((Math.PI * (rx + rz)) / 3);
+    const q = (a) => { const x = Math.cos(a) / rx, z = Math.sin(a) / rz, l = Math.hypot(x, z); return [cx + Math.cos(a) * rx + (x / l) * d, cz + Math.sin(a) * rz + (z / l) * d]; };
+    const ok = (a) => { const p = q(a); return outside(p[0], p[1], e) && !inGap(p[0], p[1]); };
+    for (let k = 0; k < n; k++) {
+      const A0 = (k / n) * Math.PI * 2, A1 = ((k + 1) / n) * Math.PI * 2; const o0 = ok(A0), o1 = ok(A1), om = ok((A0 + A1) / 2);
+      if (!o0 && !o1) continue; let a0 = A0, a1 = A1;
+      if (!(o0 && o1 && om)) { if (o0 && o1) continue; let lo = o0 ? A0 : A1, hi = o0 ? A1 : A0; for (let i = 0; i < 22; i++) { const m = (lo + hi) / 2; if (ok(m)) lo = m; else hi = m; } if (o0) a1 = lo; else a0 = lo; }
+      const [ax, az] = q(a0), [bx, bz] = q(a1); const l = Math.hypot(bx - ax, bz - az); if (l < 0.05) continue;
+      // land side: the lake centre is on the left walking a→b (angles run counter-clockwise in x-z) — store the outward normal
+      let nx = (bz - az) / l, nz = -(bx - ax) / l; const mx = (ax + bx) / 2, mz = (az + bz) / 2; if (nx * (mx - cx) + nz * (mz - cz) < 0) { nx = -nx; nz = -nz; }
+      RUNS.push({ e, ax, az, bx, bz, l, nx, nz, endA: a0 !== A0, endB: a1 !== A1 });
+    }
+  }
+  return RUNS;
+}
+// the walkway bollards (round, solid for vehicles): [x, z, radius]
+export function seemaBollards() { const e = 2, [cx, cz, rx, rz] = LAKE[e]; const zc = (SEEMA_WALK[2] + SEEMA_WALK[3]) / 2; const xs = cx + rx * Math.sqrt(Math.max(0, 1 - ((zc - cz) / rz) ** 2)) + LAKE_RAIL_D;
+  return [[xs, SEEMA_WALK[2] + 1.07, 0.075], [xs, SEEMA_WALK[3] - 1.07, 0.075]]; }
+function railGrid() { if (RGRID) return RGRID; RGRID = new Map(); const add = (k, it) => { let a = RGRID.get(k); if (!a) RGRID.set(k, (a = [])); if (!a.includes(it)) a.push(it); };
+  for (const r of lakeRailRuns()) { const n = Math.ceil(r.l / 2); for (let i = 0; i <= n; i++) { const x = r.ax + (r.bx - r.ax) * i / n, z = r.az + (r.bz - r.az) * i / n; add(Math.floor(x / RCELL) + ',' + Math.floor(z / RCELL), r); } }
+  for (const b of seemaBollards()) add(Math.floor(b[0] / RCELL) + ',' + Math.floor(b[1] / RCELL), { bol: b }); return RGRID; }
+const RAIL_T = 0.035; // half the railing's thickness (posts 65 mm, top rail 60 mm)
+export function railPush(x, z, r) {
+  if (!inLake(x, z, LAKE_RAIL_D + r + 1)) return null; // far from the lake: nothing to do (cheap)
+  const G = railGrid(); let px = x, pz = z, moved = false;
+  for (let it = 0; it < 3; it++) { let hit = false; const reach = r + RAIL_T;
+    const i0 = Math.floor((px - reach) / RCELL), i1 = Math.floor((px + reach) / RCELL), j0 = Math.floor((pz - reach) / RCELL), j1 = Math.floor((pz + reach) / RCELL);
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const a = G.get(i + ',' + j); if (!a) continue;
+      for (const s of a) {
+        if (s.bol) { const [bx, bz, br] = s.bol; const dx = px - bx, dz = pz - bz, dl = Math.hypot(dx, dz), m = r + br; if (dl < m && dl > 1e-6) { px = bx + dx / dl * m; pz = bz + dz / dl * m; hit = moved = true; } continue; }
+        const ex = s.bx - s.ax, ez = s.bz - s.az; let t = ((px - s.ax) * ex + (pz - s.az) * ez) / (s.l * s.l); t = t < 0 ? 0 : t > 1 ? 1 : t; const cx = s.ax + ex * t, cz = s.az + ez * t;
+        const sd = (px - cx) * s.nx + (pz - cz) * s.nz; // signed: + on the land side
+        if (t > 0 && t < 1) { if (sd < reach) { const k = reach - sd; px += s.nx * k; pz += s.nz * k; hit = moved = true; } continue; }
+        // beyond a run's end: only a FREE end (clipped at a neighbour / the walkway) is a rounded end post; joints are continuous
+        if (!((t === 0 && s.endA) || (t === 1 && s.endB))) continue; const dx = px - cx, dz = pz - cz, dl = Math.hypot(dx, dz);
+        if (dl < reach) { if (dl > 1e-6) { px = cx + dx / dl * reach; pz = cz + dz / dl * reach; } else { px = cx + s.nx * reach; pz = cz + s.nz * reach; } hit = moved = true; } } }
+    if (!hit) break; }
+  return moved ? { x: px, z: pz } : null;
 }
 export function roadNameAt(x, z) {
   const r = roadAt(x, z); if (!r) return null;
@@ -504,6 +574,43 @@ export function fuelSurfaceAt(x, z) {
   return null;
 }
 
+// ---------------------------------------------------------------- Street Customs (CustomsGeo.js builds it, customs/ runs it)
+// The vehicle workshop on Duplication Road, Cinnamon Gardens: same road frame as a filling station (u along the near lane,
+// w from the property line into the lot). One wide driveway in the middle of the frontage serves the way in and the way out
+// (the forecourt is deep enough to turn); the hall stands at the back of the lot with its roller door facing the road.
+export const CUSTOMS_W = 46, CUSTOMS_D = 32, CUSTOMS_SLAB = LAND_Y + 0.02, CUSTOMS_RAMP = 0.9, CUSTOMS_DRIVE_HW = 5;
+export const CUSTOMS_HALL = { w0: 12, w1: 31, hu: 22, h: 7.5, door: 3.5, doorH: 5, tt: [0, 21.5], ttR: 4.6 }; // hall depth band, half width, eave height, roller door half width / height, turntable centre (u, w) + radius
+export const CUSTOMS_SITE = (() => {
+  const d = { id: 'customs', name: 'Street Customs', area: 'Cinnamon Gardens', x: -280, zc: 285, side: 1 };
+  const i = XS.findIndex((l) => l.pos === d.x), j = findIndex(ZS, d.zc); const seg = getV(i, j); if (!seg) throw new Error('customs site without a road');
+  const U = [0, d.side], Wv = [d.side, 0]; const O = [d.x + d.side * (seg.hw + seg.walk), d.zc];
+  const site = { ...d, seg, hw: seg.hw, walk: seg.walk, U, Wv, O, yaw: Math.atan2(U[0], U[1]), rotY: Math.atan2(-U[1], U[0]) };
+  site.toWorld = (u, w) => [O[0] + U[0] * u + Wv[0] * w, O[1] + U[1] * u + Wv[1] * w];
+  site.toLocal = (x, z) => { const dx = x - O[0], dz = z - O[1]; return [dx * U[0] + dz * U[1], dx * Wv[0] + dz * Wv[1]]; };
+  // a heading in the site frame (radians, 0 = +w into the lot) → world yaw (forward = (sin yaw, cos yaw))
+  site.yawOf = (a) => { const fu = Math.sin(a), fw = Math.cos(a); const fx = U[0] * fu + Wv[0] * fw, fz = U[1] * fu + Wv[1] * fw; return Math.atan2(fx, fz); };
+  const box = (u0, u1, w0, w1) => { const a = site.toWorld(u0, w0), b = site.toWorld(u1, w1); return [Math.min(a[0], b[0]), Math.max(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[1], b[1])]; };
+  site.box = box; site.rect = box(-CUSTOMS_W / 2, CUSTOMS_W / 2, 0, CUSTOMS_D);
+  site.reserve = box(-CUSTOMS_W / 2 - 1, CUSTOMS_W / 2 + 1, -seg.walk - seg.hw, CUSTOMS_D);
+  return site;
+})();
+// registered only AFTER the city plan has been generated (CityPlan.generatePlan → addLateZones): the generators consult ZONES /
+// zoneAt with shared RNG streams and sequential building ids, so a zone present during generation would renumber every later
+// building (mission shops, hero rooms). The lot is cleared afterwards instead, exactly like the filling-station reserves.
+export const CUSTOMS_ZONE = { id: 'customs', name: 'Street Customs', rect: CUSTOMS_SITE.rect, blockRoads: false, kind: 'customs', customs: CUSTOMS_SITE };
+export function addLateZones() { if (!ZONES.includes(CUSTOMS_ZONE)) ZONES.push(CUSTOMS_ZONE); }
+export function customsSiteAt(x, z, pad = 0) { const r = CUSTOMS_SITE.reserve; return x > r[0] - pad && x < r[1] + pad && z > r[2] - pad && z < r[3] + pad ? CUSTOMS_SITE : null; }
+// any roadside site kept clear of street furniture / trees / kerb parking (filling stations + the workshop)
+export function serviceSiteAt(x, z, pad = 0) { return fuelSiteAt(x, z, pad) || customsSiteAt(x, z, pad); }
+export function customsSurfaceAt(x, z) {
+  const s = CUSTOMS_SITE, r = s.reserve; if (x < r[0] || x > r[1] || z < r[2] || z > r[3]) return null;
+  const [u, w] = s.toLocal(x, z); if (Math.abs(u) > CUSTOMS_W / 2) return null;
+  if (w >= 0) return CUSTOMS_SLAB;
+  if (Math.abs(u) > CUSTOMS_DRIVE_HW) return null;
+  if (w >= -s.walk) return CUSTOMS_SLAB;
+  const k = (w + s.walk + CUSTOMS_RAMP) / CUSTOMS_RAMP; return k > 0 ? ROAD_Y + (CUSTOMS_SLAB - ROAD_Y) * k : null;
+}
+
 // ---------------------------------------------------------------- named places used by story & activities
 export const PLACES = {
   meeting:       { x: -128, z: -893, name: 'Main Street, Pettah' },
@@ -522,6 +629,7 @@ export const PLACES = {
   slaveFlat:     { x: -150, z: -150, name: "Dineth's room, Slave Island" },
   garage:        { x: 455, z: -790, name: 'Lanka Auto Care, Maradana' },
   gunshop:       { x: 380, z: -700, name: 'Ceylon Arms Co., Maradana' },
+  customs:       { x: -259, z: 285, name: 'Street Customs, Cinnamon Gardens' }, // forecourt in front of the roller door (CUSTOMS_SITE u 0, w 7.5)
   club:          { x: -389, z: 215.5, name: 'The Velvet Monsoon, Kollupitiya' },
   tailor:        { x: -305, z: 470, name: 'Ceylon Threads, Bambalapitiya' },
   hospital:      { x: 660, z: -160, name: 'National Hospital' },

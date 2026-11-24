@@ -17,7 +17,7 @@ class InputSystem {
     addEventListener('keyup', (e) => { this.down.delete(e.code); this.released.add(e.code); });
     addEventListener('blur', () => { this.down.clear(); });
     addEventListener('mousemove', (e) => { if (this.locked) { this.mouseDX += e.movementX; this.mouseDY += e.movementY; } });
-    addEventListener('mousedown', (e) => { this.mouseButtons.add(e.button); this.mousePressed.add(e.button); });
+    addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); /* (no autoscroll: middle mouse breaches doors) */ this.mouseButtons.add(e.button); this.mousePressed.add(e.button); });
     addEventListener('mouseup', (e) => this.mouseButtons.delete(e.button));
     addEventListener('wheel', (e) => { this.wheel += Math.sign(e.deltaY); }, { passive: true });
     document.addEventListener('pointerlockchange', () => { this.locked = document.pointerLockElement != null; bus.emit('pointerlock', this.locked); });
@@ -32,7 +32,7 @@ class InputSystem {
   }
   wasPressed(action) { return this.pressed.has(this.code(action)) || this.padPressed(action); }
   keyPressed(code) { return this.pressed.has(code); }
-  padMap(action) { return { jump: 0, enter: 3, interact: 2, insult: 1, sprint: 10, crouch: 11, horn: 10, camera: 8, map: 8, shove: 5, phone: 12 } /* LB (4) = squad switch (tap next / hold selector) */[action]; }
+  padMap(action) { return { jump: 0, enter: 3, interact: 2, insult: 1, cover: 1, sprint: 10, crouch: 11, horn: 10, camera: 8, map: 8, shove: 5, phone: 12 } /* LB (4) = squad switch (tap next / hold selector); B (1) = cover when there is cover to take, else insult (Game.js) */[action]; }
   padDown(action) { const b = this.padMap(action); return b !== undefined && !!this.pad.buttons[b]; }
   padPressed(action) { const b = this.padMap(action); return b !== undefined && !!this.pad.buttons[b] && !this.pad.prev[b]; }
   // Movement axes (-1..1)
@@ -56,5 +56,5 @@ class InputSystem {
 export const Input = new InputSystem();
 export function keyLabel(code) {
   if (!code) return '?';
-  return code.replace(/^Key/, '').replace(/^Digit/, '').replace('ShiftLeft', 'Shift').replace('ControlLeft', 'Ctrl').replace('Space', 'Space').replace('ArrowUp', '↑').replace('ArrowDown', '↓').replace('ArrowLeft', '←').replace('ArrowRight', '→');
+  return code.replace(/^Key/, '').replace(/^Digit/, '').replace('ShiftLeft', 'Shift').replace('ControlLeft', 'Ctrl').replace('Space', 'Space').replace('ArrowUp', '↑').replace('ArrowDown', '↓').replace('ArrowLeft', '←').replace('ArrowRight', '→').replace(/^Comma$/, ',').replace(/^Period$/, '.').replace(/^BracketLeft$/, '[').replace(/^BracketRight$/, ']').replace(/^Semicolon$/, ';').replace(/^Slash$/, '/');
 }

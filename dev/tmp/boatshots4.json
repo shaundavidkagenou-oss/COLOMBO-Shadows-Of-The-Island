@@ -1,0 +1,43 @@
+[
+ {
+  "name": "b51-wake-probe",
+  "at": [
+   200,
+   -1287
+  ],
+  "cam": [
+   0,
+   0,
+   0
+  ],
+  "look": [
+   0,
+   0,
+   -1
+  ],
+  "hour": 15,
+  "wait": 1500,
+  "js": "const B=g.boats; const y=B.spawnNear('dondra26',{x:150,z:-1382,yaw:-1.5708}); window.__wy=y; if(y){ y.place(150,-1382,-1.5708,true); y.route=[{x:-600,z:-1382}]; y.role='free'; for(let i=0;i<200;i++) B.update(0.05,g.player); s.cam=[y.x+8,22,y.z+26]; s.look=[y.x+30,0,y.z]; }",
+  "probe": "const B=g.boats, W=B.wakes, m=W.mesh; const R=g.renderer; const pr=R.properties.get(m.material); let anc=[]; for(let o=m;o;o=o.parent) anc.push((o.name||o.type)+':'+o.visible); const y=window.__wy; return {range:W.geo.drawRange.count, trails:W.trails.size, vis:anc.join('>'), layers:m.layers.mask, camLayers:g.camera.layers.mask, prog:!!(pr&&pr.currentProgram), diag:pr&&pr.currentProgram&&pr.currentProgram.diagnostics?JSON.stringify(pr.currentProgram.diagnostics).slice(0,300):null, pos0:[...W.pos.slice(0,6)].map(v=>+v.toFixed(2)), boat:y?[+y.x.toFixed(1),+y.z.toFixed(1),+y.u.toFixed(1)]:null, sun:W.U.uSunColor.value, sky:W.U.uSkyTop.value, lit:W.U.uLit.value, night:W.U.uNight.value};"
+ },
+ {
+  "name": "b51-perf-marina",
+  "at": [
+   232.5,
+   -1199.5
+  ],
+  "cam": [
+   238,
+   10,
+   -1190
+  ],
+  "look": [
+   192,
+   -1,
+   -1250
+  ],
+  "hour": 21.5,
+  "wait": 2500,
+  "probe": "const R=g.renderer, B=g.boats; const run=()=>{ const ar=R.info.autoReset; R.info.autoReset=false; R.info.reset(); R.render(g.scene,g.camera); const r={calls:R.info.render.calls, tris:R.info.render.triangles}; R.info.autoReset=ar; return r; }; const on=run(); const hide=[B.group,B.lamps.mesh,B.marina.group]; const ppl=[...B.people.police,...B.people.civ].map(p=>p.root); const all=[...hide,...ppl]; const vis=all.map(o=>o.visible); all.forEach(o=>{ o.visible=false; }); const off=run(); all.forEach((o,i)=>{ o.visible=vis[i]; }); return {on, off};"
+ }
+]

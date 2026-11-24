@@ -18,6 +18,7 @@
 // (HeroRig.hand). Everything is in the hand bone's own frame: fingers −y, wrist +y, knuckle line along z (index +z),
 // right palm +x / left palm −x — exactly how HeroRig bends the joints, so what is solved is what is rendered.
 import * as THREE from 'three';
+import BAKED_HOLDS from './holdsBaked.js';
 
 const FING = ['idx', 'mid', 'rng', 'pnk'];
 const PALM_X = 0.019; // palm skin from the hand bone axis (measured on the hero hands)
@@ -99,6 +100,10 @@ function trigger(F, H, shapes, target) {
   for (let a1 = -0.2; a1 <= 1.2; a1 += 0.05) for (let a2 = 0; a2 <= 1.6; a2 += 0.05) {
     const a = [a1, a2, a2 * 0.6]; H.finger(0, a, pts); const pad = toW(F, pts[7].p, new THREE.Vector3()); let pen = 0; for (const s of pts) pen += Math.max(0, R_FINGER * 0.8 - sdf(toW(F, s.p, _v), shapes));
     const c = pad.distanceTo(target) + pen * 6; if (c < bc) { bc = c; best = a; } }
+  // fine pass round the coarse optimum (the 0.05 rad grid left the pad up to ~2.5 cm off on larger hands)
+  const b0 = best.slice(); for (let d1 = -0.05; d1 <= 0.0501; d1 += 0.01) for (let d2 = -0.05; d2 <= 0.0501; d2 += 0.01) for (let d3 = -0.06; d3 <= 0.0601; d3 += 0.03) {
+    const a = [b0[0] + d1, Math.max(0, b0[1] + d2), Math.max(0, b0[2] + d3)]; H.finger(0, a, pts); const pad = toW(F, pts[7].p, new THREE.Vector3()); let pen = 0; for (const s of pts) pen += Math.max(0, R_FINGER * 0.8 - sdf(toW(F, s.p, _v), shapes));
+    const c = pad.distanceTo(target) + pen * 6; if (c < bc) { bc = c; best = a; } }
   return { a: best.map((v) => +v.toFixed(3)), err: bc };
 }
 function ready(F, H, shapes) {
@@ -114,6 +119,10 @@ function thumb(F, H, shapes, target) {
   for (let t = -0.6; t <= TR[0]; t += 0.1) for (let ox = -TR[1]; ox <= TR[1]; ox += 0.1) for (let oy = -TR[2]; oy <= TR[2]; oy += 0.15) {
     const r = H.thumb(t, ox, oy); let pen = 0; for (const p of r.pts) pen += Math.max(0, R_FINGER * 0.9 - sdf(toW(F, p, _v), shapes));
     const c = toW(F, r.tip, _v).distanceTo(target) + pen * 5 + (Math.abs(ox) + Math.abs(oy)) * 0.004; if (c < bc) { bc = c; best = [t, ox, oy]; } }
+  // fine pass: only a closer tip with no more penetration than the coarse optimum (never trades contact for reach)
+  const ev = (t, ox, oy) => { const r = H.thumb(t, ox, oy); let pen = 0; for (const p of r.pts) pen += Math.max(0, R_FINGER * 0.9 - sdf(toW(F, p, _v), shapes)); return [toW(F, r.tip, _v).distanceTo(target), pen]; };
+  const b0 = best.slice(); let [bd, bp] = ev(...b0); for (let dt = -0.1; dt <= 0.1001; dt += 0.025) for (let dx = -0.1; dx <= 0.1001; dx += 0.025) for (let dy = -0.15; dy <= 0.1501; dy += 0.05) {
+    const c = [b0[0] + dt, b0[1] + dx, b0[2] + dy]; const [d, pn] = ev(...c); if (d < bd - 1e-4 && pn <= bp + 1e-5) { bd = d; bp = pn; best = c; } }
   return best.map((v) => +v.toFixed(3));
 }
 const pose = (f, th) => ({ f, th });
@@ -125,7 +134,7 @@ function solve(bones, ud) {
   const HR = new Hand(bones, 'R'); const beta = hold.wrap ?? 0.36; // turn about the grip axis: backstrap into the web of the thumb
   const FR = frame(xw.clone().multiplyScalar(Math.cos(beta)).addScaledVector(fwd, Math.sin(beta)), u);
   const along = (y) => (y - G.c.y) / u.y; // grip-axis coordinate at a given height
-  const idxAt = G.c.clone().addScaledVector(u, along(hold.trig.y - 0.003)).addScaledVector(fwd, G.h[2] - 0.017).addScaledVector(xw, -G.h[0] - 0.017);
+  const idxAt = G.c.clone().addScaledVector(u, along(hold.trig.y - 0.003 + (hold.seatDy || 0))) /* seatDy: a high-tang frame seats the hand a little lower */.addScaledVector(fwd, G.h[2] - 0.017).addScaledVector(xw, -G.h[0] - 0.017);
   seat(FR, HR, HR.mcp, idxAt, [G]);
   const wrapShapes = [G, ...shapes.slice(1, 3)]; // fingers close on the grip (and stay under the trigger guard); the magazine sits ahead of them
   const gripPose = [1, 2, 3].map((fi) => close(FR, HR, fi, wrapShapes));
@@ -189,8 +198,34 @@ export function wrapFor(ch, key, S, r, dirIn, opts) { return gripFor(ch, 'wrap:'
 
 const cache = new WeakMap();
 // hold for this character + weapon model (null if the model has no hold data or the rig no finger bones)
+// 73rd: a weapon hold is a pure function of the hand (its finger / thumb bone offsets) and the weapon's hold description, and
+// solving one costs 0.1–0.2 s — the hitch on the first switch to each gun. Holds are now shared by every character with the
+// same hand (a re-created hero, the squad), baked for the three heroes × every gun (holdsBaked.js, tools/bake-holds.mjs),
+// remembered on this machine (localStorage) for anything else, and solved only when nothing matches (an edited gun model).
+const cyrb = (str) => { let h1 = 0xdeadbeef, h2 = 0x41c6ce57; for (let i = 0; i < str.length; i++) { const c = str.charCodeAt(i); h1 = Math.imul(h1 ^ c, 2654435761); h2 = Math.imul(h2 ^ c, 1597334677); }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909); h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909); return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36); };
+const HAND_BONES = (() => { const o = []; for (const S of ['R', 'L']) { for (const n of FING) for (const j of [1, 2, 3]) o.push(n + j + S); for (const j of [1, 2, 3]) o.push('thb' + j + S); } return o; })();
+export function handSig(bones) { return cyrb(HAND_BONES.map((k) => { const p = bones[k] && bones[k].position; return p ? `${p.x.toFixed(4)},${p.y.toFixed(4)},${p.z.toFixed(4)}` : '-'; }).join(';')); }
+export function holdSig(hold) { return cyrb(JSON.stringify(hold, (k, v) => (typeof v === 'number' ? +v.toFixed(5) : v))); }
+// plain JSON form (THREE vectors / quaternions tagged) and back
+export function holdToPlain(v) { if (v && v.isQuaternion) return { q_: [v.x, v.y, v.z, v.w].map((n) => +n.toFixed(6)) }; if (v && v.isVector3) return { v_: [v.x, v.y, v.z].map((n) => +n.toFixed(6)) };
+  if (Array.isArray(v)) return v.map(holdToPlain); if (v && typeof v === 'object') { const o = {}; for (const k of Object.keys(v)) o[k] = holdToPlain(v[k]); return o; } return typeof v === 'number' ? +v.toFixed(6) : v; }
+export function holdFromPlain(v) { if (v && v.q_) return new THREE.Quaternion(...v.q_); if (v && v.v_) return new THREE.Vector3(...v.v_);
+  if (Array.isArray(v)) return v.map(holdFromPlain); if (v && typeof v === 'object') { const o = {}; for (const k of Object.keys(v)) o[k] = holdFromPlain(v[k]); return o; } return v; }
+const SIGS = new WeakMap(); const SHARED = new Map(); let BAKED = BAKED_HOLDS; const LS_KEY = 'colombo.holds.v1'; let lsCache = null;
+export function setBakedHolds(b) { BAKED = b; }
+const lsGet = () => { if (lsCache) return lsCache; try { lsCache = (typeof localStorage !== 'undefined' && JSON.parse(localStorage.getItem(LS_KEY) || '{}')) || {}; } catch { lsCache = {}; } return lsCache; };
+const lsPut = (k, h) => { try { const c = lsGet(); c[k] = holdToPlain(h); const keys = Object.keys(c); if (keys.length > 160) delete c[keys[0]]; localStorage.setItem(LS_KEY, JSON.stringify(c)); } catch { /* storage full / unavailable */ } };
+export const holdStats = { solved: 0, baked: 0, stored: 0, shared: 0 };
+function sharedHold(bones, ud) {
+  let hs = SIGS.get(bones); if (!hs) SIGS.set(bones, (hs = handSig(bones))); let ws = SIGS.get(ud.hold); if (!ws) SIGS.set(ud.hold, (ws = holdSig(ud.hold))); const key = hs + '|' + ws; let h = SHARED.get(key); if (h) { holdStats.shared++; return h; }
+  const b = (BAKED && BAKED[key]) || null; if (b) { h = holdFromPlain(b); holdStats.baked++; }
+  else { const st = lsGet()[key]; if (st) { h = holdFromPlain(st); holdStats.stored++; } else { h = solve(bones, ud); holdStats.solved++; lsPut(key, h); } }
+  SHARED.set(key, h); return h;
+}
 export function holdFor(ch, model) {
   const ud = model.userData; if (!ud.hold || !ch || !ch.bones || !ch.bones.idx1R || !ch.bones.thb1L) return null;
-  let m = cache.get(ch); if (!m) cache.set(ch, (m = new Map())); let h = m.get(model); if (!h) m.set(model, (h = solve(ch.bones, ud))); return h;
+  let m = cache.get(ch); if (!m) cache.set(ch, (m = new Map())); let h = m.get(model); if (!h) m.set(model, (h = sharedHold(ch.bones, ud))); return h;
 }
+export function solveHoldRaw(bones, ud) { return solve(bones, ud); } // tools/bake-holds.mjs
 export const _test = { Hand, sdBox, solve };

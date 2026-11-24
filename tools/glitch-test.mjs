@@ -95,7 +95,7 @@ const yawJerk = (arr) => { let n = 0; for (let i = 2; i < arr.length; i++) { con
 { const C = new Crowd(new THREE.Scene(), col, { emit() {}, on() {} }); C.prepareSpecs(30); C.max = 40;
   const spot = { x: -128, z: -880 }; const ctx = { simTime: 0, vehicles: [], player: { x: spot.x + 400, z: spot.z, vehicle: null, ch: null, yaw: 0, speed: 0 }, bodies: [], hourFactor: 1, hour: 10 };
   for (let i = 0; i < 80; i++) { ctx.simTime += 0.1; C.update(0.1, spot, { x: 0, z: 1 }, ctx); }
-  const near = C.peds.filter((p) => Math.hypot(p.x - spot.x, p.z - spot.z) < 40); ok(near.length >= 6, `crowd spawned (${near.length} people nearby)`);
+  const near = C.peds.filter((p) => Math.hypot(p.x - spot.x, p.z - spot.z) < 40); ok(near.length >= 6, `crowd spawned (${near.length} people nearby)`); for (const p of C.peds.slice().sort((a, b) => Math.hypot(a.x - spot.x, a.z - spot.z) - Math.hypot(b.x - spot.x, b.z - spot.z))) { if (near.length >= 8) break; if (!near.includes(p)) near.push(p); } /* later cases borrow up to 8 people (some are teleported anyway): pad with the next-closest */
   const shot = near[0], punched = near.slice(1, 4); C.hitPed(shot, 1, 0, 1.6); let downed = 0; for (const p of punched) { p.fighter = false; for (const m of ['jab', 'cross', 'hook', 'upper']) C.punched(p, { x: p.x - 1, z: p.z }, m); if (p.state === 'down') downed++; }
   ok(downed === punched.length, `a full jab-cross-hook-uppercut combination puts a non-fighter down (${downed}/${punched.length})`);
   let tippedRunning = 0, maxDown = 0;

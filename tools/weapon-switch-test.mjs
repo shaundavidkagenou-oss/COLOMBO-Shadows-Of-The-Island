@@ -18,32 +18,43 @@ const { Input } = await import('../src/core/Input.js');
 const { Player } = await import('../src/actors/Player.js');
 const { holdFor } = await import('../src/combat/GripSolver.js');
 
-let fails = 0, passes = 0; const ok = (c, msg) => { if (c) passes++; else { fails++; console.log('  FAIL', msg); } };
+let fails = 0, passes = 0; const ok = (c, msg) => { if (c) { passes++; if (process.env.V) console.log('  ok', msg); } else { fails++; console.log('  FAIL', msg); } };
 const ch = new Character(HEROES[process.env.HERO || 'dineth']); const scene = new THREE.Scene(); scene.add(ch.root);
 const P = { ch, x: 0, y: 0, z: 0, yaw: 0, camYaw: -Math.PI, camPitch: 0, camMode: 0, speed: 0, stamina: 1, position: ch.root.position, rotation: ch.root.rotation };
 P.fpEyeLook = Player.prototype.fpEyeLook.bind(P);
 const game = { player: P, scene, camera: new THREE.PerspectiveCamera(), hud: { root: el() }, crowd: { peds: [] }, police: null, debug: null, collision: { raycast: () => 1, groundAt: () => 0, query: () => [] }, timeSlow: 1, birds: null, traffic: { all: () => [] }, blood: null, health: null };
 const W = new Weapons(game); P.weapons = W; const A = ch.anim; const STEP = 1 / 60;
-const frame = () => { W.update(STEP, true); A.update(STEP, 0); Input.endFrame(); };
+const frame = () => { W.update(STEP, true); A.update(STEP, 0); W.gear.late(STEP); Input.endFrame(); }; // as Game.update: the sling path follows after the pose
 const run = (sec, each) => { for (let t = 0; t < sec; t += STEP) { frame(); if (each) each(); } };
 const until = (pred, max = 3) => { let t = 0; while (t < max && !pred()) { frame(); t += STEP; } return t; };
 run(0.3);
 
-// ---- 1. rifle from empty hands: in the hands, never on the back sling while drawing
-W.select(3); ok(W.state === 'equip' && W.drawMode === 'hands', `rifle draw is in-hand (state ${W.state}, mode ${W.drawMode})`);
-let onBack = false; const t1 = until(() => { if (W.models[3].parent === W.holsterR && W.models[3].visible) onBack = true; return W.state === 'ready'; });
-ok(!onBack, 'rifle never drawn from the back sling'); ok(t1 < 0.45, `rifle up in ${t1.toFixed(2)} s (< 0.45)`);
-ok(W.models[3].parent === W.inHand && W.models[3].visible, 'rifle in the hands when ready');
+// 87th: every weapon comes from where it is carried — long guns round the body on the sling, pistols out of the hip holster —
+// swaps included. The gun must be visible and move continuously the whole way (no pop, no jump), the strap on show throughout.
+const wp = new THREE.Vector3();
+const track = (i) => { let n = 0, maxStep = 0, maxJerk = 0, lastD = 0, hidden = 0, strapOff = 0, first = null, prev = null, pulled = 0; return { step() { scene.updateMatrixWorld(true); const m = W.models[i]; if (!m.visible) hidden++; m.getWorldPosition(wp); if (prev) { const d = wp.distanceTo(prev); maxStep = Math.max(maxStep, d); if (n++) maxJerk = Math.max(maxJerk, d - lastD); lastD = d; } else first = wp.clone(); prev = (prev || new THREE.Vector3()).copy(wp); if (W.def && W.def.cls !== 'pistol' && !W.gear.strapShown) strapOff++; if (A.ik && A.ik.L && A.ik.qL === null && A.ik.wL > 0.5) pulled++; }, get r() { return { maxStep, maxJerk, hidden, strapOff, first, pulled }; } }; };
+W.gear.refresh(); scene.updateMatrixWorld(true); const back0 = W.models[3].getWorldPosition(new THREE.Vector3());
+// ---- 1. rifle from empty hands: off the back on the sling
+W.select(3); ok(W.state === 'equip' && W.drawMode === 'sling', `rifle draw comes off the sling (state ${W.state}, mode ${W.drawMode})`);
+let tr = track(3); const t1 = until(() => { tr.step(); return W.state === 'ready'; }); let r = tr.r;
+ok(r.first && r.first.distanceTo(back0) < 0.06, `rifle draw starts where it hung on the back (${r.first && r.first.distanceTo(back0).toFixed(3)} m)`);
+ok(t1 > 0.7 && t1 < 1.05, `sling draw takes ${t1.toFixed(2)} s (0.7–1.05)`); ok(r.hidden === 0, `rifle visible every frame of the draw (${r.hidden} hidden)`);
+ok(r.strapOff === 0, `strap on show every frame (${r.strapOff} off)`); ok(r.maxJerk < 0.035 && r.maxStep < 0.14, `rifle moves continuously (top ${(r.maxStep * 100).toFixed(1)} cm/frame, Δ ${(r.maxJerk * 100).toFixed(1)})`); ok(r.pulled > 3, `support hand pulls the strap (${r.pulled} frames)`);
+ok(W.models[3].parent === W.inHand && W.models[3].visible, 'rifle in the hands when ready'); ok(W.gear.strapShown, 'strap still on with the rifle in the hands');
 
-// ---- 2. swap rifle → pistol: quick put-away in the hands, pistol straight into the hands
-W.select(1); ok(W.state === 'holster' && W.drawMode === 'hands', 'rifle put-away happens in the hands during a swap');
-let backAgain = false; const t2 = until(() => { if (W.models[3].parent === W.holsterR && W.models[3].visible && W.state !== 'none') backAgain = true; return W.state === 'ready' && W.cur === 1; });
-ok(!backAgain, 'rifle not shown on the back during the swap'); ok(t2 < 0.6, `rifle → pistol swap in ${t2.toFixed(2)} s (< 0.6)`);
+// ---- 2. swap rifle → pistol: the rifle back on the sling first, then the pistol out of the holster
+W.select(1); ok(W.state === 'holster' && W.drawMode === 'sling', 'rifle goes back round onto the sling during a swap');
+tr = track(3); let hipSeen = false; const t2 = until(() => { if (W.cur === 3) tr.step(); if (W.cur === 1 && W.state === 'equip' && W.drawMode === 'hip') hipSeen = true; return W.state === 'ready' && W.cur === 1; }); r = tr.r;
+ok(r.hidden === 0 && r.maxJerk < 0.035 && r.maxStep < 0.14, `rifle put-away continuous and visible (Δ ${(r.maxJerk * 100).toFixed(1)} cm, ${r.hidden} hidden)`); ok(hipSeen, 'pistol drawn from the holster in the swap');
+ok(t2 > 1.2 && t2 < 2.1, `rifle → pistol swap in ${t2.toFixed(2)} s (1.2–2.1)`); scene.updateMatrixWorld(true);
+ok(W.models[3].parent === W.holsterR && W.models[3].visible && W.gear.strapShown, 'rifle back on the sling, strap on, after the swap');
 
-// ---- 3. changed mind mid-draw: retarget instantly, no put-away
-W.select(4); until(() => W.state === 'equip', 1); run(0.08); ok(W.state === 'equip' && W.cur === 4, 'drawing the assault rifle');
-W.select(5); ok(W.state === 'equip' && W.cur === 5 && !W.models[4].visible, 'mid-draw selection switches straight to the new weapon');
-const t3 = until(() => W.state === 'ready'); ok(W.cur === 5 && t3 < 0.45, `battle rifle ready ${t3.toFixed(2)} s after retarget`);
+// ---- 3. changed mind mid-draw: the one coming out goes back the way it came, then the new one comes out
+W.holster(); until(() => W.state === 'none'); W.select(4); run(0.25); ok(W.state === 'equip' && W.cur === 4, 'drawing the assault rifle');
+W.select(5); ok(W.state === 'holster' && W.next === 5 && W.models[4].visible, 'mid-draw selection reverses the draw from where it is');
+tr = track(4); let fr = 0; const t3 = until(() => { if (W.cur === 4) { tr.step(); fr++; } return W.state === 'ready'; }); r = tr.r;
+ok(r.maxJerk < 0.035 && r.hidden === 0, `reversal continuous (Δ ${(r.maxJerk * 100).toFixed(1)} cm)`); ok(fr * STEP < 0.4, `reversal takes only the way back (${(fr * STEP).toFixed(2)} s)`);
+ok(W.cur === 5 && t3 < 1.6, `battle rifle ready ${t3.toFixed(2)} s after retarget`);
 
 // ---- 4. fast scroll: three notches in one frame step three owned weapons; settles in ≈0.1 s
 const ring = [-1, ...WEAPONS.map((_, k) => k).filter((k) => W.inv[k].owned)]; const want = ring[(ring.indexOf(5) + 3) % ring.length];
@@ -68,10 +79,10 @@ until(() => W.state === 'ready'); ok(W.cur === 1, 'pistol ready');
 
 // ---- 8. holds: contact + IK reach when aiming, for every weapon
 const b = ch.bones; const v = new THREE.Vector3();
-for (let i = 0; i < 9; i++) {
+for (let i = 0; i < WEAPONS.length; i++) {
   const h = holdFor(ch, W.models[i]); ok(!!h, `${WEAPONS[i].id}: hold solved`); if (!h) continue;
-  ok(h.R.trigErr < 0.025, `${WEAPONS[i].id}: trigger pad ${(h.R.trigErr * 100).toFixed(1)} cm from the trigger`);
-  ok(h.R.thumbErr < 0.025, `${WEAPONS[i].id}: firing thumb ${(h.R.thumbErr * 100).toFixed(1)} cm from its spot`);
+  ok(h.R.trigErr < 0.025, `${WEAPONS[i].id}: trigger pad ${(h.R.trigErr * 100).toFixed(2)} cm from the trigger`);
+  ok(h.R.thumbErr < 0.025, `${WEAPONS[i].id}: firing thumb ${(h.R.thumbErr * 100).toFixed(2)} cm from its spot`);
   if (h.L.thumbErr != null) ok(h.L.thumbErr < 0.025, `${WEAPONS[i].id}: support thumb ${(h.L.thumbErr * 100).toFixed(1)} cm from its spot`);
   const all = [...h.R.ready.f, ...h.L.pose.f].flat(); ok(all.every((a) => a > -0.6 && a < 1.8), `${WEAPONS[i].id}: finger joints within limits`);
   W.select(i); Input.mouseButtons.add(2); until(() => W.state === 'ready' && W.aimW > 0.99 && W.cur === i); run(0.2); Input.mouseButtons.delete(2);
@@ -89,9 +100,28 @@ for (let i = 0; i < 9; i++) {
   ok(/\d/.test(ammo()), `armed: card shows the ammunition (${card()})`);
   let ring = [-1, ...WEAPONS.map((_, k) => k).filter((k) => W.inv[k].owned)]; let notches = (ring.indexOf(-1) - ring.indexOf(gun) + ring.length) % ring.length; Input.wheel = notches; frame();
   ok(W.scrollTarget === -1, `scrolled to fists (target ${W.scrollTarget})`); ok(!/\d/.test(ammo()) && /Fists/.test(card()), `scrolled to fists: no ammunition on the card (${card()})`);
-  let seen = ''; run(0.6, () => { if (/\d/.test(ammo())) seen = card(); }); ok(!seen, `while the gun is put away for fists: no ammunition shown (${seen || card()})`);
+  let seen = ''; run(1.2, () => { if (/\d/.test(ammo())) seen = card(); }) /* the pistol goes back in the holster (≈0.8 s) */; ok(!seen, `while the gun is put away for fists: no ammunition shown (${seen || card()})`);
   ok(W.cur === -1 && W.sel === -1, `fists in hand (cur ${W.cur}, sel ${W.sel})`);
-  W.select(gun); until(() => W.state === 'ready' && W.cur === gun); run(0.1); W.wheelUpdate(); W.wheelSel = -1; W.hudUpdate(STEP); ok(!/\d/.test(ammo()), `weapon wheel on fists: no ammunition on the card (${card()})`); W.wheelClose(true); run(0.6, () => { if (/\d/.test(ammo())) seen = card(); }); ok(!seen && W.cur === -1, `wheel → fists: no ammunition while switching (${seen || card()})`);
+  W.select(gun); until(() => W.state === 'ready' && W.cur === gun); run(0.1); W.wheelUpdate(); W.wheelSel = -1; W.hudUpdate(STEP); ok(!/\d/.test(ammo()), `weapon wheel on fists: no ammunition on the card (${card()})`); W.wheelClose(true); run(1.2, () => { if (/\d/.test(ammo())) seen = card(); }) /* the pistol goes back in the holster (≈0.8 s) */; ok(!seen && W.cur === -1, `wheel → fists: no ammunition while switching (${seen || card()})`);
 }
+// ---- recoil + muzzle flash (58th): a burst climbs the sight, releasing lets it settle back (no permanent lift); the flash
+// is gone within two rendered frames of each shot and smoke never allocates
+{ game.crowd.alarm = () => {}; game.crowd.hitPed = () => {}; game.wanted = game.wanted || null; const ia = WEAPONS.findIndex((d) => d.id === 'assault'); W.inv[ia] = W.inv[ia] || { owned: true, mag: 30, reserve: 300 }; W.inv[ia].owned = true; W.inv[ia].mag = 30; W.inv[ia].reserve = 300;
+  W.select(ia); Input.mouseButtons.add(2); until(() => W.state === 'ready' && W.aimW > 0.99 && W.cur === ia); run(0.3);
+  const sprites = () => scene.children.filter((o) => o.isSprite).length; const pitch0 = P.camPitch, nScene = sprites(); let maxRise = 0, flashFrames = 0, worstFlash = 0, shots0 = W.inv[ia].mag;
+  Input.mouseButtons.add(0); Input.mousePressed.add(0);
+  run(0.9, () => { maxRise = Math.max(maxRise, pitch0 - P.camPitch); if (W.flashMesh.visible) { flashFrames++; worstFlash = Math.max(worstFlash, flashFrames); } else flashFrames = 0; });
+  Input.mouseButtons.delete(0); const fired = shots0 - W.inv[ia].mag; const afterBurst = pitch0 - P.camPitch;
+  run(1.5); const settle = pitch0 - P.camPitch;
+  ok(fired >= 6, `full-auto burst fired ${fired} rounds`);
+  ok(maxRise > 0.02, `the sight climbs during a burst (${maxRise.toFixed(3)} rad)`);
+  ok(Math.abs(settle) < 0.006, `after release the aim settles back (left ${settle.toFixed(4)} rad of ${afterBurst.toFixed(3)})`);
+  ok(worstFlash <= 2, `muzzle flash visible at most 2 consecutive frames (${worstFlash})`);
+  ok(!W.flashMesh.visible && W.flashLight.intensity === 0, 'no flash / flash light left after the burst');
+  ok(sprites() === nScene, `smoke is pooled: no sprites added to the scene (${sprites() - nScene} extra)`);
+  // pulling down while firing uses the climb first, it never drags the aim below the start
+  W.inv[ia].mag = 30; Input.mouseButtons.add(0); Input.mousePressed.add(0); run(0.6, () => { P.camPitch += 0.004; }); Input.mouseButtons.delete(0); run(1.5);
+  ok(P.camPitch - pitch0 < 0.25, `compensating pull-down stays sane (${(P.camPitch - pitch0).toFixed(3)} rad)`);
+  Input.mouseButtons.delete(2); run(0.3); }
 console.log(`weapon-switch-test: ${passes} passed, ${fails} failed`);
 process.exit(fails ? 1 : 0);

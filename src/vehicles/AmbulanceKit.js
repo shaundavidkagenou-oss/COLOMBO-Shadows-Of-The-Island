@@ -6,6 +6,7 @@
 //  - buildAmbRear(): runtime twin rear doors (hinged at the rear corners) + the lit cabin interior seen when they open
 import { doorGapsMeta, spansOutside } from './DoorSpans.js';
 import * as THREE from 'three';
+import { buildCompartment } from './RearCompartment.js';
 
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 export const AMB_GREEN = '#1f8a3c';
@@ -94,11 +95,14 @@ export function addAmbulanceKit(m, T) {
 }
 
 // ---------------------------------------------------------------- runtime rear doors
-let rearMats = null;
-function rearMaterials() {
-  if (rearMats) return rearMats;
+// 80th: other vans with the same twin rear doors (the roadside-assistance service van, RoadsideKit.js) pass a style:
+//   { key, face(g, X, Y, LAT, LOCAL) paints the 1024² door skin } (the compartment behind is RearCompartment.js)
+const rearMatsBy = new Map();
+function rearMaterials(style = null) {
+  const key = style ? style.key : 'amb'; if (rearMatsBy.has(key)) return rearMatsBy.get(key);
   const H = AMB.doorY1 - AMB.doorY0, Wd = 2 * AMB.doorX; const c = document.createElement('canvas'); c.width = 1024; c.height = 1024; const g = c.getContext('2d');
   const Y = (y) => ((AMB.doorY1 - y) / H) * 1024, X = (x) => ((AMB.doorX - x) / Wd) * 1024; // x: +x (viewer's left from behind) → u = 0
+  if (style) { style.face(g, X, Y, LAT, LOCAL); } else {
   g.fillStyle = '#f4f4f2'; g.fillRect(0, 0, 1024, 1024);
   // frosted windows, one per leaf
   g.fillStyle = '#d9dfdd'; for (const [xa, xb] of [[0.6, 0.07], [-0.07, -0.6]]) { g.beginPath(); const r = 26; if (g.roundRect) g.roundRect(X(xa), Y(1.8), X(xb) - X(xa), Y(1.13) - Y(1.8), r); else g.rect(X(xa), Y(1.8), X(xb) - X(xa), Y(1.13) - Y(1.8)); g.fill(); }
@@ -109,30 +113,20 @@ function rearMaterials() {
   g.fillRect(0, Y(AMB.bandY[1]), 1024, Y(AMB.bandY[0]) - Y(AMB.bandY[1]));
   g.fillStyle = '#ffffff'; g.font = LOCAL(48); g.fillText(`${AMB_SI}  ·  ${AMB_TA}`, 512, (Y(AMB.bandY[1]) + Y(AMB.bandY[0])) / 2 + 2, 960);
   g.fillStyle = '#2b2f31'; g.fillRect(X(-0.03), Y(1.0), X(-0.15) - X(-0.03), 18); // handle
+  }
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
-  // interior (what you see with the doors open): pale cabin walls, cabinets, ceiling light, stretcher rails on the floor
-  const ci = document.createElement('canvas'); ci.width = 512; ci.height = 512; const h = ci.getContext('2d');
-  const gr = h.createRadialGradient ? h.createRadialGradient(256, 230, 30, 256, 256, 360) : null; if (gr) { gr.addColorStop(0, '#d5dfdb'); gr.addColorStop(1, '#7d8a86'); } h.fillStyle = gr || '#b9c4c0'; h.fillRect(0, 0, 512, 512);
-  h.fillStyle = '#eef3f1'; h.fillRect(60, 40, 392, 26); // ceiling light
-  h.fillStyle = '#9fb0aa'; for (const x of [12, 400]) { h.fillRect(x, 90, 100, 230); } h.fillStyle = '#c7d3cf'; for (const x of [20, 408]) for (const y of [100, 170, 240]) h.fillRect(x, y, 84, 60);
-  h.fillStyle = '#3d4446'; h.beginPath(); h.moveTo(0, 512); h.lineTo(512, 512); h.lineTo(390, 360); h.lineTo(122, 360); h.closePath(); h.fill(); // floor in perspective
-  h.fillStyle = '#9aa3a6'; h.fillRect(180, 380, 12, 132); h.fillRect(320, 380, 12, 132); // stretcher rails
-  h.fillStyle = '#1f8a3c'; h.fillRect(150, 330, 212, 16); // seat bench edge
-  const ti = new THREE.CanvasTexture(ci); ti.colorSpace = THREE.SRGBColorSpace;
-  rearMats = {
+  const rearMats = {
     face: new THREE.MeshStandardMaterial({ map: t, roughness: 0.42, metalness: 0.05 }),
     edge: new THREE.MeshStandardMaterial({ color: 0xe9ebe9, roughness: 0.5 }),
-    cav: new THREE.MeshStandardMaterial({ map: ti, emissiveMap: ti, emissive: 0xffffff, emissiveIntensity: 0.35, roughness: 0.9 }),
   };
-  return rearMats;
+  rearMatsBy.set(key, rearMats); return rearMats;
 }
 const rearGeo = {};
-export function buildAmbRear() {
-  const M = rearMaterials(); const H = AMB.doorY1 - AMB.doorY0, lw = AMB.doorX - 0.005, yc = (AMB.doorY0 + AMB.doorY1) / 2;
+export function buildAmbRear(style = null) {
+  const M = rearMaterials(style); const H = AMB.doorY1 - AMB.doorY0, lw = AMB.doorX - 0.005, yc = (AMB.doorY0 + AMB.doorY1) / 2;
   if (!rearGeo.edge) {
     rearGeo.edge = new THREE.BoxGeometry(lw, H, 0.03);
     for (const side of [1, -1]) { const p = new THREE.PlaneGeometry(lw, H); p.rotateY(Math.PI); const uv = p.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setX(i, side > 0 ? uv.getX(i) * 0.5 : 0.5 + uv.getX(i) * 0.5); rearGeo[side] = p; }
-    rearGeo.cav = new THREE.PlaneGeometry(2 * AMB.doorX - 0.02, H - 0.04); rearGeo.cav.rotateY(Math.PI);
   }
   const grp = new THREE.Group(); grp.name = 'ambRear'; const leaves = {};
   for (const side of [1, -1]) { // side +1: +x leaf (hinge at +doorX), −1: −x leaf
@@ -141,8 +135,10 @@ export function buildAmbRear() {
     const f = new THREE.Mesh(rearGeo[side], M.face); f.position.set(-side * lw / 2, 0, -0.0155);
     pv.add(e, f); grp.add(pv); leaves[side] = pv;
   }
-  const cav = new THREE.Mesh(rearGeo.cav, M.cav); cav.position.set(0, yc, AMB.rearZ - 0.012); cav.visible = false; grp.add(cav);
+  const cav = buildCompartment(style ? 'rsvan' : 'amb'); grp.add(cav); // 84th: the modelled compartment (RearCompartment.js) instead of the interior-mapped quad
   return { group: grp, L: leaves[1], R: leaves[-1], cav, open: 0 };
 }
 // open fraction k (0..1): each leaf swings outward ~109° about its corner hinge
 export function setAmbRear(r, k) { if (!r) return; r.open = k; const a = 1.9 * k; r.L.rotation.y = -a; r.R.rotation.y = a; r.cav.visible = k > 0.01; }
+
+// 84th: the rear compartment is modelled now (RearCompartment.js); the 75th interior-mapped quad + its 512² atlas are gone.

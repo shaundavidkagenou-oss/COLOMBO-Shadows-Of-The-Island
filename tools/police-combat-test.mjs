@@ -86,7 +86,7 @@ ok(!!S, `found a 28 × 48 m open area for the firefight tests (${S && S.x}, ${S 
   player.crouching = false; ok(ff.sees(o, 0), 'standing behind the car, the suspect is seen over the roof');
   // a crew in a car: blocked by the parked car too
   const pc = new Vehicle('police', 11, scene); pc.place(S.x, S.z - 9, 0); const u = { id: 99, v: pc, officers: [{ mode: 'seated' }], task: 'drive' };
-  player.crouching = true; ok(!police.unitSees(u), 'a crew in a patrol car does not see a suspect crouched behind a parked car'); player.crouching = false; ok(police.unitSees(u), '…and does see him standing');
+  player.crouching = true; police.carLook(u); ok(!police.unitSees(u), 'a crew in a patrol car does not see a suspect crouched behind a parked car'); player.crouching = false; police.carLook(u); ok(police.unitSees(u), '…and does see him standing'); // (carLook: the check the sight queue runs; unitSees answers from it)
   T.parked.splice(T.parked.indexOf(car), 1); scene.remove(car.mesh); scene.remove(pc.mesh); scene.remove(o.ch.root); }
 
 // ---------------------------------------------------------------- 3. chase without sight goes to the last-seen point
@@ -95,7 +95,7 @@ if (wall) {
   const o = mkOfficer(wall.ax - 1, wall.zc, -Math.PI / 2, 5, u); u.officers.push(o); police.units = [u]; police.foot = [o]; police.level = 2.5; police.state = 'pursuing';
   const ls = { x: wall.ax - 12, z: wall.zc - 4 }; police.lastSeen = { ...ls, t: police.t, h: 0 }; police.seenT = 5; put(wall.bx, wall.zc);
   const d0P = Math.hypot(player.x - o.x, player.z - o.z), d0L = Math.hypot(ls.x - o.x, ls.z - o.z);
-  for (let i = 0; i < 60; i++) { police.t += 0.05; police.seenT += 0.05; police.updateOfficer(o, u, 0.05); }
+  for (let i = 0; i < 60; i++) { police.t += 0.05; police.seenT += 0.05; police.updateSight(); police.updateOfficer(o, u, 0.05); }
   const dP = Math.hypot(player.x - o.x, player.z - o.z), dL = Math.hypot(ls.x - o.x, ls.z - o.z);
   ok(dL < d0L - 3 && dP > d0P, `unseen suspect behind a building: the officer heads for the last-seen point (${d0L.toFixed(1)}→${dL.toFixed(1)} m) and not to the live position (${d0P.toFixed(1)}→${dP.toFixed(1)} m)`);
   police.units = []; police.foot = []; scene.remove(o.ch.root); scene.remove(pc.mesh);
@@ -112,7 +112,7 @@ const firefight = (lv, n = 30, dt = 0.05) => {
   police.arrest = async () => {}; // keep the fight going in this test
   ff.onPlayerShot(player.x, player.z, { x: a.x + 0.8, z: a.z + 0.5 }); police.spotted();
   const st = { cover: 0, hide: 0, peek: 0, fired: 0, rifleUp: 0, coverOK: 0, coverN: 0 }; let shotsAtHide = 0;
-  for (let i = 0; i < n / dt; i++) { police.t += dt; g.clock += dt; if (i > 0 && i % 30 === 0 && i * dt < n * 0.6) ff.onPlayerShot(player.x, player.z, { x: a.x + 1.5, z: a.z + 1 }); // keeps shooting at them for a while police.seenT = ff.sees(a, dt) || ff.sees(b, dt) ? 0 : police.seenT + dt; if (police.seenT === 0) police.spotted();
+  for (let i = 0; i < n / dt; i++) { police.t += dt; g.clock += dt; police.updateSight(); /* (66th: the frame's sight queue, as PoliceResponse.updateGlobal runs it) */ if (i > 0 && i % 30 === 0 && i * dt < n * 0.6) ff.onPlayerShot(player.x, player.z, { x: a.x + 1.5, z: a.z + 1 }); // keeps shooting at them for a while police.seenT = ff.sees(a, dt) || ff.sees(b, dt) ? 0 : police.seenT + dt; if (police.seenT === 0) police.spotted();
     for (const o of [a, b]) { const s = ff.officer(o, u, dt); police.animOfficer(o, dt, s === null ? 0 : s); const cb = o.cb;
       if (cb && cb.st === 'cover') { st.cover++; if (cb.phase === 'hide') st.hide++; else st.peek++; st.coverN++; if (cb.cover && segBoxT(player.x, player.z, cb.cover.x, cb.cover.z, cb.cover.v) >= 0) st.coverOK++; }
       if (o.rp && o.rp.draw > 0.9) st.rifleUp++; }
@@ -135,7 +135,7 @@ const firefight = (lv, n = 30, dt = 0.05) => {
 { const pc = new Vehicle('police', 31, scene); pc.place(S.x - 8, S.z - 20, 0); const u = { id: 8, v: pc, officers: [], task: 'foot', footT: 0 };
   const o = mkOfficer(S.x, S.z - 2, 0, 9, u); u.officers.push(o); police.units = [u]; police.foot = [o]; police.level = 2; police.state = 'pursuing'; police.busy = false;
   put(S.x, S.z); player.yaw = 0; player.speed = 5; let got = null; police.arrest = async (off, kind) => { got = { off, kind }; police.busy = true; };
-  for (let i = 0; i < 80 && !got; i++) { police.t += 0.05; player.z += 4.0 * 0.05; put(player.x, player.z); police.seenT = 0; police.spotted(); police.updateOfficer(o, u, 0.05); }
+  for (let i = 0; i < 80 && !got; i++) { police.t += 0.05; player.z += 4.0 * 0.05; put(player.x, player.z); police.seenT = 0; police.spotted(); police.updateSight(); police.updateOfficer(o, u, 0.05); }
   ok(police.stats.tackles >= 1, `2★: an officer dives at a suspect running away within reach (${police.stats.tackles} attempt(s))`);
   ok(got && got.kind === 'tackle' && got.off === o, `the tackle connects → arrest '${got && got.kind}'`);
   // a miss: the suspect sidesteps → officer goes down and recovers
@@ -149,7 +149,7 @@ const firefight = (lv, n = 30, dt = 0.05) => {
 { const pc = new Vehicle('police', 33, scene); pc.place(S.x - 8, S.z - 20, 0); const u = { id: 9, v: pc, officers: [], task: 'foot', footT: 0 };
   const o = mkOfficer(S.x, S.z - 2.2, 0, 10, u); ff.arm(o); u.officers.push(o); police.units = [u]; police.foot = [o]; police.level = 4; police.state = 'pursuing'; police.busy = false;
   put(S.x, S.z); player.yaw = 0; player.speed = 0; let got = null; police.arrest = async (off, kind) => { got = { off, kind }; police.busy = true; }; const s0 = ff.stats.shots;
-  for (let i = 0; i < 120 && !got; i++) { police.t += 0.05; g.clock += 0.05; if (i > 20) { player.z += 3.5 * 0.05; put(player.x, player.z); player.speed = 3.5; } police.seenT = 0; police.spotted(); police.updateOfficer(o, u, 0.05); }
+  for (let i = 0; i < 120 && !got; i++) { police.t += 0.05; g.clock += 0.05; if (i > 20) { player.z += 3.5 * 0.05; put(player.x, player.z); player.speed = 3.5; } police.seenT = 0; police.spotted(); police.updateSight(); police.updateOfficer(o, u, 0.05); }
   ok(ff.stats.shots === s0, `4★, unarmed suspect at arm's length: the officer does not open fire (${ff.stats.shots - s0} rounds)`);
   ok(got && (got.kind === 'grab' || got.kind === 'tackle'), `… he is grabbed or tackled instead → arrest '${got && got.kind}'`);
   delete police.arrest; police.busy = false; police.units = []; police.foot = []; ff.disarm(o); scene.remove(o.ch.root); scene.remove(pc.mesh); }

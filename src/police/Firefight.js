@@ -16,10 +16,15 @@
 // Torches: at night, officers searching on foot carry a hand torch (armed officers: a torch clamped to the rifle). A fixed
 // pool of SpotLights (created once: light counts never change, so no shader recompiles) is handed each frame to the
 // torches nearest the camera; every other lit torch still shows its bright lens. Beams are clipped at walls.
+import { bloomHotAt } from '../gfx/BloomHot.js';
 import * as THREE from 'three';
+import { THINK } from './AIThrottle.js';
+import { pocketFor, protractFor, protractLFor, elbowPole } from '../combat/Pocket.js';
+import { nightLight } from '../gfx/LightSets.js';
 import { buildT56 } from '../combat/WeaponModels.js';
 import { POLICE_T56 } from '../combat/WeaponDefs.js';
 import { Audio } from '../audio/Audio.js';
+import { SoundBank } from '../audio/SoundBank.js';
 import { clamp, lerp } from '../core/math.js';
 
 const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
@@ -27,7 +32,7 @@ const sm = (x) => { const t = clamp(x, 0, 1); return t * t * (3 - 2 * t); };
 const seg = (t, a, b) => clamp((t - a) / (b - a), 0, 1);
 const qE = (x, y, z) => new THREE.Quaternion().setFromEuler(new THREE.Euler(x, y, z));
 const Q_GRIP = qE(-0.8, 0, 0), Q_SUP = qE(0.1, 0, -Math.PI / 2);
-const POCKET = new THREE.Vector3(-0.11, 0.1, 0.07); // right-shoulder pocket, body space (same as the player's rifles)
+const _pk = new THREE.Vector3(); // right-shoulder pocket, body space (same as the player's rifles; per body, see Pocket.js)
 export const ARMED_FROM = 4; // stars at which officers draw and use their rifles
 export const OCCLUDER_K = 0.86; // vehicle body height used for sight / cover (roof line is lower than the mirrors/racks)
 const HEAD_STAND = 1.6, HEAD_CROUCH = 0.98;
@@ -66,9 +71,15 @@ export class Firefight {
     const col = this.g.collision; if (col.raycast(ax, ay, az, bx, by, bz, 0.05, false, 1.0) < 0.985) return false;
     return !vehicleBlocks(this.vehicles(), ax, ay, az, bx, by, bz, skipA, skipB);
   }
-  // can officer o see the suspect right now? (throttled; cached on o.sees)
+  // can officer o see the suspect? In play the answer is the cached o.sees, refreshed by PoliceResponse's rotating sight
+  // queue (66th: at most SIGHT.perFrame checks per frame for the whole force); dt = 0 checks right now (tools / tests)
   sees(o, dt = 0) {
-    o.seeT = (o.seeT || 0) - dt; if (o.seeT > 0 && dt > 0) return !!o.sees; o.seeT = 0.12 + Math.random() * 0.06;
+    if (o.mode !== 'foot' || this.g.indoor) return (o.sees = false);
+    if (dt === 0) { this.p.stats && this.p.stats.sight && this.p.stats.sight.forced++; return this.look(o); }
+    return !!o.sees;
+  }
+  // the check itself: range (night / rain / crouching), field of view, then rays against walls and vehicle bodies
+  look(o) {
     const g = this.g; if (g.indoor || o.mode !== 'foot') return (o.sees = false);
     const tp = this.targetPoint(); const P = g.player; const lv = this.p.stars(); const A = g.atmos;
     const dx = tp.x - o.x, dz = tp.z - o.z, d = Math.hypot(dx, dz);
@@ -128,7 +139,7 @@ export class Firefight {
   // ---------------------------------------------------------------- per-officer behaviour. Returns the walking speed when
   // this module drives the officer this frame, or null to leave the default (arrest / chase / search) logic in charge.
   officer(o, u, dt) {
-    const p = this.p, g = this.g, A = o.ch.anim; const cb = this.cb(o); const armed = this.armed() && p.state !== 'return' && u.task !== 'leave';
+    const p = this.p, g = this.g, A = o.ch.anim; const cb = this.cb(o); const armed = this.armed() && !!o.rifle && p.state !== 'return' && u.task !== 'leave'; // (73rd: a traffic officer off his motorcycle carries no rifle)
     cb.suppressed = Math.max(0, cb.suppressed - dt); cb.alertT = Math.max(0, cb.alertT - dt); cb.reT -= dt;
     const sees = this.sees(o, dt); const tp = this.targetPoint();
     if (sees) { cb.seen = { x: tp.x, z: tp.z, y: tp.y, t: p.t }; cb.blindT = 0; } else cb.blindT = (cb.blindT || 0) + dt;
@@ -144,13 +155,13 @@ export class Firefight {
     if (armed && sees && dK < 6.5) { cb.cover = null; if (A.action === 'cover') A.set(null); this.faceTo(o, tp.x, tp.z, dt, 8); cb.st = 'close'; this.aimFire(o, cb, tp, dt, true); return 0; }
     // pick / keep cover
     const needCover = cb.suppressed > 0 || (armed && dK > 6.5);
-    if (needCover && (!cb.cover || (cb.reT <= 0 && !this.coverHolds(cb.cover, know)))) {
-      cb.reT = 0.7; const prev = cb.cover; cb.cover = this.findCover(o, know, prev);
+    if (needCover && p.t - (cb.findT ?? -9) >= THINK.officer && (!cb.cover || (cb.reT <= 0 && !this.coverHolds(cb.cover, know)))) { // (66th: a search at most every THINK.officer s — with no cover in reach it used to run every frame)
+      cb.reT = 0.7; cb.findT = p.t; const prev = cb.cover; cb.cover = this.findCover(o, know, prev);
       if (cb.cover && cb.cover !== prev) { this.stats.covers++; cb.phase = 'hide'; cb.phaseT = 0.6 + Math.random() * 0.6; p.note && p.note(`officer to cover (${cb.cover.v.police === u ? 'own car' : cb.cover.v.parked ? 'parked car' : 'stopped car'})`); }
       else if (!cb.cover) this.stats.coverBlocked++;
     }
     // occasional flank: the second officer of a unit moves to another car while the first keeps the suspect busy
-    if (armed && cb.cover && u.officers.indexOf(o) === 1 && (cb.flankT -= dt) <= 0) { cb.flankT = 9 + Math.random() * 6; const alt = this.findCover(o, know, cb.cover); if (alt && Math.hypot(alt.x - cb.cover.x, alt.z - cb.cover.z) > 4) { cb.cover = alt; this.stats.flanks++; cb.phase = 'hide'; } }
+    if (armed && cb.cover && u.officers.indexOf(o) === 1 && (cb.flankT -= dt) <= 0) { cb.flankT = 9 + Math.random() * 6; cb.findT = p.t; const alt = this.findCover(o, know, cb.cover); if (alt && Math.hypot(alt.x - cb.cover.x, alt.z - cb.cover.z) > 4) { cb.cover = alt; this.stats.flanks++; cb.phase = 'hide'; } }
     if (cb.cover) {
       const c = cb.cover; const dc = Math.hypot(c.x - o.x, c.z - o.z);
       if (dc > 0.45) { cb.st = 'toCover'; if (A.action === 'cover') A.set(null); const w = this.route(o, c); const sp = p.moveTo(o, w.x, w.z, dc > 2 ? 5.6 : 2.4, dt); if (o.blockedT > 1.5) { cb.cover = null; cb.reT = 0; } return sp; }
@@ -209,9 +220,10 @@ export class Firefight {
     const dir = aim.sub(mz).normalize(); const hit = this.trace(o, mz, dir, POLICE_T56.range);
     // check fire: someone else is in the line → do not shoot (sidestep a little instead)
     if (hit.kind === 'ped' || hit.kind === 'officer') { cb.holdT = 0.6; this.stats.holds++; if (cb.cover) cb.phase = 'hide'; else { const col = this.g.collision, nx = o.x + Math.cos(o.yaw) * 0.3, nz = o.z - Math.sin(o.yaw) * 0.3; if (!col || !col.blocked(nx, nz, 0.28)) { o.x = nx; o.z = nz; } } return; } // the sidestep never goes into a wall
-    cb.mag--; cb.burst++; this.stats.shots++; this.p.stats.policeShots = (this.p.stats.policeShots || 0) + 1; if (o.rp) o.rp.kick = 1;
+    cb.mag--; cb.burst++; this.stats.shots++; this.p.stats.policeShots = (this.p.stats.policeShots || 0) + 1; if (o.rp) o.rp.kick = 1; if (o.ch && o.ch.anim.shotKick) o.ch.anim.shotKick('rifle', 1);
     this.effects(o, mz, dir, hit);
     if (hit.kind === 'player') { this.stats.hits++; const dmg = POLICE_T56.dmg * (this.p.stars() >= 5 ? 1.15 : 1) * (0.85 + Math.random() * 0.3); g.health ? g.health.damage(dmg, 'shot by police') : (this.lastDamage = (this.lastDamage || 0) + dmg); }
+    else if (hit.kind === 'vehicle' && g.vdamage) { const R = g.vdamage.bullet(hit.v, mz, dir, { cls: 'rifle', dmg: 0.75 }, { by: 'police', playerHp: POLICE_T56.dmg * 0.85 }); if (R) { hit.point.copy(R.point); if (R.occupant === 'player') this.stats.hits++; } } // the real thing: glass, panels, tyres, the people inside (VehicleDamage)
     else if (hit.kind === 'vehicle' && hit.v === P.vehicle && Math.random() < 0.3) { this.stats.hits++; g.health && g.health.damage(POLICE_T56.dmg * 0.6, 'shot by police'); } // through the bodywork / glass
     else { const ax = hit.point.x - mz.x, az = hit.point.z - mz.z, L2 = ax * ax + az * az || 1; const t = clamp(((P.x - mz.x) * ax + (P.z - mz.z) * az) / L2, 0, 1); const nd = Math.hypot(mz.x + ax * t - P.x, mz.z + az * t - P.z); if (nd < 1.6 && Audio.ctx) Audio.noise(0.07, { f: 3200, q: 1.2, vol: 0.12 * (1 - nd / 1.6), attack: 0.002 }); } // supersonic crack of a near miss
   }
@@ -229,12 +241,16 @@ export class Firefight {
   }
   effects(o, mz, dir, hit) {
     const g = this.g, W = g.weapons; const def = POLICE_T56;
-    if (o.rifle) { const f = o.rifle.userData.flash; if (f) { f.visible = true; f.rotation.z = Math.random() * 3; f.scale.setScalar(0.85 + Math.random() * 0.35); o.rp.flashT = 0.05; } }
+    if (o.rifle) { const f = o.rifle.userData.flash; if (f) { bloomHotAt(o.x, (o.y || 0) + 1.4, o.z); f.visible = true; f.rotation.z = Math.random() * 3; f.scale.setScalar(0.85 + Math.random() * 0.35); o.rp.flashT = 0.03; } }
     if (W && W.fx) { W.tracer(mz, hit.point, def); if (hit.kind === 'vehicle') W.sparks(hit.point, dir); else if (hit.kind === 'world' || hit.kind === 'ground') { W.puff(hit.point, hit.kind === 'ground' ? 0x6d6a64 : 0xb5ab9a, 4); W.decal(hit.point, dir, hit.kind); } else if (hit.kind === 'player' && !(g.blood && g.blood.spray(hit.point, dir, 0.6))) W.puff(hit.point, 0x8a8478, 2); }
-    if (Audio.ctx && Audio.spatial) { const [gn, pan] = Audio.spatial(mz.x, mz.z, 70); const s = def.snd; const v = s.vol * Math.max(0.12, gn);
-      Audio.noise(s.dur, { f: s.crack, q: 0.6, vol: v, type: 'lowpass', attack: 0.001, pan }); Audio.tone(s.body * 2.2, s.dur * 1.3, { type: 'sine', vol: v * 0.5, attack: 0.002, glide: s.body * 0.6, pan });
-      Audio.noise(s.tail, { f: 480, q: 0.5, type: 'lowpass', vol: v * 0.3, attack: 0.02, when: 0.03 + Math.min(0.25, Math.hypot(mz.x - g.player.x, mz.z - g.player.z) / 340), buf: Audio.brownBuf, pan }); }
-    if (g.crowd && g.crowd.alarm) { if ((this._alarmN = (this._alarmN || 0) + 1) % 3 === 1) g.crowd.alarm(mz.x, mz.z, def.loud, 2, null); }
+    // 54th: a police rifle heard from afar by DISTANCE ONLY — gain fall-off (no loudness floor any more), the speed-of-sound delay
+    // and the air's high-cut (Audio.at). No reverb / echo is added: the players' T-56 recording already carries its echo.
+    if (Audio.ctx && Audio.at) { const A = Audio.at(mz.x, mz.z, 70), pan = A.pan, when = A.delay; const s = def.snd; const v = s.vol * A.g;
+      if (SoundBank.play('gun.t56', A.g, pan, when, { rate: 0.97 + Math.random() * 0.06, lp: A.lp })) { /* the player's T-56 recording */ } else {
+      const f = A.lp ? Math.min(s.crack, A.lp) : s.crack;
+      Audio.noise(s.dur, { f, q: 0.6, vol: v, type: 'lowpass', attack: 0.001, pan, when }); Audio.tone(s.body * 2.2, s.dur * 1.3, { type: 'sine', vol: v * 0.5, attack: 0.002, glide: s.body * 0.6, pan, when });
+      Audio.noise(s.tail, { f: 480, q: 0.5, type: 'lowpass', vol: v * 0.3, attack: 0.02, when: when + 0.03, buf: Audio.brownBuf, pan }); } }
+    if (g.crowd && g.crowd.alarm) { if ((this._alarmN = (this._alarmN || 0) + 1) % 3 === 1) g.crowd.alarm(mz.x, mz.z, def.loud, 2, null, 'gunshot'); }
     if (g.birds && g.birds.scare && this._alarmN % 3 === 1) g.birds.scare(mz.x, mz.z, 50);
   }
 
@@ -250,15 +266,15 @@ export class Firefight {
   pose(o, dt) {
     const m = o.rifle; if (!m) return; const A = o.ch.anim, ud = m.userData, rp = o.rp, cb = o.cb;
     const onFoot = o.mode === 'foot' || o.mode === 'return'; const cam = this.g.camera; const far = cam ? (cam.position.x - o.x) ** 2 + (cam.position.z - o.z) ** 2 > 8100 : false; m.visible = o.mode !== 'seated' && o.mode !== 'enter' && o.mode !== 'exit' && !far; // slung rifle stays on a downed officer; hidden beyond 90 m
-    const want = onFoot && this.armed() && !o.cuffing && !o.tackle && o.mode === 'foot' ? 1 : 0; rp.draw = clamp(rp.draw + (want ? dt / 0.7 : -dt / 0.8), 0, 1);
+    const want = onFoot && this.armed() && !o.cuffing && !o.tackle && !o.evade && o.mode === 'foot' ? 1 : 0; rp.draw = clamp(rp.draw + (want ? dt / 0.7 : -dt / 0.8), 0, 1);
     const aiming = (cb && (cb.st === 'close' || cb.st === 'open' || (cb.st === 'cover' && cb.phase === 'peek')) && cb.aimT > 0.08) || (o.torchOn && rp.draw > 0.5) || (o.cineAim && rp.draw > 0.5); // (cineAim: covering the suspect during the arrest sequence) night search: rifle shouldered, sweeping with the clamp-on torch
     rp.aim = clamp(rp.aim + (aiming ? dt * 5 : -dt * 3.5), 0, 1); rp.kick = Math.max(0, rp.kick - dt * 14);
     if (rp.flashT > 0) { rp.flashT -= dt; if (rp.flashT <= 0 && ud.flash) ud.flash.visible = false; }
     if (!m.visible || rp.draw <= 0.001) { if (A.ik && A.ik.rifle) { A.ik = null; A.aim = null; } m.matrix.copy(rp.slingM); m.matrixWorldNeedsUpdate = true; ud.mag.visible = true; ud.mag.position.set(0, 0, 0); return; }
     // weapon pose in body space: low ready ↔ shouldered aim (pitched to the target), recoil, reload choreography
     const aw = sm(rp.aim); const tp = this.targetPoint(); const ey = (o.y || 0) + 1.45; const pitch = aiming && o.sees ? clamp(Math.atan2(tp.y - ey, Math.max(0.5, Math.hypot(tp.x - o.x, tp.z - o.z))), -0.9, 0.9) : -0.1;
-    A.aim = { pitch: pitch * aw - 0.05 * (1 - aw), twist: 0.5, w: Math.max(aw, 0.65) * sm(rp.draw), headDown: 0.12 * aw };
-    const lowQ = qE(0.6, 0.06, 0.18); const butt = new THREE.Vector3(POCKET.x - 0.02, POCKET.y - 0.03, POCKET.z); const low = butt.sub(new THREE.Vector3(0, 0, ud.buttZ).applyQuaternion(lowQ));
+    A.aim = { pitch: pitch * aw - 0.05 * (1 - aw), twist: 0.5, w: Math.max(aw, 0.65) * sm(rp.draw), headDown: 0.12 * aw, protractR: protractFor(o.ch) * aw, protractL: protractLFor(o.ch) * aw };
+    const POCKET = pocketFor(o.ch, m, _pk); const lowQ = qE(0.6, 0.06, 0.18); const butt = new THREE.Vector3(POCKET.x - 0.02, POCKET.y - 0.03, POCKET.z); const low = butt.sub(new THREE.Vector3(0, 0, ud.buttZ).applyQuaternion(lowQ));
     const aimP = new THREE.Vector3(POCKET.x, POCKET.y - ud.support.y, POCKET.z - ud.buttZ);
     const pos = low.clone().lerp(aimP, aw); let rx = lerp(0.6, 0, aw), ry = lerp(0.06, 0, aw), rz = lerp(0.18, 0, aw);
     pos.z -= 0.03 * rp.kick; rx -= 0.07 * rp.kick;
@@ -281,7 +297,7 @@ export class Firefight {
     if (!supTo) for (let it = 0; it < 6; it++) { const dd = sup.distanceTo(sh); if (dd <= armMax) break; sup.addScaledVector(fwd, -Math.min(0.06, (dd - armMax) * 1.05)); }
     // drawing: the right hand reaches over the shoulder for the sling, then both hands take the rifle
     const wR = k < 0.35 ? sm(k / 0.35) : 1, wL = sm(seg(k, 0.55, 1));
-    A.ik = { R: grip, qR: wQ.clone().multiply(Q_GRIP), wR, L: wL > 0.01 ? sup : null, qL: wQ.clone().multiply(Q_SUP), wL, rifle: true };
+    A.ik = { R: grip, qR: wQ.clone().multiply(Q_GRIP), wR, L: wL > 0.01 ? sup : null, qL: wQ.clone().multiply(Q_SUP), wL, rifle: true, poleR: elbowPole(aw * k, rp.pole || (rp.pole = new THREE.Vector3())) };
   }
 
   // ---------------------------------------------------------------- per-frame global work (torches, timers)
@@ -302,7 +318,7 @@ export class Firefight {
     const rifleT = o.rifle && o.rifle.userData.torch.visible; let pos, dir;
     if (rifleT) { const m = o.rifle; m.updateWorldMatrix(true, false); pos = m.userData.torchPos.clone().applyMatrix4(m.matrixWorld); dir = new THREE.Vector3(0, 0, 1).transformDirection(m.matrixWorld); if (o.torchM) o.torchM.visible = false; }
     else {
-      if (!o.torchM) { o.torchM = buildHandTorch(); o.torchM.matrixAutoUpdate = false; o.ch.root.add(o.torchM); o.torchM.userData.lens.material.emissiveIntensity = 2.5; }
+      if (!o.torchM) o.torchM = this.handTorch(o.ch); // (pooled officers carry theirs from the loading screen)
       const T = o.torchM; T.visible = true; const hand = o.ch.bones.handR.getWorldPosition(new THREE.Vector3()); const yaw = o.yaw + (o.sweep || 0), pt = -0.16;
       dir = new THREE.Vector3(Math.sin(yaw) * Math.cos(pt), Math.sin(pt), Math.cos(yaw) * Math.cos(pt)); const c = hand.clone().addScaledVector(dir, 0.05); c.y -= 0.012;
       const W = new THREE.Matrix4().compose(c, new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir), new THREE.Vector3(1, 1, 1)); o.ch.root.updateMatrixWorld(); T.matrix.copy(o.ch.root.matrixWorld.clone().invert().multiply(W)); T.matrixWorldNeedsUpdate = true;
@@ -310,6 +326,8 @@ export class Firefight {
     }
     o.torchPos = pos; o.torchDir = dir; (this.sources || (this.sources = [])).push({ pos, dir, o });
   }
+  // the hand torch on an officer's body (hidden until used); pooled officers get theirs when they are built (UnitPool.makeRec)
+  handTorch(ch) { const t = buildHandTorch(); t.matrixAutoUpdate = false; t.visible = false; ch.root.add(t); return t; }
   update(dt) {
     this.underFireT += dt; const g = this.g; const rig = g.flashRig;
     if (rig && g.camera) rig.update(g.camera, g.indoor ? [] : this.sources || [], this.night(), g.collision);
@@ -331,12 +349,16 @@ function flashMaterial() {
 
 // ---------------------------------------------------------------- torches
 // hand torch model (police issue style: black aluminium body, wide head, warm-white LED lens)
+// 73rd: geometry + materials shared by every torch (each used to bring two new materials and three geometries at first use)
+let TORCH = null;
 export function buildHandTorch() {
-  const g = new THREE.Group(); const body = new THREE.MeshStandardMaterial({ color: '#16171a', roughness: 0.5, metalness: 0.6 });
-  const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.16, 12), body); tube.rotation.x = Math.PI / 2; tube.position.z = 0.0; g.add(tube);
-  const head = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.015, 0.045, 14), body); head.rotation.x = Math.PI / 2; head.position.z = 0.1; g.add(head);
-  const lens = new THREE.Mesh(new THREE.CircleGeometry(0.02, 16), new THREE.MeshStandardMaterial({ color: '#fff6dc', emissive: '#fff1c8', emissiveIntensity: 0, roughness: 0.1 })); lens.position.z = 0.1235; g.add(lens);
-  g.userData = { lens, tipZ: 0.124 }; return g;
+  if (!TORCH) TORCH = { body: new THREE.MeshStandardMaterial({ color: '#16171a', roughness: 0.5, metalness: 0.6 }), lensM: new THREE.MeshStandardMaterial({ color: '#fff6dc', emissive: '#fff1c8', emissiveIntensity: 2.5, roughness: 0.1 }),
+    tube: new THREE.CylinderGeometry(0.014, 0.014, 0.16, 12), head: new THREE.CylinderGeometry(0.022, 0.015, 0.045, 14), lens: new THREE.CircleGeometry(0.02, 16) };
+  const g = new THREE.Group(); const body = TORCH.body;
+  const tube = new THREE.Mesh(TORCH.tube, body); tube.rotation.x = Math.PI / 2; tube.position.z = 0.0; g.add(tube);
+  const head = new THREE.Mesh(TORCH.head, body); head.rotation.x = Math.PI / 2; head.position.z = 0.1; g.add(head);
+  const lens = new THREE.Mesh(TORCH.lens, TORCH.lensM); lens.position.z = 0.1235; g.add(lens); // (lit only while the torch is shown)
+  g.userData = { lens, tipZ: 0.124, shared: true }; return g;
 }
 let GLOW_TEX = null;
 function glowTexture() {
@@ -358,7 +380,7 @@ export class FlashlightRig {
       vertexShader: 'varying vec2 vUv; varying vec3 vN; varying vec3 vV; void main() { vUv = uv; vec4 mv = modelViewMatrix * vec4(position, 1.0); vV = -mv.xyz; vN = normalMatrix * normal; gl_Position = projectionMatrix * mv; }',
       fragmentShader: 'uniform vec3 color; uniform float opacity; varying vec2 vUv; varying vec3 vN; varying vec3 vV; void main() { float l = vUv.y * vUv.y * (0.3 + 0.7 * vUv.y); float e = abs(dot(normalize(vN), normalize(vV))); float a = l * pow(e, 1.8) * opacity; gl_FragColor = vec4(color, a);\n#include <tonemapping_fragment>\n#include <colorspace_fragment>\n}' });
     for (let i = 0; i < count; i++) {
-      const s = new THREE.SpotLight(0xfff2d8, 0, 26, 0.3, 0.5, 1.6); s.name = 'torch' + i; s.castShadow = false; s.position.set(0, -500, 0); s.target.position.set(0, -501, 0); scene.add(s); scene.add(s.target); this.spots.push(s);
+      const s = new THREE.SpotLight(0xfff2d8, 0, 26, 0.3, 0.5, 1.6); s.name = 'torch' + i; s.castShadow = false; s.position.set(0, -500, 0); s.target.position.set(0, -501, 0); scene.add(nightLight(s, 2)); scene.add(s.target); this.spots.push(s); /* night torches: out of the shaders while dark (LightSets) */
       const b = new THREE.Mesh(geo, this.beamMat); b.visible = false; b.frustumCulled = false; b.renderOrder = 3; scene.add(b); this.beams.push(b);
     }
     this.glowMat = new THREE.SpriteMaterial({ map: glowTexture() || null, color: 0xfff4dc, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }); this.glows = [];

@@ -4,6 +4,7 @@
 // Also owns the protagonist-only shading: dual-quaternion skinning (no volume collapse at elbows / shoulders / knees),
 // a wrapped-light subsurface term tuned for brown skin, rain wetness / exertion sweat, and expression wrinkle normals.
 import * as THREE from 'three';
+import { patchInterior } from '../gfx/InteriorLight.js';
 import { clamp, lerp, damp } from '../core/math.js';
 
 export const FINGERS = ['idx', 'mid', 'rng', 'pnk'];
@@ -95,7 +96,7 @@ export class HeroRig {
     const A = this.ch.anim; const act = A.action;
     if (A.seated && A.seatW > 0.5) return A.action === 'drive' || A.drive > 0.5 ? 'wheel' : 'relax';
     if (A.fight && A.fight.w > 0.3) return 'fist';
-    if (act === 'point' && S === 'R') return 'point'; if (act === 'handsup' || act === 'signal' || act === 'stretch' || act === 'shrug') return 'open';
+    if (act === 'point' && S === 'R') return 'point'; if (act === 'suitcase' && S === 'R') return 'grip'; if (act === 'handsup' || act === 'signal' || act === 'stretch' || act === 'shrug') return 'open';
     if (act === 'phone' && S === 'R') return 'phone'; if (act === 'text') return 'phone'; if (act === 'umbrella' && S === 'R') return 'fist';
     if (act === 'argue' || act === 'shove') return 'open'; if (act === 'cower' || act === 'flinch' || act === 'punch') return 'fist'; if (act === 'gloves') return 'glove';
     if (act === 'crossarms' || act === 'hips') return 'support'; if (act === 'comms') return S === 'R' ? 'point' : 'relax'; if (act === 'glance' && S === 'L') return 'open'; if (act === 'straps') return 'fist'; if (act === 'glasses' && S === 'R') return 'pinch'; if (act === 'cover') return 'support'; return null;
@@ -190,6 +191,9 @@ const DQ_POS = `
   transformed = dqRot(dqR, transformed) + 2.0 * (dqR.w * dqD.xyz - dqD.w * dqR.xyz + cross(dqR.xyz, dqD.xyz));
 #endif
 `;
+// 82nd: the same dual-quaternion skinning for other meshes bound to a hero's skeleton (CarryGear.js: the rifle sling), so they
+// bend exactly like the body under them instead of with linear-blend skinning
+export function dqSkin(sh) { sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>\n${DQ_FUNCS}`).replace('#include <skinnormal_vertex>', DQ_NORMAL).replace('#include <skinning_vertex>', DQ_POS); }
 const SSS_LINE = 'reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseContribution ) * ( 1.0 - F );';
 const SSS_ADD = `${SSS_LINE}
   #ifdef HERO_SSS
@@ -203,11 +207,12 @@ const SSS_ADD = `${SSS_LINE}
   #endif`;
 
 // per-character uniforms: wetness (rain on clothes and skin), sweat (exertion / humidity), wrinkle (expression)
-export function heroUniforms() { return { uWet: { value: 0 }, uSweat: { value: 0 }, uWrinkle: { value: 0 } }; }
+// uSway: cloth secondary motion (Anim.update spring) — xy = lag of the loose cloth in root-local x / z (m), z = flutter amplitude (m), w = time
+export function heroUniforms() { return { uWet: { value: 0 }, uSweat: { value: 0 }, uWrinkle: { value: 0 }, uSway: { value: new THREE.Vector4() } }; }
 export function patchHeroMaterial(mat, kind, U, prev = null) {
   mat.onBeforeCompile = (sh, r) => {
     if (prev) prev(sh, r);
-    sh.uniforms.uWet = U.uWet; sh.uniforms.uSweat = U.uSweat; sh.uniforms.uWrinkle = U.uWrinkle; if (kind === 'face') sh.uniforms.wrinkleMap = { value: faceNormals().wrinkle };
+    sh.uniforms.uWet = U.uWet; sh.uniforms.uSweat = U.uSweat; sh.uniforms.uWrinkle = U.uWrinkle; if (U.uSway) sh.uniforms.uSway = U.uSway; if (kind === 'face') sh.uniforms.wrinkleMap = { value: faceNormals().wrinkle };
     sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>\nattribute float aSkin;\nvarying float vSkin;\n${DQ_FUNCS}`)
       .replace('#include <skinnormal_vertex>', DQ_NORMAL).replace('#include <skinning_vertex>', DQ_POS)
       .replace('#include <begin_vertex>', `#include <begin_vertex>\nvSkin = ${kind === 'hair' ? '0.0' : kind === 'face' ? '1.0' : 'aSkin'};`);
@@ -223,7 +228,7 @@ export function patchHeroMaterial(mat, kind, U, prev = null) {
     sh.fragmentShader = sh.fragmentShader.replace('#include <lights_physical_pars_fragment>', THREE.ShaderChunk.lights_physical_pars_fragment.replace(SSS_LINE, SSS_ADD));
   };
   mat.customProgramCacheKey = () => 'hero-' + kind + (prev ? '-p' : '');
-  return mat;
+  return patchInterior(mat); // 55th: dim indoors like everything else under a roof (InteriorLight.js)
 }
 
 // ------------------------------------------------------------------ face normal maps (procedural, original)

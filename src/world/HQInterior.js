@@ -8,6 +8,7 @@ import { routine } from '../actors/Routine.js';
 import * as THREE from 'three';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
+import { modelFloor } from './FloorKit.js';
 import { Character } from '../actors/Character.js';
 import { makeAppearance, makePoliceAppearance } from '../actors/Appearance.js';
 
@@ -53,10 +54,14 @@ export function buildHQInterior(game, door, place) {
 
   // ---------------------------------------------------------------- floors, slab with stairwell, ceilings
   const TILE = '#d6d1c7', TILE2 = '#c9c3b6';
-  conc.hrect(x0, z0, x1, z1, Y, 1.0, C(TILE)); conc.hrect(X(-6), Z(7), X(6), Z(0), Y + 0.005, 1.0, C('#cfc7b8')); // lobby inlay
-  for (let u = -16.5; u <= 16.5; u += 1.5) bx(paint, u, Y + 0.004, 8.25, 0.03, 0.004, 2.5, TILE2); // corridor tile joints
+  // modelled floors (FloorKit): 50 cm ceramic through the building, cut around a terrazzo lobby with brass dividers
+  const TILES = { kind: 'ceramic', size: 0.5, colors: [TILE, TILE2, '#d2ccc1'], grout: '#9e978a', rough: 0.22, tone: 0.025 };
+  const lobby = [X(-6), Z(7), X(6), Z(0)];
+  g.add(modelFloor({ ...TILES, seed: 61, holes: [lobby] }, x0, z0, x1, z1, Y));
+  g.add(modelFloor({ kind: 'terrazzo', size: 1.0, seed: 62 }, ...lobby, Y));
   const slab = [[-W / 2, ST.u0, 0, D], [ST.u1, W / 2, 0, D], [ST.u0, ST.u1, 0, ST.v0 - 0.0], [ST.u0, ST.u1, ST.v1, D]];
-  for (const [ua, ub, va, vb] of slab) { conc.hrect(X(ua), Z(vb), X(ub), Z(va), FY(1), 1.0, C(TILE)); paint.hrect(X(ua), Z(vb), X(ub), Z(va), FY(1) - SLAB, 1, C('#f4f1ea'), true); }
+  for (const [ua, ub, va, vb] of slab) paint.hrect(X(ua), Z(vb), X(ub), Z(va), FY(1) - SLAB, 1, C('#f4f1ea'), true); // slab soffit
+  g.add(modelFloor({ ...TILES, seed: 63, holes: [[X(ST.u0), Z(ST.v1), X(ST.u1), Z(ST.v0)]] }, x0, z0, x1, z1, FY(1))); // first floor, open over the stairwell
   // stairwell opening: close the slab edges so the 25 cm floor thickness reads solid (feet upstairs can never show through)
   bx(paint, (ST.u0 + ST.u1) / 2, FY(1) - SLAB / 2, ST.v0, ST.u1 - ST.u0, SLAB, 0.04, '#e9e5dc'); for (const u of [ST.u0, ST.u1]) bx(paint, u, FY(1) - SLAB / 2, (ST.v0 + ST.v1) / 2, 0.04, SLAB, ST.v1 - ST.v0, '#e9e5dc');
   paint.hrect(x0, z0, x1, z1, FY(2), 1, C('#f4f1ea'), true);

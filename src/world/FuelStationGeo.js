@@ -8,8 +8,10 @@
 // local axes are x = u, z = −w (a proper rotation of the world for both road sides).
 import * as THREE from 'three';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
+import { hedgeBox } from './HedgeBush.js';
 import { MAT } from '../gfx/Materials.js';
 import * as L from './Layout.js';
+import { modelFloor, FLOOR_TOP } from './FloorKit.js';
 
 const C = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 const S = L.FUEL_SLAB;
@@ -227,7 +229,9 @@ export function buildFuelStation(site) {
   const colliders = [], crown = []; const W2 = L.FUEL_W / 2, D = L.FUEL_D;
   const col = (u0, u1, w0, w1, h, kind = 'prop', y0) => { const r = site.box(u0, u1, w0, w1); const c = { x0: r[0], x1: r[1], z0: r[2], z1: r[3], h, kind, fuel: site.id }; if (y0 !== undefined) c.y0 = y0; colliders.push(c); return c; };
   // ---- ground: forecourt slab, driveway crossings, gutter ramps, joints, drainage channels, markings, stains
-  conc.hrect(-W2, -D, W2, 0, S, 3.2, C('#cfccc4'));
+  // forecourt: modelled 6 m concrete slabs with saw-cut joints (tops exactly at the old slab height, so every marking,
+  // stain and drain above keeps its offset); they darken and gloss up in the rain like the roads
+  g.add(modelFloor({ kind: 'concrete', size: 6, joint: 0.024, chamfer: 0.005, colors: ['#e2dfd8', '#dbd8d0', '#e6e3dc'], grout: '#6f6c66', rough: 0.85, tone: 0.035, lip: 0, wet: [0.85, 0.45], seed: 900 + String(site.id).length * 7 }, -W2, -D, W2, 0, S - FLOOR_TOP));
   for (const sg of [-1, 1]) { const c0 = sg * L.FUEL_DRIVE - L.FUEL_DRIVE_HW, c1 = sg * L.FUEL_DRIVE + L.FUEL_DRIVE_HW;
     conc.hrect(c0, 0, c1, site.walk, S, 3.2, C('#c9c6be')); // crossing over the pavement (slightly darker, newer concrete)
     const yR = L.ROAD_Y + 0.004, wr = site.walk + L.FUEL_RAMP; conc.quad([c0, yR, wr], [c1, yR, wr], [c1, S, site.walk], [c0, S, site.walk], [c0 / 3.2, 0, c1 / 3.2, 0.3], C('#bdb9b0'));
@@ -235,8 +239,6 @@ export function buildFuelStation(site) {
     for (const e of [c0, c1]) B(paint, e - 0.06, e + 0.06, S - 0.02, S + 0.012, -site.walk, 0, C('#e8e4da')); // white-painted kerb edges of the crossing
     for (let x = c0 + 0.2; x < c1 - 0.1; x += 0.25) B(paint, x, x + 0.04, S - 0.004, S + 0.003, 0.4, 0.75, darkS); B(paint, c0, c1, S - 0.01, S + 0.001, 0.38, 0.77, black); // drainage grate across the driveway
   }
-  for (let u = -W2 + 6; u < W2; u += 6) B(mark, u - 0.012, u + 0.012, S, S + 0.002, 0.2, D - 0.2, C('#8d8a84')); // saw-cut joints
-  for (let w = 6; w < D; w += 6) B(mark, -W2 + 0.2, W2 - 0.2, S, S + 0.002, w - 0.012, w + 0.012, C('#8d8a84'));
   for (const w of [FS.canopy.w0 - 0.5, FS.canopy.w1 + 0.6]) { B(paint, -10, 10, S - 0.006, S + 0.002, w - 0.16, w + 0.16, black); for (let u = -9.9; u < 10; u += 0.22) B(paint, u, u + 0.035, S - 0.004, S + 0.003, w - 0.15, w + 0.15, darkS); }
   const arrow = (u, w, dir) => { const s = dir; mark.quad([u - 1.6 * s, S + 0.002, -(w - 0.16)], [u + 0.2 * s, S + 0.002, -(w - 0.16)], [u + 0.2 * s, S + 0.002, -(w + 0.16)], [u - 1.6 * s, S + 0.002, -(w + 0.16)], [0, 0, 1, 1], white);
     const a = [u + 0.2 * s, S + 0.002, -(w - 0.5)], b = [u + 1.1 * s, S + 0.002, -w], c = [u + 0.2 * s, S + 0.002, -(w + 0.5)]; if (s > 0) mark.quad(a, b, b, c, [0, 0, 1, 1], white); else mark.quad(c, b, b, a, [0, 0, 1, 1], white); };
@@ -252,7 +254,7 @@ export function buildFuelStation(site) {
   { const P = FS.planter; for (const [a0, a1, b0, b1] of [[P.u0, P.u1, P.w0, P.w0 + 0.14], [P.u0, P.u1, P.w1 - 0.14, P.w1], [P.u0, P.u0 + 0.14, P.w0, P.w1], [P.u1 - 0.14, P.u1, P.w0, P.w1]]) B(conc, a0, a1, S, S + 0.42, b0, b1, C('#d9d6cf'));
     B(paint, P.u0, P.u0 + 0.14, S + 0.02, S + 0.4, P.w0 - 0.002, P.w1 + 0.002, yellow); B(paint, P.u1 - 0.14, P.u1, S + 0.02, S + 0.4, P.w0 - 0.002, P.w1 + 0.002, yellow); // ends painted for the drivers
     B(mb.get('soil'), P.u0 + 0.14, P.u1 - 0.14, S, S + 0.34, P.w0 + 0.14, P.w1 - 0.14, null);
-    for (let u = P.u0 + 0.4; u < P.u1 - 0.4; u += 2.1) { if (Math.abs(u - FS.pylon.u) < 1.2) continue; B(hedge, u, Math.min(u + 1.9, P.u1 - 0.3), S + 0.34, S + 0.95 + Math.sin(u) * 0.06, P.w0 + 0.22, P.w1 - 0.22, C('#7f9a62')); }
+    for (let u = P.u0 + 0.4; u < P.u1 - 0.4; u += 2.1) { if (Math.abs(u - FS.pylon.u) < 1.2) continue; { const u1 = Math.min(u + 1.9, P.u1 - 0.3); hedgeBox(mb, (u + u1) / 2, S + 0.3, -(P.w0 + P.w1) / 2, u1 - u, 0.65 + Math.sin(u) * 0.06, P.w1 - P.w0 - 0.44, 0, { col: [0.82, 0.92, 0.72], core: true, seed: Math.round(u * 10) }); } } // 52nd: leafy hedge, not a block
     col(P.u0, P.u1, P.w0, P.w1, S + 0.9, 'prop'); }
   { const p = FS.pylon, w0 = p.w - 1.0, w1 = p.w + 1.0, top = S + 7.2, u0 = p.u - 0.24, u1 = p.u + 0.24; // monolith price pylon facing up and down the road
     B(conc, u0 - 0.14, u1 + 0.14, S, S + 0.45, w0 - 0.12, w1 + 0.12, C('#bcb8b0')); B(paint, u0, u1, S + 0.45, top, w0, w1, main); B(paint, u0 - 0.02, u1 + 0.02, top - 0.02, top + 0.14, w0 - 0.04, w1 + 0.04, accent);

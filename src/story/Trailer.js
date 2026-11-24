@@ -1,12 +1,13 @@
 // Official trailer — the runtime. Plays the edit in TrailerPlan.js inside the real game world: the real streets, the real
 // day/night + weather system, the real traffic and pedestrians in Act I, the game's own vehicles, characters, rifles,
-// tyre smoke, explosions and headlight beams. Only loaded when "WATCH TRAILER" is clicked on the entry gate (a separate
+// tyre smoke, explosions and headlight beams. Only loaded when "ORIGINAL TRAILER" is clicked on the entry gate (a separate
 // lazily-imported chunk), and it never touches a save, a setting or the story state: when it ends (or is skipped) the
 // page reloads back to the entry gate, so the game itself always starts from exactly the state it would have without it.
 //
 // No lights or materials are created while it plays (that would recompile every shader mid-trailer): every actor is
 // built behind the loading screen, before the shader compile; muzzle flashes, fire light and the police light-bar spill
 // reuse the game's existing light pools.
+import { bloomHot } from '../gfx/BloomHot.js';
 import * as THREE from 'three';
 import { buildPlan, shotAt, blackAt, posesAt, editTimeOf, LENGTH } from './TrailerPlan.js';
 import { TrailerScore } from './TrailerScore.js';
@@ -17,7 +18,9 @@ import { makePoliceAppearance } from '../actors/Appearance.js';
 import { seatCharacter } from '../actors/Seating.js';
 import { gatherBodies } from '../actors/Bodies.js';
 import { Firefight } from '../police/Firefight.js';
-import { POLICE_T56 } from '../combat/WeaponDefs.js';
+import { POLICE_T56, WEAPONS } from '../combat/WeaponDefs.js';
+import { buildWeaponModel } from '../combat/WeaponModels.js';
+import { holdFor } from '../combat/GripSolver.js';
 import { Audio } from '../audio/Audio.js';
 import * as L from '../world/Layout.js';
 
@@ -43,12 +46,12 @@ export async function runTrailer(g) {
 }
 
 export class TrailerRuntime {
-  constructor(g) {
-    this.g = g; this.plan = buildPlan(); this.e = 0; this.shot = null; this.sceneId = null; this.fired = new Set(); this.lastSim = -1; this.done = false;
+  constructor(g, plan = null, fn = null) {
+    this.g = g; this.plan = plan || buildPlan(); this.LEN = this.plan.LENGTH || LENGTH; this.fn = fn || { shotAt, blackAt, posesAt }; /* the second trailer (CineTrailer.js) brings its own plan */ this.e = 0; this.shot = null; this.sceneId = null; this.fired = new Set(); this.lastSim = -1; this.done = false;
     this.shake = 0; this.fireAcc = {}; this.cues = []; this.prevD = {}; this.proxies = []; this._v = new THREE.Vector3(); this._d = new THREE.Vector3();
     // where the world must be fully streamed: every shot, and the whole getaway route (those chunks are pinned: chunk.keep)
     // per shot: where its camera starts / ends / looks
-    this.shotPts = this.plan.shots.map((s) => { const S = this.plan.scenes[s.scene], out = []; for (const u of [0, 0.5, 1]) { const t = s.t0 + s.simLen * u, c = s.cam(t, posesAt(S, t), u); out.push([c.p[0], c.p[2]], [(c.p[0] + c.l[0]) / 2, (c.p[2] + c.l[2]) / 2]); } if (s.focus) out.push(s.focus); return out; });
+    this.shotPts = this.plan.shots.map((s) => { const S = this.plan.scenes[s.scene], out = []; for (const u of [0, 0.5, 1]) { const t = s.t0 + s.simLen * u, c = s.cam(t, this.fn.posesAt(S, t), u); out.push([c.p[0], c.p[2]], [(c.p[0] + c.l[0]) / 2, (c.p[2] + c.l[2]) / 2]); } if (s.focus) out.push(s.focus); return out; });
     // the first shot's location first (the loading screen's shader compile looks from points[0])
     this.points = this.needPts(0, 46.5).map((p) => [Math.round(p[0]), Math.round(p[1])]);
   }
@@ -70,15 +73,19 @@ export class TrailerRuntime {
   async build(pr = () => {}) {
     const g = this.g, P = this.plan, scene = g.scene;
     const tick = () => new Promise((r) => setTimeout(r, 0));
-    const actor = (spec) => { const ch = new Character(spec); scene.add(ch.root); return { ch, mode: 'foot', x: 0, y: 0, z: 0, yaw: 0, sees: true, cineAim: false, _draw: false, _tp: { x: 0, y: 1, z: 0 } }; };
+    const actor = (spec) => { const ch = new Character(spec); ch.anim.mocapPhase = 0; /* motion-capture loops start at a fixed phase: every take of the trailer plays the same */ scene.add(ch.root); return { ch, mode: 'foot', x: 0, y: 0, z: 0, yaw: 0, sees: true, cineAim: false, _draw: false, _tp: { x: 0, y: 1, z: 0 } }; };
     this.actors = {};
-    for (const id of ['dineth', 'shashika', 'david']) { this.actors[id] = actor(HEROES[id]); pr(0.1 + 0.1 * Object.keys(this.actors).length); await tick(); }
-    for (const [k, seed] of [['off1', 41], ['off2', 42], ['off3', 43]]) { this.actors[k] = actor(makePoliceAppearance(7700 + seed, 'patrol', { sex: 'm' })); await tick(); }
+    const cast = this.cast();
+    for (const id of cast.heroes) { this.actors[id] = actor(HEROES[id]); pr(0.1 + 0.1 * Object.keys(this.actors).length); await tick(); }
+    for (const [k, seed, role, look] of cast.officers) { this.actors[k] = actor(makePoliceAppearance(7700 + seed, role || 'patrol', Object.assign({ sex: 'm' }, look || {}))); await tick(); } // role / look: the second trailer's OIC (a senior officer, no cap indoors)
     pr(0.5);
-    for (const k of ['shashika', 'david', 'off1', 'off2', 'off3']) { const o = this.actors[k]; FF.arm.call(null, o); o.ff = { g: { camera: g.camera }, armed: () => !!o._draw, targetPoint: () => o._tp }; o.rifle.userData.flash.visible = true; /* compiled with the scene, hidden again at start */ }
+    for (const k of cast.pistol || []) { const o = this.actors[k]; this.armPistol(o); } // handgun (the second trailer's robbery): the player's own pistol model, held with the player's grip solve
+    for (const k of cast.armed) { const o = this.actors[k]; if (o.pistol) continue; FF.arm.call(null, o); o.ff = { g: { camera: g.camera }, armed: () => !!o._draw, targetPoint: () => o._tp }; o.rifle.userData.flash.visible = true; /* compiled with the scene, hidden again at start */ }
     // vehicles: one per scene rig (scene key + rig id); seated police / bus drivers stay put for the whole trailer
     this.vehicles = new Map();
     for (const [sid, S] of Object.entries(P.scenes)) for (const [id, r] of Object.entries(S.rigs)) {
+      const shared = r.share && [...this.vehicles.values()].find((o) => o.r.share === r.share);
+      if (shared) { this.vehicles.set(sid + '.' + id, { v: shared.v, r, sid, id }); continue; } // one vehicle plays the same car in several scenes
       const v = new Vehicle(r.type, r.seed, scene); v.keep = true; v.trailer = true; const p0 = r.pose(0); v.place(p0.x, p0.z, p0.yaw); v.lights = true; v.sync(0); // headlight decal created now (compiled)
       if (r.driver === 'officer') { const ch = new Character(makePoliceAppearance(7100 + this.vehicles.size * 7, 'patrol', { sex: 'm' })); seatCharacter(ch, v, v.driverSeat()); ch.mesh.castShadow = false; v.driverChar = ch; }
       else if (r.driver === 'civ') g.traffic.addDriver(v);
@@ -90,26 +97,33 @@ export class TrailerRuntime {
     if (W && W.tracerGeo) { const t = new THREE.Mesh(W.tracerGeo, W.tracerMat); t.position.set(-400, 1, -560); const s = new THREE.Sprite(W.sparkMat); s.position.set(-400, 1, -560); s.scale.setScalar(0.01); scene.add(t); scene.add(s); this.primers.push(t, s); }
     pr(1);
   }
-  // ---------------------------------------------------------------- start
-  start() {
-    const g = this.g, P = g.player;
-    for (const m of this.primers) m.parent?.remove(m);
-    for (const k of ['shashika', 'david', 'off1', 'off2', 'off3']) this.actors[k].rifle.userData.flash.visible = false;
-    g.mode = 'trailer'; g.paused = false; g.director.active = false; g.hud.show(false); g.hud.bars(false); g.hud.clearSubtitle?.();
-    P.cinematic = true; P.control = false; if (P.ch) { P.ch.root.visible = false; P.ch.noBody = true; } P.x = 1e5; P.z = 1e5; // the player is not part of the trailer
-    this.orig = { traffic: g.traffic.max, crowd: g.crowd.max, fov: g.camera.fov };
-    this.buildOverlay();
-    Audio.setMusic('none');
-    this.score = new TrailerScore(); this.score.build({ blast: editTimeOf(this.plan, 'C', this.plan.tE) ?? 78.17 });
-    this.useAudio = !TEST && this.score.ok && Audio.ctx.state === 'running';
-    this.t0 = this.score.ok ? Audio.ctx.currentTime + 0.3 : 0; this.score.start(this.t0); this.e = this.useAudio ? -0.3 : 0;
-    this.cueSheet();
-    // skip: Esc / Enter / Space / click (not the click that started it)
+  // who is cast (built behind the loading screen) and who carries a rifle — the second trailer (CineTrailer.js) overrides this
+  cast() { return { heroes: ['dineth', 'shashika', 'david'], officers: [['off1', 41], ['off2', 42], ['off3', 43]], armed: ['shashika', 'david', 'off1', 'off2', 'off3'] }; }
+  makeScore() { const s = new TrailerScore(); s.build({ blast: editTimeOf(this.plan, 'C', this.plan.tE) ?? 78.17 }); return s; }
+  // skip: Esc / Enter / Space / click (not the click that started it)
+  bindInput() {
     const t0 = performance.now();
     this.onKey = (e) => { if (['Escape', 'Enter', 'Space', 'NumpadEnter'].includes(e.code)) { e.preventDefault(); this.skip(); } };
     this.onClick = () => { if (performance.now() - t0 > 1200) this.skip(); };
     this.onMove = () => { this.hintT = performance.now(); };
     addEventListener('keydown', this.onKey, true); addEventListener('mousedown', this.onClick, true); addEventListener('mousemove', this.onMove);
+  }
+  unbindInput() { removeEventListener('keydown', this.onKey, true); removeEventListener('mousedown', this.onClick, true); removeEventListener('mousemove', this.onMove); }
+  // ---------------------------------------------------------------- start
+  start() {
+    const g = this.g, P = g.player;
+    for (const m of this.primers) m.parent?.remove(m);
+    for (const k of this.cast().armed) { const f = this.actors[k].rifle && this.actors[k].rifle.userData.flash; if (f) f.visible = false; } // a handgun (armPistol) has no rifle flash mesh
+    g.mode = 'trailer'; g.paused = false; g.director.active = false; g.hud.show(false); g.hud.bars(false); g.hud.clearSubtitle?.();
+    P.cinematic = true; P.control = false; if (P.ch) { P.ch.root.visible = false; P.ch.noBody = true; } P.x = 1e5; P.z = 1e5; // the player is not part of the trailer
+    this.orig = { traffic: g.traffic.max, crowd: g.crowd.max, fov: g.camera.fov };
+    this.buildOverlay();
+    Audio.setMusic('none');
+    this.score = this.makeScore();
+    this.useAudio = !TEST && this.score.ok && Audio.ctx.state === 'running';
+    this.t0 = this.score.ok ? Audio.ctx.currentTime + 0.3 : 0; this.score.start(this.t0); this.e = this.useAudio ? -0.3 : 0;
+    this.cueSheet();
+    this.bindInput();
     this.hintT = performance.now();
     g.hud.fade(0, 0.01); g.last = performance.now();
     g.trailerHook = (dt) => this.frame(dt);
@@ -119,7 +133,7 @@ export class TrailerRuntime {
   skip() { if (this.ending || this.done) return; this.ending = performance.now(); this.score.fadeOut(0.6); }
   finish() {
     if (this.done) return; this.done = true; this.score.stopLoops(); this.score.fadeOut(0.3);
-    removeEventListener('keydown', this.onKey, true); removeEventListener('mousedown', this.onClick, true); removeEventListener('mousemove', this.onMove);
+    this.unbindInput();
     this.ov.black.style.opacity = '1';
     if (TEST) { window.__trailerDone = true; this.g.trailerHook = () => {}; this.resolve?.(); return; }
     setTimeout(() => location.reload(), 450); // back to the entry gate: the game starts exactly as if the trailer was never played
@@ -133,8 +147,8 @@ export class TrailerRuntime {
   }
   frame(dt) {
     const e = this.clock(dt);
-    if (this.ending) { const k = (performance.now() - this.ending) / 600; this.ov.black.style.opacity = String(Math.max(blackAt(this.plan, e), sm(k))); if (k >= 1) return this.finish(); }
-    if (e >= LENGTH) return this.finish();
+    if (this.ending) { const k = (performance.now() - this.ending) / 600; this.ov.black.style.opacity = String(Math.max(this.fn.blackAt(this.plan, e), sm(k))); if (k >= 1) return this.finish(); }
+    if (e >= this.LEN) return this.finish();
     this.frameAt(Math.max(0, e), dt);
   }
   // test hook: jump to edit time e (steps the last `pre` seconds so smoke / fire / animation states are right), then hold
@@ -142,7 +156,7 @@ export class TrailerRuntime {
   frameAt(e, dt) {
     const plan = this.plan;
     // the shot on screen; during a full black the next shot is set up early (scene switch + traffic settle hidden)
-    let shot = shotAt(plan, e); const bk = blackAt(plan, e);
+    let shot = this.fn.shotAt(plan, e); const bk = this.fn.blackAt(plan, e);
     if (bk > 0.999) { const i = plan.shots.indexOf(shot), nx = plan.shots[i + 1]; if (nx && nx.start - e < 2.6 && nx.start > e) shot = nx; }
     const newShot = shot !== this.shot;
     if (newShot) { if (shot.scene !== this.sceneId) this.activateScene(shot.scene, shot); this.shot = shot; this.snap = true; }
@@ -151,9 +165,10 @@ export class TrailerRuntime {
     let simDt = !newShot && simT >= this.lastSim ? simT - this.lastSim : dt * rate; simDt = clamp(simDt, 0, 0.1);
     if (newShot && simT > this.lastSim + 0.5) this.skipEvents(simT - 0.3); // a forward jump in sim time: no burst of stale gunshots
     this.lastSim = simT; this.simT = simT; this.rate = rate;
-    const P = posesAt(S, simT); this.P = P;
+    const P = this.fn.posesAt(S, simT); this.P = P;
     this.applyVehicles(P, simT, simDt);
     this.applyPeds(P, simT, simDt, e);
+    if (this.sceneHook) this.sceneHook(P, simT, simDt, e, dt, newShot);
     this.events(P, simT);
     this.camera(shot, P, simT, u, e, dt);
     this.systems(dt, simDt, shot, P, u);
@@ -166,19 +181,20 @@ export class TrailerRuntime {
   // ---------------------------------------------------------------- scenes
   activateScene(id, shot) {
     const g = this.g, S = this.plan.scenes[id]; this.sceneId = id; this.S = S; this.fired = new Set(); this.lastSim = -1; this.fireAcc = {}; this.prevD = {};
-    for (const o of this.vehicles.values()) { const on = o.sid === id; if (on && !o.v.mesh.parent) g.scene.add(o.v.mesh); else if (!on && o.v.mesh.parent) o.v.mesh.parent.remove(o.v.mesh); }
+    const onV = new Set([...this.vehicles.values()].filter((o) => o.sid === id).map((o) => o.v));
+    for (const o of this.vehicles.values()) { const on = onV.has(o.v); if (on && !o.v.mesh.parent) g.scene.add(o.v.mesh); else if (!on && o.v.mesh.parent) o.v.mesh.parent.remove(o.v.mesh); }
     const used = new Set(Object.values(S.peds).map((r) => (r.who === 'officer' ? null : r.who)).filter(Boolean)); for (const k of Object.keys(S.peds)) if (this.actors[k]) used.add(k);
-    for (const [k, o] of Object.entries(this.actors)) { const on = used.has(k); if (!on) { o.ch.root.parent?.remove(o.ch.root); o.parentV = null; } else if (!o.ch.root.parent) g.scene.add(o.ch.root); }
+    for (const [k, o] of Object.entries(this.actors)) { const on = used.has(k); if (!on) { o.ch.root.parent?.remove(o.ch.root); if (o.parentV && o.parentV.driverChar === o.ch) o.parentV.driverChar = null; if (o.mode === 'seated') { o.ch.anim.standUp(); o.mode = 'foot'; } o.parentV = null; } /* off stage: out of any seat, so a later scene that has him on foot does not get a seated pose dropped on the grass */ else if (!o.ch.root.parent) g.scene.add(o.ch.root); }
     // light & weather of the scene
     const A = g.atmos, env = S.env; A.hour = env.hour; A.forceWeather(env.weather); A.setWeather(env.weather, true); A.wet = env.wet;
     // traffic: the action scenes run on closed streets (no AI traffic, nothing parked on the driving lines)
     const T = g.traffic; for (const v of T.vehicles) T.remove(v); T.vehicles.length = 0;
     T.max = S.traffic ? this.orig.traffic : 0;
-    const R = this.reservedRects(id); T.reserved = R.length ? (p) => R.some((r) => p.x > r[0] && p.x < r[1] && p.z > r[2] && p.z < r[3]) : null;
+    const R = S.reserved || this.reservedRects(id); T.reserved = R.length ? (p) => R.some((r) => p.x > r[0] && p.x < r[1] && p.z > r[2] && p.z < r[3]) : null;
     T.parkedTimer = 0; // re-evaluate the parked cars now (reserved spots are cleared)
-    const f = this.focusOf(shot, posesAt(S, shot.t0));
+    const f = this.focusOf(shot, this.fn.posesAt(S, shot.t0));
     // let the street life settle around the new camera before the black lifts
-    const cam = g.camera, c = shot.cam(shot.t0, posesAt(S, shot.t0), 0); cam.position.set(c.p[0], c.p[1], c.p[2]); cam.lookAt(c.l[0], c.l[1], c.l[2]); cam.updateMatrixWorld();
+    const cam = g.camera, c = shot.cam(shot.t0, this.fn.posesAt(S, shot.t0), 0); cam.position.set(c.p[0], c.p[1], c.p[2]); cam.lookAt(c.l[0], c.l[1], c.l[2]); cam.updateMatrixWorld();
     const camDir = cam.getWorldDirection(new THREE.Vector3());
     const band = S.clearRoad ? [S.clearRoad[0][0], S.clearRoad[0][1], S.clearRoad[1][0], S.clearRoad[1][1]] : null;
     for (let i = 0; i < (S.traffic ? 36 : 2); i++) { T.update(0.1, f, camDir, g.clock, g.crowd.peds, g.ghost); if (band) this.clearRect(band, true); g.crowd.update(0.1, f, camDir, { simTime: g.clock, vehicles: T.all(), rain: A.w.rain, night: A.night, player: g.ghost, hourFactor: g.hourFactor(), hour: A.hour, police: null }); }
@@ -227,7 +243,7 @@ export class TrailerRuntime {
         if (o.rifle) o.rifle.visible = false; A.update(Math.max(dt, 1e-4), 0); continue;
       }
       if (o.parentV || ch.root.parent !== g.scene) { if (o.parentV && o.parentV.driverChar === ch) o.parentV.driverChar = null; ch.root.parent?.remove(ch.root); A.standUp(); g.scene.add(ch.root); o.parentV = null; o.mode = 'foot'; this.snapPed = true; }
-      const y = g.collision.groundAt(p.x, p.z, 0.4); const yawRate = this.snap || dt < 1e-4 ? 0 : wrap(p.yaw - o.yaw) / dt;
+      const y = p.fy != null ? p.fy : g.collision.groundAt(p.x, p.z, 0.4); const yawRate = this.snap || dt < 1e-4 ? 0 : wrap(p.yaw - o.yaw) / dt;
       o.x = p.x; o.z = p.z; o.y = y; o.yaw = p.yaw; ch.root.position.set(p.x, y, p.z); ch.root.rotation.set(0, p.yaw, 0); ch.yaw = p.yaw;
       if ((p.act || null) !== (A.action || null) && !(p.act == null && A.action === 'talk')) A.set(p.act || null);
       // rifle: hidden / slung / low ready / aimed at the target (the police rifle-handling rig, Firefight.pose)
@@ -237,16 +253,41 @@ export class TrailerRuntime {
           o.rifle.visible = true; o._draw = !p.rifle.sling; o.cineAim = !p.rifle.sling && p.rifle.aim > 0.5; o.mode = 'foot';
           const tg = p.rifle.target && P[p.rifle.target]; if (tg) { o._tp.x = tg.cx ?? tg.x; o._tp.y = L.groundY(tg.x, tg.z) + (tg.cy ?? 0.9); o._tp.z = tg.cz ?? tg.z; } else { o._tp.x = p.x + Math.sin(p.yaw) * 10; o._tp.y = 1.2; o._tp.z = p.z + Math.cos(p.yaw) * 10; }
           if (this.snap || this.snapPed) { o.rp.draw = o._draw ? 1 : 0; o.rp.aim = o.cineAim ? 1 : 0; }
-          FF.pose.call(o.ff, o, Math.max(dt, 1e-4));
+          if (o.pistol) this.posePistol(o, p, Math.max(dt, 1e-4)); else FF.pose.call(o.ff, o, Math.max(dt, 1e-4));
         }
       }
       // talking: lips move on the speaker's VO lines
-      if (ch.face) { const vo = this.plan.texts.find((x) => x.kind === 'vo' && e >= x.a && e <= x.b && x.who && x.who.toLowerCase().startsWith(r.who)); ch.face.talking = !!vo; }
+      if (ch.face) { const vo = this.plan.texts.find((x) => x.kind === 'vo' && e >= x.a && e <= x.b && (x.key ? x.key === key : x.who && x.who.toLowerCase().startsWith(r.who))); ch.face.talking = !!vo; } // key: the speaking ped (the second trailer)
+      if (this.pedHook) this.pedHook(key, p, o, t, dt); // per-ped extras before the pose is solved (the second trailer: hands on a prop)
       A.update(Math.max(dt, 1e-4), p.speed, yawRate);
     }
     this.snapPed = false;
   }
   // ---------------------------------------------------------------- gunfire, blasts, fires
+  // ---------------------------------------------------------------- handgun (second trailer): same model, hold solve and
+  // two-hand stance as the player's pistol (Weapons.pose): a low, muzzle-down ready at the belly ↔ arms extended with the
+  // sights at eye line, the support hand wrapped over the firing hand; recoil flips the muzzle and settles
+  armPistol(o) {
+    const def = WEAPONS.find((d) => d.id === 'service'); const m = buildWeaponModel(def); m.matrixAutoUpdate = false; m.traverse((q) => { if (q.isMesh) q.castShadow = false; });
+    o.ch.bones.chest.add(m); o.rifle = m; o.pistol = def; o.rp = { draw: 1, aim: 0, kick: 0, flashT: 0, trigT: 0 }; o._tp = new THREE.Vector3(); m.visible = false;
+  }
+  _hold(o) { return holdFor(o.ch, o.rifle) || { R: { wrist: new THREE.Vector3(), q: new THREE.Quaternion(), ready: 'grip', trigger: 'trigger' }, L: { wrist: o.rifle.userData.support, q: new THREE.Quaternion(), pose: 'support' } }; }
+  posePistol(o, p, dt) {
+    const m = o.rifle, A = o.ch.anim, rp = o.rp, H = this._hold(o), ch = o.ch;
+    const want = clamp(p.rifle.aim, 0, 1); rp.aim = this.snap || this.snapPed ? want : rp.aim + (want - rp.aim) * Math.min(1, dt * 6); rp.kick = Math.max(0, rp.kick - dt * 9); rp.trigT = Math.max(0, (rp.trigT || 0) - dt);
+    const aw = sm(rp.aim), tp = o._tp, ey = (o.y || 0) + 1.45; const pitch = clamp(Math.atan2(tp.y - ey, Math.max(0.5, Math.hypot(tp.x - o.x, tp.z - o.z))), -0.9, 0.9);
+    const twist = 0.12 * aw; A.aim = { pitch: pitch * aw, twist, w: Math.max(aw, 0.3), headDown: 0 };
+    const low = new THREE.Vector3(-0.1, -0.12, 0.3), ap = new THREE.Vector3(-0.03, 0.2, 0.44); const ctrl = low.clone().lerp(ap, 0.5).add(new THREE.Vector3(0.02, 0.05, -0.06));
+    const u0 = 1 - aw; const pos = new THREE.Vector3().addScaledVector(low, u0 * u0).addScaledVector(ctrl, 2 * u0 * aw).addScaledVector(ap, aw * aw); // the player's ADS Bezier
+    let rx = lerp(0.75, 0, aw), ry = lerp(0.1, 0, aw); const rz = 0; const kk = rp.kick; pos.z -= 0.025 * kk; pos.y += 0.012 * kk; rx -= 0.16 * kk * (1 - 0.4 * (1 - kk)); // muzzle flip, settles as the kick decays
+    const body = new THREE.Matrix4().compose(pos, new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz, 'YXZ')), new THREE.Vector3(1, 1, 1));
+    const chestM = new THREE.Matrix4().multiplyMatrices(new THREE.Matrix4().makeRotationY(twist), body);
+    m.matrix.copy(chestM); m.matrixWorldNeedsUpdate = true; m.visible = true;
+    const wQ = new THREE.Quaternion().setFromRotationMatrix(chestM); const grip = H.R.wrist.clone().applyMatrix4(chestM), sup = H.L.wrist.clone().applyMatrix4(chestM);
+    const supW = sm((aw - 0.35) / 0.45); // one hand at the low ready, both once it comes up
+    A.ik = { R: grip, qR: wQ.clone().multiply(H.R.q), wR: 1, L: supW > 0.01 ? sup : null, qL: wQ.clone().multiply(H.L.q), wL: supW, poleR: null };
+    if (ch.rig) { ch.rig.hand('R', rp.trigT > 0 ? H.R.pull || 'grip' : aw > 0.7 ? H.R.trigger : H.R.ready, 1); if (A.ik.L) ch.rig.hand('L', H.L.pose); }
+  }
   skipEvents(upTo) { const S = this.S; S.events.forEach((ev, i) => { if (ev.t < upTo) this.fired.add('e' + i); }); this.shotsOf(S).forEach((s, i) => { if (s.t < upTo) this.fired.add('s' + i); }); }
   shotsOf(S) { if (!S._shots) { S._shots = []; for (const f of S.fire) for (let t = f.a; t < f.b; t += 1 / f.rof) S._shots.push({ t, who: f.who, target: f.target }); S._shots.sort((a, b) => a.t - b.t); } return S._shots; }
   events(P, t) {
@@ -260,9 +301,11 @@ export class TrailerRuntime {
     const g = this.g, o = this.actors[s.who]; if (!o || !o.rifle || !o.rifle.visible || !o.ch.root.visible) return; const W = g.weapons;
     const mz = FF.muzzle.call(null, o, new THREE.Vector3()); const tg = P[s.target]; if (!tg) return;
     const gy = L.groundY(tg.x, tg.z); const aim = new THREE.Vector3(tg.cx ?? tg.x, gy + (tg.cy ?? 0.85), tg.cz ?? tg.z);
-    const spread = s.target === 'hero' ? 1.6 : 0.45; aim.x += (Math.random() - 0.5) * spread; aim.y += (Math.random() - 0.3) * spread * 0.5; aim.z += (Math.random() - 0.5) * spread;
+    const spread = tg.spread ?? (s.target === 'hero' ? 1.6 : 0.45); aim.x += (Math.random() - 0.5) * spread; aim.y += (Math.random() - 0.3) * spread * 0.5; aim.z += (Math.random() - 0.5) * spread; if (tg.cyMax != null) aim.y = Math.min(aim.y, gy + tg.cyMax); // cyMax: rounds into a ceiling stay under it
     const dir = aim.clone().sub(mz).normalize(); const far = aim.clone().addScaledVector(dir, s.target === 'hero' && Math.random() < 0.6 ? 25 : 0); // misses fly on past a moving car
-    const ud = o.rifle.userData; if (ud.flash) { ud.flash.visible = true; ud.flash.rotation.z = Math.random() * 3; ud.flash.scale.setScalar(0.85 + Math.random() * 0.35); o.rp.flashT = 0.05; } o.rp.kick = 1;
+    if (o.pistol) { o.rp.kick = 1; if (W) { W.flash(mz, dir, o.pistol); W.tracer(mz, far, o.pistol); if (far.distanceToSquared(aim) < 0.01) W.sparks(aim, dir); W.flashLight.position.copy(mz); W.flashLight.intensity = 5; W.flashT = 0.05; } o.ch.rig && o.ch.rig.hand('R', this._hold(o).R.pull || 'grip');
+      const [gn, pan] = Audio.spatial ? Audio.spatial(mz.x, mz.z, 60) : [0.5, 0]; this.score.gun(Math.max(0.12, gn), pan, this.rate, this.g.camera.position.distanceTo(mz)); o.rp.trigT = 0.09; return; }
+    const ud = o.rifle.userData; if (ud.flash) { bloomHot(); ud.flash.visible = true; ud.flash.rotation.z = Math.random() * 3; ud.flash.scale.setScalar(0.85 + Math.random() * 0.35); o.rp.flashT = 0.05; } o.rp.kick = 1;
     if (W) { W.tracer(mz, far, POLICE_T56); if (far.distanceToSquared(aim) < 0.01) W.sparks(aim, dir); W.flashLight.position.copy(mz); W.flashLight.intensity = 6; W.flashT = 0.05; }
     const [gn, pan] = Audio.spatial ? Audio.spatial(mz.x, mz.z, 60) : [0.5, 0]; const d = this.g.camera.position.distanceTo(mz); this.score.gun(Math.max(0.12, gn), pan, this.rate, d);
     if (far.distanceToSquared(aim) < 0.01) { const [g2, p2] = Audio.spatial ? Audio.spatial(aim.x, aim.z, 30) : [0.3, 0]; this.score.ping(g2, p2); }
@@ -316,6 +359,7 @@ export class TrailerRuntime {
     if (g.vsmoke) g.vsmoke.update(simDt);
     if (g.weapons) g.weapons.fxUpdate(simDt);
     const used = this.beaconSpill(P, this.simT, A.night); this.keyLight(shot, P, A.night, used);
+    if (this.systemsHook) this.systemsHook(dt, simDt, shot, P, u);
     // engines heard from the camera (pitched down in slow motion), plus nearby traffic
     const near = []; let i = 0;
     for (const [id] of Object.entries(S.rigs)) { const v = this.veh(id).v; if (!v.mesh.visible || v.T.rail) continue; const q = this.proxies[i] || (this.proxies[i] = { x: 0, z: 0, speed: 0, type: '' }); i++; q.x = v.x; q.z = v.z; q.speed = v.speed * clamp(this.rate, 0.35, 1); q.type = v.type; q.d = (v.x - cam.position.x) ** 2 + (v.z - cam.position.z) ** 2; near.push(q); }
@@ -340,8 +384,8 @@ export class TrailerRuntime {
   keyLight(shot, P, night, used) {
     const rig = this.g.flashRig; if (!rig) return; const KEY = { dineth: ['dineth'], shashika: ['shashika'], david: ['david'], trio: ['dineth', 0.75], ambush: ['shashika'], 'walk away': ['dineth', 0.7] };
     for (const s of rig.spots) if (s.isKey) { s.intensity = 0; s.isKey = false; }
-    const k = KEY[shot.name], s = rig.spots[used]; if (!k || !s || night < 0.35) return; const p = P[k[0]]; if (!p || !p.vis || p.seat) return;
-    const cam = this.g.camera.position, gy = this.g.collision.groundAt(p.x, p.z, 0.4); let dx = cam.x - p.x, dz = cam.z - p.z; const d = Math.hypot(dx, dz) || 1; dx /= d; dz /= d;
+    const k = shot.key || KEY[shot.name], s = rig.spots[used]; if (!k || !s || night < 0.35) return; const p = P[k[0]]; if (!p || !p.vis || p.seat) return;
+    const cam = this.g.camera.position, gy = p.fy != null ? p.fy : this.g.collision.groundAt(p.x, p.z, 0.4); let dx = cam.x - p.x, dz = cam.z - p.z; const d = Math.hypot(dx, dz) || 1; dx /= d; dz /= d;
     s.isKey = true; s.color.setHex(0xffd9b0); s.intensity = 16 * clamp((night - 0.35) / 0.3, 0, 1); s.angle = k[1] || 0.42; s.penumbra = 1; s.distance = 14; s.decay = 1.4;
     s.position.set(p.x + dx * 3.2 - dz * 1.4, gy + 3.4, p.z + dz * 3.2 + dx * 1.4); s.target.position.set(p.x, gy + 1.25, p.z); s.target.updateMatrixWorld();
   }
@@ -370,7 +414,7 @@ export class TrailerRuntime {
       const [gn, pan] = Audio.spatial ? Audio.spatial(v.x, v.z, 30) : [0.5, 0];
       const slipRate = Math.abs(p.slip || 0) > 0.1 && p.speed > 3 ? clamp((Math.abs(p.slip) - 0.1) / 0.35, 0, 1) : 0; const brake = o.acc < -7 && p.speed > 4 ? 0.6 : 0; const burn = p.smokeR || 0;
       const k = Math.max(slipRate, brake, burn) * gn; if (k > scr) { scr = k; scrPan = pan; }
-      if (o.r.type === 'police') { const d = Math.hypot(v.x - cam.x, v.z - cam.z); const pd = this.prevD[id] ?? d; const vr = dt > 1e-4 ? clamp((d - pd) / dt, -60, 60) : 0; this.prevD[id] = d; const dop = clamp(343 / (343 + vr), 0.85, 1.18); this.score.siren(id, !!p.beacons && this.simT > 4.5, gn, pan, dop, t, rate); }
+      if (o.r.type === 'police') { const d = Math.hypot(v.x - cam.x, v.z - cam.z); const pd = this.prevD[id] ?? d; const vr = dt > 1e-4 ? clamp((d - pd) / dt, -60, 60) : 0; this.prevD[id] = d; const dop = clamp(343 / (343 + vr), 0.85, 1.18); this.score.siren(id, !!p.beacons && this.simT > (this.S.sirenFrom ?? 4.5), gn, pan, dop, t, rate); }
     }
     this.score.screech(scr, scrPan, rate);
   }
@@ -390,7 +434,8 @@ export class TrailerRuntime {
     const box = q('.tr-texts');
     for (const t of this.plan.texts) {
       const d = document.createElement('div'); d.className = 'tr-t tr-' + t.kind; d.style.opacity = '0';
-      if (t.kind === 'card') d.innerHTML = `<span>${t.text}</span>`;
+      if (this.textHTML && this.textHTML(t, d)) { /* a kind of the second trailer (CineTrailer.js) */ }
+      else if (t.kind === 'card') d.innerHTML = `<span>${t.text}</span>`;
       else if (t.kind === 'name') d.innerHTML = `<div class="nm">${t.text}</div><div class="ln"></div><div class="sb">${t.sub}</div>`;
       else if (t.kind === 'vo') d.innerHTML = (t.who ? `<b>${t.who}</b>` : '') + `<span>${t.text}</span>`;
       else if (t.kind === 'title') d.innerHTML = '<div class="tt">COLOMBO</div><div class="ts"><i></i>SHADOWS OF THE ISLAND<i></i></div>';
@@ -406,15 +451,16 @@ export class TrailerRuntime {
     set(O.black, 'opacity', bk.toFixed(3));
     let fl = 0; for (const f of this.plan.flashes) { const x = e - f; if (x >= 0 && x < 0.6) fl = Math.max(fl, Math.pow(1 - x / 0.6, 2.2)); }
     set(O.flash, 'opacity', fl.toFixed(3));
-    set(O.hint, 'opacity', performance.now() - this.hintT < 3500 && e < 100 ? '0.55' : '0');
+    if (O.hint) set(O.hint, 'opacity', performance.now() - this.hintT < 3500 && e < 100 ? '0.55' : '0');
     for (const X of O.texts) {
-      const t = X.t; let a = 0; if (e >= t.a - 0.05 && e <= t.b + 0.5) { const fi = t.kind === 'card' ? 0.08 : t.kind === 'vo' ? 0.2 : 0.45, fo = t.kind === 'card' ? 0.12 : 0.4; a = Math.min(sm((e - t.a) / fi), 1 - sm((e - t.b) / fo)); }
+      const t = X.t; let a = 0; if (e >= t.a - 0.05 && e <= t.b + 0.5) { const fi = t.fi ?? (t.kind === 'card' ? 0.08 : t.kind === 'vo' ? 0.2 : 0.45), fo = t.fo ?? (t.kind === 'card' ? 0.12 : 0.4); a = Math.min(sm((e - t.a) / fi), 1 - sm((e - t.b) / fo)); }
       const op = a.toFixed(3); if (op !== X.op) { X.op = op; X.d.style.opacity = op; X.d.style.visibility = a > 0.001 ? 'visible' : 'hidden'; }
       if (a <= 0.001) continue; const k = clamp((e - t.a) / (t.b - t.a), 0, 1);
       if (t.kind === 'card') X.d.style.letterSpacing = `${(0.62 - 0.12 * k).toFixed(3)}em`;
       else if (t.kind === 'name') { X.d.style.transform = `translate3d(${(-14 * (1 - sm(k * 4))).toFixed(1)}px,0,0)`; X.d.querySelector('.ln').style.transform = `scaleX(${sm(k * 3).toFixed(3)})`; }
       else if (t.kind === 'title') X.d.style.transform = `scale(${(1.07 - 0.07 * sm(k)).toFixed(4)})`;
       else if (t.kind === 'logo') X.d.style.transform = `scale(${(1.03 - 0.03 * sm(k)).toFixed(4)})`;
+      else if (this.textAnim) this.textAnim(X, t, k, e);
     }
   }
   describe() { const s = this.shot; return { e: +this.e.toFixed(3), shot: s && s.name, scene: this.sceneId, sim: +(this.simT || 0).toFixed(3), cam: this.g.camera.position.toArray().map((x) => +x.toFixed(2)) }; }

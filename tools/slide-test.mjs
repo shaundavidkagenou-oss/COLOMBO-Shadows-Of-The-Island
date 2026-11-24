@@ -17,10 +17,13 @@ const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 // Traffic rate-limits first-time model builds by wall-clock time; drive that clock from simulated time so the amount of
 // traffic does not depend on how fast this machine (or the character builder) happens to be.
 let simMs = 0; performance.now = () => simMs;
+// a slowly panning camera: Traffic never spawns in view, and with no camera direction at all it treats everything as seen
+// (only the first 2 s after a load may fill at once), so a camera-less run had almost no traffic to measure
+const cam = { x: 0, y: 0, z: -1 };
 function track(T, steps, dt, focus, extra = () => {}) {
   const prev = new Map(); let worstLat = 0, worstSpin = 0, who = '', samples = 0;
   for (let i = 0; i < steps; i++) {
-    simMs += dt * 1000; T.update(dt, focus, null, i * dt, [], null); extra(i);
+    simMs += dt * 1000; cam.x = Math.sin(i * dt * 0.35); cam.z = -Math.cos(i * dt * 0.35); T.update(dt, focus, cam, i * dt, [], null); extra(i);
     for (const v of T.vehicles) {
       const p = prev.get(v); const skid = !!v.free || !v.ai || !!(v.ai && v.ai.chase) || !!v.towedBy;
       if (p && !skid && !p.skid) {

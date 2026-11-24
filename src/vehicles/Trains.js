@@ -4,13 +4,19 @@
 // correctly through curves. Each car exposes the same collision interface as a road Vehicle (x, z, yaw, T.len/T.wid,
 // circles(), pushOut()) and is registered in Traffic.obstacles, so the player, pedestrians, AI and player-driven
 // vehicles all treat it as a solid, immovable body.
+import { HOOKS } from '../core/Hooks.js';
 import * as THREE from 'three';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MAT } from '../gfx/Materials.js';
 import * as R from '../world/Railway.js';
 import { Audio } from '../audio/Audio.js';
+import { SoundBank } from '../audio/SoundBank.js';
+import { stationMaterial } from '../gfx/StationPBR.js';
+import { buildDmuCar, makeTrainMaterials, protoMeshes, doorZs, wheelsetGeometry, wheelsetSpots, CAR_LEN as MODEL_LEN, BOGIE as MODEL_BOGIE, CAR_W as MODEL_W, FLOOR_Y } from './TrainModels.js';
 
-export const CAR_LEN = 19.6, CAR_GAP = 1.0, BOGIE = 14, CAR_W = 3.0, N_CARS = 5;
+export const CAR_LEN = MODEL_LEN, CAR_GAP = 1.0, BOGIE = MODEL_BOGIE, CAR_W = MODEL_W, N_CARS = 5;
+export { FLOOR_Y };
 export const TRAIN_LEN = N_CARS * CAR_LEN + (N_CARS - 1) * CAR_GAP;
 const VMAX = 15, ACC = 0.55, BRAKE = 0.75, EBRAKE = 1.4, DWELL = 25;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -28,62 +34,20 @@ const VLIM = (() => {
 })();
 export function speedLimitAt(s) { return VLIM[clamp(Math.round(s / STEP), 0, VLIM.length - 1)]; }
 
-// ---------------------------------------------------------------- shared car geometry (local: +z = car front, y = 0 at rail top)
-const COL = { blue: [0.11, 0.27, 0.6], red: [0.74, 0.12, 0.13], cream: [0.9, 0.88, 0.8], roof: [0.55, 0.57, 0.59], under: [0.16, 0.16, 0.17], door: [0.14, 0.22, 0.42], bogie: [0.12, 0.12, 0.12], gang: [0.1, 0.1, 0.1], yellow: [0.92, 0.75, 0.1] };
-let PROTO = null;
-function makeMaterials() {
-  return Object.assign(Object.create(MAT), {
-    trainWin: new THREE.MeshStandardMaterial({ color: 0x1a242c, roughness: 0.12, metalness: 0.4, emissive: 0xffdcaa, emissiveIntensity: 0 }),
-    trainCabGlass: new THREE.MeshStandardMaterial({ color: 0x10171c, roughness: 0.06, metalness: 0.6 }),
-  });
+// ---------------------------------------------------------------- car geometry: vehicles/TrainModels.js (54th: S11-style DMU
+// shell with real window openings, open doorways, a full interior and seats people can sit in)
+// 57th: the headlamp face — a twin sealed-beam cluster: black housing, two round chrome reflectors with a lamp core and a
+// faceted lens, so lit it reads as two real lamps (it was a flat white bar). Multiplied by the lamp material's colour (HDR when lit).
+let LAMP_TEX = null;
+function lampTexture() {
+  if (LAMP_TEX) return LAMP_TEX; const c = document.createElement('canvas'); c.width = 128; c.height = 56; const x = c.getContext('2d');
+  x.fillStyle = '#121212'; x.fillRect(0, 0, 128, 56);
+  for (const cx of [32, 96]) { let g = x.createRadialGradient(cx, 28, 2, cx, 28, 25); g.addColorStop(0, '#ffffff'); g.addColorStop(0.18, '#fffbf0'); g.addColorStop(0.32, '#d8d4cc'); g.addColorStop(0.62, '#8c8a86'); g.addColorStop(0.86, '#b8b6b0'); g.addColorStop(1, '#3a3a3a');
+    x.fillStyle = g; x.beginPath(); x.arc(cx, 28, 25, 0, Math.PI * 2); x.fill();
+    x.strokeStyle = 'rgba(255,255,255,0.18)'; x.lineWidth = 1; for (let k = -3; k <= 3; k++) { x.beginPath(); x.moveTo(cx + k * 6, 5); x.lineTo(cx + k * 6, 51); x.stroke(); } // lens flutes
+    x.strokeStyle = '#2a2a2a'; x.lineWidth = 2.5; x.beginPath(); x.arc(cx, 28, 25.5, 0, Math.PI * 2); x.stroke(); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return (LAMP_TEX = t);
 }
-function buildCar(cab) {
-  const mb = new MultiBuilder(); const P = mb.get('paint'), M = mb.get('metal'), W = mb.get('trainWin'), G = mb.get('trainCabGlass');
-  const L2 = CAR_LEN / 2, hw = CAR_W / 2;
-  // underframe + bogies + wheels
-  P.box(0, 1.12, 0, CAR_W - 0.06, 0.26, CAR_LEN - 0.1, { col: COL.under, bottom: true });
-  P.box(0, 0.78, 0, 2.2, 0.45, 6.5, { col: COL.under }); P.box(0, 0.8, 0, 2.5, 0.3, 1.2, { col: [0.22, 0.22, 0.23] });
-  const wheel = new THREE.CylinderGeometry(0.46, 0.46, 0.13, 14); wheel.rotateZ(Math.PI / 2);
-  for (const bz of [-BOGIE / 2, BOGIE / 2]) {
-    P.box(0, 0.6, bz, 2.35, 0.32, 3.1, { col: COL.bogie, bottom: true }); P.box(0, 0.88, bz, 1.6, 0.2, 1.4, { col: COL.bogie });
-    for (const az of [-1.3, 1.3]) for (const sx of [-1, 1]) M.geometry(wheel, new THREE.Matrix4().makeTranslation(sx * 0.87, 0.46, bz + az), [0.3, 0.29, 0.28]);
-    for (const az of [-1.3, 1.3]) P.box(0, 0.46, bz + az, 1.74, 0.12, 0.12, { col: COL.bogie });
-  }
-  // body bands
-  P.box(0, 1.65, 0, CAR_W, 0.8, CAR_LEN, { col: COL.blue });
-  P.box(0, 2.11, 0, CAR_W + 0.01, 0.12, CAR_LEN - 0.02, { col: COL.red });
-  P.box(0, 2.66, 0, CAR_W - 0.02, 0.98, CAR_LEN, { col: COL.cream });
-  P.box(0, 3.4, 0, CAR_W - 0.04, 0.5, CAR_LEN, { col: COL.cream });
-  // roof (stepped camber) + roof equipment
-  P.box(0, 3.72, 0, CAR_W - 0.16, 0.16, CAR_LEN - 0.06, { col: COL.roof }); P.box(0, 3.86, 0, CAR_W - 0.7, 0.12, CAR_LEN - 0.2, { col: COL.roof }); P.box(0, 3.95, 0, CAR_W - 1.4, 0.07, CAR_LEN - 0.4, { col: COL.roof });
-  for (const z of [-5.5, 5.5]) P.box(0, 4.06, z, 1.3, 0.18, 2.0, { col: [0.7, 0.71, 0.72] });
-  // doors (two per side) and windows
-  const doorZ = [-L2 + 4.0, L2 - 4.0]; if (cab) doorZ[1] = L2 - 4.6;
-  for (const sx of [-1, 1]) {
-    for (const dz of doorZ) {
-      P.box(sx * (hw + 0.006), 2.15, dz, 0.03, 2.05, 1.35, { col: COL.door });
-      for (const lz of [-0.34, 0.34]) W.box(sx * (hw + 0.02), 2.62, dz + lz, 0.02, 0.8, 0.46);
-      P.box(sx * (hw + 0.012), 1.17, dz, 0.04, 0.06, 1.35, { col: COL.yellow }); // step edge
-    }
-    const winEnd = cab ? L2 - 3.0 : L2 - 1.2;
-    for (let z = -L2 + 1.2; z < winEnd - 0.6; z += 1.62) { if (doorZ.some((d) => Math.abs(z + 0.65 - d) < 1.35)) continue; W.box(sx * (hw + 0.01), 2.66, z + 0.65, 0.02, 0.82, 1.24); }
-  }
-  // ends
-  if (!cab) P.box(0, 2.3, L2 + 0.26, 1.3, 2.3, 0.52, { col: COL.gang });
-  P.box(0, 2.3, -L2 - 0.26, 1.3, 2.3, 0.52, { col: COL.gang }); // rear gangway (cab cars keep one at the inner end)
-  if (cab) {
-    P.box(0, 1.62, L2 + 0.03, CAR_W - 0.08, 0.86, 0.06, { col: COL.red }); // red front apron
-    P.box(0, 1.2, L2 + 0.05, CAR_W - 0.2, 0.18, 0.06, { col: COL.yellow }); // yellow warning band
-    G.box(0, 2.78, L2 + 0.02, CAR_W - 0.5, 1.02, 0.04); P.box(0, 2.78, L2 + 0.025, 0.08, 1.02, 0.05, { col: COL.cream }); // windscreen + pillar
-    P.box(0, 3.5, L2 + 0.025, CAR_W - 0.1, 0.42, 0.04, { col: COL.cream });
-    P.box(0, 0.5, L2 + 0.15, 2.5, 0.55, 0.14, { col: COL.under }); // plough
-    P.box(0, 1.05, L2 + 0.35, 0.32, 0.26, 0.7, { col: COL.under }); // coupler
-    for (const sx of [-1, 1]) G.box(sx * (hw + 0.012), 2.7, L2 - 1.6, 0.02, 0.8, 1.6); // cab side windows
-  }
-  return mb;
-}
-function protoMeshes(cab, mats) { return buildCar(cab).toMeshes(mats, { cast: true, receive: true }); }
-
 function destTexture(st) {
   const c = document.createElement('canvas'); c.width = 512; c.height = 64; const x = c.getContext('2d');
   x.fillStyle = '#0b0b0b'; x.fillRect(0, 0, 512, 64); x.fillStyle = '#ffa31a'; x.textBaseline = 'middle'; x.textAlign = 'center';
@@ -110,48 +74,69 @@ class TrainCar {
 }
 
 // ---------------------------------------------------------------- one train
+const _wm = new THREE.Matrix4(), _wq = new THREE.Quaternion(), _wr = new THREE.Quaternion(), _wp = new THREE.Vector3(), _ws = new THREE.Vector3(1, 1, 1), _wy = new THREE.Vector3(0, 1, 0), _wx = new THREE.Vector3(1, 0, 0);
 class Train {
   constructor(sys, id, sLow, dir) {
     this.sys = sys; this.id = id; this.sLow = sLow; this.dir = dir; this.speed = 0; this.state = 'dwell'; this.dwell = 6 + id * 9; this.emergency = 0; this.hornCd = 0; this.clackT = 0; this.rumbleT = 0;
     this.group = new THREE.Group(); this.group.name = 'train' + id; sys.scene.add(this.group);
-    this.endMats = [0, 1].map(() => ({ head: new THREE.MeshBasicMaterial({ color: 0x222222 }), tail: new THREE.MeshBasicMaterial({ color: 0x220000 }), dest: new THREE.MeshBasicMaterial({ map: sys.destTex[0] }) }));
+    this.endMats = [0, 1].map(() => ({ head: new THREE.MeshBasicMaterial({ color: 0x222222, map: lampTexture() }), tail: new THREE.MeshBasicMaterial({ color: 0x220000 }), dest: new THREE.MeshBasicMaterial({ map: sys.destTex[0] }) }));
     this.cars = []; this.bodies = [];
     for (let i = 0; i < N_CARS; i++) {
       const cab = i === 0 || i === N_CARS - 1; const g = new THREE.Group(); const inner = new THREE.Group(); g.add(inner); // inner flips cab car 0 to face −s
-      for (const m of cab ? sys.protoCab : sys.protoTrailer) { const mm = new THREE.Mesh(m.geometry, m.material); mm.castShadow = true; mm.receiveShadow = true; inner.add(mm); }
+      for (const m of cab ? sys.protoCab : sys.protoTrailer) { const mm = new THREE.Mesh(m.geometry, m.material); mm.castShadow = m.castShadow; mm.receiveShadow = m.receiveShadow; mm.renderOrder = m.renderOrder; inner.add(mm); } // (glass / tubes keep their no-shadow, draw-late flags)
+      if (HOOKS.vehicle) HOOKS.vehicle(inner, cab ? 'train:dmuCab' : 'train:dmuTrailer'); // 68th: model tools
       if (cab) {
         const end = i === 0 ? 0 : 1; const em = this.endMats[end]; const L2 = CAR_LEN / 2;
         for (const sx of [-1, 1]) {
-          const h = new THREE.Mesh(sys.lampGeo, em.head); h.position.set(sx * 0.95, 1.55, L2 + 0.07); inner.add(h);
-          const t = new THREE.Mesh(sys.tailGeo, em.tail); t.position.set(sx * 1.27, 1.55, L2 + 0.07); inner.add(t);
+          const h = new THREE.Mesh(sys.lampGeo, em.head); h.position.set(sx * 0.98, 2.06, L2 + 0.056); inner.add(h); // in the black housings of the cab front
+          const t = new THREE.Mesh(sys.tailGeo, em.tail); t.position.set(sx * 1.36, 2.06, L2 + 0.02); inner.add(t);
         }
-        const d = new THREE.Mesh(sys.destGeo, em.dest); d.position.set(0, 3.5, L2 + 0.05); inner.add(d);
+        const d = new THREE.Mesh(sys.destGeo, em.dest); d.position.set(0, 3.55, L2 - 0.272); inner.add(d); // destination blind in the red cap band
         if (i === 0) inner.rotation.y = Math.PI;
       }
+      g.userData.inner = inner; g.userData.cab = cab; g.userData.flip = i === 0 && cab ? -1 : 1; g.userData.roll = 0; g.userData.rv = 0; g.userData.pitch = 0; g.userData.pv = 0; g.userData.ph = i * 2.3 + id * 5.1;
       this.group.add(g); this.cars.push(g); const b = new TrainCar(this, i); this.bodies.push(b);
     }
+    // 55th: the wheelsets turn — one InstancedMesh per train, 4 per car, rolled by the distance run
+    this.wheelZ = wheelsetSpots(BOGIE); this.wheelAng = 0; this.acc = 0; this.slack = 0;
+    this.wheels = new THREE.InstancedMesh(sys.wheelGeo, stationMaterial(), N_CARS * this.wheelZ.length); this.wheels.castShadow = true; this.wheels.receiveShadow = true; this.wheels.frustumCulled = false; this.wheels.name = 'train-wheels'; this.group.add(this.wheels);
     this.nextStop = this.findNextStop(); this.place(); this.updateLamps();
   }
   get front() { return this.dir > 0 ? this.sLow + TRAIN_LEN : this.sLow; }
   get centre() { return this.sLow + TRAIN_LEN / 2; }
   findNextStop() { const S = R.STOPS, c = this.centre; if (this.dir > 0) return S.find((s) => s.s > c + 1) || S[S.length - 1]; for (let i = S.length - 1; i >= 0; i--) if (S[i].s < c - 1) return S[i]; return S[0]; }
   isTerminus(st) { return st === R.STOPS[0] || st === R.STOPS[R.STOPS.length - 1]; }
+  // the cast headlight (57th): world position / aim point of the lead cab's twin lamps, for the pooled shadowed beam (HeadlightRig)
+  beamPose(pos, tgt) { const car = this.cars[this.dir > 0 ? N_CARS - 1 : 0], inner = car.userData.inner; inner.updateWorldMatrix(true, false); const L2 = CAR_LEN / 2;
+    pos.set(0, 2.06, L2 + 0.25).applyMatrix4(inner.matrixWorld); tgt.set(0, 0.95, L2 + 40).applyMatrix4(inner.matrixWorld); return car; }
   updateLamps() {
     const lead = this.dir > 0 ? 1 : 0; const night = this.sys.night;
-    this.endMats.forEach((m, e) => { const on = e === lead; m.head.color.setRGB(on ? 1.6 : 0.12, on ? 1.55 : 0.12, on ? 1.4 : 0.12); m.tail.color.setRGB(on ? 0.15 : 1.2 + night * 0.8, on ? 0.02 : 0.05, on ? 0.02 : 0.05); });
+    this.endMats.forEach((m, e) => { const on = e === lead; m.head.color.setRGB(on ? 1.5 + night * 1.3 : 0.16, on ? 1.46 + night * 1.25 : 0.16, on ? 1.36 + night * 1.1 : 0.16); /* HDR at night: blooms like a car's lamps */ m.tail.color.setRGB(on ? 0.15 : 1.2 + night * 0.8, on ? 0.02 : 0.05, on ? 0.02 : 0.05); });
     const dst = this.dir > 0 ? R.STOPS[R.STOPS.length - 1] : R.STOPS[0]; const tex = this.sys.destTex[this.dir > 0 ? 1 : 0]; this.endMats.forEach((m) => { if (m.dest.map !== tex) { m.dest.map = tex; m.dest.needsUpdate = true; } }); this.destination = dst;
   }
   place() {
-    const pa = {}, pb = {};
+    const pa = {}, pb = {}; const lead = this.dir > 0 ? N_CARS - 1 : 0;
     for (let i = 0; i < N_CARS; i++) {
-      const s0 = this.sLow + i * (CAR_LEN + CAR_GAP), sa = s0 + (CAR_LEN - BOGIE) / 2, sb = sa + BOGIE; R.sampleAt(sa, pa); R.sampleAt(sb, pb);
+      const s0 = this.sLow + i * (CAR_LEN + CAR_GAP) - this.dir * this.slack * Math.abs(i - lead) /* couplers: stretched under power, bunched under the brakes */, sa = s0 + (CAR_LEN - BOGIE) / 2, sb = sa + BOGIE; R.sampleAt(sa, pa); R.sampleAt(sb, pb);
       const x = (pa.x + pb.x) / 2, z = (pa.z + pb.z) / 2, yaw = Math.atan2(pb.x - pa.x, pb.z - pa.z);
       const g = this.cars[i]; g.position.set(x, R.RAIL_TOP, z); g.rotation.y = yaw;
       const b = this.bodies[i]; b.x = x; b.z = z; b.yaw = yaw; b.speed = this.speed * this.dir;
+      // the body on its suspension (the wheelsets stay on the rails): roll into the curve's lateral acceleration plus the
+      // track's small irregularities, pitch on the brakes / power, each a damped spring so it settles with a rock after a stop
+      const u = g.userData, dt = this._dt || 0; if (dt > 0) { const v = this.speed, dyw = (((yaw - (u.lastYaw ?? yaw)) + 3 * Math.PI) % (2 * Math.PI)) - Math.PI, curv = dyw / Math.max(1e-3, Math.abs(this.sLow - (u.lastS ?? this.sLow)) || 1e9);
+        const lat = v * v * (Number.isFinite(curv) ? curv : 0) * this.dir, k = Math.min(1, v / 12), sAl = this.sLow + i * 21;
+        const rollT = Math.max(-0.03, Math.min(0.03, lat * 0.012)) + k * (0.0035 * Math.sin(sAl * 0.71 + u.ph) + 0.002 * Math.sin(sAl * 2.3 + u.ph * 1.7));
+        u.rv += (-(16) * (u.roll - rollT) - 2 * 0.25 * 4 * u.rv) * dt; u.roll += u.rv * dt;
+        const pitchT = -this.acc * 0.0035 * this.dir + k * 0.0012 * Math.sin(sAl * 1.3 + u.ph); u.pv += (-(25) * (u.pitch - pitchT) - 2 * 0.3 * 5 * u.pv) * dt; u.pitch += u.pv * dt;
+        u.inner.rotation.z = u.roll * u.flip; u.inner.rotation.x = u.pitch * u.flip; u.inner.position.y = k * 0.006 * Math.sin(sAl * 1.9 + u.ph * 0.6); }
+      u.lastYaw = yaw; u.lastS = this.sLow;
+      for (let w = 0; w < this.wheelZ.length; w++) { const wz = this.wheelZ[w], sw = s0 + CAR_LEN / 2 + wz; R.sampleAt(sw, pa); _wq.setFromAxisAngle(_wy, Math.atan2(pa.dx, pa.dz)); _wr.setFromAxisAngle(_wx, this.wheelAng); _wq.multiply(_wr);
+        _wm.compose(_wp.set(pa.x, R.RAIL_TOP + 0.46, pa.z), _wq, _ws); this.wheels.setMatrixAt(i * this.wheelZ.length + w, _wm); }
     }
+    this.wheels.instanceMatrix.needsUpdate = true;
   }
   horn(long = false) {
-    const c = R.sampleAt(this.front); const [g, pan] = Audio.spatial(c.x, c.z, 260); if (g < 0.015) return; const v = 0.2 * g, d = long ? 1.6 : 0.8;
+    const c = R.sampleAt(this.front); const [g, pan] = Audio.spatial(c.x, c.z, 260); if (g < 0.015) return; const v = 0.2 * g, d = long ? 1.6 : 0.8; if (SoundBank.play('train.horn', g, pan)) return;
     for (const [f, k] of [[311, 1], [370, 0.85], [466, 0.55]]) Audio.tone(f, d, { type: 'sawtooth', vol: v * k * 0.5, pan, attack: 0.06 });
   }
   // obstacles on the track ahead of the leading cab (player, player's vehicle, road vehicles): returns clear distance
@@ -168,7 +153,7 @@ class Train {
     return best;
   }
   update(dt, ctx) {
-    this.hornCd -= dt;
+    this.hornCd -= dt; this._dt = dt; this.slack += (clamp(this.acc * 0.05, -0.03, 0.03) - this.slack) * Math.min(1, dt * 1.5); this.wheelAng += this.dir * this.speed * dt / 0.46;
     if (this.state === 'dwell') {
       this.speed = 0; this.dwell -= dt;
       if (this.dwell <= 0) {
@@ -178,32 +163,56 @@ class Train {
     } else {
       // target speed: line limits over the whole train + braking curve to the next stop, curves ahead and obstacles
       let vt = VMAX; for (let s = this.sLow; s <= this.sLow + TRAIN_LEN; s += STEP * 2) vt = Math.min(vt, speedLimitAt(s));
-      for (let k = 2; k < 160; k += 4) { const s = this.front + this.dir * k; if (s < 0 || s > R.PATH.total) break; vt = Math.min(vt, Math.sqrt(speedLimitAt(s) ** 2 + 2 * BRAKE * k)); }
+      for (let k = 2; k < 160; k += 4) { const s = this.front + this.dir * k; if (s < 0 || s > R.PATH.total) break; vt = Math.min(vt, Math.sqrt(speedLimitAt(s) ** 2 + 2 * BRAKE * 0.7 * k)); } // planned at 70 % of the service brake: the jerk-limited brake needs the margin
       const rem = (this.nextStop.s - this.centre) * this.dir; vt = Math.min(vt, Math.sqrt(2 * BRAKE * Math.max(0, rem - 0.3)) + (rem > 1.5 ? 0.6 : 0));
       const obs = this.obstacleAhead(ctx.obstacles); this.obstacleDist = obs;
       if (obs < 140) { vt = Math.min(vt, Math.sqrt(2 * EBRAKE * Math.max(0, obs - 6))); if (this.hornCd <= 0) { this.horn(true); this.hornCd = 2.5; } }
       const emergencyBrake = obs < 140 && this.speed > vt + 0.5; this.emergency = emergencyBrake ? 1 : 0;
-      this.speed = clamp(vt - this.speed, -(emergencyBrake ? EBRAKE : BRAKE) * 1.3 * dt, ACC * dt) + this.speed; this.speed = Math.max(0, this.speed);
+      // 55th: a real train doesn't snap between full power and full brake: the commanded acceleration follows the speed error and
+      // changes at a limited jerk (harder only in an emergency), so starts ease in and stops ease out
+      const aT = clamp((vt - this.speed) * 1.2, -(emergencyBrake ? EBRAKE : BRAKE) * 1.3, ACC * (this.speed < 3 ? 0.8 + this.speed / 15 : 1)); const J = emergencyBrake ? 3 : 0.45;
+      this.acc += clamp(aT - this.acc, -J * dt, J * dt); if (vt < this.speed - 0.4 && this.acc > 0) this.acc = Math.max(0, this.acc - 2 * J * dt);
+      this.speed = Math.max(0, this.speed + this.acc * dt); if (this.speed > vt + 0.35) this.speed = Math.max(vt + 0.35, this.speed - EBRAKE * dt);
       this.sLow += this.dir * this.speed * dt; this.sLow = clamp(this.sLow, 0, R.PATH.total - TRAIN_LEN);
       // approaching a level crossing: sound the horn
       for (const c of this.sys.crossings) { const a = (c.s - this.front) * this.dir; if (a > 60 && a < 60 + this.speed * dt * 1.01 + 0.01) this.horn(true); }
-      if (rem < 0.35 && this.speed < 0.25) { this.state = 'dwell'; this.dwell = this.isTerminus(this.nextStop) ? DWELL + 15 : DWELL; this.speed = 0; this.stoppedAt = this.nextStop.name; this.stops = (this.stops || 0) + 1; }
+      if (rem < 0.35 && this.speed < 0.25) { this.acc = 0; this.state = 'dwell'; this.dwell = this.isTerminus(this.nextStop) ? DWELL + 15 : DWELL; this.speed = 0; this.stoppedAt = this.nextStop.name; this.stops = (this.stops || 0) + 1; }
     }
     this.place();
     // sound: diesel rumble + wheel clacks near the listener
     const c = R.sampleAt(this.centre); const [g] = Audio.spatial(c.x, c.z, 90);
+    // 57th: the player's running sound — "Train moving" (train.run), or a long recording put in "Wheels over rail joints" — plays
+    // as one continuous loop (gain and pitch follow the speed) instead of being restarted every car length (which cut it to ~1 s)
+    const runId = SoundBank.has('train.run') ? 'train.run' : SoundBank.duration('train.clack') > 1.5 ? 'train.clack' : null;
+    if (runId && g > 0.01 && Audio.ctx && Audio.live) { const c2 = Audio.ctx, now = c2.currentTime; let S = this.runSnd;
+      if (!S) { const gn = c2.createGain(); gn.gain.value = 0; const pan = c2.createStereoPanner(); gn.connect(pan); pan.connect(Audio.bus.sfx); S = this.runSnd = { gn, pan }; }
+      const [, pp] = Audio.spatial(c.x, c.z, 90); const k = Math.min(1, this.speed / 5); S.gn.gain.setTargetAtTime(g * k, now, 0.25); S.pan.pan.setTargetAtTime(pp, now, 0.2);
+      const smp = SoundBank.syncLoop(S, runId, S.gn); if (smp && smp.src) smp.src.playbackRate.setTargetAtTime(0.75 + 0.35 * Math.min(1, this.speed / VMAX), now, 0.3); }
+    else if (this.runSnd && this.runSnd.smp) { this.runSnd.gn.gain.setTargetAtTime(0, Audio.ctx.currentTime, 0.2); if (g <= 0.01 || !runId) SoundBank.stopLoop(this.runSnd); }
+    if (runId) return; // the recording replaces the synthesised rumble and clacks
     this.rumbleT -= dt; if (g > 0.03 && this.rumbleT <= 0) { this.rumbleT = 0.35; Audio.noise(0.45, { f: 90 + this.speed * 6, q: 0.6, type: 'lowpass', vol: g * (0.08 + this.speed * 0.012) }); }
-    if (this.speed > 2) { this.clackT -= dt * this.speed; if (this.clackT <= 0) { this.clackT = CAR_LEN + CAR_GAP; if (g > 0.05) for (const w of [0, 0.11]) Audio.noise(0.04, { f: 2200, q: 2, vol: g * 0.08, when: w }); } }
+    if (this.speed > 2) { this.clackT -= dt * this.speed; if (this.clackT <= 0) { this.clackT = CAR_LEN + CAR_GAP; if (g > 0.05 && !SoundBank.play('train.clack', g)) for (const w of [0, 0.11]) Audio.noise(0.04, { f: 2200, q: 2, vol: g * 0.08, when: w }); } }
   }
 }
 
 // ---------------------------------------------------------------- level-crossing barriers
+// 85th (perf): boxes baked into ONE vertex-coloured geometry — a boom arm was ~30 separate 0.6 m stripe meshes and a
+// crossbuck 4, i.e. ~74 draw calls per crossing (up to 230 a frame across the city, even from 400 m). Same sizes,
+// colours, roughness, shadows and pivots: [geometry, colour hex, matrix] parts → one mesh.
+const _cm = new THREE.Matrix4(), _cq = new THREE.Quaternion(), _ce = new THREE.Euler(), _cs = new THREE.Vector3(1, 1, 1), _cp = new THREE.Vector3();
+function bakeParts(parts) {
+  const gs = parts.map(([geo, hex, x = 0, y = 0, z = 0, rz = 0]) => { const q = geo.index ? geo.toNonIndexed() : geo.clone(); _cm.compose(_cp.set(x, y, z), _cq.setFromEuler(_ce.set(0, 0, rz)), _cs); q.applyMatrix4(_cm);
+    const col = new THREE.Color(hex); const n = q.attributes.position.count; const a = new Float32Array(n * 3); for (let i = 0; i < n; i++) { a[i * 3] = col.r; a[i * 3 + 1] = col.g; a[i * 3 + 2] = col.b; } q.setAttribute('color', new THREE.BufferAttribute(a, 3)); return q; });
+  const m = mergeGeometries(gs); for (const q of gs) q.dispose(); return m;
+}
+let CROSS_MAT = null;
 function buildCrossing(sys, c) {
   const g = new THREE.Group(); const mb = new MultiBuilder(); const P = mb.get('paint');
   const sinA = Math.max(0.35, Math.abs(c.ax[0] * c.rdz - c.ax[1] * c.rdx)); const D = (R.DECK_HW + R.RAMP + 1.6) / sinA;
   c.sides = []; c.lampMats = [new THREE.MeshBasicMaterial({ color: 0x220000 }), new THREE.MeshBasicMaterial({ color: 0x220000 })];
   const lamp = new THREE.SphereGeometry(0.11, 10, 8), boomSeg = new THREE.BoxGeometry(0.6, 0.1, 0.07);
-  const white = new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.6 }), red = new THREE.MeshStandardMaterial({ color: 0xc81e1e, roughness: 0.6 });
+  const striped = CROSS_MAT || (CROSS_MAT = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6, vertexColors: true })); // white 0xf2f2ee / red 0xc81e1e per vertex
+  const xbW = new THREE.BoxGeometry(1.3, 0.24, 0.03), xbR = new THREE.BoxGeometry(1.14, 0.1, 0.035);
   for (const sd of [-1, 1]) {
     const hx = -sd * c.ax[0], hz = -sd * c.ax[1]; // traffic heading toward the track on this side
     const lx = hz, lz = -hx; // its left (left-hand traffic → barrier post on the left verge)
@@ -215,26 +224,29 @@ function buildCrossing(sys, c) {
     P.box(px + lx * 0.1 - hx * 0.08, y0 + 2.45, pz + lz * 0.1 - hz * 0.08, 1.0, 0.36, 0.08, { col: [0.08, 0.08, 0.08], rotY: Math.atan2(-lz, lx) }); // lamp board across the approach
     for (let k = 0; k < 2; k++) { const m = new THREE.Mesh(lamp, c.lampMats[k]); const t = k ? 0.3 : -0.3; m.position.set(px + lx * (0.1 + t) - hx * 0.15, y0 + 2.45, pz + lz * (0.1 + t) - hz * 0.15); g.add(m); }
     const cb = new THREE.Group(); cb.position.set(px + lx * 0.1 - hx * 0.1, y0 + 3.3, pz + lz * 0.1 - hz * 0.1); cb.rotation.y = Math.atan2(hx, hz);
-    for (const a of [Math.PI / 4, -Math.PI / 4]) { const w = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.24, 0.03), white); w.rotation.z = a; cb.add(w); const r2 = new THREE.Mesh(new THREE.BoxGeometry(1.14, 0.1, 0.035), red); r2.rotation.z = a; r2.position.z = -0.003; cb.add(r2); }
+    { const parts = []; for (const a of [Math.PI / 4, -Math.PI / 4]) { parts.push([xbW, 0xf2f2ee, 0, 0, 0, a], [xbR, 0xc81e1e, 0, 0, -0.003, a]); } cb.add(new THREE.Mesh(bakeParts(parts), striped)); }
     g.add(cb);
     // boom arm: pivots at the post, spans the full carriageway toward the far verge
     const bdx = -lx, bdz = -lz, len = c.hw * 2 + 0.6; const pivot = new THREE.Group(); pivot.position.set(px, y0 + 1.0, pz); pivot.rotation.y = Math.atan2(-bdz, bdx);
     const arm = new THREE.Group(); pivot.add(arm);
-    for (let k = 0; k * 0.6 < len; k++) { const m = new THREE.Mesh(boomSeg, k % 2 ? white : red); m.position.x = 0.3 + k * 0.6; m.castShadow = true; arm.add(m); }
+    { const parts = []; for (let k = 0; k * 0.6 < len; k++) parts.push([boomSeg, k % 2 ? 0xf2f2ee : 0xc81e1e, 0.3 + k * 0.6]); const m = new THREE.Mesh(bakeParts(parts), striped); m.castShadow = true; arm.add(m); }
     const cw = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.28, 0.22), new THREE.MeshStandardMaterial({ color: 0x333333 })); cw.position.x = -0.45; arm.add(cw);
     arm.rotation.z = Math.PI / 2 * 0.95; g.add(pivot);
     c.sides.push({ arm, px, pz, bdx, bdz, len, py: y0 + 1.0, ofs: 0, av: 0, need: 0, touch: false, clatT: 0, down: 0 });
   }
   for (const m of mb.toMeshes(MAT)) g.add(m);
+  boomSeg.dispose(); xbW.dispose(); xbR.dispose();
   sys.scene.add(g); c.group = g; c.flash = 0; c.closedT = 0; c.bellT = 0;
 }
 
 export class Trains {
   constructor(scene, opts = {}) {
     this.scene = scene; this.night = 0; this.crossings = R.CROSSINGS; this.obstacles = [];
-    const mats = makeMaterials(); this.mats = mats;
-    this.protoCab = protoMeshes(true, mats); this.protoTrailer = protoMeshes(false, mats);
-    this.lampGeo = new THREE.BoxGeometry(0.32, 0.2, 0.04); this.tailGeo = new THREE.BoxGeometry(0.16, 0.16, 0.04); this.destGeo = new THREE.PlaneGeometry(1.7, 0.26);
+    const mats = makeTrainMaterials(); this.mats = mats;
+    const cab = buildDmuCar(true, { liveWheels: true }), tr = buildDmuCar(false, { liveWheels: true });
+    this.protoCab = protoMeshes(cab.mb, mats); this.protoTrailer = protoMeshes(tr.mb, mats); this.wheelGeo = wheelsetGeometry();
+    this.seatsCab = cab.seats; this.seatsTrailer = tr.seats; this.doorsCab = doorZs(true); this.doorsTrailer = doorZs(false); // car-local (+z = car front) for the station's passengers
+    this.lampGeo = new THREE.PlaneGeometry(0.42, 0.18); this.tailGeo = new THREE.BoxGeometry(0.12, 0.12, 0.03); this.destGeo = new THREE.PlaneGeometry(1.34, 0.26);
     this.destTex = [destTexture(R.STOPS[0]), destTexture(R.STOPS[R.STOPS.length - 1])];
     // The line is single-track with no passing loops, so ONE train works the full line (Wellawatte ↔ Maradana).
     // A second train in the opposite direction would inevitably meet it head-on; obstacleAhead() also treats other
@@ -261,7 +273,7 @@ export class Trains {
       c.lampMats[0].color.setRGB(c.active && ph === 0 ? 2.2 : 0.14, c.active && ph === 0 ? 0.12 : 0.0, 0.0); c.lampMats[1].color.setRGB(c.active && ph === 1 ? 2.2 : 0.14, c.active && ph === 1 ? 0.12 : 0.0, 0.0);
       const near = contacts.filter((v) => v && Math.abs(v.x - c.x) < 30 && Math.abs(v.z - c.z) < 30);
       for (const sd of c.sides) this.stepBoom(sd, c.boom, near, dt);
-      if (c.active && listener) { c.bellT -= dt; if (c.bellT <= 0) { c.bellT = 0.42; const [g, pan] = Audio.spatial(c.x, c.z, 50); if (g > 0.03) Audio.tone(1350, 0.16, { type: 'triangle', vol: 0.06 * g, pan }); } }
+      if (c.active && listener) { c.bellT -= dt; if (c.bellT <= 0) { c.bellT = 0.42; const [g, pan] = Audio.spatial(c.x, c.z, 50); if (g > 0.03) SoundBank.play('train.bell', g, pan, 0, { mono: true }) || Audio.tone(1350, 0.16, { type: 'triangle', vol: 0.06 * g, pan }); } }
     }
   }
   // AI drivers: distance to a stop line before an active crossing ahead (or Infinity)
@@ -306,8 +318,35 @@ export class Trains {
     if (t0 > t1 || t1 < 0.3 || t0 > sd.len) return 0;
     const t = Math.max(0.3, t0); return Math.asin(Math.min(0.999, (top - sd.py) / t));
   }
+  // 55th: the station's departure / arrival screens are fed from here. Projects every running train forward along the line
+  // (the same speed limits, acceleration, braking and dwell times the trains really use, reversing at the termini) and
+  // returns its next n calls at the named station: { t: s until arrival (< 0 = arrived t s ago), dep: s until departure,
+  // dir, from, to, train, here (standing at the platform now), late (held by something on the track) }.
+  forecast(name, n = 4) {
+    const S = R.STOPS, target = S.find((st) => st.name === name), out = []; if (!target) return out;
+    const term = (st) => st === S[0] || st === S[S.length - 1];
+    const nextFrom = (c, dir) => { if (dir > 0) return S.find((st) => st.s > c + 1) || S[S.length - 1]; for (let i = S.length - 1; i >= 0; i--) if (S[i].s < c - 1) return S[i]; return S[0]; };
+    const leg = (a, b, v0) => { const d = Math.abs(b - a), sg = Math.sign(b - a) || 1; let t = 0;
+      for (let x = 0; x < d; x += STEP) { const ss = a + sg * x; const v = Math.max(0.6, Math.min(speedLimitAt(ss), Math.sqrt(v0 * v0 + 2 * ACC * x), Math.sqrt(2 * BRAKE * Math.max(0, d - x)) + 0.6)); t += Math.min(STEP, d - x) / v; }
+      return t; };
+    const ends = (dir) => (dir > 0 ? [S[0], S[S.length - 1]] : [S[S.length - 1], S[0]]);
+    for (const tr of this.trains) {
+      let c = tr.centre, dir = tr.dir, v = tr.speed, t = 0, next = tr.nextStop, k = 0; const late = tr.state !== 'dwell' && (tr.emergency || tr.obstacleDist < 140);
+      if (tr.state === 'dwell') {
+        const near = Math.abs(next.s - c) < 3, dw = term(next) ? DWELL + 15 : DWELL;
+        if (near && next === target) { const [from, to] = ends(dir); out.push({ t: -(dw - tr.dwell), dep: Math.max(0, tr.dwell), dir, from, to, train: tr, here: true, late: false }); k++; }
+        t = Math.max(0, tr.dwell); v = 0; if (near && term(next)) dir = next === S[0] ? 1 : -1; next = nextFrom(c, dir);
+      }
+      for (let guard = 0; k < n && guard < 60; guard++) {
+        t += leg(c, next.s, v); v = 0; c = next.s; const dw = term(next) ? DWELL + 15 : DWELL;
+        if (next === target) { const [from, to] = ends(dir); out.push({ t, dep: t + dw, dir, from, to, train: tr, here: false, late: late && k === 0 }); k++; }
+        t += dw; if (term(next)) dir = next === S[0] ? 1 : -1; next = nextFrom(c, dir);
+      }
+    }
+    return out.sort((a, b) => a.t - b.t).slice(0, n);
+  }
   update(dt, { focus, night = 0, player = null, playerVehicle = null, vehicles = [], listener = null } = {}) {
-    this.night = night; for (const m of [this.mats.trainWin]) m.emissiveIntensity = night * 0.85;
+    this.night = night; { const k = 0.54 + night * 0.62, L = this.mats.trainLamp.color; if (Math.abs(L.r - k) > 0.01) L.setRGB(k, k * 0.985, k * 0.94); } // the saloon tubes: grey by day, lit after dark
     const obstacles = [playerVehicle || player, ...vehicles.filter((v) => !v.isTrain && (v.speed || 0) < 1.5), ...(this.trains.length > 1 ? this.bodies : [])];
     for (const t of this.trains) { t.update(dt, { obstacles }); if (t._night !== Math.round(night * 4)) { t._night = Math.round(night * 4); t.updateLamps(); } }
     this.updateCrossings(dt, listener, playerVehicle ? [playerVehicle, ...vehicles] : vehicles);

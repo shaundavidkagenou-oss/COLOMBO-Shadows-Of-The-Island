@@ -118,7 +118,6 @@ function surfacePath(C, guide, per, filt) { const out = []; for (let i = 0; i + 
   // smooth (vertex snapping is ~3 mm jagged) and re-snap
   for (let it = 0; it < 3; it++) for (let i = 1; i + 1 < out.length; i++) out[i] = lerp3(out[i], lerp3(out[i - 1], out[i + 1], 0.5), 0.6);
   return out; }
-const polyDist = (p, path) => { let d = 1e9; for (let i = 0; i + 1 < path.length; i++) d = Math.min(d, segDist(p, path[i], path[i + 1])); return d; };
 
 // ---------------------------------------------------------------- wardrobe per dancer
 // cup: triangle in the front view around the bust tip — h (apex above the tip), wi / wo (half-width of the base inward /
@@ -131,6 +130,22 @@ export const WEAR = {
   saffron: { cup: { h: 0.1, wi: 0.085, wo: 0.095, base: 0.002 }, rise: [0.035, 0.05], cutSide: 0.065, cupPad: 0.0036, skirt: { kind: 'pleat', len: 0.25, flare: 1.4, cols: 64, rows: 10, top: 0.035 }, fabric: 'satin', fin: 'gold' },
 };
 const G = { fabric: 0, shoe: 1, metal: 2, sole: 3 };
+// nearest skin vertex index to q (optionally filtered)
+function nearestU(C, q) { let best = 0, bd = 1e9; const P = C.P; for (let u = 0; u < C.NU; u++) { const d = (P[u * 3] - q[0]) ** 2 + (P[u * 3 + 1] - q[1]) ** 2 + (P[u * 3 + 2] - q[2]) ** 2; if (d < bd) { bd = d; best = u; } } return best; }
+// a strap as its own ribbon along a surface path: a slightly domed band of half-width hw lying `off` above the skin, with
+// folded edges down to the skin, skinned like the nearest body vertex (continuous at any mesh density)
+function strapRibbon(C, A, path, hw, off, colOf) {
+  const { P, N } = C; const n = path.length; const pts = [], nor = [], wts = [];
+  for (let i = 0; i < n; i++) { const u = nearestU(C, path[i]); const vn = [N[u * 3], N[u * 3 + 1], N[u * 3 + 2]]; const vp = [P[u * 3], P[u * 3 + 1], P[u * 3 + 2]];
+    const p = path[i]; const below = dot(sub(vp, p), vn); pts.push(add(p, scl(vn, Math.max(0, below)))); nor.push(vn); wts.push(top4(C.wmap(u))); } // smoothing pulls the path under convex skin: back onto it
+  for (let it = 0; it < 2; it++) for (let i = 1; i + 1 < n; i++) nor[i] = nrm(add(nor[i], scl(add(nor[i - 1], nor[i + 1]), 0.5)));
+  const ACROSS = [-1, -0.5, 0, 0.5, 1], DOME = [0, 0.55, 0.75, 0.55, 0]; const rows = [];
+  for (let i = 0; i < n; i++) { const t = nrm(sub(path[Math.min(n - 1, i + 1)], path[Math.max(0, i - 1)])); const nn = nor[i]; const b = nrm(crs(nn, t));
+    const row = ACROSS.map((a, k) => { const q = add(add(pts[i], scl(b, a * hw)), scl(nn, off * (0.6 + 0.4 * DOME[k] / 0.75))); const sn = nrm(add(nn, scl(b, a * 0.35))); return A.v(q, sn, wts[i], colOf(q)); });
+    const e0 = A.v(add(add(pts[i], scl(b, -hw * 1.04)), scl(nn, 0.0002)), nrm(add(scl(b, -1), scl(nn, 0.3))), wts[i], colOf(pts[i])), e1 = A.v(add(add(pts[i], scl(b, hw * 1.04)), scl(nn, 0.0002)), nrm(add(b, scl(nn, 0.3))), wts[i], colOf(pts[i]));
+    rows.push([e0, ...row, e1]); }
+  for (let i = 0; i + 1 < n; i++) { const r0 = rows[i], r1 = rows[i + 1]; for (let k = 0; k + 1 < r0.length; k++) { A.tri(G.fabric, r0[k], r1[k], r1[k + 1]); A.tri(G.fabric, r0[k], r1[k + 1], r0[k + 1]); } }
+}
 function buildWear(C, sp, W) {
   const A = new Acc(4); const hide = new Set(); const { P, N, NU, J, L } = C; const f = new Float32Array(NU);
   const top = lin(sp.top), bottom = lin(sp.bottom || sp.top), shoe = lin(sp.shoes || '#101010'), sole = lin(sp.sole || '#0b0b0d');
@@ -152,10 +167,12 @@ function buildWear(C, sp, W) {
   for (let u = 0; u < NU; u++) { const x = P[u * 3], y = P[u * 3 + 1], z = P[u * 3 + 2]; const p = [x, y, z];
     let v = Math.max(cupF(u, tips[0], 1), cupF(u, tips[1], -1));
     if (C.warm(u) < 0.2 && C.wb(u, 'head', 'neck') < 0.5) { const yb = ub + W.cup.base - 0.004 + (z < 0 ? 0.012 * sstep(0, -0.08, z) : 0); v = Math.max(v, 0.0055 - Math.abs(y - yb)); }
-    if (y > ub && C.warm(u) < 0.15) for (const s of strap) v = Math.max(v, 0.0058 - polyDist(p, s));
+    /* halter straps: built below as their own ribbons (a 12 mm strip carved from the body field broke into fragments
+       wherever it passed between two skin vertices) */
     f[u] = v; }
   const cupTh = (r) => { const T = r.p[0] > 0 ? tips[0] : tips[1]; const d = Math.hypot(r.p[0] - T[0], r.p[1] - T[1]); return 0.0014 + W.cupPad * sstep(0.09, 0.0, d) * (r.p[2] > T[2] - 0.08 ? 1 : 0); };
   shell(C, f, { acc: A, g: G.fabric, col: vary(top), th: cupTh, hide, hideMargin: 0.0035 });
+  for (const path of strap) strapRibbon(C, A, path, 0.0058, 0.0016, vary(top));
   // ---- briefs: front / back rise, high-cut leg lines, gusset
   const hy = J.hips[1], tL = J.thighL;
   for (let u = 0; u < NU; u++) { const x = P[u * 3], y = P[u * 3 + 1], z = P[u * 3 + 2]; if (C.warm(u) > 0.1 || y > hy + 0.12 || y < hy - 0.2) { f[u] = -1; continue; }
@@ -203,6 +220,58 @@ function buildWear(C, sp, W) {
   return { A, hide };
 }
 
+// ---------------------------------------------------------------- tactical wardrobe (the Black Orchid contractor, actors/Assassin.js)
+// Fully covered, practical working clothes cut from the same body surface as the stage wear: a fitted soft-shell jacket with a
+// mock-neck collar, cargo-cut trousers, a leather duty belt, leather gloves with cuffs over the sleeves and heeled ankle boots
+// (block heel — the body's rest pose carries a heel pitch). Skin under all of it is dropped from the body's index.
+export const TACTICAL = { fabric: 'tactical', fin: 'silver', tactical: true };
+const FINGERS = (S) => ['idx', 'mid', 'rng', 'pnk', 'thb'].flatMap((f) => [1, 2, 3].map((j) => f + j + S));
+function buildTactical(C, sp) {
+  const A = new Acc(4); const hide = new Set(); const { P, N, NU, J, L } = C; const f = new Float32Array(NU);
+  const jacket = lin(sp.top || '#23262b'), trousers = lin(sp.bottom || '#18191c'), glove = lin(sp.gloves || '#0e0e0f'), boot = lin(sp.shoes || '#111112'), belt = lin(sp.belt || '#1d1813'), sole = lin(sp.sole || '#0b0b0c');
+  const vary = (c, k = 0.05) => (p) => { const n = 1 + (hash(Math.round(p[0] * 300), Math.round(p[1] * 300) + Math.round(p[2] * 300) * 7) - 0.5) * k; return [c[0] * n, c[1] * n, c[2] * n]; };
+  const hy = J.hips[1], beltY = hy + 0.07, ny = J.neck[1];
+  const wrist = {}; for (const S of ['L', 'R']) { const a = J['fore' + S], b = J['hand' + S]; wrist[S] = { b, ax: nrm(sub(b, a)), names: ['fore' + S, 'hand' + S, ...FINGERS(S)], sx: S === 'L' ? 1 : -1 }; }
+  const tW = (S, p) => dot(sub(p, wrist[S].b), wrist[S].ax); // > 0 past the wrist joint
+  // ---- jacket + trousers: everything below a mock-neck collar, to just short of each wrist and down to the ankles
+  for (let u = 0; u < NU; u++) { const x = P[u * 3], y = P[u * 3 + 1], z = P[u * 3 + 2]; const p = [x, y, z];
+    const collarY = ny + 0.014 + 0.016 * sstep(0.0, -0.07, z - J.neck[2]); let v = collarY - y;
+    for (const S of ['L', 'R']) { const w = wrist[S]; if (x * w.sx > 0 && C.wb(u, ...w.names) > 0.05) v = Math.min(v, -tW(S, p) - 0.004);
+      if (x * w.sx > 0 && C.wb(u, 'shin' + S, 'foot' + S, 'toe' + S) > 0.3) v = Math.min(v, y - (J['foot' + S][1] + 0.035)); }
+    f[u] = v; }
+  const suitTh = (r) => { const y = r.p[1]; let t = y > beltY ? 0.0034 : 0.0026; if (C.warm(r.u) > 0.5) t = 0.003; t += 0.0036 * sstep(0.022, 0.012, Math.abs(y - beltY)) * (C.warm(r.u) < 0.2 ? 1 : 0); t += 0.0018 * sstep(ny - 0.03, ny, y); return t; };
+  const suitCol = (p, r) => { const y = p[1]; if (C.warm(r.u) < 0.2 && Math.abs(y - beltY) < 0.017) return vary(belt, 0.03)(p); return vary(y > beltY ? jacket : trousers)(p); };
+  shell(C, f, { acc: A, g: G.fabric, col: suitCol, th: suitTh, hide, hideMargin: 0.004 });
+  // belt buckle: a small brushed plate at the front
+  for (let u = 0; u < NU; u++) { const x = P[u * 3], y = P[u * 3 + 1], z = P[u * 3 + 2]; f[u] = z > 0.02 && C.warm(u) < 0.1 ? Math.min(0.022 - Math.abs(x), 0.014 - Math.abs(y - beltY)) : -1; }
+  shell(C, f, { acc: A, g: G.metal, col: [1, 1, 1], th: (r) => suitTh(r) + 0.0016, hideMargin: 1 });
+  // ---- gloves: hand and fingers, with a cuff 3 cm up the forearm lying over the sleeve
+  for (const S of ['L', 'R']) { const w = wrist[S];
+    for (let u = 0; u < NU; u++) { const p = [P[u * 3], P[u * 3 + 1], P[u * 3 + 2]]; f[u] = p[0] * w.sx > 0 && C.wb(u, ...w.names) > 0.05 ? tW(S, p) + 0.03 : -1; }
+    shell(C, f, { acc: A, g: G.shoe, col: vary(glove, 0.04), th: (r) => (tW(S, r.p) < 0.004 ? 0.0046 : 0.0015), hide, hideMargin: 0.003 }); }
+  // ---- boots: soles flattened onto the heel-pitched platform plane, uppers to ~14 cm above the ankle over the trousers, block heels
+  for (const S of ['L', 'R']) { const ft = J['foot' + S], tj = J['toe' + S]; const H = L.heel; const sx = S === 'L' ? 1 : -1;
+    const isFoot = (u) => C.wb(u, 'foot' + S, 'toe' + S) > 0.5 && P[u * 3] * sx > 0;
+    for (let u = 0; u < NU; u++) f[u] = isFoot(u) && P[u * 3 + 1] < 0.06 ? -N[u * 3 + 1] - 0.3 : -1;
+    const c = Math.cos(H.pitch), sn = Math.sin(H.pitch); const ballZ = H.ballZ; const soleY = H.sole;
+    const platOff = (r) => { const p = r.p; const wt = (() => { let w = 0; for (const [b, x] of r.w) if (b === BI['toe' + S]) w += x; return clamp(w, 0, 1); })();
+      const thick = 0.008 + (Math.min(H.plat, 0.012) - 0.008) * sstep(ballZ - 0.085, ballZ - 0.03, p[2]); const yF = soleY - thick; const qf = [p[0], Math.min(p[1], yF), p[2]];
+      const dy = p[1] - tj[1], dz = p[2] - tj[2]; const fy = dy * c - dz * sn, fz = dy * sn + dz * c; const fy2 = Math.min(fy, soleY - Math.min(H.plat, 0.012) - tj[1]); const qt = [p[0], tj[1] + fy2 * c + fz * sn, tj[2] - fy2 * sn + fz * c];
+      return sub(lerp3(qf, qt, wt), p).map((v, i) => v + r.n[i] * 0.0008); };
+    shell(C, f, { acc: A, g: G.sole, col: sole, off: platOff, hide, hideMargin: 0.004, rimIn: 0.0008 });
+    const top = ft[1] + 0.14;
+    for (let u = 0; u < NU; u++) { if (!(C.wb(u, 'foot' + S, 'toe' + S, 'shin' + S) > 0.5 && P[u * 3] * sx > 0) || P[u * 3 + 1] > top + 0.01) { f[u] = -1; continue; }
+      const y = P[u * 3 + 1]; const bottom = -N[u * 3 + 1] - 0.3; f[u] = bottom > 0 && y < 0.06 ? -1 : top - y; }
+    shell(C, f, { acc: A, g: G.shoe, col: vary(boot, 0.03), th: (r) => 0.0042 + 0.0012 * sstep(top - 0.02, top, r.p[1]), hide, hideMargin: 0.004 });
+    const ht = H.heelTop, dir = H.dir; const w = top4(boneW([['foot' + S, 1]])); const base = A.count; const R = 12; const hl = H.heelLen;
+    for (let i = 0; i <= 4; i++) { const t = i / 4, Ls = hl * t; const r = lerp(0.021, 0.0165, t); const cy = ft[1] + ht[0] + dir[0] * Ls, cz = ft[2] + ht[1] + dir[1] * Ls - 0.004;
+      for (let k = 0; k < R; k++) { const a = (k / R) * Math.PI * 2; const ca = Math.cos(a), sa = Math.sin(a); const sq = 1 / Math.max(Math.abs(ca), Math.abs(sa)) ** 0.6; // rounded-square section
+        A.v([ft[0] + ca * r * sq * 0.85, cy, cz + sa * r * sq], nrm([ca, 0, sa]), w, i === 4 ? sole : boot); } }
+    for (let i = 0; i < 4; i++) for (let k = 0; k < R; k++) { const a = base + i * R + k, b = base + i * R + ((k + 1) % R), c2 = a + R, d = b + R; A.tri(G.shoe, a, c2, d); A.tri(G.shoe, a, d, b); }
+    const tip = A.v([ft[0], ft[1] + ht[0] + dir[0] * (hl + 0.001), ft[2] + ht[1] + dir[1] * (hl + 0.001) - 0.004], [0, -1, 0], w, sole); for (let k = 0; k < R; k++) A.tri(G.sole, base + 4 * R + k, tip, base + 4 * R + ((k + 1) % R)); }
+  return { A, hide };
+}
+
 // ---------------------------------------------------------------- hair
 const HAIRLINE = [[0, 0.056], [0.3, 0.055], [0.52, 0.053], [0.78, 0.049], [1.02, 0.044], [1.22, 0.026], [1.34, -0.004], [1.5, -0.008], [1.6, 0.012], [1.9, 0.018], [2.25, 0.0], [2.6, -0.045], [3.2, -0.075]];
 const HAIR = {
@@ -223,7 +292,9 @@ export function buildHair(C, sp) {
     let t = lerp(st.side, st.top, sstep(0.02, 0.07, hy)); if (st.part && hy > 0.05 && p[2] > cz - 0.04) t -= 0.0045 * Math.exp(-((p[0] / 0.005) ** 2)) * sstep(0.05, 0.075, hy);
     return 0.0011 + extra + t * sstep(0.0, st.sleek ? 0.006 : 0.02, r.f) * (a > 2.4 && hy < 0 ? 1 : 1); };
   const flowOf = (r, op) => { const p = r.p; let d; if (st.tail) d = sub(tie, p); else if (st.part) d = [Math.sign(p[0] || 1) * 0.8, -0.6, (p[2] - cz) * 4]; else d = [p[0], -0.5, (p[2] - cz) * 2]; return tangentize(d, r.n); };
-  shell(C, f, { acc: A, g: 0, col: vary, th: (r) => thick(r), attrs: (r, op) => ({ flow: flowOf(r, op), root: op, layer: 0 }), rimIn: 0.0003 });
+  const skinRoot = lin(sp.skin || '#8a5434').map((v, i) => v * 0.5 + col[i] * 0.25); /* sparse hair at the hairline: scalp shows through, the colour builds up over ~8 mm */
+  const scalpCol = (p, r) => { const c = vary(p); const k = r ? sstep(0.0, 0.008, r.f) : 1; return [lerp(skinRoot[0], c[0], k), lerp(skinRoot[1], c[1], k), lerp(skinRoot[2], c[2], k)]; };
+  shell(C, f, { acc: A, g: 0, col: scalpCol, th: (r) => thick(r), attrs: (r, op) => ({ flow: flowOf(r, op), root: op, layer: 0 }), rimIn: 0.0003 });
   for (const [lay, ex] of [[0.5, 0.0016], [1, 0.0032]]) shell(C, f, { acc: A, g: 1, col: vary, th: (r) => thick(r, ex), attrs: (r, op) => ({ flow: flowOf(r, op), root: op, layer: lay }), rim: false });
   // hanging mass: radius table of the body round the head's vertical axis; the hair falls straight down from the widest
   // point above (cumulative max going down) and rests on the shoulders and back below the neck
@@ -283,6 +354,8 @@ function fabricPatch(kind) {
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
       ${kind === 'sequin' ? `{ vec3 q = vRestF * 420.0; vec3 cell = floor(q); vec3 j = vec3(fbHash(cell), fbHash(cell + 7.1), fbHash(cell + 3.3)) - 0.5;
         float fw = length(fwidth(q)); normal = normalize(normal + j * 0.9 * (1.0 - smoothstep(0.5, 1.2, fw))); }`
+      : kind === 'tactical' ? `{ float w = sin((vRestF.x * 0.7 + vRestF.y + vRestF.z * 0.7) * 3400.0); float fw = fwidth((vRestF.x * 0.7 + vRestF.y + vRestF.z * 0.7) * 3400.0); vec3 dpx = dFdx(-vViewPosition), dpy = dFdy(-vViewPosition);
+        float h = w * 0.000028 * (1.0 - smoothstep(0.6, 1.6, fw)); vec3 r1 = cross(dpy, normal), r2 = cross(normal, dpx); float det = dot(dpx, r1); normal = normalize(abs(det) * normal - sign(det) * (dFdx(h) * r1 + dFdy(h) * r2)); }`
       : kind === 'lycra' ? `{ float w = sin(vRestF.y * 5200.0) * 0.5 + sin((vRestF.x + vRestF.z) * 5200.0) * 0.5; float fw = fwidth(vRestF.y * 5200.0); vec3 dpx = dFdx(-vViewPosition), dpy = dFdy(-vViewPosition);
         float h = w * 0.00002 * (1.0 - smoothstep(0.6, 1.6, fw)); vec3 r1 = cross(dpy, normal), r2 = cross(normal, dpx); float det = dot(dpx, r1); normal = normalize(abs(det) * normal - sign(det) * (dFdx(h) * r1 + dFdy(h) * r2)); }` : ''}`);
   };
@@ -291,7 +364,9 @@ function wearMaterials(W, U) {
   const fin = W.fin === 'silver' ? 0xd8d8de : 0xd9a441;
   const fab = W.fabric === 'sequin' ? new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.32, metalness: 0.55, clearcoat: 0.3 })
     : new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: W.fabric === 'satin' ? 0.36 : 0.5, metalness: 0, sheen: 1, sheenRoughness: 0.35, sheenColor: new THREE.Color(0xffffff).multiplyScalar(0.5) });
-  const shoe = new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.18, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.08 });
+  if (W.tactical) { fab.roughness = 0.66; fab.sheen = 0.5; fab.sheenRoughness = 0.55; fab.sheenColor = new THREE.Color(0xffffff).multiplyScalar(0.22); } // matte soft-shell, not stage satin
+  const shoe = W.tactical ? new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.38, metalness: 0, clearcoat: 0.35, clearcoatRoughness: 0.35 }) // worked leather (boots, gloves)
+    : new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.18, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.08 });
   const metal = new THREE.MeshStandardMaterial({ color: fin, roughness: 0.22, metalness: 1 });
   const sole = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0 });
   // garments lie 1–3 mm off the skin: a depth bias keeps the fabric in front of the skin under its edges at any distance
@@ -324,10 +399,10 @@ function collide(p, i, caps, pole, hipT) {
 // ---------------------------------------------------------------- the rig
 export class DancerRig {
   constructor(ch, id) {
-    this.ch = ch; this.id = id; const sp = ch.spec; const C = bodyCtx(id); this.C = C; const W = WEAR[id] || WEAR.ruby; this.W = W; const U = ch.heroU;
+    this.ch = ch; this.id = id; const sp = ch.spec; const C = bodyCtx(id); this.C = C; const W = sp.wear === 'tactical' ? TACTICAL : WEAR[id] || WEAR.ruby; this.W = W; const U = ch.heroU;
     const body = ch.mesh; const skel = body.skeleton;
     // ---- garments
-    const { A, hide } = buildWear(C, sp, W); const geo = A.geometry(); this.wearMats = wearMaterials(W, U);
+    const { A, hide } = W.tactical ? buildTactical(C, sp) : buildWear(C, sp, W); const geo = A.geometry(); this.wearMats = wearMaterials(W, U);
     const wear = new THREE.SkinnedMesh(geo, this.wearMats); wear.name = 'dancerWear'; body.add(wear); wear.bind(skel, body.bindMatrix); wear.castShadow = true; wear.receiveShadow = false; this.wear = wear;
     this.hideSkin(body.geometry, hide); this.hidden = hide.size;
     // ---- hair

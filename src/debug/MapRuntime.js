@@ -45,7 +45,7 @@ export function setFields(P, o, f) {
 }
 let bidN = 900000;
 export function createObj(P, d) {
-  const k = d.k; if (k === 'prim') return { obj: null, out: { removed: [], added: [], chunks: new Set() } };
+  const k = d.k; if (k === 'prim' || k === 'model') return { obj: null, out: { removed: [], added: [], chunks: new Set() } };
   const o = JSON.parse(JSON.stringify(d)); o._k = k; o._eid = 'a:' + d.uid; delete o.k; const [arr, bk] = KINDS[k]; const out = { removed: [], added: [], chunks: new Set() };
   if (k === 'b') { o.id = bidN++; o.h = o.floors * FLOOR_H + (o.groundRow != null ? GROUND_H - FLOOR_H : 0); o.totalH = o.tower ? o.h + o.tower.floors * FLOOR_H : o.h; const c = { x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, h: o.totalH, kind: 'building', b: o }; P.colliders.push(c); out.added.push(c); }
   else if (k === 't') { const s = o.s || 1; o.col = { x0: o.x - 0.35 * s, x1: o.x + 0.35 * s, z0: o.z - 0.35 * s, z1: o.z + 0.35 * s, h: 6, kind: 'tree' }; P.colliders.push(o.col); out.added.push(o.col); }
@@ -57,11 +57,19 @@ export function createObj(P, d) {
 export function applyEdits(P, E) {
   assignIds(P); const ix = index(P); let n = 0;
   for (const [eid, f] of Object.entries(E.mods || {})) { const o = ix.get(eid); if (!o) continue; if (f.del) removeObj(P, o); else setFields(P, o, f); n++; }
-  for (const d of E.added || []) { if (d.k !== 'prim') { createObj(P, d); n++; } }
+  for (const d of E.added || []) { if (d.k !== 'prim' && d.k !== 'model') { createObj(P, d); n++; } }
   return n;
 }
-export async function applySavedMap(P = plan) { const E = await storeGet('map'); if (!E) return 0; MAP.edits = Object.assign({ v: 1, mods: {}, added: [], textures: {} }, E); return applyEdits(P, MAP.edits); }
-export async function saveMap() { await storeSet('map', JSON.parse(JSON.stringify(MAP.edits))); const E = MAP.edits; setSavedFlag('map', Object.keys(E.mods).length + E.added.length > 0); }
+// 68th: two copies — this browser's (IndexedDB, the editor's working copy) and the one built into the game (model-pack/
+// manifest.json → map, written by every Save on the dev server). The newer one loads; a built game / the .exe only has the pack's.
+export const pickMap = (local, pack) => (!local ? pack || null : !pack ? local : (Date.parse(pack.saved || 0) || 0) > (Date.parse(local.saved || 0) || 0) ? pack : local);
+export async function applySavedMap(P = plan, packMap = null) { let E = null; try { E = await storeGet('map'); } catch { /* no IndexedDB */ } E = pickMap(E, packMap); if (!E) return 0; MAP.edits = Object.assign({ v: 1, mods: {}, added: [], textures: {} }, JSON.parse(JSON.stringify(E))); return applyEdits(P, MAP.edits); }
+export async function saveMap() {
+  MAP.edits.saved = new Date().toISOString(); const doc = JSON.parse(JSON.stringify(MAP.edits)); await storeSet('map', doc); const E = MAP.edits; setSavedFlag('map', Object.keys(E.mods).length + E.added.length > 0);
+  let baked = false; // into the project folder → built into the game / .exe (dev server only)
+  let err = null; if (import.meta.env && import.meta.env.DEV) try { const MP = await import('./ModelPack.js'); const m = await MP.loadPack(); m.map = doc; await MP.savePack(); baked = true; } catch (e) { err = (e && e.message) || String(e); console.warn('[model pack] not written', e); }
+  return { baked, err };
+}
 
 // ---- placed primitives (boxes, cylinders, ramps … with colour / painted texture), built after the world
 const TEX = new Map();
@@ -83,8 +91,34 @@ export function primCollider(d) { if (!d.solid) return null; const hx = (d.sx ||
 export const MAT_ORIG = new Map();
 export function setMatTexture(key, tex) { const m = MAT[key]; if (!m || !m.map) return false; if (!MAT_ORIG.has(key)) MAT_ORIG.set(key, m.map); const o = MAT_ORIG.get(key); if (tex) { tex.wrapS = o.wrapS; tex.wrapT = o.wrapT; tex.repeat.copy(o.repeat); tex.offset.copy(o.offset); tex.colorSpace = o.colorSpace; tex.anisotropy = o.anisotropy; tex.flipY = o.flipY; } m.map = tex || o; return true; }
 export function applyMatTextures() { for (const name of Object.keys(MAP.edits.textures || {})) if (name.startsWith('mat:')) { const m = MAT[name.slice(4)]; const im = m && m.map && m.map.image; if (im) setMatTexture(name.slice(4), textureFor(name, im.width || 512, im.height || 512)); } }
+// ---- 68th: placed models (uploaded in the map editor; files in model-pack/): { uid, k:'model', name, asset:{ main, files },
+// x, y, z, rx, ry, rz, s (uniform) | sx sy sz, solid, shadow, clip (animation name of the model, '' = none), clipSpeed, tint }
+export async function modelMesh(d) {
+  const MP = await import('./ModelPack.js'); const { scene, clips } = await MP.loadAsset(d.asset); const g = new THREE.Group(); g.name = 'editorModel';
+  const inner = new THREE.Group(); inner.add(scene); g.add(inner);
+  // the file's own pivot / size are kept; base = put the lowest point on y = 0 (default on)
+  if (d.base !== false) { scene.updateMatrixWorld(true); const bb = new THREE.Box3().setFromObject(scene); if (Number.isFinite(bb.min.y)) inner.position.y = -bb.min.y; }
+  scene.traverse((o) => { if (o.isMesh) { o.castShadow = d.shadow !== false; o.receiveShadow = true; o.userData.editorModel = d.uid; if (d.tint) { o.material = (Array.isArray(o.material) ? o.material : [o.material]).map((m) => { const c = m.clone(); if (c.color) c.color.multiply(new THREE.Color(d.tint)); return c; }); if (o.material.length === 1) o.material = o.material[0]; } } });
+  g.userData.prim = d; g.userData.model = { clips, mixer: null, action: null }; placeModel(g, d); setModelClip(g, d); return g;
+}
+export function placeModel(g, d) { g.position.set(d.x, d.y, d.z); g.rotation.set(d.rx || 0, d.ry || 0, d.rz || 0); const s = d.s || 1; g.scale.set((d.sx || 1) * s, (d.sy || 1) * s, (d.sz || 1) * s); g.updateMatrixWorld(true); }
+export function setModelClip(g, d) {
+  const M = g.userData.model; if (!M) return; if (M.action) { M.action.stop(); M.action = null; }
+  const clip = d.clip ? M.clips.find((c) => c.name === d.clip) || (d.clip === '*' ? M.clips[0] : null) : null; if (!clip) { MODEL_ANIM.delete(g); return; }
+  M.mixer ||= new THREE.AnimationMixer(g.children[0]); M.action = M.mixer.clipAction(clip); M.action.setEffectiveTimeScale(d.clipSpeed ?? 1); M.action.play(); MODEL_ANIM.add(g);
+}
+export const MODEL_ANIM = new Set(); // placed models playing an animation (advanced by the runtime's pre-render hook, in view only)
+export function tickModels(dt, cam) { for (const g of MODEL_ANIM) { if (!g.parent) { MODEL_ANIM.delete(g); continue; } if (cam && g.position.distanceToSquared(cam.position) > 120 * 120) continue; g.userData.model.mixer.update(dt); } }
+// box collider from the model's bounds (rotated with it)
+export function modelCollider(g, d) { if (!d.solid) return null; g.updateMatrixWorld(true); const bb = new THREE.Box3().setFromObject(g); if (!Number.isFinite(bb.min.x)) return null; return { x0: bb.min.x, x1: bb.max.x, z0: bb.min.z, z1: bb.max.z, h: bb.max.y, y0: bb.min.y, kind: 'prop', prim: d.uid }; }
+async function buildModels(world, list) {
+  const g = world.editorPrims || (world.editorPrims = new THREE.Group()); g.name = 'editorPrims'; if (!g.parent) world.root.add(g);
+  await Promise.all(list.map(async (d) => { try { const m = await modelMesh(d); g.add(m); const c = modelCollider(m, d); if (c) world.collision.add(c); } catch (e) { console.warn('[map] placed model not loaded:', d.name || d.uid, e); } }));
+  if (MODEL_ANIM.size) { const { HOOKS } = await import('../core/Hooks.js'); if (!HOOKS._mapModels) { HOOKS._mapModels = (dt) => tickModels(dt, globalThis.__game && globalThis.__game.camera); HOOKS.preRender.add(HOOKS._mapModels); } }
+}
 export async function buildSavedObjects(world) {
   applyMatTextures();
+  const models = MAP.edits.added.filter((d) => d.k === 'model' && d.asset); if (models.length) await buildModels(world, models);
   if (!MAP.edits.added.some((d) => d.k === 'prim')) return; const g = world.editorPrims || (world.editorPrims = new THREE.Group()); g.name = 'editorPrims'; if (!g.parent) world.root.add(g);
   for (const d of MAP.edits.added) if (d.k === 'prim') { g.add(primMesh(d)); const c = primCollider(d); if (c) world.collision.add(c); }
 }

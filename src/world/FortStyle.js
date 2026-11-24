@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { LAND_Y, roadAt } from './Layout.js';
 import { FLOOR_H, GROUND_H } from './CityPlan.js';
 import { RNG } from '../core/rng.js';
+import { partKey as bk } from '../gfx/Materials.js';
 
 const BAY = 3.2, TW = 4 * BAY;
 const M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), V1 = new THREE.Vector3(), V2 = new THREE.Vector3(1, 1, 1);
@@ -21,7 +22,7 @@ function facesRoad(s) { const mx = (s.a[0] + s.b[0]) / 2, mz = (s.a[1] + s.b[1])
 export function fortHeritage(b) { return b.district === 'fort' && (b.style === 'colonial' || b.style === 'brick'); }
 
 export function dressFort(b, multi, { sd, front, paint }) {
-  const rng = new RNG(7700 + (b.id || 0) * 31); const y0 = LAND_Y, yTop = y0 + b.h; const conc = multi.get('concrete'), pm = multi.get('paint');
+  const rng = new RNG(7700 + (b.id || 0) * 31); const y0 = LAND_Y, yTop = y0 + b.h; const conc = multi.get(bk('bldTrim', b)), pm = multi.get(bk('bldOrnament', b)); // 60th: own materials (Materials.ROLE_DEFS)
   const along = (s, d) => [s.a[0] + (s.b[0] - s.a[0]) * (d / s.len), s.a[1] + (s.b[1] - s.a[1]) * (d / s.len)];
   const rotOf = (s) => Math.atan2(s.n[0], s.n[1]);
   const tone = (k) => paint.map((v) => Math.min(1, v * k));

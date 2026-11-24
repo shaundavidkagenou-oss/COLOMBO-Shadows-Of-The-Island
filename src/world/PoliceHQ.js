@@ -4,6 +4,7 @@
 // Place block next to Beira Lake / Gangaramaya. The building massing, compound layout and everything inside are an
 // artistic interpretation — NOT a survey of the real site.
 import * as THREE from 'three';
+import { hedgeRect, bushBall } from './HedgeBush.js';
 
 // shared layout (world metres; x = east, z = south). Used by the builder, the HQ runtime and the interior.
 export const HQ = {
@@ -11,6 +12,7 @@ export const HQ = {
   gate: { x: -10, z: -227, w: 8 }, // vehicle gate on Union Place (north side)
   wicket: { x: -3.2, w: 1.8 }, // pedestrian gate next to it
   building: [-40, 18, -205, -183], storeys: 5,
+  helipad: { x: -9, z: -194, r: 7.6 }, // rooftop helipad (Air Wing): clear of the AC plant, tank and mast (all > 13 m away)
   door: { x: -11, z: -207.6, faceIn: 0 }, // in front of the portico steps; interior entered from here
   // walk-in interior (no loading, no button): ground floor sits on the plinth (LAND_Y 0.15 + 0.9 + 2 cm), front wall just inside the facade
   interior: { x: -11, z: -204.85, y: 1.07 }, entrance: { x0: -13, x1: -9, h: 2.3 } /* top stays under the first-floor band */,
@@ -27,7 +29,7 @@ export const HQ = {
 };
 
 export function buildPoliceHQ({ mb, box, coll, label, group, LAND_Y, SANS, SI, TA, columns, anim, C }) {
-  const y0 = LAND_Y; const conc = mb.get('concrete'), paint = mb.get('paint'), metal = mb.get('metal'), glass = mb.get('glass'), leaves = mb.get('hedge'); // clipped hedges / bed planting: solid leaf-textured blocks (the alpha-cut tree-crown material read as loose floating leaves)
+  const y0 = LAND_Y; const conc = mb.get('concrete'), paint = mb.get('paint'), metal = mb.get('metal'), glass = mb.get('glass'), leaves = mb.get('hedge'); void leaves; // clipped hedges / bed planting: solid leaf-textured blocks (the alpha-cut tree-crown material read as loose floating leaves)
   const [fx0, fx1, fz0, fz1] = HQ.rect; const G = HQ.gate, Wk = HQ.wicket;
   // ---------------------------------------------------------------- paving (asphalt drive + car parks, light walkways)
   const ASPH = '#56585b', PAVE = '#cbc5ba';
@@ -109,6 +111,27 @@ export function buildPoliceHQ({ mb, box, coll, label, group, LAND_Y, SANS, SI, T
   paint.cylinder(10, top, -188, 1.2, 1.2, 2.2, 14, { col: C('#2c3e50') }); // water tank
   { const mx = 12, mz = -199; for (let k = 0; k < 4; k++) { const h = top + k * 4; for (const [dx, dz] of [[-0.4, -0.4], [0.4, -0.4], [0.4, 0.4], [-0.4, 0.4]]) metal.box(mx + dx * (1 - k * 0.15), h + 2, mz + dz * (1 - k * 0.15), 0.06, 4, 0.06, { col: C('#c8ccd0') }); metal.box(mx, h + 4, mz, 0.9 - k * 0.12, 0.05, 0.9 - k * 0.12, { col: C('#c8ccd0') }); }
     paint.box(mx, top + 16.6, mz, 0.12, 0.3, 0.12, { col: C('#c0262d') }); anim.hqMast = { x: mx, y: top + 16.8, z: mz }; } // radio mast with an aviation light
+  { // Air Wing helipad on the clear west-centre of the roof (police/Helicopter.js HELIPAD). Rooftop-heliport layout: a dark
+    // non-slip deck over the roof membrane, white FATO/TLOF perimeter line, the yellow touchdown/positioning circle, the white
+    // "H" with its cross-bar along the approach (west), flush perimeter lights (night) and a windsock clear of the rotor;
+    // a roof stair hut gives the crew their way up. All geometry goes into the HQ's existing merged builders (no extra draw calls).
+    const px = HQ.helipad.x, pz = HQ.helipad.z, y = top + 0.012, R = HQ.helipad.r, N = 40, deck = C('#3a3d40'), white = C('#e9e8e2'), yellow = C('#d7b021');
+    const circ = (r) => Array.from({ length: N }, (_, i) => [px + Math.cos(i / N * Math.PI * 2) * r, pz + Math.sin(i / N * Math.PI * 2) * r]);
+    paint.hpoly(circ(R + 0.35), y, 4, deck);
+    const ring = (r0, r1, yy, col, dash = 0) => { for (let i = 0; i < N; i++) { if (dash && i % 2) continue; const a0 = i / N * Math.PI * 2, a1 = (i + 1) / N * Math.PI * 2; const p = (r, a) => [px + Math.cos(a) * r, yy, pz + Math.sin(a) * r];
+      paint.quad(p(r0, a0), p(r0, a1), p(r1, a1), p(r1, a0), [0, 0, 1, 1], col); } }; // up-facing (CCW seen from above)
+    ring(R - 0.3, R, y + 0.004, white); ring(R + 0.05, R + 0.3, y + 0.004, white, 1); ring(3.75, 4.25, y + 0.004, yellow);
+    const hy = y + 0.006, hb = (cx, cz, sx, sz) => paint.box(cx, hy, cz, sx, 0.004, sz, { col: white }); hb(px, pz - 0.75, 3.0, 0.4); hb(px, pz + 0.75, 3.0, 0.4); hb(px, pz, 0.4, 1.1); // H: legs along x (the approach), bar across
+    const lh = mb.get('lampHead'); for (let i = 0; i < 16; i++) { const a = (i + 0.5) / 16 * Math.PI * 2; lh.box(px + Math.cos(a) * (R + 0.55), y + 0.05, pz + Math.sin(a) * (R + 0.55), 0.16, 0.08, 0.16, { col: [1, 1, 1] }); metal.box(px + Math.cos(a) * (R + 0.55), y + 0.015, pz + Math.sin(a) * (R + 0.55), 0.24, 0.03, 0.24, { col: C('#5a5f64') }); }
+    // windsock (13.5 m from the pad centre: outside the rotor disc), sock streaming east on the sea breeze, orange / white bands
+    { const wx = px + 12.5, wz = pz + 5.0; metal.cylinder(wx, top, wz, 0.06, 0.045, 4.2, 8, { col: C('#d8dadc') }); metal.box(wx, top + 0.05, wz, 0.5, 0.1, 0.5, { col: C('#9a9fa4') });
+      metal.cylinder(wx, top + 4.1, wz, 0.32, 0.32, 0.05, 12, { col: C('#c8ccd0') });
+      for (let k = 0; k < 5; k++) { const r0 = 0.3 - k * 0.04, r1 = r0 - 0.04, x0 = wx + 0.1 + k * 0.42; const g = new THREE.CylinderGeometry(r1, r0, 0.42, 12, 1, true); g.rotateZ(-Math.PI / 2 - 0.12); g.translate(x0 + 0.21, top + 4.08 - (k + 0.5) * 0.05, wz);
+        paint.geometry(g, new THREE.Matrix4(), k % 2 ? C('#eeeeea') : C('#e2621b')); g.dispose(); } }
+    // roof stair / lift hut (crew access) at the west end, door facing the pad
+    { const sx = -35.5, sz = -199; conc.box(sx, top + 1.4, sz, 3.6, 2.8, 3.2, { col: C('#e4ddcc') }); conc.box(sx, top + 2.88, sz, 3.9, 0.16, 3.5, { col: C('#cfc8b8') }); paint.box(sx + 1.81, top + 1.05, sz, 0.04, 2.1, 1.0, { col: C('#3d4a5c') }); metal.box(sx + 1.84, top + 1.05, sz - 0.35, 0.04, 0.04, 0.14, { col: C('#c8ccd0') }); } // (no collider: nothing walks the roof; the helicopter's air map knows it — a raised box here would trip the ground-floor interior's wall feelers)
+    coll(px - R - 0.4, px + R + 0.4, pz - R - 0.4, pz + R + 0.4, 0.012, { kind: 'deck', y0: top }); // the pad deck (rooftop surface for anything standing on it)
+  }
   { // shell walls (the inside is the walk-in interior) + the entrance threshold on the plinth
     const E = HQ.entrance, T = 0.7; coll(bx0 - 0.4, E.x0, bz0 - 0.4, bz0 + T, top + 1); coll(E.x1, bx1 + 0.4, bz0 - 0.4, bz0 + T, top + 1);
     coll(bx0 - 0.4, bx1 + 0.4, bz1 - T, bz1 + 0.4, top + 1); coll(bx0 - 0.4, bx0 + T, bz0, bz1, top + 1); coll(bx1 - T, bx1 + 0.4, bz0, bz1, top + 1);
@@ -142,12 +165,14 @@ export function buildPoliceHQ({ mb, box, coll, label, group, LAND_Y, SANS, SI, T
   for (const [x, z] of [[-40, -226], [-24, -226], [26, -210], [26, -182], [-50, -186]]) { metal.cylinder(x, y0, z, 0.08, 0.06, 6, 8, { col: C('#4a4f55') }); paint.box(x, y0 + 6, z, 0.6, 0.12, 0.3, { col: C('#fff4d6'), bottom: true }); coll(x - 0.12, x + 0.12, z - 0.12, z + 0.12, 6, { kind: 'pole' }); }
 
   // ---------------------------------------------------------------- landscaping: hedges, beds, sign monument
-  const hedge = (x0, x1, z0, z1, h = 0.9) => { leaves.box((x0 + x1) / 2, y0 + h / 2, (z0 + z1) / 2, x1 - x0, h, z1 - z0, { col: C('#3f7a34'), uvScale: 2 }); coll(x0, x1, z0, z1, h, { kind: 'low' }); };
+  const hedge = (x0, x1, z0, z1, h = 0.9) => { hedgeRect(mb, x0, x1, z0, z1, y0, h, { col: [0.74, 0.9, 0.68] }); coll(x0, x1, z0, z1, h, { kind: 'low' }); }; // 52nd: leaf-spray shell over a dark core (HedgeBush.js)
   hedge(bx0, px - 5, -206.2, -205.6); hedge(px + 5, bx1, -206.2, -205.6); hedge(0, 10, -212.4, -211.8, 0.7); hedge(14, 24, -212.4, -211.8, 0.7); // forecourt edge: gaps by the east column, mid-lawn and at the east lane so the lawn is walkable
   hedge(-51, -15.6, -226.5, -226.0, 0.6); // inside the front fence, west of the gate only (it used to run straight across the gate lane and stop every vehicle)
-  const bed = (x, z, w, d, seed) => { box(conc, x, y0 + 0.15, z, w + 0.2, 0.3, d + 0.2, '#bdb4a2'); box(conc, x, y0 + 0.31, z, w, 0.04, d, '#4a3424');
-    const cols = ['#d6304a', '#f2b632', '#f2f2ee', '#e86a1c', '#b8327a']; let k = seed; for (let i = 0; i < w / 0.35; i++) for (let j = 0; j < d / 0.35; j++) { k = (k * 9301 + 49297) % 233280; leaves.box(x - w / 2 + 0.18 + i * 0.35, y0 + 0.42, z - d / 2 + 0.18 + j * 0.35, 0.22, 0.22, 0.22, { col: C(k % 3 ? '#4f8a3a' : cols[k % cols.length]) }); } coll(x - w / 2 - 0.1, x + w / 2 + 0.1, z - d / 2 - 0.1, z + d / 2 + 0.1, 0.8, { kind: 'low' }); };
-  bed(px - 12, -207.4, 5, 1.2, 3); bed(px + 12, -207.4, 5, 1.2, 7); bed(4, -223.2, 3.4, 1.4, 11); bed(-26, -216.2, 2.4, 2.4, 5);
+  const bed = (x, z, w, d, seed, hole = 0) => { // hole: a clear ring round a tree trunk at the bed's centre (61st: the frangipani grew through the bedding shrubs) box(conc, x, y0 + 0.15, z, w + 0.2, 0.3, d + 0.2, '#bdb4a2'); box(conc, x, y0 + 0.31, z, w, 0.04, d, '#4a3424');
+    const cols = ['#d6304a', '#f2b632', '#f2f2ee', '#e86a1c', '#b8327a']; let k = seed; const FC = { '#d6304a': [0.84, 0.12, 0.2], '#f2b632': [0.95, 0.7, 0.18], '#f2f2ee': [0.95, 0.95, 0.92], '#e86a1c': [0.91, 0.4, 0.1], '#b8327a': [0.72, 0.18, 0.47] };
+    for (let i = 0; i < w / 0.5; i++) for (let j = 0; j < d / 0.5; j++) { k = (k * 9301 + 49297) % 233280; const fl = k % 3 !== 0; if (hole && Math.hypot(-w / 2 + 0.25 + i * 0.5, -d / 2 + 0.25 + j * 0.5) < hole) continue; // bedding shrubs: leafy domes, two in three in flower (no more coloured cubes)
+      bushBall(mb, x - w / 2 + 0.25 + i * 0.5, y0 + 0.31, z - d / 2 + 0.25 + j * 0.5, 0.22, 0.34, { core: false, size: 0.1, density: 30, col: [0.78, 0.92, 0.7], flowers: fl ? 7 : 0, flowerCol: FC[cols[k % cols.length]], seed: k }); } coll(x - w / 2 - 0.1, x + w / 2 + 0.1, z - d / 2 - 0.1, z + d / 2 + 0.1, 0.8, { kind: 'low' }); };
+  bed(px - 12, -207.4, 5, 1.2, 3); bed(px + 12, -207.4, 5, 1.2, 7); bed(4, -223.2, 3.4, 1.4, 11); bed(-26, -216.2, 2.4, 2.4, 5, 0.7);
   { const mx = 12, mz = -224.6; box(conc, mx, y0 + 0.2, mz, 11, 0.4, 1.6, '#b9b09e', { uv: 3 }); box(conc, mx, y0 + 1.2, mz, 10, 1.8, 0.7, '#e9e2d2', { uv: 3 }); box(paint, mx, y0 + 2.16, mz, 10.2, 0.12, 0.8, '#1d3a7a'); coll(mx - 5.5, mx + 5.5, mz - 0.8, mz + 0.8, 2.2);
     label([{ text: 'ශ්‍රී ලංකා පොලිසිය', font: SI(70), color: '#1d3a7a' }, { text: 'SRI LANKA POLICE HEADQUARTERS', font: SANS(84), color: '#1d3a7a' }, { text: 'இலங்கை பொலிஸ் தலைமையகம்', font: TA(64), color: '#1d3a7a' }], mx, y0 + 1.22, mz - 0.37, 9.4, 1.55, Math.PI, { w: 1536, h: 260, bg: '#f5f1e6' }); }
   // HQ name on Union Place facing the street (small plate on the fence by the gate)

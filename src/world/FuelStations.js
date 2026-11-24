@@ -27,7 +27,7 @@ const smooth = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
 const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const DRIVE = L.FUEL_DRIVE, SLAB = L.FUEL_SLAB;
 const ELIGIBLE = new Set(['car', 'van', 'tuk', 'bike']);
-const NO_FUEL = new Set(['police', 'policejeep', 'policebike', 'ambulance']);
+const NO_FUEL = new Set(['police', 'policejeep', 'policebike', 'ambulance', 'dbike']); // dbike: Dineth's bicycle has no tank
 const FUEL_TYPES = new Set(Object.keys(VTYPES).filter((k) => { const T = VTYPES[k]; return T && ELIGIBLE.has(T.entry) && !NO_FUEL.has(k) && T.len <= 5.4; }));
 // bays: lane, the side of the vehicle that faces the island (+1 = its left), island index, dispenser face side (−1 = the
 // island's −w face); lane C (between island 2 and the shop walkway) is too tight a turn for cars: three-wheelers/bikes only
@@ -156,11 +156,15 @@ class Attendant {
   }
   get free() { return this.p && !this.dead && !this.interrupted && !this.task && (this.phase === 'post' || this.phase === 'idle' || this.phase === 'toPost'); }
   spawn() {
-    const st = this.st, [x, z] = st.site.toWorld(this.post.u, this.post.w); const seed = (st.idx * 7919 + this.idx * 104729 + (st.spawnN++) * 31) | 0;
-    const sp = makeAttendantAppearance(seed, L.FUEL_BRANDS[st.site.brand]); const crowd = st.svc.crowd; const node = nearestPedNode(x, z);
+    const st = this.st, [x, z] = st.site.toWorld(this.post.u, this.post.w);
+    const sp = this.appearance(); const crowd = st.svc.crowd; const node = nearestPedNode(x, z);
     const p = crowd.makePed(sp, x, z, node); p.x = x; p.z = z; p.yaw = st.yawToU(-1); p.state = 'job'; p.job = this.job; p.keep = true; p.umbrella = false; p.jog = false; p.pace = 1.25; p.target = null; p.edge = null; p.attendant = true;
     crowd.place(p); this.p = p; this.dead = false; this.phase = 'post'; this.task = null; this.interrupted = false; this.lastX = x; this.lastZ = z; return p;
   }
+  // 86th: the same attendant every time the station streams back in (was a new person — a new look, a 100-270 ms body + garment
+  // build — on every return within 175 m); a new face only after the last one died or walked off. First looks as before
+  // (attendant 0 / 1 = spawn 0 / 1), later generations step by 2 so they never repeat the other attendant's look.
+  appearance() { const st = this.st; const seed = (st.idx * 7919 + this.idx * 104729 + (this.gen ?? this.idx) * 31) | 0; return makeAttendantAppearance(seed, L.FUEL_BRANDS[st.site.brand]); }
   despawn() { const p = this.p; if (!p) return; this.releaseHands(true); if (this.noz) { this.noz.dispose(); this.noz = null; } if (this.task) this.st.dropAttendant(this.task); this.task = null; p.job = null; p.keep = false; if (!p.dead) this.st.svc.crowd.remove(p); this.p = null; }
   // ---- crowd hooks
   interrupt(state) { // shoved, frightened, knocked down, shot: let go of everything at once
@@ -371,7 +375,8 @@ class Station {
     const T = this.svc.traffic; if (!T) return; const nCars = this.visits.length; if (nCars >= 3) return; if (!this.att.some((a) => a.p && !a.dead)) return;
     const site = this.site; const cands = [];
     for (const v of T.vehicles) { const ai = v.ai; if (!ai || ai.fuel || v.free || ai.rejoin || ai.chase || ai.emergency || (ai.route && ai.route.length && v.fuelFor !== this) || ai.goal || ai.stopped || v.keep || v.police || v.towing || v.towedBy || v.isTrain || v.hold || v.dead) continue;
-      if (!v.T || !ELIGIBLE.has(v.T.entry) || NO_FUEL.has(v.type) || v.T.len > 5.4) continue; if (Math.abs(ai.lat || 0) > 0.15 || Math.abs(ai.hdg || 0) > 0.04) continue;
+      if (!v.T || !ELIGIBLE.has(v.T.entry) || NO_FUEL.has(v.type) || v.T.len > 5.4) continue;
+      if ((v.speed || 0) < 1 || (ai.stuck || 0) > 1 || (ai.pieces[0] && ai.pieces[0].type === 'path')) continue; /* passing traffic only: not a car standing in a queue, or one still on a forecourt / parking path (one just leaving here) */ if (Math.abs(ai.lat || 0) > 0.15 || Math.abs(ai.hdg || 0) > 0.04) continue; // nor one mid lane-change
       let k = -1; for (let i = 0; i < Math.min(3, ai.pieces.length); i++) if (this.isOurLine(ai.pieces[i])) { k = i; break; } if (k < 0) continue;
       const [u] = site.toLocal(v.x, v.z); if (k === 0 && u > this.uLatest(v) - 2.5) continue; const d = Math.hypot(v.x - site.O[0], v.z - site.O[1]); if (d > 95) continue;
       cands.push(v); }
@@ -409,6 +414,21 @@ class Station {
     ai.pieces = [entry, exit, rest]; ai.s = 0; ai.lat = 0; ai.hdg = 0; ai.latWant = 0; ai.sMaxP = entry; ai.sMax = entry.len - 0.02; f.vcap = 0; this.svc.stats.entered++;
     return true;
   }
+  replanOut(f) {
+    const v = f.v, ai = v.ai, site = this.site; const [u0, w0] = site.toLocal(v.x, v.z);
+    const hx = Math.sin(v.yaw), hz = Math.cos(v.yaw); const phi0 = Math.atan2(hx * site.Wv[0] + hz * site.Wv[1], hx * site.U[0] + hz * site.U[1]);
+    const wM = -site.walk * 0.5, start = { u: u0, w: w0, phi: phi0 }; const cands = [];
+    for (const ph of [0.55, 0.7, 0.85, 1.0, 1.15]) for (const mu of [DRIVE - 1.5, DRIVE - 0.5, DRIVE + 0.5, DRIVE + 1.5]) for (const wm of [wM, -site.walk * 0.2, -site.walk * 0.8]) {
+      if (mu < u0 + 2.5) continue; cands.push(buildPath(site, [start, { u: mu, w: wm, phi: -ph }, { u: this.uMerge, w: this.wRoad, phi: 0 }], { vmax: 7 }));
+      if (mu > u0 + 7 && Math.abs(phi0) < 0.6) cands.push(buildPath(site, [start, { u: (u0 + mu) * 0.5, w: w0, phi: 0 }, { u: mu, w: wm, phi: -ph }, { u: this.uMerge, w: this.wRoad, phi: 0 }], { vmax: 7 })); }
+    let best = null; for (const e of cands) if ((!best || e.kmax < best.kmax) && this.pathClear(e, v)) best = e;
+    if (!best) return false;
+    const rest = linePiece(site.seg, this.from, this.to, this.kerbLane); const P0 = best.poly[best.poly.length - 1]; rest.p0 = [P0[0], P0[1]]; rest.len = Math.max(0.1, (rest.p1[0] - P0[0]) * rest.d[0] + (rest.p1[1] - P0[1]) * rest.d[1]);
+    let yi = best.loc.findIndex((q) => q[1] < 0.9); if (yi < 0) yi = best.loc.length - 1;
+    Object.assign(f, { exit: best, entry: null, rest, yieldS: best.cum[yi], go: false, why: 'replanned' });
+    ai.pieces = [best, rest]; ai.s = 0; ai.lat = 0; ai.hdg = 0; ai.latWant = 0; ai.rejoin = false; ai.reverse = 0; ai.sMaxP = best; ai.sMax = f.yieldS; this.svc.stats.replanned = (this.svc.stats.replanned || 0) + 1;
+    return true;
+  }
   pathClear(P, v) {
     const hw = v.T.wid / 2 + 0.12, hl = v.T.len / 2 + 0.12, cs = this.solid || (this.solid = this.geo.colliders.filter((c) => (c.y0 || 0) < 2.6 && (c.y0 !== undefined ? c.y0 + c.h : c.h) > SLAB + 0.12));
     const Rr = Math.hypot(hw, hl);
@@ -427,7 +447,7 @@ class Station {
   endVisit(f) { const i = this.visits.indexOf(f); if (i >= 0) this.visits.splice(i, 1); this.releaseBay(f); this.dropAttendant(f); const ai = f.v && f.v.ai; if (ai && ai.fuel === f) { ai.fuel = null; ai.sMaxP = null; } }
   gapClear(f) { // give way at the exit driveway: nothing in the kerb lane about to arrive, no queue standing across the merge
     const site = this.site, U = site.U; const uM = this.uMerge; const list = this.svc.traffic.vehicles; const pv = this.svc.playerVehicle();
-    const nd = this.to, T = this.svc.traffic; if (nd.signal && nd.hwH > 0 && nd.hwV > 0 && L.signalState(nd, this.site.seg.dir, T.simTime || 0) !== 'green') return false; // the merge is just before a signal: wait in the driveway for green
+    const nd = this.to, T = this.svc.traffic; if (nd.signal && nd.hwH > 0 && nd.hwV > 0 && /^(red|yellow)$/.test(L.signalState(nd, this.site.seg.dir, T.simTime || 0))) return false; // the merge is just before a signal: wait in the driveway for green
     const test = (o) => { if (!o || o === f.v) return true; const [ou, ow] = site.toLocal(o.x, o.z); if (Math.abs(ou - uM) > 60) return true; const onLane = Math.abs(ow - this.wRoad) < 2.6, onDrive = ow > -site.walk - 0.6 && ow < 1.2 && Math.abs(ou - DRIVE) < 5;
       if (!onLane && !onDrive) return true; if (onDrive) return false; const hU = Math.sin(o.yaw) * U[0] + Math.cos(o.yaw) * U[1]; const sp = (o.speed || 0) * hU; const d = uM - ou; if (d < -6.5) return true; if (d < 9) return false; return !(sp > 0.6 && d / sp < 4.6); };
     for (const o of list) if (!test(o)) return false; return test(pv);
@@ -442,7 +462,7 @@ class Station {
         if (a.noz) { this.loose.push(a.noz); a.noz = null; } if (a.task) { const f = a.task; a.task = null; f.att = null; } a.p = null; }
     }
     if (dist < 175) { for (const a of this.att) if (!a.p && !a.gone) a.spawn(); }
-    else if (dist > 230) { for (const a of this.att) { if (a.p) a.despawn(); a.gone = false; a.dead = false; } for (const n of this.loose) n.dispose(); this.loose.length = 0; }
+    else if (dist > 230) { for (const a of this.att) { if (a.p) a.despawn(); if (a.dead || a.gone) a.gen = (a.gen ?? a.idx) + 2; a.gone = false; a.dead = false; } for (const n of this.loose) n.dispose(); this.loose.length = 0; }
     // loose nozzles (their attendant is gone): drawn here; one left in a car that drove off falls out; a free attendant collects them
     for (let i = this.loose.length - 1; i >= 0; i--) { const n = this.loose[i]; if (n.mode === 'car' && (!n.visit || n.visit.phase === 'out' || !this.visits.includes(n.visit))) n.drop(); n.update(dt, null);
       if (n.mode === 'ground' && n.settled()) { const b = this.att.find((q) => q.free && !q.noz); if (b) { b.noz = n; this.loose.splice(i, 1); b.setPhase('toNozzle'); } } }
@@ -458,6 +478,11 @@ class Station {
     if (v) v.fuelFor = null;
     if (!v || !ai || ai.fuel !== f || v.disposed || v.dead || !T.vehicles.includes(v)) { this.endVisit(f); return; }
     if (v.free && f.phase !== 'approach' && f.phase !== 'out') { this.leave(f, 'knocked'); return; }
+    // a car knocked out of its bay (or wedged on the way out) drives off from where it actually is: a fresh exit path from its
+    // pose to the merge, clear of kerbs / islands / pylons; one still stuck after that is left for traffic to recycle out of view
+    if (f.phase === 'out' && !v.free) { const atYield = !f.go && ai.pieces[0] === f.exit && ai.s > f.yieldS - 3; const still = (v.speed || 0) < 0.2 && !atYield; /* waiting for a gap at the give-way is not stuck */ f.stuckT = still ? (f.stuckT || 0) + dt : 0;
+      if ((f.why === 'knocked' && !f.replans) || (f.stuckT > 6 && (f.replans || 0) < 4)) { f.replans = (f.replans || 0) + 1; f.stuckT = 0; this.replanOut(f); }
+      else if (f.stuckT > 40) { this.endVisit(f); return; } }
     switch (f.phase) {
       case 'approach': {
         const k = ai.pieces.indexOf(f.line); if (k < 0 || f.t > 45 || v.free) { this.endVisit(f); return; }
@@ -515,5 +540,6 @@ export class FuelService {
     if (f.phase === 'out' && !f.go && f.why !== 'knocked') { if (p === f.exit) return f.yieldS - ai.s + 2.2; if (p === f.entry) return f.entry.len - ai.s + f.yieldS + 2.2; }
     return Infinity; }
   update(dt, ctx) { for (const st of this.stations) st.update(dt, ctx); }
+  looks() { const out = []; for (const st of this.stations) for (const a of st.att) out.push(a.appearance()); return out; } // 86th: loading screen (Game.prebuildServices)
   nearest(x, z) { let best = null, bd = Infinity; for (const st of this.stations) { const d = Math.hypot(st.site.O[0] - x, st.site.O[1] - z); if (d < bd) { bd = d; best = st; } } return best; }
 }

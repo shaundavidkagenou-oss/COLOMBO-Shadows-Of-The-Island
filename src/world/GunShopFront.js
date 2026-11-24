@@ -30,10 +30,12 @@ export function buildGunShopFront(shop, building) {
   for (let k = 0; k < 6; k++) metal.box(0, top + 0.06 + k * 0.06, 0.245, w - 0.04, 0.012, 0.01, { col: C('#3a3e42') });
   paint.box(0, top - 0.02, 0.15, w, 0.03, 0.3, { col: trim }); // brass line under the box
   // door: steel frame, glass, push bar, threshold step
-  for (const s of [-1, 1]) paint.box(s * (doorW / 2 + 0.04), top / 2, 0.06, 0.08, top, 0.12, { col: frame });
-  paint.box(0, top / 2, 0.006, doorW, top, 0.012, { col: C('#141516') }); // dark lobby behind the door glass (hides the generic shopfront texture of the facade)
-  glass.box(0, top / 2 + 0.02, 0.03, doorW, top - 0.08, 0.02); metal.box(0, 1.05, 0.06, doorW * 0.7, 0.04, 0.05, { col: C('#c8c8c4') });
-  paint.box(0, 0.06, 0.25, doorW + 0.3, 0.12, 0.5, { col: C('#555652') });
+  if (!shop.walkIn) { for (const s of [-1, 1]) paint.box(s * (doorW / 2 + 0.04), top / 2, 0.06, 0.08, top, 0.12, { col: frame });
+    paint.box(0, top / 2, 0.006, doorW, top, 0.012, { col: C('#141516') }); // dark lobby behind the door glass (hides the generic shopfront texture of the facade)
+    glass.box(0, top / 2 + 0.02, 0.03, doorW, top - 0.08, 0.02); metal.box(0, 1.05, 0.06, doorW * 0.7, 0.04, 0.05, { col: C('#c8c8c4') });
+    paint.box(0, 0.06, 0.25, doorW + 0.3, 0.12, 0.5, { col: C('#555652') }); }
+  else { for (const s of [-1, 1]) paint.box(s * (doorW / 2 + 0.04), (top + 2.42) / 2, 0.06, 0.08, top - 2.42, 0.12, { col: frame }); paint.box(0, (top + 2.42) / 2, 0.03, doorW, top - 2.42, 0.06, { col: frame }); // walk-in: the hinged door (WalkIn.js) fills the opening; a steel transom panel above it
+    for (const s of [-1, 1]) paint.box(s * (doorW / 2 + 0.02), 1.21, 0.03, doorW / 2 - 0.6 + 0.04, 2.42, 0.06, { col: frame }); }
   // display windows (one each side of the door) projecting `bay` from the wall
   const colliders = []; const models = [['carbine', 'bolt'], ['assault', 'semi']];
   for (const s of [-1, 1]) {

@@ -17,23 +17,38 @@
 // stationary vehicles and return fire (Firefight.js); shot down by police → arrested, treated under guard at the National
 // Hospital and released there. Every arrest plays the BUSTED sequence (Busted.js). Non-graphic throughout: hits are a red
 // edge flash, hit officers stagger and at worst go down and recover.
+import { collectWorkers, reactOfficer, workerHit, disturbance } from './WorkerReact.js';
 import * as THREE from 'three';
 import * as L from '../world/Layout.js';
 import { Vehicle } from '../vehicles/Vehicle.js';
 import { linePiece, segNodes, otherEnd, evalPiece } from '../vehicles/Traffic.js';
 import { Character } from '../actors/Character.js';
-import { makeMedicAppearance, makePoliceAppearance } from '../actors/Appearance.js';
+import { makeMedicAppearance, makePoliceAppearance, makeMechanicAppearance } from '../actors/Appearance.js';
 import { seatCharacter } from '../actors/Seating.js';
 import { boardCurve, poseBoard, npcBoardSetup, boardGroundFn, swingDoor, lapGrips, EXIT_K } from '../actors/Boarding.js';
 import { shutDoorLater, cancelShut, poseDoor } from '../vehicles/DoorRig.js';
 import { Audio } from '../audio/Audio.js';
+import { bus } from '../core/Events.js';
+import { Voices } from '../audio/Voices.js';
+import { SoundBank } from '../audio/SoundBank.js';
 import { clamp, lerp } from '../core/math.js';
-import { FootNav } from './FootNav.js';
+import { FootNav, carDepth } from './FootNav.js';
 import { Firefight } from './Firefight.js';
 import { EMS } from './EMS.js';
+import { Roadside, roadsideCrew } from './Roadside.js';
 import { BustedCinematic } from './Busted.js';
 import { HOSPITAL } from '../actors/Health.js';
-import { chaseAim, rejoinLane, applyPit, roadblockSite, makeSpikeStrip, overStrip, radioLine, compass, catchUpSpeed, straggler } from './Pursuit.js';
+import { standUpFrom } from '../actors/Ragdoll.js';
+import { chaseAim, rejoinLane, applyPit, roadblockSite, makeSpikeStrip, overStrip, radioLine, compass, catchUpSpeed, straggler, behindBy, aheadSpot } from './Pursuit.js';
+import { UnitPool, crewSeats } from './UnitPool.js';
+import { THINK, SIGHT, thinkTick, pickStalest } from './AIThrottle.js';
+// crew looks cycle through a fixed set (12 police units, 6 ambulances × driver / partner) so their bodies are built once at
+// load (Game.js prewarm) and cached — a squad car arriving mid-chase never stalls a frame building two new people
+export const CREW_LOOKS = { police: 12, ems: 6, rs: 6 };
+// ems: false (police) | true (1990 ambulance) | 'rsvan' / 'flatbed' (80th: Street Customs roadside assistance — mechanics)
+export function crewSpec(id, k, ems) { if (typeof ems === 'string') return roadsideCrew(makeMechanicAppearance, id % CREW_LOOKS.rs, k);
+  const q = id % (ems ? CREW_LOOKS.ems : CREW_LOOKS.police);
+  return ems ? makeMedicAppearance(9100 + q * 17 + k * 7) : makePoliceAppearance(7000 + q * 13 + k * 5, 'patrol', k === 1 && q % 3 === 0 ? { sex: 'f' } : {}); }
 
 const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
 export const UNITS_FOR = [0, 1, 3, 5, 6, 8];
@@ -46,8 +61,11 @@ export const POLICE_BASES = [
   { id: 'hq', name: 'Police Headquarters', x: L.PLACES.policeHQ2.x, z: L.PLACES.policeHQ2.z - 6, cars: 4 },
   { id: 'kollupitiya', name: 'Kollupitiya Police Station', x: L.PLACES.police.x, z: L.PLACES.police.z, cars: 3 },
 ];
-export const DISPATCH = { scramble: [3.5, 6.5], gap: [9, 14], edgeK: 1.35, edgeAdd: 160, edgeDelay: 4 };
+export const DISPATCH = { scramble: [3.5, 6.5], gap: [9, 14], edgeK: 1.35, edgeAdd: 160, edgeDelay: 4, areaFar: 420, area: [6, 12] }; // areaFar / area: 69th, see topUp
 export const CHASE_V0 = [9, 12, 19, 23, 26, 28]; // lane cruising speed by level (m/s)
+// 66th: recycling a unit that fell behind (recycleAhead): ≥ dist m away, ≥ behind m behind the suspect, out of view, suspect
+// doing ≥ minSpeed m/s, unit out ≥ minAge s; respawned lo..hi m ahead; at most one every gap s for the whole force
+export const RECYCLE = { dist: 170, behind: 150, lo: 180, hi: 300, minSpeed: 5, minAge: 3, gap: 0.5 };
 export const LOSE_AFTER = (stars) => 5 + stars * 1.5; // seconds out of every unit's sight before a pursuit becomes a search
 export const SEARCH_TIME = (lv) => 32 + lv * 16;
 export const FINE_ON_SPOT = 2500;
@@ -55,6 +73,7 @@ export const ARREST_FINE = [0, 2500, 5000, 10000, 20000, 30000];
 export const HOLD_HOURS = [0, 1, 2, 4, 6, 8];
 const STATE_LABEL = { detected: 'CALL RECEIVED', investigating: 'INVESTIGATING', responding: 'RESPONDING', pursuing: 'PURSUIT', searching: 'SEARCHING', return: 'STANDING DOWN' };
 const LINES = {
+  grenade: [{ si: 'බෝම්බයක්! බිමට වෙන්න!', tr: 'A bomb! Get down!' }, { en: 'Grenade! Get down!' }, { si: 'ග්‍රැනේඩ් එකක්! පැනගන්න!', tr: 'Grenade! Jump clear!' }, { en: 'Grenade — take cover!' }, { ta: 'குண்டு! கீழே படுங்கள்!', tr: 'Bomb! Get down!' }],
   stop: [{ si: 'නවතින්න! පොලිසිය!', tr: 'Stop! Police!' }, { ta: 'நில்லுங்கள்! பொலிஸ்!', tr: 'Stop! Police!' }, { en: 'Police! Stop right there.' }],
   comply: [{ en: 'Stay where you are. Hands where I can see them.' }, { si: 'හොඳයි, එතන ඉන්න.', tr: 'Good, stay there.' }],
   chase: [{ si: 'අල්ලගන්න!', tr: 'Catch him!' }, { en: 'Suspect running — on foot!' }],
@@ -64,6 +83,10 @@ const LINES = {
   arrest: [{ si: 'නවතින්න! පොලිසිය! අත් උස්සන්න!', tr: 'Stop! Police! Hands up!' }, { en: 'Police! Stop right there — hands where I can see them!' }],
   cuff1: [{ si: 'ඔයාව අත්අඩංගුවට ගන්නවා.', tr: 'You are under arrest.' }, { en: "You're under arrest for assault. Hands behind your back." }],
   waitUp: [{ si: 'නැගිටින්න. හෙමින්.', tr: 'Get up. Slowly.' }, { en: 'Stay down… now get up, slowly.' }],
+  // 73rd: the suspect is known to be inside a building — contain the door, call him out, then go in
+  siege: [{ si: 'ඇතුළේ ඉන්න කෙනා — අත් උස්සගෙන එළියට එන්න!', tr: 'You inside — come out with your hands up!' }, { en: "Police! We know you're in there. Come out slowly, hands where we can see them!" }, { en: 'Control, suspect is inside the building. Covering the front door.' }],
+  entry: [{ si: 'අපි ඇතුළට යනවා. පොලිසිය!', tr: "We're going in. Police!" }, { en: 'Police! Coming in — nobody move!' }],
+  approach: [{ si: 'හෙමින්… අත් පේන්න තියාගන්න.', tr: 'Slowly… keep your hands where I can see them.' }, { en: 'Easy now. Keep your hands where I can see them.' }, { en: "Don't move. Stay right there." }],
 };
 
 // ------------------------------------------------------------------ road graph helpers (pure; unit-tested in tools/police-test.mjs)
@@ -76,12 +99,15 @@ export function nearestRoad(segs, x, z) {
   if (best) best.d = Math.sqrt(best.d); return best;
 }
 // Dijkstra from `start` over drivable segments; `back` = node we came from (turning back there costs a U-turn penalty)
-export function shortest(start, drivable, back = null) {
-  const dist = new Map(), prev = new Map(), done = new Set(); dist.set(start, 0); const heap = [[0, start]];
+// `goals` (optional): stop as soon as every one of these nodes is settled — their distances / paths are already final then
+// (Dijkstra settles nodes in distance order), so a route to a nearby goal no longer floods the whole city's road graph
+export function shortest(start, drivable, back = null, goals = null) {
+  const dist = new Map(), prev = new Map(), done = new Set(); dist.set(start, 0); const heap = [[0, start]]; let left = goals ? goals.length : -1;
   const push = (d, n) => { heap.push([d, n]); let i = heap.length - 1; while (i > 0) { const j = (i - 1) >> 1; if (heap[j][0] <= heap[i][0]) break; [heap[i], heap[j]] = [heap[j], heap[i]]; i = j; } };
   const pop = () => { const top = heap[0]; const last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[i], heap[m]] = [heap[m], heap[i]]; i = m; } } return top; };
   while (heap.length) {
     const [d, n] = pop(); if (done.has(n)) continue; done.add(n);
+    if (left > 0 && goals.includes(n) && --left === 0) break;
     for (const s of n.segs) {
       if (!drivable.has(s)) continue; const o = otherEnd(s, n); const len = Math.hypot(o.x - n.x, o.z - n.z) * [1, 1.08, 1.25, 1.6][s.level || 0] + (n === start && o === back ? 60 : 0) + 4;
       const nd = d + len; if (nd < (dist.get(o) ?? Infinity)) { dist.set(o, nd); prev.set(o, n); push(nd, o); }
@@ -98,7 +124,10 @@ export class PoliceResponse {
     this.foot = []; this.civil = []; this.log = []; this.stats = { reports: 0, dispatched: 0, sightings: 0, fines: 0, arrests: 0, searches: 0, decays: 0, standDowns: 0, maxUnits: 0, spawnMinDist: Infinity };
     this.queue = []; this.baseState = {}; this.edges = null; this.reason = 'disturbance'; this.stop = null; this.t = 0; this.siren = null; this.waits = []; this.radioCd = 4; this.radioN = 0; this.blockCd = 12;
     Object.assign(this.stats, { intercepts: 0, pits: 0, roadblocks: 0, spikes: 0, flats: 0, recycled: 0, tackles: 0, tackleHits: 0, busted: { grab: 0, tackle: 0, shot: 0 } });
-    this.ff = new Firefight(this); this.ems = new EMS(this); this.cine = null; this.bodies = []; this.nav = new FootNav(this.g.collision, () => this.T.all());
+    this.ff = new Firefight(this); this.ems = new EMS(this); this.rs = new Roadside(this); this.cine = null; this.bodies = []; this.nav = new FootNav(this.g.collision, () => this.T.all());
+    // 66th: pooled units (UnitPool.js), the rotating sight queue and per-unit think timers (AIThrottle.js)
+    this.pool = new UnitPool(this, crewSpec); this.lookers = []; this.lookPick = []; this.frame = 0;
+    Object.assign(this.stats, { recycledAhead: 0, sight: { checks: 0, frames: 0, maxPerFrame: 0, forced: 0 }, thinks: 0, poolWaits: 0 });
   }
   get T() { return this.g.traffic; }
   stars() { return Math.ceil(this.level - 0.01); }
@@ -111,9 +140,10 @@ export class PoliceResponse {
     if (this.busy) return; const P = this.g.player; this.stats.reports++;
     const jx = (Math.random() * 2 - 1) * 10, jz = (Math.random() * 2 - 1) * 10; const inc = { x: P.x + jx, z: P.z + jz, t: this.t };
     if (this.t - this.repT < 8) { if (this.state === 'searching' || this.state === 'detected') this.incident = inc; return; } this.repT = this.t;
-    this.incident = inc; this.addHeat(1, this.reason || 'witness report', 'A witness called 119 and described you.');
+    this.incident = inc; this.addHeat(e?.heat || 1, this.reason || 'witness report', 'A witness called 119 and described you.');
   }
-  gunfire(x, z, hit = null) { this.reason = 'discharging a firearm in public'; this.addHeat(0.05, this.reason, null, true); this.crime(x, z, 'gunfire'); this.ff.onPlayerShot(x, z, hit); }
+  gunfire(x, z, hit = null) { this.reason = 'discharging a firearm in public'; this.addHeat(0.05, this.reason, null, true); this.crime(x, z, 'gunfire'); this.ff.onPlayerShot(x, z, hit); disturbance(this, x, z); if (hit) disturbance(this, hit.x, hit.z, 12); }
+  workerHit(o, dx, dz, dmg, how) { return workerHit(this, o, dx, dz, dmg, how); }
   crime(x, z, kind) { // something an officer might witness directly
     if (kind === 'assault') this.reason = 'assault'; else if (kind === 'vehicle') this.reason = 'dangerous driving (pedestrian struck)';
     if (this.t - this.crimeT < 4) return; for (const u of this.units) { if (this.unitSees(u, kind === 'gunfire' ? 1.6 : 1)) { this.crimeT = this.t; this.incident = { x, z, t: this.t }; this.addHeat(1, this.reason, 'A police officer saw it happen.'); this.spotted(); return; } }
@@ -130,24 +160,25 @@ export class PoliceResponse {
 
   // ------------------------------------------------------------------ main update
   update(dt) {
-    const g = this.g; this.t += dt; this.stateT += dt; this.prompt = ''; this.tickWaits();
+    const g = this.g; this.t += dt; this.stateT += dt; this.prompt = ''; this.tickWaits(); this.frame++; this.pool.update(dt);
     if (this.bodies.length) this.updateBodies(dt);
     if (this.cine) { this.cine.update(dt); this.updateSiren(dt, false); this.ff.update(dt); return; } // BUSTED sequence owns the officers and the camera
     if (g.director.active || this.busy) { this.updateSiren(dt, true); this.ff.update(dt); return; }
-    this.foot = []; for (const u of this.units.concat(this.civil)) for (const o of u.officers) if (o.mode === 'foot' || o.mode === 'down' || o.mode === 'return') this.foot.push(o);
+    const F = this.foot = []; for (const L of [this.units, this.civil]) for (const u of L) for (const o of u.officers) if (o.mode === 'foot' || o.mode === 'down' || o.mode === 'return') F.push(o); // (a fresh list: callers keep last frame's)
+    collectWorkers(this, this.workers || (this.workers = [])); // 84th: medics + mechanics on foot (the shot / punch tests: WorkerReact.js)
     this.updateGlobal(dt); this.recordTrail();
     for (const u of this.units.slice()) this.updateUnit(u, dt);
     for (const u of this.civil.slice()) this.updateCivil(u, dt);
-    this.ems.update(dt);
+    this.ems.update(dt); this.rs.update(dt);
     this.updateRoadblocks(dt); this.updateRadio(dt);
     this.updateStop(dt); this.g.player.policeStop = !!this.stop; this.pushPlayer(); this.updateSiren(dt, false);
-    this.stats.maxUnits = Math.max(this.stats.maxUnits, this.units.filter((u) => !u.patrol).length);
+    { let n = 0; for (const u of this.units) if (!u.patrol) n++; if (n > this.stats.maxUnits) this.stats.maxUnits = n; }
     this.ff.update(dt);
   }
   updateGlobal(dt) {
     this.updateQueue(); const want = UNITS_FOR[this.stars()] || 0; const active = this.units.filter((u) => u.task !== 'leave' && !u.patrol);
-    // visibility
-    let seen = false; for (const u of this.units) if (u.task !== 'leave' && this.unitSees(u)) { seen = true; break; }
+    // visibility: at most SIGHT.perFrame line-of-sight checks this frame (the stalest lookers); everyone else answers from cache
+    this.updateSight(); let seen = false; for (const u of this.units) if (u.task !== 'leave' && this.unitSees(u)) { seen = true; break; }
     if (seen && this.level > 0) this.spotted(); else this.seenT += dt;
     switch (this.state) {
       case 'patrol': {
@@ -167,7 +198,8 @@ export class PoliceResponse {
       case 'searching': {
         if (active.length < want) this.topUp(want, this.search);
         const P = this.g.player; const out = Math.hypot(P.x - this.search.x, P.z - this.search.z) > this.search.r + 15;
-        this.search.t -= dt * (out ? 1.35 : 1) * (this.g.indoor ? 1.3 : 1); this.search.r = Math.min(this.search.r0 * 1.6, this.search.r + dt * 0.6);
+        const S0 = this.search, hl = this.g.heli; const there = active.some((u) => { const q = u.v || u.officers[0]; return q && Math.hypot(q.x - S0.x, q.z - S0.z) < S0.r + 40; }) || (hl && hl.state === 'fly' && hl.mission === 'chase' && Math.hypot(hl.p.x - S0.x, hl.p.z - S0.z) < S0.r + 120);
+        this.search.t -= dt * (out ? 1.35 : 1) * (this.g.indoor ? 1.3 : 1) * (there || out ? 1 : 0.3); /* 69th: nobody there yet → the clock barely runs (the star is not lost before a car has even arrived) */ this.search.r = Math.min(this.search.r0 * 1.6, this.search.r + dt * 0.6);
         if (this.search.t <= 0) {
           const before = this.stars(); this.level = Math.max(0, before - 1); this.stats.decays++; this.note(`search expired: ${before}→${this.stars()}`);
           if (this.level <= 0) this.standDown('The police have stopped looking for you.');
@@ -188,7 +220,12 @@ export class PoliceResponse {
   // queue the next car (see POLICE_BASES): which base / division sends it, and when it leaves
   topUp(want, pt) {
     if (!pt) return; const active = this.units.filter((u) => u.task !== 'leave' && !u.patrol); const n = active.length + this.queue.length; if (n >= want) return;
-    const lv = this.stars(); const ahead = lv >= 3 && this.state === 'pursuing' && n % 2 === 1; const src = this.pickSource(pt, ahead); if (!src) return;
+    const lv = this.stars(); const ahead = lv >= 3 && this.state === 'pursuing' && n % 2 === 1; const src = this.pickSource(pt, ahead);
+    // 69th: every station far off (or all its cars out): a car already on the road in the area (out of view, 150–280 m) answers
+    // instead — a suspect who stays put is not left alone for minutes while the station cars cross the city
+    const far = !src || Math.hypot(src.x - pt.x, src.z - pt.z) * (src.edge ? DISPATCH.edgeK : 1) > DISPATCH.areaFar;
+    if (far && this.queue.filter((q) => q.area).length < 2) { const rr = (r) => r[0] + Math.random() * (r[1] - r[0]); const t = this.t + rr(DISPATCH.area); this.queue.push({ t, src: null, area: true, jeep: lv >= 3 && n % 3 === 1, tries: 0 }); this.stats.areaCars = (this.stats.areaCars || 0) + 1; this.note(`car ${n + 1}: a patrol car in the area, ${(t - this.t).toFixed(0)} s`); return; }
+    if (!src) return;
     const st = this.baseState[src.id] || (this.baseState[src.id] = { out: 0, nextT: -1e9 }); const rr = (r) => r[0] + Math.random() * (r[1] - r[0]);
     const first = this.t + rr(DISPATCH.scramble) + (src.edge ? DISPATCH.edgeDelay : 0); const t = Math.max(first, st.nextT); st.nextT = t + rr(DISPATCH.gap); st.out++;
     this.queue.push({ t, src, jeep: lv >= 3 && n % 3 === 1, tries: 0 }); this.note(`car ${n + 1} to leave ${src.name} in ${(t - this.t).toFixed(0)} s`);
@@ -216,12 +253,13 @@ export class PoliceResponse {
   updateQueue() {
     if (!this.queue.length) return; this.queue.sort((a, b) => a.t - b.t);
     for (const q of this.queue.slice()) { if (q.t > this.t) break; const u = this.launch(q);
-      if (u) { this.queue.splice(this.queue.indexOf(q), 1); const pt = this.dispatchTarget(); if (pt) this.assign(u, 'drive', pt); }
+      if (u) { this.queue.splice(this.queue.indexOf(q), 1); const pt = this.dispatchTarget(); if (pt) this.assign(u, 'drive', pt); break; } // one car leaves per frame (a new car + crew + its route is the costliest police step: never several in one frame)
       else if (++q.tries > 10) { this.queue.splice(this.queue.indexOf(q), 1); this.release(q.src); const f = this.spawnUnit({ jeep: q.jeep }); if (f) { const pt = this.dispatchTarget(); if (pt) this.assign(f, 'drive', pt); } } // gate blocked for long: the old out-of-view fallback, never no response
       else q.t = this.t + 1.2; }
   }
   release(src) { const st = src && this.baseState[src.id]; if (st) st.out = Math.max(0, st.out - 1); }
   launch(q) { // the car pulls out of the base gate (or in from the edge road) onto the lane toward the suspect
+    if (q.area) { const u = this.spawnUnit({ jeep: q.jeep }); if (u) { u.from = 'a patrol car in the area'; this.note(`unit ${u.id} answering from the area`); } return u; } // (69th: out of view on a road 150–280 m off)
     const s = q.src, T = this.T, P = this.g.player; const pt = this.dispatchTarget() || this.target(); const ln = T.laneNear(s.x, s.z, Math.atan2(pt.x - s.x, pt.z - s.z), s.edge ? 60 : 80); if (!ln) return null;
     const [x, z] = evalPiece(ln.piece, ln.s); if (T.all().some((v) => (v.x - x) ** 2 + (v.z - z) ** 2 < 81)) return null; // gate / lane busy: wait
     const dp = Math.hypot(x - P.x, z - P.z); if (dp < 45 && q.tries < 6 && this.inView({ x, z })) return null; // never pops in right in front of the camera
@@ -247,22 +285,42 @@ export class PoliceResponse {
   // does anyone in unit u see the suspect? Officers on foot use their own eyes (Firefight.sees: range, field of view, walls of
   // any height ≥ 1 m and vehicle bodies block, torch beams extend the night range). A crew in the car sees through the
   // windows: shorter range behind, and the same walls / vehicles block the line. mult > 1 = drawn by a gunshot.
+  // Answers from the cached checks (updateSight): an officer on foot from his own eyes (Firefight.look), a crew in the car
+  // from the car's view (carLook: the line test is cached, the range / field test with this mult is live). mult > 1: gunshot.
   unitSees(u, mult = 1) {
-    const g = this.g; if (g.indoor) return false; const tg = this.target(); const P = g.player; const A = g.atmos;
-    for (const o of u.officers) if (o.mode === 'foot' && this.ff.sees(o, 1e-6)) return true;
-    if (u.v && u.officers.some((o) => o.mode === 'seated')) {
-      const v = u.v; const env = (1 - 0.35 * (A ? A.night : 0)) * (1 - 0.15 * (A && A.w ? A.w.rain : 0)) * (P.crouching && !P.vehicle ? 0.7 : 1) * (tg.v ? 1.25 : 1) * mult;
-      const dx = tg.x - v.x, dz = tg.z - v.z, d = Math.hypot(dx, dz); const c = d > 0.1 ? (Math.sin(v.yaw) * dx + Math.cos(v.yaw) * dz) / d : 1;
-      const R = (46 + this.stars() * 7) * env * (c < -0.3 ? 0.5 : 1); // mirrors only, behind
-      if (d < R) { const ey = (v.y || 0) + 1.25; const ty = (tg.y || 0) + (tg.v ? 1.1 : P.crouching ? 0.8 : 1.3);
-        if (this.ff.clear(v.x, ey, v.z, tg.x, ty, tg.z, v, tg.v || null)) return true;
-        if (!tg.v && !P.crouching && this.ff.clear(v.x, ey, v.z, tg.x, (tg.y || 0) + 1.62, tg.z, v, null)) return true; }
-    }
+    const g = this.g; if (g.indoor) return false;
+    for (const o of u.officers) if (o.mode === 'foot' && o.sees) return true;
+    if (u.v && u.los && u.officers.some((o) => o.mode === 'seated')) { const r = this.carRange(u, mult); return r.d < r.R; }
     return false;
+  }
+  carRange(u, mult = 1) {
+    const g = this.g, tg = this.target(), P = g.player, A = g.atmos, v = u.v;
+    const env = (1 - 0.35 * (A ? A.night : 0)) * (1 - 0.15 * (A && A.w ? A.w.rain : 0)) * (P.crouching && !P.vehicle ? 0.7 : 1) * (tg.v ? 1.25 : 1) * mult;
+    const dx = tg.x - v.x, dz = tg.z - v.z, d = Math.hypot(dx, dz); const c = d > 0.1 ? (Math.sin(v.yaw) * dx + Math.cos(v.yaw) * dz) / d : 1;
+    return { d, R: (46 + this.stars() * 7) * env * (c < -0.3 ? 0.5 : 1), tg }; // mirrors only, behind
+  }
+  // the crew's line of sight from the car (walls ≥ 1 m and vehicle bodies block it): cast only within the widest range a
+  // gunshot gives (× 1.6), so unitSees can apply any mult to the cached result
+  carLook(u) {
+    const P = this.g.player; const v = u.v; const r = this.carRange(u, 1.6), tg = r.tg; u.los = false; if (this.g.indoor || r.d >= r.R) return false;
+    const ey = (v.y || 0) + 1.25; const ty = (tg.y || 0) + (tg.v ? 1.1 : P.crouching ? 0.8 : 1.3);
+    u.los = this.ff.clear(v.x, ey, v.z, tg.x, ty, tg.z, v, tg.v || null) || (!tg.v && !P.crouching && this.ff.clear(v.x, ey, v.z, tg.x, (tg.y || 0) + 1.62, tg.z, v, null));
+    return u.los;
+  }
+  // the rotating sight queue: lookers = every wanted-level crew still in its car + every officer on foot; the stalest
+  // SIGHT.perFrame of them whose last check is ≥ SIGHT.minAge old are checked this frame, the rest keep their result
+  updateSight() {
+    const L = this.lookers; L.length = 0;
+    for (const u of this.units) { if (u.task === 'leave') continue; let seated = false;
+      for (const o of u.officers) { if (o.mode === 'foot') L.push(o); else { if (o.sees) o.sees = false; if (o.mode === 'seated') seated = true; } }
+      if (u.v && seated) L.push(u); else u.los = false; }
+    const pick = pickStalest(L, this.t, SIGHT.perFrame, SIGHT.minAge, this.lookPick);
+    for (const x of pick) { if (x.officers) this.carLook(x); else this.ff.look(x); x.lookAt = this.t; }
+    const S = this.stats.sight; S.checks += pick.length; S.frames++; S.last = pick.length; if (pick.length > S.maxPerFrame) S.maxPerFrame = pick.length;
   }
 
   // ------------------------------------------------------------------ units
-  spawnUnit({ patrol = false, jeep = false, ahead = false, at = null, ems = false, near = false } = {}) {
+  spawnUnit({ patrol = false, jeep = false, ahead = false, at = null, ems = false, near = false, rs = null } = {}) { if (rs) ems = rs; // 80th: rs = 'rsvan' | 'flatbed' (Roadside.js) — a civilian unit like the ambulance
     const g = this.g, T = this.T, P = g.player; const f = this.target(); const cam = g.camera; const cd = new THREE.Vector3(); cam.getWorldDirection(cd);
     if (at) { const ln = T.laneNear(at.x, at.z, at.yaw, 40); return ln ? this.makeUnit(at.x, at.z, at.yaw, ln.piece, ln.s, false, jeep, ems) : null; } // placed (roadblock / test)
     const lo = ahead ? 170 : near ? 90 : 150, hi = ahead ? 310 : near ? 170 : 280; // near: answering the player's own 119 call
@@ -284,16 +342,33 @@ export class PoliceResponse {
   }
   makeUnit(x, z, yaw, piece, s, patrol, jeep, ems = false) {
     const g = this.g, T = this.T, P = g.player; {
-      const type = ems ? 'ambulance' : jeep ? 'policejeep' : 'police'; const v = new Vehicle(type, 3000 + this.seed * 7, g.scene); v.place(x, z, yaw);
-      v.keep = true; v.ai = { pieces: [piece], s, v0: patrol ? 9 : 11, stuck: 0, honkCd: 99, bumped: 0, aggressive: 1.2, emergency: true }; T.extend(v);
+      const tm0 = performance.now(); const civ = typeof ems === 'string'; const want = civ ? ems : ems ? 'ambulance' : jeep ? 'policejeep' : 'police';
+      // 66th: police cars + crews come out of the pool (built while loading); with the pool in use and empty, no car is built
+      const pe = this.pool.acquire(want, x, z, yaw); /* (73rd: the ambulance too — if it is out / lost, EMS builds one as before) */ if (!pe && (!ems || civ) && this.pool.ready) { this.stats.poolWaits++; this.note(`no free unit in the pool (${want})`); return null; }
+      const v = pe ? pe.v : new Vehicle(want, 3000 + this.seed * 7, g.scene); const type = v.type; if (!pe) v.place(x, z, yaw); const tm1 = performance.now();
+      v.keep = true; v.ai = { pieces: [piece], s, v0: patrol ? 9 : 11, stuck: 0, honkCd: 99, bumped: 0, aggressive: civ ? 1 : 1.2, emergency: !civ }; T.extend(v); // (80th: a breakdown truck is not an emergency vehicle — it drives with the traffic)
       const u = { id: this.seed++, v, officers: [], task: patrol ? 'patrol' : 'idle', patrol, arrived: false, footT: 0, stuckT: 0, planT: 0, goalPt: null, enterT: 0 };
-      v.police = u; const seats = v.mesh.userData.seats; const di = seats.findIndex((q) => q.driver); const pi = seats.map((q, i) => i).filter((i) => i !== di).sort((i, j) => Math.abs(seats[i].z - seats[di].z) - Math.abs(seats[j].z - seats[di].z))[0];
-      for (const [k, si] of [[0, di], [1, pi]]) { if (si === undefined || si < 0) continue; const ch = new Character(ems ? makeMedicAppearance(9100 + u.id * 17 + k * 7) : makePoliceAppearance(7000 + u.id * 13 + k * 5, 'patrol', k === 1 && u.id % 3 === 0 ? { sex: 'f' } : {})); seatCharacter(ch, v, seats[si]); ch.mesh.castShadow = false; const off = { ch, unit: u, seat: seats[si], si, mode: 'seated', x, z, y: v.y, yaw: v.yaw, t: 0, hits: 0, acc: 0 }; if (ems) { off.medic = true; off.noTorch = true; } else this.ff.arm(off); u.officers.push(off); } // every officer carries a T-56 (slung; hidden while seated)
+      v.police = u; const seats = v.mesh.userData.seats; const [di, pi] = crewSeats(seats); u.pooled = !!pe;
+      for (const [k, si] of [[0, di], [1, pi]]) { if (si === undefined || si < 0) continue; const rec = pe && pe.crew[k]; const ch = rec ? rec.ch : new Character(crewSpec(u.id, k, ems)); if (!rec) { seatCharacter(ch, v, seats[si]); ch.mesh.castShadow = false; }
+        const off = { ch, unit: u, k, seat: seats[si], si, mode: 'seated', x, z, y: v.y, yaw: v.yaw, t: 0, hits: 0, acc: 0 }; if (rec) { off.rifle = rec.rifle; off.rp = rec.rp; off.torchM = rec.torchM; }
+        if (ems) { off.medic = true; off.noTorch = true; if (civ) off.mech = true; } else this.ff.arm(off); u.officers.push(off); } // every officer carries a T-56 (slung; hidden while seated) — a pooled officer already has his
+      if (pe) pe.crew = [null, null]; // (the unit owns them while it is out; release hands the survivors back)
       this.syncSeated(u); v.paxPlan = []; T.vehicles.push(v); this.units.push(u);
+      { const tm2 = performance.now(), M = this.stats.make || (this.stats.make = { n: 0, veh: 0, crew: 0, vehMax: 0, crewMax: 0 }); M.n++; M.veh += tm1 - tm0; M.crew += tm2 - tm1; M.vehMax = Math.max(M.vehMax, tm1 - tm0); M.crewMax = Math.max(M.crewMax, tm2 - tm1); } // spawn cost (dev stats)
       const dp = Math.hypot(x - P.x, z - P.z); this.stats.spawnMinDist = Math.min(this.stats.spawnMinDist, dp); this.note(`unit ${u.id} (${type}${patrol ? ', patrol' : ''}) spawned ${dp.toFixed(0)} m away`);
       return u;
     }
-    return null;
+  }
+  // 73rd: a traffic officer from point duty (TrafficDuty) who has thrown his glove down and got on his motorcycle joins the
+  // response as a one-man unit — no car or crew is built, no rifle (he chases, tackles and arrests by hand); when it is
+  // over he leaves and is removed like any other unit
+  adoptBike(v, ch, lane) {
+    const T = this.T; if (!v || !ch || this.level <= 0) return null; const ln = lane || T.laneNear(v.x, v.z, v.yaw, 30); if (!ln) return null; const s0 = v.mesh.userData.seats[0];
+    v.keep = true; v.parked = false; v.ai = { pieces: [ln.piece], s: ln.s, v0: CHASE_V0[this.stars()] || 11, stuck: 0, honkCd: 99, bumped: 0, aggressive: 1.2, emergency: true }; T.extend(v);
+    const u = { id: this.seed++, v, officers: [], task: 'idle', patrol: false, arrived: false, footT: 0, stuckT: 0, planT: 0, goalPt: null, enterT: 0, bike: true, traffic: true };
+    v.police = u; u.officers.push({ ch, unit: u, k: 0, seat: s0, si: 0, mode: 'seated', x: v.x, z: v.z, y: v.y, yaw: v.yaw, t: 0, hits: 0, acc: 0, noTorch: true, traffic: true });
+    this.syncSeated(u); v.paxPlan = []; if (!T.vehicles.includes(v)) T.vehicles.push(v); const pi = T.parked.indexOf(v); if (pi >= 0) T.parked.splice(pi, 1); this.units.push(u); this.stats.trafficBikes = (this.stats.trafficBikes || 0) + 1;
+    this.note(`unit ${u.id} (traffic officer on his motorcycle) joins the chase`); this.afterMount(u); return u;
   }
   distTo(o, tg) { if (!tg.v) return Math.hypot(tg.x - o.x, tg.z - o.z); const v = tg.v; const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw); const rx = o.x - v.x, rz = o.z - v.z; const al = Math.abs(rx * fx + rz * fz) - v.half, la = Math.abs(rx * fz - rz * fx) - (v.T.wid || 1.7) / 2; return Math.hypot(Math.max(0, al), Math.max(0, la)); }
   syncSeated(u) { const v = u.v; if (!v) return; const seated = u.officers.filter((o) => o.mode === 'seated'); v.driverChar = seated.find((o) => o.seat.driver)?.ch || null; v.pax = seated.filter((o) => !o.seat.driver).map((o) => o.ch).concat((u.prisoners || []).filter((q) => q.mode === 'seated').map((q) => q.ch)); }
@@ -304,15 +379,16 @@ export class PoliceResponse {
     if (u.v && !u.v.player) { u.v.ai.stopped = false; u.v.ai.v0 = CHASE_V0[this.stars()]; if (pt && this.allSeated(u)) this.plan(u, pt.x, pt.z); }
   }
   allSeated(u) { return u.officers.every((o) => o.mode === 'seated' || o.mode === 'down'); }
-  plan(u, gx, gz, soft = false) {
+  // enter (80th, optional): the node the goal road must be driven in from (a kerb-side stop on a given side of the road)
+  plan(u, gx, gz, soft = false, enter = null) {
     const v = u.v, ai = v.ai, T = this.T; const tgt = nearestRoad(T.drivableSegs, gx, gz); if (!tgt) return false;
     ai.pieces = ai.pieces[0].type === 'line' ? [ai.pieces[0]] : ai.pieces.slice(0, 2); const last = ai.pieces[ai.pieces.length - 1]; ai.route = null; ai.goal = null;
     const proj = (pc) => clamp((tgt.px - pc.p0[0]) * pc.d[0] + (tgt.pz - pc.p0[1]) * pc.d[1], 1.5, pc.len - 1.5);
-    if (last.seg === tgt.seg) { const s = proj(last); const cur = last === ai.pieces[0] ? ai.s : -1; if (s > cur + 4) { ai.route = []; ai.goal = { seg: tgt.seg, from: last.from, piece: last, s, soft }; T.extend(v); u.goalRoad = tgt; return true; } }
-    const start = last.to; const { dist, prev } = shortest(start, T.drivable, last.from); const [a, b] = segNodes(tgt.seg);
+    if (last.seg === tgt.seg && (!enter || last.from === enter)) { const s = proj(last); const cur = last === ai.pieces[0] ? ai.s : -1; if (s > cur + 4) { ai.route = []; ai.goal = { seg: tgt.seg, from: last.from, piece: last, s, soft }; T.extend(v); u.goalRoad = tgt; return true; } }
+    const start = last.to; const [a, b] = segNodes(tgt.seg); const { dist, prev } = shortest(start, T.drivable, last.from, [a, b]); this.planN = (this.planN || 0) + 1; this.planFrame = this.t;
     const ca = (dist.get(a) ?? Infinity) + Math.hypot(tgt.px - a.x, tgt.pz - a.z), cb = (dist.get(b) ?? Infinity) + Math.hypot(tgt.px - b.x, tgt.pz - b.z);
     if (!isFinite(ca) && !isFinite(cb)) { this.note(`unit ${u.id}: no route`); return false; }
-    const [from, to] = ca <= cb ? [a, b] : [b, a]; const path = from === start ? [] : pathTo(prev, start, from); if (!path) return false;
+    let [from, to] = ca <= cb ? [a, b] : [b, a]; if (enter && (enter === a || enter === b) && isFinite(dist.get(enter) ?? Infinity)) [from, to] = enter === a ? [a, b] : [b, a]; const path = from === start ? [] : pathTo(prev, start, from); if (!path) return false;
     ai.route = path.concat([to]); const gp = linePiece(tgt.seg, from, to, 0); ai.goal = { seg: tgt.seg, from, piece: null, s: proj(gp), soft }; T.extend(v); u.goalRoad = tgt; u.routeLen = ai.route.length;
     return true;
   }
@@ -323,7 +399,10 @@ export class PoliceResponse {
     for (const o of u.officers) if (o.mode === 'foot') o.goal = null; this.note(`unit ${u.id} leaving`);
   }
   removeUnit(u) {
-    const T = this.T; this.dropStrip(u); for (const o of u.officers) { if (o.mode !== 'seated') { o.ch.root.parent?.remove(o.ch.root); o.ch.dispose(); } }
+    const T = this.T; this.dropStrip(u);
+    if (u.v && !u.v.player && u.v.poolEntry) { const v = u.v; this.syncSeated(u); const i = T.vehicles.indexOf(v); if (i >= 0) T.vehicles.splice(i, 1); const pi = T.parked.indexOf(v); if (pi >= 0) T.parked.splice(pi, 1);
+      if (this.pool.release(u)) { u.v = null; u.officers = []; this.units = this.units.filter((q) => q !== u); this.civil = this.civil.filter((q) => q !== u); this.note(`unit ${u.id} back in the pool`); if (u.base) { this.release({ id: u.base }); u.base = null; } return; } } // 66th: car + living crew back to the pool, nothing disposed
+    for (const o of u.officers) { if (o.mode !== 'seated') { o.ch.root.parent?.remove(o.ch.root); o.ch.dispose(); } }
     if (u.v && !u.v.player) { const i = T.vehicles.indexOf(u.v); if (i >= 0) T.vehicles.splice(i, 1); const pi = T.parked.indexOf(u.v); if (pi >= 0) T.parked.splice(pi, 1); this.syncSeated(u); T.remove(u.v); }
     else if (u.v) { u.v.police = null; }
     this.units = this.units.filter((q) => q !== u); this.note(`unit ${u.id} removed`); if (u.base) { this.release({ id: u.base }); u.base = null; }
@@ -335,8 +414,20 @@ export class PoliceResponse {
   updateUnit(u, dt) {
     const g = this.g, T = this.T, tg = this.target(); const v = u.v;
     if (v && v.player) { this.note(`unit ${u.id}: vehicle taken by the player`); v.police = null; v.beacons(false); u.v = null; this.reason = 'stealing a police vehicle'; this.addHeat(1, this.reason, 'Officers saw you take their car.'); }
+    if (u.v && !u.v.player) { const cv = u.v; const shot = u.officers.filter((o) => o.mode === 'seated' && o.ch && o.ch.vdDead && !o.dead); // 69th: shot dead in his seat (VehicleDamage.occupantHit) — he stays there; the rest of the crew leave the car
+      for (const o of shot) { o.dead = true; o.mode = 'dead'; u.officers = u.officers.filter((q) => q !== o); (cv.deadOcc || (cv.deadOcc = [])).push(o.ch); this.stats.officersDown = (this.stats.officersDown || 0) + 1; this.note(`unit ${u.id}: officer shot in his seat`); u.carLost = true; }
+      if (shot.length) { this.syncSeated(u); if (!u.officers.length) { this.abandonUnit(u); return; } } }
+    if (u.v && !u.v.player && (u.v.burning || u.v.wrecked || u.carLost)) { const cv = u.v; // 69th: the unit's own car is on fire — the crew bail out and leave it (never back in)
+      if (u.officers.some((o) => o.mode === 'exit')) { cv.speed = 0; if (cv.ai) cv.ai.stopped = true; } // (held still while they climb out)
+      if (u.officers.some((o) => o.mode === 'seated')) { if (u.task !== 'foot' && u.task !== 'leave') { u.task = 'foot'; u.footT = 0; u.why = 'fire'; } cv.speed = 0; if (cv.ai) cv.ai.stopped = true; u.officers.forEach((o, i) => { if (o.mode === 'seated') { o.mode = 'exit'; o.t = -i * 0.25; } }); this.syncSeated(u); this.note(`unit ${u.id}: car on fire — crew bailing out`); }
+      else if (!u.officers.some((o) => o.mode === 'exit' || o.mode === 'enter')) { cv.police = null; cv.beacons?.(false); u.v = null; u.carLost = false; if (!cv.wrecked) this.T.abandon?.(cv, { x: cv.x, z: cv.z }); for (const o of u.officers) if (o.mode === 'return') { o.mode = 'foot'; o.goal = null; } if (u.base) { this.release({ id: u.base }); u.base = null; } this.note(`unit ${u.id}: car burning — left it`); } }
+    if (u.v && !u.v.player && Math.abs(u.v.speed) < 2 && u.officers.some((o) => o.mode === 'seated')) { const n = this.grenadeNear(u.v); if (n && n.d < (n.gr.car ? n.gr.safe - 1 : 8) && n.gr.car !== u.v) { u.v.speed = 0; if (u.v.ai) u.v.ai.stopped = true; u.task = 'foot'; u.footT = 0; u.why = 'hazard'; u.officers.forEach((o, i) => { if (o.mode === 'seated') { o.mode = 'exit'; o.t = -i * 0.15; } }); this.syncSeated(u); this.note(`unit ${u.id}: ${n.gr.car ? 'burning car' : 'grenade'} by the stopped car — crew out and clear`); } } // 69th: a parked crew does not sit next to a grenade / a car fire
+    if (u.bike && u.v && !u.v.player && Math.abs(u.v.speed) < 0.2 && !u.officers.some((o) => o.mode === 'seated')) { u.v.stand = 1; u.v.leanK = 1; } // 73rd: the motorcycle left on its side stand while he is off it
     const lights = !u.patrol && u.task !== 'leave' && this.level > 0; if (u.v) { u.v.beacons(lights, this.t); u.v.lights = g.atmos.night > 0.4; }
     for (const o of u.officers) this.updateOfficer(o, u, dt);
+    // 66th: the unit's decisions (routes, intercept role / aim, recycling, despawn) 4× a second on its own phase; between
+    // them the car keeps driving on the lane follower / intercept steering toward the latest decision (followChase)
+    { const tdt = thinkTick(u, dt, THINK.unit, u.id, this.t); if (!tdt) { if (u.v && !u.v.player && u.v.ai && u.v.ai.chase) this.followChase(u, tg); return; } dt = tdt; this.stats.thinks++; }
     if (u.task === 'leave') { // drive off / walk off and despawn out of view
       u.leaveT += dt; const allIn = !u.v || this.allSeated(u); if (u.v && allIn) u.v.ai.stopped = false; if (u.v && !allIn) { for (const o of u.officers) if (o.mode === 'foot') { o.mode = 'return'; o.goal = null; } if (u.leaveT < 60) return; }
       const ref = u.v || u.officers[0]; const d = ref ? Math.hypot(ref.x - tg.x, ref.z - tg.z) : 999; if ((d > 140 && !this.inView(ref)) || d > 300 || u.leaveT > 90) this.removeUnit(u); return;
@@ -347,18 +438,20 @@ export class PoliceResponse {
     if (u.task === 'block') { u.blockT = (u.blockT || 0) + dt; if ((dToT > 170 && !this.inView(v)) || u.blockT > 90 || (this.state !== 'pursuing' && u.blockT > 25) || this.level <= 0) this.leave(u); return; }
     if (u.task === 'drive' && this.updateIntercept(u, dt, tg, dToT)) return;
     if (u.task === 'drive') {
-      const st = this.state; u.planT -= dt;
+      const st = this.state; u.planT -= dt; u.age = (u.age || 0) + dt;
+      if (st === 'pursuing' && this.stars() >= 2 && this.recycleAhead(u, tg, dToT)) return; // 66th: > 170 m and > 150 m behind, out of view → straight back in ahead of the suspect
       if (st === 'pursuing' && this.stars() >= 3) { // 3★+: no cruising — a unit that is behind drives faster than the suspect to close the gap
         ai.v0 = catchUpSpeed(this.stars(), tg.v ? Math.abs(tg.v.speed) : 0, dToT, CHASE_V0[this.stars()]);
-        u.minD = Math.min(u.minD ?? 1e9, dToT); u.age = (u.age || 0) + dt;
+        u.minD = Math.min(u.minD ?? 1e9, dToT);
         if ((u.minD < 250 || u.age > 50) && straggler(v, tg, dToT, this.inView(v))) { /* (a car still on its way in from a base is not a straggler) */ this.stats.recycled++; this.note(`unit ${u.id} fell behind, recycled`); this.leave(u); return; } /* topUp sends a fresh car from ahead */
       }
-      if (st === 'pursuing' && u.planT <= 0) { // chase: aim ~2.5 s ahead of a moving suspect (soft goal, no braking); hard stop only once they have stopped
+      if (st === 'pursuing' && u.planT <= 0 && this.planFrame !== this.t) { // chase (one unit re-plans per frame: no frame does every car's route at once): aim ~2.5 s ahead of a moving suspect (soft goal, no braking); hard stop only once they have stopped
         u.planT = 1.6; const live = this.seenT < 0.25; /* someone has eyes on the suspect right now */ const ls = live ? tg : this.lastSeen; const sp = live && tg.v ? Math.abs(tg.v.speed) : live ? (this.g.player.speed || 0) : 0;
         if (ls) { const h = live ? (tg.v ? tg.v.yaw : this.g.player.yaw) : (this.lastSeen.h || 0); const lead = live ? Math.min(45, sp * 2.5) : 0; const ax = ls.x + Math.sin(h) * lead, az = ls.z + Math.cos(h) * lead; const soft = sp > 2;
           if (!u.goalPt || Math.hypot(u.goalPt.x - ax, u.goalPt.z - az) > 10 || soft !== !!u.softGoal) { u.goalPt = { x: ax, z: az }; u.softGoal = soft; this.plan(u, ax, az, soft); } } }
       const P = g.player; const close = dToT < (tg.v ? 16 : 28) && this.seenT < 0.3; void P;
-      const footChase = st === 'pursuing' && close && (!tg.v || Math.abs(tg.v.speed) < 1.5);
+      u.stillT = close && (!tg.v || Math.abs(tg.v.speed) < 1.5) ? (u.stillT || 0) + dt : 0; const fresh = this.t - (u.remountT ?? -99) < 10; // just got back in: no hopping straight out again
+      const footChase = st === 'pursuing' && close && u.stillT >= (fresh && dToT > 8 ? 3 : 0.5);
       const gd = ai.goal && ai.goal.piece && ai.goal.dist !== undefined ? ai.goal.dist : Infinity; const reached = gd < 5 && v.speed < 0.6;
       if (v.speed < 0.3 && !reached) u.stuckT += dt; else { u.stuckT = 0; if (v.speed > 3) u.replans = 0; }
       if (footChase) { this.brakeHere(u); if (v.speed < 1) { this.dismount(u, 'chase'); this.say(u.officers[0], this.stars() >= 2 ? 'chase' : 'stop', 'Officer'); } }
@@ -370,15 +463,17 @@ export class PoliceResponse {
     } else if (u.task === 'foot') {
       u.footT += dt; const st = this.state;
       const done = st === 'searching' ? u.footT > 12 : st === 'pursuing' ? false : st === 'investigating' || st === 'responding' ? u.footT > 20 : true;
-      const ref = this.seenT < 0.3 ? tg : this.lastSeen || tg; const far = u.officers.every((o) => o.mode !== 'foot' || Math.hypot(o.x - ref.x, o.z - ref.z) > 50);
-      if (done || (st === 'pursuing' && (far && this.seenT > 2 || (tg.v && Math.abs(tg.v.speed) > 4)))) { u.goalPt = null; this.recall(u); }
+      const ref = this.seenT < 0.3 ? tg : this.lastSeen || tg; const out = u.officers.filter((o) => o.mode === 'foot'); // (officers still climbing out are not "far": the old test counted them so and called the crew straight back in)
+      const far = out.length > 0 && out.every((o) => Math.hypot(o.x - ref.x, o.z - ref.z) > 50);
+      u.fastT = tg.v && Math.abs(tg.v.speed) > 4 ? (u.fastT || 0) + dt : 0; // the suspect really drives off (not a lurch forward)
+      if (done || (st === 'pursuing' && ((far && this.seenT > 3 && u.footT > 6) || u.fastT > 1.2))) { u.goalPt = null; u.remountT = this.t; this.recall(u); }
     } else if (u.task === 'mount') { if (this.allSeated(u)) { u.task = 'idle'; this.afterMount(u); } }
     else if (u.task === 'idle') this.afterMount(u);
   }
   brakeHere(u) { const ai = u.v.ai; if (ai.goal && ai.goal.piece === ai.pieces[0] && ai.goal.s <= ai.s + 8) return; ai.route = []; ai.goal = { seg: ai.pieces[0].seg, from: ai.pieces[0].from, piece: ai.pieces[0], s: ai.s + Math.max(2, u.v.speed * u.v.speed / 9) }; }
   onArrive(u) {
     const st = this.state;
-    if (st === 'investigating' || st === 'responding') this.dismount(u, 'investigate');
+    if (st === 'investigating' || st === 'responding') { if (u.checked === this.incident) { const c = this.incident || u.goalPt; if (c) { const a = Math.random() * Math.PI * 2; this.assign(u, 'drive', { x: c.x + Math.sin(a) * 60, z: c.z + Math.cos(a) * 60 }); } return; } u.checked = this.incident; this.dismount(u, 'investigate'); }
     else if (st === 'searching') { if (u.searchFoot) { u.searchFoot = false; u.searchedOnce = true; this.dismount(u, 'search'); } else this.searchNext(u); }
     else if (st === 'pursuing') { u.planT = 0; u.goalPt = null; }
   }
@@ -415,17 +510,49 @@ export class PoliceResponse {
       if (rejoinLane(this.T, v)) { u.planT = 0; u.goalPt = null; u.stuckT = 0; this.note(`unit ${u.id} back on the road`); return false; }
       const nr = nearestRoad(this.T.drivableSegs, v.x, v.z); if (nr) { ch.ax = nr.px; ch.az = nr.pz; ch.speed = 6; ch.stop = false; ch.blockT = 0; } return true;
     }
-    if (this.seenT > 0.25 && this.lastSeen) { const tp = this.trailAim(v, ch); ch.ax = tp ? tp.x : this.lastSeen.x; ch.az = tp ? tp.z : this.lastSeen.z; ch.speed = Math.max(10, Math.abs(P.speed) + 2); ch.stop = false; ch.contact = false; return true; } // momentarily out of sight: follow the line they took (saw them turn), not a frozen point
+    ch.live = false; if (this.seenT > 0.25 && this.lastSeen) { const tp = this.trailAim(v, ch); ch.ax = tp ? tp.x : this.lastSeen.x; ch.az = tp ? tp.z : this.lastSeen.z; ch.speed = Math.max(10, Math.abs(P.speed) + 2); ch.stop = false; ch.contact = false; return true; } // momentarily out of sight: follow the line they took (saw them turn), not a frozen point
     const aim = chaseAim(ch.role, P, v, lv, ch.t); ch.ax = aim.x; ch.az = aim.z; ch.speed = aim.speed; ch.contact = aim.contact;
     ch.losT = (ch.losT || 0) - dt; if (ch.losT <= 0) { ch.losT = 0.2; ch.blocked = this.lineBlocked(v, aim.x, aim.z); }
-    if (ch.blocked) { const tp = this.trailAim(v, ch); if (tp) { ch.ax = tp.x; ch.az = tp.z; ch.speed = Math.max(aim.speed, Math.abs(P.speed) + 3); ch.contact = false; } } else ch.ti = null; // a building between them (round a corner): follow the suspect's path round it instead of ploughing into the corner
+    ch.live = true; if (ch.blocked) { const tp = this.trailAim(v, ch); if (tp) { ch.live = false; ch.ax = tp.x; ch.az = tp.z; ch.speed = Math.max(aim.speed, Math.abs(P.speed) + 3); ch.contact = false; } } else ch.ti = null; // a building between them (round a corner): follow the suspect's path round it instead of ploughing into the corner
     ch.stop = Math.abs(P.speed) < 1.5 && d < 18; // suspect stopped: pull up beside them, crew out
-    if (ch.stop && v.speed < 1) { this.dismount(u, 'chase'); this.say(u.officers[0], 'chase', 'Officer'); return true; }
-    if (ch.role === 'pit' && aim.contact && aim.along < 0 && ch.pitCd <= 0 && Math.abs(P.speed) > 6 && this.touching(v, P)) {
-      applyPit(P, v, aim.lat >= 0 ? 1 : -1); ch.pitCd = 7; this.stats.pits++; this.note(`unit ${u.id} PIT`); this.radio('spun', u, true);
-    }
+    if (ch.stop && v.speed < 1 && (this.t - (u.remountT ?? -99) > 6 || d < 8)) { this.dismount(u, 'chase'); this.say(u.officers[0], 'chase', 'Officer'); return true; }
+    this.tryPit(u, ch, P, aim);
     return true;
   }
+  tryPit(u, ch, P, aim) { const v = u.v;
+    if (ch.role === 'pit' && aim.contact && aim.along < 0 && ch.pitCd <= 0 && Math.abs(P.speed) > 6 && this.touching(v, P)) {
+      applyPit(P, v, aim.lat >= 0 ? 1 : -1); ch.pitCd = 7; this.stats.pits++; this.note(`unit ${u.id} PIT`); this.radio('spun', u, true);
+    } }
+  // 66th: between two decisions an intercepting car steers at the suspect it has in sight: its aim point is recomputed
+  // from the role it was given (chaseAim: a few multiplications, no searches / rays) so the car tracks smoothly; a car
+  // following the trail / last-seen point keeps that point. The PIT contact is tested every frame (it lasts a moment).
+  followChase(u, tg) {
+    const v = u.v, ch = v.ai.chase, P = tg.v; if (!ch || !P || !ch.live || ch.stop) return;
+    const aim = chaseAim(ch.role, P, v, this.stars(), ch.t); ch.ax = aim.x; ch.az = aim.z; ch.speed = aim.speed; ch.contact = aim.contact; this.tryPit(u, ch, P, aim);
+  }
+  // 66th: GTA-style recycling. A unit chasing a moving suspect that has dropped > RECYCLE.dist away and > RECYCLE.behind
+  // behind (along the suspect's direction of travel), with its car out of the camera's view, is not left to trail along: the
+  // same car and crew are put back on the road ahead of the suspect (RECYCLE.lo..hi m ahead on the road they are driving,
+  // on the lane coming toward them, also out of view), and pick up the chase from there. No car is built or destroyed.
+  recycleAhead(u, tg, d) {
+    const v = u.v, P = tg.v; if (!P || Math.abs(P.speed) < RECYCLE.minSpeed || u.patrol || u.task !== 'drive' || !this.allSeated(u) || u.officers.some((o) => o.mode !== 'seated')) return false;
+    if (d < RECYCLE.dist || (u.age || 0) < RECYCLE.minAge || this.t - (this.recycleT ?? -9) < RECYCLE.gap || this.seenT > 1.5) return false;
+    const h = P.speed >= 0 ? P.yaw : P.yaw + Math.PI; if (behindBy(v, tg, h) < RECYCLE.behind || this.inView(v) || !this.hiddenAt(v.x, v.z, 300)) return false;
+    const T = this.T; const spot = aheadSpot({ segNodes, linePiece, drivable: T.drivable }, nearestRoad(T.drivableSegs, tg.x, tg.z), h, RECYCLE.lo, RECYCLE.hi,
+      (x, z) => Math.hypot(x - tg.x, z - tg.z) >= RECYCLE.lo * 0.8 && this.hiddenAt(x, z, 260) && !T.vehicles.some((o) => o !== v && (o.x - x) ** 2 + (o.z - z) ** 2 < 15 * 15) && !(this.g.player.vehicle && Math.hypot(x - P.x, z - P.z) < 120));
+    this.recycleT = this.t; if (!spot) { this.stats.recycleMiss = (this.stats.recycleMiss || 0) + 1; return false; }
+    const ai = v.ai; const from = { x: v.x, z: v.z }; this.dropStrip(u);
+    v.place(spot.x, spot.z, spot.yaw); v.speed = Math.min(14, Math.max(8, Math.abs(P.speed) * 0.5)); v.vy = 0; v.air = false; delete v._dk; v.sus.r = v.sus.rv = v.sus.h = v.sus.hv = 0;
+    Object.assign(ai, { pieces: [spot.piece], s: spot.s, route: null, goal: null, chase: null, stopped: false, stuck: 0, v0: CHASE_V0[this.stars()] }); T.extend(v);
+    Object.assign(u, { planT: 0, goalPt: null, softGoal: false, stuckT: 0, replans: 0, arrived: false, age: 0, minD: undefined }); // (it keeps its think phase) v.lights = this.g.atmos.night > 0.4;
+    this.stats.recycledAhead++; this.stats.recycled++; this.note(`unit ${u.id} fell ${behindBy({ x: from.x, z: from.z }, tg, h).toFixed(0)} m behind (${d.toFixed(0)} m away), recycled ${spot.dist.toFixed(0)} m ahead`);
+    return true;
+  }
+  // a car-sized spot the player cannot see: outside the camera's view cone (or beyond `far`), or with a building between the
+  // camera and both the bottom and the roof of a car standing there
+  hiddenAt(x, z, far = 260) { const g = this.g, cam = g.camera; const cd = new THREE.Vector3(); cam.getWorldDirection(cd); const dx = x - cam.position.x, dz = z - cam.position.z, dd = Math.hypot(dx, dz) || 1;
+    if (dd > far || (dx * cd.x + dz * cd.z) / dd <= 0.25) return true; const c = g.collision; if (!c.raycast) return false; const y = L.groundY ? L.groundY(x, z) : 0; const p = cam.position;
+    return c.raycast(p.x, p.y, p.z, x, y + 0.6, z, 0.1) < 0.97 && c.raycast(p.x, p.y, p.z, x, y + 2.2, z, 0.1) < 0.97; }
   // the suspect's driven path while units have eyes on it (and a moment after): intercept cars follow it round corners
   recordTrail() {
     const tg = this.target(); if (this.state !== 'pursuing') { if (this.trail && this.trail.length) this.trail = []; return; }
@@ -444,7 +571,7 @@ export class PoliceResponse {
   // ------------------------------------------------------------------ roadblocks (4★+) and spike strips (5★)
   updateRoadblocks(dt) {
     this.blockCd -= dt; const tg = this.target(); const lv = this.stars();
-    for (const u of this.units) if (u.strip && tg.v && !tg.v.flat && overStrip(u.strip, tg.v)) { tg.v.flat = true; tg.v.impact(7); this.stats.flats++; this.note('suspect tyres punctured'); this.g.hud.notify('Tyres punctured', 'You drove over a police spike strip — the car is slow and hard to control now. Switch vehicles to get away.', 'warn', 4); this.radio('flat', u, true); }
+    for (const u of this.units) if (u.strip && tg.v && !tg.v.flat && !(tg.v.tune && tg.v.tune.runflat) && overStrip(u.strip, tg.v)) { tg.v.flat = true; tg.v.impact(7); this.stats.flats++; this.note('suspect tyres punctured'); this.g.hud.notify('Tyres punctured', 'You drove over a police spike strip — the car is slow and hard to control now. Switch vehicles to get away.', 'warn', 4); this.radio('flat', u, true); }
     if (this.state !== 'pursuing' || lv < 4 || !tg.v || Math.abs(tg.v.speed) < 8 || this.seenT > 0.3 || this.blockCd > 0 || this.g.indoor) return;
     if (this.units.filter((u) => u.task === 'block').length >= (lv >= 5 ? 4 : 2)) return;
     this.blockCd = 6; const site = roadblockSite(tg.v, () => nearestRoad(this.T.drivableSegs, tg.x, tg.z), this.T.drivable, 150, 240); if (!site) return;
@@ -512,11 +639,17 @@ export class PoliceResponse {
       return;
     }
     if (o.vault) { this.stepVault(o, dt); return; }
+    if (o.mode === 'blown') { this.blownOfficer(o, dt); return; } // flat on the ground: dived away from a grenade / thrown by a blast
     if (o.mode === 'down') { o.downT -= dt; if (o.downT <= 0) { o.mode = 'foot'; A.set(null); o.hits = 0; } this.animOfficer(o, dt, 0); return; }
+    if ((o.mode === 'foot' || o.mode === 'return') && !o.cuffing && this.evadeGrenade(o, dt)) return;
+    if ((u.ems || u.rs) && o.react && reactOfficer(this, o, u, dt)) return; // 84th: a medic / mechanic who was attacked (or heard shots) reacts before any job script // a grenade nearby comes before everything else
     // on foot
     const tg = this.target(); const P = g.player; const st = this.state; const dP = this.distTo(o, tg);
     if (o.mode === 'return' || u.task === 'leave' || u.task === 'mount') {
-      if (!v) { o.goal = null; speed = this.walkAway(o, dt); }
+      const hzB = !v || v.burning || v.wrecked || u.carLost ? null : this.hazardBy(v);
+      if (hzB) { if (!o.goal || o.goal.hz !== hzB.gr) { let ax = o.x - hzB.p.x, az = o.z - hzB.p.z; const l = Math.hypot(ax, az) || 1; ax /= l; az /= l; o.goal = { x: hzB.p.x + ax * (hzB.safe + 4), z: hzB.p.z + az * (hzB.safe + 4), away: true, hz: hzB.gr }; } speed = Math.hypot(o.goal.x - o.x, o.goal.z - o.z) > 0.8 ? this.moveTo(o, o.goal.x, o.goal.z, 4.5, dt) : 0; if (!speed) { A.set(null); o.yaw += angDiff(Math.atan2(hzB.p.x - o.x, hzB.p.z - o.z), o.yaw) * Math.min(1, dt * 5); } this.animOfficer(o, dt, speed); return; } // keep clear of it, facing it, until it is over
+      if (o.goal && o.goal.hz) o.goal = null;
+      if (!v || v.burning || v.wrecked || u.carLost) { if (o.goal && !o.goal.away) o.goal = null; speed = this.walkAway(o, dt); if (o.goal) o.goal.away = true; } // (the walk-off point is kept: a fresh random one every frame had him shuffling on the spot) // (69th: never back into a burning car)
       else { let [wx, wz, ex] = this.exitWorld(o, v); const dw = this.detour(o, v, ex); const tx = dw ? dw[0] : wx, tz = dw ? dw[1] : wz; speed = this.moveTo(o, tx, tz, 2.4, dt); o.retT = (o.retT || 0) + dt; const dd = Math.hypot(wx - o.x, wz - o.z);
         if (dd < 2.2 && (o.blockedT > 0.5 || o.retT > 12) && dd >= 0.35 && this.boardFor(o, v)) { o.t = 0; o.mode = 'enter'; o.retT = 0; o.boarding = false; return; }
         if (dd < 2.2 && (o.blockedT > 0.5 || o.retT > 12) && dd >= 0.35) { v.mesh.updateMatrixWorld(); const lp = v.mesh.worldToLocal(new THREE.Vector3(o.x, v.y, o.z)); o.ch.root.parent?.remove(o.ch.root); v.mesh.add(o.ch.root); o.ex = [lp.x, lp.z]; o.t = 0; o.mode = 'enter'; o.retT = 0; A.set(null); return; }
@@ -526,24 +659,38 @@ export class PoliceResponse {
       this.animOfficer(o, dt, speed); return;
     }
     if (u.ems && o.mode === 'foot') { this.ems.medic(o, u, dt); return; } // 1990 ambulance crew (EMS.js)
+    if (u.rs && o.mode === 'foot') { this.rs.mech(o, u, dt); return; } // 80th: roadside mechanics (Roadside.js)
     if (u.civil && o.mode === 'foot') { this.civilOfficer(o, u, dt); return; }
     if (o.tackle) { this.updateTackle(o, u, dt); return; }
     o.tackleCd = Math.max(0, (o.tackleCd || 0) - dt);
+    if (o.inRoom) { const S = this.siegeOf(); speed = S && S.s === o.inRoom.s && !tg.v ? this.siegeOfficer(o, u, S, dt) : this.leaveRoom(o, dt); this.animOfficer(o, dt, speed); return; } // 73rd: inside a shop: the room's own collision model, never the street AI
     { const ffs = this.ff.officer(o, u, dt); if (ffs !== null) { this.animOfficer(o, dt, ffs); return; } } // cover / armed response
-    const sees = this.ff.sees(o, dt); const ls = this.lastSeen;
+    const sees = this.ff.sees(o, dt) || (o.inRoom && P.indoor === o.inRoom.s.room?.proxy); const ls = this.lastSeen;
+    // 73rd: the suspect inside a known building (a walk-in shop / the bank): contain and go in — never through walls
+    { const S = this.siegeOf();
+      if (S && !tg.v && u.task !== 'block') { speed = this.siegeOfficer(o, u, S, dt); this.animOfficer(o, dt, speed); return; } }
     if (u.task === 'block' && dP > 22) { const fx = sees ? tg : ls || tg; o.yaw += angDiff(Math.atan2(fx.x - o.x, fx.z - o.z), o.yaw) * Math.min(1, dt * 4); const want = dP < 70 ? 'point' : null; if (A.action !== want) A.set(want); this.animOfficer(o, dt, 0); return; } // roadblock: hold the line
     // chase only what is known: the suspect while THIS officer sees them, otherwise the last point anyone saw them (no
     // tracking through walls); arriving there without a sighting, the officer stops and looks around
     const chasing = st === 'pursuing' && (sees || (ls && this.t - ls.t < 12));
     if (chasing) {
       const stopMode = this.stars() <= 1; const want = stopMode ? 1.5 : 0.7; const run = !stopMode || (this.stop && this.stop.fled);
-      const goal = sees ? tg : ls; const dG = sees ? dP : Math.hypot(goal.x - o.x, goal.z - o.z);
-      if (dG > (sees ? want : 1.2)) speed = this.moveTo(o, goal.x, goal.z, run ? [5.7, 5.7, 6.1, 6.5, 6.8, 7.0][this.stars()] : dG > 8 ? 3.2 : 1.6, dt); else if (sees) { o.yaw += angDiff(Math.atan2(tg.x - o.x, tg.z - o.z), o.yaw) * Math.min(1, dt * 6); } else { o.yaw += dt * 1.1; if (A.action !== 'look' && !o.torchOn) A.set('look'); }
+      let goal = sees ? tg : ls; const dG = sees ? dP : Math.hypot(goal.x - o.x, goal.z - o.z);
+      // 73rd: an arrest on foot is approached, not charged: a jog from far off, then a fast walk that fans the officers out to either
+      // side of the suspect (one each side, converging as they close), then a slow, deliberate last few metres with an order — a
+      // suspect who runs (or drives) gets the full sprint and the tackle as before
+      let sp = run ? [5.7, 5.7, 6.1, 6.5, 6.8, 7.0][this.stars()] : dG > 8 ? 3.2 : 1.6;
+      if (run && !tg.v) { const fx = (tg.x - o.x) / (dP || 1), fz = (tg.z - o.z) / (dP || 1); const away = (P.speed || 0) > 3.0 && Math.sin(P.yaw) * fx + Math.cos(P.yaw) * fz > 0.2;
+        if (!away && !(this.stars() >= 4 && !sees)) { sp = dG > 32 ? 4.3 : dG > 14 ? 3.0 : dG > 6 ? 1.85 : 1.2;
+          if (sees && dG > 5 && dG < 20) { const fl = o.flank || (o.flank = (o.k === 1 ? 1 : -1) * ((u.id & 1) ? -1 : 1)); const off = Math.min(3.5, (dG - 5) * 0.35); goal = { x: tg.x - fz * fl * off, z: tg.z + fx * fl * off }; }
+          if (sees && dG < 12 && A.action !== 'point' && A.action !== 'torch') A.set('point');
+          if (sees && dG < 14 && this.t - (this.approachSaidT ?? -99) > 7 && this.nearPlayer(o.x, o.z, 18)) { this.approachSaidT = this.t; this.say(o, Math.random() < 0.5 ? 'arrest' : 'approach', 'Police officer'); } } }
+      if (dG > (sees ? want : 1.2)) speed = this.moveTo(o, goal.x, goal.z, sp, dt); else if (sees) { o.yaw += angDiff(Math.atan2(tg.x - o.x, tg.z - o.z), o.yaw) * Math.min(1, dt * 6); } else { o.yaw += dt * 1.1; if (A.action !== 'look' && !o.torchOn) A.set('look'); }
       if (stopMode && sees && dP < 5 && !this.stop) this.beginStop(o);
       // tackle (2★+): a suspect running away on foot within reach — the officer dives at their legs
       if (!stopMode && sees && !tg.v && !this.busy && o.tackleCd <= 0 && dP < 2.6 && dP > 0.8 && (P.speed || 0) > 2.4) { const fx = (tg.x - o.x) / dP, fz = (tg.z - o.z) / dP; const away = Math.sin(P.yaw) * fx + Math.cos(P.yaw) * fz; if (away > 0.25 || (P.speed || 0) > 5) { this.startTackle(o, tg); return; } }
       if (!stopMode && dP < (tg.v ? 0.7 : 1.4) && (!tg.v || Math.abs(tg.v.speed) < 1)) { o.grab = (o.grab || 0) + dt; if (o.grab > (tg.v ? 1.6 : 0.9)) { this.arrest(o, 'grab'); return; } } else o.grab = Math.max(0, (o.grab || 0) - dt);
-      if (A.action && A.action !== 'talk' && A.action !== 'point' && A.action !== 'torch' && !(A.action === 'look' && !sees)) A.set(null); if (stopMode && sees && dP < 4 && A.action !== 'point' && A.action !== 'talk') A.set('point');
+      if (A.action && A.action !== 'talk' && A.action !== 'point' && A.action !== 'torch' && !(A.action === 'look' && !sees)) A.set(null); if (A.action === 'point' && speed > 3.2) A.set(null); if (stopMode && sees && dP < 4 && A.action !== 'point' && A.action !== 'talk') A.set('point');
     } else { // look around the scene / search area
       if (!o.goal || o.goalT <= 0) { const c = st === 'searching' && this.search ? { x: o.x, z: o.z } : this.incident || { x: o.x, z: o.z }; for (let k = 0; k < 6; k++) { const a = Math.random() * Math.PI * 2, r = 3 + Math.random() * 9; const x = c.x + Math.cos(a) * r, z = c.z + Math.sin(a) * r; if (!g.collision.blocked(x, z, 0.3)) { o.goal = { x, z }; break; } } o.goalT = 6 + Math.random() * 4; o.pause = 0; }
       o.goalT -= dt; if (o.goal) { const d = Math.hypot(o.goal.x - o.x, o.goal.z - o.z); if (d > 0.4) speed = this.moveTo(o, o.goal.x, o.goal.z, 1.45, dt); else if (A.action !== 'look' && !o.torchOn) A.set('look'); }
@@ -647,7 +794,7 @@ export class PoliceResponse {
     if (q.mode === 'held') { // walk round behind them; they turn their back; handcuffs
       const bx = q.x - Math.sin(q.yaw) * 0.62, bz = q.z - Math.cos(q.yaw) * 0.62; const d = Math.hypot(bx - o.x, bz - o.z);
       if (d > 0.25 && !(d < 0.5 && o.blockedT > 0.4)) { speed = this.moveTo(o, bx, bz, d > 6 ? 2.6 : 1.3, dt); if (A.action) A.set(null); }
-      else { o.yaw += angDiff(Math.atan2(q.x - o.x, q.z - o.z), o.yaw) * Math.min(1, dt * 6); q.mode = 'cuffing'; q.t = 0; A.set('interact'); if (u.officers[0] === o && this.nearPlayer(o.x, o.z)) this.say(o, u.prisoners.length === 1 ? 'cuff1' : 'cuff', 'Police officer'); }
+      else { o.yaw += angDiff(Math.atan2(q.x - o.x, q.z - o.z), o.yaw) * Math.min(1, dt * 6); q.mode = 'cuffing'; q.t = 0; A.set('interact'); if (this.g.crowd && this.g.crowd.alarm && !q.arrestSeen) { q.arrestSeen = true; this.g.crowd.alarm(q.x, q.z, 30, 1, q, 'arrest'); } /* an arrest draws onlookers: some gather, some film, some walk on (Mind.js) */ if (u.officers[0] === o && this.nearPlayer(o.x, o.z)) this.say(o, u.prisoners.length === 1 ? 'cuff1' : 'cuff', 'Police officer'); }
       this.animOfficer(o, dt, speed); return; }
     if (q.mode === 'cuffing') { o.yaw += angDiff(Math.atan2(q.x - o.x, q.z - o.z), o.yaw) * Math.min(1, dt * 6); if (A.action !== 'interact') A.set('interact'); this.animOfficer(o, dt, 0); return; }
     if (q.mode === 'escort') { // walk them to their door, a hand on the upper arm
@@ -705,7 +852,7 @@ export class PoliceResponse {
     if (o.losT <= 0) { o.losT = 0.3 + Math.random() * 0.1; o.direct = d0 < 0.6 || N.lineClear(o.x, o.z, tx, tz, N.nearCars(Math.min(o.x, tx) - 3, Math.min(o.z, tz) - 3, Math.max(o.x, tx) + 3, Math.max(o.z, tz) + 3)); if (o.direct) N.stats.direct++; }
     if (!o.direct) {
       const P = o.path; const stale = !P || Math.hypot(P.gx - tx, P.gz - tz) > 1.5 || this.t - P.t > (P.reached ? 2 : 4) || (o.blockedT || 0) > 0.6;
-      if (stale && this.navT !== this.t) { this.navT = this.t; o.path = N.plan(o.x, o.z, tx, tz); o.path.t = this.t; o.path.i = 0; o.blockedT = 0; } // at most one search per frame for the whole force (no frame spikes)
+      if (stale && this.navT !== this.t && (!P || this.t - (o.navAt ?? -9) >= THINK.officer)) { this.navT = this.t; o.navAt = this.t; o.path = N.plan(o.x, o.z, tx, tz); o.path.t = this.t; o.path.i = 0; o.blockedT = 0; this.stats.footPlans = (this.stats.footPlans || 0) + 1; } // at most one search per frame for the whole force (no frame spikes), and (66th) one per officer per THINK.officer s: a moving goal no longer re-plans every frame
       const Q = o.path || { pts: [{ x: tx, z: tz }], i: 0, reached: true, ex: tx, ez: tz }; while (Q.i < Q.pts.length - 1 && Math.hypot(Q.pts[Q.i].x - o.x, Q.pts[Q.i].z - o.z) < (Q.pts[Q.i].vault ? 0.45 : 0.5)) { const w = Q.pts[Q.i]; if (w.vault) { this.startVault(o, w); Q.i++; return 0; } Q.i++; }
       const w = Q.pts[Math.min(Q.i, Q.pts.length - 1)]; if (w) { wx = w.x; wz = w.z; }
       if (!Q.reached && Q.i >= Q.pts.length - 1 && Math.hypot(Q.ex - o.x, Q.ez - o.z) < 0.6) { // as close as anyone on foot can get: hold here, facing the goal
@@ -714,12 +861,52 @@ export class PoliceResponse {
     o.navHold = false;
     const dx = wx - o.x, dz = wz - o.z, d = Math.hypot(dx, dz); if (d < 0.02) return 0; const want = Math.atan2(dx, dz);
     o.curSp = (o.curSp || 0) + clamp(sp - (o.curSp || 0), -10 * dt, 7 * dt); const v = Math.max(0.6, o.curSp); const step = Math.min(d, v * dt);
-    const stuckIn = col.blocked(o.x, o.z, 0.2) || this.carAt(o.x, o.z); // e.g. a door spot beside a parked car: walk out of it
+    const wallIn = col.blocked(o.x, o.z, 0.2), carIn = this.carIn(o.x, o.z); // e.g. a door spot beside a parked car: walk out of it — 84th: but only OUT (it used to free every step, so an officer starting inside a car's box could walk straight through the body)
     const side = o.lastSide || 1; // keep the side-step on the same side as last time (no frame-to-frame flip-flop)
-    for (const off of [0, 0.45 * side, -0.45 * side, 0.9 * side, -0.9 * side, 1.5 * side, -1.5 * side, 2.2 * side, -2.2 * side]) { const a = want + off; const nx = o.x + Math.sin(a) * step, nz = o.z + Math.cos(a) * step; if (!stuckIn && (col.blocked(nx, nz, 0.28) || this.carAt(nx, nz))) continue;
+    for (const off of [0, 0.45 * side, -0.45 * side, 0.9 * side, -0.9 * side, 1.5 * side, -1.5 * side, 2.2 * side, -2.2 * side]) { const a = want + off; const nx = o.x + Math.sin(a) * step, nz = o.z + Math.cos(a) * step; if (!wallIn && col.blocked(nx, nz, 0.28)) continue; const cd = this.carIn(nx, nz); if (cd > 0 && cd >= carIn - 1e-4) continue;
       if (off) o.lastSide = Math.sign(off); o.x = nx; o.z = nz; o.y = col.groundAt(nx, nz, o.y + 0.45); o.yaw += angDiff(a, o.yaw) * Math.min(1, dt * 8); o.blockedT = Math.max(0, (o.blockedT || 0) - dt); this.placeOfficer(o); return v; }
     o.curSp *= 0.5; o.blockedT = (o.blockedT || 0) + dt; o.losT = 0; o.direct = false; return 0;
   }
+  // ---- 73rd: the suspect is inside a walk-in building (shop / bank) and the police know it (seen going in, or last seen at its door):
+  // the first officer covers the door from the pavement, two stack up either side of the doorway, the rest hold a perimeter; after
+  // the call-out the pair go in one behind the other, slowly, through the push door (the room's own collision model, WalkIn.resolve
+  // — never through a wall) and make the arrest inside. If he comes out, the cover officer is already on him (normal chase).
+  siegeOf() {
+    const P = this.g.player; const W = this.g.interiors && this.g.interiors.walkIn;
+    if (!W || this.stars() < 2 || P.vehicle || !P.indoor || !P.indoor.walkIn || !P.indoor.site) { if (this.siege) { this.note('suspect out of the building'); this.siege = null; } return null; }
+    const s = P.indoor.site, ls = this.lastSeen; if (this.siege && this.siege.s === s) return this.siege;
+    const known = ls && this.t - ls.t < 40 && Math.hypot(ls.x - s.F.x, ls.z - s.F.z) < 10; if (!known) return null;
+    this.siege = { s, W, t0: this.t, roles: new Map(), n: [0, 0, 0, 0], called: false, entered: false }; this.note(`suspect inside ${s.name || s.id}`); this.stats.sieges = (this.stats.sieges || 0) + 1; return this.siege;
+  }
+  siegeOfficer(o, u, S, dt) {
+    const A = o.ch.anim, s = S.s, W = S.W, P = this.g.player; let role = S.roles.get(o);
+    if (!role) { const n = S.roles.size; role = n === 0 ? 'cover' : n === 1 ? 'entry' : n === 2 ? 'entry2' : 'perim'; S.roles.set(o, role); }
+    const el = this.t - S.t0; const L = (lx, lz) => W.world(s, lx, lz);
+    if (o.inRoom) { // inside: close in on him slowly, weapon up; the arrest is the usual grab
+      const [px, pz] = W.local(s, P.x, P.z); const [ox, oz] = W.local(s, o.x, o.z); const d = Math.hypot(px - ox, pz - oz);
+      if (A.action !== 'point') A.set('point'); if (d < 1.35) { o.yaw += angDiff(Math.atan2(P.x - o.x, P.z - o.z), o.yaw) * Math.min(1, dt * 6); o.grab = (o.grab || 0) + dt; if (o.grab > 0.9) { this.arrest(o, 'grab'); } return 0; }
+      o.grab = Math.max(0, (o.grab || 0) - dt); return this.moveIn(o, S, px, pz, d > 4 ? 1.5 : 1.15, dt);
+    }
+    const spot = role === 'cover' ? [2.3, 4.6] : role === 'entry' ? [-0.95, 0.6] : role === 'entry2' ? [0.95, 0.6] : [(o.k ? 1 : -1) * (4 + (u.id % 3)), 6.5 + (u.id % 2) * 2];
+    const [wx, wz] = L(spot[0], spot[1]); const d = Math.hypot(wx - o.x, wz - o.z); const [dxw, dzw] = L(0, 0.2);
+    if (role === 'entry' || role === 'entry2') { const go = S.called && el > (role === 'entry' ? 9 : 10.5) && (role === 'entry' || S.entered);
+      if (go && d < 1.6) { if (role === 'entry' && !S.entered) { S.entered = true; this.say(o, 'entry', 'Police officer'); } o.inRoom = { s }; o.path = null; return this.moveIn(o, S, 0, -1.2, 1.3, dt); } }
+    if (d > 0.45) { const sp = d > 25 ? 4.4 : d > 6 ? 3.2 : 1.6; if (A.action === 'point' && sp > 3) A.set(null); return this.moveTo(o, wx, wz, sp, dt); }
+    o.yaw += angDiff(Math.atan2(dxw - o.x, dzw - o.z), o.yaw) * Math.min(1, dt * 5); if (A.action !== 'point') A.set('point'); // holding the position, covering the door
+    if (role === 'cover' && !S.called && el > 3) { S.called = true; this.say(o, 'siege', 'Police officer'); }
+    return 0;
+  }
+  // a step inside / through the doorway of a walk-in site, on the room's collision model (local target lx, lz)
+  moveIn(o, S, lx, lz, sp, dt) {
+    const W = S.W, s = S.s; const [ox, oz] = W.local(s, o.x, o.z); let gx = lx, gz = lz;
+    if ((oz > -0.25) !== (lz > -0.25) && Math.abs(ox) > 0.15) { gx = 0; gz = oz > -0.25 ? Math.max(0.5, Math.min(oz, 0.9)) : -0.6; } // line up with the doorway first
+    const dx = gx - ox, dz = gz - oz, d = Math.hypot(dx, dz); if (d < 0.04) return 0;
+    o.curSp = (o.curSp || 0) + clamp(sp - (o.curSp || 0), -6 * dt, 4 * dt); const st = Math.min(d, Math.max(0.4, o.curSp) * dt);
+    const nlx = ox + dx / d * st, nlz = oz + dz / d * st; if (Math.abs(nlx) < 1.2 && nlz > -1.6 && nlz < 1.4) s.npcDoor = { side: oz > -0.07 ? 1 : -1, f: W.frame }; // he pushes the door like anyone
+    const [wx, wz] = W.world(s, nlx, nlz); const r = s.room && s.room.proxy ? W.resolve(s, wx, wz) : { x: wx, z: wz }; o.x = r.x; o.z = r.z; o.y = s.y0;
+    o.yaw += angDiff(Math.atan2(dx * s.cs + dz * s.sn, -dx * s.sn + dz * s.cs), o.yaw) * Math.min(1, dt * 7); this.placeOfficer(o); return Math.max(0.4, o.curSp);
+  }
+  leaveRoom(o, dt) { const S = { s: o.inRoom.s, W: this.g.interiors.walkIn }; const [ox, oz] = S.W.local(S.s, o.x, o.z); if (oz > 1.15) { o.inRoom = null; o.path = null; return 0; } return this.moveIn(o, S, 0, 1.4, 1.8, dt); }
   // climbing a low wall (as the player can): up onto the top, over, and down the other side — about a second
   startVault(o, w) { const V = w.vault; const g = this.g; o.vault = { t: 0, x0: o.x, z0: o.z, y0: o.y, x1: V.x, z1: V.z, y1: g.collision.groundAt(V.x, V.z, (V.top || o.y + 1.6) + 0.2), top: Math.max(o.y + 0.6, V.top || o.y + 1.6), yaw: Math.atan2(V.x - o.x, V.z - o.z), f: -1 }; o.ch.anim.set('handsup'); this.stats.vaults = (this.stats.vaults || 0) + 1; }
   stepVault(o, dt) {
@@ -730,7 +917,8 @@ export class PoliceResponse {
     const A = o.ch.anim; if (k > 0.62 && A.action === 'handsup') A.set(null); this.ff.pose?.(o, dt); A.update(dt, 0); this.placeOfficer(o);
     if (k >= 1) { o.vault = null; o.y = V.y1; o.curSp = 1.5; o.losT = 0; this.placeOfficer(o); }
   }
-  carAt(x, z) { for (const v of this.T.all()) { if (Math.abs(v.x - x) > 6 || Math.abs(v.z - z) > 6) continue; const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw); const rx = x - v.x, rz = z - v.z; if (Math.abs(rx * fx + rz * fz) < v.half + 0.15 && Math.abs(rx * fz - rz * fx) < (v.T.wid || 1.7) / 2 + 0.2) return true; } return false; }
+  carAt(x, z) { return this.carIn(x, z) > 0; }
+  carIn(x, z) { let d = 0; for (const v of this.T.all()) { if (Math.abs(v.x - x) > 6 || Math.abs(v.z - z) > 6 || !v.T) continue; const k = carDepth(v, x, z); if (k > d) d = k; } return d; } // 84th: depth inside a car's footprint (body + open rear doors)
   placeOfficer(o) { o.ch.root.position.set(o.x, o.y, o.z); o.ch.root.rotation.y = o.yaw; }
   animOfficer(o, dt, speed) { const tg = this.target(); const d = Math.hypot(tg.x - o.x, tg.z - o.z); o.acc += dt; const rate = d < 50 ? 0 : d < 120 ? 0.12 : 0.4; this.ff.torch(o, dt); this.ff.pose(o, dt); o.animSp = (o.animSp || 0) + (speed - (o.animSp || 0)) * Math.min(1, dt * (speed > (o.animSp || 0) ? 9 : 6)); if (speed === 0 && o.animSp < 0.25) o.animSp = 0; /* gait speed eased: a single blocked step no longer snaps the walk cycle to a stand */ if (o.acc >= rate) { o.ch.anim.update(Math.min(o.acc, 0.25), o.animSp); o.acc = 0; } this.placeOfficer(o); this.ff.placeTorch(o); }
   officerHit(o, dx, dz) { // non-graphic: the first round staggers; a second puts the officer down for good
@@ -740,20 +928,110 @@ export class PoliceResponse {
   }
   // incapacitated: the body stays where it fell (it no longer belongs to the unit, so a unit driving off or being removed
   // never makes it vanish in view) and is cleared away later, unseen. A unit with nobody left leaves its car parked.
-  killOfficer(o, dx = 0, dz = 0) {
-    if (o.dead) return; if (o.boarding || o.ch.anim.board) { const r = o.ch.root; o.ch.anim.board = null; o.boarding = false; if (r.parent && r.parent !== this.g.scene) { const p = r.getWorldPosition(new THREE.Vector3()); r.parent.remove(r); this.g.scene.add(r); r.position.copy(p); r.rotation.set(0, o.yaw || 0, 0); o.x = p.x; o.z = p.z; } }
+  killOfficer(o, dx = 0, dz = 0, vy = 0) {
+    if (o.dead) return; if (o.ch.rag && o.ch.rag.kin) { o.ch.rag.kin = null; o.ch.rag.wake(); } o.blown = null; o.evade = null; if (o.boarding || o.ch.anim.board) { const r = o.ch.root; o.ch.anim.board = null; o.boarding = false; if (r.parent && r.parent !== this.g.scene) { const p = r.getWorldPosition(new THREE.Vector3()); r.parent.remove(r); this.g.scene.add(r); r.position.copy(p); r.rotation.set(0, o.yaw || 0, 0); o.x = p.x; o.z = p.z; } }
     o.dead = true; o.mode = 'dead'; o.tackle = null; o.cuffing = false; o.torchOn = false; if (o.torchM) o.torchM.visible = false;
-    o.ch.anim.ik = null; o.ch.anim.aim = null; o.ch.anim.set('down'); o.ch.face?.set?.('blink', 1e9); this.ff.disarm?.(o);
+    o.ch.anim.ik = null; o.ch.anim.aim = null; o.ch.anim.set('down'); o.ch.face?.set?.('blink', 1e9); bus.emit('npcDefeated', { kind: 'officer', p: o, rifle: o.rifle || null }); /* 64th: loot (world/Loot.js) may take the T-56 he carried (it then clears o.rifle) */ this.ff.disarm?.(o);
     const u = o.unit; if (u) u.officers = u.officers.filter((q) => q !== o);
-    const R = this.g.ragdolls; if (R && o.ch.root.parent && !o.ch.rag) R.add(o.ch, { vel: [dx * 1.8, 0, dz * 1.8] }); // goes limp (ragdoll)
+    const R = this.g.ragdolls; if (R && o.ch.root.parent && !o.ch.rag) R.add(o.ch, { vel: [dx * 1.8, vy, dz * 1.8] }); // goes limp (ragdoll)
     this.bodies.push({ o, ch: o.ch, x: o.x, z: o.z, t: 0 }); this.stats.officersDown = (this.stats.officersDown || 0) + 1; this.note('officer down (incapacitated)');
     if (u && !u.officers.length) this.abandonUnit(u);
+  }
+  // ------------------------------------------------------------------ grenades
+  // An officer on foot who sees a grenade come down near him (line of sight, after a human reaction time of 0.2–0.55 s) shouts
+  // a warning (console: dialogs → Police officers · Grenade warning) and gets out of the blast: with time to spare he sprints
+  // for the nearest solid cover out of its line of sight (or simply out of range); too close and too late he throws himself
+  // flat away from it — a dive that lands him prone — and gets up once it has gone off; further out he turns his back to it
+  // and hunches, arms over his head. Nobody runs towards a grenade, and a grenade still climbing (nobody can tell where it
+  // will land) or behind a wall is not reacted to.
+  grenadeNear(o) {
+    const G = this.g.grenades; let best = null, bd = 1e9;
+    if (G && G.live) for (const gr of G.live) { if (gr.gone || gr.water) continue; if (!(gr.onGround || gr.rest) && gr.v.y > 0) continue;
+      const d = Math.hypot(gr.p.x - o.x, gr.p.z - o.z); if (d < bd && d < 16 && Math.abs(gr.p.y - (o.y || 0)) < 6) { bd = d; best = gr; } }
+    // 69th: a burning vehicle is a bomb with a fuse too (VehicleDamage: the fire → the tank goes up) — anyone inside its blast
+    // radius gets clear (or flat on the ground if it is about to go); the hazard is a stable proxy per car (identity for o.evade)
+    const VD = this.g.vdamage; if (VD && VD.burning && VD.burning.size) for (const v of VD.burning) { const hz = this.carHazard(v); if (!hz) continue; const d = Math.hypot(hz.p.x - o.x, hz.p.z - o.z); if (d < hz.safe - 0.5 && d < bd && Math.abs(hz.p.y - (o.y || 0)) < 6) { bd = d; best = hz; } }
+    return best ? { gr: best, d: bd } : null;
+  }
+  carHazard(v) { const f = v.vd && v.vd.fire; if (!f || v.wrecked || v.disposed) return null; const hz = v._hazard || (v._hazard = { car: v, p: { x: 0, y: 0, z: 0 }, fuse: 0, safe: 0 }); hz.p.x = v.x; hz.p.y = v.y || 0; hz.p.z = v.z; hz.fuse = Math.max(0, f.T - f.t); const T = v.T || {}; const heavy = (T.mass || 0) > 3000 || v.type === 'bus' || v.type === 'pbus' || v.type === 'lorry'; hz.safe = T.pedal ? 0 : 7 * (heavy ? 1.6 : 1.25) + 2.2; hz.gone = false; return hz; } // safe: past the knock-down ring of a car's blast (Explosions R2 = 7·power)
+  hazardBy(v) { if (!v || v.player) return false; const n = this.grenadeNear(v); return n && n.gr.car !== v && n.d < (n.gr.car ? n.gr.safe - 1 : 8) ? { gr: n.gr, p: n.gr.p, safe: n.gr.car ? n.gr.safe : 9 } : null; } // a grenade / someone else's car fire next to the unit's car: nobody climbs back in until it is over (it had them in and out every second)
+  hazardGone(gr) { if (gr.car) { const v = gr.car; if (!this.carHazard(v)) return true; gr.gone = false; return false; } return gr.gone || !this.g.grenades || !this.g.grenades.live.includes(gr); }
+  evadeGrenade(o, dt) {
+    const E = o.evade, col = this.g.collision, A = o.ch.anim;
+    if (!E) { const n = this.grenadeNear(o); if (!n) return false;
+      if (!n.gr.car && col && col.raycast && col.raycast(o.x, (o.y || 0) + 1.6, o.z, n.gr.p.x, n.gr.p.y + 0.1, n.gr.p.z, 0.05) < 0.97) return false; // can't see it (a car fire is seen / heard anyway)
+      o.evade = { gr: n.gr, t: 0, react: 0.2 + Math.random() * 0.35, kind: null, tx: 0, tz: 0 }; this.stats.grenadeSeen = (this.stats.grenadeSeen || 0) + 1; return false; }
+    E.t += dt; const gr = E.gr;
+    if (this.hazardGone(gr)) { o.evade = null; if (A.action === 'cower' || A.action === 'cover') A.set(null); return false; }
+    if (gr.car && E.kind !== 'run' && gr.fuse > 4 && Math.hypot(o.x - gr.p.x, o.z - gr.p.z) >= gr.safe) { o.evade = null; if (A.action === 'cower' || A.action === 'cover') A.set(null); return false; } // clear of a car fire that is not about to go: back to work (he will not walk back into the radius: grenadeNear)
+    if (E.t < E.react) return false; // still taking it in
+    const dx = o.x - gr.p.x, dz = o.z - gr.p.z, d = Math.hypot(dx, dz) || 0.01, ux = dx / d, uz = dz / d;
+    if (!E.kind) {
+      o.tackle = null; A.aim = null; if (!gr.car && (!this._gShout || this.t - this._gShout > 1.2)) { this._gShout = this.t; this.say(o, 'grenade', null, 'grenade'); }
+      const SAFE = gr.car ? gr.safe : 9.5, RUN = 5.6; if (gr.car) this.stats.fireEvade = (this.stats.fireEvade || 0) + 1;
+      if (d >= SAFE) E.kind = 'brace';
+      else { const c = this.coverFrom(o, gr.p, SAFE + 0.8, gr.fuse - 0.3, RUN); /* aim past the edge: he stops within ~0.6 m of the spot */ if (c) { E.kind = 'run'; E.tx = c.x; E.tz = c.z; E.cover = c.cover; this.stats.grenadeRun = (this.stats.grenadeRun || 0) + 1; }
+        else { this.diveFrom(o, ux, uz, gr); return true; } }
+    }
+    if (E.kind === 'run') {
+      if (gr.fuse < 0.4 && d < 7) { this.diveFrom(o, ux, uz, gr); return true; } // not going to make it: down flat
+      const sp = this.moveTo(o, E.tx, E.tz, 5.6, dt);
+      if (Math.hypot(E.tx - o.x, E.tz - o.z) < 0.6 || (sp === 0 && E.t > E.react + 0.6)) E.kind = E.cover ? 'cover' : 'brace';
+      else { this.animOfficer(o, dt, sp); return true; }
+    }
+    // braced: back to the blast — crouched behind cover, or hunched with the arms over the head in the open
+    o.yaw = Math.atan2(ux, uz); this.placeOfficer(o); const want = E.kind === 'cover' ? 'cover' : 'cower'; if (A.action !== want) A.set(want);
+    this.animOfficer(o, dt, 0); return true;
+  }
+  // where to run: a reachable spot out of the grenade's line of sight (behind a wall, a pillar, a car body counts too via the
+  // collision boxes), else straight away from it to a safe distance — whichever he can reach in the time left; null: no time
+  coverFrom(o, gp, SAFE, tLeft, RUN) {
+    const col = this.g.collision; if (tLeft <= 0) return null; let best = null, bs = 1e9; const reach = Math.min(12, tLeft * RUN);
+    const away = Math.atan2(o.x - gp.x, o.z - gp.z);
+    for (let i = 0; i < 16; i++) { const a = away + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * (Math.PI / 8); for (const r of [2.5, 4, 6, 8.5, 11]) { if (r > reach) break;
+      const x = o.x + Math.sin(a) * r, z = o.z + Math.cos(a) * r; const dg = Math.hypot(x - gp.x, z - gp.z); if (dg < 2.2) continue;
+      if (col && (col.blocked ? col.blocked(x, z, 0.3) : false)) continue; if (col && col.sweepSolid && col.sweepSolid(o.x, o.z, x, z, (o.y || 0), 0.45, 1.8) < 0.999) continue;
+      const hidden = col && col.raycast ? col.raycast(gp.x, gp.y + 0.25, gp.z, x, (o.y || 0) + 0.7, z, 0.02, true) < 0.95 : false;
+      if (!hidden && dg < SAFE) continue; const sc = r + (hidden ? 0 : 6) + Math.max(0, SAFE - dg) * 2; if (sc < bs) { bs = sc; best = { x, z, cover: hidden }; } } }
+    return best;
+  }
+  // the dive: turned away from the grenade, launched forward and up — the trunk travels faster than the legs, so the body
+  // pitches over and lands face down, arms out in front (the ragdoll); he stays down until it has gone off, then gets up
+  diveFrom(o, ux, uz, gr) {
+    const R = this.g.ragdolls; if (!R || !o.ch.root.parent) return;
+    o.evade = null; o.tackle = null; o.cuffing = false; const A = o.ch.anim; A.ik = null; A.aim = null; A.set(null);
+    o.yaw = Math.atan2(ux, uz); this.placeOfficer(o); o.ch.root.updateMatrixWorld(true);
+    o.mode = 'blown'; o.blown = { t: 0, gr, lie: 1.2 + Math.random() * 1.6, ph: null };
+    R.add(o.ch, { vel: [ux * 4.4, 2.2, uz * 4.4], legK: 0.5, upK: 1.35, capOff: 0.55 }); o.ch.face?.set?.('fear', 6);
+    this.stats.grenadeDive = (this.stats.grenadeDive || 0) + 1;
+  }
+  // thrown by a blast (f: 0 at the edge of the knock-down ring … 1 at the lethal radius): the whole body lifted and carried
+  // away from the charge, spun by the shock front; down for a few seconds (dazed), then up again
+  blastKnock(o, ux, uz, f, byPlayer) {
+    const R = this.g.ragdolls; if (!R || !o.ch.root.parent || o.dead) return;
+    if (byPlayer) { this.reason = 'assaulting a police officer'; this.incident = { x: this.g.player.x, z: this.g.player.z, t: this.t }; this.addHeat(1, this.reason, 'You attacked an officer.'); this.spotted(); }
+    if (o.mode === 'blown' && o.ch.rag) { const r = o.ch.rag; if (r.kin) { r.kin = null; r.wake(); o.blown.ph = null; } r.impulse(ux * (3 + 5 * f), 1 + 2 * f, uz * (3 + 5 * f)); o.blown.lie = Math.max(o.blown.lie, o.blown.t + 2.5 + 3 * f); o.blown.gr = null; return; }
+    o.evade = null; o.tackle = null; o.cuffing = false; const A = o.ch.anim; A.ik = null; A.aim = null; A.set(null);
+    o.mode = 'blown'; o.blown = { t: 0, gr: null, lie: 3 + 4 * f + Math.random() * 2, ph: null };
+    const sp = 3 + 6.5 * f; const r = R.add(o.ch, { vel: [ux * sp, 1.2 + 3 * f, uz * sp], legK: 0.95, upK: 1.08, capOff: 0.95 });
+    if (r) { const H = r.part('head'); r.impulse(-uz * (Math.random() - 0.5) * 3 * f, 0.4 * f, ux * (Math.random() - 0.5) * 3 * f, H); }
+    o.ch.face?.set?.('pain', 4); this.stats.blastDowned = (this.stats.blastDowned || 0) + 1;
+  }
+  blownOfficer(o, dt) {
+    const B = o.blown, r = o.ch.rag; if (!B || !r) { o.mode = 'foot'; o.blown = null; return; }
+    B.t += dt; if (!r.kin) { const P = r.pelvis(); o.x = P.x; o.z = P.z; o.y = o.ch.root.position.y; }
+    if (B.ph) return; if (B.gr && !B.gr.gone && this.g.grenades && this.g.grenades.live.includes(B.gr)) return; // head down until it goes off
+    if (B.t < B.lie || (!r.asleep && B.t < B.lie + 3)) return;
+    B.ph = 'up'; const col = this.g.collision;
+    standUpFrom(r, col, () => o.ch.rag === r && o.mode === 'blown' && !o.dead, (fr) => {
+      const q = col.resolveCircle(fr.x, fr.z, 0.3, (o.y || 0) + 0.3, 0.3); o.x = q.x; o.z = q.z; o.y = col.groundAt(o.x, o.z, (o.y || 0) + 0.5); o.yaw = fr.yaw;
+      o.ch.mesh.rotation.set(0, 0, 0); o.ch.mesh.position.set(0, 0, 0); this.placeOfficer(o); o.mode = 'foot'; o.blown = null; o.hits = 0; o.goal = null; o.losT = 0; o.ch.anim.set('stumble'); o.ch.face?.set?.('concern', 4); });
   }
   abandonUnit(u) {
     const T = this.T; this.dropStrip(u); const v = u.v;
     if (v && !v.player) { const i = T.vehicles.indexOf(v); if (i >= 0) T.vehicles.splice(i, 1); v.ai = null; v.speed = 0; v.police = null; v.driverChar = null; T.release(v, true); }
     else if (v) v.police = null;
-    this.units = this.units.filter((q) => q !== u); this.civil = this.civil.filter((q) => q !== u); this.note(`unit ${u.id} has nobody left — car left where it stopped`);
+    this.units = this.units.filter((q) => q !== u); this.civil = this.civil.filter((q) => q !== u); if (u.base) { this.release({ id: u.base }); u.base = null; } this.note(`unit ${u.id} has nobody left — car left where it stopped`);
   }
   updateBodies(dt) {
     for (const b of this.bodies) { b.t += dt; const r = b.ch.rag;
@@ -763,7 +1041,7 @@ export class PoliceResponse {
     for (const b of gone) { if (b.ch.rag) { this.g.ragdolls?.remove(b.ch.rag); b.ch.rag = null; } b.ch.root.parent?.remove(b.ch.root); b.ch.dispose(); } if (gone.length) this.bodies = this.bodies.filter((b) => !gone.includes(b));
   }
   pushPlayer() { const P = this.g.player; if (P.vehicle) return; for (const o of this.foot) { const dx = P.x - o.x, dz = P.z - o.z, d = Math.hypot(dx, dz); if (d < 0.55 && d > 1e-3) { P.x = o.x + (dx / d) * 0.55; P.z = o.z + (dz / d) * 0.55; } } }
-  say(o, kind, who) { const arr = LINES[kind]; if (!arr) return; const l = arr[Math.floor(Math.random() * arr.length)]; const lang = l.si ? 'si' : l.ta ? 'ta' : 'en'; this.g.hud.subtitle(who || 'Police officer', l.si || l.ta || l.en, l.tr || '', 2.6, lang); Audio.talkBlip?.(lang); }
+  say(o, kind, who, sit = 'order') { const arr = LINES[kind]; if (!arr) return; const l = arr[Math.floor(Math.random() * arr.length)]; const lang = l.si ? 'si' : l.ta ? 'ta' : 'en'; const vd = o && o.x !== undefined ? Voices.say(o.ch && o.ch.spec, sit, o.x, o.z, o, 'police') : 0; this.g.hud.subtitle(who || 'Police officer', l.si || l.ta || l.en, l.tr || '', Math.max(2.6, vd + 0.3), lang); if (!vd) Audio.talkBlip?.(lang); } // recorded police voice (console: dialogs → Police officers · Orders), else the blip
 
   // ------------------------------------------------------------------ stop → fine (1★)
   beginStop(o) { this.stop = { o, t: 0, still: 0, fled: false, warned: true }; this.say(o, 'stop', 'Police officer'); this.note('stop issued'); }
@@ -830,9 +1108,9 @@ export class PoliceResponse {
     if (shot) { const S = g.story; if (S.side) { S.side = null; S.hud?.setTimer?.(null); S.hud?.setObjective?.('', ''); S.removeNPC?.('fare'); } if (S.running) { const err = S.fail('You were shot and arrested by the police.'); for (const c of S.conds || []) c.rej(err); S.conds = []; } if (meds > 0) S.pay(-meds, 'Pharmacy — medicines prescribed at the National Hospital (treatment there is free)'); }
     g.atmos.advance(hours * 60);
     if (g.interiors?.current) { const room = g.interiors.current; room.g.visible = false; g.interiors.current = null; g.setIndoor?.(false); } P.indoor = null;
-    const [sx, sz] = g.story.safeSpot(st.x, st.z); P.teleport(sx, sz, shot ? Math.PI : 0); P.ch.anim.set(null); P.speed = 0; if (shot && H) { H.hp = 100; H.lastHurt = -99; P.stamina = 1; }
+    const [sx, sz] = g.story.safeSpot(st.x, st.z); P.teleport(sx, sz, shot ? Math.PI : 0); P.speed = 0; if (shot && H) { H.hp = 100; H.lastHurt = -99; P.stamina = 1; }
     g.world?.warm?.(sx, sz);
-    this.cine.dispose(); this.cine = null;
+    this.cine.dispose(); this.cine = null; P.respawnReset?.(); P.control = false; g.squad?.regroup?.(); // no cuffed / tackled pose blending out at the station, no leftover camera state
     for (const u of this.units.slice()) this.removeUnit(u); this.queue = []; this.baseState = {}; this.level = 0; this.stop = null; this.search = null; this.incident = null; this.lastSeen = null; this.setState('patrol'); this.patrolCd = 60;
     this.lastPenalty = { kind: 'arrest', how: kind, level: lv, fine, paid, hours, confiscated: conf, station: st.name, why, meds };
     P.snapCamera?.(); await this.wait(0.6); await g.hud.fade(0, 0.8); P.control = true; this.busy = false; if (H) H.busy = false; void healthWasBusy;
@@ -845,16 +1123,22 @@ export class PoliceResponse {
   // ------------------------------------------------------------------ siren (synthesised wail; nearest responding unit, spatialised)
   updateSiren(dt, mute) {
     if (!Audio.ready || !Audio.ctx) return; const c = Audio.ctx;
-    if (!this.siren) { const o1 = c.createOscillator(), o2 = c.createOscillator(); o1.type = 'square'; o2.type = 'sawtooth'; const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1100; f.Q.value = 0.8; const gn = c.createGain(); gn.gain.value = 0; const pan = c.createStereoPanner ? c.createStereoPanner() : null; o1.connect(f); o2.connect(f); f.connect(gn); if (pan) { gn.connect(pan); pan.connect(Audio.bus.sfx); } else gn.connect(Audio.bus.sfx); o1.start(); o2.start(); this.siren = { o1, o2, gn, pan, ph: 0 }; }
+    if (!this.siren) { const o1 = c.createOscillator(), o2 = c.createOscillator(); o1.type = 'square'; o2.type = 'sawtooth'; const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1100; f.Q.value = 0.8; const gn = c.createGain(); gn.gain.value = 0; const og = c.createGain(); const pan = c.createStereoPanner ? c.createStereoPanner() : null; o1.connect(f); o2.connect(f); f.connect(og); og.connect(gn); if (pan) { gn.connect(pan); pan.connect(Audio.bus.sfx); } else gn.connect(Audio.bus.sfx); o1.start(); o2.start(); this.siren = { o1, o2, og, gn, pan, ph: 0 }; }
     const S = this.siren; let best = null, bd = 1e9; if (!mute && this.stars() >= 2) for (const u of this.units) { if (!u.v || u.task === 'leave' || u.patrol) continue; const d = Math.hypot(u.v.x - this.g.camera.position.x, u.v.z - this.g.camera.position.z); if (d < bd) { bd = d; best = u.v; } }
     const now = c.currentTime; let gain = 0, pan = 0; if (best) { const [gg, pp] = Audio.spatial(best.x, best.z, 90); gain = 0.07 * gg * (this.g.indoor ? 0.3 : 1); pan = pp; }
     const yelp = best && bd < 45 && this.state === 'pursuing'; S.ph += dt; const k = 0.5 - 0.5 * Math.cos((S.ph / (yelp ? 0.36 : 3.4)) * Math.PI * 2); const fq = yelp ? 820 + 620 * k : 620 + 760 * k; // wail → yelp up close
     S.o1.frequency.setTargetAtTime(fq, now, 0.03); S.o2.frequency.setTargetAtTime(fq * 1.005, now, 0.03); S.gn.gain.setTargetAtTime(gain, now, 0.15); if (S.pan) S.pan.pan.setTargetAtTime(pan, now, 0.1);
+    const rec = !!SoundBank.syncLoop(S, 'siren.police', S.gn); if (rec !== !!S.rec) { S.rec = rec; S.og.gain.setTargetAtTime(rec ? 0 : 1, now, 0.05); } // the player's siren recording (looped) instead of the synthesised wail
   }
 
   // ------------------------------------------------------------------ HUD feed
   hudInfo() {
-    const units = []; for (const u of this.units) { const p = u.v || u.officers[0]; if (p) units.push({ x: p.x, z: p.z, lights: !!(u.v && u.v.beaconsOn), patrol: u.patrol }); }
+    // 69th: only units that are really out there for this wanted level — none at all once it is gone (standing down / patrol),
+    // none that are driving off, none still in the pool, none whose crew are all down (an abandoned car is just a car). Each
+    // carries its unit (ref) so the map shows it only while the player can see it (Game.updateSight) or hear its siren.
+    const units = []; const lv0 = this.stars();
+    if (lv0 > 0) { for (const u of this.units) { if (u.patrol || u.task === 'leave' || (u.v && (u.v.pooled || u.v.disposed))) continue; const p = u.v && !u.v.player ? u.v : u.officers.find((o) => !o.dead && o.mode !== 'down' && o.mode !== 'seated'); if (!p) continue; units.push({ x: p.x, z: p.z, lights: !!(u.v && !u.v.player && u.v.beaconsOn), ref: u }); }
+      const hm = this.g.heli && this.g.heli.hudMark && this.g.heli.hudMark(); if (hm) units.push(hm); } // the Air Wing helicopter (its own icon)
     const lv = this.stars(); let label = lv > 0 || this.state === 'return' ? STATE_LABEL[this.state] || '' : '';
     if (this.state === 'searching' && this.search) { const s = Math.max(0, Math.ceil(this.search.t)); label += ` ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
     if (this.stop) label = 'POLICE STOP';

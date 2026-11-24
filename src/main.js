@@ -1,4 +1,5 @@
 // Entry point. Fonts are bundled locally via Fontsource (SIL OFL) so Sinhala/Tamil text renders correctly offline.
+import './core/fastMath.js'; // first: non-allocating Math.hypot (fewer GC pauses)
 import '@fontsource/noto-sans-sinhala/400.css';
 import '@fontsource/noto-sans-sinhala/600.css';
 import '@fontsource/noto-sans-tamil/400.css';
@@ -11,7 +12,9 @@ import '@fontsource/barlow-condensed/600.css';
 import '@fontsource/barlow-condensed/700.css';
 import '@fontsource/manrope/400.css';
 import '@fontsource/manrope/500.css';
+import '@fontsource/manrope/600.css';
 import '@fontsource/manrope/700.css';
+import '@fontsource/manrope/800.css'; // 600 / 800: Ceylon Meridian Bank signage and ATM screen (BankBrand.js)
 import './styles.css';
 import { Game } from './Game.js';
 
@@ -20,6 +23,6 @@ const app = document.getElementById('app');
 if (!webglOK()) {
   app.innerHTML = '<div class="fatal"><h1>WebGL 2 is required</h1><p>Please use a recent Chrome, Edge, Firefox or Safari with hardware acceleration enabled.</p></div>';
 } else {
-  const game = new Game(app); window.__game = game;
+  const game = new Game(app); window.__game = game; window.__perfConfig = (n) => game.perfConfig(n); window.__perfStats = () => game.perfStats(); // (65th: A/B measurement hooks)
   game.boot().catch((e) => { console.error(e); app.insertAdjacentHTML('beforeend', `<div class="fatal"><h1>Something went wrong</h1><pre>${String(e && e.stack || e).replace(/</g, '&lt;')}</pre></div>`); });
 }

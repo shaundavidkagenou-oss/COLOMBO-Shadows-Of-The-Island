@@ -5,6 +5,7 @@ import { RNG } from '../core/rng.js';
 import { fbm, vnoise } from '../core/noise.js';
 
 export const FACADE_WINDOWS = {};
+import { loadLeafAtlas } from '../world/LeafAtlas.js';
 export const TEX = {};
 let maxAniso = 4;
 export function setAniso(a) { maxAniso = a; }
@@ -19,6 +20,45 @@ function toTex(c, { repeat = true, srgb = true, mips = true } = {}) {
   t.needsUpdate = true;
   return t;
 }
+// ---------------------------------------------------------------------------------------------------------------------------
+// Procedural NORMAL MAPS. Each surface generator paints a height field (grey canvas, light = high) in step with its albedo —
+// the same bricks, joints, cracks and patches, drawn in the same loop iterations so the albedo's RNG sequence (and therefore the
+// albedo itself) is untouched — and heightToNormal turns it into a tangent-space normal map: a 3×3 Sobel gradient of the
+// luminance with wrap-around sampling (tileable heights give seamless normals), OpenGL convention (+Y = +v, the convention
+// three.js expects, also for the derivative tangent frame used when geometry has no tangents). Linear colour space, mipmapped,
+// anisotropic like the albedo. `flat` (optional Float32Array, 1 = keep relief, 0 = flat) masks areas that must stay smooth
+// (window glass on facades). `strength` is the relief: the slope a one-step height change makes across one texel.
+export function heightToNormal(src, { strength = 2, wrap = true, flat = null } = {}) {
+  const w = src.width, h = src.height; const sd = src.getContext('2d').getImageData(0, 0, w, h).data; const H = new Float32Array(w * h);
+  for (let i = 0, j = 0; i < H.length; i++, j += 4) H[i] = (sd[j] * 0.299 + sd[j + 1] * 0.587 + sd[j + 2] * 0.114) / 255;
+  const c = canvas(w, h), ctx = c.getContext('2d'), img = ctx.createImageData(w, h), d = img.data; const k = strength / 8; // Sobel weights sum to 8 per unit slope
+  const X = (x) => (wrap ? (x + w) % w : Math.min(w - 1, Math.max(0, x))), Y = (y) => (wrap ? (y + h) % h : Math.min(h - 1, Math.max(0, y)));
+  for (let y = 0; y < h; y++) { const r0 = Y(y - 1) * w, r1 = y * w, r2 = Y(y + 1) * w;
+    for (let x = 0; x < w; x++) { const xl = X(x - 1), xr = X(x + 1);
+      const tl = H[r0 + xl], t = H[r0 + x], tr = H[r0 + xr], l = H[r1 + xl], r = H[r1 + xr], bl = H[r2 + xl], b = H[r2 + x], br = H[r2 + xr];
+      const m = flat ? flat[r1 + x] : 1; const gx = (tr + 2 * r + br - tl - 2 * l - bl) * k * m, gy = (bl + 2 * b + br - tl - 2 * t - tr) * k * m; // gy: canvas y runs down = −v
+      const nx = -gx, ny = gy, inv = 1 / Math.sqrt(nx * nx + ny * ny + 1); const i = (r1 + x) * 4;
+      d[i] = (nx * inv * 0.5 + 0.5) * 255; d[i + 1] = (ny * inv * 0.5 + 0.5) * 255; d[i + 2] = (inv * 0.5 + 0.5) * 255; d[i + 3] = 255; } }
+  ctx.putImageData(img, 0, 0); return toTex(c, { srgb: false });
+}
+// height canvas helpers: a grey canvas, a wrap-around box blur (bevels / rounded edges), and additive tileable relief noise
+function heightCanvas(w, h = w, v = 128) { const c = canvas(w, h), x = c.getContext('2d'); x.fillStyle = `rgb(${v},${v},${v})`; x.fillRect(0, 0, w, h); return c; }
+function blurHeight(c, r = 1) {
+  const w = c.width, h = c.height, x = c.getContext('2d'), img = x.getImageData(0, 0, w, h), d = img.data; const a = new Float32Array(w * h), b = new Float32Array(w * h);
+  for (let i = 0; i < a.length; i++) a[i] = d[i * 4]; const n = 2 * r + 1;
+  for (let y = 0; y < h; y++) for (let xx = 0; xx < w; xx++) { let s = 0; for (let k = -r; k <= r; k++) s += a[y * w + (xx + k + w) % w]; b[y * w + xx] = s / n; }
+  for (let y = 0; y < h; y++) for (let xx = 0; xx < w; xx++) { let s = 0; for (let k = -r; k <= r; k++) s += b[((y + k + h) % h) * w + xx]; const v = s / n; const i = (y * w + xx) * 4; d[i] = d[i + 1] = d[i + 2] = v; }
+  x.putImageData(img, 0, 0); return c;
+}
+const hash2 = (x, y, s) => { let q = (x * 374761393 + y * 668265263 + s * 2147483647) | 0; q = Math.imul(q ^ (q >>> 13), 1274126177); return ((q ^ (q >>> 16)) >>> 0) / 4294967296; };
+// add relief noise to a height canvas: fbm (tileable, `scale` cells per tile) and per-texel grain (aggregate / sand / plaster pits)
+function reliefNoise(c, { scale = 16, amp = 30, oct = 3, seed = 1, grain = 0, grainSeed = 7 } = {}) {
+  const w = c.width, h = c.height, x = c.getContext('2d'), img = x.getImageData(0, 0, w, h), d = img.data;
+  for (let y = 0; y < h; y++) for (let xx = 0; xx < w; xx++) { const i = (y * w + xx) * 4; let v = d[i];
+    if (amp) v += (fbm((xx / w) * scale, (y / h) * scale, oct, seed, scale) - 0.5) * 2 * amp; if (grain) v += (hash2(xx, y, grainSeed) - 0.5) * 2 * grain;
+    v = Math.max(0, Math.min(255, v)); d[i] = d[i + 1] = d[i + 2] = v; }
+  x.putImageData(img, 0, 0); return c;
+}
 // Multiply a canvas by tileable fbm noise (cheap way to add grime / variation).
 function grime(ctx, w, h, { scale = 8, amount = 0.25, seed = 1, oct = 4, bias = 0, color = null } = {}) {
   const img = ctx.getImageData(0, 0, w, h); const d = img.data;
@@ -31,8 +71,10 @@ function grime(ctx, w, h, { scale = 8, amount = 0.25, seed = 1, oct = 4, bias = 
   }
   ctx.putImageData(img, 0, 0);
 }
-function speckle(ctx, w, h, n, colors, rng, size = [0.5, 1.6]) {
-  for (let k = 0; k < n; k++) { ctx.fillStyle = rng.pick(colors); const s = rng.range(size[0], size[1]); ctx.fillRect(rng.next() * w, rng.next() * h, s, s); }
+// hx / hcols (optional): draw the same specks into a height canvas, height colour picked by the same index (same RNG calls)
+function speckle(ctx, w, h, n, colors, rng, size = [0.5, 1.6], hx = null, hcols = null) {
+  for (let k = 0; k < n; k++) { const col = rng.pick(colors); ctx.fillStyle = col; const s = rng.range(size[0], size[1]); const x = rng.next() * w, y = rng.next() * h; ctx.fillRect(x, y, s, s);
+    if (hx) { hx.fillStyle = hcols[colors.indexOf(col)]; hx.fillRect(x, y, s, s); } }
 }
 function stains(ctx, w, h, rng, count, color, vertical = true) {
   for (let k = 0; k < count; k++) {
@@ -47,17 +89,22 @@ function stains(ctx, w, h, rng, count, color, vertical = true) {
 function asphalt(size) {
   const c = canvas(size, size), ctx = c.getContext('2d'), rng = new RNG(11);
   ctx.fillStyle = '#4a4a4c'; ctx.fillRect(0, 0, size, size);
+  // height: gentle wear undulation + exposed aggregate (light specks = stones standing proud, dark = pits) + raised repair
+  // patches with a lip + sunken cracks; drawn with the albedo's own random values so the albedo is unchanged
+  const hc = reliefNoise(heightCanvas(size), { scale: 6, amp: 14, oct: 3, seed: 13 }), hx = hc.getContext('2d');
   grime(ctx, size, size, { scale: 6, amount: 0.22, seed: 3 });
-  speckle(ctx, size, size, size * size * 0.05, ['#5c5c5e', '#353537', '#6b6a66', '#2d2d2f', '#58544d'], rng, [0.6, 1.8]);
+  speckle(ctx, size, size, size * size * 0.05, ['#5c5c5e', '#353537', '#6b6a66', '#2d2d2f', '#58544d'], rng, [0.6, 1.8], hx, ['rgba(255,255,255,0.2)', 'rgba(0,0,0,0.24)', 'rgba(255,255,255,0.25)', 'rgba(0,0,0,0.28)', 'rgba(255,255,255,0.16)']);
   // patch repairs
-  for (let k = 0; k < 4; k++) { ctx.fillStyle = rng.pick(['rgba(30,30,32,0.45)', 'rgba(80,80,82,0.3)']); const pw = rng.range(40, 160), ph = rng.range(30, 120); ctx.fillRect(rng.next() * size, rng.next() * size, pw, ph); }
+  for (let k = 0; k < 4; k++) { const pc = rng.pick(['rgba(30,30,32,0.45)', 'rgba(80,80,82,0.3)']); ctx.fillStyle = pc; const pw = rng.range(40, 160), ph = rng.range(30, 120); const px = rng.next() * size, py = rng.next() * size; ctx.fillRect(px, py, pw, ph);
+    for (const [ox, oy] of [[0, 0], [-size, 0], [0, -size], [-size, -size]]) { hx.fillStyle = 'rgba(255,255,255,0.07)'; hx.fillRect(px + ox, py + oy, pw, ph); hx.strokeStyle = 'rgba(0,0,0,0.3)'; hx.lineWidth = 2; hx.strokeRect(px + ox, py + oy, pw, ph); } } // wrapped: seamless
   // cracks
-  ctx.strokeStyle = 'rgba(20,20,20,0.55)'; ctx.lineWidth = 1.2;
+  ctx.strokeStyle = 'rgba(20,20,20,0.55)'; ctx.lineWidth = 1.2; hx.strokeStyle = 'rgba(0,0,0,0.6)'; hx.lineWidth = 1.6; hx.lineJoin = 'round';
   for (let k = 0; k < 14; k++) {
-    let x = rng.next() * size, y = rng.next() * size; ctx.beginPath(); ctx.moveTo(x, y);
-    for (let s = 0; s < 12; s++) { x += rng.range(-14, 14); y += rng.range(-14, 14); ctx.lineTo(x, y); }
-    ctx.stroke();
+    let x = rng.next() * size, y = rng.next() * size; ctx.beginPath(); ctx.moveTo(x, y); const pts = [[x, y]];
+    for (let s = 0; s < 12; s++) { x += rng.range(-14, 14); y += rng.range(-14, 14); ctx.lineTo(x, y); pts.push([x, y]); }
+    ctx.stroke(); hx.beginPath(); pts.forEach(([px, py], i) => (i ? hx.lineTo(px, py) : hx.moveTo(px, py))); hx.stroke();
   }
+  blurHeight(hc, 1);
   // oil stains
   for (let k = 0; k < 6; k++) { const x = rng.next() * size, y = rng.next() * size, r = rng.range(8, 30); const g = ctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, 'rgba(10,10,12,0.35)'); g.addColorStop(1, 'rgba(10,10,12,0)'); ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2); }
   const map = toTex(c);
@@ -68,33 +115,98 @@ function asphalt(size) {
     img.data[i] = 255; img.data[i + 1] = Math.floor(255 * (0.62 + 0.38 * n)); img.data[i + 2] = 0; img.data[i + 3] = 255;
   }
   rc.putImageData(img, 0, 0);
-  return { map, rough: toTex(r, { srgb: false }) };
+  return { map, rough: toTex(r, { srgb: false }), height: hc };
 }
-function pavers(size, base = ['#8d5a4a', '#7e4c3e', '#9a6a58', '#86817a', '#78736c'], seed = 5) {
-  const c = canvas(size, size), ctx = c.getContext('2d'), rng = new RNG(seed);
-  ctx.fillStyle = '#5a5550'; ctx.fillRect(0, 0, size, size);
-  // interlocking "unipave" bricks in herringbone-ish rows
-  const bw = size / 8, bh = size / 16;
-  for (let row = 0; row < 16; row++) for (let col = -1; col < 9; col++) {
-    const off = (row % 2) * bw * 0.5; const x = col * bw + off, y = row * bh;
-    const tone = rng.pick(base); ctx.fillStyle = tone;
-    ctx.beginPath();
-    const w = bw - 3, h = bh - 3, n = bh * 0.18;
-    ctx.moveTo(x + 1.5, y + 1.5); ctx.lineTo(x + w * 0.33, y + 1.5); ctx.lineTo(x + w * 0.5, y + 1.5 + n); ctx.lineTo(x + w * 0.66, y + 1.5); ctx.lineTo(x + w + 1.5, y + 1.5);
-    ctx.lineTo(x + w + 1.5, y + h + 1.5); ctx.lineTo(x + w * 0.66, y + h + 1.5); ctx.lineTo(x + w * 0.5, y + h + 1.5 + n); ctx.lineTo(x + w * 0.33, y + h + 1.5); ctx.lineTo(x + 1.5, y + h + 1.5); ctx.closePath(); ctx.fill();
-  }
-  grime(ctx, size, size, { scale: 5, amount: 0.3, seed: seed + 1 });
-  speckle(ctx, size, size, size * 30, ['rgba(0,0,0,0.25)', 'rgba(255,255,255,0.08)'], rng);
-  return toTex(c);
+// 63rd: the roads use the Road007 PBR set (public/assets/road, made by tools/road007-prep.mjs from the user's 2K Color /
+// NormalGL / Roughness / Displacement maps: painted lines lifted out — the game paints its own per road class — lengthwise
+// streaks flattened, cavity from the displacement baked into the albedo, 512²). One tile = ROAD_TILE metres of carriageway:
+// the road meshes carry world-space uvs at 10 m per unit (GroundBuilder), so each map repeats 10 / ROAD_TILE. TEX.roadPaint
+// is the marking paint over the same asphalt (marking meshes: 1 m per uv unit). Same texture slots as before (map,
+// roughnessMap in G, normalMap): no extra samplers, no extra draw calls.
+export const ROAD_TILE = 4;
+function roadAssetBase() { try { return import.meta.env.BASE_URL || './'; } catch { return './'; } }
+async function loadRoad007() {
+  if (typeof document === 'undefined' || typeof Image === 'undefined') return false;
+  const load = (f, srgb, rep) => new Promise((res) => new THREE.TextureLoader().load(roadAssetBase() + 'assets/road/' + f, (t) => {
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; t.anisotropy = 8; t.repeat.set(rep, rep); t.name = 'road007:' + f; res(t); }, undefined, () => res(null)));
+  const R = 10 / ROAD_TILE;
+  const [map, rough, normal, paint] = await Promise.all([load('road007_color.jpg', true, R), load('road007_rough.jpg', false, R), load('road007_normal.jpg', false, R), load('road007_paint.jpg', true, 1 / ROAD_TILE)]);
+  if (!map || !rough || !normal) { console.warn('Road007 textures missing — procedural asphalt used'); return false; }
+  TEX.asphalt = map; TEX.asphaltRough = rough; TEX.n_asphalt = normal; TEX.roadPaint = paint;
+  // the marking paint sits on the same asphalt relief: the normal map again (shared image, 1 m uvs → ×1/ROAD_TILE)
+  if (paint) { const n = normal.clone(); n.repeat.set(1 / ROAD_TILE, 1 / ROAD_TILE); n.needsUpdate = true; TEX.n_roadPaint = n; }
+  return true;
+}
+// 62nd: footpath SLABS — the interlocking brick pavers (and their modelled bricks, GroundDetail) are gone. Two types:
+//   1  cement flagstones, 0.5 × 0.5 m, warm weathered grey (most of the city)            → MAT.walk
+//   2  grey concrete slabs, 1.0 × 0.5 m in running bond, cooler with exposed aggregate   → MAT.walkGrey (Fort, Galle Face, Cinnamon Gardens, Kollupitiya)
+// 2 m per texture tile (GroundBuilder lays the footpaths with world-space uv scale 2 → 256 px per metre at 512 px), so the
+// joints sit on a fixed world grid: x = k·w (+ the running-bond offset on odd rows), z = k·h. GroundDetail plants its
+// joint grass on exactly that grid (PAVE_TYPES). Each slab: its own tone and settled height, mottling, edge grime, a few
+// corner chips and hairline cracks, stains; the joints are 1.2 cm of dark sand and soil. Tileable (wraps on both axes).
+export const PAVE_TYPES = { 1: { w: 0.5, h: 0.5, bond: 0 }, 2: { w: 1.0, h: 0.5, bond: 0.5 } };
+function paveSlabs(size, type, seed) {
+  const P = PAVE_TYPES[type], ppm = size / 2, sw = P.w * ppm, sh = P.h * ppm, nCol = Math.round(size / sw), nRow = Math.round(size / sh);
+  const c = canvas(size, size), ctx = c.getContext('2d'), img = ctx.createImageData(size, size), d = img.data;
+  const hc = heightCanvas(size, size, 0), hx = hc.getContext('2d'), himg = hx.getImageData(0, 0, size, size), hd = himg.data;
+  const rng = new RNG(seed);
+  const tones = type === 1 ? [[124, 119, 110], [116, 111, 103], [130, 124, 114], [110, 105, 98], [121, 115, 105], [118, 113, 106]] : [[104, 102, 98], [97, 95, 92], [110, 108, 103], [92, 90, 87], [101, 98, 94]]; // weathered, not new
+  const slabs = []; for (let r = 0; r < nRow; r++) for (let k = 0; k < nCol; k++) { const t = rng.pick(tones), tint = rng.range(0.93, 1.06);
+    slabs.push({ t: t.map((v) => v * tint), settle: rng.range(-1, 1), chip: [0, 1, 2, 3].map(() => (rng.next() < 0.16 ? rng.range(3, 9) : 0)), dirt: rng.range(0, 1) }); }
+  const JW = 1.55; // half the joint, px (≈ 1.2 cm joint)
+  for (let y = 0; y < size; y++) { const row = Math.floor(y / sh), ly = y - row * sh, off = P.bond ? (row & 1) * P.bond * ppm : 0;
+    for (let x = 0; x < size; x++) { const xs = (x - off + size) % size, col = Math.floor(xs / sw), lx = xs - col * sw; const S = slabs[row * nCol + col];
+      const e = Math.min(lx, sw - lx, ly, sh - ly); const en = (fbm((x / size) * 96, (y / size) * 96, 2, seed + 3, 96) - 0.5) * 1.4; // ragged arrises
+      let chip = false; const cs = [[0, 0], [sw, 0], [sw, sh], [0, sh]]; for (let q = 0; q < 4; q++) if (S.chip[q] && Math.hypot(lx - cs[q][0], ly - cs[q][1]) < S.chip[q] * (0.75 + 0.5 * fbm((x / size) * 64, (y / size) * 64, 2, seed + 5, 64))) chip = true;
+      const i = (y * size + x) * 4, g = hash2(x, y, seed), g2 = hash2(x, y, seed + 1);
+      if (e < JW + en) { // joint: dark sand and soil, darkest in the middle
+        const k = (0.84 + 0.16 * Math.min(1, e / JW)) * (0.84 + 0.32 * g); d[i] = 98 * k; d[i + 1] = 91 * k; d[i + 2] = 79 * k; d[i + 3] = 255; hd[i] = 64 + 30 * g; continue; }
+      const mot = fbm((x / size) * 8, (y / size) * 8, 4, seed + 7, 8), blot = fbm((x / size) * 24, (y / size) * 24, 3, seed + 9, 24), st = fbm((x / size) * 5, (y / size) * 5, 3, seed + 11, 5);
+      let f = (0.9 + 0.2 * mot) * (0.95 + 0.1 * blot) * (1 - 0.17 * Math.exp(-(e - JW) / 5) * (0.6 + 0.8 * S.dirt)); // foot-polished middle, grimy edges
+      if (type === 2) { if (g < 0.05) f *= 0.72; else if (g > 0.955) f *= 1.16; else if (g2 < 0.03) f *= 0.86; } // exposed aggregate
+      else { if (g < 0.012) f *= 0.78; else if (g > 0.992) f *= 1.12; } // sand-and-cement grain
+      let R = S.t[0] * f, G = S.t[1] * f, B = S.t[2] * f;
+      const sk = Math.max(0, (st - 0.6) * 1.6); if (sk) { R = R * (1 - sk) + 92 * sk; G = G * (1 - sk) + 84 * sk; B = B * (1 - sk) + 70 * sk; } // old stains
+      if (chip) { R *= 0.72; G *= 0.71; B *= 0.69; }
+      d[i] = R; d[i + 1] = G; d[i + 2] = B; d[i + 3] = 255;
+      let hv = 196 + S.settle * 9 + (mot - 0.5) * 8 + (g - 0.5) * (type === 2 ? 16 : 7); const be = e - JW - en; if (be < 2.4) hv -= (1 - be / 2.4) * 46; if (chip) hv = Math.min(hv, 128);
+      hd[i] = hv; } }
+  for (let i = 0; i < hd.length; i += 4) { hd[i + 1] = hd[i + 2] = hd[i]; hd[i + 3] = 255; }
+  ctx.putImageData(img, 0, 0); hx.putImageData(himg, 0, 0);
+  // hairline cracks (drawn twice across the wrap so slabs on the texture edge stay seamless) and a few dark gum / oil spots
+  for (let r = 0; r < nRow; r++) for (let k = 0; k < nCol; k++) { if (rng.next() > (type === 1 ? 0.2 : 0.28)) continue; const off = P.bond ? (r & 1) * P.bond * ppm : 0; const x0 = k * sw + off, y0 = r * sh;
+    const side = rng.int(0, 3), pt = (sd) => { const u = rng.range(0.15, 0.85); return sd === 0 ? [x0 + u * sw, y0] : sd === 1 ? [x0 + sw, y0 + u * sh] : sd === 2 ? [x0 + u * sw, y0 + sh] : [x0, y0 + u * sh]; };
+    const a = pt(side), b = pt((side + rng.int(1, 3)) % 4); const pts = [a]; const n = 5; for (let s = 1; s < n; s++) { const t = s / n; pts.push([a[0] + (b[0] - a[0]) * t + rng.range(-5, 5), a[1] + (b[1] - a[1]) * t + rng.range(-5, 5)]); } pts.push(b);
+    for (const ox of [0, -size]) { ctx.beginPath(); hx.beginPath(); pts.forEach(([px, py], j) => { if (j) { ctx.lineTo(px + ox, py); hx.lineTo(px + ox, py); } else { ctx.moveTo(px + ox, py); hx.moveTo(px + ox, py); } });
+      ctx.strokeStyle = 'rgba(48,44,38,0.55)'; ctx.lineWidth = 0.9; ctx.stroke(); hx.strokeStyle = 'rgba(0,0,0,0.55)'; hx.lineWidth = 1.3; hx.stroke(); } }
+  for (let k = 0; k < (type === 1 ? 7 : 5); k++) { const x = rng.next() * size, y = rng.next() * size, rr = rng.range(1.2, 3.2); for (const [ox, oy] of [[0, 0], [-size, 0], [0, -size], [-size, -size]]) { ctx.fillStyle = rng.next() < 0.6 ? 'rgba(40,38,36,0.55)' : 'rgba(60,52,40,0.35)'; ctx.beginPath(); ctx.ellipse(x + ox, y + oy, rr, rr * 0.8, 0, 0, Math.PI * 2); ctx.fill(); } }
+  blurHeight(hc, 1);
+  const t = toTex(c); t.userData.height = hc; return t;
+}
+// 62nd: joint grass colour (GroundDetail blades sample it: u = the blade's tone column, v = base → tip). 8 tone columns:
+// fresh and dark greens, olive, sun-yellowed and dry; dark at the root, lighter towards the tip, fine vein streaks.
+function jointGrassTex() {
+  const W = 64, H = 128, c = canvas(W, H), ctx = c.getContext('2d'), img = ctx.createImageData(W, H), d = img.data;
+  const cols = [[104, 152, 50], [118, 168, 58], [88, 132, 42], [134, 150, 64], [126, 174, 68], [164, 160, 80], [78, 120, 40], [178, 166, 108]];
+  for (let y = 0; y < H; y++) { const v = 1 - y / (H - 1); // canvas bottom = blade root (v = 0)
+    for (let x = 0; x < W; x++) { const b = cols[Math.floor(x / 8)], q = x % 8; const vein = 0.94 + 0.12 * hash2(x, 0, 41) - (q === 3 || q === 4 ? 0.06 : 0);
+      const k = (0.58 + 0.56 * Math.pow(v, 0.8)) * vein * (0.96 + 0.08 * hash2(x, y, 43)); const dry = Math.max(0, (v - 0.82) / 0.18) * (b[0] > 120 ? 0.6 : 0.25);
+      const i = (y * W + x) * 4; d[i] = Math.min(255, b[0] * k + 60 * dry); d[i + 1] = Math.min(255, b[1] * k + 40 * dry); d[i + 2] = Math.min(255, b[2] * k + 18 * dry); d[i + 3] = 255; } }
+  ctx.putImageData(img, 0, 0); const t = toTex(c, { repeat: false }); t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; return t;
 }
 function concrete(size, tone = '#9b968d', seed = 7, joints = true) {
   const c = canvas(size, size), ctx = c.getContext('2d'), rng = new RNG(seed);
   ctx.fillStyle = tone; ctx.fillRect(0, 0, size, size);
+  // height: broad trowel / float undulation, fine sand-and-cement grain, air-void pits, sawn joints
+  const hc = reliefNoise(heightCanvas(size), { scale: 4, amp: 10, oct: 3, seed: seed + 5 }), hx = hc.getContext('2d');
+  reliefNoise(hc, { scale: 24, amp: 9, oct: 3, seed: seed + 6, grain: 12, grainSeed: seed });
   grime(ctx, size, size, { scale: 4, amount: 0.25, seed });
   grime(ctx, size, size, { scale: 16, amount: 0.1, seed: seed + 3 });
-  speckle(ctx, size, size, size * 40, ['rgba(0,0,0,0.12)', 'rgba(255,255,255,0.08)'], rng);
-  if (joints) { ctx.strokeStyle = 'rgba(40,38,35,0.5)'; ctx.lineWidth = 2; ctx.strokeRect(0, 0, size, size); ctx.beginPath(); ctx.moveTo(size / 2, 0); ctx.lineTo(size / 2, size); ctx.moveTo(0, size / 2); ctx.lineTo(size, size / 2); ctx.stroke(); }
-  return toTex(c);
+  speckle(ctx, size, size, size * 40, ['rgba(0,0,0,0.12)', 'rgba(255,255,255,0.08)'], rng, undefined, hx, ['rgba(0,0,0,0.3)', 'rgba(255,255,255,0.12)']);
+  if (joints) { ctx.strokeStyle = 'rgba(40,38,35,0.5)'; ctx.lineWidth = 2; ctx.strokeRect(0, 0, size, size); ctx.beginPath(); ctx.moveTo(size / 2, 0); ctx.lineTo(size / 2, size); ctx.moveTo(0, size / 2); ctx.lineTo(size, size / 2); ctx.stroke();
+    hx.strokeStyle = 'rgba(0,0,0,0.7)'; hx.lineWidth = 3; hx.strokeRect(0, 0, size, size); hx.beginPath(); hx.moveTo(size / 2, 0); hx.lineTo(size / 2, size); hx.moveTo(0, size / 2); hx.lineTo(size, size / 2); hx.stroke(); }
+  blurHeight(hc, 1);
+  const t = toTex(c); t.userData.height = hc; return t;
 }
 function grass(size, seed = 21, worn = 0.25) {
   const c = canvas(size, size), ctx = c.getContext('2d'), rng = new RNG(seed);
@@ -140,9 +252,14 @@ function laterite(size) { // red Sri Lankan soil mixed with grass
 function sand(size) {
   const c = canvas(size, size), ctx = c.getContext('2d');
   ctx.fillStyle = '#cdb68e'; ctx.fillRect(0, 0, size, size);
+  // height: trodden, wind-scalloped sand — soft hummocks, fine ripples and loose grains
+  const hc = reliefNoise(heightCanvas(size), { scale: 6, amp: 26, oct: 4, seed: 43 }), hx = hc.getContext('2d');
+  { const g = hx.getImageData(0, 0, size, size), d = g.data; for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) { const i = (y * size + x) * 4; const wob = fbm((x / size) * 4, (y / size) * 4, 2, 44, 4) * 6;
+    const rip = Math.sin(((y / size) * 22 + wob) * Math.PI * 2) * 11 * fbm((x / size) * 3, (y / size) * 3, 2, 45, 3); d[i] = d[i + 1] = d[i + 2] = Math.max(0, Math.min(255, d[i] + rip)); } hx.putImageData(g, 0, 0); } // 22 ripples / tile: integer → seamless
   grime(ctx, size, size, { scale: 8, amount: 0.15, seed: 41 });
-  speckle(ctx, size, size, size * 60, ['rgba(90,70,40,0.25)', 'rgba(255,250,235,0.2)'], new RNG(41));
-  return toTex(c);
+  speckle(ctx, size, size, size * 60, ['rgba(90,70,40,0.25)', 'rgba(255,250,235,0.2)'], new RNG(41), undefined, hx, ['rgba(255,255,255,0.18)', 'rgba(255,255,255,0.12)']);
+  blurHeight(hc, 1);
+  const t = toTex(c); t.userData.height = hc; return t;
 }
 // railway ballast: packed angular crushed granite (≈30–60 mm stones at 1 tile per metre)
 function ballast(size) {
@@ -194,16 +311,24 @@ function glassGrad(ctx, x, y, w, h, top = '#3d5560', bot = '#16222a') { const g 
 function facadeColonial(W, H, seed) {
   const f = facadeBase(W, H), rng = new RNG(seed); const { a, e, r } = f;
   a.fillStyle = '#f1e9d8'; a.fillRect(0, 0, W, H);
+  // height (half resolution): lime-plaster wall with the painted mouldings raised — string courses, pilasters, arch
+  // surrounds and sills — so they catch the light and cast their own shading; panes are flattened via the rm mask
+  const hs = 0.5, hc = heightCanvas(W * hs, H * hs, 110), hx = hc.getContext('2d'); hx.scale(hs, hs);
   const bw = W / 4, fh = H / 2;
   for (let fl = 0; fl < 2; fl++) {
     const y0 = fl * fh;
     a.fillStyle = '#e4d9c2'; a.fillRect(0, y0 + fh - 10, W, 10); // string course
     a.fillStyle = 'rgba(0,0,0,0.12)'; a.fillRect(0, y0 + fh - 2, W, 2);
+    hx.fillStyle = 'rgb(190,190,190)'; hx.fillRect(0, y0 + fh - 10, W, 10); hx.fillStyle = 'rgb(160,160,160)'; hx.fillRect(0, y0 + fh - 3, W, 3);
     for (let b = 0; b < 4; b++) {
       const x0 = b * bw; a.fillStyle = '#e9dfca'; a.fillRect(x0, y0, 10, fh); a.fillStyle = 'rgba(0,0,0,0.08)'; a.fillRect(x0 + 10, y0, 2, fh); // pilaster
+      hx.fillStyle = 'rgb(176,176,176)'; hx.fillRect(x0, y0, 10, fh - 10);
       const ww = bw * 0.46, wh = fh * 0.62, wx = x0 + (bw - ww) / 2, wy = y0 + fh * 0.18;
       // arch surround
       a.fillStyle = '#d9cdb3'; a.beginPath(); a.moveTo(wx - 6, wy + wh + 4); a.lineTo(wx - 6, wy + ww * 0.5); a.arc(wx + ww / 2, wy + ww * 0.5, ww / 2 + 6, Math.PI, 0); a.lineTo(wx + ww + 6, wy + wh + 4); a.fill();
+      hx.fillStyle = 'rgb(168,168,168)'; hx.beginPath(); hx.moveTo(wx - 6, wy + wh + 4); hx.lineTo(wx - 6, wy + ww * 0.5); hx.arc(wx + ww / 2, wy + ww * 0.5, ww / 2 + 6, Math.PI, 0); hx.lineTo(wx + ww + 6, wy + wh + 4); hx.fill();
+      hx.fillStyle = 'rgb(96,96,96)'; hx.beginPath(); hx.moveTo(wx, wy + wh); hx.lineTo(wx, wy + ww * 0.5); hx.arc(wx + ww / 2, wy + ww * 0.5, ww / 2, Math.PI, 0); hx.lineTo(wx + ww, wy + wh); hx.fill(); // reveal (recessed opening)
+      hx.fillStyle = 'rgb(200,200,200)'; hx.fillRect(wx - 8, wy + wh, ww + 16, 6); // sill
       a.save(); a.beginPath(); a.moveTo(wx, wy + wh); a.lineTo(wx, wy + ww * 0.5); a.arc(wx + ww / 2, wy + ww * 0.5, ww / 2, Math.PI, 0); a.lineTo(wx + ww, wy + wh); a.closePath(); a.clip();
       const shut = rng.next();
       recWin(wx, wy, ww, wh, shut < 0.45 ? 'shutter' : 'sash', { arch: (wy + ww * 0.5 - wy) / wh, frame: '#efe6d2', bar: 0.45 });
@@ -224,22 +349,57 @@ function facadeColonial(W, H, seed) {
   }
   grime(a, W, H, { scale: 6, amount: 0.18, seed: seed + 2, bias: -0.05 });
   stains(a, W, H, rng, 18, 'rgba(70,60,40,A)');
-  return f;
+  hx.setTransform(1, 0, 0, 1, 0, 0); blurHeight(hc, 1); plasterRelief(hc, seed);
+  f.height = hc; f.relief = 2.2; return f;
+}
+// 60th: window-opening mask in the rm map's RED channel (roughness uses green, metalness blue; red was unused): 1 inside every
+// painted opening the facade recorded (glass, frame, glazing bars, shutters — arched heads included, 2 px over the frame
+// stroke) and on all glass, 0 on the wall. The facade shader's window layer (InteriorMapping.js) keeps those pixels from the
+// original art, so a replacement wall texture never paints over the windows.
+function openingMask(f) {
+  try {
+    const W = f.rm.width, H = f.rm.height; const mc = canvas(W, H), x = mc.getContext('2d'); x.fillStyle = '#000'; x.fillRect(0, 0, W, H); x.fillStyle = '#fff';
+    for (const w of f.windows || []) {
+      const X0 = w.u0 * W - 2, X1 = w.u1 * W + 2, Yt = (1 - w.v1) * H - 2, Yb = (1 - w.v0) * H + 2; const ah = w.arch ? w.arch * (w.v1 - w.v0) * H : 0;
+      x.beginPath();
+      const hd = w.head ? w.head * (w.v1 - w.v0) * H : 0; // round head ABOVE the recorded rectangle (shophouse arches)
+      if (ah > 0.5) { const yS = Yt + 2 + ah; x.moveTo(X0, Yb); x.lineTo(X0, yS); x.ellipse((X0 + X1) / 2, yS, (X1 - X0) / 2, ah + 2, 0, Math.PI, 0); x.lineTo(X1, Yb); x.closePath(); }
+      else if (hd > 0.5) { const yS = Yt + 2; x.moveTo(X0, Yb); x.lineTo(X0, yS); x.ellipse((X0 + X1) / 2, yS, (X1 - X0) / 2, hd + 2, 0, Math.PI, 0); x.lineTo(X1, Yb); x.closePath(); }
+      else x.rect(X0, Yt, X1 - X0, Yb - Yt);
+      x.fill();
+    }
+    const md = x.getImageData(0, 0, W, H).data, rc = f.rm.getContext('2d'), id = rc.getImageData(0, 0, W, H), d = id.data;
+    for (let i = 0; i < d.length; i += 4) d[i] = d[i + 1] < 90 ? 255 : md[i];
+    rc.putImageData(id, 0, 0);
+  } catch { /* no 2D canvas (Node tests): mask stays 1 everywhere → shader shows the original art, as before */ }
+}
+// hand-floated lime / cement render: soft trowel waves, sand grain, the odd hairline crack (height canvas, in place)
+function plasterRelief(hc, seed) {
+  reliefNoise(hc, { scale: 10, amp: 6, oct: 3, seed: seed + 31 }); reliefNoise(hc, { scale: 48, amp: 5, oct: 2, seed: seed + 32, grain: 7, grainSeed: seed + 33 });
+  const hx = hc.getContext('2d'), w = hc.width, h = hc.height, rng = new RNG(seed + 34); hx.strokeStyle = 'rgba(0,0,0,0.16)'; hx.lineWidth = 1;
+  for (let k = 0; k < 4; k++) { let x = rng.next() * w, y = rng.next() * h; hx.beginPath(); hx.moveTo(x, y); for (let s = 0; s < 6; s++) { x += rng.range(-9, 9); y += rng.range(2, 11); hx.lineTo(x, y); } hx.stroke(); }
+  return hc;
 }
 function facadeBrick(W, H, seed) {
   const f = facadeBase(W, H), rng = new RNG(seed); const { a, e, r } = f;
   a.fillStyle = '#9a4535'; a.fillRect(0, 0, W, H);
-  for (let y = 0; y < H; y += 6) for (let x = (y / 6) % 2 ? -6 : 0; x < W; x += 13) { a.fillStyle = rng.pick(['#a24a38', '#8f3e30', '#b0573f', '#943f33']); a.fillRect(x, y, 12, 5); }
+  // height: recessed mortar joints, every brick its own slightly uneven face; the plastered window surrounds and floor bands
+  // stand proud of the brickwork (smooth); glass is flattened later through the facade's rm mask
+  const hc = heightCanvas(W, H, 52), hx = hc.getContext('2d');
+  for (let y = 0; y < H; y += 6) for (let x = (y / 6) % 2 ? -6 : 0; x < W; x += 13) { a.fillStyle = rng.pick(['#a24a38', '#8f3e30', '#b0573f', '#943f33']); a.fillRect(x, y, 12, 5);
+    const hv = Math.round(168 + (hash2(x, y, seed) - 0.5) * 30); hx.fillStyle = `rgb(${hv},${hv},${hv})`; hx.fillRect(x, y, 12, 5); }
+  reliefNoise(hc, { scale: 96, amp: 6, oct: 2, seed: seed + 4, grain: 10 }); // fired-clay texture, chipped arrises
   const bw = W / 4, fh = H / 2;
   for (let fl = 0; fl < 2; fl++) for (let b = 0; b < 4; b++) {
     const x0 = b * bw, y0 = fl * fh; const ww = bw * 0.48, wh = fh * 0.6, wx = x0 + (bw - ww) / 2, wy = y0 + fh * 0.2;
     a.fillStyle = '#efe7d6'; a.fillRect(wx - 7, wy - 12, ww + 14, wh + 22); a.fillRect(x0, y0 + fh - 8, bw, 8);
+    hx.fillStyle = 'rgb(214,214,214)'; hx.fillRect(wx - 7, wy - 12, ww + 14, wh + 22); hx.fillRect(x0, y0 + fh - 8, bw, 8);
     recWin(wx, wy, ww, wh, 'sash', { frame: '#f4efe4', bar: 0 }); glassGrad(a, wx, wy, ww, wh); a.strokeStyle = '#f4efe4'; a.lineWidth = 3; a.strokeRect(wx, wy, ww, wh);
     a.beginPath(); a.moveTo(wx + ww / 2, wy); a.lineTo(wx + ww / 2, wy + wh); a.stroke();
     r.fillStyle = 'rgb(255,50,0)'; r.fillRect(wx, wy, ww, wh); windowLights(e, rng, wx, wy, ww, wh, 0.55);
   }
   grime(a, W, H, { scale: 5, amount: 0.15, seed: seed + 3 });
-  return f;
+  f.height = hc; f.relief = 2.2; return f;
 }
 function facadeGlass(W, H, seed, tint = ['#5f8a9a', '#24414e']) {
   const f = facadeBase(W, H), rng = new RNG(seed); const { a, e, r } = f;
@@ -327,7 +487,7 @@ function facadeShop3(W, H, seed) {
       if (shut) { a.fillStyle = sc; a.fillRect(wx, wy - rad, ww, wh + rad); a.fillStyle = 'rgba(0,0,0,0.3)'; for (let y = wy - rad + 3; y < wy + wh; y += 4) a.fillRect(wx, y, ww, 1.4); a.fillRect(wx + ww / 2 - 1, wy - rad, 2, wh + rad); }
       else { glassGrad(a, wx, wy - rad, ww, wh + rad, '#3b4447', '#101416'); r.fillStyle = 'rgb(255,60,0)'; r.fillRect(wx, wy, ww, wh); a.fillStyle = 'rgba(240,235,220,0.85)'; a.fillRect(wx + ww / 2 - 1.5, wy - rad, 3, wh + rad); a.fillRect(wx, wy + wh * 0.45, ww, 3); }
       a.restore();
-      recWin(wx, wy, ww, wh, shut ? 'shutter' : 'sash', { frame: '#efe8d8', bar: 0.45 }); if (shut) _win[_win.length - 1].shut = sc; else windowLights(e, rng, wx, wy, ww, wh, 0.45);
+      recWin(wx, wy, ww, wh, shut ? 'shutter' : 'sash', { frame: '#efe8d8', bar: 0.45, head: rad / wh }); if (shut) _win[_win.length - 1].shut = sc; else windowLights(e, rng, wx, wy, ww, wh, 0.45);
       a.fillStyle = 'rgba(0,0,0,0.2)'; a.fillRect(wx - 8, wy + wh + 3, ww + 16, 5); // sill
       if (rng.chance(0.35)) { a.fillStyle = 'rgba(150,140,120,0.5)'; a.beginPath(); a.ellipse(x0 + rng.range(6, bw - 6), y0 + rng.range(fh * 0.2, fh * 0.9), rng.range(6, 16), rng.range(4, 10), 0, 0, 7); a.fill(); } // flaked plaster
     } }
@@ -440,8 +600,8 @@ function facadeWarehouse(W, H, seed) {
   a.fillStyle = '#d8d8d4'; a.fillRect(0, 0, W, H);
   for (let x = 0; x < W; x += 8) { const g = a.createLinearGradient(x, 0, x + 8, 0); g.addColorStop(0, '#f0f0ec'); g.addColorStop(0.5, '#b8b8b2'); g.addColorStop(1, '#f0f0ec'); a.fillStyle = g; a.fillRect(x, 0, 8, H); }
   r.fillStyle = 'rgb(255,120,160)'; r.fillRect(0, 0, W, H);
-  grime(a, W, H, { scale: 6, amount: 0.3, seed, color: [140, 80, 40], bias: -0.1 }); // rust
-  stains(a, W, H, rng, 30, 'rgba(110,60,30,A)');
+  grime(a, W, H, { scale: 6, amount: 0.18, seed, color: [128, 92, 66], bias: -0.1 }); // restrained rust: maintained port sheds, not derelict
+  stains(a, W, H, rng, 30, 'rgba(96,70,50,A)'); // same draw count (same RNG use), browner-grey run-off instead of orange
   return f;
 }
 
@@ -455,7 +615,7 @@ function shopAtlas(cw = 256) {
   const cellH = cw;
   for (let row = 0; row < 8; row++) for (let col = 0; col < 4; col++) {
     const x = col * cw, y = row * cellH; a.save(); a.beginPath(); a.rect(x, y, cw, cellH); a.clip();
-    a.fillStyle = '#e8e4da'; a.fillRect(x, y, cw, cellH);
+    a.fillStyle = '#d0cabd'; a.fillRect(x, y, cw, cellH); // settled plaster surround (was near-white #e8e4da: the ground floor read brighter than the weathered walls above)
     const inner = (top = 0.12) => { const ix = x + cw * 0.06, iy = y + cellH * top, iw = cw * 0.88, ih = cellH * (0.98 - top); return [ix, iy, iw, ih]; };
     const darkInterior = (ix, iy, iw, ih, lit = '#fff1cf') => {
       const g = a.createLinearGradient(0, iy, 0, iy + ih); g.addColorStop(0, '#2a2622'); g.addColorStop(1, '#4a4038'); a.fillStyle = g; a.fillRect(ix, iy, iw, ih);
@@ -466,31 +626,31 @@ function shopAtlas(cw = 256) {
       for (let k = 0; k < 9; k++) for (let s = 0; s < 5; s++) { a.fillStyle = `hsl(${rng.int(0, 360)},${rng.int(40, 80)}%,${rng.int(30, 60)}%)`; a.fillRect(ix + 6 + k * (iw - 12) / 9, iy + ih * 0.25 + s * ih * 0.12, (iw - 12) / 9 - 3, ih * 0.1); e.fillStyle = 'rgba(0,0,0,0.5)'; e.fillRect(ix + 6 + k * (iw - 12) / 9, iy + ih * 0.25 + s * ih * 0.12, (iw - 12) / 9 - 3, ih * 0.1); }
       for (let k = 0; k < 6; k++) { a.fillStyle = `hsl(${rng.int(0, 360)},70%,50%)`; a.beginPath(); const hx = ix + 10 + k * iw / 6; a.moveTo(hx, iy + 4); a.lineTo(hx + 18, iy + 4); a.lineTo(hx + 22, iy + ih * 0.22); a.lineTo(hx - 4, iy + ih * 0.22); a.fill(); }
     } else if (row === 1) { // roller shutter
-      const [ix, iy, iw, ih] = inner(0.08); const col0 = rng.pick(['#8c9294', '#6f8a7a', '#7a8a9a', '#9a8f78']);
-      for (let sy = iy; sy < iy + ih; sy += 5) { const g = a.createLinearGradient(0, sy, 0, sy + 5); g.addColorStop(0, shade(col0, 1.15)); g.addColorStop(1, shade(col0, 0.75)); a.fillStyle = g; a.fillRect(ix, sy, iw, 5); }
+      const [ix, iy, iw, ih] = inner(0.08); const col0 = rng.pick(['#7d8284', '#62796c', '#6c7a88', '#877e6a']); // dulled galvanised / painted steel
+      for (let sy = iy; sy < iy + ih; sy += 5) { const g = a.createLinearGradient(0, sy, 0, sy + 5); g.addColorStop(0, shade(col0, 1.06)); g.addColorStop(1, shade(col0, 0.74)); a.fillStyle = g; a.fillRect(ix, sy, iw, 5); }
       a.fillStyle = 'rgba(60,40,20,0.35)'; for (let k = 0; k < 4; k++) a.fillRect(ix + rng.range(0, iw), iy + ih * rng.range(0.4, 1), rng.range(10, 30), 3);
       a.fillStyle = '#333'; a.fillRect(ix + iw / 2 - 8, iy + ih - 10, 16, 6);
-      if (rng.chance(0.6)) { a.fillStyle = rng.pick(['#e9e2c0', '#f5f5f5', '#f1c40f']); a.fillRect(ix + rng.range(10, iw - 60), iy + rng.range(20, ih - 50), 44, 30); a.fillStyle = '#222'; a.font = 'bold 9px "Barlow Condensed", sans-serif'; a.fillText('TO LET', ix + 30, iy + 60); }
+      if (rng.chance(0.6)) { a.fillStyle = rng.pick(['#d9d2b2', '#dcdad4', '#d8b23a']); a.fillRect(ix + rng.range(10, iw - 60), iy + rng.range(20, ih - 50), 44, 30); a.fillStyle = '#222'; a.font = 'bold 9px "Barlow Condensed", sans-serif'; a.fillText('TO LET', ix + 30, iy + 60); }
     } else if (row === 2) { // electronics / phones — bright glass
-      const [ix, iy, iw, ih] = inner(); const g = a.createLinearGradient(0, iy, 0, iy + ih); g.addColorStop(0, '#dfe8ee'); g.addColorStop(1, '#8fa2ad'); a.fillStyle = g; a.fillRect(ix, iy, iw, ih);
-      e.fillStyle = '#e6f2ff'; e.fillRect(ix, iy, iw, ih);
+      const [ix, iy, iw, ih] = inner(); const g = a.createLinearGradient(0, iy, 0, iy + ih); g.addColorStop(0, '#5e6a71'); g.addColorStop(1, '#353f46'); a.fillStyle = g; a.fillRect(ix, iy, iw, ih); // shop glass by day: the darker shop seen through it with a little sky in it (mid-grey glass still rendered nearly as bright as the plaster in midday sun)
+      e.fillStyle = '#c4d2e2'; e.fillRect(ix, iy, iw, ih);
       for (let k = 0; k < 10; k++) { a.fillStyle = rng.pick(['#111', '#333', '#2a2a2a']); a.fillRect(ix + 8 + (k % 5) * iw / 5, iy + ih * 0.3 + Math.floor(k / 5) * ih * 0.25, iw / 6, ih * 0.16); e.fillStyle = rng.pick(['#4af', '#f4a', '#fd4', '#5f8']); e.fillRect(ix + 10 + (k % 5) * iw / 5, iy + ih * 0.31 + Math.floor(k / 5) * ih * 0.25, iw / 6 - 4, ih * 0.13); }
-      a.fillStyle = 'rgba(255,255,255,0.25)'; a.beginPath(); a.moveTo(ix, iy); a.lineTo(ix + iw * 0.3, iy); a.lineTo(ix, iy + ih * 0.6); a.fill();
+      a.fillStyle = 'rgba(255,255,255,0.14)'; a.beginPath(); a.moveTo(ix, iy); a.lineTo(ix + iw * 0.3, iy); a.lineTo(ix, iy + ih * 0.6); a.fill();
       a.strokeStyle = '#999'; a.lineWidth = 3; a.strokeRect(ix, iy, iw, ih); a.beginPath(); a.moveTo(ix + iw / 2, iy); a.lineTo(ix + iw / 2, iy + ih); a.stroke();
     } else if (row === 3) { // produce / grocery
       const [ix, iy, iw, ih] = inner(); darkInterior(ix, iy, iw, ih, '#ffe0a0');
       for (let k = 0; k < 7; k++) { a.fillStyle = '#c2a36e'; a.fillRect(ix + k * iw / 7 + 2, iy + ih * 0.62, iw / 7 - 4, ih * 0.36); a.fillStyle = rng.pick(['#d33', '#e83', '#ec2', '#5a2', '#8b4513', '#f5f0e0']); a.beginPath(); a.ellipse(ix + k * iw / 7 + iw / 14, iy + ih * 0.63, iw / 16, ih * 0.06, 0, 0, 7); a.fill(); }
       for (let k = 0; k < 3; k++) { a.fillStyle = '#d9b520'; for (let b = 0; b < 6; b++) { a.beginPath(); a.ellipse(ix + 30 + k * iw / 3 + (b % 2) * 8, iy + 18 + b * 7, 6, 3, 0.5, 0, 7); a.fill(); } } // bananas
     } else if (row === 4) { // colonial arcade
-      a.fillStyle = '#efe6d4'; a.fillRect(x, y, cw, cellH);
+      a.fillStyle = '#d8cfbd'; a.fillRect(x, y, cw, cellH);
       a.fillStyle = '#1e1a16'; a.beginPath(); const ax = x + cw * 0.12, aw = cw * 0.76; a.moveTo(ax, y + cellH); a.lineTo(ax, y + cellH * 0.45); a.arc(ax + aw / 2, y + cellH * 0.45, aw / 2, Math.PI, 0); a.lineTo(ax + aw, y + cellH); a.fill();
       e.fillStyle = '#f7d79a'; e.globalAlpha = 0.55; e.beginPath(); e.moveTo(ax + 10, y + cellH); e.lineTo(ax + 10, y + cellH * 0.5); e.arc(ax + aw / 2, y + cellH * 0.5, aw / 2 - 10, Math.PI, 0); e.lineTo(ax + aw - 10, y + cellH); e.fill(); e.globalAlpha = 1;
-      a.fillStyle = '#d8ccb4'; a.fillRect(x, y, cw * 0.1, cellH); a.fillRect(x + cw * 0.9, y, cw * 0.1, cellH);
+      a.fillStyle = '#c6baa3'; a.fillRect(x, y, cw * 0.1, cellH); a.fillRect(x + cw * 0.9, y, cw * 0.1, cellH);
     } else if (row === 5) { // office lobby
       const [ix, iy, iw, ih] = inner(0.05); glassGrad(a, ix, iy, iw, ih, '#6a7f88', '#22323a'); e.fillStyle = '#c8d8e8'; e.globalAlpha = 0.6; e.fillRect(ix, iy, iw, ih); e.globalAlpha = 1;
       a.strokeStyle = '#bfc4c6'; a.lineWidth = 4; a.strokeRect(ix, iy, iw, ih); for (let k = 1; k < 4; k++) { a.beginPath(); a.moveTo(ix + k * iw / 4, iy); a.lineTo(ix + k * iw / 4, iy + ih); a.stroke(); }
     } else if (row === 6) { // compound wall + gate
-      a.fillStyle = '#ece6d8'; a.fillRect(x, y + cellH * 0.45, cw, cellH * 0.55); a.fillStyle = '#7a9c66'; a.fillRect(x, y, cw, cellH * 0.45);
+      a.fillStyle = '#d3ccbd'; a.fillRect(x, y + cellH * 0.45, cw, cellH * 0.55); a.fillStyle = '#7a9c66'; a.fillRect(x, y, cw, cellH * 0.45);
       for (let k = 0; k < 20; k++) { a.fillStyle = rng.pick(['#4d7a3a', '#6a9a50', '#3b6a2c', '#88b060']); a.beginPath(); a.arc(x + rng.next() * cw, y + rng.next() * cellH * 0.45, rng.range(8, 20), 0, 7); a.fill(); }
       if (col % 2 === 0) { a.fillStyle = '#2b2b2b'; a.fillRect(x + cw * 0.3, y + cellH * 0.35, cw * 0.4, cellH * 0.65); a.fillStyle = '#555'; for (let gx = x + cw * 0.32; gx < x + cw * 0.68; gx += 8) a.fillRect(gx, y + cellH * 0.37, 3, cellH * 0.6); }
       grime(a, W, H, { scale: 4, amount: 0, seed: 1 });
@@ -638,6 +798,7 @@ function signAtlas(cw = 512) {
     // illuminated signs glow at night: lightboxes and acrylic always, painted boards about half the time
     if (style === 1 || style === 4 || k % 3 !== 2) { e.save(); e.globalAlpha = style === 1 ? 0.95 : 0.85; e.drawImage(A, x, y, cw, ch, x, y, cw, ch); e.restore(); }
   }
+  fadeCanvas(A, 0.85, [190, 182, 166], 0.05); // daylight face only: night illumination (E) unchanged
   return { map: toTex(A, { repeat: false }), emissive: toTex(E, { repeat: false }) };
 }
 function grimeRect(a, x, y, w, h, rng) { for (let k = 0; k < 6; k++) { a.fillStyle = `rgba(40,30,20,${rng.range(0.05, 0.18)})`; a.fillRect(x + rng.next() * w, y + rng.next() * h * 0.3, rng.range(3, 10), h * rng.range(0.2, 0.8)); } }
@@ -653,17 +814,30 @@ function roofTiles(size) { // Calicut / terracotta tiles
     ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(x + 1, y + rh - 4, rw - 2, 3);
   }
   grime(ctx, size, size, { scale: 5, amount: 0.3, seed: 62, color: [40, 40, 30], bias: -0.05 });
-  return toTex(c);
+  // height: each half-round Calicut tile is a barrel (sin across), rising towards its lower lip where it overlaps the course
+  // below (the albedo's dark strip under the lip), 1-px gaps between tiles; same 16 × 12 lattice → tiles seamlessly
+  const hc = heightCanvas(size), hx = hc.getContext('2d'), g = hx.getImageData(0, 0, size, size), d = g.data;
+  for (let y = 0; y < size; y++) { const row = Math.floor(y / rh), v = (y - row * rh) / rh;
+    for (let x = 0; x < size; x++) { const xs = x + (row % 2) * rw / 2; const col = Math.floor(xs / rw), u = (xs - col * rw) / rw; const i = (y * size + x) * 4;
+      const gap = u * rw < 1 || u * rw > rw - 1 || v * rh > rh - 2; const jit = (hash2(((col % 16) + 16) % 16, row, 61) - 0.5) * 16;
+      const hv = gap ? 18 : 34 + 150 * Math.pow(Math.sin(Math.PI * u), 0.65) + 56 * v + jit; d[i] = d[i + 1] = d[i + 2] = Math.max(0, Math.min(255, hv)); d[i + 3] = 255; } }
+  hx.putImageData(g, 0, 0); blurHeight(hc, 1); reliefNoise(hc, { scale: 32, amp: 5, oct: 2, seed: 63, grain: 6 });
+  const t = toTex(c); t.userData.height = hc; return t;
 }
 function corrugated(size, tone = '#9aa0a2', rust = true) {
   const c = canvas(size, size), ctx = c.getContext('2d');
   for (let x = 0; x < size; x += size / 32) { const g = ctx.createLinearGradient(x, 0, x + size / 32, 0); g.addColorStop(0, shade(tone, 1.2)); g.addColorStop(0.5, shade(tone, 0.7)); g.addColorStop(1, shade(tone, 1.2)); ctx.fillStyle = g; ctx.fillRect(x, 0, size / 32, size); }
   if (rust) grime(ctx, size, size, { scale: 5, amount: 0.5, seed: 71, color: [120, 60, 30], bias: -0.08 });
-  return toTex(c);
+  // height: the sheet's sinusoidal profile (crests where the albedo is lightest, 32 per tile) + rust blistering on old sheets
+  const hc = heightCanvas(size), hx = hc.getContext('2d'), g = hx.getImageData(0, 0, size, size), d = g.data, p = size / 32;
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) { const i = (y * size + x) * 4; d[i] = d[i + 1] = d[i + 2] = 128 + 92 * Math.cos((2 * Math.PI * (x + 0.5)) / p); }
+  hx.putImageData(g, 0, 0); if (rust) reliefNoise(hc, { scale: 24, amp: 6, oct: 2, seed: 72, grain: 5 });
+  const t = toTex(c); t.userData.height = hc; return t;
 }
 function roofConcrete(size) {
   const t = concrete(size, '#8f8a80', 81, false); const ctx = t.image.getContext('2d');
   grime(ctx, size, size, { scale: 4, amount: 0.4, seed: 82, color: [40, 45, 35], bias: -0.05 });
+  reliefNoise(t.userData.height, { scale: 8, amp: 8, oct: 3, seed: 83 }); // weathered screed: ponding hollows and lumps
   t.needsUpdate = true; return t;
 }
 function waterNormal(size) {
@@ -689,6 +863,25 @@ function palmFrond(size) { // alpha-tested leaflets
 // A sprig of real leaves (alpha-cut card): a forked twig with pointed-oval leaves along each branch, every leaf with a lit and a
 // shaded half either side of its midrib, a darker rim and a pale midrib; leaves overlap toward the middle, leaving natural gaps
 // at the edge (no disc of blobs). shape: 'oval' (mango / rain tree / bo-like), 'small' (dense small leaves: ficus, hedges, creepers)
+// bougainvillea bract spray (alpha card, near-white: the vertex colour makes it magenta / orange / white): papery heart-
+// shaped bracts in threes round a cream floret, veined and translucent at the rim, a few small leaves behind. Replaces the
+// flat untextured kites that read as coloured squares on the walls.
+function bractCluster(size = 256, seed = 131) {
+  const c = canvas(size, size), ctx = c.getContext('2d'), rng = new RNG(seed); const S = size / 256;
+  const leaf = (x, y, ang, len, wid) => { ctx.save(); ctx.translate(x, y); ctx.rotate(ang); const g = ctx.createLinearGradient(0, 0, len, 0); g.addColorStop(0, '#2b4f1a'); g.addColorStop(1, '#4f7d33'); ctx.fillStyle = g;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.bezierCurveTo(len * 0.3, wid, len * 0.75, wid * 0.8, len, 0); ctx.bezierCurveTo(len * 0.75, -wid * 0.8, len * 0.3, -wid, 0, 0); ctx.fill(); ctx.restore(); };
+  for (let k = 0; k < 7; k++) { const a = rng.next() * 6.283, r = (60 + rng.next() * 40) * S; leaf(128 * S + Math.cos(a) * r * 0.35, 128 * S + Math.sin(a) * r * 0.35, a, r, r * 0.34); }
+  const bract = (x, y, ang, len, k) => { ctx.save(); ctx.translate(x, y); ctx.rotate(ang); const w = len * 0.62;
+    const g = ctx.createRadialGradient(len * 0.15, 0, len * 0.05, len * 0.45, 0, len * 0.75); const v = (q) => Math.round(Math.min(255, q * k));
+    g.addColorStop(0, `rgb(${v(170)},${v(160)},${v(160)})`); g.addColorStop(0.55, `rgb(${v(242)},${v(236)},${v(238)})`); g.addColorStop(1, `rgb(${v(252)},${v(250)},${v(250)})`); ctx.fillStyle = g;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.bezierCurveTo(len * 0.15, w, len * 0.85, w * 1.05, len, w * 0.15); ctx.quadraticCurveTo(len * 0.9, 0, len, -w * 0.15); ctx.bezierCurveTo(len * 0.85, -w * 1.05, len * 0.15, -w, 0, 0); ctx.fill();
+    ctx.strokeStyle = `rgba(120,100,105,0.35)`; ctx.lineWidth = 1.1 * S; ctx.beginPath(); ctx.moveTo(len * 0.05, 0); ctx.lineTo(len * 0.88, 0); for (let i = 1; i < 4; i++) { const t = i / 4; ctx.moveTo(len * t * 0.9, 0); ctx.quadraticCurveTo(len * (t * 0.9 + 0.1), w * 0.35, len * (t * 0.9 + 0.18), w * 0.62); ctx.moveTo(len * t * 0.9, 0); ctx.quadraticCurveTo(len * (t * 0.9 + 0.1), -w * 0.35, len * (t * 0.9 + 0.18), -w * 0.62); } ctx.stroke(); ctx.restore(); };
+  // 5 triads: one in the middle, four around it, back ones darker (they sit in the shade of the front ones)
+  const triads = [[128, 128, 1, 46]]; for (let k = 0; k < 4; k++) { const a = k * 1.571 + 0.5 + rng.range(-0.3, 0.3), r = rng.range(52, 66); triads.unshift([128 + Math.cos(a) * r, 128 + Math.sin(a) * r, 0.86, rng.range(36, 42)]); }
+  for (const [x, y, k, len] of triads) { const a0 = rng.next() * 6.283; for (let i = 0; i < 3; i++) bract(x * S, y * S, a0 + i * 2.094 + rng.range(-0.2, 0.2), len * S * rng.range(0.9, 1.08), k * rng.range(0.92, 1.04));
+    ctx.fillStyle = '#efe6b0'; for (let i = 0; i < 3; i++) { const a = a0 + i * 2.094 + 1.047; ctx.beginPath(); ctx.arc(x * S + Math.cos(a) * 5 * S, y * S + Math.sin(a) * 5 * S, 2.6 * S, 0, 6.283); ctx.fill(); } }
+  return toTex(c, { repeat: false });
+}
 function leafCluster(size, hues = ['#2f5a1e', '#3d6e26', '#4c7f2e', '#28501a', '#5c8c38'], seed = 121, shape = 'oval') {
   const c = canvas(size, size), ctx = c.getContext('2d'), rng = new RNG(seed); const S = size / 256, C = size / 2;
   const shade = (hex, k) => { const n = parseInt(hex.slice(1), 16); const f = (v) => Math.max(0, Math.min(255, Math.round(v * k))); return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`; };
@@ -848,14 +1041,48 @@ export function faceAtlas({ female = false, stubble = 0.0, size = 256, brow = '#
 export function faceTexture(opts = {}) { return faceAtlas(opts); }
 
 // ----------------------------------------------------------------------------- build all
+// TEX[key] carries its height canvas in userData → TEX['n_' + key] (the canvas is dropped afterwards)
+function bakeNormal(key, strength) { const t = TEX[key]; if (!t || !t.userData.height) return; TEX['n_' + key] = heightToNormal(t.userData.height, { strength }); delete t.userData.height; }
+// Facade relief: brick / colonial paint their own height field; the other rendered (plastered / cement-washed) styles get a
+// hand-floated render relief and the warehouse its cladding profile, all at half the facade resolution. Window glass is
+// held perfectly flat (rm green < 90 = glass in every facade generator) so the interior mapping and reflections stay clean.
+const PLASTER_FACADES = { f_shop: 2, f_shop2: 2, f_shop3: 2, f_apartment: 2, f_apartment2: 2, f_villa: 2, f_hotel: 1.8, f_office: 1.6, f_office2: 1.6 };
+function facadeNormal(k, f) {
+  let hc = f.height, strength = f.relief || 2;
+  if (!hc && PLASTER_FACADES[k]) { hc = plasterRelief(heightCanvas(f.albedo.width / 2, f.albedo.height / 2, 128), k.length * 7 + f.albedo.width); strength = PLASTER_FACADES[k]; }
+  if (!hc && k === 'f_warehouse') { const w = f.albedo.width / 2, h = f.albedo.height / 2; hc = heightCanvas(w, h); const x = hc.getContext('2d'), g = x.getImageData(0, 0, w, h), d = g.data;
+    for (let y = 0; y < h; y++) for (let xx = 0; xx < w; xx++) { const i = (y * w + xx) * 4; d[i] = d[i + 1] = d[i + 2] = 128 + 90 * Math.cos((2 * Math.PI * (xx + 0.5)) / 4); } // albedo ribs: 8 px → 4 px here
+    x.putImageData(g, 0, 0); reliefNoise(hc, { scale: 16, amp: 6, oct: 2, seed: 97 }); strength = 1.4; }
+  if (!hc) return null; // glass / metal-panel curtain walls: smooth by design
+  const w = hc.width, h = hc.height, rm = document.createElement('canvas'); rm.width = w; rm.height = h; const rx = rm.getContext('2d'); rx.drawImage(f.rm, 0, 0, w, h);
+  const rd = rx.getImageData(0, 0, w, h).data, flat = new Float32Array(w * h); for (let i = 0; i < flat.length; i++) flat[i] = rd[i * 4 + 1] < 90 ? 0 : 1;
+  return heightToNormal(hc, { strength, flat });
+}
+// Stage 1 colour (36th): the rendered facades were painted near-white (#f2efe8…#f6f3ec) so the per-building paint could
+// tint them — at full brightness that multiplies out to a chalk-white, plastic-looking wall. Settle the render to a real
+// aged cement / lime-plaster value with a slight warm-grey cast. Glass (rm green < 90) is left exactly as painted.
+const PLASTER_BASE = { f_shop: 0.9, f_shop2: 0.9, f_shop3: 0.92, f_apartment: 0.9, f_apartment2: 0.92, f_villa: 0.92, f_hotel: 0.93, f_office: 0.94, f_office2: 0.94, f_colonial: 0.92 };
+function weatherPlaster(f, k) {
+  const w = f.albedo.width, h = f.albedo.height, a = f.albedo.getContext('2d'), img = a.getImageData(0, 0, w, h), d = img.data;
+  const rx = document.createElement('canvas'); rx.width = w; rx.height = h; const rc = rx.getContext('2d'); rc.drawImage(f.rm, 0, 0, w, h); const rd = rc.getImageData(0, 0, w, h).data;
+  for (let i = 0; i < d.length; i += 4) { if (rd[i + 1] < 90) continue; d[i] = d[i] * k; d[i + 1] = d[i + 1] * (k - 0.012); d[i + 2] = d[i + 2] * (k - 0.035); }
+  a.putImageData(img, 0, 0);
+}
+// faded shop signs: sun-bleached paint / vinyl (slightly desaturated, a touch of dust) — the lettering is untouched in shape
+function fadeCanvas(c, sat = 0.82, dust = [196, 188, 172], dk = 0.06) {
+  const x = c.getContext('2d'), img = x.getImageData(0, 0, c.width, c.height), d = img.data;
+  for (let i = 0; i < d.length; i += 4) { const l = 0.3 * d[i] + 0.59 * d[i + 1] + 0.11 * d[i + 2];
+    for (let j = 0; j < 3; j++) d[i + j] = (l + (d[i + j] - l) * sat) * (1 - dk) + dust[j] * dk; }
+  x.putImageData(img, 0, 0);
+}
 export async function buildTextures(quality = 'high', progress = () => {}) {
   const hi = quality === 'high' || quality === 'ultra';
   const FW = hi ? 1024 : 512, FH = FW / 2, S = hi ? 1024 : 512;
   const steps = [
-    ['asphalt', () => { const a = asphalt(S); TEX.asphalt = a.map; TEX.asphaltRough = a.rough; }],
-    ['pavers', () => { TEX.pavers = pavers(512); TEX.paversGrey = pavers(512, ['#8a8780', '#7d7a73', '#96928a', '#6f6c66'], 6); }],
-    ['concrete', () => { TEX.concrete = concrete(512); TEX.roofConcrete = roofConcrete(512); }],
-    ['grass', () => { TEX.grass = grass(512, 21, 0.3); TEX.lawn = grass(512, 22, 0.08); TEX.laterite = laterite(512); TEX.hedge = hedgeTex(256); TEX.sand = sand(512); TEX.rocks = rocks(512); TEX.ballast = ballast(512); }],
+    ['asphalt', async () => { if (await loadRoad007()) return; const a = asphalt(S); TEX.asphalt = a.map; TEX.asphaltRough = a.rough; TEX.n_asphalt = heightToNormal(a.height, { strength: S > 512 ? 5 : 3.5 }); }], // 63rd: the Road007 set; the procedural asphalt only if it cannot load
+    ['pavement', () => { TEX.pave1 = paveSlabs(512, 1, 5); TEX.pave2 = paveSlabs(512, 2, 6); bakeNormal('pave1', 3.5); bakeNormal('pave2', 3.5); TEX.jointGrass = jointGrassTex(); }], // 62nd: slabs, not brick pavers
+    ['concrete', () => { TEX.concrete = concrete(512); TEX.roofConcrete = roofConcrete(512); bakeNormal('concrete', 3); bakeNormal('roofConcrete', 3); }],
+    ['grass', () => { TEX.grass = grass(512, 21, 0.3); TEX.lawn = grass(512, 22, 0.08); TEX.laterite = laterite(512); TEX.hedge = hedgeTex(256); TEX.sand = sand(512); bakeNormal('sand', 3); TEX.rocks = rocks(512); TEX.ballast = ballast(512); }],
     ['facades: colonial', () => { TEX.f_colonial = facadeColonial(FW, FH, 201); TEX.f_brick = facadeBrick(FW, FH, 202); }],
     ['facades: modern', () => { TEX.f_glass = facadeGlass(FW, FH, 203); TEX.f_glass2 = facadeGlass(FW, FH, 213, ['#8fa9b0', '#3c5560']); TEX.f_office = facadeOffice(FW, FH, 204); TEX.f_hotel = facadeHotel(FW, FH, 208); }],
     ['facades: variants', () => { TEX.f_office2 = facadeOffice2(FW, FH, 224); TEX.f_office3 = facadeOffice3(FW, FH, 234); TEX.f_glass3 = facadeGlass(FW, FH, 223, ['#8e8068', '#2c251c']); TEX.f_apartment2 = facadeApartment2(FW, FH, 226); TEX.f_shop3 = facadeShop3(FW, FH, 225); }],
@@ -863,23 +1090,27 @@ export async function buildTextures(quality = 'high', progress = () => {}) {
     ['facades: homes', () => { TEX.f_villa = facadeVilla(FW, FH, 207); TEX.f_warehouse = facadeWarehouse(FW / 2, FH / 2, 209); }],
     ['shopfronts', () => { TEX.shops = shopAtlas(hi ? 256 : 128); }],
     ['signage', () => { TEX.signs = signAtlas(hi ? 400 : 256); }],
-    ['roofs', () => { TEX.roofTiles = roofTiles(512); TEX.corrugated = corrugated(256); TEX.corrugatedBlue = corrugated(256, '#5a7d9a', false); }],
+    ['roofs', () => { TEX.roofTiles = roofTiles(512); TEX.corrugated = corrugated(256); TEX.corrugatedBlue = corrugated(256, '#5a7d9a', false); bakeNormal('roofTiles', 3); bakeNormal('corrugated', 2.4); }],
     ['water & light', () => {
       TEX.waterNormal = waterNormal(256);
       TEX.glow = radial(128, [[0, 'rgba(255,255,255,1)'], [0.25, 'rgba(255,255,255,0.5)'], [1, 'rgba(255,255,255,0)']]);
       TEX.pool = radial(128, [[0, 'rgba(255,255,255,0.9)'], [0.5, 'rgba(255,255,255,0.35)'], [1, 'rgba(255,255,255,0)']]);
     }],
-    ['foliage', () => { TEX.palm = palmFrond(512); TEX.leaves = leafCluster(512); TEX.leavesBright = leafCluster(512, ['#4a7a2a', '#5f9236', '#6fa040', '#3e6a22', '#86b04e'], 123); TEX.leavesSmall = leafCluster(256, ['#2c5a1c', '#3a6a24', '#47782c', '#2a4f18', '#55863a'], 127, 'small'); TEX.banana = bananaLeaf(128, 512); TEX.bark = barkTex(256); TEX.palmBark = barkTex(256, true); }],
+    ['foliage', async () => { TEX.palm = palmFrond(512);
+      // 88th: every tree / shrub / hedge / creeper leaf comes from the user's photographic leaf sheet (world/LeafAtlas.js) — one
+      // texture instead of the three painted clusters; the painted ones are only made if the sheet cannot be loaded (no DOM)
+      const atlas = await loadLeafAtlas(); if (atlas) TEX.leaves = TEX.leavesBright = TEX.leavesSmall = TEX.leafAtlas = atlas;
+      else { TEX.leaves = leafCluster(512); TEX.leavesBright = leafCluster(512, ['#4a7a2a', '#5f9236', '#6fa040', '#3e6a22', '#86b04e'], 123); TEX.leavesSmall = leafCluster(256, ['#2c5a1c', '#3a6a24', '#47782c', '#2a4f18', '#55863a'], 127, 'small'); } TEX.bract = bractCluster(256); TEX.banana = bananaLeaf(128, 512); TEX.bark = barkTex(256); TEX.palmBark = barkTex(256, true); }],
     ['fabrics', () => { TEX.plaid = fabricPlaid(256); TEX.saree = fabricSaree(256); TEX.batik = fabricBatik(256); TEX.weave = fabricWeave(128); }],
   ];
   for (let i = 0; i < steps.length; i++) {
     progress(i / steps.length, steps[i][0]);
-    steps[i][1]();
+    await steps[i][1]();
     await new Promise((r) => setTimeout(r, 0));
   }
   // facade wrappers → textures
   for (const k of Object.keys(TEX)) if (k.startsWith('f_') && TEX[k].albedo) {
-    const f = TEX[k]; TEX[k] = { map: toTex(f.albedo), emissive: toTex(f.emis), rm: toTex(f.rm, { srgb: false }) }; FACADE_WINDOWS[k] = f.windows;
+    const f = TEX[k]; if (PLASTER_BASE[k]) weatherPlaster(f, PLASTER_BASE[k]); openingMask(f); TEX[k] = { map: toTex(f.albedo), emissive: toTex(f.emis), rm: toTex(f.rm, { srgb: false }), normal: facadeNormal(k, f) }; FACADE_WINDOWS[k] = f.windows;
   }
   progress(1, 'textures ready');
   return TEX;

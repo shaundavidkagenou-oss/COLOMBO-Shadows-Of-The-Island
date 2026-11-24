@@ -9,7 +9,7 @@ import { LAND_Y } from './Layout.js';
 import { PARK, PONDS, POND_WATER_Y, HEDGES, BAT_TREES, onParkFeature, inPoly } from './Parks.js';
 import { RNG } from '../core/rng.js';
 
-const FIREFLIES = { low: 320, medium: 560, high: 800, ultra: 1060 };
+const FIREFLIES = { low: 50, medium: 90, high: 130, ultra: 170 }; // a scattering, not a swarm (player feedback: far too many)
 const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 export class ParkLife {
@@ -50,7 +50,7 @@ export class ParkLife {
           float dbl = step(0.62, fract(aSeed.x * 3.7)) * smoothstep(0.2, 0.24, ph) * (1.0 - smoothstep(0.24, 0.31, ph)); // some flash twice
           float fl = max(flash, dbl);
           vec4 mv = modelViewMatrix * vec4(p, 1.0); gl_Position = projectionMatrix * mv; float dist = max(0.5, -mv.z);
-          vGlow = (0.22 + 0.78 * fl) * uOn * (1.0 - smoothstep(70.0, 150.0, dist)); vCore = fl;
+          vGlow = (0.04 + 0.96 * fl) * uOn * (1.0 - smoothstep(70.0, 150.0, dist)); vCore = fl;
           gl_PointSize = clamp(uScale * (0.34 + 0.3 * fl) / dist, 4.0, 40.0);   // the sprite carries the glow halo round the tiny lantern
         }`,
       fragmentShader: `varying float vGlow, vCore;

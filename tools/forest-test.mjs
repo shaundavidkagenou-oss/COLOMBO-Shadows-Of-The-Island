@@ -21,6 +21,8 @@ ok(plan.trees.every((t) => TS[t.type]), 'every tree species has a shape');
 ok(plan.plants.every((p) => PS[p.type]), 'every plant type has a shape');
 for (const k of ['banana', 'areca', 'mango', 'palm', 'frangipani', 'jak']) ok(plan.trees.some((t) => t.type === k), `garden species ${k} planted`);
 for (const k of ['croton', 'hibiscus', 'ixora', 'bougain', 'shrub', 'weed', 'fern']) ok(plan.plants.some((p) => p.type === k), `plant type ${k} present`);
+for (const k of ['nuga', 'kottamba', 'flamboyant', 'ashoka', 'kingcoconut']) ok(plan.trees.filter((t) => t.type === k).length >= 3, `52nd species ${k} planted (${plan.trees.filter((t) => t.type === k).length})`);
+for (const k of ['heliconia', 'sansevieria', 'alocasia', 'cordyline', 'pandanus']) ok(plan.plants.filter((p) => p.type === k).length >= 10, `52nd plant ${k} present (${plan.plants.filter((p) => p.type === k).length})`);
 
 // --- placement: never on a road / pavement / water / rail, never inside a building or wall, off doorsteps and gates
 const inRect = (x, z, r, m) => x > r.x0 - m && x < r.x1 + m && z > r.z0 - m && z < r.z1 + m;

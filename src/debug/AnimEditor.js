@@ -80,7 +80,7 @@ class AnimEditor {
       h('div', { cls: 'ed-tabs' }, btn('Key all bones here', () => this.keyAll()), btn('Delete key', () => this.delKey()), btn('Clear bone', () => { if (this.clip) { delete this.clip.tracks[this.bone]; this.buildRight(); } }), btn('Copy pose', () => this.copyPose()), btn('Paste pose', () => this.pastePose())),
       hip ? null : section('Bone scale (this animation)', false, ...[0, 1, 2].map((i) => num('Scale ' + 'XYZ'[i], sc[i], { min: 0.3, max: 2.5, step: 0.01 }, (val) => { const cl = this.ensureClip(); cl.scale ||= {}; const s = (cl.scale[this.bone] ||= [1, 1, 1]); s[i] = val; })))));
     R.append(section('File', true, h('div', { cls: 'ed-tabs' },
-      btn('Save (applies in game)', async () => { await saveAnims(); toast('Animations saved — they now apply to every character'); }),
+      btn('Save (applies in game)', async () => { try { const r = await saveAnims(); toast(r && r.baked ? 'Animations saved into model-pack/ — they apply to every character and are built into the game / .exe' : 'Animations saved (this browser)'); } catch (e) { toast('Save failed: ' + (e.message || e), 4000); } }),
       btn('Export JSON', () => download('colombo-animations.json', JSON.stringify(ANIM.clips, null, 1))),
       btn('Import JSON', async () => { const f = await pickFile(); if (!f) return; try { Object.assign(ANIM.clips, JSON.parse(await f.text())); this.select(this.key); toast('Imported'); } catch (e) { toast('Bad file: ' + e.message); } }),
       btn('Revert to saved', async () => { await loadSavedAnims(); this.select(this.key); }))));

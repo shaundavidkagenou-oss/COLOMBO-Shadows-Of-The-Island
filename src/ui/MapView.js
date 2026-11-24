@@ -64,10 +64,13 @@ export const BLIP_STYLE = {
   side: { col: '#5ac8a8', cat: 'activities', name: 'Side activity' }, shop: { col: '#9ad06a', cat: 'services', name: 'Shop / service' },
   stamp: { col: '#d8a0ff', cat: 'collect', name: 'Heritage stamp' }, photo: { col: '#7ab8ff', cat: 'collect', name: 'Photo spot' },
   enemy: { col: '#ff4a3a', cat: 'missions', name: 'Target' }, waypoint: { col: '#33d4c0', cat: 'missions', name: 'Waypoint' },
-  landmark: { col: '#e8a33a', cat: 'landmarks', name: 'Landmark' }, police: { col: '#5b8cff', cat: 'services', name: 'Police' },
+  landmark: { col: '#e8a33a', cat: 'landmarks', name: 'Landmark' }, police: { col: '#5b8cff', cat: 'services', name: 'Police' }, bank: { col: '#cdb57a', cat: 'services', name: 'Bank / ATM' }, // 67th: Ceylon Meridian Bank
   hospital: { col: '#ff5a5a', cat: 'services', name: 'Hospital' }, station: { col: '#d9c7a0', cat: 'transit', name: 'Railway station' },
   worship: { col: '#f2d27a', cat: 'landmarks', name: 'Place of worship' }, school: { col: '#9fd3a8', cat: 'landmarks', name: 'School' }, home: { col: '#7fd6ff', cat: 'services', name: 'Safehouse' },
   pickup: { col: '#ffd34a', cat: 'missions', name: 'Friend waiting for a lift' },
+  customs: { col: '#ff7a1a', cat: 'services', name: 'Street Customs (vehicle workshop)' },
+  marina: { col: '#4ab0ff', cat: 'services', name: 'Marina berth for sale' }, berth: { col: '#33e0a0', cat: 'services', name: 'Your berth' },
+  stunt: { col: '#ffd34a', cat: 'activities', name: 'Stunt jump' }, bmx: { col: '#7fe0a0', cat: 'activities', name: 'Bicycle ramp' },
 };
 export function drawIcon(g, kind, x, y, r = 9) {
   const st = BLIP_STYLE[kind] || { col: '#fff' }; g.save(); g.translate(x, y);
@@ -83,15 +86,20 @@ export function drawIcon(g, kind, x, y, r = 9) {
     case 'stamp': for (let i = 0; i < 5; i++) { const a = -Math.PI / 2 + i * 2 * Math.PI / 5, b = a + Math.PI / 5; g.lineTo(Math.cos(a) * 5 * k, Math.sin(a) * 5 * k); g.lineTo(Math.cos(b) * 2.2 * k, Math.sin(b) * 2.2 * k); } g.closePath(); g.fill(); break;
     case 'photo': g.rect(-5 * k, -3 * k, 10 * k, 7 * k); g.fill(); g.fillStyle = 'rgba(8,10,14,0.9)'; g.beginPath(); g.arc(0, 0.5 * k, 2.2 * k, 0, 7); g.fill(); break;
     case 'enemy': g.arc(0, 0, 4 * k, 0, 7); g.fill(); break;
+    case 'stunt': g.moveTo(-5 * k, 3.5 * k); g.lineTo(4.5 * k, 3.5 * k); g.lineTo(4.5 * k, -1 * k); g.closePath(); g.fill(); g.beginPath(); g.arc(-1 * k, -3.2 * k, 1.6 * k, 0, 7); g.fill(); break;
+    case 'bmx': g.arc(-2.8 * k, 1.5 * k, 2.3 * k, 0, 7); g.stroke(); g.beginPath(); g.arc(2.8 * k, 1.5 * k, 2.3 * k, 0, 7); g.stroke(); g.beginPath(); g.moveTo(-2.8 * k, 1.5 * k); g.lineTo(0, -2.6 * k); g.lineTo(2.8 * k, 1.5 * k); g.stroke(); break;
     case 'pickup': g.arc(0, -2.4 * k, 2.3 * k, 0, 7); g.fill(); g.beginPath(); g.moveTo(-4.4 * k, 5 * k); g.quadraticCurveTo(-4.2 * k, 0.6 * k, 0, 0.6 * k); g.quadraticCurveTo(4.2 * k, 0.6 * k, 4.4 * k, 5 * k); g.closePath(); g.fill(); break;
     case 'waypoint': g.moveTo(-3 * k, 5 * k); g.lineTo(-3 * k, -5 * k); g.stroke(); g.beginPath(); g.moveTo(-3 * k, -5 * k); g.lineTo(5 * k, -2.5 * k); g.lineTo(-3 * k, 0); g.closePath(); g.fill(); break;
     case 'landmark': g.arc(0, -1.2 * k, 3.2 * k, 0, 7); g.fill(); g.beginPath(); g.moveTo(-2.6 * k, 0); g.lineTo(0, 5 * k); g.lineTo(2.6 * k, 0); g.fill(); break;
+    case 'bank': g.moveTo(-5 * k, -2 * k); g.lineTo(0, -5 * k); g.lineTo(5 * k, -2 * k); g.closePath(); g.fill(); for (let i = 0; i < 4; i++) g.fillRect((-4.2 + i * 2.4) * k, -1.2 * k, 1.2 * k, 4.6 * k); g.fillRect(-5 * k, 3.6 * k, 10 * k, 1.4 * k); break; // pediment over four columns
     case 'police': g.moveTo(0, -5 * k); g.lineTo(4.5 * k, -3 * k); g.lineTo(3.5 * k, 2 * k); g.lineTo(0, 5 * k); g.lineTo(-3.5 * k, 2 * k); g.lineTo(-4.5 * k, -3 * k); g.closePath(); g.fill(); break;
     case 'school': g.moveTo(-5.5 * k, -1 * k); g.lineTo(0, -4.5 * k); g.lineTo(5.5 * k, -1 * k); g.lineTo(0, 2.5 * k); g.closePath(); g.fill(); g.beginPath(); g.moveTo(-3 * k, 0.6 * k); g.lineTo(-3 * k, 3.6 * k); g.quadraticCurveTo(0, 5.6 * k, 3 * k, 3.6 * k); g.lineTo(3 * k, 0.6 * k); g.lineTo(0, 2.5 * k); g.closePath(); g.fill(); break; /* mortarboard */
     case 'hospital': g.rect(-1.5 * k, -5 * k, 3 * k, 10 * k); g.rect(-5 * k, -1.5 * k, 10 * k, 3 * k); g.fill(); break;
     case 'station': g.rect(-4 * k, -4.5 * k, 8 * k, 7 * k); g.fill(); g.fillStyle = 'rgba(8,10,14,0.9)'; g.fillRect(-2.8 * k, -3.2 * k, 5.6 * k, 2.4 * k); g.fillStyle = st.col; g.beginPath(); g.moveTo(-3 * k, 3 * k); g.lineTo(-4.5 * k, 5.5 * k); g.moveTo(3 * k, 3 * k); g.lineTo(4.5 * k, 5.5 * k); g.stroke(); break;
     case 'worship': g.moveTo(-4.5 * k, 4 * k); g.lineTo(4.5 * k, 4 * k); g.lineTo(4.5 * k, 1 * k); g.quadraticCurveTo(0, -7 * k, -4.5 * k, 1 * k); g.closePath(); g.fill(); break;
     case 'home': g.moveTo(-5 * k, 0); g.lineTo(0, -5 * k); g.lineTo(5 * k, 0); g.lineTo(3.5 * k, 0); g.lineTo(3.5 * k, 4.5 * k); g.lineTo(-3.5 * k, 4.5 * k); g.lineTo(-3.5 * k, 0); g.closePath(); g.fill(); break;
+    case 'customs': g.lineWidth = 2.2 * k; g.moveTo(-4 * k, 4 * k); g.lineTo(1.2 * k, -1.2 * k); g.stroke(); g.beginPath(); g.arc(2.6 * k, -2.6 * k, 2.4 * k, Math.PI * 0.95, Math.PI * 2.55); g.stroke(); break;
+    case 'marina': case 'berth': g.lineWidth = 1.7 * k; g.arc(0, -3.6 * k, 1.3 * k, 0, 7); g.moveTo(0, -2.3 * k); g.lineTo(0, 4.4 * k); g.moveTo(-2.6 * k, -1 * k); g.lineTo(2.6 * k, -1 * k); g.moveTo(-4 * k, 1.6 * k); g.quadraticCurveTo(-3 * k, 4.6 * k, 0, 4.6 * k); g.quadraticCurveTo(3 * k, 4.6 * k, 4 * k, 1.6 * k); g.stroke(); break; // anchor
     default: g.arc(0, 0, 3.5 * k, 0, 7); g.fill();
   }
   g.restore();
@@ -99,7 +107,7 @@ export function drawIcon(g, kind, x, y, r = 9) {
 // fixed map points of interest (always shown, filterable)
 export const MAP_POI = [
   ['lotus', 'landmark'], ['gfHotel', 'landmark'], ['museum', 'landmark'], ['townhall', 'landmark'], ['vmpark', 'landmark'], ['clockTower', 'landmark'], ['seema', 'worship'],
-  ['mosque', 'worship'], ['stlucia', 'worship'], ['port', 'landmark'], ['hospital', 'hospital'], ['police', 'police'], ['policeHQ2', 'police'], ['slaveFlat', 'home'], ['johns', 'school'],
+  ['mosque', 'worship'], ['stlucia', 'worship'], ['port', 'landmark'], ['hospital', 'hospital'], ['police', 'police'], ['policeHQ2', 'police'], ['slaveFlat', 'home'], ['johns', 'school'], ['customs', 'customs'],
 ].map(([k, kind]) => ({ x: L.PLACES[k].x, z: L.PLACES[k].z, kind, label: L.PLACES[k].name }));
 
 // ----------------------------------------------------------------------------- map renderer
@@ -131,6 +139,13 @@ export class MapView {
     }
     g.globalAlpha = 1; return need ? have / need : 1;
   }
+  // the satellite tiles under the view are all there and faded in: the vector layers beneath them would be drawn for nothing
+  satCovered(x0, x1, z0, z1) {
+    const S = this.sat; if (!S || this.style !== 'satellite' || x0 < SAT.x0 || x1 > SAT.x1 || z0 < SAT.z0 || z1 > SAT.z1) return false;
+    const size = SAT.sizes[0], now = performance.now(); const i0 = Math.floor((x0 - SAT.x0) / size), i1 = Math.floor((x1 - SAT.x0) / size), j0 = Math.floor((z0 - SAT.z0) / size), j1 = Math.floor((z1 - SAT.z0) / size);
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const t = S.tiles.get(S.key(0, i, j)); if (!t || now - t.born < 420) return false; }
+    return true;
+  }
   // moving cloud shadows and sea glints over the imagery (subtle: the map should feel alive, not busy)
   drawAtmos(g, W, H) {
     const z = this.zoom, t = this.t;
@@ -160,10 +175,12 @@ export class MapView {
     // shoreline glow
     g.strokeStyle = 'rgba(120,200,220,0.35)'; g.lineWidth = Math.max(1, 3 * z); g.beginPath(); for (let q = zs; q <= ze; q += Math.max(4, 6 / z)) { const px = X(L.coastX(q)), py = Y(q); q === zs ? g.moveTo(px, py) : g.lineTo(px, py); } g.stroke();
     g.fillStyle = '#14445a'; g.fillRect(X(-3000), Y(-4000), X(230) - X(-3000), Y(-1180) - Y(-4000)); // harbour basin
+    const under = this.satCovered(x0, x1, z0, z1); // FPS: opaque imagery covers everything up to the street names
+    if (!under) {
     // district tint
     for (const c of L.cells) { if (c.water || !vis(c.x0, c.x1, c.z0, c.z1)) continue; const d = L.DISTRICTS[c.district]; if (!d) continue;
       g.fillStyle = d.style === 'green' ? '#2f4a2f' : d.style === 'villa' ? '#2a3230' : d.style === 'port' ? '#2c3136' : d.style === 'lake' ? '#283331' : '#2a2f33'; g.fillRect(X(c.x0), Y(c.z0), (c.x1 - c.x0) * z + 0.5, (c.z1 - c.z0) * z + 0.5); }
-    for (const zn of L.ZONES) { const [a0, a1, b0, b1] = zn.rect; if (!vis(a0, a1, b0, b1)) continue; g.fillStyle = zn.kind === 'park' ? '#2f4f31' : '#30302c'; g.fillRect(X(a0), Y(b0), (a1 - a0) * z, (b1 - b0) * z); }
+    for (const zn of L.ZONES) { const [a0, a1, b0, b1] = zn.map || zn.rect; if (!vis(a0, a1, b0, b1)) continue; g.fillStyle = zn.kind === 'park' ? '#2f4f31' : '#30302c'; g.fillRect(X(a0), Y(b0), (a1 - a0) * z, (b1 - b0) * z); }
     // lake / canals
     g.fillStyle = '#16465c'; for (const [cx, cz, rx, rz] of L.LAKE) { g.beginPath(); g.ellipse(X(cx), Y(cz), rx * z, rz * z, 0, 0, 7); g.fill(); }
     g.strokeStyle = 'rgba(120,200,220,0.3)'; g.lineWidth = Math.max(1, 2 * z); for (const [cx, cz, rx, rz] of L.LAKE) { g.beginPath(); g.ellipse(X(cx), Y(cz), rx * z, rz * z, 0, 0, 7); g.stroke(); }
@@ -197,6 +214,7 @@ export class MapView {
         if (z > 1.1) { g.strokeStyle = 'rgba(0,0,0,0.45)'; g.lineWidth = 1; g.strokeRect(X(b.x0) + 0.5, Y(b.z0) + 0.5, (b.x1 - b.x0) * z - 1, (b.z1 - b.z0) * z - 1); } }
       g.fillStyle = 'rgba(54,96,48,0.85)'; for (const t of plan.trees) { if (t.x < x0 || t.x > x1 || t.z < z0 || t.z > z1) continue; g.beginPath(); g.arc(X(t.x), Y(t.z), Math.max(1.2, 2.6 * t.s * z), 0, 7); g.fill(); }
     }
+    } // !under
     // satellite imagery over the vector base (the vector map shows through until tiles stream in)
     if (this.style === 'satellite' && this.sat) { this.satReady = this.drawSatellite(g, x0, x1, z0, z1); this.drawAtmos(g, W, H); g.fillStyle = 'rgba(6,10,16,0.10)'; g.fillRect(0, 0, W, H); } else this.satReady = 1;
     // stations
@@ -214,7 +232,7 @@ export class MapView {
     // police search area + units
     const pol = st.police; if (pol) {
       if (pol.search) { g.fillStyle = 'rgba(70,130,255,0.16)'; g.strokeStyle = 'rgba(120,170,255,0.9)'; g.lineWidth = 2; g.setLineDash([8, 5]); g.beginPath(); g.arc(X(pol.search.x), Y(pol.search.z), pol.search.r * z, 0, 7); g.fill(); g.stroke(); g.setLineDash([]); }
-      for (const u of pol.units) { if (st.seeUnit && !st.seeUnit(u)) continue; g.fillStyle = u.lights ? ((this.t * 3) % 1 < 0.5 ? '#ff3b3b' : '#3b7bff') : '#a9c8ff'; g.fillRect(X(u.x) - 5, Y(u.z) - 5, 10, 10); } // only units in sight (or responding within earshot)
+      for (const u of pol.units) { if (st.seeUnit && !st.seeUnit(u)) continue; if (u.heli) { drawHeliBlip(g, X(u.x), Y(u.z), 1.15, u.lights, this.t); continue; } /* 69th: own helicopter mark */ g.fillStyle = u.lights ? ((this.t * 3) % 1 < 0.5 ? '#ff3b3b' : '#3b7bff') : '#a9c8ff'; g.fillRect(X(u.x) - 5, Y(u.z) - 5, 10, 10); } // only units in sight (or responding within earshot)
       for (const e of st.extras || []) { g.fillStyle = e.color; g.beginPath(); g.arc(X(e.x), Y(e.z), Math.max(1.2, (e.r || 2) * 0.8), 0, 7); g.fill(); } // tiny marks: people / vehicles the player can see
     }
     // GPS route
@@ -241,4 +259,17 @@ export class MapView {
     g.save(); g.translate(W - 60, H - 64); g.fillStyle = 'rgba(8,10,14,0.7)'; g.beginPath(); g.arc(0, 0, 24, 0, 7); g.fill(); g.fillStyle = '#e8a33a'; g.beginPath(); g.moveTo(0, -18); g.lineTo(6, 0); g.lineTo(-6, 0); g.fill(); g.fillStyle = '#c9d4dc'; g.beginPath(); g.moveTo(0, 18); g.lineTo(6, 0); g.lineTo(-6, 0); g.fill(); g.fillStyle = '#fff'; g.font = 'bold 11px "Barlow Condensed"'; g.textAlign = 'center'; g.fillText('N', 0, -26 + 2); g.restore();
   }
   hover(px, py) { let best = null, bd = 16; for (const h of this.hoverables || []) { const d = Math.hypot(h.px - px, h.py - py); if (d < bd) { bd = d; best = h.b; } } this.hoverB = best; return best; }
+}
+
+// 69th: the police helicopter's map mark (minimap + full map) — a small top-down helicopter (round cabin, tail boom, the two-blade
+// rotor turning), dark outline, its strobe colours flashing while it is on the chase. Distinct from the square police-car mark.
+export function drawHeliBlip(g, x, y, k = 1, lit = true, now = 0) {
+  const c = lit ? ((now * 2.4) % 1 < 0.5 ? '#ff4a4a' : '#4a86ff') : '#a9c8ff'; const a = now * 9;
+  g.save(); g.translate(x, y); g.lineCap = 'round';
+  g.strokeStyle = '#000'; g.lineWidth = 4.2 * k; g.beginPath(); g.moveTo(0, 2 * k); g.lineTo(0, 9 * k); g.moveTo(-2.6 * k, 9 * k); g.lineTo(2.6 * k, 9 * k); g.stroke(); // tail boom + stabiliser (outline)
+  g.strokeStyle = c; g.lineWidth = 2 * k; g.beginPath(); g.moveTo(0, 2 * k); g.lineTo(0, 9 * k); g.moveTo(-2.6 * k, 9 * k); g.lineTo(2.6 * k, 9 * k); g.stroke();
+  g.fillStyle = c; g.strokeStyle = '#000'; g.lineWidth = 1.5 * k; g.beginPath(); g.ellipse(0, -0.5 * k, 3.6 * k, 4.4 * k, 0, 0, 7); g.fill(); g.stroke(); // cabin
+  g.strokeStyle = 'rgba(0,0,0,0.85)'; g.lineWidth = 3.4 * k; g.beginPath(); for (const s of [0, Math.PI / 2]) { g.moveTo(Math.cos(a + s) * 8 * k, Math.sin(a + s) * 8 * k - 0.5 * k); g.lineTo(-Math.cos(a + s) * 8 * k, -Math.sin(a + s) * 8 * k - 0.5 * k); } g.stroke();
+  g.strokeStyle = '#eef3ff'; g.lineWidth = 1.5 * k; g.stroke(); // rotor blades
+  g.restore();
 }

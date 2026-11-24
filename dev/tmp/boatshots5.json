@@ -1,0 +1,44 @@
+[
+ {
+  "name": "b51-wdbg-red",
+  "at": [
+   200,
+   -1287
+  ],
+  "cam": [
+   0,
+   0,
+   0
+  ],
+  "look": [
+   0,
+   0,
+   -1
+  ],
+  "hour": 15,
+  "wait": 1500,
+  "js": "const B=g.boats; const y=B.spawnNear('dondra26',{x:150,z:-1382,yaw:-1.5708}); window.__wy=y; if(y){ y.place(150,-1382,-1.5708,true); y.route=[{x:-600,z:-1382}]; y.role='free'; for(let i=0;i<200;i++) B.update(0.05,g.player); s.cam=[y.x+8,22,y.z+26]; s.look=[y.x+30,0,y.z]; } const m=B.wakes.mesh.material; if(!window.__fs0) window.__fs0=m.fragmentShader; m.fragmentShader='void main(){ gl_FragColor=vec4(1.0,0.0,0.0,1.0); }'; m.needsUpdate=true;",
+  "probe": "const W=g.boats.wakes, m=W.mesh.material; const gl=g.renderer.getContext(); return {range:W.geo.drawRange.count, vis:W.mesh.visible, dt:m.depthTest, blend:m.blending, side:m.side, err:gl.getError(), keys:Object.keys(m.uniforms).join(','), noise:!!m.uniforms.uNoise.value, fog:!!g.scene.fog && g.scene.fog.type, fogD:g.scene.fog&&(g.scene.fog.density||g.scene.fog.far)};"
+ },
+ {
+  "name": "b51-wdbg-nodepth",
+  "at": [
+   200,
+   -1287
+  ],
+  "cam": [
+   0,
+   0,
+   0
+  ],
+  "look": [
+   0,
+   0,
+   -1
+  ],
+  "hour": 15,
+  "wait": 1500,
+  "js": "const B=g.boats; const y=B.spawnNear('dondra26',{x:150,z:-1382,yaw:-1.5708}); window.__wy=y; if(y){ y.place(150,-1382,-1.5708,true); y.route=[{x:-600,z:-1382}]; y.role='free'; for(let i=0;i<200;i++) B.update(0.05,g.player); s.cam=[y.x+8,22,y.z+26]; s.look=[y.x+30,0,y.z]; } const m=B.wakes.mesh.material; if(window.__fs0) m.fragmentShader=window.__fs0; m.needsUpdate=true; m.depthTest=false;",
+  "probe": "const W=g.boats.wakes, m=W.mesh.material; const gl=g.renderer.getContext(); return {range:W.geo.drawRange.count, vis:W.mesh.visible, dt:m.depthTest, blend:m.blending, side:m.side, err:gl.getError(), keys:Object.keys(m.uniforms).join(','), noise:!!m.uniforms.uNoise.value, fog:!!g.scene.fog && g.scene.fog.type, fogD:g.scene.fog&&(g.scene.fog.density||g.scene.fog.far)};"
+ }
+]
