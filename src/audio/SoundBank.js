@@ -29,7 +29,7 @@ export const SOUND_DEFS = [
   W('m40a5', 'M40A5', 0.7), W('m9130', 'M91/30', 0.7), W('m110', 'M110', 0.65), W('mk14', 'Mk 14 EBR', 0.65), W('l115a3', 'L115A3', 0.72), W('m107', 'M107 (.50)', 0.8),
   W('t56', 'Police T-56 rifle', 0.55),
   { id: 'reload.pistol', name: 'Reload — pistol', cat: 'Weapons', lvl: 0.35 }, { id: 'reload.rifle', name: 'Reload — rifle', cat: 'Weapons', lvl: 0.35 }, { id: 'reload.sniper', name: 'Reload — sniper rifle', cat: 'Weapons', lvl: 0.35 },
-  { id: 'gun.cycle', name: 'Bolt / slide cycling', cat: 'Weapons', lvl: 0.3 }, { id: 'gun.dry', name: 'Dry fire (empty click)', cat: 'Weapons', lvl: 0.25 }, { id: 'gun.equip', name: 'Weapon drawn / holstered', cat: 'Weapons', lvl: 0.25 },
+  { id: 'gun.cycle', name: 'Bolt / slide cycling', cat: 'Weapons', lvl: 0.3 }, { id: 'gun.dry', name: 'Dry fire (empty click)', cat: 'Weapons', lvl: 0.25 },
   { id: 'gun.scope', name: 'Scope / aim in', cat: 'Weapons', lvl: 0.2 }, { id: 'gun.shell', name: 'Shell casing on the ground', cat: 'Weapons', lvl: 0.2 }, { id: 'gun.hitmarker', name: 'Hit marker', cat: 'Weapons', lvl: 0.2 },
   { id: 'gun.ricochet', name: 'Bullet ricochet', cat: 'Weapons', lvl: 0.25 }, { id: 'impact.metal', name: 'Bullet hitting metal', cat: 'Weapons', lvl: 0.4 },
   { id: 'door.breach', name: 'Door kicked in — latch bursts, leaf slams the stop', cat: 'Fighting', lvl: 0.75 }, { id: 'gun.shotgun', name: 'Bank guard — 12-gauge pump shotgun shot (indoors)', cat: 'Bank', lvl: 0.9 }, { id: 'gun.pump', name: 'Bank guard — shotgun pump (rack back and forward)', cat: 'Bank', lvl: 0.5 }, { id: 'gun.sgLoad', name: 'Bank guard — shell pushed into the magazine', cat: 'Bank', lvl: 0.35 }, { id: 'door.kickHold', name: 'Door kicked — it holds (heavy thud, frame rattle)', cat: 'Fighting', lvl: 0.6 },
@@ -52,7 +52,7 @@ export const SOUND_DEFS = [
   { id: 'train.horn', name: 'Train horn', cat: 'Trains', lvl: 0.5 }, { id: 'train.bell', name: 'Level-crossing bell', cat: 'Trains', lvl: 0.3 }, { id: 'train.clack', name: 'Wheels over rail joints', cat: 'Trains', lvl: 0.3 },
   { id: 'train.run', name: 'Train moving — running sound (loop; follows the speed)', cat: 'Trains', kind: 'loop', lvl: 0.6 }, // 57th: a continuous running sound (a recording longer than ~1.5 s in "Wheels over rail joints" is played this way too)
   { id: 'amb.city', name: 'City traffic hum (loop)', cat: 'Ambience', kind: 'loop', lvl: 0.6 }, { id: 'amb.rain', name: 'Rain (loop)', cat: 'Ambience', kind: 'loop', lvl: 0.6 }, { id: 'amb.sea', name: 'Sea waves (loop)', cat: 'Ambience', kind: 'loop', lvl: 0.6 },
-  { id: 'amb.wind', name: 'Wind (loop)', cat: 'Ambience', kind: 'loop', lvl: 0.6 }, { id: 'thunder', name: 'Thunder', cat: 'Ambience', lvl: 0.8 }, { id: 'bird.crow', name: 'House crow', cat: 'Ambience', lvl: 0.25 },
+  { id: 'amb.wind', name: 'Wind (loop)', cat: 'Ambience', kind: 'loop', lvl: 0.6 }, { id: 'thunder', name: 'Thunder', cat: 'Ambience', lvl: 0.8 },
   { id: 'bird.song', name: 'Songbird', cat: 'Ambience', lvl: 0.12 }, { id: 'cricket', name: 'Crickets (night)', cat: 'Ambience', lvl: 0.1 }, { id: 'fire', name: 'Fire crackling', cat: 'Ambience', lvl: 0.4 },
   { id: 'debris', name: 'Debris landing', cat: 'Ambience', lvl: 0.4 }, { id: 'bread.tuk', name: 'Bakery three-wheeler chime', cat: 'Ambience', lvl: 0.3 },
   // 67th: Ceylon Meridian Bank (BankAudio.js)
@@ -64,7 +64,6 @@ export const SOUND_DEFS = [
   { id: 'atm.card.machine', name: 'ATM — card return mechanism (2.3 s, before the card comes out)', cat: 'Bank', lvl: 0.4 }, { id: 'atm.card.out', name: 'ATM — card comes out of the slot (0.3 s)', cat: 'Bank', lvl: 0.4 },
   { id: 'bank.ac', name: 'Bank — wall air conditioner running (loop · seamless)', cat: 'Bank', kind: 'loop', lvl: 0.5 },
   { id: 'bank.office', name: 'Bank — office staff: mouse clicks & keyboard typing (loop · seamless)', cat: 'Bank', kind: 'loop', lvl: 0.45 },
-  { id: 'bank.step.tile', name: 'Bank — NPC footstep on the tiled floor (1 s)', cat: 'Bank', lvl: 0.35 },
   { id: 'bank.phone.ring', name: 'Bank — office landline ringing (31 s)', cat: 'Bank', lvl: 0.45 },
   ...[1, 2].map((n) => ({ id: 'bank.phone.pickup' + n, name: `Bank — landline handset picked up ${n} (1 s)`, cat: 'Bank', lvl: 0.4 })),
   ...[1, 2].map((n) => ({ id: 'bank.phone.hangup' + n, name: `Bank — landline handset put down ${n} (1 s)`, cat: 'Bank', lvl: 0.4 })),
@@ -83,11 +82,12 @@ export const SOUND_DEFS = [
   { id: 'footstep', name: 'Footstep', cat: 'Player', lvl: 0.25 }, { id: 'phone.ring', name: 'Phone ringing', cat: 'Player', lvl: 0.3 },
   { id: 'ui.click', name: 'Menu click', cat: 'Interface', lvl: 0.25 }, { id: 'ui.hover', name: 'Menu hover', cat: 'Interface', lvl: 0.15 }, { id: 'ui.notify', name: 'Notification', cat: 'Interface', lvl: 0.3 },
   { id: 'ui.wheel.open', name: 'Weapon wheel — opens', cat: 'Interface', lvl: 0.35 }, { id: 'ui.wheel.switch', name: 'Weapon wheel — switching weapon', cat: 'Interface', lvl: 0.3 },
-  { id: 'ui.success', name: 'Success', cat: 'Interface', lvl: 0.3 }, { id: 'ui.fail', name: 'Failure', cat: 'Interface', lvl: 0.3 }, { id: 'ui.collect', name: 'Pick-up', cat: 'Interface', lvl: 0.3 }, { id: 'loot.cash', name: 'Loot — cash picked up', cat: 'Interface', lvl: 0.25 }, { id: 'loot.item', name: 'Loot — wallet / phone / bag picked up', cat: 'Interface', lvl: 0.25 }, { id: 'loot.weapon', name: 'Loot — weapon picked up', cat: 'Interface', lvl: 0.3 }, { id: 'loot.fail', name: 'Loot — can\'t take it', cat: 'Interface', lvl: 0.25 }, { id: 'ui.door', name: 'Door (building)', cat: 'Interface', lvl: 0.3 }, { id: 'ui.camera', name: 'Camera shutter', cat: 'Interface', lvl: 0.3 },
+  { id: 'ui.success', name: 'Success', cat: 'Interface', lvl: 0.3 }, { id: 'ui.fail', name: 'Failure', cat: 'Interface', lvl: 0.3 }, { id: 'ui.collect', name: 'Pick-up', cat: 'Interface', lvl: 0.3 }, { id: 'loot.cash', name: 'Loot — cash picked up', cat: 'Interface', lvl: 0.25 }, { id: 'loot.item', name: 'Loot — wallet / phone / bag picked up', cat: 'Interface', lvl: 0.25 }, { id: 'loot.weapon', name: 'Loot — weapon picked up', cat: 'Interface', lvl: 0.3 }, { id: 'loot.fail', name: 'Loot — can\'t take it', cat: 'Interface', lvl: 0.25 }, { id: 'ui.camera', name: 'Camera shutter', cat: 'Interface', lvl: 0.3 },
   ...[['explore', 'Free roam (day)'], ['night', 'Free roam (night)'], ['tension', 'Wanted'], ['chase', 'Police chase'], ['menu', 'Main menu'], ['intro', 'Intro'], ['radio1', 'Car radio — station 1'], ['radio2', 'Car radio — station 2'], ['club', 'Night club PA']]
     .map(([m, n]) => ({ id: 'music.' + m, name: 'Music — ' + n + ' (loop)', cat: 'Music', kind: 'loop', lvl: 0.7 })),
   // 57th: background music while the pause map is open — two slots; which one plays is picked in the sounds window (Music)
-  { id: 'music.map1', name: 'Music — Map screen, track 1 (loop)', cat: 'Music', kind: 'loop', lvl: 0.7 }, { id: 'music.map2', name: 'Music — Map screen, track 2 (loop)', cat: 'Music', kind: 'loop', lvl: 0.7 },
+  // 91st: any length — streamed like the club songs (a long song is never decoded whole); loops until the map closes (musicLoop)
+  { id: 'music.map1', name: 'Music — Map screen, track 1 (loop · any length)', cat: 'Music', kind: 'loop', stream: true, lvl: 0.7 }, { id: 'music.map2', name: 'Music — Map screen, track 2 (loop · any length)', cat: 'Music', kind: 'loop', stream: true, lvl: 0.7 },
   // 71st: while the weapon wheel is held open — fades in over 1 s, out over 1 s on release, loops while held
   { id: 'music.wheel', name: 'Music — Weapon wheel (loop · fades in / out over 1 s)', cat: 'Music', kind: 'loop', lvl: 0.7 },
   // 58th: the club DJ's set — seven song slots played by the DJ through the club's PA speakers (ClubSound.js), one after the
@@ -105,6 +105,19 @@ for (const base of VARIED) { const i = SOUND_DEFS.findIndex((d) => d.id === base
 SOUND_DEFS.push(...voiceDefs());
 for (const d of SOUND_DEFS) d.kind ||= 'shot';
 export const SOUND_BY_ID = Object.fromEntries(SOUND_DEFS.map((d) => [d.id, d]));
+// 91st: duplicate slots removed — each of these was a second slot for a sound another slot already covers (same moment, same
+// place). A recording saved in an old slot (this machine, or a file named after it in sounds/) is moved into its replacement
+// when that slot is still empty (all: into every listed slot — one recording had served both moments); if the replacement
+// already has its own recording, the old one is left untouched in storage and simply no longer used.
+export const MERGED_SLOTS = {
+  'gun.equip': { to: ['foley.draw', 'foley.holster'], all: true }, // Weapons 'Weapon drawn / holstered' = Character foley draw + holster
+  'hosp.door.open': { to: ['door.open1', 'door.open2', 'door.open3', 'door.open4'] }, // hospital room doors play the Doors block (Audio.roomDoor) — this slot was never played
+  'hosp.door.close': { to: ['door.close'] }, // (same)
+  'ui.door': { to: ['door.open1', 'door.open2', 'door.open3', 'door.open4'] }, // 'Door (building)' — never played; building doors use the Doors block
+  'bank.step.tile': { to: ['step.tile.walk'] }, // bank NPC steps = Footsteps 'Indoor tile (… bank …) — walking'
+  'bird.crow': { to: ['ba.crow.call', 'ba.crow.call2'] }, // Ambience 'House crow' = URBAN BIRDS 'House Crow Call'
+};
+const mergedInto = (id, filled) => { const M = MERGED_SLOTS[id]; if (!M) return []; const free = M.to.filter((k) => SOUND_BY_ID[k] && !filled(k)); return M.all ? free : free.slice(0, 1); };
 // 71st: a recording looped without a gap or a click. Decoded MP3 / AAC files carry encoder padding (a few ms of digital
 // silence at either end) that a plain looping source plays as a dropout every pass; it is trimmed (at most 0.25 s per end,
 // so a loop that is meant to start quietly keeps its quiet part), then the last 40 ms are cross-faded (equal power) into the
@@ -126,6 +139,7 @@ export function loopBuffer(ctx, b) {
 }
 export const SOUND_EXT = /\.(mp3|wav|ogg)$/i;
 const MAX_VOICES = 8; // overlapping copies of one recording (an automatic rifle with a 2 s recording)
+const MUSIC_DECODE_MAX = 2.5 * 1024 * 1024; // 91st: musicLoop — a streamed music file up to this size is decoded and looped seamlessly
 const MAX_TOTAL = 56; // 76th: recordings playing at once across the whole game — past this a new one-shot is dropped (a far / quiet one first: see play())
 const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
@@ -153,9 +167,17 @@ class Bank {
     if (this.loaded) return this.loaded;
     return (this.loaded = (async () => {
       try { if (typeof fetch === 'function' && typeof location !== 'undefined') { const r = await fetch('custom-sounds/manifest.json', { cache: 'no-cache' });
-        if (r.ok && (r.headers.get('content-type') || '').includes('json')) { const m = await r.json(); for (const [id, e] of Object.entries((m && m.sounds) || {})) { if (!SOUND_BY_ID[id] || !e || !e.file) continue;
-          try { const f = await fetch('custom-sounds/' + encodeURIComponent(e.file)); if (f.ok) { const P = { data: await f.arrayBuffer(), name: e.name || e.file, vol: e.vol ?? 1, src: 'pack' }; this.pack.set(id, P); this.raw.set(id, P); } } catch { /* missing file */ } } } } } catch { /* no pack */ }
-      if (savedFlags().sounds) { const ids = (await storeGet('sound:index')) || []; for (const id of ids) { const e = await storeGet('sound:' + id); if (e && e.data && SOUND_BY_ID[id]) this.raw.set(id, { ...e, src: 'user' }); } }
+        if (r.ok && (r.headers.get('content-type') || '').includes('json')) { const m = await r.json(); const all = Object.entries((m && m.sounds) || {});
+          // current slots first, then files named after a removed duplicate slot (91st) into their replacement if it has no file of its own
+          for (const [id, e] of [...all.filter(([k]) => SOUND_BY_ID[k]), ...all.filter(([k]) => !SOUND_BY_ID[k] && MERGED_SLOTS[k])]) { if (!e || !e.file) continue;
+            const ids = SOUND_BY_ID[id] ? [id] : mergedInto(id, (k) => this.pack.has(k)); if (!ids.length) continue;
+            try { const f = await fetch('custom-sounds/' + encodeURIComponent(e.file)); if (f.ok) { const P = { data: await f.arrayBuffer(), name: e.name || e.file, vol: e.vol ?? 1, src: 'pack' }; for (const k of ids) { this.pack.set(k, P); this.raw.set(k, P); } } } catch { /* missing file */ } } } } } catch { /* no pack */ }
+      if (savedFlags().sounds) { const ids = (await storeGet('sound:index')) || []; const old = [];
+        for (const id of Array.isArray(ids) ? ids : []) { const e = await storeGet('sound:' + id); if (!e || !e.data) continue; if (SOUND_BY_ID[id]) this.raw.set(id, { ...e, src: 'user' }); else if (MERGED_SLOTS[id]) old.push([id, e]); }
+        // 91st: recordings saved in a removed duplicate slot move to its replacement (only into a slot with no recording yet)
+        let moved = 0; for (const [id, e] of old) { try { const to = mergedInto(id, (k) => this.raw.has(k)); if (!to.length) { console.info(`[sounds] ${id} was merged into ${MERGED_SLOTS[id].to.join(' / ')}, which already ${MERGED_SLOTS[id].to.length > 1 ? 'have' : 'has'} a recording — the old one is kept in storage, unused`); continue; }
+          for (const k of to) { this.raw.set(k, { ...e, src: 'user' }); await storeSet('sound:' + k, e); } await storeDel('sound:' + id); moved++; console.info(`[sounds] moved the recording of the removed duplicate slot ${id} → ${to.join(', ')}`); } catch (err) { console.warn('[sounds] could not move', id, err); } }
+        if (moved) await this.saveIndex(); }
       if (this.ctx) await this.decodeAll();
       return this.raw.size;
     })());
@@ -196,13 +218,50 @@ class Bank {
   // sets dest's gain (distance, state) and smp.src.playbackRate (engine revs, rotor speed) every frame.
   syncLoop(h, id, dest, at = null) { // at: start offset in s (default: a random point — beds that should not phase together)
     const b = this.bypass ? null : this.buf.get(id) || null;
-    if (h.smp && (h.smp.b !== b || h.smp.id !== id || h.smp.dest !== dest)) { const s = h.smp; h.smp = null; try { s.g.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05); s.src.stop(this.ctx.currentTime + 0.3); } catch { /* stopped */ } }
+    if (h.smp && (h.smp.el || h.smp.b !== b || h.smp.id !== id || h.smp.dest !== dest)) this.endLoop(h, true);
     if (!b || !dest || !this.ctx) return null;
-    if (!h.smp) { const c = this.ctx; const src = c.createBufferSource(); src.buffer = loopBuffer(c, b); src.loop = true; const g = c.createGain(); g.gain.value = this.level(id); src.connect(g); g.connect(dest); src.start(c.currentTime, at ?? Math.random() * b.duration); h.smp = { src, g, b, id, dest }; }
+    if (!h.smp) { const c = this.ctx; const lb = loopBuffer(c, b); const src = c.createBufferSource(); src.buffer = lb; src.loop = true; const g = c.createGain(); g.gain.value = this.level(id); src.connect(g); g.connect(dest);
+      const off = (at ?? Math.random() * b.duration) % Math.max(1e-3, lb.duration); src.start(c.currentTime, off); h.smp = { src, g, b, id, dest, t0: c.currentTime, off, len: lb.duration }; }
     else h.smp.g.gain.value = this.level(id);
     return h.smp;
   }
-  stopLoop(h) { if (h && h.smp) { const s = h.smp; h.smp = null; try { s.src.stop(); } catch { /* stopped */ } } }
+  stopLoop(h) { this.endLoop(h, false); }
+  // stops the holder's loop (a decoded one, or a streamed one: musicLoop); fade: a 50 ms fade instead of a hard stop. Holders
+  // with a pos map (musicLoop) remember where each recording was, so the next start carries on from there.
+  endLoop(h, fade) {
+    if (!h || !h.smp) return; const s = h.smp; h.smp = null; const c = this.ctx;
+    if (s.el) { try { if (h.pos) h.pos[s.id] = s.el.currentTime || 0; s.el.pause(); } catch { /* not loaded */ } return; } // the element and its source node are kept for reuse
+    if (h.pos && c && s.len) h.pos[s.id] = (s.off + (c.currentTime - s.t0)) % s.len;
+    try { if (fade && c) { s.g.gain.setTargetAtTime(0, c.currentTime, 0.05); s.src.stop(c.currentTime + 0.3); } else s.src.stop(); } catch { /* stopped */ }
+  }
+  // 91st: a looping music slot of ANY length (the map tracks). Streamed slots: a file up to MUSIC_DECODE_MAX bytes (about two
+  // minutes of mp3 / ogg) is decoded once and looped seamlessly exactly like syncLoop; a bigger one plays through one looping
+  // <audio> element per holder (decoded as it plays, so a 10-minute song costs no memory up front). Either way it starts from
+  // the top the first time and carries on from where it stopped afterwards. Non-streamed slots go straight to syncLoop.
+  musicLoop(h, id, dest) {
+    const d = SOUND_BY_ID[id]; h.pos ||= {};
+    if (!d || !d.stream) return this.syncLoop(h, id, dest); // (the other music slots: unchanged — decoded, from a random point)
+    const r = this.bypass ? null : this.raw.get(id);
+    if (!r || !r.data || !dest || !this.ctx) { this.endLoop(h, true); return null; }
+    if (r.data.byteLength <= MUSIC_DECODE_MAX) {
+      if (this.buf.has(id)) return this.syncLoop(h, id, dest, h.pos[id] || 0);
+      if (h.smp && h.smp.id !== id) this.endLoop(h, true);
+      if (!r.decoding) r.decoding = this.decode(id).then((b) => { if (!b) r.tooBig = true; }); // (a few ms; nothing plays meanwhile)
+      if (!r.tooBig) return null;
+    }
+    if (h.smp && (!h.smp.el || h.smp.id !== id || h.smp.dest !== dest)) this.endLoop(h, true);
+    if (!h.smp) {
+      const c = this.ctx; const url = this.url(id); if (!url) return null;
+      if (!h.el) { try { const el = new window.Audio(); el.preload = 'auto'; el.loop = true; const src = c.createMediaElementSource(el); const g = c.createGain(); src.connect(g); h.el = el; h.elG = g; } catch (e) { console.warn('[sounds] music stream', e); return null; } }
+      const el = h.el, g = h.elG; try { g.disconnect(); } catch { /* not connected */ } g.connect(dest); g.gain.value = this.level(id); el.loop = true;
+      if (el.src !== url) el.src = url; const at = h.pos[id] || 0;
+      const seek = () => { try { el.currentTime = Number.isFinite(el.duration) && el.duration > 0 ? at % el.duration : at; } catch { /* not seekable yet */ } };
+      if (el.readyState >= 1) seek(); else el.addEventListener('loadedmetadata', seek, { once: true });
+      const p = el.play(); if (p && p.catch) p.catch(() => { /* resumes with the audio context */ });
+      h.smp = { el, g, id, dest };
+    } else { h.smp.g.gain.value = this.level(id); if (h.smp.el.paused && this.ctx.state === 'running') { const p = h.smp.el.play(); if (p && p.catch) p.catch(() => {}); } }
+    return h.smp;
+  }
   // ---- editing (SoundsWindow): set / volume / remove, persisted per machine (and to the project folder on the dev server)
   async set(id, data, name, vol = 1) {
     if (!SOUND_BY_ID[id]) throw new Error('unknown sound ' + id);

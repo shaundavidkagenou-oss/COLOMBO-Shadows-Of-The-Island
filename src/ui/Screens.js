@@ -87,7 +87,7 @@ export class Screens {
           if (id === 'resume') done({ action: 'resume' }); else if (id === 'map') done({ action: 'map' }); else if (id === 'textures') done({ action: 'textures' });
           else if (id === 'save') { await this.saveLoad('save'); }
           else if (id === 'load') { const slot = await this.saveLoad('load'); if (slot) done({ action: 'load', slot }); }
-          else if (id === 'settings') await this.settings(); else if (id === 'controls') await this.controls();
+          else if (id === 'settings') { if ((await this.settings()) === 'benchmark') done({ action: 'benchmark' }); } else if (id === 'controls') await this.controls();
           else if (id === 'menu') done({ action: 'menu' });
         };
       }
@@ -122,6 +122,18 @@ export class Screens {
         Graphics: () => {
           row('Quality preset', select('quality', Object.keys(QUALITY_PRESETS).map((q) => [q, q[0].toUpperCase() + q.slice(1)])));
           row('Resolution scale', select('resolutionScale', [[0.5, '50%'], [0.67, '67%'], [0.75, '75%'], [0.85, '85%'], [1, '100%'], [1.25, '125%'], [1.5, '150%']]));
+          { // 91st: Snapdragon Game Super Resolution 1 (src/gfx/SGSR.js) — live, no reload
+            const resB = el('b', ''); const showRes = () => { const r = this.g.post && this.g.post.resolution ? this.g.post.resolution() : null; resB.textContent = r ? `${r.internal.join(' × ')} → ${r.output.join(' × ')}${r.sgsr ? ' (SGSR)' : ''}` : ''; };
+            row('SNAPDRAGON GAME SUPER RESOLUTION', select('upscale', [['off', 'Off (native)'], ['sgsr100', '100% (SGSR at full resolution)'], ['sgsr90', '90% Quality'], ['sgsr85', '85% Balanced'], ['sgsr80', '80% Performance'], ['ss150', '150% (supersampling, native)']], () => setTimeout(showRes, 30)));
+            row('Render → output resolution', resB); showRes();
+            row('SGSR sharpness', slider('sgsrSharpness', 1, 2, 0.05)); row('SGSR edge direction', check('sgsrEdgeDir'));
+            el('p', 'hint', body, 'Super resolution renders the world at the chosen percentage of the screen resolution (width and height) and upscales it with Qualcomm Snapdragon Game Super Resolution 1 (edge-adaptive upscale + sharpening, BSD-3-Clause), after anti-aliasing and the colour grade; the interface stays at full resolution. Off and 150% render natively (150% = the supersampling of Resolution scale 150%); while an SGSR mode is selected, Resolution scale is not used. Sharpness: Qualcomm\'s range 1.0–2.0 (default 2.0). Edge direction: Qualcomm\'s higher-quality variant (slightly more work).');
+            if (this.g.mode === 'play') {
+              row('Benchmark seconds per configuration', select('benchSec', [[15, '15 s'], [30, '30 s'], [60, '60 s'], [120, '120 s']])); row('Benchmark warm-up', select('benchWarm', [[3, '3 s'], [5, '5 s'], [10, '10 s']]));
+              const bb = el('button', 'menu-btn small', null, 'Run benchmark (A–E)'); bb.onclick = () => { Audio.ui('click'); m.remove(); resolve('benchmark'); }; row('Render benchmark', bb);
+              el('p', 'hint', body, 'Flies a fixed path down Galle Road at 16:30 in clear weather and measures A native 150%, B native 100%, C SGSR 90%, D SGSR 85%, E SGSR 80% one after another (your saved setting is not changed). Results: FPS, frame times, 1% low, spikes, GPU time (where the browser allows timer queries), SGSR time, draw calls, triangles — downloadable as JSON / CSV. Esc aborts.');
+            }
+          }
           const fs = el('button', 'menu-btn small', null, document.fullscreenElement ? 'Exit fullscreen' : 'Enter fullscreen'); fs.onclick = () => { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen?.(); setTimeout(() => (fs.textContent = document.fullscreenElement ? 'Exit fullscreen' : 'Enter fullscreen'), 300); }; row('Display mode', fs);
           row('Field of view', slider('fov', 50, 90, 1)); row('Crowd density', slider('crowdDensity', 0.2, 1.5, 0.05)); row('Traffic density', slider('trafficDensity', 0.2, 1.5, 0.05)); row('Show FPS counter', check('showFps')); row('Blood effects', check('blood'));
           row('Night brightness', slider('nightBrightness', 0.7, 1.5, 0.05)); row('Wet-road reflections', check('wetReflections')); row('Lens flare', check('lensFlare')); row('Light shafts', check('lightShafts')); row('Dynamic resolution', check('dynamicRes'));

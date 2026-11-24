@@ -172,7 +172,7 @@ export class Weapons {
   // slots: the existing Weapons → "Weapon drawn / holstered" recording (or its synthesised sound), exactly as before.
   stowFoley(swap, d) { const pistol = d && d.cls === 'pistol';
     if (swap) { this._swapped = SB.play('foley.switch', 0.9, 0, 0, { rate: 0.96 + Math.random() * 0.08 }); return; }
-    SB.play('foley.holster', 1, 0, 0, { rate: 0.96 + Math.random() * 0.08 }) || SB.play('gun.equip', 0.75, 0, 0, { rate: 0.9 }) || Audio.noise(pistol ? 0.08 : 0.12, { f: pistol ? 1100 : 750, q: 0.9, vol: 0.04 }); }
+    SB.play('foley.holster', 1, 0, 0, { rate: 0.96 + Math.random() * 0.08 }) || Audio.noise(pistol ? 0.08 : 0.12, { f: pistol ? 1100 : 750, q: 0.9, vol: 0.04 }); }
   drawFoley() { if (this._swapped) { this._swapped = false; return true; } return SB.play('foley.draw', 1, 0, 0, { rate: 0.96 + Math.random() * 0.08 }); }
   holster() { if (this.drawn && this.state !== 'holster') { this.next = -1; if (this.state === 'reload') this.abortReload(); const back = this.state === 'equip' && this.drawMode !== 'hands' ? clamp(this.t / this.dur, 0, 1) : 1; this.setState('holster'); this.t = (1 - back) * this.dur; if (back < 1) this._revT = REV_T; /* interrupted draw: straight back from where it is */ } }
   // draw / put-away (87th): every weapon comes from where it is carried and goes back there, swaps included — a pistol out of
@@ -411,7 +411,7 @@ export class Weapons {
       const u = clamp(k / this.dur, 0, 1); let a;
       if (this.state === 'equip') { a = sm(u); ikW = sm(seg(u, 0, 0.3)); hideW = u < 0.1; } else { a = 1 - sm(seg(u, 0, 0.65)); ikW = 1 - sm(seg(u, 0.65, 1)); hideW = u >= 0.65; }
       this.appearK = a; const dn = 1 - a; pos.y -= 0.12 * dn; pos.z -= 0.04 * dn; pos.x += (twoHand ? 0.03 : 0.02) * dn; rx += 0.65 * dn; ry += (twoHand ? 0.25 : 0.1) * dn;
-      if (this.state === 'equip' && k < dt * 1.5) this.drawFoley() || SB.play('gun.equip') || Audio.noise(0.1, { f: 900, q: 0.8, vol: 0.05 });
+      if (this.state === 'equip' && k < dt * 1.5) this.drawFoley() || Audio.noise(0.1, { f: 900, q: 0.8, vol: 0.05 });
     }
     // weapon matrix (body space), then chest space
     const body = _pBody.compose(pos, _pq.setFromEuler(_pe.set(rx, ry, rz, 'YXZ')), _ONE);
@@ -441,7 +441,7 @@ export class Weapons {
         blendM(_dM2, chestM, sm(seg(u, 0.72, 1)), chestM);
       }
       supW = supW * sm(seg(u, 0.82, 1));
-      if (this.state === 'equip' && k < dt * 1.5) this.drawFoley() || SB.play('gun.equip') || Audio.noise(0.12, { f: 700, q: 0.8, vol: 0.06 });
+      if (this.state === 'equip' && k < dt * 1.5) this.drawFoley() || Audio.noise(0.12, { f: 700, q: 0.8, vol: 0.06 });
       if (this._hipU !== undefined && (this._hipU < G) !== (u < G)) Audio.noise(0.025, { f: 3400, q: 5, vol: 0.045 }); this._hipU = u; // thumb-break snap
       if (handOnly) { const slotM = slot; if (m.parent !== this.holsterP) { this.holsterP.add(m); m.matrixAutoUpdate = true; m.position.set(0, 0, 0); m.quaternion.identity(); } m.visible = true;
         const g = (H ? _hG.copy(H.R.wrist) : _hG.set(0, 0, 0)).applyMatrix4(slotM); const ik = this.ikObj(); ik.R = g; ik.qR = _hQ.setFromRotationMatrix(slotM).multiply(H ? H.R.q : Q_GRIP); ik.wR = this._reach; ik.L = null; ik.qL = null; ik.wL = 0; ik.poleR = null; A.ik = ik; P.ch.rig && P.ch.rig.hand('R', this._reach > 0.8 ? (H ? H.R.ready : 'grip') : 'open');
@@ -458,7 +458,7 @@ export class Weapons {
       ikW = sm(seg(u, 0.3, 0.52)); supW = sm(seg(u, 0.66, 0.95)); hideW = false;
       strapPull = sm(seg(u, 0, 0.12)) * (1 - sm(seg(u, 0.38, 0.52))); if (strapPull > 0.01) strapP = this.gear.strapGrab(psi, _dV);
       const bodyK = Math.sin(Math.PI * clamp(u / 0.75, 0, 1)); A.aim.turn = 0.07 * bodyK; A.aim.bend = -0.05 * bodyK; A.aim.lean = 0.04 * bodyK; A.aim.w *= sm(seg(u, 0.4, 0.92)); // trunk turns from the gun coming over the shoulder, support side dips with the pull
-      if (this.state === 'equip' && k < dt * 1.5) this.drawFoley() || SB.play('gun.equip') || Audio.noise(0.12, { f: 650, q: 0.8, vol: 0.06 });
+      if (this.state === 'equip' && k < dt * 1.5) this.drawFoley() || Audio.noise(0.12, { f: 650, q: 0.8, vol: 0.06 });
     } else this._slideKey = 0;
     if (m.parent !== this.inHand) { this.inHand.add(m); }
     m.matrixAutoUpdate = false; m.matrix.copy(chestM); m.matrixWorldNeedsUpdate = true; m.visible = !hideW; this.inHand.matrix.identity();

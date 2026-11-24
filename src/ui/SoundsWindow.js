@@ -4,7 +4,7 @@
 // synthesised sound (saved on this machine; on the dev server also written to the project's sounds/ folder, which `npm run build`
 // and build-exe.bat build into the game / the .exe). Export pack (.zip) carries recordings saved in a built copy back to sounds/.
 import { Win, h, btn, beginSession, toast } from '../debug/ui.js';
-import { SOUND_DEFS, SOUND_BY_ID, SOUND_EXT, SoundBank } from '../audio/SoundBank.js';
+import { SOUND_DEFS, SOUND_BY_ID, SOUND_EXT, SoundBank, MERGED_SLOTS } from '../audio/SoundBank.js';
 import { ENV_CAT_INFO } from '../audio/EnvSoundDefs.js';
 import { RS_CAT_INFO } from '../audio/RoadsideSoundDefs.js';
 import { BA_SOUND_DEFS, BA_CAT_INFO, BA_GROUP } from '../audio/BirdAmbSoundDefs.js';
@@ -45,7 +45,7 @@ function demoOriginal(g, id) {
   if (id.startsWith('reload.') && W && W.reloadSnd) { run(() => W.reloadSnd({ reload: id === 'reload.pistol' ? 1.4 : 2.4, cls: id.slice(7) })); return true; }
   const D = {
     'gun.cycle': () => { A.noise(0.05, { f: 2200, q: 3, vol: 0.08 }); A.noise(0.06, { f: 1500, q: 3, vol: 0.07, when: 0.12 }); }, 'gun.dry': () => A.tone(1800, 0.03, { type: 'square', vol: 0.06 }),
-    'gun.equip': () => A.noise(0.12, { f: 700, q: 0.8, vol: 0.06 }), 'gun.scope': () => A.noise(0.05, { f: 900, q: 1, vol: 0.05 }), 'gun.shell': () => A.tone(4300, 0.05, { type: 'triangle', vol: 0.03 }),
+    'gun.scope': () => A.noise(0.05, { f: 900, q: 1, vol: 0.05 }), 'gun.shell': () => A.tone(4300, 0.05, { type: 'triangle', vol: 0.03 }),
     'gun.hitmarker': () => A.tone(1400, 0.04, { type: 'triangle', vol: 0.04 }), 'gun.ricochet': () => A.tone(3000, 0.07, { type: 'triangle', vol: 0.05 }), 'impact.metal': () => A.bulletMetal(l.x, l.z),
     'punch.swing': () => A.noise(0.09, { f: 800, q: 0.9, vol: 0.05 }), 'punch.hit': () => A.noise(0.06, { f: 250, q: 1.4, vol: 0.13 }), 'punch.taken': () => A.noise(0.06, { f: 240, q: 1.3, vol: 0.12 }),
     'grenade.pin': () => { A.tone(2600, 0.02, { type: 'square', vol: 0.05 }); A.noise(0.05, { f: 4200, q: 4, vol: 0.06, when: 0.02 }); }, 'grenade.throw': () => A.noise(0.12, { f: 900, q: 0.8, vol: 0.05 }),
@@ -56,7 +56,7 @@ function demoOriginal(g, id) {
     'veh.crash': () => A.crash(14), 'veh.glass': () => A.glassShatter(l.x, l.z, 1), 'veh.glassCrack': () => A.glassCrack(l.x, l.z), 'veh.tyreBurst': () => A.tyreBurst(l.x, l.z), 'veh.doorOpen': () => A.doorOpen(), 'veh.doorSlam': () => A.doorSlam(3),
     'police.radio': () => A.radioBlip(), 'train.horn': () => A.trainHorn(l.x, l.z), 'train.bell': () => A.tone(1350, 0.16, { type: 'triangle', vol: 0.06 }),
     'train.clack': () => { A.noise(0.04, { f: 2200, q: 2, vol: 0.08 }); A.noise(0.04, { f: 2200, q: 2, vol: 0.08, when: 0.11 }); },
-    thunder: () => A.thunder(0.2), 'bird.crow': () => A.crow(), 'bird.song': () => A.bird(), cricket: () => A.cricket(),
+    thunder: () => A.thunder(0.2), 'bird.song': () => A.bird(), cricket: () => A.cricket(),
     fire: () => { for (let i = 0; i < 12; i++) setTimeout(() => run(() => A.fireCrackle(l.x, l.z, 1)), i * 60); },
     debris: () => A.debrisHit(l.x, l.z), 'bread.tuk': () => A.breadTuk(l.x, l.z), footstep: () => A.footstep(false, false), 'phone.ring': () => A.tone(425, 0.9, { type: 'sine', vol: 0.05, attack: 0.02 }),
   };
@@ -142,7 +142,7 @@ export async function open(game) {
   }
   async function importFiles() {
     const files = await pickFiles(true); let ok = 0; const bad = [];
-    for (const f of files) { const id = f.name.replace(SOUND_EXT, ''); if (!SOUND_BY_ID[id] || !SOUND_EXT.test(f.name)) { bad.push(`${f.name} (no slot "${id}" — name files after the id shown under each slot, e.g. step.gravel.run.mp3)`); continue; } const data = await f.arrayBuffer(); const err = await check(id, f, data); if (err) { bad.push(err); continue; } pend.set(id, { op: 'set', data, name: f.name, vol: 1 }); ok++; }
+    for (const f of files) { const id0 = f.name.replace(SOUND_EXT, ''); const id = !SOUND_BY_ID[id0] && MERGED_SLOTS[id0] ? MERGED_SLOTS[id0].to[0] : id0; /* 91st: a file named after a removed duplicate slot goes into its replacement */ if (!SOUND_BY_ID[id] || !SOUND_EXT.test(f.name)) { bad.push(`${f.name} (no slot "${id}" — name files after the id shown under each slot, e.g. step.gravel.run.mp3)`); continue; } const data = await f.arrayBuffer(); const err = await check(id, f, data); if (err) { bad.push(err); continue; } pend.set(id, { op: 'set', data, name: f.name, vol: 1 }); ok++; }
     render(); toast(`${ok} file(s) ready — press Save` + (bad.length ? ` · skipped ${bad.length}: ${bad.slice(0, 3).join(' · ')}${bad.length > 3 ? ' …' : ''}` : ''), bad.length ? 7000 : 4200);
   }
   function exportPack() {

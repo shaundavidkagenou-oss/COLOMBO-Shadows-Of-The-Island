@@ -5,6 +5,7 @@
 // flames of the oil lamps on the shrine's flower altars. Every system is one draw call; the fireflies and the water
 // are animated entirely on the GPU, the bats from a few dozen CPU-steered fliers.
 import * as THREE from 'three';
+import { RenderRes } from '../gfx/RenderRes.js';
 import { LAND_Y } from './Layout.js';
 import { PARK, PONDS, POND_WATER_Y, HEDGES, BAT_TREES, onParkFeature, inPoly } from './Parks.js';
 import { RNG } from '../core/rng.js';
@@ -148,7 +149,7 @@ export class ParkLife {
     if (an.paintings) an.paintings.visible = !far && hour > 7.0 && hour < 18.25;   // the artists pack up at dusk
     if (an.flood) an.flood(camera, night);
     if (far) return;
-    if (!this._sc || (this._sct = (this._sct || 0) + dt) > 1) { this._sct = 0; const cv = typeof document !== 'undefined' ? (document.querySelector('canvas.game-canvas') || document.querySelector('canvas')) : null; const h = cv ? cv.height : 720; this.scale.value = h * 0.5 / Math.tan(THREE.MathUtils.degToRad(camera.fov || 60) / 2); this._sc = true; }
+    if (!this._sc || (this._sct = (this._sct || 0) + dt) > 1) { this._sct = 0; const cv = typeof document !== 'undefined' ? (document.querySelector('canvas.game-canvas') || document.querySelector('canvas')) : null; const h = (cv ? cv.height : 720) * RenderRes.k; /* 91st: internal height under SGSR */ this.scale.value = h * 0.5 / Math.tan(THREE.MathUtils.degToRad(camera.fov || 60) / 2); this._sc = true; }
     // fireflies: from dusk, fewer in rain and in the small hours
     const late = hour > 1.5 && hour < 5 ? 0.5 : 1; const ffOn = smooth(0.55, 0.95, night) * late * (1 - 0.85 * Math.min(1, atmos.w ? atmos.w.rain : 0));
     this.ffU.uTime.value = t; this.ffU.uOn.value = ffOn; this.fireflies.visible = ffOn > 0.01;

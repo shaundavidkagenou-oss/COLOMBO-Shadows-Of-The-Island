@@ -18,8 +18,6 @@ export const HOSPITAL_SOUND_DEFS = [
   { id: 'hosp.monitor', name: 'Hospital — BPM machine (patient monitor): heartbeat beep at a bed with a patient (loop · plays only while that monitor is on)', cat: 'Hospitals', kind: 'loop', lvl: 0.3 },
   ...[1, 2, 3].map((n) => ({ id: 'hosp.door.auto' + n, name: `Hospital — electric sliding door opening, variation ${n}`, cat: 'Hospitals', lvl: 0.45 })),
   { id: 'hosp.door.slide', name: 'Hospital — electric sliding door closing', cat: 'Hospitals', lvl: 0.45 },
-  { id: 'hosp.door.open', name: 'Hospital — room door opened (latch + swing)', cat: 'Hospitals', lvl: 0.45 },
-  { id: 'hosp.door.close', name: 'Hospital — room door closing (closer + latch)', cat: 'Hospitals', lvl: 0.45 },
   { id: 'hosp.lift.ding', name: 'Hospital — lift arrival chime', cat: 'Hospitals', lvl: 0.4 },
   { id: 'hosp.lift.doors', name: 'Hospital — lift doors opening / closing', cat: 'Hospitals', lvl: 0.4 },
   { id: 'hosp.lift.up', name: 'Hospital — lift travelling up / down (loop while the car moves · fades away on arrival, then the chime)', cat: 'Hospitals', kind: 'loop', lvl: 0.45 },

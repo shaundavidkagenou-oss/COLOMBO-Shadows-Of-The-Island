@@ -1,5 +1,6 @@
 // Time of day, sky, clouds, sun/moon lighting, fog, environment reflections and weather.
 import * as THREE from 'three';
+import { RenderRes } from './RenderRes.js';
 import { withoutDefer } from './AsyncCompile.js';
 import { leafLight } from '../world/Wind.js';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
@@ -423,7 +424,7 @@ export class Atmosphere {
     const cu = this.cloudMat.uniforms; cu.uTime.value += dt * (0.5 + this.w.wind); cu.uCover.value = this.w.cloud; cu.uDark.value = this.w.dark; cu.uNight.value = this.night;
     cu.uSunDir.value.copy(elev > -0.1 ? this.sunDir : _UPV); cu.uSunCol.value.copy(sunCol); cu.uSkyCol.value.copy(horizon);
     this.clouds.position.copy(camera.position); this.stars.position.copy(camera.position);
-    { const su = this.starMat.uniforms; su.uOpacity.value = this.night * Math.pow(1 - this.w.cloud, 1.5) * (1 - this.w.dark * 0.8); su.uTime.value += dt; su.uPix.value = this.renderer.getPixelRatio ? this.renderer.getPixelRatio() : 1;
+    { const su = this.starMat.uniforms; su.uOpacity.value = this.night * Math.pow(1 - this.w.cloud, 1.5) * (1 - this.w.dark * 0.8); su.uTime.value += dt; su.uPix.value = (this.renderer.getPixelRatio ? this.renderer.getPixelRatio() : 1) * RenderRes.k; /* 91st: stars keep their size under SGSR's internal resolution */
       this.stars.quaternion.setFromAxisAngle(this.starPole, -((this.day || 0) * 0.0172 + this.hour / 24) * Math.PI * 2); } // sidereal turn through the night
     const moonDir = _vA.set(-this.sunDir.x, Math.max(0.25, -this.sunDir.y), -0.3).normalize();
     { const su = this.sky.material.uniforms, glow = 1 + this.w.cloud * 0.9; su.uNightK.value = this.night; su.uMoonDir.value.copy(moonDir); su.uGlow.value.setRGB(0.042 * glow, 0.03 * glow, 0.022 * glow);

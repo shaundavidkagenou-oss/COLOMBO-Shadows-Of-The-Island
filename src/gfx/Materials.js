@@ -36,13 +36,13 @@ export const ROLE_DEFS = {
   // streets
   manholeCover: ['metal', 'Manhole covers (cast iron)'], manholeCollar: ['concrete', 'Manhole concrete collars'], drainGrate: ['metal', 'Kerb drain grates'],
   drainSump: ['paint', 'Drain sumps (dark pit under the grate)'], roadStud: ['paint', 'Road studs'],
-  lampPole: ['metal', 'Street lamp poles'], heritageLampPole: ['metal', 'Heritage lamp posts'], utilityPole: ['concrete', 'Concrete utility poles'], transformer: ['metal', 'Pole transformers'],
+  lampPole: ['metal', 'Street lamp poles'], heritageLampPole: ['metal', 'Heritage lamp posts'], utilityPole: ['concrete', 'Concrete utility poles'], transformer: ['metal', 'Pole transformers (galvanised fittings)'], transformerTank: ['paint', 'Pole transformer tanks, bushings + pillar boxes'],
   signalPole: ['metal', 'Traffic signal poles + heads'], busShelter: ['paint', 'Bus shelters'], bench: ['paint', 'Benches'], pedRailing: ['paint', 'Pedestrian railings'], lakeRailing: ['metal', 'Beira Lake promenade railings'], telecomTower: ['metal', 'Telecom towers + compounds'],
   gate: ['metal', 'Gates'], stall: ['paint', 'Pavement stalls (tables + goods)'], foodCart: ['paint', 'Food carts'], shrine: ['paint', 'Junction shrines'],
   signPost: ['metal', 'Street-name sign posts + frames'], signPostBand: ['paint', 'Sign post banded feet'], litterBin: ['paint', 'Litter bins'], billboardFrame: ['metal', 'Rooftop billboard frames'],
 };
 const ROLES = new Map(); // key → { base, label } for every copy made (roles, scoped, per building)
-const EAGER = ['lakeRailing', 'telecomTower', 'signPost', 'signPostBand', 'litterBin', 'billboardFrame', 'manholeCover', 'manholeCollar', 'drainGrate', 'drainSump', 'roadStud', 'lampPole', 'heritageLampPole', 'utilityPole', 'transformer', 'signalPole', 'busShelter', 'bench', 'pedRailing', 'gate', 'stall', 'foodCart', 'shrine'];
+const EAGER = ['lakeRailing', 'telecomTower', 'signPost', 'signPostBand', 'litterBin', 'billboardFrame', 'manholeCover', 'manholeCollar', 'drainGrate', 'drainSump', 'roadStud', 'lampPole', 'heritageLampPole', 'utilityPole', 'transformer', 'transformerTank', 'signalPole', 'busShelter', 'bench', 'pedRailing', 'gate', 'stall', 'foodCart', 'shrine'];
 export const SPLIT = new Set(EAGER); // keys drawn with their own material (see above)
 export function parentKey(k) { const sp = splitKey(k); return sp ? sp.base : null; }
 // the key whose material actually draws part `k` right now

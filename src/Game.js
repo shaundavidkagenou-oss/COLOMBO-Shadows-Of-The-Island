@@ -38,6 +38,7 @@ import { Atmosphere } from './gfx/Atmosphere.js';
 import { skyVisTex } from './gfx/SkyVis.js';
 import { PowerGrid, GRID as POWER_GRID, signalBackup } from './world/PowerGrid.js';
 import { PostFX } from './gfx/PostFX.js';
+import { Benchmark } from './gfx/Benchmark.js';
 import { setVehicleNight, createVehicleMesh, VTYPES } from './vehicles/VehicleModels.js';
 import { captureToCanvas } from './gfx/LinearCapture.js';
 import { updateLightSets, forceNightSet, lightLevel, LIGHT_LEVELS, maintainWarm, markWarm, maintainPoolWarm } from './gfx/LightSets.js';
@@ -129,6 +130,12 @@ export class Game {
     TexLib.init(this.renderer); this.renderer.localClippingEnabled = true; // Street Customs roller door (a clip plane on that one material only; nothing else pays for it)
     this.dynK = 1; this.dynT = 0; this.dynHold = 0; this.dynUpAt = -1e9; this.renderer.setPixelRatio(this.basePR());
     this.renderer.setSize(innerWidth, innerHeight); this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    { // 91st: a lost WebGL context (driver reset / GPU removed). The game frees its geometry's CPU copies after upload (memory), so
+      // three cannot rebuild the scene on a restore: save what can be saved and tell the player plainly instead of a black screen.
+      const cv = this.renderer.domElement;
+      cv.addEventListener('webglcontextlost', (e) => { e.preventDefault(); this.ctxLost = true; this.ctxDead = true; try { if (this.mode === 'play') this.autosave(); } catch (err) { console.warn(err); } this.hud && this.hud.notify('Graphics device reset', 'The graphics driver reset WebGL. Your progress was autosaved — reload the page to keep playing.', 'warn', 30); });
+      cv.addEventListener('webglcontextrestored', () => { this.ctxLost = false; this.hud && this.hud.notify('Graphics device back', 'Reload the page (F5) to redraw the city — it cannot be rebuilt without a reload.', 'warn', 30); });
+    }
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1;
     this.renderer.shadowMap.enabled = preset.shadows; this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.canvas = this.renderer.domElement; this.canvas.className = 'game-canvas'; root.appendChild(this.canvas);
@@ -197,7 +204,7 @@ export class Game {
     this.health = new Health(this); this.phone = new Phone(this, this.hud.root); this.gunShop = new GunShopUI(this, this.hud.root); this.store = new StoreUI(this, this.hud.root); this.bank = new BankService(this); this.bank.onDeposit = () => settleDebt(this); this.hospital = this.world.hospitalBuild ? new Hospital(this) : null; this.atm = new ATMUI(this, this.hud.root); this.garage = new Garage(this); this.bicycles = new Bicycles(this); this.skills = new Skills(this); this.stunts = new StuntJumps(this); this.hud.pauseData = () => this.pauseData(); /* skills + stunt jumps + pause-map tabs (45th) */ /* Dineth's bike (vehicles/BicycleRide.js) */ /* Street Customs ownership records (story.state.garage) */ this.debug = newDebugState(); this.debugCon = new DebugConsole(this, this.hud.root);
     this.applyDensity();
     progress(0.9, 'Lighting'); await tick();
-    this.post = new PostFX(this.renderer, this.scene, this.camera); this.post.setCine(Settings.get('lensFlare') !== false, Settings.get('lightShafts') !== false); this.post.build({ bloom: Settings.preset.bloom, ao: Settings.preset.ao, cine: Settings.preset.cine }); this.world.glintsOn = Settings.get('wetReflections') !== false; this.atmos.nightBoost = Settings.get('nightBrightness') ?? 1;
+    this.post = new PostFX(this.renderer, this.scene, this.camera); this.post.setCine(Settings.get('lensFlare') !== false, Settings.get('lightShafts') !== false); this.post.build({ bloom: Settings.preset.bloom, ao: Settings.preset.ao, cine: Settings.preset.cine }); this.post.onUpscaleFail = () => this.upscaleFailed(); this.post.setUpscale(this.sgsrK(), this.sgsrOpts()); /* 91st: Snapdragon Game Super Resolution (Settings → Graphics) */ this.world.glintsOn = Settings.get('wetReflections') !== false; this.atmos.nightBoost = Settings.get('nightBrightness') ?? 1;
     this.explosions = new Explosions(this); this.vdamage = new VehicleDamage(this); this.propBreak = new PropBreak(this); /* breakaway lamp posts / signal poles */ /* glass, bullets through bodywork, tyres, dents, fire → explosion, flung debris */ this.blood.useFx(this.explosions.U); this.grenades = new Grenades(this); // throwables (key B) + cinematic blasts
     try { this.boats = new Boats(this); } catch (e) { console.error('boats', e); this.boats = null; } /* Fort Harbour Marina, the moored fleet, harbour police boats, your boats (boats/Boats.js) */
     this.drunk = new Drunk(this); // vodka in the hero rooms (HeroRooms.js)
@@ -469,14 +476,16 @@ export class Game {
   }
   // ================================================================= input
   onKey(code) {
-    if (this.mode !== 'play' || this.paused) return;
+    if (this.mode !== 'play' || this.paused || this.bench) return; // (91st: the benchmark owns Esc while it runs)
     if (code === 'Escape') { if (this.gunShop?.open || this.customs?.active || this.debugCon?.menuOpen || this.debugCon?.open || this.editorHook) return; if (this.phone?.open) this.phone.toggle(false); else if (this.photo) this.togglePhoto(false); else if (this.hud.bigMapOpen) this.toggleMap(false); else if (!this.director.active) this.openPause(); }
   }
+  async runBenchmark(opts) { const why = Benchmark.canRun(this); if (why) { this.hud.notify('Benchmark', why, 'warn', 3); return null; } return new Benchmark(this, opts).run(); }
   async openPause() {
     if (this.paused || this.director.active) return; this.paused = true; Input.releaseLock(); Audio.ui('click');
     const r = await this.screens.pause(); this.paused = false; this.last = performance.now();
     if (r.action === 'map') { this.toggleMap(true); }
     else if (r.action === 'load') { sessionStorage.setItem('colombo.next', JSON.stringify({ action: 'load', slot: r.slot })); location.reload(); }
+    else if (r.action === 'benchmark') { this.runBenchmark(); } // 91st: Settings → Graphics → Run benchmark (src/gfx/Benchmark.js)
     else if (r.action === 'textures') { openTextureStudio(this).catch((e) => { console.error(e); this.hud.notify('Texture Studio failed to load', String((e && e.message) || e), 'warn'); }); } // dev builds only (src/debug/boot.js TEXTURE_STUDIO)
     else if (r.action === 'menu') { this.autosave(); sessionStorage.setItem('colombo.next', JSON.stringify({ action: 'menu' })); location.reload(); }
     else { this.ignoreUnlock = true; Input.requestLock(this.canvas); setTimeout(() => (this.ignoreUnlock = false), 300); }
@@ -504,7 +513,7 @@ export class Game {
   loop() {
     requestAnimationFrame(() => this.loop());
     if (this.noRender) return; // headless tests (TEST mode): step the sim with stepSim() without paying for frames
-    const now = performance.now(); const raw = (now - this.last) / 1000; this.last = now; const dt = Math.min(TEST ? 0.5 : 0.05, Math.max(0.0005, raw));
+    const now = performance.now(); const raw = (now - this.last) / 1000; this.last = now; this.rawDt = raw; /* 91st: the benchmark records the unclamped frame interval */ const dt = Math.min(TEST ? 0.5 : 0.05, Math.max(0.0005, raw));
     this.fps = lerp(this.fps, 1 / Math.max(raw, 1e-3), 0.05); this.dynRes(Math.min(raw, 0.25));
     Input.pollGamepad();
     this.frameStep(dt);
@@ -562,16 +571,17 @@ export class Game {
       const mapOpen = this.mode === 'play' && this.hud.bigMapOpen; // the pause map freezes the world (and the hidden 3D view is not drawn)
       if ((this.mode !== 'play' || this.paused) && ClubSound.live) ClubSound.halt(); // the club's PA stops with the game (pause, menu, trailer)
       if (mapOpen) { if (Input.wasPressed('map')) this.toggleMap(false); Audio.updateMusic(dt, {}); } // the map's music keeps playing while the world is frozen
+      else if (this.mode === 'play' && this.benchHook) this.benchHook(dt); // 91st: the in-game benchmark (Benchmark.js) flies the camera through the living city
       else if (this.mode === 'play' && this.editorHook) this.editorHook(dt); // a debug editor (src/debug, loaded only when typed) has the frame: the world is frozen, still drawn
       else if (this.mode === 'play' && !this.paused) this.updatePlay(dt * (this.timeSlow || 1)); // weapon wheel / squad selector slow time
       else if (this.mode === 'menu' || this.mode === 'intro') this.updateAmbient(dt);
       else if (this.mode === 'trailer' && this.trailerHook) this.trailerHook(dt); // the trailer drives the world and camera itself
       updateLightSets(dt); if (this.post && this.mode === 'play') maintainWarm(this.renderer, this.camera, this.scene, this.post.composer ? this.post.composer.renderTarget1 : null, dt); maintainPoolWarm(this.renderer, this.camera, this.scene, this.post.composer ? this.post.composer.renderTarget1 : null, dt); /* 74th: the walk-in light pool's set, before it switches on */ /* FPS: night-only light pools leave the shaders while dark (identical image); the other state stays compiled */ CAM.copy(this.camera.position); updateVehicleLOD(this.camera); if (this.vfx) this.vfx.update(dt, this.camera, this.atmos); this.instr.update(dt, this.player && this.player.vehicle); /* 84th: live dials for the player's vehicle */ /* 83rd: wipers, AI indicators, rain-on-glass / grime uniforms */ if (this.headRig && this.atmos) this.headRig.update(this.camera, this.player && this.player.vehicle, this.atmos.night, this.indoor ? 1 : (this.seamK || 0));
-      if (this.post && !mapOpen) {
+      if (this.post && !mapOpen && !this.ctxDead) { /* 91st: after a lost WebGL context nothing can be drawn (see webglcontextlost) */
         /* FPS (src/gfx/ViewSkip.js): one matrix pass per frame, skipping unseen people/vehicles on their off-frames; the reflection and main renders reuse it */
         this.cullStep(dt); /* 65th: occlusion horizon, per-instance culling / LOD state, prop instance order (src/gfx/BatchCull.js, Occlusion.js) */
         refreshView(this.camera, this.atmos && this.atmos.sun, this.atmos ? this.atmos.night : 0); holdVehicles(LIVE_VEHICLES, this.player && this.player.vehicle); updateSceneMatrices(this.scene); if (HOOKS.preRender.size) for (const f of HOOKS.preRender) f(dt); /* 68th: replacement rigs follow the final pose */
-        withMatricesDone(this.scene, () => { if (this.world && this.world.waterRefl) { const q = Settings.get('quality'); this.world.waterRefl.scale = q === 'ultra' ? 0.6 : 0.45; this.world.waterRefl.halfRate = q !== 'ultra'; this.world.waterRefl.update(this.renderer, this.scene, this.camera, (q === 'high' || q === 'ultra') && !this.indoor); } this.post.indoor = !!this.indoor || (this.seamK || 0) > 0.01 || this.mode !== 'play'; this.post.inside = !!this.indoor || (this.seamK || 0) > 0.5; /* cinematic pass: neutral grade + no sun effects only inside a room */ this.post.update(this.atmos); this.hideOccluded(); try { this.post.render(dt); } finally { endHide(); } });
+        withMatricesDone(this.scene, () => { const GT = this.post.timer; if (GT) { GT.frameBegin(); GT.begin('scene'); } /* 91st benchmark: GPU time of the whole frame's drawing (mirror, shadows, scene, post; SGSR separately) */ if (this.world && this.world.waterRefl) { const q = Settings.get('quality'); this.world.waterRefl.scale = q === 'ultra' ? 0.6 : 0.45; this.world.waterRefl.halfRate = q !== 'ultra'; this.world.waterRefl.update(this.renderer, this.scene, this.camera, (q === 'high' || q === 'ultra') && !this.indoor); } this.post.indoor = !!this.indoor || (this.seamK || 0) > 0.01 || this.mode !== 'play'; this.post.inside = !!this.indoor || (this.seamK || 0) > 0.5; /* cinematic pass: neutral grade + no sun effects only inside a room */ this.post.update(this.atmos); this.hideOccluded(); try { this.post.render(dt); } finally { endHide(); } });
       }
     } catch (e) { if (!this._errN || this._errN < 5) console.error(e && e.stack || e); this._errN = (this._errN || 0) + 1; this.lastError = e; }
   }
@@ -766,7 +776,8 @@ export class Game {
   applyDensity() { const pr = Settings.preset; this.crowd.max = Math.round(pr.crowd * 0.45 * Settings.get('crowdDensity')); this.traffic.max = Math.round(pr.traffic * Settings.get('trafficDensity')); }
   applySettings(k) {
     const pr = Settings.preset; if (!this.post) return;
-    if (k === 'quality' || k === 'resolutionScale' || k === '*') { this.renderer.setPixelRatio(this.basePR() * this.dynK); this.renderer.shadowMap.enabled = pr.shadows; this.atmos.setShadowQuality(pr.shadows, pr.shadowRes); /* the preset's sun shadow resolutions, near + far (was only applied at start-up) */ this.atmos.drawDist = pr.drawDist; this.world.setQuality(Settings.get('quality')); this.post.build({ bloom: pr.bloom, ao: pr.ao, cine: pr.cine }); this.resize(); this.scene.traverse((o) => { if (o.material && o.material.needsUpdate !== undefined && k === 'quality') o.material.needsUpdate = true; }); }
+    if (k === 'quality' || k === 'resolutionScale' || k === '*') { this.renderer.setPixelRatio(this.outPR()); this.renderer.shadowMap.enabled = pr.shadows; this.atmos.setShadowQuality(pr.shadows, pr.shadowRes); /* the preset's sun shadow resolutions, near + far (was only applied at start-up) */ this.atmos.drawDist = pr.drawDist; this.world.setQuality(Settings.get('quality')); this.post.build({ bloom: pr.bloom, ao: pr.ao, cine: pr.cine }); this.resize(); this.scene.traverse((o) => { if (o.material && o.material.needsUpdate !== undefined && k === 'quality') o.material.needsUpdate = true; }); }
+    if (k === 'upscale' || k === 'sgsrSharpness' || k === 'sgsrEdgeDir' || k === '*') this.applyPR(); // 91st: live — the composer's targets resize, the SGSR pass is added / removed
     if (k === 'wetReflections' || k === '*') { if (this.world) this.world.glintsOn = Settings.get('wetReflections') !== false; }
     if (k === 'lensFlare' || k === 'lightShafts' || k === '*') this.post.setCine(Settings.get('lensFlare') !== false, Settings.get('lightShafts') !== false);
     if (k === 'nightBrightness' || k === '*') { if (this.atmos) this.atmos.nightBoost = Settings.get('nightBrightness') ?? 1; }
@@ -778,17 +789,29 @@ export class Game {
   }
   /* FPS: render resolution. High-DPI screens (Windows 125-200 % scaling, laptops, 4K) used to render at up to 2x the pixels on every preset; now only Ultra
      renders above 1 pixel per screen point (the Resolution scale setting still goes to 150 %). On a normal 100 % desktop this changes nothing. */
-  basePR() { const pr = Settings.preset; return Math.min(devicePixelRatio, Settings.get('quality') === 'ultra' ? 2 : 1) * pr.pixelRatio * Settings.get('resolutionScale'); }
+  basePR() { const pr = Settings.preset; if (this.sgsrK() > 0) return this.outputPR(); return Math.min(devicePixelRatio, Settings.get('quality') === 'ultra' ? 2 : 1) * pr.pixelRatio * this.nativeScale(); }
+  /* 91st — Settings → Graphics → SNAPDRAGON GAME SUPER RESOLUTION ('upscale'): off = native, exactly as before (the Resolution scale
+     setting applies) · sgsr100 / sgsr90 / sgsr85 / sgsr80 = the world renders at that percentage of the output resolution in width
+     AND height and SGSR upscales + sharpens it to the output · ss150 = the existing 150 % supersampling (native, the formula above
+     with Resolution scale 150 %). Output resolution = canvas CSS size × devicePixelRatio (DPR, capped at 2; it is not a render
+     scale). The benchmark (Benchmark.js) sets renderOverride for its runs without touching the saved setting. */
+  upscaleMode() { const o = this.renderOverride; return o || Settings.get('upscale') || 'off'; }
+  sgsrK() { if (this.post && this.post.sgsrFailed) return 0; const m = String(this.upscaleMode()); const k = /^sgsr(\d+)$/.exec(m); return k ? Math.min(1, Math.max(0.5, +k[1] / 100)) : 0; }
+  nativeScale() { const m = this.upscaleMode(); return m === 'ss150' ? 1.5 : m === 'native100' ? 1 : (Settings.get('resolutionScale') || 1); }
+  outputPR() { return Math.min(devicePixelRatio || 1, 2); }
+  outPR() { return this.sgsrK() > 0 ? this.basePR() : this.basePR() * this.dynK; } // dynamic resolution scales the internal size under SGSR (applyPR), never the output
+  sgsrOpts() { const s = +Settings.get('sgsrSharpness'); return { sharpness: Number.isFinite(s) ? s : 2, variant: Settings.get('sgsrEdgeDir') === false ? 'base' : 'edge' }; }
+  upscaleFailed() { if (this._upFailT) return; this._upFailT = true; this.applyPR(); if (this.hud) this.hud.notify('Super resolution unavailable', 'The SGSR shader could not be built on this graphics card — rendering natively', 'warn', 4); }
   /* Dynamic resolution (Settings → Graphics, on by default): only when the frame rate falls under ~55 fps for a while the render scale steps down 5 % at a
      time (never below 80 %), and climbs back to 100 % once the frame rate holds at the display rate again. Nothing else changes (models, shadows,
      effects, draw distance stay as the preset sets them). A level that failed right after a step up is held for 20 s, so it does not pump. */
   dynRes(raw) {
-    if (TEST || this.mode !== 'play' || Settings.get('dynamicRes') === false) { if (this.dynK !== 1) { this.dynK = 1; this.applyPR(); } return; }
+    if (TEST || this.mode !== 'play' || Settings.get('dynamicRes') === false || this.bench) { if (this.dynK !== 1) { this.dynK = 1; this.applyPR(); } return; }
     this.dynF = this.dynF === undefined ? raw : this.dynF + (raw - this.dynF) * 0.08; this.dynT += raw; this.dynHold = Math.max(0, this.dynHold - raw);
     if (this.dynT < 1.5) return; this.dynT = 0; const fps = 1 / Math.max(1e-3, this.dynF);
     if (fps < 54 && this.dynK > 0.8) { if (this.clock - this.dynUpAt < 6) this.dynHold = 20; this.dynK = Math.max(0.8, +(this.dynK - 0.05).toFixed(2)); this.applyPR(); }
     else if (fps > 58.5 && this.dynK < 1 && this.dynHold <= 0) { this.dynK = Math.min(1, +(this.dynK + 0.05).toFixed(2)); this.dynUpAt = this.clock; this.applyPR(); }
   }
-  applyPR() { const p = this.basePR() * this.dynK; this.renderer.setPixelRatio(p); if (this.post && this.post.composer) this.post.composer.setPixelRatio(p); this.resize(); }
+  applyPR() { const p = this.outPR(), k = this.sgsrK(); this.renderer.setPixelRatio(p); if (this.post && this.post.composer) { this.post.setUpscale(k > 0 ? k * this.dynK : 0, this.sgsrOpts()); this.post.composer.setPixelRatio(p); } this.resize(); }
   resize() { const w = innerWidth, h = innerHeight; this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); this.renderer.setSize(w, h); if (this.post) this.post.setSize(w, h); }
 }

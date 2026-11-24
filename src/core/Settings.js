@@ -25,6 +25,9 @@ const DEFAULTS = {
   showFps: false, blood: true, /* blood effects (impact spray, splats, pools under bodies) */ wetReflections: true, /* wet-road light streaks (WetGlints) */ nightBrightness: 1.15, /* night exposure multiplier (Settings → Night brightness) */ lensFlare: true, lightShafts: true, dynamicRes: true, /* hold the frame rate by lowering the render scale (min 80 %) only while it drops */ /* cinematic sun effects, where the preset includes them (cine level: Medium flare, High/Ultra shafts) */
   clubOrder: 'order', // 58th: the club DJ's songs (sounds window → Music): order (1 → 7, again) | shuffle
   mapMusic: 'track1', // 57th: music while the pause map is open: track1 | track2 | alternate (each time the map opens) | off
+  upscale: 'off', // 91st: SNAPDRAGON GAME SUPER RESOLUTION — off (native) | sgsr100 | sgsr90 | sgsr85 | sgsr80 | ss150 (the existing 150 % supersampling). Game.basePR / sgsrK
+  sgsrSharpness: 2.0, sgsrEdgeDir: true, // SGSR EdgeSharpness (Qualcomm's range 1.0–2.0, default 2.0) · its edge-direction variant
+  benchSec: 30, benchWarm: 5, // in-game benchmark: measured seconds and warm-up seconds per configuration (Benchmark.js)
   switchStyle: 'auto', // squad switch camera: auto (transit, or jump-cut when far / blocked) | transit | cut
   bindings: { ...DEFAULT_BINDINGS },
 };

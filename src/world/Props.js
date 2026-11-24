@@ -1,5 +1,6 @@
 // Instanced street furniture, built per chunk so frustum culling works chunk by chunk.
 import * as THREE from 'three';
+import { RenderRes } from '../gfx/RenderRes.js';
 import { MeshBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
 import { TEX } from '../gfx/Textures.js';
@@ -55,21 +56,21 @@ export function buildPropGeometries() { // 60th: every prop type draws with its 
     pf.box(W(4) / 2 + 0.006, 4.4, 0.05, 0.008, 8.8, 0.008, { col: rust }); // earth lead
     pf.box(0, 2.65, D(2.65) / 2 + 0.006, 0.22, 0.26, 0.008, { col: wht }); pf.box(0, 2.72, D(2.65) / 2 + 0.011, 0.2, 0.07, 0.004, { col: red }); pf.box(0, 2.56, D(2.65) / 2 + 0.011, 0.06, 0.06, 0.004, { col: red }); // danger plate
     GEO.pole = [part(p, MAT.utilityPole), part(pf, MAT.transformer)];
-    const t = new MeshBuilder(); const tg = C('#7c8580'), brn = C('#6b3a22'), tx = 0.62;
+    const t = new MeshBuilder(), tk = new MeshBuilder(); const tg = C('#7c8580'), brn = C('#6b3a22'), tx = 0.62; // tk (91st): the painted / porcelain parts — on the 'metal' role (metalness 0.85) the grey tank kept ~15 % of its colour and read near-black
     for (const y of [4.55, 5.35]) t.box(tx * 0.55, y, 0, tx + 0.2, 0.08, 0.08, { col: galv, bottom: true }); // platform / hanger channels
-    t.box(tx, 5.0, 0, 0.46, 0.85, 0.66, { col: tg, bottom: true }); t.box(tx, 5.45, 0, 0.5, 0.05, 0.7, { col: tg }); // tank + lid
-    for (let k = 0; k < 7; k++) for (const sz of [-1, 1]) t.box(tx - 0.18 + k * 0.06, 4.98, sz * 0.39, 0.012, 0.7, 0.12, { col: tg }); // radiator fins
-    for (const z of [-0.2, 0, 0.2]) { t.cylinder(tx, 5.475, z, 0.035, 0.03, 0.06, 8, { col: brn }); for (let k = 0; k < 3; k++) t.cylinder(tx, 5.53 + k * 0.05, z, 0.05, 0.03, 0.03, 10, { col: brn }); } // HV bushings
-    for (const z of [-0.24, -0.08, 0.08, 0.24]) t.cylinder(tx + 0.26, 5.25, z, 0.022, 0.022, 0.06, 8, { col: brn }); // LV bushings (side)
-    t.box(tx + 0.235, 4.85, 0, 0.004, 0.12, 0.18, { col: C('#c8c9c4') }); // nameplate
+    tk.box(tx, 5.0, 0, 0.46, 0.85, 0.66, { col: tg, bottom: true }); tk.box(tx, 5.45, 0, 0.5, 0.05, 0.7, { col: tg }); // tank + lid
+    for (let k = 0; k < 7; k++) for (const sz of [-1, 1]) tk.box(tx - 0.18 + k * 0.06, 4.98, sz * 0.39, 0.012, 0.7, 0.12, { col: tg }); // radiator fins
+    for (const z of [-0.2, 0, 0.2]) { tk.cylinder(tx, 5.475, z, 0.035, 0.03, 0.06, 8, { col: brn }); for (let k = 0; k < 3; k++) tk.cylinder(tx, 5.53 + k * 0.05, z, 0.05, 0.03, 0.03, 10, { col: brn }); } // HV bushings
+    for (const z of [-0.24, -0.08, 0.08, 0.24]) tk.cylinder(tx + 0.26, 5.25, z, 0.022, 0.022, 0.06, 8, { col: brn }); // LV bushings (side)
+    tk.box(tx + 0.235, 4.85, 0, 0.004, 0.12, 0.18, { col: C('#c8c9c4') }); // nameplate
     t.box(at + 0.05, 7.9, 0, 0.05, 0.08, 1.5, { col: galv }); // fuse arm
     for (const z of [-0.6, 0, 0.6]) { const g = new THREE.CylinderGeometry(0.022, 0.022, 0.42, 8); g.rotateX(0.35); t.geometry(g, new THREE.Matrix4().makeTranslation(at + 0.14, 8.12, z), brn); g.dispose(); // drop-out fuse (porcelain body + tube)
       t.cylinder(at + 0.14, 7.62, z, 0.03, 0.03, 0.2, 8, { col: C('#8b8f8e') }); // surge arrester
       const j1 = new THREE.BoxGeometry(0.008, 0.85, 0.008); j1.rotateX(z * -0.35); t.geometry(j1, new THREE.Matrix4().makeTranslation(at + 0.12, 8.6, z * 0.95), blk); j1.dispose(); // line → fuse jumper
       const dx = tx - (at + 0.14), dy = 5.6 - 7.9, dz = z * 0.33 - z; const L = Math.hypot(dx, dy, dz);
       const m2 = new THREE.Matrix4().lookAt(new THREE.Vector3(0, 0, 0), new THREE.Vector3(dx, dy, dz), new THREE.Vector3(0, 1, 0)); const g2 = new THREE.BoxGeometry(0.008, 0.008, L); g2.applyMatrix4(m2); g2.translate(at + 0.14 + dx / 2, 7.9 + dy / 2, z + dz / 2); t.geometry(g2, new THREE.Matrix4(), blk); g2.dispose(); } // fuse → bushing jumper
-    t.box(tx + 0.3, 3.1, 0.0, 0.05, 4.2, 0.05, { col: blk }); t.box(0.2, 1.75, D(1.75) / 2 + 0.2, 0.42, 0.75, 0.3, { col: C('#9aa29f'), bottom: true }); t.box(0.2, 2.16, D(1.75) / 2 + 0.2, 0.46, 0.05, 0.34, { col: C('#9aa29f') }); // LV cable down → feeder pillar box
-    GEO.transformer = [part(t, MAT.transformer)]; }
+    t.box(tx + 0.3, 3.1, 0.0, 0.05, 4.2, 0.05, { col: blk }); tk.box(0.2, 1.75, D(1.75) / 2 + 0.2, 0.42, 0.75, 0.3, { col: C('#9aa29f'), bottom: true }); tk.box(0.2, 2.16, D(1.75) / 2 + 0.2, 0.46, 0.05, 0.34, { col: C('#9aa29f') }); // LV cable down → feeder pillar box
+    GEO.transformer = [part(t, MAT.transformer), part(tk, MAT.transformerTank || MAT.paint)]; }
   // traffic signal pole (heads are separate dynamic lamps). 73rd: built like the real ones — a galvanised pole on a bolted base
   // flange, two 3-aspect aluminium heads (one per approach) on brackets, each lens in a black rim under a cut-away visor (hood),
   // the head on a black backplate with a retro-reflective white border. Heads sit off the pole's centre so the two at right
@@ -233,6 +234,7 @@ export function buildPropsForChunk(chunk) {
   return group;
 }
 export const GLOW_MAT = new THREE.PointsMaterial({ size: 2.2, sizeAttenuation: true, color: 0xffd7a0, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+RenderRes.sub((k) => { GLOW_MAT.size = 2.2 * k; }); // 91st: three sizes points by the canvas pixel ratio; under SGSR they are drawn at the internal resolution (a uniform, no recompile)
 export function initGlowTexture() { GLOW_MAT.map = TEX.glow; powerMaterial(GLOW_MAT, true); GLOW_MAT.needsUpdate = true; } // (79th: the lamp glows follow the district supply)
 
 const RED = new THREE.Color(2.2, 0.15, 0.1), AMB = new THREE.Color(2.2, 1.2, 0.1), GRN = new THREE.Color(0.2, 2.0, 0.6);
