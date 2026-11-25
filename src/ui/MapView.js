@@ -70,6 +70,7 @@ export const BLIP_STYLE = {
   pickup: { col: '#ffd34a', cat: 'missions', name: 'Friend waiting for a lift' },
   customs: { col: '#ff7a1a', cat: 'services', name: 'Street Customs (vehicle workshop)' },
   marina: { col: '#4ab0ff', cat: 'services', name: 'Marina berth for sale' }, berth: { col: '#33e0a0', cat: 'services', name: 'Your berth' },
+  fight: { col: '#ff5a4a', cat: 'activities', name: 'Fight night (After Dark)' }, race: { col: '#c07aff', cat: 'activities', name: 'Street-race meet (After Dark)' }, // 92nd
   stunt: { col: '#ffd34a', cat: 'activities', name: 'Stunt jump' }, bmx: { col: '#7fe0a0', cat: 'activities', name: 'Bicycle ramp' },
 };
 export function drawIcon(g, kind, x, y, r = 9) {
@@ -86,6 +87,8 @@ export function drawIcon(g, kind, x, y, r = 9) {
     case 'stamp': for (let i = 0; i < 5; i++) { const a = -Math.PI / 2 + i * 2 * Math.PI / 5, b = a + Math.PI / 5; g.lineTo(Math.cos(a) * 5 * k, Math.sin(a) * 5 * k); g.lineTo(Math.cos(b) * 2.2 * k, Math.sin(b) * 2.2 * k); } g.closePath(); g.fill(); break;
     case 'photo': g.rect(-5 * k, -3 * k, 10 * k, 7 * k); g.fill(); g.fillStyle = 'rgba(8,10,14,0.9)'; g.beginPath(); g.arc(0, 0.5 * k, 2.2 * k, 0, 7); g.fill(); break;
     case 'enemy': g.arc(0, 0, 4 * k, 0, 7); g.fill(); break;
+    case 'fight': g.arc(-1.8 * k, 0, 2.6 * k, 0, 7); g.fill(); g.beginPath(); g.arc(1.8 * k, 0, 2.6 * k, 0, 7); g.fill(); g.fillRect(-4.4 * k, 1.4 * k, 8.8 * k, 2.6 * k); break; // two gloves
+    case 'race': for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) if ((i + j) % 2 === 0) g.fillRect((-4 + i * 2) * k, (-3 + j * 2) * k, 2 * k, 2 * k); g.fillRect(-4.6 * k, -3 * k, 0.9 * k, 8 * k); break; // chequered flag
     case 'stunt': g.moveTo(-5 * k, 3.5 * k); g.lineTo(4.5 * k, 3.5 * k); g.lineTo(4.5 * k, -1 * k); g.closePath(); g.fill(); g.beginPath(); g.arc(-1 * k, -3.2 * k, 1.6 * k, 0, 7); g.fill(); break;
     case 'bmx': g.arc(-2.8 * k, 1.5 * k, 2.3 * k, 0, 7); g.stroke(); g.beginPath(); g.arc(2.8 * k, 1.5 * k, 2.3 * k, 0, 7); g.stroke(); g.beginPath(); g.moveTo(-2.8 * k, 1.5 * k); g.lineTo(0, -2.6 * k); g.lineTo(2.8 * k, 1.5 * k); g.stroke(); break;
     case 'pickup': g.arc(0, -2.4 * k, 2.3 * k, 0, 7); g.fill(); g.beginPath(); g.moveTo(-4.4 * k, 5 * k); g.quadraticCurveTo(-4.2 * k, 0.6 * k, 0, 0.6 * k); g.quadraticCurveTo(4.2 * k, 0.6 * k, 4.4 * k, 5 * k); g.closePath(); g.fill(); break;

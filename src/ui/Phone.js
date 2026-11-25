@@ -29,7 +29,8 @@ const APPS = [
   { id: 'weather', name: 'Weather', icon: '☂', col: '#4f6fa0' },
   { id: 'contacts', name: 'Contacts', icon: '☎', col: '#3d8b5a' },
   { id: 'global', name: 'Global', icon: '◍', col: '#1d63c9' },
-  { id: 'events', name: 'City Events', icon: '✺', col: '#c9952b' }, // 81st: live list from the event manager (world/CityEvents.js)
+  { id: 'events', name: 'City Events', icon: '✺', col: '#c9952b' },
+  { id: 'afterdark', name: 'After Dark', icon: '☾', col: '#5a2f7d' }, // 92nd: tonight's fight nights and race meets (activities/ActivityManager.js) // 81st: live list from the event manager (world/CityEvents.js)
 ];
 const EV_TABS = [['now', 'Now'], ['today', 'Today'], ['upcoming', 'Upcoming'], ['recent', 'Recent']];
 const CONTACTS = [{ n: '119', t: 'Police Emergency', d: 'Sri Lanka Police emergency line — police or ambulance' },
@@ -76,6 +77,7 @@ export class Phone {
     if (this.app === 'jobs') return this.jobs();
     if (this.app === 'global') return this.browser.rows();
     if (this.app === 'events') { if (this.evOpen) return [{ t: 'Navigate' }, { t: 'Back to the list' }]; const S = this.evSections(); return S ? S[EV_TABS[this.evTab || 0][0]] : []; }
+    if (this.app === 'afterdark') return this.g.activities ? this.g.activities.phoneRows() : [];
     if (this.app === 'health') return [{ t: 'Call 1990 Suwa Seriya' }, { t: 'GPS to National Hospital' }];
     if (this.app === 'contacts') { if (!this.call) return this.contacts(); if (this.call.stage === 'ask') return this.call.friend ? callOptions(this.friend(this.call.friend)) : [{ t: 'Police' }, { t: 'Ambulance' }, { t: 'Hang up' }]; return []; }
     return [];
@@ -96,6 +98,7 @@ export class Phone {
       if (this.row === 0) { const ev = M.byId.get(this.evOpen); if (ev) { const v = M.view(ev); g.hud.setWaypoint(v.at.x, v.at.z); g.hud.notify('GPS set', `${v.title} — ${v.venueShort}`, 'info', 3); this.toggle(false); } return; }
       this.back(); return; }
     if (this.app === 'jobs') { const j = this.jobs()[this.row]; if (j && j.at) { g.hud.setWaypoint(j.at.x, j.at.z); this.toggle(false); } return; }
+    if (this.app === 'afterdark') { const r = this.rows()[this.row]; if (r && r.at) { g.hud.setWaypoint(r.at.x, r.at.z); g.hud.notify('GPS set', r.t, 'info', 3); this.toggle(false); } return; }
     if (this.app === 'health') {
       if (this.row === 1) { g.hud.setWaypoint(L.PLACES.hospital.x, L.PLACES.hospital.z); this.toggle(false); return; }
       if (!this.confirm) { this.confirm = true; this.render(); return; }
@@ -193,6 +196,10 @@ export class Phone {
       else h = `<div class="ph-call"><div class="ph-call-n">${c.n} · ${c.kind === 'police' ? 'Police' : 'Ambulance (1990 Suwa Seriya)'}</div><div class="ph-call-q ${c.res.ok ? 'ok' : 'no'}">${esc(c.res.msg)}</div><div class="ph-call-s">Call ended</div></div>`;
     } else if (this.app === 'global') {
       h = this.browser.html(this.row);
+    } else if (this.app === 'afterdark') {
+      const M = g.activities; const rows = this.rows();
+      h = `<div class="ph-head">After Dark</div><div class="ph-sub">${M ? esc(M.summary()) : ''} · Enter: GPS</div><div class="ph-list">` + (rows.length ? rows.map((r, i) => `<div class="ph-row${i === this.row ? ' sel' : ''}" data-i="${i}"><b>${esc(r.t)}</b><p>${esc(r.d)}</p><small>${esc(r.sub || '')}</small></div>`).join('') : '<div class="ph-empty">Nothing on tonight.</div>') + '</div>' +
+        '<div class="ph-hint">Fight nights 21:30–01:30 · race meets 22:30–02:30. Predictions use free points, never money.</div>';
     } else if (this.app === 'events') {
       h = this.evHtml();
     } else if (this.app === 'weather') {

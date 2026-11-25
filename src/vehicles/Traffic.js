@@ -157,12 +157,12 @@ const PRED_T = [0.4, 0.8, 1.2]; // footprint-conflict look-ahead times (s)
 export class Traffic {
   constructor(scene, collision, events) {
     VEH_HOOKS.crash = (v, by, dv) => this.onCrash(v, by, dv); this.raging = []; this.reboarding = []; this.rageStats = { crashes: 0, honk: 0, out: 0, back: 0 };
-    this.scene = scene; this.collision = collision; this.events = events; this.vehicles = []; this.parked = []; this.rng = new RNG(777);
+    this.scene = scene; this.collision = collision; this.events = events; this.vehicles = []; this.parked = []; this.guests = []; /* 92nd: vehicles another system drives (street-race cars): solid, seen and avoided by traffic, never stepped or culled here */ this.rng = new RNG(777);
     this.max = 40; this.simTime = 0; this.res = new Map(); this.driverSpecs = []; for (let i = 0; i < 16; i++) this.driverSpecs.push(randomSpec(5000 + i * 13, { sex: i % 5 === 0 ? 'f' : 'm', age: 'adult' }));
     this.paxCount = 0; this.leaving = []; this.crowd = null; this.parkedTimer = 0; this.drivableSegs = L.segments.filter((s) => !s.crossing || s.level <= 2); this.drivable = new Set(this.drivableSegs); this.flowSegs = flowNetwork(this.drivableSegs); this.flow = new Set(this.flowSegs); this.emergency = [];
   }
   setDensity(d) { this.max = Math.round(10 + d * 45); }
-  all() { const o = this.obstacles; if (!this.parked.length && !(o && o.length)) return this.vehicles; return o && o.length ? this.vehicles.concat(this.parked, o) : this.vehicles.concat(this.parked); } // obstacles = train cars (solid, not enterable)
+  all() { const o = this.obstacles, g = this.guests; if (!this.parked.length && !(o && o.length) && !g.length) return this.vehicles; const out = this.vehicles.concat(this.parked); if (o && o.length) for (const x of o) out.push(x); for (const x of g) out.push(x); return out; } // obstacles = train cars (solid, not enterable); guests = race cars (92nd)
   pickType(x, z) { const d = L.districtIdAt(x, z); const night = this.night > 0.6; const mix = MIX[d] || MIX.default; const m = night ? mix.map(([t, w]) => [t, t === 'bus' || t === 'pbus' ? w * 0.4 : w]) : mix; const t = this.rng.weighted(m); return t === 'cat' ? this.rng.weighted(CAT_W[d] || CAT_W.default) : t === 'bike' ? this.rng.weighted(BIKE_LISTS[d] || BIKE_LISTS.default) : t; } // two-wheelers: one of the 20 kinds (BikeCatalog.js)
   // 54th variety: what is already on the road around the player. A type that is already over its share nearby is re-rolled
   // (a cluster of the same model is what read as 'the same vehicle again and again'), and a vehicle never takes the exact look
@@ -222,7 +222,7 @@ export class Traffic {
     for (const o of this.parked) { const rr = r + Math.hypot(o.T.wid, o.T.len) / 2; if ((o.x - x) ** 2 + (o.z - z) ** 2 > rr * rr) continue; if (boxPen(_A, o._bc2 = boxCorners(o._bc2 || mkC(), o.x, o.z, o.yaw, o.T.wid / 2, o.T.len / 2)) > 0) return true; } return false; }
   binBodies(playerV) { const B = this.bins || (this.bins = new Map()); for (const a of B.values()) a.length = 0;
     const add = (o) => { if (!o || !o.T || (o.mesh && !o.mesh.parent)) return; const ex = Math.min(3, Math.abs(o.speed || 0) * 0.1) * Math.sign(o.speed || 0), ohw = o.T.wid / 2 - 0.03, ohl = o.T.len / 2 - 0.03 + Math.abs(ex); o._bc = boxCorners(o._bc || mkC(), o.x + Math.sin(o.yaw) * ex, o.z + Math.cos(o.yaw) * ex, o.yaw, ohw, ohl); o._br = Math.hypot(ohw, ohl); /* a moving body: where it is now and over the next 0.2 s */ const k = (Math.floor(o.x / 24) * 4096 + Math.floor(o.z / 24)) | 0; let a = B.get(k); if (!a) B.set(k, (a = [])); a.push(o); };
-    for (const o of this.vehicles) add(o); for (const o of this.parked) add(o); if (playerV && !this.vehicles.includes(playerV)) add(playerV); if (this.obstacles) for (const o of this.obstacles) add(o); }
+    for (const o of this.vehicles) add(o); for (const o of this.parked) add(o); if (playerV && !this.vehicles.includes(playerV)) add(playerV); if (this.obstacles) for (const o of this.obstacles) add(o); for (const o of this.guests) if (o !== playerV) add(o); }
   // Distance along the vehicle's own path (its lane pieces, with the lateral drift of a lane change / pull-out) before its body
   // would overlap another vehicle's body: the last line of defence under the leader / junction logic, which only looks down
   // the lane (a car turning across a junction used to run into one stopped on a crossing curve; a lane change sideswiped a

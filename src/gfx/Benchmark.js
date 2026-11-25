@@ -17,6 +17,8 @@ import { GpuTimer } from './GpuTimer.js';
 import { gpuInfo } from './GpuInfo.js';
 import { RNG } from '../core/rng.js';
 import { Settings } from '../core/Settings.js';
+import { FightScene, RaceScene } from './BenchScenes.js';
+import { BUILDS } from '../core/FrameBudget.js';
 
 export const BENCH_CONFIGS = [
   { id: 'A', label: 'Native 150%', mode: 'ss150' },
@@ -52,11 +54,13 @@ export class Benchmark {
   constructor(g, opts = {}) {
     this.g = g; this.sec = Math.max(5, Math.min(600, +opts.seconds || +Settings.get('benchSec') || 30)); this.warm = Math.max(1, Math.min(60, +opts.warmup || +Settings.get('benchWarm') || 5));
     this.configs = (opts.configs ? BENCH_CONFIGS.filter((c) => opts.configs.includes(c.id)) : BENCH_CONFIGS).slice(); this.results = []; this.aborted = false;
+    // 92nd: scenario — 'city' (the Galle Road flythrough), 'fight' (F) or 'race' / 'race-expert' (R): BenchScenes.js
+    const sc = String(opts.scene || 'city').toLowerCase(); this.sceneId = sc; this.scene = sc === 'fight' || sc === 'f' ? new FightScene(g) : sc.startsWith('race') || sc === 'r' ? new RaceScene(g, sc.includes('expert') ? 'expert' : 'hard') : null;
     const cap = Math.ceil(this.sec * 500) + 64; this.ft = new Float32Array(cap); this.gt = new Float32Array(cap); this.gs = new Float32Array(cap); // preallocated: no per-frame allocation
     this._p = [0, 0, 0]; this._q = [0, 0, 0]; this._v = new THREE.Vector3();
   }
-  static canRun(g) {
-    if (!g || g.mode !== 'play') return 'Start or load a game first.';
+  static canRun(g, scene) {
+    if (!g || g.mode !== 'play') return 'Start or load a game first.'; if (scene) { const w = scene.canRun(); if (w) return w; }
     if (g.indoor || (g.seamK || 0) > 0.01) return 'Step outside first — the benchmark flies through the city streets.';
     if (g.director && g.director.active) return 'Wait until the cutscene ends.';
     if (g.bench) return 'A benchmark is already running.';
@@ -65,7 +69,7 @@ export class Benchmark {
   // ---------------------------------------------------------------- run
   async run() {
     const g = this.g, A = g.atmos, R = g.renderer, W = g.world;
-    const why = Benchmark.canRun(g); if (why) { g.hud && g.hud.notify('Benchmark', why, 'warn', 3); return null; }
+    const SC = this.scene, hour = SC ? SC.hour : HOUR; const why = Benchmark.canRun(g, SC); if (why) { g.hud && g.hud.notify('Benchmark', why, 'warn', 3); return null; }
     // save what is changed
     const save = { hour: A.hour, day: A.day, forced: A.forced, weather: A.weather, target: A.target, w: { ...A.w }, wet: A.wet, dynK: g.dynK, autoReset: R.info.autoReset, hud: g.hud && g.hud.root ? g.hud.root.style.visibility : '', focus: g.focus, tMax: g.traffic.max, override: g.renderOverride };
     g.bench = this; g.dynK = 1; R.info.autoReset = false; if (g.hud && g.hud.root) g.hud.root.style.visibility = 'hidden';
@@ -79,20 +83,22 @@ export class Benchmark {
       R.info.reset();
       if (phase === 'measure') { const raw = g.rawDt; if (raw > 0 && n < this.ft.length) this.ft[n++] = raw * 1000; for (const r of timer.take()) { if (r.tag !== cfg.id) continue; if (gpuN < this.gt.length) this.gt[gpuN++] = r.total; if (r.sgsr !== undefined && sgN < this.gs.length) this.gs[sgN++] = r.sgsr; } }
       else timer.take();
-      this.fly(t); t += dt; A.hour = HOUR; A.wet = 0;
+      if (SC) BUILDS.begin(); /* 92nd: the one-heavy-build-per-frame token (updatePlay is not running) */ if (!SC) this.fly(t); t += dt; A.hour = hour; A.wet = 0;
       g.updateAmbient(dt); // the living city (traffic, pedestrians, trains, world streaming, atmosphere, audio) — like the menu backdrop
+      if (SC) { if (phase !== 'prep' && phase !== 'setup') SC.step(dt); if (phase !== 'setup') SC.fly(t, g.camera, dt); } // 92nd: the activity runs for real (setup steps it itself); the camera follows it
       const w = this.wake; this.wake = null; if (w) w(dt);
     };
     try {
       // environment
-      A.forceWeather(WEATHER); A.setWeather(WEATHER, true); A.hour = HOUR; A.wet = 0;
+      A.forceWeather(WEATHER); A.setWeather(WEATHER, true); A.hour = hour; A.wet = 0;
+      if (SC) { phase = 'setup'; overlay.set('Preparing the scenario…'); await SC.setup(frame, overlay); phase = 'prep'; } // (setup steps the activity itself)
       overlay.set('Preparing the streets…'); await this.prepare(frame, kept, overlay); if (this.aborted) throw new Error('aborted');
       for (let ci = 0; ci < this.configs.length && !this.aborted; ci++) {
         cfg = this.configs[ci]; g.renderOverride = cfg.mode; g.applyPR(); g.post.setTimer(timer); g.post.timerTag = cfg.id + ':warm';
         // the same start for every configuration: path start, street life cleared, re-seeded and settled
-        phase = 'settle'; t = 0; this.fly(0); this.resetLife();
+        phase = 'settle'; t = 0; if (SC) { await SC.reset(); SC.fly(0, g.camera, 0); } else this.fly(0); this.resetLife();
         phase = 'warm'; let w = 0; while (w < this.warm && !this.aborted) { w += await frame(); overlay.set(`${cfg.id} · ${cfg.label} — warming up ${Math.ceil(this.warm - w)} s`, ci, this.configs.length); }
-        t = 0; this.fly(0); n = 0; gpuN = 0; sgN = 0; calls = 0; tris = 0; infoN = -1; timer.take(); const dis0 = timer.disjoint; g.post.timerTag = cfg.id; phase = 'measure';
+        t = 0; if (!SC) this.fly(0); n = 0; gpuN = 0; sgN = 0; calls = 0; tris = 0; infoN = -1; timer.take(); const dis0 = timer.disjoint; g.post.timerTag = cfg.id; phase = 'measure';
         let m = 0; while (m < this.sec && !this.aborted) { m += await frame(); if (infoN < 0) infoN = 0; overlay.set(`${cfg.id} · ${cfg.label} — measuring ${Math.ceil(this.sec - m)} s`, ci + m / this.sec, this.configs.length); }
         phase = 'drain'; g.post.timerTag = 'drain'; for (let i = 0; i < 6; i++) { await frame(); timer.poll(); for (const r of timer.take()) { if (r.tag !== cfg.id) continue; if (gpuN < this.gt.length) this.gt[gpuN++] = r.total; if (r.sgsr !== undefined && sgN < this.gs.length) this.gs[sgN++] = r.sgsr; } } // queries of the last measured frames
         if (this.aborted) break;
@@ -100,7 +106,7 @@ export class Benchmark {
       }
     } catch (e) { if (String(e && e.message) !== 'aborted') { console.error(e); g.hud && g.hud.notify('Benchmark failed', String((e && e.message) || e), 'warn', 4); } }
     finally {
-      removeEventListener('keydown', onKey, true); g.benchHook = null; g.post.setTimer(null); g.post.timerTag = undefined; timer.dispose();
+      removeEventListener('keydown', onKey, true); g.benchHook = null; if (SC) { try { this.sceneInfo = SC.info(); SC.teardown(); } catch (e) { console.error(e); } } g.post.setTimer(null); g.post.timerTag = undefined; timer.dispose();
       for (const c of kept) c.keep = false;
       A.forceWeather(save.forced); A.weather = save.weather; A.target = save.target; Object.assign(A.w, save.w); A.wet = save.wet; A.hour = save.hour; A.day = save.day;
       g.traffic.max = save.tMax; g.renderOverride = save.override; g.dynK = save.dynK; R.info.autoReset = save.autoReset; R.info.reset(); g.focus = save.focus;
@@ -127,7 +133,7 @@ export class Benchmark {
   // build (and pin) every street chunk the flythrough can see before measuring — like the trailer's prewarm (Trailer.js)
   async prepare(frame, kept, overlay) {
     const W = this.g.world; if (!W || !W.chunks) return; const R = W.detailRadius || 330, WR = W.windowRadius || 150, pts = [];
-    for (let s = 0; s <= LEN; s += 40) { const p = pointAt(s, [0, 0, 0]); pts.push([p[0], p[2]]); }
+    if (this.scene) pts.push(...this.scene.points()); else for (let s = 0; s <= LEN; s += 40) { const p = pointAt(s, [0, 0, 0]); pts.push([p[0], p[2]]); }
     const near = (c, r) => pts.some(([x, z]) => Math.hypot(c.cx - x, c.cz - z) - 140 < r);
     const need = W.chunks.filter((c) => near(c, R)); for (const c of need) if (!c.keep) { c.keep = true; kept.push(c); }
     const t0 = performance.now();
@@ -145,7 +151,7 @@ export class Benchmark {
     else low1Note = `not reliable with ${n} frames (needs ≥ 1000: lengthen the duration)`;
     let spikes = 0, worst = 0; const lim = F ? Math.max(2 * F.median, F.median + 10) : 0; for (let i = 0; i < n; i++) { const v = this.ft[i]; if (v > lim) spikes++; if (v > worst) worst = v; }
     return {
-      id: cfg.id, config: cfg.label, mode: cfg.mode, internal: res.internal, output: res.output, sgsr: !!res.sgsr,
+      id: cfg.id, scenario: this.scene ? this.scene.id : 'city', config: cfg.label, mode: cfg.mode, internal: res.internal, output: res.output, sgsr: !!res.sgsr,
       frames: n, seconds: F ? r2(F.sum / 1000) : 0,
       avgFps: F ? r2(n / (F.sum / 1000)) : null, avgFrameMs: F ? r2(F.mean) : null, medianFrameMs: F ? r2(F.median) : null, p99FrameMs: F ? r2(F.p99) : null,
       low1Fps: r2(low1), low1Note, spikes, spikeLimitMs: r2(lim), worstFrameMs: r2(worst),
@@ -161,7 +167,7 @@ export class Benchmark {
       game: 'COLOMBO: Shadows of the Island', kind: 'render benchmark', date: new Date().toISOString(), aborted: this.aborted,
       gpu: gi.label, api: gi.api, userAgent: navigator.userAgent, devicePixelRatio: devicePixelRatio, canvasCss: [innerWidth, innerHeight],
       quality: Settings.get('quality'), sgsrSharpness: +Settings.get('sgsrSharpness') || 2, sgsrVariant: Settings.get('sgsrEdgeDir') === false ? 'base' : 'edge-direction',
-      seconds: this.sec, warmup: this.warm, scene: { path: 'Galle Road flythrough (ping-pong, 10 m/s)', hour: HOUR, weather: WEATHER, wet: 0, trafficMax: g.traffic.max, crowdMax: g.crowd.max }, gpuTimer: timerOk,
+      seconds: this.sec, warmup: this.warm, scene: { ...(this.sceneInfo || { scenario: 'city', path: 'Galle Road flythrough (ping-pong, 10 m/s)', hour: HOUR }), weather: WEATHER, wet: 0, trafficMax: g.traffic.max, crowdMax: g.crowd.max }, gpuTimer: timerOk,
       notes: ['FPS and frame times come from requestAnimationFrame intervals and are capped by the display refresh rate (vsync); GPU ms are uncapped.', 'GPU ms = EXT_disjoint_timer_query_webgl2 time of the frame\'s drawing (water mirror, shadow maps, scene, post-processing, SGSR); sgsrMs = the SGSR pass alone.', 'Traffic and pedestrians are re-seeded and settled before each configuration but move freely, so runs are close, not identical.', 'GPU utilisation and VRAM use cannot be measured from a browser and are not reported.'],
       results: this.results,
     };
@@ -178,7 +184,7 @@ export class Benchmark {
     const csv = toCSV(rep), json = JSON.stringify(rep, null, 2), stamp = rep.date.replace(/[:.]/g, '-');
     const m = document.createElement('div'); m.className = 'modal'; m.style.zIndex = 9999;
     const rows = rep.results.map((r) => `<tr><td><b>${r.id}</b> ${r.config}</td><td>${r.internal.join('×')} → ${r.output.join('×')}</td><td>${r.avgFps ?? '—'}</td><td>${r.avgFrameMs ?? '—'} / ${r.medianFrameMs ?? '—'}</td><td>${r.low1Fps ?? '—'}</td><td>${r.spikes}</td><td>${r.gpuFrameMs ?? '—'}</td><td>${r.sgsrMs ?? (r.sgsr ? '—' : 'n/a')}</td><td>${r.drawCalls ?? '—'}</td><td>${r.triangles != null ? (r.triangles / 1e6).toFixed(2) + ' M' : '—'}</td></tr>`).join('');
-    m.innerHTML = `<div class="panel wide" style="max-width:1100px"><h2>Benchmark results</h2><p class="hint">${rep.gpu} · ${rep.api} · ${rep.quality} preset · ${rep.seconds} s per configuration (+${rep.warmup} s warm-up)${rep.gpuTimer ? '' : ' · GPU timing unavailable in this browser'}</p>
+    m.innerHTML = `<div class="panel wide" style="max-width:1100px"><h2>Benchmark results</h2><p class="hint">${rep.scene.label || 'Galle Road flythrough'} · ${rep.gpu} · ${rep.api} · ${rep.quality} preset · ${rep.seconds} s per configuration (+${rep.warmup} s warm-up)${rep.gpuTimer ? '' : ' · GPU timing unavailable in this browser'}</p>
       <div style="overflow:auto"><table class="bench-tab" style="width:100%;border-collapse:collapse;font-size:13px"><tr style="text-align:left;opacity:.75"><th>Configuration</th><th>Internal → output</th><th>Avg FPS</th><th>Frame ms avg / median</th><th>1% low FPS</th><th>Spikes</th><th>GPU ms</th><th>SGSR ms</th><th>Draw calls</th><th>Triangles</th></tr>${rows}</table></div>
       <p class="hint">${rep.notes.join(' ')}</p><div class="panel-foot"><button class="menu-btn bj">Download JSON</button><button class="menu-btn bc">Download CSV</button><button class="menu-btn bx">Close</button></div></div>`;
     document.body.appendChild(m); m.querySelectorAll('td,th').forEach((c) => { c.style.padding = '4px 8px'; c.style.borderBottom = '1px solid rgba(255,255,255,.08)'; });
@@ -187,7 +193,7 @@ export class Benchmark {
     m.querySelector('.bx').onclick = () => m.remove();
   }
 }
-const COLS = ['id', 'config', 'mode', 'internal', 'output', 'frames', 'seconds', 'avgFps', 'avgFrameMs', 'medianFrameMs', 'p99FrameMs', 'low1Fps', 'spikes', 'spikeLimitMs', 'worstFrameMs', 'gpuFrameMs', 'gpuFrameMedianMs', 'gpuSamples', 'gpuDisjointDropped', 'sgsrMs', 'sgsrMedianMs', 'drawCalls', 'triangles', 'low1Note', 'gpuNote'];
+const COLS = ['id', 'scenario', 'config', 'mode', 'internal', 'output', 'frames', 'seconds', 'avgFps', 'avgFrameMs', 'medianFrameMs', 'p99FrameMs', 'low1Fps', 'spikes', 'spikeLimitMs', 'worstFrameMs', 'gpuFrameMs', 'gpuFrameMedianMs', 'gpuSamples', 'gpuDisjointDropped', 'sgsrMs', 'sgsrMedianMs', 'drawCalls', 'triangles', 'low1Note', 'gpuNote'];
 export function toCSV(rep) {
   const esc = (v) => { if (v == null) return ''; const s = Array.isArray(v) ? v.join('x') : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   return [COLS.join(','), ...rep.results.map((r) => COLS.map((c) => esc(r[c])).join(','))].join('\n') + '\n';

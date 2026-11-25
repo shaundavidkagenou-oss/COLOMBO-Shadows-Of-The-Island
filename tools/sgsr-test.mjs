@@ -85,7 +85,7 @@ try {
   ok(rr.every((r) => r.frames > 0 && r.avgFps > 0 && r.medianFrameMs > 0 && r.drawCalls > 0 && r.triangles > 0), 'benchmark: frame times, draw calls and triangles recorded');
   ok(rr.every((r) => (r.gpuFrameMs != null && r.gpuSamples > 0) || /unavailable|no GPU samples/.test(r.gpuNote || '')), `benchmark: GPU time measured or honestly reported unavailable (${rr[0] && (rr[0].gpuNote || rr[0].gpuFrameMs + ' ms')})`);
   ok(rr.every((r) => r.low1Fps === null ? /not reliable/.test(r.low1Note) : r.low1Fps > 0), 'benchmark: 1% low only when there are enough frames');
-  ok(B.csv.split('\n').filter(Boolean).length === 3 && B.csv.startsWith('id,config,mode,internal,output'), 'benchmark: CSV with a header and one row per configuration');
+  ok(B.csv.split('\n').filter(Boolean).length === 3 && B.csv.startsWith('id,scenario,config,mode,internal,output'), 'benchmark: CSV with a header and one row per configuration');
   ok(B.modal, 'benchmark: the results window opens (JSON / CSV download buttons)');
   const a = B.after, b = B.before; ok(a.hour === b.hour && a.forced === b.forced && a.weather === b.weather && a.wet === b.wet && a.upscale === b.upscale && a.autoReset === b.autoReset && S(a.rt) === S(b.rt) && !a.override && !a.hook && !a.bench && !a.timer && a.hud !== 'hidden', `benchmark: everything restored afterwards (${S(a)})`);
   // context loss + restore (last: the game cannot rebuild its scene afterwards — its geometry's CPU copies are freed after upload —

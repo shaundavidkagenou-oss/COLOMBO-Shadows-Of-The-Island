@@ -103,7 +103,7 @@ export class HUD {
     for (const b of this.blips) {
       let [x, y] = toMini(b.x, b.z); const dx = x - S / 2, dy = y - S / 2, d = Math.hypot(dx, dy), R = S / 2 - 10; let edge = false; if (d > R && !(b.kind === 'objective' || b.kind === 'mission' || b.kind === 'waypoint' || b.kind === 'enemy' || b.kind === 'pickup')) continue; /* only story/route markers sit on the rim: collectibles, photo spots, shops show once in range (full map shows all) */ if (d > R) { x = S / 2 + dx / d * R; y = S / 2 + dy / d * R; edge = true; }
       if (b.kind === 'waypoint' || b.kind === 'pickup') { drawIcon(g, b.kind, x, y, edge ? 5 : 6.5); continue; }
-      g.fillStyle = { objective: '#ffb020', mission: '#f4efe6', side: '#5ac8a8', stamp: '#d8a0ff', photo: '#7ab8ff', shop: '#9ad06a', bank: '#cdb57a', enemy: '#ff4a3a' }[b.kind] || '#fff';
+      g.fillStyle = { objective: '#ffb020', mission: '#f4efe6', side: '#5ac8a8', stamp: '#d8a0ff', photo: '#7ab8ff', shop: '#9ad06a', bank: '#cdb57a', enemy: '#ff4a3a', fight: '#ff5a4a', race: '#c07aff' }[b.kind] || '#fff';
       g.strokeStyle = '#000'; g.lineWidth = 2; g.beginPath();
       if (b.kind === 'objective') { g.moveTo(x, y - 7); g.lineTo(x + 6, y); g.lineTo(x, y + 7); g.lineTo(x - 6, y); g.closePath(); } else g.arc(x, y, edge ? 3 : 4.5, 0, 7);
       g.stroke(); g.fill(); if (b.label && !edge && b.kind === 'mission') { g.font = 'bold 10px Manrope, sans-serif'; g.fillStyle = '#000'; g.fillText(b.label, x + 6, y + 4); g.fillStyle = '#fff'; g.fillText(b.label, x + 5, y + 3); }
