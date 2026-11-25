@@ -7,6 +7,16 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 
 const ROOT = path.join(__dirname, 'app');
+// Window / taskbar icon: the CD edition (build-cd.bat -> cd-installer.cjs) packs the Colombo logo and names it in
+// package.json "colomboIcon"; otherwise build/icon.png (present when run from source; packaged builds fall back to the
+// icon embedded in the .exe).
+const WIN_ICON = (() => {
+  try {
+    const p = require('./package.json').colomboIcon;
+    if (p && require('fs').existsSync(path.join(__dirname, p))) return path.join(__dirname, p);
+  } catch { /* no package metadata: default icon */ }
+  return path.join(__dirname, 'build', 'icon.png');
+})();
 protocol.registerSchemesAsPrivileged([{ scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, codeCache: true } }]);
 
 // Run everything that can run on the graphics card on it:
@@ -34,7 +44,7 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 function createWindow() {
   const win = new BrowserWindow({
     width: 1600, height: 900, minWidth: 1024, minHeight: 600, backgroundColor: '#000000', show: false,
-    title: 'COLOMBO: Shadows of the Island', icon: path.join(__dirname, 'build', 'icon.png'), autoHideMenuBar: true,
+    title: 'COLOMBO: Shadows of the Island', icon: WIN_ICON, autoHideMenuBar: true,
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
   win.once('ready-to-show', () => { win.maximize(); win.show(); });

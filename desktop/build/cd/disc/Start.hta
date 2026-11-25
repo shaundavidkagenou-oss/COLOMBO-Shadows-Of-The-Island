@@ -1,0 +1,40 @@
+<html>
+<head>
+<title>COLOMBO: Shadows of the Island</title>
+<HTA:APPLICATION ID="colombo" APPLICATIONNAME="COLOMBO Shadows of the Island" BORDER="dialog" CAPTION="yes" ICON="autorun.ico"
+  MAXIMIZEBUTTON="no" MINIMIZEBUTTON="yes" SCROLL="no" SINGLEINSTANCE="yes" SYSMENU="yes" INNERBORDER="no" CONTEXTMENU="no" SELECTION="no" />
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<style>
+  html, body { margin: 0; padding: 0; background: #000; color: #e8e8e8; font-family: "Segoe UI", Arial, sans-serif; text-align: center; overflow: hidden; }
+  #logo { width: 760px; margin: 14px auto 6px; display: block; }
+  .btn { display: inline-block; margin: 8px 6px; padding: 12px 28px; font-size: 18px; font-weight: bold; color: #fff; background: #b3121f;
+         border: 2px solid #e8aa28; cursor: pointer; letter-spacing: 1px; }
+  .btn:hover { background: #d81c2b; }
+  .alt { background: #1c1c1e; border-color: #555; font-size: 15px; padding: 10px 20px; }
+  .alt:hover { background: #2c2c2e; }
+  #foot { margin-top: 10px; font-size: 12px; color: #888; }
+</style>
+<script type="text/javascript">
+  var W = 820, H = 690;
+  try { window.resizeTo(W, H); window.moveTo((screen.availWidth - W) / 2, (screen.availHeight - H) / 2); } catch (e) {}
+  // the folder this menu was started from (the CD drive, e.g. D:)
+  function discDir() { var p = unescape(location.pathname).replace(/\//g, '\\').replace(/^\\+(?=[A-Za-z]:)/, ''); return p.substring(0, p.lastIndexOf('\\')); }
+  function run(cmd) { try { new ActiveXObject('WScript.Shell').Run(cmd, 1, false); } catch (e) { alert('Could not start: ' + cmd + '\n' + e.message); } }
+  function install() { run('"' + discDir() + '\\setup.exe"'); window.close(); }
+  function browse() { run('explorer.exe "' + discDir() + '"'); }
+  function readme() { run('notepad.exe "' + discDir() + '\\README.txt"'); }
+</script>
+</head>
+<body>
+  <img id="logo" src="logo.png" alt="COLOMBO: Shadows of the Island" />
+  <div>
+    <span class="btn" onclick="install()">INSTALL GAME</span>
+  </div>
+  <div>
+    <span class="btn alt" onclick="readme()">Read me</span>
+    <span class="btn alt" onclick="browse()">Browse this disc</span>
+    <span class="btn alt" onclick="window.close()">Exit</span>
+  </div>
+  <div id="foot">Shaun David Studios &middot; Windows 10 / 11 (64-bit)</div>
+</body>
+</html>

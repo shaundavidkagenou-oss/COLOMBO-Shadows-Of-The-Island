@@ -1,0 +1,5 @@
+[autorun]
+open=setup.exe
+icon=autorun.ico
+label=COLOMBO Shadows of the Island
+action=Install COLOMBO: Shadows of the Island
