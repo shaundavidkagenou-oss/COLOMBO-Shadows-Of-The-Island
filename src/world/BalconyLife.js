@@ -339,6 +339,14 @@ export function windowCurtain(solid, b, P, nrm, tan, ya, gTop, Wd, seed) {
 export function windowOpen(ax, az, iu, iv, wi) { const h = Math.sin(ax * 12.9898 + az * 78.233 + iu * 37.719 + iv * 11.13 + wi * 3.7) * 43758.5453; return h - Math.floor(h) < 0.09; }
 
 // ------------------------------------------------------------------------------------------------ anchors (sound, birds)
+// 93rd — window joinery built in a geometry worker (GeoWorker.js): the worker never makes the cloth / prop materials (no
+// textures or GPU objects off the main thread; nothing in the dressing reads them), and hands back the anchors and counters its
+// buildings produced, which the main thread files exactly as if it had dressed them itself
+export function geoWorkerMode() { ST.mats = ST.mats || { worker: true }; }
+export function takeAnchors(ids) { const out = []; for (const id of ids) { const a = ANCH.get(id); if (a) { out.push([id, a]); ANCH.delete(id); } } return out; }
+export function putAnchors(list) { for (const [id, a] of list) ANCH.set(id, a); }
+export function statsSnap() { return { ...ST.stats }; }
+export function addStats(d) { for (const k in d) if (k in ST.stats) ST.stats[k] += d[k]; }
 export function dropAnchors(buildings) { for (const b of buildings) ANCH.delete(b.id); }
 // anchors of a kind within r of (x, z) (out: reused array)
 export function anchorsNear(kind, x, z, r, out = []) { out.length = 0; for (const list of ANCH.values()) for (const A of list) { if (A.kind !== kind) continue; const p = A.p; if (Math.abs(p[0] - x) < r && Math.abs(p[2] - z) < r) out.push(A); } return out; }

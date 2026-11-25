@@ -45,3 +45,23 @@ export class RaceScene {
   info() { const I = this.g.activities.inst; return { scenario: 'R', label: this.label, route: 'marine', difficulty: this.diff, rivals: I ? I.cars.length : 0, hour: this.hour, rivalProgress: I ? I.cars.map((c) => (c.d ? +(c.d.prog / this.R.N).toFixed(2) : null)) : [] }; }
   teardown() { const g = this.g, M = g.activities, P = g.player; M.drop(); M.forced = M.forced.filter((e) => e !== this.ev); M.instant = false; if (this.saveP) { P.teleport(this.saveP.x, this.saveP.z, this.saveP.yaw); P.ch.root.visible = this.saveP.vis; } }
 }
+
+// 93rd — S: the CPU-worker benchmark's scenario. A street-level chase camera drives the Fort & Pettah circuit (the densest
+// streets: Fort / Pettah chunks of 200+ buildings) at 30 m/s, so district detail and window joinery stream in continuously while
+// traffic and pedestrians run around the camera. Before every configuration all streamed detail is dropped and the start area
+// rebuilt on the main thread, so each configuration streams exactly the same streets in the same order. The render mode stays
+// as set (the configurations differ only in the CPU worker count).
+export class StreamScene {
+  constructor(g) { this.g = g; this.id = 'S'; this.hour = 16.5; this.speed = 30; this.label = 'Streaming drive (Fort & Pettah circuit, 30 m/s, street level, 16:30)'; this._c = { x: 0, y: 0, z: 0, ok: false }; }
+  canRun() { return null; }
+  async setup() { const { buildRoute, STEP } = await import('../activities/RaceRoutes.js'); this.R = buildRoute('fort'); this.step_ = STEP; }
+  points() { return []; } // nothing pinned: streaming is what is measured
+  at(t) { const R = this.R; const f = (R.startI + (t * this.speed) / this.step_) % R.N; return Math.floor(f); }
+  async reset() { const g = this.g, W = g.world, R = this.R; W.dropStreaming(); const i = this.at(0); W.warm(R.cx[i], R.cz[i]); this._c.ok = false; }
+  step() {}
+  fly(t, cam, dt) { const R = this.R, i = this.at(t), j = (i + 6) % R.N; const x = R.cx[i], z = R.cz[i], fx = R.cx[j] - x, fz = R.cz[j] - z, L = Math.hypot(fx, fz) || 1, ux = fx / L, uz = fz / L; const c = this._c;
+    const tx = x - ux * 9.5, tz = z - uz * 9.5, k = c.ok ? Math.min(1, (dt || 0.016) * 5) : 1; c.x = lerp(c.x, tx, k); c.y = lerp(c.y, 3.6, k); c.z = lerp(c.z, tz, k); c.ok = true;
+    cam.position.set(c.x, c.y, c.z); cam.lookAt(x + ux * 6, 1.2, z + uz * 6); cam.updateMatrixWorld(); this.g.focus = { x: x + ux * 25, z: z + uz * 25 }; }
+  info() { return { scenario: 'S', label: this.label, route: 'fort', speed: this.speed, hour: this.hour }; }
+  teardown() {}
+}

@@ -17,7 +17,8 @@ import { GpuTimer } from './GpuTimer.js';
 import { gpuInfo } from './GpuInfo.js';
 import { RNG } from '../core/rng.js';
 import { Settings } from '../core/Settings.js';
-import { FightScene, RaceScene } from './BenchScenes.js';
+import { FightScene, RaceScene, StreamScene } from './BenchScenes.js';
+import { setWorkerOverride, poolStats, CPU } from '../core/WorkerPool.js';
 import { BUILDS } from '../core/FrameBudget.js';
 
 export const BENCH_CONFIGS = [
@@ -26,6 +27,15 @@ export const BENCH_CONFIGS = [
   { id: 'C', label: 'SGSR 90% (Quality)', mode: 'sgsr90' },
   { id: 'D', label: 'SGSR 85% (Balanced)', mode: 'sgsr85' },
   { id: 'E', label: 'SGSR 80% (Performance)', mode: 'sgsr80' },
+];
+// 93rd: the CPU-worker comparison (`bench cpu`, Settings → Graphics → Run CPU benchmark): A = the original main-thread code paths,
+// B–E = 2–5 background compute workers. The render mode is the player's own setting throughout; scenario S (StreamScene).
+export const CPU_CONFIGS = [
+  { id: 'A', label: 'Original (main thread, 0 workers)', workers: 0 },
+  { id: 'B', label: '2 CPU workers', workers: 2 },
+  { id: 'C', label: '3 CPU workers', workers: 3 },
+  { id: 'D', label: '4 CPU workers', workers: 4 },
+  { id: 'E', label: '5 CPU workers', workers: 5 },
 ];
 // the flythrough: Galle Road (x = −400) from Kollupitiya north to the Galle Face end, 6–9 m up, then out over the green toward the
 // sea. [x, y, z] camera points; the camera looks along the path (ahead + slightly down) with a slow side-to-side sweep.
@@ -53,10 +63,11 @@ const r2 = (v) => (v == null || !Number.isFinite(v) ? null : Math.round(v * 100)
 export class Benchmark {
   constructor(g, opts = {}) {
     this.g = g; this.sec = Math.max(5, Math.min(600, +opts.seconds || +Settings.get('benchSec') || 30)); this.warm = Math.max(1, Math.min(60, +opts.warmup || +Settings.get('benchWarm') || 5));
-    this.configs = (opts.configs ? BENCH_CONFIGS.filter((c) => opts.configs.includes(c.id)) : BENCH_CONFIGS).slice(); this.results = []; this.aborted = false;
+    const sc0 = String(opts.scene || 'city').toLowerCase(); this.cpu = !!opts.cpu || sc0 === 'cpu' || sc0 === 's'; const CF = this.cpu ? CPU_CONFIGS : BENCH_CONFIGS;
+    this.configs = (opts.configs ? CF.filter((c) => opts.configs.includes(c.id)) : CF).slice(); this.results = []; this.aborted = false;
     // 92nd: scenario — 'city' (the Galle Road flythrough), 'fight' (F) or 'race' / 'race-expert' (R): BenchScenes.js
-    const sc = String(opts.scene || 'city').toLowerCase(); this.sceneId = sc; this.scene = sc === 'fight' || sc === 'f' ? new FightScene(g) : sc.startsWith('race') || sc === 'r' ? new RaceScene(g, sc.includes('expert') ? 'expert' : 'hard') : null;
-    const cap = Math.ceil(this.sec * 500) + 64; this.ft = new Float32Array(cap); this.gt = new Float32Array(cap); this.gs = new Float32Array(cap); // preallocated: no per-frame allocation
+    const sc = String(opts.scene || 'city').toLowerCase(); this.sceneId = sc; this.scene = this.cpu ? new StreamScene(g) : sc === 'fight' || sc === 'f' ? new FightScene(g) : sc.startsWith('race') || sc === 'r' ? new RaceScene(g, sc.includes('expert') ? 'expert' : 'hard') : null;
+    const cap = Math.ceil(this.sec * 500) + 64; this.ft = new Float32Array(cap); this.gt = new Float32Array(cap); this.gs = new Float32Array(cap); this.mt = new Float32Array(cap); // preallocated: no per-frame allocation
     this._p = [0, 0, 0]; this._q = [0, 0, 0]; this._v = new THREE.Vector3();
   }
   static canRun(g, scene) {
@@ -71,7 +82,7 @@ export class Benchmark {
     const g = this.g, A = g.atmos, R = g.renderer, W = g.world;
     const SC = this.scene, hour = SC ? SC.hour : HOUR; const why = Benchmark.canRun(g, SC); if (why) { g.hud && g.hud.notify('Benchmark', why, 'warn', 3); return null; }
     // save what is changed
-    const save = { hour: A.hour, day: A.day, forced: A.forced, weather: A.weather, target: A.target, w: { ...A.w }, wet: A.wet, dynK: g.dynK, autoReset: R.info.autoReset, hud: g.hud && g.hud.root ? g.hud.root.style.visibility : '', focus: g.focus, tMax: g.traffic.max, override: g.renderOverride };
+    const save = { hour: A.hour, day: A.day, forced: A.forced, weather: A.weather, target: A.target, w: { ...A.w }, wet: A.wet, dynK: g.dynK, autoReset: R.info.autoReset, hud: g.hud && g.hud.root ? g.hud.root.style.visibility : '', focus: g.focus, tMax: g.traffic.max, override: g.renderOverride, workers: CPU.override };
     g.bench = this; g.dynK = 1; R.info.autoReset = false; if (g.hud && g.hud.root) g.hud.root.style.visibility = 'hidden';
     const overlay = this.overlay(); const kept = [];
     const timer = new GpuTimer(R.getContext()); g.post.setTimer(null);
@@ -81,7 +92,7 @@ export class Benchmark {
       // the previous frame's totals (info is reset here, before this frame draws)
       if (phase === 'measure' && infoN >= 0) { calls += R.info.render.calls; tris += R.info.render.triangles; infoN++; }
       R.info.reset();
-      if (phase === 'measure') { const raw = g.rawDt; if (raw > 0 && n < this.ft.length) this.ft[n++] = raw * 1000; for (const r of timer.take()) { if (r.tag !== cfg.id) continue; if (gpuN < this.gt.length) this.gt[gpuN++] = r.total; if (r.sgsr !== undefined && sgN < this.gs.length) this.gs[sgN++] = r.sgsr; } }
+      if (phase === 'measure') { const raw = g.rawDt; if (raw > 0 && n < this.ft.length) { const M = g.cpuMon; this.mt[n] = M && M.n ? M.mt[(M.i + M.mt.length - 1) % M.mt.length] : 0; this.ft[n++] = raw * 1000; } /* 93rd: + the previous frame's main-thread ms (Game.loop → cpuMon) */ for (const r of timer.take()) { if (r.tag !== cfg.id) continue; if (gpuN < this.gt.length) this.gt[gpuN++] = r.total; if (r.sgsr !== undefined && sgN < this.gs.length) this.gs[sgN++] = r.sgsr; } }
       else timer.take();
       if (SC) BUILDS.begin(); /* 92nd: the one-heavy-build-per-frame token (updatePlay is not running) */ if (!SC) this.fly(t); t += dt; A.hour = hour; A.wet = 0;
       g.updateAmbient(dt); // the living city (traffic, pedestrians, trains, world streaming, atmosphere, audio) — like the menu backdrop
@@ -94,11 +105,11 @@ export class Benchmark {
       if (SC) { phase = 'setup'; overlay.set('Preparing the scenario…'); await SC.setup(frame, overlay); phase = 'prep'; } // (setup steps the activity itself)
       overlay.set('Preparing the streets…'); await this.prepare(frame, kept, overlay); if (this.aborted) throw new Error('aborted');
       for (let ci = 0; ci < this.configs.length && !this.aborted; ci++) {
-        cfg = this.configs[ci]; g.renderOverride = cfg.mode; g.applyPR(); g.post.setTimer(timer); g.post.timerTag = cfg.id + ':warm';
+        cfg = this.configs[ci]; if (this.cpu) setWorkerOverride(cfg.workers); else { g.renderOverride = cfg.mode; g.applyPR(); } g.post.setTimer(timer); g.post.timerTag = cfg.id + ':warm';
         // the same start for every configuration: path start, street life cleared, re-seeded and settled
         phase = 'settle'; t = 0; if (SC) { await SC.reset(); SC.fly(0, g.camera, 0); } else this.fly(0); this.resetLife();
         phase = 'warm'; let w = 0; while (w < this.warm && !this.aborted) { w += await frame(); overlay.set(`${cfg.id} · ${cfg.label} — warming up ${Math.ceil(this.warm - w)} s`, ci, this.configs.length); }
-        t = 0; if (!SC) this.fly(0); n = 0; gpuN = 0; sgN = 0; calls = 0; tris = 0; infoN = -1; timer.take(); const dis0 = timer.disjoint; g.post.timerTag = cfg.id; phase = 'measure';
+        t = 0; if (!SC) this.fly(0); this.pool0 = this.poolSnap(); n = 0; gpuN = 0; sgN = 0; calls = 0; tris = 0; infoN = -1; timer.take(); const dis0 = timer.disjoint; g.post.timerTag = cfg.id; phase = 'measure';
         let m = 0; while (m < this.sec && !this.aborted) { m += await frame(); if (infoN < 0) infoN = 0; overlay.set(`${cfg.id} · ${cfg.label} — measuring ${Math.ceil(this.sec - m)} s`, ci + m / this.sec, this.configs.length); }
         phase = 'drain'; g.post.timerTag = 'drain'; for (let i = 0; i < 6; i++) { await frame(); timer.poll(); for (const r of timer.take()) { if (r.tag !== cfg.id) continue; if (gpuN < this.gt.length) this.gt[gpuN++] = r.total; if (r.sgsr !== undefined && sgN < this.gs.length) this.gs[sgN++] = r.sgsr; } } // queries of the last measured frames
         if (this.aborted) break;
@@ -109,7 +120,7 @@ export class Benchmark {
       removeEventListener('keydown', onKey, true); g.benchHook = null; if (SC) { try { this.sceneInfo = SC.info(); SC.teardown(); } catch (e) { console.error(e); } } g.post.setTimer(null); g.post.timerTag = undefined; timer.dispose();
       for (const c of kept) c.keep = false;
       A.forceWeather(save.forced); A.weather = save.weather; A.target = save.target; Object.assign(A.w, save.w); A.wet = save.wet; A.hour = save.hour; A.day = save.day;
-      g.traffic.max = save.tMax; g.renderOverride = save.override; g.dynK = save.dynK; R.info.autoReset = save.autoReset; R.info.reset(); g.focus = save.focus;
+      g.traffic.max = save.tMax; g.renderOverride = save.override; if (this.cpu) setWorkerOverride(save.workers); g.dynK = save.dynK; R.info.autoReset = save.autoReset; R.info.reset(); g.focus = save.focus;
       if (g.hud && g.hud.root) g.hud.root.style.visibility = save.hud; g.bench = null; g.applyPR(); overlay.remove();
     }
     const report = this.report(timer.ok);
@@ -149,11 +160,13 @@ export class Benchmark {
     let low1 = null, low1Note = null;
     if (F && n >= 1000) { const k = Math.max(1, Math.floor(n * 0.01)); let s = 0; for (let i = n - k; i < n; i++) s += F.sorted[i]; low1 = 1000 / (s / k); }
     else low1Note = `not reliable with ${n} frames (needs ≥ 1000: lengthen the duration)`;
+    let o16 = 0, o33 = 0; for (let i = 0; i < n; i++) { const v = this.ft[i]; if (v > 16.67) o16++; if (v > 33.4) o33++; } const Mn = stats(this.mt, n), P1 = this.poolSnap(), P0 = this.pool0 || P1;
+    const wj = P1.done - P0.done, cpu = { workers: cfg.workers ?? CPU.override ?? 'auto', poolSize: P1.size, mainMs: Mn ? r2(Mn.mean) : null, mainP99Ms: Mn ? r2(Mn.p99) : null, mainMaxMs: Mn ? r2(Mn.max) : null, workerJobs: wj, workerJobMs: wj > 0 ? r2((P1.ms - P0.ms) / wj) : null, workerJobMaxMs: P1.size || wj ? r2(P1.maxMs) : null };
     let spikes = 0, worst = 0; const lim = F ? Math.max(2 * F.median, F.median + 10) : 0; for (let i = 0; i < n; i++) { const v = this.ft[i]; if (v > lim) spikes++; if (v > worst) worst = v; }
     return {
-      id: cfg.id, scenario: this.scene ? this.scene.id : 'city', config: cfg.label, mode: cfg.mode, internal: res.internal, output: res.output, sgsr: !!res.sgsr,
+      id: cfg.id, scenario: this.scene ? this.scene.id : 'city', config: cfg.label, mode: cfg.mode || this.g.renderOverride || Settings.get('upscale'), internal: res.internal, output: res.output, sgsr: !!res.sgsr,
       frames: n, seconds: F ? r2(F.sum / 1000) : 0,
-      avgFps: F ? r2(n / (F.sum / 1000)) : null, avgFrameMs: F ? r2(F.mean) : null, medianFrameMs: F ? r2(F.median) : null, p99FrameMs: F ? r2(F.p99) : null,
+      avgFps: F ? r2(n / (F.sum / 1000)) : null, avgFrameMs: F ? r2(F.mean) : null, medianFrameMs: F ? r2(F.median) : null, p99FrameMs: F ? r2(F.p99) : null, over16: o16, over33: o33, ...cpu,
       low1Fps: r2(low1), low1Note, spikes, spikeLimitMs: r2(lim), worstFrameMs: r2(worst),
       drawCalls: infoN > 0 ? Math.round(calls / infoN) : null, triangles: infoN > 0 ? Math.round(tris / infoN) : null,
       gpuFrameMs: G ? r2(G.mean) : null, gpuFrameMedianMs: G ? r2(G.median) : null, gpuSamples: gpuN, gpuDisjointDropped: disjoint,
@@ -161,10 +174,12 @@ export class Benchmark {
       gpuNote: !timer.ok ? 'GPU timing unavailable: EXT_disjoint_timer_query_webgl2 is not exposed by this browser / driver' : gpuN === 0 ? 'no GPU samples (all disjoint or still pending)' : null,
     };
   }
+  // totals over every running worker pool (jobs done, their summed / worst in-worker ms, threads)
+  poolSnap() { let done = 0, ms = 0, maxMs = 0, size = 0; for (const p of poolStats()) { done += p.done; ms += p.avgMs * p.done; maxMs = Math.max(maxMs, p.maxMs); size += p.size; } return { done, ms, maxMs, size }; }
   report(timerOk) {
     const g = this.g, gi = gpuInfo(g.renderer);
     return {
-      game: 'COLOMBO: Shadows of the Island', kind: 'render benchmark', date: new Date().toISOString(), aborted: this.aborted,
+      game: 'COLOMBO: Shadows of the Island', kind: this.cpu ? 'CPU worker benchmark' : 'render benchmark', hardwareConcurrency: CPU.hwc, date: new Date().toISOString(), aborted: this.aborted,
       gpu: gi.label, api: gi.api, userAgent: navigator.userAgent, devicePixelRatio: devicePixelRatio, canvasCss: [innerWidth, innerHeight],
       quality: Settings.get('quality'), sgsrSharpness: +Settings.get('sgsrSharpness') || 2, sgsrVariant: Settings.get('sgsrEdgeDir') === false ? 'base' : 'edge-direction',
       seconds: this.sec, warmup: this.warm, scene: { ...(this.sceneInfo || { scenario: 'city', path: 'Galle Road flythrough (ping-pong, 10 m/s)', hour: HOUR }), weather: WEATHER, wet: 0, trafficMax: g.traffic.max, crowdMax: g.crowd.max }, gpuTimer: timerOk,
@@ -193,7 +208,7 @@ export class Benchmark {
     m.querySelector('.bx').onclick = () => m.remove();
   }
 }
-const COLS = ['id', 'scenario', 'config', 'mode', 'internal', 'output', 'frames', 'seconds', 'avgFps', 'avgFrameMs', 'medianFrameMs', 'p99FrameMs', 'low1Fps', 'spikes', 'spikeLimitMs', 'worstFrameMs', 'gpuFrameMs', 'gpuFrameMedianMs', 'gpuSamples', 'gpuDisjointDropped', 'sgsrMs', 'sgsrMedianMs', 'drawCalls', 'triangles', 'low1Note', 'gpuNote'];
+const COLS = ['id', 'scenario', 'config', 'mode', 'internal', 'output', 'workers', 'poolSize', 'frames', 'seconds', 'avgFps', 'avgFrameMs', 'medianFrameMs', 'p99FrameMs', 'low1Fps', 'over16', 'over33', 'mainMs', 'mainP99Ms', 'mainMaxMs', 'workerJobs', 'workerJobMs', 'workerJobMaxMs', 'spikes', 'spikeLimitMs', 'worstFrameMs', 'gpuFrameMs', 'gpuFrameMedianMs', 'gpuSamples', 'gpuDisjointDropped', 'sgsrMs', 'sgsrMedianMs', 'drawCalls', 'triangles', 'low1Note', 'gpuNote'];
 export function toCSV(rep) {
   const esc = (v) => { if (v == null) return ''; const s = Array.isArray(v) ? v.join('x') : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   return [COLS.join(','), ...rep.results.map((r) => COLS.map((c) => esc(r[c])).join(','))].join('\n') + '\n';

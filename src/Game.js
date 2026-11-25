@@ -115,6 +115,8 @@ import { OCC_CFG, OCC_STATS } from './gfx/Occlusion.js';
 import { LIVE as BODIES } from './actors/Bodies.js';
 import { TexLib } from './gfx/TexLib.js'; // 83rd: shared 2048² KTX2 atlases (balcony life, birds, vehicle detail)
 import { ActivityManager } from './activities/ActivityManager.js'; // 92nd: underground fight nights + street-race meets
+import { setWorkerOverride } from './core/WorkerPool.js'; // 93rd: the background compute thread budget (Settings → Graphics → CPU worker threads)
+import { FrameMon, CpuPanel } from './ui/CpuPanel.js'; // 93rd: in-game CPU diagnostics
 import { CityEvents } from './world/CityEvents.js'; // 81st: dynamic city events (manager, sites, people, phone app data)
 
 const VNAMES = { tuktuk: 'Three-wheeler', car: 'Hatchback', sedan: 'Sedan', taxi: 'Taxi', van: 'Van', suv: 'SUV', bus: 'SLTB bus', pbus: 'Private bus', lorry: 'Lorry', tow: 'Tow truck', rsvan: 'Roadside service van', flatbed: 'Recovery flatbed', bike: 'Motorcycle', dbike: "Dineth's Bike", police: 'Police car', policejeep: 'Police jeep', policebike: 'Police motorcycle' };
@@ -148,6 +150,7 @@ export class Game {
     this.screens = new Screens(this.ui, this);
     addEventListener('resize', () => this.resize());
     bus.on('settings', (k) => this.applySettings(k));
+    this.cpuMon = new FrameMon(); setWorkerOverride(Settings.get('cpuWorkers')); if (Settings.get('cpuPanel')) this.applySettings('cpuPanel'); // 93rd: frame / main-thread timing for the CPU panel and benchmark
     this.canvas.addEventListener('click', () => { if (this.mode === 'play' && !this.paused && !this.editorHook && !this.customs?.uiOpen) Input.requestLock(this.canvas); });
     bus.on('pointerlock', (locked) => { if (!locked && this.mode === 'play' && !this.paused && !this.photo && !this.hud.bigMapOpen && !this.director.active && !this.ignoreUnlock && !this.gunShop?.open && !this.store?.open && !this.atm?.open && !this.customs?.active && !this.debugCon?.menuOpen && !this.debugCon?.open && !this.editorHook) this.openPause(); });
     bus.on('key', (code) => this.onKey(code));
@@ -486,7 +489,7 @@ export class Game {
     const r = await this.screens.pause(); this.paused = false; this.last = performance.now();
     if (r.action === 'map') { this.toggleMap(true); }
     else if (r.action === 'load') { sessionStorage.setItem('colombo.next', JSON.stringify({ action: 'load', slot: r.slot })); location.reload(); }
-    else if (r.action === 'benchmark') { this.runBenchmark({ scene: Settings.get('benchScene') || 'city' }); } // 91st: Settings → Graphics → Run benchmark (src/gfx/Benchmark.js)
+    else if (r.action === 'benchmark') { this.runBenchmark({ scene: Settings.get('benchScene') || 'city' }); } else if (r.action === 'benchmark-cpu') { this.runBenchmark({ scene: 'cpu' }); } // 93rd: CPU worker benchmark // 91st: Settings → Graphics → Run benchmark (src/gfx/Benchmark.js)
     else if (r.action === 'textures') { openTextureStudio(this).catch((e) => { console.error(e); this.hud.notify('Texture Studio failed to load', String((e && e.message) || e), 'warn'); }); } // dev builds only (src/debug/boot.js TEXTURE_STUDIO)
     else if (r.action === 'menu') { this.autosave(); sessionStorage.setItem('colombo.next', JSON.stringify({ action: 'menu' })); location.reload(); }
     else { this.ignoreUnlock = true; Input.requestLock(this.canvas); setTimeout(() => (this.ignoreUnlock = false), 300); }
@@ -517,7 +520,7 @@ export class Game {
     const now = performance.now(); const raw = (now - this.last) / 1000; this.last = now; this.rawDt = raw; /* 91st: the benchmark records the unclamped frame interval */ const dt = Math.min(TEST ? 0.5 : 0.05, Math.max(0.0005, raw));
     this.fps = lerp(this.fps, 1 / Math.max(raw, 1e-3), 0.05); this.dynRes(Math.min(raw, 0.25));
     Input.pollGamepad();
-    this.frameStep(dt);
+    const t0 = performance.now(); this.frameStep(dt); this.cpuMon.add(raw * 1000, performance.now() - t0); // 93rd: frame interval + main-thread time of this frame (sim + draw submission)
     Input.endFrame();
   }
   // one frame of simulation + drawing with a given timestep: the rAF loop above, and the trailer's MP4 export
@@ -778,6 +781,8 @@ export class Game {
   // ================================================================= settings
   applyDensity() { const pr = Settings.preset; this.crowd.max = Math.round(pr.crowd * 0.45 * Settings.get('crowdDensity')); this.traffic.max = Math.round(pr.traffic * Settings.get('trafficDensity')); }
   applySettings(k) {
+    if (k === 'cpuWorkers' || k === '*') setWorkerOverride(Settings.get('cpuWorkers')); // 93rd: live (the geometry pool grows / shrinks; 0 = the main-thread paths)
+    if (k === 'cpuPanel' || k === '*') { if (Settings.get('cpuPanel')) (this.cpuPanel || (this.cpuPanel = new CpuPanel(this))).show(true); else if (this.cpuPanel) this.cpuPanel.show(false); }
     const pr = Settings.preset; if (!this.post) return;
     if (k === 'quality' || k === 'resolutionScale' || k === '*') { this.renderer.setPixelRatio(this.outPR()); this.renderer.shadowMap.enabled = pr.shadows; this.atmos.setShadowQuality(pr.shadows, pr.shadowRes); /* the preset's sun shadow resolutions, near + far (was only applied at start-up) */ this.atmos.drawDist = pr.drawDist; this.world.setQuality(Settings.get('quality')); this.post.build({ bloom: pr.bloom, ao: pr.ao, cine: pr.cine }); this.resize(); this.scene.traverse((o) => { if (o.material && o.material.needsUpdate !== undefined && k === 'quality') o.material.needsUpdate = true; }); }
     if (k === 'upscale' || k === 'sgsrSharpness' || k === 'sgsrEdgeDir' || k === '*') this.applyPR(); // 91st: live — the composer's targets resize, the SGSR pass is added / removed

@@ -121,6 +121,20 @@ export class GrowBuf {
     this.length = L + n; return this.length;
   }
   view() { return this.a.subarray(0, this.length); }
+  // 93rd: a finished buffer handed over by a geometry worker (GeoWorker.js) — exactly sized, owned by this thread now
+  static wrap(a) { const g = Object.create(GrowBuf.prototype); g.T = a.constructor; g.a = a; g.length = a.length; return g; }
+}
+// 93rd: a material's finished buffers as a geometry worker built them (transferred, not copied). It reads like a pooled builder
+// to the streaming merge (World.stepJob: .length / .view() / vcount); `owned` lets SliceBuild use the arrays as they are.
+export class ArrayBuilder {
+  constructor(pos, nor, uv, col, idx) { this.pos = GrowBuf.wrap(pos); this.nor = GrowBuf.wrap(nor); this.uv = GrowBuf.wrap(uv); this.col = GrowBuf.wrap(col); this.idx = GrowBuf.wrap(idx); this.owned = true; }
+  get vcount() { return this.pos.length / 3; }
+}
+// a MultiBuilder-shaped holder of ArrayBuilders (one per material key); release() just lets the buffers go (nothing to pool)
+export class ArrayMulti {
+  constructor(list) { this.b = new Map(); this.plain = new Map(); for (const e of list) { this.b.set(e.k, new ArrayBuilder(e.pos, e.nor, e.uv, e.col, e.idx)); this.plain.set(e.k, e.plain); } }
+  release(k) { this.b.delete(k); }
+  releaseAll() { this.b.clear(); }
 }
 class PooledMeshBuilder extends MeshBuilder {
   constructor() { super(); this.pos = new GrowBuf(Float32Array, 12288); this.nor = new GrowBuf(Float32Array, 12288); this.uv = new GrowBuf(Float32Array, 8192); this.col = new GrowBuf(Float32Array, 12288); this.idx = new GrowBuf(Uint32Array, 24576); }
@@ -135,7 +149,8 @@ class PooledMeshBuilder extends MeshBuilder {
 }
 // one free builder per material key (the next chunk's 'concrete' reuses this chunk's buffers), least recently used dropped
 // beyond POOL_CAP bytes of buffers
-const POOL_CAP = 160 * 1048576; const pool = new Map(); let poolBytes = 0;
+let POOL_CAP = 160 * 1048576; const pool = new Map(); let poolBytes = 0;
+export function setPoolCap(bytes) { POOL_CAP = bytes; } // 93rd: geometry workers keep a smaller pool each (GeoWorker.js)
 function takePooled(k) { const b = pool.get(k); if (b) { pool.delete(k); poolBytes -= b.bytes(); return b.reset(); } for (const [k2, b2] of pool) { if (b2.bytes() <= 4 * 1048576) { pool.delete(k2); poolBytes -= b2.bytes(); return b2.reset(); } } return new PooledMeshBuilder(); }
 function givePooled(k, b) { if (!(b instanceof PooledMeshBuilder)) return; const old = pool.get(k); if (old === b) return; if (old) { poolBytes -= old.bytes(); pool.delete(k); } b.reset(); pool.set(k, b); poolBytes += b.bytes(); for (const [k2, b2] of pool) { if (poolBytes <= POOL_CAP || b2 === b) break; pool.delete(k2); poolBytes -= b2.bytes(); } }
 export function builderPoolStats() { return { builders: pool.size, MB: +(poolBytes / 1048576).toFixed(1) }; }
@@ -211,9 +226,10 @@ export function meshFor(name, g, materials, opts = {}) {
 // and converting that in one go stalled a frame for 100-250 ms. step() copies until the time budget runs out.
 export class SliceBuild {
   constructor(mb) { this.mb = mb; const n = mb.pos.length; this.empty = !n; this.a = 0; this.o = 0;
-    this.arr = n ? [[mb.pos, new Float32Array(n)], [mb.nor, new Float32Array(mb.nor.length)], [mb.uv, new Float32Array(mb.uv.length)], [mb.col, new Float32Array(mb.col.length)], [mb.idx, mb.vcount > 65535 ? new Uint32Array(mb.idx.length) : new Uint16Array(mb.idx.length)]] : []; }
+    this.arr = !n || mb.owned ? [] : [[mb.pos, new Float32Array(n)], [mb.nor, new Float32Array(mb.nor.length)], [mb.uv, new Float32Array(mb.uv.length)], [mb.col, new Float32Array(mb.col.length)], [mb.idx, mb.vcount > 65535 ? new Uint32Array(mb.idx.length) : new Uint16Array(mb.idx.length)]];
+    if (n && mb.owned) this.arr = [[mb.pos, mb.pos.a], [mb.nor, mb.nor.a], [mb.uv, mb.uv.a], [mb.col, mb.col.a], [mb.idx, mb.vcount > 65535 ? mb.idx.a : new Uint16Array(mb.idx.length)]]; } // 93rd: worker buffers are used as they are (no copy; same values / types)
   step(t0, budgetMs) {
-    while (this.a < this.arr.length) { const [src, dst] = this.arr[this.a]; const end = Math.min(src.length, this.o + 131072); if (src instanceof GrowBuf) dst.set(src.a.subarray(this.o, end), this.o); else for (let i = this.o; i < end; i++) dst[i] = src[i]; this.o = end; if (end >= src.length) { this.a++; this.o = 0; } if (performance.now() - t0 > budgetMs) return false; }
+    while (this.a < this.arr.length) { const [src, dst] = this.arr[this.a]; if (src.a === dst) { this.a++; this.o = 0; continue; } const end = Math.min(src.length, this.o + 131072); if (src instanceof GrowBuf) dst.set(src.a.subarray(this.o, end), this.o); else for (let i = this.o; i < end; i++) dst[i] = src[i]; this.o = end; if (end >= src.length) { this.a++; this.o = 0; } if (performance.now() - t0 > budgetMs) return false; }
     // bounding box, then bounding sphere (the same values computeBoundingBox / computeBoundingSphere give), also in slices
     if (this.empty) return true; const P = this.arr[0][1];
     if (!this.bb) this.bb = { i: 0, mn: [Infinity, Infinity, Infinity], mx: [-Infinity, -Infinity, -Infinity], r2: 0, j: 0, c: null };

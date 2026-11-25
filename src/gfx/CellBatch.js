@@ -76,23 +76,74 @@ export function disposeMesh(m) { if (m.isBatchedMesh) m.dispose(); else if (m.ge
 // SliceBuild, so streaming stays hitch-free). Same vertices, same triangles; only the culling granularity changes.
 // 65th: opts.kind ('detail' | 'win') + opts.ids (range → building id) install the per-instance occlusion / LOD culling
 // (BatchCull.js); kind 'detail' also orders every building's triangles coarse-first (BatchCull.coarseFirst) for its LOD.
+const ADOPT_OK = THREE.REVISION === '186'; // RangeBatch.adopt fills BatchedMesh internals as r186's addGeometry does (other versions: the copying path)
 export class RangeBatch {
   constructor(g, ranges, material, opts = null) {
     this.g = g; this.ranges = ranges; this.i = 0; let nv = 0, ni = 0; for (const r of ranges) { nv += r[1] - r[0]; ni += r[3] - r[2]; }
     this.opts = opts; this.coarse = []; this.bid = new Int32Array(ranges.length).fill(-1);
     this.mesh = new THREE.BatchedMesh(ranges.length, nv, ni, material); this.mesh.perObjectFrustumCulled = true;
     this.IA = nv > 65535 ? Uint32Array : Uint16Array; this.names = Object.keys(g.attributes);
+    // 93rd: a geometry worker's precomputed per-building data (rangePre below) — used only if it matches these ranges exactly
+    const P = opts && opts.pre; this.pre = P && P.n === ranges.length && P.ni === ni && P.idx instanceof this.IA ? P : null;
+    if (this.pre) { this.off = new Int32Array(ranges.length); let o = 0; for (let i = 0; i < ranges.length; i++) { this.off[i] = o; o += ranges[i][3] - ranges[i][2]; } }
+  }
+  // 93rd: contiguous ranges prepared by a geometry worker: the merged buffers ARE the batch's buffers (vertex order unchanged; the
+  // worker wrote the batch index: vertexStart + rebased, coarse-first). The geometry table is filled exactly as addGeometry fills
+  // it (three r186 BatchedMesh), without allocating and copying the material a second time (tens of MB a chunk: GC pauses)
+  adopt() {
+    const g = this.g, B = this.mesh, P = this.pre, R = this.ranges, O = this.opts; if (!ADOPT_OK || !Array.isArray(B._geometryInfo) || B._geometryInitialized || B._geometryCount) return false;
+    let nv = 0; for (const r of R) nv += r[1] - r[0];
+    for (const n of this.names) { const A = g.attributes[n]; B.geometry.setAttribute(n, new THREE.BufferAttribute(A.array.subarray(0, nv * A.itemSize), A.itemSize, A.normalized)); }
+    B.geometry.setIndex(new THREE.BufferAttribute(P.idx, 1)); B._geometryInitialized = true;
+    for (let ri = 0; ri < R.length; ri++) { const [v0, v1, i0, i1] = R[ri], b = P.gb, q = P.gs, o = ri * 6, u = ri * 4;
+      const gi = { vertexStart: v0, vertexCount: v1 - v0, reservedVertexCount: v1 - v0, indexStart: i0, indexCount: i1 - i0, reservedIndexCount: i1 - i0, start: i0, count: i1 - i0,
+        boundingBox: new THREE.Box3(new THREE.Vector3(b[o], b[o + 1], b[o + 2]), new THREE.Vector3(b[o + 3], b[o + 4], b[o + 5])), boundingSphere: new THREE.Sphere(new THREE.Vector3(q[u], q[u + 1], q[u + 2]), q[u + 3]), active: true };
+      const gid = B._geometryCount++; B._geometryInfo.push(gi); B._nextVertexStart = v1; B._nextIndexStart = i1; const iid = B.addInstance(gid);
+      if (O && O.kind === 'detail') this.coarse[gid] = P.coarse[ri];
+      if (O && O.ids) { const id = O.ids[ri] ?? -1; this.bid[iid] = id; if (id >= 0) { const v = P.vbox; if (!(O.occ && O.occ.growTarget(id, v[o], v[o + 3], v[o + 2], v[o + 5], v[o + 4]))) this.bid[iid] = -1; } } }
+    B._visibilityChanged = true; this.i = R.length; return true;
   }
   step(t0, budgetMs) {
     const g = this.g, I = g.index.array, B = this.mesh;
+    if (this.pre && this.pre.batch && this.i === 0 && !this.triedAdopt) { this.triedAdopt = true; this.adopt(); }
     while (this.i < this.ranges.length) { const [v0, v1, i0, i1] = this.ranges[this.i++]; const cg = new THREE.BufferGeometry();
       for (const n of this.names) { const A = g.attributes[n], s = A.itemSize; cg.setAttribute(n, new THREE.BufferAttribute(A.array.subarray(v0 * s, v1 * s), s, A.normalized)); }
-      const ix = new this.IA(i1 - i0); for (let k = i0; k < i1; k++) ix[k - i0] = I[k] - v0;
-      const O = this.opts; const coarse = O && O.kind === 'detail' ? coarseFirst(ix, cg.attributes.position.array) : -1; cg.setIndex(new THREE.BufferAttribute(ix, 1));
-      const gid = B.addGeometry(cg); const iid = B.addInstance(gid); if (coarse >= 0) this.coarse[gid] = coarse; if (O && O.ids) { const id = O.ids[this.i - 1] ?? -1; this.bid[iid] = id; if (id >= 0) { cg.computeBoundingBox(); const bb = cg.boundingBox; if (!(O.occ && O.occ.growTarget(id, bb.min.x, bb.max.x, bb.min.z, bb.max.z, bb.max.y))) this.bid[iid] = -1; } }
+      const Pre = this.pre, ri = this.i - 1, O = this.opts; let ix, coarse;
+      if (Pre && Pre.batch) { ix = new this.IA(i1 - i0); const src = Pre.idx, o0 = this.off[ri]; for (let k = 0; k < ix.length; k++) ix[k] = src[o0 + k] - v0; coarse = O && O.kind === 'detail' ? Pre.coarse[ri] : -1; } // (adopt() unavailable)
+      else if (Pre) { ix = Pre.idx.subarray(this.off[ri], this.off[ri] + (i1 - i0)); coarse = O && O.kind === 'detail' ? Pre.coarse[ri] : -1; } // rebased + coarse-first ordered in the worker
+      else { ix = new this.IA(i1 - i0); for (let k = i0; k < i1; k++) ix[k - i0] = I[k] - v0; coarse = O && O.kind === 'detail' ? coarseFirst(ix, cg.attributes.position.array) : -1; }
+      cg.setIndex(new THREE.BufferAttribute(ix, 1));
+      const gid = B.addGeometry(cg); const iid = B.addInstance(gid); if (coarse >= 0) this.coarse[gid] = coarse;
+      if (Pre && B._geometryInfo && B._geometryInfo[gid]) { const gi = B._geometryInfo[gid], b = Pre.gb, q = Pre.gs, o = ri * 6, u = ri * 4; // the bounds BatchedMesh would compute (getBoundingBoxAt / getBoundingSphereAt), same values
+        gi.boundingBox = new THREE.Box3(new THREE.Vector3(b[o], b[o + 1], b[o + 2]), new THREE.Vector3(b[o + 3], b[o + 4], b[o + 5])); gi.boundingSphere = new THREE.Sphere(new THREE.Vector3(q[u], q[u + 1], q[u + 2]), q[u + 3]); }
+      if (O && O.ids) { const id = O.ids[ri] ?? -1; this.bid[iid] = id; if (id >= 0) { let x0, x1, z0, z1, y1; if (Pre) { const v = Pre.vbox, o = ri * 6; x0 = v[o]; z0 = v[o + 2]; x1 = v[o + 3]; y1 = v[o + 4]; z1 = v[o + 5]; } else { cg.computeBoundingBox(); const bb = cg.boundingBox; x0 = bb.min.x; x1 = bb.max.x; z0 = bb.min.z; z1 = bb.max.z; y1 = bb.max.y; }
+          if (!(O.occ && O.occ.growTarget(id, x0, x1, z0, z1, y1))) this.bid[iid] = -1; } }
       if (performance.now() - t0 > budgetMs) return false; }
     B.computeBoundingBox(); B.computeBoundingSphere(); if (this.opts) installCull(B, { kind: this.opts.kind, bid: this.bid, coarse: this.opts.kind === 'detail' ? this.coarse : null }); CELL_STATS.meshes++; CELL_STATS.cells += this.ranges.length; CELL_STATS.tris += I.length / 3; g.dispose(); return true;
   }
+}
+// 93rd — what RangeBatch.step computes per building on the main thread, done ahead in a geometry worker (GeoWorker.js) with the
+// same arithmetic: the building's indices rebased to its own vertices (detail: coarse triangles first), its vertex bounding box
+// (cg.computeBoundingBox, for the occlusion target) and the bounds BatchedMesh derives from the indexed vertices (getBoundingBoxAt
+// / getBoundingSphereAt: box, then centre = box centre, radius = farthest indexed vertex). pos / I: the material's merged arrays.
+export function rangePre(pos, I, ranges, detail) {
+  let nv = 0, ni = 0; for (const r of ranges) { nv += r[1] - r[0]; ni += r[3] - r[2]; } const n = ranges.length;
+  const idx = new (nv > 65535 ? Uint32Array : Uint16Array)(ni), coarse = new Int32Array(n).fill(-1), vbox = new Float64Array(n * 6), gb = new Float64Array(n * 6), gs = new Float64Array(n * 4); let o = 0;
+  for (let ri = 0; ri < n; ri++) { const [v0, v1, i0, i1] = ranges[ri]; const ix = idx.subarray(o, o + (i1 - i0)); for (let k = i0; k < i1; k++) ix[k - i0] = I[k] - v0;
+    const P = pos.subarray(v0 * 3, v1 * 3); if (detail) coarse[ri] = coarseFirst(ix, P);
+    let ax = Infinity, ay = Infinity, az = Infinity, bx = -Infinity, by = -Infinity, bz = -Infinity;
+    for (let j = 0; j < P.length; j += 3) { const x = P[j], y = P[j + 1], z = P[j + 2]; ax = Math.min(ax, x); ay = Math.min(ay, y); az = Math.min(az, z); bx = Math.max(bx, x); by = Math.max(by, y); bz = Math.max(bz, z); }
+    vbox[ri * 6] = ax; vbox[ri * 6 + 1] = ay; vbox[ri * 6 + 2] = az; vbox[ri * 6 + 3] = bx; vbox[ri * 6 + 4] = by; vbox[ri * 6 + 5] = bz;
+    ax = ay = az = Infinity; bx = by = bz = -Infinity;
+    for (let k = 0; k < ix.length; k++) { const j = ix[k] * 3, x = P[j], y = P[j + 1], z = P[j + 2]; ax = Math.min(ax, x); ay = Math.min(ay, y); az = Math.min(az, z); bx = Math.max(bx, x); by = Math.max(by, y); bz = Math.max(bz, z); }
+    gb[ri * 6] = ax; gb[ri * 6 + 1] = ay; gb[ri * 6 + 2] = az; gb[ri * 6 + 3] = bx; gb[ri * 6 + 4] = by; gb[ri * 6 + 5] = bz;
+    const empty = bx < ax || by < ay || bz < az, cx = empty ? 0 : (ax + bx) * 0.5, cy = empty ? 0 : (ay + by) * 0.5, cz = empty ? 0 : (az + bz) * 0.5; let r2 = 0;
+    for (let k = 0; k < ix.length; k++) { const j = ix[k] * 3, dx = cx - P[j], dy = cy - P[j + 1], dz = cz - P[j + 2]; r2 = Math.max(r2, dx * dx + dy * dy + dz * dz); }
+    gs[ri * 4] = cx; gs[ri * 4 + 1] = cy; gs[ri * 4 + 2] = cz; gs[ri * 4 + 3] = Math.sqrt(r2); o += i1 - i0; }
+  // contiguous from the first vertex / index (the usual case): turn the rebased indices into the batch's own (RangeBatch.adopt)
+  let batch = ranges[0][0] === 0 && ranges[0][2] === 0; for (let ri = 1; ri < n && batch; ri++) if (ranges[ri][0] !== ranges[ri - 1][1] || ranges[ri][2] !== ranges[ri - 1][3]) batch = false;
+  if (batch) for (let ri = 0; ri < n; ri++) { const [v0, , i0, i1] = ranges[ri]; if (v0) for (let k = i0; k < i1; k++) idx[k] += v0; }
+  return { n, ni, idx, coarse, vbox, gb, gs, batch };
 }
 // contiguous per-building ranges of material `name` from the marks taken before each building (and one at the end)
 // (65th: element 4 = the index of the building the range belongs to — the mark before it)

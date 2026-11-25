@@ -19,7 +19,9 @@
     "test:rig": "node tools/hero-rig-test.mjs",
     "police-combat-test": "node tools/police-combat-test.mjs",
     "glitch-test": "node tools/glitch-test.mjs",
-    "stream-test": "node tools/stream-test.mjs"
+    "stream-test": "node tools/stream-test.mjs",
+    "test:cpu": "node tools/cpu-workers-test.mjs",
+    "test:cpu-stutter": "node tools/cpu-stutter.mjs"
   },
   "dependencies": {
     "@fontsource/barlow-condensed": "^5.3.0",
