@@ -18,11 +18,15 @@ try {
   await page.waitForFunction(() => window.__game && window.__game.stepSim && window.__game.mode === 'play', { timeout: 900000, polling: 1000 });
   const info = await page.evaluate(async () => {
     const g = window.__game; g.noRender = true; g.story.cancelAll(); g.story.running = null; g.atmos.hour = 10.5; g.hud.show(false);
-    const pool = g.police.pool; return { free: Object.fromEntries(Object.entries(pool.free).map(([k, v]) => [k, v.length])), ready: pool.ready, sounds: Object.keys((await import('/src/audio/RoadsideSoundDefs.js')).ROADSIDE_SOUND_DEFS).length };
+    const pool = g.police.pool; return { free: Object.fromEntries(Object.entries(pool.free).map(([k, v]) => [k, v.length])), ready: pool.ready, sounds: Object.keys((await import('/src/audio/RoadsideSoundDefs.js')).ROADSIDE_SOUND_DEFS).length,
+      bk: await (async () => { const M = await import('/src/police/Roadside.js'); const tt = { type: 'tuktuk', T: { base: 'tuktuk' } }; const by = {}; for (const v of g.traffic.vehicles) { const k = v.type + ':' + (M.hasBonnet(v) ? 'B' : '-'); by[k] = (by[k] || 0) + 1; }
+        return { tuk: ['battery', 'nostart', 'engine', 'overheat', 'mechanical', 'flat', 'immobilised'].map((k) => M.bonnetKind(tt, k)).join(','), by }; })() };
   });
   console.log('pool', JSON.stringify(info));
   ok(info.free.rsvan === 2 && info.free.flatbed === 1, `pool built on the loading screen: ${info.free.rsvan} service vans, ${info.free.flatbed} flatbed`);
   ok(info.sounds === 32, `${info.sounds} roadside sound slots`);
+  ok(info.bk.tuk === 'flat,flat,immobilised,immobilised,immobilised,flat,immobilised', `no bonnet job on a tuktuk (${info.bk.tuk})`);
+  ok(!Object.keys(info.bk.by).some((k) => k.startsWith('tuktuk:B')) && Object.keys(info.bk.by).some((k) => k.endsWith(':B')), `bonnets by traffic type ${JSON.stringify(info.bk.by)}`);
 
   // one scenario: put the player beside a kerb-lane road, force a breakdown of `kind` on a car nearby, run until the incident closes
   const run = (name, opts) => page.evaluate(async (name, o) => {
@@ -33,7 +37,7 @@ try {
     const sg = segs[(o.segPick ?? 7) % segs.length]; const mx = (sg.x0 + sg.x1) / 2, mz = (sg.z0 + sg.z1) / 2; const ex = (sg.x1 - sg.x0), ez = (sg.z1 - sg.z0), el = Math.hypot(ex, ez);
     const nx = -ez / el, nz = ex / el; P.teleport(mx + nx * (sg.hw + 2.2), mz + nz * (sg.hw + 2.2), Math.atan2(ex, ez)); g.world.warm(P.x, P.z); await g.stepSim(400, 0.1);
     const cam = g.camera; const look = (x, z) => { cam.position.set(P.x, 1.7, P.z); cam.lookAt(x, 1, z); cam.updateMatrixWorld(); };
-    let incs = []; for (let k = 0; k < (o.n || 1); k++) { let inc = null; for (let t = 0; t < 40 && !inc; t++) { inc = RS.force(o.kinds ? o.kinds[k] : o.kind, 160); if (!inc) await g.stepSim(10, 0.1); } if (inc) incs.push(inc); }
+    let incs = []; for (let k = 0; k < (o.n || 1); k++) { let inc = null; for (let t = 0; t < 40 && !inc; t++) { inc = RS.force(o.kinds ? o.kinds[k] : o.kind, 160, !!o.strict); if (!inc) await g.stepSim(10, 0.1); } if (inc) incs.push(inc); }
     if (!incs.length) { const why = {}; for (const v of T.vehicles) { const d = Math.hypot(v.x - P.x, v.z - P.z); const k = d > 200 ? 'far' : d < 20 ? 'close' : RS.whyNot(v) || 'ok'; why[k] = (why[k] || 0) + 1; } out.err = 'no eligible car ' + JSON.stringify(why) + ' at ' + P.x.toFixed(0) + ',' + P.z.toFixed(0); out.timeline = []; out.log = RS.log.slice(-10); return out; }
     if (o.call) { // the player's own car instead: park a car by the player, damage it, call
       incs = [];
@@ -58,7 +62,7 @@ try {
   const done = (r) => !r.err && !r.left.incidents.length && !r.left.units.length;
   if (SCEN.includes('tyre')) { const r = await run('flat tyre (van)', { kind: 'flat', maxT: 600 }); show(r);
     ok(done(r), 'flat tyre: incident closed, unit gone'); ok(r.minSpawn > 80, `unit spawned ${r.minSpawn.toFixed(0)} m from the player`); ok(r.maxStill < 20, `never stuck while driving (longest still ${r.maxStill}s)`); ok(r.cars[0] && r.cars[0].flats === 0, 'tyre fixed (no flats)'); ok(r.props && r.props.live === 0, 'every prop returned'); ok(r.pool.rsvan === 2, 'van back in the pool'); }
-  if (SCEN.includes('battery')) { const r = await run('battery (van)', { kind: 'battery', maxT: 500 }); show(r); ok(done(r), 'battery: closed'); ok(r.props && r.props.live === 0, 'props returned'); ok(r.pool.rsvan === 2, 'pool intact'); }
+  if (SCEN.includes('battery')) { const r = await run('battery (van)', { kind: 'battery', maxT: 500, strict: true }); show(r); ok(r.kinds && r.kinds[0] === 'battery', `a forced battery fault stays a battery job (a car with a bonnet is picked; got ${r.kinds})`); ok(done(r), 'battery: closed'); ok(r.props && r.props.live === 0, 'props returned'); ok(r.pool.rsvan === 2, 'pool intact'); }
   if (SCEN.includes('engine')) { const r = await run('engine (van, may fail → flatbed)', { kind: 'engine', maxT: 900 }); show(r); ok(done(r), 'engine: closed'); ok(r.pool.rsvan === 2 && r.pool.flatbed === 1, 'pool intact'); }
   if (SCEN.includes('flatbed')) { const r = await run('immobilised (flatbed → Street Customs)', { kind: 'immobilised', maxT: 900 }); show(r); ok(done(r), 'recovery: closed'); ok(r.stats.towed >= 1, 'car loaded'); ok(r.stats.delivered + r.stats.deliveredUnseen >= 1, 'car delivered'); ok(r.pool.flatbed === 1, 'flatbed back in the pool'); }
   if (SCEN.includes('queue')) { const r = await run('three incidents (two vans: one queues)', { n: 3, kinds: ['battery', 'nostart', 'overheat'], maxT: 900 }); show(r); ok(r.stats.queuedWaits >= 1, `an incident waited in the queue (${r.stats.queuedWaits})`); ok(done(r), 'all three closed'); ok(r.pool.rsvan === 2, 'pool intact'); }

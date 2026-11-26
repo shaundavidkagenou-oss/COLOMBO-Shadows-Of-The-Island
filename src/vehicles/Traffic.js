@@ -10,7 +10,9 @@ import { Mind, genTraits, hashStr, TI } from '../actors/Mind.js';
 import { LINES, pick } from '../story/Lines.js';
 import { VTYPES, modelCached, warmModel, warmShape, createVehicleMesh } from './VehicleModels.js';
 import { BUILDS } from '../core/FrameBudget.js';
-import { TRAFFIC_W, PARKED_W, NO_LANES } from './VehicleCatalog.js';
+import { TRAFFIC_W, PARKED_W, NO_LANES, CATALOG } from './VehicleCatalog.js';
+import { lookVariant, LOOK_VARIANTS } from '../actors/Appearance.js';
+import { SpawnHistory, CoarseGrid } from '../core/SpawnHistory.js';
 import { BIKE_LISTS, BIKE_PARKED, BIKE_IDS } from './BikeCatalog.js';
 import { RNG } from '../core/rng.js';
 import { clamp, lerp } from '../core/math.js';
@@ -42,7 +44,29 @@ const MIX = {
   default: [['tuktuk', 24], ['car', 4], ['sedan', 3], ['van', 5], ['bike', 12], ['bus', 5], ['pbus', 4], ['lorry', 3], ['taxi', 4], ['cat', 36]],
   port: [['lorry', 22], ['van', 7], ['tuktuk', 16], ['car', 3], ['bike', 10], ['bus', 3], ['cat', 34]],
   cinnamon: [['car', 5], ['sedan', 4], ['van', 6], ['tuktuk', 17], ['bike', 8], ['suv', 2], ['taxi', 5], ['cat', 53]],
+  // 96th: the street types of the other districts (AREA_OF). Same vehicle kinds, different shares: taxis, saloons and buses
+  // in the business district; lorries, vans, tuks and bikes in the bazaar; tuks, bikes and small cars in the dense
+  // neighbourhoods and the residential lanes (fewer buses and lorries there)
+  cbd: [['tuktuk', 17], ['car', 3], ['sedan', 5], ['van', 4], ['bike', 9], ['bus', 6], ['pbus', 4], ['lorry', 1.5], ['taxi', 7], ['suv', 2], ['cat', 42]],
+  commercial: [['tuktuk', 22], ['car', 4], ['sedan', 4], ['van', 5], ['bike', 11], ['bus', 5], ['pbus', 4], ['lorry', 2], ['taxi', 5], ['cat', 38]],
+  market: [['tuktuk', 26], ['car', 3], ['sedan', 1.5], ['van', 7], ['bike', 13], ['bus', 5], ['pbus', 6], ['lorry', 6], ['taxi', 3], ['cat', 30]],
+  dense: [['tuktuk', 27], ['car', 4], ['sedan', 2], ['van', 5], ['bike', 15], ['bus', 4], ['pbus', 5], ['lorry', 2.5], ['taxi', 3], ['cat', 32]],
+  residential: [['tuktuk', 24], ['car', 5], ['sedan', 3], ['van', 5], ['bike', 14], ['bus', 3], ['pbus', 3], ['lorry', 1.5], ['taxi', 3], ['cat', 40]],
 };
+// district → street type (the key into MIX / CAT_W); port and cinnamon keep their own hand-made mixes
+export const AREA_OF = { port: 'port', kotahena: 'dense', gfgreen: 'cbd', fort: 'cbd', pettah: 'market', maradana: 'dense', gftowers: 'cbd', beira: 'commercial', slave: 'dense',
+  kollupitiya: 'commercial', cinnamon: 'cinnamon', borella: 'residential', bambalapitiya: 'commercial', havelock: 'residential', wellawatte: 'dense' };
+// catalogue model shares per street type: the everyday weights (TRAFFIC_W.default) scaled by body family; 'exec' = the
+// executive saloons, sports coupes and luxury 4x4s
+const EXEC = new Set(['praetor', 'raiden', 'vanta', 'kaizan', 'varuna', 'warden']);
+const CAT_MUL = { cbd: { sedan: 1.6, suv: 1.3, car: 0.9, van: 0.8, pickup: 0.6, truck: 0.35, exec: 2.2 }, commercial: { sedan: 1.2, suv: 1.1, car: 1, van: 1, pickup: 0.8, truck: 0.7, exec: 1.2 },
+  market: { sedan: 0.5, suv: 0.5, car: 0.9, van: 1.8, pickup: 2, truck: 2.6, exec: 0.2 }, dense: { sedan: 0.7, suv: 0.6, car: 1.25, van: 1.3, pickup: 1.2, truck: 1.2, exec: 0.3 },
+  residential: { sedan: 0.9, suv: 1.0, car: 1.3, van: 1.1, pickup: 0.8, truck: 0.5, exec: 0.6 } };
+const scaleCat = (list, mul) => list.map(([id, w]) => { const T = CATALOG[id]; const m = !T ? 1 : EXEC.has(id) ? mul.exec ?? 1 : mul[T.family] ?? 1; return [id, w * m]; });
+for (const [a, mul] of Object.entries(CAT_MUL)) CAT_W[a] = scaleCat(CAT_W.default, mul);
+const PARKED_AREA = Object.fromEntries(Object.entries(CAT_MUL).map(([a, mul]) => [a, scaleCat(PARKED_LIST, mul)]));
+// a model this common is not re-rolled for being seen nearby (Colombo's streets really are full of three-wheelers)
+const COMMON = new Set(['tuktuk']);
 
 // lane centre from the centre line. Arterials (18 m): 1.8 / 5.0. Main streets (12 m): 1.5 / 4.3 — the kerb lane used to sit at
 // 5.0 of a 6.0 m half-width, so a car's body was 5 cm off the kerb and every turn from it swung a corner over the footpath.
@@ -157,20 +181,27 @@ const PRED_T = [0.4, 0.8, 1.2]; // footprint-conflict look-ahead times (s)
 export class Traffic {
   constructor(scene, collision, events) {
     VEH_HOOKS.crash = (v, by, dv) => this.onCrash(v, by, dv); this.raging = []; this.reboarding = []; this.rageStats = { crashes: 0, honk: 0, out: 0, back: 0 };
-    this.scene = scene; this.collision = collision; this.events = events; this.vehicles = []; this.parked = []; this.rng = new RNG(777);
-    this.max = 40; this.simTime = 0; this.res = new Map(); this.driverSpecs = []; for (let i = 0; i < 16; i++) this.driverSpecs.push(randomSpec(5000 + i * 13, { sex: i % 5 === 0 ? 'f' : 'm', age: 'adult' }));
+    this.scene = scene; this.collision = collision; this.events = events; this.vehicles = []; this.parked = []; this.guests = []; /* 92nd: vehicles another system drives (street-race cars): solid, seen and avoided by traffic, never stepped or culled here */ this.rng = new RNG(777);
+    this.max = 40; this.stats96 = { spawned: 0, reroll: 0, parkReroll: 0 }; this.simTime = 0; this.res = new Map(); this.driverSpecs = []; for (let i = 0; i < 16; i++) this.driverSpecs.push(randomSpec(5000 + i * 13, { sex: i % 5 === 0 ? 'f' : 'm', age: 'adult' }));
+    for (let vi = 1; vi <= 2; vi++) for (let i = 0; i < 16; i++) this.driverSpecs.push(lookVariant(this.driverSpecs[i], vi)); // 96th: 16 driver looks × 3 colourings (shared body meshes)
     this.paxCount = 0; this.leaving = []; this.crowd = null; this.parkedTimer = 0; this.drivableSegs = L.segments.filter((s) => !s.crossing || s.level <= 2); this.drivable = new Set(this.drivableSegs); this.flowSegs = flowNetwork(this.drivableSegs); this.flow = new Set(this.flowSegs); this.emergency = [];
   }
   setDensity(d) { this.max = Math.round(10 + d * 45); }
-  all() { const o = this.obstacles; if (!this.parked.length && !(o && o.length)) return this.vehicles; return o && o.length ? this.vehicles.concat(this.parked, o) : this.vehicles.concat(this.parked); } // obstacles = train cars (solid, not enterable)
-  pickType(x, z) { const d = L.districtIdAt(x, z); const night = this.night > 0.6; const mix = MIX[d] || MIX.default; const m = night ? mix.map(([t, w]) => [t, t === 'bus' || t === 'pbus' ? w * 0.4 : w]) : mix; const t = this.rng.weighted(m); return t === 'cat' ? this.rng.weighted(CAT_W[d] || CAT_W.default) : t === 'bike' ? this.rng.weighted(BIKE_LISTS[d] || BIKE_LISTS.default) : t; } // two-wheelers: one of the 20 kinds (BikeCatalog.js)
+  all() { const o = this.obstacles, g = this.guests; if (!this.parked.length && !(o && o.length) && !g.length) return this.vehicles; const out = this.vehicles.concat(this.parked); if (o && o.length) for (const x of o) out.push(x); for (const x of g) out.push(x); return out; } // obstacles = train cars (solid, not enterable); guests = race cars (92nd)
+  pickType(x, z) { const dd = L.districtIdAt(x, z); const d = AREA_OF[dd] || dd; const night = this.night > 0.6; const mix = MIX[d] || MIX.default; const m = night ? mix.map(([t, w]) => [t, t === 'bus' || t === 'pbus' ? w * 0.4 : w]) : mix; const t = this.rng.weighted(m); return t === 'cat' ? this.rng.weighted(CAT_W[d] || CAT_W.default) : t === 'bike' ? this.rng.weighted(BIKE_LISTS[dd] || BIKE_LISTS[d] || BIKE_LISTS.default) : t; } // two-wheelers: one of the 20 kinds (BikeCatalog.js)
   // 54th variety: what is already on the road around the player. A type that is already over its share nearby is re-rolled
   // (a cluster of the same model is what read as 'the same vehicle again and again'), and a vehicle never takes the exact look
   // (model + paint + body variant) of one already in view range if another paint / variant is free.
-  nearMix(focus) { const types = new Map(), looks = new Set(); let n = 0;
-    for (const v of this.vehicles) { if ((v.x - focus.x) ** 2 + (v.z - focus.z) ** 2 > 220 * 220) continue; n++; types.set(v.type, (types.get(v.type) || 0) + 1); if (v.look) looks.add(v.look); }
-    for (const v of this.parked) { if ((v.x - focus.x) ** 2 + (v.z - focus.z) ** 2 > 90 * 90) continue; if (v.look) looks.add(v.look); }
+  // (96th: read from the coarse vehicle grid — the cells within 220 m — not a pass over every vehicle and parked car)
+  nearMix(focus) { const types = new Map(), looks = new Set(); let n = 0; const G = this.vgridNow();
+    G.each(focus.x, focus.z, 220, (v) => { if (v.parked) { if (v.look && (v.x - focus.x) ** 2 + (v.z - focus.z) ** 2 < 90 * 90) looks.add(v.look); return; } if (!this.mine.has(v)) return; n++; types.set(v.type, (types.get(v.type) || 0) + 1); if (v.look) looks.add(v.look); });
     return { types, looks, n }; }
+  // coarse grid of moving + parked vehicles (64 m cells), refilled at most once a frame
+  vgridNow() { const G = this.vgrid || (this.vgrid = new CoarseGrid(64)); if (this._vgF !== this.fN) { this._vgF = this.fN; G.fill(this.vehicles); for (const v of this.parked) G.add(v); this.mine = this._mine || (this._mine = new Set()); this.mine.clear(); for (const v of this.vehicles) this.mine.add(v); } return G; }
+  // 96th: the same model (not just the same paint) on the road nearby or put down here a moment ago → pick again. Three-wheelers
+  // are exempt (they are a third of the traffic), the exact-look rule (variedSeed) still keeps their paint jobs apart.
+  repeatNear(type, x, z) { if (COMMON.has(type)) return false; const H = this.vhist || (this.vhist = new SpawnHistory({ cell: 80, ring: 8, ttl: 45, maxCells: 128 }));
+    if (H.has(x, z, type, this.clock || 0, 80)) return true; return !!this.vgridNow().find(x, z, 90, (v) => !v.parked && v.type === type); }
   variedType(type, x, z, mix) { const cap = (t) => (t === 'tuktuk' ? Math.max(3, Math.ceil((mix.n + 1) * 0.3)) : Math.max(1, Math.floor((mix.n + 1) * 0.04)));
     for (let k = 0; k < 6 && (mix.types.get(type) || 0) >= cap(type); k++) type = this.pickType(x, z); return type; }
   variedSeed(type, seed, mix) { if (!mix.looks.has(lookOf(type, seed))) return seed;
@@ -184,7 +215,7 @@ export class Traffic {
       if (!hint && (d > (forceNear ? 170 : 260) || d < (forceNear ? 45 : 70))) continue;
       const [a, b] = segNodes(seg); const fwd = this.rng.chance(0.5); const from = hint ? hint.from : fwd ? a : b, to = hint ? hint.to : fwd ? b : a;
       const lanes = seg.level <= 1 ? 2 : 1; const lane = hint ? hint.lane : Math.floor(this.rng.next() * lanes);
-      let type = this.pickType(mx, mz); if (!hint) type = this.variedType(type, mx, mz, mix); if (hint) { for (let k = 0; k < 10 && !hint.types.has(type); k++) type = this.pickType(mx, mz); if (!hint.types.has(type)) continue; }
+      let type = this.pickType(mx, mz); if (!hint) { type = this.variedType(type, mx, mz, mix); for (let k = 0; k < 5 && this.repeatNear(type, mx, mz); k++) { this.stats96.reroll++; type = this.variedType(this.pickType(mx, mz), mx, mz, mix); } } if (hint) { for (let k = 0; k < 10 && !hint.types.has(type); k++) type = this.pickType(mx, mz); if (!hint.types.has(type)) continue; }
       if (seg.level >= 3 && (type === 'bus' || type === 'pbus' || type === 'lorry' || NO_LANES.has(type))) continue;
       const piece = linePiece(seg, from, to, lane); const s = this.rng.range(0, piece.len * (hint ? 0.6 : 0.8));
       const [x, z, yaw] = evalPiece(piece, s);
@@ -196,6 +227,7 @@ export class Traffic {
       if (!modelCached(type, seed)) { // a first-time look costs a 10-30 ms model build: at most one every 2 s, otherwise reuse a built look (the loading screen builds one of every type)
         const now = performance.now(); if (now - (this.lastBuild || -1e9) < 2000) { const known = this.looks && this.looks.get(type); let alt = known && known.length ? known[Math.floor(this.rng.next() * known.length)] : -1; for (let k = 0; k < 8 && alt < 0; k++) { const s2 = Math.floor(this.rng.next() * 1e6); if (modelCached(type, s2)) alt = s2; } if (alt < 0) continue; seed = alt; } else this.lastBuild = now; }
       BUILDS.spend(); const v = new Vehicle(type, seed, this.scene); this.noteLook(type, seed); v.look = lookOf(type, seed); mix.looks.add(v.look); mix.types.set(type, (mix.types.get(type) || 0) + 1); mix.n++; v.place(x, z, yaw);
+      if (this.vhist) { this.vhist.add(x, z, type, this.clock || 0); if (this.fN % 120 === 0) this.vhist.prune(this.clock || 0); } if (this.vgrid) { this.vgrid.add(v); this.mine.add(v); } this.stats96.spawned++;
       const T = VTYPES[type]; v.ai = { pieces: [piece], s, v0: Math.min(V0[seg.level], T.maxSpeed * 0.42) * this.rng.range(0.88, 1.12), stuck: 0, honkCd: 0, bumped: 0, aggressive: type === 'tuktuk' || type === 'pbus' ? 1.3 : 1 };
       if (hint) v.ai.route = hint.route.slice(); // straight on to the station's road
       v.speed = v.ai.v0 * 0.7; this.extend(v); this.addDriver(v); this.vehicles.push(v); if (hint) { v.fuelFor = hint.tag; this.spawnHint = undefined; } return v;
@@ -213,7 +245,7 @@ export class Traffic {
   }
   // passenger looks come from the crowd's prepared looks (built on the loading screen): a never-seen random look costs a
   // 10-30 ms character build, and buses / tuks filling up near the player were a steady source of driving hitches
-  paxSpec(seed) { const P = this.specPool || (this.crowd && this.crowd.specs); if (P && P.length >= 8) { const r = new RNG(seed); for (let k = 0; k < 6; k++) { const sp = P[Math.floor(r.next() * P.length)]; if (sp && sp.ageYears >= 18) return sp; } } return randomSpec(seed, { age: 'adult' }); }
+  paxSpec(seed) { const P = this.specPool || (this.crowd && this.crowd.specs); if (P && P.length >= 8) { const r = new RNG(seed); for (let k = 0; k < 6; k++) { const sp = P[Math.floor(r.next() * P.length)]; if (sp && sp.ageYears >= 18) return lookVariant(sp, r.int(0, LOOK_VARIANTS - 1)); } } /* 96th: passengers wear look variants too */ return randomSpec(seed, { age: 'adult' }); }
   // a parked vehicle never appears on top of another one (a car waiting / pulling past the kerb spot, the player's car)
   spotTaken(p, type) { const T = VTYPES[type]; if (!T) return false; boxCorners(_A, p.x, p.z, p.yaw, T.wid / 2 + 0.1, T.len / 2 + 0.15); const r = Math.hypot(T.wid, T.len) / 2 + 0.3; const pv = this.player && this.player.vehicle;
     for (const o of pv && !this.vehicles.includes(pv) ? this.vehicles.concat([pv]) : this.vehicles) { const rr = r + Math.hypot(o.T.wid, o.T.len) / 2; if ((o.x - p.x) ** 2 + (o.z - p.z) ** 2 > rr * rr) continue; if (boxPen(_A, o._bc2 = boxCorners(o._bc2 || mkC(), o.x, o.z, o.yaw, o.T.wid / 2, o.T.len / 2)) > 0) return true; }
@@ -222,7 +254,7 @@ export class Traffic {
     for (const o of this.parked) { const rr = r + Math.hypot(o.T.wid, o.T.len) / 2; if ((o.x - x) ** 2 + (o.z - z) ** 2 > rr * rr) continue; if (boxPen(_A, o._bc2 = boxCorners(o._bc2 || mkC(), o.x, o.z, o.yaw, o.T.wid / 2, o.T.len / 2)) > 0) return true; } return false; }
   binBodies(playerV) { const B = this.bins || (this.bins = new Map()); for (const a of B.values()) a.length = 0;
     const add = (o) => { if (!o || !o.T || (o.mesh && !o.mesh.parent)) return; const ex = Math.min(3, Math.abs(o.speed || 0) * 0.1) * Math.sign(o.speed || 0), ohw = o.T.wid / 2 - 0.03, ohl = o.T.len / 2 - 0.03 + Math.abs(ex); o._bc = boxCorners(o._bc || mkC(), o.x + Math.sin(o.yaw) * ex, o.z + Math.cos(o.yaw) * ex, o.yaw, ohw, ohl); o._br = Math.hypot(ohw, ohl); /* a moving body: where it is now and over the next 0.2 s */ const k = (Math.floor(o.x / 24) * 4096 + Math.floor(o.z / 24)) | 0; let a = B.get(k); if (!a) B.set(k, (a = [])); a.push(o); };
-    for (const o of this.vehicles) add(o); for (const o of this.parked) add(o); if (playerV && !this.vehicles.includes(playerV)) add(playerV); if (this.obstacles) for (const o of this.obstacles) add(o); }
+    for (const o of this.vehicles) add(o); for (const o of this.parked) add(o); if (playerV && !this.vehicles.includes(playerV)) add(playerV); if (this.obstacles) for (const o of this.obstacles) add(o); for (const o of this.guests) if (o !== playerV) add(o); }
   // Distance along the vehicle's own path (its lane pieces, with the lateral drift of a lane change / pull-out) before its body
   // would overlap another vehicle's body: the last line of defence under the leader / junction logic, which only looks down
   // the lane (a car turning across a junction used to run into one stopped on a crossing curve; a lane change sideswiped a
@@ -403,7 +435,7 @@ export class Traffic {
     }
   }
   update(dt, focus, camDir, simTime, pedsNear, player) {
-    this.fN = (this.fN | 0) + 1;
+    this.fN = (this.fN | 0) + 1; this.clock = (this.clock || 0) + dt;
     this.simTime = simTime; this.player = player; this.focusPt = focus; this.camDir = camDir;
     { const lf = this.lastSpawnFocus; if (!lf || Math.hypot(lf.x - focus.x, lf.z - focus.z) > 60) this.freshT = 2; this.lastSpawnFocus = { x: focus.x, z: focus.z }; this.freshT = (this.freshT || 0) - dt; } // just loaded / teleported (behind the loading screen or a fade): the area may fill at once
     // spawn / despawn
@@ -657,7 +689,13 @@ export class Traffic {
     const fx = Math.sin(T.yaw), fz = Math.cos(T.yaw); c.x = T.x + fx * zc; c.z = T.z + fz * zc; c.yaw = T.yaw; c.pitch = -a; c.roll = 0; c.speed = T.speed; c.y = L.groundY(c.x, c.z) - ra * Math.sin(a); c.sync(0);
   }
   // the vehicle that belongs on a parking spot (deterministic per spot)
-  parkedLook(p) { const r = new RNG(Math.floor(p.x * 31 + p.z * 17)); let type = r.weighted([['car', 1.5], ['tuktuk', 3], ['van', 0.8], ['sedan', 0.6], ['bike', 2], ['taxi', 0.6], ['cat', 7]]); if (type === 'cat') type = r.weighted(PARKED_LIST); else if (type === 'bike') type = r.weighted(BIKE_PARKED); return { type, seed: Math.floor(r.next() * 1e6) }; }
+  // the vehicle a kerb spot holds today: seeded by the spot (same street, same cars); 96th: catalogue shares by street type
+  // (AREA_OF), and not the same model as a car parked within 20 m (re-drawn from the same seeded stream, up to 4 times)
+  parkedLook(p) { const r = new RNG(Math.floor(p.x * 31 + p.z * 17)); const A = AREA_OF[L.districtIdAt(p.x, p.z)]; const cat = PARKED_AREA[A] || PARKED_LIST;
+    const mixP = A === 'market' || A === 'dense' ? [['car', 1.5], ['tuktuk', 4], ['van', 1.4], ['sedan', 0.4], ['bike', 3], ['taxi', 0.5], ['cat', 6]] : A === 'cbd' ? [['car', 1.2], ['tuktuk', 2.2], ['van', 0.7], ['sedan', 1], ['bike', 1.6], ['taxi', 1], ['cat', 8]] : [['car', 1.5], ['tuktuk', 3], ['van', 0.8], ['sedan', 0.6], ['bike', 2], ['taxi', 0.6], ['cat', 7]];
+    const draw = () => { const t = r.weighted(mixP); return t === 'cat' ? r.weighted(cat) : t === 'bike' ? r.weighted(BIKE_PARKED) : t; };
+    let type = draw(); const G = this.vgridNow(); for (let k = 0; k < 4 && !COMMON.has(type) && G.find(p.x, p.z, 20, (v) => v.parked && v.type === type); k++) { type = draw(); this.stats96.parkReroll++; }
+    return { type, seed: Math.floor(r.next() * 1e6) }; }
   streetTypes() { const used = new Set([...PARKED_LIST.map((w) => w[0]), ...BIKE_IDS]); for (const m of [...Object.values(MIX), ...Object.values(CAT_W)]) for (const [t] of m) used.add(t); return Object.keys(VTYPES).filter((t) => used.has(t)); }
   noteLook(type, seed) { const L = this.looks || (this.looks = new Map()); let a = L.get(type); if (!a) L.set(type, (a = [])); if (a.length < 16 && !a.includes(seed)) a.push(seed); }
   // loading screen: one look of every vehicle type (so traffic always has a built look to fall back on) and the parked
@@ -697,7 +735,7 @@ export class Traffic {
       if (!st.occ || st.until > gH || st.claim || this.parkedSet.has(p)) continue; if (have >= SPOT_CAP) break;
       if (!fresh && d < SPOT_SEEN && this.seen(p.x, p.z, d)) continue; // in plain view: it waits until nobody is looking
       if (made >= 2 || (made > 0 && performance.now() - t0 > 2.5) || !BUILDS.can(fresh)) { this.parkedTimer = 0; break; } /* ~2.5 ms of new parked cars per frame (at least one), the rest next frame */ const { type, seed } = st.look || this.parkedLook(p); if (this.spotTaken(p, type)) continue; /* st.look: the car somebody drove in and parked there today */ const fr = !modelCached(type, seed); if (fr && (made > 0 || performance.now() - (this.lastBuild || -1e9) < 300)) { this.parkedTimer = 0.05; continue; } if (fr) this.lastBuild = performance.now(); made += fr ? 2 : 1; /* a first-time model build is the only one this frame; otherwise two per frame (~3 ms each) until the street is filled */
-      BUILDS.spend(); const v = new Vehicle(type, seed, this.scene); this.noteLook(type, seed); v.look = lookOf(type, seed); parkOnStand(v); v.place(p.x, p.z, p.yaw); v.parked = true; v.spot = p; this.parked.push(v); this.parkedSet.add(p); have++;
+      BUILDS.spend(); const v = new Vehicle(type, seed, this.scene); this.noteLook(type, seed); v.look = lookOf(type, seed); parkOnStand(v); v.place(p.x, p.z, p.yaw); v.parked = true; v.spot = p; this.parked.push(v); this.parkedSet.add(p); have++; if (this.vgrid) this.vgrid.add(v);
     }
   }
   // People come and park: now and then a car / tuk / bike in the kerb lane of a local street (level 1-2) near the player picks a

@@ -51,7 +51,7 @@ try {
       P.camOverride = true; g.camera.position.set(...W(s.cam)); g.camera.lookAt(...W(s.look)); g.camera.updateMatrixWorld();
       g.noRender = false; for (let k = 0; k < 3; k++) { g.scene.updateMatrixWorld(); if (g.post) g.post.render(1 / 60); else g.renderer.render(g.scene, g.camera); }
       const url = g.renderer.domElement.toDataURL('image/png'); const BR2 = g.hospital && g.hospital.bodyRoom; g.noRender = true; P.camOverride = false;
-      return { url, ph: e.ph, t: e.t != null ? +e.t.toFixed(1) : null, bp: e.bp, att: BR2 ? BR2.att.state + '/' + BR2.att.t.toFixed(1) + '/' + BR2.stats.stored : null, cov: e.cov, slide: e.slide, legs: e.st && e.st.userData.cot ? e.st.userData.cot.ext.map((x) => +x.toFixed(2)) : null, uCot: v && v.mesh.userData.rear ? v.mesh.userData.rear.cav.material.uniforms.uCot.value : null };
+      return { url, ph: e.ph, t: e.t != null ? +e.t.toFixed(1) : null, bp: e.bp, att: BR2 ? BR2.att.state + '/' + BR2.att.t.toFixed(1) + '/' + BR2.stats.stored : null, cov: e.cov, slide: e.slide, legs: e.st && e.st.userData.cot ? e.st.userData.cot.ext.map((x) => +x.toFixed(2)) : null, uCot: v && v.mesh.userData.rear ? (v.mesh.userData.rear.cav?.material?.uniforms?.uCot?.value ?? null) : null };
     }, s);
     if (r.url) { if (!ONLY.length || ONLY.includes(s.name)) fs.writeFileSync(`${OUT}/${s.name}.png`, Buffer.from(r.url.split(',')[1], 'base64')); delete r.url; }
     console.log('shot', s.name, JSON.stringify(r), ((Date.now() - t0) / 1000).toFixed(0) + 's');

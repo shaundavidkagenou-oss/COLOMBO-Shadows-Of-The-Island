@@ -10,7 +10,9 @@ import { MOVES as FIGHT_MOVES } from './Boxing.js';
 import { StreetLife } from './StreetLife.js';
 import { separate } from './Bodies.js';
 import { Keys, supineFrame, clearFrame, rollAngle, rotateAbout, rollClear, rollShift } from './Ragdoll.js';
-import { PRESETS, lookKey, profileActivity } from './Appearance.js';
+import { PRESETS, lookKey, profileActivity, lookVariant, LOOK_VARIANTS, areaMix, areaLiking, AREA_MAX, presetWeight } from './Appearance.js';
+import { npcHeadGeometry, npcHeadOpts, npcVariant } from './NpcHead.js';
+import { SpawnHistory, CoarseGrid } from '../core/SpawnHistory.js';
 import { offView, holdThisFrame } from '../gfx/ViewSkip.js';
 import { MindSystem, responseWeights, pickWeighted, reactDelay, feel, bond, EI, TI } from './Mind.js';
 const HOLD_OK = new Set(['walk', 'toPoi', 'idle', 'waitCross', 'shop', 'shelter', 'lawn', 'busStop', 'bench', 'chat', 'watch', 'flee', 'cower', 'scene', 'door', 'gather']); // ambient states that may be posed at a lower rate while unseen
@@ -103,18 +105,45 @@ export class Crowd {
   // pre-built pool: one person of every adult preset first (so every type appears), then extra seeded variations
   // spec pool size: one person per preset (so every outfit in the wardrobe appears) plus random extras
   specTarget() { return PRESETS.length + 8; }
-  prepareSpecs(n = 8) { for (let i = 0; i < n; i++) { const k = this.specs.length; const sp = randomSpec(9000 + k * 17, k < PRESETS.length ? { preset: PRESETS[k].id } : {}); sp._k = k; /* the look's index: a resident's identity is look × district (Mind.js) */ this.specs.push(sp); new Character(sp).dispose(); } }
-  // who walks here now: profile activity for the hour (office rush, morning joggers, daytime tourists, few people late at night),
-  // and never the same preset/look as someone within 25 m, so there are no side-by-side clones
+  // 96th: each look is also prepared for its LOOK_VARIANTS (Appearance.lookVariant): their head meshes (facial hair of a new
+  // colour / style) are built now, and the first variant Character classifies the body's vertex colours (LookVariant.js),
+  // so a variant spawning in the street costs one colour buffer (~0.4 ms), never a mesh build
+  prepareSpecs(n = 8) { for (let i = 0; i < n; i++) { const k = this.specs.length; const sp = randomSpec(9000 + k * 17, k < PRESETS.length ? { preset: PRESETS[k].id } : {}); sp._k = k; /* the look's index: a resident's identity is look × district (Mind.js) */ this.specs.push(sp); new Character(sp).dispose();
+    for (let vi = 1; vi < LOOK_VARIANTS; vi++) { const v = lookVariant(sp, vi); if (v === sp) break; const o = npcHeadOpts(v); const hv = npcVariant(v); npcHeadGeometry(hv, o, 0); npcHeadGeometry(hv, o, 1); }
+    const v1 = lookVariant(sp, 1); if (v1 !== sp) new Character(v1).dispose(); } }
+  // a look variant of a pool spec (couples, event visitors, passengers): seeded, so the same (look, seed) is the same person
+  vary(sp, seed) { return lookVariant(sp, (seed >>> 0) % LOOK_VARIANTS); }
+  // the street-type mix here (district style + shops / stalls / lawns / benches within 40 m + the hour), cached per 20 m cell
+  areaAt(x, z) {
+    const h = this.hour ?? 12; const ck = Math.floor(x / 20) * 65536 + Math.floor(z / 20) + Math.floor(h * 2) * 1e9; const A = this._area || (this._area = new Map()); let m = A.get(ck); if (m) return m;
+    if (A.size > 512) A.clear(); const poi = {}; for (const q of this.nearPOIs(x, z, 40)) poi[q.type] = (poi[q.type] || 0) + 1;
+    const st = (L.DISTRICTS[L.districtIdAt(x, z)] || {}).style; m = areaMix(st, poi, h); A.set(ck, m); return m;
+  }
+  // who walks here now: profile activity for the hour (office rush, morning joggers, daytime tourists, few people late at night)
+  // × how much that profile belongs on this street (96th: areaAt — offices in the Fort, stalls in Pettah, residents in the
+  // lanes, joggers on the Green), × the preset's street frequency (softened). Then the look variant, and the local variety
+  // checks — all from a few grid cells, never a scan of the whole crowd:
+  //  · never the same preset as anyone alive within 25 m (no side-by-side clones), and not one put down within ~40 m
+  //    in the last two minutes (no repeated groups along a street)
+  //  · never the exact same look (preset person × variant) alive within 70 m or spawned within ~80 m recently
   pickSpec(x, z) {
-    const h = this.hour ?? 12;
+    const h = this.hour ?? 12, mix = this.areaAt(x, z), t = this.t, H = this.hist || (this.hist = new SpawnHistory({ cell: 40, ring: 10, ttl: 120, maxCells: 256 }));
+    const G = this.cgrid || (this.cgrid = new CoarseGrid(32)); const S = this.specs; if (!S.length) return null;
+    let W = this._specW; if (!W || W.length !== S.length) W = this._specW = new Float32Array(S.length); let tot = 0;
+    for (let i = 0; i < S.length; i++) { const sp = S[i]; tot += W[i] = profileActivity(sp.profile, h) * (areaLiking(sp.profile, mix) / AREA_MAX) * Math.sqrt(presetWeight(sp.preset)); }
+    if (!(tot > 0)) return null; this.stats.picks = (this.stats.picks || 0) + 1;
     for (let k = 0; k < 14; k++) {
-      const sp = this.specs[Math.floor(this.rng.next() * this.specs.length)]; if (this.rng.next() > profileActivity(sp.profile, h)) continue;
-      const lk = lookKey(sp); if (this.peds.some((q) => (q.sp.preset === sp.preset || lookKey(q.sp) === lk) && Math.hypot(q.x - x, q.z - z) < 25)) continue;
-      return sp;
+      let u = this.rng.next() * tot, i = 0; while (i < S.length - 1 && (u -= W[i]) > 0) i++; const base = S[i];
+      if (G.find(x, z, 25, (q) => q.sp && q.sp.preset === base.preset) || H.has(x, z, 'p' + base.preset, t, 40)) { this.stats.rejPreset = (this.stats.rejPreset || 0) + 1; continue; }
+      const v0 = Math.floor(this.rng.next() * LOOK_VARIANTS); let sp = null;
+      for (let j = 0; j < LOOK_VARIANTS && !sp; j++) { const vi = (v0 + j) % LOOK_VARIANTS, c = lookVariant(base, vi), lk = lookKey(c);
+        if (G.find(x, z, 70, (q) => q.sp && q.sp.preset === base.preset && (q.sp._vi | 0) === vi && lookKey(q.sp) === lk) || H.has(x, z, 'l' + (base._k ?? base.preset) + '.' + vi, t, 80)) { this.stats.rejLook = (this.stats.rejLook || 0) + 1; continue; }
+        sp = c; }
+      if (sp) return sp;
     }
     return null;
   }
+  noteSpawn(p) { const sp = p.sp; if (!sp) return; const H = this.hist; if (H) { H.add(p.x, p.z, 'p' + sp.preset, this.t); H.add(p.x, p.z, 'l' + (sp._k ?? sp.preset) + '.' + (sp._vi | 0), this.t); if (this.frame % 300 === 0) H.prune(this.t); } if (this.cgrid) this.cgrid.add(p); }
   // The walk graph is laid out from the street plan before props exist: move nodes that ended up inside a tree / kiosk / monument
   // out to free ground, and drop links that run straight through solid objects (people would otherwise walk into them).
   repairGraph() {
@@ -150,7 +179,7 @@ export class Crowd {
       const d = Math.hypot(n.x - focus.x, n.z - focus.z); if (d > (near ? 70 : 130) || d < (near ? 8 : 40)) continue;
       if (!near && camDir && d < 90) { const dot = ((n.x - focus.x) * camDir.x + (n.z - focus.z) * camDir.z) / d; if (dot > 0.55) continue; }
       const sp = this.pickSpec(n.x, n.z); if (!sp) continue;
-      BUILDS.spend(); const p = this.makePed(sp, n.x + this.rng.range(-1, 1), n.z + this.rng.range(-1, 1), n.id); this.pickNext(p); return p;
+      BUILDS.spend(); const p = this.makePed(sp, n.x + this.rng.range(-1, 1), n.z + this.rng.range(-1, 1), n.id); this.noteSpawn(p); this.pickNext(p); return p;
     }
   }
   // one crowd pedestrian at (x,z) on walk-graph node nodeId (also used by StreetLife for couples); caller picks the route
@@ -340,6 +369,7 @@ export class Crowd {
     // neighbour grid (2 m cells)
     /* neighbour grid reused across frames (no per-frame Map + arrays for the GC); emptied cells are dropped every ~10 s */
     const grid = this._grid || (this._grid = new Map()); if (this.frame % 600 === 0) grid.clear(); else for (const a of grid.values()) a.length = 0; for (const p of this.peds) { const k = Math.floor(p.x / 2) * 10000 + Math.floor(p.z / 2); let a = grid.get(k); if (!a) grid.set(k, (a = [])); a.push(p); }
+    (this.cgrid || (this.cgrid = new CoarseGrid(32))).fill(this.peds); // 96th: 32 m cells for the spawn variety checks (pickSpec)
     const pv = player.vehicle;
     // non-crowd people on foot (player, police, HQ staff, mission & cutscene actors): steer around them and never overlap
     const fixed = (ctx.bodies || []).filter((b) => !b.ped && Math.abs(b.x - focus.x) < 90 && Math.abs(b.z - focus.z) < 90);

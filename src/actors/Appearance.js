@@ -306,8 +306,73 @@ export function profileActivity(profile, h) {
   }
 }
 
+// ---- 96th: look variants. A crowd look (one preset person, its body geometry built and cached once) is worn by up to
+// LOOK_VARIANTS different people: variant vi > 0 re-draws, from the SAME preset's palettes (a second seeded person of that
+// preset), every colour the geometry does not depend on — garments, shoes, bag / cap / scarf / towel colours, skin tone,
+// hair colour — plus the face (face-texture variant: eyes, iris, brows, lips, stubble, lines) and, for men whose preset
+// allows several, the facial hair. Everything that shapes the body mesh (outfit, hairstyle, accessories, height, build,
+// head-mesh variant, age) stays the base person's, so the body geometry is shared and only a recoloured colour buffer is
+// new (Character.js / LookVariant.js). Deterministic: (base look, vi) → always the same person.
+export const LOOK_VARIANTS = 8;
+export const VARIANT_COLOURS = ['top', 'bottom', 'skirtCol', 'inner', 'shoes', 'sole', 'skin', 'hairColor', 'tie', 'scarf', 'bag', 'crossbody', 'cap', 'lanyard', 'watch', 'towel', 'apron', 'hiVis', 'shawl', 'headband', 'gloves', 'cuff'];
+const TOURIST_FACES = new Set([6, 7, 17, 18]); // these pick the head mesh (NpcHead.npcVariant): never swapped
+const isHex = (v) => typeof v === 'string' && v[0] === '#';
+// variants are pure functions of (base, vi) and specs are shared read-only (as pool looks always were), so each is made
+// once and cached on its base (a WeakMap: a dropped base takes its variants with it) — the crowd's spawn checks ask for
+// several variants per pick, and makeAppearance is ~2 ms in the browser
+const VARIANT_CACHE = new WeakMap();
+export function lookVariant(base, vi) {
+  vi = vi | 0; if (!vi || !base || base.hero || !byId[base.preset]) return base;
+  let vc = VARIANT_CACHE.get(base); if (!vc) VARIANT_CACHE.set(base, (vc = new Array(LOOK_VARIANTS)));
+  return vc[vi] || (vc[vi] = makeVariant(base, vi));
+}
+function makeVariant(base, vi) {
+  const pr = byId[base.preset]; const alt = makeAppearance(((base.seed | 0) * 31 + vi * 7717 + 3) >>> 0, { preset: base.preset });
+  const sp = Object.assign({}, base); Object.defineProperty(sp, '_base', { value: base, enumerable: false }); sp._vi = vi;
+  // one base colour → one variant colour (a kurta's top, skirt and trousers of one cloth stay one cloth; a frock's 'bottom'
+  // is the skin colour and follows the skin)
+  const map = new Map();
+  for (const f of VARIANT_COLOURS) { const b = base[f]; if (!isHex(b)) continue; const k = b.toLowerCase();
+    if (map.has(k)) { sp[f] = map.get(k); continue; }
+    let n = isHex(alt[f]) ? alt[f] : b; if (f === 'cap' && (alt.capStyle || '') !== (base.capStyle || '')) n = b; // a straw hat keeps straw tones
+    map.set(k, n); sp[f] = n; }
+  if (base.towel && sp.towel && sp.towel.toLowerCase() === String(sp.top).toLowerCase()) sp.towel = base.towel; // the cloth must read against the shirt
+  if (pr.sex === 'm' && (pr.fh || []).length > 1) for (const k of ['facial', 'beard', 'beardShort', 'goatee', 'moustache']) sp[k] = alt[k];
+  if (!TOURIST_FACES.has(base.faceV) && alt.faceV != null && !TOURIST_FACES.has(alt.faceV)) sp.faceV = alt.faceV; // alt's face matches alt's facial hair (makeAppearance)
+  else if (sp.facial !== base.facial) for (const k of ['facial', 'beard', 'beardShort', 'goatee', 'moustache']) sp[k] = base[k];
+  Object.defineProperty(sp, "_lk", { value: `${sp.preset}|${sp.top}|${sp.skirtCol || sp.bottom}|${sp.hair}`, enumerable: false }); return sp;
+}
+// ---- 96th: who walks where. Each district reads as a mix of street types (its style), nudged by what is around the spot
+// (shops / stalls → commercial / market, lawns / benches → leisure) and by the hour (after dark the shopping streets,
+// the towers and the Green become nightlife). Each profile has a liking per street type; the crowd draws people by
+// profile activity (hour) × this liking, so office workers fill the Fort and the towers, vendors and porters Pettah,
+// residents and retirees the residential lanes, joggers and tourists the Green and the lake.
+export const AREAS = ['residential', 'commercial', 'office', 'market', 'leisure', 'port', 'nightlife'];
+const STYLE_AREAS = { towers: [0, 0.3, 0.6, 0, 0.1, 0, 0], fort: [0, 0.3, 0.55, 0.05, 0.1, 0, 0], commercial: [0.2, 0.6, 0.2, 0, 0, 0, 0], market: [0.05, 0.3, 0, 0.65, 0, 0, 0],
+  dense: [0.45, 0.25, 0, 0.3, 0, 0, 0], residential: [0.75, 0.2, 0, 0.05, 0, 0, 0], villa: [0.6, 0.05, 0.15, 0, 0.2, 0, 0], green: [0, 0.1, 0, 0, 0.9, 0, 0],
+  lake: [0.1, 0.25, 0.2, 0, 0.45, 0, 0], port: [0, 0, 0.1, 0.15, 0, 0.75, 0] };
+//                residential commercial office market leisure port nightlife
+const PROFILE_AREA = {
+  office: [0.5, 1.0, 2.4, 0.5, 0.6, 0.5, 0.7], student: [1.3, 1.2, 0.6, 0.6, 1.2, 0.2, 1.0], shopper: [0.8, 2.0, 0.7, 1.8, 0.7, 0.3, 1.3],
+  shopkeeper: [0.7, 1.6, 0.4, 2.0, 0.3, 0.4, 0.8], vendor: [0.5, 1.2, 0.4, 2.6, 1.6, 0.6, 1.0], driver: [1, 1, 1, 1, 0.8, 1.4, 1], worker: [0.8, 0.8, 0.5, 1.6, 0.5, 2.8, 0.4],
+  security: [0.6, 1.2, 1.8, 0.6, 0.5, 1.4, 1.4], courier: [1.0, 1.3, 1.2, 1.0, 0.5, 1.0, 0.8], retiree: [1.8, 0.7, 0.3, 1.0, 1.5, 0.2, 0.2], resident: [2.2, 0.6, 0.3, 0.9, 0.8, 0.4, 0.3],
+  tourist: [0.25, 1.2, 0.6, 1.1, 2.2, 0.2, 1.6], fitness: [1.0, 0.4, 0.3, 0.2, 2.6, 0.1, 0.2], medical: [0.8, 0.8, 1.0, 0.6, 0.4, 0.4, 0.5] };
+export const AREA_MAX = 2.8;
+/** street-type mix (7 shares summing to 1) for a district style, local POI counts and the hour */
+export function areaMix(style, poi = {}, h = 12, out = new Array(7)) {
+  const b = STYLE_AREAS[style] || STYLE_AREAS.dense; for (let i = 0; i < 7; i++) out[i] = b[i];
+  const shops = (poi.shop || 0) + (poi.vendor || 0) + (poi.door || 0) * 0.3, park = (poi.lawn || 0) + (poi.bench || 0) * 0.5;
+  if (shops > 0) { const k = Math.min(0.35, shops * 0.07); out[1] += k * 0.6; out[3] += k * 0.4; }
+  if (park > 0) out[4] += Math.min(0.35, park * 0.08);
+  const night = h >= 19.5 || h < 2; if (night) { const k = (out[1] + out[4] + out[2] * 0.5) * 0.45; out[6] += k; out[1] *= 0.6; out[4] *= 0.7; out[2] *= 0.7; }
+  let t = 0; for (let i = 0; i < 7; i++) t += out[i]; for (let i = 0; i < 7; i++) out[i] /= t || 1; return out;
+}
+/** how much a profile likes a street-type mix (≈0.2 … AREA_MAX) */
+export function areaLiking(profile, mix) { const w = PROFILE_AREA[profile]; if (!w) return 1; let s = 0; for (let i = 0; i < 7; i++) s += mix[i] * w[i]; return s; }
+export const presetWeight = (id) => (byId[id] ? byId[id].w : 1);
+
 // A cheap "looks the same" key: two people with the same key standing next to each other read as clones.
-export function lookKey(sp) { return `${sp.preset}|${sp.top}|${sp.skirtCol || sp.bottom}|${sp.hair}`; }
+export function lookKey(sp) { return sp._lk || `${sp.preset}|${sp.top}|${sp.skirtCol || sp.bottom}|${sp.hair}`; }
 
 // Spec is an adult and carries none of the removed child/school content.
 export function isAdultSpec(sp) {

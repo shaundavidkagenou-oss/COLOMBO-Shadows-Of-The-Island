@@ -5,6 +5,7 @@
 // (BoatLamps, one draw call) and the wakes (BoatWater.Wakes, one draw call).
 // Everything heavy is made at load: the marina, the moored fleet, the two police boats and a small pool of people for them.
 import * as THREE from 'three';
+import { RenderRes } from '../gfx/RenderRes.js';
 import * as L from '../world/Layout.js';
 import { Boat } from './Boat.js';
 import { BOATS, YACHT_IDS, BOAT_IDS, JETSKI_IDS, boatName } from './BoatCatalog.js';
@@ -439,7 +440,7 @@ export class Boats {
     }
     this.wakes.update(dt, _lit.setRGB(0.03, 0.035, 0.05).multiplyScalar(night));
     // lamps (night): every visible boat within range + the marina's pontoon lights
-    const H = g.renderer ? g.renderer.getDrawingBufferSize(_sz).y : 720; this.lamps.begin(g.camera, H, this.t);
+    const H = g.renderer ? g.renderer.getDrawingBufferSize(_sz).y * RenderRes.k : 720; /* 91st: the internal height under SGSR */ this.lamps.begin(g.camera, H, this.t);
     let deck = null, dd = 1e9, bea = null, bd = 1e9;
     if (night > 0.02) {
       for (const b of this.all) { if (!b.root.visible || b.away || b.mode === 'sunk') continue; const d = Math.hypot(b.x - cam.x, b.z - cam.z); if (d > 2500) continue; this.lamps.addBoat(b, b.lights, night);

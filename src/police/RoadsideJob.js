@@ -122,15 +122,20 @@ export function bayPoints(R, car, lx = 0, depth = 0.5) { const F = R.bonnet ? R.
 // the spanner floated through the back of the hand at a random angle. Hand frame (FuelStations' nozzle grip, the game's one
 // measured grip): a handle along the hand's z through the palm at (0.012, -0.085, 0.01), fingers wrapping toward -y, the
 // index / thumb side toward +z. Per tool: the grip point in the tool's own frame and the hand's axes there.
-const HAND_IN_GRIP = new THREE.Vector3(-0.012, 0.085, -0.01); // the wrist in the grip frame
+const HAND_IN_GRIP = new THREE.Vector3(-0.012, 0.085, -0.01); // the wrist in the grip frame (right hand; the left mirrors x)
+const _MIRX = new THREE.Vector3(-1, 1, 1), _ONE = new THREE.Vector3(1, 1, 1);
 const GRIP_DEF = {
   spanner: { g: [0, 0, -0.045], ax: [[1, 0, 0], [0, 1, 0], [0, 0, 1]] }, // handle along z, the open end (+z) out past the index finger
   brace: { g: [0.2, 0, 0], ax: [[0, 1, 0], [0, 0, -1], [-1, 0, 0]] }, // the right hand round the +x arm's end, wrist toward -z (the mechanic)
+  // 91st: the LEFT hand round the -x arm's end — the right grip mirrored through the brace's symmetry plane (tool x → -x, hand
+  // x → -x: the rigs' left hand is the right one mirrored in x). Before, the left wrist only had a position, so the hand kept its
+  // walk-cycle orientation and hung open beside / through the bar instead of closing round it
+  braceL: { g: [-0.2, 0, 0], ax: [[0, -1, 0], [0, 0, -1], [1, 0, 0]], left: true },
 };
 const GRIPS = {};
 function gripOf(kind) {
   let G = GRIPS[kind]; if (G) return G; const D = GRIP_DEF[kind] || GRIP_DEF.spanner; const M = new THREE.Matrix4().makeBasis(new THREE.Vector3(...D.ax[0]), new THREE.Vector3(...D.ax[1]), new THREE.Vector3(...D.ax[2]));
-  const q = new THREE.Quaternion().setFromRotationMatrix(M); const w = HAND_IN_GRIP.clone().applyQuaternion(q).add(new THREE.Vector3(...D.g)); // the wrist in tool coordinates
+  const q = new THREE.Quaternion().setFromRotationMatrix(M); const w = HAND_IN_GRIP.clone().multiply(D.left ? _MIRX : _ONE).applyQuaternion(q).add(new THREE.Vector3(...D.g)); // the wrist in tool coordinates
   const H = new THREE.Matrix4().compose(w, q, new THREE.Vector3(1, 1, 1)); G = GRIPS[kind] = { q, w, Hi: H.clone().invert() }; return G;
 }
 const _m = new THREE.Matrix4(), _s1 = new THREE.Vector3();
@@ -174,9 +179,9 @@ export function braceWork(rs, o, car, w, W, t, mode) {
   _z.copy(_ax).negate(); // the brace's +z (socket end) into the nut
   _bx.copy(_fw).multiplyScalar(Math.cos(phi)).addScaledVector(_up, Math.sin(phi)); _by.crossVectors(_z, _bx); _mb.makeBasis(_bx, _by, _z); _tq.setFromRotationMatrix(_mb);
   _tp.copy(_nut).addScaledVector(_z, -0.2); o.toolAt = o.toolAt || { p: new THREE.Vector3(), q: new THREE.Quaternion() }; o.toolAt.p.copy(_tp); o.toolAt.q.copy(_tq);
-  // right hand: the +x arm's end (handFor); left hand: the -x arm's end, wrist toward the mechanic
+  // right hand: the +x arm's end, left hand: the -x arm's end — both closed round the bar (handFor: wrist + orientation)
   const q = W.qR || (W.qR = new THREE.Quaternion()); handFor('brace', _tp, _tq, _s1, q); W.holdR = { x: _s1.x, y: _s1.y, z: _s1.z };
-  _s1.copy(_bx).multiplyScalar(-0.2).add(_tp).addScaledVector(_ax, 0.08); W.holdL = { x: _s1.x, y: _s1.y + 0.02, z: _s1.z };
+  const qL = W.qL || (W.qL = new THREE.Quaternion()); handFor('braceL', _tp, _tq, _s1, qL); W.holdL = { x: _s1.x, y: _s1.y, z: _s1.z };
   return true;
 }
 export function takeTool(rs, o, K, kind) { const m = K && K.slots[kind]; if (!m) return null; m.updateWorldMatrix(true, false); m.getWorldPosition(_a); rs.g.scene.attach(m); K.out.add(m); m.visible = true; o.tool = m; return m; }

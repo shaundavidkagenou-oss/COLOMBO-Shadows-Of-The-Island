@@ -24,6 +24,7 @@ import { buildPropGeometries, buildPropsForChunk, updateSignals, initGlowTexture
 import { buildTreeGeometries, windUniform } from './Vegetation.js';
 import { stepWind } from './Wind.js';
 import { balconyTick, setupClothMesh, dropAnchors } from './BalconyLife.js';
+import { geoPool, geoPoolStats, submitGeo, jobFromWorker, splitVersion, cancelGeo } from './GeoJobs.js';
 import { Forest } from './Forest.js';
 import { buildVines, vineFade } from './Vines.js';
 import { bootMap, bootMapWorld, bootPaint } from '../debug/boot.js';
@@ -252,7 +253,7 @@ export class World {
     if (!extra) { this.batched = new THREE.Group(); this.batched.name = 'cityBatched'; this.root.add(this.batched); this.batches = []; }
     for (const G of groups.values()) {
       if (G.list.length < 2) { for (const e of G.list) for (const p of e.pieces) if (p.geo !== e.m.geometry) p.geo.dispose(); continue; } // nothing to gain
-      const B = new THREE.BatchedMesh(G.np, G.nv, G.ni, G.mat); B.name = G.name; B.castShadow = G.cast; B.receiveShadow = G.recv; B.renderOrder = G.order; B.layers.mask = G.layers;
+      const B = new THREE.BatchedMesh(G.np, G.nv, G.ni, G.mat); if (G.mat.leafDepth) B.customDepthMaterial = G.mat.leafDepth; B.name = G.name; B.castShadow = G.cast; B.receiveShadow = G.recv; B.renderOrder = G.order; B.layers.mask = G.layers;
       const bid = new Int32Array(G.np).fill(-1), cells = new Int32Array(G.np * CSLOTS).fill(-1), grp = [0];
       for (const { c, m, pieces } of G.list) { for (const p of pieces) { const gid = B.addGeometry(p.geo); const iid = B.addInstance(gid); B.setMatrixAt(iid, m.matrix);
           bid[iid] = p.bid; if (p.box && occ) cellsOfBox(occ, p.box, cells, iid * CSLOTS, p.box[4], false);
@@ -281,10 +282,10 @@ export class World {
       const { mb, marks } = buildBaseMarked(ch, this.skyBake); c.baseMarks = marks;
       for (const m of mb.toMeshes(MAT, { cast: true, receive: true })) { m.userData.layer = 'bld'; if (m.name === 'ao') { m.castShadow = false; m.receiveShadow = false; m.renderOrder = 1; } c.group.add(m); }
       const had = { c, det: !!c.detail, win: !!c.win }; if (had.det || had.win) again.push(had);
-      if (this.job && this.job.c === c) this.job = null; if (c.detail) this.disposeDetail(c);
+      this.geoForget(c); if (this.job && this.job.c === c) this.job = null; if (c.detail) this.disposeDetail(c);
       if (this.wjob && this.wjob.c === c) this.wjob = null; if (c.win) this.disposeWindows(c);
     }
-    if (!list.length) return 0;
+    if (!list.length) return 0; this.geoGen = (this.geoGen || 0) + 1; // answers to jobs sent before this rebuild are stale
     this.batchStatic(list, true); for (const c of list) refreshStatic(c.group);
     // the detail / window joinery that was on screen comes straight back on its new materials (no streaming pop-in while editing)
     for (const { c, det, win } of again) { if (det && !c.detail) this.buildDetailFor(c); if (win && !c.win) this.buildWindowsFor(c); }
@@ -354,6 +355,7 @@ export class World {
     this.t += dt; windUniform.value += dt * (0.6 + (atmos ? atmos.w.wind : 0.3)); stepWind(dt, atmos ? atmos.w.wind : 0.3); balconyTick(dt, atmos); // 83rd: wind direction / strength for cloth; laundry in from heavy rain
     this.signalTimer -= dt; if (this.signalTimer <= 0) { this.signalTimer = 0.25; updateSignals(this.simTime ?? this.t); }
     const fx = focus.x, fz = focus.z; let budget = 1; vineFade.value.x = fx; vineFade.value.y = fz;
+    const GW = this.geoWorkers !== false && geoPool(), wantD = GW ? this._wantD || (this._wantD = []) : null, wantW = GW ? this._wantW || (this._wantW = []) : null; if (GW) { wantD.length = 0; wantW.length = 0; this._geoFocus = focus; } // 93rd: geometry generated in worker threads (GeoJobs.js)
     for (const c of this.chunks) {
       const d = Math.max(0, Math.hypot(c.cx - fx, c.cz - fz) - CHUNK * 0.7);
       // every chunk toggle has hysteresis (shown inside R, hidden only beyond R + H): standing or driving along a boundary
@@ -361,16 +363,19 @@ export class World {
       { const v = c.props.visible ? d < this.propRadius + 25 : d < this.propRadius; if (v !== c.props.visible) { c.props.visible = v; this.propDirty = true; } }
       if (c.vines) c.vines.visible = c.vines.visible ? d < this.vineRadius + 20 : d < this.vineRadius; /* the vine shader has already dissolved them by then (vineFade) */
       if (d < this.detailRadius || (c.detail && c.detail.visible && d < this.detailRadius + 25)) {
-        if (!c.detail && budget > 0 && !this.job) { budget--; this.startDetailJob(c); } /* built over several frames: see stepDetailJob */
+        if (!c.detail && GW && !c.geoMain) { if (!this.geoBusy(c, 'detail')) wantD.push([d, c]); } /* 93rd: generated in a worker, merged here over several frames */
+        else if (!c.detail && budget > 0 && !this.job) { budget--; this.startDetailJob(c); } /* built over several frames: see stepDetailJob */
         else if (c.detail) c.detail.visible = true;
       } else if (c.detail) { c.detail.visible = false; if (d > this.detailRadius + 300 && !c.keep) this.disposeDetail(c); } /* c.keep: set only by the trailer on the chunks its cuts jump between */
-      if (d < this.windowRadius || (c.win && c.win.visible && d < this.windowRadius + 15)) { if (!c.win && budget > 0 && !this.wjob) { budget--; this.wjob = this.newJob(c, 'win'); } else if (c.win) c.win.visible = true; } /* window joinery: also built over several frames */
+      if (d < this.windowRadius || (c.win && c.win.visible && d < this.windowRadius + 15)) { if (!c.win && GW && !c.geoMain) { if (!this.geoBusy(c, 'win') && !this.geoBusy(c, 'detail')) wantW.push([d, c]); } else if (!c.win && budget > 0 && !this.wjob) { budget--; this.wjob = this.newJob(c, 'win'); } else if (c.win) c.win.visible = true; } /* window joinery: also built over several frames */
       else if (c.win) { c.win.visible = false; if (d > this.windowRadius + 120 && !c.keep) this.disposeWindows(c); }
     }
     if (this.propDirty && this.propPools) { this.propDirty = false; this.repackProps(); }
     if (this.forest) this.forest.update(focus, camera);
     if (this.paint) this.paint.update(focus, camera); // environment editor scenery (src/debug/PaintField.js; null without a scene)
     if (this.revealQ.length) this.revealStep();
+    if (GW) this.geoDispatch(GW, wantD, wantW);
+    if (this.geoReady) { if (!this.job) this.job = this.geoTake('detail'); if (!this.wjob) this.wjob = this.geoTake('win'); } // a worker's finished chunk: merged like any streaming job
     if (this.job) this.stepDetailJob(this.jobBudgetMs);
     if (this.wjob) this.stepWinJob(this.jobBudgetMs);
     if (this.grass) this.grass.update(dt, focus, atmos ? atmos.w.wind : 0.3);
@@ -409,6 +414,38 @@ export class World {
   // The job builds a few buildings per frame within a time budget, then merges one material per frame. Every building
   // seeds its own RNG, so the result is identical to the one-shot build (same meshes, same order) - only spread out.
   startDetailJob(c) { this.job = this.newJob(c, 'detail'); }
+  // 93rd — MULTI-CORE STREAMING. With geometry workers (GeoJobs.js / GeoWorker.js) the generate phase of a chunk's detail and
+  // window joinery — 85-95 % of a streaming job's main-thread time — runs in worker threads, several chunks at once, nearest
+  // first (re-ranked whenever a worker frees up). The main thread keeps only the merge (the same budgeted slices, one detail and
+  // one window chunk at a time, then staged reveal), so results arrive in controlled batches. Any worker failure falls back to
+  // the main-thread job for that chunk; loading-screen / teleport warm-ups (buildDetailFor) stay synchronous on the main thread.
+  geoBusy(c, kind) { const k = kind + c.idx; if (this.geoPend && this.geoPend.has(k)) return true; const R = this.geoReady && this.geoReady[kind]; return !!(R && R.some((J) => J.c === c)) || (kind === 'detail' ? this.job : this.wjob)?.c === c; }
+  geoDispatch(P, wantD, wantW) {
+    if (!this.geoPend) { this.geoPend = new Map(); this.geoReady = { detail: [], win: [] }; this.geoGen = this.geoGen || 0; this.geoStats = { sent: 0, merged: 0, dropped: 0, failed: 0, fallback: 0 }; }
+    const cap = P.size + 1, inflight = (kind) => { let n = 0; for (const q of this.geoPend.values()) if (q.kind === kind) n++; return n + this.geoReady[kind].length; };
+    for (const [kind, want] of [['detail', wantD], ['win', wantW]]) { if (!want.length) continue; want.sort((a, b) => a[0] - b[0]);
+      for (const [, c] of want) { if (inflight(kind) >= cap) break; this.geoSubmit(c, kind); } }
+  }
+  geoSubmit(c, kind) {
+    const key = kind + c.idx, bs = plan.byChunk[c.idx].buildings, Q = { c, kind, gen: this.geoGen, split: splitVersion(), t: performance.now() }; this.geoPend.set(key, Q); this.geoStats.sent++;
+    const prio = () => { const f = this._geoFocus; return f ? Math.hypot(c.cx - f.x, c.cz - f.z) + (kind === 'win' ? 40 : 0) : 0; };
+    submitGeo(kind, bs, prio).then((res) => {
+      if (this.geoPend.get(key) !== Q) return; this.geoPend.delete(key); // forgotten meanwhile (rebuilt / edited / built synchronously)
+      if (Q.gen !== this.geoGen || Q.split !== splitVersion() || (kind === 'detail' ? c.detail : c.win)) { this.geoStats.dropped++; return; }
+      const J = jobFromWorker(c, kind, bs, res); J.geoMs = performance.now() - Q.t; this.geoReady[kind].push(J);
+    }, (err) => { if (this.geoPend.get(key) === Q) this.geoPend.delete(key); if (err && err.cancelled) return; this.geoStats.failed++; c.geoFails = (c.geoFails || 0) + 1; if (c.geoFails >= 2) { c.geoMain = true; this.geoStats.fallback++; } console.warn('geometry worker', kind, c.idx, err && err.message); });
+  }
+  // the nearest finished chunk of a kind (dropped if the player has meanwhile left it far behind)
+  geoTake(kind) { const R = this.geoReady[kind]; if (!R.length) return null; const f = this._geoFocus || { x: 0, z: 0 }; const dist = (J) => Math.hypot(J.c.cx - f.x, J.c.cz - f.z) - CHUNK * 0.7;
+    let bi = 0; for (let i = 1; i < R.length; i++) if (dist(R[i]) < dist(R[bi])) bi = i; const J = R.splice(bi, 1)[0];
+    const far = kind === 'detail' ? this.detailRadius + 120 : this.windowRadius + 80; if (dist(J) > far || (kind === 'detail' ? J.c.detail : J.c.win)) { for (const mb of J.B) mb.releaseAll(); this.geoStats.dropped++; return this.geoTake(kind); }
+    this.geoStats.merged++; return J; }
+  // forget a chunk's worker jobs (its geometry is being rebuilt / edited / built synchronously): late answers are ignored
+  geoForget(c, kind = null) { if (!this.geoPend) return; for (const k of ['detail', 'win']) { if (kind && k !== kind) continue; this.geoPend.delete(k + c.idx); const R = this.geoReady[k]; for (let i = R.length - 1; i >= 0; i--) if (R[i].c === c) { for (const mb of R[i].B) mb.releaseAll(); R.splice(i, 1); } } }
+  // 93rd: every chunk back to its base build, nothing in flight (the CPU benchmark streams the same streets afresh per configuration)
+  dropStreaming() { cancelGeo(); this.geoGen = (this.geoGen || 0) + 1; for (const J of [this.job, this.wjob]) if (J) { for (const mb of J.B) mb.releaseAll(); for (const m of J.meshes) disposeMesh(m); } this.job = null; this.wjob = null; this.detailQueue.length = 0;
+    for (const c of this.chunks) { if (c.keep) continue; this.geoForget(c); c.geoFails = 0; c.geoMain = false; if (c.win) this.disposeWindows(c); if (c.detail) this.disposeDetail(c); } }
+  geoInfo() { return { pool: geoPoolStats(), pending: this.geoPend ? this.geoPend.size : 0, ready: this.geoReady ? this.geoReady.detail.length + this.geoReady.win.length : 0, merging: (this.job ? 1 : 0) + (this.wjob ? 1 : 0), ...(this.geoStats || {}) }; }
   newJob(c, kind) { const mk = () => new MultiBuilder(null, { pooled: true }); /* 86th: pooled typed buffers (MeshBuilder.GrowBuf) — no GC storm while streaming */ return { c, kind, i: 0, B: kind === 'detail' ? [mk()] : [mk(), mk()], q: null, meshes: [] }; }
   stepDetailJob(budgetMs = 3) { const done = this.stepJob(this.job, budgetMs); if (done) this.job = null; return done; }
   stepWinJob(budgetMs = 3) { const done = this.stepJob(this.wjob, budgetMs); if (done) this.wjob = null; return done; }
@@ -426,7 +463,7 @@ export class World {
         // the SliceBuild copy it used to go through was thrown away right after the batch had copied it again (tens of MB a material)
         if (src && src.pos instanceof GrowBuf && src.idx.length >= 18000) { const bp = this.batchPlan(J, k, name, det); if (bp.ranges && bp.ranges.length >= 3) { const g = new THREE.BufferGeometry();
           g.setAttribute('position', new THREE.BufferAttribute(src.pos.view(), 3)); g.setAttribute('normal', new THREE.BufferAttribute(src.nor.view(), 3)); g.setAttribute('uv', new THREE.BufferAttribute(src.uv.view(), 2)); g.setAttribute('color', new THREE.BufferAttribute(src.col.view(), 3)); g.setIndex(new THREE.BufferAttribute(src.idx.view(), 1));
-          J.sn = name; J.rb = this.rangeBatch(J, g, bp, det); J.rbOpts = bp.opts; J.rbRel = [k, name]; if (performance.now() - t0 > budgetMs) return false; continue; } }
+          J.sn = name; J.rb = this.rangeBatch(J, g, bp, det, k === 0 && J.pre ? J.pre[name] : null); J.rbOpts = bp.opts; J.rbRel = [k, name]; if (performance.now() - t0 > budgetMs) return false; continue; } }
         J.sb = new SliceBuild(src); J.sk = k; J.sn = name; }
       if (!J.sb.step(t0, budgetMs)) return false;
       const g = J.sb.geometry(), k = J.sk; J.sb = null; J.B[k].release(J.sn); // copied out: its buffers serve the next material / chunk
@@ -435,12 +472,12 @@ export class World {
         const m = meshFor(J.sn, g, MAT, opts); if (m) { if (!det && k === 1) m.renderOrder = 2; J.meshes.push(m); } }
       if ((J.q.length || J.sb) && performance.now() - t0 > budgetMs) return false; }
     for (const mb of J.B) mb.releaseAll(); const c = J.c; if (det ? c.detail : c.win) { for (const m of J.meshes) disposeMesh(m); return true; } // built meanwhile by warm()
-    if (det) this.finishDetail(c, J.meshes, !J.sync); else this.finishWindows(c, J.meshes, !J.sync); return true;
+    if (J.apply) J.apply(); if (det) this.finishDetail(c, J.meshes, !J.sync); else this.finishWindows(c, J.meshes, !J.sync); return true;
   }
   // opaque detail / window joinery: one BatchedMesh instance per building (per-building frustum culling, still one draw) — see CellBatch.RangeBatch
   batchPlan(J, k, name, det) { const opts = det ? { cast: true, receive: true } : k === 0 ? { cast: false, receive: true } : { cast: false, receive: false };
     const mat = matFor(name, MAT), ranges = (det || k === 0) && mat && !mat.isShaderMaterial && !FOLIAGE.has(name) && name !== 'balCloth' && name !== 'balProp' && name !== 'pool' && name !== 'lampHead' ? rangesFor(J.marks, name) : null; return { opts, mat, ranges }; }
-  rangeBatch(J, g, bp, det) { const bl = plan.byChunk[J.c.idx].buildings; return new RangeBatch(g, bp.ranges, bp.mat, { kind: det ? 'detail' : 'win', occ: this.occ, ids: bp.ranges.map((r) => (bl[r[4]] ? bl[r[4]].id : -1)) }); } /* 65th: + per-building occlusion / LOD (BatchCull.js) */
+  rangeBatch(J, g, bp, det, pre = null) { const bl = plan.byChunk[J.c.idx].buildings; return new RangeBatch(g, bp.ranges, bp.mat, { kind: det ? 'detail' : 'win', occ: this.occ, ids: bp.ranges.map((r) => (bl[r[4]] ? bl[r[4]].id : -1)), pre }); } /* 93rd: pre = a geometry worker's per-building data (CellBatch.rangePre) */ /* 65th: + per-building occlusion / LOD (BatchCull.js) */
   // per-building range marks: each material builder's vertex / index count before every building (+ one at the end)
   markJob(J) { const mb = J.B[0]; (J.marks || (J.marks = [])).push(new Map([...mb.b].map(([n, b]) => [n, [b.pos.length / 3, b.idx.length]]))); }
   finishWindows(c, meshes, staged = false) { const g = new THREE.Group(); g.name = 'windows' + c.idx; for (const m of meshes) { if (m.name === 'balCloth') setupClothMesh(m); g.add(m); } c.win = g; c.group.add(g); refreshStatic(c.group); if (staged) this.stage(meshes); }
@@ -454,12 +491,12 @@ export class World {
   }
   buildDetailFor(c) {
     if (this.job && this.job.c === c) { this.stepDetailJob(Infinity); if (c.detail) return; }
-    const J = this.newJob(c, 'detail'); J.sync = true; this.stepJob(J, Infinity); // one-shot (warm / loading): the same job code, unbudgeted
+    this.geoForget(c, 'detail'); const J = this.newJob(c, 'detail'); J.sync = true; this.stepJob(J, Infinity); // one-shot (warm / loading): the same job code, unbudgeted
   }
   // near tier: 3D window joinery + reflective panes (see BuildingGen.buildWindows)
   buildWindowsFor(c) {
     if (this.wjob && this.wjob.c === c) { this.stepWinJob(Infinity); if (c.win) return; }
-    const J = this.newJob(c, 'win'); J.sync = true; this.stepJob(J, Infinity);
+    this.geoForget(c, 'win'); const J = this.newJob(c, 'win'); J.sync = true; this.stepJob(J, Infinity);
   }
   disposeWindows(c) { dropAnchors(plan.byChunk[c.idx].buildings); c.group.remove(c.win); c.win.traverse((m) => m.geometry && disposeMesh(m)); c.win = null; }
   // after a long jump (teleport / fast travel) release streamed chunk geometry well outside the new streaming radii at once,

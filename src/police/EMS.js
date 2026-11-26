@@ -223,6 +223,7 @@ function aedTexture() { if (aedTex) return aedTex; const c = document.createElem
   x.fillStyle = '#f0b81c'; x.beginPath(); x.arc(32, 44, 9, 0, 7); x.fill(); x.fillStyle = '#c0281f'; x.beginPath(); x.moveTo(30, 38); x.lineTo(35, 43); x.lineTo(31, 44); x.lineTo(35, 50); x.lineTo(28, 44); x.lineTo(32, 43); x.fill(); // shock button
   x.fillStyle = '#2f8d4e'; x.beginPath(); x.arc(12, 44, 4, 0, 7); x.fill(); aedTex = new THREE.CanvasTexture(c); aedTex.colorSpace = THREE.SRGBColorSpace; return aedTex; }
 
+const _kv = new THREE.Vector3(), _kd = new THREE.Vector3(), _kr = new THREE.Raycaster();
 export class EMS {
   constructor(pr) { this.pr = pr; this.g = pr.g; this.units = []; this.stats = { calls: 0, sent: 0, koRevived: 0, revived: 0, carried: 0, refused: 0, incidents: 0, auto: 0, toHospital: 0, delivered: 0, bayFail: 0 }; this.force = null; this.siren = null; this.t = 0;
     this.incidents = new Map(); this.scanT = 2; this.MAX_UNITS = 1; }
@@ -325,7 +326,7 @@ export class EMS {
       case 'stop': if (e.t > 1.2) { pr.dismount(u, 'ems'); u.task = 'ems'; e.bp = 'out'; e.t = 0; } return;
       case 'out': if (u.officers.every((o) => o.mode === 'foot') || e.t > 12) { e.bp = 'rear'; e.t = 0; } return;
       case 'rear': { const ca = this.vanPt(u, AMB.rearZ - 0.5, -1.25), cb = this.vanPt(u, AMB.rearZ - 0.5, 1.25); this.spot(A, ca.x, ca.z, v.yaw, null, {}); this.spot(Bm, cb.x, cb.z, v.yaw, null, {});
-        if ((this.at(A, 0.5) && this.at(Bm, 0.5)) || e.t > 15) { e.rearOpen = true; if (e.rear === undefined) e.rear = 0; if (e.rear > 0.95) { e.bp = 'unload'; e.t = 0; this.takeCargo(u); } } return; }
+        if ((this.at(A, 0.5) && this.at(Bm, 0.5) && this.doorsClear(u)) || (e.t > 15 && this.doorsClear(u)) || e.t > 30) { e.rearOpen = true; /* 95th: the leaves never swing through a medic (FootNav.swingClear) */ if (e.rear === undefined) e.rear = 0; if (e.rear > 0.95) { e.bp = 'unload'; e.t = 0; this.takeCargo(u); } } return; }
       case 'unload': { // slide it out feet first (B), set it on its wheels, A to the head end
         const zIn = AMB.rearZ + ST.half + 0.05, zOut = AMB.rearZ - ST.half - 0.9; const k = sm(Math.min(1, e.t / 2.4)); if (!e.pullSnd) { e.pullSnd = true; const c0 = this.vanPt(u, zIn); HospitalSound.trolleyPull(c0.x, c0.z); } const c = this.vanPt(u, zIn + (zOut - zIn) * k); const S = e.S; S.x = c.x; S.z = c.z; S.yaw = v.yaw + Math.PI;
         const gy = this.g.collision.groundAt(c.x, c.z, v.y + 0.5); S.y = (v.y + AMB.doorY0) + ((gy + 0.42) - (v.y + AMB.doorY0)) * sm((k - 0.45) / 0.55);
@@ -441,9 +442,11 @@ export class EMS {
     const chestSpot = () => { const c = b.C; return { x: c.x + b.n.x * sg * 0.58 - b.ax.x * 0.05, z: c.z + b.n.z * sg * 0.58 - b.ax.z * 0.05, yaw: Math.atan2(-b.n.x * sg, -b.n.z * sg) }; };
     const headSpot = () => { const h = b.H; return { x: h.x + b.ax.x * 0.52, z: h.z + b.ax.z * 0.52, yaw: Math.atan2(-b.ax.x, -b.ax.z) }; };
     const placed = (o) => o.want && o.placedT > 0.45;
+    if (e.kit && e.kitCarry) this.kitInHand(B, e.kit); // 95th: B brings the response bag from the van in his right hand (it used to appear on the ground)
     switch (e.ph) {
       case 'approach': { const a = chestSpot(), h = headSpot();
         if (e.reach === undefined) { e.reach = this.unreachable(u, b, a, h); if (e.reach) { this.pr.note(`EMS unit ${u.id}: patient unreachable (${e.reach})`); e.ph = 'untreat'; e.t = 0; return; } }
+        if (!e.kit) { e.kit = buildKit(); e.kitCarry = true; this.kitStrap(e.kit, 1); this.g.scene.add(e.kit); this.kitInHand(B, e.kit); }
         this.spot(A, a.x, a.z, a.yaw, 'medKneel', { run: true, look: 0.5, noStep: true }); this.spot(B, h.x, h.z, h.yaw, 'medKneel', { run: true, look: 0.55, noStep: true });
         if (A.stuck || B.stuck || e.t > 40) { this.pr.note(`EMS unit ${u.id}: could not get beside the patient`); e.reach = 'blocked on approach'; e.ph = 'untreat'; e.t = 0; return; }
         if (placed(A) && placed(B)) { e.ph = Math.abs(rollAngle(r)) > 1.2 ? 'roll' : 'supine'; e.t = 0; if (e.ph === 'roll') this.say('roll'); }
@@ -452,7 +455,12 @@ export class EMS {
         this.handsOn(A, r.part(sg > 0 ? 'shR' : 'shL'), r.part(sg > 0 ? 'hipR' : 'hipL'), 0.3); this.handsOn(B, r.part('head'), null, 0.3); return; }
       case 'supine': { if (!e.sup) { e.sup = true; const fr = supineFrame(r); e.fr = fr; const sup = Keys.toWorld(Keys.supine(r.rest), fr.x, fr.z, fr.yaw, col); r.blendTo(sup, 0.9, () => { e.ph = 'assess'; e.t = 0; e.sup = false; }, { hold: true }); } this.handsOn(A, r.part('chest'), null, 0.25); return; }
       case 'assess': { // pulse at the neck, tap the shoulder and call; B tilts the head back
-        if (!e.kit) { e.kit = buildKit(); const kx = b.H.x - b.n.x * sg * 0.75 + b.ax.x * 0.35, kz = b.H.z - b.n.z * sg * 0.75 + b.ax.z * 0.35; /* by the head on the far side: clear of A, B and where the cot is set down (side sg) */ e.kit.position.set(kx, col.groundAt(kx, kz, b.C.y + 0.3), kz); e.kit.rotation.y = Math.atan2(b.ax.x, b.ax.z); this.g.scene.add(e.kit); }
+        if (!e.kit) { e.kit = buildKit(); e.kitCarry = true; this.g.scene.add(e.kit); this.kitInHand(B, e.kit); }
+        if (e.kitCarry) { // 95th: set down from B's hand by the head on the far side (clear of A, B and where the cot is set down, side sg): lowered over 0.6 s, the AED unclipped from the bag's side
+          const K = e.kit; const kx = b.H.x - b.n.x * sg * 0.75 + b.ax.x * 0.35, kz = b.H.z - b.n.z * sg * 0.75 + b.ax.z * 0.35;
+          if (!e.kitDown) e.kitDown = { p: K.position.clone(), yaw: K.rotation.y, g: V().set(kx, col.groundAt(kx, kz, b.C.y + 0.3), kz), gy: Math.atan2(b.ax.x, b.ax.z) };
+          const D = e.kitDown, k = sm(Math.min(1, e.t / 0.6)); K.position.lerpVectors(D.p, D.g, k); K.position.y += Math.sin(Math.PI * k) * 0.06; K.rotation.set(0, D.yaw + angDiff(D.gy, D.yaw) * k, 0); this.kitStrap(K, 1 - k);
+          this.handsOn(B, null, V().copy(K.position).add(V().set(0, 0.3, 0)), 0.45); if (k >= 1) { e.kitCarry = false; e.kitDown = null; } return; }
         const tap = Math.sin(e.t * 9) * 0.025 * (e.t > 1.2 && e.t < 2.8 ? 1 : 0); const sh = r.part(sg > 0 ? 'shR' : 'shL');
         this.handsOn(A, V().copy(sh).add(V().set(0, 0.06 + tap, 0)), V().copy(r.part('neck')).addScaledVector(b.n, sg * 0.05).add(V().set(0, 0.07, 0)), 0.3); A.want.look = 0.7;
         this.handsOn(B, V().copy(r.part('head')).addScaledVector(b.n, 0.08).add(V().set(0, 0.04, 0)), V().copy(r.part('head')).addScaledVector(b.n, -0.08).add(V().set(0, 0.04, 0)), 0.4);
@@ -471,8 +479,13 @@ export class EMS {
         e.compress = tc < comp ? (e._cp || (e._cp = { x: 0, z: 0 })) : null; if (e.compress) { e.compress.x = st.x; e.compress.z = st.z; } // (own object: st is a pooled temp vector) // 75th: the CPR loop (sounds board: Hospitals → CPR) runs while compressing
         if (tc < comp) { const ph = (tc * 1.9) % 1; push = ph < 0.45 ? Math.sin((ph / 0.45) * Math.PI) : 0; if (tc > comp - 1.2 && n === 0 && !e.saidBreaths) { e.saidBreaths = true; this.say('breaths'); } }
         else squeeze = Math.max(0, Math.sin(((tc - comp) / 1.3) * Math.PI)); 
-        r.chestPush = push * 0.05; const top = V().copy(st).add(V().set(0, 0.12 - push * 0.05, 0));
-        this.handsOn(A, V().copy(top).add(V().set(0, 0.035, 0)), top, 0.32 + push * 0.12); A.want.look = 0.85;
+        // 95th: the heel of the lower (right) hand ON the front of the chest over the sternum, the left stacked on its back —
+        // the IK places wrists, so: the measured chest surface + 3 cm (wrist above the palm heel), 3 cm toward the medic
+        // (fingers point across the chest away from him), the top hand's wrist a further 3.5 cm up / 2 cm back. Both ride the
+        // chest down with every push (it used to hover 12 cm over the chest point, inside or above the body depending on build)
+        if (e.cprH === undefined) e.cprH = this.chestTop(p, st);
+        r.chestPush = push * 0.05; const top = V().copy(st).addScaledVector(b.n, sg * 0.03); top.y += e.cprH + 0.03 - push * 0.05;
+        this.handsOn(A, V().copy(top).addScaledVector(b.n, sg * 0.02).add(V().set(0, 0.035, 0)), top, 0.32 + push * 0.12); A.want.look = 0.85;
         this.bvm(u, b, squeeze, true); void fr; return; }
       case 'rosc': { r.chestPush = 0; this.bvm(u, b, 0, false); if (e.t > 1.5 && !e.woke) { e.woke = true; p.ch.face.set?.('pain', 4); this.dropProps(u); this.getUp(u, () => { this.stats.revived++; this.finishRevive(u); }); } this.supportHands(u, b, sg); return; }
       case 'dead': { r.chestPush = 0; this.bvm(u, b, 0, false); A.want.shake = e.t < 2.2 ? 0.5 : 0; this.handsOn(A, null, null, 0.2);
@@ -513,6 +526,17 @@ export class EMS {
   place(o, s) { o.x = s.x; o.z = s.z; o.yaw = s.yaw; }
   handsOn(o, L, R, lean) { const w = o.want || (o.want = {}); w.holdL = L ? V().copy(L) : null; w.holdR = R ? V().copy(R) : null; if (lean !== undefined) w.lean = lean; }
   sternum(r) { const C = r.part('chest'), N = r.part('neck'); return V().copy(C).lerp(N, 0.3); }
+  // 95th: the response bag in a medic's right hand (by its top handle, hanging under the fist, long side along his walk)
+  kitInHand(o, K) { const h = o.ch.bones && o.ch.bones.handR; if (!h) return; h.updateWorldMatrix(true, false); h.getWorldPosition(_kv); K.position.set(_kv.x, Math.max((o.y || 0) + 0.02, _kv.y - 0.33), _kv.z); K.rotation.set(0, o.yaw + Math.PI / 2, 0); }
+  // the AED rides clipped flat to the bag's side while carried (k = 1) and is set down beside it (k = 0)
+  kitStrap(K, k) { const a = K.children[2]; if (!a) return; a.position.set(0.05 * (1 - k), 0.13 * k, 0.42 - 0.27 * k); a.rotation.set(Math.PI / 2 * k, 0, 0); }
+  // how far the front of the chest stands above the sternum point (ray down onto the patient's skinned body, once per patient)
+  chestTop(p, st) {
+    const meshes = []; p.ch.root.traverse((m) => { if (m.isMesh && m.visible && m.geometry) meshes.push(m); }); let best = null;
+    _kr.set(_kv.set(st.x, st.y + 0.6, st.z), _kd.set(0, -1, 0)); _kr.far = 1.2;
+    for (const m of meshes) { try { if (m.isSkinnedMesh) m.computeBoundingSphere(); else if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere(); const hit = _kr.intersectObject(m, false)[0]; if (hit && (!best || hit.point.y > best)) best = hit.point.y; } catch { /* ignore a mesh three can't ray */ } }
+    return best == null ? 0.11 : Math.max(0.05, Math.min(0.22, best - st.y));
+  }
   supportHands(u, b, sg) { const A = u.officers[0], B = u.officers[1] || A; const r = b.r; const back = V().copy(r.part('chest')).add(V().set(0, -0.02, 0)).addScaledVector(b.n, sg * 0.1); this.handsOn(A, back, V().copy(r.part(sg > 0 ? 'shR' : 'shL')).add(V().set(0, 0.04, 0)), 0.25); this.handsOn(B, null, null, 0.2); }
   bvm(u, b, squeeze, on) { // B holds the mask on the face (left hand) and squeezes the bag (right)
     const e = u.e, B = u.officers[1] || u.officers[0], r = b.r; if (!on) { if (e.bvm) e.bvm.visible = false; this.handsOn(B, null, null, 0.25); return; }
@@ -542,7 +566,7 @@ export class EMS {
     const e = u.e, A = u.officers[0], B = u.officers[1] || A, v = u.v; if (e.rear === undefined) e.rear = 0;
     const zIn = AMB.rearZ + ST.half + 0.05, zOut = AMB.rearZ - ST.half - 0.9; const yaw = v.yaw + Math.PI;
     if (!e.st) { const ca = this.vanPt(u, AMB.rearZ - 0.5, -1.25), cb = this.vanPt(u, AMB.rearZ - 0.5, 1.25); this.spot(A, ca.x, ca.z, v.yaw, null, {}); this.spot(B, cb.x, cb.z, v.yaw, null, {});
-      if (this.at(A, 0.45) && this.at(B, 0.45)) { e.rearOpen = true; if (e.rear > 0.95) { e.st = deployTrolley(v, this.g.scene); e.cotOut = true; const c = this.vanPt(u, zIn); e.S = { x: c.x, z: c.z, y: v.y + AMB.doorY0, yaw }; e.slide = -1; this.syncStretcher(u); } }
+      if (this.at(A, 0.45) && this.at(B, 0.45) && this.doorsClear(u)) { e.rearOpen = true; if (e.rear > 0.95) { e.st = deployTrolley(v, this.g.scene); e.cotOut = true; const c = this.vanPt(u, zIn); e.S = { x: c.x, z: c.z, y: v.y + AMB.doorY0, yaw }; e.slide = -1; this.syncStretcher(u); } }
       return; }
     if (e.slide < 0) { const bp = this.vanPt(u, zIn - ST.handZ - 0.42); this.spot(B, bp.x, bp.z, v.yaw, null, {}); if (this.at(B, 0.3)) { e.slide = 0; HospitalSound.trolleyPull(bp.x, bp.z); } return; } // B steps up to the feet end
     if (e.slide < 1) { e.slide = Math.min(1, e.slide + dt / 2.4); const k = sm(e.slide); const zc = zIn + (zOut - zIn) * k; const c = this.vanPt(u, zc); e.S.x = c.x; e.S.z = c.z; e.S.yaw = yaw;
@@ -600,7 +624,9 @@ export class EMS {
     this.carryHands(u, true, 1, lead); for (const o of u.officers) if (o.want) o.want.speed = e.walkSp || 0; this.syncStretcher(u); this.followBody(u);
   }
   carryWaypoints(u, from, to, lead) { const v = u.v, f = Math.sin(v.yaw), c = Math.cos(v.yaw); const loc = (p) => ({ lz: (p.x - v.x) * f + (p.z - v.z) * c, lx: (p.x - v.x) * c - (p.z - v.z) * f });
-    const far = lead === 'feet' ? loc(to) : loc(from); const hw = v.T.wid / 2, back = AMB.rearZ; if (far.lz < back - 1.4 && Math.abs(far.lx) < hw + 3) return []; // behind the van: straight there
+    const far = lead === 'feet' ? loc(to) : loc(from); const hw = v.T.wid / 2, back = AMB.rearZ; if (far.lz < back - 1.4 && Math.abs(far.lx) < hw + 3) { // behind the van: straight there — 95th: but first (last, coming back) straight out of the doors, so the
+      // trailing end and the second medic don't swing through an open leaf when the leader turns off toward a patient to the side
+      if (Math.abs(far.lx) < 0.8 || far.lz > back - ST.len - 1.6) return []; return [this.vanPt(u, back - ST.len - 1.0, 0)]; }
     const side = Math.sign(far.lx) || 1, ox = side * Math.max(hw + 1.5, Math.min(Math.abs(far.lx), hw + 2.5)); const W = [this.vanPt(u, back - ST.len - 0.6, 0), this.vanPt(u, back - 1.6, ox)]; if (Math.abs(far.lx) < hw + 1.5) W.push(this.vanPt(u, Math.min(far.lz, (v.half || v.T.len / 2) + 0.5), ox));
     return lead === 'feet' ? W : W.reverse(); }
   setDown(u, dt, b, sg) { // lower it to the ground beside the body
@@ -640,7 +666,7 @@ export class EMS {
   recover(u, dt) { // 84th: called off with the cot out: both walk back to it (FootNav), take the grips and wheel it to the doors → 'load'
     const e = u.e, S = e.S, A = u.officers[0], B = u.officers[1] || A; e.p = null; if (!e.st || !S) { e.ph = 'leave'; e.t = 0; return; }
     if (!e.rcv) { const d = this.handles(S).dir; this.spot(A, S.x - d.x * (ST.handZ + 0.14), S.z - d.z * (ST.handZ + 0.14), Math.atan2(-d.x, -d.z), null, {}); this.spot(B, S.x + d.x * (ST.handZ + 0.42), S.z + d.z * (ST.handZ + 0.42), Math.atan2(-d.x, -d.z), null, {});
-      if ((this.at(A, 0.35) && this.at(B, 0.45)) || e.t > 40) { e.rcv = true; e.rearOpen = true; e.trip = { lead: 'head' }; e.ph = 'carry'; e.t = 0; e.al = 0; e.recovering = true; } return; }
+      if ((this.at(A, 0.35) && this.at(B, 0.45) && this.doorsClear(u)) || e.t > 40) { e.rcv = true; e.rearOpen = true; e.trip = { lead: 'head' }; e.ph = 'carry'; e.t = 0; e.al = 0; e.recovering = true; } return; }
   }
   load(u, dt) { // head first onto the floor: A steps aside, B pushes from the feet end; then the doors close and they leave
     const e = u.e, v = u.v, S = e.S, A = u.officers[0], B = u.officers[1] || A; e.slide = Math.min(1, e.slide + dt / 2.8); const k = sm(e.slide);

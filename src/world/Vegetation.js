@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { MAT } from '../gfx/Materials.js';
 import { treeShapes } from './TreeShapes.js';
 import { patchLeafShader, LEAF_VERT_PARS, LEAF_VERT, LEAF_FRAG_PARS, LEAF_FRAG_MAP } from './LeafAtlas.js';
+import { LEAF_MESH_DECODE, leafMeshUv } from './LeafMesh.js';
 
 export const TREES = {}; // exported for the crown-clearance table check (tools/tree-test.mjs)
 import { windUniform, leafLight, heliWash, vegWind, HELI_WASH_GLSL } from './Wind.js';
@@ -24,14 +25,24 @@ export { windUniform };
 // move together. Helicopter downwash as before.
 const KIND = {
   leaf: { bw: 'leafBW', bamp: '1.0', flutter: true, heli: [0.072, 0.12] },
+  // 95th leaf geometry (LeafMesh.js): branch phase varies slowly across the crown (a leaf moves as one piece with its twig —
+  // the phase change over one blade is < 0.2 rad), each leaf turns about its own stem (flutter ∝ distance from the stem)
+  leafMesh: { bw: 'lmFlex', bamp: '1.0', meshFlutter: true, bph: 'vgPh * 3.1 + dot(position.xz, vec2(0.37, 0.29)) + position.y * 0.21', heli: [0.072, 0.12] },
   palm: { bw: 'pow(clamp(uv.x, 0.0, 1.0), 1.5)', bamp: '2.6', heli: [0.12, 0.05] },
   banana: { bw: 'clamp(uv.y, 0.0, 1.0)', bamp: '2.0', heli: [0.12, 0.05] },
   bloom: { bw: '0.3 * hn', bamp: '1.0', heli: [0.072, 0.05] },
   bark: { bw: null, heli: [0.03, 0.0] },
 };
 const WIND_PARS = 'uniform float uWind;\nuniform vec4 uWindV;\nuniform vec4 uHeli;\n' + HELI_WASH_GLSL;
+// leaf flutter for the leaf geometry: a turn about the stem (displacement along the blade normal ∝ distance from the stem) plus
+// a little twist about the midrib — two incommensurate waves at a per-leaf rate and phase; amplitude in radians, so a leaf
+// never stretches, and the stem point stays on its twig
+const MESH_FLUTTER = (G, bw) => `{ float lph = uWind * (6.5 + 5.5 * lmSeed) + lmSeed * 57.0;
+          float lw = (sin(lph) + 0.45 * sin(lph * 2.37 + 1.3)) * (0.05 + 0.2 * ${G}) * (0.35 + 0.65 * ${bw}) * fade;
+          float ld = max(0.0, lmT.y - 0.03) * lmLen, lx = (lmT.x - 0.5) * lmLen * 0.5;
+          transformed += objectNormal * (lw * ld + lx * lw * 0.9 * sin(lph * 0.61 + 2.0)); }`;
 function windMain(kind, leaf) {
-  const K = KIND[kind];
+  const K = KIND[kind]; const mesh = kind === 'leafMesh';
   return `
   #if defined( USE_BATCHING ) || defined( USE_INSTANCING )
     #ifdef USE_BATCHING
@@ -51,7 +62,8 @@ function windMain(kind, leaf) {
   #endif
   float vgPh = vgO.x * 0.13 + vgO.z * 0.11;
   ${leaf ? 'vLeafH = fract(sin(vgPh * 91.7 + 3.1) * 43758.5453);' : ''}
-  ${leaf ? 'float instSeed = fract(vgPh * 0.0713);\n' + LEAF_VERT : ''}
+  ${leaf && !mesh ? 'float instSeed = fract(vgPh * 0.0713);\n' + LEAF_VERT : ''}
+  ${mesh ? LEAF_MESH_DECODE + 'vLmGloss = fract(lmSeed * 7.31 + vLeafH);' : ''}
   float vgD = distance(vgO, cameraPosition);
   #ifdef VEG_INST
   if (vgD < 420.0) {
@@ -65,19 +77,21 @@ function windMain(kind, leaf) {
     ${K.bw ? `
     float bw = ${K.bw};
     if (bw > 0.0 && vgD < 260.0) {
-      float bph = vgPh * 3.1 + dot(position.xz, vec2(0.83, 0.61)) + position.y * 0.37;
+      float bph = ${K.bph || 'vgPh * 3.1 + dot(position.xz, vec2(0.83, 0.61)) + position.y * 0.37'};
       float bo = sin(uWind * (fr * 4.4 + 0.9) + bph) * 0.6 + sin(uWind * (fr * 7.1 + 1.6) + bph * 1.37) * 0.3;
       float ba = bw * G * (0.04 + 0.012 * H) * ${K.bamp};
       dxz += wd * (0.55 + 0.45 * bo) * ba; transformed.y += bo * ba * 0.5;
       ${K.flutter ? `if (vgD < 45.0) { float fade = 1.0 - smoothstep(25.0, 45.0, vgD);
         transformed += objectNormal * sin(uWind * (9.0 + 4.0 * lfSeed) + lfSeed * 40.0 + position.y * 2.0) * 0.018 * (0.3 + bw) * (0.25 + G) * fade;
         vLeafSd.z = (0.05 + 0.1 * G) * fade * (0.4 + bw); }` : ''}
+      ${K.meshFlutter ? `if (vgD < 45.0) { float fade = 1.0 - smoothstep(25.0, 45.0, vgD); ${MESH_FLUTTER('G', 'bw')} }` : ''}
     }` : ''}
     vec3 dl = transpose(mat3(vgM)) * vec3(dxz.x, 0.0, dxz.y) / vgS2;
     transformed += dl; transformed.y -= dot(dl.xz, dl.xz) * 0.5 / max(position.y, 0.6); // the bend shortens, never stretches
   }
   #else
   ${K.flutter ? `if (vgD < 45.0) { float fade = 1.0 - smoothstep(25.0, 45.0, vgD); vLeafSd.z = (0.05 + 0.1 * uWindV.z) * fade * 0.5; } // hedges / creepers: leaves flutter, the clipped mass stays` : ''}
+  ${K.meshFlutter ? `if (vgD < 45.0) { float fade = 1.0 - smoothstep(25.0, 45.0, vgD); float G = uWindV.z + 0.05; ${MESH_FLUTTER('G', 'lmFlex')} } // hedges: leaves flutter, the clipped mass stays` : ''}
   #endif
   if (uHeli.w > 0.0) { // helicopter downwash: crowns lean and thrash away from the rotor column (the trunk's base stays put)
     vec3 hp = heliWashPush((modelMatrix * vgM * vec4(transformed, 1.0)).xyz, uWind);
@@ -101,6 +115,21 @@ const LEAF_FRAG_LIGHT = (fs) => fs
   .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
     reflectedLight.directSpecular *= mix(0.06, 0.5, leafInf.w * vLeafSd.w); reflectedLight.indirectSpecular *= 0.3;`);
 
+// 95th leaf geometry: the stock map / normal / roughness lookups through the atlas uv; per-tree tint; the crown-blended vertex
+// normal lights BOTH faces of a leaf (no flip for the back face: a thin leaf seen from below glows with the light it lets
+// through instead of going black); translucency as above; a per-leaf waxy sheen
+const NORMAL_NOFLIP = () => (THREE.ShaderChunk.normal_fragment_begin || '').replace('normal *= faceDirection;', '');
+const LEAF_MESH_FRAG = (fs) => fs
+  .replace('#include <color_fragment>', `diffuseColor.rgb *= vColor.rgb;
+    diffuseColor.rgb *= mix(vec3(0.84, 0.93, 0.78), vec3(1.12, 1.06, 0.86), vLeafH) * mix(0.9, 1.06, fract(vLeafH * 7.31));`)
+  .replace('#include <normal_fragment_begin>', NORMAL_NOFLIP() || '#include <normal_fragment_begin>')
+  .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+    { vec3 Lv = normalize((viewMatrix * vec4(uLeafDir, 0.0)).xyz); vec3 Vv = normalize(vViewPosition);
+      float through = pow(max(dot(-Vv, Lv), 0.0), 4.0), back = max(0.0, -dot(normal, Lv));
+      float tk = 0.45 + 0.55 * smoothstep(0.1, 0.45, diffuseColor.g);
+      totalEmissiveRadiance += diffuseColor.rgb * uLeafCol * vec3(0.9, 1.06, 0.5) * (0.36 * through + 0.16 * back) * tk; }`)
+  .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+    reflectedLight.directSpecular *= mix(0.08, 0.55, vLmGloss); reflectedLight.indirectSpecular *= 0.3;`);
 // 88th (perf): leaf lighting without the two costliest terms of MeshStandardMaterial that a leaf card cannot show anyway —
 //  • the image-based SPECULAR (a full cube-UV environment lookup per fragment, then scaled to 22 % above): replaced by the
 //    diffuse sky irradiance it would integrate to on a rough leaf (the diffuse IBL lookup is kept, so leaves sit in the same
@@ -132,14 +161,17 @@ function vegLightsBegin(diffuseOnly) {
   return (_lfb[key] = src.slice(0, i0) + '{ vec3 vgL = pointLight.position - geometryPosition; if ( pointLight.distance <= 0.0 || dot( vgL, vgL ) < pointLight.distance * pointLight.distance ) {\n' + body + '\n} }' + src.slice(i1 + call.length));
 }
 export function addWind(mat, kind) {
-  const leaf = kind === 'leaf';
+  if (kind === 'leaf' && mat.userData.leafMesh) kind = 'leafMesh';
+  const leaf = kind === 'leaf' || kind === 'leafMesh', mesh = kind === 'leafMesh';
   mat.onBeforeCompile = (sh) => {
     sh.uniforms.uWind = windUniform; sh.uniforms.uWindV = vegWind; sh.uniforms.uHeli = heliWash;
     let vs = sh.vertexShader, fs = sh.fragmentShader;
     if (leaf) {
       sh.uniforms.uLeafDir = leafLight.dir; sh.uniforms.uLeafCol = leafLight.col; sh.uniforms.uLeafT = windUniform;
+      if (mesh) { vs = 'varying float vLeafH;\nflat varying float vLmGloss;\n' + leafMeshUv(vs); fs = 'uniform vec3 uLeafDir;\nuniform vec3 uLeafCol;\nvarying float vLeafH;\nflat varying float vLmGloss;\n' + LEAF_MESH_FRAG(fs); }
+      else {
       vs = 'varying float vLeafH;\n' + vs.replace('#include <common>', '#include <common>\n' + LEAF_VERT_PARS);
-      fs = 'uniform vec3 uLeafDir;\nuniform vec3 uLeafCol;\nvarying float vLeafH;\n' + LEAF_FRAG_LIGHT(fs.replace('#include <common>', '#include <common>\n' + LEAF_FRAG_PARS).replace('#include <map_fragment>', LEAF_FRAG_MAP));
+      fs = 'uniform vec3 uLeafDir;\nuniform vec3 uLeafCol;\nvarying float vLeafH;\n' + LEAF_FRAG_LIGHT(fs.replace('#include <common>', '#include <common>\n' + LEAF_FRAG_PARS).replace('#include <map_fragment>', LEAF_FRAG_MAP)); }
       fs = fs.replace('#include <lights_fragment_maps>', LEAF_LFM); 
       const cu = sh.envMapCubeUVHeight; // per-vertex sky irradiance (see LEAF_LFM); the program key already includes this size
       if (cu && THREE.ShaderChunk.cube_uv_reflection_fragment) { const mm = Math.log2(cu) - 2, num = (x) => (Number.isInteger(x) ? x.toFixed(1) : String(x));
@@ -147,13 +179,13 @@ export function addWind(mat, kind) {
         vs = defs + 'uniform sampler2D envMap;\nuniform mat3 envMapRotation;\nuniform float envMapIntensity;\nvarying vec3 vLeafIrrF;\nvarying vec3 vLeafIrrB;\n' + vs.replace('#include <common>', '#include <common>\n' + THREE.ShaderChunk.cube_uv_reflection_fragment)
           .replace('#include <defaultnormal_vertex>', `#include <defaultnormal_vertex>
   { vec3 lfWN = envMapRotation * normalize(inverseTransformDirection(transformedNormal, viewMatrix));
-    vLeafIrrF = PI * textureCubeUV(envMap, lfWN, 1.0).rgb * envMapIntensity; vLeafIrrB = PI * textureCubeUV(envMap, -lfWN, 1.0).rgb * envMapIntensity; }`);
+    vLeafIrrF = PI * textureCubeUV(envMap, lfWN, 1.0).rgb * envMapIntensity; ${mesh ? 'vLeafIrrB = vLeafIrrF;' : 'vLeafIrrB = PI * textureCubeUV(envMap, -lfWN, 1.0).rgb * envMapIntensity;'} }`);
         fs = '#define LEAF_VIRR\nvarying vec3 vLeafIrrF;\nvarying vec3 vLeafIrrB;\n' + fs; }
     } else fs = fs.replace('#include <color_fragment>', 'diffuseColor.rgb *= vColor.rgb;'); // the batch colour's alpha carries the plant height (not opacity)
     { const lfb = vegLightsBegin(leaf); if (lfb) fs = fs.replace('#include <lights_fragment_begin>', lfb); }
     sh.vertexShader = WIND_PARS + vs.replace('#include <begin_vertex>', '#include <begin_vertex>\n' + windMain(kind, leaf)); sh.fragmentShader = fs;
   };
-  mat.customProgramCacheKey = () => 'veg88c-' + kind;
+  mat.customProgramCacheKey = () => 'veg95-' + kind;
 }
 
 // shadow-map material for the forest's leaf batches: the same per-card leaf layout (cheaper: no flutter, no lighting) so

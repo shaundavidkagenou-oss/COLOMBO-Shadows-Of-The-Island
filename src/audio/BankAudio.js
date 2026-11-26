@@ -85,7 +85,7 @@ export const BankSound = {
     const o = c.createOscillator(); o.type = 'sine'; o.frequency.value = 100; const og = c.createGain(); og.gain.value = 0.006; o.connect(og); og.connect(dest); o.start(); out.push(o); return out; }, // mains hum of the fan motor
   // ---- one-shots at a point of the room
   at1(id, x, z, k, opts = {}, ref = 6) { const P = this.at(x, z, ref); if (P.g < 0.01) return { ok: true, P }; return { ok: SB.play(id, k * P.g, P.pan, opts.when || 0, { lp: P.lp, ...opts }), P }; },
-  step(x, z, k = 1) { const r = this.at1('bank.step.tile', x, z, k * (0.8 + Math.random() * 0.25), { dur: STEP_LEN, rate: 0.95 + Math.random() * 0.1, key: 'bank.step' }, 5);
+  step(x, z, k = 1) { const r = this.at1('step.tile.walk', x, z, k * 0.875 * (0.8 + Math.random() * 0.25), /* 91st: was its own duplicate slot, bank.step.tile (lvl 0.35; this one 0.4) */ { dur: STEP_LEN, rate: 0.95 + Math.random() * 0.1, key: 'bank.step' }, 5);
     if (!r.ok && r.P.g > 0.02) { Audio.noise(0.03, { f: 2300 + Math.random() * 500, q: 1.4, vol: 0.016 * r.P.g * k, pan: r.P.pan, attack: 0.001 }); Audio.noise(0.05, { f: 260, q: 0.8, type: 'lowpass', vol: 0.02 * r.P.g * k, pan: r.P.pan, buf: Audio.brownBuf, attack: 0.002 }); } }, // heel on granite: a short hard tick over a soft thud
   // the landline: rings for RING_LEN (31 s) unless picked up first; returns true when it started
   ring(x, z) {

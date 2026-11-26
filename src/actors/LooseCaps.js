@@ -25,7 +25,7 @@ export const hasCap = (ch) => !!(ch && ch.spec && ch.spec.capStyle === 'peaked' 
 
 // the officer's own cap, cut out of his body geometry: every triangle whose three vertices are fully skinned to the cap bone
 function capShape(ch) {
-  const src = ch.geoHi || ch.mesh.geometry; let S = shapes.get(src); if (S) return S;
+  if (ch.ensureHi) ch.ensureHi(); const src = ch.geoHi || ch.mesh.geometry; let S = shapes.get(src); if (S) return S;
   const bones = ch.mesh.skeleton.bones, ci = bones.indexOf(ch.bones.cap); if (ci < 0) return null;
   const si = src.attributes.skinIndex, sw = src.attributes.skinWeight; const nv = src.attributes.position.count;
   const on = new Uint8Array(nv); for (let v = 0; v < nv; v++) for (let k = 0; k < 4; k++) if (si.getComponent(v, k) === ci && sw.getComponent(v, k) > 0.5) { on[v] = 1; break; }
@@ -58,7 +58,7 @@ export class LooseCaps {
     if (!hasCap(ch) || ch.capOff || !ch.root.parent) return null; const S = capShape(ch); if (!S) return null;
     const cb = ch.bones.cap; ch.root.updateMatrixWorld(true); cb.updateWorldMatrix(true, false);
     // the shared body material (never a wounded officer's own blood copy, which goes when he is cleared away)
-    const src = ch.geoHi || ch.mesh.geometry, mats = ch.mesh.material;
+    if (ch.ensureHi) ch.ensureHi(); const src = ch.geoHi || ch.mesh.geometry, mats = ch.mesh.material;
     const mat = S.matIndex === 0 && !ch.heroMats ? (src.userData.npcBody && src.attributes.aFab ? getNpcBodyMaterial() : getBodyMaterial()) : Array.isArray(mats) ? mats[S.matIndex] || mats[0] : mats;
     const mesh = new THREE.Mesh(S.geo, mat); mesh.castShadow = true; mesh.receiveShadow = true; mesh.name = 'looseCap';
     cb.matrixWorld.decompose(_p, _q, _s); const pos = _p.clone().add(S.com.clone().applyQuaternion(_q)); mesh.position.copy(pos); mesh.quaternion.copy(_q);

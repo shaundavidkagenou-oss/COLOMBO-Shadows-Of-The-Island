@@ -22,6 +22,12 @@ They play in turn — original → 1 → 2 → 3 → original … — and an emp
 `.var1` … `.var3`). Each shift of your vehicle plays one of them in a shuffled order (never the same one twice in a row).
 Empty slots fall back to four built-in synthesised shifts: crisp, notchy, smooth and a worn linkage.
 
+**Merged duplicate slots (91st):** six slots that only repeated another slot were removed. A file still named after one of
+them is used for its replacement while that slot has no file of its own (rename it when convenient):
+`gun.equip` → `foley.draw` + `foley.holster` · `hosp.door.open` / `ui.door` → `door.open1` · `hosp.door.close` → `door.close` ·
+`bank.step.tile` → `step.tile.walk` · `bird.crow` → `ba.crow.call`. Recordings saved through the window on a machine are moved
+automatically the first time the game starts.
+
 **NPC voices** have their own window: the **`dialogs`** console command. Every kind of NPC (everyone, men, women, elderly
 men / women, drivers, police, paramedics, shopkeepers, vendors, tourists, office workers, labourers, students, guards,
 joggers, nurses & doctors) × every situation (talking, greeting, laughing, angry, scared, screaming, running away, calling
@@ -51,7 +57,6 @@ with none, the game keeps its own voice blip (talking) or stays silent. The wind
 | `gun.dry.var1` | Dry fire (empty click) — variation 1 | one-shot |
 | `gun.dry.var2` | Dry fire (empty click) — variation 2 | one-shot |
 | `gun.dry.var3` | Dry fire (empty click) — variation 3 | one-shot |
-| `gun.equip` | Weapon drawn / holstered | one-shot |
 | `gun.scope` | Scope / aim in | one-shot |
 | `gun.shell` | Shell casing on the ground | one-shot |
 | `gun.hitmarker` | Hit marker | one-shot |
@@ -106,7 +111,6 @@ with none, the game keeps its own voice blip (talking) or stays silent. The wind
 | `amb.sea` | Sea waves (loop) | loop |
 | `amb.wind` | Wind (loop) | loop |
 | `thunder` | Thunder | one-shot |
-| `bird.crow` | House crow | one-shot |
 | `bird.song` | Songbird | one-shot |
 | `cricket` | Crickets (night) | one-shot |
 | `fire` | Fire crackling | one-shot |

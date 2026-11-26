@@ -11,6 +11,23 @@ import { CinePass, DepthTapPass, profileWeights, PROFILES, PROFILE_ORDER, CINE }
 import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { Pass, FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
+import { SGSRPass } from './SGSR.js';
+import { RenderRes } from './RenderRes.js';
+// 91st: the composer with an internal render scale. scale 0 (native) = three's EffectComposer exactly (targets and passes at
+// CSS size × pixel ratio). scale k > 0 (Snapdragon Game Super Resolution): the targets and every pass run at round(CSS size ×
+// pixel ratio × k) — the renderer and the canvas keep the output size (CSS size × devicePixelRatio), and the last pass (SGSR)
+// draws the canvas at that output size. Nothing touches the renderer's or the composer's pixel ratio for this.
+class ScaledComposer extends EffectComposer {
+  constructor(renderer, rt) { super(renderer, rt); this.scale = 0; }
+  internalSize() { const pr = this._pixelRatio, k = this.scale; return k > 0 ? [Math.max(1, Math.round(this._width * pr * k)), Math.max(1, Math.round(this._height * pr * k))] : [this._width * pr, this._height * pr]; }
+  setSize(width, height) {
+    if (!(this.scale > 0)) return super.setSize(width, height);
+    this._width = width; this._height = height; const [w, h] = this.internalSize();
+    this.renderTarget1.setSize(w, h); this.renderTarget2.setSize(w, h); for (const p of this.passes) p.setSize(w, h); // setSize only reallocates when the size changes
+  }
+  addPass(pass) { super.addPass(pass); if (this.scale > 0) pass.setSize(...this.internalSize()); }
+  insertPass(pass, index) { super.insertPass(pass, index); if (this.scale > 0) pass.setSize(...this.internalSize()); } // LensFX (the second trailer) inserts its pass at the internal size too
+}
 // Senses: blast shock ripple (a refraction ring racing out from the explosion on screen), concussion (blur, washed-out colour,
 // dark edges) and being drunk (wobble, double vision, motion smear from a history buffer, swimming edges, rich colour).
 // Only enabled while one of them is active, so normal frames cost nothing.
@@ -98,7 +115,7 @@ export class PostFX {
     if (this.composer) this.disposeComposer(); // a rebuild (start-up, quality change) used to leak the previous targets
     const r = this.r, size = r.getSize(new THREE.Vector2()); const pr = r.getPixelRatio();
     const rt = new THREE.WebGLRenderTarget(size.x * pr, size.y * pr, { type: THREE.HalfFloatType, samples: 0, depthTexture: new THREE.DepthTexture(size.x * pr, size.y * pr, THREE.FloatType) }); // 32-bit float depth: with the reversed-Z renderer this removes distance z-fighting
-    this.composer = new EffectComposer(r, rt);
+    this.composer = new ScaledComposer(r, rt);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.cine = new CinePass(preset.cine ?? 1, size.x * pr, size.y * pr); this.cine.flareOn = this.flareOn !== false; this.cine.raysOn = this.raysOn !== false;
     this.composer.addPass(new DepthTapPass(this.cine));
@@ -109,9 +126,26 @@ export class PostFX {
     this.transit = new ShaderPass(TransitShader); this.transit.enabled = false; this.composer.addPass(this.transit);
     if (this.sense) this.sense.dispose(); this.sense = new SensePass(size.x * pr, size.y * pr); this.sense.enabled = false; this.composer.addPass(this.sense); this.shocks = this.shocks || []; this.conc = this.conc || 0; this.drunk = this.drunk || 0; this.glow = 0;
     if (preset.smaa !== false) { this.smaa = new SMAAPass(size.x * pr, size.y * pr); this.composer.addPass(this.smaa); }
+    this.sgsr = null; const k = this.upK || 0; this.upK = 0; this.setUpscale(k); // a rebuild (quality change) keeps the upscaler
   }
-  setSize(w, h) { this.composer.setSize(w, h); }
-  disposeComposer() { for (const p of this.composer.passes) if (p !== this.sense && p.dispose) p.dispose(); this.composer.dispose(); this.composer = null; }
+  // 91st: Snapdragon Game Super Resolution. k = internal ÷ output resolution (1, 0.9, 0.85, 0.8 …); 0 = off (native).
+  // Live: the composer's targets and passes are resized (only when the size really changes; the old allocations are released by
+  // WebGLRenderTarget.setSize), the SGSR pass is appended after SMAA (the last pass: it draws the canvas) or removed again.
+  setUpscale(k, opt = {}) {
+    k = Number.isFinite(k) && k > 0 && !this.sgsrFailed ? Math.min(1, Math.max(0.5, k)) : 0;
+    if (opt.sharpness !== undefined) this.sgsrSharp = opt.sharpness; if (opt.variant !== undefined) this.sgsrVariant = opt.variant;
+    const C = this.composer; if (!C) return;
+    if (k > 0 && !this.sgsr) { this.sgsr = new SGSRPass({ variant: this.sgsrVariant || 'edge', sharpness: this.sgsrSharp ?? 2 }); this.sgsr.timer = this.timer || null; C.addPass(this.sgsr); }
+    else if (!(k > 0) && this.sgsr) { C.removePass(this.sgsr); this.sgsr.dispose(); this.sgsr = null; }
+    if (this.sgsr) { this.sgsr.setSharpness(this.sgsrSharp ?? 2); this.sgsr.setVariant(this.sgsrVariant || 'edge'); }
+    if (k !== this.upK) { this.upK = k; C.scale = k; C.setSize(C._width, C._height); }
+    const pr = this.r.getPixelRatio(), [iw] = C.internalSize(), ow = C._width * pr; RenderRes.set(k > 0 && ow > 0 ? iw / ow : 1);
+  }
+  // internal (composer) and output (canvas) resolution in pixels, for the settings page and the benchmark
+  resolution() { const C = this.composer, pr = this.r.getPixelRatio(); if (!C) return null; const [iw, ih] = C.internalSize(); return { internal: [Math.round(iw), Math.round(ih)], output: [Math.round(C._width * pr), Math.round(C._height * pr)], sgsr: this.upK > 0 }; }
+  setTimer(T) { this.timer = T || null; if (this.sgsr) this.sgsr.timer = this.timer; }
+  setSize(w, h) { this.composer.setSize(w, h); if (this.upK > 0) this.setUpscale(this.upK); /* RenderRes after a resize */ }
+  disposeComposer() { for (const p of this.composer.passes) if (p !== this.sense && p.dispose) p.dispose(); this.composer.dispose(); this.composer = null; this.sgsr = null; }
   // Settings → Lens flare / Light shafts (effective only where the preset includes them)
   setCine(flare, rays) { this.flareOn = flare; this.raysOn = rays; if (this.cine) { this.cine.flareOn = flare; this.cine.raysOn = rays; } }
   // explosion hooks (Explosions.js) and the drunk level (Drinks): see SenseShader
@@ -141,5 +175,11 @@ export class PostFX {
     C.setFrame(this.camera, atmos, { weights: this.gradeW, expo: this.expoS, indoor: inside, dt });
     const u = C.uniforms; u.uWet.value = atmos.wet; u.uFlash.value = atmos.flash * 0.25;
   }
-  render(dt) { this.tickSenses(dt || 0.016); if (this.enabled) this.composer.render(dt); else this.r.render(this.scene, this.camera); }
+  render(dt) {
+    this.tickSenses(dt || 0.016); const T = this.timer;
+    if (this.enabled) this.composer.render(dt); else this.r.render(this.scene, this.camera);
+    if (T) T.frameEnd(this.timerTag);
+    // SGSR fallback: its shader failed to build on this GPU → native rendering from the next frame (the game is told once)
+    if (this.sgsr && this.sgsr.failed) { this.sgsrFailed = true; this.setUpscale(0); if (this.onUpscaleFail) this.onUpscaleFail(); }
+  }
 }

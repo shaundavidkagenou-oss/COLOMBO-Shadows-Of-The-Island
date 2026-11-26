@@ -21,7 +21,8 @@ class TrafficSounds {
     // listener velocity (on foot or driving) from its own motion
     const V = this.lv; if (V.px != null && dt > 0) { const k = Math.min(1, dt * 6); V.x += (((L.x - V.px) / dt) - V.x) * k; V.z += (((L.z - V.pz) / dt) - V.z) * k; if (Math.abs(V.x) > 80 || Math.abs(V.z) > 80) { V.x = 0; V.z = 0; } } V.px = L.x; V.pz = L.z;
     const indoor = !!(g.indoor || g.seamK > 0.6); let sum = 0, panW = 0, near = 0;
-    for (const v of g.traffic.vehicles) {
+    const lists = this._lists || (this._lists = [null, null]); lists[0] = g.traffic.vehicles; lists[1] = g.traffic.guests || []; // 92nd: race cars too (pass-bys, Doppler, screech)
+    for (const list of lists) for (const v of list) {
       if (v.player || (v.T && v.T.pedal)) continue; const dx = v.x - L.x, dz = v.z - L.z; const d2 = dx * dx + dz * dz; if (d2 > R * R) { v._dop = 1; continue; }
       near++; const d = Math.sqrt(d2) || 0.01; const fw = v.forward(); const sp = v.free ? Math.hypot(v.free.vx, v.free.vz) : Math.abs(v.speed || 0);
       const vx = v.free ? v.free.vx : fw[0] * (v.speed || 0), vz = v.free ? v.free.vz : fw[1] * (v.speed || 0);

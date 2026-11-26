@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { TEX } from './Textures.js';
 import { powerMaterial } from '../world/PowerGrid.js';
 import { barkTextures } from './RealTextures.js';
+import { Settings } from '../core/Settings.js';
+import { setLeafMesh, leafMeshOn, leafMeshDepth } from '../world/LeafMesh.js';
 import { applyInteriorMapping, INTERIOR, occupancy, winFlag, syncWindowLayers } from './InteriorMapping.js';
 export const MAT = {};
 // ---------------------------------------------------------------------------------------------- own material per object type
@@ -36,13 +38,13 @@ export const ROLE_DEFS = {
   // streets
   manholeCover: ['metal', 'Manhole covers (cast iron)'], manholeCollar: ['concrete', 'Manhole concrete collars'], drainGrate: ['metal', 'Kerb drain grates'],
   drainSump: ['paint', 'Drain sumps (dark pit under the grate)'], roadStud: ['paint', 'Road studs'],
-  lampPole: ['metal', 'Street lamp poles'], heritageLampPole: ['metal', 'Heritage lamp posts'], utilityPole: ['concrete', 'Concrete utility poles'], transformer: ['metal', 'Pole transformers'],
+  lampPole: ['metal', 'Street lamp poles'], heritageLampPole: ['metal', 'Heritage lamp posts'], utilityPole: ['concrete', 'Concrete utility poles'], transformer: ['metal', 'Pole transformers (galvanised fittings)'], transformerTank: ['paint', 'Pole transformer tanks, bushings + pillar boxes'],
   signalPole: ['metal', 'Traffic signal poles + heads'], busShelter: ['paint', 'Bus shelters'], bench: ['paint', 'Benches'], pedRailing: ['paint', 'Pedestrian railings'], lakeRailing: ['metal', 'Beira Lake promenade railings'], telecomTower: ['metal', 'Telecom towers + compounds'],
   gate: ['metal', 'Gates'], stall: ['paint', 'Pavement stalls (tables + goods)'], foodCart: ['paint', 'Food carts'], shrine: ['paint', 'Junction shrines'],
   signPost: ['metal', 'Street-name sign posts + frames'], signPostBand: ['paint', 'Sign post banded feet'], litterBin: ['paint', 'Litter bins'], billboardFrame: ['metal', 'Rooftop billboard frames'],
 };
 const ROLES = new Map(); // key → { base, label } for every copy made (roles, scoped, per building)
-const EAGER = ['lakeRailing', 'telecomTower', 'signPost', 'signPostBand', 'litterBin', 'billboardFrame', 'manholeCover', 'manholeCollar', 'drainGrate', 'drainSump', 'roadStud', 'lampPole', 'heritageLampPole', 'utilityPole', 'transformer', 'signalPole', 'busShelter', 'bench', 'pedRailing', 'gate', 'stall', 'foodCart', 'shrine'];
+const EAGER = ['lakeRailing', 'telecomTower', 'signPost', 'signPostBand', 'litterBin', 'billboardFrame', 'manholeCover', 'manholeCollar', 'drainGrate', 'drainSump', 'roadStud', 'lampPole', 'heritageLampPole', 'utilityPole', 'transformer', 'transformerTank', 'signalPole', 'busShelter', 'bench', 'pedRailing', 'gate', 'stall', 'foodCart', 'shrine'];
 export const SPLIT = new Set(EAGER); // keys drawn with their own material (see above)
 export function parentKey(k) { const sp = splitKey(k); return sp ? sp.base : null; }
 // the key whose material actually draws part `k` right now
@@ -217,8 +219,12 @@ export function buildMaterials() {
   // material (the species differences are per-card styles and vertex tints), so the forest draws one leaf batch instead of
   // three and Texture Studio shows a single "Tree leaves" material whose base colour is that image.
   MAT.leaves = std({ map: TEX.leaves, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.72, vertexColors: true });
-  if (TEX.leafAtlas) { MAT.leaves.name = 'Tree leaves'; MAT.leavesBright = MAT.foliage = MAT.leaves; }
-  else { MAT.leavesBright = std({ map: TEX.leavesBright, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9, vertexColors: true }); MAT.foliage = MAT.leavesBright; }
+  if (TEX.leafAtlas) { MAT.leaves.name = 'Tree leaves'; MAT.leavesBright = MAT.foliage = MAT.leaves;
+    // 95th: real leaf geometry (world/LeafMesh.js) — each leaf one atlas tile, the texture coordinates are atlas coordinates (any
+    // normal / roughness map added in Texture Studio lines up leaf for leaf); Settings 'leafMesh' false = the 88th leaf cards
+    // (the shadow-pass material is a non-enumerable property, not userData: material clones JSON-copy userData)
+    setLeafMesh(Settings.get('leafMesh') !== false); if (leafMeshOn()) { MAT.leaves.userData.leafMesh = true; Object.defineProperty(MAT.leaves, 'leafDepth', { value: leafMeshDepth(), configurable: true }); MAT.leaves.roughness = 0.62; } }
+  else { setLeafMesh(false); MAT.leavesBright = std({ map: TEX.leavesBright, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9, vertexColors: true }); MAT.foliage = MAT.leavesBright; }
   MAT.palm = std({ map: TEX.palm, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85, vertexColors: true });
   MAT.bark = std({ color: 0x6b5a48, roughness: 1, vertexColors: true });
   // trees / plants (Forest.js): real bark and palm-trunk textures, small-leaf sprigs (creepers, shrubs), banana blades, flowers

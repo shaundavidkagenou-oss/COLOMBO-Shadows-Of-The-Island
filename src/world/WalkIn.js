@@ -117,13 +117,17 @@ export class WalkIn {
     const wb = { x0: Math.min(...cs.map((p) => p[0])), x1: Math.max(...cs.map((p) => p[0])), z0: Math.min(...cs.map((p) => p[1])), z1: Math.max(...cs.map((p) => p[1])) };
     const self = this; r.H = r.H || 3.2;
     r.proxy = { id: s.id, walkIn: true, site: s, room: r, bounds: wb, y: s.y0, obstacles: [], floorAt: () => s.y0, ceilAt: () => s.y0 + r.H,
-      resolve: (nx, nz) => self.resolve(s, nx, nz), camWorld: (tgt, want) => self.clampCam(s, tgt, want) };
+      resolve: (nx, nz, ox, oz) => self.resolve(s, nx, nz, ox, oz), camWorld: (tgt, want) => self.clampCam(s, tgt, want) };
     s.room = r; return r;
   }
 
   // ---- collision inside (local frame): room box ∪ doorway corridor ∪ a strip of pavement, minus jambs / furniture / the leaf
-  resolve(s, nx, nz) {
+  resolve(s, nx, nz, ox, oz) {
     const r = s.room, D = s.doorObj, hw = D.w / 2; let [x, z] = this.local(s, nx, nz); const front = -REVEAL;
+    // 95th: which side of the leaf the body came from (its position before this step): a step that would cross the leaf's line
+    // between hinge and tip is put back on that side — before, the push-off only looked at the new position, so a fast step
+    // (running, a frame hitch) that carried the centre past the leaf was pushed out on the FAR side: through the shut door
+    let sd0 = 0; if (ox !== undefined) { const Lf = D.leafLine(), [px, pz] = this.local(s, ox, oz), vx = px - Lf.hx, vz = pz - Lf.hz, t0 = vx * Lf.ux + vz * Lf.uz; if (t0 > -R && t0 < D.w + R) sd0 = Math.sign(vx * Lf.nx + vz * Lf.nz); }
     if (z < front) { x = clamp(x, r.bounds.x0 + R, r.bounds.x1 - R); z = Math.max(z, r.bounds.z0 + R); }
     else if (z < 0.02) { x = clamp(x, -hw + R * 0.85, hw - R * 0.85); } // in the reveal: between the jambs
     else { x = clamp(x, -hw - 1.6, hw + 1.6); z = Math.min(z, 2.2); if (z < R && Math.abs(x) > hw - R * 0.85) z = R; } // pavement strip in front of the facade
@@ -132,10 +136,25 @@ export class WalkIn {
     for (let it = 0; it < 2; it++) {
       for (const o of r.obstacles) { if (x > o.x0 - R && x < o.x1 + R && z > o.z0 - R && z < o.z1 + R) { const dl = x - (o.x0 - R), dr = o.x1 + R - x, dt = z - (o.z0 - R), db = o.z1 + R - z; const m = Math.min(dl, dr, dt, db); if (m === dl) x = o.x0 - R; else if (m === dr) x = o.x1 + R; else if (m === dt) z = o.z0 - R; else z = o.z1 + R; } }
       // the door leaf: a segment from the hinge to the tip; the body is pushed off it (it is held open by the closer)
-      const Lf = D.leafLine(); const vx = x - Lf.hx, vz = z - Lf.hz; const tt = clamp(vx * Lf.ux + vz * Lf.uz, 0, D.w); const qx = Lf.hx + Lf.ux * tt, qz = Lf.hz + Lf.uz * tt; const dx = x - qx, dz = z - qz, dd = Math.hypot(dx, dz);
-      if (dd < R && tt > 0.02) { const side = dd > 1e-4 ? 1 : 0; if (side) { x = qx + dx / dd * R; z = qz + dz / dd * R; } else { const sg = (this.prevSide || 1); x = qx + Lf.nx * R * sg; z = qz + Lf.nz * R * sg; } }
+      const Lf = D.leafLine(); const vx = x - Lf.hx, vz = z - Lf.hz; const rawT = vx * Lf.ux + vz * Lf.uz, tt = clamp(rawT, 0, D.w); const qx = Lf.hx + Lf.ux * tt, qz = Lf.hz + Lf.uz * tt; const dx = x - qx, dz = z - qz, dd = Math.hypot(dx, dz);
+      if (sd0 && rawT > 0.02 && rawT < D.w && Math.sign(vx * Lf.nx + vz * Lf.nz) !== sd0) { x = qx + Lf.nx * R * sd0; z = qz + Lf.nz * R * sd0; }
+      else if (dd < R && tt > 0.02) { const side = dd > 1e-4 ? 1 : 0; if (side) { x = qx + dx / dd * R; z = qz + dz / dd * R; } else { const sg = (this.prevSide || 1); x = qx + Lf.nx * R * sg; z = qz + Lf.nz * R * sg; } }
     }
     return { x: this.world(s, x, z)[0], z: this.world(s, x, z)[1] };
+  }
+  // 95th: a leaf swung OUT onto the pavement (pushed from inside, or still closing behind someone) is solid for a body that is not
+  // in the room model (the street side: the player before the hand-over, which only happens through a door open into the shop) —
+  // he used to walk straight through it. Same rule as inside: pushed off the segment, never across it from the side he came from.
+  // r = { x, z } (world, modified in place); ox / oz = the position before this step
+  leafOutside(r, ox, oz) {
+    for (const s of this.sites) { const D = s.doorObj; if (!D || !(D.open > 0.02) || Math.abs(r.x - s.F.x) > 2.5 || Math.abs(r.z - s.F.z) > 2.5) continue;
+      let [x, z] = this.local(s, r.x, r.z); if (z < LEAF_Z - 0.05) continue; const Lf = D.leafLine(); if (Lf.uz <= 0.02) continue; // swung into the shop: nothing on the street side
+      const [px, pz] = this.local(s, ox, oz); const pvx = px - Lf.hx, pvz = pz - Lf.hz, t0 = pvx * Lf.ux + pvz * Lf.uz; const sd0 = t0 > -R && t0 < D.w + R ? Math.sign(pvx * Lf.nx + pvz * Lf.nz) : 0;
+      const vx = x - Lf.hx, vz = z - Lf.hz; const rawT = vx * Lf.ux + vz * Lf.uz, tt = clamp(rawT, 0, D.w); const qx = Lf.hx + Lf.ux * tt, qz = Lf.hz + Lf.uz * tt; const dx = x - qx, dz = z - qz, dd = Math.hypot(dx, dz);
+      if (sd0 && rawT > 0.02 && rawT < D.w && Math.sign(vx * Lf.nx + vz * Lf.nz) !== sd0) { x = qx + Lf.nx * R * sd0; z = qz + Lf.nz * R * sd0; }
+      else if (dd < R && dd > 1e-4 && tt > 0.02) { x = qx + dx / dd * R; z = qz + dz / dd * R; } else continue;
+      const w = this.world(s, x, z); r.x = w[0]; r.z = w[1]; }
+    return r;
   }
   // ---- camera: march from the head to the wanted position; stop before anything solid in the local model
   clampCam(s, tgt, want) {

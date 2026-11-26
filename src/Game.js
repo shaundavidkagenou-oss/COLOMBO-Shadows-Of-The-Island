@@ -38,10 +38,12 @@ import { Atmosphere } from './gfx/Atmosphere.js';
 import { skyVisTex } from './gfx/SkyVis.js';
 import { PowerGrid, GRID as POWER_GRID, signalBackup } from './world/PowerGrid.js';
 import { PostFX } from './gfx/PostFX.js';
+import { Benchmark } from './gfx/Benchmark.js';
 import { setVehicleNight, createVehicleMesh, VTYPES } from './vehicles/VehicleModels.js';
 import { captureToCanvas } from './gfx/LinearCapture.js';
 import { updateLightSets, forceNightSet, lightLevel, LIGHT_LEVELS, maintainWarm, markWarm, maintainPoolWarm } from './gfx/LightSets.js';
 import { refreshView, holdVehicles, updateSceneMatrices, withMatricesDone } from './gfx/ViewSkip.js';
+import { assignDepthKinds } from './gfx/DepthKinds.js';
 import { CATALOG, displayName } from './vehicles/VehicleCatalog.js';
 import { updateDoorClosers } from './vehicles/DoorRig.js';
 import { Bicycles } from './vehicles/BicycleRide.js';
@@ -109,10 +111,13 @@ import { ObjectAudio } from './audio/ObjectAudio.js'; // 76th
 import { VehicleAudio } from './audio/VehicleAudio.js';
 import { CarRadio } from './audio/CarRadio.js';
 import { TrafficAudio } from './audio/TrafficAudio.js';
-import { CULL, LOD, beginHide, endHide, seeHidden } from './gfx/BatchCull.js';
+import { CULL, LOD, beginHide, endHide, seeHidden, hideObject } from './gfx/BatchCull.js';
 import { OCC_CFG, OCC_STATS } from './gfx/Occlusion.js';
 import { LIVE as BODIES } from './actors/Bodies.js';
 import { TexLib } from './gfx/TexLib.js'; // 83rd: shared 2048² KTX2 atlases (balcony life, birds, vehicle detail)
+import { ActivityManager } from './activities/ActivityManager.js'; // 92nd: underground fight nights + street-race meets
+import { setWorkerOverride } from './core/WorkerPool.js'; // 93rd: the background compute thread budget (Settings → Graphics → CPU worker threads)
+import { FrameMon, CpuPanel } from './ui/CpuPanel.js'; // 93rd: in-game CPU diagnostics
 import { CityEvents } from './world/CityEvents.js'; // 81st: dynamic city events (manager, sites, people, phone app data)
 
 const VNAMES = { tuktuk: 'Three-wheeler', car: 'Hatchback', sedan: 'Sedan', taxi: 'Taxi', van: 'Van', suv: 'SUV', bus: 'SLTB bus', pbus: 'Private bus', lorry: 'Lorry', tow: 'Tow truck', rsvan: 'Roadside service van', flatbed: 'Recovery flatbed', bike: 'Motorcycle', dbike: "Dineth's Bike", police: 'Police car', policejeep: 'Police jeep', policebike: 'Police motorcycle' };
@@ -129,6 +134,12 @@ export class Game {
     TexLib.init(this.renderer); this.renderer.localClippingEnabled = true; // Street Customs roller door (a clip plane on that one material only; nothing else pays for it)
     this.dynK = 1; this.dynT = 0; this.dynHold = 0; this.dynUpAt = -1e9; this.renderer.setPixelRatio(this.basePR());
     this.renderer.setSize(innerWidth, innerHeight); this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    { // 91st: a lost WebGL context (driver reset / GPU removed). The game frees its geometry's CPU copies after upload (memory), so
+      // three cannot rebuild the scene on a restore: save what can be saved and tell the player plainly instead of a black screen.
+      const cv = this.renderer.domElement;
+      cv.addEventListener('webglcontextlost', (e) => { e.preventDefault(); this.ctxLost = true; this.ctxDead = true; try { if (this.mode === 'play') this.autosave(); } catch (err) { console.warn(err); } this.hud && this.hud.notify('Graphics device reset', 'The graphics driver reset WebGL. Your progress was autosaved — reload the page to keep playing.', 'warn', 30); });
+      cv.addEventListener('webglcontextrestored', () => { this.ctxLost = false; this.hud && this.hud.notify('Graphics device back', 'Reload the page (F5) to redraw the city — it cannot be rebuilt without a reload.', 'warn', 30); });
+    }
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1;
     this.renderer.shadowMap.enabled = preset.shadows; this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.canvas = this.renderer.domElement; this.canvas.className = 'game-canvas'; root.appendChild(this.canvas);
@@ -140,6 +151,7 @@ export class Game {
     this.screens = new Screens(this.ui, this);
     addEventListener('resize', () => this.resize());
     bus.on('settings', (k) => this.applySettings(k));
+    this.cpuMon = new FrameMon(); setWorkerOverride(Settings.get('cpuWorkers')); if (Settings.get('cpuPanel')) this.applySettings('cpuPanel'); // 93rd: frame / main-thread timing for the CPU panel and benchmark
     this.canvas.addEventListener('click', () => { if (this.mode === 'play' && !this.paused && !this.editorHook && !this.customs?.uiOpen) Input.requestLock(this.canvas); });
     bus.on('pointerlock', (locked) => { if (!locked && this.mode === 'play' && !this.paused && !this.photo && !this.hud.bigMapOpen && !this.director.active && !this.ignoreUnlock && !this.gunShop?.open && !this.store?.open && !this.atm?.open && !this.customs?.active && !this.debugCon?.menuOpen && !this.debugCon?.open && !this.editorHook) this.openPause(); });
     bus.on('key', (code) => this.onKey(code));
@@ -194,10 +206,10 @@ export class Game {
       for (const v of this.traffic.parked) if (v !== P.vehicle) add(v, v.x, v.z, 1.8); });
     this.hud = new HUD(this.ui); this.hud.canSeeUnit = (u) => this.canSeeUnit(u); this.hud.mapExtras = () => this.miniExtras(); this.hud.satellite = new Satellite(this); this.director = new Director(this); this.story = new Story(this); this.interiors = new Interiors(this); this.weapons = new Weapons(this); this.player.weapons = this.weapons; this.squad = new Squad(this); this.orchid = new Assassin(this); /* Black Orchid contractor (Global browser) */ this.police = new PoliceResponse(this); this.heli = new PoliceHelicopter(this); setBloomView(this.camera); /* Air Wing helicopter on the HQ roof pad (police/Helicopter.js): built now, before the shader warm-up — its searchlight is a fixed light */
     this.crowd.onStrike = (p, m, M) => { if (this.weapons) this.weapons.struckBy(p, m, M); }; // street fighters' punches land on the player
-    this.health = new Health(this); this.phone = new Phone(this, this.hud.root); this.gunShop = new GunShopUI(this, this.hud.root); this.store = new StoreUI(this, this.hud.root); this.bank = new BankService(this); this.bank.onDeposit = () => settleDebt(this); this.hospital = this.world.hospitalBuild ? new Hospital(this) : null; this.atm = new ATMUI(this, this.hud.root); this.garage = new Garage(this); this.bicycles = new Bicycles(this); this.skills = new Skills(this); this.stunts = new StuntJumps(this); this.hud.pauseData = () => this.pauseData(); /* skills + stunt jumps + pause-map tabs (45th) */ /* Dineth's bike (vehicles/BicycleRide.js) */ /* Street Customs ownership records (story.state.garage) */ this.debug = newDebugState(); this.debugCon = new DebugConsole(this, this.hud.root);
+    this.health = new Health(this); this.phone = new Phone(this, this.hud.root); this.gunShop = new GunShopUI(this, this.hud.root); this.store = new StoreUI(this, this.hud.root); this.bank = new BankService(this); this.bank.onDeposit = () => settleDebt(this); this.hospital = this.world.hospitalBuild ? new Hospital(this) : null; this.activities = new ActivityManager(this); try { await this.activities.prewarm(tick); } catch (e) { console.warn('activities prewarm', e); } /* 92nd: after the hospital (it chains the WalkIn light pool lender); race routes computed here, never in play */ this.atm = new ATMUI(this, this.hud.root); this.garage = new Garage(this); this.bicycles = new Bicycles(this); this.skills = new Skills(this); this.stunts = new StuntJumps(this); this.hud.pauseData = () => this.pauseData(); /* skills + stunt jumps + pause-map tabs (45th) */ /* Dineth's bike (vehicles/BicycleRide.js) */ /* Street Customs ownership records (story.state.garage) */ this.debug = newDebugState(); this.debugCon = new DebugConsole(this, this.hud.root);
     this.applyDensity();
     progress(0.9, 'Lighting'); await tick();
-    this.post = new PostFX(this.renderer, this.scene, this.camera); this.post.setCine(Settings.get('lensFlare') !== false, Settings.get('lightShafts') !== false); this.post.build({ bloom: Settings.preset.bloom, ao: Settings.preset.ao, cine: Settings.preset.cine }); this.world.glintsOn = Settings.get('wetReflections') !== false; this.atmos.nightBoost = Settings.get('nightBrightness') ?? 1;
+    this.post = new PostFX(this.renderer, this.scene, this.camera); this.post.setCine(Settings.get('lensFlare') !== false, Settings.get('lightShafts') !== false); this.post.build({ bloom: Settings.preset.bloom, ao: Settings.preset.ao, cine: Settings.preset.cine }); this.post.onUpscaleFail = () => this.upscaleFailed(); this.post.setUpscale(this.sgsrK(), this.sgsrOpts()); /* 91st: Snapdragon Game Super Resolution (Settings → Graphics) */ this.world.glintsOn = Settings.get('wetReflections') !== false; this.atmos.nightBoost = Settings.get('nightBrightness') ?? 1;
     this.explosions = new Explosions(this); this.vdamage = new VehicleDamage(this); this.propBreak = new PropBreak(this); /* breakaway lamp posts / signal poles */ /* glass, bullets through bodywork, tyres, dents, fire → explosion, flung debris */ this.blood.useFx(this.explosions.U); this.grenades = new Grenades(this); // throwables (key B) + cinematic blasts
     try { this.boats = new Boats(this); } catch (e) { console.error('boats', e); this.boats = null; } /* Fort Harbour Marina, the moored fleet, harbour police boats, your boats (boats/Boats.js) */
     this.drunk = new Drunk(this); // vodka in the hero rooms (HeroRooms.js)
@@ -321,7 +333,7 @@ export class Game {
   }
   async newGame() {
     if (this.atm) this.atm.reset(); BankSound.stopNow(); // 67th: no ATM screen / bank room tone carried into a new game
-    this.story.state = Story.freshState(); this.loot?.clear(); this.cityEvents?.reset(1); /* 81st: a fresh event calendar */ this.clock = 0; this.mode = 'play'; this.paused = false; this.squad.reset(); this.orchid.load(null); this.grenades?.clear(); this.rebuildPlayer(); if (this.customs && this.customs.active) this.customs.abort(); this.garage.restore(); /* no owned vehicles in a new game */
+    this.story.state = Story.freshState(); this.loot?.clear(); this.cityEvents?.reset(1); /* 81st: a fresh event calendar */ this.activities?.reset(); this.clock = 0; this.mode = 'play'; this.paused = false; this.squad.reset(); this.orchid.load(null); this.grenades?.clear(); this.rebuildPlayer(); if (this.customs && this.customs.active) this.customs.abort(); this.garage.restore(); /* no owned vehicles in a new game */
     this.hud.clearBlips(''); this.focus = null; this.setupRoomDoor(); if (this.boats) this.boats.onLoad();
     try { this.weapons.prewarmOwned(); } catch (e) { console.warn('prewarm', e); } // 73rd
     await playOpening(this);
@@ -331,7 +343,7 @@ export class Game {
   async startLoaded(slot) {
     const d = SaveSystem.read(slot); if (!d) return this.menuLoop();
     if (this.atm) this.atm.reset(); BankSound.stopNow(); // 67th: the ATM screen is never part of a save; the room tone restarts on entering
-    if (this.vsmoke && this.vsmoke.skid) this.vsmoke.skid.clear(); /* a loaded game starts with clean roads */ this.story.restore(d.story); this.loot?.clear(); /* loot lying in the world is never saved: a reload cannot hand it out twice */ this.atmos.restore(d.atmos); try { this.cityEvents?.restore(d.events); } catch (e) { console.warn('events restore', e); this.cityEvents?.reset(1); } /* 81st */ if (this.power) { this.power.restoreAll(); this.power.settle(); this.power.restoreState(d.power); } this.crowd.minds.load(d.minds); /* NPC memories / relationships (Mind.js); an older save has none */ this.clock = d.clock || 0; this.squad.load(d.squad); this.rebuildPlayer(); this.weapons.load(d.weapons); this.squad.load(d.squad); this.orchid.load(d.orchid); this.pendingWanted = d.police ? d.police.level : d.weapons ? d.weapons.heat : 0;
+    if (this.vsmoke && this.vsmoke.skid) this.vsmoke.skid.clear(); /* a loaded game starts with clean roads */ this.story.restore(d.story); this.loot?.clear(); /* loot lying in the world is never saved: a reload cannot hand it out twice */ this.atmos.restore(d.atmos); try { this.cityEvents?.restore(d.events); this.activities?.restore(d.activities); } catch (e) { console.warn('events restore', e); this.cityEvents?.reset(1); } /* 81st */ if (this.power) { this.power.restoreAll(); this.power.settle(); this.power.restoreState(d.power); } this.crowd.minds.load(d.minds); /* NPC memories / relationships (Mind.js); an older save has none */ this.clock = d.clock || 0; this.squad.load(d.squad); this.rebuildPlayer(); this.weapons.load(d.weapons); this.squad.load(d.squad); this.orchid.load(d.orchid); this.pendingWanted = d.police ? d.police.level : d.weapons ? d.weapons.heat : 0;
     const p = d.player || { x: L.PLACES.meeting.x, z: L.PLACES.meeting.z, yaw: 0 }; if (this.customs && this.customs.active) this.customs.abort(); { const P = this.player, veh = P.vehicle; if (veh) { veh.speed = 0; veh.mesh.remove(P.ch.root); this.scene.add(P.ch.root); veh.player = false; P.vehicle = null; P.exiting = null; P.entry = null; P.ch.anim.standUp(); this.traffic.release(veh); P.respawnReset(); } } /* loading a save while driving: the save's player is on foot (as Health.js does on respawn) */ if (this.atm) this.atm.reset(); BankSound.stopNow(); this.world.warm(p.x, p.z); this.player.teleport(p.x, p.z, p.yaw); this.squad.regroup(); this.garage.restore(); // owned (customised) vehicles back where they were parked
     { const P = this.player; if (P.indoor && P.indoor.walkIn) { const r = P.indoor.room; P.indoor = null; if (r && r.onExit) r.onExit(); } } // 67th: a loaded game starts on the street (stale walk-in room state cleared)
     this.player.cinematic = false; this.player.control = true; this.mode = 'play'; this.paused = false; this.hud.show(true); this.director.active = false;
@@ -399,7 +411,7 @@ export class Game {
     const P = this.player; let pos = { x: P.x, z: P.z, yaw: P.yaw };
     if (this.interiors.current) { const d = this.interiors.current.door; pos = { x: d.x, z: d.z, yaw: d.faceIn + Math.PI }; } else if (P.indoor && P.indoor.walkIn && P.indoor.site) { const d = P.indoor.site.door; pos = { x: d.x, z: d.z, yaw: d.faceIn + Math.PI }; } else if (P.indoor && P.indoor.hospital) { pos = this.hospital.outsidePos(); } /* 74th: saved in the forecourt, not inside the building */ /* 67th: in a walk-in shop / the bank (e.g. the ATM's autosave) → saved on the pavement outside its door, never inside the building shell */ else if (P.vehicle) { const e = P.vehicle.exitPoint(-1); pos = { x: e.x, z: e.z, yaw: P.vehicle.yaw }; } else if (P.boat) pos = { x: MARINA.gangTop.x, z: MARINA.gangTop.z, yaw: -Math.PI / 2 }; /* on a boat: the save puts you on the quay by the marina */
     const m = MISSIONS.find((q) => q.id === this.story.state.mission.id); if (this.garage) this.garage.snapshot(); // owned vehicles where they stand now (Street Customs)
-    return SaveSystem.write(slot, { minds: this.crowd.minds.save(), story: this.story.serialize(), atmos: this.atmos.serialize(), power: this.power ? this.power.serialize() : null, player: pos, weapons: this.weapons.save(), squad: this.squad.save(), orchid: this.orchid.save(), police: this.police.save(), events: this.cityEvents ? this.cityEvents.serialize() : null, clock: this.clock, missionTitle: m ? m.title : 'Free roam', timeString: `Day ${this.atmos.day} · ${this.atmos.timeString}` });
+    return SaveSystem.write(slot, { minds: this.crowd.minds.save(), story: this.story.serialize(), atmos: this.atmos.serialize(), power: this.power ? this.power.serialize() : null, player: pos, weapons: this.weapons.save(), squad: this.squad.save(), orchid: this.orchid.save(), police: this.police.save(), events: this.cityEvents ? this.cityEvents.serialize() : null, activities: this.activities ? this.activities.serialize() : null, clock: this.clock, missionTitle: m ? m.title : 'Free roam', timeString: `Day ${this.atmos.day} · ${this.atmos.timeString}` });
   }
   async restUntil(hour) {
     const P = this.player; P.control = false; await this.hud.fade(1, 0.8); let dh = hour - this.atmos.hour; if (dh < 0) dh += 24; this.atmos.advance(dh * 60); if (this.boats) this.boats.onRest(); /* slept: boats on order are delivered */
@@ -469,14 +481,16 @@ export class Game {
   }
   // ================================================================= input
   onKey(code) {
-    if (this.mode !== 'play' || this.paused) return;
+    if (this.mode !== 'play' || this.paused || this.bench) return; // (91st: the benchmark owns Esc while it runs)
     if (code === 'Escape') { if (this.gunShop?.open || this.customs?.active || this.debugCon?.menuOpen || this.debugCon?.open || this.editorHook) return; if (this.phone?.open) this.phone.toggle(false); else if (this.photo) this.togglePhoto(false); else if (this.hud.bigMapOpen) this.toggleMap(false); else if (!this.director.active) this.openPause(); }
   }
+  async runBenchmark(opts) { const why = opts && opts.scene ? null : Benchmark.canRun(this); if (why) { this.hud.notify('Benchmark', why, 'warn', 3); return null; } return new Benchmark(this, opts).run(); }
   async openPause() {
     if (this.paused || this.director.active) return; this.paused = true; Input.releaseLock(); Audio.ui('click');
     const r = await this.screens.pause(); this.paused = false; this.last = performance.now();
     if (r.action === 'map') { this.toggleMap(true); }
     else if (r.action === 'load') { sessionStorage.setItem('colombo.next', JSON.stringify({ action: 'load', slot: r.slot })); location.reload(); }
+    else if (r.action === 'benchmark') { this.runBenchmark({ scene: Settings.get('benchScene') || 'city' }); } else if (r.action === 'benchmark-cpu') { this.runBenchmark({ scene: 'cpu' }); } // 93rd: CPU worker benchmark // 91st: Settings → Graphics → Run benchmark (src/gfx/Benchmark.js)
     else if (r.action === 'textures') { openTextureStudio(this).catch((e) => { console.error(e); this.hud.notify('Texture Studio failed to load', String((e && e.message) || e), 'warn'); }); } // dev builds only (src/debug/boot.js TEXTURE_STUDIO)
     else if (r.action === 'menu') { this.autosave(); sessionStorage.setItem('colombo.next', JSON.stringify({ action: 'menu' })); location.reload(); }
     else { this.ignoreUnlock = true; Input.requestLock(this.canvas); setTimeout(() => (this.ignoreUnlock = false), 300); }
@@ -504,10 +518,10 @@ export class Game {
   loop() {
     requestAnimationFrame(() => this.loop());
     if (this.noRender) return; // headless tests (TEST mode): step the sim with stepSim() without paying for frames
-    const now = performance.now(); const raw = (now - this.last) / 1000; this.last = now; const dt = Math.min(TEST ? 0.5 : 0.05, Math.max(0.0005, raw));
+    const now = performance.now(); const raw = (now - this.last) / 1000; this.last = now; this.rawDt = raw; /* 91st: the benchmark records the unclamped frame interval */ const dt = Math.min(TEST ? 0.5 : 0.05, Math.max(0.0005, raw));
     this.fps = lerp(this.fps, 1 / Math.max(raw, 1e-3), 0.05); this.dynRes(Math.min(raw, 0.25));
     Input.pollGamepad();
-    this.frameStep(dt);
+    const t0 = performance.now(); this.frameStep(dt); this.cpuMon.add(raw * 1000, performance.now() - t0); // 93rd: frame interval + main-thread time of this frame (sim + draw submission)
     Input.endFrame();
   }
   // one frame of simulation + drawing with a given timestep: the rAF loop above, and the trailer's MP4 export
@@ -528,7 +542,7 @@ export class Game {
     }
     if (W && W.cullProps) W.cullProps(cam.position, this.atmos ? this.atmos.sun.target.position : cam.position, this.atmos ? this.atmos.sunDir.y : 0.7);
     // every shadow-casting light (and the water mirror, Water.js) still sees what is hidden from the main camera
-    if (!this._shadowCams || (this._shadowCamT = (this._shadowCamT || 0) + dt) > 2) { this._shadowCamT = 0; const L = (this._shadowCams = []); this.scene.traverse((o) => { if (o.isLight && o.shadow && o.shadow.camera) L.push(o.shadow.camera); }); }
+    if (!this._shadowCams || (this._shadowCamT = (this._shadowCamT || 0) + dt) > 2) { this._shadowCamT = 0; const L = (this._shadowCams = []); const R = this.renderer; this.scene.traverse((o) => { if (o.isLight && o.shadow && o.shadow.camera) L.push(o.shadow.camera); else if (o.isMesh) assignDepthKinds(o, R); /* 98th FPS: a depth material per mesh kind (DepthKinds.js) */ }); }
     for (const c of this._shadowCams) seeHidden(c);
   }
   // A/B switch for measurements (tools/lod-census.mjs, perf-frame): 'on' (default) | 'off' (no occlusion, LOD, draw distances or
@@ -553,8 +567,22 @@ export class Game {
       const it = item(); it.obj = v.mesh; const b = it.box; b[0] = x - h; b[1] = x + h; b[2] = z - h; b[3] = z + h; b[4] = y + 4.5; n++; }
     if (!this._siteBoxes) { // landmark / site groups (static): world boxes once
       const S = (this._siteBoxes = []); const bx = new THREE.Box3();
-      for (const g of [W.landmarks && W.landmarks.group, W.fuel && W.fuel.group, W.customs && W.customs.group, W.hospitalBuild && W.hospitalBuild.root]) if (g) { g.updateMatrixWorld(true); for (const c of g.children) { if (c.isLight) continue; bx.setFromObject(c); if (bx.isEmpty() || bx.max.x - bx.min.x > 260 || bx.max.z - bx.min.z > 260) continue; S.push({ obj: c, box: [bx.min.x, bx.max.x, bx.min.z, bx.max.z, bx.max.y + 0.5] }); } } }
-    return beginHide(L, n) + beginHide(this._siteBoxes);
+      for (const g of [W.landmarks && W.landmarks.group, W.fuel && W.fuel.group, W.customs && W.customs.group, W.hospitalBuild && W.hospitalBuild.root]) if (g) { g.updateMatrixWorld(true); for (const c of g.children) { if (c.isLight) continue; bx.setFromObject(c); if (bx.isEmpty() || bx.max.x - bx.min.x > 260 || bx.max.z - bx.min.z > 260) continue; S.push({ obj: c, box: [bx.min.x, bx.max.x, bx.min.z, bx.max.z, bx.max.y + 0.5] }); } } this._siteBase = S.length; }
+    // 98th (FPS): the walk-in shop doors (5 meshes each, 22 of them) join the static sites — a door behind the block in front of
+    // the camera was drawn anyway. Box: the closed door's, widened by its swing (the leaf opens ≤ 1.2 m out of the frame).
+    const WI = this.interiors && this.interiors.walkIn;
+    if (WI && WI.sites.length !== (this._siteDoorN || 0)) { const bx = new THREE.Box3();
+      for (let i = this._siteDoorN || 0; i < WI.sites.length; i++) { const d = WI.sites[i].doorObj; if (!d || !d.group) continue; d.group.updateMatrixWorld(true); bx.setFromObject(d.group); if (bx.isEmpty()) continue;
+        this._siteBoxes.push({ obj: d.group, box: [bx.min.x - 1.4, bx.max.x + 1.4, bx.min.z - 1.4, bx.max.z + 1.4, bx.max.y + 0.5] }); }
+      this._siteDoorN = WI.sites.length; this._siteGen = -1; }
+    // 98th (FPS): static sites are tested once per horizon (the answer cannot change until the next one), at any distance — a
+    // site beyond the horizon's 700 m occluder range is still hidden only when it sits below the horizon of the nearer blocks
+    // on every ray across it (conservative, as for everything else); they used to be re-tested every frame, and never past 700 m
+    if (this.siteOpt === false) return beginHide(L, n) + beginHide(this._siteBoxes, this._siteBase); // (A/B: the previous per-frame test of the original sites)
+    const occ = W.occ, H = this._siteHid || (this._siteHid = []);
+    if (this._siteGen !== occ.gen) { this._siteGen = occ.gen; H.length = 0; for (const s of this._siteBoxes) { const b = s.box; if (occ.boxTest(occ.front, b[0], b[1], b[2], b[3], b[4], Infinity) === 1) H.push(s.obj); } }
+    let m = 0; for (const o of H) if (o.visible) { hideObject(o); m++; }
+    return beginHide(L, n) + m;
   }
   frameStep(dt) {
     try {
@@ -562,16 +590,17 @@ export class Game {
       const mapOpen = this.mode === 'play' && this.hud.bigMapOpen; // the pause map freezes the world (and the hidden 3D view is not drawn)
       if ((this.mode !== 'play' || this.paused) && ClubSound.live) ClubSound.halt(); // the club's PA stops with the game (pause, menu, trailer)
       if (mapOpen) { if (Input.wasPressed('map')) this.toggleMap(false); Audio.updateMusic(dt, {}); } // the map's music keeps playing while the world is frozen
+      else if (this.mode === 'play' && this.benchHook) this.benchHook(dt); // 91st: the in-game benchmark (Benchmark.js) flies the camera through the living city
       else if (this.mode === 'play' && this.editorHook) this.editorHook(dt); // a debug editor (src/debug, loaded only when typed) has the frame: the world is frozen, still drawn
       else if (this.mode === 'play' && !this.paused) this.updatePlay(dt * (this.timeSlow || 1)); // weapon wheel / squad selector slow time
       else if (this.mode === 'menu' || this.mode === 'intro') this.updateAmbient(dt);
       else if (this.mode === 'trailer' && this.trailerHook) this.trailerHook(dt); // the trailer drives the world and camera itself
       updateLightSets(dt); if (this.post && this.mode === 'play') maintainWarm(this.renderer, this.camera, this.scene, this.post.composer ? this.post.composer.renderTarget1 : null, dt); maintainPoolWarm(this.renderer, this.camera, this.scene, this.post.composer ? this.post.composer.renderTarget1 : null, dt); /* 74th: the walk-in light pool's set, before it switches on */ /* FPS: night-only light pools leave the shaders while dark (identical image); the other state stays compiled */ CAM.copy(this.camera.position); updateVehicleLOD(this.camera); if (this.vfx) this.vfx.update(dt, this.camera, this.atmos); this.instr.update(dt, this.player && this.player.vehicle); /* 84th: live dials for the player's vehicle */ /* 83rd: wipers, AI indicators, rain-on-glass / grime uniforms */ if (this.headRig && this.atmos) this.headRig.update(this.camera, this.player && this.player.vehicle, this.atmos.night, this.indoor ? 1 : (this.seamK || 0));
-      if (this.post && !mapOpen) {
+      if (this.post && !mapOpen && !this.ctxDead) { /* 91st: after a lost WebGL context nothing can be drawn (see webglcontextlost) */
         /* FPS (src/gfx/ViewSkip.js): one matrix pass per frame, skipping unseen people/vehicles on their off-frames; the reflection and main renders reuse it */
         this.cullStep(dt); /* 65th: occlusion horizon, per-instance culling / LOD state, prop instance order (src/gfx/BatchCull.js, Occlusion.js) */
         refreshView(this.camera, this.atmos && this.atmos.sun, this.atmos ? this.atmos.night : 0); holdVehicles(LIVE_VEHICLES, this.player && this.player.vehicle); updateSceneMatrices(this.scene); if (HOOKS.preRender.size) for (const f of HOOKS.preRender) f(dt); /* 68th: replacement rigs follow the final pose */
-        withMatricesDone(this.scene, () => { if (this.world && this.world.waterRefl) { const q = Settings.get('quality'); this.world.waterRefl.scale = q === 'ultra' ? 0.6 : 0.45; this.world.waterRefl.halfRate = q !== 'ultra'; this.world.waterRefl.update(this.renderer, this.scene, this.camera, (q === 'high' || q === 'ultra') && !this.indoor); } this.post.indoor = !!this.indoor || (this.seamK || 0) > 0.01 || this.mode !== 'play'; this.post.inside = !!this.indoor || (this.seamK || 0) > 0.5; /* cinematic pass: neutral grade + no sun effects only inside a room */ this.post.update(this.atmos); this.hideOccluded(); try { this.post.render(dt); } finally { endHide(); } });
+        withMatricesDone(this.scene, () => { const GT = this.post.timer; if (GT) { GT.frameBegin(); GT.begin('scene'); } /* 91st benchmark: GPU time of the whole frame's drawing (mirror, shadows, scene, post; SGSR separately) */ if (this.world && this.world.waterRefl) { const q = Settings.get('quality'); this.world.waterRefl.scale = q === 'ultra' ? 0.6 : 0.45; this.world.waterRefl.halfRate = q !== 'ultra'; this.world.waterRefl.update(this.renderer, this.scene, this.camera, (q === 'high' || q === 'ultra') && !this.indoor); } this.post.indoor = !!this.indoor || (this.seamK || 0) > 0.01 || this.mode !== 'play'; this.post.inside = !!this.indoor || (this.seamK || 0) > 0.5; /* cinematic pass: neutral grade + no sun effects only inside a room */ this.post.update(this.atmos); this.hideOccluded(); try { this.post.render(dt); } finally { endHide(); } });
       }
     } catch (e) { if (!this._errN || this._errN < 5) console.error(e && e.stack || e); this._errN = (this._errN || 0) + 1; this.lastError = e; }
   }
@@ -666,6 +695,7 @@ export class Game {
     if (!this.indoor) this.crowd.update(dt, focus, camDir, { simTime: this.clock, vehicles: this.traffic.all(), rain: A.w.rain, night: A.night, player: P, armed: !!(this.weapons && this.weapons.drawn), aiming: !!(this.weapons && this.weapons.aiming), hourFactor: this.hourFactor(), hour: A.hour, bodies: this.bodies, police: this.police, hero: this.squad?.activeMember?.def?.id });
     if (!this.indoor && this.world.fuel) { if (!this.fuelSvc) this.fuelSvc = new FuelService(this.world.fuel, { crowd: this.crowd, traffic: this.traffic, scene: this.scene, player: P }); this.fuelSvc.update(dt, { focus, night: A.night }); } // filling stations: refuelling traffic + attendants (FuelStations.js)
     if (this.cityEvents && !warmOnly) { const t0e = performance.now(); this.cityEvents.update(dt); const me = performance.now() - t0e; this.cityEvents.stats.lastMs = me; if (me > (this.cityEvents.stats.maxMs || 0)) this.cityEvents.stats.maxMs = me; if (me > 25) { const sp = this.cityEvents.stats.spikes || (this.cityEvents.stats.spikes = []); if (sp.length < 12) sp.push({ ms: Math.round(me), what: this.cityEvents.marks.join(',') || 'update' }); } } // 81st: city events (schedule, sites, people, sound)
+    if (this.activities && !warmOnly && !this.indoor) { try { this.activities.update(dt); } catch (e) { console.warn('[activities]', e); } } // 92nd: fight nights / race meets
     if (!this.indoor && this.trains && this.world.fortStation !== false) { if (!this.station) this.station = new StationLife(this); this.station.update(dt, { focus, night: A.night, hour: A.hour, player: P }); } { const fs = this.world.landmarks && this.world.landmarks.anim.fortStation; if (fs && fs.live && this.trains) { fs.live(this.trains, A.hour, 1 / Settings.get('timeScale'), focus.x, focus.z); } } // live departure / arrival screens // Colombo Fort station: passengers, train riders, clerks, vendors, announcer (StationLife.js)
     if (this.world.customs && !warmOnly) { if (!this.customs) this.customs = new CustomsService(this, this.world.customs); this.customs.update(dt, { night: A.night }); this.garage.update(dt); } // Street Customs (customs/CustomsService.js)
     if (P.vehicle && A.night > 0.5 && P.nightLights === undefined) { P.vehicle.lights = true; }
@@ -683,7 +713,7 @@ export class Game {
     const v = P.vehicle; const dist = L.districtAt(P.x, P.z);
     this.hud.update({ breath: this.player.swim ? this.player.swim.breath : (this.player.swimBreath ?? 1), underwater: !!this.player.camUnder, health: this.health.hp, healthBusy: this.health.busy, time: A.timeString, money: this.story.state.money, district: this.indoor ? this.interiors.current.D.name : this.seamK > 0.5 ? (P.indoor && P.indoor.hospital ? this.hospital.placeName() : this.interiors.hq.D.name) : dist ? dist.name.split(' · ')[0] : '', street: this.indoor ? '' : L.roadNameAt(P.x, P.z) || '', x: P.x, z: P.z, camYaw: this.photo ? this.photoYaw + Math.PI : P.camYaw, stamina: P.stamina, vehicle: v, vehicleName: v ? this.vehicleName(v.type) : '', radio: CarRadio.hudText(v), ind: v ? v.ind || 0 : 0, indOn: VehicleAudio.ind.on, camera: cam, police: this.police.hudInfo(), projector: (x, y, z) => this.project(x, y, z), fps: this.fps, draws: this.renderer.info.render.calls, extras: this.miniExtras(), indoor: !!this.indoor });
     // audio
-    const near = v && !v.T.pedal ? [v] : []; if (this.boats) for (const b of this.boats.voices(P)) near.push(b); /* boat engines: outboard / inboard / jet */ for (const o of this.traffic.vehicles) { if (near.length >= 6) break; if (!o.T.pedal && Math.hypot(o.x - P.x, o.z - P.z) < 45) near.push(o); } // engine voices (a bicycle has none)
+    const near = v && !v.T.pedal ? [v] : []; if (this.boats) for (const b of this.boats.voices(P)) near.push(b); /* boat engines: outboard / inboard / jet */ for (const o of this.traffic.guests) { if (near.length >= 6) break; if (o !== v && !o.T.pedal && !o.parked && Math.hypot(o.x - P.x, o.z - P.z) < 70) near.push(o); } /* 92nd: race cars first (they are the loudest thing on the road) */ for (const o of this.traffic.vehicles) { if (near.length >= 6) break; if (!o.T.pedal && Math.hypot(o.x - P.x, o.z - P.z) < 45) near.push(o); } // engine voices (a bicycle has none)
     Footsteps.update(dt); ObjectAudio.update(dt); VehicleAudio.update(dt); CarRadio.update(dt); TrafficAudio.update(dt, this); ClubSound.update(dt, this); // the club DJ's songs through the PA (in the club) / muffled bass on the street outside
     Audio.update(dt, { listener: { x: P.x, z: P.z, yaw: P.camYaw + Math.PI }, night: A.night, rain: A.w.rain, wind: A.w.wind, traffic: this.traffic.vehicles.length, vehicles: near, indoor: this.indoor || this.seamK > 0.6 });
     // autosave every 4 minutes of play while free-roaming
@@ -703,6 +733,7 @@ export class Game {
     if (this.boats && !I.current) { const bp = this.boats.interact(P, key); if (bp) return bp; if (P.boat) return null; } // boats: board / ride / get off, the marina office and your berth's pedestal
     if (P.swim || P.diveIn || P.climb) return P.edgeHint === 'climb' ? `${key('jump')} Climb out` : null; // swimming: no doors / vehicles
     if (P.edgeHint === 'jump') return `${key('jump')} Jump in`;
+    if (this.activities && !I.current) { const ap = this.activities.interact(P, key); if (ap) return ap; } // 92nd: join a race (in a car) / predict, ringside views (on foot)
     if (P.vehicle) { if (Input.wasPressed('enter')) { if (!P.exitVehicle(this.traffic)) this.hud.notify('Slow down', 'Stop the vehicle to get out.', 'info', 1.5); } return null; }
     const door = I.nearDoor(P.x, P.z);
     const veh = this.traffic.nearest(P.x, P.z, 3.4);
@@ -765,8 +796,11 @@ export class Game {
   // ================================================================= settings
   applyDensity() { const pr = Settings.preset; this.crowd.max = Math.round(pr.crowd * 0.45 * Settings.get('crowdDensity')); this.traffic.max = Math.round(pr.traffic * Settings.get('trafficDensity')); }
   applySettings(k) {
+    if (k === 'cpuWorkers' || k === '*') setWorkerOverride(Settings.get('cpuWorkers')); // 93rd: live (the geometry pool grows / shrinks; 0 = the main-thread paths)
+    if (k === 'cpuPanel' || k === '*') { if (Settings.get('cpuPanel')) (this.cpuPanel || (this.cpuPanel = new CpuPanel(this))).show(true); else if (this.cpuPanel) this.cpuPanel.show(false); }
     const pr = Settings.preset; if (!this.post) return;
-    if (k === 'quality' || k === 'resolutionScale' || k === '*') { this.renderer.setPixelRatio(this.basePR() * this.dynK); this.renderer.shadowMap.enabled = pr.shadows; this.atmos.setShadowQuality(pr.shadows, pr.shadowRes); /* the preset's sun shadow resolutions, near + far (was only applied at start-up) */ this.atmos.drawDist = pr.drawDist; this.world.setQuality(Settings.get('quality')); this.post.build({ bloom: pr.bloom, ao: pr.ao, cine: pr.cine }); this.resize(); this.scene.traverse((o) => { if (o.material && o.material.needsUpdate !== undefined && k === 'quality') o.material.needsUpdate = true; }); }
+    if (k === 'quality' || k === 'resolutionScale' || k === '*') { this.renderer.setPixelRatio(this.outPR()); this.renderer.shadowMap.enabled = pr.shadows; this.atmos.setShadowQuality(pr.shadows, pr.shadowRes); /* the preset's sun shadow resolutions, near + far (was only applied at start-up) */ this.atmos.drawDist = pr.drawDist; this.world.setQuality(Settings.get('quality')); this.post.build({ bloom: pr.bloom, ao: pr.ao, cine: pr.cine }); this.resize(); this.scene.traverse((o) => { if (o.material && o.material.needsUpdate !== undefined && k === 'quality') o.material.needsUpdate = true; }); }
+    if (k === 'upscale' || k === 'sgsrSharpness' || k === 'sgsrEdgeDir' || k === '*') this.applyPR(); // 91st: live — the composer's targets resize, the SGSR pass is added / removed
     if (k === 'wetReflections' || k === '*') { if (this.world) this.world.glintsOn = Settings.get('wetReflections') !== false; }
     if (k === 'lensFlare' || k === 'lightShafts' || k === '*') this.post.setCine(Settings.get('lensFlare') !== false, Settings.get('lightShafts') !== false);
     if (k === 'nightBrightness' || k === '*') { if (this.atmos) this.atmos.nightBoost = Settings.get('nightBrightness') ?? 1; }
@@ -778,17 +812,29 @@ export class Game {
   }
   /* FPS: render resolution. High-DPI screens (Windows 125-200 % scaling, laptops, 4K) used to render at up to 2x the pixels on every preset; now only Ultra
      renders above 1 pixel per screen point (the Resolution scale setting still goes to 150 %). On a normal 100 % desktop this changes nothing. */
-  basePR() { const pr = Settings.preset; return Math.min(devicePixelRatio, Settings.get('quality') === 'ultra' ? 2 : 1) * pr.pixelRatio * Settings.get('resolutionScale'); }
+  basePR() { const pr = Settings.preset; if (this.sgsrK() > 0) return this.outputPR(); return Math.min(devicePixelRatio, Settings.get('quality') === 'ultra' ? 2 : 1) * pr.pixelRatio * this.nativeScale(); }
+  /* 91st — Settings → Graphics → SNAPDRAGON GAME SUPER RESOLUTION ('upscale'): off = native, exactly as before (the Resolution scale
+     setting applies) · sgsr100 / sgsr90 / sgsr85 / sgsr80 = the world renders at that percentage of the output resolution in width
+     AND height and SGSR upscales + sharpens it to the output · ss150 = the existing 150 % supersampling (native, the formula above
+     with Resolution scale 150 %). Output resolution = canvas CSS size × devicePixelRatio (DPR, capped at 2; it is not a render
+     scale). The benchmark (Benchmark.js) sets renderOverride for its runs without touching the saved setting. */
+  upscaleMode() { const o = this.renderOverride; return o || Settings.get('upscale') || 'off'; }
+  sgsrK() { if (this.post && this.post.sgsrFailed) return 0; const m = String(this.upscaleMode()); const k = /^sgsr(\d+)$/.exec(m); return k ? Math.min(1, Math.max(0.5, +k[1] / 100)) : 0; }
+  nativeScale() { const m = this.upscaleMode(); return m === 'ss150' ? 1.5 : m === 'native100' ? 1 : (Settings.get('resolutionScale') || 1); }
+  outputPR() { return Math.min(devicePixelRatio || 1, 2); }
+  outPR() { return this.sgsrK() > 0 ? this.basePR() : this.basePR() * this.dynK; } // dynamic resolution scales the internal size under SGSR (applyPR), never the output
+  sgsrOpts() { const s = +Settings.get('sgsrSharpness'); return { sharpness: Number.isFinite(s) ? s : 2, variant: Settings.get('sgsrEdgeDir') === false ? 'base' : 'edge' }; }
+  upscaleFailed() { if (this._upFailT) return; this._upFailT = true; this.applyPR(); if (this.hud) this.hud.notify('Super resolution unavailable', 'The SGSR shader could not be built on this graphics card — rendering natively', 'warn', 4); }
   /* Dynamic resolution (Settings → Graphics, on by default): only when the frame rate falls under ~55 fps for a while the render scale steps down 5 % at a
      time (never below 80 %), and climbs back to 100 % once the frame rate holds at the display rate again. Nothing else changes (models, shadows,
      effects, draw distance stay as the preset sets them). A level that failed right after a step up is held for 20 s, so it does not pump. */
   dynRes(raw) {
-    if (TEST || this.mode !== 'play' || Settings.get('dynamicRes') === false) { if (this.dynK !== 1) { this.dynK = 1; this.applyPR(); } return; }
+    if (TEST || this.mode !== 'play' || Settings.get('dynamicRes') === false || this.bench) { if (this.dynK !== 1) { this.dynK = 1; this.applyPR(); } return; }
     this.dynF = this.dynF === undefined ? raw : this.dynF + (raw - this.dynF) * 0.08; this.dynT += raw; this.dynHold = Math.max(0, this.dynHold - raw);
     if (this.dynT < 1.5) return; this.dynT = 0; const fps = 1 / Math.max(1e-3, this.dynF);
     if (fps < 54 && this.dynK > 0.8) { if (this.clock - this.dynUpAt < 6) this.dynHold = 20; this.dynK = Math.max(0.8, +(this.dynK - 0.05).toFixed(2)); this.applyPR(); }
     else if (fps > 58.5 && this.dynK < 1 && this.dynHold <= 0) { this.dynK = Math.min(1, +(this.dynK + 0.05).toFixed(2)); this.dynUpAt = this.clock; this.applyPR(); }
   }
-  applyPR() { const p = this.basePR() * this.dynK; this.renderer.setPixelRatio(p); if (this.post && this.post.composer) this.post.composer.setPixelRatio(p); this.resize(); }
+  applyPR() { const p = this.outPR(), k = this.sgsrK(); this.renderer.setPixelRatio(p); if (this.post && this.post.composer) { this.post.setUpscale(k > 0 ? k * this.dynK : 0, this.sgsrOpts()); this.post.composer.setPixelRatio(p); } this.resize(); }
   resize() { const w = innerWidth, h = innerHeight; this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); this.renderer.setSize(w, h); if (this.post) this.post.setSize(w, h); }
 }

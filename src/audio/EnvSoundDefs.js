@@ -42,8 +42,8 @@ varied('foley.cloth.run', 'Clothing rustle — jogging (one per step)', CF, 2, {
 varied('foley.cloth.sprint', 'Clothing rustle — sprinting (one per step)', CF, 2, { lvl: 0.26, fb: 'synthesised rustle' });
 add('foley.breath.light', 'Breathing — light (loop · after a jog / some stamina used)', CF, { kind: 'loop', lvl: 0.3, fb: 'synthesised breaths' });
 add('foley.breath.heavy', 'Breathing — heavy (loop · stamina low / out of breath)', CF, { kind: 'loop', lvl: 0.4, fb: 'synthesised breaths' });
-varied('foley.holster', 'Weapon holstered (the moment it seats in the holster / sling)', CF, 1, { lvl: 0.3, fb: 'Weapons → Weapon drawn / holstered' });
-varied('foley.draw', 'Weapon drawn (the moment it leaves the holster / sling)', CF, 1, { lvl: 0.3, fb: 'Weapons → Weapon drawn / holstered' });
+varied('foley.holster', 'Weapon holstered (the moment it seats in the holster / sling)', CF, 1, { lvl: 0.3, fb: 'a synthesised holster sound' });
+varied('foley.draw', 'Weapon drawn (the moment it leaves the holster / sling)', CF, 1, { lvl: 0.3, fb: 'a synthesised draw sound' });
 varied('foley.switch', 'Weapon switching (swap straight from one weapon to another)', CF, 1, { lvl: 0.3, fb: 'Weapons → Weapon drawn / holstered, at the new weapon\'s draw' });
 varied('foley.gear', 'Equipment movement (slung rifle / holster rattle, one per step while armed)', CF, 2, { lvl: 0.16, fb: 'faint synthesised rattle' });
 

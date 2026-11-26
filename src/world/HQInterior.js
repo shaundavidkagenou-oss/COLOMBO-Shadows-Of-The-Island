@@ -8,6 +8,7 @@ import { routine } from '../actors/Routine.js';
 import * as THREE from 'three';
 import { MultiBuilder } from '../gfx/MeshBuilder.js';
 import { MAT } from '../gfx/Materials.js';
+import { bushBall } from './HedgeBush.js';
 import { modelFloor } from './FloorKit.js';
 import { Character } from '../actors/Character.js';
 import { makeAppearance, makePoliceAppearance } from '../actors/Appearance.js';
@@ -97,7 +98,7 @@ export function buildHQInterior(game, door, place) {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.36), plateMat('POLICE EMERGENCY 119')); m.position.set(X(-3.8), Y + 2.62, Z(0.15)); /* on solid wall above the notice board (it used to hang across the entrance opening, u -2..2) */ m.rotation.y = Math.PI; g.add(m); }
   { const m = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.5), plateMat('PUBLIC WAITING AREA')); m.position.set(X(-5.9), Y + 2.6, Z(2.8)); m.rotation.y = Math.PI / 2; g.add(m); }
   bx(paint, -5.6, Y + 0.45, 5.9, 0.5, 0.9, 0.5, '#2a6db0'); bx(paint, -5.6, Y + 1.05, 5.9, 0.3, 0.4, 0.3, '#cfe6f5'); ob(0, -5.85, -5.35, 5.65, 6.15); // water dispenser
-  for (const [u, v] of [[-5.5, 0.6], [5.5, 0.6]]) { paint.cylinder(X(u), Y, Z(v), 0.25, 0.2, 0.5, 10, { col: C('#8a5a3a') }); mb.get('leaves').box(X(u), Y + 0.85, Z(v), 0.6, 0.7, 0.6, { col: C('#3f7a34') }); ob(0, u - 0.3, u + 0.3, v - 0.3, v + 0.3); }
+  for (const [u, v] of [[-5.5, 0.6], [5.5, 0.6]]) { paint.cylinder(X(u), Y, Z(v), 0.25, 0.2, 0.5, 10, { col: C('#8a5a3a') }); bushBall(mb, X(u), Y + 0.48, Z(v), 0.3, 0.8, { round: true, density: 24, size: 0.13, seed: 7 + (u > 0 ? 1 : 0) }); /* 95th: a leafy plant (real leaves), not a leaf-textured box */ ob(0, u - 0.3, u + 0.3, v - 0.3, v + 0.3); }
   // records: filing cabinets + two clerk desks with PCs
   for (let v = 0.6; v < 6.6; v += 0.62) block(0, -16.6, 0.66, v, 0.6, 1.32, 0.56, '#7d8790');
   for (let u = -15.6; u < -7; u += 0.62) block(0, u, 0.66, 0.42, 0.56, 1.32, 0.5, '#7d8790');

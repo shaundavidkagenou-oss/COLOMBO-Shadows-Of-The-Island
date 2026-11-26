@@ -16,6 +16,7 @@ import * as THREE from 'three';
 import { BANK_SURFACES, normalMap, fitSize } from './BankTex2K.js';
 import { Settings } from '../core/Settings.js';
 import { hasCanvas } from './BankBrand.js';
+import { WorkerPool, claimThreads, releaseThreads } from '../core/WorkerPool.js';
 
 const RAW = new Map(); // key → { w, h, rgba, n } finished by a worker, waiting to be put into a canvas
 const TEX = new Map(), NRM = new Map(); let pending = null;
@@ -59,13 +60,13 @@ export function startBankTextures(renderer = null) { if (renderer) REND = render
   if (pending) return pending; if (!can2K() || typeof Worker === 'undefined') return (pending = Promise.resolve(0));
   const todo = BANK_TEX_KEYS.filter((k) => !TEX.has(k) && !RAW.has(k)); if (!todo.length) return (pending = Promise.resolve(0));
   const nw = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 4) - 1, todo.length)); /* ≤ 3: each holds ~100 MB of working buffers at its peak */ let done = 0;
-  pending = new Promise((resolve) => { const workers = []; let next = 0, live = nw;
-    const finish = (w) => { try { w.terminate(); } catch (e) { /* already gone */ } if (--live === 0) resolve(done); };
-    const feed = (w) => { if (next >= todo.length) return finish(w); const key = todo[next++]; w.postMessage({ key, id: next, size: bankTexSize(key) }); };
-    for (let i = 0; i < nw; i++) { let w; try { w = new Worker(new URL('./BankTexWorker.js', import.meta.url), { type: 'module' }); } catch (e) { console.warn('bank textures: no worker', e); if (--live === 0) resolve(done); continue; }
-      workers.push(w); w.onmessage = (e) => { const d = e.data; if (!d.error && !TEX.has(d.key)) { RAW.set(d.key, { w: d.w, h: d.h, rgba: d.rgba, n: d.n, linear: d.linear }); done++; upload(d.key); } else if (d.error) console.warn('bank texture', d.key, d.error); feed(w); };
-      w.onerror = (e) => { console.warn('bank texture worker', e.message || e); e.preventDefault && e.preventDefault(); finish(w); }; feed(w); }
-  });
+  // 93rd: the shared pool class (core/WorkerPool.js); its threads are claimed from the game's budget while it runs (loading
+  // screen), so the geometry workers never start on top of it, and it is closed (threads freed) as soon as the last surface is in
+  claimThreads('bankTex', nw);
+  const pool = new WorkerPool('bank textures', () => new Worker(new URL('./BankTexWorker.js', import.meta.url), { type: 'module' }), { size: nw });
+  if (!pool.size) { pool.dispose(); releaseThreads('bankTex'); console.warn('bank textures: no worker'); return (pending = Promise.resolve(0)); }
+  pending = Promise.all(todo.map((key, i) => pool.run('tex', { key, size: bankTexSize(key) }, { prio: i }).then((d) => { if (!TEX.has(d.key)) { RAW.set(d.key, { w: d.w, h: d.h, rgba: d.rgba, n: d.n, linear: d.linear }); done++; upload(d.key); } },
+    (err) => console.warn('bank texture', key, err && err.message)))).then(() => { pool.dispose(); releaseThreads('bankTex'); return done; });
   return pending;
 }
 // wait for the workers, then turn every result into its texture (in slices, so the loading screen keeps drawing)

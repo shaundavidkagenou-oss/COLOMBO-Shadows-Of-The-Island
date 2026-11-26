@@ -4,6 +4,53 @@ import * as THREE from 'three';
 import { MeshBuilder } from '../gfx/MeshBuilder.js';
 import { RNG } from '../core/rng.js';
 import { encodeLeafCard, LEAF_STYLE as LS, LEAF_FAR } from './LeafAtlas.js';
+import { LeafSet, clusterLeaves, shrubLeaves, writeLeaves, LEAF_LODS, leafMeshOn } from './LeafMesh.js';
+
+// 95th: two foliage builds. 'mesh' (default): every leaf is real geometry with its own atlas tile (LeafMesh.js), crowns in
+// 4 LODs; 'cards': the 88th texture-bombed leaf cards (Settings → leafMesh off; and ALWAYS the source of crownPoints, so the
+// city plan — crown clearance against buildings, bird perches — is identical in both builds; the leaf meshes stay inside
+// the cards' envelope: same clumps, leaves within the clump radius).
+let CUR = 'mesh'; const modeNow = () => (leafMeshOn() ? 'mesh' : 'cards');
+// mesh build: while a crown is being built clumpCrown() collects twigged leaf clusters here instead of writing cards
+let COLLECT = null; const SKIP = {};
+// per-species leaf arrangement (mesh build), keyed by the 88th card style
+const LEAF_P = {
+  [LS.generic]: { len: 0.3, wk: 0.9, twigs: 6, perTwig: 8 },
+  [LS.broad]: { len: 0.36, wk: 0.95, twigs: 7, perTwig: 10, droop: 0.22, spread: 1.0, aged: 0.05 },
+  [LS.narrow]: { len: 0.44, wk: 0.5, twigs: 6, perTwig: 10, droop: 0.45, spread: 0.8, aged: 0.03, bendK: 1.4 },
+  [LS.bo]: { len: 0.36, wk: 1.12, twigs: 7, perTwig: 7, droop: 0.5, spread: 1.05, aged: 0.04, roll: 0.7 },
+  [LS.frangipani]: { len: 0.46, wk: 0.55, twigs: 3, perTwig: 9, layout: 'rosette', twigLen: 0.65, droop: 0.15, lift: 0.9, aged: 0.06 },
+  [LS.fine]: { len: 0.25, wk: 0.55, twigs: 8, perTwig: 24, layout: 'pinnate', droop: 0.12, aged: 0.05, lift: 0.85 },
+  [LS.almond]: { len: 0.46, wk: 1.0, twigs: 2, perTwig: 10, layout: 'rosette', twigLen: 0.5, droop: 0.05, lift: 0.95, aged: 0.1 },
+  [LS.shrub]: { len: 0.2, wk: 0.9 },
+  [LS.small]: { len: 0.17, wk: 0.75 },
+  [LS.croton]: { len: 0.22, wk: 0.55, aged: 0.2 },
+};
+const LEAF_MATS = new Set(['leaves', 'leavesBright', 'leavesSmall']);
+// near-LOD twigs (bark): a 3-sided prism per twig, open ends (they sit inside the leaves)
+function twigGeo(twigs, r0 = 0.022, r1 = 0.008, col = [0.55, 0.5, 0.44]) {
+  if (!twigs.length) return null; const mb = new MeshBuilder(); const A = new THREE.Vector3(), B = new THREE.Vector3(), D = new THREE.Vector3(), N = new THREE.Vector3(), M = new THREE.Vector3(), d = new THREE.Vector3();
+  for (const t of twigs) { A.set(t[0], t[1], t[2]); B.set(t[3], t[4], t[5]); D.subVectors(B, A); const len = D.length(); if (len < 0.05) continue; D.divideScalar(len);
+    N.set(0, 1, 0); if (Math.abs(D.y) > 0.9) N.set(1, 0, 0); N.addScaledVector(D, -N.dot(D)).normalize(); M.crossVectors(D, N); const i0 = mb.vcount;
+    for (let k = 0; k < 3; k++) { const a = k / 3 * Math.PI * 2; d.copy(N).multiplyScalar(Math.cos(a)).addScaledVector(M, Math.sin(a));
+      mb.vert(A.x + d.x * r0, A.y + d.y * r0, A.z + d.z * r0, d.x, d.y, d.z, k / 3, 0, col); mb.vert(B.x + d.x * r1, B.y + d.y * r1, B.z + d.z * r1, d.x, d.y, d.z, k / 3, len, col); }
+    for (let k = 0; k < 3; k++) { const a = i0 + k * 2, b = i0 + ((k + 1) % 3) * 2; mb.idx.push(a, b, b + 1, a, b + 1, a + 1); } }
+  return mb.build();
+}
+// mesh build: the leaf part of a shape becomes 4 LOD crowns written from one LeafSet, plus the near-LOD twigs
+function finishMesh(shape, set, twigR = 0.022) {
+  const crowns = LEAF_LODS.map((_, lv) => { const mb = new MeshBuilder(); writeLeaves(mb, set, lv); return mb.build(); });
+  const p = shape.parts.find((q) => LEAF_MATS.has(q.mat)); p.hi = p.lo = null; p.lods = crowns;
+  const tw = twigGeo(set.twigs, twigR, twigR * 0.4); if (tw) shape.parts.push({ mat: 'treeBark', lods: [tw, null, null, null] });
+  shape.crown = crowns[0]; shape.leafCount = set.L.length; return shape;
+}
+// build a tree in the current mode: build(lod) is the species' own builder (lod 0 near, 1 far); in the mesh build the
+// near pass collects the leaves, the far pass skips them
+function twoPass(build, shapeOf, twigR) {
+  if (CUR !== 'mesh') { const H = build(0), Lo = build(1); return shapeOf(H, Lo); }
+  const set = new LeafSet(); COLLECT = set; let H, Lo; try { H = build(0); COLLECT = SKIP; Lo = build(1); } finally { COLLECT = null; }
+  return finishMesh(shapeOf(H, Lo), set, twigR);
+}
 
 // One continuous, closed tube along a centre line (parallel-transport frames): every ring is shared by the neighbouring
 // sections, so a bent trunk has no wedge gaps at its joints; the base flares into the ground and the top / limb tip is capped
@@ -61,6 +108,7 @@ function clumpsOf(rngS, o) {
   return out;
 }
 function clumpCrown(mb, o, C, rngC, perClump, size) {
+  if (COLLECT === SKIP) return; if (COLLECT) { clusterLeaves(COLLECT, o, C, rngC, { ...(LEAF_P[(o.style ?? 0) % LEAF_FAR] || LEAF_P[0]), ...(o.leaf || {}) }); return; }
   for (const c of C) {
     const ox = c.x - o.cx, oy = c.y - o.cy, oz = c.z - o.cz, ol = Math.hypot(ox, oy, oz) || 1;
     for (let k = 0; k < perClump; k++) {
@@ -96,12 +144,12 @@ function strip(mb, f, side, width, seg, fold, uvMode, col) {
 // ------------------------------------------------------------------------------------------------ the species
 // Each shape: { parts: [{ mat, hi, lo }], trunk, crown, mat } — trunk / crown are the near-LOD bark and foliage geometry
 // (crown clearance + tests use exactly those); parts are what Forest.js renders (lo = far LOD, null = not drawn far away).
-let S = null;
+let S = null; const SC = {};
 function broadleaf(seed, o) {
   const build = (lod) => { const hi = lod === 0; const rngS = new RNG(seed), rngC = new RNG(seed + 1), rngB = new RNG(seed + 2); const t = new MeshBuilder(), c = new MeshBuilder(), fl = new MeshBuilder();
     const top = trunk(t, o.h * 0.45, o.trunkR, o.trunkR * 0.7, 0.4, rngS, [0.6, 0.55, 0.49], hi ? 12 : 5, hi ? 9 : 6);
     const ends = []; for (let k = 0; k < o.limbs; k++) { const a = k / o.limbs * Math.PI * 2 + rngS.range(-0.3, 0.3); const e = [top[0] + Math.cos(a) * o.r * 0.55, o.h * rngS.range(0.7, 0.85), top[2] + Math.sin(a) * o.r * 0.55]; ends.push(e); limb(t, top, e, o.trunkR * 0.6, o.trunkR * 0.25, undefined, hi ? 5 : 3, hi ? 6 : 5); }
-    const cr = { cx: top[0], cy: o.h * 0.82, cz: top[2], rx: o.r, ry: o.h * 0.28, rz: o.r, clumps: o.clumps, flat: o.flat, tint: o.tint, cardTint: o.cardTint || null, style: (o.style ?? LS.broad) + (hi ? 0 : LEAF_FAR) };
+    const cr = { cx: top[0], cy: o.h * 0.82, cz: top[2], rx: o.r, ry: o.h * 0.28, rz: o.r, clumps: o.clumps, flat: o.flat, tint: o.tint, cardTint: o.cardTint || null, style: (o.style ?? LS.broad) + (hi ? 0 : LEAF_FAR), leaf: o.leaf };
     const C = clumpsOf(rngS, cr);
     if (hi) for (const q of C) { let best = null, bd = 1e9; for (const e of ends) { const d = Math.hypot(e[0] - q.x, e[1] - q.y, e[2] - q.z); if (d < bd) { bd = d; best = e; } } // twigs out to the clumps
       if (best && bd > 0.6) limb(t, [best[0], best[1] + 0.3, best[2]], [q.x + (best[0] - q.x) * 0.25, q.y - q.rv * 0.3, q.z + (best[2] - q.z) * 0.25], o.trunkR * 0.22, o.trunkR * 0.07, undefined, 3, 4); } // 88th: twigs are hidden in the crown: 4-sided, not 5
@@ -114,9 +162,8 @@ function broadleaf(seed, o) {
     if (o.extra) o.extra({ t, c, fl, hi, top, ends, C, rng: rngB });
     if (o.fruit && hi) for (let k = 0; k < o.fruit; k++) { const a = rngB.next() * 6.28, y = rngB.range(1.6, o.h * 0.42); const r = o.trunkR * (1 - 0.3 * y / (o.h * 0.45)); blob(fl, Math.cos(a) * (r + 0.13), y, Math.sin(a) * (r + 0.13), 0.14, 0.24, 0.14, rngB.chance(0.5) ? [0.42, 0.5, 0.16] : [0.5, 0.55, 0.2], 0); } // jak fruit on the trunk
     return { t: t.build(), c: c.build(), f: fl.build() }; };
-  const H = build(0), Lo = build(1);
-  const parts = [{ mat: 'treeBark', hi: H.t, lo: Lo.t }, { mat: o.mat, hi: H.c, lo: Lo.c }]; if (H.f) parts.push({ mat: 'bloom', hi: H.f, lo: Lo.f && o.flowersLo ? Lo.f : null });
-  return { parts, trunk: H.t, crown: H.c, mat: o.mat };
+  return twoPass(build, (H, Lo) => { const parts = [{ mat: 'treeBark', hi: H.t, lo: Lo.t }, { mat: o.mat, hi: H.c, lo: Lo.c }]; if (H.f) parts.push({ mat: 'bloom', hi: H.f, lo: Lo.f && o.flowersLo ? Lo.f : null });
+    return { parts, trunk: H.t, crown: H.c, mat: o.mat }; }, o.trunkR * 0.06);
 }
 function palmShape(P = {}) {
   const o = { seed: 707, h: 11, bend: 1.6, len: [4.0, 5.4], droop: 1, nuts: 9, nutCol: null, frondCol: [0.95, 1, 0.9], ...P };
@@ -179,8 +226,7 @@ function kottambaShape() {
         pads.push({ x: ex, y: ey + 0.22, z: ez, r: 0.6, rv: 0.3, tint: 1 });
         clumpCrown(c, { cx: ax, cy: y, cz: az, ax: 0, az: 0, rx: 5, ry: 0.9, style: LS.almond + (hi ? 0 : LEAF_FAR), tint: [0.86, 0.98, 0.78], cardTint: red ? (r) => (r.chance(0.6) ? [2.0, 0.78, 0.45] : [1.6, 1.15, 0.55]) : null }, pads, rngC, hi ? 10 : 3, hi ? 0.62 : 1.05); } }
     return { t: t.build(), c: c.build() }; };
-  const H = build(0), Lo = build(1);
-  return { parts: [{ mat: 'treeBark', hi: H.t, lo: Lo.t }, { mat: 'leaves', hi: H.c, lo: Lo.c }], trunk: H.t, crown: H.c, mat: 'leaves' };
+  return twoPass(build, (H, Lo) => ({ parts: [{ mat: 'treeBark', hi: H.t, lo: Lo.t }, { mat: 'leaves', hi: H.c, lo: Lo.c }], trunk: H.t, crown: H.c, mat: 'leaves' }), 0.02);
 }
 // ashoka / mast tree (Polyalthia longifolia 'pendula'): the tall, narrow, weeping column planted in rows along boulevards and
 // temple walks — short drooping branches all the way up a straight trunk, dark glossy wavy leaves hanging in curtains.
@@ -192,10 +238,9 @@ function ashokaShape() {
       for (let k = 0; k < n; k++) { const a = a0 + k / n * 6.28 + rngS.range(-0.3, 0.3); const ax = top[0] * (y / H) ** 2, az = top[2] * (y / H) ** 2; const ex = ax + Math.cos(a) * R, ez = az + Math.sin(a) * R;
         if (hi && R > 0.6) limb(t, [ax, y, az], [ex, y - 0.35, ez], 0.035, 0.012, [0.5, 0.46, 0.42], 2, 4); // drooping twig
         C.push({ x: ex * 0.92, y: y - 0.45, z: ez * 0.92, r: 0.45 + R * 0.12, rv: 0.55, tint: rngS.range(0.86, 1.06) }); } }
-    clumpCrown(c, { cx: top[0] * 0.5, cy: H * 0.55, cz: top[2] * 0.5, rx: 1.6, ry: H * 0.5, style: LS.narrow + (hi ? 0 : LEAF_FAR), tint: [0.62, 0.8, 0.58] }, C, rngC, hi ? 6 : 3, hi ? 0.5 : 0.85);
+    clumpCrown(c, { cx: top[0] * 0.5, cy: H * 0.55, cz: top[2] * 0.5, rx: 1.6, ry: H * 0.5, style: LS.narrow + (hi ? 0 : LEAF_FAR), tint: [0.62, 0.8, 0.58], leaf: { droop: 0.95, spread: 0.65, len: 0.4, wk: 0.42, twigs: 3, perTwig: 9, twigUp: -0.2 } }, C, rngC, hi ? 6 : 3, hi ? 0.5 : 0.85);
     return { t: t.build(), c: c.build() }; };
-  const H = build(0), Lo = build(1);
-  return { parts: [{ mat: 'treeBark', hi: H.t, lo: Lo.t }, { mat: 'leaves', hi: H.c, lo: Lo.c }], trunk: H.t, crown: H.c, mat: 'leaves' };
+  return twoPass(build, (H, Lo) => ({ parts: [{ mat: 'treeBark', hi: H.t, lo: Lo.t }, { mat: 'leaves', hi: H.c, lo: Lo.c }], trunk: H.t, crown: H.c, mat: 'leaves' }), 0.02);
 }
 // nuga (banyan, Ficus benghalensis): a massive trunk of fused stems, a huge low spreading crown, and aerial roots hanging from
 // the limbs — the thick ones near the trunk have reached the ground and become pillars of their own.
@@ -211,31 +256,31 @@ function nugaExtra({ t, hi, top, ends, rng }) {
     const g = tubeGeo(pts, [r0 * 0.9, r0, pillar ? r0 * 1.45 : r0 * 0.6], pillar ? (hi ? 7 : 5) : 4, { capEnd: true, vLen: 1.2 }); t.geometry(g, new THREE.Matrix4(), pillar ? [0.62, 0.57, 0.5] : [0.52, 0.42, 0.34]); g.dispose(); }
 }
 // {type: shape} — built once, deterministic
-export function treeShapes() {
-  if (S) return S; S = {};
+export function treeShapes(mode = modeNow()) {
+  if (SC[mode]) return SC[mode]; const prevS = S, prevC = CUR; S = SC[mode] = {}; CUR = mode; try {
   S.palm = palmShape();
   const B = (name, seed, o) => { S[name] = broadleaf(seed, { loK: 1.8, ...o }); };
-  B('rain', 801, { style: LS.broad, h: 13, r: 9, trunkR: 0.55, limbs: 5, clumps: 23, cards: 17, cardsLo: 5, size: 1.32, tint: [0.95, 1, 0.9], flat: 1, mat: 'leaves' });
+  B('rain', 801, { leaf: { layout: 'pinnate', len: 0.3, wk: 0.62, perTwig: 18, twigs: 8, droop: 0.15 }, style: LS.broad, h: 13, r: 9, trunkR: 0.55, limbs: 5, clumps: 23, cards: 17, cardsLo: 5, size: 1.32, tint: [0.95, 1, 0.9], flat: 1, mat: 'leaves' });
   B('mara', 811, { style: LS.broad, h: 10, r: 5.5, trunkR: 0.4, limbs: 4, clumps: 18, cards: 16, cardsLo: 5, size: 1.2, tint: [1, 1, 0.95], flat: 1, mat: 'leaves' });
   B('mango', 821, { style: LS.narrow, h: 8, r: 3.8, trunkR: 0.32, limbs: 3, clumps: 15, cards: 15, cardsLo: 5, size: 0.98, tint: [0.78, 0.9, 0.78], flat: 0, mat: 'leaves' });
-  B('jak', 831, { style: LS.narrow, h: 12, r: 3.6, trunkR: 0.36, limbs: 3, clumps: 15, cards: 14, cardsLo: 5, size: 1.0, tint: [0.82, 0.95, 0.8], flat: 0, mat: 'leaves', fruit: 7 });
+  B('jak', 831, { leaf: { len: 0.36, wk: 0.68, droop: 0.3 }, style: LS.narrow, h: 12, r: 3.6, trunkR: 0.36, limbs: 3, clumps: 15, cards: 14, cardsLo: 5, size: 1.0, tint: [0.82, 0.95, 0.8], flat: 0, mat: 'leaves', fruit: 7 });
   B('bo', 841, { style: LS.bo, h: 12, r: 6, trunkR: 0.5, limbs: 5, clumps: 19, cards: 16, cardsLo: 5, size: 1.08, tint: [1.05, 1.1, 1.0], flat: 0, mat: 'leavesBright' });
   B('frangipani', 851, { style: LS.frangipani, h: 5, r: 2.6, trunkR: 0.18, limbs: 4, clumps: 11, cards: 10, cardsLo: 4, size: 0.74, tint: [1.2, 1.22, 1.15], flat: 0, mat: 'leavesBright', flowers: 4, flowerCol: (r) => (r.chance(0.7) ? [1.0, 0.97, 0.88] : [1.0, 0.78, 0.82]) });
   S.areca = arecaShape(); S.banana = bananaShape();
   // 52nd: five more species
-  B('nuga', 881, { style: LS.broad, h: 14, r: 10.5, trunkR: 0.85, limbs: 7, clumps: 28, cards: 17, cardsLo: 5, size: 1.25, tint: [0.84, 0.95, 0.8], flat: 1, mat: 'leaves', extra: nugaExtra });
+  B('nuga', 881, { leaf: { len: 0.4, wk: 1.0, droop: 0.3 }, style: LS.broad, h: 14, r: 10.5, trunkR: 0.85, limbs: 7, clumps: 28, cards: 17, cardsLo: 5, size: 1.25, tint: [0.84, 0.95, 0.8], flat: 1, mat: 'leaves', extra: nugaExtra });
   S.kottamba = kottambaShape(); S.ashoka = ashokaShape();
   B('flamboyant', 891, { style: LS.fine, petals: 4, h: 9, r: 7, trunkR: 0.38, limbs: 6, clumps: 22, cards: 15, cardsLo: 5, size: 0.95, tint: [1.0, 1.08, 0.9], flat: 1, mat: 'leavesSmall', flowers: 11, flowersLo: 4, flowerR: 0.095,
     flowerCol: (r) => (r.chance(0.8) ? [0.93, 0.16, 0.06] : [0.98, 0.45, 0.08]), cardTint: (r) => (r.chance(0.32) ? [2.1, 0.52, 0.32] : [1, 1, 1]) }); // mal mara (Delonix regia): umbrella crown of fine feathery leaves, smothered in scarlet in April–May
   S.kingcoconut = palmShape({ seed: 717, h: 7.2, bend: 0.55, len: [3.4, 4.4], droop: 0.7, nuts: 16, nutCol: [0.95, 0.56, 0.12], frondCol: [1.02, 1.02, 0.82] }); // thambili: shorter, upright, golden-orange nut bunches
-  return S;
+  } finally { CUR = prevC; } const out = S; S = prevS; return out;
 }
 // Leaf-card and branch vertices of a type in instance-local space (y up from the ground, trunk at the origin) —
 // what CityPlan tests against building volumes. Trunk vertices below 1.5 m are left out (the trunk-to-wall gap covers them).
 // Cards: corners + centre (a card is ≤ 2.5 m, so a wall corner can't slip between the points unseen at the clearance margin).
 const PTS = {};
 export function crownPoints(type) {
-  if (PTS[type]) return PTS[type]; const d = treeShapes()[type]; if (!d) return null; const out = [];
+  if (PTS[type]) return PTS[type]; const d = treeShapes('cards')[type]; if (!d) return null; const out = [];
   { const p = d.crown.attributes.position; for (let i = 0; i + 3 < p.count; i += 4) { let sx = 0, sy = 0, sz = 0; for (let k = 0; k < 4; k++) { const x = p.getX(i + k), y = p.getY(i + k), z = p.getZ(i + k); out.push(x, y, z); sx += x; sy += y; sz += z; } out.push(sx / 4, sy / 4, sz / 4); } }
   { const p = d.trunk.attributes.position; for (let i = 0; i < p.count; i += 2) { const y = p.getY(i); if (y < 1.5) continue; out.push(p.getX(i), y, p.getZ(i)); } }
   return (PTS[type] = new Float32Array(out));
@@ -248,10 +293,21 @@ function mound(mb, rng, o, n, size, colFn, style = null) { // leaf cards over a 
     const ao = 0.6 + 0.4 * (0.5 * f + 0.5 * Math.max(0, Math.min(1, py / o.h))); const nl = Math.hypot(dx, dy + 0.3, dz) || 1;
     leafCard(mb, px, py, pz, size * rng.range(0.75, 1.2), rng, colFn(rng).map((q) => q * ao), [dx / nl, (dy + 0.3) / nl, dz / nl], style != null ? [style, Math.min(1, 0.25 + 0.75 * py / o.h)] : null); }
 }
-let P = null;
-export function plantShapes() {
-  if (P) return P; P = {};
-  const shrub = (name, seed, o) => { const mk = (hi) => { const rng = new RNG(seed), rb = new RNG(seed + 5); const c = new MeshBuilder(), fl = new MeshBuilder();
+let P = null; const PC = {};
+// mesh build of a leafy shrub: stems fanning out of the root to the dome, leaves along their outer part (LeafMesh.shrubLeaves),
+// 4 LODs from one leaf set; flowers as before (hi / lo)
+function shrubMesh(name, seed, o) {
+  const rng = new RNG(seed), rb = new RNG(seed + 5); const st = o.style ?? (o.mat === 'leavesSmall' ? LS.small : LS.shrub); const LP = LEAF_P[st] || LEAF_P[LS.shrub];
+  const set = new LeafSet(); const len = (o.leafLen ?? LP.len) * Math.min(1.25, Math.max(0.6, o.size / 0.3));
+  shrubLeaves(set, { r: o.r, h: o.h }, rng, { stems: Math.max(5, o.cards * 0.6), perStem: o.perStem ?? 15, len, wk: LP.wk, aged: LP.aged ?? 0.04, col: o.col, droop: 0.2, lift: 0.7 });
+  const lods = LEAF_LODS.map((_, lv) => { if (lv === 3) return null; const mb = new MeshBuilder(); writeLeaves(mb, set, lv); return mb.build(); }); lods[3] = lods[2];
+  const fH = new MeshBuilder(), fL = new MeshBuilder(); if (o.bloom) { o.bloom(fH, rb, true); o.bloom(fL, new RNG(seed + 5), false); } const fh = fH.build(), fl = fL.build();
+  const parts = [{ mat: o.mat, lods }]; if (fh) parts.push({ mat: 'bloom', hi: fh, lo: fl }); const tw = twigGeo(set.twigs, 0.012, 0.005, [0.2, 0.17, 0.13]); if (tw) parts.push({ mat: 'bloom', lods: [tw, null, null, null] });
+  P[name] = { parts, h: o.h, r: o.r, leafCount: set.L.length };
+}
+export function plantShapes(mode = modeNow()) {
+  if (PC[mode]) return PC[mode]; const prevP = P, prevC = CUR; P = PC[mode] = {}; CUR = mode; try {
+  const shrub = (name, seed, o) => { if (CUR === 'mesh') return shrubMesh(name, seed, o); const mk = (hi) => { const rng = new RNG(seed), rb = new RNG(seed + 5); const c = new MeshBuilder(), fl = new MeshBuilder();
       mound(c, rng, o, hi ? o.cards : Math.ceil(o.cards / 3), hi ? o.size : o.size * 1.6, o.col, (o.style ?? (o.mat === 'leavesSmall' ? LS.small : LS.shrub)) + (hi ? 0 : LEAF_FAR));
       if (o.bloom) o.bloom(fl, rb, hi); return { c: c.build(), f: fl.build() }; };
     const H = mk(true), Lo = mk(false); const parts = [{ mat: o.mat, hi: H.c, lo: Lo.c }]; if (H.f) parts.push({ mat: 'bloom', hi: H.f, lo: Lo.f });
@@ -336,5 +392,5 @@ export function plantShapes() {
         blade(b, f, [-dz, dx], (t) => 0.04 * (1 - t * 0.85), hi ? 5 : 3, (t, e) => (t > 0.8 ? [0.6, 0.55, 0.3] : [0.24, 0.4, 0.17]).map((q) => q * (0.85 + 0.2 * e)), 0.35); }
       return b.build(); };
     P.pandanus = { parts: [{ mat: 'bloom', hi: mk(true), lo: mk(false) }], h: 1.8, r: 1.1 }; }
-  return P;
+  } finally { CUR = prevC; } const out = P; P = prevP; return out;
 }

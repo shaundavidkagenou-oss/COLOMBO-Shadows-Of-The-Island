@@ -29,6 +29,9 @@ const adsEase = (x) => { x = clamp(x, 0, 1); let t = x; for (let i = 0; i < 6; i
 const TRIGGER_PULL = [0.6, 1.08, 1.18, 1.24, 1.2]; // index finger through the trigger break, held for one shot
 const _m = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _m3 = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _e = new THREE.Euler();
 const qE = (x, y, z) => new THREE.Quaternion().setFromEuler(new THREE.Euler(x, y, z));
+// 95th: an orthonormal frame at the eye (x right, y up, z = look), chest space — for the FP re-alignment (Weapons.fpRealign)
+const _fpF0 = new THREE.Matrix4(), _fpF1 = new THREE.Matrix4(), _fpC = new THREE.Matrix4(), _fpQ = new THREE.Quaternion(), _fpX = new THREE.Vector3(), _fpY = new THREE.Vector3();
+function fpFrame(out, eye, look, up) { _fpX.crossVectors(look, up).normalize(); _fpY.crossVectors(_fpX, look).normalize(); return out.makeBasis(_fpX, _fpY, look).setPosition(eye); }
 const Q_GRIP = qE(-0.8, 0, 0), /* firing hand: palm on the grip side, fingers wrap down-forward, thumb up along the frame (rest frame: fingers −y, palm inward, thumb +z) */ Q_SUP_R = qE(0.1, 0, -Math.PI / 2), Q_SUP_P = qE(-0.5, 0.3, -Math.PI / 2);
 
 // hold poses in "body space at the chest" (chest frame with the stance twist removed). Rifles/snipers: the support point is
@@ -172,7 +175,7 @@ export class Weapons {
   // slots: the existing Weapons → "Weapon drawn / holstered" recording (or its synthesised sound), exactly as before.
   stowFoley(swap, d) { const pistol = d && d.cls === 'pistol';
     if (swap) { this._swapped = SB.play('foley.switch', 0.9, 0, 0, { rate: 0.96 + Math.random() * 0.08 }); return; }
-    SB.play('foley.holster', 1, 0, 0, { rate: 0.96 + Math.random() * 0.08 }) || SB.play('gun.equip', 0.75, 0, 0, { rate: 0.9 }) || Audio.noise(pistol ? 0.08 : 0.12, { f: pistol ? 1100 : 750, q: 0.9, vol: 0.04 }); }
+    SB.play('foley.holster', 1, 0, 0, { rate: 0.96 + Math.random() * 0.08 }) || Audio.noise(pistol ? 0.08 : 0.12, { f: pistol ? 1100 : 750, q: 0.9, vol: 0.04 }); }
   drawFoley() { if (this._swapped) { this._swapped = false; return true; } return SB.play('foley.draw', 1, 0, 0, { rate: 0.96 + Math.random() * 0.08 }); }
   holster() { if (this.drawn && this.state !== 'holster') { this.next = -1; if (this.state === 'reload') this.abortReload(); const back = this.state === 'equip' && this.drawMode !== 'hands' ? clamp(this.t / this.dur, 0, 1) : 1; this.setState('holster'); this.t = (1 - back) * this.dur; if (back < 1) this._revT = REV_T; /* interrupted draw: straight back from where it is */ } }
   // draw / put-away (87th): every weapon comes from where it is carried and goes back there, swaps included — a pistol out of
@@ -411,7 +414,7 @@ export class Weapons {
       const u = clamp(k / this.dur, 0, 1); let a;
       if (this.state === 'equip') { a = sm(u); ikW = sm(seg(u, 0, 0.3)); hideW = u < 0.1; } else { a = 1 - sm(seg(u, 0, 0.65)); ikW = 1 - sm(seg(u, 0.65, 1)); hideW = u >= 0.65; }
       this.appearK = a; const dn = 1 - a; pos.y -= 0.12 * dn; pos.z -= 0.04 * dn; pos.x += (twoHand ? 0.03 : 0.02) * dn; rx += 0.65 * dn; ry += (twoHand ? 0.25 : 0.1) * dn;
-      if (this.state === 'equip' && k < dt * 1.5) this.drawFoley() || SB.play('gun.equip') || Audio.noise(0.1, { f: 900, q: 0.8, vol: 0.05 });
+      if (this.state === 'equip' && k < dt * 1.5) this.drawFoley() || Audio.noise(0.1, { f: 900, q: 0.8, vol: 0.05 });
     }
     // weapon matrix (body space), then chest space
     const body = _pBody.compose(pos, _pq.setFromEuler(_pe.set(rx, ry, rz, 'YXZ')), _ONE);
@@ -424,7 +427,7 @@ export class Weapons {
       const bs = _fBS.copy(ud.sight).applyMatrix4(baseM); const bd = _fBD.set(0, 0, 1).transformDirection(baseM); const hip = 1 - sm(this.aimW) * (this.aimHeld ? 1 : 0.6);
       const relief = def.cls === 'pistol' ? 0.36 : def.cls === 'sniper' ? 0.2 : 0.18; const T = _fT.copy(eye).addScaledVector(look, relief + 0.06 * hip).addScaledVector(right, 0.085 * hip).addScaledVector(up, -0.07 * hip);
       const q = _fQ.setFromUnitVectors(bd, look); const D = _fD.makeTranslation(T.x, T.y, T.z).multiply(_fM.makeRotationFromQuaternion(q)).multiply(_fM.makeTranslation(-bs.x, -bs.y, -bs.z));
-      chestM.premultiply(D); }
+      chestM.premultiply(D); fpFrame(_fpF0, eye, look, upL); this._fpOn = true; } else this._fpOn = false;
     // draw / holster (87th): the pistol out of / into the hip holster, the long gun round the body on its sling
     let handOnly = 0; // 0 = weapon in hand pose, 1 = weapon still in holster (hand reaching)
     if ((this.state === 'equip' || this.state === 'holster') && this.drawMode === 'hip') {
@@ -441,7 +444,7 @@ export class Weapons {
         blendM(_dM2, chestM, sm(seg(u, 0.72, 1)), chestM);
       }
       supW = supW * sm(seg(u, 0.82, 1));
-      if (this.state === 'equip' && k < dt * 1.5) this.drawFoley() || SB.play('gun.equip') || Audio.noise(0.12, { f: 700, q: 0.8, vol: 0.06 });
+      if (this.state === 'equip' && k < dt * 1.5) this.drawFoley() || Audio.noise(0.12, { f: 700, q: 0.8, vol: 0.06 });
       if (this._hipU !== undefined && (this._hipU < G) !== (u < G)) Audio.noise(0.025, { f: 3400, q: 5, vol: 0.045 }); this._hipU = u; // thumb-break snap
       if (handOnly) { const slotM = slot; if (m.parent !== this.holsterP) { this.holsterP.add(m); m.matrixAutoUpdate = true; m.position.set(0, 0, 0); m.quaternion.identity(); } m.visible = true;
         const g = (H ? _hG.copy(H.R.wrist) : _hG.set(0, 0, 0)).applyMatrix4(slotM); const ik = this.ikObj(); ik.R = g; ik.qR = _hQ.setFromRotationMatrix(slotM).multiply(H ? H.R.q : Q_GRIP); ik.wR = this._reach; ik.L = null; ik.qL = null; ik.wL = 0; ik.poleR = null; A.ik = ik; P.ch.rig && P.ch.rig.hand('R', this._reach > 0.8 ? (H ? H.R.ready : 'grip') : 'open');
@@ -458,7 +461,7 @@ export class Weapons {
       ikW = sm(seg(u, 0.3, 0.52)); supW = sm(seg(u, 0.66, 0.95)); hideW = false;
       strapPull = sm(seg(u, 0, 0.12)) * (1 - sm(seg(u, 0.38, 0.52))); if (strapPull > 0.01) strapP = this.gear.strapGrab(psi, _dV);
       const bodyK = Math.sin(Math.PI * clamp(u / 0.75, 0, 1)); A.aim.turn = 0.07 * bodyK; A.aim.bend = -0.05 * bodyK; A.aim.lean = 0.04 * bodyK; A.aim.w *= sm(seg(u, 0.4, 0.92)); // trunk turns from the gun coming over the shoulder, support side dips with the pull
-      if (this.state === 'equip' && k < dt * 1.5) this.drawFoley() || SB.play('gun.equip') || Audio.noise(0.12, { f: 650, q: 0.8, vol: 0.06 });
+      if (this.state === 'equip' && k < dt * 1.5) this.drawFoley() || Audio.noise(0.12, { f: 650, q: 0.8, vol: 0.06 });
     } else this._slideKey = 0;
     if (m.parent !== this.inHand) { this.inHand.add(m); }
     m.matrixAutoUpdate = false; m.matrix.copy(chestM); m.matrixWorldNeedsUpdate = true; m.visible = !hideW; this.inHand.matrix.identity();
@@ -484,7 +487,7 @@ export class Weapons {
     else if (supTarget === 'rack') { const rk = _rk.copy(ud.rack).applyMatrix4(chestM); sup.lerp(rk, this._supK * (this.state === 'reload' ? 1 - sm(seg(this._reloadR, 0.92, 1)) : 1)); if (this.state === 'reload' && ud.slide && def.cls !== 'pistol') ud.slide.position.z = -0.05 * Math.sin(seg(this._reloadR, 0.84, 0.94) * Math.PI); }
     if (gripTarget === 'bolt') { const c = this._cycK; const bh = _rk.copy(ud.rack); bh.z += ud.bolt ? ud.bolt.position.z : 0; bh.y += 0.012 * sm(seg(c, 0.25, 0.35)) * (1 - sm(seg(c, 0.68, 0.78))); const bw = bh.applyMatrix4(chestM); grip.lerp(bw, sm(seg(c, 0, 0.22)) * (1 - sm(seg(c, 0.8, 1)))); }
     if (this.drawMode === 'hands' && (this.state === 'equip' || this.state === 'holster')) supW = twoHand ? ikW * sm(seg(ikW, 0.3, 1)) : supW * ikW;
-    const ik = this.ikObj(); ik.R = grip; ik.qR = qR; ik.wR = ikW; ik.L = supW > 0.01 ? sup : null; ik.qL = qL; ik.wL = supW; ik.poleR = twoHand ? elbowPole(aw, this._pole || (this._pole = new THREE.Vector3())) : null; A.ik = ik;
+    const ik = this.ikObj(); ik.pre = this._fpOn ? (this._fpPre || (this._fpPre = () => this.fpRealign())) : null; ik.R = grip; ik.qR = qR; ik.wR = ikW; ik.L = supW > 0.01 ? sup : null; ik.qL = qL; ik.wL = supW; ik.poleR = twoHand ? elbowPole(aw, this._pole || (this._pole = new THREE.Vector3())) : null; A.ik = ik;
     const pulling = !!strapP && strapPull > supW; if (pulling) { A.ik.L = strapP; A.ik.qL = null; A.ik.wL = strapPull; } // sling transition: the support hand on the strap
     const rig = P.ch.rig; if (rig) { // fingers: trigger discipline (index along the frame) until aimed, a real pull per shot; support hand shapes per task
       const onTrig = aw > 0.7 && this.state === 'ready'; // finger on the trigger only when aimed; otherwise straight along the frame
@@ -494,6 +497,22 @@ export class Weapons {
     }
   }
 
+  // 95th: first person — the weapon was laid on the view line in pose(), which runs BEFORE the player's look input and the body
+  // animation of this frame: the eye, the look direction and the chest it is expressed in were all a frame old, so every gait
+  // sway, recoil bend and mouse turn left the gun (and the hands holding it) a frame behind the camera — the FP hands shook
+  // against the view and the sights wandered off centre while aiming / firing. Called by the animator after this frame's body
+  // pose, right before the arm IK (Character: ik.pre): the same rigid correction moves the gun and both hand targets onto the
+  // current view line, so the hands still close on the grip and the camera sees the gun exactly where it was meant to be.
+  fpRealign() {
+    const P = this.P, m = this.models[this.cur], ik = this._ikO; if (!this._fpOn || !m || !ik || P.camMode !== 2 || P.vehicle) return;
+    const cb = P.ch.bones.chest; cb.updateWorldMatrix(true, false); const inv = _m3.copy(cb.matrixWorld).invert(); const eye = _fEye, look = _fLook; P.fpEyeLook(eye, look);
+    eye.applyMatrix4(inv); look.transformDirection(inv); const upL = _fUp.set(0, 1, 0).transformDirection(inv); fpFrame(_fpF1, eye, look, upL);
+    const C = _fpC.copy(_fpF0).invert().premultiply(_fpF1); // F1 · F0⁻¹ (chest space)
+    const e = C.elements; if (Math.abs(e[12]) + Math.abs(e[13]) + Math.abs(e[14]) > 0.25) return; // a teleport / pose snap: don't drag the gun across the body
+    m.matrix.premultiply(C); m.matrixWorldNeedsUpdate = true; _fpQ.setFromRotationMatrix(C);
+    if (ik.R) ik.R.applyMatrix4(C); if (ik.qR) ik.qR.premultiply(_fpQ); if (ik.L && ik.L !== _dV) ik.L.applyMatrix4(C); if (ik.qL) ik.qL.premultiply(_fpQ);
+    _fpF0.copy(_fpF1); // a second call this frame is a no-op
+  }
   // ------------------------------------------------------------------ firing
   muzzleWorld(out) { const m = this.models[this.cur]; m.updateWorldMatrix(true, false); out.copy(m.userData.muzzle).applyMatrix4(m.matrixWorld); const P = this.P; const lim = P.vehicle || P.boat ? 24 : 2.5; if (Math.hypot(out.x - P.x, out.z - P.z) > lim || Math.abs(out.y - P.y - 1.3) > (P.vehicle || P.boat ? 12 : 2.5)) out.set(P.x, P.y + 1.4, P.z); return out; } // guard (from a vehicle: the seat is off the vehicle's centre): a stale hand matrix (the frame after a teleport / headless steps) must not fire from far away
   aimRay(spread) {

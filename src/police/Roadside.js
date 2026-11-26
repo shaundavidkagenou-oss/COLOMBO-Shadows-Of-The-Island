@@ -47,6 +47,12 @@ export const FAULTS = {
   mechanical: { label: 'mechanical fault', unit: 'rsvan', ok: 0.55, work: 11 },
   immobilised: { label: 'immobilised (needs recovery)', unit: 'flatbed', ok: 0, work: 0 },
 };
+// 91st: the van crew's bonnet jobs (battery, overheat, no-start, engine, mechanical) need a bonnet to lift. A cab-over van, a tuktuk
+// (engine under the rear seat) or a model whose measured bonnet run is too short (bonnetFrame → null) used to get them anyway: the
+// mechanic mimed a bonnet at the cab front and spannered thin air. Those vehicles now break down with what the crew can really
+// fix there — a flat tyre — or, for the heavy faults, are immobilised and towed by the flatbed.
+export function hasBonnet(v) { return !!v && v.type !== 'tuktuk' && !(v.T && v.T.base === 'tuktuk') && !!bonnetFrame(v); }
+export function bonnetKind(v, kind) { const f = FAULTS[kind]; if (!f || f.unit !== 'rsvan' || kind === 'flat' || hasBonnet(v)) return kind; return kind === 'engine' || kind === 'overheat' || kind === 'mechanical' ? 'immobilised' : 'flat'; }
 const BREAKABLE = new Set(['car', 'sedan', 'taxi', 'van', 'suv', 'tuktuk']);
 const sm = (k) => { k = Math.max(0, Math.min(1, k)); return k * k * (3 - 2 * k); };
 const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
@@ -163,6 +169,7 @@ export class Roadside {
   // a lane-AI car breaks down: slow, indicate, pull in to the kerb with a smooth S, stop (hazards). false when no room
   breakDown(v, kind, opts = {}) {
     const T = this.T, ai = v.ai, P = ai && ai.pieces[0]; if (!P || P.type !== 'line') return false;
+    kind = bonnetKind(v, kind); // 91st: no bonnet job on a vehicle without a bonnet (cab-over van, tuktuk, a nose too short to lift)
     const al = Math.min(ai.s + (opts.ahead ?? 22), P.len - 16); if (al < ai.s + 12) return false;
     const F = this.frameFor(v, P); const half = v.T.len / 2, hwid = v.T.wid / 2;
     const c = this.kerbC(F, hwid); const aSpot = (P.p0[0] - F.O[0]) * F.d[0] + (P.p0[1] - F.O[1]) * F.d[1] + al; const [sx, sz] = this.at(F, aSpot, c);
@@ -170,7 +177,7 @@ export class Roadside {
     const spot = { x: sx, z: sz, yaw: Math.atan2(F.d[0], F.d[1]) }; const sA = Math.max(ai.s + 3, al - 14); const path = parkPath(P, sA, spot); const cut = { ...P, p1: [P.p0[0] + P.d[0] * sA, P.p0[1] + P.d[1] * sA], len: sA };
     ai.pieces = [cut, path]; ai.route = null; ai.goal = null; ai.park = { path, rs: true }; ai.sMaxP = path; ai.sMax = path.len - 0.02; ai.v0 = Math.min(ai.v0 || 8, kind === 'flat' ? 5 : 7);
     const inc = { id: this.seq++, v, kind, F: null, ph: 'pull', t: 0, due: 0, unit: null, need: FAULTS[kind].unit, tries: 0, own: false, hz: { on: false, t: 0 }, path };
-    if (v.type !== 'tuktuk' && v.T.base !== 'tuktuk') bonnetFrame(v); // 89th: the bonnet's run is measured (and cached per model) now, at the breakdown, not as it is lifted
+    // (89th: the bonnet's run is measured — and cached per model — at the breakdown, not as it is lifted: bonnetKind above did it)
     v.rsInc = inc; v.ind = 1; this.incidents.push(inc); this.stats.breakdowns++; this.stats.byKind[kind] = (this.stats.byKind[kind] || 0) + 1;
     if (kind === 'flat' && !(v.vd && v.vd.flats) && this.g.vdamage) { const ws = (v.mesh.userData.wheels || []).filter((w) => w.position.x > 0); const w = ws[Math.floor(Math.random() * ws.length)]; if (w) this.g.vdamage.burst(v, w); } // a real puncture (kerb side)
     if (kind === 'engine' || kind === 'immobilised') this.sound('rs.shutdown', v.x, v.z, 12); else if (kind === 'overheat') this.sound('rs.overheat', v.x, v.z, 10);
@@ -571,9 +578,11 @@ export class Roadside {
   // ------------------------------------------------------------- debug / tests (console `roadside`)
   status() { return { incidents: this.incidents.map((q) => ({ id: q.id, kind: q.kind, ph: q.ph, need: q.need, unit: q.unit ? q.unit.id : null, own: q.own, d: +this.dP(q.v.x, q.v.z).toFixed(0), tries: q.tries })), units: this.units.map((u) => ({ id: u.id, type: u.v && u.v.type, ph: u.rs.ph, inc: u.rs.inc ? u.rs.inc.id : null, crew: u.officers.map((o) => o.mode + (o.q && o.q.length ? ':' + o.q.length : '')).join(','), deck: +(u.rs.deckK || 0).toFixed(2) })), stats: this.stats, props: this.props ? { live: this.props.live.size, ...this.props.stats } : null }; }
   // force a breakdown on the nearest eligible lane-AI car (kind optional)
-  force(kind = null, maxD = 200) {
-    const T = this.T; let best = null, bd = maxD; for (const v of T.vehicles) { if (!this.eligible(v)) continue; const d = this.dP(v.x, v.z); if (d < 20) continue; if (d < bd) { bd = d; best = v; } }
-    if (!best) return null; const k = kind || ['battery', 'flat', 'overheat', 'nostart', 'mechanical', 'engine', 'immobilised'][Math.floor(Math.random() * 7)]; return this.breakDown(best, k);
+  force(kind = null, maxD = 200, strict = false) { // strict: a bonnet job waits for a car with a bonnet (null if none in range yet) instead of falling back
+    // 91st: a forced bonnet job (console / tests) picks the nearest car that HAS a bonnet, so it is not turned into another fault by bonnetKind
+    const T = this.T, wantB = !!kind && bonnetKind(null, kind) !== kind; let best = null, bd = maxD, alt = null, ad = maxD;
+    for (const v of T.vehicles) { if (!this.eligible(v)) continue; const d = this.dP(v.x, v.z); if (d < 20) continue; if (wantB && !hasBonnet(v)) { if (d < ad) { ad = d; alt = v; } continue; } if (d < bd) { bd = d; best = v; } }
+    best = best || (strict ? null : alt); if (!best) return null; const k = kind || ['battery', 'flat', 'overheat', 'nostart', 'mechanical', 'engine', 'immobilised'][Math.floor(Math.random() * 7)]; return this.breakDown(best, k);
   }
   clear() { for (const u of this.units.slice()) this.dropUnit(u); for (const inc of this.incidents.slice()) { this.hazards(inc, false); if (inc.v) { inc.v.rsInc = null; if (!inc.own && inc.v.parked) { const T = this.T; const pi = T.parked.indexOf(inc.v); if (pi >= 0) T.parked.splice(pi, 1); inc.v.keep = false; T.remove(inc.v); } } } this.incidents = []; }
 }

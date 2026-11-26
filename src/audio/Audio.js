@@ -220,7 +220,7 @@ class AudioEngine {
     }
     this.updateEngines(st); this.updateMusic(dt, st);
   }
-  crow() { const [g, pan] = [0.5 + Math.random() * 0.5, Math.random() * 2 - 1]; if (SB.play('bird.crow', g, pan, 0, { rate: 0.95 + Math.random() * 0.1 })) return; const n = 1 + Math.floor(Math.random() * 3); for (let i = 0; i < n; i++) { this.noise(0.22, { f: 1100 + Math.random() * 200, q: 6, vol: 0.05 * g, pan, when: i * 0.32 }); this.tone(520 + Math.random() * 60, 0.2, { type: 'sawtooth', vol: 0.012 * g, pan, when: i * 0.32, glide: 430 }); } }
+  crow() { const [g, pan] = [0.5 + Math.random() * 0.5, Math.random() * 2 - 1]; const cid = SB.has('ba.crow.call2') && (!SB.has('ba.crow.call') || Math.random() < 0.5) ? 'ba.crow.call2' : 'ba.crow.call'; if (SB.play(cid, g * 0.5, pan, 0, { rate: 0.95 + Math.random() * 0.1 })) return; /* 91st: the old 'House crow' slot merged into URBAN BIRDS → House Crow Call (lvl 0.5 there, 0.25 here: × 0.5 keeps the old loudness) */ const n = 1 + Math.floor(Math.random() * 3); for (let i = 0; i < n; i++) { this.noise(0.22, { f: 1100 + Math.random() * 200, q: 6, vol: 0.05 * g, pan, when: i * 0.32 }); this.tone(520 + Math.random() * 60, 0.2, { type: 'sawtooth', vol: 0.012 * g, pan, when: i * 0.32, glide: 430 }); } }
   bird() { const f = 2500 + Math.random() * 2000; const pan = Math.random() * 2 - 1; if (SB.play('bird.song', 0.6 + Math.random() * 0.4, pan, 0, { rate: 0.9 + Math.random() * 0.2 })) return; const n = 2 + Math.floor(Math.random() * 4); for (let i = 0; i < n; i++) this.tone(f + Math.random() * 600, 0.07, { vol: 0.015, pan, when: i * 0.11, glide: f * 1.3 }); }
   cricket() { const pan = Math.random() * 2 - 1; if (SB.play('cricket', 1, pan, 0, { mono: true })) return; for (let i = 0; i < 6; i++) this.tone(4200, 0.03, { vol: 0.008, pan, when: i * 0.05, type: 'triangle' }); }
   // engines: a few oscillator voices assigned to the nearest vehicles
@@ -317,7 +317,7 @@ class AudioEngine {
       const id = 'music.' + this.musicMode; const has = this.musicMode !== 'none' && SB.has(id); const MR = (this.musicRec ||= {});
       if (!this.musicGain) { this.musicGain = c.createGain(); this.musicGain.connect(this.bus.music); }
       if (MR.smp && (MR.fade || !has || MR.smp.id !== id)) { const g = this.musicGain; g.gain.setTargetAtTime(0, c.currentTime, 0.4); MR.fadeT = (MR.fadeT || 0) + dt; if (MR.fadeT > 1.4 || !has) { SB.stopLoop(MR); MR.fade = false; MR.fadeT = 0; } }
-      else if (has) { if (!MR.smp) { this.musicGain.gain.cancelScheduledValues(c.currentTime); this.musicGain.gain.setValueAtTime(0, c.currentTime); } SB.syncLoop(MR, id, this.musicGain); this.musicGain.gain.setTargetAtTime(1, c.currentTime, 0.6); }
+      else if (has) { if (!MR.smp) { this.musicGain.gain.cancelScheduledValues(c.currentTime); this.musicGain.gain.setValueAtTime(0, c.currentTime); } SB.musicLoop(MR, id, this.musicGain); this.musicGain.gain.setTargetAtTime(1, c.currentTime, 0.6); } // 91st: musicLoop (any length; from where it stopped) — was syncLoop from a random point
       if (has) { this.nextNote = c.currentTime + 0.1; return; }
     }
     if (this.musicMode === 'none') return;
